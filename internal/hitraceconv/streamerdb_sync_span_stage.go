@@ -118,19 +118,21 @@ func traceDBSyncSpanStageBudgetReason(err error) (string, bool) {
 }
 
 type traceDBSyncSpanStage struct {
-	options         traceDBSyncSpanStageOptions
-	workspace       string
-	dbPath          string
-	db              *sql.DB
-	conn            *sql.Conn
-	tx              *sql.Tx
-	insertCandidate *sql.Stmt
-	insertIdentity  *sql.Stmt
-	lookupIdentity  *sql.Stmt
-	lookupSemantic  *sql.Stmt
-	lookupInterval  *sql.Stmt
-	upsertForced    *sql.Stmt
-	insertFence     *sql.Stmt
+	options                       traceDBSyncSpanStageOptions
+	workspace                     string
+	dbPath                        string
+	db                            *sql.DB
+	conn                          *sql.Conn
+	tx                            *sql.Tx
+	insertCandidate               *sql.Stmt
+	insertIdentity                *sql.Stmt
+	lookupIdentity                *sql.Stmt
+	lookupSemantic                *sql.Stmt
+	lookupInterval                *sql.Stmt
+	lookupSemanticLocallyAdmitted *sql.Stmt
+	lookupIntervalLocallyAdmitted *sql.Stmt
+	upsertForced                  *sql.Stmt
+	insertFence                   *sql.Stmt
 
 	memoryCandidates    []traceDBSyncSpanStagedCandidate
 	memoryFences        []traceDBSyncSpanStagedFence
@@ -457,6 +459,14 @@ func (stage *traceDBSyncSpanStage) promoteToSQLite(ctx context.Context) error {
 	if stage.lookupInterval, err = tx.PrepareContext(ctx, traceDBSyncSpanLookupIntervalIdentitySQL); err != nil {
 		return stage.handleSQLiteWriteError(ctx, err)
 	}
+	if stage.lookupSemanticLocallyAdmitted, err = tx.PrepareContext(
+		ctx, traceDBSyncSpanLookupSemanticLocallyAdmittedSQL); err != nil {
+		return stage.handleSQLiteWriteError(ctx, err)
+	}
+	if stage.lookupIntervalLocallyAdmitted, err = tx.PrepareContext(
+		ctx, traceDBSyncSpanLookupIntervalLocallyAdmittedSQL); err != nil {
+		return stage.handleSQLiteWriteError(ctx, err)
+	}
 	if stage.upsertForced, err = tx.PrepareContext(ctx, traceDBSyncSpanUpsertForcedSQL); err != nil {
 		return stage.handleSQLiteWriteError(ctx, err)
 	}
@@ -583,6 +593,43 @@ const traceDBSyncSpanLookupIntervalIdentitySQL = `SELECT 1
 	  AND header_tgid=? AND CASE marker_known WHEN 1 THEN marker_pid ELSE header_tgid END=?
 	  AND canonical_known=1 AND canonical_itid=?
 	  AND owner_known=1 AND owner_ipid=?
+	LIMIT 1`
+const traceDBSyncSpanLookupSemanticLocallyAdmittedSQL = `SELECT 1
+	FROM candidate AS c INDEXED BY candidate_lane_idx
+	WHERE c.header_tid=? AND c.start_ns=? AND c.zero_key=1 AND c.end_ns=?
+	  AND c.producer != ?
+	  AND c.header_tgid=? AND CASE c.marker_known WHEN 1 THEN c.marker_pid ELSE c.header_tgid END=?
+	  AND c.canonical_known=1 AND c.canonical_itid=?
+	  AND c.owner_known=1 AND c.owner_ipid=?
+	  AND c.name=?
+	  AND NOT EXISTS (
+		SELECT 1 FROM fence AS f
+		WHERE f.header_tid=c.header_tid AND f.producer=c.producer
+		  AND ((f.kind=? AND f.start_ns<c.end_ns AND f.end_ns>c.start_ns)
+		    OR (f.kind=? AND c.end_ns>f.start_ns))
+	  )
+	  AND NOT (c.producer=? AND EXISTS (
+		SELECT 1 FROM forced_lane AS p
+		WHERE p.header_tid=c.header_tid AND (p.reason_mask & ?) != 0
+	  ))
+	LIMIT 1`
+const traceDBSyncSpanLookupIntervalLocallyAdmittedSQL = `SELECT 1
+	FROM candidate AS c INDEXED BY candidate_lane_idx
+	WHERE c.header_tid=? AND c.start_ns=? AND c.zero_key=1 AND c.end_ns=?
+	  AND c.producer != ?
+	  AND c.header_tgid=? AND CASE c.marker_known WHEN 1 THEN c.marker_pid ELSE c.header_tgid END=?
+	  AND c.canonical_known=1 AND c.canonical_itid=?
+	  AND c.owner_known=1 AND c.owner_ipid=?
+	  AND NOT EXISTS (
+		SELECT 1 FROM fence AS f
+		WHERE f.header_tid=c.header_tid AND f.producer=c.producer
+		  AND ((f.kind=? AND f.start_ns<c.end_ns AND f.end_ns>c.start_ns)
+		    OR (f.kind=? AND c.end_ns>f.start_ns))
+	  )
+	  AND NOT (c.producer=? AND EXISTS (
+		SELECT 1 FROM forced_lane AS p
+		WHERE p.header_tid=c.header_tid AND (p.reason_mask & ?) != 0
+	  ))
 	LIMIT 1`
 const traceDBSyncSpanUpsertForcedSQL = `INSERT INTO forced_lane(header_tid,reason_mask) VALUES(?,?)
 	ON CONFLICT(header_tid) DO UPDATE SET reason_mask = reason_mask | excluded.reason_mask`
@@ -737,6 +784,92 @@ func (stage *traceDBSyncSpanStage) hasIntervalIdentityCandidate(
 	return one == 1, true, nil
 }
 
+func (stage *traceDBSyncSpanStage) hasLocallyAdmittedSemanticCandidate(
+	ctx context.Context,
+	candidate traceDBSyncSpanCandidate,
+) (bool, bool, error) {
+	if err := stage.requireOpen(ctx); err != nil {
+		return false, false, err
+	}
+	key, ok := traceDBSyncSpanCandidateSemanticKey(candidate)
+	if !ok {
+		return false, true, nil
+	}
+	if stage.budgetReason != "" {
+		return false, false, nil
+	}
+	if !stage.external {
+		if err := stage.promoteToSQLite(ctx); err != nil {
+			if _, pure := traceDBSyncSpanPureBudgetReason(err); pure {
+				return false, false, nil
+			}
+			return false, false, err
+		}
+	}
+	if stage.budgetReason != "" || stage.lookupSemanticLocallyAdmitted == nil {
+		return false, false, nil
+	}
+	var one int
+	err := stage.lookupSemanticLocallyAdmitted.QueryRowContext(
+		ctx, key.HeaderTID, key.Start, key.End,
+		traceDBSyncSpanProducerSourceRawMarker,
+		key.HeaderTGID, key.MarkerPID, key.CanonicalITID, key.OwnerIPID, key.Name,
+		traceDBSyncSpanFenceInterval, traceDBSyncSpanFenceSuffix,
+		traceDBSyncSpanProducerCallstack, traceDBSyncSpanForcedCallstackPoison,
+	).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, true, nil
+	}
+	if err != nil {
+		return false, false, stage.handleSQLiteWriteError(ctx,
+			fmt.Errorf("lookup locally admitted exact sync span semantic candidate: %w", err))
+	}
+	return one == 1, true, nil
+}
+
+func (stage *traceDBSyncSpanStage) hasLocallyAdmittedIntervalIdentityCandidate(
+	ctx context.Context,
+	candidate traceDBSyncSpanCandidate,
+) (bool, bool, error) {
+	if err := stage.requireOpen(ctx); err != nil {
+		return false, false, err
+	}
+	key, ok := traceDBSyncSpanCandidateSemanticKey(candidate)
+	if !ok {
+		return false, true, nil
+	}
+	if stage.budgetReason != "" {
+		return false, false, nil
+	}
+	if !stage.external {
+		if err := stage.promoteToSQLite(ctx); err != nil {
+			if _, pure := traceDBSyncSpanPureBudgetReason(err); pure {
+				return false, false, nil
+			}
+			return false, false, err
+		}
+	}
+	if stage.budgetReason != "" || stage.lookupIntervalLocallyAdmitted == nil {
+		return false, false, nil
+	}
+	var one int
+	err := stage.lookupIntervalLocallyAdmitted.QueryRowContext(
+		ctx, key.HeaderTID, key.Start, key.End,
+		traceDBSyncSpanProducerSourceRawMarker,
+		key.HeaderTGID, key.MarkerPID, key.CanonicalITID, key.OwnerIPID,
+		traceDBSyncSpanFenceInterval, traceDBSyncSpanFenceSuffix,
+		traceDBSyncSpanProducerCallstack, traceDBSyncSpanForcedCallstackPoison,
+	).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, true, nil
+	}
+	if err != nil {
+		return false, false, stage.handleSQLiteWriteError(ctx,
+			fmt.Errorf("lookup locally admitted exact sync span interval identity candidate: %w", err))
+	}
+	return one == 1, true, nil
+}
+
 func (stage *traceDBSyncSpanStage) upsertSQLiteForced(ctx context.Context, tid int64, reason traceDBSyncSpanForcedReason) error {
 	if stage.budgetReason != "" {
 		return nil
@@ -884,12 +1017,20 @@ func (stage *traceDBSyncSpanStage) failBudget(reason string) error {
 
 func (stage *traceDBSyncSpanStage) discardBackend() error {
 	var errs []error
-	for _, statement := range []*sql.Stmt{stage.insertCandidate, stage.insertIdentity, stage.lookupIdentity, stage.lookupSemantic, stage.lookupInterval, stage.upsertForced, stage.insertFence} {
+	for _, statement := range []*sql.Stmt{
+		stage.insertCandidate, stage.insertIdentity, stage.lookupIdentity,
+		stage.lookupSemantic, stage.lookupInterval,
+		stage.lookupSemanticLocallyAdmitted, stage.lookupIntervalLocallyAdmitted,
+		stage.upsertForced, stage.insertFence,
+	} {
 		if statement != nil {
 			errs = append(errs, statement.Close())
 		}
 	}
-	stage.insertCandidate, stage.insertIdentity, stage.lookupIdentity, stage.lookupSemantic, stage.lookupInterval, stage.upsertForced, stage.insertFence = nil, nil, nil, nil, nil, nil, nil
+	stage.insertCandidate, stage.insertIdentity, stage.lookupIdentity = nil, nil, nil
+	stage.lookupSemantic, stage.lookupInterval = nil, nil
+	stage.lookupSemanticLocallyAdmitted, stage.lookupIntervalLocallyAdmitted = nil, nil
+	stage.upsertForced, stage.insertFence = nil, nil
 	if stage.tx != nil {
 		err := stage.tx.Rollback()
 		if !errors.Is(err, sql.ErrTxDone) && !traceDBSQLiteNoActiveTransaction(err) {
@@ -1152,12 +1293,20 @@ func (stage *traceDBSyncSpanStage) seal(ctx context.Context) error {
 
 func (stage *traceDBSyncSpanStage) closeSQLiteWriteStatements() error {
 	var errs []error
-	for _, statement := range []*sql.Stmt{stage.insertCandidate, stage.insertIdentity, stage.lookupIdentity, stage.lookupSemantic, stage.lookupInterval, stage.upsertForced, stage.insertFence} {
+	for _, statement := range []*sql.Stmt{
+		stage.insertCandidate, stage.insertIdentity, stage.lookupIdentity,
+		stage.lookupSemantic, stage.lookupInterval,
+		stage.lookupSemanticLocallyAdmitted, stage.lookupIntervalLocallyAdmitted,
+		stage.upsertForced, stage.insertFence,
+	} {
 		if statement != nil {
 			errs = append(errs, statement.Close())
 		}
 	}
-	stage.insertCandidate, stage.insertIdentity, stage.lookupIdentity, stage.lookupSemantic, stage.lookupInterval, stage.upsertForced, stage.insertFence = nil, nil, nil, nil, nil, nil, nil
+	stage.insertCandidate, stage.insertIdentity, stage.lookupIdentity = nil, nil, nil
+	stage.lookupSemantic, stage.lookupInterval = nil, nil
+	stage.lookupSemanticLocallyAdmitted, stage.lookupIntervalLocallyAdmitted = nil, nil
+	stage.upsertForced, stage.insertFence = nil, nil
 	return errors.Join(errs...)
 }
 

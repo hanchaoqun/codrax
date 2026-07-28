@@ -177,6 +177,154 @@ func TestSubmitTraceDBRawMarkerSyncRecoveryWithholdsNameDriftWithoutPoisoningDBL
 	}
 }
 
+func TestSubmitTraceDBRawMarkerSyncRecoveryUsesRawAlternativeWhenDBCandidateIsLocallyFenced(t *testing.T) {
+	tests := []struct {
+		name       string
+		dbName     string
+		rawName    string
+		fenceITID  int64
+		fenceStart int64
+		fenceEnd   int64
+		fenceKind  traceDBSyncSpanFenceKind
+		wantMetric string
+	}{
+		{
+			name:       "exact semantic duplicate",
+			dbName:     "frame",
+			rawName:    "frame",
+			fenceITID:  2,
+			fenceStart: 2_000_000,
+			fenceEnd:   3_000_000,
+			fenceKind:  traceDBSyncSpanFenceInterval,
+			wantMetric: "raw_pairs_existing_db_candidate_locally_suppressed",
+		},
+		{
+			name:       "exact interval name drift",
+			dbName:     "db-normalized-name",
+			rawName:    "raw-physical-name",
+			fenceITID:  2,
+			fenceStart: 2_000_000,
+			fenceEnd:   3_000_000,
+			fenceKind:  traceDBSyncSpanFenceInterval,
+			wantMetric: "raw_pairs_interval_collision_locally_suppressed",
+		},
+		{
+			name:       "same physical tid fence from different incarnation",
+			dbName:     "frame",
+			rawName:    "frame",
+			fenceITID:  1,
+			fenceStart: 2_000_000,
+			fenceKind:  traceDBSyncSpanFenceSuffix,
+			wantMetric: "raw_pairs_existing_db_candidate_locally_suppressed",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			syncSpans := newTraceDBTestSyncSpanAuthority(t)
+			existing := traceDBTestSyncSpanCandidate(
+				traceDBSyncSpanProducerCallstack, 9, 201, 200,
+				1_000_000, 4_000_000, test.dbName)
+			existing.CanonicalITID = 2
+			existing.OwnerIPID = 2
+			existing.MarkerPID, existing.MarkerPIDKnown = 777, true
+			if err := syncSpans.submit(ctx, existing); err != nil {
+				t.Fatal(err)
+			}
+			if err := syncSpans.fenceExactLane(ctx, traceDBSyncSpanLaneFence{
+				Producer:           traceDBSyncSpanProducerCallstack,
+				HeaderTID:          201,
+				CanonicalITID:      test.fenceITID,
+				CanonicalITIDKnown: true,
+				Start:              test.fenceStart,
+				End:                test.fenceEnd,
+				Kind:               test.fenceKind,
+				Reason:             traceDBSyncSpanLanePoisonRejectedCallstackCandidate,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			coverage, err := submitTraceDBRawMarkerSyncRecovery(
+				ctx, traceDBRawMarkerTestInventory(
+					traceDBRawMarkerTestPair(201, 777, 1, test.rawName)),
+				traceDBRawBlockedKeyTestAuthority(), syncSpans)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if coverage.Metrics[test.wantMetric] != 1 ||
+				coverage.Metrics["raw_pairs_existing_db_candidate"] != 0 ||
+				coverage.Metrics["raw_pairs_withheld_exact_interval_name_drift"] != 0 ||
+				coverage.Metrics["raw_pairs_submitted"] != 1 ||
+				syncSpans.submitted[traceDBSyncSpanProducerSourceRawMarker] != 1 {
+				t.Fatalf("locally fenced DB candidate erased raw alternative: %+v", coverage)
+			}
+			sink, err := newTraceDBRowSink(t.TempDir(), 8)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer sink.cleanup()
+			report, _, err := syncSpans.finalize(ctx, sink)
+			if err != nil {
+				t.Fatal(err)
+			}
+			dbStats := report.ByProducer[traceDBSyncSpanProducerCallstack]
+			rawStats := report.ByProducer[traceDBSyncSpanProducerSourceRawMarker]
+			if dbStats.SuppressedSpans != 1 || dbStats.EmittedEndpoints != 0 ||
+				rawStats.SuppressedSpans != 0 || rawStats.EmittedEndpoints != 2 {
+				t.Fatalf("raw alternative did not survive the producer-local fence: %+v", report)
+			}
+		})
+	}
+}
+
+func TestSubmitTraceDBRawMarkerSyncRecoveryUsesRawAlternativeWhenDBCandidateLaneIsLocallyPoisoned(t *testing.T) {
+	ctx := context.Background()
+	syncSpans := newTraceDBTestSyncSpanAuthority(t)
+	existing := traceDBTestSyncSpanCandidate(
+		traceDBSyncSpanProducerCallstack, 9, 201, 200,
+		1_000_000, 4_000_000, "frame")
+	existing.CanonicalITID = 2
+	existing.OwnerIPID = 2
+	existing.MarkerPID, existing.MarkerPIDKnown = 777, true
+	if err := syncSpans.submit(ctx, existing); err != nil {
+		t.Fatal(err)
+	}
+	if err := syncSpans.poisonExactLane(ctx, traceDBSyncSpanLanePoison{
+		Producer:           traceDBSyncSpanProducerCallstack,
+		HeaderTID:          201,
+		CanonicalITID:      2,
+		CanonicalITIDKnown: true,
+		Reason:             traceDBSyncSpanLanePoisonRejectedCallstackCandidate,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	coverage, err := submitTraceDBRawMarkerSyncRecovery(
+		ctx, traceDBRawMarkerTestInventory(
+			traceDBRawMarkerTestPair(201, 777, 1, "frame")),
+		traceDBRawBlockedKeyTestAuthority(), syncSpans)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if coverage.Metrics["raw_pairs_existing_db_candidate_locally_suppressed"] != 1 ||
+		coverage.Metrics["raw_pairs_submitted"] != 1 {
+		t.Fatalf("locally poisoned DB candidate erased raw alternative: %+v", coverage)
+	}
+	sink, err := newTraceDBRowSink(t.TempDir(), 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.cleanup()
+	report, _, err := syncSpans.finalize(ctx, sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dbStats := report.ByProducer[traceDBSyncSpanProducerCallstack]
+	rawStats := report.ByProducer[traceDBSyncSpanProducerSourceRawMarker]
+	if dbStats.SuppressedSpans != 1 || dbStats.EmittedEndpoints != 0 ||
+		rawStats.SuppressedSpans != 0 || rawStats.EmittedEndpoints != 2 {
+		t.Fatalf("raw alternative did not survive producer-local poison: %+v", report)
+	}
+}
+
 func TestSubmitTraceDBRawMarkerSyncRecoveryNameDriftFenceKeepsEveryIdentityDimension(t *testing.T) {
 	tests := []struct {
 		name   string

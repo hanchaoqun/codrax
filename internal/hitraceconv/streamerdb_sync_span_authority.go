@@ -345,6 +345,28 @@ func (authority *traceDBSyncSpanAuthority) hasIntervalIdentityCandidate(
 	return authority.stage.hasIntervalIdentityCandidate(ctx, candidate)
 }
 
+func (authority *traceDBSyncSpanAuthority) hasLocallyAdmittedSemanticCandidate(
+	ctx context.Context,
+	candidate traceDBSyncSpanCandidate,
+) (bool, bool, error) {
+	if authority == nil || authority.state != traceDBSyncSpanAuthorityOpen ||
+		authority.stage == nil {
+		return false, false, &traceDBOutputInvariantError{Reason: "sync_span_authority_not_open"}
+	}
+	return authority.stage.hasLocallyAdmittedSemanticCandidate(ctx, candidate)
+}
+
+func (authority *traceDBSyncSpanAuthority) hasLocallyAdmittedIntervalIdentityCandidate(
+	ctx context.Context,
+	candidate traceDBSyncSpanCandidate,
+) (bool, bool, error) {
+	if authority == nil || authority.state != traceDBSyncSpanAuthorityOpen ||
+		authority.stage == nil {
+		return false, false, &traceDBOutputInvariantError{Reason: "sync_span_authority_not_open"}
+	}
+	return authority.stage.hasLocallyAdmittedIntervalIdentityCandidate(ctx, candidate)
+}
+
 func (authority *traceDBSyncSpanAuthority) poisonExactLane(ctx context.Context, poison traceDBSyncSpanLanePoison) error {
 	if authority == nil || authority.state != traceDBSyncSpanAuthorityOpen || authority.artifactSource == "" {
 		return &traceDBOutputInvariantError{Reason: "sync_span_authority_not_open"}

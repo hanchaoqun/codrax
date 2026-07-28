@@ -2381,6 +2381,8 @@ unknown open extent into an assumed local defect and is not authorized.
 
 ### REP3-S1 — raw marker local defects incorrectly poison whole lanes (P1)
 
+Status: implemented and pushed as `09bc1b571`.
+
 The independent raw marker census is complete:
 
 - `168,117` exact synchronous B/E endpoints;
@@ -2439,6 +2441,27 @@ must add an exact typed answer to “does the colliding DB candidate survive its
 producer fence?” and admit the raw alternative only when the DB candidate is
 provably fence-suppressed. Final cross-producer laminar and identity audits
 remain mandatory.
+
+Capability `official_raw_marker_post_fence_dedup_v1` implements that answer
+inside the same bounded sync-span stage. The full semantic and
+identity+interval indexes now have a second exact query which excludes a DB
+candidate only when:
+
+- an exact producer/physical-header-TID interval or suffix fence affects that
+  candidate under the same half-open predicates and lane scope used by
+  finalization; or
+- the candidate is callstack-produced and its exact physical TID has a typed
+  callstack producer poison.
+
+Raw recovery first proves that at least one DB collision exists. It keeps the
+old withholding behavior if any matching DB candidate remains locally
+admitted. Only when all exact matches are locally suppressed may the raw
+alternative enter the shared authority. The raw candidate still passes final
+cross-producer nesting, identity, duplicate, budget and wire checks; this
+change cannot rescue a genuinely conflicting lane. Typed counters distinguish
+an exact semantic DB candidate from an identity+interval name-drift candidate
+that was locally suppressed. REP3 cannot predict either count because its
+diagnostic predates this capability; the next replay supplies the measurement.
 
 ## Invariants
 

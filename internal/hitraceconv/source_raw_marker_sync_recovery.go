@@ -23,8 +23,8 @@ func newTraceDBRawMarkerSyncCoverage() TraceDBCoverage {
 			"grammar":       "tracequery.DecodeTraceMarkEndpointPayload is the sole complete-payload B/E verdict",
 			"stack":         "one exact LIFO stack per physical common_pid emitter; orphan ends, trailing open begins, unrepresentable closed intervals and already-paired validation failures are withheld locally, while invalid physical ordering or an unclassified/rejected carrier keeps whole-lane fail-closed scope",
 			"identity":      "common_pid independently resolves to the same canonical host thread/process at both exact endpoints; payload PID remains marker namespace data",
-			"deduplication": "an exact bounded semantic index suppresses only a raw pair already represented by an earlier DB candidate with equal host TID/TGID, marker PID, canonical owner, interval and name",
-			"name_drift":    "a raw pair sharing exact host/payload/canonical identity and interval with a DB candidate but not its name is withheld locally; it cannot enter the shared lane audit or suppress the DB baseline",
+			"deduplication": "an exact bounded semantic index suppresses a raw pair only when an equal host TID/TGID, marker PID, canonical owner, interval and name DB candidate survives its producer-local fence/poison gate; a locally suppressed DB candidate cannot erase the raw alternative",
+			"name_drift":    "a raw pair sharing exact host/payload/canonical identity and interval with a locally admitted DB candidate but not its name is withheld locally; locally suppressed collisions may submit the raw alternative to the unchanged shared lane audit",
 			"publication":   "DB-disjoint clean pairs submit to the existing single sync-span laminar authority; this exporter never writes B/E rows directly",
 			"envelope":      "raw page CPU, common_flags and common_preempt_count are retained independently at begin and end",
 		},
@@ -186,23 +186,56 @@ func submitTraceDBRawMarkerSyncRecovery(
 			return out, nil
 		}
 		if exists {
-			traceDBAddCoverageMetric(&out, "raw_pairs_existing_db_candidate", 1)
-			continue
+			locallyAdmitted, admittedComplete, admittedErr :=
+				syncSpans.hasLocallyAdmittedSemanticCandidate(ctx, candidate)
+			if admittedErr != nil {
+				out.Error = admittedErr.Error()
+				return out, admittedErr
+			}
+			if !admittedComplete {
+				out.Metadata["publication_state"] = "withheld_cross_source_index_incomplete"
+				out.Skipped = "raw marker sync recovery withheld: bounded DB local-admission index incomplete"
+				return out, nil
+			}
+			if locallyAdmitted {
+				traceDBAddCoverageMetric(&out, "raw_pairs_existing_db_candidate", 1)
+				continue
+			}
+			traceDBAddCoverageMetric(
+				&out, "raw_pairs_existing_db_candidate_locally_suppressed", 1)
 		}
-		intervalCollision, complete, err :=
-			syncSpans.hasIntervalIdentityCandidate(ctx, candidate)
-		if err != nil {
-			out.Error = err.Error()
-			return out, err
-		}
-		if !complete {
-			out.Metadata["publication_state"] = "withheld_cross_source_index_incomplete"
-			out.Skipped = "raw marker sync recovery withheld: bounded exact DB interval index incomplete"
-			return out, nil
-		}
-		if intervalCollision {
-			traceDBAddCoverageMetric(&out, "raw_pairs_withheld_exact_interval_name_drift", 1)
-			continue
+		if !exists {
+			intervalCollision, intervalComplete, intervalErr :=
+				syncSpans.hasIntervalIdentityCandidate(ctx, candidate)
+			if intervalErr != nil {
+				out.Error = intervalErr.Error()
+				return out, intervalErr
+			}
+			if !intervalComplete {
+				out.Metadata["publication_state"] = "withheld_cross_source_index_incomplete"
+				out.Skipped = "raw marker sync recovery withheld: bounded exact DB interval index incomplete"
+				return out, nil
+			}
+			if intervalCollision {
+				locallyAdmitted, admittedComplete, admittedErr :=
+					syncSpans.hasLocallyAdmittedIntervalIdentityCandidate(ctx, candidate)
+				if admittedErr != nil {
+					out.Error = admittedErr.Error()
+					return out, admittedErr
+				}
+				if !admittedComplete {
+					out.Metadata["publication_state"] = "withheld_cross_source_index_incomplete"
+					out.Skipped = "raw marker sync recovery withheld: bounded DB interval local-admission index incomplete"
+					return out, nil
+				}
+				if locallyAdmitted {
+					traceDBAddCoverageMetric(
+						&out, "raw_pairs_withheld_exact_interval_name_drift", 1)
+					continue
+				}
+				traceDBAddCoverageMetric(
+					&out, "raw_pairs_interval_collision_locally_suppressed", 1)
+			}
 		}
 		if err := syncSpans.submit(ctx, candidate); err != nil {
 			out.Error = err.Error()
@@ -214,6 +247,8 @@ func submitTraceDBRawMarkerSyncRecovery(
 	out.Skipped = traceDBCountSummary(map[string]int{
 		"exact_interval_name_drift":      int(out.Metrics["raw_pairs_withheld_exact_interval_name_drift"]),
 		"existing_db_candidates":         int(out.Metrics["raw_pairs_existing_db_candidate"]),
+		"locally_suppressed_db_exact":    int(out.Metrics["raw_pairs_existing_db_candidate_locally_suppressed"]),
+		"locally_suppressed_db_interval": int(out.Metrics["raw_pairs_interval_collision_locally_suppressed"]),
 		"local_validation_pairs":         int(out.Metrics["raw_pairs_withheld_local_validation"]),
 		"open_begins":                    int(out.Metrics["raw_open_begins_withheld"]),
 		"orphan_endpoints":               int(out.Metrics["raw_orphan_endpoints_withheld"]),
