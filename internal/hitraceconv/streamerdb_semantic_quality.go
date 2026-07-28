@@ -2,6 +2,7 @@ package hitraceconv
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 )
@@ -28,8 +29,9 @@ func traceDBSemanticQualityCoverage(items []TraceDBCoverage) TraceDBCoverage {
 		Role:   "semantic_quality_summary",
 		Found:  true,
 		FieldSources: map[string]string{
-			"authority": "exact counters copied from typed DB resolver/exporter decisions after shared sync-span reconciliation; advisory only and never a conversion hard gate",
+			"authority": "exact counters copied from typed DB resolver/exporter decisions after shared sync-span reconciliation; replacement closure uses exact submitted/emitted/suppressed counters only; advisory only and never a conversion hard gate",
 		},
+		Metadata: map[string]string{},
 	}
 	copyMetric := func(target string, family string, table string, source string) {
 		for _, item := range items {
@@ -69,6 +71,8 @@ func traceDBSemanticQualityCoverage(items []TraceDBCoverage) TraceDBCoverage {
 		"source_rows_admitted_exact_name_pre_pairing")
 	copyMetric("callstack_source_rows_suppressed_identity", "slice", "callstack", "source_rows_suppressed_identity")
 	copyMetric("callstack_sync_spans_suppressed", "slice", "callstack", "sync_spans_suppressed")
+	copyMetric("callstack_sync_spans_suppressed_by_local_fence", "slice", "callstack",
+		"sync_spans_suppressed_by_local_fence")
 	copyMetric("callstack_source_rows_recovered_same_public_tid_scheduler_alias", "slice", "callstack",
 		"source_rows_recovered_same_public_tid_scheduler_alias")
 	copyMetric("unclassified_nonempty_tables", "conversion_inventory", "__table_inventory__",
@@ -77,7 +81,67 @@ func traceDBSemanticQualityCoverage(items []TraceDBCoverage) TraceDBCoverage {
 		"unclassified_uninspectable_tables")
 	copyMetric("table_inventory_truncated", "conversion_inventory", "__table_inventory__",
 		"inventory_truncated")
+	traceDBAddRawMarkerReplacementClosure(&quality, items)
 	return quality
+}
+
+func traceDBAddRawMarkerReplacementClosure(quality *TraceDBCoverage, items []TraceDBCoverage) {
+	if quality == nil {
+		return
+	}
+	var raw *TraceDBCoverage
+	for i := range items {
+		if items[i].Family == "source_rawtrace_marker_sync" &&
+			items[i].Table == "__raw_marker_sync__" {
+			raw = &items[i]
+			break
+		}
+	}
+	if raw == nil {
+		quality.Metadata["raw_marker_replacement_closure"] = "not_evaluated_raw_coverage_absent"
+		return
+	}
+	replacementCandidates :=
+		raw.Metrics["raw_pairs_existing_db_candidate_locally_suppressed"] +
+			raw.Metrics["raw_pairs_interval_collision_locally_suppressed"]
+	submitted := raw.Metrics["sync_spans_submitted"]
+	emittedEndpoints := raw.Metrics["sync_endpoints_emitted"]
+	suppressed := raw.Metrics["sync_spans_suppressed"]
+	traceDBAddCoverageMetric(quality, "raw_marker_db_suppressed_candidate_spans",
+		replacementCandidates)
+	traceDBAddCoverageMetric(quality, "raw_marker_sync_spans_submitted", submitted)
+	traceDBAddCoverageMetric(quality, "raw_marker_sync_endpoints_emitted", emittedEndpoints)
+	traceDBAddCoverageMetric(quality, "raw_marker_sync_spans_suppressed", suppressed)
+
+	switch {
+	case replacementCandidates == 0:
+		quality.Metadata["raw_marker_replacement_closure"] = "complete_no_replacement_candidate"
+		return
+	case submitted < replacementCandidates:
+		quality.Metadata["raw_marker_replacement_closure"] = "not_evaluated_candidate_submission_mismatch"
+		return
+	case suppressed != 0:
+		quality.Metadata["raw_marker_replacement_closure"] = "not_evaluated_raw_span_suppressed"
+		return
+	case submitted > math.MaxInt64/2 || emittedEndpoints != submitted*2:
+		quality.Metadata["raw_marker_replacement_closure"] = "not_evaluated_raw_endpoint_census_mismatch"
+		return
+	}
+	locallyFenced := quality.Metrics["callstack_sync_spans_suppressed_by_local_fence"]
+	totalSuppressed := quality.Metrics["callstack_sync_spans_suppressed"]
+	if locallyFenced < replacementCandidates || totalSuppressed < locallyFenced {
+		quality.Metadata["raw_marker_replacement_closure"] = "not_evaluated_replacement_exceeds_local_fence"
+		return
+	}
+	quality.Metadata["raw_marker_replacement_closure"] = "complete"
+	traceDBAddCoverageMetric(quality,
+		"callstack_sync_spans_recovered_by_raw_marker", replacementCandidates)
+	traceDBAddCoverageMetric(quality,
+		"callstack_sync_spans_unrecovered_after_raw_marker",
+		totalSuppressed-replacementCandidates)
+	traceDBAddCoverageMetric(quality,
+		"callstack_local_fence_spans_unrecovered_after_raw_marker",
+		locallyFenced-replacementCandidates)
 }
 
 func traceDBSemanticQualityCaveats(coverage []TraceDBCoverage) []string {
@@ -99,7 +163,12 @@ func traceDBSemanticQualityCaveats(coverage []TraceDBCoverage) []string {
 		"callstack_source_rows_withheld_official_async_interval",
 		"callstack_source_rows_suppressed_cpu_unavailable",
 		"callstack_source_rows_suppressed_identity",
-		"callstack_sync_spans_suppressed",
+	}
+	if quality.Metadata["raw_marker_replacement_closure"] == "complete" {
+		degradedKeys = append(degradedKeys,
+			"callstack_sync_spans_unrecovered_after_raw_marker")
+	} else {
+		degradedKeys = append(degradedKeys, "callstack_sync_spans_suppressed")
 	}
 	identityKeys := []string{
 		"public_tids_with_multiple_itids",
@@ -109,6 +178,15 @@ func traceDBSemanticQualityCaveats(coverage []TraceDBCoverage) []string {
 	if summary := traceDBSemanticQualityMetricSummary(quality.Metrics, degradedKeys); summary != "" {
 		caveats = append(caveats, "trace_streamer semantic quality is degraded: "+summary+
 			"; the systrace is query-ready but name/span completeness is not proven")
+	}
+	if quality.Metadata["raw_marker_replacement_closure"] == "complete" {
+		recovered := quality.Metrics["callstack_sync_spans_recovered_by_raw_marker"]
+		residual := quality.Metrics["callstack_sync_spans_unrecovered_after_raw_marker"]
+		localResidual :=
+			quality.Metrics["callstack_local_fence_spans_unrecovered_after_raw_marker"]
+		caveats = append(caveats, fmt.Sprintf(
+			"trace_streamer raw marker recovery published %d exact replacement span(s) for callstack candidates suppressed by local DB fences; %d callstack sync span(s) remain unpublished after replacement closure, including %d locally fenced span(s) without a published raw replacement",
+			recovered, residual, localResidual))
 	}
 	if summary := traceDBSemanticQualityMetricSummary(quality.Metrics, identityKeys); summary != "" {
 		caveats = append(caveats, "trace_streamer identity audit observed: "+summary+

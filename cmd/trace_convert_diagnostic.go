@@ -62,6 +62,7 @@ var traceConvertDiagnosticCapabilities = []string{
 	"official_raw_marker_name_drift_fence_v1",
 	"official_raw_marker_local_pair_fence_v1",
 	"official_raw_marker_post_fence_dedup_v1",
+	"raw_marker_replacement_closure_v1",
 }
 
 type traceConvertDiagnosticProgressLog struct {

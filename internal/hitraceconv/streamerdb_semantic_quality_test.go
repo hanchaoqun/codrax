@@ -41,6 +41,7 @@ func TestTraceDBSemanticQualityCoverageAndCaveats(t *testing.T) {
 				"source_rows_admitted_exact_name_pre_pairing":  12,
 				"source_rows_suppressed_identity":              4,
 				"sync_spans_suppressed":                        5,
+				"sync_spans_suppressed_by_local_fence":         5,
 			},
 		},
 	}
@@ -69,6 +70,7 @@ func TestTraceDBSemanticQualityCoverageAndCaveats(t *testing.T) {
 		"callstack_source_rows_admitted_exact_name_pre_pairing":  12,
 		"callstack_source_rows_suppressed_identity":              4,
 		"callstack_sync_spans_suppressed":                        5,
+		"callstack_sync_spans_suppressed_by_local_fence":         5,
 	} {
 		if got := quality.Metrics[key]; got != want {
 			t.Fatalf("quality metric %s=%d want %d: %+v", key, got, want, quality)
@@ -91,6 +93,85 @@ func TestTraceDBSemanticQualityCoverageAndCaveats(t *testing.T) {
 		if !strings.Contains(caveats, want) {
 			t.Fatalf("quality caveat missing %q:\n%s", want, caveats)
 		}
+	}
+}
+
+func TestTraceDBSemanticQualityClosesRawReplacementAgainstLocalCallstackFence(t *testing.T) {
+	quality := traceDBSemanticQualityCoverage([]TraceDBCoverage{
+		{
+			Family: "slice",
+			Table:  "callstack",
+			Metrics: map[string]int64{
+				"sync_spans_suppressed":                5,
+				"sync_spans_suppressed_by_local_fence": 5,
+			},
+		},
+		{
+			Family: "source_rawtrace_marker_sync",
+			Table:  "__raw_marker_sync__",
+			Metrics: map[string]int64{
+				"raw_pairs_existing_db_candidate_locally_suppressed": 1,
+				"raw_pairs_interval_collision_locally_suppressed":    2,
+				"sync_spans_submitted":                               3,
+				"sync_endpoints_emitted":                             6,
+			},
+		},
+	})
+	if quality.Metadata["raw_marker_replacement_closure"] != "complete" ||
+		quality.Metrics["raw_marker_db_suppressed_candidate_spans"] != 3 ||
+		quality.Metrics["callstack_sync_spans_recovered_by_raw_marker"] != 3 ||
+		quality.Metrics["callstack_sync_spans_unrecovered_after_raw_marker"] != 2 ||
+		quality.Metrics["callstack_local_fence_spans_unrecovered_after_raw_marker"] != 2 {
+		t.Fatalf("raw replacement closure drifted: %+v", quality)
+	}
+	caveats := strings.Join(traceDBSemanticQualityCaveats(
+		[]TraceDBCoverage{quality}), "\n")
+	for _, want := range []string{
+		"callstack_sync_spans_unrecovered_after_raw_marker=2",
+		"published 3 exact replacement span(s)",
+		"2 callstack sync span(s) remain unpublished",
+		"including 2 locally fenced span(s)",
+	} {
+		if !strings.Contains(caveats, want) {
+			t.Fatalf("replacement caveat missing %q:\n%s", want, caveats)
+		}
+	}
+	if strings.Contains(caveats, "callstack_sync_spans_suppressed=5") {
+		t.Fatalf("gross local suppression was presented as net loss:\n%s", caveats)
+	}
+}
+
+func TestTraceDBSemanticQualityDoesNotGuessReplacementWhenRawPublicationIncomplete(t *testing.T) {
+	quality := traceDBSemanticQualityCoverage([]TraceDBCoverage{
+		{
+			Family: "slice",
+			Table:  "callstack",
+			Metrics: map[string]int64{
+				"sync_spans_suppressed":                5,
+				"sync_spans_suppressed_by_local_fence": 5,
+			},
+		},
+		{
+			Family: "source_rawtrace_marker_sync",
+			Table:  "__raw_marker_sync__",
+			Metrics: map[string]int64{
+				"raw_pairs_interval_collision_locally_suppressed": 3,
+				"sync_spans_submitted":                            3,
+				"sync_spans_suppressed":                           1,
+				"sync_endpoints_emitted":                          4,
+			},
+		},
+	})
+	if quality.Metadata["raw_marker_replacement_closure"] !=
+		"not_evaluated_raw_span_suppressed" ||
+		quality.Metrics["callstack_sync_spans_recovered_by_raw_marker"] != 0 {
+		t.Fatalf("incomplete raw publication acquired replacement authority: %+v", quality)
+	}
+	caveats := strings.Join(traceDBSemanticQualityCaveats(
+		[]TraceDBCoverage{quality}), "\n")
+	if !strings.Contains(caveats, "callstack_sync_spans_suppressed=5") ||
+		strings.Contains(caveats, "exact replacement span") {
+		t.Fatalf("incomplete closure caveat drifted:\n%s", caveats)
 	}
 }
 

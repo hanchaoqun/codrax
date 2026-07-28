@@ -2463,6 +2463,66 @@ an exact semantic DB candidate from an identity+interval name-drift candidate
 that was locally suppressed. REP3 cannot predict either count because its
 diagnostic predates this capability; the next replay supplies the measurement.
 
+## REP4 replay audit and remaining exact span gaps (2026-07-28)
+
+REP4 carries both REP3 recovery capabilities and completes successfully with
+`410,036` query-ready rows and an `87,777,760`-byte systrace. Relative to
+REP3, the artifact gains exactly `2,172` physical rows. The raw recovery lane
+submits `1,086` spans, emits exactly `2,172` endpoints, and reports no
+raw-producer suppression. Therefore the delta closes exactly: all `1,086`
+raw alternatives whose colliding DB callstack candidate was locally fenced
+were published. This is measured recovery, not an estimate.
+
+The remaining span gaps have three distinct authorities and must not be
+combined:
+
+| Gap | Exact REP4 count | Current authority |
+| --- | ---: | --- |
+| locally fenced DB callstack spans without a published raw replacement | 176 | `1,262 - 1,086`; exact only because the raw submitted/emitted/suppressed census closes |
+| balanced raw pairs not representable at systrace microsecond precision | 18,033 | withheld; emitting equal timestamps or inflating duration would fabricate wire timing |
+| balanced raw pairs rejected by the post-pair endpoint validator | 3,151 | currently typed only as the over-broad `invalid_endpoint`; recoverability is not yet known |
+| orphan raw ends | 82 | locally withheld |
+| trailing open raw begins | 85 | locally withheld |
+
+The `61,699` exact interval/name-drift pairs and `6` exact semantic DB
+candidates are not missing spans: their corresponding DB candidate survived
+the local producer fence, so the raw duplicate is correctly withheld. The
+`816` scheduler boundaries with `comm=unknown` also remain a proven
+source-name absence for this capture, not a rejected wakeup-new recovery.
+
+### REP4-S3 — gross DB suppression is incorrectly presented as net loss
+
+Status: implemented as capability `raw_marker_replacement_closure_v1`.
+
+The semantic-quality row and user caveat still publish only
+`callstack_sync_spans_suppressed=1262`. They omit the exact `1,086` raw
+replacements, making a successful recovery look like no recovery. The repair
+is advisory and does not change trace rows or any hard gate:
+
+1. copy the reconciled callstack local-fence count and raw producer census;
+2. close replacement arithmetic only when every raw submitted span emitted
+   two endpoints and the raw producer suppressed none;
+3. publish gross suppression, recovered replacement spans, total residual,
+   and local-fence residual as separate typed metrics;
+4. use the residual rather than the gross count in the degradation caveat;
+5. retain gross-only wording whenever the exact closure cannot be proven.
+
+For REP4 the expected typed result is `recovered=1086`, `residual=176`.
+
+### REP4-S4 — `invalid_endpoint` hides the next recovery decision
+
+Status: planned after REP4-S3.
+
+`traceDBRawMarkerSyncCandidate` currently collapses all endpoint-envelope,
+payload round-trip, name, timestamp, CPU, flags and preempt-count failures
+into one `invalid_endpoint` reason. REP4 places all `3,151` locally rejected
+pairs in that bucket, so another customer replay cannot identify whether the
+loss is an invalid name, CPU range, payload mismatch, timestamp overflow, or
+another exact field. The next batch will split the same validation predicate
+into closed first-failure typed reasons. It will not relax admission or emit a
+previously rejected span. Any later recovery requires a reason-specific
+authority and a separate review.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.
