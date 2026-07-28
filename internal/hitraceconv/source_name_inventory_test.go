@@ -453,6 +453,10 @@ func TestTraceDBSourceRawDecodeLedgerRetainsStrictSchedulerLiteRecordsWithoutPub
 			"sched_switch_lite#32772[") ||
 		!strings.Contains(decode.Metadata["target_format_geometry_witnesses"],
 			"sched_wakeup_lite#32782[") ||
+		!strings.Contains(decode.Metadata["scheduler_lite_format_geometry_witnesses"],
+			"prev_prio@12:2:signed=true:type=short") ||
+		!strings.Contains(decode.Metadata["scheduler_lite_format_geometry_witnesses"],
+			"target_cpu@16:4:signed=true:type=int") ||
 		len(inventory.RawSwitchLite) != 1 || len(inventory.RawWakeupLite) != 1 {
 		t.Fatalf("strict scheduler-lite ledger mismatch: decode=%+v switch=%+v wakeup=%+v",
 			decode, inventory.RawSwitchLite, inventory.RawWakeupLite)

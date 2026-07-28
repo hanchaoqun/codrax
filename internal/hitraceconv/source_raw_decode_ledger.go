@@ -400,11 +400,33 @@ func (a *traceDBSourceRawDecodeAccumulator) finalize(
 		a.coverage.Metadata["marker_format_geometry_witnesses"] =
 			strings.Join(markerGeometry, ",")
 	}
+	schedulerLiteGeometry, schedulerLiteFieldOmitted :=
+		traceDBRawDecodeTypedGeometryWitnesses(catalog, traceDBRawSchedulerLiteFormat)
+	if len(schedulerLiteGeometry) > 0 {
+		a.coverage.Metadata["scheduler_lite_format_geometry_witnesses"] =
+			strings.Join(schedulerLiteGeometry, ",")
+	}
+	blockedGeometry, blockedFieldOmitted :=
+		traceDBRawDecodeTypedGeometryWitnesses(catalog, func(name string) bool {
+			return name == "sched_blocked_reason"
+		})
+	if len(blockedGeometry) > 0 {
+		a.coverage.Metadata["blocked_reason_format_geometry_witnesses"] =
+			strings.Join(blockedGeometry, ",")
+	}
 	if fieldOmitted > 0 {
 		traceDBAddCoverageMetric(&a.coverage, "target_format_geometry_fields_omitted", int64(fieldOmitted))
 	}
 	if markerFieldOmitted > 0 {
 		traceDBAddCoverageMetric(&a.coverage, "marker_format_geometry_fields_omitted", int64(markerFieldOmitted))
+	}
+	if schedulerLiteFieldOmitted > 0 {
+		traceDBAddCoverageMetric(&a.coverage,
+			"scheduler_lite_format_geometry_fields_omitted", int64(schedulerLiteFieldOmitted))
+	}
+	if blockedFieldOmitted > 0 {
+		traceDBAddCoverageMetric(&a.coverage,
+			"blocked_reason_format_geometry_fields_omitted", int64(blockedFieldOmitted))
 	}
 	if omitted > 0 {
 		traceDBAddCoverageMetric(&a.coverage, "format_record_witnesses_omitted", int64(omitted))
@@ -501,6 +523,21 @@ func traceDBRawDecodeGeometryWitnesses(
 	catalog eventFormatCatalog,
 	include func(string) bool,
 ) ([]string, int) {
+	return traceDBRawDecodeGeometryWitnessesWithTypes(catalog, include, false)
+}
+
+func traceDBRawDecodeTypedGeometryWitnesses(
+	catalog eventFormatCatalog,
+	include func(string) bool,
+) ([]string, int) {
+	return traceDBRawDecodeGeometryWitnessesWithTypes(catalog, include, true)
+}
+
+func traceDBRawDecodeGeometryWitnessesWithTypes(
+	catalog eventFormatCatalog,
+	include func(string) bool,
+	includeType bool,
+) ([]string, int) {
 	formats := make([]eventFormat, 0, len(catalog.Formats))
 	for _, format := range catalog.Formats {
 		if include != nil && include(format.Name) {
@@ -524,13 +561,22 @@ func traceDBRawDecodeGeometryWitnesses(
 		fieldWitnesses := make([]string, 0, len(fields))
 		for _, field := range fields {
 			name := traceDBRawDecodeFormatWitnessName(cleanFieldName(field.Name))
-			fieldWitnesses = append(fieldWitnesses,
-				fmt.Sprintf("%s@%d:%d:signed=%t", name, field.Offset, field.Size, field.Signed))
+			witness := fmt.Sprintf("%s@%d:%d:signed=%t",
+				name, field.Offset, field.Size, field.Signed)
+			if includeType {
+				witness += ":type=" +
+					traceDBRawDecodeReasonMetric(normalizeFieldType(field.Type))
+			}
+			fieldWitnesses = append(fieldWitnesses, witness)
 		}
 		witnesses = append(witnesses, fmt.Sprintf("%s#%d[%s]",
 			traceDBRawDecodeFormatWitnessName(format.Name), format.ID, strings.Join(fieldWitnesses, "|")))
 	}
 	return witnesses, omitted
+}
+
+func traceDBRawSchedulerLiteFormat(name string) bool {
+	return name == "sched_switch_lite" || name == "sched_wakeup_lite"
 }
 
 func traceDBRawDecodeAbsentTargets(catalog eventFormatCatalog) []string {

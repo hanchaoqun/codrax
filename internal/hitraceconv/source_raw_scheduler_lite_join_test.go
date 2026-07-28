@@ -114,9 +114,12 @@ func TestTraceDBRawSchedSwitchLiteJoinDoesNotClaimCompletionWithoutDBCensus(t *t
 	}
 	join := newTraceDBRawSchedSwitchLiteJoin(&traceDBSourceNameInventory{
 		RawDecode: TraceDBCoverage{
-			Role:     "diagnostic_ledger",
-			Metadata: map[string]string{"decode_state": "strict_target_ledger_complete"},
-			Metrics:  map[string]int64{"target_sched_switch_lite_body_admitted": 1},
+			Role: "diagnostic_ledger",
+			Metadata: map[string]string{
+				"decode_state": "strict_target_ledger_complete",
+				"scheduler_lite_format_geometry_witnesses": "sched_switch_lite#1[prev_pid@8:4]",
+			},
+			Metrics: map[string]int64{"target_sched_switch_lite_body_admitted": 1},
 		},
 		RawSwitchLite: []traceDBRawSchedSwitchLiteRecord{raw},
 	})
@@ -125,6 +128,9 @@ func TestTraceDBRawSchedSwitchLiteJoinDoesNotClaimCompletionWithoutDBCensus(t *t
 		t.Fatal(err)
 	}
 	if coverage.Metadata["join_state"] != "withheld_db_scheduler_census_unavailable" ||
+		coverage.Metadata["scheduler_lite_format_geometry_witnesses"] !=
+			"sched_switch_lite#1[prev_pid@8:4]" ||
+		coverage.Metadata["source_decoder_census"] != "body_admitted=1" ||
 		coverage.RowsEmitted != 0 {
 		t.Fatalf("missing DB census was reported as a completed join: %+v", coverage)
 	}

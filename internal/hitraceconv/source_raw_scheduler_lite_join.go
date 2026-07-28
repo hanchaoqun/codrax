@@ -40,6 +40,8 @@ func newTraceDBRawSchedSwitchLiteJoin(
 		join.coverage.Skipped = "scheduler-lite switch join unavailable: source raw decode ledger absent"
 		return join
 	}
+	traceDBAttachRawSchedulerLiteDiagnostics(
+		&join.coverage, inventory.RawDecode, "sched_switch_lite")
 	join.coverage.Found = len(inventory.RawSwitchLite) > 0
 	join.coverage.RowsRead = len(inventory.RawSwitchLite)
 	traceDBAddCoverageMetric(&join.coverage, "raw_records_retained", int64(len(inventory.RawSwitchLite)))

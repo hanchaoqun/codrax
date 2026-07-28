@@ -16,6 +16,11 @@ type traceDBBlockedComparableKey struct {
 	Caller    string
 }
 
+type traceDBBlockedSubjectKey struct {
+	TargetTID int64
+	IOWait    int64
+}
+
 type traceDBRawBlockedRecoveryRow struct {
 	Raw           traceDBRawBlockedRecord
 	TargetThread  traceDBThread
@@ -64,6 +69,9 @@ func traceDBRawBlockedKeyLedger(
 		return out, nil
 	}
 	out.Found = inventory.RawDecode.Found
+	if geometry := inventory.RawDecode.Metadata["blocked_reason_format_geometry_witnesses"]; geometry != "" {
+		out.Metadata["blocked_reason_format_geometry_witnesses"] = geometry
+	}
 	if inventory.RawDecode.Metadata["decode_state"] != "strict_target_ledger_complete" {
 		out.Metadata["ledger_state"] = "withheld_raw_decode_incomplete"
 		out.Skipped = "raw blocked key ledger withheld: strict raw decode ledger incomplete"
@@ -82,6 +90,8 @@ func traceDBRawBlockedKeyLedger(
 
 	rawCounts := map[traceDBBlockedComparableKey]int64{}
 	dbCounts := map[traceDBBlockedComparableKey]int64{}
+	rawSubjectCounts := map[traceDBBlockedSubjectKey]int64{}
+	dbSubjectCounts := map[traceDBBlockedSubjectKey]int64{}
 	for _, row := range rawRows {
 		key, ok := traceDBRawBlockedComparableKey(row)
 		if !ok {
@@ -89,6 +99,15 @@ func traceDBRawBlockedKeyLedger(
 			continue
 		}
 		rawCounts[key]++
+		rawSubjectCounts[traceDBBlockedSubjectKey{
+			TargetTID: key.TargetTID,
+			IOWait:    key.IOWait,
+		}]++
+		if row.CallerSymbolized {
+			traceDBAddCoverageMetric(&out, "raw_caller_symbolized_rows", 1)
+		} else {
+			traceDBAddCoverageMetric(&out, "raw_caller_opaque_rows", 1)
+		}
 	}
 	for _, row := range dbRows {
 		key, ok := traceDBDBBlockedComparableKey(row)
@@ -97,9 +116,41 @@ func traceDBRawBlockedKeyLedger(
 			continue
 		}
 		dbCounts[key]++
+		dbSubjectCounts[traceDBBlockedSubjectKey{
+			TargetTID: key.TargetTID,
+			IOWait:    key.IOWait,
+		}]++
+		switch row.CallerQuality {
+		case "symbolized":
+			traceDBAddCoverageMetric(&out, "db_caller_symbolized_rows", 1)
+		case "opaque":
+			traceDBAddCoverageMetric(&out, "db_caller_opaque_rows", 1)
+		}
 	}
 	traceDBAddCoverageMetric(&out, "raw_key_cohorts", int64(len(rawCounts)))
 	traceDBAddCoverageMetric(&out, "db_key_cohorts", int64(len(dbCounts)))
+	traceDBAddCoverageMetric(&out, "raw_subject_key_cohorts", int64(len(rawSubjectCounts)))
+	traceDBAddCoverageMetric(&out, "db_subject_key_cohorts", int64(len(dbSubjectCounts)))
+	for key, dbCount := range dbSubjectCounts {
+		rawCount := rawSubjectCounts[key]
+		if rawCount == 0 {
+			traceDBAddCoverageMetric(&out, "db_subject_key_cohorts_absent_raw", 1)
+			traceDBAddCoverageMetric(&out, "db_subject_rows_absent_raw", dbCount)
+			continue
+		}
+		if dbCount > rawCount {
+			traceDBAddCoverageMetric(&out, "db_subject_key_cohorts_exceed_raw", 1)
+			traceDBAddCoverageMetric(&out, "db_subject_rows_exceeding_raw", dbCount-rawCount)
+		}
+	}
+	if out.Metrics["db_subject_key_cohorts_absent_raw"] == 0 &&
+		out.Metrics["db_subject_key_cohorts_exceed_raw"] == 0 {
+		out.Metadata["subject_key_relation"] =
+			"db_target_tid_iowait_multiset_is_raw_subset"
+	} else {
+		out.Metadata["subject_key_relation"] =
+			"db_target_tid_iowait_multiset_is_not_raw_subset"
+	}
 	out.Metadata["raw_key_multiset_sha256"] = traceDBBlockedKeyMultisetDigest(rawCounts)
 	out.Metadata["db_key_multiset_sha256"] = traceDBBlockedKeyMultisetDigest(dbCounts)
 	if out.Metrics["raw_rows_without_comparable_key"] != 0 ||

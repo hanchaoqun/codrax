@@ -31,7 +31,10 @@ func TestTraceDBRawBlockedKeyCoverageWithholdsOverlapCohort(t *testing.T) {
 			Metrics: map[string]int64{
 				"target_sched_blocked_reason_body_admitted": 3,
 			},
-			Metadata: map[string]string{"decode_state": "strict_target_ledger_complete"},
+			Metadata: map[string]string{
+				"decode_state": "strict_target_ledger_complete",
+				"blocked_reason_format_geometry_witnesses": "sched_blocked_reason#1[pid@8:4]",
+			},
 		},
 		RawBlocked: rawRows,
 	}
@@ -47,6 +50,12 @@ func TestTraceDBRawBlockedKeyCoverageWithholdsOverlapCohort(t *testing.T) {
 		got.Metrics["raw_absent_db_key_cohorts"] != 1 ||
 		got.Metrics["raw_rows_absent_db_cohort"] != 2 ||
 		got.Metrics["raw_rows_absent_db_identity_admitted"] != 2 ||
+		got.Metrics["raw_caller_opaque_rows"] != 3 ||
+		got.Metrics["db_caller_opaque_rows"] != 1 ||
+		got.Metadata["subject_key_relation"] !=
+			"db_target_tid_iowait_multiset_is_raw_subset" ||
+		got.Metadata["blocked_reason_format_geometry_witnesses"] !=
+			"sched_blocked_reason#1[pid@8:4]" ||
 		got.Metadata["raw_key_multiset_sha256"] == "" ||
 		got.Metadata["db_key_multiset_sha256"] == "" {
 		t.Fatalf("blocked key subset ledger mismatch: %+v", got)
@@ -105,6 +114,8 @@ func TestTraceDBRawBlockedKeyCoverageFailsClosedForNamespaceAndMultisetMismatch(
 		got := traceDBRawBlockedKeyCoverage(inventory, dbRows, traceDBRawBlockedKeyTestAuthority())
 		if got.Metadata["ledger_state"] != "exact_content_multiset_subset_mismatch" ||
 			got.Metrics["db_key_cohorts_absent_raw"] != 1 ||
+			got.Metadata["subject_key_relation"] !=
+				"db_target_tid_iowait_multiset_is_not_raw_subset" ||
 			got.Metadata["publication_authority"] != "withheld_diagnostic_only" {
 			t.Fatalf("DB/raw multiset mismatch did not withdraw authority: %+v", got)
 		}

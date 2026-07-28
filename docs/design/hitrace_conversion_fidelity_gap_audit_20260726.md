@@ -2092,6 +2092,51 @@ The raw marker coverage now also carries a concise
 catalog. This avoids RPD2's diagnostic truncation, where the 8 KiB raw-decode
 line ended exactly inside the `print` field list.
 
+### RPD-2B5 — scheduler-lite and blocked-reason decision diagnostics
+
+RPD2 also proves that two recovery lanes are still withheld:
+
+- all `117226` `sched_switch_lite` records fail at the descriptor-layout
+  gate;
+- all `66736` `sched_wakeup_lite` records pass that layout gate but fail the
+  `target_cpu` field/value gate;
+- all `397` emitted DB blocked-reason content cohorts are absent from the
+  `19629` raw content cohorts under the exact
+  `(target_tid,iowait,caller)` key.
+
+The existing raw-decode coverage contains the field geometry needed to
+distinguish a legitimate kernel-version profile from a malformed near
+profile. In RPD2 that JSON physical line is truncated at 8 KiB before the
+scheduler descriptors. Loosening either decoder from aggregate rejection
+counts would turn a noisy symptom into a hard admission signal and is
+forbidden.
+
+Capability `official_raw_scheduler_lite_geometry_v1` therefore copies a
+bounded, dedicated `scheduler_lite_format_geometry_witnesses` value into each
+small scheduler-lite join coverage row. It includes exact field name, offset,
+size, signed bit and normalized descriptor type. The same row carries a
+sorted `source_decoder_census`, so the next replay directly binds geometry to
+the typed rejection reason without requiring the customer to extract the
+binary format segment. This remains diagnostic-only and cannot publish,
+rewrite or join an event.
+
+The blocked mismatch also cannot safely be called “raw record loss”: the
+upstream parser retains only its chosen caller string in the DB, while Codrax
+independently reconstructs the raw caller profile. Capability
+`official_raw_blocked_subject_census_v1` adds:
+
+- raw/DB caller-profile row counts (`symbolized` versus `opaque`);
+- a second diagnostic multiset over only `(target_tid,iowait)`;
+- the typed relation `db_target_tid_iowait_multiset_is_raw_subset` or its
+  negative form;
+- a concise typed `sched_blocked_reason` field-geometry witness.
+
+The original exact caller-bearing key remains the only publication gate.
+The reduced key is diagnostic evidence only: it may prove that the mismatch
+is isolated to caller representation, but it can never deduplicate or publish
+rows. Namespace TIDs remain byte-preserved and unresolved identities remain
+fail-closed.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.

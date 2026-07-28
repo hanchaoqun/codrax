@@ -3,6 +3,8 @@ package hitraceconv
 import (
 	"fmt"
 	"math"
+	"sort"
+	"strings"
 )
 
 type traceDBRawSchedSwitchLiteRecord struct {
@@ -185,4 +187,37 @@ func traceDBRawSchedSwitchLiteNextInfoUnknownTail(row traceDBRawSchedSwitchLiteR
 func traceDBRawSchedWakeupLiteDiagnosticBody(row traceDBRawSchedWakeupLiteRecord) string {
 	return fmt.Sprintf("pid=%d prio=%d target_cpu=%03d",
 		row.TargetTID, row.Priority, row.TargetCPU)
+}
+
+func traceDBAttachRawSchedulerLiteDiagnostics(
+	out *TraceDBCoverage,
+	decode TraceDBCoverage,
+	eventName string,
+) {
+	if out == nil || !traceDBRawSchedulerLiteFormat(eventName) {
+		return
+	}
+	if geometry := decode.Metadata["scheduler_lite_format_geometry_witnesses"]; geometry != "" {
+		out.Metadata["scheduler_lite_format_geometry_witnesses"] = geometry
+	}
+	prefix := "target_" + eventName + "_"
+	keys := make([]string, 0, len(decode.Metrics))
+	for key := range decode.Metrics {
+		if strings.HasPrefix(key, prefix) &&
+			(key == prefix+"records" ||
+				key == prefix+"body_admitted" ||
+				key == prefix+"body_rejected" ||
+				strings.HasPrefix(key, prefix+"reject_")) {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts,
+			fmt.Sprintf("%s=%d", strings.TrimPrefix(key, prefix), decode.Metrics[key]))
+	}
+	if len(parts) > 0 {
+		out.Metadata["source_decoder_census"] = strings.Join(parts, ",")
+	}
 }
