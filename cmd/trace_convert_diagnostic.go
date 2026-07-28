@@ -65,6 +65,7 @@ var traceConvertDiagnosticCapabilities = []string{
 	"raw_marker_replacement_closure_v1",
 	"raw_marker_pair_diagnostics_v1",
 	"task_pool_complete_pair_v1",
+	"completed_async_generic_viewer_caveat_v1",
 }
 
 type traceConvertDiagnosticProgressLog struct {

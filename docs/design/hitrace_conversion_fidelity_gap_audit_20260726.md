@@ -2534,8 +2534,9 @@ represented only by SHA-256 and byte count.
 
 ### REP4-S5 — customer-visible `start=0` / full-window span (P0 audit)
 
-Status: open pending the exact output-line witness; diagnostics implemented,
-no data-plane admission change yet.
+Status: customer text witness audited; no physical zero timestamp reproduced.
+Two generic-viewer compatibility gaps confirmed; one quality disclosure
+implemented, data-plane recovery remains open.
 
 The REP4 artifact receipt proves:
 
@@ -2564,6 +2565,75 @@ keeps that comparison advisory. A future data-plane rejection is authorized
 only if the offending output line proves a zero-start row and the independent
 raw/source ledger proves the same family cannot validly begin there. Viewer
 relative-zero and business `start_ts=0` must not trigger that rejection.
+
+The follow-up Linux receipts `collect01.txt` and `collect02.txt` add the
+following exact evidence:
+
+- the bounded grep returned `200` `codrax_trace_async_interval/v1` rows because
+  the command itself used `head -200`;
+- none of the returned rows contains a physical `0.000000:`, `ts_ns=0`,
+  `end_ns=0`, `start_ts=0` or `start=0`;
+- every typed interval uses absolute timestamps within
+  `69326.012182..69328.343094s`;
+- the longest returned completed intervals are real notification/animation
+  intervals: `NtfDataPlanAnimation[0]` is `1.047822500s`,
+  `NtfHeaderAnimation[0]` is `0.762287968s`, and
+  `StatusBarNTFKeepMoveDownAnimation[0]` is `0.654742656s`;
+- the first standard B/E rows are instead thread-registration compatibility
+  pairs generated at the capture-start timestamp. Each sampled B is followed
+  immediately by E at the same timestamp; they are zero-duration metadata
+  points, not evidence that the source span began at timestamp zero.
+
+This closes “the converter printed a physical zero timestamp in REP4” as the
+current cause. It confirms two separate hazards:
+
+1. **generic-viewer omission**: completed async rows are encoded as Codrax
+   versioned comments. Codrax `trace_query` reconstructs them, but a generic
+   systrace viewer may ignore the comments or render an absent start as its
+   own relative zero. Capability
+   `completed_async_generic_viewer_caveat_v1` now publishes this limitation
+   whenever such rows remain;
+2. **registration point compatibility**: the converter publishes redundant
+   capture-start zero-duration B/E points in addition to `task_rename`.
+   Although the physical pairs are closed, a viewer with a different B/E
+   stack interpretation may extend one to its display boundary. Removal or a
+   typed-metadata replacement requires a separate regression batch because
+   the registration points currently participate in the shared sync-span
+   authority.
+
+The same receipt also shows why a plain `grep unknown` overstates the remaining
+name gap. Many hits are `task_rename oldcomm=unknown newcomm=<resolved>` or an
+`unknown` historical field while the physical row header already contains the
+resolved name; for example PID `32788` is headed by `ss.hm.ugc.aweme`.
+Diagnostics must distinguish historical placeholder input from unresolved
+output identity instead of asking customers to count raw substring matches.
+
+### REP4-S5B — completed async generic-viewer recovery plan
+
+Status: P1 data-plane batch open.
+
+REP4 already reports `253` official completed async rows. The immutable raw
+ledger independently counted admitted physical marker endpoints
+(`S=264`, `F=10,322`) but deliberately retained only B/E sync endpoints;
+admitted S/F endpoints were census-only and then discarded. That is the
+highest-leverage remaining recovery gap.
+
+The frozen implementation sequence is:
+
+1. retain admitted raw S/F records with exact payload PID, name, cookie,
+   timestamp, physical ordinal, common PID, CPU, flags and preempt count;
+2. pair only an exact alternating S/F key
+   `(payload_pid,name,cookie)`, withholding orphan F, open S, duplicate-open
+   and non-representable intervals by typed reason;
+3. independently resolve start and finish common-PID emitters at their exact
+   lifecycle points; cross-thread/process completion is valid and must not be
+   rewritten to one emitter;
+4. replace one high-level typed interval with standard physical S/F only when
+   payload identity, name, cookie, exact start/end and start emitter envelope
+   match one unique raw pair;
+5. leave unmatched high-level rows typed and publish the generic-viewer caveat;
+   do not publish unmatched raw pairs in the first batch, avoiding duplicate
+   legacy DB endpoint lanes.
 
 ### REP4-S5A — TaskPool allocation-only rows mint open async spans
 

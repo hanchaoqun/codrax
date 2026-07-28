@@ -197,6 +197,11 @@ func traceDBSemanticQualityCaveats(coverage []TraceDBCoverage) []string {
 			"trace_streamer callstack CPU placement is unavailable for %d source row(s); span identity and duration were preserved in a typed trace span/interval lane, but those spans have no CPU/core attribution",
 			count))
 	}
+	if count := quality.Metrics["callstack_source_rows_emitted_official_async_interval"]; count > 0 {
+		caveats = append(caveats, fmt.Sprintf(
+			"trace_streamer preserved %d completed async interval(s) as Codrax versioned comment rows because a physical finish emitter/CPU was not proven; Codrax trace_query reads these intervals, but generic systrace viewers may omit them, and no synthetic S/F endpoint was emitted",
+			count))
+	}
 	if count := quality.Metrics["unclassified_nonempty_tables"]; count > 0 {
 		detail := ""
 		for _, item := range coverage {
