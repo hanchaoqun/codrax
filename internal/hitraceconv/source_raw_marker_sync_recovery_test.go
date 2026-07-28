@@ -134,6 +134,103 @@ func TestSubmitTraceDBRawMarkerSyncRecoverySkipsExactExistingDBCandidate(t *test
 	}
 }
 
+func TestSubmitTraceDBRawMarkerSyncRecoveryWithholdsNameDriftWithoutPoisoningDBLane(t *testing.T) {
+	ctx := context.Background()
+	syncSpans := newTraceDBTestSyncSpanAuthority(t)
+	existing := traceDBTestSyncSpanCandidate(
+		traceDBSyncSpanProducerCallstack, 9, 201, 200,
+		1_000_000, 4_000_000, "db-normalized-name")
+	existing.CanonicalITID = 2
+	existing.OwnerIPID = 2
+	existing.MarkerPID, existing.MarkerPIDKnown = 777, true
+	if err := syncSpans.submit(ctx, existing); err != nil {
+		t.Fatal(err)
+	}
+	coverage, err := submitTraceDBRawMarkerSyncRecovery(
+		ctx, traceDBRawMarkerTestInventory(
+			traceDBRawMarkerTestPair(201, 777, 1, "raw-physical-name")),
+		traceDBRawBlockedKeyTestAuthority(), syncSpans)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if coverage.Metrics["raw_pairs_withheld_exact_interval_name_drift"] != 1 ||
+		coverage.Metrics["raw_pairs_existing_db_candidate"] != 0 ||
+		coverage.Metrics["raw_pairs_submitted"] != 0 ||
+		syncSpans.submitted[traceDBSyncSpanProducerSourceRawMarker] != 0 {
+		t.Fatalf("name drift was not localized: coverage=%+v submitted=%+v",
+			coverage, syncSpans.submitted)
+	}
+	sink, err := newTraceDBRowSink(t.TempDir(), 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.cleanup()
+	report, _, err := syncSpans.finalize(ctx, sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db := report.ByProducer[traceDBSyncSpanProducerCallstack]
+	if report.IdenticalLanes != 0 || report.PoisonedLanes != 0 ||
+		db.SubmittedSpans != 1 || db.EmittedEndpoints != 2 ||
+		db.SuppressedSpans != 0 {
+		t.Fatalf("raw name drift suppressed DB baseline: %+v", report)
+	}
+}
+
+func TestSubmitTraceDBRawMarkerSyncRecoveryNameDriftFenceKeepsEveryIdentityDimension(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*traceDBSyncSpanCandidate)
+	}{
+		{name: "host tgid", mutate: func(candidate *traceDBSyncSpanCandidate) {
+			candidate.HeaderTGID = 201
+		}},
+		{name: "marker pid", mutate: func(candidate *traceDBSyncSpanCandidate) {
+			candidate.MarkerPID = 778
+		}},
+		{name: "canonical itid", mutate: func(candidate *traceDBSyncSpanCandidate) {
+			candidate.CanonicalITID = 1
+		}},
+		{name: "owner ipid", mutate: func(candidate *traceDBSyncSpanCandidate) {
+			candidate.OwnerIPID = 1
+		}},
+		{name: "start timestamp", mutate: func(candidate *traceDBSyncSpanCandidate) {
+			candidate.Start++
+		}},
+		{name: "end timestamp", mutate: func(candidate *traceDBSyncSpanCandidate) {
+			candidate.End--
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			syncSpans := newTraceDBTestSyncSpanAuthority(t)
+			existing := traceDBTestSyncSpanCandidate(
+				traceDBSyncSpanProducerCallstack, 9, 201, 200,
+				1_000_000, 4_000_000, "db-normalized-name")
+			existing.CanonicalITID = 2
+			existing.OwnerIPID = 2
+			existing.MarkerPID, existing.MarkerPIDKnown = 777, true
+			test.mutate(&existing)
+			if err := syncSpans.submit(ctx, existing); err != nil {
+				t.Fatal(err)
+			}
+			coverage, err := submitTraceDBRawMarkerSyncRecovery(
+				ctx, traceDBRawMarkerTestInventory(
+					traceDBRawMarkerTestPair(201, 777, 1, "raw-physical-name")),
+				traceDBRawBlockedKeyTestAuthority(), syncSpans)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if coverage.Metrics["raw_pairs_withheld_exact_interval_name_drift"] != 0 ||
+				coverage.Metrics["raw_pairs_submitted"] != 1 ||
+				syncSpans.submitted[traceDBSyncSpanProducerSourceRawMarker] != 1 {
+				t.Fatalf("near identity was collapsed into name drift: %+v", coverage)
+			}
+		})
+	}
+}
+
 func TestSubmitTraceDBRawMarkerSyncRecoveryPoisonsOnlyAffectedEmitter(t *testing.T) {
 	bad := traceDBRawMarkerTestPair(201, 777, 1, "bad")
 	bad[1].Admitted = false

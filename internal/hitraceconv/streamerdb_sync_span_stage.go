@@ -128,6 +128,7 @@ type traceDBSyncSpanStage struct {
 	insertIdentity  *sql.Stmt
 	lookupIdentity  *sql.Stmt
 	lookupSemantic  *sql.Stmt
+	lookupInterval  *sql.Stmt
 	upsertForced    *sql.Stmt
 	insertFence     *sql.Stmt
 
@@ -453,6 +454,9 @@ func (stage *traceDBSyncSpanStage) promoteToSQLite(ctx context.Context) error {
 	if stage.lookupSemantic, err = tx.PrepareContext(ctx, traceDBSyncSpanLookupSemanticSQL); err != nil {
 		return stage.handleSQLiteWriteError(ctx, err)
 	}
+	if stage.lookupInterval, err = tx.PrepareContext(ctx, traceDBSyncSpanLookupIntervalIdentitySQL); err != nil {
+		return stage.handleSQLiteWriteError(ctx, err)
+	}
 	if stage.upsertForced, err = tx.PrepareContext(ctx, traceDBSyncSpanUpsertForcedSQL); err != nil {
 		return stage.handleSQLiteWriteError(ctx, err)
 	}
@@ -572,6 +576,14 @@ const traceDBSyncSpanLookupSemanticSQL = `SELECT 1
 	  AND owner_known=1 AND owner_ipid=?
 	  AND name=?
 	LIMIT 1`
+const traceDBSyncSpanLookupIntervalIdentitySQL = `SELECT 1
+	FROM candidate INDEXED BY candidate_lane_idx
+	WHERE header_tid=? AND start_ns=? AND zero_key=1 AND end_ns=?
+	  AND producer != ?
+	  AND header_tgid=? AND CASE marker_known WHEN 1 THEN marker_pid ELSE header_tgid END=?
+	  AND canonical_known=1 AND canonical_itid=?
+	  AND owner_known=1 AND owner_ipid=?
+	LIMIT 1`
 const traceDBSyncSpanUpsertForcedSQL = `INSERT INTO forced_lane(header_tid,reason_mask) VALUES(?,?)
 	ON CONFLICT(header_tid) DO UPDATE SET reason_mask = reason_mask | excluded.reason_mask`
 const traceDBSyncSpanInsertFenceSQL = `INSERT INTO fence(
@@ -680,6 +692,47 @@ func (stage *traceDBSyncSpanStage) hasSemanticCandidate(
 	if err != nil {
 		return false, false, stage.handleSQLiteWriteError(ctx,
 			fmt.Errorf("lookup exact sync span semantic candidate: %w", err))
+	}
+	return one == 1, true, nil
+}
+
+func (stage *traceDBSyncSpanStage) hasIntervalIdentityCandidate(
+	ctx context.Context,
+	candidate traceDBSyncSpanCandidate,
+) (bool, bool, error) {
+	if err := stage.requireOpen(ctx); err != nil {
+		return false, false, err
+	}
+	key, ok := traceDBSyncSpanCandidateSemanticKey(candidate)
+	if !ok {
+		return false, true, nil
+	}
+	if stage.budgetReason != "" {
+		return false, false, nil
+	}
+	if !stage.external {
+		if err := stage.promoteToSQLite(ctx); err != nil {
+			if _, pure := traceDBSyncSpanPureBudgetReason(err); pure {
+				return false, false, nil
+			}
+			return false, false, err
+		}
+	}
+	if stage.budgetReason != "" || stage.lookupInterval == nil {
+		return false, false, nil
+	}
+	var one int
+	err := stage.lookupInterval.QueryRowContext(
+		ctx, key.HeaderTID, key.Start, key.End,
+		traceDBSyncSpanProducerSourceRawMarker,
+		key.HeaderTGID, key.MarkerPID, key.CanonicalITID, key.OwnerIPID,
+	).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, true, nil
+	}
+	if err != nil {
+		return false, false, stage.handleSQLiteWriteError(ctx,
+			fmt.Errorf("lookup exact sync span interval identity candidate: %w", err))
 	}
 	return one == 1, true, nil
 }
@@ -831,12 +884,12 @@ func (stage *traceDBSyncSpanStage) failBudget(reason string) error {
 
 func (stage *traceDBSyncSpanStage) discardBackend() error {
 	var errs []error
-	for _, statement := range []*sql.Stmt{stage.insertCandidate, stage.insertIdentity, stage.lookupIdentity, stage.lookupSemantic, stage.upsertForced, stage.insertFence} {
+	for _, statement := range []*sql.Stmt{stage.insertCandidate, stage.insertIdentity, stage.lookupIdentity, stage.lookupSemantic, stage.lookupInterval, stage.upsertForced, stage.insertFence} {
 		if statement != nil {
 			errs = append(errs, statement.Close())
 		}
 	}
-	stage.insertCandidate, stage.insertIdentity, stage.lookupIdentity, stage.lookupSemantic, stage.upsertForced, stage.insertFence = nil, nil, nil, nil, nil, nil
+	stage.insertCandidate, stage.insertIdentity, stage.lookupIdentity, stage.lookupSemantic, stage.lookupInterval, stage.upsertForced, stage.insertFence = nil, nil, nil, nil, nil, nil, nil
 	if stage.tx != nil {
 		err := stage.tx.Rollback()
 		if !errors.Is(err, sql.ErrTxDone) && !traceDBSQLiteNoActiveTransaction(err) {
@@ -1099,12 +1152,12 @@ func (stage *traceDBSyncSpanStage) seal(ctx context.Context) error {
 
 func (stage *traceDBSyncSpanStage) closeSQLiteWriteStatements() error {
 	var errs []error
-	for _, statement := range []*sql.Stmt{stage.insertCandidate, stage.insertIdentity, stage.lookupIdentity, stage.lookupSemantic, stage.upsertForced, stage.insertFence} {
+	for _, statement := range []*sql.Stmt{stage.insertCandidate, stage.insertIdentity, stage.lookupIdentity, stage.lookupSemantic, stage.lookupInterval, stage.upsertForced, stage.insertFence} {
 		if statement != nil {
 			errs = append(errs, statement.Close())
 		}
 	}
-	stage.insertCandidate, stage.insertIdentity, stage.lookupIdentity, stage.lookupSemantic, stage.upsertForced, stage.insertFence = nil, nil, nil, nil, nil, nil
+	stage.insertCandidate, stage.insertIdentity, stage.lookupIdentity, stage.lookupSemantic, stage.lookupInterval, stage.upsertForced, stage.insertFence = nil, nil, nil, nil, nil, nil, nil
 	return errors.Join(errs...)
 }
 

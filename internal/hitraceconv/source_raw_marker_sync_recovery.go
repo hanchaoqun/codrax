@@ -24,6 +24,7 @@ func newTraceDBRawMarkerSyncCoverage() TraceDBCoverage {
 			"stack":         "one exact LIFO stack per physical common_pid emitter; any rejected carrier/endpoint, orphan end, open begin, invalid interval or identity drift withholds that raw emitter lane whole",
 			"identity":      "common_pid independently resolves to the same canonical host thread/process at both exact endpoints; payload PID remains marker namespace data",
 			"deduplication": "an exact bounded semantic index suppresses only a raw pair already represented by an earlier DB candidate with equal host TID/TGID, marker PID, canonical owner, interval and name",
+			"name_drift":    "a raw pair sharing exact host/payload/canonical identity and interval with a DB candidate but not its name is withheld locally; it cannot enter the shared lane audit or suppress the DB baseline",
 			"publication":   "DB-disjoint clean pairs submit to the existing single sync-span laminar authority; this exporter never writes B/E rows directly",
 			"envelope":      "raw page CPU, common_flags and common_preempt_count are retained independently at begin and end",
 		},
@@ -180,6 +181,21 @@ func submitTraceDBRawMarkerSyncRecovery(
 			traceDBAddCoverageMetric(&out, "raw_pairs_existing_db_candidate", 1)
 			continue
 		}
+		intervalCollision, complete, err :=
+			syncSpans.hasIntervalIdentityCandidate(ctx, candidate)
+		if err != nil {
+			out.Error = err.Error()
+			return out, err
+		}
+		if !complete {
+			out.Metadata["publication_state"] = "withheld_cross_source_index_incomplete"
+			out.Skipped = "raw marker sync recovery withheld: bounded exact DB interval index incomplete"
+			return out, nil
+		}
+		if intervalCollision {
+			traceDBAddCoverageMetric(&out, "raw_pairs_withheld_exact_interval_name_drift", 1)
+			continue
+		}
 		if err := syncSpans.submit(ctx, candidate); err != nil {
 			out.Error = err.Error()
 			return out, err
@@ -188,8 +204,9 @@ func submitTraceDBRawMarkerSyncRecovery(
 	}
 	out.Metadata["publication_state"] = "submitted_to_shared_sync_authority"
 	out.Skipped = traceDBCountSummary(map[string]int{
-		"existing_db_candidates": int(out.Metrics["raw_pairs_existing_db_candidate"]),
-		"poisoned_emitter_lanes": int(out.Metrics["raw_emitter_lanes_poisoned"]),
+		"exact_interval_name_drift": int(out.Metrics["raw_pairs_withheld_exact_interval_name_drift"]),
+		"existing_db_candidates":    int(out.Metrics["raw_pairs_existing_db_candidate"]),
+		"poisoned_emitter_lanes":    int(out.Metrics["raw_emitter_lanes_poisoned"]),
 	})
 	return out, nil
 }

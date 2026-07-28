@@ -2217,6 +2217,38 @@ is isolated to caller representation, but it can never deduplicate or publish
 rows. Namespace TIDs remain byte-preserved and unresolved identities remain
 fail-closed.
 
+### REP-2A — raw marker recovery must be monotonic over the DB baseline
+
+REP2 proves all three REP1 decoders are active, but also exposes a new P1
+composition failure:
+
+- raw marker decoding admits all `175,165` compact `print` carriers;
+- `5,326` raw marker pairs enter the shared sync-span authority;
+- all `5,326` are suppressed;
+- all `305` otherwise-clean raw emitter lanes become
+  `unproven_identical_lanes`;
+- the authority suppresses `14,674` spans (`29,348` endpoints), so the output
+  loses previously accepted DB spans even though raw recovery is additive.
+
+The exact mechanism is an interval collision whose host/payload/canonical
+identity and nanosecond endpoints equal an earlier DB candidate while its name
+does not. The full semantic deduplication key includes name, so it misses this
+case; the later all-lane auditor then correctly refuses to order two
+same-interval, different-name candidates, but incorrectly lets an optional
+recovery candidate invalidate the already-admitted baseline.
+
+Capability `official_raw_marker_name_drift_fence_v1` restores monotonicity.
+Before a raw pair is submitted, a second exact bounded index checks the same
+host TID/TGID, marker PID, canonical ITID/owner and start/end interval without
+discarding any identity dimension. If the full name-bearing key matched, the
+existing duplicate rule applies. If only the exact identity+interval matched,
+the raw pair is locally withheld as
+`raw_pairs_withheld_exact_interval_name_drift`; it never reaches the shared
+lane audit and therefore cannot suppress the DB baseline. This rule does not
+choose either name, merge identities, rewrite namespace PID, or authorize a
+raw row. DB-disjoint raw pairs remain eligible under the existing laminar
+authority.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.
