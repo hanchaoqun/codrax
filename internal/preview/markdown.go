@@ -526,13 +526,7 @@ func writeTraceProjectionLineRuns(w util.BufWriter, line string, anchor *traceAn
 			continue
 		}
 		flushASCII()
-		width := runewidth.RuneWidth(r)
-		if width < 0 {
-			width = 1
-		}
-		if width > 2 {
-			width = 2
-		}
+		width := traceGridRuneWidth(r)
 		switch {
 		case r >= 0x2500 && r <= 0x257f:
 			_, _ = fmt.Fprintf(w, `<span class="trace-cell trace-cell-%d trace-rail">%s</span>`, width, stdhtml.EscapeString(string(r)))
@@ -647,6 +641,33 @@ func traceProjectionEvidenceRefToken(line string, offset int) (string, int, bool
 // character, textContent and grid geometry stay unchanged. Unknown/customer
 // text remains on the ordinary rune/run path. The UXG-0 D3 exclusions
 // (⚠/◇/▒ deliberately not boxed) are documented on the directory itself.
+// traceGridWidthCondition — BARGRID-1 (customer report 2026-07-28, HTML
+// 场景): the grid ruler is FENCE GEOMETRY and must be locale-INVARIANT.
+// runewidth's package-level DefaultCondition follows the server's locale, so
+// under zh_CN the East-Asian-AMBIGUOUS bar blocks █/▒ measured 2 and the
+// HTML face emitted 2ch cells whose 1ch of block ink left a blank column
+// after every solid cell (实体块之间的空格). The fixed NARROW condition
+// matches the C.3/C-9 design exactly: ambiguous-width marks are 1ch cells,
+// true East-Asian wides (CJK ideographs, fullwidth forms) stay 2ch in BOTH
+// conditions, and the emitted geometry never depends on the environment the
+// server happened to run in.
+var traceGridWidthCondition = runewidth.Condition{EastAsianWidth: false}
+
+func traceGridRuneWidth(r rune) int {
+	width := traceGridWidthCondition.RuneWidth(r)
+	if width < 0 {
+		width = 1
+	}
+	if width > 2 {
+		width = 2
+	}
+	return width
+}
+
+func traceGridStringWidth(s string) int {
+	return traceGridWidthCondition.StringWidth(s)
+}
+
 func traceProjectionIconClass(r rune) string {
 	return tracefence.StateMarkClass(r)
 }
@@ -659,7 +680,7 @@ func traceProjectionActionToken(line string, offset int) (string, int, bool) {
 	rest := line[offset:]
 	for _, token := range tracefence.ActionTokens() {
 		if strings.HasPrefix(rest, token) {
-			return token, runewidth.StringWidth(token), true
+			return token, traceGridStringWidth(token), true
 		}
 	}
 	return "", 0, false
