@@ -663,6 +663,7 @@ func (tdb *traceDB) loadThreadIndex(ctx context.Context) (traceDBThreadIndex, []
 		coverage = append(coverage, tdb.sourceNameInventory.Coverage)
 		coverage = append(coverage, tdb.sourceNameInventory.RawAuthority)
 		coverage = append(coverage, tdb.sourceNameInventory.RawProfile)
+		coverage = append(coverage, tdb.sourceNameInventory.RawDecode)
 	}
 	return index, coverage, nil
 }

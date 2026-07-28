@@ -39,6 +39,7 @@ type traceDBSourceNameInventory struct {
 	Coverage     TraceDBCoverage
 	RawAuthority TraceDBCoverage
 	RawProfile   TraceDBCoverage
+	RawDecode    TraceDBCoverage
 }
 
 func newTraceDBSourceNameInventory() traceDBSourceNameInventory {
@@ -77,6 +78,7 @@ func newTraceDBSourceNameInventory() traceDBSourceNameInventory {
 			},
 		},
 		RawProfile: newTraceDBSourceRawProfileCoverage(),
+		RawDecode:  newTraceDBSourceRawDecodeCoverage(),
 	}
 }
 
@@ -284,7 +286,8 @@ func scanTraceDBSourceNameInventory(ctx context.Context, input conversionInputVi
 		}
 	}
 	finalizeTraceDBSourceRawAuthority(&inventory.RawAuthority, header, rawAudit, incomplete)
-	inventory.RawProfile, err = probeTraceDBSourceRawProfile(ctx, input, header, rawAudit.segments, incomplete)
+	inventory.RawProfile, inventory.RawDecode, err =
+		probeTraceDBSourceRawProfile(ctx, input, header, rawAudit.segments, incomplete)
 	if err != nil {
 		return inventory, err
 	}

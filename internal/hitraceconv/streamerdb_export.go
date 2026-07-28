@@ -106,6 +106,7 @@ func exportTraceDBToSystraceFromSealedWithSourceNamesAndLedger(
 		copied.Coverage = cloneTraceDBCoverage(sourceNames.Coverage)
 		copied.RawAuthority = cloneTraceDBCoverage(sourceNames.RawAuthority)
 		copied.RawProfile = cloneTraceDBCoverage(sourceNames.RawProfile)
+		copied.RawDecode = cloneTraceDBCoverage(sourceNames.RawDecode)
 		tdb.sourceNameInventory = &copied
 	}
 	result, err = exportTraceDBToSystraceFromOpenWithLedger(ctx, tdb, output, ledger)
@@ -221,6 +222,8 @@ func exportTraceDBToSystraceFromOpenWithLedger(ctx context.Context, tdb *traceDB
 		return traceDBSystraceExport{Coverage: coverage}, err
 	}
 	coverage = append(coverage, syncCoverage)
+	rawReconciliationCoverage := traceDBRawDecodeReconciliationCoverage(coverage)
+	coverage = append(coverage, rawReconciliationCoverage)
 	qualityCoverage := traceDBSemanticQualityCoverage(coverage)
 	coverage = append(coverage, qualityCoverage)
 	coverage = append(coverage, lifecycleCoverage...)

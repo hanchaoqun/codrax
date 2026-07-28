@@ -1365,6 +1365,9 @@ profile for parity testing. Any inconsistent page yields
 
 ### Frozen next batches
 
+The state column below records the RPD-0 commit-time gate; the seventh-replay
+section immediately following it is the current superseding state.
+
 | Batch | State | Entry condition | Scope |
 | --- | --- | --- | --- |
 | RPD-0 | implemented | sixth replay proves raw plus format material | bounded non-publishing profile and type-33 witness |
@@ -1376,6 +1379,106 @@ The next replay needs only the new capability and the
 `source_rawtrace_profile` coverage row. It does not need another broad customer
 log. RPD-1 must not start by assuming that the official producer reused the
 legacy page geometry.
+
+## Seventh customer replay and RPD-1 typed decode ledger (2026-07-28)
+
+The customer replay used the RPD-0 binary
+(`sha256=0c72c304c2c41b4b10516f9b25322226cf271441f13da00f37e11159748d4fdf`)
+and satisfies the RPD-1 flagship entry condition:
+
+| RPD-0 proof | Exact result |
+| --- | --- |
+| page geometry | `6,364/6,364` pages match; zero invalid page |
+| CPU roster | exact `0..11` |
+| event-format catalog | `43` admitted; all `43` have exact common type |
+| record/format accounting | `491,411/491,411` physical records match an admitted format |
+| target physical records | blocked reason `21,566`; marker `7,518`; DMA fence `2,085`; wakeup-new `120` |
+| type 33 | kernel `HongMeng Kernel 1.12.0`, Unix/boot clock anchors, exact SHA-256 witness |
+| publication effect | zero; systrace remains `387,908` events and `69,744,973` bytes |
+
+The bounded target roster contains only ten exact format names and did not hit
+its cap. Therefore exact `sched_switch`, `trace_vsync`, `sched_wakeup` and
+`sched_waking` formats are absent from this raw-ftrace catalog. This is
+especially important for `trace_vsync:not_match=79`: those losses cannot be
+assigned to the raw-ftrace decoder merely because another raw family is
+recoverable.
+
+The strongest cross-layer witness is already exact:
+
+```text
+raw sched_blocked_reason physical records = 21,566
+TraceStreamer DB rows emitted             =  1,795
+TraceStreamer not_match                   = 19,771
+                                               ------
+                                               21,566
+```
+
+This proves that the `19,771` count is the missing association subset of one
+physically complete raw event family. It still does not authorize blindly
+adding every raw row: RPD-2 must prove strict body admission and suppress the
+`1,795` DB-derived duplicates using an exact event key.
+
+### RPD-1 implementation
+
+Capability `official_raw_record_decode_ledger_v1` adds two non-publishing
+coverage faces:
+
+1. `source_rawtrace_decode/__raw_record_decode__`
+   (`diagnostic_ledger`);
+2. `source_rawtrace_reconciliation/__raw_vs_trace_streamer__`
+   (`diagnostic_reconciliation`).
+
+The decode ledger reuses the already proven immutable page traversal but gains
+no publication authority from it:
+
+- all physical records retain exact format-ID counts and a sorted format
+  roster;
+- any poisoned format ID, unmatched physical record, or record-census mismatch
+  withdraws ledger completion;
+- only the closed target registry receives body decoding;
+- every decoded target requires the exact common PID/flags/preempt envelope;
+- scheduler-core, exact scheduler-switch, marker and DMA-wait decoders use
+  their existing strict typed admission; non-wait DMA legacy rendering does
+  not gain authority;
+- body admitted/rejected/unsupported counters are separated per exact target;
+- target body decoding is capped at `250,000` rows and the format roster at
+  `64`; either cap withdraws completion rather than publishing prefix-biased
+  conclusions;
+- unsafe or oversized event-format names are represented only by exact
+  SHA-256/byte-length witnesses;
+- raw and target timestamp bounds are diagnostic only;
+- `RowsEmitted=0` is invariant.
+
+The TraceStreamer stat reader now retains selected event statuses as one exact
+five-bit roster plus nonzero counts. Thus a reported zero is distinguishable
+from an absent status without adding dozens of `=0` values to the customer
+console. Reconciliation computes, per exact family:
+
+- raw physical count;
+- TraceStreamer `received/data_lost/not_match/not_supported/invalid_data`;
+- exact raw-versus-stat closure;
+- for blocked reason only, exact DB-emitted-versus-received closure;
+- explicit non-equivalence for high-level DMA activity rows;
+- explicit `raw_format_absent` recovery state for VSync.
+
+No equality changes conversion admission. The result is a typed RPD-2 task
+selector, not a second trace provider.
+
+### RPD-2 decision gate
+
+After one replay containing `official_raw_record_decode_ledger_v1`:
+
+| Family | May enter RPD-2 only when |
+| --- | --- |
+| blocked reason | all raw bodies admitted; raw equals the five TraceStreamer statuses; DB emitted equals `received`; exact duplicate key is unique |
+| tracing marker | admitted/rejected body counts close exactly against `received/invalid_data`; marker ownership and duplicate suppression are proven |
+| DMA wait | start/end strict bodies plus pair-key reconciliation close; high-level DB rows are never subtracted as if equivalent |
+| VSync | a different retained source segment or upstream decoded row is identified; raw-ftrace absence remains fail-closed |
+| scheduler | an exact format/profile exists; no alias is inferred from DB scheduler rows |
+
+RPD-1 itself is complete without another customer capture. The next customer
+run is a short decision replay after the new binary is pushed; only the
+diagnostic report is required.
 
 ## Invariants
 

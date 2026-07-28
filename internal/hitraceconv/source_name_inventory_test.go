@@ -317,6 +317,60 @@ func TestTraceDBSourceRawProfileProbeRejectsCandidateLayoutWithoutAffectingAutho
 	}
 }
 
+func TestTraceDBSourceRawDecodeLedgerAdmitsStrictBlockedReasonWithoutPublishing(t *testing.T) {
+	var capture bytes.Buffer
+	writeFileHeader(&capture, 2)
+	header := capture.Bytes()
+	binary.LittleEndian.PutUint16(header[0:2], traceStreamerRawTraceMagic)
+	header[2] = harmonyRMQFileType
+	capture.Reset()
+	capture.Write(header)
+	format := strings.Join(syntheticFormatBlock("sched_blocked_reason", 32778, []string{
+		syntheticField("unsigned short", "common_type", 0, 2, false),
+		syntheticField("int", "common_pid", 4, 4, true),
+		syntheticField("int", "pid", 8, 4, true),
+		syntheticField("void *", "caller", 12, 8, false),
+		syntheticField("bool", "io_wait", 20, 1, false),
+	}), "\n")
+	content := make([]byte, 21)
+	binary.LittleEndian.PutUint32(content[4:8], 77)
+	binary.LittleEndian.PutUint32(content[8:12], 88)
+	binary.LittleEndian.PutUint64(content[12:20], 0x1234)
+	content[20] = 1
+	writeSegment(&capture, segmentEventsFormat, []byte(format))
+	writeSegment(&capture, segmentRawTrace, syntheticRawPageEvents([]syntheticRawEvent{{
+		EventID: 32778, OffsetNS: 9, Content: content,
+	}}))
+
+	path := filepath.Join(t.TempDir(), "official-strict-decode.sys")
+	if err := os.WriteFile(path, capture.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	authority, err := openConversionInputAuthority(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer authority.Close()
+	inventory, err := scanTraceDBSourceNameInventory(context.Background(), authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decode := inventory.RawDecode
+	if !decode.Found || decode.Role != "diagnostic_ledger" ||
+		decode.Metadata["decode_state"] != "strict_target_ledger_complete" ||
+		decode.Metadata["publication_authority"] != "withheld_rpd1_diagnostic_only" ||
+		decode.RowsRead != 1 || decode.RowsEmitted != 0 ||
+		decode.Metrics["records_with_admitted_format"] != 1 ||
+		decode.Metrics["target_sched_blocked_reason_records"] != 1 ||
+		decode.Metrics["target_sched_blocked_reason_envelope_admitted"] != 1 ||
+		decode.Metrics["target_sched_blocked_reason_body_admitted"] != 1 ||
+		!strings.Contains(decode.Metadata["format_record_witnesses"],
+			"sched_blocked_reason#32778/records=1") ||
+		!strings.Contains(decode.Metadata["target_formats_absent"], "trace_vsync") {
+		t.Fatalf("strict raw blocked-reason ledger mismatch: %+v", decode)
+	}
+}
+
 func TestTraceDBSourceNameInventoryNarrowsNamespaceDuplicatesToHostSchedulerLane(t *testing.T) {
 	index := newTraceDBThreadIndex(0, true)
 	index.Processes[1] = traceDBProcess{IPID: 1, PID: 10}

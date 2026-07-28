@@ -75,6 +75,16 @@ func TestInspectTraceDBCaptureCompletenessCleanAndDegradedCohorts(t *testing.T) 
 		clean.CaptureCompleteness.NonzeroIssueRows != 0 || len(clean.CaptureCompleteness.Issues) != 0 {
 		t.Fatalf("clean parser self-audit mismatch: %+v", clean)
 	}
+	if clean.Metrics["selected_sched_switch_status_mask"] != int64(traceDBCaptureAllStatTypes) ||
+		clean.Metrics["selected_sched_switch_received"] != 42 {
+		t.Fatalf("selected stat metric/mask mismatch: %+v", clean.Metrics)
+	}
+	for _, status := range []string{"data_lost", "not_match", "not_supported", "invalid_data"} {
+		if _, present := clean.Metrics["selected_sched_switch_"+status]; present {
+			t.Fatalf("selected zero stat %s should be represented by the complete mask: %+v",
+				status, clean.Metrics)
+		}
+	}
 
 	degraded := inspectTraceDBCaptureFixture(t,
 		traceDBCaptureStatDDL,

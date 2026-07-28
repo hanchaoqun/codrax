@@ -130,6 +130,18 @@ func inspectTraceDBCaptureCompleteness(ctx context.Context, queryer traceDBQuery
 		seen[key] = struct{}{}
 		statMasks[eventName] |= statBit
 		totals.RowsAccepted++
+		if metric, selected := traceDBCaptureSelectedRawMetric(eventName, statType); selected {
+			if item.Metrics == nil {
+				item.Metrics = map[string]int64{}
+			}
+			prefix := strings.TrimSuffix(metric, "_"+statType)
+			item.Metrics[prefix+"_status_mask"] |= int64(statBit)
+			// The exact five-bit mask distinguishes a reported zero from an
+			// absent status row without flooding customer output with zeros.
+			if count != 0 {
+				item.Metrics[metric] = count
+			}
+		}
 		value := uint64(count)
 		if !traceDBCaptureAddStatTotal(&totals, statType, value) {
 			integrity = appendCaptureIntegrityIssue(integrity, "aggregate_overflow")
@@ -195,6 +207,25 @@ func inspectTraceDBCaptureCompleteness(ctx context.Context, queryer traceDBQuery
 	}
 	item.CaptureCompleteness = &totals
 	return item, nil
+}
+
+func traceDBCaptureSelectedRawMetric(eventName, statType string) (string, bool) {
+	selected := false
+	for _, name := range traceDBRawDecodeTargetNames() {
+		if eventName == name {
+			selected = true
+			break
+		}
+	}
+	if !selected {
+		return "", false
+	}
+	switch statType {
+	case "received", "data_lost", "not_match", "not_supported", "invalid_data":
+		return "selected_" + traceDBRawDecodeMetricName(eventName) + "_" + statType, true
+	default:
+		return "", false
+	}
 }
 
 func traceDBCaptureIssueSemantics(eventName, statType string) string {

@@ -49,43 +49,49 @@ func probeTraceDBSourceRawProfile(
 	header fileHeader,
 	segments []segmentMeta,
 	inventoryIncomplete string,
-) (TraceDBCoverage, error) {
+) (TraceDBCoverage, TraceDBCoverage, error) {
 	coverage := newTraceDBSourceRawProfileCoverage()
+	decode := newTraceDBSourceRawDecodeAccumulator()
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if err := ctx.Err(); err != nil {
-		return coverage, err
+		return coverage, decode.coverage, err
 	}
 	if header.Magic != traceStreamerRawTraceMagic || header.Version != harmonyRMQVersion ||
 		(header.FileType != 0 && header.FileType != harmonyRMQFileType) {
 		coverage.Metadata["probe_state"] = "not_applicable_non_official_profile"
 		coverage.Metadata["decoder_readiness"] = "not_applicable"
 		coverage.Skipped = "official raw page probe not applicable to this envelope"
-		return coverage, nil
+		decode.setUnavailable("not_applicable_non_official_profile",
+			"official raw record decode ledger not applicable to this envelope", false)
+		return coverage, decode.coverage, nil
 	}
 	coverage.Found = true
+	decode.coverage.Found = true
 	if inventoryIncomplete != "" {
 		coverage.Metadata["probe_state"] = "withheld_segment_inventory_incomplete"
 		coverage.Metadata["decoder_readiness"] = "unavailable_segment_inventory_incomplete"
 		coverage.Skipped = "raw page probe withheld: segment_inventory_incomplete"
-		return coverage, nil
+		decode.setUnavailable("withheld_segment_inventory_incomplete",
+			"raw record decode ledger withheld: segment_inventory_incomplete", true)
+		return coverage, decode.coverage, nil
 	}
 
 	catalog, formatState := probeTraceDBSourceEventFormats(ctx, input, segments, &coverage)
 	if err := ctx.Err(); err != nil {
-		return coverage, err
+		return coverage, decode.coverage, err
 	}
 	coverage.Metadata["event_format_probe_state"] = formatState
 	probeTraceDBSourceUnknownSegments(ctx, input, header, segments, &coverage)
 	if err := ctx.Err(); err != nil {
-		return coverage, err
+		return coverage, decode.coverage, err
 	}
-	probeTraceDBSourceRawPages(ctx, input, header, segments, catalog, &coverage)
+	probeTraceDBSourceRawPages(ctx, input, header, segments, catalog, &coverage, &decode)
 	if err := ctx.Err(); err != nil {
-		return coverage, err
+		return coverage, decode.coverage, err
 	}
-	return coverage, nil
+	return coverage, decode.finalize(catalog, coverage), nil
 }
 
 func probeTraceDBSourceEventFormats(
@@ -200,6 +206,7 @@ func probeTraceDBSourceRawPages(
 	segments []segmentMeta,
 	catalog eventFormatCatalog,
 	coverage *TraceDBCoverage,
+	decode *traceDBSourceRawDecodeAccumulator,
 ) {
 	rawSegments := 0
 	rawBytes := int64(0)
@@ -242,7 +249,7 @@ func probeTraceDBSourceRawPages(
 				break
 			}
 			valid, pageRecords, pageKnown, pageUnknown, pageSentinels, cpu, targetCounts, reason :=
-				probeTraceDBSourceRMQCandidatePage(page, header.CPUNum, catalog)
+				probeTraceDBSourceRMQCandidatePage(page, header.CPUNum, catalog, decode)
 			records += pageRecords
 			knownRecords += pageKnown
 			unknownRecords += pageUnknown
@@ -328,6 +335,7 @@ func probeTraceDBSourceRMQCandidatePage(
 	page []byte,
 	cpuCount int,
 	catalog eventFormatCatalog,
+	decode *traceDBSourceRawDecodeAccumulator,
 ) (
 	valid bool,
 	records int64,
@@ -377,11 +385,18 @@ func probeTraceDBSourceRMQCandidatePage(
 		eventID := int(binary.LittleEndian.Uint16(content[:2]))
 		if format, exists := catalog.Formats[eventID]; exists {
 			known++
+			if decode != nil {
+				decode.observeRecord(format, content, header.CPU,
+					header.TimestampNS+uint64(eventHeader.TimestampOffsetNS))
+			}
 			if traceDBRawProbeTargetFormat(format.Name) {
 				targets[format.Name]++
 			}
 		} else {
 			unknown++
+			if decode != nil {
+				decode.observeUnknownRecord()
+			}
 		}
 		offset = next
 	}
