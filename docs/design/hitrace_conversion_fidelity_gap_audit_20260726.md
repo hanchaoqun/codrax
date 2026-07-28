@@ -1565,7 +1565,7 @@ identity, namespace ownership, or VSync provenance.
 | RPD-1b | P0 | implemented | correct counter semantics, include `print`, expose bounded geometry, accept exact 16/32-bit wake priority; zero recovered rows |
 | RPD-2A | P0 | diagnostic ledger implemented | construct bounded raw/DB blocked-reason content-key ledgers and prove the safe raw-only subset; no row is published |
 | RPD-2A-PUB | P0 | implemented | publish only content cohorts absent from DB after exact raw coordinates plus target/header lifecycle and namespace-safe identity proof |
-| RPD-2B | P1 | queued | reconcile marker physical/body rows against existing callstack/span output; recover only a proven missing marker subset with stack-safe duplicate suppression |
+| RPD-2B | P1 | in progress: ledger sub-batch implemented | reconcile marker physical/body rows against existing callstack/span output; the first sub-batch retains exact B/E and localized carrier failures under the sole tracequery grammar, while publication remains withheld pending stack-safe duplicate suppression |
 | RPD-2C | P1 | implemented | retain exact raw DMA wait endpoints and publish only complete, lifecycle-admitted, wire-representable clean pair lanes; never subtract high-level DMA DB activity as if it were a raw endpoint |
 | RPD-CAP1 | P0 | implemented | raise the bounded strict-decode census from 250,000 to 1,000,000 after the complete RPD-1 closed target roster proved 390,416 rows |
 | RPD-LITE-D | P1 | implemented | strict non-publishing decode and bounded retention for exact `sched_switch_lite` and `sched_wakeup_lite` profiles |
@@ -1899,6 +1899,60 @@ retention, exact CPU/flags/header/body, tracequery 3ms pairing, namespace
 rejection, DB-raw overlap withdrawal, sub-microsecond suppression, retained
 census mismatch, cancellation, poisoned-lane isolation and clean-sibling
 survival.
+
+### RPD-2B1 raw marker endpoint ledger
+
+The customer RPD-1 replay was built before the recovery batches and therefore
+cannot validate their publication. Its independent raw census nevertheless
+adds the decisive marker witness:
+
+```text
+print=175,165
+tracing_mark_write=7,518
+physical marker carriers=182,683
+TraceStreamer tracing_mark_write:received=182,683
+```
+
+The old diagnostic ledger decoded only the smaller
+`tracing_mark_write` carrier. RPD-1b added `print` to the physical/body census;
+RPD-2B1 now retains the exact synchronous endpoint evidence from both governed
+carriers without publishing a row.
+
+`tracequery.DecodeTraceMarkEndpointPayload` is the single exported verdict
+over the existing complete-payload `parseTraceMarkValidated` authority.
+Conversion does not carry another B/E grammar. For every exact B/E it retains:
+
+- physical raw-record ordinal, nanosecond timestamp and page CPU;
+- exact `common_pid`, flags and preempt count;
+- original complete marker buffer;
+- typed action, payload PID and begin name;
+- admitted/rejected reason from the same query grammar.
+
+The payload PID remains marker namespace data and is never rewritten to the
+host `common_pid`, TGID, ITID or process PID. A governed carrier which passes
+the common envelope but fails its strict descriptor/body decoder is retained
+as a localized rejection at its exact emitter and timestamp. It does not
+disappear and later allow adjacent endpoints to bridge the evidence hole.
+An envelope failure is unlocalizable and withdraws the complete retained
+marker ledger.
+
+The return gate proves all of these equalities before exposing retained rows:
+
+```text
+physical carriers = envelope-admitted carriers
+envelope admitted = body admitted + body rejected
+body admitted = retained B/E + non-sync marker payloads
+body rejected = retained localized carrier rejections
+retained slice = retained B/E + retained carrier rejections
+```
+
+This sub-batch remains non-publishing. RPD-2B2 must still reconcile exact raw
+B/E pairs with the existing DB callstack candidates. In particular, the
+shared authority's current `identical interval = unproven nesting` rule makes
+blindly submitting a duplicate raw interval unsafe: it would suppress an
+otherwise valid whole lane. The next sub-batch must distinguish exact
+cross-source corroboration from same-source identical nesting without using
+name similarity, nearest timestamps or namespace rewriting.
 
 ## Invariants
 
