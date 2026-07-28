@@ -260,8 +260,14 @@ func traceDBRawSchedSwitchLiteDiagnosticBody(row traceDBRawSchedSwitchLiteRecord
 }
 
 func traceDBRawSchedSwitchLiteNextInfoUnknownTail(row traceDBRawSchedSwitchLiteRecord) bool {
+	return traceDBRawSchedSwitchLiteNextInfoUnknownTailBits(row) != 0
+}
+
+func traceDBRawSchedSwitchLiteNextInfoUnknownTailBits(
+	row traceDBRawSchedSwitchLiteRecord,
+) uint64 {
 	const knownBits = uint64(1)<<53 - 1
-	return row.NextInfo & ^knownBits != 0
+	return row.NextInfo & ^knownBits
 }
 
 func traceDBRawSchedWakeupLiteDiagnosticBody(row traceDBRawSchedWakeupLiteRecord) string {

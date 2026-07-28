@@ -1746,13 +1746,14 @@ Consequently the exact join key is:
  next_canonical_public_tid, next_priority)
 ```
 
-The raw record is admitted only when `common_pid == prev_pid`; both public
-PIDs must already equal the canonical DB public TIDs. There is no comm-based
-join and no host/namespace-PID rewrite. A raw key and DB key must each occur
-exactly once across the complete audited input. Raw duplicates, DB
-duplicates, lifecycle-suppressed CPU lanes, an incomplete raw ledger, a
-retained/admitted census mismatch, unmapped state, invalid envelope scalar or
-missing DB census all fail closed.
+Both payload public PIDs must already equal the canonical DB public TIDs.
+`common_pid` is an independently counted envelope observation, not switch
+identity; it is never rendered or used as a host/namespace mapping. There is
+no comm-based join and no host/namespace-PID rewrite. A raw key and DB key
+must each occur exactly once across the complete audited input. Raw
+duplicates, DB duplicates, lifecycle-suppressed CPU lanes, an incomplete raw
+ledger, a retained/admitted census mismatch, unmapped state, invalid envelope
+scalar or missing DB census all fail closed.
 
 On a unique match, the existing DB row receives:
 
@@ -1771,12 +1772,12 @@ while the packed-lite lane preserves the complete word and decodes only the
 known prefix.
 
 Tests pin the complete upstream state table, unique enrichment, exact
-switch-out priority, trace-query consumption, future-tail receipt, namespace
-header mismatch, state/priority mismatch, duplicate raw key suppression,
-zero duplicate physical events, typed coverage attachment, and the
-missing-DB-census arm. RPD-LITE-JW remains separate because a wakeup edge uses
-different DB tables and producer shapes; switch-boundary proof must not be
-reused as wakeup authority.
+switch-out priority, trace-query consumption, future-tail receipt,
+`common_pid` nonidentity, state/priority mismatch, duplicate raw key
+suppression, zero duplicate physical events, typed coverage attachment, and
+the missing-DB-census arm. RPD-LITE-JW remains separate because a wakeup edge
+uses different DB tables and producer shapes; switch-boundary proof must not
+be reused as wakeup authority.
 
 ### RPD-LITE-JW exact wakeup-edge enrichment
 
@@ -2275,6 +2276,30 @@ namespace or identity fence:
 The typed metric `raw_records_common_pid_differs_from_prev_tid` preserves the
 observed envelope/body difference for audit. Any records rejected by the
 remaining exact payload/state/range gates stay fail-closed.
+
+### REP-2C — scheduler-lite decision diagnostics without semantic guessing
+
+REP2 reports only one aggregate `raw_records_key_rejected=115927`, so after
+removing the incorrect `common_pid` equality it could not distinguish an
+unsupported `pstate` from an invalid scalar if any rejection remained.
+Capability `official_raw_scheduler_lite_decision_diagnostics_v1` preserves
+the aggregate and adds one closed typed counter for the first exact rejection
+gate (`unsupported_prev_state`, timestamp/CPU/TID/envelope/priority range).
+These counters are observational and do not relax any gate.
+
+The same capability adds
+`scheduler_lite_next_info_unknown_tail_or` and
+`scheduler_lite_next_info_unknown_tail_and` to the raw-decode ledger whenever
+bits 53..63 are present. REP2 has such bits in all `117,226` records, but the
+available pinned producer and public reference converter do not define their
+field boundaries or meaning. Codrax therefore continues to:
+
+- render only the proven prefix through cgroup ID;
+- preserve the complete authoritative packed word in
+  `codrax_next_info_raw`;
+- expose aggregate high-bit geometry for the next replay;
+- make no seventh/eighth-field, cpuset, namespace or policy claim from those
+  undocumented bits.
 
 ## Invariants
 

@@ -62,9 +62,11 @@ func newTraceDBRawSchedSwitchLiteJoin(
 			traceDBAddCoverageMetric(
 				&join.coverage, "raw_records_common_pid_differs_from_prev_tid", 1)
 		}
-		key, ok := traceDBRawSchedSwitchLiteKey(raw)
-		if !ok {
+		key, reason := traceDBRawSchedSwitchLiteKeyDecision(raw)
+		if reason != "" {
 			traceDBAddCoverageMetric(&join.coverage, "raw_records_key_rejected", 1)
+			traceDBAddCoverageMetric(
+				&join.coverage, "raw_records_key_rejected_"+reason, 1)
 			continue
 		}
 		join.rawByKey[key] = append(join.rawByKey[key], raw)
@@ -110,15 +112,40 @@ func newTraceDBRawSchedSwitchLiteJoinCoverage() TraceDBCoverage {
 func traceDBRawSchedSwitchLiteKey(
 	raw traceDBRawSchedSwitchLiteRecord,
 ) (traceDBRawSchedSwitchLiteJoinKey, bool) {
+	key, reason := traceDBRawSchedSwitchLiteKeyDecision(raw)
+	return key, reason == ""
+}
+
+func traceDBRawSchedSwitchLiteKeyDecision(
+	raw traceDBRawSchedSwitchLiteRecord,
+) (traceDBRawSchedSwitchLiteJoinKey, string) {
 	state, ok := traceDBRawSchedSwitchLiteEndState(raw.PrevState)
-	if !ok || raw.TimestampNS > math.MaxInt64 || !validTraceDBCPUIndex(int64(raw.CPU)) ||
-		raw.PrevTID < 0 || raw.PrevTID > math.MaxInt32 ||
-		raw.NextTID < 0 || raw.NextTID > math.MaxInt32 ||
-		raw.Flags < 0 || raw.Flags > math.MaxUint8 ||
-		raw.PreemptCount < 0 || raw.PreemptCount > math.MaxUint8 ||
-		raw.PrevPriority < math.MinInt32 || raw.PrevPriority >= math.MaxInt32 ||
-		raw.NextPriority < math.MinInt32 || raw.NextPriority >= math.MaxInt32 {
-		return traceDBRawSchedSwitchLiteJoinKey{}, false
+	if !ok {
+		return traceDBRawSchedSwitchLiteJoinKey{}, "unsupported_prev_state"
+	}
+	if raw.TimestampNS > math.MaxInt64 {
+		return traceDBRawSchedSwitchLiteJoinKey{}, "timestamp_out_of_range"
+	}
+	if !validTraceDBCPUIndex(int64(raw.CPU)) {
+		return traceDBRawSchedSwitchLiteJoinKey{}, "cpu_out_of_range"
+	}
+	if raw.PrevTID < 0 || raw.PrevTID > math.MaxInt32 {
+		return traceDBRawSchedSwitchLiteJoinKey{}, "prev_tid_out_of_range"
+	}
+	if raw.NextTID < 0 || raw.NextTID > math.MaxInt32 {
+		return traceDBRawSchedSwitchLiteJoinKey{}, "next_tid_out_of_range"
+	}
+	if raw.Flags < 0 || raw.Flags > math.MaxUint8 {
+		return traceDBRawSchedSwitchLiteJoinKey{}, "flags_out_of_range"
+	}
+	if raw.PreemptCount < 0 || raw.PreemptCount > math.MaxUint8 {
+		return traceDBRawSchedSwitchLiteJoinKey{}, "preempt_count_out_of_range"
+	}
+	if raw.PrevPriority < math.MinInt32 || raw.PrevPriority >= math.MaxInt32 {
+		return traceDBRawSchedSwitchLiteJoinKey{}, "prev_priority_out_of_range"
+	}
+	if raw.NextPriority < math.MinInt32 || raw.NextPriority >= math.MaxInt32 {
+		return traceDBRawSchedSwitchLiteJoinKey{}, "next_priority_out_of_range"
 	}
 	return traceDBRawSchedSwitchLiteJoinKey{
 		TimestampNS:  int64(raw.TimestampNS),
@@ -127,7 +154,7 @@ func traceDBRawSchedSwitchLiteKey(
 		PrevState:    state,
 		NextTID:      raw.NextTID,
 		NextPriority: raw.NextPriority,
-	}, true
+	}, ""
 }
 
 func traceDBSchedSwitchLiteBoundaryKey(

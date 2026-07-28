@@ -77,6 +77,14 @@ func TestTraceDBRawSchedSwitchLiteJoinFailsClosedOnBodyIdentityStateAndMultiplic
 			}(),
 		},
 		{
+			name: "unsupported_state",
+			rows: func() []traceDBRawSchedSwitchLiteRecord {
+				row := base
+				row.PrevState = 7
+				return []traceDBRawSchedSwitchLiteRecord{row}
+			}(),
+		},
+		{
 			name: "duplicate_raw_key",
 			rows: []traceDBRawSchedSwitchLiteRecord{base, base},
 		},
@@ -101,6 +109,10 @@ func TestTraceDBRawSchedSwitchLiteJoinFailsClosedOnBodyIdentityStateAndMultiplic
 				joinCoverage.Metadata["join_state"] != "complete_no_unique_match" {
 				t.Fatalf("unproven join coverage drifted: scheduler=%+v join=%+v",
 					schedulerCoverage, joinCoverage)
+			}
+			if test.name == "unsupported_state" &&
+				joinCoverage.Metrics["raw_records_key_rejected_unsupported_prev_state"] != 1 {
+				t.Fatalf("typed key rejection reason missing: %+v", joinCoverage)
 			}
 		})
 	}

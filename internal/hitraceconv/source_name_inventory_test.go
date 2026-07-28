@@ -449,6 +449,10 @@ func TestTraceDBSourceRawDecodeLedgerRetainsStrictSchedulerLiteRecordsWithoutPub
 		decode.Metrics["target_sched_switch_lite_body_admitted"] != 1 ||
 		decode.Metrics["target_sched_wakeup_lite_body_admitted"] != 1 ||
 		decode.Metrics["target_sched_switch_lite_next_info_unknown_tail_bits"] != 1 ||
+		decode.Metadata["scheduler_lite_next_info_unknown_tail_or"] !=
+			"0x1000000000000000" ||
+		decode.Metadata["scheduler_lite_next_info_unknown_tail_and"] !=
+			"0x1000000000000000" ||
 		!strings.Contains(decode.Metadata["target_format_geometry_witnesses"],
 			"sched_switch_lite#32772[") ||
 		!strings.Contains(decode.Metadata["target_format_geometry_witnesses"],

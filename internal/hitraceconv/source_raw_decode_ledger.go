@@ -84,6 +84,9 @@ type traceDBSourceRawDecodeAccumulator struct {
 	targetLastTS      uint64
 	targetTimestamp   bool
 	decodeCapped      bool
+	nextInfoTailOR    uint64
+	nextInfoTailAND   uint64
+	nextInfoTailSeen  bool
 }
 
 func newTraceDBSourceRawDecodeCoverage() TraceDBCoverage {
@@ -271,9 +274,16 @@ func (a *traceDBSourceRawDecodeAccumulator) observeRecord(
 			}
 			lite.TimestampNS, lite.CPU = timestampNS, cpu
 			lite.HeaderPID, lite.Flags, lite.PreemptCount = int64(headerPID), flags, preemptCount
-			if traceDBRawSchedSwitchLiteNextInfoUnknownTail(lite) {
+			if tail := traceDBRawSchedSwitchLiteNextInfoUnknownTailBits(lite); tail != 0 {
 				traceDBAddCoverageMetric(&a.coverage,
 					"target_sched_switch_lite_next_info_unknown_tail_bits", 1)
+				a.nextInfoTailOR |= tail
+				if !a.nextInfoTailSeen {
+					a.nextInfoTailAND = tail
+					a.nextInfoTailSeen = true
+				} else {
+					a.nextInfoTailAND &= tail
+				}
 			}
 			a.switchLiteRecords = append(a.switchLiteRecords, lite)
 		} else if format.Name == "sched_wakeup_lite" {
@@ -385,6 +395,12 @@ func (a *traceDBSourceRawDecodeAccumulator) finalize(
 	if a.targetTimestamp {
 		a.coverage.Metadata["target_first_timestamp_ns"] = strconv.FormatUint(a.targetFirstTS, 10)
 		a.coverage.Metadata["target_last_timestamp_ns"] = strconv.FormatUint(a.targetLastTS, 10)
+	}
+	if a.nextInfoTailSeen {
+		a.coverage.Metadata["scheduler_lite_next_info_unknown_tail_or"] =
+			fmt.Sprintf("0x%016x", a.nextInfoTailOR)
+		a.coverage.Metadata["scheduler_lite_next_info_unknown_tail_and"] =
+			fmt.Sprintf("0x%016x", a.nextInfoTailAND)
 	}
 	witnesses, omitted := traceDBRawDecodeFormatWitnesses(catalog, a.formats)
 	if len(witnesses) > 0 {
