@@ -1566,7 +1566,7 @@ identity, namespace ownership, or VSync provenance.
 | RPD-2A | P0 | diagnostic ledger implemented | construct bounded raw/DB blocked-reason content-key ledgers and prove the safe raw-only subset; no row is published |
 | RPD-2A-PUB | P0 | implemented | publish only content cohorts absent from DB after exact raw coordinates plus target/header lifecycle and namespace-safe identity proof |
 | RPD-2B | P1 | queued | reconcile marker physical/body rows against existing callstack/span output; recover only a proven missing marker subset with stack-safe duplicate suppression |
-| RPD-2C | P1 | queued | reconcile DMA wait start/end by exact pair key; never subtract high-level DMA DB activity as if it were a raw endpoint |
+| RPD-2C | P1 | implemented | retain exact raw DMA wait endpoints and publish only complete, lifecycle-admitted, wire-representable clean pair lanes; never subtract high-level DMA DB activity as if it were a raw endpoint |
 | RPD-CAP1 | P0 | implemented | raise the bounded strict-decode census from 250,000 to 1,000,000 after the complete RPD-1 closed target roster proved 390,416 rows |
 | RPD-LITE-D | P1 | implemented | strict non-publishing decode and bounded retention for exact `sched_switch_lite` and `sched_wakeup_lite` profiles |
 | RPD-LITE-JS | P1 | implemented | enrich only a one-raw/one-DB `sched_switch_lite` boundary with exact switch-out priority, header flags and full next-info receipt; emit no second event |
@@ -1842,6 +1842,63 @@ namespace/header mismatch, wakee and target-CPU mismatch, raw-key
 multiplicity, exact-source co-presence withdrawal, bytrace DB-shape
 rejection, nonpositive priority, fallback preservation, missing DB census,
 typed coverage attachment and diagnostic capability publication.
+
+### RPD-2C exact raw DMA-wait recovery
+
+RPD-2C is implemented as capability
+`official_raw_dma_wait_recovery_v1` and coverage family
+`source_rawtrace_dma_wait/__raw_dma_wait__`. The RPD-1 source contains 149
+strict `dma_fence_wait_start` and 149 strict `dma_fence_wait_end` records.
+TraceStreamer's normalized `raw` table has no argset column on this producer,
+so its raw exporter cannot render them; the `dma_fence` high-level table is
+also intentionally non-equivalent because its `dur` is a previous-event
+delta and it carries no emitter or CPU.
+
+The raw ledger now retains, for these two exact descriptors only:
+
+- nanosecond timestamp and raw-page CPU;
+- `common_pid`, flags and preempt count;
+- driver, timeline, uint32 context and uint32 sequence number;
+- exact start/end event name.
+
+Publication requires the complete decode ledger and equality between the
+physical, body-admitted and retained endpoint censuses. If the DB raw-ftrace
+DMA class emitted even one row, source publication withdraws whole because
+the current DB coverage does not retain a cross-source duplicate key. The
+high-level activity table is never counted as an endpoint and never
+subtracted.
+
+The sole key authority remains
+`tracequery.FingerprintPairingEndpoint`:
+
+```text
+(common_pid, driver, timeline, context, seqno, dma_fence_wait)
+```
+
+`common_pid` must resolve to exactly one canonical public host TID at the
+exact timestamp and pass the shared lifecycle point gate. It must remain
+byte-for-byte equal to that canonical public TID; namespace-shaped values are
+not rewritten through a name, process or neighboring scheduler row. Exact
+raw CPU, flags and preempt count are preserved in the emitted ftrace
+envelope. A kernel thread may retain an unavailable TGID, but Codrax never
+sets `TGID=TID`.
+
+Within each exact key lane, timestamps are sorted and the topology must
+alternate one start followed by one end. Repeated/nested starts, orphan ends,
+same-timestamp ambiguity, open tails, timestamp regression and intervals
+which cannot remain positive after the standard six-decimal systrace
+round-trip poison the whole lane. Clean sibling lanes remain publishable.
+This is the anti-rescue rule: removing a bad endpoint must never let its
+neighbors form a fabricated wait.
+
+The emitted body remains the canonical four-field DMA wire without an
+unrecognized provenance suffix, and a typed-to-wire parity check runs before
+the first sink insertion. Rows are prepared completely before publication,
+so cancellation or an invariant error emits no prefix. Tests pin strict raw
+retention, exact CPU/flags/header/body, tracequery 3ms pairing, namespace
+rejection, DB-raw overlap withdrawal, sub-microsecond suppression, retained
+census mismatch, cancellation, poisoned-lane isolation and clean-sibling
+survival.
 
 ## Invariants
 

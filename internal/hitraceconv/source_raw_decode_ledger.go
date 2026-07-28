@@ -37,10 +37,24 @@ type traceDBRawBlockedRecord struct {
 	DelayKnown       bool
 }
 
+type traceDBRawDMAWaitRecord struct {
+	TimestampNS  uint64
+	CPU          int
+	HeaderPID    int64
+	Flags        int64
+	PreemptCount int64
+	Name         string
+	Driver       string
+	Timeline     string
+	Context      uint64
+	Seqno        uint64
+}
+
 type traceDBSourceRawDecodeAccumulator struct {
 	coverage          TraceDBCoverage
 	formats           map[int]*traceDBRawDecodeFormatStats
 	blockedRecords    []traceDBRawBlockedRecord
+	dmaWaitRecords    []traceDBRawDMAWaitRecord
 	switchLiteRecords []traceDBRawSchedSwitchLiteRecord
 	wakeupLiteRecords []traceDBRawSchedWakeupLiteRecord
 	targetRows        int64
@@ -197,6 +211,26 @@ func (a *traceDBSourceRawDecodeAccumulator) observeRecord(
 			lite.TimestampNS, lite.CPU = timestampNS, cpu
 			lite.HeaderPID, lite.Flags, lite.PreemptCount = int64(headerPID), flags, preemptCount
 			a.wakeupLiteRecords = append(a.wakeupLiteRecords, lite)
+		} else if format.Name == "dma_fence_wait_start" || format.Name == "dma_fence_wait_end" {
+			payload, payloadAdmission, payloadReason := decodeDirectPairPayload(event, content)
+			if payloadAdmission != bodyAdmitted || payloadReason != "" ||
+				payload.Kind != pairRenderDMAFence || payload.Name != format.Name ||
+				payload.DMAFence == nil {
+				traceDBAddCoverageMetric(&a.coverage, "target_dma_fence_wait_record_capture_failed", 1)
+				return
+			}
+			dma := payload.DMAFence
+			if !dma.DriverKnown || !dma.TimelineKnown || !dma.ContextKnown || !dma.SeqnoKnown ||
+				dma.NumberBits != 32 {
+				traceDBAddCoverageMetric(&a.coverage, "target_dma_fence_wait_record_capture_failed", 1)
+				return
+			}
+			a.dmaWaitRecords = append(a.dmaWaitRecords, traceDBRawDMAWaitRecord{
+				TimestampNS: timestampNS, CPU: cpu, HeaderPID: int64(headerPID),
+				Flags: flags, PreemptCount: preemptCount, Name: format.Name,
+				Driver: dma.Driver, Timeline: dma.Timeline,
+				Context: dma.Context, Seqno: dma.Seqno,
+			})
 		}
 	case bodyRejected:
 		traceDBAddCoverageMetric(&a.coverage, "target_body_rejected", 1)
