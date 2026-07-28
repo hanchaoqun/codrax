@@ -16,6 +16,14 @@ type traceDBBlockedComparableKey struct {
 	Caller    string
 }
 
+type traceDBRawBlockedRecoveryRow struct {
+	Raw           traceDBRawBlockedRecord
+	TargetThread  traceDBThread
+	TargetProcess traceDBProcess
+	HeaderThread  traceDBThread
+	HeaderProcess traceDBProcess
+}
+
 func newTraceDBRawBlockedKeyCoverage() TraceDBCoverage {
 	return TraceDBCoverage{
 		Family: "source_rawtrace_blocked_key",
@@ -41,16 +49,25 @@ func traceDBRawBlockedKeyCoverage(
 	dbRows []traceDBPreparedBlockedReason,
 	authority traceDBSchedulerAuthority,
 ) TraceDBCoverage {
+	coverage, _ := traceDBRawBlockedKeyLedger(inventory, dbRows, authority)
+	return coverage
+}
+
+func traceDBRawBlockedKeyLedger(
+	inventory *traceDBSourceNameInventory,
+	dbRows []traceDBPreparedBlockedReason,
+	authority traceDBSchedulerAuthority,
+) (TraceDBCoverage, []traceDBRawBlockedRecoveryRow) {
 	out := newTraceDBRawBlockedKeyCoverage()
 	if inventory == nil {
 		out.Skipped = "raw blocked key ledger unavailable: immutable source inventory absent"
-		return out
+		return out, nil
 	}
 	out.Found = inventory.RawDecode.Found
 	if inventory.RawDecode.Metadata["decode_state"] != "strict_target_ledger_complete" {
 		out.Metadata["ledger_state"] = "withheld_raw_decode_incomplete"
 		out.Skipped = "raw blocked key ledger withheld: strict raw decode ledger incomplete"
-		return out
+		return out, nil
 	}
 	rawRows := inventory.RawBlocked
 	out.RowsRead = len(rawRows) + len(dbRows)
@@ -60,12 +77,11 @@ func traceDBRawBlockedKeyCoverage(
 		inventory.RawDecode.Metrics["target_sched_blocked_reason_key_capture_failed"] != 0 {
 		out.Metadata["ledger_state"] = "withheld_raw_record_capture_incomplete"
 		out.Skipped = "raw blocked key ledger withheld: admitted-body/retained-record census mismatch"
-		return out
+		return out, nil
 	}
 
 	rawCounts := map[traceDBBlockedComparableKey]int64{}
 	dbCounts := map[traceDBBlockedComparableKey]int64{}
-	rawByKey := map[traceDBBlockedComparableKey][]traceDBRawBlockedRecord{}
 	for _, row := range rawRows {
 		key, ok := traceDBRawBlockedComparableKey(row)
 		if !ok {
@@ -73,7 +89,6 @@ func traceDBRawBlockedKeyCoverage(
 			continue
 		}
 		rawCounts[key]++
-		rawByKey[key] = append(rawByKey[key], row)
 	}
 	for _, row := range dbRows {
 		key, ok := traceDBDBBlockedComparableKey(row)
@@ -91,7 +106,7 @@ func traceDBRawBlockedKeyCoverage(
 		out.Metrics["db_rows_without_comparable_key"] != 0 {
 		out.Metadata["ledger_state"] = "withheld_unkeyed_rows"
 		out.Skipped = "raw blocked key ledger withheld: not every raw/DB row has an exact comparable content key"
-		return out
+		return out, nil
 	}
 
 	for key, dbCount := range dbCounts {
@@ -110,32 +125,42 @@ func traceDBRawBlockedKeyCoverage(
 		out.Metrics["db_key_cohorts_exceed_raw"] != 0 {
 		out.Metadata["ledger_state"] = "exact_content_multiset_subset_mismatch"
 		out.Skipped = "raw blocked key ledger mismatch: DB content cohorts are not a multiset subset of raw"
-		return out
+		return out, nil
 	}
 
-	for key, records := range rawByKey {
+	eligibleKeys := map[traceDBBlockedComparableKey]bool{}
+	for key, rawCount := range rawCounts {
 		if dbCounts[key] > 0 {
 			traceDBAddCoverageMetric(&out, "raw_overlap_key_cohorts", 1)
-			traceDBAddCoverageMetric(&out, "raw_rows_withheld_overlap_cohort", int64(len(records)))
+			traceDBAddCoverageMetric(&out, "raw_rows_withheld_overlap_cohort", rawCount)
 			continue
 		}
 		traceDBAddCoverageMetric(&out, "raw_absent_db_key_cohorts", 1)
-		traceDBAddCoverageMetric(&out, "raw_rows_absent_db_cohort", int64(len(records)))
-		for _, record := range records {
-			reason := traceDBRawBlockedIdentityReason(record, authority)
-			if reason == "" {
-				traceDBAddCoverageMetric(&out, "raw_rows_absent_db_identity_admitted", 1)
-			} else {
-				traceDBAddCoverageMetric(&out, "raw_rows_absent_db_identity_rejected_"+reason, 1)
-			}
+		traceDBAddCoverageMetric(&out, "raw_rows_absent_db_cohort", rawCount)
+		eligibleKeys[key] = true
+	}
+	// Preserve immutable raw capture order. Iterating the cohort map here would
+	// make equal-timestamp output ordering depend on randomized Go map order.
+	var recovery []traceDBRawBlockedRecoveryRow
+	for _, record := range rawRows {
+		key, ok := traceDBRawBlockedComparableKey(record)
+		if !ok || !eligibleKeys[key] {
+			continue
+		}
+		prepared, reason := traceDBPrepareRawBlockedRecovery(record, authority)
+		if reason == "" {
+			traceDBAddCoverageMetric(&out, "raw_rows_absent_db_identity_admitted", 1)
+			recovery = append(recovery, prepared)
+		} else {
+			traceDBAddCoverageMetric(&out, "raw_rows_absent_db_identity_rejected_"+reason, 1)
 		}
 	}
 	out.Metadata["ledger_state"] = "exact_content_multiset_subset"
 	out.Metadata["deduplication_limit"] =
 		"DB lacks original blocked-event timestamp/CPU/delay, so any raw cohort sharing a content key with DB is wholly withheld rather than subtracting counts"
 	out.Metadata["publication_authority"] =
-		"withheld_requires_separate_raw_only_row_publisher_and_all_identity_gates"
-	return out
+		"delegated_to_source_rawtrace_blocked_recovery_after_all_identity_gates"
+	return out, recovery
 }
 
 func traceDBRawBlockedComparableKey(row traceDBRawBlockedRecord) (traceDBBlockedComparableKey, bool) {
@@ -177,21 +202,28 @@ func traceDBDBBlockedComparableKey(row traceDBPreparedBlockedReason) (traceDBBlo
 	return traceDBBlockedComparableKey{TargetTID: row.Row.TID, IOWait: row.IOWait, Caller: caller}, true
 }
 
-func traceDBRawBlockedIdentityReason(
+func traceDBPrepareRawBlockedRecovery(
 	row traceDBRawBlockedRecord,
 	authority traceDBSchedulerAuthority,
-) string {
+) (traceDBRawBlockedRecoveryRow, string) {
 	if row.TimestampNS > math.MaxInt64 || !validTraceDBCPUIndex(int64(row.CPU)) {
-		return "invalid_coordinates"
+		return traceDBRawBlockedRecoveryRow{}, "invalid_coordinates"
 	}
 	timestamp := int64(row.TimestampNS)
-	if _, _, reason := traceDBResolveRawPublicTID(authority, row.TargetTID, timestamp); reason != "" {
-		return "target_" + reason
+	targetThread, targetProcess, reason :=
+		traceDBResolveRawPublicTID(authority, row.TargetTID, timestamp)
+	if reason != "" {
+		return traceDBRawBlockedRecoveryRow{}, "target_" + reason
 	}
-	if _, _, reason := traceDBResolveRawPublicTID(authority, row.HeaderPID, timestamp); reason != "" {
-		return "header_" + reason
+	headerThread, headerProcess, reason :=
+		traceDBResolveRawPublicTID(authority, row.HeaderPID, timestamp)
+	if reason != "" {
+		return traceDBRawBlockedRecoveryRow{}, "header_" + reason
 	}
-	return ""
+	return traceDBRawBlockedRecoveryRow{
+		Raw: row, TargetThread: targetThread, TargetProcess: targetProcess,
+		HeaderThread: headerThread, HeaderProcess: headerProcess,
+	}, ""
 }
 
 func traceDBResolveRawPublicTID(

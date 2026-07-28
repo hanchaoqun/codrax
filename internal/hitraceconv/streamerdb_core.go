@@ -37,8 +37,9 @@ type traceDB struct {
 	// sourceNameInventory is optional display-only name plus diagnostic-only
 	// segment evidence captured from the exact immutable binary generation
 	// passed to trace_streamer.
-	sourceNameInventory   *traceDBSourceNameInventory
-	rawBlockedKeyCoverage TraceDBCoverage
+	sourceNameInventory        *traceDBSourceNameInventory
+	rawBlockedKeyCoverage      TraceDBCoverage
+	rawBlockedRecoveryCoverage TraceDBCoverage
 }
 
 var errSealedTraceDBAuthority = errors.New("sealed trace DB authority lifecycle failed")

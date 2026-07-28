@@ -40,6 +40,7 @@ var traceConvertDiagnosticCapabilities = []string{
 	"official_raw_record_decode_ledger_v1",
 	"official_raw_record_reconciliation_v2",
 	"official_raw_blocked_key_ledger_v1",
+	"official_raw_blocked_recovery_v1",
 }
 
 type traceConvertDiagnosticProgressLog struct {

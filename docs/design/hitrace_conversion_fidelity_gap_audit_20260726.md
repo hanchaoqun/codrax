@@ -1564,7 +1564,7 @@ identity, namespace ownership, or VSync provenance.
 | --- | --- | --- | --- |
 | RPD-1b | P0 | implemented | correct counter semantics, include `print`, expose bounded geometry, accept exact 16/32-bit wake priority; zero recovered rows |
 | RPD-2A | P0 | diagnostic ledger implemented | construct bounded raw/DB blocked-reason content-key ledgers and prove the safe raw-only subset; no row is published |
-| RPD-2A-PUB | P0 | next | publish only content cohorts absent from DB after exact raw coordinates plus target/header lifecycle and namespace-safe identity proof |
+| RPD-2A-PUB | P0 | implemented | publish only content cohorts absent from DB after exact raw coordinates plus target/header lifecycle and namespace-safe identity proof |
 | RPD-2B | P1 | queued | reconcile marker physical/body rows against existing callstack/span output; recover only a proven missing marker subset with stack-safe duplicate suppression |
 | RPD-2C | P1 | queued | reconcile DMA wait start/end by exact pair key; never subtract high-level DMA DB activity as if it were a raw endpoint |
 | RPD-LITE | P1 | queued | implement exact `sched_switch_lite` and `sched_wakeup_lite` descriptor profiles with next-info/cpuset authority preserved; no name-based aliasing |
@@ -1614,13 +1614,63 @@ Capability `official_raw_blocked_key_ledger_v1` and coverage family
 `source_rawtrace_blocked_key/__raw_vs_db_blocked_key__` expose only bounded
 counts and deterministic SHA-256 multiset receipts. Caller values and raw
 record identities are not printed. `RowsEmitted=0` and
-`publication_authority=withheld` remain invariant in this batch.
+delegated `publication_authority` remain invariant in this diagnostic family;
+only the separate RPD-2A-PUB family may emit rows.
 
 This design intentionally trades recall for duplicate safety: a content cohort
 may contain one DB-backed row and many genuinely missing raw rows, but the
 entire cohort remains withheld because the producer erased the original DB
 coordinates. RPD-2A-PUB may publish only the disjoint cohorts which the ledger
 proves have zero DB representation.
+
+### RPD-2A-PUB exact raw-only publication
+
+RPD-2A-PUB consumes the RPD-2A ledger directly; it does not repeat or weaken
+the cohort decision. Capability `official_raw_blocked_recovery_v1` and
+coverage family
+`source_rawtrace_blocked_recovery/__raw_only_blocked_reason__` identify this
+publication path.
+
+A recovered row is published only when all of the following precise
+conditions hold:
+
+1. the raw decode ledger is complete and the DB multiset is an exact subset
+   of the raw content multiset;
+2. the row belongs to a raw content cohort with zero DB representation;
+3. the retained row count equals the identity-admitted ledger census;
+4. the exact raw timestamp and CPU are valid;
+5. the payload target TID resolves to exactly one canonical thread/process at
+   that timestamp and passes the shared lifecycle point gate;
+6. the raw `common_pid` independently resolves to exactly one canonical
+   header thread/process at that timestamp and passes the same gate;
+7. the canonical blocked body and ftrace envelope pass the existing strict
+   single-line and numeric bounds.
+
+The emitted line preserves the exact raw timestamp, CPU, flags,
+preempt-count, `common_pid` header identity, payload target TID, iowait,
+caller profile, optional cnode index and optional delay. It carries
+`source=official_rawtrace_rpd2a raw_db_content_cohort=absent` so downstream
+audits can distinguish it from TraceStreamer DB projections. A canonical
+kernel thread with no positive process PID keeps the exact header TID and
+prints an unavailable TGID (`-----`); it is never rewritten as `TGID=TID`.
+
+Publication remains deliberately incomplete:
+
+- a cohort with even one DB representation is withheld in full;
+- a namespace-shaped PID without a unique canonical host mapping is
+  withheld, never rewritten;
+- lifecycle absence, rejection or ambiguity withholds the individual row;
+- a ledger mismatch, retained/admitted census mismatch or cancellation
+  publishes no recovered prefix to the final artifact;
+- these rows do not alter the existing DB scheduler coverage counters; their
+  own coverage reports `RowsRead`, `RowsEmitted` and a typed
+  `publication_state`.
+
+Tests pin the exact timestamp/CPU/flags/header/body output, overlap
+suppression, unresolved namespace rejection, census mismatch, cancellation,
+zero-eligible publication and end-to-end coverage attachment. This closes the
+safe blocked-reason subset; it does not claim recovery of all `19,771`
+unmatched upstream associations.
 
 ## Invariants
 

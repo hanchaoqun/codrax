@@ -82,6 +82,7 @@ type traceDBBlockedBoundaryIndex struct {
 func exportTraceDBBlockedReasons(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, authority traceDBSchedulerAuthority) (TraceDBCoverage, error) {
 	if tdb != nil {
 		tdb.rawBlockedKeyCoverage = newTraceDBRawBlockedKeyCoverage()
+		tdb.rawBlockedRecoveryCoverage = newTraceDBRawBlockedRecoveryCoverage()
 	}
 	coverage := TraceDBCoverage{
 		Family: "scheduler",
@@ -218,8 +219,14 @@ func exportTraceDBBlockedReasons(ctx context.Context, tdb *traceDB, sink *traceD
 	}
 	coverage.Skipped = traceDBBlockedSkipSummary(skipped)
 	if tdb != nil {
-		tdb.rawBlockedKeyCoverage =
-			traceDBRawBlockedKeyCoverage(tdb.sourceNameInventory, emittedCandidates, authority)
+		var recovery []traceDBRawBlockedRecoveryRow
+		tdb.rawBlockedKeyCoverage, recovery =
+			traceDBRawBlockedKeyLedger(tdb.sourceNameInventory, emittedCandidates, authority)
+		tdb.rawBlockedRecoveryCoverage, err =
+			publishTraceDBRawBlockedRecovery(ctx, sink, tdb.rawBlockedKeyCoverage, recovery)
+		if err != nil {
+			return coverage, err
+		}
 	}
 	return coverage, nil
 }

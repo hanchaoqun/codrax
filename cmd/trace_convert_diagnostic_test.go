@@ -37,7 +37,7 @@ func TestTraceConvertDiagnosticReportHardLimitAndPhysicalLineSafety(t *testing.T
 		"build_revision=",
 		`build_identity={"revision":`,
 		`"executable_hash_status":"available"`,
-		`diagnostic_capabilities=["sql_mixed_precision_wire_sort_v1","clock_regression_first_witness_v1","callstack_exact_name_v1","source_cmdline_official_rawtrace_v1","capture_issue_semantics_v1","callstack_official_field_semantics_v1","callstack_time_local_fence_v1","standard_sync_pipe_compat_v1","callstack_completed_async_interval_v1","source_rawtrace_authority_inventory_v1","executable_build_fingerprint_v1","unresolved_trace_identity_witnesses_v1","official_raw_page_profile_probe_v1","official_raw_record_decode_ledger_v1","official_raw_record_reconciliation_v2","official_raw_blocked_key_ledger_v1"]`,
+		`diagnostic_capabilities=["sql_mixed_precision_wire_sort_v1","clock_regression_first_witness_v1","callstack_exact_name_v1","source_cmdline_official_rawtrace_v1","capture_issue_semantics_v1","callstack_official_field_semantics_v1","callstack_time_local_fence_v1","standard_sync_pipe_compat_v1","callstack_completed_async_interval_v1","source_rawtrace_authority_inventory_v1","executable_build_fingerprint_v1","unresolved_trace_identity_witnesses_v1","official_raw_page_profile_probe_v1","official_raw_record_decode_ledger_v1","official_raw_record_reconciliation_v2","official_raw_blocked_key_ledger_v1","official_raw_blocked_recovery_v1"]`,
 		`normalize failed\nsecond physical line must not escape`,
 		"hard_limit=900",
 		"omitted_records=",

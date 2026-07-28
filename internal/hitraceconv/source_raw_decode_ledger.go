@@ -31,6 +31,8 @@ type traceDBRawBlockedRecord struct {
 	CallerRaw        uint64
 	Caller           string
 	CallerSymbolized bool
+	CNodeIndex       uint64
+	CNodeKnown       bool
 	Delay            uint64
 	DelayKnown       bool
 }
@@ -167,6 +169,7 @@ func (a *traceDBSourceRawDecodeAccumulator) observeRecord(
 				Flags: flags, PreemptCount: preemptCount, TargetTID: blocked.PID,
 				IOWait: int64(blocked.IOWait), CallerRaw: blocked.CallerRaw,
 				Caller: blocked.Caller, CallerSymbolized: blocked.CallerSymbolized,
+				CNodeIndex: blocked.CNodeIndex, CNodeKnown: blocked.CNodeKnown,
 				Delay: blocked.Delay, DelayKnown: blocked.DelayKnown,
 			})
 		}
