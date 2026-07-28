@@ -203,3 +203,25 @@ func TestReasoningZhNudgePlacement(t *testing.T) {
 		t.Fatal("REPL helper always carries the base soft sentence")
 	}
 }
+
+// A4: the per-round ephemeral tail nudge — Chinese-only by design (it exists
+// to counter CJK reasoning drift at maximum recency); en/other/disabled
+// modes stay silent so English runs pay zero tokens.
+func TestReasoningLanguageTailNudgeArms(t *testing.T) {
+	if ReasoningLanguageTailNudge("zh", "") != reasoningLanguageZhNudge {
+		t.Fatal("locked zh must always nudge")
+	}
+	if ReasoningLanguageTailNudge("auto", "分析这个trace的丢帧原因") != reasoningLanguageZhNudge {
+		t.Fatal("auto + CJK question must nudge")
+	}
+	for name, got := range map[string]string{
+		"auto latin": ReasoningLanguageTailNudge("auto", "analyze this frame drop"),
+		"locked en":  ReasoningLanguageTailNudge("en", "分析"),
+		"off":        ReasoningLanguageTailNudge("off", "分析这个trace"),
+		"empty":      ReasoningLanguageTailNudge("", "分析这个trace"),
+	} {
+		if got != "" {
+			t.Fatalf("%s must stay silent, got %q", name, got)
+		}
+	}
+}

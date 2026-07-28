@@ -500,7 +500,7 @@ func (p *llmCommandOperationPlanner) AnswerProviderOperationResult(ctx context.C
 	b.WriteString(renderProviderOperationResultsForPrompt(records))
 	resp, err := p.adapter.Chat(ctx,
 		[]llm.Message{
-			{Role: "system", Content: commandOperationAnswerSystemPrompt},
+			{Role: "system", Content: commandOperationAnswerSystemPrompt + "\n\n" + promptctx.ReasoningLanguagePreference(userLine)},
 			{Role: "user", Content: b.String()},
 		},
 		nil,
@@ -568,7 +568,7 @@ func (p *llmCommandOperationPlanner) EvaluateCommandOperation(ctx context.Contex
 	b.WriteString(renderCommandOperationRecordsForPrompt(records))
 	resp, err := p.adapter.Chat(ctx,
 		[]llm.Message{
-			{Role: "system", Content: operationEvaluationSystemPrompt},
+			{Role: "system", Content: operationEvaluationSystemPrompt + "\n\n" + promptctx.ReasoningLanguagePreference(userLine)},
 			{Role: "user", Content: b.String()},
 		},
 		[]llm.ToolSchema{operationEvaluationTool},

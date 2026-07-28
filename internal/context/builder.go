@@ -5705,6 +5705,29 @@ func ReasoningLanguagePreference(question string) string {
 	return reasoningLanguageDirective
 }
 
+// ReasoningLanguageTailNudge — A4 (audit wf_75471d12-c4c, 2026-07-28): the
+// measured position decay — the ~250-byte reasoning-language sentence sits in
+// the first ~2-4%% of a 60-150KB explorer round-N request, followed almost
+// entirely by English tool results — is countered by ONE short trailing line
+// per request on the EPHEMERAL lane (requestMessages only, never durable
+// history: zero compounding token cost, zero interaction with pruning).
+// Chinese-only by design: the tail exists to counter CJK reasoning drift;
+// en/other locked arms and non-CJK questions add nothing, and disabled
+// language modes stay silent.
+func ReasoningLanguageTailNudge(lang, question string) string {
+	switch strings.ToLower(strings.TrimSpace(lang)) {
+	case "zh", "zh-cn", "cn", "chinese", "简体中文":
+		return reasoningLanguageZhNudge
+	case "auto", "follow":
+		if questionIsCJKDominant(question) {
+			return reasoningLanguageZhNudge
+		}
+		return ""
+	default:
+		return ""
+	}
+}
+
 // questionIsCJKDominant mirrors detectedLanguageAssertion's CJK arm (cjk>=3).
 func questionIsCJKDominant(question string) bool {
 	cjk := 0

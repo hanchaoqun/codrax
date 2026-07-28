@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	promptctx "github.com/hanchaoqun/codrax/internal/context"
 	"io"
 	"os"
 	"path/filepath"
@@ -2249,6 +2250,19 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			requestMessages = append(requestMessages, llm.Message{Role: "user", Content: directive})
 			logging.Debug("[diag %s] iter=%d phase=tool_surface directive injected tools=%s",
 				b.name, i, strings.Join(sortedToolSchemaNames(effectiveTools), ","))
+		}
+		// A4 (audit wf_75471d12-c4c): per-round EPHEMERAL reasoning-language
+		// tail — the system-message directive survives every round verbatim
+		// but sits in the first ~2-4% of a request that ends in tens of KB
+		// of English tool results, so later-round thinking drifts English on
+		// CJK sessions. One short Chinese line at maximum recency, request-
+		// only (never durable history: zero compounding cost, no pruning
+		// interaction), zh/CJK sessions only, reasoning-scoped (answer rules
+		// byte-untouched — the zero-answer-cost ruling).
+		if _, currentReq := types.SplitConversation(ctx.Objective); true {
+			if nudge := promptctx.ReasoningLanguageTailNudge(ctx.Language, currentReq); nudge != "" {
+				requestMessages = append(requestMessages, llm.Message{Role: "user", Content: nudge})
+			}
 		}
 
 		// Reason — call LLM

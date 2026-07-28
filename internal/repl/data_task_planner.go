@@ -639,7 +639,7 @@ func (p *llmDataTaskPlanner) EvaluateDataTaskWithRuntimeView(ctx context.Context
 	if len(resp.ToolCalls) == 0 {
 		retryResp, retryErr := p.chatDataTaskToolRequired(ctx, "data_task_evaluator_repair",
 			[]llm.Message{
-				{Role: "system", Content: dataTaskEvaluationSystemPrompt},
+				{Role: "system", Content: dataTaskEvaluationSystemPrompt + "\n\n" + promptctx.ReasoningLanguagePreference(userLine)},
 				{Role: "user", Content: dataTaskEvaluationNoToolRepairPrompt(basePrompt, resp)},
 			},
 			[]llm.ToolSchema{dataTaskEvaluationTool},
@@ -801,7 +801,7 @@ func (p *llmDataTaskPlanner) planDataTask(ctx context.Context, scope, prompt str
 		// system never writes the answer face itself.
 		retryResp, retryErr := p.chatDataTaskToolRequired(ctx, strings.TrimSpace(scope)+"_no_tool_repair",
 			[]llm.Message{
-				{Role: "system", Content: dataTaskPlannerSystemPrompt},
+				{Role: "system", Content: dataTaskPlannerSystemPrompt + "\n\n" + promptctx.ReasoningLanguagePreference(prompt)},
 				{Role: "user", Content: dataTaskPlannerNoToolRepairPrompt(prompt, resp)},
 			},
 			[]llm.ToolSchema{dataTaskPlanTool},

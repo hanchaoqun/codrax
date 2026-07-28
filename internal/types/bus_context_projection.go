@@ -204,6 +204,9 @@ func SubAgentContext(bus *BusContext, req *SubAgentRequest) *AgentContext {
 		// omission of this projection (ToolBusContext carries it) — parallel
 		// sub-explorer units silently lost the language directive entirely.
 		Language: bus.Language,
+		// Preferences rides with Language (A4): the other half of the same
+		// one-sided-fold omission.
+		Preferences: bus.Preferences,
 
 		// Typed signals — every entry in projectionTypedSignalFields
 		// must appear here. Adding a new typed signal to BusContext

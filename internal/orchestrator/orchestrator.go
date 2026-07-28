@@ -1726,6 +1726,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	// Initialize BusContext
 	o.busCtx = &types.BusContext{
 		PipelineStage: types.StageAnalyze,
+		Language:      o.language, // A4: multi_repo_focus dispatches pre-stamp
 		RepoRoot:      repoRoot,
 		// MainRepoRoot mirrors RepoRoot at Run entry and stays
 		// constant for the lifetime of the Run. Write-mode phases
