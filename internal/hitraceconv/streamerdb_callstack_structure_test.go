@@ -236,6 +236,7 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 		"exportTraceDBWakeups":            2,
 		"loadTraceDBBlockedCandidates":    1,
 		"prepareTraceDBCallstackRow":      4,
+		"prepareTraceDBEBPFCommon":        1,
 		"prepareTraceDBNativeHookEvent":   1,
 		"prepareTraceDBSyscallRow":        1,
 		"resolveCallstackSchedulerAlias":  1,

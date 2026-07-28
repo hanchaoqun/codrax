@@ -218,7 +218,7 @@ func assertSameInputAccountingGolden(t *testing.T, receipt sameInputAccountingRe
 		wantInputSHA    = "6294cbbff9509cc1458771f83f0c44d49a224eeead56b4a2e49aa8c64b0271ab"
 		wantOutputBytes = 58005
 		wantOutputSHA   = "ad9b54433d73f149f342c1ecc423e5b981f6f9da0f1e950f18f93d58d47199a7"
-		wantReceiptSHA  = "185d0b9b921ee955fe8058d00b10f52a4658bb2f07c6795bf44cdd37123560e9"
+		wantReceiptSHA  = "a0e60c69b55d7cef3d429b7d3f963c752c9f54e5c4f7ee6d712726eafc498892"
 		wantEvents      = 84
 		wantAuthority   = 18
 		wantAdvisory    = 66
@@ -244,12 +244,17 @@ func assertSameInputAccountingGolden(t *testing.T, receipt sameInputAccountingRe
 	frameCallstack := sameInputCoverageByKey(receipt.Coverage, "relation", "frame_slice_callstack", "query_ready_export")
 	frameGPU := sameInputCoverageByKey(receipt.Coverage, "resource.relation", "gpu_slice", "query_ready_export")
 	perfNAPI := sameInputCoverageByKey(receipt.Coverage, "perf.relation", "perf_napi_async", "query_ready_export")
+	ebpfCallstack := sameInputCoverageByKey(receipt.Coverage, "resolver.ebpf", "ebpf_callstack", "resolver_index")
+	ebpfFilesystem := sameInputCoverageByKey(receipt.Coverage, "ebpf.interval", "file_system_sample", "query_ready_export")
+	ebpfPagedMemory := sameInputCoverageByKey(receipt.Coverage, "ebpf.interval", "paged_memory_sample", "query_ready_export")
+	ebpfBIO := sameInputCoverageByKey(receipt.Coverage, "ebpf.interval", "bio_latency_sample", "query_ready_export")
 	if sorter == nil || sorter.RowsRead != wantEvents || sorter.RowsEmitted != wantEvents ||
 		crossValidation == nil || crossValidation.RowsEmitted != wantEvents ||
 		rawAuthority == nil || rawAuthority.RowsRead != 4 || rawAuthority.RowsEmitted != 4 ||
 		rawBlockedKey == nil || rawBlockedKey.RowsEmitted != 0 ||
 		rawBlockedRecovery == nil || rawBlockedRecovery.RowsEmitted != 0 ||
 		frameRoster == nil || frameCallstack == nil || frameGPU == nil || perfNAPI == nil ||
+		ebpfCallstack == nil || ebpfFilesystem == nil || ebpfPagedMemory == nil || ebpfBIO == nil ||
 		rawAuthority.Metrics["event_format_segments"] != 1 ||
 		rawAuthority.Metrics["raw_trace_segments"] != 1 {
 		t.Fatalf("same-input fixture did not produce a receipt-validated query-ready artifact: %+v", receipt)

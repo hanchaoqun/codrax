@@ -30,7 +30,7 @@ import (
 // eventSerializableLeafCount pins the number of json-serializable leaf fields
 // reachable from Event (json:"-" fields excluded): the historical flat struct
 // had 140 fields of which 3 were json:"-".
-const eventSerializableLeafCount = 188
+const eventSerializableLeafCount = 202
 
 // eventFillByJSONTag deterministically fills every leaf field reachable from
 // v (allocating anonymous embedded struct pointers) with a value derived ONLY
@@ -305,6 +305,22 @@ const eventJSONGoldenFull = `{
     "event_type": 6050,
     "traceid": "traceid"
   },
+  "ebpf_interval": {
+    "family": "family",
+    "timestamp_ns": 6188,
+    "end_timestamp_ns": 1159,
+    "duration_ns": 3368,
+    "source_row": 9426,
+    "type_id": 1275,
+    "internal_process_id": 9356,
+    "internal_thread_id": 1746,
+    "pid": 6653,
+    "tid": 3113,
+    "identity_status": "identity_status",
+    "callchain_id": 3338,
+    "callchain_status": "callchain_status",
+    "details_json": "details_json"
+  },
   "trace_async_interval": {
     "source_row": 9426,
     "start_timestamp_ns": 3977,
@@ -514,6 +530,22 @@ const eventJSONGoldenView = `{
     "event_count": 2118,
     "event_type": 6050,
     "traceid": "traceid"
+  },
+  "ebpf_interval": {
+    "family": "family",
+    "timestamp_ns": 6188,
+    "end_timestamp_ns": 1159,
+    "duration_ns": 3368,
+    "source_row": 9426,
+    "type_id": 1275,
+    "internal_process_id": 9356,
+    "internal_thread_id": 1746,
+    "pid": 6653,
+    "tid": 3113,
+    "identity_status": "identity_status",
+    "callchain_id": 3338,
+    "callchain_status": "callchain_status",
+    "details_json": "details_json"
   },
   "trace_async_interval": {
     "source_row": 9426,

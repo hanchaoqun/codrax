@@ -108,6 +108,13 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 		return coverage, err
 	}
 	stageStart = time.Now()
+	ebpfCoverage, err := exportTraceDBEBPFIntervals(ctx, tdb, sink, authority)
+	traceDBSetCoverageListElapsed(ebpfCoverage, stageStart)
+	coverage = append(coverage, ebpfCoverage...)
+	if err != nil {
+		return coverage, err
+	}
+	stageStart = time.Now()
 	dmaCoverage, err := exportTraceDBDMAFence(ctx, tdb, sink, index, running, dict)
 	traceDBSetCoverageElapsed(&dmaCoverage, stageStart)
 	coverage = append(coverage, dmaCoverage)

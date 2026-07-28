@@ -57,6 +57,9 @@ func ParseLineTimestampNS(line string) (uint64, bool) {
 	if relation, ok := parsePerfNAPIAsyncRelation(line); ok {
 		return relation.TimestampNS, true
 	}
+	if interval, ok := parseOfficialEBPFInterval(line); ok {
+		return interval.TimestampNS, true
+	}
 	if record, ok := parseTraceDBTextRecord(line); ok {
 		return record.TimestampNS, true
 	}

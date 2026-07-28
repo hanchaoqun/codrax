@@ -137,6 +137,9 @@ func eventSideTableBytes(ev *Event) int64 {
 		if ev.PluginFields.PerfNAPIAsync != nil {
 			n += int64(unsafe.Sizeof(PerfNAPIAsyncFields{}))
 		}
+		if ev.PluginFields.EBPFInterval != nil {
+			n += int64(unsafe.Sizeof(EBPFIntervalFields{}))
+		}
 	}
 	if ev.PerfFields != nil {
 		n += int64(unsafe.Sizeof(PerfFields{}))
@@ -1426,6 +1429,8 @@ func (s *lineScan) timestamp() (float64, bool) {
 			s.ts, s.tsOK = float64(relation.TimestampNS)/1e9, true
 		} else if relation, ok := parsePerfNAPIAsyncRelation(s.line); ok {
 			s.ts, s.tsOK = float64(relation.TimestampNS)/1e9, true
+		} else if interval, ok := parseOfficialEBPFInterval(s.line); ok {
+			s.ts, s.tsOK = float64(interval.TimestampNS)/1e9, true
 		} else if m := s.match(); len(m) != 0 {
 			s.ts, s.tsOK = parseTraceTimestampSeconds(m[5])
 		}
@@ -4151,6 +4156,9 @@ func parseLineTimestamp(line string) (float64, bool) {
 	if relation, ok := parsePerfNAPIAsyncRelation(line); ok {
 		return float64(relation.TimestampNS) / 1e9, true
 	}
+	if interval, ok := parseOfficialEBPFInterval(line); ok {
+		return float64(interval.TimestampNS) / 1e9, true
+	}
 	m := matchFtraceLine(line)
 	if len(m) == 0 {
 		return 0, false
@@ -4328,6 +4336,9 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 	}
 	if relation, ok := parsePerfNAPIAsyncRelation(s.line); ok {
 		return perfNAPIAsyncRelationEvent(lineNo, relation, intern), true
+	}
+	if interval, ok := parseOfficialEBPFInterval(s.line); ok {
+		return officialEBPFIntervalEvent(lineNo, interval, intern), true
 	}
 	if record, ok := parseTraceDBTextRecord(s.line); ok {
 		return traceDBTextRecordEvent(lineNo, record, intern), true

@@ -7,7 +7,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const ParserVersion = "tracequery-v38"
+const ParserVersion = "tracequery-v39"
 
 type EventType string
 
@@ -68,6 +68,7 @@ const (
 	EventTraceDBRecord EventType = "trace_db_record"
 	EventPerfSample    EventType = "perf_sample"
 	EventPerfNAPIAsync EventType = "perf_napi_async"
+	EventEBPFInterval  EventType = "ebpf_interval"
 )
 
 const (
@@ -466,6 +467,10 @@ type PluginFields struct {
 	// PerfNAPIAsync is an official perf_napi_async point relation. The source
 	// table has no duration, so this object never acquires span authority.
 	PerfNAPIAsync *PerfNAPIAsyncFields `json:"perf_napi_async,omitempty"`
+	// EBPFInterval is a versioned official SQL interval. It has no physical
+	// CPU header; public process/thread IDs are present only after exact
+	// internal-ID and lifecycle resolution.
+	EBPFInterval *EBPFIntervalFields `json:"ebpf_interval,omitempty"`
 	// AsyncInterval is set only on converter-authored completed official
 	// async intervals. The source row proves one logical [start,end) interval
 	// and its start emitter; finish emitter/CPU remain explicitly unavailable.
@@ -509,6 +514,23 @@ type PerfNAPIAsyncFields struct {
 	EventCount      uint64 `json:"event_count"`
 	EventType       uint64 `json:"event_type"`
 	TraceID         string `json:"traceid"`
+}
+
+type EBPFIntervalFields struct {
+	Family            string `json:"family"`
+	TimestampNS       uint64 `json:"timestamp_ns"`
+	EndTimestampNS    uint64 `json:"end_timestamp_ns"`
+	DurationNS        uint64 `json:"duration_ns"`
+	SourceRow         uint32 `json:"source_row"`
+	TypeID            uint64 `json:"type_id"`
+	InternalProcessID uint32 `json:"internal_process_id"`
+	InternalThreadID  uint32 `json:"internal_thread_id"`
+	PID               int    `json:"pid"`
+	TID               int    `json:"tid"`
+	IdentityStatus    string `json:"identity_status"`
+	CallchainID       int64  `json:"callchain_id"`
+	CallchainStatus   string `json:"callchain_status"`
+	DetailsJSON       string `json:"details_json"`
 }
 
 type TraceAsyncIntervalFields struct {

@@ -3225,7 +3225,7 @@ semantic completeness of every captured family.
 | Hiperf/native async relation | `perf_napi_async` | exact typed point relation covered | retain |
 | native allocation | `native_hook` | covered | retain |
 | native resolver/statistics | `native_hook_frame`, `native_hook_statistic` | absent | typed resource adapters |
-| eBPF I/O/VM | `file_system_sample`, `paged_memory_sample`, `bio_latency_sample`, `ebpf_callstack` | absent | typed interval/callchain adapters |
+| eBPF I/O/VM | `file_system_sample`, `paged_memory_sample`, `bio_latency_sample`, `ebpf_callstack` | O4a official typed intervals and qualified callchains covered | retain; add downstream aggregate consumers separately |
 | ArkTS | `js_cpu_profiler_*`, `js_heap_*`, `js_config` | absent | typed profiler/heap artifact adapters |
 | memory/GPU snapshot | `memory_*`, `smaps`, `sys_mem_measure`, `sys_event_filter` | mostly absent | typed snapshot/counter adapters |
 | device/Hisysevent | `device_state`, `hisys_event_measure`, `app_name`, `device_info` | partial | typed metadata/counter adapters |
@@ -3238,6 +3238,44 @@ Implementation order after OSP-01/02 is evidence-driven:
 2. eBPF file/VM/BIO and native-hook resolver lanes;
 3. animation/dynamic-frame and memory/GPU counters;
 4. ArkTS heap/CPU profiler and XPower detail.
+
+#### O4a implementation result — official eBPF intervals
+
+Status: implemented and verified locally; this is the next independent
+commit/push batch after O3.
+
+The official eBPF interval families are now query-visible through
+`# codrax_ebpf_interval/v1`:
+
+- `file_system_sample`: exact open/close/read/write summary type, interval,
+  internal identity, callchain and nullable return/error/fd/file/size/argument
+  fields;
+- `paged_memory_sample`: exact interval, type, size and address;
+- `bio_latency_sample`: exact latency interval, type, tier, size, block,
+  path and duration-per-4K fields.
+
+Admission requires strict INTEGER storage for governed scalars and exact
+`end_ts-start_ts=dur` (or `latency_dur`). Official unsigned values projected
+through SQLite signed integers are carried bit-exactly. The one official
+schema/implementation mismatch, `bio_latency_sample.path_id` declared TEXT but
+returned through an integer setter, accepts only INTEGER or canonical decimal
+TEXT and is isolated to that field.
+
+`ebpf_callstack` becomes available only when its source row identities are
+unique and each callchain has one unique contiguous zero-based depth set.
+An interval with a missing/poisoned callchain is still real interval evidence:
+it is emitted with `callchain_status=unavailable`; only the callchain edge is
+withheld. The official `-1` sentinel is emitted as
+`callchain_status=absent`.
+
+No eBPF table supplies a CPU, so the typed event uses `CPU=-1` and never
+fabricates an ftrace header. Internal `ipid/itid` always survive. Public
+PID/TID appear only when the shared identity roster, exact IPID match and
+lifecycle interval gate all agree; otherwise an explicit
+`unavailable|mismatch|lifecycle_rejected` status is published. Family details
+are canonical, schema-checked JSON inside the versioned base64url wire.
+Invalid UTF-8 or an overlong typed row is withheld from semantic publication
+with an exact coverage reason while O2 still retains its source bytes.
 
 An official table being empty in a capture is `supported_absent`, not a
 conversion failure. A non-empty table without an adapter is
@@ -3282,7 +3320,9 @@ Current progress:
 - O1: implemented, verified and pushed in `c0dd22bea`;
 - O2: implemented, verified and pushed in `147d40504`;
 - O3: implemented and locally verified; commit/push is the current batch;
-- O4-O5: pending;
+- O4a: official eBPF intervals implemented and locally verified; commit/push
+  is the current batch;
+- O4b-O5: pending;
 - customer replay: deliberately not requested yet.
 
 ## Invariants

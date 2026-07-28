@@ -75,6 +75,7 @@ var traceConvertDiagnosticCapabilities = []string{
 	"official_frame_callstack_relation_v1",
 	"official_frame_gpu_relation_v1",
 	"official_perf_napi_async_relation_v1",
+	"official_ebpf_interval_v1",
 }
 
 type traceConvertDiagnosticProgressLog struct {
