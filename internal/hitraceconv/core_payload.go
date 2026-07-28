@@ -814,7 +814,11 @@ func directCoreString(ev decodedEvent, content []byte, allowInternalSpace, allow
 			return "", false
 		}
 	case "char":
-		if field.Signed || !directCoreArrayDeclared(field) || field.Size != len(raw) {
+		// tracefs reports the declaration's signed column for fixed char
+		// arrays, but the producer consumes these fields as byte strings. The
+		// signed bit therefore has no numeric meaning here. Array declaration,
+		// exact extent, NUL termination and line/token safety remain mandatory.
+		if !directCoreArrayDeclared(field) || field.Size != len(raw) {
 			return "", false
 		}
 		source = raw

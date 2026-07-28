@@ -2174,6 +2174,32 @@ as signed `s8` or the existing signed int32 profile. CPU range validation,
 namespace fail-closed identity, exact DB joins and full future `next_info`
 receipt remain unchanged.
 
+### REP-1C — blocked caller signed-char descriptor semantics
+
+REP1 proves that all `21,566` raw `sched_blocked_reason` rows were admitted as
+hard `(target_tid, iowait, caller_raw)` observations, but every caller label
+fell back to opaque. The observed descriptors are fixed arrays:
+
+```text
+func_name: char[20], signed=1
+mod_name:  char[12], signed=1
+```
+
+The DB retained `1,795` symbolized caller rows. Exact caller-key comparison
+therefore failed, while the reduced `(target_tid, iowait)` multiset proved that
+all DB subjects were present in raw. The producer's `HandleStrField` consumes
+these arrays as strings and does not give the descriptor signed bit numeric
+meaning. Codrax incorrectly rejected the labels solely because `signed=1`.
+
+Capability `official_raw_signed_char_array_string_v1` now treats signedness as
+nonsemantic only for an exact fixed `char[...]` string carrier. It does not
+admit scalar chars or different types, and still requires one declared field,
+an exact byte extent, NUL termination, no embedded/line/control injection and
+the caller token grammar. Blocked publication continues to use the full
+caller-bearing exact reconciliation key; the reduced subject key remains
+diagnostic evidence only and cannot authorize recovered rows. Namespace and
+incarnation gates are unchanged.
+
 The blocked mismatch also cannot safely be called “raw record loss”: the
 upstream parser retains only its chosen caller string in the DB, while Codrax
 independently reconstructs the raw caller profile. Capability

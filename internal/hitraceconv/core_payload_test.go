@@ -146,6 +146,21 @@ func TestDirectCoreProfileAndBoundaryAdmission(t *testing.T) {
 		}
 	})
 
+	t.Run("Harmony signed char arrays preserve blocked caller symbols", func(t *testing.T) {
+		format, content := blockedHarmonySignedCharCoreFixture()
+		payload, admission, reason := decodeDirectCorePayload(
+			coreDecodeContext{}, decodeEvent(format, content), content)
+		if admission != bodyAdmitted || reason != "" || payload.Blocked == nil ||
+			!payload.Blocked.CallerSymbolized {
+			t.Fatalf("signed char caller rejected: admission=%d reason=%q payload=%+v",
+				admission, reason, payload)
+		}
+		body, _ := renderCanonicalCorePayload(payload)
+		if body != "pid=324 iowait=1 caller=schedule+0x10/0x20[kernel] delay=7" {
+			t.Fatalf("signed char blocked body mismatch: %q", body)
+		}
+	})
+
 	for _, test := range []struct {
 		name    string
 		format  eventFormat
@@ -912,6 +927,33 @@ func blockedCoreFixture(symbol bool) (eventFormat, []byte) {
 		copy(content[37:53], []byte("worker_fn"))
 		copy(content[53:61], []byte("kernel"))
 	}
+	return eventFormat{Name: "sched_blocked_reason", Fields: fields}, content
+}
+
+func blockedHarmonySignedCharCoreFixture() (eventFormat, []byte) {
+	fields := []eventField{
+		{Type: "unsigned short", Name: "common_type", Offset: 0, Size: 2},
+		{Type: "unsigned char", Name: "common_flags", Offset: 2, Size: 1},
+		{Type: "unsigned char", Name: "common_preempt_count", Offset: 3, Size: 1},
+		{Type: "int", Name: "common_pid", Offset: 4, Size: 4, Signed: true},
+		{Type: "int", Name: "pid", Offset: 8, Size: 4, Signed: true},
+		{Type: "void *", Name: "caller", Offset: 16, Size: 8},
+		{Type: "bool", Name: "io_wait", Offset: 24, Size: 1},
+		{Type: "unsigned long", Name: "delay", Offset: 32, Size: 8},
+		{Type: "unsigned long", Name: "offset", Offset: 40, Size: 8},
+		{Type: "unsigned long", Name: "size", Offset: 48, Size: 8},
+		{Type: "char", Name: "func_name[20]", Offset: 56, Size: 20, Signed: true},
+		{Type: "char", Name: "mod_name[12]", Offset: 76, Size: 12, Signed: true},
+	}
+	content := make([]byte, 88)
+	binary.LittleEndian.PutUint32(content[8:12], 324)
+	binary.LittleEndian.PutUint64(content[16:24], 0x1234)
+	content[24] = 1
+	binary.LittleEndian.PutUint64(content[32:40], 7<<10)
+	binary.LittleEndian.PutUint64(content[40:48], 0x10)
+	binary.LittleEndian.PutUint64(content[48:56], 0x20)
+	copy(content[56:76], []byte("schedule"))
+	copy(content[76:88], []byte("kernel"))
 	return eventFormat{Name: "sched_blocked_reason", Fields: fields}, content
 }
 
