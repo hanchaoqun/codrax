@@ -18,13 +18,14 @@ func traceDBRawAsyncFixture(t *testing.T) (
 		"CREATE TABLE process (ipid, pid, name)",
 		"INSERT INTO process VALUES (1, 100, 'begin-process')",
 		"INSERT INTO process VALUES (2, 300, 'finish-process')",
-		"CREATE TABLE thread (itid, tid, ipid, name, start_ts, is_main_thread, switch_count)",
-		"INSERT INTO thread VALUES (1, 101, 1, 'begin-thread', 0, 0, 1)",
-		"INSERT INTO thread VALUES (2, 301, 2, 'finish-thread', 0, 0, 1)",
+		"CREATE TABLE thread (id, itid, tid, ipid, name, start_ts, is_main_thread, switch_count)",
+		"INSERT INTO thread VALUES (1, 1, 100, 1, 'logical-owner', 0, 1, 1)",
+		"INSERT INTO thread VALUES (2, 2, 101, 1, 'begin-thread', 0, 0, 1)",
+		"INSERT INTO thread VALUES (3, 3, 301, 2, 'finish-thread', 0, 0, 1)",
 		"CREATE TABLE thread_state (itid, ts, dur, cpu, state)",
-		"INSERT INTO thread_state VALUES (1, 0, 3000, 2, 'Running')",
-		"CREATE TABLE callstack (id, ts, dur, itid, callid, name, flag, cookie, chainId, depth)",
-		"INSERT INTO callstack VALUES (1, 1000, 1000, 1, NULL, 'official-async', NULL, 9, NULL, 0)",
+		"INSERT INTO thread_state VALUES (2, 0, 3000, 2, 'Running')",
+		"CREATE TABLE callstack (id, ts, dur, callid, name, flag, cookie, chainId, depth, child_callid)",
+		"INSERT INTO callstack VALUES (1, 1000, 1000, 1, 'official-async', NULL, 9, NULL, 0, 2)",
 	})
 	tdb, err := openTraceDB(context.Background(), path)
 	if err != nil {
@@ -170,6 +171,9 @@ func TestTraceDBCallstackReplacesTypedAsyncOnlyOnUniqueExactRawPair(t *testing.T
 				coverage.Metrics["source_rows_emitted_official_async_interval"] != test.wantTyped {
 				t.Fatalf("raw/typed replacement accounting drifted: %+v", coverage)
 			}
+			if coverage.Metrics["source_rows_official_async_child_emitter_resolved"] != 1 {
+				t.Fatalf("official child_callid emitter was not selected: %+v", coverage)
+			}
 			if test.rawEnd == 2001 &&
 				(coverage.Metrics["raw_async_official_intervals_end_mismatch"] != 1 ||
 					coverage.Metrics["raw_async_official_intervals_without_exact_raw_pair"] != 1) {
@@ -191,6 +195,128 @@ func TestTraceDBCallstackReplacesTypedAsyncOnlyOnUniqueExactRawPair(t *testing.T
 				t.Fatalf("raw/typed wire selection drifted:\n%s", text)
 			}
 		})
+	}
+}
+
+func TestTraceDBCallstackOfficialChildEmitterPreservesNamespaceOwner(t *testing.T) {
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts)",
+		"INSERT INTO trace_range VALUES (0)",
+		"CREATE TABLE process (id, ipid, pid, name)",
+		"INSERT INTO process VALUES (1, 1, 17267, 'host-process')",
+		"INSERT INTO process VALUES (2, 2, 37722, 'namespace-owner')",
+		"CREATE TABLE thread (id, itid, tid, ipid, name, start_ts, is_main_thread, switch_count)",
+		"INSERT INTO thread VALUES (1, 1, 17267, 1, 'host-emitter', 0, 1, 1)",
+		"INSERT INTO thread VALUES (2, 2, 37722, 2, 'logical-owner', 0, 0, 0)",
+		"CREATE TABLE thread_state (itid, ts, dur, cpu, state)",
+		"INSERT INTO thread_state VALUES (1, 0, 3000, 4, 'Running')",
+		"CREATE TABLE callstack (id, ts, dur, callid, name, flag, cookie, chainId, depth, child_callid)",
+		"INSERT INTO callstack VALUES (1, 1000, 1000, 2, 'namespace-async', NULL, 11, NULL, 0, 1)",
+	})
+	tdb, err := openTraceDB(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tdb.close()
+	raw := []traceDBRawMarkerRecord{
+		{
+			PhysicalOrdinal: 1, TimestampNS: 1000, CPU: 4, HeaderPID: 17267,
+			Buffer: "S|37722|namespace-async|11", Action: "S", PayloadPID: 37722,
+			Name: "namespace-async", Value: "11", Admitted: true,
+		},
+		{
+			PhysicalOrdinal: 2, TimestampNS: 2000, CPU: 5, HeaderPID: 17267,
+			Buffer: "F|37722|namespace-async|11", Action: "F", PayloadPID: 37722,
+			Name: "namespace-async", Value: "11", Admitted: true,
+		},
+	}
+	tdb.sourceNameInventory = traceDBRawAsyncInventory(raw)
+	identities, _, err := tdb.loadThreadIndex(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	intervals, integrity, _, err := tdb.loadRunningIntervals(context.Background(), identities)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority := traceDBSchedulerAuthority{
+		identities: identities, lifecycle: traceDBLifecycleIndex{},
+		initialized: true, complete: true,
+	}
+	running := newTraceDBSchedulerRunningIndex(authority, intervals, integrity, nil)
+	sink, err := newTraceDBRowSink(t.TempDir(), 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.cleanup()
+	coverage, err := exportTraceDBCallstack(context.Background(), tdb, sink, authority, running,
+		newTraceDBTestSyncSpanAuthority(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if coverage.Metrics["source_rows_emitted_official_async_raw_pair"] != 1 ||
+		coverage.Metrics["source_rows_official_async_child_emitter_resolved"] != 1 {
+		t.Fatalf("namespace async child emitter was not closed: %+v", coverage)
+	}
+	var body strings.Builder
+	for _, row := range sink.rows {
+		body.WriteString(row.line)
+		body.WriteByte('\n')
+	}
+	text := body.String()
+	if strings.Count(text, "tracing_mark_write:") != 2 ||
+		!strings.Contains(text, "S|37722|namespace-async|11") ||
+		!strings.Contains(text, "F|37722|namespace-async|11") ||
+		!strings.Contains(text, "host-emitter-17267 (17267)") {
+		t.Fatalf("namespace owner replaced the physical header or was lost:\n%s", text)
+	}
+}
+
+func TestTraceDBCallstackOfficialChildEmitterMissingFailsClosed(t *testing.T) {
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts)",
+		"INSERT INTO trace_range VALUES (0)",
+		"CREATE TABLE process (ipid, pid, name)",
+		"INSERT INTO process VALUES (1, 100, 'process')",
+		"CREATE TABLE thread (id, itid, tid, ipid, name, start_ts, is_main_thread, switch_count)",
+		"INSERT INTO thread VALUES (1, 1, 100, 1, 'owner', 0, 1, 1)",
+		"CREATE TABLE thread_state (itid, ts, dur, cpu, state)",
+		"INSERT INTO thread_state VALUES (1, 0, 3000, 2, 'Running')",
+		"CREATE TABLE callstack (id, ts, dur, callid, name, flag, cookie, chainId, depth, child_callid)",
+		"INSERT INTO callstack VALUES (1, 1000, 1000, 1, 'missing-child', NULL, 9, NULL, 0, NULL)",
+	})
+	tdb, err := openTraceDB(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tdb.close()
+	identities, _, err := tdb.loadThreadIndex(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	intervals, integrity, _, err := tdb.loadRunningIntervals(context.Background(), identities)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority := traceDBSchedulerAuthority{
+		identities: identities, lifecycle: traceDBLifecycleIndex{},
+		initialized: true, complete: true,
+	}
+	sink, err := newTraceDBRowSink(t.TempDir(), 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.cleanup()
+	coverage, err := exportTraceDBCallstack(context.Background(), tdb, sink, authority,
+		newTraceDBSchedulerRunningIndex(authority, intervals, integrity, nil),
+		newTraceDBTestSyncSpanAuthority(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if coverage.RowsEmitted != 0 ||
+		!strings.Contains(coverage.Skipped, "async_child_missing_emitter_identity=1") ||
+		coverage.Metrics["source_rows_rejected_official_async_shape"] != 1 {
+		t.Fatalf("missing official child emitter did not fail closed: %+v", coverage)
 	}
 }
 

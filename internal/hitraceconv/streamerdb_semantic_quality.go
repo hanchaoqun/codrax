@@ -65,6 +65,10 @@ func traceDBSemanticQualityCoverage(items []TraceDBCoverage) TraceDBCoverage {
 		"source_rows_emitted_official_async_raw_pair")
 	copyMetric("callstack_source_rows_rejected_official_async_shape", "slice", "callstack",
 		"source_rows_rejected_official_async_shape")
+	copyMetric("callstack_source_rows_official_async_child_emitter_resolved", "slice", "callstack",
+		"source_rows_official_async_child_emitter_resolved")
+	copyMetric("callstack_source_rows_unfinished_duration_sentinel", "slice", "callstack",
+		"source_rows_unfinished_duration_sentinel")
 	copyMetric("callstack_source_rows_with_distributed_metadata", "slice", "callstack",
 		"source_rows_with_distributed_metadata")
 	copyMetric("callstack_source_rows_suppressed_cpu_unavailable", "slice", "callstack", "source_rows_suppressed_cpu_unavailable")
@@ -190,6 +194,7 @@ func traceDBSemanticQualityCaveats(coverage []TraceDBCoverage) []string {
 		"unresolved_thread_names",
 		"scheduler_boundaries_with_unknown_comm",
 		"callstack_source_rows_suppressed_pre_pairing",
+		"callstack_source_rows_unfinished_duration_sentinel",
 		"callstack_async_source_rows_suppressed_post_pairing",
 		"callstack_source_rows_withheld_official_async_interval",
 		"callstack_source_rows_suppressed_cpu_unavailable",

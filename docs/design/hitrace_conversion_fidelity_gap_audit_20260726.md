@@ -2939,6 +2939,7 @@ The retained customer input is sufficient to replay the direct fixes.
 
 ### OSP-01 (P0) — official async start emitter is `child_callid`
 
+Status: implemented in O1; customer replay intentionally waits for O2/O3.
 This is the highest-confidence direct explanation for the `198` unclaimed
 async pairs.
 
@@ -2982,6 +2983,21 @@ Frozen repair:
 
 No timestamp tolerance, ordinal pairing or count-based pairing is authorized.
 
+O1 implementation selects the producer schema once from the presence of
+`child_callid`. For a completed cookie-bearing row it resolves `callid` and
+`child_callid` independently, uses the latter for the physical start envelope,
+and requires an optional `itid` to converge with the child emitter. It
+preserves logical owner IPID/PID separately from emitter TID/TGID, checks both
+lifecycles at the start, and exposes
+`source_rows_official_async_child_emitter_resolved`. A missing or invalid
+child fails closed with an `async_child_*` reason; it will be retained as an
+uninterpreted source row by O2 rather than reassigned to the owner thread.
+
+Tests cover different owner/emitter threads, the same exact raw S/F
+replacement path, namespace owner PID distinct from host emitter TGID, a
+missing-child fail-closed arm, and the legacy schema without
+`child_callid`.
+
 ### OSP-02 (P0) — lossless SQL-to-text residual carrier
 
 Standard systrace output is a compatibility projection, not a lossless carrier
@@ -3018,6 +3034,9 @@ into a versioned table family and its semantic adapter before using a row as a
 span, CPU lane or causal edge.
 
 ### OSP-03 (P1) — `dur=-1` is unfinished, not generic malformed duration
+
+Status: O1 diagnostic split implemented; typed source-row preservation is an
+O2 carrier obligation.
 
 Official SQL and receiver code consistently distinguish `dur=-1`/NULL as an
 unfinished interval and set `nofinish`. Codrax currently reports every
@@ -3157,6 +3176,13 @@ Each batch is committed and pushed independently. Customer replay starts only
 after O1-O3 and the all-table conservation fixture are green. Diagnostic
 reports remain bounded; the generated systrace itself is not truncated merely
 to satisfy the diagnostic line cap.
+
+Current progress:
+
+- O1: implemented and locally verified; commit/push follows this document
+  update;
+- O2-O5: pending;
+- customer replay: deliberately not requested yet.
 
 ## Invariants
 

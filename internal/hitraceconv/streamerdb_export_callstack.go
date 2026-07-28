@@ -22,10 +22,14 @@ type traceDBCallstackRow struct {
 	End            int64
 	IntervalKnown  bool
 	CallID         int64
-	EmitterITID    int64
-	OwnerIPID      int64
-	Name           string
-	Flag           string
+	// LogicalOwnerITID is distinct from EmitterITID for the official
+	// cookie-bearing callstack profile. In that profile callid names the
+	// logical async owner while child_callid names the physical start emitter.
+	LogicalOwnerITID int64
+	EmitterITID      int64
+	OwnerIPID        int64
+	Name             string
+	Flag             string
 	// DistributedMetadata records official TraceStreamer chain/role metadata.
 	// It is diagnostic-only and never becomes an endpoint pairing key.
 	DistributedMetadata bool
@@ -70,12 +74,13 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 	coverage, err := tdb.inspectCoverage(ctx, "slice", "callstack", []string{"ts", "dur", "name"})
 	coverage.FieldSources = map[string]string{
 		"cpu":              "same lifecycle authority filters the strict Running witness lane; known placement uses an exact CPU, while proven spans with source/lifecycle/unknown/ambiguous placement retain a versioned cpu_status=unavailable marker and never fabricate CPU 0",
-		"emitter_identity": "row-level strict callstack.itid and callstack.callid->audited thread.id/itid profile; both must converge when present",
+		"emitter_identity": "sync/legacy rows use strict callstack.itid and callstack.callid->audited thread.id/itid convergence; official cookie-bearing rows in a child_callid schema use callid as logical owner and child_callid as physical start emitter, with optional itid required to converge with that emitter",
 		"flag":             "official TraceStreamer TEXT 'S'/'C' is distributed-call role metadata on an interval, not an async endpoint action; SQLite NULL/TEXT '' and legacy TEXT 'I' are non-distributed sync forms; every other storage class/value fails closed",
 		"name":             "exact bounded TEXT; NULL/empty/edge-whitespace/control/oversize/invalid-UTF8/non-TEXT failures are counted separately; CPU-known synchronous pipe names use standard B/E only when both timestamps and the complete name round-trip losslessly, otherwise they retain the versioned exact trace-mark lane",
 		"cookie":           "official non-NULL SQLite INTEGER identifies one already-associated async interval; NULL means no async cookie, zero is a valid cookie, and chainId never substitutes for cookie",
 		"distributed":      "bounded chainId and flag C/S are interval metadata only; neither value selects S/F pairing or acts as an async cookie",
-		"async_owner":      "completed high-level async intervals publish one versioned typed interval with source emitter/start CPU status and exact ts/end; finish emitter and finish CPU remain explicitly unavailable and no S/F endpoints are fabricated",
+		"duration":         "strict signed integer nanoseconds; producer sentinel dur=-1 is counted as unfinished_duration_sentinel separately from malformed negative values and is never fabricated into a closed span",
+		"async_owner":      "official child_callid schema preserves callid logical owner separately from the child_callid physical start emitter; completed high-level intervals publish source emitter/start CPU status and exact ts/end, while finish emitter and finish CPU remain explicitly unavailable unless an exact raw F endpoint proves them",
 		"pid_namespace":    "marker payload PID is preserved separately from the ftrace header TGID; a differing header TGID is recovered only from one unique same-public-TID Running identity admitted at every required endpoint",
 		"row_order":        "strict SQLite rowid; optional source id remains provenance only; typed endpoint phase ordering",
 		"async_identity":   "official completed async intervals use cookie only and publish one typed interval; the legacy zero-duration S/C compatibility lane also requires cookie and never substitutes chainId",
@@ -130,12 +135,17 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 	if err != nil {
 		return fail(err)
 	}
+	hasChildCallID, err := tdb.columnExists(ctx, "callstack", "child_callid")
+	if err != nil {
+		return fail(err)
+	}
 	for _, optional := range []struct {
 		name    string
 		present bool
 	}{
 		{"id", hasID}, {"itid", hasITID}, {"callid", hasCallID}, {"flag", hasFlag},
 		{"cookie", hasCookie}, {"chainId", hasChainID}, {"depth", hasDepth},
+		{"child_callid", hasChildCallID},
 	} {
 		if optional.present {
 			coverage.ColumnsPresent = appendTraceDBCoverageColumn(coverage.ColumnsPresent, optional.name)
@@ -171,11 +181,15 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 	if hasDepth {
 		depthExpr = quoteSQLiteIdent("depth")
 	}
+	childCallIDExpr := "NULL"
+	if hasChildCallID {
+		childCallIDExpr = quoteSQLiteIdent("child_callid")
+	}
 	query := fmt.Sprintf(`
-		SELECT rowid, %s, ts, dur, name, %s, %s, %s, %s, %s, %s
+		SELECT rowid, %s, ts, dur, name, %s, %s, %s, %s, %s, %s, %s
 		FROM callstack
 		ORDER BY rowid
-	`, idExpr, callIDExpr, itidExpr, flagExpr, cookieExpr, chainIDExpr, depthExpr)
+	`, idExpr, callIDExpr, itidExpr, flagExpr, cookieExpr, chainIDExpr, depthExpr, childCallIDExpr)
 	rows, err := tdb.db.QueryContext(ctx, query)
 	if err != nil {
 		return fail(err)
@@ -203,12 +217,12 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 		if err := ctx.Err(); err != nil {
 			return fail(err)
 		}
-		var rowIDRaw, sourceIDRaw, tsRaw, durRaw, nameRaw, callIDRaw, itidRaw, flagRaw, cookieRaw, chainIDRaw, depthRaw any
-		if err := rows.Scan(&rowIDRaw, &sourceIDRaw, &tsRaw, &durRaw, &nameRaw, &callIDRaw, &itidRaw, &flagRaw, &cookieRaw, &chainIDRaw, &depthRaw); err != nil {
+		var rowIDRaw, sourceIDRaw, tsRaw, durRaw, nameRaw, callIDRaw, itidRaw, flagRaw, cookieRaw, chainIDRaw, depthRaw, childCallIDRaw any
+		if err := rows.Scan(&rowIDRaw, &sourceIDRaw, &tsRaw, &durRaw, &nameRaw, &callIDRaw, &itidRaw, &flagRaw, &cookieRaw, &chainIDRaw, &depthRaw, &childCallIDRaw); err != nil {
 			return fail(err)
 		}
-		row, reason := prepareTraceDBCallstackRow(authority, running, hasID, hasITID, hasCallID, hasFlag, hasDepth,
-			rowIDRaw, sourceIDRaw, tsRaw, durRaw, nameRaw, callIDRaw, itidRaw, flagRaw, cookieRaw, chainIDRaw, depthRaw)
+		row, reason := prepareTraceDBCallstackRow(authority, running, hasID, hasITID, hasCallID, hasFlag, hasDepth, hasChildCallID,
+			rowIDRaw, sourceIDRaw, tsRaw, durRaw, nameRaw, callIDRaw, itidRaw, flagRaw, cookieRaw, chainIDRaw, depthRaw, childCallIDRaw)
 		if reason != "" {
 			officialAsync := traceDBCallstackOfficialAsyncRaw(flagRaw, cookieRaw, durRaw, hasFlag)
 			if officialAsync {
@@ -294,7 +308,19 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 	traceDBAddCoverageMetric(&coverage, "source_rows_withheld_name_only", int64(nameOnlyWithheld))
 	traceDBAddCoverageMetric(&coverage, "source_rows_official_async_shaped", int64(officialAsyncShaped))
 	traceDBAddCoverageMetric(&coverage, "source_rows_rejected_official_async_shape", int64(officialAsyncRejected))
+	traceDBAddCoverageMetric(&coverage, "source_rows_unfinished_duration_sentinel",
+		int64(skipped["unfinished_duration_sentinel"]))
 	traceDBAddCoverageMetric(&coverage, "source_rows_accepted_pre_pairing", int64(len(accepted)))
+	if hasChildCallID {
+		childEmitterRows := 0
+		for _, row := range accepted {
+			if row.OfficialAsyncInterval && row.LogicalOwnerITID > 0 {
+				childEmitterRows++
+			}
+		}
+		traceDBAddCoverageMetric(&coverage,
+			"source_rows_official_async_child_emitter_resolved", int64(childEmitterRows))
+	}
 	if longestAccepted != nil {
 		if coverage.Metadata == nil {
 			coverage.Metadata = map[string]string{}
@@ -532,8 +558,8 @@ func traceDBCallstackSkippedTotal(skipped map[string]int) int {
 }
 
 func prepareTraceDBCallstackRow(authority traceDBSchedulerAuthority, running traceDBSchedulerRunningIndex,
-	hasID, hasITID, hasCallID, hasFlag, hasDepth bool,
-	rowIDRaw, sourceIDRaw, tsRaw, durRaw, nameRaw, callIDRaw, itidRaw, flagRaw, cookieRaw, chainIDRaw, depthRaw any,
+	hasID, hasITID, hasCallID, hasFlag, hasDepth, hasChildCallID bool,
+	rowIDRaw, sourceIDRaw, tsRaw, durRaw, nameRaw, callIDRaw, itidRaw, flagRaw, cookieRaw, chainIDRaw, depthRaw, childCallIDRaw any,
 ) (traceDBCallstackRow, string) {
 	index := authority.identities
 	var row traceDBCallstackRow
@@ -550,7 +576,13 @@ func prepareTraceDBCallstackRow(authority traceDBSchedulerAuthority, running tra
 		return row, "invalid_timestamp"
 	}
 	row.TimestampKnown = true
-	if row.Dur, ok = traceDBStrictSQLiteInt(durRaw); !ok || row.Dur < 0 {
+	if row.Dur, ok = traceDBStrictSQLiteInt(durRaw); !ok {
+		return row, "invalid_duration"
+	}
+	if row.Dur == -1 {
+		return row, "unfinished_duration_sentinel"
+	}
+	if row.Dur < -1 {
 		return row, "invalid_duration"
 	}
 	if row.TS > math.MaxInt64-row.Dur {
@@ -558,10 +590,35 @@ func prepareTraceDBCallstackRow(authority traceDBSchedulerAuthority, running tra
 	}
 	row.End = row.TS + row.Dur
 	row.IntervalKnown = true
+	officialAsyncShape := traceDBCallstackOfficialAsyncRaw(flagRaw, cookieRaw, durRaw, hasFlag)
 	var identityReason string
-	row.EmitterITID, row.CallID, identityReason = traceDBResolveCallstackEmitterIdentity(index, hasITID, hasCallID, itidRaw, callIDRaw)
-	if identityReason != "" {
-		return row, identityReason
+	if officialAsyncShape && hasChildCallID {
+		row.LogicalOwnerITID, row.CallID, identityReason =
+			traceDBResolveCallstackEmitterIdentity(index, false, hasCallID, nil, callIDRaw)
+		if identityReason != "" {
+			return row, "async_owner_" + identityReason
+		}
+		row.EmitterITID, _, identityReason =
+			traceDBResolveCallstackEmitterIdentity(index, false, true, nil, childCallIDRaw)
+		if identityReason != "" {
+			return row, "async_child_" + identityReason
+		}
+		if hasITID && itidRaw != nil {
+			explicitITID, valid := traceDBStrictInternalID(itidRaw)
+			if !valid {
+				return row, "invalid_emitter_itid"
+			}
+			if explicitITID != row.EmitterITID {
+				return row, "async_child_emitter_identity_mismatch"
+			}
+		}
+	} else {
+		row.EmitterITID, row.CallID, identityReason =
+			traceDBResolveCallstackEmitterIdentity(index, hasITID, hasCallID, itidRaw, callIDRaw)
+		if identityReason != "" {
+			return row, identityReason
+		}
+		row.LogicalOwnerITID = row.EmitterITID
 	}
 	var nameReason string
 	if row.Name, nameReason = traceDBCallstackName(nameRaw); nameReason != "" {
@@ -634,16 +691,22 @@ func prepareTraceDBCallstackRow(authority traceDBSchedulerAuthority, running tra
 	if traceDBBeforeCaptureStart(index, row.TS) {
 		return row, "before_capture_start"
 	}
-	row.OwnerIPID = thread.IPID
 	row.TID = thread.TID
 	if thread.IPID < 0 || process.PID <= 0 || process.PID > math.MaxInt32 {
 		return row, "unresolved_owner_process"
 	}
-	row.TGID = process.PID
+	ownerThread, ownerProcess, ownerResolution :=
+		authority.resolveThreadSubject(row.LogicalOwnerITID)
+	if ownerResolution != traceDBSchedulerThreadResolved ||
+		ownerThread.IPID < 0 || ownerProcess.PID <= 0 || ownerProcess.PID > math.MaxInt32 {
+		return row, "unresolved_logical_owner_process"
+	}
+	row.OwnerIPID = ownerThread.IPID
+	row.TGID = ownerProcess.PID
 	if row.TGID <= 0 || row.TGID > math.MaxInt32 {
 		return row, "invalid_emitter_process"
 	}
-	row.HeaderTGID = row.TGID
+	row.HeaderTGID = process.PID
 	row.CPUITID = row.EmitterITID
 	if _, ok := traceDBCallstackText(thread.Name, true); !ok {
 		return row, "invalid_emitter_comm"
@@ -660,7 +723,8 @@ func prepareTraceDBCallstackRow(authority traceDBSchedulerAuthority, running tra
 	}
 	switch {
 	case row.OfficialAsyncInterval:
-		if !authority.threadPointAllows(row.EmitterITID, row.TS) {
+		if !authority.threadPointAllows(row.EmitterITID, row.TS) ||
+			!authority.threadPointAllows(row.LogicalOwnerITID, row.TS) {
 			return row, "lifecycle_rejected_official_async_interval_start"
 		}
 	case row.Flag == "S" || row.Flag == "C":

@@ -235,7 +235,7 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 		"exportTraceDBPerfSamples":        1,
 		"exportTraceDBWakeups":            2,
 		"loadTraceDBBlockedCandidates":    1,
-		"prepareTraceDBCallstackRow":      3,
+		"prepareTraceDBCallstackRow":      4,
 		"prepareTraceDBNativeHookEvent":   1,
 		"prepareTraceDBSyscallRow":        1,
 		"resolveCallstackSchedulerAlias":  1,
@@ -260,7 +260,7 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 		callerCounts("lookupCPUAt")["resolveCallstackSchedulerAlias"] != 2 ||
 		callerCounts("lookupCPUAt")["traceDBResolvePerfSampleCPU"] != 1 ||
 		callerCounts("resolveThreadSubject")["traceDBResolveRawPublicTID"] != 1 ||
-		callerCounts("resolveThreadSubject")["prepareTraceDBCallstackRow"] != 1 ||
+		callerCounts("resolveThreadSubject")["prepareTraceDBCallstackRow"] != 2 ||
 		callerCounts("resolveThreadSubject")["exportTraceDBCallstack"] != 1 ||
 		callerCounts("resolveThreadSubject")["traceDBCallstackExactEmitterCandidates"] != 1 ||
 		callerCounts("traceDBResolveLifecycleCallstackIdentity")["traceDBCallstackExactEmitterCandidates"] != 1 {
@@ -323,18 +323,27 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 		t.Fatalf("exact rejected-lane fence/poison does not dominate central submission: candidates=%d fence=%d poison=%d submit=%d",
 			barrierPopulate, centralFence, centralPoison, centralSubmit)
 	}
-	if failCalls != 24 || coverageErrorAssignments != 1 {
-		t.Fatalf("callstack error chokepoint calls=%d coverage.Error assignments=%d, want 24/1", failCalls, coverageErrorAssignments)
+	if failCalls != 25 || coverageErrorAssignments != 1 {
+		t.Fatalf("callstack error chokepoint calls=%d coverage.Error assignments=%d, want 25/1", failCalls, coverageErrorAssignments)
 	}
 
+	logicalOwnerPointGate := 0
 	for _, item := range calls["threadPointAllows"] {
 		if item.function != "prepareTraceDBCallstackRow" {
 			continue
 		}
 		if receiverName(item.call) != "authority" || len(item.call.Args) != 2 ||
-			!isSelector(item.call.Args[0], "row", "EmitterITID") || !isSelector(item.call.Args[1], "row", "TS") {
+			(!isSelector(item.call.Args[0], "row", "EmitterITID") &&
+				!isSelector(item.call.Args[0], "row", "LogicalOwnerITID")) ||
+			!isSelector(item.call.Args[1], "row", "TS") {
 			t.Fatal("callstack point gate arguments changed")
 		}
+		if isSelector(item.call.Args[0], "row", "LogicalOwnerITID") {
+			logicalOwnerPointGate++
+		}
+	}
+	if logicalOwnerPointGate != 1 {
+		t.Fatalf("official async logical owner point gates=%d, want 1", logicalOwnerPointGate)
 	}
 	for _, item := range calls["threadClosedEndpointAllows"] {
 		if item.function != "prepareTraceDBCallstackRow" {

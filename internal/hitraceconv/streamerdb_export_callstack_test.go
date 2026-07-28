@@ -249,6 +249,48 @@ func TestTraceDBCallstackNameRejectionReasonsAreTyped(t *testing.T) {
 	}
 }
 
+func TestTraceDBCallstackUnfinishedDurationSentinelIsDistinct(t *testing.T) {
+	path := createTraceDBCallstackFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts INT)",
+		"INSERT INTO trace_range VALUES (0)",
+		"CREATE TABLE process (ipid INT, pid INT, name TEXT)",
+		"INSERT INTO process VALUES (1, 100, 'demo')",
+		"CREATE TABLE thread (itid INT, tid INT, ipid INT, name TEXT, start_ts INT, is_main_thread INT, switch_count INT)",
+		"INSERT INTO thread VALUES (1, 101, 1, 'worker', 0, 0, 1)",
+		"CREATE TABLE thread_state (itid INT, ts INT, dur INT, cpu INT, state TEXT)",
+		"INSERT INTO thread_state VALUES (1, 0, 3000, 2, 'Running')",
+		"CREATE TABLE callstack (id INT, ts INT, dur INT, callid INT, name TEXT, flag TEXT, cookie INT, chainId TEXT)",
+		"INSERT INTO callstack VALUES (1, 1000, -1, 1, 'unfinished', NULL, NULL, NULL)",
+		"INSERT INTO callstack VALUES (2, 1200, -2, 1, 'malformed-negative', NULL, NULL, NULL)",
+	})
+	outPath := filepath.Join(t.TempDir(), "callstack-unfinished.systrace")
+	result, err := exportTraceDBToSystrace(context.Background(), path, outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var coverage TraceDBCoverage
+	for _, item := range result.Coverage {
+		if item.Family == "slice" && item.Table == "callstack" {
+			coverage = item
+			break
+		}
+	}
+	if coverage.RowsEmitted != 0 ||
+		coverage.Metrics["source_rows_unfinished_duration_sentinel"] != 1 ||
+		!strings.Contains(coverage.Skipped, "unfinished_duration_sentinel=1") ||
+		!strings.Contains(coverage.Skipped, "invalid_duration=1") {
+		t.Fatalf("unfinished producer sentinel was collapsed into malformed duration: %+v", coverage)
+	}
+	body, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "unfinished") ||
+		strings.Contains(string(body), "malformed-negative") {
+		t.Fatalf("unfinished interval fabricated a closed span:\n%s", body)
+	}
+}
+
 func TestExportTraceDBCallstackNameOnlyRowsDoNotPoisonSyncOrNullFlagAsyncAuthority(t *testing.T) {
 	path := createTraceDBCallstackFixture(t, []string{
 		"CREATE TABLE trace_range (start_ts INT)",
