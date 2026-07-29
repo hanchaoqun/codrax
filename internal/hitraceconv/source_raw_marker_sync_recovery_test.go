@@ -253,11 +253,11 @@ func TestSubmitTraceDBRawMarkerSyncRecoveryRetainsWitnessesPerReason(t *testing.
 	}
 }
 
-func TestSubmitTraceDBRawMarkerSyncRecoveryNormalizesOfficialStructuredTrailingSpace(t *testing.T) {
+func TestSubmitTraceDBRawMarkerSyncRecoveryNormalizesOfficialPrintParserTrailingSpace(t *testing.T) {
 	ctx := context.Background()
 	rows := traceDBRawMarkerTestPair(201, 777, 1, "frame ")
-	rows[0].OpenHarmonyStructuredProfile = true
-	rows[1].OpenHarmonyStructuredProfile = true
+	rows[0].OpenHarmonyPrintParserProfile = true
+	rows[1].OpenHarmonyPrintParserProfile = true
 	syncSpans := newTraceDBTestSyncSpanAuthority(t)
 	coverage, err := submitTraceDBRawMarkerSyncRecovery(
 		ctx, traceDBRawMarkerTestInventory(rows),
@@ -291,19 +291,19 @@ func TestSubmitTraceDBRawMarkerSyncRecoveryNormalizesOfficialStructuredTrailingS
 
 func TestSubmitTraceDBRawMarkerSyncRecoveryDoesNotBroadenTrailingSpaceRule(t *testing.T) {
 	tests := []struct {
-		name       string
-		span       string
-		structured bool
+		name        string
+		span        string
+		printParser bool
 	}{
-		{name: "compact trailing space", span: "frame "},
-		{name: "structured leading space", span: " frame", structured: true},
-		{name: "structured trailing tab", span: "frame\t", structured: true},
+		{name: "unproven trailing space", span: "frame "},
+		{name: "official leading space", span: " frame", printParser: true},
+		{name: "official trailing tab", span: "frame\t", printParser: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			rows := traceDBRawMarkerTestPair(201, 777, 1, test.span)
-			rows[0].OpenHarmonyStructuredProfile = test.structured
-			rows[1].OpenHarmonyStructuredProfile = test.structured
+			rows[0].OpenHarmonyPrintParserProfile = test.printParser
+			rows[1].OpenHarmonyPrintParserProfile = test.printParser
 			syncSpans := newTraceDBTestSyncSpanAuthority(t)
 			coverage, err := submitTraceDBRawMarkerSyncRecovery(
 				context.Background(), traceDBRawMarkerTestInventory(rows),

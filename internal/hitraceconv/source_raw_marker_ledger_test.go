@@ -64,6 +64,8 @@ func TestTraceDBRawMarkerLedgerTypesOfficialStructuredZeroPIDHeaderIdentity(t *t
 	if len(acc.markerRecords) != 2 ||
 		!acc.markerRecords[0].OpenHarmonyStructuredProfile ||
 		!acc.markerRecords[1].OpenHarmonyStructuredProfile ||
+		!acc.markerRecords[0].OpenHarmonyPrintParserProfile ||
+		!acc.markerRecords[1].OpenHarmonyPrintParserProfile ||
 		!acc.markerRecords[0].ZeroPIDUsesHeaderIdentity ||
 		!acc.markerRecords[1].ZeroPIDUsesHeaderIdentity ||
 		acc.markerRecords[0].PayloadPID != 0 ||
@@ -78,9 +80,21 @@ func TestTraceDBRawMarkerLedgerTypesOfficialStructuredZeroPIDHeaderIdentity(t *t
 	acc.observeRecord(compact.format, compact.content, 5, 5_000_000)
 	if len(acc.markerRecords) != 3 ||
 		acc.markerRecords[2].OpenHarmonyStructuredProfile ||
+		!acc.markerRecords[2].OpenHarmonyPrintParserProfile ||
 		acc.markerRecords[2].ZeroPIDUsesHeaderIdentity {
 		t.Fatalf("compact B|0 gained structured producer authority: %+v",
 			acc.markerRecords[2])
+	}
+
+	print := directMarkerHarmonyCompactPrintFixture(
+		[]byte("B|1234|viewer-trimmed "))
+	acc.observeRecord(print.format, print.content, 6, 6_000_000)
+	if len(acc.markerRecords) != 4 ||
+		acc.markerRecords[3].OpenHarmonyStructuredProfile ||
+		!acc.markerRecords[3].OpenHarmonyPrintParserProfile ||
+		acc.markerRecords[3].Name != "viewer-trimmed " {
+		t.Fatalf("official compact print lost parser provenance: %+v",
+			acc.markerRecords[3])
 	}
 }
 

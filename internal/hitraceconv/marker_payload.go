@@ -139,6 +139,15 @@ func directMarkerOpenHarmonyStructuredProfile(ev decodedEvent) bool {
 		directMarkerDeclarationCount(ev, "name") == 1
 }
 
+// directMarkerOpenHarmonyPrintParserProfile identifies the two exact kernel
+// event families whose strictly decoded body is routed to the official
+// PrintEventParser. Unlike the structured pid/name/start profile, the ordinary
+// print.buf carrier belongs here too. Callers may consume this fact only after
+// decodeDirectMarkerPayload admitted the complete body.
+func directMarkerOpenHarmonyPrintParserProfile(ev decodedEvent) bool {
+	return ev.format.Name == "print" || ev.format.Name == "tracing_mark_write"
+}
+
 func decodeDirectMarkerPayload(ev decodedEvent, content []byte) (markerPayload, bodyAdmission, string) {
 	if !directMarkerNameGoverned(ev.format.Name) {
 		return markerPayload{}, bodyUnsupported, ""

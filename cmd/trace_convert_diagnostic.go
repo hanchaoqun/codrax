@@ -38,6 +38,7 @@ var traceConvertDiagnosticCapabilities = []string{
 	"raw_marker_local_validation_witness_v1",
 	"official_raw_marker_zero_pid_header_identity_v1",
 	"official_raw_marker_trailing_space_name_v1",
+	"official_raw_marker_print_parser_trailing_space_v2",
 	"null_duration_raw_disposition_census_v1",
 	"raw_marker_local_validation_reason_witness_v1",
 	"official_viewer_typed_only_reason_census_v1",
