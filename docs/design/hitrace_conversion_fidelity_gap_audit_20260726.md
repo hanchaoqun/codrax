@@ -5049,6 +5049,86 @@ No customer replay is needed between RD-A, RD-B and RD-C. One replay after
 RD-D is required to validate the production census and output artifact on the
 same Windows machine.
 
+### REP-D implementation closure
+
+| Batch | Commit | Closure |
+| --- | --- | --- |
+| RD-A | `fca9fb1c1` | froze the new-build proof, replay equations, two residual causes and fail-closed acceptance contract |
+| RD-B | `444850faf` | rewrites only the admitted official B-name field, preserves a structured suffix byte-for-byte, reparses the result, and composes with zero-PID header normalization |
+| RD-C | `fef69bf0a` | gives lifecycle points their official empty-driver/nonempty-timeline profile while leaving DMA wait hard keys unchanged |
+
+RD-B adds
+`official_raw_marker_print_parser_trailing_space_v3`. Its production-shaped
+fixture uses a metadata suffix and the actual customer witness name. A second
+fixture combines that suffix, trailing-space repair and structured zero-PID
+header identity. Both must reach the one shared sync-span authority. Ordinary
+carriers, leading spaces and tabs remain rejected. The structural B/E
+whitelist names the one normalization function explicitly, so a second
+source-side publisher cannot be added unnoticed.
+
+RD-C adds `official_raw_dma_lifecycle_point_recovery_v2`. It is grounded in
+all four official SmartPerf lifecycle handlers, not only the customer-visible
+init symptom: each handler rejects an empty timeline but stores `driver`
+without a non-empty check. The Codrax lifecycle decoder therefore admits only
+the exact one-byte NUL empty-driver carrier, retains a strict non-empty
+timeline, and reruns the existing descriptor/range/overlap/integer gates. The
+point renderer has the same profile. The wait decoder and wait renderer still
+reject an empty driver, which is pinned by a negative test.
+
+Package verification after each repair:
+
+```text
+go test ./internal/hitraceconv ./cmd -count=1
+ok github.com/hanchaoqun/codrax/internal/hitraceconv
+ok github.com/hanchaoqun/codrax/cmd
+```
+
+### Next replay acceptance after REP-D
+
+The customer should update once after RD-D and replay the same 27,022,926-byte
+input. The diagnostic report must contain:
+
+```text
+official_raw_marker_print_parser_trailing_space_v3
+official_raw_dma_lifecycle_point_recovery_v2
+
+raw_pairs_official_trailing_space_name_normalized = 279
+raw_pairs_withheld_candidate_validation_failed    = 0
+raw_pairs_withheld_local_validation                = 0
+
+target_dma_fence_init_records                       = 494
+target_dma_fence_init_body_admitted                 = 494
+target_dma_fence_init_body_rejected                 = 0
+target_dma_fence_init_reject_missing_or_invalid_dma_fence_payload = 0
+
+source_rawtrace_dma_lifecycle.rows_read              = 1787
+source_rawtrace_dma_lifecycle.rows_emitted           = 1787
+source_rawtrace_dma_lifecycle.publication_state
+  = published_exact_official_point_events
+```
+
+The output must contain exact lifecycle point rows including the previously
+rejected shape:
+
+```text
+dma_fence_init: driver= timeline=<nonempty> context=<uint32> seqno=<uint32>
+```
+
+It must not contain a manufactured lifecycle B/E pair or duration. DMA wait
+rows with empty driver must remain absent. Marker endpoints that publish must
+retain their original metadata suffix with only the admitted trailing ASCII
+spaces removed from the name. Finally:
+
+```text
+expected rows = parsed known rows = callback rows
+unknown rows = unparsed rows = 0
+```
+
+The exact final artifact row count and SHA are deliberately not predicted:
+restored marker candidates still pass through shared laminar arbitration, and
+authenticated ordering changes the artifact hash. The typed family equations
+above are the stable acceptance authority.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.
