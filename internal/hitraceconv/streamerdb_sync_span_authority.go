@@ -202,17 +202,19 @@ type traceDBSyncSpanGlobalPoison struct {
 }
 
 type traceDBSyncSpanProducerStats struct {
-	SubmittedSpans           int
-	EmittedEndpoints         int
-	StandardViewerSpans      int
-	StandardPipeSpans        int
-	ViewerDispositions       [traceDBSyncSpanViewerDispositionCount]int
-	SuppressedSpans          int
-	SupersededSpans          int
-	PoisonDeclarations       int
-	FenceDeclarations        int
-	FenceSuppressedSpans     int
-	GlobalPoisonDeclarations int
+	SubmittedSpans                     int
+	EmittedEndpoints                   int
+	StandardViewerSpans                int
+	StandardPipeSpans                  int
+	ViewerDispositions                 [traceDBSyncSpanViewerDispositionCount]int
+	SuppressedSpans                    int
+	SupersededSpans                    int
+	SupersededCPUUnavailableSpans      int
+	SupersededNameUnrepresentableSpans int
+	PoisonDeclarations                 int
+	FenceDeclarations                  int
+	FenceSuppressedSpans               int
+	GlobalPoisonDeclarations           int
 }
 
 type traceDBSyncSpanReport struct {
@@ -246,22 +248,24 @@ const (
 // from one Trace Streamer SQLite artifact. Candidate storage and duplicate /
 // poison arbitration are delegated to one bounded typed stage.
 type traceDBSyncSpanAuthority struct {
-	artifactSource      string
-	state               traceDBSyncSpanAuthorityState
-	stage               *traceDBSyncSpanStage
-	submitted           [traceDBSyncSpanProducerSourceRawMarker + 1]int
-	poisoned            [traceDBSyncSpanProducerSourceRawMarker + 1]int
-	fenced              [traceDBSyncSpanProducerSourceRawMarker + 1]int
-	fenceWitnesses      [traceDBSyncSpanProducerSourceRawMarker + 1][]traceDBSyncSpanLaneFence
-	standardPipeSpans   [traceDBSyncSpanProducerSourceRawMarker + 1]int
-	standardViewerSpans [traceDBSyncSpanProducerSourceRawMarker + 1]int
-	viewerDispositions  [traceDBSyncSpanProducerSourceRawMarker + 1][traceDBSyncSpanViewerDispositionCount]int
-	superseded          [traceDBSyncSpanProducerSourceRawMarker + 1]int
-	globalPoisoned      [traceDBSyncSpanProducerSourceRawMarker + 1]bool
-	submittedTotal      int
-	poisonedTotal       int
-	fencedTotal         int
-	globalPoisonedTotal int
+	artifactSource                string
+	state                         traceDBSyncSpanAuthorityState
+	stage                         *traceDBSyncSpanStage
+	submitted                     [traceDBSyncSpanProducerSourceRawMarker + 1]int
+	poisoned                      [traceDBSyncSpanProducerSourceRawMarker + 1]int
+	fenced                        [traceDBSyncSpanProducerSourceRawMarker + 1]int
+	fenceWitnesses                [traceDBSyncSpanProducerSourceRawMarker + 1][]traceDBSyncSpanLaneFence
+	standardPipeSpans             [traceDBSyncSpanProducerSourceRawMarker + 1]int
+	standardViewerSpans           [traceDBSyncSpanProducerSourceRawMarker + 1]int
+	viewerDispositions            [traceDBSyncSpanProducerSourceRawMarker + 1][traceDBSyncSpanViewerDispositionCount]int
+	superseded                    [traceDBSyncSpanProducerSourceRawMarker + 1]int
+	supersededCPUUnavailable      int
+	supersededNameUnrepresentable int
+	globalPoisoned                [traceDBSyncSpanProducerSourceRawMarker + 1]bool
+	submittedTotal                int
+	poisonedTotal                 int
+	fencedTotal                   int
+	globalPoisonedTotal           int
 }
 
 const traceDBSyncSpanFenceWitnessCap = 8
@@ -437,6 +441,33 @@ func (authority *traceDBSyncSpanAuthority) supersedeUniqueLocallyAdmittedCPUUnav
 		return replaced, complete, err
 	}
 	authority.superseded[traceDBSyncSpanProducerCallstack]++
+	authority.supersededCPUUnavailable++
+	return true, true, nil
+}
+
+func (authority *traceDBSyncSpanAuthority) supersedeUniqueLocallyAdmittedNameUnrepresentableCallstackCandidate(
+	ctx context.Context,
+	candidate traceDBSyncSpanCandidate,
+) (bool, bool, error) {
+	if authority == nil || authority.state != traceDBSyncSpanAuthorityOpen ||
+		authority.stage == nil {
+		return false, false,
+			&traceDBOutputInvariantError{Reason: "sync_span_authority_not_open"}
+	}
+	if authority.superseded[traceDBSyncSpanProducerCallstack] == math.MaxInt ||
+		authority.supersededNameUnrepresentable == math.MaxInt {
+		authority.state = traceDBSyncSpanAuthorityFailed
+		return false, false,
+			&traceDBOutputInvariantError{Reason: "sync_span_authority_supersede_count_overflow"}
+	}
+	replaced, complete, err :=
+		authority.stage.supersedeUniqueLocallyAdmittedNameUnrepresentableCallstackCandidate(
+			ctx, candidate)
+	if err != nil || !complete || !replaced {
+		return replaced, complete, err
+	}
+	authority.superseded[traceDBSyncSpanProducerCallstack]++
+	authority.supersededNameUnrepresentable++
 	return true, true, nil
 }
 
@@ -974,6 +1005,14 @@ func (authority *traceDBSyncSpanAuthority) baseReport() traceDBSyncSpanReport {
 			SupersededSpans: superseded, PoisonDeclarations: poisoned,
 			FenceDeclarations:        fenced,
 			GlobalPoisonDeclarations: globalDeclarations,
+		}
+		if producer == traceDBSyncSpanProducerCallstack {
+			stats := report.ByProducer[producer]
+			stats.SupersededCPUUnavailableSpans =
+				authority.supersededCPUUnavailable
+			stats.SupersededNameUnrepresentableSpans =
+				authority.supersededNameUnrepresentable
+			report.ByProducer[producer] = stats
 		}
 		report.FenceWitnesses[producer] = append(
 			report.FenceWitnesses[producer][:0], authority.fenceWitnesses[producer]...)
@@ -1896,12 +1935,19 @@ func traceDBSyncSpanReportSummary(report traceDBSyncSpanReport) string {
 		counts["suppressed_spans"] = report.SuppressedSpans
 		counts["suppressed_endpoints"] = report.SuppressedSpans * 2
 	}
-	superseded := 0
+	supersededCPUUnavailable := 0
+	supersededNameUnrepresentable := 0
 	for _, stats := range report.ByProducer {
-		superseded += stats.SupersededSpans
+		supersededCPUUnavailable += stats.SupersededCPUUnavailableSpans
+		supersededNameUnrepresentable +=
+			stats.SupersededNameUnrepresentableSpans
 	}
-	if superseded > 0 {
-		counts["superseded_by_raw_cpu_spans"] = superseded
+	if supersededCPUUnavailable > 0 {
+		counts["superseded_by_raw_cpu_spans"] = supersededCPUUnavailable
+	}
+	if supersededNameUnrepresentable > 0 {
+		counts["superseded_by_raw_name_spans"] =
+			supersededNameUnrepresentable
 	}
 	if report.PoisonedLanes > 0 {
 		counts["poisoned_lanes"] = report.PoisonedLanes
@@ -1952,12 +1998,22 @@ func reconcileTraceDBSyncSpanCoverage(items []TraceDBCoverage, report traceDBSyn
 		if match < 0 {
 			return &traceDBOutputInvariantError{Reason: "missing_sync_span_producer_coverage"}
 		}
+		if stats.SupersededSpans !=
+			stats.SupersededCPUUnavailableSpans+
+				stats.SupersededNameUnrepresentableSpans {
+			return &traceDBOutputInvariantError{
+				Reason: "sync_span_supersede_reason_census_mismatch",
+			}
+		}
 		item := &items[match]
 		item.RowsEmitted += stats.EmittedEndpoints
 		traceDBAddCoverageMetric(item, "sync_spans_submitted", int64(stats.SubmittedSpans))
 		traceDBAddCoverageMetric(item, "sync_spans_suppressed", int64(stats.SuppressedSpans))
 		traceDBAddCoverageMetric(item, "sync_spans_superseded_by_raw_cpu",
-			int64(stats.SupersededSpans))
+			int64(stats.SupersededCPUUnavailableSpans))
+		traceDBAddCoverageMetric(item,
+			"sync_spans_superseded_by_raw_name_unrepresentable",
+			int64(stats.SupersededNameUnrepresentableSpans))
 		traceDBAddCoverageMetric(item, "sync_spans_suppressed_by_local_fence", int64(stats.FenceSuppressedSpans))
 		traceDBAddCoverageMetric(item, "sync_endpoints_emitted", int64(stats.EmittedEndpoints))
 		traceDBAddCoverageMetric(item, "official_viewer_standard_sync_spans_emitted",

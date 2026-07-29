@@ -35,9 +35,9 @@ func newTraceDBRawMarkerSyncCoverage() TraceDBCoverage {
 			"grammar":       "tracequery.DecodeTraceMarkEndpointPayload is the sole complete-payload B/E verdict",
 			"stack":         "one exact LIFO stack per physical common_pid emitter; orphan ends, trailing open begins, invalid/overflowed closed intervals and already-paired validation failures are withheld locally, while invalid physical ordering or an unclassified/rejected carrier keeps whole-lane fail-closed scope",
 			"identity":      "common_pid independently resolves to the same canonical host thread/process at both exact endpoints; payload PID remains marker namespace data",
-			"deduplication": "an exact bounded semantic index suppresses a raw pair only when an equal host TID/TGID, marker PID, canonical owner, interval and name DB candidate survives its producer-local fence/poison gate; one unique locally admitted CPU-unavailable callstack collision is candidate-superseded and replaced by the exact raw B/E pair, while a locally suppressed DB candidate cannot erase the raw alternative",
+			"deduplication": "an exact bounded semantic index suppresses a raw pair only when an equal host TID/TGID, marker PID, canonical owner, interval and name DB candidate survives its producer-local fence/poison gate; one unique locally admitted CPU-unavailable callstack collision, or a name-drift collision whose CPU-known DB name is not losslessly standard-representable, is candidate-superseded and replaced by the exact raw B/E pair; a locally suppressed DB candidate cannot erase the raw alternative",
 			"diagnostics":   "closed raw pairs expose exact zero-start, long-duration and bounded longest-pair witnesses before publication decisions; these observations never admit or reject a pair",
-			"name_drift":    "a raw pair sharing exact host/payload/canonical identity and interval with a locally admitted DB candidate but not its name is withheld locally unless that collision is one unique CPU-unavailable callstack candidate; the latter is candidate-superseded and replaced by the authoritative raw name/envelopes, while locally suppressed collisions may submit the raw alternative to the unchanged shared lane audit",
+			"name_drift":    "a raw pair sharing exact host/payload/canonical identity and interval with a locally admitted DB candidate but not its name is withheld locally unless that collision is one unique CPU-unavailable callstack candidate or one unique CPU-known callstack candidate whose DB name cannot round-trip through the standard trace-mark grammar; only those candidate-level cases are superseded and replaced by the authoritative raw name/envelopes, while a standard-representable DB name remains authoritative",
 			"publication":   "DB-disjoint clean pairs submit to the existing single sync-span laminar authority; this exporter never writes B/E rows directly",
 			"envelope":      "raw page CPU, common_flags and common_preempt_count are retained independently at begin and end",
 			"validation":    "post-pair endpoint validation reports one closed first-failure typed reason for header/payload/action/name/timestamp/CPU/flags/preempt fields; no reason changes admission",
@@ -269,7 +269,7 @@ func submitTraceDBRawMarkerSyncRecovery(
 					out.Error = censusErr.Error()
 					return out, censusErr
 				}
-				replaced, replaceErr := traceDBReplaceRawMarkerCPUUnavailableCollision(
+				replaced, replaceErr := traceDBReplaceRawMarkerAuthoritativeCollision(
 					ctx, &out, syncSpans, candidate, census, complete,
 					rawIntervalCount, "exact_semantic")
 				if replaceErr != nil {
@@ -327,7 +327,7 @@ func submitTraceDBRawMarkerSyncRecovery(
 						out.Error = censusErr.Error()
 						return out, censusErr
 					}
-					replaced, replaceErr := traceDBReplaceRawMarkerCPUUnavailableCollision(
+					replaced, replaceErr := traceDBReplaceRawMarkerAuthoritativeCollision(
 						ctx, &out, syncSpans, candidate, census, complete,
 						rawIntervalCount, "name_drift")
 					if replaceErr != nil {
@@ -436,7 +436,7 @@ func traceDBRecordRawMarkerCollisionCensus(
 	return census, true, nil
 }
 
-func traceDBReplaceRawMarkerCPUUnavailableCollision(
+func traceDBReplaceRawMarkerAuthoritativeCollision(
 	ctx context.Context,
 	out *TraceDBCoverage,
 	syncSpans *traceDBSyncSpanAuthority,
@@ -446,26 +446,45 @@ func traceDBReplaceRawMarkerCPUUnavailableCollision(
 	rawIntervalCount int,
 	shape string,
 ) (bool, error) {
-	if !complete || census.Total != 1 || census.CallstackCPUUnavailable != 1 {
+	if !complete || census.Total != 1 {
 		return false, nil
 	}
 	if rawIntervalCount != 1 {
 		traceDBAddCoverageMetric(out,
-			"raw_pairs_cpu_unavailable_replacement_withheld_ambiguous_raw_interval", 1)
+			"raw_pairs_authoritative_replacement_withheld_ambiguous_raw_interval", 1)
 		return false, nil
 	}
-	replaced, replacementComplete, err :=
-		syncSpans.supersedeUniqueLocallyAdmittedCPUUnavailableCallstackCandidate(
-			ctx, candidate)
+	replacementKind := ""
+	var replaced, replacementComplete bool
+	var err error
+	switch {
+	case census.CallstackCPUUnavailable == 1:
+		replacementKind = "cpu_unavailable"
+		replaced, replacementComplete, err =
+			syncSpans.supersedeUniqueLocallyAdmittedCPUUnavailableCallstackCandidate(
+				ctx, candidate)
+	case shape == "name_drift" && census.CallstackCPUKnown == 1:
+		replacementKind = "name_unrepresentable"
+		replaced, replacementComplete, err =
+			syncSpans.supersedeUniqueLocallyAdmittedNameUnrepresentableCallstackCandidate(
+				ctx, candidate)
+	default:
+		return false, nil
+	}
 	if err != nil {
 		return false, err
 	}
 	if !replacementComplete {
 		traceDBAddCoverageMetric(out,
-			"raw_cpu_unavailable_replacement_incomplete", 1)
+			"raw_authoritative_replacement_incomplete", 1)
 		return false, nil
 	}
 	if !replaced {
+		if replacementKind == "name_unrepresentable" {
+			traceDBAddCoverageMetric(out,
+				"raw_pairs_name_drift_cpu_known_standard_representable_withheld", 1)
+			return false, nil
+		}
 		return false, &traceDBOutputInvariantError{
 			Reason: "raw_cpu_unavailable_replacement_candidate_disappeared",
 		}
@@ -474,9 +493,9 @@ func traceDBReplaceRawMarkerCPUUnavailableCollision(
 		return false, err
 	}
 	traceDBAddCoverageMetric(out,
-		"raw_pairs_"+shape+"_cpu_unavailable_callstack_replaced", 1)
+		"raw_pairs_"+shape+"_"+replacementKind+"_callstack_replaced", 1)
 	traceDBAddCoverageMetric(out,
-		"raw_pairs_cpu_unavailable_callstack_replaced", 1)
+		"raw_pairs_"+replacementKind+"_callstack_replaced", 1)
 	traceDBAddCoverageMetric(out, "raw_pairs_submitted", 1)
 	return true, nil
 }

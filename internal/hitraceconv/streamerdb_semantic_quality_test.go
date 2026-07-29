@@ -151,7 +151,7 @@ func TestTraceDBSemanticQualityClosesCPUUnavailableRawReplacement(t *testing.T) 
 		[]TraceDBCoverage{quality}), "\n")
 	for _, want := range []string{
 		"published 2 exact replacement span(s)",
-		"including 2 unique CPU-unavailable callstack span(s)",
+		"including 2 unique CPU-unavailable and 0 unique standard-name-unrepresentable callstack span(s)",
 		"CPU placement is unavailable for 5 source row(s)",
 	} {
 		if !strings.Contains(caveats, want) {
@@ -160,6 +160,44 @@ func TestTraceDBSemanticQualityClosesCPUUnavailableRawReplacement(t *testing.T) 
 	}
 	if strings.Contains(caveats, "CPU placement is unavailable for 7") {
 		t.Fatalf("pre-replacement unavailable count leaked:\n%s", caveats)
+	}
+}
+
+func TestTraceDBSemanticQualityClosesNameUnrepresentableRawReplacement(t *testing.T) {
+	quality := traceDBSemanticQualityCoverage([]TraceDBCoverage{
+		{
+			Family: "slice",
+			Table:  "callstack",
+			Metrics: map[string]int64{
+				"sync_spans_suppressed": 1,
+			},
+		},
+		{
+			Family: "source_rawtrace_marker_sync",
+			Table:  "__raw_marker_sync__",
+			Metrics: map[string]int64{
+				"raw_pairs_name_unrepresentable_callstack_replaced": 1,
+				"sync_spans_submitted":                              1,
+				"sync_endpoints_emitted":                            2,
+			},
+		},
+	})
+	if quality.Metadata["raw_marker_replacement_closure"] != "complete" ||
+		quality.Metrics["raw_marker_name_unrepresentable_replacement_spans"] != 1 ||
+		quality.Metrics["callstack_sync_spans_recovered_by_raw_marker"] != 1 ||
+		quality.Metrics["callstack_sync_spans_unrecovered_after_raw_marker"] != 0 {
+		t.Fatalf("name-unrepresentable replacement closure drifted: %+v", quality)
+	}
+	caveats := strings.Join(traceDBSemanticQualityCaveats(
+		[]TraceDBCoverage{quality}), "\n")
+	for _, want := range []string{
+		"published 1 exact replacement span(s)",
+		"0 unique CPU-unavailable and 1 unique standard-name-unrepresentable",
+		"0 callstack sync span(s) remain unpublished",
+	} {
+		if !strings.Contains(caveats, want) {
+			t.Fatalf("name replacement caveat missing %q:\n%s", want, caveats)
+		}
 	}
 }
 

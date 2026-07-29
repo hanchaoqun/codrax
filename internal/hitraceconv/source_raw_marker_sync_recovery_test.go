@@ -182,6 +182,55 @@ func TestSubmitTraceDBRawMarkerSyncRecoveryWithholdsNameDriftWithoutPoisoningDBL
 	}
 }
 
+func TestSubmitTraceDBRawMarkerSyncRecoveryReplacesUniqueNameUnrepresentableCollision(t *testing.T) {
+	ctx := context.Background()
+	syncSpans := newTraceDBTestSyncSpanAuthority(t)
+	existing := traceDBTestSyncSpanCandidate(
+		traceDBSyncSpanProducerCallstack, 9, 201, 200,
+		1_000_000, 4_000_000, "db-normalized|I42")
+	existing.CanonicalITID = 2
+	existing.OwnerIPID = 2
+	existing.MarkerPID, existing.MarkerPIDKnown = 777, true
+	if err := syncSpans.submit(ctx, existing); err != nil {
+		t.Fatal(err)
+	}
+	coverage, err := submitTraceDBRawMarkerSyncRecovery(
+		ctx, traceDBRawMarkerTestInventory(
+			traceDBRawMarkerTestPair(201, 777, 1, "raw-physical-name")),
+		traceDBRawBlockedKeyTestAuthority(), syncSpans)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if coverage.Metrics["raw_pairs_withheld_exact_interval_name_drift"] != 0 ||
+		coverage.Metrics["raw_pairs_name_drift_unique_cpu_known_callstack_candidate"] != 1 ||
+		coverage.Metrics["raw_pairs_name_drift_name_unrepresentable_callstack_replaced"] != 1 ||
+		coverage.Metrics["raw_pairs_name_unrepresentable_callstack_replaced"] != 1 ||
+		coverage.Metrics["raw_pairs_submitted"] != 1 ||
+		syncSpans.submitted[traceDBSyncSpanProducerSourceRawMarker] != 1 {
+		t.Fatalf("name-unrepresentable raw collision was not replaced: coverage=%+v submitted=%+v",
+			coverage, syncSpans.submitted)
+	}
+	sink, err := newTraceDBRowSink(t.TempDir(), 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.cleanup()
+	report, _, err := syncSpans.finalize(ctx, sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dbStats := report.ByProducer[traceDBSyncSpanProducerCallstack]
+	rawStats := report.ByProducer[traceDBSyncSpanProducerSourceRawMarker]
+	if dbStats.SubmittedSpans != 1 || dbStats.SupersededSpans != 1 ||
+		dbStats.SupersededCPUUnavailableSpans != 0 ||
+		dbStats.SupersededNameUnrepresentableSpans != 1 ||
+		dbStats.SuppressedSpans != 1 || dbStats.EmittedEndpoints != 0 ||
+		rawStats.SubmittedSpans != 1 || rawStats.SuppressedSpans != 0 ||
+		rawStats.EmittedEndpoints != 2 {
+		t.Fatalf("candidate-level raw name replacement report drifted: %+v", report)
+	}
+}
+
 func TestSubmitTraceDBRawMarkerSyncRecoveryReplacesUniqueCPUUnavailableCollision(t *testing.T) {
 	ctx := context.Background()
 	syncSpans := newTraceDBTestSyncSpanAuthority(t)
@@ -228,6 +277,8 @@ func TestSubmitTraceDBRawMarkerSyncRecoveryReplacesUniqueCPUUnavailableCollision
 	dbStats := report.ByProducer[traceDBSyncSpanProducerCallstack]
 	rawStats := report.ByProducer[traceDBSyncSpanProducerSourceRawMarker]
 	if dbStats.SubmittedSpans != 1 || dbStats.SupersededSpans != 1 ||
+		dbStats.SupersededCPUUnavailableSpans != 1 ||
+		dbStats.SupersededNameUnrepresentableSpans != 0 ||
 		dbStats.SuppressedSpans != 1 || dbStats.EmittedEndpoints != 0 ||
 		rawStats.SubmittedSpans != 1 || rawStats.SuppressedSpans != 0 ||
 		rawStats.EmittedEndpoints != 2 {
@@ -274,7 +325,7 @@ func TestSubmitTraceDBRawMarkerSyncRecoveryKeepsDBWhenRawIntervalIsAmbiguous(t *
 		t.Fatal(err)
 	}
 	if coverage.Metrics["raw_pairs_structurally_closed"] != 2 ||
-		coverage.Metrics["raw_pairs_cpu_unavailable_replacement_withheld_ambiguous_raw_interval"] != 2 ||
+		coverage.Metrics["raw_pairs_authoritative_replacement_withheld_ambiguous_raw_interval"] != 2 ||
 		coverage.Metrics["raw_pairs_cpu_unavailable_callstack_replaced"] != 0 ||
 		coverage.Metrics["raw_pairs_submitted"] != 0 ||
 		syncSpans.submitted[traceDBSyncSpanProducerSourceRawMarker] != 0 {
