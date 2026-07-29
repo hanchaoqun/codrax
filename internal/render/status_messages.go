@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/pterm/pterm"
 )
 
 // status_messages.go is the renderer's localization layer. Every
@@ -840,6 +842,32 @@ func metaModelPhrase(modelID string, lang string) string {
 		return "模型 " + modelID
 	}
 	return "model " + modelID
+}
+
+// metaUsagePhrase renders the run-cumulative token account (PIB-5):
+// "↑12.3k ↓4.5k tok". Hidden until the provider reports any usage.
+// Language-neutral by design (arrows + unit only).
+func metaUsagePhrase(in, out int) string {
+	if in <= 0 && out <= 0 {
+		return ""
+	}
+	return "↑" + compactTokenCount(in) + " ↓" + compactTokenCount(out) + " tok"
+}
+
+// contextTokensStyleFor picks the row-2 hue for the context segment:
+// >90% of the window renders error-red, >70% warning-yellow, otherwise
+// the calm meta gray. Precise integer thresholds, display lane only.
+func contextTokensStyleFor(used, window int) *pterm.Style {
+	if window > 0 && used > 0 {
+		pct := used * 100 / window
+		switch {
+		case pct >= 90:
+			return statusFatal
+		case pct >= 70:
+			return statusRecoverable
+		}
+	}
+	return statusMeta
 }
 
 func metaContextTokensPhrase(used, window int, lang string) string {

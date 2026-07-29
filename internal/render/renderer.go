@@ -183,6 +183,12 @@ type Renderer struct {
 	requestContextTokensEstimate int
 	requestContextWindowTokens   int
 
+	// usageInputTotal / usageOutputTotal accumulate provider-reported
+	// token usage across every EventAgentResponse of the current run
+	// (PIB-5, dock ↑/↓ segment). Reset on EventObjectiveStarted.
+	usageInputTotal  int
+	usageOutputTotal int
+
 	// streamTail / streamChars carry the live stream preview state.
 	// streamTail is the rolling 25-col tail; streamChars is the
 	// finalize-only character counter. Both reset on stage / node

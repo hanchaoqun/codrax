@@ -213,6 +213,12 @@ PIB-1 前置探索结论（2026-07-29，全文见批次补记）：codrax 重试
 
 **验证**：`make` 构建绿；`go test ./...` 83 包 exit=0 零 FAIL；新增 `internal/render/retry_countdown_test.go` 五组 pin（变换语义/三词形双语/事件接线/非 TTY 分母+禁 `N/0` 负臂/compose 端到端含归零翻转）；`stream_wait_matrix_test.go` 加分母断言；既有子串 pin（`重新请求模型`/no-jargon/静态词形/双镜像唯一性）全存活未改。
 
+### 补记五：PIB-5 REPL 水位与输入增强（2026-07-29，分件落地）
+
+**5a usage 水位（已落地）**：usage 自捕获以来全仓零消费——本件使显示车道成为首个消费者。`render.Event` 加 `UsageInputTokens/UsageOutputTokens`（EventAgentResponse 载荷，display lane only 注释钉死）；BaseAgent 与 REPL 直调两个发射点接 `resp.Usage`；renderer 累计 run 总量（EventObjectiveStarted 清零），dock row2 新增 `↑12.3k ↓500 tok` 段；上下文段按水位变色（≥70% 黄、≥90% 红、窗口未知永不告警——精确整数阈值，`contextTokensStyleFor`）。成本换算（$）不做：无价格表，避免造数。pin 三组。
+**5b 粘贴自动折叠（收窄不做）**：REPL 输入是 per-prompt bubbletea program，bracketed-paste 事件与原子标记字素需重造输入层；已有 `/log`（粘贴到 `/end`）与 `/paste` 显式车道覆盖主场景。裁定：效益不抵改造成本，不做。
+**5c @文件引用（已落地，见本补记后段）**：探索结论——日志锚点是唯一确定性必读通路，`MentionedEntities` 半成品依赖 analyzer LLM 复述（真实 eval 失败在案）。落地：REPL 从请求文本抽 `@路径`（存在性校验）→ `BusContext.UserPinnedFiles`（AttachedLog 同款可选接口范式）→ analyzer RequiredFiles 最高 tier + 合成 `RequiredFileHint{Confidence:1.0}` + `RequiredFileHintCurrentSourceCoverageApplies` 增加 user-pinned 分支（强制读闸门的关键决策，探索报告 A.3）→ 既有 `runForcedReads` 原语在 explorer LLM 看到任何东西之前真正读完。L1 安全（pin 只比较六个量、新字段恒 nil 路径不变）。@ 自动补全收窄不做（补全面板双实现 + 每击键三次重算的性能陷阱，账本记录）。
+
 ### 补记四：PIB-7 模板命令 + 配置密钥解析（2026-07-29 落地）
 
 **A. `.codrax/prompts/*.md` 模板命令**（`internal/repl/prompt_templates.go`）：文件名即 `/命令`（`^[a-z0-9][a-z0-9_-]*$`），frontmatter 只认 `description:`；bash 风格参数子集 `$1..$9`（引号感知分词）/`$@`/`$ARGUMENTS`。**三道安全设计**（承 §3.7 件11"repo 内配置默认不信任"）：① 静态注册表恒胜——模板只在 `NormalizeREPLCommandAlias` 未命中后才查询，loader 拒绝装载与内置动词同名的模板；② 展开结果**只能是普通分析请求**——恒剥前导 `/`，repo 内容永远够不到 slash 分发器（`/approve`/`/merge` 不可被模板触达）；③ 展开必打可见披露行（模板名+来源文件+字符数），内容不可无痕注入。接线：`New()` 一次性加载 `<runtimeAnchor>/prompts/`；`Loop()` 在注册表 miss 后查询。与 `TestHandleSlashDispatchMatchesRegistry` 守卫天然共存（守卫只查静态 case 字面量）。

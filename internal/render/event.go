@@ -521,6 +521,13 @@ type Event struct {
 	FallbackFrom     string
 	FallbackTo       string
 
+	// EventAgentResponse payload (PIB-5): provider-reported token
+	// usage for the completed LLM call. 0 = provider did not report.
+	// The renderer accumulates these into per-run totals for the dock
+	// usage segment; nothing else may consume them (display lane only).
+	UsageInputTokens  int
+	UsageOutputTokens int
+
 	// EventOrchestratorNotice payload.
 	//   NoticeKind  — three-bucket classification (retry / info /
 	//                 progress) controlling glyph color without

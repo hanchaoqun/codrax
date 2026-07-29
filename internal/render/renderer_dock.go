@@ -230,6 +230,9 @@ func (r *Renderer) handleEvent(ev Event) {
 		if ev.Objective != "" && r.objective == "" {
 			r.objective = ev.Objective
 			r.objectiveDone = false
+			// PIB-5: a fresh objective starts a fresh usage account.
+			r.usageInputTotal = 0
+			r.usageOutputTotal = 0
 			line := formatCommitRow(commitRow{
 				kind: commitRowQuestion,
 				body: statusObjective.Sprint(r.objective),
@@ -612,6 +615,10 @@ func (r *Renderer) handleEvent(ev Event) {
 		}
 		r.activity = activityState{kind: activityWaitingNode}
 		r.streamTail = ""
+		// PIB-5: accumulate provider-reported usage into the run
+		// totals the dock's ↑/↓ segment renders. Display lane only.
+		r.usageInputTotal += ev.UsageInputTokens
+		r.usageOutputTotal += ev.UsageOutputTokens
 
 	case EventLocalWorkStart:
 		// Scheduler / validator local work is not an LLM request. Keep
@@ -1097,12 +1104,14 @@ func (r *Renderer) recordLLMRequestTelemetry(ev Event) {
 func (r *Renderer) composeCurrentDockRows() [dockRowCount]string {
 	now := time.Now()
 	state := dockRowState{
-		activity:   retryingActivityWithCountdown(lightRouteActivityWithCountdown(r.activity, now, r.lang), now),
-		streamTail: r.streamTail,
-		frame:      spinnerFrames[r.animFrame%len(spinnerFrames)],
-		lang:       r.lang,
-		cancelHint: r.cancelHint,
-		parallel:   r.parallel.snapshot(),
+		activity:         retryingActivityWithCountdown(lightRouteActivityWithCountdown(r.activity, now, r.lang), now),
+		streamTail:       r.streamTail,
+		frame:            spinnerFrames[r.animFrame%len(spinnerFrames)],
+		lang:             r.lang,
+		cancelHint:       r.cancelHint,
+		parallel:         r.parallel.snapshot(),
+		usageInputTotal:  r.usageInputTotal,
+		usageOutputTotal: r.usageOutputTotal,
 	}
 	if !r.startTime.IsZero() {
 		state.totalElapsed = truncDurationToString(now.Sub(r.startTime))

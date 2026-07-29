@@ -2427,14 +2427,16 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		// non-finalize stages don't pay any cost.
 		summaryPreview.flush()
 		b.deps.Emit(render.Event{
-			Kind:            render.EventAgentResponse,
-			Timestamp:       time.Now(),
-			Agent:           b.name,
-			Stage:           ctx.Stage,
-			Iteration:       i,
-			ParallelGroupID: ctx.ParallelGroupID,
-			ParallelUnitID:  ctx.ExploreDispatchKey,
-			DispatchKind:    string(ctx.ExploreDispatchKind),
+			Kind:              render.EventAgentResponse,
+			Timestamp:         time.Now(),
+			Agent:             b.name,
+			Stage:             ctx.Stage,
+			Iteration:         i,
+			ParallelGroupID:   ctx.ParallelGroupID,
+			ParallelUnitID:    ctx.ExploreDispatchKey,
+			DispatchKind:      string(ctx.ExploreDispatchKind),
+			UsageInputTokens:  resp.Usage.InputTokens,
+			UsageOutputTokens: resp.Usage.OutputTokens,
 		})
 		if err != nil {
 			// Salvage accumulated side-effects before bubbling the LLM

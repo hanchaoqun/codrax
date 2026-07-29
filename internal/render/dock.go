@@ -249,6 +249,8 @@ type dockRowState struct {
 	modelID               string // effective model id for the latest request
 	contextTokensEstimate int    // rough request token estimate; 0 = hide
 	contextWindowTokens   int    // adapter-declared context window; 0 = hide denominator
+	usageInputTotal       int    // PIB-5: run-cumulative provider-reported input tokens; 0 = hide
+	usageOutputTotal      int    // PIB-5: ditto, output tokens
 	toolCount             int    // 0 = hide, ≥1 shows "N 工具"
 	streamChars           int    // finalize-only "已收到 N 字" counter; 0 = hide
 
@@ -401,11 +403,20 @@ func composeDockRow2(s dockRowState) string {
 		b.WriteString(" ")
 		b.WriteString(statusMeta.Sprint(metaModelPhrase(s.modelID, s.lang)))
 	}
+	if seg := metaUsagePhrase(s.usageInputTotal, s.usageOutputTotal); seg != "" {
+		b.WriteString(" ")
+		b.WriteString(statusMeta.Sprint("·"))
+		b.WriteString(" ")
+		b.WriteString(statusMeta.Sprint(seg))
+	}
 	if s.contextTokensEstimate > 0 {
 		b.WriteString(" ")
 		b.WriteString(statusMeta.Sprint("·"))
 		b.WriteString(" ")
-		b.WriteString(statusMeta.Sprint(metaContextTokensPhrase(
+		// PIB-5: the context segment changes hue as the request
+		// approaches the window — >70% warning, >90% error (display
+		// only; pi footer parity).
+		b.WriteString(contextTokensStyleFor(s.contextTokensEstimate, s.contextWindowTokens).Sprint(metaContextTokensPhrase(
 			s.contextTokensEstimate,
 			s.contextWindowTokens,
 			s.lang,

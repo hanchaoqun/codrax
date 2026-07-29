@@ -67,10 +67,12 @@ func (a *directLLMTraceAdapter) Chat(ctx context.Context, messages []llm.Message
 	stream.flush()
 	if a.emit != nil {
 		a.emit(render.Event{
-			Kind:      render.EventAgentResponse,
-			Timestamp: time.Now(),
-			Agent:     a.agent,
-			Stage:     a.stage,
+			Kind:              render.EventAgentResponse,
+			Timestamp:         time.Now(),
+			Agent:             a.agent,
+			Stage:             a.stage,
+			UsageInputTokens:  resp.Usage.InputTokens,
+			UsageOutputTokens: resp.Usage.OutputTokens,
 		})
 		if reasoning := directLLMVisibleReasoning(resp); reasoning != "" {
 			a.emit(render.Event{
