@@ -270,7 +270,15 @@ func validatePlanFullContentWithRepair(ctx *types.BusContext, toolName, summary 
 			}
 			if err := CheckUnifiedDiff(ctx.RepoRoot, c.Patch); err != nil {
 				rej := composePatchRejectionReason(ctx.RepoRoot, strings.TrimSpace(c.Path), err.Error(), c.Patch)
-				return rej, planRepairPackFromReason(toolName, "patch_apply_check_failed", rej, []string{"$.changes[].patch", "$.changes[].edits"}, []string{strings.TrimSpace(c.Path)})
+				// PIB-W2 W-4: use the classifier's precise code when
+				// it recognised the failure shape; the legacy
+				// catch-all code stays as the unclassified floor so
+				// existing consumers keying on it see no regression.
+				code := "patch_apply_check_failed"
+				if diag := classifyGitApplyFailure(err.Error(), c.Patch); diag.ReasonCode != rawDiffReasonUnclassified {
+					code = diag.ReasonCode
+				}
+				return rej, planRepairPackFromReason(toolName, code, rej, []string{"$.changes[].patch", "$.changes[].edits"}, []string{strings.TrimSpace(c.Path)})
 			}
 		}
 	}

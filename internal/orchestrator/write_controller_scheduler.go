@@ -283,11 +283,27 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				_, replanFromFailedVerify = activeBatchNeedsReplan(&before)
 			}
 			if replanFromFailedVerify {
-				if restored, restoreErr := o.restoreActiveSliceCheckpointBeforeReplan(&run, "verify_failed_replan"); restoreErr != nil {
+				// PIB-W2 W-3: name the restore by its actual trigger —
+				// a failed APPLY attempt reaches this path through the
+				// same needs-replan gate as a failed verify, and the
+				// audit ledger previously mislabeled both as
+				// verify_failed_replan.
+				restoreReason := "verify_failed_replan"
+				if workflowActiveBatchLastApplyFailed(&before) {
+					restoreReason = "apply_failed_replan"
+				}
+				if restored, restoreErr := o.restoreActiveSliceCheckpointBeforeReplan(&run, restoreReason); restoreErr != nil {
 					appendControllerProgress(&run, run.ActiveBatchID, "checkpoint_restore_failed", restoreErr.Error())
 					o.persistWriteWorkflowRun(&run)
 				} else if restored {
 					appendControllerProgress(&run, run.ActiveBatchID, "checkpoint_restored_before_replan", "active slice worktree reset to checkpoint before planner replan")
+					o.persistWriteWorkflowRun(&run)
+				} else {
+					// Previously silent: a first-failure slice has no
+					// checkpoint to restore, so the replanning planner
+					// works from the worktree's CURRENT bytes. Say so
+					// in the ledger instead of leaving the audit blind.
+					appendControllerProgress(&run, run.ActiveBatchID, "no_checkpoint_to_restore", "active slice has no apply checkpoint; replan proceeds on current worktree bytes")
 					o.persistWriteWorkflowRun(&run)
 				}
 			}
@@ -3967,6 +3983,35 @@ func appendOperatorRevisionHint(b *strings.Builder, rev *types.WriteWorkflowRevi
 	b.WriteString("The operator reviewed the previous plan for this batch, declined to approve it, and asked for a revision. Their feedback, verbatim:\n\n")
 	fmt.Fprintf(b, "%q\n\n", rev.Feedback)
 	b.WriteString("Produce a replacement ChangePlan that addresses this feedback; the replacement will be reviewed by the operator again.\n\n")
+}
+
+// workflowActiveBatchLastApplyFailed reports whether the active
+// batch's most recent apply attempt failed (fully or partially) —
+// the precise signal that a needs-replan decision was triggered by
+// the APPLY lane rather than a failed verify (PIB-W2 W-3 reason-code
+// correction).
+func workflowActiveBatchLastApplyFailed(run *types.WriteWorkflowRun) bool {
+	if run == nil {
+		return false
+	}
+	activeID := strings.TrimSpace(run.ActiveBatchID)
+	if activeID == "" {
+		return false
+	}
+	for i := range run.Batches {
+		if run.Batches[i].ID != activeID {
+			continue
+		}
+		attempts := run.Batches[i].Attempts
+		for j := len(attempts) - 1; j >= 0; j-- {
+			if attempts[j].Kind != "apply" {
+				continue
+			}
+			return attempts[j].Status == "failed" || attempts[j].Status == "partial"
+		}
+		return false
+	}
+	return false
 }
 
 // pendingActiveBatchRevision returns the active batch's pending

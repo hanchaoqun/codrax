@@ -601,6 +601,15 @@ type ApplyCheckpointRecord struct {
 	CommitError string `json:"commit_error,omitempty"`
 	TagError    string `json:"tag_error,omitempty"`
 
+	// Partial marks a checkpoint minted on a partially_applied
+	// failure (PIB-W2 W-3): the commit preserves the units that DID
+	// land so their bytes survive the failure-path worktree discard,
+	// but it is a recovery/audit anchor, NOT a deliverable — /merge
+	// and every success-lane consumer must treat a Partial checkpoint
+	// as non-mergeable (plan.AppliedCommitSHA is deliberately left
+	// unset on this lane as the second lock).
+	Partial bool `json:"partial,omitempty"`
+
 	At time.Time `json:"at,omitempty"`
 }
 

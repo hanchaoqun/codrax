@@ -260,8 +260,18 @@ func (t *ApplyPatch) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 		}
 		engine, err := applyUnifiedDiffWithEngine(ctx.RepoRoot, patchText)
 		if err != nil {
-			recordFileChangeApply(unit, "failed", source, engine, err.Error())
-			return errResult(t.Name(), composeApplyRejection(ctx.RepoRoot, path, err.Error(), patchText)), nil
+			// PIB-W2 W-4: the raw-diff lane gains the typed layer the
+			// structured-edit lane already has. Reason code lands on
+			// the FileChangeApplyRecord (an enumerable field instead
+			// of prose — no existing consumer reads the prose form)
+			// and a PlanRepairPack rides the result; the prose
+			// rejection itself stays byte-identical.
+			diag := classifyGitApplyFailure(err.Error(), patchText)
+			recordFileChangeApply(unit, "failed", source, engine, diag.ReasonCode)
+			return attachPlanRepairPack(
+				errResult(t.Name(), composeApplyRejection(ctx.RepoRoot, path, err.Error(), patchText)),
+				planRepairPackFromReason(t.Name(), diag.ReasonCode, rawDiffRepairMessage(diag),
+					[]string{"$.changes[].patch"}, []string{path})), nil
 		}
 		recordFileChangeApply(unit, "applied", source, engine, "")
 		ctx.Mutable.WriteClosure().MarkApplied(path)

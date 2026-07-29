@@ -795,6 +795,51 @@ func classifyApplyFailureStatus(busCtx *types.BusContext) string {
 	return types.PlanStatusApplyFailed
 }
 
+// commitPartialApplyCheckpoint (PIB-W2 W-3, ledger
+// docs/design/pi_borrow_analysis_20260729.md §7.2): a partially
+// applied failure used to leave the landed units as uncommitted
+// worktree bytes — no commit, no ref — destroyed by the failure-path
+// discard, which is why /approve --retry replays from scratch. Now
+// the applied subset commits inside the worktree and pins the
+// recovery ref (refs/codrax/applied/<id>) so the bytes stay
+// cherry-pickable from the main repo after the worktree is gone.
+// Deliberately NOT a deliverable: the record is marked Partial and
+// plan.AppliedCommitSHA stays unset, so /merge and every success-lane
+// consumer keep refusing it. Best-effort — a commit/tag failure is
+// recorded on the checkpoint, never blocks the failure handling.
+func (o *Orchestrator) commitPartialApplyCheckpoint(appliedPaths []string) {
+	if o == nil || o.busCtx == nil || o.busCtx.WorktreePath == "" || len(appliedPaths) == 0 {
+		return
+	}
+	plan := o.busCtx.Mutable.ChangePlan()
+	if plan == nil || strings.TrimSpace(plan.ID) == "" {
+		return
+	}
+	checkpoint := &types.ApplyCheckpointRecord{At: time.Now(), Partial: true}
+	sha, skipped, err := worktree.CommitChangesForPaths(o.busCtx.WorktreePath,
+		"codrax partial apply checkpoint: "+plan.ID, appliedPaths)
+	checkpoint.SkippedGhostPaths = skipped
+	if err != nil {
+		checkpoint.CommitError = err.Error()
+		logging.Error("[orchestrator] partial-apply checkpoint commit failed — landed units for %s are NOT durable: %v", plan.ID, err)
+	} else {
+		checkpoint.CommitSHA = sha
+		checkpoint.CommittedPaths = appliedPaths
+		if o.busCtx.MainRepoRoot != "" {
+			if ref, terr := worktree.TagAppliedCommit(o.busCtx.MainRepoRoot, plan.ID, sha); terr != nil {
+				checkpoint.TagError = terr.Error()
+				logging.Error("[orchestrator] partial-apply checkpoint tag failed for %s: %v", plan.ID, terr)
+			} else {
+				checkpoint.RecoveryRef = ref
+				o.recordAppliedRecoveryRef(ref)
+				logging.Info("[orchestrator] partial-apply checkpoint: %s = %s (recovery only, not mergeable)", ref, sha)
+			}
+		}
+	}
+	plan.ApplyCheckpoint = checkpoint
+	o.busCtx.Mutable.SetChangePlan(plan)
+}
+
 // applyPostHook runs after the coder returns. On dispatch error,
 // persists PlanStatusApplyFailed (or PlanStatusPartiallyApplied
 // when some units succeeded) and surfaces the error so the
@@ -816,6 +861,11 @@ func applyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 		var appliedPaths []string
 		if status == types.PlanStatusPartiallyApplied {
 			appliedPaths = o.collectAppliedTargetPaths()
+			// PIB-W2 W-3: commit the units that DID land before the
+			// failure-path worktree discard destroys them. Runs
+			// before the persist below so the plan JSON carries the
+			// checkpoint record.
+			o.commitPartialApplyCheckpoint(appliedPaths)
 		}
 		o.persistPlanStatusWithApplied(status, nil, appliedPaths)
 		return nil
