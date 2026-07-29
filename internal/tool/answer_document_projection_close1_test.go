@@ -468,6 +468,12 @@ func TestCLOSE1ExternalDominantFrameKeepsExternalCrown(t *testing.T) {
 	// P7 (vc_710 外因主导帧回归): with SelfRows PRESENT and the self row's raw
 	// eff even larger, the typed rank order keeps the external inversion row
 	// crowned — byte-identical external sentence (外因句式零变, 无特殊加成).
+	// EVOLUTION RECORD (CROWNCAL-1, 2026-07-28): this fixture's effective
+	// (2.500) differs from its printed 链上累计 (58.919) — the crowned line now
+	// carries the elected effective beside the definition (bare honest form:
+	// no gated components, so no caliber claim). 外因句式零变 still holds for
+	// the SENTENCE STRUCTURE (no self-account bonus wording); the effective
+	// arm is a value disclosure, not a special addition.
 	inversion := types.TraceCausalProjectionNode{
 		Role: types.TraceCausalRolePrimaryRootCause, EvidenceID: "e-inversion",
 		Subject: "RxComputationT-16612", Object: "priority_inversion_candidate",
@@ -504,7 +510,7 @@ func TestCLOSE1ExternalDominantFrameKeepsExternalCrown(t *testing.T) {
 		t.Fatalf("外因主导帧: the inversion row must keep the crown, got lane=%d lead=%+v", lane, lead)
 	}
 	line := runtimeTraceProjConclusionLine(projection, model, true)
-	if line != "**主根因(=已证链上单项最大可消除量):** RxComputationT-16612 优先级反转候选（priority_inversion_candidate） 链上累计 58.919ms。" {
+	if line != "**主根因(=已证链上单项最大可消除量):** RxComputationT-16612 优先级反转候选（priority_inversion_candidate） 链上累计 58.919ms，有效归因 2.500ms。" {
 		t.Fatalf("the external crown sentence must stay byte-identical (外因句式零变):\n%s", line)
 	}
 	if strings.Contains(line, "关注线程自身") {

@@ -15397,8 +15397,9 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 		// (runtimeTraceProjAttributionEquation) — never a private copy; 复核
 		// F4: the degenerate single-full shape appends no equation (the fence
 		// folds it into 行2's tail; a one-term composite is no story).
-		if components, total, ok := runtimeTraceProjInversionComponents(*primary, false, zh); ok &&
-			!runtimeTraceProjInversionDegenerateSingleFull(components) {
+		components, total, componentsOK := runtimeTraceProjInversionComponents(*primary, false, zh)
+		degenerate := componentsOK && runtimeTraceProjInversionDegenerateSingleFull(components)
+		if componentsOK && !degenerate {
 			word := "有效归因"
 			if !zh {
 				word = "attribution"
@@ -15410,6 +15411,30 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 				b.WriteString(", ")
 			}
 			b.WriteString(word + " " + runtimeTraceProjAttributionEquation(total, components))
+		} else if selfAccountParts == nil && !(primary.MergedCount > 1 && primary.MergedMaxMS > 0) &&
+			ms > 0 && primary.EffectiveImpactMS > 0 &&
+			!runtimeTraceProjRound3Equal(ms, primary.EffectiveImpactMS) {
+			// CROWNCAL-1 (user ruling 2026-07-28, report 20260728-202128): the
+			// crown definition (=已证链上单项最大可消除量) sits beside the printed
+			// magnitude — when the "=" form is suppressed (degenerate) or
+			// unbuildable and that magnitude rides a NON-effective caliber
+			// (fragment-covered inversion: 链上累计 2.262 vs elected 1.661), the
+			// elected eliminable value must still be readable on the line. The
+			// (全额) caliber renders only when the composition is known
+			// single-runnable-full; a components-less/unbalanced seat renders
+			// the bare honest form (拒渲绝不造数 — the effective is the typed
+			// engine-published value, the composition claim is not).
+			if zh {
+				b.WriteString("，有效归因 " + runtimeTraceProjFmtMS(primary.EffectiveImpactMS))
+				if degenerate {
+					b.WriteString("(全额)")
+				}
+			} else {
+				b.WriteString(", attribution " + runtimeTraceProjFmtMS(primary.EffectiveImpactMS))
+				if degenerate {
+					b.WriteString(" (in full)")
+				}
+			}
 		}
 	} else if clause, _, ok := runtimeTraceProjSupplyFoldClause(*primary, model.WindowMS, false, zh); ok && selfAccountParts == nil {
 		// Tier A suppression: the 供给折算影响 component inside the account
