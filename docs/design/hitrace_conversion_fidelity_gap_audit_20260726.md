@@ -3443,6 +3443,19 @@ rejections against each fence's exact `(itid, depth, start, end, row id)`
 provenance. Narrow only where one precise bad row currently suppresses an
 unrelated valid pair. Ambiguous nesting remains fail-closed.
 
+REP6 exposed only aggregate fence counts, which is insufficient to repair a
+future residual without asking the customer for another replay. The
+diagnostic arm now emits, on the existing callstack coverage row, at most
+eight exact declarations:
+
+`tid / canonical itid / interval-or-suffix / start_ns / end_ns / closed reason`.
+
+It also emits typed `localized_fence_witnesses_emitted` and
+`localized_fence_witnesses_omitted` counts. These witnesses are diagnostic
+geometry only and never become alternate CPU, identity or span publication
+authority. The cap keeps customer diagnostics bounded to one existing JSON
+line rather than adding an unbounded event roster.
+
 ### R6-05 (P1) — async standard publication lacks an official-viewer-safe fallback
 
 The 62 typed completed async intervals include 58 raw-async identity-key
@@ -3559,13 +3572,40 @@ Progress:
 - R6-D: implemented, verified and pushed in `d7dde30e6`, including removal of
   the obsolete microsecond-alignment gate for standard pipe-name spans;
 - R6-E: implemented, full-suite verified and pushed in `99aced87c`;
-- R6-F: implemented and under full-suite verification; independent commit/push
-  follows the green gate;
+- R6-F: implemented, both owning packages fully verified and pushed in
+  `3cfb04a79`;
 - R6-C local-fence arm: replay-gated. R6-B can now admit the formerly
   microsecond-collapsed raw pairs and R6-C already repairs 58 async
   namespace-PID joins, so the old REP6 count of 176 is no longer a valid
   residual roster. Narrowing fences before a new exact residual witness would
-  risk publishing ambiguous nesting and is therefore prohibited.
+  risk publishing ambiguous nesting and is therefore prohibited. The bounded
+  exact-fence diagnostic needed by that replay is implemented, fully verified
+  and pushed in `f481fa02a`.
+
+### REP7 replay gate
+
+The next customer replay is now useful and should be the first replay after
+the full R6-A through R6-F sequence. Acceptance is not “conversion exited 0”:
+
+1. `trace_cross_validation.first_ts` must be inside the captured
+   `trace_range`, not the former pre-capture 20,857-second relation timestamp;
+2. sorter coverage must contain nonzero `semantic_rows_sorted`,
+   `authenticated_tail_rows` and `authenticated_tail_bytes`, with total
+   rows still equal to postvalidation `expected_rows=parsed_known`;
+3. `official_viewer_standard_spans_emitted` must increase from exact
+   nanosecond raw recovery and the namespace-PID async join;
+4. `callstack_closed_sync_spans_unpublished`,
+   `codrax_typed_only_sync_spans_emitted` and
+   `codrax_typed_only_async_intervals_emitted` are the only authoritative
+   residual work rosters; when the first is nonzero,
+   `localized_fence_witnesses` provides the bounded exact next-step geometry;
+5. `official_viewer_span_visibility=complete_for_governed_callstack` is the
+   only state that permits a full official-viewer compatibility claim.
+
+Any `degraded_*` state is a successful lossless Codrax conversion but not a
+successful official-viewer span conversion. The residual counts and their
+typed fence/join reasons must drive the next code batch; they may not be
+hidden behind O2 preservation or converted into guessed standard events.
 
 ## Invariants
 
