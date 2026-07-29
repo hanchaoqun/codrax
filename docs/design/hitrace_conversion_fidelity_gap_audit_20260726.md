@@ -3958,6 +3958,169 @@ Progress:
 
 Final verification after R8-B through R8-D: `go test ./...` passed.
 
+## REP9 customer replay audit (2026-07-28)
+
+Inputs:
+
+- `/Users/han/opt/customlogs/rep9.txt`;
+- `/Users/han/opt/customlogs/codrax-trace-diag-rep9.txt`;
+- customer executable SHA-256
+  `6660473ce3f36882ea38cb5656969eff4f658778a4fe92e54a5fc8d7aa538295`.
+
+The binary still reports `build_revision=unknown`, but the capability roster
+contains `coverage_witness_sideband_v1` together with the R8-B/C capabilities.
+REP9 is therefore an admissible R8 acceptance and R8-E planning witness. The
+code baseline audited here is `main@1d0a3398e`.
+
+### REP9-01 — R8-B/C/D all passed their exact acceptance equations
+
+The output has 1,237,851 postvalidated events, including 829,327 authenticated
+O2 records. Expected, parsed and callback counts all equal 1,237,851. The
+standard-viewer result is:
+
+```text
+standard-visible spans = 92914
+typed-only spans       =  3128
+unpublished sync spans =    78
+```
+
+The 50,043 sync name-only collisions were all replaced:
+
+```text
+raw_marker_name_unrepresentable_replacement_spans             = 50043
+raw_pairs_name_drift_name_unrepresentable_callstack_replaced   = 50043
+official_viewer_typed_only_sync_spans_name_unrepresentable     = 0
+raw_pairs_withheld_exact_interval_name_drift                   = 0
+```
+
+The 62 async name-drift intervals were also all recovered:
+
+```text
+raw_async_official_intervals_exact_name_drift_joined = 62
+raw_async_pairs_claimed                              = 253
+raw_async_pairs_matchable                            = 253
+typed-only async spans                               = 0
+```
+
+The independent witness sideband is present and exposes all eight retained
+duration samples. R8-B, R8-C and R8-D are closed by this replay.
+
+### REP9-02 — the remaining 3,128 typed-only sync spans are a closed CPU-authority roster
+
+The final equation is exact:
+
+```text
+3128 =
+  2638 cpu_unknown_start
++  488 cpu_source_tainted
++    2 cpu_unknown_end
+```
+
+No name, lifecycle or alias reason is hidden in this cohort. These spans retain
+identity and duration, but a standard B/E envelope requires physical CPU at
+both endpoints. CPU 0, a nearest scheduler row or a process-level CPU cannot
+be substituted. The next repair must correlate each final typed candidate to
+an exact raw B/E disposition or another physical endpoint authority. Until
+then, typed preservation is not standard-viewer success.
+
+### REP9-03 (P1) — `dur=NULL` exposes a potentially over-wide suffix-fence gap
+
+All eight independently published rejected-duration samples are SQLite NULL:
+
+```text
+row_id=66  ... reason=invalid_duration/dur=null
+row_id=117 ... reason=invalid_duration/dur=null
+...
+row_id=284 ... reason=invalid_duration/dur=null
+```
+
+The producer emits 8 bounded witnesses and reports 82 omitted fence witnesses,
+so 90 exact lane fences exist. The shared authority then suppresses 1,262
+callstack spans under those fences; 1,184 obtain exact raw replacements and 78
+remain unpublished.
+
+The current rule maps any timestamp-known, interval-unknown rejection to a
+callstack-producer suffix fence `[ts,+infinity)`. This is safe but can be much
+wider than the upstream meaning of a NULL callstack duration: the DB row proves
+an unfinished/open slice at its start, not that every later independent slice
+on that physical lane is invalid forever.
+
+This replay does **not** authorize deleting or blindly shortening the suffix:
+
+- only the bounded eight scalars are proven NULL; the omitted 82 need a typed
+  storage-class census;
+- a raw E at a later time is not sufficient by itself; a repair needs one
+  unique raw B/E pair with the same physical emitter, canonical owner,
+  namespace payload PID, exact start and name;
+- ambiguity, name mismatch, invalid raw payload, open raw begin and poisoned
+  emitter lane must retain the suffix fail-closed rule.
+
+The optimal next batch therefore records an exact NULL-duration fence to raw
+pair correlation census first. Only a unique full-key raw closure may replace
+that open DB row and narrow its producer fence to the proven interval. This
+uses the raw end as duration authority; it never coerces SQL NULL to zero or
+guesses an end.
+
+### REP9-04 (P2) — performance regression has two independent components
+
+On the same customer file:
+
+| component | REP8 | REP9 | delta |
+| --- | ---: | ---: | ---: |
+| total DB normalization | 42.168s | 46.919s | +4.751s |
+| raw sync recovery | 3.437s | 5.296s | +1.859s |
+| SQL fidelity `__all_tables__` | 14.677s | 17.564s | +2.888s |
+| semantic sorter | 7.039s | 6.250s | -0.789s |
+| full tracequery validation | 8.189s | 8.861s | +0.672s |
+
+The raw-sync increase has a code-level hot path: each of the 50,043 new
+CPU-known/name-unrepresentable replacements performs a candidate SELECT,
+Go-side name representability check and then an UPDATE. Representability is
+already an exact immutable candidate property. It can be stored once in the
+private staging row and included in the guarded UPDATE predicate, eliminating
+the second read without changing collision cardinality, raw authority,
+supersession or final validation.
+
+The SQL-fidelity row count remains exactly 829,327 and its authenticated
+content contract did not change. The roughly 20% scan/encode increase is not
+explained by the R8 repair and may be host/run variance. It must be measured
+with phase timing before any format change. O2, row/cell hashes and complete
+postvalidation remain mandatory.
+
+### REP9-05 — additional open conversion gaps
+
+1. Raw sync pairing closes 83,970 structural pairs, but 4,038 are withheld by
+   local validation: 3,759 `invalid_begin_payload_pid` and 279
+   `invalid_span_name`. This is a real residual cohort. It needs bounded
+   physical/raw payload witnesses and comparison with the official parser
+   grammar before any compatibility extension.
+2. Scheduler output still has 816 unknown-comm boundaries, all currently
+   summarized under one canonical subject
+   `itid=398/tid=29352/tgid=68`; final unresolved thread-name count is one.
+   This is narrow but remains an honest name-completeness gap.
+3. Upstream `trace_vsync:not_match=79` still means decoded frame ends were not
+   associated with a VSync state. O2 preserves the SQL evidence, but no code
+   may claim a complete standard frame lane from those rows.
+4. `build_revision=unknown` remains a release-attribution gap. Capability and
+   executable SHA make this replay auditable, but build revision should be
+   embedded by the distribution pipeline.
+
+### REP9 frozen delivery order
+
+| Batch | Priority | Work | Independent push gate |
+| --- | --- | --- | --- |
+| R9-A | P0 audit | record REP9 acceptance, residual equations and immutable predicates | every count above traceable to REP9 |
+| R9-B | P2 performance | persist exact viewer disposition in private candidate staging and remove the 50,043 per-collision SELECTs | output semantics byte-equivalent in fixtures; standard-representable drift still withheld |
+| R9-C | P1 diagnosis | dimension NULL/non-NULL invalid durations and correlate exact NULL fence starts with unique full-key raw pairs; add bounded raw local-validation witnesses | diagnostic only; no fence/admission change; report remains below 900 lines |
+| R9-D | P1 repair | resolve/narrow only a uniquely proven NULL-duration fence from an exact raw B/E closure | SQL NULL never becomes a duration; ambiguity remains suffix-fenced |
+| R9-E | P1 diagnosis/repair | correlate the 3,128 final CPU-unavailable candidates with exact raw pair disposition, then repair only authoritative cohorts | CPU 0/nearest-row/process inference forbidden |
+| R9-F | P2 performance | add independent O2 phase timing and optimize only measured scan/encode/postvalidate allocations | authenticated O2 and full tracequery validation unchanged |
+
+R9-B and the diagnostic portion of R9-C can be implemented without another
+customer replay. R9-D and R9-E are replay-gated on the new exact correlation
+censuses. The next replay should be requested only after R9-B/C are pushed, so
+one customer run answers both correctness and performance questions.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.
