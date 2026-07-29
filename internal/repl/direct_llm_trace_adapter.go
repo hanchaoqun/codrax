@@ -284,32 +284,33 @@ func directLLMVisibleReasoning(resp llm.Response) string {
 	return strings.TrimSpace(strings.Join(parts, "\n\n"))
 }
 
-func chainRetryCallback(first func(int, time.Duration, string), emit render.EventEmitter, agent types.AgentName, stage types.PipelineStage) func(int, time.Duration, string) {
-	second := func(attempt int, delay time.Duration, reason string) {
+func chainRetryCallback(first func(int, int, time.Duration, string), emit render.EventEmitter, agent types.AgentName, stage types.PipelineStage) func(int, int, time.Duration, string) {
+	second := func(attempt, maxRetries int, delay time.Duration, reason string) {
 		if emit == nil {
 			return
 		}
 		emit(render.Event{
-			Kind:         render.EventAdapterRetry,
-			Timestamp:    time.Now(),
-			Stage:        stage,
-			Agent:        agent,
-			RetryAttempt: attempt,
-			RetryDelay:   delay,
-			RetryReason:  reason,
+			Kind:             render.EventAdapterRetry,
+			Timestamp:        time.Now(),
+			Stage:            stage,
+			Agent:            agent,
+			RetryAttempt:     attempt,
+			RetryMaxAttempts: maxRetries,
+			RetryDelay:       delay,
+			RetryReason:      reason,
 		})
 	}
 	if first == nil {
 		return second
 	}
-	return func(attempt int, delay time.Duration, reason string) {
+	return func(attempt, maxRetries int, delay time.Duration, reason string) {
 		func() {
 			defer func() { _ = recover() }()
-			first(attempt, delay, reason)
+			first(attempt, maxRetries, delay, reason)
 		}()
 		func() {
 			defer func() { _ = recover() }()
-			second(attempt, delay, reason)
+			second(attempt, maxRetries, delay, reason)
 		}()
 	}
 }

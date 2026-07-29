@@ -2317,22 +2317,23 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		emit := b.deps.Emit
 		stage := ctx.Stage
 		agentName := b.name
-		onRetry := func(attempt int, delay time.Duration, reason string) {
+		onRetry := func(attempt, maxRetries int, delay time.Duration, reason string) {
 			b.observeLLMRequestRetried(ctx, attempt, delay, reason)
 			if emit == nil {
 				return
 			}
 			emit(render.Event{
-				Kind:            render.EventAdapterRetry,
-				Timestamp:       time.Now(),
-				Stage:           stage,
-				Agent:           agentName,
-				RetryAttempt:    attempt,
-				RetryDelay:      delay,
-				RetryReason:     reason,
-				ParallelGroupID: ctx.ParallelGroupID,
-				ParallelUnitID:  ctx.ExploreDispatchKey,
-				DispatchKind:    string(ctx.ExploreDispatchKind),
+				Kind:             render.EventAdapterRetry,
+				Timestamp:        time.Now(),
+				Stage:            stage,
+				Agent:            agentName,
+				RetryAttempt:     attempt,
+				RetryMaxAttempts: maxRetries,
+				RetryDelay:       delay,
+				RetryReason:      reason,
+				ParallelGroupID:  ctx.ParallelGroupID,
+				ParallelUnitID:   ctx.ExploreDispatchKey,
+				DispatchKind:     string(ctx.ExploreDispatchKind),
 			})
 		}
 		onFallback := func(from, to, reason string) {

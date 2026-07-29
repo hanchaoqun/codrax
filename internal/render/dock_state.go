@@ -51,12 +51,22 @@ type activityState struct {
 	// deadline/timeoutBudget are populated by light-route operations that
 	// run outside the normal pipeline task rows. They let the live dock show
 	// a real countdown instead of a static "timeout 2m0s" hint.
+	// activityRetrying reuses deadline as the "backoff sleep ends here"
+	// instant so the same animation ticker drives a live countdown.
 	deadline      time.Time
 	timeoutBudget time.Duration
-	// retryAttempt + retryDelaySec populated only for activityRetrying;
-	// rendered as "重试中（第 N 次，等 Xs）".
-	retryAttempt  int
-	retryDelaySec int
+	// retryAttempt + retryDelaySec populated only for activityRetrying.
+	// retryMaxAttempts is the adapter's total retry budget (0 = unknown →
+	// no denominator). retryRemainingSec + retryCountdownActive are NOT
+	// set by event handlers — retryingActivityWithCountdown computes them
+	// from deadline at compose time, once per animation tick. When
+	// retryCountdownActive is false the phrase falls back to the static
+	// pre-countdown wording (state constructed without a deadline).
+	retryAttempt         int
+	retryMaxAttempts     int
+	retryDelaySec        int
+	retryRemainingSec    int
+	retryCountdownActive bool
 }
 
 // activityPhrase produces the localized row-1 status word for the
@@ -107,10 +117,32 @@ func activityPhrase(s activityState, lang string) string {
 		// or an LLM-call retry). Drop internal "#N" / "L1" jargon —
 		// those are layer-of-the-retry-stack identifiers in the
 		// system log, not end-user terms.
-		if zh {
-			return fmt.Sprintf("正在重新请求模型（%ds 后第 %d 次重试）", s.retryDelaySec, s.retryAttempt)
+		//
+		// PIB-1 (pi borrow): when the compose-time countdown is
+		// active, render a live "还剩 Xs" that counts down with the
+		// animation ticker, plus the retry budget denominator when
+		// the adapter published one. After the sleep ends the adapter
+		// has already re-sent the request, so the honest wording
+		// flips to "已重发，等待响应" instead of freezing at "还剩 1s"
+		// or fabricating progress. States built without a deadline
+		// (legacy constructors, tests) keep the static wording.
+		attemptLabel := retryAttemptLabel(s.retryAttempt, s.retryMaxAttempts)
+		if s.retryCountdownActive {
+			if zh {
+				if s.retryRemainingSec > 0 {
+					return fmt.Sprintf("正在重新请求模型（第 %s 次重试 · 还剩 %ds）", attemptLabel, s.retryRemainingSec)
+				}
+				return fmt.Sprintf("正在重新请求模型（第 %s 次重试 · 已重发，等待响应）", attemptLabel)
+			}
+			if s.retryRemainingSec > 0 {
+				return fmt.Sprintf("Retrying model request (attempt %s · %ds left)", attemptLabel, s.retryRemainingSec)
+			}
+			return fmt.Sprintf("Retrying model request (attempt %s · re-sent, awaiting response)", attemptLabel)
 		}
-		return fmt.Sprintf("Retrying model request in %ds (attempt %d)", s.retryDelaySec, s.retryAttempt)
+		if zh {
+			return fmt.Sprintf("正在重新请求模型（%ds 后第 %s 次重试）", s.retryDelaySec, attemptLabel)
+		}
+		return fmt.Sprintf("Retrying model request in %ds (attempt %s)", s.retryDelaySec, attemptLabel)
 	case activitySwitchingProvider:
 		if zh {
 			return "正在切换 LLM 服务"
@@ -193,6 +225,38 @@ func lightRouteActivityWithCountdown(s activityState, now time.Time, lang string
 	} else {
 		s.detail = fmt.Sprintf("%s (remaining %s)", base, remainingLabel)
 	}
+	return s
+}
+
+// retryAttemptLabel renders the "N" or "N/M" attempt segment shared
+// by the dock activity row, the durable scrollback record, and the
+// non-TTY mirror line. maxRetries == 0 means the emitting layer did
+// not publish a retry budget — print the bare attempt number instead
+// of a fabricated "N/0".
+func retryAttemptLabel(attempt, maxRetries int) string {
+	if maxRetries > 0 {
+		return fmt.Sprintf("%d/%d", attempt, maxRetries)
+	}
+	return fmt.Sprintf("%d", attempt)
+}
+
+// retryingActivityWithCountdown is the activityRetrying sibling of
+// lightRouteActivityWithCountdown: called once per compose (i.e. per
+// 100ms animation tick) it derives the live remaining-seconds value
+// from the stored backoff deadline. Pure: returns a copy, never
+// mutates renderer state. States without a deadline (constructed by
+// legacy paths or tests) pass through untouched so activityPhrase
+// keeps the static wording for them.
+func retryingActivityWithCountdown(s activityState, now time.Time) activityState {
+	if s.kind != activityRetrying || s.deadline.IsZero() {
+		return s
+	}
+	remaining := s.deadline.Sub(now)
+	if remaining < 0 {
+		remaining = 0
+	}
+	s.retryRemainingSec = int(ceilDurationSecond(remaining) / time.Second)
+	s.retryCountdownActive = true
 	return s
 }
 

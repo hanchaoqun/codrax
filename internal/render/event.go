@@ -506,15 +506,20 @@ type Event struct {
 	PhaseDetail       string
 
 	// EventAdapterRetry / EventAdapterFallback payload.
-	//   RetryAttempt — 1-based index of the failed attempt
-	//   RetryDelay   — backoff duration before next attempt
-	//   RetryReason  — short human phrase ("rate limit" / "stream stalled")
+	//   RetryAttempt     — 1-based index of the failed attempt
+	//   RetryMaxAttempts — total retry budget of the emitting adapter
+	//                      (the "M" in the "[llm] retry N/M" log line);
+	//                      0 = unknown, renderers must omit the
+	//                      denominator instead of printing "N/0"
+	//   RetryDelay       — backoff duration before next attempt
+	//   RetryReason      — short human phrase ("rate limit" / "stream stalled")
 	//   FallbackFrom / FallbackTo — provider model ids on swap
-	RetryAttempt int
-	RetryDelay   time.Duration
-	RetryReason  string
-	FallbackFrom string
-	FallbackTo   string
+	RetryAttempt     int
+	RetryMaxAttempts int
+	RetryDelay       time.Duration
+	RetryReason      string
+	FallbackFrom     string
+	FallbackTo       string
 
 	// EventOrchestratorNotice payload.
 	//   NoticeKind  — three-bucket classification (retry / info /

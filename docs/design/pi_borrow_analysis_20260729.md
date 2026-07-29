@@ -147,7 +147,7 @@ pi core 无写模式概念（永远可写，安全靠容器化），但其扩展
 
 | 批次 | 范围 | 涉及 codrax 面 | 状态 |
 |------|------|----------------|------|
-| PIB-1 | 重试/溢出用户面：REPL 重试倒计时 + esc 取消 + 退避可视化 + 最终失败才报错；非 TTY 车道日志化 | LLM 客户端重试分层、REPL 状态卡、W1/W2 既有断路/心跳的 UX 面 | 待启动 |
+| PIB-1 | 重试/溢出用户面：REPL 重试倒计时 + esc 取消 + 退避可视化 + 最终失败才报错；非 TTY 车道日志化 | LLM 客户端重试分层、REPL 状态卡、W1/W2 既有断路/心跳的 UX 面 | **已落地**（2026-07-29，见 §7 补记一） |
 | PIB-W | 写模式借鉴批（用户 2026-07-29 点名写模式 gap，优先级提升）：三段式审批（修订→replan 通路）、动作级 `git stash create` 检查点/回滚、verify 失败结构化回灌、无 UI fail-closed 全路径自查、风险门审计行、无人值守超时兜底；先探索 codrax write controller 现状再裁定收窄 | write controller、审批流、apply/verify 通路、REPL 写模式卡 | 待启动 |
 | PIB-2 | 两级消息排队：pipeline 运行期不锁输入；steering（阶段边界注入）/ follow-up（run 结束注入）/ esc 还原队列 | REPL 输入循环、orchestrator 阶段边界、写模式 controller | 待启动 |
 | PIB-3 | 工具面截断纪律：双上限统一截断 + 永不半行 + 截断提示即下一步指令 + 输出截断时工具调用拒执行硬门 | read/grep 等工具实现、coverage 记账、agent 工具循环 | 待启动 |
@@ -163,3 +163,16 @@ PIB-1 前置探索结论（2026-07-29，全文见批次补记）：codrax 重试
 ## 7. 批次落地记录（补记区）
 
 （每批落地后在此追加：探索结论 / 方案裁定 / 提交哈希 / 验证结果。）
+
+### 补记一：PIB-1 重试用户可见面（2026-07-29 落地）
+
+**方案裁定（对照 pi status-indicator 逐项）**：
+1. **倒计时**：复用 dock 既有 `deadline` 字段 + 100ms 动画 ticker，新增 compose 时变换 `retryingActivityWithCountdown`（与 `lightRouteActivityWithCountdown` 同款纯函数范式，每 tick 从 deadline 推导剩余秒）。TTY row1 词形：退避中 `正在重新请求模型（第 2/5 次重试 · 还剩 7s）`；倒计时归零后翻转为诚实的 `已重发，等待响应`（不冻结在"还剩 1s"、不造进度）。无 deadline 的遗留构造路径保持旧静态词形。
+2. **分母（第 N/M 次）**：`llm.ChatOptions.OnRetry` 签名扩维加 `maxRetries`（=RetryMaxAttempts-1，与 `[llm] retry N/M` 日志分母同源）；`render.Event` 加 `RetryMaxAttempts`（0=未知→渲染省略分母，禁止 `N/0`）；贯通 agent 发射点与 REPL 直调 `chainRetryCallback` 两条链。durable scrollback 行与非 TTY 镜像行同步携带 `第 2/5 次`，共用 `retryAttemptLabel` 单源。
+3. **esc 取消重试**：**裁定不做**——codrax 取消粒度=整 Run 的 CancelToken（Ctrl+C 已贯通、退避 sleep 全部 ctx 可取消、dock row3 常驻取消提示）；pi 式"只取消重试等待"与取消架构不符，收益不抵通路复杂度。
+4. **成功零噪音 vs 每次重试留痕**：**保留 codrax 每次重试的 durable 行**（审计文化：非 TTY/事后审计需要完整重试痕迹），偏离 pi 的"只报最终失败"，账本明示为有意偏离。
+5. **范围**：L1 adapter 面（主导车道）；L4/L5 orchestrator 重试沿用既有 NoticeRetry 词形不动。
+
+**触点**：`internal/llm/llm.go`（OnRetry 契约）、`openai.go`（发布预算）、`internal/agent/agent.go`（事件扩维）、`internal/repl/direct_llm_trace_adapter.go`（链路扩维）、`internal/render/event.go` / `dock_state.go` / `renderer_dock.go`（词形+倒计时+两车道标签）。
+
+**验证**：`make` 构建绿；`go test ./...` 83 包 exit=0 零 FAIL；新增 `internal/render/retry_countdown_test.go` 五组 pin（变换语义/三词形双语/事件接线/非 TTY 分母+禁 `N/0` 负臂/compose 端到端含归零翻转）；`stream_wait_matrix_test.go` 加分母断言；既有子串 pin（`重新请求模型`/no-jargon/静态词形/双镜像唯一性）全存活未改。

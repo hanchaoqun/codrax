@@ -127,14 +127,17 @@ type ChatOptions struct {
 	// adapter sleeps on a transient error (HTTP 429 / 5xx / first-byte
 	// timeout). attempt is the 1-based index of the attempt that just
 	// failed (so attempt=1 means "first try failed, about to retry"),
-	// delay is the next sleep duration, and reason is a short human
-	// phrase describing why we're retrying (e.g. "rate limit", "stream
-	// stalled"). The callback exists so the renderer's dock can flip
-	// to the "重试中" status word — without it the dock keeps showing
-	// "请求模型中" for the entire retry window, lying to the user.
-	// Non-fatal: a panic inside the callback is recovered so the
-	// retry loop keeps running.
-	OnRetry func(attempt int, delay time.Duration, reason string)
+	// maxRetries is the total retry budget for this adapter (i.e.
+	// RetryMaxAttempts-1 — the same denominator the "[llm] retry N/M"
+	// log line uses; 0 = unknown, display layers must omit the
+	// denominator), delay is the next sleep duration, and reason is a
+	// short human phrase describing why we're retrying (e.g. "rate
+	// limit", "stream stalled"). The callback exists so the renderer's
+	// dock can flip to the "重试中" status word — without it the dock
+	// keeps showing "请求模型中" for the entire retry window, lying to
+	// the user. Non-fatal: a panic inside the callback is recovered so
+	// the retry loop keeps running.
+	OnRetry func(attempt, maxRetries int, delay time.Duration, reason string)
 
 	// OnFallback fires from the FallbackAdapter just before swapping
 	// to the next adapter in the chain. from / to are the model IDs

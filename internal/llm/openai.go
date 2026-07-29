@@ -549,7 +549,7 @@ func (o *OpenAIAdapter) Chat(ctx context.Context, messages []Message, tools []To
 			if cb := opts.OnRetry; cb != nil {
 				func() {
 					defer func() { _ = recover() }()
-					cb(attempt+1, delay, retryReasonForError(err))
+					cb(attempt+1, maxAttempts-1, delay, retryReasonForError(err))
 				}()
 			}
 			// Cancellation-aware sleep: a quota error can request a

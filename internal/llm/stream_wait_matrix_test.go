@@ -226,12 +226,14 @@ func TestStreamEmpty_RetriedAtL1WithJitteredBackoff(t *testing.T) {
 	adapter := newStreamAdapter(t, server.URL, 3)
 	var retryReason string
 	var retryDelay time.Duration
+	var retryMaxRetries int
 	var retryCount atomic.Int64
 	resp, err := adapter.Chat(context.Background(), []Message{{Role: "user", Content: "x"}}, nil, ChatOptions{
-		OnRetry: func(attempt int, delay time.Duration, reason string) {
+		OnRetry: func(attempt, maxRetries int, delay time.Duration, reason string) {
 			retryCount.Add(1)
 			retryReason = reason
 			retryDelay = delay
+			retryMaxRetries = maxRetries
 		},
 	})
 	if err != nil {
@@ -248,6 +250,12 @@ func TestStreamEmpty_RetriedAtL1WithJitteredBackoff(t *testing.T) {
 	}
 	if retryDelay <= 0 || retryDelay > time.Second {
 		t.Errorf("attempt-0 jittered backoff = %v, want in (0, 1s]", retryDelay)
+	}
+	// PIB-1: the adapter publishes its retry budget so display layers
+	// can render "attempt N/M". RetryMaxAttempts=3 → budget of 2
+	// retries — the same denominator the "[llm] retry N/M" log uses.
+	if retryMaxRetries != 2 {
+		t.Errorf("OnRetry maxRetries = %d, want 2 (RetryMaxAttempts-1)", retryMaxRetries)
 	}
 	if got := calls.Load(); got != 2 {
 		t.Errorf("expected 2 upstream attempts, got %d", got)

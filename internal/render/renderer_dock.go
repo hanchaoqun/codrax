@@ -745,11 +745,22 @@ func (r *Renderer) handleEvent(ev Event) {
 		if delaySec < 1 {
 			delaySec = 1
 		}
+		// PIB-1: anchor the backoff deadline on the event timestamp
+		// (falling back to receipt time) so the compose-time countdown
+		// transform can render a live "还剩 Xs" on every animation
+		// tick. An immediate retry (delay ≤ 0) lands directly in the
+		// "已重发，等待响应" wording via a deadline that is already due.
+		at := ev.Timestamp
+		if at.IsZero() {
+			at = time.Now()
+		}
 		r.activity = activityState{
-			kind:          activityRetrying,
-			retryAttempt:  ev.RetryAttempt,
-			retryDelaySec: delaySec,
-			detail:        ev.RetryReason,
+			kind:             activityRetrying,
+			retryAttempt:     ev.RetryAttempt,
+			retryMaxAttempts: ev.RetryMaxAttempts,
+			retryDelaySec:    delaySec,
+			deadline:         at.Add(ev.RetryDelay),
+			detail:           ev.RetryReason,
 		}
 		if r.parallel != nil {
 			r.parallel.setUnitActivity(ev, activityRetrying, ev.RetryReason, "")
@@ -764,16 +775,17 @@ func (r *Renderer) handleEvent(ev Event) {
 		// [llm] log lines). RetryReason is localised through
 		// localizeRetryReason so a zh user does not see English
 		// "rate limit" mixed into Chinese prose.
+		attemptLabel := retryAttemptLabel(ev.RetryAttempt, ev.RetryMaxAttempts)
 		var body string
 		switch {
 		case immediateRetry && isZh(r.lang):
-			body = fmt.Sprintf("已重新请求模型 (第 %d 次,立即重试)", ev.RetryAttempt)
+			body = fmt.Sprintf("已重新请求模型 (第 %s 次,立即重试)", attemptLabel)
 		case immediateRetry:
-			body = fmt.Sprintf("retried model request (attempt %d, immediately)", ev.RetryAttempt)
+			body = fmt.Sprintf("retried model request (attempt %s, immediately)", attemptLabel)
 		case isZh(r.lang):
-			body = fmt.Sprintf("已重新请求模型 (第 %d 次,等 %ds)", ev.RetryAttempt, delaySec)
+			body = fmt.Sprintf("已重新请求模型 (第 %s 次,等 %ds)", attemptLabel, delaySec)
 		default:
-			body = fmt.Sprintf("retried model request (attempt %d, after %ds)", ev.RetryAttempt, delaySec)
+			body = fmt.Sprintf("retried model request (attempt %s, after %ds)", attemptLabel, delaySec)
 		}
 		if ev.RetryReason != "" {
 			body += " · " + localizeRetryReason(ev.RetryReason, r.lang)
@@ -1085,7 +1097,7 @@ func (r *Renderer) recordLLMRequestTelemetry(ev Event) {
 func (r *Renderer) composeCurrentDockRows() [dockRowCount]string {
 	now := time.Now()
 	state := dockRowState{
-		activity:   lightRouteActivityWithCountdown(r.activity, now, r.lang),
+		activity:   retryingActivityWithCountdown(lightRouteActivityWithCountdown(r.activity, now, r.lang), now),
 		streamTail: r.streamTail,
 		frame:      spinnerFrames[r.animFrame%len(spinnerFrames)],
 		lang:       r.lang,
@@ -2666,21 +2678,22 @@ func (r *Renderer) handleEventNonTTY(ev Event) {
 		// schedule since §29.92 — first-byte timeout retries carry no
 		// extra backoff); jittered sub-second delays are rounded to
 		// 100ms so the line does not print nanosecond noise.
+		nonTTYAttemptLabel := retryAttemptLabel(ev.RetryAttempt, ev.RetryMaxAttempts)
 		if isZh(r.lang) {
 			if ev.RetryDelay <= 0 {
-				r.emitNonTTYLine(fmt.Sprintf("%s 正在重新请求模型 (第 %d 次,立即重试) · %s",
-					RecoverableNoticeGlyph, ev.RetryAttempt, localizeRetryReason(ev.RetryReason, r.lang)))
+				r.emitNonTTYLine(fmt.Sprintf("%s 正在重新请求模型 (第 %s 次,立即重试) · %s",
+					RecoverableNoticeGlyph, nonTTYAttemptLabel, localizeRetryReason(ev.RetryReason, r.lang)))
 			} else {
-				r.emitNonTTYLine(fmt.Sprintf("%s 正在重新请求模型 (第 %d 次,等 %v) · %s",
-					RecoverableNoticeGlyph, ev.RetryAttempt, ev.RetryDelay.Round(100*time.Millisecond), localizeRetryReason(ev.RetryReason, r.lang)))
+				r.emitNonTTYLine(fmt.Sprintf("%s 正在重新请求模型 (第 %s 次,等 %v) · %s",
+					RecoverableNoticeGlyph, nonTTYAttemptLabel, ev.RetryDelay.Round(100*time.Millisecond), localizeRetryReason(ev.RetryReason, r.lang)))
 			}
 		} else {
 			if ev.RetryDelay <= 0 {
-				r.emitNonTTYLine(fmt.Sprintf("%s retrying model request (attempt %d, immediately) · %s",
-					RecoverableNoticeGlyph, ev.RetryAttempt, localizeRetryReason(ev.RetryReason, r.lang)))
+				r.emitNonTTYLine(fmt.Sprintf("%s retrying model request (attempt %s, immediately) · %s",
+					RecoverableNoticeGlyph, nonTTYAttemptLabel, localizeRetryReason(ev.RetryReason, r.lang)))
 			} else {
-				r.emitNonTTYLine(fmt.Sprintf("%s retrying model request (attempt %d, in %v) · %s",
-					RecoverableNoticeGlyph, ev.RetryAttempt, ev.RetryDelay.Round(100*time.Millisecond), localizeRetryReason(ev.RetryReason, r.lang)))
+				r.emitNonTTYLine(fmt.Sprintf("%s retrying model request (attempt %s, in %v) · %s",
+					RecoverableNoticeGlyph, nonTTYAttemptLabel, ev.RetryDelay.Round(100*time.Millisecond), localizeRetryReason(ev.RetryReason, r.lang)))
 			}
 		}
 	case EventAdapterFallback:
