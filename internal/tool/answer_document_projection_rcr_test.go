@@ -706,7 +706,7 @@ func TestRCRSuppressedClauseShapeKeepsCaliberLegend(t *testing.T) {
 }
 
 // --- 复核 FAIL-2: the conclusion equation is the SHARED template, pinned
-// --- inside the **主根因:** line itself (行域限定 — a forked private copy
+// --- inside the **主根因(=已证链上单项最大可消除量):** line itself (行域限定 — a forked private copy
 // --- with a drifted joiner can no longer hide in whole-page contains) --------
 
 func TestRCRConclusionEquationSharedTemplateLineScoped(t *testing.T) {
@@ -715,7 +715,7 @@ func TestRCRConclusionEquationSharedTemplateLineScoped(t *testing.T) {
 	lead := runtimeTraceProjLeadText(projection, model, "zh", true)
 	var conclusion string
 	for _, line := range strings.Split(lead, "\n") {
-		if strings.Contains(line, "**主根因:**") {
+		if strings.Contains(line, "**主根因(=已证链上单项最大可消除量):**") {
 			conclusion = line
 			break
 		}

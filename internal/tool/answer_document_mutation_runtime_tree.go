@@ -15288,10 +15288,19 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 	// never a share (no fake >100% lane on the headline either).
 	ms, msWord, msPeriodic, msWindowSource := runtimeTraceProjConclusionMagnitude(*primary, zh)
 	var b strings.Builder
+	// B+ POSITION (user ruling 2026-07-28 第二裁): the definitional
+	// parenthetical rides the TERM itself — 「主根因(=…):」, read at first
+	// glance — never a tail note the eye skips. 主根因 is a defined term of
+	// art (the #1-elected seat = the largest single PROVEN on-chain
+	// eliminable contribution under its stated caliber), an election over
+	// credentials + effective attribution, never a mechanism-level verdict.
+	// The full definition rides the legend entry; 「首要可消除项」 is the
+	// reserved rename should plan A ever be ruled. The no-crown (未定位)
+	// lanes keep the bare prefix — they elect nobody, nothing to define.
 	if zh {
-		b.WriteString("**主根因:** ")
+		b.WriteString("**主根因(=已证链上单项最大可消除量):** ")
 	} else {
-		b.WriteString("**Primary root cause:** ")
+		b.WriteString("**Primary root cause (= the largest single proven on-chain eliminable contribution):** ")
 	}
 	b.WriteString(name)
 	if selfAccountParts != nil {
@@ -15442,18 +15451,6 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 	// "" keeps every other shape byte-identical.
 	if !onChainFallback {
 		b.WriteString(runtimeTraceProjHeadlineElimCaliberNote(projection, model, primary, zh))
-	}
-	// B+ (user ruling 2026-07-28): the crowned head line — the term's FIRST
-	// occurrence — carries the definitional note: 主根因 is a defined term of
-	// art (the #1-elected seat = the largest single PROVEN on-chain
-	// eliminable contribution under its stated caliber), an election over
-	// credentials + effective attribution, never a mechanism-level verdict.
-	// The full definition rides the legend entry (mark below); 「首要可消除项」
-	// is the reserved rename should plan A ever be ruled.
-	if zh {
-		b.WriteString("(主根因=已证链上单项最大可消除量)")
-	} else {
-		b.WriteString("(primary root cause = the largest single proven on-chain eliminable contribution)")
 	}
 	b.WriteString("。")
 	if !zh {

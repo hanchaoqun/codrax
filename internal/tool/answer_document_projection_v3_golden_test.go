@@ -120,7 +120,7 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 	for _, want := range []string{
 		// 复核 Med (2026-07-06): the cumulative-source headline carries its
 		// caliber word and no 占窗 share (C00 同源门).
-		"**主根因:** binder:42591_4-42712 sleep（sleep_wait） 链上累计 38.400ms，下钻到 RenderService-3021",
+		"**主根因(=已证链上单项最大可消除量):** binder:42591_4-42712 sleep（sleep_wait） 链上累计 38.400ms，下钻到 RenderService-3021",
 		"分析窗 738291.402~738291.466s，共 64.000ms",
 		"\n- 链上已归因 38.400ms(60%),未归因 25.600ms(40%)",
 	} {

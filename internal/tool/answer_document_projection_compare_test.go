@@ -139,10 +139,10 @@ func TestTraceProjectionMultiArtifactRendersPerArtifactSections(t *testing.T) {
 	}
 	// Per-artifact conclusion line (the former single global line is gone in
 	// multi mode by construction — every section reuses the V1 lane).
-	if !strings.Contains(sectionA.Text, "**主根因:** RSUniRenderThre-1963") {
+	if !strings.Contains(sectionA.Text, "**主根因(=已证链上单项最大可消除量):** RSUniRenderThre-1963") {
 		t.Fatalf("section A must carry its own V1-lane conclusion:\n%s", sectionA.Text)
 	}
-	if !strings.Contains(sectionB.Text, "**主根因:** OS_FFRT_2_6-18695") {
+	if !strings.Contains(sectionB.Text, "**主根因(=已证链上单项最大可消除量):** OS_FFRT_2_6-18695") {
 		t.Fatalf("section B must carry its own V1-lane conclusion:\n%s", sectionB.Text)
 	}
 	// CMP-2: each section anchors its OWN artifact's selected window — the

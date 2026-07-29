@@ -75,7 +75,7 @@ func TestSupplyFoldClauseTripleBranchZH(t *testing.T) {
 		t.Fatalf("inversion node's supply-fold deficit must keep its lossless detail home:\n%s", md)
 	}
 	// Conclusion line carries the lead fact + the 行3-form breakdown.
-	if !strings.Contains(md, "**主根因:** worker-200") {
+	if !strings.Contains(md, "**主根因(=已证链上单项最大可消除量):** worker-200") {
 		t.Fatalf("lead line missing:\n%s", md)
 	}
 	// Retirements bite: no mechanism sentence, no user-facing "gated", no
@@ -365,7 +365,7 @@ func TestSupplyFoldDeficitNeverRanks(t *testing.T) {
 		"fold_basis=known=18.000ms,unknown=0.000ms", "runnable=150.000")
 	records = append(records, folded)
 	md := supplyFoldVS2Render(t, records, "")
-	lead := strings.Index(md, "**主根因:** worker-200")
+	lead := strings.Index(md, "**主根因(=已证链上单项最大可消除量):** worker-200")
 	if lead < 0 {
 		t.Fatalf("rank=1 row must stay the lead regardless of the rank=2 deficit:\n%s", md)
 	}

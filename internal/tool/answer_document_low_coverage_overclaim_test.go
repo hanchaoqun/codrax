@@ -38,6 +38,10 @@ func lowCoverageOverclaimDocument() *types.AnswerDocumentV2 {
 			Text: strings.Join([]string{
 				"shadowhook-task线程是整帧核心原因。",
 				"主根因是 shadowhook-task线程。",
+				// CROWNPOS-1: the definitional-prefix head form a model may echo
+				// verbatim — the demotion sweep needs its own long-form pair
+				// (the bare 主根因: pair never matches through the parenthetical).
+				"主根因(=已证链上单项最大可消除量): shadowhook-task线程。",
 				"shadowhook-task caused the frame drop.",
 			}, "\n"),
 		},
@@ -70,11 +74,17 @@ func TestLowCoverageSixPercentWeakensOnlyBoundModelClaims(t *testing.T) {
 	for _, want := range []string{
 		"shadowhook-task线程是当前已解释部分中最大候选。",
 		"当前已解释部分中最大候选是 shadowhook-task线程。",
+		// CROWNPOS-1: the echoed definitional-prefix form demotes too — and the
+		// parenthetical itself must not survive the rewrite.
+		"当前已解释部分中最大候选: shadowhook-task线程。",
 		"shadowhook-task is the largest candidate within the currently explained portion.",
 	} {
 		if !strings.Contains(doc.Blocks[0].Text, want) {
 			t.Fatalf("low-coverage model surface missing %q:\n%s", want, doc.Blocks[0].Text)
 		}
+	}
+	if strings.Contains(doc.Blocks[0].Text, "已证链上单项最大可消除量") {
+		t.Fatalf("the definitional parenthetical must not survive the demotion sweep:\n%s", doc.Blocks[0].Text)
 	}
 	if doc.Blocks[1].Text != "shadowhook-task线程是整帧核心原因。" ||
 		doc.Blocks[2].Title != "shadowhook-task线程是整帧核心原因。" {

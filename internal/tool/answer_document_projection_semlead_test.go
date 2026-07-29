@@ -77,7 +77,7 @@ func TestSemLeadOnChainSemanticFamilySingleSeatCrownedZH(t *testing.T) {
 	// ① 主根因 crown through the primary lane, named by subject + class.
 	leadLine := ""
 	for _, line := range strings.Split(md, "\n") {
-		if strings.Contains(line, "**主根因:**") {
+		if strings.Contains(line, "**主根因(=已证链上单项最大可消除量):**") {
 			leadLine = line
 			break
 		}
@@ -621,7 +621,7 @@ func TestSemLeadPartialOverlapSingleSeatDualCaliber(t *testing.T) {
 	// published eff — §29.22.1 修向(a) unchanged by this batch).
 	leadLine := ""
 	for _, line := range strings.Split(md, "\n") {
-		if strings.Contains(line, "**主根因:**") {
+		if strings.Contains(line, "**主根因(=已证链上单项最大可消除量):**") {
 			leadLine = line
 			break
 		}
@@ -848,7 +848,7 @@ func TestSemLeadNonChainSemanticFamilyStaysOnBackgroundBoard(t *testing.T) {
 		}
 	}
 	for _, line := range strings.Split(md, "\n") {
-		if strings.Contains(line, "**主根因:**") && strings.Contains(line, "shader_compile") {
+		if strings.Contains(line, "**主根因(=已证链上单项最大可消除量):**") && strings.Contains(line, "shader_compile") {
 			t.Fatalf("a non-chain semantic row must never crown 主根因: %q", line)
 		}
 	}
@@ -1010,7 +1010,7 @@ func TestSemLeadPureSemanticBoardMintsTypedPrimaryAndCrowns(t *testing.T) {
 	md := audit730Render(t, audit730Bus(""), obs, "")
 	leadLine := ""
 	for _, line := range strings.Split(md, "\n") {
-		if strings.Contains(line, "**主根因:**") {
+		if strings.Contains(line, "**主根因(=已证链上单项最大可消除量):**") {
 			leadLine = line
 			break
 		}

@@ -67,7 +67,7 @@ func TestRNLeadFallsBackToFlatOnChainRow(t *testing.T) {
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: on-chain 等待 →
 	// 链上等待 (归因族).
 	for _, want := range []string{
-		"**主根因:** OS_FFRT_2_3-49706", "链上累计 635.981ms",
+		"**主根因(=已证链上单项最大可消除量):** OS_FFRT_2_3-49706", "链上累计 635.981ms",
 		"(链不可上溯,按窗口内最大链上等待)",
 	} {
 		if !strings.Contains(line, want) {

@@ -123,7 +123,7 @@ func TestCOVLeadPrimaryIsBadgeOneRow(t *testing.T) {
 	}
 	// The conclusion line consumes the same selection.
 	line := runtimeTraceProjConclusionLine(projection, model, true)
-	if !strings.Contains(line, "**主根因:** OS_FFRT_3-46792") {
+	if !strings.Contains(line, "**主根因(=已证链上单项最大可消除量):** OS_FFRT_3-46792") {
 		t.Fatalf("conclusion must name the lead row:\n%s", line)
 	}
 	if strings.Contains(line, "oney-42591") {

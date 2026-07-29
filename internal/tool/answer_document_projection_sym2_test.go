@@ -111,15 +111,15 @@ func TestSYM2FlatSelfRunnableCrownedLead(t *testing.T) {
 	line := runtimeTraceProjConclusionLine(projection, model, true)
 	// EVOLUTION RECORD (§29.30 用户裁定 2026-07-11, ledger
 	// real_trace_campaign_20260705.md): the SYM-2 interim crown wording
-	// (「**主根因:** main-6565 …」 external thread-name form — the "同文法,
+	// (「**主根因(=已证链上单项最大可消除量):** main-6565 …」 external thread-name form — the "同文法,
 	// no special form" era) is RETIRED. A crowned self-cause row speaks the
 	// 自因成因形 head 「关注线程自身 {state}」 plus its §24.3 category word
 	// (resolving the 78 系 "加冕句成因词" 措辞裁定候选's self half, §29.30
 	// constraint ②) and never wears the external-cause syntax.
-	if !strings.Contains(line, "**主根因:** 关注线程自身 runnable 调度压力候选") {
+	if !strings.Contains(line, "**主根因(=已证链上单项最大可消除量):** 关注线程自身 runnable 调度压力候选") {
 		t.Fatalf("the conclusion must crown the self runnable row in the 自因成因形 (§29.30):\n%s", line)
 	}
-	if strings.Contains(line, "**主根因:** main-6565") {
+	if strings.Contains(line, "**主根因(=已证链上单项最大可消除量):** main-6565") {
 		t.Fatalf("a self-cause crown must not wear the external thread-name syntax (§29.30 不冒外因句式):\n%s", line)
 	}
 	if strings.Contains(line, "未定位到链上主根因") || strings.Contains(line, "关注线程自身等待/持锁") {

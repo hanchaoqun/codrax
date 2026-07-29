@@ -84,7 +84,7 @@ func dRoundTypeObs() []types.ObservationRecord {
 func TestTraceProjectionD2TypeLabelsThreeTierFidelityZH(t *testing.T) {
 	md := audit730Render(t, audit730Bus(""), dRoundTypeObs(), "")
 	// D4: bold lead label + 中文（token） combined narrative format.
-	if !strings.Contains(md, "**主根因:** dep-200 优先级反转候选（priority_inversion_candidate）") {
+	if !strings.Contains(md, "**主根因(=已证链上单项最大可消除量):** dep-200 优先级反转候选（priority_inversion_candidate）") {
 		t.Fatalf("D4 lead must use bold label + combined zh(token) cause:\n%s", md)
 	}
 	// D2: tree rows show the concise zh label only.
@@ -107,7 +107,7 @@ func TestTraceProjectionD2TypeLabelsKeepRawTokensEN(t *testing.T) {
 	// combined label-(token) form); the raw snake_case token keeps exactly
 	// its audit seats — the detail 「- type:」 column stays verbatim.
 	for _, want := range []string{
-		"**Primary root cause:** dep-200 priority inversion (candidate) (priority_inversion_candidate)",
+		"**Primary root cause (= the largest single proven on-chain eliminable contribution):** dep-200 priority inversion (candidate) (priority_inversion_candidate)",
 		"priority inversion (candidate) · root-cause rank #1 · confidence high",
 		"io-500 · IO latency",
 		"- type: priority_inversion_candidate",

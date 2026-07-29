@@ -105,7 +105,7 @@ func TestSYMOpendirLeadFallsToNonSelfBoardHead(t *testing.T) {
 		t.Fatalf("the self-lock row must keep its tree-head seat (SelfRows): %+v", model.SelfRows)
 	}
 	line := runtimeTraceProjConclusionLine(projection, model, true)
-	if !strings.Contains(line, "**主根因:** RxComputationT-16612") {
+	if !strings.Contains(line, "**主根因(=已证链上单项最大可消除量):** RxComputationT-16612") {
 		t.Fatalf("the conclusion must crown the non-self row:\n%s", line)
 	}
 	if strings.Contains(line, "aweme-16547") {
@@ -339,7 +339,7 @@ func TestSYMOnChainFallbackNeverCrownsSelfRow(t *testing.T) {
 	if !strings.Contains(line, "窗口内未定位到链上主根因，见背景压力段(关注线程自身等待/持锁 3.843ms,见关注线程自身行)") {
 		t.Fatalf("the honest fallback + disclosure must take over:\n%s", line)
 	}
-	if strings.Contains(line, "**主根因:** main-6565") || strings.Contains(line, "链不可上溯,按窗口内最大链上等待") {
+	if strings.Contains(line, "**主根因(=已证链上单项最大可消除量):** main-6565") || strings.Contains(line, "链不可上溯,按窗口内最大链上等待") {
 		t.Fatalf("the fallback lane must not re-crown the self binder wait (§24.13 复核 F1):\n%s", line)
 	}
 	cell := runtimeTraceProjComparePrimaryCell(projection, model, true)

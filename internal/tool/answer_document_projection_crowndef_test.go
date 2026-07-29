@@ -6,9 +6,11 @@ import (
 )
 
 // answer_document_projection_crowndef_test.go — B+ (user ruling 2026-07-28):
-// 主根因 becomes a DEFINED term of art. The crowned head line's first
-// occurrence carries the short definitional parenthetical, the legend
-// carries the full definition (election over credentials + effective
+// 主根因 becomes a DEFINED term of art. CROWNPOS-1 (第二裁, same day): the
+// short definitional parenthetical rides the TERM itself — the crowned head
+// prefix is 「**主根因(=已证链上单项最大可消除量):**」, never a tail note (the
+// byte-exact prefix+no-tail pin lives in the close1 headline test). The
+// legend carries the full definition (election over credentials + effective
 // attribution, never a mechanism verdict), and both LLM word surfaces teach
 // it. 「首要可消除项」 is the reserved rename should plan A ever be ruled.
 

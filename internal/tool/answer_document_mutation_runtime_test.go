@@ -719,7 +719,7 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjection(t *tes
 	}
 	// Target-anchored tree: 🎯 root = user-focused thread, real branches, four
 	// edge kinds, and the co-primary target row surfaces as a self-state line.
-	for _, want := range []string{"**主根因:**", "```text", "⊚ app-100", "└─下钻─", "─唤醒─", "算力供给"} {
+	for _, want := range []string{"**主根因(=已证链上单项最大可消除量):**", "```text", "⊚ app-100", "└─下钻─", "─唤醒─", "算力供给"} {
 		if !strings.Contains(projection.Text, want) {
 			t.Fatalf("v3 lead tree missing %q:\n%s", want, projection.Text)
 		}
@@ -958,12 +958,12 @@ func TestApplyAndPersistMutation_TraceCausalProjectionSleepDrilldownAndTriad(t *
 	// symptom row can never be crowned 主根因 (huadong_78 pathology family).
 	// The sleep-lead 下钻到 suffix lane stays pinned end-to-end by the v3
 	// golden (a ranked sleep CHAIN row leading with 下钻到 RenderService-3021).
-	for _, want := range []string{"☾", "⊚ app-100", "└─下钻─", "**主根因:** worker-200"} {
+	for _, want := range []string{"☾", "⊚ app-100", "└─下钻─", "**主根因(=已证链上单项最大可消除量):** worker-200"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("sleep drilldown must render (gap d): missing %q:\n%s", want, rendered)
 		}
 	}
-	if strings.Contains(rendered, "**主根因:** app-100") {
+	if strings.Contains(rendered, "**主根因(=已证链上单项最大可消除量):** app-100") {
 		t.Fatalf("the target's own sleep symptom row must not be crowned 主根因 (§24.11 C-1):\n%s", rendered)
 	}
 	// gap e: the undrillable sleep is explicitly flagged with the typed reason
@@ -1345,7 +1345,7 @@ func TestApplyAndPersistMutation_MaterializesRuntimeTraceCausalProjectionInEngli
 	// English lead: fact-only conclusion, tree-reading note, target-anchored tree
 	// with localized edge labels — zero mermaid.
 	// PTV5 C21 (#68): the headline magnitude carries its caliber word.
-	for _, want := range []string{"**Primary root cause:** threadpool-400 iowait (io_wait) chain total 11.000ms", "Tree reading", "```text", "⊚ app-100", "<user-focused thread>", "─wakes─"} {
+	for _, want := range []string{"**Primary root cause (= the largest single proven on-chain eliminable contribution):** threadpool-400 iowait (io_wait) chain total 11.000ms", "Tree reading", "```text", "⊚ app-100", "<user-focused thread>", "─wakes─"} {
 		if !strings.Contains(projection.Text, want) {
 			t.Fatalf("English v3 lead missing %q:\n%s", want, projection.Text)
 		}

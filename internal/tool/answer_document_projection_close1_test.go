@@ -166,7 +166,7 @@ func TestCLOSE1SelfRunningTierACrownSpeaksAccountParts(t *testing.T) {
 	}
 	line := runtimeTraceProjConclusionLine(projection, model, true)
 	for _, want := range []string{
-		"**主根因:** 关注线程自身 running(确定性工作 120.000ms",
+		"**主根因(=已证链上单项最大可消除量):** 关注线程自身 running(确定性工作 120.000ms",
 		"供给折算影响 6.100ms",
 		"自身执行(无确定性可优化工作) 373.000ms",
 	} {
@@ -174,7 +174,7 @@ func TestCLOSE1SelfRunningTierACrownSpeaksAccountParts(t *testing.T) {
 			t.Fatalf("Tier A crown must speak the account decomposition (%q):\n%s", want, line)
 		}
 	}
-	if strings.Contains(line, "**主根因:** main-6565") {
+	if strings.Contains(line, "**主根因(=已证链上单项最大可消除量):** main-6565") {
 		t.Fatalf("Tier A crown must not wear the external thread-name syntax:\n%s", line)
 	}
 	if strings.Contains(line, "供给折算缺口") {
@@ -374,7 +374,7 @@ func TestCLOSE1SelfDStateCrownAvoidsCategoryEcho(t *testing.T) {
 	}
 	model := buildRuntimeTraceProjTreeModel(projection, nil, true)
 	line := runtimeTraceProjConclusionLine(projection, model, true)
-	if !strings.Contains(line, "**主根因:** 关注线程自身 D-state") {
+	if !strings.Contains(line, "**主根因(=已证链上单项最大可消除量):** 关注线程自身 D-state") {
 		t.Fatalf("the D-state self crown must speak the 自因成因形 head:\n%s", line)
 	}
 	if strings.Contains(line, "D状态候选") {
@@ -504,7 +504,7 @@ func TestCLOSE1ExternalDominantFrameKeepsExternalCrown(t *testing.T) {
 		t.Fatalf("外因主导帧: the inversion row must keep the crown, got lane=%d lead=%+v", lane, lead)
 	}
 	line := runtimeTraceProjConclusionLine(projection, model, true)
-	if line != "**主根因:** RxComputationT-16612 优先级反转候选（priority_inversion_candidate） 链上累计 58.919ms(主根因=已证链上单项最大可消除量)。" {
+	if line != "**主根因(=已证链上单项最大可消除量):** RxComputationT-16612 优先级反转候选（priority_inversion_candidate） 链上累计 58.919ms。" {
 		t.Fatalf("the external crown sentence must stay byte-identical (外因句式零变):\n%s", line)
 	}
 	if strings.Contains(line, "关注线程自身") {

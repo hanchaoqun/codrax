@@ -51,7 +51,7 @@ func TestTraceProjectionPeriodicSourceRowZH(t *testing.T) {
 	}
 	// 主根因 consumes the engine rank (running row), never the cadence sleep.
 	for _, line := range strings.Split(md, "\n") {
-		if strings.Contains(line, "**主根因:**") {
+		if strings.Contains(line, "**主根因(=已证链上单项最大可消除量):**") {
 			if !strings.Contains(line, "RSUniRenderThre-1963") || strings.Contains(line, "VSyncGenerator") {
 				t.Fatalf("primary conclusion must not name the periodic sleep row:\n%s", line)
 			}
