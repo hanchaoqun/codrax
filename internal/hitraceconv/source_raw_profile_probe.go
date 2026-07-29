@@ -50,8 +50,9 @@ func probeTraceDBSourceRawProfile(
 	segments []segmentMeta,
 	inventoryIncomplete string,
 ) (TraceDBCoverage, TraceDBCoverage, []traceDBRawBlockedRecord,
-	[]traceDBRawDMAWaitRecord, []traceDBRawMarkerRecord, []traceDBRawSchedSwitchLiteRecord,
-	[]traceDBRawSchedWakeupLiteRecord, []traceDBRawSchedWakeupNewNameRecord, error,
+	[]traceDBRawDMAWaitRecord, []traceDBRawDMALifecycleRecord, []traceDBRawMarkerRecord,
+	[]traceDBRawSchedSwitchLiteRecord, []traceDBRawSchedWakeupLiteRecord,
+	[]traceDBRawSchedWakeupNewNameRecord, error,
 ) {
 	coverage := newTraceDBSourceRawProfileCoverage()
 	decode := newTraceDBSourceRawDecodeAccumulator()
@@ -59,7 +60,7 @@ func probeTraceDBSourceRawProfile(
 		ctx = context.Background()
 	}
 	if err := ctx.Err(); err != nil {
-		return coverage, decode.coverage, nil, nil, nil, nil, nil, nil, err
+		return coverage, decode.coverage, nil, nil, nil, nil, nil, nil, nil, err
 	}
 	if header.Magic != traceStreamerRawTraceMagic || header.Version != harmonyRMQVersion ||
 		(header.FileType != 0 && header.FileType != harmonyRMQFileType) {
@@ -68,7 +69,7 @@ func probeTraceDBSourceRawProfile(
 		coverage.Skipped = "official raw page probe not applicable to this envelope"
 		decode.setUnavailable("not_applicable_non_official_profile",
 			"official raw record decode ledger not applicable to this envelope", false)
-		return coverage, decode.coverage, nil, nil, nil, nil, nil, nil, nil
+		return coverage, decode.coverage, nil, nil, nil, nil, nil, nil, nil, nil
 	}
 	coverage.Found = true
 	decode.coverage.Found = true
@@ -78,21 +79,21 @@ func probeTraceDBSourceRawProfile(
 		coverage.Skipped = "raw page probe withheld: segment_inventory_incomplete"
 		decode.setUnavailable("withheld_segment_inventory_incomplete",
 			"raw record decode ledger withheld: segment_inventory_incomplete", true)
-		return coverage, decode.coverage, nil, nil, nil, nil, nil, nil, nil
+		return coverage, decode.coverage, nil, nil, nil, nil, nil, nil, nil, nil
 	}
 
 	catalog, formatState := probeTraceDBSourceEventFormats(ctx, input, segments, &coverage)
 	if err := ctx.Err(); err != nil {
-		return coverage, decode.coverage, nil, nil, nil, nil, nil, nil, err
+		return coverage, decode.coverage, nil, nil, nil, nil, nil, nil, nil, err
 	}
 	coverage.Metadata["event_format_probe_state"] = formatState
 	probeTraceDBSourceUnknownSegments(ctx, input, header, segments, &coverage)
 	if err := ctx.Err(); err != nil {
-		return coverage, decode.coverage, nil, nil, nil, nil, nil, nil, err
+		return coverage, decode.coverage, nil, nil, nil, nil, nil, nil, nil, err
 	}
 	probeTraceDBSourceRawPages(ctx, input, header, segments, catalog, &coverage, &decode)
 	if err := ctx.Err(); err != nil {
-		return coverage, decode.coverage, nil, nil, nil, nil, nil, nil, err
+		return coverage, decode.coverage, nil, nil, nil, nil, nil, nil, nil, err
 	}
 	decodeCoverage := decode.finalize(catalog, coverage)
 	markerCarrierRecords := decodeCoverage.Metrics["target_marker_carrier_records"]
@@ -115,6 +116,7 @@ func probeTraceDBSourceRawProfile(
 	if decodeCoverage.Metadata["decode_state"] != "strict_target_ledger_complete" ||
 		decodeCoverage.Metrics["target_sched_blocked_reason_key_capture_failed"] > 0 ||
 		decodeCoverage.Metrics["target_dma_fence_wait_record_capture_failed"] > 0 ||
+		decodeCoverage.Metrics["target_dma_fence_lifecycle_record_capture_failed"] > 0 ||
 		decodeCoverage.Metrics["target_sched_switch_lite_record_capture_failed"] > 0 ||
 		decodeCoverage.Metrics["target_sched_wakeup_lite_record_capture_failed"] > 0 ||
 		decodeCoverage.Metrics["target_sched_wakeup_new_name_record_capture_failed"] > 0 ||
@@ -131,16 +133,21 @@ func probeTraceDBSourceRawProfile(
 		decodeCoverage.Metrics["target_dma_fence_wait_start_body_admitted"]+
 			decodeCoverage.Metrics["target_dma_fence_wait_end_body_admitted"] !=
 			int64(len(decode.dmaWaitRecords)) ||
+		decodeCoverage.Metrics["target_dma_fence_destroy_body_admitted"]+
+			decodeCoverage.Metrics["target_dma_fence_enable_signal_body_admitted"]+
+			decodeCoverage.Metrics["target_dma_fence_init_body_admitted"]+
+			decodeCoverage.Metrics["target_dma_fence_signaled_body_admitted"] !=
+			int64(len(decode.dmaLifecycle)) ||
 		decodeCoverage.Metrics["target_sched_switch_lite_body_admitted"] !=
 			int64(len(decode.switchLiteRecords)) ||
 		decodeCoverage.Metrics["target_sched_wakeup_lite_body_admitted"] !=
 			int64(len(decode.wakeupLiteRecords)) ||
 		decodeCoverage.Metrics["target_sched_wakeup_new_name_records_retained"] !=
 			int64(len(decode.wakeupNewNames)) {
-		return coverage, decodeCoverage, nil, nil, nil, nil, nil, nil, nil
+		return coverage, decodeCoverage, nil, nil, nil, nil, nil, nil, nil, nil
 	}
 	return coverage, decodeCoverage, decode.blockedRecords,
-		decode.dmaWaitRecords, decode.markerRecords,
+		decode.dmaWaitRecords, decode.dmaLifecycle, decode.markerRecords,
 		decode.switchLiteRecords, decode.wakeupLiteRecords, decode.wakeupNewNames, nil
 }
 

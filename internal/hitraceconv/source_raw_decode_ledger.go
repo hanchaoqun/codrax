@@ -52,6 +52,22 @@ type traceDBRawDMAWaitRecord struct {
 	Seqno        uint64
 }
 
+// traceDBRawDMALifecycleRecord is an exact official point event. It is kept
+// separate from wait endpoints because init/destroy/enable/signaled have no
+// pairing phase and must never acquire duration semantics.
+type traceDBRawDMALifecycleRecord struct {
+	TimestampNS  uint64
+	CPU          int
+	HeaderPID    int64
+	Flags        int64
+	PreemptCount int64
+	Name         string
+	Driver       string
+	Timeline     string
+	Context      uint64
+	Seqno        uint64
+}
+
 // traceDBRawMarkerRecord retains governed marker endpoint evidence and
 // localized carrier failures. PayloadPID is the marker namespace value and is
 // never silently rewritten. ZeroPIDUsesHeaderIdentity is true only for the
@@ -87,6 +103,7 @@ type traceDBSourceRawDecodeAccumulator struct {
 	formats           map[int]*traceDBRawDecodeFormatStats
 	blockedRecords    []traceDBRawBlockedRecord
 	dmaWaitRecords    []traceDBRawDMAWaitRecord
+	dmaLifecycle      []traceDBRawDMALifecycleRecord
 	markerRecords     []traceDBRawMarkerRecord
 	switchLiteRecords []traceDBRawSchedSwitchLiteRecord
 	wakeupLiteRecords []traceDBRawSchedWakeupLiteRecord
@@ -109,9 +126,9 @@ func newTraceDBSourceRawDecodeCoverage() TraceDBCoverage {
 		Role:   "diagnostic_ledger",
 		FieldSources: map[string]string{
 			"authority":      "same immutable official input generation, admitted event-format catalog, and structurally validated page/record geometry as source_rawtrace_profile",
-			"body_decode":    "closed strict decoders only: sched core, exact sched_switch, exact sched_switch_lite/sched_wakeup_lite, tracing marker, and DMA wait endpoints; generic/legacy fallback renderers never gain RPD authority",
+			"body_decode":    "closed strict decoders only: sched core, exact sched_switch, exact sched_switch_lite/sched_wakeup_lite, tracing marker, DMA wait endpoints, and official DMA lifecycle point events; generic/legacy fallback renderers never gain RPD authority",
 			"geometry":       "bounded exact descriptor field name/offset/size/signed witnesses for closed target formats; field types and print-fmt text are not surfaced",
-			"effect":         "bounded independent raw-record accounting only; RowsEmitted is always zero and no decoded record is published or merged with trace_streamer output",
+			"effect":         "this ledger is bounded independent raw-record accounting and RowsEmitted is always zero; retained typed records remain inert unless a separate family-specific census/deduplication/wire gate publishes them",
 			"identity":       "strict common_pid/common_flags/common_preempt_count envelope is required per decoded target record; namespace and TGID are not inferred",
 			"marker_sync":    "print and tracing_mark_write share tracequery.DecodeTraceMarkEndpointPayload as the sole complete-payload endpoint grammar; exact B/E payloads, admitted S/F payloads, and localized rejected carrier rows are retained without publication, while payload PID remains namespace data",
 			"scheduler_lite": "sched_switch_lite retains exact prev/next PID, signed-16 priority, state and the full packed uint64 next_info; known bits render the stable current prefix while nonzero unknown high bits are counted and never guessed as future fields; sched_wakeup_lite retains exact target PID, signed-16 priority and target CPU; both remain internal until a separate DB join proves one-to-one publication authority",
@@ -119,7 +136,7 @@ func newTraceDBSourceRawDecodeCoverage() TraceDBCoverage {
 		},
 		Metadata: map[string]string{
 			"decode_state":          "unavailable",
-			"publication_authority": "withheld_rpd1_diagnostic_only",
+			"publication_authority": "retained_records_require_dedicated_family_gate",
 		},
 	}
 }
@@ -353,6 +370,25 @@ func (a *traceDBSourceRawDecodeAccumulator) observeRecord(
 				traceDBAddCoverageMetric(
 					&a.coverage, "target_sched_wakeup_new_name_records_retained", 1)
 			}
+		} else if traceDBRawDMALifecycleName(format.Name) {
+			dma, dmaAdmission, dmaReason :=
+				decodeDirectDMAFenceFields(event, content)
+			if dmaAdmission != bodyAdmitted || dmaReason != "" ||
+				dma == nil || !dma.DriverKnown || !dma.TimelineKnown ||
+				!dma.ContextKnown || !dma.SeqnoKnown ||
+				dma.NumberBits != 32 {
+				traceDBAddCoverageMetric(&a.coverage,
+					"target_dma_fence_lifecycle_record_capture_failed", 1)
+				return
+			}
+			a.dmaLifecycle = append(a.dmaLifecycle,
+				traceDBRawDMALifecycleRecord{
+					TimestampNS: timestampNS, CPU: cpu,
+					HeaderPID: int64(headerPID), Flags: flags,
+					PreemptCount: preemptCount, Name: format.Name,
+					Driver: dma.Driver, Timeline: dma.Timeline,
+					Context: dma.Context, Seqno: dma.Seqno,
+				})
 		} else if format.Name == "dma_fence_wait_start" || format.Name == "dma_fence_wait_end" {
 			payload, payloadAdmission, payloadReason := decodeDirectPairPayload(event, content)
 			if payloadAdmission != bodyAdmitted || payloadReason != "" ||
@@ -415,6 +451,17 @@ func traceDBRawDecodeTargetBody(
 			return "", bodyRejected, reason
 		}
 		return traceDBRawSchedWakeupLiteDiagnosticBody(row), bodyAdmitted, ""
+	case "dma_fence_destroy", "dma_fence_enable_signal",
+		"dma_fence_init", "dma_fence_signaled":
+		dma, admission, reason := decodeDirectDMAFenceFields(event, content)
+		if admission != bodyAdmitted {
+			return "", admission, reason
+		}
+		body, ok := renderCanonicalDMAFenceFields(dma)
+		if !ok {
+			return "", bodyRejected, "invalid_dma_fence_lifecycle_body"
+		}
+		return body, bodyAdmitted, ""
 	default:
 		return renderEventBodyDecision(coreDecodeContext{}, event, content, cpu)
 	}
@@ -539,7 +586,18 @@ func traceDBRawDecodeStrictTarget(name string) bool {
 	if directMarkerNameGoverned(name) {
 		return true
 	}
-	return name == "dma_fence_wait_start" || name == "dma_fence_wait_end"
+	return name == "dma_fence_wait_start" || name == "dma_fence_wait_end" ||
+		traceDBRawDMALifecycleName(name)
+}
+
+func traceDBRawDMALifecycleName(name string) bool {
+	switch name {
+	case "dma_fence_destroy", "dma_fence_enable_signal",
+		"dma_fence_init", "dma_fence_signaled":
+		return true
+	default:
+		return false
+	}
 }
 
 func traceDBRawDecodeMetricName(name string) string {

@@ -52,6 +52,15 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 		return coverage, err
 	}
 	stageStart = time.Now()
+	rawDMALifecycleCoverage, err :=
+		publishTraceDBRawDMALifecycleRecovery(
+			ctx, tdb.sourceNameInventory, sink, rawCoverage)
+	traceDBSetCoverageElapsed(&rawDMALifecycleCoverage, stageStart)
+	coverage = append(coverage, rawDMALifecycleCoverage)
+	if err != nil {
+		return coverage, err
+	}
+	stageStart = time.Now()
 	measureCoverage, err := exportTraceDBMeasureFamilies(ctx, tdb, sink)
 	traceDBSetCoverageListElapsed(measureCoverage, stageStart)
 	coverage = append(coverage, measureCoverage...)

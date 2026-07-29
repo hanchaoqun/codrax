@@ -109,6 +109,8 @@ func exportTraceDBToSystraceFromSealedWithSourceNamesAndLedger(
 		copied.RawDecode = cloneTraceDBCoverage(sourceNames.RawDecode)
 		copied.RawBlocked = append([]traceDBRawBlockedRecord(nil), sourceNames.RawBlocked...)
 		copied.RawDMAWait = append([]traceDBRawDMAWaitRecord(nil), sourceNames.RawDMAWait...)
+		copied.RawDMALifecycle = append(
+			[]traceDBRawDMALifecycleRecord(nil), sourceNames.RawDMALifecycle...)
 		copied.RawMarkers = append([]traceDBRawMarkerRecord(nil), sourceNames.RawMarkers...)
 		copied.RawSwitchLite = append([]traceDBRawSchedSwitchLiteRecord(nil), sourceNames.RawSwitchLite...)
 		copied.RawWakeupLite = append([]traceDBRawSchedWakeupLiteRecord(nil), sourceNames.RawWakeupLite...)

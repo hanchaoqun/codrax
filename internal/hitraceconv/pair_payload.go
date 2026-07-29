@@ -130,34 +130,46 @@ func decodeDirectPairPayload(ev decodedEvent, content []byte) (pairRenderPayload
 		return payload, bodyAdmitted, ""
 
 	case pairRenderDMAFence:
-		dma := &pairDMAFencePayload{NumberBits: 32}
+		dma, admission, reason := decodeDirectDMAFenceFields(ev, content)
 		payload.DMAFence = dma
-		if directPairHasAlias(ev, "drv", "tl", "ctx", "sequence", "id") {
-			return payload, bodyRejected, "mixed_or_invalid_dma_fence_profile"
-		}
-		if !directPairExactPayloadFieldRoster(ev, "driver", "timeline", "context", "seqno") {
-			return payload, bodyRejected, "mixed_or_invalid_dma_fence_profile"
-		}
-		driver, driverRange, driverOK := directPairDataLocScalar(ev, content, "driver", 8)
-		timeline, timelineRange, timelineOK := directPairDataLocScalar(ev, content, "timeline", 12)
-		context, contextOK := directPairUint32(ev, "context", 16)
-		seqno, seqnoOK := directPairUint32(ev, "seqno", 20)
-		if !driverOK || !timelineOK || !contextOK || !seqnoOK {
-			return payload, bodyRejected, "missing_or_invalid_dma_fence_payload"
-		}
-		if driverRange.start < timelineRange.end && timelineRange.start < driverRange.end {
-			return payload, bodyRejected, "overlapping_dma_fence_strings"
-		}
-		// Commit the hard tuple only after every component and the relation
-		// between both dynamic ranges is proven. A rejected row must never
-		// manufacture a different exact lane from overlapping bytes.
-		dma.Driver, dma.DriverKnown = driver, true
-		dma.Timeline, dma.TimelineKnown = timeline, true
-		dma.Context, dma.ContextKnown = context, true
-		dma.Seqno, dma.SeqnoKnown = seqno, true
-		return payload, bodyAdmitted, ""
+		return payload, admission, reason
 	}
 	return payload, bodyRejected, "invalid_pair_kind"
+}
+
+// decodeDirectDMAFenceFields is the single strict tracefs descriptor decoder
+// shared by wait endpoints and official lifecycle point events. Callers retain
+// their own semantic registry: decoding this tuple never turns init/destroy/
+// enable/signaled into pairing endpoints.
+func decodeDirectDMAFenceFields(
+	ev decodedEvent,
+	content []byte,
+) (*pairDMAFencePayload, bodyAdmission, string) {
+	dma := &pairDMAFencePayload{NumberBits: 32}
+	if directPairHasAlias(ev, "drv", "tl", "ctx", "sequence", "id") {
+		return dma, bodyRejected, "mixed_or_invalid_dma_fence_profile"
+	}
+	if !directPairExactPayloadFieldRoster(ev, "driver", "timeline", "context", "seqno") {
+		return dma, bodyRejected, "mixed_or_invalid_dma_fence_profile"
+	}
+	driver, driverRange, driverOK := directPairDataLocScalar(ev, content, "driver", 8)
+	timeline, timelineRange, timelineOK :=
+		directPairDataLocScalar(ev, content, "timeline", 12)
+	context, contextOK := directPairUint32(ev, "context", 16)
+	seqno, seqnoOK := directPairUint32(ev, "seqno", 20)
+	if !driverOK || !timelineOK || !contextOK || !seqnoOK {
+		return dma, bodyRejected, "missing_or_invalid_dma_fence_payload"
+	}
+	if driverRange.start < timelineRange.end && timelineRange.start < driverRange.end {
+		return dma, bodyRejected, "overlapping_dma_fence_strings"
+	}
+	// Commit the tuple only after every component and the relation between both
+	// dynamic ranges is proven.
+	dma.Driver, dma.DriverKnown = driver, true
+	dma.Timeline, dma.TimelineKnown = timeline, true
+	dma.Context, dma.ContextKnown = context, true
+	dma.Seqno, dma.SeqnoKnown = seqno, true
+	return dma, bodyAdmitted, ""
 }
 
 func directPairLegacyWorkqueueEndPrintFmt(printFmt string) bool {
@@ -193,24 +205,30 @@ func renderCanonicalPairPayload(payload pairRenderPayload) (string, bool) {
 		}
 		return body, true
 	case pairRenderDMAFence:
-		item := payload.DMAFence
-		if item == nil || !item.DriverKnown || !item.TimelineKnown || !item.ContextKnown || !item.SeqnoKnown ||
-			!directPairScalarValid(item.Driver) || !directPairScalarValid(item.Timeline) {
-			return "", false
-		}
-		switch item.NumberBits {
-		case 32:
-			if item.Context > math.MaxUint32 || item.Seqno > math.MaxUint32 {
-				return "", false
-			}
-		case 64:
-		default:
-			return "", false
-		}
-		return fmt.Sprintf("driver=%s timeline=%s context=%d seqno=%d", item.Driver, item.Timeline, item.Context, item.Seqno), true
+		return renderCanonicalDMAFenceFields(payload.DMAFence)
 	default:
 		return "", false
 	}
+}
+
+func renderCanonicalDMAFenceFields(item *pairDMAFencePayload) (string, bool) {
+	if item == nil || !item.DriverKnown || !item.TimelineKnown ||
+		!item.ContextKnown || !item.SeqnoKnown ||
+		!directPairScalarValid(item.Driver) ||
+		!directPairScalarValid(item.Timeline) {
+		return "", false
+	}
+	switch item.NumberBits {
+	case 32:
+		if item.Context > math.MaxUint32 || item.Seqno > math.MaxUint32 {
+			return "", false
+		}
+	case 64:
+	default:
+		return "", false
+	}
+	return fmt.Sprintf("driver=%s timeline=%s context=%d seqno=%d",
+		item.Driver, item.Timeline, item.Context, item.Seqno), true
 }
 
 // fingerprintPairingEndpoint is the one package-local bridge to tracequery's

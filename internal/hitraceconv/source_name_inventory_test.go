@@ -360,7 +360,8 @@ func TestTraceDBSourceRawDecodeLedgerAdmitsStrictBlockedReasonWithoutPublishing(
 	decode := inventory.RawDecode
 	if !decode.Found || decode.Role != "diagnostic_ledger" ||
 		decode.Metadata["decode_state"] != "strict_target_ledger_complete" ||
-		decode.Metadata["publication_authority"] != "withheld_rpd1_diagnostic_only" ||
+		decode.Metadata["publication_authority"] !=
+			"retained_records_require_dedicated_family_gate" ||
 		decode.RowsRead != 1 || decode.RowsEmitted != 0 ||
 		decode.Metrics["records_with_admitted_format"] != 1 ||
 		decode.Metrics["target_sched_blocked_reason_records"] != 1 ||
