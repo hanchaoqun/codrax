@@ -4907,6 +4907,148 @@ remain evidence-limited exactly as recorded above. Their typed accounting is
 not a license to invent end timestamps or physical CPU placement. They are
 separate from the 1,787 DMA lifecycle point events now restored.
 
+## REP-D replay audit (2026-07-29)
+
+REP-D used a new customer executable, not a stale pre-fix build:
+
+```text
+codrax_version = 0.1.20260729
+build_time     = 2026-07-29T11:01:40Z
+executable_sha = b4ea6a169b8793598b3a2706379b7a9305e833cf192f85113354b101f9a072cc
+
+official_raw_marker_print_parser_trailing_space_v2 = present
+official_viewer_typed_only_final_witness_v2        = present
+coverage_receipt_sideband_v1                       = present
+source_rawtrace_partial_decoder_authority_v1       = present
+official_raw_dma_lifecycle_point_recovery_v1       = present
+```
+
+The immutable input remained 27,022,926 bytes. Conversion succeeded with
+1,237,851 exact parsed/callback rows, zero unknown or unparsed rows, and
+artifact SHA-256
+`5640569fb773831efb810caaa6fcd3d1ea4a40bab9eedf8a6c261890e30562cf`.
+Normalization took 45.703 seconds, including 7.455 seconds in the sorter and
+6.973 seconds in full tracequery postvalidation. This replay does not prove a
+new performance regression: those two independently timed phases remain in
+the established range, while the end-to-end normalization delta is still
+dominated by the full SQLite scan/O2 preservation path.
+
+REP-C diagnostic repairs did take effect:
+
+- typed-only witnesses without CPU provenance now say `cpu=unavailable`;
+- oversized coverage entries have bounded receipts;
+- raw decoder authority says closed target decoders are available;
+- the four DMA lifecycle families are recognized and publication fails closed
+  when their exact census is incomplete.
+
+Two implementation gaps remain. Both are deterministic from the replay plus
+the current code and do not require another customer capture before repair.
+
+### REP-D-01 — admitted official `print` name normalization is lost in raw-body revalidation
+
+The carrier gate now recognizes all 279 official-parser trailing-space
+candidates, but none reaches shared sync authority:
+
+```text
+raw_pairs_official_trailing_space_name_normalized = 0
+raw_pairs_withheld_candidate_validation_failed    = 279
+raw_pairs_withheld_local_validation                = 279
+```
+
+The witnesses are exact production names such as:
+
+```text
+H:RSFilterDrawable::CreateDrawFunc node[23669564790680]<ASCII SPACE>
+```
+
+The failure has moved from the pre-RC-B name admission gate to
+`validateTraceDBSyncSpanCandidate`, so RC-B widened the correct carrier but
+did not preserve the normalized name through the second parser. In
+`traceDBRawMarkerSyncCandidate`, `candidate.Name` is trimmed, while
+`StartMarkerBody` is changed with `strings.TrimRight(body, " ")`. A production
+official `print` body can carry an admitted suffix after the name, so the
+space is inside the body rather than at its end. Revalidation decodes the
+unchanged name from `StartMarkerBody`, observes that it differs from
+`candidate.Name`, and rejects the candidate.
+
+The repair must rewrite only the exact admitted `B|pid|name` field:
+
+1. bind the body prefix to the already admitted action and payload PID;
+2. require the decoded original name at that exact location;
+3. permit only an empty suffix or the already decoded structured suffix
+   beginning with `|`;
+4. replace only the admitted trailing ASCII spaces in the name;
+5. decode the reconstructed body again and prove action, PID, normalized name
+   and all remaining fields;
+6. compose this rewrite with zero-PID header normalization without restoring
+   the original untrimmed body.
+
+This is display-name normalization only. It must not grant PID, TGID, comm,
+namespace, CPU, timestamp or lifecycle authority. A production-shaped suffix
+fixture and a combined suffix plus zero-PID fixture are mandatory; the
+existing no-suffix fixture is insufficient.
+
+### REP-D-02 — lifecycle `dma_fence_init` incorrectly rejects official empty-driver rows
+
+The raw record census remains exact:
+
+```text
+destroy       493 / 493 admitted
+enable_signal 305 / 305 admitted
+init          339 / 494 admitted; 155 rejected
+signaled      495 / 495 admitted
+retained      1632 / 1787
+```
+
+The publisher then correctly reports:
+
+```text
+publication_state = withheld_raw_point_census_incomplete
+rows_read          = 1632
+rows_emitted       = 0
+```
+
+The missing 155 are not absent source records and are not intervals. Codrax
+currently sends lifecycle records through the shared strict DMA wait decoder.
+That decoder rejects an empty `driver` scalar. Official SmartPerf lifecycle
+parsing rejects an empty `timeline`, but interns and retains `driver` even
+when its exact C string is empty. Applying the wait-pair hard key to lifecycle
+points is therefore an over-strict local rule.
+
+The repair must split the semantic profiles:
+
+- DMA wait start/end keeps the existing non-empty driver and non-empty
+  timeline hard keys;
+- DMA lifecycle accepts an exact empty NUL-terminated driver field, keeps the
+  timeline non-empty, and keeps the descriptor roster, offsets, non-overlap,
+  integer fields and wire safety strict;
+- publication stays a point event and renders the exact official
+  `driver= timeline=... context=... seqno=...` wire;
+- an empty timeline, malformed data-loc range, missing NUL, descriptor drift
+  or census mismatch still withdraws the complete family atomically.
+
+The success equation is:
+
+```text
+493 + 305 + 494 + 495 = 1787 body-admitted
+source_rawtrace_dma_lifecycle.rows_read    = 1787
+source_rawtrace_dma_lifecycle.rows_emitted = 1787
+publication_state                         = published_exact_official_point_events
+```
+
+### REP-D delivery order
+
+| Batch | Priority | Work | Independent push gate |
+| --- | --- | --- | --- |
+| RD-A | P0 audit | freeze REP-D build, equations, causes and invariants | this section committed before code |
+| RD-B | P0 span repair | field-local official `print` name rewrite plus composed zero-PID normalization | all 279-shaped fixtures submit; negative carrier/name profiles remain closed |
+| RD-C | P0 event repair | lifecycle-only exact empty-driver admission | 1,787-point census publishes; wait empty-driver remains rejected |
+| RD-D | P1 closure | capability/replay contract and full repository verification | package plus `go test ./... -count=1` pass |
+
+No customer replay is needed between RD-A, RD-B and RD-C. One replay after
+RD-D is required to validate the production census and output artifact on the
+same Windows machine.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.
