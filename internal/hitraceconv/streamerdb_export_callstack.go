@@ -42,9 +42,10 @@ type traceDBCallstackRow struct {
 	Cookie                string
 	Task                  string
 	TID                   int64
-	// TGID is the marker payload PID. HeaderTGID is the host scheduler
-	// process printed in the ftrace envelope. They intentionally differ for
-	// namespace-PID traces such as Donghu.
+	// TGID is the DB logical-owner process used as the marker payload only for
+	// DB-generated rows. HeaderTGID is the host scheduler process printed in
+	// the ftrace envelope. An exact raw async pair keeps its own payload PID,
+	// which may differ from both under PID namespaces such as Donghu.
 	TGID       int64
 	HeaderTGID int64
 	CPUITID    int64
@@ -87,7 +88,7 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 		"lifecycle":        "same complete collector authority; sync positive spans require closed thread/process generation, zero spans and async endpoints require exact point admission",
 		"sync_pairing":     "accepted sync rows enter the single cross-producer typed B/E authority; rejected callstack evidence with exact emitter+interval uses producer-scoped overlap fences, exact timestamp-only evidence uses suffix fences, and only time-unlocalizable evidence poisons the full callstack lane; name-only rows remain locally withheld",
 		"async_generation": "legacy zero-duration endpoint compatibility rows are admitted independently; exact rejected owner/name/cookie keys fail closed locally, while official completed async intervals never enter this pairing lane",
-		"raw_async":        "an official completed interval becomes standard S/F only after one unique immutable-source raw pair proves exact payload PID/name/cookie/start/end and start-emitter envelope; start and finish retain independent raw common-PID/CPU/flags, while unmatched rows remain typed",
+		"raw_async":        "an official completed interval becomes standard S/F only after one unique immutable-source raw pair proves exact name/cookie/start/end and start-emitter envelope; raw payload PID is preserved independently because DB logical owner TGID may differ under PID namespaces; start and finish retain independent raw common-PID/CPU/flags, while unmatched rows remain typed",
 		"diagnostics":      "accepted callstack rows expose exact zero-start, long-duration and one bounded longest-row witness; a complete independent raw target timestamp floor is compared advisory-only and never changes admission",
 	}
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {

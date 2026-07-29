@@ -3436,6 +3436,20 @@ key construction. Emit standard `S/F` only when both physical endpoint
 emitters and CPUs are proven. Otherwise retain the typed interval and report it
 as viewer-invisible; never synthesize an endpoint.
 
+The 58-row identity class is now repaired. The previous join incorrectly used
+the DB logical-owner process PID as if it were the raw `S/F` payload PID.
+Those identities may legitimately differ in Donghu/PID-namespace captures.
+The fallback join now requires one unique raw pair with exact
+`name+cookie+start+end`, then independently converges the physical start TID,
+host TGID and known CPU. Publication keeps the raw payload PID and both raw
+physical endpoint envelopes byte-semantically intact. Two different raw
+payload-PID candidates with the same shared coordinates remain ambiguous and
+fail closed.
+
+The four start mismatches are not covered by that correction: a timestamp may
+not be shifted or fuzzily joined merely to increase viewer coverage. They
+remain typed-only until a precise producer clock/association rule is proven.
+
 ### R6-06 (P1) — O2 fidelity records dominate conversion cost
 
 REP6 makes the performance bottleneck conclusive:
@@ -3484,8 +3498,10 @@ replay before these code-side repairs would only reproduce known failures.
 Progress:
 
 - R6-A: implemented, verified and pushed in `d3aaf7563`;
-- R6-B: implemented and verified locally; independent commit/push is next;
-- R6-C through R6-F: pending.
+- R6-B: implemented, verified and pushed in `b9c33281f`;
+- R6-C async namespace-PID arm: implemented and verified locally; independent
+  commit/push is next;
+- R6-C local-fence arm and R6-D through R6-F: pending.
 
 ## Invariants
 

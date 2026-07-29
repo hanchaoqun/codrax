@@ -131,6 +131,87 @@ func TestTraceDBRawAsyncLedgerPairsIndependentPhysicalEmitters(t *testing.T) {
 	}
 }
 
+func TestTraceDBRawAsyncLedgerJoinsDistinctNamespacePayloadPID(t *testing.T) {
+	tdb, authority, _ := traceDBRawAsyncFixture(t)
+	defer tdb.close()
+	rows := traceDBRawAsyncRecords(2000)
+	for index := range rows {
+		rows[index].PayloadPID = 37722
+		rows[index].Buffer = strings.Replace(rows[index].Buffer, "|100|", "|37722|", 1)
+	}
+	ledger := newTraceDBRawAsyncMatchLedger(
+		traceDBRawAsyncInventory(rows), authority)
+	pair, ok := ledger.claim(traceDBCallstackRow{
+		OfficialAsyncInterval: true,
+		TS:                    1000,
+		End:                   2000,
+		TID:                   101,
+		HeaderTGID:            100,
+		TGID:                  100,
+		Name:                  "official-async",
+		Cookie:                "9",
+		StartCPU:              2,
+		CPUPlacement:          traceDBSyncSpanCPUPlacementKnown,
+	})
+	if !ok || pair == nil ||
+		ledger.metrics["official_intervals_namespace_payload_pid_joined"] != 1 ||
+		ledger.metrics["pairs_claimed"] != 1 {
+		t.Fatalf("distinct namespace payload PID was not joined by exact physical envelope: metrics=%+v",
+			ledger.metrics)
+	}
+	sink, err := newTraceDBRowSink(t.TempDir(), 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.cleanup()
+	if err := pair.publish(sink); err != nil {
+		t.Fatal(err)
+	}
+	text := sink.rows[0].line + "\n" + sink.rows[1].line
+	if !strings.Contains(text, "S|37722|official-async|9") ||
+		!strings.Contains(text, "F|37722|official-async|9") ||
+		!strings.Contains(text, "begin-thread-101") ||
+		!strings.Contains(text, "(  100)") {
+		t.Fatalf("raw namespace PID or host emitter envelope was rewritten:\n%s", text)
+	}
+}
+
+func TestTraceDBRawAsyncLedgerAmbiguousNamespacePayloadPIDFailsClosed(t *testing.T) {
+	tdb, authority, _ := traceDBRawAsyncFixture(t)
+	defer tdb.close()
+	first := traceDBRawAsyncRecords(2000)
+	second := traceDBRawAsyncRecords(2000)
+	for index := range first {
+		first[index].PayloadPID = 37722
+		first[index].Buffer = strings.Replace(first[index].Buffer, "|100|", "|37722|", 1)
+	}
+	for index := range second {
+		second[index].PhysicalOrdinal += 2
+		second[index].PayloadPID = 47722
+		second[index].Buffer = strings.Replace(second[index].Buffer, "|100|", "|47722|", 1)
+	}
+	ledger := newTraceDBRawAsyncMatchLedger(
+		traceDBRawAsyncInventory(append(first, second...)), authority)
+	_, ok := ledger.claim(traceDBCallstackRow{
+		OfficialAsyncInterval: true,
+		TS:                    1000,
+		End:                   2000,
+		TID:                   101,
+		HeaderTGID:            100,
+		TGID:                  100,
+		Name:                  "official-async",
+		Cookie:                "9",
+		StartCPU:              2,
+		CPUPlacement:          traceDBSyncSpanCPUPlacementKnown,
+	})
+	if ok ||
+		ledger.metrics["official_intervals_ambiguous_exact_raw_pair"] != 1 ||
+		ledger.metrics["official_intervals_without_exact_raw_pair"] != 1 {
+		t.Fatalf("ambiguous namespace payload candidates did not fail closed: %+v",
+			ledger.metrics)
+	}
+}
+
 func TestTraceDBCallstackReplacesTypedAsyncOnlyOnUniqueExactRawPair(t *testing.T) {
 	for _, test := range []struct {
 		name            string

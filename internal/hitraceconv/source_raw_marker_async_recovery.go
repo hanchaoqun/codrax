@@ -20,6 +20,18 @@ type traceDBRawAsyncExactKey struct {
 	End   uint64
 }
 
+// traceDBRawAsyncIntervalKey deliberately excludes PayloadPID. The official
+// high-level callstack row exposes a logical owner process, while the raw
+// S/F payload may carry a namespace PID. They are not interchangeable
+// identities. A cross-PID claim therefore requires this complete interval key
+// plus one unique matching physical begin emitter envelope.
+type traceDBRawAsyncIntervalKey struct {
+	Name  string
+	Value string
+	Start uint64
+	End   uint64
+}
+
 type traceDBRawAsyncPair struct {
 	begin        traceDBRawMarkerRecord
 	end          traceDBRawMarkerRecord
@@ -36,10 +48,11 @@ type traceDBRawAsyncPair struct {
 // published until the legacy DB async endpoint lane has a cross-source dedup
 // authority.
 type traceDBRawAsyncMatchLedger struct {
-	state   string
-	pairs   map[traceDBRawAsyncExactKey][]*traceDBRawAsyncPair
-	byKey   map[traceDBRawAsyncKey][]*traceDBRawAsyncPair
-	metrics map[string]int64
+	state      string
+	pairs      map[traceDBRawAsyncExactKey][]*traceDBRawAsyncPair
+	byKey      map[traceDBRawAsyncKey][]*traceDBRawAsyncPair
+	byInterval map[traceDBRawAsyncIntervalKey][]*traceDBRawAsyncPair
+	metrics    map[string]int64
 }
 
 func newTraceDBRawAsyncMatchLedger(
@@ -47,10 +60,11 @@ func newTraceDBRawAsyncMatchLedger(
 	authority traceDBSchedulerAuthority,
 ) *traceDBRawAsyncMatchLedger {
 	ledger := &traceDBRawAsyncMatchLedger{
-		state:   "unavailable",
-		pairs:   map[traceDBRawAsyncExactKey][]*traceDBRawAsyncPair{},
-		byKey:   map[traceDBRawAsyncKey][]*traceDBRawAsyncPair{},
-		metrics: map[string]int64{},
+		state:      "unavailable",
+		pairs:      map[traceDBRawAsyncExactKey][]*traceDBRawAsyncPair{},
+		byKey:      map[traceDBRawAsyncKey][]*traceDBRawAsyncPair{},
+		byInterval: map[traceDBRawAsyncIntervalKey][]*traceDBRawAsyncPair{},
+		metrics:    map[string]int64{},
 	}
 	if inventory == nil {
 		return ledger
@@ -176,6 +190,11 @@ func newTraceDBRawAsyncMatchLedger(
 			stored := &pair
 			ledger.pairs[exact] = append(ledger.pairs[exact], stored)
 			ledger.byKey[key] = append(ledger.byKey[key], stored)
+			intervalKey := traceDBRawAsyncIntervalKey{
+				Name: key.Name, Value: key.Value,
+				Start: rawPair.begin.TimestampNS, End: rawPair.end.TimestampNS,
+			}
+			ledger.byInterval[intervalKey] = append(ledger.byInterval[intervalKey], stored)
 			ledger.metrics["pairs_matchable"]++
 		}
 	}
@@ -274,16 +293,47 @@ func (ledger *traceDBRawAsyncMatchLedger) claim(
 	}
 	exactPairs := ledger.pairs[exact]
 	if len(exactPairs) == 0 {
+		intervalPairs := ledger.byInterval[traceDBRawAsyncIntervalKey{
+			Name: row.Name, Value: row.Cookie,
+			Start: exact.Start, End: exact.End,
+		}]
+		if len(intervalPairs) > 0 {
+			pair, classified := ledger.claimUniquePhysicalEnvelope(row, intervalPairs)
+			if pair != nil {
+				pair.claimed = true
+				ledger.metrics["pairs_claimed"]++
+				ledger.metrics["official_intervals_namespace_payload_pid_joined"]++
+				return pair, true
+			}
+			if classified {
+				ledger.metrics["official_intervals_without_exact_raw_pair"]++
+				return nil, false
+			}
+		}
 		ledger.noteMissingExactKey(key, exact.Start, exact.End)
 		ledger.metrics["official_intervals_without_exact_raw_pair"]++
 		return nil, false
 	}
+	pair, _ := ledger.claimUniquePhysicalEnvelope(row, exactPairs)
+	if pair != nil {
+		pair.claimed = true
+		ledger.metrics["pairs_claimed"]++
+		return pair, true
+	}
+	ledger.metrics["official_intervals_without_exact_raw_pair"]++
+	return nil, false
+}
+
+func (ledger *traceDBRawAsyncMatchLedger) claimUniquePhysicalEnvelope(
+	row traceDBCallstackRow,
+	pairs []*traceDBRawAsyncPair,
+) (*traceDBRawAsyncPair, bool) {
 	var matches []*traceDBRawAsyncPair
 	unclaimed := 0
 	beginTIDMatched := 0
 	beginTGIDMatched := 0
 	beginCPUMatched := 0
-	for _, pair := range exactPairs {
+	for _, pair := range pairs {
 		if pair.claimed {
 			continue
 		}
@@ -317,15 +367,12 @@ func (ledger *traceDBRawAsyncMatchLedger) claim(
 		default:
 			ledger.metrics["official_intervals_unclassified_exact_pair_mismatch"]++
 		}
-		ledger.metrics["official_intervals_without_exact_raw_pair"]++
-		return nil, false
+		return nil, true
 	case 1:
-		matches[0].claimed = true
-		ledger.metrics["pairs_claimed"]++
 		return matches[0], true
 	default:
 		ledger.metrics["official_intervals_ambiguous_exact_raw_pair"]++
-		return nil, false
+		return nil, true
 	}
 }
 
