@@ -374,6 +374,13 @@ func stampWriteApprovalRecord(o *Orchestrator, plan *types.ChangePlan, assessmen
 		run = o.busCtx.Mutable.WriteWorkflowRun()
 	}
 	writeflow.BindApprovalRecordEffect(plan.Approval, plan, run)
+	// PIB-W W-2: every stamp also lands on the run's append-only
+	// decision ledger and persists immediately — a later restamp
+	// overwrites plan.Approval but can never erase this history.
+	if run != nil {
+		types.AppendWriteWorkflowApprovalRecord(run, plan.Approval)
+		o.persistWriteWorkflowRun(run)
+	}
 }
 
 func writeApprovalRecordAllowsManualApply(plan *types.ChangePlan, fingerprint string, run ...*types.WriteWorkflowRun) bool {

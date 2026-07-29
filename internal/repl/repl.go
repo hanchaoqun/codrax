@@ -8959,7 +8959,18 @@ func (r *REPL) handleApproveCmd(line string) {
 		types.PlanFingerprint(plan),
 		worktree.OperatorIdentity(r.repoRoot),
 	)
-	writeflow.BindApprovalRecordEffect(plan.Approval, plan, r.activeWriteWorkflowRunForPlan(plan.ID))
+	activeApprovalRun := r.activeWriteWorkflowRunForPlan(plan.ID)
+	writeflow.BindApprovalRecordEffect(plan.Approval, plan, activeApprovalRun)
+	// PIB-W W-2: mirror the stamp onto the run's append-only decision
+	// ledger so /approve decisions and orchestrator-gate decisions
+	// share one auditable history. Best-effort persistence — a save
+	// failure warns but never blocks the approval itself.
+	if activeApprovalRun != nil && r.writeWorkflowRunStore != nil {
+		types.AppendWriteWorkflowApprovalRecord(activeApprovalRun, plan.Approval)
+		if _, err := r.writeWorkflowRunStore.Save(activeApprovalRun); err != nil {
+			r.warn("could not persist approval decision ledger for plan %s: %v\n", plan.ID, err)
+		}
+	}
 	if strings.TrimSpace(r.pendingPlanPath) != "" {
 		if err := types.WritePlanToFile(plan, r.pendingPlanPath); err != nil {
 			r.warn("could not persist write approval record for plan %s: %v\n", plan.ID, err)

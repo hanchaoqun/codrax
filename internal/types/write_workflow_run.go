@@ -55,6 +55,14 @@ type WriteWorkflowRun struct {
 	ContextPacks              []WriteContextPack      `json:"context_packs,omitempty"`
 	Budget                    WriteWorkflowBudget     `json:"budget,omitempty"`
 	ProgressLedger            []WriteWorkflowProgress `json:"progress_ledger,omitempty"`
+	// ApprovalRecords is the run's append-only approval decision ledger
+	// (PIB-W W-2): every WriteApprovalRecord stamp (auto / manual /
+	// denied / stale, orchestrator gate or /approve) is appended here in
+	// decision order. plan.Approval stays the single "governing record
+	// for this apply" slot; this ledger answers the post-hoc audit
+	// question "which decisions did this run go through and why" that a
+	// re-stamped single slot cannot.
+	ApprovalRecords []WriteApprovalRecord `json:"approval_records,omitempty"`
 }
 
 type WriteWorkflowRunStatus string
@@ -227,6 +235,21 @@ type WriteWorkflowBatch struct {
 	SliceEvents     []WriteWorkflowSliceEvent `json:"slice_events,omitempty"`
 	CreatedAt       time.Time                 `json:"created_at,omitempty"`
 	UpdatedAt       time.Time                 `json:"updated_at,omitempty"`
+}
+
+// AppendWriteWorkflowApprovalRecord appends one approval decision to
+// the run's append-only decision ledger (PIB-W W-2, ledger
+// docs/design/pi_borrow_analysis_20260729.md §7.2). plan.Approval is a
+// single overwritten slot — good enough for "what governs THIS apply"
+// but useless for the post-hoc question "which decisions did this run
+// go through and why". The run-level ledger keeps every stamp (auto /
+// manual / denied / stale) in order, as values, so a later restamp
+// cannot mutate history. Nil-safe no-op on nil run or record.
+func AppendWriteWorkflowApprovalRecord(run *WriteWorkflowRun, record *WriteApprovalRecord) {
+	if run == nil || record == nil {
+		return
+	}
+	run.ApprovalRecords = append(run.ApprovalRecords, *record)
 }
 
 // WriteWorkflowRevision records one operator /revise decision on a

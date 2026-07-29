@@ -451,7 +451,7 @@ func writeWorkflowRunMarkdown(lang string, run types.WriteWorkflowRun, plan *typ
 		fmt.Fprintf(&b, "- 目标: %s\n", firstNonEmptyString(run.Goal, "未记录"))
 		writeWorkflowBudgetLine(&b, lang, run.Budget)
 		writeWorkflowBatchLines(&b, lang, run, batch, hasBatch)
-		writeWorkflowApprovalLines(&b, lang, batch, hasBatch, plan)
+		writeWorkflowApprovalLines(&b, lang, run, batch, hasBatch, plan)
 		writeWorkflowContextLines(&b, lang, run, batch, hasBatch)
 		writeWorkflowLocalizationAuthorityLines(&b, lang, run, batch, hasBatch)
 		writeWorkflowProofAuthorityLines(&b, lang, run, batch, hasBatch)
@@ -469,7 +469,7 @@ func writeWorkflowRunMarkdown(lang string, run types.WriteWorkflowRun, plan *typ
 	fmt.Fprintf(&b, "- Goal: %s\n", firstNonEmptyString(run.Goal, "not recorded"))
 	writeWorkflowBudgetLine(&b, lang, run.Budget)
 	writeWorkflowBatchLines(&b, lang, run, batch, hasBatch)
-	writeWorkflowApprovalLines(&b, lang, batch, hasBatch, plan)
+	writeWorkflowApprovalLines(&b, lang, run, batch, hasBatch, plan)
 	writeWorkflowContextLines(&b, lang, run, batch, hasBatch)
 	writeWorkflowLocalizationAuthorityLines(&b, lang, run, batch, hasBatch)
 	writeWorkflowProofAuthorityLines(&b, lang, run, batch, hasBatch)
@@ -926,7 +926,7 @@ func writeWorkflowBatchSlicePart(lang string, batch types.WriteWorkflowBatch) st
 	return fmt.Sprintf(" slice `%s` `%s` %d/%d", active, status, view.CompletedSlices, view.TotalSlices)
 }
 
-func writeWorkflowApprovalLines(b *strings.Builder, lang string, batch types.WriteWorkflowBatch, hasBatch bool, plan *types.ChangePlan) {
+func writeWorkflowApprovalLines(b *strings.Builder, lang string, run types.WriteWorkflowRun, batch types.WriteWorkflowBatch, hasBatch bool, plan *types.ChangePlan) {
 	if !hasBatch || strings.TrimSpace(batch.PlanID) == "" {
 		return
 	}
@@ -958,6 +958,28 @@ func writeWorkflowApprovalLines(b *strings.Builder, lang string, batch types.Wri
 		firstNonEmptyString(plan.Approval.UserDecision, "pending"),
 		firstNonEmptyString(plan.Approval.ReasonCode, "none"),
 		firstNonEmptyString(plan.Approval.PlanFingerprint, "none"))
+	// PIB-W W-2: surface WHY the risk level was assessed — the typed
+	// Reasons[] were previously only visible in the pause-moment gate
+	// message, making "why was this judged high risk" unanswerable
+	// after the fact. Cap 4 (same as the plan card renderer).
+	for i, reason := range plan.Approval.Reasons {
+		if i >= 4 {
+			fmt.Fprintf(b, "  - … %d more reason(s)\n", len(plan.Approval.Reasons)-i)
+			break
+		}
+		detail := firstNonEmptyString(strings.TrimSpace(reason.Detail), strings.TrimSpace(reason.Path))
+		if detail != "" {
+			detail = " — " + detail
+		}
+		fmt.Fprintf(b, "  - [%s] %s%s\n", firstNonEmptyString(reason.Level, "info"), reason.Code, detail)
+	}
+	if n := len(run.ApprovalRecords); n > 0 {
+		if isZh(lang) {
+			fmt.Fprintf(b, "- 决策账本: 本 run 共 %d 次审批决策(append-only)\n", n)
+		} else {
+			fmt.Fprintf(b, "- Decision ledger: %d approval decision(s) recorded for this run (append-only)\n", n)
+		}
+	}
 }
 
 func writeWorkflowContextLines(b *strings.Builder, lang string, run types.WriteWorkflowRun, batch types.WriteWorkflowBatch, hasBatch bool) {
