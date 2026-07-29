@@ -3766,6 +3766,168 @@ Progress:
   exact namespace join; they do not create a fuzzy join or publish an
   endpoint.
 
+## REP8 customer replay audit (2026-07-28)
+
+Inputs:
+
+- `/Users/han/opt/customlogs/rep8.txt`;
+- `/Users/han/opt/customlogs/codrax-trace-diag-rep8.txt`;
+- customer executable SHA-256
+  `b9b76caa232ae74f64fd8abc6a0241257481f52e5015515d0fd7d865c6ac71d8`.
+
+The customer binary still reports `build_revision=unknown`, but its capability
+roster contains all three R7 diagnostic capabilities:
+
+- `official_viewer_typed_only_reason_census_v1`;
+- `callstack_rejected_scalar_witness_v1`;
+- `official_raw_marker_async_mismatch_witness_v1`.
+
+REP8 is therefore an admissible R7-E repair witness. The baseline audited here
+is `main@07937aae3`.
+
+### REP8-01 — R7 diagnosis is complete and the viewer failure is unchanged
+
+The final typed-only sync equation is exact:
+
+```text
+53171 =
+  50043 name_unrepresentable
++  2638 cpu_unknown_start
++   488 cpu_source_tainted
++     2 cpu_unknown_end
+```
+
+No lifecycle-rejected or alias-ambiguous final span is hidden in this cohort.
+The complete viewer roster remains:
+
+- 42,809 standard-visible spans;
+- 53,233 Codrax typed-only spans, of which 53,171 are sync and 62 are async;
+- 78 closed sync spans unpublished after raw replacement.
+
+The 1,237,789 output-row receipt and 829,327 authenticated O2 rows remain
+losslessness evidence only. They do not change the
+`degraded_typed_only_and_unpublished` viewer verdict.
+
+### REP8-02 (P0) — 50,043 sync spans have a safe physical-source replacement
+
+Three independently computed final/producer counters converge on the same
+cohort:
+
+```text
+official_viewer_typed_only_sync_spans_name_unrepresentable = 50043
+raw_pairs_withheld_exact_interval_name_drift               = 50043
+raw_pairs_name_drift_unique_cpu_known_callstack_candidate = 50043
+```
+
+Every raw candidate already passed the immutable-source decoder, lifecycle,
+namespace-PID, physical header TID/TGID/CPU, exact nanosecond interval and
+one-to-one collision census. The current code nevertheless withholds it
+because replacement is restricted to CPU-unavailable DB candidates. It then
+keeps the CPU-known DB candidate on the Codrax-only exact-name lane.
+
+The safe repair is narrower than “allow name drift”:
+
+1. require one and only one locally admitted callstack candidate on the exact
+   host/payload/canonical identity and interval;
+2. require one and only one raw interval;
+3. require that the DB candidate is CPU-known but its complete name is
+   demonstrably not losslessly representable by the standard trace-mark
+   grammar;
+4. supersede only that candidate and publish the original raw B/E pair with
+   its original name and independent physical endpoint envelopes.
+
+A CPU-known DB candidate whose name is already standard-representable remains
+authoritative and must still withhold a different-name raw collision. The
+repair must split CPU-unavailable and name-unrepresentable replacement
+counters; the existing `superseded_by_raw_cpu` wording may not absorb both.
+
+### REP8-03 (P0) — all 62 async residuals are exact name-only joins
+
+The R7-D census reports:
+
+```text
+raw_async_official_intervals_name_mismatch = 62
+raw_async_official_intervals_without_exact_raw_pair = 62
+raw_async_pairs_unclaimed = 62
+```
+
+Every bounded witness has exactly one raw candidate with:
+
+- equal cookie;
+- equal start and end nanoseconds;
+- equal physical begin TID, host TGID and CPU;
+- a different name only.
+
+For example, the DB interval name
+`H:[SCB]traverseSessionTree` is paired with the original raw name
+`H:[a92ab5d29d3be69,b1008,33bbc5d]#[SCB]traverseSessionTree`.
+OpenHarmony TraceStreamer treats distributed marker metadata as structured
+callstack information, while the raw S/F endpoint remains the physical wire
+authority. The repair therefore joins only one unique equal-cookie,
+equal-interval, equal-begin-envelope raw pair and publishes that pair's
+original S/F payloads. It does not rewrite payload PID, compare fuzzy
+timestamps, synthesize a finish endpoint or require the DB-normalized display
+name to equal the raw wire name.
+
+### REP8-04 (P1) — the duration witness exists but is lost by diagnostic framing
+
+R7-C did collect eight `rejected_callstack_fence_witnesses`, and the metrics
+prove 82 more were deliberately omitted. However, the callstack coverage JSON
+line also carries about 12 KiB of async mismatch witnesses. The diagnostic
+writer caps one physical line at 8 KiB, so the later-sorted duration metadata
+is cut out of the returned report. The customer cannot inspect the duration
+scalar even though conversion collected it.
+
+This is a diagnostic publication bug, not permission to relax duration
+admission. The diagnostic report must emit selected bounded witness values on
+their own JSON lines before the full coverage row. The full coverage row may
+remain bounded. This keeps the report below 1,000 lines while making the
+existing exact scalar reachable.
+
+Until a subsequent replay exposes those values, the 90 suffix/interval fences
+and 78 unrecovered closed spans remain fail-closed. In particular, TEXT/REAL
+duration coercion, sentinel reinterpretation and suffix-fence narrowing are
+not yet authorized.
+
+### REP8-05 — performance is stable and subordinate to visibility
+
+Normalization improved from 44.102 seconds in REP7 to 42.168 seconds in REP8.
+The major components remain:
+
+- SQL fidelity scan/encoding/tail spool: 14.676 seconds;
+- semantic sorter: 7.039 seconds, three spills and 240,967,642 temporary bytes;
+- complete tracequery cross-validation: 8.189 seconds.
+
+No performance regression blocks R8 repair. Schema caching and private binary
+spill remain safe later work, but they must not weaken authenticated O2
+publication or full postvalidation and must not precede the two exact
+viewer-recovery cohorts.
+
+### REP8 frozen delivery order
+
+| Batch | Priority | Work | Independent push gate |
+| --- | --- | --- | --- |
+| R8-A | P0 audit | record REP8 equations and freeze exact repair predicates | all REP8 hard counters and invariants present |
+| R8-B | P0 repair | replace unique CPU-known/name-unrepresentable DB collision with exact raw B/E | standard-representable drift remains withheld; replacement counters split |
+| R8-C | P0 repair | claim unique equal-cookie/equal-interval/equal-begin-envelope raw async pair despite DB/raw name drift | ambiguity and every non-name mismatch remain typed |
+| R8-D | P1 diagnosis | publish selected bounded coverage witnesses on independent diagnostic lines | duration scalar survives an oversized neighboring metadata value; report stays under 900 lines |
+| R8-E | P1 repair | decide duration/fence rule only from the R8-D customer scalar witness | no SQLite coercion or fence narrowing without an exact producer rule |
+| R8-F | P2 performance | schema/cache/private-spill work after viewer repair | row/cell/hash and full postvalidation unchanged |
+
+R8-B through R8-D do not need another customer replay: REP8 proves their exact
+inputs. The next replay should occur after all three are pushed. Its primary
+acceptance equations are:
+
+```text
+name_unrepresentable typed-only sync: 50043 -> 0
+raw async name mismatch:               62 -> 0
+standard-visible spans:             42809 -> at least 92914
+rejected duration scalar witness:   independently present in diagnostic
+```
+
+The remaining 3,128 CPU-authority sync rows and 78 fenced rows are not promised
+by this batch. They require separate physical CPU or exact duration evidence.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.
