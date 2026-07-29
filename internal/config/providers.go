@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -22,6 +23,15 @@ func LoadProviders(path string) (*types.ProvidersConfig, error) {
 	var cfg types.ProvidersConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, err
+	}
+	// PIB-7: resolve !command / $VAR credential references once at
+	// load, BEFORE per-agent inheritance (each declared !command runs
+	// exactly once; merge's non-empty check never sees an unresolved
+	// "$VAR" literal). A declared-but-unresolvable reference is a
+	// configuration error — fail loud here beats a provider-side 401
+	// with a literal "$VAR" key.
+	if err := resolveProviderSecrets(&cfg); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	return &cfg, nil
 }

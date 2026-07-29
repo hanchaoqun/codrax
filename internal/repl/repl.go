@@ -709,6 +709,7 @@ type REPL struct {
 	operationResults            []commandOperationResultRecord
 	providerOperationResults    []providerOperationResultRecord
 	operationMemory             *operation.MemoryStore
+	promptTemplates             map[string]promptTemplate
 	lastAnswerOrigin            replAnswerOrigin
 	operationPendingStore       *OperationPendingStore
 	mcpServers                  *mcp.Registry
@@ -973,6 +974,14 @@ func New(cfg Config) *REPL {
 		r.operationMemory = operation.NewMemoryStore(filepath.Join(r.runtimeAnchor, "operation", "memory.jsonl"))
 		if r.runtimeArtifactStore == nil {
 			r.runtimeArtifactStore = NewRuntimeArtifactStore(filepath.Join(r.runtimeAnchor, "runtime_artifacts"))
+		}
+		// PIB-7: operator prompt templates — <anchor>/prompts/*.md
+		// become /name commands (registered verbs always win; the
+		// loader refuses shadowing).
+		r.promptTemplates = loadPromptTemplates(filepath.Join(r.runtimeAnchor, "prompts"))
+		if len(r.promptTemplates) > 0 {
+			logging.Info("[repl/prompts] loaded %d template command(s): %s",
+				len(r.promptTemplates), strings.Join(promptTemplateNames(r.promptTemplates), ", "))
 		}
 	}
 	r.restorePendingOperationState()
@@ -6342,6 +6351,15 @@ func (r *REPL) Loop() error {
 				return nil
 			}
 			r.pendingHitraceSource = ""
+			continue
+		}
+		// PIB-7: after the canonical registry misses, an unregistered
+		// /name may be an operator prompt template — expand it into a
+		// plain analysis request (never into a slash command) with a
+		// visible disclosure line naming the source file.
+		if expanded, tpl, ok := r.expandTemplateCommand(line); ok {
+			r.info(promptTemplateExpandedMsg(r.language, tpl.Name, tpl.Path, len(expanded)))
+			r.dispatch(expanded, line)
 			continue
 		}
 		r.dispatch(line, display)

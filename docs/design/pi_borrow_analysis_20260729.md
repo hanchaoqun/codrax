@@ -184,13 +184,13 @@ pi 的 prompt 面貌：基础系统 prompt 仅 ~18 行骨架（一句角色定�
 | 批次 | 范围 | 涉及 codrax 面 | 状态 |
 |------|------|----------------|------|
 | PIB-1 | 重试/溢出用户面：REPL 重试倒计时 + esc 取消 + 退避可视化 + 最终失败才报错；非 TTY 车道日志化 | LLM 客户端重试分层、REPL 状态卡、W1/W2 既有断路/心跳的 UX 面 | **已落地**（2026-07-29，见 §7 补记一） |
-| PIB-W | 写模式借鉴批（用户 2026-07-29 点名写模式 gap，优先级提升）。**2026-07-29 现状探索后收窄**（全文见 §7 补记二）：六候选中三项撤销（verify 结构化回灌=VerifyFailureHandoff 已完备；无 UI fail-closed=已正确返回错误不挂起；动作检查点=apply commit 快照+best-known-good 热回退+slice typed checkpoint 三层已在役）。保留四件：**W-1 三段式审批**（主件：`/reject` 现在把 batch 打成 Blocked 死路，拒绝意见零回流——新增修订意见 typed 载体→batch 回 ReadyToPlan→replan 消费，对标 pi plan-mode Refine 臂）；**W-2 审批决策 append-only 账本**（现 `plan.Approval` 单槽覆盖，跨 replan 只留最后一次；`/workflow show` 不展示 `Reasons[]`）；W-3 apply 中途失败（partially_applied）的检查点保全（`/approve --retry` 现开全新 worktree 丢前次状态）；W-4 raw diff 拒绝散文 typed 化（structured-edit 侧已有 reason code 双臂，raw 侧是纯散文）。 | write controller、审批流、REPL 写模式卡 | 探索完毕，W-1/W-2 开发中 |
+| PIB-W | 写模式借鉴批（用户 2026-07-29 点名写模式 gap，优先级提升）。**2026-07-29 现状探索后收窄**（全文见 §7 补记二）：六候选中三项撤销（verify 结构化回灌=VerifyFailureHandoff 已完备；无 UI fail-closed=已正确返回错误不挂起；动作检查点=apply commit 快照+best-known-good 热回退+slice typed checkpoint 三层已在役）。保留四件：**W-1 三段式审批**（主件：`/reject` 现在把 batch 打成 Blocked 死路，拒绝意见零回流——新增修订意见 typed 载体→batch 回 ReadyToPlan→replan 消费，对标 pi plan-mode Refine 臂）；**W-2 审批决策 append-only 账本**（现 `plan.Approval` 单槽覆盖，跨 replan 只留最后一次；`/workflow show` 不展示 `Reasons[]`）；W-3 apply 中途失败（partially_applied）的检查点保全（`/approve --retry` 现开全新 worktree 丢前次状态）；W-4 raw diff 拒绝散文 typed 化（structured-edit 侧已有 reason code 双臂，raw 侧是纯散文）。 | write controller、审批流、REPL 写模式卡 | **W-1+W-2 已落地**（2026-07-29，见 §7 补记二）；W-3/W-4 候补 |
 | PIB-2 | 两级消息排队：pipeline 运行期不锁输入；steering（阶段边界注入）/ follow-up（run 结束注入）/ esc 还原队列 | REPL 输入循环、orchestrator 阶段边界、写模式 controller | 待启动 |
 | PIB-3 | 工具面截断纪律：双上限统一截断 + 永不半行 + 截断提示即下一步指令 + 输出截断时工具调用拒执行硬门 | read/grep 等工具实现、coverage 记账、agent 工具循环 | **已落地**（2026-07-29，见 §7 补记三） |
 | PIB-4 | 会话导出/导入复现闭环：诊断会话/工件一键导出 bundle + 一键导入还原 | blob session、REPL /history、报告投影 | 待启动 |
 | PIB-5 | REPL 水位与输入增强：footer token/cost/上下文水位 + 粘贴自动折叠 + @ 文件引用 seed RequiredFiles | REPL footer/输入组件、usage 计量、analyzer RequiredFiles | 待启动 |
 | PIB-6 | 渲染层几何 pin：teatest/VT 级差分渲染断言，BARGRID-1 教训泛化为渲染红线 | REPL 渲染面、测试基建 | 待启动 |
-| PIB-7 | `.codrax/prompts/` 模板命令 + providers.yaml `!cmd`/`$VAR` 值解析 | REPL 斜杠命令注册、internal/config | 待启动 |
+| PIB-7 | `.codrax/prompts/` 模板命令 + providers.yaml `!cmd`/`$VAR` 值解析 | REPL 斜杠命令注册、internal/config | **已落地**（2026-07-29，见 §7 补记四） |
 
 排序依据：PIB-1 直接封堵死等会话事故的用户面缺口（最高性价比、改动面小，先行）；PIB-W 因用户点名写模式 gap 提升为第二批（§3.7 十七条机制 + 两条反面参考为输入，批内先探索现状再裁定收窄）；PIB-2 交互质变但改动面最大；PIB-3 纯 LLM 面正确性收益、独立可并行；PIB-4/5 日用增强；PIB-6/7 基建与顺手件。批内如探索发现现状已覆盖（或与红线冲突），允许收窄/撤销并在本表记录裁定。
 
@@ -212,6 +212,12 @@ PIB-1 前置探索结论（2026-07-29，全文见批次补记）：codrax 重试
 **触点**：`internal/llm/llm.go`（OnRetry 契约）、`openai.go`（发布预算）、`internal/agent/agent.go`（事件扩维）、`internal/repl/direct_llm_trace_adapter.go`（链路扩维）、`internal/render/event.go` / `dock_state.go` / `renderer_dock.go`（词形+倒计时+两车道标签）。
 
 **验证**：`make` 构建绿；`go test ./...` 83 包 exit=0 零 FAIL；新增 `internal/render/retry_countdown_test.go` 五组 pin（变换语义/三词形双语/事件接线/非 TTY 分母+禁 `N/0` 负臂/compose 端到端含归零翻转）；`stream_wait_matrix_test.go` 加分母断言；既有子串 pin（`重新请求模型`/no-jargon/静态词形/双镜像唯一性）全存活未改。
+
+### 补记四：PIB-7 模板命令 + 配置密钥解析（2026-07-29 落地）
+
+**A. `.codrax/prompts/*.md` 模板命令**（`internal/repl/prompt_templates.go`）：文件名即 `/命令`（`^[a-z0-9][a-z0-9_-]*$`），frontmatter 只认 `description:`；bash 风格参数子集 `$1..$9`（引号感知分词）/`$@`/`$ARGUMENTS`。**三道安全设计**（承 §3.7 件11"repo 内配置默认不信任"）：① 静态注册表恒胜——模板只在 `NormalizeREPLCommandAlias` 未命中后才查询，loader 拒绝装载与内置动词同名的模板；② 展开结果**只能是普通分析请求**——恒剥前导 `/`，repo 内容永远够不到 slash 分发器（`/approve`/`/merge` 不可被模板触达）；③ 展开必打可见披露行（模板名+来源文件+字符数），内容不可无痕注入。接线：`New()` 一次性加载 `<runtimeAnchor>/prompts/`；`Loop()` 在注册表 miss 后查询。与 `TestHandleSlashDispatchMatchesRegistry` 守卫天然共存（守卫只查静态 case 字面量）。
+**B. providers.yaml 密钥引用**（`internal/config/secret_value.go`）：`api_key` 支持 `!cmd`（sh -c 执行取 stdout，可接 keychain/vault）/`$VAR`/`${VAR}`（全串引用形）/`$$` 转义；在 `LoadProviders` 内、**per-agent 继承之前**解析（每个声明点只执行一次，merge 非空判定不会把未解析 `$VAR` 字面量误判为已设置）；声明了引用但解析不到=配置错误 fail-loud（点名 scope），空值仍走 mergeEnv 兜底。**有意偏离 pi 已落账**：pi 每请求重执行 shell（轮转 token 场景），codrax 载入时一次性解析（API key 轮转罕见，不值得热路径开子进程）。
+**验证**：全仓 83 包零 FAIL；pin 三组（模板 loader 校验+遮蔽守卫+frontmatter、bash 子集展开+缺参空展开、slash 前缀中和+未知名 miss 负臂）+ config 两组（十形态值解析表、load 集成含继承前解析与 fail-loud 点名 scope）。
 
 ### 补记三：PIB-3 工具面截断纪律（2026-07-29 落地）
 
