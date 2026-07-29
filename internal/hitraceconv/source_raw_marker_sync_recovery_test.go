@@ -405,6 +405,7 @@ func TestSubmitTraceDBRawMarkerSyncRecoverySkipsExactExistingDBCandidate(t *test
 		t.Fatal(err)
 	}
 	if coverage.Metrics["raw_pairs_existing_db_candidate"] != 1 ||
+		coverage.Metrics["raw_collision_combined_census_requests"] != 1 ||
 		coverage.Metrics["raw_pairs_exact_semantic_unique_cpu_known_callstack_candidate"] != 1 ||
 		coverage.Metrics["raw_pairs_unique_cpu_known_callstack_candidate"] != 1 ||
 		coverage.Metrics["raw_pairs_submitted"] != 0 ||
@@ -434,6 +435,7 @@ func TestSubmitTraceDBRawMarkerSyncRecoveryWithholdsNameDriftWithoutPoisoningDBL
 		t.Fatal(err)
 	}
 	if coverage.Metrics["raw_pairs_withheld_exact_interval_name_drift"] != 1 ||
+		coverage.Metrics["raw_collision_combined_census_requests"] != 1 ||
 		coverage.Metrics["raw_pairs_name_drift_unique_cpu_known_callstack_candidate"] != 1 ||
 		coverage.Metrics["raw_pairs_unique_cpu_known_callstack_candidate"] != 1 ||
 		coverage.Metrics["raw_pairs_existing_db_candidate"] != 0 ||

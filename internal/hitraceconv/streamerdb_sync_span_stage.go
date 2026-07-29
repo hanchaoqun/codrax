@@ -132,6 +132,7 @@ type traceDBSyncSpanStage struct {
 	lookupSemanticLocallyAdmitted *sql.Stmt
 	lookupIntervalLocallyAdmitted *sql.Stmt
 	censusIntervalLocallyAdmitted *sql.Stmt
+	censusCandidateCollisionsStmt *sql.Stmt
 	supersedeCPUUnavailable       *sql.Stmt
 	supersedeCPUKnownCallstack    *sql.Stmt
 	upsertForced                  *sql.Stmt
@@ -474,6 +475,10 @@ func (stage *traceDBSyncSpanStage) promoteToSQLite(ctx context.Context) error {
 		ctx, traceDBSyncSpanCensusIntervalLocallyAdmittedSQL); err != nil {
 		return stage.handleSQLiteWriteError(ctx, err)
 	}
+	if stage.censusCandidateCollisionsStmt, err = tx.PrepareContext(
+		ctx, traceDBSyncSpanCensusCandidateCollisionsSQL); err != nil {
+		return stage.handleSQLiteWriteError(ctx, err)
+	}
 	if stage.supersedeCPUUnavailable, err = tx.PrepareContext(
 		ctx, traceDBSyncSpanSupersedeCPUUnavailableSQL); err != nil {
 		return stage.handleSQLiteWriteError(ctx, err)
@@ -674,6 +679,35 @@ const traceDBSyncSpanCensusIntervalLocallyAdmittedSQL = `SELECT
 		SELECT 1 FROM forced_lane AS p
 		WHERE p.header_tid=c.header_tid AND (p.reason_mask & ?) != 0
 	  ))`
+const traceDBSyncSpanCensusCandidateCollisionsSQL = `SELECT
+		COUNT(*),
+		COALESCE(SUM(CASE WHEN name=? THEN 1 ELSE 0 END),0),
+		COALESCE(SUM(CASE WHEN locally_admitted=1 AND name=? THEN 1 ELSE 0 END),0),
+		COALESCE(SUM(locally_admitted),0),
+		COALESCE(SUM(CASE WHEN locally_admitted=1 AND producer=? AND cpu_placement=? THEN 1 ELSE 0 END),0),
+		COALESCE(SUM(CASE WHEN locally_admitted=1 AND producer=? AND cpu_placement!=? THEN 1 ELSE 0 END),0)
+	FROM (
+		SELECT c.producer,c.cpu_placement,c.name,
+			CASE WHEN
+				NOT EXISTS (
+					SELECT 1 FROM fence AS f
+					WHERE f.header_tid=c.header_tid AND f.producer=c.producer
+					  AND ((f.kind=? AND f.start_ns<c.end_ns AND f.end_ns>c.start_ns)
+					    OR (f.kind=? AND c.end_ns>f.start_ns))
+				)
+				AND NOT (c.producer=? AND EXISTS (
+					SELECT 1 FROM forced_lane AS p
+					WHERE p.header_tid=c.header_tid AND (p.reason_mask & ?) != 0
+				))
+			THEN 1 ELSE 0 END AS locally_admitted
+		FROM candidate AS c INDEXED BY candidate_lane_idx
+		WHERE c.header_tid=? AND c.start_ns=? AND c.zero_key=1 AND c.end_ns=?
+		  AND c.superseded=0
+		  AND c.producer != ?
+		  AND c.header_tgid=? AND CASE c.marker_known WHEN 1 THEN c.marker_pid ELSE c.header_tgid END=?
+		  AND c.canonical_known=1 AND c.canonical_itid=?
+		  AND c.owner_known=1 AND c.owner_ipid=?
+	) AS matching`
 const traceDBSyncSpanSupersedeCPUUnavailableSQL = `UPDATE candidate AS c
 	SET superseded=1
 	WHERE c.header_tid=? AND c.start_ns=? AND c.zero_key=1 AND c.end_ns=?
@@ -1002,6 +1036,74 @@ func (stage *traceDBSyncSpanStage) censusLocallyAdmittedIntervalIdentityCandidat
 	return census, true, nil
 }
 
+func (stage *traceDBSyncSpanStage) censusCandidateCollisions(
+	ctx context.Context,
+	candidate traceDBSyncSpanCandidate,
+) (traceDBSyncSpanCandidateCollisionCensus, bool, error) {
+	if err := stage.requireOpen(ctx); err != nil {
+		return traceDBSyncSpanCandidateCollisionCensus{}, false, err
+	}
+	key, ok := traceDBSyncSpanCandidateSemanticKey(candidate)
+	if !ok {
+		return traceDBSyncSpanCandidateCollisionCensus{}, true, nil
+	}
+	if stage.budgetReason != "" {
+		return traceDBSyncSpanCandidateCollisionCensus{}, false, nil
+	}
+	if !stage.external {
+		if err := stage.promoteToSQLite(ctx); err != nil {
+			if _, pure := traceDBSyncSpanPureBudgetReason(err); pure {
+				return traceDBSyncSpanCandidateCollisionCensus{}, false, nil
+			}
+			return traceDBSyncSpanCandidateCollisionCensus{}, false, err
+		}
+	}
+	if stage.budgetReason != "" || stage.censusCandidateCollisionsStmt == nil {
+		return traceDBSyncSpanCandidateCollisionCensus{}, false, nil
+	}
+	var census traceDBSyncSpanCandidateCollisionCensus
+	err := stage.censusCandidateCollisionsStmt.QueryRowContext(
+		ctx,
+		key.Name, key.Name,
+		traceDBSyncSpanProducerCallstack, traceDBSyncSpanCPUPlacementKnown,
+		traceDBSyncSpanProducerCallstack, traceDBSyncSpanCPUPlacementKnown,
+		traceDBSyncSpanFenceInterval, traceDBSyncSpanFenceSuffix,
+		traceDBSyncSpanProducerCallstack, traceDBSyncSpanForcedCallstackPoison,
+		key.HeaderTID, key.Start, key.End,
+		traceDBSyncSpanProducerSourceRawMarker,
+		key.HeaderTGID, key.MarkerPID, key.CanonicalITID, key.OwnerIPID,
+	).Scan(
+		&census.IntervalTotal,
+		&census.SemanticTotal,
+		&census.LocallyAdmittedSemanticTotal,
+		&census.LocallyAdmittedInterval.Total,
+		&census.LocallyAdmittedInterval.CallstackCPUKnown,
+		&census.LocallyAdmittedInterval.CallstackCPUUnavailable,
+	)
+	if err != nil {
+		return traceDBSyncSpanCandidateCollisionCensus{}, false,
+			stage.handleSQLiteWriteError(ctx,
+				fmt.Errorf("census exact sync span collision candidates: %w", err))
+	}
+	local := census.LocallyAdmittedInterval
+	if census.IntervalTotal < 0 || census.SemanticTotal < 0 ||
+		census.LocallyAdmittedSemanticTotal < 0 || local.Total < 0 ||
+		local.CallstackCPUKnown < 0 || local.CallstackCPUUnavailable < 0 ||
+		census.SemanticTotal > census.IntervalTotal ||
+		local.Total > census.IntervalTotal ||
+		census.LocallyAdmittedSemanticTotal > census.SemanticTotal ||
+		census.LocallyAdmittedSemanticTotal > local.Total ||
+		local.CallstackCPUKnown > local.Total ||
+		local.CallstackCPUUnavailable >
+			local.Total-local.CallstackCPUKnown {
+		return traceDBSyncSpanCandidateCollisionCensus{}, false,
+			&traceDBOutputInvariantError{
+				Reason: "invalid_sync_span_candidate_collision_census",
+			}
+	}
+	return census, true, nil
+}
+
 func (stage *traceDBSyncSpanStage) supersedeUniqueLocallyAdmittedCPUUnavailableCallstackCandidate(
 	ctx context.Context,
 	candidate traceDBSyncSpanCandidate,
@@ -1271,7 +1373,8 @@ func (stage *traceDBSyncSpanStage) discardBackend() error {
 		stage.insertCandidate, stage.insertIdentity, stage.lookupIdentity,
 		stage.lookupSemantic, stage.lookupInterval,
 		stage.lookupSemanticLocallyAdmitted, stage.lookupIntervalLocallyAdmitted,
-		stage.censusIntervalLocallyAdmitted, stage.supersedeCPUUnavailable,
+		stage.censusIntervalLocallyAdmitted, stage.censusCandidateCollisionsStmt,
+		stage.supersedeCPUUnavailable,
 		stage.supersedeCPUKnownCallstack,
 		stage.upsertForced, stage.insertFence,
 	} {
@@ -1283,6 +1386,7 @@ func (stage *traceDBSyncSpanStage) discardBackend() error {
 	stage.lookupSemantic, stage.lookupInterval = nil, nil
 	stage.lookupSemanticLocallyAdmitted, stage.lookupIntervalLocallyAdmitted = nil, nil
 	stage.censusIntervalLocallyAdmitted = nil
+	stage.censusCandidateCollisionsStmt = nil
 	stage.supersedeCPUUnavailable = nil
 	stage.supersedeCPUKnownCallstack = nil
 	stage.upsertForced, stage.insertFence = nil, nil
@@ -1553,7 +1657,8 @@ func (stage *traceDBSyncSpanStage) closeSQLiteWriteStatements() error {
 		stage.insertCandidate, stage.insertIdentity, stage.lookupIdentity,
 		stage.lookupSemantic, stage.lookupInterval,
 		stage.lookupSemanticLocallyAdmitted, stage.lookupIntervalLocallyAdmitted,
-		stage.censusIntervalLocallyAdmitted, stage.supersedeCPUUnavailable,
+		stage.censusIntervalLocallyAdmitted, stage.censusCandidateCollisionsStmt,
+		stage.supersedeCPUUnavailable,
 		stage.supersedeCPUKnownCallstack,
 		stage.upsertForced, stage.insertFence,
 	} {
@@ -1565,6 +1670,7 @@ func (stage *traceDBSyncSpanStage) closeSQLiteWriteStatements() error {
 	stage.lookupSemantic, stage.lookupInterval = nil, nil
 	stage.lookupSemanticLocallyAdmitted, stage.lookupIntervalLocallyAdmitted = nil, nil
 	stage.censusIntervalLocallyAdmitted = nil
+	stage.censusCandidateCollisionsStmt = nil
 	stage.supersedeCPUUnavailable = nil
 	stage.supersedeCPUKnownCallstack = nil
 	stage.upsertForced, stage.insertFence = nil, nil

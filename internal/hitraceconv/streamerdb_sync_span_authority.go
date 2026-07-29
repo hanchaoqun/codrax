@@ -321,6 +321,13 @@ type traceDBSyncSpanIntervalCollisionCensus struct {
 	CallstackCPUUnavailable int64
 }
 
+type traceDBSyncSpanCandidateCollisionCensus struct {
+	IntervalTotal                int64
+	SemanticTotal                int64
+	LocallyAdmittedSemanticTotal int64
+	LocallyAdmittedInterval      traceDBSyncSpanIntervalCollisionCensus
+}
+
 // traceDBCallstackNullDurationHint is diagnostic-only evidence for one
 // timestamp-known callstack row whose SQLite duration was NULL. It deliberately
 // has no End: only a separately decoded exact raw B/E pair may provide that
@@ -507,6 +514,18 @@ func (authority *traceDBSyncSpanAuthority) censusLocallyAdmittedIntervalIdentity
 			&traceDBOutputInvariantError{Reason: "sync_span_authority_not_open"}
 	}
 	return authority.stage.censusLocallyAdmittedIntervalIdentityCandidates(ctx, candidate)
+}
+
+func (authority *traceDBSyncSpanAuthority) censusCandidateCollisions(
+	ctx context.Context,
+	candidate traceDBSyncSpanCandidate,
+) (traceDBSyncSpanCandidateCollisionCensus, bool, error) {
+	if authority == nil || authority.state != traceDBSyncSpanAuthorityOpen ||
+		authority.stage == nil {
+		return traceDBSyncSpanCandidateCollisionCensus{}, false,
+			&traceDBOutputInvariantError{Reason: "sync_span_authority_not_open"}
+	}
+	return authority.stage.censusCandidateCollisions(ctx, candidate)
 }
 
 func (authority *traceDBSyncSpanAuthority) supersedeUniqueLocallyAdmittedCPUUnavailableCallstackCandidate(

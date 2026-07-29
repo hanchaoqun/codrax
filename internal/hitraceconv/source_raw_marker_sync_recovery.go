@@ -351,37 +351,29 @@ func submitTraceDBRawMarkerSyncRecovery(
 		if !rawIntervalKeyOK {
 			rawIntervalCount = 0
 		}
-		exists, complete, err := syncSpans.hasSemanticCandidate(ctx, candidate)
+		collisions, complete, err :=
+			syncSpans.censusCandidateCollisions(ctx, candidate)
 		if err != nil {
 			out.Error = err.Error()
 			return out, err
 		}
 		if !complete {
 			out.Metadata["publication_state"] = "withheld_cross_source_index_incomplete"
-			out.Skipped = "raw marker sync recovery withheld: bounded exact DB candidate index incomplete"
+			out.Skipped = "raw marker sync recovery withheld: bounded combined DB collision census incomplete"
 			return out, nil
 		}
-		if exists {
-			locallyAdmitted, admittedComplete, admittedErr :=
-				syncSpans.hasLocallyAdmittedSemanticCandidate(ctx, candidate)
-			if admittedErr != nil {
-				out.Error = admittedErr.Error()
-				return out, admittedErr
-			}
-			if !admittedComplete {
-				out.Metadata["publication_state"] = "withheld_cross_source_index_incomplete"
-				out.Skipped = "raw marker sync recovery withheld: bounded DB local-admission index incomplete"
-				return out, nil
-			}
-			if locallyAdmitted {
-				census, complete, censusErr := traceDBRecordRawMarkerCollisionCensus(
-					ctx, &out, syncSpans, candidate, "exact_semantic")
-				if censusErr != nil {
+		traceDBAddCoverageMetric(
+			&out, "raw_collision_combined_census_requests", 1)
+		if collisions.SemanticTotal > 0 {
+			if collisions.LocallyAdmittedSemanticTotal > 0 {
+				census := collisions.LocallyAdmittedInterval
+				if censusErr := traceDBRecordRawMarkerCollisionCensus(
+					&out, census, "exact_semantic"); censusErr != nil {
 					out.Error = censusErr.Error()
 					return out, censusErr
 				}
 				replaced, replaceErr := traceDBReplaceRawMarkerAuthoritativeCollision(
-					ctx, &out, syncSpans, candidate, census, complete,
+					ctx, &out, syncSpans, candidate, census, true,
 					rawIntervalCount, "exact_semantic")
 				if replaceErr != nil {
 					out.Error = replaceErr.Error()
@@ -390,11 +382,7 @@ func submitTraceDBRawMarkerSyncRecovery(
 				if replaced {
 					continue
 				}
-				if !complete {
-					traceDBAddCoverageMetric(&out,
-						"raw_pairs_exact_semantic_collision_census_incomplete", 1)
-				}
-				if complete && census.Total == 0 {
+				if census.Total == 0 {
 					err := &traceDBOutputInvariantError{
 						Reason: "raw_marker_exact_collision_census_empty",
 					}
@@ -406,55 +394,30 @@ func submitTraceDBRawMarkerSyncRecovery(
 			}
 			traceDBAddCoverageMetric(
 				&out, "raw_pairs_existing_db_candidate_locally_suppressed", 1)
-		}
-		if !exists {
-			intervalCollision, intervalComplete, intervalErr :=
-				syncSpans.hasIntervalIdentityCandidate(ctx, candidate)
-			if intervalErr != nil {
-				out.Error = intervalErr.Error()
-				return out, intervalErr
-			}
-			if !intervalComplete {
-				out.Metadata["publication_state"] = "withheld_cross_source_index_incomplete"
-				out.Skipped = "raw marker sync recovery withheld: bounded exact DB interval index incomplete"
-				return out, nil
-			}
-			if intervalCollision {
-				locallyAdmitted, admittedComplete, admittedErr :=
-					syncSpans.hasLocallyAdmittedIntervalIdentityCandidate(ctx, candidate)
-				if admittedErr != nil {
-					out.Error = admittedErr.Error()
-					return out, admittedErr
+		} else if collisions.IntervalTotal > 0 {
+			if collisions.LocallyAdmittedInterval.Total > 0 {
+				census := collisions.LocallyAdmittedInterval
+				if censusErr := traceDBRecordRawMarkerCollisionCensus(
+					&out, census, "name_drift"); censusErr != nil {
+					out.Error = censusErr.Error()
+					return out, censusErr
 				}
-				if !admittedComplete {
-					out.Metadata["publication_state"] = "withheld_cross_source_index_incomplete"
-					out.Skipped = "raw marker sync recovery withheld: bounded DB interval local-admission index incomplete"
-					return out, nil
+				replaced, replaceErr := traceDBReplaceRawMarkerAuthoritativeCollision(
+					ctx, &out, syncSpans, candidate, census, true,
+					rawIntervalCount, "name_drift")
+				if replaceErr != nil {
+					out.Error = replaceErr.Error()
+					return out, replaceErr
 				}
-				if locallyAdmitted {
-					census, complete, censusErr := traceDBRecordRawMarkerCollisionCensus(
-						ctx, &out, syncSpans, candidate, "name_drift")
-					if censusErr != nil {
-						out.Error = censusErr.Error()
-						return out, censusErr
-					}
-					replaced, replaceErr := traceDBReplaceRawMarkerAuthoritativeCollision(
-						ctx, &out, syncSpans, candidate, census, complete,
-						rawIntervalCount, "name_drift")
-					if replaceErr != nil {
-						out.Error = replaceErr.Error()
-						return out, replaceErr
-					}
-					if replaced {
-						continue
-					}
-					traceDBAddCoverageMetric(
-						&out, "raw_pairs_withheld_exact_interval_name_drift", 1)
+				if replaced {
 					continue
 				}
 				traceDBAddCoverageMetric(
-					&out, "raw_pairs_interval_collision_locally_suppressed", 1)
+					&out, "raw_pairs_withheld_exact_interval_name_drift", 1)
+				continue
 			}
+			traceDBAddCoverageMetric(
+				&out, "raw_pairs_interval_collision_locally_suppressed", 1)
 		}
 		if err := syncSpans.submit(ctx, candidate); err != nil {
 			out.Error = err.Error()
@@ -704,25 +667,15 @@ func traceDBRawMarkerIntervalMultiplicity(
 }
 
 func traceDBRecordRawMarkerCollisionCensus(
-	ctx context.Context,
 	out *TraceDBCoverage,
-	syncSpans *traceDBSyncSpanAuthority,
-	candidate traceDBSyncSpanCandidate,
+	census traceDBSyncSpanIntervalCollisionCensus,
 	shape string,
-) (traceDBSyncSpanIntervalCollisionCensus, bool, error) {
-	if out == nil || syncSpans == nil ||
+) error {
+	if out == nil ||
 		shape != "exact_semantic" && shape != "name_drift" {
-		return traceDBSyncSpanIntervalCollisionCensus{}, false,
-			&traceDBOutputInvariantError{Reason: "invalid_raw_marker_collision_census_request"}
-	}
-	census, complete, err :=
-		syncSpans.censusLocallyAdmittedIntervalIdentityCandidates(ctx, candidate)
-	if err != nil {
-		return traceDBSyncSpanIntervalCollisionCensus{}, false, err
-	}
-	if !complete {
-		traceDBAddCoverageMetric(out, "raw_collision_census_incomplete", 1)
-		return traceDBSyncSpanIntervalCollisionCensus{}, false, nil
+		return &traceDBOutputInvariantError{
+			Reason: "invalid_raw_marker_collision_census_request",
+		}
 	}
 	traceDBAddCoverageMetric(out, "raw_collision_candidate_rows", census.Total)
 	traceDBAddCoverageMetric(out,
@@ -755,7 +708,7 @@ func traceDBRecordRawMarkerCollisionCensus(
 			"raw_pairs_"+shape+"_collision_census_empty", 1)
 		traceDBAddCoverageMetric(out, "raw_pairs_collision_census_empty", 1)
 	}
-	return census, true, nil
+	return nil
 }
 
 func traceDBReplaceRawMarkerAuthoritativeCollision(
