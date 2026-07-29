@@ -366,6 +366,24 @@ func (ledger *traceDBRawAsyncMatchLedger) claim(
 				return nil, false
 			}
 		}
+		nameDriftPairs := ledger.byValueInterval[traceDBRawAsyncValueIntervalKey{
+			Value: row.Cookie, Start: exact.Start, End: exact.End,
+		}]
+		if len(nameDriftPairs) > 0 {
+			pair, mismatchClass :=
+				ledger.claimUniquePhysicalEnvelope(row, nameDriftPairs)
+			if pair != nil {
+				pair.claimed = true
+				ledger.metrics["pairs_claimed"]++
+				ledger.metrics["official_intervals_exact_name_drift_joined"]++
+				return pair, true
+			}
+			if mismatchClass != "" {
+				ledger.noteMismatchWitness(row, mismatchClass, nameDriftPairs)
+				ledger.metrics["official_intervals_without_exact_raw_pair"]++
+				return nil, false
+			}
+		}
 		ledger.noteMissingExactKey(row)
 		ledger.metrics["official_intervals_without_exact_raw_pair"]++
 		return nil, false

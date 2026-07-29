@@ -281,6 +281,49 @@ func TestTraceDBCallstackReplacesTypedAsyncOnlyOnUniqueExactRawPair(t *testing.T
 	}
 }
 
+func TestTraceDBCallstackReplacesTypedAsyncOnUniqueExactNameDrift(t *testing.T) {
+	tdb, authority, running := traceDBRawAsyncFixture(t)
+	defer tdb.close()
+	records := traceDBRawAsyncRecords(2000)
+	for index := range records {
+		records[index].Name = "H:[chain,span,parent]#official-async"
+		records[index].Buffer = strings.Replace(
+			records[index].Buffer, "official-async", records[index].Name, 1)
+	}
+	tdb.sourceNameInventory = traceDBRawAsyncInventory(records)
+	sink, err := newTraceDBRowSink(t.TempDir(), 16)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.cleanup()
+	coverage, err := exportTraceDBCallstack(
+		context.Background(), tdb, sink, authority, running,
+		newTraceDBTestSyncSpanAuthority(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if coverage.Metrics["source_rows_emitted_official_async_raw_pair"] != 1 ||
+		coverage.Metrics["source_rows_emitted_official_async_interval"] != 0 ||
+		coverage.Metrics["raw_async_official_intervals_exact_name_drift_joined"] != 1 ||
+		coverage.Metrics["raw_async_official_intervals_without_exact_raw_pair"] != 0 {
+		t.Fatalf("exact async name drift was not published from raw authority: %+v",
+			coverage)
+	}
+	var body strings.Builder
+	for _, row := range sink.rows {
+		body.WriteString(row.line)
+		body.WriteByte('\n')
+	}
+	text := body.String()
+	if !strings.Contains(text,
+		"tracing_mark_write: S|100|H:[chain,span,parent]#official-async|9") ||
+		!strings.Contains(text,
+			"tracing_mark_write: F|100|H:[chain,span,parent]#official-async|9") ||
+		strings.Contains(text, "# codrax_trace_async_interval/v1") {
+		t.Fatalf("exact async name-drift wire did not retain raw payloads:\n%s", text)
+	}
+}
+
 func TestTraceDBCallstackOfficialChildEmitterPreservesNamespaceOwner(t *testing.T) {
 	path := createTraceDBFixture(t, []string{
 		"CREATE TABLE trace_range (start_ts)",
@@ -421,14 +464,6 @@ func TestTraceDBRawAsyncClaimExplainsExactEnvelopeMismatch(t *testing.T) {
 			wantClass:  "cookie_mismatch",
 		},
 		{
-			name: "name",
-			mutate: func(row *traceDBCallstackRow) {
-				row.Name = "different-name"
-			},
-			wantMetric: "official_intervals_name_mismatch",
-			wantClass:  "name_mismatch",
-		},
-		{
 			name: "name and cookie",
 			mutate: func(row *traceDBCallstackRow) {
 				row.Name = "different-name"
@@ -495,6 +530,33 @@ func TestTraceDBRawAsyncClaimExplainsExactEnvelopeMismatch(t *testing.T) {
 				t.Fatalf("mismatch witness drifted: %+v", coverage)
 			}
 		})
+	}
+}
+
+func TestTraceDBRawAsyncClaimJoinsUniqueExactNameDrift(t *testing.T) {
+	tdb, authority, _ := traceDBRawAsyncFixture(t)
+	defer tdb.close()
+	ledger := newTraceDBRawAsyncMatchLedger(
+		traceDBRawAsyncInventory(traceDBRawAsyncRecords(2000)), authority)
+	pair, ok := ledger.claim(traceDBCallstackRow{
+		ID:                    1,
+		OfficialAsyncInterval: true,
+		TS:                    1000,
+		End:                   2000,
+		TID:                   101,
+		HeaderTGID:            100,
+		TGID:                  100,
+		Name:                  "db-normalized-name",
+		Cookie:                "9",
+		StartCPU:              2,
+		CPUPlacement:          traceDBSyncSpanCPUPlacementKnown,
+	})
+	if !ok || pair == nil || pair.begin.Name != "official-async" ||
+		ledger.metrics["official_intervals_exact_name_drift_joined"] != 1 ||
+		ledger.metrics["pairs_claimed"] != 1 ||
+		ledger.metrics["official_intervals_without_exact_raw_pair"] != 0 {
+		t.Fatalf("unique exact name drift did not claim the physical pair: pair=%+v metrics=%+v",
+			pair, ledger.metrics)
 	}
 }
 
