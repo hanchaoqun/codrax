@@ -4587,6 +4587,208 @@ Two evidence limits deliberately remain open:
    exact physical CPU placement. RB-D makes their final identities
    inspectable; it does not infer CPU 0 or copy CPU from a nearby row.
 
+## REP-C customer replay audit (2026-07-29)
+
+Inputs:
+
+- `/Users/han/opt/customlogs/repC.txt`;
+- `/Users/han/opt/customlogs/codrax-trace-diag-repC.txt`;
+- customer executable SHA-256
+  `520295f716a087b43ed410fdab5ef0c3354d1cc43596eedea41799ed98cf5a51`.
+
+The diagnostic contains every RB-B through RB-E capability, including:
+
+```text
+official_raw_marker_trailing_space_name_v1
+null_duration_raw_disposition_census_v1
+official_viewer_typed_only_final_witness_v1
+raw_marker_combined_collision_census_v1
+```
+
+REP-C is therefore an admissible acceptance replay of
+`main@6d0f5a3a6`. It is not an old customer binary.
+
+### REP-C-01 — RB-C passed: the 90 NULL-duration dispositions close exactly
+
+```text
+null_duration_fence_hints_total                    = 90
+null_duration_fence_hints_retained                 = 90
+null_duration_hints_exact_raw_disposition_accounted= 90
+null_duration_hints_no_exact_raw_start_disposition = 90
+```
+
+There is no valid raw closure, rejected closed pair or open begin for any
+retained hint. The 78 suffix-fenced callstack spans therefore remain
+unrecoverable from this source generation. No end timestamp or narrower
+invalid interval can be inferred.
+
+### REP-C-02 — RB-D passed, but its CPU witness text has a zero-value ambiguity
+
+The final emitted typed-only census still closes:
+
+```text
+3128 = 2638 cpu_unknown_start
+     +  488 cpu_source_tainted
+     +    2 cpu_unknown_end
+```
+
+The bounded final witness sidebands are present after shared suppression:
+
+```text
+cpu_unknown_start  emitted=4 omitted=2634
+cpu_source_tainted emitted=4 omitted=484
+cpu_unknown_end    emitted=2 omitted=0
+```
+
+They expose exact row ID, TID/TGID, namespace marker PID, canonical ITID/IPID,
+interval and name. However, unavailable endpoints currently render
+`start_cpu=0/end_cpu=0` next to
+`start_cpu_source=callstack_unavailable`. The provenance is honest, but the
+numeric zero is only a Go placeholder and can be misread as measured CPU 0.
+This is the same zero-value presentation class previously found in per-CPU
+busy reporting. The witness must render each unavailable endpoint as
+`cpu=unavailable`; a known CPU 0 remains numeric `0`.
+
+### REP-C-03 (P0) — RB-B production predicate excluded the actual `print.buf` cohort
+
+The RB-B capability is present, but acceptance failed unchanged:
+
+```text
+raw_pairs_official_trailing_space_name_normalized =   0
+raw_pairs_withheld_invalid_span_name              = 279
+raw_pairs_withheld_local_validation                = 279
+```
+
+All four retained examples are still exact trailing-ASCII-space names. The
+reason is now proven by the source-record census:
+
+```text
+target_print_records                               = 175165
+target_tracing_mark_write_records                  =   7518
+target_marker_sync_zero_pid_header_identity_endpoints = 7518
+```
+
+Every structured `tracing_mark_write(pid,name,start)` record in this file is
+the already repaired zero-PID cohort. The residual nonzero-PID names arrive
+through the admitted official `print.buf` string carrier.
+
+The official `CpuDetailParser` passes `print_format().buf()` to the same
+`PrintEventParser::ParsePrintEvent` path, and
+`GetPointNameForBegin` removes trailing ASCII spaces for every B payload.
+Codrax instead stored only `OpenHarmonyStructuredProfile` and required it on
+both B/E records before trimming. The ruling was correct but the carrier
+predicate was narrower than the official parser.
+
+The corrected predicate is frozen:
+
+1. retain a distinct `OpenHarmonyPrintParserProfile` fact only when the strict
+   governed decoder admitted an exact `print` or `tracing_mark_write` body;
+2. require that fact on both physical B/E endpoints;
+3. trim trailing ASCII U+0020 only from the B name/body, then rerun the complete
+   span-name predicate;
+4. keep `OpenHarmonyStructuredProfile` separate and narrow; only it may
+   authorize zero-PID-as-header-identity;
+5. `tracing_mark_write_xacct`, arbitrary text rows, leading space, tabs,
+   controls, invalid UTF-8 and empty-after-trim remain withheld;
+6. collision, identity, namespace, timestamp, CPU, flags, lifecycle and
+   laminar decisions remain unchanged.
+
+The output remained byte-count and row-count identical to REP-B:
+
+```text
+rows  = 1,237,851
+bytes = 767,905,606
+standard-visible spans = 92,914
+```
+
+Thus RB-B did not alter production semantics in REP-C. The differing artifact
+SHA is expected from the official `meta` table's runtime/path data.
+
+### REP-C-04 — RB-E is active and total runtime improved, but phase timing is hidden
+
+The combined-census equation is exact:
+
+```text
+raw pairs structurally closed                  = 83,975
+invalid names withheld                         =    279
+combined collision census requests             = 83,696
+
+83,696 = 79,932 submitted + 3,764 exact existing DB candidates
+```
+
+`raw_pairs_interval_collision_locally_suppressed=1184` is a subset of the
+submitted alternative path, not another terminal bucket.
+
+Observed same-machine timing:
+
+| component | REP-B | REP-C | delta |
+| --- | ---: | ---: | ---: |
+| total DB normalization | about 47.5s | 41.833s | about -5.7s |
+| trace_streamer DB export | about 2.5s | 2.011s | about -0.5s |
+| semantic sorter | 7.729s | 7.352s | -0.377s |
+| full tracequery validation | 8.655s | 6.930s | -1.725s |
+
+The result is materially faster, but it does not isolate RB-E's raw-sync
+contribution: the oversized raw-marker coverage JSON is truncated before
+`elapsed_us`. Existing witness sidebands preserve selected metadata, not the
+coverage receipt. A compact, valid JSON coverage-summary sideband is required
+whenever the full coverage line exceeds the 8 KiB line cap. It must include
+family/table, rows, elapsed time, skipped state and metric/metadata cardinality
+without duplicating arbitrary large values.
+
+### REP-C-05 — source inventory carries a stale decoder contradiction
+
+`source_rawtrace_authority/__source_segments__` still reports:
+
+```text
+decode_authority=unavailable_official_page_decoder_not_implemented
+recovery_authority=requires_official_page_decoder_or_upstream_retained_rows
+```
+
+The same report then proves a complete strict raw-page profile and admits
+390,416 target envelopes, including marker, scheduler-lite, blocked-reason,
+wakeup-new and DMA-wait decoders. The generic all-event decoder remains
+incomplete, but the closed target decoders are real. The inventory wording
+must say `partial_closed_target_decoders`; it must not claim that no official
+page decoder exists.
+
+### REP-C-06 — 1,787 exact DMA lifecycle records remain typed-only/unpublished
+
+The raw ledger has exact envelopes but no body adapters for:
+
+```text
+dma_fence_destroy       493
+dma_fence_enable_signal 305
+dma_fence_init          494
+dma_fence_signaled      495
+total                  1787
+```
+
+The high-level `dma_fence` table also has 1,787 rows but lacks emitter
+identity/CPU and exposes predecessor delta rather than wait duration, so its
+withholding is correct. These are not evidence that 1,787 thread spans were
+lost. They are nevertheless an official-viewer event/lane completeness gap:
+the exact source envelopes and descriptor values should be researched against
+the official renderer and published only as their actual point/counter
+semantics, never fabricated as B/E waits. The already complete 149
+`dma_fence_wait_start/end` pairs are separate and remain correct.
+
+### REP-C delivery order
+
+| Batch | Priority | Work | Independent push gate |
+| --- | --- | --- | --- |
+| RC-A | P0 audit | record REP-C equations and official print-parser scope | capability/hash plus source-record census present |
+| RC-B | P0 repair | extend trailing-space authority to exact admitted official print-parser carriers | structured zero-PID authority unchanged; all negative name profiles pinned |
+| RC-C | P1 diagnosis | render unavailable witness CPU as typed unavailable, not numeric zero | measured CPU 0 control remains numeric |
+| RC-D | P2 diagnosis | add compact sideband for oversized coverage receipts | valid JSON, bounded line count, elapsed/rows survive |
+| RC-E | P2 diagnosis | correct stale partial-decoder inventory wording | no claim of generic all-event completeness |
+| RC-F | P2 design | map four DMA lifecycle families to official point/counter semantics | no B/E publication without an official interval contract |
+
+RC-B through RC-E can be implemented without another customer capture. RC-F
+requires an official-source semantic ruling and dedicated fixtures before
+publication. The next customer replay should occur after RC-B through RC-E so
+one run validates both the name repair and the phase timing.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.
