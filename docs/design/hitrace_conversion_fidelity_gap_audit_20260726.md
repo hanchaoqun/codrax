@@ -3928,6 +3928,34 @@ rejected duration scalar witness:   independently present in diagnostic
 The remaining 3,128 CPU-authority sync rows and 78 fenced rows are not promised
 by this batch. They require separate physical CPU or exact duration evidence.
 
+Progress:
+
+- R8-A: REP8 audit and repair predicates frozen and pushed in `93b754f6a`;
+- R8-B: implemented, package-verified and pushed in `fce2c34ad`. One unique
+  CPU-known callstack interval is superseded only after the DB candidate name
+  fails the same standard trace-mark round-trip predicate used by final viewer
+  classification. The exact raw B/E pair retains its original name and both
+  physical envelopes. Standard-representable name drift and ambiguous raw
+  intervals remain withheld. CPU-unavailable and name-unrepresentable
+  supersession counters are independent, and replacement closure accounts for
+  both without relabelling name repair as CPU repair;
+- R8-C: implemented, package-verified and pushed in `75aec4e1b`. An official
+  completed async interval may now claim one unique raw pair when cookie,
+  nanosecond start/end and physical begin TID/TGID/CPU are exact even if the DB
+  display name differs. Publication writes the original raw S/F payloads.
+  Cookie/time/envelope mismatch and ambiguity remain typed fail-closed;
+- R8-D: implemented, command-package verified and pushed in `df4029e22`.
+  `rejected_callstack_fence_witnesses` and
+  `raw_async_mismatch_witnesses` are emitted as independent bounded diagnostic
+  sideband lines before their full coverage row. An oversized neighboring
+  metadata value can no longer erase the exact duration scalar. Capability
+  `coverage_witness_sideband_v1` identifies the fixed report shape;
+- R8-E: replay-gated. No duration coercion or fence narrowing has been made.
+  The next customer replay must provide the now-reachable exact duration
+  witness first;
+- R8-F: deferred behind viewer replay acceptance; no validation has been
+  weakened for performance.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.
