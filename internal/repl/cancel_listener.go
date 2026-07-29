@@ -32,9 +32,9 @@ import (
 // + non-blocking — the goroutine exits when the next Scan() call
 // returns false (typically EOF on a piped producer that finished
 // sending data). For long-lived pipes that stay open across Runs the
-// goroutine stays parked on Read; subsequent Runs short-circuit
-// startCancelListener via the listenerActive guard so we never have
-// two readers.
+// goroutine stays parked on Read. (An earlier draft mentioned a
+// listenerActive guard; the actual reuse protection is the per-Run
+// Start/Stop pairing in runInFlightWrap.)
 type cancelListener struct {
 	scanner   *bufio.Scanner
 	canceller runnerCanceller
@@ -42,6 +42,29 @@ type cancelListener struct {
 	stopped   atomic.Bool
 	done      chan struct{}
 	once      sync.Once
+
+	// queued collects non-/cancel lines typed (or piped) while the
+	// Run is in flight (PIB-2 v1, ledger
+	// docs/design/pi_borrow_analysis_20260729.md §7.6): instead of
+	// warn-and-drop, they become follow-up turns the REPL replays in
+	// order after the Run completes — pi's follow-up queue semantics
+	// on the non-TTY lane. Capped so a runaway pipe cannot balloon.
+	queueMu sync.Mutex
+	queued  []string
+}
+
+// cancelListenerQueueCap bounds the follow-up queue; beyond it lines
+// are dropped with the one-shot warn (precise, disclosed).
+const cancelListenerQueueCap = 32
+
+// queuedLines returns the collected follow-up lines in arrival order.
+func (cl *cancelListener) queuedLines() []string {
+	if cl == nil {
+		return nil
+	}
+	cl.queueMu.Lock()
+	defer cl.queueMu.Unlock()
+	return append([]string(nil), cl.queued...)
 }
 
 // startCancelListener returns a non-nil listener when stdin matches
@@ -135,12 +158,22 @@ func (cl *cancelListener) loop() {
 			logging.Info("[repl] /cancel via stdin listener — cancel signal sent")
 			return
 		}
-		// Non-cancel input during Run: surface a one-shot warn so
-		// the operator knows their typing is being dropped, but
-		// don't spam — a long pipe of accidental input would
-		// otherwise flood the terminal during a 30-second Run.
+		// Non-cancel input during Run: queue it as a follow-up turn
+		// (PIB-2 v1). A one-shot info line discloses the queueing;
+		// beyond the cap lines are dropped with the same one-shot
+		// warn so a runaway pipe cannot balloon memory.
+		cl.queueMu.Lock()
+		underCap := len(cl.queued) < cancelListenerQueueCap
+		if underCap {
+			cl.queued = append(cl.queued, raw)
+		}
+		cl.queueMu.Unlock()
 		if !warned && cl.warn != nil {
-			cl.warn("[repl] input received during Run is ignored except `/cancel`; typed line: %q\n", truncateForWarn(raw, 80))
+			if underCap {
+				cl.warn("[repl] input received during Run queued as follow-up (runs after this turn): %q\n", truncateForWarn(raw, 80))
+			} else {
+				cl.warn("[repl] follow-up queue full (%d); further input during this Run is dropped\n", cancelListenerQueueCap)
+			}
 			warned = true
 		}
 	}

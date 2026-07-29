@@ -213,6 +213,14 @@ PIB-1 前置探索结论（2026-07-29，全文见批次补记）：codrax 重试
 
 **验证**：`make` 构建绿；`go test ./...` 83 包 exit=0 零 FAIL；新增 `internal/render/retry_countdown_test.go` 五组 pin（变换语义/三词形双语/事件接线/非 TTY 分母+禁 `N/0` 负臂/compose 端到端含归零翻转）；`stream_wait_matrix_test.go` 加分母断言；既有子串 pin（`重新请求模型`/no-jargon/静态词形/双镜像唯一性）全存活未改。
 
+### 补记六：PIB-2 两级消息排队（2026-07-29，v1 落地 + 收窄裁定）
+
+**探索结论**：TTY 下 Run 期间 stdin 无任何读取者（bubbletea per-prompt program 已退出、cooked mode）；`/log paste` 的 captureScanner 是"turn 中途读 stdin"的同构先例；**唯一真风险=跨 Run 边界的悬挂 Read 与下一个 bubbletea 实例抢键**——无竞态解法是"整个 REPL 生命周期单一 stdin owner + `tea.WithInput(pipe)`"重构（改动大）。非 TTY 的 cancelListener 逐行读 stdin，非 `/cancel` 行现状=一次性警告后丢弃。读管线的 steering 注入原语已存在（`closure.AddPendingRead` + `runForcedReads` 在 explorer LLM 看到任何东西之前真正读完；`RetryHint` 是自由文本 hint 车道）。
+
+**v1 落地（非 TTY follow-up 队列）**：cancelListener 非 `/cancel` 行从"警告丢弃"改为入队（cap 32，超帽一次性披露；`/cancel` 语义不变），`runInFlightWrap` 在 Run 结束时 drain 进 `r.pendingFollowUps`，Loop 下一轮读 stdin **之前**按到达序回放（可见回放行；斜杠命令与分析请求都支持）。顺修 listener 头注释里不存在的 `listenerActive` 守卫描述（探索抓出的文档漂移）。pin 两组（排队+披露+cancel 保留、cap 上限）。
+
+**收窄裁定**：TTY 运行期输入（真 steering/两级队列全形）**推迟**——前置条件是单一 stdin owner 架构重构，本批不动；落地时 steering 注入点用既有 `AddPendingRead`（新 Origin 值）+ `RetryHint` 两条现成车道，设计已锚定本补记。esc 还原队列同属 TTY 形，一并推迟。
+
 ### 补记五：PIB-5 REPL 水位与输入增强（2026-07-29，分件落地）
 
 **5a usage 水位（已落地）**：usage 自捕获以来全仓零消费——本件使显示车道成为首个消费者。`render.Event` 加 `UsageInputTokens/UsageOutputTokens`（EventAgentResponse 载荷，display lane only 注释钉死）；BaseAgent 与 REPL 直调两个发射点接 `resp.Usage`；renderer 累计 run 总量（EventObjectiveStarted 清零），dock row2 新增 `↑12.3k ↓500 tok` 段；上下文段按水位变色（≥70% 黄、≥90% 红、窗口未知永不告警——精确整数阈值，`contextTokensStyleFor`）。成本换算（$）不做：无价格表，避免造数。pin 三组。

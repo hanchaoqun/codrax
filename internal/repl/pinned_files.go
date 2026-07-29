@@ -62,3 +62,11 @@ func extractPinnedFiles(repoRoot, request string) []string {
 	}
 	return pins
 }
+
+// followUpReplayMsg echoes which queued follow-up line is running now.
+func followUpReplayMsg(lang, line string) string {
+	if isZh(lang) {
+		return "回放排队输入: " + line
+	}
+	return "Replaying queued input: " + line
+}

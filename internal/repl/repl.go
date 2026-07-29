@@ -710,6 +710,7 @@ type REPL struct {
 	providerOperationResults    []providerOperationResultRecord
 	operationMemory             *operation.MemoryStore
 	promptTemplates             map[string]promptTemplate
+	pendingFollowUps            []string // PIB-2 v1: lines queued during a Run, replayed as turns
 	lastAnswerOrigin            replAnswerOrigin
 	operationPendingStore       *OperationPendingStore
 	mcpServers                  *mcp.Registry
@@ -6131,6 +6132,15 @@ func (r *REPL) runInFlightWrap(fn func() (*types.BusContext, error)) (*types.Bus
 	canceller, _ := r.runner.(runnerCanceller)
 	listener := startCancelListenerForREPL(r.in, r.interactive(), canceller, r.warn)
 	defer listener.stop() // nil-safe
+	// PIB-2 v1: lines the listener queued while the Run was in flight
+	// replay as follow-up turns — drained here so the Loop's next
+	// read sees them before touching stdin. Nil-safe (TTY runs have
+	// no listener and the queue stays empty).
+	defer func() {
+		if queued := listener.queuedLines(); len(queued) > 0 {
+			r.pendingFollowUps = append(r.pendingFollowUps, queued...)
+		}
+	}()
 	r.runInFlight.Store(true)
 	defer r.runInFlight.Store(false)
 	return fn()
@@ -6311,6 +6321,22 @@ func (r *REPL) Loop() error {
 		// Stash the tag so readInputBubble can re-render it on the echo
 		// line above the inline viewport.
 		r.echoTag = tag
+		// PIB-2 v1: follow-up turns queued during the previous Run
+		// replay in arrival order before stdin is consulted again. A
+		// visible echo line shows which queued input is running now.
+		if len(r.pendingFollowUps) > 0 {
+			queued := r.pendingFollowUps[0]
+			r.pendingFollowUps = r.pendingFollowUps[1:]
+			r.info(followUpReplayMsg(r.language, queued))
+			if cmd := types.NormalizeREPLCommandAlias(queued); cmd != "" {
+				if quit := r.handleSlash(cmd); quit {
+					return nil
+				}
+				continue
+			}
+			r.dispatch(queued, queued)
+			continue
+		}
 		line, display, err := r.readInputPair(tag + "❯❯")
 		if err != nil {
 			fmt.Fprintln(r.out)
