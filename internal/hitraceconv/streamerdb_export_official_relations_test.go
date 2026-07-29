@@ -159,3 +159,61 @@ func TestFrameRelationsSurviveFrameSpanAdmissionFailure(t *testing.T) {
 		t.Fatalf("exact frame relation was coupled to span admission: %+v", mapCoverage)
 	}
 }
+
+func TestFrameRelationsRejectPreCaptureTimestampAuthority(t *testing.T) {
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE frame_slice (id INTEGER PRIMARY KEY, ts INTEGER, callstack_id INTEGER) WITHOUT ROWID",
+		"INSERT INTO frame_slice VALUES (0, 20857394782085, 7)",
+		"INSERT INTO frame_slice VALUES (1, 69326394782085, 8)",
+		"CREATE TABLE callstack (id INTEGER)",
+		"INSERT INTO callstack VALUES (7)",
+		"INSERT INTO callstack VALUES (8)",
+		"CREATE TABLE gpu_slice (id INTEGER, frame_row INTEGER, dur INTEGER)",
+		"INSERT INTO gpu_slice VALUES (0, 0, 50)",
+		"INSERT INTO gpu_slice VALUES (1, 1, 60)",
+	})
+	ctx := context.Background()
+	tdb, err := openTraceDB(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tdb.close()
+	index := newTraceDBThreadIndex(69326000000000, true)
+	authority := traceDBTestCompleteSchedulerAuthority(index)
+	authority.frameProfile = traceDBActivityITIDSignedInt32
+	authority.frameProfileSource = "official current id/type profile"
+	sink, err := newTraceDBRowSink(t.TempDir(), 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.cleanup()
+
+	rosterCoverage, frames, err := loadTraceDBFrameRelationRoster(ctx, tdb, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rosterCoverage.RowsRead != 2 || rosterCoverage.RowsEmitted != 1 ||
+		!strings.Contains(rosterCoverage.Skipped, "before_capture_start=1") {
+		t.Fatalf("pre-capture relation admission drifted: %+v", rosterCoverage)
+	}
+	if _, present := frames[0]; present {
+		t.Fatalf("pre-capture frame became query-visible timestamp authority: %+v", frames)
+	}
+	if _, present := frames[1]; !present {
+		t.Fatalf("in-capture frame was not retained: %+v", frames)
+	}
+
+	callstackCoverage, err := exportTraceDBFrameCallstackRelations(ctx, tdb, sink, frames)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gpuCoverage, err := exportTraceDBFrameGPURelations(ctx, tdb, sink, authority, frames)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if callstackCoverage.RowsEmitted != 1 || gpuCoverage.RowsEmitted != 1 ||
+		!strings.Contains(gpuCoverage.Skipped, "unavailable_frame_endpoint=1") {
+		t.Fatalf("pre-capture relation leaked into an official relation lane: callstack=%+v gpu=%+v",
+			callstackCoverage, gpuCoverage)
+	}
+}

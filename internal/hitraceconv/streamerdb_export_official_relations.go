@@ -13,7 +13,10 @@ import (
 // loadTraceDBFrameRelationRoster admits only the official frame row identity
 // and timestamp. It is deliberately independent of frame span lifecycle/CPU
 // admission: exact SQL foreign-key relations remain useful even when a frame
-// cannot be rendered as a physical S/F lane.
+// cannot be rendered as a physical S/F lane. Capture-window admission remains
+// mandatory, however. A producer row before the authoritative trace start is
+// retained by the SQL fidelity carrier, but must not become a query-visible
+// timestamp that expands the converted trace envelope.
 func loadTraceDBFrameRelationRoster(ctx context.Context, tdb *traceDB,
 	authority traceDBSchedulerAuthority,
 ) (TraceDBCoverage, map[int64]traceDBFrameSliceRow, error) {
@@ -21,7 +24,7 @@ func loadTraceDBFrameRelationRoster(ctx context.Context, tdb *traceDB,
 	coverage.FieldSources = map[string]string{
 		"stable_identity": "official frame_slice.id decoded by the collector-selected frame uint32 profile",
 		"timestamp":       "strict frame_slice.ts; relation anchor only",
-		"admission":       "independent of frame S/F lifecycle, CPU, duration, type, flag, and identity admission",
+		"admission":       "capture-window admitted; independent of frame S/F lifecycle, CPU, duration, type, flag, and identity admission",
 		"callstack":       "optional official frame_slice.callstack_id retained for exact endpoint validation",
 	}
 	out := map[int64]traceDBFrameSliceRow{}
@@ -77,6 +80,10 @@ func loadTraceDBFrameRelationRoster(ctx context.Context, tdb *traceDB,
 		ts, ok := traceDBStrictSQLiteInt(tsRaw)
 		if !ok || ts < 0 {
 			skipped["invalid_frame_timestamp"]++
+			continue
+		}
+		if traceDBBeforeCaptureStart(authority.identities, ts) {
+			skipped["before_capture_start"]++
 			continue
 		}
 		frame := traceDBFrameSliceRow{StableID: id, TS: ts}

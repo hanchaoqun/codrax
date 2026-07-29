@@ -3325,6 +3325,143 @@ Current progress:
 - O4b-O5: pending;
 - customer replay: deliberately not requested yet.
 
+## REP6 replay audit and repair batches (2026-07-28)
+
+Replay input:
+
+- `/Users/han/opt/customlogs/rep6.txt`;
+- `/Users/han/opt/customlogs/codrax-trace-diag-rep6.txt`;
+- customer build executable SHA-256
+  `de6a31d6c3cf7559e3441cc686436b2249810815c23effab7c064e60351735b7`.
+
+### R6-01 (P0) — query-visible pre-capture relation timestamps expand the trace by 13.5 hours
+
+Confirmed. The source capture is the same approximately 2.3-second trace
+around `69326..69328`, but REP6 reports
+`first_timestamp_sec=20857.394782085` and
+`last_timestamp_sec=69328.343094`. The new first timestamp is not a converted
+span endpoint. It comes from a pre-capture `frame_slice` row admitted by
+`loadTraceDBFrameRelationRoster`, then published as a query-visible
+`frame_slice_callstack`/GPU relation timestamp. The semantic frame exporter
+already rejects the same row as `before_capture_start`.
+
+This is a correctness bug even when a particular external viewer ignores
+Codrax typed comments: Codrax and any typed-aware consumer sees a synthetic
+approximately 13.5-hour envelope, so valid 2.3-second spans appear visually
+collapsed.
+
+Repair:
+
+- keep every pre-capture SQL row in the O2 exact fidelity stream;
+- exclude its timestamp from the query-ready frame relation roster using the
+  precise `trace_range.start_ts` authority;
+- report `before_capture_start=N` in relation-roster coverage;
+- pin that in-capture relations remain independent of frame span
+  CPU/lifecycle admission.
+
+### R6-02 (P0) — “preserved” is not “visible in the official viewer”
+
+Confirmed. REP6 has three distinct classes and they must not be merged:
+
+| Class | REP6 count | Current disposition | Official/generic viewer |
+| --- | ---: | --- | --- |
+| truly unpublished closed sync spans | 176 | local fence, no raw replacement | missing |
+| CPU-unavailable callstack source rows after raw replacement | 9,521 | Codrax typed comment lane | invisible |
+| completed async intervals without proven physical finish emitter | 62 | Codrax typed comment lane | invisible |
+
+The first class is actual conversion loss. The latter two are lossless for
+Codrax but still a customer-visible compatibility gap. O2 SQL fidelity rows
+also do not make these spans visible in the official viewer.
+
+Frozen acceptance rule:
+
+- a span counts as official-viewer-published only when emitted through a
+  standard syntax accepted by the pinned OpenHarmony SmartPerf parser;
+- typed comments remain a conservation/audit layer and never count as
+  official-viewer span success;
+- CPU, thread, owner, namespace PID or finish emitter must never be invented
+  merely to make a viewer draw a span;
+- viewer-visible, Codrax-typed-visible and source-preserved counts are
+  reported separately.
+
+### R6-03 (P0) — 18,033 exact raw spans are rejected only by Codrax's microsecond wire profile
+
+Confirmed by the raw-marker ledger. REP6 retains 83,975 structurally closed
+raw pairs but withholds 18,033 because the current six-decimal timestamp wire
+rounds the endpoints to the same microsecond. This is not missing source data
+and not an OpenHarmony parser failure. It is a Codrax output-profile
+limitation.
+
+Repair must first pin the official SmartPerf text parser's accepted fractional
+precision. If nanosecond text is accepted, emit exact standard endpoints and
+change the representability gate from “different rounded microseconds” to
+“strictly increasing nanoseconds”. This is the highest-leverage
+official-viewer repair because the raw rows already provide authoritative
+CPU/emitter/name evidence; recovered raw spans may also replace part of the
+9,521 CPU-unavailable typed-only population.
+
+### R6-04 (P1) — local-fence closure is still broader than the actual bad rows
+
+The 176 remaining sync spans are all locally fenced. O2 proves their source
+rows survive, but does not make them viewable. Audit the 101 pre-pairing
+rejections against each fence's exact `(itid, depth, start, end, row id)`
+provenance. Narrow only where one precise bad row currently suppresses an
+unrelated valid pair. Ambiguous nesting remains fail-closed.
+
+### R6-05 (P1) — async standard publication lacks an official-viewer-safe fallback
+
+The 62 typed completed async intervals include 58 raw-async identity-key
+mismatches and four start mismatches. Reconcile namespace PID, host emitter
+TID, `child_callid` and raw marker owner against the official parser's async
+key construction. Emit standard `S/F` only when both physical endpoint
+emitters and CPUs are proven. Otherwise retain the typed interval and report it
+as viewer-invisible; never synthesize an endpoint.
+
+### R6-06 (P1) — O2 fidelity records dominate conversion cost
+
+REP6 makes the performance bottleneck conclusive:
+
+- trace_streamer DB export: 2.4 seconds;
+- DB normalization: 73.2 seconds;
+- output: 1,237,948 rows / 774,310,090 bytes;
+- O2 advisory fidelity rows: 829,327;
+- global sorter: 39.096 seconds, 17 spills and 1,775,695,414 temporary bytes;
+- post-validation: 7.074 seconds.
+
+The exact SQL fidelity lane is over half the output rows and is passed through
+the semantic global sorter even though its own schema/row/receipt order is
+already authenticated. The performance repair keeps all rows and hashes:
+
+1. add separate elapsed/byte/row timings for SQL scan, encoding, spill, merge,
+   fidelity append and post-validation;
+2. cache the immutable DB schema/table/row-count inventory and remove repeated
+   metadata scans;
+3. append one authenticated O2 tail after sorted semantic events in strict
+   `schema -> row chunks -> receipt` order, then validate its row counts and
+   SHA-256 receipts;
+4. optimize the validation parser without removing full validation;
+5. use a versioned binary private spill record only if the preceding changes
+   leave the semantic sorter dominant.
+
+Disallowed shortcuts remain: disabling O2, skipping raw recovery or full
+validation, deleting ordering, fabricating CPU/identity, or merely increasing
+the memory ceiling.
+
+### REP6 frozen delivery order
+
+| Batch | Priority | Work | Independent push gate |
+| --- | --- | --- | --- |
+| R6-A | P0 | pre-capture relation fence and trace-envelope regression | exact roster/coverage fixtures green |
+| R6-B | P0 | official SmartPerf timestamp grammar audit; exact-nanosecond standard raw spans when proven | official-parser evidence plus sub-microsecond B/E round-trip fixture |
+| R6-C | P1 | narrow local-fence loss; reconcile raw async identities | every newly visible span has exact source CPU/emitter authority |
+| R6-D | P1 | split viewer-visible / typed-visible / fidelity-only receipts and caveats | no typed comment counted as official-viewer success |
+| R6-E | P1 | P0 timings and authenticated O2 tail fast path | row/cell/hash conservation unchanged; semantic output unchanged |
+| R6-F | P2 | metadata cache, scan-buffer reuse and validator allocation reduction | benchmark improves without weakening full verification |
+
+Customer replay is needed after R6-B through R6-F are pushed. Existing REP6 is
+sufficient for implementation and regression design; asking the customer to
+replay before these code-side repairs would only reproduce known failures.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.
