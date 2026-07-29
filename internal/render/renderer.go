@@ -2535,6 +2535,17 @@ func compactToolNameList(names []string, maxKinds int) string {
 // 2 cols and ambient combining marks take 0). When truncation
 // happens, the result ends with a "…" marker followed by an SGR
 // reset so any active colour doesn't bleed into the next line.
+// dockWidthCond is the PINNED width condition for terminal emission
+// surfaces (PIB-6, BARGRID-1 generalized: emission-surface geometry
+// must never depend on the package-level runewidth default condition,
+// which auto-detects EastAsianWidth from the locale — the same class
+// of bug that broke the HTML projection grid under zh locales).
+// EastAsianWidth=false renders EAW-Ambiguous runes (… · ↑ ↓ ⠋ █ ▒) at
+// width 1, matching mainstream terminal emulators regardless of the
+// host locale. Every width decision on the dock lanes below must go
+// through this condition, never runewidth.RuneWidth/StringWidth.
+var dockWidthCond = &runewidth.Condition{EastAsianWidth: false}
+
 func truncByDisplayWidth(s string, maxCols int) string {
 	if maxCols <= 0 {
 		return ""
@@ -2553,7 +2564,7 @@ func truncByDisplayWidth(s string, maxCols int) string {
 			}
 		}
 		r, size := utf8.DecodeRuneInString(s[i:])
-		rw := runewidth.RuneWidth(r)
+		rw := dockWidthCond.RuneWidth(r)
 		// Reserve 1 col for the ellipsis if we're about to overflow
 		// AND there's still more content after this rune.
 		if w+rw > maxCols {
@@ -2568,7 +2579,7 @@ func truncByDisplayWidth(s string, maxCols int) string {
 		// Walk back until we have room for "…" plus reset.
 		out := b.String()
 		// Strip trailing partial cells if we're now at the cap.
-		for runewidth.StringWidth(stripAnsiEscapes(out)) > maxCols-1 && len(out) > 0 {
+		for dockWidthCond.StringWidth(stripAnsiEscapes(out)) > maxCols-1 && len(out) > 0 {
 			// Drop one trailing rune (skip ANSI sequences while
 			// walking back is overkill; truncByDisplayWidth never
 			// places escapes after content without a rune in

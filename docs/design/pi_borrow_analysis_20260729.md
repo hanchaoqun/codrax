@@ -185,11 +185,11 @@ pi 的 prompt 面貌：基础系统 prompt 仅 ~18 行骨架（一句角色定�
 |------|------|----------------|------|
 | PIB-1 | 重试/溢出用户面：REPL 重试倒计时 + esc 取消 + 退避可视化 + 最终失败才报错；非 TTY 车道日志化 | LLM 客户端重试分层、REPL 状态卡、W1/W2 既有断路/心跳的 UX 面 | **已落地**（2026-07-29，见 §7 补记一） |
 | PIB-W | 写模式借鉴批（用户 2026-07-29 点名写模式 gap，优先级提升）。**2026-07-29 现状探索后收窄**（全文见 §7 补记二）：六候选中三项撤销（verify 结构化回灌=VerifyFailureHandoff 已完备；无 UI fail-closed=已正确返回错误不挂起；动作检查点=apply commit 快照+best-known-good 热回退+slice typed checkpoint 三层已在役）。保留四件：**W-1 三段式审批**（主件：`/reject` 现在把 batch 打成 Blocked 死路，拒绝意见零回流——新增修订意见 typed 载体→batch 回 ReadyToPlan→replan 消费，对标 pi plan-mode Refine 臂）；**W-2 审批决策 append-only 账本**（现 `plan.Approval` 单槽覆盖，跨 replan 只留最后一次；`/workflow show` 不展示 `Reasons[]`）；W-3 apply 中途失败（partially_applied）的检查点保全（`/approve --retry` 现开全新 worktree 丢前次状态）；W-4 raw diff 拒绝散文 typed 化（structured-edit 侧已有 reason code 双臂，raw 侧是纯散文）。 | write controller、审批流、REPL 写模式卡 | **W-1+W-2 已落地**（2026-07-29，见 §7 补记二）；W-3/W-4 候补 |
-| PIB-2 | 两级消息排队：pipeline 运行期不锁输入；steering（阶段边界注入）/ follow-up（run 结束注入）/ esc 还原队列 | REPL 输入循环、orchestrator 阶段边界、写模式 controller | 待启动 |
+| PIB-2 | 两级消息排队：pipeline 运行期不锁输入；steering（阶段边界注入）/ follow-up（run 结束注入）/ esc 还原队列 | REPL 输入循环、orchestrator 阶段边界、写模式 controller | **v1 已落地**（非 TTY follow-up 队列，2026-07-29 补记六）；TTY 全形推迟（单 stdin owner 重构前置） |
 | PIB-3 | 工具面截断纪律：双上限统一截断 + 永不半行 + 截断提示即下一步指令 + 输出截断时工具调用拒执行硬门 | read/grep 等工具实现、coverage 记账、agent 工具循环 | **已落地**（2026-07-29，见 §7 补记三） |
-| PIB-4 | 会话导出/导入复现闭环：诊断会话/工件一键导出 bundle + 一键导入还原 | blob session、REPL /history、报告投影 | 待启动 |
-| PIB-5 | REPL 水位与输入增强：footer token/cost/上下文水位 + 粘贴自动折叠 + @ 文件引用 seed RequiredFiles | REPL footer/输入组件、usage 计量、analyzer RequiredFiles | 待启动 |
-| PIB-6 | 渲染层几何 pin：teatest/VT 级差分渲染断言，BARGRID-1 教训泛化为渲染红线 | REPL 渲染面、测试基建 | 待启动 |
+| PIB-4 | 会话导出/导入复现闭环：诊断会话/工件一键导出 bundle + 一键导入还原 | blob session、REPL /history、报告投影 | 待启动（本轮未动，需独立探索批） |
+| PIB-5 | REPL 水位与输入增强：footer token/cost/上下文水位 + 粘贴自动折叠 + @ 文件引用 seed RequiredFiles | REPL footer/输入组件、usage 计量、analyzer RequiredFiles | **5a/5c 已落地，5b 收窄不做**（2026-07-29 补记五） |
+| PIB-6 | 渲染层几何 pin：teatest/VT 级差分渲染断言，BARGRID-1 教训泛化为渲染红线 | REPL 渲染面、测试基建 | **已落地**（2026-07-29 补记七） |
 | PIB-7 | `.codrax/prompts/` 模板命令 + providers.yaml `!cmd`/`$VAR` 值解析 | REPL 斜杠命令注册、internal/config | **已落地**（2026-07-29，见 §7 补记四） |
 
 排序依据：PIB-1 直接封堵死等会话事故的用户面缺口（最高性价比、改动面小，先行）；PIB-W 因用户点名写模式 gap 提升为第二批（§3.7 十七条机制 + 两条反面参考为输入，批内先探索现状再裁定收窄）；PIB-2 交互质变但改动面最大；PIB-3 纯 LLM 面正确性收益、独立可并行；PIB-4/5 日用增强；PIB-6/7 基建与顺手件。批内如探索发现现状已覆盖（或与红线冲突），允许收窄/撤销并在本表记录裁定。
@@ -212,6 +212,10 @@ PIB-1 前置探索结论（2026-07-29，全文见批次补记）：codrax 重试
 **触点**：`internal/llm/llm.go`（OnRetry 契约）、`openai.go`（发布预算）、`internal/agent/agent.go`（事件扩维）、`internal/repl/direct_llm_trace_adapter.go`（链路扩维）、`internal/render/event.go` / `dock_state.go` / `renderer_dock.go`（词形+倒计时+两车道标签）。
 
 **验证**：`make` 构建绿；`go test ./...` 83 包 exit=0 零 FAIL；新增 `internal/render/retry_countdown_test.go` 五组 pin（变换语义/三词形双语/事件接线/非 TTY 分母+禁 `N/0` 负臂/compose 端到端含归零翻转）；`stream_wait_matrix_test.go` 加分母断言；既有子串 pin（`重新请求模型`/no-jargon/静态词形/双镜像唯一性）全存活未改。
+
+### 补记七：PIB-6 渲染层几何 pin（2026-07-29 落地）
+
+**发现**：dock 的 `truncByDisplayWidth` 用包级 `runewidth.RuneWidth/StringWidth`——BARGRID-1 同族隐患（包级默认条件按 locale 自动检测 EastAsianWidth，zh locale 下 EAW-Ambiguous 字符 `… · ↑ ↓ ⠋ █ ▒` 量宽漂移）。**落地**：新增钉死的 `dockWidthCond = &runewidth.Condition{EastAsianWidth: false}`（发射面几何禁用包级默认条件，红线注释写明），`truncByDisplayWidth` 两处测量切换；两组 pin：① 对抗性内容（超长 CJK 标签/歧义宽度字符/重试倒计时态/`█▒` 洪泛）下三行全部 ≤ 列帽；② **locale 无关性行为 pin**——测试内翻转进程级 `runewidth.DefaultCondition.EastAsianWidth` 断言截断输出逐字节不变（BARGRID-1 教训机械化，任何回退到包级测量的改动立即红）。收窄：`cjk_adapter.go`（mermaid 网格车道）的包级用法不在本批动——BARGRID-1 原批已治理其发射面，避免跨车道联动风险。pi 的 `@xterm/headless` 全序列 VT 断言不引入（bubbletea/pterm 栈无等价现成件，dock 行级 pin + 双帧差分已覆盖主风险面）。
 
 ### 补记六：PIB-2 两级消息排队（2026-07-29，v1 落地 + 收窄裁定）
 
