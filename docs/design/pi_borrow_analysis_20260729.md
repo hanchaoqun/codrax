@@ -1,0 +1,165 @@
+# pi (earendil-works/pi) 借鉴分析与落地批次账本
+
+- 日期：2026-07-29
+- 对象：https://github.com/earendil-works/pi （Mario Zechner / earendil-works，TypeScript monorepo，调研时 v0.82.1，~125k LOC）
+- 方法：全仓克隆 + 四路并行深读（agent 循环与 LLM 层 / coding-agent 工具与会话 / TUI 与交互 UX / 工程实践与生态），逐条与 codrax 现状对照。
+- 本文档兼作落地账本：§6 批次排期表随每批落地更新状态。
+
+## 1. pi 项目画像
+
+四个核心包，层次自下而上：
+
+| 包 | 职责 |
+|----|------|
+| `packages/ai` | 40+ provider 统一 LLM API：生成式模型目录（models.dev + 各家 /models 端点 → JSON + 编译期字面量类型）、compat 开关矩阵（30+ 布尔把 provider 方言下沉为模型元数据）、统一 thinking 等级映射、prompt cache 策略、重试/溢出分类、OAuth |
+| `packages/agent` | 三层递进：`agentLoop`（无状态纯函数）→ `Agent`（有状态 + steering/follow-up 队列）→ `AgentHarness`（树状会话持久化 + 可返回值 hook 总线） |
+| `packages/coding-agent` | 7 个内置工具（read/bash/edit/write/grep/find/ls）+ 四运行形态（interactive TUI / print / RPC / SDK）+ 扩展系统（26 种事件 hook）+ skills/prompt templates + compaction |
+| `packages/tui` | 自研差分渲染 TUI：行数组组件模型、同步输出、kitty 键盘协议探测、粘贴折叠编辑器、终端图片 |
+
+哲学：**"primitives, not features"** —— core 刻意极小（不内置 MCP/子 agent/plan mode/权限弹窗），一切能力下放给运行时加载的 TypeScript 扩展（jiti 免编译 + `/reload` 热加载）；agent 可给自己写扩展（系统 prompt 写死自身 docs/examples 路径 + 文档首行祈使句 + eval 固化验证该闭环）。
+
+## 2. 哲学对比与总体裁定
+
+codrax 与 pi 是两个极端：codrax 的价值在**确定性硬门禁、typed 证据链、可审计裁定账本**；pi 的价值在**极简可延展**。总体裁定：
+
+- **不照搬哲学**：不引入"万物皆扩展"，不放松 L1-L8 红线与确定性风险门。
+- **平移工程结晶**：pi 在长循环交互体验、会话工程、工具面容错、错误通道纪律上的机制与哲学无关，可直接借鉴。
+- 借鉴优先级以"对 codrax 真实痛点的命中度"排序（§6），不按 pi 侧的实现精巧度排序。
+
+## 3. 各维度详析（含 pi 侧文件锚点）
+
+### 3.1 UX——交互输入侧
+
+1. **两级消息排队（steering / follow-up）**：agent 流式运行时编辑器不锁。Enter 入 steering 队列（当前轮工具执行完即注入）、alt+enter 入 follow-up（整个 run 结束后注入）、alt+up 一键取回全部排队消息、esc 中止时队列原样还原进编辑器（`interactive-mode.ts:3728-4007`）。队列区渲染为 dim 单行 `Steering: ...` + 提示。
+   - codrax 映射：read pipeline 一跑数分钟，REPL 期间无法补充线索；steering 注入点天然=阶段边界（analyze→explore 之间补锚点文件语义明确）；写模式 controller 循环同理。
+2. **粘贴折叠为原子标记**：>10 行或 >1000 字符的 bracketed paste 显示为 `[paste #1 +123 lines]`，标记是原子字素（光标/删除/词导航当单字符），删除后重编号，提交时还原（`editor.ts:32-88, 1156-1315`）。codrax 的 `/log` 粘贴（`/end` 结束）与 `/paste` 是显式命令式，pi 这套零命令自动识别。
+3. **@ 文件模糊引用**：`@` 触发 fd 全仓模糊搜（文件名精确 100/前缀 80/含 50/全路径 30，目录 +10），带引号路径处理、目录补全不加空格方便下钻（`autocomplete.ts`）。codrax 映射：@ 选中文件 seed 进 analyzer RequiredFiles，把日志附件锚点能力泛化到任意文件。
+4. **prompt 模板**：`.pi/prompts/*.md` 文件名即 `/命令`，frontmatter 带 `description`/`argument-hint`，参数替换 bash 风格 `$1`/`$@`/`${@:-default}`/`${@:2}`（`prompt-templates.ts`，单条正则实现）。codrax 映射：`.codrax/prompts/` 让用户把高频审计话术固化成斜杠命令。
+5. 其它：`!cmd` bash 直通且编辑器边框实时变色提示 bash 模式、`!!` 不入上下文；ctrl+g 外部编辑器；`\`+Enter 换行兜底（不支持 Shift+Enter 的终端）；上/下键首末行双语义（有历史翻历史，否则跳行首尾）。
+
+### 3.2 UX——输出/状态侧
+
+1. **重试可视化**：`Retrying (2/5) in 7s... (esc to cancel)` 每秒改写倒计时；重试期间临时借走 esc 绑定给 abortRetry、结束归还（语义栈式）；只有最终失败才报错，中途成功零噪音（`status-indicator.ts:42-72`、`interactive-mode.ts:3070-3149`）。
+   - codrax 映射：直接回应死等会话事故史（客户卡 14m35s；W1 流式断路/W2 心跳已落地，缺的是用户面"正在退避、还剩几秒、esc 可放弃"）。
+2. **上下文溢出车道**：LLM 报溢出 → 剔除错误消息 → 自动压缩 → 自动重试该轮；**只允许一次恢复**，二次失败给可执行建议（"换大窗口模型"）（`agent-session.ts:1979-2010`）。
+3. **Footer 实时账**：`↑in ↓out R缓存读 W缓存写 命中率% $成本 上下文%/窗口`，>70% 警告色、>90% 错误色；宽度不足先隐藏 provider 前缀再截断（`footer.ts:148-160`）。
+4. **工具输出折叠纪律**：默认折叠，各工具自报折叠上限（read 10 行/grep 15/bash 尾 5），按视觉行（含折行）取尾部，提示语嵌实时 keybinding 渲染的键名；ctrl+o 全局展开；启动头折叠成一行帮助（`visual-truncate.ts` + 各工具 renderResult）。
+5. **esc/ctrl+c 分层语义**：esc 依次=关补全→中止流式（还原队列）→中止 bash→退 bash 模式→空编辑器 500ms 双击开会话树；ctrl+c 第一次清空、500ms 内二次退出；ctrl+d 仅空编辑器退出；双击 500ms 全局统一。
+6. **状态行原地改写**：新状态紧跟上一条状态行则覆写不追加；清除按 kind 匹配防竞态误清（`interactive-mode.ts:3190-3213`）。
+7. 低于阈值不打扰：缓存未命中提示仅当 ≥20k tokens 或 ≥$0.1 才显示。
+
+### 3.3 会话管理
+
+1. **树状会话**：单 JSONL 文件内 entry 带 8 位 id/parentId + leaf 指针，分支不开新文件；`/tree` 跳任意 user 消息时把消息文本回填编辑器、叶移到其 parent（=编辑重发）；切走的分支自动生成 branch summary（`session-manager.ts`、`agent-harness.ts:791-882`）。11 种 entry 类型；`custom`（扩展状态，不入上下文）与 `custom_message`（入上下文）分离。
+2. **compaction 五细节**（`compaction.ts` + `docs/compaction.md`）：
+   - 切点绝不落在 toolResult 上；单轮超预算 split-turn 双摘要合并；
+   - compaction entry 自带 `retainedTail` 自包含 checkpoint，上下文重建到此截断；
+   - 待摘要内容序列化成 `[User]:/[Assistant]:` 标签文本防模型当对话续写，tool result 截 2000 字符；
+   - 摘要请求用全新 session id + `cacheRetention:"none"`（辅助调用不污染主对话 prompt cache）；
+   - 混合 token 计量：以最后一条 provider 真实 usage 为锚，只对其后增量做字符估算。
+   - 结构化摘要模板（Goal/Constraints/Progress/Key Decisions/Next Steps + read-files/modified-files 跨压缩累积）+ 增量更新 prompt（带旧摘要、In Progress 迁 Done）。
+3. **会话导出/导入复现闭环**：CI 用 pi 分析自己的 issue → 会话导出 gist → 评论给一行 `pi "/ir <gistId>"` → 任何人一键导入 CI 会话本地继续追问（`.github/workflows/issue-analysis.yml`、`.pi/extensions/import-repro.ts`）。会话选择器搜索支持 `re:` 正则与引号短语 token。
+
+### 3.4 工具层设计（LLM 面）
+
+1. **截断提示即下一步指令**：read 截断附 `[Showing lines A-B of N. Use offset=B+1 to continue.]`；grep 附 `Use limit=200 for more`；bash 超限自动落盘回 `Full output: <tmpfile>`；单行超 50KB 给可执行 `sed -n 'Np' | head -c` 命令（`tools/read.ts:293-303` 等）。原则：模型永远知道怎么拿剩下的部分。
+2. **双上限（行+字节）+ 永不半行**：`DEFAULT_MAX_LINES=2000`、`DEFAULT_MAX_BYTES=50KB` 先命中者胜，统一 `truncate.ts` 被 7 工具复用；`TruncationResult` 携带 `truncatedBy/totalLines/totalBytes/...` 供 UI 与模型两端复用；bash 用 `truncateTail`（日志错误在尾部）。
+3. **OutputAccumulator**：滚动尾部缓冲（maxBytes*2）+ 增量 UTF-8 decoder，内存有界；超限落盘 temp file 流式写。
+4. **`prepareArguments` 畸形参数容错层**：已知模型坏习惯（edits 传 JSON 字符串、旧字段平铺）进 schema 校验前修正（`edit.ts:94-118`）。
+5. **`stopReason=length` 整批工具拒执行**：截断参数可能能解析但语义残缺（`agent-loop.ts:381-406`）——fail-loud 精确信号。
+6. **工具自带 prompt 片段**：`promptSnippet`/`promptGuidelines`，系统 prompt 随激活工具集自动拼装去重（`system-prompt.ts:82-113`）。
+7. 杂项：macOS 截图路径 4 变体回退（U+202F/NFD/U+2019/组合）；文件级 realpath 串行队列（abort 不在事件回调里 reject 防提前释放锁）；edit 的 BOM/CRLF 规范化三明治 + 模糊匹配只覆盖变更行 + overlap 显式检测。
+
+### 3.5 LLM 层
+
+1. **重试三分类**：不可重试（配额/账单，速败）/ 可重试（429/5xx/网络，指数退避）/ 溢出（不重试，改走压缩续跑）。每条重试正则带出处注释与 issue 号（`utils/retry.ts`、`utils/overflow.ts`）。
+2. **传输/策略两层退避分离**：传输层贴 SDK 语义（`x-should-retry`/`retry-after`），`maxRetryDelayMs=60s`，服务端要求更久时**上抛给上层做可视化/可取消**而非闷头 sleep。
+3. **错误只走数据通道**：`StreamFn` 契约禁止 reject，失败编码成 `stopReason:"error"` 最终消息并补齐完整事件序列（message_end→turn_end→agent_end）；abort 归一化 `stopReason:"aborted"`；`lazyStream` 把 setup 失败也转成流内事件——消费端永不处理事件缺口。
+4. **重试双账**：重发前把 error assistant 消息从内存上下文摘除、会话历史保留（`agent-session.ts:2698-2701`）——上下文干净 + 审计可回放并存。
+5. **`agent_end` vs `agent_settled`**：前者=一次底层 run 结束（可能还有重试/压缩/队列续跑，带 `willRetry`），后者=真正安静。嵌入方只能信 settled。
+6. **save point 写入模型**：运行期配置变更入 `pendingSessionWrites`，只在 turn_end flush——会话文件永远停在一致轮次边界。
+7. **并行工具双序**：prepare 严格顺序（权限询问顺序稳定）、execute 并发、`tool_execution_end` 按完成序（UI 实时）、tool-result 消息按源序（transcript 确定）。
+8. **配置值解析**：`!cmd`（请求时执行 shell 取密钥，可接 keychain/vault，故意不缓存并写明理由）、`$VAR`/`${VAR}` 插值、`$$`/`$!` 转义（`resolve-config-value.ts`）。
+9. thinking 统一等级枚举 + 每模型 levelMap（null=不支持）+ 就近降级 clamp；compat 开关矩阵是"一份 API 实现服务 N 个伪兼容端点"的关键。
+
+### 3.6 运行形态
+
+四形态共享同一 `AgentSession`。RPC 契约三纪律（`docs/rpc.md`）：只按 LF 分帧（点名 Node readline 会错切 U+2028）；response 只表达"已接受"，接受后失败走事件流、不对同一 id 发第二个 response；`partialResult` 是累计值非增量。SDK 层 `AgentSessionRuntime` 拥有会话替换（newSession/switch/fork），契约明说替换后必须重新 subscribe。
+
+### 3.7 写码工作流与写安全（扩展生态深读；对 codrax 写模式的专项对照）
+
+pi core 无写模式概念（永远可写，安全靠容器化），但其扩展生态把"写工作流的确定性控制"拆成了一组可单独借鉴的机制。逐个读了 `examples/extensions/` 下全部写相关扩展后的机制速查：
+
+| # | 机制 | 出处（pi） | 对 codrax 写模式的价值 |
+|---|------|-----------|------------------------|
+| 1 | **无 UI 即 fail-closed**：危险动作需确认但无确认通道时默认拒绝 | `permission-gate.ts:20-22`、`dirty-repo-guard.ts:28-31` | Auto Pilot 无人值守（非 TTY/一次性 CLI）时"高风险 + 无审批通道"的默认行为必须是拒绝——需自查 codrax 现状是否处处如此 |
+| 2 | **黑名单 ∧ 白名单双判 + 默认拒绝**：34 条破坏性正则 + 51 条行首锚定只读白名单，两判都过才放行 | `plan-mode/utils.ts:97-101` | 比单一黑名单可靠；白名单行首锚定防管道绕过；可对照 codrax exec_command 语义验证（§29.213）查缺 |
+| 3 | **`git stash create` 零副作用快照**：每轮打悬空 commit ref（不动工作区/不入 stash 栈），回退时 `stash apply` | `git-checkpoint.ts:21-27` | worktree 内每个 DAG 动作前打点，verify 失败/replan 时精确回退到动作边界，比整树重建轻 |
+| 4 | **工具面收紧 + 精确还原**：plan 阶段剔除 edit/write，退出时还原"进入前的工具集"而非硬编码默认集 | `plan-mode/index.ts:104-114` | codrax L6 已按 skill 分工具面（planner 无 exec_command）；"精确还原"语义可对照 |
+| 5 | **阶段上下文注入 + 退出后清洗**：阶段指令用 display:false 消息注入，退出后从 context 过滤陈旧阶段指令 | `plan-mode/index.ts:177-247` | 防阶段指令残留污染后续动作；对照 codrax 控制器多阶段 prompt 组装 |
+| 6 | **三段式审批：执行 / 保持 / 人工修订**：高风险暂停不止 yes/no，第三条 Refine 打开编辑器收人工修订直接接回 replan | `plan-mode/index.ts:301-336` | codrax `/approve` `/reject` 是二元的；**"修订后重规划"通路是真实 gap**——用户对计划不满时目前只能 reject 重来 |
+| 7 | **冲突/失败结构化回灌**：merge 冲突扫成 `file:startLine-endLine (ours a-b, theirs c-d)` 清单作为 followUp 喂回 agent 自行解决 | `git-merge-and-resolve.ts:62-113` | verify 失败/apply 冲突时给 replan 的输入应是结构化定位清单而非裸错误文本 |
+| 8 | **同名覆盖内置工具 + pluggable operations**：read/bash/edit/write 的执行后端可整体替换（沙箱/VM/SSH），比 hook 拦截彻底 | `sandbox/index.ts:214-227`、`gondolin/index.ts` | codrax worktree 已是执行域隔离；operations 层启示是"工具实现与执行后端解耦"的架构方向 |
+| 9 | **审计日志行格式**：`[ts] ALLOWED\|BLOCKED: <absPath> (reason)` + 文件级串行队列写入 | `tool-override.ts:47-60` | 风险门每次放行/拒绝落审计行，可直接作为写模式决策日志的展示格式 |
+| 10 | **进程级子 agent + 逐角色限权 + chain 失败即停**：scout(只读)/planner(只读)/worker(全能)/reviewer(只读+bash)，`--tools` 逐角色限定 | `subagent/index.ts:305-477` | codrax write 侧 agent 族（planner/coder/verifier/critics）已同构；chain 失败即停并报告哪一步的语义可对照 |
+| 11 | **repo 内配置默认不信任**：项目内 agent/规则文件默认不加载，显式确认才用（提示注入面） | `subagent/index.ts:505-530` | codrax 若引入项目级 prompts/skills（PIB-7）必须继承此原则 |
+| 12 | **提示层与执行层双保险**："Assume tool permissions are not perfectly enforceable" 写进只读角色 prompt | `subagent/agents/reviewer.md:10-11` | 风险门是主防线、prompt 是补充——与 codrax 精确/嘈声信号原则同构 |
+| 13 | **超时确认兜底**：确认框带倒计时，超时默认取消 | `timed-confirm.ts:14-22` | 无人值守下高风险暂停的超时默认动作（默认拒绝）范式 |
+| 14 | **edit 三重防错**：oldText 唯一性（报出现次数）/ 区间非重叠 / 非空操作，全部对原始文件匹配、逆序应用 | `edit-diff.ts:268-351` | apply 动作的确定性前置校验；失败信息可直接驱动 replan——对照 codrax coder 的编辑通道防错完备度 |
+| 15 | **状态存会话 entry 而非外部文件**：plan/todo 状态随会话分叉自动对应历史点 | `todo.ts` 头注释、`plan-mode` appendEntry | codrax durable workflow 状态已持久化；"随分叉正确"语义在引入会话 fork（PIB-4/会话树）时需对照 |
+| 16 | **写收尾硬约束**：禁 `git add .`/`-A`、只提交本会话文件、非 main 分支停下来问、多 issue 绑定停下来问 | `.pi/prompts/wr.md` | 可直接作为 codrax apply/commit 节点的确定性规则与 CLAUDE.md 制度化条目 |
+| 17 | **只读审查零副作用**：review 不 checkout 分支，只用 `gh pr diff` + `git show <ref>:<path>` | `.pi/prompts/pr.md` | verify/review 节点的零工作区副作用范式 |
+
+反面参考（不照抄）：① `protected-paths.ts` 用未 resolve 的原始路径做 `includes` 匹配，可被相对路径/软链绕过——路径判定必须 realpath 前缀；② 示例 `auto-commit-on-exit.ts` 用 `git add -A`，与 pi 自己 `wr.md` 的硬约束相矛盾（演示件）。
+另注：`tool_call` hook 的 `event.input` 可原地 mutate 但**不做 re-validation**（`docs/extensions.md:751-790`）——凡引入"门内改参"能力必须自带二次校验。
+
+### 3.8 工程实践
+
+1. **REPL 渲染可测试性**：`@xterm/headless` 做 `VirtualTerminal` 记录全部转义序列，断言差分渲染/重绘行为（`tui/test/virtual-terminal.ts`）；render 行宽超限直接抛错 + dump 崩溃日志（用崩溃换永不错位）。
+2. **测试隔离**：`test.sh` 用 `env -i` 空环境白名单注入（无 API key = LLM 测试自动 skip）；`PI_OFFLINE=1` 默认断网、需网络显式 `allowNetwork()`；faux provider 代替 record/replay；回归测试 `<issue号>-<slug>.test.ts` 收 `regressions/`。
+3. **发布事务**：draft release → npm 发布 → 成功才 publish，任一环节失败自动删草稿；文档内链发布时改写成 tag 冻结链接；Actions 全 pin commit SHA；依赖精确 pin + lockfile 提交门 + install-script allowlist（失效条目也报错）；`min-release-age=2` 避开当日新发布依赖。
+4. **AGENTS.md git 纪律**：前提"同 cwd 并发多 agent 会话"，只准 `git add <显式路径>`，明令禁止 `git reset --hard`/`git checkout .`/`git clean -fd`/`git stash`/`git add -A`。（codrax memory 中的散条教训值得同样制度化进 CLAUDE.md。）
+5. **文档自解释**：docs 全量打进二进制，系统 prompt 写死自身 docs/examples 路径，文档首行祈使句；离线可"问 agent 自己"。
+6. eval 体系：与单测共用 vitest 基座；provider+model 必须成对显式给出（绝不隐式换模型）；"agent 写扩展→reload→用扩展"固化为可回归行为测试；eval 不进 CI（真实付费模型，人工触发）。
+
+## 4. 不采纳清单（附理由）
+
+| 项 | 理由 |
+|----|------|
+| 极简 core + 万物皆扩展 | 与 L1-L8 红线/确定性风险门文化相悖；codrax 护城河是确定性与可审计 |
+| jiti 运行时加载 TS 扩展 | Go 无等价物（Yaegi 成本与风险高）；如需扩展走"外部进程 + RPC 契约" |
+| 无权限系统靠容器化兜底 | codrax worktree 隔离 + 确定性风险分级是更强承诺，不退 |
+| 树状会话全部复杂度（11 entry 类型） | codrax 起步只需 fork + 编辑重发两个交互 |
+| auto-close 贡献门 / npm 供应链全套 | 仅开源/发 npm 后相关；Go 依赖面小 |
+
+## 5. 与 codrax 既有红线的交叉检查点（每批开发必查）
+
+- **L1**：read-mode 行为等价 pin（`TestRunMode_ReadByteIdentical`）——REPL 新特性不得改变 `Mode=""`/`ModeRead` 的 BusContext 输出。
+- **证据门**：read 工具截断策略变更会影响 read_file coverage 见证（`FileReadCoverageStore` 有多时间语义视图，禁统一重构）与 `CurrentSourceSatisfied` 确定性见证——PIB-3 必须保持 coverage 记账精确。
+- **精确/嘈声信号原则**：新增任何门禁只能挂精确信号；倒计时/水位等 UI 皆软展示。
+- **prompt 红线 checklist（ATOMIC 7 条）**：任何 LLM-facing prompt 变更（PIB-3 截断提示词、PIB-2 steering 注入语）必须过 checklist；R2' typed signal 6 处同步。
+- **eval 选例覆盖改动面**（补记卅七教训）：每批冒烟 eval 必须选覆盖该批改动场景族的例子。
+- **思考语言零答案代价**：若新增 LLM 车道（如摘要），思考语言指令按 A/A2/A3/A4 既有范式接入。
+
+## 6. 落地批次排期表（随落地更新）
+
+工作流程约定（每批固定）：`git fetch` 对齐远程最新 → 探索相关子系统充分理解现状 → 详细设计（最优方案，落账本补记）→ 开发 → `make` + `go test` + 相关 eval 冒烟 → 提交 → rebase（冲突响亮停）→ push + 双零检查。
+
+| 批次 | 范围 | 涉及 codrax 面 | 状态 |
+|------|------|----------------|------|
+| PIB-1 | 重试/溢出用户面：REPL 重试倒计时 + esc 取消 + 退避可视化 + 最终失败才报错；非 TTY 车道日志化 | LLM 客户端重试分层、REPL 状态卡、W1/W2 既有断路/心跳的 UX 面 | 待启动 |
+| PIB-W | 写模式借鉴批（用户 2026-07-29 点名写模式 gap，优先级提升）：三段式审批（修订→replan 通路）、动作级 `git stash create` 检查点/回滚、verify 失败结构化回灌、无 UI fail-closed 全路径自查、风险门审计行、无人值守超时兜底；先探索 codrax write controller 现状再裁定收窄 | write controller、审批流、apply/verify 通路、REPL 写模式卡 | 待启动 |
+| PIB-2 | 两级消息排队：pipeline 运行期不锁输入；steering（阶段边界注入）/ follow-up（run 结束注入）/ esc 还原队列 | REPL 输入循环、orchestrator 阶段边界、写模式 controller | 待启动 |
+| PIB-3 | 工具面截断纪律：双上限统一截断 + 永不半行 + 截断提示即下一步指令 + 输出截断时工具调用拒执行硬门 | read/grep 等工具实现、coverage 记账、agent 工具循环 | 待启动 |
+| PIB-4 | 会话导出/导入复现闭环：诊断会话/工件一键导出 bundle + 一键导入还原 | blob session、REPL /history、报告投影 | 待启动 |
+| PIB-5 | REPL 水位与输入增强：footer token/cost/上下文水位 + 粘贴自动折叠 + @ 文件引用 seed RequiredFiles | REPL footer/输入组件、usage 计量、analyzer RequiredFiles | 待启动 |
+| PIB-6 | 渲染层几何 pin：teatest/VT 级差分渲染断言，BARGRID-1 教训泛化为渲染红线 | REPL 渲染面、测试基建 | 待启动 |
+| PIB-7 | `.codrax/prompts/` 模板命令 + providers.yaml `!cmd`/`$VAR` 值解析 | REPL 斜杠命令注册、internal/config | 待启动 |
+
+排序依据：PIB-1 直接封堵死等会话事故的用户面缺口（最高性价比、改动面小，先行）；PIB-W 因用户点名写模式 gap 提升为第二批（§3.7 十七条机制 + 两条反面参考为输入，批内先探索现状再裁定收窄）；PIB-2 交互质变但改动面最大；PIB-3 纯 LLM 面正确性收益、独立可并行；PIB-4/5 日用增强；PIB-6/7 基建与顺手件。批内如探索发现现状已覆盖（或与红线冲突），允许收窄/撤销并在本表记录裁定。
+
+PIB-1 前置探索结论（2026-07-29，全文见批次补记）：codrax 重试分层 L1(adapter HTTP,默认 6 次,退避分类含 Retry-After/quota/full-jitter)→L2/L3(fallback)→L4(orchestrator transient,预算 3)→L5(force finalize,3) 完备；W1 四层流式看门狗 + 退化断路、W2 心跳(2 的幂限频)已在役。**用户面 gap 三处**：① `render.Event` 无最大次数/截止时刻字段，TTY dock 重试行是静态字符串不倒计时（唯一带 `N/M` 分母的信息只进日志不进 UI）；② 运行期无键盘监听，取消粒度=整 Run 的 Ctrl+C（dock row3 已有提示；pi 式 esc-只取消重试等待 与既有取消架构不符，裁定不做）；③ usage 每响应已捕获但全仓零消费（无累计/无成本换算），归 PIB-5 基础。
+
+## 7. 批次落地记录（补记区）
+
+（每批落地后在此追加：探索结论 / 方案裁定 / 提交哈希 / 验证结果。）
