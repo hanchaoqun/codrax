@@ -4352,6 +4352,172 @@ predeclared as exactly 3,759: an admitted raw pair may be DB-disjoint and add a
 span, may replace one CPU-unavailable DB candidate, or may prove an already
 standard-visible exact DB duplicate. Collision cardinality decides each case.
 
+## REP-B customer replay audit (2026-07-29)
+
+Inputs:
+
+- `/Users/han/opt/customlogs/repB.txt`;
+- `/Users/han/opt/customlogs/codrax-trace-diag-repB.txt`;
+- customer executable SHA-256
+  `d24de16a0271381c2a6966bb894ac0dc8373591131bcb6484d4374ea0965e6b0`.
+
+The capability roster contains all four REP-A acceptance capabilities:
+
+```text
+official_raw_marker_zero_pid_header_identity_v1
+null_duration_raw_disposition_census_v1
+raw_marker_local_validation_reason_witness_v1
+raw_marker_local_validation_witness_v1
+```
+
+`build_revision` remains unavailable, but capability plus executable hash
+makes REP-B an admissible acceptance replay. The audited code baseline is
+`main@eeb566c6f`.
+
+### REP-B-01 — RA-B passed; the 3,759 pairs were existing standard DB spans
+
+The zero-PID equation closes:
+
+```text
+official structured zero-PID pairs normalized       = 3759
+raw pairs withheld: invalid begin payload PID       =    0
+raw exact-semantic CPU-known DB candidates           = 3764
+  previous non-zero baseline                         =    5
+  newly admitted zero-PID exact duplicates           = 3759
+```
+
+All 3,759 repaired raw pairs resolve to one already locally admitted,
+CPU-known, exact-semantic DB candidate. The shared authority therefore keeps
+the existing standard DB span and suppresses the duplicate raw pair. This is
+why the output remains:
+
+```text
+standard-visible spans = 92914
+typed-only sync spans  =  3128
+unpublished sync spans =    78
+```
+
+The unchanged visible count is successful deduplication, not a failed repair
+and not another 3,759-span loss. Publishing both representations would corrupt
+the B/E stack.
+
+### REP-B-02 (P1) — all surfaced residual name rejects use official trailing-space semantics
+
+After zero-PID repair, local validation has only one reason:
+
+```text
+raw pairs withheld by local validation = 279
+invalid_span_name                       = 279
+```
+
+The per-reason witness lane now exposes four independent examples. Every
+example is the exact structured `tracing_mark_write` profile and ends with one
+ASCII space, for example:
+
+```text
+H:RSFilterDrawable::CreateDrawFunc node[23669564790680]␠
+```
+
+The official `PrintEventParser::GetPointNameForBegin` removes ASCII spaces from
+the right edge before creating or matching a slice. Codrax instead retains the
+raw fixed-array text and then rejects it through the generic callstack
+edge-whitespace predicate. This is another producer/viewer compatibility gap,
+not an invalid binary record.
+
+The repair predicate is frozen narrowly:
+
+1. only a body selected by the exact OpenHarmony
+   `print|tracing_mark_write` `pid/name/start` producer qualifies;
+2. remove only one-or-more trailing ASCII U+0020 bytes, matching the official
+   viewer; leading space, tabs, other whitespace, controls and invalid UTF-8
+   remain rejected;
+3. the trimmed name must independently pass the existing complete span-name
+   predicate and be nonempty;
+4. PID, namespace, header identity, timestamps, CPU, flags, preempt count,
+   lifecycle and B/E pairing remain unchanged;
+5. the source raw name remains retained in the raw ledger; only the public
+   standard viewer body uses the official normalized name;
+6. exact DB collision cardinality still decides duplicate/replacement/new
+   publication. No count of 279 new visible spans is promised.
+
+The four witnesses prove this cohort exists; code must continue counting any
+other invalid-name shape separately rather than assuming all 279 are spaces.
+
+### REP-B-03 — all 90 NULL-duration hints lack any exact raw-start disposition
+
+The valid raw closure count remains zero. Neither the new
+`rejected-closed-pair` nor `open-begin` metrics is present, so under the complete
+disposition capability the equation is:
+
+```text
+NULL hints total                                      = 90
+valid exact raw closure                               =  0
+exact raw closed pair rejected locally                =  0
+exact raw open begin                                  =  0
+no exact raw start disposition                        = 90
+```
+
+These DB callstack rows are not recoverable from the current raw marker ledger.
+They may be an upstream derived/open-slice lane rather than physical
+print-marker records. The 78 later callstack spans must remain suffix-fenced:
+there is still no exact end or narrower invalid interval. The diagnostic
+should emit the final `no exact raw start disposition=90` counter explicitly
+instead of requiring subtraction; that is a presentation/accounting gap, not
+span authority.
+
+### REP-B-04 — the remaining viewer gap is exactly 3,128 CPU-authority spans
+
+The roster remains:
+
+```text
+3128 = 2638 cpu_unknown_start
+     +  488 cpu_source_tainted
+     +    2 cpu_unknown_end
+```
+
+Zero-PID and trailing-space repairs do not provide physical CPU evidence for
+this cohort. The next diagnostic should retain bounded final-candidate
+witnesses per reason (TID/TGID, canonical owner, start/end and name) after
+shared laminar/fence suppression. Pre-final callstack rows are not an adequate
+proxy because 3,209 CPU-unavailable source rows reduce to 3,128 final emitted
+typed spans.
+
+### REP-B-05 — total runtime rose, but only raw collision work is code-correlated
+
+| component | REP-A | REP-B | delta |
+| --- | ---: | ---: | ---: |
+| total DB normalization | 42.867s | 47.5s | about +4.6s |
+| raw sync recovery | 4.405s | 5.464s | +1.059s |
+| SQL fidelity `__all_tables__` | 13.950s | 16.317s | +2.367s |
+| semantic sorter | 7.526s | 7.729s | +0.203s |
+| full tracequery validation | 8.953s | 8.655s | -0.298s |
+
+The raw-sync increase is consistent with 3,759 newly admitted pairs performing
+exact collision checks. The SQL-fidelity increase again has identical
+829,327-row closure and is run variance. Across REP-A/B, all 89 per-table row
+hashes are equal except official table `meta`; that table deliberately carries
+conversion-dependent `runtime`, source/output filename and related metadata.
+Exact O2 preservation therefore makes the whole artifact hash vary while
+semantic table hashes remain stable. This is not evidence loss.
+
+No O2/hash/postvalidation weakening is authorized. A future performance batch
+may combine the exact duplicate collision lookup, but only with byte/semantic
+parity fixtures and an affected-row cardinality guard.
+
+### REP-B frozen delivery order
+
+| Batch | Priority | Work | Independent push gate |
+| --- | --- | --- | --- |
+| RB-A | P0 audit | record REP-B equations, official trailing-space ruling and performance split | all counts above traceable to REP-B |
+| RB-B | P1 repair | normalize trailing ASCII space only for the exact official structured producer | compact/text and every other invalid name stay withheld; collision authority unchanged |
+| RB-C | P2 diagnosis | emit explicit NULL disposition closure including exact-absent count | equation equals all retained hints; no fence change |
+| RB-D | P1 diagnosis | retain final typed-only CPU witnesses per exact reason after shared authority | counts equal 3,128; no CPU inference |
+| RB-E | P2 performance | optimize exact duplicate collision lookup only after RB-B/D | output semantics and full postvalidation unchanged |
+
+RB-B/C/D can be implemented before the next customer replay. The next replay
+should be requested after all three, so one run validates the 279-name cohort,
+the explicit 90-hint equation and the final 3,128 CPU witness roster.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.
