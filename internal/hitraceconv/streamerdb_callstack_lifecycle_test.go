@@ -383,14 +383,40 @@ func TestTraceDBCallstackRejectedTimestampFencesOnlySuffix(t *testing.T) {
 	if coverage.RowsEmitted != 4 ||
 		coverage.Metrics["sync_spans_suppressed_by_local_fence"] != 1 ||
 		coverage.Metrics["localized_fence_witnesses_emitted"] != 1 ||
+		coverage.Metrics["rejected_callstack_fence_witnesses_emitted"] != 1 ||
 		coverage.Metadata["localized_fence_witnesses"] !=
 			"tid=101/itid=1/kind=suffix/start_ns=1000/end_ns=0/reason=rejected_callstack_candidate" ||
+		coverage.Metadata["rejected_callstack_fence_witnesses"] !=
+			"row_id=1/tid=101/itid=1/ts_ns=1000/reason=invalid_duration/dur=text_bytes=3/b64=MTAw" ||
 		!strings.Contains(coverage.Skipped, "invalid_duration=1") ||
 		!strings.Contains(coverage.Skipped, "localized_fence_declarations=1 suppressed_spans=1") ||
 		!strings.Contains(body, "prefix-kept") ||
 		!strings.Contains(body, "other-lane-kept") ||
 		strings.Contains(body, "suffix-suppressed") {
 		t.Fatalf("callstack suffix fence scope drifted: coverage=%+v body=%q", coverage, body)
+	}
+}
+
+func TestTraceDBCallstackRejectedFenceWitnessesAreBounded(t *testing.T) {
+	callstack := make([]string, 0, traceDBCallstackRejectedWitnessCap+2)
+	for index := 0; index < traceDBCallstackRejectedWitnessCap+2; index++ {
+		callstack = append(callstack, fmt.Sprintf(
+			"INSERT INTO callstack VALUES (%d, %d, CAST(%d AS TEXT), 1, NULL, 'bad-duration', '', NULL, NULL, 0)",
+			index+1, 1000+index, index+10))
+	}
+	statements := traceDBCallstackAuthorityStatements(nil, callstack)
+	coverage, body := exportTraceDBCallstackAuthorityFixture(
+		t, statements, traceDBLifecycleIndex{}, true, nil)
+	if body != "" ||
+		coverage.Metrics["rejected_callstack_fence_witnesses_emitted"] !=
+			traceDBCallstackRejectedWitnessCap ||
+		coverage.Metrics["rejected_callstack_fence_witnesses_omitted"] != 2 ||
+		strings.Count(coverage.Metadata["rejected_callstack_fence_witnesses"],
+			"reason=invalid_duration") != traceDBCallstackRejectedWitnessCap ||
+		!strings.Contains(coverage.Metadata["rejected_callstack_fence_witnesses"],
+			"row_id=1/tid=101/itid=1/ts_ns=1000/reason=invalid_duration/dur=text_bytes=2/b64=MTA") {
+		t.Fatalf("bounded rejected-row witnesses drifted: coverage=%+v body=%q",
+			coverage, body)
 	}
 }
 

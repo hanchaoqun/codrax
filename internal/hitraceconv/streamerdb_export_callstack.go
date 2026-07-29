@@ -2,6 +2,8 @@ package hitraceconv
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"math"
 	"sort"
@@ -12,6 +14,8 @@ import (
 )
 
 const maxTraceDBCallstackTokenBytes = 4096
+const traceDBCallstackRejectedWitnessCap = 8
+const traceDBCallstackRejectedScalarInlineBytes = 64
 
 type traceDBCallstackRow struct {
 	ID             int64
@@ -63,6 +67,15 @@ type traceDBCallstackAsyncKey struct {
 	TGID      int64
 	Name      string
 	Cookie    string
+}
+
+type traceDBCallstackRejectedWitness struct {
+	RowID  int64
+	TID    int64
+	ITID   int64
+	TS     int64
+	Reason string
+	Dur    string
 }
 
 // exportTraceDBCallstack publishes trace-marker endpoints only after the SQL
@@ -214,6 +227,9 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 	officialAsyncEmitted := 0
 	officialAsyncRejected := 0
 	officialAsyncShaped := 0
+	rejectedWitnessTotal := 0
+	rejectedWitnesses := make([]traceDBCallstackRejectedWitness, 0,
+		traceDBCallstackRejectedWitnessCap)
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
 			return fail(err)
@@ -263,6 +279,15 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 						}
 						if err := syncSpans.fenceExactLane(ctx, fence); err != nil {
 							return fail(err)
+						}
+						rejectedWitnessTotal++
+						if len(rejectedWitnesses) < traceDBCallstackRejectedWitnessCap {
+							rejectedWitnesses = append(rejectedWitnesses,
+								traceDBCallstackRejectedWitness{
+									RowID: row.ID, TID: thread.TID, ITID: itid,
+									TS: row.TS, Reason: reason,
+									Dur: traceDBCallstackRejectedScalar(durRaw),
+								})
 						}
 					} else {
 						if err := syncSpans.poisonExactLane(ctx, traceDBSyncSpanLanePoison{
@@ -359,6 +384,29 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 		suppressedPrePairing += count
 	}
 	traceDBAddCoverageMetric(&coverage, "source_rows_suppressed_pre_pairing", int64(suppressedPrePairing))
+	if len(rejectedWitnesses) > 0 {
+		if coverage.Metadata == nil {
+			coverage.Metadata = map[string]string{}
+		}
+		parts := make([]string, 0, len(rejectedWitnesses))
+		for _, witness := range rejectedWitnesses {
+			parts = append(parts, fmt.Sprintf(
+				"row_id=%d/tid=%d/itid=%d/ts_ns=%d/reason=%s/dur=%s",
+				witness.RowID, witness.TID, witness.ITID, witness.TS,
+				witness.Reason, witness.Dur))
+		}
+		coverage.Metadata["rejected_callstack_fence_witnesses"] =
+			strings.Join(parts, ";")
+		traceDBAddCoverageMetric(&coverage,
+			"rejected_callstack_fence_witnesses_emitted",
+			int64(len(rejectedWitnesses)))
+		if omitted := rejectedWitnessTotal - len(rejectedWitnesses); omitted > 0 {
+			traceDBAddCoverageMetric(&coverage,
+				"rejected_callstack_fence_witnesses_omitted", int64(omitted))
+		}
+		coverage.FieldSources["rejected_callstack_fence_witnesses"] =
+			"bounded exact rejected row plus resolved physical fence lane and SQLite duration scalar; diagnostic only, never alternate duration/span admission authority"
+	}
 	traceDBAddCoverageMetric(&coverage, "source_rows_suppressed_cpu_unavailable", int64(
 		skipped["unknown_start_cpu"]+skipped["unknown_end_cpu"]+
 			skipped["tainted_running_cpu_witness"]+skipped["lifecycle_rejected_running_cpu_witness"]))
@@ -534,6 +582,32 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 		int64(traceDBCallstackSkippedTotal(skipped)-suppressedPrePairing))
 	coverage.Skipped = traceDBCallstackSkipSummary(skipped)
 	return coverage, nil
+}
+
+func traceDBCallstackRejectedScalar(value any) string {
+	switch typed := value.(type) {
+	case nil:
+		return "null"
+	case int64:
+		return "integer:" + strconv.FormatInt(typed, 10)
+	case float64:
+		return fmt.Sprintf("real_bits:0x%016x", math.Float64bits(typed))
+	case string:
+		return "text_" + traceDBCallstackRejectedBytes([]byte(typed))
+	case []byte:
+		return "blob_" + traceDBCallstackRejectedBytes(typed)
+	default:
+		return fmt.Sprintf("unsupported_type:%T", value)
+	}
+}
+
+func traceDBCallstackRejectedBytes(value []byte) string {
+	if len(value) <= traceDBCallstackRejectedScalarInlineBytes {
+		return fmt.Sprintf("bytes=%d/b64=%s", len(value),
+			base64.RawURLEncoding.EncodeToString(value))
+	}
+	sum := sha256.Sum256(value)
+	return fmt.Sprintf("bytes=%d/sha256=%x", len(value), sum)
 }
 
 func traceDBCallstackRawTargetFirstTimestamp(tdb *traceDB) (int64, bool) {

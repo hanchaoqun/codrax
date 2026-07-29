@@ -3748,6 +3748,14 @@ Progress:
   their sum to equal the final typed-only sync count. A mismatch changes the
   viewer state to `not_evaluated_typed_only_reason_census_mismatch`; it cannot
   silently claim coverage.
+- R7-C: implemented. The existing callstack coverage row now carries at most
+  eight `rejected_callstack_fence_witnesses`, each binding rejected row ID,
+  resolved physical TID/canonical ITID, exact timestamp, closed rejection
+  reason and a bounded exact SQLite duration scalar. INTEGER and REAL retain
+  their exact value/bits; short TEXT/BLOB retains base64url bytes; larger
+  values retain byte length plus SHA-256. Emitted/omitted counters are typed.
+  The witness does not change the existing fence or publication decision and
+  does not add another diagnostic line.
 
 ## Invariants
 
