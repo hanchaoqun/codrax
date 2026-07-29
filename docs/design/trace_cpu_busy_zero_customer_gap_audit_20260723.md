@@ -1434,3 +1434,17 @@ E1 drill universe 扩域指控、E2 epoch_complete JSON 恒 false 指控、R2' s
 - **批一(G1)**:context_only 链上 running 入 ◎ aux 计数账(排除≠消失扩族)+ 双维框架教学句(Description+Parameters+explore/finalizer skill:业务三元组义务升级为受限 MUST)+ **running 修向 self_workload 腿=需用户裁定**(registry 红线);
 - **批二(G2+G3①③)**:board feed 折扣席裸值孪生;blocking_span 臂入矩阵教学;
 - **批三(G3②④+G4)**:反转杠杆词对账/periodic 杠杆词/aux 计数/注释。
+
+### §18.4 施工收账(2026-07-28,TWODIM-1,main=a79bd7d70)
+
+用户批复「需要修,按最优方案进行修复,开工」。三批合并为一批交付,G1–G4 全清:
+
+- **G1a ◎「未计价占用」计数账(排除≠消失 家族#5)**:`runtimeTraceProjElimAuxAccountRows` 末位追加——人口=TreeRows 中链上(`ChainRelevance=="on_chain"`)×context_only×有值(`runtimeTraceProjNodeDisplayImpact>0`)行,**减去**口径旁栏/自身症状席/语义普查已计家族(零双记);渲染 `⛓ N 行(最大 X [E#])·真实占时·杠杆=自身工作量(新方向)` / EN `lever: own workload`(EN 缩短以过 100-cell 禁续行预算)。杠杆词取自唯一方向词表 `tracefence.FixDirectionWord("self_workload")`。
+- **G1b 双维框架教学**:closed-matrix 契约(Description+Parameters 双 LLM 面)增框架句——context_only 只清零**计价**维度;根因有两个维度(规则计价可消除板 + 引导新修复方向的真实占时);blocking_span 计价臂同时补入自称 closed 的矩阵(G3③)。explore skill 调查收口子句:交接必须在计价 TOP1 之外携带计价规则未能计价的显著裸占时发现;finalizer 业务三元组义务 **MAY→MUST**(有准入家族时结论必须至少提及合计最大者带三元组)。行话门抓到子句初稿一处内部词(finalizer)已改写为 "the final answer"。
+- **G1c registry 判词落账(已批形,不改方向)**:running/fragmented_running 计价修向**维持** frequency_thermal(赤字确属频率可回收);裸墙钟走维度一新出口(◎ 未计价占用 + 教学),**不加 self_workload 腿**——一席不入两个计价方向节。§18.3 预留的「需用户裁定」项以此形收束,判词已写进 `causal_token_registry.go` adjudication note。
+- **G2 board feed 裸值孪生**:`trace_board_summary.go` effective attribution 席,当 `TraceNoteKeyCumulativeImpactMS` 与折后值不同,追加 `· raw occupancy Yms`;同值席静默(零噪音)。
+- **G3② 反转组成注杠杆词对账**:runnable 腿 `调度供给`、running 腿 `频率与热治理`,均改从 `FixDirectionWord` 取词,第三词汇族(调度修复/频点/热策略)退役,旧词 pin 全数重钉。
+- **G3④ periodic 图例杠杆句**:zh「消除杠杆=让周期源准时触发/完成(迟到量)与其就绪等待的调度(runnable),非泛指修 IO/依赖。」+EN 孪生。
+- **G4**:`render_key_first.go` 陈旧 `≤3 on-chain` 注释改指 `BusinessSpanMentionFamilyCap`(MENTION8-1=8)。
+
+Pin:`answer_document_projection_twodim_test.go`(新)三臂 aux 行 pin(zh 正臂/人口负臂/EN 面)+ 双 LLM 面教学 pin;description golden 带 EVOLUTION RECORD 重钉;组成注旧杠杆词 pin 重钉三处 zh + EN。验证:全仓 `go test ./internal/... ./cmd/` 绿 + eval 冒烟 qf_architecture/logtri_go 双 PASS + **trace 场景补跑**(donghu_real_frame_multicausal / donghu_real_short_runnable / running_perf_context / frame_semantic_span_optimization,用户当轮指出冒烟未覆盖 trace 面)。
