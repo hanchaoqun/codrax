@@ -89,15 +89,12 @@ func addTraceDBAsyncSpanEndpointRows(sink *traceDBRowSink, start, end int64,
 	return sink.add(finish)
 }
 
-// traceDBWireIntervalRepresentable guards the converter's microsecond text
-// boundary. Positive nanosecond intervals below one microsecond, or endpoints
-// that round into the same printed timestamp, must not become zero-duration or
-// materially inflated synthetic spans after a DB -> systrace round-trip.
+// traceDBWireIntervalRepresentable guards the standard text boundary. The
+// official OpenHarmony bytrace parser accepts arbitrary fractional digits, and
+// Codrax writes nine, so every strictly positive nanosecond interval is
+// representable without duration inflation.
 func traceDBWireIntervalRepresentable(start, end int64) bool {
-	if start < 0 || end <= start || end-start < 1000 {
-		return false
-	}
-	return roundedTimestampUS(uint64(end)) > roundedTimestampUS(uint64(start))
+	return start >= 0 && end > start
 }
 
 func prepareTraceDBRenderedRow(tsNS int64, seq int, task string, tid, tgid, cpu int64, body string) (renderedRow, error) {
@@ -406,10 +403,8 @@ func prepareTraceDBRenderedRowEnvelopeContext(ctx context.Context, tsNS int64, s
 		return renderedRow{}, &traceDBOutputInvariantError{Reason: "line_too_long"}
 	}
 	// The sorter key must match the timestamp tracequery will recover from the
-	// physical line. Standard ftrace text carries six fractional digits, so
-	// retaining the source nanoseconds here can place an exact-nanosecond typed
-	// comment on the wrong side of this rounded row and create a clock
-	// regression in an otherwise ordered output.
+	// physical line. Standard rows now carry all nine nanosecond digits, the
+	// same precision as exact typed rows.
 	return renderedRow{tsNS: traceDBStandardWireTimestampNS(tsNS), seq: seq, line: line}, nil
 }
 
@@ -431,10 +426,10 @@ func traceDBFormatLine(task string, tid, tgid, cpu, tsNS, flags, preemptCount in
 }
 
 // traceDBStandardWireTimestampNS is the nanosecond value represented by a
-// standard six-decimal ftrace timestamp. Exact typed comment rows do not use
-// this helper: their ts_ns field remains nanosecond-precise on the wire.
+// standard exact ftrace timestamp (six digits when microsecond aligned and
+// nine digits otherwise).
 func traceDBStandardWireTimestampNS(tsNS int64) uint64 {
-	return roundedTimestampUS(uint64(tsNS)) * 1000
+	return uint64(tsNS)
 }
 
 func traceDBDuplicateSourceIDs(ctx context.Context, tdb *traceDB, table, column string,

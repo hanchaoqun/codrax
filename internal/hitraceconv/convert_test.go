@@ -206,7 +206,7 @@ func TestBuiltinSysHarmonyRMQRejectsPartialPhysicalPage(t *testing.T) {
 }
 
 func TestFormatTimestampNearUint64LimitDoesNotWrap(t *testing.T) {
-	if got, want := formatTimestamp(^uint64(0)), "18446744073.709552"; got != want {
+	if got, want := formatTimestamp(^uint64(0)), "18446744073.709551615"; got != want {
 		t.Fatalf("near-limit timestamp: got %q, want %q", got, want)
 	}
 }

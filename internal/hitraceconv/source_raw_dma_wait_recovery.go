@@ -27,7 +27,7 @@ func newTraceDBRawDMAWaitRecoveryCoverage() TraceDBCoverage {
 		Role:   "query_ready_export",
 		FieldSources: map[string]string{
 			"authority":     "complete strict official raw decode ledger; exact dma_fence_wait_start/end descriptor profile only",
-			"timestamp":     "exact source raw record timestamp, subject to the standard six-decimal systrace interval representability gate",
+			"timestamp":     "exact source raw record timestamp on the official bytrace decimal wire, using nanosecond digits when required",
 			"cpu":           "exact source raw page CPU",
 			"envelope":      "exact source common_pid/common_flags/common_preempt_count; common_pid must resolve to one canonical public host TID at the exact timestamp",
 			"pair_key":      "tracequery.FingerprintPairingEndpoint over exact header TID, driver, timeline, uint32 context and uint32 seqno",

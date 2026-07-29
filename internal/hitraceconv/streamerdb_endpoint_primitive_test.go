@@ -133,7 +133,7 @@ func TestTraceDBMixedWirePrecisionSortRemainsMonotonic(t *testing.T) {
 	if idx.ClockRegressions != 0 {
 		t.Fatalf("wire timestamp merge regressed: regressions=%d output=%q", idx.ClockRegressions, output.String())
 	}
-	want := []float64{0.000001, 0.0000012, 0.0000018, 0.000002}
+	want := []float64{0.0000012, 0.000001499, 0.000001501, 0.0000018}
 	if len(timestamps) != len(want) {
 		t.Fatalf("unexpected parsed timestamp count: got=%v want=%v output=%q", timestamps, want, output.String())
 	}
@@ -308,16 +308,58 @@ func TestTraceDBAsyncSpanEndpointsValidateAtomically(t *testing.T) {
 	}
 }
 
-func TestTraceDBWireIntervalRepresentableAtMicrosecondBoundary(t *testing.T) {
+func TestTraceDBExactNanosecondStandardSpanRoundTrip(t *testing.T) {
+	const (
+		start = int64(69_326_000_000_100)
+		end   = start + 500
+	)
+	sink, err := newTraceDBRowSink(t.TempDir(), 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.cleanup()
+	if err := addTraceDBTestSyncSpanRows(
+		sink, start, end, "worker", 10, 10, 2, "sub-us-official-viewer",
+	); err != nil {
+		t.Fatal(err)
+	}
+	var output strings.Builder
+	if _, err := sink.prepareAndWriteForTest(context.Background(), &output); err != nil {
+		t.Fatal(err)
+	}
+	body := output.String()
+	for _, timestamp := range []string{"69326.000000100", "69326.000000600"} {
+		if !strings.Contains(body, timestamp) {
+			t.Fatalf("exact standard timestamp %q missing:\n%s", timestamp, body)
+		}
+	}
+	path := filepath.Join(t.TempDir(), "exact-nanosecond-standard-span.systrace")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	index, err := tracequery.BuildIndex(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stats := tracequery.ComputeWindowStats(index, tracequery.Query{})
+	if len(stats.TraceSpans) != 1 ||
+		stats.TraceSpans[0].Name != "sub-us-official-viewer" ||
+		math.Abs(stats.TraceSpans[0].DurationMs-0.0005) > 0.0000001 {
+		t.Fatalf("exact standard B/E span did not round-trip: %+v", stats.TraceSpans)
+	}
+}
+
+func TestTraceDBWireIntervalRepresentableAtNanosecondBoundary(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		start, end int64
 		want       bool
 	}{
 		{name: "zero duration", start: 0, end: 0, want: false},
-		{name: "sub microsecond same bucket", start: 0, end: 499, want: false},
-		{name: "sub microsecond crosses rounding boundary", start: 499, end: 500, want: false},
-		{name: "999ns crosses rounding boundary", start: 499, end: 1498, want: false},
+		{name: "one nanosecond", start: 0, end: 1, want: true},
+		{name: "sub microsecond same former bucket", start: 0, end: 499, want: true},
+		{name: "sub microsecond crosses former rounding boundary", start: 499, end: 500, want: true},
+		{name: "999ns crosses former rounding boundary", start: 499, end: 1498, want: true},
 		{name: "one microsecond at rounding boundary", start: 499, end: 1499, want: true},
 		{name: "one microsecond aligned", start: 1000, end: 2000, want: true},
 	} {

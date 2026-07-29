@@ -521,7 +521,7 @@ func TestSubmitTraceDBRawMarkerSyncRecoveryPoisonsOnlyAffectedEmitter(t *testing
 	}
 }
 
-func TestSubmitTraceDBRawMarkerSyncRecoveryLocalizesUnrepresentablePair(t *testing.T) {
+func TestSubmitTraceDBRawMarkerSyncRecoverySubMicrosecondPairIsRepresentable(t *testing.T) {
 	tiny := traceDBRawMarkerTestPair(201, 777, 1, "tiny")
 	tiny[0].TimestampNS = 1_000_000
 	tiny[1].TimestampNS = 1_000_500
@@ -536,13 +536,12 @@ func TestSubmitTraceDBRawMarkerSyncRecoveryLocalizesUnrepresentablePair(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if coverage.Metrics["raw_pairs_withheld_unrepresentable_interval"] != 1 ||
-		coverage.Metrics["raw_emitter_lanes_partial"] != 1 ||
-		coverage.Metrics["raw_emitter_lanes_partially_salvaged"] != 1 ||
+	if coverage.Metrics["raw_pairs_withheld_unrepresentable_interval"] != 0 ||
+		coverage.Metrics["raw_emitter_lanes_clean"] != 1 ||
 		coverage.Metrics["raw_emitter_lanes_poisoned"] != 0 ||
-		coverage.Metrics["raw_pairs_submitted"] != 1 ||
-		syncSpans.submitted[traceDBSyncSpanProducerSourceRawMarker] != 1 {
-		t.Fatalf("one sub-microsecond pair erased a proven sibling: coverage=%+v submitted=%+v",
+		coverage.Metrics["raw_pairs_submitted"] != 2 ||
+		syncSpans.submitted[traceDBSyncSpanProducerSourceRawMarker] != 2 {
+		t.Fatalf("sub-microsecond pair was not submitted exactly: coverage=%+v submitted=%+v",
 			coverage, syncSpans.submitted)
 	}
 }

@@ -3392,13 +3392,32 @@ rounds the endpoints to the same microsecond. This is not missing source data
 and not an OpenHarmony parser failure. It is a Codrax output-profile
 limitation.
 
-Repair must first pin the official SmartPerf text parser's accepted fractional
-precision. If nanosecond text is accepted, emit exact standard endpoints and
-change the representability gate from “different rounded microseconds” to
-“strictly increasing nanoseconds”. This is the highest-leverage
-official-viewer repair because the raw rows already provide authoritative
-CPU/emitter/name evidence; recovered raw spans may also replace part of the
-9,521 CPU-unavailable typed-only population.
+Official parser evidence is now pinned to
+`developtools_smartperf_host@5c5afb0c479b070148d8a6e336120638a1a03930`:
+
+- `ptreader_parser.h:133-134` matches timestamps with `(\d+\.\d+)`, so the
+  fractional part has no six-digit ceiling;
+- `ptreader_parser.cpp:298-315` parses that value and multiplies it by `1e9`
+  for `BytraceLine.ts`;
+- `BytraceEventParser::TracingMarkWriteOrPrintEvent` passes standard
+  `tracing_mark_write` B/E/S/F rows through the official print-event parser.
+
+R6-B is therefore implemented without a private viewer protocol:
+
+- microsecond-aligned rows keep the conventional six digits;
+- rows requiring more precision use nine digits;
+- the sorter key remains the exact timestamp printed on the wire;
+- every strictly increasing nanosecond interval is representable;
+- raw-marker sync, async, frame and raw DMA wait consumers share the same
+  exact gate.
+
+The former 18,033 REP6 rejections can now enter the normal standard B/E
+publication pipeline. Final publication remains subject to the unchanged
+identity, lifecycle, name-drift, duplicate and laminar-span gates, so a future
+replay must report the exact restored count instead of assuming all 18,033
+survive later independent checks. Restored raw spans may also replace part of
+the 9,521 CPU-unavailable typed-only population because the raw endpoints
+already carry authoritative CPU/emitter/name evidence.
 
 ### R6-04 (P1) — local-fence closure is still broader than the actual bad rows
 
@@ -3461,6 +3480,12 @@ the memory ceiling.
 Customer replay is needed after R6-B through R6-F are pushed. Existing REP6 is
 sufficient for implementation and regression design; asking the customer to
 replay before these code-side repairs would only reproduce known failures.
+
+Progress:
+
+- R6-A: implemented, verified and pushed in `d3aaf7563`;
+- R6-B: implemented and verified locally; independent commit/push is next;
+- R6-C through R6-F: pending.
 
 ## Invariants
 

@@ -164,16 +164,25 @@ func TestPublishTraceDBRawDMAWaitRecoveryTypedWithdrawalArms(t *testing.T) {
 			t.Fatalf("DB/source raw overlap was not failed closed: coverage=%+v err=%v", coverage, err)
 		}
 	})
-	t.Run("sub-microsecond physical interval is not inflated", func(t *testing.T) {
+	t.Run("sub-microsecond physical interval remains exact", func(t *testing.T) {
 		rows := append([]traceDBRawDMAWaitRecord(nil), base...)
 		rows[1].TimestampNS = rows[0].TimestampNS + 999
+		sink, err := newTraceDBInactiveOrdinaryRowSink(t.TempDir(), 8)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer sink.cleanup()
 		coverage, err := publishTraceDBRawDMAWaitRecovery(
-			context.Background(), traceDBRawDMAWaitTestInventory(rows), nil,
+			context.Background(), traceDBRawDMAWaitTestInventory(rows), sink,
 			traceDBRawBlockedKeyTestAuthority(), nil)
-		if err != nil || coverage.RowsEmitted != 0 ||
-			coverage.Metadata["publication_state"] != "complete_no_clean_pair_lane" ||
-			coverage.Metrics["pair_lanes_unmatched_or_unrepresentable_end"] != 1 {
-			t.Fatalf("unrepresentable interval became a wait: coverage=%+v err=%v", coverage, err)
+		if err != nil || coverage.RowsEmitted != 2 ||
+			coverage.Metadata["publication_state"] != "published_exact_clean_pair_lanes" ||
+			coverage.Metrics["pairs_published"] != 1 ||
+			len(sink.rows) != 2 ||
+			!strings.Contains(sink.rows[0].line, "0.001000:") ||
+			!strings.Contains(sink.rows[1].line, "0.001000999:") {
+			t.Fatalf("exact sub-microsecond wait was not published: coverage=%+v rows=%+v err=%v",
+				coverage, sink.rows, err)
 		}
 	})
 	t.Run("retained census mismatch", func(t *testing.T) {

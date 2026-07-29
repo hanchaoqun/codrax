@@ -48,7 +48,7 @@ func exportTraceDBFrameSliceWithRows(ctx context.Context, tdb *traceDB, sink *tr
 		"stable_identity": "frame_slice.id when present; legacy materialized DBs may use a provable SQLite hidden rowid only when id is absent",
 		"schema_profile":  authority.frameProfileSource + "; selected once by the shared lifecycle collector and consumed without per-row fallback",
 		"frame_kind":      "closed producer enum: type=0/type_desc=actural or type=1/type_desc=expect; legacy schemas without type retain the same closed type_desc vocabulary",
-		"interval":        "strict integer ts and positive dur with checked signed addition; sub-microsecond or same-rendered-timestamp intervals fail closed",
+		"interval":        "strict integer ts and positive dur with checked signed addition; exact nanosecond endpoints use the official bytrace decimal grammar",
 		"identity":        "producer-profile frame-row itid/ipid joined to exact positive canonical identities; physical S/F endpoints require shared thread+process closed-generation admission",
 		"header_cpu":      "shared lifecycle-filtered typed Running witnesses at exact ts and exact checked End=ts+dur; CPU 0 is never an unknown fallback; headers preserve endpoint provenance rather than claiming interval-long execution",
 		"wire_pairing":    "atomic async S/F keyed by hconv-frame-<stable_identity>; frame intervals never occupy the shared B/E stack",

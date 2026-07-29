@@ -33,7 +33,7 @@ func newTraceDBRawMarkerSyncCoverage() TraceDBCoverage {
 		FieldSources: map[string]string{
 			"authority":     "complete strict raw marker ledger over the physical print plus tracing_mark_write carrier census",
 			"grammar":       "tracequery.DecodeTraceMarkEndpointPayload is the sole complete-payload B/E verdict",
-			"stack":         "one exact LIFO stack per physical common_pid emitter; orphan ends, trailing open begins, unrepresentable closed intervals and already-paired validation failures are withheld locally, while invalid physical ordering or an unclassified/rejected carrier keeps whole-lane fail-closed scope",
+			"stack":         "one exact LIFO stack per physical common_pid emitter; orphan ends, trailing open begins, invalid/overflowed closed intervals and already-paired validation failures are withheld locally, while invalid physical ordering or an unclassified/rejected carrier keeps whole-lane fail-closed scope",
 			"identity":      "common_pid independently resolves to the same canonical host thread/process at both exact endpoints; payload PID remains marker namespace data",
 			"deduplication": "an exact bounded semantic index suppresses a raw pair only when an equal host TID/TGID, marker PID, canonical owner, interval and name DB candidate survives its producer-local fence/poison gate; one unique locally admitted CPU-unavailable callstack collision is candidate-superseded and replaced by the exact raw B/E pair, while a locally suppressed DB candidate cannot erase the raw alternative",
 			"diagnostics":   "closed raw pairs expose exact zero-start, long-duration and bounded longest-pair witnesses before publication decisions; these observations never admit or reject a pair",
