@@ -151,7 +151,7 @@ func TestTraceDBSourceRawAuthorityDistinguishesEmptySupportedAndIncomplete(t *te
 			wantEmitted:   2,
 		},
 		{
-			name: "official payload decoder unavailable",
+			name: "official payload admits strict structural decoder",
 			build: func(capture *bytes.Buffer) {
 				writeSegment(capture, segmentEventsFormat, []byte("name: sched_switch\nID: 1\n"))
 				writeSegment(capture, segmentRawTrace, make([]byte, 4096))
@@ -159,7 +159,7 @@ func TestTraceDBSourceRawAuthorityDistinguishesEmptySupportedAndIncomplete(t *te
 			wantInventory: "complete",
 			wantFormat:    "present_nonempty_unvalidated",
 			wantRaw:       "present_nonempty_unvalidated",
-			wantDecoder:   "unavailable_official_page_decoder_not_implemented",
+			wantDecoder:   "available_closed_target_decoders_for_supported_families",
 			wantEmitted:   2,
 		},
 		{
@@ -312,7 +312,9 @@ func TestTraceDBSourceRawProfileProbeRejectsCandidateLayoutWithoutAffectingAutho
 	}
 	raw := inventory.RawAuthority
 	if raw.Metadata["raw_payload_state"] != "present_nonempty_unvalidated" ||
-		raw.Metadata["decode_authority"] != "unavailable_official_page_decoder_not_implemented" {
+		raw.Metadata["decode_authority"] != "withheld_closed_target_decoders_profile_not_ready" ||
+		raw.Metadata["decoder_profile_state"] != "candidate_rejected" ||
+		raw.Metadata["decoder_ledger_state"] != "withheld_profile_not_ready" {
 		t.Fatalf("diagnostic probe changed source authority inventory: %+v", raw)
 	}
 }
@@ -375,6 +377,17 @@ func TestTraceDBSourceRawDecodeLedgerAdmitsStrictBlockedReasonWithoutPublishing(
 		inventory.RawBlocked[0].CPU != 1 {
 		t.Fatalf("strict raw blocked-reason ledger mismatch: decode=%+v raw=%+v",
 			decode, inventory.RawBlocked)
+	}
+	raw := inventory.RawAuthority
+	if raw.Metadata["decode_authority"] !=
+		"available_closed_target_decoders_for_supported_families" ||
+		raw.Metadata["decoder_profile_state"] !=
+			"qword_length_cpu_candidate_all_pages" ||
+		raw.Metadata["decoder_ledger_state"] !=
+			"strict_target_ledger_complete" ||
+		!strings.Contains(raw.Metadata["recovery_authority"],
+			"uncovered_families_require_new_typed_decoder") {
+		t.Fatalf("strict raw decoder authority was not reconciled: %+v", raw)
 	}
 }
 
@@ -464,6 +477,11 @@ func TestTraceDBSourceRawDecodeLedgerRetainsStrictSchedulerLiteRecordsWithoutPub
 		len(inventory.RawSwitchLite) != 1 || len(inventory.RawWakeupLite) != 1 {
 		t.Fatalf("strict scheduler-lite ledger mismatch: decode=%+v switch=%+v wakeup=%+v",
 			decode, inventory.RawSwitchLite, inventory.RawWakeupLite)
+	}
+	if got := inventory.RawAuthority.Metadata["decode_authority"]; got !=
+		"available_closed_target_decoders_for_supported_families" {
+		t.Fatalf("strict scheduler decoder authority was not reconciled: %q raw=%+v",
+			got, inventory.RawAuthority)
 	}
 	gotSwitch := inventory.RawSwitchLite[0]
 	if gotSwitch.HeaderPID != 77 || gotSwitch.Flags != 1 || gotSwitch.PreemptCount != 2 ||

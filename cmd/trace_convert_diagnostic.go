@@ -48,6 +48,7 @@ var traceConvertDiagnosticCapabilities = []string{
 	"standard_sync_pipe_compat_v1",
 	"callstack_completed_async_interval_v1",
 	"source_rawtrace_authority_inventory_v1",
+	"source_rawtrace_partial_decoder_authority_v1",
 	"executable_build_fingerprint_v1",
 	"unresolved_trace_identity_witnesses_v1",
 	"official_raw_page_profile_probe_v1",

@@ -299,6 +299,8 @@ func scanTraceDBSourceNameInventory(ctx context.Context, input conversionInputVi
 	if err != nil {
 		return inventory, err
 	}
+	reconcileTraceDBSourceRawDecoderAuthority(
+		&inventory.RawAuthority, inventory.RawProfile, inventory.RawDecode)
 	inventory.Coverage.Found = cmdlineSegments > 0
 	inventory.Coverage.RowsRead = totalRows
 	inventory.Coverage.RowsEmitted = len(inventory.Names)
@@ -437,10 +439,39 @@ func finalizeTraceDBSourceRawAuthority(
 	case audit.eventFormatBytes == 0:
 		coverage.Metadata["decode_authority"] = "unavailable_event_format_segment_empty"
 	case header.Magic == traceStreamerRawTraceMagic:
-		coverage.Metadata["decode_authority"] = "unavailable_official_page_decoder_not_implemented"
-		coverage.Metadata["recovery_authority"] = "requires_official_page_decoder_or_upstream_retained_rows"
+		coverage.Metadata["decode_authority"] = "closed_target_decoders_pending_strict_profile_validation"
+		coverage.Metadata["recovery_authority"] = "supported_families_require_strict_decoder_admission; uncovered_families_require_new_typed_decoder_or_upstream_retained_rows"
 	default:
 		coverage.Metadata["decode_authority"] = "available_only_after_builtin_rmq_strict_format_and_page_validation"
+	}
+}
+
+func reconcileTraceDBSourceRawDecoderAuthority(
+	authority *TraceDBCoverage,
+	profile TraceDBCoverage,
+	decode TraceDBCoverage,
+) {
+	if authority == nil ||
+		authority.Metadata["decode_authority"] !=
+			"closed_target_decoders_pending_strict_profile_validation" {
+		return
+	}
+	authority.Metadata["decoder_profile_state"] =
+		profile.Metadata["page_layout_state"]
+	authority.Metadata["decoder_ledger_state"] =
+		decode.Metadata["decode_state"]
+	switch decode.Metadata["decode_state"] {
+	case "strict_target_ledger_complete":
+		authority.Metadata["decode_authority"] =
+			"available_closed_target_decoders_for_supported_families"
+		authority.Metadata["recovery_authority"] =
+			"supported_families_use_strict_raw_decoder; uncovered_families_require_new_typed_decoder_or_upstream_retained_rows"
+	case "incomplete_format_witness_cap", "incomplete_target_decode_cap":
+		authority.Metadata["decode_authority"] =
+			"withheld_closed_target_decoders_ledger_incomplete"
+	default:
+		authority.Metadata["decode_authority"] =
+			"withheld_closed_target_decoders_profile_not_ready"
 	}
 }
 
