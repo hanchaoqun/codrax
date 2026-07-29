@@ -498,6 +498,18 @@ func TestTraceDBSyncSpanFinalViewerDispositionCensusIsClosed(t *testing.T) {
 		if items[0].Metrics[metric] != 1 {
 			t.Fatalf("final viewer disposition %s drifted: %+v", metric, items[0])
 		}
+		suffix := strings.TrimPrefix(
+			metric, "official_viewer_typed_only_sync_spans_")
+		witnessKey :=
+			"official_viewer_typed_only_sync_witnesses_" + suffix
+		if items[0].Metrics[witnessKey+"_emitted"] != 1 ||
+			!strings.Contains(items[0].Metadata[witnessKey],
+				"reason="+suffix+"/stable_kind=callstack_row_id/") ||
+			!strings.Contains(items[0].Metadata[witnessKey],
+				"/start_cpu_source=") {
+			t.Fatalf("final viewer witness %s drifted: %+v",
+				witnessKey, items[0])
+		}
 	}
 	if items[0].Metrics["official_viewer_standard_sync_spans_emitted"] != 0 ||
 		items[0].Metadata["official_viewer_typed_only_sync_reason_census"] != "complete" {
@@ -508,6 +520,43 @@ func TestTraceDBSyncSpanFinalViewerDispositionCensusIsClosed(t *testing.T) {
 		quality.Metadata["official_viewer_typed_only_sync_reason_census"] != "complete" ||
 		quality.Metadata["official_viewer_span_visibility"] != "degraded_typed_only" {
 		t.Fatalf("semantic viewer reason census drifted: %+v", quality)
+	}
+}
+
+func TestTraceDBSyncSpanFinalViewerDispositionWitnessesAreBounded(t *testing.T) {
+	candidates := make([]traceDBSyncSpanCandidate, 0,
+		traceDBSyncSpanViewerDispositionWitnessCap+2)
+	for index := 0; index < traceDBSyncSpanViewerDispositionWitnessCap+2; index++ {
+		candidate := traceDBTestSyncSpanCandidate(
+			traceDBSyncSpanProducerCallstack, int64(index+1),
+			int64(200+index), 100, int64(1000+index*100),
+			int64(1050+index*100), fmt.Sprintf("typed-only-%d", index))
+		candidate.StartCPU, candidate.EndCPU = 0, 0
+		candidate.CPUPlacement = traceDBSyncSpanCPUPlacementUnknownStart
+		candidate.StartCPUProvenance = traceDBSyncSpanCPUCallstackUnavailable
+		candidate.EndCPUProvenance = traceDBSyncSpanCPUCallstackUnavailable
+		candidates = append(candidates, candidate)
+	}
+
+	report, _, _, _ :=
+		renderTraceDBSyncSpanAuthority(t, candidates, nil, 128)
+	items := []TraceDBCoverage{{
+		Family: "slice", Table: "callstack", Role: "query_ready_export",
+		FieldSources: map[string]string{},
+	}}
+	if err := reconcileTraceDBSyncSpanCoverage(items, report); err != nil {
+		t.Fatal(err)
+	}
+	const key = "official_viewer_typed_only_sync_witnesses_cpu_unknown_start"
+	if items[0].Metrics[key+"_emitted"] !=
+		traceDBSyncSpanViewerDispositionWitnessCap ||
+		items[0].Metrics[key+"_omitted"] != 2 ||
+		strings.Count(items[0].Metadata[key],
+			"reason=cpu_unknown_start") !=
+			traceDBSyncSpanViewerDispositionWitnessCap ||
+		strings.Contains(items[0].Metadata[key], "typed-only-4") ||
+		strings.Contains(items[0].Metadata[key], "typed-only-5") {
+		t.Fatalf("bounded final viewer witnesses drifted: %+v", items[0])
 	}
 }
 

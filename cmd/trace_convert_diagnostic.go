@@ -41,6 +41,7 @@ var traceConvertDiagnosticCapabilities = []string{
 	"null_duration_raw_disposition_census_v1",
 	"raw_marker_local_validation_reason_witness_v1",
 	"official_viewer_typed_only_reason_census_v1",
+	"official_viewer_typed_only_final_witness_v1",
 	"standard_sync_pipe_compat_v1",
 	"callstack_completed_async_interval_v1",
 	"source_rawtrace_authority_inventory_v1",
@@ -347,6 +348,12 @@ var traceConvertDiagnosticCoverageWitnessKeys = []string{
 	"rejected_callstack_fence_witnesses",
 	"raw_async_mismatch_witnesses",
 	"raw_marker_local_validation_witnesses",
+	"official_viewer_typed_only_sync_witnesses_cpu_unknown_start",
+	"official_viewer_typed_only_sync_witnesses_cpu_unknown_end",
+	"official_viewer_typed_only_sync_witnesses_cpu_source_tainted",
+	"official_viewer_typed_only_sync_witnesses_cpu_lifecycle_rejected",
+	"official_viewer_typed_only_sync_witnesses_cpu_alias_ambiguous",
+	"official_viewer_typed_only_sync_witnesses_name_unrepresentable",
 }
 
 func appendTraceConvertDiagnosticCoverageWitnesses(

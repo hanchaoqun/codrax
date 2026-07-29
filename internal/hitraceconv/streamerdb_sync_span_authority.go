@@ -207,6 +207,8 @@ type traceDBSyncSpanProducerStats struct {
 	StandardViewerSpans                int
 	StandardPipeSpans                  int
 	ViewerDispositions                 [traceDBSyncSpanViewerDispositionCount]int
+	ViewerDispositionWitnesses         [traceDBSyncSpanViewerDispositionCount][traceDBSyncSpanViewerDispositionWitnessCap]traceDBSyncSpanViewerDispositionWitness
+	ViewerDispositionWitnessCounts     [traceDBSyncSpanViewerDispositionCount]int
 	SuppressedSpans                    int
 	SupersededSpans                    int
 	SupersededCPUUnavailableSpans      int
@@ -235,6 +237,26 @@ type traceDBSyncSpanReport struct {
 	GlobalPoisoned         bool
 }
 
+type traceDBSyncSpanViewerDispositionWitness struct {
+	StableKind         traceDBSyncSpanStableKind
+	StableID           int64
+	HeaderTID          int64
+	HeaderTGID         int64
+	MarkerPID          int64
+	MarkerPIDKnown     bool
+	CanonicalITID      int64
+	CanonicalITIDKnown bool
+	OwnerIPID          int64
+	OwnerIPIDKnown     bool
+	Start              int64
+	End                int64
+	StartCPU           int64
+	EndCPU             int64
+	StartCPUProvenance traceDBSyncSpanCPUProvenance
+	EndCPUProvenance   traceDBSyncSpanCPUProvenance
+	Name               string
+}
+
 type traceDBSyncSpanAuthorityState uint8
 
 const (
@@ -248,32 +270,35 @@ const (
 // from one Trace Streamer SQLite artifact. Candidate storage and duplicate /
 // poison arbitration are delegated to one bounded typed stage.
 type traceDBSyncSpanAuthority struct {
-	artifactSource                string
-	state                         traceDBSyncSpanAuthorityState
-	stage                         *traceDBSyncSpanStage
-	submitted                     [traceDBSyncSpanProducerSourceRawMarker + 1]int
-	poisoned                      [traceDBSyncSpanProducerSourceRawMarker + 1]int
-	fenced                        [traceDBSyncSpanProducerSourceRawMarker + 1]int
-	fenceWitnesses                [traceDBSyncSpanProducerSourceRawMarker + 1][]traceDBSyncSpanLaneFence
-	standardPipeSpans             [traceDBSyncSpanProducerSourceRawMarker + 1]int
-	standardViewerSpans           [traceDBSyncSpanProducerSourceRawMarker + 1]int
-	viewerDispositions            [traceDBSyncSpanProducerSourceRawMarker + 1][traceDBSyncSpanViewerDispositionCount]int
-	superseded                    [traceDBSyncSpanProducerSourceRawMarker + 1]int
-	supersededCPUUnavailable      int
-	supersededNameUnrepresentable int
-	globalPoisoned                [traceDBSyncSpanProducerSourceRawMarker + 1]bool
-	submittedTotal                int
-	poisonedTotal                 int
-	fencedTotal                   int
-	globalPoisonedTotal           int
-	nullDurationHints             [traceDBCallstackNullDurationHintCap]traceDBCallstackNullDurationHint
-	nullDurationHintCount         int
-	nullDurationHintTotal         int
-	nullDurationHintsComplete     bool
+	artifactSource                 string
+	state                          traceDBSyncSpanAuthorityState
+	stage                          *traceDBSyncSpanStage
+	submitted                      [traceDBSyncSpanProducerSourceRawMarker + 1]int
+	poisoned                       [traceDBSyncSpanProducerSourceRawMarker + 1]int
+	fenced                         [traceDBSyncSpanProducerSourceRawMarker + 1]int
+	fenceWitnesses                 [traceDBSyncSpanProducerSourceRawMarker + 1][]traceDBSyncSpanLaneFence
+	standardPipeSpans              [traceDBSyncSpanProducerSourceRawMarker + 1]int
+	standardViewerSpans            [traceDBSyncSpanProducerSourceRawMarker + 1]int
+	viewerDispositions             [traceDBSyncSpanProducerSourceRawMarker + 1][traceDBSyncSpanViewerDispositionCount]int
+	viewerDispositionWitnesses     [traceDBSyncSpanProducerSourceRawMarker + 1][traceDBSyncSpanViewerDispositionCount][traceDBSyncSpanViewerDispositionWitnessCap]traceDBSyncSpanViewerDispositionWitness
+	viewerDispositionWitnessCounts [traceDBSyncSpanProducerSourceRawMarker + 1][traceDBSyncSpanViewerDispositionCount]int
+	superseded                     [traceDBSyncSpanProducerSourceRawMarker + 1]int
+	supersededCPUUnavailable       int
+	supersededNameUnrepresentable  int
+	globalPoisoned                 [traceDBSyncSpanProducerSourceRawMarker + 1]bool
+	submittedTotal                 int
+	poisonedTotal                  int
+	fencedTotal                    int
+	globalPoisonedTotal            int
+	nullDurationHints              [traceDBCallstackNullDurationHintCap]traceDBCallstackNullDurationHint
+	nullDurationHintCount          int
+	nullDurationHintTotal          int
+	nullDurationHintsComplete      bool
 }
 
 const traceDBSyncSpanFenceWitnessCap = 8
 const traceDBCallstackNullDurationHintCap = 4096
+const traceDBSyncSpanViewerDispositionWitnessCap = 4
 
 // traceDBSyncSpanSemanticKey is an exact logical span identity used only to
 // recognize a source-raw marker pair already represented by an earlier DB
@@ -1028,6 +1053,10 @@ func (authority *traceDBSyncSpanAuthority) finalize(ctx context.Context, sink *t
 		stats.StandardViewerSpans = authority.standardViewerSpans[producer]
 		stats.StandardPipeSpans = authority.standardPipeSpans[producer]
 		stats.ViewerDispositions = authority.viewerDispositions[producer]
+		stats.ViewerDispositionWitnesses =
+			authority.viewerDispositionWitnesses[producer]
+		stats.ViewerDispositionWitnessCounts =
+			authority.viewerDispositionWitnessCounts[producer]
 		report.ByProducer[producer] = stats
 		report.EmittedEndpoints += stats.EmittedEndpoints
 	}
@@ -1747,6 +1776,10 @@ func (authority *traceDBSyncSpanAuthority) publishFrozenCleanLanes(
 					}
 				}
 				authority.viewerDispositions[candidate.Producer][viewerDisposition]++
+				if viewerDisposition != traceDBSyncSpanViewerDispositionStandard {
+					authority.recordViewerDispositionWitness(
+						candidate, viewerDisposition)
+				}
 				if viewerDisposition == traceDBSyncSpanViewerDispositionStandard {
 					authority.standardViewerSpans[candidate.Producer]++
 				}
@@ -1941,6 +1974,118 @@ func traceDBSyncSpanViewerDispositionMetric(
 	}
 }
 
+func traceDBSyncSpanViewerDispositionSuffix(
+	disposition traceDBSyncSpanViewerDisposition,
+) string {
+	switch disposition {
+	case traceDBSyncSpanViewerDispositionCPUUnknownStart:
+		return "cpu_unknown_start"
+	case traceDBSyncSpanViewerDispositionCPUUnknownEnd:
+		return "cpu_unknown_end"
+	case traceDBSyncSpanViewerDispositionCPUSourceTainted:
+		return "cpu_source_tainted"
+	case traceDBSyncSpanViewerDispositionCPULifecycleRejected:
+		return "cpu_lifecycle_rejected"
+	case traceDBSyncSpanViewerDispositionCPUAliasAmbiguous:
+		return "cpu_alias_ambiguous"
+	case traceDBSyncSpanViewerDispositionNameUnrepresentable:
+		return "name_unrepresentable"
+	default:
+		return ""
+	}
+}
+
+func (authority *traceDBSyncSpanAuthority) recordViewerDispositionWitness(
+	candidate traceDBSyncSpanCandidate,
+	disposition traceDBSyncSpanViewerDisposition,
+) {
+	if authority == nil ||
+		candidate.Producer < traceDBSyncSpanProducerRegistration ||
+		candidate.Producer > traceDBSyncSpanProducerSourceRawMarker ||
+		disposition <= traceDBSyncSpanViewerDispositionStandard ||
+		disposition >= traceDBSyncSpanViewerDispositionCount {
+		return
+	}
+	count := authority.viewerDispositionWitnessCounts[candidate.Producer][disposition]
+	if count >= traceDBSyncSpanViewerDispositionWitnessCap {
+		return
+	}
+	authority.viewerDispositionWitnesses[candidate.Producer][disposition][count] =
+		traceDBSyncSpanViewerDispositionWitness{
+			StableKind: candidate.StableKind, StableID: candidate.StableID,
+			HeaderTID: candidate.HeaderTID, HeaderTGID: candidate.HeaderTGID,
+			MarkerPID:          traceDBSyncSpanMarkerPID(candidate),
+			MarkerPIDKnown:     candidate.MarkerPIDKnown,
+			CanonicalITID:      candidate.CanonicalITID,
+			CanonicalITIDKnown: candidate.CanonicalITIDKnown,
+			OwnerIPID:          candidate.OwnerIPID, OwnerIPIDKnown: candidate.OwnerIPIDKnown,
+			Start: candidate.Start, End: candidate.End,
+			StartCPU: candidate.StartCPU, EndCPU: candidate.EndCPU,
+			StartCPUProvenance: candidate.StartCPUProvenance,
+			EndCPUProvenance:   candidate.EndCPUProvenance,
+			Name:               traceDBRawMarkerNameWitness(candidate.Name),
+		}
+	authority.viewerDispositionWitnessCounts[candidate.Producer][disposition]++
+}
+
+func traceDBSyncSpanStableKindLabel(kind traceDBSyncSpanStableKind) string {
+	switch kind {
+	case traceDBSyncSpanStableRegistrationITID:
+		return "registration_itid"
+	case traceDBSyncSpanStableCallstackRowID:
+		return "callstack_row_id"
+	case traceDBSyncSpanStableSyscallRowID:
+		return "syscall_row_id"
+	case traceDBSyncSpanStableAppStartupRowID:
+		return "app_startup_row_id"
+	case traceDBSyncSpanStableStaticInitializeRowID:
+		return "static_initialize_row_id"
+	case traceDBSyncSpanStableSourceRawOrdinal:
+		return "source_raw_ordinal"
+	default:
+		return "unknown"
+	}
+}
+
+func traceDBSyncSpanCPUProvenanceLabel(
+	provenance traceDBSyncSpanCPUProvenance,
+) string {
+	switch provenance {
+	case traceDBSyncSpanCPURegistrationMetadata:
+		return "registration_metadata"
+	case traceDBSyncSpanCPUCallstackTypedRunning:
+		return "callstack_typed_running"
+	case traceDBSyncSpanCPUSyscallTypedRunning:
+		return "syscall_typed_running"
+	case traceDBSyncSpanCPULegacyUnverified:
+		return "legacy_unverified"
+	case traceDBSyncSpanCPUCallstackUnavailable:
+		return "callstack_unavailable"
+	case traceDBSyncSpanCPUSourceRawPage:
+		return "source_raw_page"
+	default:
+		return "unknown"
+	}
+}
+
+func traceDBSyncSpanViewerDispositionWitnessString(
+	disposition traceDBSyncSpanViewerDisposition,
+	witness traceDBSyncSpanViewerDispositionWitness,
+) string {
+	return fmt.Sprintf(
+		"reason=%s/stable_kind=%s/stable_id=%d/tid=%d/tgid=%d/marker_pid=%d/marker_pid_known=%t/itid=%d/itid_known=%t/ipid=%d/ipid_known=%t/start_ns=%d/end_ns=%d/start_cpu=%d/end_cpu=%d/start_cpu_source=%s/end_cpu_source=%s/name=%s",
+		traceDBSyncSpanViewerDispositionSuffix(disposition),
+		traceDBSyncSpanStableKindLabel(witness.StableKind), witness.StableID,
+		witness.HeaderTID, witness.HeaderTGID, witness.MarkerPID,
+		witness.MarkerPIDKnown, witness.CanonicalITID,
+		witness.CanonicalITIDKnown, witness.OwnerIPID,
+		witness.OwnerIPIDKnown, witness.Start, witness.End,
+		witness.StartCPU, witness.EndCPU,
+		traceDBSyncSpanCPUProvenanceLabel(witness.StartCPUProvenance),
+		traceDBSyncSpanCPUProvenanceLabel(witness.EndCPUProvenance),
+		witness.Name)
+}
+
 func traceDBSyncSpanIdentityConflicts(left, right traceDBSyncSpanCandidate) bool {
 	return left.HeaderTGID != right.HeaderTGID ||
 		traceDBSyncSpanMarkerPID(left) != traceDBSyncSpanMarkerPID(right) ||
@@ -2091,6 +2236,15 @@ func reconcileTraceDBSyncSpanCoverage(items []TraceDBCoverage, report traceDBSyn
 			typedOnlyReasonTotal += count
 			traceDBAddCoverageMetric(item,
 				traceDBSyncSpanViewerDispositionMetric(disposition), int64(count))
+			wantWitnesses := count
+			if wantWitnesses > traceDBSyncSpanViewerDispositionWitnessCap {
+				wantWitnesses = traceDBSyncSpanViewerDispositionWitnessCap
+			}
+			if stats.ViewerDispositionWitnessCounts[disposition] != wantWitnesses {
+				return &traceDBOutputInvariantError{
+					Reason: "sync_span_viewer_disposition_witness_census_mismatch",
+				}
+			}
 		}
 		if stats.StandardViewerSpans+typedOnlyReasonTotal != stats.EmittedEndpoints/2 {
 			return &traceDBOutputInvariantError{
@@ -2106,6 +2260,34 @@ func reconcileTraceDBSyncSpanCoverage(items []TraceDBCoverage, report traceDBSyn
 			item.Metadata = map[string]string{}
 		}
 		item.Metadata["official_viewer_typed_only_sync_reason_census"] = "complete"
+		for disposition := traceDBSyncSpanViewerDispositionCPUUnknownStart; disposition < traceDBSyncSpanViewerDispositionCount; disposition++ {
+			total := stats.ViewerDispositions[disposition]
+			retained := stats.ViewerDispositionWitnessCounts[disposition]
+			if total == 0 {
+				continue
+			}
+			suffix := traceDBSyncSpanViewerDispositionSuffix(disposition)
+			if suffix == "" {
+				return &traceDBOutputInvariantError{
+					Reason: "unknown_sync_span_viewer_disposition_witness",
+				}
+			}
+			key := "official_viewer_typed_only_sync_witnesses_" + suffix
+			formatted := make([]string, 0, retained)
+			for index := 0; index < retained; index++ {
+				formatted = append(formatted,
+					traceDBSyncSpanViewerDispositionWitnessString(
+						disposition,
+						stats.ViewerDispositionWitnesses[disposition][index]))
+			}
+			item.Metadata[key] = strings.Join(formatted, ";")
+			traceDBAddCoverageMetric(item, key+"_emitted", int64(retained))
+			if omitted := total - retained; omitted > 0 {
+				traceDBAddCoverageMetric(item, key+"_omitted", int64(omitted))
+			}
+			item.FieldSources[key] =
+				"bounded exact final emitted typed-only sync-span dispositions after all shared suppression and supersession; diagnostic identity/interval/CPU provenance only, never alternate publication authority"
+		}
 		if stats.SuppressedSpans > 0 {
 			traceDBAppendCoverageSkipped(item, fmt.Sprintf(
 				"sync_span_authority: suppressed_spans=%d suppressed_endpoints=%d",
