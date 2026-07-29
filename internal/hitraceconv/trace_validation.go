@@ -245,6 +245,7 @@ type ownedTraceDBTextRecordSequence struct {
 	nextChunk     int
 	currentHash   string
 	hasher        hash.Hash
+	digestScratch [sha256.Size]byte
 }
 
 func (sequence *ownedTraceDBTextRecordSequence) observe(event tracequery.Event) bool {
@@ -294,13 +295,29 @@ func (sequence *ownedTraceDBTextRecordSequence) observe(event tracequery.Event) 
 	if record.Chunk != record.Chunks {
 		return true
 	}
-	if hex.EncodeToString(sequence.hasher.Sum(nil)) != sequence.currentHash {
+	digest := sequence.hasher.Sum(sequence.digestScratch[:0])
+	if len(digest) != sha256.Size ||
+		!traceDBSHA256BytesMatchCanonicalHex(digest, sequence.currentHash) {
 		return false
 	}
 	sequence.open = false
 	sequence.lastKind = sequence.currentKind
 	sequence.tableID = sequence.currentTable
 	sequence.lastOrdinal = sequence.currentRow
+	return true
+}
+
+func traceDBSHA256BytesMatchCanonicalHex(digest []byte, canonical string) bool {
+	if len(digest) != sha256.Size || len(canonical) != sha256.Size*2 {
+		return false
+	}
+	const lowerHex = "0123456789abcdef"
+	for index, value := range digest {
+		if canonical[index*2] != lowerHex[value>>4] ||
+			canonical[index*2+1] != lowerHex[value&0x0f] {
+			return false
+		}
+	}
 	return true
 }
 

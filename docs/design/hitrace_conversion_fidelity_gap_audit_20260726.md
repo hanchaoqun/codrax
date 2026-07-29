@@ -3518,6 +3518,23 @@ The physical systrace body remains deterministic: all O2 rows already share
 the maximum semantic timestamp, and their canonical sequence is now explicit
 instead of depending on sorter sequence ties.
 
+R6-F then removes avoidable per-record allocation without changing the wire:
+
+- SQLite scan destinations are allocated once per table and reused after each
+  row has been fully typed, hashed and emitted;
+- the tracequery O2 parser uses exact ordered field cuts instead of
+  `strings.Split`;
+- strict raw-URL base64 decoding replaces decode-then-re-encode canonicality
+  checks;
+- canonical SHA-256 text is decoded/compared without temporary hex buffers;
+- multi-chunk final-record SHA comparison reuses one fixed digest scratch
+  instead of allocating `Sum(nil)` plus `hex.EncodeToString` per logical row.
+
+The parser microbenchmark on darwin/arm64 is pinned at 277 ns/op, 128 B/op and
+2 allocs/op for a representative O2 row. The remaining allocations are
+confined to decoding and returning the exact payload required by the full
+logical-record SHA validator; it is not removed by weakening validation.
+
 ### REP6 frozen delivery order
 
 | Batch | Priority | Work | Independent push gate |
@@ -3541,9 +3558,14 @@ Progress:
   `bb218290e`;
 - R6-D: implemented, verified and pushed in `d7dde30e6`, including removal of
   the obsolete microsecond-alignment gate for standard pipe-name spans;
-- R6-E: implemented and under full-suite verification; independent commit/push
+- R6-E: implemented, full-suite verified and pushed in `99aced87c`;
+- R6-F: implemented and under full-suite verification; independent commit/push
   follows the green gate;
-- R6-C local-fence arm and R6-F: pending.
+- R6-C local-fence arm: replay-gated. R6-B can now admit the formerly
+  microsecond-collapsed raw pairs and R6-C already repairs 58 async
+  namespace-PID joins, so the old REP6 count of 176 is no longer a valid
+  residual roster. Narrowing fences before a new exact residual witness would
+  risk publishing ambiguous nesting and is therefore prohibited.
 
 ## Invariants
 

@@ -301,6 +301,11 @@ func exportTraceDBTextFidelityTable(
 	}
 	rowsDigest := sha256.New()
 	var rowChunks uint64
+	raw := make([]any, len(columnNames))
+	dest := make([]any, len(raw))
+	for index := range raw {
+		dest[index] = &raw[index]
+	}
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
 			coverage.Error = err.Error()
@@ -312,11 +317,6 @@ func exportTraceDBTextFidelityTable(
 			return coverage, recordLines, sourceRows, nil, err
 		}
 		sourceRows++
-		raw := make([]any, len(columnNames))
-		dest := make([]any, len(raw))
-		for index := range raw {
-			dest[index] = &raw[index]
-		}
 		if err := rows.Scan(dest...); err != nil {
 			coverage.Error = err.Error()
 			return coverage, recordLines, sourceRows, nil, err

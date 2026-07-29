@@ -39,6 +39,8 @@ func TestTraceDBTextRecordParsesAsKnownPreservationOnlyEvent(t *testing.T) {
 
 func TestTraceDBTextRecordRejectsCorruptionAndNoncanonicalWire(t *testing.T) {
 	valid := testTraceDBTextRecordLine("schema", 0, []byte(`{"version":1}`))
+	noncanonicalBase64 := testTraceDBTextRecordLine("schema", 0, []byte{0})
+	noncanonicalBase64 = strings.Replace(noncanonicalBase64, "payload=AA ", "payload=AB ", 1)
 	cases := []string{
 		strings.Replace(valid, "kind=schema", "kind=other", 1),
 		strings.Replace(valid, "row_ordinal=0", "row_ordinal=1", 1),
@@ -47,11 +49,28 @@ func TestTraceDBTextRecordRejectsCorruptionAndNoncanonicalWire(t *testing.T) {
 		strings.Replace(valid, "payload=", "payload=*", 1),
 		strings.Replace(valid, "chunk_sha256=", "chunk_sha256=0", 1),
 		strings.Replace(valid, "record_sha256=", "record_sha256=A", 1),
+		strings.Replace(valid, " kind=", "  kind=", 1),
+		noncanonicalBase64,
 		valid + " trailing=true",
 	}
 	for _, line := range cases {
 		if event, ok := ParseLine(1, line, nil); ok {
 			t.Fatalf("corrupt typed record parsed: %q => %+v", line, event)
+		}
+	}
+}
+
+func BenchmarkParseTraceDBTextRecord(b *testing.B) {
+	line := testTraceDBTextRecordLine(
+		"row",
+		9,
+		[]byte(`{"version":1,"table_id":7,"ordinal":9,"cells":[{"storage":"text","bytes_b64":"Y3JpdGljYWwtc3Bhbi1uYW1l"}]}`),
+	)
+	b.ReportAllocs()
+	b.SetBytes(int64(len(line)))
+	for range b.N {
+		if _, ok := parseTraceDBTextRecord(line); !ok {
+			b.Fatal("valid record rejected")
 		}
 	}
 }
