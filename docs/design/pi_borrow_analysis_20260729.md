@@ -186,7 +186,7 @@ pi 的 prompt 面貌：基础系统 prompt 仅 ~18 行骨架（一句角色定�
 | PIB-1 | 重试/溢出用户面：REPL 重试倒计时 + esc 取消 + 退避可视化 + 最终失败才报错；非 TTY 车道日志化 | LLM 客户端重试分层、REPL 状态卡、W1/W2 既有断路/心跳的 UX 面 | **已落地**（2026-07-29，见 §7 补记一） |
 | PIB-W | 写模式借鉴批（用户 2026-07-29 点名写模式 gap，优先级提升）。**2026-07-29 现状探索后收窄**（全文见 §7 补记二）：六候选中三项撤销（verify 结构化回灌=VerifyFailureHandoff 已完备；无 UI fail-closed=已正确返回错误不挂起；动作检查点=apply commit 快照+best-known-good 热回退+slice typed checkpoint 三层已在役）。保留四件：**W-1 三段式审批**（主件：`/reject` 现在把 batch 打成 Blocked 死路，拒绝意见零回流——新增修订意见 typed 载体→batch 回 ReadyToPlan→replan 消费，对标 pi plan-mode Refine 臂）；**W-2 审批决策 append-only 账本**（现 `plan.Approval` 单槽覆盖，跨 replan 只留最后一次；`/workflow show` 不展示 `Reasons[]`）；W-3 apply 中途失败（partially_applied）的检查点保全（`/approve --retry` 现开全新 worktree 丢前次状态）；W-4 raw diff 拒绝散文 typed 化（structured-edit 侧已有 reason code 双臂，raw 侧是纯散文）。 | write controller、审批流、REPL 写模式卡 | 探索完毕，W-1/W-2 开发中 |
 | PIB-2 | 两级消息排队：pipeline 运行期不锁输入；steering（阶段边界注入）/ follow-up（run 结束注入）/ esc 还原队列 | REPL 输入循环、orchestrator 阶段边界、写模式 controller | 待启动 |
-| PIB-3 | 工具面截断纪律：双上限统一截断 + 永不半行 + 截断提示即下一步指令 + 输出截断时工具调用拒执行硬门 | read/grep 等工具实现、coverage 记账、agent 工具循环 | 待启动 |
+| PIB-3 | 工具面截断纪律：双上限统一截断 + 永不半行 + 截断提示即下一步指令 + 输出截断时工具调用拒执行硬门 | read/grep 等工具实现、coverage 记账、agent 工具循环 | **已落地**（2026-07-29，见 §7 补记三） |
 | PIB-4 | 会话导出/导入复现闭环：诊断会话/工件一键导出 bundle + 一键导入还原 | blob session、REPL /history、报告投影 | 待启动 |
 | PIB-5 | REPL 水位与输入增强：footer token/cost/上下文水位 + 粘贴自动折叠 + @ 文件引用 seed RequiredFiles | REPL footer/输入组件、usage 计量、analyzer RequiredFiles | 待启动 |
 | PIB-6 | 渲染层几何 pin：teatest/VT 级差分渲染断言，BARGRID-1 教训泛化为渲染红线 | REPL 渲染面、测试基建 | 待启动 |
@@ -212,6 +212,18 @@ PIB-1 前置探索结论（2026-07-29，全文见批次补记）：codrax 重试
 **触点**：`internal/llm/llm.go`（OnRetry 契约）、`openai.go`（发布预算）、`internal/agent/agent.go`（事件扩维）、`internal/repl/direct_llm_trace_adapter.go`（链路扩维）、`internal/render/event.go` / `dock_state.go` / `renderer_dock.go`（词形+倒计时+两车道标签）。
 
 **验证**：`make` 构建绿；`go test ./...` 83 包 exit=0 零 FAIL；新增 `internal/render/retry_countdown_test.go` 五组 pin（变换语义/三词形双语/事件接线/非 TTY 分母+禁 `N/0` 负臂/compose 端到端含归零翻转）；`stream_wait_matrix_test.go` 加分母断言；既有子串 pin（`重新请求模型`/no-jargon/静态词形/双镜像唯一性）全存活未改。
+
+### 补记三：PIB-3 工具面截断纪律（2026-07-29 落地）
+
+**探索结论（要点）**：codrax 数值上限已有中央 width governor（`internal/tool/width/`，逐值 pin）、read_file/grep 的类型化续读指令（Refinement + PreferredParams）已比 pi 完整、coverage 记账全部基于 typed 载体（banner 首行两种形状是唯一 load-bearing 文本，不可动）。四个真 gap：① 传输层 `blob.go` 预览 head/tail 是纯字节裸切（可产半行/半 rune；`types.CutPrefixRuneSafe` 家族存在但未接通）；② 三条 preview 提示教模型用 legacy `offset`，而模型可见 schema 只有 `line_offset`（prompt_hygiene_test 明令禁止 offset 出现在模型面）；③ grep 无单行长度上限（500KB minified 行整条进 LLM 面）；④ **`resp.StopReason` 全仓零消费**——finish_reason=length 带工具调用整批照常执行，`tryCompleteTruncatedJSON` 甚至补全被截 JSON 后放行（正是 pi 拒执行论证的场景）。
+
+**落地四件**：
+1. **传输层永不半行/半 rune**：`blob.go` 新增 `cutHeadAtBoundary`/`cutTailAtBoundary`（优先行边界，单巨行回退 rune-safe；修掉 `CutPrefixRuneSafe` 快路径旁通的真 bug——裸切片长度=预算时原样返回，测试先红抓出，窗口加宽 4 字节使退避生效），`buildHeadPreview`/`buildPreview` 全接，行数从实际保留切片重算。
+2. **提示词参数名对齐**：全部 `offset=`/`use offset/limit` → `line_offset=`/`use line_offset/limit`。
+3. **grep 单行上限**：width governor 新增 `DefaultGrepMaxLineBytes=512`（pin 测试同步）+ `capGrepLineForInline` 在 `writeCappedGrepSection` 单点生效（rune-safe + 恢复指令标记；typed 载体与 full_raw_saved 不受影响）。
+4. **length 整批拒执行硬门**：`AgentContext.LLMOutputTruncatedBatch` 精确信号（每轮重 stamp：`StopReason=="length" && len(ToolCalls)>0`）；`executeTool` 在 JSON 修复**之前**短路，返回 typed 拒执行结果（repair code `llm_output_truncated`，Summary 声明未执行+原因+恢复动作"少量重发"）。`degenerate_repetition` 车道刻意不动（客户已验证的 soft-stop 车道，账本留问）。
+
+**验证**：全仓 83 包零 FAIL（含全部 banner 消费者/prompt hygiene/refinement 矩阵既有 pin）；新 pin 四组（头尾边界+rune 安全多预算扫描、line_offset 词面+负臂、grep 行帽+恢复标记、拒执行门+flag=false 走 malformed 车道负臂）。**收窄记录**：read_file clamp 三漏口的锐利面（半行/半 rune）已被传输层修复覆盖，banner 记账口径小改不做；grep MaxMatches 不加（条目阈值+压缩 governor 已治理）。
 
 ### 补记二：PIB-W 现状探索结论与收窄裁定（2026-07-29）
 

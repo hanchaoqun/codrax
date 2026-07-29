@@ -289,38 +289,91 @@ func firstNonEmptyBlobName(values ...string) string {
 	return "artifact"
 }
 
+// cutHeadAtBoundary returns the longest prefix of data that fits in
+// budget bytes and ends on a LINE boundary (PIB-3, ledger
+// docs/design/pi_borrow_analysis_20260729.md §3.4: never emit half a
+// line to the model). When the slice contains no newline at all (one
+// enormous line — minified JS, a trace record) it falls back to a
+// rune-safe byte cut so the model at worst sees a truncated line, never
+// a torn UTF-8 sequence.
+func cutHeadAtBoundary(data []byte, budget int) string {
+	if budget >= len(data) {
+		return string(data)
+	}
+	if budget <= 0 {
+		return ""
+	}
+	slice := data[:budget]
+	if idx := strings.LastIndexByte(string(slice), '\n'); idx >= 0 {
+		return string(slice[:idx+1])
+	}
+	// CutPrefixRuneSafe's fast path returns inputs that already fit
+	// unchanged — a bare data[:budget] slice would bypass the rune
+	// backoff entirely. Hand it a window one rune (4 bytes) wider than
+	// the budget so the backoff always engages at the cut point.
+	window := budget + 4
+	if window > len(data) {
+		window = len(data)
+	}
+	return types.CutPrefixRuneSafe(string(data[:window]), budget)
+}
+
+// cutTailAtBoundary is the suffix companion: the kept tail starts on a
+// line boundary, falling back to a rune-safe cut for newline-free data.
+func cutTailAtBoundary(data []byte, budget int) string {
+	if budget >= len(data) {
+		return string(data)
+	}
+	if budget <= 0 {
+		return ""
+	}
+	slice := data[len(data)-budget:]
+	if idx := strings.IndexByte(string(slice), '\n'); idx >= 0 && idx+1 < len(slice) {
+		return string(slice[idx+1:])
+	}
+	// Same fast-path hazard as cutHeadAtBoundary: widen the window so
+	// CutSuffixRuneSafe's rune backoff engages at the cut point.
+	start := len(data) - budget - 4
+	if start < 0 {
+		start = 0
+	}
+	return types.CutSuffixRuneSafe(string(data[start:]), budget)
+}
+
 // buildHeadPreview returns the leading slice of data with a line-aware
 // truncation notice. It deliberately omits the tail because hiding a
 // middle of source code without flagging it has caused real failures
 // (the LLM sees what looks like a complete snippet and misses the
 // section relevant to its question).
+//
+// Paging wording deliberately says line_offset — the model-visible
+// read_file schema exposes line_offset/limit only (legacy "offset" is
+// decode-tolerated but banned from the model face by
+// prompt_hygiene_test); teaching the model a parameter name it cannot
+// see in the schema produced avoidable retry churn.
 func buildHeadPreview(data []byte, ref, toolName string) string {
 	total := len(data)
 
-	headEnd := previewHeadBytes
-	if headEnd > total {
-		headEnd = total
-	}
-	head := string(data[:headEnd])
+	head := cutHeadAtBoundary(data, previewHeadBytes)
 
 	totalLines := countLines(data)
-	headLines := countLines(data[:headEnd])
+	headLines := countLines([]byte(head))
 
 	hint := ""
 	if ref != "" && toolName == "read_file" {
 		hint = fmt.Sprintf(
-			"\n\n…[showing lines 1-%d of %d. The remaining %d lines were NOT returned. Call read_file again with offset=%d (and an appropriate limit) to read further, or grep this same path for specific patterns. Full content also saved to %s.]",
+			"\n\n…[showing lines 1-%d of %d. The remaining %d lines were NOT returned. Call read_file again with line_offset=%d (and an appropriate limit) to read further, or grep this same path for specific patterns. Full content also saved to %s.]",
 			headLines, totalLines, totalLines-headLines, headLines, ref,
 		)
 	} else if ref != "" {
 		hint = fmt.Sprintf(
-			"\n\n…[showing first %d of %d bytes (%d of %d lines). Full content saved to %s — call read_file with that path (use offset/limit to page) or grep it for specific patterns.]",
-			headEnd, total, headLines, totalLines, ref,
+			"\n\n…[showing first %d of %d bytes (%d of %d lines). Full content saved to %s — call read_file with that path (use line_offset/limit to page) or grep it for specific patterns.]",
+			len(head), total, headLines, totalLines, ref,
 		)
 	} else {
 		hint = fmt.Sprintf(
 			"\n\n…[showing first %d of %d bytes (%d of %d lines). Remaining content unavailable.]",
-			headEnd, total, headLines, totalLines,
+			len(head), total, headLines, totalLines,
 		)
 	}
 
@@ -346,33 +399,29 @@ func countLines(data []byte) int {
 func buildPreview(data []byte, ref string) string {
 	total := len(data)
 
-	headEnd := previewHeadBytes
-	if headEnd > total {
-		headEnd = total
-	}
-	head := string(data[:headEnd])
+	head := cutHeadAtBoundary(data, previewHeadBytes)
 
 	// Head and tail must not overlap; if the data is barely over the
 	// threshold, just return the head with a truncation note.
 	tailStart := total - previewTailBytes
-	if tailStart <= headEnd {
+	if tailStart <= len(head) {
 		if ref == "" {
 			return fmt.Sprintf("%s\n\n…[truncated, %d bytes total, full content unavailable]", head, total)
 		}
 		return fmt.Sprintf(
-			"%s\n\n…[truncated, %d bytes total. Full content saved to %s — call read_file with that path (use offset/limit to page) or grep it for specific patterns.]",
+			"%s\n\n…[truncated, %d bytes total. Full content saved to %s — call read_file with that path (use line_offset/limit to page) or grep it for specific patterns.]",
 			head, total, ref,
 		)
 	}
 
-	tail := string(data[tailStart:])
-	middle := total - headEnd - previewTailBytes
+	tail := cutTailAtBoundary(data, previewTailBytes)
+	middle := total - len(head) - len(tail)
 
 	if ref == "" {
 		return fmt.Sprintf("%s\n…[truncated %d bytes, full content unavailable]…\n%s", head, middle, tail)
 	}
 	return fmt.Sprintf(
-		"%s\n…[truncated %d bytes. Full content at %s — call read_file with that path (use offset/limit to page) or grep it for specific patterns.]…\n%s",
+		"%s\n…[truncated %d bytes. Full content at %s — call read_file with that path (use line_offset/limit to page) or grep it for specific patterns.]…\n%s",
 		head, middle, ref, tail,
 	)
 }

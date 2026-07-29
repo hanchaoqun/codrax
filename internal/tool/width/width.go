@@ -52,6 +52,13 @@ const (
 	DefaultGrepLineWindowHintMax   = 4
 	DefaultGrepLineWindowHalfSpan  = 20
 	DefaultGrepDirScanMaxFileBytes = 4 << 20
+	// DefaultGrepMaxLineBytes bounds ONE rendered match line on the
+	// inline surface (PIB-3, pi borrow: pi caps grep lines at 500
+	// chars). Minified bundles and trace records produce single lines
+	// of hundreds of KB; without a per-line cap one such line blows the
+	// whole inline budget. Render-layer only — typed carriers and the
+	// full_raw_saved artifact keep the complete line.
+	DefaultGrepMaxLineBytes = 512
 
 	DefaultPathDiscoveryCandidateFileLimit = 256
 
@@ -93,6 +100,9 @@ type GrepCaps struct {
 	// the caller does not specify a limit (explicit single-file searches
 	// stream without this cap).
 	DirScanMaxFileBytes int64
+	// MaxLineBytes bounds one rendered match line inline (rune-safe cut
+	// + explicit truncation marker; 0 disables).
+	MaxLineBytes int
 }
 
 // ReadFileCaps bounds the read_file paging-window suggestion emitted when an
@@ -177,6 +187,7 @@ func Defaults() Caps {
 			LineWindowHintMax:   DefaultGrepLineWindowHintMax,
 			LineWindowHalfSpan:  DefaultGrepLineWindowHalfSpan,
 			DirScanMaxFileBytes: DefaultGrepDirScanMaxFileBytes,
+			MaxLineBytes:        DefaultGrepMaxLineBytes,
 		},
 		PathDiscoveryCandidateFileLimit: DefaultPathDiscoveryCandidateFileLimit,
 		ReadFile: ReadFileCaps{

@@ -7168,6 +7168,18 @@ type AgentContext struct {
 	// owned tool schema filtering and runtime boundary checks.
 	ExploreToolSurface ExploreToolSurface `json:"-"`
 
+	// LLMOutputTruncatedBatch is stamped by BaseAgent once per LLM
+	// round, BEFORE tool dispatch: true iff the response stopped with
+	// finish_reason=length AND carried tool calls (PIB-3, ledger
+	// docs/design/pi_borrow_analysis_20260729.md §3.4 item 5).
+	// executeTool refuses the whole batch on this precise signal —
+	// truncated tool arguments can parse (the streaming repairer even
+	// completes missing closers) yet be semantically incomplete, so
+	// executing any of them risks acting on half a command. Written
+	// single-threaded during iteration setup, read-only from the
+	// parallel tool-execution goroutines of that same iteration.
+	LLMOutputTruncatedBatch bool `json:"-"`
+
 	// ReadDispatchPolicy mirrors BusContext.ReadDispatchPolicy for scheduler-
 	// owned tool schema filtering, runtime boundaries, and dispatch budgets.
 	ReadDispatchPolicy ReadDispatchPolicy `json:"-"`

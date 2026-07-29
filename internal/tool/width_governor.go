@@ -41,6 +41,7 @@ func grepWidthOtherCap() int              { return width.Current().Grep.OtherCap
 func grepWidthLineWindowHintMax() int     { return width.Current().Grep.LineWindowHintMax }
 func grepWidthLineWindowHalfSpan() int    { return width.Current().Grep.LineWindowHalfSpan }
 func grepWidthDirScanMaxFileBytes() int64 { return width.Current().Grep.DirScanMaxFileBytes }
+func grepWidthMaxLineBytes() int          { return width.Current().Grep.MaxLineBytes }
 
 // --- list_files caps (explicit named aliases of the grep values) ------------
 

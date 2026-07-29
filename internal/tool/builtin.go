@@ -4118,12 +4118,26 @@ func writeCappedGrepSection(b *strings.Builder, header string, lines []string, c
 		limit = len(lines)
 	}
 	for _, line := range lines[:limit] {
-		b.WriteString(line)
+		b.WriteString(capGrepLineForInline(line))
 		b.WriteByte('\n')
 	}
 	if omitted := len(lines) - limit; omitted > 0 {
 		fmt.Fprintf(b, "... omitted %d additional entries from this section; see full_raw_saved above.\n", omitted)
 	}
+}
+
+// capGrepLineForInline bounds ONE rendered match line (PIB-3): a single
+// minified/trace line of hundreds of KB must not blow the inline
+// budget. Rune-safe cut + explicit marker with the recovery move; the
+// full line stays available via the full_raw_saved artifact and
+// read_file on the original path. Render-layer only — typed match
+// carriers are built from coordinates, not from this string.
+func capGrepLineForInline(line string) string {
+	max := grepWidthMaxLineBytes()
+	if max <= 0 || len(line) <= max {
+		return line
+	}
+	return types.CutPrefixRuneSafe(line, max) + " …[line truncated; read_file the path at this line for the full content]"
 }
 
 func grepSkippedLargeFilePathHint(paths []string, skippedTotal int) string {

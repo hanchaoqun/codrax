@@ -832,6 +832,41 @@ func toolCallParamsValidForHistory(params json.RawMessage) bool {
 
 const toolRepairCodeMalformedToolParams = "malformed_tool_params"
 
+// toolRepairCodeLLMOutputTruncated marks a tool call refused because
+// the model response that carried it stopped at the output-token limit
+// (finish_reason=length). Distinct from malformed_tool_params: the
+// arguments may be perfectly parseable — the refusal is about the
+// RESPONSE being incomplete, not the JSON.
+const toolRepairCodeLLMOutputTruncated = "llm_output_truncated"
+
+// llmOutputTruncatedToolCallResult is the non-executed result every
+// call in a length-truncated batch receives (PIB-3). The wording gives
+// the model the exact recovery move: re-issue fewer/smaller calls so
+// the full batch fits the output budget.
+func llmOutputTruncatedToolCallResult(tc llm.ToolCall) *types.ToolResult {
+	return &types.ToolResult{
+		ToolName:  tc.Name,
+		Success:   false,
+		Summary: "not executed: your response hit the output-token limit before it finished, so the arguments of this tool call may be incomplete even if they look valid. " +
+			"No tool in this batch was executed. Re-issue the calls you still need in your next response — fewer calls per response, or smaller argument payloads, so the whole batch fits.",
+		Timestamp: time.Now(),
+		Repair: &types.ToolRepair{
+			Code:   toolRepairCodeLLMOutputTruncated,
+			Hint:   "Re-issue this tool call in a new response; keep the batch small enough to fit the output budget.",
+			Fields: []string{"arguments"},
+			Metadata: map[string]string{
+				"kind": "length_stop",
+				"tool": types.CanonicalToolName(tc.Name),
+			},
+		},
+		Refinement: &types.ToolRefinementHint{
+			ReasonCode:        toolRepairCodeLLMOutputTruncated,
+			PreferredNextTool: types.CanonicalToolName(tc.Name),
+			RequiredFields:    []string{"native_json_arguments"},
+		},
+	}
+}
+
 func malformedToolParamsResult(tc llm.ToolCall) *types.ToolResult {
 	errText := "malformed JSON"
 	if len(tc.Params) == 0 {
@@ -2446,6 +2481,19 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		resp.ToolCalls = pruneAnalyzerPrescanBatchBeforeHistory(ctx, resp.ToolCalls)
 		var toolBatchGuardHint string
 		resp.ToolCalls, toolBatchGuardHint = pruneExploreToolBatchBeforeHistory(ctx, resp.ToolCalls)
+		// PIB-3: stamp the whole-batch refusal signal for this round.
+		// finish_reason=length means the model ran out of output budget
+		// mid-response; any tool call in the batch may carry arguments
+		// that parse but are semantically incomplete. executeTool
+		// refuses each call on this flag instead of executing/repairing
+		// it. Re-stamped every round (false clears a prior round's
+		// flag). degenerate_repetition deliberately keeps its existing
+		// soft-stop lane (customer-validated) and is not gated here.
+		ctx.LLMOutputTruncatedBatch = resp.StopReason == "length" && len(resp.ToolCalls) > 0
+		if ctx.LLMOutputTruncatedBatch {
+			logging.Warning("[agent %s] iter=%d refusing %d tool call(s): response truncated by output-token limit (finish_reason=length)",
+				b.name, i, len(resp.ToolCalls))
+		}
 
 		// DIAGNOSTIC — dump assistant response (debug only).
 		logging.Debug("[diag %s] iter=%d ASSISTANT content_len=%d tool_calls=%d",
@@ -4416,6 +4464,14 @@ func (b *BaseAgent) emitLLMWaitHeartbeat(ctx *types.AgentContext, iter, tick int
 
 func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall, currentToolSurface ...map[string]bool) (*types.ToolResult, *types.MCPResponse) {
 	tc = ensureToolInvocationID(tc)
+	// PIB-3 whole-batch refusal: when this round's LLM response was cut
+	// off by the output-token limit, every tool call is refused BEFORE
+	// the JSON repair below — the repairer would happily complete a
+	// truncated arguments object into something parseable-but-wrong.
+	if ctx != nil && ctx.LLMOutputTruncatedBatch {
+		b.observeToolRejected(ctx, tc, "tool_batch_llm_output_truncated", "length_stop")
+		return llmOutputTruncatedToolCallResult(tc), nil
+	}
 	// Fix G (2026-05-07 customer report): repair common LLM-induced
 	// JSON corruption in tool call parameters before validation /
 	// execution. LLMs occasionally emit a trailing extra `}` (the

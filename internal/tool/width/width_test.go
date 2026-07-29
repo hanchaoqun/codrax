@@ -25,6 +25,7 @@ func TestWidthDefaultsPinned(t *testing.T) {
 		{"Grep.LineWindowHintMax", int64(caps.Grep.LineWindowHintMax), 4},
 		{"Grep.LineWindowHalfSpan", int64(caps.Grep.LineWindowHalfSpan), 20},
 		{"Grep.DirScanMaxFileBytes", caps.Grep.DirScanMaxFileBytes, 4 << 20},
+		{"Grep.MaxLineBytes", int64(caps.Grep.MaxLineBytes), 512},
 		{"PathDiscoveryCandidateFileLimit", int64(caps.PathDiscoveryCandidateFileLimit), 256},
 		{"ReadFile.PageWindowDefault", int64(caps.ReadFile.PageWindowDefault), 100},
 		{"ReadFile.PageWindowMax", int64(caps.ReadFile.PageWindowMax), 200},
