@@ -4151,6 +4151,164 @@ Progress:
 Final verification after R9-B and R9-C: `go test ./... -count=1` passed on
 `main@ad373561a`. The worktree and `origin/main` were synchronized and clean.
 
+## REP-A customer replay audit (2026-07-29)
+
+Inputs:
+
+- `/Users/han/opt/customlogs/repA.txt`;
+- `/Users/han/opt/customlogs/codrax-trace-diag-repA.txt`;
+- customer executable SHA-256
+  `611f574ba982203f412126f63b2c7b2008303ece36a7cbfe20e358476d6cc67a`.
+
+The executable still reports `build_revision=unknown`, but carries both
+`null_duration_raw_closure_census_v1` and
+`raw_marker_local_validation_witness_v1`. REP-A is therefore an admissible
+R9-C replay. The audited code baseline is `main@e14b391df`.
+
+### REP-A-01 — output closure and viewer counts remain exact
+
+Full postvalidation again proves:
+
+```text
+expected rows = parsed rows = callback rows = 1237851
+authenticated O2 rows                         =  829327
+standard-visible spans                        =   92914
+typed-only sync spans                         =    3128
+unpublished closed sync spans                 =      78
+```
+
+The typed-only roster is unchanged and still closes exactly as:
+
+```text
+3128 = 2638 cpu_unknown_start
+     +  488 cpu_source_tainted
+     +    2 cpu_unknown_end
+```
+
+There is no evidence of a regression in the R8 name or async repairs:
+79,932 raw sync spans were submitted, including 28,705 CPU-unavailable and
+50,043 standard-name-unrepresentable callstack replacements.
+
+### REP-A-02 — R9-D suffix-fence narrowing is not authorized
+
+All 101 rejected callstack duration scalars are SQL NULL. Ninety are
+synchronous rows for which the exact start/identity/name hint was retained;
+the other eleven are separately accounted official-async shape rejects.
+
+The independent raw-closure census closes:
+
+```text
+NULL-duration hints total/retained        = 90 / 90
+unique exact valid raw B/E closures       =  0
+hints without a valid raw closure         = 90
+```
+
+Therefore none of the 90 suffix fences may be narrowed by R9-D. In
+particular, a NULL duration must not be coerced to zero, and an unrelated raw
+end must not be attached to it. The 78 still-unpublished closed callstack
+spans remain fail-closed. A future diagnostic may classify the 90 starts
+against structurally closed-but-locally-rejected pairs and trailing open
+begins, but that classification is not duration authority.
+
+### REP-A-03 (P0) — official structured marker `pid=0` is a confirmed compatibility gap
+
+The raw local-validation cohort closes:
+
+```text
+raw structural B/E pairs                         = 83975
+raw valid/submitted pairs                        = 79932
+raw pairs withheld by local validation           =  4038
+  invalid begin payload PID                      =  3759
+  invalid span name                              =   279
+```
+
+All eight bounded first-cohort witnesses are the same exact shape:
+
+```text
+physical event profile = tracing_mark_write pid/name/start
+header common_pid      = 118
+begin/end payload PID  = 0
+span name              = iofast_alloc
+```
+
+This is not corrupt marker data. The official OpenHarmony SmartPerf
+implementation was audited at commit
+`5c5afb0c479b070148d8a6e336120638a1a03930`:
+
+- `FtraceEventProcessor::TracingMarkWriteOrPrintFormat` converts the
+  producer's exact `pid/name/start` fields to `B|pid|name` or `E|pid|`,
+  including `pid=0`;
+- `PrintEventParser::GetThreadGroupId` returns zero for that payload;
+- `SliceFilter::BeginSlice` and `EndSlice` explicitly treat zero as “no TGID
+  override” and attach the slice to the physical row-header PID.
+
+Source fingerprints used for this ruling:
+
+```text
+ftrace_event_processor.cpp sha256 =
+  1f72412c4adc5ea2ae7a75b0b9c4d920e9fc3d1311af8aa84a010dfd5793059f
+print_event_parser.cpp sha256 =
+  f138f39618ccbf2fc5f01ade2834ce565b72a53261ee918258b326cce4375620
+```
+
+Codrax currently admits the structured body but then rejects the closed pair
+because raw sync recovery requires `PayloadPID > 0`. This is stricter than the
+official parser and loses an exact, closed cohort.
+
+The repair predicate is frozen narrowly:
+
+1. only the already strict OpenHarmony `print|tracing_mark_write`
+   `pid/name/start` producer profile qualifies;
+2. both B and E must carry source PID zero and the same positive physical
+   emitter;
+3. both endpoints must independently resolve to the same canonical host
+   thread/process and pass the existing lifecycle interval gate;
+4. the public standard marker PID is that proven host TGID, while the
+   candidate records the source marker PID as absent/zero provenance;
+5. every nonzero payload PID remains verbatim namespace data; generic compact
+   or textual `B|0` is not admitted by this exception;
+6. collision cardinality, laminar authority, CPU/flags/preempt envelopes and
+   full postvalidation remain unchanged.
+
+This profile-specific normalization matches the official viewer's ownership
+semantics while producing a positive standard marker PID for generic
+systrace/Codrax consumers. It does not equate a nonzero namespace PID with a
+host PID.
+
+The 279 `invalid_span_name` rows are not covered by this ruling and remain
+withheld pending exact name witnesses.
+
+### REP-A-04 — performance regression is not reproduced
+
+On the same customer file:
+
+| component | REP9 | REP-A | delta |
+| --- | ---: | ---: | ---: |
+| total DB normalization | 46.919s | 42.867s | -4.052s |
+| raw sync recovery | 5.296s | 4.405s | -0.891s |
+| SQL fidelity `__all_tables__` | 17.564s | 13.950s | -3.614s |
+| semantic sorter | 6.250s | 7.526s | +1.276s |
+| full tracequery validation | 8.861s | 8.953s | +0.092s |
+
+R9-B removed about 16.8% from the raw-sync phase. Total normalization is again
+within roughly 1.7% of REP8, so the prior SQL-fidelity increase was run
+variance rather than a proven format hot path. No O2, hash, immutable snapshot
+or full-postvalidation weakening is justified.
+
+### REP-A frozen delivery order
+
+| Batch | Priority | Work | Independent push gate |
+| --- | --- | --- | --- |
+| RA-A | P0 audit | record REP-A equations and the official `pid=0` ruling | official source commit/hash plus exact repair predicate present |
+| RA-B | P0 repair | normalize only exact structured zero-PID B/E pairs to proven header identity | positive standard PID; source-zero provenance; compact/text zero and nonzero namespace controls remain withheld/verbatim |
+| RA-C | P1 diagnosis | correlate NULL hints with rejected closed pairs and raw open begins | diagnostic only; no duration/fence change; report remains below 900 lines |
+| RA-D | P1 diagnosis | publish bounded `invalid_span_name` witnesses by exact reason class | no name repair without a closed official grammar |
+| RA-E | P1 diagnosis/repair | finish the 3,128 CPU-disposition correlation from exact raw pair ledgers | no CPU inference |
+
+RA-B is authorized without another customer replay. RA-C and RA-D should be
+shipped before the next replay so one run can decide the remaining 78 fenced
+rows and 279 name rejects. RA-E remains a separate CPU-authority batch.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.
