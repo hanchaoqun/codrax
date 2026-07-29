@@ -3956,6 +3956,8 @@ Progress:
 - R8-F: deferred behind viewer replay acceptance; no validation has been
   weakened for performance.
 
+Final verification after R8-B through R8-D: `go test ./...` passed.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.
