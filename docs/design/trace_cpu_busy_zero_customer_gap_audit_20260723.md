@@ -1410,3 +1410,27 @@ E1 drill universe 扩域指控、E2 epoch_complete JSON 恒 false 指控、R2' s
 **用户裁定链**:「主根因」表述被指过度主张(实际=系统已识别的单项最大可消除量)→ 语义核实确认(加冕条件=已证链上可消除量,标题必配 ◎ 总览 TOP1,凭证门内按有效归因选举)→ 比选 A(全面换词)/B(保词加限定)→ **B+ 落地**:头行首现括注(主根因=已证链上单项最大可消除量,前缀字节稳定保全全 pin)+ 定义并入 ➊ 锚定 Badge 图例条(独立图例条被双向 harness 正确拒绝——锚点在 fence 外,教训:图例条必须 fence 内 token 锚定)+ closed matrix 契约双面(Description+Parameters)反机理腔护栏(机理主张只来自唤醒链/阻塞证据,永不由加冕词自生)。
 
 **定名备案**:若将来裁定 A 方案,保留词=**「首要可消除项」**(首要=选举语义精确、可=承认折扣口径、消除项与定义加冕的可消除量词族配对);次优=首要归因项;首要优化点撞语义 span 专词不可用。零答案代价验证:全仓绿+eval 双 PASS。
+
+## §18 双维度根因证据审计(2026-07-28,wf_e61f1adc-b83,3 镜头 54 项)
+
+**用户框架**:维度一=真实占时导致丢帧(不问既有可消除计价逻辑能否计价——过长 span/高频聚类过长,引导客户探索新修复方向);维度二=既有规则可消除(优先级反转纠正/算力供给折算提升算力等)。审计:系统是否给模型足够清晰的双维度证据。
+
+### §18.1 总判
+
+**证据层大体健康,教学层单维漏斗**。裸值全程在线(每 rank 行 raw/priced 双通道 typed 分离:ImpactMs/Cumulative/actual_* + 四态分解 vs effective_impact 带口径词;context_only 归零臂保留裸账+显式 0 哨兵);SPANVIS-1 业务提及面=维度一专面(2026-07-19 定形原则逐字实现:任意名聚族/单长=单员族/显著性地板/×N·单次最大·合计三元组/◈ 树块+◎ 业务线索区);◎ 五区页架构分离双维;修向 registry 单源闭集+普查 pin;语义家族(含 SHADERCACHE)双维皆有硬提及义务;目标自身四态账+running 分解(确定性工作/供给折算指针/自身执行残差)完整。
+
+### §18.2 确认 GAP(三镜头汇聚)
+
+**G1(P1,三镜头同抓,最尖锐结构洞)**:**无 span 载体的未计价真实占时零出口**——目标自身(或链上线程)满频长计算、无业务 span 无语义 span:effective=0→context_only→◎ 榜外(席臂要求 eff>0)且 aux 区「排除≠消失」四族不含 context_only(无计数账行);running 修向=frequency_thermal 无 self_workload 腿(registry 内明记为**待批延交默认**——修向腿变更属 registry 红线,需用户裁定);教学零句把保留的裸 running 映射为「代码级优化新方向」。裸证据在线,纯叙述/义务缺口。
+
+**G2(P2,教学框架)**:双维度框架从未被作为框架教——Description/Parameters 零 business_span_mention 词,通用 span 只有抑制性措辞;explore skill 只教计价 #1 收口(调查交接漏斗进维度二);业务三元组义务=显示面硬/prose 软(语义家族有 MUST-mention,业务面只有 MAY)。
+
+**G3(P2,维度二清晰度四小件)**:①集中 board feed 每席单值(重折扣席在"唯一权威排序面"上无裸值孪生);②反转席三套杠杆词汇并存无对账(修向=锁与优先级 vs 组成注 调度修复/频点热策略 vs 口径词);③blocking_span 计价臂缺席于自称"authoritative closed"的矩阵教学;④periodic 迟到量无专属杠杆词(骑 token 泛向)。
+
+**G4(P3)**:◎ aux 区 context_only 计数账;tracediag 注释 ≤3 vs cap 8 陈旧。
+
+### §18.3 建议分批(待批)
+
+- **批一(G1)**:context_only 链上 running 入 ◎ aux 计数账(排除≠消失扩族)+ 双维框架教学句(Description+Parameters+explore/finalizer skill:业务三元组义务升级为受限 MUST)+ **running 修向 self_workload 腿=需用户裁定**(registry 红线);
+- **批二(G2+G3①③)**:board feed 折扣席裸值孪生;blocking_span 臂入矩阵教学;
+- **批三(G3②④+G4)**:反转杠杆词对账/periodic 杠杆词/aux 计数/注释。
