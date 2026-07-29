@@ -3756,6 +3756,15 @@ Progress:
   values retain byte length plus SHA-256. Emitted/omitted counters are typed.
   The witness does not change the existing fence or publication decision and
   does not add another diagnostic line.
+- R7-D: implemented. Raw async misses are now classified independently as
+  exact cookie, name, start, end, whole-interval, split-endpoint, physical
+  begin TID/TGID/CPU, already-claimed or ambiguity mismatches. The existing
+  callstack coverage row carries at most eight
+  `raw_async_mismatch_witnesses`, binding the DB interval and the first exact
+  comparison candidate while emitted/omitted counters preserve the bounded
+  roster. The indexes exclude payload PID only for diagnosis and the existing
+  exact namespace join; they do not create a fuzzy join or publish an
+  endpoint.
 
 ## Invariants
 

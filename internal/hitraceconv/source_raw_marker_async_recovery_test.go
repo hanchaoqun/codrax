@@ -257,7 +257,9 @@ func TestTraceDBCallstackReplacesTypedAsyncOnlyOnUniqueExactRawPair(t *testing.T
 			}
 			if test.rawEnd == 2001 &&
 				(coverage.Metrics["raw_async_official_intervals_end_mismatch"] != 1 ||
-					coverage.Metrics["raw_async_official_intervals_without_exact_raw_pair"] != 1) {
+					coverage.Metrics["raw_async_official_intervals_without_exact_raw_pair"] != 1 ||
+					!strings.Contains(coverage.Metadata["raw_async_mismatch_witnesses"],
+						"class=end_mismatch")) {
 				t.Fatalf("raw async endpoint mismatch was not typed precisely: %+v", coverage)
 			}
 			var body strings.Builder
@@ -408,13 +410,32 @@ func TestTraceDBRawAsyncClaimExplainsExactEnvelopeMismatch(t *testing.T) {
 		name       string
 		mutate     func(*traceDBCallstackRow)
 		wantMetric string
+		wantClass  string
 	}{
 		{
-			name: "identity key",
+			name: "cookie",
 			mutate: func(row *traceDBCallstackRow) {
 				row.Cookie = "10"
 			},
-			wantMetric: "official_intervals_identity_key_mismatch",
+			wantMetric: "official_intervals_cookie_mismatch",
+			wantClass:  "cookie_mismatch",
+		},
+		{
+			name: "name",
+			mutate: func(row *traceDBCallstackRow) {
+				row.Name = "different-name"
+			},
+			wantMetric: "official_intervals_name_mismatch",
+			wantClass:  "name_mismatch",
+		},
+		{
+			name: "name and cookie",
+			mutate: func(row *traceDBCallstackRow) {
+				row.Name = "different-name"
+				row.Cookie = "10"
+			},
+			wantMetric: "official_intervals_name_cookie_mismatch",
+			wantClass:  "name_cookie_mismatch",
 		},
 		{
 			name: "start emitter tid",
@@ -422,6 +443,7 @@ func TestTraceDBRawAsyncClaimExplainsExactEnvelopeMismatch(t *testing.T) {
 				row.TID = 102
 			},
 			wantMetric: "official_intervals_begin_tid_mismatch",
+			wantClass:  "begin_tid_mismatch",
 		},
 		{
 			name: "start emitter tgid",
@@ -429,6 +451,7 @@ func TestTraceDBRawAsyncClaimExplainsExactEnvelopeMismatch(t *testing.T) {
 				row.HeaderTGID = 101
 			},
 			wantMetric: "official_intervals_begin_tgid_mismatch",
+			wantClass:  "begin_tgid_mismatch",
 		},
 		{
 			name: "start cpu",
@@ -436,12 +459,14 @@ func TestTraceDBRawAsyncClaimExplainsExactEnvelopeMismatch(t *testing.T) {
 				row.StartCPU = 1
 			},
 			wantMetric: "official_intervals_begin_cpu_mismatch",
+			wantClass:  "begin_cpu_mismatch",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ledger := newTraceDBRawAsyncMatchLedger(
 				traceDBRawAsyncInventory(traceDBRawAsyncRecords(2000)), authority)
 			row := traceDBCallstackRow{
+				ID:                    1,
 				OfficialAsyncInterval: true,
 				TS:                    1000,
 				End:                   2000,
@@ -459,7 +484,52 @@ func TestTraceDBRawAsyncClaimExplainsExactEnvelopeMismatch(t *testing.T) {
 				ledger.metrics["official_intervals_without_exact_raw_pair"] != 1 {
 				t.Fatalf("mismatch classification drifted: metrics=%+v", ledger.metrics)
 			}
+			coverage := TraceDBCoverage{
+				FieldSources: map[string]string{}, Metadata: map[string]string{},
+			}
+			ledger.applyCoverage(&coverage)
+			if coverage.Metrics["raw_async_mismatch_witnesses_emitted"] != 1 ||
+				coverage.Metadata["raw_async_mismatch_census"] != "complete" ||
+				!strings.Contains(coverage.Metadata["raw_async_mismatch_witnesses"],
+					"row_id=1/class="+test.wantClass) {
+				t.Fatalf("mismatch witness drifted: %+v", coverage)
+			}
 		})
+	}
+}
+
+func TestTraceDBRawAsyncMismatchWitnessesAreBounded(t *testing.T) {
+	tdb, authority, _ := traceDBRawAsyncFixture(t)
+	defer tdb.close()
+	ledger := newTraceDBRawAsyncMatchLedger(
+		traceDBRawAsyncInventory(traceDBRawAsyncRecords(2000)), authority)
+	for index := 0; index < traceDBRawAsyncMismatchWitnessCap+2; index++ {
+		if _, ok := ledger.claim(traceDBCallstackRow{
+			ID:                    int64(index + 1),
+			OfficialAsyncInterval: true,
+			TS:                    1000,
+			End:                   2000,
+			TID:                   101,
+			HeaderTGID:            100,
+			TGID:                  100,
+			Name:                  "official-async",
+			Cookie:                "10",
+			StartCPU:              2,
+			CPUPlacement:          traceDBSyncSpanCPUPlacementKnown,
+		}); ok {
+			t.Fatal("mismatched cookie unexpectedly claimed a raw pair")
+		}
+	}
+	coverage := TraceDBCoverage{
+		FieldSources: map[string]string{}, Metadata: map[string]string{},
+	}
+	ledger.applyCoverage(&coverage)
+	if coverage.Metrics["raw_async_mismatch_witnesses_emitted"] !=
+		traceDBRawAsyncMismatchWitnessCap ||
+		coverage.Metrics["raw_async_mismatch_witnesses_omitted"] != 2 ||
+		strings.Count(coverage.Metadata["raw_async_mismatch_witnesses"],
+			"class=cookie_mismatch") != traceDBRawAsyncMismatchWitnessCap {
+		t.Fatalf("bounded raw async mismatch witnesses drifted: %+v", coverage)
 	}
 }
 

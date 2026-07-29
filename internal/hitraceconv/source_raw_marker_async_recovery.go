@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
@@ -32,6 +33,28 @@ type traceDBRawAsyncIntervalKey struct {
 	End   uint64
 }
 
+type traceDBRawAsyncSemanticKey struct {
+	Name  string
+	Value string
+}
+
+type traceDBRawAsyncNameIntervalKey struct {
+	Name  string
+	Start uint64
+	End   uint64
+}
+
+type traceDBRawAsyncValueIntervalKey struct {
+	Value string
+	Start uint64
+	End   uint64
+}
+
+type traceDBRawAsyncTimeIntervalKey struct {
+	Start uint64
+	End   uint64
+}
+
 type traceDBRawAsyncPair struct {
 	begin        traceDBRawMarkerRecord
 	end          traceDBRawMarkerRecord
@@ -48,23 +71,34 @@ type traceDBRawAsyncPair struct {
 // published until the legacy DB async endpoint lane has a cross-source dedup
 // authority.
 type traceDBRawAsyncMatchLedger struct {
-	state      string
-	pairs      map[traceDBRawAsyncExactKey][]*traceDBRawAsyncPair
-	byKey      map[traceDBRawAsyncKey][]*traceDBRawAsyncPair
-	byInterval map[traceDBRawAsyncIntervalKey][]*traceDBRawAsyncPair
-	metrics    map[string]int64
+	state                string
+	pairs                map[traceDBRawAsyncExactKey][]*traceDBRawAsyncPair
+	byInterval           map[traceDBRawAsyncIntervalKey][]*traceDBRawAsyncPair
+	bySemantic           map[traceDBRawAsyncSemanticKey][]*traceDBRawAsyncPair
+	byNameInterval       map[traceDBRawAsyncNameIntervalKey][]*traceDBRawAsyncPair
+	byValueInterval      map[traceDBRawAsyncValueIntervalKey][]*traceDBRawAsyncPair
+	byTimeInterval       map[traceDBRawAsyncTimeIntervalKey][]*traceDBRawAsyncPair
+	metrics              map[string]int64
+	mismatchWitnesses    []string
+	mismatchWitnessTotal int
 }
+
+const traceDBRawAsyncMismatchWitnessCap = 8
 
 func newTraceDBRawAsyncMatchLedger(
 	inventory *traceDBSourceNameInventory,
 	authority traceDBSchedulerAuthority,
 ) *traceDBRawAsyncMatchLedger {
 	ledger := &traceDBRawAsyncMatchLedger{
-		state:      "unavailable",
-		pairs:      map[traceDBRawAsyncExactKey][]*traceDBRawAsyncPair{},
-		byKey:      map[traceDBRawAsyncKey][]*traceDBRawAsyncPair{},
-		byInterval: map[traceDBRawAsyncIntervalKey][]*traceDBRawAsyncPair{},
-		metrics:    map[string]int64{},
+		state:             "unavailable",
+		pairs:             map[traceDBRawAsyncExactKey][]*traceDBRawAsyncPair{},
+		byInterval:        map[traceDBRawAsyncIntervalKey][]*traceDBRawAsyncPair{},
+		bySemantic:        map[traceDBRawAsyncSemanticKey][]*traceDBRawAsyncPair{},
+		byNameInterval:    map[traceDBRawAsyncNameIntervalKey][]*traceDBRawAsyncPair{},
+		byValueInterval:   map[traceDBRawAsyncValueIntervalKey][]*traceDBRawAsyncPair{},
+		byTimeInterval:    map[traceDBRawAsyncTimeIntervalKey][]*traceDBRawAsyncPair{},
+		metrics:           map[string]int64{},
+		mismatchWitnesses: make([]string, 0, traceDBRawAsyncMismatchWitnessCap),
 	}
 	if inventory == nil {
 		return ledger
@@ -189,12 +223,33 @@ func newTraceDBRawAsyncMatchLedger(
 			}
 			stored := &pair
 			ledger.pairs[exact] = append(ledger.pairs[exact], stored)
-			ledger.byKey[key] = append(ledger.byKey[key], stored)
 			intervalKey := traceDBRawAsyncIntervalKey{
 				Name: key.Name, Value: key.Value,
 				Start: rawPair.begin.TimestampNS, End: rawPair.end.TimestampNS,
 			}
 			ledger.byInterval[intervalKey] = append(ledger.byInterval[intervalKey], stored)
+			semanticKey := traceDBRawAsyncSemanticKey{
+				Name: key.Name, Value: key.Value,
+			}
+			ledger.bySemantic[semanticKey] =
+				append(ledger.bySemantic[semanticKey], stored)
+			nameIntervalKey := traceDBRawAsyncNameIntervalKey{
+				Name: key.Name, Start: rawPair.begin.TimestampNS,
+				End: rawPair.end.TimestampNS,
+			}
+			ledger.byNameInterval[nameIntervalKey] =
+				append(ledger.byNameInterval[nameIntervalKey], stored)
+			valueIntervalKey := traceDBRawAsyncValueIntervalKey{
+				Value: key.Value, Start: rawPair.begin.TimestampNS,
+				End: rawPair.end.TimestampNS,
+			}
+			ledger.byValueInterval[valueIntervalKey] =
+				append(ledger.byValueInterval[valueIntervalKey], stored)
+			timeIntervalKey := traceDBRawAsyncTimeIntervalKey{
+				Start: rawPair.begin.TimestampNS, End: rawPair.end.TimestampNS,
+			}
+			ledger.byTimeInterval[timeIntervalKey] =
+				append(ledger.byTimeInterval[timeIntervalKey], stored)
 			ledger.metrics["pairs_matchable"]++
 		}
 	}
@@ -298,28 +353,30 @@ func (ledger *traceDBRawAsyncMatchLedger) claim(
 			Start: exact.Start, End: exact.End,
 		}]
 		if len(intervalPairs) > 0 {
-			pair, classified := ledger.claimUniquePhysicalEnvelope(row, intervalPairs)
+			pair, mismatchClass := ledger.claimUniquePhysicalEnvelope(row, intervalPairs)
 			if pair != nil {
 				pair.claimed = true
 				ledger.metrics["pairs_claimed"]++
 				ledger.metrics["official_intervals_namespace_payload_pid_joined"]++
 				return pair, true
 			}
-			if classified {
+			if mismatchClass != "" {
+				ledger.noteMismatchWitness(row, mismatchClass, intervalPairs)
 				ledger.metrics["official_intervals_without_exact_raw_pair"]++
 				return nil, false
 			}
 		}
-		ledger.noteMissingExactKey(key, exact.Start, exact.End)
+		ledger.noteMissingExactKey(row)
 		ledger.metrics["official_intervals_without_exact_raw_pair"]++
 		return nil, false
 	}
-	pair, _ := ledger.claimUniquePhysicalEnvelope(row, exactPairs)
+	pair, mismatchClass := ledger.claimUniquePhysicalEnvelope(row, exactPairs)
 	if pair != nil {
 		pair.claimed = true
 		ledger.metrics["pairs_claimed"]++
 		return pair, true
 	}
+	ledger.noteMismatchWitness(row, mismatchClass, exactPairs)
 	ledger.metrics["official_intervals_without_exact_raw_pair"]++
 	return nil, false
 }
@@ -327,7 +384,7 @@ func (ledger *traceDBRawAsyncMatchLedger) claim(
 func (ledger *traceDBRawAsyncMatchLedger) claimUniquePhysicalEnvelope(
 	row traceDBCallstackRow,
 	pairs []*traceDBRawAsyncPair,
-) (*traceDBRawAsyncPair, bool) {
+) (*traceDBRawAsyncPair, string) {
 	var matches []*traceDBRawAsyncPair
 	unclaimed := 0
 	beginTIDMatched := 0
@@ -355,59 +412,158 @@ func (ledger *traceDBRawAsyncMatchLedger) claimUniquePhysicalEnvelope(
 	}
 	switch len(matches) {
 	case 0:
+		class := ""
 		switch {
 		case unclaimed == 0:
 			ledger.metrics["official_intervals_exact_pair_already_claimed"]++
+			class = "exact_pair_already_claimed"
 		case beginTIDMatched == 0:
 			ledger.metrics["official_intervals_begin_tid_mismatch"]++
+			class = "begin_tid_mismatch"
 		case beginTGIDMatched == 0:
 			ledger.metrics["official_intervals_begin_tgid_mismatch"]++
+			class = "begin_tgid_mismatch"
 		case beginCPUMatched == 0:
 			ledger.metrics["official_intervals_begin_cpu_mismatch"]++
+			class = "begin_cpu_mismatch"
 		default:
 			ledger.metrics["official_intervals_unclassified_exact_pair_mismatch"]++
+			class = "unclassified_exact_pair_mismatch"
 		}
-		return nil, true
+		return nil, class
 	case 1:
-		return matches[0], true
+		return matches[0], ""
 	default:
 		ledger.metrics["official_intervals_ambiguous_exact_raw_pair"]++
-		return nil, true
+		return nil, "ambiguous_exact_raw_pair"
 	}
 }
 
 func (ledger *traceDBRawAsyncMatchLedger) noteMissingExactKey(
-	key traceDBRawAsyncKey,
-	start, end uint64,
+	row traceDBCallstackRow,
 ) {
 	if ledger == nil {
 		return
 	}
-	base := ledger.byKey[key]
+	start, end := uint64(row.TS), uint64(row.End)
+	nameMatches := ledger.byNameInterval[traceDBRawAsyncNameIntervalKey{
+		Name: row.Name, Start: start, End: end,
+	}]
+	valueMatches := ledger.byValueInterval[traceDBRawAsyncValueIntervalKey{
+		Value: row.Cookie, Start: start, End: end,
+	}]
+	switch {
+	case len(nameMatches) > 0 && len(valueMatches) > 0:
+		ledger.metrics["official_intervals_key_dimension_ambiguous"]++
+		ledger.noteMismatchWitness(row, "key_dimension_ambiguous",
+			appendTraceDBRawAsyncWitnessCandidates(nameMatches, valueMatches))
+		return
+	case len(nameMatches) > 0:
+		ledger.metrics["official_intervals_cookie_mismatch"]++
+		ledger.noteMismatchWitness(row, "cookie_mismatch", nameMatches)
+		return
+	case len(valueMatches) > 0:
+		ledger.metrics["official_intervals_name_mismatch"]++
+		ledger.noteMismatchWitness(row, "name_mismatch", valueMatches)
+		return
+	}
+
+	base := ledger.bySemantic[traceDBRawAsyncSemanticKey{
+		Name: row.Name, Value: row.Cookie,
+	}]
 	if len(base) == 0 {
-		ledger.metrics["official_intervals_identity_key_mismatch"]++
+		timeMatches := ledger.byTimeInterval[traceDBRawAsyncTimeIntervalKey{
+			Start: start, End: end,
+		}]
+		if len(timeMatches) > 0 {
+			ledger.metrics["official_intervals_name_cookie_mismatch"]++
+			ledger.noteMismatchWitness(row, "name_cookie_mismatch", timeMatches)
+			return
+		}
+		ledger.metrics["official_intervals_no_semantic_or_interval_candidate"]++
+		ledger.noteMismatchWitness(row, "no_semantic_or_interval_candidate", nil)
 		return
 	}
 	startMatched := false
 	endMatched := false
 	for _, pair := range base {
-		if pair == nil || pair.begin.TimestampNS != start {
+		if pair == nil {
 			continue
 		}
-		startMatched = true
+		if pair.begin.TimestampNS == start {
+			startMatched = true
+		}
 		if pair.end.TimestampNS == end {
 			endMatched = true
-			break
 		}
 	}
 	switch {
-	case !startMatched:
+	case startMatched && endMatched:
+		ledger.metrics["official_intervals_interval_endpoint_ambiguous"]++
+		ledger.noteMismatchWitness(row, "interval_endpoint_ambiguous", base)
+	case !startMatched && endMatched:
 		ledger.metrics["official_intervals_start_mismatch"]++
-	case !endMatched:
+		ledger.noteMismatchWitness(row, "start_mismatch", base)
+	case startMatched && !endMatched:
 		ledger.metrics["official_intervals_end_mismatch"]++
+		ledger.noteMismatchWitness(row, "end_mismatch", base)
 	default:
-		ledger.metrics["official_intervals_exact_index_mismatch"]++
+		ledger.metrics["official_intervals_interval_mismatch"]++
+		ledger.noteMismatchWitness(row, "interval_mismatch", base)
 	}
+}
+
+func appendTraceDBRawAsyncWitnessCandidates(
+	left, right []*traceDBRawAsyncPair,
+) []*traceDBRawAsyncPair {
+	out := make([]*traceDBRawAsyncPair, 0, len(left)+len(right))
+	seen := map[*traceDBRawAsyncPair]bool{}
+	for _, group := range [][]*traceDBRawAsyncPair{left, right} {
+		for _, pair := range group {
+			if pair == nil || seen[pair] {
+				continue
+			}
+			seen[pair] = true
+			out = append(out, pair)
+		}
+	}
+	return out
+}
+
+func (ledger *traceDBRawAsyncMatchLedger) noteMismatchWitness(
+	row traceDBCallstackRow,
+	class string,
+	candidates []*traceDBRawAsyncPair,
+) {
+	if ledger == nil {
+		return
+	}
+	ledger.mismatchWitnessTotal++
+	if len(ledger.mismatchWitnesses) >= traceDBRawAsyncMismatchWitnessCap {
+		return
+	}
+	raw := "none"
+	for _, pair := range candidates {
+		if pair == nil {
+			continue
+		}
+		raw = fmt.Sprintf(
+			"pid=%d/name=%s/cookie=%s/start_ns=%d/end_ns=%d/begin_tid=%d/begin_tgid=%d/begin_cpu=%d",
+			pair.begin.PayloadPID, traceDBRawMarkerNameWitness(pair.begin.Name),
+			traceDBRawMarkerNameWitness(pair.begin.Value),
+			pair.begin.TimestampNS, pair.end.TimestampNS,
+			pair.beginThread.TID, pair.beginProcess.PID, pair.begin.CPU)
+		break
+	}
+	startCPU := "unavailable"
+	if row.CPUPlacement == traceDBSyncSpanCPUPlacementKnown {
+		startCPU = fmt.Sprintf("%d", row.StartCPU)
+	}
+	ledger.mismatchWitnesses = append(ledger.mismatchWitnesses, fmt.Sprintf(
+		"row_id=%d/class=%s/db_pid=%d/db_name=%s/db_cookie=%s/start_ns=%d/end_ns=%d/begin_tid=%d/begin_tgid=%d/begin_cpu=%s/raw_candidates=%d/raw={%s}",
+		row.ID, class, row.TGID, traceDBRawMarkerNameWitness(row.Name),
+		traceDBRawMarkerNameWitness(row.Cookie), row.TS, row.End,
+		row.TID, row.HeaderTGID, startCPU, len(candidates), raw))
 }
 
 func (pair *traceDBRawAsyncPair) publish(sink *traceDBRowSink) error {
@@ -448,6 +604,33 @@ func (ledger *traceDBRawAsyncMatchLedger) applyCoverage(coverage *TraceDBCoverag
 	coverage.Metadata["raw_async_replacement_state"] = ledger.state
 	for key, value := range ledger.metrics {
 		traceDBAddCoverageMetric(coverage, "raw_async_"+key, value)
+	}
+	coverage.Metadata["raw_async_mismatch_census"] = "not_evaluated"
+	if ledger.state == "complete_match_only" {
+		if int64(ledger.mismatchWitnessTotal) ==
+			ledger.metrics["official_intervals_without_exact_raw_pair"] {
+			coverage.Metadata["raw_async_mismatch_census"] = "complete"
+		} else {
+			coverage.Metadata["raw_async_mismatch_census"] =
+				"not_evaluated_count_mismatch"
+		}
+	}
+	if len(ledger.mismatchWitnesses) > 0 {
+		coverage.Metadata["raw_async_mismatch_witnesses"] =
+			strings.Join(ledger.mismatchWitnesses, ";")
+		traceDBAddCoverageMetric(coverage,
+			"raw_async_mismatch_witnesses_emitted",
+			int64(len(ledger.mismatchWitnesses)))
+		if omitted := ledger.mismatchWitnessTotal -
+			len(ledger.mismatchWitnesses); omitted > 0 {
+			traceDBAddCoverageMetric(coverage,
+				"raw_async_mismatch_witnesses_omitted", int64(omitted))
+		}
+		if coverage.FieldSources == nil {
+			coverage.FieldSources = map[string]string{}
+		}
+		coverage.FieldSources["raw_async_mismatch_witnesses"] =
+			"bounded exact DB interval and first raw comparison candidate after dimensioned matching; diagnostic only, never fuzzy join or endpoint authority"
 	}
 	unclaimed := ledger.metrics["pairs_matchable"] - ledger.metrics["pairs_claimed"]
 	if unclaimed > 0 {
