@@ -127,9 +127,12 @@ func TestSubmitTraceDBRawMarkerSyncRecoveryDiagnosesExactNullDurationClosureWith
 		t.Fatal(err)
 	}
 	if coverage.Metadata["null_duration_raw_closure_census"] != "complete" ||
+		coverage.Metadata["null_duration_raw_disposition_census"] != "complete" ||
 		coverage.Metrics["null_duration_fence_hints_total"] != 1 ||
 		coverage.Metrics["null_duration_fence_hints_retained"] != 1 ||
-		coverage.Metrics["null_duration_hints_unique_exact_raw_closure"] != 1 {
+		coverage.Metrics["null_duration_hints_unique_exact_raw_closure"] != 1 ||
+		coverage.Metrics["null_duration_hints_disposition_valid_closure"] != 1 ||
+		coverage.Metrics["null_duration_hints_exact_raw_disposition_accounted"] != 1 {
 		t.Fatalf("NULL-duration raw closure census drifted: %+v", coverage)
 	}
 	if syncSpans.fencedTotal != 0 ||
@@ -160,6 +163,8 @@ func TestSubmitTraceDBRawMarkerSyncRecoveryClassifiesNullDurationRawDisposition(
 		if coverage.Metrics["null_duration_hints_without_valid_raw_closure"] != 1 ||
 			coverage.Metrics["null_duration_hints_unique_exact_raw_rejected_closed_pair"] != 1 ||
 			coverage.Metrics["null_duration_hints_exact_raw_rejected_closed_pair_invalid_begin_cpu"] != 1 ||
+			coverage.Metrics["null_duration_hints_disposition_rejected_closed_pair"] != 1 ||
+			coverage.Metrics["null_duration_hints_exact_raw_disposition_accounted"] != 1 ||
 			coverage.Metrics["null_duration_hints_unique_exact_raw_open_begin"] != 0 ||
 			syncSpans.fencedTotal != 0 {
 			t.Fatalf("rejected closed-pair disposition drifted: %+v", coverage)
@@ -185,10 +190,38 @@ func TestSubmitTraceDBRawMarkerSyncRecoveryClassifiesNullDurationRawDisposition(
 		}
 		if coverage.Metrics["null_duration_hints_without_valid_raw_closure"] != 1 ||
 			coverage.Metrics["null_duration_hints_unique_exact_raw_open_begin"] != 1 ||
+			coverage.Metrics["null_duration_hints_disposition_open_begin"] != 1 ||
+			coverage.Metrics["null_duration_hints_exact_raw_disposition_accounted"] != 1 ||
 			coverage.Metrics["null_duration_hints_unique_exact_raw_rejected_closed_pair"] != 0 ||
 			coverage.Metrics["raw_open_begins_withheld"] != 1 ||
 			syncSpans.fencedTotal != 0 {
 			t.Fatalf("open-begin disposition drifted: %+v", coverage)
+		}
+	})
+
+	t.Run("no exact raw start disposition", func(t *testing.T) {
+		ctx := context.Background()
+		syncSpans := newTraceDBTestSyncSpanAuthority(t)
+		if !syncSpans.recordNullDurationHint(
+			traceDBCallstackNullDurationHint{
+				RowID: 1, HeaderTID: 201, HeaderTGID: 200, MarkerPID: 777,
+				CanonicalITID: 2, OwnerIPID: 2, Start: 1_000_000, Name: "frame",
+			}) {
+			t.Fatal("record exact NULL-duration hint failed")
+		}
+		coverage, err := submitTraceDBRawMarkerSyncRecovery(
+			ctx, traceDBRawMarkerTestInventory(nil),
+			traceDBRawBlockedKeyTestAuthority(), syncSpans)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if coverage.Metadata["null_duration_raw_disposition_census"] != "complete" ||
+			coverage.Metrics["null_duration_hints_no_exact_raw_start_disposition"] != 1 ||
+			coverage.Metrics["null_duration_hints_exact_raw_disposition_accounted"] != 1 ||
+			coverage.Metrics["null_duration_hints_disposition_valid_closure"] != 0 ||
+			coverage.Metrics["null_duration_hints_disposition_rejected_closed_pair"] != 0 ||
+			coverage.Metrics["null_duration_hints_disposition_open_begin"] != 0 {
+			t.Fatalf("absent raw-start disposition drifted: %+v", coverage)
 		}
 	})
 }

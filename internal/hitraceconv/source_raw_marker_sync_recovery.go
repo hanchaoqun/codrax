@@ -503,10 +503,13 @@ func traceDBApplyNullDurationRawClosureCensus(
 	switch {
 	case !complete:
 		out.Metadata["null_duration_raw_closure_census"] = "incomplete_hint_cap"
+		out.Metadata["null_duration_raw_disposition_census"] = "incomplete_hint_cap"
 	case total == 0:
 		out.Metadata["null_duration_raw_closure_census"] = "complete_no_exact_hint"
+		out.Metadata["null_duration_raw_disposition_census"] = "complete_no_exact_hint"
 	default:
 		out.Metadata["null_duration_raw_closure_census"] = "complete"
+		out.Metadata["null_duration_raw_disposition_census"] = "complete"
 	}
 	if len(hints) == 0 {
 		return nil
@@ -554,15 +557,15 @@ func traceDBApplyNullDurationRawClosureCensus(
 			HeaderPID: hint.HeaderTID, MarkerPID: hint.MarkerPID,
 			Start: uint64(hint.Start), Name: hint.Name,
 		}
+		rejectedCount := 0
 		if rejected := rejectedClosedStarts[physicalKey]; len(rejected.CountByReason) > 0 {
-			total := 0
 			for reason, count := range rejected.CountByReason {
-				total += count
+				rejectedCount += count
 				traceDBAddCoverageMetric(out,
 					"null_duration_hints_exact_raw_rejected_closed_pair_"+
 						traceDBRawDecodeReasonMetric(reason), int64(count))
 			}
-			switch total {
+			switch rejectedCount {
 			case 1:
 				traceDBAddCoverageMetric(out,
 					"null_duration_hints_unique_exact_raw_rejected_closed_pair", 1)
@@ -571,19 +574,53 @@ func traceDBApplyNullDurationRawClosureCensus(
 					"null_duration_hints_ambiguous_exact_raw_rejected_closed_pair", 1)
 			}
 		}
-		switch count := openBegins[physicalKey]; {
-		case count == 1:
+		openCount := openBegins[physicalKey]
+		switch {
+		case openCount == 1:
 			traceDBAddCoverageMetric(out,
 				"null_duration_hints_unique_exact_raw_open_begin", 1)
-		case count > 1:
+		case openCount > 1:
 			traceDBAddCoverageMetric(out,
 				"null_duration_hints_ambiguous_exact_raw_open_begin", 1)
 		}
-		switch count := exact[key]; {
-		case count == 1:
+		validCount := exact[key]
+		dispositionKinds := 0
+		if validCount > 0 {
+			dispositionKinds++
+		}
+		if rejectedCount > 0 {
+			dispositionKinds++
+		}
+		if openCount > 0 {
+			dispositionKinds++
+		}
+		switch dispositionKinds {
+		case 0:
+			traceDBAddCoverageMetric(out,
+				"null_duration_hints_no_exact_raw_start_disposition", 1)
+		case 1:
+			switch {
+			case validCount > 0:
+				traceDBAddCoverageMetric(out,
+					"null_duration_hints_disposition_valid_closure", 1)
+			case rejectedCount > 0:
+				traceDBAddCoverageMetric(out,
+					"null_duration_hints_disposition_rejected_closed_pair", 1)
+			default:
+				traceDBAddCoverageMetric(out,
+					"null_duration_hints_disposition_open_begin", 1)
+			}
+		default:
+			traceDBAddCoverageMetric(out,
+				"null_duration_hints_conflicting_exact_raw_disposition_kinds", 1)
+		}
+		traceDBAddCoverageMetric(out,
+			"null_duration_hints_exact_raw_disposition_accounted", 1)
+		switch {
+		case validCount == 1:
 			traceDBAddCoverageMetric(out,
 				"null_duration_hints_unique_exact_raw_closure", 1)
-		case count > 1:
+		case validCount > 1:
 			traceDBAddCoverageMetric(out,
 				"null_duration_hints_ambiguous_exact_raw_closure", 1)
 		default:
