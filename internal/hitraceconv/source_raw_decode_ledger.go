@@ -56,23 +56,27 @@ type traceDBRawDMAWaitRecord struct {
 // localized carrier failures. PayloadPID is the marker namespace value and is
 // never silently rewritten. ZeroPIDUsesHeaderIdentity is true only for the
 // exact official OpenHarmony pid/name/start producer, where zero explicitly
-// means that the viewer keeps physical common_pid ownership. Value is the
-// exact async cookie for admitted S/F rows and remains empty for B/E.
+// means that the viewer keeps physical common_pid ownership.
+// OpenHarmonyStructuredProfile retains that exact producer fact independently
+// for other official viewer semantics such as trailing-ASCII-space name
+// normalization. Value is the exact async cookie for admitted S/F rows and
+// remains empty for B/E.
 type traceDBRawMarkerRecord struct {
-	PhysicalOrdinal           int64
-	TimestampNS               uint64
-	CPU                       int
-	HeaderPID                 int64
-	Flags                     int64
-	PreemptCount              int64
-	Buffer                    string
-	Action                    string
-	PayloadPID                int64
-	Name                      string
-	Value                     string
-	Admitted                  bool
-	RejectReason              string
-	ZeroPIDUsesHeaderIdentity bool
+	PhysicalOrdinal              int64
+	TimestampNS                  uint64
+	CPU                          int
+	HeaderPID                    int64
+	Flags                        int64
+	PreemptCount                 int64
+	Buffer                       string
+	Action                       string
+	PayloadPID                   int64
+	Name                         string
+	Value                        string
+	Admitted                     bool
+	RejectReason                 string
+	OpenHarmonyStructuredProfile bool
+	ZeroPIDUsesHeaderIdentity    bool
 }
 
 type traceDBSourceRawDecodeAccumulator struct {
@@ -227,17 +231,20 @@ func (a *traceDBSourceRawDecodeAccumulator) observeRecord(
 			}
 			switch verdict.Action {
 			case "B", "E":
+				openHarmonyStructuredProfile :=
+					directMarkerOpenHarmonyStructuredProfile(event)
 				zeroPIDUsesHeaderIdentity :=
 					verdict.SpanPID == 0 &&
-						directMarkerOpenHarmonyStructuredProfile(event)
+						openHarmonyStructuredProfile
 				record := traceDBRawMarkerRecord{
 					PhysicalOrdinal: int64(a.coverage.RowsRead),
 					TimestampNS:     timestampNS, CPU: cpu, HeaderPID: int64(headerPID),
 					Flags: flags, PreemptCount: preemptCount, Buffer: body,
 					Action: verdict.Action, PayloadPID: int64(verdict.SpanPID),
 					Name: verdict.Name, Admitted: verdict.Admitted,
-					RejectReason:              verdict.InvalidCause,
-					ZeroPIDUsesHeaderIdentity: zeroPIDUsesHeaderIdentity,
+					RejectReason:                 verdict.InvalidCause,
+					OpenHarmonyStructuredProfile: openHarmonyStructuredProfile,
+					ZeroPIDUsesHeaderIdentity:    zeroPIDUsesHeaderIdentity,
 				}
 				a.markerRecords = append(a.markerRecords, record)
 				traceDBAddCoverageMetric(&a.coverage, "target_marker_sync_records_retained", 1)

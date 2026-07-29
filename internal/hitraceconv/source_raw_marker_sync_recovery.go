@@ -62,6 +62,7 @@ func newTraceDBRawMarkerSyncCoverage() TraceDBCoverage {
 			"stack":         "one exact LIFO stack per physical common_pid emitter; orphan ends, trailing open begins, invalid/overflowed closed intervals and already-paired validation failures are withheld locally, while invalid physical ordering or an unclassified/rejected carrier keeps whole-lane fail-closed scope",
 			"identity":      "common_pid independently resolves to the same canonical host thread/process at both exact endpoints; payload PID remains marker namespace data",
 			"zero_pid":      "only the exact official OpenHarmony pid/name/start producer may interpret source payload PID zero as no TGID override; both endpoints must agree, canonical common_pid ownership must remain stable, and the public standard payload uses that proven host TGID while nonzero namespace PID remains verbatim",
+			"name":          "the exact official OpenHarmony pid/name/start producer follows official viewer semantics by removing only trailing ASCII U+0020 from the public B name when the resulting nonempty name passes the complete span-name predicate; source text remains retained in the raw ledger and every other edge/control/compact/text shape stays withheld",
 			"deduplication": "an exact bounded semantic index suppresses a raw pair only when an equal host TID/TGID, marker PID, canonical owner, interval and name DB candidate survives its producer-local fence/poison gate; one unique locally admitted CPU-unavailable callstack collision, or a name-drift collision whose CPU-known DB name is not losslessly standard-representable, is candidate-superseded and replaced by the exact raw B/E pair; a locally suppressed DB candidate cannot erase the raw alternative",
 			"diagnostics":   "closed raw pairs expose exact zero-start, long-duration and bounded longest-pair witnesses before publication decisions; these observations never admit or reject a pair",
 			"name_drift":    "a raw pair sharing exact host/payload/canonical identity and interval with a locally admitted DB candidate but not its name is withheld locally unless that collision is one unique CPU-unavailable callstack candidate or one unique CPU-known callstack candidate whose DB name cannot round-trip through the standard trace-mark grammar; only those candidate-level cases are superseded and replaced by the authoritative raw name/envelopes, while a standard-representable DB name remains authoritative",
@@ -272,6 +273,10 @@ func submitTraceDBRawMarkerSyncRecovery(
 			if pair.begin.PayloadPID == 0 {
 				traceDBAddCoverageMetric(&out,
 					"raw_pairs_official_zero_pid_header_identity_normalized", 1)
+			}
+			if pair.begin.Name != candidate.Name {
+				traceDBAddCoverageMetric(&out,
+					"raw_pairs_official_trailing_space_name_normalized", 1)
 			}
 			laneCandidates = append(laneCandidates, candidate)
 		}
@@ -797,9 +802,21 @@ func traceDBRawMarkerSyncCandidate(
 	begin, end := pair.begin, pair.end
 	beginVerdict := tracequery.DecodeTraceMarkEndpointPayload(begin.Buffer)
 	endVerdict := tracequery.DecodeTraceMarkEndpointPayload(end.Buffer)
+	officialStructuredProfile :=
+		begin.OpenHarmonyStructuredProfile &&
+			end.OpenHarmonyStructuredProfile
 	zeroPIDHeaderIdentity :=
 		begin.PayloadPID == 0 && end.PayloadPID == 0 &&
 			begin.ZeroPIDUsesHeaderIdentity && end.ZeroPIDUsesHeaderIdentity
+	candidateName := begin.Name
+	trailingSpaceNormalized := false
+	if officialStructuredProfile {
+		trimmed := strings.TrimRight(candidateName, " ")
+		if trimmed != candidateName && traceDBCallstackSpanName(trimmed) {
+			candidateName = trimmed
+			trailingSpaceNormalized = true
+		}
+	}
 	switch {
 	case begin.HeaderPID <= 0:
 		return traceDBSyncSpanCandidate{}, "invalid_begin_header_pid"
@@ -837,7 +854,7 @@ func traceDBRawMarkerSyncCandidate(
 		return traceDBSyncSpanCandidate{}, "end_payload_pid_mismatch"
 	case begin.PayloadPID != end.PayloadPID:
 		return traceDBSyncSpanCandidate{}, "payload_pid_mismatch"
-	case !traceDBCallstackSpanName(begin.Name):
+	case !traceDBCallstackSpanName(candidateName):
 		return traceDBSyncSpanCandidate{}, "invalid_span_name"
 	case begin.TimestampNS > math.MaxInt64:
 		return traceDBSyncSpanCandidate{}, "begin_timestamp_overflow"
@@ -878,6 +895,9 @@ func traceDBRawMarkerSyncCandidate(
 	}
 	markerPID, markerPIDKnown := begin.PayloadPID, true
 	startMarkerBody, endMarkerBody := begin.Buffer, end.Buffer
+	if trailingSpaceNormalized {
+		startMarkerBody = strings.TrimRight(startMarkerBody, " ")
+	}
 	if zeroPIDHeaderIdentity {
 		markerPID, markerPIDKnown = 0, false
 		var ok bool
@@ -918,7 +938,7 @@ func traceDBRawMarkerSyncCandidate(
 		StartCPUProvenance: traceDBSyncSpanCPUSourceRawPage,
 		EndCPUProvenance:   traceDBSyncSpanCPUSourceRawPage,
 		Task:               traceDBCommName(beginThread.Name, "unknown"),
-		Name:               begin.Name,
+		Name:               candidateName,
 		NameProvenance:     traceDBSyncSpanNameSourceRawMarker,
 	}
 	if err := validateTraceDBSyncSpanCandidate(candidate); err != nil {

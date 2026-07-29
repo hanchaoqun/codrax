@@ -220,6 +220,73 @@ func TestSubmitTraceDBRawMarkerSyncRecoveryRetainsWitnessesPerReason(t *testing.
 	}
 }
 
+func TestSubmitTraceDBRawMarkerSyncRecoveryNormalizesOfficialStructuredTrailingSpace(t *testing.T) {
+	ctx := context.Background()
+	rows := traceDBRawMarkerTestPair(201, 777, 1, "frame ")
+	rows[0].OpenHarmonyStructuredProfile = true
+	rows[1].OpenHarmonyStructuredProfile = true
+	syncSpans := newTraceDBTestSyncSpanAuthority(t)
+	coverage, err := submitTraceDBRawMarkerSyncRecovery(
+		ctx, traceDBRawMarkerTestInventory(rows),
+		traceDBRawBlockedKeyTestAuthority(), syncSpans)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if coverage.Metrics["raw_pairs_official_trailing_space_name_normalized"] != 1 ||
+		coverage.Metrics["raw_pairs_submitted"] != 1 ||
+		coverage.Metrics["raw_pairs_withheld_invalid_span_name"] != 0 {
+		t.Fatalf("official trailing-space pair was not submitted: %+v", coverage)
+	}
+	sink, err := newTraceDBRowSink(t.TempDir(), 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.cleanup()
+	if _, _, err := syncSpans.finalize(ctx, sink); err != nil {
+		t.Fatal(err)
+	}
+	var body bytes.Buffer
+	if _, err := sink.prepareAndWriteForTest(ctx, &body); err != nil {
+		t.Fatal(err)
+	}
+	text := body.String()
+	if !strings.Contains(text, "B|777|frame\n") ||
+		strings.Contains(text, "B|777|frame \n") {
+		t.Fatalf("official trailing-space normalization mismatch: %q", text)
+	}
+}
+
+func TestSubmitTraceDBRawMarkerSyncRecoveryDoesNotBroadenTrailingSpaceRule(t *testing.T) {
+	tests := []struct {
+		name       string
+		span       string
+		structured bool
+	}{
+		{name: "compact trailing space", span: "frame "},
+		{name: "structured leading space", span: " frame", structured: true},
+		{name: "structured trailing tab", span: "frame\t", structured: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			rows := traceDBRawMarkerTestPair(201, 777, 1, test.span)
+			rows[0].OpenHarmonyStructuredProfile = test.structured
+			rows[1].OpenHarmonyStructuredProfile = test.structured
+			syncSpans := newTraceDBTestSyncSpanAuthority(t)
+			coverage, err := submitTraceDBRawMarkerSyncRecovery(
+				context.Background(), traceDBRawMarkerTestInventory(rows),
+				traceDBRawBlockedKeyTestAuthority(), syncSpans)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if coverage.Metrics["raw_pairs_official_trailing_space_name_normalized"] != 0 ||
+				coverage.Metrics["raw_pairs_submitted"] != 0 {
+				t.Fatalf("unsupported name shape gained normalization: %+v",
+					coverage)
+			}
+		})
+	}
+}
+
 func TestSubmitTraceDBRawMarkerSyncRecoveryNormalizesOfficialStructuredZeroPID(t *testing.T) {
 	ctx := context.Background()
 	rows := traceDBRawMarkerTestPair(201, 0, 1, "frame")

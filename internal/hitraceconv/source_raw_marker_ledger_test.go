@@ -62,6 +62,8 @@ func TestTraceDBRawMarkerLedgerTypesOfficialStructuredZeroPIDHeaderIdentity(t *t
 	acc.observeRecord(endFormat, end, 4, 4_000_000)
 
 	if len(acc.markerRecords) != 2 ||
+		!acc.markerRecords[0].OpenHarmonyStructuredProfile ||
+		!acc.markerRecords[1].OpenHarmonyStructuredProfile ||
 		!acc.markerRecords[0].ZeroPIDUsesHeaderIdentity ||
 		!acc.markerRecords[1].ZeroPIDUsesHeaderIdentity ||
 		acc.markerRecords[0].PayloadPID != 0 ||
@@ -75,6 +77,7 @@ func TestTraceDBRawMarkerLedgerTypesOfficialStructuredZeroPIDHeaderIdentity(t *t
 		"tracing_mark_write", []byte("B|0|compact"), false)
 	acc.observeRecord(compact.format, compact.content, 5, 5_000_000)
 	if len(acc.markerRecords) != 3 ||
+		acc.markerRecords[2].OpenHarmonyStructuredProfile ||
 		acc.markerRecords[2].ZeroPIDUsesHeaderIdentity {
 		t.Fatalf("compact B|0 gained structured producer authority: %+v",
 			acc.markerRecords[2])
