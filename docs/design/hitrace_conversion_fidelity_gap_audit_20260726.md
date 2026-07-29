@@ -3737,6 +3737,18 @@ Customer replay is not needed before R7-B through R7-D: REP7 already proves
 the diagnostic gaps and their exact affected cohorts. A replay is needed
 after those batches to obtain the newly dimensioned evidence for R7-E.
 
+Progress:
+
+- R7-A: audit frozen and pushed in `0075e0eb9`;
+- R7-B: implemented. The final shared sync authority now classifies every
+  emitted typed-only span into one of the five closed CPU-placement reasons or
+  the lossless-name representability reason. The producer coverage and
+  semantic-quality summary carry the same counters, and a typed
+  `official_viewer_typed_only_sync_reason_census=complete` receipt requires
+  their sum to equal the final typed-only sync count. A mismatch changes the
+  viewer state to `not_evaluated_typed_only_reason_census_mismatch`; it cannot
+  silently claim coverage.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.

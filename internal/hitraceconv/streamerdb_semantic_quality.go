@@ -83,6 +83,17 @@ func traceDBSemanticQualityCoverage(items []TraceDBCoverage) TraceDBCoverage {
 		"sync_endpoints_emitted")
 	copyMetric("callstack_official_viewer_standard_sync_spans_emitted", "slice", "callstack",
 		"official_viewer_standard_sync_spans_emitted")
+	for disposition := traceDBSyncSpanViewerDispositionCPUUnknownStart; disposition < traceDBSyncSpanViewerDispositionCount; disposition++ {
+		metric := traceDBSyncSpanViewerDispositionMetric(disposition)
+		copyMetric(metric, "slice", "callstack", metric)
+	}
+	for _, item := range items {
+		if item.Family == "slice" && item.Table == "callstack" &&
+			item.Metadata["official_viewer_typed_only_sync_reason_census"] == "complete" {
+			quality.Metadata["official_viewer_typed_only_sync_reason_census"] = "complete"
+			break
+		}
+	}
 	copyMetric("raw_marker_pairs_unique_cpu_unavailable_callstack_candidate",
 		"source_rawtrace_marker_sync", "__raw_marker_sync__",
 		"raw_pairs_unique_cpu_unavailable_callstack_candidate")
@@ -160,6 +171,17 @@ func traceDBAddOfficialViewerSpanVisibility(
 		"codrax_typed_only_spans_emitted", typedOnly)
 	traceDBAddCoverageMetric(quality,
 		"callstack_closed_sync_spans_unpublished", unpublished)
+	if quality.Metadata["official_viewer_typed_only_sync_reason_census"] == "complete" {
+		reasonTotal := int64(0)
+		for disposition := traceDBSyncSpanViewerDispositionCPUUnknownStart; disposition < traceDBSyncSpanViewerDispositionCount; disposition++ {
+			reasonTotal += quality.Metrics[traceDBSyncSpanViewerDispositionMetric(disposition)]
+		}
+		if reasonTotal != callstackTyped {
+			quality.Metadata["official_viewer_span_visibility"] =
+				"not_evaluated_typed_only_reason_census_mismatch"
+			return
+		}
+	}
 	switch {
 	case typedOnly > 0 && unpublished > 0:
 		quality.Metadata["official_viewer_span_visibility"] =

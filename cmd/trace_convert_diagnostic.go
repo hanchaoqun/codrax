@@ -32,6 +32,7 @@ var traceConvertDiagnosticCapabilities = []string{
 	"callstack_official_field_semantics_v1",
 	"callstack_time_local_fence_v1",
 	"callstack_local_fence_witness_v1",
+	"official_viewer_typed_only_reason_census_v1",
 	"standard_sync_pipe_compat_v1",
 	"callstack_completed_async_interval_v1",
 	"source_rawtrace_authority_inventory_v1",

@@ -163,6 +163,24 @@ func TestTraceDBSemanticQualityClosesCPUUnavailableRawReplacement(t *testing.T) 
 	}
 }
 
+func TestTraceDBSemanticQualityRejectsTypedOnlyReasonCensusMismatch(t *testing.T) {
+	quality := traceDBSemanticQualityCoverage([]TraceDBCoverage{{
+		Family: "slice",
+		Table:  "callstack",
+		Metrics: map[string]int64{
+			"sync_endpoints_emitted": 2,
+		},
+		Metadata: map[string]string{
+			"official_viewer_typed_only_sync_reason_census": "complete",
+		},
+	}})
+	if quality.Metrics["codrax_typed_only_sync_spans_emitted"] != 1 ||
+		quality.Metadata["official_viewer_span_visibility"] !=
+			"not_evaluated_typed_only_reason_census_mismatch" {
+		t.Fatalf("typed-only reason census mismatch was not fail-closed: %+v", quality)
+	}
+}
+
 func TestTraceDBSemanticQualityClosesRawReplacementAgainstLocalCallstackFence(t *testing.T) {
 	quality := traceDBSemanticQualityCoverage([]TraceDBCoverage{
 		{

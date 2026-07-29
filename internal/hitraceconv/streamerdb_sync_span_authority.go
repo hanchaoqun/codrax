@@ -79,6 +79,23 @@ const (
 	traceDBSyncSpanCPUPlacementAliasAmbiguous
 )
 
+// traceDBSyncSpanViewerDisposition is decided only for a span which survived
+// all shared authority suppression/supersession checks. It is an accounting
+// result, never an alternate admission path.
+type traceDBSyncSpanViewerDisposition uint8
+
+const (
+	traceDBSyncSpanViewerDispositionUnknown traceDBSyncSpanViewerDisposition = iota
+	traceDBSyncSpanViewerDispositionStandard
+	traceDBSyncSpanViewerDispositionCPUUnknownStart
+	traceDBSyncSpanViewerDispositionCPUUnknownEnd
+	traceDBSyncSpanViewerDispositionCPUSourceTainted
+	traceDBSyncSpanViewerDispositionCPULifecycleRejected
+	traceDBSyncSpanViewerDispositionCPUAliasAmbiguous
+	traceDBSyncSpanViewerDispositionNameUnrepresentable
+	traceDBSyncSpanViewerDispositionCount
+)
+
 type traceDBSyncSpanDepthProvenance uint8
 
 const (
@@ -189,6 +206,7 @@ type traceDBSyncSpanProducerStats struct {
 	EmittedEndpoints         int
 	StandardViewerSpans      int
 	StandardPipeSpans        int
+	ViewerDispositions       [traceDBSyncSpanViewerDispositionCount]int
 	SuppressedSpans          int
 	SupersededSpans          int
 	PoisonDeclarations       int
@@ -237,6 +255,7 @@ type traceDBSyncSpanAuthority struct {
 	fenceWitnesses      [traceDBSyncSpanProducerSourceRawMarker + 1][]traceDBSyncSpanLaneFence
 	standardPipeSpans   [traceDBSyncSpanProducerSourceRawMarker + 1]int
 	standardViewerSpans [traceDBSyncSpanProducerSourceRawMarker + 1]int
+	viewerDispositions  [traceDBSyncSpanProducerSourceRawMarker + 1][traceDBSyncSpanViewerDispositionCount]int
 	superseded          [traceDBSyncSpanProducerSourceRawMarker + 1]int
 	globalPoisoned      [traceDBSyncSpanProducerSourceRawMarker + 1]bool
 	submittedTotal      int
@@ -911,6 +930,7 @@ func (authority *traceDBSyncSpanAuthority) finalize(ctx context.Context, sink *t
 		stats.EmittedEndpoints = emittedByProducer[producer] * 2
 		stats.StandardViewerSpans = authority.standardViewerSpans[producer]
 		stats.StandardPipeSpans = authority.standardPipeSpans[producer]
+		stats.ViewerDispositions = authority.viewerDispositions[producer]
 		report.ByProducer[producer] = stats
 		report.EmittedEndpoints += stats.EmittedEndpoints
 	}
@@ -1614,7 +1634,15 @@ func (authority *traceDBSyncSpanAuthority) publishFrozenCleanLanes(
 			candidate := nextCandidate.Candidate
 			if !bad && !traceDBSyncSpanProducerPoisoned(producerPoisonMask, candidate.Producer) &&
 				!laneFences.affects(candidate) {
-				if traceDBSyncSpanStandardViewerCandidate(candidate) {
+				viewerDisposition := traceDBSyncSpanViewerDispositionForCandidate(candidate)
+				if viewerDisposition <= traceDBSyncSpanViewerDispositionUnknown ||
+					viewerDisposition >= traceDBSyncSpanViewerDispositionCount {
+					return emitted, &traceDBOutputInvariantError{
+						Reason: "unknown_sync_span_viewer_disposition",
+					}
+				}
+				authority.viewerDispositions[candidate.Producer][viewerDisposition]++
+				if viewerDisposition == traceDBSyncSpanViewerDispositionStandard {
 					authority.standardViewerSpans[candidate.Producer]++
 				}
 				if traceDBStandardSyncPipeCandidate(candidate) {
@@ -1757,14 +1785,55 @@ func traceDBStandardSyncPipeCandidate(candidate traceDBSyncSpanCandidate) bool {
 }
 
 func traceDBSyncSpanStandardViewerCandidate(candidate traceDBSyncSpanCandidate) bool {
-	if candidate.CPUPlacement != traceDBSyncSpanCPUPlacementKnown {
-		return false
+	return traceDBSyncSpanViewerDispositionForCandidate(candidate) ==
+		traceDBSyncSpanViewerDispositionStandard
+}
+
+func traceDBSyncSpanViewerDispositionForCandidate(
+	candidate traceDBSyncSpanCandidate,
+) traceDBSyncSpanViewerDisposition {
+	switch candidate.CPUPlacement {
+	case traceDBSyncSpanCPUPlacementUnknownStart:
+		return traceDBSyncSpanViewerDispositionCPUUnknownStart
+	case traceDBSyncSpanCPUPlacementUnknownEnd:
+		return traceDBSyncSpanViewerDispositionCPUUnknownEnd
+	case traceDBSyncSpanCPUPlacementSourceTainted:
+		return traceDBSyncSpanViewerDispositionCPUSourceTainted
+	case traceDBSyncSpanCPUPlacementLifecycleRejected:
+		return traceDBSyncSpanViewerDispositionCPULifecycleRejected
+	case traceDBSyncSpanCPUPlacementAliasAmbiguous:
+		return traceDBSyncSpanViewerDispositionCPUAliasAmbiguous
+	case traceDBSyncSpanCPUPlacementKnown:
+		if candidate.Producer == traceDBSyncSpanProducerSourceRawMarker ||
+			!strings.ContainsRune(candidate.Name, '|') ||
+			traceDBStandardSyncPipeCandidate(candidate) {
+			return traceDBSyncSpanViewerDispositionStandard
+		}
+		return traceDBSyncSpanViewerDispositionNameUnrepresentable
+	default:
+		return traceDBSyncSpanViewerDispositionUnknown
 	}
-	if candidate.Producer == traceDBSyncSpanProducerSourceRawMarker {
-		return true
+}
+
+func traceDBSyncSpanViewerDispositionMetric(
+	disposition traceDBSyncSpanViewerDisposition,
+) string {
+	switch disposition {
+	case traceDBSyncSpanViewerDispositionCPUUnknownStart:
+		return "official_viewer_typed_only_sync_spans_cpu_unknown_start"
+	case traceDBSyncSpanViewerDispositionCPUUnknownEnd:
+		return "official_viewer_typed_only_sync_spans_cpu_unknown_end"
+	case traceDBSyncSpanViewerDispositionCPUSourceTainted:
+		return "official_viewer_typed_only_sync_spans_cpu_source_tainted"
+	case traceDBSyncSpanViewerDispositionCPULifecycleRejected:
+		return "official_viewer_typed_only_sync_spans_cpu_lifecycle_rejected"
+	case traceDBSyncSpanViewerDispositionCPUAliasAmbiguous:
+		return "official_viewer_typed_only_sync_spans_cpu_alias_ambiguous"
+	case traceDBSyncSpanViewerDispositionNameUnrepresentable:
+		return "official_viewer_typed_only_sync_spans_name_unrepresentable"
+	default:
+		return ""
 	}
-	return !strings.ContainsRune(candidate.Name, '|') ||
-		traceDBStandardSyncPipeCandidate(candidate)
 }
 
 func traceDBSyncSpanIdentityConflicts(left, right traceDBSyncSpanCandidate) bool {
@@ -1894,10 +1963,27 @@ func reconcileTraceDBSyncSpanCoverage(items []TraceDBCoverage, report traceDBSyn
 		traceDBAddCoverageMetric(item, "official_viewer_standard_sync_spans_emitted",
 			int64(stats.StandardViewerSpans))
 		traceDBAddCoverageMetric(item, "standard_sync_pipe_spans_emitted", int64(stats.StandardPipeSpans))
+		typedOnlyReasonTotal := 0
+		for disposition := traceDBSyncSpanViewerDispositionCPUUnknownStart; disposition < traceDBSyncSpanViewerDispositionCount; disposition++ {
+			count := stats.ViewerDispositions[disposition]
+			typedOnlyReasonTotal += count
+			traceDBAddCoverageMetric(item,
+				traceDBSyncSpanViewerDispositionMetric(disposition), int64(count))
+		}
+		if stats.StandardViewerSpans+typedOnlyReasonTotal != stats.EmittedEndpoints/2 {
+			return &traceDBOutputInvariantError{
+				Reason: "sync_span_viewer_disposition_census_mismatch",
+			}
+		}
 		if item.FieldSources == nil {
 			item.FieldSources = map[string]string{}
 		}
 		item.FieldSources["wire_laminar"] = "single typed sync-span authority over output artifact source + physical header TID; finalized after all governed producers"
+		item.FieldSources["viewer_visibility"] = "final emitted-span census after shared suppression and supersession; typed-only reasons are closed publication dispositions and never CPU/name admission authority"
+		if item.Metadata == nil {
+			item.Metadata = map[string]string{}
+		}
+		item.Metadata["official_viewer_typed_only_sync_reason_census"] = "complete"
 		if stats.SuppressedSpans > 0 {
 			traceDBAppendCoverageSkipped(item, fmt.Sprintf(
 				"sync_span_authority: suppressed_spans=%d suppressed_endpoints=%d",

@@ -433,12 +433,81 @@ func TestTraceDBSyncSpanAuthorityStandardPipeCompatibilityIsLosslessSubset(t *te
 				coverage.Metrics["standard_sync_pipe_spans_emitted"] != wantCount {
 				t.Fatalf("standard pipe accounting mismatch: report=%+v coverage=%+v", report, coverage)
 			}
+			items := []TraceDBCoverage{{
+				Family: "slice", Table: "callstack", Role: "query_ready_export",
+				FieldSources: map[string]string{},
+			}}
+			if err := reconcileTraceDBSyncSpanCoverage(items, report); err != nil {
+				t.Fatal(err)
+			}
+			wantTypedName := int64(0)
+			if test.wantExactWire {
+				wantTypedName = 1
+			}
+			if got := items[0].Metrics["official_viewer_typed_only_sync_spans_name_unrepresentable"]; got != wantTypedName {
+				t.Fatalf("typed-only pipe-name census=%d want %d: %+v",
+					got, wantTypedName, items[0])
+			}
 			hasStandard := strings.Contains(body, "tracing_mark_write: B|100|"+test.spanName)
 			hasExact := strings.Contains(body, "# codrax_trace_mark_exact/v1")
 			if hasStandard != test.wantStandard || hasExact != test.wantExactWire {
 				t.Fatalf("wire selection mismatch: standard=%t exact=%t body=%q", hasStandard, hasExact, body)
 			}
 		})
+	}
+}
+
+func TestTraceDBSyncSpanFinalViewerDispositionCensusIsClosed(t *testing.T) {
+	placements := []traceDBSyncSpanCPUPlacement{
+		traceDBSyncSpanCPUPlacementUnknownStart,
+		traceDBSyncSpanCPUPlacementUnknownEnd,
+		traceDBSyncSpanCPUPlacementSourceTainted,
+		traceDBSyncSpanCPUPlacementLifecycleRejected,
+		traceDBSyncSpanCPUPlacementAliasAmbiguous,
+	}
+	candidates := make([]traceDBSyncSpanCandidate, 0, len(placements)+1)
+	for index, placement := range placements {
+		candidate := traceDBTestSyncSpanCandidate(
+			traceDBSyncSpanProducerCallstack, int64(index+1), int64(100+index), 100,
+			int64(1000+index*100), int64(1050+index*100), "typed-only")
+		candidate.StartCPU, candidate.EndCPU = 0, 0
+		candidate.CPUPlacement = placement
+		candidate.StartCPUProvenance = traceDBSyncSpanCPUCallstackUnavailable
+		candidate.EndCPUProvenance = traceDBSyncSpanCPUCallstackUnavailable
+		candidates = append(candidates, candidate)
+	}
+	candidates = append(candidates, traceDBTestSyncSpanCandidate(
+		traceDBSyncSpanProducerCallstack, 6, 106, 100, 1600, 1650, "phase|I42"))
+
+	report, _, _, _ := renderTraceDBSyncSpanAuthority(t, candidates, nil, 128)
+	items := []TraceDBCoverage{{
+		Family: "slice", Table: "callstack", Role: "query_ready_export",
+		FieldSources: map[string]string{},
+	}}
+	if err := reconcileTraceDBSyncSpanCoverage(items, report); err != nil {
+		t.Fatal(err)
+	}
+	for _, metric := range []string{
+		"official_viewer_typed_only_sync_spans_cpu_unknown_start",
+		"official_viewer_typed_only_sync_spans_cpu_unknown_end",
+		"official_viewer_typed_only_sync_spans_cpu_source_tainted",
+		"official_viewer_typed_only_sync_spans_cpu_lifecycle_rejected",
+		"official_viewer_typed_only_sync_spans_cpu_alias_ambiguous",
+		"official_viewer_typed_only_sync_spans_name_unrepresentable",
+	} {
+		if items[0].Metrics[metric] != 1 {
+			t.Fatalf("final viewer disposition %s drifted: %+v", metric, items[0])
+		}
+	}
+	if items[0].Metrics["official_viewer_standard_sync_spans_emitted"] != 0 ||
+		items[0].Metadata["official_viewer_typed_only_sync_reason_census"] != "complete" {
+		t.Fatalf("final viewer census authority drifted: %+v", items[0])
+	}
+	quality := traceDBSemanticQualityCoverage(items)
+	if quality.Metrics["codrax_typed_only_sync_spans_emitted"] != 6 ||
+		quality.Metadata["official_viewer_typed_only_sync_reason_census"] != "complete" ||
+		quality.Metadata["official_viewer_span_visibility"] != "degraded_typed_only" {
+		t.Fatalf("semantic viewer reason census drifted: %+v", quality)
 	}
 }
 
