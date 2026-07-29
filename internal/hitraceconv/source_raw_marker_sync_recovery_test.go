@@ -138,6 +138,88 @@ func TestSubmitTraceDBRawMarkerSyncRecoveryDiagnosesExactNullDurationClosureWith
 	}
 }
 
+func TestSubmitTraceDBRawMarkerSyncRecoveryClassifiesNullDurationRawDisposition(t *testing.T) {
+	t.Run("closed pair rejected by exact local validation", func(t *testing.T) {
+		ctx := context.Background()
+		syncSpans := newTraceDBTestSyncSpanAuthority(t)
+		if !syncSpans.recordNullDurationHint(
+			traceDBCallstackNullDurationHint{
+				RowID: 1, HeaderTID: 201, HeaderTGID: 200, MarkerPID: 777,
+				CanonicalITID: 2, OwnerIPID: 2, Start: 1_000_000, Name: "frame",
+			}) {
+			t.Fatal("record exact NULL-duration hint failed")
+		}
+		rows := traceDBRawMarkerTestPair(201, 777, 1, "frame")
+		rows[0].CPU = int(maxTraceDBCPUIndex + 1)
+		coverage, err := submitTraceDBRawMarkerSyncRecovery(
+			ctx, traceDBRawMarkerTestInventory(rows),
+			traceDBRawBlockedKeyTestAuthority(), syncSpans)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if coverage.Metrics["null_duration_hints_without_valid_raw_closure"] != 1 ||
+			coverage.Metrics["null_duration_hints_unique_exact_raw_rejected_closed_pair"] != 1 ||
+			coverage.Metrics["null_duration_hints_exact_raw_rejected_closed_pair_invalid_begin_cpu"] != 1 ||
+			coverage.Metrics["null_duration_hints_unique_exact_raw_open_begin"] != 0 ||
+			syncSpans.fencedTotal != 0 {
+			t.Fatalf("rejected closed-pair disposition drifted: %+v", coverage)
+		}
+	})
+
+	t.Run("exact raw begin remains open", func(t *testing.T) {
+		ctx := context.Background()
+		syncSpans := newTraceDBTestSyncSpanAuthority(t)
+		if !syncSpans.recordNullDurationHint(
+			traceDBCallstackNullDurationHint{
+				RowID: 1, HeaderTID: 201, HeaderTGID: 200, MarkerPID: 777,
+				CanonicalITID: 2, OwnerIPID: 2, Start: 1_000_000, Name: "frame",
+			}) {
+			t.Fatal("record exact NULL-duration hint failed")
+		}
+		rows := traceDBRawMarkerTestPair(201, 777, 1, "frame")[:1]
+		coverage, err := submitTraceDBRawMarkerSyncRecovery(
+			ctx, traceDBRawMarkerTestInventory(rows),
+			traceDBRawBlockedKeyTestAuthority(), syncSpans)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if coverage.Metrics["null_duration_hints_without_valid_raw_closure"] != 1 ||
+			coverage.Metrics["null_duration_hints_unique_exact_raw_open_begin"] != 1 ||
+			coverage.Metrics["null_duration_hints_unique_exact_raw_rejected_closed_pair"] != 0 ||
+			coverage.Metrics["raw_open_begins_withheld"] != 1 ||
+			syncSpans.fencedTotal != 0 {
+			t.Fatalf("open-begin disposition drifted: %+v", coverage)
+		}
+	})
+}
+
+func TestSubmitTraceDBRawMarkerSyncRecoveryRetainsWitnessesPerReason(t *testing.T) {
+	invalidCPU := traceDBRawMarkerTestPair(201, 777, 1, "cpu-invalid")
+	invalidCPU[0].CPU = int(maxTraceDBCPUIndex + 1)
+	invalidName := traceDBRawMarkerTestPair(201, 777, 3, " invalid-name")
+	invalidName[0].Buffer = "B|777| invalid-name"
+	invalidName[0].TimestampNS = 5_000_000
+	invalidName[1].TimestampNS = 6_000_000
+	rows := append(invalidCPU, invalidName...)
+	syncSpans := newTraceDBTestSyncSpanAuthority(t)
+	coverage, err := submitTraceDBRawMarkerSyncRecovery(
+		context.Background(), traceDBRawMarkerTestInventory(rows),
+		traceDBRawBlockedKeyTestAuthority(), syncSpans)
+	if err != nil {
+		t.Fatal(err)
+	}
+	witnesses := coverage.Metadata["raw_marker_local_validation_witnesses"]
+	if coverage.Metrics["raw_pairs_withheld_local_validation"] != 2 ||
+		coverage.Metrics["raw_marker_local_validation_witnesses_invalid_begin_cpu_emitted"] != 1 ||
+		coverage.Metrics["raw_marker_local_validation_witnesses_invalid_span_name_emitted"] != 1 ||
+		coverage.Metrics["raw_marker_local_validation_witnesses_emitted"] != 2 ||
+		!strings.Contains(witnesses, "reason=invalid_begin_cpu") ||
+		!strings.Contains(witnesses, "reason=invalid_span_name") ||
+		coverage.Metrics["raw_pairs_submitted"] != 0 {
+		t.Fatalf("per-reason local witnesses drifted: %+v", coverage)
+	}
+}
+
 func TestSubmitTraceDBRawMarkerSyncRecoveryNormalizesOfficialStructuredZeroPID(t *testing.T) {
 	ctx := context.Background()
 	rows := traceDBRawMarkerTestPair(201, 0, 1, "frame")

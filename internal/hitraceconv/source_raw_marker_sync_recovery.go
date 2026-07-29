@@ -25,7 +25,10 @@ type traceDBRawMarkerPairWitness struct {
 	name     string
 }
 
-const traceDBRawMarkerLocalValidationWitnessCap = 8
+const (
+	traceDBRawMarkerLocalValidationWitnessPerReasonCap = 4
+	traceDBRawMarkerLocalValidationReasonCap           = 8
+)
 
 type traceDBCallstackNullDurationClosureKey struct {
 	HeaderTID     int64
@@ -35,6 +38,17 @@ type traceDBCallstackNullDurationClosureKey struct {
 	OwnerIPID     int64
 	Start         int64
 	Name          string
+}
+
+type traceDBRawMarkerPhysicalStartKey struct {
+	HeaderPID int64
+	MarkerPID int64
+	Start     uint64
+	Name      string
+}
+
+type traceDBRawMarkerRejectedClosedStart struct {
+	CountByReason map[string]int
 }
 
 func newTraceDBRawMarkerSyncCoverage() TraceDBCoverage {
@@ -96,7 +110,7 @@ func submitTraceDBRawMarkerSyncRecovery(
 	}
 	if len(rows) == 0 {
 		if err := traceDBApplyNullDurationRawClosureCensus(
-			&out, syncSpans, nil); err != nil {
+			&out, syncSpans, nil, nil, nil); err != nil {
 			out.Error = err.Error()
 			return out, err
 		}
@@ -128,9 +142,11 @@ func submitTraceDBRawMarkerSyncRecovery(
 
 	candidates := make([]traceDBSyncSpanCandidate, 0, len(rows)/2)
 	longestPairs := make([]traceDBRawMarkerPairWitness, 0, 8)
-	localValidationWitnessTotal := 0
-	localValidationWitnesses := make([]string, 0,
-		traceDBRawMarkerLocalValidationWitnessCap)
+	localValidationWitnessTotals := map[string]int{}
+	localValidationWitnesses := map[string][]string{}
+	rejectedClosedStarts :=
+		map[traceDBRawMarkerPhysicalStartKey]traceDBRawMarkerRejectedClosedStart{}
+	openBegins := map[traceDBRawMarkerPhysicalStartKey]int{}
 	for _, emitter := range emitters {
 		lane := byEmitter[emitter]
 		sort.SliceStable(lane, func(i, j int) bool {
@@ -223,6 +239,9 @@ func submitTraceDBRawMarkerSyncRecovery(
 		if len(stack) != 0 {
 			localizedWithholding = true
 			traceDBAddCoverageMetric(&out, "raw_open_begins_withheld", int64(len(stack)))
+			for _, begin := range stack {
+				openBegins[traceDBRawMarkerPhysicalStartKeyFromRecord(begin)]++
+			}
 		}
 
 		laneCandidates := make([]traceDBSyncSpanCandidate, 0, len(pairs))
@@ -230,12 +249,21 @@ func submitTraceDBRawMarkerSyncRecovery(
 			candidate, reason := traceDBRawMarkerSyncCandidate(pair, authority)
 			if reason != "" {
 				localizedWithholding = true
-				localValidationWitnessTotal++
-				if len(localValidationWitnesses) <
-					traceDBRawMarkerLocalValidationWitnessCap {
-					localValidationWitnesses = append(localValidationWitnesses,
+				reasonMetric := traceDBRawDecodeReasonMetric(reason)
+				localValidationWitnessTotals[reasonMetric]++
+				if len(localValidationWitnesses[reasonMetric]) <
+					traceDBRawMarkerLocalValidationWitnessPerReasonCap {
+					localValidationWitnesses[reasonMetric] = append(
+						localValidationWitnesses[reasonMetric],
 						traceDBRawMarkerLocalValidationWitness(pair, reason))
 				}
+				key := traceDBRawMarkerPhysicalStartKeyFromRecord(pair.begin)
+				disposition := rejectedClosedStarts[key]
+				if disposition.CountByReason == nil {
+					disposition.CountByReason = map[string]int{}
+				}
+				disposition.CountByReason[reasonMetric]++
+				rejectedClosedStarts[key] = disposition
 				traceDBAddCoverageMetric(&out, "raw_pairs_withheld_local_validation", 1)
 				traceDBAddCoverageMetric(&out,
 					"raw_pairs_withheld_"+traceDBRawDecodeReasonMetric(reason), 1)
@@ -262,20 +290,49 @@ func submitTraceDBRawMarkerSyncRecovery(
 			traceDBRawMarkerPairWitnesses(longestPairs)
 	}
 	if len(localValidationWitnesses) > 0 {
+		reasons := make([]string, 0, len(localValidationWitnesses))
+		for reason := range localValidationWitnesses {
+			reasons = append(reasons, reason)
+		}
+		sort.Strings(reasons)
+		if len(reasons) > traceDBRawMarkerLocalValidationReasonCap {
+			traceDBAddCoverageMetric(&out,
+				"raw_marker_local_validation_witness_reason_classes_omitted",
+				int64(len(reasons)-traceDBRawMarkerLocalValidationReasonCap))
+			reasons = reasons[:traceDBRawMarkerLocalValidationReasonCap]
+		}
+		flattened := make([]string, 0,
+			len(reasons)*traceDBRawMarkerLocalValidationWitnessPerReasonCap)
+		for _, reason := range reasons {
+			witnesses := localValidationWitnesses[reason]
+			flattened = append(flattened, witnesses...)
+			traceDBAddCoverageMetric(&out,
+				"raw_marker_local_validation_witnesses_"+reason+"_emitted",
+				int64(len(witnesses)))
+			if omitted := localValidationWitnessTotals[reason] - len(witnesses); omitted > 0 {
+				traceDBAddCoverageMetric(&out,
+					"raw_marker_local_validation_witnesses_"+reason+"_omitted",
+					int64(omitted))
+			}
+		}
 		out.Metadata["raw_marker_local_validation_witnesses"] =
-			strings.Join(localValidationWitnesses, ";")
+			strings.Join(flattened, ";")
 		traceDBAddCoverageMetric(&out,
 			"raw_marker_local_validation_witnesses_emitted",
-			int64(len(localValidationWitnesses)))
-		if omitted := localValidationWitnessTotal - len(localValidationWitnesses); omitted > 0 {
+			int64(len(flattened)))
+		total := 0
+		for _, count := range localValidationWitnessTotals {
+			total += count
+		}
+		if omitted := total - len(flattened); omitted > 0 {
 			traceDBAddCoverageMetric(&out,
 				"raw_marker_local_validation_witnesses_omitted", int64(omitted))
 		}
 		out.FieldSources["local_validation_witnesses"] =
-			"bounded exact physical raw pair and closed first-failure reason; diagnostic only and never alternate PID/name/span admission authority"
+			"bounded per exact closed first-failure reason class, then physical raw pair; diagnostic only and never alternate PID/name/span admission authority"
 	}
 	if err := traceDBApplyNullDurationRawClosureCensus(
-		&out, syncSpans, candidates); err != nil {
+		&out, syncSpans, candidates, rejectedClosedStarts, openBegins); err != nil {
 		out.Error = err.Error()
 		return out, err
 	}
@@ -419,6 +476,8 @@ func traceDBApplyNullDurationRawClosureCensus(
 	out *TraceDBCoverage,
 	syncSpans *traceDBSyncSpanAuthority,
 	candidates []traceDBSyncSpanCandidate,
+	rejectedClosedStarts map[traceDBRawMarkerPhysicalStartKey]traceDBRawMarkerRejectedClosedStart,
+	openBegins map[traceDBRawMarkerPhysicalStartKey]int,
 ) error {
 	if out == nil || syncSpans == nil {
 		return &traceDBOutputInvariantError{
@@ -435,7 +494,7 @@ func traceDBApplyNullDurationRawClosureCensus(
 		traceDBAddCoverageMetric(out, "null_duration_fence_hints_omitted", int64(omitted))
 	}
 	out.FieldSources["null_duration_raw_closure"] =
-		"diagnostic-only correlation of exact NULL-duration DB start identity/name with independently decoded raw B/E pairs; the raw end is not yet admitted as DB duration or fence authority"
+		"diagnostic-only correlation of exact NULL-duration DB start identity/name with independently decoded valid B/E candidates, locally rejected closed pairs and trailing open begins; no raw disposition is admitted as DB duration or fence authority"
 	switch {
 	case !complete:
 		out.Metadata["null_duration_raw_closure_census"] = "incomplete_hint_cap"
@@ -486,6 +545,35 @@ func traceDBApplyNullDurationRawClosureCensus(
 			MarkerPID: hint.MarkerPID, CanonicalITID: hint.CanonicalITID,
 			OwnerIPID: hint.OwnerIPID, Start: hint.Start, Name: hint.Name,
 		}
+		physicalKey := traceDBRawMarkerPhysicalStartKey{
+			HeaderPID: hint.HeaderTID, MarkerPID: hint.MarkerPID,
+			Start: uint64(hint.Start), Name: hint.Name,
+		}
+		if rejected := rejectedClosedStarts[physicalKey]; len(rejected.CountByReason) > 0 {
+			total := 0
+			for reason, count := range rejected.CountByReason {
+				total += count
+				traceDBAddCoverageMetric(out,
+					"null_duration_hints_exact_raw_rejected_closed_pair_"+
+						traceDBRawDecodeReasonMetric(reason), int64(count))
+			}
+			switch total {
+			case 1:
+				traceDBAddCoverageMetric(out,
+					"null_duration_hints_unique_exact_raw_rejected_closed_pair", 1)
+			default:
+				traceDBAddCoverageMetric(out,
+					"null_duration_hints_ambiguous_exact_raw_rejected_closed_pair", 1)
+			}
+		}
+		switch count := openBegins[physicalKey]; {
+		case count == 1:
+			traceDBAddCoverageMetric(out,
+				"null_duration_hints_unique_exact_raw_open_begin", 1)
+		case count > 1:
+			traceDBAddCoverageMetric(out,
+				"null_duration_hints_ambiguous_exact_raw_open_begin", 1)
+		}
 		switch count := exact[key]; {
 		case count == 1:
 			traceDBAddCoverageMetric(out,
@@ -517,6 +605,15 @@ func traceDBApplyNullDurationRawClosureCensus(
 		}
 	}
 	return nil
+}
+
+func traceDBRawMarkerPhysicalStartKeyFromRecord(
+	record traceDBRawMarkerRecord,
+) traceDBRawMarkerPhysicalStartKey {
+	return traceDBRawMarkerPhysicalStartKey{
+		HeaderPID: record.HeaderPID, MarkerPID: record.PayloadPID,
+		Start: record.TimestampNS, Name: record.Name,
+	}
 }
 
 func traceDBCallstackNullDurationClosureKeyFromCandidate(
