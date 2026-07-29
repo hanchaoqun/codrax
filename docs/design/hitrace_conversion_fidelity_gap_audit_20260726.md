@@ -4309,6 +4309,49 @@ RA-B is authorized without another customer replay. RA-C and RA-D should be
 shipped before the next replay so one run can decide the remaining 78 fenced
 rows and 279 name rejects. RA-E remains a separate CPU-authority batch.
 
+Progress:
+
+- RA-A: REP-A equations, official source fingerprints, the zero-PID ruling and
+  the frozen narrow repair predicate were pushed in `6cfb03da9`;
+- RA-B: implemented and pushed in `7c5d3a9b8`. The raw ledger types
+  zero-as-header-identity only when the strict OpenHarmony
+  `print|tracing_mark_write` `pid/name/start` producer selected the body.
+  Recovery requires B/E agreement, one physical emitter, equal canonical
+  thread/process generations and the existing lifecycle gate. It then records
+  the source marker PID as absent/zero provenance and renders the proven host
+  TGID into the standard B/E payload. Compact/text `B|0`, one-sided zero and
+  mismatched endpoint PIDs fail closed. Nonzero namespace PIDs remain
+  verbatim. Capability
+  `official_raw_marker_zero_pid_header_identity_v1` identifies this repair;
+- RA-C/RA-D: implemented and pushed in `82870aeca`. Each exact NULL-duration
+  hint is now independently correlated with a valid raw closure, a locally
+  rejected closed pair including its first-failure reason, and a trailing raw
+  open begin. The result is diagnostic-only and cannot change a duration or
+  fence. Raw local-validation witnesses are retained per sorted reason class
+  rather than by one global first-eight race, so an `invalid_span_name` cohort
+  cannot be hidden behind a larger PID/CPU cohort. Reason and witness caps are
+  typed. Capabilities `null_duration_raw_disposition_census_v1` and
+  `raw_marker_local_validation_reason_witness_v1` identify the new evidence.
+
+Package verification after RA-B and after RA-C/RA-D:
+`go test ./internal/hitraceconv ./cmd -count=1` passed.
+
+The next customer replay should carry all four new REP-A capabilities. Its
+acceptance checks are:
+
+```text
+raw_pairs_withheld_invalid_begin_payload_pid                  = 0
+raw_pairs_official_zero_pid_header_identity_normalized        = 3759
+raw local-validation witnesses include invalid_span_name
+90 NULL hints split across valid/rejected-closed/open/absent dispositions
+expected rows = parsed rows = callback rows
+```
+
+`standard-visible spans` should not decrease. Its increase is deliberately not
+predeclared as exactly 3,759: an admitted raw pair may be DB-disjoint and add a
+span, may replace one CPU-unavailable DB candidate, or may prove an already
+standard-visible exact DB duplicate. Collision cardinality decides each case.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.
