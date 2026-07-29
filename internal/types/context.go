@@ -6916,6 +6916,15 @@ type BusContext struct {
 	// spurious kindLiteral surfaces.
 	AttachedLog string `json:"attached_log,omitempty"`
 
+	// UserPinnedFiles carries repo-relative file paths the user pinned
+	// with @path tokens in the request (PIB-5c, ledger
+	// docs/design/pi_borrow_analysis_20260729.md §7.5). Deterministic
+	// injection from the REPL/CLI — never LLM-derived — so the
+	// analyzer's required-file lane and the forced-read coverage
+	// predicate may treat it as a precise signal. Reset every Run;
+	// empty = no pins.
+	UserPinnedFiles []string `json:"user_pinned_files,omitempty"`
+
 	// AttachedHitrace carries a HarmonyOS HiTrace or Android systrace
 	// excerpt (ftrace-compatible text) attached via --htrace /
 	// --htrace-text. Read once by the StagePerfTriage pre-stage's
@@ -7514,6 +7523,11 @@ type AgentContext struct {
 	// a prompt section for every stage (so the LLM sees the raw log
 	// body for narrative context). Empty when no log was attached.
 	AttachedLog string `json:"attached_log,omitempty"`
+
+	// UserPinnedFiles mirrors BusContext.UserPinnedFiles (PIB-5c) for
+	// the analyzer's required-file lane. Deterministic, never
+	// LLM-derived.
+	UserPinnedFiles []string `json:"user_pinned_files,omitempty"`
 
 	// AttachedHitrace mirrors BusContext.AttachedHitrace for the
 	// perf_triager agent. Only the perf_triage stage reads this

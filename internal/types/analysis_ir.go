@@ -46,6 +46,13 @@ const AnalysisIRVersion = "v14"
 
 type RequestModel struct {
 	RawRequest  string      `json:"raw_request"`
+	// UserPinnedFiles is the deterministic @path pin list injected by
+	// the analyzer's post-processing from AgentContext (PIB-5c) —
+	// NEVER decoded from the LLM emission, so the R2' schema-sync
+	// obligation does not apply and hard gates may key on it as a
+	// precise signal (len > 0 ⇒ the user explicitly named these
+	// files; forced-read coverage applies).
+	UserPinnedFiles []string `json:"user_pinned_files,omitempty"`
 	Language    string      `json:"language"`
 	Intent      Intent      `json:"intent"`
 	Scenario    Scenario    `json:"scenario"`

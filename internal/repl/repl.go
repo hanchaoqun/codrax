@@ -7175,6 +7175,16 @@ func (r *REPL) dispatch(line, display string) {
 	if setter, ok := r.runner.(attachedLogSetter); ok {
 		setter.SetAttachedLog(r.attachedLog)
 	}
+	// PIB-5c: per-turn @path pins. Set fresh every dispatch (nil
+	// clears) so pins never leak across turns; a visible info line
+	// confirms what was actually pinned (fs-validated) vs typed.
+	if setter, ok := r.runner.(pinnedFilesSetter); ok {
+		pins := extractPinnedFiles(r.repoRoot, line)
+		setter.SetUserPinnedFiles(pins)
+		if len(pins) > 0 {
+			r.info(pinnedFilesMsg(r.language, pins))
+		}
+	}
 	// Same propagation for the perf channel.
 	if setter, ok := r.runner.(attachedHitraceSetter); ok {
 		setter.SetAttachedHitrace(r.attachedHitrace)

@@ -2592,6 +2592,30 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	out.AnswerContract.Diagram = reconcileDiagramContract(rm, logBundle)
 	out.AnswerContract.ExactResolution = types.BuildExactResolutionContract(rm)
 
+	// PIB-5c: deterministic @path pin injection — BEFORE the IR
+	// literal copies rm, so both the stored RequestModel and every
+	// downstream consumer (required-file lane, forced-read coverage
+	// predicate) see the pins. The synthetic hints carry
+	// Confidence 1.0: the user named these files verbatim; the
+	// pre-explore forced-read seeder treats ≥0.8 as read-worthy.
+	if ctx != nil && len(ctx.UserPinnedFiles) > 0 {
+		rm.UserPinnedFiles = append([]string(nil), ctx.UserPinnedFiles...)
+		existing := map[string]bool{}
+		for _, hint := range rm.AnalyzerHints.RequiredFileHints {
+			existing[hint.Path] = true
+		}
+		for _, path := range rm.UserPinnedFiles {
+			if existing[path] {
+				continue
+			}
+			rm.AnalyzerHints.RequiredFileHints = append(rm.AnalyzerHints.RequiredFileHints, types.RequiredFileHint{
+				Path:       path,
+				Confidence: 1.0,
+				Rationale:  "user pinned this file with an @path token in the request",
+			})
+		}
+	}
+
 	ir := &types.AnalysisIR{
 		Version:        types.AnalysisIRVersion,
 		RequestModel:   rm,
@@ -3023,6 +3047,13 @@ func analyzerRequiredFiles(ctx *types.AgentContext, rm types.RequestModel) []str
 	tail := append(append([]string(nil), ranked...), lo...)
 	if siblings := configKeyGroupSiblingFiles(ctx, rm); len(siblings) > 0 {
 		tail = append(tail, siblings...)
+	}
+	// PIB-5c: user @path pins are the highest tier — the user named
+	// them verbatim, so they take cap-budget priority over every
+	// heuristic hit (prepended so mergeRequiredFilePathLists keeps
+	// them ahead of fs-hits and ranker output).
+	if len(rm.UserPinnedFiles) > 0 {
+		hi = append(append([]string(nil), rm.UserPinnedFiles...), hi...)
 	}
 	merged := mergeRequiredFilePathLists(hi, tail, maxAnalyzerRequiredFilesCap())
 	merged = analyzerRequiredFilesExistingOnly(ctx, merged)

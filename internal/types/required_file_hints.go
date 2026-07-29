@@ -42,6 +42,13 @@ func RequiredFileHintCurrentSourceCoverageApplies(rm RequestModel) bool {
 	if rm.HasExternalOnlyRuntimeArtifact() && rm.HasRuntimeArtifactCurrentVerificationAnchor() {
 		return true
 	}
+	// PIB-5c: the user explicitly pinned files with @path tokens —
+	// a deterministic, non-LLM signal. Reading what the user pointed
+	// at is the whole point of the pin, so the hinted files become
+	// hard current-source obligations for this request.
+	if len(rm.UserPinnedFiles) > 0 {
+		return true
+	}
 	if RequiredFileHintSourceInventoryCoverageApplies(rm) {
 		return true
 	}

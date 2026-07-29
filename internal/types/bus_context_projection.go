@@ -124,6 +124,7 @@ func ToolBusContext(ctx *AgentContext, activeName AgentName) *BusContext {
 		WorktreePath:          ctx.WorktreePath,
 		AnalysisIR:            ctx.AnalysisIR,
 		AttachedLog:           ctx.AttachedLog,
+		UserPinnedFiles:       ctx.UserPinnedFiles,
 		AttachedHitrace:       ctx.AttachedHitrace,
 		AttachedHitraceSource: ctx.AttachedHitraceSource,
 		Language:              ctx.Language,

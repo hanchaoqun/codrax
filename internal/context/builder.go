@@ -76,6 +76,7 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		TypedDenials:          bus.TypedDenials,
 		AnalysisIR:            bus.AnalysisIR,
 		AttachedLog:           bus.AttachedLog,
+		UserPinnedFiles:       bus.UserPinnedFiles,
 		AttachedHitrace:       bus.AttachedHitrace,
 		AttachedHitraceSource: bus.AttachedHitraceSource,
 		// Mirror BusContext.Mode onto the agent view so the analyzer

@@ -60,6 +60,7 @@ type Orchestrator struct {
 	thinkAloudMap         map[types.AgentName]bool // per-agent think-aloud override
 	blobSessionDir        string                   // persistent per-process blob dir; empty = tmpdir fallback
 	attachedLog           string                   // runtime log excerpt attached via --log / /log
+	userPinnedFiles       []string                 // @path pins, per-turn (PIB-5c; setter in user_pinned_files.go)
 	attachedHitrace       string                   // HiTrace / atrace excerpt attached via --htrace / /htrace
 	attachedHitraceSource string                   // advisory trace flavor/source hint from --htrace/--atrace spelling
 	// presentationDirective is a per-run typed display requirement
@@ -939,12 +940,6 @@ func (o *Orchestrator) CancelContext() context.Context {
 // Empty string clears any previously attached log.
 func (o *Orchestrator) SetAttachedLog(log string) {
 	o.attachedLog = log
-}
-
-// AttachedLog returns the current attached-log payload. Read surface
-// for the REPL's /log show handler.
-func (o *Orchestrator) AttachedLog() string {
-	return o.attachedLog
 }
 
 // SetAttachedHitrace stores a HarmonyOS HiTrace / Android systrace
@@ -2061,6 +2056,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 
 	o.busCtx.Language = o.language
 	o.busCtx.AttachedLog = o.attachedLog
+	o.busCtx.UserPinnedFiles = o.userPinnedFiles
 	o.busCtx.AttachedHitrace = o.attachedHitrace
 	o.busCtx.AttachedHitraceSource = o.attachedHitraceSource
 
