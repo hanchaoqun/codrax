@@ -100,6 +100,16 @@ func formatTraceRootCauseBoardFromLedger(ledger types.ObservationLedger) string 
 			continue // a seat without a published magnitude teaches nothing
 		}
 		row.effectiveMS = value + "ms (" + valueWord + ")"
+		// §18 G2 (双维度审计, 2026-07-28): a DISCOUNTED seat's raw occupancy
+		// twin joins the one-value board face — a heavily discounted seat
+		// (supply/periodic caliber) otherwise looks small on the single
+		// authoritative ordering with its genuine window occupancy invisible.
+		// Same-value twins stay silent (no noise on undiscounted rows).
+		if valueWord == "effective attribution" {
+			if raw := notes[types.TraceNoteKeyCumulativeImpactMS]; raw != "" && raw != value {
+				row.effectiveMS += " · raw occupancy " + raw + "ms"
+			}
+		}
 		switch notes[types.TraceNoteKeyChainRelevance] {
 		case "adjacent":
 			row.channel = "adjacent"

@@ -125,6 +125,14 @@ package tool
 // mechanism-voice guardrail, no dispatch-vocabulary change. 「首要可消除项」
 // is the reserved rename if plan A is ever ruled.
 //
+// EVOLUTION RECORD (TWODIM-1 §18, user ruling 2026-07-28): the closed-matrix
+// contract gains (a) the blocking_span pricing arm (lock rows price by
+// converged blocked wall clock, holder = correction lever) and (b) the
+// TWO-DIMENSION frame sentence — context_only zeroes the PRICED dimension
+// only; significant raw occupancy priced to zero is a raw-occupancy finding
+// with the own-workload/business lever (business_span_mention + the 未计价
+// 占用 aux account are the carriers). Rides Description AND Parameters.
+//
 // UPDATE RITUAL (deliberate gate — do NOT casually regenerate):
 //  1. justify the wording change against §29.64 (new note-key teaching goes
 //     to the wire Summary/legend, NOT mid-Description; R2' description-slot

@@ -849,7 +849,7 @@ func TestElimInversionCompoundWordSameBytes(t *testing.T) {
 
 // TestElimCompositionLeverageNote — 件③ ◎ 分杠杆注: the compound seat's ◎ row
 // carries the 构成拆解 value-first note, transcribing the SAME 行3
-// component bytes by elimination lever (调度修复=runnable(全额), 频点/热策略=
+// component bytes by elimination lever (调度供给=runnable(全额), 频率与热治理=
 // running(折算)); a constituent display — never a Σ row, no total claim; and
 // non-compound seats render no note.
 func TestElimCompositionLeverageNote(t *testing.T) {
@@ -871,7 +871,7 @@ func TestElimCompositionLeverageNote(t *testing.T) {
 	// lead with their values, and the [E#] pointer closes the row.
 	noteAt := -1
 	for i, line := range lines {
-		if strings.HasPrefix(line, "· 构成拆解") && strings.Contains(line, "0.109ms 调度修复 + 6.972ms 频点/热策略 [E2]") {
+		if strings.HasPrefix(line, "· 构成拆解") && strings.Contains(line, "0.109ms 调度供给 + 6.972ms 频率与热治理 [E2]") {
 			noteAt = i
 		}
 	}
@@ -908,7 +908,7 @@ func TestElimCompositionLeverageNote(t *testing.T) {
 	enFence := runtimeTraceProjElimOverviewFence(projection, enModel, false)
 	enSquash := strings.Join(strings.Fields(strings.ReplaceAll(enFence, "\n", " ")), " ")
 	if !strings.Contains(enFence, "· composition") ||
-		!strings.Contains(enSquash, "0.109ms scheduling fix + 6.972ms frequency/thermal policy [E2]") {
+		!strings.Contains(enSquash, "0.109ms scheduling supply + 6.972ms frequency & thermal [E2]") {
 		t.Fatalf("en composition-breakdown aux row missing:\n%s", enFence)
 	}
 	_ = enModel
@@ -1009,7 +1009,7 @@ func TestElimInvSupplyDonghuEngineRealWitness(t *testing.T) {
 	// live in the 构成拆解 section with the `  [E#] ` packaging (byte-
 	// identical content, indexed to the seat row).
 	if !strings.Contains(elim, "· 构成拆解") ||
-		!strings.Contains(elim, "0.109ms 调度修复 + 7.296ms 频点/热策略 [E") {
+		!strings.Contains(elim, "0.109ms 调度供给 + 7.296ms 频率与热治理 [E") {
 		t.Fatalf("the ◎ 构成拆解 aux row must transcribe the real 行3 split:\n%s", elim)
 	}
 	// 件④: blocked-order header promise + spaced channel words (ELIM-V2
@@ -1406,7 +1406,7 @@ func TestElimR7SingleComponentCompositionNoteSuppressed(t *testing.T) {
 		SupplyFoldComputed: true, SupplyFoldDeficitMS: 1.911, SupplyFoldIdealMS: 1.219,
 	}}
 	note, ok := runtimeTraceProjElimCompositionNoteLine(two, marks, true)
-	if !ok || !strings.Contains(note, "0.093ms 调度修复") || !strings.Contains(note, "1.659ms 频点/热策略") {
+	if !ok || !strings.Contains(note, "0.093ms 调度供给") || !strings.Contains(note, "1.659ms 频率与热治理") {
 		t.Fatalf("C-2① negative arm: the two-component note keeps rendering: %q ok=%v", note, ok)
 	}
 }

@@ -874,7 +874,7 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	//
 	// SPANVIS-1 (2026-07-19) schema review: RootCauseRankResult gained
 	// BusinessSpanMentions (*BusinessSpanMentionResult — the pure-advisory
-	// business-lens mention face: ≤3 on-chain (thread, verbatim span name)
+	// business-lens mention face: capped (BusinessSpanMentionFamilyCap, 8 as of MENTION8-1) on-chain (thread, verbatim span name)
 	// families over the FULL span inventory with count/Σ/max-single/line
 	// envelope/closed-set basis, plus the honest omitted-family counter).
 	// Key-first adjudication: an advisory result-level disclosure list (no

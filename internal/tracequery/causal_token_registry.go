@@ -453,11 +453,16 @@ const (
 // pin: TestCausalTokenFixDirectionCensus — 每 token 恰一方向或 unresolved);
 // ambiguous tokens ride unresolved (fail-open, 宁漏勿假指). Adjudication
 // notes for the delegated defaults (委托默认处置,待人工追认):
-//   - running/fragmented_running → frequency_thermal: an on-chain running
-//     seat participates through its supply-fold DEFICIT (§20.2 — the
-//     eliminable amount is frequency-recoverable), so the fix direction is
-//     delivery governance, not workload (the raw wall clock stays display
-//     evidence). The cust_span_runnable E5 witness form.
+//   - running/fragmented_running → frequency_thermal: RATIFIED (§18 G1
+//     双维度审计, user ruling 2026-07-28). An on-chain running seat
+//     participates through its supply-fold DEFICIT (§20.2 — the eliminable
+//     amount is frequency-recoverable), so the PRICED direction is delivery
+//     governance, not workload. The raw wall clock is DIMENSION-1 evidence
+//     with its OWN outlet — the ◎ 未计价占用 auxiliary account (杠杆=自身
+//     工作量, new-direction lead) plus the two-dimension teaching on the
+//     closed-matrix contract and the explore/finalize skills — so no
+//     self_workload leg is added here (one seat must not enter two priced
+//     direction sections). The cust_span_runnable E5 witness form.
 //   - gc_pause → memory: the fix for GC pauses is allocation/heap governance
 //     — deliberately the SAME direction as the aggregate memory_gc count
 //     family so the two faces of one phenomenon can never mint a fake

@@ -1462,20 +1462,17 @@ func runtimeTraceProjElimCompositionNoteLine(row runtimeTraceProjTreeRow, marks 
 	}
 	var parts []string
 	for _, c := range components {
+		// §18 G3② (双维度审计, 2026-07-28): the per-component lever words
+		// source from THE direction word table (tracefence.FixDirectionWord)
+		// — the composition note used to speak a third vocabulary
+		// (调度修复/频点/热策略) beside the seat's registry direction and the
+		// six-direction section heads, with no on-page reconciliation.
 		lever := ""
 		switch c.Word {
 		case "runnable":
-			if zh {
-				lever = "调度修复"
-			} else {
-				lever = "scheduling fix"
-			}
+			lever, _ = tracefence.FixDirectionWord("scheduling_supply", zh)
 		case "running":
-			if zh {
-				lever = "频点/热策略"
-			} else {
-				lever = "frequency/thermal policy"
-			}
+			lever, _ = tracefence.FixDirectionWord("frequency_thermal", zh)
 		default:
 			// A component outside the two-lever vocabulary has no leverage
 			// label — the note refuses to guess (absence never invents).
@@ -2583,6 +2580,60 @@ func runtimeTraceProjElimAuxAccountRows(model runtimeTraceProjTreeModel, board [
 			rows = append(rows, runtimeTraceProjElimAuxRow{label: semLabel,
 				content: fmt.Sprintf("⛓ %d row(s) (%s; largest %s) — see the semantic rows",
 					census.count, strings.Join(classes, ", "), maxPart)})
+		}
+	}
+	// §18 G1 (双维度审计, user ruling 2026-07-28): the 排除≠消失 account for
+	// UNPRICED genuine occupancy — an on-chain row whose raw window occupancy
+	// is real but prices to zero on the eliminable dimension (e.g. full-
+	// frequency running with no supply deficit, span-less) used to vanish
+	// from every guidance face. One counted row keeps the raw-occupancy
+	// dimension visible: the time is genuine, the lever is the thread's OWN
+	// workload/business flow — a NEW fix direction to explore, never an
+	// addend of this board. Population is precise: on-chain context-only
+	// valued rows minus the families already accounted above (caliber-side
+	// / self-symptom / semantic census).
+	unpricedCount := 0
+	unpricedMax := 0.0
+	unpricedTag := ""
+	unpricedScan := func(rowsIn []runtimeTraceProjTreeRow) {
+		for i := range rowsIn {
+			row := rowsIn[i]
+			if !row.HasData || !row.Node.IsContextOnlyRow() {
+				continue
+			}
+			if strings.TrimSpace(row.Node.ChainRelevance) != "on_chain" {
+				continue
+			}
+			if row.Node.IsTargetSelfStateRow() || runtimeTraceProjElimSemanticCensusRow(row) {
+				continue
+			}
+			if row.Node.IsCaliberSideRow() ||
+				tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(row.Node.TypeToken)) != tracequery.CausalCaliberSideNone {
+				continue
+			}
+			value := runtimeTraceProjNodeDisplayImpact(row.Node)
+			if value <= 0 {
+				continue
+			}
+			unpricedCount++
+			if value > unpricedMax {
+				unpricedMax = value
+				unpricedTag = strings.TrimSpace(row.EvidenceTag)
+			}
+		}
+	}
+	unpricedScan(model.TreeRows)
+	if unpricedCount > 0 {
+		maxPart := fmt.Sprintf("%.3fms", unpricedMax)
+		if unpricedTag != "" {
+			maxPart += " [" + unpricedTag + "]"
+		}
+		if zh {
+			rows = append(rows, runtimeTraceProjElimAuxRow{label: "未计价占用",
+				content: fmt.Sprintf("⛓ %d 行(最大 %s)·真实占时·杠杆=自身工作量(新方向)", unpricedCount, maxPart)})
+		} else {
+			rows = append(rows, runtimeTraceProjElimAuxRow{label: "unpriced occupancy",
+				content: fmt.Sprintf("⛓ %d row(s) (largest %s) · genuine time · lever: own workload", unpricedCount, maxPart)})
 		}
 	}
 	return rows
