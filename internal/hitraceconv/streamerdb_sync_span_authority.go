@@ -7,6 +7,7 @@ import (
 	"math"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -2087,19 +2088,36 @@ func traceDBSyncSpanCPUProvenanceLabel(
 	}
 }
 
+func traceDBSyncSpanCPUWitnessValue(
+	cpu int64,
+	provenance traceDBSyncSpanCPUProvenance,
+) string {
+	switch provenance {
+	case traceDBSyncSpanCPUCallstackTypedRunning,
+		traceDBSyncSpanCPUSyscallTypedRunning,
+		traceDBSyncSpanCPUSourceRawPage:
+		return strconv.FormatInt(cpu, 10)
+	default:
+		return "unavailable"
+	}
+}
+
 func traceDBSyncSpanViewerDispositionWitnessString(
 	disposition traceDBSyncSpanViewerDisposition,
 	witness traceDBSyncSpanViewerDispositionWitness,
 ) string {
 	return fmt.Sprintf(
-		"reason=%s/stable_kind=%s/stable_id=%d/tid=%d/tgid=%d/marker_pid=%d/marker_pid_known=%t/itid=%d/itid_known=%t/ipid=%d/ipid_known=%t/start_ns=%d/end_ns=%d/start_cpu=%d/end_cpu=%d/start_cpu_source=%s/end_cpu_source=%s/name=%s",
+		"reason=%s/stable_kind=%s/stable_id=%d/tid=%d/tgid=%d/marker_pid=%d/marker_pid_known=%t/itid=%d/itid_known=%t/ipid=%d/ipid_known=%t/start_ns=%d/end_ns=%d/start_cpu=%s/end_cpu=%s/start_cpu_source=%s/end_cpu_source=%s/name=%s",
 		traceDBSyncSpanViewerDispositionSuffix(disposition),
 		traceDBSyncSpanStableKindLabel(witness.StableKind), witness.StableID,
 		witness.HeaderTID, witness.HeaderTGID, witness.MarkerPID,
 		witness.MarkerPIDKnown, witness.CanonicalITID,
 		witness.CanonicalITIDKnown, witness.OwnerIPID,
 		witness.OwnerIPIDKnown, witness.Start, witness.End,
-		witness.StartCPU, witness.EndCPU,
+		traceDBSyncSpanCPUWitnessValue(
+			witness.StartCPU, witness.StartCPUProvenance),
+		traceDBSyncSpanCPUWitnessValue(
+			witness.EndCPU, witness.EndCPUProvenance),
 		traceDBSyncSpanCPUProvenanceLabel(witness.StartCPUProvenance),
 		traceDBSyncSpanCPUProvenanceLabel(witness.EndCPUProvenance),
 		witness.Name)

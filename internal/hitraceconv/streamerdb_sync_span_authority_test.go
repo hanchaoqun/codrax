@@ -510,6 +510,19 @@ func TestTraceDBSyncSpanFinalViewerDispositionCensusIsClosed(t *testing.T) {
 			t.Fatalf("final viewer witness %s drifted: %+v",
 				witnessKey, items[0])
 		}
+		if suffix == "name_unrepresentable" {
+			if !strings.Contains(items[0].Metadata[witnessKey],
+				"/start_cpu=1/end_cpu=2/") {
+				t.Fatalf("measured CPU witness was not numeric: %+v",
+					items[0])
+			}
+		} else if !strings.Contains(items[0].Metadata[witnessKey],
+			"/start_cpu=unavailable/end_cpu=unavailable/") ||
+			strings.Contains(items[0].Metadata[witnessKey],
+				"/start_cpu=0/end_cpu=0/") {
+			t.Fatalf("unavailable CPU witness masqueraded as CPU 0: %+v",
+				items[0])
+		}
 	}
 	if items[0].Metrics["official_viewer_standard_sync_spans_emitted"] != 0 ||
 		items[0].Metadata["official_viewer_typed_only_sync_reason_census"] != "complete" {
