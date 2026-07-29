@@ -1,6 +1,7 @@
 package hitraceconv
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -8,11 +9,16 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"hash"
+	"io"
 	"math"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -23,6 +29,11 @@ const (
 	// The base64 expansion plus the fixed envelope stays far below the shared
 	// one-physical-line limit. Source TEXT/BLOB values are split; never cut.
 	maxTraceDBTextFidelityChunkBytes = 32 * 1024
+	// Exact SQL preservation can be much larger than the semantic event set.
+	// Keep its private authenticated tail bounded independently from sorter
+	// runs; the final output and the full postvalidator remain unbounded by this
+	// optimization and fail closed when this private working-set cap is reached.
+	maxTraceDBTextFidelityTailBytes uint64 = defaultTraceDBActiveTempBytes
 )
 
 type traceDBTextFidelityCell struct {
@@ -78,7 +89,20 @@ type traceDBTextFidelityReport struct {
 	RecordLines int
 }
 
+type traceDBTextFidelityTail struct {
+	path           string
+	file           *os.File
+	writer         *bufio.Writer
+	hasher         hash.Hash
+	expectedDigest [sha256.Size]byte
+	bytes          uint64
+	rows           int
+	anchor         uint64
+	sealed         bool
+}
+
 func exportTraceDBTextFidelity(ctx context.Context, tdb *traceDB, sink *traceDBRowSink) (traceDBTextFidelityReport, error) {
+	started := time.Now()
 	summary := TraceDBCoverage{
 		Family: traceDBTextFidelityFamily,
 		Table:  traceDBTextFidelitySummaryTable,
@@ -95,6 +119,7 @@ func exportTraceDBTextFidelity(ctx context.Context, tdb *traceDB, sink *traceDBR
 		Metadata: map[string]string{},
 	}
 	fail := func(coverage []TraceDBCoverage, err error) (traceDBTextFidelityReport, error) {
+		traceDBSetCoverageElapsed(&summary, started)
 		summary.Error = err.Error()
 		return traceDBTextFidelityReport{Coverage: append([]TraceDBCoverage{summary}, coverage...)}, err
 	}
@@ -150,6 +175,7 @@ func exportTraceDBTextFidelity(ctx context.Context, tdb *traceDB, sink *traceDBR
 	summary.RowsEmitted = recordLines
 	summary.Metadata["tables_sha256"] = hex.EncodeToString(overall.Sum(nil))
 	summary.Metadata["semantic_adapter"] = "preserved_uninterpreted"
+	traceDBSetCoverageElapsed(&summary, started)
 	return traceDBTextFidelityReport{
 		Coverage:    append([]TraceDBCoverage{summary}, coverages...),
 		RecordLines: recordLines,
@@ -198,6 +224,7 @@ func exportTraceDBTextFidelityTable(
 	tableID int,
 	table traceDBTextFidelityTable,
 ) (coverage TraceDBCoverage, recordLines int, sourceRows uint64, tableDigest []byte, resultErr error) {
+	started := time.Now()
 	coverage = TraceDBCoverage{
 		Family: traceDBTextFidelityFamily,
 		Table:  table.Name,
@@ -208,6 +235,7 @@ func exportTraceDBTextFidelityTable(
 		},
 		Metadata: map[string]string{"semantic_adapter": "preserved_uninterpreted"},
 	}
+	defer traceDBSetCoverageElapsed(&coverage, started)
 	columns, err := traceDBTextFidelityColumns(ctx, db, table.Name)
 	if err != nil {
 		coverage.Error = err.Error()
@@ -556,6 +584,211 @@ func traceDBTextFidelityBytesCell(storage string, value []byte) traceDBTextFidel
 	}
 }
 
+func (s *traceDBRowSink) addTraceDBTextFidelityTailLine(
+	ctx context.Context,
+	anchor uint64,
+	line string,
+) error {
+	if s == nil {
+		return &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_tail_sink_missing"}
+	}
+	if ctx == nil {
+		return &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_tail_context_missing"}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if s.captureLifecycle != profilerCaptureInactive || s.prepared || s.prepareFailure != nil ||
+		s.stats.RowsAccepted <= 0 || anchor != s.stats.LastTSNS ||
+		len(line) == 0 || len(line) > maxTraceDBSystraceLineBytes ||
+		!traceDBSinglePhysicalLine(line, false) {
+		return &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_tail_state_invalid"}
+	}
+	if s.textFidelityTail == nil {
+		file, err := s.options.ops.createTemp(s.tempDir, "text-fidelity-tail-*.systrace")
+		if err != nil {
+			return &traceDBOutputInvariantError{
+				Reason: "trace_db_text_fidelity_tail_create_failed",
+				Cause:  err,
+			}
+		}
+		hasher := sha256.New()
+		s.textFidelityTail = &traceDBTextFidelityTail{
+			path:   file.Name(),
+			file:   file,
+			writer: bufio.NewWriterSize(io.MultiWriter(file, hasher), 256*1024),
+			hasher: hasher,
+			anchor: anchor,
+		}
+	}
+	tail := s.textFidelityTail
+	if tail.sealed || tail.file == nil || tail.writer == nil || tail.hasher == nil ||
+		tail.anchor != anchor || tail.rows == math.MaxInt {
+		return &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_tail_state_invalid"}
+	}
+	lineBytes := uint64(len(line)) + 1
+	if tail.bytes > maxTraceDBTextFidelityTailBytes ||
+		lineBytes > maxTraceDBTextFidelityTailBytes-tail.bytes {
+		return &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_tail_size_limit"}
+	}
+	if _, err := tail.writer.WriteString(line); err != nil {
+		return &traceDBOutputInvariantError{
+			Reason: "trace_db_text_fidelity_tail_write_failed",
+			Cause:  err,
+		}
+	}
+	if err := tail.writer.WriteByte('\n'); err != nil {
+		return &traceDBOutputInvariantError{
+			Reason: "trace_db_text_fidelity_tail_write_failed",
+			Cause:  err,
+		}
+	}
+	tail.bytes += lineBytes
+	tail.rows++
+	return nil
+}
+
+func (tail *traceDBTextFidelityTail) seal(ctx context.Context) error {
+	if tail == nil {
+		return nil
+	}
+	if ctx == nil {
+		return &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_tail_context_missing"}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if tail.sealed {
+		return nil
+	}
+	if tail.file == nil || tail.writer == nil || tail.hasher == nil ||
+		tail.path == "" || tail.rows <= 0 || tail.bytes == 0 {
+		return &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_tail_state_invalid"}
+	}
+	if err := tail.writer.Flush(); err != nil {
+		return &traceDBOutputInvariantError{
+			Reason: "trace_db_text_fidelity_tail_seal_failed",
+			Cause:  err,
+		}
+	}
+	info, err := tail.file.Stat()
+	if err != nil {
+		return &traceDBOutputInvariantError{
+			Reason: "trace_db_text_fidelity_tail_seal_failed",
+			Cause:  err,
+		}
+	}
+	if info.Size() < 0 || uint64(info.Size()) != tail.bytes || !info.Mode().IsRegular() {
+		return &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_tail_size_mismatch"}
+	}
+	if err := tail.file.Close(); err != nil {
+		return &traceDBOutputInvariantError{
+			Reason: "trace_db_text_fidelity_tail_seal_failed",
+			Cause:  err,
+		}
+	}
+	tail.file = nil
+	tail.writer = nil
+	copy(tail.expectedDigest[:], tail.hasher.Sum(nil))
+	tail.hasher = nil
+	tail.sealed = true
+	return nil
+}
+
+func (tail *traceDBTextFidelityTail) appendAuthenticated(ctx context.Context, output io.Writer) error {
+	if tail == nil {
+		return nil
+	}
+	if ctx == nil {
+		return &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_tail_context_missing"}
+	}
+	if output == nil || !tail.sealed || tail.file != nil || tail.writer != nil ||
+		tail.hasher != nil || tail.path == "" || tail.rows <= 0 || tail.bytes == 0 {
+		return &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_tail_state_invalid"}
+	}
+	file, err := os.Open(tail.path)
+	if err != nil {
+		return &traceDBOutputInvariantError{
+			Reason: "trace_db_text_fidelity_tail_open_failed",
+			Cause:  err,
+		}
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return &traceDBOutputInvariantError{
+			Reason: "trace_db_text_fidelity_tail_read_failed",
+			Cause:  err,
+		}
+	}
+	if info.Size() < 0 || uint64(info.Size()) != tail.bytes || !info.Mode().IsRegular() {
+		return &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_tail_size_mismatch"}
+	}
+	hasher := sha256.New()
+	buffer := make([]byte, 256*1024)
+	var copied uint64
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		n, readErr := file.Read(buffer)
+		if n > 0 {
+			if copied > tail.bytes || uint64(n) > tail.bytes-copied {
+				return &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_tail_size_mismatch"}
+			}
+			_, _ = hasher.Write(buffer[:n])
+			written, writeErr := output.Write(buffer[:n])
+			if writeErr != nil {
+				return writeErr
+			}
+			if written != n {
+				return io.ErrShortWrite
+			}
+			copied += uint64(n)
+		}
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				break
+			}
+			return &traceDBOutputInvariantError{
+				Reason: "trace_db_text_fidelity_tail_read_failed",
+				Cause:  readErr,
+			}
+		}
+	}
+	var observed [sha256.Size]byte
+	copy(observed[:], hasher.Sum(nil))
+	if copied != tail.bytes || observed != tail.expectedDigest {
+		return &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_tail_integrity_mismatch"}
+	}
+	return nil
+}
+
+func (tail *traceDBTextFidelityTail) cleanup() error {
+	if tail == nil {
+		return nil
+	}
+	var result error
+	if tail.file != nil {
+		result = errors.Join(result, tail.file.Close())
+		tail.file = nil
+	}
+	tail.writer = nil
+	tail.hasher = nil
+	if tail.path != "" {
+		if err := os.Remove(tail.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			result = errors.Join(result, &traceDBOutputInvariantError{
+				Reason: "trace_db_text_fidelity_tail_remove_failed",
+				Cause:  err,
+			})
+		}
+	}
+	if result == nil {
+		tail.path = ""
+	}
+	return result
+}
+
 func emitTraceDBTextFidelityRecord(
 	ctx context.Context,
 	sink *traceDBRowSink,
@@ -595,11 +828,7 @@ func emitTraceDBTextFidelityRecord(
 		if len(line) > maxTraceDBSystraceLineBytes || !traceDBSinglePhysicalLine(line, false) {
 			return chunkIndex, &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_wire_line_invalid"}
 		}
-		if err := sink.add(renderedRow{
-			tsNS: anchor,
-			seq:  sink.stats.RowsAccepted,
-			line: line,
-		}); err != nil {
+		if err := sink.addTraceDBTextFidelityTailLine(ctx, anchor, line); err != nil {
 			return chunkIndex, err
 		}
 	}

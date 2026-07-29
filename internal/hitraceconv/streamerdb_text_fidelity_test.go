@@ -1,6 +1,7 @@
 package hitraceconv
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -148,6 +149,15 @@ func TestTraceDBTextFidelityPreservesEveryTableAndSQLiteStorageClass(t *testing.
 	rowsByTable := map[int][]traceDBTextFidelityRow{}
 	receipts := map[int]traceDBTextFidelityReceipt{}
 	physicalTypedLines := strings.Count(body, "# codrax_trace_db_record/v1 ")
+	firstTyped := strings.Index(body, "# codrax_trace_db_record/v1 ")
+	if firstTyped < 0 {
+		t.Fatal("typed fidelity tail is absent")
+	}
+	for _, line := range strings.Split(body[firstTyped:], "\n") {
+		if line != "" && !strings.HasPrefix(line, "# codrax_trace_db_record/v1 ") {
+			t.Fatalf("semantic row appeared after authenticated fidelity tail began: %q", line)
+		}
+	}
 	for key, record := range records {
 		payload := traceDBTextFidelityWirePayload(t, key, record)
 		switch key.Kind {
@@ -238,5 +248,69 @@ func TestTraceDBTextFidelityPreservesEveryTableAndSQLiteStorageClass(t *testing.
 		index.TraceDBTextReceiptRecords != len(receipts) ||
 		len(index.Events) != result.Artifact.Trace.AuthoritativeKnown {
 		t.Fatalf("typed preservation query-index isolation failed: index=%+v capability=%+v", index, result.Artifact.Trace)
+	}
+	var sorter *TraceDBCoverage
+	var fidelitySummary *TraceDBCoverage
+	for index := range result.Coverage {
+		item := &result.Coverage[index]
+		if item.Family == "sorter" && item.Table == "__systrace_rows__" {
+			sorter = item
+		}
+		if item.Family == traceDBTextFidelityFamily && item.Table == traceDBTextFidelitySummaryTable {
+			fidelitySummary = item
+		}
+	}
+	if sorter == nil || sorter.Metrics["authenticated_tail_rows"] != int64(physicalTypedLines) ||
+		sorter.Metrics["semantic_rows_sorted"] != int64(result.EventsWritten-physicalTypedLines) ||
+		sorter.Metrics["authenticated_tail_bytes"] <= 0 ||
+		sorter.RowsRead != result.EventsWritten || sorter.RowsEmitted != result.EventsWritten {
+		t.Fatalf("authenticated-tail sorter accounting failed: sorter=%+v result=%+v typed=%d",
+			sorter, result, physicalTypedLines)
+	}
+	if fidelitySummary == nil || fidelitySummary.ElapsedUS <= 0 {
+		t.Fatalf("text-fidelity elapsed timing missing: %+v", fidelitySummary)
+	}
+}
+
+func TestTraceDBTextFidelityTailTamperFailsBeforeBufferedPublication(t *testing.T) {
+	sink, err := newTraceDBInactiveOrdinaryRowSink(t.TempDir(), 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sink.cleanup() })
+	if err := sink.add(renderedRow{tsNS: 1, line: "semantic-row"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := emitTraceDBTextFidelityRecord(
+		t.Context(), sink, 1, "schema", 1, 0, []byte(`{"version":1}`),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := sink.prepareForPublication(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if sink.textFidelityTail == nil || !sink.textFidelityTail.sealed {
+		t.Fatalf("tail was not sealed: %+v", sink.textFidelityTail)
+	}
+	file, err := os.OpenFile(sink.textFidelityTail.path, os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.WriteAt([]byte{'X'}, 0); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if _, err := sink.writeTo(t.Context(), &output); err == nil {
+		t.Fatal("tampered authenticated tail unexpectedly published")
+	} else if reason, ok := traceDBOutputInvariantReason(err); !ok ||
+		reason != "trace_db_text_fidelity_tail_integrity_mismatch" {
+		t.Fatalf("tamper error=%v reason=%q ok=%v", err, reason, ok)
+	}
+	if output.Len() != 0 {
+		t.Fatalf("tampered tail escaped buffered publication: bytes=%d", output.Len())
 	}
 }

@@ -3496,6 +3496,28 @@ Disallowed shortcuts remain: disabling O2, skipping raw recovery or full
 validation, deleting ordering, fabricating CPU/identity, or merely increasing
 the memory ceiling.
 
+R6-E implements the highest-leverage safe arm:
+
+- semantic viewer rows alone enter the global timestamp sorter;
+- O2 is written once to a bounded private tail in its already-canonical
+  `table -> schema -> row/chunk -> receipt` order;
+- sealing binds exact bytes, row count, anchor timestamp and SHA-256;
+- publication reopens and re-hashes every tail byte while appending it after
+  the sorted semantic rows; size, truncation or hash drift fails closed before
+  the buffered tail is flushed;
+- the unchanged final tracequery postvalidator still parses every O2 chunk and
+  verifies sequence, chunk hash, record hash, table row count and receipt hash;
+- sorter coverage splits `semantic_rows_sorted`,
+  `authenticated_tail_rows` and `authenticated_tail_bytes`, while
+  `sql_text_fidelity.elapsed_us` now measures the previously invisible SQL
+  scan/encoding/tail-spool phase.
+
+This removes the REP6-shaped O2 rows from JSON spill encoding, 17-way global
+sorting and merge without deleting one output row or weakening one receipt.
+The physical systrace body remains deterministic: all O2 rows already share
+the maximum semantic timestamp, and their canonical sequence is now explicit
+instead of depending on sorter sequence ties.
+
 ### REP6 frozen delivery order
 
 | Batch | Priority | Work | Independent push gate |
@@ -3517,10 +3539,11 @@ Progress:
 - R6-B: implemented, verified and pushed in `b9c33281f`;
 - R6-C async namespace-PID arm: implemented, verified and pushed in
   `bb218290e`;
-- R6-D: implemented and verified locally, including removal of the obsolete
-  microsecond-alignment gate for standard pipe-name spans; independent
-  commit/push is next;
-- R6-C local-fence arm and R6-E through R6-F: pending.
+- R6-D: implemented, verified and pushed in `d7dde30e6`, including removal of
+  the obsolete microsecond-alignment gate for standard pipe-name spans;
+- R6-E: implemented and under full-suite verification; independent commit/push
+  follows the green gate;
+- R6-C local-fence arm and R6-F: pending.
 
 ## Invariants
 

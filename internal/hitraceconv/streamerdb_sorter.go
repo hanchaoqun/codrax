@@ -58,6 +58,9 @@ type traceDBRowSortStats struct {
 	RowsAccepted               int
 	RowsWritten                int
 	RowsWithheld               int
+	SemanticRowsSorted         int
+	AuthenticatedTailRows      int
+	AuthenticatedTailBytes     uint64
 	PeakBufferedRows           int
 	PeakBufferedBytes          uint64
 	SpillChunks                int
@@ -269,6 +272,17 @@ func (s traceDBRowSortStats) coverage() TraceDBCoverage {
 			s.SourceSidecarLogicalBytes, s.SourceSidecarPhysicalBytes,
 		)
 	}
+	if s.SemanticRowsSorted != 0 || s.AuthenticatedTailRows != 0 ||
+		s.AuthenticatedTailBytes != 0 {
+		coverage.Metrics = map[string]int64{
+			"semantic_rows_sorted":    int64(s.SemanticRowsSorted),
+			"authenticated_tail_rows": int64(s.AuthenticatedTailRows),
+			"authenticated_tail_bytes": int64(min(
+				s.AuthenticatedTailBytes, uint64(math.MaxInt64))),
+		}
+		coverage.FieldSources["authenticated_tail"] =
+			"SQL fidelity schema/row/receipt records bypass semantic sorting only after canonical-order generation; private tail SHA-256/bytes/rows are re-authenticated during append and every final line remains subject to full tracequery postvalidation"
+	}
 	return coverage
 }
 
@@ -316,6 +330,7 @@ type traceDBRowSink struct {
 	profilerTraceClassification bool
 	profilerSourceProof         profilerSourceOrderProof
 	sourceOrderSidecar          profilerSourceOrderSidecarManifest
+	textFidelityTail            *traceDBTextFidelityTail
 }
 
 type profilerPairRowCensus struct {
@@ -807,6 +822,9 @@ func (s *traceDBRowSink) addContext(ctx context.Context, row renderedRow, eventD
 	}
 	if s == nil {
 		return &traceDBOutputInvariantError{Reason: "trace_row_sink_missing"}
+	}
+	if s.textFidelityTail != nil {
+		return &traceDBOutputInvariantError{Reason: "trace_row_sort_semantic_row_after_text_fidelity_tail"}
 	}
 	defer func() {
 		s.profilerSourceProof.abortPreparedRow()
@@ -2187,6 +2205,17 @@ func (s *traceDBRowSink) prepareForPublication(ctx context.Context) (result erro
 			result = traceDBJoinPreservingSingle(result, elapsedErr)
 		}
 	}()
+	if s.textFidelityTail != nil {
+		if s.captureLifecycle != profilerCaptureInactive {
+			err := &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_tail_capture_invalid"}
+			s.prepareFailure = err
+			return err
+		}
+		if err := s.textFidelityTail.seal(ctx); err != nil {
+			s.prepareFailure = err
+			return err
+		}
+	}
 	if err := s.flushChunkContext(ctx); err != nil {
 		s.prepareFailure = err
 		return err
@@ -2337,6 +2366,9 @@ func (s *traceDBRowSink) writeTo(
 	}()
 	s.stats.RowsWritten = 0
 	s.stats.RowsWithheld = withheld
+	s.stats.SemanticRowsSorted = 0
+	s.stats.AuthenticatedTailRows = 0
+	s.stats.AuthenticatedTailBytes = 0
 	s.stats.FirstTSNS = 0
 	s.stats.LastTSNS = 0
 	if s.allRowsFailClosed {
@@ -2356,7 +2388,7 @@ func (s *traceDBRowSink) writeTo(
 	}
 	bw := bufio.NewWriterSize(w, 256*1024)
 	if s.stats.RowsAccepted == 0 {
-		if len(s.runs) != 0 || s.sourceOrderSidecar.present() {
+		if len(s.runs) != 0 || s.sourceOrderSidecar.present() || s.textFidelityTail != nil {
 			return s.stats, &traceDBOutputInvariantError{Reason: "trace_row_sort_final_manifest_invalid"}
 		}
 		if err := writeSystraceHeader(bw); err != nil {
@@ -2453,6 +2485,28 @@ func (s *traceDBRowSink) writeTo(
 	// cancellation identity and stop before the buffered publication is flushed.
 	if err := ctx.Err(); err != nil {
 		return s.stats, err
+	}
+	if s.textFidelityTail != nil {
+		tail := s.textFidelityTail
+		if s.captureLifecycle != profilerCaptureInactive || observer != nil ||
+			!tail.sealed || tail.anchor < s.stats.LastTSNS ||
+			s.stats.RowsWritten != s.stats.RowsAccepted {
+			return s.stats, &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_tail_publication_state_invalid"}
+		}
+		if err := tail.appendAuthenticated(ctx, bw); err != nil {
+			return s.stats, err
+		}
+		semanticRows := s.stats.RowsAccepted
+		totalRows := semanticRows
+		if !checkedProfilerIntAddTo(&totalRows, tail.rows) {
+			return s.stats, &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_tail_row_count_overflow"}
+		}
+		s.stats.SemanticRowsSorted = semanticRows
+		s.stats.AuthenticatedTailRows = tail.rows
+		s.stats.AuthenticatedTailBytes = tail.bytes
+		s.stats.RowsAccepted = totalRows
+		s.stats.RowsWritten = totalRows
+		s.stats.LastTSNS = tail.anchor
 	}
 	if err := bw.Flush(); err != nil {
 		return s.stats, err
@@ -2807,6 +2861,12 @@ func (s *traceDBRowSink) cleanup() error {
 	// finish physical cleanup but can never change the expected source proof.
 	if s.profilerSourceProof.active && !s.profilerSourceProof.frozen && !s.profilerSourceProof.retired {
 		result = errors.Join(result, s.profilerSourceProof.freezeExpected())
+	}
+	if s.textFidelityTail != nil {
+		result = errors.Join(result, s.textFidelityTail.cleanup())
+		if result == nil {
+			s.textFidelityTail = nil
+		}
 	}
 	for path, artifact := range s.artifacts {
 		if artifact == nil || artifact.removed {

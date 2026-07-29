@@ -56,10 +56,10 @@ func TestExportTraceDBCPUMeasuresStrictTuplesAndScalarBoundaries(t *testing.T) {
 	body := string(bodyBytes)
 	for _, want := range []string{
 		"[000] ....     0.000001: cpu_idle: state=1 cpu_id=0",
-		"[004] ....     0.000001: cpu_frequency: state=2200000 cpu_id=4",
+		"[004] ....     0.000001100: cpu_frequency: state=2200000 cpu_id=4",
 		"cpu_frequency_limits: min=300000 max=2000000 cpu_id=4",
 		"cpu_frequency_limits: min=400000 max=2000000 cpu_id=4",
-		"[4095] ....     0.000002: cpu_frequency: state=2400000 cpu_id=4095",
+		"[4095] ....     0.000001800: cpu_frequency: state=2400000 cpu_id=4095",
 		"cpu_frequency: state=1000000 cpu_id=9",
 		"cpu_frequency: state=1200000 cpu_id=9",
 	} {
@@ -178,7 +178,7 @@ func TestExportTraceDBClockEventFiltersProvideExactCPUAndCrossCheckGeneric(t *te
 	body := string(bodyBytes)
 	for _, want := range []string{
 		"[004] ....     0.000001: clock_set_rate: ddr_freq state=400 cpu_id=4",
-		"[006] ....     0.000001: clock_set_rate: specialized_only state=600 cpu_id=6",
+		"[006] ....     0.000001200: clock_set_rate: specialized_only state=600 cpu_id=6",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("specialized clock output missing %q:\n%s", want, body)

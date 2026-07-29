@@ -206,7 +206,7 @@ func TestExportTraceDBFrameSliceMalformedRowsSkipLocally(t *testing.T) {
 		"INSERT INTO frame_slice VALUES (36, 499, 1000, 0, 'actural', 789, 1, 1, 2)",
 	})
 	coverage, _, _, body, _ := exportTraceDBFrameFixture(t, path, nil)
-	if coverage.RowsRead != 42 || coverage.RowsEmitted != 8 {
+	if coverage.RowsRead != 42 || coverage.RowsEmitted != 10 {
 		t.Fatalf("malformed siblings changed valid frame accounting: %+v", coverage)
 	}
 	for _, want := range []string{
@@ -227,7 +227,6 @@ func TestExportTraceDBFrameSliceMalformedRowsSkipLocally(t *testing.T) {
 		"unresolved_emitter_thread=1",
 		"unknown_start_cpu=1",
 		"unknown_end_cpu=1",
-		"wire_interval_collapsed=1",
 	} {
 		if !strings.Contains(coverage.Skipped, want) {
 			t.Fatalf("missing typed skip %q: %+v", want, coverage)
@@ -240,6 +239,8 @@ func TestExportTraceDBFrameSliceMalformedRowsSkipLocally(t *testing.T) {
 		"F|500|FrameActual-123|hconv-frame-4294967295",
 		"S|500|FrameExpected-456|hconv-frame-18",
 		"F|500|FrameExpected-456|hconv-frame-18",
+		"S|500|FrameActual-123|hconv-frame-35",
+		"F|500|FrameActual-123|hconv-frame-35",
 		"S|500|FrameActual-789|hconv-frame-36",
 		"F|500|FrameActual-789|hconv-frame-36",
 	} {

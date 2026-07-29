@@ -59,7 +59,7 @@ func TestPublishTraceDBRawBlockedRecoveryPreservesExactEnvelopeAndBody(t *testin
 	line := sink.rows[0].line
 	for _, want := range []string{
 		"header-thread-201", "(  200) [002] d..2",
-		"1.234568: sched_blocked_reason: pid=101 iowait=1",
+		"1.234567890: sched_blocked_reason: pid=101 iowait=1",
 		"caller=0x1234 cnode_idx=7 delay=11",
 		"source=official_rawtrace_rpd2a raw_db_content_cohort=absent",
 	} {
@@ -67,8 +67,8 @@ func TestPublishTraceDBRawBlockedRecoveryPreservesExactEnvelopeAndBody(t *testin
 			t.Fatalf("raw blocked recovery line missing %q:\n%s", want, line)
 		}
 	}
-	if sink.rows[0].tsNS != 1_234_568_000 {
-		t.Fatalf("sort timestamp did not match rounded wire timestamp: %+v", sink.rows[0])
+	if sink.rows[0].tsNS != 1_234_567_890 {
+		t.Fatalf("sort timestamp did not preserve the exact wire timestamp: %+v", sink.rows[0])
 	}
 }
 

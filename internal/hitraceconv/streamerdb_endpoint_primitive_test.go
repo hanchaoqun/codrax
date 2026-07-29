@@ -156,7 +156,7 @@ func TestTraceDBPublishFrozenRawRecordUsesRenderedWireTimestamp(t *testing.T) {
 	if err := traceDBPublishFrozenRawRecord(sink, 1_499, line); err != nil {
 		t.Fatal(err)
 	}
-	if len(sink.rows) != 1 || sink.rows[0].tsNS != 1_000 {
+	if len(sink.rows) != 1 || sink.rows[0].tsNS != 1_499 {
 		t.Fatalf("frozen raw sorter key must equal parsed wire timestamp: rows=%+v", sink.rows)
 	}
 }

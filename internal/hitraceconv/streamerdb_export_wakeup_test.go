@@ -122,7 +122,7 @@ func TestTraceDBWakeupsBerlinMigrationKeepsEmitterAndTargetCPUsDistinct(t *testi
 
 	for _, want := range []string{
 		"[002] ....     0.005000: sched_waking: comm=app-100 pid=100 prio=52 target_cpu=005",
-		"[002] ....     0.005000: sched_wakeup: comm=app-100 pid=100 prio=52 target_cpu=009",
+		"[002] ....     0.005000100: sched_wakeup: comm=app-100 pid=100 prio=52 target_cpu=009",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("Berlin migration output missing %q:\n%s", want, body)

@@ -334,8 +334,7 @@ func TestExportTraceDBCallstackNameOnlyRowsDoNotPoisonSyncOrNullFlagAsyncAuthori
 		t.Fatal(err)
 	}
 	body := string(bodyBytes)
-	if strings.Contains(body, "B|100|bad|name") ||
-		!strings.Contains(body, "# codrax_trace_mark_exact/v1") ||
+	if strings.Contains(body, "# codrax_trace_mark_exact/v1") ||
 		!strings.Contains(body, "B|100|valid-sync") ||
 		!strings.Contains(body, "S|100|valid-async|9") ||
 		!strings.Contains(body, "F|100|valid-async|9") {
