@@ -43,6 +43,8 @@ func TestTraceDBSemanticQualityCoverageAndCaveats(t *testing.T) {
 				"source_rows_suppressed_identity":              4,
 				"sync_spans_suppressed":                        5,
 				"sync_spans_suppressed_by_local_fence":         5,
+				"sync_endpoints_emitted":                       14,
+				"official_viewer_standard_sync_spans_emitted":  4,
 			},
 		},
 		{
@@ -80,7 +82,14 @@ func TestTraceDBSemanticQualityCoverageAndCaveats(t *testing.T) {
 		"callstack_source_rows_suppressed_identity":                   4,
 		"callstack_sync_spans_suppressed":                             5,
 		"callstack_sync_spans_suppressed_by_local_fence":              5,
+		"callstack_sync_endpoints_emitted":                            14,
+		"callstack_official_viewer_standard_sync_spans_emitted":       4,
 		"raw_marker_pairs_unique_cpu_unavailable_callstack_candidate": 4,
+		"official_viewer_standard_spans_emitted":                      6,
+		"codrax_typed_only_sync_spans_emitted":                        3,
+		"codrax_typed_only_async_intervals_emitted":                   7,
+		"codrax_typed_only_spans_emitted":                             10,
+		"callstack_closed_sync_spans_unpublished":                     5,
 	} {
 		if got := quality.Metrics[key]; got != want {
 			t.Fatalf("quality metric %s=%d want %d: %+v", key, got, want, quality)
@@ -96,8 +105,11 @@ func TestTraceDBSemanticQualityCoverageAndCaveats(t *testing.T) {
 		"span identity and duration were preserved",
 		"no CPU/core attribution",
 		"preserved 7 completed async interval(s) as Codrax versioned comment rows",
-		"generic systrace viewers may omit them",
+		"official SmartPerf/generic systrace viewer does not display them",
 		"no synthetic S/F endpoint was emitted",
+		"official-viewer span visibility is degraded_typed_only_and_unpublished",
+		"standard_visible=6 codrax_typed_only=10 unpublished_closed_sync=5",
+		"typed-only preservation is not counted as official-viewer conversion success",
 		"query-ready but name/span completeness is not proven",
 		"identity audit observed",
 		"public_tids_with_multiple_owner_ipids=2",

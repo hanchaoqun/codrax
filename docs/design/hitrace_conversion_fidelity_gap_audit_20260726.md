@@ -3384,6 +3384,22 @@ Frozen acceptance rule:
 - viewer-visible, Codrax-typed-visible and source-preserved counts are
   reported separately.
 
+R6-D implements that receipt at the final reconciled authority:
+
+- `official_viewer_standard_spans_emitted` counts standard callstack B/E,
+  source-raw B/E and raw-proven S/F intervals only;
+- `codrax_typed_only_sync_spans_emitted` and
+  `codrax_typed_only_async_intervals_emitted` count versioned comment lanes
+  which the official viewer does not display;
+- `callstack_closed_sync_spans_unpublished` reports net loss after exact raw
+  replacement closure;
+- `official_viewer_span_visibility` is a typed
+  `complete|degraded_*|not_evaluated_*` state.
+
+The customer caveat now says “official SmartPerf/generic systrace viewer does
+not display” instead of the weaker “may omit”, and explicitly states that
+typed-only conservation is not official-viewer conversion success.
+
 ### R6-03 (P0) — 18,033 exact raw spans are rejected only by Codrax's microsecond wire profile
 
 Confirmed by the raw-marker ledger. REP6 retains 83,975 structurally closed
@@ -3499,9 +3515,12 @@ Progress:
 
 - R6-A: implemented, verified and pushed in `d3aaf7563`;
 - R6-B: implemented, verified and pushed in `b9c33281f`;
-- R6-C async namespace-PID arm: implemented and verified locally; independent
+- R6-C async namespace-PID arm: implemented, verified and pushed in
+  `bb218290e`;
+- R6-D: implemented and verified locally, including removal of the obsolete
+  microsecond-alignment gate for standard pipe-name spans; independent
   commit/push is next;
-- R6-C local-fence arm and R6-D through R6-F: pending.
+- R6-C local-fence arm and R6-E through R6-F: pending.
 
 ## Invariants
 

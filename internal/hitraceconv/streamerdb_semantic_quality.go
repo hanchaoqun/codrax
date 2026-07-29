@@ -79,6 +79,10 @@ func traceDBSemanticQualityCoverage(items []TraceDBCoverage) TraceDBCoverage {
 	copyMetric("callstack_sync_spans_suppressed", "slice", "callstack", "sync_spans_suppressed")
 	copyMetric("callstack_sync_spans_suppressed_by_local_fence", "slice", "callstack",
 		"sync_spans_suppressed_by_local_fence")
+	copyMetric("callstack_sync_endpoints_emitted", "slice", "callstack",
+		"sync_endpoints_emitted")
+	copyMetric("callstack_official_viewer_standard_sync_spans_emitted", "slice", "callstack",
+		"official_viewer_standard_sync_spans_emitted")
 	copyMetric("raw_marker_pairs_unique_cpu_unavailable_callstack_candidate",
 		"source_rawtrace_marker_sync", "__raw_marker_sync__",
 		"raw_pairs_unique_cpu_unavailable_callstack_candidate")
@@ -97,7 +101,79 @@ func traceDBSemanticQualityCoverage(items []TraceDBCoverage) TraceDBCoverage {
 	copyMetric("table_inventory_truncated", "conversion_inventory", "__table_inventory__",
 		"inventory_truncated")
 	traceDBAddRawMarkerReplacementClosure(&quality, items)
+	traceDBAddOfficialViewerSpanVisibility(&quality, items)
 	return quality
+}
+
+func traceDBAddOfficialViewerSpanVisibility(
+	quality *TraceDBCoverage,
+	items []TraceDBCoverage,
+) {
+	if quality == nil {
+		return
+	}
+	copyMetric := func(family, table, source string) int64 {
+		for _, item := range items {
+			if item.Family == family && item.Table == table {
+				return item.Metrics[source]
+			}
+		}
+		return 0
+	}
+	callstackEndpoints := quality.Metrics["callstack_sync_endpoints_emitted"]
+	callstackStandard :=
+		quality.Metrics["callstack_official_viewer_standard_sync_spans_emitted"]
+	rawStandard := copyMetric("source_rawtrace_marker_sync", "__raw_marker_sync__",
+		"official_viewer_standard_sync_spans_emitted")
+	asyncStandard :=
+		quality.Metrics["callstack_source_rows_emitted_official_async_raw_pair"]
+	asyncTyped :=
+		quality.Metrics["callstack_source_rows_emitted_official_async_interval"]
+
+	if callstackEndpoints < 0 || callstackEndpoints%2 != 0 ||
+		callstackStandard < 0 || callstackStandard > callstackEndpoints/2 ||
+		rawStandard < 0 || asyncStandard < 0 || asyncTyped < 0 {
+		quality.Metadata["official_viewer_span_visibility"] =
+			"not_evaluated_endpoint_census_mismatch"
+		return
+	}
+	callstackTyped := callstackEndpoints/2 - callstackStandard
+	standard := callstackStandard + rawStandard + asyncStandard
+	typedOnly := callstackTyped + asyncTyped
+	unpublished := quality.Metrics["callstack_sync_spans_suppressed"]
+	if quality.Metadata["raw_marker_replacement_closure"] == "complete" {
+		unpublished =
+			quality.Metrics["callstack_sync_spans_unrecovered_after_raw_marker"]
+	}
+	if unpublished < 0 {
+		quality.Metadata["official_viewer_span_visibility"] =
+			"not_evaluated_negative_unpublished_census"
+		return
+	}
+	traceDBAddCoverageMetric(quality,
+		"official_viewer_standard_spans_emitted", standard)
+	traceDBAddCoverageMetric(quality,
+		"codrax_typed_only_sync_spans_emitted", callstackTyped)
+	traceDBAddCoverageMetric(quality,
+		"codrax_typed_only_async_intervals_emitted", asyncTyped)
+	traceDBAddCoverageMetric(quality,
+		"codrax_typed_only_spans_emitted", typedOnly)
+	traceDBAddCoverageMetric(quality,
+		"callstack_closed_sync_spans_unpublished", unpublished)
+	switch {
+	case typedOnly > 0 && unpublished > 0:
+		quality.Metadata["official_viewer_span_visibility"] =
+			"degraded_typed_only_and_unpublished"
+	case typedOnly > 0:
+		quality.Metadata["official_viewer_span_visibility"] =
+			"degraded_typed_only"
+	case unpublished > 0:
+		quality.Metadata["official_viewer_span_visibility"] =
+			"degraded_unpublished"
+	default:
+		quality.Metadata["official_viewer_span_visibility"] =
+			"complete_for_governed_callstack"
+	}
 }
 
 func traceDBAddRawMarkerReplacementClosure(quality *TraceDBCoverage, items []TraceDBCoverage) {
@@ -237,13 +313,21 @@ func traceDBSemanticQualityCaveats(coverage []TraceDBCoverage) []string {
 	}
 	if count := quality.Metrics[cpuUnavailableKey]; count > 0 {
 		caveats = append(caveats, fmt.Sprintf(
-			"trace_streamer callstack CPU placement is unavailable for %d source row(s); span identity and duration were preserved in a typed trace span/interval lane, but those spans have no CPU/core attribution",
+			"trace_streamer callstack CPU placement is unavailable for %d source row(s); span identity and duration were preserved in a Codrax typed trace span/interval lane, but the official SmartPerf/generic systrace viewer does not display that lane and those spans have no CPU/core attribution",
 			count))
 	}
 	if count := quality.Metrics["callstack_source_rows_emitted_official_async_interval"]; count > 0 {
 		caveats = append(caveats, fmt.Sprintf(
-			"trace_streamer preserved %d completed async interval(s) as Codrax versioned comment rows because a physical finish emitter/CPU was not proven; Codrax trace_query reads these intervals, but generic systrace viewers may omit them, and no synthetic S/F endpoint was emitted",
+			"trace_streamer preserved %d completed async interval(s) as Codrax versioned comment rows because a physical finish emitter/CPU was not proven; Codrax trace_query reads these intervals, but the official SmartPerf/generic systrace viewer does not display them, and no synthetic S/F endpoint was emitted",
 			count))
+	}
+	if state := quality.Metadata["official_viewer_span_visibility"]; strings.HasPrefix(state, "degraded_") {
+		caveats = append(caveats, fmt.Sprintf(
+			"trace_streamer official-viewer span visibility is %s: standard_visible=%d codrax_typed_only=%d unpublished_closed_sync=%d; typed-only preservation is not counted as official-viewer conversion success",
+			state,
+			quality.Metrics["official_viewer_standard_spans_emitted"],
+			quality.Metrics["codrax_typed_only_spans_emitted"],
+			quality.Metrics["callstack_closed_sync_spans_unpublished"]))
 	}
 	if count := quality.Metrics["unclassified_nonempty_tables"]; count > 0 {
 		detail := ""

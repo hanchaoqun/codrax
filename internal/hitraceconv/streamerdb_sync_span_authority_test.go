@@ -412,7 +412,7 @@ func TestTraceDBSyncSpanAuthorityStandardPipeCompatibilityIsLosslessSubset(t *te
 		},
 		{
 			name: "nanosecond timestamp retains exact wire", start: 1001, end: 2001,
-			spanName: "Choreographer|doFrame", wantExactWire: true,
+			spanName: "Choreographer|doFrame", wantStandard: true,
 		},
 		{
 			name: "trailing harmony metadata token retains exact name", start: 1000, end: 2000,
