@@ -353,6 +353,9 @@ func TestTraceDBCallstackRejectedIntervalFencesOnlyOverlap(t *testing.T) {
 	coverage, body := exportTraceDBCallstackAuthorityFixture(t, statements, traceDBLifecycleIndex{}, true, nil)
 	if coverage.RowsEmitted != 6 ||
 		coverage.Metrics["sync_spans_suppressed_by_local_fence"] != 1 ||
+		coverage.Metrics["localized_fence_witnesses_emitted"] != 1 ||
+		coverage.Metadata["localized_fence_witnesses"] !=
+			"tid=101/itid=1/kind=interval/start_ns=1000/end_ns=1100/reason=rejected_callstack_candidate" ||
 		!strings.Contains(coverage.Skipped, "invalid_depth=1") ||
 		!strings.Contains(coverage.Skipped, "localized_fence_declarations=1 suppressed_spans=1") ||
 		!strings.Contains(body, "prefix-kept") ||
@@ -379,6 +382,9 @@ func TestTraceDBCallstackRejectedTimestampFencesOnlySuffix(t *testing.T) {
 	coverage, body := exportTraceDBCallstackAuthorityFixture(t, statements, traceDBLifecycleIndex{}, true, nil)
 	if coverage.RowsEmitted != 4 ||
 		coverage.Metrics["sync_spans_suppressed_by_local_fence"] != 1 ||
+		coverage.Metrics["localized_fence_witnesses_emitted"] != 1 ||
+		coverage.Metadata["localized_fence_witnesses"] !=
+			"tid=101/itid=1/kind=suffix/start_ns=1000/end_ns=0/reason=rejected_callstack_candidate" ||
 		!strings.Contains(coverage.Skipped, "invalid_duration=1") ||
 		!strings.Contains(coverage.Skipped, "localized_fence_declarations=1 suppressed_spans=1") ||
 		!strings.Contains(body, "prefix-kept") ||

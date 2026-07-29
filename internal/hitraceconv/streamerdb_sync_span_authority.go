@@ -199,6 +199,7 @@ type traceDBSyncSpanProducerStats struct {
 
 type traceDBSyncSpanReport struct {
 	ByProducer             map[traceDBSyncSpanProducer]traceDBSyncSpanProducerStats
+	FenceWitnesses         [traceDBSyncSpanProducerSourceRawMarker + 1][]traceDBSyncSpanLaneFence
 	SubmittedSpans         int
 	EmittedEndpoints       int
 	SuppressedSpans        int
@@ -233,6 +234,7 @@ type traceDBSyncSpanAuthority struct {
 	submitted           [traceDBSyncSpanProducerSourceRawMarker + 1]int
 	poisoned            [traceDBSyncSpanProducerSourceRawMarker + 1]int
 	fenced              [traceDBSyncSpanProducerSourceRawMarker + 1]int
+	fenceWitnesses      [traceDBSyncSpanProducerSourceRawMarker + 1][]traceDBSyncSpanLaneFence
 	standardPipeSpans   [traceDBSyncSpanProducerSourceRawMarker + 1]int
 	standardViewerSpans [traceDBSyncSpanProducerSourceRawMarker + 1]int
 	superseded          [traceDBSyncSpanProducerSourceRawMarker + 1]int
@@ -242,6 +244,8 @@ type traceDBSyncSpanAuthority struct {
 	fencedTotal         int
 	globalPoisonedTotal int
 }
+
+const traceDBSyncSpanFenceWitnessCap = 8
 
 // traceDBSyncSpanSemanticKey is an exact logical span identity used only to
 // recognize a source-raw marker pair already represented by an earlier DB
@@ -453,6 +457,10 @@ func (authority *traceDBSyncSpanAuthority) fenceExactLane(ctx context.Context, f
 	}
 	authority.fenced[fence.Producer]++
 	authority.fencedTotal++
+	if len(authority.fenceWitnesses[fence.Producer]) < traceDBSyncSpanFenceWitnessCap {
+		authority.fenceWitnesses[fence.Producer] = append(
+			authority.fenceWitnesses[fence.Producer], fence)
+	}
 	if err := authority.stage.addFence(ctx, fence); err != nil {
 		if _, ok := traceDBSyncSpanPureBudgetReason(err); ok {
 			return nil
@@ -947,6 +955,8 @@ func (authority *traceDBSyncSpanAuthority) baseReport() traceDBSyncSpanReport {
 			FenceDeclarations:        fenced,
 			GlobalPoisonDeclarations: globalDeclarations,
 		}
+		report.FenceWitnesses[producer] = append(
+			report.FenceWitnesses[producer][:0], authority.fenceWitnesses[producer]...)
 		report.SuppressedSpans += superseded
 	}
 	report.SubmittedSpans = authority.submittedTotal
@@ -1901,6 +1911,32 @@ func reconcileTraceDBSyncSpanCoverage(items []TraceDBCoverage, report traceDBSyn
 			traceDBAppendCoverageSkipped(item, fmt.Sprintf(
 				"sync_span_authority: localized_fence_declarations=%d suppressed_spans=%d",
 				stats.FenceDeclarations, stats.FenceSuppressedSpans))
+			witnesses := report.FenceWitnesses[producer]
+			if len(witnesses) > 0 {
+				if item.Metadata == nil {
+					item.Metadata = map[string]string{}
+				}
+				formatted := make([]string, 0, len(witnesses))
+				for _, witness := range witnesses {
+					kind := "suffix"
+					if witness.Kind == traceDBSyncSpanFenceInterval {
+						kind = "interval"
+					}
+					formatted = append(formatted, fmt.Sprintf(
+						"tid=%d/itid=%d/kind=%s/start_ns=%d/end_ns=%d/reason=rejected_callstack_candidate",
+						witness.HeaderTID, witness.CanonicalITID, kind,
+						witness.Start, witness.End))
+				}
+				item.Metadata["localized_fence_witnesses"] = strings.Join(formatted, ",")
+				traceDBAddCoverageMetric(item, "localized_fence_witnesses_emitted",
+					int64(len(witnesses)))
+				if omitted := stats.FenceDeclarations - len(witnesses); omitted > 0 {
+					traceDBAddCoverageMetric(item, "localized_fence_witnesses_omitted",
+						int64(omitted))
+				}
+				item.FieldSources["localized_fence_witnesses"] =
+					"bounded exact rejected callstack fence declarations only; diagnostic geometry, never alternate span/CPU/identity authority"
+			}
 		}
 		if stats.GlobalPoisonDeclarations > 0 {
 			traceDBAppendCoverageSkipped(item, fmt.Sprintf(

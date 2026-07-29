@@ -224,6 +224,7 @@ func TestTraceDBSyncSpanStageLocalizedFenceMemorySQLiteParity(t *testing.T) {
 			if result.report.LocalizedFenceLanes != 1 || result.report.PoisonedLanes != 0 ||
 				result.report.SuppressedSpans != 2 || result.report.EmittedEndpoints != 6 ||
 				callstack.FenceDeclarations != 2 || callstack.FenceSuppressedSpans != 2 ||
+				len(result.report.FenceWitnesses[traceDBSyncSpanProducerCallstack]) != 2 ||
 				callstack.SuppressedSpans != 2 || syscall.SuppressedSpans != 0 ||
 				!strings.Contains(result.body, "prefix-kept") ||
 				!strings.Contains(result.body, "between-kept") ||
@@ -248,6 +249,40 @@ func TestTraceDBSyncSpanStageLocalizedFenceMemorySQLiteParity(t *testing.T) {
 					result.report, reference.report, result.body, reference.body)
 			}
 		})
+	}
+}
+
+func TestTraceDBSyncSpanAuthorityLocalizedFenceWitnessesAreBounded(t *testing.T) {
+	fences := make([]traceDBSyncSpanLaneFence, 0, traceDBSyncSpanFenceWitnessCap+2)
+	for index := 0; index < traceDBSyncSpanFenceWitnessCap+2; index++ {
+		start := int64(index*100 + 1)
+		fences = append(fences, traceDBSyncSpanLaneFence{
+			Producer: traceDBSyncSpanProducerCallstack, HeaderTID: 10,
+			CanonicalITID: 20, CanonicalITIDKnown: true,
+			Start: start, End: start + 50, Kind: traceDBSyncSpanFenceInterval,
+			Reason: traceDBSyncSpanLanePoisonRejectedCallstackCandidate,
+		})
+	}
+	result := renderTraceDBSyncSpanStageFenceCase(
+		t, traceDBSyncSpanStageOptions{}, nil, nil, fences, false)
+	callstack := result.report.ByProducer[traceDBSyncSpanProducerCallstack]
+	if callstack.FenceDeclarations != traceDBSyncSpanFenceWitnessCap+2 ||
+		len(result.report.FenceWitnesses[traceDBSyncSpanProducerCallstack]) !=
+			traceDBSyncSpanFenceWitnessCap {
+		t.Fatalf("bounded fence report drifted: %+v", result.report)
+	}
+	items := []TraceDBCoverage{{
+		Family: "slice", Table: "callstack", Role: "query_ready_export",
+		FieldSources: map[string]string{},
+	}}
+	if err := reconcileTraceDBSyncSpanCoverage(items, result.report); err != nil {
+		t.Fatal(err)
+	}
+	if items[0].Metrics["localized_fence_witnesses_emitted"] != traceDBSyncSpanFenceWitnessCap ||
+		items[0].Metrics["localized_fence_witnesses_omitted"] != 2 ||
+		strings.Count(items[0].Metadata["localized_fence_witnesses"], "reason=") !=
+			traceDBSyncSpanFenceWitnessCap {
+		t.Fatalf("bounded fence coverage drifted: %+v", items[0])
 	}
 }
 
