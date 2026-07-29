@@ -4148,6 +4148,9 @@ Progress:
   `raw_marker_local_validation_witness_v1` identify the new evidence. Full
   `internal/hitraceconv` and `cmd` package tests passed.
 
+Final verification after R9-B and R9-C: `go test ./... -count=1` passed on
+`main@ad373561a`. The worktree and `origin/main` were synchronized and clean.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.
