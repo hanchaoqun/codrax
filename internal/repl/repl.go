@@ -7914,6 +7914,12 @@ func (r *REPL) handleSlash(line string) bool {
 			}
 			r.success(memoryClearedMsg(r.language))
 		}
+	case "/export":
+		r.handleExportCmd()
+		return false
+	case "/import":
+		r.handleImportCmd(line)
+		return false
 	case "/history":
 		recent := r.store.Recent()
 		idx := r.store.Index()

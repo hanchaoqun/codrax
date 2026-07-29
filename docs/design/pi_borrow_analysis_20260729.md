@@ -187,7 +187,7 @@ pi 的 prompt 面貌：基础系统 prompt 仅 ~18 行骨架（一句角色定�
 | PIB-W | 写模式借鉴批（用户 2026-07-29 点名写模式 gap，优先级提升）。**2026-07-29 现状探索后收窄**（全文见 §7 补记二）：六候选中三项撤销（verify 结构化回灌=VerifyFailureHandoff 已完备；无 UI fail-closed=已正确返回错误不挂起；动作检查点=apply commit 快照+best-known-good 热回退+slice typed checkpoint 三层已在役）。保留四件：**W-1 三段式审批**（主件：`/reject` 现在把 batch 打成 Blocked 死路，拒绝意见零回流——新增修订意见 typed 载体→batch 回 ReadyToPlan→replan 消费，对标 pi plan-mode Refine 臂）；**W-2 审批决策 append-only 账本**（现 `plan.Approval` 单槽覆盖，跨 replan 只留最后一次；`/workflow show` 不展示 `Reasons[]`）；W-3 apply 中途失败（partially_applied）的检查点保全（`/approve --retry` 现开全新 worktree 丢前次状态）；W-4 raw diff 拒绝散文 typed 化（structured-edit 侧已有 reason code 双臂，raw 侧是纯散文）。 | write controller、审批流、REPL 写模式卡 | **W-1+W-2 已落地**（2026-07-29，见 §7 补记二）；W-3/W-4 候补 |
 | PIB-2 | 两级消息排队：pipeline 运行期不锁输入；steering（阶段边界注入）/ follow-up（run 结束注入）/ esc 还原队列 | REPL 输入循环、orchestrator 阶段边界、写模式 controller | **v1 已落地**（非 TTY follow-up 队列，2026-07-29 补记六）；TTY 全形推迟（单 stdin owner 重构前置） |
 | PIB-3 | 工具面截断纪律：双上限统一截断 + 永不半行 + 截断提示即下一步指令 + 输出截断时工具调用拒执行硬门 | read/grep 等工具实现、coverage 记账、agent 工具循环 | **已落地**（2026-07-29，见 §7 补记三） |
-| PIB-4 | 会话导出/导入复现闭环：诊断会话/工件一键导出 bundle + 一键导入还原 | blob session、REPL /history、报告投影 | 待启动（本轮未动，需独立探索批） |
+| PIB-4 | 会话导出/导入复现闭环：诊断会话/工件一键导出 bundle + 一键导入还原 | blob session、REPL /history、报告投影 | **v1 已落地**（2026-07-29 补记八） |
 | PIB-5 | REPL 水位与输入增强：footer token/cost/上下文水位 + 粘贴自动折叠 + @ 文件引用 seed RequiredFiles | REPL footer/输入组件、usage 计量、analyzer RequiredFiles | **5a/5c 已落地，5b 收窄不做**（2026-07-29 补记五） |
 | PIB-6 | 渲染层几何 pin：teatest/VT 级差分渲染断言，BARGRID-1 教训泛化为渲染红线 | REPL 渲染面、测试基建 | **已落地**（2026-07-29 补记七） |
 | PIB-7 | `.codrax/prompts/` 模板命令 + providers.yaml `!cmd`/`$VAR` 值解析 | REPL 斜杠命令注册、internal/config | **已落地**（2026-07-29，见 §7 补记四） |
@@ -212,6 +212,14 @@ PIB-1 前置探索结论（2026-07-29，全文见批次补记）：codrax 重试
 **触点**：`internal/llm/llm.go`（OnRetry 契约）、`openai.go`（发布预算）、`internal/agent/agent.go`（事件扩维）、`internal/repl/direct_llm_trace_adapter.go`（链路扩维）、`internal/render/event.go` / `dock_state.go` / `renderer_dock.go`（词形+倒计时+两车道标签）。
 
 **验证**：`make` 构建绿；`go test ./...` 83 包 exit=0 零 FAIL；新增 `internal/render/retry_countdown_test.go` 五组 pin（变换语义/三词形双语/事件接线/非 TTY 分母+禁 `N/0` 负臂/compose 端到端含归零翻转）；`stream_wait_matrix_test.go` 加分母断言；既有子串 pin（`重新请求模型`/no-jargon/静态词形/双镜像唯一性）全存活未改。
+
+### 补记八：PIB-4 会话导出/导入复现闭环（2026-07-29，v1 落地）
+
+**探索结论**：一轮诊断的复现要件三处已在盘（memory turn 的 request/response 对、runtime_artifacts 的附件原文+sha256、output/ 的答案投影），但**无任何 /export 或 /import 命令**；RequiredFiles/推理图不落盘（精确证据计划回放今天做不到，账本记录为已知边界）。
+
+**v1 落地**（`internal/repl/export_import.go`）：`/export` 把最近一轮问答 + 当前 sticky 附件打成**透明平面目录 bundle**（`<anchor>/exports/<ts>-bundle/`：manifest.json 带 schema 版本/repo/branch/双附件 sha256、request.txt、answer.md、log.txt、trace.txt——不用 tar 是有意的：客户回访场景要求肉眼可审计）；`/import <dir>` 还原：manifest schema 门（版本不符 fail-loud）、repo 不匹配警告不拦（问题与附件仍可复现）、**附件 sha256 对 manifest 校验后**才进 sticky 车道（篡改 fail-loud 不挂载）、bundled 轮次 append 进 memory（BuildContext//history 可见）、原始问题可见回显（附件已挂载可直接追问/重跑）。动词双注册（`/export`+`\export` 等）过两个注册表守卫。pin 两组（全件 roundtrip 含附件源还原+memory 落轮、篡改附件 fail-loud 负臂）。
+
+**收窄记录**：blob 证据目录与 plan/workflow JSON 不进 v1 bundle（大而非必需；写模式回访另有 applied ref 主仓锚）；`readTurnFile` 未导出所以 v1 用 in-memory Recent 尾（覆盖"跑完即导出"主场景），按 turn-id 导出历史轮次留待需要时加导出器。
 
 ### 补记七：PIB-6 渲染层几何 pin（2026-07-29 落地）
 
