@@ -256,6 +256,8 @@ func TestSubmitTraceDBRawMarkerSyncRecoveryRetainsWitnessesPerReason(t *testing.
 func TestSubmitTraceDBRawMarkerSyncRecoveryNormalizesOfficialPrintParserTrailingSpace(t *testing.T) {
 	ctx := context.Background()
 	rows := traceDBRawMarkerTestPair(201, 777, 1, "frame ")
+	rows[0].Buffer = "B|777|frame |D0001"
+	rows[1].Buffer = "E|777|D0001"
 	rows[0].OpenHarmonyPrintParserProfile = true
 	rows[1].OpenHarmonyPrintParserProfile = true
 	syncSpans := newTraceDBTestSyncSpanAuthority(t)
@@ -283,9 +285,55 @@ func TestSubmitTraceDBRawMarkerSyncRecoveryNormalizesOfficialPrintParserTrailing
 		t.Fatal(err)
 	}
 	text := body.String()
-	if !strings.Contains(text, "B|777|frame\n") ||
-		strings.Contains(text, "B|777|frame \n") {
+	if !strings.Contains(text, "B|777|frame|D0001\n") ||
+		!strings.Contains(text, "E|777|D0001\n") ||
+		strings.Contains(text, "B|777|frame |D0001\n") {
 		t.Fatalf("official trailing-space normalization mismatch: %q", text)
+	}
+}
+
+func TestSubmitTraceDBRawMarkerSyncRecoveryComposesOfficialTrailingSpaceAndZeroPID(t *testing.T) {
+	ctx := context.Background()
+	rows := traceDBRawMarkerTestPair(201, 0, 1,
+		"H:RSFilterDrawable::CreateDrawFunc node[23669564790680] ")
+	rows[0].Buffer = "B|0|H:RSFilterDrawable::CreateDrawFunc node[23669564790680] |D0001"
+	rows[1].Buffer = "E|0|D0001"
+	for index := range rows {
+		rows[index].OpenHarmonyPrintParserProfile = true
+		rows[index].ZeroPIDUsesHeaderIdentity = true
+	}
+	syncSpans := newTraceDBTestSyncSpanAuthority(t)
+	coverage, err := submitTraceDBRawMarkerSyncRecovery(
+		ctx, traceDBRawMarkerTestInventory(rows),
+		traceDBRawBlockedKeyTestAuthority(), syncSpans)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if coverage.Metrics["raw_pairs_official_trailing_space_name_normalized"] != 1 ||
+		coverage.Metrics["raw_pairs_official_zero_pid_header_identity_normalized"] != 1 ||
+		coverage.Metrics["raw_pairs_submitted"] != 1 ||
+		coverage.Metrics["raw_pairs_withheld_local_validation"] != 0 {
+		t.Fatalf("combined official normalization was not submitted: %+v", coverage)
+	}
+	sink, err := newTraceDBRowSink(t.TempDir(), 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.cleanup()
+	if _, _, err := syncSpans.finalize(ctx, sink); err != nil {
+		t.Fatal(err)
+	}
+	var body bytes.Buffer
+	if _, err := sink.prepareAndWriteForTest(ctx, &body); err != nil {
+		t.Fatal(err)
+	}
+	text := body.String()
+	if !strings.Contains(text,
+		"B|200|H:RSFilterDrawable::CreateDrawFunc node[23669564790680]|D0001\n") ||
+		!strings.Contains(text, "E|200|D0001\n") ||
+		strings.Contains(text, "node[23669564790680] |D0001") ||
+		strings.Contains(text, "B|0|") || strings.Contains(text, "E|0|") {
+		t.Fatalf("combined official normalization mismatch: %q", text)
 	}
 }
 

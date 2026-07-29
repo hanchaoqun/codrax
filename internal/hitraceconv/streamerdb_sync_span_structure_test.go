@@ -793,8 +793,9 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 	}
 
 	// Synthetic SQL B/E wire tokens live only in the authority. The sole
-	// exception is the typed direct-ftrace source-event renderer, which renders
-	// captured trace-marker payloads and is not a SQL span producer.
+	// exceptions are typed direct-ftrace source render/normalization functions,
+	// which preserve already admitted captured trace-marker payloads and are
+	// not SQL span producers.
 	allowedMarkerFunctions := map[string]map[string]bool{
 		"streamerdb_sync_span_authority.go": {
 			"validateTraceDBSyncSpanCandidate": true,
@@ -802,6 +803,9 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 		},
 		"marker_payload.go": {
 			"decodeDirectMarkerPayload": true,
+		},
+		"source_raw_marker_sync_recovery.go": {
+			"traceDBRawMarkerNormalizeBeginName": true,
 		},
 	}
 	authorityMarkerFunctions := map[string]bool{}

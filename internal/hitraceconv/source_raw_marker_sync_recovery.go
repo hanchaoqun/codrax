@@ -886,18 +886,23 @@ func traceDBRawMarkerSyncCandidate(
 	markerPID, markerPIDKnown := begin.PayloadPID, true
 	startMarkerBody, endMarkerBody := begin.Buffer, end.Buffer
 	if trailingSpaceNormalized {
-		startMarkerBody = strings.TrimRight(startMarkerBody, " ")
+		var ok bool
+		startMarkerBody, ok = traceDBRawMarkerNormalizeBeginName(
+			startMarkerBody, beginVerdict, candidateName)
+		if !ok {
+			return traceDBSyncSpanCandidate{}, "begin_name_normalization_failed"
+		}
 	}
 	if zeroPIDHeaderIdentity {
 		markerPID, markerPIDKnown = 0, false
 		var ok bool
 		startMarkerBody, ok = traceDBRawMarkerNormalizeZeroPIDBody(
-			begin.Buffer, "B", beginProcess.PID)
+			startMarkerBody, "B", beginProcess.PID)
 		if !ok {
 			return traceDBSyncSpanCandidate{}, "zero_begin_payload_normalization_failed"
 		}
 		endMarkerBody, ok = traceDBRawMarkerNormalizeZeroPIDBody(
-			end.Buffer, "E", beginProcess.PID)
+			endMarkerBody, "E", beginProcess.PID)
 		if !ok {
 			return traceDBSyncSpanCandidate{}, "zero_end_payload_normalization_failed"
 		}
@@ -935,6 +940,48 @@ func traceDBRawMarkerSyncCandidate(
 		return traceDBSyncSpanCandidate{}, "candidate_validation_failed"
 	}
 	return candidate, ""
+}
+
+// traceDBRawMarkerNormalizeBeginName rewrites only the exact name field that
+// the shared complete-payload parser already admitted. In particular, an
+// official Harmony metadata suffix such as "|D0001" is producer data after
+// the name and must survive byte-for-byte; trimming the far right of the body
+// cannot normalize a name before that suffix. Re-decoding the reconstructed
+// payload proves that no action, PID, track, value, or suffix boundary gained
+// authority from this display-name repair.
+func traceDBRawMarkerNormalizeBeginName(
+	body string,
+	admitted tracequery.TraceMarkPayloadVerdict,
+	normalizedName string,
+) (string, bool) {
+	if !admitted.Admitted || admitted.Action != "B" ||
+		admitted.SpanPID < 0 || admitted.SpanPID > math.MaxInt32 ||
+		admitted.Name == normalizedName ||
+		strings.TrimRight(admitted.Name, " ") != normalizedName {
+		return "", false
+	}
+	prefix := "B|" + strconv.Itoa(admitted.SpanPID) + "|"
+	if !strings.HasPrefix(body, prefix) {
+		return "", false
+	}
+	tail := strings.TrimPrefix(body, prefix)
+	if !strings.HasPrefix(tail, admitted.Name) {
+		return "", false
+	}
+	suffix := strings.TrimPrefix(tail, admitted.Name)
+	if suffix != "" && !strings.HasPrefix(suffix, "|") {
+		return "", false
+	}
+	normalized := prefix + normalizedName + suffix
+	verdict := tracequery.DecodeTraceMarkEndpointPayload(normalized)
+	if !verdict.Admitted || verdict.Action != admitted.Action ||
+		verdict.SpanPID != admitted.SpanPID ||
+		verdict.Name != normalizedName ||
+		verdict.Track != admitted.Track ||
+		verdict.Value != admitted.Value {
+		return "", false
+	}
+	return normalized, true
 }
 
 func traceDBRawMarkerNormalizeZeroPIDBody(body, action string, markerPID int64) (string, bool) {
