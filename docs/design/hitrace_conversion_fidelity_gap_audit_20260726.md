@@ -3607,6 +3607,136 @@ successful official-viewer span conversion. The residual counts and their
 typed fence/join reasons must drive the next code batch; they may not be
 hidden behind O2 preservation or converted into guessed standard events.
 
+## REP7 customer replay audit (2026-07-28)
+
+Inputs:
+
+- `/Users/han/opt/customlogs/rep7.txt`;
+- `/Users/han/opt/customlogs/codrax-trace-diag-rep7.txt`;
+- customer executable SHA-256
+  `04c003ea0d05a9d642cbac9552cd0ea4774583aae38810caeb86659c59817946`.
+
+The executable reports `build_revision=unknown`, but its capability roster
+contains all R6-A through R6-F production capabilities, including
+`clock_regression_first_witness_v1`,
+`callstack_local_fence_witness_v1`,
+`sql_mixed_precision_wire_sort_v1` and `sql_text_fidelity_v1`. The replay is
+therefore admissible as a post-R6 result; the missing revision remains a
+release-identification hygiene gap, not a reason to discard the exact
+coverage counters.
+
+### REP7-01 — fixes proven effective
+
+| Gate | REP6 | REP7 | Verdict |
+| --- | ---: | ---: | --- |
+| first output timestamp | 20857.394782085 s | 69326.012181718 s | pre-capture pseudo-time fixed |
+| DB normalization | 73.225 s | 44.102 s | 39.8% faster |
+| semantic sorter | 39.096 s / 17 spills / 1.776 GB temp | 7.962 s / 3 spills / 0.241 GB temp | authenticated O2 tail effective |
+| O2 fidelity | 829327 rows, mixed into sorter | 829327 authenticated tail rows / 691010668 bytes | all rows retained outside semantic sort |
+| postvalidation | 7.074 s | 8.037 s | full validation retained |
+| raw standard B/E recovery | 23479 spans | 29889 spans | +6410 exact source spans |
+| CPU-unavailable residual after raw replacement | 9521 rows | 3209 rows | -6312 |
+| closed sync spans unpublished after replacement | 176 | 78 | -98 |
+
+The artifact is query-ready and exact SQL preservation is complete, but the
+viewer gate remains failed:
+
+- `official_viewer_standard_spans_emitted=42809`;
+- `codrax_typed_only_sync_spans_emitted=53171`;
+- `codrax_typed_only_async_intervals_emitted=62`;
+- `callstack_closed_sync_spans_unpublished=78`;
+- `official_viewer_span_visibility=degraded_typed_only_and_unpublished`.
+
+Thus REP7 is not a complete official/generic viewer conversion. The
+1,237,789 total output rows and 829,327 O2 rows are conservation evidence,
+not viewer-visible span evidence.
+
+### REP7-02 (P1) — typed-only sync census is not actionable
+
+The authority reports 53,171 emitted sync spans on the Codrax-only lane, but
+does not split them by the closed publication decisions:
+
+- unknown start CPU;
+- unknown end CPU;
+- tainted scheduler witness;
+- lifecycle-rejected scheduler witness;
+- ambiguous same-public-TID scheduler alias;
+- CPU-known name not losslessly representable in standard trace-mark syntax.
+
+The gross pre-pairing `source_rows_preserved_cpu_unavailable=31914` cannot be
+used as this split because later raw replacement, laminar suppression and
+publication change the population. Add the reason census at the final shared
+sync authority, after all suppression and supersession decisions. Its sum
+must equal `codrax_typed_only_sync_spans_emitted`; no reason may grant CPU or
+viewer authority.
+
+### REP7-03 (P1) — local-fence witness lacks the rejected source fact
+
+REP7 proves:
+
+- 101 pre-pairing rows rejected as `invalid_duration`;
+- 90 localized fence declarations;
+- 1,262 otherwise admitted sync spans suppressed by those fences;
+- 78 remain unpublished after exact raw replacement.
+
+The eight bounded witnesses are all suffix fences, for example
+`tid=38326/itid=38/start_ns=69326013638593`, but every witness has only the
+generic reason `rejected_callstack_candidate`. It omits the rejected row ID
+and the exact SQLite duration storage/value class. That is insufficient to
+distinguish a producer sentinel, a REAL/TEXT schema drift, corrupt storage or
+an over-broad admission rule. Preserve a bounded rejected-row witness on the
+existing callstack coverage line with:
+
+`row_id / tid / itid / ts / reason / exact bounded dur scalar`.
+
+This evidence is diagnostic only. The suffix fence must not be narrowed until
+the precise rejected value proves a safe producer rule.
+
+### REP7-04 (P1) — the R6 async namespace repair did not close the customer cohort
+
+REP7 still has exactly 253 matchable raw async pairs, of which 191 are
+claimed and 62 remain unclaimed. The residual classification is unchanged:
+
+- 58 `raw_async_official_intervals_identity_key_mismatch`;
+- 4 `raw_async_official_intervals_start_mismatch`.
+
+The implemented cross-payload-PID join is present, but did not cover these
+rows. The current `identity_key_mismatch` bucket conflates payload PID, name
+and cookie and therefore cannot prove another join rule. Split the mismatch
+against exact raw candidates by dimension (`cookie`, `name`, `start`, `end`,
+physical begin TID/TGID/CPU, ambiguity) and emit at most eight bounded
+high-level/raw witnesses. Only an exact one-to-one official-parser rule may
+publish S/F; timestamp fuzzing and PID rewriting remain prohibited.
+
+### REP7-05 (P2) — remaining performance work is no longer the first blocker
+
+The safe fast path removed 29.1 seconds from normalization. The current
+44.1-second normalization consists materially of:
+
+- exact SQL scan/encoding/tail spool: 16.058 seconds;
+- semantic sort/merge: 7.962 seconds;
+- full output postvalidation: 8.037 seconds;
+- remaining semantic export and publication overhead: about 12 seconds.
+
+Further work may cache immutable schema metadata and use a versioned binary
+private semantic spill record, but it must not delay the viewer-visibility
+work or weaken O2/full-output verification.
+
+### REP7 frozen delivery order
+
+| Batch | Priority | Work | Push gate |
+| --- | --- | --- | --- |
+| R7-A | P0 audit | record replay verdict and freeze exact residuals | document contains all REP7 hard-gate counters |
+| R7-B | P1 diagnosis | final-publication typed-only sync reason census | reason sum equals final typed-only sync count |
+| R7-C | P1 diagnosis | rejected duration/fence witness with bounded exact scalar | no extra diagnostic line; no fence/admission change |
+| R7-D | P1 diagnosis | dimensioned async mismatch census and bounded witnesses | no fuzzy join, no PID rewrite, no synthetic endpoint |
+| R7-E | P0 repair | apply only official-parser-backed fence/async/viewer fixes proven by R7-C/D | every added B/E or S/F has source CPU/emitter/time authority |
+| R7-F | P2 performance | remaining metadata/spill optimization after visibility closure | exact row/cell/hash and postvalidation invariants unchanged |
+
+Customer replay is not needed before R7-B through R7-D: REP7 already proves
+the diagnostic gaps and their exact affected cohorts. A replay is needed
+after those batches to obtain the newly dimensioned evidence for R7-E.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.
