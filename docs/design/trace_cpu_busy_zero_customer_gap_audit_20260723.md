@@ -1403,3 +1403,10 @@ E1 drill universe 扩域指控、E2 epoch_complete JSON 恒 false 指控、R2' s
 - **义务教学(双 LLM 面)**:Description(含闭集矩阵契约 per-kind shader 臂,随 Description+Parameters 双面)与 skill 语义 span 教学体:cache_miss=可行动确定性优化点(shader 预编译/缓存预热);cache_hit=缓存命中耗时,永不叙编译成本、永不由 hit 建议预编译;双族同链上分别提及各自总量,禁止合并。
 - **聚焦否证(wf_7f51ef7c-02d,3 镜头)15 项全处置**:投影重合并/子证过宽/截断先于打标/接线零 pin(e2e=子 span 压出显示界仍证父,删接线即红)/闭集矩阵 hit 强制优化点矛盾/观察面未限定/skill 教学漂移/含界翻转/双扫开销/hit 标签穿 compilation/golden EVOLUTION RECORD/registry 折叠键注/误置 pin/智能引号 churn/附带清理。
 - 9 红先行 pin;Description golden 按仪式重钉带 EVOLUTION RECORD。
+
+
+## §17 B+ 主根因术语定谳(2026-07-28,main=9e723fbe7 内含)
+
+**用户裁定链**:「主根因」表述被指过度主张(实际=系统已识别的单项最大可消除量)→ 语义核实确认(加冕条件=已证链上可消除量,标题必配 ◎ 总览 TOP1,凭证门内按有效归因选举)→ 比选 A(全面换词)/B(保词加限定)→ **B+ 落地**:头行首现括注(主根因=已证链上单项最大可消除量,前缀字节稳定保全全 pin)+ 定义并入 ➊ 锚定 Badge 图例条(独立图例条被双向 harness 正确拒绝——锚点在 fence 外,教训:图例条必须 fence 内 token 锚定)+ closed matrix 契约双面(Description+Parameters)反机理腔护栏(机理主张只来自唤醒链/阻塞证据,永不由加冕词自生)。
+
+**定名备案**:若将来裁定 A 方案,保留词=**「首要可消除项」**(首要=选举语义精确、可=承认折扣口径、消除项与定义加冕的可消除量词族配对);次优=首要归因项;首要优化点撞语义 span 专词不可用。零答案代价验证:全仓绿+eval 双 PASS。
