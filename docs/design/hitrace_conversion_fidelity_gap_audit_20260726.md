@@ -4518,6 +4518,75 @@ RB-B/C/D can be implemented before the next customer replay. The next replay
 should be requested after all three, so one run validates the 279-name cohort,
 the explicit 90-hint equation and the final 3,128 CPU witness roster.
 
+### REP-B implementation closure
+
+The frozen batches were delivered independently to `main`:
+
+- **RB-A** — audit equations and official-source ruling:
+  `43cb0fbdf` (`docs: audit REP-B conversion replay`);
+- **RB-B** — exact official structured-marker trailing ASCII-space
+  normalization:
+  `7d16a78bd` (`fix: match official trailing-space marker names`).
+  The source raw name remains unchanged in the ledger. Compact/text markers,
+  leading spaces, tabs and other invalid names remain withheld;
+- **RB-C** — closed NULL-duration raw disposition accounting:
+  `26b14038c` (`diag: close null-duration raw dispositions`). Every retained
+  hint is now counted exactly once as valid closure, rejected closed pair,
+  open begin, no exact raw-start disposition, or conflicting disposition
+  kinds. It does not infer an end or alter a fence;
+- **RB-D** — bounded witnesses for final emitted typed-only sync spans:
+  `d044f4b79` (`diag: witness final typed-only spans`). Witnesses are sampled
+  only after shared laminar, fence, poison and supersession decisions. Each
+  exact reason retains at most four rows and separately counts omitted rows.
+  TID/TGID, marker PID provenance, canonical ITID/IPID, interval, CPU values
+  and CPU provenance are explicit. Capability
+  `official_viewer_typed_only_final_witness_v1` identifies the lane;
+- **RB-E** — combined raw-marker collision census:
+  `0f65bbf16` (`perf: combine raw marker collision census`). One prepared
+  query now returns global exact-name and interval cardinalities, local
+  admission cardinality, and the closed CPU-known/CPU-unavailable split.
+  This replaces the sequential exact/interval/local/census query chain while
+  preserving the original decision tree. All inequalities are checked
+  fail-closed. Capability `raw_marker_combined_collision_census_v1` and metric
+  `raw_collision_combined_census_requests` identify the optimized path.
+
+Package gates passed after RB-D and RB-E:
+
+```text
+go test ./internal/hitraceconv ./cmd -count=1
+```
+
+The next customer replay is now warranted. Acceptance is:
+
+```text
+raw_pairs_withheld_invalid_span_name = 0
+raw_pairs_official_trailing_space_name_normalized = 279
+
+null_duration_hints_exact_raw_disposition_accounted = 90
+null_duration_hints_no_exact_raw_start_disposition = 90
+  (or an explicit, summing split if new raw evidence appears)
+
+official viewer typed-only reason totals sum to the final typed-only sync total
+each nonzero reason carries 1..4 final witness rows plus an omitted count
+
+raw_collision_combined_census_requests equals valid raw sync candidates examined
+expected rows = parsed rows = callback rows
+```
+
+The RB-E performance gate is the raw-sync phase on the same file and machine,
+not total elapsed time alone. SQL-fidelity runtime varied by more than two
+seconds between REP-A and REP-B without any semantic-table hash drift. No
+fixed speedup is predeclared.
+
+Two evidence limits deliberately remain open:
+
+1. the 78 suffix-fenced callstack spans cannot be recovered unless a later
+   replay exposes an exact valid/rejected/open raw disposition; the current
+   REP-B evidence says all 90 retained NULL hints have no exact raw start;
+2. the 3,128 typed-only spans cannot become standard viewer B/E rows without
+   exact physical CPU placement. RB-D makes their final identities
+   inspectable; it does not infer CPU 0 or copy CPU from a nearby row.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.
