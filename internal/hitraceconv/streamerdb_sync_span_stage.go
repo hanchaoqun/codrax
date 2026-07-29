@@ -15,8 +15,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-
-	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
 
 const (
@@ -135,7 +133,6 @@ type traceDBSyncSpanStage struct {
 	lookupIntervalLocallyAdmitted *sql.Stmt
 	censusIntervalLocallyAdmitted *sql.Stmt
 	supersedeCPUUnavailable       *sql.Stmt
-	selectCPUKnownCallstack       *sql.Stmt
 	supersedeCPUKnownCallstack    *sql.Stmt
 	upsertForced                  *sql.Stmt
 	insertFence                   *sql.Stmt
@@ -481,10 +478,6 @@ func (stage *traceDBSyncSpanStage) promoteToSQLite(ctx context.Context) error {
 		ctx, traceDBSyncSpanSupersedeCPUUnavailableSQL); err != nil {
 		return stage.handleSQLiteWriteError(ctx, err)
 	}
-	if stage.selectCPUKnownCallstack, err = tx.PrepareContext(
-		ctx, traceDBSyncSpanSelectCPUKnownCallstackSQL); err != nil {
-		return stage.handleSQLiteWriteError(ctx, err)
-	}
 	if stage.supersedeCPUKnownCallstack, err = tx.PrepareContext(
 		ctx, traceDBSyncSpanSupersedeCPUKnownCallstackSQL); err != nil {
 		return stage.handleSQLiteWriteError(ctx, err)
@@ -562,6 +555,7 @@ var traceDBSyncSpanStageSchema = []string{
 		task TEXT NOT NULL,
 		name TEXT NOT NULL,
 		name_provenance INTEGER NOT NULL,
+		viewer_disposition INTEGER NOT NULL,
 		depth INTEGER NOT NULL,
 		depth_known INTEGER NOT NULL CHECK(depth_known IN (0,1)),
 		depth_provenance INTEGER NOT NULL
@@ -596,8 +590,9 @@ const traceDBSyncSpanInsertCandidateSQL = `INSERT INTO candidate(
 	marker_pid,marker_known,canonical_itid,canonical_known,owner_ipid,owner_known,start_ns,end_ns,start_cpu,end_cpu,
 	start_flags,end_flags,start_preempt_count,end_preempt_count,
 	start_marker_body,end_marker_body,
-	cpu_placement,start_cpu_provenance,end_cpu_provenance,task,name,name_provenance,depth,depth_known,depth_provenance
-) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+	cpu_placement,start_cpu_provenance,end_cpu_provenance,task,name,name_provenance,
+	viewer_disposition,depth,depth_known,depth_provenance
+) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 const traceDBSyncSpanInsertIdentitySQL = `INSERT OR IGNORE INTO identity_first VALUES(?,?,?,?)`
 const traceDBSyncSpanLookupIdentitySQL = `SELECT first_header_tid FROM identity_first WHERE producer=? AND stable_kind=? AND stable_id=?`
 const traceDBSyncSpanLookupSemanticSQL = `SELECT 1
@@ -697,30 +692,12 @@ const traceDBSyncSpanSupersedeCPUUnavailableSQL = `UPDATE candidate AS c
 		SELECT 1 FROM forced_lane AS p
 		WHERE p.header_tid=c.header_tid AND (p.reason_mask & ?) != 0
 	  )`
-const traceDBSyncSpanSelectCPUKnownCallstackSQL = `SELECT
-		c.name, CASE c.marker_known WHEN 1 THEN c.marker_pid ELSE c.header_tgid END
-	FROM candidate AS c INDEXED BY candidate_lane_idx
-	WHERE c.header_tid=? AND c.start_ns=? AND c.zero_key=1 AND c.end_ns=?
-	  AND c.superseded=0
-	  AND c.producer=? AND c.cpu_placement=?
-	  AND c.header_tgid=? AND CASE c.marker_known WHEN 1 THEN c.marker_pid ELSE c.header_tgid END=?
-	  AND c.canonical_known=1 AND c.canonical_itid=?
-	  AND c.owner_known=1 AND c.owner_ipid=?
-	  AND NOT EXISTS (
-		SELECT 1 FROM fence AS f
-		WHERE f.header_tid=c.header_tid AND f.producer=c.producer
-		  AND ((f.kind=? AND f.start_ns<c.end_ns AND f.end_ns>c.start_ns)
-		    OR (f.kind=? AND c.end_ns>f.start_ns))
-	  )
-	  AND NOT EXISTS (
-		SELECT 1 FROM forced_lane AS p
-		WHERE p.header_tid=c.header_tid AND (p.reason_mask & ?) != 0
-	  )`
 const traceDBSyncSpanSupersedeCPUKnownCallstackSQL = `UPDATE candidate AS c
 	SET superseded=1
 	WHERE c.header_tid=? AND c.start_ns=? AND c.zero_key=1 AND c.end_ns=?
 	  AND c.superseded=0
 	  AND c.producer=? AND c.cpu_placement=?
+	  AND c.viewer_disposition=?
 	  AND c.header_tgid=? AND CASE c.marker_known WHEN 1 THEN c.marker_pid ELSE c.header_tgid END=?
 	  AND c.canonical_known=1 AND c.canonical_itid=?
 	  AND c.owner_known=1 AND c.owner_ipid=?
@@ -771,6 +748,7 @@ func (stage *traceDBSyncSpanStage) insertSQLiteCandidate(ctx context.Context, or
 		candidate.CPUPlacement,
 		candidate.StartCPUProvenance, candidate.EndCPUProvenance,
 		candidate.Task, candidate.Name, candidate.NameProvenance,
+		traceDBSyncSpanViewerDispositionForCandidate(candidate),
 		candidate.Depth, boolToSQLiteInt(candidate.DepthKnown), candidate.DepthProvenance,
 	)
 	if err != nil {
@@ -1104,51 +1082,16 @@ func (stage *traceDBSyncSpanStage) supersedeUniqueLocallyAdmittedNameUnrepresent
 			return false, false, err
 		}
 	}
-	if stage.budgetReason != "" || stage.selectCPUKnownCallstack == nil ||
-		stage.supersedeCPUKnownCallstack == nil {
+	if stage.budgetReason != "" || stage.supersedeCPUKnownCallstack == nil {
 		return false, false, nil
 	}
 	args := []any{
 		key.HeaderTID, key.Start, key.End,
 		traceDBSyncSpanProducerCallstack, traceDBSyncSpanCPUPlacementKnown,
+		traceDBSyncSpanViewerDispositionNameUnrepresentable,
 		key.HeaderTGID, key.MarkerPID, key.CanonicalITID, key.OwnerIPID,
 		traceDBSyncSpanFenceInterval, traceDBSyncSpanFenceSuffix,
 		traceDBSyncSpanForcedCallstackPoison,
-	}
-	rows, err := stage.selectCPUKnownCallstack.QueryContext(ctx, args...)
-	if err != nil {
-		return false, false, stage.handleSQLiteWriteError(ctx,
-			fmt.Errorf("select unique CPU-known callstack candidate: %w", err))
-	}
-	var name string
-	var markerPID int64
-	count := 0
-	for rows.Next() {
-		count++
-		if count > 1 {
-			_ = rows.Close()
-			return false, false, &traceDBOutputInvariantError{
-				Reason: "sync_span_cpu_known_candidate_not_unique",
-			}
-		}
-		if err := rows.Scan(&name, &markerPID); err != nil {
-			_ = rows.Close()
-			return false, false, err
-		}
-	}
-	if err := rows.Close(); err != nil {
-		return false, false, err
-	}
-	if count == 0 {
-		return false, true, nil
-	}
-	if markerPID <= 0 || markerPID > math.MaxInt32 {
-		return false, false, &traceDBOutputInvariantError{
-			Reason: "sync_span_cpu_known_candidate_invalid_marker_pid",
-		}
-	}
-	if tracequery.StandardSyncTraceMarkNameRepresentable(int(markerPID), name) {
-		return false, true, nil
 	}
 	if err := stage.ensureSQLitePageHeadroom(ctx,
 		traceDBSyncSpanSQLiteWriteReservePages); err != nil {
@@ -1329,7 +1272,7 @@ func (stage *traceDBSyncSpanStage) discardBackend() error {
 		stage.lookupSemantic, stage.lookupInterval,
 		stage.lookupSemanticLocallyAdmitted, stage.lookupIntervalLocallyAdmitted,
 		stage.censusIntervalLocallyAdmitted, stage.supersedeCPUUnavailable,
-		stage.selectCPUKnownCallstack, stage.supersedeCPUKnownCallstack,
+		stage.supersedeCPUKnownCallstack,
 		stage.upsertForced, stage.insertFence,
 	} {
 		if statement != nil {
@@ -1341,7 +1284,7 @@ func (stage *traceDBSyncSpanStage) discardBackend() error {
 	stage.lookupSemanticLocallyAdmitted, stage.lookupIntervalLocallyAdmitted = nil, nil
 	stage.censusIntervalLocallyAdmitted = nil
 	stage.supersedeCPUUnavailable = nil
-	stage.selectCPUKnownCallstack, stage.supersedeCPUKnownCallstack = nil, nil
+	stage.supersedeCPUKnownCallstack = nil
 	stage.upsertForced, stage.insertFence = nil, nil
 	if stage.tx != nil {
 		err := stage.tx.Rollback()
@@ -1611,7 +1554,7 @@ func (stage *traceDBSyncSpanStage) closeSQLiteWriteStatements() error {
 		stage.lookupSemantic, stage.lookupInterval,
 		stage.lookupSemanticLocallyAdmitted, stage.lookupIntervalLocallyAdmitted,
 		stage.censusIntervalLocallyAdmitted, stage.supersedeCPUUnavailable,
-		stage.selectCPUKnownCallstack, stage.supersedeCPUKnownCallstack,
+		stage.supersedeCPUKnownCallstack,
 		stage.upsertForced, stage.insertFence,
 	} {
 		if statement != nil {
@@ -1623,7 +1566,7 @@ func (stage *traceDBSyncSpanStage) closeSQLiteWriteStatements() error {
 	stage.lookupSemanticLocallyAdmitted, stage.lookupIntervalLocallyAdmitted = nil, nil
 	stage.censusIntervalLocallyAdmitted = nil
 	stage.supersedeCPUUnavailable = nil
-	stage.selectCPUKnownCallstack, stage.supersedeCPUKnownCallstack = nil, nil
+	stage.supersedeCPUKnownCallstack = nil
 	stage.upsertForced, stage.insertFence = nil, nil
 	return errors.Join(errs...)
 }

@@ -4121,6 +4121,19 @@ customer replay. R9-D and R9-E are replay-gated on the new exact correlation
 censuses. The next replay should be requested only after R9-B/C are pushed, so
 one customer run answers both correctness and performance questions.
 
+Progress:
+
+- R9-A: REP9 audit, acceptance equations and residual task order frozen and
+  pushed in `e932743e0`;
+- R9-B: implemented. The private sync-span staging row now stores the exact
+  final viewer disposition computed from the immutable candidate. The
+  name-unrepresentable supersession UPDATE includes that typed disposition in
+  the same exact interval/identity/fence/poison predicate, removing the
+  per-collision SELECT and Go rescan. The caller's unique collision census and
+  the UPDATE affected-row `==1` invariant remain independent cardinality
+  guards. Standard-representable name drift still affects zero rows and stays
+  withheld. `go test ./internal/hitraceconv -count=1` passed.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.
