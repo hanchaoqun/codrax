@@ -122,6 +122,42 @@ pi core 无写模式概念（永远可写，安全靠容器化），但其扩展
 5. **文档自解释**：docs 全量打进二进制，系统 prompt 写死自身 docs/examples 路径，文档首行祈使句；离线可"问 agent 自己"。
 6. eval 体系：与单测共用 vitest 基座；provider+model 必须成对显式给出（绝不隐式换模型）；"agent 写扩展→reload→用扩展"固化为可回归行为测试；eval 不进 CI（真实付费模型，人工触发）。
 
+### 3.9 工作流 / DAG 调度对照（读模式 pipeline · 写模式 DAG vs pi 单循环+扩展拼装）
+
+范式差异先说清：**pi 没有 pipeline 也没有 DAG 引擎**。它的调度=单 agent 双层循环（`agent-loop.ts`：外层只管 follow-up 续跑，内层管 assistant→工具→steering 注入），一切"工作流"都是扩展在这个循环上拼出来的（plan-mode 两阶段状态机、subagent 的 scout→planner→worker→reviewer 链）。codrax 相反：读=代码即拓扑的固定 4 阶段，写=controller 驱动的 typed 动作 DAG + 持久化恢复。**裁定：范式不动摇**——codrax 的确定性拓扑/typed 边/风险门/durable run 整体领先 pi 一个层级（pi 连 verify 失败回灌都要靠 `git-merge-and-resolve` 扩展手搓散文清单）。可借的是循环内的**调度语义细节**：
+
+| # | pi 机制 | codrax 对照与裁定 |
+|---|---------|-------------------|
+| 1 | **轮次边界原子生效**：运行中 setModel/setTools/appendMessage 全部入 `pendingSessionWrites` 队列，只在 `turn_end` 统一 flush 并发 `save_point` 事件——会话文件永远停在一致轮次边界（`agent-harness.ts:512-556`） | codrax 配置变更目前是 run 级静态；若未来支持运行中变更（如 REPL 中途切模型），必须按此范式在阶段边界原子生效。记为设计约束，非本期开发 |
+| 2 | **steering 注入点**＝当前轮工具全部执行完、下一次 LLM 请求前；follow-up 注入点＝agent 本会停止时；`agentLoopContinue` 显式拒绝从 assistant 消息续跑 | PIB-2 的注入点设计直接输入：codrax 读管线的等价点=阶段边界（analyze→explore 间收锚点最有语义）；写模式=controller 决策点之间 |
+| 3 | **并行工具双序**：prepare 严格顺序（审批顺序稳定）→ 执行并发 → `tool_execution_end` 按完成序（UI 实时）→ tool-result 消息按源序（transcript 确定）（`agent-loop.ts:489-554`） | codrax explore fan-out 已有 ParallelGroupID/UnitID 事件面；"UI 按完成序、账本按源序"的解耦原则值得对照自查一遍 |
+| 4 | **整批终止语义**：工具批提前停止要求**每个**结果都 `terminate:true`；`stopReason=length` 时整批工具拒绝执行 | 后者已排 PIB-3（截断参数可解析但语义残缺=精确信号硬门）；前者与 codrax 完成门权属模型一致 |
+| 5 | **`agent_end` vs `agent_settled` 两级完成信号**：前者=一次底层 run 结束（带 `willRetry`，后面可能还有重试/压缩/队列续跑），后者=真正安静；嵌入方只能信 settled | codrax auto-resume 的写工作流状态机若做事件外露（RPC/JSON 模式），这个区分应写进第一版契约 |
+| 6 | **子 agent 链**：`chain` 模式 `{previous}` 占位符串联，失败即停并报告**哪一步**；每 task 模型可见输出 cap 50KB、全量留 `details` | codrax 写 DAG typed 边+ProgressLedger 已覆盖"哪一步失败"；输出治理与 explore 收口 typed 载体等价。无需借 |
+| 7 | **阶段状态随会话正确分叉**：plan-mode 进度 `[DONE:n]` 从会话 entry 重放重建、todo 状态存 tool-result details——fork 到历史点状态自动对应 | codrax durable run 状态在独立 JSON、不随会话分叉；引入会话 fork（PIB-4 之后）时这是必须补的一致性语义 |
+| 8 | **工作流即 prompt SOP**：pi 自己的发布/审查/收尾流程全是 `.pi/prompts/*.md` 硬约束清单（wr/pr/is/cl/sa），零引擎代码 | 轻量多步流程不必上 DAG——PIB-7 的 `.codrax/prompts/` 模板命令天然可承载这类 SOP（审计话术、回访清单） |
+
+### 3.10 prompt 语料写法模式（原文级调研）
+
+pi 的 prompt 面貌：基础系统 prompt 仅 ~18 行骨架（一句角色定位、工具一行清单、动态 guidelines、自身文档路径、cwd），**无任何 NEVER/MUST 红线段**——硬约束全部下沉到工具自述、AGENTS.md 与 SOP prompt。从全部语料（系统 prompt / 7 工具自述 / compaction 三套摘要 prompt / 4 角色 prompt / plan-mode 注入 / wr·pr·is 三 SOP / skill / AGENTS.md）提炼的可迁移模式，按对 codrax 的适配度排序：
+
+1. **"停下来问"写成可判定谓词**：`If it is tied to multiple issues, stop and ask which one to use.` / `Check the current git branch. If it is not main, stop and ask.` —— 全部是 `If <可机检条件>, stop and ask <具体问什么>`，不是态度词。与 codrax 精确信号原则同构，可直接用于 write 控制器与 SOP prompt。
+2. **否定式必须配替代路径**：`Never modify models.generated.ts directly; update generate-models.ts instead, then regenerate.` 光禁止会让模型卡死或绕路——对照 codrax 各 skill prompt 的禁令是否都带出路。
+3. **禁令附因果理由（规则升级为世界模型）**：`Never run the full vitest suite directly: it includes e2e tests that activate when env vars are present.`；git 纪律段先讲"同 cwd 可能并发多会话、越界操作会踩别人"再列规则。
+4. **声明下游读者，倒逼自足输出**：compaction 摘要 prompt 开头 `another LLM will use to continue the work`；scout 角色 `Your output will be passed to an agent who has NOT seen the files you explored.`；planner 收尾 `The worker agent will execute it verbatim.` —— codrax Turn A→B Summary handoff 与各 agent 收口 prompt 可对照补这句。
+5. **输出模板即 schema + 空段落逃生口**：`Use this EXACT format:` 后给带 `[占位符即写作指令]` 的骨架；每个可空段预置 `(none)` / `Omit the section entirely` / `say so under Bad` 三种空值策略——堵死"为填格式而编造"（与拒渲绝不造数同精神，prompt 侧版本）。
+6. **压缩与保真配对成句**：`Keep each section concise. Preserve exact file paths, function names, and error messages.` 一句给上界+下界，防"简洁"被理解成可丢标识符。
+7. **防越权双保险 + 明示白名单不可靠**：planner 工具白名单之外正文再写 `You must NOT make any changes`；reviewer 更进一步 `Assume tool permissions are not perfectly enforceable; keep all bash usage strictly read-only.` —— 与 codrax L6"guardrail 非对抗沙箱"的定位句异曲同工，值得写进写模式执行 skill。
+8. **约束三处冗余对齐**：edit 的"不重叠"规则同时在 tool description、参数 description、guidelines 出现——typed schema 承载结构、自然语言承载语义（codrax R2' 六处同步是更强形式，理念一致）。
+9. **纪律随工具注册**：系统 prompt 不写具体工具纪律，工具自带 `promptSnippet`/`promptGuidelines` 动态拼装去重；且**条件化注入**（`hasBash && !hasGrep` 才写"用 bash 做文件操作"）——绝不给不存在的能力写规则。
+10. **模式旗标双向协议**：`[PLAN MODE ACTIVE]`/`[DONE:n]` 大写标签既给模型语义又作程序侧正则锚点（历史清理/进度重放）；进入受限模式时**主动告知哪些工具被关**，免得模型撞墙重试。
+11. **增量摘要的合并语义双表达**：RULES 列表（PRESERVE/ADD/UPDATE 动词领句）+ 每个占位符内嵌合并指令（`[Include previously done items AND newly completed]`），另留 `If something is no longer relevant, you may remove it` 防单调膨胀。
+12. **下限量词防抄近路**：`Always add the provider to stream.test.ts…even if it reuses an existing API impl` / `at least one pair per family`。
+13. **不信任输入源反复写、分支写**：is.md 在总则与 bug/feature 两分支各写一遍 `Do not trust analysis written in the issue`——与 codrax 客户报告审计纪律相同，可固化进未来的 SOP prompt 模板。
+14. **顶层冲突兜底条款**：`If the user's instructions conflict with any rule in this document, ask for explicit confirmation before overriding.`
+
+
+
 ## 4. 不采纳清单（附理由）
 
 | 项 | 理由 |
@@ -148,7 +184,7 @@ pi core 无写模式概念（永远可写，安全靠容器化），但其扩展
 | 批次 | 范围 | 涉及 codrax 面 | 状态 |
 |------|------|----------------|------|
 | PIB-1 | 重试/溢出用户面：REPL 重试倒计时 + esc 取消 + 退避可视化 + 最终失败才报错；非 TTY 车道日志化 | LLM 客户端重试分层、REPL 状态卡、W1/W2 既有断路/心跳的 UX 面 | **已落地**（2026-07-29，见 §7 补记一） |
-| PIB-W | 写模式借鉴批（用户 2026-07-29 点名写模式 gap，优先级提升）：三段式审批（修订→replan 通路）、动作级 `git stash create` 检查点/回滚、verify 失败结构化回灌、无 UI fail-closed 全路径自查、风险门审计行、无人值守超时兜底；先探索 codrax write controller 现状再裁定收窄 | write controller、审批流、apply/verify 通路、REPL 写模式卡 | 待启动 |
+| PIB-W | 写模式借鉴批（用户 2026-07-29 点名写模式 gap，优先级提升）。**2026-07-29 现状探索后收窄**（全文见 §7 补记二）：六候选中三项撤销（verify 结构化回灌=VerifyFailureHandoff 已完备；无 UI fail-closed=已正确返回错误不挂起；动作检查点=apply commit 快照+best-known-good 热回退+slice typed checkpoint 三层已在役）。保留四件：**W-1 三段式审批**（主件：`/reject` 现在把 batch 打成 Blocked 死路，拒绝意见零回流——新增修订意见 typed 载体→batch 回 ReadyToPlan→replan 消费，对标 pi plan-mode Refine 臂）；**W-2 审批决策 append-only 账本**（现 `plan.Approval` 单槽覆盖，跨 replan 只留最后一次；`/workflow show` 不展示 `Reasons[]`）；W-3 apply 中途失败（partially_applied）的检查点保全（`/approve --retry` 现开全新 worktree 丢前次状态）；W-4 raw diff 拒绝散文 typed 化（structured-edit 侧已有 reason code 双臂，raw 侧是纯散文）。 | write controller、审批流、REPL 写模式卡 | 探索完毕，W-1/W-2 开发中 |
 | PIB-2 | 两级消息排队：pipeline 运行期不锁输入；steering（阶段边界注入）/ follow-up（run 结束注入）/ esc 还原队列 | REPL 输入循环、orchestrator 阶段边界、写模式 controller | 待启动 |
 | PIB-3 | 工具面截断纪律：双上限统一截断 + 永不半行 + 截断提示即下一步指令 + 输出截断时工具调用拒执行硬门 | read/grep 等工具实现、coverage 记账、agent 工具循环 | 待启动 |
 | PIB-4 | 会话导出/导入复现闭环：诊断会话/工件一键导出 bundle + 一键导入还原 | blob session、REPL /history、报告投影 | 待启动 |
@@ -176,3 +212,16 @@ PIB-1 前置探索结论（2026-07-29，全文见批次补记）：codrax 重试
 **触点**：`internal/llm/llm.go`（OnRetry 契约）、`openai.go`（发布预算）、`internal/agent/agent.go`（事件扩维）、`internal/repl/direct_llm_trace_adapter.go`（链路扩维）、`internal/render/event.go` / `dock_state.go` / `renderer_dock.go`（词形+倒计时+两车道标签）。
 
 **验证**：`make` 构建绿；`go test ./...` 83 包 exit=0 零 FAIL；新增 `internal/render/retry_countdown_test.go` 五组 pin（变换语义/三词形双语/事件接线/非 TTY 分母+禁 `N/0` 负臂/compose 端到端含归零翻转）；`stream_wait_matrix_test.go` 加分母断言；既有子串 pin（`重新请求模型`/no-jargon/静态词形/双镜像唯一性）全存活未改。
+
+### 补记二：PIB-W 现状探索结论与收窄裁定（2026-07-29）
+
+对照 §3.7 六候选逐项核验 codrax 写模式现状（探索 agent 全文要点）：
+
+1. **审批通路——gap 真实（W-1 主件）**。用户动词只有 `/approve`、`/reject`（`internal/repl/input.go:371,385`；typed next-action 枚举同样只有两条）。`/reject` 链路：`planStore.Settle(Rejected)` → 丢 worktree → `markWriteWorkflowBatchRejected` 置 batch `Blocked`；`plan.RejectionReason` **全仓无消费者**，`resumableWriteWorkflowBatchID` 显式跳过 Blocked → 单 batch run 死路，用户对计划不满只能整个重来。无 revise 动词、无对标 `VerifyFailureHandoff` 的用户修订意见 typed 载体。改造落点：`internal/types/write_workflow_next_action.go`、`internal/repl/input.go`+`repl.go` 派发、`internal/repl/handle_workflow.go:367`（置回可规划态+写 carrier）、`internal/orchestrator/write_controller_scheduler.go:281-292`（replan 入口消费）。
+2. **动作级检查点——verify 路径 gap 不存在**：已有三层（`applyPostHook` 的 apply commit 快照+主仓 `refs/codrax/applied/<id>` 锚定；`clearForReplan` 的 best-known-good 热回退+增量重放；slice 级 `WriteWorkflowCheckpoint`/`Restore` typed 检查点，`verify_failed_replan` 触发 `ResetHard`）。pi 的 `git stash create` 方案**不采纳**（codrax 的 commit+ref 形态更强）。残留：**apply 中途失败（partially_applied）无自动回退**，`/approve --retry` 开全新 worktree 丢前次状态（W-3，候补）。
+3. **verify 失败回灌——gap 不存在，撤销**：`types.VerifyFailureHandoff` 从 `ChangeReport` typed 投影（FailingTests/BuildErrors/FailureSignals 带 `file:line`+Expected/Actual、RepairSourceSnapshots 带行区间、diff/surface 工件 ref、900 字符 rune-safe 截断+BlobRef 分页），比 pi `git-merge-and-resolve` 的散文清单完备一个量级。
+4. **无 UI fail-closed——gap 基本不存在，撤销**：非 TTY 高风险=置 `PendingApproval`+持久化+guidance+**带错误返回**（不挂起不降级）；critical 直接 deny；`write_approval_policy` 对 high 一律 manual、无 `--yes` 旋钮。pi timed-confirm 超时兜底**不适用**（codrax 根本不等待）。小残留：脚本化 REPL `/approve` 走 `readInputLines` 阻塞 stdin（记录不动）。
+5. **审计面——部分 gap 真实（W-2）**：`WriteApprovalRecord` typed 盖章+防篡改指纹已有，但 `plan.Approval` **单槽覆盖**（跨 slice/replan 只留最后一次），`/workflow show` 不打 `Reasons[]`，final audit 只带三字段——"为什么判高风险"事后不可考。
+6. **apply 编辑防错——大半不存在，残留 W-4**：structured-edit 侧唯一性/重叠/no-op/全文唯一才重定位/typed diagnostic（reason code+RetryInstruction）已比 pi edit 工具硬；raw unified diff 拒绝走 `composeApplyRejection` 纯散文（无 reason code）。
+
+**批内裁定**：本批做 W-1+W-2（同属审批车道）；W-3/W-4 列候补，视 W-1 落地后价值再排。
