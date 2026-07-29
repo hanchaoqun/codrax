@@ -504,7 +504,7 @@ func TestCLOSE1ExternalDominantFrameKeepsExternalCrown(t *testing.T) {
 		t.Fatalf("外因主导帧: the inversion row must keep the crown, got lane=%d lead=%+v", lane, lead)
 	}
 	line := runtimeTraceProjConclusionLine(projection, model, true)
-	if line != "**主根因:** RxComputationT-16612 优先级反转候选（priority_inversion_candidate） 链上累计 58.919ms。" {
+	if line != "**主根因:** RxComputationT-16612 优先级反转候选（priority_inversion_candidate） 链上累计 58.919ms(主根因=已证链上单项最大可消除量)。" {
 		t.Fatalf("the external crown sentence must stay byte-identical (外因句式零变):\n%s", line)
 	}
 	if strings.Contains(line, "关注线程自身") {

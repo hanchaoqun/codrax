@@ -117,6 +117,14 @@ package tool
 // the semantic-span section it already governs — no new note-key teaching,
 // no dispatch-surface vocabulary change.
 //
+// EVOLUTION RECORD (B+ 主根因 term-of-art, user ruling 2026-07-28): the
+// closed-matrix contract sentence gains the 主根因 definition (the #1-elected
+// seat = largest single proven on-chain eliminable contribution; never a
+// mechanism verdict — mechanism claims only from chain/blocking evidence).
+// Rides BOTH Description and Parameters via the contract applier; anti-
+// mechanism-voice guardrail, no dispatch-vocabulary change. 「首要可消除项」
+// is the reserved rename if plan A is ever ruled.
+//
 // UPDATE RITUAL (deliberate gate — do NOT casually regenerate):
 //  1. justify the wording change against §29.64 (new note-key teaching goes
 //     to the wire Summary/legend, NOT mid-Description; R2' description-slot

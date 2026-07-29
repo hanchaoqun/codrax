@@ -1654,8 +1654,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// DISPLAY caliber may differ; the sentence now says exactly that
 		// (标题口径括注恒挂形 = ruling pool, not implemented).
 		{runtimeTraceProjMarkBadge, runtimeTraceProjLegendGroupMark,
-			"- `➊..➎` = " + tracefence.SeatChannelChainZH + "前五(依有效归因),按板各发(每块查询板各自的 TOP5);佩章行行2不再复读 " + tracefence.SeatChannelChainZH + "#N 词(徽章即序数;未佩章而有序数的行保留词形);标题主根因=选举权威(凭证强度参与),➊=按引擎发布的板内有效归因序(与树行显示口径可异),二者可不同(不同时标题括注注明口径)。",
-			"- `➊..➎` = the top-5 root-cause seats (by effective attribution), issued per board (each query board its own TOP5); a badge-wearing row does not restate the " + tracefence.SeatChannelChainEN + " #N word on its identity line (the badge IS the ordinal; un-badged rows with an ordinal keep the word form); the headline primary root cause = the election authority (credential strength participates) while ➊ = the board's engine-published effective-attribution order (the tree rows' display caliber may differ from it) — the two may differ (a differing headline carries a caliber parenthetical)."},
+			"- `➊..➎` = " + tracefence.SeatChannelChainZH + "前五(依有效归因),按板各发(每块查询板各自的 TOP5);佩章行行2不再复读 " + tracefence.SeatChannelChainZH + "#N 词(徽章即序数;未佩章而有序数的行保留词形);标题主根因=选举权威(凭证强度参与),➊=按引擎发布的板内有效归因序(与树行显示口径可异),二者可不同(不同时标题括注注明口径);主根因=已证链上候选中单项最大可消除量的持有席,是量与凭证的选举结果而非机理层裁定——机理主张只来自唤醒链/阻塞证据。",
+			"- `➊..➎` = the top-5 root-cause seats (by effective attribution), issued per board (each query board its own TOP5); a badge-wearing row does not restate the " + tracefence.SeatChannelChainEN + " #N word on its identity line (the badge IS the ordinal; un-badged rows with an ordinal keep the word form); the headline primary root cause = the election authority (credential strength participates) while ➊ = the board's engine-published effective-attribution order (the tree rows' display caliber may differ from it) — the two may differ (a differing headline carries a caliber parenthetical); primary root cause = the seat holding the largest single proven on-chain eliminable contribution — an election over magnitude + credentials, never a mechanism-level verdict, mechanism claims ride only the wakeup-chain/blocking evidence."},
 		// PTV8-RCR-B (UXA 域A #8 REVISE 缩写稿, 2026-07-08). EVOLUTION RECORD:
 		// 「类型 token 自带的状态语义/沿用影响形态」内部推导话术 → 五词枚举直陈.
 		{runtimeTraceProjMarkStateLabel, runtimeTraceProjLegendGroupMark,
@@ -15442,6 +15442,18 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 	// "" keeps every other shape byte-identical.
 	if !onChainFallback {
 		b.WriteString(runtimeTraceProjHeadlineElimCaliberNote(projection, model, primary, zh))
+	}
+	// B+ (user ruling 2026-07-28): the crowned head line — the term's FIRST
+	// occurrence — carries the definitional note: 主根因 is a defined term of
+	// art (the #1-elected seat = the largest single PROVEN on-chain
+	// eliminable contribution under its stated caliber), an election over
+	// credentials + effective attribution, never a mechanism-level verdict.
+	// The full definition rides the legend entry (mark below); 「首要可消除项」
+	// is the reserved rename should plan A ever be ruled.
+	if zh {
+		b.WriteString("(主根因=已证链上单项最大可消除量)")
+	} else {
+		b.WriteString("(primary root cause = the largest single proven on-chain eliminable contribution)")
 	}
 	b.WriteString("。")
 	if !zh {
