@@ -3740,7 +3740,7 @@ after those batches to obtain the newly dimensioned evidence for R7-E.
 Progress:
 
 - R7-A: audit frozen and pushed in `0075e0eb9`;
-- R7-B: implemented. The final shared sync authority now classifies every
+- R7-B: implemented and pushed in `772932bab`. The final shared sync authority now classifies every
   emitted typed-only span into one of the five closed CPU-placement reasons or
   the lossless-name representability reason. The producer coverage and
   semantic-quality summary carry the same counters, and a typed
@@ -3748,7 +3748,7 @@ Progress:
   their sum to equal the final typed-only sync count. A mismatch changes the
   viewer state to `not_evaluated_typed_only_reason_census_mismatch`; it cannot
   silently claim coverage.
-- R7-C: implemented. The existing callstack coverage row now carries at most
+- R7-C: implemented and pushed in `3c0bb5995`. The existing callstack coverage row now carries at most
   eight `rejected_callstack_fence_witnesses`, each binding rejected row ID,
   resolved physical TID/canonical ITID, exact timestamp, closed rejection
   reason and a bounded exact SQLite duration scalar. INTEGER and REAL retain
@@ -3756,7 +3756,7 @@ Progress:
   values retain byte length plus SHA-256. Emitted/omitted counters are typed.
   The witness does not change the existing fence or publication decision and
   does not add another diagnostic line.
-- R7-D: implemented. Raw async misses are now classified independently as
+- R7-D: implemented and pushed in `7595f586c`. Raw async misses are now classified independently as
   exact cookie, name, start, end, whole-interval, split-endpoint, physical
   begin TID/TGID/CPU, already-claimed or ambiguity mismatches. The existing
   callstack coverage row carries at most eight
