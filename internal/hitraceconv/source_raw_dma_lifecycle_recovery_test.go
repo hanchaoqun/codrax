@@ -57,6 +57,7 @@ func TestPublishTraceDBRawDMALifecycleRecoveryPublishesOfficialPointEvents(
 		traceDBRawDMALifecycleTestRecord(
 			"dma_fence_destroy", 4_000_000),
 	}
+	rows[0].Driver = ""
 	sink, err := newTraceDBInactiveOrdinaryRowSink(t.TempDir(), 8)
 	if err != nil {
 		t.Fatal(err)
@@ -84,7 +85,7 @@ func TestPublishTraceDBRawDMALifecycleRecoveryPublishesOfficialPointEvents(
 	}
 	for _, want := range []string{
 		"unknown-32788 (-----) [003] d..2",
-		"dma_fence_init: driver=display timeline=present context=7 seqno=9",
+		"dma_fence_init: driver= timeline=present context=7 seqno=9",
 		"dma_fence_enable_signal: driver=display timeline=present context=7 seqno=9",
 		"dma_fence_signaled: driver=display timeline=present context=7 seqno=9",
 		"dma_fence_destroy: driver=display timeline=present context=7 seqno=9",
@@ -99,6 +100,40 @@ func TestPublishTraceDBRawDMALifecycleRecoveryPublishesOfficialPointEvents(
 			t.Fatalf("DMA lifecycle point acquired interval semantics %q:\n%s",
 				forbidden, body)
 		}
+	}
+}
+
+func TestDecodeDirectDMAFenceLifecycleAllowsOnlyExactEmptyDriver(
+	t *testing.T,
+) {
+	emptyDriver := directPairDMAFixture(
+		"dma_fence_init", nil, []byte("present"), 7, 9, false)
+	event := decodeEvent(emptyDriver.format, emptyDriver.content)
+	dma, admission, reason :=
+		decodeDirectDMAFenceLifecycleFields(event, emptyDriver.content)
+	if admission != bodyAdmitted || reason != "" || dma == nil ||
+		!dma.DriverKnown || dma.Driver != "" ||
+		!dma.TimelineKnown || dma.Timeline != "present" {
+		t.Fatalf("official empty lifecycle driver rejected: admission=%d reason=%q dma=%+v",
+			admission, reason, dma)
+	}
+	if body, ok := renderCanonicalDMAFenceLifecycleFields(dma); !ok ||
+		body != "driver= timeline=present context=7 seqno=9" {
+		t.Fatalf("official empty lifecycle driver wire=%q ok=%v", body, ok)
+	}
+	if _, waitAdmission, _ :=
+		decodeDirectDMAFenceFields(event, emptyDriver.content); waitAdmission != bodyRejected {
+		t.Fatalf("empty lifecycle driver leaked into wait hard-key profile: admission=%d",
+			waitAdmission)
+	}
+
+	emptyTimeline := directPairDMAFixture(
+		"dma_fence_init", []byte("display"), nil, 7, 9, false)
+	if _, timelineAdmission, _ := decodeDirectDMAFenceLifecycleFields(
+		decodeEvent(emptyTimeline.format, emptyTimeline.content),
+		emptyTimeline.content); timelineAdmission != bodyRejected {
+		t.Fatalf("empty lifecycle timeline admitted: admission=%d",
+			timelineAdmission)
 	}
 }
 
@@ -180,8 +215,12 @@ func TestTraceDBSourceRawDecodeLedgerRetainsStrictDMALifecyclePoints(
 		id := 33639 + index
 		formatLines = append(
 			formatLines, syntheticFormatBlock(name, id, fields)...)
+		driver := []byte("display")
+		if name == "dma_fence_init" {
+			driver = nil
+		}
 		content := directPairDMAContent(
-			24, []byte("display"), []byte("present"),
+			24, driver, []byte("present"),
 			uint32(7+index), uint32(9+index))
 		binary.LittleEndian.PutUint16(
 			content[0:2], uint16(id))
@@ -225,10 +264,14 @@ func TestTraceDBSourceRawDecodeLedgerRetainsStrictDMALifecyclePoints(
 			decode, inventory.RawDMALifecycle)
 	}
 	for index, row := range inventory.RawDMALifecycle {
+		expectedDriver := "display"
+		if row.Name == "dma_fence_init" {
+			expectedDriver = ""
+		}
 		if row.Name != names[index] || row.HeaderPID != 32788 ||
 			row.CPU != 1 || row.Flags != 1 ||
 			row.PreemptCount != 2 ||
-			row.Driver != "display" ||
+			row.Driver != expectedDriver ||
 			row.Timeline != "present" ||
 			row.Context != uint64(7+index) ||
 			row.Seqno != uint64(9+index) {
@@ -270,7 +313,7 @@ func TestTraceStreamerConversionPublishesOfficialRawDMALifecyclePoint(
 			"unsigned int", "seqno", 20, 4, false),
 	}
 	content := directPairDMAContent(
-		24, []byte("display"), []byte("present"), 7, 9)
+		24, nil, []byte("present"), 7, 9)
 	binary.LittleEndian.PutUint16(content[0:2], 33638)
 	content[2], content[3] = 1, 2
 	binary.LittleEndian.PutUint32(content[4:8], 32788)
@@ -306,7 +349,7 @@ func TestTraceStreamerConversionPublishesOfficialRawDMALifecyclePoint(
 	if err != nil {
 		t.Fatal(err)
 	}
-	wire := "dma_fence_init: driver=display timeline=present context=7 seqno=9"
+	wire := "dma_fence_init: driver= timeline=present context=7 seqno=9"
 	if strings.Count(string(body), wire) != 1 {
 		t.Fatalf("conversion wiring did not publish exactly one official DMA point:\n%s",
 			body)

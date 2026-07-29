@@ -15,6 +15,7 @@ func newTraceDBRawDMALifecycleRecoveryCoverage() TraceDBCoverage {
 		FieldSources: map[string]string{
 			"authority":     "complete strict official raw decode ledger; exact dma_fence_init/destroy/enable_signal/signaled descriptor profiles only",
 			"semantics":     "official SmartPerf CpuDetailParser publishes each record as a dma_fence point row with driver/timeline/context/seqno; no B/E phase or wait duration is inferred",
+			"payload":       "official lifecycle profile retains an exact empty driver C string but requires a nonempty timeline; DMA wait pairing keeps both hard keys nonempty",
 			"timestamp":     "exact source raw record timestamp on the official bytrace decimal wire, using nanosecond digits when required",
 			"cpu":           "exact source raw page CPU",
 			"envelope":      "exact source common_pid/common_flags/common_preempt_count; unresolved comm/TGID remains typed unknown and never suppresses an otherwise exact point event",
@@ -132,7 +133,7 @@ func publishTraceDBRawDMALifecycleRecovery(
 			out.Skipped = "raw DMA lifecycle recovery withheld: retained point envelope invalid"
 			return out, nil
 		}
-		bodyText, ok := renderCanonicalDMAFenceFields(
+		bodyText, ok := renderCanonicalDMAFenceLifecycleFields(
 			&pairDMAFencePayload{
 				Driver: raw.Driver, DriverKnown: true,
 				Timeline: raw.Timeline, TimelineKnown: true,

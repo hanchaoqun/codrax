@@ -137,13 +137,30 @@ func decodeDirectPairPayload(ev decodedEvent, content []byte) (pairRenderPayload
 	return payload, bodyRejected, "invalid_pair_kind"
 }
 
-// decodeDirectDMAFenceFields is the single strict tracefs descriptor decoder
-// shared by wait endpoints and official lifecycle point events. Callers retain
-// their own semantic registry: decoding this tuple never turns init/destroy/
-// enable/signaled into pairing endpoints.
+// decodeDirectDMAFenceFields is the strict wait-endpoint descriptor decoder.
+// Driver and timeline are both non-empty pairing hard keys.
 func decodeDirectDMAFenceFields(
 	ev decodedEvent,
 	content []byte,
+) (*pairDMAFencePayload, bodyAdmission, string) {
+	return decodeDirectDMAFenceFieldsProfile(ev, content, false)
+}
+
+// decodeDirectDMAFenceLifecycleFields follows the official SmartPerf
+// lifecycle profile: timeline is required, while an exact empty C-string
+// driver is retained as data. Lifecycle records are point events and never
+// enter the wait-pair hard-key registry.
+func decodeDirectDMAFenceLifecycleFields(
+	ev decodedEvent,
+	content []byte,
+) (*pairDMAFencePayload, bodyAdmission, string) {
+	return decodeDirectDMAFenceFieldsProfile(ev, content, true)
+}
+
+func decodeDirectDMAFenceFieldsProfile(
+	ev decodedEvent,
+	content []byte,
+	allowEmptyDriver bool,
 ) (*pairDMAFencePayload, bodyAdmission, string) {
 	dma := &pairDMAFencePayload{NumberBits: 32}
 	if directPairHasAlias(ev, "drv", "tl", "ctx", "sequence", "id") {
@@ -152,7 +169,8 @@ func decodeDirectDMAFenceFields(
 	if !directPairExactPayloadFieldRoster(ev, "driver", "timeline", "context", "seqno") {
 		return dma, bodyRejected, "mixed_or_invalid_dma_fence_profile"
 	}
-	driver, driverRange, driverOK := directPairDataLocScalar(ev, content, "driver", 8)
+	driver, driverRange, driverOK :=
+		directPairDataLocScalarProfile(ev, content, "driver", 8, allowEmptyDriver)
 	timeline, timelineRange, timelineOK :=
 		directPairDataLocScalar(ev, content, "timeline", 12)
 	context, contextOK := directPairUint32(ev, "context", 16)
@@ -212,9 +230,21 @@ func renderCanonicalPairPayload(payload pairRenderPayload) (string, bool) {
 }
 
 func renderCanonicalDMAFenceFields(item *pairDMAFencePayload) (string, bool) {
+	return renderCanonicalDMAFenceFieldsProfile(item, false)
+}
+
+func renderCanonicalDMAFenceLifecycleFields(item *pairDMAFencePayload) (string, bool) {
+	return renderCanonicalDMAFenceFieldsProfile(item, true)
+}
+
+func renderCanonicalDMAFenceFieldsProfile(
+	item *pairDMAFencePayload,
+	allowEmptyDriver bool,
+) (string, bool) {
 	if item == nil || !item.DriverKnown || !item.TimelineKnown ||
 		!item.ContextKnown || !item.SeqnoKnown ||
-		!directPairScalarValid(item.Driver) ||
+		(item.Driver == "" && !allowEmptyDriver) ||
+		(item.Driver != "" && !directPairScalarValid(item.Driver)) ||
 		!directPairScalarValid(item.Timeline) {
 		return "", false
 	}
@@ -441,6 +471,17 @@ func directPairUint32(ev decodedEvent, name string, expectedOffset int) (uint64,
 }
 
 func directPairDataLocScalar(ev decodedEvent, content []byte, name string, expectedOffset int) (string, directPairByteRange, bool) {
+	return directPairDataLocScalarProfile(
+		ev, content, name, expectedOffset, false)
+}
+
+func directPairDataLocScalarProfile(
+	ev decodedEvent,
+	content []byte,
+	name string,
+	expectedOffset int,
+	allowEmpty bool,
+) (string, directPairByteRange, bool) {
 	index, field, raw, ok := directPairExactField(ev, name)
 	// signed describes the char element profile for __data_loc char[]; the
 	// four physical locator bytes themselves are always decoded as a u32 tuple.
@@ -459,11 +500,16 @@ func directPairDataLocScalar(ev decodedEvent, content []byte, name string, expec
 		return "", directPairByteRange{}, false
 	}
 	dynamic := content[offset : offset+length]
-	if len(dynamic) < 2 || dynamic[len(dynamic)-1] != 0 || bytesIndexNUL(dynamic[:len(dynamic)-1]) >= 0 {
+	if len(dynamic) < 1 || dynamic[len(dynamic)-1] != 0 ||
+		bytesIndexNUL(dynamic[:len(dynamic)-1]) >= 0 {
 		return "", directPairByteRange{}, false
 	}
 	value := string(dynamic[:len(dynamic)-1])
-	if !directPairScalarValid(value) {
+	if value == "" {
+		if !allowEmpty || len(dynamic) != 1 {
+			return "", directPairByteRange{}, false
+		}
+	} else if !directPairScalarValid(value) {
 		return "", directPairByteRange{}, false
 	}
 	return value, directPairByteRange{start: offset, end: offset + length}, true

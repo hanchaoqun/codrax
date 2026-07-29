@@ -372,7 +372,7 @@ func (a *traceDBSourceRawDecodeAccumulator) observeRecord(
 			}
 		} else if traceDBRawDMALifecycleName(format.Name) {
 			dma, dmaAdmission, dmaReason :=
-				decodeDirectDMAFenceFields(event, content)
+				decodeDirectDMAFenceLifecycleFields(event, content)
 			if dmaAdmission != bodyAdmitted || dmaReason != "" ||
 				dma == nil || !dma.DriverKnown || !dma.TimelineKnown ||
 				!dma.ContextKnown || !dma.SeqnoKnown ||
@@ -453,11 +453,12 @@ func traceDBRawDecodeTargetBody(
 		return traceDBRawSchedWakeupLiteDiagnosticBody(row), bodyAdmitted, ""
 	case "dma_fence_destroy", "dma_fence_enable_signal",
 		"dma_fence_init", "dma_fence_signaled":
-		dma, admission, reason := decodeDirectDMAFenceFields(event, content)
+		dma, admission, reason :=
+			decodeDirectDMAFenceLifecycleFields(event, content)
 		if admission != bodyAdmitted {
 			return "", admission, reason
 		}
-		body, ok := renderCanonicalDMAFenceFields(dma)
+		body, ok := renderCanonicalDMAFenceLifecycleFields(dma)
 		if !ok {
 			return "", bodyRejected, "invalid_dma_fence_lifecycle_body"
 		}
