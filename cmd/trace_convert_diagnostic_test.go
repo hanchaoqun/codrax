@@ -37,7 +37,7 @@ func TestTraceConvertDiagnosticReportHardLimitAndPhysicalLineSafety(t *testing.T
 		"build_revision=",
 		`build_identity={"revision":`,
 		`"executable_hash_status":"available"`,
-		`diagnostic_capabilities=["sql_mixed_precision_wire_sort_v1","clock_regression_first_witness_v1","callstack_exact_name_v1","source_cmdline_official_rawtrace_v1","capture_issue_semantics_v1","callstack_official_field_semantics_v1","callstack_time_local_fence_v1","callstack_local_fence_witness_v1","callstack_rejected_scalar_witness_v1","official_viewer_typed_only_reason_census_v1","standard_sync_pipe_compat_v1","callstack_completed_async_interval_v1","source_rawtrace_authority_inventory_v1","executable_build_fingerprint_v1","unresolved_trace_identity_witnesses_v1","official_raw_page_profile_probe_v1","official_raw_record_decode_ledger_v1","official_raw_record_reconciliation_v2","official_raw_blocked_key_ledger_v1","official_raw_blocked_recovery_v1","official_raw_scheduler_lite_decode_v1","official_raw_scheduler_lite_join_v1","official_raw_scheduler_lite_common_pid_nonidentity_v1","official_raw_scheduler_lite_decision_diagnostics_v1","official_raw_record_decode_budget_v2","official_raw_scheduler_lite_wakeup_join_v1","official_raw_dma_wait_recovery_v1","official_raw_marker_endpoint_ledger_v1","official_raw_marker_sync_recovery_v1","official_raw_marker_action_census_v1","official_raw_marker_print_legacy_v1","official_raw_marker_print_compact_v1","official_raw_scheduler_lite_geometry_v1","official_raw_scheduler_wakeup_new_geometry_v1","official_raw_scheduler_wakeup_new_name_v1","official_raw_scheduler_compact_profile_v1","official_raw_blocked_subject_census_v1","official_raw_signed_char_array_string_v1","official_raw_marker_name_drift_fence_v1","official_raw_marker_local_pair_fence_v1","official_raw_marker_post_fence_dedup_v1","raw_marker_replacement_closure_v1","raw_marker_pair_diagnostics_v1","task_pool_complete_pair_v1","completed_async_generic_viewer_caveat_v1","official_raw_marker_async_recovery_v1","official_raw_marker_async_join_diagnostics_v1","official_raw_marker_async_mismatch_witness_v1","raw_marker_cpu_unavailable_collision_census_v1","raw_marker_cpu_unavailable_replacement_v1","thread_registration_metadata_only_v1","sql_text_fidelity_v1","official_frame_callstack_relation_v1","official_frame_gpu_relation_v1","official_perf_napi_async_relation_v1","official_ebpf_interval_v1"]`,
+		`diagnostic_capabilities=["sql_mixed_precision_wire_sort_v1","clock_regression_first_witness_v1","callstack_exact_name_v1","source_cmdline_official_rawtrace_v1","capture_issue_semantics_v1","callstack_official_field_semantics_v1","callstack_time_local_fence_v1","callstack_local_fence_witness_v1","callstack_rejected_scalar_witness_v1","coverage_witness_sideband_v1","official_viewer_typed_only_reason_census_v1","standard_sync_pipe_compat_v1","callstack_completed_async_interval_v1","source_rawtrace_authority_inventory_v1","executable_build_fingerprint_v1","unresolved_trace_identity_witnesses_v1","official_raw_page_profile_probe_v1","official_raw_record_decode_ledger_v1","official_raw_record_reconciliation_v2","official_raw_blocked_key_ledger_v1","official_raw_blocked_recovery_v1","official_raw_scheduler_lite_decode_v1","official_raw_scheduler_lite_join_v1","official_raw_scheduler_lite_common_pid_nonidentity_v1","official_raw_scheduler_lite_decision_diagnostics_v1","official_raw_record_decode_budget_v2","official_raw_scheduler_lite_wakeup_join_v1","official_raw_dma_wait_recovery_v1","official_raw_marker_endpoint_ledger_v1","official_raw_marker_sync_recovery_v1","official_raw_marker_action_census_v1","official_raw_marker_print_legacy_v1","official_raw_marker_print_compact_v1","official_raw_scheduler_lite_geometry_v1","official_raw_scheduler_wakeup_new_geometry_v1","official_raw_scheduler_wakeup_new_name_v1","official_raw_scheduler_compact_profile_v1","official_raw_blocked_subject_census_v1","official_raw_signed_char_array_string_v1","official_raw_marker_name_drift_fence_v1","official_raw_marker_local_pair_fence_v1","official_raw_marker_post_fence_dedup_v1","raw_marker_replacement_closure_v1","raw_marker_pair_diagnostics_v1","task_pool_complete_pair_v1","completed_async_generic_viewer_caveat_v1","official_raw_marker_async_recovery_v1","official_raw_marker_async_join_diagnostics_v1","official_raw_marker_async_mismatch_witness_v1","raw_marker_cpu_unavailable_collision_census_v1","raw_marker_cpu_unavailable_replacement_v1","thread_registration_metadata_only_v1","sql_text_fidelity_v1","official_frame_callstack_relation_v1","official_frame_gpu_relation_v1","official_perf_napi_async_relation_v1","official_ebpf_interval_v1"]`,
 		`normalize failed\nsecond physical line must not escape`,
 		"hard_limit=900",
 		"omitted_records=",
@@ -58,6 +58,39 @@ func TestTraceConvertDiagnosticReportHardLimitAndPhysicalLineSafety(t *testing.T
 	}
 	if strings.Contains(text, "normalize failed\nsecond physical line") {
 		t.Fatal("diagnostic value injected an unescaped physical line")
+	}
+}
+
+func TestTraceConvertDiagnosticCoverageWitnessSidebandSurvivesOversizedCoverage(t *testing.T) {
+	const durationWitness = "row_id=1/tid=101/itid=1/ts_ns=1000/reason=invalid_duration/dur=text_bytes=3/b64=MTAw"
+	body := string(traceConvertDiagnosticReportBody(
+		hitraceconv.Options{InputPath: "capture.sys"},
+		hitraceconv.Result{
+			TraceDBCoverage: []hitraceconv.TraceDBCoverage{{
+				Family: "slice",
+				Table:  "callstack",
+				Metadata: map[string]string{
+					"raw_async_mismatch_witnesses":       strings.Repeat("oversized-neighbor;", 800),
+					"rejected_callstack_fence_witnesses": durationWitness,
+				},
+			}},
+		},
+		traceConvertDiagnosticProgressLog{},
+		nil,
+	))
+	for _, want := range []string{
+		"coverage_witness_sideband_v1",
+		"trace_db_coverage_witness[0].rejected_callstack_fence_witnesses=",
+		durationWitness,
+		"trace_db_coverage_witness[0].raw_async_mismatch_witnesses=",
+		"<truncated original_bytes=",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("sideband diagnostic missing %q:\n%s", want, body)
+		}
+	}
+	if got := bytes.Count([]byte(body), []byte("\n")); got > traceConvertDiagnosticReportMaxLines {
+		t.Fatalf("sideband diagnostic exceeded line limit: got=%d", got)
 	}
 }
 

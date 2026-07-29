@@ -33,6 +33,7 @@ var traceConvertDiagnosticCapabilities = []string{
 	"callstack_time_local_fence_v1",
 	"callstack_local_fence_witness_v1",
 	"callstack_rejected_scalar_witness_v1",
+	"coverage_witness_sideband_v1",
 	"official_viewer_typed_only_reason_census_v1",
 	"standard_sync_pipe_compat_v1",
 	"callstack_completed_async_interval_v1",
@@ -327,12 +328,42 @@ func traceConvertDiagnosticReportBody(
 		lines.Add(traceConvertDiagnosticJSONLine(fmt.Sprintf("trace_coverage[%d]", index), coverage))
 	}
 	for index, coverage := range result.TraceDBCoverage {
+		appendTraceConvertDiagnosticCoverageWitnesses(&lines, index, coverage)
 		lines.Add(traceConvertDiagnosticJSONLine(fmt.Sprintf("trace_db_coverage[%d]", index), coverage))
 	}
 	for index, caveat := range result.Caveats {
 		lines.Add(traceConvertDiagnosticJSONLine(fmt.Sprintf("caveat[%d]", index), caveat))
 	}
 	return lines.Bytes()
+}
+
+var traceConvertDiagnosticCoverageWitnessKeys = []string{
+	"rejected_callstack_fence_witnesses",
+	"raw_async_mismatch_witnesses",
+}
+
+func appendTraceConvertDiagnosticCoverageWitnesses(
+	lines *traceConvertDiagnosticLineSet,
+	index int,
+	coverage hitraceconv.TraceDBCoverage,
+) {
+	if lines == nil || len(coverage.Metadata) == 0 {
+		return
+	}
+	for _, key := range traceConvertDiagnosticCoverageWitnessKeys {
+		value := coverage.Metadata[key]
+		if value == "" {
+			continue
+		}
+		lines.Add(traceConvertDiagnosticJSONLine(
+			fmt.Sprintf("trace_db_coverage_witness[%d].%s", index, key),
+			map[string]string{
+				"family": coverage.Family,
+				"table":  coverage.Table,
+				"value":  value,
+			},
+		))
+	}
 }
 
 func appendTraceConvertDiagnosticError(lines *traceConvertDiagnosticLineSet, conversionErr error) {
