@@ -217,6 +217,41 @@ func rejectConfirmedNoReason(lang, planID string) string {
 	return formatN(lang, "Rejected plan %s", planID)
 }
 
+// reviseConfirmedMsg — printed after /revise settles the superseded
+// plan and sends the batch back to planning with the feedback.
+func reviseConfirmedMsg(lang, planID, feedback string) string {
+	if isZh(lang) {
+		return formatN(lang, "已退回 plan %s 重新规划 — 修订意见: %s(worktree 与工作流保留)", planID, feedback)
+	}
+	return formatN(lang, "Sent plan %s back to planning — revision feedback: %s (worktree + workflow kept)", planID, feedback)
+}
+
+// reviseUsageMsg — /revise requires non-empty feedback: a bare
+// "re-plan with no guidance" is what /reject + a new goal is for.
+func reviseUsageMsg(lang string) string {
+	if isZh(lang) {
+		return "用法: /revise <修订意见> — 意见必填,会原样交给 planner 重新规划;不想给意见请用 /reject"
+	}
+	return "Usage: /revise <feedback> — feedback is required and is handed verbatim to the planner; use /reject if you have none"
+}
+
+// reviseNotApplicableMsg — /revise only applies to write-mode plans,
+// not command operation plans (those keep the /approve · /reject pair).
+func reviseNotApplicableMsg(lang string) string {
+	if isZh(lang) {
+		return "/revise 仅适用于写模式 plan;命令操作请用 /approve 或 /reject"
+	}
+	return "/revise only applies to write-mode plans; use /approve or /reject for command operations"
+}
+
+// noPendingPlanRevise — same as noPendingPlan but for /revise.
+func noPendingPlanRevise(lang string) string {
+	if isZh(lang) {
+		return "当前没有可修订的 plan"
+	}
+	return "No pending plan to revise"
+}
+
 // writeModeDisabled — printed when /mode write, /write, or /approve
 // fires while codrax.yaml :: write_enabled is false. The
 // pre-fix path silently accepted the transition and the failure
@@ -2966,6 +3001,7 @@ func isWriteModeCommand(name string) bool {
 		"/plan",
 		"/approve",
 		"/reject",
+		"/revise",
 		"/verify",
 		"/worktree",
 		"/merge",

@@ -384,6 +384,8 @@ var slashCommands = []slashCommand{
 	},
 	{Name: "/reject", HelpEn: "reject the pending write plan or command operation plan (optional free-form reason recorded in memory)",
 		HelpZh: "拒绝待审写模式计划或命令操作计划(可选附理由,记入 memory)"},
+	{Name: "/revise", HelpEn: "send the pending write plan back to planning with revision feedback (feedback required; keeps worktree + workflow alive, unlike terminal /reject)",
+		HelpZh: "对待审写模式计划提出修订意见并退回重新规划(意见必填;保留 worktree 与工作流继续跑,对比 /reject 终局作废)"},
 	{
 		Name:   "/verify",
 		HelpEn: "re-run verify against an applied plan without re-applying (write mode only)",

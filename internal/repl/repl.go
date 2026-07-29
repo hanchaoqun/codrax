@@ -7761,6 +7761,9 @@ func (r *REPL) handleSlash(line string) bool {
 	case "/reject":
 		r.handleRejectCmd(line)
 		return false
+	case "/revise":
+		r.handleReviseCmd(line)
+		return false
 	case "/operation":
 		r.handleOperationCmd(line)
 		return false
@@ -11173,6 +11176,68 @@ func (r *REPL) handleRejectCmd(line string) {
 	// Reject is still a plan-lifecycle event; use KindPlan so it
 	// shows up in the same /history filter as approvals.
 	r.recordTurn(request, request, msg, memory.KindPlan)
+}
+
+// handleReviseCmd is the third approval arm (PIB-W W-1, ledger
+// docs/design/pi_borrow_analysis_20260729.md §7.2): the operator is not
+// satisfied with the pending plan but does not want to kill the
+// workflow. The superseded plan is settled for audit (same lane
+// /reject uses), the worktree is deliberately KEPT (prior batches'
+// applied work lives there), the active batch returns to ReadyToPlan
+// carrying the feedback as a typed WriteWorkflowRevision, and the
+// workflow resumes planning immediately so the replan consumes the
+// feedback in the same turn.
+func (r *REPL) handleReviseCmd(line string) {
+	if r.pendingOperation != nil || r.pendingProviderOperation != nil {
+		r.info(reviseNotApplicableMsg(r.language))
+		return
+	}
+	if r.planStore == nil {
+		r.info(commandDisabled(r.language, "/revise", noPlanStoreReason(r.language)))
+		return
+	}
+	feedback := strings.TrimSpace(strings.TrimPrefix(line, "/revise"))
+	if feedback == "" {
+		r.info(reviseUsageMsg(r.language))
+		return
+	}
+	if r.pendingPlanPath == "" {
+		r.bindActiveWriteWorkflowPlanIfIdle("/revise")
+	}
+	// Same cold-start recovery /approve and /reject use. Single-
+	// pending invariant means at most one match.
+	if r.pendingPlanPath == "" {
+		if recovered, ok := r.recoverPendingPlanFromStore(); ok {
+			r.pendingPlanPath = recovered.Path
+			r.info(recoveredPendingPlan(r.language, recovered.ID))
+		}
+	}
+	if r.pendingPlanPath == "" {
+		r.info(noPendingPlanRevise(r.language))
+		return
+	}
+	id := strings.TrimSuffix(filepath.Base(r.pendingPlanPath), ".json")
+	// Settle keeps the superseded plan on disk (Status=rejected +
+	// prefixed reason) for the audit trail. No worktree discard: the
+	// workflow continues and the replan applies into the same tree.
+	if err := r.planStore.Settle(id, types.PlanStatusRejected, "revise: "+feedback); err != nil {
+		r.errorf("revise: %v\n", err)
+		return
+	}
+	r.markWriteWorkflowBatchRevised(id, feedback)
+	r.pendingPlanPath = ""
+
+	msg := reviseConfirmedMsg(r.language, id, feedback)
+	r.success(msg)
+	request := "/revise " + feedback
+	// Revise is a plan-lifecycle event like approve/reject; KindPlan
+	// keeps all three arms in the same /history filter.
+	r.recordTurn(request, request, msg, memory.KindPlan)
+	// Resume planning right away so the feedback is consumed in this
+	// turn (mirrors /approve running apply synchronously). The resume
+	// helper owns all further messaging; if the run cannot resume it
+	// says so and the batch stays ReadyToPlan for /workflow resume.
+	r.handleWriteWorkflowResume("")
 }
 
 // handleLogCmd dispatches the `/log` subcommands. Recognised forms:

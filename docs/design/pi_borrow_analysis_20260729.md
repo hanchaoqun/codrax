@@ -225,3 +225,13 @@ PIB-1 前置探索结论（2026-07-29，全文见批次补记）：codrax 重试
 6. **apply 编辑防错——大半不存在，残留 W-4**：structured-edit 侧唯一性/重叠/no-op/全文唯一才重定位/typed diagnostic（reason code+RetryInstruction）已比 pi edit 工具硬；raw unified diff 拒绝走 `composeApplyRejection` 纯散文（无 reason code）。
 
 **批内裁定**：本批做 W-1+W-2（同属审批车道）；W-3/W-4 列候补，视 W-1 落地后价值再排。
+
+**W-1 详细设计（定稿）**：
+- 新 typed 载体 `types.WriteWorkflowRevision{PlanID, Feedback, RequestedAt, ConsumedBy}`，batch 新增 append-only `Revisions []`；pending 判定=最后一条 `ConsumedBy==""`（精确信号）。
+- REPL 新动词 `/revise <修订意见>`（意见必填，空则打用法；与 `/reject` 同套 pending-plan 冷恢复路径）：`planStore.Settle(id, Rejected, "revise: "+feedback)` 留审计；**不丢 worktree**（前序 batch 已应用工作在里面——这正是 /reject 是终局而 /revise 不是的原因）；batch 置 `ReadyToPlan`（复用 approve_failed 已验证的可重规划态，auto-resume 天然接手）+ 追加 Revisions + ProgressLedger reason `revision_requested`。
+- 下一步动作卡：`WriteWorkflowNextActionReviseBatch` 加入 needs_approval 的 secondary；渲染提示升级为 `/approve · /revise <修订意见> · /reject <reason>`。
+- 调度器消费：`runControllerPlanBatch` 的 planner 指令注入 pending revision（操作者原话作 data 引用，标明被否 plan id）；新 plan 铸出后回填 `ConsumedBy`，防陈旧意见跨 batch 复灌。
+- 对标 pi plan-mode 三段式审批的 Refine 臂（§3.7 件6）；prompt 面遵守 §3.10 模式 4（声明下游读者）与模式 5（引用而非改写用户意见）。
+- W-2（append-only 审批账本 + `/workflow show` 展示 `Reasons[]`）如本窗上下文不足则单独成批，设计已锚定：run 级 `ApprovalRecords []WriteApprovalRecord` 在 stage_hooks 与 repl approve 两个盖章点追加。
+
+**W-1 落地记录（2026-07-29）**：按定稿设计全量落地。触点：`internal/types/write_workflow_run.go`（`WriteWorkflowRevision` + batch `Revisions[]` + `WriteWorkflowBatchPendingRevision` 精确信号访问器）、`write_workflow_next_action.go`（`revise_batch` 动作，needs_approval secondary 首位）、`internal/types/conversation.go`（`/revise`+`\revise` 别名双注册——由 `TestHandleSlashDispatchMatchesRegistry` 结构守卫抓出，否则 dispatch case 是死代码）、`internal/repl/input.go`+`repl.go`（动词注册/派发/`handleReviseCmd`：意见必填、同套冷恢复、Settle 留审计、**不丢 worktree**、置 ReadyToPlan 后立即同步 resume）、`messages.go`（四条双语消息 + `isWriteModeCommand` 归类——由帮助分区守卫抓出）、`handle_workflow.go`（`markWriteWorkflowBatchRevised` + 带 mutate 回调的 update 变体 + 卡片提示三臂化）、`write_controller_scheduler.go`（`appendOperatorRevisionHint` 纯函数注入 planner hint（%q 引用原话+声明下游读者）+ `pendingActiveBatchRevision` + `updateWorkflowRunBatchPlan` 铸新 plan 时盖 `ConsumedBy` 防陈旧复灌）。验证：`make` 绿、全仓 83 包零 FAIL；新 pin 七组（repl 三：意见必填负臂/全链路含 **ledger 顺序证明 revision_requested 后有 resumed（ReadyToPlan 可恢复非死路的判决性证据）**/卡片三臂；orchestrator 三：hint 引用+命名+nil 零字节、活跃 batch 限定+消费态过滤、ConsumedBy 盖章+历史保留；两结构守卫红→绿）。

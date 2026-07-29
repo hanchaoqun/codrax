@@ -19,6 +19,7 @@ const (
 	WriteWorkflowNextActionWait            WriteWorkflowNextActionID = "wait"
 	WriteWorkflowNextActionReviewPlan      WriteWorkflowNextActionID = "review_plan"
 	WriteWorkflowNextActionApproveBatch    WriteWorkflowNextActionID = "approve_batch"
+	WriteWorkflowNextActionReviseBatch     WriteWorkflowNextActionID = "revise_batch"
 	WriteWorkflowNextActionRejectBatch     WriteWorkflowNextActionID = "reject_batch"
 	WriteWorkflowNextActionInspectWorkflow WriteWorkflowNextActionID = "inspect_workflow"
 	WriteWorkflowNextActionInspectEvidence WriteWorkflowNextActionID = "inspect_evidence"
@@ -88,7 +89,11 @@ func DeriveWriteWorkflowNextActionView(run WriteWorkflowRun) WriteWorkflowNextAc
 		view.State = WriteWorkflowNextNeedsApproval
 		view.RequiresUser = true
 		view.PrimaryAction = WriteWorkflowNextActionApproveBatch
+		// Revise sits before reject: the less destructive arm first
+		// (PIB-W W-1 three-arm approval — approve / revise-with-
+		// feedback / terminal reject).
 		view.SecondaryActions = []WriteWorkflowNextActionID{
+			WriteWorkflowNextActionReviseBatch,
 			WriteWorkflowNextActionRejectBatch,
 			WriteWorkflowNextActionReviewPlan,
 		}

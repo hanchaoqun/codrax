@@ -3948,6 +3948,47 @@ func (o *Orchestrator) prepareControllerPlanningState() {
 	o.phaseContextPrefix = ""
 }
 
+// appendOperatorRevisionHint renders a pending /revise into the
+// planner hint (PIB-W W-1). The feedback is quoted as data (%q), the
+// superseded plan id is named, and the downstream reader is declared
+// so the planner knows the replacement faces the operator again. Nil
+// revision appends nothing.
+func appendOperatorRevisionHint(b *strings.Builder, rev *types.WriteWorkflowRevision) {
+	if b == nil || rev == nil {
+		return
+	}
+	supersededPlan := strings.TrimSpace(rev.PlanID)
+	if supersededPlan == "" {
+		supersededPlan = "the previous plan"
+	} else {
+		supersededPlan = "plan " + supersededPlan
+	}
+	fmt.Fprintf(b, "## Operator revision feedback (supersedes %s)\n\n", supersededPlan)
+	b.WriteString("The operator reviewed the previous plan for this batch, declined to approve it, and asked for a revision. Their feedback, verbatim:\n\n")
+	fmt.Fprintf(b, "%q\n\n", rev.Feedback)
+	b.WriteString("Produce a replacement ChangePlan that addresses this feedback; the replacement will be reviewed by the operator again.\n\n")
+}
+
+// pendingActiveBatchRevision returns the active batch's pending
+// (not-yet-consumed) operator revision, or nil when there is no run /
+// active batch / unconsumed revision. Precise signal accessor — the
+// planner hint seeding is the only consumer.
+func pendingActiveBatchRevision(run *types.WriteWorkflowRun) *types.WriteWorkflowRevision {
+	if run == nil {
+		return nil
+	}
+	activeID := strings.TrimSpace(run.ActiveBatchID)
+	if activeID == "" {
+		return nil
+	}
+	for i := range run.Batches {
+		if run.Batches[i].ID == activeID {
+			return types.WriteWorkflowBatchPendingRevision(run.Batches[i])
+		}
+	}
+	return nil
+}
+
 func (o *Orchestrator) seedControllerBatchPlanningHint(batch writeflow.WriteBatchPlan) {
 	batch = writeflow.NormalizeBatchPlan(batch)
 	var b strings.Builder
@@ -3962,6 +4003,9 @@ func (o *Orchestrator) seedControllerBatchPlanningHint(batch writeflow.WriteBatc
 	if batch.Purpose != "" {
 		fmt.Fprintf(&b, "Purpose: %s\n\n", batch.Purpose)
 	}
+	// PIB-W W-1: a pending /revise carries the operator's verbatim
+	// feedback into this planning dispatch.
+	appendOperatorRevisionHint(&b, pendingActiveBatchRevision(o.busCtx.Mutable.WriteWorkflowRun()))
 	ownerView := o.controllerPlanningOwnerAnchorView(batch, types.WriteConsumerPlanner, 8)
 	if ownerRows := types.OwnerAnchorEvidenceRequirements(ownerView, 6); len(ownerRows) > 0 {
 		b.WriteString("Typed owner-anchor repair candidates:\n")
@@ -4782,6 +4826,16 @@ func updateWorkflowRunBatchPlan(run *types.WriteWorkflowRun, batchID string, pla
 			}
 			run.Batches[i].PlanID = planID
 			run.Batches[i].PlanRef = planID
+			// PIB-W W-1: minting a plan for this batch consumes every
+			// pending operator revision — stamping ConsumedBy keeps
+			// stale feedback from re-injecting into later replans.
+			if planID != "" {
+				for j := range run.Batches[i].Revisions {
+					if strings.TrimSpace(run.Batches[i].Revisions[j].ConsumedBy) == "" {
+						run.Batches[i].Revisions[j].ConsumedBy = planID
+					}
+				}
+			}
 			initializeWorkflowBatchSlicesFromPlan(&run.Batches[i], plan, priorPlanID, priorPlan)
 			run.Batches[i].UpdatedAt = time.Now()
 			appendWorkflowBatchAttempt(&run.Batches[i], "plan", "complete", "", planID, "", planID)

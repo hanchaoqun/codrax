@@ -221,11 +221,41 @@ type WriteWorkflowBatch struct {
 	ApprovalRef     string                    `json:"approval_ref,omitempty"`
 	ContextPackIDs  []string                  `json:"context_pack_ids,omitempty"`
 	Attempts        []WriteWorkflowAttempt    `json:"attempts,omitempty"`
+	Revisions       []WriteWorkflowRevision   `json:"revisions,omitempty"`
 	ActiveSliceID   string                    `json:"active_slice_id,omitempty"`
 	Slices          []WriteWorkflowSlice      `json:"slices,omitempty"`
 	SliceEvents     []WriteWorkflowSliceEvent `json:"slice_events,omitempty"`
 	CreatedAt       time.Time                 `json:"created_at,omitempty"`
 	UpdatedAt       time.Time                 `json:"updated_at,omitempty"`
+}
+
+// WriteWorkflowRevision records one operator /revise decision on a
+// pending-approval plan (PIB-W W-1, ledger
+// docs/design/pi_borrow_analysis_20260729.md §7.2): the superseded plan
+// is settled for audit while the batch returns to planning carrying the
+// operator's verbatim feedback. ConsumedBy is the id of the plan minted
+// by the replan that consumed this feedback — the batch's pending
+// revision is the LAST entry whose ConsumedBy is empty (precise
+// signal: a single string field comparison, no text parsing).
+type WriteWorkflowRevision struct {
+	PlanID      string    `json:"plan_id,omitempty"`
+	Feedback    string    `json:"feedback,omitempty"`
+	RequestedAt time.Time `json:"requested_at,omitempty"`
+	ConsumedBy  string    `json:"consumed_by,omitempty"`
+}
+
+// WriteWorkflowBatchPendingRevision returns the batch's pending
+// (not-yet-consumed) operator revision, or nil. Append-only history
+// plus this accessor keeps "is there feedback waiting for the planner"
+// a precise single-field signal.
+func WriteWorkflowBatchPendingRevision(batch WriteWorkflowBatch) *WriteWorkflowRevision {
+	for i := len(batch.Revisions) - 1; i >= 0; i-- {
+		if strings.TrimSpace(batch.Revisions[i].ConsumedBy) == "" {
+			rev := batch.Revisions[i]
+			return &rev
+		}
+	}
+	return nil
 }
 
 type WriteWorkflowAttempt struct {

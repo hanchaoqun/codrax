@@ -372,7 +372,29 @@ func (r *REPL) markWriteWorkflowBatchRejected(planID, reason string) {
 	r.updateActiveWriteWorkflowBatchForPlan(planID, types.WriteWorkflowBatchBlocked, "rejected", msg)
 }
 
+// markWriteWorkflowBatchRevised is the /revise counterpart of
+// markWriteWorkflowBatchRejected (PIB-W W-1): instead of Blocked (a
+// terminal state the resume machinery skips) the batch returns to
+// ReadyToPlan — the same replannable state the approve_failed lane
+// already exercises — and the operator's feedback is appended as a
+// typed WriteWorkflowRevision the planner-side seeding consumes.
+func (r *REPL) markWriteWorkflowBatchRevised(planID, feedback string) {
+	msg := strings.TrimSpace(feedback)
+	r.updateActiveWriteWorkflowBatchForPlanWith(planID, types.WriteWorkflowBatchReadyToPlan, "revision_requested", msg,
+		func(batch *types.WriteWorkflowBatch) {
+			batch.Revisions = append(batch.Revisions, types.WriteWorkflowRevision{
+				PlanID:      strings.TrimSpace(planID),
+				Feedback:    msg,
+				RequestedAt: time.Now(),
+			})
+		})
+}
+
 func (r *REPL) updateActiveWriteWorkflowBatchForPlan(planID string, status types.WriteWorkflowBatchStatus, reasonCode, message string) {
+	r.updateActiveWriteWorkflowBatchForPlanWith(planID, status, reasonCode, message, nil)
+}
+
+func (r *REPL) updateActiveWriteWorkflowBatchForPlanWith(planID string, status types.WriteWorkflowBatchStatus, reasonCode, message string, mutate func(*types.WriteWorkflowBatch)) {
 	if r.writeWorkflowRunStore == nil || strings.TrimSpace(planID) == "" {
 		return
 	}
@@ -394,6 +416,9 @@ func (r *REPL) updateActiveWriteWorkflowBatchForPlan(planID string, status types
 			continue
 		}
 		batch.Status = status
+		if mutate != nil {
+			mutate(batch)
+		}
 		updated = true
 		break
 	}
@@ -487,7 +512,7 @@ func writeWorkflowNextActionLinesBase(lang string, run types.WriteWorkflowRun) [
 	proof := loopState.Proof
 	switch view.State {
 	case types.WriteWorkflowNextNeedsApproval:
-		return writeNextActionCardLines(lang, writeActionNeedsApproval, "/approve · /reject <reason> · /workflow list")
+		return writeNextActionCardLines(lang, writeActionNeedsApproval, "/approve · /revise <feedback> · /reject <reason> · /workflow list")
 	case types.WriteWorkflowNextComplete:
 		return writeWorkflowCompleteNextActionLines(lang, view)
 	case types.WriteWorkflowNextBlocked:
