@@ -34,6 +34,7 @@ var traceConvertDiagnosticCapabilities = []string{
 	"callstack_local_fence_witness_v1",
 	"callstack_rejected_scalar_witness_v1",
 	"coverage_witness_sideband_v1",
+	"coverage_receipt_sideband_v1",
 	"null_duration_raw_closure_census_v1",
 	"raw_marker_local_validation_witness_v1",
 	"official_raw_marker_zero_pid_header_identity_v1",
@@ -339,12 +340,60 @@ func traceConvertDiagnosticReportBody(
 	}
 	for index, coverage := range result.TraceDBCoverage {
 		appendTraceConvertDiagnosticCoverageWitnesses(&lines, index, coverage)
-		lines.Add(traceConvertDiagnosticJSONLine(fmt.Sprintf("trace_db_coverage[%d]", index), coverage))
+		coverageLine := traceConvertDiagnosticJSONLine(
+			fmt.Sprintf("trace_db_coverage[%d]", index), coverage)
+		appendTraceConvertDiagnosticCoverageReceipt(
+			&lines, index, coverage, coverageLine)
+		lines.Add(coverageLine)
 	}
 	for index, caveat := range result.Caveats {
 		lines.Add(traceConvertDiagnosticJSONLine(fmt.Sprintf("caveat[%d]", index), caveat))
 	}
 	return lines.Bytes()
+}
+
+func appendTraceConvertDiagnosticCoverageReceipt(
+	lines *traceConvertDiagnosticLineSet,
+	index int,
+	coverage hitraceconv.TraceDBCoverage,
+	fullLine string,
+) {
+	if lines == nil || len(fullLine) <= traceConvertDiagnosticLineMaxBytes {
+		return
+	}
+	receipt := map[string]any{
+		"family":             coverage.Family,
+		"table":              coverage.Table,
+		"role":               coverage.Role,
+		"found":              coverage.Found,
+		"rows_read":          coverage.RowsRead,
+		"rows_emitted":       coverage.RowsEmitted,
+		"elapsed_us":         coverage.ElapsedUS,
+		"metric_count":       len(coverage.Metrics),
+		"metadata_count":     len(coverage.Metadata),
+		"field_source_count": len(coverage.FieldSources),
+		"full_line_bytes":    len(fullLine),
+		"skipped_present":    coverage.Skipped != "",
+		"error_present":      coverage.Error != "",
+	}
+	if coverage.Skipped != "" {
+		receipt["skipped"] =
+			traceConvertDiagnosticCoverageReceiptValue(coverage.Skipped)
+	}
+	if coverage.Error != "" {
+		receipt["error"] =
+			traceConvertDiagnosticCoverageReceiptValue(coverage.Error)
+	}
+	lines.Add(traceConvertDiagnosticJSONLine(
+		fmt.Sprintf("trace_db_coverage_receipt[%d]", index), receipt))
+}
+
+func traceConvertDiagnosticCoverageReceiptValue(value string) string {
+	const maximumBytes = 512
+	if len(value) <= maximumBytes && utf8.ValidString(value) {
+		return value
+	}
+	return fmt.Sprintf("<omitted original_bytes=%d>", len(value))
 }
 
 var traceConvertDiagnosticCoverageWitnessKeys = []string{
