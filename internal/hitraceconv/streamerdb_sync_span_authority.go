@@ -266,9 +266,14 @@ type traceDBSyncSpanAuthority struct {
 	poisonedTotal                 int
 	fencedTotal                   int
 	globalPoisonedTotal           int
+	nullDurationHints             [traceDBCallstackNullDurationHintCap]traceDBCallstackNullDurationHint
+	nullDurationHintCount         int
+	nullDurationHintTotal         int
+	nullDurationHintsComplete     bool
 }
 
 const traceDBSyncSpanFenceWitnessCap = 8
+const traceDBCallstackNullDurationHintCap = 4096
 
 // traceDBSyncSpanSemanticKey is an exact logical span identity used only to
 // recognize a source-raw marker pair already represented by an earlier DB
@@ -289,6 +294,21 @@ type traceDBSyncSpanIntervalCollisionCensus struct {
 	Total                   int64
 	CallstackCPUKnown       int64
 	CallstackCPUUnavailable int64
+}
+
+// traceDBCallstackNullDurationHint is diagnostic-only evidence for one
+// timestamp-known callstack row whose SQLite duration was NULL. It deliberately
+// has no End: only a separately decoded exact raw B/E pair may provide that
+// value in a later repair batch.
+type traceDBCallstackNullDurationHint struct {
+	RowID         int64
+	HeaderTID     int64
+	HeaderTGID    int64
+	MarkerPID     int64
+	CanonicalITID int64
+	OwnerIPID     int64
+	Start         int64
+	Name          string
 }
 
 func (census traceDBSyncSpanIntervalCollisionCensus) Other() int64 {
@@ -316,9 +336,53 @@ func newTraceDBSyncSpanAuthorityWithOptions(ctx context.Context, outputArtifact 
 		return nil, err
 	}
 	return &traceDBSyncSpanAuthority{
-		artifactSource: filepath.Clean(abs),
-		stage:          stage,
+		artifactSource:            filepath.Clean(abs),
+		stage:                     stage,
+		nullDurationHintsComplete: true,
 	}, nil
+}
+
+func (authority *traceDBSyncSpanAuthority) recordNullDurationHint(
+	hint traceDBCallstackNullDurationHint,
+) bool {
+	if authority == nil || authority.state != traceDBSyncSpanAuthorityOpen ||
+		authority.artifactSource == "" {
+		return false
+	}
+	if hint.RowID <= 0 || hint.HeaderTID <= 0 || hint.HeaderTGID <= 0 ||
+		hint.MarkerPID <= 0 || hint.MarkerPID > math.MaxInt32 ||
+		hint.CanonicalITID <= 0 || hint.OwnerIPID <= 0 || hint.Start < 0 ||
+		!traceDBCallstackSpanName(hint.Name) {
+		authority.nullDurationHintsComplete = false
+		return false
+	}
+	if authority.nullDurationHintTotal == math.MaxInt {
+		authority.nullDurationHintsComplete = false
+		return false
+	}
+	authority.nullDurationHintTotal++
+	if authority.nullDurationHintCount >= traceDBCallstackNullDurationHintCap {
+		authority.nullDurationHintsComplete = false
+		return false
+	}
+	authority.nullDurationHints[authority.nullDurationHintCount] = hint
+	authority.nullDurationHintCount++
+	return true
+}
+
+func (authority *traceDBSyncSpanAuthority) nullDurationHintSnapshot() (
+	[]traceDBCallstackNullDurationHint, int, bool, error,
+) {
+	if authority == nil || authority.state != traceDBSyncSpanAuthorityOpen ||
+		authority.artifactSource == "" {
+		return nil, 0, false,
+			&traceDBOutputInvariantError{Reason: "sync_span_authority_not_open"}
+	}
+	out := append([]traceDBCallstackNullDurationHint(nil),
+		authority.nullDurationHints[:authority.nullDurationHintCount]...)
+	return out, authority.nullDurationHintTotal,
+		authority.nullDurationHintsComplete &&
+			authority.nullDurationHintTotal == authority.nullDurationHintCount, nil
 }
 
 func (authority *traceDBSyncSpanAuthority) submit(ctx context.Context, candidate traceDBSyncSpanCandidate) error {

@@ -241,6 +241,14 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 		row, reason := prepareTraceDBCallstackRow(authority, running, hasID, hasITID, hasCallID, hasFlag, hasDepth, hasChildCallID,
 			rowIDRaw, sourceIDRaw, tsRaw, durRaw, nameRaw, callIDRaw, itidRaw, flagRaw, cookieRaw, chainIDRaw, depthRaw, childCallIDRaw)
 		if reason != "" {
+			nullDurationHintNeeded := false
+			if reason == "invalid_duration" {
+				durationClass := traceDBCallstackRejectedDurationClass(durRaw)
+				traceDBAddCoverageMetric(&coverage,
+					"source_rows_rejected_invalid_duration_"+durationClass, 1)
+				nullDurationHintNeeded = durationClass == "null" &&
+					traceDBCallstackPotentialSync(cookieRaw)
+			}
 			officialAsync := traceDBCallstackOfficialAsyncRaw(flagRaw, cookieRaw, durRaw, hasFlag)
 			if officialAsync {
 				officialAsyncShaped++
@@ -258,8 +266,11 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 				}
 			}
 			if !nameOnlyRejection && !officialAsync && traceDBCallstackPotentialSync(cookieRaw) {
-				for _, itid := range traceDBCallstackExactEmitterCandidates(authority, hasITID, hasCallID, itidRaw, callIDRaw) {
-					thread, _, resolution := authority.resolveThreadSubject(itid)
+				emitterCandidates := traceDBCallstackExactEmitterCandidates(
+					authority, hasITID, hasCallID, itidRaw, callIDRaw)
+				nullDurationHintHandled := false
+				for _, itid := range emitterCandidates {
+					thread, process, resolution := authority.resolveThreadSubject(itid)
 					if resolution != traceDBSchedulerThreadResolved {
 						return fail(&traceDBOutputInvariantError{Reason: "callstack_exact_lane_lost_identity"})
 					}
@@ -289,6 +300,33 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 									Dur: traceDBCallstackRejectedScalar(durRaw),
 								})
 						}
+						if nullDurationHintNeeded && !nullDurationHintHandled &&
+							len(emitterCandidates) == 1 {
+							name, nameReason := traceDBCallstackName(nameRaw)
+							flag, flagValid := traceDBCallstackFlag(flagRaw)
+							flagCompatible := flag == "" || flag == "I" ||
+								flag == "S" || flag == "C"
+							if nameReason == "" && flagValid && flagCompatible &&
+								thread.TID > 0 && thread.TID <= math.MaxInt32 &&
+								thread.IPID > 0 && process.PID > 0 &&
+								process.PID <= math.MaxInt32 {
+								retained := syncSpans.recordNullDurationHint(
+									traceDBCallstackNullDurationHint{
+										RowID: row.ID, HeaderTID: thread.TID,
+										HeaderTGID: process.PID, MarkerPID: process.PID,
+										CanonicalITID: itid, OwnerIPID: thread.IPID,
+										Start: row.TS, Name: name,
+									})
+								nullDurationHintHandled = true
+								if retained {
+									traceDBAddCoverageMetric(&coverage,
+										"source_rows_rejected_null_duration_exact_hints_retained", 1)
+								} else {
+									traceDBAddCoverageMetric(&coverage,
+										"source_rows_rejected_null_duration_exact_hints_omitted", 1)
+								}
+							}
+						}
 					} else {
 						if err := syncSpans.poisonExactLane(ctx, traceDBSyncSpanLanePoison{
 							Producer:           traceDBSyncSpanProducerCallstack,
@@ -300,6 +338,10 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 							return fail(err)
 						}
 					}
+				}
+				if nullDurationHintNeeded && !nullDurationHintHandled {
+					traceDBAddCoverageMetric(&coverage,
+						"source_rows_rejected_null_duration_exact_hint_unavailable", 1)
 				}
 			}
 			skipped[reason]++
@@ -598,6 +640,23 @@ func traceDBCallstackRejectedScalar(value any) string {
 		return "blob_" + traceDBCallstackRejectedBytes(typed)
 	default:
 		return fmt.Sprintf("unsupported_type:%T", value)
+	}
+}
+
+func traceDBCallstackRejectedDurationClass(value any) string {
+	switch value.(type) {
+	case nil:
+		return "null"
+	case int64:
+		return "integer"
+	case float64:
+		return "real"
+	case string:
+		return "text"
+	case []byte:
+		return "blob"
+	default:
+		return "unsupported"
 	}
 }
 

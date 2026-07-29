@@ -108,6 +108,56 @@ func TestSubmitTraceDBRawMarkerSyncRecoveryPublishesDBDisjointExactPair(t *testi
 	}
 }
 
+func TestSubmitTraceDBRawMarkerSyncRecoveryDiagnosesExactNullDurationClosureWithoutAdmittingDuration(t *testing.T) {
+	ctx := context.Background()
+	syncSpans := newTraceDBTestSyncSpanAuthority(t)
+	retained := syncSpans.recordNullDurationHint(
+		traceDBCallstackNullDurationHint{
+			RowID: 1, HeaderTID: 201, HeaderTGID: 200, MarkerPID: 777,
+			CanonicalITID: 2, OwnerIPID: 2, Start: 1_000_000, Name: "frame",
+		})
+	if !retained {
+		t.Fatal("record exact NULL-duration hint failed")
+	}
+	coverage, err := submitTraceDBRawMarkerSyncRecovery(
+		ctx, traceDBRawMarkerTestInventory(
+			traceDBRawMarkerTestPair(201, 777, 1, "frame")),
+		traceDBRawBlockedKeyTestAuthority(), syncSpans)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if coverage.Metadata["null_duration_raw_closure_census"] != "complete" ||
+		coverage.Metrics["null_duration_fence_hints_total"] != 1 ||
+		coverage.Metrics["null_duration_fence_hints_retained"] != 1 ||
+		coverage.Metrics["null_duration_hints_unique_exact_raw_closure"] != 1 {
+		t.Fatalf("NULL-duration raw closure census drifted: %+v", coverage)
+	}
+	if syncSpans.fencedTotal != 0 ||
+		syncSpans.superseded[traceDBSyncSpanProducerCallstack] != 0 {
+		t.Fatalf("diagnostic census changed fence/admission authority: %+v", syncSpans)
+	}
+}
+
+func TestSubmitTraceDBRawMarkerSyncRecoveryPublishesBoundedLocalValidationWitness(t *testing.T) {
+	ctx := context.Background()
+	rows := traceDBRawMarkerTestPair(201, 0, 1, "frame")
+	syncSpans := newTraceDBTestSyncSpanAuthority(t)
+	coverage, err := submitTraceDBRawMarkerSyncRecovery(
+		ctx, traceDBRawMarkerTestInventory(rows),
+		traceDBRawBlockedKeyTestAuthority(), syncSpans)
+	if err != nil {
+		t.Fatal(err)
+	}
+	witness := coverage.Metadata["raw_marker_local_validation_witnesses"]
+	if coverage.Metrics["raw_pairs_withheld_invalid_begin_payload_pid"] != 1 ||
+		coverage.Metrics["raw_marker_local_validation_witnesses_emitted"] != 1 ||
+		!strings.Contains(witness, "reason=invalid_begin_payload_pid") ||
+		!strings.Contains(witness, "begin_payload_pid=0") ||
+		coverage.Metrics["raw_pairs_submitted"] != 0 {
+		t.Fatalf("raw local-validation witness drifted: %+v", coverage)
+	}
+}
+
 func TestSubmitTraceDBRawMarkerSyncRecoverySkipsExactExistingDBCandidate(t *testing.T) {
 	ctx := context.Background()
 	syncSpans := newTraceDBTestSyncSpanAuthority(t)

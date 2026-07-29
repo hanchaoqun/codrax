@@ -397,6 +397,29 @@ func TestTraceDBCallstackRejectedTimestampFencesOnlySuffix(t *testing.T) {
 	}
 }
 
+func TestTraceDBCallstackNullDurationIsTypedAndRetainsExactClosureHint(t *testing.T) {
+	statements := traceDBCallstackAuthorityStatements(
+		[]string{
+			"INSERT INTO thread_state VALUES (1, 700, 1400, 1, 'Running')",
+		},
+		[]string{
+			"INSERT INTO callstack VALUES (1, 1000, NULL, 1, NULL, 'open-frame', '', NULL, NULL, 0)",
+		},
+	)
+	coverage, body := exportTraceDBCallstackAuthorityFixture(
+		t, statements, traceDBLifecycleIndex{}, true, nil)
+	if body != "" ||
+		coverage.Metrics["source_rows_rejected_invalid_duration_null"] != 1 ||
+		coverage.Metrics["source_rows_rejected_null_duration_exact_hints_retained"] != 1 ||
+		coverage.Metrics["source_rows_rejected_null_duration_exact_hint_unavailable"] != 0 ||
+		!strings.Contains(coverage.Skipped, "invalid_duration=1") ||
+		!strings.Contains(coverage.Metadata["rejected_callstack_fence_witnesses"],
+			"reason=invalid_duration/dur=null") {
+		t.Fatalf("NULL-duration typed hint drifted: coverage=%+v body=%q",
+			coverage, body)
+	}
+}
+
 func TestTraceDBCallstackRejectedFenceWitnessesAreBounded(t *testing.T) {
 	callstack := make([]string, 0, traceDBCallstackRejectedWitnessCap+2)
 	for index := 0; index < traceDBCallstackRejectedWitnessCap+2; index++ {

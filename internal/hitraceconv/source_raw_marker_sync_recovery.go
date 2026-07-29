@@ -25,6 +25,18 @@ type traceDBRawMarkerPairWitness struct {
 	name     string
 }
 
+const traceDBRawMarkerLocalValidationWitnessCap = 8
+
+type traceDBCallstackNullDurationClosureKey struct {
+	HeaderTID     int64
+	HeaderTGID    int64
+	MarkerPID     int64
+	CanonicalITID int64
+	OwnerIPID     int64
+	Start         int64
+	Name          string
+}
+
 func newTraceDBRawMarkerSyncCoverage() TraceDBCoverage {
 	return TraceDBCoverage{
 		Family: "source_rawtrace_marker_sync",
@@ -82,6 +94,11 @@ func submitTraceDBRawMarkerSyncRecovery(
 		return out, nil
 	}
 	if len(rows) == 0 {
+		if err := traceDBApplyNullDurationRawClosureCensus(
+			&out, syncSpans, nil); err != nil {
+			out.Error = err.Error()
+			return out, err
+		}
 		out.Metadata["publication_state"] = "complete_no_sync_endpoint"
 		out.Skipped = "raw marker sync recovery complete: no retained B/E endpoint"
 		return out, nil
@@ -110,6 +127,9 @@ func submitTraceDBRawMarkerSyncRecovery(
 
 	candidates := make([]traceDBSyncSpanCandidate, 0, len(rows)/2)
 	longestPairs := make([]traceDBRawMarkerPairWitness, 0, 8)
+	localValidationWitnessTotal := 0
+	localValidationWitnesses := make([]string, 0,
+		traceDBRawMarkerLocalValidationWitnessCap)
 	for _, emitter := range emitters {
 		lane := byEmitter[emitter]
 		sort.SliceStable(lane, func(i, j int) bool {
@@ -209,6 +229,12 @@ func submitTraceDBRawMarkerSyncRecovery(
 			candidate, reason := traceDBRawMarkerSyncCandidate(pair, authority)
 			if reason != "" {
 				localizedWithholding = true
+				localValidationWitnessTotal++
+				if len(localValidationWitnesses) <
+					traceDBRawMarkerLocalValidationWitnessCap {
+					localValidationWitnesses = append(localValidationWitnesses,
+						traceDBRawMarkerLocalValidationWitness(pair, reason))
+				}
 				traceDBAddCoverageMetric(&out, "raw_pairs_withheld_local_validation", 1)
 				traceDBAddCoverageMetric(&out,
 					"raw_pairs_withheld_"+traceDBRawDecodeReasonMetric(reason), 1)
@@ -229,6 +255,24 @@ func submitTraceDBRawMarkerSyncRecovery(
 	if len(longestPairs) > 0 {
 		out.Metadata["raw_marker_longest_pair_witnesses"] =
 			traceDBRawMarkerPairWitnesses(longestPairs)
+	}
+	if len(localValidationWitnesses) > 0 {
+		out.Metadata["raw_marker_local_validation_witnesses"] =
+			strings.Join(localValidationWitnesses, ";")
+		traceDBAddCoverageMetric(&out,
+			"raw_marker_local_validation_witnesses_emitted",
+			int64(len(localValidationWitnesses)))
+		if omitted := localValidationWitnessTotal - len(localValidationWitnesses); omitted > 0 {
+			traceDBAddCoverageMetric(&out,
+				"raw_marker_local_validation_witnesses_omitted", int64(omitted))
+		}
+		out.FieldSources["local_validation_witnesses"] =
+			"bounded exact physical raw pair and closed first-failure reason; diagnostic only and never alternate PID/name/span admission authority"
+	}
+	if err := traceDBApplyNullDurationRawClosureCensus(
+		&out, syncSpans, candidates); err != nil {
+		out.Error = err.Error()
+		return out, err
 	}
 
 	rawIntervalMultiplicity := traceDBRawMarkerIntervalMultiplicity(candidates)
@@ -364,6 +408,140 @@ func submitTraceDBRawMarkerSyncRecovery(
 		"unrepresentable_interval_pairs": int(out.Metrics["raw_pairs_withheld_unrepresentable_interval"]),
 	})
 	return out, nil
+}
+
+func traceDBApplyNullDurationRawClosureCensus(
+	out *TraceDBCoverage,
+	syncSpans *traceDBSyncSpanAuthority,
+	candidates []traceDBSyncSpanCandidate,
+) error {
+	if out == nil || syncSpans == nil {
+		return &traceDBOutputInvariantError{
+			Reason: "missing_null_duration_raw_closure_census_authority",
+		}
+	}
+	hints, total, complete, err := syncSpans.nullDurationHintSnapshot()
+	if err != nil {
+		return err
+	}
+	traceDBAddCoverageMetric(out, "null_duration_fence_hints_total", int64(total))
+	traceDBAddCoverageMetric(out, "null_duration_fence_hints_retained", int64(len(hints)))
+	if omitted := total - len(hints); omitted > 0 {
+		traceDBAddCoverageMetric(out, "null_duration_fence_hints_omitted", int64(omitted))
+	}
+	out.FieldSources["null_duration_raw_closure"] =
+		"diagnostic-only correlation of exact NULL-duration DB start identity/name with independently decoded raw B/E pairs; the raw end is not yet admitted as DB duration or fence authority"
+	switch {
+	case !complete:
+		out.Metadata["null_duration_raw_closure_census"] = "incomplete_hint_cap"
+	case total == 0:
+		out.Metadata["null_duration_raw_closure_census"] = "complete_no_exact_hint"
+	default:
+		out.Metadata["null_duration_raw_closure_census"] = "complete"
+	}
+	if len(hints) == 0 {
+		return nil
+	}
+
+	exact := map[traceDBCallstackNullDurationClosureKey]int{}
+	withoutMarker := map[traceDBCallstackNullDurationClosureKey]int{}
+	withoutName := map[traceDBCallstackNullDurationClosureKey]int{}
+	physicalStart := map[traceDBCallstackNullDurationClosureKey]int{}
+	wantedPhysicalStarts := make(
+		map[traceDBCallstackNullDurationClosureKey]struct{}, len(hints))
+	for _, hint := range hints {
+		wantedPhysicalStarts[traceDBCallstackNullDurationClosureKey{
+			HeaderTID: hint.HeaderTID, HeaderTGID: hint.HeaderTGID,
+			CanonicalITID: hint.CanonicalITID, OwnerIPID: hint.OwnerIPID,
+			Start: hint.Start,
+		}] = struct{}{}
+	}
+	for _, candidate := range candidates {
+		key, ok := traceDBCallstackNullDurationClosureKeyFromCandidate(candidate)
+		if !ok {
+			continue
+		}
+		noMarker := key
+		noMarker.MarkerPID = 0
+		physical := noMarker
+		physical.Name = ""
+		if _, wanted := wantedPhysicalStarts[physical]; !wanted {
+			continue
+		}
+		exact[key]++
+		withoutMarker[noMarker]++
+		noName := key
+		noName.Name = ""
+		withoutName[noName]++
+		physicalStart[physical]++
+	}
+	for _, hint := range hints {
+		key := traceDBCallstackNullDurationClosureKey{
+			HeaderTID: hint.HeaderTID, HeaderTGID: hint.HeaderTGID,
+			MarkerPID: hint.MarkerPID, CanonicalITID: hint.CanonicalITID,
+			OwnerIPID: hint.OwnerIPID, Start: hint.Start, Name: hint.Name,
+		}
+		switch count := exact[key]; {
+		case count == 1:
+			traceDBAddCoverageMetric(out,
+				"null_duration_hints_unique_exact_raw_closure", 1)
+		case count > 1:
+			traceDBAddCoverageMetric(out,
+				"null_duration_hints_ambiguous_exact_raw_closure", 1)
+		default:
+			noMarker := key
+			noMarker.MarkerPID = 0
+			noName := key
+			noName.Name = ""
+			physical := noMarker
+			physical.Name = ""
+			switch {
+			case withoutMarker[noMarker] > 0:
+				traceDBAddCoverageMetric(out,
+					"null_duration_hints_raw_payload_pid_mismatch_or_ambiguous", 1)
+			case withoutName[noName] > 0:
+				traceDBAddCoverageMetric(out,
+					"null_duration_hints_raw_name_mismatch_or_ambiguous", 1)
+			case physicalStart[physical] > 0:
+				traceDBAddCoverageMetric(out,
+					"null_duration_hints_raw_marker_and_name_mismatch", 1)
+			default:
+				traceDBAddCoverageMetric(out,
+					"null_duration_hints_without_valid_raw_closure", 1)
+			}
+		}
+	}
+	return nil
+}
+
+func traceDBCallstackNullDurationClosureKeyFromCandidate(
+	candidate traceDBSyncSpanCandidate,
+) (traceDBCallstackNullDurationClosureKey, bool) {
+	if candidate.Producer != traceDBSyncSpanProducerSourceRawMarker ||
+		candidate.HeaderTID <= 0 || candidate.HeaderTGID <= 0 ||
+		!candidate.MarkerPIDKnown || candidate.MarkerPID <= 0 ||
+		!candidate.CanonicalITIDKnown || candidate.CanonicalITID <= 0 ||
+		!candidate.OwnerIPIDKnown || candidate.OwnerIPID <= 0 ||
+		candidate.Start < 0 || candidate.End <= candidate.Start ||
+		!traceDBCallstackSpanName(candidate.Name) {
+		return traceDBCallstackNullDurationClosureKey{}, false
+	}
+	return traceDBCallstackNullDurationClosureKey{
+		HeaderTID: candidate.HeaderTID, HeaderTGID: candidate.HeaderTGID,
+		MarkerPID: candidate.MarkerPID, CanonicalITID: candidate.CanonicalITID,
+		OwnerIPID: candidate.OwnerIPID, Start: candidate.Start, Name: candidate.Name,
+	}, true
+}
+
+func traceDBRawMarkerLocalValidationWitness(
+	pair traceDBRawMarkerPair,
+	reason string,
+) string {
+	return fmt.Sprintf(
+		"emitter=%d/start_ns=%d/end_ns=%d/reason=%s/begin_payload_pid=%d/end_payload_pid=%d/name=%s",
+		pair.begin.HeaderPID, pair.begin.TimestampNS, pair.end.TimestampNS,
+		traceDBRawDecodeReasonMetric(reason), pair.begin.PayloadPID,
+		pair.end.PayloadPID, traceDBRawMarkerNameWitness(pair.begin.Name))
 }
 
 func traceDBRawMarkerIntervalMultiplicity(

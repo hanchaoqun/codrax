@@ -34,6 +34,8 @@ var traceConvertDiagnosticCapabilities = []string{
 	"callstack_local_fence_witness_v1",
 	"callstack_rejected_scalar_witness_v1",
 	"coverage_witness_sideband_v1",
+	"null_duration_raw_closure_census_v1",
+	"raw_marker_local_validation_witness_v1",
 	"official_viewer_typed_only_reason_census_v1",
 	"standard_sync_pipe_compat_v1",
 	"callstack_completed_async_interval_v1",
@@ -340,6 +342,7 @@ func traceConvertDiagnosticReportBody(
 var traceConvertDiagnosticCoverageWitnessKeys = []string{
 	"rejected_callstack_fence_witnesses",
 	"raw_async_mismatch_witnesses",
+	"raw_marker_local_validation_witnesses",
 }
 
 func appendTraceConvertDiagnosticCoverageWitnesses(

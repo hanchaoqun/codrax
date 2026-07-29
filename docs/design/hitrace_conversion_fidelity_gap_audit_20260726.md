@@ -4133,6 +4133,20 @@ Progress:
   the UPDATE affected-row `==1` invariant remain independent cardinality
   guards. Standard-representable name drift still affects zero rows and stays
   withheld. `go test ./internal/hitraceconv -count=1` passed.
+- R9-C: implemented. Callstack coverage now splits every `invalid_duration`
+  storage class and retains a bounded exact hint only for a NULL-duration,
+  timestamp-known, single-emitter, valid-name sync row. Raw recovery compares
+  those hints with independently decoded, lifecycle-admitted B/E candidates
+  and publishes a closed census for unique full-key closure, ambiguity,
+  namespace payload-PID mismatch, name mismatch and absence. This is
+  diagnostic-only: it does not supply an end, change a suffix fence, submit a
+  span or supersede a candidate. The 4,038 raw local-validation rejects now
+  expose at most eight exact physical pair/first-failure witnesses through an
+  independent sideband line, with emitted/omitted counters and the existing
+  900-line report cap. Capabilities
+  `null_duration_raw_closure_census_v1` and
+  `raw_marker_local_validation_witness_v1` identify the new evidence. Full
+  `internal/hitraceconv` and `cmd` package tests passed.
 
 ## Invariants
 
