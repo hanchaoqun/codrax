@@ -36,6 +36,7 @@ var traceConvertDiagnosticCapabilities = []string{
 	"coverage_witness_sideband_v1",
 	"null_duration_raw_closure_census_v1",
 	"raw_marker_local_validation_witness_v1",
+	"official_raw_marker_zero_pid_header_identity_v1",
 	"official_viewer_typed_only_reason_census_v1",
 	"standard_sync_pipe_compat_v1",
 	"callstack_completed_async_interval_v1",

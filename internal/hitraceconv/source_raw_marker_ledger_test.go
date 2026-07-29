@@ -54,6 +54,33 @@ func TestTraceDBRawMarkerLedgerRetainsExactNamespaceBAndE(t *testing.T) {
 	}
 }
 
+func TestTraceDBRawMarkerLedgerTypesOfficialStructuredZeroPIDHeaderIdentity(t *testing.T) {
+	acc := newTraceDBSourceRawDecodeAccumulator()
+	beginFormat, begin := traceDBRawMarkerLegacyEvent(1, 0, "iofast_alloc")
+	endFormat, end := traceDBRawMarkerLegacyEvent(0, 0, "")
+	acc.observeRecord(beginFormat, begin, 3, 1_000_000)
+	acc.observeRecord(endFormat, end, 4, 4_000_000)
+
+	if len(acc.markerRecords) != 2 ||
+		!acc.markerRecords[0].ZeroPIDUsesHeaderIdentity ||
+		!acc.markerRecords[1].ZeroPIDUsesHeaderIdentity ||
+		acc.markerRecords[0].PayloadPID != 0 ||
+		acc.markerRecords[1].PayloadPID != 0 ||
+		acc.coverage.Metrics["target_marker_sync_zero_pid_header_identity_endpoints"] != 2 {
+		t.Fatalf("official zero-PID provenance mismatch: rows=%+v metrics=%+v",
+			acc.markerRecords, acc.coverage.Metrics)
+	}
+
+	compact := directMarkerDataLocFixture(
+		"tracing_mark_write", []byte("B|0|compact"), false)
+	acc.observeRecord(compact.format, compact.content, 5, 5_000_000)
+	if len(acc.markerRecords) != 3 ||
+		acc.markerRecords[2].ZeroPIDUsesHeaderIdentity {
+		t.Fatalf("compact B|0 gained structured producer authority: %+v",
+			acc.markerRecords[2])
+	}
+}
+
 func TestTraceDBRawMarkerLedgerRetainsCarrierFailureAsLanePoison(t *testing.T) {
 	acc := newTraceDBSourceRawDecodeAccumulator()
 	format, content := traceDBRawMarkerLegacyEvent(1, 1234, "render")

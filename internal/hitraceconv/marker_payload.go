@@ -116,6 +116,29 @@ func directMarkerSelectedBufferProfile(ev decodedEvent) (string, bool, bool) {
 	return "", false, false
 }
 
+// directMarkerOpenHarmonyStructuredProfile is deliberately narrower than the
+// generic trace-mark grammar. The official OpenHarmony raw parser selects this
+// pid/name/start producer for the large print/tracing_mark_write record and
+// treats a source pid of zero as "no TGID override": slice ownership then
+// remains the physical common_pid emitter. Keep that producer fact separate
+// from compact/text B|0, which receives no such identity authority.
+func directMarkerOpenHarmonyStructuredProfile(ev decodedEvent) bool {
+	switch ev.format.Name {
+	case "print", "tracing_mark_write":
+	default:
+		return false
+	}
+	stringCarrierCount := 0
+	for _, name := range []string{"buf", "buffer", "str", "trace"} {
+		stringCarrierCount += directMarkerDeclarationCount(ev, name)
+	}
+	return stringCarrierCount == 0 &&
+		directMarkerDeclarationCount(ev, "ip") == 0 &&
+		directMarkerDeclarationCount(ev, "start") == 1 &&
+		directMarkerDeclarationCount(ev, "pid") == 1 &&
+		directMarkerDeclarationCount(ev, "name") == 1
+}
+
 func decodeDirectMarkerPayload(ev decodedEvent, content []byte) (markerPayload, bodyAdmission, string) {
 	if !directMarkerNameGoverned(ev.format.Name) {
 		return markerPayload{}, bodyUnsupported, ""

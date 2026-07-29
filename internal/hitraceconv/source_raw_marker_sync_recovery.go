@@ -47,6 +47,7 @@ func newTraceDBRawMarkerSyncCoverage() TraceDBCoverage {
 			"grammar":       "tracequery.DecodeTraceMarkEndpointPayload is the sole complete-payload B/E verdict",
 			"stack":         "one exact LIFO stack per physical common_pid emitter; orphan ends, trailing open begins, invalid/overflowed closed intervals and already-paired validation failures are withheld locally, while invalid physical ordering or an unclassified/rejected carrier keeps whole-lane fail-closed scope",
 			"identity":      "common_pid independently resolves to the same canonical host thread/process at both exact endpoints; payload PID remains marker namespace data",
+			"zero_pid":      "only the exact official OpenHarmony pid/name/start producer may interpret source payload PID zero as no TGID override; both endpoints must agree, canonical common_pid ownership must remain stable, and the public standard payload uses that proven host TGID while nonzero namespace PID remains verbatim",
 			"deduplication": "an exact bounded semantic index suppresses a raw pair only when an equal host TID/TGID, marker PID, canonical owner, interval and name DB candidate survives its producer-local fence/poison gate; one unique locally admitted CPU-unavailable callstack collision, or a name-drift collision whose CPU-known DB name is not losslessly standard-representable, is candidate-superseded and replaced by the exact raw B/E pair; a locally suppressed DB candidate cannot erase the raw alternative",
 			"diagnostics":   "closed raw pairs expose exact zero-start, long-duration and bounded longest-pair witnesses before publication decisions; these observations never admit or reject a pair",
 			"name_drift":    "a raw pair sharing exact host/payload/canonical identity and interval with a locally admitted DB candidate but not its name is withheld locally unless that collision is one unique CPU-unavailable callstack candidate or one unique CPU-known callstack candidate whose DB name cannot round-trip through the standard trace-mark grammar; only those candidate-level cases are superseded and replaced by the authoritative raw name/envelopes, while a standard-representable DB name remains authoritative",
@@ -239,6 +240,10 @@ func submitTraceDBRawMarkerSyncRecovery(
 				traceDBAddCoverageMetric(&out,
 					"raw_pairs_withheld_"+traceDBRawDecodeReasonMetric(reason), 1)
 				continue
+			}
+			if pair.begin.PayloadPID == 0 {
+				traceDBAddCoverageMetric(&out,
+					"raw_pairs_official_zero_pid_header_identity_normalized", 1)
 			}
 			laneCandidates = append(laneCandidates, candidate)
 		}
@@ -695,6 +700,9 @@ func traceDBRawMarkerSyncCandidate(
 	begin, end := pair.begin, pair.end
 	beginVerdict := tracequery.DecodeTraceMarkEndpointPayload(begin.Buffer)
 	endVerdict := tracequery.DecodeTraceMarkEndpointPayload(end.Buffer)
+	zeroPIDHeaderIdentity :=
+		begin.PayloadPID == 0 && end.PayloadPID == 0 &&
+			begin.ZeroPIDUsesHeaderIdentity && end.ZeroPIDUsesHeaderIdentity
 	switch {
 	case begin.HeaderPID <= 0:
 		return traceDBSyncSpanCandidate{}, "invalid_begin_header_pid"
@@ -702,10 +710,16 @@ func traceDBRawMarkerSyncCandidate(
 		return traceDBSyncSpanCandidate{}, "invalid_end_header_pid"
 	case begin.HeaderPID != end.HeaderPID:
 		return traceDBSyncSpanCandidate{}, "header_pid_mismatch"
-	case begin.PayloadPID <= 0 || begin.PayloadPID > math.MaxInt32:
+	case begin.PayloadPID < 0 || begin.PayloadPID > math.MaxInt32:
 		return traceDBSyncSpanCandidate{}, "invalid_begin_payload_pid"
-	case end.PayloadPID <= 0 || end.PayloadPID > math.MaxInt32:
+	case end.PayloadPID < 0 || end.PayloadPID > math.MaxInt32:
 		return traceDBSyncSpanCandidate{}, "invalid_end_payload_pid"
+	case begin.PayloadPID == 0 && end.PayloadPID != 0:
+		return traceDBSyncSpanCandidate{}, "invalid_begin_payload_pid"
+	case end.PayloadPID == 0 && begin.PayloadPID != 0:
+		return traceDBSyncSpanCandidate{}, "invalid_end_payload_pid"
+	case begin.PayloadPID == 0 && !zeroPIDHeaderIdentity:
+		return traceDBSyncSpanCandidate{}, "zero_payload_pid_without_official_header_identity"
 	case begin.Action != "B":
 		return traceDBSyncSpanCandidate{}, "invalid_begin_action"
 	case end.Action != "E":
@@ -724,6 +738,8 @@ func traceDBRawMarkerSyncCandidate(
 		return traceDBSyncSpanCandidate{}, "end_payload_action_mismatch"
 	case int64(endVerdict.SpanPID) != end.PayloadPID:
 		return traceDBSyncSpanCandidate{}, "end_payload_pid_mismatch"
+	case begin.PayloadPID != end.PayloadPID:
+		return traceDBSyncSpanCandidate{}, "payload_pid_mismatch"
 	case !traceDBCallstackSpanName(begin.Name):
 		return traceDBSyncSpanCandidate{}, "invalid_span_name"
 	case begin.TimestampNS > math.MaxInt64:
@@ -763,14 +779,30 @@ func traceDBRawMarkerSyncCandidate(
 	if !authority.threadSourceIntervalAllows(beginThread.ITID, start, finish) {
 		return traceDBSyncSpanCandidate{}, "lifecycle_interval_rejected"
 	}
+	markerPID, markerPIDKnown := begin.PayloadPID, true
+	startMarkerBody, endMarkerBody := begin.Buffer, end.Buffer
+	if zeroPIDHeaderIdentity {
+		markerPID, markerPIDKnown = 0, false
+		var ok bool
+		startMarkerBody, ok = traceDBRawMarkerNormalizeZeroPIDBody(
+			begin.Buffer, "B", beginProcess.PID)
+		if !ok {
+			return traceDBSyncSpanCandidate{}, "zero_begin_payload_normalization_failed"
+		}
+		endMarkerBody, ok = traceDBRawMarkerNormalizeZeroPIDBody(
+			end.Buffer, "E", beginProcess.PID)
+		if !ok {
+			return traceDBSyncSpanCandidate{}, "zero_end_payload_normalization_failed"
+		}
+	}
 	candidate := traceDBSyncSpanCandidate{
 		Producer:           traceDBSyncSpanProducerSourceRawMarker,
 		StableKind:         traceDBSyncSpanStableSourceRawOrdinal,
 		StableID:           begin.PhysicalOrdinal,
 		HeaderTID:          beginThread.TID,
 		HeaderTGID:         beginProcess.PID,
-		MarkerPID:          begin.PayloadPID,
-		MarkerPIDKnown:     true,
+		MarkerPID:          markerPID,
+		MarkerPIDKnown:     markerPIDKnown,
 		CanonicalITID:      beginThread.ITID,
 		CanonicalITIDKnown: true,
 		OwnerIPID:          beginProcess.IPID,
@@ -783,8 +815,8 @@ func traceDBRawMarkerSyncCandidate(
 		EndFlags:           end.Flags,
 		StartPreemptCount:  begin.PreemptCount,
 		EndPreemptCount:    end.PreemptCount,
-		StartMarkerBody:    begin.Buffer,
-		EndMarkerBody:      end.Buffer,
+		StartMarkerBody:    startMarkerBody,
+		EndMarkerBody:      endMarkerBody,
 		CPUPlacement:       traceDBSyncSpanCPUPlacementKnown,
 		StartCPUProvenance: traceDBSyncSpanCPUSourceRawPage,
 		EndCPUProvenance:   traceDBSyncSpanCPUSourceRawPage,
@@ -796,6 +828,19 @@ func traceDBRawMarkerSyncCandidate(
 		return traceDBSyncSpanCandidate{}, "candidate_validation_failed"
 	}
 	return candidate, ""
+}
+
+func traceDBRawMarkerNormalizeZeroPIDBody(body, action string, markerPID int64) (string, bool) {
+	if markerPID <= 0 || markerPID > math.MaxInt32 ||
+		(action != "B" && action != "E") {
+		return "", false
+	}
+	prefix := action + "|0|"
+	if !strings.HasPrefix(body, prefix) {
+		return "", false
+	}
+	return action + "|" + strconv.FormatInt(markerPID, 10) + "|" +
+		strings.TrimPrefix(body, prefix), true
 }
 
 func traceDBRawMarkerRetainLongestPair(

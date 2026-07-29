@@ -138,9 +138,54 @@ func TestSubmitTraceDBRawMarkerSyncRecoveryDiagnosesExactNullDurationClosureWith
 	}
 }
 
-func TestSubmitTraceDBRawMarkerSyncRecoveryPublishesBoundedLocalValidationWitness(t *testing.T) {
+func TestSubmitTraceDBRawMarkerSyncRecoveryNormalizesOfficialStructuredZeroPID(t *testing.T) {
 	ctx := context.Background()
 	rows := traceDBRawMarkerTestPair(201, 0, 1, "frame")
+	rows[0].Buffer = "B|0|frame"
+	rows[1].Buffer = "E|0|"
+	rows[0].ZeroPIDUsesHeaderIdentity = true
+	rows[1].ZeroPIDUsesHeaderIdentity = true
+	syncSpans := newTraceDBTestSyncSpanAuthority(t)
+	coverage, err := submitTraceDBRawMarkerSyncRecovery(
+		ctx, traceDBRawMarkerTestInventory(rows),
+		traceDBRawBlockedKeyTestAuthority(), syncSpans)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if coverage.Metrics["raw_pairs_official_zero_pid_header_identity_normalized"] != 1 ||
+		coverage.Metrics["raw_pairs_submitted"] != 1 ||
+		coverage.Metrics["raw_pairs_withheld_local_validation"] != 0 {
+		t.Fatalf("official zero-PID pair was not submitted: %+v", coverage)
+	}
+	sink, err := newTraceDBRowSink(t.TempDir(), 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.cleanup()
+	report, _, err := syncSpans.finalize(ctx, sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.ByProducer[traceDBSyncSpanProducerSourceRawMarker].EmittedEndpoints != 2 {
+		t.Fatalf("official zero-PID report=%+v", report)
+	}
+	var body bytes.Buffer
+	if _, err := sink.prepareAndWriteForTest(ctx, &body); err != nil {
+		t.Fatal(err)
+	}
+	text := body.String()
+	if !strings.Contains(text, "B|200|frame") ||
+		!strings.Contains(text, "E|200|") ||
+		strings.Contains(text, "B|0|") || strings.Contains(text, "E|0|") {
+		t.Fatalf("zero-PID standard normalization mismatch: %s", text)
+	}
+}
+
+func TestSubmitTraceDBRawMarkerSyncRecoveryWithholdsCompactZeroPID(t *testing.T) {
+	ctx := context.Background()
+	rows := traceDBRawMarkerTestPair(201, 0, 1, "frame")
+	rows[0].Buffer = "B|0|frame"
+	rows[1].Buffer = "E|0|"
 	syncSpans := newTraceDBTestSyncSpanAuthority(t)
 	coverage, err := submitTraceDBRawMarkerSyncRecovery(
 		ctx, traceDBRawMarkerTestInventory(rows),
@@ -149,12 +194,12 @@ func TestSubmitTraceDBRawMarkerSyncRecoveryPublishesBoundedLocalValidationWitnes
 		t.Fatal(err)
 	}
 	witness := coverage.Metadata["raw_marker_local_validation_witnesses"]
-	if coverage.Metrics["raw_pairs_withheld_invalid_begin_payload_pid"] != 1 ||
+	if coverage.Metrics["raw_pairs_withheld_zero_payload_pid_without_official_header_identity"] != 1 ||
 		coverage.Metrics["raw_marker_local_validation_witnesses_emitted"] != 1 ||
-		!strings.Contains(witness, "reason=invalid_begin_payload_pid") ||
-		!strings.Contains(witness, "begin_payload_pid=0") ||
+		!strings.Contains(witness,
+			"reason=zero_payload_pid_without_official_header_identity") ||
 		coverage.Metrics["raw_pairs_submitted"] != 0 {
-		t.Fatalf("raw local-validation witness drifted: %+v", coverage)
+		t.Fatalf("compact zero-PID pair gained header identity: %+v", coverage)
 	}
 }
 

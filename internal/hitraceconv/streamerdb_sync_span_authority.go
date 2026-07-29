@@ -715,12 +715,14 @@ func validateTraceDBSyncSpanCandidate(candidate traceDBSyncSpanCandidate) error 
 		}
 		begin := tracequery.DecodeTraceMarkEndpointPayload(candidate.StartMarkerBody)
 		end := tracequery.DecodeTraceMarkEndpointPayload(candidate.EndMarkerBody)
+		markerPID := traceDBSyncSpanMarkerPID(candidate)
 		if !traceDBSinglePhysicalLine(candidate.StartMarkerBody, false) ||
 			!traceDBSinglePhysicalLine(candidate.EndMarkerBody, false) ||
 			!begin.Admitted || begin.Action != "B" ||
-			int64(begin.SpanPID) != candidate.MarkerPID ||
+			int64(begin.SpanPID) != markerPID ||
 			begin.Name != candidate.Name ||
-			!end.Admitted || end.Action != "E" {
+			!end.Admitted || end.Action != "E" ||
+			int64(end.SpanPID) != markerPID {
 			return &traceDBOutputInvariantError{Reason: "invalid_sync_span_raw_marker_body"}
 		}
 	} else if candidate.StartFlags != 0 || candidate.EndFlags != 0 ||

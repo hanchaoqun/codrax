@@ -53,23 +53,26 @@ type traceDBRawDMAWaitRecord struct {
 }
 
 // traceDBRawMarkerRecord retains governed marker endpoint evidence and
-// localized carrier failures. PayloadPID is the marker namespace value; it is
-// never rewritten to the source common_pid or a host process ID. Value is the
+// localized carrier failures. PayloadPID is the marker namespace value and is
+// never silently rewritten. ZeroPIDUsesHeaderIdentity is true only for the
+// exact official OpenHarmony pid/name/start producer, where zero explicitly
+// means that the viewer keeps physical common_pid ownership. Value is the
 // exact async cookie for admitted S/F rows and remains empty for B/E.
 type traceDBRawMarkerRecord struct {
-	PhysicalOrdinal int64
-	TimestampNS     uint64
-	CPU             int
-	HeaderPID       int64
-	Flags           int64
-	PreemptCount    int64
-	Buffer          string
-	Action          string
-	PayloadPID      int64
-	Name            string
-	Value           string
-	Admitted        bool
-	RejectReason    string
+	PhysicalOrdinal           int64
+	TimestampNS               uint64
+	CPU                       int
+	HeaderPID                 int64
+	Flags                     int64
+	PreemptCount              int64
+	Buffer                    string
+	Action                    string
+	PayloadPID                int64
+	Name                      string
+	Value                     string
+	Admitted                  bool
+	RejectReason              string
+	ZeroPIDUsesHeaderIdentity bool
 }
 
 type traceDBSourceRawDecodeAccumulator struct {
@@ -224,16 +227,24 @@ func (a *traceDBSourceRawDecodeAccumulator) observeRecord(
 			}
 			switch verdict.Action {
 			case "B", "E":
+				zeroPIDUsesHeaderIdentity :=
+					verdict.SpanPID == 0 &&
+						directMarkerOpenHarmonyStructuredProfile(event)
 				record := traceDBRawMarkerRecord{
 					PhysicalOrdinal: int64(a.coverage.RowsRead),
 					TimestampNS:     timestampNS, CPU: cpu, HeaderPID: int64(headerPID),
 					Flags: flags, PreemptCount: preemptCount, Buffer: body,
 					Action: verdict.Action, PayloadPID: int64(verdict.SpanPID),
 					Name: verdict.Name, Admitted: verdict.Admitted,
-					RejectReason: verdict.InvalidCause,
+					RejectReason:              verdict.InvalidCause,
+					ZeroPIDUsesHeaderIdentity: zeroPIDUsesHeaderIdentity,
 				}
 				a.markerRecords = append(a.markerRecords, record)
 				traceDBAddCoverageMetric(&a.coverage, "target_marker_sync_records_retained", 1)
+				if zeroPIDUsesHeaderIdentity {
+					traceDBAddCoverageMetric(&a.coverage,
+						"target_marker_sync_zero_pid_header_identity_endpoints", 1)
+				}
 				if verdict.Admitted {
 					traceDBAddCoverageMetric(&a.coverage, "target_marker_sync_endpoints_admitted", 1)
 				} else {
