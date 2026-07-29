@@ -4789,6 +4789,124 @@ requires an official-source semantic ruling and dedicated fixtures before
 publication. The next customer replay should occur after RC-B through RC-E so
 one run validates both the name repair and the phase timing.
 
+### REP-C implementation closure
+
+All REP-C batches are now implemented and independently pushed:
+
+| Batch | Commit | Closure |
+| --- | --- | --- |
+| RC-A | `29d702f68` | replay equations, carrier ruling and residual inventory recorded |
+| RC-B | `e5d47cda3` | exact admitted `print` and `tracing_mark_write` carriers share the official trailing-ASCII-space display normalization; structured zero-PID authority remains separate |
+| RC-C | `b20f0ed2f` | unavailable typed-only witness CPU renders as `unavailable`; exact CPU 0 remains numeric |
+| RC-D | `b5e87e66d` | every oversized coverage row gets a bounded valid-JSON receipt retaining rows, elapsed time and error/skipped presence |
+| RC-E | `2cabe21dc` | source authority reconciles the strict raw profile/ledger before declaring supported-family decoder availability |
+| RC-F | `1f956a047` | four official DMA lifecycle families publish exact point-event wires after closed census and overlap checks |
+
+RC-E also corrects the raw-ledger publication wording. The ledger's own
+`RowsEmitted` remains zero, but retained typed records are no longer described
+as permanently non-publishable: a dedicated family gate may publish them only
+after its own census, deduplication, coordinate and wire checks. This is the
+already established architecture for blocked-reason, DMA wait and marker
+recovery, not a new generic decoder.
+
+RC-F is grounded in the official SmartPerf source at
+`5c5afb0c479b`:
+
+- `rawtrace_parser/ftrace_event_processor.cpp` decodes
+  `driver`, `timeline`, `context`, `seqno` for each lifecycle record;
+- `rawtrace_parser/cpu_detail_parser.cpp` appends each
+  init/destroy/enable-signal/signaled record as one `DmaFenceRow`;
+- `filter/slice_filter.cpp::DmaFence` computes the table `dur` as the delta
+  from the previous arbitrary event on the same timeline;
+- `trace_data/trace_stdtype/ftrace/render_service_stdtype.h` confirms that
+  the row itself contains timestamp, event name and the four payload fields,
+  but no thread-wait begin/end contract.
+
+Therefore Codrax publishes only these exact standard ftrace point wires:
+
+```text
+dma_fence_init: driver=... timeline=... context=... seqno=...
+dma_fence_destroy: driver=... timeline=... context=... seqno=...
+dma_fence_enable_signal: driver=... timeline=... context=... seqno=...
+dma_fence_signaled: driver=... timeline=... context=... seqno=...
+```
+
+It does not publish `B/E`, `dur`, wait time or a synthetic interval. Source
+`common_pid`, CPU, timestamp, flags and preempt count are copied exactly. If
+comm/TGID cannot be proven, the standard header uses `unknown-<common_pid>`
+and `(-----)`; a Donghu namespace-shaped PID such as `32788` remains `32788`
+and is never rewritten to a guessed host PID or TGID. The point remains
+visible to the official parser because its DMA row semantics use the event
+name and four payload fields, not a manufactured process identity.
+
+RC-F publication is all-or-nothing under these precise gates:
+
+1. raw profile and target ledger are complete;
+2. for each of the four names,
+   `physical records == body admitted`, and the sum equals retained rows;
+3. no retained-envelope or body capture failure exists;
+4. the normalized SQLite raw-ftrace DMA lane emitted no row;
+5. every retained timestamp, CPU, common PID, flags, preempt count and payload
+   remains wire-representable.
+
+The high-level SQLite `dma_fence` table does not suppress RC-F because it is a
+non-equivalent official activity table without emitter identity/CPU and with
+predecessor-delta `dur`. Its exact cells remain preserved by SQL text
+fidelity.
+
+Package verification after RC-F:
+
+```text
+go test ./internal/hitraceconv ./cmd -count=1
+ok github.com/hanchaoqun/codrax/internal/hitraceconv
+ok github.com/hanchaoqun/codrax/cmd
+```
+
+The end-to-end fixture invokes the actual trace-streamer normalization path;
+deleting the RC-F wiring loses the expected point and fails the test. Separate
+fixtures pin strict descriptor/body retention, exact point wire, namespace PID
+non-rewrite, raw-DB overlap withdrawal, atomic invalid-row withdrawal and the
+absence of interval wording.
+
+### Next replay acceptance after REP-C
+
+One customer replay on the same binary input is now required to validate the
+production artifact, not to discover the implementation:
+
+```text
+diagnostic_capabilities contains:
+  official_raw_marker_print_parser_trailing_space_v2
+  official_viewer_typed_only_final_witness_v2
+  coverage_receipt_sideband_v1
+  source_rawtrace_partial_decoder_authority_v1
+  official_raw_dma_lifecycle_point_recovery_v1
+
+raw_pairs_official_trailing_space_name_normalized = 279
+raw_pairs_withheld_invalid_span_name              = 0
+
+typed-only final witnesses use cpu=unavailable where provenance is unavailable
+known CPU 0 witnesses remain cpu=0
+
+source_rawtrace_authority.decode_authority
+  = available_closed_target_decoders_for_supported_families
+source_rawtrace_decode.target_body_unsupported    = 0
+
+493 + 305 + 494 + 495 = 1787 retained lifecycle points
+source_rawtrace_dma_lifecycle.rows_read           = 1787
+source_rawtrace_dma_lifecycle.rows_emitted        = 1787
+publication_state = published_exact_official_point_events
+
+oversized trace_db_coverage entries have a matching
+trace_db_coverage_receipt with rows and elapsed_us
+
+expected rows = parsed rows = callback rows
+```
+
+The 78 suffix-fenced callstack rows and 3,128 typed-only CPU-tainted spans
+remain evidence-limited exactly as recorded above. Their typed accounting is
+not a license to invent end timestamps or physical CPU placement. They are
+separate from the 1,787 DMA lifecycle point events now restored.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.
