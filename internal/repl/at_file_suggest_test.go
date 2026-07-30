@@ -71,3 +71,18 @@ func TestBuildAtFileIndex_SkipsHiddenAndVendor(t *testing.T) {
 		}
 	}
 }
+
+// TestNativeEditor_EnterDoesNotHijackFileSuggestion pins REGFIX-D #18:
+// Enter may auto-accept a SLASH suggestion, never an @-file one — the
+// file panel is open whenever the line ends in an @token, so Enter used
+// to rewrite the user's path to the top-scored match and submit that.
+func TestNativeEditor_EnterDoesNotHijackFileSuggestion(t *testing.T) {
+	fileLane := &nativeLineInput{value: []rune("看下 @internal/repl/inp"), showSuggest: true}
+	if fileLane.suggestionsAreFileCompletions() != true {
+		t.Fatal("a non-slash line with a visible panel is the file lane")
+	}
+	slashLane := &nativeLineInput{value: []rune("/hist"), showSuggest: true}
+	if slashLane.suggestionsAreFileCompletions() {
+		t.Fatal("a slash line must stay on the command lane (Enter accepts)")
+	}
+}

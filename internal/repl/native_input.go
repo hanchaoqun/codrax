@@ -126,7 +126,13 @@ func (e *nativeLineInput) run() (inputResult, error) {
 			}
 			e.deleteForward()
 		case '\r', '\n':
-			if e.showSuggest {
+			// REGFIX-D #18 (sweep): only SLASH suggestions may be
+			// accepted by Enter. An @-file suggestion panel is open
+			// whenever the line ends in an @token, so Enter used to
+			// silently rewrite the user's path to the top-scored file
+			// (possibly a mere substring match) and submit that instead
+			// of what they typed.
+			if e.showSuggest && !e.suggestionsAreFileCompletions() {
 				if e.acceptSuggestion(true) {
 					break
 				}
@@ -860,4 +866,15 @@ func probeTerminalWidthNoDefault(fd int) int {
 		return w
 	}
 	return 0
+}
+
+// suggestionsAreFileCompletions reports whether the visible suggestion
+// panel holds @-file completions rather than slash commands (REGFIX-D
+// #18). Enter submits the typed line for the file lane; Tab still
+// accepts a completion explicitly.
+func (e *nativeLineInput) suggestionsAreFileCompletions() bool {
+	if strings.HasPrefix(strings.TrimSpace(string(e.value)), "/") {
+		return false
+	}
+	return true
 }

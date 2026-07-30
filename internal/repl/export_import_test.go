@@ -1,6 +1,7 @@
 package repl
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -107,5 +108,69 @@ func TestExportTurnByID(t *testing.T) {
 	r.handleExportCmd("/export turn-does-not-exist")
 	if !strings.Contains(out.String(), "turn-does-not-exist") {
 		t.Fatalf("unknown id must fail loud naming the id; out=%q", out.String())
+	}
+}
+
+// TestImport_VerifiesEveryPayloadBeforeAttaching pins REGFIX-D #17: the
+// advertised "a tampered bundle attaches nothing" contract must hold
+// even when the tampering is in the SECOND payload, and a manifest with
+// its hashes stripped must not waive verification.
+func TestImport_VerifiesEveryPayloadBeforeAttaching(t *testing.T) {
+	build := func(t *testing.T) (*REPL, string) {
+		t.Helper()
+		rOut, _, _ := newApprovalREPL(t, "", &writeCapableRunner{})
+		rOut.runtimeAnchor = t.TempDir()
+		rOut.attachedLog = "good log payload\n"
+		rOut.attachedHitrace = "good trace payload\n"
+		rOut.attachedHitraceSource = "harmony_hitrace"
+		rOut.recordTurn("q", "q", "a", "pipeline")
+		rOut.handleExportCmd("/export")
+		entries, err := os.ReadDir(filepath.Join(rOut.runtimeAnchor, "exports"))
+		if err != nil || len(entries) != 1 {
+			t.Fatalf("bundle: %v %v", entries, err)
+		}
+		return rOut, filepath.Join(rOut.runtimeAnchor, "exports", entries[0].Name())
+	}
+
+	// Tamper the SECOND payload: the log must NOT be attached either.
+	_, bundle := build(t)
+	if err := os.WriteFile(filepath.Join(bundle, "trace.txt"), []byte("tampered\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rIn, _, out := newApprovalREPL(t, "", &writeCapableRunner{})
+	rIn.runtimeAnchor = t.TempDir()
+	rIn.handleImportCmd("/import " + bundle)
+	if rIn.attachedLog != "" || rIn.attachedHitrace != "" {
+		t.Fatalf("tampered trace must leave BOTH lanes untouched; log=%q trace=%q", rIn.attachedLog, rIn.attachedHitrace)
+	}
+	if !strings.Contains(out.String(), "sha256 mismatch") {
+		t.Errorf("tamper must fail loud; out=%q", out.String())
+	}
+
+	// Strip the hashes: unverifiable payloads must be refused, not waived.
+	_, bundle2 := build(t)
+	manifestPath := filepath.Join(bundle2, "manifest.json")
+	raw, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	delete(m, "log_sha256")
+	delete(m, "trace_sha256")
+	stripped, _ := json.Marshal(m)
+	if err := os.WriteFile(manifestPath, stripped, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rIn2, _, out2 := newApprovalREPL(t, "", &writeCapableRunner{})
+	rIn2.runtimeAnchor = t.TempDir()
+	rIn2.handleImportCmd("/import " + bundle2)
+	if rIn2.attachedLog != "" || rIn2.attachedHitrace != "" {
+		t.Fatal("hash-stripped manifest must not attach unverifiable payloads")
+	}
+	if !strings.Contains(out2.String(), "no sha256") {
+		t.Errorf("missing-hash refusal must be explicit; out=%q", out2.String())
 	}
 }

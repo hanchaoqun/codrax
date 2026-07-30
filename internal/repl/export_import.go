@@ -216,21 +216,42 @@ func (r *REPL) handleImportCmd(line string) {
 		}
 		return string(data)
 	}
-	// Attachments: integrity re-verified against the manifest before
-	// they enter the sticky lanes — a corrupted bundle fails loud.
-	if log := readOpt("log.txt"); log != "" {
-		if manifest.LogSHA256 != "" && sha256Hex(log) != manifest.LogSHA256 {
+	// Attachments: REGFIX-D #17 (sweep) — verify EVERY payload BEFORE
+	// attaching ANY of them, and treat a missing hash as a verification
+	// failure rather than a waiver. The previous order attached log.txt
+	// and only then checked trace.txt, so a bundle tampered in the trace
+	// lane left the log attached despite the advertised
+	// "a tampered bundle fails loud and attaches nothing" contract; and
+	// stripping the sha fields from the manifest bypassed checking
+	// entirely.
+	logPayload := readOpt("log.txt")
+	tracePayload := readOpt("trace.txt")
+	if logPayload != "" {
+		if manifest.LogSHA256 == "" {
+			r.errorf("import: log.txt present but the manifest carries no sha256 — refusing to attach unverifiable payload\n")
+			return
+		}
+		if sha256Hex(logPayload) != manifest.LogSHA256 {
 			r.errorf("import: log.txt sha256 mismatch against manifest\n")
 			return
 		}
-		r.attachedLog = log
 	}
-	if trace := readOpt("trace.txt"); trace != "" {
-		if manifest.TraceSHA256 != "" && sha256Hex(trace) != manifest.TraceSHA256 {
+	if tracePayload != "" {
+		if manifest.TraceSHA256 == "" {
+			r.errorf("import: trace.txt present but the manifest carries no sha256 — refusing to attach unverifiable payload\n")
+			return
+		}
+		if sha256Hex(tracePayload) != manifest.TraceSHA256 {
 			r.errorf("import: trace.txt sha256 mismatch against manifest\n")
 			return
 		}
-		r.attachedHitrace = trace
+	}
+	// Every payload verified — only now do the sticky lanes change.
+	if logPayload != "" {
+		r.attachedLog = logPayload
+	}
+	if tracePayload != "" {
+		r.attachedHitrace = tracePayload
 		r.attachedHitraceSource = manifest.TraceSource
 	}
 	request := readOpt("request.txt")

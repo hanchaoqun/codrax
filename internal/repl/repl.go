@@ -6350,10 +6350,27 @@ func (r *REPL) Loop() error {
 			queued := r.pendingFollowUps[0]
 			r.pendingFollowUps = r.pendingFollowUps[1:]
 			r.info(followUpReplayMsg(r.language, queued))
+			// REGFIX-D #16 (sweep): replay must traverse the SAME input
+			// funnel typed lines do. The previous branch skipped the
+			// shell-bang and prompt-template stages, so a queued "!cmd"
+			// or "/mytemplate" was handed to the LLM as a question
+			// instead of being executed / expanded.
+			if strings.HasPrefix(queued, "!") {
+				r.handleShellBangCmd(queued[1:])
+				continue
+			}
 			if cmd := types.NormalizeREPLCommandAlias(queued); cmd != "" {
-				if quit := r.handleSlash(cmd); quit {
+				r.pendingHitraceSource = replTraceSourceHint(queued)
+				quit := r.handleSlash(cmd)
+				r.pendingHitraceSource = ""
+				if quit {
 					return nil
 				}
+				continue
+			}
+			if expanded, tpl, ok := r.expandTemplateCommand(queued); ok {
+				r.info(promptTemplateExpandedMsg(r.language, tpl.Name, tpl.Path, len(expanded)))
+				r.dispatch(expanded, queued)
 				continue
 			}
 			r.dispatch(queued, queued)
