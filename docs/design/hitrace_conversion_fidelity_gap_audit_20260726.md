@@ -5312,6 +5312,80 @@ specific missing viewer span, the next useful evidence is that span's exact
 name/TID/time range or a viewer screenshot plus a bounded systrace excerpt,
 not another identical diagnostic conversion.
 
+## CVT-ERR large-trace conversion failure (2026-07-30)
+
+Customer evidence:
+
+- `/Users/han/opt/customlogs/cvt_err.txt`;
+- immutable input size `151107309` bytes;
+- trace_streamer DB export succeeded in `9.7s`;
+- DB normalization failed after `2m29.8s`;
+- exact primary reason:
+  `trace_db_text_fidelity_tail_size_limit`;
+- the RMQ `invalid_magic=0xdf49` message is only the built-in provider fallback
+  after normalization failed and is not the source failure.
+
+### CVT-P0 — a 4 GiB working-file ceiling rejected a valid requested output
+
+The O2 typed-exact lane used one additional private text tail before copying
+the same bytes into the private final output. Its hard ceiling reused
+`defaultTraceDBActiveTempBytes = 4 GiB`. This customer input reached that
+working-file ceiling after approximately 150 seconds even though:
+
+- the official parser had already produced a valid SQLite DB;
+- the final systrace format and postvalidator had no 4 GiB output limit;
+- the output path had not been published;
+- retrying the same input on the same build could only repeat the failure.
+
+This was a conversion-availability bug, not a corrupt input and not an
+appropriate reason to invoke the RMQ decoder. Raising the constant to 8 GiB
+would merely move the deterministic failure and double the required working
+disk, so it is explicitly rejected.
+
+### CVT-B1 implementation — direct authenticated final-generation suffix
+
+The semantic row set is now completely prepared, spilled, merged and
+pre-authenticated first. Codrax then opens its existing private final staging
+generation and writes:
+
+1. the fixed header plus sorted semantic rows;
+2. the canonical O2 `schema -> row/chunks -> receipt` suffix directly from
+   the still-sealed read-only DB.
+
+There is no `text-fidelity-tail-*.systrace`, no fixed 4 GiB O2 working-file
+ceiling and no second full O2 copy. The private staging file is not adopted as
+a sealed generation until:
+
+- the O2 buffer has flushed;
+- typed row/byte accounting closes;
+- the SQLite DB and sealed VFS close successfully;
+- the output file handle closes successfully.
+
+Any earlier error deletes the private staging directory and cannot create the
+public output. The writer now hashes the complete header + semantic + O2 byte
+stream while generating it. Full tracequery postvalidation must match that
+expected wire digest, after which the existing publication-time full-file
+measurement still verifies the public generation. Chunk hashes, logical
+record hashes, table sequence, row ordinals, exact SQLite storage cells and
+all postvalidation gates remain enabled.
+
+The former-limit regression advances the logical direct suffix beyond 4 GiB
+without allocating or writing 4 GiB. Structural pins require DB/VFS close and
+writer close to dominate `AdoptRegularChild`, and require the expected wire
+digest to dominate publication.
+
+### Remaining performance batches before replay
+
+| Batch | Priority | Scope | Acceptance |
+| --- | --- | --- | --- |
+| CVT-B2 | P1 | unchanged-v1 allocation reduction: row/cell reuse, append-based wire construction, immutable DB metadata cache, sorter single-encode | byte-identical O2 records and receipts; lower benchmark allocations/time |
+| CVT-B3 | P1 | bounded ordered parallel row encoding if B2 timing still shows encoder CPU dominance | deterministic table/ordinal order, bounded bytes/jobs, cancellation and first-error fail closed |
+| CVT-B4 | P1 | backward-compatible compact O2 v2 embedded-comment carrier | every SQLite cell and receipt conserved; v1 remains readable; official/generic viewer semantic rows unchanged |
+
+Customer replay is deferred until the code-side batches which survive local
+benchmarking are committed and pushed. Retrying the failing file on the old
+build is not useful.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.

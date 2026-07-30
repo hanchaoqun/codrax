@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 )
@@ -253,15 +254,6 @@ func exportTraceDBToSystraceFromOpenWithLedger(ctx context.Context, tdb *traceDB
 		sinkClosed = true
 		return traceDBSystraceExport{Coverage: coverage}, cleanupErr
 	}
-	// Preserve every official SQLite table/cell after semantic quality has
-	// classified the dedicated adapters. These typed records are exact storage
-	// copies, not fabricated ftrace B/E events; postvalidation subtracts them
-	// from query-ready authority while still requiring full line conservation.
-	textFidelity, err := exportTraceDBTextFidelity(ctx, tdb, sink)
-	coverage = append(coverage, textFidelity.Coverage...)
-	if err != nil {
-		return traceDBSystraceExport{Coverage: coverage}, err
-	}
 	if err := sink.prepareForPublication(ctx); err != nil {
 		sorterCoverage := sink.stats.coverage()
 		if sorterCoverage.Error == "" {
@@ -272,12 +264,6 @@ func exportTraceDBToSystraceFromOpenWithLedger(ctx context.Context, tdb *traceDB
 		}
 		coverage = append(coverage, sorterCoverage)
 		return traceDBSystraceExport{Coverage: coverage}, err
-	}
-	// No query or VFS lifecycle error may arrive after a systrace generation
-	// has been created. Otherwise a late close failure can leave an owned but
-	// undisclosed artifact in a partial keep-DB result.
-	if closeErr := closeTraceDB(); closeErr != nil {
-		return traceDBSystraceExport{Coverage: coverage}, closeErr
 	}
 
 	target, err := prepareSealedConversionPublicationTargetWithLedger(output, ".codrax-sql-systrace-*", ledger)
@@ -299,19 +285,68 @@ func exportTraceDBToSystraceFromOpenWithLedger(ctx context.Context, tdb *traceDB
 	if err != nil {
 		return traceDBSystraceExport{Coverage: coverage}, err
 	}
-	stats, writeErr := sink.writeTo(ctx, out)
-	closeErr := out.Close()
+	wireHasher := newOwnedTraceWireHasher()
+	wireOutput := io.MultiWriter(out, wireHasher)
+	stats, writeErr := sink.writeTo(ctx, wireOutput)
 	writeErr = traceDBJoinPreservingSingle(writeErr, sink.cleanup())
 	stats = sink.stats
 	sinkClosed = true
 	if writeErr != nil {
+		closeErr := out.Close()
 		writeErr = traceDBJoinPreservingSingle(writeErr, closeErr)
 		coverage = append(coverage, stats.coverage())
 		return traceDBSystraceExport{Coverage: coverage}, writeErr
 	}
-	if closeErr != nil {
+
+	// Preserve every official SQLite table/cell after semantic quality has
+	// classified the dedicated adapters. The semantic prefix is already fully
+	// sorted and authenticated; typed-exact rows stream directly into the same
+	// private final-generation throat instead of first consuming a second,
+	// fixed-size multi-gigabyte working file.
+	fidelityOutput, fidelityErr := newTraceDBTextFidelityOutput(wireOutput, stats.LastTSNS)
+	var textFidelity traceDBTextFidelityReport
+	if fidelityErr == nil {
+		textFidelity, fidelityErr = exportTraceDBTextFidelity(ctx, tdb, fidelityOutput)
+		coverage = append(coverage, textFidelity.Coverage...)
+	}
+	if fidelityErr == nil {
+		fidelityErr = fidelityOutput.seal(ctx)
+	}
+	if fidelityErr == nil && (fidelityOutput.rows != textFidelity.RecordLines ||
+		fidelityOutput.rows <= 0 || fidelityOutput.bytes == 0) {
+		fidelityErr = &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_suffix_accounting_invalid"}
+	}
+	if fidelityErr == nil {
+		fidelityErr = sink.accountTraceDBTextFidelitySuffix(
+			fidelityOutput.rows,
+			fidelityOutput.bytes,
+			fidelityOutput.anchor,
+		)
+		stats = sink.stats
+	}
+	if fidelityErr != nil {
+		closeErr := out.Close()
 		coverage = append(coverage, stats.coverage())
-		return traceDBSystraceExport{Coverage: coverage}, closeErr
+		return traceDBSystraceExport{Coverage: coverage},
+			traceDBJoinPreservingSingle(fidelityErr, closeErr)
+	}
+
+	// A private staging file is not a generation authority. Close the sealed DB
+	// and VFS before flushing the file handle into AdoptRegularChild; a late DB
+	// lifecycle failure therefore still deletes the private bytes and can never
+	// produce an owned or public systrace artifact.
+	dbCloseErr := closeTraceDB()
+	closeErr := out.Close()
+	if dbCloseErr != nil || closeErr != nil {
+		coverage = append(coverage, stats.coverage())
+		return traceDBSystraceExport{Coverage: coverage},
+			traceDBJoinPreservingSingle(dbCloseErr, closeErr)
+	}
+	expectedWire := wireHasher.finish()
+	if !expectedWire.Valid {
+		coverage = append(coverage, stats.coverage())
+		return traceDBSystraceExport{Coverage: coverage},
+			&traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_wire_receipt_invalid"}
 	}
 	coverage = append(coverage, stats.coverage())
 	result = traceDBSystraceExport{
@@ -334,12 +369,13 @@ func exportTraceDBToSystraceFromOpenWithLedger(ctx context.Context, tdb *traceDB
 	defer func() {
 		err = traceDBJoinPreservingSingle(err, sealedOutput.Close())
 	}()
-	validationReceipt, traceCoverage, validationErr := validateSealedSystraceWithTraceQueryReceipt(
+	validationReceipt, traceCoverage, validationErr := validateSealedSystraceWithTraceQueryReceiptAndWire(
 		ctx,
 		sealedOutput,
 		target.finalBindingPath,
 		stats.RowsWritten,
 		textFidelity.RecordLines,
+		expectedWire,
 	)
 	if validationErr != nil {
 		// A failed postvalidation row remains useful diagnostics, but it is not

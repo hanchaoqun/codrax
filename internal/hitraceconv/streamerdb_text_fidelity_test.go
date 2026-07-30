@@ -1,11 +1,11 @@
 package hitraceconv
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -272,45 +272,25 @@ func TestTraceDBTextFidelityPreservesEveryTableAndSQLiteStorageClass(t *testing.
 	}
 }
 
-func TestTraceDBTextFidelityTailTamperFailsBeforeBufferedPublication(t *testing.T) {
-	sink, err := newTraceDBInactiveOrdinaryRowSink(t.TempDir(), 8)
+func TestTraceDBTextFidelityDirectSuffixCrossesFormerFourGiBLimit(t *testing.T) {
+	output, err := newTraceDBTextFidelityOutput(io.Discard, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = sink.cleanup() })
-	if err := sink.add(renderedRow{tsNS: 1, line: "semantic-row"}); err != nil {
-		t.Fatal(err)
-	}
+	output.bytes = defaultTraceDBActiveTempBytes
+	output.rows = 1
 	if _, err := emitTraceDBTextFidelityRecord(
-		t.Context(), sink, 1, "schema", 1, 0, []byte(`{"version":1}`),
+		t.Context(), output, 1, "schema", 1, 0, []byte(`{"version":1}`),
 	); err != nil {
 		t.Fatal(err)
 	}
-	if err := sink.prepareForPublication(t.Context()); err != nil {
+	if output.bytes <= defaultTraceDBActiveTempBytes {
+		t.Fatalf("direct suffix did not cross former fixed cap: bytes=%d", output.bytes)
+	}
+	if err := output.seal(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if sink.textFidelityTail == nil || !sink.textFidelityTail.sealed {
-		t.Fatalf("tail was not sealed: %+v", sink.textFidelityTail)
-	}
-	file, err := os.OpenFile(sink.textFidelityTail.path, os.O_RDWR, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := file.WriteAt([]byte{'X'}, 0); err != nil {
-		_ = file.Close()
-		t.Fatal(err)
-	}
-	if err := file.Close(); err != nil {
-		t.Fatal(err)
-	}
-	var output bytes.Buffer
-	if _, err := sink.writeTo(t.Context(), &output); err == nil {
-		t.Fatal("tampered authenticated tail unexpectedly published")
-	} else if reason, ok := traceDBOutputInvariantReason(err); !ok ||
-		reason != "trace_db_text_fidelity_tail_integrity_mismatch" {
-		t.Fatalf("tamper error=%v reason=%q ok=%v", err, reason, ok)
-	}
-	if output.Len() != 0 {
-		t.Fatalf("tampered tail escaped buffered publication: bytes=%d", output.Len())
+	if !output.sealed || output.writer != nil {
+		t.Fatalf("direct suffix was not sealed: %+v", output)
 	}
 }

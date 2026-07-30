@@ -599,6 +599,37 @@ func validateSealedSystraceWithTraceQueryReceipt(
 	return ownedTraceValidationReceipt{}, coverage, err
 }
 
+func validateSealedSystraceWithTraceQueryReceiptAndWire(
+	ctx context.Context,
+	source *sealedConversionFile,
+	displayPath string,
+	expectedRows int,
+	expectedTypedPreserved int,
+	expectedWire ownedTraceWireDigest,
+) (receipt ownedTraceValidationReceipt, coverage TraceDBCoverage, resultErr error) {
+	if !expectedWire.Valid {
+		coverage = newTraceDBPostvalidationCoverage()
+		coverage.Error = traceDBPostvalidationWireMismatch
+		return receipt, coverage, &traceDBOutputInvariantError{Reason: traceDBPostvalidationWireMismatch}
+	}
+	profile := ownedTraceValidationProfile{
+		Kind:                   ownedTraceValidationSQL,
+		CoverageTable:          traceDBPostvalidationCoverageTable,
+		ExpectedRows:           expectedRows,
+		ExpectedKnown:          expectedRows,
+		ExpectedTypedPreserved: expectedTypedPreserved,
+		ExpectedWire:           expectedWire,
+	}
+	receipt, coverage, err := validateOwnedTraceOutput(ctx, source, displayPath, profile)
+	if err == nil {
+		return receipt, coverage, nil
+	}
+	if reason, cause, ok := ownedTraceOutputInvariantReason(err); ok {
+		return ownedTraceValidationReceipt{}, coverage, &traceDBOutputInvariantError{Reason: reason, Cause: cause}
+	}
+	return ownedTraceValidationReceipt{}, coverage, err
+}
+
 func validateOwnedTraceOutput(
 	ctx context.Context,
 	source *sealedConversionFile,

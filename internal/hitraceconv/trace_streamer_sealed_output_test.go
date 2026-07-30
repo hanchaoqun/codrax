@@ -215,14 +215,24 @@ func TestTraceDBSystraceProductionPinsPrivateHeldValidationBeforeExactPublish(t 
 	core := sourceGenerationFunctionBody(t, "streamerdb_export.go", "exportTraceDBToSystraceFromOpenWithLedger")
 	assertSourceGenerationOrder(t, core,
 		"sink.prepareForPublication(ctx)",
-		"if closeErr := closeTraceDB(); closeErr != nil",
 		"prepareSealedConversionPublicationTargetWithLedger(output, \".codrax-sql-systrace-*\", ledger)",
 		"os.OpenFile(target.StagingPath",
+		"sink.writeTo(ctx, wireOutput)",
+		"exportTraceDBTextFidelity(ctx, tdb, fidelityOutput)",
+		"fidelityOutput.seal(ctx)",
+		"dbCloseErr := closeTraceDB()",
 		"target.stagingDir.AdoptRegularChild(target.finalLeaf, true)",
-		"validateSealedSystraceWithTraceQueryReceipt(",
+		"validateSealedSystraceWithTraceQueryReceiptAndWire(",
 		"publishValidatedOwnedTraceOutputNoReplace(ctx, target, sealedOutput, validationReceipt, ledger)",
 		"result.Artifact, err = newValidatedSystraceArtifact",
 	)
+	dbCloseAt := strings.Index(core, "dbCloseErr := closeTraceDB()")
+	adoptAt := strings.Index(core, "target.stagingDir.AdoptRegularChild(target.finalLeaf, true)")
+	if dbCloseAt < 0 || adoptAt <= dbCloseAt ||
+		!strings.Contains(core[dbCloseAt:adoptAt], "closeErr := out.Close()") ||
+		!strings.Contains(core[dbCloseAt:adoptAt], "if dbCloseErr != nil || closeErr != nil") {
+		t.Fatalf("private SQL suffix can be sealed before DB/VFS and writer close succeed:\n%s", core)
+	}
 	for _, forbidden := range []string{
 		"validateSystraceWithTraceQuery",
 		"tracequery.BuildIndex",
@@ -240,17 +250,18 @@ func TestTraceDBSystraceProductionPinsPrivateHeldValidationBeforeExactPublish(t 
 		"prepareSealedConversionPublicationTargetWithLedger(output, \".codrax-sql-systrace-*\", ledger)",
 		"os.OpenFile(target.StagingPath",
 		"target.stagingDir.AdoptRegularChild(target.finalLeaf, true)",
-		"validateSealedSystraceWithTraceQueryReceipt(",
+		"validateSealedSystraceWithTraceQueryReceiptAndWire(",
 		"publishValidatedOwnedTraceOutputNoReplace(ctx, target, sealedOutput, validationReceipt, ledger)",
 	} {
 		if count := strings.Count(core, singleton); count != 1 {
 			t.Fatalf("SQL systrace single-authority token %q count=%d, want 1:\n%s", singleton, count, core)
 		}
 	}
-	validationAt := strings.Index(core, "validateSealedSystraceWithTraceQueryReceipt(")
+	validationAt := strings.Index(core, "validateSealedSystraceWithTraceQueryReceiptAndWire(")
 	publishAt := strings.Index(core, "publishValidatedOwnedTraceOutputNoReplace(ctx, target, sealedOutput, validationReceipt, ledger)")
 	if validationAt < 0 || publishAt <= validationAt ||
 		!strings.Contains(core[validationAt:publishAt], "target.finalBindingPath") ||
+		!strings.Contains(core[validationAt:publishAt], "expectedWire") ||
 		!strings.Contains(core[validationAt:publishAt], "if validationErr != nil") ||
 		!strings.Contains(core[validationAt:publishAt], "return result, validationErr") {
 		t.Fatalf("SQL systrace publication is no longer dominated by the validation error gate:\n%s", core)
