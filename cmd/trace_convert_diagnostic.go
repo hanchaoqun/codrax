@@ -92,6 +92,7 @@ var traceConvertDiagnosticCapabilities = []string{
 	"raw_marker_combined_collision_census_v1",
 	"thread_registration_metadata_only_v1",
 	"sql_text_fidelity_v1",
+	"sql_text_fidelity_v2",
 	"official_frame_callstack_relation_v1",
 	"official_frame_gpu_relation_v1",
 	"official_perf_napi_async_relation_v1",
