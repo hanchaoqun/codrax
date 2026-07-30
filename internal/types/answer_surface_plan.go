@@ -2003,6 +2003,16 @@ func applyRuntimeTraceSourceOptionalSurfacePlan(plan *AnswerSurfacePlan, ir *Ana
 			return
 		}
 	}
+	// FABGATE-2 witness floor (runtime_witness_floor.go): the flip below
+	// is the ONLY place the source-optional flags change, so the
+	// witness invariant is enforced here for BOTH lanes. Today both
+	// lanes already imply it (the authority lane requires ledger
+	// observations, the else-lane is guarded above) — this is the
+	// explicit choke-point form that keeps any future lane change from
+	// re-opening the witnessless-waiver hole.
+	if !RuntimeSourceOptionalWaiverWitnessFloor(attachedRuntimeArtifact, ledger) {
+		return
+	}
 	plan.CurrentStatusDiagnosticRequired = false
 	plan.CurrentSourceEvidenceOrigin = false
 	if plan.RuntimeGroundingDisposition == nil || !plan.RuntimeGroundingDisposition.IsActive() {

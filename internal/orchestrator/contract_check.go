@@ -410,6 +410,20 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 			runAuthorityOverreachCheck(mut, draft.Text)...)
 	}
 
+	// FABGATE-2 factory-floor tripwire (2026-07-30): an answer must not
+	// ship under an active runtime-grounding disposition (citation
+	// policy = runtime observation) when the run holds ZERO runtime
+	// witnesses of any class. With FABGATE-1 and the minting-side
+	// witness floor in place this state is structurally unreachable —
+	// firing means a minting lane regressed or a stale plan leaked,
+	// i.e. the exact authorization surface behind the customer-incident
+	// fabrication (a full trace analysis invented for a trace that was
+	// never read). Typed signals only.
+	if contractBus != nil {
+		result.Violations = append(result.Violations,
+			runRuntimeGroundingWitnessFloorCheck(contractBus)...)
+	}
+
 	// Self-consistency reviewer dispatch. Reviewer reads V2
 	// AnswerDocumentV2 — independent LLM detects FACTUAL
 	// contradictions between BlockSummary text and the body blocks
@@ -3775,4 +3789,39 @@ func semanticQualityTopicKey(s string) string {
 		}
 	}
 	return strings.Trim(b.String(), "_")
+}
+
+// runRuntimeGroundingWitnessFloorCheck is the FABGATE-2 factory-floor
+// tripwire wrapper: it recompiles the surface plan and observation
+// ledger from the live BusContext and delegates to the pure core. See
+// types/runtime_witness_floor.go for the invariant's derivation.
+func runRuntimeGroundingWitnessFloorCheck(bus *types.BusContext) []types.Violation {
+	if bus == nil {
+		return nil
+	}
+	plan := types.BuildAnswerSurfacePlanForBusContext(bus)
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(bus, 64))
+	attached := types.RuntimeArtifactContextActiveFromBus(bus)
+	return runtimeGroundingWitnessFloorViolations(plan, attached, ledger)
+}
+
+// runtimeGroundingWitnessFloorViolations is the pure core (unit-tested
+// directly: the honest pipeline can no longer construct the poisoned
+// state, so tests inject it).
+func runtimeGroundingWitnessFloorViolations(plan *types.AnswerSurfacePlan, attachedRuntimeArtifact bool, ledger types.ObservationLedger) []types.Violation {
+	if !types.RuntimeGroundingClaimsWitnessless(plan, attachedRuntimeArtifact, ledger) {
+		return nil
+	}
+	return []types.Violation{{
+		Kind:   types.ViolAuthorityOverreach,
+		Detail: "the answer is framed as grounded in runtime observations (trace/log analysis), but this run holds no runtime evidence at all — no attached runtime artifact, no runtime artifact observation, and no deterministic trace-query observation. Presenting runtime analysis here would be fabrication.",
+		Repair: "Re-emit emit_answer_document WITHOUT runtime-analysis framing: state plainly that the runtime artifact was not read in this run, answer only what the available repository evidence supports, and tell the user to attach the artifact (for example via /htrace or /log) for a grounded runtime analysis.",
+		ClusterKey: "root:runtime_grounding_witness_floor",
+		SuspectedRoot: types.SuspectedRoot{
+			IRField:    "external_observation_policy",
+			Reason:     "runtime-grounding disposition active over a witnessless run (minting-lane regression or stale cached plan)",
+			Confidence: 0.7,
+		},
+		Stage: string(types.StageFinalize),
+	}}
 }
