@@ -242,7 +242,17 @@ type MisplacedFieldHint struct {
 
 ---
 
-# CLASS 2 设计：确定性子计算的重复派发（纯工具经济性）
+## 10. 落地偏离（EVALFIX-2A 实施记录，2026-07-30）
+
+按 §6 顺序落地，三个 tripwire 均以落地前现状留了真红证（A：teaching 未承载；B：`orchestrator.go:runWriteAnalyzePhase` 裸 hint；C：`required_files` description 未预教 wrong token）。与设计字面的偏离：
+
+1. **`DefaultRegistry()` 不存在**（§4.2 引用）——skill 包实际 API 是 `NewRegistry()` + `RegisterDefaults(r)`；Tripwire A 照既有 defaults_test 惯例取 corpus（`allWorkflowBodies`/`allProhibitionBodies` 双 tier 助手）。
+2. **Repair 通道同步分叉**（§4.4 只写了 remap message 分叉）——`strictDecodeToolRepair` 的 hint-match 臂对 wrong-NAME 行原样返回 "Relocate the value ... Do not rename"，正是设计点名的反向指令；故同一判据下分叉出 `tool_param_misnamed_field`（Fields=[CanonicalName]，Hint=改名保值）。Code 是既有开放字符串词汇（同族 `tool_param_unknown_field` / `write_plan_repair_pack`），下游只作 opaque ReasonCode 透传，非 R2' typed signal 新增。
+3. **Tripwire B census 范围**——设计说"通道集合本身写成表"；落地形为 WalkDir 全 internal/ 非测试文件扫 `SetAnalyzerRetryHint` 调用点（比文件表更抓"下一个实例"：新文件新调用点无需先登记即被看护），引用判定按设计原文取函数体作用域（"直接或经同函数局部变量"的机械化形）。首批 exemption 恰 1 条：`agent/analyzer.go:ParseOutput`（读侧 hint 为逐次动态 gate Detail 组装，无固定句可单源，rationale 已落表）。
+4. **defaults.go:1215 satisfies 语义句维持**——Text 尾句已含 "(soft behavior text)"，与保留的 "operator=satisfies is soft behavior guidance" 句有轻微冗余；按 §4.5 "satisfies 语义句维持" 字面保留，未删。
+5. **Tripwire C 附加 vacuous 防护**——wrong-NAME 行数为 0 时 Fatal（设计 §7 只要求 universe 空 Fatal）；最后一行退役时须连同该 Fatal 一起退役，失败文案已说明。
+
+行为判决（§7 端到端 eval 重跑：F5 2/2→0/2、F3 2/12→0/12、正向 evidence_ref 出现率）属 eval 批跑，不在本静态批内，留待下轮 EVALRUN 验证。
 
 状态：设计稿（未实施）。对应 eval gap 报告 `eval/evalrun1_gap_analysis_20260730.md` F4 + F10。
 

@@ -58,6 +58,17 @@ type MisplacedFieldHint struct {
 	// ["items[i].citation_ref", "value.citation_ref",
 	//  "boolean.citation_ref"].
 	CorrectPaths []string
+
+	// CanonicalName marks the wrong-NAME form (EVALFIX-2A): Field is a
+	// known recurring near-miss spelling of an existing schema field
+	// named CanonicalName. Non-empty forks the remap wording to a
+	// rename instruction — the wrong-container wording ("relocate the
+	// value, do not rename") is the REVERSE of the correct fix for
+	// this form. Entries are added per observed recurrence only, never
+	// from similarity heuristics; strict_decode_hint_parity_test.go
+	// (Tripwire C) forces the canonical field's schema description to
+	// pre-teach the wrong token, or an exemption with a rationale.
+	CanonicalName string
 }
 
 // RemapStrictDecodeError inspects err for a json strict-decode
@@ -96,6 +107,13 @@ func RemapStrictDecodeErrorWithRaw(err error, hints []MisplacedFieldHint, raw []
 		for _, h := range hints {
 			if h.Field != field {
 				continue
+			}
+			if h.CanonicalName != "" {
+				logging.Info("[strict_decode_remap] misnamed field %q → canonical name: %s",
+					field, h.CanonicalName)
+				return fmt.Errorf(
+					"%w — the schema has no field %q; the field is named %q — rename the key and keep the value unchanged",
+					err, field, h.CanonicalName)
 			}
 			paths := strings.Join(h.CorrectPaths, " / ")
 			containers := strings.Join(h.ContainerNames, " / ")

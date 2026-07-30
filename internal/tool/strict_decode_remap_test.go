@@ -369,3 +369,78 @@ func TestRemapStrictDecode_ArrayElementShapeNotStringCarrier(t *testing.T) {
 		t.Fatalf("true string-carrier must keep the stringify diagnosis: %q", carrierMsg)
 	}
 }
+
+// TestRemapStrictDecodeError_WrongNameHintTeachesRename — EVALFIX-2A:
+// a hint row with CanonicalName forks the wording to a rename
+// instruction. The wrong-container wording ("relocate ... do not
+// rename") would be the REVERSE instruction for this form.
+func TestRemapStrictDecodeError_WrongNameHintTeachesRename(t *testing.T) {
+	original := produceStrictDecodeErr(t, `{"inner":{"form":"x","requested_files":[]}}`)
+	got := RemapStrictDecodeError(original, []MisplacedFieldHint{
+		{Field: "requested_files", CanonicalName: "required_files"},
+	})
+	if got == original {
+		t.Fatal("matched wrong-NAME hint MUST wrap the error")
+	}
+	msg := got.Error()
+	for _, want := range []string{
+		`the schema has no field "requested_files"`,
+		`the field is named "required_files"`,
+		"rename the key and keep the value unchanged",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("rename teaching missing %q; got %q", want, msg)
+		}
+	}
+	if strings.Contains(msg, "relocate") {
+		t.Errorf("rename form must NOT carry the relocate (wrong-container) wording: %q", msg)
+	}
+	if !errors.Is(got, original) {
+		t.Errorf("wrapped err MUST unwrap to original (errors.Is broken)")
+	}
+}
+
+func TestStrictDecodeToolRepair_WrongNameHint(t *testing.T) {
+	original := produceStrictDecodeErr(t, `{"inner":{"form":"x","requested_files":[]}}`)
+	repair := strictDecodeToolRepair(original, []MisplacedFieldHint{
+		{Field: "requested_files", CanonicalName: "required_files"},
+	}, nil)
+	if repair == nil || repair.Code != "tool_param_misnamed_field" {
+		t.Fatalf("expected misnamed-field repair metadata, got %+v", repair)
+	}
+	if len(repair.Fields) != 1 || repair.Fields[0] != "required_files" {
+		t.Fatalf("repair fields = %+v", repair.Fields)
+	}
+	if !strings.Contains(repair.Hint, "Rename the key") ||
+		!strings.Contains(repair.Hint, "keep the value unchanged") {
+		t.Fatalf("repair hint must teach rename-not-relocate: %q", repair.Hint)
+	}
+	if repair.Metadata["field"] != "requested_files" ||
+		repair.Metadata["canonical_name"] != "required_files" {
+		t.Fatalf("repair metadata incomplete: %+v", repair.Metadata)
+	}
+}
+
+// TestFailStrictDecodeWithError_WrongNameHintSanitizedSummary — R4
+// re-check on the full failure path: the rename teaching reaches the
+// LLM-facing Summary with no Go-internal wording.
+func TestFailStrictDecodeWithError_WrongNameHintSanitizedSummary(t *testing.T) {
+	original := produceStrictDecodeErr(t, `{"inner":{"form":"x","requested_files":[]}}`)
+	res, err := failStrictDecodeWithError("emit_analysis", time.Now(), original,
+		[]MisplacedFieldHint{{Field: "requested_files", CanonicalName: "required_files"}}, nil)
+	if err == nil {
+		t.Fatal("failStrictDecodeWithError must preserve the historical non-nil error return")
+	}
+	if res.Success {
+		t.Fatal("strict decode failure must not succeed")
+	}
+	if res.Repair == nil || res.Repair.Code != "tool_param_misnamed_field" {
+		t.Fatalf("missing misnamed-field repair metadata: %+v", res.Repair)
+	}
+	if !strings.Contains(res.Summary, `the field is named "required_files"`) {
+		t.Fatalf("summary should carry the rename teaching: %s", res.Summary)
+	}
+	if strings.Contains(res.Summary, "Go struct field") || strings.Contains(res.Summary, "emitAnalysisParams") {
+		t.Fatalf("summary leaks Go-internal wording: %s", res.Summary)
+	}
+}

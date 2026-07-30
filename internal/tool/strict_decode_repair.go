@@ -137,6 +137,20 @@ func strictDecodeToolRepair(err error, hints []MisplacedFieldHint, raw []byte) *
 			if h.Field != field {
 				continue
 			}
+			// Wrong-NAME form (EVALFIX-2A): the relocate wording below
+			// is the reverse instruction for a misspelled key — fork to
+			// a rename repair.
+			if h.CanonicalName != "" {
+				return &types.ToolRepair{
+					Code:   "tool_param_misnamed_field",
+					Fields: []string{h.CanonicalName},
+					Hint:   "Rename the key to the listed field name and keep the value unchanged.",
+					Metadata: map[string]string{
+						"field":          field,
+						"canonical_name": h.CanonicalName,
+					},
+				}
+			}
 			return &types.ToolRepair{
 				Code:   "tool_param_misplaced_field",
 				Fields: append([]string(nil), h.CorrectPaths...),

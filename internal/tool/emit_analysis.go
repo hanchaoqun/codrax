@@ -764,7 +764,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"required_files": map[string]any{
 				"type":        "array",
-				"description": "Optional. When you can identify specific files structurally needed to answer the user's question, list them here with confidence and a short rationale. Confidence ≥ 0.8 means the file is treated as a primary file AND its content is pre-read into the prompt; 0.5 ≤ conf < 0.8 means the file is a soft hint (pre-read eligible only); below 0.5 the entry is discarded — leave the recommendation to the deterministic resolver. Use repo-relative POSIX paths copied verbatim from the prescan results. For source_inventory / inventory-style questions, do not list guessed sample files as required_files; rely on source_inventory_profile and repo_map unless the user named the exact path. Empty list is fine: omit when you do not have file-level conviction.",
+				"description": "Optional. When you can identify specific files structurally needed to answer the user's question, list them here with confidence and a short rationale. Confidence ≥ 0.8 means the file is treated as a primary file AND its content is pre-read into the prompt; 0.5 ≤ conf < 0.8 means the file is a soft hint (pre-read eligible only); below 0.5 the entry is discarded — leave the recommendation to the deterministic resolver. Use repo-relative POSIX paths copied verbatim from the prescan results. For source_inventory / inventory-style questions, do not list guessed sample files as required_files; rely on source_inventory_profile and repo_map unless the user named the exact path. Empty list is fine: omit when you do not have file-level conviction. The field name is required_files, not requested_files — the requested_* fields elsewhere in this schema are separate display/profile settings, not this file list.",
 				"items": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
@@ -1006,6 +1006,18 @@ func externalObservationArtifactCitationModeValues() []string {
 //     diff the LLM's raw output against the system's interpretation
 //     in one line.
 //
+// emitAnalysisMisplacedHints — known recurring near-miss field names
+// for this tool's strict decode (EVALFIX-2A wrong-NAME ledger). Rows
+// are added per observed recurrence only — no similarity heuristics.
+// Each CanonicalName row obligates the canonical field's schema
+// description to pre-teach the wrong token (Tripwire C,
+// strict_decode_hint_parity_test.go).
+var emitAnalysisMisplacedHints = []MisplacedFieldHint{
+	// EVALRUN-1 F3 (2/12 runs): the requested_* profile family sits
+	// adjacent to required_files and models cross the two prefixes.
+	{Field: "requested_files", CanonicalName: "required_files"},
+}
+
 // Rejection paths keep the error channel machine-readable: Success=
 // false with a short reason, err returned when the failure is a
 // caller contract violation (bad JSON) rather than a policy breach.
@@ -1048,7 +1060,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	}
 
 	var p emitAnalysisParams
-	if _, decodeFailure, err := decodeStrictNormalizedToolParams(t.Name(), params, &p, nil); err != nil {
+	if _, decodeFailure, err := decodeStrictNormalizedToolParams(t.Name(), params, &p, emitAnalysisMisplacedHints); err != nil {
 		return *decodeFailure, err
 	}
 	raw := types.StripConversationPrefix(ctx.Mutable.Objective())
