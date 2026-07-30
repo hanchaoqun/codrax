@@ -1988,6 +1988,20 @@ func applyRuntimeTraceSourceOptionalSurfacePlan(plan *AnswerSurfacePlan, ir *Ana
 		if observationLedgerHasCurrentSourceRecord(ledger) {
 			return
 		}
+		// FABGATE-1 fix ③ (customer incident 2026-07-30): a bare path
+		// REFERENCE in the request text with nothing behind it — no
+		// attached artifact, no runtime artifact in the ledger, and no
+		// deterministic trace-query observation — must NOT mint the
+		// source-optional waiver. The waiver told the finalizer
+		// "current source evidence is not required" while the run also
+		// had zero runtime observations, which authorized a fabricated
+		// answer. All four discriminators are precise typed signals.
+		if !attachedRuntimeArtifact &&
+			!observationLedgerHasRuntimeTraceArtifact(ledger) &&
+			!observationLedgerHasRuntimeLogArtifact(ledger) &&
+			!observationLedgerHasTraceQueryRuntimeObservation(ledger) {
+			return
+		}
 	}
 	plan.CurrentStatusDiagnosticRequired = false
 	plan.CurrentSourceEvidenceOrigin = false

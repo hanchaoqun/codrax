@@ -65,3 +65,10 @@
 **专项收官**：T-0/T-1/T-2/T-3 全落地；pi 借鉴账本的「PIB-2 TTY 全形」候办就此关闭。
 
 **尾件消化（2026-07-29 续）**：① **@ 补全已落地**（internal/repl/at_file_suggest.go）：native 编辑器 filterSuggestions 漏斗新增 @ 分支（slash 建议恒胜，仅在其空时查询）；会话级懒建文件索引（一次有界 walk，cap 5000，跳过 .git/node_modules/vendor/.codrax/隐藏目录，每击键只过滤内存切片零 fs 访问）；pi 式四档打分（basename 精确 100/前缀 80/含 50/全路径含 30）+ 同档 basename 短者优先平局；整值替换只改尾部 @token。pin 两组（打分序+边界负臂含 email/裸@/cap、索引跳过规则精确集合断言）。bubbletea fallback 车道不加（既有收窄裁定维持）。② **按 turn-id 导出已落地**（memory.Store.Turn(id) 导出访问器（in-memory recent 优先）+ /export turn-id 分支：仅问答不含附件——sticky 附件属于当前会话不属于历史轮，确认消息明示；未知 id fail-loud 点名；/help 子命令注册）。pin 一组（by-id bundle 形+无附件负臂+未知 id）。
+
+
+## 6. 客户事故复盘（2026-07-29/30，两案并行）
+
+**案一：REPL 显示/挂死回归（我方 T-2 引入，已止血 58ea9f91c）**。三症状一根因族：Windows 运行窗口 raw 读被非按键控制台记录诱导 park → drain 死等 → REPL 冻结（"整理上下文中"卡死）与输出积压（敲键才批量倾泻）；unix 侧 MakeRaw 清 OPOST 的楼梯化隐患同批预防性修复（cbreak 保 OPOST/ISIG）。止血=Windows 平台整体禁用运行窗口+drain 3s 保险丝+`CODRAX_DISABLE_RUN_INPUT` 总闸。**流程教训（教训条款）：平台不可本地验证（CGO 交叉编译不可行）的输入层改动，必须平台门控默认关闭再逐平台放开；"unix 推理+Windows 放行"不可复现。**
+
+**案二：零探索捏造答案（触发源待客户证据，捏造授权面已封死 FABGATE-1）**。调查定谳（agent 全文另存）：`› 2/4 正在生成最终答案` 的 2/4 来自 soft-notice 的"下一个未开始 slot"投影——**铁证=finalize 通知时渲染器从未见过任何 explore 行**；auto-resume 本案**排除**（复活必打的披露行在 transcript 缺席）但其设计风险实存→已按用户裁定默认关闭+/clear 连清（08a93455b）；确证的捏造授权面=`applyRuntimeTraceSourceOptionalSurfacePlan` 允许"裸路径引用+零附加+零观察"铸 source-optional 豁免，四道门（tier1 零证放行/ta==nil 旁路/引用下限被剥/观察无下限）真空放行。**FABGATE-1 已落地**：裸引用+零附加+零 ledger 工件+零确定性 trace 观察 → 不铸豁免（四判据全 typed 精确信号；判决性 pin=客户形状负臂+附加车道不回归臂）。**fix ① 撤回记录**：ta==nil 臂两次尝试均撞真墙（stub 工件形/既有 pin `IgnoresUnknownState`="未观测状态≠结构空"是有意裁定）——正确落点=forced-finalize 逃生舱（orchestrator.go:5424-5449）加"零投资节点不得强制成文"门，**待客户日志确证 S2 触发后再动**（需 grep `blocked on entry conditions; forcing finalize` / `DAG scheduler stalled`）。**候办 FABGATE-2**：runtime-observation 出厂下限（disposition 激活+external_observation 块 ⇒ ≥1 条确定性 runtime 观察，精确信号 `HasDeterministicRuntimeQueryObservation` 现成，emit 层 typed reject+escape lane）。**向客户取证清单**：① `codrax --version` 的 buildRevision 对表；② `.codrax/logs` grep 上述两行+`stop condition fired`+`read run snapshot seed applied`。规避=显式 `/htrace <路径>` 附加（正规车道，涉事形状不存在）。
