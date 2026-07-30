@@ -1,17 +1,17 @@
 # Selected Eval Manual Audit Scaffold
 
-- date: 2026-07-30T14:04:50Z
-- sweep_start_ts: 20260730-070450
+- date: 2026-07-30T11:45:12Z
+- sweep_start_ts: 20260730-044512
 - total cases: 1
 - parallel: 1
-- timeout: 1200s per case
+- timeout: 1500s per case
 - results_root: eval/results
 
 This scaffold is for human review. The runner records typed metrics and declared oracle surfaces only; it does not decide whether a PASS theoretically solves the real user requirement.
 
 | # | case | verdict | result_dir | declared_oracles | runtime_authority | sec | ctx% | tools | churn | human_correctness | audit_notes |
 |--:|------|---------|------------|------------------|-------------------|----:|-----:|-------|-------|-------------------|-------------|
-| 1 | data_multifile_reference_projection | PASS | eval/results/data_multifile_reference_projection-20260730-070450 | log_regex,answer_regex | none | 180s | 0 | read=0,repo_map=0,list=0,trace=0,source_lens=0 | midloop=0,inv=0/0,fin_reject=0,unavail=0,prune=0 | TODO | TODO |
+| 1 | data_json_strict_ids | PASS | eval/results/data_json_strict_ids-20260730-044512 | log_regex,answer_regex | none | 44s | 0 | read=0,repo_map=0,list=0,trace=0,source_lens=0 | midloop=0,inv=0/0,fin_reject=0,unavail=0,prune=0 | TODO | TODO |
 
 ## Human Audit Checklist
 

@@ -1037,6 +1037,107 @@ func (r *RuleCoverageRecord) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// Ledger field alias registries — the single source of the alternate key
+// names the four ledger record decoders (ContributionRecord / ReconcileGroup /
+// EntityResolutionRecord / RowDecision) accept in UnmarshalJSON. The
+// UnmarshalJSON methods and canonicalLedgerFieldNameSet MUST read these same
+// variables: the group-key lineage gate (EVALFIX-2D 类4) treats "canonical
+// JSON tags ∪ these aliases" as the closed ledger schema-name set, and
+// TestCanonicalLedgerFieldNameSetTripwire pins the set in both directions.
+var (
+	ledgerItemIDAliases              = []string{"row_id", "record_id", "id", "item"}
+	ledgerRowIDAliases               = []string{"item_id", "record_id", "id", "item"}
+	ledgerLocatorAliases             = []string{"locator", "location", "span", "cell", "row"}
+	ledgerGroupKeyAliases            = []string{"group", "dimensions", "dimension_key", "bucket"}
+	ledgerMetricAliases              = []string{"measure", "field", "metric_name"}
+	ledgerOperationAliases           = []string{"op", "aggregation"}
+	ledgerContributionRoleAliases    = []string{"scope", "ledger_role", "contribution_role"}
+	ledgerReasonAliases              = []string{"notes", "summary", "details"}
+	ledgerRuleRefsAliases            = []string{"rule_refs", "rule_ref", "rule_id", "rule"}
+	ledgerReconcileScopeAliases      = []string{"level", "reconcile_scope"}
+	ledgerReconcileRoleAliases       = []string{"kind", "reconcile_role"}
+	ledgerExpectedAliases            = []string{"expected_value", "expected_total"}
+	ledgerActualAliases              = []string{"actual_value", "actual_total"}
+	ledgerDifferenceAliases          = []string{"delta", "diff"}
+	ledgerSourceValueAliases         = []string{"source", "raw", "raw_value", "value"}
+	ledgerSourceFieldAliases         = []string{"input_field", "field", "source_name_field"}
+	ledgerCanonicalIDAliases         = []string{"canonical", "normalized_id", "target_id"}
+	ledgerCanonicalLabelAliases      = []string{"label", "normalized_label", "target_label"}
+	ledgerCanonicalIDFieldAliases    = []string{"id_field", "reference_id_field"}
+	ledgerCanonicalLabelFieldAliases = []string{"label_field", "reference_label_field"}
+	ledgerDecisionAliases            = []string{"status", "outcome", "action"}
+)
+
+// ledgerFieldAliasRegistries enumerates every alias slice above; the closed
+// set builder and the tripwire test both consume this list so a new registry
+// cannot be added without entering the closed set.
+func ledgerFieldAliasRegistries() [][]string {
+	return [][]string{
+		ledgerItemIDAliases,
+		ledgerRowIDAliases,
+		ledgerLocatorAliases,
+		ledgerGroupKeyAliases,
+		ledgerMetricAliases,
+		ledgerOperationAliases,
+		ledgerContributionRoleAliases,
+		ledgerReasonAliases,
+		ledgerRuleRefsAliases,
+		ledgerReconcileScopeAliases,
+		ledgerReconcileRoleAliases,
+		ledgerExpectedAliases,
+		ledgerActualAliases,
+		ledgerDifferenceAliases,
+		ledgerSourceValueAliases,
+		ledgerSourceFieldAliases,
+		ledgerCanonicalIDAliases,
+		ledgerCanonicalLabelAliases,
+		ledgerCanonicalIDFieldAliases,
+		ledgerCanonicalLabelFieldAliases,
+		ledgerDecisionAliases,
+	}
+}
+
+// canonicalLedgerFieldTagNames is the literal registry of the four ledger
+// structs' canonical JSON tag names (deduplicated across structs). It is
+// deliberately a hand-maintained literal — TestCanonicalLedgerFieldNameSetTripwire
+// reflects over the structs and goes red in BOTH directions (a struct field
+// added without registering here, or an entry here matching no struct tag).
+var canonicalLedgerFieldTagNames = []string{
+	// ContributionRecord
+	"item_id", "source", "source_locator", "group_key", "metric", "value",
+	"operation", "role", "reason", "evidence_refs", "rule_refs",
+	// ReconcileGroup (new tags only)
+	"scope", "expected", "actual", "difference", "values",
+	// EntityResolutionRecord (new tags only)
+	"source_value", "source_field", "canonical_id", "canonical_label",
+	"canonical_id_field", "canonical_label_field", "status", "candidates",
+	// RowDecision (new tags only)
+	"row_id", "decision", "contribution", "normalized_fields",
+}
+
+var canonicalLedgerFieldNames = func() map[string]bool {
+	out := map[string]bool{}
+	for _, name := range canonicalLedgerFieldTagNames {
+		out[strings.ToLower(strings.TrimSpace(name))] = true
+	}
+	for _, aliases := range ledgerFieldAliasRegistries() {
+		for _, alias := range aliases {
+			out[strings.ToLower(strings.TrimSpace(alias))] = true
+		}
+	}
+	return out
+}()
+
+// canonicalLedgerFieldNameSet returns the closed set of ledger schema names:
+// the four ledger structs' canonical JSON tags plus every decoder alias. It is
+// the single-source precise predicate for the group-key lineage lanes
+// (EVALFIX-2D 类4): the compute-time hard gate in runComputeContributions and
+// the script-lane soft warning in warnLedgerGroupKeyLineage MUST call this
+// same function — never a second hand copy (谓词同源, Gap B 先例).
+func canonicalLedgerFieldNameSet() map[string]bool {
+	return canonicalLedgerFieldNames
+}
+
 type ContributionRecord struct {
 	ItemID        LooseText `json:"item_id,omitempty"`
 	Source        LooseText `json:"source,omitempty"`
@@ -1064,28 +1165,28 @@ func (r *ContributionRecord) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 	if r.ItemID.String() == "" {
-		r.ItemID = LooseText(rawAliasString(raw, "row_id", "record_id", "id", "item"))
+		r.ItemID = LooseText(rawAliasString(raw, ledgerItemIDAliases...))
 	}
 	if r.SourceLocator.String() == "" {
-		r.SourceLocator = LooseText(rawAliasString(raw, "locator", "location", "span", "cell", "row"))
+		r.SourceLocator = LooseText(rawAliasString(raw, ledgerLocatorAliases...))
 	}
 	if r.GroupKey.String() == "" {
-		r.GroupKey = LooseText(rawAliasString(raw, "group", "dimensions", "dimension_key", "bucket"))
+		r.GroupKey = LooseText(rawAliasString(raw, ledgerGroupKeyAliases...))
 	}
 	if r.Metric.String() == "" {
-		r.Metric = LooseText(rawAliasString(raw, "measure", "field", "metric_name"))
+		r.Metric = LooseText(rawAliasString(raw, ledgerMetricAliases...))
 	}
 	if r.Operation.String() == "" {
-		r.Operation = LooseText(rawAliasString(raw, "op", "aggregation"))
+		r.Operation = LooseText(rawAliasString(raw, ledgerOperationAliases...))
 	}
 	if r.Role.String() == "" {
-		r.Role = LooseText(rawAliasString(raw, "scope", "ledger_role", "contribution_role"))
+		r.Role = LooseText(rawAliasString(raw, ledgerContributionRoleAliases...))
 	}
 	if r.Reason.String() == "" {
-		r.Reason = LooseText(rawAliasString(raw, "notes", "summary", "details"))
+		r.Reason = LooseText(rawAliasString(raw, ledgerReasonAliases...))
 	}
 	if len(r.RuleRefs) == 0 {
-		r.RuleRefs = rawAliasStringSlice(raw, "rule_refs", "rule_ref", "rule_id", "rule")
+		r.RuleRefs = rawAliasStringSlice(raw, ledgerRuleRefsAliases...)
 	}
 	return nil
 }
@@ -1140,31 +1241,31 @@ func (r *EntityResolutionRecord) UnmarshalJSON(data []byte) error {
 	var rawMap map[string]json.RawMessage
 	if err := json.Unmarshal(data, &rawMap); err == nil {
 		if r.ItemID.String() == "" {
-			r.ItemID = LooseText(rawAliasString(rawMap, "row_id", "record_id", "id", "item"))
+			r.ItemID = LooseText(rawAliasString(rawMap, ledgerItemIDAliases...))
 		}
 		if r.SourceValue.String() == "" {
-			r.SourceValue = LooseText(rawAliasString(rawMap, "source", "raw", "raw_value", "value"))
+			r.SourceValue = LooseText(rawAliasString(rawMap, ledgerSourceValueAliases...))
 		}
 		if r.SourceField.String() == "" {
-			r.SourceField = LooseText(rawAliasString(rawMap, "input_field", "field", "source_name_field"))
+			r.SourceField = LooseText(rawAliasString(rawMap, ledgerSourceFieldAliases...))
 		}
 		if r.CanonicalID.String() == "" {
-			r.CanonicalID = LooseText(rawAliasString(rawMap, "canonical", "normalized_id", "target_id"))
+			r.CanonicalID = LooseText(rawAliasString(rawMap, ledgerCanonicalIDAliases...))
 		}
 		if r.CanonicalLabel.String() == "" {
-			r.CanonicalLabel = LooseText(rawAliasString(rawMap, "label", "normalized_label", "target_label"))
+			r.CanonicalLabel = LooseText(rawAliasString(rawMap, ledgerCanonicalLabelAliases...))
 		}
 		if r.CanonicalIDField.String() == "" {
-			r.CanonicalIDField = LooseText(rawAliasString(rawMap, "id_field", "reference_id_field"))
+			r.CanonicalIDField = LooseText(rawAliasString(rawMap, ledgerCanonicalIDFieldAliases...))
 		}
 		if r.CanonicalLabelField.String() == "" {
-			r.CanonicalLabelField = LooseText(rawAliasString(rawMap, "label_field", "reference_label_field"))
+			r.CanonicalLabelField = LooseText(rawAliasString(rawMap, ledgerCanonicalLabelFieldAliases...))
 		}
 		if r.Reason.String() == "" {
-			r.Reason = LooseText(rawAliasString(rawMap, "notes", "summary", "details"))
+			r.Reason = LooseText(rawAliasString(rawMap, ledgerReasonAliases...))
 		}
 		if len(r.RuleRefs) == 0 {
-			r.RuleRefs = rawAliasStringSlice(rawMap, "rule_refs", "rule_ref", "rule_id", "rule")
+			r.RuleRefs = rawAliasStringSlice(rawMap, ledgerRuleRefsAliases...)
 		}
 	}
 	candidates, err := parseEntityCandidates(raw.Candidates)
@@ -1255,25 +1356,25 @@ func (r *ReconcileGroup) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 	if r.GroupKey.String() == "" {
-		r.GroupKey = LooseText(rawAliasString(raw, "group", "dimensions", "dimension_key", "bucket"))
+		r.GroupKey = LooseText(rawAliasString(raw, ledgerGroupKeyAliases...))
 	}
 	if r.Metric.String() == "" {
-		r.Metric = LooseText(rawAliasString(raw, "measure", "field", "metric_name"))
+		r.Metric = LooseText(rawAliasString(raw, ledgerMetricAliases...))
 	}
 	if r.Scope.String() == "" {
-		r.Scope = LooseText(rawAliasString(raw, "level", "reconcile_scope"))
+		r.Scope = LooseText(rawAliasString(raw, ledgerReconcileScopeAliases...))
 	}
 	if r.Role.String() == "" {
-		r.Role = LooseText(rawAliasString(raw, "kind", "reconcile_role"))
+		r.Role = LooseText(rawAliasString(raw, ledgerReconcileRoleAliases...))
 	}
 	if r.Expected.String() == "" {
-		r.Expected = LooseText(rawAliasString(raw, "expected_value", "expected_total"))
+		r.Expected = LooseText(rawAliasString(raw, ledgerExpectedAliases...))
 	}
 	if r.Actual.String() == "" {
-		r.Actual = LooseText(rawAliasString(raw, "actual_value", "actual_total"))
+		r.Actual = LooseText(rawAliasString(raw, ledgerActualAliases...))
 	}
 	if r.Difference.String() == "" {
-		r.Difference = LooseText(rawAliasString(raw, "delta", "diff"))
+		r.Difference = LooseText(rawAliasString(raw, ledgerDifferenceAliases...))
 	}
 	return nil
 }
@@ -1326,16 +1427,16 @@ func (r *RowDecision) UnmarshalJSON(data []byte) error {
 		"evidence_refs": true, "rule_refs": true,
 	}
 	if r.RowID == "" {
-		r.RowID = rawAliasString(raw, "item_id", "record_id", "id", "item")
+		r.RowID = rawAliasString(raw, ledgerRowIDAliases...)
 	}
 	if r.SourceLocator == "" {
-		r.SourceLocator = rawAliasString(raw, "locator", "location", "span", "cell", "row")
+		r.SourceLocator = rawAliasString(raw, ledgerLocatorAliases...)
 	}
 	if r.Decision == "" {
-		r.Decision = rawAliasString(raw, "status", "outcome", "action")
+		r.Decision = rawAliasString(raw, ledgerDecisionAliases...)
 	}
 	if len(r.RuleRefs) == 0 {
-		r.RuleRefs = rawAliasStringSlice(raw, "rule_refs", "rule_ref", "rule_id", "rule")
+		r.RuleRefs = rawAliasStringSlice(raw, ledgerRuleRefsAliases...)
 	}
 	for key, value := range raw {
 		if knownKeys[key] || len(value) == 0 || string(value) == "null" {
@@ -2007,7 +2108,86 @@ func validateRunnerResult(plan TaskPlan, res Result) (Result, error) {
 	if err := ValidateAnswer(res.Answer, res.OutputContract); err != nil {
 		res.ContractWarnings = append(res.ContractWarnings, err.Error())
 	}
+	if len(plan.Actions) == 0 && strings.TrimSpace(plan.Script) != "" {
+		res.ContractWarnings = append(res.ContractWarnings, warnLedgerGroupKeyLineage(res)...)
+	}
 	return res, nil
+}
+
+// warnLedgerGroupKeyLineage appends SOFT lineage guidance for script-minted
+// ledger records (EVALFIX-2D 类4 §4.4). A script record's group key has no
+// runner-known lineage: a GroupKey equal to a ledger schema name or an input
+// artifact header CANNOT be proven wrong — the value namespace and the schema
+// namespace may legally overlap — so membership here is a NOISY signal and
+// drives only ContractWarnings (model-visible via result_prompt_view), never
+// a hard gate. Runner-minted contributions are instead hard-gated at compute
+// time in runComputeContributions, where lineage is precisely known.
+func warnLedgerGroupKeyLineage(res Result) []string {
+	const maxLineageWarnings = 4
+	schemaNames := canonicalLedgerFieldNameSet()
+	headersByAlias := map[string]map[string]bool{}
+	var walk func(artifact DataArtifact)
+	walk = func(artifact DataArtifact) {
+		if len(artifact.Headers) > 0 {
+			keys := map[string]bool{}
+			for _, header := range artifact.Headers {
+				header = strings.ToLower(strings.TrimSpace(header))
+				if header != "" {
+					keys[header] = true
+				}
+			}
+			for _, alias := range append([]string{artifact.ID}, artifact.SourcePaths...) {
+				alias = normalizeMaterialPath(alias)
+				if alias == "" {
+					continue
+				}
+				merged := headersByAlias[alias]
+				if merged == nil {
+					merged = map[string]bool{}
+					headersByAlias[alias] = merged
+				}
+				for key := range keys {
+					merged[key] = true
+				}
+			}
+		}
+		for _, child := range artifact.Children {
+			walk(child)
+		}
+	}
+	for _, artifact := range res.Artifacts {
+		walk(artifact)
+	}
+	var warnings []string
+	seen := map[string]bool{}
+	check := func(recordKind, groupKey, source string) {
+		key := strings.ToLower(strings.TrimSpace(groupKey))
+		if key == "" || seen[key] || len(warnings) >= maxLineageWarnings {
+			return
+		}
+		suspicious := schemaNames[key]
+		if !suspicious {
+			if headers, ok := headersByAlias[normalizeMaterialPath(source)]; ok && headers[key] {
+				suspicious = true
+			}
+		}
+		if !suspicious {
+			return
+		}
+		seen[key] = true
+		warnings = append(warnings, fmt.Sprintf(
+			"%s group key %q matches a ledger schema/field name; if the intent is grouping by that field, use a compute_contributions action with group_key_field so groups carry observed values, and if it is a constant label, state that deliberately (group_key_literal in typed actions)",
+			recordKind, strings.TrimSpace(groupKey)))
+	}
+	for _, rec := range reconcileTargetContributions(res.Contributions) {
+		check("contribution", rec.GroupKey.String(), rec.Source.String())
+	}
+	if res.Reconcile != nil {
+		for _, group := range res.Reconcile.Groups {
+			check("reconcile", group.GroupKey.String(), "")
+		}
+	}
+	return warnings
 }
 
 func validateRequiredLedgers(contract CoverageContract, res Result, satisfaction LedgerSatisfactionFacts) error {

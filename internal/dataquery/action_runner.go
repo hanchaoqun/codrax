@@ -8093,18 +8093,29 @@ func (r ActionRunner) runComputeContributions(action DataAction, defaultRuleRefs
 	children := make([]DataArtifact, 0, len(paths))
 	knownFields := map[string]bool{}
 	var diagnostics []string
-	for _, path := range paths {
-		records, headers, total, rel, err := r.readActionRecords(path, maxRecords)
-		if err != nil {
-			return DataArtifact{}, nil, nil, err
-		}
+
+	// Phase 1 (census) + phase 2 (single global group-key interpretation,
+	// EVALFIX-2D 类4): every input is read before anything is minted and the
+	// group-key lineage lane is decided ONCE for the whole action — see
+	// group_key_lineage.go for the lane model and the typed hard reject of
+	// the phantom-group degenerate case.
+	inputs, globalKnownFields, err := r.readComputeContributionInputs(paths, maxRecords)
+	if err != nil {
+		return DataArtifact{}, nil, nil, err
+	}
+	groupKeyFields, groupKeyConst, groupKeyInferredFromConst, lineageDiagnostic, err := resolveContributionGroupKeyInterpretation(groupKeyLiteral, groupKeyFields, groupKeyConst, inputs, globalKnownFields)
+	if err != nil {
+		return DataArtifact{}, nil, nil, err
+	}
+	if lineageDiagnostic != "" {
+		diagnostics = append(diagnostics, lineageDiagnostic)
+	}
+
+	// Phase 3: per-input contribution minting under the fixed interpretation.
+	for _, input := range inputs {
+		records, headers, total, rel := input.records, input.headers, input.total, input.rel
 		effectiveGroupKeyFields := append([]string(nil), groupKeyFields...)
 		effectiveGroupKeyConst := groupKeyConst
-		if groupKeyLiteral == "" && len(effectiveGroupKeyFields) == 0 && effectiveGroupKeyConst != "" && actionRecordFieldExistsInRecords(headers, records, effectiveGroupKeyConst) {
-			effectiveGroupKeyFields = []string{effectiveGroupKeyConst}
-			effectiveGroupKeyConst = ""
-			diagnostics = append(diagnostics, fmt.Sprintf("%s group_key %q matched an input field; treated as group_key_field", rel, strings.Join(effectiveGroupKeyFields, ",")))
-		}
 		effectiveValueField := valueField
 		if effectiveValueField == "" && rawMetric != "" && operation != "count" && actionRecordFieldExistsInRecords(headers, records, rawMetric) {
 			effectiveValueField = rawMetric
@@ -8284,7 +8295,7 @@ func (r ActionRunner) runComputeContributions(action DataAction, defaultRuleRefs
 		if effectiveValueField != "" && valueField == "" && rawMetric != "" && effectiveValueField == rawMetric {
 			fields["value_field_inferred_from"] = "metric"
 		}
-		if len(effectiveGroupKeyFields) > 0 && len(groupKeyFields) == 0 && groupKeyConst != "" {
+		if groupKeyInferredFromConst && len(effectiveGroupKeyFields) > 0 {
 			fields["group_key_field_inferred_from"] = "group_key"
 		}
 		if len(effectiveGroupKeyFields) > 0 {
@@ -8365,62 +8376,6 @@ func (r ActionRunner) runComputeContributions(action DataAction, defaultRuleRefs
 		},
 		Children: children,
 	}, contributions, normalizeMaterialPaths(consumed), nil
-}
-
-func markKnownActionFields(out map[string]bool, headers []string, records []actionRecord) {
-	mark := func(value string) {
-		value = strings.ToLower(strings.TrimSpace(value))
-		if value != "" {
-			out[value] = true
-		}
-	}
-	for _, header := range headers {
-		mark(header)
-	}
-	for _, record := range records {
-		for key := range record.Fields {
-			mark(key)
-		}
-	}
-}
-
-func recordCompositeGroupKey(fields map[string]string, names []string) string {
-	names = cleanStringList(names)
-	if len(names) == 0 {
-		return ""
-	}
-	values := make([]string, 0, len(names))
-	for _, name := range names {
-		value := recordField(fields, name)
-		if strings.TrimSpace(value) == "" {
-			return ""
-		}
-		values = append(values, value)
-	}
-	return strings.Join(values, "/")
-}
-
-func actionRecordFieldExistsInRecords(headers []string, records []actionRecord, name string) bool {
-	name = strings.ToLower(strings.TrimSpace(name))
-	if name == "" {
-		return false
-	}
-	if len(records) > 0 {
-		for _, record := range records {
-			for key := range record.Fields {
-				if strings.ToLower(strings.TrimSpace(key)) == name {
-					return true
-				}
-			}
-		}
-		return false
-	}
-	for _, header := range headers {
-		if strings.ToLower(strings.TrimSpace(header)) == name {
-			return true
-		}
-	}
-	return false
 }
 
 func validateComputeContributionFieldContract(action DataAction, knownFields map[string]bool, valueField string, groupKeyFields []string, groupKeyConst string, filterFields []string) error {

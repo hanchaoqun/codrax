@@ -2594,6 +2594,19 @@ codrax --tracediag <script.yaml> --trace <trace> \
 - **失败语义**：冲突 flag fail-loud；discovery/step 失败 → 非零退出码，独立步骤仍继续执行；`--out` 走 temp+rename，失败不碰旧报告。
 - **出货模板**：`examples/tracediag/`（collect_format_census / collect_open_gap_witness / collect_io_pairing_witness / collect_berlin_pairing_witness / collect_cap2 / collect_g12 / collect_d10 / collect_acceptance_snapshot）。回访命令与回传规则见 `docs/design/trace_analysis_open_gap_ledger_20260710.md`（统一采集与回访命令节）+ `docs/design/trace_witness_collection_playbook_20260710.md`。
 
+### 13.8 internal/dataquery — 账本组键血统四车道（ledger group-key lineage，EVALFIX-2D 类4）
+
+数据任务账本体系（`ContributionRecord` / `ReconcileGroup` / `EntityResolutionRecord` / `RowDecision`）有两个正交命名空间：schema 命名空间（字段名 + 各解码 alias）与数据值命名空间（输入行观测值）。runner 铸造的每条贡献的 GroupKey 恰属一条 typed 血统车道（`internal/dataquery/group_key_lineage.go`）：
+
+| 车道 | 判定 |
+|---|---|
+| field values | `recordCompositeGroupKey` 从观测行组合（亲手组键=血统保证） |
+| declared literal | `group_key_literal`（§15.12 批乙显式常量通道，永不重释为字段名）——**硬门的 typed 逃逸口** |
+| plain constant | `group_key` 常量且不与任何字段/schema 名冲突（如 `"all_active"`） |
+| synthetic "all" | 隐式缺省 |
+
+**不存在第五车道**：组键解释在 compute 时刻（最早诚实点，records 在手）对全 action **全局单次判定**（`resolveContributionGroupKeyInterpretation`），字段名不再按输入逐个静默降级为常量组标签（历史行为曾铸出与 reconcile 自洽的幽灵组，eval gap F11，且同一 action 的组语义可在输入间分叉）。可判定的退化情形——常量组键 ∈ `canonicalLedgerFieldNameSet()`（四账本 struct JSON tag ∪ 解码 alias 注册表的单源闭集，`TestCanonicalLedgerFieldNameSetTripwire` 双向钉死）且无任何输入携带同名字段——硬拒为 typed `DataFieldContractError`（Role=`contribution_group_key_lineage`），修复双臂：enrich/join 物化字段（dataworkflow missing_field_recovery 确定性识别并生成 fallback 计划）或显式声明 `group_key_literal`。两个硬门谓词均精确（逐字字段存在性 + 有限闭集成员）；脚本车道的 GroupKey∈schema/headers 成员性是嘈声信号，只走 `warnLedgerGroupKeyLineage` 软告警（ContractWarnings，模型下轮可见），永不硬拦。
+
 ---
 
 ## 14. 配置

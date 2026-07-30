@@ -885,7 +885,7 @@ func ComputeContributionScaffolds(records []ArtifactSchemaProjection, limit int)
 				"metric":          "<metric name>",
 				"item_id_field":   "<existing stable row id field if available>",
 			},
-			Note: "Do not invent value/group/filter fields; materialize missing fields with derive_fields, enrich_records, or join_records first. If rule/evidence eligibility is not already decided, run qualify_records before this action.",
+			Note: "Do not invent value/group/filter fields; materialize missing fields with derive_fields, enrich_records, or join_records first. If rule/evidence eligibility is not already decided, run qualify_records before this action. Group semantics: group_key_field groups by an existing field's observed values; group_key is a constant group label and must not equal a field or ledger schema name; group_key_literal declares an explicit constant label that may equal a field name.",
 		})
 		if len(out) >= limit {
 			return out

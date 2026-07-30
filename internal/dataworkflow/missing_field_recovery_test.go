@@ -230,6 +230,82 @@ func TestMissingComputeGroupFieldFallbackPlanUsesFocusedContributionBase(t *test
 	}
 }
 
+// EVALFIX-2D 类4 pin 7 (repair path): the lineage violation — a constant
+// group_key naming a ledger schema field no input carries — is recognized by
+// the SAME enrich/join fallback family as the pre-existing missing-group-field
+// role, so a supplying upstream projection deterministically yields an
+// enrich_records plan that materializes the field.
+func TestMissingComputeGroupFieldFallbackPlanRecognizesLineageRole(t *testing.T) {
+	violation := dataquery.DataTaskViolation{
+		Code:          "field_contract_violation",
+		ActionID:      "compute_target_contributions",
+		ActionKind:    string(dataquery.DataActionComputeContribs),
+		Role:          dataquery.ContributionGroupKeyLineageRole,
+		InputAlias:    "qualified_observations.json",
+		MissingFields: []string{"canonical_label"},
+	}
+	projections := []ArtifactSchemaProjection{
+		{
+			ID:        "qualified",
+			Aliases:   []string{"qualified_observations.json"},
+			Kind:      string(dataquery.DataActionQualifyRecords),
+			NodeClass: ArtifactNodeClassRecord,
+			Fields:    []string{"active", "raw_label", "record_id", "value"},
+			RowCount:  5,
+		},
+		{
+			ID:        "labels",
+			Aliases:   []string{"labels.csv#records"},
+			Kind:      string(dataquery.DataActionExtractRecords),
+			NodeClass: ArtifactNodeClassRecord,
+			Fields:    []string{"raw_label", "canonical_label"},
+			RowCount:  4,
+		},
+	}
+	current := dataquery.TaskPlan{
+		Goal: "finish grouped contribution projection",
+		Actions: []dataquery.DataAction{{
+			ID:         "compute_target_contributions",
+			Kind:       dataquery.DataActionComputeContribs,
+			InputPaths: []string{"qualified_observations.json"},
+			Params: map[string]string{
+				"group_key":     "canonical_label",
+				"value_field":   "value",
+				"item_id_field": "record_id",
+			},
+		}},
+	}
+	plan, ok := MissingComputeGroupFieldFallbackPlan(MissingComputeGroupFieldFallbackInput{
+		Current:           current,
+		Violation:         violation,
+		SchemaProjections: projections,
+	})
+	if !ok {
+		t.Fatal("MissingComputeGroupFieldFallbackPlan ok=false for lineage role")
+	}
+	if len(plan.Actions) != 1 || plan.Actions[0].Kind != dataquery.DataActionEnrichRecords {
+		t.Fatalf("actions=%+v, want enrich_records", plan.Actions)
+	}
+	var specs []map[string]any
+	if err := json.Unmarshal([]byte(plan.Actions[0].Params["lookup_specs_json"]), &specs); err != nil || len(specs) != 1 {
+		t.Fatalf("lookup_specs_json=%q err=%v", plan.Actions[0].Params["lookup_specs_json"], err)
+	}
+	if specs[0]["target_field"] != "canonical_label" || specs[0]["lookup_path"] != "labels.csv#records" {
+		t.Fatalf("spec=%+v, want canonical_label materialized from labels lookup", specs[0])
+	}
+	historical, ok := HistoricalMissingComputeGroupFieldFallbackPlan(MissingComputeGroupFieldFallbackInput{
+		Current:           current,
+		Records:           []WorkflowRecord{{Violations: []dataquery.DataTaskViolation{violation}}},
+		SchemaProjections: projections,
+	})
+	if !ok {
+		t.Fatal("HistoricalMissingComputeGroupFieldFallbackPlan ok=false for lineage role")
+	}
+	if len(historical.Actions) != 1 || historical.Actions[0].Kind != dataquery.DataActionEnrichRecords {
+		t.Fatalf("historical actions=%+v, want enrich_records", historical.Actions)
+	}
+}
+
 func TestInvalidRecordEnrichFallbackPlanBuildsLookupFromMultiInputDerive(t *testing.T) {
 	plan, ok := InvalidRecordEnrichFallbackPlan(InvalidRecordEnrichFallbackInput{
 		Current: dataquery.TaskPlan{Goal: "continue"},

@@ -132,11 +132,25 @@ func HistoricalMissingComputeGroupFieldFallbackPlan(input MissingComputeGroupFie
 	return dataquery.TaskPlan{}, false
 }
 
+// computeGroupKeyRepairRole reports whether a compute_contributions
+// field-contract violation belongs to the enrich/join group-field repair
+// family: the pre-existing missing-group-field role and the EVALFIX-2D
+// lineage role (a constant group_key naming a ledger schema field that no
+// input carries) share the same deterministic repair — materialize the field
+// before retrying the grouped contribution.
+func computeGroupKeyRepairRole(role string) bool {
+	switch strings.TrimSpace(role) {
+	case "contribution_group_key", dataquery.ContributionGroupKeyLineageRole:
+		return true
+	}
+	return false
+}
+
 func MissingComputeGroupFieldFallbackPlan(input MissingComputeGroupFieldFallbackInput) (dataquery.TaskPlan, bool) {
 	violation := input.Violation
 	if strings.TrimSpace(violation.Code) != "field_contract_violation" ||
 		strings.TrimSpace(violation.ActionKind) != string(dataquery.DataActionComputeContribs) ||
-		strings.TrimSpace(violation.Role) != "contribution_group_key" {
+		!computeGroupKeyRepairRole(violation.Role) {
 		return dataquery.TaskPlan{}, false
 	}
 	missingField := firstNonEmpty(violation.MissingFields...)
@@ -563,7 +577,7 @@ func ComputeGroupMissingFieldViolation(record WorkflowRecord) (dataquery.DataTas
 		if strings.TrimSpace(violation.ActionKind) != string(dataquery.DataActionComputeContribs) {
 			continue
 		}
-		if strings.TrimSpace(violation.Role) != "contribution_group_key" {
+		if !computeGroupKeyRepairRole(violation.Role) {
 			continue
 		}
 		if len(violation.MissingFields) == 0 {

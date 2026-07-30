@@ -874,6 +874,21 @@ scaffold.go:882 已有参数提示模板（`"group_key_field": "<existing groupi
 - **风险 2（假阳性）**：用户数据真有一列值恰为 `"canonical_label"` 且模型想拿它当常量标签——落入闭集硬门。逃逸口 `group_key_literal` 一步走出，且 RepairHint 明示；判定为可接受（该形态本身就该显式声明）。
 - **风险 3（行为面）**：删除 8103 的逐输入重释改变"单输入、字段存在、用 `group_key` 传字段名"的既有便利路径——全局判定下步骤 2 覆盖同一形态（∈ ≥1 输入字段集 → field 解释），行为一致；pin 4 与既有测试套保证。
 
+## 10. 落地偏离（EVALFIX-2D 实施记录，2026-07-30）
+
+按 §6 顺序落地。先红纪律：pin 1 形态以落地前现状跑了真红证（临时探针：混合输入下携带字段的 a.csv 全部落入字面组 `"canonical_label"`、缺字段的 b.csv 反而按字段值分组——比 F11 记录的更糟，同一 action 组语义实测分叉，零报错）。落地文件：`internal/dataquery/group_key_lineage.go`（新，血统车道注释 + `ContributionGroupKeyLineageRole` + 两阶段助手 + 血统谓词三助手）、`internal/dataquery/action_runner.go`（两阶段重构，8103 逐输入重释删除）、`internal/dataquery/dataquery.go`（alias 注册表变量化 + `canonicalLedgerFieldNameSet` + `warnLedgerGroupKeyLineage`）、`internal/dataworkflow/missing_field_recovery.go`（`computeGroupKeyRepairRole` 双 Role 识别臂）、`internal/dataworkflow/scaffold.go`（Note 三分语义句）、`docs/architecture.md` §13.8。pin 全集：`internal/dataquery/group_key_lineage_test.go`（幽灵键硬拒/全局判定灭分叉/literal 逃逸/零变化/闭集 tripwire 双向+全量 verbatim golden/脚本车道软 pin）+ `internal/dataworkflow/missing_field_recovery_test.go`（lineage Role 修复路径 pin）。与设计字面的偏离：
+
+1. **"新码 `group_key_schema_name_no_lineage`"（§4.2.3）未铸新 Code**——落地为 Code=`field_contract_violation` + Role=`ContributionGroupKeyLineageRole`（"contribution_group_key_lineage"）作 typed 判别子。理由：§6.1 自己要求"复用既有 `Violation()` 分类链路…无需 substring 新分支"，而 `DataFieldContractError.Violation()` 铸的就是 `field_contract_violation`；且 dataworkflow 的显示面（process_display.go 双语 code switch）与 repairability 归类（violation.go:325）都是按 Code 闭式枚举——新 Code 会跌进两处 default 臂（丢双语解说、RepairNeedsTypedAction→NeedsRecompute 降档），Role 判别与既有 `contribution_group_key` 识别臂逐字同构。修复识别臂（§4.5.2）落为 `computeGroupKeyRepairRole` 双 Role 谓词，enrich/join fallback 计划族零复制复用。
+2. **闭集单源的具体分工**——canonical JSON tag 侧为手写字面表 `canonicalLedgerFieldTagNames`（tripwire 用 reflect 对四 struct 双向红：加字段没登记红、登记名无 tag 红）；alias 侧不再手抄第二份——四 struct 的 `UnmarshalJSON` 内联 alias 字面全部变量化为包级注册表（`ledgerGroupKeyAliases` 等 21 个），解码器与闭集构造共读同一变量（结构性单源，比"逐字断言 alias 表内容"更强），tripwire 另附闭集全量成员 sorted verbatim golden（79 名），任何增删都是显式过审变更。
+3. **§4.4 软告警的车道判定**——`warnLedgerGroupKeyLineage` 挂在 `validateRunnerResult`，以 `len(plan.Actions)==0 && plan.Script!=""` 判"纯脚本批"（typed 计划形状，精确信号）。action 计划内嵌 `custom_transform` 的脚本贡献不告警：区分它们需要 §9.3 明确不做的持久血统字段；纯脚本车道全覆盖，runner 车道在铸造口硬门。headers 集取 artifact `Headers`（数据 schema 面）；未含 `DataArtifact.Fields` 的 key（那是 count/total 等工件元数据，非行字段，纳入纯增噪）。
+4. **"双臂 RepairHint"承载面**——两臂完整句放 `RepairHint`（该 error 类型的默认 RepairHint 本就是 prose，先例成立）且 `Message` 重述双臂；pin 断言 enrich_records/join_records/group_key_literal 三子串。
+5. **LOC ratchet 触发（预期内）**——action_runner.go 12353 基线不动：血统 concern（车道注释/Role 常量/phase 1+2 助手）+ 三个血统谓词助手（`markKnownActionFields` / `actionRecordFieldExistsInRecords` / `recordCompositeGroupKey`，正是硬门与 field 车道的谓词本体）按 ratchet 本意移入 sibling `group_key_lineage.go`，主文件净缩至基线下。
+6. **阶段一取全量预读实现**（§4.2 首选形；§9 风险 1 的重读退化形未用）——峰值内存 Σ paths，受 `maxRecords`（10 万/路径）与 `data_task_max_file_bytes` 双钳制，与设计评估一致。
+
+验证：gofmt 净（触及包）；`go build ./...` 绿；`go test ./...` 83 包全 ok 零 FAIL；§7 判决性 e2e（`data_multifile_reference_projection` eval 重跑）见实施汇报。
+
+状态：已实施（EVALFIX-2D，2026-07-30；落地偏离见本节 §10）。对应 eval gap 报告 F11。
+
 ---
 
 # CLASS 5 — 静默 fail-open 车道的统一披露面（typed degradation ledger）
