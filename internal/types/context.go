@@ -734,15 +734,6 @@ type MutableState struct {
 	// See degradation_ledger.go for registry + lifecycle.
 	degradationLedger map[DegradationLaneID]int
 
-	// degradationSelfDisclosed — R6-5 (round-6 sweep): lanes whose work
-	// the SHIPPING lane already disclosed through its own user-facing
-	// caveat (the degraded delivery footer's citation-quote-backfill
-	// entry). The disclosure footer skips these lanes so one answer never
-	// carries the same lane's disclosure twice with identical wording;
-	// the ledger counts and the operator "[degrade] ledger:" line are
-	// untouched (telemetry is always recorded).
-	degradationSelfDisclosed map[DegradationLaneID]bool
-
 	// analyzerBlockedToolIntents records analyze-stage tool calls that
 	// were blocked by the classification-only boundary but still carry
 	// useful routing metadata (for example read_file(path=...)). The

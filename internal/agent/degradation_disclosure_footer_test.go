@@ -63,7 +63,7 @@ func TestDegradationFooterRendersExactlyOneGroupedLine(t *testing.T) {
 
 	// The footer is one single line — no multi-line expansion, never
 	// per-event rows.
-	if line := renderDegradationDisclosureFooter(ctxZH, "zh"); strings.Contains(line, "\n") {
+	if line := renderDegradationDisclosureFooter(ctxZH, degradationFooterTestDoc(), "zh"); strings.Contains(line, "\n") {
 		t.Fatalf("footer must be a single line, got %q", line)
 	}
 }
@@ -96,7 +96,7 @@ func TestDegradationFooterKnobOffRestoresByteIdenticalOutput(t *testing.T) {
 	mu := seededDegradationMutable()
 	ctx := &types.AgentContext{Mutable: mu}
 	on := RenderAnswerDocumentWithLastMileSupplements(ctx, degradationFooterTestDoc(), nil, "zh")
-	footer := renderDegradationDisclosureFooter(ctx, "zh")
+	footer := renderDegradationDisclosureFooter(ctx, degradationFooterTestDoc(), "zh")
 	if footer == "" {
 		t.Fatalf("precondition: footer must render for seeded state")
 	}
@@ -129,7 +129,7 @@ func TestDegradationFooterPlumbingLanesNeverDisclose(t *testing.T) {
 		}
 	}
 	ctx := &types.AgentContext{Mutable: mu}
-	if footer := renderDegradationDisclosureFooter(ctx, "zh"); footer != "" {
+	if footer := renderDegradationDisclosureFooter(ctx, degradationFooterTestDoc(), "zh"); footer != "" {
 		t.Fatalf("plumbing-only ledger must render ZERO footer bytes, got %q", footer)
 	}
 	got := RenderAnswerDocumentWithLastMileSupplements(ctx, degradationFooterTestDoc(), nil, "zh")
@@ -154,14 +154,14 @@ func TestDegradationFooterUnregisteredLaneFailsOpenToGenericWord(t *testing.T) {
 	mu := types.NewMutableState("q")
 	mu.AppendDegradation(types.DegradationLaneID("mystery_future_lane"), 3)
 	ctx := &types.AgentContext{Mutable: mu}
-	zh := renderDegradationDisclosureFooter(ctx, "zh")
+	zh := renderDegradationDisclosureFooter(ctx, degradationFooterTestDoc(), "zh")
 	if !strings.Contains(zh, "确定性降级处理 ×3") {
 		t.Fatalf("unregistered lane must fail open to the generic zh word with count kept, got %q", zh)
 	}
 	if strings.Contains(zh, "mystery_future_lane") {
 		t.Fatalf("internal token rode the user surface: %q", zh)
 	}
-	en := renderDegradationDisclosureFooter(ctx, "en")
+	en := renderDegradationDisclosureFooter(ctx, degradationFooterTestDoc(), "en")
 	if !strings.Contains(en, "deterministic degradation ×3") {
 		t.Fatalf("unregistered lane must fail open to the generic en word, got %q", en)
 	}
@@ -199,7 +199,7 @@ func TestDegradationFooterConsumptionSetEqualsAnswerSemanticsSet(t *testing.T) {
 		mu.AppendDegradation(lane, 1)
 	}
 	ctx := &types.AgentContext{Mutable: mu}
-	footer := renderDegradationDisclosureFooter(ctx, "zh")
+	footer := renderDegradationDisclosureFooter(ctx, degradationFooterTestDoc(), "zh")
 	if footer == "" {
 		t.Fatalf("footer must render when answer-semantics lanes are active")
 	}
@@ -223,27 +223,54 @@ func TestDegradationFooterConsumptionSetEqualsAnswerSemanticsSet(t *testing.T) {
 	}
 }
 
-// TestDegradationFooterSelfDisclosedLaneSuppressed — R6-5 (round-6
-// sweep, eval/sweep_round6_findings_20260730.md): when the shipping
-// lane already discloses a lane's work through its own caveat (the
-// degraded recovery lane's citation-quote-backfill entry carries the
-// IDENTICAL ZH word 引用摘录回填), the footer must not disclose that
-// lane again — one answer never carries the same lane's disclosure
-// twice. Other lanes keep rendering, and the ledger/operator account is
+// TestDegradationFooterSelfDisclosedLaneSuppressed — R6-5 semantics
+// under the R7-1 doc-derived mechanism: when the document being rendered
+// already discloses a lane's work through its own degraded caveat (whose
+// citation-quote-backfill section word is IDENTICAL to the lane's
+// registry word 引用摘录回填 — identity asserted here, it is what the
+// suppression predicate keys on), the footer must not disclose that lane
+// again — one answer never carries the same lane's disclosure twice.
+// Other lanes keep rendering, and the ledger/operator account is
 // untouched.
 func TestDegradationFooterSelfDisclosedLaneSuppressed(t *testing.T) {
+	// The word identity the suppression rides on: section display pair ==
+	// lane registry pair for the backfill token. If either side is
+	// renamed without the other, suppression silently dies — pin it.
+	pair, ok := degradedSectionDisplayNames[tool.DegradedSectionCitationQuoteBackfill]
+	if !ok {
+		t.Fatalf("backfill token missing from degradedSectionDisplayNames")
+	}
+	spec := types.DegradationLaneRegistry[types.DegradeLaneCitationQuoteRewrite]
+	if pair[0] != spec.ZH || pair[1] != spec.EN {
+		t.Fatalf("section display words %v must equal the citation lane registry words {%s,%s} — the doc-derived suppression keys on this identity", pair, spec.ZH, spec.EN)
+	}
+
 	mu := seededDegradationMutable() // citation ×17 + facet softened ×1
-	// The degraded call sites mark through the produced-token helper —
-	// exercise the real pairing, not the raw types call.
-	markSelfDisclosedDegradedSections(&types.AgentContext{Mutable: mu},
-		[]string{"observation_board", tool.DegradedSectionCitationQuoteBackfill})
 	ctx := &types.AgentContext{Mutable: mu}
-	footer := renderDegradationDisclosureFooter(ctx, "zh")
+	// The degraded doc carries the self-disclosing caveat exactly as the
+	// production recovery lanes append it (same builder, same tokens).
+	degradedDoc := degradationFooterTestDoc()
+	degradedDoc.Caveats = append(degradedDoc.Caveats,
+		degradedDeterministicSectionsCaveat("zh", []string{"observation_board", tool.DegradedSectionCitationQuoteBackfill}))
+	footer := renderDegradationDisclosureFooter(ctx, degradedDoc, "zh")
 	if strings.Contains(footer, "引用摘录回填") {
 		t.Fatalf("self-disclosed citation lane must not disclose again on the footer: %q", footer)
 	}
 	if !strings.Contains(footer, "必答面硬转软 ×1") {
 		t.Fatalf("other lanes must keep rendering: %q", footer)
+	}
+	// End-to-end on the degraded doc: the caveat wording appears exactly
+	// once (the caveat itself), never a second time via the footer.
+	rendered := RenderAnswerDocumentWithLastMileSupplements(ctx, degradedDoc, nil, "zh")
+	if n := strings.Count(rendered, "引用摘录回填"); n != 1 {
+		t.Fatalf("degraded doc must carry the backfill word exactly once (caveat only, no footer repeat), got %d:\n%s", n, rendered)
+	}
+	// The EN caveat face suppresses too (predicate checks both faces).
+	degradedEN := degradationFooterTestDoc()
+	degradedEN.Caveats = append(degradedEN.Caveats,
+		degradedDeterministicSectionsCaveat("en", []string{tool.DegradedSectionCitationQuoteBackfill}))
+	if footer := renderDegradationDisclosureFooter(ctx, degradedEN, "en"); strings.Contains(footer, "citation quote backfill") {
+		t.Fatalf("EN degraded caveat must suppress the EN footer entry too: %q", footer)
 	}
 	// Telemetry untouched: the ledger still carries the full account for
 	// the operator "[degrade] ledger:" line.
@@ -257,30 +284,67 @@ func TestDegradationFooterSelfDisclosedLaneSuppressed(t *testing.T) {
 	if !found {
 		t.Fatalf("suppression is footer-only — the ledger count must survive: %+v", entries)
 	}
-	// A produced list WITHOUT the backfill token marks nothing: the
-	// footer stays the sole disclosure (per-Run rewrite events semantic,
-	// design ledger CLASS 5 §10.7).
-	mu2 := seededDegradationMutable()
-	markSelfDisclosedDegradedSections(&types.AgentContext{Mutable: mu2}, []string{"observation_board"})
-	if footer := renderDegradationDisclosureFooter(&types.AgentContext{Mutable: mu2}, "zh"); !strings.Contains(footer, "引用摘录回填 ×17") {
+	// A degraded caveat WITHOUT the backfill section suppresses nothing:
+	// the footer stays the sole disclosure (per-Run rewrite events
+	// semantic, design ledger CLASS 5 §10.7).
+	noBackfill := degradationFooterTestDoc()
+	noBackfill.Caveats = append(noBackfill.Caveats,
+		degradedDeterministicSectionsCaveat("zh", []string{"observation_board"}))
+	if footer := renderDegradationDisclosureFooter(&types.AgentContext{Mutable: seededDegradationMutable()}, noBackfill, "zh"); !strings.Contains(footer, "引用摘录回填 ×17") {
 		t.Fatalf("without the self-disclosing caveat the footer stays the disclosure of record: %q", footer)
 	}
 }
 
-// TestDegradedMaterializeCallSitesMarkSelfDisclosedLanes — structural
-// pairing pin for R6-5: every production call of
-// tool.MaterializeDeterministicAnswerSectionsForDegradedDoc in this
-// package must be followed (within a few lines) by
-// markSelfDisclosedDegradedSections on the same materialized list, so a
-// future degraded lane cannot reintroduce the co-surface double
+// TestDegradationFooterRejectedRecoveryThenCleanRetryDiscloses — R7-1
+// (round-7 sweep): a recovery attempt builds a degraded draft whose own
+// caveat self-discloses the citation lane, but that draft is REJECTED
+// and a later attempt re-emits a CLEAN answer document. The clean answer
+// carries no self-disclosing degraded caveat, so the footer MUST
+// disclose the lane — suppression must never outlive the rejected draft
+// (R6-5's marker did: it was set at MATERIALIZE time on run state, so
+// the clean retry rendered footer-suppressed with no caveat either —
+// total disclosure loss, red-first against that shape). Doc-derived
+// suppression is stateless by construction; this pin kills any future
+// reintroduction of run-level suppression state.
+func TestDegradationFooterRejectedRecoveryThenCleanRetryDiscloses(t *testing.T) {
+	mu := seededDegradationMutable() // citation ×17 + facet softened ×1
+	ctx := &types.AgentContext{Mutable: mu}
+	// Recovery attempt: the degraded draft renders (its caveat suppresses
+	// the citation lane on ITS OWN render) — then it is rejected and never
+	// ships.
+	rejected := degradationFooterTestDoc()
+	rejected.Caveats = append(rejected.Caveats,
+		degradedDeterministicSectionsCaveat("zh", []string{"observation_board", tool.DegradedSectionCitationQuoteBackfill}))
+	draft := RenderAnswerDocumentWithLastMileSupplements(ctx, rejected, nil, "zh")
+	if n := strings.Count(draft, "引用摘录回填"); n != 1 {
+		t.Fatalf("degraded draft must self-disclose exactly once (no footer repeat), got %d:\n%s", n, draft)
+	}
+	// Later attempt on the SAME run state: a clean re-emitted answer
+	// document renders. Nothing in THIS document self-discloses, so the
+	// footer is the disclosure of record and must carry the citation lane.
+	got := RenderAnswerDocumentWithLastMileSupplements(ctx, degradationFooterTestDoc(), nil, "zh")
+	if !strings.Contains(got, "引用摘录回填 ×17") {
+		t.Fatalf("clean retry after a rejected recovery draft must disclose the citation lane on the footer:\n%s", got)
+	}
+}
+
+// TestDegradedMaterializeCallSitesAppendSelfDisclosingCaveat —
+// structural pairing pin for R6-5, repointed by R7-1: every production
+// call of tool.MaterializeDeterministicAnswerSectionsForDegradedDoc in
+// this package must be followed (within a few lines) by
+// degradedDeterministicSectionsCaveat on the same materialized list —
+// the caveat appended to the outgoing doc is now BOTH the user-facing
+// self-disclosure AND the footer's suppression carrier
+// (degradationLaneSelfDisclosedInDoc), so a call site that materializes
+// without appending it would reintroduce the co-surface double
 // disclosure.
-func TestDegradedMaterializeCallSitesMarkSelfDisclosedLanes(t *testing.T) {
+func TestDegradedMaterializeCallSitesAppendSelfDisclosingCaveat(t *testing.T) {
 	entries, err := os.ReadDir(".")
 	if err != nil {
 		t.Fatalf("read package dir: %v", err)
 	}
 	const materializeToken = "MaterializeDeterministicAnswerSectionsForDegradedDoc("
-	const markToken = "markSelfDisclosedDegradedSections("
+	const caveatToken = "degradedDeterministicSectionsCaveat("
 	callSites := 0
 	for _, e := range entries {
 		name := e.Name()
@@ -298,15 +362,15 @@ func TestDegradedMaterializeCallSitesMarkSelfDisclosedLanes(t *testing.T) {
 			}
 			callSites++
 			paired := false
-			for j := i; j < len(lines) && j <= i+6; j++ {
-				if strings.Contains(lines[j], markToken) {
+			for j := i; j < len(lines) && j <= i+12; j++ {
+				if strings.Contains(lines[j], caveatToken) {
 					paired = true
 					break
 				}
 			}
 			if !paired {
-				t.Errorf("%s:%d calls %s without a %s pairing within 6 lines — the degraded caveat and the footer would double-disclose the citation lane",
-					name, i+1, materializeToken, markToken)
+				t.Errorf("%s:%d calls %s without a %s pairing within 12 lines — the outgoing doc would lack the self-disclosing caveat and the degraded surface and footer would double-disclose the citation lane",
+					name, i+1, materializeToken, caveatToken)
 			}
 		}
 	}

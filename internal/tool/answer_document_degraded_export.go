@@ -22,9 +22,12 @@ import (
 
 // DegradedSectionCitationQuoteBackfill is the section token minted when
 // the degraded-lane deterministic citation-quote backfill produced
-// output. Exported for the agent-layer caller (R6-5): when this token is
-// in the produced list, the degraded caveat self-discloses the backfill
-// and the degradation-disclosure footer must not repeat the same lane.
+// output. Exported for the agent layer (R6-5, mechanism reshaped by
+// R7-1): when this token is in the produced list, the degraded caveat
+// built from it self-discloses the backfill with the citation lane's own
+// registry word, and the degradation-disclosure footer suppresses that
+// lane by reading the caveat off the document being rendered
+// (agent.degradationLaneSelfDisclosedInDoc) — never from run state.
 const DegradedSectionCitationQuoteBackfill = "citation_quote_backfill"
 
 // MaterializeDeterministicAnswerSectionsForDegradedDoc runs the persist

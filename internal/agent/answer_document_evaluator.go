@@ -10927,11 +10927,14 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 		// guards live in each materializer).
 		materialized := tool.MaterializeDeterministicAnswerSectionsForDegradedDoc(
 			types.ToolBusContext(ctx, types.AgentFinalizer), doc)
-		markSelfDisclosedDegradedSections(ctx, materialized)
 		if ctx != nil {
 			render.ApplyAuthorityHedging(doc, answerDocumentAuthorityEvidencePool(ctx), e.language)
 		}
 		doc.Caveats = append(doc.Caveats, retryStateRecoveredAnswerDocumentCaveat(e.language))
+		// R7-1: the self-disclosing caveat appended to THIS doc is what
+		// suppresses the degradation footer for the backfill lane — the
+		// suppression travels with the document that actually ships, never
+		// with run-level state (degradationLaneSelfDisclosedInDoc).
 		doc.Caveats = append(doc.Caveats, degradedDeterministicSectionsCaveat(e.language, materialized))
 		// XGAP-FIX ⑤: record the shipped degraded draft so the
 		// post-finalize prose defenses (S3' cross-check appendix / PSG /
@@ -11329,6 +11332,17 @@ func degradedSectionDisplayList(en bool, materialized []string) string {
 	return strings.Join(names, "、")
 }
 
+// degradedSectionsCaveatPrefix{ZH,EN} are the verbatim leaders of the
+// degraded self-disclosing caveat below. Extracted as named constants
+// because the degradation-disclosure footer's suppression predicate
+// (degradationLaneSelfDisclosedInDoc — R7-1) anchors on them: the
+// suppressor and the builder share the SAME literal (谓词同源), so the
+// caveat wording cannot drift away from the predicate that reads it.
+const (
+	degradedSectionsCaveatPrefixZH = "降级出厂说明：本稿未通过最终结构化校验。"
+	degradedSectionsCaveatPrefixEN = "Degraded delivery: this draft did NOT pass final structured validation."
+)
+
 // degradedDeterministicSectionsCaveat is the XGAP-FIX ⑤ footer upgrade: on
 // every degraded/recovery shipping lane the report states, in one line,
 // that it shipped degraded AND which deterministic sections/defenses the
@@ -11344,13 +11358,13 @@ func degradedDeterministicSectionsCaveat(lang string, materialized []string) str
 		if sections == "" {
 			sections = "none applicable to this run"
 		}
-		return "Degraded delivery: this draft did NOT pass final structured validation. Deterministic system sections/defenses run on the recovered draft: " +
+		return degradedSectionsCaveatPrefixEN + " Deterministic system sections/defenses run on the recovered draft: " +
 			sections + ". The system cross-check appendix (if any findings) is generated against this recovered draft."
 	}
 	if sections == "" {
 		sections = "本次无适用板块"
 	}
-	return "降级出厂说明：本稿未通过最终结构化校验。系统已在降级车道对恢复稿确定性补渲/核查：" +
+	return degradedSectionsCaveatPrefixZH + "系统已在降级车道对恢复稿确定性补渲/核查：" +
 		sections + "。系统交叉核对附录（如有发现）基于本恢复稿生成。"
 }
 
@@ -11367,11 +11381,14 @@ func (e *answerDocumentEvaluator) parseRecoveredContentAnswerDocument(
 	// too — attach the deterministic sections before promotion/rendering.
 	materialized := tool.MaterializeDeterministicAnswerSectionsForDegradedDoc(
 		types.ToolBusContext(ctx, types.AgentFinalizer), doc)
-	markSelfDisclosedDegradedSections(ctx, materialized)
 	if ctx != nil {
 		render.ApplyAuthorityHedging(doc, answerDocumentAuthorityEvidencePool(ctx), e.language)
 	}
 	doc.Caveats = append(doc.Caveats, recoveredAnswerDocumentCaveat(e.language, rec))
+	// R7-1: the self-disclosing caveat on THIS doc carries the footer
+	// suppression for the backfill lane (degradationLaneSelfDisclosedInDoc)
+	// — if this draft is later rejected and a clean answer re-emits, the
+	// clean doc has no such caveat and the footer discloses normally.
 	doc.Caveats = append(doc.Caveats, degradedDeterministicSectionsCaveat(e.language, materialized))
 	if rec.Lossless && ctx != nil && ctx.Mutable != nil {
 		ctx.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, doc)
@@ -11698,8 +11715,10 @@ func (e *answerDocumentEvaluator) renderAnswerDocumentWithLastMileSupplements(ct
 	// here and ONLY here — the last-mile chokepoint every FinalAnswer
 	// path is already pinned to (TRUNC family) — so no render path can
 	// drop it. At most one grouped system line; 0 ledger entries → the
-	// helper returns "" and this append is a byte-for-byte no-op.
-	return appendAnswerSupplementDeduped(prose, renderDegradationDisclosureFooter(ctx, e.language), e.language)
+	// helper returns "" and this append is a byte-for-byte no-op. The
+	// doc is threaded so self-disclosed-lane suppression reads the
+	// document actually being rendered (R7-1).
+	return appendAnswerSupplementDeduped(prose, renderDegradationDisclosureFooter(ctx, doc, e.language), e.language)
 }
 
 // answerSupplementDuplicateMinLines is the CR-3 件④ P12 duplicate-block

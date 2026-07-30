@@ -172,6 +172,15 @@ func TestMechanicalClaim_SkipSet(t *testing.T) {
 		{"cross_clause_left_operand_zh", "在 10s 的窗口内，低于 16.67ms 的帧占比 95%。"},
 		{"cross_clause_left_operand_en", "During the 10s trace, frames below the 16.67ms budget account for 95% of all frames."},
 		{"adverbial_scope_left_operand_zh", "在 10s 的窗口内低于 16.67ms 的帧占比 95%。"},
+		// R7-0 (round-7 sweep): the 在…内 adverbial arm must be SIDE-FATAL,
+		// not per-candidate. R6-4's predicate rejected only the candidate
+		// sitting INSIDE the adverbial (在 before the token), so the farther
+		// 80ms BEFORE the 在-opener bound across the closer and manufactured
+		// a false contradiction (80ms 低于 16.67ms) on a CORRECT sentence
+		// that was silent pre-R6 (10ms bound, true claim). The closer is now
+		// a true barrier: any candidate whose gap crosses it dies, so the
+		// whole left side is empty and the comparator skips.
+		{"adverbial_barrier_side_fatal_zh", "总耗时 80ms 在 10ms 的采样间隔内低于 16.67ms 的样本占比达 95%。"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -201,6 +210,24 @@ func TestMechanicalClaim_NonNegatingCompoundStillJudges(t *testing.T) {
 		if !strings.Contains(got[0].Detail, "10ms") || !strings.Contains(got[0].Detail, "16.67ms") {
 			t.Fatalf("Detail must carry the reversed pair:\n%s", got[0].Detail)
 		}
+	}
+}
+
+// TestMechanicalClaim_AdverbialCloserNeedsPairedZai — R7-0 discriminating
+// positive: the adverbial-closer barrier only fires on a 内/中/里 rune
+// with a paired 在 within the leash before it. A word-internal closer in
+// the gap with NO paired 在 (内部 in a parenthetical aside) stays
+// transparent, so the genuinely reversed pair still binds and fires —
+// kills an over-broad fix that treats ANY closer rune in the gap as a
+// barrier.
+func TestMechanicalClaim_AdverbialCloserNeedsPairedZai(t *testing.T) {
+	mut := mccMutable()
+	got := runMechanicalClaimCheck(mccDoc("实测耗时 80ms（内部含 GC 停顿）未超过 16.67ms 帧预算。"), mut, "zh")
+	if len(got) != 1 {
+		t.Fatalf("closer rune without a paired 在 must not barrier the binding, got %+v", got)
+	}
+	if !strings.Contains(got[0].Detail, "80ms > 16.67ms") {
+		t.Fatalf("Detail must carry the reversed pair:\n%s", got[0].Detail)
 	}
 }
 

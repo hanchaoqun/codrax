@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -51,24 +50,34 @@ const (
 	degradationLaneGenericEN = "deterministic degradation"
 )
 
-// markSelfDisclosedDegradedSections — R6-5 companion of every
-// MaterializeDeterministicAnswerSectionsForDegradedDoc call site: when
-// the degraded lane's own materializer produced the citation-quote
-// backfill (which the degraded caveat then discloses with the SAME ZH
-// word this footer would use), the citation-rewrite ledger lane — fed
-// by earlier, REJECTED emit attempts whose draft never shipped — is
-// marked self-disclosed so the footer defers to the degraded caveat.
-// Pairing is pinned structurally
-// (TestDegradedMaterializeCallSitesMarkSelfDisclosedLanes).
-func markSelfDisclosedDegradedSections(ctx *types.AgentContext, materialized []string) {
-	if ctx == nil || ctx.Mutable == nil {
-		return
+// degradationLaneSelfDisclosedInDoc — R7-1 (round-7 sweep), superseding
+// R6-5's run-level MarkDegradationLaneSelfDisclosed: the footer must not
+// repeat a lane the OUTGOING document already discloses through its own
+// degraded caveat (whose section word for the citation backfill is
+// IDENTICAL to the lane's registry word — the identity is pinned). R6-5
+// marked run-level state at MATERIALIZE time, so the marker outlived a
+// rejected recovery draft and a later CLEAN re-emitted answer rendered
+// with the stale marker — footer suppressed AND no self-disclosing
+// caveat: total disclosure loss. Suppression is therefore derived from
+// the document being rendered, never from run state: it anchors on the
+// verbatim degraded-caveat leader (degradedSectionsCaveatPrefix{ZH,EN} —
+// the SAME literals degradedDeterministicSectionsCaveat builds with,
+// 谓词同源) plus the lane's registry word inside that caveat. Both
+// language faces are checked so the predicate is independent of the
+// render-time language parameter.
+func degradationLaneSelfDisclosedInDoc(doc *types.AnswerDocumentV2, spec types.DegradationLaneSpec) bool {
+	if doc == nil {
+		return false
 	}
-	for _, token := range materialized {
-		if token == tool.DegradedSectionCitationQuoteBackfill {
-			ctx.Mutable.MarkDegradationLaneSelfDisclosed(types.DegradeLaneCitationQuoteRewrite)
+	for _, cav := range doc.Caveats {
+		if strings.Contains(cav, degradedSectionsCaveatPrefixZH) && strings.Contains(cav, spec.ZH) {
+			return true
+		}
+		if strings.Contains(cav, degradedSectionsCaveatPrefixEN) && strings.Contains(cav, spec.EN) {
+			return true
 		}
 	}
+	return false
 }
 
 // renderDegradationDisclosureFooter builds the single grouped footer
@@ -81,8 +90,10 @@ func markSelfDisclosedDegradedSections(ctx *types.AgentContext, materialized []s
 //     healthy path stays byte-identical);
 //   - wording comes ONLY from the registry ZH/EN pairs, chosen by the
 //     session language (zh default, en on "en" prefix — same predicate
-//     as degradedDeterministicSectionsCaveat).
-func renderDegradationDisclosureFooter(ctx *types.AgentContext, lang string) string {
+//     as degradedDeterministicSectionsCaveat);
+//   - a lane the doc being rendered already self-discloses through its
+//     degraded caveat is skipped (R6-5 semantics, R7-1 doc-derived).
+func renderDegradationDisclosureFooter(ctx *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {
 	if !degradationFooterEnabled() || ctx == nil || ctx.Mutable == nil {
 		return ""
 	}
@@ -101,18 +112,21 @@ func renderDegradationDisclosureFooter(ctx *types.AgentContext, lang string) str
 		if entry.Count <= 0 {
 			continue
 		}
-		// R6-5 (round-6 sweep): a lane the shipping lane already disclosed
-		// through its own caveat (degraded recovery lane's citation-quote
-		// backfill entry) must not disclose again here — one answer never
-		// carries the same lane's disclosure twice with identical wording.
-		// Ledger counts and the operator ledger line are untouched.
-		if ctx.Mutable.DegradationLaneSelfDisclosed(entry.Lane) {
-			continue
-		}
 		spec, registered := types.DegradationLaneRegistry[entry.Lane]
 		if registered {
 			if spec.Class != types.ClassAnswerSemantics {
 				continue // plumbing: registered, permanently log-only
+			}
+			// R6-5 semantics via the R7-1 doc-derived predicate: a lane the
+			// OUTGOING document already discloses through its own degraded
+			// caveat must not disclose again here — one answer never carries
+			// the same lane's disclosure twice with identical wording. The
+			// check reads the doc being rendered, so a stale suppression can
+			// never outlive a rejected draft (a later clean answer carries no
+			// such caveat and discloses normally). Ledger counts and the
+			// operator ledger line are untouched.
+			if degradationLaneSelfDisclosedInDoc(doc, spec) {
+				continue
 			}
 			label := spec.ZH
 			if en {
