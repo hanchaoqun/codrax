@@ -71,10 +71,7 @@ func (r *REPL) readInputNative(prompt string, isContinue bool) (inputResult, err
 	}
 	defer release()
 
-	w, _, _ := term.GetSize(fd)
-	if w <= 0 {
-		w = 80
-	}
+	w := probeTerminalWidth(fd)
 	foldMin := r.pasteFoldMinChars
 	if foldMin <= 0 {
 		foldMin = DefaultPasteFoldMinChars
@@ -348,7 +345,7 @@ func (e *nativeLineInput) printEcho(line echoTagLine) {
 
 func (e *nativeLineInput) render() {
 	e.clearRendered()
-	if w, _, err := term.GetSize(e.fd); err == nil && w > 0 {
+	if w := probeTerminalWidthNoDefault(e.fd); w > 0 {
 		e.termWidth = w
 	}
 	lines, cursorCol := e.viewLines()
@@ -837,4 +834,30 @@ func nativeSpans(v string) []span {
 		out = append(out, span{start: startRune, end: endRune})
 	}
 	return out
+}
+
+// probeTerminalWidth resolves the editor's column budget. REGFIX-C #7
+// (sweep): term.GetSize on the STDIN handle fails on Windows consoles
+// (screen-buffer info lives on the OUTPUT handle), which pinned the
+// width at the 80-column default and corrupted the frame/rewind
+// arithmetic for every wider terminal. Try the given fd, then stdout,
+// then stderr, and only then fall back to 80.
+func probeTerminalWidth(fd int) int {
+	if w := probeTerminalWidthNoDefault(fd); w > 0 {
+		return w
+	}
+	return 80
+}
+
+func probeTerminalWidthNoDefault(fd int) int {
+	if w, _, err := term.GetSize(fd); err == nil && w > 0 {
+		return w
+	}
+	if w, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil && w > 0 {
+		return w
+	}
+	if w, _, err := term.GetSize(int(os.Stderr.Fd())); err == nil && w > 0 {
+		return w
+	}
+	return 0
 }

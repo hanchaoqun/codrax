@@ -226,11 +226,18 @@ func (r *Renderer) handleEvent(ev Event) {
 	}
 
 	switch ev.Kind {
+	case EventPipelineStart:
+		// REGFIX-C #12 (sweep): the usage account used to reset only on
+		// the FIRST objective — which fires after analyze and never in
+		// write mode — so the dock showed a stale token/cost account
+		// carried over from a previous turn. Pipeline start is the true
+		// per-turn boundary for every mode.
+		r.usageInputTotal = 0
+		r.usageOutputTotal = 0
 	case EventObjectiveStarted:
 		if ev.Objective != "" && r.objective == "" {
 			r.objective = ev.Objective
 			r.objectiveDone = false
-			// PIB-5: a fresh objective starts a fresh usage account.
 			r.usageInputTotal = 0
 			r.usageOutputTotal = 0
 			line := formatCommitRow(commitRow{

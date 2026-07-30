@@ -71,3 +71,22 @@ func TestTruncByDisplayWidth_LocaleIndependent(t *testing.T) {
 		t.Fatalf("dock truncation depends on the process-global runewidth condition:\nbaseline=%q\nflipped =%q", baseline, flipped)
 	}
 }
+
+// TestDockRows_AmbiguousWideSafetyReserve pins REGFIX-C #14: rows must
+// still fit when an ambiguous-wide-configured terminal renders
+// EAW-Ambiguous runes at two columns — the pinned narrow measurement is
+// kept (BARGRID-1 red line) and a safety column absorbs the difference.
+func TestDockRows_AmbiguousWideSafetyReserve(t *testing.T) {
+	wideCond := &runewidth.Condition{EastAsianWidth: true}
+	maxCols := previewLineMaxCols()
+	for i, state := range adversarialDockStates() {
+		rows := composeDockRows(state)
+		for j, row := range rows {
+			plain := stripAnsiEscapes(row)
+			if w := wideCond.StringWidth(plain); w > maxCols {
+				t.Errorf("state %d row %d overflows an ambiguous-WIDE terminal: width=%d cap=%d",
+					i, j, w, maxCols)
+			}
+		}
+	}
+}

@@ -2538,13 +2538,21 @@ func compactToolNameList(names []string, maxKinds int) string {
 // dockWidthCond is the PINNED width condition for terminal emission
 // surfaces (PIB-6, BARGRID-1 generalized: emission-surface geometry
 // must never depend on the package-level runewidth default condition,
-// which auto-detects EastAsianWidth from the locale — the same class
-// of bug that broke the HTML projection grid under zh locales).
-// EastAsianWidth=false renders EAW-Ambiguous runes (… · ↑ ↓ ⠋ █ ▒) at
-// width 1, matching mainstream terminal emulators regardless of the
-// host locale. Every width decision on the dock lanes below must go
-// through this condition, never runewidth.RuneWidth/StringWidth.
-var dockWidthCond = &runewidth.Condition{EastAsianWidth: false}
+// which auto-detects EastAsianWidth from the locale — the same class of
+// bug that broke the HTML projection grid under zh locales).
+//
+// REGFIX-C #14 (regression sweep 2026-07-30) flipped it to
+// EastAsianWidth:true — still pinned, still locale-independent, but now
+// fail-SAFE. The two possible errors are not symmetric: measuring an
+// EAW-Ambiguous rune (… · ↑ ↓ ⠋ █ ▒ ─) as 1 column on a terminal
+// configured ambiguous-WIDE lets the row overflow, the terminal wraps
+// it, and the dock's \x1b[4A cursor-up arithmetic then rewinds too few
+// lines — the row leaks into permanent scrollback (the customer-reported
+// corruption class). Measuring as 2 on a narrow terminal merely renders
+// the row a few columns shorter. Fail-safe wins; a fixed safety reserve
+// was tried first and rejected because a fully-ambiguous row can be
+// nearly twice its narrow measurement, which no constant reserve covers.
+var dockWidthCond = &runewidth.Condition{EastAsianWidth: true}
 
 func truncByDisplayWidth(s string, maxCols int) string {
 	if maxCols <= 0 {
@@ -2579,7 +2587,13 @@ func truncByDisplayWidth(s string, maxCols int) string {
 		// Walk back until we have room for "…" plus reset.
 		out := b.String()
 		// Strip trailing partial cells if we're now at the cap.
-		for dockWidthCond.StringWidth(stripAnsiEscapes(out)) > maxCols-1 && len(out) > 0 {
+		// Reserve the ellipsis's ACTUAL width under the pinned
+		// condition: "…" is itself EAW-Ambiguous, so under the
+		// fail-safe wide condition it costs 2 columns, not 1 (the
+		// off-by-one this replaced let every truncated row exceed the
+		// cap by exactly one column).
+		ellipsisCols := dockWidthCond.StringWidth("…")
+		for dockWidthCond.StringWidth(stripAnsiEscapes(out)) > maxCols-ellipsisCols && len(out) > 0 {
 			// Drop one trailing rune (skip ANSI sequences while
 			// walking back is overkill; truncByDisplayWidth never
 			// places escapes after content without a rune in

@@ -35,7 +35,6 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"golang.org/x/term"
 )
 
 // slashCommands is the canonical autocomplete surface. Kept in sync
@@ -1136,7 +1135,7 @@ func (m *inputModel) renderSuggestPanel() string {
 // readInputBubble runs one Bubble Tea session. The outer caller uses
 // its return (expanded, continues) to build the multi-line buffer.
 func (r *REPL) readInputBubble(prompt string, isContinue bool) (inputResult, error) {
-	w, _, _ := term.GetSize(0)
+	w := probeTerminalWidth(0) // REGFIX-C #7: stdin GetSize fails on Windows
 	if w <= 0 {
 		w = 80
 	}

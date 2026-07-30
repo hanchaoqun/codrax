@@ -73,3 +73,27 @@ func TestContextTokensStyleFor(t *testing.T) {
 		}
 	}
 }
+
+// TestDockUsageAccount_ResetsOnPipelineStart pins REGFIX-C #12: the
+// per-turn boundary is pipeline start, not the first objective (which
+// fires after analyze and never in write mode) — otherwise the dock
+// shows a stale token account carried over from a previous turn.
+func TestDockUsageAccount_ResetsOnPipelineStart(t *testing.T) {
+	r := newTestRenderer("zh")
+	emit := r.Emitter()
+	emit(Event{Kind: EventAgentResponse, Timestamp: time.Now(), UsageInputTokens: 5000, UsageOutputTokens: 900})
+	r.mu.Lock()
+	stale := r.usageInputTotal
+	r.mu.Unlock()
+	if stale != 5000 {
+		t.Fatalf("precondition: usage should have accumulated; got %d", stale)
+	}
+
+	emit(Event{Kind: EventPipelineStart, Timestamp: time.Now()})
+	r.mu.Lock()
+	in, out := r.usageInputTotal, r.usageOutputTotal
+	r.mu.Unlock()
+	if in != 0 || out != 0 {
+		t.Fatalf("pipeline start must reset the usage account; got %d/%d", in, out)
+	}
+}

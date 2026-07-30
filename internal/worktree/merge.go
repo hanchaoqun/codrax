@@ -600,20 +600,37 @@ func MergeFromRef(opts MergeFromRefOptions) (*MergeResult, error) {
 		if out, err := runGitCapture(opts.MainRepoRoot, "checkout", "-b", opts.TargetBranch, opts.BaseBranch); err != nil {
 			return nil, fmt.Errorf("merge: create branch %s: %w (%s)", opts.TargetBranch, err, out)
 		}
-		// Cherry-pick the apply commit. On conflict abort and roll
-		// back to priorBranch so the operator's working state isn't
-		// left half-merged.
-		if out, err := runGitCapture(opts.MainRepoRoot, "cherry-pick", tipSHA); err != nil {
+		// Cherry-pick EVERY commit ahead of base, oldest-first — not
+		// just the tip. REGFIX-C #8 (sweep, high): this lane enumerated
+		// `commits` correctly but then picked only tipSHA, so any
+		// earlier commit in the chain never landed while /merge reported
+		// success. W-3's partial-apply checkpoint made that latent
+		// omission reachable (the landed units sit in a PARENT of the
+		// success commit after an Auto Pilot replan), but the defect is
+		// independent of W-3 and the doc contract above always said
+		// "cherry-picks the worktree commits" — plural.
+		for _, sha := range commits {
+			out, err := runGitCapture(opts.MainRepoRoot, "cherry-pick", sha)
+			if err == nil {
+				continue
+			}
+			// An already-applied commit (identical content already on
+			// base) is not a failure: skip it and continue the chain.
+			if cherryPickReportedEmpty(out) {
+				_, _ = runGitCapture(opts.MainRepoRoot, "cherry-pick", "--skip")
+				logging.Info("[worktree] cherry-pick %s was already applied; skipped", sha)
+				continue
+			}
 			_, _ = runGitCapture(opts.MainRepoRoot, "cherry-pick", "--abort")
 			if priorBranch != "" {
 				_ = checkoutBranch(opts.MainRepoRoot, priorBranch)
 			}
 			_, _ = runGitCapture(opts.MainRepoRoot, "branch", "-D", opts.TargetBranch)
 			return nil, fmt.Errorf("merge: cherry-pick %s onto %s conflicted — rolled back to %s: %w (%s)",
-				tipSHA, opts.TargetBranch, priorBranch, err, out)
+				sha, opts.TargetBranch, priorBranch, err, out)
 		}
-		logging.Info("[worktree] cherry-picked %s onto new branch %s via ref %s",
-			tipSHA, opts.TargetBranch, opts.Ref)
+		logging.Info("[worktree] cherry-picked %d commit(s) onto new branch %s via ref %s",
+			len(commits), opts.TargetBranch, opts.Ref)
 		return &MergeResult{
 			Strategy:      "cherry_pick_branch",
 			CommitsLanded: commits,
@@ -621,4 +638,15 @@ func MergeFromRef(opts MergeFromRefOptions) (*MergeResult, error) {
 		}, nil
 	}
 	return nil, fmt.Errorf("MergeFromRef: unknown mode %d", mode)
+}
+
+// cherryPickReportedEmpty reports whether git refused a cherry-pick
+// because the change is already present on the target (the
+// nothing-to-commit / empty shapes). Such a commit must be skipped,
+// not treated as a conflict (REGFIX-C #8).
+func cherryPickReportedEmpty(out string) bool {
+	lower := strings.ToLower(out)
+	return strings.Contains(lower, "nothing to commit") ||
+		strings.Contains(lower, "previous cherry-pick is now empty") ||
+		strings.Contains(lower, "the previous cherry-pick is now empty")
 }
