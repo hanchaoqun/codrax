@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sort"
 )
 
 type traceDBRawSchedSwitchLiteJoinKey struct {
@@ -15,25 +16,34 @@ type traceDBRawSchedSwitchLiteJoinKey struct {
 	NextPriority int64
 }
 
+type traceDBRawSchedSwitchLiteCoordinate struct {
+	TimestampNS int64
+	CPU         int64
+}
+
 type traceDBRawSchedSwitchLiteJoin struct {
-	coverage TraceDBCoverage
-	rawByKey map[traceDBRawSchedSwitchLiteJoinKey][]traceDBRawSchedSwitchLiteRecord
-	dbByKey  map[traceDBRawSchedSwitchLiteJoinKey]int
-	eligible map[traceDBRawSchedSwitchLiteJoinKey]traceDBRawSchedSwitchLiteRecord
-	consumed map[traceDBRawSchedSwitchLiteJoinKey]bool
-	ready    bool
-	dbReady  bool
+	coverage              TraceDBCoverage
+	rawByKey              map[traceDBRawSchedSwitchLiteJoinKey][]traceDBRawSchedSwitchLiteRecord
+	rawByCoordinate       map[traceDBRawSchedSwitchLiteCoordinate][]traceDBRawSchedSwitchLiteRecord
+	dbByKey               map[traceDBRawSchedSwitchLiteJoinKey]int
+	dbEmittedByCoordinate map[traceDBRawSchedSwitchLiteCoordinate]int
+	eligible              map[traceDBRawSchedSwitchLiteJoinKey]traceDBRawSchedSwitchLiteRecord
+	consumed              map[traceDBRawSchedSwitchLiteJoinKey]bool
+	ready                 bool
+	dbReady               bool
 }
 
 func newTraceDBRawSchedSwitchLiteJoin(
 	inventory *traceDBSourceNameInventory,
 ) *traceDBRawSchedSwitchLiteJoin {
 	join := &traceDBRawSchedSwitchLiteJoin{
-		coverage: newTraceDBRawSchedSwitchLiteJoinCoverage(),
-		rawByKey: map[traceDBRawSchedSwitchLiteJoinKey][]traceDBRawSchedSwitchLiteRecord{},
-		dbByKey:  map[traceDBRawSchedSwitchLiteJoinKey]int{},
-		eligible: map[traceDBRawSchedSwitchLiteJoinKey]traceDBRawSchedSwitchLiteRecord{},
-		consumed: map[traceDBRawSchedSwitchLiteJoinKey]bool{},
+		coverage:              newTraceDBRawSchedSwitchLiteJoinCoverage(),
+		rawByKey:              map[traceDBRawSchedSwitchLiteJoinKey][]traceDBRawSchedSwitchLiteRecord{},
+		rawByCoordinate:       map[traceDBRawSchedSwitchLiteCoordinate][]traceDBRawSchedSwitchLiteRecord{},
+		dbByKey:               map[traceDBRawSchedSwitchLiteJoinKey]int{},
+		dbEmittedByCoordinate: map[traceDBRawSchedSwitchLiteCoordinate]int{},
+		eligible:              map[traceDBRawSchedSwitchLiteJoinKey]traceDBRawSchedSwitchLiteRecord{},
+		consumed:              map[traceDBRawSchedSwitchLiteJoinKey]bool{},
 	}
 	if inventory == nil || inventory.RawDecode.Role == "" {
 		join.coverage.Metadata["join_state"] = "unavailable_source_raw_decode_ledger"
@@ -71,12 +81,25 @@ func newTraceDBRawSchedSwitchLiteJoin(
 			continue
 		}
 		join.rawByKey[key] = append(join.rawByKey[key], raw)
+		coordinate := traceDBRawSchedSwitchLiteCoordinate{
+			TimestampNS: key.TimestampNS,
+			CPU:         key.CPU,
+		}
+		join.rawByCoordinate[coordinate] = append(
+			join.rawByCoordinate[coordinate], raw)
 		traceDBAddCoverageMetric(&join.coverage, "raw_records_key_admitted", 1)
 	}
 	for _, cohort := range join.rawByKey {
 		if len(cohort) > 1 {
 			traceDBAddCoverageMetric(&join.coverage, "raw_ambiguous_key_cohorts", 1)
 			traceDBAddCoverageMetric(&join.coverage, "raw_ambiguous_records", int64(len(cohort)))
+		}
+	}
+	for _, cohort := range join.rawByCoordinate {
+		if len(cohort) > 1 {
+			traceDBAddCoverageMetric(&join.coverage, "raw_ambiguous_coordinate_cohorts", 1)
+			traceDBAddCoverageMetric(
+				&join.coverage, "raw_ambiguous_coordinate_records", int64(len(cohort)))
 		}
 	}
 	join.ready = true
@@ -101,11 +124,12 @@ func newTraceDBRawSchedSwitchLiteJoinCoverage() TraceDBCoverage {
 			"priority":      "next priority must equal the next sched_slice priority; raw prev priority is the exact switch-out snapshot because sched_slice retains the earlier switch-in priority",
 			"next_info":     "full authoritative packed uint64 retained as a raw hex receipt; only the currently documented prefix through cgroup ID is rendered semantically",
 			"envelope":      "exact raw common_flags/common_preempt_count replace only the header defaults on the already-existing DB boundary row; common_pid is not rendered",
-			"deduplication": "raw or DB key multiplicity other than one is ineligible; enrichment never emits a second scheduler event",
+			"deduplication": "raw or DB key multiplicity other than one is ineligible; an exact timestamp/CPU coordinate already emitted from audited DB sched_slice always wins and raw never emits a duplicate",
+			"raw_unmatched": "one unique raw timestamp/CPU record may publish only when no audited DB boundary is emitted there and both raw prev/next public TIDs resolve to one exact canonical thread/process generation at that point; exact idle zero is admitted only through canonical idle authority",
 		},
 		Metadata: map[string]string{
 			"join_state":              "unavailable",
-			"physical_event_contract": "enrich_existing_db_boundary_only; duplicate_events=0",
+			"physical_event_contract": "enrich_existing_db_boundary_or_publish_unique_lifecycle_proven_raw_unmatched; duplicate_events=0",
 		},
 	}
 }
@@ -228,6 +252,10 @@ func (join *traceDBRawSchedSwitchLiteJoin) auditDBBoundaries(
 				return fmt.Errorf("sched_slice boundary changed after scheduler-lite join audit on cpu %d", current.Slice.CPU)
 			}
 			join.dbByKey[key]++
+			join.dbEmittedByCoordinate[traceDBRawSchedSwitchLiteCoordinate{
+				TimestampNS: key.TimestampNS,
+				CPU:         key.CPU,
+			}]++
 			counted++
 		}
 		previous[current.Slice.CPU] = current
@@ -276,11 +304,102 @@ func (join *traceDBRawSchedSwitchLiteJoin) match(
 	return &raw
 }
 
+func (join *traceDBRawSchedSwitchLiteJoin) publishRawUnmatched(
+	sink *traceDBRowSink,
+	authority traceDBSchedulerAuthority,
+) error {
+	if join == nil || !join.ready || !join.dbReady || sink == nil {
+		return nil
+	}
+	coordinates := make([]traceDBRawSchedSwitchLiteCoordinate, 0, len(join.rawByCoordinate))
+	for coordinate := range join.rawByCoordinate {
+		coordinates = append(coordinates, coordinate)
+	}
+	sort.Slice(coordinates, func(i, j int) bool {
+		if coordinates[i].TimestampNS != coordinates[j].TimestampNS {
+			return coordinates[i].TimestampNS < coordinates[j].TimestampNS
+		}
+		return coordinates[i].CPU < coordinates[j].CPU
+	})
+	for _, coordinate := range coordinates {
+		cohort := join.rawByCoordinate[coordinate]
+		if len(cohort) != 1 {
+			continue
+		}
+		if join.dbEmittedByCoordinate[coordinate] != 0 {
+			traceDBAddCoverageMetric(
+				&join.coverage, "raw_unmatched_withheld_db_coordinate_present", 1)
+			continue
+		}
+		raw := cohort[0]
+		key, reason := traceDBRawSchedSwitchLiteKeyDecision(raw)
+		if reason != "" {
+			return &traceDBOutputInvariantError{
+				Reason: "scheduler_lite_raw_unmatched_key_changed_after_census",
+			}
+		}
+		if join.consumed[key] {
+			return &traceDBOutputInvariantError{
+				Reason: "scheduler_lite_raw_unmatched_already_consumed",
+			}
+		}
+		prev, reason := traceDBResolveRawSchedSwitchLiteSubject(
+			authority, raw.PrevTID, coordinate.TimestampNS)
+		if reason != "" {
+			traceDBAddCoverageMetric(
+				&join.coverage, "raw_unmatched_withheld_prev_"+
+					traceDBRawDecodeReasonMetric(reason), 1)
+			continue
+		}
+		next, reason := traceDBResolveRawSchedSwitchLiteSubject(
+			authority, raw.NextTID, coordinate.TimestampNS)
+		if reason != "" {
+			traceDBAddCoverageMetric(
+				&join.coverage, "raw_unmatched_withheld_next_"+
+					traceDBRawDecodeReasonMetric(reason), 1)
+			continue
+		}
+		if err := emitTraceDBRawSchedSwitchLite(sink, raw, prev, next); err != nil {
+			return err
+		}
+		join.consumed[key] = true
+		traceDBAddCoverageMetric(&join.coverage, "raw_unmatched_published", 1)
+	}
+	return nil
+}
+
+func traceDBResolveRawSchedSwitchLiteSubject(
+	authority traceDBSchedulerAuthority,
+	tid, timestamp int64,
+) (traceDBSchedSlice, string) {
+	if traceDBBeforeCaptureStart(authority.identities, timestamp) {
+		return traceDBSchedSlice{}, "pre_capture_timestamp"
+	}
+	if tid == 0 {
+		subject, ok := authority.schedulerSubjectFromExactITID(0, true)
+		if !ok || !authority.schedulerPointAllows(subject, timestamp) {
+			return traceDBSchedSlice{}, "idle_lifecycle_rejected"
+		}
+		return traceDBSchedSlice{
+			TS: timestamp, TID: 0, TGID: 0, ITID: 0, IPID: 0, Name: "swapper",
+		}, ""
+	}
+	thread, process, reason := traceDBResolveRawPublicTID(authority, tid, timestamp)
+	if reason != "" {
+		return traceDBSchedSlice{}, reason
+	}
+	return traceDBSchedSlice{
+		TS: timestamp, TID: thread.TID, TGID: firstNonZero(process.PID, thread.TID),
+		ITID: thread.ITID, IPID: thread.IPID, Name: authority.threadDisplayName(thread),
+	}, ""
+}
+
 func (join *traceDBRawSchedSwitchLiteJoin) finalize() (TraceDBCoverage, error) {
 	if join == nil {
 		return newTraceDBRawSchedSwitchLiteJoinCoverage(), nil
 	}
 	enriched := join.coverage.Metrics["db_boundaries_enriched"]
+	rawUnmatched := join.coverage.Metrics["raw_unmatched_published"]
 	eligible := join.coverage.Metrics["eligible_unique_boundaries"]
 	if enriched != eligible {
 		err := &traceDBOutputInvariantError{Reason: "scheduler_lite_switch_join_publication_mismatch"}
@@ -288,7 +407,7 @@ func (join *traceDBRawSchedSwitchLiteJoin) finalize() (TraceDBCoverage, error) {
 		join.coverage.Metadata["join_state"] = "failed_publication_mismatch"
 		return join.coverage, err
 	}
-	join.coverage.RowsEmitted = int(enriched)
+	join.coverage.RowsEmitted = int(enriched + rawUnmatched)
 	if !join.ready {
 		return join.coverage, nil
 	}
@@ -302,16 +421,17 @@ func (join *traceDBRawSchedSwitchLiteJoin) finalize() (TraceDBCoverage, error) {
 	}
 	traceDBAddCoverageMetric(&join.coverage, "raw_unique_records_unmatched",
 		join.coverage.Metrics["raw_records_key_admitted"]-
-			join.coverage.Metrics["raw_ambiguous_records"]-enriched)
+			join.coverage.Metrics["raw_ambiguous_records"]-enriched-rawUnmatched)
 	traceDBAddCoverageMetric(&join.coverage, "db_boundaries_unmatched",
 		join.coverage.Metrics["db_boundaries_audited"]-enriched)
-	if enriched == 0 {
+	if enriched == 0 && rawUnmatched == 0 {
 		join.coverage.Metadata["join_state"] = "complete_no_unique_match"
 		join.coverage.Skipped = "scheduler-lite switch join complete: no unique exact raw/DB boundary match"
 	} else {
-		join.coverage.Metadata["join_state"] = "published_unique_exact_enrichment"
+		join.coverage.Metadata["join_state"] = "published_unique_exact_scheduler_lite"
 		join.coverage.Metadata["publication_contract"] = fmt.Sprintf(
-			"enriched_boundaries=%d; additional_physical_events=0", enriched)
+			"enriched_boundaries=%d; raw_unmatched_physical_events=%d; duplicate_events=0",
+			enriched, rawUnmatched)
 	}
 	return join.coverage, nil
 }

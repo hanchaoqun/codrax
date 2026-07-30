@@ -27,12 +27,112 @@ func TestTraceDBRawSchedSwitchLiteJoinEnrichesUniqueBoundaryWithoutDuplicate(t *
 	}
 	if schedulerCoverage.RowsEmitted != 1 || joinCoverage.RowsEmitted != 1 ||
 		joinCoverage.Metrics["db_boundaries_enriched"] != 1 ||
-		joinCoverage.Metadata["join_state"] != "published_unique_exact_enrichment" ||
-		joinCoverage.Metadata["physical_event_contract"] != "enrich_existing_db_boundary_only; duplicate_events=0" {
+		joinCoverage.Metadata["join_state"] != "published_unique_exact_scheduler_lite" ||
+		joinCoverage.Metadata["physical_event_contract"] !=
+			"enrich_existing_db_boundary_or_publish_unique_lifecycle_proven_raw_unmatched; duplicate_events=0" {
 		t.Fatalf("join coverage drifted: scheduler=%+v join=%+v", schedulerCoverage, joinCoverage)
 	}
 	if index == nil || len(index.Events) != 1 || index.Events[0].NextInfo == "" {
 		t.Fatalf("tracequery did not consume the enriched next_info: %+v", index)
+	}
+}
+
+func TestTraceDBRawSchedSwitchLiteJoinPublishesUniqueRawBoundaryFromSuppressedCPULane(t *testing.T) {
+	raw := traceDBRawSchedSwitchLiteRecord{
+		TimestampNS: 1200, CPU: 7, HeaderPID: 101, Flags: 1, PreemptCount: 3,
+		PrevTID: 101, PrevPriority: 99, PrevState: 1,
+		NextTID: 201, NextPriority: 52, NextInfo: 0x3fff,
+	}
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts INT)",
+		"INSERT INTO trace_range VALUES (0)",
+		"CREATE TABLE process (ipid INT, pid INT, name TEXT)",
+		"INSERT INTO process VALUES (1, 100, 'ProcA')",
+		"INSERT INTO process VALUES (2, 200, 'ProcB')",
+		"CREATE TABLE thread (itid INT, tid INT, ipid INT, name TEXT, start_ts INT, is_main_thread INT, switch_count INT)",
+		"INSERT INTO thread VALUES (1, 101, 1, 'UserA', 0, 0, 1)",
+		"INSERT INTO thread VALUES (2, 201, 2, 'UserB', 0, 0, 1)",
+		"CREATE TABLE sched_slice (ts INT, dur INT, cpu INT, end_state TEXT, priority INT, itid INT)",
+		"INSERT INTO sched_slice VALUES (1000, 200, 7, 'S', 42, 1)",
+		"INSERT INTO sched_slice VALUES (1200, 200, 7, 'R', 52, 2)",
+		"INSERT INTO sched_slice VALUES (1400, NULL, 7, 'S', 10, 999)",
+	})
+	tdb, err := openTraceDB(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tdb.close()
+	tdb.sourceNameInventory = &traceDBSourceNameInventory{
+		RawDecode: TraceDBCoverage{
+			Role: "diagnostic_ledger",
+			Metadata: map[string]string{
+				"decode_state": "strict_target_ledger_complete",
+			},
+			Metrics: map[string]int64{
+				"target_sched_switch_lite_body_admitted": 1,
+			},
+		},
+		RawSwitchLite: []traceDBRawSchedSwitchLiteRecord{raw},
+	}
+	threadIndex, _, err := tdb.loadThreadIndex(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority := newTraceDBSchedulerAuthority(threadIndex, traceDBLifecycleCollection{
+		Lifecycle:        traceDBLifecycleIndex{},
+		CreationComplete: true,
+		TerminalComplete: true,
+		ActivityComplete: true,
+	})
+	sink, err := newTraceDBRowSink(t.TempDir(), 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	schedulerCoverage, err := exportTraceDBSchedSwitch(
+		context.Background(), tdb, sink, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outPath := filepath.Join(t.TempDir(), "sched-switch-lite-raw-unmatched.systrace")
+	out, err := os.OpenFile(outPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, writeErr := sink.prepareAndWriteForTest(context.Background(), out)
+	closeErr := out.Close()
+	if writeErr != nil {
+		t.Fatal(writeErr)
+	}
+	if closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	bodyBytes, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(bodyBytes)
+	joinCoverage := tdb.rawSchedSwitchJoinCoverage
+	if strings.Count(body, "sched_switch:") != 1 ||
+		!strings.Contains(body, "prev_comm=UserA prev_pid=101 prev_prio=99 prev_state=S") ||
+		!strings.Contains(body, "next_comm=UserB next_pid=201 next_prio=52") ||
+		!strings.Contains(body, "codrax_scheduler_source=official_raw_unmatched") {
+		t.Fatalf("unique raw boundary on suppressed CPU lane was not published:\n%s", body)
+	}
+	if schedulerCoverage.RowsEmitted != 0 ||
+		joinCoverage.RowsEmitted != 1 ||
+		joinCoverage.Metrics["raw_unmatched_published"] != 1 ||
+		joinCoverage.Metrics["db_boundaries_enriched"] != 0 ||
+		!strings.Contains(schedulerCoverage.Skipped, "rows_suppressed=3") {
+		t.Fatalf("raw unmatched accounting drifted: scheduler=%+v join=%+v",
+			schedulerCoverage, joinCoverage)
+	}
+	index, err := tracequery.BuildIndex(context.Background(), outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if index == nil || len(index.Events) != 1 ||
+		index.Events[0].PrevPID != 101 || index.Events[0].NextPID != 201 {
+		t.Fatalf("tracequery did not consume raw unmatched scheduler event: %+v", index)
 	}
 }
 

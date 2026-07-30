@@ -61,6 +61,7 @@ var traceConvertDiagnosticCapabilities = []string{
 	"official_raw_scheduler_lite_join_v1",
 	"official_raw_scheduler_lite_common_pid_nonidentity_v1",
 	"official_raw_scheduler_lite_decision_diagnostics_v1",
+	"official_raw_scheduler_lite_unmatched_publication_v1",
 	"official_raw_record_decode_budget_v2",
 	"official_raw_record_decode_retained_bytes_v3",
 	"official_raw_record_family_authority_v1",

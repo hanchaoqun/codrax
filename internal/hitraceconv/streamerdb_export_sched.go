@@ -332,6 +332,10 @@ func exportTraceDBSchedSwitch(ctx context.Context, tdb *traceDB, sink *traceDBRo
 	if coverage.RowsEmitted != audit.ExpectedBoundaryRows {
 		return coverage, fmt.Errorf("sched_slice boundary publication mismatch: emitted=%d audited=%d", coverage.RowsEmitted, audit.ExpectedBoundaryRows)
 	}
+	if err := rawLiteJoin.publishRawUnmatched(sink, authority); err != nil {
+		coverage.Error = err.Error()
+		return coverage, err
+	}
 	if len(unknownSubjects) > 0 {
 		const witnessLimit = 16
 		witnesses := make([]string, 0, len(unknownSubjects))
@@ -1043,6 +1047,35 @@ func emitTraceDBSchedSwitchWithRawLite(
 	}
 	return addTraceDBInstantRow(sink, ts, traceDBCommName(prev.Name, "unknown"), prev.TID,
 		firstNonZero(prev.TGID, prev.TID), prev.CPU, body)
+}
+
+func emitTraceDBRawSchedSwitchLite(
+	sink *traceDBRowSink,
+	raw traceDBRawSchedSwitchLiteRecord,
+	prev, next traceDBSchedSlice,
+) error {
+	key, reason := traceDBRawSchedSwitchLiteKeyDecision(raw)
+	if sink == nil || reason != "" || prev.TID != raw.PrevTID ||
+		next.TID != raw.NextTID || key.TimestampNS != prev.TS ||
+		key.TimestampNS != next.TS {
+		return &traceDBOutputInvariantError{
+			Reason: "scheduler_lite_raw_unmatched_publication_identity_mismatch",
+		}
+	}
+	body := fmt.Sprintf(
+		"sched_switch: prev_comm=%s prev_pid=%d prev_prio=%d prev_state=%s ==> next_comm=%s next_pid=%d next_prio=%d next_info=%s codrax_next_info_raw=0x%016x codrax_next_info_source=official_raw_sched_switch_lite codrax_scheduler_source=official_raw_unmatched",
+		traceDBCommName(prev.Name, "unknown"), raw.PrevTID, raw.PrevPriority, key.PrevState,
+		traceDBCommName(next.Name, "unknown"), raw.NextTID, raw.NextPriority,
+		formatHarmonySchedInfo(raw.NextInfo, true), raw.NextInfo)
+	row, err := prepareTraceDBRenderedRowWithTraceFlags(
+		key.TimestampNS, sink.stats.RowsAccepted,
+		traceDBCommName(prev.Name, "unknown"), raw.PrevTID,
+		firstNonZero(prev.TGID, raw.PrevTID), key.CPU,
+		raw.Flags, raw.PreemptCount, body)
+	if err != nil {
+		return err
+	}
+	return sink.add(row)
 }
 
 func traceDBCommName(name, fallback string) string {
