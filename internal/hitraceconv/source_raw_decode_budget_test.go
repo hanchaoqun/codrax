@@ -62,4 +62,14 @@ func TestTraceDBRawDecodeFamilyRetentionAuthorityIsIndependent(t *testing.T) {
 	if !traceDBRawDecodeCensusComplete(acc.coverage) {
 		t.Fatal("family retention withdrawal erased the completed raw census")
 	}
+	acc.coverage.Metadata["retention_"+traceDBRawRetentionMarker+"_state"] =
+		traceDBRawRetentionFamilyComplete
+	acc.coverage.Metadata["retention_"+traceDBRawRetentionSwitchLite+"_state"] =
+		"incomplete_byte_budget"
+	if !traceDBRawDecodeFamilyComplete(acc.coverage, traceDBRawRetentionMarker) {
+		t.Fatal("complete marker family was withdrawn by scheduler retention failure")
+	}
+	if traceDBRawDecodeFamilyComplete(acc.coverage, traceDBRawRetentionSwitchLite) {
+		t.Fatal("budget-withdrawn scheduler family retained publication authority")
+	}
 }

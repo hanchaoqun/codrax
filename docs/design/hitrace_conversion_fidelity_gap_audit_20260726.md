@@ -5656,6 +5656,24 @@ records and leaves every independent complete family usable. Diagnostic
 raw/TraceStreamer count reconciliation and the raw target timestamp envelope
 read census completeness rather than recovery-storage completeness.
 
+### LARG-A3 recovery activation
+
+No relaxed viewer syntax or inferred envelope is introduced. Once the large
+trace completes a family's retained census, the existing audited consumers
+run unchanged:
+
+- exact raw B/E endpoints may replace a unique CPU-unavailable or
+  standard-name-unrepresentable callstack candidate;
+- exact raw S/F endpoints retain namespace payload PID and require both
+  physical endpoint emitters;
+- scheduler-lite enriches only a unique existing DB edge/boundary;
+- blocked-reason and DMA publish only their existing exact raw-only cohorts.
+
+The family-isolation pin proves that a complete marker family remains
+authorized when scheduler retention is withdrawn, and the converse. This is
+the code-side closure needed for LARG-A's `497087` name-unrepresentable roster;
+the exact recovered count remains replay evidence and is never predicted.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.
