@@ -8946,3 +8946,129 @@ func TestEmitInvestigationComplete_GateNoteSlotAppendDiscipline(t *testing.T) {
 		t.Fatalf("emit_investigation_complete.go has %d SetCompletionGateNote call(s); gate-note producers must use AppendCompletionGateNote (P3② slot discipline)", n)
 	}
 }
+
+// === EVALFIX-2G — 零见证 + 题面显式源码要求 fatal-class conjunction ===
+// (eval/boundary_regression_adjudication_20260730.md §5.1/§5.2, 2026-07-30)
+//
+// Adjudicated regression: an attached external log plus the verbatim request
+// demand 「请结合当前源码说明」 completed with ZERO current-source witnesses —
+// the soft-caveat step-aside and the evidence_floor_waiver silently discharged
+// the explicit demand. The fatal-class conjunction (typed Active profile with
+// verbatim request quote ∧ external-observation carrier ∧ zero deterministic
+// witnesses) must instead route into the EXISTING bounded
+// currentSourceLaneCoverageDowngrade push-back, converge after
+// downgradeConvergenceHardThreshold no-progress attempts, and then
+// disclose-and-proceed as today.
+
+func zeroWitnessExplicitSourceDemandContextForTest() *types.BusContext {
+	ctx := runtimeSourceAuthorityCompletionLandingContextForTest("请结合当前源码说明")
+	ctx.AnalysisIR.RequestModel.RawRequest =
+		"这段日志第 4 行为什么显示 finalizer 进入重写？请结合当前源码说明这是网络/模型响应异常还是系统校验失败。"
+	return ctx
+}
+
+func TestCurrentSourceLaneCoverageDowngrade_ZeroWitnessExplicitSourceDemandFatalClass(t *testing.T) {
+	ctx := zeroWitnessExplicitSourceDemandContextForTest()
+	authority := runtimeSourceAnswerAuthorityForCompletion(ctx)
+	if authority.CanHardBlockCompletion {
+		t.Fatalf("test setup must stay on the soft precision lane (prose quote), got %+v", authority)
+	}
+	got := currentSourceLaneCoverageDowngrade(ctx, completionPreflightView{})
+	if got == "" {
+		t.Fatal("zero-witness explicit-source-demand fatal class must trigger the bounded current-source push-back, not silent soft-caveat completion")
+	}
+	if !strings.Contains(got, EmitInvestigationCompleteDowngradePrefix) {
+		t.Fatalf("push-back must ride the standard downgrade surface, got: %s", got)
+	}
+	if !strings.Contains(got, "请结合当前源码说明") {
+		t.Fatalf("push-back must name the unmet verbatim request demand, got: %s", got)
+	}
+	if !strings.Contains(got, "artifact lane") {
+		t.Fatalf("push-back must scope the waiver to the artifact lane, got: %s", got)
+	}
+	if caveats := ctx.Mutable.EvidenceClosure().CompletionCaveats(); len(caveats) != 0 {
+		t.Fatalf("fatal class must not be silently recorded as a soft caveat, got %+v", caveats)
+	}
+	foundRepair := false
+	for _, repair := range ctx.Mutable.EvidenceClosure().ActiveRepairs() {
+		if repair.Kind == types.RepairExpandSearch {
+			foundRepair = true
+		}
+	}
+	if !foundRepair {
+		t.Fatal("fatal-class push-back must queue the existing RepairExpandSearch localization directive")
+	}
+}
+
+func TestCurrentSourceLaneCoverageDowngrade_ArtifactRunWithoutSourceDemandUntouched(t *testing.T) {
+	// Negative pin (adjudication §5.5): a genuine external-artifact run whose
+	// request does NOT demand current source keeps today's waiver-completable
+	// behavior — no push-back, no caveat, no repair debt.
+	ctx := runtimeSourceAuthorityCompletionLandingContextForTest("current parser mechanism")
+	ctx.AnalysisIR.RequestModel.CurrentSourceExplanationProfile = nil
+	ctx.AnalysisIR.RequestModel.RawRequest = "分析这段 trace 的掉帧原因"
+	got := currentSourceLaneCoverageDowngrade(ctx, completionPreflightView{})
+	if got != "" {
+		t.Fatalf("artifact-lane run without an explicit source demand must stay untouched, got: %s", got)
+	}
+	// The route-backed mixed shape records its pre-existing SOFT caveat as
+	// today; only the fatal-class push-back (repair debt + downgrade) must
+	// stay absent.
+	for _, caveat := range ctx.Mutable.EvidenceClosure().CompletionCaveats() {
+		if !strings.Contains(caveat.Reason, "runtime observation caveat") {
+			t.Fatalf("artifact-lane run without source demand recorded a non-soft caveat: %+v", caveat)
+		}
+	}
+	if repairs := ctx.Mutable.EvidenceClosure().ActiveRepairs(); len(repairs) != 0 {
+		t.Fatalf("artifact-lane run without source demand must not queue repairs, got %+v", repairs)
+	}
+}
+
+func TestCurrentSourceLaneCoverageDowngrade_SourceWitnessBreaksFatalConjunction(t *testing.T) {
+	// Once ONE deterministic current-source witness lands (here: a non-log
+	// evidence anchor in a repo source file), signal 3 breaks and the lane
+	// returns to today's behavior for the remaining soft obligation.
+	ctx := zeroWitnessExplicitSourceDemandContextForTest()
+	preflight := completionPreflightView{Evidence: []types.EvidenceItem{{
+		Source:    "internal/render/status_messages.go",
+		LineStart: 233,
+	}}}
+	got := currentSourceLaneCoverageDowngrade(ctx, preflight)
+	if got != "" {
+		t.Fatalf("a landed current-source witness must break the fatal conjunction, got: %s", got)
+	}
+}
+
+func TestCurrentSourceLaneCoverageDowngrade_FatalClassBoundedExhaustDiscloses(t *testing.T) {
+	// Typed escape (§1.6) — the push-back is a bounded reopen, never a hard
+	// wall: the same no-progress blocker converges at
+	// downgradeConvergenceHardThreshold attempts and the lane falls through to
+	// disclose-and-proceed with a typed convergence caveat.
+	ctx := zeroWitnessExplicitSourceDemandContextForTest()
+	converged := false
+	for attempt := 1; attempt <= downgradeConvergenceHardThreshold; attempt++ {
+		if got := currentSourceLaneCoverageDowngrade(ctx, completionPreflightView{}); got == "" {
+			t.Fatalf("attempt %d: push-back must keep firing while zero witnesses exist", attempt)
+		}
+		if preCompleteDowngradeConverges(ctx, types.DowngradeLaneCurrentSourceLane) {
+			if attempt < downgradeConvergenceHardThreshold {
+				t.Fatalf("lane converged too early on attempt %d", attempt)
+			}
+			converged = true
+			break
+		}
+	}
+	if !converged {
+		t.Fatalf("bounded lane never converged within %d no-progress attempts — that is a hard wall", downgradeConvergenceHardThreshold)
+	}
+	caveats := ctx.Mutable.EvidenceClosure().CompletionCaveats()
+	found := false
+	for _, caveat := range caveats {
+		if caveat.Lane == types.DowngradeLaneCurrentSourceLane && strings.Contains(caveat.Reason, "convergence") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("exhausted push-back must disclose via a typed convergence caveat, got %+v", caveats)
+	}
+}

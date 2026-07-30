@@ -2442,3 +2442,63 @@ func TestHasRuntimeArtifactCurrentVerificationAnchor_DroppedProseDimensionMintsN
 		t.Fatalf("precise-anchored obligation should require the source lane, got %s", got)
 	}
 }
+
+// === EVALFIX-2G — verbatim request-quote arm (adjudication §5.1 signal 1) ===
+// The typed CurrentSourceExplanationProfile plus a verbatim current-request
+// quote is the PRECISE demand signal for the zero-witness fatal-class
+// conjunction at the completion gate. It deliberately does NOT feed the
+// RuntimeSourceRequirementPrecise classifier (§29.146 anti-prose-mint stays in
+// force for every other consumer).
+func TestCurrentSourceExplanationHasVerbatimRequestQuote(t *testing.T) {
+	const raw = "这段日志第 4 行为什么显示 finalizer 进入重写？请结合当前源码说明这是网络异常还是校验失败。"
+	activeProfile := func(quotes ...string) *CurrentSourceExplanationProfile {
+		return &CurrentSourceExplanationProfile{
+			IsCurrentSourceExplanationRequested: true,
+			Modes:                               []CurrentSourceExplanationMode{CurrentSourceExplanationExplainCurrentMechanism},
+			SourceQuotes:                        quotes,
+		}
+	}
+
+	rm := RequestModel{RawRequest: raw, CurrentSourceExplanationProfile: activeProfile("请结合当前源码说明")}
+	if !rm.CurrentSourceExplanationHasVerbatimRequestQuote() {
+		t.Fatal("verbatim request quote in an active typed profile must be recognized")
+	}
+	if got := rm.FirstVerbatimCurrentSourceDemandQuote(); got != "请结合当前源码说明" {
+		t.Fatalf("first verbatim demand quote mismatch, got %q", got)
+	}
+
+	// Prose quote that is NOT verbatim in the current request never mints the
+	// demand signal (no word-face inference at gate time).
+	rm = RequestModel{RawRequest: raw, CurrentSourceExplanationProfile: activeProfile("current parser mechanism")}
+	if rm.CurrentSourceExplanationHasVerbatimRequestQuote() {
+		t.Fatal("non-verbatim quote must not mint the explicit-demand signal")
+	}
+
+	// Inactive / absent profile never mints, even when the raw request talks
+	// about source — the signal is the typed profile, not prose scanning.
+	rm = RequestModel{RawRequest: raw}
+	if rm.CurrentSourceExplanationHasVerbatimRequestQuote() {
+		t.Fatal("absent profile must not mint the explicit-demand signal")
+	}
+	rm = RequestModel{RawRequest: raw, CurrentSourceExplanationProfile: &CurrentSourceExplanationProfile{
+		IsCurrentSourceExplanationRequested: false,
+		SourceQuotes:                        []string{"请结合当前源码说明"},
+	}}
+	if rm.CurrentSourceExplanationHasVerbatimRequestQuote() {
+		t.Fatal("inactive profile must not mint the explicit-demand signal")
+	}
+
+	// Empty raw request (defensive: gate-time contexts must never fall back
+	// to treating an unverifiable quote as verbatim).
+	rm = RequestModel{CurrentSourceExplanationProfile: activeProfile("请结合当前源码说明")}
+	if rm.CurrentSourceExplanationHasVerbatimRequestQuote() {
+		t.Fatal("empty raw request must not mint the explicit-demand signal")
+	}
+
+	// The predicate must NOT leak into the precision classifier: a verbatim
+	// prose quote stays on the soft lane (§29.146 anti-prose-mint preserved).
+	rm = RequestModel{RawRequest: raw, CurrentSourceExplanationProfile: activeProfile("请结合当前源码说明")}
+	if rm.currentSourceExplanationHasPreciseCurrentSourceQuote() {
+		t.Fatal("verbatim prose quote must not flip the file-shaped precision predicate")
+	}
+}

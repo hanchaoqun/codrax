@@ -10378,18 +10378,24 @@ func currentSourceLaneCoverageDowngrade(ctx *types.BusContext, preflight complet
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return ""
 	}
+	fatalZeroWitness := false
 	if currentSourceLaneRuntimeArtifactCarrier(ctx) {
 		authority := runtimeSourceAnswerAuthorityForCompletion(ctx)
-		if authority.Active && authority.NeedsCurrentSourceEvidence && !authority.CanHardBlockCompletion {
+		fatalZeroWitness = zeroWitnessExplicitSourceDemandFatalClass(ctx, preflight, authority)
+		if !fatalZeroWitness && authority.Active && authority.NeedsCurrentSourceEvidence && !authority.CanHardBlockCompletion {
 			recordSoftCurrentSourceCompletionCaveat(ctx, authority)
 			return ""
 		}
 	}
-	if !currentSourceForcedReadGatesApply(ctx) || !currentSourceLaneRuntimeArtifactCarrier(ctx) {
-		return ""
-	}
-	if currentSourceLaneHasCoverage(ctx, preflight) {
-		return ""
+	if !fatalZeroWitness {
+		if !currentSourceForcedReadGatesApply(ctx) || !currentSourceLaneRuntimeArtifactCarrier(ctx) {
+			return ""
+		}
+		if currentSourceLaneHasCoverage(ctx, preflight) {
+			return ""
+		}
+	} else {
+		logging.Info("[emit_investigation_complete] zero-witness explicit-source-demand fatal class: external-artifact waiver/soft-caveat step-aside does not cover the current-source lane; issuing bounded source push-back")
 	}
 	if ctx.Mutable != nil {
 		rm := ctx.AnalysisIR.RequestModel
@@ -10402,9 +10408,79 @@ func currentSourceLaneCoverageDowngrade(ctx *types.BusContext, preflight complet
 	}
 	var b strings.Builder
 	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — typed current-source lane is required but no current-source evidence/read coverage exists.\n\n")
+	if fatalZeroWitness {
+		if quote := types.RuntimeSourceAuthorityRequestModelFromBusContext(ctx).FirstVerbatimCurrentSourceDemandQuote(); quote != "" {
+			fmt.Fprintf(&b, "The request explicitly asks for a current-source explanation (%q). ", quote)
+		}
+		b.WriteString("External log/trace observations — including an accepted evidence_floor_waiver — cover only the artifact lane; they cannot discharge that explicit current-source demand while zero source files have been read. ")
+	}
 	b.WriteString("The runtime/external observation lane can be preserved as context, but it cannot close this investigation by itself. ")
 	b.WriteString("Run a focused source localization step (`repo_map`, files-only search, or `read_file` on a bounded owner path), then emit grounded current-source evidence before retrying `emit_investigation_complete`.\n")
 	return b.String()
+}
+
+// zeroWitnessExplicitSourceDemandFatalClass is the EVALFIX-2G fatal-class
+// conjunction (eval/boundary_regression_adjudication_20260730.md §5.1): a run
+// must NOT complete source-optional when ALL of these PRECISE signals conjoin:
+//
+//  1. the typed CurrentSourceExplanationProfile is Active AND carries a
+//     verbatim current-request quote (schema-validated boolean + verbatim
+//     substring — the same predicate family EVALFIX-1's validateExactTargets
+//     uses; no prose regex scanning at gate time);
+//  2. an external-observation carrier is present — established by the caller's
+//     currentSourceLaneRuntimeArtifactCarrier guard (the same typed carrier
+//     lane the evidence_floor_waiver / system-detected external-source
+//     bypasses serve);
+//  3. the deterministic current-source witness count is zero (proof-lane 口径:
+//     read_file coverage, non-log evidence anchors, and ledger current-source
+//     records; model prose never counts).
+//
+// When the conjunction holds, the soft-caveat and forced-read-gate step-asides
+// in currentSourceLaneCoverageDowngrade stand down and the EXISTING bounded
+// push-back fires instead: RepairExpandSearch + localization teaching, bounded
+// by the DowngradeLaneCurrentSourceLane low-delta convergence — after
+// downgradeConvergenceHardThreshold no-progress attempts the lane falls
+// through and completes with a typed caveat (disclose-and-proceed), so this is
+// a bounded reopen, never an unbounded hard wall (typed escape preserved).
+//
+// 完成门权属模型: only this zero-witness fatal class may gate; every non-fatal
+// shape keeps today's behavior unchanged (soft obligations still downgrade to
+// a caveat). The external-source waiver keeps exempting the ARTIFACT lane's
+// repo-grounding (citation floor) — this conjunction merely stops the waiver
+// from silencing the current-source lane too (adjudication §5.2): once one
+// deterministic source witness lands, signal 3 breaks and the waiver's
+// artifact-lane exemption completes the run exactly as before.
+func zeroWitnessExplicitSourceDemandFatalClass(ctx *types.BusContext, preflight completionPreflightView, authority types.RuntimeSourceAnswerAuthoritySnapshot) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	// A zero-current-source repo can never satisfy the demand; pushing back
+	// would only burn the bounded retries on a structurally unsatisfiable
+	// obligation (mirrors runtimeArtifactGroundingBypassAllowed).
+	if ctx.RuntimeArtifactPreflight.ZeroCurrentSourceRepo() {
+		return false
+	}
+	rm := types.RuntimeSourceAuthorityRequestModelFromBusContext(ctx)
+	if rm == nil {
+		return false
+	}
+	// The user's explicit "don't analyze code" boundary always wins over the
+	// explanation-profile demand (same precedence the precision classifier
+	// runtimeSourceAuthorityPreciseCurrentSourceRequirement applies).
+	if rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {
+		return false
+	}
+	// Signal 1: typed Active profile with a verbatim request quote.
+	if !rm.CurrentSourceExplanationHasVerbatimRequestQuote() {
+		return false
+	}
+	// Signal 3: zero deterministic current-source witnesses — both the lane's
+	// own coverage walk (read_file coverage + non-log evidence anchors) and
+	// the ledger-backed typed satisfaction count must be empty.
+	if currentSourceLaneHasCoverage(ctx, preflight) {
+		return false
+	}
+	return !authority.CurrentSourceSatisfied
 }
 
 func recordSoftCurrentSourceCompletionCaveat(ctx *types.BusContext, authority types.RuntimeSourceAnswerAuthoritySnapshot) {

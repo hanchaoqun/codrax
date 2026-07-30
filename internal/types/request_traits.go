@@ -1908,6 +1908,43 @@ func (rm RequestModel) currentSourceExplanationHasPreciseCurrentSourceQuote() bo
 	return false
 }
 
+// CurrentSourceExplanationHasVerbatimRequestQuote is the EVALFIX-2G verbatim
+// request-quote arm (eval/boundary_regression_adjudication_20260730.md §5.1
+// signal 1): a typed, Active CurrentSourceExplanationProfile whose
+// SourceQuotes contain a verbatim hit of the CURRENT raw request — the same
+// current-request provenance predicate NormalizeCurrentSourceExplanationProfile
+// applies at capture time (requestedEnumerationQuotePresent), re-verified here
+// so the gate consumes a typed boolean + verbatim substring, never a prose
+// regex scan. It deliberately does NOT extend
+// currentSourceExplanationHasPreciseCurrentSourceQuote / the
+// RuntimeSourceRequirementPrecise classifier: flipping the global precision
+// lane for prose-quoted demands would re-rule every precision consumer
+// (forced-read pending queues, waiver hard-rejection, answer-contract
+// suppression) for shapes OUTSIDE the zero-witness fatal class. 完成门权属模型
+// authorizes gating only the zero-witness fatal class, so the sole hard-gate
+// consumer of this arm is the completion gate's fatal-class conjunction
+// (emit_investigation_complete's zeroWitnessExplicitSourceDemandFatalClass).
+func (rm RequestModel) CurrentSourceExplanationHasVerbatimRequestQuote() bool {
+	return rm.FirstVerbatimCurrentSourceDemandQuote() != ""
+}
+
+// FirstVerbatimCurrentSourceDemandQuote returns the first typed profile
+// SourceQuote that is verbatim-present in the current raw request, or "" when
+// no such quote exists. Consumers use the quote only for user-facing wording
+// (naming WHICH request demand is unmet); the gate decision itself is the
+// boolean form above.
+func (rm RequestModel) FirstVerbatimCurrentSourceDemandQuote() string {
+	if rm.CurrentSourceExplanationProfile == nil || !rm.CurrentSourceExplanationProfile.Active() {
+		return ""
+	}
+	for _, quote := range rm.CurrentSourceExplanationProfile.SourceQuotes {
+		if requestedEnumerationQuotePresent(rm.RawRequest, quote) {
+			return strings.TrimSpace(quote)
+		}
+	}
+	return ""
+}
+
 // dimensionHasCurrentSourceAnchor was the word-face fallback predicate for
 // requested-dimension anchor minting; it was retired by §29.146 UPSTREAM-3
 // 件3 (noisy prose signals must not mint hard current-source obligations —
