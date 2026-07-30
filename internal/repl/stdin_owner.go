@@ -7,6 +7,9 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
+
+	"github.com/hanchaoqun/codrax/internal/logging"
 
 	"golang.org/x/term"
 )
@@ -202,4 +205,273 @@ func (r *REPL) restoreTTYForExit() {
 		return
 	}
 	r.stdinOwnerInst.restoreForExit()
+}
+
+// ── T-2: run-phase input window ──────────────────────────────────────
+//
+// While a pipeline Run is in flight the TTY previously had NO stdin
+// reader at all — typing was invisible and lost. The run window
+// borrows the owner (raw mode) on a goroutine that tick-polls the
+// shared reader via readByteFDWithTimeout: the goroutine can never
+// park indefinitely in Read, so release() returns within one tick and
+// the next prompt window starts with zero competing readers (the
+// census's "hanging Read across the boundary" hazard is structurally
+// avoided). Assembled lines queue for post-Run replay; control bytes
+// route to the same cancel semantics the SIGINT path uses.
+
+// runInputWindowCallbacks are invoked FROM the window goroutine.
+// onLine echoes an enqueued line (must go through the renderer lock,
+// never a raw write — dock repaint discipline); onCtrlC/onEsc must be
+// non-blocking.
+type runInputWindowCallbacks struct {
+	onLine  func(line string)
+	onCtrlC func()
+	onEsc   func()
+}
+
+type runInputWindow struct {
+	release func()
+	stop    chan struct{}
+	done    chan struct{}
+
+	mu      sync.Mutex
+	queue   []string
+	partial []byte
+	escSeen bool
+	overCap bool
+}
+
+const (
+	runInputWindowTick     = 100 * time.Millisecond
+	runInputWindowMaxLineB = 1 << 20 // same cap family as the non-TTY listener
+	runInputWindowMaxQueue = 32      // same cap as PIB-2 v1
+	runInputEsc            = 0x1b
+	runInputCtrlC          = 0x03
+)
+
+// borrowRunInput opens the run-phase window. readByte is injectable
+// for tests; production passes nil to use the platform fd primitive.
+func (o *ttyStdinOwner) borrowRunInput(cb runInputWindowCallbacks, readByte func() (byte, bool, error)) (*runInputWindow, error) {
+	reader, release, err := o.borrowRaw()
+	if err != nil {
+		return nil, err
+	}
+	if readByte == nil {
+		readByte = func() (byte, bool, error) {
+			return readByteFDWithTimeout(reader, o.fd, runInputWindowTick)
+		}
+	}
+	w := &runInputWindow{
+		release: release,
+		stop:    make(chan struct{}),
+		done:    make(chan struct{}),
+	}
+	go w.loop(cb, readByte)
+	return w, nil
+}
+
+func (w *runInputWindow) loop(cb runInputWindowCallbacks, readByte func() (byte, bool, error)) {
+	defer close(w.done)
+	for {
+		select {
+		case <-w.stop:
+			return
+		default:
+		}
+		b, ok, err := readByte()
+		if err != nil {
+			if err == io.EOF {
+				return
+			}
+			// Transient poll error (or a bad fd in degraded
+			// environments): back off one tick rather than spinning.
+			select {
+			case <-w.stop:
+				return
+			case <-time.After(runInputWindowTick):
+			}
+			continue
+		}
+		if !ok {
+			continue // tick expired, no data
+		}
+		switch b {
+		case runInputCtrlC:
+			if cb.onCtrlC != nil {
+				cb.onCtrlC()
+			}
+		case runInputEsc:
+			w.handleEsc(cb, readByte)
+		case '\r', '\n':
+			w.commitLine(cb)
+		default:
+			if b < 0x20 && b != '\t' {
+				continue // other control bytes: ignore in run mode
+			}
+			w.mu.Lock()
+			if len(w.partial) < runInputWindowMaxLineB {
+				w.partial = append(w.partial, b)
+			} else {
+				w.overCap = true
+			}
+			w.mu.Unlock()
+		}
+	}
+}
+
+// handleEsc disambiguates a bare ESC (abort gesture) from escape
+// SEQUENCES (arrow keys, alt+key): aborting a Run must require an
+// unambiguous bare ESC — a stray arrow key press during a run must
+// never cancel it. Bare = no follow-up byte within one tick; CSI/SS3
+// follow-ups are swallowed to their terminator; anything else is
+// swallowed conservatively without aborting.
+func (w *runInputWindow) handleEsc(cb runInputWindowCallbacks, readByte func() (byte, bool, error)) {
+	b, ok, err := readByte()
+	if err != nil || !ok {
+		w.mu.Lock()
+		w.escSeen = true
+		w.mu.Unlock()
+		if cb.onEsc != nil {
+			cb.onEsc()
+		}
+		return
+	}
+	if b == '[' || b == 'O' {
+		for i := 0; i < 16; i++ {
+			c, ok2, err2 := readByte()
+			if err2 != nil || !ok2 {
+				return
+			}
+			if c >= '@' && c <= '~' {
+				return
+			}
+		}
+	}
+}
+
+func (w *runInputWindow) commitLine(cb runInputWindowCallbacks) {
+	w.mu.Lock()
+	line := strings.TrimSpace(string(w.partial))
+	w.partial = w.partial[:0]
+	tooMany := len(w.queue) >= runInputWindowMaxQueue
+	if line != "" && !tooMany {
+		w.queue = append(w.queue, line)
+	}
+	if tooMany {
+		w.overCap = true
+	}
+	w.mu.Unlock()
+	if line != "" && !tooMany && cb.onLine != nil {
+		cb.onLine(line)
+	}
+}
+
+// drain stops the goroutine, restores cooked mode, and hands back the
+// window state: queued lines, any half-typed partial line (to become
+// the next prompt's prefill — never silently dropped), whether esc
+// aborted, and whether any input was dropped by the caps.
+func (w *runInputWindow) drain() (queued []string, partial string, escAborted, dropped bool) {
+	if w == nil {
+		return nil, "", false, false
+	}
+	close(w.stop)
+	<-w.done
+	w.release()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]string(nil), w.queue...), strings.TrimSpace(string(w.partial)), w.escSeen, w.overCap
+}
+
+// armRunInputWindow opens the run-phase window on the real TTY lane.
+// Nil (skip) when scripted, stdin is not a terminal, or the owner
+// window cannot be borrowed — the Run proceeds exactly as before.
+func (r *REPL) armRunInputWindow(canceller runnerCanceller) *runInputWindow {
+	if !r.interactive() || canceller == nil || !term.IsTerminal(int(os.Stdin.Fd())) {
+		return nil
+	}
+	cb := runInputWindowCallbacks{
+		onLine: func(line string) {
+			if r.renderer != nil {
+				r.renderer.CommitUserInputLine(line)
+			}
+		},
+		onCtrlC: func() {
+			// Byte → signal: the one installed SIGINT handler owns
+			// single-tap/double-tap semantics. Windows (no self-kill)
+			// falls back to direct single-tap cancel.
+			if !raiseSelfSIGINT() {
+				canceller.Cancel("Ctrl+C")
+				r.cancelTurn()
+			}
+		},
+		onEsc: func() {
+			canceller.Cancel("esc")
+			r.cancelTurn()
+		},
+	}
+	w, err := r.ttyStdinOwnerInstance().borrowRunInput(cb, nil)
+	if err != nil {
+		logging.Debug("[repl] run input window unavailable: %v", err)
+		return nil
+	}
+	return w
+}
+
+// drainRunInputWindow hands the window state to the replay surfaces:
+// esc-aborted input is RESTORED (single line → next prompt prefill;
+// multiple lines → the paste placeholder lane) instead of replayed;
+// normal completion queues lines into pendingFollowUps (the same
+// replay path the non-TTY listener feeds) and a half-typed partial
+// line becomes the next prompt's prefill. Cap overflow is disclosed.
+func (r *REPL) drainRunInputWindow(w *runInputWindow) {
+	if w == nil {
+		return
+	}
+	queued, partial, escAborted, dropped := w.drain()
+	if dropped {
+		r.warn("%s\n", runInputDroppedMsg(r.language))
+	}
+	if escAborted {
+		restored := append(append([]string(nil), queued...), splitNonEmpty(partial)...)
+		switch len(restored) {
+		case 0:
+		case 1:
+			r.pendingInputPrefill = restored[0]
+		default:
+			// Multi-line restore rides the existing paste-placeholder
+			// lane: folded in the editor, expanded on submit.
+			r.pendingPaste = strings.Join(restored, "\n")
+		}
+		if len(restored) > 0 {
+			r.info(runInputRestoredMsg(r.language, len(restored)))
+		}
+		return
+	}
+	if len(queued) > 0 {
+		r.pendingFollowUps = append(r.pendingFollowUps, queued...)
+	}
+	if partial != "" {
+		r.pendingInputPrefill = partial
+	}
+}
+
+func splitNonEmpty(s string) []string {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	return []string{s}
+}
+
+func runInputDroppedMsg(lang string) string {
+	if isZh(lang) {
+		return "运行期输入超出队列上限,超出部分已丢弃"
+	}
+	return "Run-phase input exceeded the queue cap; overflow was dropped"
+}
+
+func runInputRestoredMsg(lang string, n int) string {
+	if isZh(lang) {
+		return "已取消本轮;运行期输入已还原到编辑器(" + itoa(n) + " 条)"
+	}
+	return "Run cancelled; run-phase input restored to the editor (" + itoa(n) + " line(s))"
 }

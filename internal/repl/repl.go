@@ -713,6 +713,7 @@ type REPL struct {
 	stdinOwnerInst              *ttyStdinOwner
 	promptTemplates             map[string]promptTemplate
 	pendingFollowUps            []string // PIB-2 v1: lines queued during a Run, replayed as turns
+	pendingInputPrefill         string   // TTY-2: half-typed run-phase line, seeded into the next prompt
 	lastAnswerOrigin            replAnswerOrigin
 	operationPendingStore       *OperationPendingStore
 	mcpServers                  *mcp.Registry
@@ -6135,6 +6136,14 @@ func (r *REPL) runInFlightWrap(fn func() (*types.BusContext, error)) (*types.Bus
 	canceller, _ := r.runner.(runnerCanceller)
 	listener := startCancelListenerForREPL(r.in, r.interactive(), canceller, r.warn)
 	defer listener.stop() // nil-safe
+	// TTY-2: while the Run is in flight the run-input window queues
+	// typed lines for post-Run replay (converging on the same
+	// pendingFollowUps path the non-TTY listener feeds), routes raw
+	// Ctrl+C bytes back into the ONE SIGINT handler, and treats a bare
+	// ESC as cancel-with-restore. Armed only on the real TTY lane;
+	// borrow failure (non-tty stdin, MakeRaw failure) silently skips.
+	runWindow := r.armRunInputWindow(canceller)
+	defer r.drainRunInputWindow(runWindow)
 	// PIB-2 v1: lines the listener queued while the Run was in flight
 	// replay as follow-up turns — drained here so the Loop's next
 	// read sees them before touching stdin. Nil-safe (TTY runs have

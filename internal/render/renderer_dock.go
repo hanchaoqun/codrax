@@ -3099,3 +3099,31 @@ var _silence io.Writer = io.Discard
 // reAnsiCheck guards the ANSI-aware truncation in dock rows.
 // Provided so the row composer can be tested without circular import.
 var reAnsiCheck = regexp.MustCompile(`\x1b\[[0-9;:?]*[A-Za-z]`)
+
+// CommitUserInputLine is the run-phase input window's echo surface
+// (TTY-2, design ledger docs/design/tty_single_stdin_owner_20260729.md
+// §2 回显纪律): a line the user typed during a Run commits to the
+// scrollback UNDER the renderer lock so the dock's \x1b[4A repaint
+// arithmetic never sees a third-party writer. Non-TTY mode mirrors the
+// line through the standard non-TTY lane.
+func (r *Renderer) CommitUserInputLine(line string) {
+	if r == nil || strings.TrimSpace(line) == "" {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var body string
+	if isZh(r.lang) {
+		body = "已入队(本轮结束后回放): " + line
+	} else {
+		body = "queued (replays after this turn): " + line
+	}
+	if !r.dockEnabled {
+		r.emitNonTTYLine(statusMeta.Sprint("⌨ " + body))
+		return
+	}
+	r.commitLineLocked(formatCommitRow(commitRow{
+		kind: commitRowNotice,
+		body: statusMeta.Sprint("⌨ " + body),
+	}))
+}

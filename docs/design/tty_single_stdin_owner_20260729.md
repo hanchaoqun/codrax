@@ -57,4 +57,6 @@
 
 **T-1 已落地（2026-07-29，main=ce30508bb）**：`internal/repl/stdin_owner.go` — `ttyStdinOwner`（REPL 生命周期唯一 bufio.Reader + 唯一模式管理者；`borrowRaw`/`borrowCookedLines` 互斥窗口 + release 幂等；`makeRaw` 可注入供测试）。接线三处：native 编辑器 prompt 窗口借共享 reader（不再 per-prompt 自建+自管 MakeRaw）；交互 capture（/log 粘贴、/paste）借 cooked 行窗口（`captureScanner` 接口化 + release，borrow 失败降级旧直读并告警）；强杀路径 `os.Exit(130)` 前 `restoreTTYForExit()`（D2 修复）。ESC 超时 Buffered() 快路径经核实现状已存在（native_input_unix.go），共享化天然安全。D3 收窄：编辑器 0x03 语义保持现状，矛盾点是 handler 注释的过度承诺——T-2 引入 Run 窗口字节路时一并统一表述。pin 四组：type-ahead 跨窗口零丢失（D1 判决性证明）、窗口互斥+release 幂等、强杀恢复 exactly-once + nil 安全、行扫描器 scanner-parity。全仓 83 包零 FAIL。
 
-（T-2/T-3 落地后在此追加。）
+**T-2 已落地（2026-07-29）**：owner 新增 Run 输入窗口 `borrowRunInput`——tick 轮询（100ms，复用平台 `readByteFDWithTimeout`，goroutine 永不无限期 park 在 Read，drain 一个 tick 内归还，普查"跨界悬挂 Read"隐患结构性消除）+ 最小行组装（1MiB 行帽/32 条队列帽=与既有两车道同族，超帽一次性披露）。三键语义：**Ctrl+C 字节 → `raiseSelfSIGINT` 自举回唯一 SIGINT handler**（单击=取消/双击=退出与 cooked 信号路完全同一实现；Windows 无自举回退直接单击取消，账本披露）；**裸 ESC 才中止**（ESC 后一个 tick 内有后继字节即判转义序列——CSI/SS3 吞到终结符，方向键误触不可能取消 Run，判决性 pin）+ 队列**还原不回放**（单行→prompt 预填，多行→既有粘贴占位符车道折叠还原）；普通行入队并经 `Renderer.CommitUserInputLine` 加锁回显（dock 重绘算术零第三方写者）。排干汇合：正常结束队列并入 PIB-2 v1 的 `pendingFollowUps` 回放通路（TTY/非 TTY 单一回放面），半行成为下一 prompt 预填（运行期击键零丢失）。平台原语抽取为包级 `readByteFDWithTimeout`（unix/windows 双实现，编辑器方法委托，行为不变）。pin 六组：排队+回显+空行不回显、CSI 吞掉/裸 ESC 中止判别、Ctrl+C 路由+半行移交、排干双车道（回放/还原×单多行）、坏 fd 退避不 wedge、既有全套存活。全仓 83 包零 FAIL。
+
+（T-3 落地后在此追加。）

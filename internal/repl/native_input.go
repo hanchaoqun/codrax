@@ -95,6 +95,14 @@ func (r *REPL) readInputNative(prompt string, isContinue bool) (inputResult, err
 		editor.injectPlaceholder(r.pendingPaste)
 		r.pendingPaste = ""
 	}
+	// TTY-2: a half-typed line from the run-input window (or a single
+	// esc-restored line) seeds the editor so run-phase keystrokes are
+	// never silently dropped.
+	if !isContinue && r.pendingInputPrefill != "" {
+		editor.value = append(editor.value, []rune(r.pendingInputPrefill)...)
+		editor.cursor = len(editor.value)
+		r.pendingInputPrefill = ""
+	}
 	fmt.Fprint(editor.out, ansiShowCursor, ansiEnableBracketed)
 	defer fmt.Fprint(editor.out, ansiDisableBracketed, ansiShowCursor)
 	return editor.run()

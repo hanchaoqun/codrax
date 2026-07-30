@@ -3,14 +3,21 @@
 package repl
 
 import (
+	"bufio"
 	"time"
 
 	"golang.org/x/sys/windows"
 )
 
 func (e *nativeLineInput) readByteWithTimeout(d time.Duration) (byte, bool, error) {
-	if e.reader.Buffered() > 0 {
-		b, err := e.reader.ReadByte()
+	return readByteFDWithTimeout(e.reader, e.fd, d)
+}
+
+// readByteFDWithTimeout is the shared buffered-first byte read with a
+// handle-level wait (TTY-1/T-2); see the unix twin for the contract.
+func readByteFDWithTimeout(reader *bufio.Reader, fd int, d time.Duration) (byte, bool, error) {
+	if reader.Buffered() > 0 {
+		b, err := reader.ReadByte()
 		return b, err == nil, err
 	}
 	timeout := uint32(0)
@@ -20,7 +27,7 @@ func (e *nativeLineInput) readByteWithTimeout(d time.Duration) (byte, bool, erro
 			timeout = 1
 		}
 	}
-	event, err := windows.WaitForSingleObject(windows.Handle(uintptr(e.fd)), timeout)
+	event, err := windows.WaitForSingleObject(windows.Handle(uintptr(fd)), timeout)
 	if err != nil {
 		return 0, false, err
 	}
@@ -30,6 +37,6 @@ func (e *nativeLineInput) readByteWithTimeout(d time.Duration) (byte, bool, erro
 	if event != windows.WAIT_OBJECT_0 {
 		return 0, false, nil
 	}
-	b, err := e.reader.ReadByte()
+	b, err := reader.ReadByte()
 	return b, err == nil, err
 }
