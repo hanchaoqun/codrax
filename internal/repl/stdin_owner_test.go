@@ -12,13 +12,15 @@ import (
 
 func testOwner(src string) (*ttyStdinOwner, *int) {
 	restores := 0
-	return &ttyStdinOwner{
+	o := &ttyStdinOwner{
 		fd:     -1,
 		reader: bufio.NewReader(strings.NewReader(src)),
 		makeRaw: func(int) (func(), error) {
 			return func() { restores++ }, nil
 		},
-	}, &restores
+	}
+	o.makeRunMode = o.makeRaw
+	return o, &restores
 }
 
 // TestStdinOwner_TypeAheadSurvivesWindowBoundary pins the D1 fix: bytes

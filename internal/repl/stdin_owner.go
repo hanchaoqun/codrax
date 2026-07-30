@@ -44,6 +44,10 @@ type ttyStdinOwner struct {
 
 	// makeRaw is injectable for tests; production wraps term.MakeRaw.
 	makeRaw func(fd int) (restore func(), err error)
+	// makeRunMode is the RUN-window terminal mode (cbreak: ECHO|ICANON
+	// off, OPOST and ISIG KEPT — full raw mode during a run corrupts
+	// the dock repaint arithmetic; see run_input_mode_bsd.go).
+	makeRunMode func(fd int) (restore func(), err error)
 }
 
 func newTTYStdinOwner() *ttyStdinOwner {
@@ -57,6 +61,7 @@ func newTTYStdinOwner() *ttyStdinOwner {
 			}
 			return func() { _ = term.Restore(fd, state) }, nil
 		},
+		makeRunMode: makeRunInputMode,
 	}
 }
 
@@ -66,12 +71,21 @@ var errStdinOwnerBusy = errors.New("stdin owner: window already borrowed")
 // The returned release func restores cooked mode and frees the window;
 // buffered bytes stay in the shared reader for the next window.
 func (o *ttyStdinOwner) borrowRaw() (*bufio.Reader, func(), error) {
+	return o.borrowWithMode(o.makeRaw)
+}
+
+// borrowWithMode is the shared exclusive-window core: one mode
+// switch, one reader, release restores and frees.
+func (o *ttyStdinOwner) borrowWithMode(mode func(fd int) (func(), error)) (*bufio.Reader, func(), error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if o.inUse {
 		return nil, nil, errStdinOwnerBusy
 	}
-	restore, err := o.makeRaw(o.fd)
+	if mode == nil {
+		mode = o.makeRaw
+	}
+	restore, err := mode(o.fd)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -257,7 +271,14 @@ const (
 // borrowRunInput opens the run-phase window. readByte is injectable
 // for tests; production passes nil to use the platform fd primitive.
 func (o *ttyStdinOwner) borrowRunInput(cb runInputWindowCallbacks, readByte func() (byte, bool, error)) (*runInputWindow, error) {
-	reader, release, err := o.borrowRaw()
+	// REGRESSION FIX (customer report 2026-07-29: dock rows leaking
+	// into permanent scrollback, frozen stale status frames): the run
+	// window must NOT use full raw mode — term.MakeRaw clears OPOST,
+	// which staircases every renderer newline while the dock repaints
+	// with cursor-up arithmetic. cbreak keeps OPOST (renderer output
+	// sane)
+	// and ISIG (Ctrl+C stays a real SIGINT, the pre-window path).
+	reader, release, err := o.borrowWithMode(o.makeRunMode)
 	if err != nil {
 		return nil, err
 	}
@@ -388,7 +409,21 @@ func (w *runInputWindow) drain() (queued []string, partial string, escAborted, d
 		return nil, "", false, false
 	}
 	close(w.stop)
-	<-w.done
+	// Belt: the unix tick loop can never park in Read for more than
+	// one tick, but if a platform read ever wedges, the REPL must NOT
+	// hang here (customer report 2026-07-29: frozen 整理上下文中).
+	// On timeout we abandon the goroutine WITHOUT releasing the
+	// borrow — the shared reader stays owned so no second consumer
+	// can race the parked one; subsequent prompts fall back to the
+	// bubbletea lane. Loud ERROR so the degradation is diagnosable.
+	select {
+	case <-w.done:
+	case <-time.After(3 * time.Second):
+		logging.Error("[repl] run input window reader did not stop; abandoning window (input degraded to fallback editor for this session)")
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		return append([]string(nil), w.queue...), strings.TrimSpace(string(w.partial)), w.escSeen, w.overCap
+	}
 	w.release()
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -400,6 +435,12 @@ func (w *runInputWindow) drain() (queued []string, partial string, escAborted, d
 // window cannot be borrowed — the Run proceeds exactly as before.
 func (r *REPL) armRunInputWindow(canceller runnerCanceller) *runInputWindow {
 	if !r.interactive() || canceller == nil || !term.IsTerminal(int(os.Stdin.Fd())) {
+		return nil
+	}
+	// Fuse: operators can disable the run-phase input window outright
+	// (regression insurance after the 2026-07-29 dock-corruption
+	// report; pre-window behavior = no reader during runs).
+	if os.Getenv("CODRAX_DISABLE_RUN_INPUT") != "" {
 		return nil
 	}
 	steerSink, _ := r.runner.(steeringSink)
