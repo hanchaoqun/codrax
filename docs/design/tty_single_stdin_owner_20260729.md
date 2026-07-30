@@ -126,7 +126,7 @@ Windows 数据类型（winprog/windows-data-types）：WORD=16 位、BOOL=int=32
 - 判定核心 27 例真值表 + 布局 pin + 事件常量 pin：**宿主机真跑全绿**（console_input_record_test.go）。
 - syscall 薄壳：隔离模块（副本 diff 字节一致 + nativeLineInput stub + x/sys v0.44.0 锁定）`GOOS=windows CGO_ENABLED=0 go build` **amd64/386/arm64 三架构全过** + `go vet` 干净。调用模式=syscall.SyscallN(proc.Addr(), …uintptr(unsafe.Pointer(&x))…)，与 x/sys 生成代码同款（编译器保活语义）；proc.Find() 前置探测避免 Addr() 缺失 panic。
 - **未验证并披露**：真 Windows 控制台上的运行时行为。故运行窗口在 Windows 维持不 arm（收益面=prompt 编辑器探测不再被 focus/mouse/key-up 记录卡住）；待真机后再议重新武装。
-- 残留已知项（记档不扩批）：控制台代码页——仓内从不 SetConsoleCP(65001)，中文 Windows 默认 OEM 代码页下 ReadFile 返回 GBK 字节而编辑器按 UTF-8 解码，系**修前既有**的独立缺口，与本修无交互。
+- ~~残留已知项（记档不扩批）：控制台代码页——仓内从不 SetConsoleCP(65001)，中文 Windows 默认 OEM 代码页下 ReadFile 返回 GBK 字节而编辑器按 UTF-8 解码~~ **已于 §8.6 证伪撤回（2026-07-30）**。
 
 
 ### 8.5 对抗复核记录（提交前，wf_7e1f7a04-6e8）
@@ -145,3 +145,15 @@ Windows 数据类型（winprog/windows-data-types）：WORD=16 位、BOOL=int=32
 **SWEEPFIX-H**：S12 objective-start 残留归零在 read 模式擦掉 analyze 账（pipeline start 成唯一边界，旧 PIB-5 pin 改钉新裁定）；S13 direct-LLM 车道（/chat 等）补发 EventPipelineStart（上轮账不再渗入）；S14 tailByDisplayWidth 走包级默认条件与行帽混用两种几何 → 统一 dockWidthCond；S15 几何 pin 注释描述的是被否设计 → 改述已交付的 fail-safe 宽测量及否决理由；S16 Enter 劫持在斜杠行复活（"/write … @dock" 的面板来自 @-file provider 而分类按 "/" 前缀）→ 车道按**面板归属 provider** 判定（与 filterSuggestions 优先级同构）；S17 /import 镜像臂——manifest 声明 hash 而 payload 文件缺失/空/不可读时静默部分导入 → 整包响亮拒绝；S18 auto-resume 披露在候选安装时宣称「已恢复」而软校验仍可拒 seed 且无更正 → 候选语义词面；S19 ClearAll 按 JSON 内部 RunID 删（文件名≠内部 id 的复制件在 /clear 后存活为活候选、IsNotExist 空操作还计入删除数）→ 按文件名枚举删除、只计真实删除。
 
 **过程教训**：① sweep 六路 20/20 幸存、0 误报——双镜头（正确性复现 + 设计意图/账本对照）refuter 组合有效；② 我上一轮在 REGFIX-C 里现写的 cherryPickReportedEmpty 是当天新增缺陷里最重的一条（high）——**修复批自身必须进下一轮 sweep 的靶面**，本轮正是这么抓住的；③ 输入层的"数据/命令"边界（粘贴、路径开头散文）是回归高发面，一切拒收/分类谓词必须与漏斗自身谓词同源。
+
+
+### 8.6 代码页"缺口"证伪撤回（2026-07-30，证明式勘察）
+
+按证明式范式对 §8.4 残留项立案勘察，结论：**该缺口不存在，声明撤回**。证据链（直读构建本仓的 Go 工具链源码，本机 1.26.3；相关代码自 Go 1.5 时代稳定）：
+
+1. **输入**：`internal/poll/fd_windows.go` — `FD.Read` 对 `kindConsole` 分派到 `readConsole()`，其调用 `syscall.ReadConsole` 并做 surrogate 感知的 UTF-16→UTF-8 逐 rune 转换；`syscall.ReadConsole` 在 `syscall_windows.go:341` 逐字绑定 `kernel32.ReadConsoleW`（W 变体，UTF-16）。**控制台输入代码页被完全绕过**——os.Stdin 无论 chcp 为何都交付 UTF-8。
+2. **输出**：同文件 `FD.Write` 对 `kindConsole` 走 `writeConsole()` → `syscall.WriteConsole`（WriteConsoleW）——输出代码页同样被绕过（与客户截图中文正常显示一致）。
+3. **判定门**：`fd.kind = kindConsole` 仅当 GetConsoleMode 成功（真控制台句柄）；重定向管道走 kindPipe 原始字节路（UTF-8 约定，与各平台一致）。
+4. **对 §8 主证明的顺带加强**：conhost 的 GetChar（我们 key-up 交付条件的引文来源）正是 ReadConsoleW 服务的车道——Go 连 ReadFile-on-console（A 变体包装）都不经过，分类器等价性论证适用得更直接。
+
+**裁定**：不写 SetConsoleCP(65001)——那将是零收益的全局控制台状态突变（还有异常退出不恢复、污染同控制台后续程序的风险）。GBK 编码的**数据文件**经管道/附件进入（`--log -` 等）属通用工件编码议题，各平台同性质，不属本缺口。教训：**记档残留项也要过证明门——本项当初是凭"常识"写下的错误断言**，证明式勘察半小时即证伪，避免了一次 cargo-cult 修复。
