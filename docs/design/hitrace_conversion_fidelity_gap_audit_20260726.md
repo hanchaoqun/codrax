@@ -5711,6 +5711,134 @@ The next same-file replay is accepted only when:
 6. raw decode, sorter, O2 and postvalidation elapsed values are reported
    separately, with zero unknown/unparsed final rows.
 
+## LARG-B large-trace replay and follow-up construction (2026-07-30)
+
+Inputs:
+
+- `/Users/han/opt/customlogs/largB.txt`;
+- `/Users/han/opt/customlogs/codrax-trace-diag-largB.txt`;
+- the same immutable `151107309` byte customer input;
+- customer output SHA-256
+  `bc92a2bc0836cf1f4983a701065e57c5716b020e339f10f071040b912c2d015a`.
+
+LARG-A1 through LARG-A4 are accepted. The strict raw ledger closed
+`target_decode_rows=target_records=2760444`, retained all governed families
+under the independent byte budgets, and published a query-ready
+`1153505931` byte artifact with `2433390` known rows. Tracequery
+postvalidation matched the complete expected/callback census with zero
+unknown and zero unparsed rows.
+
+Raw marker recovery submitted `596649` exact standard sync spans, including
+`129272` CPU-unavailable replacements and `464740` standard-name-
+unrepresentable replacements. The final official-viewer census improved from
+LARG-A's `55377 / 654147 / 4250` standard-visible / typed-only / unpublished
+counts to `655409 / 56752 / 1613`. This is an approximately `11.84x`
+standard-visible increase; it does not close the remaining lanes.
+
+### LARG-B1 — scheduler whole-CPU-lane collateral suppression
+
+The DB scheduler authority read `790734` `sched_slice` rows but emitted only
+`219784`. Six CPU lanes were suppressed in full:
+
+```text
+cpu 0: 126960 rows / 25 lifecycle_half_open_rejected witnesses
+cpu 1: 174518 rows / 10 witnesses
+cpu 2: 128929 rows / 16 witnesses
+cpu 3: 111499 rows /  4 witnesses
+cpu 6:  15552 rows /  1 witness
+cpu10:  13486 rows /  1 witness
+```
+
+Only `57` lifecycle failures therefore suppressed `570944` DB rows. The
+independent exact raw `sched_switch_lite` ledger retained `790734` records;
+the old DB-only enrichment contract enriched `219784` and left `570950`
+unique raw records unmatched. Weakening the complete-per-CPU DB audit is
+rejected because it would let one malformed interval contaminate scheduler
+continuity.
+
+Batch `b503d29b5` adds a separate raw-unmatched publication arm without
+changing that DB red line. One raw record may publish only when:
+
+1. its closed decoder key and exact timestamp/CPU coordinate are unique;
+2. no audited DB scheduler event was emitted at that coordinate;
+3. both raw prev and next public TIDs resolve at that exact point to one
+   canonical thread/process generation;
+4. public TID zero passes the single canonical idle authority;
+5. raw state, priorities, flags, preempt count and the complete `next_info`
+   receipt remain exact source fields.
+
+An existing DB coordinate always wins, so a raw record cannot duplicate a DB
+boundary. Ambiguous raw keys/coordinates, pre-capture timestamps, absent,
+rejected or multi-incarnation public TIDs and lifecycle-rejected subjects stay
+withheld with typed metrics. No namespace/host PID rewrite or comm inference
+is added. Capability
+`official_raw_scheduler_lite_unmatched_publication_v1` identifies this
+contract.
+
+### LARG-B2 — rejected marker carrier local segment fence
+
+LARG-B exposed one poisoned marker emitter lane:
+
+```text
+raw_emitter_lanes_poisoned=1
+raw_endpoints_withheld_poisoned_lane=64841
+reason=rejected_endpoint_or_carrier
+```
+
+The source had only `64` rejected marker carriers in total. The former parser
+stopped at the first rejected row and discarded every otherwise independent
+pair in that emitter lane.
+
+Batch `5e3f01fad` narrows only classified rejected endpoint/carrier rows to an
+ordered local segment fence:
+
+- already closed pairs before the fence remain candidates;
+- the rejected physical row is withheld;
+- every open begin at the fence is recorded and the LIFO stack is cleared;
+- an end after the fence cannot close a begin before it and is treated as an
+  orphan;
+- a later independent B/E pair starts a new segment and may publish normally;
+- invalid physical ordering and an unclassified admitted action still poison
+  the complete emitter lane.
+
+Coverage reports exact fence counts, open begins withheld at fences, partial
+lane salvage and at most eight
+`emitter/physical-ordinal/timestamp/reason` witnesses. These witnesses are
+diagnostic only. Capability
+`official_raw_marker_local_segment_fence_v1` identifies this contract.
+
+### Delivery and replay gate
+
+Delivered follow-up batches:
+
+```text
+b503d29b5  LARG-B1 lifecycle-proven raw-unmatched scheduler publication
+5e3f01fad  LARG-B2 rejected marker carrier local segment fences
+```
+
+The next same-file replay must contain both new capabilities and establish:
+
+1. `raw_unmatched_published` plus DB scheduler rows increase standard
+   `sched_switch` visibility without any duplicate timestamp/CPU boundary;
+2. every withheld raw scheduler row closes under a typed prev/next identity,
+   lifecycle, ambiguity or coordinate reason;
+3. rejected marker carriers produce `raw_marker_local_fences` rather than
+   `raw_emitter_lanes_poisoned_rejected_endpoint_or_carrier`;
+4. fence witnesses are bounded, cross-fence pairs remain impossible, and
+   `raw_emitter_lanes_partially_salvaged` accounts for recovered lanes;
+5. standard-visible / typed-only / unpublished spans and the governed total
+   close again after shared laminar suppression;
+6. expected, parsed and callback rows still agree with zero unknown/unparsed
+   rows.
+
+Only after that replay should residual `32347` name-unrepresentable,
+`24073` CPU-unknown-start, `322` source-tainted, `8` CPU-unknown-end and
+`1613` locally fenced spans be reclassified. Performance work remains a
+separate batch: LARG-B normalization was `200.6422781` seconds, with
+crossvalidation `41.988821`, sorter `35.216446`, raw-marker recovery
+`31.849983` and strict raw decode `12.159032` seconds. No correctness or
+whole-wire verification gate may be removed to improve those values.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.
