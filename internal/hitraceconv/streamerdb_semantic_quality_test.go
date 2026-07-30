@@ -201,6 +201,31 @@ func TestTraceDBSemanticQualityClosesNameUnrepresentableRawReplacement(t *testin
 	}
 }
 
+func TestTraceDBSemanticQualityDoesNotCloseWithheldRawMarkerRecovery(t *testing.T) {
+	quality := traceDBSemanticQualityCoverage([]TraceDBCoverage{
+		{
+			Family: "slice",
+			Table:  "callstack",
+			Metrics: map[string]int64{
+				"sync_spans_suppressed": 7,
+			},
+		},
+		{
+			Family: "source_rawtrace_marker_sync",
+			Table:  "__raw_marker_sync__",
+			Metadata: map[string]string{
+				"publication_state": "withheld_raw_decode_incomplete",
+			},
+		},
+	})
+	if got := quality.Metadata["raw_marker_replacement_closure"]; got != "not_evaluated_withheld_raw_decode_incomplete" {
+		t.Fatalf("withheld raw marker recovery was presented as closed: %+v", quality)
+	}
+	if quality.Metrics["callstack_sync_spans_recovered_by_raw_marker"] != 0 {
+		t.Fatalf("withheld recovery minted replacement evidence: %+v", quality)
+	}
+}
+
 func TestTraceDBSemanticQualityRejectsTypedOnlyReasonCensusMismatch(t *testing.T) {
 	quality := traceDBSemanticQualityCoverage([]TraceDBCoverage{{
 		Family: "slice",

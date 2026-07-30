@@ -5633,6 +5633,14 @@ their complete fixed storage a second time. Capability
 `official_raw_record_decode_retained_bytes_v3` distinguishes this contract
 from RPD-CAP1 builds.
 
+### LARG-A2a semantic-closure correction
+
+The final conversion-quality reducer no longer treats an empty metric set from
+a withheld raw-marker consumer as proof that no replacement candidate exists.
+Any typed `publication_state=withheld_*` now projects to
+`raw_marker_replacement_closure=not_evaluated_withheld_*`. Only a completed
+raw-marker consumer may produce `complete_no_replacement_candidate`.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.

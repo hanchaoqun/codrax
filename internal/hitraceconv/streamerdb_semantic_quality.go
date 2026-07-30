@@ -214,6 +214,11 @@ func traceDBAddRawMarkerReplacementClosure(quality *TraceDBCoverage, items []Tra
 		quality.Metadata["raw_marker_replacement_closure"] = "not_evaluated_raw_coverage_absent"
 		return
 	}
+	if state := raw.Metadata["publication_state"]; strings.HasPrefix(state, "withheld_") {
+		quality.Metadata["raw_marker_replacement_closure"] =
+			"not_evaluated_" + state
+		return
+	}
 	replacementCandidates :=
 		raw.Metrics["raw_pairs_existing_db_candidate_locally_suppressed"] +
 			raw.Metrics["raw_pairs_interval_collision_locally_suppressed"] +
