@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -219,6 +220,98 @@ func TestDegradationFooterConsumptionSetEqualsAnswerSemanticsSet(t *testing.T) {
 	if groups := strings.Count(footer, "×"); groups != answerSemantics {
 		t.Fatalf("footer group count = %d, want %d (== |ClassAnswerSemantics| — consumption set equality, both directions): %q",
 			groups, answerSemantics, footer)
+	}
+}
+
+// TestDegradationFooterSelfDisclosedLaneSuppressed — R6-5 (round-6
+// sweep, eval/sweep_round6_findings_20260730.md): when the shipping
+// lane already discloses a lane's work through its own caveat (the
+// degraded recovery lane's citation-quote-backfill entry carries the
+// IDENTICAL ZH word 引用摘录回填), the footer must not disclose that
+// lane again — one answer never carries the same lane's disclosure
+// twice. Other lanes keep rendering, and the ledger/operator account is
+// untouched.
+func TestDegradationFooterSelfDisclosedLaneSuppressed(t *testing.T) {
+	mu := seededDegradationMutable() // citation ×17 + facet softened ×1
+	// The degraded call sites mark through the produced-token helper —
+	// exercise the real pairing, not the raw types call.
+	markSelfDisclosedDegradedSections(&types.AgentContext{Mutable: mu},
+		[]string{"observation_board", tool.DegradedSectionCitationQuoteBackfill})
+	ctx := &types.AgentContext{Mutable: mu}
+	footer := renderDegradationDisclosureFooter(ctx, "zh")
+	if strings.Contains(footer, "引用摘录回填") {
+		t.Fatalf("self-disclosed citation lane must not disclose again on the footer: %q", footer)
+	}
+	if !strings.Contains(footer, "必答面硬转软 ×1") {
+		t.Fatalf("other lanes must keep rendering: %q", footer)
+	}
+	// Telemetry untouched: the ledger still carries the full account for
+	// the operator "[degrade] ledger:" line.
+	entries := types.BuildDegradationLedgerView(mu)
+	found := false
+	for _, entry := range entries {
+		if entry.Lane == types.DegradeLaneCitationQuoteRewrite && entry.Count == 17 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("suppression is footer-only — the ledger count must survive: %+v", entries)
+	}
+	// A produced list WITHOUT the backfill token marks nothing: the
+	// footer stays the sole disclosure (per-Run rewrite events semantic,
+	// design ledger CLASS 5 §10.7).
+	mu2 := seededDegradationMutable()
+	markSelfDisclosedDegradedSections(&types.AgentContext{Mutable: mu2}, []string{"observation_board"})
+	if footer := renderDegradationDisclosureFooter(&types.AgentContext{Mutable: mu2}, "zh"); !strings.Contains(footer, "引用摘录回填 ×17") {
+		t.Fatalf("without the self-disclosing caveat the footer stays the disclosure of record: %q", footer)
+	}
+}
+
+// TestDegradedMaterializeCallSitesMarkSelfDisclosedLanes — structural
+// pairing pin for R6-5: every production call of
+// tool.MaterializeDeterministicAnswerSectionsForDegradedDoc in this
+// package must be followed (within a few lines) by
+// markSelfDisclosedDegradedSections on the same materialized list, so a
+// future degraded lane cannot reintroduce the co-surface double
+// disclosure.
+func TestDegradedMaterializeCallSitesMarkSelfDisclosedLanes(t *testing.T) {
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("read package dir: %v", err)
+	}
+	const materializeToken = "MaterializeDeterministicAnswerSectionsForDegradedDoc("
+	const markToken = "markSelfDisclosedDegradedSections("
+	callSites := 0
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Clean(name))
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		lines := strings.Split(string(raw), "\n")
+		for i, line := range lines {
+			if !strings.Contains(line, materializeToken) {
+				continue
+			}
+			callSites++
+			paired := false
+			for j := i; j < len(lines) && j <= i+6; j++ {
+				if strings.Contains(lines[j], markToken) {
+					paired = true
+					break
+				}
+			}
+			if !paired {
+				t.Errorf("%s:%d calls %s without a %s pairing within 6 lines — the degraded caveat and the footer would double-disclose the citation lane",
+					name, i+1, materializeToken, markToken)
+			}
+		}
+	}
+	if callSites == 0 {
+		t.Fatal("no degraded materializer call sites found — pin is vacuous (token drifted?)")
 	}
 }
 

@@ -483,7 +483,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 			Timestamp:              now,
 		}, nil
 	}
-	if key, ok := traceQueryMemoKey(ctx, p, path, sourceLabel); ok {
+	if key, ok := traceQueryMemoKey(ctx, p, path, sourceLabel, callCaveat); ok {
 		return RunPureToolMemo(ctx, t.Name(), key, runPureTraceQueryCore)
 	}
 	return runPureTraceQueryCore()
@@ -509,9 +509,16 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 // noise), the two TraceSecond window bounds' full fingerprints (TraceSecond
 // has no exported fields, so the re-marshal alone would erase the window —
 // deviation note in the design ledger 类2 §10), the resolved path + source
-// label, and the artifact's (size, mtime) stat fingerprint. The purity
-// premise (identical input ⇒ identical typed output) is pinned by DET-1.
-func traceQueryMemoKey(ctx *types.BusContext, p traceQueryParams, path, sourceLabel string) (string, bool) {
+// label, the artifact's (size, mtime) stat fingerprint, AND the call's
+// joined callCaveat (R6-0, round-6 sweep): the memoized core bakes the
+// caveat into the published result via traceQueryAppendCallCaveats, and its
+// targetCaveat component is a function of the PRE-inheritance params —
+// an explicit-target call and a target-INHERITING call reach identical
+// post-inheritance params but publish different target-provenance faces,
+// so the caveat must be a key input or the two collide onto one entry.
+// The purity premise (identical input ⇒ identical typed output) is
+// pinned by DET-1.
+func traceQueryMemoKey(ctx *types.BusContext, p traceQueryParams, path, sourceLabel, callCaveat string) (string, bool) {
 	if !PureToolMemoEnabled() {
 		return "", false
 	}
@@ -541,6 +548,7 @@ func traceQueryMemoKey(ctx *types.BusContext, p traceQueryParams, path, sourceLa
 		[]byte(sourceLabel),
 		[]byte(strconv.FormatInt(info.Size(), 10)),
 		[]byte(strconv.FormatInt(info.ModTime().UnixNano(), 10)),
+		[]byte(callCaveat),
 	} {
 		h.Write(part)
 		h.Write([]byte{0})

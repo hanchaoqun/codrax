@@ -41,11 +41,14 @@ func strictDecodeFailure(name string, now time.Time, err error, hints []Misplace
 	repair := attachToolJSONSurfaceMetadata(name, strictDecodeToolRepair(err, hints, raw))
 	remapped := RemapStrictDecodeErrorWithRaw(err, hints, raw)
 	// LT-HYG decoder-remap hint (§29.75 立案, 2026-07-14): fabricated-field
-	// guidance. Only the unknown-field class with NO matching relocate hint
-	// gets the list — a hint match already names the correct paths, and the
+	// guidance. Only the unknown-field class with NO APPLYING hint gets the
+	// list — an applying hint already names the correct paths/name, and the
 	// other decode classes (string-carrier, element-shape) are not naming
-	// problems. Schema-less callers (nil schema) are byte-identical.
-	if field := extractUnknownFieldName(err); field != "" && !strictDecodeHintMatchesField(hints, field) {
+	// problems. Schema-less callers (nil schema) are byte-identical. The
+	// same top-level-gated predicate (strictDecodeHintFor, R6-2) decides
+	// every hint consumer, so a nested near-miss that gets NO rename
+	// teaching does get the parameter list.
+	if field := extractUnknownFieldName(err); field != "" && strictDecodeHintFor(hints, field, raw) == nil {
 		if known := strictDecodeSchemaTopLevelFields(schema); len(known) > 0 {
 			remapped = fmt.Errorf("%w; this tool accepts only these parameters: %s", remapped, strings.Join(known, ", "))
 		}
@@ -61,15 +64,6 @@ func strictDecodeFailure(name string, now time.Time, err error, hints []Misplace
 		return res, remapped
 	}
 	return res, nil
-}
-
-func strictDecodeHintMatchesField(hints []MisplacedFieldHint, field string) bool {
-	for _, h := range hints {
-		if h.Field == field {
-			return true
-		}
-	}
-	return false
 }
 
 // strictDecodeSchemaTopLevelFields reflects the top-level "properties" key
@@ -133,13 +127,11 @@ func strictDecodeToolRepair(err error, hints []MisplacedFieldHint, raw []byte) *
 		return nil
 	}
 	if field := extractUnknownFieldName(err); field != "" {
-		for _, h := range hints {
-			if h.Field != field {
-				continue
-			}
-			// Wrong-NAME form (EVALFIX-2A): the relocate wording below
-			// is the reverse instruction for a misspelled key — fork to
-			// a rename repair.
+		if h := strictDecodeHintFor(hints, field, raw); h != nil {
+			// Wrong-NAME form (EVALFIX-2A; top-level gated per R6-2 by
+			// strictDecodeHintFor): the relocate wording below is the
+			// reverse instruction for a misspelled key — fork to a
+			// rename repair.
 			if h.CanonicalName != "" {
 				return &types.ToolRepair{
 					Code:   "tool_param_misnamed_field",

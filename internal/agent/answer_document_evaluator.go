@@ -10927,6 +10927,7 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 		// guards live in each materializer).
 		materialized := tool.MaterializeDeterministicAnswerSectionsForDegradedDoc(
 			types.ToolBusContext(ctx, types.AgentFinalizer), doc)
+		markSelfDisclosedDegradedSections(ctx, materialized)
 		if ctx != nil {
 			render.ApplyAuthorityHedging(doc, answerDocumentAuthorityEvidencePool(ctx), e.language)
 		}
@@ -11366,6 +11367,7 @@ func (e *answerDocumentEvaluator) parseRecoveredContentAnswerDocument(
 	// too — attach the deterministic sections before promotion/rendering.
 	materialized := tool.MaterializeDeterministicAnswerSectionsForDegradedDoc(
 		types.ToolBusContext(ctx, types.AgentFinalizer), doc)
+	markSelfDisclosedDegradedSections(ctx, materialized)
 	if ctx != nil {
 		render.ApplyAuthorityHedging(doc, answerDocumentAuthorityEvidencePool(ctx), e.language)
 	}

@@ -373,12 +373,16 @@ func TestRemapStrictDecode_ArrayElementShapeNotStringCarrier(t *testing.T) {
 // TestRemapStrictDecodeError_WrongNameHintTeachesRename — EVALFIX-2A:
 // a hint row with CanonicalName forks the wording to a rename
 // instruction. The wrong-container wording ("relocate ... do not
-// rename") would be the REVERSE instruction for this form.
+// rename") would be the REVERSE instruction for this form. R6-2
+// (round-6 sweep): the rename row fires only for a TOP-LEVEL occurrence
+// of the wrong key in the raw payload, so this positive pin uses a
+// top-level fixture (the nested form has its own negative pin below).
 func TestRemapStrictDecodeError_WrongNameHintTeachesRename(t *testing.T) {
-	original := produceStrictDecodeErr(t, `{"inner":{"form":"x","requested_files":[]}}`)
-	got := RemapStrictDecodeError(original, []MisplacedFieldHint{
+	payload := `{"requested_files":[],"inner":{"form":"x"}}`
+	original := produceStrictDecodeErr(t, payload)
+	got := RemapStrictDecodeErrorWithRaw(original, []MisplacedFieldHint{
 		{Field: "requested_files", CanonicalName: "required_files"},
-	})
+	}, []byte(payload))
 	if got == original {
 		t.Fatal("matched wrong-NAME hint MUST wrap the error")
 	}
@@ -401,10 +405,11 @@ func TestRemapStrictDecodeError_WrongNameHintTeachesRename(t *testing.T) {
 }
 
 func TestStrictDecodeToolRepair_WrongNameHint(t *testing.T) {
-	original := produceStrictDecodeErr(t, `{"inner":{"form":"x","requested_files":[]}}`)
+	payload := []byte(`{"requested_files":[],"inner":{"form":"x"}}`)
+	original := produceStrictDecodeErr(t, string(payload))
 	repair := strictDecodeToolRepair(original, []MisplacedFieldHint{
 		{Field: "requested_files", CanonicalName: "required_files"},
-	}, nil)
+	}, payload)
 	if repair == nil || repair.Code != "tool_param_misnamed_field" {
 		t.Fatalf("expected misnamed-field repair metadata, got %+v", repair)
 	}
@@ -421,13 +426,50 @@ func TestStrictDecodeToolRepair_WrongNameHint(t *testing.T) {
 	}
 }
 
+// TestWrongNameHintNestedOccurrenceFallsThrough — R6-2 (round-6 sweep,
+// eval/sweep_round6_findings_20260730.md): CanonicalName rows match by
+// bare field name while Go's unknown-field error carries no JSON path —
+// so a NESTED occurrence of the wrong spelling must NOT fire the
+// top-level rename teaching (wrong in both container and intent). The
+// raw payload IS in hand: only top-level membership licenses the row;
+// the nested form falls through to the default unknown-field lanes.
+// Red-first: pre-fix both the remap and the repair taught the rename.
+func TestWrongNameHintNestedOccurrenceFallsThrough(t *testing.T) {
+	payload := []byte(`{"inner":{"form":"x","requested_files":[]}}`)
+	hints := []MisplacedFieldHint{{Field: "requested_files", CanonicalName: "required_files"}}
+	original := produceStrictDecodeErr(t, string(payload))
+
+	remapped := RemapStrictDecodeErrorWithRaw(original, hints, payload)
+	if msg := remapped.Error(); strings.Contains(msg, "rename the key") ||
+		strings.Contains(msg, `the field is named "required_files"`) {
+		t.Fatalf("nested occurrence must not be taught the top-level rename: %q", msg)
+	}
+
+	repair := strictDecodeToolRepair(original, hints, payload)
+	if repair == nil || repair.Code != "tool_param_unknown_field" {
+		t.Fatalf("nested occurrence must fall through to the default unknown-field repair, got %+v", repair)
+	}
+
+	// A wrong-CONTAINER hint keeps matching by bare name — its subject IS
+	// a nested placement (the top-level gate applies to rename rows only).
+	containerHints := []MisplacedFieldHint{{
+		Field:          "requested_files",
+		ContainerNames: []string{"inner"},
+		CorrectPaths:   []string{"required_files"},
+	}}
+	if msg := RemapStrictDecodeErrorWithRaw(original, containerHints, payload).Error(); !strings.Contains(msg, "relocate the value") {
+		t.Fatalf("wrong-container rows must keep firing on nested occurrences: %q", msg)
+	}
+}
+
 // TestFailStrictDecodeWithError_WrongNameHintSanitizedSummary — R4
 // re-check on the full failure path: the rename teaching reaches the
 // LLM-facing Summary with no Go-internal wording.
 func TestFailStrictDecodeWithError_WrongNameHintSanitizedSummary(t *testing.T) {
-	original := produceStrictDecodeErr(t, `{"inner":{"form":"x","requested_files":[]}}`)
+	payload := []byte(`{"requested_files":[],"inner":{"form":"x"}}`)
+	original := produceStrictDecodeErr(t, string(payload))
 	res, err := failStrictDecodeWithError("emit_analysis", time.Now(), original,
-		[]MisplacedFieldHint{{Field: "requested_files", CanonicalName: "required_files"}}, nil)
+		[]MisplacedFieldHint{{Field: "requested_files", CanonicalName: "required_files"}}, payload)
 	if err == nil {
 		t.Fatal("failStrictDecodeWithError must preserve the historical non-nil error return")
 	}

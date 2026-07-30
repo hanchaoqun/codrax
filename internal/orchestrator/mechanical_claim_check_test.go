@@ -148,6 +148,30 @@ func TestMechanicalClaim_SkipSet(t *testing.T) {
 		{"zero_value", "实测 80ms 未超过 0ms。"},
 		{"contested_binding", "80ms 未超过 16.67ms 高于 5ms。"},
 		{"beyond_leash", "执行时长 80ms 在整个渲染管线的多个连续阶段中依次展开并逐级累积传递到最终的合成输出上，因此未超过 16.67ms。"},
+		// R6-3 (round-6 sweep, eval/sweep_round6_findings_20260730.md):
+		// reproduced false positives from negation over-match. 不仅/不过 are
+		// non-negating compounds (closed set) — the comparator's own
+		// direction is judged, and these sentences are CORRECT as written;
+		// the en parenthetical / correlative "not" is not comparator
+		// negation. All four rows raised a contradiction pre-fix.
+		{"non_negating_compound_zh_bujin", "耗时 80ms 不仅超过了 16.67ms 的帧预算，还阻塞了后续输入。"},
+		{"non_negating_compound_en_not_only", "The 80ms frame time not only exceeds the 16.67ms budget but also blocks input."},
+		{"non_negating_compound_zh_buguo", "该帧总耗时 20ms，不过超过 16.67ms 预算的部分主要来自 GC。"},
+		{"parenthetical_negation_en", "The 80ms cost (not counting GC) exceeds the 16.67ms budget."},
+		// R6-3 precision rule: a negation-like token that is neither a
+		// known non-negating compound nor immediately adjacent to the
+		// comparator is AMBIGUOUS — never flip on a guess, skip the claim.
+		{"ambiguous_negation_zh", "实测 80ms 不再超过 16.67ms 预算。"},
+		{"ambiguous_negation_en", "The 80ms cost not counting GC exceeds the 16.67ms budget."},
+		// R6-4 (round-6 sweep): operand binding stops at clause boundaries
+		// (，。；、,;.) and at clause-opening 在…内 adverbial shapes — a
+		// window/trace duration from the previous clause never binds as the
+		// left operand of an attributive comparator phrase; with no
+		// in-clause left operand the claim is SKIPPED. Both rows raised a
+		// decisive 10000ms-vs-16.67ms contradiction pre-fix.
+		{"cross_clause_left_operand_zh", "在 10s 的窗口内，低于 16.67ms 的帧占比 95%。"},
+		{"cross_clause_left_operand_en", "During the 10s trace, frames below the 16.67ms budget account for 95% of all frames."},
+		{"adverbial_scope_left_operand_zh", "在 10s 的窗口内低于 16.67ms 的帧占比 95%。"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -156,6 +180,27 @@ func TestMechanicalClaim_SkipSet(t *testing.T) {
 				t.Fatalf("skip case %q must trigger NOTHING, got %+v", tc.prose, got)
 			}
 		})
+	}
+}
+
+// TestMechanicalClaim_NonNegatingCompoundStillJudges — R6-3
+// discriminator: the closed non-negating compound set must not silence
+// the lane. With 不仅 / "not only" the base comparator keeps its own
+// direction, so a genuinely reversed pair still fires (kills a fix that
+// skips every sentence containing 不/not).
+func TestMechanicalClaim_NonNegatingCompoundStillJudges(t *testing.T) {
+	for _, prose := range []string{
+		"耗时 10ms 不仅超过了 16.67ms 的帧预算，还阻塞了后续输入。",
+		"The 10ms frame time not only exceeds the 16.67ms budget but also blocks input.",
+	} {
+		mut := mccMutable()
+		got := runMechanicalClaimCheck(mccDoc(prose), mut, "zh")
+		if len(got) != 1 {
+			t.Fatalf("non-negating compound must keep the base direction judged for %q, got %+v", prose, got)
+		}
+		if !strings.Contains(got[0].Detail, "10ms") || !strings.Contains(got[0].Detail, "16.67ms") {
+			t.Fatalf("Detail must carry the reversed pair:\n%s", got[0].Detail)
+		}
 	}
 }
 

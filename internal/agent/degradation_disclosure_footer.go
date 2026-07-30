@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -50,6 +51,26 @@ const (
 	degradationLaneGenericEN = "deterministic degradation"
 )
 
+// markSelfDisclosedDegradedSections — R6-5 companion of every
+// MaterializeDeterministicAnswerSectionsForDegradedDoc call site: when
+// the degraded lane's own materializer produced the citation-quote
+// backfill (which the degraded caveat then discloses with the SAME ZH
+// word this footer would use), the citation-rewrite ledger lane — fed
+// by earlier, REJECTED emit attempts whose draft never shipped — is
+// marked self-disclosed so the footer defers to the degraded caveat.
+// Pairing is pinned structurally
+// (TestDegradedMaterializeCallSitesMarkSelfDisclosedLanes).
+func markSelfDisclosedDegradedSections(ctx *types.AgentContext, materialized []string) {
+	if ctx == nil || ctx.Mutable == nil {
+		return
+	}
+	for _, token := range materialized {
+		if token == tool.DegradedSectionCitationQuoteBackfill {
+			ctx.Mutable.MarkDegradationLaneSelfDisclosed(types.DegradeLaneCitationQuoteRewrite)
+		}
+	}
+}
+
 // renderDegradationDisclosureFooter builds the single grouped footer
 // line from the merged ledger view. Deterministic rules:
 //   - only Class==answer_semantics entries with Count>0 participate;
@@ -78,6 +99,14 @@ func renderDegradationDisclosureFooter(ctx *types.AgentContext, lang string) str
 	genericIdx := -1
 	for _, entry := range entries {
 		if entry.Count <= 0 {
+			continue
+		}
+		// R6-5 (round-6 sweep): a lane the shipping lane already disclosed
+		// through its own caveat (degraded recovery lane's citation-quote
+		// backfill entry) must not disclose again here — one answer never
+		// carries the same lane's disclosure twice with identical wording.
+		// Ledger counts and the operator ledger line are untouched.
+		if ctx.Mutable.DegradationLaneSelfDisclosed(entry.Lane) {
 			continue
 		}
 		spec, registered := types.DegradationLaneRegistry[entry.Lane]

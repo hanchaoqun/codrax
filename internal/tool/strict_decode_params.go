@@ -20,7 +20,7 @@ func decodeStrictToolParams(name string, raw json.RawMessage, schema json.RawMes
 		// in hand on this entry — fabricated-field rejections teach the real
 		// top-level parameter list (reflected, never hand-copied).
 		res, retErr := failStrictDecodeWithErrorSchema(name, time.Now(), err, hints, normalized, schema)
-		appendStrictDecodeUnknownFieldCensus(&res, &retErr, err, normalized, dst)
+		appendStrictDecodeUnknownFieldCensus(&res, &retErr, err, normalized, dst, hints)
 		return normalized, &res, retErr
 	}
 	return normalized, nil, nil
@@ -31,7 +31,7 @@ func decodeStrictNormalizedToolParams(name string, normalized json.RawMessage, d
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dst); err != nil {
 		res, retErr := failStrictDecodeWithError(name, time.Now(), err, hints, normalized)
-		appendStrictDecodeUnknownFieldCensus(&res, &retErr, err, normalized, dst)
+		appendStrictDecodeUnknownFieldCensus(&res, &retErr, err, normalized, dst, hints)
 		return normalized, &res, retErr
 	}
 	return normalized, nil, nil
@@ -45,8 +45,19 @@ func decodeStrictNormalizedToolParams(name string, normalized json.RawMessage, d
 // enumerates EVERY unknown key with its JSON path. Report layer only: the
 // verdict and the single-field message stay byte-identical (the roster note
 // is appended only when there is more than one occurrence to teach).
-func appendStrictDecodeUnknownFieldCensus(res *types.ToolResult, retErr *error, err error, normalized json.RawMessage, dst any) {
-	if extractUnknownFieldName(err) == "" {
+//
+// R6-1 (round-6 sweep, eval/sweep_round6_findings_20260730.md): when a
+// MisplacedFieldHint APPLIES to the rejected field (same top-level-gated
+// predicate as the remap/repair consumers — strictDecodeHintFor), the
+// message already carries THE imperative for it (rename / relocate); the
+// census's blanket "remove every one of them" contradicted it on the exact
+// lane EVALFIX-2A was built to fix. One imperative per failure: the hinted
+// field leaves the roster, and any REMAINING unknowns keep an imperative
+// of their own that no longer speaks about the hinted field. Un-hinted
+// rejects keep the pre-fix wording byte-identical.
+func appendStrictDecodeUnknownFieldCensus(res *types.ToolResult, retErr *error, err error, normalized json.RawMessage, dst any, hints []MisplacedFieldHint) {
+	field := extractUnknownFieldName(err)
+	if field == "" {
 		appendStrictDecodeStringifiedObjectHint(res, retErr, err)
 		return
 	}
@@ -64,10 +75,38 @@ func appendStrictDecodeUnknownFieldCensus(res *types.ToolResult, retErr *error, 
 	}
 	note := fmt.Sprintf("; all unknown fields in this payload (remove every one of them in a single retry): %s",
 		strings.Join(census, ", "))
+	if strictDecodeHintFor(hints, field, normalized) != nil {
+		rest := strictDecodeCensusWithoutTopLevelField(census, field)
+		if len(rest) == 0 {
+			return
+		}
+		note = fmt.Sprintf("; the payload also carries these additional unknown fields — fix them in the same retry: %s",
+			strings.Join(rest, ", "))
+	}
 	res.Summary += note
 	if *retErr != nil {
 		*retErr = fmt.Errorf("%w%s", *retErr, note)
 	}
+}
+
+// strictDecodeCensusWithoutTopLevelField drops the roster entry whose
+// JSON path is exactly the hinted top-level field (its instruction is
+// the rename/relocate above). Nested occurrences of the same spelling
+// keep their rows — their did-you-mean speaks about their own container
+// (R6-2).
+func strictDecodeCensusWithoutTopLevelField(census []string, field string) []string {
+	out := make([]string, 0, len(census))
+	for _, entry := range census {
+		path := entry
+		if i := strings.Index(path, " (did you mean"); i >= 0 {
+			path = path[:i]
+		}
+		if path == field {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out
 }
 
 // appendStrictDecodeStringifiedObjectHint — GAP-EVAL-R1 second half: the

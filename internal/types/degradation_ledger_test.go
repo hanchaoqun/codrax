@@ -64,6 +64,43 @@ func TestDegradationLedgerResetClears(t *testing.T) {
 // richness-telemetry channel surface as DegradeLaneRichnessFacetSoftened
 // counts, with zero writer changes on the channel; other kinds
 // (family_underrepresented) must NOT project.
+// TestDegradationLaneSelfDisclosedMarkAndReset — R6-5 (round-6 sweep):
+// the self-disclosure mark is per-Run state on the same lifecycle as the
+// ledger (pipeline-start reset), never touches the counts, and is
+// nil-safe.
+func TestDegradationLaneSelfDisclosedMarkAndReset(t *testing.T) {
+	mu := NewMutableState("q")
+	if mu.DegradationLaneSelfDisclosed(DegradeLaneCitationQuoteRewrite) {
+		t.Fatal("fresh state must not carry a self-disclosure mark")
+	}
+	mu.AppendDegradation(DegradeLaneCitationQuoteRewrite, 2)
+	mu.MarkDegradationLaneSelfDisclosed(DegradeLaneCitationQuoteRewrite)
+	if !mu.DegradationLaneSelfDisclosed(DegradeLaneCitationQuoteRewrite) {
+		t.Fatal("mark must be readable")
+	}
+	if mu.DegradationLaneSelfDisclosed(DegradeLaneRichnessFacetSoftened) {
+		t.Fatal("marks are per-lane")
+	}
+	// The mark never touches the counts (telemetry is always recorded).
+	if entries := BuildDegradationLedgerView(mu); len(entries) != 1 || entries[0].Count != 2 {
+		t.Fatalf("marking must not change ledger counts: %+v", entries)
+	}
+	mu.ResetDegradationLedger()
+	if mu.DegradationLaneSelfDisclosed(DegradeLaneCitationQuoteRewrite) {
+		t.Fatal("pipeline-start reset must clear self-disclosure marks with the ledger")
+	}
+	// nil-safety mirrors the ledger's own discipline.
+	var nilState *MutableState
+	nilState.MarkDegradationLaneSelfDisclosed(DegradeLaneCitationQuoteRewrite)
+	if nilState.DegradationLaneSelfDisclosed(DegradeLaneCitationQuoteRewrite) {
+		t.Fatal("nil state must report false")
+	}
+	mu.MarkDegradationLaneSelfDisclosed(DegradationLaneID("  "))
+	if mu.DegradationLaneSelfDisclosed(DegradationLaneID("  ")) {
+		t.Fatal("blank lane ids are no-ops")
+	}
+}
+
 func TestBuildDegradationLedgerViewProjectsRichnessFacetSoftened(t *testing.T) {
 	m := NewMutableState("q")
 	m.AppendRichnessTelemetry(RichnessTelemetrySignal{Kind: "facet_softened", FacetID: "f1", Reason: "r1"})

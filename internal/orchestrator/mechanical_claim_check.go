@@ -330,7 +330,13 @@ func (o *Orchestrator) appendMechanicalClaimResidualCaveatToAnswer(answer string
 //	⑥ a quantity token contested by two comparators voids every
 //	  binding it appears in (binding ambiguity);
 //	⑦ zero values carry no measurement claim (PSG ruling reused);
-//	⑧ exempt blocks never reach this scanner (collectModelProseUnits).
+//	⑧ exempt blocks never reach this scanner (collectModelProseUnits);
+//	⑨ (R6-4) operand binding stops at clause boundaries (，。；、,;.)
+//	  and, left-side, at clause-opening 在…内 adverbial closers — an
+//	  attributive comparator with no in-clause operand is skipped;
+//	⑩ (R6-3) an ambiguous negation reading (a 不/未/not token that is
+//	  neither a closed non-negating compound nor immediately before
+//	  the comparator) skips the claim — never flip on a guess.
 func scanNumericDirectionClaims(unit proseTextUnit, spans [][2]int) []mechanicalClaimFinding {
 	text := unit.text
 	if strings.TrimSpace(text) == "" {
@@ -382,6 +388,15 @@ func scanNumericDirectionClaims(unit proseTextUnit, spans [][2]int) []mechanical
 		// left, B = nearest token strictly right, each within the rune
 		// leash. Any missing side, over-leash gap, range endpoint,
 		// cross-dimension pair or zero side discards THAT comparator.
+		// R6-4 (round-6 sweep): binding additionally stops at clause
+		// boundaries (，。；、,;.) and, on the left side, at the closer of
+		// a clause-opening 在…内/中/里 adverbial — a window/trace duration
+		// from a DIFFERENT clause never serves as the left operand of an
+		// attributive comparator phrase (低于 X 的帧 / frames below X);
+		// with no in-clause operand the comparator is skipped, never
+		// bound across the boundary. The nearest candidate carries a
+		// SUBSET of any farther candidate's gap, so rejecting on the gap
+		// predicate rejects the whole side.
 		type mccBinding struct {
 			comp        mechanicalClaimComparatorMatch
 			left, right int
@@ -391,10 +406,15 @@ func scanNumericDirectionClaims(unit proseTextUnit, spans [][2]int) []mechanical
 		for _, c := range comps {
 			li, ri := -1, -1
 			for i, tok := range st {
-				if tok.unitEnd <= c.start && (li == -1 || tok.unitEnd > st[li].unitEnd) {
+				if tok.unitEnd <= c.start &&
+					!mechanicalClaimClauseBarrierBetween(sent, tok.unitEnd, c.start) &&
+					!mechanicalClaimLeftOperandAdverbialScoped(sent, tok, c.start) &&
+					(li == -1 || tok.unitEnd > st[li].unitEnd) {
 					li = i
 				}
-				if tok.numStart >= c.end && (ri == -1 || tok.numStart < st[ri].numStart) {
+				if tok.numStart >= c.end &&
+					!mechanicalClaimClauseBarrierBetween(sent, c.end, tok.numStart) &&
+					(ri == -1 || tok.numStart < st[ri].numStart) {
 					ri = i
 				}
 			}
@@ -422,6 +442,12 @@ func scanNumericDirectionClaims(unit proseTextUnit, spans [][2]int) []mechanical
 		for _, bnd := range binds {
 			// Skip ⑥: contested token → binding ambiguity → discard.
 			if useCount[bnd.left] > 1 || useCount[bnd.right] > 1 {
+				continue
+			}
+			// R6-3 precision rule: an ambiguous negation reading skips the
+			// claim entirely (the binding above still fed the contested-
+			// token census — more conservative, never less).
+			if bnd.comp.skip {
 				continue
 			}
 			claimedGT := bnd.comp.gt != bnd.comp.negated
@@ -496,10 +522,14 @@ func mechanicalClaimJudgeDirection(blockID, sent string, a, b mechanicalClaimTok
 // ─── comparator location, negation and modal detection ───────────────
 
 // mechanicalClaimComparatorMatch is one located comparator occurrence.
+// skip marks an AMBIGUOUS negation reading (R6-3 precision rule): the
+// comparator stays in the list — its bindings still count toward the
+// contested-token predicate — but it never yields a finding.
 type mechanicalClaimComparatorMatch struct {
 	start, end int
 	gt         bool
 	negated    bool
+	skip       bool
 	word       string
 }
 
@@ -559,18 +589,37 @@ func mechanicalClaimComparatorsInSentence(sent string) []mechanicalClaimComparat
 	}
 	sort.SliceStable(kept, func(i, j int) bool { return kept[i].start < kept[j].start })
 	for i := range kept {
-		kept[i].negated = mechanicalClaimNegatedComparator(sent, lower, kept[i])
+		switch mechanicalClaimComparatorNegation(sent, lower, kept[i]) {
+		case mccNegationFlip:
+			kept[i].negated = true
+		case mccNegationAmbiguous:
+			kept[i].skip = true
+		}
 	}
 	return kept
 }
 
-// mechanicalClaimNegatedComparator reports whether a negation prefix
-// flips the comparator: zh — a closed-set negation word inside the
-// ≤4-rune window immediately before the base word, the window never
-// crossing punctuation (紧邻 — 「与预期不同，超过…」 must NOT read the
-// 不 of 不同 as negation); en — a closed-set negation word among the
-// ≤3 words immediately before the base word.
-func mechanicalClaimNegatedComparator(sent, lower string, c mechanicalClaimComparatorMatch) bool {
+// mechanicalClaimNegationVerdict is the three-way outcome of the
+// negation reading (R6-3, round-6 sweep): none (base direction stands),
+// flip (a genuine negation immediately before the comparator), or
+// AMBIGUOUS — a negation-like token whose scope cannot be established
+// precisely. Ambiguity never flips AND never judges: the claim is
+// skipped entirely (precision over recall — a wrong flip manufactures a
+// contradiction on a correct sentence).
+type mechanicalClaimNegationVerdict int
+
+const (
+	mccNegationNone mechanicalClaimNegationVerdict = iota
+	mccNegationFlip
+	mccNegationAmbiguous
+)
+
+// mechanicalClaimComparatorNegation resolves the negation reading for
+// one comparator: zh first (the ≤4-rune punctuation-barriered window
+// immediately before the base word — 「与预期不同，超过…」 must NOT read
+// the 不 of 不同 as negation), then en (the ≤3 words immediately before
+// the base word, parentheticals stripped first).
+func mechanicalClaimComparatorNegation(sent, lower string, c mechanicalClaimComparatorMatch) mechanicalClaimNegationVerdict {
 	start := c.start
 	for count := 0; count < mechanicalClaimNegationGapRunesZH && start > 0; count++ {
 		r, size := utf8.DecodeLastRuneInString(sent[:start])
@@ -579,26 +628,182 @@ func mechanicalClaimNegatedComparator(sent, lower string, c mechanicalClaimCompa
 		}
 		start -= size
 	}
-	window := sent[start:c.start]
-	for _, neg := range mechanicalClaimNegationsZH {
-		if strings.Contains(window, neg) {
-			return true
-		}
+	if v := mechanicalClaimNegationVerdictZH(sent[start:c.start]); v != mccNegationNone {
+		return v
 	}
-	fields := strings.Fields(lower[:c.start])
+	return mechanicalClaimNegationVerdictEN(lower[:c.start])
+}
+
+// mechanicalClaimNegationVerdictZH scans the pre-comparator window
+// compound-aware (R6-3): 不/未 are single-character SUBSTRINGS of many
+// non-negating words, so a bare Contains over the window flipped
+// correct sentences (不仅超过 read as negated 超过). Rules, in order:
+//   - a closed non-negating compound (不仅/不但/不过/不止/不光) is read
+//     over and never flips;
+//   - a negation word IMMEDIATELY before the comparator (whitespace
+//     only in between) flips;
+//   - any other negation-like token in the window is AMBIGUOUS — skip
+//     the claim (不再超过 / 未能超过: never flip on a guess).
+func mechanicalClaimNegationVerdictZH(window string) mechanicalClaimNegationVerdict {
+	i := 0
+	for i < len(window) {
+		neg := ""
+		for _, cand := range mechanicalClaimNegationsZH {
+			if strings.HasPrefix(window[i:], cand) {
+				neg = cand
+				break
+			}
+		}
+		if neg == "" {
+			_, size := utf8.DecodeRuneInString(window[i:])
+			i += size
+			continue
+		}
+		compound := ""
+		for _, cand := range mechanicalClaimNonNegatingCompoundsZH {
+			if strings.HasPrefix(window[i:], cand) {
+				compound = cand
+				break
+			}
+		}
+		if compound != "" {
+			i += len(compound)
+			continue
+		}
+		if strings.TrimSpace(window[i+len(neg):]) == "" {
+			return mccNegationFlip
+		}
+		return mccNegationAmbiguous
+	}
+	return mccNegationNone
+}
+
+// mechanicalClaimNegationVerdictEN reads the last ≤3 words before the
+// comparator AFTER stripping balanced parentheticals (R6-3: a
+// parenthetical aside — "(not counting GC)" — is not comparator
+// negation). Rules, in order:
+//   - an unclosed "(" before the comparator puts the comparator inside
+//     a parenthetical — AMBIGUOUS, skip;
+//   - "not only/just/merely" is a correlative, never negation;
+//   - a negation word IMMEDIATELY before the comparator flips ("does
+//     not exceed", "never exceeds", "no longer exceeds");
+//   - any other negation-like word in the window is AMBIGUOUS — skip
+//     the claim ("not counting GC exceeds": never flip on a guess).
+func mechanicalClaimNegationVerdictEN(prefixLower string) mechanicalClaimNegationVerdict {
+	stripped, unclosed := mechanicalClaimStripParentheticals(prefixLower)
+	if unclosed {
+		return mccNegationAmbiguous
+	}
+	fields := strings.Fields(stripped)
 	if len(fields) > mechanicalClaimNegationGapWordsEN {
 		fields = fields[len(fields)-mechanicalClaimNegationGapWordsEN:]
 	}
-	for i, w := range fields {
-		w = strings.Trim(w, ",.;:!()\"'")
+	words := make([]string, 0, len(fields))
+	for _, w := range fields {
+		words = append(words, strings.Trim(w, ",.;:!()\"'"))
+	}
+	for i, w := range words {
+		if w == "no" && i+1 < len(words) && words[i+1] == "longer" {
+			if i+1 == len(words)-1 {
+				return mccNegationFlip
+			}
+			return mccNegationAmbiguous
+		}
+		isNeg := false
 		for _, neg := range mechanicalClaimNegationsEN {
 			if w == neg {
-				return true
+				isNeg = true
+				break
 			}
 		}
-		if w == "no" && i+1 < len(fields) && strings.Trim(fields[i+1], ",.;:!()\"'") == "longer" {
+		if !isNeg {
+			continue
+		}
+		if w == "not" && i+1 < len(words) && mechanicalClaimNonNegatingFollowersEN[words[i+1]] {
+			continue
+		}
+		if i == len(words)-1 {
+			return mccNegationFlip
+		}
+		return mccNegationAmbiguous
+	}
+	return mccNegationNone
+}
+
+// mechanicalClaimStripParentheticals removes balanced ( … ) / （ … ）
+// spans (nesting included) and reports whether an opening parenthesis
+// was left unclosed — i.e. the position the prefix ends at (the
+// comparator) sits inside a parenthetical.
+func mechanicalClaimStripParentheticals(s string) (string, bool) {
+	var b strings.Builder
+	depth := 0
+	for _, r := range s {
+		switch r {
+		case '(', '（':
+			depth++
+			continue
+		case ')', '）':
+			if depth > 0 {
+				depth--
+			}
+			continue
+		}
+		if depth == 0 {
+			b.WriteRune(r)
+		}
+	}
+	return b.String(), depth > 0
+}
+
+// mechanicalClaimClauseBarrierRune — R6-4: the closed clause-boundary
+// set operand binding never crosses. Deliberately narrower than the
+// negation-window barrier: parentheses stay OUT (the F7 witness binds
+// through （80ms）未超过（16.67ms）).
+func mechanicalClaimClauseBarrierRune(r rune) bool {
+	switch r {
+	case '，', '。', '；', '、', ',', ';', '.':
+		return true
+	}
+	return false
+}
+
+// mechanicalClaimClauseBarrierBetween reports a clause boundary inside
+// sent[from:to] (the gap between an operand candidate and the
+// comparator).
+func mechanicalClaimClauseBarrierBetween(sent string, from, to int) bool {
+	if from >= to || from < 0 || to > len(sent) {
+		return false
+	}
+	for _, r := range sent[from:to] {
+		if mechanicalClaimClauseBarrierRune(r) {
 			return true
 		}
+	}
+	return false
+}
+
+// mechanicalClaimLeftOperandAdverbialScoped — R6-4's clause-opening
+// 在…内 shape: the left candidate sits inside a 在…内/中/里 adverbial
+// whose closer lies between the quantity and the comparator (在 10s 的
+// 窗口内低于 16.67ms …). The quantity scopes the clause (a window /
+// trace duration) and never binds. Both signals are precise-narrow: the
+// closer must sit in the immediate gap AND a 在 must precede the token
+// within the bind leash — a false hit only ever skips (recall cost,
+// zero precision cost).
+func mechanicalClaimLeftOperandAdverbialScoped(sent string, tok mechanicalClaimToken, compStart int) bool {
+	if tok.unitEnd >= compStart || compStart > len(sent) {
+		return false
+	}
+	if !strings.ContainsAny(sent[tok.unitEnd:compStart], "内中里") {
+		return false
+	}
+	start := tok.numStart
+	for count := 0; count < mechanicalClaimBindGapRunes && start > 0; count++ {
+		r, size := utf8.DecodeLastRuneInString(sent[:start])
+		if r == '在' {
+			return true
+		}
+		start -= size
 	}
 	return false
 }
@@ -848,11 +1053,23 @@ var mechanicalClaimComparatorWords = []mechanicalClaimComparatorWord{
 }
 
 // Negation prefixes flip the base word's claimed direction to its
-// complement (未超过 → A ≤ B; does not exceed → A ≤ B).
+// complement (未超过 → A ≤ B; does not exceed → A ≤ B). Longest first:
+// the compound-aware scanner matches by prefix.
 var (
 	mechanicalClaimNegationsZH = []string{"并未", "并不", "没有", "未", "不"}
 	mechanicalClaimNegationsEN = []string{"not", "never", "doesn't"}
 )
+
+// mechanicalClaimNonNegatingCompoundsZH — R6-3 closed set: words whose
+// leading 不 is NOT negation (correlatives / conjunctions). The scanner
+// reads over them; every OTHER 不/未-led token that is not immediately
+// before the comparator is ambiguous and skips the claim, so a missing
+// compound here costs recall, never precision.
+var mechanicalClaimNonNegatingCompoundsZH = []string{"不仅", "不但", "不过", "不止", "不光"}
+
+// mechanicalClaimNonNegatingFollowersEN — "not only/just/merely" are
+// correlatives, not comparator negation.
+var mechanicalClaimNonNegatingFollowersEN = map[string]bool{"only": true, "just": true, "merely": true}
 
 // Modal / conditional markers: a comparator whose leash region carries
 // one is a RULE or HYPOTHESIS, not a fact claim — the whole sentence

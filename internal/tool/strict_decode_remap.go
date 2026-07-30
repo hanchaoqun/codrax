@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -102,12 +103,10 @@ func RemapStrictDecodeErrorWithRaw(err error, hints []MisplacedFieldHint, raw []
 	if err == nil {
 		return err
 	}
-	// Step 1: try the unknown-field hint match.
+	// Step 1: try the unknown-field hint match (top-level gated for
+	// wrong-NAME rows — see strictDecodeHintFor, R6-2).
 	if field := extractUnknownFieldName(err); field != "" {
-		for _, h := range hints {
-			if h.Field != field {
-				continue
-			}
+		if h := strictDecodeHintFor(hints, field, raw); h != nil {
 			if h.CanonicalName != "" {
 				logging.Info("[strict_decode_remap] misnamed field %q → canonical name: %s",
 					field, h.CanonicalName)
@@ -135,6 +134,50 @@ func RemapStrictDecodeErrorWithRaw(err error, hints []MisplacedFieldHint, raw []
 	// Step 3: sanitize the error message — strip Go-internal
 	// type names that violate R4 (no internal jargon to LLM).
 	return sanitizeDecodeError(err)
+}
+
+// strictDecodeHintFor returns the hint that APPLIES to an unknown-field
+// reject, or nil. Wrong-container rows (ContainerNames/CorrectPaths)
+// match by bare field name — their subject IS a nested placement.
+// Wrong-NAME rows (CanonicalName) additionally require the wrong key to
+// be a TOP-LEVEL member of the raw payload (R6-2, round-6 sweep,
+// eval/sweep_round6_findings_20260730.md): Go's unknown-field error
+// carries no JSON path, so a NESTED occurrence of the same spelling
+// (source_inventory_profile.requested_files — a requested_fields
+// near-miss) must fall through to the census did-you-mean instead of
+// being mis-taught a top-level rename that is wrong in both container
+// and intent. With no raw payload in hand the wrong-NAME row stays
+// silent — precision over recall.
+func strictDecodeHintFor(hints []MisplacedFieldHint, field string, raw []byte) *MisplacedFieldHint {
+	if field == "" {
+		return nil
+	}
+	for i := range hints {
+		h := &hints[i]
+		if h.Field != field {
+			continue
+		}
+		if h.CanonicalName != "" && !strictDecodeTopLevelKeyPresent(raw, field) {
+			continue
+		}
+		return h
+	}
+	return nil
+}
+
+// strictDecodeTopLevelKeyPresent reports whether key is a top-level
+// member of the raw JSON object. Any parse irregularity fails closed
+// (no membership claim ⇒ no wrong-NAME hint).
+func strictDecodeTopLevelKeyPresent(raw []byte, key string) bool {
+	if len(raw) == 0 || key == "" {
+		return false
+	}
+	var top map[string]json.RawMessage
+	if json.Unmarshal(raw, &top) != nil {
+		return false
+	}
+	_, ok := top[key]
+	return ok
 }
 
 // unknownFieldRe matches Go's standard strict-decode error message

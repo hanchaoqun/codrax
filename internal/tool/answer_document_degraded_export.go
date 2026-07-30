@@ -20,6 +20,13 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+// DegradedSectionCitationQuoteBackfill is the section token minted when
+// the degraded-lane deterministic citation-quote backfill produced
+// output. Exported for the agent-layer caller (R6-5): when this token is
+// in the produced list, the degraded caveat self-discloses the backfill
+// and the degradation-disclosure footer must not repeat the same lane.
+const DegradedSectionCitationQuoteBackfill = "citation_quote_backfill"
+
 // MaterializeDeterministicAnswerSectionsForDegradedDoc runs the persist
 // chokepoint's deterministic section materializers plus the deterministic
 // citation-quote backfill (引用回填) and the runtime-artifact citation
@@ -63,7 +70,7 @@ func MaterializeDeterministicAnswerSectionsForDegradedDoc(ctx *types.BusContext,
 	if answerDocumentHasQuotelessCurrentSourceCitation(doc, ctx) {
 		if fixed := normalizeCurrentSourceCitationQuotes(doc, ctx); fixed > 0 {
 			logging.Warning("[answer_document/degraded_export] backfilled %d quoteless citation quote(s) from current source on recovery lane", fixed)
-			produced = append(produced, "citation_quote_backfill")
+			produced = append(produced, DegradedSectionCitationQuoteBackfill)
 		}
 	}
 	// Runtime-artifact citation quote check (XGAP-FIX ⑤ independent arm;

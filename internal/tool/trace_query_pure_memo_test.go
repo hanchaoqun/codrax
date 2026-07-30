@@ -220,7 +220,7 @@ func TestTraceQueryRunMemo_ExclusionLanes(t *testing.T) {
 		cancel()
 		ctx.Ctx = dead
 		var p traceQueryParams
-		if _, ok := traceQueryMemoKey(ctx, p, tracePath, "path"); ok {
+		if _, ok := traceQueryMemoKey(ctx, p, tracePath, "path", ""); ok {
 			t.Fatal("a dead run context must refuse memo participation")
 		}
 	})
@@ -228,14 +228,14 @@ func TestTraceQueryRunMemo_ExclusionLanes(t *testing.T) {
 	t.Run("stat_failure_and_nil_mutable", func(t *testing.T) {
 		ctx, tracePath := pureMemoFixtureCtx(t)
 		var p traceQueryParams
-		if _, ok := traceQueryMemoKey(ctx, p, filepath.Join(ctx.RepoRoot, "no-such-file.systrace"), "path"); ok {
+		if _, ok := traceQueryMemoKey(ctx, p, filepath.Join(ctx.RepoRoot, "no-such-file.systrace"), "path", ""); ok {
 			t.Fatal("stat failure must refuse to mint a purity claim")
 		}
 		bare := &types.BusContext{RepoRoot: ctx.RepoRoot, WorkDir: ctx.WorkDir}
-		if _, ok := traceQueryMemoKey(bare, p, tracePath, "path"); ok {
+		if _, ok := traceQueryMemoKey(bare, p, tracePath, "path", ""); ok {
 			t.Fatal("a context without MutableState has no memo — must refuse")
 		}
-		if _, ok := traceQueryMemoKey(ctx, p, tracePath, "path"); !ok {
+		if _, ok := traceQueryMemoKey(ctx, p, tracePath, "path", ""); !ok {
 			t.Fatal("healthy lane must mint a key (otherwise the arms above are vacuous)")
 		}
 	})
@@ -256,6 +256,62 @@ func TestTraceQueryRunMemo_ClearedAtTurnBoundary(t *testing.T) {
 	}
 	if res2.ReusedFromRunMemo {
 		t.Fatal("ResetTurnAArtifacts must clear the memo — cross-task reuse is out of the purity boundary")
+	}
+}
+
+// Pin 7 (R6-0, round-6 sweep, eval/sweep_round6_findings_20260730.md):
+// target provenance is a memo-key input. An explicit-target call and a
+// target-INHERITING call converge to the same post-inheritance params,
+// but the memoized pure core bakes the inheritance caveat
+// (trace_query_target_inherited=…) into the published result — serving
+// the inherited call from the explicit call's memo entry would publish
+// the wrong target-provenance face. The two must never collide onto one
+// key. Red-first: pre-fix the second call returned ReusedFromRunMemo=
+// true.
+func TestTraceQueryRunMemo_TargetProvenanceSplitsKeys(t *testing.T) {
+	ctx, _ := pureMemoFixtureCtx(t)
+	ctx.Mutable.SetRequestModel(types.RequestModel{RuntimeTargets: []types.RuntimeTarget{{
+		PID: 100, Thread: "app-100", Source: "analyzer", Confidence: 1,
+	}}})
+
+	explicit, err := (&TraceQuery{}).Execute(ctx, pureMemoFixtureParams(t, nil))
+	if err != nil || !explicit.Success {
+		t.Fatalf("explicit-target call: err=%v success=%v summary=%s", err, explicit.Success, explicit.Summary)
+	}
+	if explicit.ReusedFromRunMemo {
+		t.Fatal("explicit-target seed call must be a real execution")
+	}
+
+	// Same call with pid/thread OMITTED: the request-model target is
+	// inherited, so the post-inheritance params are identical — but the
+	// call's published caveat face differs (inheritance disclosure).
+	inheritedParams, err := json.Marshal(map[string]any{
+		"source": "path", "path": "pure-memo.systrace",
+		"view":       "root_cause_rank",
+		"time_start": 5.000, "time_end": 5.007,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inherited, execErr := (&TraceQuery{}).Execute(ctx, json.RawMessage(inheritedParams))
+	if execErr != nil || !inherited.Success {
+		t.Fatalf("inherited-target call: err=%v success=%v summary=%s", execErr, inherited.Success, inherited.Summary)
+	}
+	if inherited.ReusedFromRunMemo {
+		t.Fatal("a target-inheriting call must NOT be served from the explicit-target memo entry — its published target-provenance caveat differs")
+	}
+
+	// Key-level: the caveat is a key input — identical params with
+	// different call caveats mint different keys.
+	tracePath := filepath.Join(ctx.RepoRoot, "pure-memo.systrace")
+	var p traceQueryParams
+	k1, ok1 := traceQueryMemoKey(ctx, p, tracePath, "path", "")
+	k2, ok2 := traceQueryMemoKey(ctx, p, tracePath, "path", "trace_query_target_inherited=true; pid=100")
+	if !ok1 || !ok2 {
+		t.Fatalf("healthy lane must mint keys (ok1=%v ok2=%v)", ok1, ok2)
+	}
+	if k1 == k2 {
+		t.Fatal("different call caveats must never share one memo key")
 	}
 }
 

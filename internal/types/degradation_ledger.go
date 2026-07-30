@@ -158,11 +158,12 @@ func (m *MutableState) DegradationLedger() []DegradationEntry {
 	return orderedDegradationEntries(counts)
 }
 
-// ResetDegradationLedger clears the ledger. The only reset boundary is
-// pipeline start (S12/S13 ruling: pipeline start is THE per-turn
-// boundary); MutableState is freshly allocated per Run today, so the
-// orchestrator's reset-cluster call is defensive documentation of that
-// boundary rather than a behavioral wipe.
+// ResetDegradationLedger clears the ledger (and the per-Run
+// self-disclosure marks). The only reset boundary is pipeline start
+// (S12/S13 ruling: pipeline start is THE per-turn boundary);
+// MutableState is freshly allocated per Run today, so the orchestrator's
+// reset-cluster call is defensive documentation of that boundary rather
+// than a behavioral wipe.
 func (m *MutableState) ResetDegradationLedger() {
 	if m == nil {
 		return
@@ -170,6 +171,41 @@ func (m *MutableState) ResetDegradationLedger() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.degradationLedger = nil
+	m.degradationSelfDisclosed = nil
+}
+
+// MarkDegradationLaneSelfDisclosed — R6-5 (round-6 sweep,
+// eval/sweep_round6_findings_20260730.md): the shipping lane discloses
+// this lane's work through its OWN user-facing caveat (witness: the
+// degraded recovery lane's citation-quote-backfill entry, whose ZH word
+// is identical to this lane's registry word). CLASS 5 §9 already ruled
+// double disclosure out ("degraded_export 不入账"), but that mitigation
+// only kept the degraded lane's OWN events off the ledger — bookings
+// from earlier REJECTED emit attempts still reached the footer next to
+// the degraded caveat. Marking the lane makes the footer defer to the
+// self-disclosing surface. Telemetry is untouched: ledger counts and
+// the operator "[degrade] ledger:" line keep the full account.
+func (m *MutableState) MarkDegradationLaneSelfDisclosed(lane DegradationLaneID) {
+	if m == nil || strings.TrimSpace(string(lane)) == "" {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.degradationSelfDisclosed == nil {
+		m.degradationSelfDisclosed = make(map[DegradationLaneID]bool)
+	}
+	m.degradationSelfDisclosed[lane] = true
+}
+
+// DegradationLaneSelfDisclosed reports whether the lane was marked
+// self-disclosed for this Run (footer consumers skip it).
+func (m *MutableState) DegradationLaneSelfDisclosed(lane DegradationLaneID) bool {
+	if m == nil {
+		return false
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.degradationSelfDisclosed[lane]
 }
 
 // BuildDegradationLedgerView is the single view every reader (footer
