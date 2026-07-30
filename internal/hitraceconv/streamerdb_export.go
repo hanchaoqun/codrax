@@ -239,6 +239,9 @@ func exportTraceDBToSystraceFromOpenWithLedger(ctx context.Context, tdb *traceDB
 	if tdb.rawSchedWakeupJoinCoverage.Role != "" {
 		coverage = append(coverage, cloneTraceDBCoverage(tdb.rawSchedWakeupJoinCoverage))
 	}
+	schedulerPublicationCoverage :=
+		traceDBSchedulerPublicationReconciliationCoverage(coverage)
+	coverage = append(coverage, schedulerPublicationCoverage)
 	rawReconciliationCoverage := traceDBRawDecodeReconciliationCoverage(coverage)
 	coverage = append(coverage, rawReconciliationCoverage)
 	qualityCoverage := traceDBSemanticQualityCoverage(coverage)

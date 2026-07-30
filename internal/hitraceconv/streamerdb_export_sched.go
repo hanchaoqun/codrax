@@ -258,6 +258,9 @@ func exportTraceDBSchedSwitch(ctx context.Context, tdb *traceDB, sink *traceDBRo
 	coverage.RowsRead = audit.RowsRead
 	coverage.PeakBuffered = audit.PeakBufferedSourceRows
 	coverage.Skipped = traceDBSchedAuditSummary(audit)
+	traceDBAddCoverageMetric(
+		&coverage, "db_source_rows_suppressed",
+		int64(traceDBSchedAuditSuppressedRows(audit)))
 	if audit.UnassignedCPURows > 0 {
 		return coverage, nil
 	}
@@ -989,6 +992,19 @@ func traceDBSchedAuditSummary(audit traceDBSchedAudit) string {
 		parts = append(parts, fmt.Sprintf("accounting: open_tail_rows=%d synthetic_idle_closes=0", audit.OpenTailRows))
 	}
 	return strings.Join(parts, "; ")
+}
+
+func traceDBSchedAuditSuppressedRows(audit traceDBSchedAudit) int {
+	if audit.UnassignedCPURows > 0 {
+		return audit.RowsRead
+	}
+	suppressed := audit.InvalidCPURows
+	for _, lane := range audit.CPUs {
+		if len(lane.Reasons) > 0 {
+			suppressed += lane.Rows
+		}
+	}
+	return suppressed
 }
 
 func traceDBCountSummary(counts map[string]int) string {

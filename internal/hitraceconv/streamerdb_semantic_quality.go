@@ -53,6 +53,21 @@ func traceDBSemanticQualityCoverage(items []TraceDBCoverage) TraceDBCoverage {
 	copyMetric("public_tids_with_multiple_itids", "resolver", "thread", "public_tids_with_multiple_itids")
 	copyMetric("public_tids_with_multiple_owner_ipids", "resolver", "thread", "public_tids_with_multiple_owner_ipids")
 	copyMetric("scheduler_boundaries_with_unknown_comm", "scheduler", "sched_slice", "boundaries_with_unknown_comm")
+	copyMetric("scheduler_db_source_rows_suppressed",
+		traceDBSchedulerPublicationFamily, traceDBSchedulerPublicationTable,
+		"db_source_rows_suppressed")
+	copyMetric("scheduler_db_boundaries_published",
+		traceDBSchedulerPublicationFamily, traceDBSchedulerPublicationTable,
+		"db_boundaries_published")
+	copyMetric("scheduler_raw_unmatched_published",
+		traceDBSchedulerPublicationFamily, traceDBSchedulerPublicationTable,
+		"raw_unmatched_published")
+	copyMetric("scheduler_standard_events_published",
+		traceDBSchedulerPublicationFamily, traceDBSchedulerPublicationTable,
+		"standard_sched_switch_events")
+	copyMetric("scheduler_raw_typed_withheld",
+		traceDBSchedulerPublicationFamily, traceDBSchedulerPublicationTable,
+		"raw_unmatched_typed_withheld")
 	copyMetric("callstack_source_rows_suppressed_pre_pairing", "slice", "callstack", "source_rows_suppressed_pre_pairing")
 	copyMetric("callstack_async_source_rows_suppressed_post_pairing", "slice", "callstack", "async_source_rows_suppressed_post_pairing")
 	copyMetric("callstack_source_rows_official_async_shaped", "slice", "callstack",
@@ -88,6 +103,11 @@ func traceDBSemanticQualityCoverage(items []TraceDBCoverage) TraceDBCoverage {
 		copyMetric(metric, "slice", "callstack", metric)
 	}
 	for _, item := range items {
+		if item.Family == traceDBSchedulerPublicationFamily &&
+			item.Table == traceDBSchedulerPublicationTable {
+			quality.Metadata["scheduler_publication_reconciliation"] =
+				item.Metadata["reconciliation_state"]
+		}
 		if item.Family == "slice" && item.Table == "callstack" &&
 			item.Metadata["official_viewer_typed_only_sync_reason_census"] == "complete" {
 			quality.Metadata["official_viewer_typed_only_sync_reason_census"] = "complete"
@@ -321,6 +341,16 @@ func traceDBSemanticQualityCaveats(coverage []TraceDBCoverage) []string {
 		"public_tids_with_multiple_owner_ipids",
 	}
 	var caveats []string
+	if rawPublished :=
+		quality.Metrics["scheduler_raw_unmatched_published"]; rawPublished > 0 {
+		caveats = append(caveats, fmt.Sprintf(
+			"trace_streamer scheduler publication reconciled: db_boundaries=%d raw_unmatched_published=%d standard_sched_switch_total=%d raw_typed_withheld=%d; db_source_rows_suppressed=%d is the strict DB-lane audit count, not final systrace loss after exact raw recovery",
+			quality.Metrics["scheduler_db_boundaries_published"],
+			rawPublished,
+			quality.Metrics["scheduler_standard_events_published"],
+			quality.Metrics["scheduler_raw_typed_withheld"],
+			quality.Metrics["scheduler_db_source_rows_suppressed"]))
+	}
 	if summary := traceDBSemanticQualityMetricSummary(quality.Metrics, degradedKeys); summary != "" {
 		caveats = append(caveats, "trace_streamer semantic quality is degraded: "+summary+
 			"; the systrace is query-ready but name/span completeness is not proven")

@@ -64,6 +64,7 @@ var traceConvertDiagnosticCapabilities = []string{
 	"official_raw_scheduler_lite_decision_diagnostics_v1",
 	"official_raw_scheduler_lite_unmatched_publication_v1",
 	"official_raw_scheduler_cpu_fallback_v1",
+	"scheduler_publication_reconciliation_v1",
 	"official_raw_record_decode_budget_v2",
 	"official_raw_record_decode_retained_bytes_v3",
 	"official_raw_record_family_authority_v1",
@@ -283,11 +284,12 @@ func traceConvertDiagnosticReportBody(
 	lines.Add(traceConvertDiagnosticReportProfile)
 	buildIdentity := resolveCodraxBuildIdentity()
 	lines.Add(fmt.Sprintf(
-		"outcome=%s codrax_version=%s build_time=%s build_revision=%s goos=%s goarch=%s",
+		"outcome=%s codrax_version=%s build_time=%s build_revision=%s build_revision_source=%s goos=%s goarch=%s",
 		outcome,
 		version,
 		buildTime,
-		buildRevision,
+		buildIdentity.Revision,
+		buildIdentity.RevisionSource,
 		runtime.GOOS,
 		runtime.GOARCH,
 	))

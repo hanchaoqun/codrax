@@ -5915,10 +5915,11 @@ reports the complete interval and rejection census.
 3. **LARG-C3 / P2:** publish one reconciled scheduler summary containing DB
    boundaries, raw enrichments, raw-unmatched events and typed withheld
    reasons, so the base DB `rows_suppressed` value cannot be mistaken for
-   final output loss.
+   final output loss (implemented in the following batch).
 4. **PACKAGING / P2:** keep executable SHA authority and make release
    `build_revision` non-unknown; local development builds may remain
-   explicitly identified as such.
+   explicitly identified as such (diagnostic authority consistency fixed in
+   the following batch; Makefile release builds already inject revision).
 
 External-evidence holds remain unchanged: `trace_vsync:not_match=632`,
 `1613` local callstack fences without raw closure, and two completed async
@@ -5966,3 +5967,48 @@ Coverage pins:
 
 If any completeness or subset proof fails, the converter retains the earlier
 RPD-2A behavior; it never partially selects raw-family authority.
+
+### LARG-C3 — scheduler final-publication reconciliation
+
+Capability `scheduler_publication_reconciliation_v1` adds the coverage family
+`scheduler_publication_reconciliation /
+__sched_switch_publication__`. It is computed after the DB scheduler exporter
+and raw scheduler join have both finalized, and before semantic-quality
+publication.
+
+The summary distinguishes:
+
+- DB source rows read and suppressed by strict complete-per-CPU auditing;
+- DB `sched_switch` boundaries actually published;
+- published DB boundaries enriched by an equal raw record (not a second
+  event);
+- independently published raw-unmatched `sched_switch` events;
+- the final standard `sched_switch` total
+  (`DB published + raw-unmatched published`);
+- typed raw-unmatched withholding reasons and any unclassified residual.
+
+For LARG-C the expected equation is:
+
+```text
+raw closure:
+  219784 DB-enriched
++ 570854 raw-unmatched-published
++     96 typed-withheld
+= 790734 retained raw records
+
+final standard sched_switch:
+  219784 DB-published
++ 570854 raw-unmatched-published
+= 790638 events
+```
+
+The human caveat explicitly states that
+`db_source_rows_suppressed=570944` is a DB-lane audit count, not final
+systrace loss after exact raw recovery. A production-wiring pin requires this
+summary to be appended before semantic-quality construction.
+
+The diagnostic header now uses the same resolved revision authority as the
+JSON `build_identity` line and also publishes `build_revision_source`.
+Makefile builds continue to use ldflags; plain Go builds may use VCS build
+information. If neither is available, both fields consistently report
+unknown/unavailable while executable SHA-256 remains the replay identity.

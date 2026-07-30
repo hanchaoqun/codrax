@@ -39,7 +39,7 @@ func TestTraceConvertDiagnosticReportHardLimitAndPhysicalLineSafety(t *testing.T
 		`build_identity={"revision":`,
 		`"executable_hash_status":"available"`,
 		`"official_raw_blocked_key_ledger_v1","official_raw_blocked_recovery_v1","official_raw_blocked_family_authority_v1"`,
-		`"official_raw_scheduler_lite_unmatched_publication_v1","official_raw_scheduler_cpu_fallback_v1","official_raw_record_decode_budget_v2","official_raw_record_decode_retained_bytes_v3","official_raw_record_family_authority_v1","official_raw_record_decode_elapsed_v1","official_raw_scheduler_lite_wakeup_join_v1"`,
+		`"official_raw_scheduler_lite_unmatched_publication_v1","official_raw_scheduler_cpu_fallback_v1","scheduler_publication_reconciliation_v1","official_raw_record_decode_budget_v2","official_raw_record_decode_retained_bytes_v3","official_raw_record_family_authority_v1","official_raw_record_decode_elapsed_v1","official_raw_scheduler_lite_wakeup_join_v1"`,
 		`"official_raw_marker_sync_recovery_v1","official_raw_marker_local_segment_fence_v1","official_raw_marker_action_census_v1"`,
 		`normalize failed\nsecond physical line must not escape`,
 		"hard_limit=900",
@@ -61,6 +61,26 @@ func TestTraceConvertDiagnosticReportHardLimitAndPhysicalLineSafety(t *testing.T
 	}
 	if strings.Contains(text, "normalize failed\nsecond physical line") {
 		t.Fatal("diagnostic value injected an unescaped physical line")
+	}
+}
+
+func TestTraceConvertDiagnosticBuildRevisionUsesResolvedAuthority(t *testing.T) {
+	previous := buildRevision
+	buildRevision = "0123456789abcdef"
+	defer func() { buildRevision = previous }()
+
+	body := string(traceConvertDiagnosticReportBody(
+		hitraceconv.Options{InputPath: "capture.sys"},
+		hitraceconv.Result{InputPath: "capture.sys"},
+		traceConvertDiagnosticProgressLog{},
+		nil,
+	))
+	if !strings.Contains(body,
+		"build_revision=0123456789abcdef build_revision_source=ldflags") ||
+		!strings.Contains(body,
+			`build_identity={"revision":"0123456789abcdef","revision_source":"ldflags"`) {
+		t.Fatalf("diagnostic build revision authorities disagree:\n%s",
+			body[:min(len(body), 2048)])
 	}
 }
 
