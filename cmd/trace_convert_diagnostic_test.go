@@ -39,6 +39,7 @@ func TestTraceConvertDiagnosticReportHardLimitAndPhysicalLineSafety(t *testing.T
 		`build_identity={"revision":`,
 		`"executable_hash_status":"available"`,
 		`"official_raw_scheduler_lite_unmatched_publication_v1","official_raw_record_decode_budget_v2","official_raw_record_decode_retained_bytes_v3","official_raw_record_family_authority_v1","official_raw_record_decode_elapsed_v1","official_raw_scheduler_lite_wakeup_join_v1"`,
+		`"official_raw_marker_sync_recovery_v1","official_raw_marker_local_segment_fence_v1","official_raw_marker_action_census_v1"`,
 		`normalize failed\nsecond physical line must not escape`,
 		"hard_limit=900",
 		"omitted_records=",

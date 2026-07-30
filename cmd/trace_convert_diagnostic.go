@@ -72,6 +72,7 @@ var traceConvertDiagnosticCapabilities = []string{
 	"official_raw_dma_lifecycle_point_recovery_v2",
 	"official_raw_marker_endpoint_ledger_v1",
 	"official_raw_marker_sync_recovery_v1",
+	"official_raw_marker_local_segment_fence_v1",
 	"official_raw_marker_action_census_v1",
 	"official_raw_marker_print_legacy_v1",
 	"official_raw_marker_print_compact_v1",

@@ -28,6 +28,7 @@ type traceDBRawMarkerPairWitness struct {
 const (
 	traceDBRawMarkerLocalValidationWitnessPerReasonCap = 4
 	traceDBRawMarkerLocalValidationReasonCap           = 8
+	traceDBRawMarkerLocalFenceWitnessCap               = 8
 )
 
 type traceDBCallstackNullDurationClosureKey struct {
@@ -59,7 +60,7 @@ func newTraceDBRawMarkerSyncCoverage() TraceDBCoverage {
 		FieldSources: map[string]string{
 			"authority":     "complete strict raw marker ledger over the physical print plus tracing_mark_write carrier census",
 			"grammar":       "tracequery.DecodeTraceMarkEndpointPayload is the sole complete-payload B/E verdict",
-			"stack":         "one exact LIFO stack per physical common_pid emitter; orphan ends, trailing open begins, invalid/overflowed closed intervals and already-paired validation failures are withheld locally, while invalid physical ordering or an unclassified/rejected carrier keeps whole-lane fail-closed scope",
+			"stack":         "one exact LIFO stack per physical common_pid emitter and ordered local segment; orphan ends, trailing open begins, invalid/overflowed closed intervals and already-paired validation failures are withheld locally; one classified rejected endpoint/carrier is a hard local segment fence which withholds the rejected row plus the open stack and forbids pairing across it, while invalid physical ordering or an unclassified admitted action keeps whole-lane fail-closed scope",
 			"identity":      "common_pid independently resolves to the same canonical host thread/process at both exact endpoints; payload PID remains marker namespace data",
 			"zero_pid":      "only the exact official OpenHarmony pid/name/start producer may interpret source payload PID zero as no TGID override; both endpoints must agree, canonical common_pid ownership must remain stable, and the public standard payload uses that proven host TGID while nonzero namespace PID remains verbatim",
 			"name":          "an exact strictly decoded OpenHarmony print or tracing_mark_write body follows the shared official PrintEventParser semantics by removing only trailing ASCII U+0020 from the public B name when the resulting nonempty name passes the complete span-name predicate; source text remains retained in the raw ledger and every other event family/edge/control/text shape stays withheld",
@@ -69,6 +70,7 @@ func newTraceDBRawMarkerSyncCoverage() TraceDBCoverage {
 			"publication":   "DB-disjoint clean pairs submit to the existing single sync-span laminar authority; this exporter never writes B/E rows directly",
 			"envelope":      "raw page CPU, common_flags and common_preempt_count are retained independently at begin and end",
 			"validation":    "post-pair endpoint validation reports one closed first-failure typed reason for header/payload/action/name/timestamp/CPU/flags/preempt fields; no reason changes admission",
+			"local_fence":   "bounded exact emitter/physical-ordinal/timestamp/reason witnesses diagnose rejected endpoint/carrier segment fences; witnesses never admit a row or bridge an open stack",
 		},
 		Metadata: map[string]string{
 			"publication_state": "unavailable",
@@ -146,6 +148,8 @@ func submitTraceDBRawMarkerSyncRecovery(
 	longestPairs := make([]traceDBRawMarkerPairWitness, 0, 8)
 	localValidationWitnessTotals := map[string]int{}
 	localValidationWitnesses := map[string][]string{}
+	localFenceWitnesses := make([]string, 0, traceDBRawMarkerLocalFenceWitnessCap)
+	localFenceWitnessesTotal := 0
 	rejectedClosedStarts :=
 		map[traceDBRawMarkerPhysicalStartKey]traceDBRawMarkerRejectedClosedStart{}
 	openBegins := map[traceDBRawMarkerPhysicalStartKey]int{}
@@ -174,8 +178,31 @@ func submitTraceDBRawMarkerSyncRecovery(
 			lastTimestamp, lastOrdinal, haveLast =
 				row.TimestampNS, row.PhysicalOrdinal, true
 			if !row.Admitted || row.RejectReason != "" {
-				poisonReason = "rejected_endpoint_or_carrier"
-				break
+				localizedWithholding = true
+				reason := firstNonEmpty(row.RejectReason, "rejected_endpoint_or_carrier")
+				reasonMetric := traceDBRawDecodeReasonMetric(reason)
+				traceDBAddCoverageMetric(&out, "raw_marker_local_fences", 1)
+				traceDBAddCoverageMetric(
+					&out, "raw_marker_local_fences_"+reasonMetric, 1)
+				traceDBAddCoverageMetric(
+					&out, "raw_records_withheld_local_fence", 1)
+				localFenceWitnessesTotal++
+				if len(localFenceWitnesses) < traceDBRawMarkerLocalFenceWitnessCap {
+					localFenceWitnesses = append(localFenceWitnesses,
+						fmt.Sprintf("emitter=%d/ordinal=%d/timestamp_ns=%d/reason=%s",
+							emitter, row.PhysicalOrdinal, row.TimestampNS, reasonMetric))
+				}
+				if len(stack) > 0 {
+					traceDBAddCoverageMetric(
+						&out, "raw_open_begins_withheld", int64(len(stack)))
+					traceDBAddCoverageMetric(
+						&out, "raw_open_begins_withheld_at_local_fence", int64(len(stack)))
+					for _, begin := range stack {
+						openBegins[traceDBRawMarkerPhysicalStartKeyFromRecord(begin)]++
+					}
+					stack = stack[:0]
+				}
+				continue
 			}
 			switch row.Action {
 			case "B":
@@ -290,6 +317,17 @@ func submitTraceDBRawMarkerSyncRecovery(
 			traceDBAddCoverageMetric(&out, "raw_emitter_lanes_clean", 1)
 		}
 		candidates = append(candidates, laneCandidates...)
+	}
+	if len(localFenceWitnesses) > 0 {
+		out.Metadata["raw_marker_local_fence_witnesses"] =
+			strings.Join(localFenceWitnesses, ";")
+		traceDBAddCoverageMetric(&out,
+			"raw_marker_local_fence_witnesses_emitted",
+			int64(len(localFenceWitnesses)))
+		if omitted := localFenceWitnessesTotal - len(localFenceWitnesses); omitted > 0 {
+			traceDBAddCoverageMetric(&out,
+				"raw_marker_local_fence_witnesses_omitted", int64(omitted))
+		}
 	}
 	if len(longestPairs) > 0 {
 		out.Metadata["raw_marker_longest_pair_witnesses"] =
@@ -433,6 +471,7 @@ func submitTraceDBRawMarkerSyncRecovery(
 		"locally_suppressed_db_exact":    int(out.Metrics["raw_pairs_existing_db_candidate_locally_suppressed"]),
 		"locally_suppressed_db_interval": int(out.Metrics["raw_pairs_interval_collision_locally_suppressed"]),
 		"local_validation_pairs":         int(out.Metrics["raw_pairs_withheld_local_validation"]),
+		"local_segment_fences":           int(out.Metrics["raw_marker_local_fences"]),
 		"open_begins":                    int(out.Metrics["raw_open_begins_withheld"]),
 		"orphan_endpoints":               int(out.Metrics["raw_orphan_endpoints_withheld"]),
 		"poisoned_emitter_lanes":         int(out.Metrics["raw_emitter_lanes_poisoned"]),

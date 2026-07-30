@@ -877,7 +877,7 @@ func TestSubmitTraceDBRawMarkerSyncRecoveryNameDriftFenceKeepsEveryIdentityDimen
 	}
 }
 
-func TestSubmitTraceDBRawMarkerSyncRecoveryPoisonsOnlyAffectedEmitter(t *testing.T) {
+func TestSubmitTraceDBRawMarkerSyncRecoveryLocalizesRejectedEndpointToAffectedEmitterSegment(t *testing.T) {
 	bad := traceDBRawMarkerTestPair(201, 777, 1, "bad")
 	bad[1].Admitted = false
 	bad[1].RejectReason = "schema_invalid_end_tag"
@@ -891,11 +891,85 @@ func TestSubmitTraceDBRawMarkerSyncRecoveryPoisonsOnlyAffectedEmitter(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if coverage.Metrics["raw_emitter_lanes_poisoned"] != 1 ||
+	if coverage.Metrics["raw_emitter_lanes_poisoned"] != 0 ||
+		coverage.Metrics["raw_marker_local_fences"] != 1 ||
+		coverage.Metrics["raw_open_begins_withheld_at_local_fence"] != 1 ||
 		coverage.Metrics["raw_pairs_submitted"] != 1 ||
 		syncSpans.submitted[traceDBSyncSpanProducerSourceRawMarker] != 1 {
-		t.Fatalf("poison escaped its raw emitter lane: coverage=%+v submitted=%+v",
+		t.Fatalf("rejected endpoint escaped its local emitter segment: coverage=%+v submitted=%+v",
 			coverage, syncSpans.submitted)
+	}
+	if witness := coverage.Metadata["raw_marker_local_fence_witnesses"]; !strings.Contains(witness,
+		"emitter=201/ordinal=2/timestamp_ns=4000000/reason=schema_invalid_end_tag") {
+		t.Fatalf("local fence witness missing: %q", witness)
+	}
+}
+
+func TestSubmitTraceDBRawMarkerSyncRecoverySalvagesClosedPairsAroundLocalFenceWithoutBridging(t *testing.T) {
+	before := traceDBRawMarkerTestPair(201, 777, 1, "before")
+	before[0].TimestampNS, before[1].TimestampNS = 1_000_000, 2_000_000
+	open := traceDBRawMarkerTestPair(201, 777, 3, "cross-fence")[0]
+	open.TimestampNS = 3_000_000
+	rejected := traceDBRawMarkerRecord{
+		PhysicalOrdinal: 4, TimestampNS: 4_000_000,
+		CPU: 3, HeaderPID: 201, Flags: 1, PreemptCount: 2,
+		RejectReason: "carrier_missing_marker_buffer",
+	}
+	orphan := traceDBRawMarkerTestPair(201, 777, 5, "orphan")[1]
+	orphan.TimestampNS = 5_000_000
+	after := traceDBRawMarkerTestPair(201, 777, 6, "after")
+	after[0].TimestampNS, after[1].TimestampNS = 6_000_000, 7_000_000
+	rows := []traceDBRawMarkerRecord{
+		before[0], before[1], open, rejected, orphan, after[0], after[1],
+	}
+
+	syncSpans := newTraceDBTestSyncSpanAuthority(t)
+	coverage, err := submitTraceDBRawMarkerSyncRecovery(
+		context.Background(), traceDBRawMarkerTestInventory(rows),
+		traceDBRawBlockedKeyTestAuthority(), syncSpans)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if coverage.Metrics["raw_marker_local_fences"] != 1 ||
+		coverage.Metrics["raw_records_withheld_local_fence"] != 1 ||
+		coverage.Metrics["raw_open_begins_withheld_at_local_fence"] != 1 ||
+		coverage.Metrics["raw_orphan_endpoints_withheld"] != 1 ||
+		coverage.Metrics["raw_pairs_structurally_closed"] != 2 ||
+		coverage.Metrics["raw_pairs_submitted"] != 2 ||
+		coverage.Metrics["raw_emitter_lanes_partially_salvaged"] != 1 ||
+		coverage.Metrics["raw_emitter_lanes_poisoned"] != 0 ||
+		syncSpans.submitted[traceDBSyncSpanProducerSourceRawMarker] != 2 {
+		t.Fatalf("local fence bridged or erased independent pairs: coverage=%+v submitted=%+v",
+			coverage, syncSpans.submitted)
+	}
+	if witness := coverage.Metadata["raw_marker_local_fence_witnesses"]; !strings.Contains(witness,
+		"emitter=201/ordinal=4/timestamp_ns=4000000/reason=carrier_missing_marker_buffer") {
+		t.Fatalf("carrier fence witness missing: %q", witness)
+	}
+}
+
+func TestSubmitTraceDBRawMarkerSyncRecoveryKeepsInvalidPhysicalOrderWholeLaneFailClosed(t *testing.T) {
+	rows := traceDBRawMarkerTestPair(201, 777, 1, "first")
+	second := traceDBRawMarkerTestPair(201, 777, 3, "second")
+	second[0].TimestampNS = rows[1].TimestampNS
+	second[0].PhysicalOrdinal = rows[1].PhysicalOrdinal
+	second[1].TimestampNS = 8_000_000
+	rows = append(rows, second...)
+
+	syncSpans := newTraceDBTestSyncSpanAuthority(t)
+	coverage, err := submitTraceDBRawMarkerSyncRecovery(
+		context.Background(), traceDBRawMarkerTestInventory(rows),
+		traceDBRawBlockedKeyTestAuthority(), syncSpans)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if coverage.Metrics["raw_emitter_lanes_poisoned"] != 1 ||
+		coverage.Metrics["raw_emitter_lanes_poisoned_invalid_physical_order"] != 1 ||
+		coverage.Metrics["raw_endpoints_withheld_poisoned_lane"] != int64(len(rows)) ||
+		coverage.Metrics["raw_pairs_submitted"] != 0 ||
+		syncSpans.submitted[traceDBSyncSpanProducerSourceRawMarker] != 0 {
+		t.Fatalf("invalid physical ordering did not retain whole-lane fail-closed scope: %+v",
+			coverage)
 	}
 }
 
