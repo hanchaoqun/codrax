@@ -5684,6 +5684,33 @@ zero-duration observability gap before optimizing the newly admitted
 1.76-million-record suffix. Sorter, O2 and full postvalidation timings remain
 separate and none of their verification gates is weakened.
 
+### Delivery and next replay gate
+
+Delivered batches:
+
+```text
+c82459fc5  LARG-A1 complete-target decode plus retained-byte bound
+44c49f24a  LARG-A2a withheld semantic-closure correction
+add10041c  LARG-A2b independent retained-family authority
+719956575  LARG-A3 recovery-activation pin and capability
+845d50daa  LARG-A4 raw decode elapsed authority
+```
+
+The next same-file replay is accepted only when:
+
+1. capabilities include `official_raw_record_decode_retained_bytes_v3`,
+   `official_raw_record_family_authority_v1` and
+   `official_raw_record_decode_elapsed_v1`;
+2. `target_decode_rows=target_records=2760444`;
+3. marker retention is complete and raw-marker publication is not withheld;
+4. no `target_retention_budget_exceeded` exists, or any withdrawn family is
+   isolated while other complete families still publish;
+5. standard-visible, typed-only and unpublished span counts close the governed
+   callstack census, with the prior `55377 / 654147 / 4250` retained only as
+   the before baseline;
+6. raw decode, sorter, O2 and postvalidation elapsed values are reported
+   separately, with zero unknown/unparsed final rows.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.

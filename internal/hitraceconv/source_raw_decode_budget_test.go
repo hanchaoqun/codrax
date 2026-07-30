@@ -25,6 +25,14 @@ func TestTraceDBRawDecodeRetentionBudgetReplacesOrdinalCap(t *testing.T) {
 		t.Fatalf("raw retained-byte budget changed without refreshing the bounded contract: %d",
 			maxTraceDBRawDecodeRetainedBytes)
 	}
+	var familyTotal int64
+	for _, budget := range traceDBRawRetentionFamilyBudgets {
+		familyTotal += budget
+	}
+	if familyTotal != maxTraceDBRawDecodeRetainedBytes {
+		t.Fatalf("raw family budgets=%d do not close total=%d",
+			familyTotal, maxTraceDBRawDecodeRetainedBytes)
+	}
 }
 
 func TestTraceDBRawDecodeRetentionBudgetFailsClosedWithoutStoppingCensus(t *testing.T) {
