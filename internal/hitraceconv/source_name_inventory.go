@@ -37,7 +37,9 @@ const (
 // Retained raw records remain inert here; only their dedicated downstream
 // family gate may publish a row after census, deduplication and wire checks.
 // Display names never become identity, lifecycle, namespace, CPU or causal
-// authority.
+// authority. A dedicated downstream gate may independently turn a complete
+// sched_switch_lite physical-event family into lifecycle-proven half-open CPU
+// intervals; that authority reads raw records, never Names.
 type traceDBSourceNameInventory struct {
 	Names           map[int64]string
 	Coverage        TraceDBCoverage

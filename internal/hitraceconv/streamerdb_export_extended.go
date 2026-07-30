@@ -24,6 +24,11 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 		return coverage, err
 	}
 	lifecycleRunning := newTraceDBSchedulerRunningIndex(authority, running, runningIntegrity, nil)
+	rawSchedulerCPU := newTraceDBRawSchedulerCPUFallback(
+		tdb.sourceNameInventory, authority)
+	coverage = append(coverage, rawSchedulerCPU.coverage)
+	callstackFrameRunning := lifecycleRunning.withRawSchedulerCPUFallback(
+		rawSchedulerCPU)
 	dict, dictCoverage, err := tdb.loadDataDict(ctx)
 	coverage = append(coverage, dictCoverage)
 	if err != nil {
@@ -68,14 +73,14 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 		return coverage, err
 	}
 	stageStart = time.Now()
-	callstackCoverage, err := exportTraceDBCallstack(ctx, tdb, sink, authority, lifecycleRunning, syncSpans)
+	callstackCoverage, err := exportTraceDBCallstack(ctx, tdb, sink, authority, callstackFrameRunning, syncSpans)
 	traceDBSetCoverageElapsed(&callstackCoverage, stageStart)
 	coverage = append(coverage, callstackCoverage)
 	if err != nil {
 		return coverage, err
 	}
 	stageStart = time.Now()
-	frameCoverage, _, err := exportTraceDBFrameSliceWithRows(ctx, tdb, sink, authority, lifecycleRunning)
+	frameCoverage, _, err := exportTraceDBFrameSliceWithRows(ctx, tdb, sink, authority, callstackFrameRunning)
 	traceDBSetCoverageElapsed(&frameCoverage, stageStart)
 	coverage = append(coverage, frameCoverage)
 	if err != nil {

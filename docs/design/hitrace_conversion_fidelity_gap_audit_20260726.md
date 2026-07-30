@@ -5848,3 +5848,77 @@ whole-wire verification gate may be removed to improve those values.
   precise typed invariant.
 - Production emits one selected trace body; diagnostic comparison must not
   merge two independently converted bodies.
+
+## LARG-C replay audit and follow-up batches (2026-07-30)
+
+Customer replay `largC.txt` /
+`codrax-trace-diag-largC.txt` validates both LARG-B repairs:
+
+- the scheduler ledger closes exactly as
+  `219784 DB + 570854 raw-published + 57 prev-withheld + 39 next-withheld
+  = 790734 retained raw records`;
+- output rows increased by exactly `570854`, with zero duplicate scheduler
+  events reported by the join;
+- `64` rejected marker carriers became `64` local fences rather than one
+  emitter-lane poison;
+- standard viewer spans increased by exactly `32352`, from `655409` to
+  `687761`;
+- the governed span total still closes as
+  `687761 standard + 24400 typed-only + 1613 unpublished = 713774`.
+
+The replay also establishes that scheduler publication and scheduler CPU
+placement were still separate consumers. The converter published the
+`570854` recovered raw switch boundaries, but callstack/frame CPU lookup
+continued to read only `thread_state` Running rows. Eight malformed potential
+Running rows tainted ITID lanes and rejected `29448` Running witnesses. The
+remaining typed-only span census therefore contained `24067`
+unknown-start-CPU, `322` source-tainted and `8` unknown-end-CPU rows, while
+`1454` frame rows were withheld for the same placement class.
+
+### LARG-C1 — raw scheduler CPU fallback authority
+
+This batch adds capability
+`official_raw_scheduler_cpu_fallback_v1`. The authority is enabled only when:
+
+1. the immutable `sched_switch_lite` decoder family is complete;
+2. physical record count, body-admitted count and retained-record count are
+   exactly equal;
+3. body rejects and record-capture failures are both zero;
+4. each endpoint has one unique timestamp/CPU coordinate and passes the
+   existing closed scheduler-lite key validation;
+5. `current.next_tid == next.prev_tid`;
+6. the current public next TID resolves at interval start to exactly one
+   canonical thread/process generation, and the complete half-open interval
+   passes the shared lifecycle authority.
+
+An invalid or duplicate boundary fences both adjacent intervals. Public TIDs
+are never rewritten into guessed host/namespace identities. DB Running
+remains primary: raw supplies a CPU only for DB-unknown or DB-source-tainted
+points; an exact DB/raw disagreement becomes typed source-tainted
+unavailability; a lifecycle-rejected DB lane can never be bypassed.
+
+The first consumer scope is deliberately limited to callstack and frame.
+Scheduler publication, wakeup, perf, raw-ftrace, syscall, native-hook and
+task-pool behavior is unchanged. Coverage family
+`source_rawtrace_scheduler_cpu / __raw_sched_switch_running_intervals__`
+reports the complete interval and rejection census.
+
+### Frozen follow-up task order
+
+1. **LARG-C1 / P0:** raw scheduler CPU fallback for callstack/frame
+   (implemented in this batch; same-file replay required for recovered-count
+   measurement).
+2. **LARG-C2 / P1:** select a complete raw `sched_blocked_reason` family as
+   the sole physical-event publication authority, suppressing the lossy DB
+   timestamp projection and eliminating whole-content-cohort withholding.
+3. **LARG-C3 / P2:** publish one reconciled scheduler summary containing DB
+   boundaries, raw enrichments, raw-unmatched events and typed withheld
+   reasons, so the base DB `rows_suppressed` value cannot be mistaken for
+   final output loss.
+4. **PACKAGING / P2:** keep executable SHA authority and make release
+   `build_revision` non-unknown; local development builds may remain
+   explicitly identified as such.
+
+External-evidence holds remain unchanged: `trace_vsync:not_match=632`,
+`1613` local callstack fences without raw closure, and two completed async
+intervals without a physical finish emitter/CPU must remain fail-closed.

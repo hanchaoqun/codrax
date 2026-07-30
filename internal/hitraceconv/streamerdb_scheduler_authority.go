@@ -191,11 +191,13 @@ func (authority traceDBSchedulerAuthority) resolveThreadSubject(itid int64) (tra
 
 type traceDBSchedulerRunningIndex struct {
 	intervals             map[int64][]traceDBRunningInterval
+	rawFallbackIntervals  map[int64][]traceDBRunningInterval
 	rejectedITID          map[int64]bool
 	sourceTaintedITID     map[int64]bool
 	lifecycleRejectedITID map[int64]bool
 	sourceGlobalTaint     bool
 	lifecycleGlobalTaint  bool
+	rawFallbackEnabled    bool
 	initialized           bool
 }
 
@@ -283,15 +285,33 @@ func (index traceDBSchedulerRunningIndex) lookupCPUAt(itid, timestamp int64) (in
 	if !index.initialized {
 		return 0, traceDBSchedulerRunningUnknown
 	}
-	if index.sourceGlobalTaint || index.sourceTaintedITID[itid] {
-		return 0, traceDBSchedulerRunningSourceTainted
-	}
 	if index.lifecycleGlobalTaint || index.lifecycleRejectedITID[itid] {
 		return 0, traceDBSchedulerRunningLifecycleRejected
 	}
-	cpu, known := traceDBKnownCPUAt(index.intervals, itid, timestamp)
-	if !known {
-		return 0, traceDBSchedulerRunningUnknown
+	dbStatus := traceDBSchedulerRunningUnknown
+	dbCPU := int64(0)
+	if index.sourceGlobalTaint || index.sourceTaintedITID[itid] {
+		dbStatus = traceDBSchedulerRunningSourceTainted
+	} else if cpu, known := traceDBKnownCPUAt(index.intervals, itid, timestamp); known {
+		dbCPU = cpu
+		dbStatus = traceDBSchedulerRunningKnown
 	}
-	return cpu, traceDBSchedulerRunningKnown
+	if !index.rawFallbackEnabled {
+		return dbCPU, dbStatus
+	}
+	rawCPU, rawKnown := traceDBKnownCPUAt(
+		index.rawFallbackIntervals, itid, timestamp)
+	if dbStatus == traceDBSchedulerRunningKnown {
+		if rawKnown && rawCPU != dbCPU {
+			// Two precise but contradictory CPU claims must never select one
+			// opportunistically. Source-tainted is the existing typed
+			// unavailable shape for contradictory physical placement evidence.
+			return 0, traceDBSchedulerRunningSourceTainted
+		}
+		return dbCPU, dbStatus
+	}
+	if rawKnown {
+		return rawCPU, traceDBSchedulerRunningKnown
+	}
+	return dbCPU, dbStatus
 }

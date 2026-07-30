@@ -38,9 +38,10 @@ type traceDB struct {
 	tableExistsCache  map[string]bool
 	columnNamesCache  map[string][]string
 	rowCountCache     map[string]int
-	// sourceNameInventory is optional display-only name plus diagnostic-only
-	// segment evidence captured from the exact immutable binary generation
-	// passed to trace_streamer.
+	// sourceNameInventory owns display-only names plus strict retained raw
+	// evidence captured from the exact immutable binary generation passed to
+	// trace_streamer. Names stay display-only; dedicated raw-family gates may
+	// independently promote complete physical records to typed authorities.
 	sourceNameInventory        *traceDBSourceNameInventory
 	rawBlockedKeyCoverage      TraceDBCoverage
 	rawBlockedRecoveryCoverage TraceDBCoverage
