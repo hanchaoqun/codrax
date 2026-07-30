@@ -24,8 +24,11 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 		return coverage, err
 	}
 	lifecycleRunning := newTraceDBSchedulerRunningIndex(authority, running, runningIntegrity, nil)
+	rawSchedulerCPUStart := time.Now()
 	rawSchedulerCPU := newTraceDBRawSchedulerCPUFallback(
 		tdb.sourceNameInventory, authority)
+	traceDBSetCoverageElapsed(
+		&rawSchedulerCPU.coverage, rawSchedulerCPUStart)
 	rawSchedulerCPUCoverageIndex := len(coverage)
 	coverage = append(coverage, rawSchedulerCPU.coverage)
 	callstackFrameRunning := lifecycleRunning.

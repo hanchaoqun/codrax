@@ -64,7 +64,9 @@ func TestTraceDBRawSchedulerCPUFallbackRecoversUnknownAndTaintedDBPoints(t *test
 	if !fallback.enabled || fallback.coverage.RowsEmitted != 2 ||
 		fallback.coverage.Metadata["authority_state"] !=
 			"complete_unique_exact_half_open_intervals" ||
-		fallback.coverage.Metrics["canonical_itid_lanes"] != 2 {
+		fallback.coverage.Metrics["canonical_itid_lanes"] != 2 ||
+		fallback.coverage.Metrics["raw_cpu_lanes_already_time_ordered"] != 1 ||
+		fallback.coverage.Metrics["raw_cpu_lanes_stably_reordered"] != 0 {
 		t.Fatalf("raw scheduler CPU authority did not close: %+v", fallback.coverage)
 	}
 	running := newTraceDBSchedulerRunningIndex(
@@ -178,6 +180,25 @@ func TestTraceDBRawSchedulerCPUFallbackFencesDiscontinuousBoundary(t *testing.T)
 	}
 }
 
+func TestTraceDBRawSchedulerCPUFallbackStablySortsOnlyDisorderedLanes(t *testing.T) {
+	authority := traceDBRawSchedulerCPUFallbackAuthority()
+	rows := traceDBRawSchedulerCPUFallbackRows()
+	rows[0], rows[2] = rows[2], rows[0]
+	fallback := newTraceDBRawSchedulerCPUFallback(
+		traceDBRawSchedulerCPUFallbackInventory(rows), authority)
+	if !fallback.enabled || fallback.coverage.RowsEmitted != 2 ||
+		fallback.coverage.Metrics["raw_cpu_lanes_already_time_ordered"] != 0 ||
+		fallback.coverage.Metrics["raw_cpu_lanes_stably_reordered"] != 1 {
+		t.Fatalf("disordered raw CPU lane did not take stable-sort path: %+v",
+			fallback.coverage)
+	}
+	if cpu, ok := traceDBKnownCPUAt(
+		fallback.intervals, 1, 150); !ok || cpu != 4 {
+		t.Fatalf("stable-sort path changed interval semantics: cpu=%d ok=%t",
+			cpu, ok)
+	}
+}
+
 func TestTraceDBRawSchedulerCPULookupClassifiesMissGeometry(t *testing.T) {
 	intervals := map[int64][]traceDBRunningInterval{
 		1: {
@@ -239,6 +260,27 @@ func TestTraceDBRawSchedulerCPULookupWitnessesAreBounded(t *testing.T) {
 	}
 }
 
+func TestTraceDBRawSchedulerCPULookupSteadyStateDoesNotAllocate(t *testing.T) {
+	authority := traceDBRawSchedulerCPUFallbackAuthority()
+	fallback := newTraceDBRawSchedulerCPUFallback(
+		traceDBRawSchedulerCPUFallbackInventory(
+			traceDBRawSchedulerCPUFallbackRows()),
+		authority)
+	running := newTraceDBSchedulerRunningIndex(
+		authority, map[int64][]traceDBRunningInterval{},
+		traceDBRunningIntegrity{TaintedITIDs: map[int64]bool{}}, nil).
+		withRawSchedulerCPUFallback(fallback).
+		withRawSchedulerCPUConsumer(traceDBRawSchedulerCPUConsumerCallstack)
+	for index := 0; index < traceDBRawSchedulerCPULookupWitnessCap; index++ {
+		running.lookupCPUAt(99, 150)
+	}
+	if allocations := testing.AllocsPerRun(1000, func() {
+		running.lookupCPUAt(99, 150)
+	}); allocations != 0 {
+		t.Fatalf("steady-state raw CPU lookup allocated: %.2f", allocations)
+	}
+}
+
 func TestTraceDBRawSchedulerCPULookupCensusProductionWiring(t *testing.T) {
 	body, err := os.ReadFile("streamerdb_export_extended.go")
 	if err != nil {
@@ -246,12 +288,16 @@ func TestTraceDBRawSchedulerCPULookupCensusProductionWiring(t *testing.T) {
 	}
 	text := string(body)
 	build := strings.Index(text, "newTraceDBRawSchedulerCPUFallback(")
+	start := strings.Index(text, "rawSchedulerCPUStart := time.Now()")
+	elapsed := strings.Index(text,
+		"traceDBSetCoverageElapsed(")
 	callstack := strings.Index(text, "exportTraceDBCallstack(")
 	frame := strings.Index(text, "exportTraceDBFrameSliceWithRows(")
 	finalize := strings.Index(text, "rawSchedulerCPU.finalCoverage()")
-	if build < 0 || callstack < build || frame < callstack || finalize < frame {
-		t.Fatalf("raw CPU lookup census is not finalized after both authorized consumers: build=%d callstack=%d frame=%d finalize=%d",
-			build, callstack, frame, finalize)
+	if start < 0 || build < start || elapsed < build || callstack < elapsed ||
+		frame < callstack || finalize < frame {
+		t.Fatalf("raw CPU timing/census wiring order invalid: start=%d build=%d elapsed=%d callstack=%d frame=%d finalize=%d",
+			start, build, elapsed, callstack, frame, finalize)
 	}
 	if strings.Count(text, "traceDBRawSchedulerCPUConsumerCallstack") != 1 ||
 		strings.Count(text, "traceDBRawSchedulerCPUConsumerFrame") != 1 {

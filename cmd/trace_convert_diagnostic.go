@@ -65,6 +65,8 @@ var traceConvertDiagnosticCapabilities = []string{
 	"official_raw_scheduler_lite_unmatched_publication_v1",
 	"official_raw_scheduler_cpu_fallback_v1",
 	"official_raw_scheduler_cpu_lookup_census_v1",
+	"official_raw_scheduler_cpu_build_elapsed_v1",
+	"official_raw_scheduler_cpu_ordered_fast_path_v1",
 	"scheduler_publication_reconciliation_v1",
 	"official_raw_record_decode_budget_v2",
 	"official_raw_record_decode_retained_bytes_v3",

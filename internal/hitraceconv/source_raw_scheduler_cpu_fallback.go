@@ -146,9 +146,23 @@ func newTraceDBRawSchedulerCPUFallback(
 	}
 
 	for cpu, rows := range byCPU {
-		sort.SliceStable(rows, func(i, j int) bool {
-			return rows[i].raw.TimestampNS < rows[j].raw.TimestampNS
-		})
+		ordered := true
+		for index := 1; index < len(rows); index++ {
+			if rows[index].raw.TimestampNS < rows[index-1].raw.TimestampNS {
+				ordered = false
+				break
+			}
+		}
+		if ordered {
+			traceDBAddCoverageMetric(
+				&out.coverage, "raw_cpu_lanes_already_time_ordered", 1)
+		} else {
+			sort.SliceStable(rows, func(i, j int) bool {
+				return rows[i].raw.TimestampNS < rows[j].raw.TimestampNS
+			})
+			traceDBAddCoverageMetric(
+				&out.coverage, "raw_cpu_lanes_stably_reordered", 1)
+		}
 		for index := 0; index < len(rows); {
 			end := index + 1
 			for end < len(rows) &&
