@@ -59,13 +59,16 @@ func (r *REPL) readInputNative(prompt string, isContinue bool) (inputResult, err
 	if !term.IsTerminal(fd) {
 		return inputResult{}, errNativeInputUnavailable
 	}
-	oldState, err := term.MakeRaw(fd)
+	// TTY-1: the prompt window borrows the shared reader + raw mode
+	// from the single stdin owner instead of building its own buffered
+	// reader per prompt — type-ahead bytes buffered in a previous
+	// window are the first bytes of this one, never silently dropped.
+	owner := r.ttyStdinOwnerInstance()
+	sharedReader, release, err := owner.borrowRaw()
 	if err != nil {
 		return inputResult{}, errNativeInputUnavailable
 	}
-	defer func() {
-		_ = term.Restore(fd, oldState)
-	}()
+	defer release()
 
 	w, _, _ := term.GetSize(fd)
 	if w <= 0 {
@@ -77,7 +80,7 @@ func (r *REPL) readInputNative(prompt string, isContinue bool) (inputResult, err
 	}
 	editor := &nativeLineInput{
 		out:               r.out,
-		reader:            bufio.NewReader(os.Stdin),
+		reader:            sharedReader,
 		fd:                fd,
 		prompt:            prompt + " ",
 		echoTag:           r.echoTag,

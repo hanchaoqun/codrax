@@ -709,6 +709,8 @@ type REPL struct {
 	operationResults            []commandOperationResultRecord
 	providerOperationResults    []providerOperationResultRecord
 	operationMemory             *operation.MemoryStore
+	stdinOwnerOnce              sync.Once
+	stdinOwnerInst              *ttyStdinOwner
 	promptTemplates             map[string]promptTemplate
 	pendingFollowUps            []string // PIB-2 v1: lines queued during a Run, replayed as turns
 	lastAnswerOrigin            replAnswerOrigin
@@ -6043,6 +6045,7 @@ func (r *REPL) installCancelSignalHandler() {
 					case <-done:
 					case <-time.After(500 * time.Millisecond):
 					}
+					r.restoreTTYForExit()
 					fmt.Fprintln(r.out, "  Goodbye!")
 					os.Exit(130)
 				}
@@ -6787,13 +6790,25 @@ func (r *REPL) scriptedScanner() *bufio.Scanner {
 // interactive mode the Bubble Tea session has already quit and
 // restored cooked mode, so a fresh os.Stdin scanner is fine — nothing
 // else is reading from stdin during capture.
-func (r *REPL) captureScanner() *bufio.Scanner {
+func (r *REPL) captureScanner() (captureLineScanner, func()) {
 	if r.in != nil {
-		return r.scriptedScanner()
+		return r.scriptedScanner(), func() {}
 	}
-	s := bufio.NewScanner(os.Stdin)
-	s.Buffer(make([]byte, 64*1024), r.attachedLogMaxBytes+1)
-	return s
+	// TTY-1: the interactive capture window borrows the shared cooked
+	// line reader from the stdin owner — a fresh bufio.Scanner here
+	// would start PAST any type-ahead bytes the prompt window already
+	// buffered (census defect D1).
+	scanner, release, err := r.ttyStdinOwnerInstance().borrowCookedLines(r.attachedLogMaxBytes + 1)
+	if err != nil {
+		// Owner window busy is a programming error on this single
+		// goroutine; degrade to the legacy direct scanner rather
+		// than dropping the capture.
+		logging.Warning("[repl] capture window borrow failed (%v); using direct scanner", err)
+		fallback := bufio.NewScanner(os.Stdin)
+		fallback.Buffer(make([]byte, 64*1024), r.attachedLogMaxBytes+1)
+		return fallback, func() {}
+	}
+	return scanner, release
 }
 
 // readInputLines reads from r.in using a scanner. Supports multi-line
@@ -12053,7 +12068,8 @@ func (r *REPL) reportAttachmentTextIssue(err error) bool {
 // (os.Stdin in production, r.in in tests) one line at a time.
 func (r *REPL) handleLogPaste() {
 	r.info(pasteCapturePromptLog(r.language))
-	scanner := r.captureScanner()
+	scanner, releaseCapture := r.captureScanner()
+	defer releaseCapture()
 	var buf strings.Builder
 	tag := r.currentStickyTag()
 	for {
@@ -12102,7 +12118,8 @@ func (r *REPL) handleLogPaste() {
 // token. User can then edit around the token and submit normally.
 func (r *REPL) handlePasteCmd() {
 	r.info(pasteCapturePromptGeneric(r.language))
-	scanner := r.captureScanner()
+	scanner, releaseCapture := r.captureScanner()
+	defer releaseCapture()
 	var buf strings.Builder
 	tag := r.currentStickyTag()
 	for {
