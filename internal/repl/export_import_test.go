@@ -174,3 +174,34 @@ func TestImport_VerifiesEveryPayloadBeforeAttaching(t *testing.T) {
 		t.Errorf("missing-hash refusal must be explicit; out=%q", out2.String())
 	}
 }
+
+// TestImport_MissingHashedPayloadFailsLoud pins SWEEPFIX S17 (the
+// mirror tamper arm): a manifest that declares a payload hash while the
+// payload file was deleted must refuse the WHOLE bundle loudly.
+func TestImport_MissingHashedPayloadFailsLoud(t *testing.T) {
+	rOut, _, _ := newApprovalREPL(t, "", &writeCapableRunner{})
+	rOut.runtimeAnchor = t.TempDir()
+	rOut.attachedLog = "log payload\n"
+	rOut.attachedHitrace = "trace payload\n"
+	rOut.attachedHitraceSource = "harmony_hitrace"
+	rOut.recordTurn("q", "q", "a", "pipeline")
+	rOut.handleExportCmd("/export")
+	entries, err := os.ReadDir(filepath.Join(rOut.runtimeAnchor, "exports"))
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("bundle: %v %v", entries, err)
+	}
+	bundle := filepath.Join(rOut.runtimeAnchor, "exports", entries[0].Name())
+	if err := os.Remove(filepath.Join(bundle, "log.txt")); err != nil {
+		t.Fatal(err)
+	}
+
+	rIn, _, out := newApprovalREPL(t, "", &writeCapableRunner{})
+	rIn.runtimeAnchor = t.TempDir()
+	rIn.handleImportCmd("/import " + bundle)
+	if rIn.attachedLog != "" || rIn.attachedHitrace != "" {
+		t.Fatalf("deleted-but-hashed payload must attach NOTHING; log=%q trace=%q", rIn.attachedLog, rIn.attachedHitrace)
+	}
+	if !strings.Contains(out.String(), "missing, empty, or unreadable") {
+		t.Errorf("refusal must be loud and specific; out=%q", out.String())
+	}
+}

@@ -30,16 +30,16 @@ func TestDockUsageAccount_AccumulatesAndResets(t *testing.T) {
 		t.Errorf("row2 missing usage segment: %q", plain)
 	}
 
-	// A fresh objective starts a fresh account.
-	r.mu.Lock()
-	r.objective = ""
-	r.mu.Unlock()
-	emit(Event{Kind: EventObjectiveStarted, Timestamp: time.Now(), Objective: "q2"})
+	// SWEEPFIX S12: the per-turn boundary is pipeline start ONLY — a
+	// fresh turn starts a fresh account there, while objective start
+	// (which fires AFTER analyze in read mode) must not wipe the
+	// analyzer call's tokens.
+	emit(Event{Kind: EventPipelineStart, Timestamp: time.Now()})
 	r.mu.Lock()
 	in, out = r.usageInputTotal, r.usageOutputTotal
 	r.mu.Unlock()
 	if in != 0 || out != 0 {
-		t.Errorf("new objective must reset usage totals; got %d/%d", in, out)
+		t.Errorf("pipeline start must reset usage totals; got %d/%d", in, out)
 	}
 }
 
@@ -95,5 +95,23 @@ func TestDockUsageAccount_ResetsOnPipelineStart(t *testing.T) {
 	r.mu.Unlock()
 	if in != 0 || out != 0 {
 		t.Fatalf("pipeline start must reset the usage account; got %d/%d", in, out)
+	}
+}
+
+// TestDockUsageAccount_ObjectiveStartDoesNotReset pins SWEEPFIX S12:
+// the per-turn boundary is pipeline start ONLY — the first objective
+// fires after analyze in read mode, and re-zeroing there wiped the
+// analyzer call's tokens from the turn's account.
+func TestDockUsageAccount_ObjectiveStartDoesNotReset(t *testing.T) {
+	r := newTestRenderer("zh")
+	emit := r.Emitter()
+	emit(Event{Kind: EventPipelineStart, Timestamp: time.Now()})
+	emit(Event{Kind: EventAgentResponse, Timestamp: time.Now(), UsageInputTokens: 8000, UsageOutputTokens: 700})
+	emit(Event{Kind: EventObjectiveStarted, Timestamp: time.Now(), Objective: "定位崩溃根因"})
+	r.mu.Lock()
+	in := r.usageInputTotal
+	r.mu.Unlock()
+	if in != 8000 {
+		t.Fatalf("objective start must NOT wipe the analyze-stage tokens; got %d, want 8000", in)
 	}
 }

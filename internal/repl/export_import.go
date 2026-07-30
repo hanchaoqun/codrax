@@ -226,6 +226,20 @@ func (r *REPL) handleImportCmd(line string) {
 	// entirely.
 	logPayload := readOpt("log.txt")
 	tracePayload := readOpt("trace.txt")
+	// SWEEPFIX S17: the mirror arm of the tamper contract — a manifest
+	// that DECLARES a payload hash while the payload file is missing,
+	// empty, or unreadable is a tampered bundle too. The previous shape
+	// silently skipped verification for an absent payload and partial-
+	// imported the rest, contradicting "a tampered bundle fails loud
+	// and attaches nothing".
+	if manifest.LogSHA256 != "" && logPayload == "" {
+		r.errorf("import: manifest declares log_sha256 but log.txt is missing, empty, or unreadable — refusing the bundle\n")
+		return
+	}
+	if manifest.TraceSHA256 != "" && tracePayload == "" {
+		r.errorf("import: manifest declares trace_sha256 but trace.txt is missing, empty, or unreadable — refusing the bundle\n")
+		return
+	}
 	if logPayload != "" {
 		if manifest.LogSHA256 == "" {
 			r.errorf("import: log.txt present but the manifest carries no sha256 — refusing to attach unverifiable payload\n")

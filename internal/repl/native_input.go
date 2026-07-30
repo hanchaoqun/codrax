@@ -871,10 +871,16 @@ func probeTerminalWidthNoDefault(fd int) int {
 // suggestionsAreFileCompletions reports whether the visible suggestion
 // panel holds @-file completions rather than slash commands (REGFIX-D
 // #18). Enter submits the typed line for the file lane; Tab still
-// accepts a completion explicitly.
+// accepts a completion explicitly. SWEEPFIX S16: the lane is decided by
+// which PROVIDER owns the panel — mirroring filterSuggestions's own
+// precedence — not by the line's "/" prefix: a slash command with a
+// trailing @token ("/write fix the race in @dock") gets its panel from
+// the @-file provider (the slash provider returns nothing for
+// multi-word arguments), and prefix-based classification let Enter
+// auto-accept the top-scored file — the exact hijack #18 killed.
 func (e *nativeLineInput) suggestionsAreFileCompletions() bool {
-	if strings.HasPrefix(strings.TrimSpace(string(e.value)), "/") {
-		return false
+	if len(slashSuggestionsForValue(string(e.value), e.lang)) > 0 {
+		return false // slash provider owns the panel: Enter accepts
 	}
-	return true
+	return true // panel content came from the @-file provider
 }

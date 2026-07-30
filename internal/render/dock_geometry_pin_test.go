@@ -74,8 +74,14 @@ func TestTruncByDisplayWidth_LocaleIndependent(t *testing.T) {
 
 // TestDockRows_AmbiguousWideSafetyReserve pins REGFIX-C #14: rows must
 // still fit when an ambiguous-wide-configured terminal renders
-// EAW-Ambiguous runes at two columns — the pinned narrow measurement is
-// kept (BARGRID-1 red line) and a safety column absorbs the difference.
+// EAW-Ambiguous runes at two columns. The shipped design measures WIDE
+// (dockWidthCond{EastAsianWidth: true} — fail-safe: over-measuring only
+// shortens a row, under-measuring overflows it and corrupts the
+// cursor-up rewind); a narrow-measure-plus-fixed-reserve variant was
+// tried first and REJECTED because a fully-ambiguous row can be nearly
+// twice its narrow measurement, which no constant reserve covers. The
+// BARGRID-1 red line ("never the package default") still holds — the
+// condition is pinned, just pinned wide.
 func TestDockRows_AmbiguousWideSafetyReserve(t *testing.T) {
 	wideCond := &runewidth.Condition{EastAsianWidth: true}
 	maxCols := previewLineMaxCols()

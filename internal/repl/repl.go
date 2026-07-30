@@ -6172,6 +6172,15 @@ func (r *REPL) beginREPLDirectLLMInFlight() (context.Context, func()) {
 	r.installCancelSignalHandler()
 	ctx := r.startTurn()
 	r.runInFlight.Store(true)
+	// SWEEPFIX S13: direct-LLM turns (/chat, chit-chat local reply,
+	// turn-policy-only routes) accumulate real usage but never ran a
+	// pipeline, so nothing reset the dock's usage account and the
+	// previous run's tokens bled into the new turn's display. Pipeline
+	// start is the renderer's per-turn boundary — emit it here too
+	// (its only renderer effect is the account reset).
+	if r.renderer != nil {
+		r.renderer.Emitter()(render.Event{Kind: render.EventPipelineStart, Timestamp: time.Now()})
+	}
 	return ctx, func() {
 		r.emitREPLDirectLLMResponse()
 		r.runInFlight.Store(false)

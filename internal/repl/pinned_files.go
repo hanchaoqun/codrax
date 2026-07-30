@@ -48,9 +48,9 @@ func followUpReplayMsg(lang, line string) string {
 // enabled auto-resume lane revives a prior read run.
 func readRunAutoResumeDisclosureMsg(lang, runID string) string {
 	if isZh(lang) {
-		return "已从读运行快照恢复: " + runID + "(read_run_auto_resume 显式开启;/clear 可清除全部快照)"
+		return "检测到匹配的读运行快照: " + runID + "(read_run_auto_resume 显式开启;校验通过则续跑,不通过将重新完整探索;/clear 可清除全部快照)"
 	}
-	return "Resumed from read-run snapshot: " + runID + " (read_run_auto_resume explicitly enabled; /clear wipes all snapshots)"
+	return "Matching read-run snapshot found: " + runID + " (read_run_auto_resume explicitly enabled; resumes only if validation passes, otherwise a full fresh exploration runs; /clear wipes all snapshots)"
 }
 
 // readRunSnapshotsClearedMsg — /clear's snapshot arm confirmation.

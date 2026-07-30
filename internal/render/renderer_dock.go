@@ -231,15 +231,19 @@ func (r *Renderer) handleEvent(ev Event) {
 		// the FIRST objective — which fires after analyze and never in
 		// write mode — so the dock showed a stale token/cost account
 		// carried over from a previous turn. Pipeline start is the true
-		// per-turn boundary for every mode.
+		// per-turn boundary for every mode; SWEEPFIX S12 removed the
+		// retained objective-start reset too (it re-zeroed the account
+		// AFTER analyze in read mode, wiping the analyzer call's tokens
+		// from the turn's account), and SWEEPFIX S13 has the REPL's
+		// direct-LLM lanes (/chat, chit-chat, turn-policy-only) emit
+		// this same event so their turns stop inheriting the previous
+		// run's account.
 		r.usageInputTotal = 0
 		r.usageOutputTotal = 0
 	case EventObjectiveStarted:
 		if ev.Objective != "" && r.objective == "" {
 			r.objective = ev.Objective
 			r.objectiveDone = false
-			r.usageInputTotal = 0
-			r.usageOutputTotal = 0
 			line := formatCommitRow(commitRow{
 				kind: commitRowQuestion,
 				body: statusObjective.Sprint(r.objective),

@@ -86,3 +86,19 @@ func TestNativeEditor_EnterDoesNotHijackFileSuggestion(t *testing.T) {
 		t.Fatal("a slash line must stay on the command lane (Enter accepts)")
 	}
 }
+
+// TestNativeEditor_SlashLineWithFilePanelIsFileLane pins SWEEPFIX S16:
+// the lane is decided by which PROVIDER owns the panel — a slash
+// command with a multi-word argument ending in an @token gets its
+// panel from the @-file provider, so Enter must submit the typed text,
+// not accept the top-scored file.
+func TestNativeEditor_SlashLineWithFilePanelIsFileLane(t *testing.T) {
+	e := &nativeLineInput{value: []rune("/write fix the race in @dock"), showSuggest: true}
+	if !e.suggestionsAreFileCompletions() {
+		t.Fatal("slash line with a file-provider panel must be the file lane (Enter submits)")
+	}
+	e2 := &nativeLineInput{value: []rune("/hist"), showSuggest: true}
+	if e2.suggestionsAreFileCompletions() {
+		t.Fatal("a slash-provider panel stays the command lane (Enter accepts)")
+	}
+}

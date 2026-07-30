@@ -2964,13 +2964,17 @@ func tailByDisplayWidth(s string, maxCols int) string {
 	if maxCols <= 0 {
 		return ""
 	}
-	if runewidth.StringWidth(s) <= maxCols {
+	// SWEEPFIX S14: measured under the SAME pinned condition as every
+	// other dock-lane width decision (dockWidthCond) — sizing the tail
+	// narrow while the row cap measures wide mixed two geometries on
+	// one row and silently cut the tail's right end.
+	if dockWidthCond.StringWidth(s) <= maxCols {
 		return s
 	}
 	runes := []rune(s)
 	col := 0
 	for i := len(runes) - 1; i >= 0; i-- {
-		rw := runewidth.RuneWidth(runes[i])
+		rw := dockWidthCond.RuneWidth(runes[i])
 		if rw < 0 {
 			rw = 0
 		}

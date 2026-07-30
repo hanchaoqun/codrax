@@ -111,14 +111,34 @@ func (s *ReadRunSnapshotStore) ClearAll() (int, error) {
 	if s == nil {
 		return 0, nil
 	}
-	infos, err := s.List()
+	// SWEEPFIX S19: remove by FILENAME enumeration, not by the
+	// JSON-internal RunID. List() populates IDs from each snapshot's
+	// run_id field, so a duplicated file whose NAME differs from its
+	// internal id (user backup, sync-conflict copy) was "cleared" by
+	// deleting the original twice — the IsNotExist no-op even counted
+	// as removed — while the copy survived as a live auto-resume
+	// candidate, violating the ruling this verb implements ("after
+	// /clear no stale run may auto-revive").
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entries, err := os.ReadDir(s.runDir)
 	if err != nil {
-		return 0, err
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("ReadRunSnapshotStore.ClearAll: read %s: %w", s.runDir, err)
 	}
 	removed := 0
-	for _, info := range infos {
-		if err := s.Clear(info.ID); err != nil {
-			return removed, err
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		path := filepath.Join(s.runDir, entry.Name())
+		if err := os.Remove(path); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return removed, fmt.Errorf("ReadRunSnapshotStore.ClearAll: remove %s: %w", path, err)
 		}
 		removed++
 	}
