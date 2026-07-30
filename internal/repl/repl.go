@@ -240,6 +240,12 @@ type Config struct {
 	In       io.Reader // nil → interactive (bubbletea); non-nil → line-oriented
 	Out      io.Writer
 
+	// ReadRunAutoResume arms the read-run snapshot auto-resume lane.
+	// DEFAULT OFF (user ruling 2026-07-30: the feature is not stable
+	// enough to be ambient — an interrupted session's snapshot must
+	// never silently revive a run). codrax.yaml read_run_auto_resume.
+	ReadRunAutoResume bool
+
 	// UI customization (used by line-oriented mode).
 	Prompt           string // primary prompt, e.g. ">"
 	PromptCont       string // continuation prompt, e.g. "."
@@ -714,6 +720,7 @@ type REPL struct {
 	promptTemplates             map[string]promptTemplate
 	pendingFollowUps            []string // PIB-2 v1: lines queued during a Run, replayed as turns
 	pendingInputPrefill         string   // TTY-2: half-typed run-phase line, seeded into the next prompt
+	readRunAutoResumeEnabled    bool     // default OFF (user ruling 2026-07-30); codrax.yaml read_run_auto_resume
 	atFileIndexOnce             sync.Once
 	atFileIndex                 []string // TTY-3b: lazy session file index for @ completion
 	lastAnswerOrigin            replAnswerOrigin
@@ -990,6 +997,7 @@ func New(cfg Config) *REPL {
 				len(r.promptTemplates), strings.Join(promptTemplateNames(r.promptTemplates), ", "))
 		}
 	}
+	r.readRunAutoResumeEnabled = cfg.ReadRunAutoResume
 	r.restorePendingOperationState()
 	// Seed sticky log from whatever the runner already has (CLI set
 	// `--log` before handing off to the REPL). Keeps the invariant
@@ -7261,6 +7269,9 @@ func (r *REPL) dispatch(line, display string) {
 	}
 	if autoResumeRunID != "" {
 		logging.Info("[repl/read-runs] auto-resume candidate installed: run=%s", autoResumeRunID)
+		// Never silent: reviving prior-run state changes what the
+		// pipeline will and will not re-explore.
+		r.info(readRunAutoResumeDisclosureMsg(r.language, autoResumeRunID))
 	}
 
 	if r.renderer != nil {
@@ -7937,6 +7948,15 @@ func (r *REPL) handleSlash(line string) bool {
 		} else {
 			if err := r.clearOperationContextForClear(); err != nil {
 				logging.Warning("[repl/operation] clear operation context failed: %v", err)
+			}
+			// User ruling 2026-07-30: /clear also wipes read-run
+			// snapshots so no stale run can auto-revive afterwards.
+			if r.readRunSnapshotStore != nil {
+				if removed, err := r.readRunSnapshotStore.ClearAll(); err != nil {
+					logging.Warning("[repl/read-runs] clear snapshots failed: %v", err)
+				} else if removed > 0 {
+					r.info(readRunSnapshotsClearedMsg(r.language, removed))
+				}
 			}
 			r.success(memoryClearedMsg(r.language))
 		}

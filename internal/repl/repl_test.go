@@ -1067,9 +1067,12 @@ func TestDispatchInstallsReadRunAutoResumeSeedForExactRoutineRead(t *testing.T) 
 	runner := &readRunAutoResumeDispatchRunner{}
 	var out bytes.Buffer
 	r := New(Config{
-		Runner:               runner,
-		Store:                mem,
-		Render:               renderNothing,
+		Runner: runner,
+		Store:  mem,
+		Render: renderNothing,
+		// User ruling 2026-07-30: auto-resume is DEFAULT OFF; this pin
+		// exercises the explicitly-enabled lane.
+		ReadRunAutoResume:    true,
 		RepoRoot:             "/tmp/repo",
 		Branch:               "main",
 		In:                   strings.NewReader(""),

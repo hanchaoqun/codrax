@@ -431,6 +431,7 @@ type appContext struct {
 	outputDumpDir           string
 	outputDumpMax           int
 	replPasteFoldMinChars   int // 0 → repl.DefaultPasteFoldMinChars
+	replReadRunAutoResume   bool // default OFF (user ruling 2026-07-30); codrax.yaml read_run_auto_resume
 	chitchatResponder       repl.ChitchatResponder
 	chitchatClassifier      repl.ChitchatClassifier
 	operationPlanner        repl.CommandOperationPlanner
@@ -2247,6 +2248,7 @@ func runREPL(_ *cobra.Command) error {
 		Branch:                  flagBranch,
 		Out:                     os.Stdout,
 		PasteFoldMinChars:       app.replPasteFoldMinChars,
+		ReadRunAutoResume:       app.replReadRunAutoResume,
 		Version:                 version,
 		BuildTime:               buildTime,
 		Language:                flagLang,
@@ -2567,6 +2569,9 @@ func initApp(cmd *cobra.Command, args []string) error {
 		}
 		if rs.ReplPasteFoldMinChars != nil {
 			app.replPasteFoldMinChars = *rs.ReplPasteFoldMinChars
+		}
+		if rs.ReadRunAutoResume != nil {
+			app.replReadRunAutoResume = *rs.ReadRunAutoResume
 		}
 		if rs.ReplTurnPolicyTimeoutSeconds != nil && *rs.ReplTurnPolicyTimeoutSeconds > 0 {
 			repl.SetTurnPolicyClassifierTimeout(time.Duration(*rs.ReplTurnPolicyTimeoutSeconds) * time.Second)

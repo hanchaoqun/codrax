@@ -11,6 +11,14 @@ func (r *REPL) installReadRunAutoResumeSeed(effectiveRequest string) (string, fu
 	if r == nil || r.currentMode != types.ModeRead || r.readRunSnapshotStore == nil {
 		return "", nil
 	}
+	// User ruling 2026-07-30 (customer incident: a stale snapshot from
+	// an interrupted session revived a run and skipped exploration):
+	// auto-resume is DEFAULT OFF. Only an explicit
+	// read_run_auto_resume: true in codrax.yaml arms this lane, and
+	// the call site prints a visible disclosure when it fires.
+	if !r.readRunAutoResumeEnabled {
+		return "", nil
+	}
 	setter, ok := r.runner.(readRunSnapshotAutoSeedSetter)
 	if !ok {
 		return "", nil

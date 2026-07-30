@@ -104,6 +104,27 @@ func (s *ReadRunSnapshotStore) Clear(id string) error {
 	return nil
 }
 
+// ClearAll removes every persisted read-run snapshot (the /clear
+// verb's snapshot arm — user ruling 2026-07-30: after /clear no stale
+// run may auto-revive). Returns the number of removed snapshots.
+func (s *ReadRunSnapshotStore) ClearAll() (int, error) {
+	if s == nil {
+		return 0, nil
+	}
+	infos, err := s.List()
+	if err != nil {
+		return 0, err
+	}
+	removed := 0
+	for _, info := range infos {
+		if err := s.Clear(info.ID); err != nil {
+			return removed, err
+		}
+		removed++
+	}
+	return removed, nil
+}
+
 func (s *ReadRunSnapshotStore) List() ([]ReadRunSnapshotInfo, error) {
 	if s == nil {
 		return nil, nil

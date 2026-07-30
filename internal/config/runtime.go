@@ -180,6 +180,13 @@ type RuntimeSettings struct {
 	// and orphaned canonical .html dumps at the same time. Other files in
 	// the dir are not touched. Default 10. Non-positive resets to default.
 	OutputDumpEnabled *bool `yaml:"output_dump_enabled"`
+
+	// ReadRunAutoResume arms the read-run snapshot auto-resume lane in
+	// the REPL. DEFAULT FALSE (user ruling 2026-07-30, customer
+	// incident: a stale snapshot from an interrupted session revived a
+	// run and skipped exploration entirely). Absent = disabled; only an
+	// explicit true arms it, and every revival prints a disclosure.
+	ReadRunAutoResume *bool `yaml:"read_run_auto_resume"`
 	OutputMaxFiles    *int  `yaml:"output_max_files"`
 
 	// Local browser preview for the markdown transcript. The preview

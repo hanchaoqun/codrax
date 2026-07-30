@@ -43,3 +43,20 @@ func followUpReplayMsg(lang, line string) string {
 	}
 	return "Replaying queued input: " + line
 }
+
+// readRunAutoResumeDisclosureMsg — visible line when the explicitly
+// enabled auto-resume lane revives a prior read run.
+func readRunAutoResumeDisclosureMsg(lang, runID string) string {
+	if isZh(lang) {
+		return "已从读运行快照恢复: " + runID + "(read_run_auto_resume 显式开启;/clear 可清除全部快照)"
+	}
+	return "Resumed from read-run snapshot: " + runID + " (read_run_auto_resume explicitly enabled; /clear wipes all snapshots)"
+}
+
+// readRunSnapshotsClearedMsg — /clear's snapshot arm confirmation.
+func readRunSnapshotsClearedMsg(lang string, n int) string {
+	if isZh(lang) {
+		return "已清除 " + itoa(n) + " 个读运行快照(不会再自动复活)"
+	}
+	return "Cleared " + itoa(n) + " read-run snapshot(s) (no auto-revival possible)"
+}
