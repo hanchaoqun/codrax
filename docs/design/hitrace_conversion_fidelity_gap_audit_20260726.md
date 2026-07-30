@@ -5129,6 +5129,189 @@ restored marker candidates still pass through shared laminar arbitration, and
 authenticated ordering changes the artifact hash. The typed family equations
 above are the stable acceptance authority.
 
+## REP-E customer acceptance replay (2026-07-30)
+
+Inputs:
+
+- `/Users/han/opt/customlogs/repE.txt`;
+- `/Users/han/opt/customlogs/codrax-trace-diag-repE.txt`;
+- customer executable SHA-256
+  `349cdbf049452631b932cb99aff3ceac535ff384c3fed075c950724171bb4491`.
+
+The executable is a new build:
+
+```text
+codrax_version = 0.1.20260730
+build_time     = 2026-07-30T00:49:20Z
+
+official_raw_marker_print_parser_trailing_space_v3 = present
+official_raw_dma_lifecycle_point_recovery_v2       = present
+```
+
+The immutable input remains 27,022,926 bytes with the same
+69,326.012181718 through 69,328.343094061 timestamp range. REP-E is therefore
+an admissible same-input acceptance replay of RD-B and RD-C, not a stale
+customer run.
+
+### REP-E-01 — both REP-D repair equations pass
+
+The official marker-name repair closes exactly:
+
+```text
+raw_pairs_official_trailing_space_name_normalized = 279
+raw_pairs_withheld_candidate_validation_failed    = 0 (key absent)
+raw_pairs_withheld_local_validation                = 0 (key absent)
+raw_pairs_submitted                                = 80211
+raw sync endpoints emitted                         = 160422
+```
+
+The 279 repaired spans preserve the full source suffix and reach the shared
+laminar authority. Zero-valued metrics are omitted by the compact metric map;
+the absence of both rejection keys plus the absence of
+`local_validation_pairs` from the typed skipped receipt is the exact zero
+verdict.
+
+The DMA lifecycle equation also closes:
+
+```text
+493 destroy + 305 enable_signal + 494 init + 495 signaled = 1787
+
+source_rawtrace_dma_lifecycle.rows_read    = 1787
+source_rawtrace_dma_lifecycle.rows_emitted = 1787
+publication_state                         = published_exact_official_point_events
+duration                                  = not_constructed
+```
+
+There is no remaining lifecycle census rejection. Empty-driver init rows are
+published as exact official point events, not converted into waits or
+intervals.
+
+### REP-E-02 — the output-row delta is fully reconciled
+
+REP-D emitted 1,237,851 rows; REP-E emits 1,239,640, a net increase of 1,789.
+That is not 556 missing repair rows. The exact producer/replacement equation
+is:
+
+```text
+new raw marker endpoints              +558  (279 spans × B/E)
+superseded callstack endpoints        -556  (278 spans × B/E)
+new DMA lifecycle point events       +1787
+                                      -----
+net artifact rows                    +1789
+```
+
+The span population also conserves exactly:
+
+```text
+REP-D: 92914 standard + 3128 typed-only + 78 unpublished = 96120
+REP-E: 93193 standard + 2850 typed-only + 77 unpublished = 96120
+
+standard-visible delta   = +279
+typed-only delta         = -278
+unpublished delta        =   -1
+```
+
+Thus all 279 repaired spans became official-viewer-visible: 278 replaced an
+already conserved typed representation and one recovered a previously
+unpublished fenced span. No span was duplicated or dropped by the new
+publication path.
+
+The final artifact remains internally exact:
+
+```text
+expected_rows    = 1239640
+parsed_known     = 1239640
+callback_count   = 1239640
+unknown/unparsed = 0
+typed O2 rows    = 829327
+```
+
+Artifact SHA-256 is
+`5cf9c59acc6b429166d284763f506ebf6246604011104cd9c82587ac7d9fe886`.
+
+### REP-E-03 — performance improved without weakening validation
+
+| Phase | REP-D | REP-E | Delta |
+| --- | ---: | ---: | ---: |
+| trace_streamer DB export | 2.312 s | 2.292 s | stable |
+| complete DB normalization | 45.703 s | 37.910 s | -17.1% |
+| SQL typed-exact preservation | 17.536 s | 13.259 s | -24.4% |
+| raw marker recovery | 4.596 s | 3.627 s | -21.1% |
+| shared sync-span authority | 3.244 s | 2.273 s | -29.9% |
+| semantic sorter | 7.455 s | 6.097 s | -18.2% |
+| full tracequery postvalidation | 6.973 s | 7.017 s | +0.6% |
+
+All 829,327 authenticated O2 rows and full postvalidation remain enabled.
+REP-E therefore proves no conversion-performance regression from either
+repair. It does not justify weakening validation for a larger headline
+speedup.
+
+The SQL aggregate `tables_sha256` changed, but the per-table audit localizes
+the change entirely to trace_streamer's nine-row `meta` table. All other 88
+source table row hashes, all schemas, all row counts and all typed record
+counts are identical. This is runtime metadata variability, not semantic DB
+or preservation drift.
+
+### REP-E-04 — residual evidence limits, not new repair regressions
+
+The official-viewer gate remains deliberately degraded:
+
+```text
+2850 typed-only =
+  2483 cpu_unknown_start
+  +365 cpu_source_tainted
+    +2 cpu_unknown_end
+
+77 closed sync spans unpublished after exact raw replacement
+```
+
+The 2,850 spans retain exact identity and interval in the Codrax typed lane,
+but this source generation has no exact physical CPU envelope for them.
+Standard ftrace B/E headers require a CPU. Copying a neighbor's CPU or using
+CPU 0 would fabricate placement, so no safe code batch can make these rows
+generic-viewer-visible from REP-E evidence.
+
+The remaining 77 spans are protected by the existing localized stack fence.
+All 90 retained `dur=NULL` hints still report
+`no_exact_raw_start_disposition`; no source end or narrower invalid interval
+exists. RD-B's new exact raw evidence safely recovered one former residual,
+but the remaining 77 cannot be unfenced without guessing stack balance.
+
+The 816 scheduler boundaries with unknown comm all refer to one subject:
+
+```text
+itid=398 tid=29352 tgid=68
+source_cmdline=absent
+```
+
+This is one missing capture-time display name repeated across boundaries, not
+816 lost thread-name records. Identity, timestamps and scheduling state remain
+published. Neither the DB thread table nor the immutable source cmdline
+segment contains the missing name, so a host/namespace/display alias must not
+be guessed.
+
+Finally, the raw marker ledger retains 85 open begins and 82 orphan ends.
+They are unpaired endpoints, not closed spans. Publishing them as standard
+B/E would reintroduce the customer-reported whole-trace phantom-span failure;
+continuing to withhold them is the correct fail-closed behavior.
+
+### REP-E disposition
+
+REP-E closes RD-B and RD-C. It exposes no new deterministic conversion-code
+gap and does not authorize another repair batch. The remaining work requires
+new physical evidence, not a softer gate:
+
+- a future capture containing exact raw endpoints/CPU can promote more
+  typed-only spans;
+- a source cmdline or another exact thread-name record can recover TID 29352;
+- a complete begin/end disposition can safely narrow the remaining stack
+  fences.
+
+Another same-file replay is not needed. If the customer still observes a
+specific missing viewer span, the next useful evidence is that span's exact
+name/TID/time range or a viewer screenshot plus a bounded systrace excerpt,
+not another identical diagnostic conversion.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.
