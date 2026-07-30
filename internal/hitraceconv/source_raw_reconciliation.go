@@ -104,10 +104,34 @@ func traceDBRawDecodeReconciliationCoverage(items []TraceDBCoverage) TraceDBCove
 		"scheduler", "thread_state.arg_setid", "query_ready_export")
 	if blockedOK && blocked.Found && blocked.Error == "" {
 		out.Metrics["db_sched_blocked_reason_rows_emitted"] = int64(blocked.RowsEmitted)
+		dbCounterCount := int64(blocked.RowsEmitted)
+		if blockedKey, ok := traceDBCoverageByIdentity(
+			items, "source_rawtrace_blocked_key",
+			"__raw_vs_db_blocked_key__", "diagnostic_deduplication"); ok &&
+			blockedKey.Metadata["ledger_state"] ==
+				"exact_raw_family_authority" {
+			dbCounterCount =
+				blockedKey.Metrics["db_rows_suppressed_by_raw_family"]
+			out.Metrics["db_sched_blocked_reason_rows_suppressed_by_raw_family"] =
+				dbCounterCount
+			out.Metadata["sched_blocked_reason_db_counter_source"] =
+				"validated_DB_projection_candidates_suppressed_by_complete_raw_family_authority"
+			out.Metadata["publication_authority"] =
+				"source_rawtrace_blocked_family_authority"
+			if rawPublished, present := traceDBCoverageByIdentity(
+				items, "source_rawtrace_blocked_recovery",
+				"__raw_only_blocked_reason__", "query_ready_export"); present {
+				out.Metrics["raw_sched_blocked_reason_rows_published"] =
+					int64(rawPublished.RowsEmitted)
+			}
+		} else {
+			out.Metadata["sched_blocked_reason_db_counter_source"] =
+				"published_DB_projection_rows"
+		}
 		blockedStats, statsOK := traceDBRawDecodeSelectedStats(capture, "sched_blocked_reason")
 		rawCount := raw.Metrics["target_sched_blocked_reason_records"]
 		rawPresent := !absent["sched_blocked_reason"]
-		dbCount := int64(blocked.RowsEmitted)
+		dbCount := dbCounterCount
 		if statsOK && rawPresent {
 			rawFromDBAndNotMatch, firstOK := traceDBRawCountAdd(dbCount, blockedStats["not_match"])
 			receivedFromRawAndDB, secondOK := traceDBRawCountAdd(rawCount, dbCount)

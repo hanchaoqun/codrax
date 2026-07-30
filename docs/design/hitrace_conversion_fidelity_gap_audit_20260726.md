@@ -6012,3 +6012,22 @@ JSON `build_identity` line and also publishes `build_revision_source`.
 Makefile builds continue to use ldflags; plain Go builds may use VCS build
 information. If neither is available, both fields consistently report
 unknown/unavailable while executable SHA-256 remains the replay identity.
+
+### LARG-C4 — raw-family-aware upstream blocked counter reconciliation
+
+Selecting raw as the sole blocked-event publication authority intentionally
+sets the DB exporter `RowsEmitted` value to zero. The pre-existing diagnostic
+equations, however, describe TraceStreamer attachment behavior rather than
+Codrax final publication:
+
+```text
+raw physical records = TraceStreamer DB-attached rows + not_match
+TraceStreamer received = raw physical records + DB-attached rows
+```
+
+Therefore the reconciliation now reads
+`db_rows_suppressed_by_raw_family` as its DB-attached counter when key-ledger
+state is `exact_raw_family_authority`. It continues to report final DB
+published rows as zero and separately reports raw rows published. This avoids
+misclassifying deliberate DB suppression as an upstream parser mismatch and
+does not give suppressed DB rows any publication authority.
