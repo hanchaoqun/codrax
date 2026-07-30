@@ -982,6 +982,17 @@ type RuntimeSettings struct {
 	// new-files-only filter still feels too noisy.
 	PipelineLintEnabled *bool `yaml:"pipeline_lint_enabled"`
 
+	// PipelinePureToolMemoEnabled gates the run-scoped pure-tool memo
+	// (EVALFIX-2B 类2): identical deterministic tool calls (same artifact
+	// fingerprint + same normalized effective params — trace_query is the
+	// first producer) are served a verbatim copy of the first result
+	// instead of re-running the full computation. When unset → default
+	// true. Operators set false as the kill switch to restore the
+	// always-recompute behavior; correctness is unaffected either way (a
+	// memo miss always executes for real, and a hit returns the true
+	// DET-1-pinned answer, never a refusal).
+	PipelinePureToolMemoEnabled *bool `yaml:"pipeline_pure_tool_memo_enabled"`
+
 	// PipelineMermaidRenderabilityGate controls the renderability
 	// gate inside emit_answer_document.go. Three modes:
 	//

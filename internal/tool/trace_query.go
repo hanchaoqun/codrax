@@ -2,6 +2,8 @@ package tool
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -386,89 +388,173 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	if sweep, ok := t.maybeStreamWindowSweep(ctx, p, path, sourceLabel, window.RequestedStart, window.RequestedEnd, callCaveat); ok {
 		return sweep, nil
 	}
-	buildStart := time.Now()
-	logging.Debug("[trace_query] phase=build_index view=%s source=%s path=%s start time_start=%.6f time_end=%.6f line_start=%d line_end=%d",
-		p.View, sourceLabel, path, window.RequestedStart, window.RequestedEnd, p.LineStart.Int(), p.LineEnd.Int())
-	idx, err := traceQueryBuildIndex(contextFromBus(ctx), path, p, window.RequestedStart, window.RequestedEnd)
-	if err != nil {
-		logging.Debug("[trace_query] phase=build_index view=%s path=%s failed elapsed=%s err=%v", p.View, path, time.Since(buildStart), err)
-		if limit, ok := t.traceQueryIndexLimitResult(ctx, p, path, sourceLabel, err); ok {
-			return limit, nil
-		}
-		// SUPP-CANCEL: a context fire during the parse is a cancellation,
-		// not a parse incompatibility — say so instead of blaming the file.
-		// SUPP-HYG P3-D (§29.81 立案, 2026-07-14): the parse-phase cancellation
-		// also mints the typed TraceViewCancellation record (reason from the
-		// precise errors.Is class), so system callers — the supplement's
-		// canceled-view accounting — read the SAME typed in-presence signal on
-		// the parse-fire lane they read on the in-view lane, instead of the
-		// ambient dctx.Err() whose expiry can race an ordinary engine reject.
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			reason := "canceled"
-			if errors.Is(err, context.DeadlineExceeded) {
-				reason = "deadline_exceeded"
+	// EVALFIX-2B 类2 (2026-07-30): everything below is the PURE core — a
+	// deterministic function of (artifact bytes, effective params), pinned
+	// by DET-1 (trace_query_det1_determinism_test.go). All run-scoped
+	// side-effect registries (exploration cursor, SUPP-CORE call-window
+	// recorder) fired ABOVE this point, and the four registry-consuming
+	// lanes (auto-window / recipe discovery / heavy-view guard / stream)
+	// already returned — so a memo hit is byte-equivalent to a fresh run
+	// for every registry. traceQueryMemoKey's ok=false bundles the typed
+	// escape lanes (kill switch / no MutableState / supplement in flight /
+	// stat failure); those calls execute directly, exactly as before.
+	runPureTraceQueryCore := func() (types.ToolResult, error) {
+		buildStart := time.Now()
+		logging.Debug("[trace_query] phase=build_index view=%s source=%s path=%s start time_start=%.6f time_end=%.6f line_start=%d line_end=%d",
+			p.View, sourceLabel, path, window.RequestedStart, window.RequestedEnd, p.LineStart.Int(), p.LineEnd.Int())
+		idx, err := traceQueryBuildIndex(contextFromBus(ctx), path, p, window.RequestedStart, window.RequestedEnd)
+		if err != nil {
+			logging.Debug("[trace_query] phase=build_index view=%s path=%s failed elapsed=%s err=%v", p.View, path, time.Since(buildStart), err)
+			if limit, ok := t.traceQueryIndexLimitResult(ctx, p, path, sourceLabel, err); ok {
+				return limit, nil
+			}
+			// SUPP-CANCEL: a context fire during the parse is a cancellation,
+			// not a parse incompatibility — say so instead of blaming the file.
+			// SUPP-HYG P3-D (§29.81 立案, 2026-07-14): the parse-phase cancellation
+			// also mints the typed TraceViewCancellation record (reason from the
+			// precise errors.Is class), so system callers — the supplement's
+			// canceled-view accounting — read the SAME typed in-presence signal on
+			// the parse-fire lane they read on the in-view lane, instead of the
+			// ambient dctx.Err() whose expiry can race an ordinary engine reject.
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				reason := "canceled"
+				if errors.Is(err, context.DeadlineExceeded) {
+					reason = "deadline_exceeded"
+				}
+				return types.ToolResult{
+					ToolName: t.Name(),
+					Success:  false,
+					Summary:  fmt.Sprintf("trace_query run on %s was canceled before completion (%v); no partial results were published — narrow the time window or reduce the scope and re-run", path, err),
+					TraceViewCancellation: &types.TraceViewCancellation{
+						View:   tracequery.CanonicalViewName(p.View),
+						Reason: reason,
+					},
+					Timestamp: time.Now(),
+				}, nil
 			}
 			return types.ToolResult{
-				ToolName: t.Name(),
-				Success:  false,
-				Summary:  fmt.Sprintf("trace_query run on %s was canceled before completion (%v); no partial results were published — narrow the time window or reduce the scope and re-run", path, err),
-				TraceViewCancellation: &types.TraceViewCancellation{
-					View:   tracequery.CanonicalViewName(p.View),
-					Reason: reason,
-				},
+				ToolName:  t.Name(),
+				Success:   false,
+				Summary:   fmt.Sprintf("trace_query failed to parse %s: %v", path, err),
 				Timestamp: time.Now(),
 			}, nil
 		}
+		heapAlloc, heapSys, gcCount := traceQueryMemoryForLog()
+		logging.Debug("[trace_query] phase=build_index view=%s path=%s done elapsed=%s events=%d lines=%d windowed=%v index_window=%.6f..%.6f line_window=%d..%d heap_alloc_bytes=%d heap_sys_bytes=%d gc_count=%d",
+			p.View, path, time.Since(buildStart), len(idx.Events), idx.ScannedLineCount, idx.Windowed, idx.IndexTimeStart, idx.IndexTimeEnd, idx.IndexLineStart, idx.IndexLineEnd, heapAlloc, heapSys, gcCount)
+		q := traceQueryBuildQuery(ctx, p, sourceLabel, path, window.RequestedStart, window.RequestedEnd)
+		runStart := time.Now()
+		logging.Debug("[trace_query] phase=run_view view=%s path=%s start events=%d windowed=%v", q.View, path, len(idx.Events), idx.Windowed)
+		result := tracequery.Run(idx, q)
+		heapAlloc, heapSys, gcCount = traceQueryMemoryForLog()
+		logging.Debug("[trace_query] phase=run_view view=%s path=%s done elapsed=%s evidence=%d caveats=%d heap_alloc_bytes=%d heap_sys_bytes=%d gc_count=%d", q.View, path, time.Since(runStart), len(result.EvidencePack), len(result.Caveats), heapAlloc, heapSys, gcCount)
+		traceQueryAppendCallCaveats(&result, callCaveat)
+		result.Caveats = append(result.Caveats, traceQueryObjectiveExactTokenCaveats(ctx, p, result)...)
+		// RN-14b (§7.9): runnable-dominant anchor result + pinned user-focus
+		// thread → soft next-step hint that reconnects the anchor to the focus
+		// thread's wakeup chain (via_thread, RN-14a).
+		if hint := traceQueryRunnableAnchorRecoveryHint(ctx, result); hint != "" {
+			result.Caveats = append(result.Caveats, hint)
+		}
+		result = traceQueryPriorityResultForPublication(result)
+		storeStart := time.Now()
+		payload, marshalFailure := traceQueryMarshalPayload(t.Name(), result)
+		if marshalFailure != nil {
+			return *marshalFailure, nil
+		}
+		payloadRef := StoreBlobArtifact(ctxWorkDir(ctx), t.Name(), "trace-query-result.json", string(payload))
+		summary := traceQuerySummary(result, p, sourceLabel, payloadRef)
+		preview, rawRef := StoreBlob(ctx, t.Name(), summary)
+		if rawRef == "" {
+			rawRef = payloadRef
+		}
+		logging.Debug("[trace_query] phase=store_result view=%s path=%s done elapsed=%s payload_ref=%s raw_ref=%s", q.View, path, time.Since(storeStart), payloadRef, rawRef)
+		now := time.Now()
 		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   fmt.Sprintf("trace_query failed to parse %s: %v", path, err),
-			Timestamp: time.Now(),
+			ToolName:               t.Name(),
+			Success:                true,
+			Summary:                preview,
+			RawRef:                 rawRef,
+			Refinement:             traceQueryRefinement(result, q, p, sourceLabel),
+			Observations:           traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now),
+			TraceViewCancellation:  traceQueryToolViewCancellation(result),
+			TraceEvidenceAuthority: traceQueryEvidenceAuthority(result),
+			EnumerationAuthority:   traceQueryEnumerationAuthority(result),
+			Timestamp:              now,
 		}, nil
 	}
-	heapAlloc, heapSys, gcCount := traceQueryMemoryForLog()
-	logging.Debug("[trace_query] phase=build_index view=%s path=%s done elapsed=%s events=%d lines=%d windowed=%v index_window=%.6f..%.6f line_window=%d..%d heap_alloc_bytes=%d heap_sys_bytes=%d gc_count=%d",
-		p.View, path, time.Since(buildStart), len(idx.Events), idx.ScannedLineCount, idx.Windowed, idx.IndexTimeStart, idx.IndexTimeEnd, idx.IndexLineStart, idx.IndexLineEnd, heapAlloc, heapSys, gcCount)
-	q := traceQueryBuildQuery(ctx, p, sourceLabel, path, window.RequestedStart, window.RequestedEnd)
-	runStart := time.Now()
-	logging.Debug("[trace_query] phase=run_view view=%s path=%s start events=%d windowed=%v", q.View, path, len(idx.Events), idx.Windowed)
-	result := tracequery.Run(idx, q)
-	heapAlloc, heapSys, gcCount = traceQueryMemoryForLog()
-	logging.Debug("[trace_query] phase=run_view view=%s path=%s done elapsed=%s evidence=%d caveats=%d heap_alloc_bytes=%d heap_sys_bytes=%d gc_count=%d", q.View, path, time.Since(runStart), len(result.EvidencePack), len(result.Caveats), heapAlloc, heapSys, gcCount)
-	traceQueryAppendCallCaveats(&result, callCaveat)
-	result.Caveats = append(result.Caveats, traceQueryObjectiveExactTokenCaveats(ctx, p, result)...)
-	// RN-14b (§7.9): runnable-dominant anchor result + pinned user-focus
-	// thread → soft next-step hint that reconnects the anchor to the focus
-	// thread's wakeup chain (via_thread, RN-14a).
-	if hint := traceQueryRunnableAnchorRecoveryHint(ctx, result); hint != "" {
-		result.Caveats = append(result.Caveats, hint)
+	if key, ok := traceQueryMemoKey(ctx, p, path, sourceLabel); ok {
+		return RunPureToolMemo(ctx, t.Name(), key, runPureTraceQueryCore)
 	}
-	result = traceQueryPriorityResultForPublication(result)
-	storeStart := time.Now()
-	payload, marshalFailure := traceQueryMarshalPayload(t.Name(), result)
-	if marshalFailure != nil {
-		return *marshalFailure, nil
+	return runPureTraceQueryCore()
+}
+
+// traceQueryMemoKey mints the run-scoped pure-memo key for one trace_query
+// call, or reports ok=false when the call must execute directly. Every
+// ok=false lane is a PRECISE signal (typed escape lanes, §1.6):
+//   - operator kill switch (pipeline_pure_tool_memo_enabled: false);
+//   - no MutableState (direct callers without run state have no memo);
+//   - the SUPP-CORE system supplement is in flight (its result face stays
+//     byte-independent of the model lane);
+//   - the run context is already dead (SUPP-CANCEL contract: a warm
+//     repeat under a canceled/expired context must return the typed
+//     cancellation partial, never a memoized success — pinned by
+//     TestTraceQueryCancelModelLaneWarmIndexTypedPartial);
+//   - os.Stat on the resolved artifact fails or names a directory (no
+//     fingerprint ⇒ no purity claim);
+//   - the effective params fail to re-marshal (cannot normalize ⇒ no claim).
+//
+// Key composition: sha256 over the strict-decoded, inheritance/adaptation-
+// completed params (canonical re-marshal absorbs field-order/whitespace
+// noise), the two TraceSecond window bounds' full fingerprints (TraceSecond
+// has no exported fields, so the re-marshal alone would erase the window —
+// deviation note in the design ledger 类2 §10), the resolved path + source
+// label, and the artifact's (size, mtime) stat fingerprint. The purity
+// premise (identical input ⇒ identical typed output) is pinned by DET-1.
+func traceQueryMemoKey(ctx *types.BusContext, p traceQueryParams, path, sourceLabel string) (string, bool) {
+	if !PureToolMemoEnabled() {
+		return "", false
 	}
-	payloadRef := StoreBlobArtifact(ctxWorkDir(ctx), t.Name(), "trace-query-result.json", string(payload))
-	summary := traceQuerySummary(result, p, sourceLabel, payloadRef)
-	preview, rawRef := StoreBlob(ctx, t.Name(), summary)
-	if rawRef == "" {
-		rawRef = payloadRef
+	if ctx == nil || ctx.Mutable == nil {
+		return "", false
 	}
-	logging.Debug("[trace_query] phase=store_result view=%s path=%s done elapsed=%s payload_ref=%s raw_ref=%s", q.View, path, time.Since(storeStart), payloadRef, rawRef)
-	now := time.Now()
-	return types.ToolResult{
-		ToolName:               t.Name(),
-		Success:                true,
-		Summary:                preview,
-		RawRef:                 rawRef,
-		Refinement:             traceQueryRefinement(result, q, p, sourceLabel),
-		Observations:           traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now),
-		TraceViewCancellation:  traceQueryToolViewCancellation(result),
-		TraceEvidenceAuthority: traceQueryEvidenceAuthority(result),
-		EnumerationAuthority:   traceQueryEnumerationAuthority(result),
-		Timestamp:              now,
-	}, nil
+	if ctx.Mutable.SystemTraceSupplementInProgress() {
+		return "", false
+	}
+	if contextFromBus(ctx).Err() != nil {
+		return "", false
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return "", false
+	}
+	paramsJSON, err := json.Marshal(p)
+	if err != nil {
+		return "", false
+	}
+	h := sha256.New()
+	for _, part := range [][]byte{
+		paramsJSON,
+		[]byte(traceSecondMemoFingerprint(p.TimeStart)),
+		[]byte(traceSecondMemoFingerprint(p.TimeEnd)),
+		[]byte(path),
+		[]byte(sourceLabel),
+		[]byte(strconv.FormatInt(info.Size(), 10)),
+		[]byte(strconv.FormatInt(info.ModTime().UnixNano(), 10)),
+	} {
+		h.Write(part)
+		h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil)), true
+}
+
+// traceSecondMemoFingerprint captures the full observable identity of one
+// TraceSecond param: set flag, verbatim raw spelling, and the exact float
+// bits of the normalized seconds. The type's unit/precision internals are
+// pure functions of the raw spelling, so this triple fingerprints all
+// engine-visible behavior (window value + lookup tolerance derivation).
+func traceSecondMemoFingerprint(ts TraceSecond) string {
+	return fmt.Sprintf("set=%t raw=%q bits=%x", ts.Set(), ts.Raw(), math.Float64bits(ts.Seconds()))
 }
 
 func traceQueryInputAdmissionFailure(path string, err error) types.ToolResult {

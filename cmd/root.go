@@ -3707,6 +3707,11 @@ func initApp(cmd *cobra.Command, args []string) error {
 		if rs.PipelineLintEnabled != nil {
 			tool.SetLintEnabled(*rs.PipelineLintEnabled)
 		}
+		// Run-scoped pure-tool memo kill switch (EVALFIX-2B 类2; default
+		// true — tool.SetPureToolMemoEnabled applies the operator veto).
+		if rs.PipelinePureToolMemoEnabled != nil {
+			tool.SetPureToolMemoEnabled(*rs.PipelinePureToolMemoEnabled)
+		}
 		// Mermaid renderability gate (off / soft / strict; default
 		// soft when unset). Boundary: gate flags ONLY Mermaid-spec
 		// violations, never library-subset gaps — see comment on

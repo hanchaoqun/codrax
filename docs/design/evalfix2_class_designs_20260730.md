@@ -254,7 +254,7 @@ type MisplacedFieldHint struct {
 
 行为判决（§7 端到端 eval 重跑：F5 2/2→0/2、F3 2/12→0/12、正向 evidence_ref 出现率）属 eval 批跑，不在本静态批内，留待下轮 EVALRUN 验证。
 
-状态：设计稿（未实施）。对应 eval gap 报告 `eval/evalrun1_gap_analysis_20260730.md` F4 + F10。
+状态：已实施（EVALFIX-2B，2026-07-30；落地偏离见本节 §10）。对应 eval gap 报告 `eval/evalrun1_gap_analysis_20260730.md` F4 + F10。
 
 ---
 
@@ -474,6 +474,23 @@ pipeline_pure_tool_memo_enabled: true   # 缺省 true；false = 操作员 kill s
 4. **不给模型设"重复查询硬拒"门**——重复是 LLM 行为，硬拒违反"噪声信号不作硬门"与用户意图红线；只做披露行软引导 + memo 让重复变得免费。
 5. **42.5s 零工具散文轮不在本类**：那是合法派发内的模型漫游 ⇒ prompt 歧义（perf-triage-skill 教学"直接调用 emit，不要叙述"），若做走 prompt 红线 checklist 单独立件，本设计不夹带 prompt 改动。
 6. **不动 supplement 窗口选举 / SUPP-CORE 任何语义**——call-window 注册表在 memo 命中路径照常登记，字节等效有 pin（测试 3）。
+
+---
+
+## 10. 落地偏离（EVALFIX-2B 实施记录，2026-07-30）
+
+按 §6 顺序落地（2→1→3→4→5→6/7），`make` + 全量 `go test ./...` 绿。与设计字面的偏离：
+
+1. **§1 "每次调用铸出新的 blob ref" 前提部分失实**——实测 `StoreBlob` / `StoreBlobArtifact` 的文件名是**内容寻址**的（`<tool>-<sha256(payload)[:4]>`），且 `tracequery.Result` 全字段确定性（无墙钟/遥测字段），故同参重复调用今天就恰好铸出**相同** refs。memo 的价值不变（省掉全额索引重建 + view 运行的墙钟/内存），且把 ref 字节相等从"内容哈希碰巧"升级为"逐字副本的结构保证"；但 §7.1 的 MUTATION 主张（"去掉 memo 则第二次 refs 必不同"）按现状不可成立——pin 1 的判别器改用 typed `ReusedFromRunMemo` + 披露行（kill-switch 臂即 pre-change 行为的活体自检），refs 相等断言保留为账本去重前提 pin。[E1][E2] 重复行的显示层根因由此存疑（refs 相同时 `dedupeObservationRecords` 本就该吞并——见测试 6 今天即绿），留待 eval 重跑复核，不在本批扩面。
+2. **TraceSecond 指纹显式并入 key**——§4.2 的 "canonical-json(p 有效参数结构体)" 对 `TraceSecond`（零导出字段、无 MarshalJSON）marshal 为 `{}`，会把时间窗从 key 中抹掉（两个不同窗口同 key = 正确性事故）。落地形：key = sha256(re-marshal(p) + TimeStart/TimeEnd 各自的 (Set, Raw, Float64bits(Seconds)) 指纹 + path + sourceLabel + stat(size, mtime))；unit/fractionDigits/scale 均为 Raw 的纯函数、stringEncoded 全仓无读者，故该三元组是完整诚实指纹。未给 TraceSecond 加 MarshalJSON（会改动全部潜在序列化面，超出本批授权）。
+3. **`traceQueryMemoKey` 签名含 sourceLabel**——§6.4 草图为 `(ctx, p, path)`；§4.2 的 key 组成本就列了 sourceLabel，按后者实现。
+4. **测试 7 红先证**——以真突变跑留证：临时失效 perf 段地板 ⇒ pin 观测到 3 次 LLM 调用（期望 2）而红，恢复后字节恒等（diff 校验）复绿；log 通道同构。仓内不保留红态，记录于此。
+5. **R2' 六处同步的适用面**——`ReusedFromRunMemo` 是系统侧产字段（非 LLM emit schema 字段），tool-schema/skill-prompt/retry-hint 三臂结构性不存在；同步落为：类型定义 + json 序列化 tag + 投影拷贝核验（ToolResult 全仓均为整结构体拷贝，无逐字段投影点；memo 命中路径为整值副本）+ 观测面（命中 INFO 日志行 `[pure_memo] …`）+ 文档（architecture.md §7.2.1 段 + §10 knob 表）+ pin（trace_query_pure_memo_test.go / tool_result_memo_test.go）。
+6. **stat 失败排除臂的测试形**——成功走完 Execute 的调用其 path 必然可 stat，全路径不可达；该臂以 `traceQueryMemoKey` 直测钉死（不存在文件 ⇒ ok=false），并配健康臂正例防 vacuous。
+7. **段地板披露句形**——落地为 `…; skipped N degenerate segments (< min_bytes=<值>)`（带地板值，比 §4.3 草图多披露一个数），追加于两步车道全部三个出口 StageReport（merged 成功 / 零 partial 降级 / merge nil 降级）。
+8. **新增第五条排除臂：run context 已死**——全量跑抓出与既裁 SUPP-CANCEL 暖索引契约的碰撞（`TestTraceQueryCancelModelLaneWarmIndexTypedPartial`：暖过 cache 后 context 取消，同参重呼必须返回 typed cancellation partial、零 faces）；memo 命中会把该重呼复活成成功结果，违反在案裁定。修法为 `traceQueryMemoKey` 加精确排除臂 `contextFromBus(ctx).Err() != nil`（取消/超时统一拒入 memo，查存两向都不参与），取消语义全权留给既有车道；配 key 侧直测臂 + 既有全路径 pin 双看护。
+
+行为判决（§7 端到端：state_churn 执行次数 7→≤4、[E1][E2] 行消失、F10 段派发轮数减一）属 eval 批跑，不在本静态批内，留待下轮 EVALRUN 验证（含偏离 1 的显示层根因复核）。
 
 ---
 

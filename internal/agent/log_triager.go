@@ -424,6 +424,7 @@ func (a *logTriager) runTwoStep(ctx *types.AgentContext, sk *skill.Config, reaso
 	}
 	partials := make([]*types.LogBundle, 0, len(segments))
 	calls := 0
+	skippedDegenerate := 0
 	origLog := ctx.AttachedLog
 	for _, s := range segments {
 		if calls >= perSegBudget {
@@ -431,6 +432,19 @@ func (a *logTriager) runTwoStep(ctx *types.AgentContext, sk *skill.Config, reaso
 			break
 		}
 		if !isExtractableSegment(s.Kind) {
+			continue
+		}
+		// EVALFIX-2B 类2 形态B (2026-07-30): SEGMENT-granularity admission
+		// floor — the perf channel's structural twin (same static gap, 静态
+		// 审出不留实测兜底). The stage-entry MinBytes semantics ("logs below
+		// this size rarely contain an extractable stack") holds verbatim
+		// per segment; a degenerate slice below the floor is skipped
+		// deterministically instead of burning an LLM dispatch. Zero new
+		// knobs: log_triage_min_bytes governs both granularities.
+		if s.ByteEnd-s.ByteStart < a.settings.MinBytes {
+			skippedDegenerate++
+			logging.Info("[log_triage] two-step: segment %s [%d:%d] below min_bytes=%d — degenerate, no LLM dispatch",
+				s.Kind, s.ByteStart, s.ByteEnd, a.settings.MinBytes)
 			continue
 		}
 		// Narrow the log window for this sub-dispatch. The AttachedLog
@@ -457,9 +471,17 @@ func (a *logTriager) runTwoStep(ctx *types.AgentContext, sk *skill.Config, reaso
 	// complete text in its own prompt.
 	ctx.AttachedLog = origLog
 
+	// Degenerate-segment disclosure (audit surface only; soft prose that
+	// never enters an LLM prompt).
+	degenerateNote := ""
+	if skippedDegenerate > 0 {
+		degenerateNote = fmt.Sprintf("; skipped %d degenerate segments (< min_bytes=%d)",
+			skippedDegenerate, a.settings.MinBytes)
+	}
+
 	if len(partials) == 0 {
 		return &StageOutput{
-			StageReport: fmt.Sprintf("two-step produced zero partial bundles (segments=%d) — degraded", len(segments)),
+			StageReport: fmt.Sprintf("two-step produced zero partial bundles (segments=%d) — degraded", len(segments)) + degenerateNote,
 		}, nil
 	}
 
@@ -468,7 +490,7 @@ func (a *logTriager) runTwoStep(ctx *types.AgentContext, sk *skill.Config, reaso
 	logging.Info("[log_triage] two-step merged: parts=%d final_errors=%d resolved=%d coverage=%.2f",
 		len(partials), len(merged.Errors), len(merged.ResolvedFiles), merged.Coverage)
 	return &StageOutput{
-		StageReport: renderLogTriageStageReport(merged),
+		StageReport: renderLogTriageStageReport(merged) + degenerateNote,
 	}, nil
 }
 

@@ -332,6 +332,21 @@ type MutableState struct {
 	// explorer can audit a payload blob one dispatch after the
 	// trace_query call that produced it.
 	traceQueryPublishedBlobRefs map[string]string
+	// toolResultMemo (EVALFIX-2B 类2, 2026-07-30) is the run-scoped memo for
+	// PURE deterministic tool calls: key = "<tool>\x00<memoKey>" where memoKey
+	// is the tool's own honest purity fingerprint (artifact stat fingerprint +
+	// normalized effective params — trace_query's traceQueryMemoKey is the
+	// first producer); value = the stored Success=true ToolResult, returned as
+	// a verbatim copy on an identical repeat call so refs stay byte-equal and
+	// the observation ledger's existing dedupe collapses duplicate rows with
+	// zero new dedup code. Lifecycle mirrors traceQueryPublishedBlobRefs
+	// exactly: survives per-dispatch resets, cloned into explore forks,
+	// union-merged back first-writer-wins, cleared at the per-task boundary
+	// (ResetTurnAArtifacts). Economy only, never a correctness contract: a
+	// miss always executes for real, and only tool-declared pure boundaries
+	// ever consult it (§29.21: a memo hit re-publishes the SAME deterministic
+	// tool witness — no model assertion is ever minted into an observation).
+	toolResultMemo map[string]ToolResult
 	// answerDocumentV2 is the block-only carrier (
 	// docs/migration/block_only_carrier.md) — the structured final-
 	// answer payload written by the emit_answer_document tool (one
@@ -1216,6 +1231,7 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 		traceQueryRuntimeObservationCount:   m.traceQueryRuntimeObservationCount,
 		exploreForkTraceQueryRuntimeObservationBase: m.traceQueryRuntimeObservationCount,
 		traceQueryPublishedBlobRefs:                 cloneStringStringMap(m.traceQueryPublishedBlobRefs),
+		toolResultMemo:                              cloneToolResultMemoMap(m.toolResultMemo),
 		traceQueryCallWindows:                       append([]TraceQueryCallWindow(nil), m.traceQueryCallWindows...),
 		exploreForkTraceQueryCallWindowBase:         len(m.traceQueryCallWindows),
 		traceInputAdmissionTerminal:                 traceInputAdmissionTerminal,
@@ -1300,6 +1316,7 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 	exactContextRequiredFiles := append([]string(nil), fork.exactContextRequiredFiles...)
 	traceQueryRuntimeObservationDelta := fork.traceQueryRuntimeObservationCount - fork.exploreForkTraceQueryRuntimeObservationBase
 	traceQueryBlobRefs := cloneStringStringMap(fork.traceQueryPublishedBlobRefs)
+	forkToolResultMemo := cloneToolResultMemoMap(fork.toolResultMemo)
 	var traceQueryCallWindowDelta []TraceQueryCallWindow
 	if len(fork.traceQueryCallWindows) > fork.exploreForkTraceQueryCallWindowBase {
 		traceQueryCallWindowDelta = append([]TraceQueryCallWindow(nil), fork.traceQueryCallWindows[fork.exploreForkTraceQueryCallWindowBase:]...)
@@ -1390,6 +1407,18 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 		}
 		if _, exists := m.traceQueryPublishedBlobRefs[canonKey]; !exists {
 			m.traceQueryPublishedBlobRefs[canonKey] = verbatim
+		}
+	}
+	// Pure-tool memo union: first-writer-wins (the memo is an economy
+	// optimization, not a correctness contract — concurrent forks that
+	// each computed the same pure call stored byte-equivalent results, so
+	// whichever landed first is as good as any).
+	for memoKey, result := range forkToolResultMemo {
+		if m.toolResultMemo == nil {
+			m.toolResultMemo = map[string]ToolResult{}
+		}
+		if _, exists := m.toolResultMemo[memoKey]; !exists {
+			m.toolResultMemo[memoKey] = result
 		}
 	}
 	m.traceQueryCallWindows = append(m.traceQueryCallWindows, traceQueryCallWindowDelta...)
@@ -2514,6 +2543,60 @@ func (m *MutableState) TraceQueryBlobRefs() []string {
 		out = append(out, verbatim)
 	}
 	sort.Strings(out)
+	return out
+}
+
+// toolResultMemoKey joins the tool name and the tool-declared purity
+// fingerprint into the single map key. NUL join: tool names never carry
+// NUL, so distinct (tool, memoKey) pairs can never collide.
+func toolResultMemoKey(tool, key string) string { return tool + "\x00" + key }
+
+// ToolResultMemo reports whether an identical pure call (same tool, same
+// purity fingerprint) already executed during the current task, returning
+// a copy of the stored result on a hit. Callers own the returned value —
+// decorations (disclosure line, ReusedFromRunMemo) never write back into
+// the stored entry. Empty tool/key always misses so a producer that
+// failed to build a fingerprint can never be served a stale result.
+func (m *MutableState) ToolResultMemo(tool, key string) (ToolResult, bool) {
+	if m == nil || strings.TrimSpace(tool) == "" || strings.TrimSpace(key) == "" {
+		return ToolResult{}, false
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.toolResultMemo) == 0 {
+		return ToolResult{}, false
+	}
+	r, ok := m.toolResultMemo[toolResultMemoKey(tool, key)]
+	return r, ok
+}
+
+// StoreToolResultMemo records one Success=true pure-tool result under the
+// tool's purity fingerprint. Failed results are refused at this chokepoint
+// (retry semantics must re-execute for real), and first-writer-wins so a
+// stored result is never silently replaced mid-task.
+func (m *MutableState) StoreToolResultMemo(tool, key string, r ToolResult) {
+	if m == nil || strings.TrimSpace(tool) == "" || strings.TrimSpace(key) == "" || !r.Success {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.toolResultMemo == nil {
+		m.toolResultMemo = map[string]ToolResult{}
+	}
+	full := toolResultMemoKey(tool, key)
+	if _, exists := m.toolResultMemo[full]; !exists {
+		m.toolResultMemo[full] = r
+	}
+}
+
+func cloneToolResultMemoMap(in map[string]ToolResult) map[string]ToolResult {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]ToolResult, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
 	return out
 }
 
@@ -4463,6 +4546,7 @@ func (m *MutableState) ResetTurnAArtifacts() {
 	m.traceQueryRuntimeObservationCount = 0
 	m.exploreForkTraceQueryRuntimeObservationBase = 0
 	m.traceQueryPublishedBlobRefs = nil
+	m.toolResultMemo = nil
 	m.traceQueryCallWindows = nil
 	m.exploreForkTraceQueryCallWindowBase = 0
 	m.systemTraceSupplementResults = nil
@@ -6542,6 +6626,18 @@ type ToolResult struct {
 	TraceViewCancellation  *TraceViewCancellation    `json:"trace_view_cancellation,omitempty"`
 	TraceEvidenceAuthority *TraceEvidenceAuthority   `json:"trace_evidence_authority,omitempty"`
 	EnumerationAuthority   *ToolEnumerationAuthority `json:"enumeration_authority,omitempty"`
+
+	// ReusedFromRunMemo (EVALFIX-2B, 2026-07-30) is the precise audit signal
+	// that this result was served from the run-scoped pure-tool memo instead
+	// of a fresh execution: an identical (artifact fingerprint + normalized
+	// effective params) call already ran in this task and the stored result
+	// was returned as a verbatim copy — same refs, same Observations, same
+	// typed authority fields — with only a Summary-tail disclosure appended.
+	// System-produced only (never an LLM emit field, so no tool-schema /
+	// skill-prompt / retry-hint sync obligations apply); consumers MUST NOT
+	// treat it as a semantic evidence signal — it is operational provenance
+	// for audit/pins, mirroring RuntimeTimings' telemetry-only discipline.
+	ReusedFromRunMemo bool `json:"reused_from_run_memo,omitempty"`
 
 	Success   bool      `json:"success"`
 	Timestamp time.Time `json:"timestamp"`

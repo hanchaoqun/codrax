@@ -309,6 +309,7 @@ func (a *perfTriager) runTwoStep(ctx *types.AgentContext, _ *skill.Config, reaso
 	}
 	partials := make([]*types.PerfBundle, 0, len(segments))
 	calls := 0
+	skippedDegenerate := 0
 	origTrace := ctx.AttachedHitrace
 	rawBytes := len(origTrace)
 
@@ -326,6 +327,20 @@ func (a *perfTriager) runTwoStep(ctx *types.AgentContext, _ *skill.Config, reaso
 			break
 		}
 		if !tool.IsExtractablePerfSegment(s.Kind) {
+			continue
+		}
+		// EVALFIX-2B 类2 形态B (2026-07-30): SEGMENT-granularity admission
+		// floor. The stage-entry MinBytes semantics ("traces below this
+		// size rarely benefit from full perf extraction") holds verbatim
+		// per segment: a degenerate tail below the floor has no
+		// extractable members to contribute to the merged bundle, so its
+		// deterministic summary is this skip + the StageReport disclosure
+		// — never a dedicated LLM dispatch. Zero new knobs: operators
+		// tune perf_triage_min_bytes and both granularities follow.
+		if s.ByteEnd-s.ByteStart < a.settings.MinBytes {
+			skippedDegenerate++
+			logging.Info("[perf_triage] two-step: segment %s [%d:%d] below min_bytes=%d — degenerate, no LLM dispatch",
+				s.Kind, s.ByteStart, s.ByteEnd, a.settings.MinBytes)
 			continue
 		}
 		// Narrow the trace window for this sub-dispatch. Like log
@@ -353,17 +368,25 @@ func (a *perfTriager) runTwoStep(ctx *types.AgentContext, _ *skill.Config, reaso
 	ctx.AttachedHitrace = origTrace
 	ctx.Mutable.SetPerfSegments(nil)
 
+	// Degenerate-segment disclosure (audit surface only; soft prose that
+	// never enters an LLM prompt).
+	degenerateNote := ""
+	if skippedDegenerate > 0 {
+		degenerateNote = fmt.Sprintf("; skipped %d degenerate segments (< min_bytes=%d)",
+			skippedDegenerate, a.settings.MinBytes)
+	}
+
 	if len(partials) == 0 {
 		logging.Info("[perf_triage] two-step: no segments produced bundles")
-		return &StageOutput{StageReport: "two-step produced no per-segment bundles — degraded"}, nil
+		return &StageOutput{StageReport: "two-step produced no per-segment bundles — degraded" + degenerateNote}, nil
 	}
 
 	merged := perftriage.MergePerfBundles(partials, rawBytes)
 	if merged == nil {
-		return &StageOutput{StageReport: "two-step merge produced nil bundle — degraded"}, nil
+		return &StageOutput{StageReport: "two-step merge produced nil bundle — degraded" + degenerateNote}, nil
 	}
 	ctx.Mutable.SetPerfTrace(merged)
-	return &StageOutput{StageReport: renderPerfTriageStageReport(merged)}, nil
+	return &StageOutput{StageReport: renderPerfTriageStageReport(merged) + degenerateNote}, nil
 }
 
 // skillByName looks up a skill from deps.Skills, returning the
