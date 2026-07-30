@@ -6031,3 +6031,176 @@ state is `exact_raw_family_authority`. It continues to report final DB
 published rows as zero and separately reports raw rows published. This avoids
 misclassifying deliberate DB suppression as an upstream parser mismatch and
 does not give suppressed DB rows any publication authority.
+
+## LARG-D replay audit and follow-up construction (2026-07-30)
+
+Customer replay `largD.txt` /
+`codrax-trace-diag-largD.txt` completed successfully:
+
+- output receipt: `3,007,234` rows and `1,350,041,982` bytes;
+- cross-validation expected/parsed/callback counts all equal `3,007,234`,
+  with zero unknown, unparsed or header-only rows;
+- output SHA-256:
+  `b4727d89e2dc9e555ce8b81ef83d5e5b63280d931cf9ec2c5a9b90b39f91a41a`;
+- all `790,734` raw `sched_switch_lite` records were admitted; `790,665`
+  exact half-open CPU intervals were built, while the remaining adjacent
+  candidates close as `15` lifecycle-withheld plus `42`
+  start-identity/lifecycle-withheld;
+- all `1,454` formerly tainted eligible frame intervals recovered. The final
+  frame equation is
+  `8,221 source - 1,707 before-capture - 2 invalid-duration - 4,806 erased
+  = 1,706 standard frame intervals` (`3,412` S/F endpoints);
+- standard-visible spans increased from `687,761` to `688,103`; exactly
+  `342` former typed-only spans moved to the standard lane. The former
+  `322 source-tainted + 8 unknown-end + 12 unknown-start` residual vanished;
+- governed spans still close as
+  `688,103 standard + 24,058 typed-only + 1,613 unpublished = 713,774`.
+
+The replay proves that LARG-C1 repaired every eligible frame and the intended
+bounded callstack subset. It does not prove that the remaining `24,055`
+`cpu_unknown_start` spans can be assigned a CPU. LARG-D predates the consumer
+lookup census, so it cannot distinguish an absent canonical ITID lane from a
+point before/after the retained raw interval range, a true interval gap, an
+overlap conflict or a lifecycle rejection. Extending an interval or guessing a
+namespace mapping from this report would fabricate CPU placement.
+
+### LARG-D1 — scheduler reconciliation double count
+
+The LARG-C3 implementation scanned every metric named
+`raw_unmatched_withheld_*`. In the production join,
+`raw_unmatched_withheld_db_coordinate_present=219784` is an observational
+overlap with the already-counted `db_boundaries_enriched=219784`; it is not a
+second withheld cohort. The old summary therefore reported the impossible
+values:
+
+```text
+raw_typed_withheld=219880
+raw_records_accounted=1010518
+raw_records_retained=790734
+```
+
+The physical publication was correct. The exact closure is:
+
+```text
+219784 DB-enriched
++ 570854 raw-unmatched-published
++     96 raw_unique_records_unmatched
+= 790734 retained raw records
+```
+
+Commit `3fdf72d13` makes the producer's exact
+`raw_unique_records_unmatched` residual the typed-withheld authority and
+accounts key-rejected and ambiguous raw records separately. A production-shape
+fixture includes the `219784` DB-coordinate metric explicitly, preventing it
+from re-entering the sum. Event admission and wire output are unchanged.
+
+### LARG-D2 — blocked upstream attachment count
+
+LARG-C4's use of `db_rows_suppressed_by_raw_family` as the upstream DB-attached
+counter is superseded by LARG-D. The customer has:
+
+```text
+raw physical records                         = 109770
+TraceStreamer not_match                      = 103212
+DB source rows read before Codrax gates      =   6558
+DB publication candidates suppressed by raw =   6557
+raw rows identity-admitted and published     = 109769
+```
+
+The one-row difference is the DB row rejected by Codrax's lifecycle gate and
+the independently rejected raw identity row. It remains relevant to the
+upstream attachment counter even though it has no final publication
+authority. The exact upstream equations close only with exporter `RowsRead`:
+
+```text
+109770 = 103212 + 6558
+116328 = 109770 + 6558
+```
+
+Commit `3fdf72d13` therefore uses audited DB source `RowsRead` for the two
+upstream equations while retaining emitted, raw-authority-suppressed and
+raw-published values as separate publication metrics. The LARG-D numbers are
+literal regression-test inputs.
+
+### LARG-D3 — raw CPU fallback consumer census
+
+Commit `60c7837ac` adds capability
+`official_raw_scheduler_cpu_lookup_census_v1`. The shared fallback index keeps
+one zero-allocation typed census across its only authorized consumers, with
+callstack and frame counted separately. Every lookup is classified by:
+
+- DB status: `known`, `unknown`, `source_tainted` or
+  `lifecycle_rejected`;
+- raw result: known, known agreement, known conflict, lane absent, before the
+  first interval, after the last interval, between intervals, overlapping CPU
+  conflict, invalid CPU, or deliberately not consulted;
+- a bounded maximum of four exact
+  `(canonical itid, public tid, timestamp, known DB/raw CPU)` witnesses per
+  classification.
+
+The final coverage is sealed only after callstack and frame exporters finish.
+Counts are lookup attempts, not unique spans, and are diagnostic only. The
+raw fallback remains unavailable to scheduler publication, wakeup, perf,
+raw-ftrace, syscall, native-hook and task-pool consumers.
+
+The next recovery decision is frozen as follows:
+
+| Census result | Allowed follow-up |
+|---|---|
+| DB unknown/source-tainted + raw known | already recovered; no new authority needed |
+| raw lane absent | inspect exact canonical/public TID and namespace evidence; never guess or alias by comm |
+| before first / after last interval | disclose capture-boundary absence; never extend a scheduler interval past a physical switch boundary |
+| between intervals | inspect discontinuity, duplicate-coordinate and lifecycle fences; repair only if a missing physical boundary becomes independently available |
+| raw overlap conflict or DB/raw known conflict | remain typed unavailable and fail closed |
+| lifecycle rejected / raw not consulted | never bypass the shared lifecycle authority |
+
+No further standard-span recovery is authorized until a same-file replay
+publishes this census.
+
+### LARG-D4 — safe raw CPU construction performance
+
+LARG-D normalized the DB in `239.5808842s`, versus `230.9558782s` in LARG-C
+(`+8.625006s`, `+3.73%`). Sorter time increased from `44.388889s` to
+`48.936944s`, while whole-output cross-validation improved from
+`53.380815s` to `52.538972s`. The former raw CPU coverage had no independent
+elapsed value, so the remaining delta could not be attributed safely.
+
+Commit `092e28c96` adds capabilities
+`official_raw_scheduler_cpu_build_elapsed_v1` and
+`official_raw_scheduler_cpu_ordered_fast_path_v1`:
+
+- raw CPU construction now has its own `elapsed_us`;
+- each CPU lane is first audited for nondecreasing timestamps;
+- an already ordered lane skips `sort.SliceStable`;
+- a lane containing any strict timestamp regression retains the original
+  stable sort;
+- equal-timestamp source order, duplicate-coordinate fencing, interval
+  admission and final wire output are unchanged;
+- the lookup census steady-state hot path is pinned to zero allocations.
+
+### Delivered batches and replay gate
+
+```text
+3fdf72d13  LARG-D1/D2 exact scheduler and blocked diagnostic closure
+60c7837ac  LARG-D3 raw CPU consumer lookup census
+092e28c96  LARG-D4 independent timing plus ordered-lane fast path
+```
+
+The next customer replay must contain capabilities
+`official_raw_scheduler_cpu_lookup_census_v1`,
+`official_raw_scheduler_cpu_build_elapsed_v1` and
+`official_raw_scheduler_cpu_ordered_fast_path_v1`. Acceptance requires:
+
+1. conversion and cross-validation remain exact;
+2. scheduler typed-withheld reports `96`, not `219880`;
+3. both blocked upstream equations report exact closure;
+4. frame remains `1,706` standard intervals;
+5. raw CPU lookup metrics partition every callstack/frame lookup;
+6. raw CPU build `elapsed_us` and ordered/reordered lane census are present;
+7. only after reading the miss partition may a new span-recovery batch be
+   designed.
+
+`build_revision=unknown` remains a release-packaging provenance gap when the
+customer executable is produced outside the Makefile/VCS-aware build lane.
+Executable SHA-256 remains authoritative for identifying that binary, but the
+release pipeline should still inject a revision.
