@@ -55,4 +55,6 @@
 
 ## 5. 落地记录（随批更新）
 
-（T-1/T-2/T-3 落地后在此追加：提交哈希/验证结果/偏离裁定。）
+**T-1 已落地（2026-07-29，main=ce30508bb）**：`internal/repl/stdin_owner.go` — `ttyStdinOwner`（REPL 生命周期唯一 bufio.Reader + 唯一模式管理者；`borrowRaw`/`borrowCookedLines` 互斥窗口 + release 幂等；`makeRaw` 可注入供测试）。接线三处：native 编辑器 prompt 窗口借共享 reader（不再 per-prompt 自建+自管 MakeRaw）；交互 capture（/log 粘贴、/paste）借 cooked 行窗口（`captureScanner` 接口化 + release，borrow 失败降级旧直读并告警）；强杀路径 `os.Exit(130)` 前 `restoreTTYForExit()`（D2 修复）。ESC 超时 Buffered() 快路径经核实现状已存在（native_input_unix.go），共享化天然安全。D3 收窄：编辑器 0x03 语义保持现状，矛盾点是 handler 注释的过度承诺——T-2 引入 Run 窗口字节路时一并统一表述。pin 四组：type-ahead 跨窗口零丢失（D1 判决性证明）、窗口互斥+release 幂等、强杀恢复 exactly-once + nil 安全、行扫描器 scanner-parity。全仓 83 包零 FAIL。
+
+（T-2/T-3 落地后在此追加。）
