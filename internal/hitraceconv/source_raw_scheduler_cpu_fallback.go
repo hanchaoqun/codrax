@@ -180,6 +180,48 @@ func newTraceDBRawSchedulerCPUFallback(
 			}
 			index = end
 		}
+		first := rows[0]
+		switch {
+		case !authority.identities.TraceStartKnown:
+			traceDBAddCoverageMetric(
+				&out.coverage, "capture_head_withheld_trace_start_unavailable", 1)
+		case !first.valid:
+			traceDBAddCoverageMetric(
+				&out.coverage, "capture_head_withheld_invalid_first_boundary", 1)
+		case authority.identities.TraceStart > int64(first.raw.TimestampNS):
+			traceDBAddCoverageMetric(
+				&out.coverage, "capture_head_withheld_invalid_order", 1)
+		case authority.identities.TraceStart == int64(first.raw.TimestampNS):
+			traceDBAddCoverageMetric(
+				&out.coverage, "capture_head_empty_at_first_boundary", 1)
+		default:
+			start := authority.identities.TraceStart
+			end := int64(first.raw.TimestampNS)
+			running, reason := traceDBResolveRawSchedSwitchLiteSubject(
+				authority, first.raw.PrevTID, start)
+			if reason != "" {
+				traceDBAddCoverageMetric(
+					&out.coverage, "capture_head_withheld_start_"+
+						traceDBRawDecodeReasonMetric(reason), 1)
+				break
+			}
+			subject, ok := authority.schedulerSubjectFromExactITID(
+				running.ITID, true)
+			if !ok || !authority.schedulerSourceIntervalAllows(
+				subject, start, end) {
+				traceDBAddCoverageMetric(
+					&out.coverage, "capture_head_withheld_lifecycle", 1)
+				break
+			}
+			out.intervals[running.ITID] = append(
+				out.intervals[running.ITID],
+				traceDBRunningInterval{
+					Start: start, End: end, CPU: cpu,
+				})
+			out.coverage.RowsEmitted++
+			traceDBAddCoverageMetric(
+				&out.coverage, "capture_head_intervals_emitted", 1)
+		}
 		for index := 0; index+1 < len(rows); index++ {
 			current, next := rows[index], rows[index+1]
 			if !current.valid || !next.valid {
@@ -259,12 +301,13 @@ func newTraceDBRawSchedulerCPUFallbackCoverage() TraceDBCoverage {
 		Table:  "__raw_sched_switch_running_intervals__",
 		Role:   "query_ready_cpu_fallback_authority",
 		FieldSources: map[string]string{
-			"source":     "complete immutable sched_switch_lite physical-event family; zero body rejects and retained/admitted/record census equality required",
-			"interval":   "half-open [current switch,next switch) on one exact CPU; current.next_tid must equal next.prev_tid and both timestamp/CPU coordinates must be unique",
-			"identity":   "current next public TID resolves at interval start to exactly one canonical DB thread/process generation; public TID is never rewritten or guessed under PID namespaces",
-			"lifecycle":  "the complete half-open interval passes the shared scheduler thread/process generation authority; an invalid boundary fences both adjacent intervals",
-			"precedence": "DB Running CPU remains primary; raw is used only for DB unknown/source-tainted points, DB/raw disagreement fails closed, and lifecycle-rejected DB lanes can never be bypassed",
-			"consumer":   "callstack and frame CPU placement only in this version; scheduler publication, perf, raw-ftrace, syscall, native-hook and task-pool semantics are unchanged",
+			"source":       "complete immutable sched_switch_lite physical-event family; zero body rejects and retained/admitted/record census equality required",
+			"interval":     "half-open [current switch,next switch) on one exact CPU; current.next_tid must equal next.prev_tid and both timestamp/CPU coordinates must be unique",
+			"capture_head": "when trace_range.start_ts is a strict singleton, the first unique switch on one CPU proves a half-open [capture start,first switch) interval for its prev_tid; missing start authority, invalid order, identity ambiguity, or lifecycle conflict withholds only that head interval",
+			"identity":     "current next public TID resolves at interval start to exactly one canonical DB thread/process generation; public TID is never rewritten or guessed under PID namespaces",
+			"lifecycle":    "the complete half-open interval passes the shared scheduler thread/process generation authority; an invalid boundary fences both adjacent intervals",
+			"precedence":   "DB Running CPU remains primary; raw is used only for DB unknown/source-tainted points, DB/raw disagreement fails closed, and lifecycle-rejected DB lanes can never be bypassed",
+			"consumer":     "callstack and frame CPU placement only in this version; scheduler publication, perf, raw-ftrace, syscall, native-hook and task-pool semantics are unchanged",
 		},
 		Metadata: map[string]string{
 			"authority_state": "unavailable",

@@ -6204,3 +6204,144 @@ The next customer replay must contain capabilities
 customer executable is produced outside the Makefile/VCS-aware build lane.
 Executable SHA-256 remains authoritative for identifying that binary, but the
 release pipeline should still inject a revision.
+
+## LARG-E replay audit and capture-head construction (2026-07-30)
+
+Customer artifacts:
+
+- `/Users/han/opt/customlogs/largE.txt`
+- `/Users/han/opt/customlogs/codrax-trace-diag-largE.txt`
+
+LARG-E is a successful same-file replay carrying all three LARG-D
+capabilities. The output receipt and whole-file cross-validation close exactly:
+
+```text
+input bytes                         = 151,107,309
+output rows                         = 3,007,234
+output bytes                        = 1,350,041,999
+expected / parsed / callback rows   = 3,007,234 / 3,007,234 / 3,007,234
+unknown / header-only rows          = 0 / 0
+normalization elapsed               = 238.5257967s
+sorter elapsed                      = 47.991843s
+cross-validation elapsed            = 51.829347s
+raw scheduler CPU build elapsed     = 0.620885s
+already ordered / reordered lanes   = 12 / 0
+```
+
+The ordered-lane fast path therefore ran on every CPU lane and reduced sorter
+time by `0.945101s` relative to LARG-D. The raw CPU builder itself is only
+`0.621s`; it is not the cause of the approximately four-minute normalization.
+No additional scheduler-sort shortcut is justified by this replay.
+
+The LARG-D diagnostic corrections also close on production data:
+
+```text
+scheduler:
+  219,784 DB-enriched
+  + 570,854 raw-unmatched-published
+  +      96 typed-withheld
+  = 790,734 retained raw records
+
+blocked reason:
+  109,770 raw = 103,212 not_match + 6,558 DB source rows
+  116,328 received = 109,770 raw + 6,558 DB source rows
+```
+
+Frame CPU placement has no residual miss: `504` DB/raw agreements plus `2,908`
+source-tainted DB points recovered from raw equals all `3,412` frame endpoint
+lookups, preserving `1,706` standard frame intervals.
+
+### LARG-E1 — exact lookup partition
+
+The callstack consumer made `1,368,734` CPU point lookups:
+
+| DB/raw disposition | Lookup attempts |
+|---|---:|
+| DB known and raw agrees | 1,116,625 |
+| DB source-tainted, raw known | 196,224 |
+| DB unknown, raw known | 450 |
+| lifecycle rejected, raw deliberately not consulted | 124 |
+| raw miss before first interval | 354 |
+| raw miss after last interval | 20,838 |
+| raw miss between intervals | 11,569 |
+| raw lane absent | 22,550 |
+| **total** | **1,368,734** |
+
+Together with the `3,412` frame lookups this equals the reported
+`lookup_calls_total=1,372,146`. There are no raw overlap conflicts, DB/raw CPU
+conflicts or invalid-CPU classifications.
+
+These are point lookup attempts, not unique final spans. They must not be
+subtracted directly from the final `24,055 cpu_unknown_start` span count.
+Nevertheless the geometry decides what can be repaired:
+
+- `lane_absent` has no physical CPU interval for that canonical ITID. A CPU
+  number cannot be inferred from comm, TGID, namespace PID or another thread.
+- `between_intervals` means the point is outside every proved half-open running
+  interval. Filling the gap would assert that a non-running thread was running.
+- `after_last` is relative to that ITID's last proved interval, not necessarily
+  the trace's last switch. The current SQLite authority has no strict
+  capture-end singleton, so extending a final interval would be unbounded.
+- lifecycle rejection remains a mandatory fail-closed fence.
+- `before_first` contains one narrower, previously unused proof: on each CPU,
+  the first unique `sched_switch_lite` says that its exact `prev_tid` was
+  running immediately before that switch. When and only when the strict
+  singleton `trace_range.start_ts` exists, this proves
+  `[capture start, first switch)` for that `prev_tid`.
+
+The last rule can recover only a subset of the `354` before-first lookup
+attempts. It does not authorize head recovery for any other TID and does not
+change the other three miss categories.
+
+### LARG-E2 — capture-head CPU authority
+
+The next batch adds capability
+`official_raw_scheduler_cpu_capture_head_v1` and constructs at most one extra
+interval per CPU:
+
+```text
+[trace_range.start_ts, first unique sched_switch_lite timestamp)
+owner = first sched_switch_lite.prev_tid
+cpu   = exact raw page CPU
+```
+
+Admission remains conjunctive:
+
+1. the immutable `sched_switch_lite` family is complete with zero body reject;
+2. `trace_range.start_ts` is an exact non-negative singleton;
+3. the first per-CPU boundary has a valid unique timestamp/CPU coordinate;
+4. capture start is strictly before that boundary;
+5. `prev_tid` resolves at capture start to exactly one canonical host identity
+   without PID-namespace rewriting;
+6. the complete half-open interval passes the shared thread/process generation
+   and global lifecycle authority.
+
+Any failed condition withholds only the head interval and emits a typed metric.
+The existing adjacent-switch intervals are unchanged. No capture-tail interval
+is constructed because no exact capture-end authority exists.
+
+Regression tests pin exact-start recovery, missing-start rejection, half-open
+boundary behavior, ordered and stable-sort parity, lifecycle call-site
+inventory, and the diagnostic capability list.
+
+### Remaining fidelity boundary after LARG-E2
+
+The final viewer census remains:
+
+```text
+688,103 standard-visible spans
+ 24,058 Codrax typed-only spans
+  1,613 unpublished locally-fenced closed sync spans
+```
+
+LARG-E2 may reduce the first-start subset after the next replay, but it cannot
+turn the remaining physical-evidence absences into standard ftrace B/E rows.
+Assigning CPU `0`, extending a thread across a switch gap, borrowing another
+namespace identity, or emitting a synthetic capture tail would make a generic
+viewer look fuller by fabricating evidence. Codrax therefore continues to
+preserve those spans in its typed lane and discloses that the official/generic
+systrace viewer does not display that lane.
+
+The customer binary still reports `build_revision=unknown`; executable SHA-256
+identifies the build, but release revision injection remains independently
+open.
