@@ -72,3 +72,18 @@
 **案一：REPL 显示/挂死回归（我方 T-2 引入，已止血 58ea9f91c）**。三症状一根因族：Windows 运行窗口 raw 读被非按键控制台记录诱导 park → drain 死等 → REPL 冻结（"整理上下文中"卡死）与输出积压（敲键才批量倾泻）；unix 侧 MakeRaw 清 OPOST 的楼梯化隐患同批预防性修复（cbreak 保 OPOST/ISIG）。止血=Windows 平台整体禁用运行窗口+drain 3s 保险丝+`CODRAX_DISABLE_RUN_INPUT` 总闸。**流程教训（教训条款）：平台不可本地验证（CGO 交叉编译不可行）的输入层改动，必须平台门控默认关闭再逐平台放开；"unix 推理+Windows 放行"不可复现。**
 
 **案二：零探索捏造答案（触发源待客户证据，捏造授权面已封死 FABGATE-1）**。调查定谳（agent 全文另存）：`› 2/4 正在生成最终答案` 的 2/4 来自 soft-notice 的"下一个未开始 slot"投影——**铁证=finalize 通知时渲染器从未见过任何 explore 行**；auto-resume 本案**排除**（复活必打的披露行在 transcript 缺席）但其设计风险实存→已按用户裁定默认关闭+/clear 连清（08a93455b）；确证的捏造授权面=`applyRuntimeTraceSourceOptionalSurfacePlan` 允许"裸路径引用+零附加+零观察"铸 source-optional 豁免，四道门（tier1 零证放行/ta==nil 旁路/引用下限被剥/观察无下限）真空放行。**FABGATE-1 已落地**：裸引用+零附加+零 ledger 工件+零确定性 trace 观察 → 不铸豁免（四判据全 typed 精确信号；判决性 pin=客户形状负臂+附加车道不回归臂）。**fix ① 撤回记录**：ta==nil 臂两次尝试均撞真墙（stub 工件形/既有 pin `IgnoresUnknownState`="未观测状态≠结构空"是有意裁定）——正确落点=forced-finalize 逃生舱（orchestrator.go:5424-5449）加"零投资节点不得强制成文"门，**待客户日志确证 S2 触发后再动**（需 grep `blocked on entry conditions; forcing finalize` / `DAG scheduler stalled`）。**候办 FABGATE-2**：runtime-observation 出厂下限（disposition 激活+external_observation 块 ⇒ ≥1 条确定性 runtime 观察，精确信号 `HasDeterministicRuntimeQueryObservation` 现成，emit 层 typed reject+escape lane）。**向客户取证清单**：① `codrax --version` 的 buildRevision 对表；② `.codrax/logs` grep 上述两行+`stop condition fired`+`read run snapshot seed applied`。规避=显式 `/htrace <路径>` 附加（正规车道，涉事形状不存在）。
+
+
+## 7. 回归 sweep 与 REGFIX 四批（2026-07-30）
+
+客户两起事故后对当日全部批次做了 25-agent 五维对抗复核（并发挂死 / 平台兼容 / 管线语义 / 显示 / REPL 动词），**19 条确认缺陷（3 high / 16 medium）、1 条证伪**，全部落在我方批次内。分四批根修，全推 main。
+
+**REGFIX-A（运行窗口生命周期，6 条）**：#0(high) 保险丝的放弃路径把 run-N 回调留在会话级对象上——迟到解冻的 reader 能取消未来 Run、把陈旧半行当 steering note 注入其 explorer prompt、并吞掉按键（修：原子 dead 标志，drain 前置位、每次读后与每次回调前复查）；#1 保险丝永不 release 使 owner 永久 brick 且 cbreak 泄漏到正常退出（修：release-on-done watcher + `/exit`/EOF 路径恢复终端）；#2 `cancelToken` 裸指针 -race（改 atomic.Pointer；取消面移入 cancel.go 化解 LOC ratchet）；#3(high) `unix.Select` 的 EINTR（拖 tmux 分屏的 SIGWINCH 风暴即可）被 ESC 探测当错误上抛 → Loop 判会话结束、打印 Goodbye 并丢失已输入行（修：剩余预算内重试）；#4 任何探测错误被当裸 ESC 取消 Run；#5 DEL 作为裸字节进入队列文本（改按 rune 编辑）。
+
+**REGFIX-B（steering 语义，4 条）**：#9(high) 并行 explore 车道先组装 worker hint 再 drain steering，worker 又用 pre-drain 值覆盖 clone hint → 文本回显“已注入”却到不了任何 prompt，且因已 drain 也无法回放（修：drain 返回文本，调度器合并进每个 worker hint）；#10/#15 mid-run 斜杠命令与 `!cmd` 被当 steering 散文吞进 prompt（intake 拒收命令行，交由回放漏斗执行）；#11 mid-run @pin 绕过 PIB-5c 的显式 source-exclusion 边界（同款钳制：文本仍进 prompt，仅扣留强制读）；#13 回显在 intake 接受时就宣称“已注入本轮探索”（改为“已交给本轮处理，未采纳则回放”）。
+
+**REGFIX-C（交付面与平台/显示，5 条）**：#8(high) `MergeFromRef` 新分支车道枚举了全链却只 cherry-pick tip——早于 tip 的提交永不落地而 `/merge` 报成功（其文档契约本就写 commits 复数；W-3 的 partial checkpoint 让这个潜伏遗漏可达）；#7 Windows `term.GetSize(stdin)` 失败 → 宽度恒 80 → 帧算术错乱（改 fd→stdout→stderr 递降探测）；#12 usage 只在首个 objective 归零（analyze 后才发、写模式永不发）→ 显示陈旧账（改 pipeline start 归零）；#14 `dockWidthCond` 由窄翻**宽**——仍钉死、仍 locale 无关（BARGRID-1 红线是“禁包级默认”而非“必须窄”），方向改为 fail-safe（欠量会溢出 → 终端换行 → 光标回卷少算 → 行漏进永久滚动区，正是客户症状类；过量只是行短），并修掉省略号自身宽度未预留导致的一列溢出；固定保险列方案先试后否（全歧义行可近两倍窄测量值）。#6 Windows 控制台非按键记录导致的阻塞读**记档不盲修**——正确修法（PeekConsoleInputW 丢弃非按键记录）无法在本机（unix + CGO）编译验证，按复盘的平台裁定不放行未验证的 Windows syscall 代码；仅做有界切片等待，并就地记录限制与既有围堵（运行窗口在 Windows 永不 arm）。
+
+**REGFIX-D（REPL 动词面，3 条）**：#16 回放绕过输入漏斗（`!cmd` 与模板命令被当 LLM 提问送出 → 改为走同一漏斗：shell-bang → 别名 → 模板 → dispatch）；#17 `/import` 违反自身“篡改零挂载”契约（log 先挂载才校验 trace；剥掉 hash 的 manifest 全放行 → 改为全部校验通过后才动 sticky 车道，缺 hash 视为不可验证并拒绝）；#18 native 编辑器 Enter 劫持尾随 @token（可见文件建议时自动接受最高分项并提交 → Enter 只接受斜杠建议，文件建议仍可 Tab 显式接受）。
+
+**教训固化**：① 我自己写的止血保险丝成了新缺陷源（#0/#1）——任何“放弃/降级”路径必须**先失效化再放手**，且必须保留归还资源的回路；② 平台不可验证的改动一律记档 + 围堵，不盲修（#6 按此裁定处理）；③ 对抗复核必须覆盖“当日自己的批次”——本轮 19 条无一由同事引入。
