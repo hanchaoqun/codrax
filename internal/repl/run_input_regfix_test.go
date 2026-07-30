@@ -368,3 +368,15 @@ func TestRunInputWindow_SplitPasteTerminatorSurvivesTicks(t *testing.T) {
 	}
 	w.drain()
 }
+
+// TestRestoreTTYForExit_DisablesBracketedPaste pins round-4 R0's
+// hard-kill belt: the double-Ctrl+C exit path (os.Exit skips every
+// defer) runs restoreTTYForExit, which must clear DECSET 2004 so the
+// user's shell is not left in bracketed-paste mode.
+func TestRestoreTTYForExit_DisablesBracketedPaste(t *testing.T) {
+	r, _, out := newApprovalREPL(t, "", &writeCapableRunner{})
+	r.restoreTTYForExit()
+	if !strings.Contains(out.String(), "\x1b[?2004l") {
+		t.Fatal("hard-kill exit must disable bracketed-paste mode")
+	}
+}

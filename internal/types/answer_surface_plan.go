@@ -2016,7 +2016,21 @@ func applyRuntimeTraceSourceOptionalSurfacePlan(plan *AnswerSurfacePlan, ir *Ana
 	plan.CurrentStatusDiagnosticRequired = false
 	plan.CurrentSourceEvidenceOrigin = false
 	if plan.RuntimeGroundingDisposition == nil || !plan.RuntimeGroundingDisposition.IsActive() {
-		plan.RuntimeGroundingDisposition = sourceOptionalRuntimeArtifactDisposition(ir.RequestModel, attachedRuntimeArtifact, ledger)
+		// ROUND-4 SWEEP: the disposition is minted ONLY over real
+		// runtime witnesses. The flag flip above may be carried by
+		// external observations (documents, web pages, MCP resources —
+		// the authority lane's sufficiency arm), but the disposition's
+		// rationale says "runtime … observations were available" and
+		// its citation policy points the finalizer at runtime
+		// observations — over a run with no runtime witness that is an
+		// affirmatively false prompt claim (and it contradicted the
+		// sibling rule in RuntimeGroundingDispositionFromWaiver, which
+		// refuses runtime_observation citation without an attached
+		// bundle). This lie predates FABGATE-2 — the split retires it
+		// for good rather than restoring it.
+		if RuntimeWitnessPresent(attachedRuntimeArtifact, ledger) {
+			plan.RuntimeGroundingDisposition = sourceOptionalRuntimeArtifactDisposition(ir.RequestModel, attachedRuntimeArtifact, ledger)
+		}
 	}
 }
 

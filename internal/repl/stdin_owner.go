@@ -239,7 +239,16 @@ func (r *REPL) ttyStdinOwnerInstance() *ttyStdinOwner {
 // restoreTTYForExit is the hard-kill hook: safe on nil/never-built
 // owners, safe to call from the SIGINT goroutine.
 func (r *REPL) restoreTTYForExit() {
-	if r == nil || r.stdinOwnerInst == nil {
+	if r == nil {
+		return
+	}
+	// Round-4 R0: the hard-kill paths (double Ctrl+C -> os.Exit skips
+	// every defer) must not leave DECSET 2004 on the user's terminal —
+	// writing the disable when the mode was never enabled is harmless.
+	if r.out != nil {
+		fmt.Fprint(r.out, ansiDisableBracketed)
+	}
+	if r.stdinOwnerInst == nil {
 		return
 	}
 	r.stdinOwnerInst.restoreForExit()
@@ -697,15 +706,6 @@ func (r *REPL) armRunInputWindow(canceller runnerCanceller) *runInputWindow {
 		return nil
 	}
 	steerSink, _ := r.runner.(steeringSink)
-	// ROUND-3 SWEEP R0 (high): the S5 paste lane was UNREACHABLE in
-	// production — bracketed-paste mode (DECSET 2004) was enabled only
-	// inside the prompt editor and disabled on prompt exit, so no
-	// terminal ever sent ESC[200~/201~ during a run and mid-run pastes
-	// still streamed line-by-line into the command funnel. The window's
-	// arm/drain now own the mode for the run's lifetime (drain is the
-	// single exit, fuse-abandon included; restoreTTYForExit is the
-	// hard-kill belt).
-	fmt.Fprint(r.out, ansiEnableBracketed)
 	cb := runInputWindowCallbacks{
 		onLine: func(line string) {
 			if r.renderer != nil {
@@ -754,6 +754,19 @@ func (r *REPL) armRunInputWindow(canceller runnerCanceller) *runInputWindow {
 		},
 	}
 	w, err := r.ttyStdinOwnerInstance().borrowRunInput(cb, nil)
+	if err == nil {
+		// ROUND-3 SWEEP R0 (high): the S5 paste lane was UNREACHABLE in
+		// production — bracketed-paste mode (DECSET 2004) was enabled
+		// only inside the prompt editor and disabled on prompt exit, so
+		// no terminal ever sent ESC[200~/201~ during a run. The window
+		// owns the mode for the run's lifetime: enabled here AFTER the
+		// borrow succeeds (round-4 R1: enabling before the borrow
+		// leaked the mode on every borrow-failure platform — Windows
+		// always fails makeRunInputMode — with no reader armed and no
+		// disable), disabled at drain (the single exit, fuse-abandon
+		// included) and by restoreTTYForExit as the hard-kill belt.
+		fmt.Fprint(r.out, ansiEnableBracketed)
+	}
 	if err != nil {
 		logging.Debug("[repl] run input window unavailable: %v", err)
 		return nil

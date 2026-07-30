@@ -174,3 +174,14 @@ Windows 数据类型（winprog/windows-data-types）：WORD=16 位、BOOL=int=32
 **自查追加**：本批实现过程中 `-race` 抓到两处竞争：① `pasting` 在 ESC 臂无锁写而 drain/测试持锁读（生产代码，改 atomic）；② PIB-2 批遗留的**测试夹具**跨 goroutine 无锁捕获 `warned`（repl 包 `-race` 唯一残红，一并修）。**教训：新增跨 goroutine 状态位必须与既有 mu 纪律显式对齐——"只由 loop goroutine 写"不等于"无需同步"，只要存在另一侧的读。**
 
 **过程结论**：三轮 sweep 分别是 19/20/12 条真缺陷，**每一轮都在上一轮的修复面里抓到东西**，且两轮的最严重项（S7、R4）都是前一轮"修复"自身引入的。这条规律已足以固化为纪律：**任何修复批在推送后都必须进入下一轮独立对抗复核，直到某一轮对该批面零幸存。**
+
+
+## 11. 第四轮 sweep 与 SWEEPFIX-R4（2026-07-30，收敛显现）
+
+对 SWEEPFIX-R3 的第四轮 12-agent sweep：**5 条幸存**（19→20→12→5，收敛曲线成立）。本轮 refuter 首次出现有价值的分歧并促成更准的定谳：
+
+**R8 扩臂之争定谳（四 refuter 交叉）**：finder 判"R8 扩臂重开 FABGATE 无见证洞（high）"；两位 refuter 以 worktree 反事实实测证明**归因倒置**——FABGATE-2 之前的全部历史上铸造臂本就无地板（收窄只存在了一个 commit），扩臂是按 §10 裁定恢复与 authority 车道的同源；但两位 refuter 同时确认了**换位后的真缺陷**（降级 medium）：① 铸造臂 `sourceOptionalRuntimeArtifactDisposition` 对非 runtime 外部观察轮次硬编码「runtime trace observations were available」的 rationale + runtime_observation 引用策略——外部文档轮次的 finalizer prompt 被喂了肯定式假话（proof-lane 红线类，且与 `RuntimeGroundingDispositionFromWaiver` 的姊妹规则直接矛盾）——**这是早于 FABGATE-2 的既存谎言，本轮彻底退役而非恢复**；② tripwire 与 flag 翻转共用宽地板后，**模型自编的 aggregate-fact SupportRef 即可消音 tripwire**（外部候选集接受模型抄写引用；refuter 实测确认可达）。修复=**谓词拆分**：`RuntimeSourceOptionalWaiverWitnessFloor`（宽，管 flag 翻转，维持 §10 裁定）与新 `RuntimeWitnessPresent`（窄，只认 engine-stamped runtime 见证族，管 disposition 铸造 + tripwire）。外部观察豁免照发（flag 翻转），但答案不再获得它并不拥有的 runtime 声称面；tripwire 回到"结构性不可达守卫"地位且免疫模型自编引用。
+
+**R0/R1（粘贴模式生命周期配对）**：enable 写在 borrow **之前** ⇒ 每个 borrow 失败平台（Windows 的 makeRunInputMode 无条件报错=每一轮）都泄漏 ?2004h 且无 reader 无 disable；双击 Ctrl+C 的 os.Exit(130) 跳过全部 defer ⇒ 模式泄漏到用户 shell（之后 cat 里粘贴会看到裸 200~ 标记）。修复=enable 移到 borrow 成功后（配对不变式成立）+ `restoreTTYForExit` 写 ?2004l 作硬杀兜底（未启用时写它无害）。**R4-4**：`--porcelain=v1` 是 git≥2.11 语法，在 2.5–2.10 上解析失败会让空 pick 分类器永假、重新退化为整体中止——改回版本无关的 `--porcelain`（与本文件其余探针一致；--quit 注释自己就以老 git 兼容为由，本臂却引入 2.11 依赖，同批内自相矛盾）。
+
+**过程收获**：① refuter 分歧（2 refuted / 2 not-refuted）不是噪音而是信号——它把"回归指控"精化成"既存缺陷换位 + 新增消音面"两个都真的小结论；② 反事实 worktree 实测（8aeede209^ 与 97ec55c2c^ 双基线）是归因判定的决定性手段；③ 同一批内的两个修复理由互相矛盾（--quit 为老 git、--porcelain=v1 要新 git）是一类可机械自查的气味。第五轮靶面=本批（SWEEPFIX-R4）。

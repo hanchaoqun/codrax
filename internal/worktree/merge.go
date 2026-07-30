@@ -677,7 +677,11 @@ func cherryPickStoppedEmpty(dir string) bool {
 	if _, err := runGitCapture(dir, "rev-parse", "-q", "--verify", "CHERRY_PICK_HEAD"); err != nil {
 		return false // no sequencer state: not a stopped pick
 	}
-	out, err := runGitCapture(dir, "status", "--porcelain=v1", "--untracked-files=no")
+	// Plain --porcelain (v1 format) rather than --porcelain=v1: the
+	// =<version> argument only parses on git >= 2.11, and this helper's
+	// whole point is old-git compatibility (round-4 R4; the file's
+	// other status probes already use the version-agnostic form).
+	out, err := runGitCapture(dir, "status", "--porcelain", "--untracked-files=no")
 	return err == nil && strings.TrimSpace(out) == ""
 }
 

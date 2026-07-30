@@ -39,6 +39,27 @@ package types
 // externalObservationSufficiencyCandidates keeps the two sides from
 // forking (same-family mirror discipline, CSP #63).
 func RuntimeSourceOptionalWaiverWitnessFloor(attachedRuntimeArtifact bool, ledger ObservationLedger) bool {
+	if RuntimeWitnessPresent(attachedRuntimeArtifact, ledger) {
+		return true
+	}
+	return len(externalObservationSufficiencyCandidates(ledger.Records)) > 0
+}
+
+// RuntimeWitnessPresent is the NARROW runtime-only predicate: an
+// attached runtime artifact, a runtime trace/log artifact record, a
+// deterministic trace-query observation, or any runtime observation
+// record. ROUND-4 SWEEP split: the WIDE floor above gates the
+// source-optional FLAG FLIP (matching the authority mint lane per the
+// §10 R8 ruling), while THIS predicate gates everything that CLAIMS
+// runtime grounding — the RuntimeGroundingDisposition mint and the
+// factory-floor tripwire. The two must not share one predicate:
+// sharing wide let the mint arm claim "runtime trace observations were
+// available" on external-document-only runs (an affirmatively false
+// prompt statement, the proof-lane class), and let a MODEL-AUTHORED
+// aggregate-fact SupportRef silence the tripwire (external candidates
+// admit model-copied refs; the runtime record families below are
+// engine-stamped only).
+func RuntimeWitnessPresent(attachedRuntimeArtifact bool, ledger ObservationLedger) bool {
 	if attachedRuntimeArtifact {
 		return true
 	}
@@ -52,7 +73,7 @@ func RuntimeSourceOptionalWaiverWitnessFloor(attachedRuntimeArtifact bool, ledge
 			return true
 		}
 	}
-	return len(externalObservationSufficiencyCandidates(ledger.Records)) > 0
+	return false
 }
 
 // RuntimeGroundingClaimsWitnessless reports the tripwire condition the
@@ -71,5 +92,9 @@ func RuntimeGroundingClaimsWitnessless(plan *AnswerSurfacePlan, attachedRuntimeA
 	if !disp.IsActive() || disp.CitationPolicy != RuntimeGroundingCitationRuntimeObservation {
 		return false
 	}
-	return !RuntimeSourceOptionalWaiverWitnessFloor(attachedRuntimeArtifact, ledger)
+	// Round-4: the tripwire keys on the NARROW predicate — its subject
+	// is specifically a RUNTIME-grounding claim, so only runtime
+	// witnesses may clear it (and the violation's own detail text
+	// enumerates exactly these witness classes).
+	return !RuntimeWitnessPresent(attachedRuntimeArtifact, ledger)
 }
