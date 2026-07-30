@@ -2,7 +2,7 @@ package hitraceconv
 
 import "testing"
 
-func TestTraceDBRawDecodeBudgetCoversRPD1ClosedTargetCensus(t *testing.T) {
+func TestTraceDBRawDecodeRetentionBudgetReplacesOrdinalCap(t *testing.T) {
 	const (
 		printRows         = 175165
 		traceMarkerRows   = 7518
@@ -17,12 +17,24 @@ func TestTraceDBRawDecodeBudgetCoversRPD1ClosedTargetCensus(t *testing.T) {
 	if rpd1ClosedTargets != 390416 {
 		t.Fatalf("RPD-1 closed target census drifted: got=%d", rpd1ClosedTargets)
 	}
-	if maxTraceDBRawDecodeTargetRows <= rpd1ClosedTargets {
-		t.Fatalf("raw decode cap=%d cannot complete RPD-1 target census=%d",
-			maxTraceDBRawDecodeTargetRows, rpd1ClosedTargets)
+	const largATargetRows = 2760444
+	if largATargetRows <= 1000000 || rpd1ClosedTargets >= largATargetRows {
+		t.Fatalf("large-trace regression census is not beyond the retired ordinal cap")
 	}
-	if maxTraceDBRawDecodeTargetRows != 1000000 {
-		t.Fatalf("raw decode budget changed without refreshing the bounded contract: %d",
-			maxTraceDBRawDecodeTargetRows)
+	if maxTraceDBRawDecodeRetainedBytes != 768<<20 {
+		t.Fatalf("raw retained-byte budget changed without refreshing the bounded contract: %d",
+			maxTraceDBRawDecodeRetainedBytes)
+	}
+}
+
+func TestTraceDBRawDecodeRetentionBudgetFailsClosedWithoutStoppingCensus(t *testing.T) {
+	acc := newTraceDBSourceRawDecodeAccumulator()
+	acc.retainedBytes = maxTraceDBRawDecodeRetainedBytes - 4
+	if acc.reserveRetained("print", 5) {
+		t.Fatal("retention beyond the byte budget was admitted")
+	}
+	if !acc.retentionCapped || acc.retainedBytes != maxTraceDBRawDecodeRetainedBytes-4 ||
+		acc.coverage.Metrics["target_print_retention_budget_exceeded"] != 1 {
+		t.Fatalf("typed retention withdrawal mismatch: %+v", acc)
 	}
 }

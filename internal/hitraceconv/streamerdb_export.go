@@ -108,14 +108,10 @@ func exportTraceDBToSystraceFromSealedWithSourceNamesAndLedger(
 		copied.RawAuthority = cloneTraceDBCoverage(sourceNames.RawAuthority)
 		copied.RawProfile = cloneTraceDBCoverage(sourceNames.RawProfile)
 		copied.RawDecode = cloneTraceDBCoverage(sourceNames.RawDecode)
-		copied.RawBlocked = append([]traceDBRawBlockedRecord(nil), sourceNames.RawBlocked...)
-		copied.RawDMAWait = append([]traceDBRawDMAWaitRecord(nil), sourceNames.RawDMAWait...)
-		copied.RawDMALifecycle = append(
-			[]traceDBRawDMALifecycleRecord(nil), sourceNames.RawDMALifecycle...)
-		copied.RawMarkers = append([]traceDBRawMarkerRecord(nil), sourceNames.RawMarkers...)
-		copied.RawSwitchLite = append([]traceDBRawSchedSwitchLiteRecord(nil), sourceNames.RawSwitchLite...)
-		copied.RawWakeupLite = append([]traceDBRawSchedWakeupLiteRecord(nil), sourceNames.RawWakeupLite...)
-		copied.RawWakeupNames = append([]traceDBRawSchedWakeupNewNameRecord(nil), sourceNames.RawWakeupNames...)
+		// sourceNames is already passed by value into this normalization
+		// boundary and no caller can mutate it concurrently. Keep ownership of
+		// the retained immutable raw slices instead of copying hundreds of
+		// megabytes solely to obtain identical slice headers.
 		tdb.sourceNameInventory = &copied
 	}
 	result, err = exportTraceDBToSystraceFromOpenWithLedger(ctx, tdb, output, ledger)

@@ -5572,6 +5572,67 @@ must establish:
 Retrying with any build whose report lacks `sql_text_fidelity_v2` is not
 useful.
 
+## LARG-A large-trace replay and construction batches (2026-07-30)
+
+Inputs:
+
+- `/Users/han/opt/customlogs/largA.txt`;
+- `/Users/han/opt/customlogs/codrax-trace-diag-largA.txt`;
+- immutable input bytes `151107309`;
+- customer executable SHA-256
+  `658fc98bc595d32df93232bb83300604d88c0bd0e21a31357728566295758301`.
+
+The compact SQL fidelity repair is accepted. Normalization completed in
+`158.3599699` seconds and published a `1,188,946,453` byte artifact with
+`2,310,004` owned rows. Tracequery postvalidation matched expected, parsed and
+callback rows with zero unknown and zero unparsed rows. The exact O2 lane
+preserved `5,467,934` logical v1 records in `71,087` physical v2 carriers, a
+`98.70%` physical-line reduction. The former 4 GiB tail failure is absent.
+
+That success is not official-viewer span completeness. Of `713,774` governed
+callstack spans, only `55,377` are standard-viewer rows; `654,147` are Codrax
+typed-only and `4,250` remain unpublished. The largest typed-only reason is
+`name_unrepresentable=497087`.
+
+### LARG-A root cause
+
+The immutable raw segment contains `2,760,444` closed target records, but the
+RPD-CAP1 ordinal ceiling decoded only the first `1,000,000`. Its global
+`incomplete_target_decode_cap` state withdrew every raw marker, scheduler-lite,
+blocked-reason and DMA recovery consumer. The partial prefix decoded only
+approximately 35-40% of each large family. This is the first production
+witness anticipated by the RPD-CAP1 fail-closed clause.
+
+Raising the row constant is rejected. The retained raw slices were also
+deep-copied at the normalization ownership boundary, so an unbounded row
+increase could double hundreds of MiB of fixed record storage.
+
+### Frozen batches
+
+| Batch | Priority | Scope | Acceptance |
+| --- | --- | --- | --- |
+| LARG-A1 | P0 | replace ordinal decode cap with conservative retained-byte authority; remove duplicate raw-slice copy | all target rows decoded; retained bytes bounded; budget overflow typed and fail closed |
+| LARG-A2 | P0 | split retention and recovery authority by independent family | one incomplete family cannot withdraw unrelated complete families |
+| LARG-A3 | P0/P1 | rerun raw marker/scheduler/blocked/DMA consumers and correct semantic closure | incomplete raw evidence can never render `complete_no_replacement_candidate`; no CPU/PID/namespace fabrication |
+| LARG-A4 | P1 | raw scan/decode/retention timing and safe sorter/O2/postvalidation work | full SQL/O2 and whole-wire validation unchanged |
+
+### LARG-A1 implementation
+
+The fixed one-million target ordinal gate is removed. Every structurally
+scanned target now reaches its strict decoder and exact census. Only the typed
+records needed by later recovery consumers are retained, under a conservative
+`768 MiB` accounting budget which over-counts struct storage and string
+payloads. Crossing that budget produces
+`incomplete_target_retention_budget`; it never publishes a retained prefix.
+Coverage exposes `target_retained_bytes` and the exact family which exceeded
+the budget.
+
+The normalization boundary still clones mutable name maps and coverage maps,
+but takes ownership of the already immutable raw slices instead of copying
+their complete fixed storage a second time. Capability
+`official_raw_record_decode_retained_bytes_v3` distinguishes this contract
+from RPD-CAP1 builds.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.

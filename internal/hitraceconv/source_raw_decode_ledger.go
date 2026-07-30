@@ -11,7 +11,13 @@ import (
 )
 
 const (
-	maxTraceDBRawDecodeTargetRows      = 1000000
+	// Raw target records are decoded to completion. Publication consumers need
+	// several retained typed subsets, so bound those retained values by an
+	// explicit byte budget instead of rejecting every target after an arbitrary
+	// row ordinal. The estimate deliberately over-counts string headers and
+	// payload bytes; exceeding it withdraws raw publication authority while the
+	// decoder still finishes the exact family census.
+	maxTraceDBRawDecodeRetainedBytes   = 768 << 20
 	maxTraceDBRawDecodeFormatWitnesses = 64
 	maxTraceDBRawDecodeFieldsPerFormat = 32
 )
@@ -113,7 +119,8 @@ type traceDBSourceRawDecodeAccumulator struct {
 	targetFirstTS     uint64
 	targetLastTS      uint64
 	targetTimestamp   bool
-	decodeCapped      bool
+	retainedBytes     int64
+	retentionCapped   bool
 	nextInfoTailOR    uint64
 	nextInfoTailAND   uint64
 	nextInfoTailSeen  bool
@@ -132,7 +139,7 @@ func newTraceDBSourceRawDecodeCoverage() TraceDBCoverage {
 			"identity":       "strict common_pid/common_flags/common_preempt_count envelope is required per decoded target record; namespace and TGID are not inferred",
 			"marker_sync":    "print and tracing_mark_write share tracequery.DecodeTraceMarkEndpointPayload as the sole complete-payload endpoint grammar; exact B/E payloads, admitted S/F payloads, and localized rejected carrier rows are retained without publication, while payload PID remains namespace data",
 			"scheduler_lite": "sched_switch_lite retains exact prev/next PID, signed-16 priority, state and the full packed uint64 next_info; known bits render the stable current prefix while nonzero unknown high bits are counted and never guessed as future fields; sched_wakeup_lite retains exact target PID, signed-16 priority and target CPU; both remain internal until a separate DB join proves one-to-one publication authority",
-			"limits":         "at most 1000000 target records receive body decoding, at most 64 sorted format/count witnesses, and at most 32 fields per target geometry witness are surfaced; record/format caps withdraw completion while field overflow is explicitly counted",
+			"limits":         "all structurally scanned target records receive strict body decoding; retained typed recovery records have a conservative 768 MiB in-memory byte budget, at most 64 sorted format/count witnesses and at most 32 fields per target geometry witness are surfaced; retention/format caps withdraw completion while field overflow is explicitly counted",
 		},
 		Metadata: map[string]string{
 			"decode_state":          "unavailable",
@@ -167,6 +174,34 @@ func (a *traceDBSourceRawDecodeAccumulator) observeUnknownRecord() {
 	traceDBAddCoverageMetric(&a.coverage, "records_without_admitted_format", 1)
 }
 
+func (a *traceDBSourceRawDecodeAccumulator) reserveRetained(
+	family string,
+	fixedBytes int64,
+	values ...string,
+) bool {
+	if a == nil || fixedBytes < 0 {
+		return false
+	}
+	required := fixedBytes
+	for _, value := range values {
+		if int64(len(value)) > maxTraceDBRawDecodeRetainedBytes-required {
+			a.retentionCapped = true
+			traceDBAddCoverageMetric(&a.coverage,
+				"target_"+traceDBRawDecodeReasonMetric(family)+"_retention_budget_exceeded", 1)
+			return false
+		}
+		required += int64(len(value))
+	}
+	if a.retainedBytes > maxTraceDBRawDecodeRetainedBytes-required {
+		a.retentionCapped = true
+		traceDBAddCoverageMetric(&a.coverage,
+			"target_"+traceDBRawDecodeReasonMetric(family)+"_retention_budget_exceeded", 1)
+		return false
+	}
+	a.retainedBytes += required
+	return true
+}
+
 func (a *traceDBSourceRawDecodeAccumulator) observeRecord(
 	format eventFormat,
 	content []byte,
@@ -194,10 +229,6 @@ func (a *traceDBSourceRawDecodeAccumulator) observeRecord(
 	traceDBAddCoverageMetric(&a.coverage, "target_"+metric+"_records", 1)
 	if directMarkerNameGoverned(format.Name) {
 		traceDBAddCoverageMetric(&a.coverage, "target_marker_carrier_records", 1)
-	}
-	if a.targetDecoded >= maxTraceDBRawDecodeTargetRows {
-		a.decodeCapped = true
-		return
 	}
 	a.targetDecoded++
 	traceDBAddCoverageMetric(&a.coverage, "target_decode_rows", 1)
@@ -269,6 +300,10 @@ func (a *traceDBSourceRawDecodeAccumulator) observeRecord(
 					OpenHarmonyPrintParserProfile: openHarmonyPrintParserProfile,
 					ZeroPIDUsesHeaderIdentity:     zeroPIDUsesHeaderIdentity,
 				}
+				if !a.reserveRetained(format.Name, 192, record.Buffer, record.Action,
+					record.Name, record.Value, record.RejectReason) {
+					return
+				}
 				a.markerRecords = append(a.markerRecords, record)
 				traceDBAddCoverageMetric(&a.coverage, "target_marker_sync_records_retained", 1)
 				if zeroPIDUsesHeaderIdentity {
@@ -282,23 +317,33 @@ func (a *traceDBSourceRawDecodeAccumulator) observeRecord(
 				}
 			case "S", "F":
 				if verdict.Admitted {
-					a.markerRecords = append(a.markerRecords, traceDBRawMarkerRecord{
+					record := traceDBRawMarkerRecord{
 						PhysicalOrdinal: int64(a.coverage.RowsRead),
 						TimestampNS:     timestampNS, CPU: cpu, HeaderPID: int64(headerPID),
 						Flags: flags, PreemptCount: preemptCount, Buffer: body,
 						Action: verdict.Action, PayloadPID: int64(verdict.SpanPID),
 						Name: verdict.Name, Value: verdict.Value, Admitted: true,
-					})
+					}
+					if !a.reserveRetained(format.Name, 192, record.Buffer, record.Action,
+						record.Name, record.Value, record.RejectReason) {
+						return
+					}
+					a.markerRecords = append(a.markerRecords, record)
 					traceDBAddCoverageMetric(&a.coverage,
 						"target_marker_async_records_retained", 1)
 				} else {
-					a.markerRecords = append(a.markerRecords, traceDBRawMarkerRecord{
+					record := traceDBRawMarkerRecord{
 						PhysicalOrdinal: int64(a.coverage.RowsRead),
 						TimestampNS:     timestampNS, CPU: cpu, HeaderPID: int64(headerPID),
 						Flags: flags, PreemptCount: preemptCount, Buffer: body,
 						Action: verdict.Action, PayloadPID: int64(verdict.SpanPID),
 						Name: verdict.Name, RejectReason: "schema_" + verdict.InvalidCause,
-					})
+					}
+					if !a.reserveRetained(format.Name, 192, record.Buffer, record.Action,
+						record.Name, record.Value, record.RejectReason) {
+						return
+					}
+					a.markerRecords = append(a.markerRecords, record)
 					traceDBAddCoverageMetric(&a.coverage,
 						"target_marker_sync_poison_records_retained", 1)
 				}
@@ -311,14 +356,18 @@ func (a *traceDBSourceRawDecodeAccumulator) observeRecord(
 				traceDBAddCoverageMetric(&a.coverage, "target_sched_blocked_reason_key_capture_failed", 1)
 				return
 			}
-			a.blockedRecords = append(a.blockedRecords, traceDBRawBlockedRecord{
+			record := traceDBRawBlockedRecord{
 				TimestampNS: timestampNS, CPU: cpu, HeaderPID: int64(headerPID),
 				Flags: flags, PreemptCount: preemptCount, TargetTID: blocked.PID,
 				IOWait: int64(blocked.IOWait), CallerRaw: blocked.CallerRaw,
 				Caller: blocked.Caller, CallerSymbolized: blocked.CallerSymbolized,
 				CNodeIndex: blocked.CNodeIndex, CNodeKnown: blocked.CNodeKnown,
 				Delay: blocked.Delay, DelayKnown: blocked.DelayKnown,
-			})
+			}
+			if !a.reserveRetained(format.Name, 144, record.Caller) {
+				return
+			}
+			a.blockedRecords = append(a.blockedRecords, record)
 		} else if format.Name == "sched_switch_lite" {
 			lite, liteReason := decodeTraceDBRawSchedSwitchLite(event)
 			if liteReason != "" {
@@ -338,6 +387,9 @@ func (a *traceDBSourceRawDecodeAccumulator) observeRecord(
 					a.nextInfoTailAND &= tail
 				}
 			}
+			if !a.reserveRetained(format.Name, 104) {
+				return
+			}
 			a.switchLiteRecords = append(a.switchLiteRecords, lite)
 		} else if format.Name == "sched_wakeup_lite" {
 			lite, liteReason := decodeTraceDBRawSchedWakeupLite(event)
@@ -347,6 +399,9 @@ func (a *traceDBSourceRawDecodeAccumulator) observeRecord(
 			}
 			lite.TimestampNS, lite.CPU = timestampNS, cpu
 			lite.HeaderPID, lite.Flags, lite.PreemptCount = int64(headerPID), flags, preemptCount
+			if !a.reserveRetained(format.Name, 80) {
+				return
+			}
 			a.wakeupLiteRecords = append(a.wakeupLiteRecords, lite)
 		} else if format.Name == "sched_wakeup_new" {
 			payload, payloadAdmission, payloadReason :=
@@ -361,12 +416,15 @@ func (a *traceDBSourceRawDecodeAccumulator) observeRecord(
 				traceDBAddCoverageMetric(
 					&a.coverage, "target_sched_wakeup_new_name_unavailable", 1)
 			} else {
-				a.wakeupNewNames = append(a.wakeupNewNames,
-					traceDBRawSchedWakeupNewNameRecord{
-						TimestampNS: timestampNS,
-						TargetTID:   payload.Wakeup.PID,
-						Name:        payload.Wakeup.Comm,
-					})
+				record := traceDBRawSchedWakeupNewNameRecord{
+					TimestampNS: timestampNS,
+					TargetTID:   payload.Wakeup.PID,
+					Name:        payload.Wakeup.Comm,
+				}
+				if !a.reserveRetained(format.Name, 48, record.Name) {
+					return
+				}
+				a.wakeupNewNames = append(a.wakeupNewNames, record)
 				traceDBAddCoverageMetric(
 					&a.coverage, "target_sched_wakeup_new_name_records_retained", 1)
 			}
@@ -381,14 +439,18 @@ func (a *traceDBSourceRawDecodeAccumulator) observeRecord(
 					"target_dma_fence_lifecycle_record_capture_failed", 1)
 				return
 			}
-			a.dmaLifecycle = append(a.dmaLifecycle,
-				traceDBRawDMALifecycleRecord{
-					TimestampNS: timestampNS, CPU: cpu,
-					HeaderPID: int64(headerPID), Flags: flags,
-					PreemptCount: preemptCount, Name: format.Name,
-					Driver: dma.Driver, Timeline: dma.Timeline,
-					Context: dma.Context, Seqno: dma.Seqno,
-				})
+			record := traceDBRawDMALifecycleRecord{
+				TimestampNS: timestampNS, CPU: cpu,
+				HeaderPID: int64(headerPID), Flags: flags,
+				PreemptCount: preemptCount, Name: format.Name,
+				Driver: dma.Driver, Timeline: dma.Timeline,
+				Context: dma.Context, Seqno: dma.Seqno,
+			}
+			if !a.reserveRetained(format.Name, 112, record.Name,
+				record.Driver, record.Timeline) {
+				return
+			}
+			a.dmaLifecycle = append(a.dmaLifecycle, record)
 		} else if format.Name == "dma_fence_wait_start" || format.Name == "dma_fence_wait_end" {
 			payload, payloadAdmission, payloadReason := decodeDirectPairPayload(event, content)
 			if payloadAdmission != bodyAdmitted || payloadReason != "" ||
@@ -403,12 +465,17 @@ func (a *traceDBSourceRawDecodeAccumulator) observeRecord(
 				traceDBAddCoverageMetric(&a.coverage, "target_dma_fence_wait_record_capture_failed", 1)
 				return
 			}
-			a.dmaWaitRecords = append(a.dmaWaitRecords, traceDBRawDMAWaitRecord{
+			record := traceDBRawDMAWaitRecord{
 				TimestampNS: timestampNS, CPU: cpu, HeaderPID: int64(headerPID),
 				Flags: flags, PreemptCount: preemptCount, Name: format.Name,
 				Driver: dma.Driver, Timeline: dma.Timeline,
 				Context: dma.Context, Seqno: dma.Seqno,
-			})
+			}
+			if !a.reserveRetained(format.Name, 112, record.Name,
+				record.Driver, record.Timeline) {
+				return
+			}
+			a.dmaWaitRecords = append(a.dmaWaitRecords, record)
 		}
 	case bodyRejected:
 		traceDBAddCoverageMetric(&a.coverage, "target_body_rejected", 1)
@@ -419,12 +486,17 @@ func (a *traceDBSourceRawDecodeAccumulator) observeRecord(
 		traceDBAddCoverageMetric(&a.coverage,
 			"target_"+metric+"_reject_"+traceDBRawDecodeReasonMetric(reason), 1)
 		if directMarkerNameGoverned(format.Name) {
-			a.markerRecords = append(a.markerRecords, traceDBRawMarkerRecord{
+			record := traceDBRawMarkerRecord{
 				PhysicalOrdinal: int64(a.coverage.RowsRead),
 				TimestampNS:     timestampNS, CPU: cpu, HeaderPID: int64(headerPID),
 				Flags: flags, PreemptCount: preemptCount,
 				RejectReason: "carrier_" + reason,
-			})
+			}
+			if !a.reserveRetained(format.Name, 192, record.Buffer, record.Action,
+				record.Name, record.Value, record.RejectReason) {
+				return
+			}
+			a.markerRecords = append(a.markerRecords, record)
 			traceDBAddCoverageMetric(&a.coverage, "target_marker_carrier_rejections_retained", 1)
 		}
 	default:
@@ -566,10 +638,11 @@ func (a *traceDBSourceRawDecodeAccumulator) finalize(
 		a.coverage.Skipped = "raw record decode ledger incomplete: format_witness_cap_exceeded"
 		return a.coverage
 	}
-	if a.decodeCapped {
-		traceDBAddCoverageMetric(&a.coverage, "target_decode_cap_exceeded", 1)
-		a.coverage.Metadata["decode_state"] = "incomplete_target_decode_cap"
-		a.coverage.Skipped = "raw record decode ledger incomplete: target_decode_cap_exceeded"
+	traceDBAddCoverageMetric(&a.coverage, "target_retained_bytes", a.retainedBytes)
+	if a.retentionCapped {
+		traceDBAddCoverageMetric(&a.coverage, "target_retention_budget_exceeded", 1)
+		a.coverage.Metadata["decode_state"] = "incomplete_target_retention_budget"
+		a.coverage.Skipped = "raw record decode ledger incomplete: target_retention_byte_budget_exceeded"
 		return a.coverage
 	}
 	a.coverage.Metadata["decode_state"] = "strict_target_ledger_complete"
