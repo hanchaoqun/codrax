@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/aymanbagabas/go-udiff"
@@ -603,7 +604,7 @@ type Orchestrator struct {
 	// pipeline polls IsCanceled() at well-known checkpoints
 	// (dispatchStage front, agent loop top, before tool exec) and
 	// unwinds with a CanceledError.
-	cancelToken *CancelToken
+	cancelTokenPtr atomic.Pointer[CancelToken] // per-run token; see cancel.go (REGFIX-A #2)
 }
 
 // New creates a new Orchestrator.
@@ -847,49 +848,24 @@ func (o *Orchestrator) SetMultiRepoInactivePreviewCount(n int) {
 	o.multiRepoInactivePreviewCount = n
 }
 
-// Cancel marks the in-flight Run as canceled with the given reason.
-// Safe to call from any goroutine (the REPL's signal handler runs in
-// its own goroutine). Idempotent: subsequent calls preserve the FIRST
-// reason so a "Ctrl+C" cannot be overwritten by a follow-on
-// "/cancel". No-op when no Run is in flight (idle Orchestrator).
-//
-// The cancellation lands at the next pipeline checkpoint
-// (dispatchStage front, agent loop top, before tool exec). Worst-case
-// delay is the duration of the currently-running LLM Chat call —
-// Phase 1 by design accepts that latency in exchange for a tiny
-// surface area; Phase 2 will plumb context.Context through the LLM
-// adapter for immediate HTTP-level cancellation.
-func (o *Orchestrator) Cancel(reason string) {
-	if o == nil || o.cancelToken == nil {
-		return
-	}
-	o.cancelToken.Cancel(reason)
-}
-
 func (o *Orchestrator) cancelWithSource(reason string, source CancelSource) {
-	if o == nil || o.cancelToken == nil {
+	tok := o.cancelTokenLoad()
+	if tok == nil {
 		return
 	}
-	o.cancelToken.CancelWithSource(reason, source)
-}
-
-// IsCanceled reports whether a Run is in flight AND has been canceled.
-// Used by the REPL to drive the "✗ canceled" rendering path on top
-// of the standard Run() return. Cheap atomic read; safe under any
-// concurrent caller pattern.
-func (o *Orchestrator) IsCanceled() bool {
-	return o != nil && o.cancelToken != nil && o.cancelToken.IsCanceled()
+	tok.CancelWithSource(reason, source)
 }
 
 // checkCanceled is the internal hot-path helper. Returns a populated
 // CanceledError when the current Run has been canceled, else nil.
 // Used by dispatchStage / runTaskGraph / agent loop checkpoints.
 func (o *Orchestrator) checkCanceled(stage string, iter int) error {
-	if o == nil || o.cancelToken == nil || !o.cancelToken.IsCanceled() {
+	tok := o.cancelTokenLoad()
+	if tok == nil || !tok.IsCanceled() {
 		return nil
 	}
 	return &CanceledError{
-		Reason:  o.cancelToken.Reason(),
+		Reason:  tok.Reason(),
 		AtStage: stage,
 		Iter:    iter,
 	}
@@ -913,20 +889,6 @@ func (o *Orchestrator) CancelChecker() func() error {
 	return func() error {
 		return o.checkCanceled("agent_loop", 0)
 	}
-}
-
-// CancelContext returns the cancellation-aware context.Context
-// backing the current Run's CancelToken. HTTP-level callers (LLM
-// Adapter, exec.CommandContext, worktree git operations) derive
-// from this ctx so Cancel produces immediate interruption instead
-// of waiting for a cooperative checkpoint. Returns context.TODO()
-// when no Run is in flight or no token is allocated — callers can
-// always derive from the returned ctx without nil-checking.
-func (o *Orchestrator) CancelContext() context.Context {
-	if o == nil || o.cancelToken == nil {
-		return context.TODO()
-	}
-	return o.cancelToken.Context()
 }
 
 // SetAttachedLog stores a runtime log excerpt (panic, exception stack,
@@ -1653,8 +1615,8 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	// the public Cancel() method to drive Ctrl+C / `/cancel`. Cleared
 	// in the defer below so idle Orchestrators (between Runs) cannot
 	// leak a stale "canceled" state into the next Run.
-	o.cancelToken = NewCancelToken()
-	defer func() { o.cancelToken = nil }()
+	o.cancelTokenPtr.Store(NewCancelToken())
+	defer func() { o.cancelTokenPtr.Store(nil) }()
 	// Defensive reset of cross-Run sticky slots. The Orchestrator
 	// instance is reused across Runs in the REPL, so any field
 	// that was set during a previous multi-phase Run must be
@@ -1678,7 +1640,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	// pipeline-start event, every conditional pre-stage, and analyzer dispatch.
 	// Natural-language paths are admitted later from typed analyzer policy;
 	// raw request prose/path shape is never an intent hard gate.
-	if err := validateRuntimeTraceInputsBeforeInvestigation(o.cancelToken.Context(), o.attachedHitrace); err != nil {
+	if err := validateRuntimeTraceInputsBeforeInvestigation(o.cancelTokenLoad().Context(), o.attachedHitrace); err != nil {
 		return nil, fmt.Errorf("orchestrator: trace input admission: %w", err)
 	}
 	// Wall-clock deadline for write-mode Runs. The timer fires at
@@ -1771,7 +1733,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		// surface tools / agents derive from. Cancel propagates to
 		// HTTP / subprocess / any ctx-aware path immediately rather
 		// than waiting for a cooperative checkpoint.
-		Ctx: o.cancelToken.Context(),
+		Ctx: o.cancelTokenLoad().Context(),
 	}
 	defer o.persistReadRunSnapshot()
 	if transcriptRequest := strings.TrimSpace(o.outputTranscriptRequest); transcriptRequest != "" {
@@ -2292,7 +2254,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	// external-observation policy at the success/degraded join so a partial IR
 	// preserved after gate/coherence failure cannot bypass named-trace
 	// admission. Nil/incomplete policies stay inert; raw prose never arms it.
-	if err := validateTypedNamedTraceInputsBeforeExploration(o.cancelToken.Context(), o.busCtx, request); err != nil {
+	if err := validateTypedNamedTraceInputsBeforeExploration(o.cancelTokenLoad().Context(), o.busCtx, request); err != nil {
 		o.busCtx.TaskState.LastError = err.Error()
 		return o.busCtx, fmt.Errorf("orchestrator: trace input admission: %w", err)
 	}

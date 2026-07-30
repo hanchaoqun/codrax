@@ -611,7 +611,7 @@ func TestRunWriteControllerWorkflow_VerifyFailurePersistsReportArtifact(t *testi
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	o.reportDir = planDir
 	o.SetWriteRetryBudget(3)

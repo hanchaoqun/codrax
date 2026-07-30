@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -252,6 +253,12 @@ type runInputWindow struct {
 	release func()
 	stop    chan struct{}
 	done    chan struct{}
+	// dead is set the instant drain() begins (REGFIX-A #0): the loop
+	// checks it AFTER every readByte so a byte that arrives while the
+	// goroutine was parked can never reach run-N's callbacks — the
+	// abandoned-reader path could otherwise cancel a FUTURE run, inject
+	// a stale steering note into it, or swallow the user's keystrokes.
+	dead atomic.Bool
 
 	mu      sync.Mutex
 	queue   []string
@@ -305,6 +312,9 @@ func (w *runInputWindow) loop(cb runInputWindowCallbacks, readByte func() (byte,
 		default:
 		}
 		b, ok, err := readByte()
+		if w.dead.Load() {
+			return // drain started while we were parked: touch nothing
+		}
 		if err != nil {
 			if err == io.EOF {
 				return
@@ -323,13 +333,26 @@ func (w *runInputWindow) loop(cb runInputWindowCallbacks, readByte func() (byte,
 		}
 		switch b {
 		case runInputCtrlC:
-			if cb.onCtrlC != nil {
+			if cb.onCtrlC != nil && !w.dead.Load() {
 				cb.onCtrlC()
 			}
 		case runInputEsc:
 			w.handleEsc(cb, readByte)
 		case '\r', '\n':
 			w.commitLine(cb)
+		case 0x7f, 0x08:
+			// REGFIX-A #5: backspace edits the pending line instead of
+			// landing as a raw byte inside the queued/steering text.
+			w.mu.Lock()
+			if n := len(w.partial); n > 0 {
+				// Trim one whole rune (UTF-8 continuation bytes).
+				n--
+				for n > 0 && w.partial[n]&0xC0 == 0x80 {
+					n--
+				}
+				w.partial = w.partial[:n]
+			}
+			w.mu.Unlock()
 		default:
 			if b < 0x20 && b != '\t' {
 				continue // other control bytes: ignore in run mode
@@ -353,7 +376,17 @@ func (w *runInputWindow) loop(cb runInputWindowCallbacks, readByte func() (byte,
 // swallowed conservatively without aborting.
 func (w *runInputWindow) handleEsc(cb runInputWindowCallbacks, readByte func() (byte, bool, error)) {
 	b, ok, err := readByte()
-	if err != nil || !ok {
+	if w.dead.Load() {
+		return
+	}
+	if err != nil {
+		// REGFIX-A #4: a poll error (EINTR from a resize storm, a
+		// degraded fd) is NOT evidence of a bare ESC. Cancelling the
+		// user's in-flight run on a signal artifact is unacceptable;
+		// swallow the ESC instead.
+		return
+	}
+	if !ok {
 		w.mu.Lock()
 		w.escSeen = true
 		w.mu.Unlock()
@@ -380,6 +413,9 @@ func (w *runInputWindow) commitLine(cb runInputWindowCallbacks) {
 	line := strings.TrimSpace(string(w.partial))
 	w.partial = w.partial[:0]
 	w.mu.Unlock()
+	if w.dead.Load() {
+		return
+	}
 	if line != "" && cb.trySteer != nil && cb.trySteer(line) {
 		if cb.onSteered != nil {
 			cb.onSteered(line)
@@ -408,21 +444,34 @@ func (w *runInputWindow) drain() (queued []string, partial string, escAborted, d
 	if w == nil {
 		return nil, "", false, false
 	}
+	// REGFIX-A #0: invalidate BEFORE signalling so a goroutine parked
+	// in readByte can never act on the byte it eventually receives.
+	w.dead.Store(true)
 	close(w.stop)
 	// Belt: the unix tick loop can never park in Read for more than
 	// one tick, but if a platform read ever wedges, the REPL must NOT
 	// hang here (customer report 2026-07-29: frozen 整理上下文中).
-	// On timeout we abandon the goroutine WITHOUT releasing the
-	// borrow — the shared reader stays owned so no second consumer
-	// can race the parked one; subsequent prompts fall back to the
-	// bubbletea lane. Loud ERROR so the degradation is diagnosable.
 	select {
 	case <-w.done:
 	case <-time.After(3 * time.Second):
-		logging.Error("[repl] run input window reader did not stop; abandoning window (input degraded to fallback editor for this session)")
+		logging.Error("[repl] run input window reader did not stop within 3s; window abandoned (callbacks disarmed; borrow released when the reader unwedges)")
+		// REGFIX-A #1: release as soon as the goroutine DOES exit, so
+		// one transient stall cannot brick the owner for the session
+		// (every later borrow would fail busy, type-ahead would be
+		// stranded, and the cbreak termios would leak past /exit).
+		// Safe because dead=true already disarmed every callback.
+		go func() {
+			<-w.done
+			w.release()
+		}()
 		w.mu.Lock()
 		defer w.mu.Unlock()
-		return append([]string(nil), w.queue...), strings.TrimSpace(string(w.partial)), w.escSeen, w.overCap
+		queued = append([]string(nil), w.queue...)
+		partial = strings.TrimSpace(string(w.partial))
+		// Hand the partial back exactly once: clear it so a late
+		// commitLine cannot double-deliver the same text.
+		w.partial = w.partial[:0]
+		return queued, partial, w.escSeen, w.overCap
 	}
 	w.release()
 	w.mu.Lock()

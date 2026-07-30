@@ -50,7 +50,7 @@ func wfidTestOrchestrator(t *testing.T, store WriteWorkflowRunSaver, request, se
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}, RepoRoot: repoRoot}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	return o
 }

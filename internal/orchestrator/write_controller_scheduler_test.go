@@ -308,7 +308,7 @@ func TestRunControllerPlanBatch_ReplansMissingSourceLocalization(t *testing.T) {
 	ar, sr, sar := buildRegistries(nil)
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	run := o.seedWriteWorkflowRun()
 	run = upsertWorkflowRunContextPack(run, testOwnerLocalizationContextPack("batch-1", "pkg/owner.py", "Owner.handle"))
 	mu.SetWriteWorkflowRun(&run)
@@ -369,7 +369,7 @@ func TestRunControllerPlanBatch_AcceptsCoveredSourceLocalization(t *testing.T) {
 	ar, sr, sar := buildRegistries(nil)
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	run := o.seedWriteWorkflowRun()
 	run = upsertWorkflowRunContextPack(run, testOwnerLocalizationContextPack("batch-1", "pkg/owner.py", "Owner.handle"))
 	mu.SetWriteWorkflowRun(&run)
@@ -408,7 +408,7 @@ func TestRunControllerPlanBatch_ReplansScopeOnlyOwnerLocalization(t *testing.T) 
 	ar, sr, sar := buildRegistries(nil)
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	run := o.seedWriteWorkflowRun()
 	mu.SetWriteWorkflowRun(&run)
 	planCalls := 0
@@ -493,7 +493,7 @@ func TestRunControllerPlanBatch_LocalizationRetryNeedsPriorContext(t *testing.T)
 	ar, sr, sar := buildRegistries(nil)
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	planCalls := 0
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
 		planCalls++
@@ -529,7 +529,7 @@ func TestRunControllerPlanBatch_LocalizationRetryExcludesTestOnlyPlan(t *testing
 	ar, sr, sar := buildRegistries(nil)
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	run := o.seedWriteWorkflowRun()
 	mu.SetWriteWorkflowRun(&run)
 	planCalls := 0
@@ -697,7 +697,7 @@ func TestRunWriteControllerWorkflow_MultiUnitReplanPreservesVerifiedUnit(t *test
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	o.SetWriteRetryBudget(2)
 
@@ -928,7 +928,7 @@ func TestRunWriteControllerWorkflow_ExplorePlanFinish(t *testing.T) {
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
 		switch stage {
@@ -1432,7 +1432,7 @@ func TestRunWriteControllerWorkflow_DegradedExplorationHandoffContinuesToPlan(t 
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModePlan, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	o.SetReadExplorationRunner(readExplorationRunnerFunc(func(o *Orchestrator) (int, error) {
 		o.busCtx.Mutable.EvidenceClosure().SetReadSet(map[string]bool{
@@ -1678,7 +1678,7 @@ func TestOwnerLocalizationRequirementTriggersBoundedExplorationBeforeApply(t *te
 	ar, sr, sar := buildRegistries(nil)
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	explorationCalls := 0
 	o.SetReadExplorationRunner(readExplorationRunnerFunc(func(o *Orchestrator) (int, error) {
 		explorationCalls++
@@ -2150,7 +2150,7 @@ func TestRunWriteControllerWorkflow_AppliesReadyPlanBeforeRepeatedPlanningDecisi
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	planCalls := 0
 	applyCalls := 0
@@ -2200,7 +2200,7 @@ func TestRunWriteControllerWorkflow_VerifiesAppliedPlanBeforeRepeatedPlanningDec
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	planCalls := 0
 	applyCalls := 0
@@ -2254,7 +2254,7 @@ func TestRunWriteControllerWorkflow_SynthesizesApplyAfterControllerDispatchError
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	planCalls := 0
 	applyCalls := 0
@@ -2319,7 +2319,7 @@ func TestRunWriteControllerWorkflow_SynthesizesVerifyAfterControllerDispatchErro
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	planCalls := 0
 	applyCalls := 0
@@ -2383,7 +2383,7 @@ func TestRunWriteControllerWorkflow_DispatchCancelAfterApplyRunsCompletionVerify
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	verifyCalls := 0
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
@@ -2489,7 +2489,7 @@ func TestRunWriteControllerWorkflow_DispatchCancelAfterApplyRespectsCancelToken(
 	})
 	o = New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	verifyCalls := 0
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
@@ -2555,7 +2555,7 @@ func TestRunWriteControllerWorkflow_DoesNotRecoverCanceledControllerDispatch(t *
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	applyCalls := 0
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
@@ -2622,7 +2622,7 @@ func TestRunWriteControllerWorkflow_DispatchWriteDeadlineAfterPlanBlocksRun(t *t
 	})
 	o = New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	applyCalls := 0
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
@@ -2718,7 +2718,7 @@ func TestRunWriteControllerWorkflow_DispatchWriteDeadlineAfterRepairPlanStaysRes
 	})
 	o = New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	applyCalls := 0
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
@@ -2825,7 +2825,7 @@ func TestRunWriteControllerWorkflow_DispatchWriteDeadlineProofFollowupCompletesU
 	})
 	o = New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 
 	steps := 0
@@ -2877,7 +2877,7 @@ func TestRunWriteControllerWorkflow_AppendsFollowupBatch(t *testing.T) {
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	planN := 0
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
@@ -2922,7 +2922,7 @@ func TestRunWriteControllerWorkflow_ModePlanStopsAfterPlan(t *testing.T) {
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModePlan, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
 		if stage != types.StagePlan {
@@ -2985,7 +2985,7 @@ func TestRunWriteControllerWorkflow_ReplansOffScopeHighRiskBuildManifest(t *test
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	planCalls := 0
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
@@ -3061,7 +3061,7 @@ func TestRunControllerPlanBatch_KeepsTypedBuildSystemChangeForApproval(t *testin
 	ar, sr, sar := buildRegistries(nil)
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	planCalls := 0
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
 		if stage != types.StagePlan {
@@ -3121,7 +3121,7 @@ func TestRunWriteControllerWorkflow_ReplansProtectedRegressionTestWeakening(t *t
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, RepoRoot: root, MainRepoRoot: root, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	planCalls := 0
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
@@ -3195,7 +3195,7 @@ func TestRunWriteControllerWorkflow_BlocksPersistentProtectedRegressionTestWeake
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, RepoRoot: root, MainRepoRoot: root, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	planCalls := 0
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
@@ -3389,7 +3389,7 @@ func TestRunWriteControllerWorkflow_VerifyFailureCanReplanSameBatch(t *testing.T
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	o.SetWriteRetryBudget(1)
 	attempt := 0
@@ -3477,7 +3477,7 @@ func TestRunWriteControllerWorkflow_VerifyInfraFailureRetriesVerify(t *testing.T
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	o.SetWriteRetryBudget(1)
 	verifyCalls := 0
@@ -3538,7 +3538,7 @@ func TestRunWriteControllerWorkflow_VerifyInfraBudgetBlocksWithoutReplan(t *test
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	o.SetWriteRetryBudget(0)
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
@@ -3588,7 +3588,7 @@ func TestRunWriteControllerWorkflow_RunnerMissingCompletesUnverifiedWithoutRepla
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	o.SetWriteRetryBudget(0)
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
@@ -3660,7 +3660,7 @@ func TestRunWriteControllerWorkflow_ParserErrorCompletesUnverifiedWithoutReplan(
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	o.SetWriteRetryBudget(3)
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
@@ -3733,7 +3733,7 @@ func TestRunWriteControllerWorkflow_ApplyErrorDoesNotBecomePendingApprovalWithou
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
 		switch stage {
@@ -3789,7 +3789,7 @@ func TestRunWriteControllerWorkflow_ApplyTransportErrorWithAllChangesAppliedCont
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	applyCalls := 0
 	verifyCalls := 0
@@ -3906,7 +3906,7 @@ func TestRunWriteControllerWorkflow_VerifyFailureCanReexploreThenReplan(t *testi
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	o.SetWriteRetryBudget(1)
 	attempt := 0
@@ -3973,7 +3973,7 @@ func TestRunWriteControllerWorkflow_PendingApprovalKeepsRunActive(t *testing.T) 
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
 		if stage == types.StagePlan {
@@ -4043,7 +4043,7 @@ func TestRunWriteControllerWorkflow_AutoExecutableAskUserAppliesPlan(t *testing.
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	applyCalls := 0
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
@@ -7067,7 +7067,7 @@ func TestRunWriteControllerWorkflow_ResumesActiveRun(t *testing.T) {
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	steps := 0
 	if err := o.runWriteControllerWorkflow(&steps); err != nil {
@@ -7109,7 +7109,7 @@ func TestRunWriteControllerWorkflow_ResumePendingApprovalPausesBeforeController(
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	steps := 0
 	err := o.runWriteControllerWorkflow(&steps)
@@ -7688,7 +7688,7 @@ func TestRunWriteControllerWorkflow_FinishGateRequiresTypedDisposition(t *testin
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	o.SetWriteRetryBudget(3)
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
@@ -7736,7 +7736,7 @@ func TestRunWriteControllerWorkflow_FinishAfterPassedVerifyNeedsNoDisposition(t 
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
 		switch stage {
@@ -7777,7 +7777,7 @@ func TestRunWriteControllerWorkflow_PlannerProbePassCannotFinishFailedPostApplyV
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	o.SetWriteRetryBudget(3)
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
@@ -7831,7 +7831,7 @@ func TestRunWriteControllerWorkflow_PlannerProbeFailureDoesNotBlockPassedPostApp
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
 		switch stage {
@@ -7911,7 +7911,7 @@ func TestRunWriteControllerWorkflow_RejectsNonAuthoritativeVerifyReports(t *test
 			})
 			o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 			o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-			o.cancelToken = NewCancelToken()
+			o.cancelTokenPtr.Store(NewCancelToken())
 			o.writeWorkflowRunStore = store
 			o.SetWriteRetryBudget(3)
 			o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
@@ -7962,7 +7962,7 @@ func TestRunWriteControllerWorkflow_VerifyFailureSetsHandoffAndGreenClears(t *te
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	o.reportDir = planDir
 	o.SetWriteRetryBudget(2)
@@ -8088,7 +8088,7 @@ func TestRunControllerPlanBatch_NoPlanReplanRoundGetsOneRetry(t *testing.T) {
 	ar, sr, sar := buildRegistries(nil)
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{PlanID: "plan-prev", BatchID: "batch-1", Attempt: 1})
 	planCalls := 0
@@ -8128,7 +8128,7 @@ func TestRunControllerPlanBatch_NoPlanDoesNotSpendRetryAfterCancel(t *testing.T)
 	ar, sr, sar := buildRegistries(nil)
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	planCalls := 0
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
@@ -8179,7 +8179,7 @@ func TestRunControllerPlanBatch_NoChangeSentinelRestoresAppliedPlanForVerify(t *
 	ar, sr, sar := buildRegistries(nil)
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
 		if stage != types.StagePlan {
@@ -8225,7 +8225,7 @@ func TestRunControllerPlanBatch_NoPlanWithTypedAnchorsGetsOneRetry(t *testing.T)
 	ar, sr, sar := buildRegistries(nil)
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	planCalls := 0
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
@@ -8289,7 +8289,7 @@ func TestRunControllerPlanBatch_NoPlanAfterExplorationHandoffGetsOneRetry(t *tes
 	ar, sr, sar := buildRegistries(nil)
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	planCalls := 0
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
@@ -8358,7 +8358,7 @@ func TestRunControllerPlanBatch_ReadOnlyProgressGetsSecondRetry(t *testing.T) {
 	ar, sr, sar := buildRegistries(nil)
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	planCalls := 0
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
@@ -8440,7 +8440,7 @@ func TestRunControllerPlanBatch_PlanEmitRejectionGetsSecondRetry(t *testing.T) {
 	ar, sr, sar := buildRegistries(nil)
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	planCalls := 0
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
@@ -8522,7 +8522,7 @@ func TestRunWriteControllerWorkflow_ReplanProbePassRestoresAppliedPlanForVerify(
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	o.SetWriteRetryBudget(2)
 
@@ -8759,7 +8759,7 @@ func TestRunWriteControllerWorkflow_ReplanCancelReportsAppliedPatch(t *testing.T
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}, Language: "en"}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	o.readExplorationRunner = readExplorationRunnerFunc(func(*Orchestrator) (int, error) {
 		return 1, nil
@@ -8871,7 +8871,7 @@ func TestRunWriteControllerWorkflow_ReplanWriteDeadlineAfterAppliedPatchStaysRes
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}, Language: "en"}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	o.SetWriteRetryBudget(2)
 	planCalls := 0
@@ -9003,7 +9003,7 @@ func TestRunWriteControllerWorkflow_ReplanFailureAfterAppliedPatchBlocksRun(t *t
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}, Language: "en"}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	o.SetWriteRetryBudget(2)
 	planCalls := 0
@@ -9110,7 +9110,7 @@ func TestRunControllerPlanBatch_NoPlanWithoutHandoffStaysTerminal(t *testing.T) 
 	ar, sr, sar := buildRegistries(nil)
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	planCalls := 0
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
@@ -9150,7 +9150,7 @@ func TestRunControllerPlanBatch_ProofFollowupRequiresVerificationProbe(t *testin
 	ar, sr, sar := buildRegistries(nil)
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	planCalls := 0
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
 		if stage != types.StagePlan {
@@ -9230,7 +9230,7 @@ func TestRunControllerPlanBatch_ProofFollowupAcceptsProbeOnlyPlan(t *testing.T) 
 	ar, sr, sar := buildRegistries(nil)
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	planCalls := 0
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
 		if stage != types.StagePlan {
@@ -9295,7 +9295,7 @@ func TestRunControllerPlanBatch_PureProofFollowupRetriesProductionSourcePatchToP
 	ar, sr, sar := buildRegistries(nil)
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	planCalls := 0
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
 		if stage != types.StagePlan {
@@ -9384,7 +9384,7 @@ func TestRunControllerPlanBatch_PureProofFollowupAllowsProductionRepairWithFailu
 	ar, sr, sar := buildRegistries(nil)
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	planCalls := 0
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
 		if stage != types.StagePlan {
@@ -9544,7 +9544,7 @@ func TestRunControllerPlanBatch_ProofFollowupRetriesCommentOnlyProductionPatchTo
 	ar, sr, sar := buildRegistries(nil)
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	planCalls := 0
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
 		if stage != types.StagePlan {
@@ -9664,7 +9664,7 @@ func TestRunWriteControllerWorkflow_NoPlanBlocksDurableRun(t *testing.T) {
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	planCalls := 0
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
@@ -9710,7 +9710,7 @@ func TestRunWriteControllerWorkflow_CanceledPlanRecordsCanceledReason(t *testing
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
 		if stage != types.StagePlan {
@@ -9751,7 +9751,7 @@ func TestSeedWriteWorkflowRun_MicroScopeStartsReadyToPlan(t *testing.T) {
 	ar, sr, sar := buildRegistries(nil)
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	run := o.seedWriteWorkflowRun()
 	if len(run.Batches) != 1 {
 		t.Fatalf("expected one seeded batch, got %+v", run.Batches)
@@ -9770,7 +9770,7 @@ func TestSeedWriteWorkflowRun_NonMicroStartsNeedsExploration(t *testing.T) {
 	ar, sr, sar := buildRegistries(nil)
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	run := o.seedWriteWorkflowRun()
 	if len(run.Batches) != 1 || run.Batches[0].Status != types.WriteWorkflowBatchNeedsExploration {
 		t.Fatalf("non-micro seed must keep needs_exploration, got %+v", run.Batches)
@@ -9796,7 +9796,7 @@ func TestRunWriteControllerWorkflow_BudgetExhaustionAutoAppliesReadyPlan(t *test
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	o.maxSteps = 2 // controller+plan exhaust the budget before a controller apply turn
 	applyRan := false
@@ -9861,7 +9861,7 @@ func TestRunWriteControllerWorkflow_BudgetExhaustionRunsCompletionVerify(t *test
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	o.maxSteps = 3 // controller+plan+auto-apply → exhausted before verify turn
 	verifyRan := false
@@ -9909,7 +9909,7 @@ func TestRunWriteControllerWorkflow_BudgetCompletionVerifyFailureStillBlocks(t *
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	o.reportDir = planDir
 	o.maxSteps = 3
@@ -9958,7 +9958,7 @@ func TestRunWriteControllerWorkflow_MirrorsActivePlanToImportFile(t *testing.T) 
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}, PlanPath: mirror}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	o.SetWriteRetryBudget(2)
 	attempt := 0
@@ -10127,7 +10127,7 @@ func TestRunWriteControllerWorkflow_ResumeHydratesRetryPlanAndHandoff(t *testing
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	o.reportDir = planDir
 	o.SetWriteRetryBudget(3)
@@ -10202,7 +10202,7 @@ func TestRunWriteControllerWorkflow_ResumeKeepsRetryBudgetHonest(t *testing.T) {
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	o.reportDir = planDir
 	o.SetWriteRetryBudget(2) // two failures already on record → next failure exceeds
@@ -10251,7 +10251,7 @@ func TestRunWriteControllerWorkflow_ExplorationBudgetSoftRejects(t *testing.T) {
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
 		switch stage {
@@ -10296,7 +10296,7 @@ func TestRunWriteControllerWorkflow_BatchSwitchClearsStaleHandoff(t *testing.T) 
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	o.SetWriteRetryBudget(5)
 	var handoffAtBatch2Plan *types.VerifyFailureHandoff
@@ -10354,7 +10354,7 @@ func TestRunWriteControllerWorkflow_AskUserSurfacesQuestions(t *testing.T) {
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	steps := 0
 	err := o.runWriteControllerWorkflow(&steps)
@@ -10389,7 +10389,7 @@ func TestRunWriteControllerWorkflow_NoTestsCompletionCarriesCaveat(t *testing.T)
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
 		switch stage {
@@ -10433,7 +10433,7 @@ func TestRunWriteControllerWorkflow_NoTestsDoesNotReplan(t *testing.T) {
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	planCalls := 0
 	verifyCalls := 0
@@ -10498,7 +10498,7 @@ func TestRunWriteControllerWorkflow_UnverifiedSuppressesFollowupExploreBatch(t *
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	explorationCalls := 0
 	o.SetReadExplorationRunner(readExplorationRunnerFunc(func(o *Orchestrator) (int, error) {
@@ -10566,7 +10566,7 @@ func TestRunWriteControllerWorkflow_PendingApprovalPersistsWorkflowPlan(t *testi
 	})
 	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
 	o.SetPlanSaver(saver)
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {

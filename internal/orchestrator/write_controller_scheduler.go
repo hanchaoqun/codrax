@@ -2319,10 +2319,11 @@ func (o *Orchestrator) cancellationSourceIsWriteDeadline(err error) bool {
 	if !errors.Is(err, ErrCanceled) && !errors.Is(err, context.Canceled) {
 		return false
 	}
-	if o == nil || o.cancelToken == nil {
+	tok := o.cancelTokenLoad()
+	if tok == nil {
 		return false
 	}
-	return o.cancelToken.Source() == CancelSourceWriteDeadline
+	return tok.Source() == CancelSourceWriteDeadline
 }
 
 func (o *Orchestrator) appliedPatchInterruptedCanResume(run *types.WriteWorkflowRun, err error) bool {
@@ -8818,7 +8819,7 @@ func (o *Orchestrator) runBudgetCompletionVerify(run *types.WriteWorkflowRun, st
 // patch has already been applied. User/global cancellation remains authoritative:
 // if the cancel token is set, the scheduler returns the interruption immediately.
 func (o *Orchestrator) runDispatchInterruptedCompletionVerify(run *types.WriteWorkflowRun, stepsUsed *int, importedPlanMirror string) bool {
-	if o != nil && o.cancelToken != nil && o.cancelToken.IsCanceled() {
+	if tok := o.cancelTokenLoad(); tok != nil && tok.IsCanceled() {
 		return false
 	}
 	return o.runAppliedPendingCompletionVerify(run, stepsUsed, importedPlanMirror,

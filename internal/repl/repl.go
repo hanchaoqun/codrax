@@ -6361,6 +6361,7 @@ func (r *REPL) Loop() error {
 		}
 		line, display, err := r.readInputPair(tag + "❯❯")
 		if err != nil {
+			r.restoreTTYForExit()
 			fmt.Fprintln(r.out)
 			fmt.Fprintln(r.out, "  Goodbye!")
 			return nil
@@ -7903,6 +7904,9 @@ func (r *REPL) handleSlash(line string) bool {
 		r.handleReposCmd(line)
 		return false
 	case "/exit", "/quit":
+		// REGFIX-A #1 companion: never leave the parent shell in the
+		// window's cbreak mode on a normal exit.
+		r.restoreTTYForExit()
 		fmt.Fprintln(r.out, "  Goodbye!")
 		return true
 	case "/clear":

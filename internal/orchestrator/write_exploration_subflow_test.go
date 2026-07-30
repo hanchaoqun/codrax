@@ -178,7 +178,7 @@ func TestRunWriteExplorationSubflowAppliesMaxRoundsOverride(t *testing.T) {
 		Mode:       types.ModeApply,
 		AnalysisIR: &types.AnalysisIR{},
 	}
-	o.cancelToken = NewCancelToken()
+	o.cancelTokenPtr.Store(NewCancelToken())
 
 	if _, err := o.runWriteExplorationSubflow(); err != nil {
 		t.Fatalf("runWriteExplorationSubflow returned error: %v", err)

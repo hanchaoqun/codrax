@@ -209,3 +209,63 @@ func itoa(n int) string {
 	}
 	return string(buf[i:])
 }
+
+// ── Orchestrator cancel surface (relocated from orchestrator.go by
+// REGFIX-A #2: cancelTokenPtr is an atomic pointer because the REPL's
+// SIGINT goroutine and the TTY run-input window goroutine read it while
+// Run() replaces it per run and clears it in a defer — the bare field
+// was a confirmed -race finding whose symptoms were a lost ESC/Ctrl+C
+// or a cancel aimed at the wrong run.) ─────────────────────────────
+
+// Cancel marks the in-flight Run as canceled with the given reason.
+// Safe to call from any goroutine (the REPL's signal handler runs in
+// its own goroutine). Idempotent: subsequent calls preserve the FIRST
+// reason so a "Ctrl+C" cannot be overwritten by a follow-on
+// "/cancel". No-op when no Run is in flight (idle Orchestrator).
+//
+// The cancellation lands at the next pipeline checkpoint
+// (dispatchStage front, agent loop top, before tool exec). Worst-case
+// delay is the duration of the currently-running LLM Chat call —
+// Phase 1 by design accepts that latency in exchange for a tiny
+// surface area; Phase 2 will plumb context.Context through the LLM
+// adapter for immediate HTTP-level cancellation.
+// cancelTokenLoad returns the current run's cancel token (nil between
+// runs). Safe from any goroutine.
+func (o *Orchestrator) cancelTokenLoad() *CancelToken {
+	if o == nil {
+		return nil
+	}
+	return o.cancelTokenPtr.Load()
+}
+
+func (o *Orchestrator) Cancel(reason string) {
+	tok := o.cancelTokenLoad()
+	if tok == nil {
+		return
+	}
+	tok.Cancel(reason)
+}
+
+// IsCanceled reports whether a Run is in flight AND has been canceled.
+// Used by the REPL to drive the "✗ canceled" rendering path on top
+// of the standard Run() return. Cheap atomic read; safe under any
+// concurrent caller pattern.
+func (o *Orchestrator) IsCanceled() bool {
+	tok := o.cancelTokenLoad()
+	return tok != nil && tok.IsCanceled()
+}
+
+// CancelContext returns the cancellation-aware context.Context
+// backing the current Run's CancelToken. HTTP-level callers (LLM
+// Adapter, exec.CommandContext, worktree git operations) derive
+// from this ctx so Cancel produces immediate interruption instead
+// of waiting for a cooperative checkpoint. Returns context.TODO()
+// when no Run is in flight or no token is allocated — callers can
+// always derive from the returned ctx without nil-checking.
+func (o *Orchestrator) CancelContext() context.Context {
+	tok := o.cancelTokenLoad()
+	if tok == nil {
+		return context.TODO()
+	}
+	return tok.Context()
+}
