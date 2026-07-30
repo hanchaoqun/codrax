@@ -132,3 +132,16 @@ Windows 数据类型（winprog/windows-data-types）：WORD=16 位、BOOL=int=32
 ### 8.5 对抗复核记录（提交前，wf_7e1f7a04-6e8）
 
 四路独立证伪（布局重推导/永不更差反例构造/Go-Win32 调用力学/集成与档案事实核查）：**4/4 sound，零 high/medium**。2 条 low 均已吸收：前置稳定性前提落 §8.3 约束条款；「双重 IsTerminal」措辞收紧。复核另独立复现了隔离编译矩阵（三架构 build+vet 离线全过）、逐项核对档案事实（27 例计数、版本、普查断言全部对上），并确认旧「记档不修」注释全仓零残留。机制审查全绿：SyscallN 四参形正确且保活、Find() 成功缓存、WAIT_TIMEOUT 类型双关经显式转换无害、无热旋（每条 continue 都回到内核等待且被 deadline 封顶）、bufio 无饥饿（丢弃车道只动控制台缓冲、永不动 bufio）。
+
+
+## 9. 第二轮自查 sweep 与 SWEEPFIX-EF/G/H（2026-07-30）
+
+按 §7 教训③（收工必对本人当日批次做对抗复核），对 REGFIX-A/B/C/D + 事故响应件（止血/auto-resume 默认关/FABGATE-1）+ WINPEEK-1 吸收增量做了 46-agent 六维 sweep（六路 finder → 每条 finding 双镜头 refuter 证伪）：**20 条幸存、0 条被驳**（refuter 双确认全为真缺陷），三批根修全推 main。
+
+**SWEEPFIX-EF**：S0 commitLine 先清 partial 后查 dead → Enter 撞上 drain 时整行蒸发（改全程持锁、dead 先查、死窗口保留 partial 给 drain 快照）；S1 dead 路径丢弃已消费字节（UTF-8 lead byte 变下个窗口的乱码 type-ahead）→ UnreadByte 归还；S2 保险丝 watcher 在 unwedge 的任意时刻恢复 termios、砸在 fallback 编辑器脚下 → abandon 即还终端（restoreModeEarly）、watcher 只还借用；**S7(high) cherryPickReportedEmpty 子串匹配自由文本**——提交主题含 "nothing to commit" 的真冲突被 --skip 静默丢弃变更而 /merge 报成功（主题是 LLM plan Summary，可达）；S8 匹配词组被 gettext 本地化（zh_CN 客户 locale 下修复完全不生效）；S9 --skip 在 git<2.23 不存在 → **根修=删除整个字符串匹配**，改 `git cherry` patch-id 等价**预计算**（plumbing 机器格式、LC_ALL=C、fail-open 到不跳过=响亮中止不丢数据）；S10 worktree 车道补同款跳过（两车道同链同行为）；S11 补四个判决性 pin（全链落地/链中等价跳过/S7 回归形/回滚完整）。
+
+**SWEEPFIX-G**：S5（最锋利）运行窗口无括号粘贴车道——粘贴的 "!git clean -fdx"（聊天记录/jupyter/markdown）逐行进 commitLine、被 intake 拒收、排队、**被回放漏斗真实 shell 执行** → 窗口识别 ESC[200~/201~，粘贴=单一 verbatim blob，follow-up 变 typed（pendingFollowUp{Text,Verbatim}），verbatim 条目回放永不进命令漏斗；S4 intake 拒收从「/ \\ ! 前缀」噪声启发式改为**漏斗自身精确谓词**（shell-bang 前缀+别名注册表；模板命令在 REPL trySteer 包装层拒收）——"/var/log/app.log 里有 panic" 这类路径开头散文恢复为 steering；S3 source-exclusion 边界下 hint 仍宣称「pins 已排队读取」=对 LLM 的假话 → 三臂真话词面；S6 回放顺序改为命令先、未消费散文后（散文通常预设命令的效果；真实交错不可重建，裁定落账）。
+
+**SWEEPFIX-H**：S12 objective-start 残留归零在 read 模式擦掉 analyze 账（pipeline start 成唯一边界，旧 PIB-5 pin 改钉新裁定）；S13 direct-LLM 车道（/chat 等）补发 EventPipelineStart（上轮账不再渗入）；S14 tailByDisplayWidth 走包级默认条件与行帽混用两种几何 → 统一 dockWidthCond；S15 几何 pin 注释描述的是被否设计 → 改述已交付的 fail-safe 宽测量及否决理由；S16 Enter 劫持在斜杠行复活（"/write … @dock" 的面板来自 @-file provider 而分类按 "/" 前缀）→ 车道按**面板归属 provider** 判定（与 filterSuggestions 优先级同构）；S17 /import 镜像臂——manifest 声明 hash 而 payload 文件缺失/空/不可读时静默部分导入 → 整包响亮拒绝；S18 auto-resume 披露在候选安装时宣称「已恢复」而软校验仍可拒 seed 且无更正 → 候选语义词面；S19 ClearAll 按 JSON 内部 RunID 删（文件名≠内部 id 的复制件在 /clear 后存活为活候选、IsNotExist 空操作还计入删除数）→ 按文件名枚举删除、只计真实删除。
+
+**过程教训**：① sweep 六路 20/20 幸存、0 误报——双镜头（正确性复现 + 设计意图/账本对照）refuter 组合有效；② 我上一轮在 REGFIX-C 里现写的 cherryPickReportedEmpty 是当天新增缺陷里最重的一条（high）——**修复批自身必须进下一轮 sweep 的靶面**，本轮正是这么抓住的；③ 输入层的"数据/命令"边界（粘贴、路径开头散文）是回归高发面，一切拒收/分类谓词必须与漏斗自身谓词同源。
