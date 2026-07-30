@@ -6532,6 +6532,9 @@ contractFailureBreak:
 			// (§29.12) per-answer repair-round telemetry — same order
 			// as the main exit below.
 			lastFinalize.FinalAnswer = o.appendProseScalarResidualCaveatToAnswer(lastFinalize.FinalAnswer)
+			// EVALFIX-2C 类3 decisive-tier ship-time disclosure — same
+			// chokepoint, CAVSTR register prevents double appends.
+			lastFinalize.FinalAnswer = o.appendMechanicalClaimResidualCaveatToAnswer(lastFinalize.FinalAnswer)
 			o.logFinalizeRepairRoundsTelemetry(state)
 			o.recordTaskFinalize(lastFinalize)
 			o.emitCGECSummary()
@@ -6761,6 +6764,11 @@ contractFailureBreak:
 		// AFTER the first-draft attachment re-render so the caveat
 		// cannot be clobbered by a downstream FinalAnswer overwrite.
 		lastFinalize.FinalAnswer = o.appendProseScalarResidualCaveatToAnswer(lastFinalize.FinalAnswer)
+		// EVALFIX-2C 类3 decisive-tier ship-time disclosure — same
+		// chokepoint discipline as the PSG backstop above (latch +
+		// shipped-doc re-scan with the same Scan functions; CAVSTR
+		// register prevents double appends).
+		lastFinalize.FinalAnswer = o.appendMechanicalClaimResidualCaveatToAnswer(lastFinalize.FinalAnswer)
 	}
 	// FRCAP (§29.12) per-answer repair-round telemetry, auditable in
 	// revisit transcripts.

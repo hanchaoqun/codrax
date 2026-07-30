@@ -1008,6 +1008,31 @@ const (
 	// promotion via pipeline_contract_strict_kinds remains the typed
 	// escape hatch back to a gating retry.
 	ViolProseLexiconBoardInconsistent ViolationKind = "prose_lexicon_board_inconsistent"
+
+	// ViolMechanicalClaimContradiction fires when model-authored answer
+	// prose carries an assertion whose truth is decidable by ARITHMETIC
+	// ALONE and the sentence contradicts itself — the first family is
+	// numeric_direction: one sentence states ⟨quantity A⟩ ⟨comparator⟩
+	// ⟨quantity B⟩ (negation-flipped forms included), both sides carry
+	// explicit same-dimension units, and the written direction is the
+	// opposite of what the two normalized numbers say (EVALFIX-2C 类3,
+	// docs/design/evalfix2_class_designs_20260730.md; witness F7:
+	// 「…（80ms）未超过…（16.67ms）」 while 80 > 16.67).
+	//
+	// Unlike PSG (which asks "is this number published on the evidence
+	// face?"), this lane asks "does this sentence contradict itself?" —
+	// a perfectly grounded pair of numbers can still ship with the
+	// direction written backwards. The arithmetic verdict is exact, but
+	// the EXTRACTION (which numbers, which comparator, negation scope,
+	// binding) is a noisy regex/lexicon signal, so per the
+	// precise-signals red line the lane is SOFT forever: one merged
+	// violation per run at most (validator-side one-round latch), never
+	// a hard emit-time reject, never a system rewrite of the body.
+	// Residual decisive-tier findings on the shipped document surface
+	// through the lane's own deterministic ship-time caveat. Operator
+	// promotion via pipeline_contract_strict_kinds remains the typed
+	// escape hatch back to a gating retry.
+	ViolMechanicalClaimContradiction ViolationKind = "mechanical_claim_contradiction"
 )
 
 // AllViolationKinds returns every declared ViolationKind in a stable
@@ -1108,6 +1133,8 @@ func AllViolationKinds() []ViolationKind {
 		// CR-1 件②/件⑤ prose lexicon + board consistency (§29.42.4,
 		// 2026-07-12).
 		ViolProseLexiconBoardInconsistent,
+		// EVALFIX-2C 类3 mechanical claim contradiction (2026-07-30).
+		ViolMechanicalClaimContradiction,
 	}
 }
 

@@ -360,6 +360,15 @@ var composerExactFixSkipWhitelist = map[types.ViolationKind]string{
 	// exactly right. One-shot by design: raised at most once per run on
 	// the shared latch.
 	types.ViolProseLexiconBoardInconsistent: "uses violation.Repair for fix prose (validator stamps lexicon/board findings + one-shot rewrite guidance)",
+
+	// EVALFIX-2C 类3 (2026-07-30) — mechanical claim contradiction. The
+	// producer (orchestrator/mechanical_claim_check.go) stamps a complete
+	// Detail (each contradicted sentence with both unit-normalized
+	// numbers and the arithmetic direction) + Repair (fix the direction
+	// word / correct the mis-stated number / reword, minimal edit) pair,
+	// so the generic composer fallback is exactly right. One-shot by
+	// design: raised at most once per run on the lane latch.
+	types.ViolMechanicalClaimContradiction: "uses violation.Repair for fix prose (validator stamps per-sentence direction findings + minimal-edit guidance)",
 }
 
 // TestComposer_AllViolationKindsHaveCase enforces P34's

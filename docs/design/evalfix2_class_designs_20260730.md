@@ -709,6 +709,17 @@ mechanicalClaimPercentFloorP = 0.5  // 百分比量纲（百分点）
 5. **不做初始 prompt 教学**：向全 run 征 prompt 税去防一个低频生成滑笔不成比例；hint 轮就是教学面。
 6. **不新增 CLI/yaml 开关**：既有 strict/soft kinds yaml 已是本 kind 的操作员面，另开开关即谓词分叉。
 
+## 10. 落地偏离（EVALFIX-2C 实施记录，2026-07-30）
+
+状态：已实施（`internal/orchestrator/mechanical_claim_check.go` + `_test.go`；types 三件 kind/registry/闩；contract_check 布线 + orchestrator 两处披露挂点；先红后绿——F7 见证钉先对空 Scan 实现跑红）。与 §4–§7 逐条对照，偏离如下：
+
+1. **en 词表补 bare `exceed`**：§4.2 词表只列 exceeds/exceeded/exceeding，但 §7.1 钉住的 en 见证形 "80ms does not exceed the 16.67ms budget" 用的是原形 `exceed`（否定式接原形）——词表按 §7.1 的判决性测试补入 `exceed`（ASCII 词界匹配下 `exceeds` 不会被 `exceed` 截读，双保险）。属 spec 内部不一致，按测试钉裁决。
+2. **之内/以内 只实现「在」臂**：§4.2 的准入条件为「前接"在"或窗名」；实施为缰绳窗（30 rune）内出现「在」才准入，「窗名」臂未实现（窗名无闭集定义，宁缺勿滥——纯 recall 成本，precision 无损）。补窗名臂 = 该谓词一处扩展。
+3. **token cap 作用域**：§4.1 写「每 run …token cap 200」；实施为**每 text unit** cap 200（`Scan(unit, spans)` 的注册表签名被 §7.7 测试钉死，扫描器无 run 级累加器可读）。run 级工作量仍由 finding cap 8 + unit 数封顶。
+4. **zh 否定窗不跨标点**：≤4 rune 紧邻窗实施为遇标点即止（「与预期不同，超过 16.67ms」中 不同 的「不」不得被读作否定翻转——真实假阳形，紧邻语义的实现细节收紧，方向=更保守）。
+5. **共享壳 lang 参数暂不进 Detail**：violation Detail 维持 prose_* 家族纪律（en LLM/log 面；句面片段原文引用自带语言）；zh 面走本 lane 自己的 decisive 披露 caveat（zh 分支纯 CN）。签名按 §6.5 保留 lang 透传。
+6. **§7.9 冒烟 eval / 真阴性基线未在本窗执行**：需 LLM 凭证与长跑批；本窗交付确定性验证全绿（make + go test ./... 83 包 0 FAIL + `TestRunMode_ReadByteIdentical` 绿）。blocked_reason 场景族冒烟与「既有 eval 全量 PASS 例本 kind 触发数=0」基线留给下一次 eval 批跑一并验收。
+
 ---
 
 # CLASS 4 — 账本条目数据血统校验（ledger-entry data lineage）设计

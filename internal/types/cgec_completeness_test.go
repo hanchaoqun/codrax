@@ -336,6 +336,11 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		// runProseLexiconBoardCheck, dispatched from contract_check.go
 		// beside the prose-scalar lane.
 		ViolProseLexiconBoardInconsistent: true,
+		// EVALFIX-2C 类3 (2026-07-30). Producer wired in
+		// orchestrator/mechanical_claim_check.go
+		// runMechanicalClaimCheck, dispatched from contract_check.go
+		// after the prose-lexicon lane.
+		ViolMechanicalClaimContradiction: true,
 	}
 	pending := map[ViolationKind]string{
 		ViolFamilyMismatch:                 "P9-C-retired-V1-checkShape (V2 block oracles cover read-mode block contract via runV2BlockOracles)",

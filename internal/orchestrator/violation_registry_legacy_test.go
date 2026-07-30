@@ -106,6 +106,11 @@ var violRegistryGolden = map[types.ViolationKind]violGoldenRow{
 	// consistency — SoftByDefault, one shared one-round latch, never a hard
 	// reject, never a caveat (advisory log fallback only).
 	"prose_lexicon_board_inconsistent": {"medium", "high", true, true, "finalizer", "answer_oracle", "consistency"},
+	// EVALFIX-2C 类3 (2026-07-30): mechanical claim contradiction —
+	// soft-only lane (noisy extraction, exact arithmetic), one-round
+	// latch, decisive-tier ship-time caveat; operator promote bumps
+	// soft → medium.
+	"mechanical_claim_contradiction": {"soft", "medium", true, true, "finalizer", "answer_oracle", "consistency"},
 }
 
 // TestRegistryGoldenSnapshot pins the full derived routing surface for

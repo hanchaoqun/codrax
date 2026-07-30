@@ -1195,4 +1195,27 @@ func init() {
 		Description:     "CR-1 §29.42: model prose uses an engine-styled snake_case token no evidence surface of this run published, claims two different primary root causes in one document, or names a primary root cause differing from the measured board's #1 seat without disclosing the deviation; the one-shot hint lists each finding — one round, then the answer ships as written.",
 		FixableByAgents: []AgentName{AgentFinalizer},
 	})
+
+	// EVALFIX-2C 类3 (2026-07-30,
+	// docs/design/evalfix2_class_designs_20260730.md): mechanical claim
+	// contradiction — a prose assertion decidable by arithmetic alone
+	// (first family: quantity-comparator-quantity direction claims)
+	// contradicts its own numbers. SoftByDefault keeps the commercial
+	// post-emit default; the extraction layer is noisy so the lane never
+	// hardens on its own (precise-signals red line). NO CaveatFamilyID:
+	// residual disclosure rides the lane's OWN deterministic ship-time
+	// caveat (decisive tier only, orchestrator ship-exit re-scan with the
+	// same Scan functions), not the caveat-family materializer — the
+	// generic residual-concerns path renders nothing for this kind by
+	// design (same reasoning as ViolProseScalarUngrounded above).
+	RegisterViolKind(ViolKindSpec{
+		Kind: ViolMechanicalClaimContradiction, DefaultSeverity: SeveritySoft, RepairPhase: RepairPhaseConsistency,
+		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
+		Layer:       "answer_oracle",
+		Description: "EVALFIX-2C 类3: a prose sentence states a quantity-comparator-quantity claim (negation forms included) whose written direction contradicts the two unit-normalized numbers themselves; the one-shot hint lists each sentence with the arithmetic direction — one round, then the answer ships as written, decisive-tier residuals disclosed via the lane's own ship-time caveat.",
+		// Fix path: prose rewrite only — fix the direction word, correct a
+		// mis-stated number to its published value, or reword the sentence;
+		// no new evidence needed.
+		FixableByAgents: []AgentName{AgentFinalizer},
+	})
 }

@@ -134,6 +134,12 @@ type MutableState struct {
 	// the board-order consistency arms.
 	// See MarkProseLexiconBoardHintDelivered.
 	proseLexiconBoardHintDelivered bool
+	// mechanicalClaimHintDelivered is the EVALFIX-2C 类3 (2026-07-30)
+	// one-round latch shared by every mechanical-claim checker family:
+	// set the first time a finalize dispatch is observed CARRYING the
+	// mechanical-claim retry hint, after which the lane never raises
+	// again this run. See MarkMechanicalClaimHintDelivered.
+	mechanicalClaimHintDelivered bool
 	// attachedArtifactLexicon caches the attached-artifact snake_case token
 	// set (S1a, STAB-1 2026-07-12) so the multi-megabyte attachment text is
 	// scanned at most once per run. See AttachedArtifactLexicon.
@@ -5840,6 +5846,33 @@ func (m *MutableState) ProseLexiconBoardHintDelivered() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.proseLexiconBoardHintDelivered
+}
+
+// MarkMechanicalClaimHintDelivered records that a finalize dispatch carrying
+// the mechanical-claim retry hint has been observed (EVALFIX-2C 类3,
+// 2026-07-30). Sticky for the whole run and SHARED by every checker family
+// in the mechanical-claim registry: once the hint has been delivered for the
+// lane's single repair round, the lane stays silent — including when a LATER
+// retry (caused by other violation kinds) rebuilds the retry surface without
+// the mechanical-claim entry. Same anti-livelock shape as the PSG latch.
+func (m *MutableState) MarkMechanicalClaimHintDelivered() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.mechanicalClaimHintDelivered = true
+}
+
+// MechanicalClaimHintDelivered reports whether the mechanical-claim hint has
+// already been consumed by a finalize dispatch this run.
+func (m *MutableState) MechanicalClaimHintDelivered() bool {
+	if m == nil {
+		return false
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.mechanicalClaimHintDelivered
 }
 
 // SetCompletionGateNote stores a one-line audit note a completion gate wants

@@ -365,6 +365,19 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 					trace.run("prose_lexicon_board", func() []types.Violation {
 						return runProseLexiconBoardCheck(docV2, o.busCtx, mut)
 					})...)
+				// EVALFIX-2C 类3 (2026-07-30) — mechanical claim
+				// contradiction: a prose sentence whose
+				// quantity-comparator-quantity direction contradicts its
+				// own two unit-normalized numbers. Deliberately NOT gated
+				// on HasDeterministicRuntimeQueryObservation — the class
+				// is run-universal (the F7 witness happened on a trace
+				// run, but the class is not trace-scoped); that is the
+				// scope boundary with PSG. Soft-only lane, one merged
+				// violation per run at most.
+				result.Violations = append(result.Violations,
+					trace.run("mechanical_claim", func() []types.Violation {
+						return runMechanicalClaimCheck(docV2, mut, o.busCtx.Language)
+					})...)
 			}
 			if rm := mut.RequestModel(); rm != nil {
 				result.Violations = append(result.Violations,
