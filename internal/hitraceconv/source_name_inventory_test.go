@@ -41,6 +41,11 @@ func TestTraceDBSourceNameInventoryAcceptsCommonFileTypeZeroAndFailsClosedPerTID
 	if err != nil {
 		t.Fatal(err)
 	}
+	if inventory.RawDecode.ElapsedUS <= 0 ||
+		!strings.Contains(inventory.RawDecode.Metadata["elapsed_scope"],
+			"strict target decode") {
+		t.Fatalf("raw profile/decode elapsed authority missing: %+v", inventory.RawDecode)
+	}
 	if !inventory.Coverage.Found || inventory.Coverage.RowsRead != 7 ||
 		inventory.Coverage.RowsEmitted != 2 ||
 		inventory.Names[100] != "app" || inventory.Names[200] != "worker" {

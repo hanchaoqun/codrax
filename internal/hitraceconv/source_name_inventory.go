@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -296,10 +297,14 @@ func scanTraceDBSourceNameInventory(ctx context.Context, input conversionInputVi
 		}
 	}
 	finalizeTraceDBSourceRawAuthority(&inventory.RawAuthority, header, rawAudit, incomplete)
+	rawDecodeStarted := time.Now()
 	inventory.RawProfile, inventory.RawDecode, inventory.RawBlocked, inventory.RawDMAWait,
 		inventory.RawDMALifecycle, inventory.RawMarkers, inventory.RawSwitchLite,
 		inventory.RawWakeupLite, inventory.RawWakeupNames, err =
 		probeTraceDBSourceRawProfile(ctx, input, header, rawAudit.segments, incomplete)
+	traceDBSetCoverageElapsed(&inventory.RawDecode, rawDecodeStarted)
+	inventory.RawDecode.Metadata["elapsed_scope"] =
+		"source event-format profile, raw-page structural scan, strict target decode and retained-family census"
 	if err != nil {
 		return inventory, err
 	}

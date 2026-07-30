@@ -5674,6 +5674,16 @@ authorized when scheduler retention is withdrawn, and the converse. This is
 the code-side closure needed for LARG-A's `497087` name-unrepresentable roster;
 the exact recovered count remains replay evidence and is never predicted.
 
+### LARG-A4 timing authority
+
+`source_rawtrace_decode.elapsed_us` now measures the complete immutable-source
+event-format profile, raw-page structural scan, strict target decode and
+retained-family census. Its `elapsed_scope` is emitted verbatim, and capability
+`official_raw_record_decode_elapsed_v1` identifies the build. This closes the
+zero-duration observability gap before optimizing the newly admitted
+1.76-million-record suffix. Sorter, O2 and full postvalidation timings remain
+separate and none of their verification gates is weakened.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.

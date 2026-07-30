@@ -64,6 +64,7 @@ var traceConvertDiagnosticCapabilities = []string{
 	"official_raw_record_decode_budget_v2",
 	"official_raw_record_decode_retained_bytes_v3",
 	"official_raw_record_family_authority_v1",
+	"official_raw_record_decode_elapsed_v1",
 	"official_raw_scheduler_lite_wakeup_join_v1",
 	"official_raw_dma_wait_recovery_v1",
 	"official_raw_dma_lifecycle_point_recovery_v1",
