@@ -11091,3 +11091,22 @@ func TestValidateRuleCoverageRequiresSourceBackedLinksWhenAvailable(t *testing.T
 		t.Fatalf("validateRunnerResult with source-backed rule ref: %v", err)
 	}
 }
+
+// EVALFIX-1 Gap B pin (eval specimen data_json_strict_ids 2026-07-30):
+// the reconcile validator shares the HasAnswer admission predicate — a
+// model-emitted descriptive string that fails the declared output
+// contract is NOT an answer for the expected/actual comparison, while a
+// contract-conformant wrong answer still fails it.
+func TestReconcileComparableAnswer_SharesContractPredicate(t *testing.T) {
+	jsonOnly := OutputContract{Format: OutputJSONOnly}
+	junk := "- rules_artifacts.json: derived 3 generic rule(s)\n- coverage_records.json: extracted records"
+	if got := reconcileComparableAnswer(junk, jsonOnly); got != "" {
+		t.Fatalf("descriptive text failing the contract must be treated as absent; got %q", got)
+	}
+	if got := reconcileComparableAnswer(`{"ids":["u9"]}`, jsonOnly); got == "" {
+		t.Fatal("a contract-conformant answer must stay comparable (wrong values still caught)")
+	}
+	if got := reconcileComparableAnswer(junk, OutputContract{}); got == "" {
+		t.Skip("contract-less lane keeps only the legacy summary recognizer; junk not matched by it stays comparable by design")
+	}
+}

@@ -3836,12 +3836,30 @@ func validateExactTargets(raw string, in []string, requiredFiles []emitRequiredF
 	for _, item := range validated {
 		seen[strings.ToLower(strings.TrimSpace(item))] = true
 	}
+	lowerRaw := strings.ToLower(strings.ReplaceAll(raw, `\`, `/`))
 	for _, item := range in {
-		key := strings.ToLower(strings.TrimSpace(item))
+		trimmed := strings.TrimSpace(item)
+		key := strings.ToLower(trimmed)
 		if key == "" || seen[key] {
 			continue
 		}
-		invalid = append(invalid, strings.TrimSpace(item))
+		// EVALFIX-1 (eval specimen qf_config_precedence 2026-07-30): a
+		// target that IS verbatim in the request must never be dropped
+		// or reported as "not copied verbatim". MentionedEntities
+		// dedupes by normalized resolution key, so "--pipeline-max-steps"
+		// and "pipeline_max_steps" collapse to one key and the second
+		// surface vanished — then this lane branded the verbatim
+		// survivor invalid: a false diagnostic AND lost user intent.
+		// The direct raw check is the precise signal.
+		if lowerRaw != "" && strings.Contains(lowerRaw, strings.ToLower(strings.ReplaceAll(trimmed, `\`, `/`))) {
+			validated = append(validated, trimmed)
+			seen[key] = true
+			continue
+		}
+		invalid = append(invalid, trimmed)
+	}
+	if len(invalid) == 0 {
+		return validated, "", ""
 	}
 	sort.Strings(invalid)
 	return validated, "", fmt.Sprintf(

@@ -2656,7 +2656,11 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	func() {
 		done := analyzerParseOutputSection("quality_gate")
 		defer done()
-		ir.QualityGate = gate.RunWith(ir, gate.GlobalThresholds(), mode, gate.RunOptions{Resolver: resolver})
+		gateOpts := gate.RunOptions{Resolver: resolver}
+		if ctx != nil {
+			gateOpts.RepoRoot = ctx.RepoRoot
+		}
+		ir.QualityGate = gate.RunWith(ir, gate.GlobalThresholds(), mode, gateOpts)
 	}()
 
 	// Writeback the reconciled RequestModel to Mutable so downstream

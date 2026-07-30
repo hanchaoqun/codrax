@@ -100,7 +100,7 @@ func TestSubtopicCoherence_R1_1_DomainDivergence_SoftAdvisory(t *testing.T) {
 		// hard-fail any more.
 	}
 	ir := coherenceFixtureIR(rm)
-	check := checkSubtopicCoherence(ir, nil)
+	check := checkSubtopicCoherence(ir, nil, "")
 	if !check.Passed {
 		t.Fatalf("R1.1 alone must NOT fail the gate (soft advisory only); got %+v", check)
 	}
@@ -126,7 +126,7 @@ func TestSubtopicCoherence_R1_1_DomainDivergence_PassesWithSubTopics(t *testing.
 		},
 	}
 	ir := coherenceFixtureIR(rm)
-	if check := checkSubtopicCoherence(ir, nil); !check.Passed {
+	if check := checkSubtopicCoherence(ir, nil, ""); !check.Passed {
 		t.Fatalf("R1.1 must pass when sub-topic count matches domain count; got %+v", check)
 	}
 }
@@ -144,7 +144,7 @@ func TestSubtopicCoherence_R1_1_LowConfidenceTermsExcluded(t *testing.T) {
 		},
 	}
 	ir := coherenceFixtureIR(rm)
-	if check := checkSubtopicCoherence(ir, nil); !check.Passed {
+	if check := checkSubtopicCoherence(ir, nil, ""); !check.Passed {
 		t.Fatalf("low-confidence terms must not contribute to domain count; got %+v", check)
 	}
 }
@@ -155,7 +155,7 @@ func TestSubtopicCoherence_R1_2_CrossComponentWithoutPartition_Advisory(t *testi
 		// no sub-topics
 	}
 	ir := coherenceFixtureIR(rm)
-	check := checkSubtopicCoherence(ir, nil)
+	check := checkSubtopicCoherence(ir, nil, "")
 	if !check.Passed {
 		t.Fatalf("R1.2 must be advisory when IsCrossComponent=true and no explicit partition exists; got %+v", check)
 	}
@@ -177,7 +177,7 @@ func TestSubtopicCoherence_R1_3_EntityOrphan_Fails(t *testing.T) {
 		},
 	}
 	ir := coherenceFixtureIR(rm)
-	check := checkSubtopicCoherence(ir, nil)
+	check := checkSubtopicCoherence(ir, nil, "")
 	if check.Passed {
 		t.Fatalf("R1.3 must fail when sub-topic entities share no element with primary entities; got %+v", check)
 	}
@@ -199,7 +199,7 @@ func TestSubtopicCoherence_R1_3_EntityOrphan_SinglePrimarySkipped(t *testing.T) 
 		},
 	}
 	ir := coherenceFixtureIR(rm)
-	if check := checkSubtopicCoherence(ir, nil); !check.Passed {
+	if check := checkSubtopicCoherence(ir, nil, ""); !check.Passed {
 		t.Fatalf("R1.3 must pass when PrimaryEntities < 2; got %+v", check)
 	}
 }
@@ -223,7 +223,7 @@ func TestSubtopicCoherence_R1_3_SourceInventoryFileSubtopicsAreAdvisory(t *testi
 		},
 	}
 	ir := coherenceFixtureIR(rm)
-	check := checkSubtopicCoherence(ir, nil)
+	check := checkSubtopicCoherence(ir, nil, "")
 	if !check.Passed {
 		t.Fatalf("R1.3 must be advisory for source-inventory file planning anchors inside the requested scope; got %+v", check)
 	}
@@ -256,7 +256,7 @@ func TestSubtopicCoherence_R1_3_SourceInventoryBasenameAliasesSatisfyPrimaryScop
 			},
 		},
 	}
-	check := checkSubtopicCoherence(coherenceFixtureIR(rm), nil)
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), nil, "")
 	if !check.Passed {
 		t.Fatalf("path-shaped primary entities and basename subtopic anchors must satisfy R1.3; got %+v", check)
 	}
@@ -286,7 +286,7 @@ func TestSubtopicCoherence_R1_3_SourceInventoryCategoryLabelsAreAdvisory(t *test
 			{Summary: "public classes", Entities: []string{"public class"}},
 		},
 	}
-	check := checkSubtopicCoherence(coherenceFixtureIR(rm), nil)
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), nil, "")
 	if !check.Passed {
 		t.Fatalf("source-inventory category labels must not hard-fail R1.3 as repo-symbol orphans; got %+v", check)
 	}
@@ -316,7 +316,7 @@ func TestSubtopicCoherence_R1_3_SourceInventoryBasenameAliasIsStructuralNotArbit
 			{Summary: "unrelated member", Entities: []string{"scheduler"}},
 		},
 	}
-	check := checkSubtopicCoherence(coherenceFixtureIR(rm), nil)
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), nil, "")
 	if check.Passed {
 		t.Fatalf("unrelated basename must still fail R1.3; got %+v", check)
 	}
@@ -340,7 +340,7 @@ func TestSubtopicCoherence_R1_3_SourceInventoryOutsideScopeStillFails(t *testing
 		},
 	}
 	ir := coherenceFixtureIR(rm)
-	check := checkSubtopicCoherence(ir, nil)
+	check := checkSubtopicCoherence(ir, nil, "")
 	if check.Passed {
 		t.Fatalf("R1.3 must still fail when source-inventory subtopic paths leave the requested scope; got %+v", check)
 	}
@@ -362,7 +362,7 @@ func TestSubtopicCoherence_R1_3_MarkerInventoryFileBucketsAreAdvisory(t *testing
 			{Summary: "component marker bucket", Entities: []string{"entry/src/main/ets/components/Card.ets"}},
 		},
 	}
-	check := checkSubtopicCoherence(coherenceFixtureIR(rm), nil)
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), nil, "")
 	if !check.Passed {
 		t.Fatalf("R1.3 must be advisory for marker inventory file buckets, got %+v", check)
 	}
@@ -385,7 +385,7 @@ func TestSubtopicCoherence_R1_3_MarkerInventoryInventedSymbolStillFails(t *testi
 			{Summary: "invented member", Entities: []string{"InventedDecoratorBucket"}},
 		},
 	}
-	check := checkSubtopicCoherence(coherenceFixtureIR(rm), nil)
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), nil, "")
 	if check.Passed {
 		t.Fatalf("marker inventory carve-out must not bless invented non-file symbols, got %+v", check)
 	}
@@ -402,7 +402,7 @@ func TestSubtopicCoherence_R1_3_EntityOrphan_OverlapPasses(t *testing.T) {
 		},
 	}
 	ir := coherenceFixtureIR(rm)
-	if check := checkSubtopicCoherence(ir, nil); !check.Passed {
+	if check := checkSubtopicCoherence(ir, nil, ""); !check.Passed {
 		t.Fatalf("R1.3 must pass when sub-topics share at least one entity with primary; got %+v", check)
 	}
 }
@@ -426,7 +426,7 @@ func TestSubtopicCoherence_R1_3_MultiScopeFacetDecompositionIsAdvisory(t *testin
 		},
 	}
 	ir := coherenceFixtureIR(rm)
-	check := checkSubtopicCoherence(ir, nil)
+	check := checkSubtopicCoherence(ir, nil, "")
 	if !check.Passed {
 		t.Fatalf("R1.3 must be advisory for multi-scope facet/file decompositions; got %+v", check)
 	}
@@ -462,7 +462,7 @@ func TestSubtopicCoherence_R1_5_AllEntitiesUnresolved_Fails(t *testing.T) {
 		},
 	}
 	ir := coherenceFixtureIR(rm)
-	check := checkSubtopicCoherence(ir, resolver)
+	check := checkSubtopicCoherence(ir, resolver, "")
 	if check.Passed {
 		t.Fatalf("R1.5 must fail when a sub-topic has zero resolvable entities; got %+v", check)
 	}
@@ -500,7 +500,7 @@ func TestSubtopicCoherence_R1_5_SourceInventoryFileAsymmetryIsAdvisory(t *testin
 		},
 	}
 	ir := coherenceFixtureIR(rm)
-	check := checkSubtopicCoherence(ir, resolver)
+	check := checkSubtopicCoherence(ir, resolver, "")
 	if !check.Passed {
 		t.Fatalf("R1.5 must be advisory for source-inventory file planning anchors inside the requested scope; got %+v", check)
 	}
@@ -534,7 +534,7 @@ func TestSubtopicCoherence_R1_5_SourceInventoryCategoryLabelsAreAdvisory(t *test
 			{Summary: "public classes", Entities: []string{"public class"}},
 		},
 	}
-	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver)
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver, "")
 	if !check.Passed {
 		t.Fatalf("mixed resolver hit/miss on source-inventory category labels must be advisory; got %+v", check)
 	}
@@ -567,7 +567,7 @@ func TestSubtopicCoherence_R1_5_SourceInventoryDecoratedRoleSuffixResolves(t *te
 			{Summary: "entry attributes", Entities: []string{"gate entry function"}},
 		},
 	}
-	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver)
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver, "")
 	if !check.Passed {
 		t.Fatalf("source-inventory member + typed role suffix should satisfy R1.5; got %+v", check)
 	}
@@ -597,7 +597,7 @@ func TestSubtopicCoherence_R1_5_SourceInventoryDecoratedRoleSuffixIsScoped(t *te
 			{Summary: "invented entry attributes", Entities: []string{"scheduler entry function"}},
 		},
 	}
-	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver)
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver, "")
 	if check.Passed {
 		t.Fatalf("decorated role suffix must not bless members outside the source-inventory scope aliases; got %+v", check)
 	}
@@ -625,7 +625,7 @@ func TestSubtopicCoherence_R1_5_MarkerInventoryFileAsymmetryIsAdvisory(t *testin
 			{Summary: "component marker bucket", Entities: []string{"entry/src/main/ets/components/Card.ets"}},
 		},
 	}
-	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver)
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver, "")
 	if !check.Passed {
 		t.Fatalf("R1.5 must be advisory for marker inventory file buckets, got %+v", check)
 	}
@@ -659,7 +659,7 @@ func TestSubtopicCoherence_R1_4_MarkerInventoryFileBucketsAvoidAxisCollapse(t *t
 			{Summary: "component marker bucket", Entities: []string{"entry/src/main/ets/components/Card.ets"}},
 		},
 	}
-	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver)
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver, "")
 	if !check.Passed {
 		t.Fatalf("R1.4 should not collapse marker inventory file buckets, got %+v", check)
 	}
@@ -698,7 +698,7 @@ func TestSubtopicCoherence_R1_5_ArchitectureDesignAxisAdvisoryOnly(t *testing.T)
 			{Summary: "调度服务与执行器的运行流程与线程模型", Entities: []string{"resched", "resched_executor"}},
 		},
 	}
-	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver)
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver, "")
 	if !check.Passed {
 		t.Fatalf("architecture design axes should be advisory, got %+v", check)
 	}
@@ -729,7 +729,7 @@ func TestSubtopicCoherence_R1_5_HistoryBackedTraceDiagramAdvisoryOnly(t *testing
 			{Summary: "绘制逻辑图", Entities: []string{"architecture diagram", "flow diagram"}},
 		},
 	}
-	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver)
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver, "")
 	if !check.Passed {
 		t.Fatalf("history-backed trace/diagram axes should be advisory, got %+v", check)
 	}
@@ -752,7 +752,7 @@ func TestSubtopicCoherence_R1_5_DiagramPresentationAxisAdvisoryOnly(t *testing.T
 			{Summary: "架构视图呈现", Entities: []string{"architecture diagram"}},
 		},
 	}
-	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver)
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver, "")
 	if !check.Passed {
 		t.Fatalf("diagram presentation axes should be advisory, got %+v", check)
 	}
@@ -778,7 +778,7 @@ func TestSubtopicCoherence_R1_5_CategoryEnumerationStaysHardDespiteDiagram(t *te
 			{Summary: "invented enum member", Entities: []string{"InventedKind"}},
 		},
 	}
-	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver)
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver, "")
 	if check.Passed {
 		t.Fatalf("enumeration entity asymmetry should remain hard despite diagram hint, got %+v", check)
 	}
@@ -805,7 +805,7 @@ func TestSubtopicCoherence_R1_5_OneEntityResolves_Passes(t *testing.T) {
 		},
 	}
 	ir := coherenceFixtureIR(rm)
-	if check := checkSubtopicCoherence(ir, resolver); !check.Passed {
+	if check := checkSubtopicCoherence(ir, resolver, ""); !check.Passed {
 		t.Fatalf("R1.5 must pass when at least one entity per sub-topic resolves; got %+v", check)
 	}
 }
@@ -849,7 +849,7 @@ func TestSubtopicCoherence_R1_5_UserMentionedFieldAndLocalSurfacesPass(t *testin
 			{Summary: "local aggregation map", Entities: []string{"bySource"}},
 		},
 	}
-	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver)
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver, "")
 	if !check.Passed {
 		t.Fatalf("R1.5 must not reject exact user-mentioned field/local-variable search leads; got %+v", check)
 	}
@@ -877,7 +877,7 @@ func TestSubtopicCoherence_R1_5_RawRequestOnlyDoesNotSatisfyHardCoherence(t *tes
 			{Summary: "field surface", Entities: []string{"EvidenceItem.Source"}},
 		},
 	}
-	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver)
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver, "")
 	if check.Passed {
 		t.Fatalf("RawRequest-only mention must not satisfy hard R1.5 coherence without typed mentioned_entities; got %+v", check)
 	}
@@ -911,7 +911,7 @@ func TestSubtopicCoherence_R1_5_NilResolver_NoOp(t *testing.T) {
 		},
 	}
 	ir := coherenceFixtureIR(rm)
-	if check := checkSubtopicCoherence(ir, nil); !check.Passed {
+	if check := checkSubtopicCoherence(ir, nil, ""); !check.Passed {
 		t.Fatalf("nil resolver must disable R1.5; got %+v", check)
 	}
 }
@@ -939,7 +939,7 @@ func TestSubtopicCoherence_R1_5_AllConceptual_NoOp(t *testing.T) {
 		},
 	}
 	ir := coherenceFixtureIR(rm)
-	if check := checkSubtopicCoherence(ir, resolver); !check.Passed {
+	if check := checkSubtopicCoherence(ir, resolver, ""); !check.Passed {
 		t.Fatalf("R1.5 must pass when all sub-topics are uniformly unresolved (no asymmetry); got %+v", check)
 	}
 }
@@ -965,7 +965,7 @@ func TestSubtopicCoherence_R1_5_DiagnosticFacetSubTopicsBypassResolverAsymmetry(
 		},
 	}
 	ir := coherenceFixtureIR(rm)
-	if check := checkSubtopicCoherence(ir, resolver); !check.Passed {
+	if check := checkSubtopicCoherence(ir, resolver, ""); !check.Passed {
 		t.Fatalf("diagnostic facet sub-topics should not hard-fail on resolver asymmetry; got %+v", check)
 	}
 }
@@ -981,7 +981,7 @@ func TestSubtopicCoherence_R1_5_SingleTopic_NoOp(t *testing.T) {
 		},
 	}
 	ir := coherenceFixtureIR(rm)
-	if check := checkSubtopicCoherence(ir, resolver); !check.Passed {
+	if check := checkSubtopicCoherence(ir, resolver, ""); !check.Passed {
 		t.Fatalf("R1.5 must skip when nSub<2; got %+v", check)
 	}
 }
@@ -1017,7 +1017,7 @@ func TestSubtopicCoherence_R1_5_ExternalOnlyArtifactEntities_BypassRepoResolver(
 		},
 	}
 	ir := coherenceFixtureIR(rm)
-	if check := checkSubtopicCoherence(ir, resolver); !check.Passed {
+	if check := checkSubtopicCoherence(ir, resolver, ""); !check.Passed {
 		t.Fatalf("external-only artifact entities must bypass repo-symbol R1.5, got %+v", check)
 	}
 }
@@ -1054,7 +1054,7 @@ func TestSubtopicCoherence_R1_5_SourceOptionalRuntimeArtifactEntities_BypassRepo
 		t.Fatal("fixture must be a source-optional runtime artifact")
 	}
 	ir := coherenceFixtureIR(rm)
-	if check := checkSubtopicCoherence(ir, resolver); !check.Passed {
+	if check := checkSubtopicCoherence(ir, resolver, ""); !check.Passed {
 		t.Fatalf("source-optional runtime artifact entities must bypass repo-symbol R1.5, got %+v", check)
 	}
 }
@@ -1088,7 +1088,7 @@ func TestSubtopicCoherence_R1_5_FileSurfaceEntitiesResolve(t *testing.T) {
 		},
 	}
 	ir := coherenceFixtureIR(rm)
-	check := checkSubtopicCoherence(ir, resolver)
+	check := checkSubtopicCoherence(ir, resolver, "")
 	if !check.Passed {
 		t.Fatalf("R1.5 must accept file-surface entities resolved by FileIndex; got %+v", check)
 	}
@@ -1128,7 +1128,7 @@ func TestSubtopicCoherence_R1_5_RepoDirectorySurfaceEntitiesResolve(t *testing.T
 		},
 	}
 	ir := coherenceFixtureIR(rm)
-	check := checkSubtopicCoherence(ir, resolver)
+	check := checkSubtopicCoherence(ir, resolver, "")
 	if !check.Passed {
 		t.Fatalf("R1.5 must accept repo directory/package surfaces as typed grounding, got %+v", check)
 	}
@@ -1169,7 +1169,7 @@ func TestSubtopicCoherence_R1_5_CategoryEnumerationPackageMembersBypassSymbolRes
 		},
 	}
 	ir := coherenceFixtureIR(rm)
-	check := checkSubtopicCoherence(ir, resolver)
+	check := checkSubtopicCoherence(ir, resolver, "")
 	if !check.Passed {
 		t.Fatalf("R1.5 must accept typed cross-language package members as grounded enumeration members; got %+v", check)
 	}
@@ -1199,7 +1199,7 @@ func TestSubtopicCoherence_R1_5_UnboundedCategoryEnumerationMembersBypassSymbolR
 		},
 	}
 	ir := coherenceFixtureIR(rm)
-	check := checkSubtopicCoherence(ir, resolver)
+	check := checkSubtopicCoherence(ir, resolver, "")
 	if !check.Passed {
 		t.Fatalf("R1.5 must not require package/module members to resolve as symbols in typed category enumerations; got %+v", check)
 	}
@@ -1233,7 +1233,7 @@ func TestSubtopicCoherence_R1_4_EnumerationCollapsesToSingleDomain_Fails(t *test
 		},
 	}
 	ir := coherenceFixtureIR(rm)
-	check := checkSubtopicCoherence(ir, resolver)
+	check := checkSubtopicCoherence(ir, resolver, "")
 	if check.Passed {
 		t.Fatalf("R1.4 must fail when enumeration sub-topics all collapse to one domain; got %+v", check)
 	}
@@ -1263,7 +1263,7 @@ func TestSubtopicCoherence_R1_4_TwoDomains_Passes(t *testing.T) {
 		},
 	}
 	ir := coherenceFixtureIR(rm)
-	if check := checkSubtopicCoherence(ir, resolver); !check.Passed {
+	if check := checkSubtopicCoherence(ir, resolver, ""); !check.Passed {
 		t.Fatalf("R1.4 must pass when sub-topic entities span ≥2 domains; got %+v", check)
 	}
 }
@@ -1291,7 +1291,7 @@ func TestSubtopicCoherence_R1_4_CrossComponent_NoOp(t *testing.T) {
 		},
 	}
 	ir := coherenceFixtureIR(rm)
-	if check := checkSubtopicCoherence(ir, resolver); !check.Passed {
+	if check := checkSubtopicCoherence(ir, resolver, ""); !check.Passed {
 		t.Fatalf("R1.4 must respect IsCrossComponent=true; got %+v", check)
 	}
 }
@@ -1316,7 +1316,7 @@ func TestSubtopicCoherence_R1_4_NotEnumeration_NoOp(t *testing.T) {
 		},
 	}
 	ir := coherenceFixtureIR(rm)
-	if check := checkSubtopicCoherence(ir, resolver); !check.Passed {
+	if check := checkSubtopicCoherence(ir, resolver, ""); !check.Passed {
 		t.Fatalf("R1.4 must skip non-enumeration intent; got %+v", check)
 	}
 }
@@ -1333,7 +1333,7 @@ func TestSubtopicCoherence_R1_4_NilResolver_NoOp(t *testing.T) {
 		},
 	}
 	ir := coherenceFixtureIR(rm)
-	if check := checkSubtopicCoherence(ir, nil); !check.Passed {
+	if check := checkSubtopicCoherence(ir, nil, ""); !check.Passed {
 		t.Fatalf("nil resolver must disable R1.4; got %+v", check)
 	}
 }
@@ -1356,7 +1356,7 @@ func TestSubtopicCoherence_R1_4_ZeroResolvedDomains_NoOp(t *testing.T) {
 		},
 	}
 	ir := coherenceFixtureIR(rm)
-	if check := checkSubtopicCoherence(ir, resolver); !check.Passed {
+	if check := checkSubtopicCoherence(ir, resolver, ""); !check.Passed {
 		t.Fatalf("R1.4 must not infer axis collapse from zero resolver domains; got %+v", check)
 	}
 }
@@ -1392,7 +1392,7 @@ func TestSubtopicCoherence_R1_4_AttributeBearingPackageEnumeration_NoOp(t *testi
 		},
 	}
 	ir := coherenceFixtureIR(rm)
-	check := checkSubtopicCoherence(ir, resolver)
+	check := checkSubtopicCoherence(ir, resolver, "")
 	if !check.Passed {
 		t.Fatalf("R1.4 must skip typed attribute-bearing package enumeration; got %+v", check)
 	}

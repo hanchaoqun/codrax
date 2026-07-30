@@ -47,6 +47,7 @@ type WorkflowStateView struct {
 	ReconcileRequired             bool                       `json:"reconcile_required,omitempty"`
 	HasReconcile                  bool                       `json:"has_reconcile,omitempty"`
 	HasAnswer                     bool                       `json:"has_answer,omitempty"`
+	ReconcileFailureStreak        int                        `json:"reconcile_failure_streak,omitempty"`
 	LedgerGraph                   LedgerGraph                `json:"ledger_graph,omitempty"`
 	OutputProjectionGraph         OutputProjectionGraph      `json:"output_projection_graph,omitempty"`
 	NextStage                     string                     `json:"next_stage,omitempty"`
@@ -89,6 +90,7 @@ func (view WorkflowStateView) Facts() StageFacts {
 		ContributionRecords:        view.ContributionRecords,
 		HasReconcile:               view.HasReconcile,
 		HasAnswer:                  view.HasAnswer,
+		ReconcileFailureStreak:     view.ReconcileFailureStreak,
 	})
 }
 

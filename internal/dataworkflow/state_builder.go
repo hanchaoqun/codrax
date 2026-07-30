@@ -17,6 +17,7 @@ type WorkflowStateLedgerCounts struct {
 	HasReconcile            bool
 	HasAnswer               bool
 	HasProjectionArtifact   bool
+	ReconcileFailureStreak  int
 }
 
 type WorkflowStateDiagnostics struct {
@@ -101,6 +102,7 @@ func BuildWorkflowStateView(input WorkflowStateViewBuildInput) WorkflowStateView
 		ContributionRecords:           input.LedgerCounts.ContributionRecords,
 		HasReconcile:                  input.LedgerCounts.HasReconcile,
 		HasAnswer:                     input.LedgerCounts.HasAnswer,
+		ReconcileFailureStreak:        input.LedgerCounts.ReconcileFailureStreak,
 		CustomTransformFailures:       input.CustomTransformFailures,
 		CustomTransformDisabled:       input.CustomTransformDisabled,
 		ArtifactAvailability:          artifactAvailability,

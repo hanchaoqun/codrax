@@ -452,3 +452,62 @@ func TestDecidePostResultFallsThroughToEvaluate(t *testing.T) {
 		t.Fatalf("decision=%+v, want evaluate", decision)
 	}
 }
+
+// EVALFIX-1 Gap A pins (eval specimen data_json_strict_ids 2026-07-30):
+// the reconcile stage must open a typed escape lane after the failure
+// streak threshold — the sole-allowed-action livelock burned 10 data
+// rounds and terminated a recoverable run.
+
+func TestReconcileFailureStreak(t *testing.T) {
+	rec := func(kind dataquery.DataActionKind, err string, reconciled bool) WorkflowRecord {
+		r := WorkflowRecord{Plan: dataquery.TaskPlan{Actions: []dataquery.DataAction{{ID: "a", Kind: kind}}}, Err: err}
+		if reconciled {
+			r.Result = &dataquery.Result{Reconcile: &dataquery.ReconcileReport{}}
+		}
+		return r
+	}
+	records := []WorkflowRecord{
+		rec(dataquery.DataActionReconcile, "boom", false),
+		rec(dataquery.DataActionFilterRecords, "refused", false), // escape attempt: neither extends nor resets
+		rec(dataquery.DataActionReconcile, "boom", false),
+		rec(dataquery.DataActionReconcile, "boom", false),
+	}
+	if got := ReconcileFailureStreak(records); got != 3 {
+		t.Fatalf("streak = %d, want 3 (other-kind refusals must not hide the streak)", got)
+	}
+	records = append(records, rec(dataquery.DataActionReconcile, "", true))
+	if got := ReconcileFailureStreak(records); got != 0 {
+		t.Fatalf("a successful reconcile must close the streak; got %d", got)
+	}
+}
+
+func TestReconcileStage_EscapeLaneOpensAtThreshold(t *testing.T) {
+	facts := StageFacts{
+		MaterialCoverageSufficient: true,
+		ReconcileRequired:          true,
+		ContributionLedgerRequired: true,
+		ContributionRecords:        2,
+	}
+	if NextStage(facts) != StageReconcileArtifacts {
+		t.Fatalf("fixture must sit at the reconcile stage; got %s", NextStage(facts))
+	}
+	kinds := func(cs []ActionContract) map[string]bool {
+		out := map[string]bool{}
+		for _, c := range cs {
+			out[c.Kind] = true
+		}
+		return out
+	}
+	below := kinds(AllowedNextActionContractsForFacts(facts))
+	if len(below) != 1 || !below[string(dataquery.DataActionReconcile)] {
+		t.Fatalf("below threshold only reconcile is allowed; got %v", below)
+	}
+	facts.ReconcileFailureStreak = ReconcileNoProgressEscapeThreshold
+	widened := kinds(AllowedNextActionContractsForFacts(facts))
+	if !widened[string(dataquery.DataActionReconcile)] {
+		t.Fatal("escape keeps reconcile itself allowed")
+	}
+	if !widened[string(dataquery.DataActionFilterRecords)] || !widened[string(dataquery.DataActionComputeContribs)] {
+		t.Fatalf("escape must open the recompute lane; got %v", widened)
+	}
+}

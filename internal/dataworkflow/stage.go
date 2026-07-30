@@ -34,6 +34,19 @@ type StageFacts struct {
 	ReconcileRequired          bool `json:"reconcile_required,omitempty"`
 	HasReconcile               bool `json:"has_reconcile,omitempty"`
 	HasAnswer                  bool `json:"has_answer,omitempty"`
+	// ReconcileFailureStreak counts consecutive reconcile-action rounds
+	// that ended in a runtime failure without an intervening successful
+	// reconcile. EVALFIX-1 Gap A: at StageReconcileArtifacts the
+	// allowed-action surface used to pin [reconcile_artifacts] forever
+	// — when reconcile kept failing against poisoned inputs the
+	// workflow had NO typed escape (the §1.6 red line: every hard gate
+	// needs a typed escape lane) and livelocked to terminal failure
+	// (specimen data_json_strict_ids 2026-07-30; the same
+	// self-contradictory-projection class as the 2026-07-05 deadlock
+	// recorded on AnswerRepairActionContracts). At the threshold the
+	// allowed surface widens to the contribution-recompute stage so the
+	// planner can legally rebuild the reconcile inputs.
+	ReconcileFailureStreak int `json:"reconcile_failure_streak,omitempty"`
 }
 
 type StageFactsInput struct {
@@ -46,6 +59,7 @@ type StageFactsInput struct {
 	ContributionRecords        int
 	HasReconcile               bool
 	HasAnswer                  bool
+	ReconcileFailureStreak     int
 }
 
 func BuildStageFacts(input StageFactsInput) StageFacts {
@@ -63,6 +77,7 @@ func BuildStageFacts(input StageFactsInput) StageFacts {
 		ReconcileRequired:          input.Coverage.ReconcileRequired,
 		HasReconcile:               input.HasReconcile,
 		HasAnswer:                  input.HasAnswer,
+		ReconcileFailureStreak:     input.ReconcileFailureStreak,
 	}
 }
 
@@ -724,9 +739,32 @@ func DecisionsGateExcludesComputeContribs(facts StageFacts) bool {
 	return facts.RuleCoverageRequired && facts.DecisionRecordsRequired && facts.DecisionRecords == 0
 }
 
+// ReconcileNoProgressEscapeThreshold is the consecutive-failure count at
+// which the reconcile stage's allowed surface widens to the recompute
+// lane (EVALFIX-1 Gap A). Three failures of the SOLE allowed action is
+// decisive evidence the inputs — not the parameters — are wrong.
+const ReconcileNoProgressEscapeThreshold = 3
+
+// ReconcileEscapeActive reports whether the reconcile-stage typed
+// escape lane is open for these facts.
+func ReconcileEscapeActive(facts StageFacts) bool {
+	return facts.ReconcileFailureStreak >= ReconcileNoProgressEscapeThreshold
+}
+
 func AllowedNextActionContractsForFacts(facts StageFacts) []ActionContract {
 	stage := NextStage(facts)
 	contracts := AllowedNextActionContracts(stage)
+	if stage == StageReconcileArtifacts && ReconcileEscapeActive(facts) {
+		// EVALFIX-1 Gap A typed escape: after the threshold the planner
+		// may legally rebuild the reconcile inputs. Widening happens at
+		// this single choke point so every mirror surface (state JSON,
+		// admission, guard messages, scaffolds) reflects it together —
+		// the divergence-livelock class documented on
+		// DecisionsGateExcludesComputeContribs.
+		for _, escape := range AllowedNextActionContracts(StageComputeContributions) {
+			contracts = appendUniqueActionContract(contracts, escape)
+		}
+	}
 	if facts.RuleCoverageRequired && facts.RuleCoverageRecords == 0 && stage != StageCoverRequiredMaterials && stage != StageDeriveRules {
 		contracts = prependUniqueActionContract(contracts, deriveRulesActionContract())
 	}

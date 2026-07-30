@@ -1,6 +1,8 @@
 package gate
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -37,7 +39,7 @@ func TestR1_3_ScopeAware_OverlapViaScopesPasses(t *testing.T) {
 			{Summary: "opencode detection mechanism", Entities: []string{"opencode"}, Scopes: []string{"opencode"}},
 		},
 	}
-	check := checkSubtopicCoherence(makeScopeIR(rm), nil)
+	check := checkSubtopicCoherence(makeScopeIR(rm), nil, "")
 	// R1.3 is the focus; allow R1.5 since resolver==nil makes it inert
 	for _, seg := range strings.Split(check.Detail, " | ") {
 		if strings.Contains(seg, "R1.3 entity_orphan") {
@@ -65,7 +67,7 @@ func TestR1_3_ScopeAware_NoOverlap_SubTopicOnlySymbols(t *testing.T) {
 			{Summary: "topic 2", Entities: []string{"OpencodeClient"}},
 		},
 	}
-	check := checkSubtopicCoherence(makeScopeIR(rm), nil)
+	check := checkSubtopicCoherence(makeScopeIR(rm), nil, "")
 	if check.Passed {
 		t.Errorf("R1.3 should still fail when sub-topic.entities have no scope overlap; got %+v", check)
 	}
@@ -86,7 +88,7 @@ func TestR1_3_LegacyPath_SinglePrimary_NoChange(t *testing.T) {
 			{Summary: "topic 1", Entities: []string{"bar"}},
 		},
 	}
-	check := checkSubtopicCoherence(makeScopeIR(rm), nil)
+	check := checkSubtopicCoherence(makeScopeIR(rm), nil, "")
 	if !check.Passed {
 		t.Errorf("legacy R1.3 single-primary case should still pass; got %+v", check)
 	}
@@ -115,7 +117,7 @@ func TestR1_5_ScopeOnly_CarveOut_NoFalsePositive(t *testing.T) {
 			{Summary: "opencode", Entities: []string{"opencode"}, Scopes: []string{"opencode"}},
 		},
 	}
-	check := checkSubtopicCoherence(makeScopeIR(rm), resolver)
+	check := checkSubtopicCoherence(makeScopeIR(rm), resolver, "")
 	if !check.Passed {
 		t.Errorf("R1.5 carve-out should let scope-only sub-topics pass; got %+v", check)
 	}
@@ -145,7 +147,7 @@ func TestR1_5_MixedScopeSymbol_HitsResolver(t *testing.T) {
 			{Summary: "opencode handling", Entities: []string{"opencode", "OpencodeClient"}, Scopes: []string{"opencode"}},
 		},
 	}
-	check := checkSubtopicCoherence(makeScopeIR(rm), resolver)
+	check := checkSubtopicCoherence(makeScopeIR(rm), resolver, "")
 	if !check.Passed {
 		t.Errorf("mixed scope+symbol with resolver hits should pass; got %+v", check)
 	}
@@ -167,7 +169,7 @@ func TestR1_5_LegacyPath_SymbolsOnly_StillFires(t *testing.T) {
 			{Summary: "fake", Entities: []string{"FakeSymbol"}},
 		},
 	}
-	check := checkSubtopicCoherence(makeScopeIR(rm), resolver)
+	check := checkSubtopicCoherence(makeScopeIR(rm), resolver, "")
 	if check.Passed {
 		t.Errorf("R1.5 should fire on symbol-only asymmetry; got %+v", check)
 	}
@@ -190,7 +192,7 @@ func TestR1_8_AllScopesAnchored_NoAdvisory(t *testing.T) {
 			{Summary: "topic 2", Entities: []string{"opencode"}, Scopes: []string{"opencode"}},
 		},
 	}
-	check := checkSubtopicCoherence(makeScopeIR(rm), nil)
+	check := checkSubtopicCoherence(makeScopeIR(rm), nil, "")
 	if !check.Passed {
 		t.Errorf("R1.8 anchored case should pass; got %+v", check)
 	}
@@ -214,7 +216,7 @@ func TestR1_8_OneScopeUnanchored_AdvisoryOnly(t *testing.T) {
 			{Summary: "more codrax detail", Entities: []string{"codrax"}, Scopes: []string{"codrax"}},
 		},
 	}
-	check := checkSubtopicCoherence(makeScopeIR(rm), nil)
+	check := checkSubtopicCoherence(makeScopeIR(rm), nil, "")
 	if !check.Passed {
 		t.Errorf("R1.8 must NOT hard-fail (advisory only); got %+v", check)
 	}
@@ -243,7 +245,7 @@ func TestR1_8_NotCrossComponent_Skipped(t *testing.T) {
 			{Summary: "topic 2", Entities: []string{"codrax"}, Scopes: []string{"codrax"}},
 		},
 	}
-	check := checkSubtopicCoherence(makeScopeIR(rm), nil)
+	check := checkSubtopicCoherence(makeScopeIR(rm), nil, "")
 	if !check.Passed {
 		t.Errorf("not-cross-component should pass; got %+v", check)
 	}
@@ -265,7 +267,7 @@ func TestR1_8_SingleScopeNoAdvisory(t *testing.T) {
 			{Summary: "topic 2", Entities: []string{"codrax"}, Scopes: []string{"codrax"}},
 		},
 	}
-	check := checkSubtopicCoherence(makeScopeIR(rm), nil)
+	check := checkSubtopicCoherence(makeScopeIR(rm), nil, "")
 	if strings.Contains(check.Detail, "R1.8") {
 		t.Errorf("R1.8 should not fire for single scope; got %q", check.Detail)
 	}
@@ -313,5 +315,34 @@ func TestFlattenSubTopicEntitiesAndScopes_BothLanes(t *testing.T) {
 	got := flattenSubTopicEntitiesAndScopes(subs)
 	if len(got) != 4 {
 		t.Errorf("flatten: want 4 dedup'd, got %v", got)
+	}
+}
+
+// EVALFIX-1 pins (eval specimen qf_config_precedence 2026-07-30): the
+// asymmetry hallucination heuristic must not hard-reject entities
+// grounded by precise signals outside the symbol universe.
+func TestSubTopicEntityGroundedOutsideSymbolUniverse(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "codrax.yaml.example"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rm := types.RequestModel{RawRequest: "codrax.yaml 里的 pipeline_max_steps 是怎么解析的？"}
+	// File-shaped entity that exists on disk: grounded even though the
+	// repomap source index excludes it.
+	if !subTopicEntityGroundedOutsideSymbolUniverse("codrax.yaml.example", rm, root) {
+		t.Fatal("an on-disk file entity must be grounded (repo-real, not hallucinated)")
+	}
+	// The raw-request verbatim arm is deliberately ABSENT (ruling:
+	// the hard gate reads typed carriers only, never RawRequest).
+	if subTopicEntityGroundedOutsideSymbolUniverse("pipeline_max_steps", rm, "") {
+		t.Fatal("non-file entities must not be grounded by this helper (no raw-request arm)")
+	}
+	// Neither verbatim nor on disk: not grounded by these arms.
+	if subTopicEntityGroundedOutsideSymbolUniverse("made_up.conf", rm, root) {
+		t.Fatal("absent file must not be grounded by the stat arm")
+	}
+	// Escapes never stat.
+	if subTopicEntityGroundedOutsideSymbolUniverse("../secrets.yaml", rm, root) {
+		t.Fatal("path escapes must not be grounded")
 	}
 }

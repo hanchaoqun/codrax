@@ -37,6 +37,14 @@ import (
 // tests / write mode / any caller without a graph.
 type RunOptions struct {
 	Resolver normalizer.SymbolResolver
+	// RepoRoot lets checkSubtopicCoherence resolve FILE-shaped entities
+	// by filesystem existence (EVALFIX-1 arm 1): the resolver's
+	// universe is the repomap SOURCE index, so root-level non-source
+	// files (codrax.yaml.example) systematically missed and the
+	// asymmetry heuristic hard-rejected repo-real entities — a hard
+	// gate keyed on a noisy signal (red-line violation) costing a full
+	// analyzer re-dispatch.
+	RepoRoot string
 }
 
 // Thresholds control the numeric gate cutoffs.
@@ -163,7 +171,7 @@ func RunWith(ir *types.AnalysisIR, th Thresholds, mode string, opts RunOptions) 
 		// query the resolver in opts.Resolver to validate sub-topic
 		// entity claims against repo ground truth; nil resolver makes
 		// those sub-rules no-op (test mode / no graph).
-		checks = append(checks, checkSubtopicCoherence(ir, opts.Resolver))
+		checks = append(checks, checkSubtopicCoherence(ir, opts.Resolver, opts.RepoRoot))
 		checks = append(checks, checkShapeSubjectCoherence(ir))
 	}
 	checks = append(checks, checkCriterionResolvable(ir))

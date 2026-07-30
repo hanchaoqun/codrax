@@ -4064,6 +4064,7 @@ func dataTaskWorkflowStateWithDeferredQueue(repoRoot string, records []dataTaskW
 			HasReconcile:            hasReconcile,
 			HasAnswer:               hasAnswer,
 			HasProjectionArtifact:   hasProjectionArtifact,
+			ReconcileFailureStreak:  dataworkflow.ReconcileFailureStreak(records),
 		},
 		CustomTransformFailures: customTransformFailures,
 		CustomTransformDisabled: dataTaskCustomTransformCooldown(records),

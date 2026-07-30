@@ -2126,7 +2126,7 @@ func validateRequiredLedgers(contract CoverageContract, res Result, satisfaction
 				"data validation incomplete: coverage_contract.reconcile_required=true but result.reconcile is empty",
 			)
 		}
-		if err := validateReconcileReport(*res.Reconcile, res.Contributions, res.Answer); err != nil {
+		if err := validateReconcileReport(*res.Reconcile, res.Contributions, reconcileComparableAnswer(res.Answer, res.OutputContract)); err != nil {
 			return err
 		}
 	}
@@ -2415,6 +2415,33 @@ func resolutionStatusIsOpen(status string) bool {
 		}
 	}
 	return false
+}
+
+// reconcileComparableAnswer decides whether result.answer is admissible
+// for the reconcile expected/actual comparison. EVALFIX-1 Gap B (eval
+// specimen data_json_strict_ids, 2026-07-30): a model script emitted a
+// DESCRIPTIVE bullet list as result.answer in an early batch; the
+// HasAnswer admission gate correctly rejected it (it fails the declared
+// json_only output contract), but the reconcile validator read the raw
+// string through only the noisy answerLooksLikeArtifactSummary
+// recognizer — the two consumers of "is this string actually the
+// answer" had FORKED predicates (the CSP #63 same-family-mirror class),
+// so reconcile compared the ground truth against junk it could never
+// match and the workflow livelocked to terminal failure. The predicate
+// is now shared: an answer that fails the declared output contract is
+// NOT an answer for reconcile either (ValidateAnswer, the same typed
+// core ResultAnswerSatisfiesOutputContract wraps). The summary
+// recognizer stays as the belt for contract-less runs.
+func reconcileComparableAnswer(answer string, output OutputContract) string {
+	answer = strings.TrimSpace(answer)
+	if answer == "" || answerLooksLikeArtifactSummary(answer) {
+		return ""
+	}
+	norm := output.Normalize()
+	if strings.TrimSpace(string(norm.Format)) != "" && ValidateAnswer(answer, norm) != nil {
+		return ""
+	}
+	return answer
 }
 
 func validateReconcileReport(report ReconcileReport, contributions []ContributionRecord, answer string) error {

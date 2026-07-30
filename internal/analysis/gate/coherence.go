@@ -2,6 +2,8 @@ package gate
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -90,7 +92,7 @@ const (
 // any of the underlying triggers — the downstream LLM does not need
 // to know which specific rule fired, only that its sub-topic count
 // is structurally wrong.
-func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolResolver) types.GateCheck {
+func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolResolver, repoRoot string) types.GateCheck {
 	rm := ir.RequestModel
 	nSub := len(rm.SubTopics)
 
@@ -255,7 +257,8 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 			s := subTopicState{index: i, topic: st}
 			for _, ent := range st.Entities {
 				trimmed := strings.TrimSpace(ent)
-				if subTopicEntityResolvedForCoherence(trimmed, rm, resolver) {
+				if subTopicEntityResolvedForCoherence(trimmed, rm, resolver) ||
+					subTopicEntityGroundedOutsideSymbolUniverse(trimmed, rm, repoRoot) {
 					s.hit = true
 					break
 				}
@@ -1427,4 +1430,49 @@ func formatStringList(items []string) string {
 		joined = types.CutPrefixRuneSafe(joined, maxBytes-1) + "…]"
 	}
 	return joined
+}
+
+// subTopicEntityGroundedOutsideSymbolUniverse resolves entities the
+// symbol-universe arms structurally cannot (EVALFIX-1, eval specimen
+// qf_config_precedence 2026-07-30): a file-shaped entity that stats on
+// disk under the repo root is repo-real regardless of the repomap
+// SOURCE index — which excludes root-level non-source files like
+// codrax.yaml.example, the shape the asymmetry heuristic hard-rejected
+// as "hallucinated", burning a full analyzer re-dispatch. Filesystem
+// existence is a boolean ground-truth probe per the precise-signals
+// red line. (A raw-request verbatim arm was considered and DROPPED:
+// the recorded ruling pinned by
+// TestSubtopicCoherence_ProductionGateDoesNotReadRawRequest forbids
+// this gate from reading RawRequest — typed carriers only.)
+func subTopicEntityGroundedOutsideSymbolUniverse(surface string, rm types.RequestModel, repoRoot string) bool {
+	_ = rm
+	surface = strings.TrimSpace(surface)
+	if surface == "" {
+		return false
+	}
+	if repoRoot == "" || !coherenceEntityLooksLikeFileToken(surface) {
+		return false
+	}
+	rel := filepath.ToSlash(surface)
+	if strings.HasPrefix(rel, "/") || strings.Contains(rel, "..") {
+		return false
+	}
+	if _, err := os.Stat(filepath.Join(repoRoot, filepath.FromSlash(rel))); err == nil {
+		return true
+	}
+	return false
+}
+
+// coherenceEntityLooksLikeFileToken keeps the stat probe scoped to
+// file-shaped tokens (an extension dot or a path separator, no spaces)
+// so ordinary prose entities never touch the filesystem.
+func coherenceEntityLooksLikeFileToken(surface string) bool {
+	if strings.ContainsAny(surface, " \t") {
+		return false
+	}
+	if strings.Contains(surface, "/") {
+		return true
+	}
+	dot := strings.LastIndexByte(surface, '.')
+	return dot > 0 && dot < len(surface)-1
 }
