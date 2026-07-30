@@ -15,7 +15,7 @@ func traceDBRawDecodeReconciliationCoverage(items []TraceDBCoverage) TraceDBCove
 		FieldSources: map[string]string{
 			"raw":            "exact per-format physical record counts and strict-body decisions from source_rawtrace_decode",
 			"trace_streamer": "exact selected event/status counters from the complete official stat table; statuses are event-specific stage counters which may overlap and are never generically summed",
-			"db":             "typed Codrax exporter rows from the normalized SQLite DB; blocked-reason equations use only exact emitted rows",
+			"db":             "typed Codrax exporter rows from the normalized SQLite DB; blocked-reason upstream attachment equations use audited source RowsRead before Codrax publication/lifecycle gates, while emitted and raw-authority-suppressed candidates remain separate publication metrics",
 			"effect":         "diagnostic equality/closure checks only; comparisons never publish, suppress, deduplicate, or fabricate a trace row",
 		},
 		Metadata: map[string]string{
@@ -104,18 +104,17 @@ func traceDBRawDecodeReconciliationCoverage(items []TraceDBCoverage) TraceDBCove
 		"scheduler", "thread_state.arg_setid", "query_ready_export")
 	if blockedOK && blocked.Found && blocked.Error == "" {
 		out.Metrics["db_sched_blocked_reason_rows_emitted"] = int64(blocked.RowsEmitted)
-		dbCounterCount := int64(blocked.RowsEmitted)
+		dbCounterCount := int64(blocked.RowsRead)
+		out.Metrics["db_sched_blocked_reason_rows_read"] = dbCounterCount
+		out.Metadata["sched_blocked_reason_db_counter_source"] =
+			"audited_DB_projection_source_rows_before_Codrax_publication_gates"
 		if blockedKey, ok := traceDBCoverageByIdentity(
 			items, "source_rawtrace_blocked_key",
 			"__raw_vs_db_blocked_key__", "diagnostic_deduplication"); ok &&
 			blockedKey.Metadata["ledger_state"] ==
 				"exact_raw_family_authority" {
-			dbCounterCount =
-				blockedKey.Metrics["db_rows_suppressed_by_raw_family"]
 			out.Metrics["db_sched_blocked_reason_rows_suppressed_by_raw_family"] =
-				dbCounterCount
-			out.Metadata["sched_blocked_reason_db_counter_source"] =
-				"validated_DB_projection_candidates_suppressed_by_complete_raw_family_authority"
+				blockedKey.Metrics["db_rows_suppressed_by_raw_family"]
 			out.Metadata["publication_authority"] =
 				"source_rawtrace_blocked_family_authority"
 			if rawPublished, present := traceDBCoverageByIdentity(
@@ -124,9 +123,6 @@ func traceDBRawDecodeReconciliationCoverage(items []TraceDBCoverage) TraceDBCove
 				out.Metrics["raw_sched_blocked_reason_rows_published"] =
 					int64(rawPublished.RowsEmitted)
 			}
-		} else {
-			out.Metadata["sched_blocked_reason_db_counter_source"] =
-				"published_DB_projection_rows"
 		}
 		blockedStats, statsOK := traceDBRawDecodeSelectedStats(capture, "sched_blocked_reason")
 		rawCount := raw.Metrics["target_sched_blocked_reason_records"]

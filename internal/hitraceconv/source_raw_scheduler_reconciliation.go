@@ -3,7 +3,6 @@ package hitraceconv
 import (
 	"fmt"
 	"math"
-	"strings"
 )
 
 const (
@@ -26,7 +25,7 @@ func traceDBSchedulerPublicationReconciliationCoverage(
 			"db":       "scheduler/sched_slice strict complete-per-CPU publication coverage",
 			"raw":      "source_rawtrace_scheduler_lite_join exact enriched and lifecycle-proven raw-unmatched counters",
 			"total":    "final standard sched_switch events = DB boundaries published + raw unmatched published; raw enrichment changes fields but is not another event",
-			"withheld": "sum of typed raw_unmatched_withheld_* decisions; any unclassified residual remains explicit and prevents exact raw closure",
+			"withheld": "source join raw_unique_records_unmatched exact residual after key ambiguity, DB enrichment and raw-unmatched publication; raw_unmatched_withheld_db_coordinate_present is observational overlap with DB enrichment and is never counted again",
 			"effect":   "diagnostic and user-facing reconciliation only; never publishes, suppresses, deduplicates or repairs an event",
 		},
 		Metadata: map[string]string{
@@ -68,22 +67,19 @@ func traceDBSchedulerPublicationReconciliationCoverage(
 	traceDBAddCoverageMetric(
 		&out, "standard_sched_switch_events", standardTotal)
 
-	rawTypedWithheld := int64(0)
-	for key, value := range join.Metrics {
-		if strings.HasPrefix(key, "raw_unmatched_withheld_") && value > 0 {
-			if rawTypedWithheld > math.MaxInt64-value {
-				out.Metadata["reconciliation_state"] =
-					"failed_typed_withheld_overflow"
-				out.Error = "scheduler typed withheld total overflow"
-				return out
-			}
-			rawTypedWithheld += value
-		}
-	}
+	rawTypedWithheld := join.Metrics["raw_unique_records_unmatched"]
+	rawKeyRejected := join.Metrics["raw_records_key_rejected"]
+	rawAmbiguous := join.Metrics["raw_ambiguous_records"]
 	traceDBAddCoverageMetric(
 		&out, "raw_unmatched_typed_withheld", rawTypedWithheld)
+	traceDBAddCoverageMetric(
+		&out, "raw_records_key_rejected", rawKeyRejected)
+	traceDBAddCoverageMetric(
+		&out, "raw_records_ambiguous", rawAmbiguous)
 	accounted := enriched
-	for _, value := range []int64{rawPublished, rawTypedWithheld} {
+	for _, value := range []int64{
+		rawPublished, rawTypedWithheld, rawKeyRejected, rawAmbiguous,
+	} {
 		if accounted > math.MaxInt64-value {
 			out.Metadata["reconciliation_state"] =
 				"failed_raw_accounting_overflow"
@@ -97,6 +93,9 @@ func traceDBSchedulerPublicationReconciliationCoverage(
 		traceDBAddCoverageMetric(
 			&out, "raw_records_unclassified_residual",
 			rawRetained-accounted)
+	} else {
+		traceDBAddCoverageMetric(
+			&out, "raw_records_overaccounted", accounted-rawRetained)
 	}
 	out.Metadata["db_suppression_semantics"] =
 		"DB source rows suppressed by complete-per-CPU audit are not final loss when an exact raw-unmatched event was independently published"

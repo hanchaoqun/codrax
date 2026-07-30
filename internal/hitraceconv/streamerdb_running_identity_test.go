@@ -711,7 +711,7 @@ func TestTraceDBRunningIdentityCrossCheckIsStructurallyPinned(t *testing.T) {
 		t.Fatalf("retired legacy Running lookup callers=%v", extendedLookupCallers)
 	}
 	if !reflect.DeepEqual(knownCPUCallers, map[string]int{
-		"lookupCPUAt": 1,
+		"lookupCPUAt": 2,
 	}) {
 		t.Fatalf("raw Running CPU lookup callers=%v", knownCPUCallers)
 	}

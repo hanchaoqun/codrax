@@ -129,7 +129,8 @@ func TestTraceDBRawDecodeReconciliationUsesSuppressedDBCounterUnderRawFamilyAuth
 		},
 		{
 			Family: "scheduler", Table: "thread_state.arg_setid",
-			Role: "query_ready_export", Found: true, RowsEmitted: 0,
+			Role: "query_ready_export", Found: true,
+			RowsRead: 1795, RowsEmitted: 0,
 		},
 		{
 			Family: "source_rawtrace_blocked_key",
@@ -151,14 +152,85 @@ func TestTraceDBRawDecodeReconciliationUsesSuppressedDBCounterUnderRawFamilyAuth
 	if got.Metadata["sched_blocked_reason_counter_profile"] !=
 		"exact_raw_equals_db_plus_not_match_and_received_equals_raw_plus_db" ||
 		got.Metadata["sched_blocked_reason_db_counter_source"] !=
-			"validated_DB_projection_candidates_suppressed_by_complete_raw_family_authority" ||
+			"audited_DB_projection_source_rows_before_Codrax_publication_gates" ||
 		got.Metadata["publication_authority"] !=
 			"source_rawtrace_blocked_family_authority" ||
 		got.Metrics["db_sched_blocked_reason_rows_emitted"] != 0 ||
+		got.Metrics["db_sched_blocked_reason_rows_read"] != 1795 ||
 		got.Metrics["db_sched_blocked_reason_rows_suppressed_by_raw_family"] != 1795 ||
 		got.Metrics["raw_sched_blocked_reason_rows_published"] != 21565 ||
 		got.Metrics["sched_blocked_reason_exact_counter_equations"] != 2 {
 		t.Fatalf("raw family authority corrupted upstream blocked counter reconciliation: %+v",
+			got)
+	}
+}
+
+func TestTraceDBRawDecodeReconciliationClosesLargDBlockedCountersBeforePublicationGates(t *testing.T) {
+	captureMetrics := map[string]int64{}
+	for _, name := range traceDBRawDecodeTargetNames() {
+		captureMetrics["selected_"+traceDBRawDecodeMetricName(name)+"_status_mask"] =
+			int64(traceDBCaptureAllStatTypes)
+	}
+	captureMetrics["selected_sched_blocked_reason_not_match"] = 103212
+	captureMetrics["selected_sched_blocked_reason_received"] = 116328
+	var absent []string
+	for _, name := range traceDBRawDecodeTargetNames() {
+		if name != "sched_blocked_reason" {
+			absent = append(absent, name)
+		}
+	}
+	got := traceDBRawDecodeReconciliationCoverage([]TraceDBCoverage{
+		{
+			Family: "source_rawtrace_decode",
+			Table:  "__raw_record_decode__", Role: "diagnostic_ledger",
+			Found: true,
+			Metrics: map[string]int64{
+				"target_sched_blocked_reason_records": 109770,
+			},
+			Metadata: map[string]string{
+				"decode_state":          "strict_target_ledger_complete",
+				"target_formats_absent": strings.Join(absent, ","),
+			},
+		},
+		{
+			Family: "capture_completeness", Table: "stat",
+			Role: "capture_completeness", Found: true,
+			Metrics: captureMetrics,
+			CaptureCompleteness: &TraceCaptureCompleteness{
+				State: traceCaptureCompletenessDegraded,
+			},
+		},
+		{
+			Family: "scheduler", Table: "thread_state.arg_setid",
+			Role: "query_ready_export", Found: true,
+			RowsRead: 6558, RowsEmitted: 0,
+		},
+		{
+			Family: "source_rawtrace_blocked_key",
+			Table:  "__raw_vs_db_blocked_key__",
+			Role:   "diagnostic_deduplication",
+			Metadata: map[string]string{
+				"ledger_state": "exact_raw_family_authority",
+			},
+			Metrics: map[string]int64{
+				"db_rows_suppressed_by_raw_family": 6557,
+			},
+		},
+		{
+			Family: "source_rawtrace_blocked_recovery",
+			Table:  "__raw_only_blocked_reason__",
+			Role:   "query_ready_export", RowsEmitted: 109769,
+		},
+	})
+	if got.Metadata["sched_blocked_reason_counter_profile"] !=
+		"exact_raw_equals_db_plus_not_match_and_received_equals_raw_plus_db" ||
+		got.Metrics["sched_blocked_reason_exact_counter_equations"] != 2 ||
+		got.Metrics["sched_blocked_reason_raw_db_not_match_mismatches"] != 0 ||
+		got.Metrics["sched_blocked_reason_received_raw_db_mismatches"] != 0 ||
+		got.Metrics["db_sched_blocked_reason_rows_read"] != 6558 ||
+		got.Metrics["db_sched_blocked_reason_rows_suppressed_by_raw_family"] != 6557 ||
+		got.Metrics["raw_sched_blocked_reason_rows_published"] != 109769 {
+		t.Fatalf("LARG-D blocked upstream counters did not close independently of publication gates: %+v",
 			got)
 	}
 }

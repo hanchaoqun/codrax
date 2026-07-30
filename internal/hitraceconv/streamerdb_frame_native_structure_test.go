@@ -295,7 +295,11 @@ func TestTraceDBFrameAndNativeAuthoritiesAreStructurallyPinned(t *testing.T) {
 	}
 	for _, name := range []string{"exportTraceDBFrameSliceWithRows", "exportTraceDBNativeHook"} {
 		call := calls[name][0].call
-		if len(call.Args) != 5 || !isIdent(call.Args[3], "authority") || !isIdent(call.Args[4], "lifecycleRunning") {
+		runningName := "lifecycleRunning"
+		if name == "exportTraceDBFrameSliceWithRows" {
+			runningName = "callstackFrameRunning"
+		}
+		if len(call.Args) != 5 || !isIdent(call.Args[3], "authority") || !isIdent(call.Args[4], runningName) {
 			t.Fatalf("%s does not receive the shared typed values", name)
 		}
 	}
