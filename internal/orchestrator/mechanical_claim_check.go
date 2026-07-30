@@ -799,9 +799,10 @@ func mechanicalClaimClauseBarrierBetween(sent string, from, to int) bool {
 // predicate accepted, so it bound ACROSS the adverbial — 「总耗时 80ms
 // 在 10ms 的采样间隔内低于 16.67ms …」 bound 80ms and manufactured a
 // contradiction on a correct sentence that was silent pre-R6. A rune
-// counts as a closer only when a 在 precedes it within the bind leash
+// counts as a closer only when a 在 precedes it within the same clause
 // (mechanicalClaimWithinAdmitted — the SAME paired-在 predicate the
-// 之内/以内 admission gate uses, 谓词同源): word-internal 内/中/里 with
+// 之内/以内 admission gate uses, 谓词同源; clause-bounded rather than
+// leash-bounded since R8-0): word-internal 内/中/里 with
 // no paired 在 (内存 / 其中 / (内部含 GC)) stay transparent. Monotone by
 // construction: a closer inside the nearest candidate's gap is inside
 // every farther candidate's superset gap, so the WHOLE left side dies
@@ -834,21 +835,56 @@ func mechanicalClaimNegationBarrier(r rune) bool {
 }
 
 // mechanicalClaimWithinAdmitted — the shared paired-在 predicate: a 在
-// within the leash window before the given position. Two consumers
-// (谓词同源): the 之内/以内 comparator admission gate (a 在 before the
-// word marks the comparison construction) and the R7-0 adverbial-closer
-// barrier (a 在 before a 内/中/里 rune marks it as an adverbial closer
-// rather than a word-internal character).
+// before the given position, anywhere back to the previous clause
+// boundary (or the sentence start). Two consumers (谓词同源): the
+// 之内/以内 comparator admission gate (a 在 before the word marks the
+// comparison construction) and the R7-0 adverbial-closer barrier (a 在
+// before a 内/中/里 rune marks it as an adverbial closer rather than a
+// word-internal character).
+//
+// R8-0 (round-8 sweep): the search was bounded by the 30-rune bind
+// leash (mechanicalClaimBindGapRunes), but a 在-pairing is a CLAUSE
+// property, not a leash property — a 在…内 adverbial whose descriptor
+// pushed 在 beyond the leash left the closer unrecognized while the
+// in-adverbial quantity still bound through its own ≤30-rune gap, so a
+// CORRECT sentence (「在 3680.569s 的完整采样窗口（覆盖三个连续 vsync
+// 刷新周期）内低于 16.67ms 的帧占比达 95%」) raised a decisive false
+// contradiction. The walk now stops only at a clause barrier
+// (mechanicalClaimClauseBarrierRune, with numeric-internal '.'/','
+// transparent — the decimal point in 3680.569 / 16.67 must not end the
+// walk) or the sentence start. The word-internal-内 protection is
+// unchanged: it is the paired-在 requirement itself (内存 / 其中 with
+// no clause-mate 在 stay transparent), and the clause bound makes it
+// STRICTER than the leash form for a 在 in a previous clause (…在压测
+// 中，… 内… no longer pairs across the comma).
 func mechanicalClaimWithinAdmitted(sent string, compStart int) bool {
 	start := compStart
-	for count := 0; count < mechanicalClaimBindGapRunes && start > 0; count++ {
+	for start > 0 {
 		r, size := utf8.DecodeLastRuneInString(sent[:start])
 		start -= size
 		if r == '在' {
 			return true
 		}
+		if mechanicalClaimClauseBarrierRune(r) && !mechanicalClaimNumericInternalPunct(sent, start) {
+			return false
+		}
 	}
 	return false
+}
+
+// mechanicalClaimNumericInternalPunct reports that the ASCII '.' or ','
+// at byte offset i is flanked by ASCII digits on both sides — the
+// decimal point / thousands separator inside a number literal
+// (3680.569 / 1,234), which is not a clause boundary.
+func mechanicalClaimNumericInternalPunct(sent string, i int) bool {
+	if i <= 0 || i+1 >= len(sent) {
+		return false
+	}
+	if c := sent[i]; c != '.' && c != ',' {
+		return false
+	}
+	p, n := sent[i-1], sent[i+1]
+	return p >= '0' && p <= '9' && n >= '0' && n <= '9'
 }
 
 // mechanicalClaimModalNearComparator reports whether the comparator's

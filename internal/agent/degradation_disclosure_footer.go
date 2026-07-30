@@ -65,15 +65,28 @@ const (
 // 谓词同源) plus the lane's registry word inside that caveat. Both
 // language faces are checked so the predicate is independent of the
 // render-time language parameter.
+//
+// R8-1 (round-8 sweep): doc.Caveats is an LLM-WRITABLE free-text
+// channel, and R7-1 matched the leader with strings.Contains — a caveat
+// merely QUOTING the leader plus a lane word (prose about an upstream
+// degraded run) falsely suppressed a legitimate footer
+// (noisy-signal-for-hard-behavior class). The system materializer is
+// the only author that constructs the leader at position 0 of a caveat
+// entry (degradedDeterministicSectionsCaveat returns prefix+details
+// verbatim), so the leader match is now strings.HasPrefix on the entry:
+// a quote embeds the leader mid-text (after 「, ", or narration) and no
+// longer suppresses. The lane word stays a Contains WITHIN a
+// prefix-authenticated entry — past the prefix gate the entry body is
+// system-authored (section display words), no free-text noise remains.
 func degradationLaneSelfDisclosedInDoc(doc *types.AnswerDocumentV2, spec types.DegradationLaneSpec) bool {
 	if doc == nil {
 		return false
 	}
 	for _, cav := range doc.Caveats {
-		if strings.Contains(cav, degradedSectionsCaveatPrefixZH) && strings.Contains(cav, spec.ZH) {
+		if strings.HasPrefix(cav, degradedSectionsCaveatPrefixZH) && strings.Contains(cav, spec.ZH) {
 			return true
 		}
-		if strings.Contains(cav, degradedSectionsCaveatPrefixEN) && strings.Contains(cav, spec.EN) {
+		if strings.HasPrefix(cav, degradedSectionsCaveatPrefixEN) && strings.Contains(cav, spec.EN) {
 			return true
 		}
 	}

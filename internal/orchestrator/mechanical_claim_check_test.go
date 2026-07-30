@@ -181,6 +181,18 @@ func TestMechanicalClaim_SkipSet(t *testing.T) {
 		// a true barrier: any candidate whose gap crosses it dies, so the
 		// whole left side is empty and the comparator skips.
 		{"adverbial_barrier_side_fatal_zh", "总耗时 80ms 在 10ms 的采样间隔内低于 16.67ms 的样本占比达 95%。"},
+		// R8-0 (round-8 sweep): R7-0's closer recognition re-anchored the
+		// paired-在 search to the CLOSER position but kept the 30-rune bind
+		// leash as its bound, so a descriptor long enough to push 在 beyond
+		// the leash (38 runes back here) left the closer unrecognized while
+		// the in-adverbial quantity still bound through its own ≤30-rune
+		// gap — 3680.569s bound as the left operand of 低于 16.67ms and a
+		// CORRECT sentence raised a decisive false contradiction. The
+		// 在-pairing is a clause property, not a leash property: the search
+		// is now bounded by the previous clause boundary (numeric-internal
+		// '.'/',' transparent — 3680.569 must not stop the walk), never by
+		// the leash.
+		{"adverbial_long_descriptor_zh", "在 3680.569s 的完整采样窗口（覆盖三个连续 vsync 刷新周期）内低于 16.67ms 的帧占比达 95%。"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

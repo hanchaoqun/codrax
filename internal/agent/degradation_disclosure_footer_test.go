@@ -295,6 +295,44 @@ func TestDegradationFooterSelfDisclosedLaneSuppressed(t *testing.T) {
 	}
 }
 
+// TestDegradationFooterQuotingCaveatDoesNotSuppress — R8-1 (round-8
+// sweep): doc.Caveats is an LLM-WRITABLE free-text channel, and the
+// R7-1 predicate did strings.Contains over it — a caveat merely QUOTING
+// the degraded-caveat leader plus a lane word (e.g. prose explaining
+// that an upstream run had shipped degraded) falsely suppressed a
+// legitimate footer: disclosure loss on a non-degraded answer
+// (noisy-signal-for-hard-behavior class). The system materializer
+// always constructs the leader at position 0 of its caveat entry
+// (degradedDeterministicSectionsCaveat returns prefix+details), so
+// suppression now anchors on the entry START (strings.HasPrefix); an
+// LLM quote embeds the leader mid-text and must never suppress.
+func TestDegradationFooterQuotingCaveatDoesNotSuppress(t *testing.T) {
+	ctx := &types.AgentContext{Mutable: seededDegradationMutable()} // citation ×17 + facet ×1
+	quoting := degradationFooterTestDoc()
+	quoting.Caveats = append(quoting.Caveats,
+		"注意：上游批次日志中曾出现「降级出厂说明：本稿未通过最终结构化校验。」字样并触发引用摘录回填，本稿不受其影响。")
+	footer := renderDegradationDisclosureFooter(ctx, quoting, "zh")
+	if !strings.Contains(footer, "引用摘录回填 ×17") {
+		t.Fatalf("a caveat QUOTING the degraded leader mid-text must not suppress the footer disclosure: %q", footer)
+	}
+	// EN face: same shape, quoted mid-text.
+	quotingEN := degradationFooterTestDoc()
+	quotingEN.Caveats = append(quotingEN.Caveats,
+		`Note: an upstream batch printed "Degraded delivery: this draft did NOT pass final structured validation." and ran citation quote backfill; this answer is unaffected.`)
+	if footer := renderDegradationDisclosureFooter(ctx, quotingEN, "en"); !strings.Contains(footer, "citation quote backfill ×17") {
+		t.Fatalf("EN quoting caveat must not suppress the footer disclosure: %q", footer)
+	}
+	// Discriminator: the genuine system caveat (leader at position 0 of
+	// the entry) still suppresses — kills an over-broad fix that stops
+	// suppressing altogether.
+	genuine := degradationFooterTestDoc()
+	genuine.Caveats = append(genuine.Caveats,
+		degradedDeterministicSectionsCaveat("zh", []string{tool.DegradedSectionCitationQuoteBackfill}))
+	if footer := renderDegradationDisclosureFooter(ctx, genuine, "zh"); strings.Contains(footer, "引用摘录回填") {
+		t.Fatalf("the genuine degraded caveat must still suppress the lane: %q", footer)
+	}
+}
+
 // TestDegradationFooterRejectedRecoveryThenCleanRetryDiscloses — R7-1
 // (round-7 sweep): a recovery attempt builds a degraded draft whose own
 // caveat self-discloses the citation lane, but that draft is REJECTED
