@@ -5492,9 +5492,85 @@ decompression beyond the 64 KiB bound, zero-retention indexing, all SQLite
 storage classes including a 70,000-byte BLOB, deterministic output SHA, the
 former 4 GiB crossing, and full tracequery postvalidation.
 
-Customer replay is deferred until the code-side batches which survive local
-benchmarking are committed and pushed. Retrying the failing file on the old
-build is not useful.
+#### CVT-B5 implementation — customer-verifiable capability stamp
+
+The bounded diagnostic capability roster now carries both:
+
+```text
+sql_text_fidelity_v1
+sql_text_fidelity_v2
+```
+
+The v1 stamp is retained because query and postvalidation remain backward
+compatible with existing physical v1 artifacts. The v2 stamp proves that the
+running executable contains the compact writer/reader contract. A customer
+report that lacks v2 is from an older build and cannot test CVT-B4.
+
+The code-side batches are committed and pushed:
+
+```text
+4eb9e23b2  fix: stream large SQL fidelity suffix directly
+fb1e02450  perf: reduce SQL fidelity v1 encoding allocations
+e5a8b2618  perf: compact exact SQL fidelity records
+52898264c  fix: advertise compact SQL fidelity diagnostics
+```
+
+### Local replay disposition
+
+The final tree at `main@52898264c` passes `go test ./...` with zero failed
+packages and a release-tagged `make` build. The built executable reports:
+
+```text
+version       = 0.1.20260730
+revision      = 52898264c235
+darwin/arm64 executable sha256
+              = 6221294343b2178a24d1722e8bd74cea02b49c5b5d4b6f176aacfbc9dab351ec
+```
+
+The deterministic same-input SQLite replay passes twice with:
+
+```text
+semantic authority rows = 18
+physical O2 carriers     = 17
+logical O2 v1 records    = 66
+artifact rows            = 35
+unknown/unparsed         = 0/0
+artifact bytes           = 37140
+artifact sha256          = 427d8b8664897dba6641f271fb01ec29a3870c18b9417c26019da8ccb8388752
+```
+
+The all-storage SQLite replay also passes exact recovery of every table,
+NULL/INTEGER/REAL/TEXT/BLOB storage, embedded NUL/non-UTF8 TEXT, a 70,000-byte
+BLOB, schemas, row IDs and receipts, followed by full tracequery
+postvalidation.
+
+The repository's `/Users/han/opt/donghu/donghu.ftrace` cannot serve as the
+SQL replay input on this host: it is already CRLF ASCII ftrace text, while
+`trace convert` admits binary trace input, and the darwin/arm64 build has no
+bundled trace_streamer. An explicit built-in attempt therefore correctly
+fails its RMQ binary magic gate before conversion. This result neither
+validates nor invalidates the customer's Windows trace_streamer path and must
+not be reported as a customer-file failure.
+
+### Customer same-file replay is now required
+
+The remaining acceptance evidence can only come from the customer's immutable
+151,107,309-byte `.sys` on the machine that has trace_streamer. The new run
+must establish:
+
+1. the diagnostic roster contains both fidelity v1 and v2;
+2. DB export and SQLite-to-text normalization both complete;
+3. `trace_db_text_fidelity_tail_size_limit` is absent;
+4. `carrier_rows` is the physical compact count while
+   `typed_record_lines` remains the recovered logical count;
+5. expected rows, parsed-known rows and callback rows agree, with zero
+   unknown/unparsed owned rows;
+6. the output is published only after whole-wire and tracequery validation;
+7. elapsed time and output bytes are compared with the failed 149.8-second
+   pre-v2 normalization attempt.
+
+Retrying with any build whose report lacks `sql_text_fidelity_v2` is not
+useful.
 
 ## Invariants
 
