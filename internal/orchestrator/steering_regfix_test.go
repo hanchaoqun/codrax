@@ -114,3 +114,56 @@ func TestSteering_PinsHonourSourceExclusionBoundary(t *testing.T) {
 		t.Fatal("without an exclusion boundary the pin must still enqueue")
 	}
 }
+
+// TestSteeringIntake_PreciseCommandRefusal pins SWEEPFIX S4: refusal
+// mirrors the funnel's own predicates (shell-bang prefix + alias
+// registry), not a "starts with /" heuristic — path-leading prose is
+// routine steering for a log-triage tool.
+func TestSteeringIntake_PreciseCommandRefusal(t *testing.T) {
+	s := &steeringIntake{}
+	s.openIntake()
+	if s.push("/var/log/app.log 里 10:32 有 panic，重点看那段") != true {
+		t.Fatal("path-leading prose must be accepted as steering")
+	}
+	if s.push("/cancel") || s.push("\\cancel") || s.push("!rm -rf /tmp/x") {
+		t.Fatal("funnel-recognized commands must be refused")
+	}
+}
+
+// TestSteeringHint_PinsSentenceTellsTheTruth pins SWEEPFIX S3: the
+// prompt must never claim pins were queued when the source-exclusion
+// boundary withheld the forced read.
+func TestSteeringHint_PinsSentenceTellsTheTruth(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "foo.go"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ir := &types.AnalysisIR{}
+	ir.RequestModel.ExternalObservationPolicy = &types.ExternalObservationPolicy{
+		CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+		ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
+		SourceQuotes:      []string{"只看日志，不要读代码"},
+	}
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable:    types.NewMutableState(""),
+		RepoRoot:   root,
+		AnalysisIR: ir,
+	}}
+	o.steering.openIntake()
+	if !o.steering.push("顺带看看 @foo.go 的锁逻辑") {
+		t.Fatal("prose must be accepted")
+	}
+	n, hint := o.takeSteeringNotesForExploreWindow()
+	if n != 1 {
+		t.Fatalf("consumed %d notes, want 1", n)
+	}
+	if strings.Contains(hint, "already queued for reading") {
+		t.Fatalf("hint claims pins were queued while the boundary withheld the read: %q", hint)
+	}
+	if !strings.Contains(hint, "NOT read") {
+		t.Fatalf("hint must disclose the withheld read: %q", hint)
+	}
+	if len(o.busCtx.Mutable.EvidenceClosure().PendingReads()) != 0 {
+		t.Fatal("boundary must keep withholding the forced read")
+	}
+}

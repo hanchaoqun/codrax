@@ -718,7 +718,7 @@ type REPL struct {
 	stdinOwnerOnce              sync.Once
 	stdinOwnerInst              *ttyStdinOwner
 	promptTemplates             map[string]promptTemplate
-	pendingFollowUps            []string // PIB-2 v1: lines queued during a Run, replayed as turns
+	pendingFollowUps            []pendingFollowUp // PIB-2 v1: lines queued during a Run, replayed as turns
 	pendingInputPrefill         string   // TTY-2: half-typed run-phase line, seeded into the next prompt
 	readRunAutoResumeEnabled    bool     // default OFF (user ruling 2026-07-30); codrax.yaml read_run_auto_resume
 	atFileIndexOnce             sync.Once
@@ -6159,8 +6159,8 @@ func (r *REPL) runInFlightWrap(fn func() (*types.BusContext, error)) (*types.Bus
 	// read sees them before touching stdin. Nil-safe (TTY runs have
 	// no listener and the queue stays empty).
 	defer func() {
-		if queued := listener.queuedLines(); len(queued) > 0 {
-			r.pendingFollowUps = append(r.pendingFollowUps, queued...)
+		for _, line := range listener.queuedLines() {
+			r.pendingFollowUps = append(r.pendingFollowUps, pendingFollowUp{Text: line})
 		}
 	}()
 	r.runInFlight.Store(true)
@@ -6347,9 +6347,19 @@ func (r *REPL) Loop() error {
 		// replay in arrival order before stdin is consulted again. A
 		// visible echo line shows which queued input is running now.
 		if len(r.pendingFollowUps) > 0 {
-			queued := r.pendingFollowUps[0]
+			entry := r.pendingFollowUps[0]
 			r.pendingFollowUps = r.pendingFollowUps[1:]
+			queued := entry.Text
 			r.info(followUpReplayMsg(r.language, queued))
+			// SWEEPFIX S5: verbatim entries (pasted content, steering
+			// prose handed back unconsumed) are DATA — they never enter
+			// the command funnel, so a pasted "!git clean -fdx" or a
+			// prose line whose first word collides with a template name
+			// cannot execute anything on replay.
+			if entry.Verbatim {
+				r.dispatch(queued, queued)
+				continue
+			}
 			// REGFIX-D #16 (sweep): replay must traverse the SAME input
 			// funnel typed lines do. The previous branch skipped the
 			// shell-bang and prompt-template stages, so a queued "!cmd"

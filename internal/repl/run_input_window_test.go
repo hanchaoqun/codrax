@@ -127,7 +127,7 @@ func TestDrainRunInputWindow_ReplayAndRestoreLanes(t *testing.T) {
 		return len(w.queue) == 2 && len(w.partial) > 0
 	})
 	r.drainRunInputWindow(w)
-	if len(r.pendingFollowUps) != 2 || r.pendingFollowUps[0] != "q1" {
+	if len(r.pendingFollowUps) != 2 || r.pendingFollowUps[0].Text != "q1" {
 		t.Fatalf("pendingFollowUps = %v", r.pendingFollowUps)
 	}
 	if r.pendingInputPrefill != "half" {
@@ -237,8 +237,11 @@ func TestRunInputWindow_SteeredLinesBypassQueue(t *testing.T) {
 
 // TestDrainRunInputWindow_UnconsumedNotesReplayFirst pins the handback
 // contract: notes the run accepted but never consumed re-enter the
-// replay queue AHEAD of later-typed queued lines.
-func TestDrainRunInputWindow_UnconsumedNotesReplayFirst(t *testing.T) {
+// replay queue AFTER the window's queued lines (SWEEPFIX S6: commands
+// typically change the mode/context the subsequent prose assumes, so
+// queued lines — the command lane — replay first; the handed-back
+// prose replays VERBATIM, never through the command funnel).
+func TestDrainRunInputWindow_QueuedLinesReplayBeforeUnconsumedNotes(t *testing.T) {
 	r, _, _ := newApprovalREPL(t, "", &writeCapableRunner{})
 	r.runner = &fakeSteeringRunner{unconsumed: []string{"steered but not consumed"}, acceptUntil: 0}
 	w, _ := windowFromScript(t, "typed later\r", runInputWindowCallbacks{})
@@ -249,8 +252,11 @@ func TestDrainRunInputWindow_UnconsumedNotesReplayFirst(t *testing.T) {
 	})
 	r.drainRunInputWindow(w)
 	if len(r.pendingFollowUps) != 2 ||
-		r.pendingFollowUps[0] != "steered but not consumed" ||
-		r.pendingFollowUps[1] != "typed later" {
+		r.pendingFollowUps[0].Text != "typed later" ||
+		r.pendingFollowUps[1].Text != "steered but not consumed" {
 		t.Fatalf("pendingFollowUps = %v", r.pendingFollowUps)
+	}
+	if r.pendingFollowUps[0].Verbatim || !r.pendingFollowUps[1].Verbatim {
+		t.Fatalf("queued line replays through the funnel, handed-back prose replays verbatim; got %+v", r.pendingFollowUps)
 	}
 }

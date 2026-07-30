@@ -2,6 +2,9 @@ package repl
 
 import (
 	"errors"
+	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -252,5 +255,62 @@ func TestRunInputWindow_FuseRestoresModeAtAbandonTime(t *testing.T) {
 	}
 	if *restores != 2 {
 		t.Fatalf("watcher must not re-restore (1 fuse + 1 probe borrow expected); restores=%d", *restores)
+	}
+}
+
+// TestRunInputWindow_PastedBangLinesNeverEnterCommandFunnel pins
+// SWEEPFIX S5: a bracketed paste containing "!"-leading lines is DATA —
+// captured as one verbatim blob, never split into per-line commands
+// that the replay funnel would shell-execute.
+func TestRunInputWindow_PastedBangLinesNeverEnterCommandFunnel(t *testing.T) {
+	r, _, _ := newApprovalREPL(t, "", &writeCapableRunner{})
+	script := "\x1b[200~!pip install foo\r![diagram](url)\r!git clean -fdx\x1b[201~"
+	w, _ := windowFromScript(t, script, runInputWindowCallbacks{})
+	waitFor(t, func() bool {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		return len(w.pastes) == 1
+	})
+	r.drainRunInputWindow(w)
+	if len(r.pendingFollowUps) != 1 {
+		t.Fatalf("paste must stay ONE blob; got %d entries: %+v", len(r.pendingFollowUps), r.pendingFollowUps)
+	}
+	entry := r.pendingFollowUps[0]
+	if !entry.Verbatim {
+		t.Fatal("pasted content must replay verbatim — the funnel would shell-execute the ! lines")
+	}
+	if !strings.Contains(entry.Text, "!git clean -fdx") || !strings.Contains(entry.Text, "!pip install foo") {
+		t.Fatalf("paste content mangled: %q", entry.Text)
+	}
+}
+
+// TestSteeringIntake_PathLeadingProseIsAccepted pins SWEEPFIX S4 (repl
+// side): the window's trySteer wrapper refuses TEMPLATE commands but
+// hands path-leading prose to the sink — only funnel-precise command
+// shapes queue for replay.
+func TestRunInputWindow_PathProseSteersButCommandsQueue(t *testing.T) {
+	sink := &fakeSteeringRunner{acceptUntil: 8}
+	// Mirror the production composition: the orchestrator intake
+	// refuses funnel-precise command shapes (pinned on its own side by
+	// TestSteeringIntake_PreciseCommandRefusal); the window sees that
+	// refusal as trySteer=false and queues the line.
+	cb := runInputWindowCallbacks{trySteer: func(line string) bool {
+		if strings.HasPrefix(line, "!") || types.NormalizeREPLCommandAlias(line) != "" {
+			return false
+		}
+		return sink.PushSteeringNote(line)
+	}}
+	w, _ := windowFromScript(t, "/var/log/app.log has a panic at 10:32\r/approve\r!echo hi\r", cb)
+	waitFor(t, func() bool {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		return len(w.queue) == 2
+	})
+	queued, _, _, _ := w.drain()
+	if len(sink.accepted) != 1 || !strings.HasPrefix(sink.accepted[0], "/var/log/") {
+		t.Fatalf("path-leading prose must steer; accepted=%v", sink.accepted)
+	}
+	if len(queued) != 2 || queued[0] != "/approve" || queued[1] != "!echo hi" {
+		t.Fatalf("real commands must queue for funnel replay; queued=%v", queued)
 	}
 }

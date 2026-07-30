@@ -3,6 +3,7 @@ package repl
 import (
 	"bufio"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -261,7 +262,8 @@ func (r *REPL) restoreTTYForExit() {
 // never a raw write — dock repaint discipline); onCtrlC/onEsc must be
 // non-blocking.
 type runInputWindowCallbacks struct {
-	onLine func(line string)
+	onLine  func(line string)
+	onPaste func(lineCount int)
 	// trySteer offers the line to the running pipeline FIRST (TTY-3):
 	// true = consumed as a mid-run steering note (not queued);
 	// false/nil = the line queues for post-Run replay.
@@ -296,6 +298,18 @@ type runInputWindow struct {
 	partial []byte
 	escSeen bool
 	overCap bool
+
+	// Bracketed-paste lane (SWEEPFIX S5): pasted content is DATA, never
+	// commands. Without this lane every pasted line streamed through
+	// commitLine, and a pasted "!git clean -fdx" (a chat transcript, a
+	// jupyter cell, a markdown image "![...](url)") was refused as a
+	// command by the steering intake, queued, and shell-EXECUTED by the
+	// replay funnel after the run. pasting/pasteBuf are touched only by
+	// the loop goroutine under mu; pastes hold completed blobs until
+	// drain, replayed VERBATIM (never through the command funnel).
+	pasting  bool
+	pasteBuf []byte
+	pastes   []string
 }
 
 const (
@@ -371,6 +385,18 @@ func (w *runInputWindow) loop(cb runInputWindowCallbacks, readByte func() (byte,
 		if !ok {
 			continue // tick expired, no data
 		}
+		if w.pasting && b != runInputEsc {
+			// Inside a bracketed paste every byte is literal content
+			// (only ESC can open the 201~ terminator).
+			w.mu.Lock()
+			if len(w.pasteBuf) < runInputWindowMaxLineB {
+				w.pasteBuf = append(w.pasteBuf, b)
+			} else {
+				w.overCap = true
+			}
+			w.mu.Unlock()
+			continue
+		}
 		switch b {
 		case runInputCtrlC:
 			if cb.onCtrlC != nil && !w.dead.Load() {
@@ -430,6 +456,13 @@ func (w *runInputWindow) handleEsc(cb runInputWindowCallbacks, readByte func() (
 		return
 	}
 	if !ok {
+		if w.pasting {
+			// A lone ESC inside pasted content is literal data.
+			w.mu.Lock()
+			w.pasteBuf = append(w.pasteBuf, runInputEsc)
+			w.mu.Unlock()
+			return
+		}
 		w.mu.Lock()
 		w.escSeen = true
 		w.mu.Unlock()
@@ -439,16 +472,90 @@ func (w *runInputWindow) handleEsc(cb runInputWindowCallbacks, readByte func() (
 		return
 	}
 	if b == '[' || b == 'O' {
+		seq := make([]byte, 0, 16)
 		for i := 0; i < 16; i++ {
 			c, ok2, err2 := readByte()
 			if err2 != nil || !ok2 {
 				return
 			}
+			seq = append(seq, c)
 			if c >= '@' && c <= '~' {
-				return
+				break
 			}
 		}
+		// SWEEPFIX S5: bracketed-paste markers open/close the paste
+		// lane; every other sequence inside a paste is literal content.
+		if b == '[' && string(seq) == "200~" {
+			w.pasting = true
+			return
+		}
+		if b == '[' && string(seq) == "201~" {
+			w.finishPaste(cb)
+			return
+		}
+		if w.pasting {
+			w.mu.Lock()
+			w.pasteBuf = append(w.pasteBuf, runInputEsc, b)
+			w.pasteBuf = append(w.pasteBuf, seq...)
+			w.mu.Unlock()
+		}
+		return
 	}
+	if w.pasting {
+		w.mu.Lock()
+		w.pasteBuf = append(w.pasteBuf, runInputEsc, b)
+		w.mu.Unlock()
+	}
+}
+
+// finishPaste closes the bracketed-paste lane: the whole blob is
+// steered as ONE note when the sink accepts prose, else stored for
+// VERBATIM replay (pasted content never enters the command funnel).
+// Same linearization contract as commitLine: everything under mu, dead
+// first (a dead window keeps the buffer for drain's snapshot).
+func (w *runInputWindow) finishPaste(cb runInputWindowCallbacks) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.pasting = false
+	if w.dead.Load() {
+		return
+	}
+	blob := strings.Trim(string(w.pasteBuf), "\r\n")
+	w.pasteBuf = w.pasteBuf[:0]
+	if blob == "" {
+		return
+	}
+	if cb.trySteer != nil && cb.trySteer(blob) {
+		if cb.onSteered != nil {
+			cb.onSteered(blob)
+		}
+		return
+	}
+	if len(w.pastes) >= 8 {
+		w.overCap = true
+		return
+	}
+	w.pastes = append(w.pastes, blob)
+	if cb.onPaste != nil {
+		cb.onPaste(strings.Count(blob, "\n") + 1)
+	}
+}
+
+// takePastes hands back completed paste blobs plus any half-received
+// paste (drain-time). Exactly-once, mu-safe.
+func (w *runInputWindow) takePastes() []string {
+	if w == nil {
+		return nil
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	out := w.pastes
+	w.pastes = nil
+	if blob := strings.Trim(string(w.pasteBuf), "\r\n"); blob != "" {
+		out = append(out, blob)
+	}
+	w.pasteBuf = nil
+	return out
 }
 
 func (w *runInputWindow) commitLine(cb runInputWindowCallbacks) {
@@ -562,7 +669,19 @@ func (r *REPL) armRunInputWindow(canceller runnerCanceller) *runInputWindow {
 			}
 		},
 		trySteer: func(line string) bool {
+			// SWEEPFIX S4: prompt-TEMPLATE commands are refused here —
+			// the template registry lives on the REPL, not in the
+			// intake — so "/mytemplate args" queues for replay
+			// expansion instead of being steered as prose.
+			if _, _, isTemplate := r.expandTemplateCommand(line); isTemplate {
+				return false
+			}
 			return steerSink != nil && steerSink.PushSteeringNote(line)
+		},
+		onPaste: func(lineCount int) {
+			if r.renderer != nil {
+				r.renderer.CommitUserInputLine(runInputPasteQueuedLabel(r.language, lineCount))
+			}
 		},
 		onSteered: func(line string) {
 			// REGFIX-B #13 (sweep): the intake ACCEPTING a note is not
@@ -609,19 +728,27 @@ func (r *REPL) drainRunInputWindow(w *runInputWindow) {
 		return
 	}
 	queued, partial, escAborted, dropped := w.drain()
+	pastes := w.takePastes()
 	// TTY-3: steering notes accepted by the run but never consumed
 	// (run ended first, or a lane without explore boundaries) come
 	// back here — steered or replayed, never lost, never run twice.
+	// SWEEPFIX S6: replay order is window-queued lines FIRST, then the
+	// unconsumed steering prose. The previous prepend inverted a typed
+	// "command then prose" sequence; commands typically change the
+	// mode/context the subsequent prose assumes, so commands-first is
+	// the honest default (recorded in the design ledger — true typed
+	// interleaving is not reconstructible from two unordered lanes).
+	var rem []string
 	if taker, ok := r.runner.(steeringUnconsumed); ok {
-		if rem := taker.TakeUnconsumedSteeringNotes(); len(rem) > 0 {
-			queued = append(rem, queued...)
-		}
+		rem = taker.TakeUnconsumedSteeringNotes()
 	}
 	if dropped {
 		r.warn("%s\n", runInputDroppedMsg(r.language))
 	}
 	if escAborted {
-		restored := append(append([]string(nil), queued...), splitNonEmpty(partial)...)
+		restored := append(append([]string(nil), queued...), rem...)
+		restored = append(restored, pastes...)
+		restored = append(restored, splitNonEmpty(partial)...)
 		switch len(restored) {
 		case 0:
 		case 1:
@@ -636,12 +763,29 @@ func (r *REPL) drainRunInputWindow(w *runInputWindow) {
 		}
 		return
 	}
-	if len(queued) > 0 {
-		r.pendingFollowUps = append(r.pendingFollowUps, queued...)
+	for _, line := range queued {
+		r.pendingFollowUps = append(r.pendingFollowUps, pendingFollowUp{Text: line})
+	}
+	for _, note := range rem {
+		// Accepted-as-prose steering replays as prose — never through
+		// the command funnel (a template name colliding with the first
+		// word must not fire on replay).
+		r.pendingFollowUps = append(r.pendingFollowUps, pendingFollowUp{Text: note, Verbatim: true})
+	}
+	for _, blob := range pastes {
+		r.pendingFollowUps = append(r.pendingFollowUps, pendingFollowUp{Text: blob, Verbatim: true})
 	}
 	if partial != "" {
 		r.pendingInputPrefill = partial
 	}
+}
+
+// pendingFollowUp is one queued replay unit. Verbatim entries (pasted
+// blobs, unconsumed steering prose) bypass the command funnel on
+// replay — they are data, not typed commands (SWEEPFIX S5/S6).
+type pendingFollowUp struct {
+	Text     string
+	Verbatim bool
 }
 
 // steeringSink / steeringUnconsumed are the optional runner surfaces
@@ -653,6 +797,15 @@ type steeringSink interface {
 
 type steeringUnconsumed interface {
 	TakeUnconsumedSteeringNotes() []string
+}
+
+// runInputPasteQueuedLabel is the folded echo for a paste captured
+// mid-run and queued for verbatim replay.
+func runInputPasteQueuedLabel(lang string, lines int) string {
+	if isZh(lang) {
+		return fmt.Sprintf("[粘贴 %d 行，已排队待运行结束后处理]", lines)
+	}
+	return fmt.Sprintf("[pasted %d line(s), queued until the run completes]", lines)
 }
 
 func splitNonEmpty(s string) []string {

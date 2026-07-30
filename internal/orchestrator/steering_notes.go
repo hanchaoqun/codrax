@@ -51,7 +51,15 @@ func (s *steeringIntake) push(note string) bool {
 	// prompt meant the command never executed while its text polluted
 	// the LLM's instructions. Refuse it here so the window queues it
 	// for post-run replay through the normal dispatch funnel.
-	if strings.HasPrefix(note, "/") || strings.HasPrefix(note, "\\") || strings.HasPrefix(note, "!") {
+	// SWEEPFIX S4: the refusal mirrors the funnel's own PRECISE
+	// predicates — the shell-bang prefix and the alias registry — not
+	// a noisy "starts with /" heuristic, which mis-refused routine
+	// log-triage prose like "/var/log/app.log 里 10:32 有 panic" and
+	// replayed it as a surprise full LLM turn. A path-leading note is
+	// prose to the funnel, so it is prose to the intake too. (Prompt
+	// TEMPLATE commands are refused one layer up, in the REPL's
+	// trySteer wrapper, where the template registry lives.)
+	if strings.HasPrefix(note, "!") || types.NormalizeREPLCommandAlias(note) != "" {
 		return false
 	}
 	s.mu.Lock()
@@ -145,8 +153,20 @@ func (o *Orchestrator) takeSteeringNotesForExploreWindow() (int, string) {
 				Stage:     string(types.StageExplore),
 			})
 		}
+		// SWEEPFIX S3: the pins clause must tell the truth. Under a
+		// source-exclusion boundary (pinsAllowed=false) the forced read
+		// is deliberately withheld — claiming the pins "are already
+		// queued for reading" was an affirmatively false prompt
+		// statement (the dishonest-prompt class the proof-lane red line
+		// exists for).
+		suffix := "."
+		if pinsAllowed && len(pins) > 0 {
+			suffix = "; any @file pins in it are already queued for reading."
+		} else if !pinsAllowed {
+			suffix = ". @file references in it were NOT read (this run excludes current-source reading); treat them as plain text."
+		}
 		hints = append(hints, "Operator steering note (typed mid-run, verbatim): "+strconv.Quote(note)+
-			". Address it within the current exploration; any @file pins in it are already queued for reading.")
+			". Address it within the current exploration"+suffix)
 	}
 	steeringHint := strings.Join(hints, "\n")
 	if existing := strings.TrimSpace(o.busCtx.TaskState.RetryHint); existing != "" {
