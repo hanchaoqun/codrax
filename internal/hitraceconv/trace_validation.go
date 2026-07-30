@@ -233,19 +233,21 @@ type ownedTraceValidationProfile struct {
 // schema→row*→receipt table topology. It retains only one SHA state, never a
 // source TEXT/BLOB value.
 type ownedTraceDBTextRecordSequence struct {
-	begun         bool
-	open          bool
-	lastKind      string
-	tableID       int
-	lastOrdinal   uint64
-	currentKind   string
-	currentTable  int
-	currentRow    uint64
-	currentChunks int
-	nextChunk     int
-	currentHash   string
-	hasher        hash.Hash
-	digestScratch [sha256.Size]byte
+	begun          bool
+	open           bool
+	carrierVersion int
+	lastBlock      int
+	lastKind       string
+	tableID        int
+	lastOrdinal    uint64
+	currentKind    string
+	currentTable   int
+	currentRow     uint64
+	currentChunks  int
+	nextChunk      int
+	currentHash    string
+	hasher         hash.Hash
+	digestScratch  [sha256.Size]byte
 }
 
 func (sequence *ownedTraceDBTextRecordSequence) observe(event tracequery.Event) bool {
@@ -255,10 +257,37 @@ func (sequence *ownedTraceDBTextRecordSequence) observe(event tracequery.Event) 
 	if event.Type != tracequery.EventTraceDBRecord {
 		return !sequence.begun
 	}
-	if event.PluginFields == nil || event.PluginFields.TraceDBRecord == nil {
+	if event.PluginFields == nil {
 		return false
 	}
-	record := event.PluginFields.TraceDBRecord
+	if record := event.PluginFields.TraceDBRecord; record != nil {
+		if event.PluginFields.TraceDBBlock != nil ||
+			sequence.carrierVersion != 0 && sequence.carrierVersion != 1 {
+			return false
+		}
+		sequence.carrierVersion = 1
+		return sequence.observeRecord(record)
+	}
+	block := event.PluginFields.TraceDBBlock
+	if block == nil || sequence.carrierVersion != 0 && sequence.carrierVersion != 2 ||
+		block.Block != sequence.lastBlock+1 ||
+		block.RecordCount <= 0 || len(block.Records) != block.RecordCount {
+		return false
+	}
+	sequence.carrierVersion = 2
+	for index := range block.Records {
+		if !sequence.observeRecord(&block.Records[index]) {
+			return false
+		}
+	}
+	sequence.lastBlock = block.Block
+	return true
+}
+
+func (sequence *ownedTraceDBTextRecordSequence) observeRecord(record *tracequery.TraceDBRecordFields) bool {
+	if sequence == nil || record == nil {
+		return false
+	}
 	if record.PayloadBytes <= 0 || len(record.Payload) != record.PayloadBytes {
 		return false
 	}
@@ -910,7 +939,7 @@ func validateOwnedTraceOutput(
 	if idx.Size != source.Size() || len(idx.Events) != 0 || idx.LineCount != expectedLines ||
 		idx.ScannedLineCount != expectedLines || idx.ParsedKnown != profile.ExpectedKnown || knownCount != profile.ExpectedKnown ||
 		typedPreservedCount != profile.ExpectedTypedPreserved ||
-		idx.TraceDBTextRecords != profile.ExpectedTypedPreserved ||
+		idx.TraceDBTextCarrierRows != profile.ExpectedTypedPreserved ||
 		callbackCount != profile.ExpectedKnown+profile.ExpectedUnknown.Rows {
 		return receipt, coverage, fail(traceDBPostvalidationCountMismatch)
 	}

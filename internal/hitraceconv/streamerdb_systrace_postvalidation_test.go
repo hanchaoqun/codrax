@@ -39,6 +39,61 @@ func traceDBPostvalidationTypedRecordLines(kind string, tableID int, ordinal uin
 	return lines
 }
 
+func traceDBPostvalidationSequenceRecord(kind string, tableID int, ordinal uint64, payload string) tracequery.TraceDBRecordFields {
+	digest := sha256.Sum256([]byte(payload))
+	return tracequery.TraceDBRecordFields{
+		Kind:         kind,
+		TableID:      tableID,
+		RowOrdinal:   ordinal,
+		Chunk:        1,
+		Chunks:       1,
+		TimestampNS:  1,
+		PayloadBytes: len(payload),
+		RecordSHA256: hex.EncodeToString(digest[:]),
+		Payload:      []byte(payload),
+	}
+}
+
+func TestOwnedTraceDBTextRecordSequenceV2PinsBlocksAndRejectsMixedCarrier(t *testing.T) {
+	schema := traceDBPostvalidationSequenceRecord("schema", 1, 0, "schema")
+	row := traceDBPostvalidationSequenceRecord("row", 1, 1, "row")
+	receipt := traceDBPostvalidationSequenceRecord("receipt", 1, 0, "receipt")
+	blockEvent := func(block int, records ...tracequery.TraceDBRecordFields) tracequery.Event {
+		return tracequery.Event{
+			Type: tracequery.EventTraceDBRecord,
+			PluginFields: &tracequery.PluginFields{
+				TraceDBBlock: &tracequery.TraceDBBlockFields{
+					Block:       block,
+					RecordCount: len(records),
+					Records:     records,
+				},
+			},
+		}
+	}
+	var sequence ownedTraceDBTextRecordSequence
+	if !sequence.observe(blockEvent(1, schema, row)) ||
+		!sequence.observe(blockEvent(2, receipt)) ||
+		!sequence.complete(2) {
+		t.Fatalf("valid v2 block sequence rejected: %+v", sequence)
+	}
+
+	var skippedBlock ownedTraceDBTextRecordSequence
+	if skippedBlock.observe(blockEvent(2, schema)) {
+		t.Fatal("v2 sequence admitted a noncontiguous first block")
+	}
+
+	var mixed ownedTraceDBTextRecordSequence
+	if !mixed.observe(blockEvent(1, schema)) ||
+		mixed.observe(tracequery.Event{
+			Type: tracequery.EventTraceDBRecord,
+			PluginFields: &tracequery.PluginFields{
+				TraceDBRecord: &row,
+			},
+		}) {
+		t.Fatal("v2 sequence admitted a physical v1 carrier after v2 began")
+	}
+}
+
 func traceDBPostvalidationKnownLine(t *testing.T, tsNS int64) string {
 	t.Helper()
 	row, err := prepareTraceDBRenderedRow(

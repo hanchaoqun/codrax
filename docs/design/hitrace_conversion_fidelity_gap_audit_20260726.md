@@ -5405,6 +5405,93 @@ approximately `355-368 ns/op`, `576 B/op`, `1 alloc/op` and `345-358 MB/s`.
 The all-storage fixture and deterministic same-input fixture prove the v1
 wire, schema, cell, chunk and receipt bytes remain unchanged.
 
+#### CVT-B3 disposition — do not parallelize the live SQLite cursor
+
+The proposed ordered parallel row encoder is not implemented. B2's physical
+record benchmark shows the canonical v1 envelope itself at approximately
+`355-368 ns/op`; the serial authority remains `database/sql.Rows`, whose
+values are valid only until the next scan. Parallelizing after that boundary
+would require copying every TEXT/BLOB cell into a second bounded job queue,
+increase peak memory for the 4+ GiB customer case and add a second ordering
+protocol before the authenticated writer. The local evidence does not show
+that risk is justified.
+
+The next higher-leverage safe operation is to reduce private preservation
+wire and postvalidation work while leaving the live SQLite scan, table order
+and canonical record construction serial.
+
+#### CVT-B4 implementation — compact authenticated O2 v2 carrier
+
+New conversions no longer write one physical comment line per canonical v1
+chunk. They accumulate at most 64 KiB of complete canonical v1 lines,
+including each LF delimiter, and write one deterministic raw-DEFLATE v2
+carrier:
+
+```text
+# codrax_trace_db_block/v2 block=<n> records=<n> raw_bytes=<n> ts_ns=<n> codec=deflate payload=<base64url> payload_sha256=<sha256> raw_sha256=<sha256>
+```
+
+This is transport compaction, not a new source-data representation. Inflating
+the payload recovers the exact v1 lines; those lines still carry the exact
+SQLite schema/cell JSON, chunk SHA-256, logical-record SHA-256, table receipt,
+row ordinal and table ID. A block never crosses a table boundary. The output
+therefore preserves the existing canonical
+`schema -> row/chunks -> receipt` topology byte for byte inside the carrier.
+
+The reader remains backward compatible with physical v1 lines. For v2 it
+fails closed unless all of the following hold:
+
+- every decimal and base64url field is canonical and the codec is exactly
+  `deflate`;
+- declared raw bytes are positive and at most 64 KiB, record count is bounded,
+  and decompression produces exactly the declared bytes plus EOF;
+- no compressed trailing bytes, CR, missing final LF or nested non-v1 line is
+  present;
+- compressed-payload SHA-256 and raw-v1 SHA-256 both match;
+- every recovered v1 chunk independently passes its existing chunk/hash and
+  timestamp checks;
+- carrier block IDs are contiguous, v1 and v2 are not mixed, full logical
+  record hashes close, and table/row topology remains canonical;
+- the physical carrier-row count, total artifact row count and whole generated
+  wire SHA-256 all match the pre-publication receipts.
+
+The tracequery index now distinguishes physical
+`TraceDBTextCarrierRows` from recovered logical `TraceDBTextRecords`.
+Both remain advisory-only and are synchronously discarded before MaxEvents or
+causal admission. Unique record hashes and per-block summary strings are no
+longer interned into the retained index; only the two fixed carrier event
+names can remain in the string interner. This closes a previously hidden
+large-trace memory/GC amplification in both v1 and v2 reads.
+
+Official and generic viewers receive the same sorted semantic ftrace rows as
+before. The compact data is still a comment-only Codrax preservation suffix;
+no scheduler, span, frame, PID/TGID, CPU, comm or timestamp claim is changed,
+and a viewer does not need a v2 adapter to display the semantic lanes.
+
+Local acceptance evidence:
+
+```text
+deterministic same-input physical O2 rows: 66 -> 17
+deterministic same-input artifact bytes:   58005 -> 37140 (-36.0%)
+recovered logical O2 records:              66 -> 66
+authoritative semantic rows:               18 -> 18
+unknown / unparsed rows:                   0 / 0
+```
+
+On darwin/arm64, the v2 writer benchmark including periodic compression is
+approximately `684 ns/source-record`, `587 B/op`, `1 alloc/op` and
+`185 MB/s` of source payload. A 100-record block parser is approximately
+`124 us/block`; pooling the bounded inflater reduced the first implementation
+from about `186 us` and `203 KiB/op` to `124 us` and `116 KiB/op`. These are
+local microbenchmarks, not a claim about the customer's end-to-end speed.
+The exact customer ratio remains a required same-input replay result.
+
+Regression coverage includes v1 compatibility, v2 exact recovery and logical
+counting, corruption/noncanonical fields, compressed trailing garbage,
+decompression beyond the 64 KiB bound, zero-retention indexing, all SQLite
+storage classes including a 70,000-byte BLOB, deterministic output SHA, the
+former 4 GiB crossing, and full tracequery postvalidation.
+
 Customer replay is deferred until the code-side batches which survive local
 benchmarking are committed and pushed. Retrying the failing file on the old
 build is not useful.

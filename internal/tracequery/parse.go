@@ -4340,6 +4340,9 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 	if interval, ok := parseOfficialEBPFInterval(s.line); ok {
 		return officialEBPFIntervalEvent(lineNo, interval, intern), true
 	}
+	if block, ok := parseTraceDBTextBlock(s.line); ok {
+		return traceDBTextBlockEvent(lineNo, block, intern), true
+	}
 	if record, ok := parseTraceDBTextRecord(s.line); ok {
 		return traceDBTextRecordEvent(lineNo, record, intern), true
 	}

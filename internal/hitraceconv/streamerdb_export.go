@@ -313,7 +313,8 @@ func exportTraceDBToSystraceFromOpenWithLedger(ctx context.Context, tdb *traceDB
 		fidelityErr = fidelityOutput.seal(ctx)
 	}
 	if fidelityErr == nil && (fidelityOutput.rows != textFidelity.RecordLines ||
-		fidelityOutput.rows <= 0 || fidelityOutput.bytes == 0) {
+		fidelityOutput.rows <= 0 || fidelityOutput.bytes == 0 ||
+		textFidelity.LogicalRecordLines < textFidelity.RecordLines) {
 		fidelityErr = &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_suffix_accounting_invalid"}
 	}
 	if fidelityErr == nil {

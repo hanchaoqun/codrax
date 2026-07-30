@@ -60,6 +60,9 @@ func ParseLineTimestampNS(line string) (uint64, bool) {
 	if interval, ok := parseOfficialEBPFInterval(line); ok {
 		return interval.TimestampNS, true
 	}
+	if block, ok := parseTraceDBTextBlock(line); ok {
+		return block.TimestampNS, true
+	}
 	if record, ok := parseTraceDBTextRecord(line); ok {
 		return record.TimestampNS, true
 	}

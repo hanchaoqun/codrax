@@ -1,6 +1,8 @@
 package hitraceconv
 
 import (
+	"bytes"
+	"compress/flate"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -31,10 +33,7 @@ type traceDBTextFidelityWireRecord struct {
 func readTraceDBTextFidelityWire(t *testing.T, body string) map[traceDBTextFidelityWireKey]traceDBTextFidelityWireRecord {
 	t.Helper()
 	records := map[traceDBTextFidelityWireKey]traceDBTextFidelityWireRecord{}
-	for _, line := range strings.Split(body, "\n") {
-		if !strings.HasPrefix(line, "# codrax_trace_db_record/v1 ") {
-			continue
-		}
+	for _, line := range traceDBTextFidelityCanonicalV1Lines(t, body) {
 		parts := strings.Split(line, " ")
 		if len(parts) != 11 {
 			t.Fatalf("invalid typed fidelity wire: %q", line)
@@ -85,6 +84,64 @@ func readTraceDBTextFidelityWire(t *testing.T, body string) map[traceDBTextFidel
 		records[key] = record
 	}
 	return records
+}
+
+func traceDBTextFidelityCanonicalV1Lines(t *testing.T, body string) []string {
+	t.Helper()
+	var canonical []string
+	for _, line := range strings.Split(body, "\n") {
+		switch {
+		case strings.HasPrefix(line, "# codrax_trace_db_record/v1 "):
+			canonical = append(canonical, line)
+		case strings.HasPrefix(line, "# codrax_trace_db_block/v2 "):
+			parts := strings.Split(line, " ")
+			if len(parts) != 10 {
+				t.Fatalf("invalid compact fidelity carrier: %q", line)
+			}
+			field := func(index int, prefix string) string {
+				if !strings.HasPrefix(parts[index], prefix) {
+					t.Fatalf("compact fidelity field %d does not start with %q: %q", index, prefix, line)
+				}
+				return strings.TrimPrefix(parts[index], prefix)
+			}
+			recordCount, err := strconv.Atoi(field(3, "records="))
+			if err != nil {
+				t.Fatal(err)
+			}
+			rawBytes, err := strconv.Atoi(field(4, "raw_bytes="))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if field(6, "codec=") != "deflate" {
+				t.Fatalf("unexpected compact fidelity codec: %q", line)
+			}
+			payload, err := base64.RawURLEncoding.DecodeString(field(7, "payload="))
+			if err != nil {
+				t.Fatal(err)
+			}
+			payloadDigest := sha256.Sum256(payload)
+			if hex.EncodeToString(payloadDigest[:]) != field(8, "payload_sha256=") {
+				t.Fatalf("compact fidelity payload hash mismatch: %q", line)
+			}
+			reader := flate.NewReader(bytes.NewReader(payload))
+			raw, err := io.ReadAll(reader)
+			closeErr := reader.Close()
+			if err != nil || closeErr != nil {
+				t.Fatalf("compact fidelity decompression failed: read=%v close=%v", err, closeErr)
+			}
+			rawDigest := sha256.Sum256(raw)
+			if len(raw) != rawBytes || hex.EncodeToString(rawDigest[:]) != field(9, "raw_sha256=") ||
+				len(raw) == 0 || raw[len(raw)-1] != '\n' {
+				t.Fatalf("compact fidelity raw receipt mismatch: %q", line)
+			}
+			lines := strings.Split(string(raw[:len(raw)-1]), "\n")
+			if len(lines) != recordCount {
+				t.Fatalf("compact fidelity record count mismatch: got=%d want=%d", len(lines), recordCount)
+			}
+			canonical = append(canonical, lines...)
+		}
+	}
+	return canonical
 }
 
 func traceDBTextFidelityWirePayload(t *testing.T, key traceDBTextFidelityWireKey, record traceDBTextFidelityWireRecord) []byte {
@@ -149,13 +206,17 @@ func TestTraceDBTextFidelityPreservesEveryTableAndSQLiteStorageClass(t *testing.
 	tableSchemas := map[int]traceDBTextFidelitySchema{}
 	rowsByTable := map[int][]traceDBTextFidelityRow{}
 	receipts := map[int]traceDBTextFidelityReceipt{}
-	physicalTypedLines := strings.Count(body, "# codrax_trace_db_record/v1 ")
-	firstTyped := strings.Index(body, "# codrax_trace_db_record/v1 ")
+	physicalTypedLines := strings.Count(body, "# codrax_trace_db_block/v2 ")
+	logicalTypedLines := len(traceDBTextFidelityCanonicalV1Lines(t, body))
+	if strings.Contains(body, "# codrax_trace_db_record/v1 ") {
+		t.Fatal("new conversion emitted physical v1 rows instead of compact v2 carriers")
+	}
+	firstTyped := strings.Index(body, "# codrax_trace_db_block/v2 ")
 	if firstTyped < 0 {
 		t.Fatal("typed fidelity tail is absent")
 	}
 	for _, line := range strings.Split(body[firstTyped:], "\n") {
-		if line != "" && !strings.HasPrefix(line, "# codrax_trace_db_record/v1 ") {
+		if line != "" && !strings.HasPrefix(line, "# codrax_trace_db_block/v2 ") {
 			t.Fatalf("semantic row appeared after authenticated fidelity tail began: %q", line)
 		}
 	}
@@ -244,7 +305,8 @@ func TestTraceDBTextFidelityPreservesEveryTableAndSQLiteStorageClass(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if index.TraceDBTextRecords != physicalTypedLines ||
+	if index.TraceDBTextCarrierRows != physicalTypedLines ||
+		index.TraceDBTextRecords != logicalTypedLines ||
 		index.TraceDBTextSchemaRecords != len(tableSchemas) ||
 		index.TraceDBTextReceiptRecords != len(receipts) ||
 		len(index.Events) != result.Artifact.Trace.AuthoritativeKnown {
@@ -268,7 +330,10 @@ func TestTraceDBTextFidelityPreservesEveryTableAndSQLiteStorageClass(t *testing.
 		t.Fatalf("authenticated-tail sorter accounting failed: sorter=%+v result=%+v typed=%d",
 			sorter, result, physicalTypedLines)
 	}
-	if fidelitySummary == nil || fidelitySummary.ElapsedUS <= 0 {
+	if fidelitySummary == nil || fidelitySummary.ElapsedUS <= 0 ||
+		fidelitySummary.RowsEmitted != physicalTypedLines ||
+		fidelitySummary.Metrics["carrier_rows"] != int64(physicalTypedLines) ||
+		fidelitySummary.Metrics["typed_record_lines"] != int64(logicalTypedLines) {
 		t.Fatalf("text-fidelity elapsed timing missing: %+v", fidelitySummary)
 	}
 }
@@ -280,9 +345,13 @@ func TestTraceDBTextFidelityDirectSuffixCrossesFormerFourGiBLimit(t *testing.T) 
 	}
 	output.bytes = defaultTraceDBActiveTempBytes
 	output.rows = 1
+	output.blockID = 1
 	if _, err := emitTraceDBTextFidelityRecord(
 		t.Context(), output, 1, "schema", 1, 0, []byte(`{"version":1}`),
 	); err != nil {
+		t.Fatal(err)
+	}
+	if err := output.flushBlock(t.Context(), 1); err != nil {
 		t.Fatal(err)
 	}
 	if output.bytes <= defaultTraceDBActiveTempBytes {
@@ -296,7 +365,7 @@ func TestTraceDBTextFidelityDirectSuffixCrossesFormerFourGiBLimit(t *testing.T) 
 	}
 }
 
-func BenchmarkEmitTraceDBTextFidelityRecordV1(b *testing.B) {
+func BenchmarkEmitTraceDBTextFidelityRecordV2(b *testing.B) {
 	output, err := newTraceDBTextFidelityOutput(io.Discard, 1)
 	if err != nil {
 		b.Fatal(err)

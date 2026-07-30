@@ -479,6 +479,11 @@ type PluginFields struct {
 	// bytes are verified while parsing and deliberately not retained in the
 	// query index; the text artifact remains their lossless authority.
 	TraceDBRecord *TraceDBRecordFields `json:"-"`
+	// TraceDBBlock is the v2 compact carrier. Records contains the bounded,
+	// independently verified canonical v1 envelopes recovered from one
+	// compressed block. Indexed builds consume them synchronously and discard
+	// the Event, so source SQL values still never enter the retained index.
+	TraceDBBlock *TraceDBBlockFields `json:"-"`
 }
 
 type FrameMapFields struct {
@@ -557,6 +562,17 @@ type TraceDBRecordFields struct {
 	// these bytes to close the repeated full-record SHA-256 without reparsing
 	// the physical line.
 	Payload []byte `json:"-"`
+}
+
+type TraceDBBlockFields struct {
+	Block        int                   `json:"block"`
+	RecordCount  int                   `json:"record_count"`
+	RawBytes     int                   `json:"raw_bytes"`
+	TimestampNS  uint64                `json:"timestamp_ns"`
+	PayloadBytes int                   `json:"payload_bytes"`
+	PayloadSHA   string                `json:"payload_sha256"`
+	RawSHA       string                `json:"raw_sha256"`
+	Records      []TraceDBRecordFields `json:"-"`
 }
 
 // TraceCounterFields is the sparse, internal admission-time C| handoff. It is
@@ -736,10 +752,13 @@ type Index struct {
 	FirstTs          float64
 	LastTs           float64
 	ParsedKnown      int
-	// TraceDBText* count converter-authored exact-storage preservation rows.
-	// These rows never enter Events and never consume MaxEvents; they carry no
-	// scheduler/span/causal authority until a semantic adapter promotes the
-	// corresponding official SQL relation.
+	// TraceDBText* count converter-authored exact-storage preservation data.
+	// CarrierRows is the physical number of v1 record lines or v2 block lines;
+	// Records and the per-kind counters are logical canonical v1 records
+	// recovered from those carriers. None enter Events or consume MaxEvents,
+	// and none carry scheduler/span/causal authority until a semantic adapter
+	// promotes the corresponding official SQL relation.
+	TraceDBTextCarrierRows    int
 	TraceDBTextRecords        int
 	TraceDBTextSchemaRecords  int
 	TraceDBTextRowRecords     int
