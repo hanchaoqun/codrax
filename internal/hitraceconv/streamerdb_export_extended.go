@@ -26,9 +26,14 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 	lifecycleRunning := newTraceDBSchedulerRunningIndex(authority, running, runningIntegrity, nil)
 	rawSchedulerCPU := newTraceDBRawSchedulerCPUFallback(
 		tdb.sourceNameInventory, authority)
+	rawSchedulerCPUCoverageIndex := len(coverage)
 	coverage = append(coverage, rawSchedulerCPU.coverage)
-	callstackFrameRunning := lifecycleRunning.withRawSchedulerCPUFallback(
-		rawSchedulerCPU)
+	callstackFrameRunning := lifecycleRunning.
+		withRawSchedulerCPUFallback(rawSchedulerCPU)
+	callstackRunning := callstackFrameRunning.withRawSchedulerCPUConsumer(
+		traceDBRawSchedulerCPUConsumerCallstack)
+	frameRunning := callstackFrameRunning.withRawSchedulerCPUConsumer(
+		traceDBRawSchedulerCPUConsumerFrame)
 	dict, dictCoverage, err := tdb.loadDataDict(ctx)
 	coverage = append(coverage, dictCoverage)
 	if err != nil {
@@ -73,19 +78,21 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 		return coverage, err
 	}
 	stageStart = time.Now()
-	callstackCoverage, err := exportTraceDBCallstack(ctx, tdb, sink, authority, callstackFrameRunning, syncSpans)
+	callstackCoverage, err := exportTraceDBCallstack(ctx, tdb, sink, authority, callstackRunning, syncSpans)
 	traceDBSetCoverageElapsed(&callstackCoverage, stageStart)
 	coverage = append(coverage, callstackCoverage)
 	if err != nil {
 		return coverage, err
 	}
 	stageStart = time.Now()
-	frameCoverage, _, err := exportTraceDBFrameSliceWithRows(ctx, tdb, sink, authority, callstackFrameRunning)
+	frameCoverage, _, err := exportTraceDBFrameSliceWithRows(ctx, tdb, sink, authority, frameRunning)
 	traceDBSetCoverageElapsed(&frameCoverage, stageStart)
 	coverage = append(coverage, frameCoverage)
 	if err != nil {
 		return coverage, err
 	}
+	coverage[rawSchedulerCPUCoverageIndex] =
+		rawSchedulerCPU.finalCoverage()
 	stageStart = time.Now()
 	frameRosterCoverage, relationFrames, err := loadTraceDBFrameRelationRoster(ctx, tdb, authority)
 	traceDBSetCoverageElapsed(&frameRosterCoverage, stageStart)

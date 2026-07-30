@@ -297,7 +297,7 @@ func TestTraceDBFrameAndNativeAuthoritiesAreStructurallyPinned(t *testing.T) {
 		call := calls[name][0].call
 		runningName := "lifecycleRunning"
 		if name == "exportTraceDBFrameSliceWithRows" {
-			runningName = "callstackFrameRunning"
+			runningName = "frameRunning"
 		}
 		if len(call.Args) != 5 || !isIdent(call.Args[3], "authority") || !isIdent(call.Args[4], runningName) {
 			t.Fatalf("%s does not receive the shared typed values", name)

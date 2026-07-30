@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 )
+
+const traceDBRawSchedulerCPULookupWitnessCap = 4
 
 // traceDBRawSchedulerCPUFallback is an independent CPU point authority built
 // only from a complete immutable sched_switch_lite family. It never repairs or
@@ -14,7 +17,47 @@ import (
 type traceDBRawSchedulerCPUFallback struct {
 	intervals map[int64][]traceDBRunningInterval
 	coverage  TraceDBCoverage
+	audit     *traceDBRawSchedulerCPULookupAudit
 	enabled   bool
+}
+
+type traceDBRawSchedulerCPUConsumer uint8
+
+const (
+	traceDBRawSchedulerCPUConsumerUnspecified traceDBRawSchedulerCPUConsumer = iota
+	traceDBRawSchedulerCPUConsumerCallstack
+	traceDBRawSchedulerCPUConsumerFrame
+	traceDBRawSchedulerCPUConsumerCount
+)
+
+type traceDBRawSchedulerCPURawLookupStatus uint8
+
+const (
+	traceDBRawSchedulerCPURawNotConsulted traceDBRawSchedulerCPURawLookupStatus = iota
+	traceDBRawSchedulerCPURawKnown
+	traceDBRawSchedulerCPURawKnownAgree
+	traceDBRawSchedulerCPURawKnownConflict
+	traceDBRawSchedulerCPURawMissLaneAbsent
+	traceDBRawSchedulerCPURawMissBeforeFirst
+	traceDBRawSchedulerCPURawMissAfterLast
+	traceDBRawSchedulerCPURawMissGap
+	traceDBRawSchedulerCPURawMissOverlapConflict
+	traceDBRawSchedulerCPURawMissInvalidCPU
+	traceDBRawSchedulerCPURawLookupStatusCount
+)
+
+type traceDBRawSchedulerCPULookupWitness struct {
+	ITID      int64
+	TID       int64
+	Timestamp int64
+	DBCPU     int64
+	RawCPU    int64
+}
+
+type traceDBRawSchedulerCPULookupAudit struct {
+	counts    [traceDBRawSchedulerCPUConsumerCount][traceDBSchedulerRunningLifecycleRejected + 1][traceDBRawSchedulerCPURawLookupStatusCount]int64
+	witnesses [traceDBRawSchedulerCPUConsumerCount][traceDBSchedulerRunningLifecycleRejected + 1][traceDBRawSchedulerCPURawLookupStatusCount][]traceDBRawSchedulerCPULookupWitness
+	publicTID map[int64]int64
 }
 
 type traceDBRawSchedulerCPURecord struct {
@@ -29,6 +72,14 @@ func newTraceDBRawSchedulerCPUFallback(
 	out := traceDBRawSchedulerCPUFallback{
 		intervals: map[int64][]traceDBRunningInterval{},
 		coverage:  newTraceDBRawSchedulerCPUFallbackCoverage(),
+		audit: &traceDBRawSchedulerCPULookupAudit{
+			publicTID: map[int64]int64{},
+		},
+	}
+	for itid, thread := range authority.identities.ByITID {
+		if thread.ITID == itid && thread.TID >= 0 && thread.TID <= math.MaxInt32 {
+			out.audit.publicTID[itid] = thread.TID
+		}
 	}
 	if inventory == nil || inventory.RawDecode.Role == "" {
 		out.coverage.Metadata["authority_state"] = "unavailable_source_raw_decode_ledger"
@@ -215,5 +266,227 @@ func (index traceDBSchedulerRunningIndex) withRawSchedulerCPUFallback(
 	}
 	index.rawFallbackIntervals = fallback.intervals
 	index.rawFallbackEnabled = true
+	index.rawFallbackAudit = fallback.audit
 	return index
+}
+
+func (index traceDBSchedulerRunningIndex) withRawSchedulerCPUConsumer(
+	consumer traceDBRawSchedulerCPUConsumer,
+) traceDBSchedulerRunningIndex {
+	index.rawFallbackConsumer = consumer
+	return index
+}
+
+func (audit *traceDBRawSchedulerCPULookupAudit) record(
+	consumer traceDBRawSchedulerCPUConsumer,
+	dbStatus traceDBSchedulerRunningLookupStatus,
+	rawStatus traceDBRawSchedulerCPURawLookupStatus,
+	itid, timestamp, dbCPU, rawCPU int64,
+) {
+	if audit == nil ||
+		consumer >= traceDBRawSchedulerCPUConsumerCount ||
+		dbStatus > traceDBSchedulerRunningLifecycleRejected ||
+		rawStatus >= traceDBRawSchedulerCPURawLookupStatusCount {
+		return
+	}
+	audit.counts[consumer][dbStatus][rawStatus]++
+	slot := &audit.witnesses[consumer][dbStatus][rawStatus]
+	if len(*slot) >= traceDBRawSchedulerCPULookupWitnessCap {
+		return
+	}
+	*slot = append(*slot, traceDBRawSchedulerCPULookupWitness{
+		ITID: itid, TID: audit.publicTID[itid], Timestamp: timestamp,
+		DBCPU: dbCPU, RawCPU: rawCPU,
+	})
+}
+
+func (fallback traceDBRawSchedulerCPUFallback) finalCoverage() TraceDBCoverage {
+	out := fallback.coverage
+	out.Metrics = cloneTraceDBInt64Map(out.Metrics)
+	out.Metadata = cloneTraceDBStringMap(out.Metadata)
+	if fallback.audit == nil {
+		return out
+	}
+	var total int64
+	for consumer := traceDBRawSchedulerCPUConsumer(0); consumer < traceDBRawSchedulerCPUConsumerCount; consumer++ {
+		for dbStatus := traceDBSchedulerRunningLookupStatus(0); dbStatus <= traceDBSchedulerRunningLifecycleRejected; dbStatus++ {
+			for rawStatus := traceDBRawSchedulerCPURawLookupStatus(0); rawStatus < traceDBRawSchedulerCPURawLookupStatusCount; rawStatus++ {
+				count := fallback.audit.counts[consumer][dbStatus][rawStatus]
+				if count == 0 {
+					continue
+				}
+				total += count
+				key := traceDBRawSchedulerCPULookupMetric(
+					consumer, dbStatus, rawStatus)
+				traceDBAddCoverageMetric(&out, key, count)
+				witnesses :=
+					fallback.audit.witnesses[consumer][dbStatus][rawStatus]
+				if len(witnesses) == 0 {
+					continue
+				}
+				parts := make([]string, 0, len(witnesses))
+				for _, witness := range witnesses {
+					part := fmt.Sprintf(
+						"itid=%d/tid=%d/ts_ns=%d",
+						witness.ITID, witness.TID, witness.Timestamp)
+					if dbStatus == traceDBSchedulerRunningKnown {
+						part += fmt.Sprintf("/db_cpu=%d", witness.DBCPU)
+					}
+					switch rawStatus {
+					case traceDBRawSchedulerCPURawKnown,
+						traceDBRawSchedulerCPURawKnownAgree,
+						traceDBRawSchedulerCPURawKnownConflict:
+						part += fmt.Sprintf("/raw_cpu=%d", witness.RawCPU)
+					}
+					parts = append(parts, part)
+				}
+				out.Metadata[key+"_witnesses"] = strings.Join(parts, ";")
+				traceDBAddCoverageMetric(
+					&out, key+"_witnesses_emitted", int64(len(witnesses)))
+				if omitted := count - int64(len(witnesses)); omitted > 0 {
+					traceDBAddCoverageMetric(
+						&out, key+"_witnesses_omitted", omitted)
+				}
+			}
+		}
+	}
+	traceDBAddCoverageMetric(&out, "lookup_calls_total", total)
+	if total > 0 {
+		out.Metadata["lookup_census_state"] =
+			"complete_after_callstack_and_frame_consumers"
+		out.FieldSources = cloneTraceDBStringMap(out.FieldSources)
+		out.FieldSources["lookup_census"] =
+			"exact authorized callstack/frame CPU point lookups over the shared DB-primary/raw-fallback index; counts are lookup attempts, not unique spans"
+		out.FieldSources["lookup_witnesses"] =
+			"bounded exact canonical itid/public tid/timestamp and known CPU values; diagnostic only and never alternate CPU, identity or lifecycle authority"
+	}
+	return out
+}
+
+func traceDBRawSchedulerCPULookupMetric(
+	consumer traceDBRawSchedulerCPUConsumer,
+	dbStatus traceDBSchedulerRunningLookupStatus,
+	rawStatus traceDBRawSchedulerCPURawLookupStatus,
+) string {
+	return "lookup_" + traceDBRawSchedulerCPUConsumerName(consumer) +
+		"_db_" + traceDBSchedulerRunningLookupStatusName(dbStatus) +
+		"_raw_" + traceDBRawSchedulerCPURawLookupStatusName(rawStatus)
+}
+
+func traceDBRawSchedulerCPUConsumerName(
+	consumer traceDBRawSchedulerCPUConsumer,
+) string {
+	switch consumer {
+	case traceDBRawSchedulerCPUConsumerCallstack:
+		return "callstack"
+	case traceDBRawSchedulerCPUConsumerFrame:
+		return "frame"
+	default:
+		return "unspecified"
+	}
+}
+
+func traceDBSchedulerRunningLookupStatusName(
+	status traceDBSchedulerRunningLookupStatus,
+) string {
+	switch status {
+	case traceDBSchedulerRunningKnown:
+		return "known"
+	case traceDBSchedulerRunningSourceTainted:
+		return "source_tainted"
+	case traceDBSchedulerRunningLifecycleRejected:
+		return "lifecycle_rejected"
+	default:
+		return "unknown"
+	}
+}
+
+func traceDBRawSchedulerCPURawLookupStatusName(
+	status traceDBRawSchedulerCPURawLookupStatus,
+) string {
+	switch status {
+	case traceDBRawSchedulerCPURawKnown:
+		return "known"
+	case traceDBRawSchedulerCPURawKnownAgree:
+		return "known_agree"
+	case traceDBRawSchedulerCPURawKnownConflict:
+		return "known_conflict"
+	case traceDBRawSchedulerCPURawMissLaneAbsent:
+		return "miss_lane_absent"
+	case traceDBRawSchedulerCPURawMissBeforeFirst:
+		return "miss_before_first_interval"
+	case traceDBRawSchedulerCPURawMissAfterLast:
+		return "miss_after_last_interval"
+	case traceDBRawSchedulerCPURawMissGap:
+		return "miss_between_intervals"
+	case traceDBRawSchedulerCPURawMissOverlapConflict:
+		return "miss_overlap_cpu_conflict"
+	case traceDBRawSchedulerCPURawMissInvalidCPU:
+		return "miss_invalid_cpu"
+	default:
+		return "not_consulted"
+	}
+}
+
+func traceDBRawSchedulerCPUAt(
+	intervals map[int64][]traceDBRunningInterval,
+	itid, timestamp int64,
+) (int64, traceDBRawSchedulerCPURawLookupStatus) {
+	entries := intervals[itid]
+	if len(entries) == 0 {
+		return 0, traceDBRawSchedulerCPURawMissLaneAbsent
+	}
+	index := sort.Search(len(entries), func(i int) bool {
+		return entries[i].Start > timestamp
+	})
+	if index == 0 {
+		return 0, traceDBRawSchedulerCPURawMissBeforeFirst
+	}
+	var cpu int64
+	found := false
+	for cursor := index - 1; cursor >= 0; cursor-- {
+		entry := entries[cursor]
+		if entry.Start <= timestamp && timestamp < entry.End {
+			if !validTraceDBCPUIndex(entry.CPU) {
+				return 0, traceDBRawSchedulerCPURawMissInvalidCPU
+			}
+			if found && cpu != entry.CPU {
+				return 0, traceDBRawSchedulerCPURawMissOverlapConflict
+			}
+			cpu = entry.CPU
+			found = true
+		}
+		if cursor == 0 || entries[cursor-1].PrefixMaxEnd <= timestamp {
+			break
+		}
+	}
+	if found {
+		return cpu, traceDBRawSchedulerCPURawKnown
+	}
+	if timestamp >= entries[len(entries)-1].End {
+		return 0, traceDBRawSchedulerCPURawMissAfterLast
+	}
+	return 0, traceDBRawSchedulerCPURawMissGap
+}
+
+func cloneTraceDBInt64Map(source map[string]int64) map[string]int64 {
+	if len(source) == 0 {
+		return nil
+	}
+	out := make(map[string]int64, len(source))
+	for key, value := range source {
+		out[key] = value
+	}
+	return out
+}
+
+func cloneTraceDBStringMap(source map[string]string) map[string]string {
+	if len(source) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(source))
+	for key, value := range source {
+		out[key] = value
+	}
+	return out
 }

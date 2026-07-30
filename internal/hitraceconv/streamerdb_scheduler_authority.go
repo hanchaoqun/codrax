@@ -197,6 +197,8 @@ type traceDBSchedulerRunningIndex struct {
 	lifecycleRejectedITID map[int64]bool
 	sourceGlobalTaint     bool
 	lifecycleGlobalTaint  bool
+	rawFallbackAudit      *traceDBRawSchedulerCPULookupAudit
+	rawFallbackConsumer   traceDBRawSchedulerCPUConsumer
 	rawFallbackEnabled    bool
 	initialized           bool
 }
@@ -283,9 +285,17 @@ func (index traceDBSchedulerRunningIndex) knownCPUAt(itid, timestamp int64) (int
 
 func (index traceDBSchedulerRunningIndex) lookupCPUAt(itid, timestamp int64) (int64, traceDBSchedulerRunningLookupStatus) {
 	if !index.initialized {
+		index.rawFallbackAudit.record(
+			index.rawFallbackConsumer, traceDBSchedulerRunningUnknown,
+			traceDBRawSchedulerCPURawNotConsulted,
+			itid, timestamp, 0, 0)
 		return 0, traceDBSchedulerRunningUnknown
 	}
 	if index.lifecycleGlobalTaint || index.lifecycleRejectedITID[itid] {
+		index.rawFallbackAudit.record(
+			index.rawFallbackConsumer, traceDBSchedulerRunningLifecycleRejected,
+			traceDBRawSchedulerCPURawNotConsulted,
+			itid, timestamp, 0, 0)
 		return 0, traceDBSchedulerRunningLifecycleRejected
 	}
 	dbStatus := traceDBSchedulerRunningUnknown
@@ -299,19 +309,37 @@ func (index traceDBSchedulerRunningIndex) lookupCPUAt(itid, timestamp int64) (in
 	if !index.rawFallbackEnabled {
 		return dbCPU, dbStatus
 	}
-	rawCPU, rawKnown := traceDBKnownCPUAt(
+	rawCPU, rawStatus := traceDBRawSchedulerCPUAt(
 		index.rawFallbackIntervals, itid, timestamp)
+	rawKnown := rawStatus == traceDBRawSchedulerCPURawKnown
 	if dbStatus == traceDBSchedulerRunningKnown {
 		if rawKnown && rawCPU != dbCPU {
+			index.rawFallbackAudit.record(
+				index.rawFallbackConsumer, dbStatus,
+				traceDBRawSchedulerCPURawKnownConflict,
+				itid, timestamp, dbCPU, rawCPU)
 			// Two precise but contradictory CPU claims must never select one
 			// opportunistically. Source-tainted is the existing typed
 			// unavailable shape for contradictory physical placement evidence.
 			return 0, traceDBSchedulerRunningSourceTainted
 		}
+		if rawKnown {
+			rawStatus = traceDBRawSchedulerCPURawKnownAgree
+		}
+		index.rawFallbackAudit.record(
+			index.rawFallbackConsumer, dbStatus, rawStatus,
+			itid, timestamp, dbCPU, rawCPU)
 		return dbCPU, dbStatus
 	}
 	if rawKnown {
+		index.rawFallbackAudit.record(
+			index.rawFallbackConsumer, dbStatus,
+			traceDBRawSchedulerCPURawKnown,
+			itid, timestamp, dbCPU, rawCPU)
 		return rawCPU, traceDBSchedulerRunningKnown
 	}
+	index.rawFallbackAudit.record(
+		index.rawFallbackConsumer, dbStatus, rawStatus,
+		itid, timestamp, dbCPU, rawCPU)
 	return dbCPU, dbStatus
 }

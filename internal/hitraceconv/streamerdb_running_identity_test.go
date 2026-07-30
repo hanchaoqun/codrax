@@ -576,6 +576,7 @@ func TestTraceDBRunningIdentityCrossCheckIsStructurallyPinned(t *testing.T) {
 	canonicalIdleCallers := map[string]int{}
 	extendedLookupCallers := map[string]int{}
 	knownCPUCallers := map[string]int{}
+	rawCPUCallers := map[string]int{}
 	indexAuthorityAssignments := 0
 	extendedGuardSelectors := map[string]int{}
 	runningHandoffAssignments := map[string]int{}
@@ -648,6 +649,9 @@ func TestTraceDBRunningIdentityCrossCheckIsStructurallyPinned(t *testing.T) {
 				if name == "traceDBKnownCPUAt" {
 					knownCPUCallers[function.Name.Name]++
 				}
+				if name == "traceDBRawSchedulerCPUAt" {
+					rawCPUCallers[function.Name.Name]++
+				}
 				if name == "exportTraceDBRawFtraceFamilies" && function.Name.Name == "exportTraceDBExtendedFamilies" {
 					firstExtendedRunningDispatch = call.Pos()
 				}
@@ -711,8 +715,13 @@ func TestTraceDBRunningIdentityCrossCheckIsStructurallyPinned(t *testing.T) {
 		t.Fatalf("retired legacy Running lookup callers=%v", extendedLookupCallers)
 	}
 	if !reflect.DeepEqual(knownCPUCallers, map[string]int{
-		"lookupCPUAt": 2,
+		"lookupCPUAt": 1,
 	}) {
-		t.Fatalf("raw Running CPU lookup callers=%v", knownCPUCallers)
+		t.Fatalf("DB Running CPU lookup callers=%v", knownCPUCallers)
+	}
+	if !reflect.DeepEqual(rawCPUCallers, map[string]int{
+		"lookupCPUAt": 1,
+	}) {
+		t.Fatalf("raw fallback CPU lookup callers=%v", rawCPUCallers)
 	}
 }

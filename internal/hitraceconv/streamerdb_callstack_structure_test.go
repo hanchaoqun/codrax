@@ -210,7 +210,7 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 
 	extendedCall := calls["exportTraceDBCallstack"][0].call
 	if len(extendedCall.Args) != 6 || !isIdent(extendedCall.Args[0], "ctx") || !isIdent(extendedCall.Args[1], "tdb") ||
-		!isIdent(extendedCall.Args[2], "sink") || !isIdent(extendedCall.Args[3], "authority") || !isIdent(extendedCall.Args[4], "callstackFrameRunning") ||
+		!isIdent(extendedCall.Args[2], "sink") || !isIdent(extendedCall.Args[3], "authority") || !isIdent(extendedCall.Args[4], "callstackRunning") ||
 		!isIdent(extendedCall.Args[5], "syncSpans") {
 		t.Fatal("extended callstack dispatch does not pass the shared typed authority plus exact raw CPU fallback")
 	}
