@@ -5382,6 +5382,29 @@ digest to dominate publication.
 | CVT-B3 | P1 | bounded ordered parallel row encoding if B2 timing still shows encoder CPU dominance | deterministic table/ordinal order, bounded bytes/jobs, cancellation and first-error fail closed |
 | CVT-B4 | P1 | backward-compatible compact O2 v2 embedded-comment carrier | every SQLite cell and receipt conserved; v1 remains readable; official/generic viewer semantic rows unchanged |
 
+#### CVT-B2 implementation
+
+The unchanged-v1 optimization is implemented:
+
+- each table now allocates one typed row and one cell slice, reusing them
+  after the synchronous marshal/hash/write transaction completes;
+- the optional rowid cell uses one stable storage slot instead of one escaping
+  pointer allocation per source row;
+- REAL bit-pattern formatting uses one fixed 16-byte lowercase-hex buffer;
+- the O2 physical line is assembled once with append-based canonical decimal,
+  base64url and lowercase hex encoders;
+- the writer accepts the completed byte slice directly, removing
+  `fmt.Sprintf`, payload `EncodeToString`, two digest strings and the final
+  string-to-byte copy;
+- immutable `tableExists`, `columnNames` and `rowCount` results are cached on
+  the sealed trace DB authority. Cache hits still poll Context first and
+  column results are cloned so a caller cannot mutate the authority.
+
+The representative v1 physical-record benchmark on darwin/arm64 is pinned at
+approximately `355-368 ns/op`, `576 B/op`, `1 alloc/op` and `345-358 MB/s`.
+The all-storage fixture and deterministic same-input fixture prove the v1
+wire, schema, cell, chunk and receipt bytes remain unchanged.
+
 Customer replay is deferred until the code-side batches which survive local
 benchmarking are committed and pushed. Retrying the failing file on the old
 build is not useful.

@@ -34,6 +34,10 @@ type traceDB struct {
 	path              string
 	sealedVFS         *sqlitevfs.FS
 	sqliteBudgetLease *traceDBSQLiteBudgetLease
+	tableExistsKnown  map[string]bool
+	tableExistsCache  map[string]bool
+	columnNamesCache  map[string][]string
+	rowCountCache     map[string]int
 	// sourceNameInventory is optional display-only name plus diagnostic-only
 	// segment evidence captured from the exact immutable binary generation
 	// passed to trace_streamer.
@@ -414,21 +418,59 @@ func (tdb *traceDB) close() error {
 }
 
 func (tdb *traceDB) tableExists(ctx context.Context, table string) (bool, error) {
+	if tdb == nil || tdb.db == nil {
+		return false, &traceDBOutputInvariantError{Reason: "trace_db_metadata_cache_authority_missing"}
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	key := sqliteASCIIIdentifierFold(table)
+	if tdb.tableExistsKnown[key] {
+		return tdb.tableExistsCache[key], nil
+	}
 	var one int
 	err := tdb.db.QueryRowContext(ctx,
 		"SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1 COLLATE NOCASE LIMIT 1",
 		table,
 	).Scan(&one)
 	if err == sql.ErrNoRows {
+		if tdb.tableExistsKnown == nil {
+			tdb.tableExistsKnown = make(map[string]bool)
+			tdb.tableExistsCache = make(map[string]bool)
+		}
+		tdb.tableExistsKnown[key] = true
+		tdb.tableExistsCache[key] = false
 		return false, nil
 	}
 	if err != nil {
 		return false, err
 	}
+	if tdb.tableExistsKnown == nil {
+		tdb.tableExistsKnown = make(map[string]bool)
+		tdb.tableExistsCache = make(map[string]bool)
+	}
+	tdb.tableExistsKnown[key] = true
+	tdb.tableExistsCache[key] = true
 	return true, nil
 }
 
 func (tdb *traceDB) columnNames(ctx context.Context, table string) ([]string, error) {
+	if tdb == nil || tdb.db == nil {
+		return nil, &traceDBOutputInvariantError{Reason: "trace_db_metadata_cache_authority_missing"}
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	key := sqliteASCIIIdentifierFold(table)
+	if cached, ok := tdb.columnNamesCache[key]; ok {
+		return append([]string(nil), cached...), nil
+	}
 	rows, err := tdb.db.QueryContext(ctx, "PRAGMA table_info("+quoteSQLiteIdent(table)+")")
 	if err != nil {
 		return nil, err
@@ -450,7 +492,11 @@ func (tdb *traceDB) columnNames(ctx context.Context, table string) ([]string, er
 		return nil, err
 	}
 	sort.Strings(out)
-	return out, nil
+	if tdb.columnNamesCache == nil {
+		tdb.columnNamesCache = make(map[string][]string)
+	}
+	tdb.columnNamesCache[key] = append([]string(nil), out...)
+	return append([]string(nil), out...), nil
 }
 
 func (tdb *traceDB) columnExists(ctx context.Context, table, column string) (bool, error) {
@@ -467,8 +513,27 @@ func (tdb *traceDB) columnExists(ctx context.Context, table, column string) (boo
 }
 
 func (tdb *traceDB) rowCount(ctx context.Context, table string) (int, error) {
+	if tdb == nil || tdb.db == nil {
+		return 0, &traceDBOutputInvariantError{Reason: "trace_db_metadata_cache_authority_missing"}
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	key := sqliteASCIIIdentifierFold(table)
+	if count, ok := tdb.rowCountCache[key]; ok {
+		return count, nil
+	}
 	var count int
 	err := tdb.db.QueryRowContext(ctx, "SELECT COUNT(1) FROM "+quoteSQLiteIdent(table)).Scan(&count)
+	if err == nil {
+		if tdb.rowCountCache == nil {
+			tdb.rowCountCache = make(map[string]int)
+		}
+		tdb.rowCountCache[key] = count
+	}
 	return count, err
 }
 

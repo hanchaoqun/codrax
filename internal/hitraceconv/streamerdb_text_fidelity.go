@@ -2,6 +2,7 @@ package hitraceconv
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -9,7 +10,6 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"io"
 	"math"
 	"sort"
@@ -313,6 +313,15 @@ func exportTraceDBTextFidelityTable(
 	for index := range raw {
 		dest[index] = &raw[index]
 	}
+	row := traceDBTextFidelityRow{
+		Version: 1,
+		TableID: tableID,
+		Cells:   make([]traceDBTextFidelityCell, len(columns)),
+	}
+	var rowIDCell traceDBTextFidelityCell
+	if hasRowID {
+		row.RowID = &rowIDCell
+	}
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
 			coverage.Error = err.Error()
@@ -328,12 +337,7 @@ func exportTraceDBTextFidelityTable(
 			coverage.Error = err.Error()
 			return coverage, recordLines, sourceRows, nil, err
 		}
-		row := traceDBTextFidelityRow{
-			Version: 1,
-			TableID: tableID,
-			Ordinal: sourceRows,
-			Cells:   make([]traceDBTextFidelityCell, len(columns)),
-		}
+		row.Ordinal = sourceRows
 		offset := 0
 		if hasRowID {
 			cell, cellErr := encodeTraceDBTextFidelityCell(raw[0])
@@ -344,7 +348,7 @@ func exportTraceDBTextFidelityTable(
 				coverage.Error = cellErr.Error()
 				return coverage, recordLines, sourceRows, nil, cellErr
 			}
-			row.RowID = &cell
+			rowIDCell = cell
 			offset = 1
 		}
 		for index := range columns {
@@ -574,7 +578,14 @@ func encodeTraceDBTextFidelityCell(value any) (traceDBTextFidelityCell, error) {
 	case int64:
 		return traceDBTextFidelityCell{Storage: "integer", Integer: strconv.FormatInt(typed, 10)}, nil
 	case float64:
-		return traceDBTextFidelityCell{Storage: "real", RealHex: fmt.Sprintf("%016x", math.Float64bits(typed))}, nil
+		var encoded [16]byte
+		const lowerHex = "0123456789abcdef"
+		bits := math.Float64bits(typed)
+		for index := len(encoded) - 1; index >= 0; index-- {
+			encoded[index] = lowerHex[bits&0xf]
+			bits >>= 4
+		}
+		return traceDBTextFidelityCell{Storage: "real", RealHex: string(encoded[:])}, nil
 	case string:
 		return traceDBTextFidelityBytesCell("text", []byte(typed)), nil
 	case []byte:
@@ -594,7 +605,7 @@ func traceDBTextFidelityBytesCell(storage string, value []byte) traceDBTextFidel
 func (output *traceDBTextFidelityOutput) addLine(
 	ctx context.Context,
 	anchor uint64,
-	line string,
+	line []byte,
 ) error {
 	if output == nil {
 		return &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_output_missing"}
@@ -608,14 +619,14 @@ func (output *traceDBTextFidelityOutput) addLine(
 	if output.sealed || output.writer == nil || anchor != output.anchor ||
 		output.rows == math.MaxInt ||
 		len(line) == 0 || len(line) > maxTraceDBSystraceLineBytes ||
-		!traceDBSinglePhysicalLine(line, false) {
+		bytes.IndexByte(line, '\r') >= 0 || bytes.IndexByte(line, '\n') >= 0 {
 		return &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_output_state_invalid"}
 	}
 	lineBytes := uint64(len(line)) + 1
 	if lineBytes > math.MaxUint64-output.bytes {
 		return &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_output_size_overflow"}
 	}
-	if _, err := output.writer.WriteString(line); err != nil {
+	if _, err := output.writer.Write(line); err != nil {
 		return &traceDBOutputInvariantError{
 			Reason: "trace_db_text_fidelity_output_write_failed",
 			Cause:  err,
@@ -680,19 +691,29 @@ func emitTraceDBTextFidelityRecord(
 		end := min(start+maxTraceDBTextFidelityChunkBytes, len(payload))
 		chunk := payload[start:end]
 		chunkDigest := sha256.Sum256(chunk)
-		line := fmt.Sprintf(
-			"# codrax_trace_db_record/v1 kind=%s table_id=%d row_ordinal=%d chunk=%d chunks=%d ts_ns=%d payload=%s chunk_sha256=%s record_sha256=%s",
-			kind,
-			tableID,
-			rowOrdinal,
-			chunkIndex+1,
-			chunks,
-			anchor,
-			base64.RawURLEncoding.EncodeToString(chunk),
-			hex.EncodeToString(chunkDigest[:]),
-			hex.EncodeToString(recordDigest[:]),
-		)
-		if len(line) > maxTraceDBSystraceLineBytes || !traceDBSinglePhysicalLine(line, false) {
+		lineCapacity := len("# codrax_trace_db_record/v1 kind= table_id= row_ordinal= chunk= chunks= ts_ns= payload= chunk_sha256= record_sha256=") +
+			len(kind) + 20*6 + base64.RawURLEncoding.EncodedLen(len(chunk)) + sha256.Size*4
+		line := make([]byte, 0, lineCapacity)
+		line = append(line, "# codrax_trace_db_record/v1 kind="...)
+		line = append(line, kind...)
+		line = append(line, " table_id="...)
+		line = strconv.AppendInt(line, int64(tableID), 10)
+		line = append(line, " row_ordinal="...)
+		line = strconv.AppendUint(line, rowOrdinal, 10)
+		line = append(line, " chunk="...)
+		line = strconv.AppendInt(line, int64(chunkIndex+1), 10)
+		line = append(line, " chunks="...)
+		line = strconv.AppendInt(line, int64(chunks), 10)
+		line = append(line, " ts_ns="...)
+		line = strconv.AppendUint(line, anchor, 10)
+		line = append(line, " payload="...)
+		line = base64.RawURLEncoding.AppendEncode(line, chunk)
+		line = append(line, " chunk_sha256="...)
+		line = hex.AppendEncode(line, chunkDigest[:])
+		line = append(line, " record_sha256="...)
+		line = hex.AppendEncode(line, recordDigest[:])
+		if len(line) > maxTraceDBSystraceLineBytes ||
+			bytes.IndexByte(line, '\r') >= 0 || bytes.IndexByte(line, '\n') >= 0 {
 			return chunkIndex, &traceDBOutputInvariantError{Reason: "trace_db_text_fidelity_wire_line_invalid"}
 		}
 		if err := output.addLine(ctx, anchor, line); err != nil {

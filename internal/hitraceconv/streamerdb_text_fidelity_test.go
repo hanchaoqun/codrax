@@ -1,6 +1,7 @@
 package hitraceconv
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -292,5 +293,33 @@ func TestTraceDBTextFidelityDirectSuffixCrossesFormerFourGiBLimit(t *testing.T) 
 	}
 	if !output.sealed || output.writer != nil {
 		t.Fatalf("direct suffix was not sealed: %+v", output)
+	}
+}
+
+func BenchmarkEmitTraceDBTextFidelityRecordV1(b *testing.B) {
+	output, err := newTraceDBTextFidelityOutput(io.Discard, 1)
+	if err != nil {
+		b.Fatal(err)
+	}
+	payload := []byte(`{"version":1,"table_id":7,"ordinal":1,"cells":[{"storage":"integer","integer":"42"},{"storage":"text","bytes_b64":"d29ya2Vy"}]}`)
+	b.ReportAllocs()
+	b.SetBytes(int64(len(payload)))
+	b.ResetTimer()
+	for index := 0; index < b.N; index++ {
+		if _, err := emitTraceDBTextFidelityRecord(
+			context.Background(),
+			output,
+			1,
+			"row",
+			7,
+			uint64(index)+1,
+			payload,
+		); err != nil {
+			b.Fatal(err)
+		}
+	}
+	b.StopTimer()
+	if err := output.seal(context.Background()); err != nil {
+		b.Fatal(err)
 	}
 }

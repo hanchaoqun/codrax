@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -103,6 +104,61 @@ func TestOpenTraceDBRelativePathWithSpacesReadOnly(t *testing.T) {
 	}
 	if start != 123456 || !coverage.Found {
 		t.Fatalf("trace start mismatch start=%d coverage=%+v", start, coverage)
+	}
+}
+
+func TestTraceDBImmutableMetadataCachesCloneResultsAndHonorCancellation(t *testing.T) {
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE thread (itid INT, tid INT, name TEXT)",
+		"INSERT INTO thread VALUES (1, 20, 'main')",
+	})
+	tdb, err := openTraceDB(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tdb.close()
+
+	found, err := tdb.tableExists(t.Context(), "thread")
+	if err != nil || !found {
+		t.Fatalf("table cache seed: found=%t err=%v", found, err)
+	}
+	columns, err := tdb.columnNames(t.Context(), "thread")
+	if err != nil || len(columns) != 3 {
+		t.Fatalf("column cache seed: columns=%v err=%v", columns, err)
+	}
+	count, err := tdb.rowCount(t.Context(), "thread")
+	if err != nil || count != 1 {
+		t.Fatalf("row-count cache seed: count=%d err=%v", count, err)
+	}
+	columns[0] = "mutated-by-caller"
+
+	found, err = tdb.tableExists(t.Context(), "THREAD")
+	if err != nil || !found || len(tdb.tableExistsCache) != 1 {
+		t.Fatalf("case-folded table cache miss: found=%t cache=%v err=%v",
+			found, tdb.tableExistsCache, err)
+	}
+	columns, err = tdb.columnNames(t.Context(), "THREAD")
+	if err != nil || len(columns) != 3 || columns[0] == "mutated-by-caller" ||
+		len(tdb.columnNamesCache) != 1 {
+		t.Fatalf("column cache leaked caller mutation: columns=%v cache=%v err=%v",
+			columns, tdb.columnNamesCache, err)
+	}
+	count, err = tdb.rowCount(t.Context(), "THREAD")
+	if err != nil || count != 1 || len(tdb.rowCountCache) != 1 {
+		t.Fatalf("case-folded row-count cache miss: count=%d cache=%v err=%v",
+			count, tdb.rowCountCache, err)
+	}
+
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := tdb.tableExists(canceled, "thread"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cached table lookup bypassed cancellation: %v", err)
+	}
+	if _, err := tdb.columnNames(canceled, "thread"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cached column lookup bypassed cancellation: %v", err)
+	}
+	if _, err := tdb.rowCount(canceled, "thread"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cached row-count lookup bypassed cancellation: %v", err)
 	}
 }
 
