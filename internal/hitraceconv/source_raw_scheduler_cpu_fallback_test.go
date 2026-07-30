@@ -61,11 +61,11 @@ func TestTraceDBRawSchedulerCPUFallbackRecoversUnknownAndTaintedDBPoints(t *test
 		traceDBRawSchedulerCPUFallbackInventory(
 			traceDBRawSchedulerCPUFallbackRows()),
 		authority)
-	if !fallback.enabled || fallback.coverage.RowsEmitted != 3 ||
+	if !fallback.enabled || fallback.coverage.RowsEmitted != 2 ||
 		fallback.coverage.Metadata["authority_state"] !=
 			"complete_unique_exact_half_open_intervals" ||
-		fallback.coverage.Metrics["canonical_itid_lanes"] != 3 ||
-		fallback.coverage.Metrics["capture_head_intervals_emitted"] != 1 ||
+		fallback.coverage.Metrics["canonical_itid_lanes"] != 2 ||
+		fallback.coverage.Metrics["capture_head_withheld_per_cpu_retention_start_unavailable"] != 1 ||
 		fallback.coverage.Metrics["raw_cpu_lanes_already_time_ordered"] != 1 ||
 		fallback.coverage.Metrics["raw_cpu_lanes_stably_reordered"] != 0 {
 		t.Fatalf("raw scheduler CPU authority did not close: %+v", fallback.coverage)
@@ -168,7 +168,7 @@ func TestTraceDBRawSchedulerCPUFallbackFencesDiscontinuousBoundary(t *testing.T)
 	rows[1].PrevTID = 77
 	fallback := newTraceDBRawSchedulerCPUFallback(
 		traceDBRawSchedulerCPUFallbackInventory(rows), authority)
-	if !fallback.enabled || fallback.coverage.RowsEmitted != 2 ||
+	if !fallback.enabled || fallback.coverage.RowsEmitted != 1 ||
 		fallback.coverage.Metrics["candidate_intervals_withheld_tid_discontinuity"] != 1 {
 		t.Fatalf("raw TID discontinuity was not localized as a fence: %+v",
 			fallback.coverage)
@@ -187,7 +187,7 @@ func TestTraceDBRawSchedulerCPUFallbackStablySortsOnlyDisorderedLanes(t *testing
 	rows[0], rows[2] = rows[2], rows[0]
 	fallback := newTraceDBRawSchedulerCPUFallback(
 		traceDBRawSchedulerCPUFallbackInventory(rows), authority)
-	if !fallback.enabled || fallback.coverage.RowsEmitted != 3 ||
+	if !fallback.enabled || fallback.coverage.RowsEmitted != 2 ||
 		fallback.coverage.Metrics["raw_cpu_lanes_already_time_ordered"] != 0 ||
 		fallback.coverage.Metrics["raw_cpu_lanes_stably_reordered"] != 1 {
 		t.Fatalf("disordered raw CPU lane did not take stable-sort path: %+v",
@@ -200,7 +200,7 @@ func TestTraceDBRawSchedulerCPUFallbackStablySortsOnlyDisorderedLanes(t *testing
 	}
 }
 
-func TestTraceDBRawSchedulerCPUFallbackRecoversCaptureHeadOnlyFromExactStart(t *testing.T) {
+func TestTraceDBRawSchedulerCPUFallbackWithholdsGlobalStartCaptureHead(t *testing.T) {
 	authority := traceDBRawSchedulerCPUFallbackAuthority()
 	rows := traceDBRawSchedulerCPUFallbackRows()
 	rows[0].PrevTID = 42
@@ -209,28 +209,60 @@ func TestTraceDBRawSchedulerCPUFallbackRecoversCaptureHeadOnlyFromExactStart(t *
 	fallback := newTraceDBRawSchedulerCPUFallback(
 		traceDBRawSchedulerCPUFallbackInventory(rows), authority)
 	if !fallback.enabled ||
-		fallback.coverage.Metrics["capture_head_intervals_emitted"] != 1 {
-		t.Fatalf("capture-head interval was not admitted: %+v", fallback.coverage)
+		fallback.coverage.Metrics["capture_head_candidates_global_start_only"] != 1 ||
+		fallback.coverage.Metrics["capture_head_withheld_per_cpu_retention_start_unavailable"] != 1 {
+		t.Fatalf("capture-head candidate was not withheld: %+v", fallback.coverage)
 	}
-	if cpu, ok := traceDBKnownCPUAt(
-		fallback.intervals, 1, 50); !ok || cpu != 4 {
-		t.Fatalf("capture-head CPU proof was lost: cpu=%d ok=%t", cpu, ok)
-	}
-	if _, ok := traceDBKnownCPUAt(fallback.intervals, 1, 100); ok {
-		t.Fatal("capture-head half-open interval leaked through first switch")
+	if _, ok := traceDBKnownCPUAt(fallback.intervals, 1, 50); ok {
+		t.Fatal("global trace start minted a per-CPU capture-head interval")
 	}
 
 	authority.identities.TraceStartKnown = false
 	withheld := newTraceDBRawSchedulerCPUFallback(
 		traceDBRawSchedulerCPUFallbackInventory(rows), authority)
 	if !withheld.enabled ||
-		withheld.coverage.Metrics["capture_head_intervals_emitted"] != 0 ||
-		withheld.coverage.Metrics["capture_head_withheld_trace_start_unavailable"] != 1 {
-		t.Fatalf("capture-head recovery did not fail closed without exact start: %+v",
+		withheld.coverage.Metrics["capture_head_audit_trace_start_unavailable"] != 1 ||
+		withheld.coverage.Metrics["capture_head_candidates_global_start_only"] != 0 {
+		t.Fatalf("capture-head audit trusted a missing global start: %+v",
 			withheld.coverage)
 	}
 	if _, ok := traceDBKnownCPUAt(withheld.intervals, 1, 50); ok {
-		t.Fatal("capture-head CPU was guessed without exact trace start")
+		t.Fatal("capture-head CPU was guessed without per-CPU retention start")
+	}
+}
+
+func TestTraceDBRawSchedulerCPUFallbackHeadDoesNotOverlapPhysicalLane(t *testing.T) {
+	authority := traceDBRawSchedulerCPUFallbackAuthority()
+	rows := []traceDBRawSchedSwitchLiteRecord{
+		{
+			TimestampNS: 100, CPU: 4, PrevTID: 42, PrevPriority: 20,
+			PrevState: 1, NextTID: 77, NextPriority: 30,
+		},
+		{
+			TimestampNS: 200, CPU: 4, PrevTID: 77, PrevPriority: 30,
+			PrevState: 1, NextTID: 0, NextPriority: 10,
+		},
+		{
+			TimestampNS: 50, CPU: 5, PrevTID: 0, PrevPriority: 10,
+			PrevState: 1, NextTID: 42, NextPriority: 20,
+		},
+		{
+			TimestampNS: 150, CPU: 5, PrevTID: 42, PrevPriority: 20,
+			PrevState: 1, NextTID: 0, NextPriority: 10,
+		},
+	}
+	fallback := newTraceDBRawSchedulerCPUFallback(
+		traceDBRawSchedulerCPUFallbackInventory(rows), authority)
+	if !fallback.enabled ||
+		fallback.coverage.Metrics["capture_head_candidates_global_start_only"] != 2 ||
+		fallback.coverage.Metrics["capture_head_withheld_per_cpu_retention_start_unavailable"] != 2 {
+		t.Fatalf("per-CPU capture heads were not withheld: %+v", fallback.coverage)
+	}
+	if cpu, status := traceDBRawSchedulerCPUAt(
+		fallback.intervals, 1, 75); status != traceDBRawSchedulerCPURawKnown ||
+		cpu != 5 {
+		t.Fatalf("withheld CPU-4 head conflicted with physical CPU-5 lane: cpu=%d status=%d",
+			cpu, status)
 	}
 }
 

@@ -1089,10 +1089,10 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 	})
 	assertCallSites("queryTraceDBSchedSliceRows", map[string]int{"auditDBBoundaries": 1, "auditTraceDBSchedSwitchRows": 1, "exportTraceDBSchedSwitch": 1})
 	assertCallSites("scanTraceDBSchedSourceRow", map[string]int{"auditDBBoundaries": 1, "auditTraceDBSchedSwitchRows": 1, "exportTraceDBSchedSwitch": 1})
-	assertCallSites("schedulerSubjectFromExactITID", map[string]int{"loadSchedStarts": 1, "newTraceDBRawSchedulerCPUFallback": 2, "newTraceDBSchedulerRunningIndex": 1, "scanTraceDBSchedSourceRow": 1, "traceDBRawPairingOwner": 1, "traceDBResolveRawSchedSwitchLiteSubject": 1, "traceDBResolveRawSubject": 1})
+	assertCallSites("schedulerSubjectFromExactITID", map[string]int{"loadSchedStarts": 1, "newTraceDBRawSchedulerCPUFallback": 1, "newTraceDBSchedulerRunningIndex": 1, "scanTraceDBSchedSourceRow": 1, "traceDBRawPairingOwner": 1, "traceDBResolveRawSchedSwitchLiteSubject": 1, "traceDBResolveRawSubject": 1})
 	assertCallSites("schedulerPointAllows", map[string]int{"loadSchedStarts": 1, "schedulerNextPointAllows": 1, "traceDBResolveRawSchedSwitchLiteSubject": 1, "traceDBResolveRawSubject": 1, "validateTraceDBSchedLifecycle": 2})
 	assertCallSites("schedulerNextPointAllows", map[string]int{"traceDBNextSchedMeta": 1})
-	assertCallSites("schedulerSourceIntervalAllows", map[string]int{"newTraceDBRawSchedulerCPUFallback": 2, "newTraceDBSchedulerRunningIndex": 1, "validateTraceDBSchedLifecycle": 1})
+	assertCallSites("schedulerSourceIntervalAllows", map[string]int{"newTraceDBRawSchedulerCPUFallback": 1, "newTraceDBSchedulerRunningIndex": 1, "validateTraceDBSchedLifecycle": 1})
 	assertCallSites("validateTraceDBSchedLifecycle", map[string]int{"scanTraceDBSchedSourceRow": 2})
 	assertCallSites("traceDBLifecycleBoundedIntegerProjection", map[string]int{"scanTraceDBTableActivity": 2})
 	assertCallSites("traceDBBoundedSQLiteIntegerTransport", map[string]int{

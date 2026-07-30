@@ -184,43 +184,22 @@ func newTraceDBRawSchedulerCPUFallback(
 		switch {
 		case !authority.identities.TraceStartKnown:
 			traceDBAddCoverageMetric(
-				&out.coverage, "capture_head_withheld_trace_start_unavailable", 1)
+				&out.coverage, "capture_head_audit_trace_start_unavailable", 1)
 		case !first.valid:
 			traceDBAddCoverageMetric(
-				&out.coverage, "capture_head_withheld_invalid_first_boundary", 1)
+				&out.coverage, "capture_head_audit_invalid_first_boundary", 1)
 		case authority.identities.TraceStart > int64(first.raw.TimestampNS):
 			traceDBAddCoverageMetric(
-				&out.coverage, "capture_head_withheld_invalid_order", 1)
+				&out.coverage, "capture_head_audit_invalid_order", 1)
 		case authority.identities.TraceStart == int64(first.raw.TimestampNS):
 			traceDBAddCoverageMetric(
-				&out.coverage, "capture_head_empty_at_first_boundary", 1)
+				&out.coverage, "capture_head_audit_empty_at_first_boundary", 1)
 		default:
-			start := authority.identities.TraceStart
-			end := int64(first.raw.TimestampNS)
-			running, reason := traceDBResolveRawSchedSwitchLiteSubject(
-				authority, first.raw.PrevTID, start)
-			if reason != "" {
-				traceDBAddCoverageMetric(
-					&out.coverage, "capture_head_withheld_start_"+
-						traceDBRawDecodeReasonMetric(reason), 1)
-				break
-			}
-			subject, ok := authority.schedulerSubjectFromExactITID(
-				running.ITID, true)
-			if !ok || !authority.schedulerSourceIntervalAllows(
-				subject, start, end) {
-				traceDBAddCoverageMetric(
-					&out.coverage, "capture_head_withheld_lifecycle", 1)
-				break
-			}
-			out.intervals[running.ITID] = append(
-				out.intervals[running.ITID],
-				traceDBRunningInterval{
-					Start: start, End: end, CPU: cpu,
-				})
-			out.coverage.RowsEmitted++
 			traceDBAddCoverageMetric(
-				&out.coverage, "capture_head_intervals_emitted", 1)
+				&out.coverage, "capture_head_candidates_global_start_only", 1)
+			traceDBAddCoverageMetric(
+				&out.coverage,
+				"capture_head_withheld_per_cpu_retention_start_unavailable", 1)
 		}
 		for index := 0; index+1 < len(rows); index++ {
 			current, next := rows[index], rows[index+1]
@@ -303,7 +282,7 @@ func newTraceDBRawSchedulerCPUFallbackCoverage() TraceDBCoverage {
 		FieldSources: map[string]string{
 			"source":       "complete immutable sched_switch_lite physical-event family; zero body rejects and retained/admitted/record census equality required",
 			"interval":     "half-open [current switch,next switch) on one exact CPU; current.next_tid must equal next.prev_tid and both timestamp/CPU coordinates must be unique",
-			"capture_head": "when trace_range.start_ts is a strict singleton, the first unique switch on one CPU proves a half-open [capture start,first switch) interval for its prev_tid; missing start authority, invalid order, identity ambiguity, or lifecycle conflict withholds only that head interval",
+			"capture_head": "withdrawn numeric authority: trace_range.start_ts is only a global DB bound and does not prove the per-CPU raw ring-buffer retention start; first-switch prev_tid head candidates are counted but always withheld until an exact per-CPU retention-start authority exists",
 			"identity":     "current next public TID resolves at interval start to exactly one canonical DB thread/process generation; public TID is never rewritten or guessed under PID namespaces",
 			"lifecycle":    "the complete half-open interval passes the shared scheduler thread/process generation authority; an invalid boundary fences both adjacent intervals",
 			"precedence":   "DB Running CPU remains primary; raw is used only for DB unknown/source-tainted points, DB/raw disagreement fails closed, and lifecycle-rejected DB lanes can never be bypassed",

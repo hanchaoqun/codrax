@@ -6345,3 +6345,123 @@ systrace viewer does not display that lane.
 The customer binary still reports `build_revision=unknown`; executable SHA-256
 identifies the build, but release revision injection remains independently
 open.
+
+## LARG-F replay audit and capture-head withdrawal (2026-07-30)
+
+Customer artifacts:
+
+- `/Users/han/opt/customlogs/largF.txt`
+- `/Users/han/opt/customlogs/codrax-trace-diag-largF.txt`
+
+LARG-F carries `official_raw_scheduler_cpu_capture_head_v1` and converts the
+same immutable input successfully:
+
+```text
+expected / parsed / callback rows = 3,007,234 / 3,007,234 / 3,007,234
+unknown / header-only rows        = 0 / 0
+capture-head intervals emitted    = 12
+raw CPU intervals                 = 790,677 (LARG-E: 790,665)
+raw CPU builder elapsed           = 0.611069s
+```
+
+The final visibility delta is small:
+
+```text
+                                 LARG-E    LARG-F    delta
+standard-visible spans           688,103   688,104   +1
+Codrax typed-only spans            24,058    24,057   -1
+unpublished locally fenced spans    1,613     1,613    0
+```
+
+However, LARG-F disproves the capture-head authority itself. The raw CPU lookup
+census gained a classification which was exactly zero in LARG-E:
+
+```text
+lookup_callstack_db_known_raw_miss_overlap_cpu_conflict = 54
+witness itid=40/tid=1988:
+  ts_ns=69291530138593 db_cpu=1
+  ts_ns=69291530149061 db_cpu=1
+  ts_ns=69291531067811 db_cpu=1
+  ts_ns=69291531086405 db_cpu=1
+```
+
+The newly constructed raw head placed the same canonical ITID on another CPU
+over timestamps where DB physical running evidence already says CPU 1. This is
+not a harmless diagnostic difference: it proves that the premise recorded in
+LARG-E2 was insufficient.
+
+### LARG-F1 — root-cause correction
+
+`trace_range.start_ts` is an exact global DB lower bound. It is not an exact
+per-CPU raw ftrace retention start. The immutable raw decoder proves that every
+record still present in the supplied per-CPU pages was decoded, but it does not
+prove that each ring buffer retained every earlier record back to the global DB
+start. Per-CPU ring-buffer overwrite can therefore remove one or more earlier
+switches before the first retained switch on that CPU.
+
+Consequently:
+
+```text
+global trace start + first retained switch.prev_tid
+!= proof that prev_tid ran continuously from global start
+```
+
+Identity and lifecycle gates cannot repair the missing physical retention
+boundary. They can reject a known conflict, but absence of a conflict is not
+positive continuity evidence. Dropping only the 54 observed conflicts would
+still allow unsupported head intervals for lanes where no independent witness
+happened to expose the error.
+
+The `+1` standard-visible span in LARG-F is therefore not accepted as a valid
+recovery result.
+
+### LARG-F2 — mandatory withdrawal
+
+The capture-head numeric authority is withdrawn in full:
+
+- no interval is emitted from the global `trace_range.start_ts`;
+- each otherwise-shaped first-boundary candidate is counted as
+  `capture_head_candidates_global_start_only`;
+- each candidate is typed-withheld as
+  `capture_head_withheld_per_cpu_retention_start_unavailable`;
+- the diagnostic capability becomes
+  `official_raw_scheduler_cpu_capture_head_withdrawn_v2`;
+- adjacent unique switch-to-switch intervals remain unchanged;
+- the existing DB-primary, DB/raw agreement and lifecycle precedence remain
+  unchanged.
+
+A production-shape regression fixture carries two CPU lanes where the old
+CPU-4 head would overlap the same ITID's exact CPU-5 physical interval. The
+fixture requires the head to be absent and the CPU-5 lookup to remain uniquely
+known. A second fixture pins that even an exact global trace start cannot mint
+a per-CPU head.
+
+Capture-head recovery may be reconsidered only if the immutable source exposes
+an exact per-CPU retention-start authority or a separately complete earlier
+scheduler segment. The current global DB start, first raw timestamp, comm,
+TGID, namespace PID and absence of an observed conflict are all insufficient.
+
+### LARG-F performance disposition
+
+Normalization increased from `238.5257967s` to `246.4085559s`
+(`+7.8827592s`). The capture-head builder itself decreased from `0.620885s` to
+`0.611069s`, so the new interval construction is not the timing cause.
+Same-file component variation accounts for most of the increase:
+
+```text
+raw marker sync       35.920479s -> 37.465904s
+callstack export      15.093724s -> 15.671432s
+sync span authority   21.318666s -> 22.469221s
+sorter                47.991843s -> 49.339832s
+cross-validation      51.829347s -> 53.674622s
+raw decode            15.785656s -> 14.825322s
+```
+
+This is consistent with machine/runtime variance across the same row counts
+and byte-scale work, not a capture-head regression. The approximately
+four-minute conversion remains a real performance limitation, but weakening
+sort, authenticated SQL preservation or whole-output validation is still not
+authorized.
+
+`build_revision=unknown` also remains open and independent of this correctness
+withdrawal.
