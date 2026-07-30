@@ -54,6 +54,12 @@ func MaterializeDeterministicAnswerSectionsForDegradedDoc(ctx *types.BusContext,
 	// deterministic current-source quote backfill the persist chokepoint
 	// runs — the witness shipped three misplaced citations precisely
 	// because this never ran on the recovery lane.
+	//
+	// EVALFIX-2E (CLASS 5): self_disclosing — 不入账. This lane already
+	// discloses via the degraded footer's citation_quote_backfill entry
+	// (degradedSectionDisplayNames); recordCitationQuoteRewriteDegradation
+	// is deliberately NOT called here — booking it on the degradation
+	// ledger too would double-disclose the same rewrites.
 	if answerDocumentHasQuotelessCurrentSourceCitation(doc, ctx) {
 		if fixed := normalizeCurrentSourceCitationQuotes(doc, ctx); fixed > 0 {
 			logging.Warning("[answer_document/degraded_export] backfilled %d quoteless citation quote(s) from current source on recovery lane", fixed)

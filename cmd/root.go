@@ -3442,6 +3442,15 @@ func initApp(cmd *cobra.Command, args []string) error {
 			richnessSofteningWarn = *rs.PipelineRichnessSofteningWarn
 		}
 		orchestrator.SetRichnessSofteningWarnEnabled(richnessSofteningWarn)
+		// EVALFIX-2E (CLASS 5, 2026-07-30) degradation-disclosure footer
+		// gate. Function indirection mirrors the richness WARN wiring
+		// above. Default true; off restores pre-footer answer bytes but
+		// never stops ledger recording or the WARN lines.
+		degradationFooter := true
+		if rs.PipelineDegradationFooter != nil {
+			degradationFooter = *rs.PipelineDegradationFooter
+		}
+		agent.SetDegradationFooterEnabled(degradationFooter)
 		// R2.2 (post_shape_residual_audit.md, 2026-05-04) finalizer-
 		// local retry budget for the fallback picker downgrade.
 		if rs.PipelineFinalizerLocalRetriesBeforeEscalate != nil {

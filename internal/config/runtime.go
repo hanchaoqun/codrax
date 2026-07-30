@@ -404,6 +404,16 @@ type RuntimeSettings struct {
 	// Default true so silent rule firings are visible.
 	PipelineRichnessSofteningWarn *bool `yaml:"pipeline_richness_softening_warn"`
 
+	// PipelineDegradationFooter gates the user-facing degradation
+	// disclosure footer (EVALFIX-2E CLASS 5): the single grouped system
+	// line rendered at the answer's last-mile chokepoint when the typed
+	// degradation ledger has answer-semantics entries (citation-quote
+	// rewrites / richness facet softening / completeness downgrade).
+	// Default true. Turning it off restores the pre-footer answer bytes
+	// but does NOT stop ledger recording or the WARN log lines —
+	// telemetry is always on.
+	PipelineDegradationFooter *bool `yaml:"pipeline_degradation_footer"`
+
 	// PipelineDemotionStormThreshold + PipelineForcedReadStormThreshold
 	// gate the CGEC frequency-to-violation bridge: when the per-Run
 	// scalar counter (closure.Stats.ChainsDemoted /

@@ -11691,7 +11691,13 @@ func (e *answerDocumentEvaluator) renderAnswerDocumentWithLastMileSupplements(ct
 	if supplementDoc := readAuditSupplementDocumentForAnswer(ctx, doc, readAuditSupplementOwnerAnchor); supplementDoc != nil {
 		prose = appendAnswerSupplementDeduped(prose, renderReadOwnerAnchorSupplement(ctx, supplementDoc, e.language), e.language)
 	}
-	return appendAnswerSupplementDeduped(prose, renderRequestedAnswerDimensionSourceQuoteSupplement(ctx, doc, e.language), e.language)
+	prose = appendAnswerSupplementDeduped(prose, renderRequestedAnswerDimensionSourceQuoteSupplement(ctx, doc, e.language), e.language)
+	// EVALFIX-2E (CLASS 5): the degradation-disclosure footer renders
+	// here and ONLY here — the last-mile chokepoint every FinalAnswer
+	// path is already pinned to (TRUNC family) — so no render path can
+	// drop it. At most one grouped system line; 0 ledger entries → the
+	// helper returns "" and this append is a byte-for-byte no-op.
+	return appendAnswerSupplementDeduped(prose, renderDegradationDisclosureFooter(ctx, e.language), e.language)
 }
 
 // answerSupplementDuplicateMinLines is the CR-3 件④ P12 duplicate-block

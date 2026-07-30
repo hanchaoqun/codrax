@@ -2016,6 +2016,12 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	// resets per Run. Surface counted at Run end so operators see
 	// when reflector / answer_reviewer / taxonomy persistence broke.
 	o.busCtx.Mutable.ResetLearningFailures()
+	// EVALFIX-2E (CLASS 5): the typed degradation ledger resets at the
+	// pipeline-start boundary — the ONLY per-turn boundary per the
+	// S12/S13 ruling. Mutable is freshly allocated per Run today, so
+	// this call documents the boundary in the existing reset cluster
+	// rather than performing a behavioral wipe.
+	o.busCtx.Mutable.ResetDegradationLedger()
 
 	o.busCtx.Language = o.language
 	o.busCtx.AttachedLog = o.attachedLog
@@ -6894,6 +6900,10 @@ func (o *Orchestrator) emitCGECSummary() {
 				sig.Kind, sig.Family, sig.FacetID, sig.FacetKind, sig.BucketCount, sig.Reason)
 		}
 	}
+
+	// EVALFIX-2E (CLASS 5): "[degrade] ledger:" operator aggregate —
+	// concern file degradation_ledger_log.go.
+	emitDegradationLedgerSummary(o.busCtx.Mutable)
 }
 
 // CGEC frequency bridge thresholds (R10). When the per-Run scalar

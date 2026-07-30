@@ -31,6 +31,10 @@ func TestIRDeliveryHotFileLineRatchet(t *testing.T) {
 		// this concern-specific file next to the post-filter backstop it
 		// mirrors.
 		{path: "accepted_closure_origin_debt.go", maxLines: 280},
+		// EVALFIX-2E (CLASS 5): the "[degrade] ledger:" operator
+		// aggregate lives in its own concern file so the degradation-
+		// ledger surface never grows the god-file.
+		{path: "degradation_ledger_log.go", maxLines: 60},
 	}
 	for _, tc := range cases {
 		tc := tc

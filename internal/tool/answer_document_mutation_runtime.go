@@ -221,6 +221,7 @@ func persistMergedAnswerDocument(
 	// system-rebuilt references persist with a source-line quote.
 	if answerDocumentHasQuotelessCurrentSourceCitation(merged, ctx) {
 		if fixed := normalizeCurrentSourceCitationQuotes(merged, ctx); fixed > 0 {
+			recordCitationQuoteRewriteDegradation(ctx, fixed)
 			logging.Warning("[%s] backfilled %d quoteless citation quote(s) from current source before persist", toolName, fixed)
 		}
 	}

@@ -186,6 +186,23 @@ func logCurrentSourceCitationQuoteRepairs(toolName string, fixed int) {
 	logging.Warning("[%s] repaired %d citation quote(s) from current source file:line", toolName, fixed)
 }
 
+// recordCitationQuoteRewriteDegradation books deterministic
+// current-source citation-quote rewrites on the typed degradation
+// ledger (EVALFIX-2E CLASS 5) so the last-mile disclosure footer can
+// surface the aggregate count. Called beside the WARN at every
+// HEALTHY-lane normalizeCurrentSourceCitationQuotes call site
+// (emit-time first pass, pre-emit chain tail, pre-persist pass).
+// The degraded-export lane deliberately does NOT call this — that lane
+// self-discloses via the citation_quote_backfill entry of the degraded
+// footer (degradedSectionDisplayNames), and booking it here would
+// double-disclose.
+func recordCitationQuoteRewriteDegradation(ctx *types.BusContext, fixed int) {
+	if ctx == nil || ctx.Mutable == nil || fixed <= 0 {
+		return
+	}
+	ctx.Mutable.AppendDegradation(types.DegradeLaneCitationQuoteRewrite, fixed)
+}
+
 // runtimeArtifactCitationPathSet collects the typed attachment spellings of
 // the run's runtime artifacts (trace / log), normalized to slash-form plus
 // basename, so citation files naming them are recognized verbatim — never

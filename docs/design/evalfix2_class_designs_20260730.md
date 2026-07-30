@@ -1097,3 +1097,17 @@ System degradation disclosure: citation quote backfill ×17, required-facet soft
 - 不把账本喂进任何 LLM prompt，不做「让模型解释降级」的二次调用（零成本红线）；
 - 不为 F9 设 lane/gate/强制披露（完成门权属模型）；
 - 不重构 RichnessTelemetry/AnalyzerDecisions 为统一通道（现阶段投影桥接足够；通道合并=另案架构议题，FileReadCoverageStore 教训：不同时间语义视图强行统一是回归源）。
+
+## 10. 落地偏离（EVALFIX-2E 实施记录，2026-07-30）
+
+按 §6 全部六步落地（`internal/types/degradation_ledger.go` 三件套 + 注册表 + `BuildDegradationLedgerView` 双投影臂；三处健康引文调用点写者；`renderAnswerDocumentWithLastMileSupplements` 尾部 footer；`pipeline_degradation_footer` + `agent.SetDegradationFooterEnabled` 函数间接；`emitCGECSummary` 邻位 `[degrade] ledger:` INFO；`docs/architecture.md` §6.9 + §14 knob 表）。§7 测试全落：types 单元 7 条、tool 写者桥 2 条（真实 normalize 过盘 + 三调用点/degraded 缺席结构 pin）、agent 8 条（恰一行分组双语判决 e2e、0 条 0 字节、knob-off 字节恒等复原、plumbing 永不披露负 pin、未注册 generic fail-open、internal token NOT-contains、消费集合双向等式、TestTRUNCDegradationFooterChokepointStructural 咽喉结构 pin）；判决 pin 均做过 red 验证（拆线→三红→复原绿；注册表单侧加 lane→tripwire 红）。偏离与备注：
+
+1. **`emit_answer_document_v2.go:258` 调用点微重构**：原行把 fixed 内联穿给 `logCurrentSourceCitationQuoteRepairs`，无局部变量可旁挂 Append——重构为 `if fixed := ...; fixed > 0` 块（行为恒等：log helper 本就 fixed<=0 no-op），Append 与 WARN 同块。
+2. **写者经共享 nil-safe helper**：三调用点各 +1 行 `recordCitationQuoteRewriteDegradation(ctx, fixed)`（tool 包内，nil ctx/Mutable/非正数全 no-op），而非裸 `ctx.Mutable.AppendDegradation`——emit 车道存在 ctx 可空的测试路径。degraded_export.go 落显式「self_disclosing，不入账」注释（§6.2 原样）。
+3. **注册表声明序落为显式 slice**：Go map 无序，`顺序=注册表声明序` 由 `DegradationLaneRegistryOrder` 承载，闭集 tripwire 对 map↔slice 双向等式钉死（LEDGER-TRIPWIRE 范式，非 count 型）。
+4. **双语词表权威位置**：ZH/EN 对按 §4.1(a) 落在 types 注册表（单一事实源）；§6.3「词表放 evaluator 邻位」落为 evaluator 侧仅持 generic fallback 词 + 句式模板（避免第二张词表，五表手抄教训）。
+5. **plumbing 六条即刻入册**（§2.2 P1–P6 → tool_param_compat / structured_payload_compat / llm_json_repair / repl_param_repair / classifier_fallback / multirepo_focus_fallback），零写者、负 pin 钉死永不渲染；ZH/EN 词非空是注册表测试强制（未来若改类不至于空标签上面）。
+6. **§7.6 冒烟 eval 未在本窗执行**：需真 LLM 往返（F8 witness 族全管线跑），本窗以渲染咽喉判决性 e2e（真实 normalize 写者 → 投影 → footer 恰一行）替代确定性覆盖；推 main 前建议补跑 `eval/run.sh` F8 witness 一例 + qf 基本盘一例。
+7. **计数语义备注（非偏离，落账）**：emit 侧 pass 每次 emit 尝试都会跑——被拒稿重试的 Run 账本累计的是「本 Run 确定性重写事件数」（与 WARN 日志逐条对齐，footer 词面「完整明细见运行日志」指向的正是这份账），不是出厂稿内去重后的 distinct 引文数；carry-forward 机制使重试稿引文多已带 quote，实际重复计入有限。
+8. **gofmt**：改动 hunk 全部 gofmt-clean；`internal/config/runtime.go` / `cmd/root.go` 存在**先于本批**的无关区段格式漂移（1092+ 行对齐、430 行注释对齐），按最小 diff 纪律不顺手重排。
+9. **`[degrade] ledger:` INFO 落 concern 文件**：首版内联在 `emitCGECSummary` 内触发 `TestIRDeliveryHotFileLineRatchet`（orchestrator.go 9139 > 9135）——按 ratchet 本意移 concern 文件 `degradation_ledger_log.go::emitDegradationLedgerSummary`（自带 60 行预算行），`emitCGECSummary` 邻位保留 1 行调用（§6.5「邻位」语义不变），不扩 god-file 预算。

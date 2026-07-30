@@ -726,6 +726,14 @@ type MutableState struct {
 	// tooling at end-of-Run.
 	analyzerDecisions []AnalyzerDecisionSignal
 
+	// degradationLedger is the EVALFIX-2E (CLASS 5) typed degradation
+	// account: per-Run occurrence counts keyed by DegradationLaneID.
+	// Direct writers call AppendDegradation; the richness-telemetry and
+	// analyzer-decision channels are folded in read-side by
+	// BuildDegradationLedgerView (one-way projection, no dual-write).
+	// See degradation_ledger.go for registry + lifecycle.
+	degradationLedger map[DegradationLaneID]int
+
 	// analyzerBlockedToolIntents records analyze-stage tool calls that
 	// were blocked by the classification-only boundary but still carry
 	// useful routing metadata (for example read_file(path=...)). The

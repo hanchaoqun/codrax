@@ -255,7 +255,10 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// normalizeAnswerDocumentForPreEmit and before persist in
 	// persistMergedAnswerDocument. Do not reorder any of these passes
 	// alone.
-	logCurrentSourceCitationQuoteRepairs(toolName, normalizeCurrentSourceCitationQuotes(doc, ctx))
+	if fixed := normalizeCurrentSourceCitationQuotes(doc, ctx); fixed > 0 {
+		recordCitationQuoteRewriteDegradation(ctx, fixed)
+		logCurrentSourceCitationQuoteRepairs(toolName, fixed)
+	}
 	normalizeTypedExcludedAnswerSurface(doc, ctx)
 
 	// P1 (2026-05-10) — emit-time pre-validation chokepoint.
@@ -849,6 +852,7 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 	// Runtime-artifact citations are excluded inside the gate.
 	if answerDocumentHasQuotelessCurrentSourceCitation(doc, ctx) {
 		if fixed := normalizeCurrentSourceCitationQuotes(doc, ctx); fixed > 0 {
+			recordCitationQuoteRewriteDegradation(ctx, fixed)
 			pctx.recordPreEmitRepair("backfillQuotelessCitationQuotes", fixed)
 			logging.Warning("[%s] backfilled %d quoteless citation quote(s) from current source file:line", toolName, fixed)
 		}
