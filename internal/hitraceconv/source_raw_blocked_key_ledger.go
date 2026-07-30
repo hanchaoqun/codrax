@@ -72,7 +72,8 @@ func traceDBRawBlockedKeyLedger(
 	if geometry := inventory.RawDecode.Metadata["blocked_reason_format_geometry_witnesses"]; geometry != "" {
 		out.Metadata["blocked_reason_format_geometry_witnesses"] = geometry
 	}
-	if inventory.RawDecode.Metadata["decode_state"] != "strict_target_ledger_complete" {
+	if !traceDBRawDecodeFamilyComplete(
+		inventory.RawDecode, traceDBRawRetentionBlocked) {
 		out.Metadata["ledger_state"] = "withheld_raw_decode_incomplete"
 		out.Skipped = "raw blocked key ledger withheld: strict raw decode ledger incomplete"
 		return out, nil

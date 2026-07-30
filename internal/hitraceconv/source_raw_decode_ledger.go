@@ -22,6 +22,27 @@ const (
 	maxTraceDBRawDecodeFieldsPerFormat = 32
 )
 
+const (
+	traceDBRawRetentionMarker         = "marker"
+	traceDBRawRetentionBlocked        = "blocked_reason"
+	traceDBRawRetentionSwitchLite     = "sched_switch_lite"
+	traceDBRawRetentionWakeupLite     = "sched_wakeup_lite"
+	traceDBRawRetentionWakeupName     = "sched_wakeup_new_name"
+	traceDBRawRetentionDMAWait        = "dma_wait"
+	traceDBRawRetentionDMALifecycle   = "dma_lifecycle"
+	traceDBRawRetentionFamilyComplete = "complete"
+)
+
+var traceDBRawRetentionFamilyBudgets = map[string]int64{
+	traceDBRawRetentionMarker:       480 << 20,
+	traceDBRawRetentionBlocked:      56 << 20,
+	traceDBRawRetentionSwitchLite:   128 << 20,
+	traceDBRawRetentionWakeupLite:   72 << 20,
+	traceDBRawRetentionWakeupName:   16 << 20,
+	traceDBRawRetentionDMAWait:      8 << 20,
+	traceDBRawRetentionDMALifecycle: 8 << 20,
+}
+
 type traceDBRawDecodeFormatStats struct {
 	ID      int
 	Name    string
@@ -121,6 +142,8 @@ type traceDBSourceRawDecodeAccumulator struct {
 	targetTimestamp   bool
 	retainedBytes     int64
 	retentionCapped   bool
+	retainedByFamily  map[string]int64
+	cappedFamilies    map[string]bool
 	nextInfoTailOR    uint64
 	nextInfoTailAND   uint64
 	nextInfoTailSeen  bool
@@ -150,8 +173,10 @@ func newTraceDBSourceRawDecodeCoverage() TraceDBCoverage {
 
 func newTraceDBSourceRawDecodeAccumulator() traceDBSourceRawDecodeAccumulator {
 	return traceDBSourceRawDecodeAccumulator{
-		coverage: newTraceDBSourceRawDecodeCoverage(),
-		formats:  map[int]*traceDBRawDecodeFormatStats{},
+		coverage:         newTraceDBSourceRawDecodeCoverage(),
+		formats:          map[int]*traceDBRawDecodeFormatStats{},
+		retainedByFamily: map[string]int64{},
+		cappedFamilies:   map[string]bool{},
 	}
 }
 
@@ -175,31 +200,82 @@ func (a *traceDBSourceRawDecodeAccumulator) observeUnknownRecord() {
 }
 
 func (a *traceDBSourceRawDecodeAccumulator) reserveRetained(
-	family string,
+	formatName string,
 	fixedBytes int64,
 	values ...string,
 ) bool {
 	if a == nil || fixedBytes < 0 {
 		return false
 	}
+	family := traceDBRawRetentionFamily(formatName)
+	limit := traceDBRawRetentionFamilyBudgets[family]
+	if limit <= 0 {
+		a.retentionCapped = true
+		a.cappedFamilies[family] = true
+		traceDBAddCoverageMetric(&a.coverage,
+			"target_"+family+"_retention_budget_exceeded", 1)
+		return false
+	}
 	required := fixedBytes
 	for _, value := range values {
-		if int64(len(value)) > maxTraceDBRawDecodeRetainedBytes-required {
+		if int64(len(value)) > limit-required {
 			a.retentionCapped = true
+			a.cappedFamilies[family] = true
 			traceDBAddCoverageMetric(&a.coverage,
-				"target_"+traceDBRawDecodeReasonMetric(family)+"_retention_budget_exceeded", 1)
+				"target_"+family+"_retention_budget_exceeded", 1)
 			return false
 		}
 		required += int64(len(value))
 	}
-	if a.retainedBytes > maxTraceDBRawDecodeRetainedBytes-required {
+	if a.retainedByFamily[family] > limit-required {
 		a.retentionCapped = true
+		a.cappedFamilies[family] = true
 		traceDBAddCoverageMetric(&a.coverage,
-			"target_"+traceDBRawDecodeReasonMetric(family)+"_retention_budget_exceeded", 1)
+			"target_"+family+"_retention_budget_exceeded", 1)
 		return false
 	}
+	a.retainedByFamily[family] += required
 	a.retainedBytes += required
 	return true
+}
+
+func traceDBRawRetentionFamily(name string) string {
+	switch {
+	case directMarkerNameGoverned(name):
+		return traceDBRawRetentionMarker
+	case name == "sched_blocked_reason":
+		return traceDBRawRetentionBlocked
+	case name == "sched_switch_lite":
+		return traceDBRawRetentionSwitchLite
+	case name == "sched_wakeup_lite":
+		return traceDBRawRetentionWakeupLite
+	case name == "sched_wakeup_new":
+		return traceDBRawRetentionWakeupName
+	case name == "dma_fence_wait_start" || name == "dma_fence_wait_end":
+		return traceDBRawRetentionDMAWait
+	case traceDBRawDMALifecycleName(name):
+		return traceDBRawRetentionDMALifecycle
+	default:
+		return traceDBRawDecodeReasonMetric(name)
+	}
+}
+
+func traceDBRawDecodeCensusComplete(coverage TraceDBCoverage) bool {
+	switch coverage.Metadata["decode_state"] {
+	case "strict_target_ledger_complete",
+		"strict_target_ledger_complete_with_family_retention_withdrawal":
+		return true
+	default:
+		return false
+	}
+}
+
+func traceDBRawDecodeFamilyComplete(coverage TraceDBCoverage, family string) bool {
+	if !traceDBRawDecodeCensusComplete(coverage) {
+		return false
+	}
+	state, present := coverage.Metadata["retention_"+family+"_state"]
+	return !present || state == traceDBRawRetentionFamilyComplete
 }
 
 func (a *traceDBSourceRawDecodeAccumulator) observeRecord(
@@ -639,10 +715,21 @@ func (a *traceDBSourceRawDecodeAccumulator) finalize(
 		return a.coverage
 	}
 	traceDBAddCoverageMetric(&a.coverage, "target_retained_bytes", a.retainedBytes)
+	for family := range traceDBRawRetentionFamilyBudgets {
+		traceDBAddCoverageMetric(&a.coverage,
+			"target_"+family+"_retained_bytes", a.retainedByFamily[family])
+		state := traceDBRawRetentionFamilyComplete
+		if a.cappedFamilies[family] {
+			state = "incomplete_byte_budget"
+		}
+		a.coverage.Metadata["retention_"+family+"_state"] = state
+	}
 	if a.retentionCapped {
 		traceDBAddCoverageMetric(&a.coverage, "target_retention_budget_exceeded", 1)
-		a.coverage.Metadata["decode_state"] = "incomplete_target_retention_budget"
-		a.coverage.Skipped = "raw record decode ledger incomplete: target_retention_byte_budget_exceeded"
+		a.coverage.Metadata["decode_state"] =
+			"strict_target_ledger_complete_with_family_retention_withdrawal"
+		a.coverage.Skipped =
+			"raw record decode census complete; one or more family recovery stores were withheld by retained-byte budget"
 		return a.coverage
 	}
 	a.coverage.Metadata["decode_state"] = "strict_target_ledger_complete"

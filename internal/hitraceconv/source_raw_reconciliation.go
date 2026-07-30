@@ -33,7 +33,7 @@ func traceDBRawDecodeReconciliationCoverage(items []TraceDBCoverage) TraceDBCove
 	}
 	out.Found = raw.Found
 	out.RowsRead = raw.RowsRead
-	if !raw.Found || raw.Metadata["decode_state"] != "strict_target_ledger_complete" {
+	if !raw.Found || !traceDBRawDecodeCensusComplete(raw) {
 		out.Metadata["reconciliation_state"] = "withheld_raw_decode_incomplete"
 		out.Skipped = "raw/trace_streamer reconciliation withheld: strict raw decode ledger is incomplete"
 		return out

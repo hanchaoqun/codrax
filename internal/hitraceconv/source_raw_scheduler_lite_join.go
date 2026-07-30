@@ -45,7 +45,8 @@ func newTraceDBRawSchedSwitchLiteJoin(
 	join.coverage.Found = len(inventory.RawSwitchLite) > 0
 	join.coverage.RowsRead = len(inventory.RawSwitchLite)
 	traceDBAddCoverageMetric(&join.coverage, "raw_records_retained", int64(len(inventory.RawSwitchLite)))
-	if inventory.RawDecode.Metadata["decode_state"] != "strict_target_ledger_complete" {
+	if !traceDBRawDecodeFamilyComplete(
+		inventory.RawDecode, traceDBRawRetentionSwitchLite) {
 		join.coverage.Metadata["join_state"] = "withheld_source_raw_decode_incomplete"
 		join.coverage.Skipped = "scheduler-lite switch join withheld: source raw decode ledger incomplete"
 		return join

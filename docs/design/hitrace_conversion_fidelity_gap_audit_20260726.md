@@ -5641,6 +5641,21 @@ Any typed `publication_state=withheld_*` now projects to
 `raw_marker_replacement_closure=not_evaluated_withheld_*`. Only a completed
 raw-marker consumer may produce `complete_no_replacement_candidate`.
 
+### LARG-A2b independent family authority
+
+The retained-byte budget is partitioned across marker, blocked-reason,
+scheduler switch-lite, scheduler wakeup-lite, wakeup-name, DMA-wait and DMA
+lifecycle families. The sum remains `768 MiB`; no family can consume another
+family's reservation. Exact target decoding and the physical per-format census
+always continue to completion.
+
+Coverage carries `retention_<family>_state` plus exact retained-byte metrics.
+Marker, blocked, scheduler and DMA consumers now read only their own typed
+family authority. A budget or capture-census failure nils that family's
+records and leaves every independent complete family usable. Diagnostic
+raw/TraceStreamer count reconciliation and the raw target timestamp envelope
+read census completeness rather than recovery-storage completeness.
+
 ## Invariants
 
 - Never fabricate CPU, PID, TGID, comm, timestamp or lifecycle evidence.

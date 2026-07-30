@@ -54,7 +54,8 @@ func publishTraceDBRawDMAWaitRecovery(
 		return out, nil
 	}
 	out.Found = inventory.RawDecode.Found
-	if inventory.RawDecode.Metadata["decode_state"] != "strict_target_ledger_complete" {
+	if !traceDBRawDecodeFamilyComplete(
+		inventory.RawDecode, traceDBRawRetentionDMAWait) {
 		out.Metadata["publication_state"] = "withheld_raw_decode_incomplete"
 		out.Skipped = "raw DMA wait recovery withheld: strict raw decode ledger incomplete"
 		return out, nil

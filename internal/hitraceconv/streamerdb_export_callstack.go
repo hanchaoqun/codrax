@@ -671,8 +671,7 @@ func traceDBCallstackRejectedBytes(value []byte) string {
 
 func traceDBCallstackRawTargetFirstTimestamp(tdb *traceDB) (int64, bool) {
 	if tdb == nil || tdb.sourceNameInventory == nil ||
-		tdb.sourceNameInventory.RawDecode.Metadata["decode_state"] !=
-			"strict_target_ledger_complete" {
+		!traceDBRawDecodeCensusComplete(tdb.sourceNameInventory.RawDecode) {
 		return 0, false
 	}
 	raw := tdb.sourceNameInventory.RawDecode.Metadata["target_first_timestamp_ns"]

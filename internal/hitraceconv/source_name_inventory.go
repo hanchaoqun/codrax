@@ -470,6 +470,11 @@ func reconcileTraceDBSourceRawDecoderAuthority(
 			"available_closed_target_decoders_for_supported_families"
 		authority.Metadata["recovery_authority"] =
 			"supported_families_use_strict_raw_decoder; uncovered_families_require_new_typed_decoder_or_upstream_retained_rows"
+	case "strict_target_ledger_complete_with_family_retention_withdrawal":
+		authority.Metadata["decode_authority"] =
+			"available_closed_target_decoders_for_complete_retained_families"
+		authority.Metadata["recovery_authority"] =
+			"complete retained families use strict raw decoder; budget-withdrawn families remain unavailable"
 	case "incomplete_format_witness_cap", "incomplete_target_decode_cap",
 		"incomplete_target_retention_budget":
 		authority.Metadata["decode_authority"] =

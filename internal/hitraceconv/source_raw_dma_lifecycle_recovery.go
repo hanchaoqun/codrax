@@ -41,8 +41,8 @@ func publishTraceDBRawDMALifecycleRecovery(
 		return out, nil
 	}
 	out.Found = inventory.RawDecode.Found
-	if inventory.RawDecode.Metadata["decode_state"] !=
-		"strict_target_ledger_complete" {
+	if !traceDBRawDecodeFamilyComplete(
+		inventory.RawDecode, traceDBRawRetentionDMALifecycle) {
 		out.Metadata["publication_state"] = "withheld_raw_decode_incomplete"
 		out.Skipped = "raw DMA lifecycle recovery withheld: strict raw decode ledger incomplete"
 		return out, nil

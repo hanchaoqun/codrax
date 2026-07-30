@@ -91,7 +91,8 @@ func submitTraceDBRawMarkerSyncRecovery(
 	if geometry := inventory.RawDecode.Metadata["marker_format_geometry_witnesses"]; geometry != "" {
 		out.Metadata["marker_format_geometry_witnesses"] = geometry
 	}
-	if inventory.RawDecode.Metadata["decode_state"] != "strict_target_ledger_complete" {
+	if !traceDBRawDecodeFamilyComplete(
+		inventory.RawDecode, traceDBRawRetentionMarker) {
 		out.Metadata["publication_state"] = "withheld_raw_decode_incomplete"
 		out.Skipped = "raw marker sync recovery withheld: strict raw decode ledger incomplete"
 		return out, nil

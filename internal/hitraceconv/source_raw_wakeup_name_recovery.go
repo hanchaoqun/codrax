@@ -30,7 +30,8 @@ func traceDBApplyRawWakeupNewDisplayNames(
 	}
 	coverage.Found = len(inventory.RawWakeupNames) > 0
 	coverage.RowsRead = len(inventory.RawWakeupNames)
-	if inventory.RawDecode.Metadata["decode_state"] != "strict_target_ledger_complete" ||
+	if !traceDBRawDecodeFamilyComplete(
+		inventory.RawDecode, traceDBRawRetentionWakeupName) ||
 		inventory.RawDecode.Metrics["target_sched_wakeup_new_name_record_capture_failed"] != 0 ||
 		inventory.RawDecode.Metrics["target_sched_wakeup_new_name_records_retained"] !=
 			int64(len(inventory.RawWakeupNames)) {

@@ -103,7 +103,8 @@ func newTraceDBRawAsyncMatchLedger(
 	if inventory == nil {
 		return ledger
 	}
-	if inventory.RawDecode.Metadata["decode_state"] != "strict_target_ledger_complete" {
+	if !traceDBRawDecodeFamilyComplete(
+		inventory.RawDecode, traceDBRawRetentionMarker) {
 		ledger.state = "withheld_raw_decode_incomplete"
 		return ledger
 	}

@@ -113,38 +113,75 @@ func probeTraceDBSourceRawProfile(
 		decodeCoverage.Metrics["target_marker_async_records_retained"]
 	markerCarrierRejectedRetained :=
 		decodeCoverage.Metrics["target_marker_carrier_rejections_retained"]
-	if decodeCoverage.Metadata["decode_state"] != "strict_target_ledger_complete" ||
-		decodeCoverage.Metrics["target_sched_blocked_reason_key_capture_failed"] > 0 ||
-		decodeCoverage.Metrics["target_dma_fence_wait_record_capture_failed"] > 0 ||
-		decodeCoverage.Metrics["target_dma_fence_lifecycle_record_capture_failed"] > 0 ||
-		decodeCoverage.Metrics["target_sched_switch_lite_record_capture_failed"] > 0 ||
-		decodeCoverage.Metrics["target_sched_wakeup_lite_record_capture_failed"] > 0 ||
-		decodeCoverage.Metrics["target_sched_wakeup_new_name_record_capture_failed"] > 0 ||
-		decodeCoverage.Metrics["target_marker_sync_record_capture_failed"] > 0 ||
-		markerCarrierRecords != markerEnvelopeAdmitted ||
-		markerEnvelopeAdmitted != markerBodyAdmitted+markerBodyRejected ||
-		markerBodyAdmitted != markerSyncRetained+markerSyncPoisonRetained+
+	if !traceDBRawDecodeCensusComplete(decodeCoverage) {
+		return coverage, decodeCoverage, nil, nil, nil, nil, nil, nil, nil, nil
+	}
+	markerComplete := traceDBRawDecodeFamilyComplete(
+		decodeCoverage, traceDBRawRetentionMarker) &&
+		decodeCoverage.Metrics["target_marker_sync_record_capture_failed"] == 0 &&
+		markerCarrierRecords == markerEnvelopeAdmitted &&
+		markerEnvelopeAdmitted == markerBodyAdmitted+markerBodyRejected &&
+		markerBodyAdmitted == markerSyncRetained+markerSyncPoisonRetained+
 			markerAsyncRetained+
-			decodeCoverage.Metrics["target_marker_non_sync_payloads"] ||
-		markerBodyRejected != markerCarrierRejectedRetained ||
-		int64(len(decode.markerRecords)) !=
+			decodeCoverage.Metrics["target_marker_non_sync_payloads"] &&
+		markerBodyRejected == markerCarrierRejectedRetained &&
+		int64(len(decode.markerRecords)) ==
 			markerSyncRetained+markerSyncPoisonRetained+markerAsyncRetained+
-				markerCarrierRejectedRetained ||
+				markerCarrierRejectedRetained
+	if !markerComplete {
+		decodeCoverage.Metadata["retention_"+traceDBRawRetentionMarker+"_state"] =
+			"incomplete_capture_or_census"
+		decode.markerRecords = nil
+	}
+	if !traceDBRawDecodeFamilyComplete(decodeCoverage, traceDBRawRetentionBlocked) ||
+		decodeCoverage.Metrics["target_sched_blocked_reason_key_capture_failed"] > 0 {
+		decodeCoverage.Metadata["retention_"+traceDBRawRetentionBlocked+"_state"] =
+			"incomplete_capture_or_census"
+		decode.blockedRecords = nil
+	}
+	if !traceDBRawDecodeFamilyComplete(decodeCoverage, traceDBRawRetentionDMAWait) ||
+		decodeCoverage.Metrics["target_dma_fence_wait_record_capture_failed"] > 0 ||
 		decodeCoverage.Metrics["target_dma_fence_wait_start_body_admitted"]+
 			decodeCoverage.Metrics["target_dma_fence_wait_end_body_admitted"] !=
-			int64(len(decode.dmaWaitRecords)) ||
+			int64(len(decode.dmaWaitRecords)) {
+		decodeCoverage.Metadata["retention_"+traceDBRawRetentionDMAWait+"_state"] =
+			"incomplete_capture_or_census"
+		decode.dmaWaitRecords = nil
+	}
+	if !traceDBRawDecodeFamilyComplete(decodeCoverage, traceDBRawRetentionDMALifecycle) ||
+		decodeCoverage.Metrics["target_dma_fence_lifecycle_record_capture_failed"] > 0 ||
 		decodeCoverage.Metrics["target_dma_fence_destroy_body_admitted"]+
 			decodeCoverage.Metrics["target_dma_fence_enable_signal_body_admitted"]+
 			decodeCoverage.Metrics["target_dma_fence_init_body_admitted"]+
 			decodeCoverage.Metrics["target_dma_fence_signaled_body_admitted"] !=
-			int64(len(decode.dmaLifecycle)) ||
+			int64(len(decode.dmaLifecycle)) {
+		decodeCoverage.Metadata["retention_"+traceDBRawRetentionDMALifecycle+"_state"] =
+			"incomplete_capture_or_census"
+		decode.dmaLifecycle = nil
+	}
+	if !traceDBRawDecodeFamilyComplete(decodeCoverage, traceDBRawRetentionSwitchLite) ||
+		decodeCoverage.Metrics["target_sched_switch_lite_record_capture_failed"] > 0 ||
 		decodeCoverage.Metrics["target_sched_switch_lite_body_admitted"] !=
-			int64(len(decode.switchLiteRecords)) ||
+			int64(len(decode.switchLiteRecords)) {
+		decodeCoverage.Metadata["retention_"+traceDBRawRetentionSwitchLite+"_state"] =
+			"incomplete_capture_or_census"
+		decode.switchLiteRecords = nil
+	}
+	if !traceDBRawDecodeFamilyComplete(decodeCoverage, traceDBRawRetentionWakeupLite) ||
+		decodeCoverage.Metrics["target_sched_wakeup_lite_record_capture_failed"] > 0 ||
 		decodeCoverage.Metrics["target_sched_wakeup_lite_body_admitted"] !=
-			int64(len(decode.wakeupLiteRecords)) ||
+			int64(len(decode.wakeupLiteRecords)) {
+		decodeCoverage.Metadata["retention_"+traceDBRawRetentionWakeupLite+"_state"] =
+			"incomplete_capture_or_census"
+		decode.wakeupLiteRecords = nil
+	}
+	if !traceDBRawDecodeFamilyComplete(decodeCoverage, traceDBRawRetentionWakeupName) ||
+		decodeCoverage.Metrics["target_sched_wakeup_new_name_record_capture_failed"] > 0 ||
 		decodeCoverage.Metrics["target_sched_wakeup_new_name_records_retained"] !=
 			int64(len(decode.wakeupNewNames)) {
-		return coverage, decodeCoverage, nil, nil, nil, nil, nil, nil, nil, nil
+		decodeCoverage.Metadata["retention_"+traceDBRawRetentionWakeupName+"_state"] =
+			"incomplete_capture_or_census"
+		decode.wakeupNewNames = nil
 	}
 	return coverage, decodeCoverage, decode.blockedRecords,
 		decode.dmaWaitRecords, decode.dmaLifecycle, decode.markerRecords,

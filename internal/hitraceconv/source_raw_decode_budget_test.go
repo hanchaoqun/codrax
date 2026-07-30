@@ -29,12 +29,37 @@ func TestTraceDBRawDecodeRetentionBudgetReplacesOrdinalCap(t *testing.T) {
 
 func TestTraceDBRawDecodeRetentionBudgetFailsClosedWithoutStoppingCensus(t *testing.T) {
 	acc := newTraceDBSourceRawDecodeAccumulator()
-	acc.retainedBytes = maxTraceDBRawDecodeRetainedBytes - 4
+	acc.retainedByFamily[traceDBRawRetentionMarker] =
+		traceDBRawRetentionFamilyBudgets[traceDBRawRetentionMarker] - 4
 	if acc.reserveRetained("print", 5) {
 		t.Fatal("retention beyond the byte budget was admitted")
 	}
-	if !acc.retentionCapped || acc.retainedBytes != maxTraceDBRawDecodeRetainedBytes-4 ||
-		acc.coverage.Metrics["target_print_retention_budget_exceeded"] != 1 {
+	if !acc.retentionCapped ||
+		acc.coverage.Metrics["target_marker_retention_budget_exceeded"] != 1 {
 		t.Fatalf("typed retention withdrawal mismatch: %+v", acc)
+	}
+}
+
+func TestTraceDBRawDecodeFamilyRetentionAuthorityIsIndependent(t *testing.T) {
+	acc := newTraceDBSourceRawDecodeAccumulator()
+	acc.retainedByFamily[traceDBRawRetentionMarker] =
+		traceDBRawRetentionFamilyBudgets[traceDBRawRetentionMarker] - 4
+	if acc.reserveRetained("print", 5) {
+		t.Fatal("over-budget marker record was retained")
+	}
+	acc.coverage.Metadata["decode_state"] =
+		"strict_target_ledger_complete_with_family_retention_withdrawal"
+	acc.coverage.Metadata["retention_"+traceDBRawRetentionMarker+"_state"] =
+		"incomplete_byte_budget"
+	acc.coverage.Metadata["retention_"+traceDBRawRetentionSwitchLite+"_state"] =
+		traceDBRawRetentionFamilyComplete
+	if traceDBRawDecodeFamilyComplete(acc.coverage, traceDBRawRetentionMarker) {
+		t.Fatal("budget-withdrawn marker family retained publication authority")
+	}
+	if !traceDBRawDecodeFamilyComplete(acc.coverage, traceDBRawRetentionSwitchLite) {
+		t.Fatal("independent complete scheduler family was globally withdrawn")
+	}
+	if !traceDBRawDecodeCensusComplete(acc.coverage) {
+		t.Fatal("family retention withdrawal erased the completed raw census")
 	}
 }
