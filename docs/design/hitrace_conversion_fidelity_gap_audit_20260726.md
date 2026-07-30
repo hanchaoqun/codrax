@@ -6574,3 +6574,62 @@ gap, reusing a comm/TGID/namespace PID, or pairing across a rejected marker
 segment. Further fidelity recovery requires new physical source authority,
 such as an exact per-CPU retention-start/end ledger, an earlier complete raw
 scheduler segment, or independently retained marker endpoints.
+
+## LARG-H repeat stability replay (2026-07-30)
+
+Customer artifacts:
+
+- `/Users/han/opt/customlogs/largH.txt`
+- `/Users/han/opt/customlogs/codrax-trace-diag-largH.txt`
+
+LARG-H is a second independent replay of the withdrawn-v2 build family. It
+does not expose a new correctness gap:
+
+```text
+output rows / parsed / callback      = 3,007,234 / 3,007,234 / 3,007,234
+unknown / header-only                = 0 / 0
+capture-head candidates / withheld   = 12 / 12
+capture-head intervals emitted       = 0
+raw CPU intervals                    = 790,665
+raw overlap CPU conflicts            = 0
+authorized CPU lookup attempts       = 1,372,146
+standard / typed-only / unpublished  = 688,103 / 24,058 / 1,613
+```
+
+Scheduler, blocked-reason, frame, marker replacement and final viewer
+visibility counters are exactly equal to LARG-G. The output contains the same
+`3,007,234` rows and all evidence-bearing SQL table schema/row hashes are
+equal. A direct G/H comparison again finds only official `meta.rows_sha256`
+different; its nine conversion-dependent metadata rows account for the
+whole-artifact size/SHA change.
+
+### LARG-H performance variance
+
+Normalization rose from `215.6410017s` in LARG-G to `258.4720479s` in LARG-H:
+
+```text
+component             LARG-G        LARG-H        delta
+raw decode             14.001s       14.028s       +0.027s
+callstack export       15.019s       16.838s       +1.819s
+raw marker sync        35.885s       41.224s       +5.340s
+SQL fidelity total     28.492s       36.049s       +7.557s
+sync span authority    19.901s       23.670s       +3.770s
+sorter                 42.259s       52.614s      +10.355s
+cross-validation       42.194s       52.523s      +10.329s
+raw CPU builder         0.531s        0.624s       +0.094s
+```
+
+The same rows and hashes flow through all stages while several independent
+CPU/I/O-heavy stages slow down together. No new event family, spill pass,
+sort run, validation mode or semantic branch is activated. This supports
+machine load/cache/storage variance rather than a localized code regression.
+
+The range now observed for this same 151 MB input is approximately
+`215.6s..258.5s` normalization (`~19.9%` relative to the fastest replay).
+That variability is operationally relevant even though correctness is stable.
+A future performance campaign should benchmark on a controlled machine and
+report stage throughput plus host CPU/storage telemetry; weakening exact SQL
+preservation, sorter integrity or whole-output cross-validation remains
+forbidden.
+
+No code change or further correctness replay is required from LARG-H.
