@@ -191,6 +191,33 @@ func traceDBRawBlockedKeyLedger(
 		traceDBAddCoverageMetric(&out, "raw_rows_absent_db_cohort", rawCount)
 		eligibleKeys[key] = true
 	}
+	if traceDBRawBlockedFamilyAuthorityEligible(inventory, rawRows) {
+		// A complete immutable raw family has the original physical timestamp,
+		// CPU, envelope and delay which the DB projection cannot retain. Select
+		// it as the sole event authority instead of trying to subtract DB rows
+		// from coarse content cohorts.
+		var recovery []traceDBRawBlockedRecoveryRow
+		for _, record := range rawRows {
+			prepared, reason := traceDBPrepareRawBlockedRecovery(record, authority)
+			if reason == "" {
+				traceDBAddCoverageMetric(
+					&out, "raw_family_identity_admitted", 1)
+				recovery = append(recovery, prepared)
+			} else {
+				traceDBAddCoverageMetric(
+					&out, "raw_family_identity_rejected_"+
+						traceDBRawDecodeReasonMetric(reason), 1)
+			}
+		}
+		traceDBAddCoverageMetric(
+			&out, "db_rows_suppressed_by_raw_family", int64(len(dbRows)))
+		out.Metadata["ledger_state"] = "exact_raw_family_authority"
+		out.Metadata["deduplication_limit"] =
+			"not_applicable: complete raw physical-event family selected as sole publication authority"
+		out.Metadata["publication_authority"] =
+			"source_rawtrace_blocked_family_authority"
+		return out, recovery
+	}
 	// Preserve immutable raw capture order. Iterating the cohort map here would
 	// make equal-timestamp output ordering depend on randomized Go map order.
 	var recovery []traceDBRawBlockedRecoveryRow
@@ -213,6 +240,23 @@ func traceDBRawBlockedKeyLedger(
 	out.Metadata["publication_authority"] =
 		"delegated_to_source_rawtrace_blocked_recovery_after_all_identity_gates"
 	return out, recovery
+}
+
+func traceDBRawBlockedFamilyAuthorityEligible(
+	inventory *traceDBSourceNameInventory,
+	rawRows []traceDBRawBlockedRecord,
+) bool {
+	if inventory == nil || inventory.RawDecode.Role == "" ||
+		!traceDBRawDecodeFamilyComplete(
+			inventory.RawDecode, traceDBRawRetentionBlocked) {
+		return false
+	}
+	records := inventory.RawDecode.Metrics["target_sched_blocked_reason_records"]
+	admitted := inventory.RawDecode.Metrics["target_sched_blocked_reason_body_admitted"]
+	return records == admitted &&
+		admitted == int64(len(rawRows)) &&
+		inventory.RawDecode.Metrics["target_sched_blocked_reason_body_rejected"] == 0 &&
+		inventory.RawDecode.Metrics["target_sched_blocked_reason_key_capture_failed"] == 0
 }
 
 func traceDBRawBlockedComparableKey(row traceDBRawBlockedRecord) (traceDBBlockedComparableKey, bool) {

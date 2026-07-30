@@ -12,13 +12,13 @@ func newTraceDBRawBlockedRecoveryCoverage() TraceDBCoverage {
 		Table:  "__raw_only_blocked_reason__",
 		Role:   "query_ready_export",
 		FieldSources: map[string]string{
-			"admission":     "RPD-2A exact content-multiset subset; only a raw content cohort with zero DB representation and exact target/header identity admission is eligible",
+			"admission":     "RPD-2A exact content-multiset subset for legacy raw-only recovery, or RPD-3 complete immutable raw-family authority; every published row still requires exact target/header identity admission",
 			"timestamp":     "exact source raw record timestamp",
 			"cpu":           "exact source raw page CPU",
 			"header_thread": "exact source common_pid resolved to one canonical host thread/process at the raw timestamp",
 			"target_thread": "exact source payload pid resolved independently to one canonical host thread/process at the raw timestamp",
 			"body":          "existing strict canonical sched_blocked_reason renderer over the admitted raw payload; optional delay and caller profile are preserved",
-			"deduplication": "any content cohort represented in DB is wholly withheld; DB counts are never subtracted from raw counts",
+			"deduplication": "legacy mode wholly withholds DB-overlap content cohorts; complete-family mode selects raw as the sole physical-event authority and suppresses every lossy DB projection before either family publishes",
 			"namespace":     "no PID rewrite or namespace guess; absent, rejected, or ambiguous public identity remains unpublished",
 		},
 		Metadata: map[string]string{
@@ -35,13 +35,20 @@ func publishTraceDBRawBlockedRecovery(
 ) (TraceDBCoverage, error) {
 	out := newTraceDBRawBlockedRecoveryCoverage()
 	out.Found = keyCoverage.Found
-	if keyCoverage.Metadata["ledger_state"] != "exact_content_multiset_subset" {
+	rawFamilyAuthority := keyCoverage.Metadata["ledger_state"] ==
+		"exact_raw_family_authority"
+	if !rawFamilyAuthority &&
+		keyCoverage.Metadata["ledger_state"] != "exact_content_multiset_subset" {
 		out.Metadata["publication_state"] = "withheld_key_ledger_not_exact"
 		out.Skipped = "raw blocked recovery withheld: exact content-multiset subset ledger unavailable"
 		return out, nil
 	}
 	out.RowsRead = len(rows)
-	if int64(len(rows)) != keyCoverage.Metrics["raw_rows_absent_db_identity_admitted"] {
+	expected := keyCoverage.Metrics["raw_rows_absent_db_identity_admitted"]
+	if rawFamilyAuthority {
+		expected = keyCoverage.Metrics["raw_family_identity_admitted"]
+	}
+	if int64(len(rows)) != expected {
 		out.Metadata["publication_state"] = "withheld_identity_census_mismatch"
 		out.Skipped = "raw blocked recovery withheld: admitted identity census mismatch"
 		return out, nil
@@ -83,8 +90,12 @@ func publishTraceDBRawBlockedRecovery(
 		if !ok {
 			return out, &traceDBOutputInvariantError{Reason: "invalid_raw_blocked_recovery_body"}
 		}
-		body = "sched_blocked_reason: " + body +
-			" source=official_rawtrace_rpd2a raw_db_content_cohort=absent"
+		body = "sched_blocked_reason: " + body
+		if rawFamilyAuthority {
+			body += " source=official_rawtrace_rpd3 raw_db_family_authority=raw"
+		} else {
+			body += " source=official_rawtrace_rpd2a raw_db_content_cohort=absent"
+		}
 		headerTGID := item.HeaderProcess.PID
 		allowUnknownTGID := headerTGID == 0 && item.HeaderThread.TID != 0
 		sequence := sink.stats.RowsAccepted + index
@@ -109,6 +120,13 @@ func publishTraceDBRawBlockedRecovery(
 	if out.RowsEmitted == 0 {
 		out.Metadata["publication_state"] = "complete_no_eligible_raw_only_row"
 		out.Skipped = "raw blocked recovery complete: no DB-disjoint identity-admitted row"
+	} else if rawFamilyAuthority {
+		out.Metadata["publication_state"] =
+			"published_complete_raw_family_identity_admitted"
+		out.Metadata["publication_contract"] = fmt.Sprintf(
+			"rows=%d; complete raw family sole authority; DB projections suppressed=%d",
+			out.RowsEmitted,
+			keyCoverage.Metrics["db_rows_suppressed_by_raw_family"])
 	} else {
 		out.Metadata["publication_state"] = "published_exact_raw_only_content_cohorts"
 		out.Metadata["publication_contract"] = fmt.Sprintf(

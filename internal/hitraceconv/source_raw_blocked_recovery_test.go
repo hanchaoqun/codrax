@@ -207,3 +207,123 @@ func TestTraceDBRawBlockedKeyLedgerReturnsOnlyDBDisjointIdentityAdmittedRows(t *
 			coverage, rows)
 	}
 }
+
+func TestTraceDBRawBlockedCompleteFamilySupersedesLossyDBProjection(t *testing.T) {
+	statements := traceDBBlockedFixtureSchema()
+	statements = append(statements,
+		"INSERT INTO sched_slice VALUES (1, 900000, 100000, 4, 1, 'R', 40)",
+		"INSERT INTO thread_state VALUES (1, 1000000, 500000, NULL, 1, 562, 500, 'S', 100)",
+		"INSERT INTO data_dict VALUES (1, 'iowait')",
+		"INSERT INTO data_dict VALUES (2, 'caller')",
+		"INSERT INTO data_dict VALUES (10, 'schedule_timeout')",
+		"INSERT INTO args VALUES (1, 1, 0, 1, 100)",
+		"INSERT INTO args VALUES (2, 2, 1, 10, 100)",
+	)
+	path := createTraceDBFixture(t, statements)
+	tdb, err := openTraceDB(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tdb.close()
+	rawRows := []traceDBRawBlockedRecord{
+		{
+			TimestampNS: 950000, CPU: 3, HeaderPID: 563,
+			TargetTID: 562, IOWait: 1, Caller: "schedule_timeout",
+			CallerSymbolized: true,
+		},
+		{
+			TimestampNS: 1050000, CPU: 5, HeaderPID: 563,
+			TargetTID: 562, IOWait: 1, Caller: "schedule_timeout",
+			CallerSymbolized: true,
+		},
+	}
+	tdb.sourceNameInventory = &traceDBSourceNameInventory{
+		RawDecode: TraceDBCoverage{
+			Found: true,
+			Role:  "diagnostic_ledger",
+			Metadata: map[string]string{
+				"decode_state": "strict_target_ledger_complete",
+			},
+			Metrics: map[string]int64{
+				"target_sched_blocked_reason_records":       2,
+				"target_sched_blocked_reason_body_admitted": 2,
+			},
+		},
+		RawBlocked: rawRows,
+	}
+	index, _, err := tdb.loadThreadIndex(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sink, err := newTraceDBRowSink(t.TempDir(), 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.cleanup()
+	coverage, err := exportTraceDBBlockedReasons(
+		context.Background(), tdb, sink,
+		traceDBTestCompleteSchedulerAuthority(index))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body strings.Builder
+	if _, err := sink.prepareAndWriteForTest(
+		context.Background(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(body.String(), "sched_blocked_reason:") != 2 ||
+		strings.Count(body.String(),
+			"source=official_rawtrace_rpd3 raw_db_family_authority=raw") != 2 ||
+		strings.Contains(body.String(), "thread_state_start_projection") {
+		t.Fatalf("complete raw blocked family did not exclusively replace DB projection:\n%s",
+			body.String())
+	}
+	if coverage.RowsEmitted != 0 ||
+		coverage.Metrics["db_projection_rows_suppressed_raw_authority"] != 1 ||
+		tdb.rawBlockedKeyCoverage.Metadata["ledger_state"] !=
+			"exact_raw_family_authority" ||
+		tdb.rawBlockedKeyCoverage.Metrics["raw_family_identity_admitted"] != 2 ||
+		tdb.rawBlockedKeyCoverage.Metrics["db_rows_suppressed_by_raw_family"] != 1 ||
+		tdb.rawBlockedRecoveryCoverage.RowsEmitted != 2 ||
+		tdb.rawBlockedRecoveryCoverage.Metadata["publication_state"] !=
+			"published_complete_raw_family_identity_admitted" {
+		t.Fatalf("raw family authority accounting mismatch: db=%+v key=%+v raw=%+v",
+			coverage, tdb.rawBlockedKeyCoverage,
+			tdb.rawBlockedRecoveryCoverage)
+	}
+}
+
+func TestTraceDBRawBlockedFamilyAuthorityRequiresZeroRejectCensus(t *testing.T) {
+	inventory := &traceDBSourceNameInventory{
+		RawDecode: TraceDBCoverage{
+			Found: true,
+			Role:  "diagnostic_ledger",
+			Metadata: map[string]string{
+				"decode_state": "strict_target_ledger_complete",
+			},
+			Metrics: map[string]int64{
+				"target_sched_blocked_reason_records":       2,
+				"target_sched_blocked_reason_body_admitted": 1,
+				"target_sched_blocked_reason_body_rejected": 1,
+			},
+		},
+		RawBlocked: []traceDBRawBlockedRecord{{
+			TimestampNS: 100, CPU: 1, HeaderPID: 201,
+			TargetTID: 101, IOWait: 1, CallerRaw: 0x123,
+		}},
+	}
+	if traceDBRawBlockedFamilyAuthorityEligible(
+		inventory, inventory.RawBlocked) {
+		t.Fatal("raw blocked family with a rejected physical record gained authority")
+	}
+	coverage, rows := traceDBRawBlockedKeyLedger(
+		inventory, nil, traceDBRawBlockedKeyTestAuthority())
+	if coverage.Metadata["ledger_state"] !=
+		"exact_content_multiset_subset" ||
+		coverage.Metadata["publication_authority"] ==
+			"source_rawtrace_blocked_family_authority" ||
+		len(rows) != 1 {
+		t.Fatalf("zero-reject gate did not preserve legacy recovery: coverage=%+v rows=%+v",
+			coverage, rows)
+	}
+}

@@ -5910,7 +5910,8 @@ reports the complete interval and rejection census.
    measurement).
 2. **LARG-C2 / P1:** select a complete raw `sched_blocked_reason` family as
    the sole physical-event publication authority, suppressing the lossy DB
-   timestamp projection and eliminating whole-content-cohort withholding.
+   timestamp projection and eliminating whole-content-cohort withholding
+   (implemented in the following batch).
 3. **LARG-C3 / P2:** publish one reconciled scheduler summary containing DB
    boundaries, raw enrichments, raw-unmatched events and typed withheld
    reasons, so the base DB `rows_suppressed` value cannot be mistaken for
@@ -5922,3 +5923,46 @@ reports the complete interval and rejection census.
 External-evidence holds remain unchanged: `trace_vsync:not_match=632`,
 `1613` local callstack fences without raw closure, and two completed async
 intervals without a physical finish emitter/CPU must remain fail-closed.
+
+### LARG-C2 — complete raw blocked-reason family authority
+
+LARG-C retained `109770` strict raw `sched_blocked_reason` records. The former
+RPD-2A policy emitted `103130` DB-disjoint raw events, retained `6557` DB
+projection rows and wholly withheld `6639` raw rows in their overlapping
+content cohorts. The overlap therefore contained `82` additional physical raw
+events which could not be subtracted safely because TraceStreamer DB rows lack
+their original timestamp, CPU, header and delay.
+
+Capability `official_raw_blocked_family_authority_v1` replaces that mixed
+publication mode only when all of the following are true:
+
+1. the immutable raw blocked family retention ledger is complete;
+2. target physical-record count equals body-admitted count and retained row
+   count;
+3. body-rejected and key-capture-failed counts are both zero;
+4. every DB publication candidate has an exact comparable content key and the
+   complete DB key multiset is a subset of raw;
+5. each published raw row independently resolves both payload target TID and
+   raw `common_pid` header TID at its exact timestamp through the shared
+   lifecycle authority.
+
+When selected, raw is the sole physical-event authority: every identity-
+admitted raw row is published with its exact timestamp/CPU/flags/header/body,
+and all lossy DB projection rows are suppressed before either family writes.
+An unresolved namespace-shaped target/header TID remains individually
+withheld and is never replaced by a guessed host identity. This is not
+count-subtraction and cannot duplicate DB events.
+
+Coverage pins:
+
+- key ledger state `exact_raw_family_authority`;
+- `raw_family_identity_admitted` plus typed
+  `raw_family_identity_rejected_*`;
+- `db_rows_suppressed_by_raw_family`;
+- recovery publication state
+  `published_complete_raw_family_identity_admitted`;
+- wire marker
+  `source=official_rawtrace_rpd3 raw_db_family_authority=raw`.
+
+If any completeness or subset proof fails, the converter retains the earlier
+RPD-2A behavior; it never partially selects raw-family authority.

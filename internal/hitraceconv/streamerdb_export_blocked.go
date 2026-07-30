@@ -62,6 +62,11 @@ type traceDBPreparedBlockedReason struct {
 	DelayPresent  bool
 }
 
+type traceDBPreparedBlockedPublication struct {
+	Candidate traceDBPreparedBlockedReason
+	HeaderCPU int64
+}
+
 type traceDBBlockedBoundaryKey struct {
 	ITID       int64
 	StateStart int64
@@ -103,6 +108,7 @@ func exportTraceDBBlockedReasons(ctx context.Context, tdb *traceDB, sink *traceD
 			"pid":           "thread_state.tid; thread_state.tid/pid must exactly match canonical thread/process identity; optional args.pid must match tid",
 			"source":        "thread_state_argset",
 			"timestamp":     "thread_state.ts_projection; original_timestamp_known=false",
+			"raw_family":    "a complete zero-reject immutable raw sched_blocked_reason family supersedes all lossy DB timestamp projections before publication; otherwise the legacy exact content-cohort recovery contract applies",
 		},
 	}
 
@@ -182,7 +188,8 @@ func exportTraceDBBlockedReasons(ctx context.Context, tdb *traceDB, sink *traceD
 		coverage.Error = err.Error()
 		return coverage, err
 	}
-	emittedCandidates := make([]traceDBPreparedBlockedReason, 0, len(prepared))
+	dbPublications := make(
+		[]traceDBPreparedBlockedPublication, 0, len(prepared))
 	for _, candidate := range prepared {
 		row := candidate.Row
 		key := traceDBBlockedBoundaryKey{ITID: row.ITID, StateStart: row.TS}
@@ -199,29 +206,44 @@ func exportTraceDBBlockedReasons(ctx context.Context, tdb *traceDB, sink *traceD
 			skipped[cpuReason]++
 			continue
 		}
-		body := fmt.Sprintf("sched_blocked_reason: pid=%d iowait=%d caller=%s", row.TID, candidate.IOWait, candidate.Caller)
-		if candidate.CallerRaw != "" {
-			body += " caller_raw=" + candidate.CallerRaw
-		}
-		body += " caller_quality=" + candidate.CallerQuality
-		if candidate.DelayPresent {
-			body += fmt.Sprintf(" delay=%d", candidate.Delay)
-		}
-		body += " timestamp_source=thread_state_start_projection original_timestamp_known=false"
-		body += " header_thread_source=thread_state_subject_projection original_header_thread_known=false"
-		body += " header_cpu_source=exact_prev_sched_slice_boundary source=thread_state_argset"
-		if err := addTraceDBInstantRow(sink, row.TS, traceDBCommName(candidate.Thread.Name, "unknown"), row.TID,
-			candidate.Process.PID, headerCPU, body); err != nil {
-			return coverage, err
-		}
-		coverage.RowsEmitted++
-		emittedCandidates = append(emittedCandidates, candidate)
+		dbPublications = append(dbPublications, traceDBPreparedBlockedPublication{
+			Candidate: candidate,
+			HeaderCPU: headerCPU,
+		})
 	}
 	coverage.Skipped = traceDBBlockedSkipSummary(skipped)
+	rawFamilyAuthority := false
+	var recovery []traceDBRawBlockedRecoveryRow
 	if tdb != nil {
-		var recovery []traceDBRawBlockedRecoveryRow
 		tdb.rawBlockedKeyCoverage, recovery =
-			traceDBRawBlockedKeyLedger(tdb.sourceNameInventory, emittedCandidates, authority)
+			traceDBRawBlockedKeyLedger(
+				tdb.sourceNameInventory,
+				traceDBBlockedPublicationCandidates(dbPublications),
+				authority)
+		rawFamilyAuthority =
+			tdb.rawBlockedKeyCoverage.Metadata["ledger_state"] ==
+				"exact_raw_family_authority"
+	}
+	if rawFamilyAuthority {
+		traceDBAddCoverageMetric(
+			&coverage, "db_projection_rows_suppressed_raw_authority",
+			int64(len(dbPublications)))
+	} else {
+		for _, publication := range dbPublications {
+			candidate := publication.Candidate
+			row := candidate.Row
+			if err := addTraceDBInstantRow(
+				sink, row.TS,
+				traceDBCommName(candidate.Thread.Name, "unknown"),
+				row.TID, candidate.Process.PID,
+				publication.HeaderCPU,
+				traceDBBlockedProjectionBody(candidate)); err != nil {
+				return coverage, err
+			}
+			coverage.RowsEmitted++
+		}
+	}
+	if tdb != nil {
 		tdb.rawBlockedRecoveryCoverage, err =
 			publishTraceDBRawBlockedRecovery(ctx, sink, tdb.rawBlockedKeyCoverage, recovery)
 		if err != nil {
@@ -229,6 +251,36 @@ func exportTraceDBBlockedReasons(ctx context.Context, tdb *traceDB, sink *traceD
 		}
 	}
 	return coverage, nil
+}
+
+func traceDBBlockedPublicationCandidates(
+	rows []traceDBPreparedBlockedPublication,
+) []traceDBPreparedBlockedReason {
+	out := make([]traceDBPreparedBlockedReason, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.Candidate)
+	}
+	return out
+}
+
+func traceDBBlockedProjectionBody(
+	candidate traceDBPreparedBlockedReason,
+) string {
+	row := candidate.Row
+	body := fmt.Sprintf(
+		"sched_blocked_reason: pid=%d iowait=%d caller=%s",
+		row.TID, candidate.IOWait, candidate.Caller)
+	if candidate.CallerRaw != "" {
+		body += " caller_raw=" + candidate.CallerRaw
+	}
+	body += " caller_quality=" + candidate.CallerQuality
+	if candidate.DelayPresent {
+		body += fmt.Sprintf(" delay=%d", candidate.Delay)
+	}
+	body += " timestamp_source=thread_state_start_projection original_timestamp_known=false"
+	body += " header_thread_source=thread_state_subject_projection original_header_thread_known=false"
+	body += " header_cpu_source=exact_prev_sched_slice_boundary source=thread_state_argset"
+	return body
 }
 
 func traceDBBlockedStableSourceForTable(ctx context.Context, tdb *traceDB, table string) (traceDBBlockedStableSource, bool, error) {
