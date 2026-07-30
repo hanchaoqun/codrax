@@ -5073,7 +5073,14 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			// PendingReads is empty.
 			preseededRequiredFiles := 0
 			if !localLandingActive {
-				o.applySteeringNotesToExploreWindow() // TTY-3 (steering_notes.go)
+				// TTY-3 + REGFIX-B #9: merge the steering text into the
+				// PARALLEL per-worker hints too (workers overwrite their
+				// clone's hint with the pre-drain value).
+				if _, steerHint := o.takeSteeringNotesForExploreWindow(); steerHint != "" && len(parallelWindows) > 0 {
+					for i := range parallelHints {
+						parallelHints[i] = appendSteeringHintToWindowHint(parallelHints[i], steerHint)
+					}
+				}
 				preseededRequiredFiles = o.seedRequiredFileHintForcedReadsBeforeExploreForWindow(window)
 			}
 			if preseededRequiredFiles > 0 {

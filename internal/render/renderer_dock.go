@@ -3139,9 +3139,9 @@ func (r *Renderer) CommitUserSteeredLine(line string) {
 	defer r.mu.Unlock()
 	var body string
 	if isZh(r.lang) {
-		body = "已注入本轮探索: " + line
+		body = "已交给本轮处理: " + line + "(未被采纳则本轮结束后回放)"
 	} else {
-		body = "steering current run: " + line
+		body = "handed to the running turn: " + line + " (replays after this turn if unused)"
 	}
 	if !r.dockEnabled {
 		r.emitNonTTYLine(statusMeta.Sprint("⌨ " + body))

@@ -46,6 +46,14 @@ func (s *steeringIntake) push(note string) bool {
 	if note == "" {
 		return false
 	}
+	// REGFIX-B #10/#15 (sweep): a line the operator typed as a COMMAND
+	// is not steering prose. Swallowing "/cancel" into the explorer
+	// prompt meant the command never executed while its text polluted
+	// the LLM's instructions. Refuse it here so the window queues it
+	// for post-run replay through the normal dispatch funnel.
+	if strings.HasPrefix(note, "/") || strings.HasPrefix(note, "\\") || strings.HasPrefix(note, "!") {
+		return false
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.open {
@@ -89,17 +97,47 @@ func (o *Orchestrator) TakeUnconsumedSteeringNotes() []string {
 // note text is appended verbatim to the window hint as data. Returns
 // the number of notes consumed.
 func (o *Orchestrator) applySteeringNotesToExploreWindow() int {
+	consumed, _ := o.takeSteeringNotesForExploreWindow()
+	return consumed
+}
+
+// takeSteeringNotesForExploreWindow consumes pending notes and returns
+// both the count and the composed hint text. REGFIX-B #9 (sweep, high):
+// the parallel explore lane composes each worker's hint BEFORE this
+// point and each worker then OVERWRITES its bus clone's RetryHint with
+// that pre-drain value, so writing only into the parent bus silently
+// destroyed the operator's text — echoed as "injected now", reaching no
+// prompt, and unreplayable because the intake was already drained. The
+// caller must therefore also merge the returned text into the parallel
+// per-worker hints.
+func (o *Orchestrator) takeSteeringNotesForExploreWindow() (int, string) {
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
-		return 0
+		return 0, ""
 	}
 	notes := o.steering.drain()
 	if len(notes) == 0 {
-		return 0
+		return 0, ""
 	}
 	closure := o.busCtx.Mutable.EvidenceClosure()
+	// REGFIX-B #11 (sweep): request-time @pins honour the explicit
+	// source-exclusion boundary (PIB-5c clause order); mid-run pins must
+	// too. An operator who said "don't read source" keeps that boundary
+	// even when a stray @token rides a steering note — the note text
+	// still reaches the prompt, only the forced read is withheld.
+	pinsAllowed := true
+	if o.busCtx.AnalysisIR != nil {
+		rm := o.busCtx.AnalysisIR.RequestModel
+		if rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {
+			pinsAllowed = false
+		}
+	}
 	var hints []string
 	for _, note := range notes {
-		for _, pin := range userhint.ExtractPinnedFiles(o.busCtx.RepoRoot, note) {
+		pins := []string{}
+		if pinsAllowed {
+			pins = userhint.ExtractPinnedFiles(o.busCtx.RepoRoot, note)
+		}
+		for _, pin := range pins {
 			closure.AddPendingRead(types.PendingRead{
 				File:      pin,
 				Rationale: "operator steering pin (typed mid-run)",
@@ -120,5 +158,19 @@ func (o *Orchestrator) applySteeringNotesToExploreWindow() int {
 		}
 	}
 	logging.Info("[orchestrator] steering: consumed %d mid-run note(s) at explore window boundary", len(notes))
-	return len(notes)
+	return len(notes), steeringHint
+}
+
+// appendSteeringHintToWindowHint merges the steering text into a
+// composed window hint without disturbing the existing body (REGFIX-B
+// #9). Empty inputs pass through.
+func appendSteeringHintToWindowHint(hint, steering string) string {
+	steering = strings.TrimSpace(steering)
+	if steering == "" {
+		return hint
+	}
+	if strings.TrimSpace(hint) == "" {
+		return steering
+	}
+	return hint + "\n\n" + steering
 }

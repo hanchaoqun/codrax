@@ -503,6 +503,13 @@ func (r *REPL) armRunInputWindow(canceller runnerCanceller) *runInputWindow {
 			return steerSink != nil && steerSink.PushSteeringNote(line)
 		},
 		onSteered: func(line string) {
+			// REGFIX-B #13 (sweep): the intake ACCEPTING a note is not
+			// the same as an explore boundary CONSUMING it — the intake
+			// stays open through extract/finalize and write-mode runs
+			// have no explore boundary at all. Claiming "injected into
+			// this exploration" at accept time was an over-promise; the
+			// honest echo says accepted-for-this-run, and the drain path
+			// replays anything that was never consumed.
 			if r.renderer != nil {
 				r.renderer.CommitUserSteeredLine(line)
 			}
