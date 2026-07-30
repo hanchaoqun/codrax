@@ -149,3 +149,108 @@ func TestRunInputWindow_BackspaceEditsPendingLine(t *testing.T) {
 		t.Fatalf("queued = %q, want \"ac\" (backspace trims one byte then one whole rune)", queued)
 	}
 }
+
+// TestCommitLine_DeadPreservesPartialForDrain pins SWEEPFIX S0: an
+// Enter racing drain() must not lose the typed line — a dead window
+// leaves the bytes in partial so drain returns them as prefill.
+func TestCommitLine_DeadPreservesPartialForDrain(t *testing.T) {
+	o, _ := testOwner("")
+	w, err := o.borrowRunInput(runInputWindowCallbacks{
+		trySteer: func(string) bool { t.Fatal("dead window must not steer"); return false },
+	}, func() (byte, bool, error) { time.Sleep(2 * time.Millisecond); return 0, false, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.mu.Lock()
+	w.partial = append(w.partial, []byte("deploy the fix")...)
+	w.mu.Unlock()
+	w.dead.Store(true)
+	w.commitLine(runInputWindowCallbacks{
+		trySteer: func(string) bool { t.Fatal("dead window must not steer"); return false },
+	})
+	_, partial, _, _ := w.drain()
+	if partial != "deploy the fix" {
+		t.Fatalf("partial = %q, want the typed line preserved for prefill", partial)
+	}
+}
+
+// TestRunInputWindow_DeadPathHandsConsumedByteBack pins SWEEPFIX S1: a
+// byte consumed out of the shared reader just as drain invalidates the
+// window must be unread (next window's type-ahead), not dropped.
+func TestRunInputWindow_DeadPathHandsConsumedByteBack(t *testing.T) {
+	var unreads atomic.Int64
+	parked := make(chan struct{})
+	unwedge := make(chan struct{})
+	first := true
+	readByte := func() (byte, bool, error) {
+		if first {
+			first = false
+			close(parked)
+			<-unwedge
+			return 'x', true, nil // keystroke lands after drain began
+		}
+		return 0, false, nil
+	}
+	o, _ := testOwner("")
+	w, err := o.borrowRunInput(runInputWindowCallbacks{}, readByte)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.unreadByte = func() error { unreads.Add(1); return nil }
+	<-parked
+	done := make(chan struct{})
+	go func() { w.drain(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(6 * time.Second):
+		t.Fatal("drain must return")
+	}
+	close(unwedge)
+	waitFor(t, func() bool { return unreads.Load() == 1 })
+}
+
+// TestRunInputWindow_FuseRestoresModeAtAbandonTime pins SWEEPFIX S2:
+// the terminal mode goes back when the fuse ABANDONS the window (while
+// this drain still owns the lane), not at the arbitrary later moment
+// the wedged reader unwedges underneath another input lane.
+func TestRunInputWindow_FuseRestoresModeAtAbandonTime(t *testing.T) {
+	unwedge := make(chan struct{})
+	parked := make(chan struct{})
+	var parkedOnce atomic.Bool
+	readByte := func() (byte, bool, error) {
+		if parkedOnce.CompareAndSwap(false, true) {
+			close(parked)
+		}
+		<-unwedge
+		return 0, false, nil
+	}
+	o, restores := testOwner("")
+	w, err := o.borrowRunInput(runInputWindowCallbacks{}, readByte)
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-parked
+	w.drain() // fuse fires
+	if *restores != 1 {
+		t.Fatalf("mode must be restored AT abandon time; restores=%d", *restores)
+	}
+	close(unwedge)
+	// The unwedge frees the borrow but the WATCHER must not restore a
+	// second time. The successful probe borrow below restores once on
+	// its own release, so the final count is exactly 2 — a watcher
+	// restore would make it 3.
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if _, rel, err := o.borrowRaw(); err == nil {
+			rel()
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("borrow must free after unwedge")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if *restores != 2 {
+		t.Fatalf("watcher must not re-restore (1 fuse + 1 probe borrow expected); restores=%d", *restores)
+	}
+}

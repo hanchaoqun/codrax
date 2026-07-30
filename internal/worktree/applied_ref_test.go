@@ -217,3 +217,153 @@ func checkFile(t *testing.T, repo, path, want string) {
 		t.Errorf("%s contents = %q, want %q", path, string(got), want)
 	}
 }
+
+// TestMergeFromRef_NewBranchLandsWholeChain pins SWEEPFIX S11 (the #8
+// fix shipped unpinned): the MergeNewBranch ref-lane must cherry-pick
+// EVERY commit ahead of base oldest-first — a chain where the landed
+// units sit in PARENTS of the tip (the W-3 partial-checkpoint shape)
+// loses its earlier commits if only the tip is picked.
+func TestMergeFromRef_NewBranchLandsWholeChain(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	mainRepo := initBareRepo(t)
+	writeAndCommit(t, mainRepo, "seed.txt", "seed\n", "seed commit")
+	branch := strings.TrimSpace(runOrFatal(t, mainRepo, "rev-parse", "--abbrev-ref", "HEAD"))
+
+	base := t.TempDir()
+	sess, err := Create(base, mainRepo, "merge-chain-test")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	writeAndCommit(t, sess.Path(), "unit1.txt", "first unit\n", "codrax apply iter 1 (plan=plan-chain-001)")
+	writeAndCommit(t, sess.Path(), "unit2.txt", "second unit\n", "codrax apply iter 2 (plan=plan-chain-001)")
+	tip := strings.TrimSpace(runOrFatal(t, sess.Path(), "rev-parse", "HEAD"))
+	if _, err := TagAppliedCommit(mainRepo, "plan-chain-001", tip); err != nil {
+		t.Fatalf("TagAppliedCommit: %v", err)
+	}
+	if err := sess.Discard(); err != nil {
+		t.Fatalf("Discard: %v", err)
+	}
+	// Diverge base so fast-forward is impossible and the cherry-pick
+	// branch lane engages.
+	writeAndCommit(t, mainRepo, "diverge.txt", "base moved on\n", "unrelated base commit")
+
+	res, err := MergeFromRef(MergeFromRefOptions{
+		MainRepoRoot: mainRepo,
+		Ref:          AppliedRef("plan-chain-001"),
+		BaseBranch:   branch,
+		TargetBranch: "codrax/landing-chain",
+		Mode:         MergeNewBranch,
+	})
+	if err != nil {
+		t.Fatalf("MergeFromRef: %v", err)
+	}
+	if res.Strategy != "cherry_pick_branch" {
+		t.Errorf("strategy = %q, want cherry_pick_branch", res.Strategy)
+	}
+	if len(res.CommitsLanded) != 2 {
+		t.Errorf("CommitsLanded = %d commits, want the whole 2-commit chain", len(res.CommitsLanded))
+	}
+	runOrFatal(t, mainRepo, "checkout", "codrax/landing-chain")
+	for _, want := range []string{"unit1.txt", "unit2.txt"} {
+		if _, err := os.Stat(filepath.Join(mainRepo, want)); err != nil {
+			t.Errorf("%s missing on target branch — earlier chain commit dropped: %v", want, err)
+		}
+	}
+}
+
+// TestMergeFromRef_SkipsPatchEquivalentCommitByPrecompute pins the
+// SWEEPFIX S7/S8 root fix: an already-applied mid-chain commit is
+// skipped via `git cherry` patch-id equivalence computed BEFORE any
+// pick — no output-phrase parsing (which mis-skipped genuine conflicts
+// whose free-text subject contained "nothing to commit", and never
+// matched at all under localized git).
+func TestMergeFromRef_SkipsPatchEquivalentCommitByPrecompute(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	mainRepo := initBareRepo(t)
+	writeAndCommit(t, mainRepo, "seed.txt", "seed\n", "seed commit")
+	branch := strings.TrimSpace(runOrFatal(t, mainRepo, "rev-parse", "--abbrev-ref", "HEAD"))
+
+	base := t.TempDir()
+	sess, err := Create(base, mainRepo, "merge-equiv-test")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	// Chain commit 1: content that will ALSO land on base (patch-equal).
+	writeAndCommit(t, sess.Path(), "shared.txt", "identical change\n", "codrax apply iter 1 (plan=plan-eq-001)")
+	writeAndCommit(t, sess.Path(), "extra.txt", "only in chain\n", "codrax apply iter 2 (plan=plan-eq-001)")
+	tip := strings.TrimSpace(runOrFatal(t, sess.Path(), "rev-parse", "HEAD"))
+	if _, err := TagAppliedCommit(mainRepo, "plan-eq-001", tip); err != nil {
+		t.Fatalf("TagAppliedCommit: %v", err)
+	}
+	if err := sess.Discard(); err != nil {
+		t.Fatalf("Discard: %v", err)
+	}
+	// Base independently gains the SAME patch (different author time →
+	// different SHA, same patch-id) plus a divergence commit.
+	writeAndCommit(t, mainRepo, "shared.txt", "identical change\n", "same change landed independently")
+	writeAndCommit(t, mainRepo, "diverge.txt", "base moved on\n", "unrelated base commit")
+
+	if _, err := MergeFromRef(MergeFromRefOptions{
+		MainRepoRoot: mainRepo,
+		Ref:          AppliedRef("plan-eq-001"),
+		BaseBranch:   branch,
+		TargetBranch: "codrax/landing-eq",
+		Mode:         MergeNewBranch,
+	}); err != nil {
+		t.Fatalf("MergeFromRef must skip the patch-equivalent commit, not conflict: %v", err)
+	}
+	runOrFatal(t, mainRepo, "checkout", "codrax/landing-eq")
+	if _, err := os.Stat(filepath.Join(mainRepo, "extra.txt")); err != nil {
+		t.Errorf("non-equivalent chain commit must land: %v", err)
+	}
+}
+
+// TestMergeFromRef_SubjectSayingNothingToCommitStillConflicts pins the
+// S7 regression shape directly: a commit whose SUBJECT contains
+// "nothing to commit" but whose pick genuinely conflicts must ABORT
+// loudly — never be skipped as already-applied.
+func TestMergeFromRef_SubjectSayingNothingToCommitStillConflicts(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	mainRepo := initBareRepo(t)
+	writeAndCommit(t, mainRepo, "file.txt", "line1\n", "seed commit")
+	branch := strings.TrimSpace(runOrFatal(t, mainRepo, "rev-parse", "--abbrev-ref", "HEAD"))
+
+	base := t.TempDir()
+	sess, err := Create(base, mainRepo, "merge-conflict-test")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	writeAndCommit(t, sess.Path(), "file.txt", "chain version\n", "fix: nothing to commit twice bug (plan=plan-cf-001)")
+	tip := strings.TrimSpace(runOrFatal(t, sess.Path(), "rev-parse", "HEAD"))
+	if _, err := TagAppliedCommit(mainRepo, "plan-cf-001", tip); err != nil {
+		t.Fatalf("TagAppliedCommit: %v", err)
+	}
+	if err := sess.Discard(); err != nil {
+		t.Fatalf("Discard: %v", err)
+	}
+	// Base rewrites the same line differently → genuine conflict.
+	writeAndCommit(t, mainRepo, "file.txt", "base version\n", "conflicting base change")
+
+	_, err = MergeFromRef(MergeFromRefOptions{
+		MainRepoRoot: mainRepo,
+		Ref:          AppliedRef("plan-cf-001"),
+		BaseBranch:   branch,
+		TargetBranch: "codrax/landing-cf",
+		Mode:         MergeNewBranch,
+	})
+	if err == nil {
+		t.Fatal("a genuine conflict must abort — silently skipping drops the user's change")
+	}
+	if branchExists(mainRepo, "codrax/landing-cf") {
+		t.Error("rollback must delete the target branch")
+	}
+	if got := strings.TrimSpace(runOrFatal(t, mainRepo, "rev-parse", "--abbrev-ref", "HEAD")); got != branch {
+		t.Errorf("rollback must restore prior branch; on %q want %q", got, branch)
+	}
+}

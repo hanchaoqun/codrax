@@ -128,6 +128,28 @@ func (o *ttyStdinOwner) borrowCookedLines(maxLineBytes int) (*ownerLineScanner, 
 	return &ownerLineScanner{reader: o.reader, maxLineBytes: maxLineBytes}, release, nil
 }
 
+// restoreModeEarly performs the pending terminal-mode restore NOW and
+// clears it, WITHOUT freeing the borrow (the wedged reader still owns
+// the shared bufio.Reader until it exits). SWEEPFIX S2 (sweep
+// 2026-07-30): the fuse's release-on-done watcher used to run the
+// restore at whatever arbitrary later moment the reader unwedged —
+// snapping the terminal to cooked mode underneath whichever input lane
+// (e.g. the bubbletea fallback editor) owned it by then. The mode goes
+// back at ABANDON time, when this drain still owns the terminal; the
+// watcher's release() then finds activeRestore nil and only frees.
+func (o *ttyStdinOwner) restoreModeEarly() {
+	if o == nil {
+		return
+	}
+	o.mu.Lock()
+	restore := o.activeRestore
+	o.activeRestore = nil
+	o.mu.Unlock()
+	if restore != nil {
+		restore()
+	}
+}
+
 // restoreForExit restores the terminal if a raw window is live — the
 // hard-kill path (os.Exit) never runs window defers. Idempotent.
 func (o *ttyStdinOwner) restoreForExit() {
@@ -251,8 +273,17 @@ type runInputWindowCallbacks struct {
 
 type runInputWindow struct {
 	release func()
-	stop    chan struct{}
-	done    chan struct{}
+	owner   *ttyStdinOwner
+	// unreadByte pushes the last consumed byte back into the shared
+	// reader (SWEEPFIX S1): when the dead check discards a freshly
+	// consumed byte it must return it to the reader as the next
+	// window's type-ahead — dropping it loses a keystroke, and if the
+	// byte was a UTF-8 lead byte the orphaned continuation bytes would
+	// surface as mojibake in the next prompt. Nil in injected-reader
+	// tests that manage their own byte source.
+	unreadByte func() error
+	stop       chan struct{}
+	done       chan struct{}
 	// dead is set the instant drain() begins (REGFIX-A #0): the loop
 	// checks it AFTER every readByte so a byte that arrives while the
 	// goroutine was parked can never reach run-N's callbacks — the
@@ -289,15 +320,17 @@ func (o *ttyStdinOwner) borrowRunInput(cb runInputWindowCallbacks, readByte func
 	if err != nil {
 		return nil, err
 	}
+	w := &runInputWindow{
+		release: release,
+		owner:   o,
+		stop:    make(chan struct{}),
+		done:    make(chan struct{}),
+	}
 	if readByte == nil {
 		readByte = func() (byte, bool, error) {
 			return readByteFDWithTimeout(reader, o.fd, runInputWindowTick)
 		}
-	}
-	w := &runInputWindow{
-		release: release,
-		stop:    make(chan struct{}),
-		done:    make(chan struct{}),
+		w.unreadByte = reader.UnreadByte
 	}
 	go w.loop(cb, readByte)
 	return w, nil
@@ -313,7 +346,14 @@ func (w *runInputWindow) loop(cb runInputWindowCallbacks, readByte func() (byte,
 		}
 		b, ok, err := readByte()
 		if w.dead.Load() {
-			return // drain started while we were parked: touch nothing
+			// Drain started while we were parked: touch nothing — but a
+			// byte we already consumed is the user's keystroke, not
+			// ours to drop (SWEEPFIX S1): hand it back to the shared
+			// reader as the next window's type-ahead.
+			if ok && w.unreadByte != nil {
+				_ = w.unreadByte()
+			}
+			return
 		}
 		if err != nil {
 			if err == io.EOF {
@@ -377,6 +417,9 @@ func (w *runInputWindow) loop(cb runInputWindowCallbacks, readByte func() (byte,
 func (w *runInputWindow) handleEsc(cb runInputWindowCallbacks, readByte func() (byte, bool, error)) {
 	b, ok, err := readByte()
 	if w.dead.Load() {
+		if ok && w.unreadByte != nil {
+			_ = w.unreadByte() // SWEEPFIX S1: same hand-back as the loop
+		}
 		return
 	}
 	if err != nil {
@@ -409,29 +452,39 @@ func (w *runInputWindow) handleEsc(cb runInputWindowCallbacks, readByte func() (
 }
 
 func (w *runInputWindow) commitLine(cb runInputWindowCallbacks) {
+	// SWEEPFIX S0 (sweep 2026-07-30): the whole commit runs under mu
+	// with the dead check FIRST. The previous shape snapshotted and
+	// cleared partial, THEN checked dead — an Enter racing drain()
+	// passed the loop-level check, cleared partial, and the dead check
+	// discarded the snapshot: the typed line was neither steered, nor
+	// queued, nor returned by drain as prefill. Now a dead window
+	// leaves partial intact for drain's snapshot (prefill lane), and a
+	// live commit completes atomically before drain's snapshot can run
+	// (drain takes mu only after the goroutine exits or under the fuse)
+	// — either way the line survives. Callbacks under mu are safe:
+	// steering intake / renderer never call back into the window.
 	w.mu.Lock()
-	line := strings.TrimSpace(string(w.partial))
-	w.partial = w.partial[:0]
-	w.mu.Unlock()
+	defer w.mu.Unlock()
 	if w.dead.Load() {
 		return
 	}
-	if line != "" && cb.trySteer != nil && cb.trySteer(line) {
+	line := strings.TrimSpace(string(w.partial))
+	w.partial = w.partial[:0]
+	if line == "" {
+		return
+	}
+	if cb.trySteer != nil && cb.trySteer(line) {
 		if cb.onSteered != nil {
 			cb.onSteered(line)
 		}
 		return
 	}
-	w.mu.Lock()
-	tooMany := len(w.queue) >= runInputWindowMaxQueue
-	if line != "" && !tooMany {
-		w.queue = append(w.queue, line)
-	}
-	if tooMany {
+	if len(w.queue) >= runInputWindowMaxQueue {
 		w.overCap = true
+		return
 	}
-	w.mu.Unlock()
-	if line != "" && !tooMany && cb.onLine != nil {
+	w.queue = append(w.queue, line)
+	if cb.onLine != nil {
 		cb.onLine(line)
 	}
 }
@@ -455,11 +508,20 @@ func (w *runInputWindow) drain() (queued []string, partial string, escAborted, d
 	case <-w.done:
 	case <-time.After(3 * time.Second):
 		logging.Error("[repl] run input window reader did not stop within 3s; window abandoned (callbacks disarmed; borrow released when the reader unwedges)")
-		// REGFIX-A #1: release as soon as the goroutine DOES exit, so
-		// one transient stall cannot brick the owner for the session
-		// (every later borrow would fail busy, type-ahead would be
-		// stranded, and the cbreak termios would leak past /exit).
-		// Safe because dead=true already disarmed every callback.
+		// SWEEPFIX S2: return the terminal mode NOW, while this drain
+		// still owns the lane — deferring the restore to unwedge time
+		// let it fire underneath whatever input lane (e.g. the
+		// bubbletea fallback editor) owned the terminal by then,
+		// snapping it to cooked mode mid-edit.
+		if w.owner != nil {
+			w.owner.restoreModeEarly()
+		}
+		// REGFIX-A #1: free the borrow as soon as the goroutine DOES
+		// exit, so one transient stall cannot brick the owner for the
+		// session (every later borrow would fail busy and type-ahead
+		// would be stranded). Safe because dead=true already disarmed
+		// every callback, and the mode was restored above — release()
+		// finds activeRestore nil and only frees.
 		go func() {
 			<-w.done
 			w.release()

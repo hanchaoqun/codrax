@@ -319,6 +319,17 @@ func runGitCapture(dir string, args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
+// runGitCaptureEnv is runGitCapture with extra environment entries
+// appended (e.g. LC_ALL=C for callers that parse output whose phrasing
+// would otherwise be gettext-localized).
+func runGitCaptureEnv(dir string, extraEnv []string, args ...string) (string, error) {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), extraEnv...)
+	out, err := cmd.CombinedOutput()
+	return strings.TrimSpace(string(out)), err
+}
+
 // hasGitConfig reports whether `git config <key>` exits 0. A zero
 // exit here means the key is set (value irrelevant for our purposes:
 // we only need to know whether to install our defaults).
