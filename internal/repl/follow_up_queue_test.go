@@ -3,6 +3,7 @@ package repl
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -18,10 +19,22 @@ func (c *queueTestCanceller) IsCanceled() bool     { return c.cancelled }
 
 func TestCancelListener_QueuesFollowUpsAndKeepsCancel(t *testing.T) {
 	in := strings.NewReader("再看下 renderer 的水位段\n/cancel\nafter-cancel is not read\n")
+	// The warn callback fires on the LISTENER goroutine while the test
+	// goroutine asserts on the captured slice — guard it (round-3
+	// self-check: this fixture was the only -race failure left in the
+	// package, a test-only race from the PIB-2 batch).
+	var warnMu sync.Mutex
 	var warned []string
 	cl := startCancelListener(in, &queueTestCanceller{}, func(f string, a ...any) {
+		warnMu.Lock()
+		defer warnMu.Unlock()
 		warned = append(warned, fmt.Sprintf(f, a...))
 	})
+	snapshotWarned := func() []string {
+		warnMu.Lock()
+		defer warnMu.Unlock()
+		return append([]string(nil), warned...)
+	}
 	if cl == nil {
 		t.Fatal("injected reader must start the listener")
 	}
@@ -33,8 +46,8 @@ func TestCancelListener_QueuesFollowUpsAndKeepsCancel(t *testing.T) {
 	if len(queued) != 1 || queued[0] != "再看下 renderer 的水位段" {
 		t.Fatalf("queued = %v, want the single pre-cancel line", queued)
 	}
-	if len(warned) == 0 || !strings.Contains(warned[0], "queued as follow-up") {
-		t.Errorf("queueing must be disclosed via the one-shot warn; got %v", warned)
+	if got := snapshotWarned(); len(got) == 0 || !strings.Contains(got[0], "queued as follow-up") {
+		t.Errorf("queueing must be disclosed via the one-shot warn; got %v", got)
 	}
 	cl.stop()
 }

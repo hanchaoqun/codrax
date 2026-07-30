@@ -719,8 +719,9 @@ type REPL struct {
 	stdinOwnerInst              *ttyStdinOwner
 	promptTemplates             map[string]promptTemplate
 	pendingFollowUps            []pendingFollowUp // PIB-2 v1: lines queued during a Run, replayed as turns
-	pendingInputPrefill         string   // TTY-2: half-typed run-phase line, seeded into the next prompt
-	readRunAutoResumeEnabled    bool     // default OFF (user ruling 2026-07-30); codrax.yaml read_run_auto_resume
+	usageBoundaryPending        bool              // round-3 R10: armed once per user turn; direct-LLM lane consumes
+	pendingInputPrefill         string            // TTY-2: half-typed run-phase line, seeded into the next prompt
+	readRunAutoResumeEnabled    bool              // default OFF (user ruling 2026-07-30); codrax.yaml read_run_auto_resume
 	atFileIndexOnce             sync.Once
 	atFileIndex                 []string // TTY-3b: lazy session file index for @ completion
 	lastAnswerOrigin            replAnswerOrigin
@@ -6177,8 +6178,12 @@ func (r *REPL) beginREPLDirectLLMInFlight() (context.Context, func()) {
 	// pipeline, so nothing reset the dock's usage account and the
 	// previous run's tokens bled into the new turn's display. Pipeline
 	// start is the renderer's per-turn boundary — emit it here too
-	// (its only renderer effect is the account reset).
-	if r.renderer != nil {
+	// (its only renderer effect is the account reset). ROUND-3 R10:
+	// once per USER TURN, not per call — a turn that chains multiple
+	// direct-LLM calls (classifier then reply) must not reset between
+	// them, or the second call wipes the first call's real tokens.
+	if r.renderer != nil && r.usageBoundaryPending {
+		r.usageBoundaryPending = false
 		r.renderer.Emitter()(render.Event{Kind: render.EventPipelineStart, Timestamp: time.Now()})
 	}
 	return ctx, func() {
@@ -6186,6 +6191,28 @@ func (r *REPL) beginREPLDirectLLMInFlight() (context.Context, func()) {
 		r.runInFlight.Store(false)
 		r.endTurn()
 	}
+}
+
+// followUpDisplayText is the display form of a replayed follow-up:
+// single-line entries show as-is; multiline verbatim blobs (pastes)
+// fold to a placeholder so echo/history surfaces stay bounded
+// (round-3 R9 — the paste-folding contract applies on replay too).
+func followUpDisplayText(lang string, entry pendingFollowUp) string {
+	if !strings.Contains(entry.Text, "\n") && len(entry.Text) <= 512 {
+		return entry.Text
+	}
+	lines := strings.Count(entry.Text, "\n") + 1
+	first := entry.Text
+	if idx := strings.IndexByte(first, '\n'); idx >= 0 {
+		first = first[:idx]
+	}
+	if len(first) > 80 {
+		first = types.CutPrefixRuneSafe(first, 80)
+	}
+	if isZh(lang) {
+		return fmt.Sprintf("[粘贴 %d 行] %s …", lines, first)
+	}
+	return fmt.Sprintf("[pasted %d line(s)] %s …", lines, first)
 }
 
 func (r *REPL) emitREPLDirectLLMResponse() {
@@ -6356,17 +6383,22 @@ func (r *REPL) Loop() error {
 		// replay in arrival order before stdin is consulted again. A
 		// visible echo line shows which queued input is running now.
 		if len(r.pendingFollowUps) > 0 {
+			r.usageBoundaryPending = true // round-3 R10: replayed entry = new user turn
 			entry := r.pendingFollowUps[0]
 			r.pendingFollowUps = r.pendingFollowUps[1:]
 			queued := entry.Text
-			r.info(followUpReplayMsg(r.language, queued))
+			display := followUpDisplayText(r.language, entry)
+			r.info(followUpReplayMsg(r.language, display))
 			// SWEEPFIX S5: verbatim entries (pasted content, steering
 			// prose handed back unconsumed) are DATA — they never enter
 			// the command funnel, so a pasted "!git clean -fdx" or a
 			// prose line whose first word collides with a template name
-			// cannot execute anything on replay.
+			// cannot execute anything on replay. ROUND-3 R9: display
+			// surfaces get the FOLDED form — echoing a megabyte paste
+			// blob verbatim would flood the terminal and the history
+			// store.
 			if entry.Verbatim {
-				r.dispatch(queued, queued)
+				r.dispatch(queued, display)
 				continue
 			}
 			// REGFIX-D #16 (sweep): replay must traverse the SAME input
@@ -6406,6 +6438,7 @@ func (r *REPL) Loop() error {
 		if line == "" {
 			continue
 		}
+		r.usageBoundaryPending = true // round-3 R10: typed line = new user turn
 		if !r.interactive() {
 			// Scanner mode: preserve the "> " marker so piped test output
 			// still contains the visual assertion target. Prepend the

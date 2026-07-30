@@ -314,3 +314,57 @@ func TestRunInputWindow_PathProseSteersButCommandsQueue(t *testing.T) {
 		t.Fatalf("real commands must queue for funnel replay; queued=%v", queued)
 	}
 }
+
+// TestDrainRunInputWindow_DisablesBracketedPaste pins round-3 R0's
+// drain half: the window's exit always emits ESC[?2004l so the
+// terminal stops sending paste markers once no reader is armed. (The
+// arm half emits ESC[?2004h; armRunInputWindow needs a real TTY, so
+// the enable is pinned by the paired constant use at the arm site and
+// this drain-side observable.)
+func TestDrainRunInputWindow_DisablesBracketedPaste(t *testing.T) {
+	r, _, out := newApprovalREPL(t, "", &writeCapableRunner{})
+	w, _ := windowFromScript(t, "", runInputWindowCallbacks{})
+	r.drainRunInputWindow(w)
+	if !strings.Contains(out.String(), "\x1b[?2004l") {
+		t.Fatal("drain must disable bracketed-paste mode (paired with arm's enable)")
+	}
+}
+
+// TestRunInputWindow_SplitPasteTerminatorSurvivesTicks pins round-3
+// R3: a 201~ terminator split across quiet ticks (laggy link) must
+// still close the paste lane instead of leaving the window swallowing
+// all input in paste mode.
+func TestRunInputWindow_SplitPasteTerminatorSurvivesTicks(t *testing.T) {
+	script := []byte("\x1b[200~data line\x1b[201~")
+	var pos atomic.Int64
+	var stalls atomic.Int64
+	readByte := func() (byte, bool, error) {
+		i := int(pos.Load())
+		if i >= len(script) {
+			time.Sleep(2 * time.Millisecond)
+			return 0, false, nil
+		}
+		// Stall (quiet tick) right in the middle of the 201~ marker.
+		if i == len(script)-3 && stalls.Load() < 3 {
+			stalls.Add(1)
+			return 0, false, nil
+		}
+		pos.Add(1)
+		return script[i], true, nil
+	}
+	o, _ := testOwner("")
+	w, err := o.borrowRunInput(runInputWindowCallbacks{}, readByte)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		return !w.pasting.Load() && len(w.pastes) == 1
+	})
+	pastes := w.takePastes()
+	if len(pastes) != 1 || pastes[0] != "data line" {
+		t.Fatalf("pastes = %q, want the closed blob", pastes)
+	}
+	w.drain()
+}

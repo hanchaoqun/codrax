@@ -260,33 +260,40 @@ func MergeIntoBranch(opts MergeOptions) (*MergeResult, error) {
 
 		// Cherry-pick each commit. On the first conflict, abort and
 		// delete the branch so the user lands back on prior state.
-		// SWEEPFIX S10: same skip-already-applied semantics as the
-		// ref-lane — the two lanes must merge the same chain the same
-		// way.
-		preApplied := alreadyAppliedOnBase(opts.MainRepoRoot, opts.BaseBranch, commits)
+		// SWEEPFIX S10 + round-3 R4/R5: same pick-time empty-pick skip
+		// as the ref-lane — the two lanes must merge the same chain the
+		// same way, and CommitsLanded reports only what actually landed
+		// (round-3 R6: the field's contract is "SHAs that ended up on
+		// TargetBranch", so skipped commits must not be listed).
+		landed := make([]string, 0, len(commits))
 		for _, sha := range commits {
-			if preApplied[sha] {
-				logging.Info("[worktree] %s is already applied on %s (patch-id equivalent); skipped", sha, opts.BaseBranch)
+			out, err := runGitCapture(opts.MainRepoRoot, "cherry-pick", sha)
+			if err == nil {
+				landed = append(landed, sha)
 				continue
 			}
-			if out, err := runGitCapture(opts.MainRepoRoot, "cherry-pick", sha); err != nil {
-				logging.Warning("[worktree] cherry-pick %s onto %s failed: %s",
-					sha, opts.TargetBranch, out)
-				_, _ = runGitCapture(opts.MainRepoRoot, "cherry-pick", "--abort")
-				if priorBranch != "" {
-					_ = checkoutBranch(opts.MainRepoRoot, priorBranch)
+			if cherryPickStoppedEmpty(opts.MainRepoRoot) {
+				if qerr := skipEmptyCherryPick(opts.MainRepoRoot); qerr == nil {
+					logging.Info("[worktree] %s is already applied on %s (empty pick); skipped", sha, opts.TargetBranch)
+					continue
 				}
-				_, _ = runGitCapture(opts.MainRepoRoot, "branch", "-D", opts.TargetBranch)
-				return nil, fmt.Errorf(
-					"merge: cherry-pick %s into %s conflicted — branch rolled back, main repo restored to %s. git output:\n%s",
-					sha, opts.TargetBranch, priorBranch, out)
 			}
+			logging.Warning("[worktree] cherry-pick %s onto %s failed: %s",
+				sha, opts.TargetBranch, out)
+			_, _ = runGitCapture(opts.MainRepoRoot, "cherry-pick", "--abort")
+			if priorBranch != "" {
+				_ = checkoutBranch(opts.MainRepoRoot, priorBranch)
+			}
+			_, _ = runGitCapture(opts.MainRepoRoot, "branch", "-D", opts.TargetBranch)
+			return nil, fmt.Errorf(
+				"merge: cherry-pick %s into %s conflicted — branch rolled back, main repo restored to %s. git output:\n%s",
+				sha, opts.TargetBranch, priorBranch, out)
 		}
-		logging.Info("[worktree] cherry-picked %d commit(s) onto new branch %s",
-			len(commits), opts.TargetBranch)
+		logging.Info("[worktree] cherry-picked %d of %d commit(s) onto new branch %s",
+			len(landed), len(commits), opts.TargetBranch)
 		return &MergeResult{
 			Strategy:      "cherry_pick_branch",
-			CommitsLanded: commits,
+			CommitsLanded: landed,
 			FinalBranch:   opts.TargetBranch,
 		}, nil
 
@@ -617,15 +624,18 @@ func MergeFromRef(opts MergeFromRefOptions) (*MergeResult, error) {
 		// success commit after an Auto Pilot replan), but the defect is
 		// independent of W-3 and the doc contract above always said
 		// "cherry-picks the worktree commits" — plural.
-		preApplied := alreadyAppliedOnBase(opts.MainRepoRoot, opts.BaseBranch, commits)
+		landed := make([]string, 0, len(commits))
 		for _, sha := range commits {
-			if preApplied[sha] {
-				logging.Info("[worktree] %s is already applied on %s (patch-id equivalent); skipped", sha, opts.BaseBranch)
-				continue
-			}
 			out, err := runGitCapture(opts.MainRepoRoot, "cherry-pick", sha)
 			if err == nil {
+				landed = append(landed, sha)
 				continue
+			}
+			if cherryPickStoppedEmpty(opts.MainRepoRoot) {
+				if qerr := skipEmptyCherryPick(opts.MainRepoRoot); qerr == nil {
+					logging.Info("[worktree] %s is already applied on %s (empty pick); skipped", sha, opts.TargetBranch)
+					continue
+				}
 			}
 			_, _ = runGitCapture(opts.MainRepoRoot, "cherry-pick", "--abort")
 			if priorBranch != "" {
@@ -635,69 +645,47 @@ func MergeFromRef(opts MergeFromRefOptions) (*MergeResult, error) {
 			return nil, fmt.Errorf("merge: cherry-pick %s onto %s conflicted — rolled back to %s: %w (%s)",
 				sha, opts.TargetBranch, priorBranch, err, out)
 		}
-		logging.Info("[worktree] cherry-picked %d commit(s) onto new branch %s via ref %s",
-			len(commits), opts.TargetBranch, opts.Ref)
+		logging.Info("[worktree] cherry-picked %d of %d commit(s) onto new branch %s via ref %s",
+			len(landed), len(commits), opts.TargetBranch, opts.Ref)
 		return &MergeResult{
 			Strategy:      "cherry_pick_branch",
-			CommitsLanded: commits,
+			CommitsLanded: landed,
 			FinalBranch:   opts.TargetBranch,
 		}, nil
 	}
 	return nil, fmt.Errorf("MergeFromRef: unknown mode %d", mode)
 }
 
-// alreadyAppliedOnBase returns the subset of shas whose PATCH is
-// already present on base, via `git cherry` patch-id equivalence.
-// SWEEPFIX S7/S8/S9 (sweep 2026-07-30) replaced the previous
-// cherryPickReportedEmpty substring matcher, which was broken three
-// ways: (S7, high) it matched free text — a commit SUBJECT containing
-// "nothing to commit" made a GENUINE conflict look already-applied and
-// `--skip` silently discarded that commit's changes while /merge
-// reported success; (S8) the matched phrases are gettext-localized, so
-// non-English locales (zh_CN — the documented customer locale) never
-// matched and mergeable chains aborted as conflicts; (S9) `--skip`
-// does not exist before git 2.23, leaving the sequencer mid-pick on
-// old gits. `git cherry` is a plumbing command with a machine-stable
-// two-token line format ("- <sha>" = equivalent on upstream, "+ <sha>"
-// = not), computed BEFORE any pick — no output-phrase parsing, no
-// sequencer state, locale-independent (LC_ALL=C pinned as belt). Any
-// cherry-pick failure after this precompute is a real conflict and
-// aborts loudly. Residual (documented, safe): a commit patch-equal
-// only to ANOTHER CHAIN COMMIT (not base) still surfaces as an empty
-// pick and is treated as a conflict — loud rollback, no data loss.
-func alreadyAppliedOnBase(dir, base string, shas []string) map[string]bool {
-	if len(shas) == 0 {
-		return nil
+// cherryPickStoppedEmpty structurally classifies a FAILED cherry-pick
+// as "stopped because the pick produced no changes" (the commit's
+// content is already on the current target). ROUND-3 SWEEP R4/R5/R11
+// replaced the previous git-cherry patch-id PREcompute, which had a
+// semantic hole in each direction: (R4) a chain commit whose patch-id
+// matched a base commit was skipped even when base had since REVERTED
+// that commit — silently dropping the user's re-apply, the exact
+// silent-drop class S7 was fixed for; (R5) content squashed into a
+// larger base commit has a different patch-id, so the genuinely-empty
+// pick was escalated to a whole-merge abort; (R11) same for chain
+// commits already reachable from base. Classifying AT PICK TIME against
+// the CURRENT target is the semantically right test: a reverted change
+// re-applies cleanly (pick succeeds, nothing to classify), while a
+// pick that stops with sequencer state present and a completely clean
+// tree provably produced nothing. Both probes are locale-independent
+// by contract (rev-parse; status --porcelain), unlike the localized
+// prose the original substring matcher parsed (S8).
+func cherryPickStoppedEmpty(dir string) bool {
+	if _, err := runGitCapture(dir, "rev-parse", "-q", "--verify", "CHERRY_PICK_HEAD"); err != nil {
+		return false // no sequencer state: not a stopped pick
 	}
-	out, err := runGitCaptureEnv(dir, []string{"LC_ALL=C", "LANG=C"}, "cherry", base, shas[len(shas)-1])
-	if err != nil {
-		// Fail open to "nothing pre-applied": every commit is then
-		// cherry-picked normally and a genuinely-empty pick aborts
-		// loudly as a conflict — safe (no silent drop), just less
-		// convenient than the skip.
-		logging.Warning("[worktree] git cherry %s failed (%v: %s); treating no commits as pre-applied", base, err, out)
-		return nil
-	}
-	applied := make(map[string]bool)
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "- ") {
-			applied[strings.TrimSpace(strings.TrimPrefix(line, "- "))] = true
-		}
-	}
-	if len(applied) == 0 {
-		return nil
-	}
-	// git cherry reports patch-ids over base..tip; restrict to the
-	// requested chain (paranoia against ref races).
-	chain := make(map[string]bool, len(shas))
-	for _, sha := range shas {
-		chain[sha] = true
-	}
-	for sha := range applied {
-		if !chain[sha] {
-			delete(applied, sha)
-		}
-	}
-	return applied
+	out, err := runGitCapture(dir, "status", "--porcelain=v1", "--untracked-files=no")
+	return err == nil && strings.TrimSpace(out) == ""
+}
+
+// skipEmptyCherryPick clears the stopped empty pick's sequencer state.
+// `cherry-pick --quit` (git >= 1.7.8) is used instead of `--skip`
+// (git >= 2.23, the S9 finding): the tree already equals HEAD, so
+// quitting the single-commit sequence IS the skip.
+func skipEmptyCherryPick(dir string) error {
+	_, err := runGitCapture(dir, "cherry-pick", "--quit")
+	return err
 }

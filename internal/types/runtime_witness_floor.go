@@ -25,12 +25,19 @@ package types
 // record scans) per the precise-signals-for-hard-gates red line.
 
 // RuntimeSourceOptionalWaiverWitnessFloor reports whether the run carries
-// at least one runtime witness capable of backing a source-optional
-// runtime-grounded answer: an attached runtime artifact, a runtime
+// at least one witness capable of backing a source-optional
+// externally-grounded answer: an attached runtime artifact, a runtime
 // trace/log artifact record in the ledger, a deterministic trace-query
-// observation, or any runtime observation record (user-supplied external
-// observations included — a user who pasted the log excerpt into the
-// request legitimately answers external-only with a caveat).
+// observation, any runtime observation record, or any external
+// observation the sufficiency assessor itself counts as an addressable
+// candidate. ROUND-3 SWEEP R8: the floor must be a SUPERSET of what the
+// authority mint lane accepts — its first form omitted the sufficiency
+// candidate origins (external documents, web pages, MCP resources,
+// command measurements, VCS metadata, ...), which would have silently
+// DENIED waivers for legitimately external-observation-sufficient turns
+// and falsified the "invariant, not a behavior change" claim. Sharing
+// externalObservationSufficiencyCandidates keeps the two sides from
+// forking (same-family mirror discipline, CSP #63).
 func RuntimeSourceOptionalWaiverWitnessFloor(attachedRuntimeArtifact bool, ledger ObservationLedger) bool {
 	if attachedRuntimeArtifact {
 		return true
@@ -45,7 +52,7 @@ func RuntimeSourceOptionalWaiverWitnessFloor(attachedRuntimeArtifact bool, ledge
 			return true
 		}
 	}
-	return false
+	return len(externalObservationSufficiencyCandidates(ledger.Records)) > 0
 }
 
 // RuntimeGroundingClaimsWitnessless reports the tripwire condition the

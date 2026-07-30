@@ -273,13 +273,15 @@ func TestMergeFromRef_NewBranchLandsWholeChain(t *testing.T) {
 	}
 }
 
-// TestMergeFromRef_SkipsPatchEquivalentCommitByPrecompute pins the
-// SWEEPFIX S7/S8 root fix: an already-applied mid-chain commit is
-// skipped via `git cherry` patch-id equivalence computed BEFORE any
-// pick — no output-phrase parsing (which mis-skipped genuine conflicts
-// whose free-text subject contained "nothing to commit", and never
-// matched at all under localized git).
-func TestMergeFromRef_SkipsPatchEquivalentCommitByPrecompute(t *testing.T) {
+// TestMergeFromRef_SkipsAlreadyAppliedCommit pins the S7/S8 root fix
+// as refined by round-3 R4/R5: an already-applied mid-chain commit is
+// skipped via PICK-TIME structural classification (CHERRY_PICK_HEAD
+// present + porcelain-clean tree -> `cherry-pick --quit`) — no
+// output-phrase parsing (which mis-skipped genuine conflicts whose
+// free-text subject contained "nothing to commit" and never matched
+// under localized git), and no patch-id precompute (which silently
+// dropped a re-apply after base had REVERTED the commit).
+func TestMergeFromRef_SkipsAlreadyAppliedCommit(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")
 	}
@@ -319,6 +321,59 @@ func TestMergeFromRef_SkipsPatchEquivalentCommitByPrecompute(t *testing.T) {
 	runOrFatal(t, mainRepo, "checkout", "codrax/landing-eq")
 	if _, err := os.Stat(filepath.Join(mainRepo, "extra.txt")); err != nil {
 		t.Errorf("non-equivalent chain commit must land: %v", err)
+	}
+}
+
+// TestMergeFromRef_RevertedOnBaseLandsAgain pins round-3 R4 (high): a
+// chain commit whose patch base once applied and then REVERTED must
+// land again — the patch-id precompute this replaced marked it
+// already-applied and silently dropped the user's change while /merge
+// reported success (the S7 silent-drop class, reintroduced one lane
+// over).
+func TestMergeFromRef_RevertedOnBaseLandsAgain(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	mainRepo := initBareRepo(t)
+	writeAndCommit(t, mainRepo, "seed.txt", "seed\n", "seed commit")
+	branch := strings.TrimSpace(runOrFatal(t, mainRepo, "rev-parse", "--abbrev-ref", "HEAD"))
+
+	base := t.TempDir()
+	sess, err := Create(base, mainRepo, "merge-revert-test")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	writeAndCommit(t, sess.Path(), "feature.txt", "the change\n", "codrax apply iter 1 (plan=plan-rv-001)")
+	tip := strings.TrimSpace(runOrFatal(t, sess.Path(), "rev-parse", "HEAD"))
+	if _, err := TagAppliedCommit(mainRepo, "plan-rv-001", tip); err != nil {
+		t.Fatalf("TagAppliedCommit: %v", err)
+	}
+	if err := sess.Discard(); err != nil {
+		t.Fatalf("Discard: %v", err)
+	}
+	// Base independently lands the same patch, then REVERTS it, then
+	// diverges. Patch-id equivalence still sees the applied copy.
+	writeAndCommit(t, mainRepo, "feature.txt", "the change\n", "same change landed independently")
+	runOrFatal(t, mainRepo, "revert", "--no-edit", "HEAD")
+	writeAndCommit(t, mainRepo, "diverge.txt", "base moved on\n", "unrelated base commit")
+
+	res, err := MergeFromRef(MergeFromRefOptions{
+		MainRepoRoot: mainRepo,
+		Ref:          AppliedRef("plan-rv-001"),
+		BaseBranch:   branch,
+		TargetBranch: "codrax/landing-rv",
+		Mode:         MergeNewBranch,
+	})
+	if err != nil {
+		t.Fatalf("MergeFromRef: %v", err)
+	}
+	if len(res.CommitsLanded) != 1 {
+		t.Fatalf("the reverted change must LAND again, not be skipped; landed=%v", res.CommitsLanded)
+	}
+	runOrFatal(t, mainRepo, "checkout", "codrax/landing-rv")
+	got, err := os.ReadFile(filepath.Join(mainRepo, "feature.txt"))
+	if err != nil || string(got) != "the change\n" {
+		t.Fatalf("re-applied content missing on target: %q %v", got, err)
 	}
 }
 

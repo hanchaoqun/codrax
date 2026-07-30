@@ -157,3 +157,20 @@ Windows 数据类型（winprog/windows-data-types）：WORD=16 位、BOOL=int=32
 4. **对 §8 主证明的顺带加强**：conhost 的 GetChar（我们 key-up 交付条件的引文来源）正是 ReadConsoleW 服务的车道——Go 连 ReadFile-on-console（A 变体包装）都不经过，分类器等价性论证适用得更直接。
 
 **裁定**：不写 SetConsoleCP(65001)——那将是零收益的全局控制台状态突变（还有异常退出不恢复、污染同控制台后续程序的风险）。GBK 编码的**数据文件**经管道/附件进入（`--log -` 等）属通用工件编码议题，各平台同性质，不属本缺口。教训：**记档残留项也要过证明门——本项当初是凭"常识"写下的错误断言**，证明式勘察半小时即证伪，避免了一次 cargo-cult 修复。
+
+
+## 10. 第三轮自查 sweep 与 SWEEPFIX-R3（2026-07-30）
+
+按 §9 教训①（修复批必进下一轮靶面），对当日的 FABGATE-2 + SWEEPFIX-EF/G/H 做第三轮 29-agent 三维 sweep（窗口 / 交付 / 漏斗-显示-门），双镜头 refuter：**12 条幸存、1 条被驳**。两条 high 都是"修了但没真生效/新引入静默丢失"，正是本轮价值所在。
+
+**R0/R7（high，同一缺陷两路独立发现）：S5 的括号粘贴车道在生产上不可达。** DECSET 2004 只在 prompt 编辑器内开启、退出即关闭，运行窗口从不开启 → 真终端在 Run 期间根本不发 ESC[200~/201~，S5 声称修掉的危害（粘贴的 `!git clean -fdx` 被回放漏斗 shell 执行）**仍然活着**；新加的 pin 之所以绿，是因为它把标记合成注入了 readByte 流。修复：窗口 arm 时发 `?2004h`、drain 时发 `?2004l`（drain 是唯一出口，保险丝放弃路径也走它；restoreForExit 为硬杀兜底）。**教训：为"数据车道"写的 pin 若自己合成入口信号，就无法证明车道可达——必须另有一条断言真实入口被开启。**
+
+**R4（high）：patch-id 预计算方案引入了新的静默丢失类。** `git cherry` 按 patch-id 判等，**base 曾应用后又 revert** 的提交仍被判"已应用"而跳过——用户的重新应用被静默丢弃而 /merge 报成功，与 S7 同类。连带 R5（内容被 squash 进 base 大提交 → patch-id 不同 → 空 pick 被升级为整体中止）、R11（链提交已是 base 祖先 → 不在 base..tip 枚举内 → 同样中止）。**根修：放弃预计算，改 pick 失败时结构化分类**——`CHERRY_PICK_HEAD` 存在（rev-parse）+ 工作树 `status --porcelain` 全净 ⇒ 该 pick 确证无变更 ⇒ `cherry-pick --quit`（1.7.8 即有，免 `--skip` 的 2.23 依赖）跳过续链；否则真冲突回滚。语义上这才是对的测试面：**针对当前 target 而非 base 判定**，被 revert 的改动会正常落地（pick 成功，无需分类）。R6 同批修正：`CommitsLanded` 只列真正落地的 SHA（其契约原文是"ended up on TargetBranch"），跳过的不再冒充已落地。
+
+**R8（medium）：FABGATE-2 的见证地板比它所守的铸造车道更窄** —— authority 车道经 `AssessExternalObservationSufficiency` 接受十类外部观察 origin（外部文档/网页/MCP 资源/命令量测/VCS 元数据…），而地板只扫 runtime 记录族 ⇒ 会对合法的"外部观察充分"轮次**静默拒发豁免**，且证伪了"不变量而非行为变更"的声明。修复：地板复用 `externalObservationSufficiencyCandidates` 同一候选集（同源镜像纪律，CSP #63）。
+
+其余：R1 单条多行还原（粘贴 blob）走占位符车道（裸 `\n` 会毁掉单行 raw 编辑器的光标算术）；R2 1MB 上限补齐 ESC 字面臂（转义密集的粘贴此前可无界增长）；R3 分裂的粘贴标记有界重试（否则丢失 201~ 会让窗口整轮卡在粘贴态吞掉一切输入，含 ESC 中止）；R9 回放的**显示面**折叠（回显与历史不得倾泻兆字节 blob，执行面仍是原文）；R10 用量边界改**每用户轮一次**（Loop 置 flag、direct-LLM 车道消费）——否则一轮内串联的分类器+回复两次调用会互相清零，正是 S12 修的缺陷类换车道复发。
+
+**自查追加**：本批实现过程中 `-race` 抓到两处竞争：① `pasting` 在 ESC 臂无锁写而 drain/测试持锁读（生产代码，改 atomic）；② PIB-2 批遗留的**测试夹具**跨 goroutine 无锁捕获 `warned`（repl 包 `-race` 唯一残红，一并修）。**教训：新增跨 goroutine 状态位必须与既有 mu 纪律显式对齐——"只由 loop goroutine 写"不等于"无需同步"，只要存在另一侧的读。**
+
+**过程结论**：三轮 sweep 分别是 19/20/12 条真缺陷，**每一轮都在上一轮的修复面里抓到东西**，且两轮的最严重项（S7、R4）都是前一轮"修复"自身引入的。这条规律已足以固化为纪律：**任何修复批在推送后都必须进入下一轮独立对抗复核，直到某一轮对该批面零幸存。**

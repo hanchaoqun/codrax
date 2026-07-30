@@ -304,10 +304,12 @@ type runInputWindow struct {
 	// commitLine, and a pasted "!git clean -fdx" (a chat transcript, a
 	// jupyter cell, a markdown image "![...](url)") was refused as a
 	// command by the steering intake, queued, and shell-EXECUTED by the
-	// replay funnel after the run. pasting/pasteBuf are touched only by
-	// the loop goroutine under mu; pastes hold completed blobs until
-	// drain, replayed VERBATIM (never through the command funnel).
-	pasting  bool
+	// replay funnel after the run. pasteBuf/pastes are mu-guarded;
+	// `pasting` is written only by the loop goroutine but READ by drain
+	// and by tests, so it is atomic (round-3 self-check: the ESC arm
+	// wrote it unguarded while readers held mu — a real race the
+	// detector caught before this batch shipped).
+	pasting  atomic.Bool
 	pasteBuf []byte
 	pastes   []string
 }
@@ -385,7 +387,7 @@ func (w *runInputWindow) loop(cb runInputWindowCallbacks, readByte func() (byte,
 		if !ok {
 			continue // tick expired, no data
 		}
-		if w.pasting && b != runInputEsc {
+		if w.pasting.Load() && b != runInputEsc {
 			// Inside a bracketed paste every byte is literal content
 			// (only ESC can open the 201~ terminator).
 			w.mu.Lock()
@@ -456,11 +458,9 @@ func (w *runInputWindow) handleEsc(cb runInputWindowCallbacks, readByte func() (
 		return
 	}
 	if !ok {
-		if w.pasting {
+		if w.pasting.Load() {
 			// A lone ESC inside pasted content is literal data.
-			w.mu.Lock()
-			w.pasteBuf = append(w.pasteBuf, runInputEsc)
-			w.mu.Unlock()
+			w.appendPasteLocked(runInputEsc)
 			return
 		}
 		w.mu.Lock()
@@ -473,9 +473,25 @@ func (w *runInputWindow) handleEsc(cb runInputWindowCallbacks, readByte func() (
 	}
 	if b == '[' || b == 'O' {
 		seq := make([]byte, 0, 16)
-		for i := 0; i < 16; i++ {
+		retries := 0
+		for len(seq) < 16 {
 			c, ok2, err2 := readByte()
-			if err2 != nil || !ok2 {
+			if err2 != nil {
+				return
+			}
+			if !ok2 {
+				// ROUND-3 R3: a paste MARKER split across a tick
+				// boundary (laggy link) must not be dropped — a lost
+				// 201~ terminator would leave the window stuck in
+				// paste mode swallowing all input for the rest of the
+				// run. Retry a bounded budget when the bytes so far
+				// could still become a marker; give up otherwise
+				// (non-marker sequences keep the old prompt-abort
+				// cadence).
+				if retries < 20 && b == '[' && pasteMarkerPrefix(seq) {
+					retries++
+					continue
+				}
 				return
 			}
 			seq = append(seq, c)
@@ -486,26 +502,45 @@ func (w *runInputWindow) handleEsc(cb runInputWindowCallbacks, readByte func() (
 		// SWEEPFIX S5: bracketed-paste markers open/close the paste
 		// lane; every other sequence inside a paste is literal content.
 		if b == '[' && string(seq) == "200~" {
-			w.pasting = true
+			w.pasting.Store(true)
 			return
 		}
 		if b == '[' && string(seq) == "201~" {
 			w.finishPaste(cb)
 			return
 		}
-		if w.pasting {
-			w.mu.Lock()
-			w.pasteBuf = append(w.pasteBuf, runInputEsc, b)
-			w.pasteBuf = append(w.pasteBuf, seq...)
-			w.mu.Unlock()
+		if w.pasting.Load() {
+			w.appendPasteLocked(append([]byte{runInputEsc, b}, seq...)...)
 		}
 		return
 	}
-	if w.pasting {
-		w.mu.Lock()
-		w.pasteBuf = append(w.pasteBuf, runInputEsc, b)
-		w.mu.Unlock()
+	if w.pasting.Load() {
+		w.appendPasteLocked(runInputEsc, b)
 	}
+}
+
+// pasteMarkerPrefix reports whether the CSI bytes collected so far are
+// a proper prefix of a bracketed-paste marker body ("200~" / "201~").
+func pasteMarkerPrefix(seq []byte) bool {
+	if len(seq) >= 4 {
+		return false
+	}
+	s := string(seq)
+	return strings.HasPrefix("200~", s) || strings.HasPrefix("201~", s)
+}
+
+// appendPasteLocked appends literal paste bytes under the same 1MB cap
+// the plain-byte arm enforces (ROUND-3 R2: the ESC-sequence literal
+// arms bypassed the cap, so escape-dense pastes grew pasteBuf without
+// bound). Caller holds no lock; this takes mu.
+func (w *runInputWindow) appendPasteLocked(b ...byte) {
+	w.mu.Lock()
+	if len(w.pasteBuf)+len(b) <= runInputWindowMaxLineB {
+		w.pasteBuf = append(w.pasteBuf, b...)
+	} else {
+		w.overCap = true
+	}
+	w.mu.Unlock()
 }
 
 // finishPaste closes the bracketed-paste lane: the whole blob is
@@ -516,7 +551,7 @@ func (w *runInputWindow) handleEsc(cb runInputWindowCallbacks, readByte func() (
 func (w *runInputWindow) finishPaste(cb runInputWindowCallbacks) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.pasting = false
+	w.pasting.Store(false)
 	if w.dead.Load() {
 		return
 	}
@@ -662,6 +697,15 @@ func (r *REPL) armRunInputWindow(canceller runnerCanceller) *runInputWindow {
 		return nil
 	}
 	steerSink, _ := r.runner.(steeringSink)
+	// ROUND-3 SWEEP R0 (high): the S5 paste lane was UNREACHABLE in
+	// production — bracketed-paste mode (DECSET 2004) was enabled only
+	// inside the prompt editor and disabled on prompt exit, so no
+	// terminal ever sent ESC[200~/201~ during a run and mid-run pastes
+	// still streamed line-by-line into the command funnel. The window's
+	// arm/drain now own the mode for the run's lifetime (drain is the
+	// single exit, fuse-abandon included; restoreTTYForExit is the
+	// hard-kill belt).
+	fmt.Fprint(r.out, ansiEnableBracketed)
 	cb := runInputWindowCallbacks{
 		onLine: func(line string) {
 			if r.renderer != nil {
@@ -727,6 +771,7 @@ func (r *REPL) drainRunInputWindow(w *runInputWindow) {
 	if w == nil {
 		return
 	}
+	fmt.Fprint(r.out, ansiDisableBracketed) // R0: paired with armRunInputWindow's enable
 	queued, partial, escAborted, dropped := w.drain()
 	pastes := w.takePastes()
 	// TTY-3: steering notes accepted by the run but never consumed
@@ -749,13 +794,16 @@ func (r *REPL) drainRunInputWindow(w *runInputWindow) {
 		restored := append(append([]string(nil), queued...), rem...)
 		restored = append(restored, pastes...)
 		restored = append(restored, splitNonEmpty(partial)...)
-		switch len(restored) {
-		case 0:
-		case 1:
+		switch {
+		case len(restored) == 0:
+		case len(restored) == 1 && !strings.Contains(restored[0], "\n"):
 			r.pendingInputPrefill = restored[0]
 		default:
 			// Multi-line restore rides the existing paste-placeholder
-			// lane: folded in the editor, expanded on submit.
+			// lane: folded in the editor, expanded on submit. ROUND-3
+			// R1: a SINGLE restored entry can itself be a multiline
+			// paste blob now — raw \n runes corrupt the single-line
+			// raw-mode editor, so anything multiline folds here too.
 			r.pendingPaste = strings.Join(restored, "\n")
 		}
 		if len(restored) > 0 {
