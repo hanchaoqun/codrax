@@ -38,6 +38,7 @@ type nativeLineInput struct {
 	draft             string
 	pastes            []string
 	isContinue        bool
+	fileIndex         func() []string
 	pasteFoldMinChars int
 	lang              string
 	termWidth         int
@@ -87,6 +88,7 @@ func (r *REPL) readInputNative(prompt string, isContinue bool) (inputResult, err
 		history:           historyReversed(r.historyStrings(), maxHistoryItems),
 		histIdx:           -1,
 		isContinue:        isContinue,
+		fileIndex:         r.atFileIndexProvider,
 		pasteFoldMinChars: foldMin,
 		lang:              r.language,
 		termWidth:         w,
@@ -754,7 +756,15 @@ func (e *nativeLineInput) refreshSuggest() {
 }
 
 func (e *nativeLineInput) filterSuggestions() []slashSuggestion {
-	return slashSuggestionsForValue(string(e.value), e.lang)
+	if matches := slashSuggestionsForValue(string(e.value), e.lang); len(matches) > 0 {
+		return matches
+	}
+	// TTY-3b: @-file completion — only consulted when no slash
+	// suggestion applies; the provider serves a session-cached index.
+	if e.fileIndex != nil {
+		return atFileSuggestions(string(e.value), e.fileIndex())
+	}
+	return nil
 }
 
 func (e *nativeLineInput) suggestionUp() {

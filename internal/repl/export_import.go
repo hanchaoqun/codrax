@@ -38,11 +38,20 @@ type exportBundleManifest struct {
 	CodraxOrigin string `json:"codrax_origin,omitempty"`
 }
 
-// handleExportCmd bundles the most recent turn + current sticky
-// attachments into <runtimeAnchor>/exports/<ts>-bundle/.
-func (r *REPL) handleExportCmd() {
+// handleExportCmd bundles a turn + attachments into
+// <runtimeAnchor>/exports/<ts>-bundle/. Bare /export takes the most
+// recent turn plus the CURRENT sticky attachments; /export <turn-id>
+// reaches any persisted turn by id — attachments are deliberately
+// omitted on the by-id form (the sticky lanes belong to the live
+// session, not to a historical turn) and the confirmation says so.
+func (r *REPL) handleExportCmd(line string) {
 	if strings.TrimSpace(r.runtimeAnchor) == "" {
 		r.info(exportNoAnchorMsg(r.language))
+		return
+	}
+	turnID := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "/export"))
+	if turnID != "" {
+		r.exportTurnByID(turnID)
 		return
 	}
 	var lastTurn *memory.Turn
@@ -110,6 +119,67 @@ func (r *REPL) handleExportCmd() {
 		return
 	}
 	r.success(exportDoneMsg(r.language, dir))
+}
+
+// exportTurnByID bundles one persisted turn (request + answer only —
+// the sticky attachment lanes belong to the live session, not to a
+// historical turn, so the by-id form omits them and says so).
+func (r *REPL) exportTurnByID(turnID string) {
+	if r.store == nil {
+		r.info(exportNothingMsg(r.language))
+		return
+	}
+	turn, err := r.store.Turn(turnID)
+	if err != nil {
+		r.errorf("export: turn %s: %v\n", turnID, err)
+		return
+	}
+	dir := filepath.Join(r.runtimeAnchor, "exports", time.Now().Format("20060102-150405")+"-"+turnID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		r.errorf("export: %v\n", err)
+		return
+	}
+	manifest := exportBundleManifest{
+		SchemaVersion: exportBundleSchemaVersion,
+		CreatedAt:     time.Now(),
+		RepoRoot:      r.repoRoot,
+		Branch:        r.branch,
+		Language:      r.language,
+		TurnID:        turn.ID,
+		HasRequest:    strings.TrimSpace(turn.Request) != "",
+		HasAnswer:     strings.TrimSpace(turn.Response) != "",
+		CodraxOrigin:  "codrax /export <turn-id>",
+	}
+	writeFile := func(name, content string) bool {
+		if content == "" {
+			return true
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
+			r.errorf("export %s: %v\n", name, err)
+			return false
+		}
+		return true
+	}
+	if !writeFile("request.txt", turn.Request) || !writeFile("answer.md", turn.Response) {
+		return
+	}
+	payload, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		r.errorf("export manifest: %v\n", err)
+		return
+	}
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), payload, 0o600); err != nil {
+		r.errorf("export manifest: %v\n", err)
+		return
+	}
+	r.success(exportTurnDoneMsg(r.language, turn.ID, dir))
+}
+
+func exportTurnDoneMsg(lang, turnID, dir string) string {
+	if isZh(lang) {
+		return "已导出历史轮 " + turnID + " 的 bundle: " + dir + "(不含附件——sticky 附件属于当前会话)"
+	}
+	return "Exported turn " + turnID + " bundle: " + dir + " (no attachments — sticky lanes belong to the live session)"
 }
 
 // handleImportCmd restores a bundle: attachments re-attach through the

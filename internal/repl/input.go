@@ -194,7 +194,11 @@ var slashCommands = []slashCommand{
 	},
 	{Name: "/history", HelpEn: "show recent turns", HelpZh: "显示最近会话"},
 	{Name: "/export", HelpEn: "export the last turn + attachments as a shareable diagnostic bundle",
-		HelpZh: "把最近一轮问答与附件导出为可分享的诊断 bundle(对方 /import 一键还原)"},
+		HelpZh: "把最近一轮问答与附件导出为可分享的诊断 bundle(对方 /import 一键还原)",
+		Subs: []slashSubcommand{
+			{"<turn-id>", "export a specific persisted turn by id (request+answer only; see /history ids)",
+				"按 turn-id 导出历史轮(仅问答,不含附件;id 见 /history)"},
+		}},
 	{Name: "/import", HelpEn: "restore a diagnostic bundle produced by /export (re-attaches log/trace, restores context)",
 		HelpZh: "导入 /export 产出的诊断 bundle(重挂日志/trace 附件,还原对话上下文)"},
 	{Name: "/compact", HelpEn: "compact memory", HelpZh: "压缩 memory(整理索引,腾出空间)"},

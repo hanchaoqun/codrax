@@ -714,6 +714,8 @@ type REPL struct {
 	promptTemplates             map[string]promptTemplate
 	pendingFollowUps            []string // PIB-2 v1: lines queued during a Run, replayed as turns
 	pendingInputPrefill         string   // TTY-2: half-typed run-phase line, seeded into the next prompt
+	atFileIndexOnce             sync.Once
+	atFileIndex                 []string // TTY-3b: lazy session file index for @ completion
 	lastAnswerOrigin            replAnswerOrigin
 	operationPendingStore       *OperationPendingStore
 	mcpServers                  *mcp.Registry
@@ -7939,7 +7941,7 @@ func (r *REPL) handleSlash(line string) bool {
 			r.success(memoryClearedMsg(r.language))
 		}
 	case "/export":
-		r.handleExportCmd()
+		r.handleExportCmd(line)
 		return false
 	case "/import":
 		r.handleImportCmd(line)

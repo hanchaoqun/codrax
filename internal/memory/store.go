@@ -711,6 +711,27 @@ func (s *Store) loadOrphanRecent() error {
 	return nil
 }
 
+// Turn returns one persisted turn by id (PIB-4 by-turn-id export,
+// ledger docs/design/pi_borrow_analysis_20260729.md §7.8 收窄记录的
+// 补件): the exported accessor over readTurnFile so /export can reach
+// turns that have already left the in-memory Recent tail. In-memory
+// recent turns win when present (they may carry fields the file
+// format does not persist).
+func (s *Store) Turn(id string) (Turn, error) {
+	if s == nil {
+		return Turn{}, os.ErrNotExist
+	}
+	s.mu.Lock()
+	for _, t := range s.recent {
+		if t.ID == id {
+			s.mu.Unlock()
+			return t, nil
+		}
+	}
+	s.mu.Unlock()
+	return s.readTurnFile(id)
+}
+
 // readTurnFile parses a turn file produced by writeTurnFile back into
 // a Turn. The format is fixed by writeTurnFile so the parser is a
 // simple split on the section markers; if either marker is missing

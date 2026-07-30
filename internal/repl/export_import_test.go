@@ -22,7 +22,7 @@ func TestExportImport_Roundtrip(t *testing.T) {
 	rOut.recordTurn("为什么 handler 崩了?", "为什么 handler 崩了?", "根因: nil deref …", "pipeline")
 	_ = store
 
-	rOut.handleExportCmd()
+	rOut.handleExportCmd("/export")
 	exportsDir := filepath.Join(rOut.runtimeAnchor, "exports")
 	entries, err := os.ReadDir(exportsDir)
 	if err != nil || len(entries) != 1 {
@@ -61,7 +61,7 @@ func TestImport_TamperedAttachmentFailsLoud(t *testing.T) {
 	rOut.runtimeAnchor = t.TempDir()
 	rOut.attachedLog = "original payload\n"
 	rOut.recordTurn("q", "q", "a", "pipeline")
-	rOut.handleExportCmd()
+	rOut.handleExportCmd("/export")
 	entries, _ := os.ReadDir(filepath.Join(rOut.runtimeAnchor, "exports"))
 	bundle := filepath.Join(rOut.runtimeAnchor, "exports", entries[0].Name())
 	if err := os.WriteFile(filepath.Join(bundle, "log.txt"), []byte("tampered\n"), 0o600); err != nil {
@@ -76,5 +76,36 @@ func TestImport_TamperedAttachmentFailsLoud(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "sha256 mismatch") {
 		t.Errorf("tamper must fail loud; output: %q", out.String())
+	}
+}
+
+// TestExportTurnByID pins the by-id lane: a persisted historical turn
+// exports request+answer with NO attachment files (sticky lanes belong
+// to the live session), and an unknown id fails loud.
+func TestExportTurnByID(t *testing.T) {
+	r, _, out := newApprovalREPL(t, "", &writeCapableRunner{})
+	r.runtimeAnchor = t.TempDir()
+	r.attachedLog = "live-session log that must NOT ride a historical bundle\n"
+	r.recordTurn("老问题", "老问题", "老答案", "pipeline")
+	turnID := r.store.Recent()[len(r.store.Recent())-1].ID
+
+	r.handleExportCmd("/export " + turnID)
+	entries, err := os.ReadDir(filepath.Join(r.runtimeAnchor, "exports"))
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("bundle dir: %v %v", entries, err)
+	}
+	bundle := filepath.Join(r.runtimeAnchor, "exports", entries[0].Name())
+	for _, want := range []string{"manifest.json", "request.txt", "answer.md"} {
+		if _, err := os.Stat(filepath.Join(bundle, want)); err != nil {
+			t.Fatalf("bundle missing %s", want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(bundle, "log.txt")); err == nil {
+		t.Fatal("by-id bundle must NOT include live-session attachments")
+	}
+
+	r.handleExportCmd("/export turn-does-not-exist")
+	if !strings.Contains(out.String(), "turn-does-not-exist") {
+		t.Fatalf("unknown id must fail loud naming the id; out=%q", out.String())
 	}
 }
