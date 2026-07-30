@@ -6465,3 +6465,112 @@ authorized.
 
 `build_revision=unknown` also remains open and independent of this correctness
 withdrawal.
+
+## LARG-G withdrawal replay closure (2026-07-30)
+
+Customer artifacts:
+
+- `/Users/han/opt/customlogs/largG.txt`
+- `/Users/han/opt/customlogs/codrax-trace-diag-largG.txt`
+
+LARG-G carries
+`official_raw_scheduler_cpu_capture_head_withdrawn_v2`. It closes every
+acceptance condition from LARG-F:
+
+```text
+capture-head global-start-only candidates     = 12
+capture-head candidates typed-withheld        = 12
+capture-head intervals emitted                = 0
+raw scheduler CPU intervals                   = 790,665
+raw overlap CPU conflicts                     = 0
+authorized CPU lookup attempts                = 1,372,146
+```
+
+The lookup partition, raw interval count and semantic publication counts are
+byte-for-byte numerically equal to the pre-head LARG-E baseline. In particular:
+
+```text
+standard-visible spans                        = 688,103
+Codrax typed-only spans                       = 24,058
+  sync CPU-unknown-start                      = 24,055
+  sync name-unrepresentable                   = 1
+  completed async interval                    = 2
+unpublished locally fenced closed sync spans  = 1,613
+```
+
+The unsupported `+1` standard span and all `54` cross-CPU conflicts observed
+in LARG-F are gone. Frame placement remains completely resolved:
+`504` DB/raw agreements plus `2,908` raw recoveries equals all `3,412`
+frame endpoint lookups.
+
+Whole-output closure is also exact:
+
+```text
+expected / parsed / callback rows = 3,007,234 / 3,007,234 / 3,007,234
+unknown / header-only rows        = 0 / 0
+output bytes                      = 1,350,041,991
+```
+
+Scheduler and blocked-reason reconciliation retain the previously proven
+equations, including `scheduler_raw_typed_withheld=96` and both exact blocked
+counter equations.
+
+### LARG-G1 — same-input artifact SHA disposition
+
+LARG-G's artifact size/SHA does not equal LARG-E even though its semantic
+counts do. A per-table SQL fidelity comparison resolves the difference:
+
+- all semantic table schemas, row counts and `rows_sha256` values are equal;
+- the only differing row hash is official TraceStreamer table `meta`;
+- the authenticated SQL tail differs by eight bytes;
+- `meta` deliberately contains conversion-dependent runtime, source/output
+  filename and related producer metadata, as already ruled in REP-B-05.
+
+Exact SQL preservation therefore causes the whole output SHA to vary across
+conversions while the evidence-bearing table hashes remain stable. This is not
+event loss, ordering drift or a new deterministic-conversion defect. Removing
+or normalizing the official `meta` rows would violate the exact SQL fidelity
+contract and is not authorized.
+
+### LARG-G2 — performance
+
+This replay is materially faster than both LARG-E and LARG-F:
+
+```text
+normalization       215.6410017s  (E 238.5257967s, F 246.4085559s)
+raw decode           14.000824s
+callstack export     15.019345s
+raw marker sync      35.884744s
+sync span authority  19.900681s
+sorter               42.259193s
+cross-validation     42.193685s
+raw CPU builder       0.530620s
+```
+
+The unchanged input/row counts and large E/F/G wall-time spread confirm that
+the capture-head change was not a performance driver and that machine/runtime
+variance remains significant. The approximately `3m35.6s` normalization is
+still a product performance limitation; sorter plus mandatory full
+cross-validation account for about `84.45s`. This replay does not authorize
+weakening either integrity stage.
+
+### Closure and remaining boundary
+
+The LARG-F P0 correctness incident is closed. No further customer replay is
+needed for capture-head withdrawal.
+
+The remaining viewer fidelity gap is now stable and typed:
+
+- `24,055` sync spans lack a proved physical start CPU;
+- `1` sync name cannot round-trip through the standard trace-mark grammar;
+- `2` completed async intervals lack a proved standard S/F emitter/CPU;
+- `1,613` locally fenced closed sync spans lack a valid raw replacement;
+- `22` thread names remain unresolved and `426` scheduler boundaries therefore
+  use unknown display comm;
+- release packaging still reports `build_revision=unknown`.
+
+None of these may be repaired by assigning CPU zero, extending across a raw
+gap, reusing a comm/TGID/namespace PID, or pairing across a rejected marker
+segment. Further fidelity recovery requires new physical source authority,
+such as an exact per-CPU retention-start/end ledger, an earlier complete raw
+scheduler segment, or independently retained marker endpoints.
