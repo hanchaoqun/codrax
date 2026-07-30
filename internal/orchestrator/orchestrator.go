@@ -61,6 +61,7 @@ type Orchestrator struct {
 	blobSessionDir        string                   // persistent per-process blob dir; empty = tmpdir fallback
 	attachedLog           string                   // runtime log excerpt attached via --log / /log
 	userPinnedFiles       []string                 // @path pins, per-turn (PIB-5c; setter in user_pinned_files.go)
+	steering              steeringIntake           // TTY-3 mid-run steering notes (steering_notes.go)
 	attachedHitrace       string                   // HiTrace / atrace excerpt attached via --htrace / /htrace
 	attachedHitraceSource string                   // advisory trace flavor/source hint from --htrace/--atrace spelling
 	// presentationDirective is a per-run typed display requirement
@@ -2057,6 +2058,8 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	o.busCtx.Language = o.language
 	o.busCtx.AttachedLog = o.attachedLog
 	o.busCtx.UserPinnedFiles = o.userPinnedFiles
+	o.steering.openIntake() // TTY-3 (steering_notes.go)
+	defer o.steering.closeIntake()
 	o.busCtx.AttachedHitrace = o.attachedHitrace
 	o.busCtx.AttachedHitraceSource = o.attachedHitraceSource
 
@@ -5108,6 +5111,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			// PendingReads is empty.
 			preseededRequiredFiles := 0
 			if !localLandingActive {
+				o.applySteeringNotesToExploreWindow() // TTY-3 (steering_notes.go)
 				preseededRequiredFiles = o.seedRequiredFileHintForcedReadsBeforeExploreForWindow(window)
 			}
 			if preseededRequiredFiles > 0 {

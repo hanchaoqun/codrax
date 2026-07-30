@@ -224,9 +224,14 @@ func (r *REPL) restoreTTYForExit() {
 // never a raw write — dock repaint discipline); onCtrlC/onEsc must be
 // non-blocking.
 type runInputWindowCallbacks struct {
-	onLine  func(line string)
-	onCtrlC func()
-	onEsc   func()
+	onLine func(line string)
+	// trySteer offers the line to the running pipeline FIRST (TTY-3):
+	// true = consumed as a mid-run steering note (not queued);
+	// false/nil = the line queues for post-Run replay.
+	trySteer  func(line string) bool
+	onSteered func(line string)
+	onCtrlC   func()
+	onEsc     func()
 }
 
 type runInputWindow struct {
@@ -353,6 +358,14 @@ func (w *runInputWindow) commitLine(cb runInputWindowCallbacks) {
 	w.mu.Lock()
 	line := strings.TrimSpace(string(w.partial))
 	w.partial = w.partial[:0]
+	w.mu.Unlock()
+	if line != "" && cb.trySteer != nil && cb.trySteer(line) {
+		if cb.onSteered != nil {
+			cb.onSteered(line)
+		}
+		return
+	}
+	w.mu.Lock()
 	tooMany := len(w.queue) >= runInputWindowMaxQueue
 	if line != "" && !tooMany {
 		w.queue = append(w.queue, line)
@@ -389,10 +402,19 @@ func (r *REPL) armRunInputWindow(canceller runnerCanceller) *runInputWindow {
 	if !r.interactive() || canceller == nil || !term.IsTerminal(int(os.Stdin.Fd())) {
 		return nil
 	}
+	steerSink, _ := r.runner.(steeringSink)
 	cb := runInputWindowCallbacks{
 		onLine: func(line string) {
 			if r.renderer != nil {
 				r.renderer.CommitUserInputLine(line)
+			}
+		},
+		trySteer: func(line string) bool {
+			return steerSink != nil && steerSink.PushSteeringNote(line)
+		},
+		onSteered: func(line string) {
+			if r.renderer != nil {
+				r.renderer.CommitUserSteeredLine(line)
 			}
 		},
 		onCtrlC: func() {
@@ -428,6 +450,14 @@ func (r *REPL) drainRunInputWindow(w *runInputWindow) {
 		return
 	}
 	queued, partial, escAborted, dropped := w.drain()
+	// TTY-3: steering notes accepted by the run but never consumed
+	// (run ended first, or a lane without explore boundaries) come
+	// back here — steered or replayed, never lost, never run twice.
+	if taker, ok := r.runner.(steeringUnconsumed); ok {
+		if rem := taker.TakeUnconsumedSteeringNotes(); len(rem) > 0 {
+			queued = append(rem, queued...)
+		}
+	}
 	if dropped {
 		r.warn("%s\n", runInputDroppedMsg(r.language))
 	}
@@ -453,6 +483,17 @@ func (r *REPL) drainRunInputWindow(w *runInputWindow) {
 	if partial != "" {
 		r.pendingInputPrefill = partial
 	}
+}
+
+// steeringSink / steeringUnconsumed are the optional runner surfaces
+// for mid-run steering (TTY-3); test stubs without them fall back to
+// pure queueing.
+type steeringSink interface {
+	PushSteeringNote(note string) bool
+}
+
+type steeringUnconsumed interface {
+	TakeUnconsumedSteeringNotes() []string
 }
 
 func splitNonEmpty(s string) []string {

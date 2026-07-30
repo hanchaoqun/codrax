@@ -183,3 +183,74 @@ func TestRunInputWindow_DrainNeverWedgesOnPollError(t *testing.T) {
 		t.Fatal("drain wedged on a degraded fd")
 	}
 }
+
+// fakeSteeringRunner accepts up to acceptUntil notes and hands back a
+// canned unconsumed remainder at drain time.
+type fakeSteeringRunner struct {
+	writeCapableRunner
+	acceptUntil int
+	accepted    []string
+	unconsumed  []string
+}
+
+func (f *fakeSteeringRunner) PushSteeringNote(note string) bool {
+	if len(f.accepted) >= f.acceptUntil {
+		return false
+	}
+	f.accepted = append(f.accepted, note)
+	return true
+}
+
+func (f *fakeSteeringRunner) TakeUnconsumedSteeringNotes() []string {
+	out := f.unconsumed
+	f.unconsumed = nil
+	return out
+}
+
+// TestRunInputWindow_SteeredLinesBypassQueue pins the TTY-3 window
+// branch: a line the sink accepts is steered (echoed as steering,
+// never queued); once the sink refuses, lines queue as before.
+func TestRunInputWindow_SteeredLinesBypassQueue(t *testing.T) {
+	var steered []string
+	sink := &fakeSteeringRunner{acceptUntil: 1}
+	cb := runInputWindowCallbacks{
+		trySteer:  sink.PushSteeringNote,
+		onSteered: func(line string) { steered = append(steered, line) },
+	}
+	w, _ := windowFromScript(t, "steer me\rqueue me\r", cb)
+	waitFor(t, func() bool {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		return len(w.queue) == 1
+	})
+	queued, _, _, _ := w.drain()
+	if len(sink.accepted) != 1 || sink.accepted[0] != "steer me" {
+		t.Fatalf("accepted = %v", sink.accepted)
+	}
+	if len(steered) != 1 || steered[0] != "steer me" {
+		t.Fatalf("steered echo = %v", steered)
+	}
+	if len(queued) != 1 || queued[0] != "queue me" {
+		t.Fatalf("queued = %v", queued)
+	}
+}
+
+// TestDrainRunInputWindow_UnconsumedNotesReplayFirst pins the handback
+// contract: notes the run accepted but never consumed re-enter the
+// replay queue AHEAD of later-typed queued lines.
+func TestDrainRunInputWindow_UnconsumedNotesReplayFirst(t *testing.T) {
+	r, _, _ := newApprovalREPL(t, "", &writeCapableRunner{})
+	r.runner = &fakeSteeringRunner{unconsumed: []string{"steered but not consumed"}, acceptUntil: 0}
+	w, _ := windowFromScript(t, "typed later\r", runInputWindowCallbacks{})
+	waitFor(t, func() bool {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		return len(w.queue) == 1
+	})
+	r.drainRunInputWindow(w)
+	if len(r.pendingFollowUps) != 2 ||
+		r.pendingFollowUps[0] != "steered but not consumed" ||
+		r.pendingFollowUps[1] != "typed later" {
+		t.Fatalf("pendingFollowUps = %v", r.pendingFollowUps)
+	}
+}

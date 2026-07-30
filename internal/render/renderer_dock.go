@@ -3127,3 +3127,28 @@ func (r *Renderer) CommitUserInputLine(line string) {
 		body: statusMeta.Sprint("⌨ " + body),
 	}))
 }
+
+// CommitUserSteeredLine is the steering twin of CommitUserInputLine
+// (TTY-3): the line was consumed by the RUNNING pipeline (forced-read
+// pins + window hint), not queued for replay — the wording must say so.
+func (r *Renderer) CommitUserSteeredLine(line string) {
+	if r == nil || strings.TrimSpace(line) == "" {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var body string
+	if isZh(r.lang) {
+		body = "已注入本轮探索: " + line
+	} else {
+		body = "steering current run: " + line
+	}
+	if !r.dockEnabled {
+		r.emitNonTTYLine(statusMeta.Sprint("⌨ " + body))
+		return
+	}
+	r.commitLineLocked(formatCommitRow(commitRow{
+		kind: commitRowNotice,
+		body: statusMeta.Sprint("⌨ " + body),
+	}))
+}
