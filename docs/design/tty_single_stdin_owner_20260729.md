@@ -87,3 +87,48 @@
 **REGFIX-D（REPL 动词面，3 条）**：#16 回放绕过输入漏斗（`!cmd` 与模板命令被当 LLM 提问送出 → 改为走同一漏斗：shell-bang → 别名 → 模板 → dispatch）；#17 `/import` 违反自身“篡改零挂载”契约（log 先挂载才校验 trace；剥掉 hash 的 manifest 全放行 → 改为全部校验通过后才动 sticky 车道，缺 hash 视为不可验证并拒绝）；#18 native 编辑器 Enter 劫持尾随 @token（可见文件建议时自动接受最高分项并提交 → Enter 只接受斜杠建议，文件建议仍可 Tab 显式接受）。
 
 **教训固化**：① 我自己写的止血保险丝成了新缺陷源（#0/#1）——任何“放弃/降级”路径必须**先失效化再放手**，且必须保留归还资源的回路；② 平台不可验证的改动一律记档 + 围堵，不盲修（#6 按此裁定处理）；③ 对抗复核必须覆盖“当日自己的批次”——本轮 19 条无一由同事引入。
+
+
+## 8. Windows console peek 证明式修复档案（REGFIX-C #6 根修，2026-07-30）
+
+用户裁定：无法本机运行验证 ≠ 不能修——按公开资料做**证明**去修复。本节即证明档案；代码=`internal/repl/console_input_record.go`（平台无关判定核心）+ `native_input_windows.go`（syscall 薄壳）。
+
+### 8.1 证据源（四路独立）
+
+1. **微软官方文档**（learn.microsoft.com/en-us/windows/console/*：input-record-str、key-event-record-str、focus/menu-event-record-str、peekconsoleinput、readconsoleinput、readconsole、setconsolemode、low-level-console-input-functions、reading-input-buffer-events；win32/api/synchapi/nf-synchapi-waitforsingleobject、win32/sync/wait-functions、win32/winprog/windows-data-types）。
+2. **本仓锁定版本依赖源码**（$GOMODCACHE：x/sys v0.44.0、x/term v0.41.0）——x/sys 无 Peek/ReadConsoleInput/INPUT_RECORD（普查零命中），但有事件类型常量（KEY_EVENT=0x0001 等，与文档值一致）、WaitForSingleObject、NewLazySystemDLL；x/term Windows makeRaw 清 ECHO|PROCESSED|LINE 并**置 ENABLE_VIRTUAL_TERMINAL_INPUT**（编辑器车道处于 VT 输入模式）。
+3. **四个实战 Go 实现互证**（mattn/go-tty tty_windows.go、gdamore/tcell v2.7.4 console_win.go、Azure/go-ansiterm winterm/api.go + moby/term 消费端、erikgeiser/coninput=Bubble Tea Windows 依赖）：20 字节布局四家全一致（三家显式 padding+[16]byte payload，tcell 另以手工字节偏移 0/4/6/8/10/12 解码独立佐证）；全部只从 kernel32 懒加载 W 变体；coninput 是唯一同时加载 PeekConsoleInputW 者且用 windows.NewLazySystemDLL（本修同款）。
+4. **仓内普查**：Windows 上本原语唯一可达车道=真控制台上的 prompt 编辑器 ESC/CSI 探测（25ms），IsTerminal + MakeRaw(GetConsoleMode) 双闸把关（后者非字面 IsTerminal，但同一判据、非控制台句柄同样拒绝）；运行窗口结构性不 arm（run_input_mode_other.go 无条件报错）；`d<=0` 全仓无调用点（顺手把 Windows 版对齐 unix 即时轮询语义）。
+
+### 8.2 布局证明（推导，非文档原文——文档只给类型不给偏移）
+
+Windows 数据类型（winprog/windows-data-types）：WORD=16 位、BOOL=int=32 位、DWORD=32 位、WCHAR=16 位。INPUT_RECORD＝WORD EventType@0 + 2 字节自然对齐 padding + 16 字节 union@4（KEY_EVENT_RECORD 为最大成员，其首 BOOL 强制 4 对齐），总 20 字节；KEY_EVENT_RECORD 内偏移：bKeyDown@0、wRepeatCount@4、wVirtualKeyCode@6、wVirtualScanCode@8、uChar@10、dwControlKeyState@12。无成员超过 4 字节对齐 ⇒ 386/amd64/arm64 布局同一；Windows 全架构小端。四家实现与该推导逐字节一致。宿主机可跑 pin：`TestConsoleInputRecord_WireLayout`（sizeof=20/offsetof 断言——Go 对这些字段形状的布局与 GOOS 无关，宿主断言即真断言）。
+
+### 8.3 「永不更差」论证（判定核心的正确性骨架）
+
+分类唯一职责：peek 到队首记录后判「确证无字节 ⇒ 丢弃」或「可能有字节 ⇒ 提交阻塞读」。两类错误不对称：**误提交**=退回修前行为（阻塞等待，即今日线上行为）；**误丢弃**=丢用户输入（不可接受）。故一切不确定分支落提交。丢弃集逐项证明：
+
+- **非 KEY_EVENT 记录**（focus/menu/mouse/resize/未知）：文档原文 focus/menu "used internally and should be ignored"；mouse/resize 文档明言被 ReadFile/ReadConsole 丢弃（resize 只有 ReadConsoleInput 能读）。⇒ ReadFile 永不为其产字节；我们用 ReadConsoleInput 提前丢弃与 ReadFile 自身行为**等价**，仅少了那次可能永不返回的阻塞等待。这正是客户 wedge 的机制闭环：句柄 signaled 条件=「缓冲区非空」（文档两句合取），不限记录类型。
+- **key-UP（除一例外）**：ReadFile 只从 key-DOWN 提取字符——tcell 与 moby/term 十年生产无条件丢弃全部 key-up 而无丢键报告，是最强实践证据；且 key-up 常回显 uChar（go-tty 的 numpad guard 逻辑反证），故本臂**不得**以 uChar 判定，否则每次击键尾随的 release 会让探测继续阻塞、修复失效。唯一例外：**Alt+numpad 合成字符落在 VK_MENU 自身的 key-UP 且 uChar≠0**（go-tty 专门 arm 佐证）⇒ 该形提交。
+- **无字符修饰键 key-DOWN**（SHIFT/CTRL/MENU/CAPITAL/L·RWIN/NUMLOCK/SCROLL/VK_LSHIFT..VK_RMENU 闭集白名单）：本身永不产字节；字符翻译在记录**入队时**已完成（uChar 即译文、dwControlKeyState 每记录自带修饰态），丢弃修饰键记录不影响后续记录的译文。三家实现均静默吞掉未映射裸修饰键。
+- **其余一律提交**：uChar≠0 的 key-down（可打印/控制字符 0x03、ESC 0x1b、IME VK_PACKET、VT 模式下方向键序列字节）、uChar==0 的非修饰 key-down（死键、IME 预组合 VK_PROCESSKEY 0xE5、非 VT 方向键、Ctrl+Space 的 NUL——闭集白名单的存在理由）、畸形 payload、Peek 不可用/失败、ReadConsoleInput 失败、n==0 竞态（continue 重等，预算封顶）。
+
+**前置稳定性前提（对抗复核 low 判定，记档为约束）**：「丢弃消费的就是 peek 到的那条」依赖记录只从队尾入队。conhost 源码确证：repeat 合并只改 `_storage.back()`、Read 从队首弹出——单 stdin owner 前提下成立。已知历史例外：2019 前的 conhost（GH#1637 之前）把 VT 查询应答（如 ESC[6n 的光标位置报告）**前插**队首；本仓 Windows 车道零 VT 查询发射（grep 确证），故不可达。**约束**：未来若在 Windows 上加任何光标探测/VT 查询特性，必须先重估本前提（老 conhost 上 peek-丢弃间隙的前插会让丢弃吃掉应答首字节）。
+
+**有意的行为差异（非回归）**：预算到点时老代码会因任意记录 signaled 而**越权阻塞**在 ReadFile 里超过声明的 25ms 预算（正是 wedge 属性本身），新代码诚实超时、字节留待下一次读取——与 unix 孪生行为一致；等价场景下无字节丢失、无乱序。
+
+### 8.3.1 conhost 源码级确证（对抗复核带回的正向真金）
+
+复核 agent 直读 microsoft/terminal（conhost）源码，把三条实践论证升级为源码论证：① ReadFile 的 key-up 字符交付条件逐字为 `uChar != 0 && vk == VK_MENU`（ALTNUMPAD_BIT 只影响解码不影响交付）——分类器 key-up 臂的提交条件与之**恰好相等**，等价性从「实践证据」升为「实现定义」；② 唯一从无字符 key-down 合成字节的车道（Ctrl+Space/Ctrl+@ 的 NUL，经 VkKeyScanW(0)）结构上不可能落在修饰键 VK 上（VkKeyScanW 只返回产字符键的 VK 或 0xFF）——修饰键白名单丢弃臂由此闭环；③ Alt+numpad 组合出 NUL（Alt+numpad0）时 ReadFile 同样不交付（GetChar 外层 uChar!=0 门先行）——分类器丢弃 VK_MENU-up-uChar==0 与之精确等价；④ Go Alignof 2 vs C 4 的分歧已用零宽 [0]uint32 前导字段抹平（尺寸/偏移不变，pin 断言 Alignof==4）。
+
+### 8.4 验证矩阵（能验的全验了，不能验的如实披露）
+
+- 判定核心 27 例真值表 + 布局 pin + 事件常量 pin：**宿主机真跑全绿**（console_input_record_test.go）。
+- syscall 薄壳：隔离模块（副本 diff 字节一致 + nativeLineInput stub + x/sys v0.44.0 锁定）`GOOS=windows CGO_ENABLED=0 go build` **amd64/386/arm64 三架构全过** + `go vet` 干净。调用模式=syscall.SyscallN(proc.Addr(), …uintptr(unsafe.Pointer(&x))…)，与 x/sys 生成代码同款（编译器保活语义）；proc.Find() 前置探测避免 Addr() 缺失 panic。
+- **未验证并披露**：真 Windows 控制台上的运行时行为。故运行窗口在 Windows 维持不 arm（收益面=prompt 编辑器探测不再被 focus/mouse/key-up 记录卡住）；待真机后再议重新武装。
+- 残留已知项（记档不扩批）：控制台代码页——仓内从不 SetConsoleCP(65001)，中文 Windows 默认 OEM 代码页下 ReadFile 返回 GBK 字节而编辑器按 UTF-8 解码，系**修前既有**的独立缺口，与本修无交互。
+
+
+### 8.5 对抗复核记录（提交前，wf_7e1f7a04-6e8）
+
+四路独立证伪（布局重推导/永不更差反例构造/Go-Win32 调用力学/集成与档案事实核查）：**4/4 sound，零 high/medium**。2 条 low 均已吸收：前置稳定性前提落 §8.3 约束条款；「双重 IsTerminal」措辞收紧。复核另独立复现了隔离编译矩阵（三架构 build+vet 离线全过）、逐项核对档案事实（27 例计数、版本、普查断言全部对上），并确认旧「记档不修」注释全仓零残留。机制审查全绿：SyscallN 四参形正确且保活、Find() 成功缓存、WAIT_TIMEOUT 类型双关经显式转换无害、无热旋（每条 continue 都回到内核等待且被 deadline 封顶）、bufio 无饥饿（丢弃车道只动控制台缓冲、永不动 bufio）。
