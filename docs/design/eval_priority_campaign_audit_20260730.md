@@ -1610,3 +1610,64 @@ answer skill 同步同一 typed 软指导，没有 raw request/模型 thinking/�
 fail-closed，以及真实 `renderAnswerDocObservationLedger` 生产接线。
 完整 `go test ./internal/types ./internal/agent ./internal/skill -count=1`
 通过（types 21.737s、agent 3.061s、skill 0.473s）。
+
+### B10 r2 人工审计与批 AA 规划（2026-07-31）
+
+批 Z4 推送、重建并通过 revision/clean-input 校验后，以严格
+`parallel=2` 重跑：
+
+- `eval/results/real_trace_d4_demand_vs_supply-20260731-123201`
+- `eval/results/read_combo_trace_current_code_boundary-20260731-123201`
+
+runner 2/2 PASS，人工 0/2。D4 对 Z2/Z4 的验收通过：principal coverage
+只发布显式 114.940ms 窗；目标 wakeup census 为36，waker roster 为
+CookieMonsterCl 34、Binder 1、T7 1，`sleep_exit` 不再被反写成
+“唤醒后立即睡眠”。Z3 也保住了正值 frequency/thermal #4 席，并把它称为
+次级有界候选；但模型仍在另一段把 `23.994 + 19.041` 求和为43.035ms，
+与确定性 `cross_row_additivity=forbidden` 相冲突。按本战役红线，不扫描
+答案数字或求和词面做硬拒绝；先作为 P2 模型波动观察跨 case 复现。
+
+D4 还暴露了一个不同层级的通用语义边界：目标线程
+running=26.946ms/23.4% 是该线程自己的状态分区，不能推出全 CPU
+“利用率不饱和/远未饱和”。低 runnable 只能约束该目标线程的 scheduler
+queueing；CPU-wide 饱和度必须由 per-CPU/core/system busy、idle、pressure
+等 typed 账户证明。这不是某个线程名或数值的特例。
+
+Mixed case 对 Y1/Z1 的验收通过：`heavy-compute` 没有升为根因，缺少
+sched 区间只形成 data gap，86.111ms 大于用户给定50ms的标量关系正确，
+trace 行与源码行也没有混淆。但 current-source 机制出现三类实质错误：
+
+1. `EventTraceMark` 只是事件类型枚举常量，答案却称其负责解析 B/E；
+2. 当前代码只有 `traceSpanCategory`，答案虚构了
+   `classifyFrameCategory`，并把 `strings.Contains(...)` 的 case 行当作
+   该虚构函数的 call site；
+3. 50ms 来自用户比较条件，Codrax 确定性的60Hz pretriage budget 实为
+   `PerfFrameBudget60HzMs=16.67`，答案却把50ms写成系统卡顿阈值。
+
+第2项已定位到 grounder 的结构性失效：
+`lineCorroboratesCallSite` 看到 `LineFeatureCallExpression` 就直接返回
+true，没有验证该 AST 调用行是否包含 `AnchorSymbol` 指定的 callee；
+`preferredCallTargetNames` 又同时混入 subject/object。因此“这一行存在某个
+调用”被错误升级成“这一行调用了指定函数”。该证据随后以
+`claim_form=call_edge` 进入 principal path，导致不存在的机制节点获得
+factual authority。
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B10-AA1 | P1 | target/CPU scope semantics | target_window_states 的 thread-local running/runnable 比例缺少消费权限边界，模型把目标线程 occupancy 推成 CPU-wide utilization/saturation | 从 typed target-state 与 CPU-accounting 账户构造紧凑 authority；只允许描述目标状态/排队，CPU-wide 结论必须另有 typed per-CPU/core/system 证据 | planned |
+| EVAL-B10-AA2 | P1 | call-anchor integrity | AST 只证明“行内有调用”，未证明指定 callee；subject/object 还能替代显式 AnchorSymbol | 显式 AnchorSymbol 存在时只以该 symbol 为 call target；AST feature 仅可覆盖 definition-shape 误判，仍须 exact callee relation 或 line-local call syntax | planned |
+| EVAL-B10-AA3 | P1 | mechanism path closure | 多条独立 definition/case facts 可被包装成 principal_path_edge，零 grounded relation 仍形成“完整机制链” | 由结构化 anchor kind、grounded relation 与 path-edge facet 构造 relation authority；无边时明确为 independent mechanism facts，不证明调用顺序 | planned |
+| EVAL-B10-AA4 | P2 | threshold provenance | 用户比较阈值、artifact 观测和源码配置阈值没有 typed 分席，模型把提问中的50ms升级为系统规则 | 建立 validator-owned comparator/profile，分别发布 user comparator 与 code-configured threshold；没有源码证据不得称系统阈值 | planned |
+| EVAL-B10-AA5 | P2 | rank additivity model variance | typed non-additivity 已发布，模型仍有一处直接求和 | 不增加答案词面/数字扫描硬门；跨不同 rank case 复现后再考虑 typed principal verdict，当前先观察 | filed-model-variance |
+
+批 AA 不变量：
+
+1. 不读取 raw request、模型 thinking 或最终答案正文来做硬门，也不按
+   `classifyFrameCategory`、50ms、CPU 饱和等本 case 词面拟合。
+2. 显式时间窗、Trace 因果投影、系统自动补采、根因排序、wakeup chain、
+   frame span/edge 与窗内可消除量保持原样。
+3. AST `LineFeatureCallExpression` 继续作为“存在调用表达式”的精确信号，
+   但不再越权代表任意指定 callee；真实 `yield*`、`await`、动态限定调用的
+   exact target 仍应 grounded。
+4. 用户阈值可用于回答用户提出的标量比较，但不能在没有当前源码证据时被
+   描述为产品内部判定阈值。
