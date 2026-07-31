@@ -1932,7 +1932,7 @@ func classifySingleShotRoutePolicy(request string) (repl.TurnPolicy, bool) {
 		return repl.TurnPolicy{}, false
 	}
 	policy := repl.ApplyTurnPolicyGuards(rawPolicy, false, hasAttachment)
-	logging.Info("[cmd/route] single-shot turn policy raw_route=%s route=%s operation=%s operation_kind=%s data_task_kind=%s needs_data=%t needs_repo=%t needs_operation=%t risk=%s confidence=%.2f source=%s target_surface=%s side_effects=%s reason=%q",
+	logging.Info("[cmd/route] single-shot turn policy raw_route=%s route=%s operation=%s operation_kind=%s data_task_kind=%s needs_data=%t needs_repo=%t current_source=%s needs_operation=%t risk=%s confidence=%.2f source=%s target_surface=%s side_effects=%s reason=%q",
 		rawPolicy.Route,
 		policy.Route,
 		policy.Operation,
@@ -1940,6 +1940,7 @@ func classifySingleShotRoutePolicy(request string) (repl.TurnPolicy, bool) {
 		policy.DataTaskKind,
 		policy.NeedsDataAccess,
 		policy.NeedsRepoAccess,
+		policy.CurrentSourceEvidenceMode,
 		policy.NeedsOperationAccess,
 		policy.RiskLevel,
 		policy.Confidence,

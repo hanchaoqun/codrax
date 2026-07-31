@@ -28,6 +28,26 @@ func TestRuntimeSourceAnswerAuthoritySnapshot_RuntimeOnlyCanCaveat(t *testing.T)
 	}
 }
 
+func TestRuntimeSourceAnswerAuthoritySnapshot_ArtifactPipelineAccessDoesNotRequireCurrentSource(t *testing.T) {
+	ledger := ObservationLedger{Records: []ObservationRecord{runtimeSourceTraceRecord("trace:root", "trace_query")}}
+	got := BuildRuntimeSourceAnswerAuthoritySnapshot(RuntimeSourceAnswerAuthorityInput{
+		RouteHint: TurnRouteHint{
+			Route:                     "repo",
+			Source:                    "artifact",
+			NeedsRepoAccess:           true,
+			CurrentSourceEvidenceMode: TurnRouteCurrentSourceEvidenceOptional,
+		},
+		Ledger: ledger,
+	})
+	if !got.Active || !got.RuntimeOnlySufficient || !got.CanUseRuntimeOnlyWithCaveat {
+		t.Fatalf("artifact-only route should preserve runtime authority: %+v", got)
+	}
+	if got.CurrentSourceRequired || got.NeedsCurrentSourceEvidence ||
+		got.CurrentSourceRequirement != RuntimeSourceRequirementNone {
+		t.Fatalf("repository pipeline access must not create a current-source obligation: %+v", got)
+	}
+}
+
 func TestRuntimeSourceAnswerAuthoritySnapshot_SoftRequirementCanDowngradeToCaveat(t *testing.T) {
 	ledger := ObservationLedger{Records: []ObservationRecord{runtimeSourceTraceRecord("trace:root", "trace_query")}}
 	rm := &RequestModel{

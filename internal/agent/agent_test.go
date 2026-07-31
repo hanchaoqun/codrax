@@ -1013,10 +1013,11 @@ func TestValidateAnalyzerPrescanToolCall(t *testing.T) {
 			Stage:       types.StageAnalyze,
 			AttachedLog: "2026-05-23T10:00:40Z WARN first_byte_timeout exceeded after 40s",
 			TurnRouteHint: types.TurnRouteHint{
-				Route:           "repo",
-				Source:          "artifact",
-				NeedsRepoAccess: true,
-				Confidence:      0.9,
+				Route:                     "repo",
+				Source:                    "artifact",
+				NeedsRepoAccess:           true,
+				CurrentSourceEvidenceMode: types.TurnRouteCurrentSourceEvidenceRequired,
+				Confidence:                0.9,
 			},
 		}
 		for _, tc := range []llm.ToolCall{
@@ -1026,6 +1027,26 @@ func TestValidateAnalyzerPrescanToolCall(t *testing.T) {
 		} {
 			if got := validateAnalyzerPrescanToolCall(ctx, tc); got != nil {
 				t.Fatalf("tool=%s should remain available when route keeps repo access in scope, got %+v", tc.Name, got)
+			}
+		}
+	})
+
+	t.Run("artifact pipeline access with optional current source still blocks prescan tools", func(t *testing.T) {
+		ctx := &types.AgentContext{
+			Stage:       types.StageAnalyze,
+			AttachedLog: "2026-05-23T10:00:40Z WARN first_byte_timeout exceeded after 40s",
+			TurnRouteHint: types.TurnRouteHint{
+				Route:                     "repo",
+				Source:                    "artifact",
+				NeedsRepoAccess:           true,
+				CurrentSourceEvidenceMode: types.TurnRouteCurrentSourceEvidenceOptional,
+				Confidence:                0.9,
+			},
+		}
+		for _, name := range []string{"repo_map", "grep", "list_files"} {
+			tc := llm.ToolCall{Name: name, Params: json.RawMessage(`{"pattern":"timeout","files_only":true}`)}
+			if got := validateAnalyzerPrescanToolCall(ctx, tc); got == nil {
+				t.Fatalf("tool=%s should be blocked until artifact-only emit_analysis despite pipeline repo access", name)
 			}
 		}
 	})

@@ -198,22 +198,23 @@ func SetMemoryContextTimeout(timeout time.Duration) {
 // ApplyTurnPolicyGuards before acting on any TurnPolicy so missing
 // or self-contradictory fields cannot drive a wrong route.
 type TurnPolicy struct {
-	Route                 TurnRoute
-	NeedsRepoAccess       bool
-	NeedsOperationAccess  bool
-	NeedsDataAccess       bool
-	Operation             string // chat | transform | summarize | translate | elaborate | investigate | computer_operation | artifact_generation | ...
-	OperationKind         string // optional more precise operation capability kind
-	DataTaskKind          string // optional data lane kind, e.g. data_cleaning | data_join | data_aggregation
-	WriteIntent           string // explicit_change | analysis_only | ambiguous
-	Source                string // current_message | last_answer | prior_context | repo | mixed
-	RiskLevel             string // none | low | medium | high
-	SideEffects           []string
-	TargetSurface         string // desktop | browser | file_artifact | office_doc | spreadsheet | slides | external_system | unknown
-	RequiresConfirmation  bool
-	Confidence            float64 // 0..1; <0.4 demotes to repo
-	Reason                string
-	PresentationDirective string // free-form, e.g. "mermaid", "markdown table", "brief 3-bullet"
+	Route                     TurnRoute
+	NeedsRepoAccess           bool
+	NeedsOperationAccess      bool
+	NeedsDataAccess           bool
+	Operation                 string // chat | transform | summarize | translate | elaborate | investigate | computer_operation | artifact_generation | ...
+	OperationKind             string // optional more precise operation capability kind
+	DataTaskKind              string // optional data lane kind, e.g. data_cleaning | data_join | data_aggregation
+	WriteIntent               string // explicit_change | analysis_only | ambiguous
+	Source                    string // current_message | last_answer | prior_context | repo | mixed
+	CurrentSourceEvidenceMode types.TurnRouteCurrentSourceEvidenceMode
+	RiskLevel                 string // none | low | medium | high
+	SideEffects               []string
+	TargetSurface             string // desktop | browser | file_artifact | office_doc | spreadsheet | slides | external_system | unknown
+	RequiresConfirmation      bool
+	Confidence                float64 // 0..1; <0.4 demotes to repo
+	Reason                    string
+	PresentationDirective     string // free-form, e.g. "mermaid", "markdown table", "brief 3-bullet"
 }
 
 // TurnPolicyClassifier is the optional extension interface the REPL
@@ -248,13 +249,16 @@ var _ SingleShotTurnPolicyClassifier = (*llmChitchatClassifier)(nil)
 // emit_analysis.
 func TurnRouteHintFromPolicy(p TurnPolicy) types.TurnRouteHint {
 	return types.TurnRouteHint{
-		Route:                string(p.Route),
-		Source:               strings.TrimSpace(p.Source),
-		Operation:            strings.TrimSpace(p.Operation),
-		OperationKind:        strings.TrimSpace(p.OperationKind),
-		DataTaskKind:         strings.TrimSpace(p.DataTaskKind),
-		WriteIntent:          normalizeWriteIntent(p.WriteIntent),
-		TargetSurface:        strings.TrimSpace(p.TargetSurface),
+		Route:         string(p.Route),
+		Source:        strings.TrimSpace(p.Source),
+		Operation:     strings.TrimSpace(p.Operation),
+		OperationKind: strings.TrimSpace(p.OperationKind),
+		DataTaskKind:  strings.TrimSpace(p.DataTaskKind),
+		WriteIntent:   normalizeWriteIntent(p.WriteIntent),
+		TargetSurface: strings.TrimSpace(p.TargetSurface),
+		CurrentSourceEvidenceMode: types.NormalizeTurnRouteCurrentSourceEvidenceMode(
+			string(p.CurrentSourceEvidenceMode),
+		),
 		ConcreteOperation:    IsConcreteOperationPolicy(p),
 		NeedsRepoAccess:      p.NeedsRepoAccess,
 		NeedsOperationAccess: p.NeedsOperationAccess,
@@ -307,6 +311,11 @@ var turnPolicyTool = llm.ToolSchema{
     "needs_repo_access": {
       "type": "boolean",
       "description": "true iff route is repo, hybrid, or write, or an operation explicitly needs fresh repository facts first. Route=repo also covers pipeline analysis of external observations such as logs/traces even when the analyzer later excludes current source. The dispatcher cross-checks this with route; mismatch demotes to a safe default."
+    },
+    "current_source_evidence_mode": {
+      "type": "string",
+      "enum": ["required", "optional"],
+      "description": "Whether evidence from the current repository checkout must participate in this answer. This is orthogonal to needs_repo_access: artifact-only log/trace/MCP investigation still uses route=repo and needs_repo_access=true to enter the analysis pipeline, but sets optional. Set required for current-source questions and mixed artifact+current-source correlation. Never infer this field from answer prose."
     },
     "needs_operation_access": {
       "type": "boolean",
@@ -373,7 +382,7 @@ var turnPolicyTool = llm.ToolSchema{
       "description": "Optional. Free-form directive describing the desired final-answer form ('mermaid', 'markdown table', 'brief 3-bullet summary', 'logic flow diagram'). Echoed verbatim into the local responder's system prompt when local, or carried as typed pipeline metadata when repo/hybrid. Preserve the user's wording and language when deriving it from the current message; do not translate Chinese user phrasing into English. It must not be prepended to or rewrite the user request body. Omit when not applicable."
     }
   },
-  "required": ["route", "needs_repo_access", "operation", "write_intent", "source", "confidence", "reason"]
+  "required": ["route", "needs_repo_access", "current_source_evidence_mode", "operation", "write_intent", "source", "confidence", "reason"]
 }`),
 }
 
@@ -510,6 +519,18 @@ Current repository context:
 needs_repo_access is true iff route ∈ {repo, hybrid, write}, or
 route=operation needs fresh repository facts before producing an artifact.
 The dispatcher re-checks this and corrects mismatches.
+
+current_source_evidence_mode is orthogonal to needs_repo_access:
+  required — the answer must use evidence from the current repository checkout,
+             including ordinary current-code questions and explicit correlation
+             of a runtime artifact with current source.
+  optional — current checkout evidence is not required. Use this for
+             artifact-only log, trace, MCP, connector, or other external-
+             observation diagnosis even though route=repo and
+             needs_repo_access=true are still required to enter the analysis
+             pipeline. Runtime observations remain answer-grade evidence and
+             must not be erased merely because the current checkout differs.
+This is typed routing metadata, not evidence. Do not derive answer facts from it.
 
 needs_operation_access is true iff route=operation. Do not set it for
 ordinary source, log, trace, MCP, connector, or attached-artifact
@@ -679,22 +700,32 @@ Examples (illustrative, NOT exhaustive — judge by structure):
 
   Current: "重新读一下仓库确认这个流程"
     → route=repo, operation=investigate, source=repo,
+      current_source_evidence_mode=required,
       confidence≈0.85
 
   Current: "只分析这个 trace，不要看代码，找一下 jank 原因"
     → route=repo, needs_operation_access=false,
       operation=investigate, source=artifact,
+      current_source_evidence_mode=optional,
       confidence≈0.9
 
   Current: "只看这段客户日志，不要读取源码，判断系统 gap"
     → route=repo, needs_operation_access=false,
       operation=investigate, source=artifact,
+      current_source_evidence_mode=optional,
       confidence≈0.9
 
   Current: "根据 MCP 返回的外部观测解释现象，不要看代码"
     → route=repo, needs_operation_access=false,
       operation=investigate, source=external_tool,
+      current_source_evidence_mode=optional,
       confidence≈0.85
+
+  Current: "结合这段客户日志和当前源码解释超时发生在哪一层"
+    → route=repo, needs_repo_access=true, needs_operation_access=false,
+      operation=investigate, source=mixed,
+      current_source_evidence_mode=required,
+      confidence≈0.9
 
   Current: "读取这几个 CSV，把记录按共同键 join 后按数值字段汇总，只输出 JSON"
     → route=data, needs_data_access=true, needs_repo_access=false,
@@ -913,22 +944,23 @@ func (c *llmChitchatClassifier) classifyPolicyLLM(ctx context.Context, userLine,
 		return zero, fmt.Errorf("turn-policy classifier: unexpected tool %q", call.Name)
 	}
 	var parsed struct {
-		Route                 string                   `json:"route"`
-		NeedsRepoAccess       flexiblePolicyBool       `json:"needs_repo_access"`
-		NeedsOperationAccess  flexiblePolicyBool       `json:"needs_operation_access"`
-		NeedsDataAccess       flexiblePolicyBool       `json:"needs_data_access"`
-		Operation             string                   `json:"operation"`
-		OperationKind         string                   `json:"operation_kind"`
-		DataTaskKind          string                   `json:"data_task_kind"`
-		WriteIntent           string                   `json:"write_intent"`
-		Source                string                   `json:"source"`
-		RiskLevel             string                   `json:"risk_level"`
-		SideEffects           flexiblePolicyStringList `json:"side_effects"`
-		TargetSurface         string                   `json:"target_surface"`
-		RequiresConfirmation  flexiblePolicyBool       `json:"requires_confirmation"`
-		Confidence            flexiblePolicyFloat      `json:"confidence"`
-		Reason                string                   `json:"reason"`
-		PresentationDirective string                   `json:"presentation_directive"`
+		Route                     string                   `json:"route"`
+		NeedsRepoAccess           flexiblePolicyBool       `json:"needs_repo_access"`
+		NeedsOperationAccess      flexiblePolicyBool       `json:"needs_operation_access"`
+		NeedsDataAccess           flexiblePolicyBool       `json:"needs_data_access"`
+		Operation                 string                   `json:"operation"`
+		OperationKind             string                   `json:"operation_kind"`
+		DataTaskKind              string                   `json:"data_task_kind"`
+		WriteIntent               string                   `json:"write_intent"`
+		Source                    string                   `json:"source"`
+		CurrentSourceEvidenceMode string                   `json:"current_source_evidence_mode"`
+		RiskLevel                 string                   `json:"risk_level"`
+		SideEffects               flexiblePolicyStringList `json:"side_effects"`
+		TargetSurface             string                   `json:"target_surface"`
+		RequiresConfirmation      flexiblePolicyBool       `json:"requires_confirmation"`
+		Confidence                flexiblePolicyFloat      `json:"confidence"`
+		Reason                    string                   `json:"reason"`
+		PresentationDirective     string                   `json:"presentation_directive"`
 	}
 	if err := unmarshalTurnPolicyParams(call.Params, &parsed); err != nil {
 		return zero, fmt.Errorf("turn-policy classifier: unmarshal tool params: %w", err)
@@ -945,15 +977,18 @@ func (c *llmChitchatClassifier) classifyPolicyLLM(ctx context.Context, userLine,
 		operationKind = operation
 	}
 	return TurnPolicy{
-		Route:                 route,
-		NeedsRepoAccess:       bool(parsed.NeedsRepoAccess),
-		NeedsOperationAccess:  bool(parsed.NeedsOperationAccess),
-		NeedsDataAccess:       bool(parsed.NeedsDataAccess),
-		Operation:             operation,
-		OperationKind:         operationKind,
-		DataTaskKind:          strings.TrimSpace(parsed.DataTaskKind),
-		WriteIntent:           normalizeWriteIntent(parsed.WriteIntent),
-		Source:                strings.TrimSpace(parsed.Source),
+		Route:                route,
+		NeedsRepoAccess:      bool(parsed.NeedsRepoAccess),
+		NeedsOperationAccess: bool(parsed.NeedsOperationAccess),
+		NeedsDataAccess:      bool(parsed.NeedsDataAccess),
+		Operation:            operation,
+		OperationKind:        operationKind,
+		DataTaskKind:         strings.TrimSpace(parsed.DataTaskKind),
+		WriteIntent:          normalizeWriteIntent(parsed.WriteIntent),
+		Source:               strings.TrimSpace(parsed.Source),
+		CurrentSourceEvidenceMode: types.NormalizeTurnRouteCurrentSourceEvidenceMode(
+			parsed.CurrentSourceEvidenceMode,
+		),
 		RiskLevel:             strings.TrimSpace(parsed.RiskLevel),
 		SideEffects:           []string(parsed.SideEffects),
 		TargetSurface:         strings.TrimSpace(parsed.TargetSurface),
@@ -1266,6 +1301,9 @@ const presentationDirectiveCap = 200
 // is demoted to repo.
 func ApplyTurnPolicyGuards(p TurnPolicy, hasPriorAnswer, hasAttachment bool) TurnPolicy {
 	p.WriteIntent = normalizeWriteIntent(p.WriteIntent)
+	p.CurrentSourceEvidenceMode = types.NormalizeTurnRouteCurrentSourceEvidenceMode(
+		string(p.CurrentSourceEvidenceMode),
+	)
 
 	// Cap the directive length so a runaway LLM cannot inflate
 	// the downstream prompt. Truncate on rune boundary (UTF-8
@@ -1889,12 +1927,13 @@ func (r *llmChitchatResponder) RespondLocal(ctx context.Context, userLine, prior
 // log file.
 func turnPolicyDebugLine(p TurnPolicy) string {
 	return fmt.Sprintf(
-		"route=%s operation=%s operation_kind=%s write_intent=%s needs_repo=%t needs_operation=%t risk=%s side_effects=%s target=%s confirm=%t confidence=%.2f source=%s reason=%q presentation=%q",
+		"route=%s operation=%s operation_kind=%s write_intent=%s needs_repo=%t current_source=%s needs_operation=%t risk=%s side_effects=%s target=%s confirm=%t confidence=%.2f source=%s reason=%q presentation=%q",
 		string(p.Route),
 		clipForLog(p.Operation, 32),
 		clipForLog(p.OperationKind, 32),
 		clipForLog(p.WriteIntent, 32),
 		p.NeedsRepoAccess,
+		clipForLog(string(p.CurrentSourceEvidenceMode), 16),
 		p.NeedsOperationAccess,
 		clipForLog(p.RiskLevel, 16),
 		clipForLog(strings.Join(p.SideEffects, ","), 80),

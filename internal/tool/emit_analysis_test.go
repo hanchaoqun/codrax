@@ -4843,11 +4843,12 @@ func TestEmitAnalysis_SynthesizesCurrentSourceAllowFromRouteBackedRuntimeArtifac
 	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{
 		Mutable: mu,
 		TurnRouteHint: types.TurnRouteHint{
-			Route:           "repo",
-			Source:          "artifact",
-			Operation:       "investigate",
-			NeedsRepoAccess: true,
-			Confidence:      0.9,
+			Route:                     "repo",
+			Source:                    "artifact",
+			Operation:                 "investigate",
+			NeedsRepoAccess:           true,
+			CurrentSourceEvidenceMode: types.TurnRouteCurrentSourceEvidenceRequired,
+			Confidence:                0.9,
 		},
 	}, json.RawMessage(payload))
 	if err != nil {
@@ -4902,11 +4903,12 @@ func TestEmitAnalysis_SynthesizesCurrentSourceAllowFromMixedRuntimeRoute(t *test
 	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{
 		Mutable: mu,
 		TurnRouteHint: types.TurnRouteHint{
-			Route:           "hybrid",
-			Source:          "mixed",
-			Operation:       "investigate",
-			NeedsRepoAccess: true,
-			Confidence:      0.9,
+			Route:                     "hybrid",
+			Source:                    "mixed",
+			Operation:                 "investigate",
+			NeedsRepoAccess:           true,
+			CurrentSourceEvidenceMode: types.TurnRouteCurrentSourceEvidenceRequired,
+			Confidence:                0.9,
 		},
 	}, json.RawMessage(payload))
 	if err != nil {
@@ -4925,6 +4927,61 @@ func TestEmitAnalysis_SynthesizesCurrentSourceAllowFromMixedRuntimeRoute(t *test
 	}
 	if !strings.Contains(res.Summary, "synthesized as allow from typed route metadata") {
 		t.Fatalf("summary should expose synthesized mixed-route allow policy, got %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_ArtifactPipelineAccessDoesNotSynthesizeCurrentSourceAllow(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{
+		WarnBelowKeywords:   0,
+		RejectBelowKeywords: 0,
+	})
+
+	mu := types.NewMutableState("explain attached runtime log")
+	mu.SetLogTriage(&types.LogBundle{
+		Observations: []types.LogObservation{{
+			Kind:      types.LogObservationRetryCycle,
+			Subject:   "finalizer timeout",
+			Summary:   "first_byte_timeout exceeded after 40s",
+			LineStart: 2,
+		}},
+	})
+	payload := withV4Required(`{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["finalizer", "timeout"],
+		"entities": ["finalizer", "LLM stream timeout"],
+		"question_kind": "mechanism"
+	}`)
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{
+		Mutable: mu,
+		TurnRouteHint: types.TurnRouteHint{
+			Route:                     "repo",
+			Source:                    "artifact",
+			Operation:                 "investigate",
+			NeedsRepoAccess:           true,
+			CurrentSourceEvidenceMode: types.TurnRouteCurrentSourceEvidenceOptional,
+			Confidence:                0.9,
+		},
+	}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("artifact-only route should remain analyzable, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("request model missing")
+	}
+	if rm.ExternalObservationPolicy != nil &&
+		rm.ExternalObservationPolicy.CurrentSourceMode == types.ExternalObservationCurrentSourceAllow {
+		t.Fatalf("optional current-source route must not synthesize current-source allow: %+v", rm.ExternalObservationPolicy)
+	}
+	if strings.Contains(res.Summary, "synthesized as allow") {
+		t.Fatalf("summary must not claim synthesized current-source allow: %q", res.Summary)
 	}
 }
 
@@ -4962,11 +5019,12 @@ func TestEmitAnalysis_RouteBackedRuntimeArtifactDoesNotOverrideExplicitSourceExc
 	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{
 		Mutable: mu,
 		TurnRouteHint: types.TurnRouteHint{
-			Route:           "repo",
-			Source:          "artifact",
-			Operation:       "investigate",
-			NeedsRepoAccess: true,
-			Confidence:      0.9,
+			Route:                     "repo",
+			Source:                    "artifact",
+			Operation:                 "investigate",
+			NeedsRepoAccess:           true,
+			CurrentSourceEvidenceMode: types.TurnRouteCurrentSourceEvidenceRequired,
+			Confidence:                0.9,
 		},
 	}, json.RawMessage(payload))
 	if err != nil {
@@ -5305,11 +5363,12 @@ func TestEmitAnalysis_RouteBackedRuntimeOnlyRepairsMissingExclusionKind(t *testi
 	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{
 		Mutable: mu,
 		TurnRouteHint: types.TurnRouteHint{
-			Route:           "repo",
-			Source:          "artifact",
-			Operation:       "investigate",
-			NeedsRepoAccess: false,
-			Confidence:      0.95,
+			Route:                     "repo",
+			Source:                    "artifact",
+			Operation:                 "investigate",
+			NeedsRepoAccess:           true,
+			CurrentSourceEvidenceMode: types.TurnRouteCurrentSourceEvidenceOptional,
+			Confidence:                0.95,
 		},
 	}, json.RawMessage(payload))
 	if err != nil {

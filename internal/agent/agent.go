@@ -5733,7 +5733,7 @@ func analyzerExternalObservationFirstBlocksTool(ctx *types.AgentContext, name st
 	if !ctx.TurnRouteHint.ExternalObservationFirst() || !analyzerHasRuntimeArtifactCarrier(ctx) {
 		return false
 	}
-	if ctx.TurnRouteHint.NeedsRepoAccess {
+	if ctx.TurnRouteHint.RequiresCurrentSourceEvidence() {
 		return false
 	}
 	if authority := runtimeSourceAnswerAuthorityForExplorer(ctx); authority.Active {

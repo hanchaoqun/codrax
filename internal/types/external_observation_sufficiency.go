@@ -83,12 +83,14 @@ func externalObservationSufficiencyCurrentSourceRequired(rm *RequestModel, hint 
 }
 
 // RouteBackedExternalObservationRequiresCurrentSource reports that the
-// pre-pipeline route classifier explicitly kept repo access in scope for an
-// external-observation-first turn. This is a lane obligation signal, not
+// pre-pipeline route classifier explicitly marked current checkout evidence as
+// required for an external-observation turn. Repository execution access is
+// orthogonal: artifact-only investigations still enter route=repo without
+// making checkout evidence load-bearing. This is a lane obligation signal, not
 // evidence: it can block external-only sufficiency, but it never creates
 // citations or answer facts by itself.
 func RouteBackedExternalObservationRequiresCurrentSource(rm *RequestModel, hint TurnRouteHint) bool {
-	if !hint.ExternalObservationParticipates() || !hint.NeedsRepoAccess {
+	if !hint.ExternalObservationParticipates() || !hint.RequiresCurrentSourceEvidence() {
 		return false
 	}
 	if rm != nil && rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {

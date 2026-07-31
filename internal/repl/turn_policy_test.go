@@ -1575,7 +1575,7 @@ func TestApplyTurnPolicyGuards_StrictFormatAloneDoesNotBecomeData(t *testing.T) 
 func TestClassifyPolicy_TeachesExternalObservationStaysPipeline(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{
-			turnPolicyResp(`{"route":"repo","needs_repo_access":true,"needs_operation_access":false,"operation":"investigate","source":"artifact","confidence":0.9,"reason":"trace/log analysis without current source"}`),
+			turnPolicyResp(`{"route":"repo","needs_repo_access":true,"current_source_evidence_mode":"optional","needs_operation_access":false,"operation":"investigate","source":"artifact","confidence":0.9,"reason":"trace/log analysis without current source"}`),
 		},
 	}
 	c := &llmChitchatClassifier{adapter: adapter}
@@ -1586,6 +1586,13 @@ func TestClassifyPolicy_TeachesExternalObservationStaysPipeline(t *testing.T) {
 	}
 	if policy.Route != RouteRepo || policy.NeedsOperationAccess || policy.Operation != "investigate" {
 		t.Fatalf("policy=%+v, want repo pipeline external-observation investigation", policy)
+	}
+	if policy.CurrentSourceEvidenceMode != types.TurnRouteCurrentSourceEvidenceOptional {
+		t.Fatalf("artifact-only pipeline must keep current checkout evidence optional: %+v", policy)
+	}
+	hint := TurnRouteHintFromPolicy(ApplyTurnPolicyGuards(policy, false, true))
+	if !hint.NeedsRepoAccess || hint.RequiresCurrentSourceEvidence() {
+		t.Fatalf("pipeline access and current-source evidence obligation must stay independent: %+v", hint)
 	}
 	system := adapter.calls[0].messages[0].Content
 	for _, want := range []string{
@@ -1599,6 +1606,8 @@ func TestClassifyPolicy_TeachesExternalObservationStaysPipeline(t *testing.T) {
 		"runtime_artifact=true",
 		"runtime_artifact_kind=<log|trace|mixed>",
 		"Never use this signal to enter write unless",
+		"current_source_evidence_mode is orthogonal to needs_repo_access",
+		"结合这段客户日志和当前源码解释超时发生在哪一层",
 	} {
 		if !strings.Contains(system, want) {
 			t.Fatalf("classifier system prompt missing %q:\n%s", want, system)

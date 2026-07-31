@@ -2649,7 +2649,7 @@ func repairMissingExternalObservationExclusionKindFromRouteHint(
 	if policy.ExcludesCurrentSource() || len(policy.SourceQuotes) == 0 {
 		return policy, ""
 	}
-	if ctx == nil || !ctx.TurnRouteHint.ExternalObservationParticipates() || ctx.TurnRouteHint.NeedsRepoAccess {
+	if ctx == nil || !ctx.TurnRouteHint.ExternalObservationParticipates() || ctx.TurnRouteHint.RequiresCurrentSourceEvidence() {
 		return policy, ""
 	}
 	if !emitAnalysisHasRuntimeArtifactCarrier(ctx) {
@@ -2662,9 +2662,9 @@ func repairMissingExternalObservationExclusionKindFromRouteHint(
 		normalized.Confidence = 0.75
 	}
 	if strings.TrimSpace(normalized.Rationale) == "" {
-		normalized.Rationale = "typed route metadata marked this external-observation turn as not needing repository access"
+		normalized.Rationale = "typed route metadata marked current checkout evidence optional for this external-observation turn"
 	}
-	return &normalized, "external_observation_policy missing exclusion_kind repaired from typed route metadata (external observation without repository access)"
+	return &normalized, "external_observation_policy missing exclusion_kind repaired from typed route metadata (current checkout evidence optional)"
 }
 
 func promoteInvalidExternalObservationExcludeToAllow(
@@ -4263,7 +4263,7 @@ func emitAnalysisObservationOnlyRuntimeArtifactForSourceInventoryGuards(ctx *typ
 }
 
 func synthesizeExternalObservationPolicyFromRouteHint(ctx *types.BusContext, policy *types.ExternalObservationPolicy) (*types.ExternalObservationPolicy, string) {
-	if ctx == nil || !ctx.TurnRouteHint.ExternalObservationParticipates() || !ctx.TurnRouteHint.NeedsRepoAccess {
+	if ctx == nil || !ctx.TurnRouteHint.ExternalObservationParticipates() || !ctx.TurnRouteHint.RequiresCurrentSourceEvidence() {
 		return policy, ""
 	}
 	if !emitAnalysisHasRuntimeArtifactCarrier(ctx) {
@@ -4280,14 +4280,14 @@ func synthesizeExternalObservationPolicyFromRouteHint(ctx *types.BusContext, pol
 			clone.Confidence = 0.75
 		}
 		if strings.TrimSpace(clone.Rationale) == "" {
-			clone.Rationale = "route metadata kept repository access in scope for an external-observation turn"
+			clone.Rationale = "typed route metadata requires current checkout evidence for this external-observation turn"
 		}
 		return &clone, "external_observation_policy current_source_mode synthesized as allow from typed route metadata"
 	}
 	return &types.ExternalObservationPolicy{
 		CurrentSourceMode: types.ExternalObservationCurrentSourceAllow,
 		Confidence:        0.75,
-		Rationale:         "route metadata kept repository access in scope for an external-observation turn",
+		Rationale:         "typed route metadata requires current checkout evidence for this external-observation turn",
 	}, "external_observation_policy current_source_mode synthesized as allow from typed route metadata"
 }
 
