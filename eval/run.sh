@@ -15,7 +15,10 @@
 # sides of "A vs B" to be mentioned), EXPECT_MATCHES_TEXT_REGEX
 # (newline-separated ERE over whitespace-folded answer text, useful for
 # rich multi-section answers where related signals may land on adjacent
-# lines), EXPECT_INVENTORY_ROWSETS plus typed row/count declarations
+# lines), optional EXPECT_PRINCIPAL_{CONTAINS,NOT_CONTAINS,
+# MATCHES_REGEX,MATCHES_TEXT_REGEX} over the model-authored answer before
+# deterministic trace projection supplements, EXPECT_INVENTORY_ROWSETS plus
+# typed row/count declarations
 # for category-level inventory correctness, and EXPECT_LOG_MATCHES_REGEX /
 # EXPECT_LOG_NOT_MATCHES_REGEX (newline-separated ERE patterns over
 # the control-plane log, useful for hidden subsystem-execution guards).
@@ -86,6 +89,10 @@ EXPECT_CONTAINS="${EXPECT_CONTAINS:-}"
 EXPECT_NOT_CONTAINS="${EXPECT_NOT_CONTAINS:-}"
 EXPECT_MATCHES_REGEX="${EXPECT_MATCHES_REGEX:-}"
 EXPECT_MATCHES_TEXT_REGEX="${EXPECT_MATCHES_TEXT_REGEX:-}"
+EXPECT_PRINCIPAL_CONTAINS="${EXPECT_PRINCIPAL_CONTAINS:-}"
+EXPECT_PRINCIPAL_NOT_CONTAINS="${EXPECT_PRINCIPAL_NOT_CONTAINS:-}"
+EXPECT_PRINCIPAL_MATCHES_REGEX="${EXPECT_PRINCIPAL_MATCHES_REGEX:-}"
+EXPECT_PRINCIPAL_MATCHES_TEXT_REGEX="${EXPECT_PRINCIPAL_MATCHES_TEXT_REGEX:-}"
 EXPECT_SECTIONS="${EXPECT_SECTIONS:-}"
 EXPECT_DIMENSIONS="${EXPECT_DIMENSIONS:-}"
 EXPECT_INVENTORY_ROWSETS="${EXPECT_INVENTORY_ROWSETS:-}"
@@ -353,6 +360,20 @@ scope_stdout() {
     cleaned="$(LC_ALL=C awk 'found{print; next} /━━━/{found=1}' <<<"$cleaned")"
   fi
   printf '%s' "$cleaned"
+}
+
+# scope_principal_stdout <out-file> → prints the model-authored visible
+# answer, excluding deterministic Trace Causal Projection blocks appended
+# after answer-document acceptance. This is intentionally a separate,
+# opt-in eval surface: the historical full-answer oracles continue to see
+# supplements, while principal oracles can prove that a correct system
+# footer did not mask an incorrect answer body.
+scope_principal_stdout() {
+  local out="$1"
+  scope_stdout "$out" | LC_ALL=C awk '
+    /^## (Trace 因果投影|Trace Causal Projection)( — .*)?[[:space:]]*$/ { exit }
+    { print }
+  '
 }
 
 json_string_field() {
@@ -804,7 +825,7 @@ write_metrics() {
 # write_verdict <verdict-file> <cleaned-string> [extra-reasons...]
 #
 # Shared EXPECT_CONTAINS / EXPECT_NOT_CONTAINS / EXPECT_MATCHES_REGEX /
-# EXPECT_SECTIONS matcher. cleaned is the bytes the verdict checks
+# EXPECT_SECTIONS matcher. cleaned is the full-answer bytes the verdict checks
 # against — mode-specific upstream (scope_stdout output for read, plan
 # JSON for plan, post-apply fixture bytes for apply). extra-reasons
 # are pre-seeded failure tokens from mode-specific pre-checks (e.g.
@@ -914,6 +935,60 @@ write_verdict() {
       fi
     done
     IFS="$old_ifs"
+  fi
+
+  # EVAL-B1-R11/E1 (2026-07-30): optional principal-answer checks run
+  # against the model-authored visible answer before deterministic trace
+  # projection supplements. A footer may provide useful audit context, but
+  # it must not satisfy facts that the principal answer omitted or got wrong.
+  if [[ -n "$EXPECT_PRINCIPAL_CONTAINS$EXPECT_PRINCIPAL_NOT_CONTAINS$EXPECT_PRINCIPAL_MATCHES_REGEX$EXPECT_PRINCIPAL_MATCHES_TEXT_REGEX" ]]; then
+    if [[ -n "$MODE" && "$MODE" != "read" ]]; then
+      pass=0
+      reasons+=("principal_oracle_requires_read_mode")
+    else
+      if [[ -n "$EXPECT_PRINCIPAL_CONTAINS" ]]; then
+        for needle in $EXPECT_PRINCIPAL_CONTAINS; do
+          if ! eval_expect_token_present "$needle" "$principal_cleaned"; then
+            pass=0
+            reasons+=("missing_principal:$needle")
+          fi
+        done
+      fi
+      if [[ -n "$EXPECT_PRINCIPAL_NOT_CONTAINS" ]]; then
+        for needle in $EXPECT_PRINCIPAL_NOT_CONTAINS; do
+          if eval_expect_token_present "$needle" "$principal_cleaned"; then
+            pass=0
+            reasons+=("banned_principal:$needle")
+          fi
+        done
+      fi
+      if [[ -n "$EXPECT_PRINCIPAL_MATCHES_REGEX" ]]; then
+        local principal_old_ifs="$IFS"
+        IFS=$'\n'
+        for rx in $EXPECT_PRINCIPAL_MATCHES_REGEX; do
+          [[ -z "$rx" ]] && continue
+          if ! LC_ALL=C grep -aEq -- "$rx" <<<"$principal_cleaned"; then
+            pass=0
+            reasons+=("no_principal_regex_match:${rx}")
+          fi
+        done
+        IFS="$principal_old_ifs"
+      fi
+      if [[ -n "$EXPECT_PRINCIPAL_MATCHES_TEXT_REGEX" ]]; then
+        local principal_folded principal_old_ifs
+        principal_folded="$(LC_ALL=C tr '\n\r\t' '   ' <<<"$principal_cleaned")"
+        principal_old_ifs="$IFS"
+        IFS=$'\n'
+        for rx in $EXPECT_PRINCIPAL_MATCHES_TEXT_REGEX; do
+          [[ -z "$rx" ]] && continue
+          if ! LC_ALL=C grep -aEq -- "$rx" <<<"$principal_folded"; then
+            pass=0
+            reasons+=("no_principal_text_regex_match:${rx}")
+          fi
+        done
+        IFS="$principal_old_ifs"
+      fi
+    fi
   fi
 
   # EXPECT_SECTIONS: space-separated literal tokens; ALL must appear.
@@ -1184,6 +1259,7 @@ run_one() {
 
   # Verdict source bytes selection by MODE.
   local cleaned=""
+  local principal_cleaned=""
   local extra_reasons=()
   case "$MODE" in
     plan)
@@ -1268,6 +1344,7 @@ run_one() {
       ;;
     *)
       cleaned="$(scope_stdout "$out")"
+      principal_cleaned="$(scope_principal_stdout "$out")"
       if (( rc != 0 )); then
         extra_reasons+=("read_exit:$rc")
       fi

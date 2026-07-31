@@ -261,6 +261,9 @@ eval_case_oracle_surface() {
   if LC_ALL=C grep -aEq '^[[:space:]]*EXPECT_CONTAINS=' "$file"; then
     eval_case_oracle_surface_add "answer_contains"
   fi
+  if LC_ALL=C grep -aEq '^[[:space:]]*EXPECT_PRINCIPAL_(CONTAINS|NOT_CONTAINS|MATCHES_REGEX|MATCHES_TEXT_REGEX)=' "$file"; then
+    eval_case_oracle_surface_add "principal_answer"
+  fi
   if LC_ALL=C grep -aEq '^[[:space:]]*MAX_[A-Z0-9_]+=' "$file"; then
     eval_case_oracle_surface_add "metric_hard_budget"
   fi

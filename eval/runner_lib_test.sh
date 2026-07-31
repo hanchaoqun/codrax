@@ -168,6 +168,13 @@ EXPECT_MATCHES_REGEX="foo"
 CASE
 assert_eq "$(eval_case_oracle_surface "$tmp/oracle-read-regex.case")" "answer_regex" "read EXPECT_MATCHES_REGEX should be answer regex oracle"
 
+cat >"$tmp/oracle-principal.case" <<'CASE'
+ID="oracle_principal"
+QUESTION="principal answer smoke"
+EXPECT_PRINCIPAL_MATCHES_REGEX="foo"
+CASE
+assert_eq "$(eval_case_oracle_surface "$tmp/oracle-principal.case")" "principal_answer" "principal answer oracle surface classification"
+
 cat >"$tmp/oracle-write-post-apply-regex.case" <<'CASE'
 ID="oracle_write_post_apply_regex"
 MODE="apply"
@@ -183,6 +190,56 @@ QUESTION="basic smoke"
 CASE
 assert_eq "$(eval_case_oracle_surface "$tmp/oracle-basic.case")" "basic_output" "case oracle surface basic fallback"
 assert_eq "$(eval_case_oracle_surface "$tmp/missing.case")" "unknown" "case oracle surface missing file"
+
+# EVAL-B1-R11/E1: full-answer oracles may inspect deterministic supplements,
+# while principal-answer oracles must stop before the system-authored trace
+# projection. A correct footer cannot mask a wrong principal answer.
+cat >"$tmp/fake-codrax-principal-scope" <<'SH'
+#!/usr/bin/env bash
+echo 'thinking stream contains correct-footer but is before the separator'
+echo '━━━'
+echo 'required-principal first row'
+echo 'second principal row'
+echo '## Trace 因果投影'
+echo 'correct-footer forbidden-footer'
+SH
+chmod +x "$tmp/fake-codrax-principal-scope"
+cat >"$tmp/principal-scope-pass.case" <<'CASE'
+ID="principal_scope_pass"
+NAME="principal scope pass"
+QUESTION="principal scope test"
+MIN_OUTPUT_CHARS=1
+EXPECT_CONTAINS="correct-footer"
+EXPECT_PRINCIPAL_CONTAINS="required-principal"
+EXPECT_PRINCIPAL_NOT_CONTAINS="forbidden-footer"
+EXPECT_PRINCIPAL_MATCHES_REGEX="^required-principal"
+EXPECT_PRINCIPAL_MATCHES_TEXT_REGEX="required-principal +first row +second principal row"
+CASE
+CODRAX_BIN="$tmp/fake-codrax-principal-scope" EVAL_RESULTS_ROOT="$tmp/principal-results" CODRAX_PROVIDER_ARGS_RAW="" \
+  eval/run.sh "$tmp/principal-scope-pass.case" 1 >/dev/null || fail "principal scope pass eval failed to run"
+principal_pass_dir="$(eval_latest_result_dir "$tmp/principal-results" principal_scope_pass 00000000-000000 || true)"
+[[ -n "$principal_pass_dir" ]] || fail "principal scope pass result dir missing"
+assert_eq "$(cat "$principal_pass_dir/run-1.verdict")" "PASS" "principal scope should exclude deterministic footer"
+
+cat >"$tmp/principal-scope-fail.case" <<'CASE'
+ID="principal_scope_fail"
+NAME="principal scope fail"
+QUESTION="principal scope test"
+MIN_OUTPUT_CHARS=1
+EXPECT_CONTAINS="correct-footer"
+EXPECT_PRINCIPAL_MATCHES_REGEX="correct-footer"
+CASE
+CODRAX_BIN="$tmp/fake-codrax-principal-scope" EVAL_RESULTS_ROOT="$tmp/principal-results" CODRAX_PROVIDER_ARGS_RAW="" \
+  eval/run.sh "$tmp/principal-scope-fail.case" 1 >/dev/null || fail "principal scope fail eval failed to run"
+principal_fail_dir="$(eval_latest_result_dir "$tmp/principal-results" principal_scope_fail 00000000-000000 || true)"
+[[ -n "$principal_fail_dir" ]] || fail "principal scope fail result dir missing"
+case "$(cat "$principal_fail_dir/run-1.verdict")" in
+  "FAIL no_principal_regex_match:correct-footer")
+    ;;
+  *)
+    fail "footer-only witness must not satisfy principal oracle, got: $(cat "$principal_fail_dir/run-1.verdict")"
+    ;;
+esac
 
 printf 'one\nreject\000\nreject\n' >"$tmp/log.txt"
 assert_eq "$(eval_count_pattern 'reject' "$tmp/log.txt")" "2" "pattern count"
