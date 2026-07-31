@@ -88,6 +88,9 @@ func TestFinBindNoCrossRowDurationSums(t *testing.T) {
 	for _, want := range []string{
 		"never add durations from different measured rows or different threads into a new total",
 		"a self-made aggregate fabricates time",
+		"top N root-cause rank seats",
+		"comparable attribution/head-room values, not additive parts",
+		"licenses only the members inside that one row",
 		"must still be one published value, not your own sum",
 		"Self-derived RATIOS stay allowed",
 	} {

@@ -98,6 +98,25 @@ func TestFinalizerSkillTraceDataGapAuthorityZ1(t *testing.T) {
 	}
 }
 
+func TestFinalizerSkillMixedSupplyVerdictZ3(t *testing.T) {
+	item := psgAnswerSkillTierBBody(t, "TRACE MIXED SUPPLY VERDICT")
+	if !item.AppliesTo.RequiresTrace {
+		t.Fatalf("the mixed-supply rule is trace-gated; AppliesTo=%+v", item.AppliesTo)
+	}
+	for _, want := range []string{
+		"positive effective_impact_ms",
+		"fix_direction=frequency_thermal",
+		"forbids saying compute supply was absent",
+		"secondary bounded candidate",
+		"`not the main cause` is not the same as `no supply issue`",
+		"different ranked rows are non-additive",
+	} {
+		if !strings.Contains(item.Body, want) {
+			t.Fatalf("mixed-supply authority rule missing %q:\n%s", want, item.Body)
+		}
+	}
+}
+
 // TestG13FinalizerSkillPrimaryCauseEntityConsistency pins the §27.4 G13 /
 // §28.1 ruling (2026-07-09) headline half: the prose's primary-cause entity
 // follows the ranked ordering (discounts/demotions included), and a genuine

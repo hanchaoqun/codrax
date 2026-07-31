@@ -1515,7 +1515,7 @@ D4 case 验证用户红线没有回退：显式 114.940ms 时间窗、四态闭�
 |---|---:|---|---|---|---|
 | EVAL-B10-Z1 | P1 | data-gap provenance | reduced-shape `root_evidence:trace_gap` 无视 typed `trace_gap_kind/tier`，统一铸成 direct cause | data-gap root-evidence 使用 coverage/artifact provenance；typed guidance 固定缺区间不证明连续执行、CPU 占用、未抢占或未睡眠 | covered |
 | EVAL-B10-Z2 | P1 | 显式窗口权限 | 多轮查询的 target-state 账按遇到顺序/宽窗聚合，自动补采宽窗可夺取覆盖摘要 principal window | 从 typed request scope 取得显式窗，优先精确匹配；宽窗仅 supplemental，补采和因果投影本身不变 | covered |
-| EVAL-B10-Z3 | P1 | demand/supply 混合结论与可加性 | 排名席的方向/正值 supply seat/折算口径未形成统一 verdict；模型把“非主因”写成不存在并直接求和重叠席 | typed 主次方向指导；有正值 supply 席时只能说次级/有界；rank 默认 non-additive，只有明确 disjoint/union caliber 才可相加 | planned |
+| EVAL-B10-Z3 | P1 | demand/supply 混合结论与可加性 | 排名席的方向/正值 supply seat/折算口径未形成统一 verdict；模型把“非主因”写成不存在并直接求和重叠席 | typed 主次方向指导；有正值 supply 席时只能说次级/有界；rank 默认 non-additive，只有明确 disjoint/union caliber 才可相加 | covered |
 | EVAL-B10-Z4 | P2 | 唤醒 census 权限 | 正文声称 36 次、34 次来自单一线程，需确认是否绑定单一完整 census 而非分支样本/重复视图 | 先核对 typed wakeup census；仅在缺单一 census 时补权限，不为本 case 数字拟合 | audit-pending |
 
 批 Z 不变量：
@@ -1553,3 +1553,24 @@ coverage face 的 principal window authority。`target_window_states` 账户
 mismatch fail-closed 与 legacy 正例。完整
 `go test ./internal/types ./internal/tool -count=1` 通过
 （types 20.434s、tool 160.876s）。
+
+批 Z3 复用既有 `rank/effective_impact_ms/fix_direction`，没有新增第二套
+因果分类。finalizer 的 Observation Ledger 后新增紧凑 typed authority：
+
+- 每个 trace 分区公布 top seat 与 seated count，并明确
+  `cross_row_additivity=forbidden`；不同根因席只能比较 attribution/head-room，
+  不能跨行、跨线程、跨方向求和。只有某一 merged row 自己公布的 total 才
+  可在该行的 typed fold caliber 内解释为合计。
+- 若存在正值 `fix_direction=frequency_thermal` 席，则发布
+  `compute_delivery_positive=true` 及其 rank/subject/type/value；若它不是
+  top，权限词固定为 `secondary_bounded_candidate`，因此“不是主因”不能被
+  模型升级成“不存在/已排除”。
+
+answer-document skill 与 exploration skill 同步增加相同 typed 软指导；
+`NO CROSS-ROW DURATION SUMS` 明确把 top-N 根因席纳入禁加范围。整个实现不
+扫描 raw request、thinking 或答案原文，不新增 hard reject，不改变因果投影、
+自动补采、榜单、席值或排序。生产接线测试从真实
+`renderAnswerDocObservationLedger` 入口固定 lock-priority #1 +
+frequency-thermal #4 的混合形。完整
+`go test ./internal/agent ./internal/skill -count=1` 通过
+（agent 2.470s、skill 0.923s）。

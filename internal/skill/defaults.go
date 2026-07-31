@@ -190,6 +190,13 @@ func RegisterDefaults(r *Registry) {
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},
 			{
+				// EVAL-B10-Z3: mixed compute-delivery authority. This is a
+				// typed fix-direction/value rule, not a scan for "排除" or any
+				// other model/user phrase.
+				Body:      "TRACE MIXED SUPPLY VERDICT: a seated root-cause row with positive effective_impact_ms and fix_direction=frequency_thermal is measured compute-delivery head-room. Its presence forbids saying compute supply was absent, eliminated, disproven, or fully ruled out. If a different direction occupies the higher ranked seats, say that the other direction is dominant and compute delivery is a secondary bounded candidate, quoting the supply seat's own published value and caliber; `not the main cause` is not the same as `no supply issue`. If the frequency_thermal seat itself ranks first, follow the board and treat it as primary. Never add that seat to demand/dependency/IO/lock seats: different ranked rows are non-additive unless the evidence itself publishes one merged-row total under its typed fold caliber.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+			},
+			{
 				// C1 值词库教学批 (§29.104.16.1 M5①, 2026-07-17). EVOLUTION
 				// RECORD: the wire-token ↔ display-word bridge directive —
 				// witness cust_span_vs_prio_info: bare `gated_runnable` and
@@ -626,6 +633,13 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},
 			{
+				// EVAL-B10-Z3 answer-side mirror: the exploration skill carries
+				// the same typed rule for handoff; final prose needs its own
+				// soft authority because no answer-text scanner is permitted.
+				Body:      "TRACE MIXED SUPPLY VERDICT: a seated root-cause row with positive effective_impact_ms and fix_direction=frequency_thermal is measured compute-delivery head-room. Its presence forbids saying compute supply was absent, eliminated, disproven, or fully ruled out. If a different direction occupies the higher ranked seats, say that the other direction is dominant and compute delivery is a secondary bounded candidate, quoting the supply seat's own published value and caliber; `not the main cause` is not the same as `no supply issue`. If the frequency_thermal seat itself ranks first, follow the board and treat it as primary. Never add that seat to demand/dependency/IO/lock seats: different ranked rows are non-additive unless the evidence itself publishes one merged-row total under its typed fold caliber.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+			},
+			{
 				// PSG-1: prose numeral grounding — trace-only (§25 ruling
 				// b assertion half, real_trace_campaign_20260705.md,
 				// 2026-07-08; huadong_01 C-P1: a trace answer with zero
@@ -766,7 +780,7 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 				// Complements WINDOW-STATS CORE NUMBERS (which allows a
 				// self-derived ratio with its inputs named): wall-clock
 				// DURATIONS never sum across rows.
-				Body:      "NO CROSS-ROW DURATION SUMS: never add durations from different measured rows or different threads into a new total of your own (wall-clock intervals overlap and double-count — a self-made aggregate fabricates time). Quote each row's own published value, or a total the evidence itself publishes (a merged family row's combined value is such a total). An approximate figure introduced with wording like 'about N ms' must still be one published value, not your own sum. Self-derived RATIOS stay allowed under the core-numbers rule (name the published values they came from); duration totals do not.",
+				Body:      "NO CROSS-ROW DURATION SUMS: never add durations from different measured rows or different threads into a new total of your own (wall-clock intervals overlap and double-count — a self-made aggregate fabricates time). This includes a prose total made from the top N root-cause rank seats: rank values are comparable attribution/head-room values, not additive parts of one duration. Quote each row's own published value, or a total the evidence itself publishes (a merged family row's combined value is such a total, and its typed fold caliber licenses only the members inside that one row). An approximate figure introduced with wording like 'about N ms' must still be one published value, not your own sum. Self-derived RATIOS stay allowed under the core-numbers rule (name the published values they came from); duration totals do not.",
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 				OnViolation: []types.ViolationKind{
 					types.ViolProseScalarUngrounded,
