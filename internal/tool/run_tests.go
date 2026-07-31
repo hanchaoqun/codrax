@@ -66,6 +66,7 @@ const (
 	verificationProbeContinuationPlanTouchesTestPath       = "plan_touches_test_path"
 	verificationProbeContinuationMissingChangedSymbolRef   = "verification_probe_missing_changed_symbol_ref"
 	verificationProbeContinuationImpactRelatedTestSurface  = "impact_related_test_surface"
+	verificationProbeContinuationChangedPathUncovered      = "verification_probe_changed_path_uncovered"
 	verificationProbeContinuationSourceImpactTestSurface   = "impact_test_surface"
 	verificationProbeContinuationSourceProbeSuiteContinued = "probe_primary_suite_continued"
 )
@@ -512,7 +513,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			probeStatus := probe.Report.NormalizeVerificationStatus()
 			switch probeStatus {
 			case types.VerificationStatusPassed:
-				if reasonCode := verificationProbePassProjectSuiteContinuationReason(ctx, surface, plans, planSources); reasonCode != "" {
+				if reasonCode := verificationProbePassProjectSuiteContinuationReason(ctx, probe.Report, surface, plans, planSources); reasonCode != "" {
 					preSuiteProbeContinuationReason = reasonCode
 					if reasonCode == verificationProbeContinuationImpactRelatedTestSurface {
 						plans = filterRunnerPlansBySource(ctx.RepoRoot, plans, planSources, verificationProbeContinuationSourceImpactTestSurface)
@@ -1505,7 +1506,7 @@ func shouldRunPreSuiteVerificationProbes(ctx *types.BusContext, dryRunProbe bool
 	return ctx != nil && ctx.PipelineStage == types.StageVerify && !dryRunProbe
 }
 
-func verificationProbePassProjectSuiteContinuationReason(ctx *types.BusContext, surface types.TestSurface, plans []runnerPlan, planSources map[string]string) string {
+func verificationProbePassProjectSuiteContinuationReason(ctx *types.BusContext, probeReport *types.ChangeReport, surface types.TestSurface, plans []runnerPlan, planSources map[string]string) string {
 	if cand := selectedSurfaceCandidate(surface); cand == nil || !cand.HasTestSignal {
 		return ""
 	}
@@ -1515,6 +1516,13 @@ func verificationProbePassProjectSuiteContinuationReason(ctx *types.BusContext, 
 	}
 	if hasRunnerPlanWithSource(ctxRepoRoot(ctx), plans, planSources, verificationProbeContinuationSourceImpactTestSurface) {
 		return verificationProbeContinuationImpactRelatedTestSurface
+	}
+	// A passed bounded probe is authoritative only for the changed source
+	// paths it actually covers. Evaluate that typed coverage before deciding
+	// to skip an already-detected project suite; finishReport used to discover
+	// the mismatch only after the suite had been discarded.
+	if verificationProbeHasUncoveredChangedPathWithMatchingRunner(ctx, probeReport, plans) {
+		return verificationProbeContinuationChangedPathUncovered
 	}
 	// Missing contract refs are recorded by verificationConfidenceRecordsFromReport
 	// as a typed confidence downgrade. They are not, by themselves, a reason to
@@ -1528,6 +1536,37 @@ func verificationProbePassProjectSuiteContinuationReason(ctx *types.BusContext, 
 		return verificationProbeContinuationMissingChangedSymbolRef
 	}
 	return ""
+}
+
+func verificationProbeHasUncoveredChangedPathWithMatchingRunner(ctx *types.BusContext, probeReport *types.ChangeReport, plans []runnerPlan) bool {
+	if ctx == nil || ctx.Mutable == nil || probeReport == nil || len(plans) == 0 {
+		return false
+	}
+	plan := ctx.Mutable.ChangePlan()
+	if plan == nil {
+		return false
+	}
+	targetPaths, _ := types.ActiveChangePlanApplyTargetPaths(plan, ctx.Mutable.WriteWorkflowRun())
+	targets, targetFamilies := recognizedChangedSourcePaths(targetPaths)
+	if len(targets) == 0 {
+		return false
+	}
+	covered := changedPathCoverageFromPassedProbes(plan, probeReport, targets, targetFamilies)
+	for _, path := range targets {
+		if _, ok := covered[path]; ok {
+			continue
+		}
+		for _, runnerPlan := range plans {
+			runnerFamilies := sourceVerificationLanguageFamilies(
+				types.VerificationLanguageFamiliesFromRunner(runnerPlan.Runner, runnerPlan.Framework),
+			)
+			if verificationLanguageFamiliesIntersect(targetFamilies[path], runnerFamilies) &&
+				repoPathWithinWorkingDir(path, runnerPlanRel(ctx.RepoRoot, runnerPlan)) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func hasRunnerPlanWithSource(repoRoot string, plans []runnerPlan, planSources map[string]string, source string) bool {

@@ -1792,7 +1792,7 @@ transaction 12145859，peer `binder:496_9-10961`，发生于
 
 | ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
 |---|---:|---|---|---|---|
-| EVAL-B11-AB1 | P1 | write verification continuation | probe-pass 决策早于 changed-path coverage，导致已识别的匹配 suite 被跳过后才发现覆盖不足 | 对 probe pass 的临时报表先执行 changed-path coverage；若有 changed source 未覆盖且存在可运行 TestSurface，则继续项目 suite，并由组合报告取得最终覆盖 | planned |
+| EVAL-B11-AB1 | P1 | write verification continuation | probe-pass 决策早于 changed-path coverage，导致已识别的匹配 suite 被跳过后才发现覆盖不足 | 对 probe pass 的临时报表先执行 changed-path coverage；若有 changed source 未覆盖且存在可运行 TestSurface，则继续项目 suite，并由组合报告取得最终覆盖 | covered |
 | EVAL-B11-AB2 | P1 | trace aggregate temporal identity | 累计/投影值与某个单次 occurrence span 共用 observation，duration 与 window 失配 | 让聚合记录只携带 aggregate/member-set 窗；单次 span 必须绑定同一 member 的 duration，无法一一对应则不发布单次精确窗 | planned |
 | EVAL-B11-AB3 | P1 | rank roster authority | writer 仅获 top/supply 摘要，完整排序留在成文后的 deterministic projection | 从 compiled projection 发布紧凑、完整、按 rank 排序的 typed roster，区分 ranked seat 与 context-only/binder composition，供正文直接转录 | planned |
 | EVAL-B11-AB4 | P2 | incomplete enumeration wording | observation coverage 已为 incomplete，正文仍写“窗口内全部/其余均为” | 将 per-view enumeration completeness 与可用 rowset 绑定成 typed wording authority；保持 soft guidance，不扫描答案做 hard gate | filed |
@@ -1806,3 +1806,19 @@ transaction 12145859，peer `binder:496_9-10961`，发生于
 3. 通过的 bounded probe 仍可跳过无关项目 suite；只有 changed-path
    coverage 实际不足且存在匹配 TestSurface 时才续跑。
 4. 聚合值可以保持完整累计语义，但不能借用不对应的单次精确时间窗。
+
+批 AB1 已把 changed-path 权限前移到 probe-pass 的 suite 决策点。判定只消费
+ChangePlan 的 active target paths、已通过 probe 的 typed language family /
+`changed_symbol_refs`，以及 TestSurface runner 的 language family /
+working directory。只有仍未覆盖的修改源文件确实存在匹配 runner 时，才以
+`verification_probe_changed_path_uncovered` 继续项目 suite；Python probe
+不能再替 C/C++ 路径跳过 make/cmake/meson，同语言且已覆盖目标的 bounded
+probe 仍可跳过无关测试。
+
+该 continuation reason 没有加入 infra-downgrade 白名单：若 matching suite
+失败或超时，不能用未覆盖路径的 probe 把结果降级成 PASS。回归用真实
+Python wrapper 调用 `cc` 编译并执行 C 测试，再确认系统仍续跑 `make check`
+并由 make 的 C-family command 闭合 `repository.c`。同时固定完整 probe
+继续跳过无关 Python suite、impact-related suite 优先级、修改测试文件时
+suite 失败/超时保持 non-pass。完整
+`go test ./internal/tool -count=1` 通过（155.450s）。

@@ -1018,6 +1018,93 @@ func TestRunTestsVerificationProbePassSkipsProjectSuiteWhenOnlyContractRefMissin
 	}
 }
 
+func TestRunTestsVerificationProbePassContinuesMatchingSuiteWhenChangedPathUncovered(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	if _, err := exec.LookPath("make"); err != nil {
+		t.Skip("make unavailable")
+	}
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("C compiler unavailable")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "repository.c"), []byte(
+		"int visit_worktree(int status) { return status; }\n",
+	), 0o644); err != nil {
+		t.Fatalf("write C source: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "test_repository.c"), []byte(
+		"int visit_worktree(int);\nint main(void) { return visit_worktree(-42) == -42 ? 0 : 1; }\n",
+	), 0o644); err != nil {
+		t.Fatalf("write C test: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "Makefile"), []byte(
+		"check:\n\t$(CC) -o test_repo repository.c test_repository.c\n\t./test_repo\n",
+	), 0o644); err != nil {
+		t.Fatalf("write Makefile: %v", err)
+	}
+
+	mu := types.NewMutableState("cross-language wrapper probe")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-c-wrapper-probe",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"repository.c"},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:       "c_regression_wrapper",
+			Language: "python",
+			Code: "import subprocess\n" +
+				"subprocess.run(['cc', '-o', 'probe_repo', 'repository.c', 'test_repository.c'], check=True)\n" +
+				"subprocess.run(['./probe_repo'], check=True)\n",
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"runner": "make",
+	}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("matching make suite should close changed C path coverage: %+v", result)
+	}
+	report := mu.ChangeReport()
+	if report == nil || report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
+		t.Fatalf("expected passed combined verification report: %+v", report)
+	}
+	foundContinuation := false
+	foundMake := false
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Source == verificationProbeContinuationSourceProbeSuiteContinued &&
+			cmd.Outcome == "suite_continued" &&
+			cmd.ReasonCode == verificationProbeContinuationChangedPathUncovered {
+			foundContinuation = true
+		}
+		if cmd.Runner == "make" && cmd.Outcome == "executed" && cmd.ExitCode == 0 {
+			foundMake = true
+		}
+		if cmd.Source == "probe_primary_suite_skipped" {
+			t.Fatalf("matching make suite must not be marked skipped: %+v", report.ExecutedCommands)
+		}
+	}
+	if !foundContinuation || !foundMake {
+		t.Fatalf("expected changed-path continuation and make execution: %+v", report.ExecutedCommands)
+	}
+	if len(report.ChangedPathCoverage) != 1 ||
+		report.ChangedPathCoverage[0].Path != "repository.c" ||
+		report.ChangedPathCoverage[0].Status != types.ChangedPathVerificationCovered ||
+		report.ChangedPathCoverage[0].Caliber != types.ChangedPathVerificationProjectRunner {
+		t.Fatalf("C changed-path coverage not closed by make: %+v", report.ChangedPathCoverage)
+	}
+}
+
 func TestRunTestsVerificationProbePassContinuesImpactRelatedTestSurface(t *testing.T) {
 	if _, ok := resolvePythonDryBuildRunner(); !ok {
 		t.Skip("no usable python on PATH; skip")
@@ -1263,7 +1350,7 @@ func TestRunTestsVerificationProbePassContinuesProjectSuiteWhenPlanTouchesTests(
 			foundProbeCommand = true
 		}
 		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Source == "probe_primary_suite_continued" &&
-			cmd.Outcome == "suite_continued" && cmd.ReasonCode == "plan_touches_test_path" {
+			cmd.Outcome == "suite_continued" && cmd.ReasonCode == verificationProbeContinuationChangedPathUncovered {
 			foundContinuedSuite = true
 		}
 		if cmd.Runner == "python" && cmd.Framework == "unittest" &&
@@ -1280,7 +1367,7 @@ func TestRunTestsVerificationProbePassContinuesProjectSuiteWhenPlanTouchesTests(
 	}
 }
 
-func TestRunTestsVerificationProbePassDowngradesProjectSuiteTimeoutWhenPlanTouchesTests(t *testing.T) {
+func TestRunTestsVerificationProbePassLeavesTimeoutNonPassWhenChangedPathsUncovered(t *testing.T) {
 	if _, ok := resolvePythonDryBuildRunner(); !ok {
 		t.Skip("no usable python on PATH; skip")
 	}
@@ -1335,21 +1422,22 @@ func TestRunTestsVerificationProbePassDowngradesProjectSuiteTimeoutWhenPlanTouch
 	if err != nil {
 		t.Fatalf("Execute returned error: %v", err)
 	}
-	if !result.Success {
-		t.Fatalf("project-suite timeout after covered probe should be a confidence warning, got %+v", result)
+	if result.Success {
+		t.Fatalf("project-suite timeout must not be downgraded when the probe leaves changed paths uncovered: %+v", result)
 	}
 	report := mu.ChangeReport()
 	if report == nil {
 		t.Fatal("run_tests should populate ChangeReport")
 	}
-	if report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
-		t.Fatalf("VerificationStatus = %q, want passed; report=%+v", report.NormalizeVerificationStatus(), report)
+	if report.NormalizeVerificationStatus() != types.VerificationStatusFailed ||
+		report.FailureKind != types.FailureKindTimeout {
+		t.Fatalf("timeout with probe-uncovered changed paths must remain a non-pass timeout: %+v", report)
 	}
 	foundContinuedSuite := false
 	foundTimeout := false
 	for _, cmd := range report.ExecutedCommands {
 		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Source == "probe_primary_suite_continued" &&
-			cmd.Outcome == "suite_continued" && cmd.ReasonCode == "plan_touches_test_path" {
+			cmd.Outcome == "suite_continued" && cmd.ReasonCode == verificationProbeContinuationChangedPathUncovered {
 			foundContinuedSuite = true
 		}
 		if cmd.Runner == "python" && cmd.Framework == "unittest" &&
@@ -1361,11 +1449,11 @@ func TestRunTestsVerificationProbePassDowngradesProjectSuiteTimeoutWhenPlanTouch
 	if !foundContinuedSuite || !foundTimeout {
 		t.Fatalf("expected continued-suite and timeout command evidence; got %+v", report.ExecutedCommands)
 	}
-	if !changeReportHasVerificationConfidence(report, "project_runner", "unavailable", "project_suite_timeout_after_probe_pass") {
-		t.Fatalf("suite timeout confidence downgrade should be retained: %+v", report.VerificationConfidence)
+	if changeReportHasVerificationConfidence(report, "project_runner", "unavailable", "project_suite_timeout_after_probe_pass") {
+		t.Fatalf("uncovered changed paths must not receive the covered-probe timeout downgrade: %+v", report.VerificationConfidence)
 	}
-	if strings.TrimSpace(report.FailureReasonCode) != "" || report.FailureKind != "" {
-		t.Fatalf("probe-primary pass should not keep hard failure fields: kind=%q reason=%q", report.FailureKind, report.FailureReasonCode)
+	if report.FailureKind == "" {
+		t.Fatalf("uncovered changed paths must keep the timeout failure fields: %+v", report)
 	}
 }
 
