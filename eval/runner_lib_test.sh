@@ -241,6 +241,34 @@ case "$(cat "$principal_fail_dir/run-1.verdict")" in
     ;;
 esac
 
+# EVAL-B1-E2: a Markdown table may carry a unit once in its column header.
+# The oracle composition keeps the header and every exact row mandatory while
+# avoiding a false failure merely because cells do not repeat the unit.
+cat >"$tmp/fake-codrax-principal-table" <<'SH'
+#!/usr/bin/env bash
+echo '━━━'
+echo '| start | duration（ms） |'
+echo '| 1.001 | 0.138 |'
+echo '| 1.002 | 0.147 |'
+echo '2 rows total 0.285 ms'
+SH
+chmod +x "$tmp/fake-codrax-principal-table"
+cat >"$tmp/principal-table-pass.case" <<'CASE'
+ID="principal_table_pass"
+NAME="principal table unit inheritance"
+QUESTION="principal table test"
+MIN_OUTPUT_CHARS=1
+EXPECT_PRINCIPAL_CONTAINS="duration（ms）"
+EXPECT_PRINCIPAL_MATCHES_REGEX="1\\.001.*0\\.138
+1\\.002.*0\\.147"
+EXPECT_PRINCIPAL_MATCHES_TEXT_REGEX="duration（ms）.*1\\.001.*0\\.138.*1\\.002.*0\\.147.*2 rows.*0\\.285 *ms"
+CASE
+CODRAX_BIN="$tmp/fake-codrax-principal-table" EVAL_RESULTS_ROOT="$tmp/principal-results" CODRAX_PROVIDER_ARGS_RAW="" \
+  eval/run.sh "$tmp/principal-table-pass.case" 1 >/dev/null || fail "principal table unit inheritance eval failed to run"
+principal_table_dir="$(eval_latest_result_dir "$tmp/principal-results" principal_table_pass 00000000-000000 || true)"
+[[ -n "$principal_table_dir" ]] || fail "principal table result dir missing"
+assert_eq "$(cat "$principal_table_dir/run-1.verdict")" "PASS" "table header unit should authorize unitless cells"
+
 printf 'one\nreject\000\nreject\n' >"$tmp/log.txt"
 assert_eq "$(eval_count_pattern 'reject' "$tmp/log.txt")" "2" "pattern count"
 assert_eq "$(eval_count_pattern 'reject$' "$tmp/log.txt")" "2" "pattern count with NUL line"
