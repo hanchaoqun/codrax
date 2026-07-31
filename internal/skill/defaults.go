@@ -806,6 +806,16 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 				},
 			},
 			{
+				// EVAL-B1-R12 (2026-07-30): exact target wait occurrences are
+				// engine-paired evidence. The prompt-level roster explicitly
+				// distinguishes complete from budget-truncated membership.
+				Body:      "TARGET WAIT OCCURRENCE AUTHORITY: when a target_window_wait_occurrences record carries target_wait_occurrence_prompt=status=complete, treat its target_wait_occurrence notes as the exact engine-paired roster. Copy count, start/end, duration, state, iowait, and caller from those notes; do not rebuild intervals from adjacent sched_switch/sched_wakeup/event_search rows and do not merge or discard a listed occurrence. Cross-check target_wait_occurrence_prompt_sum_ms against the target's published wait total before writing. When prompt status is incomplete, disclose the emitted/total boundary and never claim that the visible notes enumerate all occurrences.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+				OnViolation: []types.ViolationKind{
+					types.ViolProseScalarUngrounded,
+				},
+			},
+			{
 				// FIN-BIND (h): trace-first disclosure on an empty trace
 				// result — trace-only (CR-3 件⑦c, §29.47.7 立案 2026-07-12;
 				// witness: a trace-led question whose analysis produced zero

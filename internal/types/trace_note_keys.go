@@ -1362,6 +1362,13 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyNearestChainWindow, "anchor_window", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyOccurrenceWindows, "anchor_window", TraceNoteCarrierSoftConsumer},
 	{"window_proportion", "anchor_window", TraceNoteCarrierDisplayOnly},
+	// EVAL-B1-R12 (2026-07-30): bounded target-wait rosters cannot live in
+	// one prompt summary because the shared text clamp would expose a
+	// misleading prefix. These notes carry prompt-level completeness, its
+	// emitted-prefix sum, and one exact engine-paired occurrence per note.
+	{"target_wait_occurrence", "state", TraceNoteCarrierDisplayOnly},
+	{"target_wait_occurrence_prompt", "state", TraceNoteCarrierDisplayOnly},
+	{"target_wait_occurrence_prompt_sum_ms", "state", TraceNoteCarrierDisplayOnly},
 
 	// 因果排名族.
 	{TraceNoteKeyRank, "causal_rank", TraceNoteCarrierHardConsumer},

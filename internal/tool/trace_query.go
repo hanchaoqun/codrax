@@ -8942,11 +8942,33 @@ func traceQueryTargetWindowWaitOccurrenceObservations(
 		))
 	}
 	summary := fmt.Sprintf(
-		"target_window_wait_occurrences %s status=%s emitted=%d total=%d",
+		"target_window_wait_occurrences %s status=%s emitted=%d total=%d; exact bounded roster is carried by typed occurrence notes",
 		subject, account.WaitOccurrenceStatus, account.WaitOccurrenceEmitted, account.WaitOccurrenceTotal,
 	)
-	if len(roster) > 0 {
-		summary += " roster=[" + strings.Join(roster, "; ") + "]"
+	const promptOccurrenceCap = 8
+	promptOccurrenceCount := len(account.WaitOccurrences)
+	if promptOccurrenceCount > promptOccurrenceCap {
+		promptOccurrenceCount = promptOccurrenceCap
+	}
+	promptStatus := "complete"
+	if account.WaitOccurrenceStatus != "complete" ||
+		promptOccurrenceCount < account.WaitOccurrenceTotal {
+		promptStatus = "incomplete"
+	}
+	notes := []string{fmt.Sprintf(
+		"target_wait_occurrence_prompt=status=%s,emitted=%d,total=%d",
+		promptStatus, promptOccurrenceCount, account.WaitOccurrenceTotal,
+	)}
+	var promptOccurrenceSum float64
+	for i := 0; i < promptOccurrenceCount; i++ {
+		promptOccurrenceSum += account.WaitOccurrences[i].DurationMs
+	}
+	notes = append(notes, fmt.Sprintf(
+		"target_wait_occurrence_prompt_sum_ms=%.3f",
+		promptOccurrenceSum,
+	))
+	for i := 0; i < promptOccurrenceCount; i++ {
+		notes = append(notes, "target_wait_occurrence="+roster[i])
 	}
 	setRecord := types.ObservationRecord{
 		ID:              fmt.Sprintf("trace_query:%s#target_window_wait_occurrences", scope),
@@ -8970,6 +8992,7 @@ func traceQueryTargetWindowWaitOccurrenceObservations(
 		Unit:        "occurrences",
 		ResultCount: &total,
 		Summary:     summary,
+		RichNotes:   notes,
 		SupportRefs: traceQueryObservationSupportRefs(ref, lineStart, lineEnd),
 		ObservedAt:  at,
 		Confidence:  0.95,
