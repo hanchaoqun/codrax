@@ -43,6 +43,11 @@ type ChangePlanSliceOptions struct {
 	IsolatedPaths            []string
 	SplitOnPathRoleBoundary  bool
 	SplitOnOwnerPathBoundary bool
+	// KeepSmallPlanAtomic keeps one already-bounded, non-operational plan in
+	// one edit/run/observe unit. This lets a production fix and its direct
+	// regression tests land before verification, while sensitive operational
+	// paths and plans above MaxChangesPerSlice retain normal isolation.
+	KeepSmallPlanAtomic bool
 }
 
 // OnlineChangePlanSliceOptions returns the commercial write-mode default for
@@ -56,6 +61,7 @@ func OnlineChangePlanSliceOptions(plan *ChangePlan) ChangePlanSliceOptions {
 		IsolatedPaths:            ChangePlanSliceIsolationPaths(plan),
 		SplitOnPathRoleBoundary:  true,
 		SplitOnOwnerPathBoundary: true,
+		KeepSmallPlanAtomic:      true,
 	}
 }
 
@@ -89,6 +95,27 @@ func DeriveChangePlanSlices(plan *ChangePlan, opts ChangePlanSliceOptions) []Cha
 	}
 	maxChanges := normalizeChangePlanSliceMax(opts.MaxChangesPerSlice)
 	isolated := changePlanSlicePathSet(opts.IsolatedPaths)
+	if opts.KeepSmallPlanAtomic && len(plan.Changes) <= maxChanges {
+		atomic := true
+		indexes := make([]int, 0, len(plan.Changes))
+		for i, change := range plan.Changes {
+			if changePlanSliceChangeIsIsolated(change, isolated) {
+				atomic = false
+				break
+			}
+			indexes = append(indexes, i)
+		}
+		if atomic {
+			out := []ChangePlanSlice{{
+				ID:            "slice-001",
+				Status:        ChangePlanSlicePending,
+				ChangeIndexes: indexes,
+				Paths:         changePlanSlicePathsForIndexes(plan, indexes),
+			}}
+			attachChangePlanSliceDependencies(plan, out)
+			return out
+		}
+	}
 	var groups [][]int
 	current := make([]int, 0, maxChanges)
 	currentKey := ""

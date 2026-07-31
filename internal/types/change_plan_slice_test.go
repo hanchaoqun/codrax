@@ -131,6 +131,28 @@ func TestOnlineChangePlanSliceOptionsSplitRoleAndOwnerScope(t *testing.T) {
 	}
 }
 
+func TestOnlineChangePlanSlicesKeepSmallProductionAndRegressionTestAtomic(t *testing.T) {
+	plan := &ChangePlan{Changes: []FileChange{
+		{Path: "pkg/core/value.go", Kind: "patch"},
+		{Path: "pkg/core/value_test.go", Kind: "patch", DependsOn: []string{"pkg/core/value.go"}},
+	}}
+	got := DeriveChangePlanSlices(plan, OnlineChangePlanSliceOptions(plan))
+	if len(got) != 1 || !reflect.DeepEqual(got[0].ChangeIndexes, []int{0, 1}) {
+		t.Fatalf("bounded source+regression-test plan must apply before one verification: %+v", got)
+	}
+}
+
+func TestOnlineChangePlanSlicesStillIsolateSmallOperationalChange(t *testing.T) {
+	plan := &ChangePlan{Changes: []FileChange{
+		{Path: "pkg/core/value.go", Kind: "patch"},
+		{Path: "package.json", Kind: "patch"},
+	}}
+	got := DeriveChangePlanSlices(plan, OnlineChangePlanSliceOptions(plan))
+	if len(got) != 2 || !reflect.DeepEqual(got[1].Paths, []string{"package.json"}) {
+		t.Fatalf("small-plan atomicity must not bypass operational isolation: %+v", got)
+	}
+}
+
 func TestNormalizeChangePlanSlicesDerivesPathsAndDeps(t *testing.T) {
 	plan := &ChangePlan{
 		Changes: []FileChange{
