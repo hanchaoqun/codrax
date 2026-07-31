@@ -38,6 +38,12 @@ func TestTraceCausalPublicationAuthorityGenericCrossArtifactCoverageQuery(t *tes
 		RepoRoot: dir,
 		WorkDir:  dir,
 		Mutable:  types.NewMutableState("compare trace coverage and sampled lanes"),
+		RuntimeArtifactPreflight: types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+			Artifacts: []types.RuntimeArtifactPreflightArtifact{
+				{Kind: "trace", Source: "frame.systrace", Carrier: "request_path"},
+				{Kind: "trace", Source: "short.systrace", Carrier: "request_path"},
+			},
+		}),
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 			Intent:   types.IntentExplain,
 			Scenario: types.ScenarioGeneric,
@@ -80,6 +86,25 @@ func TestTraceCausalPublicationAuthorityGenericCrossArtifactCoverageQuery(t *tes
 	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(
 		ctx, types.ObservationExtractLedgerEvidenceLimit,
 	))
+	relation := types.BuildRuntimeArtifactPairRelationAuthority(ledger)
+	if !relation.Active || len(relation.Artifacts) != 2 || len(relation.Pairs) != 1 {
+		var refs []types.ObservationSourceRef
+		for _, record := range ledger.Records {
+			if record.Origin == types.AnswerEvidenceOriginRuntimeArtifact && len(refs) < 4 {
+				refs = append(refs, record.SourceRef)
+			}
+		}
+		t.Fatalf("real cross-artifact query must publish one typed pair relation boundary: %+v; runtime refs=%+v", relation, refs)
+	}
+	pair := relation.Pairs[0]
+	if pair.SharedClockOrigin != types.RuntimeArtifactPairRelationUnproven ||
+		pair.DirectTimeAlignment != types.RuntimeArtifactPairRelationUnproven ||
+		pair.SharedDevice != types.RuntimeArtifactPairRelationUnproven ||
+		pair.SharedCaptureSession != types.RuntimeArtifactPairRelationUnproven ||
+		!pair.SameTimeDomainLabel ||
+		!pair.LocalIdentityOnly {
+		t.Fatalf("local trace_seconds/identity metadata must not prove a cross-artifact relation: %+v", pair)
+	}
 	set := types.CompileTraceCausalProjectionSet(ledger)
 	if runtimeTraceProjectionSetHasPublicationGradeCausalRows(set) {
 		t.Fatalf("generic cross-artifact coverage query must not gain causal publication authority from background semantic rows: %+v", set.Projections)

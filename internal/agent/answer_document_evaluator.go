@@ -3851,6 +3851,9 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	if authority := renderAnswerDocRuntimeSourceAuthority(ctx, ledger); authority != "" {
 		b.WriteString(authority)
 	}
+	if relation := renderAnswerDocRuntimeArtifactPairRelationAuthority(ledger); relation != "" {
+		b.WriteString(relation)
+	}
 	if coverage := renderAnswerDocTraceObservationCoverage(ledger); coverage != "" {
 		b.WriteString(coverage)
 	}
