@@ -269,6 +269,53 @@ principal_table_dir="$(eval_latest_result_dir "$tmp/principal-results" principal
 [[ -n "$principal_table_dir" ]] || fail "principal table result dir missing"
 assert_eq "$(cat "$principal_table_dir/run-1.verdict")" "PASS" "table header unit should authorize unitless cells"
 
+# EVAL-B1-E2 follow-up: a list is equivalently authoritative when every row
+# carries its own unit. The same closed oracle must still reject an entirely
+# unitless list; this is presentation equivalence, not a weaker fact bar.
+cat >"$tmp/principal-unit-shapes.case" <<'CASE'
+ID="principal_unit_shapes"
+NAME="principal unit presentation shapes"
+QUESTION="principal unit shapes test"
+MIN_OUTPUT_CHARS=1
+EXPECT_PRINCIPAL_MATCHES_REGEX="1\\.001.*0\\.138
+1\\.002.*0\\.147"
+EXPECT_PRINCIPAL_MATCHES_TEXT_REGEX="((duration（ms）.*1\\.001.*0\\.138.*1\\.002.*0\\.147)|(1\\.001.*0\\.138 ?(ms|milliseconds).*1\\.002.*0\\.147 ?(ms|milliseconds))).*2 rows.*0\\.285 *ms"
+CASE
+
+cat >"$tmp/fake-codrax-principal-unit-list" <<'SH'
+#!/usr/bin/env bash
+echo '━━━'
+echo '- 1.001: 0.138 ms'
+echo '- 1.002: 0.147 milliseconds'
+echo '2 rows total 0.285 ms'
+SH
+chmod +x "$tmp/fake-codrax-principal-unit-list"
+CODRAX_BIN="$tmp/fake-codrax-principal-unit-list" EVAL_RESULTS_ROOT="$tmp/principal-results" CODRAX_PROVIDER_ARGS_RAW="" \
+  eval/run.sh "$tmp/principal-unit-shapes.case" 1 >/dev/null || fail "principal per-row unit eval failed to run"
+principal_unit_list_dir="$(eval_latest_result_dir "$tmp/principal-results" principal_unit_shapes 00000000-000000 || true)"
+[[ -n "$principal_unit_list_dir" ]] || fail "principal per-row unit result dir missing"
+assert_eq "$(cat "$principal_unit_list_dir/run-1.verdict")" "PASS" "per-row units should authorize list values"
+
+cat >"$tmp/fake-codrax-principal-unitless-list" <<'SH'
+#!/usr/bin/env bash
+echo '━━━'
+echo '- 1.001: 0.138'
+echo '- 1.002: 0.147'
+echo '2 rows total 0.285 ms'
+SH
+chmod +x "$tmp/fake-codrax-principal-unitless-list"
+CODRAX_BIN="$tmp/fake-codrax-principal-unitless-list" EVAL_RESULTS_ROOT="$tmp/principal-results" CODRAX_PROVIDER_ARGS_RAW="" \
+  eval/run.sh "$tmp/principal-unit-shapes.case" 1 >/dev/null || fail "principal unitless list eval failed to run"
+principal_unitless_list_dir="$(eval_latest_result_dir "$tmp/principal-results" principal_unit_shapes 00000000-000000 || true)"
+[[ -n "$principal_unitless_list_dir" ]] || fail "principal unitless list result dir missing"
+case "$(cat "$principal_unitless_list_dir/run-1.verdict")" in
+  "FAIL no_principal_text_regex_match:"*)
+    ;;
+  *)
+    fail "unitless list must not satisfy the closed unit oracle, got: $(cat "$principal_unitless_list_dir/run-1.verdict")"
+    ;;
+esac
+
 printf 'one\nreject\000\nreject\n' >"$tmp/log.txt"
 assert_eq "$(eval_count_pattern 'reject' "$tmp/log.txt")" "2" "pattern count"
 assert_eq "$(eval_count_pattern 'reject$' "$tmp/log.txt")" "2" "pattern count with NUL line"

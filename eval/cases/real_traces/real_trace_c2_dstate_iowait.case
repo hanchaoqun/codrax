@@ -62,13 +62,14 @@ EXPECT_MATCHES_REGEX="(D 状态|D-state|D state|不可中断|io_?wait|IO 等待|
 # EVAL-B1-R11/E1: the model-authored answer itself must enumerate the
 # engine-paired occurrence rowset. The deterministic projection footer may
 # carry the same total/count for audit, but cannot satisfy these obligations.
-# EVAL-B1-E2: Markdown tables declare units once in a column header. Keep
-# that unit authority explicit, then check each row's exact start/duration;
-# do not force every cell to repeat "ms" and falsely reject a valid table.
-EXPECT_PRINCIPAL_CONTAINS="sync_buffer_read_wi 时长（ms）"
+# EVAL-B1-E2: accept the two closed, unit-authoritative presentation shapes:
+# a Markdown table declares ms once in its duration header, or a list repeats
+# ms on every occurrence row. Exact row values/count/sum remain mandatory;
+# an entirely unitless rowset still fails.
+EXPECT_PRINCIPAL_CONTAINS="sync_buffer_read_wi"
 EXPECT_PRINCIPAL_MATCHES_REGEX="34579\\.451701.*0\\.138
 34579\\.452934.*0\\.147
 34579\\.471372.*0\\.350"
-EXPECT_PRINCIPAL_MATCHES_TEXT_REGEX="时长（ms）.*34579\\.451701.*0\\.138.*34579\\.452934.*0\\.147.*34579\\.471372.*0\\.350.*((3|三) ?(次|段|条).*(0\\.635 ?(ms|毫秒))|(0\\.635 ?(ms|毫秒)).*(3|三) ?(次|段|条))"
+EXPECT_PRINCIPAL_MATCHES_TEXT_REGEX="((时长（ms）.*34579\\.451701.*0\\.138.*34579\\.452934.*0\\.147.*34579\\.471372.*0\\.350)|(34579\\.451701.*0\\.138 ?(ms|毫秒).*34579\\.452934.*0\\.147 ?(ms|毫秒).*34579\\.471372.*0\\.350 ?(ms|毫秒))).*((3|三) ?(次|段|条).*(0\\.635 ?(ms|毫秒))|(0\\.635 ?(ms|毫秒)).*(3|三) ?(次|段|条))"
 EXPECT_NOT_CONTAINS="still_present not_enough_evidence 自身·D-state/iowait"
 EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"
