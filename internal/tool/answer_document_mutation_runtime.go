@@ -218,6 +218,17 @@ func persistMergedAnswerDocument(
 	if deduped := dedupeVisibleAnswerBlocks(merged); deduped > 0 {
 		logging.Warning("[%s] dropped %d duplicate visible answer block(s) before persist", toolName, deduped)
 	}
+	// Full emits prune unused citation-pool entries before they enter this
+	// shared persist path. Patch emits historically skipped that pass when
+	// their dry-run merged document was persisted directly, so an unreferenced
+	// append_citations entry could survive only in patch mode and render as a
+	// bibliography claim. Re-run the idempotent prune at the shared
+	// chokepoint, after every row/materialization pass has had a chance to
+	// establish typed Markdown-row usage. This preserves referenced and typed
+	// row citations while making full/patch reachability identical.
+	if fixed := normalizeUnusedCitationPoolEntries(merged, ctx); fixed > 0 {
+		logging.Warning("[%s] pruned/remapped %d unused citation-pool slot(s) at the shared persist chokepoint", toolName, fixed)
+	}
 	// QCE GAP-B (2026-07-05): the pre-persist row normalization above can
 	// mint fresh bare file:line citations too (same appendOrReuse shape as
 	// the pre-emit chain). Same gated backfill as the chain end so
