@@ -1231,7 +1231,7 @@ relation ceiling，系统覆盖块确定性发布中英文“不能升级为已�
 因果 flow”。工具 schema 参数说明同步纠正；PIN-1 检查确认独立的
 Description byte golden 未发生变化（本批没有占用 Description 槽）。
 该变更是既有错误权限的撤回，不引入 prompt case 词或硬门。
-专项 tracequery/tool/types tests 已通过；待全包验证、提交推送。
+专项 tracequery/tool/types tests 已通过；批 U 已由 `2beea8634` 提交推送。
 
 ### 批 V：运行时 scalar 与源码机制引用分席（2026-07-31）
 
@@ -1267,7 +1267,8 @@ ref 被机制 summary 正确使用、另一个 artifact provenance ref 正确保
 source-literal claim、artifact citation、仓外 external path。production
 normalize chain pin 固定 pass 接线与 typed disclosure ferry，防止只留下
 孤立 helper。`go test ./internal/types ./internal/tool -count=1` 全包通过
-（types 20.670s、tool 164.148s）；待提交推送并重跑 B9。
+（types 20.670s、tool 164.148s）；批 V 已由 `e9936bf6f` 提交推送并完成
+B9 r2。
 
 ### B9 r2 人工审计与批 W1（2026-07-31）
 
@@ -1302,7 +1303,7 @@ runner 2/2 PASS。Frame 主问题已修复：四段仍完整，三条边明确�
    多个 ToolResult 之间选择 typed 最大完备视图，避免重复观察扩张基数。
 
 `B9-W1/P1` 单测固定四份 authority 的 `1/1/3/3` 输入，覆盖块必须发布
-`edges=3` 且禁止回到 `edges=8`。
+`edges=3` 且禁止回到 `edges=8`；批 W1 已由 `802abadb6` 提交推送。
 
 批 W2 将批 V 的 item-level origin 对齐从 scalar 特例提升为 claim-use
 不变量。`BlockScalar/Decision/Summary/List` 只要非空 `ClaimUses` 全部是
@@ -1317,6 +1318,8 @@ claim，则保持源码引用，禁止把混合块误当纯观测块。
 3. artifact citation、仓外 external source、inactive artifact profile 与兄弟
    源码机制块保持不变；仍只拆 item→citation edge，不删正文或 citation pool。
 4. 不影响 Trace query、显式时间窗、因果投影、自动补齐及所有调度分析面。
+
+批 W2 已由 `12ac1305d` 提交推送。
 
 批 W3 修正 `errorGranularityHasDedicatedFailureScopeAnswerShape` 的 typed
 语义：`is_scalar_answer` 只表示答案基数，耗时、阈值、布尔、状态和真正的
@@ -1333,3 +1336,7 @@ failure-scope 请求仍保留 canonical decision 合同。
    下具有 return-value family 的请求也继续生效。
 3. 软化只移除误发的 `ErrorGranularityProfile`，不改变 scalar value、
    artifact observation、current-source explanation 或 Trace 能力。
+
+批 W3 已由 `26585b71f` 提交推送。三批合并后
+`go test ./internal/types ./internal/tool -count=1` 全包通过
+（types 21.482s、tool 159.153s）。
