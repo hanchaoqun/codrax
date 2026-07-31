@@ -1056,14 +1056,15 @@ func answerDocumentHasRuntimeTraceSystemBlockID(doc *types.AnswerDocumentV2, id 
 }
 
 // runtimeTraceFullReportMaterializationAllowed is the shared answer-shape
-// authority for system-authored trace report blocks. A typed conditional fact
-// about one runtime target may use trace evidence, but it did not request a
-// causal tree, optimization report, background metric board, next-step plan,
-// perf-quality report, or raw observation dump. Family routing and this gate
-// deliberately consume the same types-layer predicate.
+// authority for system-authored trace report blocks. A focused fact about one
+// runtime target may use trace evidence, but it did not request a causal tree,
+// optimization report, background metric board, next-step plan, perf-quality
+// report, or raw observation dump. Family routing, deterministic supplement
+// selection, and this gate deliberately consume the same types-layer
+// predicate.
 func runtimeTraceFullReportMaterializationAllowed(ctx *types.BusContext) bool {
 	return ctx == nil || ctx.AnalysisIR == nil ||
-		!types.IsRuntimeConditionalFactQuestion(ctx.AnalysisIR.RequestModel)
+		!types.IsFocusedRuntimeFactQuestion(ctx.AnalysisIR.RequestModel)
 }
 
 func materializeRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {

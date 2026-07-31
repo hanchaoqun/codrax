@@ -78,6 +78,50 @@ func TestResolveQuestionFamily_RuntimeConditionalFactBeatsBroadRootCauseIntent(t
 	}
 }
 
+func TestFocusedRuntimeFactIncludesNonDiagnosticExplainMechanism(t *testing.T) {
+	rm := RequestModel{
+		Intent:        IntentExplain,
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqMechanism)},
+		RuntimeTargets: []RuntimeTarget{{
+			Kind: RuntimeTargetKindProcess,
+			PID:  59566,
+		}},
+	}
+	if !IsFocusedRuntimeFactQuestion(rm) {
+		t.Fatal("non-diagnostic explain/mechanism with one typed runtime target must be a focused runtime fact")
+	}
+	if got := ResolveQuestionFamily(rm); got != QFGeneric {
+		t.Fatalf("focused explain/mechanism got family %q, want generic", got)
+	}
+
+	rm.Predicates.IsDiagnosticQuestion = true
+	if IsFocusedRuntimeFactQuestion(rm) {
+		t.Fatal("diagnostic explain/mechanism must retain full report authority")
+	}
+	rm.Predicates.IsDiagnosticQuestion = false
+	rm.DiagnosticProfile.IsDiagnostic = true
+	if IsFocusedRuntimeFactQuestion(rm) {
+		t.Fatal("profile-level diagnostic mechanism must retain full report authority")
+	}
+	rm.DiagnosticProfile.IsDiagnostic = false
+	rm.Intent = IntentRootCause
+	if IsFocusedRuntimeFactQuestion(rm) {
+		t.Fatal("root-cause mechanism without conditional shape must retain causal authority")
+	}
+	rm.Intent = IntentExplain
+	rm.AnalyzerHints.Kind = string(ReqCallChain)
+	rm.PredicateAxis = AxisCall
+	if IsFocusedRuntimeFactQuestion(rm) {
+		t.Fatal("explicit call relation must retain causal authority")
+	}
+	rm.AnalyzerHints.Kind = string(ReqMechanism)
+	rm.PredicateAxis = AxisUnknown
+	rm.RuntimeTargets = nil
+	if IsFocusedRuntimeFactQuestion(rm) {
+		t.Fatal("target-less explanation is not a focused runtime fact")
+	}
+}
+
 func TestResolveQuestionFamily_TraceWithoutArtifactNeedsTypedCallRelation(t *testing.T) {
 	// Trace names the evidence source. Without a typed call-relation kind or
 	// axis, a runtime fact question must not inherit the call-chain scaffold.

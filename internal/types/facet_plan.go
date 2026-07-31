@@ -599,19 +599,39 @@ type FacetCoverageContract struct {
 //
 // Phase 0 trace data on s1a / s5a / m1a / s3a / logtri_go
 // confirms each branch hits at least one case.
-// IsRuntimeConditionalFactQuestion reports the precise, typed answer shape for
-// one runtime process/thread state fact ("did target X enter state Y; when;
-// what reason").  The broad trace/root-cause intent names the evidence
-// context, while the conditional kind/axis names the requested answer.  This
-// predicate is shared by family routing and answer materialization so a
-// question cannot route as a narrow fact and then be expanded back into a
-// full causal report downstream.
-func IsRuntimeConditionalFactQuestion(rm RequestModel) bool {
+// IsFocusedRuntimeFactQuestion reports the precise, typed answer shape for one
+// runtime process/thread fact rather than a causal report. It covers the
+// original conditional/condition shape and the analyzer's equally valid
+// explain+mechanism shape for a non-diagnostic target-state explanation
+// ("did target X enter state Y; when; what kernel reason").
+//
+// The conjunction is deliberately structural: a typed runtime target, no
+// call relation, and either the established trace/root-cause conditional
+// shape or a non-diagnostic explain/mechanism shape. It never scans request
+// prose, keywords, trace values, or case IDs. Family routing, deterministic
+// supplement selection, and answer materialization share this predicate so a
+// focused fact cannot expand back into a full causal report downstream.
+func IsFocusedRuntimeFactQuestion(rm RequestModel) bool {
 	kind := NormalizeRequirementKind(rm.AnalyzerHints.Kind)
 	hasCallRelation := kind == ReqCallChain || rm.PredicateAxis == AxisCall
 	hasConditionalShape := kind == ReqConditional || rm.PredicateAxis == AxisCondition
-	return (rm.Intent == IntentTrace || rm.Intent == IntentRootCause) &&
-		len(rm.RuntimeTargets) > 0 && hasConditionalShape && !hasCallRelation
+	if len(rm.RuntimeTargets) == 0 || hasCallRelation {
+		return false
+	}
+	if (rm.Intent == IntentTrace || rm.Intent == IntentRootCause) && hasConditionalShape {
+		return true
+	}
+	return rm.Intent == IntentExplain &&
+		kind == ReqMechanism &&
+		!rm.Predicates.IsDiagnosticQuestion &&
+		!rm.DiagnosticProfile.IsDiagnostic
+}
+
+// IsRuntimeConditionalFactQuestion is retained as the compatibility name for
+// callers and old fixtures. New cross-layer consumers should use
+// IsFocusedRuntimeFactQuestion so the explain/mechanism lane is not lost.
+func IsRuntimeConditionalFactQuestion(rm RequestModel) bool {
+	return IsFocusedRuntimeFactQuestion(rm)
 }
 
 // ResolveQuestionFamily maps the typed request model onto one principal answer
@@ -636,7 +656,7 @@ func ResolveQuestionFamily(rm RequestModel, sinks ...RichnessTelemetrySink) Ques
 	// RuntimeTargets + conditional kind/axis is a precise conjunction. Keep
 	// explicit call relations and target-less root-cause diagnostics out of
 	// this lane.
-	if IsRuntimeConditionalFactQuestion(rm) {
+	if IsFocusedRuntimeFactQuestion(rm) {
 		return QFGeneric
 	}
 

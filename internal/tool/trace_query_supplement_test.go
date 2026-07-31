@@ -97,6 +97,10 @@ func TestTraceSupplementDStateFactUsesNarrowStateFamilies(t *testing.T) {
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 			Intent:        types.IntentTrace,
 			PredicateAxis: types.AxisCondition,
+			RuntimeTargets: []types.RuntimeTarget{{
+				Kind: types.RuntimeTargetKindProcess,
+				PID:  59566,
+			}},
 			AnalyzerHints: types.AnalyzerHints{
 				Kind:     string(types.ReqConditional),
 				Keywords: []string{"blocked_reason", "io_wait"},
@@ -109,6 +113,32 @@ func TestTraceSupplementDStateFactUsesNarrowStateFamilies(t *testing.T) {
 	present := traceSupplementFamilyPresence{WindowStates: true, BlockedReasonCensus: true}
 	if got := traceSupplementViewsForRequest(ctx, present, false, false); len(got) != 0 {
 		t.Fatalf("complete state facts must not trigger causal supplement, got %v", got)
+	}
+}
+
+func TestTraceSupplementExplainMechanismStateFactUsesNarrowFamilies(t *testing.T) {
+	ctx := &types.BusContext{
+		Mutable: types.NewMutableState("explain target state and kernel wait reason"),
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+			RuntimeTargets: []types.RuntimeTarget{{
+				Kind: types.RuntimeTargetKindProcess,
+				PID:  59566,
+			}},
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:     string(types.ReqMechanism),
+				Keywords: []string{"D-state", "blocked_reason"},
+			},
+		}},
+	}
+	if got := traceSupplementViewsForRequest(ctx, traceSupplementFamilyPresence{}, false, false); len(got) != 1 || got[0] != "window_stats" {
+		t.Fatalf("non-diagnostic explain/mechanism state fact must request only window_stats, got %v", got)
+	}
+
+	ctx.AnalysisIR.RequestModel.DiagnosticProfile.IsDiagnostic = true
+	got := traceSupplementViewsForRequest(ctx, traceSupplementFamilyPresence{}, false, false)
+	if len(got) != 2 || got[0] != "root_cause_rank" || got[1] != "critical_blocking_calls" {
+		t.Fatalf("diagnostic explain/mechanism must retain causal families, got %v", got)
 	}
 }
 

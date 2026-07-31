@@ -44,6 +44,24 @@ func TestRuntimeConditionalFactSuppressesFullTraceReportShape(t *testing.T) {
 	}
 }
 
+func TestRuntimeExplainMechanismFactSuppressesFullTraceReportShape(t *testing.T) {
+	bus := runtimeConditionalFactBusForTest()
+	rm := &bus.AnalysisIR.RequestModel
+	rm.Intent = types.IntentExplain
+	rm.AnalyzerHints.Kind = string(types.ReqMechanism)
+	rm.PredicateAxis = types.AxisUnknown
+	rm.Predicates.IsDiagnosticQuestion = false
+	rm.DiagnosticProfile.IsDiagnostic = false
+	if runtimeTraceFullReportMaterializationAllowed(bus) {
+		t.Fatal("non-diagnostic explain/mechanism target fact must not inherit the full trace report")
+	}
+
+	rm.DiagnosticProfile.IsDiagnostic = true
+	if !runtimeTraceFullReportMaterializationAllowed(bus) {
+		t.Fatal("diagnostic explain/mechanism must retain full trace report authority")
+	}
+}
+
 // This tripwire keeps every system-authored report surface on the one shared
 // answer-shape predicate. It checks wiring rather than prose: adding a new
 // materializer without the gate would reintroduce the same class of narrow

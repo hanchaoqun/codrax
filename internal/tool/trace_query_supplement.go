@@ -250,11 +250,7 @@ func traceSupplementNarrowDStateQuestion(ctx *types.BusContext) bool {
 			return
 		}
 		family := types.ResolveQuestionFamily(*rm)
-		kind := types.NormalizeRequirementKind(rm.AnalyzerHints.Kind)
-		if (rm.Intent == types.IntentTrace || rm.Intent == types.IntentRootCause) &&
-			family == types.QFGeneric &&
-			((kind != types.ReqUnknown && kind != types.ReqCallChain) ||
-				(rm.PredicateAxis != types.AxisUnknown && rm.PredicateAxis != types.AxisCall)) {
+		if family == types.QFGeneric && types.IsFocusedRuntimeFactQuestion(*rm) {
 			narrowStateFact = true
 		}
 		switch family {
