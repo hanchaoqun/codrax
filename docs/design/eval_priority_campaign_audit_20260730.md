@@ -1514,7 +1514,7 @@ D4 case 验证用户红线没有回退：显式 114.940ms 时间窗、四态闭�
 | ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
 |---|---:|---|---|---|---|
 | EVAL-B10-Z1 | P1 | data-gap provenance | reduced-shape `root_evidence:trace_gap` 无视 typed `trace_gap_kind/tier`，统一铸成 direct cause | data-gap root-evidence 使用 coverage/artifact provenance；typed guidance 固定缺区间不证明连续执行、CPU 占用、未抢占或未睡眠 | covered |
-| EVAL-B10-Z2 | P1 | 显式窗口权限 | 多轮查询的 target-state 账按遇到顺序/宽窗聚合，自动补采宽窗可夺取覆盖摘要 principal window | 从 typed request scope 取得显式窗，优先精确匹配；宽窗仅 supplemental，补采和因果投影本身不变 | planned |
+| EVAL-B10-Z2 | P1 | 显式窗口权限 | 多轮查询的 target-state 账按遇到顺序/宽窗聚合，自动补采宽窗可夺取覆盖摘要 principal window | 从 typed request scope 取得显式窗，优先精确匹配；宽窗仅 supplemental，补采和因果投影本身不变 | covered |
 | EVAL-B10-Z3 | P1 | demand/supply 混合结论与可加性 | 排名席的方向/正值 supply seat/折算口径未形成统一 verdict；模型把“非主因”写成不存在并直接求和重叠席 | typed 主次方向指导；有正值 supply 席时只能说次级/有界；rank 默认 non-additive，只有明确 disjoint/union caliber 才可相加 | planned |
 | EVAL-B10-Z4 | P2 | 唤醒 census 权限 | 正文声称 36 次、34 次来自单一线程，需确认是否绑定单一完整 census 而非分支样本/重复视图 | 先核对 typed wakeup census；仅在缺单一 census 时补权限，不为本 case 数字拟合 | audit-pending |
 
@@ -1540,3 +1540,16 @@ trace-gated 软指导明确：`no_sched_data` 不能证明连续执行、CPU 占
 
 完整 `go test ./internal/types ./internal/tool ./internal/skill -count=1`
 通过（types 20.453s、tool 158.623s、skill 0.400s）。
+
+批 Z2 将 `RuntimeArtifactScopeProfile.ExplicitTimeWindow()` 提升为单工件
+coverage face 的 principal window authority。`target_window_states` 账户
+现在先按 typed `selected_window` 精确匹配该窗口，不能再由“最宽窗优先”
+让探索/自动补采的扩展窗夺席；若所有候选都明确声明了不同窗口，则可选状态
+摘要 fail-closed。没有已知 principal window 的 legacy/non-windowed 运行
+继续保留原“选最宽账户且不求和”兼容策略。
+
+定向用例固定 120.000ms 探索账户先于 114.940ms 显式窗账户，最终覆盖文本
+只能发布 114.940ms 及其 26.946/3.636ms 状态值；另有 declared-window
+mismatch fail-closed 与 legacy 正例。完整
+`go test ./internal/types ./internal/tool -count=1` 通过
+（types 20.434s、tool 160.876s）。

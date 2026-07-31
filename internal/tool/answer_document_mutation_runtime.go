@@ -3410,9 +3410,14 @@ func runtimeTraceCoverageAuthority(input types.ObservationLedgerInput) runtimeTr
 		}
 	}
 	ledger := types.CompileObservationLedger(input)
-	out.analysisWindowStart, out.analysisWindowEnd, out.analysisWindowKnown = runtimeTraceCoverageAnalysisWindow(ledger)
+	out.analysisWindowStart, out.analysisWindowEnd, out.analysisWindowKnown = runtimeTraceCoverageAnalysisWindow(input, ledger)
 	out.targetIdentities = runtimeTraceCoverageTargetIdentities(ledger.Records)
-	out.targetStates = runtimeTraceCoverageTargetStates(ledger.Records)
+	out.targetStates = runtimeTraceCoverageTargetStates(
+		ledger.Records,
+		out.analysisWindowStart,
+		out.analysisWindowEnd,
+		out.analysisWindowKnown,
+	)
 	sort.Strings(out.compactedViews)
 	sort.Slice(out.enumerationBoundaries, func(i, j int) bool {
 		a, b := out.enumerationBoundaries[i], out.enumerationBoundaries[j]
@@ -3464,12 +3469,21 @@ func runtimeTraceCoverageAuthority(input types.ObservationLedgerInput) runtimeTr
 	return out
 }
 
-func runtimeTraceCoverageAnalysisWindow(ledger types.ObservationLedger) (float64, float64, bool) {
+func runtimeTraceCoverageAnalysisWindow(input types.ObservationLedgerInput, ledger types.ObservationLedger) (float64, float64, bool) {
 	set := types.CompileTraceCausalProjectionSet(ledger)
 	if len(set.Projections) > 1 {
 		// Multi-artifact runs stay unknown: one shared window is not a
 		// meaningful verdict across partitions.
 		return 0, 0, false
+	}
+	if input.RequestModel != nil {
+		if start, end, ok := input.RequestModel.RuntimeArtifactScopeProfile.ExplicitTimeWindow(); ok {
+			// EVAL-B10-Z2: the analyzer-validated explicit user window is the
+			// principal accounting boundary. Explorer probes and deterministic
+			// auto-supplements may query a wider interval, but they must not
+			// silently replace this scope on the coverage face.
+			return start, end, true
+		}
 	}
 	if len(set.Projections) == 1 {
 		projection := set.Projections[0]
@@ -3587,7 +3601,12 @@ func (s runtimeTraceCoverageTargetState) dominant() (string, float64) {
 	return name, value
 }
 
-func runtimeTraceCoverageTargetStates(records []types.ObservationRecord) []runtimeTraceCoverageTargetState {
+func runtimeTraceCoverageTargetStates(
+	records []types.ObservationRecord,
+	analysisWindowStart float64,
+	analysisWindowEnd float64,
+	analysisWindowKnown bool,
+) []runtimeTraceCoverageTargetState {
 	parse := func(notes []string, key string) float64 {
 		value, err := strconv.ParseFloat(strings.TrimSpace(runtimeTraceObservationRichNoteValue(notes, key)), 64)
 		if err != nil || value < 0 {
@@ -3595,7 +3614,13 @@ func runtimeTraceCoverageTargetStates(records []types.ObservationRecord) []runti
 		}
 		return value
 	}
-	bySubject := map[string]runtimeTraceCoverageTargetState{}
+	type candidate struct {
+		state         runtimeTraceCoverageTargetState
+		selectedStart float64
+		selectedEnd   float64
+		selectedKnown bool
+	}
+	bySubject := map[string][]candidate{}
 	var order []string
 	for _, record := range records {
 		if strings.TrimSpace(record.Predicate) != "target_window_states" {
@@ -3618,23 +3643,71 @@ func runtimeTraceCoverageTargetStates(records []types.ObservationRecord) []runti
 		if state.windowMS <= 0 {
 			continue
 		}
-		if existing, ok := bySubject[subject]; ok {
-			// Multi-window runs re-account the same subject: keep the widest
-			// window's account (the analysis-window form) — never sum.
-			if state.windowMS > existing.windowMS {
-				bySubject[subject] = state
-			}
-			continue
+		selectedStart, selectedEnd, selectedKnown := types.TraceCausalProjectionSelectedWindowNote(record.RichNotes)
+		if _, ok := bySubject[subject]; !ok {
+			order = append(order, subject)
 		}
-		bySubject[subject] = state
-		order = append(order, subject)
+		bySubject[subject] = append(bySubject[subject], candidate{
+			state:         state,
+			selectedStart: selectedStart,
+			selectedEnd:   selectedEnd,
+			selectedKnown: selectedKnown && selectedEnd > selectedStart,
+		})
 	}
 	if len(order) != 1 {
 		// Zero or several distinct subjects: no single target to account for
 		// (禁猜 — a multi-target ledger renders nothing here).
 		return nil
 	}
-	return []runtimeTraceCoverageTargetState{bySubject[order[0]]}
+	candidates := bySubject[order[0]]
+	if len(candidates) == 0 {
+		return nil
+	}
+	if analysisWindowKnown {
+		toleranceS := types.TraceCausalProjectionSameWindowToleranceS
+		for _, item := range candidates {
+			if item.selectedKnown &&
+				math.Abs(item.selectedStart-analysisWindowStart) <= toleranceS &&
+				math.Abs(item.selectedEnd-analysisWindowEnd) <= toleranceS {
+				// Exact typed window identity outranks width. This is the
+				// ordinary explicit-window + wider exploratory-probe shape.
+				return []runtimeTraceCoverageTargetState{item.state}
+			}
+		}
+		declaredWindowSeen := false
+		for _, item := range candidates {
+			if item.selectedKnown {
+				declaredWindowSeen = true
+				break
+			}
+		}
+		if declaredWindowSeen {
+			// Every available account declares a different window. Publishing
+			// one under the principal analysis window would be a false scope
+			// binding, so fail closed on this optional coverage sentence.
+			return nil
+		}
+		analysisWindowMS := (analysisWindowEnd - analysisWindowStart) * 1000
+		toleranceMS := toleranceS * 1000
+		for _, item := range candidates {
+			if math.Abs(item.state.windowMS-analysisWindowMS) <= toleranceMS {
+				// Legacy typed records may predate selected_window while still
+				// carrying exact window_ms. Accept that one-dimensional
+				// identity only when it matches the principal duration.
+				return []runtimeTraceCoverageTargetState{item.state}
+			}
+		}
+		return nil
+	}
+	// No principal window is known (legacy/non-windowed run): preserve the
+	// prior compatibility policy and keep the widest account, never sum.
+	best := candidates[0].state
+	for _, item := range candidates[1:] {
+		if item.state.windowMS > best.windowMS {
+			best = item.state
+		}
+	}
+	return []runtimeTraceCoverageTargetState{best}
 }
 
 func runtimeTraceMergeLifecycleBoundaries(dst, src []types.TraceLifecycleBoundaryAuthority) []types.TraceLifecycleBoundaryAuthority {
