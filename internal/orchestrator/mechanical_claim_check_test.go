@@ -19,6 +19,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -193,6 +194,19 @@ func TestMechanicalClaim_SkipSet(t *testing.T) {
 		// '.'/',' transparent — 3680.569 must not stop the walk), never by
 		// the leash.
 		{"adverbial_long_descriptor_zh", "在 3680.569s 的完整采样窗口（覆盖三个连续 vsync 刷新周期）内低于 16.67ms 的帧占比达 95%。"},
+		// R9-0/R9-2 (round-9 sweep): the clause-bounded paired-在 walk
+		// severed on LEGITIMATE descriptor content — an enumeration 、, a
+		// non-digit-flanked '.' (v2.x), or a comma before an elided second
+		// 在 — leaving the closer unrecognized so the in-adverbial quantity
+		// bound through and a CORRECT sentence raised a decisive false
+		// contradiction (all three live-reproduced). Round 9 SIMPLIFIED the
+		// arm (fourth consecutive round on this machinery): a 在 with ANY
+		// later 内/中/里 before the comparator now declares the left
+		// binding AMBIGUOUS and the claim skips — no pairing precision, no
+		// clause walking, recall-only cost.
+		{"adverbial_enumeration_descriptor_zh", "在渲染、合成两阶段的 10s 采样窗口内低于 16.67ms 的帧占比达 95%。"},
+		{"adverbial_version_dot_descriptor_zh", "在 v2.x 版本共 3680s 的采样窗口内低于 16.67ms 的帧占比达 95%。"},
+		{"adverbial_elided_zai_zh", "在压测过程中，10s 的采样窗口内低于 16.67ms 的帧占比达 95%。"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -225,13 +239,13 @@ func TestMechanicalClaim_NonNegatingCompoundStillJudges(t *testing.T) {
 	}
 }
 
-// TestMechanicalClaim_AdverbialCloserNeedsPairedZai — R7-0 discriminating
-// positive: the adverbial-closer barrier only fires on a 内/中/里 rune
-// with a paired 在 within the leash before it. A word-internal closer in
-// the gap with NO paired 在 (内部 in a parenthetical aside) stays
-// transparent, so the genuinely reversed pair still binds and fires —
-// kills an over-broad fix that treats ANY closer rune in the gap as a
-// barrier.
+// TestMechanicalClaim_AdverbialCloserNeedsPairedZai — R7-0 (kept live
+// under the R9 simplification) discriminating positive: the adverbial
+// ambiguity skip requires a 在 in the sentence prefix. A word-internal
+// closer with NO 在 anywhere before the comparator (内部 in a
+// parenthetical aside) is trivially decidable — no adverbial can be
+// open — so the genuinely reversed pair still binds and fires. Kills an
+// over-broad fix that skips on ANY closer rune.
 func TestMechanicalClaim_AdverbialCloserNeedsPairedZai(t *testing.T) {
 	mut := mccMutable()
 	got := runMechanicalClaimCheck(mccDoc("实测耗时 80ms（内部含 GC 停顿）未超过 16.67ms 帧预算。"), mut, "zh")
@@ -240,6 +254,59 @@ func TestMechanicalClaim_AdverbialCloserNeedsPairedZai(t *testing.T) {
 	}
 	if !strings.Contains(got[0].Detail, "80ms > 16.67ms") {
 		t.Fatalf("Detail must carry the reversed pair:\n%s", got[0].Detail)
+	}
+}
+
+// TestMechanicalClaim_SentenceRuneCapSkips — R9-1 (round-9 sweep):
+// sentences beyond mechanicalClaimSentenceRuneCap runes are degenerate
+// generations, not legitimate claim carriers — the whole
+// numeric_direction pass skips them wholesale. Red-first: pre-cap the
+// embedded reversed pair fired a decisive contradiction. The under-cap
+// discriminating positive keeps the cap from silencing real prose.
+func TestMechanicalClaim_SentenceRuneCapSkips(t *testing.T) {
+	prose := "实测 80ms 未超过 16.67ms 预算" + strings.Repeat("而后续阶段依次逐级展开", 40) + "。"
+	if n := len([]rune(prose)); n <= mechanicalClaimSentenceRuneCap {
+		t.Fatalf("probe must exceed the sentence cap, got %d runes", n)
+	}
+	mut := mccMutable()
+	if got := runMechanicalClaimCheck(mccDoc(prose), mut, "zh"); len(got) != 0 {
+		t.Fatalf("an over-cap sentence must be skipped wholesale, got %+v", got)
+	}
+	mut2 := mccMutable()
+	if got := runMechanicalClaimCheck(mccDoc("实测 80ms 未超过 16.67ms 预算。"), mut2, "zh"); len(got) != 1 {
+		t.Fatalf("the same claim under the cap must still fire, got %+v", got)
+	}
+}
+
+// TestMechanicalClaim_DegenerateSentencePerf — R9-1 perf pin: a ~27KB
+// terminator-free run-on sentence (dense quantities, comparators and
+// 在…内 closer runes — the round-9 degenerate probe shape) must complete
+// the full lane scan well under budget. Pre-fix the per-closer per-gap
+// adverbial walk was O(n²): ~32s at finalize and AGAIN at the ship-time
+// rescan; the sentence-rune cap turns it into a wholesale skip. The
+// scan used here (scanMechanicalClaimFindings) is the ONE detector both
+// consumers share, so the pin covers both.
+func TestMechanicalClaim_DegenerateSentencePerf(t *testing.T) {
+	// Probe shape matters: barrier-free and 在-free, so pre-fix every
+	// closer rune in every token-gap walked all the way back to the
+	// sentence start (the unbounded-walk arm of R9-1) instead of
+	// short-circuiting on a clause barrier or a paired 在.
+	head := "总耗时 80ms 与 10ms 的采样间隔内低于 16ms 的样本占比达 95% "
+	seg := "渲染合成两阶段的采样窗口内持续低于阈值且流水线依次展开 "
+	var b strings.Builder
+	b.WriteString(head)
+	for b.Len() < 27*1024 {
+		b.WriteString(seg)
+	}
+	doc := mccDoc(b.String())
+	start := time.Now()
+	findings := scanMechanicalClaimFindings(doc)
+	elapsed := time.Since(start)
+	if len(findings) != 0 {
+		t.Fatalf("a degenerate over-cap sentence is not a claim carrier, got %+v", findings)
+	}
+	if elapsed > 200*time.Millisecond {
+		t.Fatalf("degenerate 27KB probe took %v, budget 200ms", elapsed)
 	}
 }
 

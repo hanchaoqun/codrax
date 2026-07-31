@@ -73,6 +73,19 @@ const (
 	mechanicalClaimFindingCap   = 8
 	mechanicalClaimScanTokenCap = 200
 
+	// mechanicalClaimSentenceRuneCap — R9-1 (round-9 sweep): the whole
+	// numeric_direction pass SKIPS any sentence longer than this many
+	// runes. Degenerate generations (KB-scale run-on "sentences") are
+	// not legitimate claim carriers, and every per-sentence predicate in
+	// this lane is at worst O(sentence) per comparator, so the cap is
+	// also the lane's worst-case work bound (pre-cap, a 27KB degenerate
+	// sentence drove the scan to ~32s at finalize and AGAIN at the
+	// ship-time rescan). Real answer prose sits far below the cap;
+	// skipping an over-cap sentence costs recall only. Applies to the
+	// hint round AND the ship-time rescan — both consume the same Scan
+	// functions.
+	mechanicalClaimSentenceRuneCap = 400
+
 	// mechanicalClaimBindGapRunes is the comparator→quantity leash on
 	// EACH side (rune distance between the quantity token and the
 	// comparator word). Beyond the leash the binding is a guess, and
@@ -331,15 +344,22 @@ func (o *Orchestrator) appendMechanicalClaimResidualCaveatToAnswer(answer string
 //	  binding it appears in (binding ambiguity);
 //	⑦ zero values carry no measurement claim (PSG ruling reused);
 //	⑧ exempt blocks never reach this scanner (collectModelProseUnits);
-//	⑨ (R6-4/R7-0) operand binding stops at clause boundaries
-//	  (，。；、,;.) and, left-side, at 在-paired 在…内/中/里 adverbial
-//	  closers — both are monotone gap barriers (side-fatal: rejecting
-//	  the nearest candidate rejects the whole side), so an attributive
-//	  comparator with no in-clause operand is skipped, never bound
-//	  across the boundary;
+//	⑨ (R6-4) operand binding stops at clause boundaries (，。；、,;.)
+//	  — a monotone gap barrier (side-fatal: rejecting the nearest
+//	  candidate rejects the whole side), so an attributive comparator
+//	  with no in-clause operand is skipped, never bound across the
+//	  boundary;
 //	⑩ (R6-3) an ambiguous negation reading (a 不/未/not token that is
 //	  neither a closed non-negating compound nor immediately before
-//	  the comparator) skips the claim — never flip on a guess.
+//	  the comparator) skips the claim — never flip on a guess;
+//	⑪ (R9-0/R9-2) a 在 with ANY later 内/中/里 rune before the
+//	  comparator makes the left-operand binding AMBIGUOUS and the
+//	  claim skips — the rounds-6..9 adverbial-parsing machinery
+//	  (paired-在 recognition, clause walking) is retired; see
+//	  mechanicalClaimZaiAdverbialAmbiguous;
+//	⑫ (R9-1) sentences beyond mechanicalClaimSentenceRuneCap runes
+//	  are skipped wholesale — degenerate generations are not
+//	  legitimate claim carriers, and the cap is the lane's work bound.
 func scanNumericDirectionClaims(unit proseTextUnit, spans [][2]int) []mechanicalClaimFinding {
 	text := unit.text
 	if strings.TrimSpace(text) == "" {
@@ -352,6 +372,13 @@ func scanNumericDirectionClaims(unit proseTextUnit, spans [][2]int) []mechanical
 	var out []mechanicalClaimFinding
 	for _, span := range spans {
 		sent := text[span[0]:span[1]]
+		// Skip ⑫ (R9-1): over-cap sentences are skipped wholesale BEFORE
+		// any per-sentence machinery runs — this one check is what keeps
+		// the pass linear for degenerate inputs, on the hint round and
+		// the ship-time rescan alike (same Scan function).
+		if utf8.RuneCountInString(sent) > mechanicalClaimSentenceRuneCap {
+			continue
+		}
 		// Skip ②: question sentences make no fact claim.
 		if strings.ContainsAny(sent, "?？") {
 			continue
@@ -391,19 +418,17 @@ func scanNumericDirectionClaims(unit proseTextUnit, spans [][2]int) []mechanical
 		// left, B = nearest token strictly right, each within the rune
 		// leash. Any missing side, over-leash gap, range endpoint,
 		// cross-dimension pair or zero side discards THAT comparator.
-		// R6-4 (round-6 sweep) + R7-0 (round-7 sweep): binding
-		// additionally stops at clause boundaries (，。；、,;.) and, on
-		// the left side, at the closer of a clause-opening 在…内/中/里
-		// adverbial — a window/trace duration from a DIFFERENT clause
-		// never serves as the left operand of an attributive comparator
-		// phrase (低于 X 的帧 / frames below X); with no in-clause
-		// operand the comparator is skipped, never bound across the
-		// boundary. Both predicates are GAP predicates so the rejection
-		// is side-fatal: the nearest candidate carries a SUBSET of any
+		// R6-4 (round-6 sweep): binding additionally stops at clause
+		// boundaries (，。；、,;.) — a GAP predicate, so the rejection is
+		// side-fatal: the nearest candidate carries a SUBSET of any
 		// farther candidate's gap, so a barrier that rejects the nearest
-		// candidate rejects every farther one too (R7-0: the R6-4
-		// adverbial arm keyed on the candidate's own 在-prefix instead
-		// and let a token BEFORE the 在-opener bind across the closer).
+		// candidate rejects every farther one too. The rounds-7/8
+		// adverbial-closer gap barrier that used to sit beside it is
+		// retired (R9): 在…内/中/里 adverbial shapes are handled by the
+		// comparator-level ambiguity skip stamped in
+		// mechanicalClaimComparatorsInSentence — the comparator still
+		// binds here so its operands feed the contested-token census,
+		// but it never yields a finding.
 		type mccBinding struct {
 			comp        mechanicalClaimComparatorMatch
 			left, right int
@@ -415,7 +440,6 @@ func scanNumericDirectionClaims(unit proseTextUnit, spans [][2]int) []mechanical
 			for i, tok := range st {
 				if tok.unitEnd <= c.start &&
 					!mechanicalClaimClauseBarrierBetween(sent, tok.unitEnd, c.start) &&
-					!mechanicalClaimAdverbialCloserBetween(sent, tok.unitEnd, c.start) &&
 					(li == -1 || tok.unitEnd > st[li].unitEnd) {
 					li = i
 				}
@@ -451,9 +475,11 @@ func scanNumericDirectionClaims(unit proseTextUnit, spans [][2]int) []mechanical
 			if useCount[bnd.left] > 1 || useCount[bnd.right] > 1 {
 				continue
 			}
-			// R6-3 precision rule: an ambiguous negation reading skips the
-			// claim entirely (the binding above still fed the contested-
-			// token census — more conservative, never less).
+			// Ambiguity skips the claim entirely while the binding above
+			// still fed the contested-token census (more conservative,
+			// never less): R6-3 ambiguous negation readings and R9
+			// possible 在…内/中/里 adverbial coverage of the left operand
+			// both arrive here as comp.skip.
 			if bnd.comp.skip {
 				continue
 			}
@@ -600,6 +626,13 @@ func mechanicalClaimComparatorsInSentence(sent string) []mechanicalClaimComparat
 		case mccNegationFlip:
 			kept[i].negated = true
 		case mccNegationAmbiguous:
+			kept[i].skip = true
+		}
+		// R9-0/R9-2 conservative ambiguity rule: a 在 with any later
+		// 内/中/里 before the comparator may put the left operand inside
+		// an adverbial — skip the claim (binding still feeds the
+		// contested-token census).
+		if !kept[i].skip && mechanicalClaimZaiAdverbialAmbiguous(sent, kept[i].start) {
 			kept[i].skip = true
 		}
 	}
@@ -789,38 +822,39 @@ func mechanicalClaimClauseBarrierBetween(sent string, from, to int) bool {
 	return false
 }
 
-// mechanicalClaimAdverbialCloserBetween — R7-0 (round-7 sweep),
-// superseding R6-4's per-candidate mechanicalClaimLeftOperandAdverbialScoped:
-// the closer of a 在…内/中/里 adverbial (在 10s 的窗口内低于 16.67ms …)
-// is a true left-side BINDING BARRIER with the same subset/monotonicity
-// property as the clause barrier. R6-4's predicate rejected only a
-// candidate sitting INSIDE the adverbial (在 before the token), which is
-// NOT side-fatal: a farther token BEFORE the 在-opener carried a gap the
-// predicate accepted, so it bound ACROSS the adverbial — 「总耗时 80ms
-// 在 10ms 的采样间隔内低于 16.67ms …」 bound 80ms and manufactured a
-// contradiction on a correct sentence that was silent pre-R6. A rune
-// counts as a closer only when a 在 precedes it within the same clause
-// (mechanicalClaimWithinAdmitted — the SAME paired-在 predicate the
-// 之内/以内 admission gate uses, 谓词同源; clause-bounded rather than
-// leash-bounded since R8-0): word-internal 内/中/里 with
-// no paired 在 (内存 / 其中 / (内部含 GC)) stay transparent. Monotone by
-// construction: a closer inside the nearest candidate's gap is inside
-// every farther candidate's superset gap, so the WHOLE left side dies
-// (side-fatal) and the attributive comparator skips — a false hit only
-// ever skips (recall cost, never a wrong binding).
-func mechanicalClaimAdverbialCloserBetween(sent string, from, to int) bool {
-	if from >= to || from < 0 || to > len(sent) {
+// mechanicalClaimZaiAdverbialAmbiguous — R9-0/R9-2 (round-9 sweep): the
+// SIMPLIFICATION that ends the rounds-6..9 whack-a-mole on Chinese
+// 在…内/中/里 adverbial parsing (per-candidate 在-prefix rejection →
+// paired-在 gap barrier, leash-bounded → clause-walk-bounded pairing —
+// each round's added precision machinery manufactured the NEXT round's
+// decisive false contradiction on a correct sentence, and the clause
+// walk was additionally O(n²) per degenerate sentence). Per the lane's
+// precision-over-recall charter the arm no longer tries to RESOLVE the
+// adverbial at all: when the sentence prefix before the comparator
+// contains a 在 with ANY later 内/中/里 rune, an adverbial scope MAY
+// cover the left operand, so the binding is declared AMBIGUOUS and the
+// claim skips (via comp.skip — the binding still feeds the
+// contested-token census, more conservative, never less). One cheap
+// forward scan: no pairing precision, no clause walking, nothing to
+// sever on enumeration 、 / version dots / long descriptors / an elided
+// second 在. The trivially decidable word-internal shape stays honest:
+// with NO 在 in the prefix a bare 内/中/里 (内存 / 其中 / (内部含 GC))
+// cannot open an adverbial, so the binding stands (pinned by
+// TestMechanicalClaim_AdverbialCloserNeedsPairedZai). Recorded
+// residual: a sentence whose adverbial opener 在 is elided ENTIRELY
+// (「压测过程中，10s 的采样窗口内…」 with no 在 anywhere) is
+// indistinguishable from a word-internal closer without exactly the
+// pairing precision this rule retires — it still binds.
+func mechanicalClaimZaiAdverbialAmbiguous(sent string, compStart int) bool {
+	if compStart < 0 || compStart > len(sent) {
 		return false
 	}
-	for i, r := range sent[from:to] {
-		switch r {
-		case '内', '中', '里':
-			if mechanicalClaimWithinAdmitted(sent, from+i) {
-				return true
-			}
-		}
+	prefix := sent[:compStart]
+	zi := strings.Index(prefix, "在")
+	if zi < 0 {
+		return false
 	}
-	return false
+	return strings.ContainsAny(prefix[zi+len("在"):], "内中里")
 }
 
 // mechanicalClaimNegationBarrier — punctuation the zh negation window
@@ -834,57 +868,26 @@ func mechanicalClaimNegationBarrier(r rune) bool {
 	return false
 }
 
-// mechanicalClaimWithinAdmitted — the shared paired-在 predicate: a 在
-// before the given position, anywhere back to the previous clause
-// boundary (or the sentence start). Two consumers (谓词同源): the
-// 之内/以内 comparator admission gate (a 在 before the word marks the
-// comparison construction) and the R7-0 adverbial-closer barrier (a 在
-// before a 内/中/里 rune marks it as an adverbial closer rather than a
-// word-internal character).
-//
-// R8-0 (round-8 sweep): the search was bounded by the 30-rune bind
-// leash (mechanicalClaimBindGapRunes), but a 在-pairing is a CLAUSE
-// property, not a leash property — a 在…内 adverbial whose descriptor
-// pushed 在 beyond the leash left the closer unrecognized while the
-// in-adverbial quantity still bound through its own ≤30-rune gap, so a
-// CORRECT sentence (「在 3680.569s 的完整采样窗口（覆盖三个连续 vsync
-// 刷新周期）内低于 16.67ms 的帧占比达 95%」) raised a decisive false
-// contradiction. The walk now stops only at a clause barrier
-// (mechanicalClaimClauseBarrierRune, with numeric-internal '.'/','
-// transparent — the decimal point in 3680.569 / 16.67 must not end the
-// walk) or the sentence start. The word-internal-内 protection is
-// unchanged: it is the paired-在 requirement itself (内存 / 其中 with
-// no clause-mate 在 stay transparent), and the clause bound makes it
-// STRICTER than the leash form for a 在 in a previous clause (…在压测
-// 中，… 内… no longer pairs across the comma).
+// mechanicalClaimWithinAdmitted — the 之内/以内 comparator ADMISSION
+// gate's own predicate: a 在 anywhere earlier in the sentence marks the
+// 「在 X 之内 / 在 X 以内」 comparison construction; bare temporal
+// adverbials (「三天之内完成」) stay out. R9 (round-9 sweep): this is a
+// deliberately simple sentence-bounded backward scan. Rounds 7-8 made
+// this predicate the shared paired-在 recognizer for the adverbial gap
+// barrier as well (leash-bounded, then clause-walking with
+// numeric-internal-punctuation transparency), and the walk kept
+// severing on legitimate descriptor content (enumeration 、, non-digit
+// '.', an elided second 在) while going O(n²) on degenerate sentences —
+// that machinery is retired. The former barrier consumer is replaced by
+// the mechanicalClaimZaiAdverbialAmbiguous skip rule and no longer
+// shares this predicate; admitting a 在 from an earlier clause at worst
+// admits a comparator that the ambiguity rule or the operand binding
+// then discards.
 func mechanicalClaimWithinAdmitted(sent string, compStart int) bool {
-	start := compStart
-	for start > 0 {
-		r, size := utf8.DecodeLastRuneInString(sent[:start])
-		start -= size
-		if r == '在' {
-			return true
-		}
-		if mechanicalClaimClauseBarrierRune(r) && !mechanicalClaimNumericInternalPunct(sent, start) {
-			return false
-		}
-	}
-	return false
-}
-
-// mechanicalClaimNumericInternalPunct reports that the ASCII '.' or ','
-// at byte offset i is flanked by ASCII digits on both sides — the
-// decimal point / thousands separator inside a number literal
-// (3680.569 / 1,234), which is not a clause boundary.
-func mechanicalClaimNumericInternalPunct(sent string, i int) bool {
-	if i <= 0 || i+1 >= len(sent) {
+	if compStart < 0 || compStart > len(sent) {
 		return false
 	}
-	if c := sent[i]; c != '.' && c != ',' {
-		return false
-	}
-	p, n := sent[i-1], sent[i+1]
-	return p >= '0' && p <= '9' && n >= '0' && n <= '9'
+	return strings.Contains(sent[:compStart], "在")
 }
 
 // mechanicalClaimModalNearComparator reports whether the comparator's
