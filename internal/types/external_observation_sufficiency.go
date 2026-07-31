@@ -79,7 +79,9 @@ func AssessExternalObservationSufficiency(records []ObservationRecord, rm *Reque
 }
 
 func externalObservationSufficiencyCurrentSourceRequired(rm *RequestModel, hint TurnRouteHint) bool {
-	return runtimeSourceAuthorityPreciseCurrentSourceRequirement(rm)
+	required := runtimeSourceAuthorityRequestCurrentSourceRequired(rm, hint)
+	return required &&
+		runtimeSourceAuthorityRequirementPrecision(rm, hint, required) == RuntimeSourceRequirementPrecise
 }
 
 // RouteBackedExternalObservationRequiresCurrentSource reports that the

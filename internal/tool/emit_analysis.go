@@ -538,7 +538,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"source_scope_profile": map[string]any{
 				"type":        "object",
-				"description": "Optional typed path-scope intent. Emit when the current request explicitly makes production, tests, docs, fixtures, examples, or all repo material the principal answer scope. This is user intent, not path classification; include source_quotes copied from the current request when a scope boundary is explicit.",
+				"description": "Optional typed REPOSITORY PATH-scope intent. Emit only when the current request explicitly makes production, tests, docs, fixtures, examples, or all repo material the principal answer scope. Never use an attached log/trace/artifact phrase as this profile's source quote; artifact range belongs in runtime_artifact_scope_profile. This profile cannot substitute for current_source_explanation_profile in a mixed artifact+current-source request.",
 				"properties": map[string]any{
 					"requested_scope":                map[string]any{"type": "string", "enum": sourceScopeValues(), "description": "production, test, documentation, auxiliary, all, or unknown."},
 					"include_auxiliary_as_principal": map[string]any{"type": "boolean", "description": "True only when test/docs/fixture/example files may be principal answer members rather than supporting context."},
@@ -718,7 +718,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"current_source_explanation_profile": map[string]any{
 				"type":        "object",
-				"description": "Optional soft typed profile for mixed external-observation + current-checkout requests. Emit it when the CURRENT request asks to explain, verify, trace, compare, locate, or assess an external/non-source observation against current source. This opens the current-source evidence lane; it is not a display dimension and not a hard answer gate.",
+				"description": "Dedicated soft typed profile for mixed external-observation + current-checkout requests. You MUST emit it when the CURRENT request asks to explain, verify, trace, compare, locate, or assess an external/non-source observation against current source. source_scope_profile, diagnostic_profile.current_risk/current_version_check, and external_observation_policy.current_source_mode=allow do not substitute for this carrier. It opens the current-source evidence lane; it is not a display dimension and not a hard answer gate.",
 				"properties": map[string]any{
 					"is_current_source_explanation_requested": map[string]any{"type": "boolean", "description": "True only when the current request explicitly asks to relate external/non-source evidence to the current checkout/source."},
 					"modes": map[string]any{
@@ -737,7 +737,7 @@ func buildEmitAnalysisSchema() {
 				"type":        "object",
 				"description": "Optional typed source/citation policy for external observations such as logs, traces, MCP resources, connector rows, command output, web pages, or external documents. Omit it or set current_source_mode=default/allow unless the CURRENT request explicitly says not to read or analyze current checkout/source evidence at all. If current_source_mode=exclude is emitted, also set exclusion_kind=explicit_user_exclusion and current_source_exclusion_quote to one minimal verbatim phrase that forbids current-source evidence; otherwise the tool downgrades the exclusion to default/allow. A request saying only that artifact line numbers are not current-source citations must use artifact_citation_mode=external_only plus artifact_citation_quotes and must not exclude current source.",
 				"properties": map[string]any{
-					"current_source_mode":    map[string]any{"type": "string", "enum": externalObservationCurrentSourceModeValues(), "description": "default/allow means analyze external observations together with current source. exclude means suppress current-source exploration only when the current request explicitly forbids source/current-checkout analysis."},
+					"current_source_mode":    map[string]any{"type": "string", "enum": externalObservationCurrentSourceModeValues(), "description": "default/allow permits current-source analysis but does not require it. Mixed artifact+current-source obligation must use current_source_explanation_profile. exclude suppresses current-source exploration only when the current request explicitly forbids source/current-checkout analysis."},
 					"exclusion_kind":         map[string]any{"type": "string", "enum": externalObservationCurrentSourceExclusionKindValues(), "description": "Set to explicit_user_exclusion only when current_source_mode=exclude is justified by a user-authored phrase that forbids current checkout/source evidence. Leave empty otherwise."},
 					"artifact_citation_mode": map[string]any{"type": "string", "enum": externalObservationArtifactCitationModeValues(), "description": "default leaves citation policy unchanged. external_only means external artifact line/row refs stay external-observation evidence and must not be re-rendered as current-source file:line citations; it does NOT suppress current-source exploration. allow_current_source is only for external material that has been resolved to current source by another typed signal."},
 					"current_source_exclusion_quote": map[string]any{

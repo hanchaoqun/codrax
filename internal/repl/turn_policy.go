@@ -315,7 +315,7 @@ var turnPolicyTool = llm.ToolSchema{
     "current_source_evidence_mode": {
       "type": "string",
       "enum": ["required", "optional"],
-      "description": "Whether evidence from the current repository checkout must participate in this answer. This is orthogonal to needs_repo_access: artifact-only log/trace/MCP investigation still uses route=repo and needs_repo_access=true to enter the analysis pipeline, but sets optional. Set required for current-source questions and mixed artifact+current-source correlation. Never infer this field from answer prose."
+      "description": "Whether evidence from the current repository checkout must participate in this answer. This is orthogonal to needs_repo_access: artifact-only log/trace/MCP investigation still uses route=repo and needs_repo_access=true to enter the analysis pipeline, but sets optional. Set required for current-source questions and ANY explicit artifact+current-source correlation, even when source=artifact describes the primary attachment. If your reason says current source/code must be analyzed, optional is self-contradictory. Never infer this field from answer prose."
     },
     "needs_operation_access": {
       "type": "boolean",
@@ -531,6 +531,10 @@ current_source_evidence_mode is orthogonal to needs_repo_access:
              pipeline. Runtime observations remain answer-grade evidence and
              must not be erased merely because the current checkout differs.
 This is typed routing metadata, not evidence. Do not derive answer facts from it.
+If the current request asks to combine an artifact with current source, emit
+source=mixed and current_source_evidence_mode=required. Do not emit optional
+merely because the runtime artifact is the primary subject. A reason that says
+source/code evidence is needed is inconsistent with optional.
 
 needs_operation_access is true iff route=operation. Do not set it for
 ordinary source, log, trace, MCP, connector, or attached-artifact

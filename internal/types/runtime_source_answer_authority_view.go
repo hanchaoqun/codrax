@@ -142,17 +142,18 @@ func RuntimeSourceAuthorityRequestModelFromBusContext(ctx *BusContext) *RequestM
 func BuildRuntimeSourceAnswerAuthoritySnapshot(in RuntimeSourceAnswerAuthorityInput) RuntimeSourceAnswerAuthoritySnapshot {
 	out := RuntimeSourceAnswerAuthoritySnapshot{}
 	rm := in.RequestModel
-	if rm != nil {
-		out.CurrentSourceLane = rm.CurrentSourceLaneDecision()
-	} else if RouteBackedExternalObservationRequiresCurrentSource(nil, in.RouteHint) {
-		out.CurrentSourceLane = CurrentSourceLaneRequired
-	} else {
-		out.CurrentSourceLane = CurrentSourceLaneAllowedOptional
-	}
 	suff := AssessExternalObservationSufficiency(in.Ledger.Records, rm, in.RouteHint)
 	out.ExternalObservationSufficiency = suff.Status
 	out.RuntimeOnlySufficient = suff.Status.Sufficient()
 	out.CurrentSourceRequired = runtimeSourceAuthorityCurrentSourceRequired(rm, in.RouteHint, suff)
+	switch {
+	case rm != nil && rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource():
+		out.CurrentSourceLane = CurrentSourceLaneExcluded
+	case out.CurrentSourceRequired:
+		out.CurrentSourceLane = CurrentSourceLaneRequired
+	default:
+		out.CurrentSourceLane = CurrentSourceLaneAllowedOptional
+	}
 	out.CurrentSourceRequirement = runtimeSourceAuthorityRequirementPrecision(rm, in.RouteHint, out.CurrentSourceRequired)
 	out.RuntimeCitationPolicy = runtimeSourceAuthorityCitationPolicy(in.AnswerSurfacePlan)
 
@@ -378,13 +379,71 @@ func runtimeSourceAuthorityCurrentSourceRequired(rm *RequestModel, hint TurnRout
 	if suff.Status == ExternalObservationSufficiencyBlockedByCurrentSource {
 		return true
 	}
+	return runtimeSourceAuthorityRequestCurrentSourceRequired(rm, hint)
+}
+
+// runtimeSourceAuthorityRequestCurrentSourceRequired is the single request-side
+// compiler for runtime/current-source evidence obligation. Explicit route
+// optionality is meaningful only for external-observation turns and may be
+// overridden only by an independent typed current-source carrier; the existing
+// precision compiler separately decides whether that obligation is hard or
+// soft. Generic allow/default policy, diagnostic flags, and a repo path-scope
+// quote do not independently prove that the answer must verify the checkout.
+func runtimeSourceAuthorityRequestCurrentSourceRequired(rm *RequestModel, hint TurnRouteHint) bool {
+	if rm != nil && rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {
+		return false
+	}
 	if RouteBackedExternalObservationRequiresCurrentSource(rm, hint) {
 		return true
 	}
 	if rm == nil {
 		return false
 	}
+	if hint.ExternalObservationParticipates() &&
+		NormalizeTurnRouteCurrentSourceEvidenceMode(string(hint.CurrentSourceEvidenceMode)) == TurnRouteCurrentSourceEvidenceOptional {
+		return runtimeSourceAuthorityHasIndependentCurrentSourceRequirement(rm)
+	}
 	return rm.CurrentSourceLaneDecision().RequiresCurrentSource()
+}
+
+func runtimeSourceAuthorityHasIndependentCurrentSourceRequirement(rm *RequestModel) bool {
+	if rm == nil {
+		return false
+	}
+	if rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {
+		return false
+	}
+	if rm.CurrentSourceExplanationHasVerbatimRequestQuote() {
+		return true
+	}
+	if rm.HasCurrentSourceObligationSignal() {
+		return true
+	}
+	if rm.RequestedAnswerDimensions != nil && rm.RequestedAnswerDimensions.Active() {
+		for _, dim := range rm.RequestedAnswerDimensions.Dimensions {
+			if dim.Required && rm.dimensionHasPreciseCurrentSourceAnchor(dim) {
+				return true
+			}
+		}
+	}
+	for _, target := range rm.AnalyzerHints.ExactTargets {
+		if targetLooksLikeCurrentSourceAnchor(target) {
+			return true
+		}
+	}
+	for _, fileHint := range rm.AnalyzerHints.RequiredFileHints {
+		if targetLooksLikeCurrentSourceAnchor(fileHint.Path) {
+			return true
+		}
+	}
+	if rm.SourceScopeProfile != nil {
+		for _, quote := range rm.SourceScopeProfile.SourceQuotes {
+			if textHasPreciseCurrentSourceAnchor(quote) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func runtimeSourceAuthorityRequirementPrecision(rm *RequestModel, hint TurnRouteHint, required bool) RuntimeSourceRequirementPrecision {

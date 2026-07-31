@@ -48,6 +48,73 @@ func TestRuntimeSourceAnswerAuthoritySnapshot_ArtifactPipelineAccessDoesNotRequi
 	}
 }
 
+func TestRuntimeSourceAnswerAuthoritySnapshot_OptionalRouteRejectsGenericSourceScopeEscalation(t *testing.T) {
+	ledger := ObservationLedger{Records: []ObservationRecord{runtimeSourceTraceRecord("log:panic", "log_triage")}}
+	rm := &RequestModel{
+		RawRequest: "这个大日志里的 panic 从哪里发出？",
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			CurrentSourceMode: ExternalObservationCurrentSourceAllow,
+		},
+		SourceScopeProfile: &SourceScopeProfile{
+			RequestedScope: SourceScopeAll,
+			SourceQuotes:   []string{"这个大日志里的 panic"},
+			Confidence:     0.9,
+		},
+	}
+	got := BuildRuntimeSourceAnswerAuthoritySnapshot(RuntimeSourceAnswerAuthorityInput{
+		RequestModel: rm,
+		RouteHint: TurnRouteHint{
+			Route:                     "repo",
+			Source:                    "artifact",
+			NeedsRepoAccess:           true,
+			CurrentSourceEvidenceMode: TurnRouteCurrentSourceEvidenceOptional,
+		},
+		Ledger: ledger,
+	})
+	if got.CurrentSourceRequired || got.NeedsCurrentSourceEvidence ||
+		got.CurrentSourceRequirement != RuntimeSourceRequirementNone {
+		t.Fatalf("generic allow/source-scope metadata must not bypass explicit artifact-only route: %+v", got)
+	}
+	if got.CurrentSourceLane != CurrentSourceLaneAllowedOptional ||
+		!got.RuntimeOnlySufficient ||
+		!got.CanUseRuntimeOnlyWithCaveat {
+		t.Fatalf("runtime authority should remain answer-grade with optional checkout: %+v", got)
+	}
+}
+
+func TestRuntimeSourceAnswerAuthoritySnapshot_OptionalRouteAllowsDedicatedCurrentSourceBridge(t *testing.T) {
+	ledger := ObservationLedger{Records: []ObservationRecord{runtimeSourceTraceRecord("log:timeout", "log_triage")}}
+	rm := &RequestModel{
+		RawRequest: "请结合当前源码解释这段日志",
+		CurrentSourceExplanationProfile: &CurrentSourceExplanationProfile{
+			IsCurrentSourceExplanationRequested: true,
+			Modes: []CurrentSourceExplanationMode{
+				CurrentSourceExplanationExplainCurrentMechanism,
+			},
+			SourceQuotes: []string{"结合当前源码"},
+			Confidence:   0.9,
+		},
+	}
+	got := BuildRuntimeSourceAnswerAuthoritySnapshot(RuntimeSourceAnswerAuthorityInput{
+		RequestModel: rm,
+		RouteHint: TurnRouteHint{
+			Route:                     "repo",
+			Source:                    "artifact",
+			NeedsRepoAccess:           true,
+			CurrentSourceEvidenceMode: TurnRouteCurrentSourceEvidenceOptional,
+		},
+		Ledger: ledger,
+	})
+	if !got.CurrentSourceRequired || !got.NeedsCurrentSourceEvidence {
+		t.Fatalf("dedicated exact current-source bridge should recover mixed-lane obligation: %+v", got)
+	}
+	if got.CurrentSourceLane != CurrentSourceLaneRequired ||
+		got.CurrentSourceRequirement != RuntimeSourceRequirementSoft ||
+		!got.CanDowngradeToCaveat {
+		t.Fatalf("verbatim current-source bridge should remain a soft, typed obligation: %+v", got)
+	}
+}
+
 func TestRuntimeSourceAnswerAuthoritySnapshot_SoftRequirementCanDowngradeToCaveat(t *testing.T) {
 	ledger := ObservationLedger{Records: []ObservationRecord{runtimeSourceTraceRecord("trace:root", "trace_query")}}
 	rm := &RequestModel{

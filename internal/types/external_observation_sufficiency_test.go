@@ -354,6 +354,39 @@ func TestAssessExternalObservationSufficiency_RouteBackedRepoArtifactAllowsCavea
 	}
 }
 
+func TestAssessExternalObservationSufficiency_OptionalRouteIgnoresArtifactQuoteInSourceScope(t *testing.T) {
+	records := []ObservationRecord{{
+		ID:     "log:panic:0",
+		Origin: AnswerEvidenceOriginRuntimeArtifact,
+		SourceRef: ObservationSourceRef{
+			Kind:       ObservationSourceRuntimeArtifact,
+			ArtifactID: "attached_log",
+		},
+		Span:    ObservationSpan{LineStart: 49, LineEnd: 50},
+		Summary: "main.crashy is the runtime stack top",
+	}}
+	got := AssessExternalObservationSufficiency(records, &RequestModel{
+		RawRequest: "这个大日志里的 panic 从哪里发出？",
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			CurrentSourceMode: ExternalObservationCurrentSourceAllow,
+		},
+		SourceScopeProfile: &SourceScopeProfile{
+			RequestedScope: SourceScopeAll,
+			SourceQuotes:   []string{"这个大日志里的 panic"},
+			Confidence:     0.9,
+		},
+	}, TurnRouteHint{
+		Route:                     "repo",
+		Source:                    "artifact",
+		NeedsRepoAccess:           true,
+		CurrentSourceEvidenceMode: TurnRouteCurrentSourceEvidenceOptional,
+		Confidence:                0.9,
+	})
+	if !got.Status.Sufficient() {
+		t.Fatalf("artifact scope quote must not masquerade as current-source scope under optional route: %+v", got)
+	}
+}
+
 func TestAssessExternalObservationSufficiency_RouteBackedMixedSourceAllowsCaveatSufficiency(t *testing.T) {
 	records := []ObservationRecord{{
 		ID:     "log:error:0",
