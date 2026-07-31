@@ -209,6 +209,13 @@ func RegisterDefaults(r *Registry) {
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},
 			{
+				// EVAL-B11-AD1: target blocking wall clock is a typed
+				// occurrence-union caliber, not IPC transport latency. Soft
+				// guidance only; no request/answer prose scanner.
+				Body:      "TRACE TARGET BLOCKING WALL-CLOCK AUTHORITY: when `Trace Target Blocking Wall-Clock Authority` is present, its `proven_blocking_wall_clock` is the only published target blocking-wall-clock account for that blocking type and selected window. Synchronous request count, send-to-reply/transaction latency, peer execution, and model aggregates are separate metrics and must not be added unless they own a listed blocking occurrence. An interruptible S scheduler state is compatible with a proven blocking occurrence; zero D-state/uninterruptible time cannot refute a listed S-state wait or prove that no counterpart wait occurred. `coverage_status=complete` permits an exhaustive total; `lower_bound_capacity_truncated` permits only a proven observed lower bound and forbids total/all/only wording. Preserve listed occurrence interval and peer identity.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+			},
+			{
 				// C1 值词库教学批 (§29.104.16.1 M5①, 2026-07-17). EVOLUTION
 				// RECORD: the wire-token ↔ display-word bridge directive —
 				// witness cust_span_vs_prio_info: bare `gated_runnable` and
@@ -659,6 +666,11 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 			{
 				// EVAL-B11-AC2 answer-side mirror.
 				Body:      "TRACE VALUE-OWNER TEMPORAL AUTHORITY: when `Trace Value-Owner Temporal Authority` publishes `temporal_status=exact`, use its `value_owner_occurrence` for that subject/type/value measurement. A command aggregate, transaction send/receive phase, neighboring scheduler event, or narrative timestamp cannot replace the interval owned by the same measured value. When status is ambiguous, do not choose one occurrence by arrival order.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+			},
+			{
+				// EVAL-B11-AD1 answer-side mirror.
+				Body:      "TRACE TARGET BLOCKING WALL-CLOCK AUTHORITY: when `Trace Target Blocking Wall-Clock Authority` is present, its `proven_blocking_wall_clock` is the only published target blocking-wall-clock account for that blocking type and selected window. Synchronous request count, send-to-reply/transaction latency, peer execution, and model aggregates are separate metrics and must not be added unless they own a listed blocking occurrence. An interruptible S scheduler state is compatible with a proven blocking occurrence; zero D-state/uninterruptible time cannot refute a listed S-state wait or prove that no counterpart wait occurred. `coverage_status=complete` permits an exhaustive total; `lower_bound_capacity_truncated` permits only a proven observed lower bound and forbids total/all/only wording. Preserve listed occurrence interval and peer identity.",
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},
 			{

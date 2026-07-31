@@ -2017,3 +2017,86 @@ timestamp；skill 仅同步 soft guidance，不新增答案扫描或 hard reject
 writer 接线。完整
 `go test ./internal/types ./internal/agent ./internal/skill ./internal/tool -count=1`
 通过（types 18.271s、agent 3.007s、skill 0.295s、tool 161.506s）。
+
+### B11 r3 人工审计与批 AD 规划（2026-07-31）
+
+在 revision `428656a0fed0` 重建后，以严格 `parallel=2` 回放：
+
+- `eval/results/github_issue_libgit2_foreach_worktree_symptom-20260731-143025`
+- `eval/results/real_trace_h1_binder_true_false_attribution-20260731-143025`
+
+runner 2/2，人工 1/2。三项 AC 原始 witness 均已闭合：
+
+1. C 写用例选中真实 `make@.` / `make check`，不再合成未配置 cmake；
+   首轮模型只修 visit 分支，项目测试以 `lookup negative status: got 1,
+   want -7` 暴露同构漏修，durable replan 修复第二处，最终补丁与项目测试
+   均正确。首轮推理不一致被验证闭环兜住，暂按模型波动处理，不对 C
+   表达式或错误码词面建立硬门。
+2. H1 的 on_chain 与 adjacent 榜已分别发布 complete roster；正文根因
+   #1..#4 与 on_chain 榜一致，1.409ms binder component 保持
+   `target_self_state` 无榜席。
+3. H1 的 1.409ms binder value-owner occurrence 已正确发布并转录为
+   `13762.835861..13762.837270`。
+
+显式用户窗、Trace 因果投影、自动补采、目标四态、唤醒链、根因有效归因和
+窗内可消除量均保持在场，没有因状态查询降级或新 authority 而消失。
+
+H1 新暴露的是“measurement caliber 冒充”，不是 Binder 单点：
+
+- typed `critical_blocking` 只证明目标线程一个 `binder_wait` occurrence：
+  13762.835861..13762.837270，1.409ms，peer
+  `binder:496_9-10961`；
+- explorer 另把四个 `sync_like` IPC 的 send→reply/transaction latency
+  相加为 1.558ms，并命名为“真正等在对端回复上的时间”；
+- send→reply 是 IPC 运输/事务耗时，只有与目标调度阻塞 occurrence 同事实
+  绑定的区间才能进入线程阻塞墙钟；同步调用计数本身不证明目标在整个事务
+  区间处于阻塞；
+- 正文又用“65 次均为 S 态、零 D-state”否定 binder 导致的睡眠，但
+  interruptible S 正是合法 binder 等待形态，D-state 为零只能排除
+  uninterruptible 等待，不能反证已发布的 S-state binder occurrence。
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B11-AD1 | P1 | target blocking wall-clock caliber | 同步事务数/往返 latency 与目标线程真实 blocking interval 无 typed 量纲边界，aggregate 可冒充阻塞墙钟 | 从 deterministic critical-blocking observations 按 artifact/typed target/selected window/type 构造 occurrence union；只接纳 value 与自身 span 同宽记录，去重并集，transport latency 排除 | covered |
+| EVAL-B11-AD2 | P1 | scheduler-state blocking semantics | D-state absence 被误作“无 counterpart wait”，与已证 S-state wait 冲突 | 同一 typed authority 明示 S 与 blocking 兼容；D=0 只排除 uninterruptible，不反证列出的 blocking occurrence | covered |
+| EVAL-B11-AB4 | P2 | incomplete enumeration wording | `enumeration_status=incomplete` 仍与全部/仅有措辞并存 | 后续独立 typed wording authority；不扫描输出原文做 hard reject | reproduced-filed |
+
+批 AD 不变量：
+
+1. 不读取 raw request、case ID、模型 thinking 或答案原文做判定。
+2. 不改变 trace_query、显式窗、因果投影、榜位/分值、wakeup chain、自动
+   补采、窗内可消除量和任何已测数值。
+3. blocking wall clock 只来自目标自有、hard-grounded、
+   deterministic critical-blocking typed observation；IPC graph、command
+   aggregate 和模型摘要不得铸值。
+4. 每条候选必须满足 `span width ≈ published ms value`；聚合包络或另一
+   event phase 无法进入。重复 interval 去重，重叠 interval 做墙钟并集。
+5. source capacity 截断时只发布 observed lower bound，禁止授予 exhaustive
+   total 权限。
+
+批 AD1/AD2 新增 `TraceBlockingWallClockAuthority`。authority identity
+包括 artifact、typed selected window、typed target subject 和 blocking
+type；跨窗、跨目标、跨类型记录不会相加。候选必须来自
+`critical_blocking` 维度和 predicate，且记录自身 `ObservationSpan` 宽度与
+value 在六位 trace timestamp/三位毫秒显示容差内一致。这样 Binder、
+futex、lock、D-state 等类型共享同一规则，而 IPC transaction/reply latency
+即使数值存在，也因不拥有目标 blocking occurrence 被隔离。
+
+同 interval 的 rank/critical 重复发布按物理发生区间去重；不同但重叠的
+目标阻塞区间按 interval union 计墙钟，避免双算。若记录携
+`capacity_truncated=true`，发布
+`coverage_status=lower_bound_capacity_truncated`，只能报告已证下界；
+完整 rowset 才发布 `complete`。
+
+answer-writer 同时获得逐 occurrence 的 interval、duration、peer、flags 和
+source records，并明确：
+
+- sync request count、send-to-reply latency、peer execution 与 model
+  aggregate 是不同量纲，不得加入 blocking wall clock；
+- S-state 与真实阻塞兼容，D-state=0 不得反证列出的 S-state wait；
+- lower-bound 状态不得写 total/all/only。
+
+该接线是 soft typed guidance，无任何请求/答案关键词扫描或 hard reject。
+完整 `go test ./internal/types ./internal/agent ./internal/skill ./internal/tool
+-count=1` 通过（types 21.443s、agent 3.600s、skill 0.978s、tool
+161.564s）。

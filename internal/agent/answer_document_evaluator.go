@@ -3870,6 +3870,9 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	if authority := renderAnswerDocTraceValueOccurrenceAuthority(ctx, ledger); authority != "" {
 		b.WriteString(authority)
 	}
+	if authority := renderAnswerDocTraceBlockingWallClockAuthority(ctx, ledger); authority != "" {
+		b.WriteString(authority)
+	}
 	if authority := renderAnswerDocTraceTargetStateScopeAuthority(ledger); authority != "" {
 		b.WriteString(authority)
 	}
@@ -4162,6 +4165,54 @@ func renderAnswerDocTraceValueOccurrenceAuthority(ctx *types.AgentContext, ledge
 			fmt.Fprintf(&b, "; source_records=`%s`", strings.Join(authority.RecordIDs, "`,`"))
 		}
 		b.WriteByte('\n')
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func renderAnswerDocTraceBlockingWallClockAuthority(ctx *types.AgentContext, ledger types.ObservationLedger) string {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return ""
+	}
+	authorities := types.BuildTraceBlockingWallClockAuthorities(ledger, &ctx.AnalysisIR.RequestModel)
+	if len(authorities) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("### Trace Target Blocking Wall-Clock Authority\n\n")
+	b.WriteString("- Only the typed target-owned intervals below are proven blocking wall clock. A synchronous request count, transaction/reply latency, peer execution interval, or model aggregate is a different measurement and must not be added unless it owns one of these blocking intervals.\n")
+	b.WriteString("- An interruptible `S` scheduler state is compatible with a proven blocking occurrence. Zero `D-state`/uninterruptible time cannot refute a listed `S`-state wait or prove that no counterpart wait occurred.\n")
+	b.WriteString("- `coverage_status=complete` permits an exhaustive total for that type/window. `lower_bound_capacity_truncated` permits only a proven observed lower bound; do not say total/all/only. Overlapping occurrence intervals are unioned, never double-counted.\n")
+	for _, authority := range authorities {
+		fmt.Fprintf(&b,
+			"- artifact=`%s`; selected_window=`%s`; subject=`%s`; blocking_type=`%s`; proven_blocking_wall_clock=%.3fms; occurrence_count=%d; coverage_status=`%s`\n",
+			authority.ArtifactLabel,
+			authority.SelectedWindow,
+			authority.Subject,
+			authority.Type,
+			authority.ObservedMS,
+			len(authority.Occurrences),
+			authority.CoverageStatus,
+		)
+		for index, occurrence := range authority.Occurrences {
+			fmt.Fprintf(&b,
+				"  - occurrence=%d; interval=`%.6f..%.6f`; duration=%.3fms",
+				index+1,
+				occurrence.StartTs,
+				occurrence.EndTs,
+				occurrence.DurationMS,
+			)
+			if occurrence.Peer != "" {
+				fmt.Fprintf(&b, "; peer=`%s`", occurrence.Peer)
+			}
+			if occurrence.Flags != "" {
+				fmt.Fprintf(&b, "; flags=`%s`", occurrence.Flags)
+			}
+			if len(occurrence.RecordIDs) > 0 {
+				fmt.Fprintf(&b, "; source_records=`%s`", strings.Join(occurrence.RecordIDs, "`,`"))
+			}
+			b.WriteByte('\n')
+		}
 	}
 	b.WriteString("\n")
 	return b.String()
