@@ -608,9 +608,11 @@ type FacetCoverageContract struct {
 // The conjunction is deliberately structural: a typed runtime target, no
 // call relation, and either the established trace/root-cause conditional
 // shape or a non-diagnostic explain/mechanism shape. It never scans request
-// prose, keywords, trace values, or case IDs. Family routing, deterministic
-// supplement selection, and answer materialization share this predicate so a
-// focused fact cannot expand back into a full causal report downstream.
+// prose, keywords, trace values, or case IDs. Family routing and deterministic
+// supplement selection share this predicate so a focused fact cannot expand
+// into broad root-cause queries. Answer materialization may separately retain
+// already-collected evidence for a precise explicit user window without
+// changing the query family.
 func IsFocusedRuntimeFactQuestion(rm RequestModel) bool {
 	kind := NormalizeRequirementKind(rm.AnalyzerHints.Kind)
 	hasCallRelation := kind == ReqCallChain || rm.PredicateAxis == AxisCall

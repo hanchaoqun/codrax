@@ -56,7 +56,6 @@ func TestRuntimeExplainMechanismFactSuppressesFullTraceReportShape(t *testing.T)
 		t.Fatal("non-diagnostic explain/mechanism target fact must not inherit the full trace report")
 	}
 
-	rm.DiagnosticProfile.IsDiagnostic = true
 	windowStart, windowEnd := 34579.45, 34579.50
 	rm.RuntimeArtifactScopeProfile = &types.RuntimeArtifactScopeProfile{
 		RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
@@ -65,10 +64,15 @@ func TestRuntimeExplainMechanismFactSuppressesFullTraceReportShape(t *testing.T)
 		SourceQuote:    "34579.45..34579.50",
 	}
 	if !runtimeTraceFullReportMaterializationAllowed(bus) {
-		t.Fatal("explicit-window diagnostic explain/mechanism must retain full trace report authority")
+		t.Fatal("exact explicit-window explain/mechanism must retain full trace report authority regardless of diagnostic-label variation")
 	}
 
-	rm.DiagnosticProfile.IsDiagnostic = false
+	rm.RuntimeArtifactScopeProfile.SourceQuote = ""
+	if runtimeTraceFullReportMaterializationAllowed(bus) {
+		t.Fatal("unanchored explicit-window profile must not widen a focused runtime fact")
+	}
+
+	rm.RuntimeArtifactScopeProfile.SourceQuote = "34579.45..34579.50"
 	rm.Intent = types.IntentRootCause
 	if !runtimeTraceFullReportMaterializationAllowed(bus) {
 		t.Fatal("explicit-window root-cause mechanism must retain full trace report authority")

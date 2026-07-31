@@ -1059,12 +1059,22 @@ func answerDocumentHasRuntimeTraceSystemBlockID(doc *types.AnswerDocumentV2, id 
 // authority for system-authored trace report blocks. A focused fact about one
 // runtime target may use trace evidence, but it did not request a causal tree,
 // optimization report, background metric board, next-step plan, perf-quality
-// report, or raw observation dump. Family routing, deterministic supplement
-// selection, and this gate deliberately consume the same types-layer
-// predicate.
+// report, or raw observation dump. One precise exception is an exact
+// user-authoritative time window: already-collected bounded evidence may be
+// materialized even when the analyzer varies between explain and diagnostic.
+// This exception does not alter family routing or deterministic supplement
+// selection, so a narrow state census does not expand into extra root-cause
+// queries. ExplicitTimeWindow validates typed bounds and an exact current-
+// request source quote; no request/model prose scan occurs here.
 func runtimeTraceFullReportMaterializationAllowed(ctx *types.BusContext) bool {
-	return ctx == nil || ctx.AnalysisIR == nil ||
-		!types.IsFocusedRuntimeFactQuestion(ctx.AnalysisIR.RequestModel)
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return true
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if _, _, ok := rm.RuntimeArtifactScopeProfile.ExplicitTimeWindow(); ok {
+		return true
+	}
+	return !types.IsFocusedRuntimeFactQuestion(rm)
 }
 
 func materializeRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {
