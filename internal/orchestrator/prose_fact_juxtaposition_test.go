@@ -165,6 +165,9 @@ func TestCR4Fact_FourStateAccountLine(t *testing.T) {
 	if !strings.Contains(hit, "running 157.248") || !strings.Contains(hit, "sleep 70.338") {
 		t.Fatalf("the account values must ride the line: %s", hit)
 	}
+	if !strings.Contains(hit, "非IO D-state") {
+		t.Fatalf("exclusive five-state D lane must disclose non-IO semantics: %s", hit)
+	}
 }
 
 // TestCR4Fact_EquationVerdict — C-2 假等式臂 (witness verbatim:

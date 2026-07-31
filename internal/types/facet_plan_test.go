@@ -37,22 +37,35 @@ func TestResolveQuestionFamily_RootCauseWithoutArtifact(t *testing.T) {
 	}
 }
 
-func TestResolveQuestionFamily_TraceWithoutArtifactGoesToCallChain(t *testing.T) {
-	// Trace intent but NO log/perf attached → call chain, not
-	// root cause. Distinguishes "trace this panic" from "how does X
-	// reach Y".
-	rm := RequestModel{Intent: IntentTrace}
+func TestResolveQuestionFamily_TraceWithoutArtifactNeedsTypedCallRelation(t *testing.T) {
+	// Trace names the evidence source. Without a typed call-relation kind or
+	// axis, a runtime fact question must not inherit the call-chain scaffold.
+	rm := RequestModel{
+		Intent:        IntentTrace,
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqConditional)},
+		PredicateAxis: AxisCondition,
+	}
+	if got := ResolveQuestionFamily(rm); got != QFGeneric {
+		t.Errorf("got %q, want QFGeneric", got)
+	}
+	rm.AnalyzerHints.Kind = string(ReqCallChain)
 	if got := ResolveQuestionFamily(rm); got != QFCallChain {
 		t.Errorf("got %q, want QFCallChain", got)
+	}
+	rm.AnalyzerHints.Kind = string(ReqMechanism)
+	rm.PredicateAxis = AxisCall
+	if got := ResolveQuestionFamily(rm); got != QFCallChain {
+		t.Errorf("axis=call got %q, want QFCallChain", got)
 	}
 }
 
 func TestResolveQuestionFamily_TraceFunctionSubjectStillGoesToCallChain(t *testing.T) {
-	// Explicit trace intent must not be stolen by QFRoleLookup just
-	// because the analyzer inferred a function-like AnswerSubject.
+	// An explicitly typed call-chain trace must not be stolen by QFRoleLookup
+	// just because the analyzer inferred a function-like AnswerSubject.
 	rm := RequestModel{
 		Intent:        IntentTrace,
 		AnswerSubject: AnswerSubject{Kind: SubjectFunctionName, Confidence: 0.8},
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqCallChain)},
 	}
 	if got := ResolveQuestionFamily(rm); got != QFCallChain {
 		t.Errorf("got %q, want QFCallChain", got)

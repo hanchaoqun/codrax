@@ -170,6 +170,24 @@ func TestProseWallClockConservation_TruthfulProseZeroTouch(t *testing.T) {
 	}
 }
 
+func TestProseWallClockConservation_IOWaitUsesExclusiveTypedLane(t *testing.T) {
+	rec := p6AccountRecord("io-worker-42", 9.365, 0, 0, 0, 0, 10, 10)
+	rec.RichNotes = append(rec.RichNotes, types.TraceNoteKeyIOWait+"=0.635")
+	mut := psgTraceMutable(rec)
+	bus := psgBus(mut)
+
+	truthful := psgProseDoc("io-worker-42 在窗口内 IO等待 0.635ms。")
+	if findings := proseWallClockConservationFindings(truthful, bus, mut); len(findings) != 0 {
+		t.Fatalf("typed io_wait value must not be compared with non-IO D-state: %+v", findings)
+	}
+
+	excess := psgProseDoc("io-worker-42 在窗口内 IO等待 1.200ms。")
+	findings := proseWallClockConservationFindings(excess, bus, mut)
+	if len(findings) == 0 || !strings.Contains(findings[0].userReadable("zh"), "0.635") {
+		t.Fatalf("an actual io_wait excess must still disclose against 0.635ms: %+v", findings)
+	}
+}
+
 // TestProseWallClockConservation_UnboundValuesZeroTouch — values with no
 // same-sentence thread binding, no state keyword, or a keyword too far
 // away never enter the claim set.

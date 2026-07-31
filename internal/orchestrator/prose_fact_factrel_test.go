@@ -37,7 +37,7 @@ func TestFactRel_PartitionFactOnMultiStateProse(t *testing.T) {
 	}
 	for _, want := range []string{
 		".ugc.aweme.lite-17267",
-		"running 157.248/runnable 5.604/sleep 70.338/D-state 0.000/io_wait 0.000ms",
+		"running 157.248/runnable 5.604/sleep 70.338/非IO D-state 0.000/io_wait 0.000ms",
 		"同一时刻仅居一态",
 		"不存在包含关系",
 		// 附注自证义务: the Σ equation prints the real addends and the real

@@ -91,6 +91,45 @@ func suppCoreContext(t *testing.T) *types.BusContext {
 	return ctx
 }
 
+func TestTraceSupplementDStateFactUsesNarrowStateFamilies(t *testing.T) {
+	ctx := &types.BusContext{
+		Mutable: types.NewMutableState("runtime state fact"),
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentTrace,
+			PredicateAxis: types.AxisCondition,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:     string(types.ReqConditional),
+				Keywords: []string{"blocked_reason", "io_wait"},
+			},
+		}},
+	}
+	if got := traceSupplementViewsForRequest(ctx, traceSupplementFamilyPresence{}, false, false); len(got) != 1 || got[0] != "window_stats" {
+		t.Fatalf("state fact must request only window_stats, got %v", got)
+	}
+	present := traceSupplementFamilyPresence{WindowStates: true, BlockedReasonCensus: true}
+	if got := traceSupplementViewsForRequest(ctx, present, false, false); len(got) != 0 {
+		t.Fatalf("complete state facts must not trigger causal supplement, got %v", got)
+	}
+}
+
+func TestTraceSupplementExplicitCausalDStateRetainsCoreFamilies(t *testing.T) {
+	ctx := &types.BusContext{
+		Mutable: types.NewMutableState("causal D-state trace"),
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentTrace,
+			PredicateAxis: types.AxisCall,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:     string(types.ReqCallChain),
+				Keywords: []string{"D-state"},
+			},
+		}},
+	}
+	got := traceSupplementViewsForRequest(ctx, traceSupplementFamilyPresence{}, false, false)
+	if len(got) != 2 || got[0] != "root_cause_rank" || got[1] != "critical_blocking_calls" {
+		t.Fatalf("explicit causal question lost core families: %v", got)
+	}
+}
+
 // suppCoreModelCall executes one trace_query through the SAME runner a model
 // dispatch uses and appends the result to the bus history (the model lane).
 func suppCoreModelCall(t *testing.T, ctx *types.BusContext, params string) types.ToolResult {

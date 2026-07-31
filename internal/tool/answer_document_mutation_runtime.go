@@ -1094,7 +1094,9 @@ func materializeRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2, c
 			}
 		}
 	}
-	coverageBlock := runtimeTraceCausalProjectionCoverageBlock(input, lang)
+	coverageBlock := runtimeTraceCausalProjectionCoverageBlockForProjection(
+		input, lang, runtimeTraceProjectionSetHasCausalRows(set),
+	)
 	if len(cluster) == 0 {
 		boundary := runtimeTraceProjEmptyClusterBoundaryBlocks(set, coverageBlock, runtimeTraceCausalProjectionUseChinese(lang))
 		if len(boundary) == 0 {
@@ -3151,9 +3153,20 @@ func runtimeTraceCausalProjectionCleanPath(path []string) []string {
 // middle is itself a run).
 
 func runtimeTraceCausalProjectionCoverageBlock(input types.ObservationLedgerInput, lang string) *types.AnswerBlock {
+	return runtimeTraceCausalProjectionCoverageBlockForProjection(input, lang, false)
+}
+
+func runtimeTraceCausalProjectionCoverageBlockForProjection(input types.ObservationLedgerInput, lang string, causalRowsPresent bool) *types.AnswerBlock {
 	zh := runtimeTraceCausalProjectionUseChinese(lang)
 	results := runtimeTraceCoverageResults(input)
 	reasons := runtimeTraceCausalProjectionCoverageReasons(results, zh)
+	// A refinement belongs to the individual query that emitted it. Once the
+	// final typed projection contains causal rows, an earlier zero-match,
+	// compaction, or bounded-query hint cannot be promoted into the global
+	// statement "no causal rows were produced".
+	if causalRowsPresent {
+		reasons = nil
+	}
 	authority := runtimeTraceCoverageAuthority(input)
 	if len(reasons) == 0 && !authority.causalUnproven && !authority.enumerationIncomplete &&
 		!runtimeTraceCoverageHasLifecycle(authority) && len(authority.targetIdentities) == 0 {
@@ -3163,16 +3176,19 @@ func runtimeTraceCausalProjectionCoverageBlock(input types.ObservationLedgerInpu
 	needsProjectionCoverageText := len(reasons) > 0 || authority.causalUnproven ||
 		authority.enumerationIncomplete || runtimeTraceCoverageHasLifecycle(authority)
 	text := strings.TrimSpace(authorityText)
-	if needsProjectionCoverageText {
+	if needsProjectionCoverageText && !causalRowsPresent {
 		text = runtimeTraceCausalProjectionCoverageText(reasons, zh)
 	}
-	if needsProjectionCoverageText && runtimeTraceCoverageHasLifecycle(authority) {
-		// Lifecycle suppression is the precise engine-side cause of the empty
-		// causal/frame face. Seat it before generic exploration/refinement
-		// reasons so a same-window retry is not presented as the primary cure.
-		text = authorityText + text
-	} else if needsProjectionCoverageText {
-		text += authorityText
+	if !causalRowsPresent {
+		if needsProjectionCoverageText && runtimeTraceCoverageHasLifecycle(authority) {
+			// Lifecycle suppression is the precise engine-side cause of the
+			// empty causal/frame face. Seat it before generic exploration/
+			// refinement reasons so a same-window retry is not presented as
+			// the primary cure.
+			text = authorityText + text
+		} else if needsProjectionCoverageText {
+			text += authorityText
+		}
 	}
 	title := tracefence.SectionProjectionZH + "覆盖边界"
 	if !zh {
@@ -3186,6 +3202,21 @@ func runtimeTraceCausalProjectionCoverageBlock(input types.ObservationLedgerInpu
 		ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimExternalObservation}},
 		FacetIDs:  []string{"observed_artifact_fact", "uncertainty_boundary"},
 	}
+}
+
+func runtimeTraceProjectionSetHasCausalRows(set types.TraceCausalProjectionSet) bool {
+	for _, projection := range set.Projections {
+		if projection.PrimaryRootCause != nil ||
+			len(projection.PrimaryRootCauses) > 0 ||
+			len(projection.OnChainCauses) > 0 ||
+			len(projection.AdjacentCauses) > 0 ||
+			len(projection.SemanticSpans) > 0 ||
+			len(projection.WakeupPath) > 0 ||
+			len(projection.SupportingHops) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func runtimeTraceCoverageResults(input types.ObservationLedgerInput) []types.ToolResult {

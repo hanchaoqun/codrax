@@ -196,6 +196,58 @@ func traceSupplementViews(f traceSupplementFamilyPresence, frameFamily, frameEvi
 	return views
 }
 
+// traceSupplementViewsForRequest narrows deterministic supplementation to the
+// answer family the typed request actually asks for. A D-state/blocked-reason
+// runtime fact needs a five-state account and its blocked-reason census; it
+// does not need a wakeup tree, root-cause board, or critical-blocking list
+// merely because those unrelated families are absent. Root-cause and explicit
+// call-chain questions retain the full core supplement.
+func traceSupplementViewsForRequest(ctx *types.BusContext, f traceSupplementFamilyPresence, frameFamily, frameEvidencePresent bool) []string {
+	if frameFamily && !frameEvidencePresent {
+		return []string{"frame_root_cause_bundle"}
+	}
+	if traceSupplementNarrowDStateQuestion(ctx) {
+		if !f.WindowStates || !f.BlockedReasonCensus {
+			return []string{"window_stats"}
+		}
+		return nil
+	}
+	return traceSupplementViews(f, false, frameEvidencePresent)
+}
+
+func traceSupplementNarrowDStateQuestion(ctx *types.BusContext) bool {
+	if !traceSupplementDStateFamilyHit(ctx) {
+		return false
+	}
+	causal := false
+	narrowStateFact := false
+	collect := func(rm *types.RequestModel) {
+		if rm == nil {
+			return
+		}
+		switch types.ResolveQuestionFamily(*rm) {
+		case types.QFRootCauseTrace, types.QFCallChain:
+			causal = true
+		}
+		kind := types.NormalizeRequirementKind(rm.AnalyzerHints.Kind)
+		if rm.Intent == types.IntentTrace &&
+			((kind != types.ReqUnknown && kind != types.ReqCallChain) ||
+				(rm.PredicateAxis != types.AxisUnknown && rm.PredicateAxis != types.AxisCall)) {
+			narrowStateFact = true
+		}
+	}
+	if ctx != nil && ctx.AnalysisIR != nil {
+		collect(&ctx.AnalysisIR.RequestModel)
+	}
+	if ctx != nil && ctx.Mutable != nil {
+		collect(ctx.Mutable.RequestModel())
+	}
+	// Old request records and hand-built fixtures may carry D-state keywords
+	// without question_kind/predicate_axis. Absence is not authority to narrow;
+	// only an explicit typed non-call shape activates this lane.
+	return narrowStateFact && !causal
+}
+
 func traceSupplementFrameEvidencePresent(input types.ObservationLedgerInput) bool {
 	results := make([]types.ToolResult, 0, len(input.ToolResults)+len(input.SystemTraceSupplementResults))
 	results = append(results, input.ToolResults...)
@@ -919,6 +971,9 @@ func traceSupplementDStateFallbackWanted(ctx *types.BusContext, families traceSu
 	if !traceSupplementDStateFamilyHit(ctx) {
 		return false
 	}
+	if traceSupplementNarrowDStateQuestion(ctx) {
+		return !families.WindowStates || !families.BlockedReasonCensus
+	}
 	return !families.BlockedReasonCensus || !families.Rank
 }
 
@@ -1105,7 +1160,7 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 	preLedger := types.CompileObservationLedger(input)
 	families := traceSupplementFamilies(preLedger)
 	frameFamily := traceSupplementVsyncFamilyHit(ctx)
-	views := traceSupplementViews(families, frameFamily, traceSupplementFrameEvidencePresent(input))
+	views := traceSupplementViewsForRequest(ctx, families, frameFamily, traceSupplementFrameEvidencePresent(input))
 	// SA-F2 批4 C-lite trigger gate (修复轮 件2 扩形, 2026-07-14): vsync/frame
 	// family keywords hit (typed analyzer face) ∧ the generator-census family
 	// is ABSENT from the compiled ledger. The arm fires on EVERY lane where
@@ -1165,7 +1220,11 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		if !frameBundleSelected && traceSupplementDStateFallbackWanted(ctx, families) {
 			windowlessFallback = true
 			windowlessReason = reason
-			views = []string{"root_cause_rank"}
+			if traceSupplementNarrowDStateQuestion(ctx) {
+				views = []string{"window_stats"}
+			} else {
+				views = []string{"root_cause_rank"}
+			}
 			logging.Info("[trace_supplement] windowless d-state fallback armed reason=%s (whole-trace engine default window; typed D-state family hit, census/rank family absent)", reason)
 		} else {
 			if frameBundleSelected {
@@ -1429,11 +1488,11 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		ViewValueObservations:   valueObservations,
 		ViewObservationFamilies: valueFamilies,
 		WindowStart:             window.TimeStart,
-		WindowEnd:             window.TimeEnd,
-		TargetPID:             target.PID,
-		TargetThread:          target.Thread,
-		TargetSource:          targetSource,
-		ElapsedMS:             out.Elapsed.Milliseconds(),
+		WindowEnd:               window.TimeEnd,
+		TargetPID:               target.PID,
+		TargetThread:            target.Thread,
+		TargetSource:            targetSource,
+		ElapsedMS:               out.Elapsed.Milliseconds(),
 	}
 	if windowlessFallback {
 		meta.WindowlessFallback = true

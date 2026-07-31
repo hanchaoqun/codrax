@@ -563,8 +563,11 @@ type FacetCoverageContract struct {
 //  3. Intent == ConfigQuery OR Scenario == ConfigTrace
 //     → QFConfigPrecedence (s3a falls here)
 //
-//  4. Intent == Trace AND no obligation
-//     → QFCallChain (s1a/s8a style "how does X reach Y" questions)
+//  4. Intent == Trace AND no obligation AND the typed question kind/axis
+//     explicitly asks for a call relation
+//     → QFCallChain (s1a/s8a style "how does X reach Y" questions).
+//     Other trace-backed runtime facts are QFGeneric: trace names the
+//     evidence source, not the answer shape.
 //
 //  5. IsArchitectureNarrativeExplanation(rm)=true
 //     → QFArchitecture (logical view / architecture / diagram
@@ -654,14 +657,28 @@ func ResolveQuestionFamily(rm RequestModel, sinks ...RichnessTelemetrySink) Ques
 		return QFGeneric
 	}
 
-	// Rule 5: trace intent without obligation.
+	// Rule 5: trace intent without obligation. Trace is an evidence-source
+	// intent, not sufficient proof that the answer is a source call chain.
+	// Require one of the two precise typed call-relation signals; otherwise a
+	// runtime state/event question would inherit principal_path_edge and lose
+	// its requested value/time/reason surface.
 	if !hasObligation {
 		if rm.Intent == IntentTrace {
-			// Explicit trace intent is semantically stronger than a
-			// function-like AnswerSubject. Without this ordering,
-			// inferred SubjectFunctionName from call_chain questions
-			// can be stolen by QFRoleLookup and lose the path-shaped
-			// scaffold the user actually asked for.
+			kind := NormalizeRequirementKind(rm.AnalyzerHints.Kind)
+			if kind == ReqCallChain ||
+				rm.PredicateAxis == AxisCall {
+				// Explicit trace intent plus a typed call-relation signal is
+				// semantically stronger than a function-like AnswerSubject.
+				return QFCallChain
+			}
+			if kind != ReqUnknown || rm.PredicateAxis != AxisUnknown {
+				return QFGeneric
+			}
+			// Compatibility lane for old typed records that predate
+			// question_kind/predicate_axis. Signal absence cannot prove a
+			// runtime-fact shape, so retain the historical call-chain family;
+			// newly analyzed state/event questions carry an explicit non-call
+			// kind or axis and take the generic branch above.
 			return QFCallChain
 		}
 	}

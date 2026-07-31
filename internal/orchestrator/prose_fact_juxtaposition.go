@@ -600,10 +600,10 @@ func proseFactThreadLine(f *proseFactThreadFacts) (string, string) {
 		// line and the partition fact speak the same 五态 form (io_wait
 		// listed unconditionally, 0.000 stays honest zero); the old 四态/
 		// 五态 twin wordings were a third-wording-family seed.
-		zh = append(zh, fmt.Sprintf("窗内五态 running %.3f/runnable %.3f/sleep %.3f/D-state %.3f/io_wait %.3fms",
+		zh = append(zh, fmt.Sprintf("窗内五态 running %.3f/runnable %.3f/sleep %.3f/非IO D-state %.3f/io_wait %.3fms",
 			f.account.dims[proseWallClockDimRunning], f.account.dims[proseWallClockDimRunnable],
 			f.account.dims[proseWallClockDimSleep], f.account.dims[proseWallClockDimDState], f.account.ioWait))
-		en = append(en, fmt.Sprintf("in-window five-state running %.3f/runnable %.3f/sleep %.3f/D-state %.3f/io_wait %.3fms",
+		en = append(en, fmt.Sprintf("in-window five-state running %.3f/runnable %.3f/sleep %.3f/non-IO D-state %.3f/io_wait %.3fms",
 			f.account.dims[proseWallClockDimRunning], f.account.dims[proseWallClockDimRunnable],
 			f.account.dims[proseWallClockDimSleep], f.account.dims[proseWallClockDimDState], f.account.ioWait))
 	}
@@ -1060,9 +1060,9 @@ func proseFactPartitionFact(f *proseFactThreadFacts) (string, string) {
 	d := a.dims[proseWallClockDimDState]
 	io := a.ioWait
 	sum := r + q + s + d + io
-	head := fmt.Sprintf("typed 事实:%s — 窗内五态账 running %.3f/runnable %.3f/sleep %.3f/D-state %.3f/io_wait %.3fms · 五态为互斥分区,同一时刻仅居一态,不存在包含关系",
+	head := fmt.Sprintf("typed 事实:%s — 窗内五态账 running %.3f/runnable %.3f/sleep %.3f/非IO D-state %.3f/io_wait %.3fms · 五态为互斥分区,同一时刻仅居一态,不存在包含关系",
 		f.subject, r, q, s, d, io)
-	headEN := fmt.Sprintf("typed fact: %s — in-window five-state account running %.3f/runnable %.3f/sleep %.3f/D-state %.3f/io_wait %.3fms · the five states are a mutually exclusive partition — one state at any instant, none contains another",
+	headEN := fmt.Sprintf("typed fact: %s — in-window five-state account running %.3f/runnable %.3f/sleep %.3f/non-IO D-state %.3f/io_wait %.3fms · the five states are a mutually exclusive partition — one state at any instant, none contains another",
 		f.subject, r, q, s, d, io)
 	diff := sum - a.windowMS
 	if diff < 0 {

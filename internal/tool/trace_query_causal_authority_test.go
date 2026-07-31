@@ -55,6 +55,19 @@ func TestTraceCausalCoverageBlockPublishesAuthorityCeiling(t *testing.T) {
 	}
 }
 
+func TestTraceCausalCoverageLocalRefinementDoesNotOverridePublishedCausalRows(t *testing.T) {
+	input := types.ObservationLedgerInput{ToolResults: []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		Refinement: &types.ToolRefinementHint{
+			ReasonCode: "trace_query_event_search_zero_match",
+		},
+	}}}
+	if block := runtimeTraceCausalProjectionCoverageBlockForProjection(input, "zh", true); block != nil {
+		t.Fatalf("query-local zero match must not become a report-wide no-causal-row claim: %+v", block)
+	}
+}
+
 func TestTraceQuerySummaryDistinguishesUnavailableAndMeasuredZeroCPU(t *testing.T) {
 	result := tracequery.Result{
 		View: "window_stats",

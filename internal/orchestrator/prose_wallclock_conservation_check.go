@@ -365,14 +365,15 @@ func proseWallClockFirstDim(dims map[proseWallClockDimension]proseWallClockClaim
 }
 
 // proseWallClockDimComparator returns the published full-window total the
-// dimension is compared against. IO-wait claims are ambiguous between the
-// D-side and sleep-side IO lanes, so they use the union (loose).
+// dimension is compared against. IO-wait claims can refer to the exclusive
+// io_wait state lane or the sleep-side IO attribution lane, so they use that
+// typed union (loose); non-IO D-state is not part of the comparator.
 func proseWallClockDimComparator(acc *proseWallClockAccount, dim proseWallClockDimension) (float64, bool) {
 	if acc == nil {
 		return 0, false
 	}
 	if dim == proseWallClockDimIOWait {
-		return acc.dims[proseWallClockDimDState] + acc.sleepIO, true
+		return acc.ioWait + acc.sleepIO, true
 	}
 	v, ok := acc.dims[dim]
 	return v, ok
