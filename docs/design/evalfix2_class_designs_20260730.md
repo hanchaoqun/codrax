@@ -1164,3 +1164,10 @@ System degradation disclosure: citation quote backfill ×17, required-facet soft
 pin：三条复现句先红后绿入 skip-set 表（`adverbial_enumeration_descriptor_zh` / `adverbial_version_dot_descriptor_zh` / `adverbial_elided_zai_zh`，红形与 findings 复现句逐字一致）+ `TestMechanicalClaim_SentenceRuneCapSkips`（超限句整句跳过先红后绿，配欠限判别正例仍触发——杀「干脆全跳」的过宽形）+ `TestMechanicalClaim_DegenerateSentencePerf`（27KB 无终止符退化探针须 <200ms；探针取无屏障无在形使修前逐闭合字走查到句首，修前实测 2.894s 红 → 修后 <1ms 绿）+ 全部既有 skip 行（含 R6-4/R7-0/R8-0 状语行——更宽的弃判保其静默语义）、F7 双语见证、非否定复合判别正 pin、单位归一、独立绑定行全程绿。**记录残留**：全句无 在 的完全省略形（「压测过程中，10s 的采样窗口内低于…」）与词内闭合字不可区分——区分恰需本轮退役的配对精度——仍会绑定；按宪章保留为已知边界，不再为其重建解析机器。
 
 验证：gofmt 触及文件全净 + `go build ./...` + `go test ./...` 全量 83 包 ok / 0 FAIL。
+
+
+---
+
+## 类3 真阴性基线验证（2026-07-31，零成本取样）
+
+对 2026-07-30 07:38–10:03 间 11 个真实 eval 运行（trace/logtri/qf/combo/github_issue/data 六族，二进制均含 2C 检查器）的日志普查：`mechanical_claim` 检查在每次 finalize 都执行，**violations=0 全场零误火**。且这些运行用的还是 R6–R10 精度修复**之前**的检查器（当前版本严格更保守）。类3 设计文档遗留的"真阴性基线待验证"项就此关闭；广谱行为半（更大样本）仍留待下轮 EVALRUN 批。
