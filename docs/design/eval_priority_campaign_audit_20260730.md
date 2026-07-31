@@ -1268,3 +1268,38 @@ source-literal claim、artifact citation、仓外 external path。production
 normalize chain pin 固定 pass 接线与 typed disclosure ferry，防止只留下
 孤立 helper。`go test ./internal/types ./internal/tool -count=1` 全包通过
 （types 20.670s、tool 164.148s）；待提交推送并重跑 B9。
+
+### B9 r2 人工审计与批 W1（2026-07-31）
+
+批 U/V 推送、重建并通过 revision/clean-input 校验后，以严格
+`parallel=2` 重跑：
+
+- `eval/results/trace_query_frame_timeline_flow-20260731-110319`
+- `eval/results/read_combo_trace_current_code_boundary-20260731-110319`
+
+runner 2/2 PASS。Frame 主问题已修复：四段仍完整，三条边明确为
+`temporal_sequence`、`causal_conclusion=unproven`，最终答案也明确禁止
+把它们升级为已证实的 UI→RS→GPU 因果依赖。但系统覆盖块显示
+`edges=8`，而完整视图实际只有3条边。原因不是 trace 数据错，而是覆盖
+聚合把 pid-filtered/full 两轮的 timeline/flow 四份 per-view authority
+按 `1+1+3+3` 求和。
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B9-W1 | P1 | 多查询 census 聚合 | per-view 数量是重复/嵌套视图的局部 census，跨 ToolResult 求和会把重复读取伪装成新增事实 | 跨结果取最完整单视图 `max`；auto/combined 结果若确有子视图聚合，已在自己的 authority 内给出总数 | 批 W1 已施工 |
+| EVAL-B9-W2 | P1 | mixed-origin 引用 | 批 V 把来源门绑定 `BlockScalar`，模型换成 decision 形后同一 external observation 又借用源码引用 | 门提升为“block 的非空 claim-use 全部为 external_observation”，不依赖块类型 | 待批 W2 |
+| EVAL-B9-W3 | P1 | error-granularity 适用性 | diagnostic scalar 被误当作失败范围的专属形，阈值判断被渲染成 `per_item_rejection/逐条拒绝` | 修正 typed applicability：普通 scalar 不等于 item-vs-batch failure scope；保留真正 return-value failure-scope lane | 待批 W3 |
+| EVAL-B9-W4 | P2 | 数值关系模型波动 | 本轮模型声称 86.111ms 大于 100ms，和数值本身矛盾；r1 未复现 | 记录为 model variance；后续若跨 case 复现再建设 typed numeric relation carrier，不扫描正文硬改 | filed-model-variance |
+
+批 W1 不变量：
+
+1. 不改变任何 trace query、span/edge 构造、显式时间窗、Trace 因果投影、
+   自动补齐、根因排序、唤醒链或可消除量；只修系统覆盖块的跨结果 census
+   代数。
+2. 不按 view 名、case、请求或答案正文去重；聚合只消费
+   `TraceEvidenceAuthority.FrameFlowEdgeCount`。
+3. 同一个 ToolResult 内已经由 auto/combined view 汇总的合法总数保持；
+   多个 ToolResult 之间选择 typed 最大完备视图，避免重复观察扩张基数。
+
+`B9-W1/P1` 单测固定四份 authority 的 `1/1/3/3` 输入，覆盖块必须发布
+`edges=3` 且禁止回到 `edges=8`。

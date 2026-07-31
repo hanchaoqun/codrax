@@ -84,6 +84,33 @@ func TestTraceCausalCoveragePublishesTemporalFrameEdgeCeiling(t *testing.T) {
 	}
 }
 
+func TestTraceCausalCoverageDoesNotSumRepeatedFrameViewEdgeCounts(t *testing.T) {
+	authority := func(view string, edges int) *types.TraceEvidenceAuthority {
+		return &types.TraceEvidenceAuthority{
+			View:                       view,
+			FrameEvidenceStatus:        "present",
+			FrameFlowEdgeCount:         edges,
+			FrameFlowRelationAuthority: tracequery.FrameFlowRelationTemporalSequence,
+			FrameFlowCausalConclusion:  tracequery.FrameFlowCausalityUnproven,
+			CausalConclusion:           "unproven",
+		}
+	}
+	input := types.ObservationLedgerInput{ToolResults: []types.ToolResult{
+		{ToolName: "trace_query", Success: true, TraceEvidenceAuthority: authority("frame_timeline", 1)},
+		{ToolName: "trace_query", Success: true, TraceEvidenceAuthority: authority("frame_flow", 1)},
+		{ToolName: "trace_query", Success: true, TraceEvidenceAuthority: authority("frame_timeline", 3)},
+		{ToolName: "trace_query", Success: true, TraceEvidenceAuthority: authority("frame_flow", 3)},
+	}}
+	got := runtimeTraceCoverageAuthority(input)
+	if got.frameFlowEdgeCount != 3 {
+		t.Fatalf("repeated per-view frame census was summed: edges=%d, want most complete view=3", got.frameFlowEdgeCount)
+	}
+	block := runtimeTraceCausalProjectionCoverageBlock(input, "zh")
+	if block == nil || !strings.Contains(block.Text, "edges=3") || strings.Contains(block.Text, "edges=8") {
+		t.Fatalf("coverage block must publish the most complete single-view census:\n%+v", block)
+	}
+}
+
 func TestTraceCausalCoverageBlockPublishesAuthorityCeiling(t *testing.T) {
 	input := types.ObservationLedgerInput{ToolResults: []types.ToolResult{{
 		ToolName: "trace_query",

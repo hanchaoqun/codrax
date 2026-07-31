@@ -3364,7 +3364,18 @@ func runtimeTraceCoverageAuthority(input types.ObservationLedgerInput) runtimeTr
 			}
 			if authority.FrameFlowCausalConclusion == tracequery.FrameFlowCausalityUnproven {
 				out.frameFlowUnproven = true
-				out.frameFlowEdgeCount += authority.FrameFlowEdgeCount
+				// Each authority belongs to one trace_query result/view. The
+				// same frame roster is commonly queried through both
+				// frame_timeline and frame_flow, sometimes once with a target
+				// filter and once without. Summing those per-view counts makes
+				// repeated reads look like additional edges. Publish the most
+				// complete single-view census instead. A combined/auto query
+				// that intentionally aggregates child views already carries
+				// its aggregate count in one authority record, so max also
+				// preserves that typed result.
+				if authority.FrameFlowEdgeCount > out.frameFlowEdgeCount {
+					out.frameFlowEdgeCount = authority.FrameFlowEdgeCount
+				}
 				out.frameFlowRelation = firstNonEmpty(out.frameFlowRelation, authority.FrameFlowRelationAuthority)
 			}
 			out.lifecycleBoundaries = runtimeTraceMergeLifecycleBoundaries(out.lifecycleBoundaries, authority.LifecycleBoundaries)
