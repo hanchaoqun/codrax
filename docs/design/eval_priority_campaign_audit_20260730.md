@@ -1657,7 +1657,7 @@ factual authority。
 | EVAL-B10-AA1 | P1 | target/CPU scope semantics | target_window_states 的 thread-local running/runnable 比例缺少消费权限边界，模型把目标线程 occupancy 推成 CPU-wide utilization/saturation | 从 typed target-state 与 CPU-accounting 账户构造紧凑 authority；只允许描述目标状态/排队，CPU-wide 结论必须另有 typed per-CPU/core/system 证据 | covered |
 | EVAL-B10-AA2 | P1 | call-anchor integrity | AST 只证明“行内有调用”，未证明指定 callee；subject/object 还能替代显式 AnchorSymbol | 显式 AnchorSymbol 存在时只以该 symbol 为 call target；AST feature 仅可覆盖 definition-shape 误判，仍须 exact callee relation 或 line-local call syntax | covered |
 | EVAL-B10-AA3 | P1 | mechanism path closure | 多条独立 definition/case facts 可被包装成 principal_path_edge，零 grounded relation 仍形成“完整机制链” | 由结构化 anchor kind、grounded relation 与 path-edge facet 构造 relation authority；无边时明确为 independent mechanism facts，不证明调用顺序 | covered |
-| EVAL-B10-AA4 | P2 | threshold provenance | 用户比较阈值、artifact 观测和源码配置阈值没有 typed 分席，模型把提问中的50ms升级为系统规则 | 建立 validator-owned comparator/profile，分别发布 user comparator 与 code-configured threshold；没有源码证据不得称系统阈值 | planned |
+| EVAL-B10-AA4 | P2 | threshold provenance | 用户比较阈值、artifact 观测和源码配置阈值没有 typed 分席，模型把提问中的50ms升级为系统规则 | 建立 validator-owned comparator/profile，分别发布 user comparator 与 code-configured threshold；没有源码证据不得称系统阈值 | covered |
 | EVAL-B10-AA5 | P2 | rank additivity model variance | typed non-additivity 已发布，模型仍有一处直接求和 | 不增加答案词面/数字扫描硬门；跨不同 rank case 复现后再考虑 typed principal verdict，当前先观察 | filed-model-variance |
 
 批 AA 不变量：
@@ -1724,3 +1724,18 @@ mechanism/call-chain 或 active current-source mechanism/flow 请求上出现。
 没有新增 emit/reviewer hard reject；真实 AnswerChain/FlowFinding 和 grounded
 caller→callee edge 仍能完整表达。`go test ./internal/agent -count=1` 通过
 （2.811s）。
+
+批 AA4 没有扫描请求中的阈值词面，也没有相信 perf 模型写入的 summary 或
+`janky=true`。finalizer 直接读取 validated `PerfBundle.Frames`，用与
+`toPerfBundle` 相同的 validator-owned
+`PerfFrameBudget60HzMs=16.67` 重新计算，仅对
+`duration_ms > 16.67` 的帧发布 `validator_janky=true`。紧凑
+`Perf Threshold Provenance Authority` 将该值标为
+`deterministic_validator_constant`。
+
+同一权限块明确：请求给出的其他阈值仍可正常用于回答标量比较，但若它只在
+request comparator、model aggregate 或 summary 中出现，不能改称 Codrax
+内部 jank rule；只有单独的 current-source evidence 才能证明另一条产品
+阈值。低于16.67ms但由模型提交 `janky=true` 的负臂不会取得 deterministic
+threshold authority。实现不读取答案文本、不新增硬门。
+`go test ./internal/agent -count=1` 通过（2.873s）。

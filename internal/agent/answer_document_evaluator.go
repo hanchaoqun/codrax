@@ -553,6 +553,11 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}) {
 		return b.String()
 	}
+	if !trace.appendSection(&b, "perf_threshold_provenance", func() string {
+		return renderAnswerDocPerfThresholdProvenanceAuthority(ctx)
+	}) {
+		return b.String()
+	}
 	if !trace.appendSection(&b, "target_wait_occurrence_authority", func() string {
 		return renderAnswerDocTargetWaitOccurrenceAuthority(ctx)
 	}) {
@@ -8024,6 +8029,67 @@ func answerDocRuntimeTraceGuidancePerfBundles(ctx *types.AgentContext) []*types.
 		add(ctx.Mutable.PerfTrace())
 	}
 	return out
+}
+
+func renderAnswerDocPerfThresholdProvenanceAuthority(ctx *types.AgentContext) string {
+	bundles := answerDocRuntimeTraceGuidancePerfBundles(ctx)
+	if len(bundles) == 0 {
+		return ""
+	}
+	type frameAuthority struct {
+		source     string
+		frameNo    int
+		tsMS       float64
+		durationMS float64
+	}
+	frames := make([]frameAuthority, 0)
+	seen := map[string]bool{}
+	for _, perf := range bundles {
+		if perf == nil {
+			continue
+		}
+		for _, frame := range perf.Frames {
+			// Recompute from validator-owned constants rather than trusting the
+			// model-supplied Janky bit. This is the same comparison toPerfBundle
+			// applies when it stamps true.
+			if frame.DurationMs <= types.PerfFrameBudget60HzMs {
+				continue
+			}
+			key := fmt.Sprintf("%s\x00%d\x00%.9f\x00%.9f",
+				strings.TrimSpace(perf.Meta.Source), frame.FrameNo, frame.TsMs, frame.DurationMs)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			frames = append(frames, frameAuthority{
+				source:     strings.TrimSpace(perf.Meta.Source),
+				frameNo:    frame.FrameNo,
+				tsMS:       frame.TsMs,
+				durationMS: frame.DurationMs,
+			})
+		}
+	}
+	if len(frames) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("## Perf Threshold Provenance Authority\n\n")
+	fmt.Fprintf(&b,
+		"- validator_jank_budget_ms=%.2f; authority=`deterministic_validator_constant`; comparison=`frame.duration_ms > validator_jank_budget_ms`.\n",
+		types.PerfFrameBudget60HzMs)
+	b.WriteString("- This is the current Codrax perf-pretriage frame budget. A different threshold supplied by the request or carried only by model-authored aggregate/summary text remains a user comparison threshold; it may be answered as a scalar comparison but must not be renamed as Codrax's internal jank rule without separate current-source evidence.\n")
+	for i, frame := range frames {
+		if i >= 8 {
+			fmt.Fprintf(&b, "- (%d additional validator-janky frame(s) omitted from this compact authority view)\n", len(frames)-i)
+			break
+		}
+		fmt.Fprintf(&b,
+			"- frame[%d] source=`%s`; frame_no=%d; ts_ms=%.3f; duration_ms=%.3f; validator_janky=true\n",
+			i+1, frame.source, frame.frameNo, frame.tsMS, frame.durationMS)
+	}
+	b.WriteString("\n")
+	return b.String()
 }
 
 func answerDocPerfBundleHasHarmonyPrioritySemantics(perf *types.PerfBundle) bool {
