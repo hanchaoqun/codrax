@@ -614,3 +614,19 @@ func TestDefaultRunnerPlansFromTestSurface_PrefersPlanTouchedRunner(t *testing.T
 		t.Fatalf("plan-touched Python runner should lead the default queue, got %+v", plans)
 	}
 }
+
+func TestDefaultRunnerPlansFromTestSurface_CompatibleSignalBeatsSyntheticNativePreference(t *testing.T) {
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "Makefile", "check:\n\t@echo verified\n")
+	writeSurfaceFile(t, root, "repository.c", "int value(void) { return 1; }\n")
+
+	surface := BuildTestSurface(root, "")
+	if len(surface.Candidates) != 1 || surface.Candidates[0].Runner != "make" ||
+		!surface.Candidates[0].HasTestSignal {
+		t.Fatalf("expected one signaled Make surface, got %+v", surface.Candidates)
+	}
+	plans := defaultRunnerPlansFromTestSurface(root, surface, "cmake")
+	if len(plans) != 1 || plans[0].Runner != "make" || plans[0].Manifest != "Makefile" {
+		t.Fatalf("signaled C-family Make surface must beat inferred unconfigured cmake, got %+v", plans)
+	}
+}

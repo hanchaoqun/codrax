@@ -1899,3 +1899,84 @@ thinking /答案原文，也不改显式窗、因果投影树、根因榜计算�
 窗内可消除量或自动补采。projection 新载体已登记信息契约为 answer-writer
 displayed authority、非树面 gate；完整 `go test ./internal/tool -count=1`
 通过（159.045s）。
+
+### B11 r2 人工审计与批 AC 规划（2026-07-31）
+
+在 revision `712db9f326bd` 重建后，以严格 `parallel=2` 回放：
+
+- `eval/results/github_issue_libgit2_foreach_worktree_symptom-20260731-135209`
+- `eval/results/real_trace_h1_binder_true_false_attribution-20260731-135209`
+
+runner 1/2，人工 0/2。H1 自动 PASS 只证明既有 regex/oracle 命中，人工仍
+为 FAIL；C 用例的产品补丁正确，但交付因验证控制面失败。
+
+H1 证明 AB2 的 occurrence carrier 已在真实答案面生效：15.758ms
+`pacing_idle` 现在绑定自身发生窗
+`13762.992415..13763.008173`，不再借用 1.009ms topology anchor。完整
+Trace 因果投影、用户显式 233.190ms 窗、系统补采、目标四态、唤醒链与
+窗内可消除量均在，红线正臂没有回退。
+
+但 AB3 首版遗漏了 rank board 的 channel 维度。相同 artifact/target/window/
+params 下，`on_chain` 与 `adjacent` 各有独立的 `#1..#N`；首版把两张榜
+合成 26 席，正确检测成 `duplicate_rank`，finalizer 因而没有 complete
+roster 可转录，又自行给 RenderThread、DetectViewRect、Binder component
+等非榜席编造 #1/#2/#4。最优修复不是改 H1 名字或数值，而是把 typed
+`ChainRelevance` 归一成 board channel 并进入 roster identity；不同 channel
+的序数禁止比较，同 channel 内才检查连续性。
+
+H1 还暴露 AB2 的消费尾差。typed
+`root_cause_target_self_state/binder_wait` 已携同事实等待窗
+`13762.835861..13762.837270` 和 1.409ms；explorer aggregate 却把同一
+transaction 的发送阶段窗 `13762.834345..13762.835754` 填入
+`timestamp`，finalizer 将它写成“真正等待时间戳”。这是跨事件阶段的
+值/窗拼接，不是数值误差。方案应从 typed observation 建通用
+value-owner temporal authority：同 subject/type/value 的 occurrence 窗
+是该值的唯一时间身份；command aggregate 可作叙事候选，但不能用另一阶段
+的窗覆盖。冲突或多 occurrence 必须标 ambiguous，不按到达顺序任选。
+
+C 用例的 `TestSurface` 明确只有并选中了 `make@.`（`make check`，有真实
+test signal）。但 `preferredRunnerFromChangePlan` 将 `.c` 映射为 `cmake`；
+`defaultRunnerPlansFromTestSurface` 在找不到 cmake candidate 时仍合成一个
+未配置 cmake runner，并先占用工作目录 `.`，把真正的 make candidate
+去重掉。验证因此以 `not_configured` 失败。这里精确信号与软偏好倒置：
+plan-touched language 只能给已有 runnable candidate 排序；当任一
+TestSurface candidate 有真实 test signal 时，不得凭偏好合成不存在的
+runner 抢占同目录。只有没有真实 test signal 时，才保留 plan-touched
+syntax/no-test fallback。
+
+后续 no-change replan 被拒绝不是新产品 GAP：模型调用的是无参
+`run_tests`，不是绑定原 applied plan 的
+`dry_run=true + verification_probe`，系统没有把一次旁路检查升级为原计划
+的 passing proof，按设计 fail-closed。修好首轮 runner 选举后该级联消失。
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B11-AC1 | P1 | rank board channel identity | 同 target/window/params 的 on-chain 与 adjacent 独立榜被合并，产生重复序数并使完整 roster 失权 | board identity 增加 typed channel；逐 channel 连续校验和发布，禁止跨 channel 比较 | filed |
+| EVAL-B11-AC2 | P1 | value-owner temporal authority | typed 等待值与自身 occurrence 窗在场，但 command aggregate 可携另一 transaction stage 的 timestamp 覆盖成文 | 从 typed observation 发布 subject/type/value/occurrence 的紧凑权限；冲突/多值 fail-closed，aggregate 不铸新窗 | filed |
+| EVAL-B11-AC3 | P1 | runnable TestSurface signal precedence | plan-touched runner 偏好在无 candidate 时合成未配置 native runner，并以同目录去重挤掉真实 make test surface | 真实 HasTestSignal candidate 优先；仅在零真实 test signal 时允许 inferred preferred-runner fallback | covered |
+| EVAL-B11-AB2 | P1 | trace aggregate temporal identity | pacing occurrence carrier 真实回放已正确 | carrier covered；成文消费由 AC2 收尾 | verified-partial |
+| EVAL-B11-AB4 | P2 | incomplete enumeration wording | `enumeration_status=incomplete` 在场，正文仍写“其余所有睡眠段均…” | 保持既有 filed；不为当前 P1 批扫描答案词面 | reproduced-filed |
+
+批 AC 不变量：
+
+1. 不读取 raw request、case ID、模型 thinking 或最终答案词面做硬门。
+2. 不修改显式窗选举、Trace 因果投影树、自动补采、根因分值/排序算法、
+   唤醒链、窗内可消除量或任何 trace 数值。
+3. rank channel 只分隔本来就独立的 ordinal domain，不改变任何席位的
+   rank/value/tier/fix-direction。
+4. TestSurface 的 `HasTestSignal` 是精确信号；plan-touched runner 是软偏好。
+   无真实测试面时保留既有 syntax/no-test fallback。
+5. 时间权限只携带已接受 typed observation 的同事实 occurrence；不从
+   aggregate label、用户问句或答案文本解析时间。
+
+批 AC3 没有把“仓库存在任意测试”误作当前语言覆盖，而是复用既有
+`VerificationLanguageFamiliesFromRunner` 做 typed family 相交：当
+plan-touched 偏好没有实际 candidate，且 TestSurface 存在同 family 的
+`HasTestSignal=true` candidate 时，选择后者；否则仍保留 inferred runner
+作为 syntax/no-test fallback。由此 `.c/.cpp → cmake` 可以被真实
+`make check` 的 C/C++ family 接应，而 Python 偏好不会被无关 Go 测试抢走。
+
+回归固定两条相邻臂：C 仓只有 Makefile `check` 时队列仅含 make、不再合成
+cmake；Python 变更面对只有 Go 测试的仓库仍由 plan-touched Python fallback
+先行。专项测试与完整 `go test ./internal/tool -count=1` 通过
+（160.817s）。

@@ -235,6 +235,15 @@ func defaultRunnerPlansFromTestSurface(repoRoot string, surface types.TestSurfac
 	if preferredRunner != "" {
 		if cand := nextTestSurfaceEscalationForRunner(surface, nil, preferredRunner); cand != nil {
 			add(*cand)
+		} else if cand := signaledTestSurfaceCandidateForRunnerFamily(surface, preferredRunner); cand != nil {
+			// The plan-touched runner is only a language-family preference.
+			// Do not synthesize an unavailable runner over a real runnable
+			// project surface for the same family (for example, `.c` maps to
+			// the native `cmake` preference while a Makefile `check` target is
+			// the repository's actual C verification lane). The signaled
+			// candidate is the precise repository fact; the inferred runner
+			// remains a fallback only when no compatible test work exists.
+			add(*cand)
 		} else {
 			root := repoRoot
 			framework := ""
@@ -255,6 +264,29 @@ func defaultRunnerPlansFromTestSurface(repoRoot string, surface types.TestSurfac
 		add(cand)
 	}
 	return out
+}
+
+func signaledTestSurfaceCandidateForRunnerFamily(surface types.TestSurface, runner string) *types.TestSurfaceCandidate {
+	preferredFamilies := sourceVerificationLanguageFamilies(
+		types.VerificationLanguageFamiliesFromRunner(runner, ""),
+	)
+	if len(preferredFamilies) == 0 {
+		return nil
+	}
+	for i := range surface.Candidates {
+		cand := surface.Candidates[i]
+		if !cand.HasTestSignal {
+			continue
+		}
+		candidateFamilies := sourceVerificationLanguageFamilies(
+			types.VerificationLanguageFamiliesFromRunner(cand.Runner, cand.Framework),
+		)
+		if verificationLanguageFamiliesIntersect(preferredFamilies, candidateFamilies) {
+			next := cand
+			return &next
+		}
+	}
+	return nil
 }
 
 func runnerPlanQueueKey(repoRoot string, plan runnerPlan) string {
