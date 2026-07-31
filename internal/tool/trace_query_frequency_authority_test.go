@@ -28,10 +28,11 @@ func TestTraceQueryFrequencyTransitionCountStaysBackgroundOnly(t *testing.T) {
 	}
 	summary := traceQuerySummary(result, traceQueryParams{View: "event_search"}, "customer.systrace", "")
 	for _, want := range []string{
-		"frequency_authority transition_events=172",
+		"frequency_authority cpu_frequency_rows=172",
+		"clock_set_rate_events=0",
 		"transition_authority=background_only",
 		"frequency_supply_conclusion=unproven_from_transition_count",
-		"transition count is background activity only",
+		"two typed counts are separate background activity",
 	} {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("summary missing %q:\n%s", want, summary)
@@ -45,9 +46,8 @@ func TestTraceQueryFrequencyAuthoritySeparatesTypedSupplyEvidence(t *testing.T) 
 		TimeStart: 13762.791708,
 		TimeEnd:   13763.024898,
 		WindowStats: &tracequery.WindowStats{
-			EventCounts: map[tracequery.EventType]int{
-				tracequery.EventCPUFrequency: 12,
-			},
+			CPUFrequencySampleRowCount: 12,
+			ClockSetRateEventCount:     37,
 			SupplyPressureSummary: &tracequery.SupplyPressureSummary{
 				LowFrequencyCPUs: []int{0, 1},
 			},
@@ -62,7 +62,9 @@ func TestTraceQueryFrequencyAuthoritySeparatesTypedSupplyEvidence(t *testing.T) 
 	}
 	authority := traceQueryEvidenceAuthority(result)
 	if authority.FrequencyTransitionAuthority != "background_only" ||
-		authority.FrequencySupplyConclusion != "bounded_by_typed_supply_evidence" {
+		authority.FrequencySupplyConclusion != "bounded_by_typed_supply_evidence" ||
+		authority.FrequencyTransitionEventCount != 12 ||
+		authority.FrequencyClockSetRateEventCount != 37 {
 		t.Fatalf("typed frequency authority = %+v", authority)
 	}
 	got := strings.Join(authority.FrequencyTypedSupplyEvidence, ",")
@@ -161,9 +163,10 @@ func TestRuntimeTraceFrequencyAuthorityCaveatRejectsCountOnlyCausality(t *testin
 		ToolName: "trace_query",
 		Success:  true,
 		TraceEvidenceAuthority: &types.TraceEvidenceAuthority{
-			FrequencyTransitionEventCount: 172,
-			FrequencyTransitionAuthority:  "background_only",
-			FrequencySupplyConclusion:     "unproven_from_transition_count",
+			FrequencyTransitionEventCount:   172,
+			FrequencyClockSetRateEventCount: 323,
+			FrequencyTransitionAuthority:    "background_only",
+			FrequencySupplyConclusion:       "unproven_from_transition_count",
 		},
 	}}}
 	original := doc.Blocks[0].Text
@@ -175,9 +178,10 @@ func TestRuntimeTraceFrequencyAuthorityCaveatRejectsCountOnlyCausality(t *testin
 	}
 	got := strings.Join(doc.Caveats, "\n")
 	for _, want := range []string{
-		"transition_events=172",
+		"cpu_frequency_rows=172",
+		"clock_set_rate_events=323",
 		"transition_authority=background_only",
-		"事件计数只证明调频活动",
+		"两类计数分别表示 CPU 频点样本和通用时钟变更活动",
 		"frequency_supply_conclusion=unproven_from_transition_count",
 		"typed_supply_evidence=none",
 		"低频/供给因果措辞均未获当前计数授权",
@@ -201,9 +205,10 @@ func TestRuntimeTraceFrequencyAuthorityCaveatNamesIndependentTypedEvidence(t *te
 		ToolName: "trace_query",
 		Success:  true,
 		TraceEvidenceAuthority: &types.TraceEvidenceAuthority{
-			FrequencyTransitionEventCount: 12,
-			FrequencyTransitionAuthority:  "background_only",
-			FrequencySupplyConclusion:     "bounded_by_typed_supply_evidence",
+			FrequencyTransitionEventCount:   12,
+			FrequencyClockSetRateEventCount: 7,
+			FrequencyTransitionAuthority:    "background_only",
+			FrequencySupplyConclusion:       "bounded_by_typed_supply_evidence",
 			FrequencyTypedSupplyEvidence: []string{
 				"frequency_residency_low_frequency",
 			},
@@ -220,7 +225,7 @@ func TestRuntimeTraceFrequencyAuthorityCaveatNamesIndependentTypedEvidence(t *te
 	}
 	got := strings.Join(doc.Caveats, "\n")
 	if !strings.Contains(got, "typed_supply_evidence=frequency_residency_low_frequency") ||
-		!strings.Contains(got, "不能归因于 transition count") ||
+		!strings.Contains(got, "不能归因于上述两类计数") ||
 		!strings.Contains(got, "direct_in_window_policy_limits=cpu0[min=418000kHz,max=1530000kHz") ||
 		!strings.Contains(got, "policy_limit_status=present") ||
 		!strings.Contains(got, "低于 ceiling 不能反推「无策略限制」") ||

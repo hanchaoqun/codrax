@@ -680,11 +680,11 @@ func traceQueryEvidenceAuthority(result tracequery.Result) *types.TraceEvidenceA
 		PrioritySemantics:  result.PrioritySemantics,
 		SchedulerSemantics: "prev_state=S proves a sleeping/blocking transition, not preemption or voluntary yield; only R/R+ supports a still-runnable preemption candidate, and running-slice count is not wakeup count",
 	}
-	authority.FrequencyTransitionEventCount, authority.FrequencyTypedSupplyEvidence =
+	authority.FrequencyTransitionEventCount, authority.FrequencyClockSetRateEventCount, authority.FrequencyTypedSupplyEvidence =
 		traceQueryFrequencyEvidenceAuthority(result)
 	authority.FrequencyLimitWitnesses = traceQueryFrequencyLimitAuthorities(result)
 	traceQueryApplyFrequencyPolicyLimitSemantics(authority)
-	if authority.FrequencyTransitionEventCount > 0 {
+	if authority.FrequencyTransitionEventCount > 0 || authority.FrequencyClockSetRateEventCount > 0 {
 		authority.FrequencyTransitionAuthority = "background_only"
 		if len(authority.FrequencyTypedSupplyEvidence) == 0 {
 			authority.FrequencySupplyConclusion = "unproven_from_transition_count"
@@ -789,18 +789,18 @@ func traceQueryFrequencyLimitValid(limit tracequery.CPUFrequencyLimit) bool {
 	return limit.CPU >= 0 && limit.MaxFrequency > 0 && limit.Count > 0 && limit.Line > 0
 }
 
-func traceQueryFrequencyEvidenceAuthority(result tracequery.Result) (int, []string) {
-	transitionCount := 0
+func traceQueryFrequencyEvidenceAuthority(result tracequery.Result) (int, int, []string) {
+	frequencyRowCount := 0
+	clockSetRateCount := 0
 	evidence := map[string]bool{}
 	addStats := func(stats *tracequery.WindowStats) {
 		if stats == nil {
 			return
 		}
-		count := stats.EventCounts[tracequery.EventCPUFrequency] +
-			stats.EventCounts[tracequery.EventClockSetRate]
-		transitionCount = max(transitionCount, count)
+		frequencyRowCount = max(frequencyRowCount, stats.CPUFrequencySampleRowCount)
+		clockSetRateCount = max(clockSetRateCount, stats.ClockSetRateEventCount)
 		if supply := stats.SupplyPressureSummary; supply != nil {
-			transitionCount = max(transitionCount, supply.ClockSetRateCount)
+			clockSetRateCount = max(clockSetRateCount, supply.ClockSetRateCount)
 			if len(supply.LowFrequencyCPUs) > 0 {
 				evidence["frequency_residency_low_frequency"] = true
 			}
@@ -844,20 +844,25 @@ func traceQueryFrequencyEvidenceAuthority(result tracequery.Result) (int, []stri
 	addStats(result.WindowStats)
 	addRank(result.RootCauseRank)
 	if census := result.CPUFrequencyCensus; census != nil {
-		transitionCount = max(transitionCount, census.MatchedFrequencyRows)
+		frequencyRowCount = max(frequencyRowCount, census.MatchedFrequencyRows)
 	}
-	eventCount := 0
+	eventFrequencyRows := 0
+	eventClockSetRateRows := 0
 	for _, view := range result.Events {
-		switch view.Type {
-		case tracequery.EventCPUFrequency, tracequery.EventClockSetRate:
-			eventCount++
+		switch {
+		case tracequery.IsPerCPUFrequencySample(view.Event):
+			eventFrequencyRows++
+		case (view.Type == tracequery.EventClockSetRate || view.Event.Name == "clock_set_rate") &&
+			!view.Event.CPUInputInvalid && view.Event.Frequency >= 0 && view.Event.ClockName != "":
+			eventClockSetRateRows++
 		}
 	}
-	transitionCount = max(transitionCount, eventCount)
+	frequencyRowCount = max(frequencyRowCount, eventFrequencyRows)
+	clockSetRateCount = max(clockSetRateCount, eventClockSetRateRows)
 	if bundle := result.FrameRootCauseBundle; bundle != nil {
 		addRank(bundle.RootCauseRank)
 		if supply := bundle.SupplyPressureSummary; supply != nil {
-			transitionCount = max(transitionCount, supply.ClockSetRateCount)
+			clockSetRateCount = max(clockSetRateCount, supply.ClockSetRateCount)
 			if len(supply.LowFrequencyCPUs) > 0 {
 				evidence["frequency_residency_low_frequency"] = true
 			}
@@ -868,7 +873,7 @@ func traceQueryFrequencyEvidenceAuthority(result tracequery.Result) (int, []stri
 		out = append(out, token)
 	}
 	sort.Strings(out)
-	return transitionCount, out
+	return frequencyRowCount, clockSetRateCount, out
 }
 
 func traceQueryEnumerationAuthority(result tracequery.Result) *types.ToolEnumerationAuthority {
@@ -1763,6 +1768,7 @@ func traceQueryAutoWindowEvidenceAuthority(children []traceQueryAutoWindowChild)
 			copy.FrameItemCount = 0
 			copy.TypedCausalRowCount = 0
 			copy.FrequencyTransitionEventCount = 0
+			copy.FrequencyClockSetRateEventCount = 0
 			copy.FrequencyTypedSupplyEvidence = nil
 			copy.FrequencyLimitWitnesses = nil
 			copy.LifecycleBoundaries = nil
@@ -1781,6 +1787,10 @@ func traceQueryAutoWindowEvidenceAuthority(children []traceQueryAutoWindowChild)
 		combined.FrequencyTransitionEventCount = max(
 			combined.FrequencyTransitionEventCount,
 			current.FrequencyTransitionEventCount,
+		)
+		combined.FrequencyClockSetRateEventCount = max(
+			combined.FrequencyClockSetRateEventCount,
+			current.FrequencyClockSetRateEventCount,
 		)
 		combined.FrequencyTypedSupplyEvidence = append(
 			combined.FrequencyTypedSupplyEvidence,
@@ -1824,7 +1834,7 @@ func traceQueryAutoWindowEvidenceAuthority(children []traceQueryAutoWindowChild)
 	combined.FrequencyPolicyLimitStatus = ""
 	combined.FrequencyLimitBindingCaliber = ""
 	traceQueryApplyFrequencyPolicyLimitSemantics(combined)
-	if combined.FrequencyTransitionEventCount > 0 {
+	if combined.FrequencyTransitionEventCount > 0 || combined.FrequencyClockSetRateEventCount > 0 {
 		combined.FrequencyTransitionAuthority = "background_only"
 		if len(combined.FrequencyTypedSupplyEvidence) == 0 {
 			combined.FrequencySupplyConclusion = "unproven_from_transition_count"
@@ -4392,9 +4402,10 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		fmt.Fprintf(&b, "priority_semantics=%s\n", result.PrioritySemantics)
 	}
 	if authority := traceQueryEvidenceAuthority(result); authority != nil {
-		if authority.FrequencyTransitionEventCount > 0 {
-			fmt.Fprintf(&b, "frequency_authority transition_events=%d transition_authority=%s frequency_supply_conclusion=%s typed_supply_evidence=%s (transition count is background activity only and does not by itself prove low frequency, throttling, or compute-supply shortage)\n",
+		if authority.FrequencyTransitionEventCount > 0 || authority.FrequencyClockSetRateEventCount > 0 {
+			fmt.Fprintf(&b, "frequency_authority cpu_frequency_rows=%d clock_set_rate_events=%d transition_authority=%s frequency_supply_conclusion=%s typed_supply_evidence=%s (the two typed counts are separate background activity and neither count by itself proves low frequency, throttling, or compute-supply shortage)\n",
 				authority.FrequencyTransitionEventCount,
+				authority.FrequencyClockSetRateEventCount,
 				sanitizeForBanner(authority.FrequencyTransitionAuthority),
 				sanitizeForBanner(authority.FrequencySupplyConclusion),
 				sanitizeForBanner(strings.Join(authority.FrequencyTypedSupplyEvidence, ",")))

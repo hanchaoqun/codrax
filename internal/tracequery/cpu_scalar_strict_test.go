@@ -348,6 +348,10 @@ func TestClockSetRateMalformedInventoryDoesNotMintSupplySignal(t *testing.T) {
 	if got := stats.SupplyPressureSummary.ClockSetRateCount; got != 1 {
 		t.Fatalf("malformed clock inventory entered supply semantics or valid zero was lost: count=%d summary=%+v", got, stats.SupplyPressureSummary)
 	}
+	if stats.CPUFrequencySampleRowCount != 0 || stats.ClockSetRateEventCount != 1 {
+		t.Fatalf("frequency/clock authority census merged lanes or admitted malformed rows: cpu_frequency_rows=%d clock_set_rate_events=%d",
+			stats.CPUFrequencySampleRowCount, stats.ClockSetRateEventCount)
+	}
 	if stats.SupplyPressureSummary.DDREventCount != 1 || !containsSubstring(stats.Caveats, "cpu_input_integrity_degraded=true") {
 		t.Fatalf("clock supply/caveat split drifted: summary=%+v caveats=%v", stats.SupplyPressureSummary, stats.Caveats)
 	}

@@ -828,3 +828,42 @@ root auxiliary projection 保持 256 文件和原单文件大小界限，只把�
 5. selected runner 的 revision 检查是 eval fail-loud，不进入产品路由或答案门控。
 
 批 I 定向验证已通过：`internal/types` 固定 full/explicit-window/bounded-selector scope authority；`internal/analysis/compiler` 固定 pure runtime comparison→generic 与 runtime root-cause→root-cause；`internal/tool/repomap` 固定同路径 ParseTier4/零 symbols 的 Cangjie 文件被临时刷新并恢复原图；`internal/tool` 真实 E2 trace e2e 确认 generic cross-artifact coverage 不 materialize 因果投影，显式窗/真实 cause 专项继续通过；`bash -n eval/parallel_selected.sh` 通过。提交前仍需跑相关包级回归，提交推送后 `make`，再以同一双 case 做最终验收。
+
+### B5 r5 人工审计与批 J（2026-07-31）
+
+批 I 提交 `ccd1b1d33` 后重建，runner 校验 binary revision 与 clean build inputs，再以严格 `parallel=2` 回放（sweep `20260731-074318`）：
+
+- 结果目录：
+  - `eval/results/real_trace_e2_cross_trace_asymmetry-20260731-074318`
+  - `eval/results/cangjie_repomap-20260731-074318`
+- runner 2/2 PASS；人工 Trace FAIL、Cangjie PASS。
+- Trace 的 T8 已真实覆盖：全程 4 次 `trace_query`、零 repo/source read，最终没有 architecture/current-source 合同，也没有 `Trace 因果投影`。主比较给出 `144.557ms` 对 `0.556ms`、短 trace 当前窗内无 CPU frequency/VSync、两工件无共享 calibration 因而不能直接对齐，方向正确。
+- 但因果块收窄后，其他 sibling materializer 仍由旧 `runtimeTraceFullReportMaterializationAllowed = !focused_fact` 放行。最终额外出现“确定性优化点”“Trace 指标快照”“trace_query 关键观测核对”和补采 caveat；普通完整工件覆盖/采样比较不是 focused fact，因此只修 causal block 留下了同根的全报告发布分叉。
+- 同一 `window_stats` 的 `frequency_authority transition_events=413` 实际为 `EventCPUFrequency + EventClockSetRate`：真实 `cpu_frequency` 精确总数为 90，另有 323 条通用 `clock_set_rate`。工具把两个不同事件族相加并命名为调频 transition，模型据此写成“413 次 CPU 频率切换”。这是确定性计数 caliber 错，不是模型波动；此前 T6“emitted 40 冒充 total 90”已修复，但不能覆盖本次跨事件族合并。
+- Cangjie 最终完整交付 2 extend、2 foreign func、8 public class 及 row-local location/package，正确性通过；耗时由 r4 的 283s 降为 167s。但两个 source_inventory lens 仍只返回 Go field/method，靠 8 次 `read_file` 回退。
+- 冷读和临时诊断证明 S7 的 same-path refresh 已生效：临时图包含 11 个 Cangjie 文件及正确 `extend/foreign-func/class` symbols。剩余丢失发生在第二级 execution view：`sourceinventory.NewExecutionView` 按 `Graph.Files` 原顺序在过滤 family 前截取文件前缀；临时辅助文件追加在 3892 个 base 文件之后，精确 parser-derived family 根本进不了 candidate loop。此前“family 在 symbol scan budget 前过滤”的测试使用未截断 view，未覆盖这层文件成员资格。
+
+B5 r5 新增 GAP 与批 J 状态：
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B5-T9 | P0 | Trace 完整报告发布权限 | causal block 使用窄 publication authority，语义优化/指标/next-step/perf-quality/观测/frequency/VSync sibling 仍使用 broad `!focused_fact` gate；generic coverage 无根因仍被注入整套报告 | 统一 typed report-shape authority：显式窗优先保留；focused fact 保持收窄；diagnostic/root-cause/performance/call-chain保留；generic 仅在 compiled ledger 有 publication-grade root/chain row 时放行。所有 materializer 继续消费一个 gate | 已施工；批 J，待 r6 回放 |
+| EVAL-B5-S8 | P0 | 精确 family 二级预算 | auxiliary symbols 已入临时图，但 bounded execution-view 在 family filter 前按文件前缀截断，后追加的少数语言永远不可见 | 仅对 analyzer-validated source quote × parser-derived exact surface-family，绕过 view membership并在完整 symbol index 上先做精确 family/scope filter，再消费独立 query/materialization budget；token/no-query lane仍受 view约束，deadline/cancel fail-closed | 已施工；批 J，待 r6 回放 |
+| EVAL-B5-T10 | P0 | Frequency 事件族 caliber | `cpu_frequency + clock_set_rate` 被合并为 `transition_events`，通用时钟活动冒充 CPU 调频次数 | WindowStats 和 TraceEvidenceAuthority 分席 `cpu_frequency_rows` 与 `clock_set_rate_events`；前者只消费共享 strict per-CPU sample predicate，后者单独统计有效 clock rows；summary/answer caveat明确两者都只是 background activity | 已施工；批 J，待 r6 回放 |
+| EVAL-B5-T7 | P1 | 跨工件时钟关系 | 尚无正式 cross-artifact calibration relation carrier | r5 主结论安全，保持 filed，按后续复现率排序，不为单例增加文案门 | filed |
+
+批 J 不变量：
+
+1. 显式 typed 时间窗在所有 analyzer label 下都拥有最高报告权限；现有 root-cause、diagnostic、performance、QFRootCauseTrace/QFCallChain 与真实 publication-grade causal row均保留完整报告。
+2. 不改变 trace query 选择、自动补采、因果投影编译、根因排序、唤醒链或窗内可消除量；只统一回答发布 authority 和拆分已有事件计数。
+3. focused runtime fact 必须在 ledger 行判断前 fail-narrow，不能因 incidental causal-looking row重新膨胀。
+4. exact surface-family 旁路只消费 validated typed source quote 与 parser symbol `SurfaceTerms`；显式 scopes/visibility/exclusion仍是 hard boundary，query scan、materialization、deadline/cancel仍可截断并披露。token/no-query 不得绕过 execution view。
+5. 不扫描 raw user request、model thinking、case ID 或最终答案正文，不按 Cangjie/Go、具体类名、具体 trace 文件名特判。
+
+批 J 施工验证：
+
+- report authority 新增统一 shape 决策，所有八个 runtime system materializer 继续由既有 tripwire确认接入同一个 full-report gate；generic comparison 无 causal rows为负，真实 primary/on-chain row为正，explicit-window/root/call-chain邻接正臂保持。
+- 真实 E2 两 trace 生产路径 e2e 执行同形六查询，确认 generic comparison 不生成任何 authenticated runtime system block；同一 fixture 同时确认 `cpu_frequency` 与 `clock_set_rate` 均进入不同的非空 typed lane。
+- source-inventory 压力 fixture 的 late auxiliary `public class` 全部位于 `MaxScanPerRole=4` 的 execution-view 前缀之外；exact family仍完整返回三个成员且 complete，token-only `Bridge` 保持被 view 截断并披露 incomplete。
+- frequency synthetic pin 同窗设置 12 个 CPU frequency rows 与 37 个 clock rows，authority 分别输出，不再相加；malformed clock row不进入 typed clock census。
+- `go test ./internal/tracequery ./internal/types ./internal/analysis/compiler ./internal/tool/repomap -count=1` 通过（68.603s/23.357s/2.240s/2.622s）；`go test ./internal/tool -count=1` 通过（155.771s）；真实 E2 新增计数分席断言后专项再次通过。`git diff --check` 通过。

@@ -6580,21 +6580,26 @@ type ToolRuntimeArtifactRead struct {
 // boundary. System-authored answer appendices consume this record without
 // parsing model or tool prose.
 type TraceEvidenceAuthority struct {
-	View                          string                            `json:"view,omitempty"`
-	FrameEvidenceStatus           string                            `json:"frame_evidence_status,omitempty"`
-	FrameItemCount                int                               `json:"frame_item_count,omitempty"`
-	TypedCausalRowCount           int                               `json:"typed_causal_row_count,omitempty"`
-	CausalConclusion              string                            `json:"causal_conclusion,omitempty"`
-	PrioritySemantics             string                            `json:"priority_semantics,omitempty"`
-	SchedulerSemantics            string                            `json:"scheduler_semantics,omitempty"`
-	FrequencyTransitionEventCount int                               `json:"frequency_transition_event_count,omitempty"`
-	FrequencyTransitionAuthority  string                            `json:"frequency_transition_authority,omitempty"`
-	FrequencySupplyConclusion     string                            `json:"frequency_supply_conclusion,omitempty"`
-	FrequencyTypedSupplyEvidence  []string                          `json:"frequency_typed_supply_evidence,omitempty"`
-	FrequencyLimitWitnesses       []TraceFrequencyLimitAuthority    `json:"frequency_limit_witnesses,omitempty"`
-	FrequencyPolicyLimitStatus    string                            `json:"frequency_policy_limit_status,omitempty"`
-	FrequencyLimitBindingCaliber  string                            `json:"frequency_limit_binding_caliber,omitempty"`
-	LifecycleBoundaries           []TraceLifecycleBoundaryAuthority `json:"lifecycle_boundaries,omitempty"`
+	View                string `json:"view,omitempty"`
+	FrameEvidenceStatus string `json:"frame_evidence_status,omitempty"`
+	FrameItemCount      int    `json:"frame_item_count,omitempty"`
+	TypedCausalRowCount int    `json:"typed_causal_row_count,omitempty"`
+	CausalConclusion    string `json:"causal_conclusion,omitempty"`
+	PrioritySemantics   string `json:"priority_semantics,omitempty"`
+	SchedulerSemantics  string `json:"scheduler_semantics,omitempty"`
+	// FrequencyTransitionEventCount retains its historical wire name, but its
+	// caliber is now the exact positive cpu_frequency row census only. Generic
+	// clock_set_rate activity is carried separately and must never be summed
+	// into this value.
+	FrequencyTransitionEventCount   int                               `json:"frequency_transition_event_count,omitempty"`
+	FrequencyClockSetRateEventCount int                               `json:"frequency_clock_set_rate_event_count,omitempty"`
+	FrequencyTransitionAuthority    string                            `json:"frequency_transition_authority,omitempty"`
+	FrequencySupplyConclusion       string                            `json:"frequency_supply_conclusion,omitempty"`
+	FrequencyTypedSupplyEvidence    []string                          `json:"frequency_typed_supply_evidence,omitempty"`
+	FrequencyLimitWitnesses         []TraceFrequencyLimitAuthority    `json:"frequency_limit_witnesses,omitempty"`
+	FrequencyPolicyLimitStatus      string                            `json:"frequency_policy_limit_status,omitempty"`
+	FrequencyLimitBindingCaliber    string                            `json:"frequency_limit_binding_caliber,omitempty"`
+	LifecycleBoundaries             []TraceLifecycleBoundaryAuthority `json:"lifecycle_boundaries,omitempty"`
 }
 
 // TraceFrequencyLimitAuthority is a direct, strict in-window CPU policy-limit

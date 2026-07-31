@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -63,6 +64,18 @@ func TestTraceCausalPublicationAuthorityGenericCrossArtifactCoverageQuery(t *tes
 		}
 		ctx.ToolResults = append(ctx.ToolResults, result)
 	}
+	maxFrequencyRows := 0
+	maxClockSetRateRows := 0
+	for _, result := range ctx.ToolResults {
+		if authority := result.TraceEvidenceAuthority; authority != nil {
+			maxFrequencyRows = max(maxFrequencyRows, authority.FrequencyTransitionEventCount)
+			maxClockSetRateRows = max(maxClockSetRateRows, authority.FrequencyClockSetRateEventCount)
+		}
+	}
+	if maxFrequencyRows == 0 || maxClockSetRateRows == 0 {
+		t.Fatalf("real mixed-frequency fixture must keep cpu_frequency and clock_set_rate on separate non-empty typed lanes: cpu_frequency_rows=%d clock_set_rate_events=%d",
+			maxFrequencyRows, maxClockSetRateRows)
+	}
 
 	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(
 		ctx, types.ObservationExtractLedgerEvidenceLimit,
@@ -73,5 +86,27 @@ func TestTraceCausalPublicationAuthorityGenericCrossArtifactCoverageQuery(t *tes
 	}
 	if runtimeTraceCausalProjectionMaterializationAllowed(ctx, set) {
 		t.Fatal("generic cross-artifact coverage query must not materialize Trace causal projection")
+	}
+	if runtimeTraceFullReportMaterializationAllowed(ctx) {
+		t.Fatal("generic cross-artifact coverage query must not inherit the full runtime trace report")
+	}
+
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: "typed comparison result",
+		}},
+	}
+	if _, err := persistMergedAnswerDocument(
+		ctx, "emit_answer_document", types.MutationReplaceAll, "cross-artifact coverage", doc, time.Now(),
+	); err != nil {
+		t.Fatalf("persist generic comparison answer: %v", err)
+	}
+	for _, block := range doc.Blocks {
+		if RuntimeTraceSystemBlock(block) {
+			t.Fatalf("generic cross-artifact coverage query gained unrelated runtime report block %q", block.ID)
+		}
 	}
 }

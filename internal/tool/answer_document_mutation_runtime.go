@@ -1058,26 +1058,62 @@ func answerDocumentHasRuntimeTraceSystemBlockID(doc *types.AnswerDocumentV2, id 
 	return false
 }
 
-// runtimeTraceFullReportMaterializationAllowed is the shared answer-shape
-// authority for system-authored trace report blocks. A focused fact about one
-// runtime target may use trace evidence, but it did not request a causal tree,
-// optimization report, background metric board, next-step plan, perf-quality
-// report, or raw observation dump. One precise exception is an exact
-// user-authoritative time window: already-collected bounded evidence may be
-// materialized even when the analyzer varies between explain and diagnostic.
-// This exception does not alter family routing or deterministic supplement
-// selection, so a narrow state census does not expand into extra root-cause
-// queries. ExplicitTimeWindow validates typed bounds and an exact current-
-// request source quote; no request/model prose scan occurs here.
-func runtimeTraceFullReportMaterializationAllowed(ctx *types.BusContext) bool {
+// runtimeTraceReportShapeAuthority resolves the typed question shapes that
+// decide report publication without consulting the observation ledger.
+//
+// Precedence matters:
+//   - an exact user-authored time window always retains the full report and
+//     causal projection, regardless of analyzer label variation;
+//   - a focused target fact stays narrow even when incidental trace queries
+//     happened to collect causal-looking rows;
+//   - typed diagnostic/root-cause/call-chain shapes retain the full report;
+//   - generic artifact coverage/comparison shapes remain undecided here and
+//     must prove publication-grade causal rows in the compiled ledger.
+//
+// This authority neither changes deterministic supplement selection nor scans
+// raw request/model/answer prose.
+func runtimeTraceReportShapeAuthority(ctx *types.BusContext) (decided bool, allowed bool) {
 	if ctx == nil || ctx.AnalysisIR == nil {
-		return true
+		return true, true
 	}
 	rm := ctx.AnalysisIR.RequestModel
 	if _, _, ok := rm.RuntimeArtifactScopeProfile.ExplicitTimeWindow(); ok {
-		return true
+		return true, true
 	}
-	return !types.IsFocusedRuntimeFactQuestion(rm)
+	if types.IsFocusedRuntimeFactQuestion(rm) {
+		return true, false
+	}
+	if rm.Intent == types.IntentRootCause ||
+		rm.Predicates.IsDiagnosticQuestion ||
+		rm.DiagnosticProfile.RequiresDiagnosticRootCause() ||
+		rm.Scenario == types.ScenarioPerformanceBottleneck {
+		return true, true
+	}
+	switch types.ResolveQuestionFamily(rm) {
+	case types.QFRootCauseTrace, types.QFCallChain:
+		return true, true
+	default:
+		return false, false
+	}
+}
+
+// runtimeTraceFullReportMaterializationAllowed is the shared answer-shape
+// authority for every system-authored trace report surface. Generic artifact
+// coverage, timebase, sampling, and comparison questions do not inherit an
+// optimization board, metric snapshot, next-step plan, raw observation dump,
+// or frequency/VSync authority appendix merely because trace_query ran. Such a
+// question may still publish the full report when the compiled ledger contains
+// an actual root/chain carrier.
+func runtimeTraceFullReportMaterializationAllowed(ctx *types.BusContext) bool {
+	if decided, allowed := runtimeTraceReportShapeAuthority(ctx); decided {
+		return allowed
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(
+		ctx, types.ObservationExtractLedgerEvidenceLimit,
+	))
+	return runtimeTraceProjectionSetHasPublicationGradeCausalRows(
+		types.CompileTraceCausalProjectionSet(ledger),
+	)
 }
 
 // runtimeTraceCausalProjectionMaterializationAllowed is the narrower
@@ -1092,28 +1128,10 @@ func runtimeTraceFullReportMaterializationAllowed(ctx *types.BusContext) bool {
 // analysis fields and the compiled projection set; it never scans request or
 // answer prose and does not alter deterministic supplement selection.
 func runtimeTraceCausalProjectionMaterializationAllowed(ctx *types.BusContext, set types.TraceCausalProjectionSet) bool {
-	if ctx == nil || ctx.AnalysisIR == nil {
-		return true
+	if decided, allowed := runtimeTraceReportShapeAuthority(ctx); decided {
+		return allowed
 	}
-	rm := ctx.AnalysisIR.RequestModel
-	if _, _, ok := rm.RuntimeArtifactScopeProfile.ExplicitTimeWindow(); ok {
-		return true
-	}
-	if runtimeTraceProjectionSetHasPublicationGradeCausalRows(set) {
-		return true
-	}
-	if rm.Intent == types.IntentRootCause ||
-		rm.Predicates.IsDiagnosticQuestion ||
-		rm.DiagnosticProfile.RequiresDiagnosticRootCause() ||
-		rm.Scenario == types.ScenarioPerformanceBottleneck {
-		return true
-	}
-	switch types.ResolveQuestionFamily(rm) {
-	case types.QFRootCauseTrace, types.QFCallChain:
-		return true
-	default:
-		return false
-	}
+	return runtimeTraceProjectionSetHasPublicationGradeCausalRows(set)
 }
 
 func materializeRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {

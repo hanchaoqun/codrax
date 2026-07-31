@@ -2664,6 +2664,13 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 			continue
 		}
 		stats.EventCounts[ev.Type]++
+		if cpu, _, ok := perCPUFrequencySampleValues(ev); ok && !frequencyIntegrity.frequencyUnsafe(cpu) {
+			stats.CPUFrequencySampleRowCount++
+		}
+		if (ev.Type == EventClockSetRate || ev.Name == "clock_set_rate") &&
+			!ev.CPUInputInvalid && eventCPUScalarKnown(ev) && ev.ClockName != "" {
+			stats.ClockSetRateEventCount++
+		}
 		if ev.Type == EventSchedWakeup || ev.Type == EventSchedWaking {
 			if cpu, ok := eventTargetCPU(ev); ok {
 				wakeupTargetCPUTotal++

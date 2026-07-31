@@ -1515,11 +1515,19 @@ func (w TimeWindow) StartsAtDeterminedZero() bool {
 }
 
 type WindowStats struct {
-	Window                TimeWindow             `json:"window"`
-	EventCounts           map[EventType]int      `json:"event_counts,omitempty"`
-	SchedulerHeadCoverage *SchedulerHeadCoverage `json:"scheduler_head_coverage,omitempty"`
-	CPU                   []CPUStats             `json:"cpu,omitempty"`
-	CoreTopology          []CoreClassStats       `json:"core_topology,omitempty"`
+	Window      TimeWindow        `json:"window"`
+	EventCounts map[EventType]int `json:"event_counts,omitempty"`
+	// CPUFrequencySampleRowCount counts strict in-window positive
+	// cpu_frequency rows admitted by the shared per-CPU sample predicate.
+	// ClockSetRateEventCount is a separate clock-activity census, including
+	// clock_set_rate rows reclassified into EventCPUFrequency by the parser.
+	// Keeping the two typed counts apart prevents generic clock activity from
+	// being reported as CPU frequency transitions.
+	CPUFrequencySampleRowCount int                    `json:"cpu_frequency_sample_row_count,omitempty"`
+	ClockSetRateEventCount     int                    `json:"clock_set_rate_event_count,omitempty"`
+	SchedulerHeadCoverage      *SchedulerHeadCoverage `json:"scheduler_head_coverage,omitempty"`
+	CPU                        []CPUStats             `json:"cpu,omitempty"`
+	CoreTopology               []CoreClassStats       `json:"core_topology,omitempty"`
 	// ClusterFrequencyCeilings is the CFC (§7.10 VS-2c 设计) single-point
 	// per-cluster fmax snapshot for this window (VS-2b ladder per cluster:
 	// window-governing limits Max > highest governed observed sample),

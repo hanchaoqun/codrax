@@ -24,6 +24,7 @@ func materializeRuntimeTraceFrequencyAuthorityCaveat(doc *types.AnswerDocumentV2
 	input := types.ObservationLedgerInputFromBusContext(ctx, types.ObservationExtractLedgerEvidenceLimit)
 	results := append(append([]types.ToolResult(nil), input.ToolResults...), input.SystemTraceSupplementResults...)
 	count := 0
+	clockSetRateCount := 0
 	evidenceSet := map[string]bool{}
 	var limitWitnesses []types.TraceFrequencyLimitAuthority
 	for _, result := range results {
@@ -32,6 +33,7 @@ func materializeRuntimeTraceFrequencyAuthorityCaveat(doc *types.AnswerDocumentV2
 		}
 		authority := result.TraceEvidenceAuthority
 		count = max(count, authority.FrequencyTransitionEventCount)
+		clockSetRateCount = max(clockSetRateCount, authority.FrequencyClockSetRateEventCount)
 		for _, token := range authority.FrequencyTypedSupplyEvidence {
 			token = strings.TrimSpace(token)
 			if token != "" {
@@ -41,7 +43,7 @@ func materializeRuntimeTraceFrequencyAuthorityCaveat(doc *types.AnswerDocumentV2
 		limitWitnesses = append(limitWitnesses, authority.FrequencyLimitWitnesses...)
 	}
 	limitWitnesses = runtimeTraceDedupFrequencyLimitWitnesses(limitWitnesses, 8)
-	if count <= 0 && len(limitWitnesses) == 0 {
+	if count <= 0 && clockSetRateCount <= 0 && len(limitWitnesses) == 0 {
 		return false
 	}
 	evidence := make([]string, 0, len(evidenceSet))
@@ -53,22 +55,26 @@ func materializeRuntimeTraceFrequencyAuthorityCaveat(doc *types.AnswerDocumentV2
 	if len(evidence) > 0 || len(limitWitnesses) > 0 {
 		conclusion = "bounded_by_typed_supply_evidence"
 	}
-	transitionEvents := "not_reported"
+	frequencyRows := "not_reported"
 	if count > 0 {
-		transitionEvents = strconv.Itoa(count)
+		frequencyRows = strconv.Itoa(count)
+	}
+	clockSetRateEvents := "not_reported"
+	if clockSetRateCount > 0 {
+		clockSetRateEvents = strconv.Itoa(clockSetRateCount)
 	}
 	zh := runtimeTraceCausalProjectionUseChinese(requestedAnswerDocumentLanguage(ctx))
 	var caveat string
 	if zh {
 		caveat = fmt.Sprintf(
-			"频率证据权限：transition_events=%s，transition_authority=background_only；事件计数只证明调频活动，不单独证明低频、降频、限频或计算供给不足。frequency_supply_conclusion=%s",
-			transitionEvents, conclusion,
+			"频率证据权限：cpu_frequency_rows=%s，clock_set_rate_events=%s，transition_authority=background_only；两类计数分别表示 CPU 频点样本和通用时钟变更活动，均不单独证明低频、降频、限频或计算供给不足。frequency_supply_conclusion=%s",
+			frequencyRows, clockSetRateEvents, conclusion,
 		)
 		if len(evidence) == 0 {
 			caveat += "；typed_supply_evidence=none，任何低频/供给因果措辞均未获当前计数授权"
 		} else {
 			caveat += "；typed_supply_evidence=" + strings.Join(evidence, ",") +
-				"；低频/供给措辞只能绑定这些 typed 证据及其链/排序口径，不能归因于 transition count"
+				"；低频/供给措辞只能绑定这些 typed 证据及其链/排序口径，不能归因于上述两类计数"
 		}
 		if len(limitWitnesses) > 0 {
 			caveat += "；direct_in_window_policy_limits=" + runtimeTraceFrequencyLimitWitnessRoster(limitWitnesses) +
@@ -76,14 +82,14 @@ func materializeRuntimeTraceFrequencyAuthorityCaveat(doc *types.AnswerDocumentV2
 		}
 	} else {
 		caveat = fmt.Sprintf(
-			"Frequency evidence authority: transition_events=%s, transition_authority=background_only; the event count proves frequency-change activity only and does not by itself prove low frequency, throttling, a frequency limit, or compute-supply shortage. frequency_supply_conclusion=%s",
-			transitionEvents, conclusion,
+			"Frequency evidence authority: cpu_frequency_rows=%s, clock_set_rate_events=%s, transition_authority=background_only; the counts separately represent CPU frequency samples and generic clock-change activity, and neither count by itself proves low frequency, throttling, a frequency limit, or compute-supply shortage. frequency_supply_conclusion=%s",
+			frequencyRows, clockSetRateEvents, conclusion,
 		)
 		if len(evidence) == 0 {
 			caveat += "; typed_supply_evidence=none, so no low-frequency or supply-causal wording is authorized by the count"
 		} else {
 			caveat += "; typed_supply_evidence=" + strings.Join(evidence, ",") +
-				"; low-frequency/supply wording must bind to that typed evidence and its chain/rank caliber, never to the transition count"
+				"; low-frequency/supply wording must bind to that typed evidence and its chain/rank caliber, never to either count above"
 		}
 		if len(limitWitnesses) > 0 {
 			caveat += "; direct_in_window_policy_limits=" + runtimeTraceFrequencyLimitWitnessRoster(limitWitnesses) +

@@ -2572,6 +2572,15 @@ func sourceInventoryGraphCandidates(ctx *types.BusContext, graph *repotypes.Grap
 	if graph == nil || symbolIndex == nil {
 		return set
 	}
+	exactSurfaceFamily := queryFilter.HasSurfaceFamilies()
+	if exactSurfaceFamily {
+		// The exact family lane scans the full parser-derived symbol index
+		// below, so a file-prefix execution-view truncation is not an authority
+		// boundary for this lane. Its own query scan/materialization budgets
+		// still cap the result and will mark it incomplete when crossed.
+		set.complete = true
+		set.truncated = false
+	}
 	excludedRoles := map[types.AnswerCandidateRole]bool{}
 	var visibility *types.AnswerVisibilityProfile
 	if ctx != nil && ctx.AnalysisIR != nil {
@@ -2585,13 +2594,31 @@ func sourceInventoryGraphCandidates(ctx *types.BusContext, graph *repotypes.Grap
 	candidates := []sourceInventoryCandidate{}
 	scanTruncated := false
 	for _, sym := range symbolIndex.all {
-		if sym == nil || !sourceInventoryViewContainsFile(view, sym.File, scopes) || !scopeFilter.SourceInRequestedScope(sym.File) {
+		if exactSurfaceFamily && budget.interrupted() {
+			scanTruncated = true
+			break
+		}
+		if sym == nil || !scopeFilter.SourceInRequestedScope(sym.File) {
+			continue
+		}
+		// A bounded execution view is a safe broad-scan prefix, but projected
+		// auxiliary languages are appended after the cached base graph and may
+		// sit beyond that prefix. An analyzer-validated, parser-derived exact
+		// surface family can apply its precise filter over the full symbol
+		// index before spending the query budget. Explicit scopes remain a hard
+		// boundary; token/no-query lanes still require execution-view
+		// membership and cannot widen.
+		if exactSurfaceFamily {
+			if !sourceInventoryFileInScopes(sym.File, scopes) {
+				continue
+			}
+		} else if !sourceInventoryViewContainsFile(view, sym.File, scopes) {
 			continue
 		}
 		// Exact parser-provided surface families are cheap and authoritative.
 		// Apply them before the scan budget so unrelated symbols cannot consume
 		// the budget and hide later members of the requested construct family.
-		if queryFilter.HasSurfaceFamilies() && !sourceInventorySymbolMatchesQuery(sym, graph, queryFilter) {
+		if exactSurfaceFamily && !sourceInventorySymbolMatchesQuery(sym, graph, queryFilter) {
 			continue
 		}
 		scoped++
@@ -2603,7 +2630,7 @@ func sourceInventoryGraphCandidates(ctx *types.BusContext, graph *repotypes.Grap
 			scanTruncated = true
 			break
 		}
-		if queryFilter.Active() && !queryFilter.HasSurfaceFamilies() && !sourceInventorySymbolMatchesQuery(sym, graph, queryFilter) {
+		if queryFilter.Active() && !exactSurfaceFamily && !sourceInventorySymbolMatchesQuery(sym, graph, queryFilter) {
 			continue
 		}
 		candidateRole, ok := aggregateAnswerCandidateRoleForSymbol(sym)

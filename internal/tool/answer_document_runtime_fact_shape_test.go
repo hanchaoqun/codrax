@@ -79,6 +79,44 @@ func TestRuntimeExplainMechanismFactSuppressesFullTraceReportShape(t *testing.T)
 	}
 }
 
+func TestRuntimeGenericArtifactComparisonRequiresCausalRowsForFullReport(t *testing.T) {
+	bus := newBusForMutationTest()
+	bus.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:   types.IntentExplain,
+		Scenario: types.ScenarioGeneric,
+		Predicates: types.SemanticPredicates{
+			IsCrossComponent: true,
+		},
+	}}
+	if runtimeTraceFullReportMaterializationAllowed(bus) {
+		t.Fatal("generic artifact comparison without a root/chain carrier must stay on the requested comparison surface")
+	}
+
+	bus.ToolResults = []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:              "root-1",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			GroundingPolicy: types.ClaimGroundingHard,
+			Predicate:       "root_cause_primary",
+			ClaimKey:        "root_cause_primary:runnable_delay",
+			Subject:         "ui-thread-100",
+			Value:           "3.2",
+			Unit:            "ms",
+			RichNotes: []string{
+				"chain_relevance=on_chain",
+				"causality=on_wakeup_chain",
+				"impact_ms=3.2",
+			},
+		}},
+	}}
+	if !runtimeTraceFullReportMaterializationAllowed(bus) {
+		t.Fatal("publication-grade typed causal rows must retain the full report for a generic family")
+	}
+}
+
 // This tripwire keeps every system-authored report surface on the one shared
 // answer-shape predicate. It checks wiring rather than prose: adding a new
 // materializer without the gate would reintroduce the same class of narrow

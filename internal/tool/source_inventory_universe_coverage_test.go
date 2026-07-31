@@ -216,7 +216,17 @@ func TestSourceInventoryExactSurfaceFamilyFiltersBeforeCandidateBudget(t *testin
 		})
 	}
 	graph := testGraphWithFiles(files)
-	view := newSourceInventoryExecutionView(graph, []string{"src"})
+	execBudget := sourceInventoryExecBudget{kernel: sourceinventory.NewBudget(sourceinventory.BudgetOptions{
+		ForceAdvisoryOnly: true,
+		GraphFileCount:    sourceInventoryExecBudgetFileThreshold + 1,
+		MaxPerRole:        10,
+		MaxScanPerRole:    4,
+		MaxQueryScanRole:  10,
+	})}
+	view := newSourceInventoryExecutionViewWithBudget(graph, []string{"src"}, execBudget)
+	if !sourceInventoryViewBudgetTruncated(view) || sourceInventoryViewContainsFile(view, "src/bridge.cj", nil) {
+		t.Fatalf("fixture must place the requested auxiliary family beyond the bounded execution-view prefix")
+	}
 	filter := sourceInventoryBuildQueryFilter("foreign func public class")
 	filter.SurfaceFamilies = map[string]bool{"public class": true}
 	filter.Tokens = nil
@@ -230,12 +240,7 @@ func TestSourceInventoryExactSurfaceFamilyFiltersBeforeCandidateBudget(t *testin
 		&types.SourceInventoryProfile{IsSourceInventory: true, TargetRoles: []types.AnswerCandidateRole{types.AnswerCandidateRoleType}},
 		types.AnswerCandidateRoleType,
 		filter,
-		sourceInventoryExecBudget{kernel: sourceinventory.NewBudget(sourceinventory.BudgetOptions{
-			ForceAdvisoryOnly: true,
-			GraphFileCount:    sourceInventoryExecBudgetFileThreshold + 1,
-			MaxPerRole:        10,
-			MaxScanPerRole:    4,
-		})},
+		execBudget,
 	)
 	if set.truncated || !set.complete || len(set.candidates) != 3 {
 		t.Fatalf("exact surface family should bypass unrelated symbol budget consumption: %+v", set)
@@ -244,6 +249,26 @@ func TestSourceInventoryExactSurfaceFamilyFiltersBeforeCandidateBudget(t *testin
 		if family := types.SourceInventorySurfaceFamilyKey(candidate.surfaceTerms); family != "public class" {
 			t.Fatalf("non-requested surface family crossed exact filter: family=%q candidate=%+v", family, candidate)
 		}
+	}
+
+	// Token-only discovery remains bounded by the execution view. The exact
+	// family bypass must not turn into a general "search the whole graph"
+	// escape hatch.
+	tokenOnly := sourceInventoryBuildQueryFilter("Bridge")
+	generic := sourceInventoryGraphCandidates(
+		nil,
+		graph,
+		view,
+		newSourceInventoryGraphSymbolIndex(graph),
+		newSourceInventoryScopeFilter(nil),
+		[]string{"src"},
+		&types.SourceInventoryProfile{IsSourceInventory: true, TargetRoles: []types.AnswerCandidateRole{types.AnswerCandidateRoleType}},
+		types.AnswerCandidateRoleType,
+		tokenOnly,
+		execBudget,
+	)
+	if len(generic.candidates) != 0 || !generic.truncated || generic.complete {
+		t.Fatalf("token-only lane must not bypass the bounded execution view: %+v", generic)
 	}
 }
 
