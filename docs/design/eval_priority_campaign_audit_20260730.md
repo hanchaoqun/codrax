@@ -706,3 +706,35 @@ B4 修后新增 GAP 与后续批次：
 客户同型 e2e 已固定：Java/Maven runner 缺失后 Make `check` 即使 exit 0，也不能替 `src/test/java/...java` 签字，报告必须保留 Java `uncovered` 行；同语言 Java runner、精确 Python syntax fallback、同语言 path-bound probe 仍为 covered/pass；Python runner 只覆盖混合 Java+Python 计划中的 Python 路径，跨语言伪造 `CoveredPaths` 也会 fail-closed。所有判断只消费 plan path、active slice、runner/framework enum、working directory、exit/outcome 和 typed probe refs；不解析命令正文，不扫描用户输入、case ID 或模型答案。
 
 验证结果：changed-path focused/e2e、`types`/`writeflow` 全包、orchestrator unverified/controller 专项通过；`go test ./internal/tool -count=1` 全包通过（153.688s）。显式用户窗优先、full-artifact 自动补齐、system-supplement authority、因果投影窗口/分区/主因专项再次通过（tool 1.235s、types 0.658s），批 F 未触及 Trace 查询、时间窗、投影构造或自动补采。
+
+### B5：多 Trace 范围/信号不对称 × Cangjie 构造清单
+
+- cases：`real_trace_e2_cross_trace_asymmetry`、`harmony/cangjie_repomap`
+- 结果目录：
+  - `eval/results/real_trace_e2_cross_trace_asymmetry-20260731-054331`
+  - `eval/results/cangjie_repomap-20260731-054331`
+- 严格 `parallel=2`；runner 0/2 PASS，人工 0/2 PASS。
+- Trace 原始事实复算：
+  - `donghu_tieba_frame.systrace` 有 15623 个带时间戳行，物理范围 `34579.450627..34579.595184`，覆盖 `144.557ms`；
+  - `donghu_short_excerpt.systrace` 有 92 个带时间戳行，物理范围 `2942.244845..2942.245401`，覆盖 `0.556ms`；
+  - 两者时基分离，不能无校准直接对齐；短 trace 中 CPU frequency/VSync 应表述为“本工件未采样/未观察到”，不能升级成设备事实。
+- Trace 答案正确保留了时基不可直对齐和短 trace 单边缺样方向，但把 `event_search` 返回/命中的首尾时间当成工件范围，将首份误写为 `138.4ms`；又把 `limit`/matched rows 写成“完整、总计 90”，与自身 footer 的 enumeration incomplete 冲突。无因果行的工件覆盖对比还被强行追加空的 `Trace 因果投影覆盖边界`、补采建议、频率/VSync authority 和 `60.4 Hzns` 摘录，显著稀释答案。
+- Cangjie 答案正确列出 2 个 extend、2 个 foreign func，但 public class 只列 `Bridge/App/Cart` 3 个，遗漏 thirdparty corpus 中 `Greeter/Animal/Dog/Service/Version` 5 个。首个 source-inventory observation 已明示 `candidate_budget_truncated`，但 completion 最终仍发布 `accepted_requested_universe`。
+
+B5 新 GAP：
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B5-T1 | P0 | Runtime scope carrier 接线 | run-entry `RuntimeArtifactPreflight` 已精确识别请求中的两个 trace，`emit_analysisHasRuntimeArtifactCarrier` 却只看 attached log/trace 和 mutable pre-stage，导致 analyzer 的 typed `full_artifact` 被降为 `not_applicable` | 将 normalized preflight `HasRuntimeArtifact()` 接入唯一 carrier 判定；覆盖 request-path、attached、无 artifact 三臂。只读 typed preflight，不重扫请求词面 | 待施工，批 A |
+| EVAL-B5-T2 | P0 | Trace 范围/枚举 caliber | streaming `event_search` 在 raw-pattern 预筛后才形成 parsed-event index，`Result.TimeStart/End` 又取 emitted/matched rows 的首尾；调用方无法区分“工件/选择范围”和“命中范围”，模型遂把 138.4ms 误当 144.557ms | 增 typed search coverage：selected/artifact timestamp envelope、matched envelope、matched total、emitted、scope/enumeration complete 分席；stream scan 在 pattern gate 前复用已解析 raw timestamp 统计 envelope，indexed lane 用 accounting 查询。旧 `TimeStart/End` 保持兼容但明确为结果/查询范围 | 待施工，批 A |
+| EVAL-B5-T3 | P1 | 因果报告 materialization authority | `runtimeTraceFullReportMaterializationAllowed` 只排除 focused fact，普通 artifact coverage/timebase/sampling comparison 因而获得全套因果/优化/指标/补采报告；没有 causal rows 时仍生成空 boundary cluster | 建 typed answer-shape/evidence gate：显式用户时间窗永远保留；诊断、root-cause/call-chain 或实际存在 causal rows 保留；非诊断 generic comparison 且无 causal rows 不 materialize 因果报告。自动补采选择不改，不扫请求/答案正文 | 待施工，批 B |
+| EVAL-B5-T4 | P2 | 指标单位组合 | metric snapshot 把已经格式化为 Hz 的值与原单位 ns 再拼成 `Hzns` | 单位由 typed metric formatter 单点持有，换算后不得继承输入单位；补 ns→ms→Hz 组合回归 | 待施工，可并入批 B |
+| EVAL-B5-S1 | P0 | Source-inventory 前置过滤 | `SourceQuotes` 在 lens query 中被拼成普通 query 后 token 化；`foreign func` 产生宽泛 `func`，又用 contains 匹配几乎全部 function。候选预算在精确 surface family 过滤前消耗，Cangjie 行被 Go 候选挤掉 | 将 schema 化 `SourceQuotes` 编成 typed surface-family phrases，按候选 `SurfaceTerms` 在预算/截断前过滤；存在已识别 family 时不回退宽 token，未知 family 才用通用 query。语言中立，不按 Cangjie/文件名特判 | 待施工，批 C |
+| EVAL-B5-S2 | P0 | Source-inventory closure authority | aggregate-family fallback 只按 language/source-class 判断“碰过该 census”，extend/foreign 的少量 Cangjie thirdparty 行即可替遗漏 public-class 行自证完整 | 当请求短语可解析为 typed surface families 时，每个 `role + surface family` 必须由 complete lens 或 exact universe 覆盖；partial aggregate 只能补充描述，不能铸 `accepted_requested_universe` | 待施工，批 C |
+
+B5 施工不变量与批次：
+
+1. 批 A（T1+T2）只补 typed artifact/range/accounting authority；不修改 root-cause 排序、显式时间窗边界、因果投影构造或自动补采选择。现有显式窗 `TimeStart/End` 消费保持兼容。
+2. 批 B（T3+T4）只控制系统报告 materialization 和 typed 单位组合。显式用户时间窗无条件保留 Trace 因果投影；诊断/root-cause/call-chain 与实际 causal rows 保留；普通多工件覆盖对比不因 `is_cross_component` 自动升级为因果诊断。
+3. 批 C（S1+S2）以 `SourceInventoryProfile.SourceQuotes → typed SurfaceTerms` 为唯一精确入口，在候选预算前过滤，并在同一 family 粒度闭包；不读取 case ID、语言名、文件名或最终答案。
+4. 每批必须覆盖原 witness、相邻正例、相邻负例和接线 tripwire；每批独立提交推送。批 A/B 后重跑显式时间窗、full-artifact auto supplement、causal projection；批 C 后重跑既有 Cangjie/Java surface-family 与宽泛 unknown-query fallback。
