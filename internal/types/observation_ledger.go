@@ -414,6 +414,14 @@ type ObservationLedgerInput struct {
 	AggregateFacts             []AnswerAggregateFact
 	SourceInventoryObservation SourceInventoryObservation
 	ToolResults                []ToolResult
+	// RuntimeArtifactPreflight and RepoRoot carry the run-entry typed artifact
+	// identities into the single ledger minting throat. They let the compiler
+	// preserve origin when an attached log/trace happens to live under the
+	// repository and is later revisited through read_file/grep. Classification
+	// is exact path identity only; neither user/model prose nor file-extension
+	// guessing participates.
+	RuntimeArtifactPreflight RuntimeArtifactPreflightProfile
+	RepoRoot                 string
 	// SystemTraceSupplementResults is the SUPP-CORE dedicated lane: the
 	// post-explore deterministic trace_query supplement's tool results.
 	// Kept OUTSIDE ToolResults so (a) provenance is structural — every
@@ -454,12 +462,17 @@ func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
 	// exist" questions there.
 	excludesCurrentSource := input.RequestModel != nil &&
 		input.RequestModel.ExternalObservationPolicy.ExcludesCurrentSource()
+	runtimeArtifactSources := compileRuntimeArtifactPreflightSourceIndex(
+		input.RuntimeArtifactPreflight,
+		input.RepoRoot,
+	)
 	currentSourceSupport := compileCurrentSourceSupportWitnessIndex(input.EvidenceItems, input.ToolResults)
 	var out []ObservationRecord
 	add := func(record ObservationRecord) {
 		if record.Origin == AnswerEvidenceOriginUnknown || !record.Origin.IsValid() {
 			return
 		}
+		record = runtimeArtifactSources.requalify(record)
 		if record.ID == "" {
 			record.ID = fmt.Sprintf("obs:%03d", len(out)+1)
 		}

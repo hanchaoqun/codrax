@@ -69,6 +69,8 @@ func ObservationLedgerInputFromAgentContext(ctx *AgentContext, evidenceLimit int
 		AggregateFacts:             aggregateFacts,
 		SourceInventoryObservation: sourceInventory,
 		ToolResults:                toolResults,
+		RuntimeArtifactPreflight:   ctx.RuntimeArtifactPreflight,
+		RepoRoot:                   ctx.RepoRoot,
 		// SUPP-CORE single merge point (AgentContext side): the dedicated
 		// system supplement lane rides its own input field so compile-side
 		// provenance stamping stays structural.
@@ -146,6 +148,8 @@ func ObservationLedgerInputFromBusContext(bus *BusContext, evidenceLimit int) Ob
 		AggregateFacts:               aggregateFacts,
 		SourceInventoryObservation:   sourceInventory,
 		ToolResults:                  toolResults,
+		RuntimeArtifactPreflight:     bus.RuntimeArtifactPreflight,
+		RepoRoot:                     bus.RepoRoot,
 		SystemTraceSupplementResults: supplementResults,
 		LogBundle:                    logBundle,
 		PerfBundle:                   perfBundle,
