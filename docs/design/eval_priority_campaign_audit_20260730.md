@@ -1413,3 +1413,56 @@ entry 索引保持、shared-persist 生产接线 pin。此前失败的4个 patch
 重绑/路径 canonicalization 用例重新通过；完整
 `go test ./internal/types ./internal/agent ./internal/tool -count=1` 通过
 （types 18.826s、agent 2.793s、tool 159.975s）。
+
+### B9 r4 人工审计与批 Y 规划（2026-07-31）
+
+批 X 推送、重建并通过 revision/clean-input 校验后，以严格
+`parallel=2` 第四次重跑：
+
+- `eval/results/trace_query_frame_timeline_flow-20260731-114754`
+- `eval/results/read_combo_trace_current_code_boundary-20260731-114754`
+
+runner 2/2 PASS；人工两项仍为 FAIL，但批 X 的目标修复已完全生效。
+Mixed 最终引用中不再出现
+`[absence: H:RenderService:DoFrame]`，内容寻址的 attached trace 没有再被
+当作当前源码；B/E `artifact_spans` selector 与仓库源码引用分席正确。
+patch 只追加两条真实 line-scope artifact quote，既有 pool/index 没有漂移。
+
+Frame 的新 typed hint 也确认进入 finalizer：
+
+`frame_flow_causality=unproven, relation=temporal_sequence, edges=3`，
+并明确要求不得写成 formed/confirmed/validated flow。模型的边条目、diagram
+和 caveat 都服从了该权限，但 summary 首段仍写“形成完整的跨线程 flow”。
+这是同一答案内部的权限矛盾。四轮中 r1/r3/r4 复现、r2 正确，证明模型对
+软提示服从不稳定；确定性 authority block 始终正确。按用户约束，本轮
+不增加扫描“形成/flow/验证”等答案原文的硬拒绝或自动替换，先将其降为
+P2 模型波动，继续更高优先级 case。若后续多类 relation 均复现，再建设
+不依赖正文词面的 typed principal relation-verdict block。
+
+本轮发现的更高 ROI 系统 gap 是 PerfJank cause authority。当前
+`perf-triage-skill` 明说 `reason=best guess`，但 `PerfJank` 没有 authority
+字段；`compilePerfBundleObservations` 只要 `Reason` 或 `TriggerSpan`
+非空，就将其铸为 `ObservationProvenanceObservedDirectCause`，并把 reason
+直接放进 principal runtime-artifact summary。`context/builder`、
+`answer_claim_binding`、artifact profile 和 external observation seed 也
+把该字符串当普通事实发布。因此“没有 IO/lock 等事件”经模型猜成
+`heavy-compute` 后，会跨层升级为已证触发原因；这是系统权限泄漏，不是
+最终一句措辞错误。
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B9-Y1 | P1 | PerfJank cause authority | pretriage model 的 `reason=best guess` 无 typed authority，却进入 direct-cause provenance、principal observation、claim binding 和 finalizer prompt | 给 PerfJank cause 增加 validator-owned authority；新 bundle 的 trigger/reason/tags 标为 pretriage_model_extraction。时间窗/janky budget 保留观测席，cause 只作 candidate/navigation；deterministic trace_query 可独立升格 | planned，下一施工批 |
+| EVAL-B9-Y2 | P2 | frame summary 模型波动 | typed hint、边、图和 caveat 正确，summary 仍把 unproven adjacency 称完整 flow | 不扫描正文硬门；跨后续 relation case 观察。若复现扩展，增加 typed principal relation verdict，而非对 frame/flow 单 type 拟合 | filed-model-variance |
+| EVAL-B9-X2 | P1 | patch negative citation 真值 | r4 未再出现被工件反证的 absence citation，真实 artifact line 引用保留 | 无新增施工 | verified-closed |
+
+批 Y1 不变量：
+
+1. duration/start/end、`DurationMs > PerfFrameBudget60HzMs` 的确定性 janky
+   位不因 cause 降权而丢失；只分离“发生了慢帧”和“为什么慢”。
+2. authority 由 `toPerfBundle` validator 写入，不暴露给模型 schema；不得
+   从 reason 词面、span 名、用户问题或最终答案推断。
+3. legacy authority 空值保持兼容；新 pretriage cause 不进入
+   `ObservedDirectCause`。deterministic trace_query 的 typed root-cause
+   row 保持最高权限，不受影响。
+4. 不改变显式时间窗、Trace 因果投影、自动补齐、root ranking、wakeup
+   chain、窗内可消除量或 frame span/edge 构造。
