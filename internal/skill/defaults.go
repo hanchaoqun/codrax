@@ -849,6 +849,13 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 				},
 			},
 			{
+				// EVAL-B10-AA1 (2026-07-31): target_window_states is a
+				// thread-local wall-clock partition, not a CPU-wide load
+				// account. Keep the wording boundary soft and typed.
+				Body:      "TARGET THREAD VERSUS CPU SCOPE: `target_window_states` partitions ONE target thread's wall-clock states. Its running share describes only how much of the window that target ran, and its runnable share bounds only that target's scheduler queueing. Neither value alone is CPU utilization, CPU idle capacity, or system saturation. State a CPU-wide utilization/saturation conclusion only when a separate typed per-CPU, core-class, process-domain, or system occupancy/idle/pressure account supports it; never rename target-thread running percentage as CPU utilization.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+			},
+			{
 				// FIN-BIND (h): trace-first disclosure on an empty trace
 				// result — trace-only (CR-3 件⑦c, §29.47.7 立案 2026-07-12;
 				// witness: a trace-led question whose analysis produced zero

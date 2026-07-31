@@ -1654,7 +1654,7 @@ factual authority。
 
 | ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
 |---|---:|---|---|---|---|
-| EVAL-B10-AA1 | P1 | target/CPU scope semantics | target_window_states 的 thread-local running/runnable 比例缺少消费权限边界，模型把目标线程 occupancy 推成 CPU-wide utilization/saturation | 从 typed target-state 与 CPU-accounting 账户构造紧凑 authority；只允许描述目标状态/排队，CPU-wide 结论必须另有 typed per-CPU/core/system 证据 | planned |
+| EVAL-B10-AA1 | P1 | target/CPU scope semantics | target_window_states 的 thread-local running/runnable 比例缺少消费权限边界，模型把目标线程 occupancy 推成 CPU-wide utilization/saturation | 从 typed target-state 与 CPU-accounting 账户构造紧凑 authority；只允许描述目标状态/排队，CPU-wide 结论必须另有 typed per-CPU/core/system 证据 | covered |
 | EVAL-B10-AA2 | P1 | call-anchor integrity | AST 只证明“行内有调用”，未证明指定 callee；subject/object 还能替代显式 AnchorSymbol | 显式 AnchorSymbol 存在时只以该 symbol 为 call target；AST feature 仅可覆盖 definition-shape 误判，仍须 exact callee relation 或 line-local call syntax | covered |
 | EVAL-B10-AA3 | P1 | mechanism path closure | 多条独立 definition/case facts 可被包装成 principal_path_edge，零 grounded relation 仍形成“完整机制链” | 由结构化 anchor kind、grounded relation 与 path-edge facet 构造 relation authority；无边时明确为 independent mechanism facts，不证明调用顺序 | planned |
 | EVAL-B10-AA4 | P2 | threshold provenance | 用户比较阈值、artifact 观测和源码配置阈值没有 typed 分席，模型把提问中的50ms升级为系统规则 | 建立 validator-owned comparator/profile，分别发布 user comparator 与 code-configured threshold；没有源码证据不得称系统阈值 | planned |
@@ -1689,3 +1689,20 @@ caller-shaped 常见错误仍可修复，而 `strings.Contains(...)` 所在行�
 恢复后锚点改写、真实 `yield*`/普通 call 与既有 caller-shaped recovery。
 `go test ./internal/tool/ground ./internal/tool -count=1` 通过
 （ground 1.217s、tool 159.549s）。
+
+批 AA1 复用投影编译器已经完成显式窗选举的
+`TargetStateAccount`，没有从全部 raw state rows 另选一套账户。新增紧凑
+`Trace Target-State Scope Authority`，逐工件发布
+`scope=target_thread_only` 与
+`cpu_wide_saturation_authority=not_provided_by_target_window_states`：
+running/runnable/sleep/D-state 只描述目标线程自己的墙钟分区；低 runnable
+只能约束该目标的 scheduler queueing。CPU-wide utilization、idle
+head-room 或 saturation 必须另有 typed per-CPU/core-class/process-domain/
+system occupancy、idle 或 pressure 账户。
+
+answer skill 同步相同 soft guidance，trace-gated、零 OnViolation；不扫描
+用户或答案词面，不改数值，也不阻断有独立 CPU 账户支撑的系统级结论。测试
+固定26.946ms running、3.636ms runnable 的真实形只能取得 target-thread
+scope，并验证生产 `renderAnswerDocObservationLedger` 接线。完整
+`go test ./internal/types ./internal/agent ./internal/skill -count=1` 通过
+（types 22.230s、agent 4.348s、skill 1.105s）。

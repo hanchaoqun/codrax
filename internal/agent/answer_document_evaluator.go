@@ -3857,6 +3857,9 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	if coverage := renderAnswerDocTraceObservationCoverage(ledger); coverage != "" {
 		b.WriteString(coverage)
 	}
+	if authority := renderAnswerDocTraceTargetStateScopeAuthority(ledger); authority != "" {
+		b.WriteString(authority)
+	}
 	if authority := renderAnswerDocTraceRankAuthority(ledger); authority != "" {
 		b.WriteString(authority)
 	}
@@ -4076,6 +4079,42 @@ func renderAnswerDocTraceObservationCoverage(ledger types.ObservationLedger) str
 			coverage.TotalRecords-shownTopObservations, shownTopObservations)
 	}
 	b.WriteByte('\n')
+	return b.String()
+}
+
+func renderAnswerDocTraceTargetStateScopeAuthority(ledger types.ObservationLedger) string {
+	set := types.CompileTraceCausalProjectionSet(ledger)
+	authorities := types.BuildTraceTargetStateScopeAuthorities(set)
+	if len(authorities) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("### Trace Target-State Scope Authority\n\n")
+	b.WriteString("- `target_window_states` is a wall-clock partition of ONE target thread. Its running/runnable/sleep/D-state values describe only that thread. A low runnable share can bound that target's scheduler queueing; it cannot prove CPU-wide utilization, idle capacity, or saturation.\n")
+	b.WriteString("- Any CPU-wide saturation or head-room conclusion requires a separate typed per-CPU, core-class, process-domain, or system occupancy/idle/pressure account. Never rename target-thread running share as CPU utilization.\n")
+	for i, authority := range authorities {
+		if i >= 4 {
+			fmt.Fprintf(&b, "- (%d additional target-state account(s) omitted from this compact wording view)\n", len(authorities)-i)
+			break
+		}
+		label := authority.ArtifactLabel
+		if label == "" {
+			label = fmt.Sprintf("partition-%d", i+1)
+		}
+		fmt.Fprintf(&b,
+			"- artifact=`%s`; target=`%s`; window=`%.6f..%.6f`; scope=`target_thread_only`; running=%.3fms; runnable=%.3fms; sleep=%.3fms; d_state=%.3fms; total=%.3fms; cpu_wide_saturation_authority=`not_provided_by_target_window_states`\n",
+			label,
+			authority.Subject,
+			authority.WindowStartTs,
+			authority.WindowEndTs,
+			authority.RunningMS,
+			authority.RunnableMS,
+			authority.SleepMS,
+			authority.DStateMS,
+			authority.TotalMS,
+		)
+	}
+	b.WriteString("\n")
 	return b.String()
 }
 
