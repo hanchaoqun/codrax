@@ -62,6 +62,71 @@ func normalizeCurrentSourceCitationQuotes(doc *types.AnswerDocumentV2, ctx *type
 	return fixed
 }
 
+// normalizeOutOfBoundsCurrentSourceCitations removes current-source
+// citations whose declared line interval is provably outside the cited
+// file. This is a physical file/range check over the typed citation pool;
+// it never scans the user request or answer prose.
+//
+// The check is deliberately narrow:
+//   - runtime-artifact and negative-search citations belong to separate
+//     authorities and are left untouched;
+//   - unreadable, sensitive, oversized, or out-of-repository files remain
+//     for their existing validators instead of being guessed invalid;
+//   - only a successfully read source file can prove an out-of-bounds line.
+//
+// Removing the pool entry (rather than merely clearing its quote) prevents
+// a model-authored quote from another file being carried by an impossible
+// target such as small.go:4346. The shared drop helper remaps every
+// surviving citation_ref and detaches refs to the rejected entry.
+func normalizeOutOfBoundsCurrentSourceCitations(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
+	if doc == nil || ctx == nil || len(doc.Citations) == 0 {
+		return 0
+	}
+	if ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.ExternalObservationPolicy.ExcludesCurrentSource() {
+		return 0
+	}
+	repoRoot := strings.TrimSpace(ctx.RepoRoot)
+	if repoRoot == "" && ctx.Mutable != nil {
+		repoRoot = strings.TrimSpace(ctx.Mutable.RepoRoot())
+	}
+	if repoRoot == "" {
+		return 0
+	}
+
+	artifactPaths := runtimeArtifactCitationPathSet(ctx)
+	lineCache := map[string][]string{}
+	remove := make(map[int]bool)
+	for i, cit := range doc.Citations {
+		if cit.Line <= 0 || strings.TrimSpace(cit.NegativePattern) != "" {
+			continue
+		}
+		if citationFileIsRuntimeArtifact(artifactPaths, cit.File) {
+			continue
+		}
+		lines, ok := currentSourceCitationLines(repoRoot, cit.File, lineCache)
+		if !ok {
+			continue
+		}
+		lineCount := len(lines)
+		// strings.Split("line\n", "\n") carries a terminal sentinel after
+		// the final newline; it is not an addressable extra source line.
+		if lineCount > 0 && lines[lineCount-1] == "" {
+			lineCount--
+		}
+		lastLine := cit.Line
+		if cit.LineEnd > lastLine {
+			lastLine = cit.LineEnd
+		}
+		if cit.Line > lineCount || lastLine > lineCount {
+			remove[i] = true
+		}
+	}
+	if len(remove) == 0 {
+		return 0
+	}
+	return dropAnswerDocumentCitationsByIndex(doc, remove, "current_source_citation_line_out_of_bounds")
+}
+
 func currentSourceCitationLine(repoRoot, file string, lineNo int, lineCache map[string][]string) (string, bool) {
 	if lineNo <= 0 {
 		return "", false

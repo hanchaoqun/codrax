@@ -64,6 +64,71 @@ func TestNormalizeCurrentSourceCitationQuotes_SkipsOversizedFile(t *testing.T) {
 	}
 }
 
+func TestNormalizeOutOfBoundsCurrentSourceCitations_RemovesAndRemapsOnlyProvenInvalid(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "small.go"), []byte("package x\nfunc Real() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "b1",
+			Kind: types.BlockBulletList,
+			Items: []types.AnswerBlockItem{
+				{ID: "valid", CitationRef: 2},
+				{ID: "bad-line", CitationRef: 0},
+				{ID: "bad-range", CitationRef: 1},
+			},
+		}},
+		Citations: []types.Citation{
+			// The file ends in '\n': strings.Split has a terminal empty
+			// sentinel, but physical line 3 still does not exist.
+			{File: "small.go", Line: 3, Quote: "forged quote from another file"},
+			{File: "small.go", Line: 2, LineEnd: 99, Quote: "forged range quote"},
+			{File: "small.go", Line: 2, Quote: "stale but physically valid"},
+		},
+	}
+	ctx := &types.BusContext{RepoRoot: repo, Mutable: types.NewMutableState("q")}
+
+	if changed := normalizeOutOfBoundsCurrentSourceCitations(doc, ctx); changed != 5 {
+		t.Fatalf("changed=%d, want 5 (two pool entries + two detached refs + one remapped ref)", changed)
+	}
+	if len(doc.Citations) != 1 || doc.Citations[0].Line != 2 {
+		t.Fatalf("only the physically valid citation should survive: %+v", doc.Citations)
+	}
+	items := doc.Blocks[0].Items
+	if items[0].CitationRef != 0 {
+		t.Fatalf("surviving citation_ref was not remapped: %+v", items)
+	}
+	if items[1].CitationRef != -1 || items[2].CitationRef != -1 {
+		t.Fatalf("refs to rejected citations must be detached: %+v", items)
+	}
+}
+
+func TestNormalizeOutOfBoundsCurrentSourceCitations_PreservesOtherAuthoritiesAndUnprovenFiles(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "trace.systrace"), []byte("one\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	doc := &types.AnswerDocumentV2{Citations: []types.Citation{
+		{File: "trace.systrace", Line: 999, Quote: "runtime artifact"},
+		{File: "small.go", Line: 999, NegativePattern: "missing-symbol"},
+		{File: "does-not-exist.go", Line: 999, Quote: "unreadable is not proven here"},
+		{File: "../outside.go", Line: 999, Quote: "outside repository is not proven here"},
+	}}
+	ctx := &types.BusContext{
+		RepoRoot:              repo,
+		Mutable:               types.NewMutableState("q"),
+		AttachedHitraceSource: "trace.systrace",
+	}
+
+	if changed := normalizeOutOfBoundsCurrentSourceCitations(doc, ctx); changed != 0 {
+		t.Fatalf("other/unproven authorities must remain untouched, changed=%d citations=%+v", changed, doc.Citations)
+	}
+	if len(doc.Citations) != 4 {
+		t.Fatalf("unexpected citation removal: %+v", doc.Citations)
+	}
+}
+
 // TestReadFileTool_RefusesOversizedWholeRead pins the read_file whole-read
 // wall: a GiB-scale file is refused with the typed repair before any
 // allocation, steering to grep / trace_query.

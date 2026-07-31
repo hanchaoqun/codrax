@@ -810,6 +810,39 @@ func TestQCERepairChainMintedCitationGetsQuoteBackfill(t *testing.T) {
 	}
 }
 
+func TestQCEPreEmitRejectsPhysicallyImpossibleCurrentSourceCitation(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pkg", "small.go"),
+		[]byte("package pkg\nfunc Real() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mu := types.NewMutableState("architecture question")
+	ctx := &types.BusContext{RepoRoot: dir, Mutable: mu}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:    "b1",
+			Kind:  types.BlockBulletList,
+			Items: []types.AnswerBlockItem{{ID: "i1", Label: "Wrong", Text: "cross-file quote", CitationRef: 0}},
+		}},
+		Citations: []types.Citation{{
+			File:  "pkg/small.go",
+			Line:  4346,
+			Quote: "func from a different file",
+		}},
+	}
+
+	normalizeAnswerDocumentForPreEmit("qce_test", doc, &types.AnswerSemanticView{}, ctx, nil)
+	if len(doc.Citations) != 0 {
+		t.Fatalf("physically impossible citation survived pre-emit: %+v", doc.Citations)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != -1 {
+		t.Fatalf("item ref to physically impossible citation must detach, got %d", got)
+	}
+}
+
 // GAP-B pin — the pre-persist row normalization can mint quoteless
 // citations too; persistMergedAnswerDocument backfills before persist.
 func TestQCEPrePersistQuoteBackfill(t *testing.T) {
