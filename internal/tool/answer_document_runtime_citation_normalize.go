@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"os"
 	"regexp"
 	"strings"
 
@@ -276,7 +277,8 @@ func normalizeRuntimeArtifactObservationCurrentSourceCitationRefsWithContext(doc
 				citationFileIsRuntimeArtifact(artifactSpellings, cit.File) {
 				continue
 			}
-			if _, ok := currentSourceCitationPath(ctx.RepoRoot, cit.File); !ok {
+			sourcePath, ok := currentSourceCitationPath(ctx.RepoRoot, cit.File)
+			if !ok || !currentSourceCitationFileExists(sourcePath) {
 				continue
 			}
 			item.CitationRef = -1
@@ -287,6 +289,11 @@ func normalizeRuntimeArtifactObservationCurrentSourceCitationRefsWithContext(doc
 		}
 	}
 	return fixed
+}
+
+func currentSourceCitationFileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }
 
 func answerBlockClaimUsesOnly(block types.AnswerBlock, want types.ClaimForm) bool {

@@ -112,6 +112,13 @@ func TestNormalizeRuntimeArtifactObservationCitationRefsTypedNegativeArms(t *tes
 			},
 			wantRef: 0,
 		},
+		{
+			name: "nonexistent relative artifact alias",
+			mutate: func(_ *types.BusContext, _ *types.AnswerBlock, citation *types.Citation) {
+				citation.File = "attached_trace"
+			},
+			wantRef: 0,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
