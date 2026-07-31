@@ -1340,3 +1340,76 @@ failure-scope 请求仍保留 canonical decision 合同。
 批 W3 已由 `26585b71f` 提交推送。三批合并后
 `go test ./internal/types ./internal/tool -count=1` 全包通过
 （types 21.482s、tool 159.153s）。
+
+### B9 r3 人工审计与批 X（2026-07-31）
+
+批 W1/W2/W3 推送、重建并通过 revision/clean-input 校验后，以严格
+`parallel=2` 第三次重跑：
+
+- `eval/results/trace_query_frame_timeline_flow-20260731-111803`
+- `eval/results/read_combo_trace_current_code_boundary-20260731-111803`
+
+runner 2/2 PASS；人工两项仍为 FAIL。这个差异再次证明 fixture 的
+`answer_contains/answer_regex` 只能证明最低表面词存在，不能替代因果权限、
+证据来源和引用真假审计。
+
+Frame 的确定性 census 已正确收敛为 `edges=3`，说明批 W1 生效；四个
+span、三个 `temporal_sequence` 边、40ms 总窗均正确。但模型正文再次把
+它们写成“形成完整 UI→RenderService→GPU flow”“Flow 验证”“每一段切换
+都有时间戳证据支撑”，与同答案确定性覆盖块
+`frame_flow_causality=unproven` 冲突。r2 模型曾正确服从同一权限，r1/r3
+未服从，属于软引导承载不足叠加模型波动，不能用扫描最终答案词面的硬门
+修复。另有 pretriage/analysis 将真实 11ms Choreographer span 写成 12ms
+的过程数值漂移，最终主列表为正确 11ms，但尾部 caveat 又出现 12ms。
+
+Mixed case 的三项前修均生效：
+
+1. principal 86.111ms 外部观测不再借源码 citation；
+2. 普通 diagnostic scalar 不再触发 `per_item_rejection/逐条拒绝`；
+3. 本轮正确写成 86.111ms > 50ms，未复现 r2 的 >100ms 算术错。
+
+但 patch 追加了一条
+`attached_trace-44d2a269.txt [absence: H:RenderService:DoFrame]`，同一
+工件的 typed trace observation 明确证明该 span 位于 lines 5–6。根因有
+两层：Codrax 自己的 `StoreBlobArtifact` 生成
+`attached_trace-<8hex>.txt`，原 runtime-artifact path authority 只识别
+固定 basename；同时 full emit 的未使用 citation 裁剪故意不应用于 patch，
+所以这个未被 item 引用的错误 negative proof 留在引用附录。曾尝试把 full
+裁剪直接移入 shared persist（`d2cc87c01`），完整回归发现它破坏4个已固定
+的继承 citation pool/index 合同，已由批 X2 收窄纠正，不能以更新测试掩盖。
+
+Mixed 正文还把“窗内没有 sched/binder/IO/lock 证据”升级成
+`heavy-compute`、`pure computation` 和 `1/1 jank=100%`。日志中的
+`pretriage_model_extraction` 已明确是 navigation-only，typed
+`root_cause_rank` 也只有 `tier=context_only`，这是模型没有服从证据权限，
+当前按 P2 跨 case 观察；不为一个 span 名、一个数值或一个 fixture 增加
+正文关键词扫描/替换。
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B9-X1 | P1 | artifact path authority | Codrax 内容寻址的 `attached_trace-<8hex>.txt` 未被识别为系统保留 runtime artifact，词法上落在 repo 内时可误入 current-source lane | 类型层按保留 stem + 固定8位 hex + `.txt` 识别 StoreBlobArtifact 结构名；current-source 仍须 stat 为真实普通文件 | covered：`acec852d8` + `12b3bfa3a` |
+| EVAL-B9-X2 | P1 | patch negative citation 真值 | patch 保留 citation pool 是索引合同，但未使用的 runtime absence proof 即使被工件正内容直接反证仍可渲染 | 保留 patch pool/index；仅对未被结构化 item 使用、scope=negative、保留 runtime blob、pattern 在绑定工件内正匹配的条目剔除；64MiB 流式上限、不可读/非法 pattern fail-open | covered：宽修 `d2cc87c01` 已由 `12b3bfa3a` 收窄纠正 |
+| EVAL-B9-X3 | P1 | frame authority 软承载 | typed unproven 已确定性展示，但 finalizer 通用指导不足，模型跨轮可把时间相邻升级为已证 flow | guidance view 携 typed unproven/relation/max-count，明确图边只能标 temporal adjacency (unproven)；保持软引导，不扫描正文硬拒绝 | covered：`c3637976f`，待 r4 |
+| EVAL-B9-X4 | P2 | pretriage/model 权限 | navigation-only 预抽取和“缺少其他事件”被模型升级成 heavy-compute、pure computation、100% jank；11ms 又漂移为12ms | 保持 typed observation/root-cause ceiling；先跨高优先级 trace case 观察，复现后建设统一的 pretriage claim authority carrier，不做 span/type 词面补丁 | filed-model-variance |
+
+批 X 不变量：
+
+1. 不读取 raw request、case ID、模型 thinking 或最终答案正文作为判定信号；
+   negative citation 核验只消费结构化 `scope/negative_pattern/file`、
+   Codrax 保留 blob 结构名、stat 绑定路径与工件正匹配。
+2. 不把 full emit 的全量未使用 citation 裁剪推广到 patch；既有 inherited
+   pool 顺序和 citation_ref 索引继续保持。只有未被引用且自证矛盾的 runtime
+   negative proof 可删除。
+3. 工件扫描有64MiB上限；路径不可绑定、pattern非法、超过上限均
+   fail-open，不猜造 absence/presence。
+4. 不改变 trace query、显式时间窗、Trace 因果投影、自动补齐、span/edge
+   构造、根因排序、唤醒链或窗内可消除量。
+5. Frame 因果限制仍是 typed soft guidance + 确定性 authority block；
+   不对“形成/验证/flow”等自然语言做硬门或自动替换。
+
+批 X 回归：新增系统保留内容寻址名正负矩阵、未引用矛盾 negative proof
+删除、真实 absent proof/source negative proof 保留、referenced inherited
+entry 索引保持、shared-persist 生产接线 pin。此前失败的4个 patch 合并/
+重绑/路径 canonicalization 用例重新通过；完整
+`go test ./internal/types ./internal/agent ./internal/tool -count=1` 通过
+（types 18.826s、agent 2.793s、tool 159.975s）。
