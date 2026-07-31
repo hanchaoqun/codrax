@@ -3430,6 +3430,18 @@ func compilePerfBundleObservations(bundle *PerfBundle, add func(ObservationRecor
 		})
 	}
 	for i, jank := range bundle.Janks {
+		summary := firstNonEmptyString(jank.Reason, "observed jank")
+		notes := cloneStringSlice(jank.Tags)
+		if jank.CauseIsPreTriageModelExtraction() {
+			summary = "observed jank"
+			if trigger := strings.TrimSpace(jank.TriggerSpan); trigger != "" {
+				notes = append(notes, "cause_candidate_trigger="+trigger)
+			}
+			if reason := strings.TrimSpace(jank.Reason); reason != "" {
+				notes = append(notes, "cause_candidate_reason="+reason)
+			}
+			notes = append(notes, "cause_authority="+string(jank.CausalAuthority))
+		}
 		add(ObservationRecord{
 			ID:              fmt.Sprintf("perf:jank:%d", i),
 			Origin:          AnswerEvidenceOriginRuntimeArtifact,
@@ -3447,8 +3459,8 @@ func compilePerfBundleObservations(bundle *PerfBundle, add func(ObservationRecor
 			Predicate: "duration",
 			Value:     strconv.FormatFloat(jank.DurationMs, 'f', -1, 64),
 			Unit:      "ms",
-			Summary:   firstNonEmptyString(jank.Reason, "observed jank"),
-			RichNotes: cloneStringSlice(jank.Tags),
+			Summary:   summary,
+			RichNotes: notes,
 		})
 	}
 	for i, stall := range bundle.Stalls {
@@ -3544,6 +3556,9 @@ func perfFrameEndTs(frame PerfFrame) float64 {
 }
 
 func observationProvenanceLaneForPerfJank(jank PerfJank) ObservationProvenanceLane {
+	if jank.CauseIsPreTriageModelExtraction() {
+		return ObservationProvenanceArtifactSpan
+	}
 	if strings.TrimSpace(jank.Reason) != "" || strings.TrimSpace(jank.TriggerSpan) != "" {
 		return ObservationProvenanceObservedDirectCause
 	}

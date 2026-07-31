@@ -4273,6 +4273,33 @@ func TestFormatPerfTriageStructured_LabelsModelObservationAuthority(t *testing.T
 	}
 }
 
+func TestFormatPerfTriageStructured_LabelsPreTriageJankCauseAsCandidate(t *testing.T) {
+	bundle := &types.PerfBundle{
+		Meta: types.PerfMeta{Source: "hitrace"},
+		Janks: []types.PerfJank{{
+			StartTsMs:       100,
+			DurationMs:      86.111,
+			TriggerSpan:     "H:RenderService:DoFrame",
+			Reason:          "heavy-compute",
+			CausalAuthority: types.PerfObservationAuthorityPreTriageModelExtraction,
+		}},
+	}
+	got := formatPerfTriageStructured(bundle, nil)
+	for _, want := range []string{
+		"cause candidates for navigation",
+		"trigger_candidate=`H:RenderService:DoFrame`",
+		"reason_candidate=heavy-compute",
+		"causal_authority=pretriage_model_extraction",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("perf structured section missing jank cause boundary %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, " reason=heavy-compute") {
+		t.Fatalf("pretriage cause leaked as an ordinary reason:\n%s", got)
+	}
+}
+
 func TestFormatPerfTriageStructured_FrameDriftWarning(t *testing.T) {
 	loc := &stubLocator{
 		byName: map[string][]types.SymbolLocation{},

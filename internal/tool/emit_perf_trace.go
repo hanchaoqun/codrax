@@ -243,9 +243,14 @@ func toPerfBundle(p *emitPerfTraceParams) *types.PerfBundle {
 	}
 	janks := make([]types.PerfJank, len(p.Janks))
 	for i, j := range p.Janks {
+		causalAuthority := types.PerfObservationAuthority("")
+		if strings.TrimSpace(j.TriggerSpan) != "" || strings.TrimSpace(j.Reason) != "" || len(j.Tags) > 0 {
+			causalAuthority = types.PerfObservationAuthorityPreTriageModelExtraction
+		}
 		janks[i] = types.PerfJank{
 			StartTsMs: j.StartTsMs, DurationMs: j.DurationMs,
 			TriggerSpan: j.TriggerSpan, Reason: j.Reason, Tags: j.Tags,
+			CausalAuthority: causalAuthority,
 		}
 	}
 	stalls := make([]types.PerfStall, len(p.Stalls))

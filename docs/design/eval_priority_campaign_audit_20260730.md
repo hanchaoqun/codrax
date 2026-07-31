@@ -1451,7 +1451,7 @@ P2 模型波动，继续更高优先级 case。若后续多类 relation 均复�
 
 | ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
 |---|---:|---|---|---|---|
-| EVAL-B9-Y1 | P1 | PerfJank cause authority | pretriage model 的 `reason=best guess` 无 typed authority，却进入 direct-cause provenance、principal observation、claim binding 和 finalizer prompt | 给 PerfJank cause 增加 validator-owned authority；新 bundle 的 trigger/reason/tags 标为 pretriage_model_extraction。时间窗/janky budget 保留观测席，cause 只作 candidate/navigation；deterministic trace_query 可独立升格 | planned，下一施工批 |
+| EVAL-B9-Y1 | P1 | PerfJank cause authority | pretriage model 的 `reason=best guess` 无 typed authority，却进入 direct-cause provenance、principal observation、claim binding 和 finalizer prompt | 给 PerfJank cause 增加 validator-owned authority；新 bundle 的 trigger/reason/tags 标为 pretriage_model_extraction。时间窗/janky budget 保留观测席，cause 只作 candidate/navigation；deterministic trace_query 可独立升格 | code-complete，待回放 |
 | EVAL-B9-Y2 | P2 | frame summary 模型波动 | typed hint、边、图和 caveat 正确，summary 仍把 unproven adjacency 称完整 flow | 不扫描正文硬门；跨后续 relation case 观察。若复现扩展，增加 typed principal relation verdict，而非对 frame/flow 单 type 拟合 | filed-model-variance |
 | EVAL-B9-X2 | P1 | patch negative citation 真值 | r4 未再出现被工件反证的 absence citation，真实 artifact line 引用保留 | 无新增施工 | verified-closed |
 
@@ -1466,3 +1466,19 @@ P2 模型波动，继续更高优先级 case。若后续多类 relation 均复�
    row 保持最高权限，不受影响。
 4. 不改变显式时间窗、Trace 因果投影、自动补齐、root ranking、wakeup
    chain、窗内可消除量或 frame span/edge 构造。
+
+批 Y1 施工结果：`PerfJank.CausalAuthority` 由 `toPerfBundle` validator
+按 trigger/reason/tags 是否存在自动铸为
+`pretriage_model_extraction`，tool schema 不含该字段。authority-aware
+消费已覆盖 prompt structured bundle、perf stage report、observation
+ledger、claim binding、artifact observation profile 和 external
+observation seed：慢帧 interval/duration 仍是 runtime observation，
+cause 只以 `trigger_candidate/reason_candidate/cause_authority` 保留用于
+导航；不再进入 `ObservedDirectCause`，也不再作为普通 reason fact seed。
+legacy authority 空值继续走原兼容臂。
+
+测试固定 validator-owned schema、candidate prompt 词面、ledger provenance、
+claim support、answer seed 降权，以及 legacy direct-cause 兼容臂。完整
+`go test ./internal/types ./internal/tool ./internal/context ./internal/agent ./internal/skill -count=1`
+通过（types 19.803s、tool 166.914s、context 0.609s、agent 4.094s、
+skill 2.559s）。

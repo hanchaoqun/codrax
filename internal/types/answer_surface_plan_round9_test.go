@@ -671,6 +671,25 @@ func TestCollectArtifactExternalObservationSeeds_SurfacesPerfTrace(t *testing.T)
 	}
 }
 
+func TestCollectArtifactExternalObservationSeeds_PreTriageJankReasonIsNotFactSeed(t *testing.T) {
+	perf := &PerfBundle{Janks: []PerfJank{{
+		DurationMs:      52,
+		TriggerSpan:     "RenderList",
+		Reason:          "heavy-compute",
+		CausalAuthority: PerfObservationAuthorityPreTriageModelExtraction,
+	}}}
+	seeds := CollectArtifactExternalObservationSeeds(nil, perf, nil)
+	if len(seeds) != 1 || seeds[0].Kind != "perf_jank" {
+		t.Fatalf("jank seed missing: %+v", seeds)
+	}
+	if !strings.Contains(seeds[0].Raw, "52.00ms jank") {
+		t.Fatalf("measured jank duration must remain visible: %+v", seeds[0])
+	}
+	if strings.Contains(seeds[0].Raw, "heavy-compute") {
+		t.Fatalf("pretriage reason must not become an external fact seed: %+v", seeds[0])
+	}
+}
+
 func TestCollectExternalObservationSeeds_WalksCauseChainFrames(t *testing.T) {
 	bundle := &LogBundle{
 		Errors: []LogError{{

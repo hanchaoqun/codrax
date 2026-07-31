@@ -450,8 +450,13 @@ func renderPerfTriageStageReport(b *types.PerfBundle) string {
 			fmt.Fprintf(&sb, "  … +%d more janks\n", len(b.Janks)-3)
 			break
 		}
-		fmt.Fprintf(&sb, "  jank[%d] %.1fms trigger=%s reason=%s\n",
-			i, j.DurationMs, j.TriggerSpan, j.Reason)
+		if j.CauseIsPreTriageModelExtraction() {
+			fmt.Fprintf(&sb, "  jank[%d] %.1fms trigger_candidate=%s reason_candidate=%s causal_authority=%s\n",
+				i, j.DurationMs, j.TriggerSpan, j.Reason, j.CausalAuthority)
+		} else {
+			fmt.Fprintf(&sb, "  jank[%d] %.1fms trigger=%s reason=%s\n",
+				i, j.DurationMs, j.TriggerSpan, j.Reason)
+		}
 	}
 	for i, s := range b.Stalls {
 		if i >= 3 {

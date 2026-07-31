@@ -246,8 +246,14 @@ func mergePerfObservationProfile(out *ArtifactObservationProfile, bundle *PerfBu
 		if span := strings.TrimSpace(j.TriggerSpan); span != "" {
 			out.SubjectCandidates = append(out.SubjectCandidates, span)
 		}
-		out.EvidenceSnippets = append(out.EvidenceSnippets,
-			clampProfileSnippet(fmt.Sprintf("jank %.2fms %s", j.DurationMs, strings.TrimSpace(j.Reason))))
+		if j.CauseIsPreTriageModelExtraction() {
+			out.EvidenceSnippets = append(out.EvidenceSnippets,
+				clampProfileSnippet(fmt.Sprintf("jank %.2fms cause_candidate=%s causal_authority=%s",
+					j.DurationMs, strings.TrimSpace(j.Reason), j.CausalAuthority)))
+		} else {
+			out.EvidenceSnippets = append(out.EvidenceSnippets,
+				clampProfileSnippet(fmt.Sprintf("jank %.2fms %s", j.DurationMs, strings.TrimSpace(j.Reason))))
+		}
 	}
 	for _, s := range bundle.Stalls {
 		out.ObservationKinds = append(out.ObservationKinds, ObservationKindPerfStall)

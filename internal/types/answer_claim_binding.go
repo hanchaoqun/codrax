@@ -456,7 +456,14 @@ func perfBundleClaimBindings(bundle *PerfBundle, outputs []AnswerRequestedOutput
 		if target == "" {
 			target = "jank span"
 		}
-		add(target, []string{fmt.Sprintf("start_ts_ms=%.3f duration_ms=%.3f reason=%s", jank.StartTsMs, jank.DurationMs, jank.Reason)})
+		if jank.CauseIsPreTriageModelExtraction() {
+			add(target, []string{fmt.Sprintf(
+				"start_ts_ms=%.3f duration_ms=%.3f cause_candidate=%s causal_authority=%s",
+				jank.StartTsMs, jank.DurationMs, jank.Reason, jank.CausalAuthority,
+			)})
+		} else {
+			add(target, []string{fmt.Sprintf("start_ts_ms=%.3f duration_ms=%.3f reason=%s", jank.StartTsMs, jank.DurationMs, jank.Reason)})
+		}
 	}
 	for _, stall := range bundle.Stalls {
 		target := stall.Symbol

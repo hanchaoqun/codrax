@@ -4313,14 +4313,28 @@ func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLo
 	// Janks — most actionable, list every entry up to schema cap.
 	if len(bundle.Janks) > 0 {
 		fmt.Fprintf(&b, "**Janks** (%d):\n", len(bundle.Janks))
+		for _, j := range bundle.Janks {
+			if j.CauseIsPreTriageModelExtraction() {
+				b.WriteString("  ⚠ Jank trigger/reason/tags with `causal_authority=pretriage_model_extraction` are cause candidates for navigation, not observed or proven root causes; deterministic trace_query causal rows supersede them.\n")
+				break
+			}
+		}
 		for i, j := range bundle.Janks {
 			fmt.Fprintf(&b, "  [%d] start=%.1fms duration=%.1fms",
 				i+1, j.StartTsMs, j.DurationMs)
 			if j.TriggerSpan != "" {
-				fmt.Fprintf(&b, " trigger=`%s`", j.TriggerSpan)
+				if j.CauseIsPreTriageModelExtraction() {
+					fmt.Fprintf(&b, " trigger_candidate=`%s`", j.TriggerSpan)
+				} else {
+					fmt.Fprintf(&b, " trigger=`%s`", j.TriggerSpan)
+				}
 			}
 			if j.Reason != "" {
-				fmt.Fprintf(&b, " reason=%s", j.Reason)
+				if j.CauseIsPreTriageModelExtraction() {
+					fmt.Fprintf(&b, " reason_candidate=%s causal_authority=%s", j.Reason, j.CausalAuthority)
+				} else {
+					fmt.Fprintf(&b, " reason=%s", j.Reason)
+				}
 			}
 			b.WriteString("\n")
 			if len(j.Tags) > 0 {
@@ -4386,7 +4400,7 @@ func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLo
 	// Audit legend
 	b.WriteString("Citation contract:\n")
 	b.WriteString("- Stalls marked `★ resolved` carry a repo-relative path that survived os.Stat verification — those are citation-grade.\n")
-	b.WriteString("- Jank `trigger` and `tags` fields are tracing_mark_write tag literals from the trace — quote them verbatim, do NOT translate or paraphrase.\n")
+	b.WriteString("- Jank `trigger` and `tags` fields are tracing_mark_write tag literals from the trace; when causal_authority=pretriage_model_extraction their membership/causal role is a navigation candidate, not a proven root cause.\n")
 	b.WriteString("- Trace observations with `trace_line=N` are artifact-local line anchors, not repository source citations.\n")
 	b.WriteString("- `authority=pretriage_model_extraction` observations are navigation-only until independently verified; `authority=deterministic_validator` marks system-minted semantic normalization.\n")
 	b.WriteString("- Coverage < 1.0 means some trace bytes ended up in residue; treat residue chunks as advisory context, not as primary evidence.\n")

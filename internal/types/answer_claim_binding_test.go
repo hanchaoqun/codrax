@@ -289,6 +289,42 @@ func TestCompileRuntimeArtifactClaimBindings_PerfBundleCreatesRuntimeBinding(t *
 	}
 }
 
+func TestCompileRuntimeArtifactClaimBindings_PreTriageJankCauseIsCandidate(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentRootCause,
+		Predicates: SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		PerfTrace: &PerfBundle{Janks: []PerfJank{{
+			StartTsMs:       100,
+			DurationMs:      86.111,
+			TriggerSpan:     "H:RenderService:DoFrame",
+			Reason:          "heavy-compute",
+			CausalAuthority: PerfObservationAuthorityPreTriageModelExtraction,
+		}}},
+	}
+	bindings := CompileAnswerClaimBindings(nil, &rm, nil)
+	var found *AnswerClaimBinding
+	for i := range bindings {
+		if bindings[i].TargetRef == "H:RenderService:DoFrame" {
+			found = &bindings[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("jank binding missing: %+v", bindings)
+	}
+	joined := strings.Join(found.SupportRefs, "\n")
+	for _, want := range []string{"cause_candidate=heavy-compute", "causal_authority=pretriage_model_extraction"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("jank binding missing candidate authority %q: %+v", want, found.SupportRefs)
+		}
+	}
+	if strings.Contains(joined, " reason=heavy-compute") {
+		t.Fatalf("pretriage cause leaked as ordinary reason support: %+v", found.SupportRefs)
+	}
+}
+
 func TestAnswerClaimBindingOriginSpecificHelpers(t *testing.T) {
 	originOnly := []AnswerClaimBinding{
 		{

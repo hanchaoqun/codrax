@@ -209,6 +209,42 @@ func TestEmitPerfTrace_ObservationAuthorityIsValidatorOwned(t *testing.T) {
 	}
 }
 
+func TestEmitPerfTrace_JankCausalAuthorityIsValidatorOwned(t *testing.T) {
+	params, err := json.Marshal(emitPerfTraceParams{
+		Meta: emitPerfTraceMeta{Source: "hitrace"},
+		Janks: []emitPerfTraceJank{{
+			StartTsMs:   100,
+			DurationMs:  86.111,
+			TriggerSpan: "H:RenderService:DoFrame",
+			Reason:      "heavy-compute",
+			Tags:        []string{"H:RenderService:DoFrame"},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bus := &types.BusContext{
+		Mutable:         types.NewMutableState("jank cause authority"),
+		AttachedHitrace: "B|2000|H:RenderService:DoFrame\nE|2000\n",
+	}
+	result, err := (&EmitPerfTrace{}).Execute(bus, params)
+	if err != nil || !result.Success {
+		t.Fatalf("emit failed: result=%+v err=%v", result, err)
+	}
+	bundle := bus.Mutable.PerfTrace()
+	if bundle == nil || len(bundle.Janks) != 1 {
+		t.Fatalf("jank bundle missing: %+v", bundle)
+	}
+	jank := bundle.Janks[0]
+	if !jank.CauseIsPreTriageModelExtraction() {
+		t.Fatalf("model-emitted cause must be validator-stamped as pretriage: %+v", jank)
+	}
+	schema := string((&EmitPerfTrace{}).Parameters())
+	if strings.Contains(schema, "causal_authority") {
+		t.Fatalf("causal authority must not be model-writable through emit schema: %s", schema)
+	}
+}
+
 func TestHarmonyPriorityClassPinsMicrokernelAndRawBoundaries(t *testing.T) {
 	tests := map[int]string{
 		0: "",

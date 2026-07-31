@@ -3380,9 +3380,11 @@ func collectPerfExternalObservationSeeds(bundle *PerfBundle, observed []LogSourc
 		out = append(out, seed)
 	}
 	for _, j := range bundle.Janks {
-		raw := strings.TrimSpace(j.Reason)
-		if raw == "" {
-			raw = fmt.Sprintf("%.2fms jank", j.DurationMs)
+		raw := fmt.Sprintf("%.2fms jank", j.DurationMs)
+		if !j.CauseIsPreTriageModelExtraction() {
+			if reason := strings.TrimSpace(j.Reason); reason != "" {
+				raw = reason
+			}
 		}
 		record(ExternalObservationSeed{Kind: "perf_jank", Raw: raw, Func: strings.TrimSpace(j.TriggerSpan)})
 		if len(out) >= 6 {

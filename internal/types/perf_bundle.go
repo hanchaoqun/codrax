@@ -185,15 +185,26 @@ type PerfFrame struct {
 	Janky      bool    `json:"janky,omitempty"` // DurationMs > frame budget (16.6 ms @ 60Hz)
 }
 
-// PerfJank describes one span of observed jank with the chain of
-// `tracing_mark_write: B|...` tags that opened inside it. The LLM
-// collects the innermost (deepest) tag as the most likely cause.
+// PerfJank describes one slow interval with the chain of
+// `tracing_mark_write: B|...` tags that opened inside it. Duration is the
+// value lane; TriggerSpan / Reason / Tags are a separate causal-candidate
+// lane governed by CausalAuthority. Pre-triage extraction must not turn the
+// innermost tag or a best-guess reason into a proven cause.
 type PerfJank struct {
-	StartTsMs   float64  `json:"start_ts_ms"`
-	DurationMs  float64  `json:"duration_ms"`
-	TriggerSpan string   `json:"trigger_span,omitempty"`
-	Reason      string   `json:"reason,omitempty"` // "io" / "lock" / "sync-call" / "heavy-compute" / ""
-	Tags        []string `json:"tags,omitempty"`
+	StartTsMs       float64                  `json:"start_ts_ms"`
+	DurationMs      float64                  `json:"duration_ms"`
+	TriggerSpan     string                   `json:"trigger_span,omitempty"`
+	Reason          string                   `json:"reason,omitempty"` // "io" / "lock" / "sync-call" / "heavy-compute" / ""
+	Tags            []string                 `json:"tags,omitempty"`
+	CausalAuthority PerfObservationAuthority `json:"causal_authority,omitempty"`
+}
+
+// CauseIsPreTriageModelExtraction reports whether TriggerSpan / Reason / Tags
+// describe a model-extracted cause candidate rather than a deterministic
+// trace-query causal result. The time interval and validator-derived Janky bit
+// remain separate measured/value lanes.
+func (j PerfJank) CauseIsPreTriageModelExtraction() bool {
+	return j.CausalAuthority == PerfObservationAuthorityPreTriageModelExtraction
 }
 
 // PerfStall is a sub-event inside a PerfJank — specifically a
