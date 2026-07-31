@@ -3525,42 +3525,42 @@ func NormalizeResult(res Result) Result {
 }
 
 func canonicalizeUnknownRuleRefs(res *Result) []DataResultPatch {
-	sourceRules := sourceBackedRuleIDs(res.RuleCoverage)
-	if len(sourceRules) == 0 {
-		return nil
-	}
 	known := ruleCoverageIDSet(res.RuleCoverage)
 	if len(known) == 0 {
 		return nil
 	}
+	// Multi-batch typed DAGs may carry the same ordinal rule identity through
+	// two schema spellings: derive_rules emits rule_2 while a later typed
+	// ledger action cites R2. Resolve only this closed structural alias when
+	// it names exactly one known rule. Ambiguous ordinals and arbitrary
+	// unknown IDs remain untouched for collectRuleRefs to reject fail-closed.
+	ordinalAliases := uniqueRuleOrdinalAliases(known)
+	sourceRules := sourceBackedRuleIDs(res.RuleCoverage)
 	replacement := firstSortedRuleID(sourceRules)
-	if replacement == "" {
-		return nil
-	}
 	var patches []DataResultPatch
 	for i := range res.Rows {
-		refs, changed := canonicalRuleRefs(res.Rows[i].RuleRefs, known, replacement)
+		refs, changed := canonicalRuleRefs(res.Rows[i].RuleRefs, known, ordinalAliases, replacement)
 		if !changed {
 			continue
 		}
 		res.Rows[i].RuleRefs = refs
-		patches = append(patches, newDataResultPatch("replace", fmt.Sprintf("/rows/%d/rule_refs", i), refs, "canonicalized unknown decision rule_refs to source-backed rule coverage"))
+		patches = append(patches, newDataResultPatch("replace", fmt.Sprintf("/rows/%d/rule_refs", i), refs, "canonicalized decision rule_refs to unique typed rule identity"))
 	}
 	for i := range res.Contributions {
-		refs, changed := canonicalRuleRefs(res.Contributions[i].RuleRefs, known, replacement)
+		refs, changed := canonicalRuleRefs(res.Contributions[i].RuleRefs, known, ordinalAliases, replacement)
 		if !changed {
 			continue
 		}
 		res.Contributions[i].RuleRefs = refs
-		patches = append(patches, newDataResultPatch("replace", fmt.Sprintf("/contributions/%d/rule_refs", i), refs, "canonicalized unknown contribution rule_refs to source-backed rule coverage"))
+		patches = append(patches, newDataResultPatch("replace", fmt.Sprintf("/contributions/%d/rule_refs", i), refs, "canonicalized contribution rule_refs to unique typed rule identity"))
 	}
 	for i := range res.EntityResolutions {
-		refs, changed := canonicalRuleRefs(res.EntityResolutions[i].RuleRefs, known, replacement)
+		refs, changed := canonicalRuleRefs(res.EntityResolutions[i].RuleRefs, known, ordinalAliases, replacement)
 		if !changed {
 			continue
 		}
 		res.EntityResolutions[i].RuleRefs = refs
-		patches = append(patches, newDataResultPatch("replace", fmt.Sprintf("/entity_resolutions/%d/rule_refs", i), refs, "canonicalized unknown entity-resolution rule_refs to source-backed rule coverage"))
+		patches = append(patches, newDataResultPatch("replace", fmt.Sprintf("/entity_resolutions/%d/rule_refs", i), refs, "canonicalized entity-resolution rule_refs to unique typed rule identity"))
 	}
 	return patches
 }
@@ -3593,9 +3593,59 @@ func firstSortedRuleID(values map[string]bool) string {
 	return ids[0]
 }
 
-func canonicalRuleRefs(refs []string, known map[string]bool, replacement string) ([]string, bool) {
+func uniqueRuleOrdinalAliases(known map[string]bool) map[int]string {
+	out := map[int]string{}
+	ambiguous := map[int]bool{}
+	for id := range known {
+		ordinal, ok := ruleOrdinalAlias(id)
+		if !ok {
+			continue
+		}
+		if existing, exists := out[ordinal]; exists && existing != id {
+			delete(out, ordinal)
+			ambiguous[ordinal] = true
+			continue
+		}
+		if !ambiguous[ordinal] {
+			out[ordinal] = id
+		}
+	}
+	return out
+}
+
+func ruleOrdinalAlias(raw string) (int, bool) {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	var digits string
+	switch {
+	case strings.HasPrefix(value, "rule_"):
+		digits = strings.TrimPrefix(value, "rule_")
+	case strings.HasPrefix(value, "rule-"):
+		digits = strings.TrimPrefix(value, "rule-")
+	case strings.HasPrefix(value, "rule"):
+		digits = strings.TrimPrefix(value, "rule")
+	case strings.HasPrefix(value, "r"):
+		digits = strings.TrimPrefix(value, "r")
+	default:
+		return 0, false
+	}
+	if digits == "" {
+		return 0, false
+	}
+	for _, r := range digits {
+		if r < '0' || r > '9' {
+			return 0, false
+		}
+	}
+	ordinal, err := strconv.Atoi(digits)
+	if err != nil || ordinal <= 0 {
+		return 0, false
+	}
+	return ordinal, true
+}
+
+func canonicalRuleRefs(refs []string, known map[string]bool, ordinalAliases map[int]string, replacement string) ([]string, bool) {
 	replacement = strings.TrimSpace(replacement)
-	if replacement == "" || len(refs) == 0 {
+	if len(refs) == 0 {
 		return refs, false
 	}
 	out := make([]string, 0, len(refs))
@@ -3608,8 +3658,13 @@ func canonicalRuleRefs(refs []string, known map[string]bool, replacement string)
 			continue
 		}
 		if !known[ref] {
-			ref = replacement
-			changed = true
+			if ordinal, ok := ruleOrdinalAlias(ref); ok && strings.TrimSpace(ordinalAliases[ordinal]) != "" {
+				ref = ordinalAliases[ordinal]
+				changed = true
+			} else if replacement != "" {
+				ref = replacement
+				changed = true
+			}
 		}
 		if seen[ref] {
 			changed = true
@@ -3618,7 +3673,7 @@ func canonicalRuleRefs(refs []string, known map[string]bool, replacement string)
 		seen[ref] = true
 		out = append(out, ref)
 	}
-	if len(out) == 0 {
+	if len(out) == 0 && replacement != "" {
 		out = []string{replacement}
 		changed = true
 	}

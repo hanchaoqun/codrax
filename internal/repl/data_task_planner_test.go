@@ -10798,6 +10798,34 @@ func TestDataTaskActionRunnerSeedNormalizesCrossBatchRuleRefs(t *testing.T) {
 	}
 }
 
+func TestDataTaskActionRunnerSeedNormalizesCrossBatchOrdinalRuleAlias(t *testing.T) {
+	records := []dataTaskWorkflowRecord{
+		{
+			Result: &dataquery.Result{
+				RuleCoverage: []dataquery.RuleCoverageRecord{
+					{RuleID: "rule_1", RuleText: "read inputs", Status: "derived", Notes: "typed action"},
+					{RuleID: "rule_2", RuleText: "qualify rows", Status: "derived", Notes: "typed action"},
+				},
+			},
+		},
+		{
+			Result: &dataquery.Result{
+				Rows: []dataquery.RowDecision{{
+					RowID: "row1", Source: "users.json", SourceLocator: "row 1",
+					Decision: "include", RuleRefs: []string{"R2"},
+				}},
+			},
+		},
+	}
+	seed := dataTaskActionRunnerSeed(records)
+	if got := strings.Join(seed.Rows[0].RuleRefs, ","); got != "rule_2" {
+		t.Fatalf("Rows[0].RuleRefs=%q, want unique cross-batch ordinal rule_2", got)
+	}
+	if len(seed.ResultPatches) == 0 {
+		t.Fatalf("ResultPatches empty, want cross-batch ordinal canonicalization audit")
+	}
+}
+
 func TestPrepareDataTaskWorkflowPlanRaisesExtractLimitForExactWorkflow(t *testing.T) {
 	plan := dataquery.TaskPlan{
 		Status: "ready",

@@ -8844,6 +8844,69 @@ emit({
 	}
 }
 
+func TestNormalizeResultCanonicalizesUniqueOrdinalRuleAliasWithoutEvidenceRefs(t *testing.T) {
+	result := Result{
+		RuleCoverage: []RuleCoverageRecord{
+			{RuleID: "rule_1", RuleText: "read inputs", Status: "derived", Notes: "typed action"},
+			{RuleID: "rule_2", RuleText: "qualify rows", Status: "derived", Notes: "typed action"},
+		},
+		Rows: []RowDecision{{
+			RowID: "row-1", Source: "rows.json", SourceLocator: "line:1",
+			Decision: "include", RuleRefs: []string{"R2"},
+		}},
+		Contributions: []ContributionRecord{{
+			ItemID: "row-1", Source: "rows.json", SourceLocator: "line:1",
+			GroupKey: "all", Metric: "value", Value: "1", Operation: "add",
+			Reason: "qualified", RuleRefs: []string{"rule-2"},
+		}},
+		EntityResolutions: []EntityResolutionRecord{{
+			ItemID: "row-1", SourceValue: "raw",
+			CanonicalID: "canonical", Status: "resolved", RuleRefs: []string{"rule2"},
+		}},
+	}
+
+	normalized := NormalizeResult(result)
+	if got := strings.Join(normalized.Rows[0].RuleRefs, ","); got != "rule_2" {
+		t.Fatalf("Rows[0].RuleRefs=%q, want rule_2", got)
+	}
+	if got := strings.Join(normalized.Contributions[0].RuleRefs, ","); got != "rule_2" {
+		t.Fatalf("Contributions[0].RuleRefs=%q, want rule_2", got)
+	}
+	if got := strings.Join(normalized.EntityResolutions[0].RuleRefs, ","); got != "rule_2" {
+		t.Fatalf("EntityResolutions[0].RuleRefs=%q, want rule_2", got)
+	}
+	if len(normalized.ResultPatches) != 3 {
+		t.Fatalf("ResultPatches=%+v, want one audited patch per ledger family", normalized.ResultPatches)
+	}
+}
+
+func TestNormalizeResultKeepsAmbiguousAndArbitraryRuleRefsFailClosed(t *testing.T) {
+	result := Result{
+		RuleCoverage: []RuleCoverageRecord{
+			{RuleID: "r2", RuleText: "first ordinal spelling", Status: "derived", Notes: "typed action"},
+			{RuleID: "rule_2", RuleText: "second ordinal spelling", Status: "derived", Notes: "typed action"},
+		},
+		Rows: []RowDecision{
+			{RowID: "row-1", Source: "rows.json", SourceLocator: "line:1", Decision: "include", RuleRefs: []string{"R2"}},
+			{RowID: "row-2", Source: "rows.json", SourceLocator: "line:2", Decision: "include", RuleRefs: []string{"MODEL_RULE"}},
+		},
+	}
+
+	normalized := NormalizeResult(result)
+	if got := strings.Join(normalized.Rows[0].RuleRefs, ","); got != "R2" {
+		t.Fatalf("ambiguous ordinal alias must remain untouched, got %q", got)
+	}
+	if got := strings.Join(normalized.Rows[1].RuleRefs, ","); got != "MODEL_RULE" {
+		t.Fatalf("arbitrary unknown ref must remain untouched, got %q", got)
+	}
+	err := ValidateResultAgainstContract(CoverageContract{
+		RuleCoverageRequired: true, DecisionRecordsRequired: true,
+	}, normalized, LedgerSatisfactionFacts{})
+	if err == nil || !strings.Contains(err.Error(), "unknown rule_id") {
+		t.Fatalf("ambiguous/unknown refs must remain fail-closed, got %v", err)
+	}
+}
+
 func TestRunnerRejectsUnknownRuleRefs(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")
