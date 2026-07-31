@@ -959,6 +959,10 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},
 			{
+				Body:      "WAKEUP CENSUS DIRECTION AND STATE: consume typed wakeup_edge_census rows as waker -> wakee counts. The sleep_exit/d_exit/other_exit split is the state the WAKEE LEFT when the wakeup occurred — pre-wakeup state — not a state entered after the wakeup. A wakeup makes the target runnable; later switch-in, execution, preemption, and switch-out are separate scheduler facts. Never turn sleep_exit=N into “after each wake it immediately slept”; an all/every post-wakeup claim requires a separately complete paired transition census.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+			},
+			{
 				Body:      mechanicalProducerChainSeparationDirective,
 				AppliesTo: AppliesToFilter{RequiresMechanism: true},
 			},

@@ -1516,7 +1516,7 @@ D4 case 验证用户红线没有回退：显式 114.940ms 时间窗、四态闭�
 | EVAL-B10-Z1 | P1 | data-gap provenance | reduced-shape `root_evidence:trace_gap` 无视 typed `trace_gap_kind/tier`，统一铸成 direct cause | data-gap root-evidence 使用 coverage/artifact provenance；typed guidance 固定缺区间不证明连续执行、CPU 占用、未抢占或未睡眠 | covered |
 | EVAL-B10-Z2 | P1 | 显式窗口权限 | 多轮查询的 target-state 账按遇到顺序/宽窗聚合，自动补采宽窗可夺取覆盖摘要 principal window | 从 typed request scope 取得显式窗，优先精确匹配；宽窗仅 supplemental，补采和因果投影本身不变 | covered |
 | EVAL-B10-Z3 | P1 | demand/supply 混合结论与可加性 | 排名席的方向/正值 supply seat/折算口径未形成统一 verdict；模型把“非主因”写成不存在并直接求和重叠席 | typed 主次方向指导；有正值 supply 席时只能说次级/有界；rank 默认 non-additive，只有明确 disjoint/union caliber 才可相加 | covered |
-| EVAL-B10-Z4 | P2 | 唤醒 census 权限 | 正文声称 36 次、34 次来自单一线程，需确认是否绑定单一完整 census 而非分支样本/重复视图 | 先核对 typed wakeup census；仅在缺单一 census 时补权限，不为本 case 数字拟合 | audit-pending |
+| EVAL-B10-Z4 | P1 | 唤醒 census 消费语义 | 36/34 来自完整 typed census，数值正确；但模型把 `sleep_exit=34`（唤醒前目标退出 S）反写成“每次唤醒后立即睡眠”，把前态分类当后继转移 | 从 target-wakee cap-immune census 构造紧凑 typed authority，统一给出总量、per-waker 分解、前态 split 与后态证明边界；软提示同步，不扫描答案词面 | covered |
 
 批 Z 不变量：
 
@@ -1574,3 +1574,39 @@ answer-document skill 与 exploration skill 同步增加相同 typed 软指导�
 frequency-thermal #4 的混合形。完整
 `go test ./internal/agent ./internal/skill -count=1` 通过
 （agent 2.470s、skill 0.923s）。
+
+批 Z4 对真实 fixture 的显式窗
+`34579.472865..34579.587805` 直接复算：目标
+`com.baidu.tieba-59566` 共36条 `sched_wakeup`，其中
+CookieMonsterCl-59843 为34条，Binder:43397_19-23088 与
+T7@ZeusThreadPo-61839 各1条。引擎
+`WakeupEdgeCensus` 和 observation 的三条 target-wakee 记录与原始行完全
+一致，且 `target_wakee=true` 使目标 pair 在 engine/tool 两层 row cap 下
+免疫。因此“36/34”不是分支样本、重复视图或模型编数，原计划中的“缺单一
+census”假设被证伪。
+
+真正的 gap 是时序方向被消费层反转。现有三条记录均为
+`sleep_exit=count`；该字段在代码合同中明确是 wakeup 发生时 wakee
+“离开的状态”，即唤醒前的 S-sleep。客户答案却写成“每次唤醒后主线程都
+立即进入睡眠”。真实调度序列也存在醒后先运行、被 `R+` 抢占、恢复后才
+进入 S 的样例，故不能由 pre-wakeup split 证明 post-wakeup 的“立即/每次”。
+
+修复不更改 census、链、榜单或投影：types 层仅从
+`producer=trace_query + predicate=wakeup_edge_census +
+target_wakee=true` 构造 `TraceTargetWakeupCensusAuthority`，按单个 query
+结果给出完整总量、per-waker 分解、三类 pre-wakeup exit split，并对
+split 恒等式或重复 pair 冲突 fail-closed。finalizer 在 Observation
+Ledger 前置紧凑权威块中明确：
+
+1. 方向固定为 waker → target；
+2. `sleep_exit/d_exit/other_exit` 是唤醒前离开的状态；
+3. wakeup 只证明目标进入 runnable，后续 switch-in、运行、抢占和
+   switch-out 是独立事实；
+4. “唤醒后每次立即睡眠”必须另有完整的后继调度转移配对 census。
+
+answer skill 同步同一 typed 软指导，没有 raw request/模型 thinking/最终
+答案关键词扫描，也没有 hard reject 或文本改写。测试固定 34+1+1=36 的
+完整分解、pre-wakeup sleep=36、非目标 pair 不混入、split 冲突
+fail-closed，以及真实 `renderAnswerDocObservationLedger` 生产接线。
+完整 `go test ./internal/types ./internal/agent ./internal/skill -count=1`
+通过（types 21.737s、agent 3.061s、skill 0.473s）。

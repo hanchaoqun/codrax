@@ -205,3 +205,25 @@ func TestRun2FixCTotalsMatchTheirParts(t *testing.T) {
 		t.Fatalf("totals rule is soft teaching — no violation lane: %+v", item.OnViolation)
 	}
 }
+
+func TestWakeupCensusDirectionAndStateTeaching(t *testing.T) {
+	item := finBindTierBItem(t, "WAKEUP CENSUS DIRECTION AND STATE")
+	if !item.AppliesTo.RequiresTrace {
+		t.Fatalf("wakeup census rule must be trace-gated: %+v", item.AppliesTo)
+	}
+	for _, want := range []string{
+		"waker -> wakee",
+		"state the WAKEE LEFT",
+		"pre-wakeup state",
+		"A wakeup makes the target runnable",
+		"Never turn sleep_exit=N into “after each wake it immediately slept”",
+		"requires a separately complete paired transition census",
+	} {
+		if !strings.Contains(item.Body, want) {
+			t.Fatalf("wakeup census rule missing %q:\n%s", want, item.Body)
+		}
+	}
+	if len(item.OnViolation) != 0 {
+		t.Fatalf("wakeup census rule is soft teaching — no violation lane: %+v", item.OnViolation)
+	}
+}

@@ -3860,6 +3860,9 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	if authority := renderAnswerDocTraceRankAuthority(ledger); authority != "" {
 		b.WriteString(authority)
 	}
+	if authority := renderAnswerDocTraceWakeupCensusAuthority(ledger); authority != "" {
+		b.WriteString(authority)
+	}
 	if len(ledger.Records) > len(records) {
 		renderedIDs := make(map[string]bool, len(records))
 		for _, record := range records {
@@ -4130,6 +4133,51 @@ func renderAnswerDocTraceRankAuthority(ledger types.ObservationLedger) string {
 	}
 	if written == 0 {
 		return ""
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func renderAnswerDocTraceWakeupCensusAuthority(ledger types.ObservationLedger) string {
+	authorities := types.BuildTraceTargetWakeupCensusAuthorities(ledger)
+	if len(authorities) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("### Trace Target Wakeup Census Authority\n\n")
+	b.WriteString("- This is a typed wording authority over `wakeup_edge_census`; it does not change wakeup-chain construction, root ranking, causal projection, automatic supplementation, or measured values.\n")
+	b.WriteString("- Direction is `waker -> target`. Each `*_exit` count classifies the scheduler state the target LEFT when the wakeup occurred (the pre-wakeup state), never the state entered after the wakeup. A wakeup makes the target runnable; switch-in, execution, preemption, and the later switch-out state are separate facts. Therefore `sleep_exit=N` cannot support “woke and immediately slept N times”; that post-wakeup claim requires a separately complete paired scheduler-transition census.\n")
+	for i, authority := range authorities {
+		if i >= 4 {
+			fmt.Fprintf(&b, "- (%d additional target census set(s) omitted from this compact wording view)\n", len(authorities)-i)
+			break
+		}
+		status := "complete"
+		if !authority.Complete {
+			status = "inconsistent"
+		}
+		fmt.Fprintf(&b, "- target=`%s`; window=`%s`; status=`%s`; total_wakeups=%d",
+			authority.Target, authority.Window, status, authority.TotalCount)
+		if authority.SplitAvailable {
+			fmt.Fprintf(&b, "; pre_wakeup_exit_split=`sleep:%d d_or_io:%d other_or_unclassified:%d`",
+				authority.SleepExitCount, authority.DExitCount, authority.OtherExitCount)
+		}
+		b.WriteString("\n")
+		for j, pair := range authority.Pairs {
+			if j >= 8 {
+				fmt.Fprintf(&b, "  - (%d additional waker pair(s) omitted from this compact view)\n", len(authority.Pairs)-j)
+				break
+			}
+			fmt.Fprintf(&b, "  - waker=`%s`; count=%d", pair.Waker, pair.Count)
+			if pair.SplitAvailable {
+				fmt.Fprintf(&b, "; pre_wakeup_exit_split=`sleep:%d d_or_io:%d other_or_unclassified:%d`",
+					pair.SleepExitCount, pair.DExitCount, pair.OtherExitCount)
+			}
+			if pair.FirstTimestamp != "" || pair.LastTimestamp != "" {
+				fmt.Fprintf(&b, "; first=`%s`; last=`%s`", pair.FirstTimestamp, pair.LastTimestamp)
+			}
+			b.WriteString("\n")
+		}
 	}
 	b.WriteString("\n")
 	return b.String()
