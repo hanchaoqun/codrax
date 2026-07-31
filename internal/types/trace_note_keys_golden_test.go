@@ -591,9 +591,9 @@ var traceNoteKeyGoldenRows = []string{
 	"target_priority_source|gating|hard_consumer",
 	"target_role_kind|causal_rank|display_only",
 	"target_role_source|causal_rank|display_only",
-	"target_wait_occurrence|state|display_only",
-	"target_wait_occurrence_prompt|state|display_only",
-	"target_wait_occurrence_prompt_sum_ms|state|display_only",
+	"target_wait_occurrence|state|soft_consumer",
+	"target_wait_occurrence_prompt|state|soft_consumer",
+	"target_wait_occurrence_prompt_sum_ms|state|soft_consumer",
 	// CR-3 件③ P11 (2026-07-12): rank-row process attribution (冷读案8).
 	"tgid|causal_rank|hard_consumer",
 	"thermal|supply_pressure|display_only",

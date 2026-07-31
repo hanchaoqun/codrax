@@ -8956,7 +8956,8 @@ func traceQueryTargetWindowWaitOccurrenceObservations(
 		promptStatus = "incomplete"
 	}
 	notes := []string{fmt.Sprintf(
-		"target_wait_occurrence_prompt=status=%s,emitted=%d,total=%d",
+		"%s=status=%s,emitted=%d,total=%d",
+		types.TraceNoteKeyTargetWaitOccurrencePrompt,
 		promptStatus, promptOccurrenceCount, account.WaitOccurrenceTotal,
 	)}
 	var promptOccurrenceSum float64
@@ -8964,11 +8965,12 @@ func traceQueryTargetWindowWaitOccurrenceObservations(
 		promptOccurrenceSum += account.WaitOccurrences[i].DurationMs
 	}
 	notes = append(notes, fmt.Sprintf(
-		"target_wait_occurrence_prompt_sum_ms=%.3f",
+		"%s=%.3f",
+		types.TraceNoteKeyTargetWaitOccurrencePromptSum,
 		promptOccurrenceSum,
 	))
 	for i := 0; i < promptOccurrenceCount; i++ {
-		notes = append(notes, "target_wait_occurrence="+roster[i])
+		notes = append(notes, types.TraceNoteKeyTargetWaitOccurrence+"="+roster[i])
 	}
 	setRecord := types.ObservationRecord{
 		ID:              fmt.Sprintf("trace_query:%s#target_window_wait_occurrences", scope),

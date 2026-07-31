@@ -390,6 +390,15 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				Window: window, WindowMs: 1000,
 				RunningMs: 700, RunnableMs: 100, SleepMs: 150, DStateMs: 30, IOWaitMs: 20,
 				SleepIOWaitMs: 40, TotalMs: 1000, DeterministicRunningMs: 120,
+				// EVAL-B1-R12/R14: prompt-consumed exact bounded occurrence
+				// roster exercises all three registered note keys.
+				WaitOccurrences: []tracequery.TargetWindowStateOccurrence{{
+					Ordinal: 1, State: tracequery.StateDSleep,
+					StartTs: 1.01, EndTs: 1.02, DurationMs: 10,
+					StartLine: 2, EndLine: 3, IOWait: true, IOWaitKnown: true,
+					Caller: "io_schedule", ReasonLine: 2,
+				}},
+				WaitOccurrenceTotal: 1, WaitOccurrenceEmitted: 1, WaitOccurrenceStatus: "complete",
 				// ANSWERFACE-1 件2 (§29.140 G6): the boundary-fold disclosure
 				// quartet on the wire (head prefix carried from a recovered
 				// pre-window state + tail suffix flushed without a closing

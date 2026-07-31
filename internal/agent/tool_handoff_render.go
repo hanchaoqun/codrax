@@ -18,6 +18,10 @@ type toolHandoffRenderOptions struct {
 	CurrentStageAllowedTools []string
 	MaxCarriers              int
 	MaxRefs                  int
+	// ObservationDetails is an optional, ID-keyed value projection for
+	// observation families whose exact bounded values must survive beside a
+	// handoff ref. The generic carrier remains identity-only.
+	ObservationDetails map[string]types.ObservationPromptRecord
 }
 
 func renderTypedToolHandoffCarriers(title string, carriers []types.ToolHandoffCarrier, options ...toolHandoffRenderOptions) string {
@@ -71,7 +75,7 @@ func renderTypedToolHandoffCarriers(title string, carriers []types.ToolHandoffCa
 		if refs := renderTypedToolHandoffEvidenceRefs(carrier.AcceptedEvidence, maxRefs); refs != "" {
 			b.WriteString(refs)
 		}
-		if refs := renderTypedToolHandoffObservationRefs(carrier.ObservationRefs, maxRefs); refs != "" {
+		if refs := renderTypedToolHandoffObservationRefs(carrier.ObservationRefs, maxRefs, opts.ObservationDetails); refs != "" {
 			b.WriteString(refs)
 		}
 	}
@@ -177,7 +181,7 @@ func renderTypedToolHandoffEvidenceRefs(refs []types.AcceptedEvidenceRef, limit 
 	return b.String()
 }
 
-func renderTypedToolHandoffObservationRefs(refs []types.ToolObservationRef, limit int) string {
+func renderTypedToolHandoffObservationRefs(refs []types.ToolObservationRef, limit int, details map[string]types.ObservationPromptRecord) string {
 	if len(refs) == 0 || limit <= 0 {
 		return ""
 	}
@@ -204,8 +208,35 @@ func renderTypedToolHandoffObservationRefs(refs []types.ToolObservationRef, limi
 			fmt.Fprintf(&b, " claim=%s", quoteHandoffValue(ref.ClaimKey))
 		}
 		b.WriteString("\n")
+		if record, ok := details[strings.TrimSpace(ref.ID)]; ok {
+			for _, note := range targetWaitOccurrenceHandoffNotes(record.Notes) {
+				fmt.Fprintf(&b, "    - observation_value=%q\n", note)
+			}
+		}
 	}
 	return b.String()
+}
+
+func targetWaitOccurrenceHandoffNotes(notes []string) []string {
+	if len(notes) == 0 {
+		return nil
+	}
+	prefixes := []string{
+		types.TraceNoteKeyTargetWaitOccurrencePrompt + "=",
+		types.TraceNoteKeyTargetWaitOccurrencePromptSum + "=",
+		types.TraceNoteKeyTargetWaitOccurrence + "=",
+	}
+	out := make([]string, 0, len(notes))
+	for _, note := range notes {
+		note = strings.TrimSpace(note)
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(note, prefix) {
+				out = append(out, note)
+				break
+			}
+		}
+	}
+	return out
 }
 
 func quoteHandoffValue(value string) string {

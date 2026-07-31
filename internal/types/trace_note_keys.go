@@ -1323,6 +1323,12 @@ const (
 	TraceNoteKeyDeterministicRuntimeQueryPresent = "deterministic_runtime_query_present"
 	TraceNoteKeyLegacySummaryFallback            = "legacy_summary_fallback"
 	TraceNoteKeyNotAnswerGrade                   = "not_answer_grade"
+	// EVAL-B1-R12/R14: exact bounded target-wait occurrence rosters are
+	// prompt-consumed typed values. Keep their wire names centralized so
+	// producers and the repair-handoff projection cannot drift.
+	TraceNoteKeyTargetWaitOccurrence          = "target_wait_occurrence"
+	TraceNoteKeyTargetWaitOccurrencePrompt    = "target_wait_occurrence_prompt"
+	TraceNoteKeyTargetWaitOccurrencePromptSum = "target_wait_occurrence_prompt_sum_ms"
 )
 
 // Composite ledger-marker wire strings. The append site and the exact-match
@@ -1366,9 +1372,9 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// one prompt summary because the shared text clamp would expose a
 	// misleading prefix. These notes carry prompt-level completeness, its
 	// emitted-prefix sum, and one exact engine-paired occurrence per note.
-	{"target_wait_occurrence", "state", TraceNoteCarrierDisplayOnly},
-	{"target_wait_occurrence_prompt", "state", TraceNoteCarrierDisplayOnly},
-	{"target_wait_occurrence_prompt_sum_ms", "state", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyTargetWaitOccurrence, "state", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyTargetWaitOccurrencePrompt, "state", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyTargetWaitOccurrencePromptSum, "state", TraceNoteCarrierSoftConsumer},
 
 	// 因果排名族.
 	{TraceNoteKeyRank, "causal_rank", TraceNoteCarrierHardConsumer},

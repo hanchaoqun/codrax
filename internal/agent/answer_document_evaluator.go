@@ -4114,13 +4114,71 @@ func renderAnswerDocToolHandoffCarriers(ctx *types.AgentContext) string {
 	if len(carriers) == 0 {
 		return ""
 	}
+	observationDetails := answerDocToolHandoffObservationDetails(ctx, carriers)
 	if answerDocRuntimeSourceAuthorityUsesCompactToolHandoff(ctx) {
 		return renderTypedToolHandoffCarriers("## Typed Repair And Evidence Handoff", carriers, toolHandoffRenderOptions{
-			MaxCarriers: 4,
-			MaxRefs:     6,
+			MaxCarriers:        4,
+			MaxRefs:            6,
+			ObservationDetails: observationDetails,
 		})
 	}
-	return renderTypedToolHandoffCarriers("## Typed Repair And Evidence Handoff", carriers)
+	return renderTypedToolHandoffCarriers("## Typed Repair And Evidence Handoff", carriers, toolHandoffRenderOptions{
+		ObservationDetails: observationDetails,
+	})
+}
+
+func answerDocToolHandoffObservationDetails(ctx *types.AgentContext, carriers []types.ToolHandoffCarrier) map[string]types.ObservationPromptRecord {
+	wanted := make(map[string]struct{})
+	for _, carrier := range carriers {
+		for _, ref := range carrier.ObservationRefs {
+			if id := strings.TrimSpace(ref.ID); id != "" {
+				wanted[id] = struct{}{}
+			}
+		}
+	}
+	if len(wanted) == 0 {
+		return nil
+	}
+	ledger := answerDocObservationLedger(ctx)
+	var rm *types.RequestModel
+	var contract *types.AnswerContract
+	if ctx != nil && ctx.AnalysisIR != nil {
+		rm = &ctx.AnalysisIR.RequestModel
+		contract = &ctx.AnalysisIR.AnswerContract
+	}
+	out := make(map[string]types.ObservationPromptRecord)
+	for _, record := range ledger.Records {
+		id := strings.TrimSpace(record.ID)
+		if _, ok := wanted[id]; !ok || !observationRecordHasTargetWaitOccurrencePrompt(record) {
+			continue
+		}
+		opts := types.DefaultObservationPromptProjectionOptions(1)
+		// R12 caps the roster at eight rows; meta + sum + eight rows closes
+		// this family at ten notes. Preserve each already-bounded row whole.
+		opts.NoteLimit = 10
+		opts.PrincipalNoteLimit = 10
+		opts.OriginSpecificSupportingNoteLimit = 10
+		opts.OriginSpecificPrincipalNoteLimit = 10
+		opts.NoteMaxLen = 512
+		projected := types.ProjectObservationPromptRecords([]types.ObservationRecord{record}, rm, contract, opts)
+		if len(projected) == 1 && len(targetWaitOccurrenceHandoffNotes(projected[0].Notes)) > 0 {
+			out[id] = projected[0]
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func observationRecordHasTargetWaitOccurrencePrompt(record types.ObservationRecord) bool {
+	prefix := types.TraceNoteKeyTargetWaitOccurrencePrompt + "="
+	for _, note := range record.RichNotes {
+		if strings.HasPrefix(strings.TrimSpace(note), prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func answerDocRuntimeSourceAuthorityUsesCompactToolHandoff(ctx *types.AgentContext) bool {

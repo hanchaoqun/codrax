@@ -193,6 +193,58 @@ func TestRenderAnswerDocToolHandoffCarriersConsumesTurnA(t *testing.T) {
 	}
 }
 
+func TestRenderAnswerDocToolHandoffCarriersCarriesExactBoundedWaitValuesBesideRef(t *testing.T) {
+	const observationID = "trace_query:window#target_window_wait_occurrences"
+	notes := []string{
+		types.TraceNoteKeyTargetWaitOccurrencePrompt + "=status=complete,emitted=3,total=3",
+		types.TraceNoteKeyTargetWaitOccurrencePromptSum + "=0.635",
+		types.TraceNoteKeyTargetWaitOccurrence + "=#1 state=D 34579.451701..34579.451839 duration=0.138ms iowait=1 caller=io_schedule lines=1-2 reason_line=1",
+		types.TraceNoteKeyTargetWaitOccurrence + "=#2 state=D 34579.452934..34579.453081 duration=0.147ms iowait=1 caller=io_schedule lines=3-4 reason_line=3",
+		types.TraceNoteKeyTargetWaitOccurrence + "=#3 state=D 34579.471372..34579.471722 duration=0.350ms iowait=1 caller=io_schedule lines=5-6 reason_line=5",
+		"unrelated_advisory=must_not_escape",
+	}
+	observation := types.ObservationRecord{
+		ID:              observationID,
+		Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            types.AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: types.ClaimGroundingHard,
+		ClaimKey:        "target_window_wait_occurrences:RenderThread-3100",
+		Subject:         "RenderThread-3100",
+		Predicate:       "target_window_wait_occurrences",
+		Object:          "complete",
+		RichNotes:       notes,
+	}
+	ref, ok := types.ToolObservationRefFromObservationRecord(observation)
+	if !ok {
+		t.Fatal("fixture observation should produce a handoff ref")
+	}
+	mut := types.NewMutableState("q")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{
+		ToolResults: []types.ToolResult{{
+			ToolName:     "trace_query",
+			Success:      true,
+			Observations: []types.ObservationRecord{observation},
+		}},
+		HandoffCarriers: []types.ToolHandoffCarrier{{
+			Version:         types.ToolHandoffCarrierVersion,
+			ToolName:        "trace_query",
+			ReasonCode:      "tool_observation_handoff",
+			ObservationRefs: []types.ToolObservationRef{ref},
+		}},
+	})
+
+	out := renderAnswerDocToolHandoffCarriers(&types.AgentContext{Mutable: mut})
+	for _, want := range notes[:5] {
+		if !strings.Contains(out, `observation_value="`+want+`"`) {
+			t.Fatalf("typed handoff dropped exact bounded value %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "unrelated_advisory") {
+		t.Fatalf("typed handoff value escape must remain scoped to the exact wait family:\n%s", out)
+	}
+}
+
 func TestRenderAnswerDocToolHandoffCarriersSuppressesAcceptedSourceInventoryDisplayDebt(t *testing.T) {
 	ctx := sourceInventoryMechanicalLandingContextForExplorerTest(false)
 	obs := types.SourceInventoryObservationFromMutable(ctx.Mutable)
