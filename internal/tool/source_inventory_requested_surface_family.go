@@ -60,7 +60,7 @@ func sourceInventoryNormalizedSurfaceQuotes(raw []string) []string {
 	seen := map[string]bool{}
 	var out []string
 	for _, quote := range raw {
-		quote = sourceInventoryQueryNormalizeText(quote)
+		quote = sourceInventoryNormalizeSurfaceQuote(quote)
 		if quote != "" && !seen[quote] {
 			seen[quote] = true
 			out = append(out, quote)

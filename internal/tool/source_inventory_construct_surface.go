@@ -16,6 +16,9 @@ func sourceInventoryConstructSurfaceTerms(sym *repotypes.Symbol) []string {
 	paddedDoc := " " + doc + " "
 	switch {
 	case kind == "extend" || kind == "foreign func" || kind == "operator":
+		if marker := sourceInventoryParserMarkerForConstructKind(sym.Doc, kind); marker != "" {
+			return []string{marker, marker + " " + name}
+		}
 		return []string{kind, kind + " " + name}
 	case sym.Exported && (kind == "class" || kind == "struct" || kind == "interface" || kind == "enum") &&
 		(strings.Contains(paddedDoc, " public ") || strings.Contains(paddedDoc, " open ")):
@@ -32,13 +35,6 @@ func sourceInventoryConstructSurfaceTerms(sym *repotypes.Symbol) []string {
 	default:
 		return nil
 	}
-}
-
-func sourceInventoryConstructKindSurface(sym *repotypes.Symbol) string {
-	if sym == nil {
-		return ""
-	}
-	return strings.Join(strings.Fields(strings.NewReplacer("-", " ", "_", " ").Replace(strings.ToLower(strings.TrimSpace(sym.Kind)))), " ")
 }
 
 func sourceInventoryAppendCandidateNote(note, extra string) string {

@@ -901,3 +901,40 @@ B5 r6 新增/更新 GAP：
 5. `is_source_inventory=false` 的普通机制请求不受 required-file softening影响；用户在当前请求中明确写出的 exact inventory path继续保留。
 
 批 K 验证已固定：generic comparison last-mile负臂、explicit-window/root-cause/call-relation正臂；共享 types authority的 empty/background/root/window/call矩阵；invalid-role inventory保留 name/location/package 和逐字合法 quotes、丢弃未点名 guessed parser required-file；显式 non-inventory保留普通 required-file。回归过程中旧测试捕获 `intent=explain + question_kind=call_chain/axis=call` 不一定被 family resolver提升为 QFCallChain，已将这两个 schema enum信号直接纳入共享 authority，未用词面修补。`go test ./internal/types ./internal/agent ./internal/tool ./internal/tool/repomap -count=1` 全包通过（types 21.889s、agent 2.791s、tool 155.000s、repomap 2.522s）；`git diff --check` 通过。待提交推送与严格双 case r7。
+
+### B5 r7 人工审计与批 L/M（2026-07-31）
+
+批 K 提交 `0c484c8d3`、重建并通过 runner revision/clean-input 校验后，以严格 `parallel=2` 回放（sweep `20260731-082841`）：
+
+- 结果目录：
+  - `eval/results/real_trace_e2_cross_trace_asymmetry-20260731-082841`
+  - `eval/results/cangjie_repomap-20260731-082841`
+- runner 2/2 PASS；人工 Trace FAIL、Cangjie FAIL。
+- Trace 的 T11 已真实覆盖：6 次 `trace_query`、零 repo/source read，结构化报告和 last-mile `trace_query 关键观测核对` 均未发布，也没有 `Trace 因果投影`。这类没有显式时间窗、诊断/root-cause/call-chain 或 publication-grade causal row 的完整工件覆盖比较，本来就不需要因果投影；显式 typed 时间窗正臂、自动补齐与完整报告权限未改。
+- Trace 的数值主体正确：`144.557ms` 对 `0.556ms`、`cpu_frequency=90`、VSync 仅第一份存在、绝对时间戳偏移约 `31637s≈8.8h`。但答案无跨工件证据声称“两者来自同一台设备（com.baidu.tieba 进程）”，又把 artifact-local `alignment=identity` 组合成跨工件时基关系；第一份还被称作“完整帧渲染链路”。当前 ledger 只有每份工件各自的范围/identity，没有 shared-device、shared-session、shared-clock-origin 或 capture-completeness carrier。T7 已连续多轮复现，应由 P1 升为 P0。
+- Cangjie 的 S9 已真实覆盖：analyzer 一次发出 schema-valid `target_roles=type/function/constant`、`requested_fields=name/location/package` 和逐字 source quotes，且没有 guessed parser required-file hard scope。确定性 source-inventory 已在第一轮完整返回 2 个 Cangjie `extend`、2 个 `foreign func`、8 个 `public class` 及 row-local package。
+- 但同一 source-inventory 还把 ArkTS `@Extend(Text) function highlight` 发布为 `surface=@Extend(Text) extend extend highlight`。代码根因不是 Cangjie/ArkTS 语言路由，而是 `sourceInventoryConstructSurfaceTerms` 对任何 `kind=extend` 无条件铸裸 `extend`；parser 已提供的 `@` 语法标记没有参与 family identity，导致 annotation/decorator form 与 keyword-block form碰撞。之后完整性门把该错行当权威缺口，强制模型补读并将 extend 总数写成 3。
+- runner 的 `EXPECT_INVENTORY_COUNT_EXTEND=2` 仍 PASS，是因为 `eval_inventory_rowset_reasons` 的 `matched` 只累计预先声明的 expected rows；`expected_count` 实际校验“预期行中命中了几条”，不校验回答可见 rowset 的真实基数，也不拒绝未声明 extra row。该 oracle 能发现漏行，不能发现多报。
+
+B5 r7 新增/更新 GAP：
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B5-T11 | P0 | Last-mile 发布接线 | generic comparison 的第二发布栈绕过共享 authority | r7 中因果投影、结构化完整报告和 last-mile 观测墙均消失；显式窗正臂已有单测 | covered |
+| EVAL-B5-S9 | P0 | Optional profile 局部降级 | invalid optional roles 连带丢失合法 fields/quotes并放大 guessed file | r7 analyzer 直接给出合法 profile，且无 guessed file 缩窄；合法 field/quote 全保留 | covered |
+| EVAL-B5-S10 | P0 | Parser 语法表面身份 | parser `kind` 的裸 keyword family 覆盖了其已提供的 annotation/decorator sigil，令同名 keyword 与 `@Marker(...)` 跨语法形碰撞 | 从单 row 的 parser metadata 提取 syntax-form identity：当 marker base 与 construct kind 同源时，family 使用带 sigil 的 marker base+member，不再同时铸裸 kind；keyword form维持原 family。不得看语言、case、请求或答案 | 已施工；批 L，待回放 |
+| EVAL-INFRA-3 | P1 | Inventory exact-count oracle | `EXPECT_INVENTORY_COUNT_*` 只比较 expected-row matches，extra row 不改变 matched，产生 false PASS | 为 typed inventory oracle增加可解析的确定性 rowset receipt/真实可见成员基数，再校验 exact expected count与 unexpected members；在 receipt 前不得靠 Markdown bullet 猜成员 | filed；批 L 后单独评估 |
+| EVAL-B5-T7 | P0 | 跨工件关系权限 | per-artifact local identity/range 被模型组合成 shared device/session/clock relation | 在 runtime ledger 建立 per-artifact identity 与 pair relation 分席；只有共同 session/device/calibration anchor 可铸 `proven`，否则显式 `unproven`，并把该 typed relation交给成文。不得扫描答案纠错 | confirmed；批 M |
+| EVAL-B5-M3 | P2 | 模型语义波动 | “完整帧渲染链路”和短片段“仅有两类事件”等 completeness 绝对化措辞 | 先由 T7 pair relation carrier和既有 enumeration caliber软约束；若跨 case复现，再建设 artifact completeness typed field，不扫描答案正文 | filed-model-variance |
+
+批 L/M 不变量：
+
+1. 批 L 只使用 parser 单行已经发布的 `Kind/Doc/Name/SurfaceTerms` 区分 keyword、annotation/decorator 等 syntax form；不读取 raw request、source quote语义、语言名、case ID或答案正文。
+2. Cangjie `extend Cart`/`extend String` 继续属于 `extend` family；ArkTS `@Extend(Text)` 属于带 sigil 的 marker family。显式请求 `@Extend` 的能力必须保留，不能靠删除 ArkTS row修复。
+3. source-inventory 的 role、scope、visibility、预算、complete-lens 与 row-local package join均不变；只修 family identity。
+4. 批 M 的 cross-artifact relation是新 typed 证据，不改变单工件 canonical time、显式时间窗、Trace 因果投影、根因排序、唤醒链、窗内可消除量、查询选择或自动补齐。
+5. 没有共同锚点时必须表示 `unproven`，不能把“时间戳不同”猜成不同设备，也不能把“格式/单位相同”猜成同一时钟；存在校准/session anchor的将来正臂必须可扩展。
+
+`B5-L/P0` 施工验证：construct family 在单一 parser row 内先比较规范化 `Kind` 与前导 marker base；同源 marker 使用带 `@` 的 base+member terms，keyword row继续使用裸 kind+member。与通用 query token 不同，已验证 source quote 的专用规范化保留 `@` syntax sigil，因此 `extend 块` 只选择裸 `extend` family，显式 `@Extend` 只选择 `@extend` family。端到端 candidate-set fixture 同时放置 keyword 与 marker 两行，分别只返回 `Cart` 与 `highlight`，证明不是简单删除 ArkTS 能力。
+
+结构收敛门同批守住：没有抬高既有 `source_inventory_construct_surface.go` 或 `source_inventory_requested_surface_family.go` 的 LOC 上限；syntax-form identity抽入 70 行独立 concern文件并设置精确 70 行 ratchet，旧 construct 文件由 70 行进一步降到 64 行。`go test ./internal/types ./internal/tool/repomap ./internal/tool -count=1` 全包通过（types 18.066s、repomap 2.032s、tool 153.861s）；`git diff --check` 通过。批 L 提交推送后进入批 M，不用等待客户或额外 eval 数据。
