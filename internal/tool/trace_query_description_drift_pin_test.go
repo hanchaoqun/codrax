@@ -100,10 +100,30 @@ func TestTraceQueryRootCauseClosedMatrixContractPinned(t *testing.T) {
 			"dominant cumulative state can still rank as the primary cause",
 			"fragmented state_churn candidates",
 			"to let it compete with other causes",
+			"state_churn itself never takes a rank-board seat",
+			"state_churn is a context-only output section",
+			"context-only state_churn diagnostics",
 			"the target's own runnable/running/IO/D-state rows compete normally as decomposable self causes",
 		} {
 			if strings.Contains(surface, banned) {
 				t.Fatalf("retired trace_query %s root-cause contract resurfaced: %q", name, banned)
+			}
+		}
+	}
+	for name, wants := range map[string][]string{
+		"description": {
+			"Its dominant typed state maps through the same closed matrix",
+			"fragmented running participates only through a positive CAP/compute-supply deficit",
+			"cross-type reconciliation absorbs it so the account occupies one rank-board seat while the churn diagnostics remain published",
+		},
+		"parameters": {
+			"state_churn diagnostics plus their closed-matrix dominant-state mapping",
+			"state_churn keeps its diagnostics while its dominant state follows the closed matrix and same-account one-seat reconciliation",
+		},
+	} {
+		for _, want := range wants {
+			if !strings.Contains(surfaces[name], want) {
+				t.Fatalf("trace_query %s missing state_churn participation contract fragment %q", name, want)
 			}
 		}
 	}

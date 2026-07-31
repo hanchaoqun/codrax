@@ -133,6 +133,18 @@ package tool
 // with the own-workload/business lever (business_span_mention + the 未计价
 // 占用 aux account are the carriers). Rides Description AND Parameters.
 //
+// EVOLUTION RECORD (EVAL-B4-T1, 2026-07-31): the state_churn paragraph and
+// alias sentence are corrected to match the engine's existing closed-matrix
+// and cross-type reconciliation truth. A dominant fragmented runnable or
+// typed D/IO account may enter the rank population; fragmented running still
+// requires a positive supply deficit, and sleep/unknown remain context_only.
+// When a mapped churn row duplicates a formal same-thread state account, the
+// reconciler absorbs it into one seat while retaining the churn diagnostics.
+// This removes the contradictory "context-only / never takes a seat"
+// teaching; it adds no view, note key, dispatch vocabulary, or production
+// gate. The strict two-case B4 replay (trace churn + write verification) is
+// the prescribed live-eval weigh after this batch.
+//
 // UPDATE RITUAL (deliberate gate — do NOT casually regenerate):
 //  1. justify the wording change against §29.64 (new note-key teaching goes
 //     to the wire Summary/legend, NOT mid-Description; R2' description-slot

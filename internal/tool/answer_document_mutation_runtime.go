@@ -6114,7 +6114,6 @@ func runtimeTraceMetricSnapshotItems(doc *types.AnswerDocumentV2, ctx *types.Bus
 	visible := answerDocumentVisibleSurfaceForRuntimeTrace(doc)
 	zh := runtimeTraceCausalProjectionUseChinese(requestedAnswerDocumentLanguage(ctx))
 	snapCtx := newRuntimeTraceMetricSnapshotContext(ledger, runtimeTraceProjUserFocusFromBusContext(ctx), zh)
-	seen := make(map[string]bool)
 	type snapshotCandidate struct {
 		record   types.ObservationRecord
 		raw      string
@@ -6138,20 +6137,110 @@ func runtimeTraceMetricSnapshotItems(doc *types.AnswerDocumentV2, ctx *types.Bus
 		if runtimeTraceMetricSnapshotCoveredByAnswer(visible, record, raw) {
 			continue
 		}
-		if seen[raw] {
-			continue
-		}
-		seen[raw] = true
 		tier, projIdx := snapCtx.candidateTier(record)
-		if tier == runtimeTraceMetricSnapshotTierChain {
-			hasChainCandidate = true
-		}
 		candidate := snapshotCandidate{record: record, raw: raw, tier: tier, projIdx: projIdx}
 		// PTV5 Q3 (#68 用户裁定 2026-07-05, NEW-8 display 用途): each record's
 		// own typed selected_window — the single strict parser — keys the
 		// per-window grouping below. Display-only; anchors untouched.
 		if ws, we, wok := types.TraceCausalProjectionSelectedWindowNote(record.RichNotes); wok {
 			candidate.winStart, candidate.winEnd, candidate.windowed = ws, we, true
+		}
+		candidates = append(candidates, candidate)
+	}
+	// B4-T2 (eval campaign 2026-07-31): state_churn is the authoritative
+	// whole-window producer for the state-account snapshot. A derived
+	// deterministic row can repeat the same (artifact, subject, query window,
+	// five state totals) while carrying independently-derived switch/fragment
+	// counts. Publishing both faces manufactured a contradiction even though
+	// the underlying query result had one canonical account.
+	//
+	// Suppress only with precise typed equality. Chain-episode rows remain
+	// independent because their per-state totals measure one occurrence rather
+	// than the whole query window. Missing/malformed windows or metrics fail
+	// open, and no user request or answer prose participates in this decision.
+	stateValue := func(record types.ObservationRecord, key string) (float64, bool) {
+		values := runtimeTraceMetricSnapshotValues(record)
+		if values == nil {
+			return 0, false
+		}
+		raw := strings.TrimSpace(strings.TrimSuffix(strings.ToLower(strings.TrimSpace(values[key])), "ms"))
+		value, err := strconv.ParseFloat(raw, 64)
+		if err != nil || math.IsNaN(value) || math.IsInf(value, 0) {
+			return 0, false
+		}
+		return value, true
+	}
+	sameWholeWindowStateAccount := func(a, b snapshotCandidate) bool {
+		if runtimeTraceMetricSnapshotEpisodeScoped(a.record) ||
+			runtimeTraceMetricSnapshotEpisodeScoped(b.record) ||
+			a.projIdx < 0 || a.projIdx != b.projIdx ||
+			!a.windowed || !b.windowed ||
+			math.Abs(a.winStart-b.winStart) > types.TraceCausalProjectionSameWindowToleranceS ||
+			math.Abs(a.winEnd-b.winEnd) > types.TraceCausalProjectionSameWindowToleranceS {
+			return false
+		}
+		aSubject := runtimeTraceCausalProjectionCanonicalNode(strings.TrimSpace(a.record.Subject))
+		bSubject := runtimeTraceCausalProjectionCanonicalNode(strings.TrimSpace(b.record.Subject))
+		if aSubject == "" || aSubject != bSubject {
+			return false
+		}
+		aValues := runtimeTraceMetricSnapshotValues(a.record)
+		bValues := runtimeTraceMetricSnapshotValues(b.record)
+		if aValues == nil || bValues == nil ||
+			strings.TrimSpace(aValues[types.TraceNoteKeyDominantState]) != strings.TrimSpace(bValues[types.TraceNoteKeyDominantState]) {
+			return false
+		}
+		for _, key := range []string{
+			types.TraceNoteKeyRunning,
+			types.TraceNoteKeyRunnable,
+			types.TraceNoteKeySleep,
+			types.TraceNoteKeyDState,
+			types.TraceNoteKeyIOWait,
+		} {
+			aValue, aOK := stateValue(a.record, key)
+			bValue, bOK := stateValue(b.record, key)
+			if !aOK || !bOK || math.Abs(aValue-bValue) > 1e-9 {
+				return false
+			}
+		}
+		return true
+	}
+	var canonicalWholeWindow []snapshotCandidate
+	for _, candidate := range candidates {
+		if strings.TrimSpace(candidate.record.Predicate) == "state_churn" &&
+			!runtimeTraceMetricSnapshotEpisodeScoped(candidate.record) {
+			canonicalWholeWindow = append(canonicalWholeWindow, candidate)
+		}
+	}
+	authorityFiltered := candidates[:0:0]
+	for _, candidate := range candidates {
+		suppress := false
+		if strings.TrimSpace(candidate.record.Predicate) != "state_churn" &&
+			!runtimeTraceMetricSnapshotEpisodeScoped(candidate.record) {
+			for _, canonical := range canonicalWholeWindow {
+				if sameWholeWindowStateAccount(candidate, canonical) {
+					suppress = true
+					break
+				}
+			}
+		}
+		if !suppress {
+			authorityFiltered = append(authorityFiltered, candidate)
+		}
+	}
+	// Preserve the existing raw metric-set dedupe after authority selection.
+	// Moving it here ensures an earlier derived row cannot hide the later
+	// canonical state_churn row merely because every displayed metric happens
+	// to be byte-identical.
+	seen := make(map[string]bool)
+	candidates = authorityFiltered[:0:0]
+	for _, candidate := range authorityFiltered {
+		if seen[candidate.raw] {
+			continue
+		}
+		seen[candidate.raw] = true
+		if candidate.tier == runtimeTraceMetricSnapshotTierChain {
+			hasChainCandidate = true
 		}
 		candidates = append(candidates, candidate)
 	}

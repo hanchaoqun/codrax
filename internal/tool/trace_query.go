@@ -151,15 +151,15 @@ func traceQueryApplyRootCauseClosedMatrixContract(text string) string {
 		},
 		{
 			"For frame/drop/jank windows with no single long sleep/runnable/D/IO/running segment, window_stats/root_cause_rank also report state_churn: frequent state switching with per-state cumulative impact, fragment count, max/p95 segment, and next-step guidance so the dominant cumulative state can still rank as the primary cause.",
-			"For frame/drop/jank windows with no single long sleep/runnable/D/IO/running segment, window_stats/root_cause_rank also report state_churn as context-only fragmentation diagnostics with per-state cumulative impact, fragment count, max/p95 segment, and next-step guidance; state_churn itself never takes a rank-board seat.",
+			"For frame/drop/jank windows with no single long sleep/runnable/D/IO/running segment, window_stats/root_cause_rank also report state_churn with per-state cumulative impact, fragment count, max/p95 segment, and next-step guidance. Its dominant typed state maps through the same closed matrix: fragmented runnable and mutually exclusive typed D-state/IO may participate with their authorized exact duration, fragmented running participates only through a positive CAP/compute-supply deficit, and sleep/unknown remain context_only. When that mapped fragmented row is the same physical state account as a formal same-thread row, cross-type reconciliation absorbs it so the account occupies one rank-board seat while the churn diagnostics remain published.",
 		},
 		{
 			"state_churn is an output section/candidate signal, not an independent view; use view=window_stats to inspect it directly or view=root_cause_rank/frame_root_cause_bundle to let it compete with other causes.",
-			"state_churn is a context-only output section, not an independent view; use view=window_stats to inspect it directly or view=root_cause_rank/frame_root_cause_bundle to preserve its fragmentation diagnostics beside typed causes.",
+			"state_churn is an output section/candidate signal, not an independent view; use view=window_stats to inspect it directly or view=root_cause_rank/frame_root_cause_bundle to map its dominant typed state through the closed matrix, subject to same-account one-seat reconciliation while the fragmentation diagnostics remain published.",
 		},
 		{
 			"fragmented state_churn candidates when frequent short state switches cumulatively dominate,",
-			"context-only state_churn diagnostics when frequent short state switches cumulatively dominate,",
+			"state_churn diagnostics plus their closed-matrix dominant-state mapping when frequent short state switches cumulatively dominate,",
 		},
 		{
 			"and co-primary on-chain runnable/running/compute-supply/D-state/IO dependencies when they are part of the same causal chain; same-chain primary root_cause_rank rows are ordered by effective_impact_ms before score, and non-semantic rows default effective_impact_ms to cumulative_impact_ms;",
@@ -167,7 +167,7 @@ func traceQueryApplyRootCauseClosedMatrixContract(text string) string {
 		},
 		{
 			"state_churn and causal_impacts are output sections, not standalone views;",
-			"state_churn is a context-only output section and causal_impacts are typed output sections, not standalone views;",
+			"state_churn and causal_impacts are typed output sections, not standalone views; state_churn keeps its diagnostics while its dominant state follows the closed matrix and same-account one-seat reconciliation;",
 		},
 	}
 	for _, replacement := range replacements {

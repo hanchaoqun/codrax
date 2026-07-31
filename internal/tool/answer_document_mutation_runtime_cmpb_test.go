@@ -111,6 +111,71 @@ func TestRuntimeTraceMetricSnapshot_EntityThreadsRankAboveRest(t *testing.T) {
 	}
 }
 
+// B4-T2 pin: the direct whole-window state_churn producer owns one physical
+// state account. A derived row with the same typed artifact/subject/window and
+// five state totals must not publish a second, contradictory switch/fragment
+// count. Ledger order deliberately puts the derived row first so the legacy
+// raw-string first-wins dedupe cannot hide the authority bug.
+func TestRuntimeTraceMetricSnapshot_CanonicalWholeWindowStateAccountWins(t *testing.T) {
+	bus := newBusForMutationTest()
+	canonical := cmpbSnapshotObservation("canonical", "app-20", "2.000", "state_churn", "state_churn:app-20",
+		"selected_window=11.000..11.008")
+	canonical.RichNotes[6] = "fragments=20"
+	canonical.RichNotes[7] = "switches=19"
+	derived := cmpbSnapshotObservation("derived", "app-20", "2.000", "root_cause_rank", "root_cause_rank:app-20",
+		"selected_window=11.000..11.008")
+	derived.RichNotes[6] = "fragments=21"
+	derived.RichNotes[7] = "switches=20"
+	bus.ToolResults = []types.ToolResult{{
+		ToolName:     "trace_query",
+		Success:      true,
+		Observations: []types.ObservationRecord{derived, canonical},
+	}}
+
+	items := runtimeTraceMetricSnapshotItems(cmpbSnapshotDoc(), bus)
+	if len(items) != 1 {
+		t.Fatalf("same whole-window state account must publish exactly one canonical snapshot row, got %+v", items)
+	}
+	if !strings.Contains(items[0].Text, "19 次切换/20 段") ||
+		strings.Contains(items[0].Text, "20 次切换/21 段") {
+		t.Fatalf("canonical state_churn switch/fragment account must win:\n%s", items[0].Text)
+	}
+}
+
+// B4-T2 negative pin: an occurrence-scoped wakeup row is a different
+// measurement caliber even when its state totals happen to equal the
+// whole-window state_churn account, so both scoped rows remain visible.
+func TestRuntimeTraceMetricSnapshot_ChainEpisodeRemainsIndependent(t *testing.T) {
+	bus := newBusForMutationTest()
+	canonical := cmpbSnapshotObservation("canonical", "worker-20", "2.000", "state_churn", "state_churn:worker-20",
+		"selected_window=11.000..11.008")
+	canonical.RichNotes[6] = "fragments=20"
+	canonical.RichNotes[7] = "switches=19"
+	episode := cmpbSnapshotObservation("episode", "worker-20", "2.000", "wakeup_causal_impact", "wakeup_causal_impact:worker-20",
+		"selected_window=11.000..11.008", "chain_relevance=on_chain", "impact_ms=2.000")
+	episode.RichNotes[6] = "fragments=21"
+	episode.RichNotes[7] = "switches=20"
+	bus.ToolResults = []types.ToolResult{{
+		ToolName:     "trace_query",
+		Success:      true,
+		Observations: []types.ObservationRecord{canonical, episode},
+	}}
+
+	items := runtimeTraceMetricSnapshotItems(cmpbSnapshotDoc(), bus)
+	if len(items) != 2 {
+		t.Fatalf("whole-window and chain-episode accounts must remain independently scoped, got %+v", items)
+	}
+	var wholeWindow, chainEpisode bool
+	for _, item := range items {
+		wholeWindow = wholeWindow || strings.Contains(item.Text, "19 次切换/20 段")
+		chainEpisode = chainEpisode || (strings.Contains(item.Text, "链上发生段内状态时长") &&
+			strings.Contains(item.Text, "20 次切换/21 段"))
+	}
+	if !wholeWindow || !chainEpisode {
+		t.Fatalf("snapshot must preserve both explicit calibers: %+v", items)
+	}
+}
+
 // CMP-4b pin: a snapshot thread whose own observed span exceeds TWICE the
 // projection window carries the mismatch note; a within-2× thread does not.
 func TestRuntimeTraceMetricSnapshot_SpanMismatchAnnotation(t *testing.T) {
