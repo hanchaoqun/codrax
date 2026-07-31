@@ -1,0 +1,1168 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Trace 因果投影 · CODRAX</title>
+  <meta name="description" content="CODRAX Trace 因果投影深入解读 —— 目标锚定单主树、状态段、占比条、[E#] 证据索引、需求与供给分离的逐要素读图指南与真实案例走读。" />
+  <style>
+    :root {
+      --bg: #ffffff;
+      --bg-soft: #fafafa;
+      --bg-sunken: #f4f4f5;
+      --border: #e7e7ea;
+      --border-strong: #d4d4d8;
+      --fg: #18181b;
+      --fg-body: #3f3f46;
+      --fg-muted: #71717a;
+      --fg-faint: #a1a1aa;
+      --accent: #4f46e5;
+      --accent-hover: #4338ca;
+      --accent-soft: #eef2ff;
+      --accent-border: #c7d2fe;
+      --code-bg: #f6f6f7;
+      --green: #15803d; --green-soft: #f0fdf4; --green-border: #bbf7d0;
+      --amber: #b45309; --amber-soft: #fffbeb; --amber-border: #fcd987;
+      --red: #b91c1c; --red-soft: #fef2f2; --red-border: #fecaca;
+      --header-h: 58px;
+      --sidebar-w: 268px;
+      --mono: "SF Mono", "Cascadia Code", "JetBrains Mono", Consolas, "Liberation Mono", monospace;
+      --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+
+    body {
+      background: var(--bg);
+      color: var(--fg-body);
+      font-family: var(--sans);
+      font-size: 16px;
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { color: var(--accent-hover); }
+
+    code {
+      font-family: var(--mono);
+      font-size: 0.86em;
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 0.1em 0.38em;
+      color: #4338ca;
+      word-break: break-word;
+    }
+
+    /* ---------- header ---------- */
+    .site-header {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: var(--header-h);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 22px;
+      background: rgba(255, 255, 255, 0.86);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--border);
+      z-index: 50;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      font-weight: 700;
+      font-size: 1.04rem;
+      color: var(--fg);
+      letter-spacing: -0.01em;
+    }
+    .brand:hover { color: var(--fg); }
+
+    .brand-mark {
+      width: 26px; height: 26px;
+      border-radius: 7px;
+      background: var(--accent);
+      color: #fff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--mono);
+      font-weight: 700;
+      font-size: 0.96rem;
+    }
+    .brand-mark span { transform: translateY(-0.5px); }
+
+    .nav { display: flex; align-items: center; gap: 4px; }
+
+    .nav a {
+      color: var(--fg-muted);
+      font-size: 0.9rem;
+      font-weight: 500;
+      padding: 7px 11px;
+      border-radius: 7px;
+    }
+    .nav a:hover { color: var(--fg); background: var(--bg-sunken); }
+    .nav a.is-active { color: var(--accent); }
+
+    .nav-gh {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .nav-gh svg { width: 16px; height: 16px; }
+
+    .menu-btn {
+      display: none;
+      appearance: none;
+      border: 1px solid var(--border-strong);
+      background: var(--bg);
+      border-radius: 8px;
+      width: 36px; height: 36px;
+      cursor: pointer;
+      align-items: center;
+      justify-content: center;
+      color: var(--fg-body);
+    }
+    .menu-btn svg { width: 18px; height: 18px; }
+
+    /* ---------- reading progress ---------- */
+    .progress {
+      position: fixed;
+      top: var(--header-h); left: 0;
+      height: 2px;
+      width: 0%;
+      background: var(--accent);
+      z-index: 49;
+      transition: width 0.1s linear;
+    }
+
+    /* ---------- layout ---------- */
+    .layout {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding-top: var(--header-h);
+      display: grid;
+      grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+    }
+
+    /* ---------- sidebar ---------- */
+    .sidebar {
+      position: sticky;
+      top: var(--header-h);
+      align-self: start;
+      height: calc(100vh - var(--header-h));
+      overflow-y: auto;
+      padding: 26px 14px 60px 22px;
+      border-right: 1px solid var(--border);
+    }
+
+    .toc-group {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      color: var(--fg-faint);
+      padding: 0 10px;
+      margin: 22px 0 7px;
+    }
+    .toc-group:first-child { margin-top: 0; }
+
+    .toc a {
+      display: block;
+      font-size: 0.875rem;
+      color: var(--fg-muted);
+      padding: 5px 10px;
+      border-radius: 6px;
+      border-left: 2px solid transparent;
+      line-height: 1.45;
+    }
+    .toc a:hover { color: var(--fg); background: var(--bg-soft); }
+    .toc a.is-active {
+      color: var(--accent);
+      background: var(--accent-soft);
+      border-left-color: var(--accent);
+      font-weight: 600;
+    }
+
+    /* ---------- content ---------- */
+    .content {
+      min-width: 0;
+      padding: 0 clamp(20px, 4vw, 64px) 100px;
+    }
+
+    .doc {
+      max-width: 860px;
+      margin: 0 auto;
+    }
+
+    section { scroll-margin-top: 78px; }
+    section + section { margin-top: 56px; }
+
+    /* hero */
+    .hero {
+      padding: 50px 0 38px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 14px;
+    }
+    .kicker {
+      display: inline-block;
+      font-size: 0.74rem;
+      font-weight: 700;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 14px;
+    }
+    .hero h1 {
+      font-size: clamp(1.9rem, 4vw, 2.7rem);
+      font-weight: 800;
+      letter-spacing: -0.025em;
+      color: var(--fg);
+      line-height: 1.18;
+    }
+    .tagline {
+      margin-top: 20px;
+      padding-left: 16px;
+      border-left: 3px solid var(--accent);
+    }
+    .tagline p { color: var(--fg-body); }
+    .tagline .strong {
+      color: var(--fg);
+      font-weight: 700;
+      font-size: 1.08rem;
+      margin-top: 4px;
+    }
+    .hero-lead {
+      margin-top: 22px;
+      font-size: 1.04rem;
+      color: var(--fg-body);
+    }
+
+    /* headings */
+    h2 {
+      font-size: 1.6rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--fg);
+      line-height: 1.3;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 20px;
+    }
+    h2 .h2-no {
+      font-family: var(--mono);
+      font-size: 0.92rem;
+      font-weight: 700;
+      color: var(--accent);
+      margin-right: 10px;
+    }
+    h3 {
+      font-size: 1.12rem;
+      font-weight: 700;
+      color: var(--fg);
+      margin: 30px 0 12px;
+    }
+
+    section > p, .doc > p { margin: 14px 0; }
+    .lead { font-size: 1.04rem; color: var(--fg-body); }
+
+    strong { color: var(--fg); font-weight: 700; }
+
+    /* lists */
+    ul, ol { margin: 12px 0; padding-left: 4px; }
+    .list { list-style: none; }
+    .list li {
+      position: relative;
+      padding-left: 20px;
+      margin: 8px 0;
+    }
+    .list li::before {
+      content: "";
+      position: absolute;
+      left: 3px; top: 0.72em;
+      width: 5px; height: 5px;
+      border-radius: 1.5px;
+      background: var(--accent);
+    }
+    .list.list--plain li::before { background: var(--fg-faint); }
+
+    /* code block */
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 14px 16px;
+      overflow-x: auto;
+      margin: 14px 0;
+    }
+    pre code {
+      background: none;
+      border: 0;
+      padding: 0;
+      font-size: 0.82rem;
+      line-height: 1.66;
+      color: var(--fg-body);
+      white-space: pre;
+    }
+    pre code .c { color: var(--fg-faint); }
+
+    /* verbatim specimen blocks */
+    .specimen { margin: 16px 0 4px; }
+    .specimen pre { margin: 0; }
+    .specimen pre code { font-size: 0.78rem; line-height: 1.6; }
+    .specimen.pre-wrap pre code { white-space: pre-wrap; word-break: break-word; }
+    .src {
+      margin: 5px 2px 16px;
+      font-size: 0.78rem;
+      color: var(--fg-faint);
+      font-family: var(--mono);
+      word-break: break-all;
+    }
+
+    /* panels / cards */
+    .card {
+      background: var(--bg-soft);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 17px 19px;
+    }
+    .card h4 {
+      font-size: 0.97rem;
+      font-weight: 700;
+      color: var(--fg);
+      margin-bottom: 7px;
+    }
+    .card p { font-size: 0.92rem; margin: 6px 0; }
+    .card p:first-of-type { margin-top: 0; }
+    .card .list li { font-size: 0.9rem; margin: 6px 0; }
+
+    .grid { display: grid; gap: 14px; margin: 18px 0; }
+    .grid--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+    /* note / callout */
+    .note {
+      background: var(--accent-soft);
+      border: 1px solid var(--accent-border);
+      border-radius: 10px;
+      padding: 14px 18px;
+      margin: 18px 0;
+    }
+    .note p { margin: 4px 0; font-size: 0.95rem; color: #312e81; }
+    .note .note-label {
+      font-weight: 700;
+      color: var(--accent-hover);
+    }
+    .note--warn { background: var(--amber-soft); border-color: var(--amber-border); }
+    .note--warn p { color: #78350f; }
+    .note--warn .note-label { color: var(--amber); }
+
+    .plain-note {
+      background: var(--bg-sunken);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--border-strong);
+      border-radius: 8px;
+      padding: 13px 17px;
+      margin: 16px 0;
+    }
+    .plain-note p { font-size: 0.93rem; margin: 3px 0; }
+    .plain-note .pn-label { font-weight: 700; color: var(--fg); }
+
+    /* step list */
+    .steps { list-style: none; counter-reset: step; display: grid; gap: 12px; margin: 18px 0; padding: 0; }
+    .steps > li {
+      display: flex;
+      gap: 14px;
+      background: var(--bg-soft);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 15px 17px;
+    }
+    .steps .step-no {
+      flex: none;
+      width: 30px; height: 30px;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #fff;
+      font-family: var(--mono);
+      font-weight: 700;
+      font-size: 0.86rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .steps .step-body { min-width: 0; }
+    .steps .step-body strong { display: block; color: var(--fg); margin-bottom: 2px; }
+    .steps .step-body p { font-size: 0.92rem; margin: 0; }
+    .steps .step-body .specimen pre code { font-size: 0.76rem; }
+
+    /* table */
+    .table-wrap { overflow-x: auto; margin: 16px 0; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 9px 13px;
+      border: 1px solid var(--border);
+      vertical-align: top;
+    }
+    th { background: var(--bg-sunken); color: var(--fg); font-weight: 700; }
+    td code { font-size: 0.84em; }
+
+    /* closing */
+    .closing {
+      margin-top: 56px;
+      background: var(--fg);
+      border-radius: 14px;
+      padding: 40px 36px;
+      text-align: center;
+    }
+    .closing p { color: #d4d4d8; font-size: 1.06rem; }
+    .closing .closing-strong {
+      color: #fff;
+      font-size: 1.28rem;
+      font-weight: 700;
+      line-height: 1.55;
+      margin-bottom: 14px;
+    }
+    .closing .closing-strong em { color: #a5b4fc; font-style: normal; }
+    .closing a { color: #a5b4fc; }
+
+    /* footer */
+    .site-footer {
+      border-top: 1px solid var(--border);
+      background: var(--bg-soft);
+    }
+    .footer-inner {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 26px clamp(20px, 4vw, 64px);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px 26px;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .footer-inner .f-links { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+    .footer-inner a { color: var(--fg-muted); font-size: 0.88rem; }
+    .footer-inner a:hover { color: var(--accent); }
+    .footer-inner .f-meta { color: var(--fg-faint); font-size: 0.82rem; }
+
+    /* sidebar overlay (mobile) */
+    .overlay {
+      display: none;
+      position: fixed;
+      inset: var(--header-h) 0 0 0;
+      background: rgba(24, 24, 27, 0.4);
+      z-index: 40;
+    }
+
+    /* ---------- responsive ---------- */
+    @media (max-width: 1000px) {
+      .menu-btn { display: inline-flex; }
+      .nav .nav-text { display: none; }
+      .layout { grid-template-columns: 1fr; }
+      .sidebar {
+        position: fixed;
+        top: var(--header-h);
+        left: 0;
+        width: 290px;
+        max-width: 84vw;
+        height: calc(100vh - var(--header-h));
+        background: var(--bg);
+        border-right: 1px solid var(--border);
+        transform: translateX(-100%);
+        transition: transform 0.22s ease;
+        z-index: 45;
+      }
+      .sidebar.is-open { transform: translateX(0); box-shadow: 0 20px 50px rgba(0,0,0,0.16); }
+      .overlay.is-open { display: block; }
+    }
+
+    @media (max-width: 720px) {
+      body { font-size: 15px; }
+      .grid--2, .grid--3 { grid-template-columns: 1fr; }
+      .hero { padding: 34px 0 30px; }
+      h2 { font-size: 1.34rem; }
+      .content { padding-left: 18px; padding-right: 18px; }
+      .closing { padding: 30px 22px; }
+      .nav a:not(.nav-gh) { display: none; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      .progress, .sidebar { transition: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <header class="site-header">
+    <a class="brand" href="./index.html" aria-label="CODRAX 首页">
+      <span class="brand-mark"><span>C</span></span>
+      codrax
+    </a>
+    <nav class="nav" aria-label="主导航">
+      <a href="./index.html" class="nav-text">首页</a>
+      <a href="./codrax_authoritative_guide.html" class="nav-text">使用与技术说明</a>
+      <a href="./user_guide.html" class="nav-text">使用手册</a>
+      <a href="./trace_causal_projection.html" class="is-active nav-text">Trace 因果投影</a>
+      <a href="https://github.com/hanchaoqun/codrax" class="nav-gh" target="_blank" rel="noopener">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        GitHub
+      </a>
+    </nav>
+    <button class="menu-btn" id="menuBtn" type="button" aria-label="打开目录" aria-expanded="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+    </button>
+  </header>
+
+  <div class="progress" id="progress" aria-hidden="true"></div>
+  <div class="overlay" id="overlay" aria-hidden="true"></div>
+
+  <div class="layout">
+
+    <aside class="sidebar" id="sidebar" aria-label="目录">
+      <nav class="toc" id="toc">
+        <div class="toc-group">认识投影</div>
+        <a href="#what">这是什么</a>
+        <a href="#when">什么时候会看到它</a>
+        <div class="toc-group">逐要素读图指南</div>
+        <a href="#guide-anchor">主树与锚定：先找 ⊚</a>
+        <a href="#guide-states">状态段：☾ ⧖ ⚙ ⛓</a>
+        <a href="#guide-bars">占比条与百分数</a>
+        <a href="#guide-evidence">[E#]：从树行回到证据</a>
+        <a href="#guide-merge">同段双源与合并行</a>
+        <a href="#guide-demand-supply">需求与供给分开呈现</a>
+        <a href="#guide-overview">◎ 总览与修复方向</a>
+        <div class="toc-group">案例与边界</div>
+        <a href="#walkthrough">一个完整案例走读</a>
+        <a href="#honesty">边界与诚实性</a>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <article class="doc">
+
+        <header class="hero">
+          <span class="kicker">深入解读</span>
+          <h1>Trace 因果投影：怎么读这棵树</h1>
+          <div class="tagline">
+            <p>目标锚定单主树 · 无损明细 · 证据索引。</p>
+            <p class="strong">树上每一行、每一个数，都能对回 trace 里的一段证据。</p>
+          </div>
+          <p class="hero-lead">
+            附加性能 trace 提问后，答案里常会出现一章「Trace 因果投影」——一棵纯文本的因果树。
+            这份文档教你逐要素把它读懂：主树怎么锚定、状态段各是什么、占比条怎么读（以及什么不能加）、
+            [E#] 怎么对回证据附录、需求与供给为什么分开呈现。页面里的所有树片段都取自真实分析输出，逐字未改。
+          </p>
+        </header>
+
+        <!-- ============ what ============ -->
+        <section id="what">
+          <h2>这是什么</h2>
+          <p class="lead">
+            Trace 因果投影是 CODRAX 对「这个线程为什么慢」的结构化回答：以你关注的线程为根（⊚），
+            把它在分析窗内的等待，沿 trace 里真实记录的唤醒/依赖边逐层向上游展开成<strong>一棵主树</strong>，
+            每行带状态、时长、占窗比与证据编号。先看一小段真实输出（来自一次真机 trace 分析，逐字摘录，中间行以「……（截断）」略去）：
+          </p>
+
+          <div class="specimen"><pre><code>⊚ com.baidu.tieba-59566 ‹用户关注线程›        满格=窗口114.940ms
+……（截断）
+├─下钻─ ☾ CookieMonsterCl-59843 · sleep…      ████░░░░░░     44.836ms  39%  [E5(+6)]
+│ · sleep（s_sleep） · 上下文·不参与根因排序
+│ · 链上L1 · 6次(2.705~10.976ms)
+│   └─唤醒─ ☾ NetworkService-60595 · sleep…   ██░░░░░░░░     25.558ms  22%  [E6(+4)]
+│     · sleep（s_sleep） · 上下文·不参与根因排序
+│     · 链上L2 · 3次(6.620~10.769ms)
+│       └─唤醒─ ⛓ ThreadPoolForeg-60555       █░░░░░░░░░      4.269ms   4%  [E7(+1)]
+│         · D-state（d_sleep） · 链上L3
+│         · 承自归因6.936ms · 实际6.936ms(超出发生段,窗内)
+……（截断）</code></pre></div>
+          <p class="src">来源：eval/results/real_trace_d4_demand_vs_supply-20260730-043227/run-1.out（逐字摘录）</p>
+
+          <p>
+            读法只有一条主线：<strong>自上而下 = 从关注线程向上游追溯</strong>。上面这段的含义是——主线程在睡眠等待（下钻），
+            直接原因是 CookieMonsterCl 没来唤醒它；CookieMonsterCl 又在等 NetworkService；NetworkService 最终卡在
+            ThreadPoolForeg 的一段 D 状态（不可中断等待）上。三行缩进就是三层因果。
+          </p>
+
+          <h3>为什么不用火焰图 / 时间线也能读懂等待因果</h3>
+          <div class="grid grid--2">
+            <div class="card">
+              <h4>火焰图和时间线擅长「谁在跑」</h4>
+              <p>它们按 CPU 占用或时间轴铺开所有线程，回答「时间花在哪」。但卡顿问题里线程多数时间<strong>不在跑</strong>——在睡、在等 IO、在等别人唤醒。等待的因果关系（谁在等谁）在那两种视图里要靠人眼跨线程对齐时间戳去猜。</p>
+            </div>
+            <div class="card">
+              <h4>因果树直接画出「谁在等谁」</h4>
+              <p>投影树把 trace 里真实的 <code>sched_wakeup</code>/阻塞记录整理成边（<code>├─下钻─</code>、<code>└─唤醒─</code>），一行一个节点、一行一份证据。等待链是画出来的，不是猜出来的；trace 里没有的边不会被画上（见<a href="#honesty">边界与诚实性</a>）。</p>
+            </div>
+          </div>
+          <p>
+            树是等宽纯文本（<code>```text</code> 代码块），不是图片也不是图表库——终端、markdown 落盘、网页三个出口
+            消费同一份字节，复制粘贴到工单里也不走样。这是产品的一条长期设计裁定。
+          </p>
+        </section>
+
+        <!-- ============ when ============ -->
+        <section id="when">
+          <h2>什么时候会看到它</h2>
+          <p class="lead">
+            前提是本轮<strong>附加了性能 trace</strong>（CLI <code>--htrace</code> / <code>--atrace</code>，或 REPL 里
+            <code>/htrace</code> / <code>/atrace</code>；支持 HiTrace / atrace / systrace / perfetto 文本格式），
+            并且问题被判定为 trace 诊断类。提问尽量给足三要素——<strong>进程/线程名（或 pid/tid）、时间窗、想要的结论形态</strong>——
+            与站点其它页面的建议一致。下面是三条真实问法（逐字，来自真机 trace 的分析记录）：
+          </p>
+
+          <div class="specimen pre-wrap"><pre><code>❯ 只分析这份 trace，不分析代码。在 34579.472865s 到 34579.587805s 期间，com.baidu.tieba 59566 主线程的卡顿更像是 CPU 算力不够（供给侧问题），还是在等依赖/事件（需求侧问题）？请给出判断和 trace 内依据。</code></pre></div>
+          <p class="src">来源：eval/results/real_trace_d4_demand_vs_supply-20260730-043227/run-1.out</p>
+          <div class="specimen pre-wrap"><pre><code>❯ 只分析这份 trace，不分析代码。请分析 CompThread_0-2955 在 13762.791708s 到 13763.024898s 窗口内的等待情况：它有没有进入过不可中断等待（D 状态）？内核记录的等待对象是什么，一共发生了几次，总量有多大？</code></pre></div>
+          <p class="src">来源：eval/results/real_trace_h2_dstate_dma_fence_triform-20260730-043627/run-1.out</p>
+          <div class="specimen pre-wrap"><pre><code>❯ 只分析这份 trace，不分析代码。请分析 .ugc.aweme.lite-17267 在 13762.791708s 到 13763.024898s 窗口内的 CPU 供给与运行占用：它在窗口内实际运行了多久？窗口内四种线程状态各占多少？它运行的 CPU 频率有没有受到限制，证据是什么？</code></pre></div>
+          <p class="src">来源：eval/results/real_trace_h4_supply_thermal_witness-20260730-043658/run-1.out</p>
+
+          <h3>它在答案里的位置</h3>
+          <p>模型撰写的结论段之后，会出现标题为「<strong>Trace 因果投影</strong>」的章节。以真实输出为准，其骨架大致是：</p>
+          <ul class="list">
+            <li><strong>主根因行 + 分析窗与状态账</strong>：一句话点名已证链上单项最大可消除量，随后是窗长、关注线程四态分布、已归因/未归因覆盖句。</li>
+            <li><strong>树读法（图例）</strong>：本报告用到的每个记号、口径词都在这里给出定义——图例是承诺面，出场记号必有条目。</li>
+            <li><strong>◎ 窗内可消除量总览</strong>与<strong>因果投影主树</strong>：两个等宽代码块，前者按修复方向分节导航，后者就是本页的主角。</li>
+            <li><strong>关键指标表 / 下一步 / 指标快照 / 逐节点明细 / 证据索引</strong>：树上压缩掉的完整属性、每个 [E#] 的 trace 行号或时间区间，都在这些配套小节里，无损可查。</li>
+          </ul>
+          <div class="plain-note">
+            <p><span class="pn-label">不是每个 trace 问题都带树：</span>纯画像/计数类问题的答案可能没有这一章；证据不足以支撑因果行时，系统会用显式的「覆盖边界」披露代替（见<a href="#honesty">边界与诚实性</a>），而不是硬画一棵树。</p>
+          </div>
+        </section>
+
+        <!-- ============ guide: anchor ============ -->
+        <section id="guide-anchor">
+          <h2><span class="h2-no">要素①</span>主树与锚定：先找 ⊚</h2>
+          <p class="lead">
+            树根永远是你在问题里点名的那个线程——<code>⊚ 线程名 ‹用户关注线程›</code>。树头同一行标注
+            <strong>满格=窗口时长</strong>（所有占比条的统一标尺），头部还有几行板级注记与「记号速览」：
+          </p>
+
+          <div class="specimen"><pre><code>⊚ CompThread_0-2955 ‹用户关注线程›             满格=窗口233.190ms
+- 链上平铺席按显示值降序(仅平铺席;树位挂靠行按链结构)
+- 记号速览: ⊚根 ☾sleep ⧖runnable ⚙running ⛓D/IO链上 ⧗D/IO非链 ⇅反转候选 ◦数据行 ◦中转 ✦语义
+  ➊..➎该板TOP5 ◇邻近 ▒背景 ◈业务span (全释义见 树读法)</code></pre></div>
+          <p class="src">来源：eval/results/real_trace_h2_dstate_dma_fence_triform-20260730-043627/run-1.out</p>
+
+          <p>树里的父子关系由<strong>边词</strong>表达，闭集只有几种，图例（树读法）里逐条定义。这是真实输出里的原文：</p>
+
+          <div class="specimen"><pre><code>- 边:
+  - `├─下钻─` = 父行在等什么:该子行就是父行等待的直接原因。
+  - `└─唤醒─` = 该行唤醒其父行(父行的等待由该行结束;父行依赖该行)。
+  - `父节点未确认` = 该行在链上且引擎已给出层数(行注/明细作 链上L#(父节点未确认)),但本树内未找到可挂靠的父节点:不声称唤醒/下钻关系,不编造树位。
+  - `└─链上─`+行注`链上·深度未解析` = 链上项但树位深度未解析:不声称唤醒/下钻关系,不编造树位;该行 [E#] 经证据索引给出 trace 行号区间。
+  - `├─语义─`/`✦` = 该位置的语义 span(业务阶段,确定性优化族),非调度状态行。</code></pre></div>
+          <p class="src">来源：eval/results/real_trace_h2_dstate_dma_fence_triform-20260730-043627/run-1.out（树读法节选）</p>
+
+          <div class="plain-note">
+            <p><span class="pn-label">常见误读：</span>不要把缩进读成「调用栈」。这不是函数调用树，是<strong>等待因果树</strong>：子行是父行等待的原因或唤醒来源。也不要默认所有链上行都挂在树上——引擎只在有唤醒/下钻证据时才画边，其余链上项以 <code>├─链上─</code> 平铺，并明确标注「父节点未确认」或「链上·深度未解析」。</p>
+          </div>
+        </section>
+
+        <!-- ============ guide: states ============ -->
+        <section id="guide-states">
+          <h2><span class="h2-no">要素②</span>状态段：☾ ⧖ ⚙ ⛓ 各是什么</h2>
+          <p class="lead">
+            每行开头的记号标出该行的主导调度状态。定义以每份报告自带的图例为准（逐字）：
+          </p>
+
+          <div class="specimen"><pre><code>- 记号:
+  - 行内 sleep/runnable/running/iowait/D-state = 该行的主导调度状态。
+  - `☾/sleep` = 睡眠等待(等事件/等唤醒);睡眠是症状而非根因,根因看它的下钻/唤醒子行。
+  - `⧖/runnable` = 就绪等待(有资格运行但未获得 CPU)。
+  - `⚙/running` = 运行占用(正在 CPU 上执行)。
+  - `⛓/D-state·iowait` = 不可中断等待/IO阻塞(链上行)。</code></pre></div>
+          <p class="src">来源：eval/results/real_trace_h2_dstate_dma_fence_triform-20260730-043627/run-1.out（树读法节选）</p>
+
+          <p>各状态怎么读、容易误读在哪：</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>记号 / 状态</th><th>含义</th><th>常见误读</th></tr></thead>
+              <tbody>
+                <tr><td><code>☾ sleep</code></td><td>睡眠等待（等事件/等唤醒）。</td><td>把大段 sleep 当根因。图例明说：<strong>睡眠是症状而非根因</strong>，要看它的下钻/唤醒子行是谁没来唤醒它。</td></tr>
+                <tr><td><code>⧖ runnable</code></td><td>就绪等待：有资格运行但没拿到 CPU。</td><td>runnable 很短却硬归因「CPU 不够」。runnable 长期堆积才指向调度供给问题。</td></tr>
+                <tr><td><code>⚙ running</code></td><td>运行占用：正在 CPU 上执行。</td><td>以为 running 不会上根因榜。低频/小核上「跑得慢」的 running 会以<strong>折算口径</strong>入榜（见要素⑥）。</td></tr>
+                <tr><td><code>⛓ D-state·iowait</code></td><td>不可中断等待 / IO 阻塞（链上行；非链上同族用 <code>⧗</code>）。</td><td>把 D 状态一律当磁盘 IO。判词区分「IO阻塞」与「不可中断等待·非IO已证」两族——下面的例子里 D 状态等的是 GPU fence，<code>iowait=0</code>。</td></tr>
+                <tr><td><code>⇅</code> / <code>✦</code> / <code>◦</code></td><td>优先级反转候选 / 业务语义 span / 未识别形态的数据行。</td><td>各自的准确定义都在该报告的「树读法」里，出场记号必有图例条目。</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>一段真实的状态段行（关注线程自身的 sleep 与 D 状态，注意 D 状态行直接给出内核记录的等待对象）：</p>
+          <div class="specimen"><pre><code>│     ☾ 自身·sleep 78.630ms 8次(6.912~16.419ms) 该段处于等待唤醒 [E2(+7)]
+│     ⛓ 自身·D-state(对端未解析) 36.757ms 4次(3.774~16.064ms) D-state [E3(+3)]
+│       · 等待对象 dma_fence_default_w · 同段镜像·与家族行同源</code></pre></div>
+          <p class="src">来源：eval/results/real_trace_h2_dstate_dma_fence_triform-20260730-043627/run-1.out</p>
+        </section>
+
+        <!-- ============ guide: bars ============ -->
+        <section id="guide-bars">
+          <h2><span class="h2-no">要素③</span>占比条与百分数：怎么读、什么不能加</h2>
+          <p class="lead">
+            每行的时长条是定宽的：<strong>满格 = 树头标注的长度</strong>（通常就是分析窗全长），百分数是该行时长占分析窗的比例。
+            链上/邻近行用 <code>█</code> 填充，背景行用 <code>▒</code>，一眼可分。真正要记住的是两条纪律：
+          </p>
+
+          <div class="note note--warn">
+            <p><span class="note-label">⚠ 纪律一：不同层的墙钟时长不可直接相加。</span></p>
+            <p>父行在等、子行也在等——两段等待在墙钟上<strong>互相包含、彼此重叠</strong>，逐层加总会把同一段物理时间计费多次。这是产品记录在案的裁定（覆盖率只做「第一层已归因 vs 窗长」的减法，从不做逐层求和），也是用户最容易犯的错。树头覆盖句自己就会披露这一点：</p>
+          </div>
+
+          <div class="specimen"><pre><code>分析窗 13762.792~13763.025s，共 233.190ms。
+- 关注线程等待(sleep/D-state/runnable) 116.963ms 中链上已归因 14.750ms(13%),未归因 102.213ms(87%)。
+- 另有 86 条链上行未计入上句已归因数值(单项最大 74.915ms;墙钟不可加和,详见明细/树)。
+- 各根因席位有效归因合计 332.701ms 超过窗长 233.190ms:席位间物理时间可重叠,不可直接相加。</code></pre></div>
+          <p class="src">来源：eval/results/real_trace_h2_dstate_dma_fence_triform-20260730-043627/run-1.out（树头覆盖句，逐字）</p>
+
+          <p>
+            注意最后一行：各席位有效归因合计 332.701ms <strong>超过窗长</strong> 233.190ms——系统直接把「不可相加」的原因印在报告里
+            （席位间物理时间可重叠）。唯一被承诺可相加的形态是「同源二分」对席（见要素⑤）。
+          </p>
+
+          <div class="note note--warn">
+            <p><span class="note-label">⚠ 纪律二：占窗 &gt;100% 可以是合法的，但要看口径词。</span></p>
+            <p>跨线程累计、跨 CPU 多段累计、他线程口径的背景行，都可能合法超过窗口长度——此时时长条已封顶，数值旁必带口径注记（如 <code>(跨线程累计,非墙钟)</code>、<code>超窗(他线程口径)</code>）。口径词永远与数值同行同视野。</p>
+          </div>
+
+          <div class="specimen"><pre><code>▒ 背景压力
+    ⧖ 调度压力(需求积压)·聚合                              201.409ms(跨线程累计,非墙钟)
+      ⤷ ·≈平均排队深度 10.1  [E18]
+      · 上下文·不参与根因排序
+    ├─背景─ ◦ 其余 10 项(折叠)                ▒▒▒▒▒▒▒▒▒▒    63.361ms 317%  [E19(+9)]
+      · 成员 hilogd.pst-474 · 其余 9 项见明细
+      · 10线程取最大(单项4.990~63.361ms)</code></pre></div>
+          <div class="specimen"><pre><code>  - 占窗&gt;100% = 跨CPU/多段累计,可合法超过窗口长度(时长条已封顶);同一线程几乎相同的重复记录(差异≤3%)只计一次,明显不同的重叠段分段累计。</code></pre></div>
+          <p class="src">来源：eval/results/real_trace_c2_dstate_iowait-20260730-043041/run-1.out（背景压力区段与「占窗&gt;100%」口径条，逐字）</p>
+
+          <p>
+            还有一类行<strong>根本没有条和百分数</strong>：<code>⌗ 口径旁栏</code> 行（计数当量、综合评分）。它们不是墙钟时长，
+            所以不画时长条、不标占窗比、不占根因排序序数——非墙钟数值不与墙钟同池比较。
+          </p>
+        </section>
+
+        <!-- ============ guide: evidence ============ -->
+        <section id="guide-evidence">
+          <h2><span class="h2-no">要素④</span>[E#]：从树行回到证据</h2>
+          <p class="lead">
+            每个持值行的行尾都有 <code>[E#]</code> 编号；<code>E#(+N)</code> 表示该行另合并了 N 条同类观测。
+            文末的「证据索引」按编号列出每条证据在 trace 里的<strong>行号或时间区间</strong>，以及一串审计字段
+            （tier / causality / rank / confidence / predicate 等，均为 trace_query 原文 token）。先看树上一行：
+          </p>
+
+          <div class="specimen"><pre><code>│       └─唤醒─ ☾ VSyncGenerator-2179          █░░░░░░░░░    12.088ms   5%  [E8]
+│         · sleep（s_sleep） · 上下文·不参与根因排序
+│         · 链上L3 · 发生段 13762.949876s~13762.962502s·与[E15]不相交(共2段,合计 26.048ms)
+│         · 实际18.912ms(超出发生段,窗内)</code></pre></div>
+
+          <p>行尾是 <code>[E8]</code>。翻到同一份报告文末的证据索引，按编号找到它和它的邻居：</p>
+
+          <div class="specimen"><pre><code>- **E6** — 定位: [13762.950~13762.965s]; 审计: tier=context_only · causality=on_wakeup_chain · confidence=0.78 · origin=system_supplement · predicate=wakeup_causal_impact,行 16709–19986
+- **E7** — 定位: [13762.950~13762.964s]; 审计: tier=context_only · causality=on_wakeup_chain · confidence=0.78 · origin=system_supplement · predicate=wakeup_causal_impact,行 16706–19904
+- **E8** — 定位: [13762.950~13762.963s]; 审计: tier=context_only · causality=on_wakeup_chain · confidence=0.78 · origin=system_supplement · predicate=wakeup_causal_impact,行 17494–19635
+- **E9** — 定位: [13762.954~13762.959s]; 审计: tier=context_only · causality=on_wakeup_chain · confidence=0.78 · origin=system_supplement · predicate=wakeup_causal_impact,行 17690–19297
+- **E10** — 定位: [13762.954~13762.958s]; 审计: tier=context_only · causality=on_wakeup_chain · confidence=0.78 · origin=system_supplement · predicate=wakeup_causal_impact,行 18565–19170
+- **E11** — 定位: [13762.954~13762.958s]; 审计: tier=context_only · causality=on_wakeup_chain · confidence=0.78 · origin=system_supplement · predicate=wakeup_causal_impact,行 18126–19161</code></pre></div>
+          <p class="src">来源：eval/results/real_trace_h2_dstate_dma_fence_triform-20260730-043627/run-1.out（证据索引节选）</p>
+
+          <p>对回的方法：</p>
+          <ul class="list">
+            <li><strong>定位</strong>给出 trace 文件里的时间区间（或行号区间）——拿原始 trace 在这个区间内就能复核该行的每个数。坐标指向 trace 文件本身，<strong>不是源码行号</strong>。</li>
+            <li><strong>causality=on_wakeup_chain</strong> 说明该证据在唤醒链上；<code>rank=</code> 是根因排序榜位；<code>origin=system_supplement</code> 表示这条观测来自成文前的确定性补采，不是模型即兴查询。</li>
+            <li>树、关键指标表、逐节点明细用的是同一套 E# 编号——三处互指，任何一行都能顺着编号走到证据。</li>
+          </ul>
+        </section>
+
+        <!-- ============ guide: merge ============ -->
+        <section id="guide-merge">
+          <h2><span class="h2-no">要素⑤</span>同段双源与合并行：一段时间只记一次账</h2>
+          <p class="lead">
+            同一段物理时间常被 trace 的多条通道观测到（根因排序看到它、唤醒链也看到它；裸状态视图和家族聚合也会重复）。
+            投影的约定是<strong>合并显示、互指留痕、数值不重复计入</strong>。报告图例的原文定义：
+          </p>
+
+          <div class="plain-note">
+            <p><span class="pn-label">图例原文（节选）：</span>「同段镜像 = 同一物理段/同一物理时间在多条通道重复发布:同段同值的裸状态行已并入所指行(其 [E#] 并入行首括号)……两行数值不可相加」；「同段被根因排序与唤醒链两来源各发一行时已合并为一行,根因排序行的 E# 并入行尾 [E#+E#],数值不重复计入」。</p>
+          </div>
+
+          <p>真实例子：关注线程的 D 状态在树上有两行——裸状态视图行（标注「同段镜像·与家族行同源」）与佩戴 ➋ 徽章的家族聚合席。两行说的是同一批 D 状态段，账只记一次：</p>
+
+          <div class="specimen"><pre><code>│     ⛓ 自身·D-state(对端未解析) 36.757ms 4次(3.774~16.064ms) D-state [E3(+3)]
+│       · 等待对象 dma_fence_default_w · 同段镜像·与家族行同源
+│     ➋ ⛓ 自身·D-state 合计36.757ms [E4]
+│       · D状态候选·目标自身·墙钟席·置信中·修向 IO/内核/依赖·等待对象 dma_fence_default_w
+│       · 有效归因 36.757ms = 合计(共4段,同线程)
+│       · 成员 d_sleep cpu=3 合计16.064ms(5段)
+│       · 成员 d_sleep cpu=1 合计10.424ms(3段)
+│       · 成员 d_sleep cpu=2 合计6.495ms(2段)
+│       · 其余 1 项见明细(成员共4,列3)
+│       · 等待对象 dma_fence_default_w</code></pre></div>
+          <p class="src">来源：eval/results/real_trace_h2_dstate_dma_fence_triform-20260730-043627/run-1.out</p>
+
+          <p>
+            与之相对，<strong>「同源二分」是全树唯一被承诺可相加的席位对</strong>：一份全窗账按链上凭证拆成
+            ⛓ 锚定席 + ◇ 余段席，两席不相交、相加恰好还原全窗值，行内直接写出恒等式并互指对席：
+          </p>
+
+          <div class="specimen"><pre><code>├─链上─ ⧖ T7@ZeusThreadPo-61839 · runnable    █░░░░░░░░░      0.370ms  &lt;1%  [E20]
+│ · 调度压力候选·根因排序#9·置信中·链上·深度未解析·修向 调度供给·有效归因 0.370ms(全额)
+│ · 同源二分:全窗0.445ms=本行锚定0.370ms+其余0.075ms(◇余段席)
+│ · 唤醒锚定(宿主→目标,见图例)·最晚相关边 34579.496810s·凭证=直接裸边
+│ · 同源二分对席:◇席=[E31],⛓席=本行;合计还原全窗账 0.445ms(规则见图例)</code></pre></div>
+          <p class="src">来源：eval/results/real_trace_d4_demand_vs_supply-20260730-043227/run-1.out</p>
+        </section>
+
+        <!-- ============ guide: demand/supply ============ -->
+        <section id="guide-demand-supply">
+          <h2><span class="h2-no">要素⑥</span>需求与供给：为什么分开呈现</h2>
+          <p class="lead">
+            「谁在等谁」（需求侧）和「CPU 给得够不够」（供给背景）是两类不同性质的证据，混在一起必然误导。
+            投影把它们放在不同位置、用不同口径：链上席回答等待因果；频点、温控、绑核这类供给证据以独立口径出现，
+            <strong>从不冒充一个等待席位</strong>。
+          </p>
+
+          <h3>供给证据长什么样</h3>
+          <p>
+            关注线程自身的 running 席是最典型的供给载体：running 原始时长按「全域最大核最高频」基准<strong>折算</strong>，
+            差值就是「供给折算缺口」——低频/小核导致的跑慢成分。温控证据（热限压）直接写在行内：
+          </p>
+
+          <div class="specimen"><pre><code>│     ➊ ⚙ 自身·running 74.915ms [E1]
+│       · 算力供给候选·目标自身·墙钟席·置信高·修向 频率与热治理
+│       · 有效归因 65.912ms = running(折算,按全域最大核最高频) 65.912ms
+│       · running 原始 74.915ms → 计入 65.912ms(折算,按前述基准,按实测频点共动分簇折算)
+│       · 供给折算缺口 65.912ms(运行频点非最高,按前述基准折算,下界,分簇口径同前)为主,running
+│         时间含降频/小核导致的跑慢成分;窗内该簇受热限压至 1.53GHz</code></pre></div>
+
+          <p>绑核/亲和限制则以「CPU亲和/cpuset限制」行出现在 ◇ 邻近区段，行内给出允许核、排除核与被排除的大核算力档——并明确声明它「无链上凭证，整席不入链上榜」：</p>
+
+          <div class="specimen"><pre><code>    ⧖ logd.writer-9163 · CPU亲和/cpuset限制    ██░░░░░░░░    48.519ms  21%  [E39]
+      · 调度压力候选·邻近影响#9·置信中·修向 调度供给
+      · runnable · 无链上凭证(整席不入链上榜,见图例)
+      · CPU约束描述:允许核 0-1,3-11 · 排除全域观测核 2,12-13 · 绑核排除更大核档(允许核最高档 2.27GHz
+        &lt; 全域最大核档 2.75GHz) · 判定依据 sched_switch_next_info</code></pre></div>
+          <p class="src">以上两段来源：eval/results/real_trace_h2_dstate_dma_fence_triform-20260730-043627/run-1.out</p>
+
+          <h3>三个区段的分工</h3>
+          <div class="grid grid--3">
+            <div class="card">
+              <h4>链上（树区）</h4>
+              <p>有 typed 因果凭证的席位：唤醒边、下钻关系、目标自身墙钟。只有这里的数值是「已证可消除量」。</p>
+            </div>
+            <div class="card">
+              <h4>◇ 邻近区段</h4>
+              <p>与唤醒链时间相邻、但不在唤醒链上。是「条件可消除上界」——因果候选成立时至多好这么多，不进方向守恒。</p>
+            </div>
+            <div class="card">
+              <h4>▒ 背景压力</h4>
+              <p>环境证据（跨线程/他线程口径），不计入链上归因，需结合链上证据解读。压力大不等于因果成立。</p>
+            </div>
+          </div>
+          <div class="plain-note">
+            <p><span class="pn-label">读法要点：</span>看到「供给折算缺口」先看它相对等待量的大小——在下文的案例里，10.331ms 的频率缺口对上 84.358ms 的 sleep，系统与答案都明确判它是次要因素。供给背景解释「跑得慢」，解释不了「根本没在跑」。</p>
+          </div>
+        </section>
+
+        <!-- ============ guide: overview ============ -->
+        <section id="guide-overview">
+          <h2><span class="h2-no">要素⑦</span>◎ 总览：按修复方向导航</h2>
+          <p class="lead">
+            主树之前还有一个 <code>◎ 窗内可消除量总览</code> 代码块：把同尺（关注线程窗内墙钟 ms）的持值行按
+            <strong>修复方向</strong>（调度供给 / 锁与优先级 / IO·内核·依赖 / 频率与热治理 / 自身工作量……闭集词表）分节陈列，
+            每节头给出「最大可消」。它是导航索引：零序数、零徽章、只转录值与指针，榜位归属仍在主树。方向间收益不可相加。
+          </p>
+
+          <div class="specimen"><pre><code>◎ 窗内可消除量总览 · 尺=com.baidu.tieba-59566 窗内墙钟ms
+⛓ 链上块先 · 节=修复方向(其他方向恒末,余按节内最大可消降序)· 节内值降序 · 方向间收益不可相加
+▸ 锁与优先级 · 最大可消 23.994ms · 2席 · 成员区间重叠,合计不可直加
+   23.994ms ████████████ CookieMonsterCl-59843 · 优先级反转候选 ·构成 ·交集证明 [E8]
+   19.041ms ██████████░░ NetworkService-60595 · 优先级反转候选 ·构成 ·交集证明 [E15]
+▸ IO/内核/依赖 · 最大可消 10.433ms · 2席 · 成员区间重叠,合计不可直加
+   10.433ms █████░░░░░░░ ThreadPoolForeg-60555 · IO阻塞·不可中断(原因未证) ·合计(共3段,同线程)
+     ⤷ ·交集证明 [E16]
+    7.386ms ████░░░░░░░░ ThreadPoolForeg-60555 · IO阻塞 ·合计(共4段,同线程) ·交集证明 [E17(+2)]
+▸ 频率与热治理 · 最大可消 10.331ms
+   10.331ms █████░░░░░░░ com.baidu.tieba-59566 · 低频运行 ·折算,按全域最高频 ·目标自身 [E2]
+▸ 自身工作量 · 最大可消 0.285ms
+    0.285ms █░░░░░░░░░░░ T7@ZeusThreadPo-61839 · 类校验 ·唤醒锚定 [E24]
+……（截断）</code></pre></div>
+          <p class="src">来源：eval/results/real_trace_d4_demand_vs_supply-20260730-043227/run-1.out（◎ 总览节选）</p>
+
+          <p>
+            注意每节头的诚实注记：「2席 · 成员区间重叠,合计不可直加」——两席的时间包络实测重叠时，系统只发「最大可消」，
+            拒绝给出会重复计费的小计。
+          </p>
+        </section>
+
+        <!-- ============ walkthrough ============ -->
+        <section id="walkthrough">
+          <h2>一个完整案例走读</h2>
+          <p class="lead">
+            选一份 2026-07-30 的真机结果：com.baidu.tieba 主线程卡顿，问「是 CPU 算力不够（供给侧），还是在等依赖/事件（需求侧）」。
+            从提问到最终树逐段走一遍，看结论是怎么从树上读出来的。以下每段均为逐字摘录。
+          </p>
+
+          <ol class="steps">
+            <li>
+              <span class="step-no">1</span>
+              <div class="step-body">
+                <strong>提问（三要素齐全：线程、时间窗、结论形态）</strong>
+                <div class="specimen pre-wrap"><pre><code>❯ 只分析这份 trace，不分析代码。在 34579.472865s 到 34579.587805s 期间，com.baidu.tieba 59566 主线程的卡顿更像是 CPU 算力不够（供给侧问题），还是在等依赖/事件（需求侧问题）？请给出判断和 trace 内依据。</code></pre></div>
+              </div>
+            </li>
+            <li>
+              <span class="step-no">2</span>
+              <div class="step-body">
+                <strong>答案先给判断，再给依据</strong>
+                <p>结论段开门见山：需求侧问题。判据是自身四态分布——sleep 73% / runnable 仅 3%：</p>
+                <div class="specimen pre-wrap"><pre><code>在 34579.472865s–34579.587805s（窗口约 114.94ms）期间，com.baidu.tieba 59566 主线程的卡顿是需求侧问题——主线程在等待依赖/事件，而不是 CPU 算力不够。
+
+主线程自身状态分布：sleep 占 84.358ms（约 73%），runnable 仅 3.636ms（约 3%），running 约 26.946ms（约 23%）。runnable 时间极短，说明主线程并没有大量积压的待运行工作，不符合"想跑但没有 CPU 可用"的供给侧特征。</code></pre></div>
+              </div>
+            </li>
+            <li>
+              <span class="step-no">3</span>
+              <div class="step-body">
+                <strong>树头：分析窗、四态账、覆盖句</strong>
+                <p>四态合计恰等于分析窗（这是唯一合法的加和）；「已归因 14% / 未归因 86%」只做第一层减法；行尾直接声明「墙钟不可加和」：</p>
+                <div class="specimen"><pre><code>分析窗 34579.473~34579.588s，共 114.940ms。
+- 关注线程全窗四态: running 26.946ms(23%) + runnable 3.636ms(3%) + sleep 84.358ms(73%) + D-state 0.000ms(0%) = 114.940ms(四态合计=分析窗)。
+- running 26.946ms: 供给折算影响 10.331ms 见 ➍ [E2](折算,不计入四态合计) · 自身执行(无确定性可优化工作) 26.946ms。
+- 关注线程等待(sleep/D-state/runnable) 80.235ms(按自身状态视图行合计尺,与上方四态行不同尺,不可直接对账) 中链上已归因 11.103ms(14%),未归因 69.132ms(86%)。
+- 另有 31 条链上行未计入上句已归因数值(单项最大 47.282ms;墙钟不可加和,详见明细/树)。</code></pre></div>
+              </div>
+            </li>
+            <li>
+              <span class="step-no">4</span>
+              <div class="step-body">
+                <strong>自身状态段：症状面</strong>
+                <p>⊚ 下的自身行：sleep 76.599ms（12 次）标注「窗口内主要处于等待唤醒」——症状；➍ running 席携带供给折算缺口 10.331ms——供给侧的全部分量，量级摆在这里：</p>
+                <div class="specimen"><pre><code>│     ☾ 自身·sleep 76.599ms 12次(2.584~11.103ms) 窗口内主要处于等待唤醒 [E1(+11)]
+│     ➍ ⚙ 自身·running 26.946ms [E2]
+│       · 算力供给候选·目标自身·墙钟席·置信高·修向 频率与热治理
+│       · 有效归因 10.331ms = running(折算,按全域最高频) 10.331ms
+│       · running 原始 26.946ms → 计入 10.331ms(折算,按全域最高频,按频率比)
+│       · 供给折算缺口 10.331ms(运行频点非最高,按全域最高频折算,下界,按频率比)为主,running
+│         时间含降频等导致的跑慢成分
+│     ⧖ 自身·优先级反转·可运行等待 合计3.615ms [E3]
+│       · 优先级反转·可运行等待·目标自身·墙钟席·根因排序#8·置信中·修向 锁与优先级
+│       · runnable · 有效归因 1.017ms
+│     ⧖ 自身·runnable 0.021ms [E4]
+│       · 调度压力候选·目标自身·墙钟席·根因排序#11·置信中·修向 调度供给·有效归因 0.021ms(全额)</code></pre></div>
+              </div>
+            </li>
+            <li>
+              <span class="step-no">5</span>
+              <div class="step-body">
+                <strong>唤醒链：等待主因的因果路径</strong>
+                <p>下钻三层：主线程 ← CookieMonsterCl ← NetworkService ← ThreadPoolForeg（D 状态）。这是「在等依赖」的直接证据链：</p>
+                <div class="specimen"><pre><code>├─下钻─ ☾ CookieMonsterCl-59843 · sleep…      ████░░░░░░     44.836ms  39%  [E5(+6)]
+│ · sleep（s_sleep） · 上下文·不参与根因排序
+│ · 链上L1 · 6次(2.705~10.976ms)
+│   └─唤醒─ ☾ NetworkService-60595 · sleep…   ██░░░░░░░░     25.558ms  22%  [E6(+4)]
+│     · sleep（s_sleep） · 上下文·不参与根因排序
+│     · 链上L2 · 3次(6.620~10.769ms)
+│       └─唤醒─ ⛓ ThreadPoolForeg-60555       █░░░░░░░░░      4.269ms   4%  [E7(+1)]
+│         · D-state（d_sleep） · 链上L3
+│         · 承自归因6.936ms · 实际6.936ms(超出发生段,窗内)
+├─链上─ ◦ 其余 6 项(折叠)                     ████░░░░░░     47.282ms  41%  [E23(+5)]
+│ · 成员最大 CookieMonsterCl-59843(见榜位#1) · sleep 47.282ms · 其余 5 项见明细
+│ · 6线程取最大(单项4.558~47.282ms)</code></pre></div>
+              </div>
+            </li>
+            <li>
+              <span class="step-no">6</span>
+              <div class="step-body">
+                <strong>➊ 席位：主根因的量与凭证</strong>
+                <p>CookieMonsterCl 的 runnable 席佩 ➊：有效归因 23.994ms，分解为 runnable(全额) + running(折算)，并与构成段行互指、声明物理时间重叠不可相加：</p>
+                <div class="specimen"><pre><code>├─链上─ ➊ ⇅ CookieMonsterCl-59843 · runnable  ██░░░░░░░░     23.994ms  21%  [E8]
+│ · 优先级反转候选·置信高·链上L1(父节点未确认)·修向 锁与优先级
+│ · 有效归因 23.994ms = runnable(全额) 23.748ms + running(折算) 0.246ms
+│ · runnable 原始 23.748ms → 计入 23.748ms(全额)
+│ · running 原始未发布 → 计入 0.246ms(折算,按全域最高频,运行频点非最高,按频率比)
+│ · 链上累计26.170ms · 构成段见[E9(+4)](本席数值已计入全部构成段,构成段行不另计)
+│ · 与[E9(+4)]同线程同状态族·物理时间重叠(不可相加)·账目关系(见图例):本行=按链上聚合归账
+│   (根因排序席),[E9(+4)]=按本行发生段归账
+│ · 本线程另有邻近席 [E27]</code></pre></div>
+              </div>
+            </li>
+            <li>
+              <span class="step-no">7</span>
+              <div class="step-body">
+                <strong>◇ 邻近区段：调度背景</strong>
+                <p>同一个 CookieMonsterCl 还有 26.738ms 的 runnable 落在邻近区段——无链上凭证，所以只作「条件可消上界」，不入链上榜：</p>
+                <div class="specimen"><pre><code>◇ 邻近区段
+    ⧖ CookieMonsterCl-59843 · 优先级反转…     ██░░░░░░░░     26.738ms  23%  [E27]
+      · 优先级反转·可运行等待·邻近影响#3·置信中·修向 锁与优先级
+      · runnable · 无链上凭证(整席不入链上榜,见图例)
+      · 本线程另有链上席 [E8] · 有效归因 1.847ms
+……（截断）</code></pre></div>
+              </div>
+            </li>
+            <li>
+              <span class="step-no">8</span>
+              <div class="step-body">
+                <strong>对回证据：E5→E8</strong>
+                <p>证据索引里，链上各行的定位与审计字段（E8 即 ➊ 席，rank=1、causality=on_wakeup_chain）：</p>
+                <div class="specimen"><pre><code>- **E5** — 定位: [34579.476~34579.588s]; 审计: tier=context_only · causality=on_wakeup_chain · confidence=0.78…,行 13431–15160
+- **E6** — 定位: [34579.525~34579.588s]; 审计: tier=context_only · causality=on_wakeup_chain · confidence=0.78 · origin=system_supplement · predicate=wakeup_causal_impact · merged_count=3…,行 13437–15148
+- **E7** — 定位: [34579.577~34579.588s]; 审计: causality=on_wakeup_chain · confidence=0.78 · origin=system_supplement · predicate=wakeup_causal_impact…,行 13447–15131
+- **E8** — 定位: [34579.473~34579.572s]; 审计: tier=primary · causality=on_wakeup_chain · rank=1 · confidence=0.88…,行 2892–13060</code></pre></div>
+              </div>
+            </li>
+            <li>
+              <span class="step-no">9</span>
+              <div class="step-body">
+                <strong>供给侧交叉核对，收束结论</strong>
+                <p>答案没有回避供给证据，而是给出量级对比后判为次要因素：</p>
+                <div class="specimen pre-wrap"><pre><code>主线程 running 时段的频率折算缺口为 10.331ms（修向：频率与热治理）——这意味着如果运行在最高频点，理论上可节省约 10ms。但 10.331ms 相对于 84.358ms 的 sleep 占比极小（仅约 12%），不能解释主线程 73% 的 sleep 状态。频率缺口是次要因素，需求侧等待才是主因。</code></pre></div>
+                <p>至此三件事都从树上读出来了：<strong>等待主因</strong>（CookieMonsterCl 优先级反转，23.994ms）、<strong>唤醒链</strong>（主线程←CookieMonsterCl←NetworkService←ThreadPoolForeg D 状态）、<strong>调度背景</strong>（频率缺口 10.331ms，次要；◇/▒ 提供上界与环境证据）。</p>
+              </div>
+            </li>
+          </ol>
+          <p class="src">本节全部摘录来源：eval/results/real_trace_d4_demand_vs_supply-20260730-043227/run-1.out</p>
+        </section>
+
+        <!-- ============ honesty ============ -->
+        <section id="honesty">
+          <h2>边界与诚实性</h2>
+          <p class="lead">
+            这棵树的另一半价值在于它<strong>不画什么</strong>：没有唤醒证据就不画边，没有窗口数据就不造占比，
+            证据不足就显式披露。树上不声称的关系，就是证据里没有的关系——折叠行除外，它们带着计数指针指向无损明细，折叠不丢信息。
+          </p>
+
+          <h3>链没追上去时：⊘ 与平铺形</h3>
+          <p>窗口里追不出唤醒路径时，树头直接换成 ⊘ 声明，席位改为平铺——不编一棵好看的树：</p>
+          <div class="specimen"><pre><code>⊘ 唤醒链路径未解析  满格=窗口20.000ms
+- 本板成因: 仅单簇有频点采样——「按频率比」行同此因,板级一次声明,行内不再复读
+- 链上平铺席按显示值降序(仅平铺席;树位挂靠行按链结构)(计数当量行恒末)
+- 记号速览: ⧖runnable ⚙running ⛓D/IO链上 ⧗D/IO非链 ⌗口径旁栏 ◦数据行 ➊..➎该板TOP5 ⊘链止 ◇邻近 ▒背景
+  ◈业务span ⤷折行续行 (全释义见 树读法)</code></pre></div>
+          <p class="src">来源：eval/results/real_trace_c2_dstate_iowait-20260730-043041/run-1.out</p>
+
+          <h3>树位存疑时：「父节点未确认」</h3>
+          <p>引擎知道某行在链上、也知道层数，但在本树里找不到可挂靠的父节点时，它平铺该行并如实标注——不声称唤醒/下钻关系，不编造树位：</p>
+          <div class="specimen"><pre><code>├─链上─ ☾ RSUniRenderThre-2188 · sleep…        █░░░░░░░░░    15.960ms   7%  [E12]
+│ · sleep（s_sleep） · 上下文·不参与根因排序
+│ · 链上L1(父节点未确认) · 发生段 13762.881585s~13762.898004s·与[E6]不相交(共2段,合计 30.265ms)
+│ · 实际32.321ms(超出发生段,窗内)</code></pre></div>
+          <p class="src">来源：eval/results/real_trace_h2_dstate_dma_fence_triform-20260730-043627/run-1.out</p>
+
+          <h3>证据不足时：显式的覆盖边界披露</h3>
+          <p>每份报告末尾都可能出现「Trace 因果投影覆盖边界」披露块，写明哪些结果被压缩、哪些枚举不完整、哪些结论只能当下界。这是一段真实的披露原文：</p>
+          <div class="specimen pre-wrap"><pre><code>&gt; **Trace 因果投影覆盖边界** 本报告已获得 trace_query 的结构化执行记录，但没有产出有数据支撑的 root_cause/wakeup_chain/semantic 行，因此未生成分层因果表。 结构化原因: trace_query 结果已压缩；event_search 结果达到条数上限。 这不是“没有背景影响”的结论；只表示当前证据没有给出可审计的因果/背景统计，可追问一次根因/窗口/交互统计分析(root_cause_rank、window_stats 或 interaction_stats)补齐。 目标窗内状态账: com.baidu.tieba-59566 窗2.992ms — 主导状态=sleep 2.978ms(99.5%)，running=0.000ms，runnable=0.014ms，sleep=2.978ms(其中 IO等待 0.000ms)，d_state=0.000ms，io_wait=0.000ms；等待型自身状态是症状面，不作为可消除影响参与根因排序席位。证据权限: frame_causality=unproven，frame_evidence_status=absent；未获得可绑定到目标的 frame/deadline 证据或 typed causal row，调度、IO、频率观察只能描述窗口背景，不能证明具体丢帧因果。枚举权限: enumeration_status=incomplete，compacted_views=critical_blocking_calls,event_search,root_cause_rank，boundaries=critical_blocking_calls/candidates:emitted=20,total=21|event_search/events:emitted=40,total=59|root_cause_rank/candidates:emitted=12,total=26；达到上限或分页只返回的行只能作为样本或下界，不能支撑“全部/仅有/总计/共N/最大/最小”结论。</code></pre></div>
+          <p class="src">来源：eval/results/real_trace_f1_exclude_no_code-20260730-043441/run-1.out</p>
+
+          <p>模型侧的未覆盖项同样落在显式的「补充说明」里：</p>
+          <div class="specimen pre-wrap"><pre><code>- 本回答生成前,系统建议的部分补充定位/钻取步骤未执行;结论以已收集的证据为准,未覆盖的部分请按未验证对待。
+- trace 中部分线程的睡眠等待未定位到上游唤醒者;相关结论基于已收集的证据,未定位的唤醒来源请按未验证对待。</code></pre></div>
+          <p class="src">来源：eval/results/real_trace_c2_dstate_iowait-20260730-043041/run-1.out</p>
+
+          <div class="note">
+            <p><span class="note-label">一句话总结：</span>读这棵树时可以放心做的推断，是「行上写了什么、证据就有什么」；不能做的推断，是「行上没写的也大概如此」。缺口在哪，报告自己会说。</p>
+          </div>
+        </section>
+
+        <div class="closing">
+          <p class="closing-strong">
+            树是投影，证据是本体；<br>
+            每一行都能对回 trace，<em>这才是它可信的原因</em>。
+          </p>
+          <p>怎么附加 trace、转换二进制格式，见<a href="./user_guide.html#32-附加性能-tracehitrace-atrace-systrace-perfetto-perf-sample">使用手册 §3.2 附加性能 trace</a>；投影与 trace 子系统的完整机制设计，见仓库内 <code>docs/architecture.md</code>。</p>
+        </div>
+
+      </article>
+    </main>
+  </div>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <div class="f-links">
+        <a href="./index.html">首页</a>
+        <a href="./codrax_authoritative_guide.html">使用与技术说明</a>
+        <a href="./user_guide.html">使用手册</a>
+        <a href="./trace_causal_projection.html">Trace 因果投影</a>
+        <a href="https://github.com/hanchaoqun/codrax" target="_blank" rel="noopener">GitHub</a>
+      </div>
+      <div class="f-meta">CODRAX —— 推理确定，解释锚定。</div>
+    </div>
+  </footer>
+
+  <script>
+    (function () {
+      var menuBtn = document.getElementById("menuBtn");
+      var sidebar = document.getElementById("sidebar");
+      var overlay = document.getElementById("overlay");
+      var progress = document.getElementById("progress");
+      var tocLinks = Array.prototype.slice.call(document.querySelectorAll("#toc a"));
+      var sections = Array.prototype.slice.call(document.querySelectorAll(".content section[id]"));
+
+      function setDrawer(open) {
+        sidebar.classList.toggle("is-open", open);
+        overlay.classList.toggle("is-open", open);
+        menuBtn.setAttribute("aria-expanded", String(open));
+      }
+      menuBtn.addEventListener("click", function () {
+        setDrawer(!sidebar.classList.contains("is-open"));
+      });
+      overlay.addEventListener("click", function () { setDrawer(false); });
+      tocLinks.forEach(function (a) {
+        a.addEventListener("click", function () {
+          if (window.innerWidth <= 1000) setDrawer(false);
+        });
+      });
+
+      // reading progress
+      function onScroll() {
+        var doc = document.documentElement;
+        var max = doc.scrollHeight - doc.clientHeight;
+        var pct = max > 0 ? (doc.scrollTop / max) * 100 : 0;
+        progress.style.width = pct.toFixed(1) + "%";
+      }
+      window.addEventListener("scroll", onScroll, { passive: true });
+      onScroll();
+
+      // scrollspy
+      var byId = {};
+      tocLinks.forEach(function (a) { byId[a.getAttribute("href").slice(1)] = a; });
+      var current = null;
+      function spy() {
+        var probe = 110;
+        var active = sections[0] ? sections[0].id : null;
+        for (var i = 0; i < sections.length; i++) {
+          if (sections[i].getBoundingClientRect().top <= probe) active = sections[i].id;
+        }
+        if (active !== current) {
+          if (current && byId[current]) byId[current].classList.remove("is-active");
+          if (active && byId[active]) {
+            byId[active].classList.add("is-active");
+            var el = byId[active];
+            var sb = sidebar.getBoundingClientRect();
+            var er = el.getBoundingClientRect();
+            if (er.top < sb.top || er.bottom > sb.bottom) {
+              el.scrollIntoView({ block: "nearest" });
+            }
+          }
+          current = active;
+        }
+      }
+      window.addEventListener("scroll", spy, { passive: true });
+      window.addEventListener("resize", spy);
+      spy();
+    })();
+  </script>
+</body>
+</html>
