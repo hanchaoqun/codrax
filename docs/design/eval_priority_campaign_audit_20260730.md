@@ -1739,3 +1739,70 @@ request comparator、model aggregate 或 summary 中出现，不能改称 Codrax
 阈值。低于16.67ms但由模型提交 `janky=true` 的负臂不会取得 deterministic
 threshold authority。实现不读取答案文本、不新增硬门。
 `go test ./internal/agent -count=1` 通过（2.873s）。
+
+### B11 r1 人工审计与批 AB 规划（2026-07-31）
+
+在 revision `78e7c9da89c3` 重建后，以严格 `parallel=2` 执行：
+
+- `eval/results/github_issue_libgit2_foreach_worktree_symptom-20260731-125556`
+- `eval/results/real_trace_h1_binder_true_false_attribution-20260731-125556`
+
+runner 1/2，人工 0/2。两个失败来自不同通道，均可由 typed 状态和结构化
+载体泛化修复，不需要读取用户原始问句或模型答案词面。
+
+写模式 C 用例的产品修改正确：两个比较/赋值优先级缺陷均增加括号，现有
+`test_repository.c` 覆盖 `-42`、`-7`、`0`。原生 C verification probe
+因当前枚举只支持 Python/JavaScript/Ruby/Java/Go 被拒后，模型改为 Python
+wrapper；wrapper 确实调用 gcc 编译并执行测试二进制且通过。问题发生在
+`run_tests` 的控制顺序：
+
+1. pre-suite probe 通过；
+2. `verificationProbePassProjectSuiteContinuationReason` 在 changed-path
+   coverage 尚未计算时返回空；
+3. `make@.` / `make check` 虽已由 TestSurface 识别，仍被
+   `probe_primary_suite_skipped` 跳过；
+4. 随后 `applyChangedPathVerificationCoverage` 才发现 Python probe
+   不能授权 `repository.c`，把整份报告降为
+   `changed_path_verification_uncovered`。
+
+因此这是所有“跨语言 wrapper probe 通过、但修改源文件未被该 probe
+family 覆盖、同时存在匹配项目 suite”都会触发的接线 gap，不是 C 或
+libgit2 单点。
+
+H1 的 typed binder 事实正确：目标线程已呈现的同步等待为
+transaction 12145859，peer `binder:496_9-10961`，发生于
+13762.835861..13762.837270，耗时 1.409ms。显式窗口的完整 Trace 因果投影
+仍然存在，15.758ms pacing idle 也被确定性投影排除出根因榜。AA1
+`Trace Target-State Scope Authority` 已出现在 answer-writer 输入中，且
+正文没有用目标线程 running/runnable 比例反推 CPU-wide 饱和度。
+
+但 H1 暴露出两个高价值 typed 消费缺口：
+
+- model-visible `root_cause_rank:13` 同一行发布 value=15.758ms，却携带
+  span=13762.984951..13762.985960（约1.009ms）。15.758ms 是累计/投影
+  pacing-idle 值，真实对应成员窗约为
+  13762.992415..13763.008173。也就是说，聚合值与单次 occurrence span
+  被错误拼成一条 observation，模型随后忠实写出了物理不可能的
+  duration/window 对。
+- `Trace Rank Arithmetic And Supply Authority` 只发布席位总数、top seat
+  和 frequency seat，不发布完整有序 roster。模型手写表把 binder
+  1.409ms 放在 #6，又把 3.429/3.309ms 放在 #7/#8；binder 在 typed ranked
+  seats 中实际无该席。确定性 projection 和校验附注能事后指出冲突，却
+  没在 answer-writer 的 typed authority 中给出可直接转录的完整顺序。
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B11-AB1 | P1 | write verification continuation | probe-pass 决策早于 changed-path coverage，导致已识别的匹配 suite 被跳过后才发现覆盖不足 | 对 probe pass 的临时报表先执行 changed-path coverage；若有 changed source 未覆盖且存在可运行 TestSurface，则继续项目 suite，并由组合报告取得最终覆盖 | planned |
+| EVAL-B11-AB2 | P1 | trace aggregate temporal identity | 累计/投影值与某个单次 occurrence span 共用 observation，duration 与 window 失配 | 让聚合记录只携带 aggregate/member-set 窗；单次 span 必须绑定同一 member 的 duration，无法一一对应则不发布单次精确窗 | planned |
+| EVAL-B11-AB3 | P1 | rank roster authority | writer 仅获 top/supply 摘要，完整排序留在成文后的 deterministic projection | 从 compiled projection 发布紧凑、完整、按 rank 排序的 typed roster，区分 ranked seat 与 context-only/binder composition，供正文直接转录 | planned |
+| EVAL-B11-AB4 | P2 | incomplete enumeration wording | observation coverage 已为 incomplete，正文仍写“窗口内全部/其余均为” | 将 per-view enumeration completeness 与可用 rowset 绑定成 typed wording authority；保持 soft guidance，不扫描答案做 hard gate | filed |
+| EVAL-B11-AB5 | P2 | native probe capability | verification probe schema 无 C/C++/shell，模型需用另一语言 wrapper | 先由 AB1 自动续跑匹配项目 suite 保证正确性；原生 probe 扩展另案评估安全沙箱与命令边界，不阻塞本批 | filed |
+
+批 AB 不变量：
+
+1. 不扫描 raw request、thinking 或最终答案文字/数字做硬门。
+2. 不改变显式窗选举、Trace 因果投影、根因排序、唤醒链、窗内可消除量和
+   自动补采；只修 typed 载体身份与消费接线。
+3. 通过的 bounded probe 仍可跳过无关项目 suite；只有 changed-path
+   coverage 实际不足且存在匹配 TestSurface 时才续跑。
+4. 聚合值可以保持完整累计语义，但不能借用不对应的单次精确时间窗。
