@@ -1191,6 +1191,7 @@ func FailureReasonCodeIndicatesVerificationUnavailable(raw string) bool {
 			"pytest_import_startup_error",
 			"unittest_loader_import_error",
 			"verification_probe_import_error",
+			"verification_probe_dependency_missing",
 			"verification_probe_module_not_found",
 			"verification_probe_runner_missing",
 			"verification_probe_syntax_error":

@@ -2247,6 +2247,81 @@ func TestRunTestsVerificationProbeRuntimeExceptionIsTestFailure(t *testing.T) {
 	}
 }
 
+func TestRunTestsVerificationProbeMissingChildExecutableFallsThroughToTypedSurface(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "Makefile"), []byte("check:\n\t@echo typed-surface-ok\n"), 0o644); err != nil {
+		t.Fatalf("write Makefile: %v", err)
+	}
+	const missingBinary = "codrax_w4_definitely_missing_executable"
+	mu := types.NewMutableState("probe dependency unavailable")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-probe-dependency-unavailable",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"Makefile"},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:       "missing_child_executable",
+			Language: "python",
+			Code: "import subprocess\n" +
+				"subprocess.run(['" + missingBinary + "', '--version'], check=True)\n",
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("missing child executable must fall through to passing typed test surface: %+v", result)
+	}
+	report := mu.ChangeReport()
+	if report == nil || !report.Passed ||
+		report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
+		t.Fatalf("typed make surface must own the final verdict: %+v", report)
+	}
+	var sawUnavailableProbe, sawMakePass bool
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Runner == "verification_probe" &&
+			cmd.Outcome == "runner_missing" &&
+			cmd.ReasonCode == "verification_probe_dependency_missing" {
+			sawUnavailableProbe = true
+		}
+		if cmd.Runner == "make" && cmd.Outcome == "executed" && cmd.ExitCode == 0 {
+			sawMakePass = true
+		}
+	}
+	if !sawUnavailableProbe || !sawMakePass {
+		t.Fatalf("expected unavailable probe followed by passing make surface: %+v", report.ExecutedCommands)
+	}
+	var sawTypedDetail bool
+	for _, diag := range report.VerificationDiagnostics {
+		if diag.ReasonCode != "verification_probe_dependency_missing" {
+			continue
+		}
+		var payload map[string]string
+		if err := json.Unmarshal([]byte(diag.Detail), &payload); err != nil {
+			// The report also carries the compact command-derived diagnostic;
+			// keep searching for the richer wrapper status payload.
+			continue
+		}
+		if payload["missing_executable"] != missingBinary {
+			t.Fatalf("missing executable detail = %q, want %q: %+v", payload["missing_executable"], missingBinary, payload)
+		}
+		sawTypedDetail = true
+	}
+	if !sawTypedDetail {
+		t.Fatalf("typed missing-executable diagnostic absent: %+v", report.VerificationDiagnostics)
+	}
+}
+
 func TestPythonVerificationProbeTracebackAttributionUsesPatchEffectAddedLines(t *testing.T) {
 	root := t.TempDir()
 	mu := types.NewMutableState("probe attribution")

@@ -26,10 +26,11 @@ type verificationProbeRunResult struct {
 }
 
 type pythonVerificationProbeStatus struct {
-	Outcome       string `json:"outcome,omitempty"`
-	Exception     string `json:"exception,omitempty"`
-	ExitCode      int    `json:"exit_code,omitempty"`
-	ProbeTopLevel bool   `json:"probe_top_level,omitempty"`
+	Outcome           string `json:"outcome,omitempty"`
+	Exception         string `json:"exception,omitempty"`
+	ExitCode          int    `json:"exit_code,omitempty"`
+	ProbeTopLevel     bool   `json:"probe_top_level,omitempty"`
+	MissingExecutable string `json:"missing_executable,omitempty"`
 }
 
 type inlineVerificationProbeStatus struct {
@@ -65,11 +66,28 @@ def probe_top_level_exception(exc):
     has_product_frame = any(frame.filename not in ("<string>", "<codrax_verification_probe>") for frame in frames)
     return bool(has_probe_frame and not has_product_frame)
 
-def write_result(outcome, exception="", exit_code=0, probe_top_level=False):
+def missing_subprocess_executable(exc):
+    if not isinstance(exc, FileNotFoundError) or getattr(exc, "errno", None) != 2:
+        return ""
+    filename = getattr(exc, "filename", "")
+    if not isinstance(filename, str) or not filename:
+        return ""
+    frames = traceback.extract_tb(exc.__traceback__)
+    if not any(os.path.basename(frame.filename) == "subprocess.py" and frame.name == "_execute_child" for frame in frames):
+        return ""
+    return filename
+
+def write_result(outcome, exception="", exit_code=0, probe_top_level=False, missing_executable=""):
     if not result_path:
         return
     with open(result_path, "w", encoding="utf-8") as handle:
-        json.dump({"outcome": outcome, "exception": exception, "exit_code": int(exit_code or 0), "probe_top_level": bool(probe_top_level)}, handle, sort_keys=True)
+        json.dump({
+            "outcome": outcome,
+            "exception": exception,
+            "exit_code": int(exit_code or 0),
+            "probe_top_level": bool(probe_top_level),
+            "missing_executable": missing_executable,
+        }, handle, sort_keys=True)
 
 try:
     source = base64.b64decode(encoded.encode("ascii")).decode("utf-8")
@@ -91,6 +109,14 @@ except (ImportError, ModuleNotFoundError) as exc:
 except SyntaxError as exc:
     traceback.print_exc()
     write_result("syntax_error", exc.__class__.__name__, 1)
+    sys.exit(1)
+except FileNotFoundError as exc:
+    traceback.print_exc()
+    missing_executable = missing_subprocess_executable(exc)
+    if missing_executable:
+        write_result("dependency_unavailable", exc.__class__.__name__, 1, probe_top_level_exception(exc), missing_executable)
+    else:
+        write_result("exception", exc.__class__.__name__, 1, probe_top_level_exception(exc))
     sys.exit(1)
 except BaseException as exc:
     traceback.print_exc()
@@ -650,6 +676,11 @@ func runPythonVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 			outcome = "parser_error"
 			failureKind = types.FailureKindParserError
 			reasonCode = pythonVerificationProbeReasonCode(probeStatus)
+		case "dependency_unavailable":
+			passed = false
+			outcome = "runner_missing"
+			failureKind = types.FailureKindRunnerMissing
+			reasonCode = "verification_probe_dependency_missing"
 		case "exception":
 			passed = false
 			reasonCode = pythonVerificationProbeReasonCode(probeStatus)
@@ -1331,6 +1362,8 @@ func pythonVerificationProbeReasonCode(status pythonVerificationProbeStatus) str
 	outcome := strings.TrimSpace(status.Outcome)
 	exception := strings.TrimSpace(status.Exception)
 	switch outcome {
+	case "dependency_unavailable":
+		return "verification_probe_dependency_missing"
 	case "import_error":
 		switch exception {
 		case "ModuleNotFoundError":
@@ -1390,8 +1423,11 @@ func pythonVerificationProbeAssertionImportReason(ctx *types.BusContext, output 
 
 func pythonVerificationProbeImportDiagnostics(status pythonVerificationProbeStatus, output, source, rel, command string, exitCode int) []types.VerificationDiagnostic {
 	reasonCode := pythonVerificationProbeReasonCode(status)
+	outcome := "parser_error"
 	switch strings.TrimSpace(status.Outcome) {
 	case "import_error":
+	case "dependency_unavailable":
+		outcome = "runner_missing"
 	case "assertion_failed":
 		reasonCode = pythonVerificationProbeSystemExitImportReason(output)
 	default:
@@ -1410,7 +1446,7 @@ func pythonVerificationProbeImportDiagnostics(status pythonVerificationProbeStat
 		Framework:  "python",
 		WorkingDir: strings.TrimSpace(rel),
 		Command:    strings.TrimSpace(command),
-		Outcome:    "parser_error",
+		Outcome:    outcome,
 		ExitCode:   exitCode,
 		Detail:     detail,
 	}}
@@ -1421,6 +1457,9 @@ func pythonVerificationProbeImportDiagnosticDetail(status pythonVerificationProb
 		"language":    "python",
 		"exception":   strings.TrimSpace(status.Exception),
 		"reason_code": strings.TrimSpace(reasonCode),
+	}
+	if status.MissingExecutable != "" {
+		payload["missing_executable"] = strings.TrimSpace(status.MissingExecutable)
 	}
 	if match := pythonModuleNotFoundRE.FindStringSubmatch(output); len(match) == 2 {
 		payload["missing_module"] = strings.TrimSpace(match[1])
@@ -1743,6 +1782,7 @@ func readPythonVerificationProbeStatus(path string) pythonVerificationProbeStatu
 	}
 	status.Outcome = strings.TrimSpace(status.Outcome)
 	status.Exception = strings.TrimSpace(status.Exception)
+	status.MissingExecutable = strings.TrimSpace(status.MissingExecutable)
 	return status
 }
 
