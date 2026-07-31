@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"bufio"
 	"os"
 	"regexp"
 	"strings"
@@ -519,6 +520,88 @@ func normalizeUnusedCitationPoolEntries(doc *types.AnswerDocumentV2, ctx *types.
 		}
 	}
 	return dropAnswerDocumentCitationsByIndex(doc, remove, "unused_pool_entry_pruned")
+}
+
+// normalizeUnusedContradictedRuntimeArtifactNegativeCitations removes only a
+// patch/global-pool citation that is both unreachable from the structured
+// answer and self-contradictory: it claims a NegativePattern is absent from a
+// bound runtime artifact although a bounded scan of that artifact finds the
+// pattern. It deliberately does NOT apply the full-emit unused-pool policy to
+// patch documents, whose inherited citation indexes are a pinned contract.
+//
+// Authority comes from structured citation fields, Codrax's reserved runtime
+// blob spelling, the stat-resolved bound artifact, and a positive regex match.
+// User request text and rendered/model-authored answer prose are never read.
+func normalizeUnusedContradictedRuntimeArtifactNegativeCitations(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
+	if doc == nil || ctx == nil || len(doc.Citations) == 0 {
+		return 0
+	}
+	used := make(map[int]bool)
+	for _, block := range doc.Blocks {
+		for _, item := range block.Items {
+			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) {
+				used[item.CitationRef] = true
+			}
+		}
+	}
+	markTypedMarkdownRowCitationsUsed(used, doc, ctx)
+
+	remove := make(map[int]bool)
+	matchCache := make(map[string]bool)
+	checked := make(map[string]bool)
+	for i, cit := range doc.Citations {
+		if used[i] || cit.Scope != types.ScopeNegative {
+			continue
+		}
+		pattern := strings.TrimSpace(cit.NegativePattern)
+		if pattern == "" || types.ReservedRuntimeArtifactBlobKind(cit.File) == "" {
+			continue
+		}
+		path := resolveRuntimeArtifactCitationReadPath(ctx, cit.File)
+		if path == "" {
+			continue
+		}
+		cacheKey := path + "\x00" + pattern
+		matched := matchCache[cacheKey]
+		if !checked[cacheKey] {
+			checked[cacheKey] = true
+			matched = runtimeArtifactContainsNegativePattern(path, pattern)
+			matchCache[cacheKey] = matched
+		}
+		if matched {
+			remove[i] = true
+		}
+	}
+	return dropAnswerDocumentCitationsByIndex(doc, remove, "unused_runtime_negative_proof_contradicted")
+}
+
+func runtimeArtifactContainsNegativePattern(path, pattern string) bool {
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return false
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+
+	reader := bufio.NewReaderSize(file, 1<<20)
+	var scanned int64
+	for scanned < artifactQuoteCheckScanByteCap {
+		line, readErr := reader.ReadString('\n')
+		scanned += int64(len(line))
+		if scanned > artifactQuoteCheckScanByteCap {
+			return false
+		}
+		if re.MatchString(line) {
+			return true
+		}
+		if readErr != nil {
+			return false
+		}
+	}
+	return false
 }
 
 // markTypedMarkdownRowCitationsUsed keeps citations that are carried by an

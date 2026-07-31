@@ -191,13 +191,7 @@ func resolveRuntimeArtifactCitationReadPath(ctx *types.BusContext, file string) 
 		return ""
 	}
 	base := filepath.Base(file)
-	reserved := false
-	for _, name := range types.ReservedRuntimeArtifactBlobBasenames() {
-		if strings.EqualFold(base, name) {
-			reserved = true
-			break
-		}
-	}
+	reserved := types.ReservedRuntimeArtifactBlobKind(base) != ""
 	if !reserved && ctx != nil {
 		if spelled := strings.TrimSpace(ctx.AttachedHitraceSource); spelled != "" &&
 			strings.EqualFold(filepath.Base(spelled), base) {

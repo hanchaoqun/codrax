@@ -174,6 +174,54 @@ func ReservedRuntimeArtifactBlobBasenames() []string {
 	}
 }
 
+// ReservedRuntimeArtifactBlobKind reports the family of a system-reserved
+// runtime-artifact blob name. In addition to the stable materialization
+// basenames, it recognizes StoreBlobArtifact's content-addressed spelling:
+//
+//	attached_trace-<8 hex digits>.txt
+//
+// The stem, digest width, extension, and hexadecimal alphabet are structural
+// output of Codrax's blob writer. This is not a fuzzy filename or user-prose
+// classifier.
+func ReservedRuntimeArtifactBlobKind(s string) string {
+	base := strings.ToLower(strings.TrimSpace(s))
+	if idx := strings.LastIndexAny(base, `/\`); idx >= 0 {
+		base = base[idx+1:]
+	}
+	for _, reserved := range ReservedRuntimeArtifactBlobBasenames() {
+		if base == reserved {
+			if reserved == AttachedLogBlobBasename {
+				return "log"
+			}
+			return "trace"
+		}
+		ext := ".txt"
+		stem := strings.TrimSuffix(reserved, ext)
+		prefix := stem + "-"
+		if !strings.HasPrefix(base, prefix) || !strings.HasSuffix(base, ext) {
+			continue
+		}
+		digest := strings.TrimSuffix(strings.TrimPrefix(base, prefix), ext)
+		if len(digest) != 8 {
+			continue
+		}
+		validHex := true
+		for _, r := range digest {
+			if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f')) {
+				validHex = false
+				break
+			}
+		}
+		if validHex {
+			if reserved == AttachedLogBlobBasename {
+				return "log"
+			}
+			return "trace"
+		}
+	}
+	return ""
+}
+
 // RuntimeArtifactPathKind reports the coarse artifact family for a log/trace
 // runtime artifact path. It is path-shape only; it must not be used to infer
 // user intent from prose.
@@ -186,11 +234,8 @@ func RuntimeArtifactPathKind(s string) string {
 	if idx := strings.LastIndexAny(base, `/\`); idx >= 0 {
 		base = base[idx+1:]
 	}
-	switch base {
-	case AttachedLogBlobBasename:
-		return "log"
-	case AttachedTraceBlobBasename, AttachedHitraceBlobBasename, AttachedAtraceBlobBasename:
-		return "trace"
+	if kind := ReservedRuntimeArtifactBlobKind(base); kind != "" {
+		return kind
 	}
 	if base == "perf.data" || strings.HasSuffix(lower, ".perf.data") {
 		return "trace"
