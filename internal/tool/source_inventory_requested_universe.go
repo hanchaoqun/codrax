@@ -7,11 +7,9 @@ import (
 )
 
 // SourceInventoryAcceptedClosureCoversRequestedUniverse reports whether a broad
-// source-inventory observation has a narrower typed requested universe that is
-// already closed by exact source-inventory rows and structured aggregate
-// member_set coverage. It is intentionally stricter than
-// SourceInventoryAcceptedClosureCoversExactUniverse: a single bounded exact
-// scope does not close a broader request while the typed census still exposes
+// observation's narrower typed universe is closed by exact rows and structured
+// aggregate member_set coverage. Unlike the exact-universe check, one bounded
+// scope cannot close a broader request while the typed census still exposes
 // uncovered same-family source classes.
 func SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx *types.BusContext, facts []types.AnswerAggregateFact) bool {
 	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil || len(facts) == 0 {
@@ -25,6 +23,9 @@ func SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx *types.BusContext
 		return false
 	}
 	if gap := SourceInventoryObservedSurfaceFamilyCoverageGap(ctx, facts); gap.Blocking {
+		return false
+	}
+	if applicable, proven := sourceInventoryRequestedSurfaceFamilyClosureProven(ctx, facts); applicable && !proven {
 		return false
 	}
 	observation := types.SourceInventoryObservationFromMutable(ctx.Mutable)

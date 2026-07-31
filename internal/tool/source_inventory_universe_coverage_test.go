@@ -184,6 +184,69 @@ func TestSourceInventoryCandidateBudgetCountsScopedQueryMisses(t *testing.T) {
 	}
 }
 
+func TestSourceInventoryExactSurfaceFamilyFiltersBeforeCandidateBudget(t *testing.T) {
+	var files []*repotypes.FileInfo
+	for i := 0; i < 12; i++ {
+		rel := "src/noise" + strconv.Itoa(i) + ".go"
+		files = append(files, &repotypes.FileInfo{
+			RelPath:  rel,
+			Language: repotypes.LangGo,
+			Symbols: []repotypes.Symbol{{
+				Name:     "Noise" + strconv.Itoa(i),
+				Kind:     "function",
+				File:     rel,
+				Line:     5,
+				Exported: true,
+			}},
+		})
+	}
+	for i, name := range []string{"Bridge", "Greeter", "Service"} {
+		rel := "src/" + strings.ToLower(name) + ".cj"
+		files = append(files, &repotypes.FileInfo{
+			RelPath:  rel,
+			Language: "cangjie",
+			Symbols: []repotypes.Symbol{{
+				Name:     name,
+				Kind:     "class",
+				File:     rel,
+				Line:     i + 10,
+				Exported: true,
+				Doc:      "public",
+			}},
+		})
+	}
+	graph := testGraphWithFiles(files)
+	view := newSourceInventoryExecutionView(graph, []string{"src"})
+	filter := sourceInventoryBuildQueryFilter("foreign func public class")
+	filter.SurfaceFamilies = map[string]bool{"public class": true}
+	filter.Tokens = nil
+	set := sourceInventoryGraphCandidates(
+		nil,
+		graph,
+		view,
+		newSourceInventoryGraphSymbolIndex(graph),
+		newSourceInventoryScopeFilter(nil),
+		[]string{"src"},
+		&types.SourceInventoryProfile{IsSourceInventory: true, TargetRoles: []types.AnswerCandidateRole{types.AnswerCandidateRoleType}},
+		types.AnswerCandidateRoleType,
+		filter,
+		sourceInventoryExecBudget{kernel: sourceinventory.NewBudget(sourceinventory.BudgetOptions{
+			ForceAdvisoryOnly: true,
+			GraphFileCount:    sourceInventoryExecBudgetFileThreshold + 1,
+			MaxPerRole:        10,
+			MaxScanPerRole:    4,
+		})},
+	)
+	if set.truncated || !set.complete || len(set.candidates) != 3 {
+		t.Fatalf("exact surface family should bypass unrelated symbol budget consumption: %+v", set)
+	}
+	for _, candidate := range set.candidates {
+		if family := types.SourceInventorySurfaceFamilyKey(candidate.surfaceTerms); family != "public class" {
+			t.Fatalf("non-requested surface family crossed exact filter: family=%q candidate=%+v", family, candidate)
+		}
+	}
+}
+
 func TestSourceInventoryGoStringEnumCandidatesCarriesBudgetTruncation(t *testing.T) {
 	var files []*repotypes.FileInfo
 	for i := 0; i < 12; i++ {
@@ -589,6 +652,7 @@ func TestPublishSourceInventoryObservationFromLens_ProjectsTypedConstructSurface
 	ctx := sourceInventoryTestContext("", graph, ".", &types.SourceInventoryProfile{
 		IsSourceInventory: true,
 		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction, types.AnswerCandidateRoleType},
+		SourceQuotes:      []string{"extend 块", "foreign func 声明", "public class"},
 		RequestedFields:   []types.SourceInventoryRequestedField{types.SourceInventoryFieldName, types.SourceInventoryFieldLocation},
 		Confidence:        0.90,
 	})
@@ -598,6 +662,7 @@ func TestPublishSourceInventoryObservationFromLens_ProjectsTypedConstructSurface
 		Scopes:        []string{"."},
 		Roles:         []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction, types.AnswerCandidateRoleType},
 		IncludeCounts: true,
+		Query:         "extend foreign func public class cangjie",
 		TopN:          10,
 	})
 	rendered := RenderSourceInventoryObservationView(obs, types.SourceInventoryLensQuery{
@@ -625,6 +690,83 @@ func TestPublishSourceInventoryObservationFromLens_ProjectsTypedConstructSurface
 		filtered.Sets[0].Members[0].Name != "native_add" ||
 		!containsString(filtered.Sets[0].Members[0].SurfaceTerms, "foreign func native_add") {
 		t.Fatalf("typed construct query should isolate foreign-func candidate, got %+v", filtered)
+	}
+}
+
+func TestSourceInventoryRequestedSurfaceFamilyClosureRequiresEveryRoleFamily(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{{
+		RelPath:  "src/bridge.cj",
+		Language: "cangjie",
+		Symbols: []repotypes.Symbol{{
+			Name: "Bridge", Kind: "class", File: "src/bridge.cj", Line: 5, Exported: true, Doc: "public",
+		}},
+	}, {
+		RelPath:  "src/greeter.cj",
+		Language: "cangjie",
+		Symbols: []repotypes.Symbol{{
+			Name: "Greeter", Kind: "class", File: "src/greeter.cj", Line: 7, Exported: true, Doc: "public",
+		}},
+	}, {
+		RelPath:  "src/ffi.cj",
+		Language: "cangjie",
+		Symbols: []repotypes.Symbol{{
+			Name: "native_add", Kind: "foreign-func", File: "src/ffi.cj", Line: 9, Exported: true,
+		}},
+	}})
+	ctx := sourceInventoryTestContext("", graph, "src", &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction, types.AnswerCandidateRoleType},
+		SourceQuotes:      []string{"foreign func 声明", "public class"},
+		RequestedFields:   []types.SourceInventoryRequestedField{types.SourceInventoryFieldName, types.SourceInventoryFieldLocation},
+		Confidence:        0.95,
+	})
+	obs := PublishSourceInventoryObservationFromLens(ctx, types.SourceInventoryLensQuery{
+		Scopes:        []string{"src"},
+		Roles:         []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction, types.AnswerCandidateRoleType},
+		IncludeCounts: true,
+		Query:         "foreign func public class cangjie",
+		TopN:          10,
+	})
+	if !obs.IsActive() {
+		t.Fatalf("surface-family fixture did not publish observation: %+v", obs)
+	}
+	stored := types.SourceInventoryObservationFromMutable(ctx.Mutable)
+	lensFamilies := map[string]bool{}
+	for _, lens := range stored.CompleteLenses {
+		for _, family := range lens.SurfaceFamilies {
+			lensFamilies[string(lens.Role)+"\x00"+family] = true
+		}
+	}
+	for _, want := range []string{
+		string(types.AnswerCandidateRoleFunction) + "\x00foreign func",
+		string(types.AnswerCandidateRoleType) + "\x00public class",
+	} {
+		if !lensFamilies[want] {
+			t.Fatalf("complete lens missing role × surface family %q: %+v", want, stored.CompleteLenses)
+		}
+	}
+
+	partial := []types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "requested constructs",
+		Value:       "2",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"Bridge (src/bridge.cj:5)", "native_add (src/ffi.cj:9)"},
+		SupportRefs: []string{"Bridge: src/bridge.cj:5", "native_add: src/ffi.cj:9"},
+	}}
+	if applicable, proven := sourceInventoryRequestedSurfaceFamilyClosureProven(ctx, partial); !applicable || proven {
+		t.Fatalf("partial public-class family must not close: applicable=%v proven=%v", applicable, proven)
+	}
+	if SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, partial) {
+		t.Fatal("language/source-class fallback must not override incomplete role × surface-family coverage")
+	}
+
+	complete := append([]types.AnswerAggregateFact(nil), partial...)
+	complete[0].Value = "3"
+	complete[0].Members = append(append([]string(nil), partial[0].Members...), "Greeter (src/greeter.cj:7)")
+	complete[0].SupportRefs = append(append([]string(nil), partial[0].SupportRefs...), "Greeter: src/greeter.cj:7")
+	if applicable, proven := sourceInventoryRequestedSurfaceFamilyClosureProven(ctx, complete); !applicable || !proven {
+		t.Fatalf("complete role × surface-family aggregate should close: applicable=%v proven=%v", applicable, proven)
 	}
 }
 

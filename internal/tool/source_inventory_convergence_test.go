@@ -36,8 +36,10 @@ var sourceInventoryFileLOCCeiling = map[string]int{
 	"source_inventory_answer_preemit_authority.go":              165,
 	"source_inventory_answer_preemit_reason.go":                 70,
 	"source_inventory_candidate_select.go":                      130,
+	"source_inventory_candidate_sets.go":                        70,
 	"source_inventory_reconcile.go":                             3651, // DELIBERATE raise (LENSBURN-FIX 病B + fix round): empty-shelf lens mint + unconditional credential-preserving merges at the durable publish sites.
 	"source_inventory_query_match.go":                           40,
+	"source_inventory_query_surface_family.go":                  40,
 	"source_inventory_render.go":                                1308,
 	"source_inventory_render_paging.go":                         17,
 	"source_inventory_symbol_sort.go":                           38,
@@ -50,6 +52,8 @@ var sourceInventoryFileLOCCeiling = map[string]int{
 	"source_inventory_requested_universe.go":                    213,
 	"source_inventory_requested_zero_lens.go":                   77,
 	"source_inventory_requested_family.go":                      60,
+	"source_inventory_requested_surface_family.go":              100,
+	"source_inventory_requested_surface_family_closure.go":      130,
 	"source_inventory_read_file_path_miss.go":                   153,
 	"source_inventory_exec_budget.go":                           120,
 	"source_inventory_language_census.go":                       170,
@@ -105,6 +109,7 @@ var sourceInventoryFileLOCCeiling = map[string]int{
 	"../types/source_inventory_followup_zero_lens.go":                97,
 	"../types/source_inventory_complete_lens.go":                     231,
 	"../types/source_inventory_complete_lens_scope.go":               35,
+	"../types/source_inventory_complete_lens_surface_family.go":      50,
 	"../types/source_inventory_observation.go":                       268, // DELIBERATE raise (LENSBURN-FIX 病B): LensExecutedEmpty field + shape accessor.
 	"../types/source_inventory_observation_zero.go":                  25,
 	"../types/source_inventory_observation_class_normalize.go":       70,

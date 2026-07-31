@@ -62,8 +62,9 @@ type sourceInventoryGraphSymbolIndex struct {
 }
 
 type sourceInventoryQueryFilter struct {
-	Tokens    []string
-	Languages map[string]bool
+	Tokens          []string
+	Languages       map[string]bool
+	SurfaceFamilies map[string]bool
 }
 
 type sourceInventoryScopeFilter struct {
@@ -2142,54 +2143,6 @@ func sourceInventoryCandidateSetsTruncated(sets map[types.AnswerCandidateRole]so
 	return false
 }
 
-func sourceInventoryCandidateSets(ctx *types.BusContext, graph *repotypes.Graph, view *sourceInventoryExecutionView, scopes []string, profile *types.SourceInventoryProfile, attributeRoles []types.AnswerCandidateRole, explicitAttributeRoles bool, includeAttributes bool, rawQuery string, budget sourceInventoryExecBudget) map[types.AnswerCandidateRole]sourceInventoryCandidateSet {
-	out := map[types.AnswerCandidateRole]sourceInventoryCandidateSet{}
-	if view == nil {
-		view = newSourceInventoryExecutionView(graph, scopes)
-	}
-	scopeFilter := newSourceInventoryScopeFilter(ctx)
-	queryFilter := sourceInventoryBuildQueryFilter(rawQuery)
-	var symbolIndex *sourceInventoryGraphSymbolIndex
-	getSymbolIndex := func() *sourceInventoryGraphSymbolIndex {
-		if symbolIndex == nil {
-			symbolIndex = newSourceInventoryGraphSymbolIndex(graph)
-		}
-		return symbolIndex
-	}
-	for _, role := range profile.PrincipalTargetRoles() {
-		switch {
-		case role == types.AnswerCandidateRoleFile:
-			var attributeIndex *sourceInventoryGraphSymbolIndex
-			if includeAttributes && explicitAttributeRoles {
-				attributeIndex = getSymbolIndex()
-			}
-			out[role] = sourceInventoryFileCandidates(ctx, view, attributeIndex, scopeFilter, profile, attributeRoles, explicitAttributeRoles, queryFilter, budget)
-		case role == types.AnswerCandidateRoleConfigFile:
-			var attributeIndex *sourceInventoryGraphSymbolIndex
-			if includeAttributes && explicitAttributeRoles {
-				attributeIndex = getSymbolIndex()
-			}
-			out[role] = sourceInventoryConfigFileCandidates(ctx, view, attributeIndex, scopeFilter, profile, attributeRoles, explicitAttributeRoles, queryFilter, budget)
-		case role == types.AnswerCandidateRolePackage:
-			var attributeIndex *sourceInventoryGraphSymbolIndex
-			if includeAttributes {
-				attributeIndex = getSymbolIndex()
-			}
-			out[role] = sourceInventoryPackageCandidates(ctx, view, attributeIndex, scopeFilter, profile, attributeRoles, explicitAttributeRoles, queryFilter, budget)
-		case role == types.AnswerCandidateRoleType &&
-			profile.TypeUnderlying == types.SourceInventoryTypeUnderlyingString &&
-			profile.RequiresConstSet:
-			out[role] = sourceInventoryGoStringEnumCandidates(ctx, graph, scopes, profile, budget)
-		default:
-			out[role] = sourceInventoryGraphCandidates(ctx, graph, view, getSymbolIndex(), scopeFilter, scopes, profile, role, queryFilter, budget)
-		}
-		if len(out[role].candidates) == 0 && !out[role].truncated {
-			delete(out, role)
-		}
-	}
-	return out
-}
-
 func newSourceInventoryCandidateSet(role types.AnswerCandidateRole, view *sourceInventoryExecutionView) sourceInventoryCandidateSet {
 	set := sourceInventoryCandidateSet{role: role, complete: sourceInventoryViewComplete(view)}
 	if sourceInventoryViewBudgetTruncated(view) {
@@ -2635,6 +2588,12 @@ func sourceInventoryGraphCandidates(ctx *types.BusContext, graph *repotypes.Grap
 		if sym == nil || !sourceInventoryViewContainsFile(view, sym.File, scopes) || !scopeFilter.SourceInRequestedScope(sym.File) {
 			continue
 		}
+		// Exact parser-provided surface families are cheap and authoritative.
+		// Apply them before the scan budget so unrelated symbols cannot consume
+		// the budget and hide later members of the requested construct family.
+		if queryFilter.HasSurfaceFamilies() && !sourceInventorySymbolMatchesQuery(sym, graph, queryFilter) {
+			continue
+		}
 		scoped++
 		if queryFilter.Active() && budget.queryScanExceeded(scoped) {
 			scanTruncated = true
@@ -2644,7 +2603,7 @@ func sourceInventoryGraphCandidates(ctx *types.BusContext, graph *repotypes.Grap
 			scanTruncated = true
 			break
 		}
-		if queryFilter.Active() && !sourceInventorySymbolMatchesQuery(sym, graph, queryFilter) {
+		if queryFilter.Active() && !queryFilter.HasSurfaceFamilies() && !sourceInventorySymbolMatchesQuery(sym, graph, queryFilter) {
 			continue
 		}
 		candidateRole, ok := aggregateAnswerCandidateRoleForSymbol(sym)
@@ -2715,6 +2674,10 @@ func sourceInventoryCandidateMatchesQuery(candidate sourceInventoryCandidate, fi
 	}
 	if !sourceInventoryQueryLanguageMatches(candidate.language, filter) {
 		return false
+	}
+	if filter.HasSurfaceFamilies() {
+		family := types.SourceInventorySurfaceFamilyKey(candidate.surfaceTerms)
+		return family != "" && filter.SurfaceFamilies[family]
 	}
 	parts := []string{
 		candidate.member,
@@ -2804,10 +2767,6 @@ func sourceInventoryQueryTokenIsGeneric(token string) bool {
 		return true
 	}
 	return false
-}
-
-func (f sourceInventoryQueryFilter) Active() bool {
-	return len(f.Tokens) > 0 || len(f.Languages) > 0
 }
 
 func sourceInventoryQueryLanguageMatches(language string, filter sourceInventoryQueryFilter) bool {

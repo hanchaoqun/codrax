@@ -11,13 +11,14 @@ import (
 // completion gates can trust a scoped complete lens without confusing it with
 // stale repo-wide debt for the same role.
 type SourceInventoryCompleteLens struct {
-	Role          AnswerCandidateRole `json:"role,omitempty"`
-	Scopes        []string            `json:"scopes,omitempty"`
-	Languages     []string            `json:"languages,omitempty"`
-	SourceClasses []SourcePathRole    `json:"source_classes,omitempty"`
-	Count         int                 `json:"count,omitempty"`
-	Total         int                 `json:"total,omitempty"`
-	Provenance    []string            `json:"provenance,omitempty"`
+	Role            AnswerCandidateRole `json:"role,omitempty"`
+	Scopes          []string            `json:"scopes,omitempty"`
+	Languages       []string            `json:"languages,omitempty"`
+	SourceClasses   []SourcePathRole    `json:"source_classes,omitempty"`
+	SurfaceFamilies []string            `json:"surface_families,omitempty"`
+	Count           int                 `json:"count,omitempty"`
+	Total           int                 `json:"total,omitempty"`
+	Provenance      []string            `json:"provenance,omitempty"`
 }
 
 func cloneSourceInventoryCompleteLenses(in []SourceInventoryCompleteLens) []SourceInventoryCompleteLens {
@@ -30,6 +31,7 @@ func cloneSourceInventoryCompleteLenses(in []SourceInventoryCompleteLens) []Sour
 		out[i].Scopes = append([]string(nil), lens.Scopes...)
 		out[i].Languages = append([]string(nil), lens.Languages...)
 		out[i].SourceClasses = append([]SourcePathRole(nil), lens.SourceClasses...)
+		out[i].SurfaceFamilies = append([]string(nil), lens.SurfaceFamilies...)
 		out[i].Provenance = append([]string(nil), lens.Provenance...)
 	}
 	return out
@@ -84,6 +86,7 @@ func normalizeSourceInventoryCompleteLens(in SourceInventoryCompleteLens) Source
 	in.Scopes = sourceInventoryNormalizeScopes(in.Scopes)
 	in.Languages = normalizeSourceInventoryCompleteLensLanguages(in.Languages)
 	in.SourceClasses = normalizeSourceInventoryCompleteLensClasses(in.SourceClasses)
+	in.SurfaceFamilies = normalizeSourceInventoryCompleteLensSurfaceFamilies(in.SurfaceFamilies)
 	in.Provenance = mergeSourceInventoryAdvisoryStrings(nil, in.Provenance)
 	if in.Total < in.Count {
 		in.Total = in.Count
@@ -117,7 +120,7 @@ func sourceInventoryCompleteLensesFromObservation(observation SourceInventoryObs
 	return mergeSourceInventoryCompleteLenses(nil, out)
 }
 
-func sourceInventoryCompleteLensAddMember(_ AnswerCandidateRole, member SourceInventoryObservationMember, languages map[string]bool, classes map[SourcePathRole]bool) {
+func sourceInventoryCompleteLensAddMember(_ AnswerCandidateRole, member SourceInventoryObservationMember, languages map[string]bool, classes map[SourcePathRole]bool, surfaceFamilies map[string]bool) {
 	addLanguage := func(raw string) {
 		raw = strings.ToLower(strings.TrimSpace(raw))
 		if raw == "" || raw == string(VerificationLanguageUnknown) || raw == string(VerificationLanguageConfigWorkflow) {
@@ -166,6 +169,9 @@ func sourceInventoryCompleteLensAddMember(_ AnswerCandidateRole, member SourceIn
 	addCodePathClass(member.File)
 	addCodePathClass(member.SupportRef)
 	addCodePathClass(member.Key)
+	if family := SourceInventorySurfaceFamilyKey(member.SurfaceTerms); family != "" {
+		surfaceFamilies[family] = true
+	}
 }
 
 func sourceInventoryCompleteLensKey(lens SourceInventoryCompleteLens) string {
@@ -176,7 +182,8 @@ func sourceInventoryCompleteLensKey(lens SourceInventoryCompleteLens) string {
 	return string(lens.Role) + "\x00" +
 		strings.Join(lens.Scopes, "\x1f") + "\x00" +
 		strings.Join(lens.Languages, "\x1f") + "\x00" +
-		sourceInventoryCompleteLensClassKey(lens.SourceClasses)
+		sourceInventoryCompleteLensClassKey(lens.SourceClasses) + "\x00" +
+		strings.Join(lens.SurfaceFamilies, "\x1f")
 }
 
 func sourceInventoryCompleteLensClassKey(classes []SourcePathRole) string {

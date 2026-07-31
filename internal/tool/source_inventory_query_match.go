@@ -11,6 +11,9 @@ func sourceInventorySymbolMatchesQuery(sym *repotypes.Symbol, graph *repotypes.G
 		return false
 	}
 	note := sourceInventoryCompactNote(sym.Doc)
+	if filter.HasSurfaceFamilies() {
+		return sourceInventorySymbolMatchesSurfaceFamily(sym, note, filter.SurfaceFamilies)
+	}
 	parts := []string{
 		sym.Name,
 		sym.Kind,
