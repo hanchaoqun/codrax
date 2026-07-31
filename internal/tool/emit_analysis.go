@@ -1533,6 +1533,14 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			}, nil
 		}
 	}
+	if issue := validateRuntimeArtifactCallChainConsistency(kind, predicates, axis, runtimeTargets); issue != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + issue,
+			Timestamp: time.Now(),
+		}, nil
+	}
 	exactContextTerms, exactContextWarn := sanitizeExactContextTerms(exactTargets, mentionedEntities, p.ExactContextTerms)
 	exactContextRoles, exactContextRoleWarn := sanitizeExactContextRoles(
 		exactTargets,
@@ -2225,6 +2233,21 @@ func validateSelfConsistencyDetailed(
 	if intent == types.IntentRootCause && !diagnosticRequired {
 		return selfConsistencyIssue{Kind: selfConsistencyIssueRootCauseMissingDiagnostic, Reason: "intent=root_cause requires a diagnostic typed signal — set predicates.is_diagnostic_question=true or diagnostic_profile.is_diagnostic/current_risk/historical_regression=true"}
 	}
+	// call_chain is a relationship shape, not a generic synonym for
+	// "inspect a trace". Require at least one precise relational carrier:
+	// an explicit call axis, the relational predicate, or two named
+	// endpoints/entities. This rejects the observed single-target runtime
+	// state/value classification that otherwise routes a bounded status
+	// query into full call-chain/causal-projection contracts. It still
+	// admits one-target role-locate and wakeup/caller questions when the
+	// analyzer supplies AxisCall, and admits source→sink traces with their
+	// two endpoint entities.
+	if types.NormalizeRequirementKind(kind) == types.ReqCallChain &&
+		axis != types.AxisCall &&
+		!preds.IsRelationalLookup &&
+		len(trimStringSlice(entities)) < 2 {
+		return selfConsistencyIssue{Kind: selfConsistencyIssueOther, Reason: "question_kind=call_chain requires a precise relationship signal — set predicate_axis=call, predicates.is_relational_lookup=true, or provide at least two named caller/source and callee/sink entities; a single runtime target's state, duration, count, reason, or current status is not a call chain"}
+	}
 	if needsRoleLocateDisambiguation(axis, intent, preds, entities, subTopics) &&
 		answerSubject.Kind == types.SubjectUnknown {
 		return selfConsistencyIssue{Kind: selfConsistencyIssueOther, Reason: "single-target define-axis lookup is under-specified: set answer_subject.kind explicitly so the system can tell whether this is a role-locate scalar lookup (function / type / file / route / config key) or an explanation of the named entity itself; also set predicates.is_role_locate_lookup to true or false explicitly"}
@@ -2240,6 +2263,22 @@ func writeModeAnalysisRootCauseTolerance(ctx *types.BusContext, kind selfConsist
 		return false
 	}
 	return ctx.Mode.Normalize().IsWrite()
+}
+
+func validateRuntimeArtifactCallChainConsistency(
+	kind string,
+	preds types.SemanticPredicates,
+	axis types.PredicateAxis,
+	runtimeTargets []types.RuntimeTarget,
+) string {
+	if types.NormalizeRequirementKind(kind) != types.ReqCallChain ||
+		axis == types.AxisCall ||
+		preds.IsRelationalLookup ||
+		len(runtimeTargets) == 0 ||
+		len(runtimeTargets) >= 2 {
+		return ""
+	}
+	return "question_kind=call_chain with one runtime target requires predicate_axis=call, predicates.is_relational_lookup=true, or at least two distinct runtime targets — a process/thread label and its numeric pid are one focus identity, not caller/source and callee/sink endpoints"
 }
 
 func roleLocateSubjectKindAllowed(kind types.AnswerSubjectKind) bool {

@@ -167,6 +167,112 @@ func TestValidateSelfConsistency_RoleLocateAllowsNumericLineAnswer(t *testing.T)
 	}
 }
 
+func TestValidateSelfConsistency_CallChainRequiresPreciseRelationshipSignal(t *testing.T) {
+	base := types.SemanticPredicates{}
+	reason := validateSelfConsistency(
+		types.IntentTrace,
+		types.ScenarioGeneric,
+		string(types.ReqCallChain),
+		base,
+		types.DiagnosticIntentProfile{},
+		types.AxisUnknown,
+		[]string{"com.baidu.tieba-59566"},
+		nil,
+		types.AnswerSubject{},
+	)
+	if reason == "" || !strings.Contains(reason, "requires a precise relationship signal") {
+		t.Fatalf("single-target state query mislabeled as call_chain must reject, got %q", reason)
+	}
+
+	cases := []struct {
+		name     string
+		preds    types.SemanticPredicates
+		axis     types.PredicateAxis
+		entities []string
+	}{
+		{
+			name:     "explicit call axis permits one-target caller or wakeup lookup",
+			axis:     types.AxisCall,
+			entities: []string{"RenderThread"},
+		},
+		{
+			name:     "relational predicate permits one typed relationship target",
+			preds:    types.SemanticPredicates{IsRelationalLookup: true},
+			entities: []string{"Dispatch"},
+		},
+		{
+			name:     "two endpoints permit source-to-sink trace",
+			entities: []string{"Dispatch", "Handler"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := validateSelfConsistency(
+				types.IntentTrace,
+				types.ScenarioGeneric,
+				string(types.ReqCallChain),
+				tc.preds,
+				types.DiagnosticIntentProfile{},
+				tc.axis,
+				tc.entities,
+				nil,
+				types.AnswerSubject{},
+			); got != "" {
+				t.Fatalf("valid relational call-chain shape rejected: %q", got)
+			}
+		})
+	}
+
+	if got := validateSelfConsistency(
+		types.IntentTrace,
+		types.ScenarioGeneric,
+		string(types.ReqConditional),
+		base,
+		types.DiagnosticIntentProfile{},
+		types.AxisCondition,
+		[]string{"RenderThread"},
+		nil,
+		types.AnswerSubject{},
+	); got != "" {
+		t.Fatalf("single-target conditional runtime fact is not a call-chain contradiction: %q", got)
+	}
+}
+
+func TestEmitAnalysis_Execute_RejectsSingleTargetRuntimeStateAsCallChain(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	mu := types.NewMutableState("分析 trace 中 com.baidu.tieba-59566 是否进入 D 状态、IO 等待时间、原因和总量")
+	mu.SetPerfTrace(&types.PerfBundle{
+		Meta: types.PerfMeta{Source: "tieba.ftrace", Signals: []string{"sched-switch", "blocked-reason"}},
+	})
+	payload := withV4Required(`{
+		"intent": "trace",
+		"scenario": "generic",
+		"complexity": "moderate",
+		"keywords": ["trace", "thread", "state", "duration", "reason"],
+		"entities": ["com.baidu.tieba", "59566"],
+		"question_kind": "call_chain",
+		"runtime_targets": [{
+			"kind": "thread",
+			"thread": "com.baidu.tieba-59566",
+			"source": "user_explicit",
+			"confidence": 0.95
+		}]
+	}`)
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Success || !strings.Contains(res.Summary, "with one runtime target requires") {
+		t.Fatalf("single-target runtime state classification must retry instead of persisting call_chain, got success=%t summary=%q", res.Success, res.Summary)
+	}
+	if mu.RequestModel() != nil {
+		t.Fatalf("rejected call_chain classification must not persist RequestModel: %+v", mu.RequestModel())
+	}
+}
+
 func TestReconcileSetValuedRoleLocatePredicates(t *testing.T) {
 	preds := types.SemanticPredicates{
 		IsScalarAnswer:        false,
