@@ -134,10 +134,25 @@ type PerfMeta struct {
 	Signals []string `json:"signals,omitempty"`
 
 	// Summary is an optional one-line natural-language synopsis
-	// provided by the LLM (≤200 chars). Rendered verbatim by the
-	// finalizer.
+	// provided by the LLM (≤200 chars). It is retained for audit and
+	// compatibility, but is not deterministic trace-query authority.
 	Summary string `json:"summary,omitempty"`
 }
+
+// PerfObservationAuthority identifies who minted the semantic content of a
+// PerfObservation. The zero value is the legacy compatibility lane: bundles
+// persisted before this field existed keep their previous behavior.
+//
+// This is intentionally validator-owned and is not exposed in the
+// emit_perf_trace tool schema. Downstream prompt projection can therefore
+// distinguish model-extracted navigation hypotheses from deterministic
+// system semantics without inspecting user wording or observation prose.
+type PerfObservationAuthority string
+
+const (
+	PerfObservationAuthorityPreTriageModelExtraction PerfObservationAuthority = "pretriage_model_extraction"
+	PerfObservationAuthorityDeterministicValidator   PerfObservationAuthority = "deterministic_validator"
+)
 
 // PerfObservation preserves trace-local facts that are important to the user
 // but are not necessarily janky frames, stalls, or startup envelopes. Examples:
@@ -145,17 +160,18 @@ type PerfMeta struct {
 // "no GC span exceeds 50ms". These are runtime-artifact facts, not current
 // repository source citations.
 type PerfObservation struct {
-	Kind       string   `json:"kind,omitempty"`
-	Subject    string   `json:"subject,omitempty"`
-	Summary    string   `json:"summary,omitempty"`
-	Evidence   string   `json:"evidence,omitempty"`
-	LineStart  int      `json:"line_start,omitempty"`
-	LineEnd    int      `json:"line_end,omitempty"`
-	StartTsMs  float64  `json:"start_ts_ms,omitempty"`
-	EndTsMs    float64  `json:"end_ts_ms,omitempty"`
-	DurationMs float64  `json:"duration_ms,omitempty"`
-	Tags       []string `json:"tags,omitempty"`
-	Confidence float64  `json:"confidence,omitempty"`
+	Authority  PerfObservationAuthority `json:"authority,omitempty"`
+	Kind       string                   `json:"kind,omitempty"`
+	Subject    string                   `json:"subject,omitempty"`
+	Summary    string                   `json:"summary,omitempty"`
+	Evidence   string                   `json:"evidence,omitempty"`
+	LineStart  int                      `json:"line_start,omitempty"`
+	LineEnd    int                      `json:"line_end,omitempty"`
+	StartTsMs  float64                  `json:"start_ts_ms,omitempty"`
+	EndTsMs    float64                  `json:"end_ts_ms,omitempty"`
+	DurationMs float64                  `json:"duration_ms,omitempty"`
+	Tags       []string                 `json:"tags,omitempty"`
+	Confidence float64                  `json:"confidence,omitempty"`
 }
 
 // PerfFrame represents a single UI frame the trace observed.

@@ -265,7 +265,8 @@ func toPerfBundle(p *emitPerfTraceParams) *types.PerfBundle {
 	observations := make([]types.PerfObservation, len(p.Observations))
 	for i, obs := range p.Observations {
 		observations[i] = types.PerfObservation{
-			Kind: obs.Kind, Subject: obs.Subject, Summary: obs.Summary,
+			Authority: types.PerfObservationAuthorityPreTriageModelExtraction,
+			Kind:      obs.Kind, Subject: obs.Subject, Summary: obs.Summary,
 			Evidence: obs.Evidence, LineStart: obs.LineStart, LineEnd: obs.LineEnd,
 			StartTsMs: obs.StartTsMs, EndTsMs: obs.EndTsMs, DurationMs: obs.DurationMs,
 			Tags: append([]string(nil), obs.Tags...), Confidence: obs.Confidence,
@@ -389,6 +390,7 @@ func augmentPerfBundleWithPrioritySemantics(b *types.PerfBundle, ctx *types.BusC
 	}
 	summary := "Harmony priority semantics: 数值越大优先级越高/larger numeric value is higher; 1-40=CFS, 41-159=RT, >159=system_or_kernel/raw. Observed classes: " + strings.Join(classes, ", ") + "."
 	obs := types.PerfObservation{
+		Authority:  types.PerfObservationAuthorityDeterministicValidator,
 		Kind:       "priority_semantics",
 		Subject:    "HarmonyOS priority semantics",
 		Summary:    summary,
@@ -422,6 +424,7 @@ func normalizeHarmonyPriorityClaims(b *types.PerfBundle, ctx *types.BusContext, 
 		if !harmonyPriorityTextContradicts(text) {
 			continue
 		}
+		obs.Authority = types.PerfObservationAuthorityDeterministicValidator
 		obs.Kind = "priority_semantics_normalized"
 		obs.Subject = "HarmonyOS priority semantics"
 		obs.Summary = summary
@@ -450,6 +453,7 @@ func augmentPerfBundleWithTimeSemantics(b *types.PerfBundle, ctx *types.BusConte
 	durationMs := (last - first) * 1000
 	summary := fmt.Sprintf("Trace timestamps are seconds; attached excerpt spans %.6fs..%.6fs = %s.", first, last, formatTraceDuration(durationMs))
 	obs := types.PerfObservation{
+		Authority:  types.PerfObservationAuthorityDeterministicValidator,
 		Kind:       "time_semantics",
 		Subject:    "Trace timestamp unit",
 		Summary:    summary,

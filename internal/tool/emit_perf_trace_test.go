@@ -182,11 +182,30 @@ func TestEmitPerfTrace_Execute_AddsHarmonyPrioritySemanticsObservation(t *testin
 	if got.LineStart != 1 || got.LineEnd != 2 || got.Confidence != 1 {
 		t.Fatalf("priority observation should carry trace line span/confidence: %+v", got)
 	}
+	if got.Authority != types.PerfObservationAuthorityDeterministicValidator {
+		t.Fatalf("priority semantics should carry deterministic validator authority: %+v", got)
+	}
 	if bundle.Observations[1].Kind != "time_semantics" || !strings.Contains(bundle.Observations[1].Summary, "0.230ms") {
 		t.Fatalf("expected system time semantics observation before original observation: %+v", bundle.Observations[1])
 	}
+	if bundle.Observations[1].Authority != types.PerfObservationAuthorityDeterministicValidator {
+		t.Fatalf("time semantics should carry deterministic validator authority: %+v", bundle.Observations[1])
+	}
 	if bundle.Observations[2].Subject != "ACCS0 wakes Binder" {
 		t.Fatalf("original observation was not preserved after priority observation: %+v", bundle.Observations)
+	}
+	if bundle.Observations[2].Authority != types.PerfObservationAuthorityPreTriageModelExtraction {
+		t.Fatalf("model observation should carry pre-triage extraction authority: %+v", bundle.Observations[2])
+	}
+}
+
+func TestEmitPerfTrace_ObservationAuthorityIsValidatorOwned(t *testing.T) {
+	raw, err := json.Marshal((&EmitPerfTrace{}).Parameters())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), `"authority"`) {
+		t.Fatalf("observation authority must not be model-writable through emit schema: %s", raw)
 	}
 }
 
@@ -244,6 +263,9 @@ func TestEmitPerfTrace_Execute_NormalizesConflictingHarmonyPriorityObservation(t
 	normalized := bundle.Observations[len(bundle.Observations)-1]
 	if normalized.Kind != "priority_semantics_normalized" {
 		t.Fatalf("conflicting priority observation was not normalized: %+v", bundle.Observations)
+	}
+	if normalized.Authority != types.PerfObservationAuthorityDeterministicValidator {
+		t.Fatalf("normalized priority observation should carry deterministic authority: %+v", normalized)
 	}
 	if normalized.Subject != "HarmonyOS priority semantics" {
 		t.Fatalf("normalized subject retained model-authored class label: %q", normalized.Subject)

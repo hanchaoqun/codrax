@@ -663,3 +663,38 @@ B4 不变量：
 `B4-B/P0+P1` 施工验证：`trace_query` 的 Description/Parameters 已统一为同一引擎真值：`state_churn` 的 dominant typed state 走既有 closed matrix，fragmented runnable 与互斥 typed D/IO 可以按授权值参加候选，fragmented running 仍须有正的 CAP/compute-supply deficit，sleep/unknown 保持 context-only；同线程同物理状态账由既有 cross-type reconciler 吸收为一席，churn 诊断仍保留。没有修改任何排序值或根因引擎代码。指标快照新增 typed authority 选择：仅当 artifact projection、canonical subject、两个 `selected_window` 端点（共享 ±1ms tolerance）及五项状态时长完全一致时，canonical `predicate=state_churn` 才压掉同账 derived whole-window face；缺窗、坏值、未归属 projection 均 fail-open，`wakeup_causal_*` 或 `actual_window` 证明的 chain-episode face始终独立保留。旧 raw metric dedupe 移到 authority 选择之后，防止 ledger 中更早的派生行反向遮住 canonical 行；全过程不读取用户输入或答案正文。dispatch-sensitive Description golden 已按 ritual 重签并写入 evolution record。专项合同、canonical-first/episode-negative、窗口分组测试通过，`go test ./internal/tool -count=1` 全包通过（154.127s）；显式用户窗、full-artifact 覆盖、因果投影 materialization 与 system supplement authority 八项防回归专项通过（1.245s）。
 
 `B4-C/P0` 施工验证：controller 只在 typed `ExecutionMode=verify_only` 的 `verify_batch` 动作进入本代 verifier 前清除 `Mutable.ChangeReport`；上一代报告仍保存在既有 workflow attempt/context ledger，不清 plan、baseline、context pack，不进入 planner/apply。reset 位于 verify action 内且在 infra-retry loop 外：一代只清一次，本代 `run_tests` 一旦生成报告不会被重试循环擦掉；若本代没有生成报告，既有 missing-report/infra retry 路径继续 fail-loud。e2e 预置 `stale-first-generation` green report，断言 `StageVerify` 入口为空、最终只保留新 `existing-default-retained` assertion，planner/apply 零调用且进度账出现 `verification_only_report_generation_reset`；verifier 动态 schema pin 进一步证明 reset 后 `run_tests` 重新可见。`go test ./internal/types ./internal/agent ./internal/orchestrator -count=1` 全包通过（22.345s/3.704s/9.977s）。实现只读 workflow execution enum 与 report slot，没有读取请求、case ID 或模型输出原文。
+
+B4 修后回放（runner 快照 `main@8880c609d`）：
+
+- 结果目录：
+  - `eval/results/trace_query_state_churn_root_cause_rank-20260731-050314`
+  - `eval/results/github_issue_gson_lazy_number_symptom-20260731-050314`
+- 严格 `parallel=2`；runner 2/2 PASS，人工 0/2 完全通过：Trace 的确定性主链已正确但最终正文仍混入未授权外推；Write 的生产修复正确但变更闭包含语法损坏的测试文件，自动 PASS 属于 false pass。
+- Trace 防回归确认：两次 `trace_query` 都严格使用用户窗 `11.000000~11.008000`；完整 `Trace 因果投影` 仍发布；0 次源码读取；snapshot 只剩 canonical 两行，`app-20` 的 `19 switches / 20 fragments` 不再与 derived face 冲突。`fragmented_runnable_wait` 正确吸收进 rank=1 `runnable_wait` family，没有再写成“永不参与”。A/T1/T2 均获生产回放覆盖；T3 的 supplement 仍为 `no_typed_target`，但本轮查询/投影证据完整，保持 P2 filed。
+- Trace 新根因发生在 perf pre-stage：`perf_triager` 在没有 `trace_query` 工具的独立 dispatch 中，把假定的 `0.2ms/次切换开销`、`3ms损耗`、`16.67ms外推后净计算约11ms`、`prio=53 属于 CFS/time-slice exhaustion` 写入自由 `PerfObservation.summary`。后续确定性查询已给出相反/更精确的 running/runnable 与 Harmony RT 语义；observation ledger 也已将 `perf_trace` producer 降为 advisory，但 `context.BuildPromptContext` 直接绕过 ledger，把这些 summary 继续渲染成 `Perf Triage — Validated Extraction`。finalizer 因而复制 11ms 外推，并把 runnable wait 误写成 context-switch loss。
+- Explorer 还把 `8ms-running(3ms)=5ms` 重新命名为“state_churn 损耗”，并以自由 provenance 字符串发成 aggregate fact；`pressure_density=0.96` 又被叫作“临界”而没有任何 calibration。前者说明模型派生 aggregate fact 仍缺“实测量/数学派生/机制归因”的 typed derivation caliber，后者说明无量纲评分/密度仍缺比较基线。它们不应通过扫描答案词面拦截。
+- Write 的 W1 已真实覆盖：日志出现两次独立 `run_tests {}`，两次都在 Maven/JDK 缺失后执行 `make check` 并生成新报告；旧 report 未复用。`unavailable_tool_attempts=1` 是 planner 尝试未开放的 `read_file`，与 verifier 无关。
+- Write 的生产类补丁按 `value` 实现 `equals/hashCode`，数值转换方法未改；但生成的 `LazilyParsedNumberTest.java` 末尾有两组额外 `}`。直接根因不是 Java 个例：structured edit 收到 `start_line=1,end_line=20`，而 `old_text` 只覆盖 1~18 行；`normalizeStructuredEdits` 发现 old_text 在附近唯一命中后，静默把替换范围收窄为 1~18，再把包含完整闭合括号的 replacement 接到原 19~20 行之前，制造重复尾部。stale relocation 本应只平移等长范围，不能改变用户声明的替换跨度。
+- 验证随后再次失守：Java verification probe 和 Maven 都是 `runner_missing`，fallback `make check` 只运行 Python source oracle；oracle 只检查生产类含 `equals/hashCode/value`，没有编译或解析被改坏的 Java 测试文件。系统仍将 report 标为 authoritative green。缺工具可以降级，但“某个行为 oracle 通过”不能等价为“所有 changed paths 的语法/构建闭包已验证”。
+
+B4 修后新增 GAP 与后续批次：
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B4-T4 | P0 | Pre-triage / deterministic authority | LLM 预分析自由 observation 绕过 ledger 的 producer precedence，继续以 validated extraction 进入 finalizer，与 trace_query 竞争 | `PerfObservation` 增 validator-owned authority enum；model emission 与 deterministic semantic normalization 分流。确定性 trace_query 在场后，prompt projection 删除 model-extracted summary，仅保留 validator/legacy 兼容行；查询前明确只作 navigation。只读 typed authority/producer，不扫 prose | covered，批 D |
+| EVAL-B4-T5 | P1 | 派生量 caliber | explorer 可把 occupancy shortfall 重命名为开销/损耗，并把自由 provenance 伪装成 measured aggregate | 为 aggregate fact 增 closed derivation caliber（observed/measured arithmetic/inference）与 typed operand refs；机制归因不能只凭两个标量相减升级。先跨 case 收集，不按 “损耗/临界”词面硬门 | filed |
+| EVAL-B4-T6 | P2 | 无量纲指标可解释性 | `pressure_density=0.96` 没有 typed scale/baseline/threshold，模型自行称“临界” | 指标定义携 scale、方向、比较基线和 calibrated band；缺 band 时只报值和组成，不硬门答案 | filed |
+| EVAL-B4-T7 | P1 | Perf segmentation fidelity | `MergePerfBundles` 声称合并 Layer 1~3，却没有合并 `Observations`；大 trace 分段后 model observation 与 system-minted time/priority semantics 全部消失 | 按 authority+kind+subject+span 的 typed identity 合并去重，deterministic validator 行优先，稳定截断到 schema cap；补单段/多段 parity 与冲突顺序测试 | filed，独立批 G |
+| EVAL-B4-W2 | P0 | Structured edit 原子范围 | old_text relocation 可把声明的 replace 范围从 20 行静默缩为18行，replacement 与遗留后缀拼接 | relocation 只允许等长平移；候选 span 长度与原声明跨度不同则 `old_text_mismatch` fail-loud。覆盖缩窄/扩张负例与等长行漂移正例 | 待施工，批 E |
+| EVAL-B4-W3 | P0 | Changed-path verification closure | 首选语言 runner 缺失后，旁路 source oracle 通过即可把包含未解析 changed path 的报告升为 authoritative green | verification report 增加 typed changed-path coverage：每个 changed path 必须有 compile/parse/test/explicit source oracle caliber；行为 oracle 不能覆盖未读取的同语言文件。缺 runner 且无等价 parser 时返回 unverified/fail-loud，不伪装 PASS | 待施工，批 F |
+| EVAL-B4-W4 | P2 | 验证代际呈现 | W1 修后两次真实验证都发布为同名“测试通过”，用户难区分初验与 cumulative review | rendering 消费 batch/report generation id，标明初验/复核；不合并不同代真值 | filed |
+
+批 D 不变量：
+
+1. authority 由 `emit_perf_trace` validator 铸造，不允许模型在工具 schema 中自报；旧持久化 bundle 的空 authority 保持兼容。
+2. deterministic time/priority normalization 保留；model-extracted observation 在查询前仍可作定位提示，查询后不得与 trace_query 数值/机制/因果结论竞争。
+3. prompt projection 只消费 authority enum 与 ledger 的 deterministic producer 事实；禁止匹配用户输入、observation summary、case 名或最终答案。
+4. 不修改 `trace_query` 窗口选择、root rank、因果投影 materialization、system supplement 或自动补采。
+5. W2/W3 独立提交，避免把 Trace evidence authority 与 Write edit/verify truth 混成一个不可审计批次。
+
+`B4-D/P0` 施工验证：`PerfObservation.Authority` 新增 validator-owned 闭集，`emit_perf_trace` schema 明确不暴露该字段；模型发出的 observation 由 `toPerfBundle` 固定铸为 `pretriage_model_extraction`，系统生成的时间/优先级语义及对冲突优先级文案的 deterministic normalization 固定铸为 `deterministic_validator`，旧 bundle 的空值保留 legacy 兼容。prompt 在确定性 `trace_query` 未出现前仍渲染 model observation，但显式标为 navigation-only，并要求数值、调度类别、机制、因果先由确定性工具验证；任一 accepted deterministic query 出现后，projection 按 enum 删除 model observation，只保留 validator 与 legacy 行，同时 finalizer 既有 residue suppression 不变。perf-triage skill 同步禁止把 runnable/non-running、切换间隔或片段数自行换算为切换开销、丢失计算、帧预算外推、调度策略或根因。全部生产判断只读 authority enum 与 ledger producer，没有读取用户输入、observation summary、case id 或最终答案。`go test ./internal/types ./internal/skill ./internal/context ./internal/tool -count=1` 全包通过（21.116s/0.525s/1.756s/157.773s）；schema 非可写、model/validator/legacy 三臂、Harmony normalization、用户窗关系、full-artifact supplement、因果投影 materialization 与 system-supplement authority 专项通过（2.1s）。

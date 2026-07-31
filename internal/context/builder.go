@@ -1342,12 +1342,43 @@ func perfTriageBundleForPrompt(ac *types.AgentContext) *types.PerfBundle {
 	if ac == nil || ac.PerfTrace == nil {
 		return nil
 	}
-	if !shouldSuppressPerfTriageResidueInPrompt(ac) {
+	suppressResidue := shouldSuppressPerfTriageResidueInPrompt(ac)
+	suppressModelObservations := shouldSuppressModelPerfObservationsInPrompt(ac)
+	if !suppressResidue && !suppressModelObservations {
 		return ac.PerfTrace
 	}
 	projected := *ac.PerfTrace
-	projected.Residue = nil
+	if suppressResidue {
+		projected.Residue = nil
+	}
+	if suppressModelObservations {
+		projected.Observations = make([]types.PerfObservation, 0, len(ac.PerfTrace.Observations))
+		for _, obs := range ac.PerfTrace.Observations {
+			if obs.Authority == types.PerfObservationAuthorityPreTriageModelExtraction {
+				continue
+			}
+			projected.Observations = append(projected.Observations, obs)
+		}
+	}
 	return &projected
+}
+
+func shouldSuppressModelPerfObservationsInPrompt(ac *types.AgentContext) bool {
+	if ac == nil || ac.PerfTrace == nil {
+		return false
+	}
+	hasModelObservation := false
+	for _, obs := range ac.PerfTrace.Observations {
+		if obs.Authority == types.PerfObservationAuthorityPreTriageModelExtraction {
+			hasModelObservation = true
+			break
+		}
+	}
+	if !hasModelObservation {
+		return false
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromAgentContext(ac, 64))
+	return ledger.HasDeterministicRuntimeQueryObservation()
 }
 
 func shouldSuppressPerfTriageResidueInPrompt(ac *types.AgentContext) bool {
@@ -4240,12 +4271,21 @@ func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLo
 
 	if len(bundle.Observations) > 0 {
 		fmt.Fprintf(&b, "**Trace observations** (%d):\n", len(bundle.Observations))
+		for _, obs := range bundle.Observations {
+			if obs.Authority == types.PerfObservationAuthorityPreTriageModelExtraction {
+				b.WriteString("  ⚠ Entries with `authority=pretriage_model_extraction` are model-extracted navigation hypotheses. Verify their numeric, scheduler-class, mechanism, and causal claims with deterministic trace tools before using them in an answer.\n")
+				break
+			}
+		}
 		for i, obs := range bundle.Observations {
 			label := strings.TrimSpace(obs.Subject)
 			if label == "" {
 				label = "observation"
 			}
 			fmt.Fprintf(&b, "  [%d] %s", i+1, label)
+			if obs.Authority != "" {
+				fmt.Fprintf(&b, " authority=%s", obs.Authority)
+			}
 			if obs.LineStart > 0 {
 				if obs.LineEnd > obs.LineStart {
 					fmt.Fprintf(&b, " trace_lines=%d-%d", obs.LineStart, obs.LineEnd)
@@ -4348,6 +4388,7 @@ func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLo
 	b.WriteString("- Stalls marked `★ resolved` carry a repo-relative path that survived os.Stat verification — those are citation-grade.\n")
 	b.WriteString("- Jank `trigger` and `tags` fields are tracing_mark_write tag literals from the trace — quote them verbatim, do NOT translate or paraphrase.\n")
 	b.WriteString("- Trace observations with `trace_line=N` are artifact-local line anchors, not repository source citations.\n")
+	b.WriteString("- `authority=pretriage_model_extraction` observations are navigation-only until independently verified; `authority=deterministic_validator` marks system-minted semantic normalization.\n")
 	b.WriteString("- Coverage < 1.0 means some trace bytes ended up in residue; treat residue chunks as advisory context, not as primary evidence.\n")
 
 	return strings.TrimRight(b.String(), "\n")

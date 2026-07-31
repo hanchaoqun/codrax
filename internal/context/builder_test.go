@@ -3888,12 +3888,28 @@ func TestBuildPromptContext_FinalizerSuppressesPerfResidueAfterTraceQuery(t *tes
 	mu := types.NewMutableState("summarize the trace window")
 	mu.SetPerfTrace(&types.PerfBundle{
 		Meta: types.PerfMeta{Source: "hitrace"},
-		Observations: []types.PerfObservation{{
-			Kind:      "state_churn",
-			Subject:   "app-20",
-			Summary:   "typed perf observation remains available",
-			LineStart: 12,
-		}},
+		Observations: []types.PerfObservation{
+			{
+				Authority: types.PerfObservationAuthorityPreTriageModelExtraction,
+				Kind:      "state_churn",
+				Subject:   "app-20",
+				Summary:   "model estimate must not compete with deterministic query",
+				LineStart: 12,
+			},
+			{
+				Authority: types.PerfObservationAuthorityDeterministicValidator,
+				Kind:      "priority_semantics",
+				Subject:   "Harmony priority",
+				Summary:   "system validator observation remains available",
+				LineStart: 12,
+			},
+			{
+				Kind:      "legacy_observation",
+				Subject:   "legacy bundle",
+				Summary:   "legacy authority remains compatible",
+				LineStart: 12,
+			},
+		},
 		Residue: []string{"pre-triage availability note should stay out of final answer prompt"},
 	})
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{
@@ -3925,8 +3941,16 @@ func TestBuildPromptContext_FinalizerSuppressesPerfResidueAfterTraceQuery(t *tes
 	if sec == nil {
 		t.Fatal("finalizer should still receive structured perf-triage observations")
 	}
-	if !strings.Contains(sec.Content, "typed perf observation remains available") {
-		t.Fatalf("typed perf observation was dropped with residue:\n%s", sec.Content)
+	if strings.Contains(sec.Content, "model estimate must not compete") {
+		t.Fatalf("model-extracted observation should be suppressed after deterministic trace_query:\n%s", sec.Content)
+	}
+	for _, want := range []string{
+		"system validator observation remains available",
+		"legacy authority remains compatible",
+	} {
+		if !strings.Contains(sec.Content, want) {
+			t.Fatalf("authority-compatible perf observation %q was dropped:\n%s", want, sec.Content)
+		}
 	}
 	if strings.Contains(sec.Content, "Residue") ||
 		strings.Contains(sec.Content, "pre-triage availability note should stay out") {
@@ -4222,6 +4246,30 @@ func TestFormatPerfTriageStructured_ExternalSourceDirective(t *testing.T) {
 	}
 	if strings.Contains(got, "foreign/render.cpp:42 ★ resolved") {
 		t.Fatalf("unresolved trace file must not be marked citation-grade:\n%s", got)
+	}
+}
+
+func TestFormatPerfTriageStructured_LabelsModelObservationAuthority(t *testing.T) {
+	bundle := &types.PerfBundle{
+		Meta: types.PerfMeta{Source: "hitrace"},
+		Observations: []types.PerfObservation{{
+			Authority: types.PerfObservationAuthorityPreTriageModelExtraction,
+			Kind:      "scheduler_hypothesis",
+			Subject:   "candidate scheduler explanation",
+			Summary:   "estimated mechanism",
+			LineStart: 7,
+		}},
+	}
+	got := formatPerfTriageStructured(bundle, nil)
+	for _, want := range []string{
+		"authority=pretriage_model_extraction",
+		"navigation hypotheses",
+		"Verify their numeric, scheduler-class, mechanism, and causal claims",
+		"navigation-only until independently verified",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("perf structured section missing model-authority boundary %q:\n%s", want, got)
+		}
 	}
 }
 

@@ -1223,6 +1223,27 @@ func TestRuntimeTraceSkillsKeepPriorityInversionBroadAndEvidenceCalibrated(t *te
 	}
 }
 
+func TestPerfTriageSkillKeepsModelObservationsAdvisory(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	perf, err := r.Get("perf-triage-skill")
+	if err != nil {
+		t.Fatalf("perf-triage-skill missing: %v", err)
+	}
+	body := strings.Join(perf.Workflow, "\n")
+	for _, want := range []string{
+		"pre-triage model extractions",
+		"deterministic trace_query results supersede them",
+		"Do not turn runnable time",
+		"context-switch overhead",
+		"frame-budget extrapolation",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("perf-triage authority guidance missing %q", want)
+		}
+	}
+}
+
 func TestRuntimeTriageSkills_DoNotAdvertiseReadFileAsAlwaysAvailable(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)
