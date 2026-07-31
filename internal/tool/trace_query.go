@@ -11196,7 +11196,7 @@ func traceQueryTypedWakeupEdgeRichNotes(edge tracequery.WakeupEdge, path string)
 	return traceQueryTypedKVNotes([][2]string{
 		{types.TraceNoteKeyPath, path},
 		{"segment_ordinal", segmentOrdinal},
-		{"wakeup_ts", traceQueryTimestampValue(edge.WakeupTs)},
+		{types.TraceNoteKeyWakeupTs, traceQueryTimestampValue(edge.WakeupTs)},
 		{"latency", traceQueryObservationMSValue(edge.LatencyMs)},
 		{"waker_priority", traceQueryPriorityPair(edge.WakerPriority, edge.WakerPriorityClass)},
 		{"wakee_priority", traceQueryPriorityPair(edge.WakeePriority, edge.WakeePriorityClass)},

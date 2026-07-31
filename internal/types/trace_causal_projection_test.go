@@ -358,6 +358,7 @@ func TestTraceCausalProjectionSleepDrilldownTargetsImmediateWaker(t *testing.T) 
 			ClaimKey:        "wakeup_chain_edge:worker-200->app-100",
 			Subject:         "worker-200",
 			Object:          "app-100",
+			Span:            ObservationSpan{LineStart: 15, LineEnd: 15, StartTs: 2.020, EndTs: 2.020},
 		},
 		{
 			ID:              "edge-threadpool-worker",
@@ -368,6 +369,7 @@ func TestTraceCausalProjectionSleepDrilldownTargetsImmediateWaker(t *testing.T) 
 			ClaimKey:        "wakeup_chain_edge:threadpool-400->worker-200",
 			Subject:         "threadpool-400",
 			Object:          "worker-200",
+			Span:            ObservationSpan{LineStart: 11, LineEnd: 11, StartTs: 2.016, EndTs: 2.016},
 		},
 	}}
 
@@ -380,8 +382,80 @@ func TestTraceCausalProjectionSleepDrilldownTargetsImmediateWaker(t *testing.T) 
 	if app.DrilldownTarget != "worker-200" || app.DrilldownEvidenceID != "edge-worker-app" {
 		t.Fatalf("app sleep should drill to its immediate waker, got %+v", app)
 	}
+	if !app.DrilldownWakeupPointKnown || app.DrilldownWakeupTs != 2.020 || app.DrilldownWakeupLine != 15 {
+		t.Fatalf("app sleep should retain its exact typed wakeup point, got %+v", app)
+	}
 	if worker.DrilldownTarget != "threadpool-400" || worker.DrilldownEvidenceID != "edge-threadpool-worker" {
 		t.Fatalf("worker sleep should drill to its immediate waker, got %+v", worker)
+	}
+	if !worker.DrilldownWakeupPointKnown || worker.DrilldownWakeupTs != 2.016 || worker.DrilldownWakeupLine != 11 {
+		t.Fatalf("worker sleep should retain its exact typed wakeup point, got %+v", worker)
+	}
+}
+
+func TestTraceCausalProjectionSleepDrilldownConflictingPointsDoNotInventTimestamp(t *testing.T) {
+	ledger := ObservationLedger{Records: []ObservationRecord{
+		traceProjectionTestRootWithNotes("root-app-sleep", "app-100", "sleep_wait", "12.000", 12.0, 0.90, 1, []string{
+			"chain_relevance=on_chain",
+			"causality=on_wakeup_chain",
+			"dominant_state=s_sleep",
+		}),
+		{
+			ID: "edge-worker-app-1", Origin: AnswerEvidenceOriginRuntimeArtifact,
+			Producer: "trace_query", GroundingPolicy: ClaimGroundingHard,
+			Predicate: "wakeup_chain_edge", Subject: "worker-200", Object: "app-100",
+			Span: ObservationSpan{LineStart: 10, LineEnd: 10, StartTs: 2.016, EndTs: 2.016},
+		},
+		{
+			ID: "edge-worker-app-2", Origin: AnswerEvidenceOriginRuntimeArtifact,
+			Producer: "trace_query", GroundingPolicy: ClaimGroundingHard,
+			Predicate: "wakeup_chain_edge", Subject: "worker-200", Object: "app-100",
+			Span: ObservationSpan{LineStart: 12, LineEnd: 12, StartTs: 2.018, EndTs: 2.018},
+		},
+	}}
+
+	got := CompileTraceCausalProjection(ledger)
+	app := traceProjectionFindNodeBySubject(got.PrimaryRootCauses, "app-100")
+	if app == nil {
+		t.Fatalf("expected app sleep node, got %+v", got.PrimaryRootCauses)
+	}
+	if app.DrilldownTarget != "worker-200" {
+		t.Fatalf("same-waker repeated edges should retain the unique upstream target, got %+v", app)
+	}
+	if app.DrilldownWakeupPointKnown || app.DrilldownWakeupTs != 0 || app.DrilldownWakeupLine != 0 {
+		t.Fatalf("conflicting repeated edge points must not publish an arbitrary timestamp, got %+v", app)
+	}
+}
+
+func TestTraceCausalProjectionSleepDrilldownLineOnlyDoesNotFabricateTraceZero(t *testing.T) {
+	ledger := ObservationLedger{Records: []ObservationRecord{
+		traceProjectionTestRootWithNotes("root-app-sleep", "app-100", "sleep_wait", "12.000", 12.0, 0.90, 1, []string{
+			"chain_relevance=on_chain",
+			"causality=on_wakeup_chain",
+			"dominant_state=s_sleep",
+		}),
+		{
+			ID: "edge-worker-app", Origin: AnswerEvidenceOriginRuntimeArtifact,
+			Producer: "trace_query", GroundingPolicy: ClaimGroundingHard,
+			Predicate: "wakeup_chain_edge", Subject: "worker-200", Object: "app-100",
+			Span: ObservationSpan{LineStart: 1, LineEnd: 1},
+		},
+	}}
+
+	got := CompileTraceCausalProjection(ledger)
+	app := traceProjectionFindNodeBySubject(got.PrimaryRootCauses, "app-100")
+	if app == nil || app.DrilldownTarget != "worker-200" {
+		t.Fatalf("expected unique upstream identity, got %+v", app)
+	}
+	if app.DrilldownWakeupPointKnown || app.DrilldownWakeupLine != 0 {
+		t.Fatalf("line-only edge must not fabricate a trace-zero point, got %+v", app)
+	}
+
+	ledger.Records[1].RichNotes = []string{TraceNoteKeyWakeupTs + "=0.000000"}
+	got = CompileTraceCausalProjection(ledger)
+	app = traceProjectionFindNodeBySubject(got.PrimaryRootCauses, "app-100")
+	if app == nil || !app.DrilldownWakeupPointKnown || app.DrilldownWakeupTs != 0 || app.DrilldownWakeupLine != 1 {
+		t.Fatalf("registered typed zero witness should preserve a real trace-zero point, got %+v", app)
 	}
 }
 

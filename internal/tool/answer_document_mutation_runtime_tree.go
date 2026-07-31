@@ -18942,6 +18942,8 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 		// terminal); each field is its own keyed line and the relation speaks
 		// a full clause (word tables in runtimeTraceProjDetailRelationCell).
 		add("关系", "relation", runtimeTraceCausalProjectionMarkdownSafe(runtimeTraceProjDetailRelationCell(row, zh, flat)))
+		add("直接上游唤醒点", "direct upstream wakeup point",
+			runtimeTraceCausalProjectionMarkdownSafe(runtimeTraceProjDetailWakeupPoint(node, zh)))
 		if len(node.SecondaryObjects) > 0 {
 			// PTV6-C #6: same D4 中文（token） display as the tree tag (single
 			// helper); the raw tokens stay lossless on the 类型 column and the
@@ -19791,6 +19793,27 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 		stanzas = append(stanzas, heading+"\n"+stanza.body)
 	}
 	return strings.Join(stanzas, "\n\n")
+}
+
+func runtimeTraceProjDetailWakeupPoint(node types.TraceCausalProjectionNode, zh bool) string {
+	if !node.DrilldownWakeupPointKnown {
+		return ""
+	}
+	waker := strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(node.DrilldownTarget, zh))
+	wakee := strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(node.Subject, zh))
+	if waker == "" || wakee == "" || math.IsNaN(node.DrilldownWakeupTs) ||
+		math.IsInf(node.DrilldownWakeupTs, 0) || node.DrilldownWakeupTs < 0 {
+		return ""
+	}
+	line := ""
+	if node.DrilldownWakeupLine > 0 {
+		if zh {
+			line = fmt.Sprintf("（trace 行%d）", node.DrilldownWakeupLine)
+		} else {
+			line = fmt.Sprintf(" (trace line %d)", node.DrilldownWakeupLine)
+		}
+	}
+	return fmt.Sprintf("%s → %s @ %.6fs%s", waker, wakee, node.DrilldownWakeupTs, line)
 }
 
 // runtimeTraceCausalProjectionSyntheticEvidenceLocator renders the display

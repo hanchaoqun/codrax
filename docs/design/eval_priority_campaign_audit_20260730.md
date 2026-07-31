@@ -1069,3 +1069,47 @@ B6 r1 GAP 与处置：
 4. 不修改 read/trace 路由、显式时间窗、因果投影、根因排序、唤醒链、窗内可消除量和自动补齐。
 
 `B7-R/P1` 施工验证：新增 proof-followup outcome reconciliation；只有 verify-only proof batch 且 ledger state=verified、uncovered/unavailable/failed 均为0时保留 `report_passed`，否则转 typed `verification_incomplete(reason=verification_proof_incomplete)`，attempt/slice/batch 记录为 unverified。相邻负例固定普通实现批不受影响，正例固定强 project runner proof 仍通过。专项 tests及 `go test ./internal/orchestrator -count=1` 通过；待提交推送。
+
+### 批 S：精确唤醒边进入确定性因果投影（2026-07-31）
+
+对 B7-T1 冷读后确认，问题不是 `trace_query` 缺数据：每条
+`wakeup_chain_edge` 的 `ObservationSpan` 已携精确 `StartTs/LineStart`，
+但 `traceCausalProjectionWakeupEdge` 只抄 waker、wakee、evidence ID 和
+relation，编译时永久丢失唤醒点。因果树又以“上游子节点唤醒父节点”
+组织，不能把子节点自己的下一跳时间直接拼到当前树边，否则会把
+`network→cookie` 的时间贴成 `threadpool→network`。
+
+批 S 的统一方案是在被唤醒节点的 typed drilldown relation 上保留：
+
+- `DrilldownWakeupPointKnown`：独立 presence bit，保证 trace 合法
+  `0.000000s` 不被零值误判成 unavailable；
+- `DrilldownWakeupTs`：直接来自 accepted `wakeup_chain_edge` 的
+  `ObservationSpan.StartTs`；
+- `DrilldownWakeupLine`：直接来自同一记录的 `LineStart`。
+
+逐节点 lossless 明细新增“直接上游唤醒点”，确定性输出
+`waker → wakee @ 2.020000s（trace 行15）`。path-only fallback不生成
+时间；多个不同 waker继续使上游关系 ambiguous；同一 waker若存在多个
+不同 typed 时间点，则仍保留唯一上游身份，但清空精确时间/行号和单一
+evidence ID，禁止按记录到达顺序任选一个。
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B7-T1 | P1 | wakeup edge 时间权限 | typed edge 的点坐标在 projection compile 时丢失，模型只能从多种时长/切入点自由组合 | 在被唤醒节点的 typed direct-upstream relation 保留 presence+ts+line，并在 lossless 明细确定性发布；缺失/冲突不猜造 | 批 S 已施工，待 B8 真实 trace 观察 |
+
+批 S 不变量：
+
+1. 不改变 full-report authority、显式时间窗优先级、query 选择、自动补采、根因排序、链节点选择或窗内可消除量；只增加 accepted typed edge 已有坐标的无损携带和显示。
+2. 不读取 raw request、case ID、模型 thinking、final answer 或非结构化说明来判断时间；唯一数值源是 `ObservationSpan`。仅在时间恰为零、span 零值无法表达 presence 时，用注册过的 typed `wakeup_ts=0` note 证明“零确实存在”，note 不替代数值源。
+3. path-only wakeup chain只能提供拓扑，不能铸时间；点冲突 fail-closed，不以 epsilon、频次或到达顺序挑选。
+4. 时间 presence 与数值分席，已知 `0s` 可发布，unknown不能渲染成 `0.000000s`。
+
+`B7-S/P1` 施工验证：types 正例固定 app/worker 两跳分别保留
+`2.020s/line15` 与 `2.016s/line11`；同一 waker 的冲突点固定只保留
+上游身份、不发布时间；原多 waker ambiguous 负例保持。renderer
+中英文精确格式与 unknown/known-zero 两臂均固定；line-only 负例不能
+伪造 trace-zero，注册过的 typed zero witness 正例可保留 0s；info-contract census
+登记三字段显示面，`wakeup_ts` carrier 由 display-only 同步升格为
+hard-consumer，避免编译消费与 note-key 契约漂移。
+`go test ./internal/types ./internal/tool -count=1`全包通过
+（types 21.167s、tool 162.614s）；`git diff --check`通过。
