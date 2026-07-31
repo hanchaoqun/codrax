@@ -3831,6 +3831,75 @@ func TestEmitAnalysis_SourceInventorySoftensConstructOnlyAuxiliaryScope(t *testi
 	}
 }
 
+func TestEmitAnalysis_SourceInventorySoftensScopeWhenEveryQuoteIsRejected(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("仓库里有哪些 extend 块和 public class？")
+	payload := `{
+		"intent": "enumerate",
+		"scenario": "generic",
+		"complexity": "moderate",
+		"keywords": ["extend", "public class"],
+		"entities": ["extend", "public class"],
+		"question_kind": "enumeration",
+		"intent_confidence": 0.95,
+		"complexity_confidence": 0.75,
+		"kind_confidence": 0.95,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": true,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false,
+			"has_per_member_table": true
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.95
+		},
+		"source_scope_profile": {
+			"requested_scope": "auxiliary",
+			"include_auxiliary_as_principal": true,
+			"source_quotes": ["thirdparty Cangjie corpus"],
+			"confidence": 0.95,
+			"rationale": "model inferred a repository layout"
+		},
+		"source_inventory_profile": {
+			"is_source_inventory": true,
+			"target_roles": ["function", "type"],
+			"requested_fields": ["name", "location"],
+			"source_quotes": ["extend 块", "public class"],
+			"confidence": 0.95
+		}
+	}`
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		t.Fatalf("source inventory profile should remain active: %+v", rm)
+	}
+	if rm.SourceScopeProfile != nil {
+		t.Fatalf("scope with zero validated quotes must not retain hard authority: %+v", rm.SourceScopeProfile)
+	}
+	for _, want := range []string{"entry ignored", "no validated current-request source quote"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("summary missing %q: %s", want, res.Summary)
+		}
+	}
+}
+
 func TestEmitAnalysis_SourceInventoryKeepsIndependentSourceScopeQuote(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

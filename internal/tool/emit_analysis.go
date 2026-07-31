@@ -1290,6 +1290,9 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	if len(sourceScopeWarnings) > 0 {
 		val.Warnings = append(val.Warnings, sourceScopeWarnings...)
 	}
+	sourceScopeQuotesRejected := p.SourceScopeProfile != nil &&
+		len(trimStringSlice(p.SourceScopeProfile.SourceQuotes)) > 0 &&
+		(sourceScopeProfile == nil || len(sourceScopeProfile.SourceQuotes) == 0)
 	changeImpactProfile, changeImpactErr := parseChangeImpactProfile(p.ChangeImpactProfile)
 	if changeImpactErr != "" {
 		return types.ToolResult{
@@ -1721,7 +1724,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
-	if warning := normalizeSourceInventoryConstructOnlySourceScope(&rm); warning != "" {
+	if warning := normalizeSourceInventoryConstructOnlySourceScope(&rm, sourceScopeQuotesRejected); warning != "" {
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
@@ -1771,15 +1774,19 @@ func normalizeSourceInventoryProductionScope(rm *types.RequestModel) string {
 	return ""
 }
 
-func normalizeSourceInventoryConstructOnlySourceScope(rm *types.RequestModel) string {
+func normalizeSourceInventoryConstructOnlySourceScope(rm *types.RequestModel, sourceScopeQuotesRejected bool) string {
 	if rm == nil ||
 		rm.SourceScopeProfile == nil ||
 		rm.SourceInventoryProfile == nil ||
 		!rm.SourceInventoryProfile.Active() ||
 		rm.SourceScopeProfile.RequestedScope == "" ||
-		rm.SourceScopeProfile.RequestedScope == types.SourceScopeUnknown ||
-		len(rm.SourceScopeProfile.SourceQuotes) == 0 {
+		rm.SourceScopeProfile.RequestedScope == types.SourceScopeUnknown {
 		return ""
+	}
+	if sourceScopeQuotesRejected && len(rm.SourceScopeProfile.SourceQuotes) == 0 {
+		scope := rm.SourceScopeProfile.RequestedScope
+		rm.SourceScopeProfile = nil
+		return fmt.Sprintf("source_scope_profile auto-softened: %s scope had no validated current-request source quote", scope)
 	}
 	if rm.SourceScopeProfile.RequestedScope == types.SourceScopeProduction &&
 		SourceInventoryHasExplicitAuxiliaryExclusion(*rm) {

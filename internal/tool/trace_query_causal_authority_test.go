@@ -92,6 +92,23 @@ func TestTraceCausalProjectionMaterializationUsesTypedQuestionAuthority(t *testi
 	}
 
 	generic.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile = nil
+	semanticOnly := types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{{
+		SemanticSpans: []types.TraceCausalProjectionNode{{
+			Subject:        "VerifyClass com.example.Foo",
+			SemanticClass:  "class_verification",
+			ChainRelevance: "background",
+		}},
+	}}}
+	if runtimeTraceCausalProjectionMaterializationAllowed(generic, semanticOnly) {
+		t.Fatal("off-chain semantic optimization rows must not mint a causal report for a generic trace fact")
+	}
+	if !runtimeTraceProjectionSetHasCausalRows(semanticOnly) {
+		t.Fatal("semantic rows must remain visible to the broad coverage/content predicate")
+	}
+	if runtimeTraceProjectionSetHasPublicationGradeCausalRows(semanticOnly) {
+		t.Fatal("semantic-only projection unexpectedly gained publication-grade causal authority")
+	}
+
 	withCausalRows := types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{{
 		PrimaryRootCause: &types.TraceCausalProjectionNode{Subject: "ui-thread"},
 	}}}
@@ -102,6 +119,31 @@ func TestTraceCausalProjectionMaterializationUsesTypedQuestionAuthority(t *testi
 	generic.AnalysisIR.RequestModel.Predicates.IsDiagnosticQuestion = true
 	if !runtimeTraceCausalProjectionMaterializationAllowed(generic, empty) {
 		t.Fatal("typed diagnostic questions need the empty causal-authority boundary")
+	}
+}
+
+func TestTraceCausalProjectionExplicitWindowRetainsSemanticOnlyProjection(t *testing.T) {
+	ctx := newBusForMutationTest()
+	start, end := 10.0, 10.010
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:   types.IntentExplain,
+		Scenario: types.ScenarioGeneric,
+		RuntimeArtifactScopeProfile: &types.RuntimeArtifactScopeProfile{
+			RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
+			TimeStart:      &start,
+			TimeEnd:        &end,
+			SourceQuote:    "10.000..10.010",
+		},
+	}}
+	set := types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{{
+		SemanticSpans: []types.TraceCausalProjectionNode{{
+			Subject:        "VerifyClass",
+			SemanticClass:  "class_verification",
+			ChainRelevance: "background",
+		}},
+	}}}
+	if !runtimeTraceCausalProjectionMaterializationAllowed(ctx, set) {
+		t.Fatal("explicit typed time windows must retain causal projection materialization")
 	}
 }
 

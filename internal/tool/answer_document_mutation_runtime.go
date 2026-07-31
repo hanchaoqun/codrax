@@ -1099,7 +1099,7 @@ func runtimeTraceCausalProjectionMaterializationAllowed(ctx *types.BusContext, s
 	if _, _, ok := rm.RuntimeArtifactScopeProfile.ExplicitTimeWindow(); ok {
 		return true
 	}
-	if runtimeTraceProjectionSetHasCausalRows(set) {
+	if runtimeTraceProjectionSetHasPublicationGradeCausalRows(set) {
 		return true
 	}
 	if rm.Intent == types.IntentRootCause ||
@@ -3278,6 +3278,31 @@ func runtimeTraceProjectionSetHasCausalRows(set types.TraceCausalProjectionSet) 
 			len(projection.OnChainCauses) > 0 ||
 			len(projection.AdjacentCauses) > 0 ||
 			len(projection.SemanticSpans) > 0 ||
+			len(projection.WakeupPath) > 0 ||
+			len(projection.SupportingHops) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// runtimeTraceProjectionSetHasPublicationGradeCausalRows is deliberately
+// narrower than runtimeTraceProjectionSetHasCausalRows. The broad predicate
+// answers whether a compiled projection has any renderable causal-context
+// content and remains the right input for coverage-boundary wording. It also
+// includes off-chain semantic optimization spans.
+//
+// Publication authority needs an actual root/chain carrier. A semantic span
+// that is truly on-chain is already copied into OnChainCauses by the projection
+// compiler, so excluding the standalone SemanticSpans bucket loses no causal
+// evidence while preventing background optimization points from minting a full
+// causal report for generic trace coverage questions.
+func runtimeTraceProjectionSetHasPublicationGradeCausalRows(set types.TraceCausalProjectionSet) bool {
+	for _, projection := range set.Projections {
+		if projection.PrimaryRootCause != nil ||
+			len(projection.PrimaryRootCauses) > 0 ||
+			len(projection.OnChainCauses) > 0 ||
+			len(projection.AdjacentCauses) > 0 ||
 			len(projection.WakeupPath) > 0 ||
 			len(projection.SupportingHops) > 0 {
 			return true

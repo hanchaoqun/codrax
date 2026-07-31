@@ -1556,7 +1556,11 @@ func sourceInventoryAuxiliaryProjectionEntries(repoRoot string, graph *Graph, p 
 		Path:   p.Path,
 		Scopes: append([]string(nil), scopes...),
 	})
-	entries := make([]index.FileEntry, 0, len(tracked))
+	type projectionCandidate struct {
+		entry index.FileEntry
+		role  ctypes.SourcePathRole
+	}
+	candidates := make([]projectionCandidate, 0, len(tracked))
 	for _, file := range tracked {
 		rel := strings.Trim(strings.ReplaceAll(file.Path, `\`, `/`), "/")
 		if rel == "" || seen[rel] || !ctypes.SourcePathRoleIsAuxiliary(file.Role) {
@@ -1574,14 +1578,98 @@ func sourceInventoryAuxiliaryProjectionEntries(repoRoot string, graph *Graph, p 
 		if lang == "" || !rmtypes.IsSupportedReadLanguage(lang) {
 			continue
 		}
-		entries = append(entries, index.FileEntry{
-			RelPath:  rel,
-			AbsPath:  abs,
-			Language: lang,
-			Size:     info.Size(),
+		candidates = append(candidates, projectionCandidate{
+			entry: index.FileEntry{
+				RelPath:  rel,
+				AbsPath:  abs,
+				Language: lang,
+				Size:     info.Size(),
+			},
+			role: file.Role,
 		})
 		seen[rel] = true
-		if len(entries) >= sourceInventoryAuxProjectionMaxFiles {
+	}
+	if len(candidates) <= sourceInventoryAuxProjectionMaxFiles {
+		entries := make([]index.FileEntry, 0, len(candidates))
+		for _, candidate := range candidates {
+			entries = append(entries, candidate.entry)
+		}
+		return entries
+	}
+
+	// The persisted graph intentionally omits many auxiliary files. A root
+	// source-inventory lens temporarily projects a bounded subset, but taking
+	// the first N tracked paths lets a large Go/test prefix consume the whole
+	// budget before minority-language fixture/corpus files are parsed. Select
+	// the same bounded total by a deterministic language × source-role
+	// round-robin. This is coverage balancing over typed file metadata only:
+	// it does not inspect the query, request prose, file contents, or model
+	// answer, and it does not privilege any named language.
+	type roleQueue struct {
+		role       ctypes.SourcePathRole
+		candidates []projectionCandidate
+		next       int
+	}
+	type languageQueue struct {
+		language string
+		roles    []*roleQueue
+		nextRole int
+	}
+	languagesByName := map[string]*languageQueue{}
+	var languages []*languageQueue
+	for _, candidate := range candidates {
+		language := candidate.entry.Language
+		queue := languagesByName[language]
+		if queue == nil {
+			queue = &languageQueue{language: language}
+			languagesByName[language] = queue
+			languages = append(languages, queue)
+		}
+		var role *roleQueue
+		for _, existing := range queue.roles {
+			if existing.role == candidate.role {
+				role = existing
+				break
+			}
+		}
+		if role == nil {
+			role = &roleQueue{role: candidate.role}
+			queue.roles = append(queue.roles, role)
+		}
+		role.candidates = append(role.candidates, candidate)
+	}
+	nextFromLanguage := func(queue *languageQueue) (index.FileEntry, bool) {
+		if queue == nil || len(queue.roles) == 0 {
+			return index.FileEntry{}, false
+		}
+		for checked := 0; checked < len(queue.roles); checked++ {
+			idx := (queue.nextRole + checked) % len(queue.roles)
+			role := queue.roles[idx]
+			if role.next >= len(role.candidates) {
+				continue
+			}
+			entry := role.candidates[role.next].entry
+			role.next++
+			queue.nextRole = (idx + 1) % len(queue.roles)
+			return entry, true
+		}
+		return index.FileEntry{}, false
+	}
+	entries := make([]index.FileEntry, 0, sourceInventoryAuxProjectionMaxFiles)
+	for len(entries) < sourceInventoryAuxProjectionMaxFiles {
+		added := false
+		for _, language := range languages {
+			entry, ok := nextFromLanguage(language)
+			if !ok {
+				continue
+			}
+			entries = append(entries, entry)
+			added = true
+			if len(entries) >= sourceInventoryAuxProjectionMaxFiles {
+				break
+			}
+		}
+		if !added {
 			break
 		}
 	}

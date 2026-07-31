@@ -748,6 +748,91 @@ func TestCompileEnumerationDisplaySets_PreservesDecoratedPackageAttributesWithou
 	}
 }
 
+func TestCompileEnumerationDisplaySets_JoinsRequestedPackageFromGroundedSameFileDeclaration(t *testing.T) {
+	rm := &RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType},
+			RequestedFields: []SourceInventoryRequestedField{
+				SourceInventoryFieldName,
+				SourceInventoryFieldLocation,
+				SourceInventoryFieldPackage,
+			},
+			Confidence: 0.95,
+		},
+	}
+	plan := &AnswerSurfacePlan{
+		StableAggregateFacts: []AnswerAggregateFact{{
+			Kind:        AnswerAggregateMemberSet,
+			Label:       "public classes",
+			Value:       "1",
+			Role:        AnswerAggregateRolePrincipalAnswer,
+			Members:     []string{"public class Bridge"},
+			SupportRefs: []string{"public class Bridge: fixtures/bridge/Bridge.cj:15"},
+		}},
+		SurfaceEvidence: []EvidenceItem{
+			{
+				ID:              "class-bridge",
+				Subject:         "public class Bridge",
+				Object:          "demo.bridge",
+				Source:          "fixtures/bridge/Bridge.cj",
+				LineStart:       15,
+				AnchorKind:      AnchorDefinition,
+				AnchorSymbol:    "Bridge",
+				GroundingStatus: GroundingGrounded,
+				Scope:           ScopeLine,
+			},
+			{
+				ID:              "package-bridge",
+				Subject:         "package",
+				Source:          "fixtures/bridge/Bridge.cj",
+				LineStart:       4,
+				AnchorKind:      AnchorDefinition,
+				AnchorSymbol:    "demo.bridge",
+				GroundingStatus: GroundingGrounded,
+				Scope:           ScopeLine,
+			},
+			{
+				ID:              "package-wrong-file",
+				Subject:         "package",
+				Source:          "fixtures/other/Other.cj",
+				LineStart:       2,
+				AnchorKind:      AnchorDefinition,
+				AnchorSymbol:    "demo.bridge",
+				GroundingStatus: GroundingGrounded,
+				Scope:           ScopeLine,
+			},
+			{
+				ID:              "package-ungrounded",
+				Subject:         "package",
+				Source:          "fixtures/bridge/Bridge.cj",
+				LineStart:       1,
+				AnchorKind:      AnchorDefinition,
+				AnchorSymbol:    "demo.unverified",
+				GroundingStatus: GroundingUngrounded,
+				Scope:           ScopeLine,
+			},
+		},
+	}
+
+	sets := CompileEnumerationDisplaySets(rm, plan)
+	if len(sets) != 1 || len(sets[0].Rows) != 1 {
+		t.Fatalf("sets = %+v", sets)
+	}
+	attrs := sets[0].Rows[0].Attributes
+	if len(attrs) != 1 {
+		t.Fatalf("row attributes = %+v, want one grounded package attribute", attrs)
+	}
+	if got := attrs[0]; got.Role != AnswerCandidateRolePackage || got.Name != "demo.bridge" ||
+		got.Location != "fixtures/bridge/Bridge.cj:4" {
+		t.Fatalf("joined package attribute = %+v", got)
+	}
+}
+
 func TestCompileEnumerationDisplaySets_ImportPathSuffixDisambiguatesSameTail(t *testing.T) {
 	rm := &RequestModel{
 		Intent: IntentEnumerate,

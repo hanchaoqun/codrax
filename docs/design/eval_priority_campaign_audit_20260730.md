@@ -752,3 +752,44 @@ B5 施工不变量与批次：
 每个 complete lens 新增规范化 `SurfaceFamilies`，身份键也包含该维度，避免同 role/language/source-class 的不同构造面相互代签。completion 在允许 language/source-class fallback 前，从同一 parser graph 和 typed source quotes 重建所请求的 role-family 集；每一席都必须有对应 complete lens，且该席的每个 exact row 都被 principal member_set 覆盖或 typed excluded。回归固定 `function × foreign func` 与 `type × public class`：只交付一个 class 和 foreign func 时不得铸 `accepted_requested_universe`，补齐第二个 class 后闭包成立。实现未读取 raw request、case ID、语言名、文件名或最终答案。
 
 结构收敛同步完成：新增逻辑拆入 candidate-set、query surface-family、requested-family closure 与 complete-lens surface concern 文件，`source_inventory_reconcile.go` 从既有 3651 ceiling 下压到 3610 行，未抬高任何旧文件上限；每个新文件均设置独立 LOC ratchet。定向矩阵与 convergence tests 通过，`go test ./internal/tool ./internal/types -count=1` 全包通过（tool 160.840s、types 20.892s），`go test ./internal/agent ./internal/orchestrator -count=1` 通过（agent 3.925s、orchestrator 11.301s）。
+
+B5 首次修复后回放（runner 快照 `main@11b8e2284`，sweep `20260731-063724`）：
+
+- 结果目录：
+  - `eval/results/real_trace_e2_cross_trace_asymmetry-20260731-063724`
+  - `eval/results/cangjie_repomap-20260731-063724`
+- 严格 `parallel=2`；runner Trace PASS/Cangjie FAIL，人工 0/2 PASS。自动 Trace oracle 只钉了范围/单位等局部表面，没有覆盖“是否应发布因果报告”、计数 caliber 和跨工件时钟关系。
+- Trace 的 T1/T2/T4 已真实生效：物理范围为 `144.557ms` 与 `0.556ms`，`Hzns` 消失。但 generic coverage comparison 的投影集合中存在一条 `VerifyClass` 语义优化 span，现有 `runtimeTraceProjectionSetHasCausalRows` 将 `SemanticSpans` 无条件视为 causal row，绕过 T3 gate，系统追加约 110 行根因/状态/优化报告。该行自己又被渲染为“优化项，非根因”，权限与呈现自相矛盾。
+- 同一 Trace 查询发布 `matched_total=90, emitted=40`，正文和 aggregate fact 却写“CPU 频率事件共40条”。工具 summary 的 `matched_events=40` 与 frequency authority 的 `transition_events=40` 实际都读取 emitted slice；footer 同时正确警告 total=90，答案内部直接矛盾。
+- 每个 artifact 的 `alignment=identity` 只证明其自身 canonicalization 未换算，不能证明两个独立 artifact 有共同 clock origin；答案先说“理论上属于同一时钟域”，再说“没有跨文件校准锚点、不能对齐”。安全结论正确，前一关系主张越权。
+- Cangjie 人工调查最终给出正确完整集合：2 extend、2 foreign func、8 public class、11 package。失败不是成员检索结果错误，而是用户要求的 `name/location/package` 没有同 row 呈现。`Principal Enumeration Rows` 每项有精确 location，但 package 只在 note；最终表只保留 label/text 两列，package 被拆到独立 section/citation，typed row oracle 因此正确报缺行。
+- 更上游的真实 lens 没命中构造族：repomap 持久图只含 production/常规索引文件，root source-inventory 临时 auxiliary projection 以 256 文件为上限按 tracked path 顺序取前缀；在两千余辅助 Go/test 文件的仓库中，少数 Cangjie/ArkTS 文件到达预算前已经被截掉。`repo_lens:auxiliary_projection` 虽存在，family filter面对的 graph仍没有这些构造，合成测试小于预算故未暴露此缺口。之后 query-role 扩张又把已精确声明的 function/type/file 扩成 field/method/constant/variable，进一步稀释检查面。
+- analyzer 还发出 `requested_scope=auxiliary`，唯一 scope quote 因不在当前请求中已被 validator 删除，但空 quote 的 scope enum仍存活。现有 construct-only softening只处理“存在且回声 construct quote”，遗漏“所有 quote 均被拒绝”一臂；该 enum虽未直接过滤本次 active inventory（另一路保护放开），但会误导 tool prompt/model并可污染其他消费者。
+
+B5 回放新增 GAP 与施工顺序：
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B5-T5 | P0 | 因果发布权限 | `SemanticSpans` 中 off-chain/background 优化点也被 broad `HasCausalRows` 当作真实根因/链路，generic coverage 绕过 T3 | 保留 broad predicate 给 coverage/非空集合；新增 publication-grade predicate，只接受 primary root、on-chain/adjacent causal rows、wakeup path/supporting hops，或 semantic row 已同时进入 on-chain causal bucket。显式窗、diagnostic/root-cause/call-chain保持 | covered；批 G，待真实回放 |
+| EVAL-B5-T6 | P0 | 计数 caliber | event_search emitted slice 被命名为 `matched_events`/`transition_events`，尽管 typed coverage 已有 MatchedTotal | summary/authority 分席 `matched_total` 与 `emitted`; compacted 时禁止 emitted 冒充总数。只有查询事件族已 typed 限定时，frequency authority 才可消费 exact total | confirmed；批 H |
+| EVAL-B5-T7 | P1 | 跨工件时钟关系 | per-artifact `alignment=identity` 被模型组合成共同 clock domain | 新增 cross-artifact relation authority：未有共享 calibration/session anchor 时只发布 `relation=unproven`；不得从两个 local identity 推 common origin | filed；批 H 后评估 |
+| EVAL-B5-S3 | P0 | Auxiliary projection universe | root projection 在解析前按路径前缀消耗 256 文件预算，少数语言/源类可永久缺席 | 对候选按 typed language × source-role 做确定性覆盖均衡，先轮转每个已支持语言/源类，再填剩余预算；不读取 query/user prose，不按语言名特判 | covered；批 G，待真实回放 |
+| EVAL-B5-S4 | P0 | 请求字段 row-local 投影 | accepted principal row 可只有 location，requested package 留在 note/独立 section，finalizer仍通过 | 请求字段必须由 source observation attribute或同文件 grounded package/module/namespace declaration的 typed join进入 row.Attributes；table/list compiler统一消费，不能解析模型答案正文 | covered；批 G，待真实回放 |
+| EVAL-B5-S5 | P1 | Source scope quote authority | scope quote全部被拒绝后，model-inferred scope enum仍保留 | 仅当输入 source quote 非空且验证后全部归零时软化 SourceScopeProfile；从 typed auxiliary paths 合成或显式空 quote 的 scope 不受影响 | covered；批 G，待真实回放 |
+| EVAL-B5-S6 | P1 | Query role authority | query/source-quote/entity 可以补充 profile 未列出的 construct role；在大候选面上可能稀释预算，但完全冻结又会漏掉 typed entity 明确要求的角色 | 不能按“profile 已有 role”一刀切。先由 S3 的 language × source-role 公平投影消除文件宇宙饿死；若后续仍复现角色预算挤占，应给 typed entity/source-family role 与宽 query-token role 分级配额，而不是禁止补充 | filed；批 G 审计纠正，不施工 |
+
+批 G 不变量：
+
+1. Trace publication gate只改变“generic 无根因请求是否显示整块报告”，不改投影编译、根因排序、唤醒链、窗内量、自动补采或 trace_query。
+2. 显式 typed 时间窗即使只有 semantic/background row也继续保留 Trace 因果投影；diagnostic/root-cause/call-chain 空边界继续保留。
+3. auxiliary projection采用支持语言/源角色的 typed metadata做覆盖均衡，不扫描用户请求、query字符串、模型答案或 case 名；全体仍受同一文件数/大小预算。
+4. package/module/namespace列只由结构化 observation 或 grounded same-file declaration join铸造；中文 note 中出现“包路径”不构成权限。
+5. analyzer scope修正只撤销没有 validated source quote 的模型推断，不削弱用户明确命名路径、production/test/docs/auxiliary scope或显式排除；query-role 补充保持现状，避免损伤 typed entity/source-quote 自动补齐。
+
+`B5-G` 施工中间审计纠正：最初曾尝试在 analyzer 已给 principal roles 时完全禁止 query-role 扩张；包级回归立即证明这会破坏现有 typed entity/source quote 自动补齐，例如 function profile 下由结构化 `Index` 实体补出 type role 的三组正规场景均漏行。该方案已在提交前撤销，S6 从“confirmed/批 G”改为 filed；不能为了单次 Cangjie 候选稀释关闭一类有效能力。批 G 保留更上游、更通用的 S3：在相同 256 文件与单文件大小预算内，使用 typed language × source-role 确定性轮转，避免大量单一语言测试文件在解析前饿死少数语言/源类；它不读取 query、用户原文、case 名或模型答案。
+
+`B5-G` 施工验证：Trace publication authority 从 broad “有任何可渲染 context”谓词拆出 publication-grade 谓词；standalone `SemanticSpans` 不再给 generic coverage/comparison 铸整份因果报告，真实 primary/on-chain/adjacent/wakeup/supporting hop 仍可铸权。显式 typed 时间窗在 publication-grade 行为空时仍无条件保留因果投影，投影编译、根因排序、窗内量、唤醒链和 supplement 选择均未修改。
+
+root auxiliary projection 保持 256 文件和原单文件大小界限，只把“按 tracked path 取前缀”改为 language × source-role 的确定性轮转；通用压力 fixture 以 336+ 个前置 Go test 文件和后置的 6 个 Cangjie fixture/thirdparty 文件验证，6 个少数语言文件及两个辅助 source role 都进入相同预算。请求的 package/module/namespace 维度新增精确 typed join：principal evidence 的 `Object` 必须与同文件、grounded/recovered package-like declaration 的 `AnchorSymbol` 完全相等，才进入 `EnumerationDisplayRow.Attributes`；不解析 member note、summary、用户原文、答案正文，也不从路径猜 package。scope 修正同样区分“未提供 quote”和“提供但全部验证失败”，只撤销后者。
+
+定向矩阵覆盖 semantic-only generic 负例、真实 causal row 与显式窗正例、balanced auxiliary universe、grounded same-file declaration join、全 quote rejected scope，以及 query-role/typed entity 与 synthesized all-scope 邻接正例。`go test ./internal/types ./internal/tool/repomap ./internal/tool ./internal/agent -count=1` 全包通过（types 18.493s、repomap 2.309s、tool 154.257s、agent 2.830s）；`git diff --check` 通过。下一步先提交推送本批，再严格 `parallel=2` 重放 B5。

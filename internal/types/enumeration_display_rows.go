@@ -137,6 +137,7 @@ func CompileEnumerationDisplaySets(rm *RequestModel, plan *AnswerSurfacePlan) []
 	anchorSummaries := enumerationDisplayAnchorSummaryIndexForEvidence(plan.SurfaceEvidence)
 	stepSupport := enumerationDisplayStepBackboneIndex(plan.StepBackbone)
 	sourceInventoryAttributes := sourceInventoryRowAttributeIndex(plan.SourceInventoryObservation)
+	declarationAttributes := enumerationDisplayDeclarationAttributeIndexForEvidence(rm.SourceInventoryProfile, plan.SurfaceEvidence)
 	out := make([]EnumerationDisplaySet, 0, len(refs))
 	for _, ref := range refs {
 		fact := ref.Fact
@@ -157,7 +158,7 @@ func CompileEnumerationDisplaySets(rm *RequestModel, plan *AnswerSurfacePlan) []
 			EvidenceOrigins: origins,
 		}
 		for memberIdx, member := range fact.Members {
-			row, ok := compileEnumerationDisplayRow(rm, set, fact, ref.Index, memberIdx, member, support, anchorSummaries, stepSupport, sourceInventoryAttributes)
+			row, ok := compileEnumerationDisplayRow(rm, set, fact, ref.Index, memberIdx, member, support, anchorSummaries, stepSupport, sourceInventoryAttributes, declarationAttributes)
 			if !ok {
 				continue
 			}
@@ -258,6 +259,7 @@ func compileEnumerationDisplayRow(
 	anchorSummaries *enumerationDisplayAnchorSummaryIndex,
 	stepSupport *enumerationDisplayStepBackbone,
 	sourceInventoryAttributes *enumerationDisplaySourceInventoryAttributeIndex,
+	declarationAttributes *enumerationDisplayDeclarationAttributeIndex,
 ) (EnumerationDisplayRow, bool) {
 	entry, ok := genericAggregateMemberSupportEntry(fact, factIdx, memberIdx, member, support, set.EvidenceOrigins)
 	if !ok {
@@ -307,8 +309,11 @@ func compileEnumerationDisplayRow(
 		GroundingTier:       entry.GroundingTier,
 		EvidenceOrigins:     cloneEnumerationDisplayOrigins(set.EvidenceOrigins),
 		Attributes: mergeEnumerationDisplayRowAttributes(
-			sourceInventoryAttributes.attributesFor(member, entry),
-			enumerationDisplayAggregateMemberAttributes(member, memberNote, entry),
+			mergeEnumerationDisplayRowAttributes(
+				sourceInventoryAttributes.attributesFor(member, entry),
+				enumerationDisplayAggregateMemberAttributes(member, memberNote, entry),
+			),
+			declarationAttributes.attributesFor(entry),
 		),
 		Note:   note,
 		Detail: enumerationDisplayDetail(entry.Detail, note),
@@ -328,6 +333,85 @@ func compileEnumerationDisplayRow(
 	row.Note = SanitizeSourceInventoryNoteForRequest(rm, row.Note)
 	row.Detail = enumerationDisplayDetail(entry.Detail, row.Note)
 	return row, true
+}
+
+// enumerationDisplayDeclarationAttributeIndex carries package-like row
+// dimensions through a precise typed join when the source-inventory parser did
+// not itself project an attribute row. The join deliberately does not inspect
+// model summaries, member notes, user text, or file-path naming conventions:
+// the principal evidence Object must exactly name a grounded package/module/
+// namespace declaration in the same source file.
+type enumerationDisplayDeclarationAttributeIndex struct {
+	bySourceAndName map[string]EnumerationDisplayRowAttribute
+}
+
+func enumerationDisplayDeclarationAttributeIndexForEvidence(
+	profile *SourceInventoryProfile,
+	items []EvidenceItem,
+) *enumerationDisplayDeclarationAttributeIndex {
+	if profile == nil || !profile.Active() ||
+		(!profile.RequestsField(SourceInventoryFieldPackage) &&
+			!profile.RequestsField(SourceInventoryFieldModule) &&
+			!profile.RequestsField(SourceInventoryFieldNamespace)) {
+		return nil
+	}
+	out := &enumerationDisplayDeclarationAttributeIndex{
+		bySourceAndName: map[string]EnumerationDisplayRowAttribute{},
+	}
+	for _, item := range items {
+		if item.GroundingStatus != GroundingGrounded && item.GroundingStatus != GroundingRecovered {
+			continue
+		}
+		role, ok := NormalizeAnswerCandidateRole(item.Subject)
+		if !ok || role != AnswerCandidateRolePackage {
+			continue
+		}
+		source := normalizeAnswerSupportPath(item.Source)
+		name := strings.TrimSpace(item.AnchorSymbol)
+		if source == "" || name == "" || item.LineStart <= 0 {
+			continue
+		}
+		key := enumerationDisplayDeclarationAttributeKey(source, name)
+		if _, exists := out.bySourceAndName[key]; exists {
+			continue
+		}
+		out.bySourceAndName[key] = EnumerationDisplayRowAttribute{
+			Role:     AnswerCandidateRolePackage,
+			Name:     name,
+			Source:   strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`)),
+			Line:     item.LineStart,
+			Location: aggregateSupportLocationKeyForDisplay(item.Source, item.LineStart),
+		}
+	}
+	if len(out.bySourceAndName) == 0 {
+		return nil
+	}
+	return out
+}
+
+func (idx *enumerationDisplayDeclarationAttributeIndex) attributesFor(entry AnswerSupportEntry) []EnumerationDisplayRowAttribute {
+	if idx == nil || len(idx.bySourceAndName) == 0 {
+		return nil
+	}
+	source := normalizeAnswerSupportPath(entry.Source)
+	name := strings.TrimSpace(entry.Object)
+	if source == "" || name == "" {
+		return nil
+	}
+	attr, ok := idx.bySourceAndName[enumerationDisplayDeclarationAttributeKey(source, name)]
+	if !ok {
+		return nil
+	}
+	return []EnumerationDisplayRowAttribute{attr}
+}
+
+func enumerationDisplayDeclarationAttributeKey(source, name string) string {
+	source = normalizeAnswerSupportPath(source)
+	name = strings.TrimSpace(name)
+	if source == "" || name == "" {
+		return ""
+	}
+	return source + "\x00" + name
 }
 
 func enumerationDisplayMemberNoteSurfaceTerms(note string) []string {

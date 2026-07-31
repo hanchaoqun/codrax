@@ -1104,6 +1104,68 @@ func TestRepoMapSourceInventoryRootTypedLaneSamplesSourceClassFamiliesBeforeBudg
 	}
 }
 
+func TestSourceInventoryAuxiliaryProjectionBudgetBalancesLanguageAndSourceRole(t *testing.T) {
+	repo := t.TempDir()
+	graph := &Graph{
+		Root:      repo,
+		FileIndex: map[string]*FileInfo{},
+	}
+	write := func(rel, body string) {
+		t.Helper()
+		abs := filepath.Join(repo, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(abs, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < sourceInventoryAuxProjectionMaxFiles+80; i++ {
+		write(
+			fmt.Sprintf("internal/aaa/noise/noise_%03d_test.go", i),
+			fmt.Sprintf("package noise\nfunc Noise%03d() {}\n", i),
+		)
+	}
+	for i := 0; i < 6; i++ {
+		roleDir := "internal/thirdparty/minority"
+		if i%2 == 0 {
+			roleDir = "eval/fixtures/minority"
+		}
+		write(
+			fmt.Sprintf("%s/member_%02d.cj", roleDir, i),
+			fmt.Sprintf("package demo.minority\npublic class Member%02d {}\n", i),
+		)
+	}
+	runGitForRepoMapSourceInventoryTest(t, repo, "init")
+	runGitForRepoMapSourceInventoryTest(t, repo, "add", ".")
+
+	entries := sourceInventoryAuxiliaryProjectionEntries(repo, graph, repoMapParams{
+		Path:  ".",
+		View:  "source_inventory",
+		Scope: ".",
+	}, []string{"."})
+	if len(entries) != sourceInventoryAuxProjectionMaxFiles {
+		t.Fatalf("entries=%d, want bounded %d", len(entries), sourceInventoryAuxProjectionMaxFiles)
+	}
+	seenMinority := map[string]bool{}
+	seenRoles := map[types.SourcePathRole]bool{}
+	for _, entry := range entries {
+		if entry.Language != LangCangjie {
+			continue
+		}
+		seenMinority[entry.RelPath] = true
+		seenRoles[types.ClassifySourcePathRole(entry.RelPath)] = true
+	}
+	if len(seenMinority) != 6 {
+		t.Fatalf("minority language was truncated by an earlier majority prefix: got %d entries: %+v", len(seenMinority), seenMinority)
+	}
+	for _, role := range []types.SourcePathRole{types.SourcePathRoleFixture, types.SourcePathRoleThirdParty} {
+		if !seenRoles[role] {
+			t.Fatalf("source-role %s missing from balanced minority projection: %+v", role, seenMinority)
+		}
+	}
+}
+
 func runGitForRepoMapSourceInventoryTest(t *testing.T, repo string, args ...string) {
 	t.Helper()
 	cmd, cancel := tool.NewGitCommand(nil, args...)
