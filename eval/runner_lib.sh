@@ -553,7 +553,31 @@ eval_json_top_string_field() {
   local file="$1"
   local field="$2"
   [[ -f "$file" ]] || return 1
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$file" "$field" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    value = json.load(handle).get(sys.argv[2])
+if not isinstance(value, str):
+    raise SystemExit(1)
+sys.stdout.write(value)
+PY
+    return
+  fi
   LC_ALL=C sed -nE 's/^  "'"$field"'"[[:space:]]*:[[:space:]]*"([^"]*)",?$/\1/p' "$file" | head -1
+}
+
+eval_data_terminal_action_failed_count() {
+  local file="$1"
+  [[ -f "$file" ]] || { echo 0; return; }
+  LC_ALL=C awk '
+    /"action_events"[[:space:]]*:[[:space:]]*\[/ { in_actions=1; next }
+    in_actions && /"action_graph"[[:space:]]*:/ { in_actions=0 }
+    in_actions && /"(status|Status)"[[:space:]]*:[[:space:]]*"failed"/ { count++ }
+    END { print count + 0 }
+  ' "$file"
 }
 
 eval_json_top_bool_field() {

@@ -378,8 +378,7 @@ scope_principal_stdout() {
 
 json_string_field() {
   local file="$1" field="$2"
-  [[ -f "$file" ]] || return 1
-  LC_ALL=C sed -nE 's/^[[:space:]]*"'"$field"'"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p' "$file" | head -1
+  eval_json_top_string_field "$file" "$field"
 }
 
 json_number_field() {
@@ -390,13 +389,7 @@ json_number_field() {
 
 data_terminal_action_failed_count() {
   local file="$1"
-  [[ -f "$file" ]] || { echo 0; return; }
-  LC_ALL=C awk '
-    /"action_events"[[:space:]]*:[[:space:]]*\[/ { in_actions=1; next }
-    in_actions && /"action_graph"[[:space:]]*:/ { in_actions=0 }
-    in_actions && /"status"[[:space:]]*:[[:space:]]*"failed"/ { count++ }
-    END { print count + 0 }
-  ' "$file"
+  eval_data_terminal_action_failed_count "$file"
 }
 
 data_terminal_answer_len() {

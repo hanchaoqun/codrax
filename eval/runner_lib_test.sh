@@ -39,6 +39,23 @@ assert_eq "$(eval_metric_int_field "$tmp/metrics.txt" analyzer_dispatches)" "2" 
 assert_eq "$(eval_metric_int_field "$tmp/metrics.txt" string_metric)" "0" "metric int non-numeric fallback"
 assert_eq "$(eval_metric_int_field "$tmp/metrics.txt" missing_key)" "0" "missing metric int fallback"
 
+cat >"$tmp/data-terminal.json" <<'JSON'
+{
+  "status": "complete",
+  "result_summary": "answer_len=2 decisions=5 reconcile=\"pass\"",
+  "action_events": [
+    {"Status": "failed"},
+    {"status": "failed"},
+    {"Status": "executed"}
+  ],
+  "action_graph": {}
+}
+JSON
+if command -v python3 >/dev/null 2>&1; then
+  assert_eq "$(eval_json_top_string_field "$tmp/data-terminal.json" result_summary)" 'answer_len=2 decisions=5 reconcile="pass"' "json escaped string field parse"
+fi
+assert_eq "$(eval_data_terminal_action_failed_count "$tmp/data-terminal.json")" "2" "data terminal failed action count accepts serialized field casing"
+
 cat >"$tmp/convergence-lossless-repair.metrics" <<'METRICS'
 tool_read_file=9
 tool_repo_map=0

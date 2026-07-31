@@ -1113,3 +1113,66 @@ evidence ID，禁止按记录到达顺序任选一个。
 hard-consumer，避免编译消费与 note-key 契约漂移。
 `go test ./internal/types ./internal/tool -count=1`全包通过
 （types 21.167s、tool 162.614s）；`git diff --check`通过。
+
+### B8 r1 人工审计与批 T（2026-07-31）
+
+批 S `8da6b7ba6` 推送、重建并通过 revision/clean-input 校验后，以
+严格 `parallel=2` 执行：
+
+- `eval/results/real_trace_d2_chain_via_networkservice-20260731-103137`
+- `eval/results/data_join_entity_reconcile-20260731-103137`
+
+runner 2/2 PASS；人工两项产品正确。
+
+Trace 真值为
+`ThreadPoolForeg-60555 → NetworkService-60595 → CookieMonsterCl-59843 → com.baidu.tieba-59566`，
+NetworkService 明确是中转节点。该请求虽未显式给时间窗，但 typed
+question kind 是 call-chain/diagnostic 且存在真实 wakeup path/causal rows，
+所以需要并正确获得完整 `Trace 因果投影`；这不等于把普通状态查询重新
+套进全量合同。查询3次、源码读取0次，投影继续保留目标状态账、链上归因
+和边界。
+
+模型主答案将4个节点称作“4跳”（实际3条边），并把 lower-priority-waker
+候选写成较强的“优先级反转风险”；确定性树仍使用候选词且链方向正确。
+当前按 model variance 记录，不扫描答案纠字。真实重复链同时验证批 S 的
+fail-closed：同一 waker/wakee pair 在窗内有多个不同 edge point，单点
+relation没有任选一个时间，因此明细未生成“直接上游唤醒点”。要完整覆盖
+此类场景，后续应从 typed edge/census 建设有界 count+first/last 多点口径，
+而不是放宽单点冲突门。
+
+Data 最终严格只输出 `30`；terminal 为 complete，rule=1、
+entity resolutions=3、contributions=2、decisions=5、reconcile=pass，
+贡献和对账正确。过程用了9个执行批、171s，并保留5条 prior error：
+前三条是模型先给 typed action 携 script/跨 rule prerequisite，后两条是
+模型提交跨多个 DAG stage 的批次。系统后续已将合法 prefix/remainder
+确定性拆批并顺序执行，没有结果污染；在仍需逐 rank 观察真实字段的安全
+约束下，本轮先把它记为 P2 效率项，不为了一个小 fixture 合并依赖 stage。
+
+人工审计发现 runner 自身有两个确定性假阴性：
+
+1. `json_string_field` 用 `[^"]*` 解析 JSON string，遇到
+   `result_summary` 内合法的 `reconcile=\"pass\"` 时只得到尾部反斜杠；
+2. failed-action 计数只认小写 `"status"`，而 terminal 的
+   `action_events` 实际序列化为 `"Status"`，所以一个 failed event 被记成0。
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B7-T1 | P1 | 重复 wakeup edge 时间权限 | 单点 carrier 对同 pair 多次真实唤醒必须 fail-closed，因此重复链仍无有界 exact-time 摘要 | typed pair roster/census 建 count+first/last，并与单点 known 分席；不得任选一次 | partial；单点 covered，多点 filed |
+| EVAL-B8-T4 | P2 | Trace 模型措辞 | 4节点被称4跳、候选被写成风险 | 确定性投影正确；等待跨 case 复现，不扫描正文硬改 | filed-model-variance |
+| EVAL-B8-D1 | P2 | Data workflow 效率 | 模型反复提交跨 stage plan；系统安全拆成逐 rank，正确但9批/171s | 保留真实字段逐 rank gate；先观察后续 data case，若复现则增强 typed plan scaffold或对已验证同 rank做批量调度 | filed |
+| EVAL-INFRA-4 | P1 | Data terminal JSON metrics | sed 不能解析 escaped JSON string，action status 字段大小写又与terminal真实形不一致 | 共享 JSON decoder读取顶层 string；failed counter同时消费既有 `Status/status` 两种序列化形 | 批 T 已施工 |
+
+批 T 不变量：
+
+1. 只修 eval 审计读取，不改变产品路由、data workflow、Trace authority、
+   显式时间窗、因果投影、自动补齐或答案。
+2. JSON string 必须由标准 decoder 解转义；没有 Python 时保留既有
+   sed fallback，不把 parser 缺失变成 case 产品失败。
+3. failed 计数仍只限 `action_events` 区间，不把 prior error、guard
+   记录或 `action_graph` 中其他状态误计为执行失败。
+
+`B8-T/P1` 施工验证：runner helper fixture 固定 escaped
+`reconcile=\"pass\"` 解码成完整字符串，并在同一 terminal 中将一个
+`Status=failed` 与一个 `status=failed` 精确计为2、executed不计。
+`bash -n eval/runner_lib.sh eval/run.sh eval/runner_lib_test.sh`及
+`bash eval/runner_lib_test.sh`通过；待提交推送。
