@@ -120,3 +120,25 @@ func TestCheckTargetWaitOccurrencePrincipalConsistencyDoesNotConfuseEqualDuratio
 		t.Fatalf("equal durations with distinct exact intervals should pass: %+v", issues)
 	}
 }
+
+func TestCheckTargetWaitOccurrenceConsistencyCoversUnannotatedModelSections(t *testing.T) {
+	record := targetWaitAuthorityFixtureRecord("trace_query:one", "34579.471372", "34579.471722")
+	rm := targetWaitAuthorityFixtureRequestModel()
+	authorities := BuildTargetWaitOccurrenceAuthorities(ObservationLedger{Records: []ObservationRecord{record}}, &rm)
+	doc := &AnswerDocumentV2{Blocks: []AnswerBlock{
+		{ID: "one", Kind: BlockSection, Text: "34579.451701 ~ 34579.451839，0.138ms"},
+		{ID: "two", Kind: BlockSection, Text: "34579.452934 ~ 34579.453081，0.147ms"},
+		{ID: "three", Kind: BlockSection, Text: "34579.471372 ~ 34579.471743，0.371ms（账面 0.350ms）"},
+	}}
+	issues := CheckTargetWaitOccurrencePrincipalConsistency(authorities, doc)
+	if len(issues) != 1 || len(issues[0].Missing) != 1 {
+		t.Fatalf("unannotated visible model sections must not bypass the complete roster: %+v", issues)
+	}
+
+	for i := range doc.Blocks {
+		doc.Blocks[i].SystemGeneratedKind = AnswerSystemGeneratedRuntimeTrace
+	}
+	if got := CheckTargetWaitOccurrencePrincipalConsistency(authorities, doc); len(got) != 0 {
+		t.Fatalf("system-generated sections must stay outside the model consistency gate: %+v", got)
+	}
+}

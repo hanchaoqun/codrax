@@ -247,11 +247,15 @@ var targetWaitOccurrenceAnswerIntervalRe = regexp.MustCompile(`([0-9]+\.[0-9]{6}
 
 // CheckTargetWaitOccurrencePrincipalConsistency activates only when the model
 // has begun publishing an authority row (one exact start token is present on
-// a principal surface). Once active, every complete row must be present as an
-// exact start/end/duration relation, and an item that pairs an authoritative
-// duration with a different interval is a deterministic conflict.
+// a model-authored visible surface). Once active, every complete row must be
+// present as an exact start/end/duration relation, and an item that pairs an
+// authoritative duration with a different interval is a deterministic
+// conflict. SurfaceRole is not an authority boundary here: model-authored
+// section/table/list blocks render to the user even when the model omits the
+// optional role annotation. The unforgeable SystemGeneratedKind marker keeps
+// deterministic supplements outside this model-consistency gate.
 func CheckTargetWaitOccurrencePrincipalConsistency(authorities []TargetWaitOccurrenceAuthority, doc *AnswerDocumentV2) []TargetWaitOccurrenceConsistencyIssue {
-	segments := targetWaitOccurrencePrincipalSegments(doc)
+	segments := targetWaitOccurrenceModelClaimSegments(doc)
 	if len(segments) == 0 {
 		return nil
 	}
@@ -279,7 +283,7 @@ func CheckTargetWaitOccurrencePrincipalConsistency(authorities []TargetWaitOccur
 	return issues
 }
 
-func targetWaitOccurrencePrincipalSegments(doc *AnswerDocumentV2) []string {
+func targetWaitOccurrenceModelClaimSegments(doc *AnswerDocumentV2) []string {
 	if doc == nil {
 		return nil
 	}
@@ -291,9 +295,10 @@ func targetWaitOccurrencePrincipalSegments(doc *AnswerDocumentV2) []string {
 		}
 	}
 	for _, block := range doc.Blocks {
-		if block.Kind != BlockSummary && block.SurfaceRole != SurfacePrincipal {
+		if block.SystemGeneratedKind != AnswerSystemGeneratedBlockUnknown {
 			continue
 		}
+		appendValue(block.Title)
 		appendValue(block.Text)
 		for _, item := range block.Items {
 			var b strings.Builder

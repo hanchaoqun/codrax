@@ -84,6 +84,20 @@ func TestPreCheckTargetWaitOccurrenceConsistencyUsesCompleteTypedRosterAsHardGat
 	if got := preCheckTargetWaitOccurrenceConsistency(wrong, newPreEmitCheckContext(ctx)); len(got) != 0 {
 		t.Fatalf("exact complete roster should pass: %+v", got)
 	}
+
+	// EVAL-B1-R21: a model-authored visible section is still an answer claim
+	// when the optional surface_role annotation is absent. The complete typed
+	// roster must reject the ninth-replay shape before persistence.
+	unannotatedSections := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{ID: "one", Kind: types.BlockSection, Text: "34579.451701 ~ 34579.451839，0.138ms"},
+		{ID: "two", Kind: types.BlockSection, Text: "34579.452934 ~ 34579.453081，0.147ms"},
+		{ID: "three", Kind: types.BlockSection, Text: "34579.471372 ~ 34579.471743，0.371ms（账面 0.350ms）"},
+	}}
+	hints = preCheckTargetWaitOccurrenceConsistency(unannotatedSections, newPreEmitCheckContext(ctx))
+	if len(hints) != 1 || !hints[0].ForceHard ||
+		!strings.Contains(hints[0].ExpectedShape, "34579.471372..34579.471722") {
+		t.Fatalf("unannotated visible section must receive exact roster repair: %+v", hints)
+	}
 }
 
 func TestPreCheckAbsenceScopeBound_RequiresNegativeCitation(t *testing.T) {
