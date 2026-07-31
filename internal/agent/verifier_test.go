@@ -129,6 +129,14 @@ func TestVerifier_FilterToolSchemasDropsRunTestsAfterReport(t *testing.T) {
 	if len(got) != 1 || got[0].Name != emitTestResultsToolName {
 		t.Fatalf("expected run_tests removed after report while keeping emit_test_results, got %+v", got)
 	}
+	ctx.Mutable.ResetChangeReport()
+	got = ev.FilterToolSchemas(ctx, []llm.ToolSchema{
+		{Name: "run_tests"},
+		{Name: emitTestResultsToolName},
+	})
+	if len(got) != 2 || got[0].Name != "run_tests" {
+		t.Fatalf("a new verification generation must re-expose run_tests after the report slot is reset, got %+v", got)
+	}
 }
 
 // TestVerifier_ParseOutput_Passed verifies the happy path.

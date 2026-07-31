@@ -3806,8 +3806,10 @@ func (m *MutableState) ChangeReport() *ChangeReport {
 	return m.changeReport
 }
 
-// ResetChangeReport clears the report buffer at per-task entry.
-// Mirror of ResetChangePlan.
+// ResetChangeReport clears the report buffer at per-task entry or before a
+// typed workflow starts a new verification generation. Prior reports that
+// must survive a generation boundary belong in workflow attempt/context
+// ledgers, not in this verifier stop-condition slot. Mirror of ResetChangePlan.
 func (m *MutableState) ResetChangeReport() {
 	if m == nil {
 		return

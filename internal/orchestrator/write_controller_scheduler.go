@@ -466,6 +466,26 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				o.publishBlockedRunGuidance(&run, "verify_not_allowed_in_plan_mode")
 				return fmt.Errorf("write workflow blocked: verify_batch is not valid in plan mode")
 			}
+			// B4-W1 (eval campaign 2026-07-31): a verify-only follow-up is a
+			// new verification generation over the already-applied bytes. The
+			// preceding batch's report remains durable in its attempt/context
+			// ledgers, but it must not occupy Mutable.ChangeReport when the new
+			// verifier starts: verifierEvaluator would otherwise stop at
+			// iteration zero, hide run_tests, and republish the stale verdict
+			// as though this batch had executed it.
+			//
+			// Reset once per verify_batch action, outside the infra-retry loop,
+			// so a report produced by this generation is never erased between
+			// retries. The decision reads only the typed execution mode.
+			if activeWorkflowBatchVerifyOnly(&run) {
+				if stale := o.busCtx.Mutable.ChangeReport(); stale != nil {
+					o.busCtx.Mutable.ResetChangeReport()
+					appendControllerProgress(&run, run.ActiveBatchID, "verification_only_report_generation_reset",
+						"cleared the preceding verification generation before running the verify-only follow-up")
+					o.syncCurrentWriteContextPackToRun(&run)
+					o.persistWriteWorkflowRun(&run)
+				}
+			}
 			var innerErr error
 			var report *types.ChangeReport
 			var outcome writeflow.VerifyAttemptOutcome

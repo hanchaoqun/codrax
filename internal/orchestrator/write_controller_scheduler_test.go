@@ -6489,6 +6489,18 @@ func TestRunWriteControllerWorkflow_VerifyOnlyCumulativeReviewNeverRunsPlannerOr
 		Request: types.WriteRequestModel{Task: types.WriteTask{Summary: objective}},
 	})
 	mu.SetChangePlan(plan)
+	mu.SetChangeReport(&types.ChangeReport{
+		PlanID:             plan.ID,
+		Channel:            types.ChangeReportChannelPostApplyVerify,
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		TestResults: []types.TestResult{{
+			Kind:        types.TestResultKindUnit,
+			AssertionID: "stale-first-generation",
+			Suite:       "defaults",
+			Passed:      true,
+		}},
+	})
 	decisions := []writeflow.WriteWorkflowDecision{
 		{
 			// This is the fifth-replay failure shape. Typed state must replace
@@ -6516,6 +6528,9 @@ func TestRunWriteControllerWorkflow_VerifyOnlyCumulativeReviewNeverRunsPlannerOr
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
 		switch stage {
 		case types.StageVerify:
+			if stale := mu.ChangeReport(); stale != nil {
+				t.Fatalf("verify-only StageVerify inherited a stale ChangeReport: %+v", stale)
+			}
 			verifyCalls++
 			mu.SetChangeReport(&types.ChangeReport{
 				PlanID:             plan.ID,
@@ -6547,12 +6562,19 @@ func TestRunWriteControllerWorkflow_VerifyOnlyCumulativeReviewNeverRunsPlannerOr
 	if got := mu.ChangePlan(); got == nil || got.ID != plan.ID || len(got.Changes) != 0 {
 		t.Fatalf("verify-only workflow manufactured a replacement ChangePlan: %+v", got)
 	}
+	if got := mu.ChangeReport(); got == nil || len(got.TestResults) != 1 ||
+		got.TestResults[0].AssertionID != "existing-default-retained" {
+		t.Fatalf("verify-only workflow did not retain the new verification generation: %+v", got)
+	}
 	if store.last == nil || store.last.Status != types.WriteWorkflowRunComplete {
 		t.Fatalf("verify-only workflow did not finish: %+v", store.last)
 	}
 	if got := store.last.Batches[1]; got.ExecutionMode != types.WriteWorkflowBatchExecutionVerifyOnly ||
 		got.Status != types.WriteWorkflowBatchComplete {
 		t.Fatalf("verify-only batch lost its typed mode/verdict: %+v", got)
+	}
+	if !workflowProgressHasReason(store.last.ProgressLedger, "verification_only_report_generation_reset") {
+		t.Fatalf("verify-only report generation reset was not recorded: %+v", store.last.ProgressLedger)
 	}
 }
 
