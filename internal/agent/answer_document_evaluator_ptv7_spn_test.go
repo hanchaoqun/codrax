@@ -104,6 +104,46 @@ func TestPTV7SpnSupplementPerOrderFloor(t *testing.T) {
 	}
 }
 
+func TestTraceQueryObservationSupplementUsesFocusedRuntimeFactAuthority(t *testing.T) {
+	record := ptv7SpnDrilldownRecord(1)
+	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "summary", Kind: types.BlockSummary, SurfaceRole: types.SurfacePrincipal, Text: "结论。",
+	}}}
+	focused := ptv7SpnSupplementContext([]types.ObservationRecord{record})
+	focused.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentExplain,
+		AnalyzerHints: types.AnalyzerHints{
+			Kind: string(types.ReqMechanism),
+		},
+		RuntimeTargets: []types.RuntimeTarget{{
+			Kind: types.RuntimeTargetKindThread, PID: 42, Thread: "main-42",
+		}},
+	}}
+	if got := renderTraceQueryObservationSupplement(focused, doc, "zh"); got != "" {
+		t.Fatalf("focused runtime fact must not publish the generic raw observation dump:\n%s", got)
+	}
+
+	diagnostic := ptv7SpnSupplementContext([]types.ObservationRecord{record})
+	diagnostic.AnalysisIR = &types.AnalysisIR{RequestModel: focused.AnalysisIR.RequestModel}
+	diagnostic.AnalysisIR.RequestModel.Predicates.IsDiagnosticQuestion = true
+	if got := renderTraceQueryObservationSupplement(diagnostic, doc, "zh"); !strings.Contains(got, "state_drilldown") {
+		t.Fatalf("diagnostic runtime question must retain the raw observation supplement:\n%s", got)
+	}
+
+	call := ptv7SpnSupplementContext([]types.ObservationRecord{record})
+	call.AnalysisIR = &types.AnalysisIR{RequestModel: focused.AnalysisIR.RequestModel}
+	call.AnalysisIR.RequestModel.AnalyzerHints.Kind = string(types.ReqCallChain)
+	call.AnalysisIR.RequestModel.PredicateAxis = types.AxisCall
+	if got := renderTraceQueryObservationSupplement(call, doc, "zh"); !strings.Contains(got, "state_drilldown") {
+		t.Fatalf("explicit runtime call relation must retain the raw observation supplement:\n%s", got)
+	}
+
+	legacy := ptv7SpnSupplementContext([]types.ObservationRecord{record})
+	if got := renderTraceQueryObservationSupplement(legacy, doc, "zh"); !strings.Contains(got, "state_drilldown") {
+		t.Fatalf("nil AnalysisIR must preserve legacy supplement behavior:\n%s", got)
+	}
+}
+
 // TestPTV7SpnSupplementQuotaSelect pins the selection mechanics: per-order
 // floor min(N, 4) head rows first, spare seats fill head-first, both slices
 // keep the sort order, and prefix reports the degenerate head-cut case.
