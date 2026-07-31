@@ -297,6 +297,13 @@ func observationRecordMatchesUserRuntimeTarget(record ObservationRecord, rm *Req
 	return false
 }
 
+// ObservationRecordMatchesUserRuntimeTarget exposes the same typed
+// user-target matcher to answer-authority consumers. It never reads RawRequest
+// or model prose; exploration-cursor targets remain excluded.
+func ObservationRecordMatchesUserRuntimeTarget(record ObservationRecord, rm *RequestModel) bool {
+	return observationRecordMatchesUserRuntimeTarget(record, rm)
+}
+
 func budgetSourceInventoryObservationRecords(sorted []ObservationRecord, intent *AnswerIntentContract, limit int) []ObservationRecord {
 	if limit <= 0 || len(sorted) <= limit {
 		return sorted

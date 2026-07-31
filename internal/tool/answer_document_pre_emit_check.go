@@ -356,6 +356,7 @@ type emitFixHint struct {
 	Reason             string
 	Kind               types.ViolationKind
 	ForceHard          bool
+	HardSignal         preEmitSameTurnHardSignal
 	ExpectedBlockKinds []types.AnswerBlockKind
 	// SameCauseFingerprint is an optional deterministic identity of the
 	// UNRESOLVED cause behind this hint (XGAP-FIX ② F8-T4 breaker lane).
@@ -372,6 +373,7 @@ type preEmitSameTurnHardSignal string
 const (
 	preEmitHardSignalCompletePrincipalMemberSet preEmitSameTurnHardSignal = "complete_principal_member_set"
 	preEmitHardSignalTypedRequiredBlockKind     preEmitSameTurnHardSignal = "typed_required_block_kind"
+	preEmitHardSignalCompleteTargetWaitRoster   preEmitSameTurnHardSignal = "complete_target_wait_roster"
 )
 
 type preEmitSameTurnHardPolicyRow struct {
@@ -383,6 +385,7 @@ func preEmitSameTurnHardPolicyRows() []preEmitSameTurnHardPolicyRow {
 	return []preEmitSameTurnHardPolicyRow{
 		{Kind: types.ViolExhaustiveMemberSetCoverageDrift, Signal: preEmitHardSignalCompletePrincipalMemberSet},
 		{Kind: types.ViolBlockCoverageMissing, Signal: preEmitHardSignalTypedRequiredBlockKind},
+		{Kind: types.ViolExhaustiveMemberSetCoverageDrift, Signal: preEmitHardSignalCompleteTargetWaitRoster},
 	}
 }
 
@@ -404,7 +407,7 @@ func preEmitSameTurnHardPolicyRows() []preEmitSameTurnHardPolicyRow {
 //     appendPreEmitHints/tagPreEmitHints in the checker body
 //     (go/parser scan — self-updating, no manual sync),
 //  4. hard lanes exist ONLY where preEmitSameTurnHardPolicyRows has
-//     a row (exactly two).
+//     a row (three tightly pinned typed signals).
 //
 // The table pins the CURRENT advisory routing. ViolCitation carriers
 // went hard→advisory through D1-F7w→D1-G95 (documented ping-pong);
@@ -449,6 +452,7 @@ func preEmitSubgateRouteTable() []preEmitSubgateRouteRow {
 		{Subgate: "inactive_scope_disclosure", ViolationKind: types.ViolInactiveScopeDisclosureMissing},
 		{Subgate: "aggregate_scalar_value_coverage", ViolationKind: types.ViolAcceptance},
 		{Subgate: "aggregate_member_set_coverage", ViolationKind: types.ViolExhaustiveMemberSetCoverageDrift, HardLane: preEmitHardSignalCompletePrincipalMemberSet},
+		{Subgate: "target_wait_occurrence_consistency", ViolationKind: types.ViolExhaustiveMemberSetCoverageDrift, HardLane: preEmitHardSignalCompleteTargetWaitRoster},
 		{Subgate: "source_inventory_candidate_universe_coverage", ViolationKind: types.ViolExhaustiveMemberSetCoverageDrift},
 		{Subgate: "aggregate_cardinality_consistency", ViolationKind: types.ViolCardinalityShort},
 		{Subgate: "relation_member_set_answer_shape", ViolationKind: types.ViolExhaustiveMemberSetCoverageDrift},
@@ -533,11 +537,14 @@ func preEmitHintHardByDefault(hint emitFixHint) bool {
 }
 
 // preEmitSameTurnHardSignalForHint derives the typed hard-lane signal
-// from the hint's own typed shape: a hint that names required block
-// kinds asserts the typed-required-block lane; every other ForceHard
-// hint asserts the complete-principal-member-set lane (the only other
-// registered lane, produced solely by preCheckAggregateMemberSetCoverage).
+// from the hint's own typed shape: a hint with an explicit HardSignal uses
+// that closed signal; otherwise a required block kind asserts the
+// typed-required-block lane and the legacy ForceHard producer asserts the
+// complete-principal-member-set lane.
 func preEmitSameTurnHardSignalForHint(hint emitFixHint) preEmitSameTurnHardSignal {
+	if hint.HardSignal != "" {
+		return hint.HardSignal
+	}
 	if len(hint.ExpectedBlockKinds) > 0 {
 		return preEmitHardSignalTypedRequiredBlockKind
 	}
@@ -618,8 +625,9 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 	//
 	// F5-T2 (2026-07-03): append-and-continue, not early-return. The
 	// carrier kinds are advisory since D1-G95, so an early return here
-	// silently skipped subgates 1-6 — including the only two same-turn
-	// hard lanes (required diagram block, complete member set) — for
+	// silently skipped subgates 1-6 — including the same-turn hard
+	// lanes (required diagram block, complete member set, complete typed
+	// target-wait roster) — for
 	// any emit that carried a citation-pool advisory. Carrier repair
 	// still leads the fix-list ordering because these hints are
 	// appended first.
@@ -727,6 +735,9 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 			logSoftPreEmitAdvisory("emit_answer_document", "aggregate member_set coverage", h)
 		}
 	}
+	if h := preCheckTargetWaitOccurrenceConsistency(doc, pctx); len(h) > 0 {
+		hints = appendPreEmitHints(hints, types.ViolExhaustiveMemberSetCoverageDrift, h)
+	}
 	if h := preCheckSourceInventoryCandidateUniverseCoverage(doc, ctxOpt...); len(h) > 0 {
 		hints = appendPreEmitHints(hints, types.ViolExhaustiveMemberSetCoverageDrift, h)
 	}
@@ -768,6 +779,57 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 		hints = appendPreEmitHints(hints, types.ViolEnumerationLabelHallucinated, h)
 	}
 
+	return hints
+}
+
+func preCheckTargetWaitOccurrenceConsistency(doc *types.AnswerDocumentV2, pctx *preEmitCheckContext) []emitFixHint {
+	if doc == nil || pctx == nil || pctx.ctx == nil ||
+		pctx.ctx.AnalysisIR == nil || pctx.ctx.Mutable == nil {
+		return nil
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(
+		pctx.ctx,
+		types.ObservationExtractLedgerEvidenceLimit,
+	))
+	authorities := types.BuildTargetWaitOccurrenceAuthorities(
+		ledger,
+		&pctx.ctx.AnalysisIR.RequestModel,
+	)
+	issues := types.CheckTargetWaitOccurrencePrincipalConsistency(authorities, doc)
+	if len(issues) == 0 {
+		return nil
+	}
+	hints := make([]emitFixHint, 0, len(issues))
+	for _, issue := range issues {
+		rows := make([]string, 0, len(issue.Authority.Rows))
+		for _, row := range issue.Authority.Rows {
+			rows = append(rows, row.CanonicalLine())
+		}
+		fingerprintSource := strings.Join(append(
+			[]string{issue.Authority.Subject},
+			append(issue.Missing, issue.Conflicts...)...,
+		), "\n")
+		sum := sha256.Sum256([]byte(fingerprintSource))
+		reason := fmt.Sprintf(
+			"principal occurrence rows for typed target %q conflict with or omit the engine-paired complete roster",
+			issue.Authority.Subject,
+		)
+		if len(issue.Conflicts) > 0 {
+			reason += "; conflicting relation(s): " + strings.Join(issue.Conflicts, ", ")
+		}
+		hint := emitFixHint{
+			Field:         "blocks[].items[].text",
+			ExpectedShape: fmt.Sprintf("preserve exactly %d occurrence row(s), count=%d, sum_ms=%.3f: %s", len(rows), issue.Authority.Count, issue.Authority.SumMS, strings.Join(rows, " | ")),
+			Reason:        reason,
+			Kind:          types.ViolExhaustiveMemberSetCoverageDrift,
+			ForceHard:     true,
+			HardSignal:    preEmitHardSignalCompleteTargetWaitRoster,
+			SameCauseFingerprint: hex.EncodeToString(
+				sum[:],
+			),
+		}
+		hints = append(hints, hint)
+	}
 	return hints
 }
 

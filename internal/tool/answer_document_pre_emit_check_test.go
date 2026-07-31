@@ -24,6 +24,68 @@ func TestRunPreEmitChecks_NilSafe(t *testing.T) {
 	}
 }
 
+func TestPreCheckTargetWaitOccurrenceConsistencyUsesCompleteTypedRosterAsHardGate(t *testing.T) {
+	count := 3
+	observation := types.ObservationRecord{
+		ID:              "trace_query:window#target_window_wait_occurrences",
+		Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            types.AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: types.ClaimGroundingHard,
+		Subject:         "main-59566",
+		Predicate:       "target_window_wait_occurrences",
+		Object:          "complete",
+		Value:           "3",
+		ResultCount:     &count,
+		RichNotes: []string{
+			types.TraceNoteKeyTargetWaitOccurrencePrompt + "=status=complete,emitted=3,total=3",
+			types.TraceNoteKeyTargetWaitOccurrencePromptSum + "=0.635",
+			types.TraceNoteKeyTargetWaitOccurrence + "=#1 state=io_wait 34579.451701..34579.451839 duration=0.138ms iowait=1 caller=sync_buffer_read_wi lines=1-2 reason_line=3",
+			types.TraceNoteKeyTargetWaitOccurrence + "=#2 state=io_wait 34579.452934..34579.453081 duration=0.147ms iowait=1 caller=sync_buffer_read_wi lines=4-5 reason_line=6",
+			types.TraceNoteKeyTargetWaitOccurrence + "=#3 state=io_wait 34579.471372..34579.471722 duration=0.350ms iowait=1 caller=sync_buffer_read_wi lines=7-8 reason_line=9",
+		},
+	}
+	mu := types.NewMutableState("q")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
+		ToolName:     "trace_query",
+		Success:      true,
+		Observations: []types.ObservationRecord{observation},
+	}}})
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RuntimeTargets: []types.RuntimeTarget{{
+				Kind:   types.RuntimeTargetKindThread,
+				PID:    59566,
+				Thread: "main-59566",
+				Source: "user_explicit",
+			}},
+		}},
+	}
+	wrong := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "rows", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+		Items: []types.AnswerBlockItem{
+			{ID: "one", Text: "34579.451701..34579.451839，0.138ms"},
+			{ID: "two", Text: "34579.452934..34579.453081，0.147ms"},
+			{ID: "three", Text: "34579.471723..34579.471876，0.350ms"},
+		},
+	}}}
+	hints := preCheckTargetWaitOccurrenceConsistency(wrong, newPreEmitCheckContext(ctx))
+	if len(hints) != 1 || !hints[0].ForceHard ||
+		!strings.Contains(hints[0].ExpectedShape, "34579.471372..34579.471722") {
+		t.Fatalf("wrong complete occurrence relation should produce a precise hard repair: %+v", hints)
+	}
+	hard, advisory := splitPreEmitHintsByGate(hints)
+	if len(hard) != 1 || len(advisory) != 0 {
+		t.Fatalf("typed complete roster must route same-turn hard: hard=%+v advisory=%+v", hard, advisory)
+	}
+
+	wrong.Blocks[0].Items[2].Text = "34579.471372..34579.471722，0.350ms"
+	if got := preCheckTargetWaitOccurrenceConsistency(wrong, newPreEmitCheckContext(ctx)); len(got) != 0 {
+		t.Fatalf("exact complete roster should pass: %+v", got)
+	}
+}
+
 func TestPreCheckAbsenceScopeBound_RequiresNegativeCitation(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		ExactResolution: &types.AnswerExactResolution{Status: types.AnswerExactResolutionAbsent},

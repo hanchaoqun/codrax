@@ -553,6 +553,11 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}) {
 		return b.String()
 	}
+	if !trace.appendSection(&b, "target_wait_occurrence_authority", func() string {
+		return renderAnswerDocTargetWaitOccurrenceAuthority(ctx)
+	}) {
+		return b.String()
+	}
 	if !trace.appendSection(&b, "source_inventory_handoff", func() string {
 		return renderAnswerDocSourceInventoryHandoff(ctx)
 	}) {
@@ -3903,6 +3908,30 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 			fmt.Fprintf(&b, "; support_refs=%d", record.SupportRefCount)
 		}
 		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func renderAnswerDocTargetWaitOccurrenceAuthority(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return ""
+	}
+	ledger := answerDocObservationLedger(ctx)
+	authorities := types.BuildTargetWaitOccurrenceAuthorities(ledger, &ctx.AnalysisIR.RequestModel)
+	if len(authorities) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Typed Target Wait Occurrence Authority\n\n")
+	b.WriteString("- These complete bounded rowsets were paired by the runtime engine for typed user targets. They are independent of Observation Ledger ranking and repair-ref selection.\n")
+	b.WriteString("- If the principal answer enumerates any row from one set, copy every row in that set exactly. Do not rebuild an interval from adjacent sched events or use a blocked-reason timestamp as the interval start. Emit-time consistency checks reject missing or conflicting start/end/duration relations.\n\n")
+	for _, authority := range authorities {
+		fmt.Fprintf(&b, "- subject=`%s`; status=`complete`; count=%d; sum_ms=%.3f; source_record=`%s`\n",
+			authority.Subject, authority.Count, authority.SumMS, authority.RecordID)
+		for _, row := range authority.Rows {
+			fmt.Fprintf(&b, "  - occurrence=`%s`\n", row.CanonicalLine())
+		}
 	}
 	b.WriteString("\n")
 	return b.String()
