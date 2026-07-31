@@ -103,6 +103,8 @@ func TestDataTaskPlannerCompatJSON(t *testing.T) {
 		"item-level decision records",
 		"Do not emit a giant one-shot script",
 		"continue_after=true",
+		"Contribution population and final reference projection are separate DAG stages",
+		"let assemble_answer apply the complete reference only to the final output projection",
 	} {
 		if !strings.Contains(system, want) {
 			t.Fatalf("data planner system prompt missing %q:\n%s", want, system)
@@ -2623,7 +2625,7 @@ func TestDataTaskPlannerCompatJSONActions(t *testing.T) {
 		t.Fatal("ContinueAfter=false, want true for action workflow")
 	}
 	system := adapter.calls[0].messages[0].Content
-	for _, want := range []string{"actions", "material_inventory", "inspect_material", "extract_records", "derive_rules", "derive_fields", "extract_fields", "group_records", "expand_records", "filter_records", "value_distribution", "normalize_entities", "enrich_records", "join_records", "compute_contributions", "reconcile_artifacts", "assemble_answer", "custom_transform", "adaptive action workflow", "An action is atomic"} {
+	for _, want := range []string{"actions", "material_inventory", "inspect_material", "extract_records", "derive_rules", "derive_fields", "extract_fields", "group_records", "expand_records", "filter_records", "value_distribution", "normalize_entities", "enrich_records", "join_records", "compute_contributions", "reconcile_artifacts", "assemble_answer", "custom_transform", "adaptive action workflow", "An action is atomic", "Contribution population and final reference projection are separate DAG stages"} {
 		if !strings.Contains(system, want) {
 			t.Fatalf("data planner system prompt missing %q:\n%s", want, system)
 		}
@@ -10300,6 +10302,8 @@ func TestDataTaskPromptsExplainCustomTransformDisabledStillAllowsTypedActions(t 
 		"disables only free-form scripts",
 		"not a compute-capability failure",
 		"typed actions",
+		"Contribution population and final reference projection are separate DAG stages",
+		"let assemble_answer apply the reference only to final output projection",
 	} {
 		if !strings.Contains(continuation, want) {
 			t.Fatalf("continuation prompt missing %q:\n%s", want, continuation)
