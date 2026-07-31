@@ -1432,7 +1432,15 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
-	runtimeTargets, runtimeTargetWarnings := parseRuntimeTargets(p.RuntimeTargets)
+	runtimeTargets, runtimeTargetWarnings, runtimeTargetErr := parseRuntimeTargets(p.RuntimeTargets)
+	if runtimeTargetErr != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + runtimeTargetErr,
+			Timestamp: time.Now(),
+		}, nil
+	}
 	for _, warning := range runtimeTargetWarnings {
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
@@ -3337,9 +3345,9 @@ func parseRuntimeArtifactScopeProfile(raw string, runtimeArtifactCarrier bool, p
 	return profile, "", warnings
 }
 
-func parseRuntimeTargets(in []emitRuntimeTargetParam) ([]types.RuntimeTarget, []string) {
+func parseRuntimeTargets(in []emitRuntimeTargetParam) ([]types.RuntimeTarget, []string, string) {
 	if len(in) == 0 {
-		return nil, nil
+		return nil, nil, ""
 	}
 	const maxRuntimeTargets = 8
 	out := make([]types.RuntimeTarget, 0, minInt(len(in), maxRuntimeTargets))
@@ -3351,11 +3359,14 @@ func parseRuntimeTargets(in []emitRuntimeTargetParam) ([]types.RuntimeTarget, []
 			break
 		}
 		target, warning, ok := parseRuntimeTarget(item)
+		if !ok {
+			return nil, warnings, fmt.Sprintf(
+				"runtime_targets[%d] is structurally invalid: %s; correct the typed target identity instead of omitting it",
+				i, warning,
+			)
+		}
 		if warning != "" {
 			warnings = append(warnings, fmt.Sprintf("runtime_targets[%d]: %s", i, warning))
-		}
-		if !ok {
-			continue
 		}
 		key := fmt.Sprintf("%s:%d:%s", target.Kind, target.PID, strings.ToLower(target.Thread))
 		if seen[key] {
@@ -3364,7 +3375,7 @@ func parseRuntimeTargets(in []emitRuntimeTargetParam) ([]types.RuntimeTarget, []
 		seen[key] = true
 		out = append(out, target)
 	}
-	return out, warnings
+	return out, warnings, ""
 }
 
 // emitRuntimeTargetMaxPID is the shared Linux PID_MAX_LIMIT sanity cap

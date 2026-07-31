@@ -4499,6 +4499,69 @@ func TestEmitAnalysis_Execute_PersistsTypedRuntimeTargets(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysis_Execute_RejectsMalformedRuntimeTargetInsteadOfWarningAndDropping(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	payload := `{
+		"intent": "explain",
+		"scenario": "generic",
+		"complexity": "moderate",
+		"keywords": ["trace", "pid", "59566", "D-state"],
+		"entities": ["com.baidu.tieba-59566", "59566"],
+		"question_kind": "mechanism",
+		"intent_confidence": 0.92,
+		"complexity_confidence": 0.8,
+		"kind_confidence": 0.85,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false,
+			"has_per_member_table": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.88
+		},
+		"runtime_targets": [{
+			"kind": "process",
+			"thread": "com.baidu.tieba-59566",
+			"source": "user_explicit",
+			"confidence": 0.96
+		}]
+	}`
+	res, mu := runEmitAnalysisPayload(t, "分析 com.baidu.tieba 59566 进程的 D-state", payload)
+	if res.Success ||
+		!strings.Contains(res.Summary, "runtime_targets[0] is structurally invalid") ||
+		!strings.Contains(res.Summary, "process target requires pid") {
+		t.Fatalf("malformed process target must fail loud, got success=%t summary=%q", res.Success, res.Summary)
+	}
+	if mu.RequestModel() != nil {
+		t.Fatalf("rejected malformed target must not persist a partial RequestModel: %+v", mu.RequestModel())
+	}
+}
+
+func TestParseRuntimeTargetsRejectsWholeSetWhenAnyIdentityIsMalformed(t *testing.T) {
+	confidence := 0.9
+	pid := 42
+	targets, warnings, errText := parseRuntimeTargets([]emitRuntimeTargetParam{
+		{Kind: "process", PID: &pid, Source: "user_explicit", Confidence: &confidence},
+		{Kind: "process", Thread: "missing-pid-43", Source: "user_explicit", Confidence: &confidence},
+	})
+	if errText == "" || len(targets) != 0 {
+		t.Fatalf("partial target set must not survive malformed sibling: targets=%+v warnings=%v err=%q", targets, warnings, errText)
+	}
+}
+
 func TestEmitAnalysis_Execute_RuntimeTargetInvalidSourceIsNonFatal(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
