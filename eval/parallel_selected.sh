@@ -93,6 +93,21 @@ trap 'on_signal 130' INT
 trap 'on_signal 143' TERM
 
 if [[ -x "./codrax" ]]; then
+  HEAD_REV="$(git rev-parse --short=12 HEAD 2>/dev/null || true)"
+  BIN_REV="$(./codrax version 2>&1 | sed -n 's/.*revision \([0-9a-f][0-9a-f]*\).*/\1/p' | head -1)"
+  BIN_REV="${BIN_REV%%-*}"
+  if [[ -z "$HEAD_REV" || -z "$BIN_REV" || "${BIN_REV:0:12}" != "$HEAD_REV" ]]; then
+    echo "selected eval refused stale binary: ./codrax revision=${BIN_REV:-unknown}, HEAD=${HEAD_REV:-unknown}; run make after committing the intended code" >&2
+    exit 2
+  fi
+  if ! git diff --quiet HEAD -- '*.go' go.mod go.sum Makefile; then
+    echo "selected eval refused dirty build inputs: commit the intended Go/build changes, run make, then retry" >&2
+    exit 2
+  fi
+  if [[ -n "$(git ls-files --others --exclude-standard -- '*.go')" ]]; then
+    echo "selected eval refused untracked Go inputs: commit or remove them, run make, then retry" >&2
+    exit 2
+  fi
   if cp ./codrax "$SWEEP_BIN" 2>/dev/null; then
     chmod +x "$SWEEP_BIN" 2>/dev/null || true
     export CODRAX_BIN="$SWEEP_BIN"

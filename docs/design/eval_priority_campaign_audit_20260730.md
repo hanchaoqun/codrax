@@ -793,3 +793,38 @@ B5 回放新增 GAP 与施工顺序：
 root auxiliary projection 保持 256 文件和原单文件大小界限，只把“按 tracked path 取前缀”改为 language × source-role 的确定性轮转；通用压力 fixture 以 336+ 个前置 Go test 文件和后置的 6 个 Cangjie fixture/thirdparty 文件验证，6 个少数语言文件及两个辅助 source role 都进入相同预算。请求的 package/module/namespace 维度新增精确 typed join：principal evidence 的 `Object` 必须与同文件、grounded/recovered package-like declaration 的 `AnchorSymbol` 完全相等，才进入 `EnumerationDisplayRow.Attributes`；不解析 member note、summary、用户原文、答案正文，也不从路径猜 package。scope 修正同样区分“未提供 quote”和“提供但全部验证失败”，只撤销后者。
 
 定向矩阵覆盖 semantic-only generic 负例、真实 causal row 与显式窗正例、balanced auxiliary universe、grounded same-file declaration join、全 quote rejected scope，以及 query-role/typed entity 与 synthesized all-scope 邻接正例。`go test ./internal/types ./internal/tool/repomap ./internal/tool ./internal/agent -count=1` 全包通过（types 18.493s、repomap 2.309s、tool 154.257s、agent 2.830s）；`git diff --check` 通过。下一步先提交推送本批，再严格 `parallel=2` 重放 B5。
+
+### B5 当前代码回放与批 I（2026-07-31）
+
+第一次批 G 回放（sweep `20260731-071128`）作废：`parallel_selected.sh` 只复制工作区已有 `./codrax`，没有核对构建 revision。人工检查时 binary 仍为 `11b8e2284`，而计划验收 HEAD 已是 `4c740bc31`；Trace PASS/Cangjie FAIL 都只能作为旧基线，不能证明当前批次。显式执行 `make` 后，binary revision=`4c740bc31790-dirty`，再以严格 `parallel=2` 重跑：
+
+- 结果目录：
+  - `eval/results/real_trace_e2_cross_trace_asymmetry-20260731-072430`
+  - `eval/results/cangjie_repomap-20260731-072430`
+- runner 2/2 PASS；人工 Trace FAIL、Cangjie PASS。
+- Trace 当前代码已经覆盖 T5：5 次 `trace_query` 后 `trace_query_final_projection_blocks=0`，最终没有 `Trace 因果投影`；物理范围 `144.557ms/0.556ms`、frequency exact total=`90`、VSync/frequency 单边采样和“不具备直接对齐权限”主方向正确。
+- 这类请求不需要 `Trace 因果投影`：它是两个完整工件的覆盖/采样/时基比较，没有显式用户时间窗、诊断/root-cause/call-chain 形状，也没有 publication-grade causal row。反向保护不变：显式 typed 时间窗、诊断/root-cause/call-chain 或真实 causal row 任一成立时仍 materialize；自动补采、projection 编译、根因排序、唤醒链和窗内量均未改。
+- Trace 新暴露的是上游合同偏移：analyzer 已发 `intent=explain, scenario=generic, full_artifact` 和明确 `current_source_mode=exclude`，`buildAnalysisIR` 却把 generic 当“未分类”，经 `InferScenario` 默认升级为 `architecture_explain`。最终要求 `current_code_path/component_relation`，模型三次 completion、两次 runtime evidence 被拒，最后用 `external_only_trace` waiver 绕过。此问题与因果投影是否发布正交。
+- Trace 工具每轮都明确发布 Harmony 权威语义“larger numeric higher；1-40=CFS；41-159=RT”，最终模型仍反写成 `1-40=RT/41-159=normal`。当前单次 witness 先判模型波动，不以扫描答案正文或关键词 hard gate 修正；若跨 case/模型重复，再建设 typed priority observation 的可见字段投影。
+- Cangjie 最终通过逐文件回退交付完整清单，但用了 17 次 read、3 次 list、18 explorer rounds、283s。两个 root source-inventory lens 都带 `repo_lens:auxiliary_projection`，持久图也已有 Cangjie path/language census，仍只返回 Go 行。代码根因是辅助投影把“路径已存在”误当“该文件已有可复用符号索引”；同路径 `ParseTier>=4`/零 symbols 的 path-only 空壳被跳过，且临时解析结果在 merge 时又被 same-path 去重丢弃。
+
+新增/更新 GAP：
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-INFRA-2 | P0 | Eval 构建身份 | selected runner 不校验 binary revision/dirty Go inputs，提交后的旧二进制可伪装成当前代码验收 | 启动时 fail-loud 比对 `codrax version` revision 与 12-char HEAD，并拒绝 tracked/untracked Go build inputs；提交后必须 `make` 才能回放 | 已施工；批 I |
+| EVAL-B5-T8 | P0 | Runtime scenario authority | `scenario=generic` 被统一视作缺省；纯 runtime scope + explicit source exclusion 被默认升级 architecture | `InferScenario` 增加 typed scoped-runtime observation lane：config/root-cause/performance 保持优先；其余 validated runtime scope + explicit source exclusion 留在 generic。只读 enum、validated carrier 和统一 source-lane decision，不解析 quote 内容 | 已施工；批 I |
+| EVAL-B5-S7 | P0 | Auxiliary graph refresh | 已存在 path/language census 的空壳 FileInfo 阻断有界辅助重解析，临时同路径解析结果也无法替换 | 只有 language 一致、ParseTier<4 且有 symbols 的 existing row 才可复用；其余进入原有文件/字节预算，并在临时 projected graph 中 same-path replace，调用结束恢复原图 | 已施工；批 I |
+| EVAL-B5-T6 | P0 | 计数 caliber | emitted 冒充 total | 当前回放已显示 exact total=90，正文不再写 40；标记 covered | covered |
+| EVAL-B5-T7 | P1 | 跨工件时钟关系 | 两个 local `alignment=identity` 仍缺少显式 cross-artifact relation carrier | 安全结论已正确，typed relation 仍 filed；批 I 后再按更高优先级 eval 复现率排序 | filed |
+| EVAL-B5-M1 | P2 | 模型语义波动 | 模型反写工具已明确的 priority mapping | 暂不加答案正文 hard gate；记录 witness，等待跨 case/模型复现再决定 typed projection | filed-model-variance |
+
+批 I 不变量与验证要求：
+
+1. runtime scenario 修正不读取 raw request、model thinking、source quote 内容或最终答案；只消费 `RuntimeArtifactScopeProfile.Active()`、`ExternalObservationPolicy.ExcludesCurrentSource()` 和统一 current-source lane。
+2. `IntentRootCause`、config 与 typed performance 仍优先；显式时间窗即使 scenario=generic 仍由独立 causal materialization authority保留投影。
+3. auxiliary refresh 不改变持久图、不提高 256 文件/单文件字节预算、不按语言名/case/query 特判；已有完整索引继续零重解析。
+4. 新生产路径 e2e 用两份真实 trace fixture 执行与 eval 同形的六个查询，确认 background semantic row 不会重复铸成 publication-grade cause；已有显式窗/真实 cause 正臂共同回归。
+5. selected runner 的 revision 检查是 eval fail-loud，不进入产品路由或答案门控。
+
+批 I 定向验证已通过：`internal/types` 固定 full/explicit-window/bounded-selector scope authority；`internal/analysis/compiler` 固定 pure runtime comparison→generic 与 runtime root-cause→root-cause；`internal/tool/repomap` 固定同路径 ParseTier4/零 symbols 的 Cangjie 文件被临时刷新并恢复原图；`internal/tool` 真实 E2 trace e2e 确认 generic cross-artifact coverage 不 materialize 因果投影，显式窗/真实 cause 专项继续通过；`bash -n eval/parallel_selected.sh` 通过。提交前仍需跑相关包级回归，提交推送后 `make`，再以同一双 case 做最终验收。

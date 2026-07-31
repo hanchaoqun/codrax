@@ -654,12 +654,69 @@ func TestInferScenario(t *testing.T) {
 			}},
 			types.ScenarioPerformanceBottleneck,
 		},
+		{
+			"scoped runtime-only comparison stays generic",
+			scopedRuntimeOnlyScenarioRequest(types.IntentExplain, types.RuntimeArtifactScopeFullArtifact),
+			types.ScenarioGeneric,
+		},
+		{
+			"scoped runtime-only explicit window stays generic",
+			scopedRuntimeOnlyScenarioRequest(types.IntentExplain, types.RuntimeArtifactScopeExplicitWindow),
+			types.ScenarioGeneric,
+		},
+		{
+			"scoped runtime root cause retains root-cause scenario",
+			scopedRuntimeOnlyScenarioRequest(types.IntentRootCause, types.RuntimeArtifactScopeFullArtifact),
+			types.ScenarioRootCause,
+		},
+		{
+			"scoped runtime with current source allowed retains architecture",
+			scopedRuntimeWithCurrentSourceScenarioRequest(),
+			types.ScenarioArchitectureExplain,
+		},
+		{
+			"scoped runtime performance retains performance scenario",
+			scopedRuntimePerformanceScenarioRequest(),
+			types.ScenarioPerformanceBottleneck,
+		},
 	}
 	for _, c := range cases {
 		if got := InferScenario(c.rm); got != c.expect {
 			t.Errorf("%s: got %q want %q", c.name, got, c.expect)
 		}
 	}
+}
+
+func scopedRuntimeOnlyScenarioRequest(intent types.Intent, scope types.RuntimeArtifactRequestedScope) types.RequestModel {
+	start, end := 10.25, 10.75
+	return types.RequestModel{
+		Intent: intent,
+		RuntimeArtifactScopeProfile: &types.RuntimeArtifactScopeProfile{
+			RequestedScope: scope,
+			TimeStart:      &start,
+			TimeEnd:        &end,
+			SourceQuote:    "validated current-request scope",
+		},
+		ExternalObservationPolicy: &types.ExternalObservationPolicy{
+			CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+			ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
+			SourceQuotes:      []string{"validated current-request exclusion"},
+		},
+	}
+}
+
+func scopedRuntimeWithCurrentSourceScenarioRequest() types.RequestModel {
+	rm := scopedRuntimeOnlyScenarioRequest(types.IntentExplain, types.RuntimeArtifactScopeFullArtifact)
+	rm.ExternalObservationPolicy = &types.ExternalObservationPolicy{
+		CurrentSourceMode: types.ExternalObservationCurrentSourceAllow,
+	}
+	return rm
+}
+
+func scopedRuntimePerformanceScenarioRequest() types.RequestModel {
+	rm := scopedRuntimeOnlyScenarioRequest(types.IntentExplain, types.RuntimeArtifactScopeFullArtifact)
+	rm.TermGraph.Canonical = []types.CanonicalTerm{{ID: "en:bottleneck"}}
+	return rm
 }
 
 func TestCompile_LanguagePropagatesToContract(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	tool "github.com/hanchaoqun/codrax/internal/tool"
+	"github.com/hanchaoqun/codrax/internal/tool/repomap/index"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/multigraph"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/topology"
 	rmtypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
@@ -1016,6 +1017,96 @@ func TestRepoMapSourceInventoryAuxiliaryProjectionUsesGitTrackedUniverse(t *test
 	}
 	if strings.Contains(res.Summary, "UntrackedNoise") || strings.Contains(res.Summary, "untracked_noise.cj") {
 		t.Fatalf("untracked auxiliary source entered projection:\n%s", res.Summary)
+	}
+}
+
+func TestRepoMapSourceInventoryAuxiliaryProjectionRefreshesExistingPathOnlyFile(t *testing.T) {
+	repo := t.TempDir()
+	const rel = "internal/thirdparty/tree-sitter-cangjie/corpus/sources/tracked_class.cj"
+	for path, body := range map[string]string{
+		"internal/app/main.go": "package app\nfunc Run() {}\n",
+		rel:                    "package demo.refreshed\npublic class RefreshedGreeter {}\n",
+	} {
+		p := filepath.Join(repo, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runGitForRepoMapSourceInventoryTest(t, repo, "init")
+	runGitForRepoMapSourceInventoryTest(t, repo, "add", ".")
+
+	// Simulate a persisted graph built by a narrower/older parser: the
+	// auxiliary path participates in file/language census but has no symbol
+	// inventory. Merely skipping paths already present in FileIndex leaves the
+	// source-inventory lens permanently blind to this tracked file.
+	stale := &FileInfo{
+		RelPath:   rel,
+		Language:  LangCangjie,
+		ParseTier: 4,
+	}
+	production := &FileInfo{
+		RelPath:  "internal/app/main.go",
+		Language: LangGo,
+		Package:  "app",
+		Symbols: []Symbol{{
+			Name:     "Run",
+			Kind:     "function",
+			File:     "internal/app/main.go",
+			Line:     2,
+			Exported: true,
+		}},
+	}
+	graph := index.BuildGraph(repo, []*FileInfo{production, stale})
+	mut := types.NewMutableState("source inventory refreshes path-only auxiliary files")
+	mut.SetSearchGraph(graph)
+	ctx := &types.BusContext{
+		RepoRoot: repo,
+		Mutable:  mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+				SourceQuotes:      []string{"public class"},
+				Confidence:        0.95,
+			},
+		}},
+	}
+
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{
+		"path": ".",
+		"view": "source_inventory",
+		"query": "public class",
+		"scope": ".",
+		"roles": ["type"],
+		"include_counts": true,
+		"include_attributes": false,
+		"top_n": 8
+	}`))
+	if err != nil {
+		t.Fatalf("repo_map source_inventory returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("repo_map source_inventory should succeed: %+v", res)
+	}
+	for _, want := range []string{
+		"repo_lens:auxiliary_projection",
+		"`RefreshedGreeter`",
+		"package=demo.refreshed",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("path-only auxiliary row was not refreshed; missing %q:\n%s", want, res.Summary)
+		}
+	}
+	restored, _ := mut.SearchGraph().(*Graph)
+	if restored == nil || restored.FileIndex[rel] == nil || len(restored.FileIndex[rel].Symbols) != 0 {
+		t.Fatalf("temporary refresh must restore the persisted graph after the call: %+v", restored)
 	}
 }
 

@@ -1347,6 +1347,20 @@ func (rm RequestModel) HasRuntimeArtifactWithoutRequiredCurrentSource() bool {
 		!rm.CurrentSourceLaneDecision().RequiresCurrentSource()
 }
 
+// HasScopedRuntimeArtifactWithoutRequiredCurrentSource is the prose-independent
+// scenario-routing carrier for a model-classified runtime artifact scope. The
+// scope and source exclusion must both be anchored and schema-valid, while an
+// independent typed current-source proof still wins through
+// CurrentSourceLaneDecision. Unlike HasRuntimeArtifactPathReference, this
+// method never classifies path-shaped strings.
+func (rm RequestModel) HasScopedRuntimeArtifactWithoutRequiredCurrentSource() bool {
+	return rm.RuntimeArtifactScopeProfile != nil &&
+		rm.RuntimeArtifactScopeProfile.Active() &&
+		rm.ExternalObservationPolicy != nil &&
+		rm.ExternalObservationPolicy.ExcludesCurrentSource() &&
+		!rm.CurrentSourceLaneDecision().RequiresCurrentSource()
+}
+
 // HasRuntimeArtifactWithoutRequiredCurrentSourceInArtifactContext is the
 // runtime-artifact-aware sibling of HasRuntimeArtifactWithoutRequiredCurrentSource.
 // It covers attached logs/traces and trace_query path reads where runtime

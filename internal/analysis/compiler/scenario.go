@@ -18,7 +18,8 @@ import "github.com/hanchaoqun/codrax/internal/types"
 //     (unless root_cause signals are present — see step 6)
 //  6. Intent is root_cause                    → root_cause
 //  7. Term graph contains perf-related terms  → performance_bottleneck
-//  8. otherwise                               → architecture_explain
+//  8. Scoped runtime-only fact/comparison      → generic
+//  9. otherwise                               → architecture_explain
 func InferScenario(rm types.RequestModel) types.Scenario {
 	if types.IsFailureScopeDecisionAnswer(rm) {
 		return types.ScenarioGeneric
@@ -46,6 +47,17 @@ func InferScenario(rm types.RequestModel) types.Scenario {
 	}
 	if hasPerfTerms(rm.TermGraph) {
 		return types.ScenarioPerformanceBottleneck
+	}
+	// A validated runtime-artifact scope plus explicit current-source
+	// exclusion is an observation task, not a source-architecture task.
+	// Keep root-cause/config/performance scenarios above this branch, and
+	// let explicit trace call relations resolve their answer family
+	// independently. This branch reads only typed enums/validated carriers;
+	// it never scans request or answer prose. In particular, an explicit
+	// trace time window remains available to the causal-report materializer
+	// even though the surrounding scenario is generic.
+	if rm.HasScopedRuntimeArtifactWithoutRequiredCurrentSource() {
+		return types.ScenarioGeneric
 	}
 	// Ambiguity-sensitive escalation: when the request is
 	// non-trivial AND carries at least one ambiguity clause, route

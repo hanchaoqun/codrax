@@ -48,6 +48,24 @@ type RuntimeArtifactScopeProfile struct {
 	Rationale      string                        `json:"rationale,omitempty"`
 }
 
+// Active reports whether the profile carries an anchored, structurally valid
+// runtime-artifact scope. It consumes the validated enum and quote presence
+// only; downstream routing does not reinterpret the quote text.
+func (p *RuntimeArtifactScopeProfile) Active() bool {
+	if p == nil || strings.TrimSpace(p.SourceQuote) == "" {
+		return false
+	}
+	switch p.RequestedScope {
+	case RuntimeArtifactScopeFullArtifact, RuntimeArtifactScopeBoundedSelector:
+		return true
+	case RuntimeArtifactScopeExplicitWindow:
+		_, _, ok := p.ExplicitTimeWindow()
+		return ok
+	default:
+		return false
+	}
+}
+
 func (p *RuntimeArtifactScopeProfile) FullArtifact() bool {
 	return p != nil &&
 		p.RequestedScope == RuntimeArtifactScopeFullArtifact &&

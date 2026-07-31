@@ -1021,8 +1021,29 @@ func sourceInventoryGraphWithAuxiliaryProjection(ctx *ctypes.BusContext, repoRoo
 	if len(infos) == 0 {
 		return graph, nil, false
 	}
+	// A persisted graph may already contain an auxiliary path while carrying
+	// only a path-only/empty FileInfo from an older or narrower parser build.
+	// The projection entries deliberately include those stale rows, so parsed
+	// projection FileInfos must replace the same-path graph row rather than be
+	// discarded as duplicates. This refresh is bounded by the same projection
+	// file/byte limits as genuinely missing auxiliary files.
+	replacements := make(map[string]*FileInfo, len(infos))
+	replacementOrder := make([]string, 0, len(infos))
+	for _, fi := range infos {
+		if fi == nil {
+			continue
+		}
+		rel := strings.Trim(strings.ReplaceAll(fi.RelPath, `\`, `/`), "/")
+		if rel != "" {
+			if replacements[rel] == nil {
+				replacementOrder = append(replacementOrder, rel)
+			}
+			replacements[rel] = fi
+		}
+	}
 	seen := make(map[string]bool, len(graph.FileIndex)+len(infos))
 	files := make([]*FileInfo, 0, len(graph.Files)+len(infos))
+	changed := false
 	for _, fi := range graph.Files {
 		if fi == nil {
 			continue
@@ -1032,20 +1053,24 @@ func sourceInventoryGraphWithAuxiliaryProjection(ctx *ctypes.BusContext, repoRoo
 			continue
 		}
 		seen[rel] = true
-		files = append(files, fi)
-	}
-	for _, fi := range infos {
-		if fi == nil {
+		if replacement := replacements[rel]; replacement != nil {
+			files = append(files, replacement)
+			delete(replacements, rel)
+			changed = true
 			continue
 		}
-		rel := strings.Trim(strings.ReplaceAll(fi.RelPath, `\`, `/`), "/")
-		if rel == "" || seen[rel] {
+		files = append(files, fi)
+	}
+	for _, rel := range replacementOrder {
+		fi := replacements[rel]
+		if fi == nil || rel == "" || seen[rel] {
 			continue
 		}
 		seen[rel] = true
 		files = append(files, fi)
+		changed = true
 	}
-	if len(files) == len(graph.Files) {
+	if !changed {
 		return graph, nil, false
 	}
 	projected := index.BuildGraph(repoRoot, files)
@@ -1548,10 +1573,11 @@ func sourceInventoryAuxiliaryProjectionEntries(repoRoot string, graph *Graph, p 
 	if repoRoot == "" || graph == nil {
 		return nil
 	}
-	seen := make(map[string]bool, len(graph.FileIndex))
-	for rel := range graph.FileIndex {
-		seen[strings.Trim(strings.ReplaceAll(rel, `\`, `/`), "/")] = true
+	existing := make(map[string]*FileInfo, len(graph.FileIndex))
+	for rel, fi := range graph.FileIndex {
+		existing[strings.Trim(strings.ReplaceAll(rel, `\`, `/`), "/")] = fi
 	}
+	seenCandidates := make(map[string]bool)
 	tracked, _ := tool.SourceInventoryTrackedSourceFilesForLens(repoRoot, ctypes.SourceInventoryLensQuery{
 		Path:   p.Path,
 		Scopes: append([]string(nil), scopes...),
@@ -1563,7 +1589,7 @@ func sourceInventoryAuxiliaryProjectionEntries(repoRoot string, graph *Graph, p 
 	candidates := make([]projectionCandidate, 0, len(tracked))
 	for _, file := range tracked {
 		rel := strings.Trim(strings.ReplaceAll(file.Path, `\`, `/`), "/")
-		if rel == "" || seen[rel] || !ctypes.SourcePathRoleIsAuxiliary(file.Role) {
+		if rel == "" || seenCandidates[rel] || !ctypes.SourcePathRoleIsAuxiliary(file.Role) {
 			continue
 		}
 		if tool.IsWindowsReservedDevicePath(filepath.Base(rel)) {
@@ -1578,6 +1604,9 @@ func sourceInventoryAuxiliaryProjectionEntries(repoRoot string, graph *Graph, p 
 		if lang == "" || !rmtypes.IsSupportedReadLanguage(lang) {
 			continue
 		}
+		if sourceInventoryAuxiliaryGraphFileReusable(existing[rel], lang) {
+			continue
+		}
 		candidates = append(candidates, projectionCandidate{
 			entry: index.FileEntry{
 				RelPath:  rel,
@@ -1587,7 +1616,7 @@ func sourceInventoryAuxiliaryProjectionEntries(repoRoot string, graph *Graph, p 
 			},
 			role: file.Role,
 		})
-		seen[rel] = true
+		seenCandidates[rel] = true
 	}
 	if len(candidates) <= sourceInventoryAuxProjectionMaxFiles {
 		entries := make([]index.FileEntry, 0, len(candidates))
@@ -1674,6 +1703,24 @@ func sourceInventoryAuxiliaryProjectionEntries(repoRoot string, graph *Graph, p 
 		}
 	}
 	return entries
+}
+
+// sourceInventoryAuxiliaryGraphFileReusable distinguishes an actually indexed
+// auxiliary source file from a same-path census/path-only placeholder. The
+// decision uses parser metadata only. Empty/path-only rows are safe to refresh
+// because the refresh remains inside the existing bounded auxiliary projection
+// and the original graph is restored after the lens call.
+func sourceInventoryAuxiliaryGraphFileReusable(fi *FileInfo, trackedLanguage string) bool {
+	if fi == nil {
+		return false
+	}
+	if !strings.EqualFold(strings.TrimSpace(fi.Language), strings.TrimSpace(trackedLanguage)) {
+		return false
+	}
+	if fi.ParseTier >= 4 || len(fi.Symbols) == 0 {
+		return false
+	}
+	return true
 }
 
 func repoMapSourceInventoryApplyBudgetGuard(p *repoMapParams, fileCount int) []string {
