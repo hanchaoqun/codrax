@@ -25,6 +25,7 @@ func TestTraceSupplementReasonRegistryGolden(t *testing.T) {
 		"cold_budget_exceeded",
 		"execution_failed",
 		"disabled",
+		"trace_input_admission_terminal",
 		"no_attached_trace",
 		"windowed_census_absent",
 		"canceled_by_caller",

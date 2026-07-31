@@ -60,6 +60,11 @@ const (
 	// TraceSupplementReasonDisabled — trace_supplement_enabled: false kill
 	// switch.
 	TraceSupplementReasonDisabled = "disabled"
+	// TraceSupplementReasonInputAdmissionTerminal — a model-dispatched
+	// trace_query already established an action-required physical input
+	// admission failure for this run. The system supplement must share that
+	// authority boundary and execute no engine view.
+	TraceSupplementReasonInputAdmissionTerminal = "trace_input_admission_terminal"
 	// TraceSupplementReasonNoAttachedTrace — source resolution found no
 	// attached/unambiguous trace artifact.
 	TraceSupplementReasonNoAttachedTrace = "no_attached_trace"
@@ -88,6 +93,7 @@ var traceSupplementReasonRegistry = []string{
 	TraceSupplementReasonColdBudgetExceeded,
 	TraceSupplementReasonExecutionFailed,
 	TraceSupplementReasonDisabled,
+	TraceSupplementReasonInputAdmissionTerminal,
 	TraceSupplementReasonNoAttachedTrace,
 	TraceSupplementReasonWindowedCensusAbsent,
 	TraceSupplementReasonCanceledByCaller,

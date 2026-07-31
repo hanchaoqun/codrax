@@ -37,6 +37,38 @@ func TestResolveQuestionFamily_RootCauseWithoutArtifact(t *testing.T) {
 	}
 }
 
+func TestResolveQuestionFamily_RuntimeConditionalFactBeatsBroadRootCauseIntent(t *testing.T) {
+	rm := RequestModel{
+		Intent:        IntentRootCause,
+		Scenario:      ScenarioRootCause,
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqConditional)},
+		PredicateAxis: AxisCondition,
+		RuntimeTargets: []RuntimeTarget{{
+			Kind: RuntimeTargetKindProcess,
+			PID:  59566,
+		}},
+	}
+	if got := ResolveQuestionFamily(rm); got != QFGeneric {
+		t.Fatalf("typed conditional runtime fact got %q, want QFGeneric", got)
+	}
+
+	// The runtime-target conjunction is required: a general "why" diagnostic
+	// must retain the root-cause answer family.
+	rm.RuntimeTargets = nil
+	if got := ResolveQuestionFamily(rm); got != QFRootCauseTrace {
+		t.Fatalf("target-less root-cause diagnostic got %q, want QFRootCauseTrace", got)
+	}
+
+	// An explicit call relation is stronger than the conditional-shaped
+	// analyzer residue and must retain the causal/call-chain family.
+	rm.RuntimeTargets = []RuntimeTarget{{Kind: RuntimeTargetKindProcess, PID: 59566}}
+	rm.AnalyzerHints.Kind = string(ReqCallChain)
+	rm.PredicateAxis = AxisCall
+	if got := ResolveQuestionFamily(rm); got != QFRootCauseTrace {
+		t.Fatalf("explicit root-cause call relation got %q, want QFRootCauseTrace", got)
+	}
+}
+
 func TestResolveQuestionFamily_TraceWithoutArtifactNeedsTypedCallRelation(t *testing.T) {
 	// Trace names the evidence source. Without a typed call-relation kind or
 	// axis, a runtime fact question must not inherit the call-chain scaffold.

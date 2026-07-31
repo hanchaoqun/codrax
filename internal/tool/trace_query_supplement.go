@@ -225,15 +225,17 @@ func traceSupplementNarrowDStateQuestion(ctx *types.BusContext) bool {
 		if rm == nil {
 			return
 		}
-		switch types.ResolveQuestionFamily(*rm) {
-		case types.QFRootCauseTrace, types.QFCallChain:
-			causal = true
-		}
+		family := types.ResolveQuestionFamily(*rm)
 		kind := types.NormalizeRequirementKind(rm.AnalyzerHints.Kind)
-		if rm.Intent == types.IntentTrace &&
+		if (rm.Intent == types.IntentTrace || rm.Intent == types.IntentRootCause) &&
+			family == types.QFGeneric &&
 			((kind != types.ReqUnknown && kind != types.ReqCallChain) ||
 				(rm.PredicateAxis != types.AxisUnknown && rm.PredicateAxis != types.AxisCall)) {
 			narrowStateFact = true
+		}
+		switch family {
+		case types.QFRootCauseTrace, types.QFCallChain:
+			causal = true
 		}
 	}
 	if ctx != nil && ctx.AnalysisIR != nil {
@@ -1133,6 +1135,13 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 	}
 	if !traceSupplementEnabled {
 		return skip(types.TraceSupplementReasonDisabled)
+	}
+	// A physical input-admission terminal means the investigation has no
+	// authorized trace source. The system supplement shares that authority
+	// boundary with model-dispatched tools; bypassing the run latch here can
+	// publish evidence that contradicts the terminal repair.
+	if _, terminal := ctx.Mutable.TraceInputAdmissionTerminal(types.StageExplore); terminal {
+		return skip(types.TraceSupplementReasonInputAdmissionTerminal)
 	}
 	// Attached-trace gate: reuse the tool's own source resolution (attached
 	// blob or the exactly-one request-referenced trace artifact — Q3 gate).

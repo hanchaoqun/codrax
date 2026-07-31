@@ -193,6 +193,62 @@ func TestTraceQueryGenericContainerDoesNotAdvertiseConvertCommand(t *testing.T) 
 	}
 }
 
+func TestResolveTraceQuerySourceMissingAliasWithAttachedTraceIsRetryableNotTerminal(t *testing.T) {
+	dir := t.TempDir()
+	mutable := types.NewMutableState("inspect attached trace")
+	ctx := &types.BusContext{
+		RepoRoot:        dir,
+		WorkDir:         dir,
+		AttachedHitrace: "worker-1 ( 1) [000] .... 1.000000: tracing_mark_write: B|1|work\n",
+		Mutable:         mutable,
+	}
+	missing := filepath.Join(dir, "stale-alias.systrace")
+	path, source, reject := resolveTraceQuerySource(ctx, traceQueryParams{
+		Source: "path",
+		Path:   missing,
+	})
+	if path != "" || source != "path" || reject == nil || reject.Success || reject.Repair == nil {
+		t.Fatalf("missing alias resolution = path %q source %q reject %+v", path, source, reject)
+	}
+	if reject.Repair.Code != tracequery.TraceInputAdmissionCodeSourceUnavailable ||
+		reject.Repair.Metadata["stage"] != types.ToolRepairStageTraceSourceSelection ||
+		reject.Repair.Metadata["status"] != types.ToolRepairStatusActionRecommended {
+		t.Fatalf("missing attached alias must be a typed retryable selector repair: %+v", reject.Repair)
+	}
+	if !strings.Contains(reject.Summary, `source="attached_trace"`) ||
+		!strings.Contains(reject.Summary, strconv.Quote(missing)) {
+		t.Fatalf("selector repair lost explicit recovery/path: %s", reject.Summary)
+	}
+	if mutable.ArmTraceInputAdmissionTerminal(types.StageExplore, *reject) {
+		t.Fatal("retryable source selection error armed the run-wide physical admission terminal")
+	}
+	if _, ok := mutable.TraceInputAdmissionTerminal(types.StageExplore); ok {
+		t.Fatal("retryable source selection error persisted a terminal repair")
+	}
+	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 0 {
+		t.Fatalf("source selection repair unexpectedly materialized the attached payload: entries=%v err=%v", entries, err)
+	}
+}
+
+func TestResolveTraceQuerySourceMissingPathWithoutAttachedTraceRemainsTerminalAdmission(t *testing.T) {
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "missing.systrace")
+	params, _ := json.Marshal(map[string]any{
+		"source": "path",
+		"path":   missing,
+		"view":   "event_search",
+	})
+	result, err := (&TraceQuery{}).Execute(&types.BusContext{RepoRoot: dir, WorkDir: dir}, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Success || result.Repair == nil ||
+		result.Repair.Metadata["stage"] != types.ToolRepairStageTraceInputAdmission ||
+		result.Repair.Metadata["status"] != types.ToolRepairStatusActionRequired {
+		t.Fatalf("genuinely unavailable input lost terminal admission semantics: %+v", result)
+	}
+}
+
 func TestTraceQuerySchemaSaysBinaryConversionPrecedesInvestigation(t *testing.T) {
 	schema := string((&TraceQuery{}).Parameters())
 	for _, want := range []string{"recognized binary/non-text prefix is rejected before any physical trace parser", "codrax trace convert --input <binary-trace-path>"} {

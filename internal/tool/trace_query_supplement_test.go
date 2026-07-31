@@ -112,6 +112,27 @@ func TestTraceSupplementDStateFactUsesNarrowStateFamilies(t *testing.T) {
 	}
 }
 
+func TestTraceSupplementRootCauseLabeledRuntimeStateFactUsesNarrowFamilies(t *testing.T) {
+	ctx := &types.BusContext{
+		Mutable: types.NewMutableState("root-cause labeled runtime state fact"),
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentRootCause,
+			PredicateAxis: types.AxisCondition,
+			RuntimeTargets: []types.RuntimeTarget{{
+				Kind: types.RuntimeTargetKindProcess,
+				PID:  59566,
+			}},
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:     string(types.ReqConditional),
+				Keywords: []string{"D-state", "blocked_reason"},
+			},
+		}},
+	}
+	if got := traceSupplementViewsForRequest(ctx, traceSupplementFamilyPresence{}, false, false); len(got) != 1 || got[0] != "window_stats" {
+		t.Fatalf("root-cause-labeled state fact must request only window_stats, got %v", got)
+	}
+}
+
 func TestTraceSupplementExplicitCausalDStateRetainsCoreFamilies(t *testing.T) {
 	ctx := &types.BusContext{
 		Mutable: types.NewMutableState("causal D-state trace"),
@@ -423,6 +444,33 @@ func TestTraceSupplementFailOpenNoWindow(t *testing.T) {
 	// engine never guesses a default window).
 	ctx := suppCoreContext(t)
 	suppCoreAssertFailOpen(t, ctx, RunTraceQuerySystemSupplement(ctx), "no_typed_window")
+}
+
+func TestTraceSupplementSharesRunTerminalInputAdmissionAuthority(t *testing.T) {
+	ctx := suppCoreContext(t)
+	terminal := types.ToolResult{
+		ToolName: "trace_query",
+		Success:  false,
+		Repair: &types.ToolRepair{
+			Code: "trace_conversion_required",
+			Metadata: map[string]string{
+				"stage":  types.ToolRepairStageTraceInputAdmission,
+				"status": types.ToolRepairStatusActionRequired,
+				"path":   "capture.sys",
+			},
+		},
+	}
+	if !ctx.Mutable.ArmTraceInputAdmissionTerminal(types.StageExplore, terminal) {
+		t.Fatal("fixture did not arm trace input admission terminal")
+	}
+	out := RunTraceQuerySystemSupplement(ctx)
+	if !out.Attempted || len(out.Executed) != 0 ||
+		out.SkipReason != types.TraceSupplementReasonInputAdmissionTerminal {
+		t.Fatalf("supplement bypassed terminal input authority: %+v", out)
+	}
+	if got := ctx.Mutable.SystemTraceSupplementResults(); len(got) != 0 {
+		t.Fatalf("terminal input authority still published system trace results: %+v", got)
+	}
 }
 
 // --- pin ④ determinism --------------------------------------------------------

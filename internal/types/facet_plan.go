@@ -557,40 +557,45 @@ type FacetCoverageContract struct {
 //  1. Active failure-scope decision answer with no attached log/perf artifact
 //     → QFGeneric (narrow verdict lane wins over broad diagnostic wording)
 //
-//  2. Intent == RootCause OR LogTriage / PerfTrace attached + Intent == Trace
+//  2. A trace/root-cause-labeled conditional runtime fact with a typed runtime
+//     target and no call-relation signal → QFGeneric. The broad intent names
+//     the evidence/diagnostic context; the precise kind/axis names the answer
+//     shape.
+//
+//  3. Intent == RootCause OR LogTriage / PerfTrace attached + Intent == Trace
 //     → QFRootCauseTrace (logtri_go and no-attachment diagnostics fall here)
 //
-//  3. Intent == ConfigQuery OR Scenario == ConfigTrace
+//  4. Intent == ConfigQuery OR Scenario == ConfigTrace
 //     → QFConfigPrecedence (s3a falls here)
 //
-//  4. Intent == Trace AND no obligation AND the typed question kind/axis
+//  5. Intent == Trace AND no obligation AND the typed question kind/axis
 //     explicitly asks for a call relation
 //     → QFCallChain (s1a/s8a style "how does X reach Y" questions).
 //     Other trace-backed runtime facts are QFGeneric: trace names the
 //     evidence source, not the answer shape.
 //
-//  5. IsArchitectureNarrativeExplanation(rm)=true
+//  6. IsArchitectureNarrativeExplanation(rm)=true
 //     → QFArchitecture (logical view / architecture / diagram
 //     narrative; component names are context, not a member slate)
 //
-//  6. IsSingleTopicMechanismExplanation(rm)=true
+//  7. IsSingleTopicMechanismExplanation(rm)=true
 //     → QFGeneric (mechanism/condition explanation, not architecture)
 //
-//  7. AnswerSubject.Kind ∈ {SubjectFunctionName, SubjectHandlerRoute,
+//  8. AnswerSubject.Kind ∈ {SubjectFunctionName, SubjectHandlerRoute,
 //     SubjectConfigKey, SubjectStructField, SubjectInterface}, or
 //     SubjectTypeName with IsRoleLocateLookup=true,
 //     AND QuestionStructure.HasAnyObligation()=false
 //     AND IsCategoryEnumerationAnswerShape(rm)=false
 //     → QFRoleLookup (typical "what's the X for Y" questions)
 //
-//  8. QuestionStructure.HasAnyObligation()=true OR
+//  9. QuestionStructure.HasAnyObligation()=true OR
 //     IsCategoryEnumerationAnswerShape(rm)=true
 //     → QFEnumeration (s5a / m1a fall here)
 //
-//  9. Intent == Explain AND Scenario == ArchitectureExplain
+//  10. Intent == Explain AND Scenario == ArchitectureExplain
 //     → QFArchitecture
 //
-//  10. fallthrough → QFGeneric
+//  11. fallthrough → QFGeneric
 //
 // Phase 0 trace data on s1a / s5a / m1a / s3a / logtri_go
 // confirms each branch hits at least one case.
@@ -605,6 +610,20 @@ func ResolveQuestionFamily(rm RequestModel, sinks ...RichnessTelemetrySink) Ques
 	// family below because artifact/current-code drift is part of
 	// their answer surface.
 	if !hasLog && !hasPerf && IsFailureScopeDecisionAnswer(rm) {
+		return QFGeneric
+	}
+
+	// Rule 1: a runtime-artifact question may be broadly labeled root_cause
+	// while its precise typed shape asks one conditional fact about one
+	// process/thread ("did it enter state X; when; what recorded reason").
+	// RuntimeTargets + conditional kind/axis is a precise conjunction. Keep
+	// explicit call relations and target-less root-cause diagnostics out of
+	// this lane.
+	kind := NormalizeRequirementKind(rm.AnalyzerHints.Kind)
+	hasCallRelation := kind == ReqCallChain || rm.PredicateAxis == AxisCall
+	hasConditionalShape := kind == ReqConditional || rm.PredicateAxis == AxisCondition
+	if (rm.Intent == IntentTrace || rm.Intent == IntentRootCause) &&
+		len(rm.RuntimeTargets) > 0 && hasConditionalShape && !hasCallRelation {
 		return QFGeneric
 	}
 
@@ -664,7 +683,6 @@ func ResolveQuestionFamily(rm RequestModel, sinks ...RichnessTelemetrySink) Ques
 	// its requested value/time/reason surface.
 	if !hasObligation {
 		if rm.Intent == IntentTrace {
-			kind := NormalizeRequirementKind(rm.AnalyzerHints.Kind)
 			if kind == ReqCallChain ||
 				rm.PredicateAxis == AxisCall {
 				// Explicit trace intent plus a typed call-relation signal is

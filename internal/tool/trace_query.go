@@ -3100,7 +3100,37 @@ func resolveTraceQuerySource(ctx *types.BusContext, p traceQueryParams) (string,
 	if traceQueryPathIsWindowsNamedPipe(strings.TrimSpace(p.Path), resolved) {
 		return "", source, traceQueryNamedPipePathReject(strings.TrimSpace(p.Path))
 	}
-	if info, err := os.Stat(resolved); err == nil && info.IsDir() {
+	info, statErr := os.Stat(resolved)
+	if os.IsNotExist(statErr) && traceQueryAttachedSourceAvailable(ctx) {
+		// The model selected a stale/mistyped alias while the run still owns a
+		// canonical attached trace. Never silently substitute that trace, but
+		// also do not turn this selector error into a run-wide physical-input
+		// terminal. A typed, non-terminal repair lets the model explicitly
+		// retry source=attached_trace.
+		raw := strings.TrimSpace(p.Path)
+		summary := fmt.Sprintf(
+			"trace_query explicit path %q does not exist, while a canonical attached trace is available. The path was not silently replaced; retry with source=\"attached_trace\" or provide the exact existing path.",
+			raw,
+		)
+		return "", source, &types.ToolResult{
+			ToolName: "trace_query",
+			Success:  false,
+			Summary:  summary,
+			Repair: &types.ToolRepair{
+				Code:   tracequery.TraceInputAdmissionCodeSourceUnavailable,
+				Hint:   summary,
+				Fields: []string{"source", "path"},
+				Metadata: map[string]string{
+					"status": types.ToolRepairStatusActionRecommended,
+					"stage":  types.ToolRepairStageTraceSourceSelection,
+					"path":   raw,
+					"source": source,
+				},
+			},
+			Timestamp: time.Now(),
+		}
+	}
+	if statErr == nil && info.IsDir() {
 		return "", source, &types.ToolResult{
 			ToolName: "trace_query",
 			Success:  false,

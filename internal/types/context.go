@@ -6421,6 +6421,10 @@ const (
 	// status=action_required; they must never infer this state from Summary or
 	// Hint prose.
 	ToolRepairStageTraceInputAdmission = "trace_input_admission"
+	// ToolRepairStageTraceSourceSelection identifies a retryable selector
+	// mismatch before any physical input was admitted. It is deliberately
+	// distinct from TraceInputAdmission and cannot arm the run-terminal latch.
+	ToolRepairStageTraceSourceSelection = "trace_source_selection"
 )
 
 // ToolParamNarrowingSuggestion is one typed, per-parameter narrowing
