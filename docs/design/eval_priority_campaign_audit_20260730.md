@@ -2360,3 +2360,81 @@ ID/system marker、幂等、非目标拒绝和正文 byte-preserve。
 完整 `go test ./internal/tool -count=1` 通过（159.722s）；因此 AH1
 不是只在局部 fixture 上成立，既有 Trace 报告构造、投影与补采接线也保持
 全包回归绿。
+
+### B13 r1 人工审计与批 AI（2026-07-31）
+
+在 revision `13ae05636` 重建后，以严格 `parallel=2` 回放：
+
+- `eval/results/real_trace_h1_binder_true_false_attribution-20260731-161505`
+- `eval/results/real_trace_h2_dstate_dma_fence_triform-20260731-161505`
+
+runner 1/2，人工 0/2。
+
+H1 的显式 233.190ms 用户窗、完整 Trace 因果投影、系统自动补采、根因榜、
+wakeup chain、窗内可消除量、5 sync + 10 oneway census、transaction
+`0x19` 与 1.409ms target blocking 下界均未回退。AH1 也确实把 blocking
+coverage 与 blocked_reason caliber 放到了完整投影之前。但模型摘要仍先写
+“总 binder 阻塞时间（4次同步请求）2.691ms”：该数实际是五条
+send-to-receive transport latency 之和；同一答案的表又列五条请求，并继续
+声称只有一次 blocker、其余没有阻塞。typed authority 内容正确，但仍位于
+模型摘要之后，错误主值已先占据决策首屏。
+
+H2 不是 oracle 波动。确定性 `target_window_states` 给出的目标
+CompThread_0-2955 同窗状态账为 running 74.915ms、runnable 1.536ms、
+sleep 118.586ms、non-IO D-state 36.757ms、IO wait 0。同一引擎结果还发布
+`target_window_wait_occurrences=complete` 与 11 条独立 occurrence 行；
+而 blocked_reason census 是另一量纲的 12 条 caller-linked records、
+Σdelay=39.157ms。模型把后者当成 D-state 发生次数/墙钟，并自行叙述 9 次
+sched exit。根因是精确用户窗的 D-state 请求被 focused-fact 优化收窄为仅
+补 `window_stats`，导致 `root_cause_rank` 与 `critical_blocking_calls`
+没有系统补齐；旧 oracle 要求的 4 条锚定发生段和
+`自身·D-state 36.757ms` 因此一起消失。
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B13-A1 | P0 | explicit-window supplement authority | 精确用户窗被窄事实优化降级，完整因果家族重新依赖模型 view 采样 | typed `RuntimeArtifactScopeProfile.ExplicitTimeWindow()` 优先于 narrow-D 优化；精确窗恢复 root rank + critical 两核心家族，无窗窄事实仍只取 state | covered-pending-replay |
+| EVAL-B13-A2 | P1 | principal-value placement and caliber | 状态墙钟/发生次数、blocked_reason records、IPC transport 与 blocking 下界虽有 typed authority，但模型摘要先发布冲突主值 | 从完整同结果 occurrence rows 构造 fail-closed 主值卡；状态/occurrence、blocking coverage、blocked_reason 三个 authenticated authority block 全部置于模型叙事之前并声明冲突优先级 | covered-pending-replay |
+
+批 AI 不变量：
+
+1. 只读取 typed request scope、typed runtime target、hard-grounded
+   deterministic ledger records 和 compiled projection；不扫描 raw request、
+   case ID、模型 thinking 或答案原文做 hard gate。
+2. 精确用户窗继续完整补齐根因排序、critical blocking、wakeup chain、
+   自身状态发生段与因果投影；无时间窗的窄 D-state 事实仍走低成本
+   `window_stats`，不把所有状态查询扩大成全量因果分析。
+3. occurrence 主值只在 aggregate 声明 `complete`、`emitted==total`，且
+   1..N 每条 hard-grounded row 均来自同一 result/source、同一 subject、
+   位于 aggregate window 内、span 与 duration 自洽时发布；缺行、重复冲突、
+   跨 artifact 拼接或越窗均 fail-closed。
+4. blocked_reason record count/Σdelay、IPC request/transport、target
+   blocking lower bound、target scheduler-state wall clock 永不互相补齐。
+5. 不修改模型正文内容；authenticated system authority 领先模型 blocks，
+   模型 blocks 之间相对顺序保持，完整报告和投影仍按既有 hierarchy 发布。
+
+批 AI1 已使精确窗的窄 D-state 请求恢复
+`root_cause_rank + critical_blocking_calls` 系统补采。端到端测试从仅一次
+`event_search` 的模型采样出发，确认系统使用 typed 3.0..3.2 用户窗并恢复
+锚定目标、自身 D-state、`dma_fence_default_wait` 等待对象和根因席位；无窗
+窄事实正臂仍只请求 `window_stats`。
+
+批 AI2 新增 target-thread state principal authority：沿用已选中的 compiled
+projection 状态账，并从未受 prompt 八行上限影响的独立 occurrence typed
+rows 复核完整 roster，发布精确发生次数及 occurrence 墙钟和；只有与
+D/IO/S-iowait 状态账在 0.002ms 内一致时才声明恒等关系。blocking、
+target-state 与 blocked_reason 三个 reserved system block 现均领先模型
+叙事，明确后续模型冲突时以系统 typed authority 为准；模型正文逐字保留。
+
+专项测试覆盖精确窗/无窗路由、真实 supplement 执行与投影恢复、完整
+occurrence 正臂、缺行/冲突/跨 artifact/越窗负臂、主值渲染、三 authority
+顺序、空 authority 不铸块、exact-fit cap 不挤占既有决策面、幂等和生产
+persist 接线。完整回归通过：
+
+- `go test ./internal/tool -count=1`（161.437s）；
+- `go test ./internal/types ./internal/agent ./internal/orchestrator ./internal/skill -count=1`
+  （types 18.901s、agent 4.080s、orchestrator 12.342s、skill 1.177s）。
+
+首轮全包曾抓到固定 authority lead 在零 typed row 时仍铸空块，导致普通读
+任务 reasoning graph 多一块、exact-fit trace 报告挤掉 next_steps。修复在
+三 materializer 的 typed row 集为空时直接 no-op，并新增专门负臂；没有
+提高 64-block cap、删除模型 block 或牺牲既有投影/行动面。

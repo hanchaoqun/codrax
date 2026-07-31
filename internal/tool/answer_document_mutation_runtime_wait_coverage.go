@@ -2,6 +2,7 @@ package tool
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 const (
 	runtimeTraceBlockingCoverageAuthorityBlockID  = "runtime_trace_blocking_coverage_authority"
+	runtimeTraceTargetStateAuthorityBlockID       = "runtime_trace_target_state_authority"
 	runtimeTraceBlockedReasonCensusCaliberBlockID = "runtime_trace_blocked_reason_census_caliber"
 )
 
@@ -89,16 +91,153 @@ func materializeRuntimeTraceBlockingCoverageAuthorityCaveat(doc *types.AnswerDoc
 		}
 		caveats = append(caveats, caveat)
 	}
+	if len(caveats) == 0 {
+		return false
+	}
 	title := "关键口径：目标阻塞仅为观测下界"
+	lead := "本块是目标阻塞数值与覆盖范围的系统 authority；后续模型正文若给出冲突的总量、次数或“其余均无阻塞”结论，以本块为准。"
 	if !zh {
 		title = "Key caliber: target blocking is an observed lower bound"
+		lead = "This block is the system authority for target-blocking values and coverage. If later model prose conflicts on totals, occurrence counts, or claims that every other request did not block, this block takes precedence."
 	}
 	return insertRuntimeTraceLeadAuthorityBlock(doc, types.AnswerBlock{
 		ID:    runtimeTraceBlockingCoverageAuthorityBlockID,
 		Kind:  types.BlockCaveat,
 		Title: title,
-		Text:  strings.Join(caveats, "\n\n"),
+		Text:  lead + "\n\n" + strings.Join(caveats, "\n\n"),
 	})
+}
+
+// materializeRuntimeTraceTargetStateAuthorityBlock publishes the selected
+// target thread's exact state partition and, when the same deterministic
+// result carries a complete occurrence roster, the occurrence count and wall
+// clock sum. It is a principal value card: blocked_reason record delays,
+// transport latency and free-form summaries cannot replace these typed values.
+func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {
+	if doc == nil || ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	if !runtimeTraceFullReportMaterializationAllowed(ctx) {
+		return false
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(
+		ctx, types.ObservationExtractLedgerEvidenceLimit,
+	))
+	states := types.BuildTraceTargetStateScopeAuthorities(types.CompileTraceCausalProjectionSet(ledger))
+	if len(states) == 0 {
+		return false
+	}
+	waits := types.BuildTraceTargetWaitSummaryAuthorities(ledger, &ctx.AnalysisIR.RequestModel)
+	zh := runtimeTraceCausalProjectionUseChinese(requestedAnswerDocumentLanguage(ctx))
+	rows := make([]string, 0, len(states))
+	for i, state := range states {
+		if i >= 4 {
+			break
+		}
+		var row string
+		if zh {
+			row = fmt.Sprintf(
+				"目标线程状态主值：artifact=%s，selected_window=%.6f..%.6f，subject=%s，scope=target_thread_wall_clock_partition；running=%.3fms，runnable=%.3fms，sleep=%.3fms（其中 S 态 IO等待=%.3fms，已包含在 sleep），non_io_d_state=%.3fms，io_wait=%.3fms，partition_total=%.3fms",
+				state.ArtifactLabel,
+				state.WindowStartTs,
+				state.WindowEndTs,
+				state.Subject,
+				state.RunningMS,
+				state.RunnableMS,
+				state.SleepMS,
+				state.SleepIOWaitMS,
+				state.DStateMS,
+				state.IOWaitMS,
+				state.TotalMS,
+			)
+		} else {
+			row = fmt.Sprintf(
+				"Target-thread state authority: artifact=%s, selected_window=%.6f..%.6f, subject=%s, scope=target_thread_wall_clock_partition; running=%.3fms, runnable=%.3fms, sleep=%.3fms (S-state IO wait=%.3fms, already included in sleep), non_io_d_state=%.3fms, io_wait=%.3fms, partition_total=%.3fms",
+				state.ArtifactLabel,
+				state.WindowStartTs,
+				state.WindowEndTs,
+				state.Subject,
+				state.RunningMS,
+				state.RunnableMS,
+				state.SleepMS,
+				state.SleepIOWaitMS,
+				state.DStateMS,
+				state.IOWaitMS,
+				state.TotalMS,
+			)
+		}
+		if wait, ok := matchingTraceTargetWaitSummary(state, waits); ok {
+			pairedStateMS := state.DStateMS + state.IOWaitMS + state.SleepIOWaitMS
+			identity := ""
+			if math.Abs(wait.WallClockMS-pairedStateMS) <= 0.002 {
+				if zh {
+					identity = "；occurrence_wall_clock_sum 与上述 D/IO 配对状态账一致"
+				} else {
+					identity = "; occurrence_wall_clock_sum matches the paired D/IO state account above"
+				}
+			}
+			if zh {
+				row += fmt.Sprintf(
+					"；target_wait_occurrence_roster=complete，occurrences=%d，d_state_occurrences=%d，io_wait_occurrences=%d，sleep_iowait_occurrences=%d，other_wait_occurrences=%d，occurrence_wall_clock_sum=%.3fms%s",
+					wait.Count,
+					wait.DStateOccurrences,
+					wait.IOWaitOccurrences,
+					wait.SleepIOWaitOccurrences,
+					wait.OtherWaitOccurrences,
+					wait.WallClockMS,
+					identity,
+				)
+			} else {
+				row += fmt.Sprintf(
+					"; target_wait_occurrence_roster=complete, occurrences=%d, d_state_occurrences=%d, io_wait_occurrences=%d, sleep_iowait_occurrences=%d, other_wait_occurrences=%d, occurrence_wall_clock_sum=%.3fms%s",
+					wait.Count,
+					wait.DStateOccurrences,
+					wait.IOWaitOccurrences,
+					wait.SleepIOWaitOccurrences,
+					wait.OtherWaitOccurrences,
+					wait.WallClockMS,
+					identity,
+				)
+			}
+		}
+		rows = append(rows, row)
+	}
+	if len(rows) == 0 {
+		return false
+	}
+	title := "系统权威主值：目标线程状态与等待发生"
+	lead := "以下值来自同一显式窗的 typed 调度状态账；后续模型正文若给出冲突的次数、总量或量纲，以本块为准。blocked_reason 的记录数/Σdelay、IPC 传输延迟与线程状态墙钟不得互相替代。"
+	if !zh {
+		title = "System authority: target-thread state and wait occurrences"
+		lead = "These values come from the typed scheduler-state account for the same selected window. If later model prose conflicts on count, total, or caliber, this block is authoritative. blocked_reason record count/Σdelay, IPC transport latency, and thread-state wall clock are not interchangeable."
+	}
+	return insertRuntimeTraceLeadAuthorityBlock(doc, types.AnswerBlock{
+		ID:    runtimeTraceTargetStateAuthorityBlockID,
+		Kind:  types.BlockCaveat,
+		Title: title,
+		Text:  lead + "\n\n" + strings.Join(rows, "\n\n"),
+	})
+}
+
+func matchingTraceTargetWaitSummary(
+	state types.TraceTargetStateScopeAuthority,
+	waits []types.TraceTargetWaitSummaryAuthority,
+) (types.TraceTargetWaitSummaryAuthority, bool) {
+	var matches []types.TraceTargetWaitSummaryAuthority
+	for _, wait := range waits {
+		stateArtifact := strings.TrimSpace(state.ArtifactLabel)
+		waitArtifact := strings.TrimSpace(wait.ArtifactLabel)
+		if strings.EqualFold(strings.TrimSpace(state.Subject), strings.TrimSpace(wait.Subject)) &&
+			math.Abs(state.WindowStartTs-wait.WindowStartTs) <= 0.001 &&
+			math.Abs(state.WindowEndTs-wait.WindowEndTs) <= 0.001 &&
+			(stateArtifact == "" || waitArtifact == "" || strings.EqualFold(stateArtifact, waitArtifact)) {
+			matches = append(matches, wait)
+		}
+	}
+	if len(matches) == 1 {
+		return matches[0], true
+	}
+	return types.TraceTargetWaitSummaryAuthority{}, false
 }
 
 func matchingTraceIPCRequestCensusAuthority(
@@ -166,15 +305,20 @@ func materializeRuntimeTraceBlockedReasonCensusCaliberCaveat(doc *types.AnswerDo
 		}
 		caveats = append(caveats, caveat)
 	}
+	if len(caveats) == 0 {
+		return false
+	}
 	title := "关键口径：blocked_reason 不是完整 sleep 分区"
+	lead := "本块是 blocked_reason 记录口径的系统 authority；后续模型正文若把记录数或 Σdelay 当作线程状态发生次数/墙钟总量，以本块和同窗目标状态主值为准。"
 	if !zh {
 		title = "Key caliber: blocked_reason is not a complete sleep partition"
+		lead = "This block is the system authority for blocked_reason record caliber. If later model prose treats record count or Σdelay as thread-state occurrence count or wall-clock total, use this block and the same-window target-state authority instead."
 	}
 	return insertRuntimeTraceLeadAuthorityBlock(doc, types.AnswerBlock{
 		ID:    runtimeTraceBlockedReasonCensusCaliberBlockID,
 		Kind:  types.BlockCaveat,
 		Title: title,
-		Text:  strings.Join(caveats, "\n\n"),
+		Text:  lead + "\n\n" + strings.Join(caveats, "\n\n"),
 	})
 }
 
@@ -256,15 +400,10 @@ func insertRuntimeTraceLeadAuthorityBlock(doc *types.AnswerDocumentV2, block typ
 	}
 	markRuntimeTraceSystemBlock(&block)
 	insertAt := 0
-	for i := range doc.Blocks {
-		if doc.Blocks[i].Kind == types.BlockSummary {
-			insertAt = i + 1
-			break
-		}
-	}
 	for insertAt < len(doc.Blocks) {
 		id := strings.TrimSpace(doc.Blocks[insertAt].ID)
 		if id != runtimeTraceBlockingCoverageAuthorityBlockID &&
+			id != runtimeTraceTargetStateAuthorityBlockID &&
 			id != runtimeTraceBlockedReasonCensusCaliberBlockID {
 			break
 		}

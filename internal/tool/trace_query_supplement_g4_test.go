@@ -214,8 +214,10 @@ func TestTraceSupplementExplicitUserWindowOverridesModelQueryWindow(t *testing.T
 	}
 	suppCoreModelCall(t, ctx, `{"view":"window_stats","pid":200,"time_start":3.0,"time_end":3.035}`)
 	out := RunTraceQuerySystemSupplement(ctx)
-	if len(out.Executed) != 1 || out.Executed[0] != "window_stats" {
-		t.Fatalf("explicit user window must force one minimal state census: %+v", out)
+	if len(out.Executed) != 2 ||
+		out.Executed[0] != "root_cause_rank" ||
+		out.Executed[1] != "critical_blocking_calls" {
+		t.Fatalf("explicit user window must retain both causal core families: %+v", out)
 	}
 	meta := ctx.Mutable.SystemTraceSupplementMeta()
 	if meta == nil ||

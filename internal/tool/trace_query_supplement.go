@@ -207,13 +207,22 @@ func traceSupplementViewsForRequest(ctx *types.BusContext, f traceSupplementFami
 		return []string{"frame_root_cause_bundle"}
 	}
 	if traceSupplementNarrowDStateQuestion(ctx) {
+		// An exact user-authored time window is a stronger answer-shape
+		// authority than the focused-fact optimization. Windowed trace
+		// questions retain the complete causal/rank/blocking supplement so
+		// their projection, root seats, wakeup evidence and deterministic
+		// self-state faces cannot depend on model-selected views. Unwindowed
+		// focused facts remain on the cheaper state-only lane below.
+		if scope := traceSupplementRequestedArtifactScope(ctx); scope != nil {
+			if _, _, ok := scope.ExplicitTimeWindow(); ok {
+				return traceSupplementViews(f, false, frameEvidencePresent)
+			}
+		}
 		// EVAL-B1-R13: a quote-anchored user scope outranks whichever local
 		// query window happened to mint the same families. Re-run the minimal
 		// state view at that user scope even when a narrow local account is
 		// already present; local complete is not artifact complete.
 		if scope := traceSupplementRequestedArtifactScope(ctx); scope.FullArtifact() {
-			return []string{"window_stats"}
-		} else if _, _, ok := scope.ExplicitTimeWindow(); ok {
 			return []string{"window_stats"}
 		}
 		if !f.WindowStates || !f.BlockedReasonCensus {

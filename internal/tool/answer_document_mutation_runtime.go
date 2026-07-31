@@ -172,6 +172,9 @@ func persistMergedAnswerDocument(
 	if materializeRuntimeTraceBlockingCoverageAuthorityCaveat(merged, ctx) {
 		logging.Info("[%s] materialized typed target-blocking lower-bound coverage caveat", toolName)
 	}
+	if materializeRuntimeTraceTargetStateAuthorityBlock(merged, ctx) {
+		logging.Info("[%s] materialized typed target-thread state and wait-occurrence authority", toolName)
+	}
 	if materializeRuntimeTraceBlockedReasonCensusCaliberCaveat(merged, ctx) {
 		logging.Info("[%s] materialized typed blocked-reason census caliber caveat", toolName)
 	}
@@ -858,6 +861,7 @@ func RuntimeTraceSystemBlockID(id string) bool {
 		"runtime_trace_metric_snapshot",
 		"runtime_trace_perf_quality",
 		runtimeTraceBlockingCoverageAuthorityBlockID,
+		runtimeTraceTargetStateAuthorityBlockID,
 		runtimeTraceBlockedReasonCensusCaliberBlockID,
 		runtimeArtifactPairRelationAuthorityBlockID:
 		return true
@@ -8418,11 +8422,12 @@ func runtimeTraceReportHierarchyTier(block types.AnswerBlock) int {
 	if block.SystemGeneratedKind.IsRuntimeTraceSupplement() {
 		switch {
 		case id == runtimeTraceBlockingCoverageAuthorityBlockID ||
+			id == runtimeTraceTargetStateAuthorityBlockID ||
 			id == runtimeTraceBlockedReasonCensusCaliberBlockID:
-			// Typed coverage/caliber corrections sit immediately after the
-			// model summary. They are decision-critical boundaries, not a
-			// thousand-line report-tail footnote. Their insertion helper
-			// preserves all model-authored relative order.
+			// Typed principal values and coverage/caliber corrections lead
+			// the model narrative. They are decision-critical authorities,
+			// not a thousand-line report-tail footnote. Their insertion
+			// helper preserves all model-authored relative order.
 			return 0
 		case id == runtimeTraceCausalProjectionPartitionBlockID || block.Kind == types.BlockCaveat:
 			return 9

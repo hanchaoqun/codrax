@@ -116,6 +116,82 @@ func TestTraceSupplementDStateFactUsesNarrowStateFamilies(t *testing.T) {
 	}
 }
 
+func TestTraceSupplementExplicitWindowDStateFactRetainsCoreFamilies(t *testing.T) {
+	start, end := 13762.791708, 13763.024898
+	ctx := &types.BusContext{
+		Mutable: types.NewMutableState("windowed runtime state fact"),
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentTrace,
+			PredicateAxis: types.AxisCondition,
+			RuntimeTargets: []types.RuntimeTarget{{
+				Kind: types.RuntimeTargetKindThread, PID: 2955, Thread: "CompThread_0",
+			}},
+			RuntimeArtifactScopeProfile: &types.RuntimeArtifactScopeProfile{
+				RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
+				TimeStart:      &start,
+				TimeEnd:        &end,
+				SourceQuote:    "typed-window-witness",
+			},
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:     string(types.ReqConditional),
+				Keywords: []string{"D-state", "blocked_reason"},
+			},
+		}},
+	}
+	got := traceSupplementViewsForRequest(ctx, traceSupplementFamilyPresence{}, false, false)
+	if len(got) != 2 || got[0] != "root_cause_rank" || got[1] != "critical_blocking_calls" {
+		t.Fatalf("exact user window must retain causal supplement families, got %v", got)
+	}
+}
+
+func TestTraceSupplementExplicitWindowDStateFactRunsCoreFamiliesEndToEnd(t *testing.T) {
+	ctx := suppCoreContext(t)
+	start, end := 3.0, 3.2
+	rm := &ctx.AnalysisIR.RequestModel
+	rm.Intent = types.IntentTrace
+	rm.PredicateAxis = types.AxisCondition
+	rm.RuntimeArtifactScopeProfile = &types.RuntimeArtifactScopeProfile{
+		RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
+		TimeStart:      &start,
+		TimeEnd:        &end,
+		SourceQuote:    "typed-window-witness",
+	}
+	rm.AnalyzerHints = types.AnalyzerHints{
+		Kind:     string(types.ReqConditional),
+		Keywords: []string{"D-state", "blocked_reason"},
+	}
+
+	// Reproduce a model investigation that sampled only a lightweight view.
+	// The system supplement must use the typed user window and restore both
+	// causal families independently of that model-selected view set.
+	suppCoreModelCall(t, ctx, `{"view":"event_search","pid":200,"time_start":3.0,"time_end":3.2}`)
+	out := RunTraceQuerySystemSupplement(ctx)
+	if !out.Attempted || out.SkipReason != "" {
+		t.Fatalf("windowed D-state supplement must execute: %+v", out)
+	}
+	if len(out.Executed) != 2 ||
+		out.Executed[0] != "root_cause_rank" ||
+		out.Executed[1] != "critical_blocking_calls" {
+		t.Fatalf("windowed D-state supplement executed %v, want both core families", out.Executed)
+	}
+	meta := ctx.Mutable.SystemTraceSupplementMeta()
+	if meta == nil || meta.WindowStart != start || meta.WindowEnd != end {
+		t.Fatalf("supplement did not retain the exact typed user window: %+v", meta)
+	}
+
+	fence := suppCoreTreeFence(t, ctx)
+	for _, want := range []string{
+		"⊚ worker-200 ‹用户关注线程›",
+		"自身·D-state",
+		"等待对象 dma_fence_default_wait",
+		"➊",
+	} {
+		if !strings.Contains(fence, want) {
+			t.Fatalf("supplemented causal projection must contain %q:\n%s", want, fence)
+		}
+	}
+}
+
 func TestTraceSupplementExplainMechanismStateFactUsesNarrowFamilies(t *testing.T) {
 	ctx := &types.BusContext{
 		Mutable: types.NewMutableState("explain target state and kernel wait reason"),
