@@ -2412,6 +2412,67 @@ func TestRunTestsVerificationProbeMissingChildExecutableFallsThroughToTypedSurfa
 	}
 }
 
+func TestRunTestsTypedPolyglotMakeSurfaceCoversRustChanges(t *testing.T) {
+	if _, err := exec.LookPath("make"); err != nil {
+		t.Skip("make not on PATH; skip")
+	}
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "src", "types"), 0o755); err != nil {
+		t.Fatalf("mkdir source tree: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src", "types", "list.rs"), []byte("pub fn fixed() {}\n"), 0o644); err != nil {
+		t.Fatalf("write Rust source: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "Makefile"), []byte("check:\n\t@test -f src/types/list.rs\n"), 0o644); err != nil {
+		t.Fatalf("write Makefile: %v", err)
+	}
+	mu := types.NewMutableState("polyglot make verification")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-polyglot-make",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"src/types/list.rs"},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	report := mu.ChangeReport()
+	if !result.Success || report == nil || !report.Passed ||
+		report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
+		t.Fatalf("typed root Make check must verify an in-root Rust change: result=%+v report=%+v", result, report)
+	}
+	if report.TestSurface == nil {
+		t.Fatal("final report must retain the typed surface used for cross-language authority")
+	}
+	if len(report.ChangedPathCoverage) != 1 ||
+		report.ChangedPathCoverage[0].Path != "src/types/list.rs" ||
+		report.ChangedPathCoverage[0].Status != types.ChangedPathVerificationCovered ||
+		report.ChangedPathCoverage[0].Runner != "make" {
+		t.Fatalf("polyglot Make changed-path coverage wrong: %+v", report.ChangedPathCoverage)
+	}
+	var makeCommand *types.ExecutedCommand
+	for i := range report.ExecutedCommands {
+		if report.ExecutedCommands[i].Runner == "make" &&
+			report.ExecutedCommands[i].Outcome == "executed" {
+			makeCommand = &report.ExecutedCommands[i]
+			break
+		}
+	}
+	if makeCommand == nil ||
+		len(makeCommand.CoveredPaths) != 1 ||
+		makeCommand.CoveredPaths[0] != "src/types/list.rs" {
+		t.Fatalf("executed Make command lost exact covered path: %+v", report.ExecutedCommands)
+	}
+}
+
 func TestPythonVerificationProbeTracebackAttributionUsesPatchEffectAddedLines(t *testing.T) {
 	root := t.TempDir()
 	mu := types.NewMutableState("probe attribution")

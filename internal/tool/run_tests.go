@@ -370,6 +370,14 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			return nil
 		}
 		report = scopeBuildFailureReportToChangedLines(ctx, report)
+		// Attach the exact filesystem-derived surface before changed-path
+		// coverage is evaluated. Meta runners such as Make are intentionally
+		// language-agnostic; the coverage gate may trust them across language
+		// families only when the successful command matches this typed
+		// candidate (working directory + declared test target + command).
+		surfaceCopy := surface
+		surfaceCopy.Candidates = append([]types.TestSurfaceCandidate(nil), surface.Candidates...)
+		report.TestSurface = &surfaceCopy
 		report.ExecutedCommands = append([]types.ExecutedCommand(nil), executedCmds...)
 		report.VerificationDiagnostics = mergeVerificationDiagnostics(
 			report.VerificationDiagnostics,
@@ -387,9 +395,6 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			report.FailureReasonCode = failureReasonCodeFromExecutedCommandsForKind(report.ExecutedCommands, report.FailureKind)
 		}
 		applyChangedPathVerificationCoverage(ctx, report)
-		surfaceCopy := surface
-		surfaceCopy.Candidates = append([]types.TestSurfaceCandidate(nil), surface.Candidates...)
-		report.TestSurface = &surfaceCopy
 		if report.GeneratedAt.IsZero() {
 			report.GeneratedAt = time.Now()
 		}

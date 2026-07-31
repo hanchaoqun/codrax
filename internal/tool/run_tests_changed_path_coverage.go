@@ -36,8 +36,12 @@ func applyChangedPathVerificationCoverage(ctx *types.BusContext, report *types.C
 		return
 	}
 
-	report.ExecutedCommands = enrichSuccessfulCommandCoveredPaths(report.ExecutedCommands, targets, targetFamilies)
-	evidence := changedPathCoverageFromCommands(report.ExecutedCommands, targets, targetFamilies)
+	report.ExecutedCommands = enrichSuccessfulCommandCoveredPaths(
+		report.ExecutedCommands, targets, targetFamilies, report.TestSurface,
+	)
+	evidence := changedPathCoverageFromCommands(
+		report.ExecutedCommands, targets, targetFamilies, report.TestSurface,
+	)
 	for path, probeEvidence := range changedPathCoverageFromPassedProbes(plan, report, targets, targetFamilies) {
 		if existing, ok := evidence[path]; !ok || changedPathCoverageCaliberRank(probeEvidence.caliber) > changedPathCoverageCaliberRank(existing.caliber) {
 			evidence[path] = probeEvidence
@@ -133,6 +137,7 @@ func enrichSuccessfulCommandCoveredPaths(
 	commands []types.ExecutedCommand,
 	targets []string,
 	targetFamilies map[string][]types.VerificationLanguageFamily,
+	surface *types.TestSurface,
 ) []types.ExecutedCommand {
 	out := append([]types.ExecutedCommand(nil), commands...)
 	for i := range out {
@@ -149,8 +154,9 @@ func enrichSuccessfulCommandCoveredPaths(
 			continue
 		}
 		for _, path := range targets {
-			if !verificationLanguageFamiliesIntersect(targetFamilies[path], runnerFamilies) ||
-				!repoPathWithinWorkingDir(path, cmd.WorkingDir) {
+			if !repoPathWithinWorkingDir(path, cmd.WorkingDir) ||
+				(!verificationLanguageFamiliesIntersect(targetFamilies[path], runnerFamilies) &&
+					!typedPolyglotProjectRunnerCommand(cmd, surface)) {
 				continue
 			}
 			cmd.CoveredPaths = appendUniqueRepoPath(cmd.CoveredPaths, path)
@@ -163,6 +169,7 @@ func changedPathCoverageFromCommands(
 	commands []types.ExecutedCommand,
 	targets []string,
 	targetFamilies map[string][]types.VerificationLanguageFamily,
+	surface *types.TestSurface,
 ) map[string]changedPathCoverageEvidence {
 	targetSet := repoPathKeySet(targets)
 	out := map[string]changedPathCoverageEvidence{}
@@ -183,7 +190,9 @@ func changedPathCoverageFromCommands(
 		for _, raw := range cmd.CoveredPaths {
 			path := cleanRepoRelPath(raw)
 			canonical, ok := targetSet[strings.ToLower(path)]
-			if !ok || !verificationLanguageFamiliesIntersect(targetFamilies[canonical], runnerFamilies) {
+			if !ok ||
+				(!verificationLanguageFamiliesIntersect(targetFamilies[canonical], runnerFamilies) &&
+					!typedPolyglotProjectRunnerCommand(&cmd, surface)) {
 				continue
 			}
 			next := changedPathCoverageEvidence{
@@ -198,6 +207,44 @@ func changedPathCoverageFromCommands(
 		}
 	}
 	return out
+}
+
+// typedPolyglotProjectRunnerCommand admits a cross-language project-runner
+// proof only when the successful command is byte-for-byte bound to a
+// filesystem-derived runnable test surface. Make is a meta runner: a root
+// `make check` can intentionally execute a Python behavioral oracle over Rust
+// sources (or any other polyglot arrangement), so assigning Make to C/C++ and
+// rejecting every other family loses real verification. Conversely, a bare
+// model-selected `make <target>` is not enough: without the exact typed
+// candidate, cross-language coverage remains fail-closed.
+func typedPolyglotProjectRunnerCommand(cmd *types.ExecutedCommand, surface *types.TestSurface) bool {
+	if cmd == nil || surface == nil ||
+		!strings.EqualFold(strings.TrimSpace(cmd.Runner), "make") ||
+		strings.TrimSpace(cmd.Outcome) != "executed" || cmd.ExitCode != 0 {
+		return false
+	}
+	workingDir := cleanRepoRelPath(cmd.WorkingDir)
+	if workingDir == "" {
+		workingDir = "."
+	}
+	for _, candidate := range surface.Candidates {
+		candidateDir := cleanRepoRelPath(candidate.WorkingDir)
+		if candidateDir == "" {
+			candidateDir = "."
+		}
+		if !candidate.HasTestSignal ||
+			!strings.EqualFold(strings.TrimSpace(candidate.Runner), "make") ||
+			!strings.EqualFold(strings.TrimSpace(candidate.Framework), strings.TrimSpace(cmd.Framework)) ||
+			!strings.EqualFold(candidateDir, workingDir) ||
+			strings.TrimSpace(candidate.MakeTarget) == "" ||
+			strings.TrimSpace(candidate.MakeTarget) != strings.TrimSpace(cmd.Suite) ||
+			strings.TrimSpace(candidate.Command) == "" ||
+			strings.TrimSpace(candidate.Command) != strings.TrimSpace(cmd.Command) {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func changedPathCoverageFromPassedProbes(

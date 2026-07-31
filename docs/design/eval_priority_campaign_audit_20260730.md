@@ -2192,3 +2192,79 @@ package-local bugfix 通常应为 low/medium，high 留给真实宽面或高影�
 critical deny 逻辑均未修改。专项测试钉住上述口径及
 “never overrides deterministic approval gate”，完整
 `go test ./internal/skill -count=1` 通过（0.713s）。
+
+### B12 r2 人工审计与批 AG 规划（2026-07-31）
+
+在 revision `487f89a3c8c4` 重建后，以严格 `parallel=2` 回放：
+
+- `eval/results/real_trace_h1_binder_true_false_attribution-20260731-152238`
+- `eval/results/github_issue_pyo3_iter_nth_overflow_symptom-20260731-152238`
+
+runner 1/2，人工 0/2。
+
+AE 的值/字段修复已由真实回放确认。H1 的完整 `ipc_graph` 被正确投影为
+`requests=15, sync_request=5, oneway_request=10, unknown=0,
+coverage_status=complete`；五条 sync roster 保持同一 edge tuple，
+transaction 12145859 的 native code 正确为 `0x19`。target-owned binder
+blocking occurrence 正确为 `13762.835861..13762.837270`、1.409ms；
+on-chain rank board 仍按 58.320/7.405/4.710/3.956/3.670/3.598/3.309ms
+发布。显式用户窗、Trace 因果投影、自动补采、目标四态、wakeup chain 和
+窗内可消除量均未回退。
+
+但 typed blocking authority 的 coverage 是
+`lower_bound_capacity_truncated`，正文仍写成“整个窗口总计、全部、唯一，
+其余请求未产生阻塞”。这说明 prompt-level soft authority 不足以稳定承载
+coverage caliber。修复不能扫描答案中的“唯一/全部”等词做 hard gate；
+应从 typed authority 无条件追加确定性 coverage disclosure，明确 observed
+lower bound 只证明已列出的 occurrence，不能证明全窗 exhaustive absence。
+
+同一答案还把 blocked-reason census 的 50 条记录
+（`fscache_page_get_an×39, Σ14.756ms` +
+`fscache_page_wait_o×11, Σ1.602ms`）扩成“65 段、70.338ms 睡眠全部归属
+fscache”。这两个量纲不等价：blocked-reason 是 caller-linked record census
+及记录自报 delay，scheduler sleep 是状态区间墙钟；没有 typed 完整对账时
+只能陈述 50 条已记录 caller，不能外推全部 sleep partition。
+
+PyO3 的 AF1 已生效：write analyzer 改为 `overall=medium`，审批自动执行；
+`nth/nth_back` 的 checked arithmetic、越界耗尽语义和 `usize::MAX` 测试
+均正确落盘，root `make check` 也以 exit=0 输出
+`PyO3 iterator skip regression checks passed`。最终失败来自验证归属：
+TestSurface 的 `make@.` 是真实 `check` target，但 changed-path coverage
+仍把 Make 固定映射为 C/C++，拒绝授权同根 Rust 文件。这是跨语言 project
+runner 的 typed ownership gap，不是补丁或测试失败。
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B12-AG1 | P1 | polyglot project verification ownership | language-agnostic Make test target 成功后仍按 C/C++ family 判覆盖，跨语言 behavioral oracle 被丢权 | 只有当成功命令精确匹配 filesystem-derived TestSurface candidate（runner/root/target/command/test-signal）时，允许 meta runner 覆盖其 working root 内的 recognized changed paths；裸命令继续 fail-closed | covered-pending-replay |
+| EVAL-B12-AG2 | P1 | lower-bound publication authority | typed lower-bound 只进 prompt，模型仍可发布 exhaustive total/absence | 从 typed blocking authority 无条件 materialize coverage caveat；不扫描请求/答案词面，不改模型正文和数值 | planned |
+| EVAL-B12-AG3 | P1 | record census vs state-duration caliber | blocked-reason occurrence count/record delay 被外推成完整 scheduler sleep 分区 | typed caveat 明确 caller-record census 只解释其自身记录；除非与完整 state occurrence roster 对账，不授权“全部 sleep” | planned |
+| EVAL-B11-AB4 | P2 | generic incomplete enumeration wording | 其他 enumeration authority 仍可能只靠 prompt 被写成 exhaustive | AG2/AG3 先覆盖本轮高危 typed calibers；通用结构化 coverage carrier 后续统一收敛，不扫描 prose | reproduced-filed |
+
+批 AG 不变量：
+
+1. 不读取 raw request、case ID、模型 thinking 或最终答案词面做 hard gate。
+2. 不改显式窗、Trace 因果投影、系统自动补采、根因榜位/数值、wakeup
+   chain、窗内可消除量、IPC edge 或 scheduler interval 构造。
+3. Make 跨语言权限必须绑定真实 TestSurface 的
+   `HasTestSignal=true + exact working_dir + exact MakeTarget + exact command`；
+   任一不匹配继续按语言 family fail-closed。
+4. coverage caveat 只消费 deterministic typed authority；不重写模型正文，
+   不从答案用词反推触发条件。
+5. complete IPC request census 与 lower-bound blocking occurrence 各守自身
+   量纲，永不互相补齐；blocked-reason record census 不等于 sleep wall-clock
+   partition。
+
+批 AG1 已把 TestSurface 的附着提前到 changed-path coverage 判定之前，并
+新增 typed polyglot meta-runner admission。当前仅 Make 进入该臂：成功命令
+必须逐字段匹配 filesystem-derived candidate 的 runner、working directory、
+declared target 和 canonical command，candidate 必须有真实 test signal；
+匹配后只覆盖该 working directory 内的 recognized changed paths。不存在
+typed candidate、target/command 不同或 arbitrary model-selected Make
+命令均继续 fail-closed，不把“任意成功命令”升级成项目验证。
+
+回归同时固定正负臂及生产 E2E：root `make check` 可验证同根 Rust 改动并在
+`ExecutedCommand.covered_paths` 记录精确路径；同一仓若 typed target 是
+`make test`，裸 `make check` 不得越权。专项
+`go test ./internal/tool -run
+'TestChangedPathCoverage|TestRunTestsTypedPolyglotMakeSurfaceCoversRustChanges|
+TestRunTestsMakeReVerifyRunsRealTargetNotRunnerName' -count=1` 通过（1.276s）。

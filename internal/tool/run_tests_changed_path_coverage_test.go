@@ -67,6 +67,87 @@ func TestChangedPathCoverageRejectsCrossLanguageSuccess(t *testing.T) {
 	}
 }
 
+func TestChangedPathCoverageAcceptsTypedPolyglotMakeProjectRunner(t *testing.T) {
+	ctx := changedPathCoverageTestContext([]string{
+		"src/types/list.rs",
+		"src/types/tuple.rs",
+		"tests/iterators.rs",
+	})
+	report := &types.ChangeReport{
+		Passed: true,
+		TestSurface: &types.TestSurface{Candidates: []types.TestSurfaceCandidate{{
+			ID:            "make@.",
+			Runner:        "make",
+			WorkingDir:    ".",
+			Command:       "make check",
+			Source:        "Makefile",
+			MakeTarget:    "check",
+			HasTestSignal: true,
+		}}},
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner:     "make",
+			WorkingDir: ".",
+			Suite:      "check",
+			Command:    "make check",
+			Outcome:    "executed",
+			ExitCode:   0,
+			Source:     "runner_missing_escalation",
+		}},
+	}
+
+	applyChangedPathVerificationCoverage(ctx, report)
+
+	if !report.Passed || report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
+		t.Fatalf("typed polyglot Make project runner should cover in-root Rust paths: %+v", report)
+	}
+	if len(report.ChangedPathCoverage) != 3 {
+		t.Fatalf("coverage rows=%d, want 3: %+v", len(report.ChangedPathCoverage), report.ChangedPathCoverage)
+	}
+	for _, row := range report.ChangedPathCoverage {
+		if row.Status != types.ChangedPathVerificationCovered ||
+			row.Caliber != types.ChangedPathVerificationProjectRunner ||
+			row.Runner != "make" {
+			t.Fatalf("polyglot Make coverage row wrong: %+v", row)
+		}
+	}
+	if len(report.ExecutedCommands[0].CoveredPaths) != 3 {
+		t.Fatalf("Make command must carry exact covered paths: %+v", report.ExecutedCommands[0])
+	}
+}
+
+func TestChangedPathCoverageRejectsUntypedCrossLanguageMakeCommand(t *testing.T) {
+	ctx := changedPathCoverageTestContext([]string{"src/types/list.rs"})
+	report := &types.ChangeReport{
+		Passed: true,
+		TestSurface: &types.TestSurface{Candidates: []types.TestSurfaceCandidate{{
+			ID:            "make@.",
+			Runner:        "make",
+			WorkingDir:    ".",
+			Command:       "make test",
+			Source:        "Makefile",
+			MakeTarget:    "test",
+			HasTestSignal: true,
+		}}},
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner:     "make",
+			WorkingDir: ".",
+			Suite:      "check",
+			Command:    "make check",
+			Outcome:    "executed",
+			ExitCode:   0,
+			Source:     "llm_choice",
+		}},
+	}
+
+	applyChangedPathVerificationCoverage(ctx, report)
+
+	if report.Passed ||
+		report.FailureReasonCode != changedPathVerificationUncoveredReasonCode ||
+		report.ChangedPathCoverage[0].Status != types.ChangedPathVerificationUncovered {
+		t.Fatalf("command that does not match typed Make surface must fail closed: %+v", report)
+	}
+}
+
 func TestChangedPathCoverageAcceptsExactSameLanguageSourceCheck(t *testing.T) {
 	ctx := changedPathCoverageTestContext([]string{"pkg/client.py"})
 	report := &types.ChangeReport{
