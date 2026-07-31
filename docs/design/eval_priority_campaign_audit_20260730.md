@@ -2293,3 +2293,70 @@ target、共享 full-report shape gate、幂等且不改写模型正文。
 IPC count 分型、blocked-reason 非目标拒绝、幂等、正文 byte-preserve 和
 生产 persist 接线；完整 `go test ./internal/tool -count=1` 通过
 （164.447s）。
+
+### B12 r3 人工审计与批 AH（2026-07-31）
+
+在 revision `4cf624355c6b` 重建后，以严格 `parallel=2` 回放：
+
+- `eval/results/real_trace_h1_binder_true_false_attribution-20260731-155419`
+- `eval/results/github_issue_pyo3_iter_nth_overflow_symptom-20260731-155419`
+
+runner 2/2，人工 1/2。
+
+PyO3 已确认 AF1/AG1 全链生效。write risk 为 medium 并自动执行；首个计划
+仍有模型波动，使用 `saturating_add` 和 raw reverse subtraction，真实
+`make check` 精确报出 checked arithmetic 缺失，系统没有误签通过。durable
+replan 后 list/tuple 均使用 `checked_add`/`checked_sub`，越界时耗尽 iterator，
+补齐 `usize::MAX` 和 forward/backward 回归；第二次 `make check` exit=0，
+`src/types/list.rs`、`src/types/tuple.rs`、`tests/iterators.rs` 三条
+changed-path ledger 均为 `project_runner/make/covered`，最终 verified。
+
+该用例耗时 420s、经历一次真实 red verify，但 correctness 已由既有闭环
+保证。首计划偏离明确 acceptance outcome 属于模型波动；按用户裁定，不为
+Rust token、`nth` 名字或单 case 增加 hard gate。后续若跨语言/多用例重复
+出现“计划忽略 typed acceptance contract”，再立通用 plan-contract
+corroboration，不在单 witness 上过拟合。
+
+H1 的所有数据与红线正臂保持正确：显式 233.190ms 用户窗、Trace 因果投影、
+系统自动补采、目标四态、wakeup chain、根因排序、窗内可消除量、5 sync +
+10 oneway census、transaction `0x19` 和 1.409ms exact occurrence 均在。
+AG2/AG3 的确定性文本也准确出现：
+
+- blocking 1.409ms / occurrence>=1 是
+  `lower_bound_capacity_truncated`，不能授权总量、唯一或其余请求无阻塞；
+- 50 条 blocked-reason caller records 不是 65 段/70.338ms sleep partition。
+
+但这两条被渲染在约 1100 行完整报告尾部，模型摘要和主列表仍先写“唯一、
+其余未阻塞、全部 sleep”。语义纠错存在但用户很难在决策点看到，属于
+authority placement gap，而非新值通道 gap。
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B12-AH1 | P1 | typed correction placement | document-level Caveats 固定在全部 blocks 后渲染，关键 coverage correction 被千行 trace detail 淹没 | 将同一 typed authority 转成 authenticated runtime-trace caveat block，插入 summary 后；report hierarchy 给该 exact system ID 决策前置席位 | covered-pending-replay |
+| EVAL-B12-AG1 | P1 | polyglot verification ownership | PyO3 真回放需 Make 接管 Rust behavioral oracle | exact typed candidate + declared-input roster 已通过真实 replay | verified |
+| EVAL-B12-AG2/AG3 | P1 | coverage caliber | typed 内容正确但原展示位过晚 | 内容 verified；placement 由 AH1 收尾 | verified-partial |
+
+批 AH 不变量：
+
+1. 不扫描 raw request、case ID、模型 thinking 或模型答案词面。
+2. 不重写、删除或重排任何模型 block；模型 blocks 之间的相对顺序保持。
+3. 不改显式窗、Trace 因果投影、自动补采、根因榜/数值、wakeup chain、
+   窗内可消除量、IPC/blocked-reason 计算。
+4. authority block 只由 AG2/AG3 已有 typed builders 触发；完整 coverage 或
+   非目标记录不得铸块。
+5. exact reserved block ID + in-memory `SystemGeneratedKind` 防止模型伪造
+   或抢占；达到 block cap 时 fail-closed 不新增。
+
+批 AH1 将两条 document-tail caveat 改为
+`runtime_trace_blocking_coverage_authority` 与
+`runtime_trace_blocked_reason_census_caliber` 两个 authenticated system
+block。共享插入器把它们放在首个 summary 后；hierarchy 将这两个 exact ID
+保留在 tier 0，因而模型 summary 仍是首块、authority 紧随其后、其余模型
+明细仍保持原顺序，完整 Trace 因果投影随后照常发布。触发、数值和文本仍
+全部来自 typed authority，不检查模型是否真的写了错误词。
+
+专项测试钉住 direct materialization、生产 persist 后前三块顺序、reserved
+ID/system marker、幂等、非目标拒绝和正文 byte-preserve。
+完整 `go test ./internal/tool -count=1` 通过（159.722s）；因此 AH1
+不是只在局部 fixture 上成立，既有 Trace 报告构造、投影与补采接线也保持
+全包回归绿。

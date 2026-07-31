@@ -857,6 +857,8 @@ func RuntimeTraceSystemBlockID(id string) bool {
 		"runtime_trace_semantic_optimizations",
 		"runtime_trace_metric_snapshot",
 		"runtime_trace_perf_quality",
+		runtimeTraceBlockingCoverageAuthorityBlockID,
+		runtimeTraceBlockedReasonCensusCaliberBlockID,
 		runtimeArtifactPairRelationAuthorityBlockID:
 		return true
 	}
@@ -8415,6 +8417,13 @@ func runtimeTraceReportHierarchyTier(block types.AnswerBlock) int {
 	id := strings.TrimSpace(block.ID)
 	if block.SystemGeneratedKind.IsRuntimeTraceSupplement() {
 		switch {
+		case id == runtimeTraceBlockingCoverageAuthorityBlockID ||
+			id == runtimeTraceBlockedReasonCensusCaliberBlockID:
+			// Typed coverage/caliber corrections sit immediately after the
+			// model summary. They are decision-critical boundaries, not a
+			// thousand-line report-tail footnote. Their insertion helper
+			// preserves all model-authored relative order.
+			return 0
 		case id == runtimeTraceCausalProjectionPartitionBlockID || block.Kind == types.BlockCaveat:
 			return 9
 		case id == runtimeTraceCausalProjectionCompareBlockID || runtimeTraceCausalProjectionStandaloneLeadBlockID(id):

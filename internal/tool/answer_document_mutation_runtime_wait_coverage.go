@@ -9,6 +9,11 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+const (
+	runtimeTraceBlockingCoverageAuthorityBlockID  = "runtime_trace_blocking_coverage_authority"
+	runtimeTraceBlockedReasonCensusCaliberBlockID = "runtime_trace_blocked_reason_census_caliber"
+)
+
 // materializeRuntimeTraceBlockingCoverageAuthorityCaveat publishes the
 // lower-bound boundary already carried by typed target-owned blocking
 // intervals. It never inspects model prose: the caveat is present whenever
@@ -84,7 +89,16 @@ func materializeRuntimeTraceBlockingCoverageAuthorityCaveat(doc *types.AnswerDoc
 		}
 		caveats = append(caveats, caveat)
 	}
-	return appendUniqueAnswerDocumentCaveats(doc, caveats)
+	title := "关键口径：目标阻塞仅为观测下界"
+	if !zh {
+		title = "Key caliber: target blocking is an observed lower bound"
+	}
+	return insertRuntimeTraceLeadAuthorityBlock(doc, types.AnswerBlock{
+		ID:    runtimeTraceBlockingCoverageAuthorityBlockID,
+		Kind:  types.BlockCaveat,
+		Title: title,
+		Text:  strings.Join(caveats, "\n\n"),
+	})
 }
 
 func matchingTraceIPCRequestCensusAuthority(
@@ -152,7 +166,16 @@ func materializeRuntimeTraceBlockedReasonCensusCaliberCaveat(doc *types.AnswerDo
 		}
 		caveats = append(caveats, caveat)
 	}
-	return appendUniqueAnswerDocumentCaveats(doc, caveats)
+	title := "关键口径：blocked_reason 不是完整 sleep 分区"
+	if !zh {
+		title = "Key caliber: blocked_reason is not a complete sleep partition"
+	}
+	return insertRuntimeTraceLeadAuthorityBlock(doc, types.AnswerBlock{
+		ID:    runtimeTraceBlockedReasonCensusCaliberBlockID,
+		Kind:  types.BlockCaveat,
+		Title: title,
+		Text:  strings.Join(caveats, "\n\n"),
+	})
 }
 
 func runtimeTraceBlockedReasonCensusCalibers(
@@ -221,23 +244,34 @@ func runtimeTraceBlockedReasonCensusCalibers(
 	return out
 }
 
-func appendUniqueAnswerDocumentCaveats(doc *types.AnswerDocumentV2, caveats []string) bool {
-	if doc == nil || len(caveats) == 0 {
+func insertRuntimeTraceLeadAuthorityBlock(doc *types.AnswerDocumentV2, block types.AnswerBlock) bool {
+	if doc == nil || strings.TrimSpace(block.ID) == "" || strings.TrimSpace(block.Text) == "" {
 		return false
 	}
-	seen := map[string]bool{}
-	for _, existing := range doc.Caveats {
-		seen[strings.TrimSpace(existing)] = true
+	if answerDocumentHasRuntimeTraceSystemBlockID(doc, block.ID) {
+		return false
 	}
-	changed := false
-	for _, caveat := range caveats {
-		caveat = strings.TrimSpace(caveat)
-		if caveat == "" || seen[caveat] {
-			continue
+	if len(doc.Blocks) >= maxBlocksPerDoc {
+		return false
+	}
+	markRuntimeTraceSystemBlock(&block)
+	insertAt := 0
+	for i := range doc.Blocks {
+		if doc.Blocks[i].Kind == types.BlockSummary {
+			insertAt = i + 1
+			break
 		}
-		seen[caveat] = true
-		doc.Caveats = append(doc.Caveats, caveat)
-		changed = true
 	}
-	return changed
+	for insertAt < len(doc.Blocks) {
+		id := strings.TrimSpace(doc.Blocks[insertAt].ID)
+		if id != runtimeTraceBlockingCoverageAuthorityBlockID &&
+			id != runtimeTraceBlockedReasonCensusCaliberBlockID {
+			break
+		}
+		insertAt++
+	}
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{})
+	copy(doc.Blocks[insertAt+1:], doc.Blocks[insertAt:])
+	doc.Blocks[insertAt] = block
+	return true
 }

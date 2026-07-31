@@ -143,7 +143,11 @@ func TestRuntimeWaitCoverageCaveatsUseTypedAuthoritiesWithoutRewritingModelProse
 	if doc.Blocks[0].Text != original {
 		t.Fatalf("typed caveats must not scan or rewrite model prose: %q", doc.Blocks[0].Text)
 	}
-	got := strings.Join(doc.Caveats, "\n")
+	var surfaces []string
+	for _, block := range doc.Blocks {
+		surfaces = append(surfaces, block.Title, types.AnswerBlockVisibleSurface(block))
+	}
+	got := strings.Join(surfaces, "\n")
 	for _, want := range []string{
 		"observed_blocking_lower_bound=1.409ms",
 		"observed_occurrences>=1",
@@ -161,7 +165,13 @@ func TestRuntimeWaitCoverageCaveatsUseTypedAuthoritiesWithoutRewritingModelProse
 	}
 	if materializeRuntimeTraceBlockingCoverageAuthorityCaveat(doc, bus) ||
 		materializeRuntimeTraceBlockedReasonCensusCaliberCaveat(doc, bus) {
-		t.Fatalf("materializers must be idempotent: %+v", doc.Caveats)
+		t.Fatalf("materializers must be idempotent: %+v", doc.Blocks)
+	}
+	if len(doc.Blocks) != 3 ||
+		doc.Blocks[0].ID != "summary" ||
+		doc.Blocks[1].ID != runtimeTraceBlockingCoverageAuthorityBlockID ||
+		doc.Blocks[2].ID != runtimeTraceBlockedReasonCensusCaliberBlockID {
+		t.Fatalf("typed authority blocks must sit immediately after the summary: %+v", doc.Blocks)
 	}
 }
 
@@ -189,10 +199,20 @@ func TestPersistMergedAnswerDocumentWiresTypedWaitCoverageCaveats(t *testing.T) 
 	if persisted == nil {
 		t.Fatal("missing persisted answer document")
 	}
-	got := strings.Join(persisted.Caveats, "\n")
+	var surfaces []string
+	for _, block := range persisted.Blocks {
+		surfaces = append(surfaces, block.Title, types.AnswerBlockVisibleSurface(block))
+	}
+	got := strings.Join(surfaces, "\n")
 	if !strings.Contains(got, "observed_blocking_lower_bound=1.409ms") ||
 		!strings.Contains(got, "blocked_reason_records=50") {
 		t.Fatalf("production persist path lost typed wait coverage caveats:\n%s", got)
+	}
+	if len(persisted.Blocks) < 3 ||
+		persisted.Blocks[0].ID != "summary" ||
+		persisted.Blocks[1].ID != runtimeTraceBlockingCoverageAuthorityBlockID ||
+		persisted.Blocks[2].ID != runtimeTraceBlockedReasonCensusCaliberBlockID {
+		t.Fatalf("production hierarchy must keep typed caliber corrections directly after summary: %+v", persisted.Blocks)
 	}
 }
 
@@ -202,6 +222,6 @@ func TestRuntimeBlockedReasonCensusCaliberRejectsNonTargetRecord(t *testing.T) {
 	bus.AnalysisIR.RequestModel.RuntimeTargets[0].Thread = "other-999"
 	doc := &types.AnswerDocumentV2{}
 	if materializeRuntimeTraceBlockedReasonCensusCaliberCaveat(doc, bus) {
-		t.Fatalf("non-target record must not mint a caveat: %+v", doc.Caveats)
+		t.Fatalf("non-target record must not mint a caveat: %+v", doc.Blocks)
 	}
 }
