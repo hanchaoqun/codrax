@@ -971,3 +971,26 @@ B5 r8 GAP 更新：
 4. 单工件不发布 pair block；多工件按稳定顺序有界显示，模型伪造同名 block ID不能压制系统块；重复 mutation幂等。
 
 `B5-N/P0` 施工验证：统一 `persistMergedAnswerDocument` choke point从既有 `RuntimeArtifactPairRelationAuthority` 直接构造系统 table，不读取 `RawRequest`、case、路径特例、模型思考或答案正文。表内每对分别发布 shared clock origin、direct time alignment、same device、same capture session四席状态，并将 `unproven` 确定性解释为“未证明相同也未证明不同”；相同 local time-domain label、两端 identity和数值 offset只进入证据边界。单工件负例、双工件中英文/幂等、模型保留 ID碰撞、真实 E2 六查询 generic comparison及多工件 publication-grade causal projection共存均已固定。generic E2只增加关系表，仍无因果投影/完整报告；因果正臂仍同时保留每工件 projection sections。`go test ./internal/types ./internal/agent ./internal/tool -count=1` 全包通过（types 18.937s、agent 3.313s、tool 167.200s）；`git diff --check` 通过。待提交推送、重建并严格 `parallel=2` 回放 B5 r9。
+
+### B5 r9 人工审计与批 O（2026-07-31）
+
+批 N `793f4157a` 推送并重建后，以严格 `parallel=2` 回放（sweep `20260731-091433`）：
+
+- 结果目录：
+  - `eval/results/real_trace_e2_cross_trace_asymmetry-20260731-091433`
+  - `eval/results/cangjie_repomap-20260731-091433`
+- runner Trace PASS、Cangjie FAIL；人工两项均 PASS。
+- Trace 已真实覆盖批 N：最终可见确定性表恰有一个工件对，shared clock origin、direct time alignment、same device、same capture session四列均为“未证明”；边界明确 local `identity`、相同 `trace_seconds` 标签和数值 timestamp差都不能证明共享 clock。generic comparison仍无 Trace因果投影或完整报告，T11不回退。
+- Cangjie 产品答案仍精确为 2/2/8，所有符号名、路径、package与引用正确。runner FAIL 的直接原因是 case把构造显示名 `extend String/Cart`当“符号名”，而确定性归一表按用户要求正确显示 `String/Cart`；更深层原因仍是 `EXPECT_INVENTORY_COUNT_*`用“expected rows matched”冒充 visible exact cardinality。
+- Trace 同轮暴露 P1 次级 gap：系统校验附注把 `clock_alignment`写成“未在本报告证据面出现”，但 deterministic SourceRef 与系统 pair block均已携带该 typed 字段。cross-check lexicon board没有吸收 accepted source-reference clock metadata。
+
+B5 r9 GAP 更新：
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B5-T7 | P0 | 跨工件关系最终发布 | prompt-only authority可被模型忽略 | r9 visible system pair table正确发布四席 unproven，且generic/causal权限分席 | covered |
+| EVAL-INFRA-3 | P1 | Inventory exact-count oracle | matched expected rows不等于实际可见行数；section extractor又只识别`#`标题 | matching section同时识别 Markdown heading与单行 bold heading；若存在结构化 table/list，计数真实 data rows并与 expected exact count比较，missing/banned row仍独立；无scoped structured carrier才回退legacy matched count | 批 O 已施工，待提交 |
+| EVAL-B5-T12 | P1 | 系统交叉校验证据词表 | accepted Observation SourceRef中的 time domain/alignment元数据未进入 lexicon board，系统把自身 typed术语误报成未知 | 把 accepted deterministic source-reference元数据投影到 cross-check evidence lexicon；只消除有 typed witness的误报，不扫描题面、不放宽未知术语 | filed；批 P |
+| EVAL-B5-P4 | P2 | Analyzer过程波动 | 同一完整清单 r8为1次 source lens，r9为3次 lens+1次 list，结果均正确 | 先观察后续高优先级case复现率；不为一次模型探索波动加硬门 | filed-model-variance |
+
+`B5-O/P1` 施工验证：rowset section extractor新增单行 `**标题**`、blockquote bold与尾随中英文冒号边界；真实结构化 section内分别计算 Markdown table data rows或bullet rows，header/separator/citation尾段均不计。成员 token、banned row与visible exact count成为三个独立判据：同基数错成员只报 missing，expected全命中但多一个row会报真实 `got2:want1`，从而关闭旧 false PASS。Cangjie case的 extend成员改为用户所求的符号身份 `String/Cart`，category仍由section提供，不把展示构造词塞进 symbol列。`bash -n eval/runner_lib.sh eval/run.sh eval/runner_lib_test.sh`与`bash eval/runner_lib_test.sh`通过；对r9已保存答案重放 `eval_inventory_rowset_reasons`零错误。待提交推送。

@@ -582,12 +582,21 @@ EXPECT_INVENTORY_ROW_SCOPE_PUBLIC_CLASS="line"
 EXPECT_INVENTORY_ROWS_PUBLIC_CLASS=$'Cart|Cart.cj|demo.cart'
 EXPECT_INVENTORY_COUNT_PUBLIC_CLASS=1
 inventory_cross_bucket=$'### extend\n- Cart — package: demo.cart (`Cart.cj:30` — extend Cart {)\n\n### public class\n- Bridge — package: demo.bridge (`Bridge.cj:15` — public class Bridge {)'
-assert_eq "$(eval_inventory_rowset_reasons "$inventory_cross_bucket")" "missing_inventory_row:public_class:Cart_Cart.cj_demo.cart
-inventory_count_mismatch:public_class:got0:want1" "inventory row oracle should not satisfy a row from a sibling section"
+assert_eq "$(eval_inventory_rowset_reasons "$inventory_cross_bucket")" "missing_inventory_row:public_class:Cart_Cart.cj_demo.cart" "inventory row oracle should not satisfy a row from a sibling section while preserving the independent visible-row count"
 inventory_cross_bucket_ok=$'### extend\n- Cart — package: demo.cart (`Cart.cj:30` — extend Cart {)\n\n### public class\n- Cart — package: demo.cart (`Cart.cj:14` — public class Cart {)'
 assert_eq "$(eval_inventory_rowset_reasons "$inventory_cross_bucket_ok")" "" "inventory row oracle should pass when the row appears in the matching section"
 unset EXPECT_INVENTORY_ROWSETS EXPECT_INVENTORY_ROW_SCOPE_EXTEND EXPECT_INVENTORY_ROWS_EXTEND EXPECT_INVENTORY_COUNT_EXTEND
 unset EXPECT_INVENTORY_ROW_SCOPE_PUBLIC_CLASS EXPECT_INVENTORY_ROWS_PUBLIC_CLASS EXPECT_INVENTORY_COUNT_PUBLIC_CLASS
+
+EXPECT_INVENTORY_ROWSETS="extend"
+EXPECT_INVENTORY_ROW_SCOPE_EXTEND="line"
+EXPECT_INVENTORY_ROWS_EXTEND=$'Cart|Cart.cj|demo.cart'
+EXPECT_INVENTORY_COUNT_EXTEND=1
+inventory_extra_table_row=$'**extend 块**\n\n| symbol | path | package |\n|---|---|---|\n| Cart | Cart.cj:30 | demo.cart |\n| Highlight | ArkTS.ets:8 | demo.marker |\n\n**public class**\n\n| symbol | path | package |\n| Cart | Cart.cj:14 | demo.cart |'
+assert_eq "$(eval_inventory_rowset_reasons "$inventory_extra_table_row")" "inventory_count_mismatch:extend:got2:want1" "inventory exact count must reject an unexpected visible table row"
+inventory_exact_bold_table=$'**extend 块**\n\n| symbol | path | package |\n|---|---|---|\n| Cart | Cart.cj:30 | demo.cart |\n\n**public class**\n\n| symbol | path | package |\n| Cart | Cart.cj:14 | demo.cart |\n\n> **范围说明** only the checked scope\n\n**引用**：\n\n- `Cart.cj:30`'
+assert_eq "$(eval_inventory_rowset_reasons "$inventory_exact_bold_table")" "" "inventory exact count accepts the actual rows under a bold section heading"
+unset EXPECT_INVENTORY_ROWSETS EXPECT_INVENTORY_ROW_SCOPE_EXTEND EXPECT_INVENTORY_ROWS_EXTEND EXPECT_INVENTORY_COUNT_EXTEND
 
 cat >"$tmp/fake-codrax-inventory-rowset" <<'SH'
 #!/usr/bin/env bash

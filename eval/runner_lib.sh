@@ -397,7 +397,7 @@ eval_inventory_rowset_section_text() {
   label_regex="$(eval_inventory_rowset_label_regex "$rowset")"
   awk -v label="$label_regex" '
     BEGIN { in_section = 0; found = 0 }
-    /^[[:space:]]*#{1,6}[[:space:]]+/ {
+    /^[[:space:]]*#{1,6}[[:space:]]+/ || /^[[:space:]]*(>[[:space:]]*)?\*\*[^*]+\*\*[：:]?[[:space:]]*$/ {
       if (in_section) {
         exit
       }
@@ -413,6 +413,41 @@ eval_inventory_rowset_section_text() {
     in_section { print }
     END { if (!found) exit 1 }
   ' <<<"$cleaned"
+}
+
+eval_inventory_visible_row_count() {
+  local section_text="$1"
+  awk '
+    BEGIN { count = 0; table = 0; table_header_seen = 0 }
+    /^[[:space:]]*\|/ {
+      line = $0
+      compact = line
+      gsub(/[[:space:]|:-]/, "", compact)
+      if (compact == "") {
+        next
+      }
+      if (!table) {
+        table = 1
+        table_header_seen = 1
+        next
+      }
+      count++
+      next
+    }
+    {
+      table = 0
+      table_header_seen = 0
+    }
+    /^[[:space:]]*[-*+][[:space:]]+/ {
+      count++
+    }
+    END {
+      if (count == 0) {
+        exit 1
+      }
+      print count
+    }
+  ' <<<"$section_text"
 }
 
 eval_inventory_row_visible() {
@@ -445,7 +480,7 @@ eval_inventory_rowset_reasons() {
   [[ -n "$rowsets" ]] || return 0
 
   local rowset rowset_key rows_var rows count_var expected_count
-  local banned_var banned_rows scope_var row_scope rowset_text old_ifs row matched total reason_row
+  local banned_var banned_rows scope_var row_scope rowset_text rowset_scoped old_ifs row matched total reason_row visible_count
   for rowset in $rowsets; do
     rowset_key="$(eval_env_key "$rowset")"
     rows_var="EXPECT_INVENTORY_ROWS_${rowset_key}"
@@ -454,8 +489,10 @@ eval_inventory_rowset_reasons() {
     expected_count="${!count_var:-}"
     scope_var="EXPECT_INVENTORY_ROW_SCOPE_${rowset_key}"
     row_scope="${!scope_var:-document}"
-    rowset_text="$(eval_inventory_rowset_section_text "$cleaned" "$rowset" || true)"
-    if [[ -z "$rowset_text" ]]; then
+    rowset_scoped=0
+    if rowset_text="$(eval_inventory_rowset_section_text "$cleaned" "$rowset")"; then
+      rowset_scoped=1
+    else
       rowset_text="$cleaned"
     fi
 
@@ -483,8 +520,16 @@ eval_inventory_rowset_reasons() {
     fi
     if ! eval_is_uint "$expected_count"; then
       printf 'invalid_inventory_count:%s:%s\n' "$rowset" "$(eval_reason_slug "$expected_count")"
-    elif [[ "$matched" -ne "$expected_count" ]]; then
-      printf 'inventory_count_mismatch:%s:got%s:want%s\n' "$rowset" "$matched" "$expected_count"
+    else
+      visible_count=""
+      if [[ "$rowset_scoped" -eq 1 ]]; then
+        visible_count="$(eval_inventory_visible_row_count "$rowset_text" || true)"
+      fi
+      if [[ -n "$visible_count" ]] && [[ "$visible_count" -ne "$expected_count" ]]; then
+        printf 'inventory_count_mismatch:%s:got%s:want%s\n' "$rowset" "$visible_count" "$expected_count"
+      elif [[ -z "$visible_count" ]] && [[ "$matched" -ne "$expected_count" ]]; then
+        printf 'inventory_count_mismatch:%s:got%s:want%s\n' "$rowset" "$matched" "$expected_count"
+      fi
     fi
 
     banned_var="EXPECT_INVENTORY_BANNED_ROWS_${rowset_key}"
