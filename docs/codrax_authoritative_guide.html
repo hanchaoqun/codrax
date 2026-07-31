@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CODRAX 使用与技术说明</title>
-  <meta name="description" content="CODRAX 使用与技术说明 —— 一个用自然语言问代码、答案锚定到 file:line 的代码分析与变更提议工具。" />
+  <meta name="description" content="CODRAX 使用与技术说明 —— 一个用自然语言问代码、答案锚定到 file:line 的代码分析 + Log/Trace 分析 + 变更提议工具。" />
   <style>
     :root {
       --bg: #ffffff;
@@ -663,7 +663,7 @@
         <section id="what">
           <h2>一句话看懂 CODRAX</h2>
           <p class="lead">
-            CODRAX 是一个<strong>代码分析 + 变更提议</strong>工具。默认运行在<strong>读模式</strong>，
+            CODRAX 是一个<strong>代码分析 + Log/Trace 分析 + 变更提议</strong>工具。默认运行在<strong>读模式</strong>，
             围绕可复核证据回答代码行为、崩溃根因、性能卡顿、默认配置、模块职责等问题，全程不碰源文件；
             开启写模式后，由 <strong>Auto Pilot</strong> 在<strong>沙箱工作区</strong>（隔离出来的临时改动区，不直接动主仓）里
             自动探索、应用、验证；<code>计划 → 改动 → 验证</code> 是它内部的三段。

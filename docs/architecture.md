@@ -1,6 +1,6 @@
 # 架构设计文档
 
-codrax 是一个**代码分析 + 变更提议**工具：
+codrax 是一个**代码分析 + Log/Trace 分析 + 变更提议**工具：
 
 - **读模式**（默认）：用户用自然语言提问，系统经过一条确定性的主流水线 `analyze → explore → extract → finalize`（4 个阶段，每个阶段一个专用 Agent），产出带 citation 的结构化答案；当用户附加运行时日志时再前置 `log_triage`，附加性能 trace（HiTrace / atrace / systrace / perfetto）时再前置 `perf_triage`。**不触碰源文件**。
 - **写模式**（CLI 仍需 `--mode=write`,默认进入 Auto Pilot apply；`--write-phase=plan|verify` 是高级 lane;REPL 可由 `/mode write` / `/write` 显式进入，也可由结构化 TurnPolicy `route=write` 自动进入 Auto Pilot；`codrax.yaml :: write_enabled: false` 为组织级 kill switch,默认 true）：复用读模式的 analyzer 做请求分类，再由 controller-first durable DAG 自动探索、拆批、规划、应用到沙箱 git worktree、验证、失败后 replan。低/中风险自动推进，高风险暂停审批，critical 自动拒绝；主仓库 HEAD/merge 字节永不自动变更(两个显式授权例外——显式 ff `/merge` 与经授权的裸目录自动初始化,见 §8.12 / §8.13)。
