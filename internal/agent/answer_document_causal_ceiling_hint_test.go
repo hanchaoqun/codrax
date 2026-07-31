@@ -69,6 +69,34 @@ func TestAnswerDocumentEvaluatorOmitsCausalCeilingHintWithoutUnprovenAuthority(t
 	}
 }
 
+func TestAnswerDocumentEvaluatorRendersTemporalFrameEdgeAuthorityHint(t *testing.T) {
+	ctx := answerDocCausalCeilingTestContext(false)
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query",
+		Success:  true,
+		TraceEvidenceAuthority: &types.TraceEvidenceAuthority{
+			View:                       "frame_flow",
+			FrameFlowEdgeCount:         3,
+			FrameFlowRelationAuthority: "temporal_sequence",
+			FrameFlowCausalConclusion:  "unproven",
+			CausalConclusion:           "unproven",
+		},
+	})
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"Runtime frame-edge authority hint",
+		"`frame_flow_causality=unproven`",
+		"`relation=temporal_sequence`",
+		"`edges=3`",
+		"not as a formed, confirmed, or validated cross-thread flow",
+		"`temporal adjacency (unproven)`",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("frame-edge prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 func TestRequestedDimensionTokensSupportHanRuns(t *testing.T) {
 	// NG-4 (§13.4): 中文维度标签此前 token 化为空,只有 ASCII 名维度能上
 	// 指标摘录面。Han 连续段现自成 token,两侧仍精确等值匹配。

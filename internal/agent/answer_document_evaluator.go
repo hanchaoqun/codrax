@@ -7474,6 +7474,12 @@ func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
 	if view.RuntimeTrace && view.CausalUnproven {
 		b.WriteString("- Runtime causal ceiling hint: this run's typed evidence authority reports `causal_conclusion=unproven` — no frame/deadline or typed causal row proves the frame-drop or root-cause mechanism in the analyzed window. State scheduler/IO/frequency observations as bounded window facts and candidates; do not write a definite causation sentence such as `导致丢帧`/`caused the dropped frame` from background context alone, and keep the conclusion ceiling consistent with the system coverage block instead of overriding it.\n")
 	}
+	if view.RuntimeTrace && view.FrameFlowUnproven {
+		fmt.Fprintf(&b, "- Runtime frame-edge authority hint: typed frame authority reports `frame_flow_causality=unproven`, `relation=%s`, `edges=%d`. Describe these as time-sorted span adjacency / temporal-sequence edges, not as a formed, confirmed, or validated cross-thread flow and not as proof of a handoff, request, submission, or completion dependency. State each span/thread observation independently. If a diagram uses arrows for layout, label the arrows `temporal adjacency (unproven)` so visual direction does not mint causal authority.\n",
+			firstNonEmptyString(view.FrameFlowRelation, "temporal_sequence"),
+			view.FrameFlowEdgeCount,
+		)
+	}
 	b.WriteString("\n")
 	return b.String()
 }
@@ -7490,6 +7496,13 @@ type runtimeTraceGuidanceView struct {
 	// causal_conclusion=unproven. Precise trigger, soft effect: it only adds
 	// one composition directive; nothing blocks, retries, or rewrites.
 	CausalUnproven bool
+	// FrameFlowUnproven is narrower than CausalUnproven: frame spans exist,
+	// but trace_query only related them by sorted temporal adjacency. These
+	// fields drive soft composition guidance and never inspect or gate model
+	// prose.
+	FrameFlowUnproven  bool
+	FrameFlowRelation  string
+	FrameFlowEdgeCount int
 }
 
 func answerDocRuntimeTraceGuidanceView(ctx *types.AgentContext) runtimeTraceGuidanceView {
@@ -7533,6 +7546,17 @@ func answerDocRuntimeTraceGuidanceView(ctx *types.AgentContext) runtimeTraceGuid
 		}
 		if strings.TrimSpace(result.TraceEvidenceAuthority.CausalConclusion) == "unproven" {
 			view.CausalUnproven = true
+		}
+		if strings.TrimSpace(result.TraceEvidenceAuthority.FrameFlowCausalConclusion) == "unproven" {
+			view.RuntimeTrace = true
+			view.FrameFlowUnproven = true
+			if relation := strings.TrimSpace(result.TraceEvidenceAuthority.FrameFlowRelationAuthority); relation != "" &&
+				view.FrameFlowRelation == "" {
+				view.FrameFlowRelation = relation
+			}
+			if result.TraceEvidenceAuthority.FrameFlowEdgeCount > view.FrameFlowEdgeCount {
+				view.FrameFlowEdgeCount = result.TraceEvidenceAuthority.FrameFlowEdgeCount
+			}
 		}
 	}
 	view.FrequencyLimitWitnesses = answerDocDedupFrequencyLimitWitnesses(view.FrequencyLimitWitnesses, 8)
