@@ -7,15 +7,15 @@
 #     pairing every sched_switch next_pid=17267 → prev_pid=17267 on the same
 #     CPU across the whole window (65 on-CPU intervals, first switch-in is
 #     trace line 1 at 13762.791708); Σ = 157.248ms exactly.
-#   · thermal cap witness — cluster-0 cpu_frequency_limits rows oscillate
-#     max=1720000 ↔ max=1530000 INSIDE the window (lines 8036/8047 at
-#     13762.861690/.861720, then 8342, 8425, 8508, 9155, 10947, 10960, ...
-#     up to ~13762.884; 8 rows with max=1530000 cpu_id=0), so the witnessed
-#     wordform 「受热限压至 1.53GHz」 (supplyfold.go %.2fGHz) is legal and
-#     must be present; the unwitnessed fallback (运行于 X(限压原因未见证))
-#     does not apply to this cluster.
-#   · the four-state wall-clock account face 「全窗四态」 must be present
-#     (SMR-1 normal publication for a target-anchored bounded window).
+#   · direct policy-limit witnesses — strict in-window
+#     cpu_frequency_limits has cpu0 max=1530000/count=16/line=8048 and
+#     cpu4 max=2100000/count=28/line=17113. The target has typed running
+#     evidence on cpu4, so a policy-limit conclusion for that lane must bind
+#     to the direct 2.10GHz max row; 558MHz actual/residency alone does not
+#     prove the cap. cpu0/1.53GHz remains a valid bounded context witness but
+#     is not allowed to stand in for the cpu4 answer.
+#   · the four-state wall-clock account must be present in the model-authored
+#     principal answer, not merely in the deterministic projection footer.
 #   · NEGATIVE — the two-core-slice aggregation form 132.041 (§29.52.x CR-4
 #     witness: model cross-caliber self-addition 96.081 cpu·ms + 35.960
 #     per-CPU) must not appear: 132.041=0.
@@ -24,8 +24,8 @@
 #     (233.190ms ± rendering rounding; raw switch-pair recomputation gives
 #     running 157.248 + sleep 73.410 + runnable 1.994 with the residue on
 #     boundary segments the engine accounts to the window edges).
-#   · the 1.53GHz sentence rides the supply-fold face with an in-window
-#     witness (no out-of-window frequency event smuggled in).
+#   · the direct max-limit sentence stays separate from actual/residency
+#     frequency and transition-count activity.
 ID="real_trace_h4_supply_thermal_witness"
 NAME="real trace donghu — supply discount + thermal witness"
 QUESTION="只分析这份 trace，不分析代码。请分析 .ugc.aweme.lite-17267 在 13762.791708s 到 13763.024898s 窗口内的 CPU 供给与运行占用：它在窗口内实际运行了多久？窗口内四种线程状态各占多少？它运行的 CPU 频率有没有受到限制，证据是什么？"
@@ -35,6 +35,12 @@ HTRACE_FILE="eval/fixtures/real_traces/donghu.ftrace"
 # greps/reads cannot echo oracle witness strings (these .case files,
 # real_traces/PROFILE.md and tracequery tests all carry them verbatim).
 FIXTURE="eval/fixtures/stub_repo"
-EXPECT_CONTAINS="157.248 受热限压至 1.53GHz 全窗四态"
+EXPECT_CONTAINS="Trace 因果投影"
+EXPECT_PRINCIPAL_CONTAINS="157.248 5.604 70.338"
+EXPECT_PRINCIPAL_MATCHES_REGEX="(running.{0,120}157\\.248|157\\.248.{0,120}running)
+(runnable.{0,120}5\\.604|5\\.604.{0,120}runnable)
+((s_sleep|sleep|睡眠).{0,120}70\\.338|70\\.338.{0,120}(s_sleep|sleep|睡眠))
+((D-state|D state|不可中断).{0,120}(0\\.000|0 ?ms)|(^|[^0-9])(0\\.000|0 ?ms).{0,120}(D-state|D state|不可中断))"
+EXPECT_PRINCIPAL_MATCHES_TEXT_REGEX="((CPU ?4|cpu=4).{0,240}(2\\.10 ?GHz|2\\.1 ?GHz|2100 ?MHz|2100000 ?kHz).{0,160}(上限|限制|限频|policy|limit|cap|maximum)|(CPU ?4|cpu=4).{0,240}(上限|限制|限频|policy|limit|cap|maximum).{0,160}(2\\.10 ?GHz|2\\.1 ?GHz|2100 ?MHz|2100000 ?kHz))"
 EXPECT_NOT_CONTAINS="132.041 still_present not_enough_evidence"
 EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"
