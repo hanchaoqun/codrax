@@ -246,7 +246,7 @@ func RegisterDefaults(r *Registry) {
 			},
 			{
 				Body:      mechanicalProducerChainSeparationDirective,
-				AppliesTo: AppliesToFilter{Intents: []types.Intent{types.IntentExplain}},
+				AppliesTo: AppliesToFilter{RequiresMechanism: true},
 			},
 		},
 		ToolSuggestions: []string{
@@ -937,7 +937,7 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 			},
 			{
 				Body:      mechanicalProducerChainSeparationDirective,
-				AppliesTo: AppliesToFilter{Intents: []types.Intent{types.IntentExplain}},
+				AppliesTo: AppliesToFilter{RequiresMechanism: true},
 			},
 		},
 		// P5-B Tier B prohibitions: 2 items the design classifies

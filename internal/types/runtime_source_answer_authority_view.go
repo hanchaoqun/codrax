@@ -175,11 +175,25 @@ func BuildRuntimeSourceAnswerAuthoritySnapshot(in RuntimeSourceAnswerAuthorityIn
 		}
 	}
 
+	currentSourceProofAvailable := false
+	for _, record := range in.Ledger.Records {
+		if runtimeSourceAuthorityExactCurrentSourceSupport(record) ||
+			runtimeSourceAuthorityNegativeCurrentSourceProof(record) {
+			currentSourceProofAvailable = true
+			break
+		}
+	}
 	out.Active = out.RuntimeObservationCount > 0 ||
 		out.CurrentSourceRecordCount > 0 ||
 		out.CurrentSourceRequired ||
 		out.RuntimeOnlySufficient
-	out.CurrentSourceSatisfied = out.CurrentSourceRecordCount > 0 || out.ExactCurrentSourceSupportCount > 0
+	// Navigation-only carriers (positive grep/list/repo-map path discovery)
+	// are useful for finding source, but they are not proof of how current
+	// source behaves. Completion requires either addressable current-source
+	// support or the established deterministic negative-search valve. This
+	// prevents files_only grep from satisfying a mixed runtime/source request
+	// before any source line has been read.
+	out.CurrentSourceSatisfied = currentSourceProofAvailable
 	out.NeedsCurrentSourceEvidence = out.CurrentSourceRequired && !out.CurrentSourceSatisfied
 	out.CanHardBlockCompletion = out.NeedsCurrentSourceEvidence &&
 		out.CurrentSourceRequirement == RuntimeSourceRequirementPrecise
@@ -575,6 +589,12 @@ func runtimeSourceAuthorityExactCurrentSourceSupport(record ObservationRecord) b
 		}
 	}
 	return false
+}
+
+func runtimeSourceAuthorityNegativeCurrentSourceProof(record ObservationRecord) bool {
+	return runtimeSourceAuthorityCurrentSourceRecord(record) &&
+		record.Origin == AnswerEvidenceOriginRepoNegativeSearch &&
+		record.Negative
 }
 
 func runtimeSourceAuthorityReasonCodes(s RuntimeSourceAnswerAuthoritySnapshot) []RuntimeSourceAuthorityReasonCode {

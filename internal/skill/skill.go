@@ -69,6 +69,11 @@ type AppliesToFilter struct {
 	RequiresDiagram bool                    `json:"requires_diagram,omitempty" yaml:"requires_diagram,omitempty"`
 	RequiresLog     bool                    `json:"requires_log,omitempty" yaml:"requires_log,omitempty"`
 	RequiresTrace   bool                    `json:"requires_trace,omitempty" yaml:"requires_trace,omitempty"`
+	// RequiresMechanism gates items to the analyzer's canonical typed
+	// question_kind=mechanism lane. Diagnostic/root-cause questions can ask
+	// for a mechanism even when their principal intent is not IntentExplain.
+	// The runtime projection never scans request or answer prose.
+	RequiresMechanism bool `json:"requires_mechanism,omitempty" yaml:"requires_mechanism,omitempty"`
 	// RequiresTraceComparison gates items to the typed cross-trace
 	// comparison form (CMP-6): the structured analysis marked the
 	// question as a historical-regression or cross-entity comparison
@@ -93,6 +98,9 @@ type AppliesToContext struct {
 	HasDiagram    bool
 	HasLog        bool
 	HasTrace      bool
+	// HasMechanism mirrors RequiresMechanism and is populated only from the
+	// canonical typed RequirementKind lane.
+	HasMechanism bool
 	// HasTraceComparison mirrors AppliesToFilter.RequiresTraceComparison:
 	// true only when the typed analysis comparison predicate is set AND
 	// the deterministic runtime-artifact preflight counted ≥2 distinct
@@ -137,6 +145,9 @@ func (f AppliesToFilter) MatchesAppliesTo(ctx AppliesToContext) bool {
 	if f.RequiresTrace && !ctx.HasTrace {
 		return false
 	}
+	if f.RequiresMechanism && !ctx.HasMechanism {
+		return false
+	}
 	if f.RequiresTraceComparison && !ctx.HasTraceComparison {
 		return false
 	}
@@ -151,7 +162,7 @@ func (f AppliesToFilter) MatchesAppliesTo(ctx AppliesToContext) bool {
 	if len(f.PrincipalKinds) == 0 && len(f.Intents) == 0 {
 		// All bool gates passed (or were unset and no slice
 		// gates declared) → admit.
-		return f.RequiresDiagram || f.RequiresLog || f.RequiresTrace || f.RequiresTraceComparison || f.RequiresBuckets || f.AbsenceContract
+		return f.RequiresDiagram || f.RequiresLog || f.RequiresTrace || f.RequiresMechanism || f.RequiresTraceComparison || f.RequiresBuckets || f.AbsenceContract
 	}
 	for _, k := range f.PrincipalKinds {
 		if k == ctx.PrincipalKind {

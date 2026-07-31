@@ -452,6 +452,44 @@ func TestRuntimeSourceAnswerAuthoritySnapshot_CombinedProofSatisfiesCurrentSourc
 	}
 }
 
+func TestRuntimeSourceAnswerAuthoritySnapshot_PositivePathDiscoveryDoesNotSatisfySourceLane(t *testing.T) {
+	count := 3
+	ledger := ObservationLedger{Records: []ObservationRecord{
+		runtimeSourceTraceRecord("log:timeout", "log_triage"),
+		{
+			ID:       "tool:0#path_discovery",
+			Origin:   AnswerEvidenceOriginCurrentSource,
+			Producer: "grep",
+			SourceRef: ObservationSourceRef{
+				Kind: ObservationSourceCurrentSource,
+				Path: ".",
+			},
+			Predicate:   "path_discovery",
+			ResultCount: &count,
+		},
+	}}
+	rm := &RequestModel{
+		CurrentSourceObligationSignals: []CurrentSourceObligationSignal{{
+			Kind: CurrentSourceObligationSignalDroppedRequestedDimension,
+			Role: RequestedAnswerDimensionFunctionOrPurpose,
+		}},
+	}
+	got := BuildRuntimeSourceAnswerAuthoritySnapshot(RuntimeSourceAnswerAuthorityInput{
+		RequestModel: rm,
+		RouteHint: TurnRouteHint{
+			Source:          "mixed",
+			NeedsRepoAccess: true,
+		},
+		Ledger: ledger,
+	})
+	if got.CurrentSourceRecordCount != 1 {
+		t.Fatalf("navigation carrier should remain visible in telemetry: %+v", got)
+	}
+	if got.CurrentSourceSatisfied || !got.NeedsCurrentSourceEvidence {
+		t.Fatalf("positive path discovery must not masquerade as current-source proof: %+v", got)
+	}
+}
+
 func TestRuntimeSourceAnswerAuthoritySnapshot_ExcludedSourceRecordPreservesAcceptedSourceProof(t *testing.T) {
 	ledger := ObservationLedger{Records: []ObservationRecord{
 		runtimeSourceTraceRecord("trace:root", "trace_query"),

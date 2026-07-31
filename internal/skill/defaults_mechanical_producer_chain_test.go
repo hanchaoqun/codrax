@@ -7,7 +7,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-func TestMechanicalProducerChainSeparationDirectiveSharedAndExplainGated(t *testing.T) {
+func TestMechanicalProducerChainSeparationDirectiveSharedAndMechanismGated(t *testing.T) {
 	registry := NewRegistry()
 	RegisterDefaults(registry)
 
@@ -22,11 +22,11 @@ func TestMechanicalProducerChainSeparationDirectiveSharedAndExplainGated(t *test
 				continue
 			}
 			found++
-			if !item.ShouldRender(AppliesToContext{Intent: types.IntentExplain}) {
-				t.Fatalf("%s directive must render for typed explain turns", skillName)
+			if !item.ShouldRender(AppliesToContext{HasMechanism: true, Intent: types.IntentRootCause}) {
+				t.Fatalf("%s directive must render for typed mechanism questions", skillName)
 			}
-			if item.ShouldRender(AppliesToContext{Intent: types.IntentEnumerate}) {
-				t.Fatalf("%s directive must stay hidden on unrelated enumerate turns", skillName)
+			if item.ShouldRender(AppliesToContext{Intent: types.IntentExplain}) {
+				t.Fatalf("%s directive must not use broad explain intent as a mechanism substitute", skillName)
 			}
 		}
 		if found != 1 {

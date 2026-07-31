@@ -140,9 +140,27 @@ func TestSkillTierAwareWorkflow_NilSkill(t *testing.T) {
 // directly comparable; check each flag individually.
 func TestBuildAppliesToContext_NilAgentContext(t *testing.T) {
 	got := buildAppliesToContext(nil)
-	if got.HasDiagram || got.HasLog || got.HasTrace || got.HasBuckets || got.IsAbsence ||
+	if got.HasDiagram || got.HasLog || got.HasTrace || got.HasMechanism || got.HasBuckets || got.IsAbsence ||
 		got.PrincipalKind != "" || got.Intent != "" || len(got.RetryViolations) > 0 {
 		t.Errorf("nil ctx: should produce zero-value AppliesToContext; got %+v", got)
+	}
+}
+
+func TestBuildAppliesToContext_MechanismUsesTypedQuestionKind(t *testing.T) {
+	ac := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentRootCause,
+		AnalyzerHints: types.AnalyzerHints{
+			Kind: string(types.ReqMechanism),
+		},
+	}}}
+	got := buildAppliesToContext(ac)
+	if !got.HasMechanism {
+		t.Fatalf("typed question_kind=mechanism must project independently of intent: %+v", got)
+	}
+
+	ac.AnalysisIR.RequestModel.AnalyzerHints.Kind = string(types.ReqCallChain)
+	if buildAppliesToContext(ac).HasMechanism {
+		t.Fatal("non-mechanism question kind must keep mechanism directives hidden")
 	}
 }
 

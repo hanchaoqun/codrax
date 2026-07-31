@@ -73,6 +73,16 @@ func TestAppliesToFilter_AbsenceContract(t *testing.T) {
 	}
 }
 
+func TestAppliesToFilter_MechanismQuestionKind(t *testing.T) {
+	f := AppliesToFilter{RequiresMechanism: true}
+	if f.MatchesAppliesTo(AppliesToContext{Intent: types.IntentExplain}) {
+		t.Fatal("broad explain intent must not satisfy the typed mechanism gate")
+	}
+	if !f.MatchesAppliesTo(AppliesToContext{HasMechanism: true, Intent: types.IntentRootCause}) {
+		t.Fatal("typed mechanism must satisfy the gate independently of root-cause intent")
+	}
+}
+
 // TestAppliesToFilter_ZeroValue — empty filter is neutral.
 // Documents the contract: zero-value filter NEVER matches (unless
 // Always=true). This way migration steps that add a TierBItem

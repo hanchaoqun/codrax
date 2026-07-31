@@ -79,6 +79,9 @@ func buildAppliesToContext(ac *types.AgentContext) skill.AppliesToContext {
 	// Intent + principal kind from the AnalysisIR / view.
 	if ac.AnalysisIR != nil {
 		out.Intent = ac.AnalysisIR.RequestModel.Intent
+		out.HasMechanism = types.NormalizeRequirementKind(
+			ac.AnalysisIR.RequestModel.AnalyzerHints.Kind,
+		) == types.ReqMechanism
 	}
 	if view := types.BuildAnswerSemanticViewForAgentContext(ac); view != nil {
 		// PrincipalKind = the kind of the first RequiredBlock with
