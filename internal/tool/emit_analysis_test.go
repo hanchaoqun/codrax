@@ -146,6 +146,25 @@ func TestParseRuntimeArtifactScopeProfileAnchorsUserScopeAndSoftensModelScope(t 
 	}
 }
 
+func TestEmitAnalysisRuntimeArtifactCarrierIncludesRunEntryPreflight(t *testing.T) {
+	preflight := &types.BusContext{RuntimeArtifactPreflight: types.RuntimeArtifactPreflightProfile{
+		Artifacts: []types.RuntimeArtifactPreflightArtifact{{
+			Kind:    "trace",
+			Source:  "eval/fixtures/customer.systrace",
+			Carrier: "request_path",
+		}},
+	}}
+	if !emitAnalysisHasRuntimeArtifactCarrier(preflight) {
+		t.Fatal("a normalized run-entry request-path artifact must preserve runtime scope authority")
+	}
+	if !emitAnalysisHasRuntimeArtifactCarrier(&types.BusContext{AttachedHitrace: "attached"}) {
+		t.Fatal("the existing attached-trace carrier must remain supported")
+	}
+	if emitAnalysisHasRuntimeArtifactCarrier(&types.BusContext{}) {
+		t.Fatal("an empty context must not manufacture a runtime artifact carrier")
+	}
+}
+
 // -----------------------------------------------------------------------------
 // Validator tests (pure, no tool wiring)
 // -----------------------------------------------------------------------------

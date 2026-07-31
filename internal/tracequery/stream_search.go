@@ -125,6 +125,11 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 	seenTimeWindow := false
 	limit := ViewCapacityFor(q.View).ClampLimit(q.Limit)
 	matchedTotal := 0
+	scopeTimestampRows := 0
+	scopeTimeStart := 0.0
+	scopeTimeEnd := 0.0
+	matchedTimeStart := 0.0
+	matchedTimeEnd := 0.0
 	reachedEOF := false
 	lastParsedTs := 0.0
 	// RFC #71 (§8.2 c4): the census accumulates in this same match pass —
@@ -211,6 +216,19 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 					goto nextLine
 				}
 			}
+			// B5-T2: account the selected physical timestamp domain before
+			// the raw pattern/type prefilter. A pattern may parse only a tiny
+			// candidate subset, but it must not shrink the artifact envelope
+			// to those matches.
+			if lineHasTS {
+				scopeTimestampRows++
+				if scopeTimestampRows == 1 || lineTs < scopeTimeStart {
+					scopeTimeStart = lineTs
+				}
+				if lineTs > scopeTimeEnd {
+					scopeTimeEnd = lineTs
+				}
+			}
 			flavor.observeRawLine(trimmed)
 			// Keep trace-mark integrity auditing independent of the result filter.
 			// In particular, an exact action filter must not hide a malformed S/F
@@ -287,6 +305,12 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 				goto nextLine
 			}
 			matchedTotal++
+			if matchedTotal == 1 || ev.Ts < matchedTimeStart {
+				matchedTimeStart = ev.Ts
+			}
+			if ev.Ts > matchedTimeEnd {
+				matchedTimeEnd = ev.Ts
+			}
 			census.observe(ev)
 			vsyncCensus.observe(ev)
 			events = insertEventViewChronological(events, eventViewFromSource(
@@ -370,6 +394,13 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 	if end == 0 && len(events) > 0 {
 		end = events[len(events)-1].Ts
 	}
+	scopeKind := EventSearchScopeSelectedWindow
+	if q.TimeStart == 0 && q.TimeEnd == 0 && q.LineStart == 0 && q.LineEnd == 0 {
+		scopeKind = EventSearchScopeScanSegment
+		if !seeked && startLine == 1 && reachedEOF {
+			scopeKind = EventSearchScopeArtifact
+		}
+	}
 	res := Result{
 		View:                        "event_search",
 		SourcePath:                  idx.Path,
@@ -393,8 +424,20 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 		EventCount:                  idx.ParsedKnown,
 		TimeStart:                   start,
 		TimeEnd:                     end,
-		Events:                      events,
-		EvidencePack:                evidenceFromEvents(events),
+		EventSearchCoverage: &EventSearchCoverage{
+			ScopeKind:           scopeKind,
+			ScopeTimeStart:      scopeTimeStart,
+			ScopeTimeEnd:        scopeTimeEnd,
+			ScopeTimestampRows:  scopeTimestampRows,
+			ScopeComplete:       true,
+			MatchedTimeStart:    matchedTimeStart,
+			MatchedTimeEnd:      matchedTimeEnd,
+			MatchedTotal:        matchedTotal,
+			Emitted:             len(events),
+			EnumerationComplete: true,
+		},
+		Events:       events,
+		EvidencePack: evidenceFromEvents(events),
 	}
 	// RFC #71 (§8.2 c4): publish the pre-truncation tier ladder when the
 	// display cap hid matched cpu_frequency rows, and lead the evidence pack

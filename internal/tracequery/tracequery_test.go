@@ -1206,6 +1206,50 @@ func TestStreamEventSearchFindsPatternWithoutFullIndex(t *testing.T) {
 	}
 }
 
+func TestEventSearchCoverageSeparatesArtifactMatchedAndEmittedRanges(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "coverage.systrace")
+	if err := os.WriteFile(path, []byte(strings.Join([]string{
+		`edge-1 (1) [000] .... 1.000000: sched_wakeup: comm=edge pid=1 prio=20 target_cpu=000`,
+		`app-2 (2) [000] .... 2.000000: print: B|2|needle`,
+		`app-2 (2) [000] .... 3.000000: print: B|2|needle`,
+		`edge-3 (3) [000] .... 5.000000: sched_wakeup: comm=edge pid=3 prio=20 target_cpu=000`,
+	}, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	q := Query{View: "event_search", Pattern: "needle", Limit: 1}
+	streamed, err := StreamEventSearch(context.Background(), path, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCoverage := func(t *testing.T, coverage *EventSearchCoverage) {
+		t.Helper()
+		if coverage == nil {
+			t.Fatal("event_search did not publish typed coverage")
+		}
+		if coverage.ScopeKind != EventSearchScopeArtifact || !coverage.ScopeComplete ||
+			coverage.ScopeTimeStart != 1 || coverage.ScopeTimeEnd != 5 ||
+			coverage.MatchedTimeStart != 2 || coverage.MatchedTimeEnd != 3 ||
+			coverage.MatchedTotal != 2 || coverage.Emitted != 1 ||
+			!coverage.EnumerationComplete {
+			t.Fatalf("unexpected event-search coverage: %+v", coverage)
+		}
+	}
+	assertCoverage(t, streamed.EventSearchCoverage)
+	if streamed.TimeStart != 2 || streamed.TimeEnd != 2 {
+		t.Fatalf("legacy result window must remain the emitted/matched range, got %.6f..%.6f", streamed.TimeStart, streamed.TimeEnd)
+	}
+
+	idx, err := BuildIndex(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	indexed := Run(idx, q)
+	assertCoverage(t, indexed.EventSearchCoverage)
+	if indexed.EventSearchCoverage.ScopeTimestampRows != 0 {
+		t.Fatalf("indexed lane must not relabel parsed events as raw timestamped rows: %+v", indexed.EventSearchCoverage)
+	}
+}
+
 func TestStreamEventSearchCompactedCaveatPreventsAbsenceInference(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "stream_search_compacted.systrace")

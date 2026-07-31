@@ -4295,6 +4295,9 @@ func emitAnalysisHasRuntimeArtifactCarrier(ctx *types.BusContext) bool {
 	if ctx == nil {
 		return false
 	}
+	if types.NormalizeRuntimeArtifactPreflightProfile(ctx.RuntimeArtifactPreflight).HasRuntimeArtifact() {
+		return true
+	}
 	if strings.TrimSpace(ctx.AttachedLog) != "" || strings.TrimSpace(ctx.AttachedHitrace) != "" {
 		return true
 	}

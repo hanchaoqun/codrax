@@ -848,14 +848,7 @@ func Run(idx *Index, q Query) Result {
 		}
 	default:
 		res.View = "event_search"
-		matchedEvents := 0
-		var searchEvents []EventView
-		var perfIdentityCaveat string
-		if len(q.TraceMarkActions) > 0 {
-			searchEvents, matchedEvents, perfIdentityCaveat = eventSearchWithAccounting(idx, q)
-		} else {
-			searchEvents, perfIdentityCaveat = eventSearchIndexed(idx, q)
-		}
+		searchEvents, perfIdentityCaveat := eventSearchIndexed(idx, q)
 		if faceCanceled("event_search") {
 			break
 		}
@@ -883,6 +876,36 @@ func Run(idx *Index, q Query) Result {
 		// (indexed twin of the streaming inline accumulation).
 		if vsyncCensus := ComputeVsyncGeneratorSearchCensus(idx, q); !faceCanceled("vsync_generator_census") && vsyncCensus != nil {
 			res.VsyncGeneratorCensus = vsyncCensus
+		}
+		if cancel.fired() {
+			break
+		}
+		// B5-T2: keep the already-complete bounded Events/census faces
+		// independent from the exhaustive accounting pass. The latter runs
+		// after both censuses so a cooperative cancellation cannot retroactively
+		// discard a display face that was already complete.
+		matchedEvents, matchedTimeStart, matchedTimeEnd := eventSearchMatchAccounting(idx, q)
+		if faceCanceled("event_search_accounting") {
+			break
+		}
+		scopeKind := EventSearchScopeArtifact
+		scopeTimeStart, scopeTimeEnd := idx.FirstTs, idx.LastTs
+		if idx.Windowed || explicitTimeStart || explicitTimeEnd || q.LineStart > 0 || q.LineEnd > 0 {
+			scopeKind = EventSearchScopeSelectedWindow
+			if q.TimeStart > 0 || q.TimeEnd > 0 {
+				scopeTimeStart, scopeTimeEnd = q.TimeStart, q.TimeEnd
+			}
+		}
+		res.EventSearchCoverage = &EventSearchCoverage{
+			ScopeKind:           scopeKind,
+			ScopeTimeStart:      scopeTimeStart,
+			ScopeTimeEnd:        scopeTimeEnd,
+			ScopeComplete:       true,
+			MatchedTimeStart:    matchedTimeStart,
+			MatchedTimeEnd:      matchedTimeEnd,
+			MatchedTotal:        matchedEvents,
+			Emitted:             len(searchEvents),
+			EnumerationComplete: true,
 		}
 		if matchedEvents > len(res.Events) {
 			last := res.Events[len(res.Events)-1]
@@ -1550,13 +1573,12 @@ func eventSearchIndexed(idx *Index, q Query) ([]EventView, string) {
 	return out, guard.caveat
 }
 
-// eventSearchWithAccounting is the indexed twin of StreamEventSearch for the
-// exact trace-mark action lane. It counts the complete matched set while
-// retaining only the earliest limit rows, so both engines publish identical
-// matched/emitted accounting without allocating an unbounded result slice.
-func eventSearchWithAccounting(idx *Index, q Query) ([]EventView, int, string) {
+// eventSearchMatchAccounting is the indexed twin of the streaming match
+// account. The display face is built first by eventSearchIndexed; this later
+// pass counts the complete filtered set without allocating another row slice.
+func eventSearchMatchAccounting(idx *Index, q Query) (int, float64, float64) {
 	if idx == nil || ValidateTraceMarkActionFilter(q.View, q.EventTypes, q.TraceMarkActions) != nil {
-		return nil, 0, ""
+		return 0, 0, 0
 	}
 	q = ensureQueryFlavor(idx, q)
 	typeSet := make(map[EventType]bool, len(q.EventTypes))
@@ -1570,13 +1592,14 @@ func eventSearchWithAccounting(idx *Index, q Query) ([]EventView, int, string) {
 	var guard perfEventSearchIdentityGuard
 	if _, active := perfTimelineThreadSelector(q); active {
 		if q.runCancel.sample() {
-			return nil, 0, ""
+			return 0, 0, 0
 		}
 		ledger = ensurePerfIdentityLedger(idx)
 		guard = buildPerfEventSearchIdentityGuard(idx, q, typeSet, actionSet, ledger)
 	}
 	matched := 0
-	selected := make([]Event, 0, q.Limit)
+	matchedTimeStart := 0.0
+	matchedTimeEnd := 0.0
 	for ordinal, event := range idx.Events {
 		if q.runCancel.tick() {
 			break
@@ -1585,19 +1608,14 @@ func eventSearchWithAccounting(idx *Index, q Query) ([]EventView, int, string) {
 			continue
 		}
 		matched++
-		selected = insertEventChronological(selected, event, q.Limit)
-	}
-	raw, rawIssues := loadRawArtifactLines(idx, selected)
-	out := make([]EventView, 0, len(selected))
-	for _, event := range selected {
-		event = applyPriorityFlavor(event, q.TraceFlavor)
-		view := idx.eventView(event, raw[event.Line])
-		if issue := rawIssues[event.Line]; issue != "" {
-			view.RawUnavailableReason = issue
+		if matched == 1 || event.Ts < matchedTimeStart {
+			matchedTimeStart = event.Ts
 		}
-		out = append(out, view)
+		if event.Ts > matchedTimeEnd {
+			matchedTimeEnd = event.Ts
+		}
 	}
-	return out, matched, guard.caveat
+	return matched, matchedTimeStart, matchedTimeEnd
 }
 
 func insertEventChronological(events []Event, candidate Event, limit int) []Event {

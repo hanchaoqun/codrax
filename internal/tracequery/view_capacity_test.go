@@ -165,9 +165,10 @@ func TestViewCapacityClampLimitMatchesHistoricalClamps(t *testing.T) {
 }
 
 // TestRunPublishesTypedCompactionForIndexedEventSearchLimit pins the T2 typed
-// record at the indexed event_search limit-reached point: the scan stops at
-// the cap, so Total stays 0 (unknown) while LastEmittedTs/Line come from the
-// final emitted event — the anchors for a concrete window split.
+// record at the indexed event_search limit-reached point: the display scan
+// stops at the cap, then the allocation-free accounting pass publishes the
+// exact total while LastEmittedTs/Line come from the final emitted event —
+// the anchors for a concrete window split.
 func TestRunPublishesTypedCompactionForIndexedEventSearchLimit(t *testing.T) {
 	idx := buildTraceIndex(t, "typed_compaction_event_search.systrace", `
       app-20 (20) [000] .... 9.000000: print: B|20|Choreographer#doFrame 170048
@@ -188,8 +189,8 @@ func TestRunPublishesTypedCompactionForIndexedEventSearchLimit(t *testing.T) {
 	if comp.View != "event_search" || comp.Dimension != CompactionDimensionEvents {
 		t.Fatalf("bad compaction identity: %+v", comp)
 	}
-	if comp.Total != 0 || comp.Emitted != 2 {
-		t.Fatalf("indexed event_search compaction must report unknown total: %+v", comp)
+	if comp.Total != 3 || comp.Emitted != 2 {
+		t.Fatalf("indexed event_search compaction must report the exact matched total: %+v", comp)
 	}
 	if comp.LastEmittedTs != 9.010000 || comp.LastEmittedLine == 0 {
 		t.Fatalf("compaction must anchor the last emitted event: %+v", comp)

@@ -1972,6 +1972,9 @@ func (t *TraceQuery) maybeStreamEventSearch(ctx *types.BusContext, p traceQueryP
 	logging.Debug("[trace_query] phase=store_result view=%s path=%s done elapsed=%s payload_ref=%s raw_ref=%s", q.View, path, time.Since(storeStart), payloadRef, rawRef)
 	now := time.Now()
 	observations := traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now)
+	if coverage, ok := traceQueryFullArtifactScopeCoverageObservation(result, p, sourceLabel, payloadRef, rawRef, now); ok {
+		observations = append(observations, coverage)
+	}
 	traceQueryAnnotateLookupWindowContract(observations, window)
 	return types.ToolResult{
 		ToolName:               t.Name(),
@@ -2778,10 +2781,13 @@ func traceQueryFullArtifactScopeCoverageObservation(
 	sourceLabel, payloadRef, rawRef string,
 	observedAt time.Time,
 ) (types.ObservationRecord, bool) {
-	if result.IndexWindowed ||
+	eventSearchProvesFullArtifact := result.EventSearchCoverage != nil &&
+		result.EventSearchCoverage.ScopeKind == tracequery.EventSearchScopeArtifact &&
+		result.EventSearchCoverage.ScopeComplete
+	if !eventSearchProvesFullArtifact && (result.IndexWindowed ||
 		traceQueryHasBoundedTraceScope(p) ||
 		traceQueryHasPatternOrSpanScope(p) ||
-		strings.TrimSpace(p.RecipeName) != "" {
+		strings.TrimSpace(p.RecipeName) != "") {
 		return types.ObservationRecord{}, false
 	}
 	view := strings.TrimSpace(tracequery.CanonicalViewName(result.View))
@@ -4292,6 +4298,26 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	)
 	fmt.Fprintf(&b, "# Trace Query: %s\n\n", result.View)
 	fmt.Fprintf(&b, "source=%s lines=%d parsed_events=%d timestamp_unit=%s selected_window=%.6f..%.6f seconds\n", result.SourcePath, result.LineCount, result.EventCount, firstNonEmptyTraceString(result.TimeUnit, "seconds"), result.TimeStart, result.TimeEnd)
+	if coverage := result.EventSearchCoverage; coverage != nil {
+		scopeDurationMs := 0.0
+		if coverage.ScopeTimeEnd >= coverage.ScopeTimeStart &&
+			(coverage.ScopeTimeStart != 0 || coverage.ScopeTimeEnd != 0 || coverage.ScopeTimestampRows > 0) {
+			scopeDurationMs = (coverage.ScopeTimeEnd - coverage.ScopeTimeStart) * 1000
+		}
+		scopeTimestampRows := "unknown"
+		if coverage.ScopeTimestampRows > 0 {
+			scopeTimestampRows = strconv.Itoa(coverage.ScopeTimestampRows)
+		}
+		matchedTime := "absent"
+		if coverage.MatchedTotal > 0 {
+			matchedTime = fmt.Sprintf("%.6f..%.6f", coverage.MatchedTimeStart, coverage.MatchedTimeEnd)
+		}
+		fmt.Fprintf(&b, "event_search_coverage scope_kind=%s scope_complete=%t scope_time=%.6f..%.6f scope_duration_ms=%.3f scope_timestamp_rows=%s matched_time=%s matched_total=%d emitted=%d enumeration_complete=%t selected_window_caliber=query_or_matched_rows\n",
+			sanitizeForBanner(coverage.ScopeKind), coverage.ScopeComplete,
+			coverage.ScopeTimeStart, coverage.ScopeTimeEnd, scopeDurationMs,
+			scopeTimestampRows, sanitizeForBanner(matchedTime),
+			coverage.MatchedTotal, coverage.Emitted, coverage.EnumerationComplete)
+	}
 	if selection := result.ThreadSelection; selection != nil {
 		fmt.Fprintf(&b, "thread_selection status=%s requested_pid=%d requested_name=%s selected=%s name_mismatch=%t routing=%s name_candidates=%s\n",
 			sanitizeForBanner(selection.Status), selection.RequestedPID, sanitizeForBanner(selection.RequestedName),
