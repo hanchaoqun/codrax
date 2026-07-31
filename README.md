@@ -159,3 +159,7 @@ Codrax 的默认取向是：
 
 - 用户使用手册：[docs/user_guide.md](docs/user_guide.md)
 - 架构说明：[docs/architecture.md](docs/architecture.md)
+
+## 开源协议
+
+本仓库代码以 [MIT License](LICENSE) 开源。`third_party/` 下的第三方组件保留其各自的原始协议（如 hmtrace 为 Apache-2.0，见 [third_party/hmtrace/LICENSE.hmtrace.txt](third_party/hmtrace/LICENSE.hmtrace.txt)）。
