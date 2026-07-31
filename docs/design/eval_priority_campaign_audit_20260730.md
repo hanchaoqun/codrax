@@ -1482,3 +1482,50 @@ claim support、answer seed 降权，以及 legacy direct-cause 兼容臂。完�
 `go test ./internal/types ./internal/tool ./internal/context ./internal/agent ./internal/skill -count=1`
 通过（types 19.803s、tool 166.914s、context 0.609s、agent 4.094s、
 skill 2.559s）。
+
+### B10 r1 人工审计与批 Z 规划（2026-07-31）
+
+批 Y1 推送、重建并通过 revision/clean-input 校验后，以严格
+`parallel=2` 运行：
+
+- `eval/results/real_trace_d4_demand_vs_supply-20260731-120121`
+- `eval/results/read_combo_trace_current_code_boundary-20260731-120121`
+
+runner 2/2 PASS，人工 0/2。Mixed case 证明 Y1 已生效：
+`heavy-compute` 只作为 `reason_candidate` 携
+`causal_authority=pretriage_model_extraction`，不再进入聚合事实或直接根因。
+但 `root_evidence:trace_gap` 仍由 typed 观测铸造器赋予
+`observed_direct_cause`；模型因此把“窗口没有 scheduler 区间”反向推出
+“连续执行、没有抢占或睡眠、纯计算”。对应 `root_cause_data_gap` 主记录
+其实已正确位于 `artifact_span`，说明这是同一 data-gap 在 reduced-shape
+副本上的权限分叉。
+
+D4 case 验证用户红线没有回退：显式 114.940ms 时间窗、四态闭合、根因
+排序、唤醒链、窗内可消除量、完整 Trace 因果投影和系统自动补采全部在场，
+主方向“需求侧占主导”正确。深审仍发现：
+
+1. 覆盖摘要选中早先 120ms 宽窗的 target-state 账，覆盖了显式
+   114.940ms 窗，导致一份答案内出现两套 running/runnable 数值；
+2. 正文写“排除了算力不足”，typed 排名却有正值 10.331ms 供给折算缺口
+   #4；应表述为需求主导、供给为次级有界候选，而非不存在；
+3. 正文将可能重叠的前三席相加为 53.468ms，而投影合同明确跨线程/物理
+   时间不可直接相加；排名可比较不等于可求和。
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B10-Z1 | P1 | data-gap provenance | reduced-shape `root_evidence:trace_gap` 无视 typed `trace_gap_kind/tier`，统一铸成 direct cause | data-gap root-evidence 使用 coverage/artifact provenance；typed guidance 固定缺区间不证明连续执行、CPU 占用、未抢占或未睡眠 | planned |
+| EVAL-B10-Z2 | P1 | 显式窗口权限 | 多轮查询的 target-state 账按遇到顺序/宽窗聚合，自动补采宽窗可夺取覆盖摘要 principal window | 从 typed request scope 取得显式窗，优先精确匹配；宽窗仅 supplemental，补采和因果投影本身不变 | planned |
+| EVAL-B10-Z3 | P1 | demand/supply 混合结论与可加性 | 排名席的方向/正值 supply seat/折算口径未形成统一 verdict；模型把“非主因”写成不存在并直接求和重叠席 | typed 主次方向指导；有正值 supply 席时只能说次级/有界；rank 默认 non-additive，只有明确 disjoint/union caliber 才可相加 | planned |
+| EVAL-B10-Z4 | P2 | 唤醒 census 权限 | 正文声称 36 次、34 次来自单一线程，需确认是否绑定单一完整 census 而非分支样本/重复视图 | 先核对 typed wakeup census；仅在缺单一 census 时补权限，不为本 case 数字拟合 | audit-pending |
+
+批 Z 不变量：
+
+1. 不读取 raw request、模型 thinking 或最终答案正文作为硬门信号；全部修复
+   只消费既有 typed tier、trace-gap kind、request time scope、rank seat、
+   causal direction 与 fold caliber。
+2. 不移除、缩减或跳过显式窗 Trace 因果投影、自动补采、根因排序、唤醒链、
+   帧/调度证据或窗内可消除量。
+3. 自动补采可使用扩展窗探索，但 principal coverage/accounting 必须服从
+   用户显式窗；扩窗结果可明确标为 supplemental。
+4. demand-dominant 不等于 supply-absent；ranked effective impact 默认
+   只能比较，未获 typed disjoint/union 权限不得求和。
