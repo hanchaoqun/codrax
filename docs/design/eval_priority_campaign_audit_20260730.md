@@ -1513,7 +1513,7 @@ D4 case 验证用户红线没有回退：显式 114.940ms 时间窗、四态闭�
 
 | ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
 |---|---:|---|---|---|---|
-| EVAL-B10-Z1 | P1 | data-gap provenance | reduced-shape `root_evidence:trace_gap` 无视 typed `trace_gap_kind/tier`，统一铸成 direct cause | data-gap root-evidence 使用 coverage/artifact provenance；typed guidance 固定缺区间不证明连续执行、CPU 占用、未抢占或未睡眠 | planned |
+| EVAL-B10-Z1 | P1 | data-gap provenance | reduced-shape `root_evidence:trace_gap` 无视 typed `trace_gap_kind/tier`，统一铸成 direct cause | data-gap root-evidence 使用 coverage/artifact provenance；typed guidance 固定缺区间不证明连续执行、CPU 占用、未抢占或未睡眠 | covered |
 | EVAL-B10-Z2 | P1 | 显式窗口权限 | 多轮查询的 target-state 账按遇到顺序/宽窗聚合，自动补采宽窗可夺取覆盖摘要 principal window | 从 typed request scope 取得显式窗，优先精确匹配；宽窗仅 supplemental，补采和因果投影本身不变 | planned |
 | EVAL-B10-Z3 | P1 | demand/supply 混合结论与可加性 | 排名席的方向/正值 supply seat/折算口径未形成统一 verdict；模型把“非主因”写成不存在并直接求和重叠席 | typed 主次方向指导；有正值 supply 席时只能说次级/有界；rank 默认 non-additive，只有明确 disjoint/union caliber 才可相加 | planned |
 | EVAL-B10-Z4 | P2 | 唤醒 census 权限 | 正文声称 36 次、34 次来自单一线程，需确认是否绑定单一完整 census 而非分支样本/重复视图 | 先核对 typed wakeup census；仅在缺单一 census 时补权限，不为本 case 数字拟合 | audit-pending |
@@ -1529,3 +1529,14 @@ D4 case 验证用户红线没有回退：显式 114.940ms 时间窗、四态闭�
    用户显式窗；扩窗结果可明确标为 supplemental。
 4. demand-dominant 不等于 supply-absent；ranked effective impact 默认
    只能比较，未获 typed disjoint/union 权限不得求和。
+
+批 Z1 已完成 typed 与降级文本双通道修复。`root_evidence:trace_gap` 仅按
+typed `Type` 降为 `artifact_span`，不从 summary 或答案词面猜测；普通
+`binder_wait` 等正向 root evidence 继续保持 `observed_direct_cause`。
+降级 summary 解析的 `tier=data_gap/context_only/caliber_side` 同步采用
+supporting coverage 权限，避免 payload 缺失时重新升格。finalizer 的
+trace-gated 软指导明确：`no_sched_data` 不能证明连续执行、CPU 占用、无
+抢占、无睡眠或纯计算；`no_eligible_wait` 也不能证明短等待不存在。
+
+完整 `go test ./internal/types ./internal/tool ./internal/skill -count=1`
+通过（types 20.453s、tool 158.623s、skill 0.400s）。

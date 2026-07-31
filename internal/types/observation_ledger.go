@@ -2311,6 +2311,12 @@ func traceQueryRootCauseRankRecord(index, ordinal int, line string, ref Observat
 		provenance = ObservationProvenanceArtifactSpan
 		claimKey = "root_cause_background"
 		predicate = "root_cause_background"
+	} else if tier == "data_gap" || tier == "context_only" || tier == "caliber_side" {
+		// EVAL-B10-Z1 degraded/text mirror: no-seat data/coverage rows must
+		// never regain direct-cause authority merely because the typed payload
+		// was unavailable and the summary fallback parser ran.
+		role = AnswerAggregateRoleSupportingCoverage
+		provenance = ObservationProvenanceArtifactSpan
 	}
 	// 复核 P3-1 mirror: the summary fallback of a no-seat (rank<=0) row states
 	// so instead of fabricating a "#0" ordinal.
@@ -2445,13 +2451,20 @@ func traceQueryRootEvidenceRecord(index, ordinal int, line string, ref Observati
 	if duration > 0 {
 		value = fmt.Sprintf("%.3f", duration)
 	}
+	provenance := ObservationProvenanceObservedDirectCause
+	if typ == "trace_gap" {
+		// Typed event token only: a trace gap says evidence is unavailable or
+		// below the selected floor. It cannot prove uninterrupted execution,
+		// CPU use, absence of preemption, or absence of sleep.
+		provenance = ObservationProvenanceArtifactSpan
+	}
 	return ObservationRecord{
 		ID:              fmt.Sprintf("tool:%d#trace_query:root_evidence:%d", index, ordinal),
 		Origin:          AnswerEvidenceOriginRuntimeArtifact,
 		Producer:        "trace_query",
 		Role:            AnswerAggregateRoleSupportingCoverage,
 		GroundingPolicy: ClaimGroundingHard,
-		ProvenanceLane:  ObservationProvenanceObservedDirectCause,
+		ProvenanceLane:  provenance,
 		SourceRef:       ref,
 		Span:            ObservationSpan{LineStart: lineStart, LineEnd: lineEnd},
 		ClaimKey:        "root_evidence:" + typ,

@@ -79,6 +79,25 @@ func TestPSGFinalizerSkillProseNumberGrounding(t *testing.T) {
 	}
 }
 
+func TestFinalizerSkillTraceDataGapAuthorityZ1(t *testing.T) {
+	item := psgAnswerSkillTierBBody(t, "TRACE DATA-GAP AUTHORITY")
+	if !item.AppliesTo.RequiresTrace {
+		t.Fatalf("the trace-data-gap rule is trace-gated; AppliesTo=%+v", item.AppliesTo)
+	}
+	for _, want := range []string{
+		"evidence-coverage boundary",
+		"never observed execution behavior or a root cause",
+		"does NOT prove that the thread ran continuously",
+		"avoided preemption",
+		"never slept",
+		"positive typed running/perf/semantic-work evidence",
+	} {
+		if !strings.Contains(item.Body, want) {
+			t.Fatalf("trace-data-gap authority rule missing %q:\n%s", want, item.Body)
+		}
+	}
+}
+
 // TestG13FinalizerSkillPrimaryCauseEntityConsistency pins the §27.4 G13 /
 // §28.1 ruling (2026-07-09) headline half: the prose's primary-cause entity
 // follows the ranked ordering (discounts/demotions included), and a genuine
@@ -119,11 +138,12 @@ func TestG13FinalizerSkillPrimaryCauseEntityConsistency(t *testing.T) {
 // pre-analysis narrative). Three duties ride the SAME directive (改写非重写;
 // the original obligations stay pinned by
 // TestG13FinalizerSkillPrimaryCauseEntityConsistency):
-//  ① a declared divergence must quote both published values side by side;
-//  ② category arguments never demote the top-ranked cause — self-
-//     deterministic rows compete on equal terms;
-//  ③ a narrative inside the user's request is a lead, never ranking
-//     evidence.
+//
+//	① a declared divergence must quote both published values side by side;
+//	② category arguments never demote the top-ranked cause — self-
+//	   deterministic rows compete on equal terms;
+//	③ a narrative inside the user's request is a lead, never ranking
+//	   evidence.
 func TestHeadlineElimSkillDivergenceDuties(t *testing.T) {
 	item := psgAnswerSkillTierBBody(t, "TRACE PRIMARY-CAUSE ENTITY CONSISTENCY")
 	for _, want := range []string{

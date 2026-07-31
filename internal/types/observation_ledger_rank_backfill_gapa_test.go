@@ -38,6 +38,10 @@ func TestLegacyRankLaneKeepsNoSeatSignalP23(t *testing.T) {
 	if !sawTier {
 		t.Fatalf("the engine tier must survive the legacy re-parse, got %v", record.RichNotes)
 	}
+	if record.ProvenanceLane != ObservationProvenanceArtifactSpan ||
+		record.Role != AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("data_gap fallback must stay on the coverage lane, got %+v", record)
+	}
 	// The record identity keys on the ordinal (no rank-keyed ID collisions
 	// across multiple no-seat rows).
 	if record.ID != "tool:3#trace_query:root_cause_rank:7" {
@@ -73,5 +77,28 @@ func TestLegacyRankLaneKeepsNoSeatSignalP23(t *testing.T) {
 	if !sawRank || legacy.Predicate != "root_cause_secondary" {
 		t.Fatalf("identity-less lines keep the positional backfill (rank=2/secondary), got predicate=%q notes=%v",
 			legacy.Predicate, legacy.RichNotes)
+	}
+}
+
+func TestLegacyRootEvidenceTraceGapUsesCoverageProvenanceZ1(t *testing.T) {
+	ref := ObservationSourceRef{Path: "trace.systrace"}
+	gap, ok := traceQueryRootEvidenceRecord(4, 1,
+		"- root_evidence=trace_gap thread=render_service-2000 confidence=0.60 — no scheduler intervals for this thread inside the aligned window",
+		ref, "2026-07-31T00:00:00Z")
+	if !ok {
+		t.Fatal("trace-gap root evidence must still mint a coverage record")
+	}
+	if gap.ProvenanceLane != ObservationProvenanceArtifactSpan {
+		t.Fatalf("trace-gap root evidence must not carry direct-cause authority: %+v", gap)
+	}
+
+	wait, ok := traceQueryRootEvidenceRecord(4, 2,
+		"- root_evidence=binder_wait thread=binder:1-7 duration=8.000ms confidence=0.80 — observed binder wait",
+		ref, "2026-07-31T00:00:00Z")
+	if !ok {
+		t.Fatal("positive root evidence must still mint")
+	}
+	if wait.ProvenanceLane != ObservationProvenanceObservedDirectCause {
+		t.Fatalf("positive root evidence must retain direct-cause provenance: %+v", wait)
 	}
 }

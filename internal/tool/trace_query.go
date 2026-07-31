@@ -9006,6 +9006,16 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			if root.Type == "trace_gap" && strings.TrimSpace(root.GapKind) != "" {
 				rootNotes = append(rootNotes, types.TraceNoteKeyTraceGapKind+"="+strings.TrimSpace(root.GapKind))
 			}
+			rootProvenance := types.ObservationProvenanceObservedDirectCause
+			if root.Type == "trace_gap" {
+				// EVAL-B10-Z1: a missing/insufficient scheduler interval is an
+				// observation-coverage boundary, never a directly observed
+				// runtime cause. Keep the reduced-shape root_evidence copy on
+				// the same authority lane as its tier=data_gap rank twin.
+				// The typed Type is the only gate; do not infer this from the
+				// free-form summary.
+				rootProvenance = types.ObservationProvenanceArtifactSpan
+			}
 			// v5 P1 件① B.2 (2026-07-13): the impact twin's scheduler-state
 			// word rides the EXISTING dominant_state note lane — the raw
 			// witness row then carries its typed state identity (StateKind)
@@ -9022,7 +9032,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				Producer:        "trace_query",
 				Role:            types.AnswerAggregateRoleSupportingCoverage,
 				GroundingPolicy: types.ClaimGroundingHard,
-				ProvenanceLane:  types.ObservationProvenanceObservedDirectCause,
+				ProvenanceLane:  rootProvenance,
 				SourceRef:       ref,
 				Span:            types.ObservationSpan{LineStart: root.LineStart, LineEnd: root.LineEnd},
 				ClaimKey:        "root_evidence:" + root.Type,

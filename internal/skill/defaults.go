@@ -617,6 +617,15 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},
 			{
+				// EVAL-B10-Z1: typed data-coverage boundary — trace-only.
+				// A no_sched_data witness was previously minted as a direct
+				// cause and the model inverted absence into uninterrupted
+				// compute. This remains soft guidance; the authority fix lives
+				// in the typed observation provenance, not a prose scanner.
+				Body:      "TRACE DATA-GAP AUTHORITY: rows with type=trace_gap, tier=data_gap, or claim root_evidence:trace_gap report an evidence-coverage boundary, never observed execution behavior or a root cause. `trace_gap_kind=no_sched_data` means scheduler intervals were not available for that thread/window; it does NOT prove that the thread ran continuously, consumed CPU throughout, avoided preemption, never slept, or performed pure computation. `trace_gap_kind=no_eligible_wait` means the observed intervals did not meet the selected minimum-duration floor; it does NOT prove that no shorter waits occurred. Preserve the measured enclosing span and any other positive observations, state that scheduler-state causality is unavailable at this coverage level, and require positive typed running/perf/semantic-work evidence before claiming compute.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+			},
+			{
 				// PSG-1: prose numeral grounding — trace-only (§25 ruling
 				// b assertion half, real_trace_campaign_20260705.md,
 				// 2026-07-08; huadong_01 C-P1: a trace answer with zero

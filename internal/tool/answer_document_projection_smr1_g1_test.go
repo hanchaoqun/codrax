@@ -40,8 +40,8 @@ func smr1G1DoubleGapProjection() types.TraceCausalProjection {
 			{Role: types.TraceCausalRoleCausalHop, EvidenceID: "trace_query:t#root_evidence:1",
 				Subject: "coldpool-6", Predicate: "trace_gap", Object: "",
 				Tier: types.TraceCausalTierContextOnly, ChainRelevance: "on_chain",
-				TraceGapKind:       tracequery.TraceGapKindNoEligibleWait,
-				Confidence:         0.6, LineStart: 70, LineEnd: 70,
+				TraceGapKind: tracequery.TraceGapKindNoEligibleWait,
+				Confidence:   0.6, LineStart: 70, LineEnd: 70,
 				QueryWindowStartTs: 1000.000, QueryWindowEndTs: 1000.002},
 		},
 		AdjacentCauses: []types.TraceCausalProjectionNode{
@@ -49,8 +49,8 @@ func smr1G1DoubleGapProjection() types.TraceCausalProjection {
 			{Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "trace_query:t#root_cause:gap",
 				Subject: "coldpool-6", Predicate: "root_cause_context", Object: "trace_gap",
 				TypeToken: "trace_gap", Tier: "data_gap", ChainRelevance: "adjacent",
-				TraceGapKind:       tracequery.TraceGapKindNoEligibleWait,
-				Confidence:         0.6, LineStart: 71, LineEnd: 71,
+				TraceGapKind: tracequery.TraceGapKindNoEligibleWait,
+				Confidence:   0.6, LineStart: 71, LineEnd: 71,
 				QueryWindowStartTs: 1000.000, QueryWindowEndTs: 1000.002},
 		},
 	}
@@ -127,6 +127,9 @@ func TestSMR1G1RootEvidenceCarriesTraceGapKind(t *testing.T) {
 		note := types.TraceNoteKeyTraceGapKind + "=" + tracequery.TraceGapKindNoEligibleWait
 		if !strings.Contains(strings.Join(record.RichNotes, "\n"), note) {
 			t.Fatalf("root_evidence trace_gap record must carry the typed kind note %q, got %v", note, record.RichNotes)
+		}
+		if record.ProvenanceLane != types.ObservationProvenanceArtifactSpan {
+			t.Fatalf("root_evidence trace_gap is a coverage boundary, not a direct cause: %+v", record)
 		}
 	}
 	if !found {
