@@ -51,10 +51,16 @@ func TestResolveQuestionFamily_RuntimeConditionalFactBeatsBroadRootCauseIntent(t
 	if got := ResolveQuestionFamily(rm); got != QFGeneric {
 		t.Fatalf("typed conditional runtime fact got %q, want QFGeneric", got)
 	}
+	if !IsRuntimeConditionalFactQuestion(rm) {
+		t.Fatal("the shared answer-shape predicate must recognize the routed fact")
+	}
 
 	// The runtime-target conjunction is required: a general "why" diagnostic
 	// must retain the root-cause answer family.
 	rm.RuntimeTargets = nil
+	if IsRuntimeConditionalFactQuestion(rm) {
+		t.Fatal("a target-less diagnostic must not become a narrow runtime fact")
+	}
 	if got := ResolveQuestionFamily(rm); got != QFRootCauseTrace {
 		t.Fatalf("target-less root-cause diagnostic got %q, want QFRootCauseTrace", got)
 	}
@@ -64,6 +70,9 @@ func TestResolveQuestionFamily_RuntimeConditionalFactBeatsBroadRootCauseIntent(t
 	rm.RuntimeTargets = []RuntimeTarget{{Kind: RuntimeTargetKindProcess, PID: 59566}}
 	rm.AnalyzerHints.Kind = string(ReqCallChain)
 	rm.PredicateAxis = AxisCall
+	if IsRuntimeConditionalFactQuestion(rm) {
+		t.Fatal("an explicit call relation must not become a narrow runtime fact")
+	}
 	if got := ResolveQuestionFamily(rm); got != QFRootCauseTrace {
 		t.Fatalf("explicit root-cause call relation got %q, want QFRootCauseTrace", got)
 	}

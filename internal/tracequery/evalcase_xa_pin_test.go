@@ -35,6 +35,7 @@ package tracequery
 // Fixture red line: real capture — every number is a measured pin.
 
 import (
+	"math"
 	"strings"
 	"testing"
 )
@@ -45,6 +46,28 @@ const (
 	evalcaseXAFullStart = 34579.450627
 	evalcaseXAFullEnd   = 34579.595184
 )
+
+// XA-C2 target value channel: a whole-artifact target-scoped window_stats
+// query must publish the exact target account independently of the Top-8
+// background lists. This is the production shape used by the narrow
+// D-state/io_wait supplement.
+func TestEvalcaseXAC2WholeArtifactTargetStateAccount(t *testing.T) {
+	idx := evalcaseIndex(t, evalcaseTiebaFixture)
+	res := Run(idx, Query{View: "window_stats", PID: 59566})
+	account := res.TargetWindowStates
+	if account == nil {
+		t.Fatal("whole-artifact target window_stats must publish target_window_states")
+	}
+	if account.Thread.PID != 59566 {
+		t.Fatalf("target identity drifted: %+v", account.Thread)
+	}
+	if math.Abs(account.IOWaitMs-0.635) > 0.001 {
+		t.Fatalf("target io_wait must retain the full three-fragment account: got %.6f want 0.635", account.IOWaitMs)
+	}
+	if math.Abs(account.DStateMs) > 0.001 {
+		t.Fatalf("all three proven iowait fragments must stay out of non-IO D-state: %+v", account)
+	}
+}
 
 // XA-L3 census + XA-L2 ghost-owner precondition, on the unbounded pairing.
 func TestEvalcaseXAL3PureFormBCensusWithSentinels(t *testing.T) {

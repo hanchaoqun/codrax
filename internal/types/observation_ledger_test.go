@@ -1934,6 +1934,51 @@ func TestPrioritizeObservationRecords_PrincipalAggregateSurvivesSourceEvidenceBu
 	}
 }
 
+func TestPrioritizeObservationRecords_RuntimeTargetFactsSurviveBackgroundBudget(t *testing.T) {
+	rm := RequestModel{RuntimeTargets: []RuntimeTarget{{
+		Kind:   RuntimeTargetKindThread,
+		PID:    59566,
+		Thread: "com.baidu.tieba",
+		Source: "user_explicit",
+	}}}
+	records := make([]ObservationRecord, 0, 42)
+	for i := 0; i < 40; i++ {
+		records = append(records, ObservationRecord{
+			ID:        fmt.Sprintf("background:%d", i),
+			Origin:    AnswerEvidenceOriginRuntimeArtifact,
+			Producer:  "trace_query",
+			Subject:   fmt.Sprintf("worker-%d", 70000+i),
+			Predicate: "top_io_wait",
+			Summary:   "background runtime row",
+		})
+	}
+	records = append(records,
+		ObservationRecord{
+			ID: "target-state", Origin: AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+			Subject: "com.baidu.tieba-59566", Predicate: "target_window_states", Summary: "io_wait=0.635",
+		},
+		ObservationRecord{
+			ID: "target-census", Origin: AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+			Subject: "renamed-main-59566", Predicate: "blocked_reason_census", Value: "3",
+		},
+	)
+	got := PrioritizeObservationRecords(records, &rm, nil, 4)
+	ids := map[string]bool{}
+	for _, record := range got {
+		ids[record.ID] = true
+	}
+	if !ids["target-state"] || !ids["target-census"] {
+		t.Fatalf("typed target facts were crowded out by background rows: %+v", got)
+	}
+
+	// A model exploration cursor is not user intent and receives no boost.
+	rm.RuntimeTargets[0].Source = RuntimeTargetSourceExplicitToolCall
+	got = PrioritizeObservationRecords(records, &rm, nil, 1)
+	if len(got) != 1 || got[0].ID != "background:0" {
+		t.Fatalf("exploration cursor must not hijack prompt priority: %+v", got)
+	}
+}
+
 // sourceInventoryAttributeDemandRecords builds a compile-order ledger slice —
 // set record, then member rows each immediately followed by their attribute
 // row, then unrelated evidence records — with identical anchor shapes so rank

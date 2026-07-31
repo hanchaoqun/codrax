@@ -18,6 +18,9 @@ func materializeRuntimeTraceFrequencyAuthorityCaveat(doc *types.AnswerDocumentV2
 	if doc == nil || ctx == nil {
 		return false
 	}
+	if !runtimeTraceFullReportMaterializationAllowed(ctx) {
+		return false
+	}
 	input := types.ObservationLedgerInputFromBusContext(ctx, types.ObservationExtractLedgerEvidenceLimit)
 	results := append(append([]types.ToolResult(nil), input.ToolResults...), input.SystemTraceSupplementResults...)
 	count := 0
@@ -90,6 +93,9 @@ func materializeRuntimeTraceFrequencyAuthorityCaveat(doc *types.AnswerDocumentV2
 // trigger (typed census predicate), wording only.
 func materializeRuntimeTraceVsyncAuthorityCaveat(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {
 	if doc == nil || ctx == nil {
+		return false
+	}
+	if !runtimeTraceFullReportMaterializationAllowed(ctx) {
 		return false
 	}
 	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(ctx, types.ObservationExtractLedgerEvidenceLimit))

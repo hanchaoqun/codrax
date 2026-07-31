@@ -241,13 +241,53 @@ func PrioritizeObservationRecords(records []ObservationRecord, rm *RequestModel,
 		intent = &compiled
 	}
 	sort.SliceStable(out, func(i, j int) bool {
-		return observationRecordRank(out[i], intent) < observationRecordRank(out[j], intent)
+		return observationRecordRankForRequest(out[i], intent, rm) < observationRecordRankForRequest(out[j], intent, rm)
 	})
 	out = budgetSourceInventoryObservationRecords(out, intent, limit)
 	if len(out) > limit {
 		out = budgetObservationRecordsByOrigin(out, intent, limit)
 	}
 	return out
+}
+
+// observationRecordRankForRequest adds one prompt-only relevance preference:
+// deterministic runtime records whose subject exactly matches a typed
+// user-source RuntimeTarget survive a small prompt budget ahead of unrelated
+// background rows.  It does not alter ledger acceptance, fact truth, answer
+// gates, or root-cause ordering.  Exploration-cursor targets are excluded by
+// the same provenance rule as causal anchor election.
+func observationRecordRankForRequest(record ObservationRecord, intent *AnswerIntentContract, rm *RequestModel) int {
+	rank := observationRecordRank(record, intent)
+	if observationRecordMatchesUserRuntimeTarget(record, rm) {
+		rank -= 500
+	}
+	return rank
+}
+
+func observationRecordMatchesUserRuntimeTarget(record ObservationRecord, rm *RequestModel) bool {
+	if rm == nil || strings.TrimSpace(record.Subject) == "" {
+		return false
+	}
+	for _, target := range rm.RuntimeTargets {
+		if RuntimeTargetIsExplorationCursorSource(target.Source) {
+			continue
+		}
+		if target.PID > 0 && target.PID <= RuntimeTargetMaxPID &&
+			traceCausalProjectionAnchorLabelMatchesEntity(record.Subject, traceCausalProjectionAnchorEntity{
+				value:     strconv.Itoa(target.PID),
+				typedLane: true,
+			}) {
+			return true
+		}
+		if strings.TrimSpace(target.Thread) != "" &&
+			traceCausalProjectionAnchorLabelMatchesEntity(record.Subject, traceCausalProjectionAnchorEntity{
+				value:     target.Thread,
+				typedLane: true,
+			}) {
+			return true
+		}
+	}
+	return false
 }
 
 func budgetSourceInventoryObservationRecords(sorted []ObservationRecord, intent *AnswerIntentContract, limit int) []ObservationRecord {

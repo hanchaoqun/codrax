@@ -950,7 +950,20 @@ func Run(idx *Index, q Query) Result {
 	// only on non-bundle runs.
 	if res.TargetWindowStates == nil && (q.PID > 0 || strings.TrimSpace(q.Thread) != "") &&
 		(res.FrameRootCauseBundle == nil || res.FrameRootCauseBundle.TargetWindowStates == nil) {
-		if stateAccountTimeStartBounded && stateAccountTimeEndBounded && q.TimeEnd > q.TimeStart {
+		// A target-scoped window_stats call with no explicit endpoints is an
+		// explicit request for the artifact-wide state account. normalizeQuery
+		// has already resolved that immutable artifact window from index
+		// metadata, so it is just as deterministic as caller-provided bounds.
+		// Other views retain the old explicit-bound requirement: an unbounded
+		// event_search cursor must not silently grow a full state report. A
+		// partially specified window is not artifact-wide either: both caller
+		// endpoints must be absent, preserving the fail-closed admission for a
+		// missing start or missing end.
+		artifactWideTargetStats := q.View == "window_stats" &&
+			!stateAccountTimeStartBounded && !stateAccountTimeEndBounded &&
+			q.timeStartBackfilled && q.TimeEnd > q.TimeStart
+		if (stateAccountTimeStartBounded && stateAccountTimeEndBounded || artifactWideTargetStats) &&
+			q.TimeEnd > q.TimeStart {
 			if faceCanceled("target_window_states") {
 				return runCancelFinalize(&res, cancel)
 			}

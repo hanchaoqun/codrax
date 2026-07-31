@@ -1055,8 +1055,22 @@ func answerDocumentHasRuntimeTraceSystemBlockID(doc *types.AnswerDocumentV2, id 
 	return false
 }
 
+// runtimeTraceFullReportMaterializationAllowed is the shared answer-shape
+// authority for system-authored trace report blocks. A typed conditional fact
+// about one runtime target may use trace evidence, but it did not request a
+// causal tree, optimization report, background metric board, next-step plan,
+// perf-quality report, or raw observation dump. Family routing and this gate
+// deliberately consume the same types-layer predicate.
+func runtimeTraceFullReportMaterializationAllowed(ctx *types.BusContext) bool {
+	return ctx == nil || ctx.AnalysisIR == nil ||
+		!types.IsRuntimeConditionalFactQuestion(ctx.AnalysisIR.RequestModel)
+}
+
 func materializeRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {
 	if doc == nil || ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	if !runtimeTraceFullReportMaterializationAllowed(ctx) {
 		return false
 	}
 	if len(doc.Blocks) >= maxBlocksPerDoc {
@@ -5358,6 +5372,9 @@ func materializeRuntimeTraceSemanticOptimizationBlock(doc *types.AnswerDocumentV
 	if doc == nil || ctx == nil || ctx.Mutable == nil {
 		return false
 	}
+	if !runtimeTraceFullReportMaterializationAllowed(ctx) {
+		return false
+	}
 	// 复核 R3: every pass recomputes the at-cap skip disclosure from the
 	// document's CURRENT state — a stale "表未插入" caveat never ships beside
 	// an inserted table, after the doc dropped below the cap, or after a
@@ -6024,6 +6041,9 @@ func runtimeTraceSemanticOptimizationParts(projection types.TraceCausalProjectio
 
 func materializeRuntimeTraceMetricSnapshotBlock(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {
 	if doc == nil || ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	if !runtimeTraceFullReportMaterializationAllowed(ctx) {
 		return false
 	}
 	if len(doc.Blocks) >= maxBlocksPerDoc {
@@ -6913,6 +6933,9 @@ func runtimeTraceMetricWithMS(value string) string {
 
 func materializeRuntimeTraceNextStepsBlock(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {
 	if doc == nil || ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	if !runtimeTraceFullReportMaterializationAllowed(ctx) {
 		return false
 	}
 	if len(doc.Blocks) >= maxBlocksPerDoc {
@@ -7805,6 +7828,9 @@ func materializeRuntimeTracePerfQualityBlock(doc *types.AnswerDocumentV2, ctx *t
 	if doc == nil || ctx == nil || ctx.Mutable == nil {
 		return false
 	}
+	if !runtimeTraceFullReportMaterializationAllowed(ctx) {
+		return false
+	}
 	if len(doc.Blocks) >= maxBlocksPerDoc {
 		logging.Warning("[answer_document] runtime trace perf quality block skipped: document already at the %d-block cap", maxBlocksPerDoc)
 		return false
@@ -7930,6 +7956,9 @@ func firstNonEmptyRuntimeTrace(values ...string) string {
 
 func materializeRuntimeTraceObservationBlock(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {
 	if doc == nil || ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	if !runtimeTraceFullReportMaterializationAllowed(ctx) {
 		return false
 	}
 	// Cap headroom guard (same pattern as

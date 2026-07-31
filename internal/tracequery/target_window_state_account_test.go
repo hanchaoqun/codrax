@@ -177,4 +177,20 @@ func TestTargetWindowStatesPublishesOnRankView(t *testing.T) {
 	if bare := Run(idx, Query{View: "window_stats", TimeStart: 10.0, TimeEnd: 10.1}); bare.TargetWindowStates != nil {
 		t.Fatalf("a run without a target thread must not fabricate an account")
 	}
+
+	// A target-scoped window_stats query without explicit endpoints means the
+	// immutable whole artifact.  The target account is cap-immune and must not
+	// disappear merely because background threads outrank it in Top-N lists.
+	whole := Run(idx, Query{View: "window_stats", PID: 100})
+	if whole.TargetWindowStates == nil || whole.TargetWindowStates.Thread.PID != 100 {
+		t.Fatalf("whole-artifact target stats must publish the target account: %+v", whole.TargetWindowStates)
+	}
+	if whole.TargetWindowStates.TotalMs <= 0 {
+		t.Fatalf("whole-artifact target account must carry measured state time: %+v", whole.TargetWindowStates)
+	}
+
+	// An unbounded event cursor keeps the historical narrow result shape.
+	if cursor := Run(idx, Query{View: "event_search", PID: 100, Pattern: "sched_switch"}); cursor.TargetWindowStates != nil {
+		t.Fatalf("an event cursor must not silently materialize a full state account: %+v", cursor.TargetWindowStates)
+	}
 }
