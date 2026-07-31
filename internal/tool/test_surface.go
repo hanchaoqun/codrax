@@ -4,6 +4,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -112,12 +113,170 @@ func testSurfaceCandidateForPlan(repoRoot string, plan runnerPlan) types.TestSur
 		target, found := detectMakeTestTargetFound(plan.Root)
 		cand.MakeTarget = target
 		cand.HasTestSignal = found
+		if found {
+			cand.DeclaredCoveragePaths = makeTargetDeclaredCoveragePaths(plan.Root, target)
+		}
 	case "cmake", "meson":
 		cand.HasTestSignal = detectNativeBuildDir(plan.Root) != ""
 	default:
 		cand.HasTestSignal = !runnerHasNoTestWork(plan.Runner, plan.Root)
 	}
 	return cand
+}
+
+const (
+	makeDeclaredCoverageMaxScriptBytes = 1 << 20
+	makeDeclaredCoverageMaxPaths       = 256
+)
+
+// makeTargetDeclaredCoveragePaths computes a bounded, filesystem-verified
+// ownership roster for a conventional Make test target without executing or
+// interpreting arbitrary shell. It admits:
+//   - exact existing file prerequisites on the selected rule;
+//   - exact existing file arguments in that rule's recipe; and
+//   - exact existing repo-relative path literals in a directly invoked local
+//     test script.
+//
+// Dynamic variables, generated paths, command substitutions and nested
+// runner discovery remain unresolved and therefore fail closed. This roster
+// is used only for the cross-language meta-runner lane; ordinary same-family
+// project-runner coverage is unchanged.
+func makeTargetDeclaredCoveragePaths(repoRoot, target string) []string {
+	makefilePath := firstExistingMakefile(repoRoot)
+	if makefilePath == "" || strings.TrimSpace(target) == "" {
+		return nil
+	}
+	data, err := os.ReadFile(makefilePath)
+	if err != nil {
+		return nil
+	}
+	lines := strings.Split(string(data), "\n")
+	inTarget := false
+	var paths []string
+	var scripts []string
+	for _, line := range lines {
+		if !inTarget {
+			if deps, ok := exactMakeTargetDependencies(line, target); ok {
+				inTarget = true
+				for _, token := range strings.Fields(deps) {
+					paths = appendExistingDeclaredCoveragePath(repoRoot, paths, token)
+				}
+			}
+			continue
+		}
+		if strings.HasPrefix(line, "\t") {
+			for _, token := range strings.Fields(strings.TrimSpace(line)) {
+				before := len(paths)
+				paths = appendExistingDeclaredCoveragePath(repoRoot, paths, token)
+				if len(paths) > before && declaredCoverageScriptPath(paths[len(paths)-1]) {
+					scripts = appendUniqueRepoPath(scripts, paths[len(paths)-1])
+				}
+			}
+			continue
+		}
+		if strings.TrimSpace(line) == "" || strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		break
+	}
+	for _, script := range scripts {
+		scriptData, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(script)))
+		if err != nil || len(scriptData) > makeDeclaredCoverageMaxScriptBytes {
+			continue
+		}
+		for _, literal := range exactQuotedStringLiterals(string(scriptData)) {
+			paths = appendExistingDeclaredCoveragePath(repoRoot, paths, literal)
+			if len(paths) >= makeDeclaredCoverageMaxPaths {
+				break
+			}
+		}
+		if len(paths) >= makeDeclaredCoverageMaxPaths {
+			break
+		}
+	}
+	sort.Strings(paths)
+	if len(paths) > makeDeclaredCoverageMaxPaths {
+		paths = paths[:makeDeclaredCoverageMaxPaths]
+	}
+	return paths
+}
+
+func firstExistingMakefile(repoRoot string) string {
+	for _, name := range []string{"Makefile", "makefile", "GNUmakefile"} {
+		candidate := filepath.Join(repoRoot, name)
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func exactMakeTargetDependencies(line, target string) (string, bool) {
+	if line == "" || line[0] == ' ' || line[0] == '\t' || line[0] == '#' {
+		return "", false
+	}
+	for _, prefix := range []string{target + ":", target + " :"} {
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(line, prefix)), true
+		}
+	}
+	return "", false
+}
+
+func appendExistingDeclaredCoveragePath(repoRoot string, paths []string, raw string) []string {
+	raw = strings.TrimSpace(raw)
+	raw = strings.Trim(raw, `"'@,;:()[]{}<>`)
+	raw = strings.TrimPrefix(raw, "./")
+	if raw == "" || strings.ContainsAny(raw, "$*?`|&") || filepath.IsAbs(raw) {
+		return paths
+	}
+	clean := cleanRepoRelPath(filepath.ToSlash(raw))
+	if clean == "" || clean == ".." || strings.HasPrefix(clean, "../") {
+		return paths
+	}
+	full := filepath.Join(repoRoot, filepath.FromSlash(clean))
+	info, err := os.Stat(full)
+	if err != nil || info.IsDir() {
+		return paths
+	}
+	return appendUniqueRepoPath(paths, clean)
+}
+
+func declaredCoverageScriptPath(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".py", ".sh", ".rb", ".js", ".mjs", ".cjs", ".go":
+		return true
+	default:
+		return false
+	}
+}
+
+func exactQuotedStringLiterals(source string) []string {
+	var out []string
+	for i := 0; i < len(source); i++ {
+		quote := source[i]
+		if quote != '\'' && quote != '"' {
+			continue
+		}
+		start := i + 1
+		i++
+		escaped := false
+		for ; i < len(source); i++ {
+			switch {
+			case escaped:
+				escaped = false
+			case source[i] == '\\':
+				escaped = true
+			case source[i] == quote:
+				out = append(out, source[start:i])
+				goto nextLiteral
+			case source[i] == '\n' || source[i] == '\r':
+				goto nextLiteral
+			}
+		}
+	nextLiteral:
+	}
+	return out
 }
 
 // testSurfaceCandidateKey is the executed-set key for escalation decisions:

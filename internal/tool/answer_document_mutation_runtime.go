@@ -169,6 +169,12 @@ func persistMergedAnswerDocument(
 	if materializeRuntimeTraceVsyncAuthorityCaveat(merged, ctx) {
 		logging.Info("[%s] materialized runtime trace vsync period authority caveat", toolName)
 	}
+	if materializeRuntimeTraceBlockingCoverageAuthorityCaveat(merged, ctx) {
+		logging.Info("[%s] materialized typed target-blocking lower-bound coverage caveat", toolName)
+	}
+	if materializeRuntimeTraceBlockedReasonCensusCaliberCaveat(merged, ctx) {
+		logging.Info("[%s] materialized typed blocked-reason census caliber caveat", toolName)
+	}
 	if materializeRuntimeArtifactPairRelationAuthorityBlock(merged, ctx) {
 		logging.Info("[%s] materialized typed cross-artifact relation authority", toolName)
 	}

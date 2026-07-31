@@ -83,6 +83,11 @@ func TestChangedPathCoverageAcceptsTypedPolyglotMakeProjectRunner(t *testing.T) 
 			Source:        "Makefile",
 			MakeTarget:    "check",
 			HasTestSignal: true,
+			DeclaredCoveragePaths: []string{
+				"src/types/list.rs",
+				"src/types/tuple.rs",
+				"tests/iterators.rs",
+			},
 		}}},
 		ExecutedCommands: []types.ExecutedCommand{{
 			Runner:     "make",

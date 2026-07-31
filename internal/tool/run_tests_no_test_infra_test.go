@@ -2423,7 +2423,17 @@ func TestRunTestsTypedPolyglotMakeSurfaceCoversRustChanges(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "src", "types", "list.rs"), []byte("pub fn fixed() {}\n"), 0o644); err != nil {
 		t.Fatalf("write Rust source: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "Makefile"), []byte("check:\n\t@test -f src/types/list.rs\n"), 0o644); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "tests"), 0o755); err != nil {
+		t.Fatalf("mkdir tests: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(root, "tests", "check_source.py"),
+		[]byte("from pathlib import Path\nassert Path('src/types/list.rs').read_text()\n"),
+		0o644,
+	); err != nil {
+		t.Fatalf("write behavioral oracle: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "Makefile"), []byte("check:\n\tpython3 tests/check_source.py\n"), 0o644); err != nil {
 		t.Fatalf("write Makefile: %v", err)
 	}
 	mu := types.NewMutableState("polyglot make verification")

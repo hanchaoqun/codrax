@@ -2235,9 +2235,9 @@ runner 的 typed ownership gap，不是补丁或测试失败。
 
 | ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
 |---|---:|---|---|---|---|
-| EVAL-B12-AG1 | P1 | polyglot project verification ownership | language-agnostic Make test target 成功后仍按 C/C++ family 判覆盖，跨语言 behavioral oracle 被丢权 | 只有当成功命令精确匹配 filesystem-derived TestSurface candidate（runner/root/target/command/test-signal）时，允许 meta runner 覆盖其 working root 内的 recognized changed paths；裸命令继续 fail-closed | covered-pending-replay |
-| EVAL-B12-AG2 | P1 | lower-bound publication authority | typed lower-bound 只进 prompt，模型仍可发布 exhaustive total/absence | 从 typed blocking authority 无条件 materialize coverage caveat；不扫描请求/答案词面，不改模型正文和数值 | planned |
-| EVAL-B12-AG3 | P1 | record census vs state-duration caliber | blocked-reason occurrence count/record delay 被外推成完整 scheduler sleep 分区 | typed caveat 明确 caller-record census 只解释其自身记录；除非与完整 state occurrence roster 对账，不授权“全部 sleep” | planned |
+| EVAL-B12-AG1 | P1 | polyglot project verification ownership | language-agnostic Make test target 成功后仍按 C/C++ family 判覆盖，跨语言 behavioral oracle 被丢权 | 成功命令须精确匹配 filesystem-derived TestSurface candidate，且目标路径须在该 target 的 typed declared-input roster；裸命令/无输入 witness 继续 fail-closed | covered-pending-replay |
+| EVAL-B12-AG2 | P1 | lower-bound publication authority | typed lower-bound 只进 prompt，模型仍可发布 exhaustive total/absence | 从 typed blocking authority 无条件 materialize coverage caveat；不扫描请求/答案词面，不改模型正文和数值 | covered-pending-replay |
+| EVAL-B12-AG3 | P1 | record census vs state-duration caliber | blocked-reason occurrence count/record delay 被外推成完整 scheduler sleep 分区 | typed caveat 明确 caller-record census 只解释其自身记录；除非与完整 state occurrence roster 对账，不授权“全部 sleep” | covered-pending-replay |
 | EVAL-B11-AB4 | P2 | generic incomplete enumeration wording | 其他 enumeration authority 仍可能只靠 prompt 被写成 exhaustive | AG2/AG3 先覆盖本轮高危 typed calibers；通用结构化 coverage carrier 后续统一收敛，不扫描 prose | reproduced-filed |
 
 批 AG 不变量：
@@ -2246,8 +2246,9 @@ runner 的 typed ownership gap，不是补丁或测试失败。
 2. 不改显式窗、Trace 因果投影、系统自动补采、根因榜位/数值、wakeup
    chain、窗内可消除量、IPC edge 或 scheduler interval 构造。
 3. Make 跨语言权限必须绑定真实 TestSurface 的
-   `HasTestSignal=true + exact working_dir + exact MakeTarget + exact command`；
-   任一不匹配继续按语言 family fail-closed。
+   `HasTestSignal=true + exact working_dir + exact MakeTarget + exact command`
+   以及目标文件的 exact declared-input witness；任一不匹配继续按语言
+   family fail-closed。
 4. coverage caveat 只消费 deterministic typed authority；不重写模型正文，
    不从答案用词反推触发条件。
 5. complete IPC request census 与 lower-bound blocking occurrence 各守自身
@@ -2258,13 +2259,37 @@ runner 的 typed ownership gap，不是补丁或测试失败。
 新增 typed polyglot meta-runner admission。当前仅 Make 进入该臂：成功命令
 必须逐字段匹配 filesystem-derived candidate 的 runner、working directory、
 declared target 和 canonical command，candidate 必须有真实 test signal；
-匹配后只覆盖该 working directory 内的 recognized changed paths。不存在
-typed candidate、target/command 不同或 arbitrary model-selected Make
-命令均继续 fail-closed，不把“任意成功命令”升级成项目验证。
+并且只覆盖 target 的 `DeclaredCoveragePaths`。该 roster 由选中 Make rule
+的现存直接 file prerequisites、recipe 中的现存 file arguments，以及直接
+调用的本地测试脚本内 exact quoted repo-relative existing paths 做有限静态
+展开；动态变量、生成路径、命令替换和嵌套 runner 均保持 unresolved/
+fail-closed。不存在 typed candidate、target/command 不同、目标文件不在
+declared-input roster，或 arbitrary model-selected Make 命令均不得升级成
+项目验证。
 
-回归同时固定正负臂及生产 E2E：root `make check` 可验证同根 Rust 改动并在
-`ExecutedCommand.covered_paths` 记录精确路径；同一仓若 typed target 是
-`make test`，裸 `make check` 不得越权。专项
-`go test ./internal/tool -run
-'TestChangedPathCoverage|TestRunTestsTypedPolyglotMakeSurfaceCoversRustChanges|
-TestRunTestsMakeReVerifyRunsRealTargetNotRunnerName' -count=1` 通过（1.276s）。
+完整回归首先抓住并守住 Java 负臂：`make check` 仅 echo 成功、没有 Java
+输入 witness 时，不能授权 Java test path。PyO3 同构正臂的
+`tests/check_iterators.py` 则 exact 引用并读取 list.rs、tuple.rs 和
+iterators.rs，因此获得逐路径权限并写入
+`ExecutedCommand.covered_paths`。typed target/command 不同和无
+declared-input 的两条负臂均保持 unavailable。
+
+批 AG2 不检查答案是否真的出现“唯一/全部”等词，而是在
+`TraceBlockingWallClockAuthority.coverage_status` 为
+`lower_bound_capacity_truncated` 时无条件追加用户可见口径：
+`observed_blocking_lower_bound`、`observed_occurrences>=N` 只证明列出的
+下界，不授权全窗总量、唯一 occurrence 或其余请求无阻塞。同时携同窗 IPC
+request census 作为独立量纲，明确 complete request count 仍不等于
+complete blocking-occurrence count。
+
+批 AG3 从 hard-grounded deterministic `blocked_reason_census` typed record
+发布 `caliber=caller_linked_record_census_not_scheduler_state_partition`：
+保留 exact record count、caller roster 和 Σdelay，但明确它们只拥有自身
+caller-linked records，不能单独证明每段 sleep 都有这些 caller，也不能
+外推整段 sleep wall clock。两项 materializer 均只匹配 typed user runtime
+target、共享 full-report shape gate、幂等且不改写模型正文。
+
+专项覆盖 Make declared-input 正负臂、Java echo 负臂、typed lower-bound、
+IPC count 分型、blocked-reason 非目标拒绝、幂等、正文 byte-preserve 和
+生产 persist 接线；完整 `go test ./internal/tool -count=1` 通过
+（164.447s）。

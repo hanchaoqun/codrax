@@ -113,6 +113,40 @@ func TestBuildTestSurface_TestWorkOutranksManifestPriority(t *testing.T) {
 	}
 }
 
+func TestBuildTestSurface_MakeCarriesExactDeclaredCrossLanguageInputs(t *testing.T) {
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "Makefile", "check:\n\tpython3 tests/check_iterators.py\n")
+	writeSurfaceFile(t, root, "tests/check_iterators.py", `
+from pathlib import Path
+root = Path(__file__).resolve().parents[1]
+source_paths = [
+    root / "src/types/list.rs",
+    root / "src/types/tuple.rs",
+]
+test_path = root / "tests/iterators.rs"
+for source_path in source_paths:
+    source_path.read_text()
+test_path.read_text()
+`)
+	writeSurfaceFile(t, root, "src/types/list.rs", "pub fn list() {}\n")
+	writeSurfaceFile(t, root, "src/types/tuple.rs", "pub fn tuple() {}\n")
+	writeSurfaceFile(t, root, "tests/iterators.rs", "#[test] fn regression() {}\n")
+
+	surface := BuildTestSurface(root, "")
+	makeCand := surfaceCandidate(t, surface, "make")
+	got := strings.Join(makeCand.DeclaredCoveragePaths, ",")
+	for _, want := range []string{
+		"src/types/list.rs",
+		"src/types/tuple.rs",
+		"tests/check_iterators.py",
+		"tests/iterators.rs",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("Make declared coverage missing %q: %+v", want, makeCand)
+		}
+	}
+}
+
 // Manifest priority stays the tiebreaker when both candidates carry test
 // work, preserving the existing detection order for healthy repos.
 func TestBuildTestSurface_PriorityTiebreakWhenBothHaveTests(t *testing.T) {

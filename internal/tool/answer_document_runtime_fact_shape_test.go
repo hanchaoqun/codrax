@@ -134,6 +134,10 @@ func TestRuntimeConditionalFactReportMaterializersShareShapeGate(t *testing.T) {
 		"materializeRuntimeTraceFrequencyAuthorityCaveat",
 		"materializeRuntimeTraceVsyncAuthorityCaveat",
 	})
+	assertFunctionsUseRuntimeFactShapeGate(t, "answer_document_mutation_runtime_wait_coverage.go", []string{
+		"materializeRuntimeTraceBlockingCoverageAuthorityCaveat",
+		"materializeRuntimeTraceBlockedReasonCensusCaliberCaveat",
+	})
 }
 
 func assertFunctionsUseRuntimeFactShapeGate(t *testing.T, path string, names []string) {

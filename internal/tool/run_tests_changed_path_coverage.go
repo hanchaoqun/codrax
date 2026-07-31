@@ -156,7 +156,7 @@ func enrichSuccessfulCommandCoveredPaths(
 		for _, path := range targets {
 			if !repoPathWithinWorkingDir(path, cmd.WorkingDir) ||
 				(!verificationLanguageFamiliesIntersect(targetFamilies[path], runnerFamilies) &&
-					!typedPolyglotProjectRunnerCommand(cmd, surface)) {
+					!typedPolyglotProjectRunnerCommandCoversPath(cmd, surface, path)) {
 				continue
 			}
 			cmd.CoveredPaths = appendUniqueRepoPath(cmd.CoveredPaths, path)
@@ -192,7 +192,7 @@ func changedPathCoverageFromCommands(
 			canonical, ok := targetSet[strings.ToLower(path)]
 			if !ok ||
 				(!verificationLanguageFamiliesIntersect(targetFamilies[canonical], runnerFamilies) &&
-					!typedPolyglotProjectRunnerCommand(&cmd, surface)) {
+					!typedPolyglotProjectRunnerCommandCoversPath(&cmd, surface, canonical)) {
 				continue
 			}
 			next := changedPathCoverageEvidence{
@@ -209,15 +209,19 @@ func changedPathCoverageFromCommands(
 	return out
 }
 
-// typedPolyglotProjectRunnerCommand admits a cross-language project-runner
-// proof only when the successful command is byte-for-byte bound to a
-// filesystem-derived runnable test surface. Make is a meta runner: a root
+// typedPolyglotProjectRunnerCommandCoversPath admits a cross-language
+// project-runner proof only when the successful command is byte-for-byte
+// bound to a filesystem-derived runnable test surface AND that surface names
+// the target in its exact declared-input roster. Make is a meta runner: a root
 // `make check` can intentionally execute a Python behavioral oracle over Rust
-// sources (or any other polyglot arrangement), so assigning Make to C/C++ and
-// rejecting every other family loses real verification. Conversely, a bare
-// model-selected `make <target>` is not enough: without the exact typed
-// candidate, cross-language coverage remains fail-closed.
-func typedPolyglotProjectRunnerCommand(cmd *types.ExecutedCommand, surface *types.TestSurface) bool {
+// sources, so assigning Make to C/C++ loses real verification. Conversely, a
+// bare model-selected target or an unrelated passing Make recipe has no
+// declared-input witness and remains fail-closed.
+func typedPolyglotProjectRunnerCommandCoversPath(
+	cmd *types.ExecutedCommand,
+	surface *types.TestSurface,
+	targetPath string,
+) bool {
 	if cmd == nil || surface == nil ||
 		!strings.EqualFold(strings.TrimSpace(cmd.Runner), "make") ||
 		strings.TrimSpace(cmd.Outcome) != "executed" || cmd.ExitCode != 0 {
@@ -242,7 +246,11 @@ func typedPolyglotProjectRunnerCommand(cmd *types.ExecutedCommand, surface *type
 			strings.TrimSpace(candidate.Command) != strings.TrimSpace(cmd.Command) {
 			continue
 		}
-		return true
+		for _, declaredPath := range candidate.DeclaredCoveragePaths {
+			if strings.EqualFold(cleanRepoRelPath(declaredPath), cleanRepoRelPath(targetPath)) {
+				return true
+			}
+		}
 	}
 	return false
 }

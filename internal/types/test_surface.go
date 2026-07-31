@@ -41,6 +41,14 @@ type TestSurfaceCandidate struct {
 	// MakeTarget is the detected Makefile test target for runner=make.
 	MakeTarget string `json:"make_target,omitempty"`
 
+	// DeclaredCoveragePaths are exact repo-relative files owned by the
+	// candidate's typed test entry. For Make this is a bounded static
+	// expansion of the selected target's direct file prerequisites and
+	// directly invoked local test scripts' exact existing path literals.
+	// It is deliberately empty for dynamic/opaque recipes; absence fails
+	// closed rather than granting cross-language project coverage.
+	DeclaredCoveragePaths []string `json:"declared_coverage_paths,omitempty"`
+
 	// HasTestSignal is the typed "this candidate has actual test work"
 	// bit. Detection per runner family:
 	//   - convention-scanning runners (go/python/node/ruby/swift/java):
