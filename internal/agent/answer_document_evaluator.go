@@ -4130,51 +4130,75 @@ func renderAnswerDocTraceTargetStateScopeAuthority(ledger types.ObservationLedge
 
 func renderAnswerDocTraceRankAuthority(ledger types.ObservationLedger) string {
 	set := types.CompileTraceCausalProjectionSet(ledger)
-	if len(set.Projections) == 0 {
+	authorities := types.BuildTraceRankRosterAuthorities(set)
+	if len(authorities) == 0 {
 		return ""
 	}
 	var b strings.Builder
 	written := 0
-	for _, projection := range set.Projections {
-		seats := answerDocTraceRankAuthoritySeats(projection)
-		if len(seats) == 0 {
+	for _, authority := range authorities {
+		if len(authority.Seats) == 0 {
 			continue
 		}
 		if written == 0 {
 			b.WriteString("### Trace Rank Arithmetic And Supply Authority\n\n")
 			b.WriteString("- This is a typed soft handoff for answer wording; it does not change the ranked board, causal projection, automatic supplementation, or any measured value.\n")
+			b.WriteString("- The ordered roster below is the only authority for `#N` ordinals. A measured component, context-only row, target symptom, data gap, caliber side rail, or absorbed row that is absent from the roster has no rank seat and must not be assigned one. Do not infer an ordinal from its duration or its position in another table.\n")
 		}
 		written++
-		top := seats[0]
-		for _, seat := range seats[1:] {
-			if seat.Rank < top.Rank ||
-				(seat.Rank == top.Rank && seat.EffectiveImpactMS > top.EffectiveImpactMS) {
-				top = seat
-			}
-		}
-		label := strings.TrimSpace(projection.ArtifactLabel)
+		top := authority.Seats[0]
+		label := strings.TrimSpace(authority.ArtifactLabel)
 		if label == "" {
-			label = fmt.Sprintf("partition-%d", written)
+			label = fmt.Sprintf("board-%d", written)
 		}
 		fmt.Fprintf(&b,
-			"- artifact=`%s`; ranked_seats=%d; top_rank=`#%d %s %s %.3fms`; cross_row_additivity=`forbidden` — ranked effective impacts are comparable attribution/head-room values but may overlap across rows, threads, segments, and fix directions. Never add several seats into a new total; only a total already published inside one merged row is additive under that row's typed fold caliber.\n",
+			"- artifact=`%s`; ranked_seats=%d; roster_status=`%s`; top_rank=`#%d %s %s %.3fms`",
 			label,
-			len(seats),
+			len(authority.Seats),
+			authority.Status,
 			top.Rank,
-			answerDocTraceRankAuthorityNodeType(top),
+			top.Type,
 			strings.TrimSpace(top.Subject),
 			top.EffectiveImpactMS,
 		)
-		if supply, ok := answerDocTraceRankAuthorityTopSupplySeat(seats); ok {
-			relation := "primary"
-			if supply.Rank != top.Rank || strings.TrimSpace(supply.EvidenceID) != strings.TrimSpace(top.EvidenceID) {
-				relation = "secondary_bounded_candidate"
+		if authority.BoardTarget != "" {
+			fmt.Fprintf(&b, "; board_target=`%s`", authority.BoardTarget)
+		}
+		if authority.WindowEndTs > authority.WindowStartTs {
+			fmt.Fprintf(&b, "; board_window=`%.6f..%.6f`", authority.WindowStartTs, authority.WindowEndTs)
+		}
+		if authority.BoardParamsFingerprint != "" {
+			fmt.Fprintf(&b, "; board_params=`%s`", authority.BoardParamsFingerprint)
+		}
+		b.WriteString("; cross_row_additivity=`forbidden` — ranked effective impacts are comparable attribution/head-room values but may overlap across rows, threads, segments, and fix directions. Never add several seats into a new total; only a total already published inside one merged row is additive under that row's typed fold caliber.\n")
+		if !authority.Complete {
+			b.WriteString("  - roster is incomplete or ambiguous; preserve the listed typed ordinals, do not invent missing seats, and do not claim this is the complete board.\n")
+		}
+		b.WriteString("  - ordered_ranked_roster:\n")
+		for _, seat := range authority.Seats {
+			fmt.Fprintf(&b, "    - `#%d`; type=`%s`; subject=`%s`; effective=%.3fms; tier=`%s`; channel=`%s`",
+				seat.Rank,
+				seat.Type,
+				seat.Subject,
+				seat.EffectiveImpactMS,
+				seat.Tier,
+				seat.ChainRelevance,
+			)
+			if seat.FixDirection != "" {
+				fmt.Fprintf(&b, "; fix_direction=`%s`", seat.FixDirection)
+			}
+			b.WriteByte('\n')
+		}
+		if supply, ok := answerDocTraceRankAuthorityTopSupplySeat(authority.Seats); ok {
+			relation := "secondary_bounded_candidate"
+			if authority.Complete && supply.Rank == top.Rank {
+				relation = "primary"
 			}
 			fmt.Fprintf(&b,
 				"  - compute_delivery_positive=true; relation_to_top=`%s`; seat=`#%d %s %s %.3fms`; authority: a positive `frequency_thermal` seat means compute-delivery head-room is measured. If another direction leads, describe supply as secondary/not the main cause, but never as absent, eliminated, or disproven.\n",
 				relation,
 				supply.Rank,
-				answerDocTraceRankAuthorityNodeType(supply),
+				supply.Type,
 				strings.TrimSpace(supply.Subject),
 				supply.EffectiveImpactMS,
 			)
@@ -4232,40 +4256,8 @@ func renderAnswerDocTraceWakeupCensusAuthority(ledger types.ObservationLedger) s
 	return b.String()
 }
 
-func answerDocTraceRankAuthoritySeats(projection types.TraceCausalProjection) []types.TraceCausalProjectionNode {
-	var candidates []types.TraceCausalProjectionNode
-	if projection.PrimaryRootCause != nil {
-		candidates = append(candidates, *projection.PrimaryRootCause)
-	}
-	candidates = append(candidates, projection.PrimaryRootCauses...)
-	candidates = append(candidates, projection.OnChainCauses...)
-	seen := map[string]bool{}
-	out := make([]types.TraceCausalProjectionNode, 0, len(candidates))
-	for _, node := range candidates {
-		if node.Rank <= 0 || !node.EffectiveImpactPublished || node.EffectiveImpactMS <= 0 {
-			continue
-		}
-		key := strings.TrimSpace(node.EvidenceID)
-		if key == "" {
-			key = fmt.Sprintf("%d\x00%s\x00%s\x00%.9f", node.Rank, node.Subject, answerDocTraceRankAuthorityNodeType(node), node.EffectiveImpactMS)
-		}
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		out = append(out, node)
-	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Rank != out[j].Rank {
-			return out[i].Rank < out[j].Rank
-		}
-		return out[i].EffectiveImpactMS > out[j].EffectiveImpactMS
-	})
-	return out
-}
-
-func answerDocTraceRankAuthorityTopSupplySeat(seats []types.TraceCausalProjectionNode) (types.TraceCausalProjectionNode, bool) {
-	var best types.TraceCausalProjectionNode
+func answerDocTraceRankAuthorityTopSupplySeat(seats []types.TraceRankRosterSeat) (types.TraceRankRosterSeat, bool) {
+	var best types.TraceRankRosterSeat
 	found := false
 	for _, seat := range seats {
 		if strings.TrimSpace(seat.FixDirection) != "frequency_thermal" {
@@ -4277,10 +4269,6 @@ func answerDocTraceRankAuthorityTopSupplySeat(seats []types.TraceCausalProjectio
 		}
 	}
 	return best, found
-}
-
-func answerDocTraceRankAuthorityNodeType(node types.TraceCausalProjectionNode) string {
-	return firstNonEmptyString(node.TypeToken, node.Object, node.Predicate, "unknown")
 }
 
 func renderAnswerDocRuntimeSourceAuthority(ctx *types.AgentContext, ledger types.ObservationLedger) string {

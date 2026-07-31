@@ -197,6 +197,12 @@ func RegisterDefaults(r *Registry) {
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},
 			{
+				// EVAL-B11-AB3: final prose consumes the typed per-board
+				// roster. Soft guidance only; no request/answer text scan.
+				Body:      "TRACE ORDERED RANK ROSTER AUTHORITY: when `Trace Rank Arithmetic And Supply Authority` provides an `ordered_ranked_roster`, copy its `#N` ordinals, type, subject, effective value, and board identity exactly. The roster is the only ordinal authority: a measured component, context-only row, target symptom, data gap, caliber side rail, or absorbed row that is absent from it has no rank seat; never infer a rank from duration, discovery order, another table, or narrative importance. When `roster_status` is not `complete`, preserve the listed ordinals but describe the board as incomplete/ambiguous instead of inventing missing seats. Ranked rows remain non-additive across seats.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+			},
+			{
 				// C1 值词库教学批 (§29.104.16.1 M5①, 2026-07-17). EVOLUTION
 				// RECORD: the wire-token ↔ display-word bridge directive —
 				// witness cust_span_vs_prio_info: bare `gated_runnable` and
@@ -637,6 +643,11 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 				// the same typed rule for handoff; final prose needs its own
 				// soft authority because no answer-text scanner is permitted.
 				Body:      "TRACE MIXED SUPPLY VERDICT: a seated root-cause row with positive effective_impact_ms and fix_direction=frequency_thermal is measured compute-delivery head-room. Its presence forbids saying compute supply was absent, eliminated, disproven, or fully ruled out. If a different direction occupies the higher ranked seats, say that the other direction is dominant and compute delivery is a secondary bounded candidate, quoting the supply seat's own published value and caliber; `not the main cause` is not the same as `no supply issue`. If the frequency_thermal seat itself ranks first, follow the board and treat it as primary. Never add that seat to demand/dependency/IO/lock seats: different ranked rows are non-additive unless the evidence itself publishes one merged-row total under its typed fold caliber.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+			},
+			{
+				// EVAL-B11-AB3 answer-side mirror.
+				Body:      "TRACE ORDERED RANK ROSTER AUTHORITY: when `Trace Rank Arithmetic And Supply Authority` provides an `ordered_ranked_roster`, copy its `#N` ordinals, type, subject, effective value, and board identity exactly. The roster is the only ordinal authority: a measured component, context-only row, target symptom, data gap, caliber side rail, or absorbed row that is absent from it has no rank seat; never infer a rank from duration, discovery order, another table, or narrative importance. When `roster_status` is not `complete`, preserve the listed ordinals but describe the board as incomplete/ambiguous instead of inventing missing seats. Ranked rows remain non-additive across seats.",
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},
 			{

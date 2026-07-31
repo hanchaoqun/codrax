@@ -1794,7 +1794,7 @@ transaction 12145859，peer `binder:496_9-10961`，发生于
 |---|---:|---|---|---|---|
 | EVAL-B11-AB1 | P1 | write verification continuation | probe-pass 决策早于 changed-path coverage，导致已识别的匹配 suite 被跳过后才发现覆盖不足 | 对 probe pass 的临时报表先执行 changed-path coverage；若有 changed source 未覆盖且存在可运行 TestSurface，则继续项目 suite，并由组合报告取得最终覆盖 | covered |
 | EVAL-B11-AB2 | P1 | trace aggregate temporal identity | 累计/投影值与某个单次 occurrence span 共用 observation，duration 与 window 失配 | 让聚合记录只携带 aggregate/member-set 窗；单次 span 必须绑定同一 member 的 duration，无法一一对应则不发布单次精确窗 | covered |
-| EVAL-B11-AB3 | P1 | rank roster authority | writer 仅获 top/supply 摘要，完整排序留在成文后的 deterministic projection | 从 compiled projection 发布紧凑、完整、按 rank 排序的 typed roster，区分 ranked seat 与 context-only/binder composition，供正文直接转录 | planned |
+| EVAL-B11-AB3 | P1 | rank roster authority | writer 仅获 top/supply 摘要，完整排序留在成文后的 deterministic projection | 从 compiled projection 发布紧凑、完整、按 rank 排序的 typed roster，区分 ranked seat 与 context-only/binder composition，供正文直接转录 | covered |
 | EVAL-B11-AB4 | P2 | incomplete enumeration wording | observation coverage 已为 incomplete，正文仍写“窗口内全部/其余均为” | 将 per-view enumeration completeness 与可用 rowset 绑定成 typed wording authority；保持 soft guidance，不扫描答案做 hard gate | filed |
 | EVAL-B11-AB5 | P2 | native probe capability | verification probe schema 无 C/C++/shell，模型需用另一语言 wrapper | 先由 AB1 自动续跑匹配项目 suite 保证正确性；原生 probe 扩展另案评估安全沙箱与命令边界，不阻塞本批 | filed |
 
@@ -1858,3 +1858,44 @@ suite 失败/超时保持 non-pass。完整
 （types 20.036s、tool 158.848s）。实现不改 root score、rank/tier、因果
 投影、唤醒链、窗内可消除量、显式窗选举或自动补采，也不读取任何用户/模型
 文本。
+
+批 AB3 把完整榜单权限放回 typed projection，而不是继续要求模型从散落的
+top observation 或探索摘要重建。`TraceCausalProjection.RankedSeats` 在
+R1/R2 去重与聚合已经完成、相邻/背景展示 cap 尚未折叠时冻结：因此它继承
+既有 seat 的 rank/tier/effective/fix-direction 语义，又不受树面展示容量
+影响。该字段是只读 side channel，不参与排序、分值、准入、折叠或补采。
+
+新的 `BuildTraceRankRosterAuthorities` 按完整 board identity 分组：
+
+- trace artifact；
+- rank board target；
+- rank-supplying query window；
+- board params fingerprint。
+
+同一工件、同一时间窗下不同 target/knob 的 `#1` 不会混成一张榜。每板严格
+检查 ordinal 从1连续、无重复，且每席存在正值 published effective：
+满足时 `roster_status=complete`；缺席、撞号或值权限不足时发布 typed
+incomplete 状态，保留已知席但禁止补猜。
+
+answer-writer 现在逐席收到：
+`#N / type / subject / effective / tier / channel / fix_direction`，并明确该
+roster 是唯一 ordinal authority。任何未入 roster 的 measured component、
+context-only、target symptom、data gap、caliber side rail 或 absorbed row
+均不得仅凭时长、发现顺序、另一张表或叙事重要性获得 `#N`。这统一覆盖 H1
+把 1.409ms binder component 自授 #6、又把更大席放 #7/#8 的问题，而不是
+对 binder 类型做单点规则。
+
+回归覆盖：
+
+1. 同 artifact 双 board 的 rank #1 分域与每板连续性；
+2. rank gap fail-closed 为 incomplete；
+3. 生产 `renderAnswerDocObservationLedger` 接线输出 #1..#4 严格有序；
+4. rank=0 的 binder context 不进入 roster；
+5. finalizer soft skill 同步 roster-only ordinal 规则。
+
+完整 `go test ./internal/types ./internal/agent ./internal/skill -count=1`
+通过（types 21.068s、agent 3.827s、skill 1.486s）。实现不扫描 request /
+thinking /答案原文，也不改显式窗、因果投影树、根因榜计算、wakeup chain、
+窗内可消除量或自动补采。projection 新载体已登记信息契约为 answer-writer
+displayed authority、非树面 gate；完整 `go test ./internal/tool -count=1`
+通过（159.045s）。

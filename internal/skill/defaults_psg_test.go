@@ -117,6 +117,26 @@ func TestFinalizerSkillMixedSupplyVerdictZ3(t *testing.T) {
 	}
 }
 
+func TestFinalizerSkillOrderedRankRosterAuthorityAB3(t *testing.T) {
+	item := psgAnswerSkillTierBBody(t, "TRACE ORDERED RANK ROSTER AUTHORITY")
+	if !item.AppliesTo.RequiresTrace {
+		t.Fatalf("the ordered-rank-roster rule is trace-gated; AppliesTo=%+v", item.AppliesTo)
+	}
+	for _, want := range []string{
+		"ordered_ranked_roster",
+		"only ordinal authority",
+		"absent from it has no rank seat",
+		"never infer a rank from duration",
+		"roster_status",
+		"not `complete`",
+		"Ranked rows remain non-additive",
+	} {
+		if !strings.Contains(item.Body, want) {
+			t.Fatalf("ordered-rank-roster authority rule missing %q:\n%s", want, item.Body)
+		}
+	}
+}
+
 // TestG13FinalizerSkillPrimaryCauseEntityConsistency pins the §27.4 G13 /
 // §28.1 ruling (2026-07-09) headline half: the prose's primary-cause entity
 // follows the ranked ordering (discounts/demotions included), and a genuine

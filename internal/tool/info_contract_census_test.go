@@ -421,6 +421,7 @@ var nodeFieldContract = map[string]fieldDisposition{
 var projectionFieldContract = map[string]fieldDisposition{
 	"PrimaryRootCause":             {Status: "displayed", Ref: "行族桶来源(F1–F7)"},
 	"PrimaryRootCauses":            {Status: "displayed", Ref: "行族桶来源"},
+	"RankedSeats":                  {Status: "displayed", Ref: "AB3 answer-writer ordered rank roster authority", NoScan: true},
 	"OnChainCauses":                {Status: "displayed", Ref: "行族桶来源"},
 	"AdjacentCauses":               {Status: "displayed", Ref: "◇ 区段来源"},
 	"BackgroundCauses":             {Status: "displayed", Ref: "▒ 区段来源"},

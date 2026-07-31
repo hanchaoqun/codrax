@@ -27,11 +27,18 @@ const (
 type TraceCausalProjection struct {
 	PrimaryRootCause  *TraceCausalProjectionNode  `json:"primary_root_cause,omitempty"`
 	PrimaryRootCauses []TraceCausalProjectionNode `json:"primary_root_causes,omitempty"`
-	OnChainCauses     []TraceCausalProjectionNode `json:"on_chain_causes,omitempty"`
-	AdjacentCauses    []TraceCausalProjectionNode `json:"adjacent_causes,omitempty"`
-	BackgroundCauses  []TraceCausalProjectionNode `json:"background_causes,omitempty"`
-	SemanticSpans     []TraceCausalProjectionNode `json:"semantic_spans,omitempty"`
-	WakeupPath        []string                    `json:"wakeup_path,omitempty"`
+	// RankedSeats is the complete pre-presentation-cap roster of typed
+	// root-cause board seats after projection dedupe/aggregation. It is an
+	// authority side channel: tree bucket caps/folds may change presentation
+	// density, but must not erase an ordinal from answer-writing context.
+	// Rank/tier/value are copied from the already-compiled nodes; this carrier
+	// is never an ordering, scoring, admission, or supplementation input.
+	RankedSeats      []TraceCausalProjectionNode `json:"ranked_seats,omitempty"`
+	OnChainCauses    []TraceCausalProjectionNode `json:"on_chain_causes,omitempty"`
+	AdjacentCauses   []TraceCausalProjectionNode `json:"adjacent_causes,omitempty"`
+	BackgroundCauses []TraceCausalProjectionNode `json:"background_causes,omitempty"`
+	SemanticSpans    []TraceCausalProjectionNode `json:"semantic_spans,omitempty"`
+	WakeupPath       []string                    `json:"wakeup_path,omitempty"`
 	// WakeupPathUserElected (§10-B1 锚归属, §12.3 裁定3 2026-07-06): true when
 	// WakeupPath was ELECTED by a precise typed user-entity match — some
 	// wakeup_chain path record matched a typed user entity (compile-side
@@ -2138,6 +2145,15 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 	// on-chain node also appearing in OnChainCauses as the same-EvidenceID copy)
 	// are preserved — renderers keep deduping by node key.
 	traceCausalProjectionAggregateForPresentation(&out)
+	// AB3 (2026-07-31): freeze the full typed rank roster after all
+	// dedupe/aggregation semantics have settled but before presentation caps
+	// fold context buckets. This side channel cannot affect the buckets.
+	out.RankedSeats = traceCausalProjectionCollectRankedSeats(
+		out.PrimaryRootCauses,
+		out.OnChainCauses,
+		out.AdjacentCauses,
+		out.BackgroundCauses,
+	)
 	// PTS fold-cap runs on the AGGREGATED bucket (复核 P1, 2026-07-06): the
 	// count is the post-merge truth, and every attach pass below sees the
 	// final node set. The fold row appends after the impact-major resort —
@@ -2183,6 +2199,7 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 	if anchorStart, anchorEnd, ok := traceCausalProjectionAnchorWindow(records); ok {
 		out.WindowStartTs, out.WindowEndTs = anchorStart, anchorEnd
 		traceCausalProjectionMarkWithinWindow(out.PrimaryRootCauses, anchorStart, anchorEnd)
+		traceCausalProjectionMarkWithinWindow(out.RankedSeats, anchorStart, anchorEnd)
 		traceCausalProjectionMarkWithinWindow(out.OnChainCauses, anchorStart, anchorEnd)
 		traceCausalProjectionMarkWithinWindow(out.AdjacentCauses, anchorStart, anchorEnd)
 		traceCausalProjectionMarkWithinWindow(out.BackgroundCauses, anchorStart, anchorEnd)
@@ -2209,6 +2226,52 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 		return TraceCausalProjection{}
 	}
 	return out
+}
+
+func traceCausalProjectionCollectRankedSeats(buckets ...[]TraceCausalProjectionNode) []TraceCausalProjectionNode {
+	var candidates []TraceCausalProjectionNode
+	for _, bucket := range buckets {
+		for _, node := range bucket {
+			if node.Rank > 0 {
+				candidates = append(candidates, node)
+			}
+		}
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	candidates = traceCausalProjectionDedupeNodes(candidates)
+	sort.SliceStable(candidates, func(i, j int) bool {
+		ki := traceCausalProjectionRankBoardIdentityKey(candidates[i])
+		kj := traceCausalProjectionRankBoardIdentityKey(candidates[j])
+		if ki != kj {
+			return ki < kj
+		}
+		if candidates[i].Rank != candidates[j].Rank {
+			return candidates[i].Rank < candidates[j].Rank
+		}
+		if candidates[i].EffectiveImpactMS != candidates[j].EffectiveImpactMS {
+			return candidates[i].EffectiveImpactMS > candidates[j].EffectiveImpactMS
+		}
+		if candidates[i].Subject != candidates[j].Subject {
+			return candidates[i].Subject < candidates[j].Subject
+		}
+		return candidates[i].EvidenceID < candidates[j].EvidenceID
+	})
+	return candidates
+}
+
+func traceCausalProjectionRankBoardIdentityKey(node TraceCausalProjectionNode) string {
+	start, end := node.RankQueryWindowStartTs, node.RankQueryWindowEndTs
+	if !traceCausalProjectionIntervalValid(start, end) {
+		start, end = node.QueryWindowStartTs, node.QueryWindowEndTs
+	}
+	return strings.Join([]string{
+		strings.TrimSpace(node.RankBoardTarget),
+		strings.TrimSpace(node.RankBoardParamsFingerprint),
+		strconv.FormatFloat(start, 'g', -1, 64),
+		strconv.FormatFloat(end, 'g', -1, 64),
+	}, "\x00")
 }
 
 // traceCausalProjectionContextOnly is the compile-side admission gate for a
