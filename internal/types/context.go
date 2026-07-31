@@ -6131,6 +6131,11 @@ const (
 	// user is never told a real source anchor "could not be verified"
 	// when it was in fact a trace/log coordinate (CPD #58).
 	DetachedCitationKindRuntimeArtifact DetachedCitationDisclosureKind = "runtime_artifact"
+	// DetachedCitationKindEvidenceOriginMismatch marks a valid current-source
+	// citation attached to a runtime-artifact observation item. The source
+	// line may remain useful to a sibling mechanism block, but it cannot prove
+	// the runtime value carried by this item.
+	DetachedCitationKindEvidenceOriginMismatch DetachedCitationDisclosureKind = "evidence_origin_mismatch"
 )
 
 // DetachedCitationDisclosure identifies one answer item whose

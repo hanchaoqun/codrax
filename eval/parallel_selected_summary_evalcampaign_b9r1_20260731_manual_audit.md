@@ -28,11 +28,13 @@ This scaffold is for human review. The runner records typed metrics and declared
   typed connector kind or causal conclusion. The accepted answer therefore
   called B/E-only adjacency a confirmed cross-thread flow with no missing hop.
   This is engine authority leakage, not model variance.
-- `EVAL-B9-C1/P1`: the analyzer correctly emitted an active
+- `EVAL-B9-C1/P1` (Batch V implemented): the analyzer correctly emitted an active
   `artifact_value_profile` for the 86.111ms runtime scalar. The model's scalar
   block declared `external_observation` but still cited a current-source line.
   Existing cleanup intentionally preserved all current-source citations for a
   mixed artifact+source request, with no item-level origin-alignment pass.
+  The new typed pass detaches only that scalar-item edge and keeps the sibling
+  source-mechanism citations.
 - The combo answer's source mechanism citations are otherwise useful and must
   remain: the correction must detach only the source citation from the typed
   artifact scalar, not remove the current-source explanation lane.

@@ -813,6 +813,10 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		pctx.recordPreEmitRepair("normalizeClaimUseEvidenceIDsByProjection", fixed)
 		logging.Warning("[%s] detached %d incompatible claim_use evidence_id value(s) from citation-backed blocks", toolName, fixed)
 	}
+	if fixed := normalizeRuntimeArtifactScalarCurrentSourceCitationRefsWithContext(doc, ctx, pctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeRuntimeArtifactScalarCurrentSourceCitationRefsWithContext", fixed)
+		logging.Warning("[%s] detached %d current-source citation_ref value(s) from typed runtime-artifact scalar items", toolName, fixed)
+	}
 	// §29.174 F6: the two typed pool-cleanup passes below are the drop
 	// points behind the "N citations submitted → M registered" delta.
 	// Record HOW MANY top-level pool entries each pass removed (the
@@ -898,6 +902,7 @@ func materializeDetachedCitationRefCaveats(doc *types.AnswerDocumentV2, ctx *typ
 	// reference was runtime provenance, never a repo source anchor.
 	kept, removed := 0, 0
 	artifactKept, artifactRemoved := 0, 0
+	originMismatchKept, originMismatchRemoved := 0, 0
 	for _, rec := range records {
 		visible := detachedCitationItemStillVisible(doc, rec)
 		switch rec.Kind {
@@ -906,6 +911,12 @@ func materializeDetachedCitationRefCaveats(doc *types.AnswerDocumentV2, ctx *typ
 				artifactKept++
 			} else {
 				artifactRemoved++
+			}
+		case types.DetachedCitationKindEvidenceOriginMismatch:
+			if visible {
+				originMismatchKept++
+			} else {
+				originMismatchRemoved++
 			}
 		default:
 			if visible {
@@ -942,6 +953,20 @@ func materializeDetachedCitationRefCaveats(doc *types.AnswerDocumentV2, ctx *typ
 			doc.Caveats = append(doc.Caveats, fmt.Sprintf("%d 处条目的引用指向附件运行时材料（非当前仓库源码引用），且条目未通过结构化答案校验，条目已连同内容一并移除。", artifactRemoved))
 		} else {
 			doc.Caveats = append(doc.Caveats, fmt.Sprintf("%d item(s) whose reference pointed at the attached runtime artifact (not a current-repository source citation) also failed structured answer validation and were removed together with their content.", artifactRemoved))
+		}
+	}
+	if originMismatchKept > 0 {
+		if zh {
+			doc.Caveats = append(doc.Caveats, fmt.Sprintf("%d 处运行时观测条目错误借用了当前仓库源码引用；源码行可解释机制但不能证明该次运行时测量，已移除条目上的源码引用（条目内容保留）。", originMismatchKept))
+		} else {
+			doc.Caveats = append(doc.Caveats, fmt.Sprintf("%d runtime-observation item(s) incorrectly borrowed a current-source citation; the source line may explain the mechanism but cannot prove this runtime measurement, so the item citation was removed (item text kept).", originMismatchKept))
+		}
+	}
+	if originMismatchRemoved > 0 {
+		if zh {
+			doc.Caveats = append(doc.Caveats, fmt.Sprintf("%d 处运行时观测条目错误借用了当前仓库源码引用，且条目未通过结构化答案校验，条目已连同内容一并移除。", originMismatchRemoved))
+		} else {
+			doc.Caveats = append(doc.Caveats, fmt.Sprintf("%d runtime-observation item(s) incorrectly borrowed a current-source citation and also failed structured answer validation, so the items were removed together with their content.", originMismatchRemoved))
 		}
 	}
 }

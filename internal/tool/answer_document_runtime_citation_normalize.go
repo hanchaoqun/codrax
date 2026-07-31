@@ -231,6 +231,70 @@ func normalizeRuntimeArtifactCitationRefs(doc *types.AnswerDocumentV2, ctx *type
 	return normalizeRuntimeArtifactCitationRefsWithContext(doc, ctx, nil)
 }
 
+// normalizeRuntimeArtifactScalarCurrentSourceCitationRefsWithContext keeps
+// mixed-origin answers lane-correct at item granularity. A mixed
+// runtime-artifact + current-source request legitimately needs repo citations
+// for its mechanism explanation, so the document-level citation cleanup must
+// retain them. But the principal runtime scalar itself is an external
+// observation and cannot borrow one of those source citations.
+//
+// The gate is fully typed:
+//   - analyzer emitted an active RuntimeArtifactValueProfile;
+//   - the answer block is scalar;
+//   - the block declares ClaimExternalObservation;
+//   - the referenced citation resolves inside the current repository and is
+//     not a typed/path-shaped runtime artifact.
+//
+// No answer text, user wording, numeric literal, case name, or model reasoning
+// participates. The item text and the source citation pool entry are kept;
+// only this incompatible item-to-citation edge is detached. A sibling
+// mechanism block may continue using the same source entry.
+func normalizeRuntimeArtifactScalarCurrentSourceCitationRefsWithContext(doc *types.AnswerDocumentV2, ctx *types.BusContext, pctx *preEmitCheckContext) int {
+	if doc == nil || ctx == nil || ctx.AnalysisIR == nil ||
+		ctx.AnalysisIR.RequestModel.RuntimeArtifactValueProfile == nil ||
+		!ctx.AnalysisIR.RequestModel.RuntimeArtifactValueProfile.Active() {
+		return 0
+	}
+	artifactSpellings := runtimeArtifactCitationPathSet(ctx)
+	fixed := 0
+	for bi := range doc.Blocks {
+		block := &doc.Blocks[bi]
+		if block.Kind != types.BlockScalar || !answerBlockHasClaimForm(*block, types.ClaimExternalObservation) {
+			continue
+		}
+		for ii := range block.Items {
+			item := &block.Items[ii]
+			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
+				continue
+			}
+			cit := doc.Citations[item.CitationRef]
+			if cit.Line <= 0 || cit.Scope == types.ScopeNegative ||
+				types.LooksLikeRuntimeArtifactPath(cit.File) ||
+				citationFileIsRuntimeArtifact(artifactSpellings, cit.File) {
+				continue
+			}
+			if _, ok := currentSourceCitationPath(ctx.RepoRoot, cit.File); !ok {
+				continue
+			}
+			item.CitationRef = -1
+			if pctx != nil {
+				pctx.recordDetachedCitationItemKind(block.ID, item.ID, item.Label, types.DetachedCitationKindEvidenceOriginMismatch)
+			}
+			fixed++
+		}
+	}
+	return fixed
+}
+
+func answerBlockHasClaimForm(block types.AnswerBlock, want types.ClaimForm) bool {
+	for _, claim := range block.ClaimUses {
+		if claim.ClaimForm == want {
+			return true
+		}
+	}
+	return false
+}
+
 // normalizeRuntimeArtifactCitationRefsWithContext is the chain-facing variant:
 // when pctx is present, every item whose citation_ref pointed at an
 // artifact-spelled pool entry being removed is recorded on the QCE §7.13

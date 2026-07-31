@@ -1206,7 +1206,7 @@ Analyzer 已正确发出 active `artifact_value_profile`，scalar block 也声�
 | ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
 |---|---:|---|---|---|---|
 | EVAL-B9-T1 | P1 | 帧边因果权限 | 相邻 span 被命名为 flow，但边无 connector/causality authority，模型可把顺序升级为因果 | 边增加 typed relation kind/source/causal conclusion；B/E 相邻固定为 temporal_sequence/unproven；JSON、evidence、工具文本、系统覆盖块同源发布 | 批 U 已施工 |
-| EVAL-B9-C1 | P1 | mixed-origin item 引用 | mixed 请求需要保留源码解释，旧 cleanup 仅整份答案判定，artifact scalar可借用兄弟机制项的 current-source citation | active artifact value profile + scalar block + external_observation claim_use 作为精确门，仅移除该 item 的 current-source ref，保留正文与源码解释引用 | 下一批 V |
+| EVAL-B9-C1 | P1 | mixed-origin item 引用 | mixed 请求需要保留源码解释，旧 cleanup 仅整份答案判定，artifact scalar可借用兄弟机制项的 current-source citation | active artifact value profile + scalar block + external_observation claim_use 作为精确门，仅移除该 item 的 current-source ref，保留正文与源码解释引用 | 批 V 已施工 |
 | EVAL-B9-W1 | P2 | 帧 oracle 判决力 | runner 只检查阶段词和 flow 文本，未约束因果权限，错误过度结论仍 PASS | 批 U 后让 fixture要求确定性 authority surface；eval oracle只验系统发布字段，不作为产品正文关键词硬门 | filed |
 
 批 U 不变量：
@@ -1232,3 +1232,39 @@ relation ceiling，系统覆盖块确定性发布中英文“不能升级为已�
 Description byte golden 未发生变化（本批没有占用 Description 槽）。
 该变更是既有错误权限的撤回，不引入 prompt case 词或硬门。
 专项 tracequery/tool/types tests 已通过；待全包验证、提交推送。
+
+### 批 V：运行时 scalar 与源码机制引用分席（2026-07-31）
+
+批 V 在已有 document-level mixed-origin authority 之下增加 item-level
+对齐。触发条件全部来自 typed carrier 的合取：
+
+1. `RuntimeArtifactValueProfile.Active()`；
+2. `AnswerBlock.Kind=scalar`；
+3. block 的 `ClaimUses` 含 `ClaimExternalObservation`；
+4. item 的 citation 是当前仓库内的正行号 source citation，且不是 typed
+   attachment spelling 或 runtime-artifact path。
+
+命中时只把该 item 的 `citation_ref` 置为 -1。citation pool entry 不删除，
+兄弟 summary/section 对同一源码行的机制引用继续有效；scalar 文本也不删除。
+新的 typed disclosure kind `evidence_origin_mismatch` 在最终 persist 后按同一
+item identity 判断内容是否仍可见，并诚实说明“源码可解释机制但不能证明
+该次运行时测量”。未命中时 byte behavior 保持。
+
+批 V 不变量：
+
+1. 不扫描 scalar 文本、数值、用户输入、模型输出、case ID 或文件内容来
+   判断 origin；尤其不对 `86.111`、`DoFrame` 或 `50ms` 做特判。
+2. active profile 但 source/literal claim 的 scalar 不受影响；artifact
+   citation、仓外 external source、inactive profile 均不受影响。
+3. 不清除 mixed request 的 current-source evidence lane，不影响源码机制
+   citation supplement、current-status 检查或 source quote 校验。
+4. 不修改 Trace query、显式时间窗、因果投影、自动补齐、根因排序、唤醒
+   链和窗内可消除量。
+
+`B9-V/P1` 施工验证：正例固定一个 artifact scalar 错借源码 ref，同时同一
+ref 被机制 summary 正确使用、另一个 artifact provenance ref 正确保留；
+三者结果分别为 detached/kept/kept。负例覆盖 inactive profile、
+source-literal claim、artifact citation、仓外 external path。production
+normalize chain pin 固定 pass 接线与 typed disclosure ferry，防止只留下
+孤立 helper。`go test ./internal/types ./internal/tool -count=1` 全包通过
+（types 20.670s、tool 164.148s）；待提交推送并重跑 B9。
