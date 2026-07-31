@@ -126,6 +126,28 @@ func TestWriteAnalysisSkillRenderedPlacementGuidanceIsTyped(t *testing.T) {
 	}
 }
 
+func TestWriteAnalysisSkillCalibratesMutationRiskWithoutWeakeningApproval(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	sk, err := r.Get("write-analysis-skill")
+	if err != nil {
+		t.Fatalf("Get(write-analysis-skill) returned error: %v", err)
+	}
+	corpus := strings.ToLower(sk.Goal + "\n" + sk.OutputFormat + "\n" + allWorkflowBodies(sk) + "\n" + allProhibitionBodies(sk))
+	for _, want := range []string{
+		"mutation's blast radius",
+		"not the severity of the pre-existing defect",
+		"package-local bugfix",
+		"preserves public signatures",
+		"reserve high for genuinely broad or high-impact mutation surfaces",
+		"never overrides the deterministic approval gate",
+	} {
+		if !strings.Contains(corpus, want) {
+			t.Fatalf("write-analysis risk calibration missing %q:\n%s", want, corpus)
+		}
+	}
+}
+
 // TestExploreSkillR6_NoInternalGateJargon — 2026-05-10 audit. The
 // EVIDENCE_FLOOR_WAIVER skill prompt described the waiver's effect
 // using internal pipeline gate names ("forced-read and citation-

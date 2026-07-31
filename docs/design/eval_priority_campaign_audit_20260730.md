@@ -2147,7 +2147,7 @@ PyO3 写用例没有进入 apply：write analyzer 同时发布
 | EVAL-B12-AE1 | P1 | IPC request count caliber | IPC 请求数与目标 blocking occurrence 数共用叙事通道，1 个阻塞区间被写成 1 个同步事务 | 从完整 typed ipc_graph 按 sender/window 构造 request census，分别发布 sync/oneway/unknown；与 blocking authority 明确隔离 | covered-pending-replay |
 | EVAL-B12-AE2 | P1 | native IPC row identity | transaction id/flags/code/peer/timestamp 无同一行权限，字段可从相邻 IPC 事件串台 | 每个 sync request 发布同一 typed edge 的 transaction/flags/code/peer/send/receive/known-state；writer 逐 tuple 转录 | covered-pending-replay |
 | EVAL-B12-AE3 | P1 | exact target-self blocking admission | critical drill 包络包含相邻阶段，按 span/value 校验被拒；精确 target-self-state 行未被 blocking authority 消费 | 保留 span≈value 硬条件，同时接纳 typed `tier=target_self_state` 根因行；发布 occurrence-present 反否定位 | covered-pending-replay |
-| EVAL-B12-AF1 | P1 | write risk caliber | 变更前问题严重度被误当成补丁误施爆炸半径，三风险轴全 false 的局部 bugfix 被标 high | 只增强 write-analysis soft rubric：overall 衡量改动 blast radius；局部保持签名、无持久化/构建/安全面的 bugfix 通常 low/medium；不改审批门 | open |
+| EVAL-B12-AF1 | P1 | write risk caliber | 变更前问题严重度被误当成补丁误施爆炸半径，三风险轴全 false 的局部 bugfix 被标 high | 只增强 write-analysis soft rubric：overall 衡量改动 blast radius；局部保持签名、无持久化/构建/安全面的 bugfix 通常 low/medium；不改审批门 | covered-pending-replay |
 | EVAL-B11-AB4 | P2 | incomplete enumeration wording | incomplete 仍可与全部/仅有措辞并存 | 保持已立案；不扫描答案原文做 hard reject | reproduced-filed |
 
 批 AE 不变量：
@@ -2183,3 +2183,12 @@ guidance。专项测试覆盖真实 H1 数量/字段形、宽包络拒绝与精�
 `go test ./internal/types ./internal/agent ./internal/skill ./internal/tool
 -count=1` 通过（types 18.420s、agent 3.047s、skill 1.576s、tool
 164.525s）。
+
+批 AF1 只更新 `write-analysis-skill` 的 soft rubric：`overall` 明确衡量
+“拟议补丁若误施”的 mutation blast radius，不是既有故障的严重度；保持
+公开签名、且不触及持久化、构建、安全、权限、远程执行或不可逆数据面的
+package-local bugfix 通常应为 low/medium，high 留给真实宽面或高影响改动。
+审批 evaluator、typed diff/path corroboration、high-risk 人工批准和
+critical deny 逻辑均未修改。专项测试钉住上述口径及
+“never overrides deterministic approval gate”，完整
+`go test ./internal/skill -count=1` 通过（0.713s）。
