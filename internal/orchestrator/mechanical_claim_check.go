@@ -887,7 +887,34 @@ func mechanicalClaimWithinAdmitted(sent string, compStart int) bool {
 	if compStart < 0 || compStart > len(sent) {
 		return false
 	}
-	return strings.Contains(sent[:compStart], "在")
+	// ROUND-10: the admission window is CLAUSE-bounded, not
+	// sentence-wide — R9's sentence-wide Contains admitted 之内/以内
+	// comparators whose 在 belonged to an earlier clause (「在该窗口，
+	// 卡顿阈值 80ms 之内的帧…」), and the ambiguity skip structurally
+	// cannot catch them because the closer sits inside the comparator
+	// word itself. Walk backward from the comparator and stop at a
+	// clause barrier; an ASCII '.'/',' flanked by digits (16.67) is
+	// numeric-internal and transparent, so 「实测 12ms 在 16.67ms
+	// 预算之内」 keeps its legitimate admission.
+	region := sent[:compStart]
+	for i := len(region); i > 0; {
+		r, size := utf8.DecodeLastRuneInString(region[:i])
+		i -= size
+		if r == '在' {
+			return true
+		}
+		if mechanicalClaimClauseBarrierRune(r) {
+			if (r == '.' || r == ',') && i > 0 && i+size < len(region) {
+				prev, _ := utf8.DecodeLastRuneInString(region[:i])
+				next, _ := utf8.DecodeRuneInString(region[i+size:])
+				if prev >= '0' && prev <= '9' && next >= '0' && next <= '9' {
+					continue
+				}
+			}
+			return false
+		}
+	}
+	return false
 }
 
 // mechanicalClaimModalNearComparator reports whether the comparator's

@@ -573,3 +573,23 @@ func TestMechanicalClaim_ContractCheckEndToEnd(t *testing.T) {
 		t.Fatalf("the one-round cap must hold through runContractCheck, got %+v", got)
 	}
 }
+
+// TestMechanicalClaim_WithinAdmissionClauseBounded pins the round-10
+// fix: a 之内 comparator whose only 在 sits in an EARLIER clause is not
+// admitted (the ambiguity skip cannot protect this shape — the closer
+// lives inside the comparator word), while the legitimate same-clause
+// admission across a decimal point stays intact.
+func TestMechanicalClaim_WithinAdmissionClauseBounded(t *testing.T) {
+	// Earlier-clause 在: must NOT be admitted → run stays silent.
+	silent := "在该窗口，卡顿阈值 80ms 之内的帧平均耗时 16.67ms。"
+	if got := runMechanicalClaimCheck(mccDoc(silent), mccMutable(), "zh"); len(got) != 0 {
+		t.Fatalf("earlier-clause 在 must not admit 之内; got %d findings: %+v", len(got), got)
+	}
+	// Same-clause admission across a decimal stays intact: the
+	// direction-correct row 「实测 12ms 在 16.67ms 预算之内」 remains in
+	// TestMechanicalClaim_CorrectDirectionsSilent. The REVERSED 之内
+	// shape was already silent before round 9 (pre-existing recall
+	// limitation of the retired machinery, recorded in the round-9
+	// residuals) — deliberately not pinned here to avoid pinning a
+	// recall gap as a contract.
+}
