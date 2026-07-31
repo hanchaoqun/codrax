@@ -167,8 +167,11 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 			if endLine == 0 {
 				endLine = edit.StartLine
 			}
+			declaredStartLine := edit.StartLine
+			declaredEndLine := endLine
 			if edit.StartLine < 1 || endLine < edit.StartLine || endLine > lineCount {
-				if relocatedStart, relocatedEnd, ok := uniqueStructuredOldTextRange(lines, edit.OldText); ok {
+				if relocatedStart, relocatedEnd, ok := uniqueStructuredOldTextRange(lines, edit.OldText); ok &&
+					structuredEditRelocationPreservesDeclaredSpan(declaredStartLine, declaredEndLine, relocatedStart, relocatedEnd) {
 					edit.StartLine = relocatedStart + 1
 					endLine = relocatedEnd
 				} else {
@@ -189,17 +192,26 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 			if edit.OldText != "" {
 				got := strings.Join(lines[start:end], "")
 				if !structuredEditOldTextMatches(got, edit.OldText) {
-					if relocatedStart, relocatedEnd, ok := localUniqueStructuredOldTextRange(lines, edit.OldText, start, structuredEditLocalRelocationRadius); ok {
+					relocated := false
+					if relocatedStart, relocatedEnd, ok := localUniqueStructuredOldTextRange(lines, edit.OldText, start, structuredEditLocalRelocationRadius); ok &&
+						structuredEditRelocationPreservesDeclaredSpan(declaredStartLine, declaredEndLine, relocatedStart, relocatedEnd) {
 						start = relocatedStart
 						end = relocatedEnd
 						edit.StartLine = relocatedStart + 1
 						endLine = relocatedEnd
-					} else if relocatedStart, relocatedEnd, ok := uniqueStructuredOldTextRange(lines, edit.OldText); ok {
-						start = relocatedStart
-						end = relocatedEnd
-						edit.StartLine = relocatedStart + 1
-						endLine = relocatedEnd
-					} else {
+						relocated = true
+					}
+					if !relocated {
+						if relocatedStart, relocatedEnd, ok := uniqueStructuredOldTextRange(lines, edit.OldText); ok &&
+							structuredEditRelocationPreservesDeclaredSpan(declaredStartLine, declaredEndLine, relocatedStart, relocatedEnd) {
+							start = relocatedStart
+							end = relocatedEnd
+							edit.StartLine = relocatedStart + 1
+							endLine = relocatedEnd
+							relocated = true
+						}
+					}
+					if !relocated {
 						msg := fmt.Sprintf(
 							"structured edit builder: change %q edits[%d] old_text mismatch at lines %d-%d; current bytes are %s — copy diagnostic.expected_old_text exactly into old_text and resend the same bounded edit",
 							path, i, edit.StartLine, endLine, boundedByteQuote(got, 160))
@@ -421,6 +433,22 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 		}
 	}
 	return out, nil
+}
+
+// structuredEditRelocationPreservesDeclaredSpan permits stale line-number
+// repair to translate a range, never to resize it. old_text is an anchor for
+// finding the same edit elsewhere; it cannot silently narrow or widen the
+// caller-declared replace/delete interval. Without this invariant, a full-file
+// replacement whose old_text omitted trailing lines could leave those lines in
+// place and append a duplicate suffix.
+func structuredEditRelocationPreservesDeclaredSpan(declaredStartLine, declaredEndLine, relocatedStart, relocatedEnd int) bool {
+	if declaredStartLine < 1 || declaredEndLine < declaredStartLine ||
+		relocatedStart < 0 || relocatedEnd < relocatedStart {
+		return false
+	}
+	declaredLength := declaredEndLine - declaredStartLine + 1
+	relocatedLength := relocatedEnd - relocatedStart
+	return declaredLength == relocatedLength
 }
 
 func localUniqueStructuredOldTextRange(lines []string, oldText string, preferredStart, radius int) (start, end int, ok bool) {

@@ -108,7 +108,7 @@ func TestCompileStructuredEditsToPatch_RejectsStaleContext(t *testing.T) {
 	}
 }
 
-func TestCompileStructuredEditsToPatch_RelocatesUniqueOldText(t *testing.T) {
+func TestCompileStructuredEditsToPatch_RejectsRelocationThatNarrowsDeclaredRange(t *testing.T) {
 	repo := t.TempDir()
 	if err := os.WriteFile(filepath.Join(repo, "file.txt"), []byte("one\ntwo\nthree\n"), 0o644); err != nil {
 		t.Fatalf("seed file: %v", err)
@@ -120,15 +120,98 @@ func TestCompileStructuredEditsToPatch_RelocatesUniqueOldText(t *testing.T) {
 			{Kind: "replace", StartLine: 1, EndLine: 2, OldText: "two\n", Content: "TWO\n"},
 		},
 	}
+	_, err := compileStructuredEditsToPatch(repo, change)
+	if err == nil {
+		t.Fatal("unique old_text must not narrow the declared two-line range to one line")
+	}
+	var diag *structuredEditDiagnosticError
+	if !errors.As(err, &diag) {
+		t.Fatalf("range-changing relocation should carry structured diagnostic: %v", err)
+	}
+	if diag.diagnostic.ReasonCode != "old_text_mismatch" ||
+		diag.diagnostic.StartLine != 1 || diag.diagnostic.EndLine != 2 ||
+		diag.diagnostic.CurrentBytes != "one\ntwo\n" {
+		t.Fatalf("unexpected range-changing relocation diagnostic: %+v", diag.diagnostic)
+	}
+}
+
+func TestCompileStructuredEditsToPatch_RelocatesUniqueOldTextWithSameSpan(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "file.txt"), []byte("zero\none\ntwo\nthree\n"), 0o644); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+	change := &types.FileChange{
+		Path: "file.txt",
+		Kind: "patch",
+		Edits: []types.StructuredEdit{
+			{Kind: "replace", StartLine: 1, EndLine: 2, OldText: "two\nthree\n", Content: "TWO\nTHREE\n"},
+		},
+	}
 	patch, err := compileStructuredEditsToPatch(repo, change)
 	if err != nil {
-		t.Fatalf("unique old_text should relocate the line range: %v", err)
+		t.Fatalf("same-span unique old_text should relocate the range: %v", err)
 	}
-	if strings.Contains(patch, "-one") {
-		t.Fatalf("relocated edit must not replace the originally supplied wider range:\n%s", patch)
+	if strings.Contains(patch, "-zero") || strings.Contains(patch, "-one") {
+		t.Fatalf("same-span relocation must preserve lines outside the translated range:\n%s", patch)
 	}
-	if !strings.Contains(patch, "-two") || !strings.Contains(patch, "+TWO") {
-		t.Fatalf("relocated edit should replace the unique old_text line:\n%s", patch)
+	for _, want := range []string{"-two", "-three", "+TWO", "+THREE"} {
+		if !strings.Contains(patch, want) {
+			t.Fatalf("same-span relocation missing %q:\n%s", want, patch)
+		}
+	}
+}
+
+func TestCompileStructuredEditsToPatch_RejectsRelocationThatWidensDeclaredRange(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "file.txt"), []byte("zero\none\ntwo\nthree\n"), 0o644); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+	change := &types.FileChange{
+		Path: "file.txt",
+		Kind: "patch",
+		Edits: []types.StructuredEdit{
+			{Kind: "delete", StartLine: 1, EndLine: 1, OldText: "two\nthree\n"},
+		},
+	}
+	if _, err := compileStructuredEditsToPatch(repo, change); err == nil || !strings.Contains(err.Error(), "old_text mismatch") {
+		t.Fatalf("two-line old_text must not widen a declared one-line delete, got %v", err)
+	}
+}
+
+func TestCompileStructuredEditsToPatch_RejectsFullFileOldTextMissingClosingSuffix(t *testing.T) {
+	repo := t.TempDir()
+	seed := strings.Join([]string{
+		"package sample;",
+		"",
+		"public final class Sample {",
+		"    public static void main(String[] args) {",
+		"        System.out.println(\"old\");",
+		"    }",
+		"}",
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(repo, "Sample.java"), []byte(seed), 0o644); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+	change := &types.FileChange{
+		Path: "Sample.java",
+		Kind: "patch",
+		Edits: []types.StructuredEdit{{
+			Kind:      "replace",
+			StartLine: 1,
+			EndLine:   7,
+			OldText: strings.Join([]string{
+				"package sample;",
+				"",
+				"public final class Sample {",
+				"    public static void main(String[] args) {",
+				"        System.out.println(\"old\");",
+			}, "\n") + "\n",
+			Content: strings.Replace(seed, "\"old\"", "\"new\"", 1),
+		}},
+	}
+	if _, err := compileStructuredEditsToPatch(repo, change); err == nil || !strings.Contains(err.Error(), "old_text mismatch") {
+		t.Fatalf("prefix old_text must not shrink a full-file replacement and duplicate closing braces, got %v", err)
 	}
 }
 
