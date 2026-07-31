@@ -779,6 +779,63 @@ func TestNormalizeAnswerAggregateFacts_PreservesSameMemberAtDistinctSourceLocati
 	}
 }
 
+func TestNormalizeAnswerAggregateFacts_PreservesRepeatedOccurrenceAtDistinctRuntimeLocations(t *testing.T) {
+	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:  AnswerAggregateMemberSet,
+		Label: "blocked reason occurrences",
+		Value: "3",
+		Role:  AnswerAggregateRoleSupportingCoverage,
+		Members: []string{
+			"sync_buffer_read_wi+0x60/0x11c[sysmgr.elf] (line 119, iowait=1, ts=34579.451840)",
+			"sync_buffer_read_wi+0x60/0x11c[sysmgr.elf] (line 251, iowait=1, ts=34579.453081)",
+			"sync_buffer_read_wi+0x60/0x11c[sysmgr.elf] (line 2534, iowait=1, ts=34579.471723)",
+		},
+		SupportRefs: []string{
+			"attached_trace.txt:119",
+			"attached_trace.txt:251",
+			"attached_trace.txt:2534",
+		},
+	}})
+	if err != nil {
+		t.Fatalf("NormalizeAnswerAggregateFacts failed: %v", err)
+	}
+	if len(got) != 1 || got[0].Value != "3" || len(got[0].Members) != 3 {
+		t.Fatalf("distinct runtime occurrences collapsed into one semantic member: %+v", got)
+	}
+
+	duplicate, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:  AnswerAggregateMemberSet,
+		Label: "duplicate observation",
+		Value: "2",
+		Members: []string{
+			"poll (line 9, ts=1.250)",
+			"poll (ts=1.250, line=9)",
+		},
+	}})
+	if err != nil {
+		t.Fatalf("duplicate occurrence normalization failed: %v", err)
+	}
+	if len(duplicate) != 1 || duplicate[0].Value != "1" || len(duplicate[0].Members) != 1 {
+		t.Fatalf("the same occurrence coordinate must still dedupe idempotently: %+v", duplicate)
+	}
+
+	decorative, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:  AnswerAggregateMemberSet,
+		Label: "decorative duplicates",
+		Value: "2",
+		Members: []string{
+			"Worker (background)",
+			"Worker (supporting)",
+		},
+	}})
+	if err != nil {
+		t.Fatalf("decorative member normalization failed: %v", err)
+	}
+	if len(decorative) != 1 || decorative[0].Value != "1" || len(decorative[0].Members) != 1 {
+		t.Fatalf("non-coordinate decorators must retain semantic member-set dedupe: %+v", decorative)
+	}
+}
+
 func TestMergeAnswerAggregateFacts_RemovesStaleCountQualifierFromMemberSetLabel(t *testing.T) {
 	members := []string{
 		"KindSymbolPresent", "KindNoCallSites", "KindAnswerSetBounded", "KindAnswerSetUnbounded",

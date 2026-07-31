@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -4383,6 +4384,17 @@ func aggregateMemberSupportSurfacesEquivalent(a, b aggregateMemberSupportSurface
 	if aLabel == "" || bLabel == "" || aLabel != bLabel {
 		return false
 	}
+	// Repeated runtime/log occurrences often share one semantic label while
+	// carrying distinct typed-in-member coordinates such as line and ts.
+	// Those are occurrence identity, not decorative member attributes. Keep
+	// them as separate roster entries even when the support_ref path is a
+	// runtime artifact (and therefore intentionally not parsed as a current-
+	// source citation). Equal coordinates still merge idempotently.
+	aOccurrence := aggregateMemberOccurrenceCoordinateKey(a.member)
+	bOccurrence := aggregateMemberOccurrenceCoordinateKey(b.member)
+	if aOccurrence != "" || bOccurrence != "" {
+		return aOccurrence != "" && aOccurrence == bOccurrence
+	}
 	if a.hasLoc || b.hasLoc {
 		if a.hasLoc && b.hasLoc {
 			return a.loc.LineStart == b.loc.LineStart &&
@@ -4391,6 +4403,60 @@ func aggregateMemberSupportSurfacesEquivalent(a, b aggregateMemberSupportSurface
 		return true
 	}
 	return true
+}
+
+func aggregateMemberOccurrenceCoordinateKey(member string) string {
+	_, qualifier, ok := AnswerAggregateDecoratedLabelParts(member)
+	if !ok {
+		return ""
+	}
+	var coords []string
+	for _, segment := range aggregateMemberAttributeQualifierSegments(qualifier) {
+		segment = strings.TrimSpace(segment)
+		lower := strings.ToLower(segment)
+		if key, value, found := strings.Cut(lower, "="); found {
+			key = strings.TrimSpace(key)
+			value = strings.TrimSpace(value)
+			switch key {
+			case "ts", "timestamp", "start_ts", "end_ts", "occurrence", "ordinal":
+				if aggregateOccurrenceCoordinateValueValid(key, value) {
+					coords = append(coords, key+"="+value)
+				}
+			case "line":
+				if aggregateOccurrencePositiveInt(value) {
+					coords = append(coords, "line="+value)
+				}
+			}
+			continue
+		}
+		fields := strings.Fields(lower)
+		if len(fields) == 2 && fields[0] == "line" && aggregateOccurrencePositiveInt(fields[1]) {
+			coords = append(coords, "line="+fields[1])
+		}
+	}
+	if len(coords) == 0 {
+		return ""
+	}
+	sort.Strings(coords)
+	return strings.Join(coords, "\x1f")
+}
+
+func aggregateOccurrenceCoordinateValueValid(key, value string) bool {
+	if value == "" {
+		return false
+	}
+	switch key {
+	case "occurrence", "ordinal":
+		return aggregateOccurrencePositiveInt(value)
+	default:
+		parsed, err := strconv.ParseFloat(strings.TrimSuffix(value, "s"), 64)
+		return err == nil && !math.IsNaN(parsed) && !math.IsInf(parsed, 0) && parsed >= 0
+	}
+}
+
+func aggregateOccurrencePositiveInt(value string) bool {
+	n, err := strconv.Atoi(strings.TrimSpace(value))
+	return err == nil && n > 0
 }
 
 func aggregateMemberSupportSurfaceLocationKey(loc AnswerSourceLocationSurface) string {
