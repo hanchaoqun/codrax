@@ -25,6 +25,7 @@ func materializeRuntimeTraceFrequencyAuthorityCaveat(doc *types.AnswerDocumentV2
 	results := append(append([]types.ToolResult(nil), input.ToolResults...), input.SystemTraceSupplementResults...)
 	count := 0
 	evidenceSet := map[string]bool{}
+	var limitWitnesses []types.TraceFrequencyLimitAuthority
 	for _, result := range results {
 		if strings.TrimSpace(result.ToolName) != "trace_query" || result.TraceEvidenceAuthority == nil {
 			continue
@@ -37,8 +38,10 @@ func materializeRuntimeTraceFrequencyAuthorityCaveat(doc *types.AnswerDocumentV2
 				evidenceSet[token] = true
 			}
 		}
+		limitWitnesses = append(limitWitnesses, authority.FrequencyLimitWitnesses...)
 	}
-	if count <= 0 {
+	limitWitnesses = runtimeTraceDedupFrequencyLimitWitnesses(limitWitnesses, 8)
+	if count <= 0 && len(limitWitnesses) == 0 {
 		return false
 	}
 	evidence := make([]string, 0, len(evidenceSet))
@@ -47,15 +50,19 @@ func materializeRuntimeTraceFrequencyAuthorityCaveat(doc *types.AnswerDocumentV2
 	}
 	sort.Strings(evidence)
 	conclusion := "unproven_from_transition_count"
-	if len(evidence) > 0 {
+	if len(evidence) > 0 || len(limitWitnesses) > 0 {
 		conclusion = "bounded_by_typed_supply_evidence"
+	}
+	transitionEvents := "not_reported"
+	if count > 0 {
+		transitionEvents = strconv.Itoa(count)
 	}
 	zh := runtimeTraceCausalProjectionUseChinese(requestedAnswerDocumentLanguage(ctx))
 	var caveat string
 	if zh {
 		caveat = fmt.Sprintf(
-			"频率证据权限：transition_events=%d，transition_authority=background_only；事件计数只证明调频活动，不单独证明低频、降频、限频或计算供给不足。frequency_supply_conclusion=%s",
-			count, conclusion,
+			"频率证据权限：transition_events=%s，transition_authority=background_only；事件计数只证明调频活动，不单独证明低频、降频、限频或计算供给不足。frequency_supply_conclusion=%s",
+			transitionEvents, conclusion,
 		)
 		if len(evidence) == 0 {
 			caveat += "；typed_supply_evidence=none，任何低频/供给因果措辞均未获当前计数授权"
@@ -63,16 +70,24 @@ func materializeRuntimeTraceFrequencyAuthorityCaveat(doc *types.AnswerDocumentV2
 			caveat += "；typed_supply_evidence=" + strings.Join(evidence, ",") +
 				"；低频/供给措辞只能绑定这些 typed 证据及其链/排序口径，不能归因于 transition count"
 		}
+		if len(limitWitnesses) > 0 {
+			caveat += "；direct_in_window_policy_limits=" + runtimeTraceFrequencyLimitWitnessRoster(limitWitnesses) +
+				"；这些 min/max 行是窗内 policy-limit 直接证据，实际/平均/驻留频率不能替代该限制值"
+		}
 	} else {
 		caveat = fmt.Sprintf(
-			"Frequency evidence authority: transition_events=%d, transition_authority=background_only; the event count proves frequency-change activity only and does not by itself prove low frequency, throttling, a frequency limit, or compute-supply shortage. frequency_supply_conclusion=%s",
-			count, conclusion,
+			"Frequency evidence authority: transition_events=%s, transition_authority=background_only; the event count proves frequency-change activity only and does not by itself prove low frequency, throttling, a frequency limit, or compute-supply shortage. frequency_supply_conclusion=%s",
+			transitionEvents, conclusion,
 		)
 		if len(evidence) == 0 {
 			caveat += "; typed_supply_evidence=none, so no low-frequency or supply-causal wording is authorized by the count"
 		} else {
 			caveat += "; typed_supply_evidence=" + strings.Join(evidence, ",") +
 				"; low-frequency/supply wording must bind to that typed evidence and its chain/rank caliber, never to the transition count"
+		}
+		if len(limitWitnesses) > 0 {
+			caveat += "; direct_in_window_policy_limits=" + runtimeTraceFrequencyLimitWitnessRoster(limitWitnesses) +
+				"; these min/max rows are direct in-window policy-limit evidence, and actual/average/residency frequency cannot replace the limit value"
 		}
 	}
 	for _, existing := range doc.Caveats {
@@ -82,6 +97,61 @@ func materializeRuntimeTraceFrequencyAuthorityCaveat(doc *types.AnswerDocumentV2
 	}
 	doc.Caveats = append(doc.Caveats, caveat)
 	return true
+}
+
+func runtimeTraceDedupFrequencyLimitWitnesses(in []types.TraceFrequencyLimitAuthority, limit int) []types.TraceFrequencyLimitAuthority {
+	if len(in) == 0 {
+		return nil
+	}
+	byKey := map[string]types.TraceFrequencyLimitAuthority{}
+	var keys []string
+	for _, witness := range in {
+		key := fmt.Sprintf(
+			"%d/%d/%d/%d/%d/%.9f/%.9f/%.9f/%s",
+			witness.CPU,
+			witness.MinFrequencyKHz,
+			witness.MaxFrequencyKHz,
+			witness.LimitRowCount,
+			witness.WitnessLine,
+			witness.WitnessTs,
+			witness.WindowStartTs,
+			witness.WindowEndTs,
+			strings.TrimSpace(witness.Authority),
+		)
+		if _, ok := byKey[key]; ok {
+			continue
+		}
+		byKey[key] = witness
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	if limit > 0 && len(keys) > limit {
+		keys = keys[:limit]
+	}
+	out := make([]types.TraceFrequencyLimitAuthority, 0, len(keys))
+	for _, key := range keys {
+		out = append(out, byKey[key])
+	}
+	return out
+}
+
+func runtimeTraceFrequencyLimitWitnessRoster(in []types.TraceFrequencyLimitAuthority) string {
+	rows := make([]string, 0, len(in))
+	for _, witness := range in {
+		rows = append(rows, fmt.Sprintf(
+			"cpu%d[min=%dkHz,max=%dkHz,limit_rows=%d,line=%d,ts=%.6f,window=%.6f..%.6f,authority=%s]",
+			witness.CPU,
+			witness.MinFrequencyKHz,
+			witness.MaxFrequencyKHz,
+			witness.LimitRowCount,
+			witness.WitnessLine,
+			witness.WitnessTs,
+			witness.WindowStartTs,
+			witness.WindowEndTs,
+			strings.TrimSpace(witness.Authority),
+		))
+	}
+	return strings.Join(rows, "|")
 }
 
 // materializeRuntimeTraceVsyncAuthorityCaveat — GAP-B3 (§13.3, 2026-07-25):

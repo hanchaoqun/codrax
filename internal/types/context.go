@@ -6589,7 +6589,26 @@ type TraceEvidenceAuthority struct {
 	FrequencyTransitionAuthority  string                            `json:"frequency_transition_authority,omitempty"`
 	FrequencySupplyConclusion     string                            `json:"frequency_supply_conclusion,omitempty"`
 	FrequencyTypedSupplyEvidence  []string                          `json:"frequency_typed_supply_evidence,omitempty"`
+	FrequencyLimitWitnesses       []TraceFrequencyLimitAuthority    `json:"frequency_limit_witnesses,omitempty"`
 	LifecycleBoundaries           []TraceLifecycleBoundaryAuthority `json:"lifecycle_boundaries,omitempty"`
+}
+
+// TraceFrequencyLimitAuthority is a direct, strict in-window CPU policy-limit
+// witness. LimitRowCount counts valid limit rows for the CPU in that window;
+// WitnessLine/WitnessTs and min/max identify the most restrictive max-limit
+// row selected by the trace engine. Keeping this typed and separate from
+// transition/residency statistics prevents observed operating frequency from
+// being promoted into policy-limit authority.
+type TraceFrequencyLimitAuthority struct {
+	CPU             int     `json:"cpu"`
+	MinFrequencyKHz int64   `json:"min_frequency_khz,omitempty"`
+	MaxFrequencyKHz int64   `json:"max_frequency_khz,omitempty"`
+	LimitRowCount   int     `json:"limit_row_count,omitempty"`
+	WitnessLine     int     `json:"witness_line,omitempty"`
+	WitnessTs       float64 `json:"witness_ts,omitempty"`
+	WindowStartTs   float64 `json:"window_start_ts,omitempty"`
+	WindowEndTs     float64 `json:"window_end_ts,omitempty"`
+	Authority       string  `json:"authority,omitempty"`
 }
 
 type TraceLifecycleBoundaryAuthority struct {

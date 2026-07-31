@@ -682,6 +682,7 @@ func traceQueryEvidenceAuthority(result tracequery.Result) *types.TraceEvidenceA
 	}
 	authority.FrequencyTransitionEventCount, authority.FrequencyTypedSupplyEvidence =
 		traceQueryFrequencyEvidenceAuthority(result)
+	authority.FrequencyLimitWitnesses = traceQueryFrequencyLimitAuthorities(result)
 	if authority.FrequencyTransitionEventCount > 0 {
 		authority.FrequencyTransitionAuthority = "background_only"
 		if len(authority.FrequencyTypedSupplyEvidence) == 0 {
@@ -747,6 +748,38 @@ func traceQueryEvidenceAuthority(result tracequery.Result) *types.TraceEvidenceA
 	return authority
 }
 
+func traceQueryFrequencyLimitAuthorities(result tracequery.Result) []types.TraceFrequencyLimitAuthority {
+	if result.WindowStats == nil {
+		return nil
+	}
+	out := make([]types.TraceFrequencyLimitAuthority, 0, len(result.WindowStats.CPUFrequencyLimits))
+	for _, limit := range result.WindowStats.CPUFrequencyLimits {
+		// CPUFrequencyLimits is already the engine's strict in-window,
+		// pair-atomic policy-limit face. Require its concrete witness fields
+		// again at the authority boundary so a display zero can never mint a
+		// direct policy-limit claim.
+		if !traceQueryFrequencyLimitValid(limit) {
+			continue
+		}
+		out = append(out, types.TraceFrequencyLimitAuthority{
+			CPU:             limit.CPU,
+			MinFrequencyKHz: limit.MinFrequency,
+			MaxFrequencyKHz: limit.MaxFrequency,
+			LimitRowCount:   limit.Count,
+			WitnessLine:     limit.Line,
+			WitnessTs:       limit.Ts,
+			WindowStartTs:   result.TimeStart,
+			WindowEndTs:     result.TimeEnd,
+			Authority:       "direct_in_window_policy_limit",
+		})
+	}
+	return out
+}
+
+func traceQueryFrequencyLimitValid(limit tracequery.CPUFrequencyLimit) bool {
+	return limit.CPU >= 0 && limit.MaxFrequency > 0 && limit.Count > 0 && limit.Line > 0
+}
+
 func traceQueryFrequencyEvidenceAuthority(result tracequery.Result) (int, []string) {
 	transitionCount := 0
 	evidence := map[string]bool{}
@@ -763,7 +796,20 @@ func traceQueryFrequencyEvidenceAuthority(result tracequery.Result) (int, []stri
 				evidence["frequency_residency_low_frequency"] = true
 			}
 		}
-		if len(stats.CPUFrequencyLimits) > 0 || len(stats.ClusterFrequencyCeilings) > 0 {
+		hasDirectLimit := false
+		for _, limit := range stats.CPUFrequencyLimits {
+			if traceQueryFrequencyLimitValid(limit) {
+				hasDirectLimit = true
+				break
+			}
+		}
+		if hasDirectLimit {
+			evidence["direct_in_window_policy_limit"] = true
+		}
+		if len(stats.ClusterFrequencyCeilings) > 0 {
+			evidence["cluster_frequency_ceiling"] = true
+		}
+		if hasDirectLimit || len(stats.ClusterFrequencyCeilings) > 0 {
 			evidence["frequency_limit_or_cluster_ceiling"] = true
 		}
 		if balance := stats.ComputeSupplyBalance; balance != nil && balance.LowFrequencyLossMs > 0 {
@@ -1709,6 +1755,7 @@ func traceQueryAutoWindowEvidenceAuthority(children []traceQueryAutoWindowChild)
 			copy.TypedCausalRowCount = 0
 			copy.FrequencyTransitionEventCount = 0
 			copy.FrequencyTypedSupplyEvidence = nil
+			copy.FrequencyLimitWitnesses = nil
 			copy.LifecycleBoundaries = nil
 			combined = &copy
 		}
@@ -1729,6 +1776,10 @@ func traceQueryAutoWindowEvidenceAuthority(children []traceQueryAutoWindowChild)
 		combined.FrequencyTypedSupplyEvidence = append(
 			combined.FrequencyTypedSupplyEvidence,
 			current.FrequencyTypedSupplyEvidence...,
+		)
+		combined.FrequencyLimitWitnesses = append(
+			combined.FrequencyLimitWitnesses,
+			current.FrequencyLimitWitnesses...,
 		)
 		if current.FrameEvidenceStatus != "" {
 			frameRelevant = true
@@ -1760,6 +1811,7 @@ func traceQueryAutoWindowEvidenceAuthority(children []traceQueryAutoWindowChild)
 	}
 	combined.FrequencyTypedSupplyEvidence = dedupTraceQueryStrings(combined.FrequencyTypedSupplyEvidence)
 	sort.Strings(combined.FrequencyTypedSupplyEvidence)
+	combined.FrequencyLimitWitnesses = dedupTraceQueryFrequencyLimitAuthorities(combined.FrequencyLimitWitnesses, 8)
 	if combined.FrequencyTransitionEventCount > 0 {
 		combined.FrequencyTransitionAuthority = "background_only"
 		if len(combined.FrequencyTypedSupplyEvidence) == 0 {
@@ -1769,6 +1821,37 @@ func traceQueryAutoWindowEvidenceAuthority(children []traceQueryAutoWindowChild)
 		}
 	}
 	return combined
+}
+
+func dedupTraceQueryFrequencyLimitAuthorities(in []types.TraceFrequencyLimitAuthority, limit int) []types.TraceFrequencyLimitAuthority {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]types.TraceFrequencyLimitAuthority, 0, len(in))
+	seen := map[string]bool{}
+	for _, witness := range in {
+		key := fmt.Sprintf(
+			"%d/%d/%d/%d/%d/%.9f/%.9f/%.9f/%s",
+			witness.CPU,
+			witness.MinFrequencyKHz,
+			witness.MaxFrequencyKHz,
+			witness.LimitRowCount,
+			witness.WitnessLine,
+			witness.WitnessTs,
+			witness.WindowStartTs,
+			witness.WindowEndTs,
+			strings.TrimSpace(witness.Authority),
+		)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, witness)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	return out
 }
 
 func traceQueryAutoWindowEnumerationAuthority(children []traceQueryAutoWindowChild) *types.ToolEnumerationAuthority {
@@ -4270,13 +4353,27 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	if result.PrioritySemantics != "" {
 		fmt.Fprintf(&b, "priority_semantics=%s\n", result.PrioritySemantics)
 	}
-	if authority := traceQueryEvidenceAuthority(result); authority != nil &&
-		authority.FrequencyTransitionEventCount > 0 {
-		fmt.Fprintf(&b, "frequency_authority transition_events=%d transition_authority=%s frequency_supply_conclusion=%s typed_supply_evidence=%s (transition count is background activity only and does not by itself prove low frequency, throttling, or compute-supply shortage)\n",
-			authority.FrequencyTransitionEventCount,
-			sanitizeForBanner(authority.FrequencyTransitionAuthority),
-			sanitizeForBanner(authority.FrequencySupplyConclusion),
-			sanitizeForBanner(strings.Join(authority.FrequencyTypedSupplyEvidence, ",")))
+	if authority := traceQueryEvidenceAuthority(result); authority != nil {
+		if authority.FrequencyTransitionEventCount > 0 {
+			fmt.Fprintf(&b, "frequency_authority transition_events=%d transition_authority=%s frequency_supply_conclusion=%s typed_supply_evidence=%s (transition count is background activity only and does not by itself prove low frequency, throttling, or compute-supply shortage)\n",
+				authority.FrequencyTransitionEventCount,
+				sanitizeForBanner(authority.FrequencyTransitionAuthority),
+				sanitizeForBanner(authority.FrequencySupplyConclusion),
+				sanitizeForBanner(strings.Join(authority.FrequencyTypedSupplyEvidence, ",")))
+		}
+		for _, witness := range authority.FrequencyLimitWitnesses {
+			fmt.Fprintf(&b, "frequency_limit_witness cpu=%d min=%dkHz max=%dkHz limit_rows=%d witness_line=%d witness_ts=%.6f window=%.6f..%.6f authority=%s (direct in-window policy-limit evidence; actual residency/operating frequency and transition count are separate facts)\n",
+				witness.CPU,
+				witness.MinFrequencyKHz,
+				witness.MaxFrequencyKHz,
+				witness.LimitRowCount,
+				witness.WitnessLine,
+				witness.WitnessTs,
+				witness.WindowStartTs,
+				witness.WindowEndTs,
+				sanitizeForBanner(witness.Authority),
+			)
+		}
 	}
 	b.WriteString("\n")
 	writeTraceQueryPayloadRefLine(&b, payloadRef, true)

@@ -7437,6 +7437,26 @@ func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
 				}
 			}
 		}
+		if len(view.FrequencyLimitWitnesses) > 0 {
+			b.WriteString("- Runtime direct frequency-limit authority: the following typed rows are strict in-window policy-limit witnesses: ")
+			for i, witness := range view.FrequencyLimitWitnesses {
+				if i > 0 {
+					b.WriteString("; ")
+				}
+				fmt.Fprintf(&b, "`cpu=%d min=%dkHz max=%dkHz limit_rows=%d witness_line=%d witness_ts=%.6f window=%.6f..%.6f authority=%s`",
+					witness.CPU,
+					witness.MinFrequencyKHz,
+					witness.MaxFrequencyKHz,
+					witness.LimitRowCount,
+					witness.WitnessLine,
+					witness.WitnessTs,
+					witness.WindowStartTs,
+					witness.WindowEndTs,
+					witness.Authority,
+				)
+			}
+			b.WriteString(". Bind any policy-cap/limit claim to these direct witnesses and their stated window. Actual/average/residency frequency and frequency-transition count are separate operating facts: they do not by themselves prove a policy cap, and must not replace the direct min/max witness.\n")
+		}
 		b.WriteString("- Runtime trace presentation hint: for scheduler/time-window questions, do not collapse all trace facts into one short sentence. Prefer a compact answer with conclusion, event timeline or bullets, priority/time-unit semantics, and explicit caveats for trace gaps; keep runtime artifact facts separate from current-source citations.\n")
 		b.WriteString("- Scheduler state authority hint: a `sched_switch prev_state=S` row proves that the outgoing task entered an interruptible sleeping/blocking state; it does not by itself prove RT preemption, involuntary preemption, or a voluntary `yield`, and the next task's name is not enough to upgrade that relation. Only `R`/`R+` supports a still-runnable preemption candidate, which still requires the same switch/CPU plus a trusted priority relation before naming a higher-priority preemptor. Count wakeups only from deduplicated `sched_wakeup`/`sched_waking` rows or the typed wakeup census/chain; the number of running slices is not a wakeup count. A capped `event_search`/read subset is examples or a lower bound, never authority for `all`, `only`, `total`, exact `N`, `max`, or `min` claims.\n")
 		b.WriteString("- Thread role authority hint: a comm/name match or `name_candidates` roster proves only a diagnostic thread candidate; it does not prove main-thread, UI-thread, render-thread, or render-service ownership. Use a role word only when a typed `target_role_authority`/`role_authority` carries `kind=thread_role`, and preserve its `source` and `confidence`. `frame_marker_role` and `pipeline_stage_role` describe the marker/item stage, not the owning thread. If role authority is unavailable, say candidate thread/TID instead of inventing a role.\n")
@@ -7458,6 +7478,10 @@ func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
 type runtimeTraceGuidanceView struct {
 	RuntimeTrace    bool
 	HarmonyPriority bool
+	// FrequencyLimitWitnesses carries only trace_query's typed, strict
+	// in-window policy-limit rows. It is a soft composition input, never a
+	// prose-derived hard gate.
+	FrequencyLimitWitnesses []types.TraceFrequencyLimitAuthority
 	// CausalUnproven — NW-05 软臂 (P3, 2026-07-24): some trace_query/system
 	// supplement result published the typed evidence-authority ceiling
 	// causal_conclusion=unproven. Precise trigger, soft effect: it only adds
@@ -7494,13 +7518,53 @@ func answerDocRuntimeTraceGuidanceView(ctx *types.AgentContext) runtimeTraceGuid
 	}
 	input := types.ObservationLedgerInputFromAgentContext(ctx, 1)
 	for _, result := range append(append([]types.ToolResult(nil), input.ToolResults...), input.SystemTraceSupplementResults...) {
-		if result.TraceEvidenceAuthority != nil &&
-			strings.TrimSpace(result.TraceEvidenceAuthority.CausalConclusion) == "unproven" {
+		if result.TraceEvidenceAuthority == nil {
+			continue
+		}
+		if len(result.TraceEvidenceAuthority.FrequencyLimitWitnesses) > 0 {
+			view.RuntimeTrace = true
+			view.FrequencyLimitWitnesses = append(
+				view.FrequencyLimitWitnesses,
+				result.TraceEvidenceAuthority.FrequencyLimitWitnesses...,
+			)
+		}
+		if strings.TrimSpace(result.TraceEvidenceAuthority.CausalConclusion) == "unproven" {
 			view.CausalUnproven = true
+		}
+	}
+	view.FrequencyLimitWitnesses = answerDocDedupFrequencyLimitWitnesses(view.FrequencyLimitWitnesses, 8)
+	return view
+}
+
+func answerDocDedupFrequencyLimitWitnesses(in []types.TraceFrequencyLimitAuthority, limit int) []types.TraceFrequencyLimitAuthority {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]types.TraceFrequencyLimitAuthority, 0, len(in))
+	seen := map[string]bool{}
+	for _, witness := range in {
+		key := fmt.Sprintf(
+			"%d/%d/%d/%d/%d/%.9f/%.9f/%.9f/%s",
+			witness.CPU,
+			witness.MinFrequencyKHz,
+			witness.MaxFrequencyKHz,
+			witness.LimitRowCount,
+			witness.WitnessLine,
+			witness.WitnessTs,
+			witness.WindowStartTs,
+			witness.WindowEndTs,
+			strings.TrimSpace(witness.Authority),
+		)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, witness)
+		if limit > 0 && len(out) >= limit {
 			break
 		}
 	}
-	return view
+	return out
 }
 
 func answerDocRuntimeTraceGuidanceRecord(record types.ObservationRecord) bool {
