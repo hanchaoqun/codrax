@@ -1387,8 +1387,9 @@ func TestRunTestsVerificationProbeSubprocessInheritsWorktreeSrcRoot(t *testing.T
 		Status:      types.PlanStatusPending,
 		TargetPaths: []string{"src/probe_pkg/__init__.py"},
 		VerificationProbes: []types.VerificationProbe{{
-			ID:       "subprocess_src_import",
-			Language: "python",
+			ID:                "subprocess_src_import",
+			Language:          "python",
+			ChangedSymbolRefs: []string{"path:src/probe_pkg/__init__.py"},
 			Code: strings.Join([]string{
 				"import os, subprocess, sys",
 				"snippet = \"import os, probe_pkg; print(probe_pkg.VALUE); print(os.path.realpath(probe_pkg.__file__))\"",
@@ -2140,10 +2141,11 @@ func TestRunTestsVerificationProbePythonPackageWorkingDirExecutesAtProjectRoot(t
 		Status:      types.PlanStatusPending,
 		TargetPaths: []string{"lib/matplotlib/backend_ps.py"},
 		VerificationProbes: []types.VerificationProbe{{
-			ID:         "stdlib_collections_visible",
-			Language:   "python",
-			WorkingDir: "lib/matplotlib",
-			Code:       "from collections import deque\nq = deque([1])\nassert q.pop() == 1\n",
+			ID:                "stdlib_collections_visible",
+			Language:          "python",
+			WorkingDir:        "lib/matplotlib",
+			ChangedSymbolRefs: []string{"path:lib/matplotlib/backend_ps.py"},
+			Code:              "from collections import deque\nq = deque([1])\nassert q.pop() == 1\n",
 		}},
 	})
 	ctx := &types.BusContext{

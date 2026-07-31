@@ -33,6 +33,17 @@ func TestDeriveObservationAuthorityFromReport(t *testing.T) {
 			wantFinish: true,
 		},
 		{
+			name: "changed path coverage gap is unverified not code failure",
+			report: &types.ChangeReport{
+				FailureKind:       types.FailureKindVerificationIncomplete,
+				FailureReasonCode: "changed_path_verification_uncovered",
+			},
+			wantState:  ObservationAuthorityUnverified,
+			wantAction: ActionFinish,
+			wantReason: "verification_incomplete",
+			wantFinish: true,
+		},
+		{
 			name:       "no tests is unverified",
 			report:     &types.ChangeReport{Passed: true, NoTestsRunners: []string{"pytest"}},
 			wantState:  ObservationAuthorityUnverified,

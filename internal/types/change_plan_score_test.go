@@ -55,6 +55,15 @@ func TestChangeReportNormalizeVerificationStatus(t *testing.T) {
 			want:   VerificationStatusUnavailable,
 		},
 		{
+			name: "changed path verification incomplete is unavailable",
+			report: &ChangeReport{
+				Passed:            false,
+				FailureKind:       FailureKindVerificationIncomplete,
+				FailureReasonCode: "changed_path_verification_uncovered",
+			},
+			want: VerificationStatusUnavailable,
+		},
+		{
 			name:   "preexisting build failure unavailable",
 			report: &ChangeReport{Passed: false, FailureKind: FailureKindPreexistingBuildFailure},
 			want:   VerificationStatusUnavailable,

@@ -57,6 +57,8 @@ func DeriveObservationAuthorityFromReport(report *types.ChangeReport, err error)
 		return observationUnverified(string(types.FailureKindRunnerMissing), failureReason, false)
 	case report.FailureKind == types.FailureKindParserError:
 		return observationUnverified(string(types.FailureKindParserError), failureReason, false)
+	case report.FailureKind == types.FailureKindVerificationIncomplete:
+		return observationUnverified(string(types.FailureKindVerificationIncomplete), failureReason, false)
 	case report.FailureKind == types.FailureKindBuildFailure && types.FailureReasonCodeIndicatesVerificationUnavailable(failureReason):
 		return observationUnverified(observationUnavailableReportReason(report), failureReason, false)
 	case report.FailuresAreVerificationUnavailable():
@@ -225,6 +227,7 @@ func observationReasonIsUnavailable(reason string) bool {
 	case string(types.FailureKindNoTests),
 		string(types.FailureKindRunnerMissing),
 		string(types.FailureKindParserError),
+		string(types.FailureKindVerificationIncomplete),
 		"skip_verify",
 		"accepted_without_local_verify",
 		"make_python_module_missing",

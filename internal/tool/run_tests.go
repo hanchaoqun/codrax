@@ -385,6 +385,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		if !report.Passed && strings.TrimSpace(report.FailureReasonCode) == "" {
 			report.FailureReasonCode = failureReasonCodeFromExecutedCommandsForKind(report.ExecutedCommands, report.FailureKind)
 		}
+		applyChangedPathVerificationCoverage(ctx, report)
 		surfaceCopy := surface
 		surfaceCopy.Candidates = append([]types.TestSurfaceCandidate(nil), surface.Candidates...)
 		report.TestSurface = &surfaceCopy
@@ -554,13 +555,13 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 						Outcome:    "suite_skipped",
 					})
 				}
-				report := probe.Report
+				report := finishReport(probe.Report)
 				payload := runTestsCombinedOutput(combinedOutputs)
 				_, ref := StoreBlob(ctx, t.Name()+"-verification-probes", payload)
-				installRunTestsReport(ctx, finishReport(report), dryRunProbe)
+				installRunTestsReport(ctx, report, dryRunProbe)
 				return types.ToolResult{
 					ToolName:   t.Name(),
-					Success:    true,
+					Success:    report != nil && report.Passed,
 					Summary:    renderVerificationProbePrimarySummary(report, surface),
 					RawRef:     ref,
 					Refinement: runTestsRefinement(p, nil, ctx.RepoRoot, "", len(payload)),
@@ -757,6 +758,11 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 							Suite:      strings.TrimSpace(plan.Suite),
 							Source:     planSourceFor(plan),
 							Outcome:    "syntax_check_fallback",
+							ExitCode:   syntaxCheckReportExitCode(report),
+							CoveredPaths: repoRelativeCoveragePaths(
+								ctx.RepoRoot,
+								files,
+							),
 						})
 						// Syntax fallback proves the changed files parse,
 						// but it is not a full verification contract when
@@ -814,6 +820,11 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 					Suite:      strings.TrimSpace(plan.Suite),
 					Source:     planSourceFor(plan),
 					Outcome:    "syntax_preflight",
+					ExitCode:   syntaxCheckReportExitCode(report),
+					CoveredPaths: repoRelativeCoveragePaths(
+						ctx.RepoRoot,
+						planFilesByExt(ctx, runnerRoot, syntaxCheckExtensions(runner)),
+					),
 				})
 				if report != nil && !report.Passed {
 					installRunTestsReport(ctx, finishReport(qualifyChangeReport(report, plan, ctx.RepoRoot)), dryRunProbe)
@@ -942,11 +953,12 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				report.FailureSummaryBlobRef = ref
 			}
 			if adjusted, ok := probePrimarySuiteInfraReport(report.FailureKind, report.FailureSummary); ok {
-				installRunTestsReport(ctx, finishReport(adjusted), dryRunProbe)
+				adjusted = finishReport(adjusted)
+				installRunTestsReport(ctx, adjusted, dryRunProbe)
 				return types.ToolResult{
 					ToolName:   t.Name(),
-					Success:    true,
-					Summary:    fmt.Sprintf("[run_tests: %s] project suite timed out after verification_probe passed; local behavior verdict is passed with confidence warning", runnerPlanLabel(ctx.RepoRoot, plan)),
+					Success:    adjusted != nil && adjusted.Passed,
+					Summary:    finishedReportSummary(adjusted, fmt.Sprintf("[run_tests: %s] project suite timed out after verification_probe passed; local behavior verdict is passed with confidence warning", runnerPlanLabel(ctx.RepoRoot, plan))),
 					RawRef:     ref,
 					Refinement: refinement,
 					Timestamp:  time.Now(),
@@ -978,11 +990,12 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				report.FailureSummaryBlobRef = ref
 			}
 			if adjusted, ok := probePrimarySuiteInfraReport(report.FailureKind, report.FailureSummary); ok {
-				installRunTestsReport(ctx, finishReport(adjusted), dryRunProbe)
+				adjusted = finishReport(adjusted)
+				installRunTestsReport(ctx, adjusted, dryRunProbe)
 				return types.ToolResult{
 					ToolName:   t.Name(),
-					Success:    true,
-					Summary:    fmt.Sprintf("[run_tests: %s] project suite hit memory cap after verification_probe passed; local behavior verdict is passed with confidence warning", runnerPlanLabel(ctx.RepoRoot, plan)),
+					Success:    adjusted != nil && adjusted.Passed,
+					Summary:    finishedReportSummary(adjusted, fmt.Sprintf("[run_tests: %s] project suite hit memory cap after verification_probe passed; local behavior verdict is passed with confidence warning", runnerPlanLabel(ctx.RepoRoot, plan))),
 					RawRef:     ref,
 					Refinement: refinement,
 					Timestamp:  time.Now(),
@@ -1010,11 +1023,12 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				report.FailureSummaryBlobRef = ref
 			}
 			if adjusted, ok := probePrimarySuiteInfraReport(report.FailureKind, report.FailureSummary); ok {
-				installRunTestsReport(ctx, finishReport(adjusted), dryRunProbe)
+				adjusted = finishReport(adjusted)
+				installRunTestsReport(ctx, adjusted, dryRunProbe)
 				return types.ToolResult{
 					ToolName:   t.Name(),
-					Success:    true,
-					Summary:    fmt.Sprintf("[run_tests: %s] project suite hit CPU cap after verification_probe passed; local behavior verdict is passed with confidence warning", runnerPlanLabel(ctx.RepoRoot, plan)),
+					Success:    adjusted != nil && adjusted.Passed,
+					Summary:    finishedReportSummary(adjusted, fmt.Sprintf("[run_tests: %s] project suite hit CPU cap after verification_probe passed; local behavior verdict is passed with confidence warning", runnerPlanLabel(ctx.RepoRoot, plan))),
 					RawRef:     ref,
 					Refinement: refinement,
 					Timestamp:  time.Now(),
@@ -1268,7 +1282,6 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	}
 	report.GeneratedAt = time.Now()
 
-	summary := renderAggregateTestSummary(ctx.RepoRoot, plans, projectReports, report)
 	payload := runTestsCombinedOutput(combinedOutputs)
 	_, ref := StoreBlob(ctx, t.Name(), payload)
 	// Module D: propagate the blob ref onto the report so the
@@ -1278,8 +1291,10 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	if ref != "" {
 		report.FailureSummaryBlobRef = ref
 	}
-	installRunTestsReport(ctx, finishReport(report), dryRunProbe)
+	report = finishReport(report)
+	installRunTestsReport(ctx, report, dryRunProbe)
 
+	summary := finishedReportSummary(report, renderAggregateTestSummary(ctx.RepoRoot, plans, projectReports, report))
 	success := report.Passed
 	logging.Info("[run_tests] projects=%d passed=%v total=%d failed=%d",
 		len(projectReports), report.Passed, len(report.TestResults), countFailed(report.TestResults))

@@ -964,6 +964,13 @@ type ChangeReport struct {
 	// verify-failure replan handoff; never derived from prose.
 	ExecutedCommands []ExecutedCommand `json:"executed_commands,omitempty"`
 
+	// ChangedPathCoverage is the per-source-path verification authority
+	// ledger. A report cannot be a verified pass while a recognized changed
+	// source path remains uncovered. Coverage is derived from typed runner
+	// language/scope, exact source-check paths, or path-bound verification
+	// probes; command text and natural-language summaries are never scanned.
+	ChangedPathCoverage []ChangedPathVerificationCoverage `json:"changed_path_coverage,omitempty"`
+
 	// TestSurface is the typed runnable-candidate inventory computed
 	// before command selection for this run. Persisted with the report
 	// so a failed attempt keeps the full decision context (what else
@@ -1060,6 +1067,12 @@ const (
 	// planner does not chase infrastructure noise.
 	FailureKindParserError FailureKind = "parser_error"
 
+	// FailureKindVerificationIncomplete means verification commands may have
+	// passed, but their typed language/path authority did not cover every
+	// recognized changed source path. This is an unverified local result, not
+	// evidence that the patch is behaviorally wrong.
+	FailureKindVerificationIncomplete FailureKind = "verification_incomplete"
+
 	// FailureKindNoTests — the selected runner completed or was skipped
 	// cleanly but produced no executable tests for this plan. This is an
 	// unavailable local verification signal, not proof of code failure.
@@ -1086,6 +1099,35 @@ type VerificationDiagnostic struct {
 	Outcome    string `json:"outcome,omitempty"`
 	ExitCode   int    `json:"exit_code,omitempty"`
 	Detail     string `json:"detail,omitempty"`
+}
+
+type ChangedPathVerificationStatus string
+
+const (
+	ChangedPathVerificationCovered   ChangedPathVerificationStatus = "covered"
+	ChangedPathVerificationUncovered ChangedPathVerificationStatus = "uncovered"
+)
+
+type ChangedPathVerificationCaliber string
+
+const (
+	ChangedPathVerificationProjectRunner ChangedPathVerificationCaliber = "project_runner"
+	ChangedPathVerificationSourceCheck   ChangedPathVerificationCaliber = "source_check"
+	ChangedPathVerificationProbe         ChangedPathVerificationCaliber = "verification_probe"
+)
+
+// ChangedPathVerificationCoverage records the strongest typed successful
+// evidence for one recognized changed source path, or why no such evidence was
+// available. LanguageFamilies are path-derived audit labels; Status is decided
+// only from exact path/scope plus typed runner/probe authority.
+type ChangedPathVerificationCoverage struct {
+	Path             string                         `json:"path"`
+	LanguageFamilies []VerificationLanguageFamily   `json:"language_families,omitempty"`
+	Status           ChangedPathVerificationStatus  `json:"status"`
+	Caliber          ChangedPathVerificationCaliber `json:"caliber,omitempty"`
+	Runner           string                         `json:"runner,omitempty"`
+	Source           string                         `json:"source,omitempty"`
+	ReasonCode       string                         `json:"reason_code,omitempty"`
 }
 
 // VerificationConfidenceRecord is a typed confidence signal for a local verify
@@ -1142,7 +1184,7 @@ func (r *ChangeReport) NormalizeVerificationStatus() VerificationStatus {
 		return VerificationStatusUnavailable
 	}
 	switch r.FailureKind {
-	case FailureKindRunnerMissing, FailureKindParserError, FailureKindNoTests, FailureKindPreexistingBuildFailure:
+	case FailureKindRunnerMissing, FailureKindParserError, FailureKindVerificationIncomplete, FailureKindNoTests, FailureKindPreexistingBuildFailure:
 		return VerificationStatusUnavailable
 	}
 	if len(r.NoTestsRunners) > 0 && len(r.TestResults) == 0 {
@@ -1180,6 +1222,7 @@ func FailureReasonCodeIndicatesVerificationUnavailable(raw string) bool {
 		case string(FailureKindNoTests),
 			string(FailureKindRunnerMissing),
 			string(FailureKindParserError),
+			string(FailureKindVerificationIncomplete),
 			string(FailureKindPreexistingBuildFailure),
 			"not_configured",
 			"project_runner_unavailable",
@@ -1194,6 +1237,7 @@ func FailureReasonCodeIndicatesVerificationUnavailable(raw string) bool {
 			"verification_probe_dependency_missing",
 			"verification_probe_module_not_found",
 			"verification_probe_runner_missing",
+			"changed_path_verification_uncovered",
 			"verification_probe_syntax_error":
 			continue
 		default:
@@ -1287,7 +1331,7 @@ func (r *ChangeReport) FailuresAreVerificationUnavailable() bool {
 		return false
 	}
 	switch r.FailureKind {
-	case FailureKindRunnerMissing, FailureKindParserError, FailureKindNoTests, FailureKindPreexistingBuildFailure:
+	case FailureKindRunnerMissing, FailureKindParserError, FailureKindVerificationIncomplete, FailureKindNoTests, FailureKindPreexistingBuildFailure:
 		return true
 	case FailureKindBuildFailure:
 		if FailureReasonCodeIndicatesVerificationUnavailable(r.FailureReasonCode) {

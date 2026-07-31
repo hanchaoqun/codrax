@@ -12,12 +12,13 @@ import (
 type VerifyAttemptOutcomeKind string
 
 const (
-	VerifyOutcomeReportPassed  VerifyAttemptOutcomeKind = "report_passed"
-	VerifyOutcomeReportFailed  VerifyAttemptOutcomeKind = "report_failed"
-	VerifyOutcomeToolNotCalled VerifyAttemptOutcomeKind = "tool_not_called"
-	VerifyOutcomeRunnerMissing VerifyAttemptOutcomeKind = "runner_missing"
-	VerifyOutcomeParserError   VerifyAttemptOutcomeKind = "parser_error"
-	VerifyOutcomeNoTests       VerifyAttemptOutcomeKind = "no_tests"
+	VerifyOutcomeReportPassed           VerifyAttemptOutcomeKind = "report_passed"
+	VerifyOutcomeReportFailed           VerifyAttemptOutcomeKind = "report_failed"
+	VerifyOutcomeToolNotCalled          VerifyAttemptOutcomeKind = "tool_not_called"
+	VerifyOutcomeRunnerMissing          VerifyAttemptOutcomeKind = "runner_missing"
+	VerifyOutcomeParserError            VerifyAttemptOutcomeKind = "parser_error"
+	VerifyOutcomeVerificationIncomplete VerifyAttemptOutcomeKind = "verification_incomplete"
+	VerifyOutcomeNoTests                VerifyAttemptOutcomeKind = "no_tests"
 )
 
 // VerifyAttemptOutcome tells the controller scheduler whether an executor
@@ -56,6 +57,8 @@ func ClassifyVerifyAttemptOutcome(report *types.ChangeReport, err error) VerifyA
 			kind = VerifyOutcomeRunnerMissing
 		case string(types.FailureKindParserError):
 			kind = VerifyOutcomeParserError
+		case string(types.FailureKindVerificationIncomplete):
+			kind = VerifyOutcomeVerificationIncomplete
 		}
 		return VerifyAttemptOutcome{
 			Kind:              kind,

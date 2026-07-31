@@ -40,6 +40,16 @@ func TestClassifyVerifyAttemptOutcome(t *testing.T) {
 			wantReason: "parser_error",
 		},
 		{
+			name: "changed path coverage gap finishes unverified",
+			report: &types.ChangeReport{
+				FailureKind:       types.FailureKindVerificationIncomplete,
+				FailureReasonCode: "changed_path_verification_uncovered",
+			},
+			wantKind:   VerifyOutcomeVerificationIncomplete,
+			wantAction: ActionFinish,
+			wantReason: "verification_incomplete",
+		},
+		{
 			name:       "failed report replans",
 			report:     &types.ChangeReport{Passed: false, BuildFailed: true},
 			wantKind:   VerifyOutcomeReportFailed,

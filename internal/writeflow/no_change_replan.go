@@ -68,6 +68,7 @@ func verifyFailureHandoffProbeResolvableReason(handoff *types.VerifyFailureHando
 	case "", types.FailureKindTestsFailed,
 		types.FailureKindRunnerMissing,
 		types.FailureKindParserError,
+		types.FailureKindVerificationIncomplete,
 		types.FailureKindNoTests,
 		types.FailureKindPreexistingBuildFailure:
 		return ""

@@ -81,6 +81,13 @@ type ExecutedCommand struct {
 	ExitCode   int    `json:"exit_code"`
 	DurationMS int64  `json:"duration_ms,omitempty"`
 
+	// CoveredPaths names the repo-relative changed source paths this
+	// successful command authoritatively exercised. Project runners derive
+	// it from the runner's typed language family plus WorkingDir; source
+	// checks and verification probes must bind exact paths. It is produced
+	// by Codrax and is never inferred from command text or model prose.
+	CoveredPaths []string `json:"covered_paths,omitempty"`
+
 	// Source is the typed provenance of the execution decision:
 	// llm_choice | llm_framework_choice | verify_failure_handoff |
 	// auto_detect | no_tests_escalation | runner_missing_escalation |

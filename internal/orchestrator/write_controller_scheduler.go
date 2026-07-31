@@ -547,6 +547,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			}
 			if outcome.Kind == writeflow.VerifyOutcomeRunnerMissing ||
 				outcome.Kind == writeflow.VerifyOutcomeParserError ||
+				outcome.Kind == writeflow.VerifyOutcomeVerificationIncomplete ||
 				outcome.Kind == writeflow.VerifyOutcomeNoTests {
 				if o.advanceWorkflowAfterSuccessfulSliceObserve(&run, outcome) {
 					o.mirrorActivePlanToImportFile(importedPlanMirror)
@@ -601,7 +602,8 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				continue
 			}
 			updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchComplete)
-			if outcome.Kind == writeflow.VerifyOutcomeNoTests {
+			if outcome.Kind == writeflow.VerifyOutcomeNoTests ||
+				outcome.Kind == writeflow.VerifyOutcomeVerificationIncomplete {
 				updateWorkflowRunBatchCompletion(&run, run.ActiveBatchID, types.WriteWorkflowCompletionUnverified, outcome.ReasonCode, "verify_attempt")
 				appendControllerProgress(&run, run.ActiveBatchID, "batch_unverified", outcome.ReasonCode)
 			} else {
@@ -7213,7 +7215,7 @@ func activeBatchCompletedWithUnverifiedVerdict(run *types.WriteWorkflowRun) bool
 				return false
 			}
 			switch strings.TrimSpace(attempt.ReasonCode) {
-			case "no_tests", string(types.FailureKindRunnerMissing), string(types.FailureKindParserError), string(types.FailureKindPreexistingBuildFailure):
+			case "no_tests", string(types.FailureKindRunnerMissing), string(types.FailureKindParserError), string(types.FailureKindVerificationIncomplete), string(types.FailureKindPreexistingBuildFailure):
 				return true
 			default:
 				return false
@@ -8476,7 +8478,7 @@ func writeWorkflowVerifyAttemptReason(report *types.ChangeReport, err error) str
 	}
 	if report.NormalizeVerificationStatus() == types.VerificationStatusUnavailable {
 		switch report.FailureKind {
-		case types.FailureKindRunnerMissing, types.FailureKindParserError, types.FailureKindPreexistingBuildFailure:
+		case types.FailureKindRunnerMissing, types.FailureKindParserError, types.FailureKindVerificationIncomplete, types.FailureKindPreexistingBuildFailure:
 			return string(report.FailureKind)
 		}
 		if len(report.NoTestsRunners) > 0 {
@@ -8484,7 +8486,7 @@ func writeWorkflowVerifyAttemptReason(report *types.ChangeReport, err error) str
 		}
 	}
 	switch report.FailureKind {
-	case types.FailureKindRunnerMissing, types.FailureKindParserError, types.FailureKindTimeout, types.FailureKindOOM,
+	case types.FailureKindRunnerMissing, types.FailureKindParserError, types.FailureKindVerificationIncomplete, types.FailureKindTimeout, types.FailureKindOOM,
 		types.FailureKindCPULimit, types.FailureKindCrash, types.FailureKindPreexistingBuildFailure:
 		return string(report.FailureKind)
 	}
@@ -9138,10 +9140,11 @@ func (o *Orchestrator) runAppliedPendingCompletionVerify(run *types.WriteWorkflo
 	if report != nil && (outcome.Kind == writeflow.VerifyOutcomeReportPassed ||
 		outcome.Kind == writeflow.VerifyOutcomeNoTests ||
 		outcome.Kind == writeflow.VerifyOutcomeRunnerMissing ||
+		outcome.Kind == writeflow.VerifyOutcomeVerificationIncomplete ||
 		outcome.Kind == writeflow.VerifyOutcomeParserError) {
 		updateWorkflowRunBatchStatus(run, run.ActiveBatchID, types.WriteWorkflowBatchComplete)
 		switch outcome.Kind {
-		case writeflow.VerifyOutcomeNoTests, writeflow.VerifyOutcomeRunnerMissing, writeflow.VerifyOutcomeParserError:
+		case writeflow.VerifyOutcomeNoTests, writeflow.VerifyOutcomeRunnerMissing, writeflow.VerifyOutcomeParserError, writeflow.VerifyOutcomeVerificationIncomplete:
 			updateWorkflowRunBatchCompletion(run, run.ActiveBatchID, types.WriteWorkflowCompletionUnverified, outcome.ReasonCode, "verify_attempt")
 			appendControllerProgress(run, run.ActiveBatchID, "batch_unverified", outcome.ReasonCode)
 		default:

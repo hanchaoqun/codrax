@@ -309,6 +309,12 @@ func TestRunTests_RunnerMissingEscalationDoesNotLeakSuiteToSurfaceCandidate(t *t
 	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	mu := types.NewMutableState("escalate-suite")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID: "plan-java-runner-missing",
+		TargetPaths: []string{
+			"src/test/java/org/example/ExampleTest.java",
+		},
+	})
 	ctx := &types.BusContext{Mutable: mu, RepoRoot: root, MainRepoRoot: root}
 	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
 		"runner": "java",
@@ -317,12 +323,22 @@ func TestRunTests_RunnerMissingEscalationDoesNotLeakSuiteToSurfaceCandidate(t *t
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if !result.Success {
-		t.Fatalf("make check passes, so runner-missing escalation must pass: %+v report=%+v", result, mu.ChangeReport())
+	if result.Success {
+		t.Fatalf("a passing Make target cannot authorize an uncovered Java path: %+v report=%+v", result, mu.ChangeReport())
 	}
 	report := mu.ChangeReport()
 	if report == nil {
 		t.Fatal("verify run must install ChangeReport")
+	}
+	if report.FailureKind != types.FailureKindVerificationIncomplete ||
+		report.FailureReasonCode != changedPathVerificationUncoveredReasonCode ||
+		report.NormalizeVerificationStatus() != types.VerificationStatusUnavailable {
+		t.Fatalf("cross-language escalation must be typed unavailable, got %+v", report)
+	}
+	if len(report.ChangedPathCoverage) != 1 ||
+		report.ChangedPathCoverage[0].Path != "src/test/java/org/example/ExampleTest.java" ||
+		report.ChangedPathCoverage[0].Status != types.ChangedPathVerificationUncovered {
+		t.Fatalf("Java changed-path coverage ledger missing: %+v", report.ChangedPathCoverage)
 	}
 	var sawJavaMissing, sawMakeCheck bool
 	for _, cmd := range report.ExecutedCommands {
