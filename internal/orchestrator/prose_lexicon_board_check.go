@@ -558,6 +558,7 @@ func buildProseLexiconVocabulary(doc *types.AnswerDocumentV2, bus *types.BusCont
 		for _, term := range record.SurfaceTerms {
 			addText(term)
 		}
+		addProseLexiconObservationSourceRef(addText, record.SourceRef)
 	}
 	if doc != nil {
 		for _, blk := range doc.Blocks {
