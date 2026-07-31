@@ -1655,7 +1655,7 @@ factual authority。
 | ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
 |---|---:|---|---|---|---|
 | EVAL-B10-AA1 | P1 | target/CPU scope semantics | target_window_states 的 thread-local running/runnable 比例缺少消费权限边界，模型把目标线程 occupancy 推成 CPU-wide utilization/saturation | 从 typed target-state 与 CPU-accounting 账户构造紧凑 authority；只允许描述目标状态/排队，CPU-wide 结论必须另有 typed per-CPU/core/system 证据 | planned |
-| EVAL-B10-AA2 | P1 | call-anchor integrity | AST 只证明“行内有调用”，未证明指定 callee；subject/object 还能替代显式 AnchorSymbol | 显式 AnchorSymbol 存在时只以该 symbol 为 call target；AST feature 仅可覆盖 definition-shape 误判，仍须 exact callee relation 或 line-local call syntax | planned |
+| EVAL-B10-AA2 | P1 | call-anchor integrity | AST 只证明“行内有调用”，未证明指定 callee；subject/object 还能替代显式 AnchorSymbol | 显式 AnchorSymbol 存在时只以该 symbol 为 call target；AST feature 仅可覆盖 definition-shape 误判，仍须 exact callee relation 或 line-local call syntax | covered |
 | EVAL-B10-AA3 | P1 | mechanism path closure | 多条独立 definition/case facts 可被包装成 principal_path_edge，零 grounded relation 仍形成“完整机制链” | 由结构化 anchor kind、grounded relation 与 path-edge facet 构造 relation authority；无边时明确为 independent mechanism facts，不证明调用顺序 | planned |
 | EVAL-B10-AA4 | P2 | threshold provenance | 用户比较阈值、artifact 观测和源码配置阈值没有 typed 分席，模型把提问中的50ms升级为系统规则 | 建立 validator-owned comparator/profile，分别发布 user comparator 与 code-configured threshold；没有源码证据不得称系统阈值 | planned |
 | EVAL-B10-AA5 | P2 | rank additivity model variance | typed non-additivity 已发布，模型仍有一处直接求和 | 不增加答案词面/数字扫描硬门；跨不同 rank case 复现后再考虑 typed principal verdict，当前先观察 | filed-model-variance |
@@ -1671,3 +1671,21 @@ factual authority。
    exact target 仍应 grounded。
 4. 用户阈值可用于回答用户提出的标量比较，但不能在没有当前源码证据时被
    描述为产品内部判定阈值。
+
+批 AA2 已修复 call-anchor 的“行形状代替 callee 身份”越权。
+`lineCorroboratesCallSite` 现在先要求 exact graph call relation 或目标名字
+在本行构成真实 call syntax；`LineFeatureCallExpression` 只允许覆盖
+definition-shape 启发式的误判，不再单独返回成功。若存在显式
+`AnchorSymbol`，首次 grounding 只消费该 symbol，subject/object 不能把
+错误名字直接铸成 grounded。
+
+既有自动恢复没有被简单删除：当 nearest-call 等 recovery tier 从 typed
+relation 找到真实 callee 时，可使用 legacy object/subject 候选，但必须把
+`AnchorSymbol` 改写成实际 callee，并以 `recovered` 发布。因此
+caller-shaped 常见错误仍可修复，而 `strings.Contains(...)` 所在行不能再
+为零 relation、零本地 syntax 的 `classifyFrameCategory` 提供权限。
+
+回归覆盖无关 AST call 拒绝、错误显式锚点不能直接 grounded、typed relation
+恢复后锚点改写、真实 `yield*`/普通 call 与既有 caller-shaped recovery。
+`go test ./internal/tool/ground ./internal/tool -count=1` 通过
+（ground 1.217s、tool 159.549s）。

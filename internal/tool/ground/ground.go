@@ -469,6 +469,7 @@ func GroundItem(it *types.EvidenceItem, gc *Context) Report {
 			it.Source = candidate.Source
 			it.LineStart = candidate.LineStart
 			it.LineEnd = candidate.LineEnd
+			it.AnchorSymbol = candidate.AnchorSymbol
 			attachGroundedLineSnippet(it, gc)
 			it.GroundingStatus = types.GroundingRecovered
 			it.GroundingTier = attempt.tier
@@ -1116,6 +1117,7 @@ func recoverNearestCall(it *types.EvidenceItem, gc *Context) (string, int, bool)
 		return "", 0, false
 	}
 	candidates := preferredCallTargetNames(it)
+	candidates = append(candidates, recoveryCallTargetNames(it)...)
 	if len(candidates) == 0 {
 		return "", 0, false
 	}
@@ -1326,7 +1328,28 @@ func recoveredCallAnchorConsistent(it *types.EvidenceItem, gc *Context) bool {
 	if !ok {
 		return false
 	}
-	return lineCorroboratesCallSite(text, it, gc.Graph, it.LineStart)
+	if lineCorroboratesCallSite(text, it, gc.Graph, it.LineStart) {
+		return true
+	}
+
+	// Recovery may repair the common caller-shaped AnchorSymbol only
+	// after a recovery tier has independently selected a new line. Require
+	// the recovered line itself to prove one of the legacy semantic
+	// candidates, then rewrite AnchorSymbol to that exact callee. This
+	// preserves automatic repair without allowing Subject/Object to rescue
+	// a wrong explicit callee at the originally cited line.
+	for _, target := range recoveryCallTargetNames(it) {
+		repaired := *it
+		repaired.AnchorSymbol = target
+		repaired.Subject = ""
+		repaired.Object = ""
+		if !lineCorroboratesCallSite(text, &repaired, gc.Graph, it.LineStart) {
+			continue
+		}
+		it.AnchorSymbol = target
+		return true
+	}
+	return false
 }
 
 func snippetContradictsAnchorKind(it *types.EvidenceItem) bool {
@@ -2816,11 +2839,13 @@ func lineCorroboratesCallSite(lineText string, it *types.EvidenceItem, graph *re
 	// populated by the indexer (call_expression / method_invocation /
 	// new_expression nodes register LineFeatureCallExpression /
 	// LineFeatureNewExpression at their start line). When the line
-	// carries either feature, the line IS a call site by AST
-	// construction — no regex heuristic should override that. This
-	// closes the false-rejection class where source-shape regex
-	// matched a call expression as a type-prefixed definition (the
-	// 2026-05-17 TS Effect.gen `yield* funcName(args)` forensic).
+	// carries either feature, the line contains a call site by AST
+	// construction. That signal does NOT identify the callee: a
+	// strings.Contains(...) call on the cited line cannot corroborate an
+	// unrelated AnchorSymbol. Exact relation or line-local target syntax
+	// remains mandatory. The AST feature only prevents a source-shape
+	// heuristic from rejecting a real target call such as the 2026-05-17
+	// TS Effect.gen `yield* funcName(args)` forensic.
 	//
 	// Falls through to the existing Relations / regex paths when:
 	//   - graph is nil (no scan, single-shot CLI)
@@ -2828,9 +2853,6 @@ func lineCorroboratesCallSite(lineText string, it *types.EvidenceItem, graph *re
 	//   - LineFeatures empty (Tier 3+ regex-only parse: no AST)
 	// — those paths preserve byte-identical behaviour for callers
 	// that operated without a graph before the LineFeatures-tier fix.
-	if graphLineHasCallExpressionFeature(graph, it.Source, lineNo) {
-		return true
-	}
 	candidates := preferredCallTargetNames(it)
 	if len(candidates) == 0 {
 		return false
@@ -2841,7 +2863,8 @@ func lineCorroboratesCallSite(lineText string, it *types.EvidenceItem, graph *re
 	if graphLineHasDefinitionFeature(graph, it.Source, lineNo) {
 		return false
 	}
-	if looksLikeCallableDefinitionLine(lineText) {
+	typedCallExpression := graphLineHasCallExpressionFeature(graph, it.Source, lineNo)
+	if looksLikeCallableDefinitionLine(lineText) && !typedCallExpression {
 		return false
 	}
 	for _, target := range candidates {
@@ -3502,6 +3525,15 @@ func preferredCallTargetNames(it *types.EvidenceItem) []string {
 	if it == nil {
 		return nil
 	}
+	// The current evidence contract defines AnchorSymbol as the callee
+	// for AnchorKind=call. Once present, it is the sole identity
+	// authority: Subject and Object are model-authored semantic prose and
+	// must not silently rescue a wrong explicit callee. The fallback
+	// union is retained only for legacy/deterministic items that predate
+	// AnchorSymbol.
+	if anchor := strings.TrimSpace(it.AnchorSymbol); anchor != "" {
+		return []string{anchor}
+	}
 	seen := make(map[string]bool, 3)
 	out := make([]string, 0, 3)
 	add := func(s string) {
@@ -3512,8 +3544,25 @@ func preferredCallTargetNames(it *types.EvidenceItem) []string {
 		seen[s] = true
 		out = append(out, s)
 	}
-	add(it.AnchorSymbol)
 	add(it.Object)
 	add(it.Subject)
+	return out
+}
+
+func recoveryCallTargetNames(it *types.EvidenceItem) []string {
+	if it == nil {
+		return nil
+	}
+	anchor := strings.TrimSpace(it.AnchorSymbol)
+	seen := make(map[string]bool, 2)
+	out := make([]string, 0, 2)
+	for _, raw := range []string{it.Object, it.Subject} {
+		target := strings.TrimSpace(raw)
+		if target == "" || target == anchor || seen[target] {
+			continue
+		}
+		seen[target] = true
+		out = append(out, target)
+	}
 	return out
 }

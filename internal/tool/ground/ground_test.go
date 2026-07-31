@@ -505,6 +505,94 @@ func TestGroundItem_CallAnchorAcceptsCallExpressionFromLineFeatures(t *testing.T
 	}
 }
 
+func TestGroundItem_CallExpressionFeatureDoesNotAuthorizeDifferentCallee(t *testing.T) {
+	const source = "internal/tracequery/query.go"
+	graph := &repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			source: {
+				RelPath: source,
+				LineFeatures: map[int][]repomap.LineFeature{
+					21886: {repomap.LineFeatureCallExpression},
+				},
+				Relations: []repomap.Relation{
+					{
+						Kind: "call",
+						File: source,
+						Line: 21886,
+						ToEP: repomap.RelationEndpoint{
+							Name: "strings.Contains",
+						},
+					},
+				},
+			},
+		},
+	}
+	history := []types.ToolResult{
+		buildGutterReadResult(source, 21886, []string{
+			`case strings.Contains(lower, "render_service"):`,
+		}, 22000),
+	}
+	gc := &Context{LineIndex: buildLineIndex(history, ""), Graph: graph}
+	it := &types.EvidenceItem{
+		Kind:         types.EvidenceRelationship,
+		Source:       source,
+		LineStart:    21886,
+		AnchorKind:   types.AnchorCall,
+		AnchorSymbol: "classifyFrameCategory",
+	}
+
+	GroundItem(it, gc)
+
+	if it.GroundingStatus != types.GroundingUngrounded {
+		t.Fatalf("an unrelated AST call must not ground the declared callee: status=%q tier=%q line=%d note=%q",
+			it.GroundingStatus, it.GroundingTier, it.LineStart, it.GroundingNote)
+	}
+}
+
+func TestGroundItem_ExplicitCallAnchorIsRewrittenByTypedCallRecovery(t *testing.T) {
+	const source = "a.go"
+	history := []types.ToolResult{
+		buildGutterReadResult(source, 20, []string{`value := realCallee(input)`}, 30),
+	}
+	graph := &repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			source: {
+				RelPath: source,
+				Relations: []repomap.Relation{
+					{
+						Kind: "call",
+						File: source,
+						Line: 20,
+						ToEP: repomap.RelationEndpoint{
+							Name: "realCallee",
+						},
+					},
+				},
+			},
+		},
+	}
+	gc := &Context{LineIndex: buildLineIndex(history, ""), Graph: graph}
+	it := &types.EvidenceItem{
+		Kind:         types.EvidenceRelationship,
+		Source:       source,
+		LineStart:    20,
+		AnchorKind:   types.AnchorCall,
+		AnchorSymbol: "inventedCallee",
+		Subject:      "caller",
+		Object:       "realCallee",
+	}
+
+	GroundItem(it, gc)
+
+	if it.GroundingStatus != types.GroundingRecovered || it.GroundingTier != types.TierNearestCall {
+		t.Fatalf("typed call relation should recover rather than directly ground a wrong explicit anchor: status=%q tier=%q line=%d note=%q",
+			it.GroundingStatus, it.GroundingTier, it.LineStart, it.GroundingNote)
+	}
+	if it.AnchorSymbol != "realCallee" {
+		t.Fatalf("recovered call anchor = %q, want exact typed callee realCallee", it.AnchorSymbol)
+	}
+}
+
 // TestGroundItem_CallAnchorAcceptsJSExpressionPrefixedCallSites pins
 // the 2026-05-17 grounder fix: TypeScript Effect.gen / async patterns
 // like `yield* funcName(args)` and `await funcName(args)` are CALL
@@ -784,6 +872,9 @@ func TestGroundItem_CallAnchorUsesCalleeForRecovery(t *testing.T) {
 	}
 	if it.LineStart != 29 {
 		t.Fatalf("call anchor recovered line = %d, want 29", it.LineStart)
+	}
+	if it.AnchorSymbol != "buildAnalysisIR" {
+		t.Fatalf("recovered call anchor = %q, want exact callee buildAnalysisIR", it.AnchorSymbol)
 	}
 	if got, want := it.Snippet, "ir, buildErr := buildAnalysisIR(ctx)"; got != want {
 		t.Fatalf("recovered callsite snippet=%q, want %q", got, want)
