@@ -683,6 +683,7 @@ func traceQueryEvidenceAuthority(result tracequery.Result) *types.TraceEvidenceA
 	authority.FrequencyTransitionEventCount, authority.FrequencyTypedSupplyEvidence =
 		traceQueryFrequencyEvidenceAuthority(result)
 	authority.FrequencyLimitWitnesses = traceQueryFrequencyLimitAuthorities(result)
+	traceQueryApplyFrequencyPolicyLimitSemantics(authority)
 	if authority.FrequencyTransitionEventCount > 0 {
 		authority.FrequencyTransitionAuthority = "background_only"
 		if len(authority.FrequencyTypedSupplyEvidence) == 0 {
@@ -746,6 +747,14 @@ func traceQueryEvidenceAuthority(result tracequery.Result) *types.TraceEvidenceA
 		authority.CausalConclusion = "bounded_by_typed_rows"
 	}
 	return authority
+}
+
+func traceQueryApplyFrequencyPolicyLimitSemantics(authority *types.TraceEvidenceAuthority) {
+	if authority == nil || len(authority.FrequencyLimitWitnesses) == 0 {
+		return
+	}
+	authority.FrequencyPolicyLimitStatus = "present"
+	authority.FrequencyLimitBindingCaliber = "limit_row_proves_ceiling_presence;binding_impact_requires_separate_overlap_or_supply_evidence"
 }
 
 func traceQueryFrequencyLimitAuthorities(result tracequery.Result) []types.TraceFrequencyLimitAuthority {
@@ -1812,6 +1821,9 @@ func traceQueryAutoWindowEvidenceAuthority(children []traceQueryAutoWindowChild)
 	combined.FrequencyTypedSupplyEvidence = dedupTraceQueryStrings(combined.FrequencyTypedSupplyEvidence)
 	sort.Strings(combined.FrequencyTypedSupplyEvidence)
 	combined.FrequencyLimitWitnesses = dedupTraceQueryFrequencyLimitAuthorities(combined.FrequencyLimitWitnesses, 8)
+	combined.FrequencyPolicyLimitStatus = ""
+	combined.FrequencyLimitBindingCaliber = ""
+	traceQueryApplyFrequencyPolicyLimitSemantics(combined)
 	if combined.FrequencyTransitionEventCount > 0 {
 		combined.FrequencyTransitionAuthority = "background_only"
 		if len(combined.FrequencyTypedSupplyEvidence) == 0 {
@@ -4362,7 +4374,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 				sanitizeForBanner(strings.Join(authority.FrequencyTypedSupplyEvidence, ",")))
 		}
 		for _, witness := range authority.FrequencyLimitWitnesses {
-			fmt.Fprintf(&b, "frequency_limit_witness cpu=%d min=%dkHz max=%dkHz limit_rows=%d witness_line=%d witness_ts=%.6f window=%.6f..%.6f authority=%s (direct in-window policy-limit evidence; actual residency/operating frequency and transition count are separate facts)\n",
+			fmt.Fprintf(&b, "frequency_limit_witness cpu=%d min=%dkHz max=%dkHz limit_rows=%d witness_line=%d witness_ts=%.6f window=%.6f..%.6f authority=%s policy_limit_status=%s binding_caliber=%s (the row proves that a policy ceiling was present; an actual frequency below the ceiling neither negates that limit nor proves its binding performance impact)\n",
 				witness.CPU,
 				witness.MinFrequencyKHz,
 				witness.MaxFrequencyKHz,
@@ -4372,6 +4384,8 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 				witness.WindowStartTs,
 				witness.WindowEndTs,
 				sanitizeForBanner(witness.Authority),
+				sanitizeForBanner(authority.FrequencyPolicyLimitStatus),
+				sanitizeForBanner(authority.FrequencyLimitBindingCaliber),
 			)
 		}
 	}

@@ -31,8 +31,10 @@ func TestRuntimeTraceGuidanceCarriesDirectFrequencyLimitWitnesses(t *testing.T) 
 	for _, want := range []string{
 		"Runtime direct frequency-limit authority",
 		"`cpu=0 min=418000kHz max=1530000kHz limit_rows=16 witness_line=8048 witness_ts=13762.861720 window=13762.791708..13763.024898 authority=direct_in_window_policy_limit`",
-		"Actual/average/residency frequency and frequency-transition count are separate operating facts",
-		"must not replace the direct min/max witness",
+		"`policy_limit_status=present`",
+		"actual/average/residency frequency below that ceiling does not negate the policy limit",
+		"binding performance impact",
+		"Normalize every frequency comparison to one unit",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("frequency guidance missing %q:\n%s", want, got)

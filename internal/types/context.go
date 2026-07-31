@@ -6590,6 +6590,8 @@ type TraceEvidenceAuthority struct {
 	FrequencySupplyConclusion     string                            `json:"frequency_supply_conclusion,omitempty"`
 	FrequencyTypedSupplyEvidence  []string                          `json:"frequency_typed_supply_evidence,omitempty"`
 	FrequencyLimitWitnesses       []TraceFrequencyLimitAuthority    `json:"frequency_limit_witnesses,omitempty"`
+	FrequencyPolicyLimitStatus    string                            `json:"frequency_policy_limit_status,omitempty"`
+	FrequencyLimitBindingCaliber  string                            `json:"frequency_limit_binding_caliber,omitempty"`
 	LifecycleBoundaries           []TraceLifecycleBoundaryAuthority `json:"lifecycle_boundaries,omitempty"`
 }
 

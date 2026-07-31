@@ -72,7 +72,7 @@ func materializeRuntimeTraceFrequencyAuthorityCaveat(doc *types.AnswerDocumentV2
 		}
 		if len(limitWitnesses) > 0 {
 			caveat += "；direct_in_window_policy_limits=" + runtimeTraceFrequencyLimitWitnessRoster(limitWitnesses) +
-				"；这些 min/max 行是窗内 policy-limit 直接证据，实际/平均/驻留频率不能替代该限制值"
+				"；policy_limit_status=present：这些 min/max 行直接证明窗内存在 policy ceiling，实际/平均/驻留频率低于 ceiling 不能反推「无策略限制」；binding_caliber=limit_row_proves_ceiling_presence;binding_impact_requires_separate_overlap_or_supply_evidence，是否顶到 ceiling 及其性能影响须由独立 overlap/compute-supply 证据证明"
 		}
 	} else {
 		caveat = fmt.Sprintf(
@@ -87,7 +87,7 @@ func materializeRuntimeTraceFrequencyAuthorityCaveat(doc *types.AnswerDocumentV2
 		}
 		if len(limitWitnesses) > 0 {
 			caveat += "; direct_in_window_policy_limits=" + runtimeTraceFrequencyLimitWitnessRoster(limitWitnesses) +
-				"; these min/max rows are direct in-window policy-limit evidence, and actual/average/residency frequency cannot replace the limit value"
+				"; policy_limit_status=present: these min/max rows directly prove that a policy ceiling existed in the window, and an actual/average/residency frequency below the ceiling cannot be used to conclude that no policy limit existed; binding_caliber=limit_row_proves_ceiling_presence;binding_impact_requires_separate_overlap_or_supply_evidence, so hitting the ceiling and its performance impact require independent overlap/compute-supply evidence"
 		}
 	}
 	for _, existing := range doc.Caveats {

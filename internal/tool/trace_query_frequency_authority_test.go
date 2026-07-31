@@ -78,6 +78,10 @@ func TestTraceQueryFrequencyAuthoritySeparatesTypedSupplyEvidence(t *testing.T) 
 	if len(authority.FrequencyLimitWitnesses) != 1 {
 		t.Fatalf("frequency limit witnesses = %+v, want one direct row", authority.FrequencyLimitWitnesses)
 	}
+	if authority.FrequencyPolicyLimitStatus != "present" ||
+		authority.FrequencyLimitBindingCaliber != "limit_row_proves_ceiling_presence;binding_impact_requires_separate_overlap_or_supply_evidence" {
+		t.Fatalf("frequency policy semantics = %+v", authority)
+	}
 	witness := authority.FrequencyLimitWitnesses[0]
 	if witness.CPU != 0 || witness.MinFrequencyKHz != 418000 || witness.MaxFrequencyKHz != 1530000 ||
 		witness.LimitRowCount != 16 || witness.WitnessLine != 8048 || witness.WitnessTs != 13762.861720 ||
@@ -91,7 +95,9 @@ func TestTraceQueryFrequencyAuthoritySeparatesTypedSupplyEvidence(t *testing.T) 
 		"limit_rows=16 witness_line=8048 witness_ts=13762.861720",
 		"window=13762.791708..13763.024898",
 		"authority=direct_in_window_policy_limit",
-		"actual residency/operating frequency and transition count are separate facts",
+		"policy_limit_status=present",
+		"binding_caliber=limit_row_proves_ceiling_presence;binding_impact_requires_separate_overlap_or_supply_evidence",
+		"actual frequency below the ceiling neither negates that limit nor proves its binding performance impact",
 	} {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("head-safe summary missing %q:\n%s", want, summary)
@@ -135,6 +141,10 @@ func TestTraceQueryAutoWindowFrequencyLimitAuthorityDeduplicatesWitnesses(t *tes
 	})
 	if authority == nil || len(authority.FrequencyLimitWitnesses) != 1 {
 		t.Fatalf("combined frequency witnesses = %+v, want one deduplicated row", authority)
+	}
+	if authority.FrequencyPolicyLimitStatus != "present" ||
+		authority.FrequencyLimitBindingCaliber == "" {
+		t.Fatalf("combined frequency semantics = %+v", authority)
 	}
 }
 
@@ -212,7 +222,9 @@ func TestRuntimeTraceFrequencyAuthorityCaveatNamesIndependentTypedEvidence(t *te
 	if !strings.Contains(got, "typed_supply_evidence=frequency_residency_low_frequency") ||
 		!strings.Contains(got, "不能归因于 transition count") ||
 		!strings.Contains(got, "direct_in_window_policy_limits=cpu0[min=418000kHz,max=1530000kHz") ||
-		!strings.Contains(got, "实际/平均/驻留频率不能替代该限制值") {
+		!strings.Contains(got, "policy_limit_status=present") ||
+		!strings.Contains(got, "低于 ceiling 不能反推「无策略限制」") ||
+		!strings.Contains(got, "binding_impact_requires_separate_overlap_or_supply_evidence") {
 		t.Fatalf("typed frequency caveat = %q", got)
 	}
 }
