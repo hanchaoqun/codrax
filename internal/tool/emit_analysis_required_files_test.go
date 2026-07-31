@@ -105,6 +105,10 @@ func TestEmitAnalysisExecute_RepairsRequiredFilesStringEntries(t *testing.T) {
 			"is_granularity_question": false,
 			"confidence": 0.7
 		},
+		"runtime_artifact_scope_profile": {
+			"requested_scope": "not_applicable",
+			"confidence": 0.7
+		},
 		"required_files": ["eval/fixtures/runtime_path_panic.log"],
 		"external_observation_policy": {
 			"artifact_citation_mode": "external_only",
@@ -640,6 +644,10 @@ func TestEmitAnalysisExecute_ProjectsRuntimeArtifactPathFromRequest(t *testing.T
 		},
 		"error_granularity_profile": {
 			"is_granularity_question": false,
+			"confidence": 0.8
+		},
+		"runtime_artifact_scope_profile": {
+			"requested_scope": "unspecified",
 			"confidence": 0.8
 		},
 		"external_observation_policy": {

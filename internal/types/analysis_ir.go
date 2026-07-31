@@ -40,26 +40,26 @@ type AnalysisIR struct {
 // AnalysisIRVersion is the current schema version string. Bump on any
 // breaking change to the wire format so downstream consumers can refuse
 // to parse IRs they do not understand.
-const AnalysisIRVersion = "v14"
+const AnalysisIRVersion = "v15"
 
 // ── RequestModel ────────────────────────────────────────────────────────
 
 type RequestModel struct {
-	RawRequest  string      `json:"raw_request"`
+	RawRequest string `json:"raw_request"`
 	// UserPinnedFiles is the deterministic @path pin list injected by
 	// the analyzer's post-processing from AgentContext (PIB-5c) —
 	// NEVER decoded from the LLM emission, so the R2' schema-sync
 	// obligation does not apply and hard gates may key on it as a
 	// precise signal (len > 0 ⇒ the user explicitly named these
 	// files; forced-read coverage applies).
-	UserPinnedFiles []string `json:"user_pinned_files,omitempty"`
-	Language    string      `json:"language"`
-	Intent      Intent      `json:"intent"`
-	Scenario    Scenario    `json:"scenario"`
-	Complexity  Complexity  `json:"complexity"`
-	TermGraph   TermGraph   `json:"term_graph"`
-	Ambiguities []Ambiguity `json:"ambiguities,omitempty"`
-	RiskMatrix  RiskMatrix  `json:"risk_matrix"`
+	UserPinnedFiles []string    `json:"user_pinned_files,omitempty"`
+	Language        string      `json:"language"`
+	Intent          Intent      `json:"intent"`
+	Scenario        Scenario    `json:"scenario"`
+	Complexity      Complexity  `json:"complexity"`
+	TermGraph       TermGraph   `json:"term_graph"`
+	Ambiguities     []Ambiguity `json:"ambiguities,omitempty"`
+	RiskMatrix      RiskMatrix  `json:"risk_matrix"`
 
 	// IntentConfidence / ComplexityConfidence / KindConfidence are
 	// LLM-emitted certainty scores in [0.0, 1.0] for each
@@ -159,6 +159,13 @@ type RequestModel struct {
 	// still verify the value against typed runtime observations before treating
 	// it as factual.
 	RuntimeArtifactValueProfile *RuntimeArtifactValueProfile `json:"artifact_value_profile,omitempty"`
+
+	// RuntimeArtifactScopeProfile is the analyzer's required typed distinction
+	// between the user's requested artifact universe and model-authored
+	// trace/log query windows. Exact current-request quote validation is
+	// performed before full-artifact or explicit-window values may become
+	// deterministic routing authority.
+	RuntimeArtifactScopeProfile *RuntimeArtifactScopeProfile `json:"runtime_artifact_scope_profile,omitempty"`
 
 	// RuntimeTargets is the analyzer/tool typed lane for runtime artifact
 	// targets such as trace process IDs, thread IDs, and thread labels. Unlike

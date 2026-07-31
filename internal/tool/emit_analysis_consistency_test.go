@@ -70,11 +70,12 @@ func TestEmitAnalysisSchemaMatchesContract(t *testing.T) {
 		// replacement for the deleted prose-cue tables and must be
 		// fully populated.
 		"intent_confidence": true, "complexity_confidence": true,
-		"kind_confidence":           true,
-		"predicates":                true,
-		"diagnostic_profile":        true,
-		"answer_role_profile":       true,
-		"error_granularity_profile": true,
+		"kind_confidence":                true,
+		"predicates":                     true,
+		"diagnostic_profile":             true,
+		"answer_role_profile":            true,
+		"error_granularity_profile":      true,
+		"runtime_artifact_scope_profile": true,
 	}
 	gotRequired := make(map[string]bool, len(parsed.Required))
 	for _, r := range parsed.Required {
@@ -83,6 +84,49 @@ func TestEmitAnalysisSchemaMatchesContract(t *testing.T) {
 	if !reflect.DeepEqual(gotRequired, wantRequired) {
 		t.Errorf("emit_analysis required-field set drift:\n  schema:   %v\n  expected: %v",
 			parsed.Required, wantRequired)
+	}
+}
+
+func TestEmitAnalysisSchemaIncludesRuntimeArtifactScopeProfile(t *testing.T) {
+	var parsed struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	raw := (&EmitAnalysis{}).Parameters()
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("emit_analysis schema is not valid JSON: %v\nraw=%s", err, string(raw))
+	}
+	propRaw, ok := parsed.Properties["runtime_artifact_scope_profile"]
+	if !ok {
+		t.Fatal("emit_analysis schema is missing property \"runtime_artifact_scope_profile\"")
+	}
+	var prop struct {
+		Properties map[string]struct {
+			Type string   `json:"type"`
+			Enum []string `json:"enum"`
+		} `json:"properties"`
+		Required []string `json:"required"`
+	}
+	if err := json.Unmarshal(propRaw, &prop); err != nil {
+		t.Fatalf("runtime_artifact_scope_profile property is not valid JSON schema: %v\nraw=%s", err, string(propRaw))
+	}
+	var gotRequired = map[string]bool{}
+	for _, field := range prop.Required {
+		gotRequired[field] = true
+	}
+	for _, field := range []string{"requested_scope", "confidence"} {
+		if !gotRequired[field] {
+			t.Fatalf("runtime_artifact_scope_profile.required=%v, missing %s", prop.Required, field)
+		}
+	}
+	var want []string
+	for _, scope := range types.AllRuntimeArtifactRequestedScopes() {
+		want = append(want, string(scope))
+	}
+	if !reflect.DeepEqual(prop.Properties["requested_scope"].Enum, want) {
+		t.Fatalf("requested_scope enum=%v, want %v", prop.Properties["requested_scope"].Enum, want)
+	}
+	if prop.Properties["time_start"].Type != "number" || prop.Properties["time_end"].Type != "number" {
+		t.Fatalf("explicit window bounds must be numeric: %+v", prop.Properties)
 	}
 }
 

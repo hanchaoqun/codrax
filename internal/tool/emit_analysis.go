@@ -82,6 +82,7 @@ type emitAnalysisParams struct {
 	ChangeImpactProfile          *emitChangeImpactProfileParam          `json:"change_impact_profile,omitempty"`
 	FieldValueProfile            *emitFieldValueProfileParam            `json:"field_value_profile,omitempty"`
 	RuntimeArtifactValueProfile  *emitRuntimeArtifactValueProfileParam  `json:"artifact_value_profile,omitempty"`
+	RuntimeArtifactScopeProfile  *emitRuntimeArtifactScopeProfileParam  `json:"runtime_artifact_scope_profile"`
 	RuntimeTargets               []emitRuntimeTargetParam               `json:"runtime_targets,omitempty"`
 	AnswerExclusionPolicy        *emitAnswerExclusionPolicyParam        `json:"answer_exclusion_policy,omitempty"`
 	AnswerRoleProfile            *emitAnswerRoleProfileParam            `json:"answer_role_profile,omitempty"`
@@ -249,6 +250,15 @@ type emitRuntimeArtifactValueProfileParam struct {
 	ObservationRefs       []string `json:"observation_refs,omitempty"`
 	Confidence            *float64 `json:"confidence"`
 	Rationale             string   `json:"rationale,omitempty"`
+}
+
+type emitRuntimeArtifactScopeProfileParam struct {
+	RequestedScope string   `json:"requested_scope"`
+	TimeStart      *float64 `json:"time_start,omitempty"`
+	TimeEnd        *float64 `json:"time_end,omitempty"`
+	SourceQuote    string   `json:"source_quote,omitempty"`
+	Confidence     *float64 `json:"confidence"`
+	Rationale      string   `json:"rationale,omitempty"`
 }
 
 type emitRuntimeTargetParam struct {
@@ -611,6 +621,19 @@ func buildEmitAnalysisSchema() {
 				},
 				"required": []string{"is_artifact_value_lookup", "confidence"},
 			},
+			"runtime_artifact_scope_profile": map[string]any{
+				"type":        "object",
+				"description": "Required user-scope authority for runtime artifacts. This is NOT a trace_query/exploration window. Use not_applicable when no runtime artifact is attached or referenced. For an attached artifact, use full_artifact when the current request asks about the supplied artifact without a narrower user boundary (for example 'this trace' / '这份 trace'); use explicit_time_window only when the current request itself states exact trace time bounds, copying them to time_start/time_end; use bounded_selector when the current request names a narrower artifact selector such as a frame/span/event but does not state exact time bounds; use unspecified when the current request's artifact scope cannot be determined. A model-chosen query window never changes this field.",
+				"properties": map[string]any{
+					"requested_scope": map[string]any{"type": "string", "enum": runtimeArtifactRequestedScopeValues(), "description": "not_applicable, full_artifact, explicit_time_window, bounded_selector, or unspecified."},
+					"time_start":      map[string]any{"type": "number", "minimum": 0.0, "description": "Exact user-stated trace start in seconds; required only for explicit_time_window."},
+					"time_end":        map[string]any{"type": "number", "minimum": 0.0, "description": "Exact user-stated trace end in seconds; required only for explicit_time_window and greater than time_start."},
+					"source_quote":    map[string]any{"type": "string", "description": "Verbatim current-request phrase that establishes full_artifact, explicit_time_window, or bounded_selector scope. Do not copy model/tool prose."},
+					"confidence":      map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Classification confidence in [0,1]."},
+					"rationale":       map[string]any{"type": "string", "description": "Short audit rationale."},
+				},
+				"required": []string{"requested_scope", "confidence"},
+			},
 			"runtime_targets": map[string]any{
 				"type":        "array",
 				"description": "Optional typed runtime-artifact target list. Emit only when the current request explicitly identifies trace/log/perf targets as structured process IDs, thread IDs, or concrete thread labels. This is the only lane downstream trace tools may use to preserve omitted pid/thread filters; do not put timestamps, file paths, span names, generic entities, or guessed values here.",
@@ -786,6 +809,7 @@ func buildEmitAnalysisSchema() {
 			"intent", "scenario", "complexity", "keywords", "entities", "question_kind",
 			"intent_confidence", "complexity_confidence", "kind_confidence",
 			"predicates", "diagnostic_profile", "answer_role_profile", "error_granularity_profile",
+			"runtime_artifact_scope_profile",
 		},
 	}
 
@@ -911,6 +935,15 @@ func fieldValueLiteralKindValues() []string {
 
 func runtimeTargetKindValues() []string {
 	return []string{string(types.RuntimeTargetKindProcess), string(types.RuntimeTargetKindThread)}
+}
+
+func runtimeArtifactRequestedScopeValues() []string {
+	values := types.AllRuntimeArtifactRequestedScopes()
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		out = append(out, string(value))
+	}
+	return out
 }
 
 func answerCandidateRoleValues() []string {
@@ -1040,6 +1073,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		"change_impact_profile",
 		"field_value_profile",
 		"artifact_value_profile",
+		"runtime_artifact_scope_profile",
 		"answer_exclusion_policy",
 		"answer_role_profile",
 		"error_granularity_profile",
@@ -1385,6 +1419,19 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			}, nil
 		}
 	}
+	runtimeArtifactScopeProfile, runtimeArtifactScopeErr, runtimeArtifactScopeWarnings := parseRuntimeArtifactScopeProfile(raw, runtimeArtifactCarrier, p.RuntimeArtifactScopeProfile)
+	if runtimeArtifactScopeErr != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + runtimeArtifactScopeErr,
+			Timestamp: time.Now(),
+		}, nil
+	}
+	for _, warning := range runtimeArtifactScopeWarnings {
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
 	runtimeTargets, runtimeTargetWarnings := parseRuntimeTargets(p.RuntimeTargets)
 	for _, warning := range runtimeTargetWarnings {
 		logging.Warning("[emit_analysis] %s", warning)
@@ -1610,6 +1657,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		ChangeImpactProfile:             changeImpactProfile,
 		FieldValueProfile:               fieldValueProfile,
 		RuntimeArtifactValueProfile:     runtimeArtifactValueProfile,
+		RuntimeArtifactScopeProfile:     runtimeArtifactScopeProfile,
 		RuntimeTargets:                  runtimeTargets,
 		AnswerExclusionPolicy:           answerExclusionPolicy,
 		AnswerRoleProfile:               answerRoleProfile,
@@ -3207,6 +3255,86 @@ func parseRuntimeArtifactValueProfile(runtimeArtifactCarrier bool, p *emitRuntim
 		Confidence:            *p.Confidence,
 		Rationale:             strings.TrimSpace(p.Rationale),
 	}, ""
+}
+
+func parseRuntimeArtifactScopeProfile(raw string, runtimeArtifactCarrier bool, p *emitRuntimeArtifactScopeProfileParam) (*types.RuntimeArtifactScopeProfile, string, []string) {
+	if p == nil {
+		return nil, "runtime_artifact_scope_profile object missing — emit requested_scope plus confidence; use not_applicable when no runtime artifact is in scope", nil
+	}
+	if strings.TrimSpace(p.RequestedScope) == "" || p.Confidence == nil {
+		var missing []string
+		if strings.TrimSpace(p.RequestedScope) == "" {
+			missing = append(missing, "requested_scope")
+		}
+		if p.Confidence == nil {
+			missing = append(missing, "confidence")
+		}
+		return nil, "runtime_artifact_scope_profile missing required field(s): " + strings.Join(missing, ", "), nil
+	}
+	if *p.Confidence < 0 || *p.Confidence > 1 {
+		return nil, fmt.Sprintf("runtime_artifact_scope_profile.confidence %.2f out of [0,1]", *p.Confidence), nil
+	}
+	scope := types.RuntimeArtifactRequestedScope(strings.TrimSpace(p.RequestedScope))
+	if !scope.IsValid() {
+		return nil, fmt.Sprintf(
+			"runtime_artifact_scope_profile.requested_scope %q is invalid; use one of %s",
+			p.RequestedScope, strings.Join(runtimeArtifactRequestedScopeValues(), ", "),
+		), nil
+	}
+	if !runtimeArtifactCarrier {
+		if scope != types.RuntimeArtifactScopeNotApplicable {
+			return &types.RuntimeArtifactScopeProfile{
+				RequestedScope: types.RuntimeArtifactScopeNotApplicable,
+				Confidence:     *p.Confidence,
+			}, "", []string{"runtime_artifact_scope_profile normalized to not_applicable because no runtime artifact carrier is present"}
+		}
+		return &types.RuntimeArtifactScopeProfile{
+			RequestedScope: scope,
+			Confidence:     *p.Confidence,
+		}, "", nil
+	}
+
+	profile := &types.RuntimeArtifactScopeProfile{
+		RequestedScope: scope,
+		TimeStart:      p.TimeStart,
+		TimeEnd:        p.TimeEnd,
+		Confidence:     *p.Confidence,
+		Rationale:      strings.TrimSpace(p.Rationale),
+	}
+	var warnings []string
+	quote := strings.TrimSpace(p.SourceQuote)
+	anchored := quote != "" && sourceQuotePresentInCurrentRequest(raw, quote)
+	switch scope {
+	case types.RuntimeArtifactScopeFullArtifact, types.RuntimeArtifactScopeBoundedSelector:
+		if !anchored {
+			profile.RequestedScope = types.RuntimeArtifactScopeUnspecified
+			profile.TimeStart = nil
+			profile.TimeEnd = nil
+			warnings = append(warnings, "runtime_artifact_scope_profile auto-softened to unspecified because source_quote is not verbatim in the current request")
+		} else {
+			profile.SourceQuote = quote
+			profile.TimeStart = nil
+			profile.TimeEnd = nil
+		}
+	case types.RuntimeArtifactScopeExplicitWindow:
+		if !anchored || p.TimeStart == nil || p.TimeEnd == nil || *p.TimeStart < 0 || *p.TimeEnd <= *p.TimeStart {
+			profile.RequestedScope = types.RuntimeArtifactScopeUnspecified
+			profile.TimeStart = nil
+			profile.TimeEnd = nil
+			warnings = append(warnings, "runtime_artifact_scope_profile auto-softened to unspecified because explicit_time_window lacks an anchored quote or valid time_start/time_end")
+		} else {
+			profile.SourceQuote = quote
+		}
+	case types.RuntimeArtifactScopeNotApplicable:
+		profile.RequestedScope = types.RuntimeArtifactScopeUnspecified
+		profile.TimeStart = nil
+		profile.TimeEnd = nil
+		warnings = append(warnings, "runtime_artifact_scope_profile normalized to unspecified because a runtime artifact carrier is present")
+	case types.RuntimeArtifactScopeUnspecified:
+		profile.TimeStart = nil
+		profile.TimeEnd = nil
+	}
+	return profile, "", warnings
 }
 
 func parseRuntimeTargets(in []emitRuntimeTargetParam) ([]types.RuntimeTarget, []string) {

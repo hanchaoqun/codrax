@@ -207,12 +207,36 @@ func traceSupplementViewsForRequest(ctx *types.BusContext, f traceSupplementFami
 		return []string{"frame_root_cause_bundle"}
 	}
 	if traceSupplementNarrowDStateQuestion(ctx) {
+		// EVAL-B1-R13: a quote-anchored user scope outranks whichever local
+		// query window happened to mint the same families. Re-run the minimal
+		// state view at that user scope even when a narrow local account is
+		// already present; local complete is not artifact complete.
+		if scope := traceSupplementRequestedArtifactScope(ctx); scope.FullArtifact() {
+			return []string{"window_stats"}
+		} else if _, _, ok := scope.ExplicitTimeWindow(); ok {
+			return []string{"window_stats"}
+		}
 		if !f.WindowStates || !f.BlockedReasonCensus {
 			return []string{"window_stats"}
 		}
 		return nil
 	}
 	return traceSupplementViews(f, false, frameEvidencePresent)
+}
+
+func traceSupplementRequestedArtifactScope(ctx *types.BusContext) *types.RuntimeArtifactScopeProfile {
+	if ctx == nil {
+		return nil
+	}
+	if ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile != nil {
+		return ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile
+	}
+	if ctx.Mutable != nil {
+		if rm := ctx.Mutable.RequestModel(); rm != nil {
+			return rm.RuntimeArtifactScopeProfile
+		}
+	}
+	return nil
 }
 
 func traceSupplementNarrowDStateQuestion(ctx *types.BusContext) bool {
@@ -1203,6 +1227,19 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 	}
 	callWindows := ctx.Mutable.TraceQueryCallWindows()
 	window, ok := traceSupplementDeriveWindow(callWindows)
+	requestedArtifactScope := traceSupplementRequestedArtifactScope(ctx)
+	requestedFullArtifact := requestedArtifactScope.FullArtifact() && traceSupplementNarrowDStateQuestion(ctx)
+	if start, end, explicit := requestedArtifactScope.ExplicitTimeWindow(); explicit {
+		window = types.TraceQueryCallWindow{
+			View:      "requested_artifact_scope",
+			TimeStart: start,
+			TimeEnd:   end,
+		}
+		ok = true
+	}
+	if requestedFullArtifact {
+		window = types.TraceQueryCallWindow{}
+	}
 	// G4-ENGINE (2026-07-20, §29.145 filing "blocked_reason↔D 段 typed 配对"
 	// engine lane): on the derivation-failure family (the event_search-only
 	// c2 shape — locator probes record no consistent analysis window) a
@@ -1218,7 +1255,7 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 	// silent skip is unchanged when the gate misses.
 	windowlessFallback := false
 	windowlessReason := ""
-	if !ok {
+	if !ok && !requestedFullArtifact {
 		reason := types.TraceSupplementReasonWindowInconsistent
 		if len(callWindows) == 0 {
 			reason = types.TraceSupplementReasonNoTypedWindow
@@ -1252,7 +1289,7 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 	// before any engine call — with an honest answer-side disclosure (the
 	// user asked about that window; the report must say the supplement did
 	// not run for it) instead of a silent truncation or a guessed sub-window.
-	if span := window.TimeEnd - window.TimeStart; span > traceSupplementMaxWindowSpanS {
+	if span := window.TimeEnd - window.TimeStart; !requestedFullArtifact && span > traceSupplementMaxWindowSpanS {
 		logging.Warning("[trace_supplement] skip reason=%s span=%.6fs budget=%.6fs window=%.6f..%.6f",
 			types.TraceSupplementReasonWindowSpanExceeded, span, traceSupplementMaxWindowSpanS, window.TimeStart, window.TimeEnd)
 		out.SkipReason = types.TraceSupplementReasonWindowSpanExceeded
@@ -1265,6 +1302,9 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 			TargetPID:     target.PID,
 			TargetThread:  target.Thread,
 			TargetSource:  targetSource,
+		}
+		if _, _, explicit := requestedArtifactScope.ExplicitTimeWindow(); explicit {
+			meta.RequestedArtifactScope = types.RuntimeArtifactScopeExplicitWindow
 		}
 		var spanResults []types.ToolResult
 		// 修复轮 件2: the census arm still runs on the span-budget skip — the
@@ -1331,7 +1371,7 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		}
 		var raw []byte
 		var err error
-		if windowlessFallback {
+		if windowlessFallback || requestedFullArtifact {
 			raw, err = traceSupplementMarshalWindowlessFallbackParams(view, target, callWindows)
 			if err == nil && traceSupplementFallbackParamsHook != nil {
 				traceSupplementFallbackParamsHook(raw)
@@ -1399,7 +1439,10 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 			logging.Warning("[trace_supplement] view=%s canceled in-view by the duration budget elapsed=%s reason=%s discarded=%s (complete faces recorded, unfinished faces discarded whole)",
 				view, callElapsed.Round(time.Millisecond), vc.Reason, strings.Join(vc.DiscardedFaces, ","))
 		}
-		if windowlessFallback {
+		if requestedFullArtifact {
+			logging.Info("[trace_supplement] view=%s elapsed=%s requested_scope=full_artifact windowless=true pid=%d thread=%q source=%s warm=%t (user-scope authority overrides narrower exploratory query windows)",
+				view, callElapsed.Round(time.Millisecond), target.PID, target.Thread, sourceLabel, warm)
+		} else if windowlessFallback {
 			logging.Info("[trace_supplement] view=%s elapsed=%s windowless=true reason=%s pid=%d thread=%q source=%s warm=%t (whole-trace engine default window)",
 				view, callElapsed.Round(time.Millisecond), windowlessReason, target.PID, target.Thread, sourceLabel, warm)
 		} else {
@@ -1446,6 +1489,11 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 				TargetThread:    target.Thread,
 				TargetSource:    targetSource,
 				ElapsedMS:       out.Elapsed.Milliseconds(),
+			}
+			if requestedFullArtifact {
+				meta.RequestedArtifactScope = types.RuntimeArtifactScopeFullArtifact
+			} else if _, _, explicit := requestedArtifactScope.ExplicitTimeWindow(); explicit {
+				meta.RequestedArtifactScope = types.RuntimeArtifactScopeExplicitWindow
 			}
 			if windowlessFallback {
 				// G4-ENGINE: the canceled-only disclosure must speak the
@@ -1504,6 +1552,11 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		TargetThread:            target.Thread,
 		TargetSource:            targetSource,
 		ElapsedMS:               out.Elapsed.Milliseconds(),
+	}
+	if requestedFullArtifact {
+		meta.RequestedArtifactScope = types.RuntimeArtifactScopeFullArtifact
+	} else if _, _, explicit := requestedArtifactScope.ExplicitTimeWindow(); explicit {
+		meta.RequestedArtifactScope = types.RuntimeArtifactScopeExplicitWindow
 	}
 	if windowlessFallback {
 		meta.WindowlessFallback = true

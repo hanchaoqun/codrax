@@ -1005,6 +1005,7 @@ func TestAnalysisSkill_RequiredFieldsEnumeratedEverywhere(t *testing.T) {
 		"diagnostic_profile",
 		"answer_role_profile",
 		"error_granularity_profile",
+		"runtime_artifact_scope_profile",
 	}
 	for _, f := range required {
 		if !strings.Contains(workflowCorpus, f) {

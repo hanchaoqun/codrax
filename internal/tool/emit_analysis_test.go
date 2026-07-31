@@ -50,6 +50,10 @@ const v4DefaultsJSON = `,
 	"error_granularity_profile": {
 		"is_granularity_question": false,
 		"confidence": 0.7
+	},
+	"runtime_artifact_scope_profile": {
+		"requested_scope": "not_applicable",
+		"confidence": 0.7
 	}
 `
 
@@ -74,16 +78,14 @@ func withRequiredAnswerRoleProfile(payload string) string {
 	if err := json.Unmarshal([]byte(payload), &obj); err != nil {
 		return payload
 	}
-	if _, ok := obj["answer_role_profile"]; ok {
-		if _, ok := obj["error_granularity_profile"]; ok {
-			return payload
-		}
-	}
 	if _, ok := obj["answer_role_profile"]; !ok {
 		obj["answer_role_profile"] = json.RawMessage(`{"is_role_binding_requested":false,"confidence":0.7}`)
 	}
 	if _, ok := obj["error_granularity_profile"]; !ok {
 		obj["error_granularity_profile"] = json.RawMessage(`{"is_granularity_question":false,"confidence":0.7}`)
+	}
+	if _, ok := obj["runtime_artifact_scope_profile"]; !ok {
+		obj["runtime_artifact_scope_profile"] = json.RawMessage(`{"requested_scope":"not_applicable","confidence":0.7}`)
 	}
 	out, err := json.Marshal(obj)
 	if err != nil {
@@ -98,6 +100,50 @@ func testBoolPtr(v bool) *bool {
 
 func testFloatPtr(v float64) *float64 {
 	return &v
+}
+
+func TestParseRuntimeArtifactScopeProfileAnchorsUserScopeAndSoftensModelScope(t *testing.T) {
+	confidence := 0.9
+	start, end := 34579.45, 34579.48
+	full, errText, warnings := parseRuntimeArtifactScopeProfile(
+		"只分析这份 trace，不分析代码",
+		true,
+		&emitRuntimeArtifactScopeProfileParam{
+			RequestedScope: string(types.RuntimeArtifactScopeFullArtifact),
+			SourceQuote:    "这份 trace",
+			Confidence:     &confidence,
+		},
+	)
+	if errText != "" || len(warnings) != 0 || !full.FullArtifact() {
+		t.Fatalf("anchored full artifact scope should survive: profile=%+v err=%q warnings=%v", full, errText, warnings)
+	}
+	explicit, errText, warnings := parseRuntimeArtifactScopeProfile(
+		"分析 34579.45..34579.48 秒",
+		true,
+		&emitRuntimeArtifactScopeProfileParam{
+			RequestedScope: string(types.RuntimeArtifactScopeExplicitWindow),
+			TimeStart:      &start,
+			TimeEnd:        &end,
+			SourceQuote:    "34579.45..34579.48",
+			Confidence:     &confidence,
+		},
+	)
+	gotStart, gotEnd, ok := explicit.ExplicitTimeWindow()
+	if errText != "" || len(warnings) != 0 || !ok || gotStart != start || gotEnd != end {
+		t.Fatalf("anchored explicit scope should survive: profile=%+v err=%q warnings=%v", explicit, errText, warnings)
+	}
+	softened, errText, warnings := parseRuntimeArtifactScopeProfile(
+		"只分析这份 trace",
+		true,
+		&emitRuntimeArtifactScopeProfileParam{
+			RequestedScope: string(types.RuntimeArtifactScopeFullArtifact),
+			SourceQuote:    "model selected 1..2",
+			Confidence:     &confidence,
+		},
+	)
+	if errText != "" || softened.RequestedScope != types.RuntimeArtifactScopeUnspecified || len(warnings) == 0 {
+		t.Fatalf("unanchored model scope must soften, not become authority: profile=%+v err=%q warnings=%v", softened, errText, warnings)
+	}
 }
 
 // -----------------------------------------------------------------------------
@@ -3120,6 +3166,10 @@ func TestEmitAnalysis_Execute_SchemaNormalizesLocalModelScalarArtifacts(t *testi
 			"is_granularity_question": false,
 			"confidence": "0.7"
 		},
+		"runtime_artifact_scope_profile": {
+			"requested_scope": "\"not_applicable\"",
+			"confidence": "0.7"
+		},
 		"enumeration_boundary": {
 			"declared_count": "0",
 			"source_quote": ""
@@ -4666,6 +4716,11 @@ func TestEmitAnalysis_RedundantToolNameTypeFieldPreservesExternalObservationPoli
 			"is_granularity_question": false,
 			"confidence": 0.8
 		},
+		"runtime_artifact_scope_profile": {
+			"requested_scope": "full_artifact",
+			"source_quote": "这份 trace",
+			"confidence": 0.95
+		},
 		"external_observation_policy": {
 			"artifact_citation_mode": "external_only",
 			"current_source_mode": "exclude",
@@ -5087,6 +5142,11 @@ func TestEmitAnalysis_RouteBackedRuntimeOnlyRepairsMissingExclusionKind(t *testi
 			"error_granularity_profile": {
 				"is_granularity_question": false,
 				"confidence": 0.8
+			},
+			"runtime_artifact_scope_profile": {
+				"requested_scope": "full_artifact",
+				"source_quote": "这份 trace",
+				"confidence": 0.95
 			},
 			"external_observation_policy": {
 				"current_source_mode": "exclude",

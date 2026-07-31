@@ -52,6 +52,13 @@ func suppG4Keywords(ctx *types.BusContext) {
 	ctx.AnalysisIR.RequestModel.AnalyzerHints.Keywords = []string{"D 状态", "IO 等待", "不可中断等待"}
 }
 
+func suppG4NarrowDStateShape(ctx *types.BusContext) {
+	suppG4Keywords(ctx)
+	ctx.AnalysisIR.RequestModel.Intent = types.IntentTrace
+	ctx.AnalysisIR.RequestModel.PredicateAxis = types.AxisCondition
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Kind = string(types.ReqConditional)
+}
+
 func suppG4LedgerRecords(ctx *types.BusContext) []types.ObservationRecord {
 	return suppCoreLedger(ctx).Records
 }
@@ -147,6 +154,79 @@ func TestTraceSupplementDStateDerivedWindowStaysWindowed(t *testing.T) {
 	}
 }
 
+func TestTraceSupplementFullArtifactScopeOverridesNarrowModelWindow(t *testing.T) {
+	ctx := suppCoreContext(t)
+	suppG4NarrowDStateShape(ctx)
+	ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile = &types.RuntimeArtifactScopeProfile{
+		RequestedScope: types.RuntimeArtifactScopeFullArtifact,
+		SourceQuote:    "这份 trace",
+		Confidence:     1,
+	}
+	// The local witness covers only the first D wait and already mints both
+	// state/census families. Family presence must not make this narrow result
+	// impersonate the user's whole-artifact census.
+	suppCoreModelCall(t, ctx, `{"view":"window_stats","pid":200,"time_start":3.0,"time_end":3.035}`)
+	var dispatched [][]byte
+	traceSupplementFallbackParamsHook = func(raw []byte) {
+		dispatched = append(dispatched, append([]byte(nil), raw...))
+	}
+	defer func() { traceSupplementFallbackParamsHook = nil }()
+
+	out := RunTraceQuerySystemSupplement(ctx)
+	if len(out.Executed) != 1 || out.Executed[0] != "window_stats" || len(dispatched) != 1 {
+		t.Fatalf("full-artifact state census must run one windowless window_stats: out=%+v dispatched=%d", out, len(dispatched))
+	}
+	wire := string(dispatched[0])
+	if strings.Contains(wire, "time_start") || strings.Contains(wire, "time_end") {
+		t.Fatalf("full-artifact scope must not inherit the model's narrow query window: %s", wire)
+	}
+	meta := ctx.Mutable.SystemTraceSupplementMeta()
+	if meta == nil ||
+		meta.RequestedArtifactScope != types.RuntimeArtifactScopeFullArtifact ||
+		meta.WindowStart != 0 ||
+		meta.WindowEnd != 0 ||
+		meta.WindowlessFallback {
+		t.Fatalf("full-artifact authority metadata drifted: %+v", meta)
+	}
+	var fullSet *types.ObservationRecord
+	for _, record := range suppG4LedgerRecords(ctx) {
+		record := record
+		if record.SystemSupplement && record.Predicate == "target_window_wait_occurrences" {
+			fullSet = &record
+		}
+	}
+	if fullSet == nil ||
+		!strings.Contains(strings.Join(fullSet.RichNotes, "\n"), "status=complete,emitted=2,total=2") {
+		t.Fatalf("system whole-artifact result must carry both waits, got %+v", fullSet)
+	}
+}
+
+func TestTraceSupplementExplicitUserWindowOverridesModelQueryWindow(t *testing.T) {
+	ctx := suppCoreContext(t)
+	suppG4NarrowDStateShape(ctx)
+	start, end := 3.0, 3.08
+	ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile = &types.RuntimeArtifactScopeProfile{
+		RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
+		TimeStart:      &start,
+		TimeEnd:        &end,
+		SourceQuote:    "3.0..3.08",
+		Confidence:     1,
+	}
+	suppCoreModelCall(t, ctx, `{"view":"window_stats","pid":200,"time_start":3.0,"time_end":3.035}`)
+	out := RunTraceQuerySystemSupplement(ctx)
+	if len(out.Executed) != 1 || out.Executed[0] != "window_stats" {
+		t.Fatalf("explicit user window must force one minimal state census: %+v", out)
+	}
+	meta := ctx.Mutable.SystemTraceSupplementMeta()
+	if meta == nil ||
+		meta.RequestedArtifactScope != types.RuntimeArtifactScopeExplicitWindow ||
+		meta.WindowStart != start ||
+		meta.WindowEnd != end ||
+		meta.WindowlessFallback {
+		t.Fatalf("explicit user window must outrank model query window: %+v", meta)
+	}
+}
+
 // --- family-hit unit pins -----------------------------------------------------
 
 func TestTraceSupplementDStateFamilyHitTokens(t *testing.T) {
@@ -197,21 +277,7 @@ func TestTraceSupplementDStateFamilyHitTokens(t *testing.T) {
 // verbatim caller note. These are the faces behind the c2 EVALGUARD anchors
 // (count=3 / Σ=0.635 / proven-caller honest face).
 func TestTraceSupplementG4C2EventSearchOnlyChain(t *testing.T) {
-	raw, err := os.ReadFile(vsyncSAF2RealTraceRel)
-	if err != nil {
-		t.Fatal(err)
-	}
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, types.AttachedTraceBlobBasename), raw, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir, Mutable: types.NewMutableState("c2 D-state replay")}
-	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
-		RuntimeTargets: []types.RuntimeTarget{{
-			Kind: types.RuntimeTargetKindThread, PID: 59566, Thread: "com.baidu.tieba",
-			Source: "user_explicit", Confidence: 1,
-		}},
-	}}
+	ctx := suppG4RealC2Context(t)
 	suppG4Keywords(ctx)
 	suppCoreModelCall(t, ctx, `{"view":"event_search","pid":59566,"pattern":"sched_blocked_reason"}`)
 	out := RunTraceQuerySystemSupplement(ctx)
@@ -246,6 +312,74 @@ func TestTraceSupplementG4C2EventSearchOnlyChain(t *testing.T) {
 	}
 	if !strings.Contains(ioSeat.Summary, "d_state=0.000ms io_wait=0.635ms") {
 		t.Fatalf("the seat summary must keep the mutually-exclusive D/IO account verbatim: %q", ioSeat.Summary)
+	}
+}
+
+func suppG4RealC2Context(t *testing.T) *types.BusContext {
+	t.Helper()
+	raw, err := os.ReadFile(vsyncSAF2RealTraceRel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, types.AttachedTraceBlobBasename), raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir, Mutable: types.NewMutableState("c2 D-state replay")}
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		RuntimeTargets: []types.RuntimeTarget{{
+			Kind: types.RuntimeTargetKindThread, PID: 59566, Thread: "com.baidu.tieba",
+			Source: "user_explicit", Confidence: 1,
+		}},
+	}}
+	return ctx
+}
+
+func TestTraceSupplementG4C2FullArtifactScopeRecoversOccurrenceOutsideModelWindow(t *testing.T) {
+	ctx := suppG4RealC2Context(t)
+	suppG4NarrowDStateShape(ctx)
+	ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile = &types.RuntimeArtifactScopeProfile{
+		RequestedScope: types.RuntimeArtifactScopeFullArtifact,
+		SourceQuote:    "这份 trace",
+		Confidence:     1,
+	}
+	// Fifth B1 replay's actual local window ends before the third wait starts.
+	suppCoreModelCall(t, ctx, `{"view":"window_stats","pid":59566,"time_start":34579.450627,"time_end":34579.470000}`)
+	out := RunTraceQuerySystemSupplement(ctx)
+	if len(out.Executed) != 1 || out.Executed[0] != "window_stats" {
+		t.Fatalf("full-artifact c2 scope must override the local model window with minimal whole-trace stats: %+v", out)
+	}
+	meta := ctx.Mutable.SystemTraceSupplementMeta()
+	if meta == nil ||
+		meta.RequestedArtifactScope != types.RuntimeArtifactScopeFullArtifact ||
+		meta.WindowStart != 0 ||
+		meta.WindowEnd != 0 {
+		t.Fatalf("c2 full-artifact scope metadata drifted: %+v", meta)
+	}
+	var occurrenceSet *types.ObservationRecord
+	for _, record := range suppG4LedgerRecords(ctx) {
+		if !record.SystemSupplement ||
+			record.Predicate != "target_window_wait_occurrences" ||
+			!strings.Contains(record.Subject, "59566") {
+			continue
+		}
+		record := record
+		occurrenceSet = &record
+	}
+	if occurrenceSet == nil {
+		t.Fatal("whole-artifact c2 supplement must publish the target occurrence set")
+	}
+	notes := strings.Join(occurrenceSet.RichNotes, "\n")
+	for _, want := range []string{
+		"status=complete,emitted=3,total=3",
+		"target_wait_occurrence_prompt_sum_ms=0.635",
+		"34579.451701",
+		"34579.452934",
+		"34579.471372",
+	} {
+		if !strings.Contains(notes, want) {
+			t.Fatalf("whole-artifact occurrence set missing %q:\n%s", want, notes)
+		}
 	}
 }
 
@@ -338,6 +472,26 @@ func TestTraceSupplementWindowlessFallbackCanceledByCaller(t *testing.T) {
 // --- ⑤ disclosure honesty ----------------------------------------------------
 
 func TestTraceSupplementWindowlessDisclosureText(t *testing.T) {
+	requestedFull := &types.SystemTraceSupplementMeta{
+		Views:                   []string{"window_stats"},
+		TargetPID:               59566,
+		TargetThread:            "com.baidu.tieba",
+		RequestedArtifactScope:  types.RuntimeArtifactScopeFullArtifact,
+		ViewValueObservations:   []int{1},
+		ViewObservationFamilies: []types.TraceSupplementViewFamilyCensus{{TargetStateRows: 1}},
+	}
+	zhRequestedFull := runtimeTraceSupplementDisclosureText(requestedFull, true)
+	if !strings.Contains(zhRequestedFull, "全 trace（用户请求范围）") ||
+		strings.Contains(zhRequestedFull, "未确定统一分析时间窗") ||
+		strings.Contains(zhRequestedFull, "0.000000") {
+		t.Fatalf("requested full-artifact disclosure must not impersonate a derivation fallback: %q", zhRequestedFull)
+	}
+	enRequestedFull := runtimeTraceSupplementDisclosureText(requestedFull, false)
+	if !strings.Contains(enRequestedFull, "whole trace (user-requested scope)") ||
+		strings.Contains(enRequestedFull, "no consistent analysis window") {
+		t.Fatalf("requested full-artifact EN disclosure drifted: %q", enRequestedFull)
+	}
+
 	windowless := &types.SystemTraceSupplementMeta{
 		Views:                    []string{"root_cause_rank"},
 		TargetPID:                59566,

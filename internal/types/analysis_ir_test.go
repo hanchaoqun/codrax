@@ -186,14 +186,13 @@ func TestRequestModel_DoesNotExposeLegacyTopLevelEntities(t *testing.T) {
 }
 
 func TestAnalysisIR_VersionConstant(t *testing.T) {
-	// v14 adds error_granularity_profile so batch-vs-item / fail-fast /
-	// partial-success requests require a typed decision verdict instead of
-	// relying on answer prose synonyms.
-	if AnalysisIRVersion != "v14" {
+	// v15 adds the required runtime_artifact_scope_profile so user-requested
+	// artifact scope cannot be replaced by model-authored query windows.
+	if AnalysisIRVersion != "v15" {
 		t.Fatalf("unexpected AnalysisIRVersion: %q", AnalysisIRVersion)
 	}
 	ir := AnalysisIR{Version: AnalysisIRVersion}
-	if ir.Version != "v14" {
+	if ir.Version != "v15" {
 		t.Fatalf("version not propagated: %q", ir.Version)
 	}
 }

@@ -5717,6 +5717,12 @@ func runtimeTraceSupplementDisclosureText(meta *types.SystemTraceSupplementMeta,
 	// no derived window — every window clause below must speak the honest
 	// whole-trace caliber instead of a fabricated 0.000000..0.000000 span.
 	windowClause := func() string {
+		if meta.RequestedArtifactScope == types.RuntimeArtifactScopeFullArtifact {
+			if zh {
+				return "全 trace（用户请求范围）"
+			}
+			return "whole trace (user-requested scope)"
+		}
 		if meta.WindowlessFallback {
 			if zh {
 				return "全 trace 无时间窗——本次调查未确定统一分析时间窗"
@@ -5741,7 +5747,7 @@ func runtimeTraceSupplementDisclosureText(meta *types.SystemTraceSupplementMeta,
 		if meta.SkipReason == types.TraceSupplementReasonCanceledByCaller {
 			if zh {
 				refill := "重新运行可补齐该窗结果"
-				if meta.WindowlessFallback {
+				if meta.WindowlessFallback || meta.RequestedArtifactScope == types.RuntimeArtifactScopeFullArtifact {
 					refill = "重新运行可补齐结果"
 				}
 				return fmt.Sprintf("%s 未完成成文前确定性补跑——%s在执行中被本次运行的取消信号中止，未采信任何部分结果(%s)；%s",
@@ -5756,6 +5762,8 @@ func runtimeTraceSupplementDisclosureText(meta *types.SystemTraceSupplementMeta,
 				// G4-ENGINE: there is no window to narrow on the windowless
 				// lane — the honest advice is to provide one.
 				refill = "提供明确时间窗后可补齐结果"
+			} else if meta.RequestedArtifactScope == types.RuntimeArtifactScopeFullArtifact {
+				refill = "重新运行可补齐整份 trace 结果"
 			}
 			return fmt.Sprintf("%s 未完成成文前确定性补跑——%s超 %g 秒时长预算在执行中被取消，未采信任何部分结果(%s)；%s",
 				runtimeTraceSupplementDisclosurePrefixZH, runtimeTraceSupplementViewList(meta.CanceledViews, true), meta.DurationBudgetS, windowClause(), refill)
@@ -5763,6 +5771,8 @@ func runtimeTraceSupplementDisclosureText(meta *types.SystemTraceSupplementMeta,
 		refill := "narrow the time window to fill it in"
 		if meta.WindowlessFallback {
 			refill = "provide an explicit time window to fill it in"
+		} else if meta.RequestedArtifactScope == types.RuntimeArtifactScopeFullArtifact {
+			refill = "re-run to fill in the whole-trace result"
 		}
 		return fmt.Sprintf("%s pre-report re-run incomplete — %s canceled mid-run over the %gs duration budget; no partial aggregates were kept (%s); %s",
 			runtimeTraceSupplementDisclosurePrefixEN, runtimeTraceSupplementViewList(meta.CanceledViews, false), meta.DurationBudgetS, windowClause(), refill)

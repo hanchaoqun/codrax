@@ -135,6 +135,12 @@ type SystemTraceSupplementMeta struct {
 	// authorized the fallback (TraceSupplementReason* closed set:
 	// no_typed_window | window_inconsistent). Audit/disclosure only.
 	WindowlessFallbackReason string `json:"windowless_fallback_reason,omitempty"`
+	// RequestedArtifactScope records the analyzer's quote-anchored user scope
+	// that authorized this supplement window. full_artifact means the engine
+	// call intentionally carried no time bounds even if the model had issued
+	// narrower exploratory calls; explicit_time_window means WindowStart/End
+	// came from the user-scope profile rather than from model call windows.
+	RequestedArtifactScope RuntimeArtifactRequestedScope `json:"requested_artifact_scope,omitempty"`
 	// CanceledViews (SUPP-CANCEL, 2026-07-14) lists the canonical view names
 	// whose ENGINE RUN hit in-view cooperative cancellation under the
 	// supplement's duration-budget deadline (the same

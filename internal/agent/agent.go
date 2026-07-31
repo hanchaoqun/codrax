@@ -845,8 +845,8 @@ const toolRepairCodeLLMOutputTruncated = "llm_output_truncated"
 // the full batch fits the output budget.
 func llmOutputTruncatedToolCallResult(tc llm.ToolCall) *types.ToolResult {
 	return &types.ToolResult{
-		ToolName:  tc.Name,
-		Success:   false,
+		ToolName: tc.Name,
+		Success:  false,
 		Summary: "not executed: your response hit the output-token limit before it finished, so the arguments of this tool call may be incomplete even if they look valid. " +
 			"No tool in this batch was executed. Re-issue the calls you still need in your next response — fewer calls per response, or smaller argument payloads, so the whole batch fits.",
 		Timestamp: time.Now(),
@@ -4028,8 +4028,9 @@ func normalizeEmitAnalysisLocalModelParams(raw json.RawMessage) (json.RawMessage
 		return raw, nil, false
 	}
 	defaults := map[string]json.RawMessage{
-		"answer_role_profile":       json.RawMessage(`{"is_role_binding_requested":false,"confidence":0.5}`),
-		"error_granularity_profile": json.RawMessage(`{"is_granularity_question":false,"confidence":0.5}`),
+		"answer_role_profile":            json.RawMessage(`{"is_role_binding_requested":false,"confidence":0.5}`),
+		"error_granularity_profile":      json.RawMessage(`{"is_granularity_question":false,"confidence":0.5}`),
+		"runtime_artifact_scope_profile": json.RawMessage(`{"requested_scope":"unspecified","confidence":0.5}`),
 	}
 	var repaired []string
 	for field, value := range defaults {

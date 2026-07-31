@@ -7385,6 +7385,32 @@ func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
 		b.WriteString("- Harmony trace priority reminder: larger numeric priority means higher priority; 1-40=CFS, 41-159=RT, and >159=system_or_kernel/raw. When the user asks for platform priority semantics, explicitly state the direction (`数值越大优先级越高`) and all three ranges (`1-40=CFS`, `41-159=RT`, `>159=system_or_kernel/raw`). Concrete examples: prio=20 is CFS; prio=41, prio=140, and prio=159 are RT; prio=160 and prio=301 are raw system/kernel scheduler tokens. Recompute every concrete `prio=N` classification before writing it; do not copy CFS/RT labels from earlier prose when the numeric range contradicts the Harmony rule. Raw system/kernel values remain visible but must not be called RT/high-priority evidence or compared numerically for priority inversion. If an earlier runtime summary conflicts, keep the raw timing/event fact but prefer this platform rule, any `trace_query priority_semantics` line, or system-derived `priority_semantics` perf observation for the priority class.\n")
 	}
 	if view.RuntimeTrace {
+		var scopeProfile *types.RuntimeArtifactScopeProfile
+		if ctx.AnalysisIR != nil {
+			scopeProfile = ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile
+		}
+		if profile := scopeProfile; profile != nil {
+			switch {
+			case profile.FullArtifact():
+				fullScopeObserved := false
+				if ctx.Mutable != nil {
+					if meta := ctx.Mutable.SystemTraceSupplementMeta(); meta != nil &&
+						meta.RequestedArtifactScope == types.RuntimeArtifactScopeFullArtifact &&
+						len(meta.Views) > 0 {
+						fullScopeObserved = true
+					}
+				}
+				if fullScopeObserved {
+					b.WriteString("- Runtime artifact scope authority: `requested_scope=full_artifact` is anchored in the current request, and a typed whole-artifact supplement result is present. Use that whole-artifact account for `all`/`only`/count/total/when claims; model-authored narrower trace_query windows are local witnesses and must not replace it.\n")
+				} else {
+					b.WriteString("- Runtime artifact scope authority: `requested_scope=full_artifact` is anchored in the current request, but no typed whole-artifact supplement result is present. Treat every model-authored narrower trace_query window as a local witness only; do not claim artifact-wide `all`/`only`/exact count/total/completeness. State that the whole-artifact account is unavailable.\n")
+				}
+			default:
+				if start, end, ok := profile.ExplicitTimeWindow(); ok {
+					fmt.Fprintf(&b, "- Runtime artifact scope authority: the current request explicitly bounds the artifact to `%.6f..%.6f`. Use that user window for completeness/count/total claims; a different model-authored trace_query window is exploration only and cannot narrow or broaden the requested scope.\n", start, end)
+				}
+			}
+		}
 		b.WriteString("- Runtime trace presentation hint: for scheduler/time-window questions, do not collapse all trace facts into one short sentence. Prefer a compact answer with conclusion, event timeline or bullets, priority/time-unit semantics, and explicit caveats for trace gaps; keep runtime artifact facts separate from current-source citations.\n")
 		b.WriteString("- Scheduler state authority hint: a `sched_switch prev_state=S` row proves that the outgoing task entered an interruptible sleeping/blocking state; it does not by itself prove RT preemption, involuntary preemption, or a voluntary `yield`, and the next task's name is not enough to upgrade that relation. Only `R`/`R+` supports a still-runnable preemption candidate, which still requires the same switch/CPU plus a trusted priority relation before naming a higher-priority preemptor. Count wakeups only from deduplicated `sched_wakeup`/`sched_waking` rows or the typed wakeup census/chain; the number of running slices is not a wakeup count. A capped `event_search`/read subset is examples or a lower bound, never authority for `all`, `only`, `total`, exact `N`, `max`, or `min` claims.\n")
 		b.WriteString("- Thread role authority hint: a comm/name match or `name_candidates` roster proves only a diagnostic thread candidate; it does not prove main-thread, UI-thread, render-thread, or render-service ownership. Use a role word only when a typed `target_role_authority`/`role_authority` carries `kind=thread_role`, and preserve its `source` and `confidence`. `frame_marker_role` and `pipeline_stage_role` describe the marker/item stage, not the owning thread. If role authority is unavailable, say candidate thread/TID instead of inventing a role.\n")
