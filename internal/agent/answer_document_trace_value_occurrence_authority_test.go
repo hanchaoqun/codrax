@@ -110,6 +110,7 @@ func TestRenderAnswerDocObservationLedgerCarriesTraceBlockingWallClockAuthority(
 		"### Trace Target Blocking Wall-Clock Authority",
 		"blocking_type=`binder_wait`",
 		"proven_blocking_wall_clock=1.409ms",
+		"blocking_occurrences_present=`true`",
 		"coverage_status=`lower_bound_capacity_truncated`",
 		"interval=`13762.835861..13762.837270`",
 		"peer=`binder:496_9-10961`",
@@ -119,6 +120,95 @@ func TestRenderAnswerDocObservationLedgerCarriesTraceBlockingWallClockAuthority(
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("blocking-wall-clock authority missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestRenderAnswerDocObservationLedgerCarriesTraceIPCRequestCensusAuthority(t *testing.T) {
+	set := types.ObservationRecord{
+		ID:              "ipc:set",
+		Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            types.AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: types.ClaimGroundingHard,
+		SourceRef: types.ObservationSourceRef{
+			Kind:       types.ObservationSourceRuntimeArtifact,
+			ArtifactID: "attached_trace",
+		},
+		Span:      types.ObservationSpan{StartTs: 13762.791708, EndTs: 13763.024898},
+		ClaimKey:  "ipc_request_census:.ugc.aweme.lite-17267",
+		Predicate: "ipc_request_census",
+		Subject:   ".ugc.aweme.lite-17267",
+		Value:     "15",
+		Unit:      "requests",
+		RichNotes: []string{
+			types.TraceNoteKeySelectedWindow + "=13762.791708..13763.024898",
+			types.TraceNoteKeyIPCRequestCensusStatus + "=complete",
+			types.TraceNoteKeyIPCSyncRequestCount + "=5",
+			types.TraceNoteKeyIPCOnewayRequestCount + "=10",
+			types.TraceNoteKeyIPCUnknownRequestCount + "=0",
+		},
+	}
+	row := set
+	row.ID = "ipc:12145859"
+	row.ClaimKey = "ipc_request_edge:.ugc.aweme.lite-17267:12145859"
+	row.Predicate = "ipc_request_edge"
+	row.Object = "binder:496_9-10961"
+	row.Value = "12145859"
+	row.Unit = "transaction_id"
+	row.Span = types.ObservationSpan{StartTs: 13762.835811, EndTs: 13762.835943}
+	row.RichNotes = []string{
+		types.TraceNoteKeySelectedWindow + "=13762.791708..13763.024898",
+		types.TraceNoteKeyIPCTransactionID + "=12145859",
+		types.TraceNoteKeyIPCCallSemantics + "=sync_request",
+		types.TraceNoteKeyIPCFlags + "=0x10",
+		types.TraceNoteKeyIPCFlagsKnown + "=true",
+		types.TraceNoteKeyIPCCode + "=0x19",
+		types.TraceNoteKeyIPCCodeKnown + "=true",
+		types.TraceNoteKeyIPCReceiverSource + "=matched_receive",
+	}
+	rows := []types.ObservationRecord{set}
+	for i := 0; i < 5; i++ {
+		copy := row
+		copy.ID = row.ID + string(rune('a'+i))
+		copy.RichNotes = append([]string(nil), row.RichNotes...)
+		copy.RichNotes[1] = types.TraceNoteKeyIPCTransactionID + "=" + string(rune('1'+i))
+		copy.Span.StartTs += float64(i)
+		copy.Span.EndTs += float64(i)
+		rows = append(rows, copy)
+	}
+	rows[1] = row
+
+	mut := types.NewMutableState("分析 trace")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
+		ToolName:     "trace_query",
+		Success:      true,
+		Observations: rows,
+	}}})
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentRootCause,
+			RuntimeTargets: []types.RuntimeTarget{{
+				Kind:   types.RuntimeTargetKindThread,
+				PID:    17267,
+				Thread: ".ugc.aweme.lite-17267",
+				Source: "user_explicit",
+			}},
+		}},
+	}
+	got := renderAnswerDocObservationLedger(ctx)
+	for _, want := range []string{
+		"### Trace IPC Request Census Authority",
+		"requests=15",
+		"sync_request=5",
+		"oneway_request=10",
+		"transaction=12145859",
+		"code=`0x19`",
+		"request counts and target blocking-occurrence counts are separate",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("IPC request census authority missing %q:\n%s", want, got)
 		}
 	}
 }

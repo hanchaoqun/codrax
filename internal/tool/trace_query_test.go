@@ -3065,6 +3065,25 @@ func TestTraceQueryIPCGraphSummary(t *testing.T) {
 			t.Fatalf("summary missing %q:\n%s", want, res.Summary)
 		}
 	}
+	var census, edge *types.ObservationRecord
+	for i := range res.Observations {
+		switch res.Observations[i].Predicate {
+		case "ipc_request_census":
+			census = &res.Observations[i]
+		case "ipc_request_edge":
+			edge = &res.Observations[i]
+		}
+	}
+	if census == nil || census.Value != "1" ||
+		!containsString(census.RichNotes, types.TraceNoteKeyIPCRequestCensusStatus+"=complete") ||
+		!containsString(census.RichNotes, types.TraceNoteKeyIPCSyncRequestCount+"=1") {
+		t.Fatalf("typed IPC request census missing or drifted: %+v", census)
+	}
+	if edge == nil || edge.Value != "42" || edge.Object != "binder:100_1-101" ||
+		!containsString(edge.RichNotes, types.TraceNoteKeyIPCCode+"=0x3") ||
+		!containsString(edge.RichNotes, types.TraceNoteKeyIPCFlags+"=0x0") {
+		t.Fatalf("typed IPC request row missing native fields: %+v", edge)
+	}
 }
 
 func TestTraceQueryAcceptsTimestampStringsAndAppliesTinyTolerance(t *testing.T) {

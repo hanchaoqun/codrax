@@ -216,6 +216,12 @@ func RegisterDefaults(r *Registry) {
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},
 			{
+				// EVAL-B12-AE1: request row counts/native fields and target
+				// blocking occurrences are separate typed calibers.
+				Body:      "TRACE IPC REQUEST CENSUS AUTHORITY: when `Trace IPC Request Census Authority` is present, copy request counts only from its typed census and keep them separate from the target blocking-occurrence count. `sync_request=N` counts synchronous IPC request rows; it does not mean N requests caused proven target blocking. Preserve each listed transaction id/flags/code/peer/send/matched-receive tuple from the same row. Only `coverage_status=complete` permits exhaustive request-count wording; all other statuses are lower-bound or roster-incomplete.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+			},
+			{
 				// C1 值词库教学批 (§29.104.16.1 M5①, 2026-07-17). EVOLUTION
 				// RECORD: the wire-token ↔ display-word bridge directive —
 				// witness cust_span_vs_prio_info: bare `gated_runnable` and
@@ -671,6 +677,11 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 			{
 				// EVAL-B11-AD1 answer-side mirror.
 				Body:      "TRACE TARGET BLOCKING WALL-CLOCK AUTHORITY: when `Trace Target Blocking Wall-Clock Authority` is present, its `proven_blocking_wall_clock` is the only published target blocking-wall-clock account for that blocking type and selected window. Synchronous request count, send-to-reply/transaction latency, peer execution, and model aggregates are separate metrics and must not be added unless they own a listed blocking occurrence. An interruptible S scheduler state is compatible with a proven blocking occurrence; zero D-state/uninterruptible time cannot refute a listed S-state wait or prove that no counterpart wait occurred. `coverage_status=complete` permits an exhaustive total; `lower_bound_capacity_truncated` permits only a proven observed lower bound and forbids total/all/only wording. Preserve listed occurrence interval and peer identity.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+			},
+			{
+				// EVAL-B12-AE1 answer-side mirror.
+				Body:      "TRACE IPC REQUEST CENSUS AUTHORITY: when `Trace IPC Request Census Authority` is present, copy request counts only from its typed census and keep them separate from the target blocking-occurrence count. `sync_request=N` counts synchronous IPC request rows; it does not mean N requests caused proven target blocking. Preserve each listed transaction id/flags/code/peer/send/matched-receive tuple from the same row. Only `coverage_status=complete` permits exhaustive request-count wording; all other statuses are lower-bound or roster-incomplete.",
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},
 			{

@@ -64,6 +64,29 @@ func TestBuildTraceBlockingWallClockAuthoritiesUnionsOverlapsAndMarksTruncation(
 	}
 }
 
+func TestBuildTraceBlockingWallClockAuthoritiesAdmitsExactTargetSelfStateWhenCriticalEnvelopeIsWider(t *testing.T) {
+	rm := traceValueOccurrenceAuthorityRequest()
+	critical := traceBlockingWallClockAuthorityRecord(
+		"critical", "binder_wait", 1.409, 13762.835811, 13762.837270,
+		"peer=binder:496_9-10961", "flags=0x10",
+	)
+	targetSelf := traceBlockingWallClockAuthorityRecord(
+		"target-self", "binder_wait", 1.409, 13762.835861, 13762.837270,
+		"peer=binder:496_9-10961", "flags=0x10",
+	)
+	targetSelf.ClaimKey = "root_cause_target_self_state"
+	targetSelf.Predicate = "root_cause_target_self_state"
+	targetSelf.RichNotes = append(targetSelf.RichNotes, TraceNoteKeyTier+"="+TraceCausalTierTargetSelfState)
+
+	got := BuildTraceBlockingWallClockAuthorities(ObservationLedger{Records: []ObservationRecord{
+		critical, targetSelf,
+	}}, &rm)
+	if len(got) != 1 || got[0].ObservedMS < 1.4089 || got[0].ObservedMS > 1.4091 ||
+		len(got[0].Occurrences) != 1 || got[0].Occurrences[0].StartTs != 13762.835861 {
+		t.Fatalf("exact target-self occurrence must survive wider critical envelope: %+v", got)
+	}
+}
+
 func TestBuildTraceBlockingWallClockAuthoritiesRejectsEnvelopeNonTargetAndMissingWindow(t *testing.T) {
 	rm := traceValueOccurrenceAuthorityRequest()
 	envelope := traceBlockingWallClockAuthorityRecord("envelope", "blocking_span", 1.000, 1.000, 1.010)

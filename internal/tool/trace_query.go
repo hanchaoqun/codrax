@@ -8199,6 +8199,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			out = append(out, traceQueryTargetWindowWaitOccurrenceObservations(account, subject, ref, scope, at)...)
 		}
 	}
+	out = append(out, traceQueryTypedIPCRequestCensusObservations(result.IPCGraph, ref, scope, at)...)
 
 	// BLK §15.C ①: ONE physical lock span publishes exactly ONE observation.
 	// The resolved lock rank row (subject=holder) and its critical_blocking
@@ -9130,6 +9131,163 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	}
 
 	return traceQueryApplyArtifactProvenance(result, out)
+}
+
+func traceQueryTypedIPCRequestCensusObservations(
+	graph *tracequery.IPCGraphResult,
+	ref types.ObservationSourceRef,
+	scope string,
+	at string,
+) []types.ObservationRecord {
+	if graph == nil || len(graph.Edges) == 0 {
+		return nil
+	}
+	status := "complete"
+	for _, compaction := range graph.Compactions {
+		if compaction.Dimension == tracequery.CompactionDimensionEdges && compaction.Total > compaction.Emitted {
+			status = "lower_bound_capacity_truncated"
+			break
+		}
+	}
+	type senderCensus struct {
+		thread  tracequery.ThreadRef
+		edges   []tracequery.IPCEdge
+		sync    int
+		oneway  int
+		unknown int
+	}
+	bySender := map[string]*senderCensus{}
+	for _, edge := range graph.Edges {
+		if edge.CallSemantics == tracequery.BinderCallSemanticsReply {
+			continue
+		}
+		subject := traceThreadLabel(edge.Sender)
+		if strings.TrimSpace(subject) == "" {
+			continue
+		}
+		census := bySender[subject]
+		if census == nil {
+			census = &senderCensus{thread: edge.Sender}
+			bySender[subject] = census
+		}
+		census.edges = append(census.edges, edge)
+		switch edge.CallSemantics {
+		case tracequery.BinderCallSemanticsSyncRequest:
+			census.sync++
+		case tracequery.BinderCallSemanticsOnewayRequest:
+			census.oneway++
+		default:
+			census.unknown++
+		}
+	}
+	subjects := make([]string, 0, len(bySender))
+	for subject := range bySender {
+		subjects = append(subjects, subject)
+	}
+	sort.Strings(subjects)
+	var out []types.ObservationRecord
+	for _, subject := range subjects {
+		census := bySender[subject]
+		if census == nil || len(census.edges) == 0 {
+			continue
+		}
+		sort.SliceStable(census.edges, func(i, j int) bool {
+			if census.edges[i].SendTs != census.edges[j].SendTs {
+				return census.edges[i].SendTs < census.edges[j].SendTs
+			}
+			return census.edges[i].SendLine < census.edges[j].SendLine
+		})
+		first, last := census.edges[0], census.edges[len(census.edges)-1]
+		total := len(census.edges)
+		notes := traceQueryTypedKVNotes([][2]string{
+			{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(graph.Window)},
+			{types.TraceNoteKeyIPCRequestCensusStatus, status},
+			{types.TraceNoteKeyIPCSyncRequestCount, strconv.Itoa(census.sync)},
+			{types.TraceNoteKeyIPCOnewayRequestCount, strconv.Itoa(census.oneway)},
+			{types.TraceNoteKeyIPCUnknownRequestCount, strconv.Itoa(census.unknown)},
+		})
+		out = append(out, types.ObservationRecord{
+			ID:              fmt.Sprintf("trace_query:%s#ipc_request_census:%d", scope, census.thread.PID),
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: types.ClaimGroundingHard,
+			ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
+			SourceRef:       ref,
+			Span: types.ObservationSpan{
+				LineStart: first.SendLine,
+				LineEnd:   last.ReceiveLine,
+				StartTs:   graph.Window.StartTs,
+				EndTs:     graph.Window.EndTs,
+			},
+			ClaimKey:    "ipc_request_census:" + subject,
+			Subject:     subject,
+			Predicate:   "ipc_request_census",
+			Object:      status,
+			Value:       strconv.Itoa(total),
+			Unit:        "requests",
+			ResultCount: &total,
+			Summary: fmt.Sprintf(
+				"ipc request census %s total=%d sync_request=%d oneway_request=%d unknown=%d status=%s",
+				subject, total, census.sync, census.oneway, census.unknown, status,
+			),
+			RichNotes:   notes,
+			SupportRefs: traceQueryObservationSupportRefs(ref, first.SendLine, last.ReceiveLine),
+			ObservedAt:  at,
+			Confidence:  0.95,
+		})
+		syncOrdinal := 0
+		for _, edge := range census.edges {
+			if edge.CallSemantics != tracequery.BinderCallSemanticsSyncRequest {
+				continue
+			}
+			syncOrdinal++
+			if syncOrdinal > traceQueryWidthTypedFamilyRowCap() {
+				break
+			}
+			edgeNotes := traceQueryTypedKVNotes([][2]string{
+				{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(graph.Window)},
+				{types.TraceNoteKeyIPCRequestCensusStatus, status},
+				{types.TraceNoteKeyIPCTransactionID, traceQueryTypedCount(edge.TransactionID)},
+				{types.TraceNoteKeyIPCCallSemantics, string(edge.CallSemantics)},
+				{types.TraceNoteKeyIPCFlags, edge.Flags},
+				{types.TraceNoteKeyIPCFlagsKnown, strconv.FormatBool(edge.FlagsKnown)},
+				{types.TraceNoteKeyIPCCode, edge.Code},
+				{types.TraceNoteKeyIPCCodeKnown, strconv.FormatBool(edge.CodeKnown)},
+				{types.TraceNoteKeyIPCReceiverSource, string(edge.ReceiverSource)},
+			})
+			out = append(out, types.ObservationRecord{
+				ID:              fmt.Sprintf("trace_query:%s#ipc_request_edge:%d:%d", scope, census.thread.PID, syncOrdinal),
+				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer:        "trace_query",
+				Role:            types.AnswerAggregateRoleSupportingCoverage,
+				GroundingPolicy: types.ClaimGroundingHard,
+				ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
+				SourceRef:       ref,
+				Span: types.ObservationSpan{
+					LineStart: edge.SendLine,
+					LineEnd:   edge.ReceiveLine,
+					StartTs:   edge.SendTs,
+					EndTs:     edge.ReceiveTs,
+				},
+				ClaimKey:  fmt.Sprintf("ipc_request_edge:%s:%d", subject, edge.TransactionID),
+				Subject:   subject,
+				Predicate: "ipc_request_edge",
+				Object:    traceThreadLabel(edge.Receiver),
+				Value:     strconv.Itoa(edge.TransactionID),
+				Unit:      "transaction_id",
+				Summary: fmt.Sprintf(
+					"%s sent sync IPC request transaction=%d flags=%s code=%s to %s at %.6f; matched receive at %.6f",
+					subject, edge.TransactionID, edge.Flags, edge.Code, traceThreadLabel(edge.Receiver), edge.SendTs, edge.ReceiveTs,
+				),
+				RichNotes:   edgeNotes,
+				SupportRefs: traceQueryObservationSupportRefs(ref, edge.SendLine, edge.ReceiveLine),
+				ObservedAt:  at,
+				Confidence:  edge.Confidence,
+			})
+		}
+	}
+	return out
 }
 
 func traceQueryTargetWindowWaitOccurrenceObservations(

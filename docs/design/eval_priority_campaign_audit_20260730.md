@@ -2100,3 +2100,86 @@ source records，并明确：
 完整 `go test ./internal/types ./internal/agent ./internal/skill ./internal/tool
 -count=1` 通过（types 21.443s、agent 3.600s、skill 0.978s、tool
 161.564s）。
+
+### B12 r1 人工审计与批 AE/AF 规划（2026-07-31）
+
+在 revision `5951683f3873` 重建后，以严格 `parallel=2` 回放：
+
+- `eval/results/real_trace_h1_binder_true_false_attribution-20260731-145329`
+- `eval/results/github_issue_pyo3_iter_nth_overflow_symptom-20260731-145329`
+
+runner 1/2，人工 0/2。
+
+H1 已验证 AD1/AD2 的核心目标：正文不再把多个 IPC send/reply latency
+相加成 1.558ms，而是报告 target-owned binder wait 1.409ms；on-chain
+根因 #1..#8 仍与 complete typed roster 一致。显式 233.190ms 用户窗、
+Trace 因果投影、自动补采、目标四态、wakeup chain 和窗内可消除量均在场。
+
+但阻塞 authority 的首版只接 `critical_blocking` 行。该行的 drill 包络是
+`13762.835811..13762.837270`，宽 1.459ms，与发布的 1.409ms 不同，按
+value-owner 安全校验正确拒绝；同一根因结果里的
+`root_cause_target_self_state` 行已携精确
+`13762.835861..13762.837270`，却没有进入 blocking authority。这使正文
+虽然从 value-owner lane 拿到正确区间，仍缺少
+`blocking_occurrences_present=true` 的明确反否定权限。
+
+更关键的新 gap 是事务 census 与阻塞 occurrence count 没有分型。真实
+`ipc_graph` 完整结果包含 20 条 edge：
+
+- `sync_request=5`；
+- `oneway_request=10`；
+- `reply=5`；
+- transaction 12145859 自身字段是 `flags=0x10, code=0x19`。
+
+正文却把“1 个已证 blocking occurrence”写成“窗口只发出 1 次同步事务”，
+并从相邻原始行借来 `code=0xa`。这是 count caliber 与 native-row identity
+双重错配，不是 Binder/H1 单点。
+
+PyO3 写用例没有进入 apply：write analyzer 同时发布
+`affects_public_api=false`、`changes_persistence=false`、
+`changes_build_system=false` 和 `overall=high`，审批门据此正确 fail-closed
+为 `high_write_risk`。计划所述改动是 package-local、保持签名的
+`nth/nth_back` 边界 bugfix；这里需要校准的是模型风险口径，不能放宽或
+绕过 high-risk 审批。
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B12-AE1 | P1 | IPC request count caliber | IPC 请求数与目标 blocking occurrence 数共用叙事通道，1 个阻塞区间被写成 1 个同步事务 | 从完整 typed ipc_graph 按 sender/window 构造 request census，分别发布 sync/oneway/unknown；与 blocking authority 明确隔离 | covered-pending-replay |
+| EVAL-B12-AE2 | P1 | native IPC row identity | transaction id/flags/code/peer/timestamp 无同一行权限，字段可从相邻 IPC 事件串台 | 每个 sync request 发布同一 typed edge 的 transaction/flags/code/peer/send/receive/known-state；writer 逐 tuple 转录 | covered-pending-replay |
+| EVAL-B12-AE3 | P1 | exact target-self blocking admission | critical drill 包络包含相邻阶段，按 span/value 校验被拒；精确 target-self-state 行未被 blocking authority 消费 | 保留 span≈value 硬条件，同时接纳 typed `tier=target_self_state` 根因行；发布 occurrence-present 反否定位 | covered-pending-replay |
+| EVAL-B12-AF1 | P1 | write risk caliber | 变更前问题严重度被误当成补丁误施爆炸半径，三风险轴全 false 的局部 bugfix 被标 high | 只增强 write-analysis soft rubric：overall 衡量改动 blast radius；局部保持签名、无持久化/构建/安全面的 bugfix 通常 low/medium；不改审批门 | open |
+| EVAL-B11-AB4 | P2 | incomplete enumeration wording | incomplete 仍可与全部/仅有措辞并存 | 保持已立案；不扫描答案原文做 hard reject | reproduced-filed |
+
+批 AE 不变量：
+
+1. 不读取 raw request、case ID、模型 thinking 或最终答案词面做判定。
+2. IPC census 与 native tuple 只来自 deterministic `ipc_graph` typed
+   edge；完整性来自 typed compaction 状态。
+3. IPC send→receive 仍是 transport latency，不进入 blocking wall clock。
+4. target-self-state 只有同时满足 typed target、`tier=target_self_state`、
+   selected window 和 `span width≈value` 才能进入 blocking authority。
+5. 不改 trace_query 的边构造/配对、用户窗、因果投影、榜位、wakeup
+   chain、窗内可消除量或自动补采。
+
+批 AE 已实现独立的 `Trace IPC Request Census Authority`。生产
+`traceQueryTypedObservations` 按 sender 对非-reply edge 分组，发布
+request 总数及 sync/oneway/unknown 精确分解；每条 sync request 另带同一
+typed edge 的 transaction id、flags/code known-state、peer、
+send/matched-receive 和 receiver source。edge compaction 存在时只发布
+lower bound；分解不守恒、sync roster 不完整或目标不匹配均 fail-closed/
+降级，绝不从 blocking occurrence 或模型摘要补字段。
+
+blocking authority 同时接纳精确的 `root_cause_target_self_state` no-seat
+症状行，仍保留 deterministic runtime artifact、hard grounding、typed
+user target、selected window 和 `span width≈published ms` 全部条件。
+因此 H1 的宽 critical drill 包络继续被拒，精确 1.409ms target-self 行
+取得唯一 occurrence；查询、投影和数值完全不变。
+
+answer-writer 明示 request count 与 blocking occurrence count 分型，并
+发布 `blocking_occurrences_present`；explorer/finalizer 只增加 typed soft
+guidance。专项测试覆盖真实 H1 数量/字段形、宽包络拒绝与精确 target-self
+接应、破损分解拒绝、roster 缺失降级、生产 tool/writer 接线及 note-key
+注册闭包。完整
+`go test ./internal/types ./internal/agent ./internal/skill ./internal/tool
+-count=1` 通过（types 18.420s、agent 3.047s、skill 1.576s、tool
+164.525s）。

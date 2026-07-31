@@ -3873,6 +3873,9 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	if authority := renderAnswerDocTraceBlockingWallClockAuthority(ctx, ledger); authority != "" {
 		b.WriteString(authority)
 	}
+	if authority := renderAnswerDocTraceIPCRequestCensusAuthority(ctx, ledger); authority != "" {
+		b.WriteString(authority)
+	}
 	if authority := renderAnswerDocTraceTargetStateScopeAuthority(ledger); authority != "" {
 		b.WriteString(authority)
 	}
@@ -4185,12 +4188,13 @@ func renderAnswerDocTraceBlockingWallClockAuthority(ctx *types.AgentContext, led
 	b.WriteString("- `coverage_status=complete` permits an exhaustive total for that type/window. `lower_bound_capacity_truncated` permits only a proven observed lower bound; do not say total/all/only. Overlapping occurrence intervals are unioned, never double-counted.\n")
 	for _, authority := range authorities {
 		fmt.Fprintf(&b,
-			"- artifact=`%s`; selected_window=`%s`; subject=`%s`; blocking_type=`%s`; proven_blocking_wall_clock=%.3fms; occurrence_count=%d; coverage_status=`%s`\n",
+			"- artifact=`%s`; selected_window=`%s`; subject=`%s`; blocking_type=`%s`; proven_blocking_wall_clock=%.3fms; blocking_occurrences_present=`%t`; occurrence_count=%d; coverage_status=`%s`\n",
 			authority.ArtifactLabel,
 			authority.SelectedWindow,
 			authority.Subject,
 			authority.Type,
 			authority.ObservedMS,
+			len(authority.Occurrences) > 0,
 			len(authority.Occurrences),
 			authority.CoverageStatus,
 		)
@@ -4210,6 +4214,63 @@ func renderAnswerDocTraceBlockingWallClockAuthority(ctx *types.AgentContext, led
 			}
 			if len(occurrence.RecordIDs) > 0 {
 				fmt.Fprintf(&b, "; source_records=`%s`", strings.Join(occurrence.RecordIDs, "`,`"))
+			}
+			b.WriteByte('\n')
+		}
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func renderAnswerDocTraceIPCRequestCensusAuthority(ctx *types.AgentContext, ledger types.ObservationLedger) string {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return ""
+	}
+	authorities := types.BuildTraceIPCRequestCensusAuthorities(ledger, &ctx.AnalysisIR.RequestModel)
+	if len(authorities) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("### Trace IPC Request Census Authority\n\n")
+	b.WriteString("- IPC request counts and target blocking-occurrence counts are separate typed calibers. `sync_request=N` counts synchronous request rows; it does not mean N requests produced a proven target blocking interval. Blocking wall clock and its occurrence count come only from `Trace Target Blocking Wall-Clock Authority`.\n")
+	b.WriteString("- Native transaction fields below belong to the exact IPC send row. Keep transaction id, flags, code, peer, send time, and matched-receive time together; never copy those fields from a neighboring IPC row or blocking interval.\n")
+	b.WriteString("- `coverage_status=complete` permits exhaustive request-count wording. Every other status is incomplete/lower-bound for at least one count or roster dimension and forbids total/all/only wording.\n")
+	for _, authority := range authorities {
+		fmt.Fprintf(&b,
+			"- artifact=`%s`; selected_window=`%s`; subject=`%s`; requests=%d; sync_request=%d; oneway_request=%d; unknown=%d; coverage_status=`%s`\n",
+			authority.ArtifactLabel,
+			authority.SelectedWindow,
+			authority.Subject,
+			authority.TotalRequests,
+			authority.SyncRequests,
+			authority.OnewayRequests,
+			authority.UnknownRequests,
+			authority.CoverageStatus,
+		)
+		for _, request := range authority.SyncRoster {
+			fmt.Fprintf(&b,
+				"  - transaction=%d; semantics=`sync_request`; peer=`%s`; send=`%.6f`; matched_receive=`%.6f`; transport_latency=%.3fms",
+				request.TransactionID,
+				request.Peer,
+				request.SendTs,
+				request.ReceiveTs,
+				(request.ReceiveTs-request.SendTs)*1000,
+			)
+			if request.FlagsKnown {
+				fmt.Fprintf(&b, "; flags=`%s`", request.Flags)
+			} else {
+				b.WriteString("; flags=`unavailable`")
+			}
+			if request.CodeKnown {
+				fmt.Fprintf(&b, "; code=`%s`", request.Code)
+			} else {
+				b.WriteString("; code=`unavailable`")
+			}
+			if request.ReceiverSource != "" {
+				fmt.Fprintf(&b, "; receiver_source=`%s`", request.ReceiverSource)
+			}
+			if request.RecordID != "" {
+				fmt.Fprintf(&b, "; source_record=`%s`", request.RecordID)
 			}
 			b.WriteByte('\n')
 		}

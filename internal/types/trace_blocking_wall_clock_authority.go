@@ -48,10 +48,13 @@ type traceBlockingWallClockCandidate struct {
 }
 
 // BuildTraceBlockingWallClockAuthorities admits only deterministic,
-// hard-grounded critical-blocking observations whose own interval width agrees
-// with their published millisecond value. This keeps IPC transport latency,
-// transaction send/reply phases, aggregate envelopes, and model-authored
-// totals out of the target's measured blocking-wall-clock account.
+// hard-grounded critical-blocking observations or target-self-state rank rows
+// whose own interval width agrees with their published millisecond value. The
+// latter is the rank engine's exact no-seat symptom lane and is useful when a
+// critical-blocking drill span includes a neighboring transaction phase. This
+// keeps IPC transport latency, transaction send/reply phases, aggregate
+// envelopes, and model-authored totals out of the target's measured
+// blocking-wall-clock account.
 //
 // Exact duplicate publications are folded by interval identity. Overlapping
 // intervals are unioned, so the authority never double-counts the same target
@@ -162,9 +165,16 @@ func traceBlockingWallClockCandidateFromRecord(record ObservationRecord, rm *Req
 		!RuntimeObservationProducerIsDeterministicQuery(record.Producer) ||
 		record.GroundingPolicy != ClaimGroundingHard ||
 		!ObservationRecordMatchesUserRuntimeTarget(record, rm) ||
-		traceObservationDimension(record) != TraceObservationDimensionCriticalBlocking ||
-		!strings.EqualFold(strings.TrimSpace(record.Predicate), "critical_blocking") ||
 		!strings.EqualFold(strings.TrimSpace(record.Unit), "ms") {
+		return traceBlockingWallClockCandidate{}, false
+	}
+	dimension := traceObservationDimension(record)
+	criticalBlocking := dimension == TraceObservationDimensionCriticalBlocking &&
+		strings.EqualFold(strings.TrimSpace(record.Predicate), "critical_blocking")
+	targetSelfState := dimension == TraceObservationDimensionRootCauseRank &&
+		strings.EqualFold(strings.TrimSpace(record.Predicate), "root_cause_target_self_state") &&
+		strings.EqualFold(strings.TrimSpace(traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyTier)), TraceCausalTierTargetSelfState)
+	if !criticalBlocking && !targetSelfState {
 		return traceBlockingWallClockCandidate{}, false
 	}
 	valueMS, err := strconv.ParseFloat(strings.TrimSpace(record.Value), 64)

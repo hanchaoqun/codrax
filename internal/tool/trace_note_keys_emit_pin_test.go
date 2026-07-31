@@ -373,6 +373,29 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 			},
 			Routing: "exact_tid_preserved",
 		},
+		// EVAL-B12-AE1: deterministic IPC request census + exact sync-row
+		// native fields exercise the ipc_* soft-consumer wire keys.
+		IPCGraph: &tracequery.IPCGraphResult{
+			Window: window,
+			Edges: []tracequery.IPCEdge{{
+				TransactionID:     42,
+				Sender:            tracequery.ThreadRef{Comm: "app:ui", PID: 61},
+				Receiver:          tracequery.ThreadRef{Comm: "binder:peer", PID: 201},
+				SendTs:            1.2,
+				ReceiveTs:         1.201,
+				SendLine:          70,
+				ReceiveLine:       71,
+				Flags:             "0x10",
+				Code:              "0x19",
+				CallSemantics:     tracequery.BinderCallSemanticsSyncRequest,
+				FlagsKnown:        true,
+				CodeKnown:         true,
+				ReceiverSource:    tracequery.BinderReceiverSourceMatchedReceive,
+				BlockingCandidate: true,
+				SyncLike:          true,
+				Confidence:        0.92,
+			}},
+		},
 		FrameRootCauseBundle: &tracequery.FrameRootCauseBundle{
 			TargetResolution: &tracequery.FrameTargetResolution{
 				Target: tracequery.ThreadRef{Comm: "app:ui", PID: 61}, Source: "frame_timeline",

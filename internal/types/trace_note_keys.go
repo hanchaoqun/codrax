@@ -1330,6 +1330,21 @@ const (
 	TraceNoteKeyTargetWaitOccurrence          = "target_wait_occurrence"
 	TraceNoteKeyTargetWaitOccurrencePrompt    = "target_wait_occurrence_prompt"
 	TraceNoteKeyTargetWaitOccurrencePromptSum = "target_wait_occurrence_prompt_sum_ms"
+	// EVAL-B12-AE1: IPC request inventory and target blocking occurrences
+	// are different count/value calibers. These soft-consumer keys carry the
+	// deterministic ipc_graph request census and exact sync-request row
+	// fields to the answer writer without parsing user/model prose.
+	TraceNoteKeyIPCRequestCensusStatus = "ipc_request_census_status"
+	TraceNoteKeyIPCSyncRequestCount    = "ipc_sync_request_count"
+	TraceNoteKeyIPCOnewayRequestCount  = "ipc_oneway_request_count"
+	TraceNoteKeyIPCUnknownRequestCount = "ipc_unknown_request_count"
+	TraceNoteKeyIPCTransactionID       = "ipc_transaction_id"
+	TraceNoteKeyIPCCallSemantics       = "ipc_call_semantics"
+	TraceNoteKeyIPCFlags               = "ipc_flags"
+	TraceNoteKeyIPCFlagsKnown          = "ipc_flags_known"
+	TraceNoteKeyIPCCode                = "ipc_code"
+	TraceNoteKeyIPCCodeKnown           = "ipc_code_known"
+	TraceNoteKeyIPCReceiverSource      = "ipc_receiver_source"
 )
 
 // Composite ledger-marker wire strings. The append site and the exact-match
@@ -1376,6 +1391,17 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyTargetWaitOccurrence, "state", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyTargetWaitOccurrencePrompt, "state", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyTargetWaitOccurrencePromptSum, "state", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyIPCRequestCensusStatus, "ipc", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyIPCSyncRequestCount, "ipc", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyIPCOnewayRequestCount, "ipc", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyIPCUnknownRequestCount, "ipc", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyIPCTransactionID, "ipc", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyIPCCallSemantics, "ipc", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyIPCFlags, "ipc", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyIPCFlagsKnown, "ipc", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyIPCCode, "ipc", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyIPCCodeKnown, "ipc", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyIPCReceiverSource, "ipc", TraceNoteCarrierSoftConsumer},
 
 	// 因果排名族.
 	{TraceNoteKeyRank, "causal_rank", TraceNoteCarrierHardConsumer},
