@@ -1026,3 +1026,46 @@ B6 r1 GAP 与处置：
 4. 本批不修改 runtime request model、Trace query选择、显式时间窗、因果投影、根因排序、唤醒链、窗内可消除量、跨工件关系或自动补齐。
 
 `B6-Q/P1` 施工验证：`aggregateMemberStructuredLocation` 在一成员一槽的 typed positional形上先解析原索引，未知兄弟槽不再改变有效槽坐标；后续 named/generic/bare fallback保持。统一 suffix authority新增声明式配置模板装饰的有界组合，`codrax.yaml.example`、`settings.toml.dist`、`schema.json.sample`可作为配置证据路径，`source.go.example`、`notes.txt.example`、`binary.example`仍拒绝。完整 Markdown table在 accepted row可见且row有typed source时，由 unused citation 清理器将对应精确坐标计为已使用；表格 `Items` 保持为空，既有多列布局和正文不变，重复执行幂等。无source的runtime mode成员不生成citation。专项 tests与 `go test ./internal/types ./internal/tool ./internal/agent ./internal/orchestrator -count=1` 均通过；`git diff --check`通过。待提交推送和后续高优先级双case观察。
+
+### 第二阶段优先级（B7 起）
+
+首阶段 12 个 case 已全部执行。下一阶段继续按客户影响、机制覆盖、回归证据、oracle 判决力和过程诊断价值排序；分数只排执行顺序，不作质量门：
+
+| 顺位 | case | 主要维度 | 选择理由 | 批次 |
+|---:|---|---|---|---|
+| 13 | `trace_query_wakeup_causal_io_chain` | 显式窗/根因排序/唤醒链 | 同时验 D/IO 终端根因、四跳链、优先级语义和显式窗因果投影，是前轮收窄的最高风险正臂 | B7 |
+| 14 | `github_issue_dayjs_duration_nan_symptom` | write JS/症状定位/验证权限 | 跨语言症状定位，边界缺字段语义明确，可审验证不可用与 proof authority | B7 |
+| 15 | `real_trace_d2_chain_via_networkservice` | 真实 trace/多跳链 | 真实 Donghu 数据验证 NetworkService 中转链，避免只在合成四行链上成立 | B8 |
+| 16 | `data_join_entity_reconcile` | data 谱系/贡献账 | 精确单值、贡献记录和 reconcile 三重 oracle，覆盖非 LLM 算术闭环 | B8 |
+| 17 | `trace_query_frame_timeline_flow` | 帧链/跨线程 flow | Expected/UI/RenderService/GPU 四阶段，检验 span/帧能力与调度因果面互不污染 | B9 |
+| 18 | `read_combo_trace_current_code_boundary` | trace+当前源码双权威 | 同时要求 artifact 时间/行和 current-source citation，能杀跨工件坐标串用 | B9 |
+| 19 | `real_trace_d4_demand_vs_supply` | 真实 trace/供需归因 | 真实窗睡眠、系统 idle 与频率上限共同约束需求侧结论 | B10 |
+| 20 | `github_issue_libgit2_foreach_worktree_symptom` | write C/错误码传播 | 检验跨语言调用链和负数错误码保真，不与 Java/JS 修复形状同类 | B10 |
+
+### B7 r1 人工审计与批 R（2026-07-31）
+
+- 严格 `parallel=2`，结果：
+  - `eval/results/trace_query_wakeup_causal_io_chain-20260731-095616`
+  - `eval/results/github_issue_dayjs_duration_nan_symptom-20260731-095616`
+- runner 2/2 PASS；人工 Trace FAIL、write 产品修复 PASS / 控制面 partial。
+- Trace 引擎真值正确：链 `threadpool-400 → network-300 → cookie-200 → app-100`，edge wakeup 为 2.016/2.018/2.020s，终端 D/IO 为 2.003–2.014s、11.000ms。显式窗因果投影、目标四态和 window_stats 自动补齐均发布，证明状态查询收窄未伤显式窗正臂。
+- Trace 主答案却把前两条 wakeup 提前为 2.015/2.017s，并把不同起点的累计 latency 称为边传导延迟；查询窗 20.000ms 与窗外恢复点 20.020ms 也混写。自动 oracle 未约束 exact edge timeline。
+- 确定性投影还将同一 threadpool IO 段发布两席：E4 `wakeup_causal_impact` 与 E5 `root_evidence:io_wait`；现有同线范围 R1 因 6–9 vs 6–7 未吸收。
+- Write diff 仅一行 `Number(value) → Number(value ?? 0)`，Python oracle 基线失败/修后通过，产品修复正确。两个 JS 行为 probe 和 npm 均 unavailable；proof review 正确留下 3 个 contract 与 2 个 symbol 未覆盖义务，但 verify-only follow-up 重复同一弱验证后错误升级 `batch_verified/all_verified`。
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B7-T1 | P1 | wakeup edge 时间权限 | typed edge 有精确 wakeup_ts，但最终主答案未稳定消费，模型混用 sched-in/累计 latency | typed edge 进入最终 handoff/确定性边展示；不扫正文、不按 case/数值特判 | filed |
+| EVAL-B7-T2 | P1 | 因果投影物理段双席 | causal impact 与 root evidence 同物理 D/IO 段因 source span 一宽一窄逃过 exact-range R1 | typed subject/state/value/artifact/window 加 interval containment 的单一吸收点，证据 lossless、展示一席 | filed |
+| EVAL-B7-T3 | P2 | 窗口/实际口径 | 模型把 20.000ms 窗内投影与窗外 20µs 恢复点混写 | 先跨 case 观察；确定性 projection 已分口径，不为一次波动加正文硬门 | filed-model-variance |
+| EVAL-B7-W1 | P1 | proof follow-up authority | report-level source check pass 覆盖 typed proof ledger 的 unavailable/uncovered，重复弱验证被升级 all_verified | 仅对 typed verify-only proof purpose，以 proof ledger closed 为 verified 条件；未闭合完成为 unverified | 批 R 已施工 |
+| EVAL-B7-W2 | P2 | proof follow-up 效率 | verify-only 批只能复跑旧 plan，稳定 runner-missing 时通常无 proof delta | W1 先诚实降级；观察后再按 typed capability/no-delta 决定是否跳过重复执行 | filed |
+
+批 R 不变量：
+
+1. stricter gate 只由 batch `execution_mode=verify_only`、typed `purpose` 与 `VerificationProofLedger` 启用；普通实现批的 report-level pass 语义不变。
+2. 不读取用户输入、模型 reasoning、最终答案或测试输出关键词；runner/probe/contract/symbol 状态均来自 schema 化报告与 proof ledger。
+3. 未闭合 proof 不等于代码失败，不触发错误 replan；完成 verdict 为 unverified，并保留已应用补丁与可用的 source-check 证据。
+4. 不修改 read/trace 路由、显式时间窗、因果投影、根因排序、唤醒链、窗内可消除量和自动补齐。
+
+`B7-R/P1` 施工验证：新增 proof-followup outcome reconciliation；只有 verify-only proof batch 且 ledger state=verified、uncovered/unavailable/failed 均为0时保留 `report_passed`，否则转 typed `verification_incomplete(reason=verification_proof_incomplete)`，attempt/slice/batch 记录为 unverified。相邻负例固定普通实现批不受影响，正例固定强 project runner proof 仍通过。专项 tests及 `go test ./internal/orchestrator -count=1` 通过；待提交推送。

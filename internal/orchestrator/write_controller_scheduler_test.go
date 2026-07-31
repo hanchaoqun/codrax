@@ -6445,6 +6445,66 @@ func TestNormalizeControllerTypedStateDecision_VerifyOnlyRejectsModificationPlan
 	}
 }
 
+func TestReconcileProofFollowupVerifyOutcome_RequiresClosedTypedProofLedger(t *testing.T) {
+	weakReport := &types.ChangeReport{
+		PlanID:             "plan-proof",
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		VerificationConfidence: []types.VerificationConfidenceRecord{{
+			Source:     "verification_probe",
+			Category:   "probe_execution",
+			Status:     "unavailable",
+			Severity:   "warning",
+			ReasonCode: "verification_probe_runner_missing",
+		}},
+	}
+	plan := &types.ChangePlan{ID: "plan-proof", Status: types.PlanStatusApplied}
+	passed := writeflow.VerifyAttemptOutcome{
+		Kind:              writeflow.VerifyOutcomeReportPassed,
+		RecommendedAction: writeflow.ActionFinish,
+		ReasonCode:        "tests_passed",
+	}
+
+	proofRun := &types.WriteWorkflowRun{
+		ActiveBatchID: "batch-proof",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:            "batch-proof",
+			Purpose:       "verification_proof_followup",
+			ExecutionMode: types.WriteWorkflowBatchExecutionVerifyOnly,
+		}},
+	}
+	got := reconcileProofFollowupVerifyOutcome(proofRun, plan, weakReport, passed)
+	if got.Kind != writeflow.VerifyOutcomeVerificationIncomplete ||
+		got.ReasonCode != "verification_proof_incomplete" ||
+		got.Retryable {
+		t.Fatalf("weak proof-only follow-up outcome = %+v", got)
+	}
+
+	ordinaryRun := &types.WriteWorkflowRun{
+		ActiveBatchID: "batch-code",
+		Batches:       []types.WriteWorkflowBatch{{ID: "batch-code"}},
+	}
+	if got := reconcileProofFollowupVerifyOutcome(ordinaryRun, plan, weakReport, passed); got != passed {
+		t.Fatalf("ordinary implementation batch changed outcome: got=%+v want=%+v", got, passed)
+	}
+
+	strongReport := &types.ChangeReport{
+		PlanID:             "plan-proof",
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner:   "go",
+			Command:  "go test ./...",
+			ExitCode: 0,
+			Source:   "test_surface_default",
+			Outcome:  "executed",
+		}},
+	}
+	if got := reconcileProofFollowupVerifyOutcome(proofRun, plan, strongReport, passed); got != passed {
+		t.Fatalf("closed proof-only follow-up changed outcome: got=%+v want=%+v", got, passed)
+	}
+}
+
 func TestRunWriteControllerWorkflow_VerifyOnlyCumulativeReviewNeverRunsPlannerOrApply(t *testing.T) {
 	const objective = "preserve an existing default while validating falsy prefault values"
 	plan := &types.ChangePlan{

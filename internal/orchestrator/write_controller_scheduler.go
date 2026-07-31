@@ -505,8 +505,15 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 					reportPack := types.WriteContextPackFromChangeReport(report).
 						WithScope(run.ActiveBatchID, activeWorkflowRunSliceID(run, run.ActiveBatchID))
 					o.busCtx.Mutable.MergeWriteContextPack(reportPack)
+					outcome = reconcileProofFollowupVerifyOutcome(&run, o.busCtx.Mutable.ChangePlan(),
+						report, writeflow.ClassifyVerifyAttemptOutcome(report, innerErr))
 					status := writeWorkflowVerifyAttemptStatus(report, innerErr)
 					reason := writeWorkflowVerifyAttemptReason(report, innerErr)
+					if outcome.Kind == writeflow.VerifyOutcomeVerificationIncomplete &&
+						outcome.ReasonCode == "verification_proof_incomplete" {
+						status = "unverified"
+						reason = outcome.ReasonCode
+					}
 					updateWorkflowRunBatchVerify(&run, run.ActiveBatchID, report, status, reason)
 					updateWorkflowRunActiveSliceObserve(&run, run.ActiveBatchID, report, status, reason)
 					o.syncCurrentWriteContextPackToRun(&run)
@@ -517,7 +524,9 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 						updateWorkflowRunActiveSliceObserveSkipped(&run, run.ActiveBatchID, plan.ID)
 					}
 				}
-				outcome = writeflow.ClassifyVerifyAttemptOutcome(report, innerErr)
+				if report == nil {
+					outcome = writeflow.ClassifyVerifyAttemptOutcome(report, innerErr)
+				}
 				if o.skipVerify || report != nil || !outcome.Retryable {
 					break
 				}
@@ -7045,6 +7054,38 @@ func activeBatchNeedsReplan(run *types.WriteWorkflowRun) (types.WriteWorkflowBat
 		return batch, state.Phase == writeflow.BatchPhaseNeedsReplan
 	}
 	return types.WriteWorkflowBatch{}, false
+}
+
+// reconcileProofFollowupVerifyOutcome prevents a proof-only follow-up from
+// laundering an unchanged weak verifier result into "all verified". Ordinary
+// implementation batches keep their existing report-level pass semantics; the
+// stricter lane is enabled only by the typed verify-only execution mode plus
+// the typed proof-follow-up purpose. The ledger is the single authority for
+// whether the declared symbol/contract obligations actually closed.
+func reconcileProofFollowupVerifyOutcome(run *types.WriteWorkflowRun, plan *types.ChangePlan,
+	report *types.ChangeReport, outcome writeflow.VerifyAttemptOutcome) writeflow.VerifyAttemptOutcome {
+	if run == nil || plan == nil || report == nil ||
+		outcome.Kind != writeflow.VerifyOutcomeReportPassed {
+		return outcome
+	}
+	batch, ok := activeWorkflowBatch(run)
+	if !ok || batch.ExecutionMode != types.WriteWorkflowBatchExecutionVerifyOnly ||
+		!proofFollowupPurpose(batch.Purpose) {
+		return outcome
+	}
+	ledger := types.BuildVerificationProofLedger(plan, report, nil)
+	if ledger.State == types.VerificationProofLedgerVerified &&
+		ledger.UncoveredCount == 0 &&
+		ledger.UnavailableCount == 0 &&
+		ledger.FailedCount == 0 {
+		return outcome
+	}
+	return writeflow.VerifyAttemptOutcome{
+		Kind:              writeflow.VerifyOutcomeVerificationIncomplete,
+		Retryable:         false,
+		RecommendedAction: writeflow.ActionFinish,
+		ReasonCode:        "verification_proof_incomplete",
+	}
 }
 
 func activeWorkflowBatchVerifyOnly(run *types.WriteWorkflowRun) bool {
