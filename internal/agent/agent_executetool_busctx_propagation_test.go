@@ -70,6 +70,23 @@ func TestExecuteTool_PropagatesReadOnlyFieldsToBusCtx(t *testing.T) {
 		EnvRecommendSettings: settings,
 		Language:             "zh",
 		Preferences:          []string{"verbose"},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RawRequest: "请分析附件中的运行时现象",
+			CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+				IsCurrentSourceExplanationRequested: true,
+				Modes: []types.CurrentSourceExplanationMode{
+					types.CurrentSourceExplanationExplainCurrentMechanism,
+				},
+				SourceQuotes: []string{"分析附件中的运行时现象"},
+				Confidence:   0.9,
+			},
+		}},
+		TurnRouteHint: types.TurnRouteHint{
+			Route:                     "repo",
+			Source:                    "artifact",
+			NeedsRepoAccess:           true,
+			CurrentSourceEvidenceMode: types.TurnRouteCurrentSourceEvidenceOptional,
+		},
 	}
 
 	tc := llm.ToolCall{Name: "capture_busctx", Params: json.RawMessage(`{}`)}
@@ -113,6 +130,23 @@ func TestExecuteTool_PropagatesReadOnlyFieldsToBusCtx(t *testing.T) {
 	// references it.
 	if bc.MainRepoRoot != "/home/user/orig-repo" {
 		t.Errorf("MainRepoRoot dropped: got %q", bc.MainRepoRoot)
+	}
+
+	// TurnRouteHint: completion and answer-authority tools need the same
+	// route/current-source enum the agent prompt consumed. Dropping it makes
+	// the tool projection fall back to legacy NeedsRepoAccess semantics and
+	// can turn an artifact-only optional lane into a hard source requirement.
+	if bc.TurnRouteHint.CurrentSourceEvidenceMode != types.TurnRouteCurrentSourceEvidenceOptional ||
+		bc.TurnRouteHint.Source != "artifact" {
+		t.Errorf("TurnRouteHint dropped or changed: got %+v", bc.TurnRouteHint)
+	}
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(
+		bc,
+		types.ObservationLedger{},
+	)
+	if authority.CurrentSourceRequired ||
+		authority.CurrentSourceRequirement != types.RuntimeSourceRequirementNone {
+		t.Errorf("tool-side authority reopened optional runtime route: %+v", authority)
 	}
 
 	// Sanity: the fields that WERE propagated pre-fix are still

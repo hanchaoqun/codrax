@@ -217,6 +217,8 @@ func setNonZeroFieldOnAgentContext(t *testing.T, ac *AgentContext, fieldName str
 		ac.SourceInventoryFollowupDebt = sourceInventoryFollowupDebtProjectionSentinel()
 	case "RuntimeArtifactPreflight":
 		ac.RuntimeArtifactPreflight = runtimeArtifactPreflightProjectionSentinel()
+	case "TurnRouteHint":
+		ac.TurnRouteHint = turnRouteHintProjectionSentinel()
 	default:
 		return false
 	}
@@ -271,6 +273,8 @@ func setNonZeroFieldOnBusContext(t *testing.T, bc *BusContext, fieldName string)
 		bc.SourceInventoryFollowupDebt = sourceInventoryFollowupDebtProjectionSentinel()
 	case "RuntimeArtifactPreflight":
 		bc.RuntimeArtifactPreflight = runtimeArtifactPreflightProjectionSentinel()
+	case "TurnRouteHint":
+		bc.TurnRouteHint = turnRouteHintProjectionSentinel()
 	default:
 		return false
 	}
@@ -305,6 +309,16 @@ func runtimeArtifactPreflightProjectionSentinel() RuntimeArtifactPreflightProfil
 			Carrier: "request_path",
 		}},
 	})
+}
+
+func turnRouteHintProjectionSentinel() TurnRouteHint {
+	return TurnRouteHint{
+		Route:                     "repo",
+		Source:                    "artifact",
+		NeedsRepoAccess:           true,
+		CurrentSourceEvidenceMode: TurnRouteCurrentSourceEvidenceOptional,
+		Confidence:                0.99,
+	}
 }
 
 // nonZeroFieldOnBusContext reports whether the named typed-signal
