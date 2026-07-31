@@ -82,7 +82,7 @@ func TestRuntimeSourceAnswerAuthoritySnapshot_OptionalRouteRejectsGenericSourceS
 	}
 }
 
-func TestRuntimeSourceAnswerAuthoritySnapshot_OptionalRouteAllowsDedicatedCurrentSourceBridge(t *testing.T) {
+func TestRuntimeSourceAnswerAuthoritySnapshot_OptionalRouteKeepsGenericCurrentSourceBridgeSoft(t *testing.T) {
 	ledger := ObservationLedger{Records: []ObservationRecord{runtimeSourceTraceRecord("log:timeout", "log_triage")}}
 	rm := &RequestModel{
 		RawRequest: "请结合当前源码解释这段日志",
@@ -105,13 +105,30 @@ func TestRuntimeSourceAnswerAuthoritySnapshot_OptionalRouteAllowsDedicatedCurren
 		},
 		Ledger: ledger,
 	})
-	if !got.CurrentSourceRequired || !got.NeedsCurrentSourceEvidence {
-		t.Fatalf("dedicated exact current-source bridge should recover mixed-lane obligation: %+v", got)
+	if got.CurrentSourceRequired || got.NeedsCurrentSourceEvidence {
+		t.Fatalf("generic analyzer bridge must not overturn an explicit artifact-only route: %+v", got)
 	}
-	if got.CurrentSourceLane != CurrentSourceLaneRequired ||
-		got.CurrentSourceRequirement != RuntimeSourceRequirementSoft ||
-		!got.CanDowngradeToCaveat {
-		t.Fatalf("verbatim current-source bridge should remain a soft, typed obligation: %+v", got)
+	if got.CurrentSourceLane != CurrentSourceLaneAllowedOptional ||
+		got.CurrentSourceRequirement != RuntimeSourceRequirementNone ||
+		!got.RuntimeOnlySufficient || !got.CanUseRuntimeOnlyWithCaveat {
+		t.Fatalf("generic bridge should remain soft guidance over answer-grade runtime evidence: %+v", got)
+	}
+
+	rm.CurrentSourceExplanationProfile.SourceQuotes = []string{"internal/render/status_messages.go:233"}
+	got = BuildRuntimeSourceAnswerAuthoritySnapshot(RuntimeSourceAnswerAuthorityInput{
+		RequestModel: rm,
+		RouteHint: TurnRouteHint{
+			Route:                     "repo",
+			Source:                    "artifact",
+			NeedsRepoAccess:           true,
+			CurrentSourceEvidenceMode: TurnRouteCurrentSourceEvidenceOptional,
+		},
+		Ledger: ledger,
+	})
+	if !got.CurrentSourceRequired || !got.NeedsCurrentSourceEvidence ||
+		got.CurrentSourceRequirement != RuntimeSourceRequirementPrecise ||
+		!got.CanHardBlockCompletion {
+		t.Fatalf("precise current-source file:line must still upgrade an optional route: %+v", got)
 	}
 }
 

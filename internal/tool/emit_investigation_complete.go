@@ -10423,15 +10423,18 @@ func currentSourceLaneCoverageDowngrade(ctx *types.BusContext, preflight complet
 // conjunction (eval/boundary_regression_adjudication_20260730.md §5.1): a run
 // must NOT complete source-optional when ALL of these PRECISE signals conjoin:
 //
-//  1. the typed CurrentSourceExplanationProfile is Active AND carries a
+//  1. the unified route+request authority has already classified the
+//     current-source lane as required (so an explicit artifact-only
+//     current_source=optional route cannot be bypassed here);
+//  2. the typed CurrentSourceExplanationProfile is Active AND carries a
 //     verbatim current-request quote (schema-validated boolean + verbatim
 //     substring — the same predicate family EVALFIX-1's validateExactTargets
 //     uses; no prose regex scanning at gate time);
-//  2. an external-observation carrier is present — established by the caller's
+//  3. an external-observation carrier is present — established by the caller's
 //     currentSourceLaneRuntimeArtifactCarrier guard (the same typed carrier
 //     lane the evidence_floor_waiver / system-detected external-source
 //     bypasses serve);
-//  3. the deterministic current-source witness count is zero (proof-lane 口径:
+//  4. the deterministic current-source witness count is zero (proof-lane 口径:
 //     read_file coverage, non-log evidence anchors, and ledger current-source
 //     records; model prose never counts).
 //
@@ -10470,11 +10473,19 @@ func zeroWitnessExplicitSourceDemandFatalClass(ctx *types.BusContext, preflight 
 	if rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {
 		return false
 	}
-	// Signal 1: typed Active profile with a verbatim request quote.
+	// Authority is the single route+request compiler. In particular, an
+	// explicit external-observation route with current_source=optional must
+	// not be reopened solely because the analyzer copied an artifact-scope
+	// phrase into CurrentSourceExplanationProfile. Route-required mixed turns
+	// and precise path/line obligations still publish CurrentSourceRequired.
+	if !authority.CurrentSourceRequired {
+		return false
+	}
+	// Signal 2: typed Active profile with a verbatim request quote.
 	if !rm.CurrentSourceExplanationHasVerbatimRequestQuote() {
 		return false
 	}
-	// Signal 3: zero deterministic current-source witnesses — both the lane's
+	// Signal 4: zero deterministic current-source witnesses — both the lane's
 	// own coverage walk (read_file coverage + non-log evidence anchors) and
 	// the ledger-backed typed satisfaction count must be empty.
 	if currentSourceLaneHasCoverage(ctx, preflight) {

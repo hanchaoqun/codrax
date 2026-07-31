@@ -277,6 +277,52 @@ func TestBuildAnswerSurfacePlanForBusContext_PreciseCurrentSourceKeepsDiagnostic
 	}
 }
 
+func TestBuildAnswerSurfacePlanForBusContext_OptionalRouteGenericProfileDropsCurrentStatus(t *testing.T) {
+	mut := NewMutableState("artifact-only runtime origin query")
+	mut.AppendDispatchToolResult(runtimeProbeObservationToolResultForSurfacePlanTest())
+	ir := runtimeTraceCurrentStatusIRForTest()
+	ir.RequestModel.RawRequest = "这个大日志里的 panic 从哪里发出"
+	ir.RequestModel.CurrentSourceExplanationProfile = &CurrentSourceExplanationProfile{
+		IsCurrentSourceExplanationRequested: true,
+		Modes: []CurrentSourceExplanationMode{
+			CurrentSourceExplanationVerifyCurrentStatus,
+			CurrentSourceExplanationLocateCurrentCode,
+		},
+		SourceQuotes: []string{"这个大日志里的 panic 从哪里发出"},
+		Confidence:   0.9,
+	}
+	bus := &BusContext{
+		Mutable: mut,
+		TurnRouteHint: TurnRouteHint{
+			Route:                     "repo",
+			Source:                    "artifact",
+			NeedsRepoAccess:           true,
+			CurrentSourceEvidenceMode: TurnRouteCurrentSourceEvidenceOptional,
+		},
+		AnalysisIR: ir,
+	}
+
+	plan := BuildAnswerSurfacePlanForBusContext(bus)
+	if plan == nil {
+		t.Fatal("surface plan is nil")
+	}
+	if plan.CurrentStatusDiagnosticRequired || plan.CurrentSourceEvidenceOrigin {
+		t.Fatalf("generic analyzer profile must not override optional artifact route: %+v", plan)
+	}
+	view := BuildAnswerSemanticViewForBusContext(bus)
+	if view == nil {
+		t.Fatal("semantic view is nil")
+	}
+	if view.CurrentStatusDiagnostic != nil {
+		t.Fatalf("optional artifact route must not expose a current-status verdict contract: %+v", view.CurrentStatusDiagnostic)
+	}
+	for _, req := range view.RequiredBlocks {
+		if req.Kind == BlockDecision {
+			t.Fatalf("optional artifact route must not require a decision block: %+v", view.RequiredBlocks)
+		}
+	}
+}
+
 func TestBuildAnswerSemanticViewForAgentContext_TraceQueryCountDropsCurrentStatusDecisionRequirement(t *testing.T) {
 	mut := NewMutableState("trace_query semantic view")
 	mut.AppendDispatchToolResult(traceQueryRuntimeObservationToolResultForSurfacePlanTest())

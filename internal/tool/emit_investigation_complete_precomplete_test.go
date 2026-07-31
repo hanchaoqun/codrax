@@ -9024,9 +9024,40 @@ func TestCurrentSourceLaneCoverageDowngrade_ArtifactRunWithoutSourceDemandUntouc
 	}
 }
 
+func TestCurrentSourceLaneCoverageDowngrade_OptionalRouteGenericProfileDoesNotReopen(t *testing.T) {
+	ctx := zeroWitnessExplicitSourceDemandContextForTest()
+	ctx.TurnRouteHint.CurrentSourceEvidenceMode = types.TurnRouteCurrentSourceEvidenceOptional
+	authority := runtimeSourceAnswerAuthorityForCompletion(ctx)
+	if authority.CurrentSourceRequired {
+		t.Fatalf("explicit optional route plus generic profile must stay source-optional: %+v", authority)
+	}
+	if got := currentSourceLaneCoverageDowngrade(ctx, completionPreflightView{}); got != "" {
+		t.Fatalf("zero-witness gate must consume unified optional authority, got: %s", got)
+	}
+	if repairs := ctx.Mutable.EvidenceClosure().ActiveRepairs(); len(repairs) != 0 {
+		t.Fatalf("optional artifact route must not queue current-source repair debt: %+v", repairs)
+	}
+}
+
+func TestCurrentSourceLaneCoverageDowngrade_OptionalRoutePreciseProfileStillReopens(t *testing.T) {
+	ctx := zeroWitnessExplicitSourceDemandContextForTest()
+	ctx.TurnRouteHint.CurrentSourceEvidenceMode = types.TurnRouteCurrentSourceEvidenceOptional
+	ctx.AnalysisIR.RequestModel.RawRequest =
+		"请核验 internal/render/status_messages.go:233 的当前实现"
+	ctx.AnalysisIR.RequestModel.CurrentSourceExplanationProfile.SourceQuotes =
+		[]string{"internal/render/status_messages.go:233"}
+	authority := runtimeSourceAnswerAuthorityForCompletion(ctx)
+	if !authority.CurrentSourceRequired || !authority.CanHardBlockCompletion {
+		t.Fatalf("precise current-source file:line must independently upgrade optional route: %+v", authority)
+	}
+	if got := currentSourceLaneCoverageDowngrade(ctx, completionPreflightView{}); got == "" {
+		t.Fatal("precise optional-route source obligation must keep the bounded source push-back")
+	}
+}
+
 func TestCurrentSourceLaneCoverageDowngrade_SourceWitnessBreaksFatalConjunction(t *testing.T) {
 	// Once ONE deterministic current-source witness lands (here: a non-log
-	// evidence anchor in a repo source file), signal 3 breaks and the lane
+	// evidence anchor in a repo source file), signal 4 breaks and the lane
 	// returns to today's behavior for the remaining soft obligation.
 	ctx := zeroWitnessExplicitSourceDemandContextForTest()
 	preflight := completionPreflightView{Evidence: []types.EvidenceItem{{

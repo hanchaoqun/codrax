@@ -427,7 +427,13 @@ func runtimeSourceAuthorityHasIndependentCurrentSourceRequirement(rm *RequestMod
 	if rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {
 		return false
 	}
-	if rm.CurrentSourceExplanationHasVerbatimRequestQuote() {
+	// An explicit route=external/current_source=optional is an independent
+	// typed classifier decision. The analyzer's CurrentSourceExplanationProfile
+	// remains useful soft exploration guidance, but a generic verbatim prose
+	// quote cannot by itself overturn that route and mint a hard source/status
+	// obligation. Only the existing precise code/config path or file:line
+	// shape can independently upgrade an optional route.
+	if rm.currentSourceExplanationHasPreciseCurrentSourceQuote() {
 		return true
 	}
 	if rm.HasCurrentSourceObligationSignal() {
