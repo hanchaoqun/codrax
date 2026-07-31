@@ -113,6 +113,9 @@ func TestP9BinderWriteOffRejectsCompletedTransactionAndMintsPacingIdle(t *testin
 	for _, root := range chain.RootEvidence {
 		if root.Type == "pacing_idle" {
 			foundRoot = true
+			if math.Abs(root.StartTs-p.WindowStartTs) > 1e-9 || math.Abs(root.EndTs-p.WindowEndTs) > 1e-9 {
+				t.Fatalf("pacing root evidence must retain its own exact value interval, got root=%+v pacing=%+v", root, p)
+			}
 		}
 		if root.Type == "binder_wait" {
 			t.Fatalf("no binder_wait root evidence may survive the write-off on this fixture: %+v", root)
@@ -136,6 +139,12 @@ func TestP9BinderWriteOffRejectsCompletedTransactionAndMintsPacingIdle(t *testin
 			}
 			if item.Rank != 0 {
 				t.Fatalf("pacing_idle rank row must not take a board seat: %+v", item)
+			}
+			if math.Abs(item.StartTs-p.WindowStartTs) > 1e-9 || math.Abs(item.EndTs-p.WindowEndTs) > 1e-9 {
+				t.Fatalf("pacing rank row must retain the same evidence interval instead of borrowing a nearest-chain anchor: %+v", item)
+			}
+			if math.Abs((item.EndTs-item.StartTs)*1000-item.ImpactMs) > 0.001 {
+				t.Fatalf("pacing rank value and interval must describe the same member: %+v", item)
 			}
 		}
 	}

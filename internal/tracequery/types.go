@@ -6281,8 +6281,14 @@ type RootEvidence struct {
 	DurationMs float64   `json:"duration_ms,omitempty"`
 	LineStart  int       `json:"line_start,omitempty"`
 	LineEnd    int       `json:"line_end,omitempty"`
-	Summary    string    `json:"summary,omitempty"`
-	Confidence float64   `json:"confidence,omitempty"`
+	// StartTs/EndTs carry the authoritative calculation interval of this
+	// exact evidence row. They are deliberately separate from a later
+	// nearest-chain anchor: the latter is useful for topology, but must never
+	// be substituted for this row's value/time identity.
+	StartTs    float64 `json:"start_ts,omitempty"`
+	EndTs      float64 `json:"end_ts,omitempty"`
+	Summary    string  `json:"summary,omitempty"`
+	Confidence float64 `json:"confidence,omitempty"`
 	// GapKind (G2 判据 typed 化, §27.2/§28.1, 2026-07-09): set on Type ==
 	// "trace_gap" evidence only — the precise blind-spot criterion
 	// (TraceGapKindNoSchedData / TraceGapKindNoEligibleWait) decided at the

@@ -14743,6 +14743,8 @@ func attachIPCGraphToChain(idx *Index, q Query, res *ChainResult) {
 			DurationMs: wait.DurationMs,
 			LineStart:  firstPositive(wait.SendLine, wait.SleepLine),
 			LineEnd:    firstPositive(wait.WakeupLine, wait.ReceiveLine, wait.SleepLine),
+			StartTs:    wait.SleepStartTs,
+			EndTs:      wait.WakeupTs,
 			Summary:    wait.Summary,
 			Confidence: wait.Confidence,
 		})
@@ -14761,6 +14763,8 @@ func attachIPCGraphToChain(idx *Index, q Query, res *ChainResult) {
 			// construction); the raw sleep/wakeup lines stay on the summary.
 			LineStart:  firstPositive(p.EvidenceLineStart, p.SleepLine),
 			LineEnd:    firstPositive(p.EvidenceLineEnd, p.WakeupLine, p.SleepLine),
+			StartTs:    p.WindowStartTs,
+			EndTs:      p.WindowEndTs,
 			Summary:    p.Summary,
 			Confidence: 0.85,
 		})
@@ -15519,6 +15523,14 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 			continue
 		}
 		item := rootCauseItem(root.Type, root.Thread, root.DurationMs, root.Confidence, root.LineStart, root.LineEnd, "wakeup_chain", root.Summary)
+		// AB2 (2026-07-31): preserve the evidence row's own temporal identity
+		// before any topology enrichment. NearestChainWindow is an attachment
+		// anchor only; it cannot stand in for the interval that produced this
+		// row's value.
+		if root.EndTs > root.StartTs {
+			item.StartTs = root.StartTs
+			item.EndTs = root.EndTs
+		}
 		stampRootEvidenceRankCaliber(root, &item)
 		// CHAINGUARD-1 件5 (LANE-B, §29.204.1 车道册, 2026-07-22): a non-target
 		// STATE RootEvidence seat publishes its root node window as its own
@@ -24975,6 +24987,8 @@ func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, 
 				DurationMs: interesting.DurationMs,
 				LineStart:  interesting.StartLine,
 				LineEnd:    interesting.EndLine,
+				StartTs:    interesting.StartTs,
+				EndTs:      interesting.EndTs,
 				Summary:    "sleep interval has no matching sched_wakeup row in the selected trace window",
 				Confidence: 0.7,
 			})

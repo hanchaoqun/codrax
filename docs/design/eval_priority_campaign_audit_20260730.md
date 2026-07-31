@@ -1793,7 +1793,7 @@ transaction 12145859，peer `binder:496_9-10961`，发生于
 | ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
 |---|---:|---|---|---|---|
 | EVAL-B11-AB1 | P1 | write verification continuation | probe-pass 决策早于 changed-path coverage，导致已识别的匹配 suite 被跳过后才发现覆盖不足 | 对 probe pass 的临时报表先执行 changed-path coverage；若有 changed source 未覆盖且存在可运行 TestSurface，则继续项目 suite，并由组合报告取得最终覆盖 | covered |
-| EVAL-B11-AB2 | P1 | trace aggregate temporal identity | 累计/投影值与某个单次 occurrence span 共用 observation，duration 与 window 失配 | 让聚合记录只携带 aggregate/member-set 窗；单次 span 必须绑定同一 member 的 duration，无法一一对应则不发布单次精确窗 | planned |
+| EVAL-B11-AB2 | P1 | trace aggregate temporal identity | 累计/投影值与某个单次 occurrence span 共用 observation，duration 与 window 失配 | 让聚合记录只携带 aggregate/member-set 窗；单次 span 必须绑定同一 member 的 duration，无法一一对应则不发布单次精确窗 | covered |
 | EVAL-B11-AB3 | P1 | rank roster authority | writer 仅获 top/supply 摘要，完整排序留在成文后的 deterministic projection | 从 compiled projection 发布紧凑、完整、按 rank 排序的 typed roster，区分 ranked seat 与 context-only/binder composition，供正文直接转录 | planned |
 | EVAL-B11-AB4 | P2 | incomplete enumeration wording | observation coverage 已为 incomplete，正文仍写“窗口内全部/其余均为” | 将 per-view enumeration completeness 与可用 rowset 绑定成 typed wording authority；保持 soft guidance，不扫描答案做 hard gate | filed |
 | EVAL-B11-AB5 | P2 | native probe capability | verification probe schema 无 C/C++/shell，模型需用另一语言 wrapper | 先由 AB1 自动续跑匹配项目 suite 保证正确性；原生 probe 扩展另案评估安全沙箱与命令边界，不阻塞本批 | filed |
@@ -1822,3 +1822,39 @@ Python wrapper 调用 `cc` 编译并执行 C 测试，再确认系统仍续跑 `
 继续跳过无关 Python suite、impact-related suite 优先级、修改测试文件时
 suite 失败/超时保持 non-pass。完整
 `go test ./internal/tool -count=1` 通过（155.450s）。
+
+批 AB2 定位到错误并非模型重写时间，而是 typed coverage 的合法回退被错误
+输入触发：`pacing_idle` 根因席位没有自己的 `StartTs/EndTs`，因此
+`traceObservationWindow` 退到 `nearest_chain_window`。后者只是拓扑附着锚
+（本例为目标的另一段 1.009ms 链节点窗
+`13762.984951..13762.985960`），不能代表该席 15.758ms 值的发生区间。
+真实同事实窗在 `PacingIdleSummary` 中完整存在：
+`13762.992415..13763.008173`。
+
+修复在 `RootEvidence` 增加权威 occurrence interval 载体，并从三个本来就
+具有单次发生边界的生产通道贯通到 `RootCauseRankItem`：
+
+1. pacing/periodic idle 使用自身 `WindowStartTs/WindowEndTs`；
+2. binder wait 使用 sleep-start 到 wakeup；
+3. missing-wakeup 使用未闭合 sleep interval 本身。
+
+`traceQueryTypedObservations` 原有的 rank-item→ObservationSpan 直通因此取得
+同一事实区间，coverage 始终优先使用该 span，`nearest_chain_window` 继续
+只作 topology fallback。特意没有把普通 `WakeupCausalImpact.Window` 全量
+灌入 RootEvidence 席位：完整回归证明那是聚合计算包络，会改变既有链相关性
+和双尺榜位；回退后 DHM-A1a 的 wall/edge seats 保持原值。这一负臂守住了
+“时间身份修复不迁榜”的边界。
+
+回归固定三层：
+
+- tracequery 真实 donghu 行片段：15.758ms pacing RootEvidence 与 rank row
+  均携带 `13762.992415..13763.008173`，且区间宽度与值在 1µs 内一致；
+- tool 投影：即使另有不同 `NearestChainWindow`，ObservationSpan 仍逐字
+  保留 occurrence interval；
+- types coverage：value-owning span 的优先级高于 topology anchor。
+
+完整 `go test ./internal/tracequery -count=1` 通过（66.378s），完整
+`go test ./internal/types ./internal/tool -count=1` 通过
+（types 20.036s、tool 158.848s）。实现不改 root score、rank/tier、因果
+投影、唤醒链、窗内可消除量、显式窗选举或自动补采，也不读取任何用户/模型
+文本。

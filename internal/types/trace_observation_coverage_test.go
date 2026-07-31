@@ -314,3 +314,28 @@ func traceCoverageDimensionFor(coverage TraceObservationCoverage, dimension stri
 	}
 	return TraceObservationDimensionCoverage{}
 }
+
+func TestTraceObservationCoveragePrefersValueOwningSpanOverTopologyAnchor(t *testing.T) {
+	record := traceCoverageRecord(
+		"pacing",
+		"trace_query:temporal",
+		"root_cause_context_only",
+		"root_cause_context_only",
+		".ugc.aweme.lite-17267",
+		"pacing_idle",
+		"15.758",
+		[]string{
+			"chain_relevance=on_chain",
+			"nearest_chain_window=13762.984951..13762.985960",
+			"occurrence_windows=13762.992415..13763.008173",
+		},
+		ObservationSpan{StartTs: 13762.992415, EndTs: 13763.008173},
+	)
+	coverage := TraceObservationCoverageFromObservationRecords([]ObservationRecord{record})
+	if len(coverage.TopObservations) != 1 {
+		t.Fatalf("expected one coverage row, got %+v", coverage.TopObservations)
+	}
+	if got := coverage.TopObservations[0].Window; got != "13762.992415..13763.008173" {
+		t.Fatalf("coverage borrowed topology anchor %q instead of the value-owning span", got)
+	}
+}
