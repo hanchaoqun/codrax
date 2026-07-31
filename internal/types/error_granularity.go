@@ -113,7 +113,13 @@ func errorGranularityHasDiagnosticMechanismShape(rm RequestModel) bool {
 }
 
 func errorGranularityHasDedicatedFailureScopeAnswerShape(rm RequestModel) bool {
-	if rm.Intent == IntentReturnValue || rm.Predicates.IsScalarAnswer {
+	// A scalar answer is only an answer cardinality. Threshold comparisons,
+	// measured durations, booleans, status values, and true failure-scope
+	// verdicts can all be scalar; it therefore carries no dedicated
+	// item-vs-batch authority by itself. Return-value intent/kind is the typed
+	// answer-family signal that distinguishes the actual failure-scope lane
+	// when a diagnostic mechanism shape would otherwise soften it.
+	if rm.Intent == IntentReturnValue {
 		return true
 	}
 	return NormalizeRequirementKind(rm.AnalyzerHints.Kind) == ReqReturnValue

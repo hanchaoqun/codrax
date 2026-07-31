@@ -7653,7 +7653,7 @@ func TestEmitAnalysis_Execute_PersistsErrorGranularityProfile(t *testing.T) {
 	}
 }
 
-func TestEmitAnalysis_Execute_SoftensDiagnosticMechanismErrorGranularityProfile(t *testing.T) {
+func TestEmitAnalysis_Execute_SoftensDiagnosticScalarMechanismErrorGranularityProfile(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
 	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
@@ -7670,7 +7670,7 @@ func TestEmitAnalysis_Execute_SoftensDiagnosticMechanismErrorGranularityProfile(
 		"complexity_confidence": 0.8,
 		"kind_confidence": 0.8,
 		"predicates": {
-			"is_scalar_answer": false,
+			"is_scalar_answer": true,
 			"is_role_locate_lookup": false,
 			"is_count_question": false,
 			"is_cross_component": false,
@@ -7709,7 +7709,7 @@ func TestEmitAnalysis_Execute_SoftensDiagnosticMechanismErrorGranularityProfile(
 		t.Fatal("RequestModel not persisted")
 	}
 	if rm.ErrorGranularityProfile != nil {
-		t.Fatalf("diagnostic mechanism profile should not force error granularity contract: %+v", rm.ErrorGranularityProfile)
+		t.Fatalf("diagnostic scalar mechanism profile should not force error granularity contract: %+v", rm.ErrorGranularityProfile)
 	}
 	if !strings.Contains(res.Summary, "error_granularity_profile auto-softened") {
 		t.Fatalf("summary should report softening warning, got %q", res.Summary)

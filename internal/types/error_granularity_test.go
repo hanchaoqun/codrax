@@ -113,6 +113,7 @@ func TestShouldCarryErrorGranularityHardContract_DiagnosticMechanismSoftens(t *t
 		Scenario: ScenarioRootCause,
 		Predicates: SemanticPredicates{
 			IsDiagnosticQuestion: true,
+			IsScalarAnswer:       true,
 		},
 		AnalyzerHints: AnalyzerHints{Kind: string(ReqMechanism)},
 		ErrorGranularityProfile: &ErrorGranularityProfile{
@@ -130,7 +131,7 @@ func TestShouldCarryErrorGranularityHardContract_DiagnosticMechanismSoftens(t *t
 		t.Fatal("diagnostic mechanism explanation must not force a failure-scope verdict")
 	}
 	if !ErrorGranularityConflictsWithDiagnosticMechanism(rm) {
-		t.Fatal("diagnostic mechanism conflict should be visible for softening/audit")
+		t.Fatal("diagnostic scalar mechanism conflict should be visible for softening/audit")
 	}
 }
 
