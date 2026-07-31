@@ -8312,6 +8312,14 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsRuntimeAggregateMetricCompac
 			Role:       types.AnswerAggregateRolePrincipalAnswer,
 			Dimensions: []types.AnswerAggregateDimension{{Name: "evidence_origin", Value: "runtime_artifact"}},
 		},
+		{
+			Kind:       types.AnswerAggregateScalar,
+			Label:      "app-20 refresh_rate",
+			Value:      "16552213 ns ≈ 16.55 ms ≈ 60.4 Hz",
+			Unit:       "ns",
+			Role:       types.AnswerAggregateRolePrincipalAnswer,
+			Dimensions: []types.AnswerAggregateDimension{{Name: "evidence_origin", Value: "runtime_artifact"}},
+		},
 	})
 	mu.RetainInvestigationAggregateFacts()
 	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
@@ -8320,7 +8328,7 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsRuntimeAggregateMetricCompac
 			ID:          "summary",
 			Kind:        types.BlockSummary,
 			SurfaceRole: types.SurfacePrincipal,
-			Text:        "app-20 dominant_state=runnable，running累计3.5ms，max_segment为0.5ms，p95_segment为0.5ms；下一步应追查 rival-30 来源以确认主因。",
+			Text:        "app-20 dominant_state=runnable，running累计3.5ms，max_segment为0.5ms，p95_segment为0.5ms，refresh_rate约60.4 Hz；下一步应追查 rival-30 来源以确认主因。",
 		}},
 	})
 	ctx := &types.AgentContext{
@@ -8331,6 +8339,7 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsRuntimeAggregateMetricCompac
 				Dimensions: []types.RequestedAnswerDimension{
 					{Index: 1, Label: "state_churn 统计", SourceQuote: "输出 state_churn 的 dominant_state、running/runnable/sleep/d_state/io_wait 累计、fragments、switches、max_segment、p95_segment", Required: true, Role: types.RequestedAnswerDimensionStageWorkflow},
 					{Index: 2, Label: "下一步查主因", SourceQuote: "说明下一步应该如何往下查主因", Required: true, Role: types.RequestedAnswerDimensionFunctionOrPurpose},
+					{Index: 3, Label: "refresh_rate", SourceQuote: "输出 refresh_rate", Required: true, Role: types.RequestedAnswerDimensionFunctionOrPurpose},
 				},
 				Confidence: 0.9,
 			},
@@ -8347,6 +8356,12 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsRuntimeAggregateMetricCompac
 	}
 	if strings.Contains(out.FinalAnswer, "dominant_state=runnablestate") {
 		t.Fatalf("state-valued metrics should not append unit suffix:\n%s", out.FinalAnswer)
+	}
+	if !strings.Contains(out.FinalAnswer, "refresh_rate=16552213 ns ≈ 16.55 ms ≈ 60.4 Hz") {
+		t.Fatalf("formatted scalar conversion expression was not preserved:\n%s", out.FinalAnswer)
+	}
+	if strings.Contains(out.FinalAnswer, "Hzns") {
+		t.Fatalf("formatted scalar conversion expression gained a duplicate unit:\n%s", out.FinalAnswer)
 	}
 }
 

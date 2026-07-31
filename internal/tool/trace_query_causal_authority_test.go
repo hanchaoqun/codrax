@@ -68,6 +68,67 @@ func TestTraceCausalCoverageLocalRefinementDoesNotOverridePublishedCausalRows(t 
 	}
 }
 
+func TestTraceCausalProjectionMaterializationUsesTypedQuestionAuthority(t *testing.T) {
+	generic := newBusForMutationTest()
+	generic.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:        types.IntentExplain,
+		Scenario:      types.ScenarioGeneric,
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+	}}
+	empty := types.TraceCausalProjectionSet{}
+	if runtimeTraceCausalProjectionMaterializationAllowed(generic, empty) {
+		t.Fatal("generic non-diagnostic trace fact must not materialize an empty causal projection")
+	}
+
+	start, end := 34579.45, 34579.50
+	generic.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile = &types.RuntimeArtifactScopeProfile{
+		RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
+		TimeStart:      &start,
+		TimeEnd:        &end,
+		SourceQuote:    "34579.45..34579.50",
+	}
+	if !runtimeTraceCausalProjectionMaterializationAllowed(generic, empty) {
+		t.Fatal("exact explicit-window trace analysis must retain causal projection authority")
+	}
+
+	generic.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile = nil
+	withCausalRows := types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{{
+		PrimaryRootCause: &types.TraceCausalProjectionNode{Subject: "ui-thread"},
+	}}}
+	if !runtimeTraceCausalProjectionMaterializationAllowed(generic, withCausalRows) {
+		t.Fatal("compiled causal rows must remain publishable for every question family")
+	}
+
+	generic.AnalysisIR.RequestModel.Predicates.IsDiagnosticQuestion = true
+	if !runtimeTraceCausalProjectionMaterializationAllowed(generic, empty) {
+		t.Fatal("typed diagnostic questions need the empty causal-authority boundary")
+	}
+}
+
+func TestTraceCausalProjectionGenericEmptyAuthorityDoesNotCreateReport(t *testing.T) {
+	ctx := newBusForMutationTest()
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:        types.IntentExplain,
+		Scenario:      types.ScenarioGeneric,
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+	}}
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query",
+		Success:  true,
+		TraceEvidenceAuthority: &types.TraceEvidenceAuthority{
+			View:             "event_search",
+			CausalConclusion: "unproven",
+		},
+	})
+	doc := &types.AnswerDocumentV2{DocumentModel: "v2"}
+	if materializeRuntimeTraceCausalProjectionBlock(doc, ctx) {
+		t.Fatalf("generic empty trace authority unexpectedly created causal report: %+v", doc.Blocks)
+	}
+	if len(doc.Blocks) != 0 {
+		t.Fatalf("generic empty trace authority mutated document: %+v", doc.Blocks)
+	}
+}
+
 func TestTraceQuerySummaryDistinguishesUnavailableAndMeasuredZeroCPU(t *testing.T) {
 	result := tracequery.Result{
 		View: "window_stats",

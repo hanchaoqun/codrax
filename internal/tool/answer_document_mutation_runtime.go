@@ -1080,6 +1080,42 @@ func runtimeTraceFullReportMaterializationAllowed(ctx *types.BusContext) bool {
 	return !types.IsFocusedRuntimeFactQuestion(rm)
 }
 
+// runtimeTraceCausalProjectionMaterializationAllowed is the narrower
+// authority for the causal-projection report itself. Trace evidence can answer
+// a generic artifact-coverage, timebase, sampling, or state question without
+// implying that the user requested a causal investigation. In that shape an
+// empty projection must not be materialized merely because trace_query
+// published an honest causal-authority boundary.
+//
+// Exact explicit windows, actual causal rows, and typed diagnostic/root-cause/
+// call-chain shapes retain the projection. This predicate reads only validated
+// analysis fields and the compiled projection set; it never scans request or
+// answer prose and does not alter deterministic supplement selection.
+func runtimeTraceCausalProjectionMaterializationAllowed(ctx *types.BusContext, set types.TraceCausalProjectionSet) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return true
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if _, _, ok := rm.RuntimeArtifactScopeProfile.ExplicitTimeWindow(); ok {
+		return true
+	}
+	if runtimeTraceProjectionSetHasCausalRows(set) {
+		return true
+	}
+	if rm.Intent == types.IntentRootCause ||
+		rm.Predicates.IsDiagnosticQuestion ||
+		rm.DiagnosticProfile.RequiresDiagnosticRootCause() ||
+		rm.Scenario == types.ScenarioPerformanceBottleneck {
+		return true
+	}
+	switch types.ResolveQuestionFamily(rm) {
+	case types.QFRootCauseTrace, types.QFCallChain:
+		return true
+	default:
+		return false
+	}
+}
+
 func materializeRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {
 	if doc == nil || ctx == nil || ctx.Mutable == nil {
 		return false
@@ -1097,6 +1133,9 @@ func materializeRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2, c
 	input := types.ObservationLedgerInputFromBusContext(ctx, types.ObservationExtractLedgerEvidenceLimit)
 	ledger := types.CompileObservationLedger(input)
 	set := types.CompileTraceCausalProjectionSet(ledger)
+	if !runtimeTraceCausalProjectionMaterializationAllowed(ctx, set) {
+		return false
+	}
 	lang := requestedAnswerDocumentLanguage(ctx)
 	focus := runtimeTraceProjUserFocusFromBusContext(ctx)
 	var cluster []types.AnswerBlock

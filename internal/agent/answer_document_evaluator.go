@@ -14218,6 +14218,14 @@ func runtimeAggregateMetricCompactValue(fact types.AnswerAggregateFact) string {
 	if strings.HasSuffix(strings.ToLower(value), strings.ToLower(unit)) {
 		return value
 	}
+	// Unit is a separate suffix only when Value is the aggregate's bare
+	// scalar. Model-authored scalar facts may preserve an already formatted
+	// equivalence/conversion expression (for example ns → ms → Hz). Appending
+	// the source unit to that expression corrupts its terminal unit ("Hzns").
+	// ParseFloat is a precise structural test; no answer prose is inspected.
+	if _, err := strconv.ParseFloat(value, 64); err != nil {
+		return value
+	}
 	return value + unit
 }
 
