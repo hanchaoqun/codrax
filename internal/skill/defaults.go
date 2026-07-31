@@ -27,6 +27,12 @@ func sourceInventoryLensRoleProseBackquoted() string {
 	return strings.Join(quoted, ", ")
 }
 
+// mechanicalProducerChainSeparationDirective is shared by evidence collection
+// and answer synthesis. It is soft guidance for typed explain turns: no gate
+// parses the user's request or the answer prose, and numeric/token equality is
+// explicitly not promoted into mechanical authority.
+const mechanicalProducerChainSeparationDirective = "MECHANICAL PRODUCER-CHAIN SEPARATION: when explaining how a rendered status, diagnostic, generated message, configuration-derived value, or other composed output is produced, trace each visible fragment to its own producer before joining the explanation. Treat outer decoration (for example a prefix or progress ordinal), localized/status payload lookup, and retry/loop policy as separate mechanisms unless a direct call, assignment, parameter flow, or returned value connects them. Equal numbers, equal tokens, nearby constants, or appearance on the same rendered line are candidate clues only — never proof that one controls the other. Ground the visible fragment at the formatter/composer that emits it, then follow that fragment's actual inputs backward; if one producer chain was not established, state that boundary instead of borrowing a plausible constant from another subsystem."
+
 // RegisterDefaults registers all built-in skill configurations.
 //
 // The analyzer's "analysis-skill" is built programmatically from the
@@ -237,6 +243,10 @@ func RegisterDefaults(r *Registry) {
 				// satisfiable. Soft guidance only.
 				Body:      "USER-NAMED LATENCY ANCHOR CARRY: when the question names a concrete frame, span, or interval and asks why it was late, slow, or blocked, and you locate the boundary events that bound its end-to-end delay (e.g. the SAME frame id's pacing-signal event and its processing-start event), emit those boundary rows as evidence with their timestamps verbatim before completing — and carry the derived end-to-end quantity, with both boundary timestamps, into the completion `reason`. A quantity that lives only in your working notes never reaches the final evidence surfaces, and the final answer is then unable to state the very number the user asked about.",
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
+			},
+			{
+				Body:      mechanicalProducerChainSeparationDirective,
+				AppliesTo: AppliesToFilter{Intents: []types.Intent{types.IntentExplain}},
 			},
 		},
 		ToolSuggestions: []string{
@@ -924,6 +934,10 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 				// the pure-arithmetic juxtaposition arm). 噪声信号只作软引导.
 				Body:      "TOTALS MATCH THEIR PARTS: when prose states a total and lists its parts beside it (「共N次(A次+B次)」 and every equivalent phrasing), the total must equal the exact sum of the listed parts — do the addition before emitting, and when the published parts are what you have, the total IS their sum, never a nearby number remembered from a different measurement. Wakeup traffic totals come from the published per-direction wakeup counts (the per-pair census counts): a two-way total is their exact sum. A state-switch count (a thread's N次切换 from its state-churn statistics) counts scheduler state transitions, not wakeup exchanges — never borrow it as a wakeup total. When the listed parts cover only part of the whole, say so (「其中」 / partial wording) instead of presenting a partial list as the full decomposition. Negative shape (do not ship): 「wakeup往来共62次(唤醒31次+被唤醒34次)」 — 31+34=65, and 62 is a different measurement's number. Positive shape: 「wakeup往来共65次(唤醒31次+被唤醒34次)」.",
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
+			},
+			{
+				Body:      mechanicalProducerChainSeparationDirective,
+				AppliesTo: AppliesToFilter{Intents: []types.Intent{types.IntentExplain}},
 			},
 		},
 		// P5-B Tier B prohibitions: 2 items the design classifies

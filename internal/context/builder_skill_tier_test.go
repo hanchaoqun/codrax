@@ -551,7 +551,7 @@ func TestBuildPromptContext_ExploreSkillRendersTraceWorkflowForTypedTrace(t *tes
 }
 
 // TestSkillTierAwareWorkflow_AnswerDocumentSkill_TierBCount — pin
-// the migration shape: 16 Tier B Workflow items (6 from the P5-B
+// the migration shape: 32 Tier B Workflow items (6 from the P5-B
 // migration + 5 trace prose disciplines from the SG soft-guidance
 // batches: periodic-source discount, on-chain blocking disposition,
 // window-stats core numbers, background-aggregate headline,
@@ -578,9 +578,11 @@ func TestSkillTierAwareWorkflow_AnswerDocumentSkill_TierBCount(t *testing.T) {
 	// typed word-face consumption) — 24 → 26. RUN2FIX-C 件1-件4 (§29.174
 	// 处置④, 2026-07-20): +4 (user-named end-to-end quantity coverage,
 	// reader words over field spellings, trace answer skeleton, totals
-	// match their parts) — 26 → 30.
-	if len(sk.WorkflowTierB) != 30 {
-		t.Errorf("answer-document-skill should declare 30 Tier B Workflow items; got %d", len(sk.WorkflowTierB))
+	// match their parts) — 26 → 30. TARGET WAIT OCCURRENCE AUTHORITY
+	// adds the exact engine-paired roster discipline (30 → 31);
+	// EVAL-B3-S5 adds typed-explain producer-chain separation (31 → 32).
+	if len(sk.WorkflowTierB) != 32 {
+		t.Errorf("answer-document-skill should declare 32 Tier B Workflow items; got %d", len(sk.WorkflowTierB))
 	}
 	if len(sk.ProhibitionsTierB) != 2 {
 		t.Errorf("answer-document-skill should declare 2 Tier B Prohibitions; got %d", len(sk.ProhibitionsTierB))
@@ -613,6 +615,7 @@ func TestSkillTierAwareWorkflow_AnswerDocumentSkill_TierBCount(t *testing.T) {
 		// CR-3 件⑦ FIN-BIND extension (2026-07-12).
 		"IO-LATENCY ROLE WORDS:",
 		"STATE-DURATION CALIBER SEPARATION:",
+		"TARGET WAIT OCCURRENCE AUTHORITY:",
 		"NO SILENT SOURCE FALLBACK ON AN EMPTY TRACE RESULT:",
 		// ANSWERFACE-1 件1/件6 (§29.140, 2026-07-19).
 		"BLOCKED-REASON CENSUS CONSUMPTION:",
@@ -622,6 +625,7 @@ func TestSkillTierAwareWorkflow_AnswerDocumentSkill_TierBCount(t *testing.T) {
 		"READER WORDS OVER FIELD SPELLINGS:",
 		"TRACE ANSWER SKELETON:",
 		"TOTALS MATCH THEIR PARTS:",
+		"MECHANICAL PRODUCER-CHAIN SEPARATION:",
 	}
 	if len(sk.WorkflowTierB) != len(wantWorkflowPrefixes) {
 		t.Fatalf("Tier B count mismatch: want %d, got %d", len(wantWorkflowPrefixes), len(sk.WorkflowTierB))
