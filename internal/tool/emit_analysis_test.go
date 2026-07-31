@@ -5882,6 +5882,177 @@ func TestEmitAnalysis_Execute_SoftensRepoWideInventoryAuxiliaryExclusion(t *test
 	}
 }
 
+func TestEmitAnalysis_Execute_RepairsInvalidInventoryRolesWithoutNarrowingToGuessedFile(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	repo := t.TempDir()
+	rel := "internal/tool/repomap/index/parser.go"
+	path := filepath.Join(repo, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("package index\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	raw := "仓库里有哪些扩展块、外部声明、公开类型？分别列出文件路径、符号名和包路径。"
+	mu := types.NewMutableState(raw)
+	payload := `{
+		"intent": "enumerate",
+		"scenario": "generic",
+		"complexity": "complex",
+		"keywords": ["扩展块", "外部声明", "公开类型"],
+		"entities": ["扩展块", "外部声明", "公开类型"],
+		"question_kind": "enumeration",
+		"intent_confidence": 0.95,
+		"complexity_confidence": 0.85,
+		"kind_confidence": 0.9,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": true,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false,
+			"has_per_member_table": true
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		},
+		"required_files": [
+			{"path":"internal/tool/repomap/index/parser.go","confidence":0.9,"rationale":"model guessed parser implementation"}
+		],
+		"source_inventory_profile": {
+			"is_source_inventory": true,
+			"target_roles": ["extension_surface", "external_surface", "visibility_surface"],
+			"requested_fields": ["name", "location", "package"],
+			"source_quotes": ["扩展块", "外部声明", "公开类型", "not copied from request"],
+			"confidence": 0.95
+		}
+	}`
+	res, err := (&EmitAnalysis{}).Execute(
+		&types.BusContext{Mutable: mu, RepoRoot: repo},
+		json.RawMessage(withRequiredAnswerRoleProfile(payload)),
+	)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("invalid optional roles should degrade locally, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		t.Fatalf("typed enumeration should repair an active inventory profile: %+v", rm)
+	}
+	for _, role := range []types.AnswerCandidateRole{
+		types.AnswerCandidateRoleFunction,
+		types.AnswerCandidateRoleMethod,
+		types.AnswerCandidateRoleType,
+	} {
+		if !rm.SourceInventoryProfile.RequiresPrincipalRole(role) {
+			t.Fatalf("repaired profile missing default structural role %s: %+v", role, rm.SourceInventoryProfile)
+		}
+	}
+	if got, want := rm.SourceInventoryProfile.RequestedFields, []types.SourceInventoryRequestedField{
+		types.SourceInventoryFieldName,
+		types.SourceInventoryFieldLocation,
+		types.SourceInventoryFieldPackage,
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("independently valid requested fields were lost: got %+v want %+v", got, want)
+	}
+	if got, want := rm.SourceInventoryProfile.SourceQuotes, []string{"扩展块", "外部声明", "公开类型"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("source quote repair = %+v, want %+v", got, want)
+	}
+	if len(rm.AnalyzerHints.RequiredFileHints) != 0 {
+		t.Fatalf("invalid role list let a guessed parser file narrow inventory scope: %+v", rm.AnalyzerHints.RequiredFileHints)
+	}
+	for _, want := range []string{
+		"target_roles omitted or empty",
+		"synthesized source_inventory_profile",
+		"model-authored source-inventory path hint",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("summary missing local-degradation disclosure %q: %s", want, res.Summary)
+		}
+	}
+}
+
+func TestEmitAnalysis_Execute_ExplicitNonInventoryDoesNotSoftenRequiredFile(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	repo := t.TempDir()
+	rel := "internal/tool/repomap/index/parser.go"
+	path := filepath.Join(repo, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("package index\nfunc Parse() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mu := types.NewMutableState("解释解析流程。")
+	payload := `{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["解析", "流程"],
+		"entities": ["解析流程"],
+		"question_kind": "mechanism",
+		"intent_confidence": 0.95,
+		"complexity_confidence": 0.8,
+		"kind_confidence": 0.9,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false,
+			"has_per_member_table": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		},
+		"required_files": [
+			{"path":"internal/tool/repomap/index/parser.go","confidence":0.9,"rationale":"implementation entry"}
+		],
+		"source_inventory_profile": {
+			"is_source_inventory": false,
+			"target_roles": ["not_a_role"],
+			"confidence": 0.9
+		}
+	}`
+	res, err := (&EmitAnalysis{}).Execute(
+		&types.BusContext{Mutable: mu, RepoRoot: repo},
+		json.RawMessage(withRequiredAnswerRoleProfile(payload)),
+	)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("Execute: %s", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || len(rm.AnalyzerHints.RequiredFileHints) != 1 ||
+		rm.AnalyzerHints.RequiredFileHints[0].Path != rel {
+		t.Fatalf("explicit non-inventory request lost ordinary required file: %+v", rm)
+	}
+}
+
 func TestEmitAnalysis_Execute_KeepsExplicitSourceInventoryRequiredFile(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

@@ -12849,17 +12849,20 @@ func traceQueryObservationSupplementQuotaSelect(rows []traceQueryObservationSupp
 }
 
 func renderTraceQueryObservationSupplement(ctx *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {
-	// EVAL-B1-R19 (2026-07-31): this last-mile renderer used to bypass the
-	// focused-runtime-fact answer-shape authority shared by family routing,
-	// deterministic supplement selection, and the runtime report
-	// materializers. The underlying observations remain in the ledger and
-	// dedicated typed authorities (for example target wait occurrences) keep
-	// their own render path; only the generic raw causal/background dump is
-	// withheld for a focused state/value fact. Nil AnalysisIR preserves legacy
-	// and synthetic call paths fail-open.
-	if ctx != nil && ctx.AnalysisIR != nil &&
-		types.IsFocusedRuntimeFactQuestion(ctx.AnalysisIR.RequestModel) {
-		return ""
+	// EVAL-B5-T11: this last-mile renderer used to bypass the shared full
+	// trace-report authority and therefore reintroduced a large raw
+	// causal/background dump after the structured mutation layer had correctly
+	// suppressed every sibling block. The underlying observations stay in the
+	// ledger and the model's requested comparison facts remain available.
+	// Explicit windows, diagnostics, root-cause/call-chain shapes and actual
+	// publication-grade causal rows still publish. Nil AnalysisIR preserves
+	// legacy and synthetic call paths fail-open.
+	if ctx != nil && ctx.AnalysisIR != nil {
+		ledger := answerDocObservationLedger(ctx)
+		set := types.CompileTraceCausalProjectionSet(ledger)
+		if !types.RuntimeTraceReportMaterializationAllowed(&ctx.AnalysisIR.RequestModel, set) {
+			return ""
+		}
 	}
 	zh := !strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en")
 	rows := traceQueryObservationSupplementRows(ctx, doc, zh)

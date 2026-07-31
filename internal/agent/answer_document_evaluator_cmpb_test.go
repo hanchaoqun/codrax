@@ -31,6 +31,10 @@ func cmpbZeroBlockedReason(id, subject, locator string) types.ObservationRecord 
 }
 
 func cmpbSupplementParse(t *testing.T, observations []types.ObservationRecord) string {
+	return cmpbSupplementParseForRequestModel(t, observations, nil)
+}
+
+func cmpbSupplementParseForRequestModel(t *testing.T, observations []types.ObservationRecord, rm *types.RequestModel) string {
 	t.Helper()
 	mu := types.NewMutableState("")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
@@ -48,12 +52,52 @@ func cmpbSupplementParse(t *testing.T, observations []types.ObservationRecord) s
 		}},
 	})
 	ctx := &types.AgentContext{Mutable: mu}
+	if rm != nil {
+		ctx.AnalysisIR = &types.AnalysisIR{RequestModel: *rm}
+	}
 	e := &answerDocumentEvaluator{language: "zh"}
 	out, err := e.ParseOutput(ctx, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ParseOutput err: %v", err)
 	}
 	return out.FinalAnswer
+}
+
+func TestAnswerDocumentEvaluator_TraceQuerySupplementSharesFullReportAuthority(t *testing.T) {
+	observations := []types.ObservationRecord{
+		cmpbZeroBlockedReason("zb1", "background-1", "comparison.systrace:32"),
+	}
+	genericComparison := &types.RequestModel{
+		Intent:   types.IntentExplain,
+		Scenario: types.ScenarioGeneric,
+		Predicates: types.SemanticPredicates{
+			IsCrossComponent: true,
+		},
+	}
+	final := cmpbSupplementParseForRequestModel(t, observations, genericComparison)
+	if strings.Contains(final, "trace_query 关键观测核对") {
+		t.Fatalf("generic artifact comparison without causal rows inherited the raw trace report supplement:\n%s", final)
+	}
+
+	start, end := 10.0, 10.1
+	explicitWindow := *genericComparison
+	explicitWindow.RuntimeArtifactScopeProfile = &types.RuntimeArtifactScopeProfile{
+		RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
+		TimeStart:      &start,
+		TimeEnd:        &end,
+		SourceQuote:    "10.0..10.1",
+	}
+	final = cmpbSupplementParseForRequestModel(t, observations, &explicitWindow)
+	if !strings.Contains(final, "trace_query 关键观测核对") {
+		t.Fatalf("explicit typed window lost its last-mile observation supplement:\n%s", final)
+	}
+
+	rootCause := *genericComparison
+	rootCause.Intent = types.IntentRootCause
+	final = cmpbSupplementParseForRequestModel(t, observations, &rootCause)
+	if !strings.Contains(final, "trace_query 关键观测核对") {
+		t.Fatalf("typed root-cause request lost its last-mile observation supplement:\n%s", final)
+	}
 }
 
 // CMP-5a pin: ≥2 zero-value blocked_reason rows fold into ONE counted line

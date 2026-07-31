@@ -867,3 +867,37 @@ B5 r5 新增 GAP 与批 J 状态：
 - source-inventory 压力 fixture 的 late auxiliary `public class` 全部位于 `MaxScanPerRole=4` 的 execution-view 前缀之外；exact family仍完整返回三个成员且 complete，token-only `Bridge` 保持被 view 截断并披露 incomplete。
 - frequency synthetic pin 同窗设置 12 个 CPU frequency rows 与 37 个 clock rows，authority 分别输出，不再相加；malformed clock row不进入 typed clock census。
 - `go test ./internal/tracequery ./internal/types ./internal/analysis/compiler ./internal/tool/repomap -count=1` 通过（68.603s/23.357s/2.240s/2.622s）；`go test ./internal/tool -count=1` 通过（155.771s）；真实 E2 新增计数分席断言后专项再次通过。`git diff --check` 通过。
+
+### B5 r6 人工审计与批 K（2026-07-31）
+
+批 J 提交 `f834e6917`、重建并通过 runner revision/clean-input 校验后，以严格 `parallel=2` 回放（sweep `20260731-080749`）：
+
+- 结果目录：
+  - `eval/results/real_trace_e2_cross_trace_asymmetry-20260731-080749`
+  - `eval/results/cangjie_repomap-20260731-080749`
+- runner 2/2 PASS；人工 Trace FAIL、Cangjie PASS。
+- Trace 的 T10 已真实覆盖：正文明确分开 `cpu_frequency_rows=90` 与 `clock_set_rate_events=323`，不再相加冒充 CPU 调频次数。结构化 AnswerDocument 的因果投影、优化、指标、next-step、frequency/VSync 等块均未发布。
+- 但 finalizer 的 last-mile renderer 在 AnswerDocument 之后独立追加 `trace_query 关键观测核对`，只接了旧 focused-fact 特判，没有消费批 J 的共享 full-report authority。最终约 40 条 top sleep/state churn/I/O inode 背景行重新污染普通覆盖比较；这不是模型波动，而是第二发布栈的确定性接线遗漏。
+- Trace 正文的覆盖/采样主结论正确，但仍有三项非阻断问题：local `alignment=identity` 被组合成“两份时间基准相同”（T7）；`15623 个事件`附近生成了 `156ba_frame`；两条 zero-match 的 pattern 标签互换。后两项当前只在单次模型输出出现，系统对未知 `ba_frame` 已发软校验附注；遵守“不扫描模型答案正文做 hard gate”，暂记 model variance。
+- Cangjie 最终清单仍完整正确，但确定性 inventory 没有交付。analyzer 将构造词写成非法 `target_roles=["extend","foreign","public"]`；`parseSourceInventoryProfile` 因零合法角色返回 nil。稍后的 typed-enumeration synthesizer确实保留了整句、已逐字验证的 source quote，并恢复 function/method/type，说明批 J exact-family 下游不是根因。
+- 真正丢失发生在恢复时序之前：profile 为 nil 时，`softenModelAuthoredRequiredFilesForSourceInventory` 未识别这仍是显式 inventory 请求，模型猜测的 `internal/tool/repomap/index/cangjie_parser.go` 被保留为 hard required file；同一 profile 中合法的 `requested_fields=name/location/package` 也被合成默认 `name/location/summary` 覆盖。后续 lens 因而只在 parser 文件范围列出 Go function/method/type，最终依赖 14 read、3 list 手工恢复。
+
+B5 r6 新增/更新 GAP：
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B5-T9 | P0 | Trace 完整报告发布权限 | 结构化八个 materializer 已统一，但 finalizer last-mile raw observation supplement 属第二发布栈，仍绕过 authority | authority 下沉为 types 共享函数；tool materializer 与 agent last-mile 同时消费 `typed request shape + compiled publication-grade projection`。nil IR fail-open | partial；由 T11 收尾 |
+| EVAL-B5-T11 | P0 | Last-mile 发布接线 | generic comparison 在结构化报告被抑制后仍追加 raw causal/background observation wall | `renderTraceQueryObservationSupplement` 接共享 full-report authority；显式窗、diagnostic/root-cause/performance/call-chain、真实 root/chain 正臂保持。只读 typed IR/ledger，不读 raw prompt/答案 | 已施工；批 K，待回放 |
+| EVAL-B5-S9 | P0 | Optional profile 局部降级 | 一个可选 enum 数组全坏使整个 profile 变 nil，连带放大无关 guessed required_file 并丢失合法 display facets | `is_source_inventory=true` 作为独立精确信号先软化非用户点名 required_files；typed enumeration 合成时逐字段保留已独立验证的 requested_fields/source_quotes/type facets，只有角色降级为通用 structural carriers。禁止把非法词映射成 case/语言特判 | 已施工；批 K，待回放 |
+| EVAL-B5-T7 | P1 | 跨工件时钟关系 | local identity 仍被模型组合成 shared timebase | 保持 filed；需要正式 cross-artifact calibration/session relation carrier，不加答案关键词门 | filed |
+| EVAL-B5-M2 | P2 | 模型生成波动 | `156ba_frame` 及两个 zero-match label 互换 | validator 已软提示未知术语；等待跨 case/模型复现，不以原文扫描或 case-specific rewrite 施工 | filed-model-variance |
+
+批 K 不变量：
+
+1. last-mile gate 与结构化 report gate使用同一 types authority；不得再维护 agent/tool 两份判定。
+2. 显式 typed 时间窗优先级最高；即使没有 root row，Trace 因果投影、根因边界、唤醒链、窗内可消除量与系统自动补齐仍可发布。
+3. generic comparison 若 compiled ledger 出现 publication-grade primary/on-chain/adjacent/wakeup/supporting row，仍可升级完整报告；standalone background semantic row不能铸权。
+4. source inventory 修复不把 `extend/foreign/public` 或任何语言构造词新增为 role alias；只保留逐字验证 quote 和 schema-valid fields，exact family继续由 parser `SurfaceTerms` 交集产生。
+5. `is_source_inventory=false` 的普通机制请求不受 required-file softening影响；用户在当前请求中明确写出的 exact inventory path继续保留。
+
+批 K 验证已固定：generic comparison last-mile负臂、explicit-window/root-cause/call-relation正臂；共享 types authority的 empty/background/root/window/call矩阵；invalid-role inventory保留 name/location/package 和逐字合法 quotes、丢弃未点名 guessed parser required-file；显式 non-inventory保留普通 required-file。回归过程中旧测试捕获 `intent=explain + question_kind=call_chain/axis=call` 不一定被 family resolver提升为 QFCallChain，已将这两个 schema enum信号直接纳入共享 authority，未用词面修补。`go test ./internal/types ./internal/agent ./internal/tool ./internal/tool/repomap -count=1` 全包通过（types 21.889s、agent 2.791s、tool 155.000s、repomap 2.522s）；`git diff --check` 通过。待提交推送与严格双 case r7。

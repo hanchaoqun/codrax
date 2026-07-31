@@ -1635,7 +1635,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	sanitizedSubTopics := sanitizeSubTopics(subTopics)
 
 	requiredFileHints := validateAndBuildRequiredFileHintsWithContext(ctx, p.RequiredFiles, &val)
-	requiredFileHints = softenModelAuthoredRequiredFilesForSourceInventory(raw, sourceInventoryProfile, requiredFileHints, &val)
+	requiredFileHints = softenModelAuthoredRequiredFilesForSourceInventory(raw, sourceInventoryProfile, p.SourceInventoryProfile, requiredFileHints, &val)
 	irrelevantFiles := validateAndBuildIrrelevantFiles(p.IrrelevantFiles, &val)
 	requiredFileHints, irrelevantFiles, sourceScopeProfile = reconcilePrincipalScopeIrrelevantFiles(
 		ctx,
@@ -1997,17 +1997,24 @@ func synthesizeSourceInventoryProfileForTypedEnumeration(ctx *types.BusContext, 
 		// is precise: Completed=false keeps this arm inert.
 		return ""
 	}
-	rm.SourceInventoryProfile = &types.SourceInventoryProfile{
-		IsSourceInventory: true,
-		TargetRoles:       sourceInventoryDefaultQueryEnumerationRoles(),
-		RequestedFields: []types.SourceInventoryRequestedField{
+	requestedFields := sourceInventoryProfileRepairRequestedFields(attempted)
+	if len(requestedFields) == 0 {
+		requestedFields = []types.SourceInventoryRequestedField{
 			types.SourceInventoryFieldName,
 			types.SourceInventoryFieldLocation,
 			types.SourceInventoryFieldSummary,
-		},
-		SourceQuotes: sourceInventoryProfileRepairSourceQuotes(raw, attempted),
-		Confidence:   0.45,
-		Rationale:    "synthesized from typed source-enumeration request shape",
+		}
+	}
+	underlying, requiresConstSet := sourceInventoryProfileRepairTypeFacets(attempted)
+	rm.SourceInventoryProfile = &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       sourceInventoryDefaultQueryEnumerationRoles(),
+		TypeUnderlying:    underlying,
+		RequiresConstSet:  requiresConstSet,
+		RequestedFields:   requestedFields,
+		SourceQuotes:      sourceInventoryProfileRepairSourceQuotes(raw, attempted),
+		Confidence:        0.45,
+		Rationale:         "synthesized from typed source-enumeration request shape",
 	}
 	return "synthesized source_inventory_profile from typed source-enumeration request shape"
 }
@@ -2039,6 +2046,35 @@ func sourceInventoryProfileRepairSourceQuotes(raw string, attempted *emitSourceI
 		out = append(out, quote)
 	}
 	return out
+}
+
+func sourceInventoryProfileRepairRequestedFields(attempted *emitSourceInventoryProfileParam) []types.SourceInventoryRequestedField {
+	if attempted == nil {
+		return nil
+	}
+	seen := map[types.SourceInventoryRequestedField]bool{}
+	var out []types.SourceInventoryRequestedField
+	for _, rawField := range attempted.RequestedFields {
+		field := types.SourceInventoryRequestedField(strings.TrimSpace(rawField))
+		if !field.IsValid() || seen[field] {
+			continue
+		}
+		seen[field] = true
+		out = append(out, field)
+	}
+	return out
+}
+
+func sourceInventoryProfileRepairTypeFacets(attempted *emitSourceInventoryProfileParam) (types.SourceInventoryTypeUnderlying, bool) {
+	if attempted == nil {
+		return types.SourceInventoryTypeUnderlyingUnknown, false
+	}
+	underlying := types.SourceInventoryTypeUnderlying(strings.TrimSpace(attempted.TypeUnderlying))
+	if underlying == "" || !underlying.IsValid() {
+		underlying = types.SourceInventoryTypeUnderlyingUnknown
+	}
+	requiresConstSet := attempted.RequiresConstSet != nil && *attempted.RequiresConstSet
+	return underlying, requiresConstSet
 }
 
 func sourceInventoryRequiredHintsFormBoundedScope(ctx *types.BusContext, rm types.RequestModel, candidates []string) bool {
@@ -5408,8 +5444,13 @@ func validateAndBuildRequiredFileHintsWithContext(ctx *types.BusContext, in []em
 	return out
 }
 
-func softenModelAuthoredRequiredFilesForSourceInventory(raw string, profile *types.SourceInventoryProfile, in []types.RequiredFileHint, val *analysisValidationResult) []types.RequiredFileHint {
-	if profile == nil || !profile.Active() || len(in) == 0 {
+func softenModelAuthoredRequiredFilesForSourceInventory(raw string, profile *types.SourceInventoryProfile, attempted *emitSourceInventoryProfileParam, in []types.RequiredFileHint, val *analysisValidationResult) []types.RequiredFileHint {
+	// A malformed optional role list must not turn a model-guessed navigation
+	// file into the hard universe of an otherwise explicit inventory request.
+	// IsSourceInventory is a schema-validated boolean, independent from the
+	// lossy role enum. Exact paths copied by the user remain hard below.
+	inventoryRequested := (profile != nil && profile.Active()) || sourceInventoryRequested(attempted)
+	if !inventoryRequested || len(in) == 0 {
 		return in
 	}
 	out := make([]types.RequiredFileHint, 0, len(in))

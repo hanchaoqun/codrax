@@ -1074,27 +1074,9 @@ func answerDocumentHasRuntimeTraceSystemBlockID(doc *types.AnswerDocumentV2, id 
 // raw request/model/answer prose.
 func runtimeTraceReportShapeAuthority(ctx *types.BusContext) (decided bool, allowed bool) {
 	if ctx == nil || ctx.AnalysisIR == nil {
-		return true, true
+		return types.RuntimeTraceReportShapeAuthority(nil)
 	}
-	rm := ctx.AnalysisIR.RequestModel
-	if _, _, ok := rm.RuntimeArtifactScopeProfile.ExplicitTimeWindow(); ok {
-		return true, true
-	}
-	if types.IsFocusedRuntimeFactQuestion(rm) {
-		return true, false
-	}
-	if rm.Intent == types.IntentRootCause ||
-		rm.Predicates.IsDiagnosticQuestion ||
-		rm.DiagnosticProfile.RequiresDiagnosticRootCause() ||
-		rm.Scenario == types.ScenarioPerformanceBottleneck {
-		return true, true
-	}
-	switch types.ResolveQuestionFamily(rm) {
-	case types.QFRootCauseTrace, types.QFCallChain:
-		return true, true
-	default:
-		return false, false
-	}
+	return types.RuntimeTraceReportShapeAuthority(&ctx.AnalysisIR.RequestModel)
 }
 
 // runtimeTraceFullReportMaterializationAllowed is the shared answer-shape
@@ -1111,7 +1093,8 @@ func runtimeTraceFullReportMaterializationAllowed(ctx *types.BusContext) bool {
 	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(
 		ctx, types.ObservationExtractLedgerEvidenceLimit,
 	))
-	return runtimeTraceProjectionSetHasPublicationGradeCausalRows(
+	return types.RuntimeTraceReportMaterializationAllowed(
+		&ctx.AnalysisIR.RequestModel,
 		types.CompileTraceCausalProjectionSet(ledger),
 	)
 }
@@ -3316,17 +3299,7 @@ func runtimeTraceProjectionSetHasCausalRows(set types.TraceCausalProjectionSet) 
 // evidence while preventing background optimization points from minting a full
 // causal report for generic trace coverage questions.
 func runtimeTraceProjectionSetHasPublicationGradeCausalRows(set types.TraceCausalProjectionSet) bool {
-	for _, projection := range set.Projections {
-		if projection.PrimaryRootCause != nil ||
-			len(projection.PrimaryRootCauses) > 0 ||
-			len(projection.OnChainCauses) > 0 ||
-			len(projection.AdjacentCauses) > 0 ||
-			len(projection.WakeupPath) > 0 ||
-			len(projection.SupportingHops) > 0 {
-			return true
-		}
-	}
-	return false
+	return types.TraceCausalProjectionSetHasPublicationGradeRows(set)
 }
 
 func runtimeTraceCoverageResults(input types.ObservationLedgerInput) []types.ToolResult {
