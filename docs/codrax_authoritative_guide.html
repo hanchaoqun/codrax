@@ -602,7 +602,6 @@
       <a href="./index.html" class="nav-text">首页</a>
       <a href="./codrax_authoritative_guide.html" class="is-active nav-text">使用与技术说明</a>
       <a href="./user_guide.html" class="nav-text">使用手册</a>
-      <a href="./download/index.html" class="nav-text">下载</a>
       <a href="https://github.com/hanchaoqun/codrax" class="nav-gh" target="_blank" rel="noopener">
         <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
         GitHub
@@ -624,20 +623,20 @@
         <a href="#what">一句话看懂 CODRAX</a>
         <a href="#install">安装与开始之前</a>
         <a href="#quickstart">快速上手：4 条路径</a>
-        <a href="#scenarios">典型使用场景</a>
+        <div class="toc-group">典型使用场景</div>
+        <a href="#scenarios">场景总览</a>
+        <a href="#scn-onboard">① 接手陌生仓库</a>
+        <a href="#scn-log">② 线上 panic / 日志定位</a>
+        <a href="#scn-trace">③ 性能卡顿 trace 分析</a>
+        <a href="#scn-workspace">④ 跨仓 workspace 查调用</a>
+        <a href="#scn-config">⑤ 配置 / 行为溯源</a>
+        <a href="#scn-data">⑥ 数据文件盘点与核对</a>
+        <a href="#scn-write">⑦ 写模式小修小补</a>
+        <a href="#scn-ci">⑧ 无头 / CI 单次提问</a>
         <a href="#asking">怎么提问效果最好</a>
         <div class="toc-group">它内部怎么工作</div>
-        <a href="#why">为什么不直接丢给大模型</a>
-        <a href="#tech-compile">技术一 · 编译成任务单</a>
-        <a href="#tech-hypothesis">技术二 · 假设驱动规划</a>
-        <a href="#tech-separation">技术三 · 调查 / 提炼 / 成稿分离</a>
-        <a href="#tech-grounding">技术四 · 证据落点校验</a>
-        <a href="#tech-citation">技术五 · 引用闭环</a>
-        <a href="#tech-contract">技术六 · 可执行合约与停机</a>
+        <a href="#why">机制速览：为什么答案可信</a>
         <a href="#write-mode">写模式 Auto Pilot</a>
-        <div class="toc-group">完整示例</div>
-        <a href="#example">走一个真实问题</a>
-        <a href="#overview">全链路总览</a>
       </nav>
     </aside>
 
@@ -655,9 +654,8 @@
             <p class="strong">确定性诚实，不是态度，是契约。</p>
           </div>
           <p class="hero-lead">
-            这份文档分两部分：前半段教你<strong>怎么用</strong>——四条上手路径、典型场景、怎么提问；
-            后半段用大白话讲<strong>它内部怎么工作</strong>——为什么答案能锚定到代码、为什么它会在证据不足时诚实地停下。
-            不需要任何前置知识，从上往下读即可。
+            这份文档以<strong>怎么用</strong>为主：四条上手路径、八个典型使用场景（每个都带可照抄的问法和怎么读答案）、提问技巧；
+            末尾用一小节速览<strong>它内部怎么工作</strong>。想看完整机制设计的工程读者，请直接读仓库里的 <code>docs/architecture.md</code>。
           </p>
         </header>
 
@@ -718,19 +716,9 @@
           </p>
 
           <h3>第一步 · 装好 codrax</h3>
-          <p>两种方式，任选其一：</p>
-          <div class="grid grid--2">
-            <div class="card">
-              <h4>方式一：下载发布包（推荐）</h4>
-              <p>到<a href="./download/index.html">下载页</a>取对应系统的发布包，解压即可。包内含 <code>codrax</code> 可执行文件、两份配置样例和这份手册，开箱即用。</p>
-            </div>
-            <div class="card">
-              <h4>方式二：从源码构建</h4>
-              <p>需要 CGO（tree-sitter 语法解析）。macOS 先 <code>xcode-select --install</code>，Debian / Ubuntu 装 <code>gcc musl-tools</code>。</p>
-              <pre><code>git clone https://github.com/hanchaoqun/codrax.git
+          <p>从源码构建。需要 CGO 工具链（tree-sitter 语法解析）：macOS 先 <code>xcode-select --install</code>，Debian / Ubuntu 装 <code>gcc musl-tools</code>。</p>
+          <pre><code>git clone https://github.com/hanchaoqun/codrax.git
 cd codrax &amp;&amp; make   <span class="c"># 输出 ./codrax</span></code></pre>
-            </div>
-          </div>
           <p>建议把 <code>codrax</code> 所在目录加进 <code>PATH</code>，这样在任何地方都能直接敲 <code>codrax</code> 启动：</p>
           <pre><code>echo 'export PATH="/path/to/codrax:$PATH"' &gt;&gt; ~/.bashrc   <span class="c"># bash</span>
 echo 'export PATH="/path/to/codrax:$PATH"' &gt;&gt; ~/.zshrc    <span class="c"># zsh</span>
@@ -808,53 +796,190 @@ codrax --mode=write --write-phase=plan -r "修复回调幂等问题并补测试"
           </div>
         </section>
 
-        <!-- ============ §3 ============ -->
+        <!-- ============ §3 场景总览 ============ -->
         <section id="scenarios">
           <h2>典型使用场景</h2>
-          <p class="lead">下面五个场景覆盖了大多数日常用法。例子里的文件名、函数名都是占位符，换成你项目里的实际名字即可。</p>
+          <p class="lead">
+            下面八个场景覆盖了绝大多数日常用法，也是这份文档的主体。每个场景都给出三样东西：
+            <strong>你会怎么问</strong>（可以原样照抄的问法）、<strong>屏幕上会发生什么</strong>、<strong>怎么读答案</strong>。
+            例子里的文件名、函数名、仓库名都是占位符，换成你项目里的实际名字即可。
+          </p>
+        </section>
 
-          <h3>理解代码与机制追问</h3>
+        <!-- ============ 场景① ============ -->
+        <section id="scn-onboard">
+          <h2><span class="h2-no">场景①</span>接手陌生仓库，快速建立架构认知</h2>
           <div class="grid grid--2">
             <div class="card">
-              <h4>场景 A · 快速读懂陌生模块</h4>
-              <pre><code>codrax
-这个订单创建流程分几层？
-要理解超时控制，先看哪几个文件？</code></pre>
-              <p>先搭骨架，再钻细节。得到的是有证据支撑的分层解释，而不是一段没有重点的概述。</p>
+              <h4>你会怎么问</h4>
+              <pre><code>cd /path/to/repo &amp;&amp; codrax
+<span class="c"># 然后直接提问：</span>
+这个项目分几层？各模块的职责是什么？
+要理解订单创建流程，先看哪几个文件？</code></pre>
             </div>
             <div class="card">
-              <h4>场景 B · 解释一个具体行为</h4>
-              <pre><code>codrax -r "为什么未登录用户也能访问
-这个接口？请给关键条件、调用位置、
-仍未证实的部分。"</code></pre>
-              <p>高价值用法。系统会围绕条件、调用路径和边界组织答案，而不只是复述函数名。</p>
+              <h4>屏幕上会发生什么</h4>
+              <p>首次启动会先索引仓库；提问后能看到任务列表和「正在…」过程行——它在读哪些文件、搜什么关键词都是透明的；最后是分层解释加一串 <code>file:line</code> 引用。</p>
             </div>
           </div>
+          <div class="plain-note">
+            <p><span class="pn-label">怎么读答案：</span>先看它引用了哪些文件——那就是这个仓库的骨架清单。追问时直接指着答案里的名字继续问（「A 和 B 之间怎么交互？」），交互控制台会带着上下文记忆走，越问越窄。</p>
+          </div>
+        </section>
 
-          <h3>线上现场排障</h3>
-          <div class="grid grid--3">
+        <!-- ============ 场景② ============ -->
+        <section id="scn-log">
+          <h2><span class="h2-no">场景②</span>线上 panic / 异常日志定位</h2>
+          <div class="grid grid--2">
             <div class="card">
-              <h4>场景 C · 崩溃 / 异常</h4>
-              <pre><code>codrax --log crash.log -r "结合
-日志解释最可能根因"</code></pre>
-              <p>系统会先识别空指针、越界、死锁、权限、配置等常见故障类型，再给出候选根因、已排除项和仍缺证据。</p>
+              <h4>你会怎么问</h4>
+              <pre><code>codrax --log /tmp/panic.txt -r "这个 panic 哪来的？"
+<span class="c"># 容器日志直接从管道喂进来：</span>
+kubectl logs pod/foo | codrax --log - -r "排查这个 crash"
+<span class="c"># REPL 里附加后连续追问：</span>
+/log /tmp/panic.txt
+这个 panic 哪来的？</code></pre>
             </div>
             <div class="card">
-              <h4>场景 D · 性能 / 掉帧</h4>
-              <pre><code>codrax --atrace perf.atrace -r
-"卡顿最可能出在哪个阶段？"</code></pre>
-              <p>支持 HiTrace、atrace、systrace、perfetto 等常见文本格式，自动抽出关键帧、掉帧、阻塞和启动信号。</p>
-            </div>
-            <div class="card">
-              <h4>场景 E · 多文件联合</h4>
-              <pre><code>codrax --log a.log --log b.log
--r "对比两次崩溃差异"</code></pre>
-              <p>支持多文件追加，也支持日志 + 性能现场两路信息同时挂载。</p>
+              <h4>屏幕上会发生什么</h4>
+              <p>附加成功后提示符带 <code>[log]</code> 粘性标签。日志先被解析成结构化栈帧和故障信号（panic / 异常 / traceback / sanitizer 报告等），再据此去仓里读真正相关的文件——不是把日志当一段普通文本。</p>
             </div>
           </div>
+          <div class="plain-note">
+            <p><span class="pn-label">怎么读答案：</span>答案按「候选根因 / 已排除 / 仍缺证据」组织，栈帧对齐到当前代码行。两份日志对比用 <code>--log a.log --log b.log</code>；CI 构建路径和本地仓对不上时，用 <code>--log-source-prefix /build/src/</code> 剥掉前缀再匹配。</p>
+          </div>
+        </section>
 
-          <div class="note">
-            <p><span class="note-label">写模式起手式：</span>直接描述目标即可进入 <strong>Auto Pilot</strong>——自动探索、应用、验证，失败按 typed 证据小批量 replan；低 / 中风险不打断，高风险才暂停审批。想只看计划不落地用 <code>--write-phase=plan</code>（或 <code>/plan show</code> 审计）；<code>/mode write</code> 让后续写代码请求持续走 Auto Pilot。</p>
+        <!-- ============ 场景③ ============ -->
+        <section id="scn-trace">
+          <h2><span class="h2-no">场景③</span>性能卡顿 trace 分析</h2>
+          <div class="grid grid--2">
+            <div class="card">
+              <h4>你会怎么问</h4>
+              <pre><code><span class="c"># 抓一段 trace（HarmonyOS 示例；Android 用 atrace）</span>
+hdc shell hitrace -t 5 graphic &gt; /tmp/htrace.txt
+<span class="c"># 提问尽量给足三要素：进程/线程名（或 pid/tid）+ 时间窗 + 想要的结论形态</span>
+codrax --htrace /tmp/htrace.txt -r "com.example.app 12345 主线程在 \
+  34579.472s 到 34579.476s 的短窗卡顿：主要等待来自哪条依赖/唤醒 \
+  关系？链上线程状态和调度资源背景是什么？只分析这份 trace，不读代码"
+<span class="c"># REPL 里则先 /htrace 附加，再按同样方式追问：</span>
+/htrace /tmp/htrace.txt
+RenderThread 在 34579.47s 到 34579.59s 内为什么掉帧？在等谁唤醒？</code></pre>
+            </div>
+            <div class="card">
+              <h4>屏幕上会发生什么</h4>
+              <p>提示符带 <code>[trace]</code> 标签；性能现场先被分诊，自动抽出掉帧、阻塞、启动等关键信号。支持 HiTrace / atrace / systrace / perfetto 文本格式；二进制 HiTrace 先用 <code>/htrace convert</code> 转成文本。</p>
+            </div>
+          </div>
+          <div class="plain-note">
+            <p><span class="pn-label">怎么读答案：</span>提问给足三要素——进程/线程名（或 pid/tid）、时间窗、想要的结论形态（在等谁 / 唤醒链 / 占比排名）——答案会明显更准；只说"为什么慢"也能跑，但系统要花更多轮先替你圈范围。答案会结合 runnable、D-state / IO、binder、频点和 perf 调用栈拆等待与唤醒链，指出卡顿最可能出在哪个阶段、还缺什么证据。前后两份 trace 对比也可以：在问题里分别点名两个文件即可。</p>
+          </div>
+        </section>
+
+        <!-- ============ 场景④ ============ -->
+        <section id="scn-workspace">
+          <h2><span class="h2-no">场景④</span>跨仓 workspace：找调用链与接口消费方</h2>
+          <div class="grid grid--2">
+            <div class="card">
+              <h4>你会怎么问</h4>
+              <pre><code>cd ~/workspace &amp;&amp; codrax   <span class="c"># 父目录下多个独立 git 仓</span>
+/repos                     <span class="c"># 看发现了哪些子仓</span>
+/repos focus api-go-aabbccdd
+/repos focus web-frontend-eeff0011
+api-go 暴露的 /v1/user 接口在
+web-frontend 哪些组件被消费？</code></pre>
+            </div>
+            <div class="card">
+              <h4>屏幕上会发生什么</h4>
+              <p>启动 banner 会显示发现了几个子仓；<code>/repos</code> 列出各仓的语言和状态，focus 后提示符带 <code>[focus:…]</code> 标签。跨仓的接口消费方、调用链查询在被 focus 的子仓之间直接命中。</p>
+            </div>
+          </div>
+          <div class="plain-note">
+            <p><span class="pn-label">怎么读答案：</span>只问单个子仓时不需要任何额外操作——问题里提到子仓名就会自动路由；跨子仓问题先把相关子仓都 focus 进来。注意：写模式必须 <code>cd</code> 进具体子仓运行，一次只改一个仓。</p>
+          </div>
+        </section>
+
+        <!-- ============ 场景⑤ ============ -->
+        <section id="scn-config">
+          <h2><span class="h2-no">场景⑤</span>配置 / 行为溯源</h2>
+          <div class="grid grid--2">
+            <div class="card">
+              <h4>你会怎么问</h4>
+              <pre><code>codrax -r "config.yaml 里 timeout 字段的默认值是多少？"
+<span class="c"># 或在控制台里连续追问：</span>
+这个值在哪里被读进来？
+命令行参数能覆盖它吗？优先级是怎样的？</code></pre>
+            </div>
+            <div class="card">
+              <h4>屏幕上会发生什么</h4>
+              <p>这类「精确值」问题走的是最严的路：必须找到唯一的定义与解析链才会给出具体数值，答案附定义处和覆盖点的引用。</p>
+            </div>
+          </div>
+          <div class="plain-note">
+            <p><span class="pn-label">怎么读答案：</span>留意答案里「显式定义 / 推断 / 证据不足」的区分——提问时也可以直接要求它这样区分。查不到唯一定义时它会明确说，而不是报一个像样的数。</p>
+          </div>
+        </section>
+
+        <!-- ============ 场景⑥ ============ -->
+        <section id="scn-data">
+          <h2><span class="h2-no">场景⑥</span>数据文件盘点与核对</h2>
+          <div class="grid grid--2">
+            <div class="card">
+              <h4>你会怎么问</h4>
+              <pre><code>codrax --mode=data -r "汇总当前目录 CSV 的
+数值字段总和，只输出数字"
+<span class="c"># 或描述规则让它去关联核对：</span>
+把 records.tsv 和 reference.jsonl 按共同键关联，
+列出字段不一致的前 20 条，输出 Markdown 表格。</code></pre>
+            </div>
+            <div class="card">
+              <h4>屏幕上会发生什么</h4>
+              <p>数据任务是独立的一条只读路径：系统先列出材料目录（路径、表头、行数、样例），再由受限的确定性执行器读文件算结果——清洗、过滤、去重、关联、汇总都可以，输出严格按你要求的格式。</p>
+            </div>
+          </div>
+          <div class="plain-note">
+            <p><span class="pn-label">怎么读答案：</span>想核对就看随附的材料消费记录和对账摘要——哪些文件被读了、每条结果怎么来的都有账；完整审计产物落在 <code>.codrax/data-audit/</code> 目录。</p>
+          </div>
+        </section>
+
+        <!-- ============ 场景⑦ ============ -->
+        <section id="scn-write">
+          <h2><span class="h2-no">场景⑦</span>写模式小修小补</h2>
+          <div class="grid grid--2">
+            <div class="card">
+              <h4>你会怎么问</h4>
+              <pre><code>codrax --mode=write -r "修复回调幂等问题并补测试"
+<span class="c"># REPL 里：单次写用 /write，持续写模式用 /mode write</span>
+/write 给 parseConfig 补上空值检查和对应测试</code></pre>
+            </div>
+            <div class="card">
+              <h4>屏幕上会发生什么</h4>
+              <p>Auto Pilot 自动探索、拆小批次、应用、跑验证；低 / 中风险不打断，高风险暂停并显示计划、风险和差异，等你 <code>/approve</code> 或 <code>/reject</code>；验证失败会小批量自动重规划。全程只写隔离的沙箱工作区。</p>
+            </div>
+          </div>
+          <div class="plain-note">
+            <p><span class="pn-label">怎么读答案：</span>整个过程主仓一直不动。确认没问题后 <code>/merge</code> 把改动收回主仓（需要 <code>codrax.yaml</code> 里 <code>pipeline_keep_worktree_on_success: true</code> 保留工作区）；只想先看计划不落地，用 <code>--write-phase=plan</code>。</p>
+          </div>
+        </section>
+
+        <!-- ============ 场景⑧ ============ -->
+        <section id="scn-ci">
+          <h2><span class="h2-no">场景⑧</span>无头 / CI 单次提问</h2>
+          <div class="grid grid--2">
+            <div class="card">
+              <h4>你会怎么问</h4>
+              <pre><code>codrax --request "main 函数定义在哪个文件？"
+codrax -r "项目目录布局是怎样的？" &gt; overview.md
+<span class="c"># 结合管道做自动化排障：</span>
+kubectl logs pod/foo | codrax --log - -r "分析这次 crash"</code></pre>
+            </div>
+            <div class="card">
+              <h4>屏幕上会发生什么</h4>
+              <p>一条命令、一个答案，跑完即退出，适合脚本和持续集成；输出重定向到文件即可归档。<code>--repo</code> / <code>--branch</code> 可以指定别处的仓库和分支。</p>
+            </div>
+          </div>
+          <div class="plain-note">
+            <p><span class="pn-label">怎么读答案：</span>脚本化调用时，建议在请求里写明「如果证据不足请明确说明」——拿到的要么是带引用的结论，要么是一句诚实的边界说明，两者都可以直接进流程。</p>
           </div>
         </section>
 
@@ -893,341 +1018,34 @@ codrax --mode=write --write-phase=plan -r "修复回调幂等问题并补测试"
 
         <!-- ============ §5 ============ -->
         <section id="why">
-          <h2>为什么不直接把问题丢给大模型</h2>
+          <h2>机制速览：为什么答案可信</h2>
           <p class="lead">
-            在 CODRAX 里，模型没有“看完整个仓库后自由发挥”的权力。分析阶段只能先做轻量预扫，
-            确认仓库里有没有用户提到的对象；多仓时还要先确定本轮该看哪些子仓。随后它必须把问题写成结构化任务单——
-            写不出来就停下。后面的调查顺序、停止条件、引用合法性和答案放行，都由确定性代码接管。
-          </p>
-
-          <div class="flow" role="img" aria-label="流水线：用户请求到带引用的答案">
-            <span class="flow-node">用户请求</span><span class="flow-arrow">→</span>
-            <span class="flow-node">轻量预扫</span><span class="flow-arrow">→</span>
-            <span class="flow-node">分析清单</span><span class="flow-arrow">→</span>
-            <span class="flow-node">调查</span><span class="flow-arrow">→</span>
-            <span class="flow-node">提炼</span><span class="flow-arrow">→</span>
-            <span class="flow-node">验收</span><span class="flow-arrow">→</span>
-            <span class="flow-node flow-node--accent">带引用的答案</span>
-          </div>
-
-          <div class="grid grid--3">
-            <div class="card">
-              <h4>模型被限制在很窄的位置</h4>
-              <ul class="list">
-                <li>前置分析只看仓库结构、搜索结果和文件列表，先确认“仓里有没有这个对象”。</li>
-                <li>这一阶段不能读文件正文，也不能直接写最终答案。</li>
-                <li>没有产出结构化任务单，系统会报错重试。</li>
-              </ul>
-            </div>
-            <div class="card">
-              <h4>真正掌舵的是确定性管线</h4>
-              <ul class="list">
-                <li>任务单会继续被编成调查路线、证据清单、候选假设和答案验收规则。</li>
-                <li>这些结构来自固定代码流程；同样的问题再跑一遍，看的仍是同一套停机条件和校验闸门。</li>
-                <li>多仓时会明确本轮参与的子仓，没参与的不会被悄悄当证据。</li>
-              </ul>
-            </div>
-            <div class="card">
-              <h4>这就是它的核心价值</h4>
-              <ul class="list">
-                <li>能回答时，会给结论、证据来源和边界说明。</li>
-                <li>证据不够时，不会用态度把不确定包装成确定。</li>
-                <li>“会停下”本身就是能力，不是模型刚好谦虚。</li>
-              </ul>
-            </div>
-          </div>
-        </section>
-
-        <!-- ============ §6 ============ -->
-        <section id="tech-compile">
-          <h2><span class="h2-no">技术一</span>把一句话编译成调查任务单</h2>
-          <p class="lead">
-            用户的一句话不会被直接拿去查仓库。系统先把它拆成几个明确问题，再压成一份结构化任务单——
-            后面每个阶段面对的都是这张任务单，不是用户原句。
+            CODRAX 不是把问题直接丢给大模型。一句话的问题会先被编成结构化的「调查任务单」，
+            之后的调查顺序、停止条件、引用合法性和答案放行全部由确定性代码接管——模型交原料，系统定放行。
+            这一节只讲结论，够建立正确预期即可。
           </p>
 
           <div class="grid grid--2">
             <div class="card">
-              <h4>同一句话，先拆成 6 个问题</h4>
-              <pre><code>“支付回调偶发失败，为什么订单
-没有变成已支付？”</code></pre>
-              <ul class="list">
-                <li>这是查根因、查默认值，还是准备直接改代码？</li>
-                <li>主体是谁：支付回调、订单状态、幂等控制，还是事务提交？</li>
-                <li>真正要解释的，是“为什么没更新”、哪条条件链生效，还是某个配置值？</li>
-                <li>第一批先看哪里：入口文件、状态流转、日志、测试，还是事务落库点？</li>
-                <li>哪几条假设必须同时摆出来比较？</li>
-                <li>查到什么程度才算够，答案要按什么形态交付？</li>
-              </ul>
+              <h4>问题先被编成任务单</h4>
+              <p>查什么、按什么顺序查、查到什么程度算够、答案必须长什么样，动手前先定下来；几条候选假设并列排查，各自带成立条件和打掉条件，谁先查不靠感觉。</p>
             </div>
             <div class="card">
-              <h4>这 6 个问题，压成 5 类结构</h4>
-              <ol class="steps">
-                <li><span class="step-no">01</span><div class="step-body"><strong>问题归类</strong><p>定清楚“这题是什么题、主体是谁、最后想交什么”——这里被定成“根因排查”。</p></div></li>
-                <li><span class="step-no">02</span><div class="step-body"><strong>调查路线</strong><p>排出调查顺序：先查回调入口，再查去重逻辑，再查事务与状态落库。</p></div></li>
-                <li><span class="step-no">03</span><div class="step-body"><strong>证据清单</strong><p>列出优先材料：入口处理代码、状态机、日志、测试和相关配置。</p></div></li>
-                <li><span class="step-no">04</span><div class="step-body"><strong>收尾标准</strong><p>写清“查到什么程度才算够”，例如关键假设都被证实或排除。</p></div></li>
-                <li><span class="step-no">05</span><div class="step-body"><strong>答案规则</strong><p>规定最后必须怎么说，例如一定要区分已证实、已排除、仍缺证据。</p></div></li>
-              </ol>
-            </div>
-          </div>
-
-          <h3>这张任务单不是一条提示词，而是一次确定性编译</h3>
-          <p>
-            一旦前置分析交出结构化任务单，后面十几步就交给固定代码管线：纠偏、统一名字、排出调查路线、补风险和假设，最后过质量门。
-            模型交的是原料，不是成品。
-          </p>
-          <ol class="steps">
-            <li><span class="step-no">1</span><div class="step-body"><strong>先纠偏</strong><p>分清题型和交付形态（问根因、问精确值，还是一个诚实的“暂时没找到”），再补上调查方向：重点查调用链、注册点、返回值，还是条件分支。</p></div></li>
-            <li><span class="step-no">2</span><div class="step-body"><strong>把名字统一</strong><p>把“支付回调”“回调通知”“pay callback”这类别名并到同一对象上，再确认哪些词是代码对象、哪些只是业务口语。后面所有阶段围绕同一套名字工作。</p></div></li>
-            <li><span class="step-no">3</span><div class="step-body"><strong>排出调查路线</strong><p>排出调查顺序，并列出材料单和收尾条件：该读哪些文件、日志、测试，查到什么程度才允许结束。</p></div></li>
-            <li><span class="step-no">4</span><div class="step-body"><strong>补风险与假设</strong><p>六个风险维度都会打分：安全、数据一致性、兼容性、性能、运维、合规；并给每条假设补上成立条件和打掉条件。</p></div></li>
-            <li><span class="step-no">5</span><div class="step-body"><strong>过质量门并收尾</strong><p>字段不完整、调查路线不合法、假设没人负责验证、结构自相矛盾，都会被直接打回重做。日志里出现但仓库对不上的路径、符号，会被当成未验证线索隔离。</p></div></li>
-          </ol>
-
-          <div class="note">
-            <p><span class="note-label">通俗理解：</span>内部把它叫 <code>AnalysisIR</code>，你可以理解成“分析任务单”——
-            把一句自然语言问题，翻译成一份可执行、可停机、可验收的调查协议；多仓时还会写明本轮锁定哪个子仓。</p>
-          </div>
-        </section>
-
-        <!-- ============ §7 ============ -->
-        <section id="tech-hypothesis">
-          <h2><span class="h2-no">技术二</span>假设驱动规划，先立可证伪假说</h2>
-          <p class="lead">
-            CODRAX 不是“先猜一个答案再找理由”，而是先并列摆出几条可能，再让每条都带上验证条件和淘汰条件，
-            按证据顺序逐条排查。
-          </p>
-
-          <div class="grid grid--2">
-            <div class="card">
-              <h4>假设按题型生长，不是自由发挥</h4>
-              <ul class="list">
-                <li><strong>根因题</strong>——长出“症状由哪个模块或依赖链导致”的假设。</li>
-                <li><strong>配置题</strong>——长出“默认值到覆盖值是不是只有一条解析链”的假设。</li>
-                <li><strong>枚举题</strong>——长出“答案是不是有限集合”的假设。</li>
-                <li><strong>双主体关系题</strong>——长出“这两个对象有没有直接关系”的假设。</li>
-              </ul>
+              <h4>只引用真正读过的内容</h4>
+              <p>「搜到」不等于「读到」。允许引用的清单只来自真正打开过的文件，每条引用还要回到源码逐条核对落点——编造或对不上的引用进不了正文。</p>
             </div>
             <div class="card">
-              <h4>每条假设带两把尺子</h4>
-              <ul class="list">
-                <li><strong>成立条件</strong>——例如关键符号必须出现、证据至少 2 条。</li>
-                <li><strong>打掉条件</strong>——例如没有调用点、解析链不止一条、相关证据为 0。</li>
-                <li>状态只有 4 种：未定、成立、被推翻、证据不足。</li>
-                <li>优先级再按 <code>35 / 30 / 20 / 15</code> 打分，决定先排哪条。</li>
-              </ul>
-            </div>
-          </div>
-
-          <h3>拿支付回调的例子，会长出三条假设</h3>
-          <div class="grid grid--3">
-            <div class="card">
-              <h4>假设 A · 验签没过</h4>
-              <p>支付平台明明回调了，但服务端日志连续出现“签名非法”。系统先看验签分支、错误码和失败日志；如果同批回调都能通过验签，这条会被压低甚至推翻。</p>
+              <h4>证据不足就停下</h4>
+              <p>连续几轮没有新证据会强制扩大搜索，再不行就降级收尾：讲清「已证实 / 已排除 / 仍缺证据」，绝不把不确定包装成确定。「会停下」本身就是能力。</p>
             </div>
             <div class="card">
-              <h4>假设 B · 幂等吞单</h4>
-              <p>“幂等”白话说就是：同一笔回调来 1 次和来 2 次结果应该一样。平台重试回调，系统却把第二次当“重复请求”跳过——钱到了、订单没改。这时重点看去重键、锁和幂等记录。</p>
-            </div>
-            <div class="card">
-              <h4>假设 C · 提交链断裂</h4>
-              <p>业务代码已经走到“准备把订单改成已支付”，但后面的事务提交、状态落库或异常回滚出了问题，数据库里还是未支付。系统顺着提交点和落库点核对这条链。</p>
+              <h4>写模式受同一套边界</h4>
+              <p>计划、改动、验证彼此隔离，所有写入只发生在沙箱工作区；风险分级决定要不要打断你，合并回主仓永远是你的显式动作。</p>
             </div>
           </div>
 
           <div class="note">
-            <p><span class="note-label">通俗理解：</span>内部简称 <code>HDP</code>（假设驱动规划）。关键不是“先猜”，
-            而是“先并列摆出几条可能，再让每条都带上验证条件和淘汰条件”。</p>
-          </div>
-        </section>
-
-        <!-- ============ §8 ============ -->
-        <section id="tech-separation">
-          <h2><span class="h2-no">技术三</span>把调查、提炼、成稿拆开</h2>
-          <p class="lead">
-            先调查，后提炼，再成稿。中间每一步都换人、换权限，只允许传固定字段的结构化表单——
-            不允许把“我大概觉得”直接带进下一段。
-          </p>
-
-          <div class="grid grid--3">
-            <div class="card">
-              <h4>第一段 · 只调查</h4>
-              <ul class="list">
-                <li>负责读代码、跑搜索、挂日志和性能现场。</li>
-                <li>产出的是“证据条目、已读文件、工具结果”这类事实，不是结论段落。</li>
-                <li>即使已经猜到答案，这一段也不能直接下结论。</li>
-              </ul>
-            </div>
-            <div class="card">
-              <h4>第二段 · 只提炼</h4>
-              <ul class="list">
-                <li>只能看前一段冻结下来的证据快照。</li>
-                <li>产出“答案骨架 + 假设判决”，例如“幂等吞单更像成立，验签失败基本排除”。</li>
-                <li>这一段没有文件权限，不能临时回头补读。</li>
-              </ul>
-            </div>
-            <div class="card">
-              <h4>第三段 · 只成稿</h4>
-              <ul class="list">
-                <li>把骨架渲染成最终文档，整理成“已证实 / 已排除 / 仍缺证据”的结构。</li>
-                <li>随后立刻做引用与合约的预演验收。</li>
-                <li>过不了只能退回，不能边写边补调查。</li>
-              </ul>
-            </div>
-          </div>
-
-          <div class="plain-note">
-            <p><span class="pn-label">为什么这样更诚实：</span>如果调查段没读到某个关键文件，后两段就没有权限回头补读，
-            更没有权限把它“脑补”进最终答案。写模式里的 <code>plan → apply → verify</code> 也是同一套思想：理解、改动、验证彼此隔离。</p>
-          </div>
-        </section>
-
-        <!-- ============ §9 ============ -->
-        <section id="tech-grounding">
-          <h2><span class="h2-no">技术四</span>证据落点校验</h2>
-          <p class="lead">结论必须落到真实代码和现场上。每一条引用，系统都要确认它真的指向了仓库里存在的那一处。</p>
-
-          <div class="grid grid--2">
-            <div class="card">
-              <h4>先做两层硬校验</h4>
-              <ul class="list">
-                <li>第一层：引用行和前后几行里，那个符号或关键词是否真的出现过。</li>
-                <li>第二层：结构身份对不对——这是定义、调用、导入，还是条件分支。</li>
-                <li>两层都过，才算“这句话真的落到了代码上”。</li>
-              </ul>
-            </div>
-            <div class="card">
-              <h4>行号漂了也不会乱放行</h4>
-              <ul class="list">
-                <li>先在同文件里按完整名称找（代码改动后函数整体下移很常见）。</li>
-                <li>再按附近片段在一小段范围里做模糊修复。</li>
-                <li>还会看同包同名符号、最近调用点和最近条件点。</li>
-                <li>日志 / 性能现场里提到、但仓库对不上的路径或函数，只能当线索，不能当最终引用。</li>
-              </ul>
-            </div>
-          </div>
-
-          <div class="plain-note">
-            <p><span class="pn-label">举个例子：</span>系统说“订单状态是在 <code>applyPayment()</code> 里被写成已支付的”，
-            它不只要给出文件和行号，还要证明附近真的出现过这个函数、那里确实是状态写入；
-            如果这个函数名只出现在日志里、仓库查不到，就必须标成未证实线索。</p>
-          </div>
-
-          <div class="note">
-            <p><span class="note-label">通俗理解：</span>这一步内部叫 <code>Grounding</code>（落点校验）——
-            判断一句话能不能准确落到真实代码的某一处。</p>
-          </div>
-        </section>
-
-        <!-- ============ §10 ============ -->
-        <section id="tech-citation">
-          <h2><span class="h2-no">技术五</span>引用闭环</h2>
-          <p class="lead">只能引用自己真正读过的内容。“扫到”不等于“读到”——系统会为这两件事单独记账。</p>
-
-          <div class="grid grid--3">
-            <div class="card">
-              <h4>候选集合</h4>
-              <p>只是搜出来、扫出来、看上去可能相关的文件，比如一下子搜出 20 个带 <code>payment</code> 的文件。</p>
-            </div>
-            <div class="card">
-              <h4>已读集合</h4>
-              <p>系统真的打开过正文、手里确实有内容的文件，比如只认真读了其中 3 个关键文件。</p>
-            </div>
-            <div class="card">
-              <h4>待读集合</h4>
-              <p>系统判断关键、但当前还没真正打开的文件。</p>
-            </div>
-          </div>
-          <p>最终允许引用的清单<strong>只能来自“已读集合”</strong>，不能来自“我记得那里好像有”。</p>
-
-          <h3>系统会盯住“有没有实质进展”</h3>
-          <ul class="list">
-            <li>每一轮都比对：已读文件、证据条目、引用位置有没有增加，而不是只看模型又说了多少话。</li>
-            <li>如果有待读文件一直没被读，系统最多每轮代你补读 3 个关键文件。</li>
-            <li>已被判定为不可信的日志路径或符号，后面读文件、搜索和最终引用都会避开。</li>
-            <li>连续 2 轮没进展，强制扩大搜索；连续 3 轮还没进展，结束调查并降级输出。</li>
-          </ul>
-
-          <div class="plain-note">
-            <p><span class="pn-label">调查结束前还有一道预演验收：</span>当调查代理想宣告“我查完了”，
-            系统会先模拟最终答案能不能过关——有没有还没读的关键文件、可用引用够不够、列表和数字有没有列全、
-            说法和题型有没有对上。过不了就继续查。</p>
-          </div>
-
-          <div class="note">
-            <p><span class="note-label">通俗理解：</span>内部简称 <code>CGEC</code>（引用闭环检查）——
-            说法、来源、已读事实、合法引用、最终验收，必须一条链地对上。</p>
-          </div>
-        </section>
-
-        <!-- ============ §11 ============ -->
-        <section id="tech-contract">
-          <h2><span class="h2-no">技术六</span>可执行合约与停机降级</h2>
-          <p class="lead">答案验收不是一个 <code>if</code>，而是一组可机检规则逐条求值。每一种状态都对应固定分支。</p>
-
-          <h3>系统硬验这 4 类规则</h3>
-          <div class="grid grid--2">
-            <div class="card">
-              <h4>01 题型匹配</h4>
-              <p>这题该回答精确值、步骤、列表，还是机制解释。</p>
-            </div>
-            <div class="card">
-              <h4>02 引用完整</h4>
-              <p>该给文件和行号时，就不能只给一段模糊描述。</p>
-            </div>
-            <div class="card">
-              <h4>03 证据到位</h4>
-              <p>关键假设是否都已裁决，必须满足的证据是否已经齐了。</p>
-            </div>
-            <div class="card">
-              <h4>04 答案完整</h4>
-              <p>数字题要有来源，列表题要列够，调用链要有关键节点，对比题两边证据不能失衡。</p>
-            </div>
-          </div>
-          <p>
-            符号存在、证据数量、引用数量、假设状态、目标唯一性和答案覆盖度都会算进去。
-            最能体现价值的是<strong>精确题</strong>（必须找出唯一解析链才敢给精确值）和
-            <strong>空结果题</strong>（查过该查的路径后，允许给一个诚实的空结果）。
-          </p>
-
-          <h3>验收后的四种出口</h3>
-          <div class="grid grid--3">
-            <div class="signal signal--green">
-              <div class="signal-head"><span class="signal-tag">绿灯</span>证据与格式都过关</div>
-              <p>允许输出精确答案并附合法引用。例如“默认超时是 30 秒，定义在某文件某行”。</p>
-            </div>
-            <div class="signal signal--amber">
-              <div class="signal-head"><span class="signal-tag">黄灯</span>只有方向，没有精确落点</div>
-              <p>只能给方向感，不能包装成精确结果。例如只能说“更像幂等控制吞单”。</p>
-            </div>
-            <div class="signal signal--red">
-              <div class="signal-head"><span class="signal-tag">红灯</span>关键目标缺失</div>
-              <p>触发显式失败：明确停下并说明原因，绝不把“不知道”伪装成“知道”。</p>
-            </div>
-          </div>
-
-          <h3>什么时候继续查，什么时候降级</h3>
-          <div class="grid grid--2">
-            <div class="card">
-              <h4>继续查 / 系统代你补读</h4>
-              <ul class="list">
-                <li>还有关键文件没读、可用引用不够、说法和题型对不上——“调查完成”会被降级。</li>
-                <li>连续 2 轮没进展又存在明确待读文件时，框架每轮最多代你补读 3 个关键文件，只补漏。</li>
-              </ul>
-            </div>
-            <div class="card">
-              <h4>降级收尾 / 明确失败</h4>
-              <ul class="list">
-                <li>连续 3 轮仍无新增已读事实，就结束调查、输出“尽力结论”，但必须讲清不确定和缺证据。</li>
-                <li>合约还是过不了、精确目标一直找不到，直接说明失败原因，不拿相似函数冒充结果。</li>
-              </ul>
-            </div>
-          </div>
-
-          <div class="note">
-            <p><span class="note-label">通俗理解：</span>内部把这组规则叫 <code>Criterion</code>（答案验收规则）。
-            这就是“确定性诚实”——不是模型愿不愿意谦虚，而是每一种状态都对应固定分支。</p>
+            <p><span class="note-label">想深入内部机制？</span>流水线各阶段、假设规划、引用校验和答案验收规则的完整设计，都在仓库的 <code>docs/architecture.md</code>——工程读者请直接读它，这里不再展开。</p>
           </div>
         </section>
 
@@ -1265,86 +1083,6 @@ codrax --mode=write --write-phase=plan -r "修复回调幂等问题并补测试"
           </div>
         </section>
 
-        <!-- ============ §13 ============ -->
-        <section id="example">
-          <h2>走一个真实问题</h2>
-          <p class="lead">把前面所有机制串起来看一遍，核心价值才看得清。</p>
-
-          <pre><code>问题：支付回调偶发失败，日志显示回调已到达，
-      但订单状态没有变成“已支付”。</code></pre>
-
-          <div class="flow" role="img" aria-label="示例流程">
-            <span class="flow-node">分析清单</span><span class="flow-arrow">→</span>
-            <span class="flow-node">假设排序</span><span class="flow-arrow">→</span>
-            <span class="flow-node">落点与线索校验</span><span class="flow-arrow">→</span>
-            <span class="flow-node">引用对账</span><span class="flow-arrow">→</span>
-            <span class="flow-node">结果验收</span><span class="flow-arrow">→</span>
-            <span class="flow-node flow-node--accent">交付诊断</span>
-          </div>
-
-          <div class="grid grid--3">
-            <div class="card">
-              <h4>1 · 先把“查什么”定下来</h4>
-              <p>系统把问题定成根因排查，优先看回调入口、幂等控制、事务提交和状态落库；多仓时先锁定相关子仓。</p>
-            </div>
-            <div class="card">
-              <h4>2 · 让几条假设彼此竞争</h4>
-              <p>可能是验签失败、幂等吞单、也可能是事务回滚。谁先查不看感觉；日志里对不上的路径会先隔离。</p>
-            </div>
-            <div class="card">
-              <h4>3 · 交付边界清楚的结论</h4>
-              <p>不会只说“我猜是幂等问题”，而是“验签问题已基本排除；幂等路径最可疑；事务回滚仍缺直接证据”。</p>
-            </div>
-          </div>
-
-          <div class="note">
-            <p>CODRAX 的核心价值，不是比别人更会说，而是把<strong>“已证实、已排除、仍缺证据”</strong>三件事拆开说清楚。</p>
-          </div>
-        </section>
-
-        <!-- ============ §14 ============ -->
-        <section id="overview">
-          <h2>全链路总览</h2>
-          <p class="lead">
-            把它看成一台“只允许有限分支”的调查状态机：模型负责读现场和交阶段结果；
-            系统负责决定证据是否成立、流程是否继续、答案是否放行。
-          </p>
-
-          <div class="legend">
-            <span class="lg-user">用户输入</span>
-            <span class="lg-model">模型参与</span>
-            <span class="lg-system">系统硬控</span>
-            <span class="lg-exit">固定出口</span>
-          </div>
-          <div class="flow" role="img" aria-label="全链路">
-            <span class="flow-node">用户问题 / 附件</span><span class="flow-arrow">→</span>
-            <span class="flow-node" data-role="model">分诊与分类</span><span class="flow-arrow">→</span>
-            <span class="flow-node" data-role="system">生成分析任务单</span><span class="flow-arrow">→</span>
-            <span class="flow-node" data-role="model">调查 → 提炼 → 成稿</span><span class="flow-arrow">→</span>
-            <span class="flow-node" data-role="exit">验收与出口</span>
-          </div>
-
-          <div class="grid grid--3">
-            <div class="card">
-              <h4>模型参与的地方</h4>
-              <p>把问题和现场读成结构化输入，并在分类、调查、提炼、成稿这些节点上给出下一步动作和答案草稿。</p>
-            </div>
-            <div class="card">
-              <h4>系统硬控的地方</h4>
-              <p>把问题编成调查路线、证据清单和答案要求；多仓时先确定本轮子仓；不可信现场线索会被隔离，再由引用对账和答案验收决定出口。</p>
-            </div>
-            <div class="card">
-              <h4>写模式也受同一边界</h4>
-              <p>仍然要求先出计划、再落改动、最后验证；写入只发生在沙箱工作区，同时限制可改范围、改动顺序和测试结果。</p>
-            </div>
-          </div>
-
-          <div class="plain-note">
-            <p>“解释锚定”就是关键结论必须落回真实文件和行号；“推理确定”就是系统只允许有限状态迁移。
-            它靠的不是模型“态度诚实”，而是系统把可走分支、可用证据和可放行答案都限制住。</p>
-          </div>
-        </section>
-
         <div class="closing">
           <p class="closing-strong">
             CODRAX 不是让模型替你“装懂代码”，<br>
@@ -1366,7 +1104,6 @@ codrax --mode=write --write-phase=plan -r "修复回调幂等问题并补测试"
         <a href="./index.html">首页</a>
         <a href="./codrax_authoritative_guide.html">使用与技术说明</a>
         <a href="./user_guide.html">使用手册</a>
-        <a href="./download/index.html">下载</a>
         <a href="https://github.com/hanchaoqun/codrax" target="_blank" rel="noopener">GitHub</a>
       </div>
       <div class="f-meta">CODRAX —— 推理确定，解释锚定。</div>

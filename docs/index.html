@@ -315,6 +315,19 @@
       margin-bottom: 7px;
     }
     .feature p { font-size: 0.93rem; color: var(--fg-muted); }
+    .feature pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      overflow-x: auto;
+      margin: 0 0 10px;
+    }
+    .feature pre code {
+      background: none; border: 0; padding: 0;
+      font-size: 0.78rem; line-height: 1.62;
+      color: var(--fg-body); white-space: pre;
+    }
 
     /* ---------- how it works ---------- */
     .flow {
@@ -515,7 +528,6 @@
       <a href="./index.html" class="is-active">首页</a>
       <a href="./codrax_authoritative_guide.html">使用与技术说明</a>
       <a href="./user_guide.html">使用手册</a>
-      <a href="./download/index.html">下载</a>
       <a href="https://github.com/hanchaoqun/codrax" class="nav-gh" target="_blank" rel="noopener">
         <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
         GitHub
@@ -539,9 +551,9 @@
             <b>C</b>ode <b>O</b>f <b>D</b>eterministic <b>R</b>easoning, <b>A</b>nchored e<b>X</b>planation
           </p>
           <div class="cta-row">
-            <a class="btn btn-primary" href="./download/index.html">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg>
-              下载安装
+            <a class="btn btn-primary" href="#start">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-5-6-5m8 12h8"/></svg>
+              快速上手
             </a>
             <a class="btn btn-ghost" href="./codrax_authoritative_guide.html">阅读使用说明</a>
           </div>
@@ -607,78 +619,102 @@
       </div>
     </section>
 
-    <!-- ============ features ============ -->
-    <section class="section" id="features">
+    <!-- ============ scenarios ============ -->
+    <section class="section" id="scenarios">
       <div class="wrap">
         <div class="section-head">
-          <span class="kicker">核心特性</span>
-          <h2>为什么它的答案值得信</h2>
-          <p>每一项特性都指向同一件事——让结论可被复核，让不确定被说清。</p>
+          <span class="kicker">真实使用场景</span>
+          <h2>拿它来做什么</h2>
+          <p>八个日常场景，例子可以原样照抄——把文件名、函数名换成你项目里的即可。</p>
         </div>
         <div class="features">
           <div class="feature">
-            <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/></svg></div>
-            <h3>证据锚定的答案</h3>
-            <p>每条结论都带 <code>file:line</code> 引用，经 7 层落地校验；编造或与源码不一致的引用会被隔离，不入正文。</p>
-          </div>
-          <div class="feature">
-            <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><path d="M10 6.5h6a2 2 0 0 1 2 2V14M6.5 10v4a2 2 0 0 0 2 2H14"/></svg></div>
-            <h3>确定性流水线</h3>
-            <p>模型只在很窄的位置参与；调查顺序、停止条件、答案放行都由固定代码接管，同样的问题走同一套闸门。</p>
+            <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m16.24 7.76-2.12 6.36-6.36 2.12 2.12-6.36z"/></svg></div>
+            <h3>接手陌生仓库</h3>
+            <pre><code>这个项目分几层？要理解订单
+创建流程，先看哪几个文件？</code></pre>
+            <p>codrax 索引整个仓库，按证据搭出分层解释。你得到一份带 <code>file:line</code> 引用的架构地图，顺着引用逐个点开即可。</p>
           </div>
           <div class="feature">
             <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h2l1.5 3 2-6L15 13h1"/></svg></div>
-            <h3>日志 / 性能现场分诊</h3>
-            <p>挂上崩溃日志或 HiTrace / atrace / perfetto，先抽成结构化锚点，再让主流水线只读真正相关的文件。</p>
+            <h3>线上 panic / 日志定位</h3>
+            <pre><code>codrax --log /tmp/panic.txt \
+  -r "这个 panic 哪来的？"</code></pre>
+            <p>日志先被解析成结构化栈帧，再对齐到仓内当前代码。你得到候选根因、已排除项和仍缺的证据。REPL 里用 <code>/log</code> 附加同理。</p>
           </div>
           <div class="feature">
-            <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg></div>
-            <h3>写模式沙箱</h3>
-            <p><code>计划 → 改动 → 验证</code> 全程在 git worktree 里跑，主仓 HEAD 永不自动变；只有你显式批准才落地。</p>
+            <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></div>
+            <h3>性能卡顿 trace 分析</h3>
+            <pre><code>codrax --htrace perf.systrace \
+  -r "com.example.app 主线程 12.30s–12.45s
+      掉帧：在等谁？唤醒链是什么？"</code></pre>
+            <p>支持 HiTrace / atrace / systrace / perfetto 文本 trace，自动抽出掉帧、阻塞与唤醒链。提问带上<strong>线程名与时间窗</strong>会明显更准；REPL 里用 <code>/htrace</code> 附加。</p>
           </div>
           <div class="feature">
             <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M3 11h18"/></svg></div>
-            <h3>跨仓 workspace</h3>
-            <p>父目录下多个独立 git 仓共存时自动发现，跨子仓查询正确，内存可控，单仓用户零影响。</p>
+            <h3>跨仓 workspace 查调用</h3>
+            <pre><code>api-go 暴露的 /v1/user 接口在
+web-frontend 哪些组件被消费？</code></pre>
+            <p>在多仓父目录启动即自动发现子仓；<code>/repos focus</code> 固定目标后，跨仓的接口消费方、调用链查询直接命中。</p>
+          </div>
+          <div class="feature">
+            <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/></svg></div>
+            <h3>配置 / 行为溯源</h3>
+            <pre><code>timeout 这个配置从哪读的？
+默认值多少？CLI 能覆盖吗？</code></pre>
+            <p>精确值要找到唯一的定义链才会给出，找不到就明确说，而不是报一个像样的数。答案附上定义处与覆盖点的引用。</p>
+          </div>
+          <div class="feature">
+            <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><path d="M10 6.5h6a2 2 0 0 1 2 2V14M6.5 10v4a2 2 0 0 0 2 2H14"/></svg></div>
+            <h3>数据文件盘点与核对</h3>
+            <pre><code>codrax --mode=data -r "汇总当前
+目录 CSV 的数值字段，只输出 JSON"</code></pre>
+            <p>只读地清洗、过滤、关联、汇总本地 CSV / JSONL，严格按你要的格式输出，并附材料消费与对账摘要——算过什么一目了然。</p>
+          </div>
+          <div class="feature">
+            <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg></div>
+            <h3>写模式小修小补</h3>
+            <pre><code>/write 修复回调幂等问题并补测试</code></pre>
+            <p>Auto Pilot 在隔离的 git worktree 里探索、改动、跑验证；低 / 中风险自动推进，高风险才等你审批。确认没问题后 <code>/merge</code> 收回主仓。</p>
           </div>
           <div class="feature">
             <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 6-6 6 6 6m8-12 6 6-6 6"/></svg></div>
-            <h3>多语言 · 多 runner</h3>
-            <p>覆盖十余种语言的代码索引；写模式验证自动探测 12 类测试工具，零测试发现不会被误判为失败。</p>
+            <h3>无头 / CI 单次提问</h3>
+            <pre><code>codrax -r "这个接口的鉴权逻辑？" \
+  > answer.md</code></pre>
+            <p>一条命令、一个带引用的答案，适合脚本与持续集成；日志也能从管道喂进来（<code>kubectl logs … | codrax --log -</code>）。</p>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- ============ how it works ============ -->
-    <section class="section section--soft" id="how">
+    <!-- ============ why trust ============ -->
+    <section class="section section--soft" id="trust">
       <div class="wrap">
         <div class="section-head">
-          <span class="kicker">它怎么工作</span>
-          <h2>不是把问题丢给模型，而是编成一条调查协议</h2>
-          <p>模型负责读现场、交阶段结果；系统负责决定证据是否成立、流程是否继续、答案是否放行。</p>
-        </div>
-        <div class="flow" role="img" aria-label="流水线：用户请求到带引用的答案">
-          <span class="flow-node">用户请求</span><span class="flow-arrow">→</span>
-          <span class="flow-node">轻量预扫</span><span class="flow-arrow">→</span>
-          <span class="flow-node">分析清单</span><span class="flow-arrow">→</span>
-          <span class="flow-node">调查</span><span class="flow-arrow">→</span>
-          <span class="flow-node">提炼</span><span class="flow-arrow">→</span>
-          <span class="flow-node">验收</span><span class="flow-arrow">→</span>
-          <span class="flow-node flow-node--accent">带引用的答案</span>
+          <span class="kicker">为什么可信</span>
+          <h2>为什么答案值得信</h2>
         </div>
         <div class="howit-cols">
           <div class="howit-card">
-            <h3>模型被限制在很窄的位置</h3>
-            <p>分析阶段只能轻量预扫，确认仓里有没有这个对象；它必须把问题写成结构化任务单，写不出来就停下。</p>
+            <h3>每条结论带 file:line 引用</h3>
+            <p>引用会与源码逐条核对，编造或对不上的引用进不了正文——你可以直接点开复核。</p>
           </div>
           <div class="howit-card">
-            <h3>调查、提炼、成稿彼此隔离</h3>
-            <p>调查只交事实，提炼只做判断，成稿只负责表达。没读到的文件，后面没有权限“脑补”进答案。</p>
+            <h3>读不到的不编</h3>
+            <p>只允许引用真正读过的文件；证据不足时明确说“仍缺证据”，不把不确定包装成确定。</p>
+          </div>
+          <div class="howit-card">
+            <h3>日志 / trace 是真解析</h3>
+            <p>panic 栈帧、trace 事件先被结构化提取、再对齐到仓内代码，不是当一段普通文本塞给模型。</p>
+          </div>
+          <div class="howit-card">
+            <h3>写模式永不直接碰主仓</h3>
+            <p>所有改动都发生在隔离的 git worktree 里，合回主仓永远需要你显式执行。</p>
           </div>
         </div>
         <div class="howit-more">
-          <a class="btn btn-ghost" href="./codrax_authoritative_guide.html">读懂内部六项技术 →</a>
+          <a class="btn btn-ghost" href="./codrax_authoritative_guide.html">了解它内部怎么工作 →</a>
         </div>
       </div>
     </section>
@@ -689,14 +725,14 @@
         <div class="section-head">
           <span class="kicker">快速上手</span>
           <h2>四步从零跑起来</h2>
-          <p>最快的方式是下载预编译发布包；想自己构建也只多一步。完整说明见使用手册。</p>
+          <p>克隆源码、一条 <code>make</code> 构建出二进制。完整说明见使用手册。</p>
         </div>
         <div class="steps">
           <div class="step">
             <div class="step-top"><span class="step-no">1</span><h3>获取 codrax</h3></div>
             <pre><code>git clone https://github.com/hanchaoqun/codrax.git
-cd codrax &amp;&amp; make   <span class="c"># 或到下载页取预编译包</span></code></pre>
-            <p>下载预编译发布包<strong>免构建、最省事</strong>；源码构建需要 CGO（macOS 先 <code>xcode-select --install</code>）。</p>
+cd codrax &amp;&amp; make   <span class="c"># 输出 ./codrax</span></code></pre>
+            <p>构建需要 CGO（macOS 先 <code>xcode-select --install</code>，Debian / Ubuntu 装 <code>gcc musl-tools</code>）。</p>
           </div>
           <div class="step">
             <div class="step-top"><span class="step-no">2</span><h3>加进 PATH</h3></div>
@@ -736,7 +772,7 @@ codrax                  <span class="c"># 再启动交互控制台</span></code>
           <a class="doc-card" href="./codrax_authoritative_guide.html">
             <div class="dc-eyebrow">通俗讲解</div>
             <h3>使用与技术说明</h3>
-            <p>四条上手路径、典型场景，以及用大白话讲清楚的内部六项技术。新人首选。</p>
+            <p>四条上手路径、八个典型使用场景的完整走读，以及一节内部机制速览。新人首选。</p>
             <span class="dc-go">开始阅读 →</span>
           </a>
           <a class="doc-card" href="./user_guide.html">
@@ -745,11 +781,11 @@ codrax                  <span class="c"># 再启动交互控制台</span></code>
             <p>安装、配置、两种模式、写模式全流程、CLI / REPL 命令参考与排错。</p>
             <span class="dc-go">查阅手册 →</span>
           </a>
-          <a class="doc-card" href="./download/index.html">
-            <div class="dc-eyebrow">获取</div>
-            <h3>下载安装</h3>
-            <p>各平台预编译二进制与构建说明，挑一个适合你系统的版本。</p>
-            <span class="dc-go">前往下载 →</span>
+          <a class="doc-card" href="https://github.com/hanchaoqun/codrax" target="_blank" rel="noopener">
+            <div class="dc-eyebrow">源码</div>
+            <h3>GitHub 仓库</h3>
+            <p>克隆源码、<code>make</code> 构建，报告问题与提建议也在这里。</p>
+            <span class="dc-go">前往仓库 →</span>
           </a>
         </div>
       </div>
@@ -766,7 +802,6 @@ codrax                  <span class="c"># 再启动交互控制台</span></code>
       <nav class="f-links" aria-label="页脚导航">
         <a href="./codrax_authoritative_guide.html">使用与技术说明</a>
         <a href="./user_guide.html">使用手册</a>
-        <a href="./download/index.html">下载</a>
         <a href="https://github.com/hanchaoqun/codrax" target="_blank" rel="noopener">GitHub</a>
       </nav>
       <div class="f-meta">CODRAX —— Code Of Deterministic Reasoning, Anchored eXplanation. 推理确定，解释锚定。</div>
