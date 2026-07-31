@@ -138,9 +138,7 @@ func mergeLogObservationProfile(out *ArtifactObservationProfile, bundle *LogBund
 	if out == nil || bundle == nil {
 		return
 	}
-	if summary := strings.TrimSpace(bundle.Meta.Summary); summary != "" && out.SymptomSummary == "" {
-		out.SymptomSummary = clampProfileSnippet(summary)
-	}
+	metaSummary := strings.TrimSpace(bundle.Meta.Summary)
 	for _, sig := range bundle.Meta.Signals {
 		kind := MakeLogSignalObservationKind(sig)
 		if kind == "" {
@@ -181,13 +179,16 @@ func mergeLogObservationProfile(out *ArtifactObservationProfile, bundle *LogBund
 		if kind := ObservationKindFromLogObservation(obs.Kind); kind != "" {
 			out.ObservationKinds = append(out.ObservationKinds, kind)
 		}
-		if out.SymptomSummary == "" {
-			out.SymptomSummary = clampProfileSnippet(obs.Summary)
-		}
 		if subject := strings.TrimSpace(obs.Subject); subject != "" {
 			out.SubjectCandidates = append(out.SubjectCandidates, subject)
 		}
 		evidence := strings.TrimSpace(firstNonEmptySurfaceString(obs.Evidence, obs.Summary))
+		if out.SymptomSummary == "" && evidence != "" {
+			// Prefer the artifact excerpt over the triager-authored synopsis.
+			// The latter is still available as an advisory LogObservation
+			// field, but cannot outrank the literal line as the profile fact.
+			out.SymptomSummary = clampProfileSnippet(evidence)
+		}
 		if obs.LineStart > 0 && evidence != "" {
 			if obs.LineEnd > obs.LineStart {
 				evidence = fmt.Sprintf("log_lines=%d-%d %s", obs.LineStart, obs.LineEnd, evidence)
@@ -209,6 +210,9 @@ func mergeLogObservationProfile(out *ArtifactObservationProfile, bundle *LogBund
 		case LogObservationTopicMismatch, LogObservationContractViolation:
 			out.HasCompletionRewrite = true
 		}
+	}
+	if out.SymptomSummary == "" && metaSummary != "" {
+		out.SymptomSummary = clampProfileSnippet(metaSummary)
 	}
 	for _, e := range bundle.Entities {
 		if e = strings.TrimSpace(e); e != "" {

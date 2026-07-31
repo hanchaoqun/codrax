@@ -3349,14 +3349,28 @@ func compileLogBundleObservations(bundle *LogBundle, add func(ObservationRecord)
 				LineStart: obs.LineStart,
 				LineEnd:   obs.LineEnd,
 			},
-			ClaimKey:   firstNonEmptyString(obs.Subject, string(obs.Kind)),
-			Subject:    strings.TrimSpace(obs.Subject),
-			Predicate:  string(obs.Kind),
-			Summary:    strings.TrimSpace(obs.Summary),
+			ClaimKey:  firstNonEmptyString(obs.Subject, string(obs.Kind)),
+			Subject:   strings.TrimSpace(obs.Subject),
+			Predicate: string(obs.Kind),
+			// The artifact excerpt is the observed fact. The LLM triager's
+			// summary is retained losslessly as an advisory note, but it must
+			// not become the principal ledger claim: a summary can contain a
+			// plausible interpretation of counter/progress/message semantics
+			// that the log text itself never established.
+			Summary:    firstNonEmptyString(strings.TrimSpace(obs.Evidence), strings.TrimSpace(obs.Summary)),
 			RawExcerpt: strings.TrimSpace(obs.Evidence),
+			RichNotes:  logObservationInterpretationNotes(obs),
 			Confidence: obs.Confidence,
 		})
 	}
+}
+
+func logObservationInterpretationNotes(obs LogObservation) []string {
+	summary := strings.TrimSpace(obs.Summary)
+	if summary == "" || summary == strings.TrimSpace(obs.Evidence) {
+		return nil
+	}
+	return []string{"triager_interpretation_advisory=" + summary}
 }
 
 func logErrorObservationRichNotes(err LogError) []string {

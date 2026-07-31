@@ -4054,8 +4054,9 @@ func formatLogTriageStructured(bundle *types.LogBundle, locator types.SymbolLoca
 	// treating unknown_chunks as a hidden evidence source.
 	if len(bundle.Observations) > 0 {
 		b.WriteString("### Operational observations\n\n")
-		b.WriteString("These are structured non-stack facts extracted from the log. " +
-			"They are runtime observations, not repo file:line citations by themselves. " +
+		b.WriteString("Each row separates observed artifact text from the triager's advisory interpretation. " +
+			"Only `observed_evidence` plus its artifact-local line span is a runtime fact; `triager_interpretation` is a search hypothesis that must not establish code mechanism, producer identity, counter meaning, or causality by itself. " +
+			"These rows are not repo file:line citations by themselves. " +
 			"When the current request asks whether an observed issue still exists, answer in two lanes: what the log observed, and what current code evidence proves now.\n\n")
 		for i, obs := range bundle.Observations {
 			fmt.Fprintf(&b, "  %d. kind=%s", i+1, obs.Kind)
@@ -4073,10 +4074,10 @@ func formatLogTriageStructured(bundle *types.LogBundle, locator types.SymbolLoca
 			if obs.Subject != "" {
 				fmt.Fprintf(&b, " subject=`%s`", obs.Subject)
 			}
-			fmt.Fprintf(&b, "\n     summary: %s\n", truncateForPrompt(obs.Summary, 240))
 			if obs.Evidence != "" {
-				fmt.Fprintf(&b, "     evidence: %s\n", truncateForPrompt(obs.Evidence, 240))
+				fmt.Fprintf(&b, "\n     observed_evidence: %s\n", truncateForPrompt(obs.Evidence, 240))
 			}
+			fmt.Fprintf(&b, "     triager_interpretation (advisory): %s\n", truncateForPrompt(obs.Summary, 240))
 		}
 		b.WriteString("Observation log_line/log_lines are artifact-local anchors from the attached log, not repository source citations.\n")
 		b.WriteString("\n")

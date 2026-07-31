@@ -1010,6 +1010,30 @@ func TestCompileObservationLedger_RuntimeArtifactProvenanceLanes(t *testing.T) {
 	}
 }
 
+func TestCompileObservationLedger_LogObservationKeepsInterpretationAdvisory(t *testing.T) {
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		LogBundle: &LogBundle{Observations: []LogObservation{{
+			Kind:       LogObservationRuntimeEvent,
+			Subject:    "render status",
+			Summary:    "4/4 means the fourth retry and controls finalizer",
+			Evidence:   "⟳ 4/4 model response error, rewriting",
+			LineStart:  4,
+			Diagnostic: true,
+			Confidence: 0.9,
+		}}},
+	})
+	record := findObservationRecord(t, ledger, "log:observation:0")
+	if record.Summary != "⟳ 4/4 model response error, rewriting" ||
+		record.RawExcerpt != "⟳ 4/4 model response error, rewriting" {
+		t.Fatalf("artifact excerpt must own the observed ledger fact: %+v", record)
+	}
+	if len(record.RichNotes) != 1 ||
+		!strings.Contains(record.RichNotes[0], "triager_interpretation_advisory=") ||
+		!strings.Contains(record.RichNotes[0], "fourth retry") {
+		t.Fatalf("triager interpretation must remain lossless but advisory: %+v", record.RichNotes)
+	}
+}
+
 func TestCompileObservationLedger_MergesDuplicateRuntimeLanesWithoutLosingStrongerLane(t *testing.T) {
 	ledger := CompileObservationLedger(ObservationLedgerInput{AggregateFacts: []AnswerAggregateFact{
 		{

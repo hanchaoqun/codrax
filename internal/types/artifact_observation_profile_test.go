@@ -39,6 +39,9 @@ func TestBuildArtifactObservationProfile_PreservesNonExceptionLogObservations(t 
 	if profile.DiagnosticConfidence < 0.91 {
 		t.Fatalf("DiagnosticConfidence = %.2f, want >= 0.91", profile.DiagnosticConfidence)
 	}
+	if profile.SymptomSummary != "retry #2 selected finalizer_only" {
+		t.Fatalf("literal observation evidence must outrank meta/triager synopsis, got %q", profile.SymptomSummary)
+	}
 }
 
 func TestBuildArtifactObservationProfile_PreservesErrorMessagesAsTypedEvidence(t *testing.T) {

@@ -48,3 +48,23 @@ func TestMechanicalProducerChainSeparationDirectiveSharedAndMechanismGated(t *te
 		}
 	}
 }
+
+func TestLogTriageComposedOutputInterpretationStaysAdvisory(t *testing.T) {
+	registry := NewRegistry()
+	RegisterDefaults(registry)
+	config, err := registry.Get("log-triage-skill")
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(append(append([]string{}, config.Workflow...), config.Prohibitions...), "\n")
+	for _, want := range []string{
+		"Evidence is the observed artifact text",
+		"Never infer the meaning or producer of a numeric prefix",
+		"progress ordinals, retry counters, status payloads",
+		"until current source establishes their data flow",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("log triage observation boundary missing %q", want)
+		}
+	}
+}

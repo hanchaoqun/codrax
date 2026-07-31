@@ -290,6 +290,9 @@ func TestFormatLogTriageStructured_OperationalObservationsRendered(t *testing.T)
 		"kind=line_mapping",
 		"diagnostic=true",
 		"line-number handling",
+		"observed_evidence: semantic reviewer reported",
+		"triager_interpretation (advisory):",
+		"must not establish code mechanism",
 		"two lanes: what the log observed, and what current code evidence proves now",
 	} {
 		if !strings.Contains(got, want) {
