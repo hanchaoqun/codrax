@@ -118,6 +118,10 @@ func compareProjApply(t *testing.T, bus *types.BusContext) *types.AnswerDocument
 func TestTraceProjectionMultiArtifactRendersPerArtifactSections(t *testing.T) {
 	got := compareProjApply(t, compareProjBus(true))
 
+	relation := projectionClusterBlock(got.Blocks, runtimeArtifactPairRelationAuthorityBlockID)
+	if relation == nil {
+		t.Fatalf("multi-artifact causal answer must retain the independent typed relation boundary: %+v", got.Blocks)
+	}
 	sectionA := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_a1")
 	sectionB := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_a2")
 	if sectionA == nil || sectionB == nil {

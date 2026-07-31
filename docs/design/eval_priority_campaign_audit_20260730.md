@@ -942,3 +942,32 @@ B5 r7 新增/更新 GAP：
 `B5-M/P0` 施工验证：新增 `RuntimeArtifactPairRelationAuthority`，只消费 accepted runtime-artifact observation 中的 deterministic `trace_query` producer、typed `artifact_id/path` 与 endpoint-local clock metadata。canonical preflight ID优先；兼容入口仍携带占位 `artifact_id=trace_query` 时，按既有 typed path identity fail-safe 分开，不再把不同路径折成一个工件。两个独立 endpoint 即使同为 `time_domain=trace_seconds`、`canonical_domain=trace_seconds`、`alignment=identity`，pair仍明确发布 `shared_clock_origin/direct_time_alignment/shared_device/shared_capture_session=unproven`；相同 domain只保留为 `same_*_label=true`，不能升级关系。
 
 finalizer 的 Observation Ledger 前新增共享 typed `Cross-Artifact Relation Authority` 段，明确 local identity不证明共同 clock origin，绝对时间戳相减只是一项数值 offset、不是校准后的采集间隔；该段由结构化 ledger生成，不读取 raw request、模型 thinking 或答案正文，也不做答案字符串拒绝/重写。单工件 ledger不发布 pair authority。真实 E2 两 trace 的六查询生产路径已固定：恰好生成两个 endpoint/一条 unproven pair，同时 generic comparison 仍无 publication-grade causal row、无 Trace 因果投影、无完整报告；显式窗正臂的既有 authority未变。`go test ./internal/types ./internal/agent ./internal/tool -count=1` 全包通过（types 18.089s、agent 2.533s、tool 160.768s）；`git diff --check` 通过。待提交推送并重建后严格 `parallel=2` 回放 B5 r8。
+
+### B5 r8 人工审计与批 N（2026-07-31）
+
+批 L `73eb2a71b`、批 M `bce716c6a` 推送并重建后，以严格 `parallel=2` 回放（sweep `20260731-085923`）：
+
+- 结果目录：
+  - `eval/results/real_trace_e2_cross_trace_asymmetry-20260731-085923`
+  - `eval/results/cangjie_repomap-20260731-085923`
+- runner 2/2 PASS；人工 Trace FAIL、Cangjie PASS。
+- Cangjie 已真实覆盖批 L：第一轮 source inventory 和最终答案均为 `extend=2`、`foreign func=2`、`public class=8`；`@Extend(Text) highlight` 未再进入裸 `extend` family，keyword 与 marker syntax form 已分席。最终一句 `public class has 8 item(s)` 是不改变事实/成员/引用的双语模型波动，按纪律不加生产硬门。
+- Trace 的 T11 继续正确：6 次 `trace_query`、零源码工具、零因果投影、零完整报告；覆盖时长、`cpu_frequency=90`、VSync 单边存在和 `31637s≈8.8h` 数值差均正确。
+- 但批 M 的 typed pair authority 虽已进入 finalizer prompt，模型仍把 `unproven` 写成“时间基准不相同”“不共享校准锚点”，并称联合分析“必须以数值偏移修正为前提”。证据只能证明当前没有共同校准/session/device anchor，不能证明同或不同；裸时间戳差也不是校准变换。由此确认 T7 不是 prompt 缺字，而是 prompt-only authority 没有最终确定性发布席。
+
+B5 r8 GAP 更新：
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B5-S10 | P0 | Parser 语法表面身份 | keyword 与 marker/decorator 共用裸 kind family | r8 精确 2/2/8，marker row 未污染 keyword 清单 | covered |
+| EVAL-B5-T7 | P0 | 跨工件关系最终发布 | typed pair authority 只作为模型提示；模型可忽略 `unproven`，accepted document没有确定性 pair-level席位 | 从同一 typed pair authority在统一 document mutation choke point发布有界系统表；逐对显示 shared clock/direct alignment/device/session=`unproven`，解释 local identity与数值 offset边界；不扫描或改写题面/答案 | 批 N 已施工，待回放 |
+| EVAL-INFRA-3 | P1 | Inventory exact-count oracle | runner仍可能在 extra row 时 false PASS | 批 L 产品回放已正确，但 eval 判决力缺口不因此消失；后续独立补 typed visible-rowset receipt | filed |
+
+批 N 不变量：
+
+1. 触发条件只读 accepted deterministic runtime observations 的 typed artifact identity 与 pair authority；禁止读取 raw request、case/path特例、模型 thinking或最终答案原文。
+2. `unproven` 必须明确表示“未证明相同也未证明不同”，不能渲染为“不同”；相同 local domain label、两端 `alignment=identity` 和数值 timestamp offset均只作为证据边界。
+3. pair relation block 与 causal report gate相互独立：generic comparison只增加关系边界，不获得 Trace 因果投影；显式时间窗或 publication-grade causal row仍可同时获得关系边界、因果投影、根因排序、唤醒链、窗内可消除量及自动补齐。
+4. 单工件不发布 pair block；多工件按稳定顺序有界显示，模型伪造同名 block ID不能压制系统块；重复 mutation幂等。
+
+`B5-N/P0` 施工验证：统一 `persistMergedAnswerDocument` choke point从既有 `RuntimeArtifactPairRelationAuthority` 直接构造系统 table，不读取 `RawRequest`、case、路径特例、模型思考或答案正文。表内每对分别发布 shared clock origin、direct time alignment、same device、same capture session四席状态，并将 `unproven` 确定性解释为“未证明相同也未证明不同”；相同 local time-domain label、两端 identity和数值 offset只进入证据边界。单工件负例、双工件中英文/幂等、模型保留 ID碰撞、真实 E2 六查询 generic comparison及多工件 publication-grade causal projection共存均已固定。generic E2只增加关系表，仍无因果投影/完整报告；因果正臂仍同时保留每工件 projection sections。`go test ./internal/types ./internal/agent ./internal/tool -count=1` 全包通过（types 18.937s、agent 3.313s、tool 167.200s）；`git diff --check` 通过。待提交推送、重建并严格 `parallel=2` 回放 B5 r9。

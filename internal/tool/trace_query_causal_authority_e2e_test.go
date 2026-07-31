@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -129,8 +130,17 @@ func TestTraceCausalPublicationAuthorityGenericCrossArtifactCoverageQuery(t *tes
 	); err != nil {
 		t.Fatalf("persist generic comparison answer: %v", err)
 	}
+	relationBlock := projectionClusterBlock(doc.Blocks, runtimeArtifactPairRelationAuthorityBlockID)
+	if relationBlock == nil {
+		t.Fatalf("generic cross-artifact comparison must publish the typed pair relation boundary: %+v", doc.Blocks)
+	}
+	if got := types.AnswerBlockVisibleSurface(*relationBlock); !strings.Contains(got, "未证明") ||
+		!strings.Contains(got, "identity") ||
+		!strings.Contains(got, "不能证明共享时钟源") {
+		t.Fatalf("pair relation block lost the fail-closed authority wording:\n%s", got)
+	}
 	for _, block := range doc.Blocks {
-		if RuntimeTraceSystemBlock(block) {
+		if RuntimeTraceSystemBlock(block) && block.ID != runtimeArtifactPairRelationAuthorityBlockID {
 			t.Fatalf("generic cross-artifact coverage query gained unrelated runtime report block %q", block.ID)
 		}
 	}

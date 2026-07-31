@@ -169,6 +169,9 @@ func persistMergedAnswerDocument(
 	if materializeRuntimeTraceVsyncAuthorityCaveat(merged, ctx) {
 		logging.Info("[%s] materialized runtime trace vsync period authority caveat", toolName)
 	}
+	if materializeRuntimeArtifactPairRelationAuthorityBlock(merged, ctx) {
+		logging.Info("[%s] materialized typed cross-artifact relation authority", toolName)
+	}
 	if materializeRuntimeTraceCausalProjectionBlock(merged, ctx) {
 		logging.Info("[%s] materialized runtime trace causal projection from structured trace observations", toolName)
 	}
@@ -749,8 +752,9 @@ func normalizeMergedDiagramPayloadKinds(doc *types.AnswerDocumentV2) int {
 // degrade below key on these exact spellings (F2, adversarial review
 // 2026-07-04) — keep construction and guard in lockstep via the constants.
 const (
-	runtimeTraceCausalProjectionBlockIDBase    = "runtime_trace_causal_projection"
-	runtimeTraceCausalProjectionCompareBlockID = runtimeTraceCausalProjectionBlockIDBase + "_compare"
+	runtimeTraceCausalProjectionBlockIDBase     = "runtime_trace_causal_projection"
+	runtimeTraceCausalProjectionCompareBlockID  = runtimeTraceCausalProjectionBlockIDBase + "_compare"
+	runtimeArtifactPairRelationAuthorityBlockID = "runtime_artifact_pair_relation_authority"
 	// runtimeTraceCausalProjectionCompareNotesBlockID (PTV8-LAD L6, 2026-07-08)
 	// is the overview's 对比注记明细 sibling — emitted ONLY when the layered
 	// table notes fold past the visible cap (the full set must stay reachable
@@ -838,7 +842,8 @@ func RuntimeTraceSystemBlockID(id string) bool {
 	case "runtime_trace_facts",
 		"runtime_trace_semantic_optimizations",
 		"runtime_trace_metric_snapshot",
-		"runtime_trace_perf_quality":
+		"runtime_trace_perf_quality",
+		runtimeArtifactPairRelationAuthorityBlockID:
 		return true
 	}
 	for _, base := range []string{
@@ -8301,6 +8306,8 @@ func runtimeTraceReportHierarchyTier(block types.AnswerBlock) int {
 		case id == runtimeTraceCausalProjectionPartitionBlockID || block.Kind == types.BlockCaveat:
 			return 9
 		case id == runtimeTraceCausalProjectionCompareBlockID || runtimeTraceCausalProjectionStandaloneLeadBlockID(id):
+			return 1
+		case id == runtimeArtifactPairRelationAuthorityBlockID:
 			return 1
 		case runtimeTraceCausalProjectionMetricBlockID(id):
 			// §29.10-3 (审计 #63 回裁): the key-metric table shares its lead's
