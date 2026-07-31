@@ -54,6 +54,12 @@ func TestTargetWindowStateAccountPartitionLanes(t *testing.T) {
 	if math.Abs(account.WindowMs-100) > 1e-6 {
 		t.Fatalf("WindowMs must be the window length: %+v", account)
 	}
+	if account.WaitOccurrenceStatus != "complete" ||
+		account.WaitOccurrenceTotal != 2 ||
+		account.WaitOccurrenceEmitted != 2 ||
+		len(account.WaitOccurrences) != 2 {
+		t.Fatalf("D/io wait intervals must publish as a complete occurrence roster: %+v", account)
+	}
 	// No stats → no deterministic-running claim (absence never guesses).
 	if account.DeterministicRunningMs != 0 {
 		t.Fatalf("without a span population the deterministic lane must stay 0: %+v", account)
@@ -61,6 +67,45 @@ func TestTargetWindowStateAccountPartitionLanes(t *testing.T) {
 	// ok=false (no target / no window) builds nothing.
 	if got := buildTargetWindowStateAccount(nil, TimelineResult{}, false, tl.Thread, window, nil); got != nil {
 		t.Fatalf("an absent timeline must build no account: %+v", got)
+	}
+}
+
+func TestTargetWindowWaitOccurrencesAreChronologicalAndBounded(t *testing.T) {
+	var intervals []Interval
+	for i := targetWindowWaitOccurrenceCap; i >= 0; i-- {
+		start := 100.0 + float64(i)*0.001
+		intervals = append(intervals, Interval{
+			Thread: ThreadRef{Comm: "ui", PID: 61},
+			State:  StateIOWait, StartTs: start, EndTs: start + 0.0005, DurationMs: 0.5,
+			StartLine: i + 1, EndLine: i + 2,
+			BlockedReasonCaller: "wait_fn", BlockedReasonLine: 1000 + i,
+			BlockedReasonIOWait: 1, BlockedReasonIOWaitKnown: true,
+		})
+	}
+	account := buildTargetWindowStateAccount(
+		nil,
+		cov4Timeline(intervals),
+		true,
+		ThreadRef{Comm: "ui", PID: 61},
+		TimeWindow{StartTs: 100.0, EndTs: 100.1},
+		nil,
+	)
+	if account == nil {
+		t.Fatal("bounded occurrence fixture must build an account")
+	}
+	if account.WaitOccurrenceStatus != "incomplete" ||
+		account.WaitOccurrenceTotal != targetWindowWaitOccurrenceCap+1 ||
+		account.WaitOccurrenceEmitted != targetWindowWaitOccurrenceCap ||
+		len(account.WaitOccurrences) != targetWindowWaitOccurrenceCap {
+		t.Fatalf("occurrence cap disclosure drifted: %+v", account)
+	}
+	for i, occurrence := range account.WaitOccurrences {
+		if occurrence.Ordinal != i+1 {
+			t.Fatalf("occurrence ordinal %d = %d", i, occurrence.Ordinal)
+		}
+		if i > 0 && occurrence.StartTs < account.WaitOccurrences[i-1].StartTs {
+			t.Fatalf("occurrence roster is not chronological: %+v", account.WaitOccurrences)
+		}
 	}
 }
 

@@ -1,6 +1,9 @@
 package tracequery
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 // target_window_state_account.go — §29.27 ruling ② (COV-4, ledger
 // docs/design/real_trace_campaign_20260705.md, user ruling 2026-07-11): the
@@ -86,7 +89,38 @@ type TargetWindowStateAccount struct {
 	FragmentCount int     `json:"fragment_count,omitempty"`
 	LineStart     int     `json:"line_start,omitempty"`
 	LineEnd       int     `json:"line_end,omitempty"`
+	// WaitOccurrences is the bounded, chronologically ordered roster of the
+	// focused thread's D/io-wait intervals. It is built from the SAME
+	// timeline intervals and interval-local blocked_reason enrichment as the
+	// aggregate lanes; consumers must not reconstruct occurrence duration by
+	// subtracting unrelated scheduler rows. S-state rows enter only when the
+	// interval carries a proven iowait=1 marker (Harmony platform form).
+	WaitOccurrences       []TargetWindowStateOccurrence `json:"wait_occurrences,omitempty"`
+	WaitOccurrenceTotal   int                           `json:"wait_occurrence_total,omitempty"`
+	WaitOccurrenceEmitted int                           `json:"wait_occurrence_emitted,omitempty"`
+	WaitOccurrenceStatus  string                        `json:"wait_occurrence_status,omitempty"`
 }
+
+// TargetWindowStateOccurrence is one engine-paired target wait interval.
+// DurationMs is the clamped interval wall clock and Start/End are its exact
+// scheduler boundaries. State=s_sleep plus IOWait=true is the Harmony
+// sleep-side IO refinement; state=d_sleep/io_wait belongs to the D family.
+type TargetWindowStateOccurrence struct {
+	Ordinal       int         `json:"ordinal"`
+	State         ThreadState `json:"state"`
+	StartTs       float64     `json:"start_ts"`
+	EndTs         float64     `json:"end_ts"`
+	DurationMs    float64     `json:"duration_ms"`
+	StartLine     int         `json:"start_line,omitempty"`
+	EndLine       int         `json:"end_line,omitempty"`
+	IOWait        bool        `json:"io_wait,omitempty"`
+	IOWaitKnown   bool        `json:"io_wait_known,omitempty"`
+	Caller        string      `json:"caller,omitempty"`
+	ReasonLine    int         `json:"reason_line,omitempty"`
+	WindowClamped bool        `json:"window_clamped,omitempty"`
+}
+
+const targetWindowWaitOccurrenceCap = 32
 
 // windowStateAccountLane maps a timeline interval state to the account's
 // published lane token (the JSON field family running/runnable/sleep/
@@ -222,15 +256,64 @@ func buildTargetWindowStateAccount(idx *Index, tl TimelineResult, ok bool, targe
 		// The shared blocked-reason matcher owns the closing-boundary tolerance;
 		// this caller passes the physical interval unchanged so the allowance is
 		// exactly 5µs rather than accidentally doubled.
-		if idx != nil && it.State == StateSSleep && it.DurationMs > 0 {
-			if reason := matchBlockedReasonForWithSelectionAtClosure(idx, Query{TimeStart: window.StartTs, TimeEnd: window.EndTs}, target, it.StartTs, it.EndTs, nil, false, it.EndLine > 0).Event; reason != nil && reason.IOWait > 0 {
-				account.SleepIOWaitMs += it.DurationMs
-			}
+		if it.State == StateSSleep && it.DurationMs > 0 &&
+			it.BlockedReasonIOWaitKnown && it.BlockedReasonIOWait > 0 {
+			account.SleepIOWaitMs += it.DurationMs
 		}
 	}
+	account.WaitOccurrences = targetWindowWaitOccurrences(tl.Intervals)
+	account.WaitOccurrenceTotal = len(account.WaitOccurrences)
+	if account.WaitOccurrenceTotal > targetWindowWaitOccurrenceCap {
+		account.WaitOccurrences = account.WaitOccurrences[:targetWindowWaitOccurrenceCap]
+		account.WaitOccurrenceStatus = "incomplete"
+	} else {
+		account.WaitOccurrenceStatus = "complete"
+	}
+	account.WaitOccurrenceEmitted = len(account.WaitOccurrences)
 	account.DeterministicRunningMs = targetSemanticRunningMs(stats, target, window, running)
 	stampWindowStateBoundaryFolds(account, tl)
 	return account
+}
+
+func targetWindowWaitOccurrences(intervals []Interval) []TargetWindowStateOccurrence {
+	out := make([]TargetWindowStateOccurrence, 0)
+	for _, it := range intervals {
+		if it.DurationMs <= 0 {
+			continue
+		}
+		isDWait := it.State == StateDSleep || it.State == StateIOWait
+		isSleepIOWait := it.State == StateSSleep &&
+			it.BlockedReasonIOWaitKnown && it.BlockedReasonIOWait > 0
+		if !isDWait && !isSleepIOWait {
+			continue
+		}
+		out = append(out, TargetWindowStateOccurrence{
+			State:         it.State,
+			StartTs:       it.StartTs,
+			EndTs:         it.EndTs,
+			DurationMs:    it.DurationMs,
+			StartLine:     it.StartLine,
+			EndLine:       it.EndLine,
+			IOWait:        it.BlockedReasonIOWaitKnown && it.BlockedReasonIOWait > 0,
+			IOWaitKnown:   it.BlockedReasonIOWaitKnown,
+			Caller:        strings.TrimSpace(it.BlockedReasonCaller),
+			ReasonLine:    it.BlockedReasonLine,
+			WindowClamped: it.WindowClamped(),
+		})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].StartTs != out[j].StartTs {
+			return out[i].StartTs < out[j].StartTs
+		}
+		if out[i].EndTs != out[j].EndTs {
+			return out[i].EndTs < out[j].EndTs
+		}
+		return out[i].StartLine < out[j].StartLine
+	})
+	for i := range out {
+		out[i].Ordinal = i + 1
+	}
+	return out
 }
 
 // targetSemanticRunningMs computes union(target semantic-span member

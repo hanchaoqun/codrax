@@ -1941,7 +1941,7 @@ func TestPrioritizeObservationRecords_RuntimeTargetFactsSurviveBackgroundBudget(
 		Thread: "com.baidu.tieba",
 		Source: "user_explicit",
 	}}}
-	records := make([]ObservationRecord, 0, 42)
+	records := make([]ObservationRecord, 0, 46)
 	for i := 0; i < 40; i++ {
 		records = append(records, ObservationRecord{
 			ID:        fmt.Sprintf("background:%d", i),
@@ -1952,6 +1952,7 @@ func TestPrioritizeObservationRecords_RuntimeTargetFactsSurviveBackgroundBudget(
 			Summary:   "background runtime row",
 		})
 	}
+	censusCount := 3
 	records = append(records,
 		ObservationRecord{
 			ID: "target-state", Origin: AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
@@ -1960,15 +1961,29 @@ func TestPrioritizeObservationRecords_RuntimeTargetFactsSurviveBackgroundBudget(
 		ObservationRecord{
 			ID: "target-census", Origin: AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
 			Subject: "renamed-main-59566", Predicate: "blocked_reason_census", Value: "3",
+			ResultCount: &censusCount, Summary: "blocked reason census",
 		},
 	)
+	occurrenceCount := 3
+	records = append(records, ObservationRecord{
+		ID: "target-occurrence-set", Origin: AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+		Subject: "com.baidu.tieba-59566", Predicate: "target_window_wait_occurrences",
+		Value: "3", ResultCount: &occurrenceCount, Summary: "complete occurrence roster",
+	})
+	for i := 1; i <= 3; i++ {
+		records = append(records, ObservationRecord{
+			ID: fmt.Sprintf("target-occurrence-%d", i), Origin: AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+			Subject: "com.baidu.tieba-59566", Predicate: "target_window_wait_occurrence",
+			Value: "0.1", Unit: "ms", Summary: fmt.Sprintf("occurrence %d", i),
+		})
+	}
 	got := PrioritizeObservationRecords(records, &rm, nil, 4)
 	ids := map[string]bool{}
 	for _, record := range got {
 		ids[record.ID] = true
 	}
-	if !ids["target-state"] || !ids["target-census"] {
-		t.Fatalf("typed target facts were crowded out by background rows: %+v", got)
+	if !ids["target-state"] || !ids["target-census"] || !ids["target-occurrence-set"] {
+		t.Fatalf("typed target account/census/set facts were crowded out by background or leaf rows: %+v", got)
 	}
 
 	// A model exploration cursor is not user intent and receives no boost.

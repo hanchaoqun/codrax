@@ -67,6 +67,34 @@ func TestEvalcaseXAC2WholeArtifactTargetStateAccount(t *testing.T) {
 	if math.Abs(account.DStateMs) > 0.001 {
 		t.Fatalf("all three proven iowait fragments must stay out of non-IO D-state: %+v", account)
 	}
+	if account.WaitOccurrenceStatus != "complete" ||
+		account.WaitOccurrenceTotal != 3 ||
+		account.WaitOccurrenceEmitted != 3 ||
+		len(account.WaitOccurrences) != 3 {
+		t.Fatalf("target wait occurrence roster must be complete 3/3: %+v", account)
+	}
+	wantStarts := []float64{34579.451701, 34579.452934, 34579.471372}
+	wantDurations := []float64{0.138, 0.147, 0.350}
+	// Index coordinates are zero-based; the tool's artifact-local display
+	// renders these as fixture lines 119/251/2534.
+	wantReasonLines := []int{118, 250, 2533}
+	var occurrenceSum float64
+	for i, occurrence := range account.WaitOccurrences {
+		if occurrence.Ordinal != i+1 ||
+			occurrence.State != StateIOWait ||
+			!occurrence.IOWaitKnown ||
+			!occurrence.IOWait ||
+			!strings.HasPrefix(occurrence.Caller, "sync_buffer_read_wi+") ||
+			math.Abs(occurrence.StartTs-wantStarts[i]) > 0.000001 ||
+			math.Abs(occurrence.DurationMs-wantDurations[i]) > 0.001 ||
+			occurrence.ReasonLine != wantReasonLines[i] {
+			t.Fatalf("target wait occurrence %d drifted: %+v", i+1, occurrence)
+		}
+		occurrenceSum += occurrence.DurationMs
+	}
+	if math.Abs(occurrenceSum-account.IOWaitMs) > 0.001 {
+		t.Fatalf("occurrence Σ %.6f must equal target io_wait total %.6f", occurrenceSum, account.IOWaitMs)
+	}
 }
 
 // XA-L3 census + XA-L2 ghost-owner precondition, on the unbounded pairing.

@@ -573,6 +573,10 @@ var threadStateComparisonSiteGolden = map[string]string{
 	// refinement (S sleeps pairing iowait>0 blocked_reason markers; the
 	// interval stays S — single attribution, no lane reclassifies).
 	"target_window_state_account.go:buildTargetWindowStateAccount": "running,s_sleep#2",
+	// EVAL-B1-R10 (2026-07-30): the typed target-window occurrence roster
+	// publishes only the two blocking lanes plus Harmony's S+iowait overlay.
+	// This is an evidence carrier, not a second state-account calculation.
+	"target_window_state_account.go:targetWindowWaitOccurrences": "s_sleep,d_sleep,io_wait#3",
 	// P0-E §20 merge caliber + §20.2 deficit attribution (2026-07-07): the
 	// exported effective helpers now use exhaustive state switches pinned by
 	// the switch-site census; the remaining explicit comparisons stay below.

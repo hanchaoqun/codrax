@@ -1357,6 +1357,15 @@ type Interval struct {
 	WakeupLine       int     `json:"wakeup_line,omitempty"`
 	PrevStateRaw     string  `json:"prev_state_raw,omitempty"`
 	Summary          string  `json:"summary,omitempty"`
+	// BlockedReason* is the interval-local result of the ONE scheduler
+	// enrichment pass. It prevents downstream target-account/publication
+	// consumers from rescanning raw events or pairing a wait with a later
+	// sched-in boundary. Ambiguous/missing matches leave the fields empty;
+	// IOWaitKnown distinguishes a proven 0 from unknown.
+	BlockedReasonCaller      string `json:"blocked_reason_caller,omitempty"`
+	BlockedReasonLine        int    `json:"blocked_reason_line,omitempty"`
+	BlockedReasonIOWait      int32  `json:"blocked_reason_io_wait,omitempty"`
+	BlockedReasonIOWaitKnown bool   `json:"blocked_reason_io_wait_known,omitempty"`
 }
 
 // WindowClamped reports whether the query window cut this interval: the

@@ -2298,6 +2298,12 @@ func enrichBlockedReasonIntervalsWithSelection(idx *Index, q Query, target Threa
 			ambiguousIntervals++
 			continue
 		}
+		if reason := match.Physical; reason != nil {
+			intervals[i].BlockedReasonCaller = firstNonEmpty(reason.Reason, reason.FieldText, "unknown")
+			intervals[i].BlockedReasonLine = reason.Line
+			intervals[i].BlockedReasonIOWait = reason.IOWait
+			intervals[i].BlockedReasonIOWaitKnown = reason.BlockedReasonIOWaitKnown
+		}
 		if intervals[i].State != StateDSleep {
 			continue
 		}

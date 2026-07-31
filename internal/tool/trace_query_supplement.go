@@ -417,7 +417,9 @@ func traceSupplementViewFamilyCensus(result types.ToolResult) types.TraceSupplem
 			predicate == "wakeup_causal_impact" || predicate == "wakeup_causal_aggregate" ||
 			predicate == "wakeup_edge_census":
 			census.WakeupChainRows++
-		case predicate == "target_window_states":
+		case predicate == "target_window_states" ||
+			predicate == "target_window_wait_occurrences" ||
+			predicate == "target_window_wait_occurrence":
 			census.TargetStateRows++
 		case predicate == "critical_blocking":
 			census.CriticalBlockingRows++

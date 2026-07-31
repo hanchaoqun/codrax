@@ -260,6 +260,13 @@ func observationRecordRankForRequest(record ObservationRecord, intent *AnswerInt
 	rank := observationRecordRank(record, intent)
 	if observationRecordMatchesUserRuntimeTarget(record, rm) {
 		rank -= 500
+		// A typed ResultCount marks a compact target set/census authority.
+		// Keep it ahead of the same target's individual leaf rows under a
+		// tight prompt budget; otherwise early occurrences can crowd out the
+		// completeness/count record needed to interpret them.
+		if record.ResultCount != nil {
+			rank -= 45
+		}
 	}
 	return rank
 }

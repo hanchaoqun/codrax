@@ -7972,6 +7972,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				ObservedAt:  at,
 				Confidence:  0.8,
 			})
+			out = append(out, traceQueryTargetWindowWaitOccurrenceObservations(account, subject, ref, scope, at)...)
 		}
 	}
 
@@ -8895,6 +8896,132 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	}
 
 	return traceQueryApplyArtifactProvenance(result, out)
+}
+
+func traceQueryTargetWindowWaitOccurrenceObservations(
+	account *tracequery.TargetWindowStateAccount,
+	subject string,
+	ref types.ObservationSourceRef,
+	scope string,
+	at string,
+) []types.ObservationRecord {
+	if account == nil || strings.TrimSpace(subject) == "" ||
+		strings.TrimSpace(account.WaitOccurrenceStatus) == "" {
+		return nil
+	}
+	total := account.WaitOccurrenceTotal
+	lineStart, lineEnd := account.LineStart, account.LineEnd
+	if len(account.WaitOccurrences) > 0 {
+		lineStart, lineEnd = account.WaitOccurrences[0].StartLine, account.WaitOccurrences[0].EndLine
+		for _, occurrence := range account.WaitOccurrences {
+			if lineStart <= 0 || (occurrence.StartLine > 0 && occurrence.StartLine < lineStart) {
+				lineStart = occurrence.StartLine
+			}
+			if occurrence.EndLine > lineEnd {
+				lineEnd = occurrence.EndLine
+			}
+			if occurrence.ReasonLine > lineEnd {
+				lineEnd = occurrence.ReasonLine
+			}
+		}
+	}
+	var roster []string
+	for _, occurrence := range account.WaitOccurrences {
+		iowait := "unknown"
+		if occurrence.IOWaitKnown {
+			iowait = "0"
+			if occurrence.IOWait {
+				iowait = "1"
+			}
+		}
+		roster = append(roster, fmt.Sprintf(
+			"#%d state=%s %.6f..%.6f duration=%.3fms iowait=%s caller=%s lines=%d-%d reason_line=%d",
+			occurrence.Ordinal, occurrence.State, occurrence.StartTs, occurrence.EndTs,
+			occurrence.DurationMs, iowait, firstNonEmptyTraceString(occurrence.Caller, "unknown"),
+			occurrence.StartLine, occurrence.EndLine, occurrence.ReasonLine,
+		))
+	}
+	summary := fmt.Sprintf(
+		"target_window_wait_occurrences %s status=%s emitted=%d total=%d",
+		subject, account.WaitOccurrenceStatus, account.WaitOccurrenceEmitted, account.WaitOccurrenceTotal,
+	)
+	if len(roster) > 0 {
+		summary += " roster=[" + strings.Join(roster, "; ") + "]"
+	}
+	setRecord := types.ObservationRecord{
+		ID:              fmt.Sprintf("trace_query:%s#target_window_wait_occurrences", scope),
+		Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            types.AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: types.ClaimGroundingHard,
+		ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
+		SourceRef:       ref,
+		Span: types.ObservationSpan{
+			LineStart: lineStart,
+			LineEnd:   lineEnd,
+			StartTs:   account.Window.StartTs,
+			EndTs:     account.Window.EndTs,
+		},
+		ClaimKey:    "target_window_wait_occurrences:" + subject,
+		Subject:     subject,
+		Predicate:   "target_window_wait_occurrences",
+		Object:      account.WaitOccurrenceStatus,
+		Value:       strconv.Itoa(account.WaitOccurrenceEmitted),
+		Unit:        "occurrences",
+		ResultCount: &total,
+		Summary:     summary,
+		SupportRefs: traceQueryObservationSupportRefs(ref, lineStart, lineEnd),
+		ObservedAt:  at,
+		Confidence:  0.95,
+	}
+	out := []types.ObservationRecord{setRecord}
+	for _, occurrence := range account.WaitOccurrences {
+		occurrenceEndLine := occurrence.EndLine
+		if occurrence.ReasonLine > occurrenceEndLine {
+			occurrenceEndLine = occurrence.ReasonLine
+		}
+		iowait := "unknown"
+		if occurrence.IOWaitKnown {
+			iowait = "0"
+			if occurrence.IOWait {
+				iowait = "1"
+			}
+		}
+		object := fmt.Sprintf(
+			"state=%s;iowait=%s;caller=%s;reason_line=%d",
+			occurrence.State, iowait, firstNonEmptyTraceString(occurrence.Caller, "unknown"), occurrence.ReasonLine,
+		)
+		out = append(out, types.ObservationRecord{
+			ID:              fmt.Sprintf("trace_query:%s#target_window_wait_occurrence:%d", scope, occurrence.Ordinal),
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: types.ClaimGroundingHard,
+			ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
+			SourceRef:       ref,
+			Span: types.ObservationSpan{
+				LineStart: occurrence.StartLine,
+				LineEnd:   occurrenceEndLine,
+				StartTs:   occurrence.StartTs,
+				EndTs:     occurrence.EndTs,
+			},
+			ClaimKey:  fmt.Sprintf("target_window_wait_occurrence:%s:%d", subject, occurrence.Ordinal),
+			Subject:   subject,
+			Predicate: "target_window_wait_occurrence",
+			Object:    object,
+			Value:     traceQueryObservationMSValue(occurrence.DurationMs),
+			Unit:      "ms",
+			Summary:   roster[occurrence.Ordinal-1],
+			SupportRefs: traceQueryObservationSupportRefs(
+				ref,
+				occurrence.StartLine,
+				occurrenceEndLine,
+			),
+			ObservedAt: at,
+			Confidence: 0.95,
+		})
+	}
+	return out
 }
 
 // traceQueryApplyArtifactProvenance keeps the tracebundle path as the capture
@@ -11316,6 +11443,7 @@ func traceQueryTypedBlockedReasonCensusObservations(stats tracequery.WindowStats
 		if c.CallerOverflow > 0 {
 			overflow = fmt.Sprintf("%d", c.CallerOverflow)
 		}
+		count := c.Count
 		notes := traceQueryTypedKVNotes([][2]string{
 			{types.TraceNoteKeyBlockedReasonCensus, census},
 			{types.TraceNoteKeyBlockedReasonCensusOverflow, overflow},
@@ -11334,6 +11462,7 @@ func traceQueryTypedBlockedReasonCensusObservations(stats tracequery.WindowStats
 			Predicate:       "blocked_reason_census",
 			Object:          "blocked_reason",
 			Value:           fmt.Sprintf("%d", c.Count),
+			ResultCount:     &count,
 			Summary:         fmt.Sprintf("blocked_reason_census %s total=%d callers=%s", thread, c.Count, census),
 			RichNotes:       notes,
 			SupportRefs:     traceQueryObservationSupportRefs(ref, 0, 0),
