@@ -136,9 +136,16 @@ func TestTraceSupplementExplainMechanismStateFactUsesNarrowFamilies(t *testing.T
 	}
 
 	ctx.AnalysisIR.RequestModel.DiagnosticProfile.IsDiagnostic = true
+	windowStart, windowEnd := 34579.45, 34579.50
+	ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile = &types.RuntimeArtifactScopeProfile{
+		RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
+		TimeStart:      &windowStart,
+		TimeEnd:        &windowEnd,
+		SourceQuote:    "34579.45..34579.50",
+	}
 	got := traceSupplementViewsForRequest(ctx, traceSupplementFamilyPresence{}, false, false)
 	if len(got) != 2 || got[0] != "root_cause_rank" || got[1] != "critical_blocking_calls" {
-		t.Fatalf("diagnostic explain/mechanism must retain causal families, got %v", got)
+		t.Fatalf("explicit-window diagnostic explain/mechanism must retain causal supplement families, got %v", got)
 	}
 }
 

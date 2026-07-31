@@ -126,8 +126,15 @@ func TestTraceQueryObservationSupplementUsesFocusedRuntimeFactAuthority(t *testi
 	diagnostic := ptv7SpnSupplementContext([]types.ObservationRecord{record})
 	diagnostic.AnalysisIR = &types.AnalysisIR{RequestModel: focused.AnalysisIR.RequestModel}
 	diagnostic.AnalysisIR.RequestModel.Predicates.IsDiagnosticQuestion = true
+	windowStart, windowEnd := 3.0, 3.2
+	diagnostic.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile = &types.RuntimeArtifactScopeProfile{
+		RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
+		TimeStart:      &windowStart,
+		TimeEnd:        &windowEnd,
+		SourceQuote:    "3.0..3.2",
+	}
 	if got := renderTraceQueryObservationSupplement(diagnostic, doc, "zh"); !strings.Contains(got, "state_drilldown") {
-		t.Fatalf("diagnostic runtime question must retain the raw observation supplement:\n%s", got)
+		t.Fatalf("explicit-window diagnostic runtime question must retain the raw observation supplement:\n%s", got)
 	}
 
 	call := ptv7SpnSupplementContext([]types.ObservationRecord{record})
