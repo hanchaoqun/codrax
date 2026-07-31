@@ -603,6 +603,11 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}) {
 		return b.String()
 	}
+	if !trace.appendSection(&b, "mechanism_relation_authority", func() string {
+		return renderAnswerDocMechanismRelationAuthority(ctx)
+	}) {
+		return b.String()
+	}
 	if !trace.appendSection(&b, "runtime_grounding_disposition", func() string {
 		return renderAnswerDocRuntimeGroundingDisposition(ctx)
 	}) {
@@ -5284,6 +5289,156 @@ func renderAnswerDocRelationSurfaceHandoff(ctx *types.AgentContext) string {
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+type answerDocMechanismRelationEdge struct {
+	from string
+	to   string
+	loc  string
+}
+
+func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.AnalysisIR == nil || !answerDocMechanismRelationAuthorityApplies(ctx.AnalysisIR.RequestModel) {
+		return ""
+	}
+	evidence := answerDocTypedEnrichmentEvidencePool(ctx, answerDocMaxEnrichmentCandidateFacts)
+	acceptedFacts := 0
+	callsiteFacts := 0
+	edges := make([]answerDocMechanismRelationEdge, 0)
+	seenEdges := map[string]bool{}
+	for _, item := range evidence {
+		if !answerDocGroundedCurrentSourceMechanismFact(item) {
+			continue
+		}
+		acceptedFacts++
+		if item.AnchorKind != types.AnchorCall {
+			continue
+		}
+		callsiteFacts++
+		from := strings.TrimSpace(item.Subject)
+		to := strings.TrimSpace(item.Object)
+		if from == "" || to == "" || strings.EqualFold(from, to) {
+			continue
+		}
+		key := strings.ToLower(from + "\x00" + to + "\x00" + item.DisplayLocation(true))
+		if seenEdges[key] {
+			continue
+		}
+		seenEdges[key] = true
+		edges = append(edges, answerDocMechanismRelationEdge{
+			from: from,
+			to:   to,
+			loc:  item.DisplayLocation(true),
+		})
+	}
+	if acceptedFacts == 0 {
+		return ""
+	}
+	typedPaths := answerDocSupportedMechanismFlowPaths(ctx.FlowFindings)
+	status := "unproven"
+	switch {
+	case len(typedPaths) > 0:
+		status = "typed_flow_paths_present"
+	case len(edges) > 0:
+		status = "listed_edges_only"
+	}
+
+	var b strings.Builder
+	b.WriteString("## Current-Source Mechanism Relation Authority\n\n")
+	fmt.Fprintf(&b,
+		"- accepted_grounded_source_facts=%d; grounded_callsite_facts=%d; explicit_caller_callee_edges=%d; ordered_path_authority=`%s`.\n",
+		acceptedFacts, callsiteFacts, len(edges), status)
+	b.WriteString("- A grounded definition, enum constant, classifier branch, return, or assignment proves that local fact only. Several true nodes do not by themselves prove call order, data flow, or a complete mechanism chain.\n")
+	b.WriteString("- Only the explicit caller -> callee edges and supported typed flow paths listed below carry ordering authority. Unlisted adjacency remains unproven. Describe other grounded nodes as independent mechanism facts; do not join them into a path merely because the answer contract asks for `principal_path_edge`.\n")
+	if len(edges) == 0 {
+		b.WriteString("- No grounded caller -> callee edge is available. `principal_path_edge` may carry an uncertainty boundary or independent fact list, but it must not claim an ordered/complete current-source chain.\n")
+	} else {
+		for i, edge := range edges {
+			if i >= 8 {
+				fmt.Fprintf(&b, "- (%d additional grounded edge(s) omitted from this compact authority view)\n", len(edges)-i)
+				break
+			}
+			fmt.Fprintf(&b, "- grounded_edge[%d]=`%s -> %s`", i+1, edge.from, edge.to)
+			if edge.loc != "" {
+				fmt.Fprintf(&b, " @ %s", edge.loc)
+			}
+			b.WriteString("\n")
+		}
+	}
+	for i, path := range typedPaths {
+		if i >= 4 {
+			fmt.Fprintf(&b, "- (%d additional typed path(s) omitted from this compact authority view)\n", len(typedPaths)-i)
+			break
+		}
+		fmt.Fprintf(&b, "- typed_flow_path[%d]=`%s`\n", i+1, strings.Join(path, " -> "))
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func answerDocMechanismRelationAuthorityApplies(rm types.RequestModel) bool {
+	switch types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) {
+	case types.ReqMechanism, types.ReqCallChain:
+		return true
+	}
+	profile := rm.CurrentSourceExplanationProfile
+	if profile == nil || !profile.Active() {
+		return false
+	}
+	for _, mode := range profile.Modes {
+		switch mode {
+		case types.CurrentSourceExplanationExplainCurrentMechanism,
+			types.CurrentSourceExplanationTraceCurrentFlow:
+			return true
+		}
+	}
+	return false
+}
+
+func answerDocGroundedCurrentSourceMechanismFact(item types.EvidenceItem) bool {
+	if strings.TrimSpace(item.Source) == "" ||
+		types.RuntimeArtifactPathKind(item.Source) != "" ||
+		(item.GroundingStatus != types.GroundingGrounded && item.GroundingStatus != types.GroundingRecovered) {
+		return false
+	}
+	switch item.Origin {
+	case types.ClaimOriginLog, types.ClaimOriginPerf:
+		return false
+	}
+	switch item.AnchorKind {
+	case types.AnchorDefinition, types.AnchorCall, types.AnchorCondition,
+		types.AnchorReturn, types.AnchorAssignment, types.AnchorInitializer,
+		types.AnchorImport, types.AnchorStringLiteral:
+		return true
+	default:
+		return false
+	}
+}
+
+func answerDocSupportedMechanismFlowPaths(findings []types.FlowFindingDigest) [][]string {
+	out := make([][]string, 0)
+	for _, finding := range findings {
+		if strings.TrimSpace(finding.UnsupportedReason) != "" {
+			continue
+		}
+		path := finding.Path
+		if len(path) < 2 {
+			path = finding.Hops
+		}
+		if len(path) < 2 {
+			continue
+		}
+		clean := make([]string, 0, len(path))
+		for _, node := range path {
+			if node = strings.TrimSpace(node); node != "" {
+				clean = append(clean, node)
+			}
+		}
+		if len(clean) >= 2 {
+			out = append(out, clean)
+		}
+	}
+	return out
 }
 
 func answerDocShouldRenderRelationSurfaceHandoff(rm types.RequestModel, rows []answerDocRelationSurfaceRow, relationRefs []types.AnswerAggregateFactRef) bool {

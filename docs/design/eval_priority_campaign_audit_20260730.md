@@ -1656,7 +1656,7 @@ factual authority。
 |---|---:|---|---|---|---|
 | EVAL-B10-AA1 | P1 | target/CPU scope semantics | target_window_states 的 thread-local running/runnable 比例缺少消费权限边界，模型把目标线程 occupancy 推成 CPU-wide utilization/saturation | 从 typed target-state 与 CPU-accounting 账户构造紧凑 authority；只允许描述目标状态/排队，CPU-wide 结论必须另有 typed per-CPU/core/system 证据 | covered |
 | EVAL-B10-AA2 | P1 | call-anchor integrity | AST 只证明“行内有调用”，未证明指定 callee；subject/object 还能替代显式 AnchorSymbol | 显式 AnchorSymbol 存在时只以该 symbol 为 call target；AST feature 仅可覆盖 definition-shape 误判，仍须 exact callee relation 或 line-local call syntax | covered |
-| EVAL-B10-AA3 | P1 | mechanism path closure | 多条独立 definition/case facts 可被包装成 principal_path_edge，零 grounded relation 仍形成“完整机制链” | 由结构化 anchor kind、grounded relation 与 path-edge facet 构造 relation authority；无边时明确为 independent mechanism facts，不证明调用顺序 | planned |
+| EVAL-B10-AA3 | P1 | mechanism path closure | 多条独立 definition/case facts 可被包装成 principal_path_edge，零 grounded relation 仍形成“完整机制链” | 由结构化 anchor kind、grounded relation 与 path-edge facet 构造 relation authority；无边时明确为 independent mechanism facts，不证明调用顺序 | covered |
 | EVAL-B10-AA4 | P2 | threshold provenance | 用户比较阈值、artifact 观测和源码配置阈值没有 typed 分席，模型把提问中的50ms升级为系统规则 | 建立 validator-owned comparator/profile，分别发布 user comparator 与 code-configured threshold；没有源码证据不得称系统阈值 | planned |
 | EVAL-B10-AA5 | P2 | rank additivity model variance | typed non-additivity 已发布，模型仍有一处直接求和 | 不增加答案词面/数字扫描硬门；跨不同 rank case 复现后再考虑 typed principal verdict，当前先观察 | filed-model-variance |
 
@@ -1706,3 +1706,21 @@ answer skill 同步相同 soft guidance，trace-gated、零 OnViolation；不扫
 scope，并验证生产 `renderAnswerDocObservationLedger` 接线。完整
 `go test ./internal/types ./internal/agent ./internal/skill -count=1` 通过
 （types 22.230s、agent 4.348s、skill 1.105s）。
+
+批 AA3 新增 `Current-Source Mechanism Relation Authority`，仅在 typed
+mechanism/call-chain 或 active current-source mechanism/flow 请求上出现。
+它只消费 accepted `EvidenceItem` 字段和 supported `FlowFindingDigest`：
+
+- grounded definition/constant/branch/assignment 等计为 independent local
+  fact，不自动形成边；
+- call site 只有同时具备规范化后的非空、不同 subject/object，才发布
+  `caller -> callee`；
+- `FlowFindingDigest.UnsupportedReason` 非空的路径不取得时序权限；
+- 零边时明确 `ordered_path_authority=unproven`；有 call edge 但无 typed
+  flow 时为 `listed_edges_only`；typed flow 存在时也只允许复述列出的路径。
+
+该块明确 `principal_path_edge` 是答案版面义务，不是凭空铸造调用顺序的
+证据。实现没有解析 raw request、thinking、closure prose 或最终答案，也
+没有新增 emit/reviewer hard reject；真实 AnswerChain/FlowFinding 和 grounded
+caller→callee edge 仍能完整表达。`go test ./internal/agent -count=1` 通过
+（2.811s）。
