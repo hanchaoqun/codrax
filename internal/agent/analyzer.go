@@ -182,7 +182,7 @@ func renderAnalyzerExplicitRuntimeArtifactPathShortcut() string {
 		"Do not run repo pre-scan (`repo_map`, `grep`, or `list_files`) just to classify the artifact path, stack-frame literal, thread label, timestamp, wakeup chain, sleep/runnable/D-state, CPU frequency, IRQ, binder, or IO terms. " +
 		"Classify from the user's wording and call `emit_analysis` now; do not call `trace_query` in the analyze stage. Later exploration, after this structured classification lands, can read the log artifact or use `trace_query` for deterministic trace evidence. " +
 		"If the current request also asks to compare with, verify against, or explain current source, keep the mixed runtime-artifact plus current-source lane in the emitted model; do not collapse mixed artifact + current-code requests into artifact-only. " +
-		"If the current request explicitly forbids current checkout/source evidence, encode that prohibition in external_observation_policy.current_source_mode=exclude, copy the exact user phrase into source_quotes, and emit diagnostic_profile.current_risk/current_version_check/historical_regression=false.\n\n"
+		"If the current request explicitly forbids reading or analyzing current checkout/source evidence, encode that prohibition in external_observation_policy.current_source_mode=exclude, copy one minimal exact forbidding phrase into current_source_exclusion_quote, and emit diagnostic_profile.current_risk/current_version_check/historical_regression=false. A phrase saying that artifact line numbers are not current-source citations belongs only in artifact_citation_quotes and must not close the current-source lane.\n\n"
 }
 
 func renderAnalyzerRuntimeObservationOnlyShortcut() string {

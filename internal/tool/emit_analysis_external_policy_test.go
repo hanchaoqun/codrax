@@ -18,10 +18,10 @@ func TestParseExternalObservationPolicy_ChineseVerbatimQuote(t *testing.T) {
 
 	t.Run("verbatim_quote_keeps_exclude", func(t *testing.T) {
 		policy, errStr, warnings := parseExternalObservationPolicy(raw, &emitExternalObservationPolicyParam{
-			CurrentSourceMode: "exclude",
-			ExclusionKind:     "explicit_user_exclusion",
-			SourceQuotes:      []string{"不分析代码"},
-			Confidence:        &conf,
+			CurrentSourceMode:           "exclude",
+			ExclusionKind:               "explicit_user_exclusion",
+			CurrentSourceExclusionQuote: "不分析代码",
+			Confidence:                  &conf,
 		})
 		if errStr != "" {
 			t.Fatalf("unexpected error: %s", errStr)
@@ -38,10 +38,10 @@ func TestParseExternalObservationPolicy_ChineseVerbatimQuote(t *testing.T) {
 
 	t.Run("paraphrased_quote_demotes_with_warning", func(t *testing.T) {
 		policy, errStr, warnings := parseExternalObservationPolicy(raw, &emitExternalObservationPolicyParam{
-			CurrentSourceMode: "exclude",
-			ExclusionKind:     "explicit_user_exclusion",
-			SourceQuotes:      []string{"不要分析源代码"},
-			Confidence:        &conf,
+			CurrentSourceMode:           "exclude",
+			ExclusionKind:               "explicit_user_exclusion",
+			CurrentSourceExclusionQuote: "不要分析源代码",
+			Confidence:                  &conf,
 		})
 		if errStr != "" {
 			t.Fatalf("unexpected error: %s", errStr)
@@ -51,7 +51,7 @@ func TestParseExternalObservationPolicy_ChineseVerbatimQuote(t *testing.T) {
 		}
 		joined := strings.Join(warnings, "\n")
 		if !strings.Contains(joined, "not copied from the current request") ||
-			!strings.Contains(joined, "exclude ignored because no source_quote survived") {
+			!strings.Contains(joined, "exclude ignored because no current_source_exclusion_quote survived") {
 			t.Fatalf("demotion must leave an audit warning, got %v", warnings)
 		}
 	})

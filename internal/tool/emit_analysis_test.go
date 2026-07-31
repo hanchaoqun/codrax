@@ -4326,7 +4326,7 @@ func TestEmitAnalysis_Execute_ConvertsFieldValueProfileForRuntimeArtifact(t *tes
 		"external_observation_policy": {
 			"current_source_mode": "exclude",
 			"exclusion_kind": "explicit_user_exclusion",
-			"source_quotes": ["只分析 trace"],
+			"current_source_exclusion_quote": "只分析 trace",
 			"confidence": 0.9
 		},
 		"field_value_profile": {
@@ -4706,7 +4706,8 @@ func TestEmitAnalysis_ExternalObservationPolicyExcludeRequiresAnchoredQuote(t *t
 		"external_observation_policy": {
 			"current_source_mode": "exclude",
 			"exclusion_kind": "explicit_user_exclusion",
-			"source_quotes": ["不要读取源码", "not in request"],
+			"current_source_exclusion_quote": "不要读取源码",
+			"artifact_citation_quotes": ["not in request"],
 			"confidence": 0.91
 		}
 	}`)
@@ -4727,7 +4728,7 @@ func TestEmitAnalysis_ExternalObservationPolicyExcludeRequiresAnchoredQuote(t *t
 	if !strings.Contains(res.Summary, "external_observation_policy=exclude") {
 		t.Fatalf("summary should report policy mode, got %q", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "external_observation_policy.source_quotes entry ignored") {
+	if !strings.Contains(res.Summary, "external_observation_policy.artifact_citation_quotes entry ignored") {
 		t.Fatalf("summary should warn for unanchored quote, got %q", res.Summary)
 	}
 }
@@ -4788,7 +4789,7 @@ func TestEmitAnalysis_RedundantToolNameTypeFieldPreservesExternalObservationPoli
 			"artifact_citation_mode": "external_only",
 			"current_source_mode": "exclude",
 			"exclusion_kind": "explicit_user_exclusion",
-			"source_quotes": ["只分析这份 trace，不分析代码"],
+			"current_source_exclusion_quote": "只分析这份 trace，不分析代码",
 			"confidence": 0.95
 		}
 	}`
@@ -4954,7 +4955,7 @@ func TestEmitAnalysis_RouteBackedRuntimeArtifactDoesNotOverrideExplicitSourceExc
 		"external_observation_policy": {
 			"current_source_mode": "exclude",
 			"exclusion_kind": "explicit_user_exclusion",
-			"source_quotes": ["不要读取源码"],
+			"current_source_exclusion_quote": "不要读取源码",
 			"confidence": 0.9
 		}
 	}`)
@@ -5022,7 +5023,8 @@ func TestEmitAnalysis_CurrentSourceExplanationSoftensConflictingExternalExclude(
 			"current_source_mode": "exclude",
 			"exclusion_kind": "explicit_user_exclusion",
 			"artifact_citation_mode": "external_only",
-			"source_quotes": ["不要把 trace 行号当成源码引用"],
+			"current_source_exclusion_quote": "不要把 trace 行号当成源码引用",
+			"artifact_citation_quotes": ["不要把 trace 行号当成源码引用"],
 			"confidence": 0.9
 		}
 	}`)
@@ -5076,7 +5078,7 @@ func TestEmitAnalysis_ExternalObservationPolicyUnanchoredExcludeDefaults(t *test
 		"external_observation_policy": {
 			"current_source_mode": "exclude",
 			"exclusion_kind": "explicit_user_exclusion",
-			"source_quotes": ["不要读取源码"],
+			"current_source_exclusion_quote": "不要读取源码",
 			"confidence": 0.91
 		}
 	}`)
@@ -5123,7 +5125,7 @@ func TestEmitAnalysis_ExternalObservationPolicyExcludeRequiresTypedExclusionKind
 		"external_observation_policy": {
 			"current_source_mode": "exclude",
 			"artifact_citation_mode": "external_only",
-			"source_quotes": ["请结合当前源码解释系统如何区分模型响应超时和成文校验失败，并说明这个日志结论的边界"],
+			"current_source_exclusion_quote": "请结合当前源码解释系统如何区分模型响应超时和成文校验失败，并说明这个日志结论的边界",
 			"confidence": 0.95
 		}
 	}`)
@@ -5155,6 +5157,88 @@ func TestEmitAnalysis_ExternalObservationPolicyExcludeRequiresTypedExclusionKind
 	}
 	if !strings.Contains(res.Summary, "invalid current_source_mode=exclude auto-softened to allow") {
 		t.Fatalf("summary should expose invalid-exclude promotion, got %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_ArtifactCitationCompatibilityQuotesCannotMintSourceExclusion(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{
+		WarnBelowKeywords:   0,
+		RejectBelowKeywords: 0,
+	})
+
+	raw := "这段日志为什么触发 finalizer 重写？请结合当前源码说明这是模型响应异常还是系统校验失败；不要把日志行当成当前源码引用。"
+	mu := types.NewMutableState(raw)
+	mu.SetLogTriage(&types.LogBundle{
+		Observations: []types.LogObservation{{
+			Kind:       types.LogObservationRetryCycle,
+			Summary:    "first_byte_timeout exceeded after 40s",
+			LineStart:  2,
+			Confidence: 0.95,
+		}},
+	})
+	// B3's older analyzer shape put a citation-identity boundary and a
+	// positive current-source request in one role-less quote array. The
+	// strings remain available for audit, but they are not typed proof that
+	// current source itself is banned.
+	payload := withV4Required(`{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["finalizer", "timeout", "validation"],
+		"entities": ["finalizer", "LLM timeout"],
+		"question_kind": "mechanism",
+		"external_observation_policy": {
+			"current_source_mode": "exclude",
+			"exclusion_kind": "explicit_user_exclusion",
+			"artifact_citation_mode": "external_only",
+			"source_quotes": [
+				"不要把日志行当成当前源码引用",
+				"请结合当前源码说明这是模型响应异常还是系统校验失败"
+			],
+			"confidence": 0.95
+		}
+	}`)
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{
+		Mutable: mu,
+		TurnRouteHint: types.TurnRouteHint{
+			Route:           "repo",
+			Source:          "artifact",
+			Operation:       "investigate",
+			NeedsRepoAccess: true,
+			Confidence:      0.9,
+		},
+	}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("role-less compatibility quotes should fail open without losing artifact citation policy, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.ExternalObservationPolicy == nil {
+		t.Fatalf("policy should survive for external citation identity: %+v", rm)
+	}
+	if rm.ExternalObservationPolicy.ExcludesCurrentSource() {
+		t.Fatalf("legacy combined quotes must not mint current-source exclusion: %+v", rm.ExternalObservationPolicy)
+	}
+	if got := rm.ExternalObservationPolicy.CurrentSourceMode; got != types.ExternalObservationCurrentSourceAllow {
+		t.Fatalf("route-backed mixed artifact should recover allow mode, got %q", got)
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != types.CurrentSourceLaneRequired {
+		t.Fatalf("mixed artifact/current-source route should require source after invalid exclusion is dropped, got %s", got)
+	}
+	if got := rm.ExternalObservationPolicy.ArtifactCitationMode; got != types.ExternalObservationArtifactCitationExternalOnly {
+		t.Fatalf("artifact citation identity should survive, got %q", got)
+	}
+	for _, want := range []string{
+		"no current_source_exclusion_quote",
+		"invalid current_source_mode=exclude auto-softened to allow",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("summary should expose role-split normalization %q, got %q", want, res.Summary)
+		}
 	}
 }
 
@@ -5214,7 +5298,7 @@ func TestEmitAnalysis_RouteBackedRuntimeOnlyRepairsMissingExclusionKind(t *testi
 			"external_observation_policy": {
 				"current_source_mode": "exclude",
 				"artifact_citation_mode": "external_only",
-				"source_quotes": ["只分析这份 trace，不分析代码"],
+				"current_source_exclusion_quote": "只分析这份 trace，不分析代码",
 				"confidence": 0.95
 			}
 		}`
@@ -5283,7 +5367,7 @@ func TestEmitAnalysis_RuntimeArtifactInvalidExcludePromotesAllow(t *testing.T) {
 			"current_source_mode": "exclude",
 			"exclusion_kind": "explicit_user_exclusion",
 			"artifact_citation_mode": "external_only",
-			"source_quotes": ["resolved_files=0"],
+			"current_source_exclusion_quote": "resolved_files=0",
 			"confidence": 0.95
 		}
 	}`)
@@ -5314,7 +5398,7 @@ func TestEmitAnalysis_RuntimeArtifactInvalidExcludePromotesAllow(t *testing.T) {
 		t.Fatalf("invalid exclude promotion must clear runtime-only completion: %+v", rm)
 	}
 	for _, want := range []string{
-		"source_quotes entry ignored",
+		"current_source_exclusion_quote ignored",
 		"invalid current_source_mode=exclude auto-softened to allow",
 		"external_observation_policy=allow",
 	} {
@@ -5340,7 +5424,7 @@ func TestEmitAnalysis_ExternalObservationPolicyRepairsStringWrappedObject(t *tes
 		"keywords": ["log", "runtime"],
 		"entities": ["panic"],
 		"question_kind": "mechanism",
-		"external_observation_policy": "{\"current_source_mode\":\"exclude\",\"exclusion_kind\":\"explicit_user_exclusion\",\"source_quotes\":[\"不要读取源码\"],\"confidence\":0.91}"
+		"external_observation_policy": "{\"current_source_mode\":\"exclude\",\"exclusion_kind\":\"explicit_user_exclusion\",\"current_source_exclusion_quote\":\"不要读取源码\",\"confidence\":0.91}"
 	}`)
 	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
 	if err != nil {
@@ -5383,7 +5467,7 @@ func TestEmitAnalysis_ExternalObservationPolicyArtifactCitationMode(t *testing.T
 			"source_quotes": ["当前关键代码"],
 			"confidence": 0.91
 		},
-		"external_observation_policy": "{\"current_source_mode\":\"default\",\"artifact_citation_mode\":\"external_only\",\"source_quotes\":[\"不要把日志行当成当前源码引用\"],\"confidence\":\"0.88\"}"
+		"external_observation_policy": "{\"current_source_mode\":\"default\",\"artifact_citation_mode\":\"external_only\",\"artifact_citation_quotes\":[\"不要把日志行当成当前源码引用\"],\"confidence\":\"0.88\"}"
 	}`)
 	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
 	if err != nil {
@@ -6470,7 +6554,8 @@ func TestEmitAnalysis_Execute_DropsSourceInventoryForObservationOnlyRuntime(t *t
 			"current_source_mode": "exclude",
 			"exclusion_kind": "explicit_user_exclusion",
 			"artifact_citation_mode": "external_only",
-			"source_quotes": ["请只基于这段 systrace 文本", "不要分析当前仓库代码"],
+			"current_source_exclusion_quote": "不要分析当前仓库代码",
+			"artifact_citation_quotes": ["请只基于这段 systrace 文本"],
 			"confidence": 0.95
 		},
 		"source_inventory_profile": {
@@ -7683,7 +7768,7 @@ func TestEmitAnalysis_Execute_DropsInvalidExactTargetsForRuntimeArtifact(t *test
 		"external_observation_policy": {
 			"current_source_mode": "exclude",
 			"exclusion_kind": "explicit_user_exclusion",
-			"source_quotes": ["只分析 trace"],
+			"current_source_exclusion_quote": "只分析 trace",
 			"confidence": 0.9
 		}
 	}`
@@ -7746,7 +7831,7 @@ func TestEmitAnalysis_Execute_DefaultsRuntimeArtifactRoleLocateSubject(t *testin
 		"external_observation_policy": {
 			"current_source_mode": "exclude",
 			"exclusion_kind": "explicit_user_exclusion",
-			"source_quotes": ["只分析日志"],
+			"current_source_exclusion_quote": "只分析日志",
 			"confidence": 0.9
 		}
 	}`
