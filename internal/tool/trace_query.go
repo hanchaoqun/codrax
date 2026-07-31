@@ -470,13 +470,17 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		}
 		logging.Debug("[trace_query] phase=store_result view=%s path=%s done elapsed=%s payload_ref=%s raw_ref=%s", q.View, path, time.Since(storeStart), payloadRef, rawRef)
 		now := time.Now()
+		observations := traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now)
+		if coverage, ok := traceQueryFullArtifactScopeCoverageObservation(result, p, sourceLabel, payloadRef, rawRef, now); ok {
+			observations = append(observations, coverage)
+		}
 		return types.ToolResult{
 			ToolName:               t.Name(),
 			Success:                true,
 			Summary:                preview,
 			RawRef:                 rawRef,
 			Refinement:             traceQueryRefinement(result, q, p, sourceLabel),
-			Observations:           traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now),
+			Observations:           observations,
 			TraceViewCancellation:  traceQueryToolViewCancellation(result),
 			TraceEvidenceAuthority: traceQueryEvidenceAuthority(result),
 			EnumerationAuthority:   traceQueryEnumerationAuthority(result),
@@ -2664,6 +2668,59 @@ func traceQueryHasBoundedTraceScope(p traceQueryParams) bool {
 		p.TimeEnd.Set() ||
 		p.LineStart.Int() > 0 ||
 		p.LineEnd.Int() > 0
+}
+
+// traceQueryFullArtifactScopeCoverageObservation mints physical scope
+// authority only on the pure core path after the engine confirms that its
+// index was not windowed. Pattern/span/recipe calls are excluded because they
+// may derive a local analysis window inside a full physical scan. PID/thread,
+// event-family filters, and output limits remain allowed: they constrain the
+// requested relation, not the artifact's time/line boundary. Completeness of
+// those filtered values remains the separate EnumerationAuthority contract.
+func traceQueryFullArtifactScopeCoverageObservation(
+	result tracequery.Result,
+	p traceQueryParams,
+	sourceLabel, payloadRef, rawRef string,
+	observedAt time.Time,
+) (types.ObservationRecord, bool) {
+	if result.IndexWindowed ||
+		traceQueryHasBoundedTraceScope(p) ||
+		traceQueryHasPatternOrSpanScope(p) ||
+		strings.TrimSpace(p.RecipeName) != "" {
+		return types.ObservationRecord{}, false
+	}
+	view := strings.TrimSpace(tracequery.CanonicalViewName(result.View))
+	if view == "" {
+		return types.ObservationRecord{}, false
+	}
+	ref := traceQueryObservationSourceRef(result, sourceLabel, payloadRef, rawRef)
+	if ref.Kind != types.ObservationSourceRuntimeArtifact {
+		return types.ObservationRecord{}, false
+	}
+	scope := traceQueryObservationScope(result, payloadRef, rawRef)
+	return types.ObservationRecord{
+		ID:              fmt.Sprintf("trace_query:%s#runtime_artifact_scope_coverage", scope),
+		Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            types.AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: types.ClaimGroundingHard,
+		ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
+		SourceRef:       ref,
+		ClaimKey:        types.RuntimeArtifactScopeCoveragePredicate + ":" + view,
+		Subject:         ref.ArtifactID,
+		Predicate:       types.RuntimeArtifactScopeCoveragePredicate,
+		Object:          string(types.RuntimeArtifactScopeFullArtifact),
+		Value:           view,
+		Summary:         fmt.Sprintf("%s scanned the complete artifact time/line domain; relation enumeration authority remains independent", view),
+		RichNotes: []string{
+			"coverage_source=" + string(types.RuntimeArtifactScopeCoverageModelQuery),
+			"index_windowed=false",
+			"enumeration_authority=independent",
+		},
+		ObservedAt: observedAt.Format("2006-01-02T15:04:05Z07:00"),
+		Scope:      string(types.RuntimeArtifactScopeFullArtifact),
+		Confidence: 1,
+	}, true
 }
 
 func traceQueryHeavyViewGuardSummary(path, sourceLabel string, p traceQueryParams, size int64) string {

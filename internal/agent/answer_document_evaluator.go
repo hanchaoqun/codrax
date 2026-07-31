@@ -7421,18 +7421,15 @@ func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
 		if profile := scopeProfile; profile != nil {
 			switch {
 			case profile.FullArtifact():
-				fullScopeObserved := false
+				var supplement *types.SystemTraceSupplementMeta
 				if ctx.Mutable != nil {
-					if meta := ctx.Mutable.SystemTraceSupplementMeta(); meta != nil &&
-						meta.RequestedArtifactScope == types.RuntimeArtifactScopeFullArtifact &&
-						len(meta.Views) > 0 {
-						fullScopeObserved = true
-					}
+					supplement = ctx.Mutable.SystemTraceSupplementMeta()
 				}
-				if fullScopeObserved {
-					b.WriteString("- Runtime artifact scope authority: `requested_scope=full_artifact` is anchored in the current request, and a typed whole-artifact supplement result is present. Use that whole-artifact account for `all`/`only`/count/total/when claims; model-authored narrower trace_query windows are local witnesses and must not replace it.\n")
+				coverage := types.CompileRuntimeArtifactScopeCoverage(answerDocObservationLedger(ctx), supplement)
+				if coverage.FullArtifact() {
+					b.WriteString("- Runtime artifact scope authority: `requested_scope=full_artifact` is anchored in the current request, and typed whole-artifact query coverage is present. Use full-artifact-covered results instead of model-authored narrower trace_query windows when answering artifact-wide `when` claims. Scope coverage alone does not prove `all`/`only`/exact count/total: those claims still require their independent typed enumeration authority.\n")
 				} else {
-					b.WriteString("- Runtime artifact scope authority: `requested_scope=full_artifact` is anchored in the current request, but no typed whole-artifact supplement result is present. Treat every model-authored narrower trace_query window as a local witness only; do not claim artifact-wide `all`/`only`/exact count/total/completeness. State that the whole-artifact account is unavailable.\n")
+					b.WriteString("- Runtime artifact scope authority: `requested_scope=full_artifact` is anchored in the current request, but no typed whole-artifact query coverage is present. Treat every model-authored narrower trace_query window as a local witness only; do not claim artifact-wide `all`/`only`/exact count/total/completeness. State that the whole-artifact account is unavailable.\n")
 				}
 			default:
 				if start, end, ok := profile.ExplicitTimeWindow(); ok {

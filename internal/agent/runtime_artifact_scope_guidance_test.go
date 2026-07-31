@@ -55,9 +55,9 @@ func TestRuntimeTraceGuidanceSeparatesFullArtifactScopeFromModelWindows(t *testi
 	}, nil)
 	withCensus := renderAnswerDocRuntimeTraceAnswerGuidance(ctx)
 	for _, want := range []string{
-		"typed whole-artifact supplement result is present",
-		"Use that whole-artifact account",
-		"model-authored narrower trace_query windows are local witnesses",
+		"typed whole-artifact query coverage is present",
+		"Scope coverage alone does not prove",
+		"independent typed enumeration authority",
 	} {
 		if !strings.Contains(withCensus, want) {
 			t.Fatalf("missing available whole-artifact guidance %q:\n%s", want, withCensus)
@@ -65,5 +65,39 @@ func TestRuntimeTraceGuidanceSeparatesFullArtifactScopeFromModelWindows(t *testi
 	}
 	if strings.Contains(withCensus, "whole-artifact account is unavailable") {
 		t.Fatalf("available whole-artifact census retained the unavailable warning:\n%s", withCensus)
+	}
+}
+
+func TestRuntimeTraceGuidanceAcceptsTypedUnboundedModelQueryCoverage(t *testing.T) {
+	ctx := runtimeArtifactScopeGuidanceContext()
+	artifacts := ctx.Mutable.TurnAArtifacts()
+	artifacts.ToolResults[0].Observations = append(artifacts.ToolResults[0].Observations, types.ObservationRecord{
+		ID:              "trace_query:full#runtime_artifact_scope_coverage",
+		Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		GroundingPolicy: types.ClaimGroundingHard,
+		SourceRef: types.ObservationSourceRef{
+			Kind:         types.ObservationSourceRuntimeArtifact,
+			ArtifactID:   "runtime_artifact:full",
+			ArtifactKind: "trace",
+		},
+		Predicate: types.RuntimeArtifactScopeCoveragePredicate,
+		Object:    string(types.RuntimeArtifactScopeFullArtifact),
+		Value:     "thread_timeline",
+		Scope:     string(types.RuntimeArtifactScopeFullArtifact),
+	})
+	ctx.Mutable.SetTurnAArtifacts(*artifacts)
+
+	got := renderAnswerDocRuntimeTraceAnswerGuidance(ctx)
+	for _, want := range []string{
+		"typed whole-artifact query coverage is present",
+		"Scope coverage alone does not prove",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing unified model-query coverage guidance %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "whole-artifact account is unavailable") {
+		t.Fatalf("unbounded typed model query retained unavailable warning:\n%s", got)
 	}
 }
