@@ -194,7 +194,6 @@ func TestCompileEnumerationDisplaySets_SourceInventorySuppressesUnrequestedValue
 			SupportRefs: []string{"AnswerCandidateRole @ internal/types/answer_candidate_role.go:9", "AnswerSymbolVisibility @ internal/types/answer_visibility_profile.go:7"},
 		}},
 	}
-
 	sets := CompileEnumerationDisplaySets(rm, plan)
 	if len(sets) != 1 || len(sets[0].Rows) != 2 {
 		t.Fatalf("sets = %+v", sets)
@@ -311,7 +310,6 @@ func TestCompileEnumerationDisplaySets_PreservesPackageAttributeFromAlignedMembe
 			},
 		}},
 	}
-
 	sets := CompileEnumerationDisplaySets(rm, plan)
 	if len(sets) != 1 || len(sets[0].Rows) != 2 {
 		t.Fatalf("sets = %+v", sets)
@@ -1266,6 +1264,52 @@ func TestCompileEnumerationDisplaySets_PreservesNonFileRows(t *testing.T) {
 	for _, row := range sets[0].Rows {
 		if row.HasCitation || row.Location != "" || row.CitationKey != "" {
 			t.Fatalf("non-file row should not fake a citation: %+v", row)
+		}
+	}
+}
+
+func TestCompileEnumerationDisplaySets_PositionalBareSupportRefsCarryLocations(t *testing.T) {
+	for _, raw := range []string{"cmd/root.go:88", "codrax.yaml.example:485", "cmd/root.go:649"} {
+		if got, ok := ParseAnswerSourceLocationSurface(raw); !ok {
+			t.Fatalf("ParseAnswerSourceLocationSurface(%q) failed: %+v", raw, got)
+		}
+	}
+	rm := &RequestModel{
+		Intent:   IntentExplain,
+		Scenario: ScenarioConfigTrace,
+		AnalyzerHints: AnalyzerHints{
+			Kind: string(ReqConfigMapping),
+		},
+	}
+	plan := &AnswerSurfacePlan{
+		StableAggregateFacts: []AnswerAggregateFact{{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "pipeline_max_steps 配置优先级（后者覆盖前者）",
+			Value:   "3",
+			Role:    AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"代码默认值", "codrax.yaml", "CLI --pipeline-max-steps"},
+			SupportRefs: []string{
+				"cmd/root.go:88",
+				"codrax.yaml.example:485",
+				"cmd/root.go:649",
+			},
+		}},
+	}
+	normalized := NormalizeAnswerAggregateMemberSetSurfaces(plan.StableAggregateFacts)
+	if got := normalized[0].SupportRefs; len(got) != 3 {
+		t.Fatalf("normalized support refs = %#v", got)
+	}
+	if source, line, location := aggregateMemberStructuredLocation(normalized[0], 0, normalized[0].Members[0]); source != "cmd/root.go" || line != 88 || location != "cmd/root.go:88" {
+		t.Fatalf("aggregateMemberStructuredLocation = %q:%d %q; fact=%+v", source, line, location, normalized[0])
+	}
+
+	sets := CompileEnumerationDisplaySets(rm, plan)
+	if len(sets) != 1 || len(sets[0].Rows) != 3 {
+		t.Fatalf("sets = %+v", sets)
+	}
+	for i, want := range []string{"cmd/root.go:88", "codrax.yaml.example:485", "cmd/root.go:649"} {
+		if got := sets[0].Rows[i].Location; got != want {
+			t.Fatalf("row %d location = %q, want %q; row=%+v", i, got, want, sets[0].Rows[i])
 		}
 	}
 }

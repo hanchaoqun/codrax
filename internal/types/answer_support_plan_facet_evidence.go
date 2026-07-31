@@ -863,6 +863,18 @@ func aggregateMemberStructuredLocation(fact AnswerAggregateFact, memberIdx int, 
 	}
 	memberKey := strings.ToLower(strings.TrimSpace(member))
 	memberLabel := aggregateMemberSupportSurfaceLabel(member)
+	// The completion schema accepts a positional support_refs form with one
+	// slot per members[] entry. Resolve that exact slot before collecting
+	// parseable siblings: one malformed or future-format path must not make
+	// otherwise valid positional rows lose their citations.
+	if memberIdx >= 0 && len(fact.SupportRefs) == len(fact.Members) && memberIdx < len(fact.SupportRefs) {
+		refMember, refLocation, ok := aggregateSupportRefMemberLocation(fact.SupportRefs[memberIdx])
+		if ok && (refMember == "" ||
+			AnswerSupportRefLabelIsGeneric(refMember) ||
+			aggregateSupportRefCanDescribeMember(refMember, memberLabel)) {
+			return refLocation.File, refLocation.LineStart, aggregateMemberStartLocation(refLocation)
+		}
+	}
 	type indexedLocation struct {
 		index    int
 		location AnswerSourceLocationSurface

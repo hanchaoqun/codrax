@@ -419,7 +419,7 @@ func dropAnswerDocumentCitationsByIndex(doc *types.AnswerDocumentV2, remove map[
 	return changed
 }
 
-func normalizeUnusedCitationPoolEntries(doc *types.AnswerDocumentV2) int {
+func normalizeUnusedCitationPoolEntries(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
 	if doc == nil || len(doc.Citations) == 0 {
 		return 0
 	}
@@ -431,6 +431,7 @@ func normalizeUnusedCitationPoolEntries(doc *types.AnswerDocumentV2) int {
 			}
 		}
 	}
+	markTypedMarkdownRowCitationsUsed(used, doc, ctx)
 	if len(used) == 0 || len(used) == len(doc.Citations) {
 		return 0
 	}
@@ -441,6 +442,55 @@ func normalizeUnusedCitationPoolEntries(doc *types.AnswerDocumentV2) int {
 		}
 	}
 	return dropAnswerDocumentCitationsByIndex(doc, remove, "unused_pool_entry_pruned")
+}
+
+// markTypedMarkdownRowCitationsUsed keeps citations that are carried by an
+// accepted enumeration row already rendered inside a model-authored Markdown
+// table. Markdown tables intentionally keep Items empty to preserve arbitrary
+// multi-column layouts, so item-only reachability would otherwise delete their
+// row citations. The row membership and coordinates come from the typed answer
+// surface plan; table text only proves that the corresponding accepted row is
+// already visible and never creates citation authority.
+func markTypedMarkdownRowCitationsUsed(used map[int]bool, doc *types.AnswerDocumentV2, ctx *types.BusContext) {
+	if doc == nil || ctx == nil || ctx.AnalysisIR == nil || len(doc.Citations) == 0 {
+		return
+	}
+	plan := answerSurfacePlan(ctx)
+	if plan == nil {
+		return
+	}
+	sets := types.CompileEnumerationDisplaySets(&ctx.AnalysisIR.RequestModel, plan)
+	if len(sets) == 0 {
+		return
+	}
+	for bi, block := range doc.Blocks {
+		if block.Kind != types.BlockTable ||
+			len(principalEnumerationMarkdownTableRows(block.Text)) == 0 {
+			continue
+		}
+		rows := principalEnumerationAllRows(sets)
+		if scoped, _ := principalEnumerationPruneRowsForBlockAtWithMode(doc, bi, sets); len(scoped) > 0 {
+			rows = scoped
+		}
+		for _, row := range rows {
+			if !row.HasCitation ||
+				strings.TrimSpace(row.Source) == "" ||
+				row.LineStart <= 0 ||
+				!principalEnumerationBlockCoversRow(block, doc, row) {
+				continue
+			}
+			surface := types.AnswerSourceLocationSurface{
+				File:      row.Source,
+				LineStart: row.LineStart,
+				LineEnd:   row.LineEnd,
+			}
+			for ci, citation := range doc.Citations {
+				if types.AnswerSourceLocationSurfaceMatchesCitation(surface, citation) {
+					used[ci] = true
+				}
+			}
+		}
+	}
 }
 
 // normalizeRuntimeArtifactVisibleCitationSentinels removes internal

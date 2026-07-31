@@ -71,6 +71,23 @@ var codeOrConfigSourcePathExtensions = map[string]bool{
 	".md":   true,
 }
 
+var declarativeConfigTemplatePathExtensions = map[string]bool{
+	".yaml": true,
+	".yml":  true,
+	".json": true,
+	".toml": true,
+	".ini":  true,
+	".xml":  true,
+}
+
+var declarativeConfigTemplateDecorators = map[string]bool{
+	".example":  true,
+	".sample":   true,
+	".template": true,
+	".dist":     true,
+	".default":  true,
+}
+
 var runtimeArtifactPathExtensions = map[string]bool{
 	".log":       true,
 	".trace":     true,
@@ -104,6 +121,17 @@ func HasCodeOrConfigPathSuffix(s string) bool {
 	for ext := range codeOrConfigSourcePathExtensions {
 		if strings.HasSuffix(lower, ext) {
 			return true
+		}
+	}
+	for decorator := range declarativeConfigTemplateDecorators {
+		if !strings.HasSuffix(lower, decorator) {
+			continue
+		}
+		base := strings.TrimSuffix(lower, decorator)
+		for ext := range declarativeConfigTemplatePathExtensions {
+			if strings.HasSuffix(base, ext) {
+				return true
+			}
 		}
 	}
 	return false

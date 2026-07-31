@@ -290,7 +290,7 @@ func normalizeAnswerDocumentRowsBeforePersist(toolName string, ctx *types.BusCon
 		logging.Warning("[%s] materialized %d principal aggregate member row(s) from accepted exhaustive enumeration handoff before persist", toolName, fixed)
 	}
 	if itemsAfter := answerDocumentStructuredItemCount(doc); itemsAfter < itemsBefore {
-		if fixed := normalizeUnusedCitationPoolEntries(doc); fixed > 0 {
+		if fixed := normalizeUnusedCitationPoolEntries(doc, ctx); fixed > 0 {
 			logging.Warning("[%s] pruned/remapped %d unused citation-pool slot(s) after pre-persist answer-row normalization", toolName, fixed)
 		}
 	}

@@ -314,7 +314,7 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		}
 	}
 	citationsBeforeUnusedPrune := len(doc.Citations)
-	if fixed := normalizeUnusedCitationPoolEntries(doc); fixed > 0 {
+	if fixed := normalizeUnusedCitationPoolEntries(doc, ctx); fixed > 0 {
 		logging.Warning("[%s] pruned/remapped %d unused citation-pool slot(s) after deterministic citation normalization", toolName, fixed)
 	}
 	prunedUnusedCitations := citationsBeforeUnusedPrune - len(doc.Citations)

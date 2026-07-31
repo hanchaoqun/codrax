@@ -155,12 +155,15 @@ func TestIsCodeOrConfigPathExtension(t *testing.T) {
 
 func TestHasCodeOrConfigPathSuffix(t *testing.T) {
 	hits := map[string]bool{
-		"foo.go":             true,
-		"a/b/foo.go":         true,
-		"bar.YAML":           true,
-		"weird_FILE.PYI":     true,
-		"some-name.proto":    true,
-		"package_clause.cjo": true,
+		"foo.go":              true,
+		"a/b/foo.go":          true,
+		"bar.YAML":            true,
+		"weird_FILE.PYI":      true,
+		"some-name.proto":     true,
+		"package_clause.cjo":  true,
+		"codrax.yaml.example": true,
+		"settings.TOML.dist":  true,
+		"schema.json.sample":  true,
 	}
 	for s, want := range hits {
 		if got := HasCodeOrConfigPathSuffix(s); got != want {
@@ -173,6 +176,11 @@ func TestHasCodeOrConfigPathSuffix(t *testing.T) {
 	for _, s := range misses {
 		if HasCodeOrConfigPathSuffix(s) {
 			t.Errorf("HasCodeOrConfigPathSuffix(%q) = true; want false", s)
+		}
+	}
+	for _, miss := range []string{"source.go.example", "notes.txt.example", "binary.example"} {
+		if HasCodeOrConfigPathSuffix(miss) {
+			t.Errorf("HasCodeOrConfigPathSuffix(%q) = true; want false", miss)
 		}
 	}
 }

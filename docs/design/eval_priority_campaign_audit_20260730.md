@@ -996,3 +996,33 @@ B5 r9 GAP 更新：
 `B5-O/P1` 施工验证：rowset section extractor新增单行 `**标题**`、blockquote bold与尾随中英文冒号边界；真实结构化 section内分别计算 Markdown table data rows或bullet rows，header/separator/citation尾段均不计。成员 token、banned row与visible exact count成为三个独立判据：同基数错成员只报 missing，expected全命中但多一个row会报真实 `got2:want1`，从而关闭旧 false PASS。Cangjie case的 extend成员改为用户所求的符号身份 `String/Cart`，category仍由section提供，不把展示构造词塞进 symbol列。`bash -n eval/runner_lib.sh eval/run.sh eval/runner_lib_test.sh`与`bash eval/runner_lib_test.sh`通过；对r9已保存答案重放 `eval_inventory_rowset_reasons`零错误。待提交推送。
 
 `B5-P/P1` 施工验证：新增单一 SourceRef→lexicon投影器；对每条 accepted ledger record，仅当对应 typed字段实际非空/非nil时，才发布 `tool_call_id/raw_ref/payload_ref/row_set_ref/page_ref/artifact_id/artifact_kind/time_domain/canonical_time_domain/clock_alignment/clock_calibrated/clock_offset_sec/clock_slope/resource_uri/mime_type`等字段名及值。不存在的字段不进入词表，故邻接负例 `clock_slope` 仍产生 information finding；不存在全局白名单。该 lane原有 information-only、零 hard reject、零答案改写语义不变，也没有读取 case或模型答案来决定 typed字段是否存在。定向 present/absent臂与既有附件近似词负例通过，`go test ./internal/orchestrator -count=1` 全包通过（10.972s）；`git diff --check`通过。待提交推送并在下一次高优先级eval中观察，不单独为文案回放占用一批。
+
+### B6 r1 人工审计与批 Q（2026-07-31）
+
+在批 O `6420f185d`、批 P `2a742dc72` 已推送并重建后，以严格 `parallel=2` 执行：
+
+- 结果目录：
+  - `eval/results/qf_config_precedence-20260731-093120`
+  - `eval/results/patch_java_typo-20260731-093120`
+- runner 2/2 PASS；人工 Java PASS、config partial。
+- Java ChangePlan 仅含 `Main.java` 第16行 `retrun→return`，一个 patch change、一个 replace edit、一个 slice；原始 patch 用 `jq -jr` 提取后通过 `git apply --check --recount`。两次 plan repair 是模型把 Python `subprocess` 代码标成 Java probe，repair pack正确拒绝，第三次改为 Python probe通过。该过程波动记 `EVAL-B6-W1/P2`，当前不加生产硬门。
+- Config 答案的事实与五个源码位置一致：默认值50、YAML `*int` 映射、YAML merge、CLI Changed保护和 code<YAML<CLI 顺序均正确。`cmd/root.go:649` 未读证据和错误 `anchor_kind=call` 的拒绝属于正确 fail-closed；decorated member无 refs的 completion修复也正确。
+- 真正缺口在 typed citation wiring：模型提交6条 citations，但只给 scalar item连接一条。accepted positional `support_refs` 含 `cmd/root.go:88`、`codrax.yaml.example:485`、`cmd/root.go:649`；解析器无法识别 `.yaml.example` 后压缩 bare-ref集合，使另外两个有效槽也失去 location。Principal Enumeration Rows 因而不携 location/citation_key；完整 Markdown 表的 typed 行又未计入 citation 使用集合，unused-prune 删除其余5条引用。最终事实正确，但机制证据覆盖不完整。
+
+B6 r1 GAP 与处置：
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B6-C1 | P1 | positional support-ref 隔离 | 先丢不可解析 ref再按压缩后数量判断 positional binding，一个未知槽毒化全部兄弟槽 | 当 `len(support_refs)==len(members)` 时先按原索引独立解析该槽；合法 label/空 label/generic label按既有成员相容规则绑定，失败只影响本行 | 批 Q 已验证 |
+| EVAL-B6-C2 | P1 | 配置模板路径语法 | source/config location只看最后扩展名，`codrax.yaml.example` 被当 `.example` 非配置文件 | 在统一 path suffix authority中支持声明式配置扩展+有界模板装饰后缀；源码 `*.go.example` 与任意 `.example` 保持拒绝 | 批 Q 已验证 |
+| EVAL-B6-C3 | P1 | Markdown row citation接线 | 完整 model-authored Markdown table可满足成员可见性，却没有原生 row citation_ref，pool被清理 | unused-prune 把已accepted EnumerationDisplayRow且已在同表可见的行计为 citation 已使用；坐标只来自typed row，表格文字只确认现有carrier，不创建成员/坐标/结构 | 批 Q 已验证 |
+| EVAL-B6-W1 | P2 | write probe过程波动 | 模型连续把 Python subprocess代码声明成Java inline probe | repair pack已安全收敛；先观察其他语言case，若复现再加强language/code-shape软指导，不加case/type硬门 | filed-model-variance |
+
+批 Q 不变量：
+
+1. 不读取 raw request、case ID、模型 thinking或自由文本来铸成员/引用；成员和坐标只来自 accepted aggregate facts、typed support refs和grounded evidence。
+2. Markdown table text只用于确认 accepted row已有现成可见 carrier；不新增隐藏 item、不改写表格、不增加/删除成员，citation 使用判定重复执行幂等。
+3. 模板后缀只放行声明式配置格式，不把任意 `.example`、runtime artifact或源码伪装成当前源码引用；最终 current-source quote/物理行校验继续 fail-closed。
+4. 本批不修改 runtime request model、Trace query选择、显式时间窗、因果投影、根因排序、唤醒链、窗内可消除量、跨工件关系或自动补齐。
+
+`B6-Q/P1` 施工验证：`aggregateMemberStructuredLocation` 在一成员一槽的 typed positional形上先解析原索引，未知兄弟槽不再改变有效槽坐标；后续 named/generic/bare fallback保持。统一 suffix authority新增声明式配置模板装饰的有界组合，`codrax.yaml.example`、`settings.toml.dist`、`schema.json.sample`可作为配置证据路径，`source.go.example`、`notes.txt.example`、`binary.example`仍拒绝。完整 Markdown table在 accepted row可见且row有typed source时，由 unused citation 清理器将对应精确坐标计为已使用；表格 `Items` 保持为空，既有多列布局和正文不变，重复执行幂等。无source的runtime mode成员不生成citation。专项 tests与 `go test ./internal/types ./internal/tool ./internal/agent ./internal/orchestrator -count=1` 均通过；`git diff --check`通过。待提交推送和后续高优先级双case观察。

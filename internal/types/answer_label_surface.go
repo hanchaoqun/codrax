@@ -1,7 +1,6 @@
 package types
 
 import (
-	"path/filepath"
 	"strconv"
 	"strings"
 	"unicode"
@@ -50,7 +49,7 @@ func ParseAnswerSourceLocationSurface(label string) (AnswerSourceLocationSurface
 	if !ok {
 		return AnswerSourceLocationSurface{}, false
 	}
-	if !IsCodeOrConfigPathExtension(filepath.Ext(file)) {
+	if !HasCodeOrConfigPathSuffix(file) {
 		return AnswerSourceLocationSurface{}, false
 	}
 	return AnswerSourceLocationSurface{
@@ -83,7 +82,7 @@ func answerSourceLocationLooksLikeCompactSupportRef(raw string) bool {
 	if file == "" || linePart == "" {
 		return false
 	}
-	if !IsCodeOrConfigPathExtension(filepath.Ext(file)) {
+	if !HasCodeOrConfigPathSuffix(file) {
 		return false
 	}
 	_, _, ok := parseAnswerLineSurface(linePart)
@@ -293,7 +292,7 @@ func ParseAnswerFilePathSurface(label string) (string, bool) {
 	if strings.Contains(raw, ":") {
 		return "", false
 	}
-	if !IsCodeOrConfigPathExtension(filepath.Ext(raw)) {
+	if !HasCodeOrConfigPathSuffix(raw) {
 		return "", false
 	}
 	return displayAnswerLocationFile(raw), true
