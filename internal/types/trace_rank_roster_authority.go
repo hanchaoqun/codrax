@@ -21,6 +21,7 @@ type TraceRankRosterAuthority struct {
 	ArtifactLabel          string
 	BoardTarget            string
 	BoardParamsFingerprint string
+	BoardChannel           string
 	WindowStartTs          float64
 	WindowEndTs            float64
 	Seats                  []TraceRankRosterSeat
@@ -49,7 +50,8 @@ func BuildTraceRankRosterAuthorities(set TraceCausalProjectionSet) []TraceRankRo
 			if node.Rank <= 0 {
 				continue
 			}
-			key := traceCausalProjectionRankBoardIdentityKey(node)
+			boardChannel := traceRankRosterBoardChannel(node)
+			key := traceCausalProjectionRankBoardIdentityKey(node) + "\x00" + boardChannel
 			idx, ok := byKey[key]
 			if !ok {
 				start, end := node.RankQueryWindowStartTs, node.RankQueryWindowEndTs
@@ -62,6 +64,7 @@ func BuildTraceRankRosterAuthorities(set TraceCausalProjectionSet) []TraceRankRo
 					ArtifactLabel:          strings.TrimSpace(projection.ArtifactLabel),
 					BoardTarget:            strings.TrimSpace(node.RankBoardTarget),
 					BoardParamsFingerprint: strings.TrimSpace(node.RankBoardParamsFingerprint),
+					BoardChannel:           boardChannel,
 					WindowStartTs:          start,
 					WindowEndTs:            end,
 				})
@@ -101,9 +104,19 @@ func BuildTraceRankRosterAuthorities(set TraceCausalProjectionSet) []TraceRankRo
 		if out[i].BoardTarget != out[j].BoardTarget {
 			return out[i].BoardTarget < out[j].BoardTarget
 		}
+		if out[i].BoardChannel != out[j].BoardChannel {
+			return out[i].BoardChannel < out[j].BoardChannel
+		}
 		return out[i].BoardParamsFingerprint < out[j].BoardParamsFingerprint
 	})
 	return out
+}
+
+func traceRankRosterBoardChannel(node TraceCausalProjectionNode) string {
+	if channel := strings.TrimSpace(node.ChainRelevance); channel != "" {
+		return channel
+	}
+	return "unspecified"
 }
 
 func traceRankRosterCompleteness(seats []TraceRankRosterSeat) (bool, string) {

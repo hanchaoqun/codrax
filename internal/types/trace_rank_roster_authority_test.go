@@ -61,3 +61,31 @@ func TestBuildTraceRankRosterAuthoritiesReportsRankGap(t *testing.T) {
 		t.Fatalf("rank gap must fail closed as incomplete authority: %+v", got)
 	}
 }
+
+func TestBuildTraceRankRosterAuthoritiesSeparatesOnChainAndAdjacentBoards(t *testing.T) {
+	onOne := traceRankRosterTestNode("on-1", "target", "params", 1, 2, 1, "running", "target", 8)
+	onTwo := traceRankRosterTestNode("on-2", "target", "params", 1, 2, 2, "io_wait", "worker", 4)
+	adjOne := traceRankRosterTestNode("adj-1", "target", "params", 1, 2, 1, "runnable_wait", "neighbor", 6)
+	adjOne.ChainRelevance = "adjacent"
+	adjTwo := traceRankRosterTestNode("adj-2", "target", "params", 1, 2, 2, "io_wait", "other", 2)
+	adjTwo.ChainRelevance = "adjacent"
+
+	got := BuildTraceRankRosterAuthorities(TraceCausalProjectionSet{Projections: []TraceCausalProjection{{
+		ArtifactLabel: "trace.systrace",
+		RankedSeats:   []TraceCausalProjectionNode{adjTwo, onTwo, adjOne, onOne},
+	}}})
+	if len(got) != 2 {
+		t.Fatalf("expected independent on-chain and adjacent boards, got %+v", got)
+	}
+	byChannel := map[string]TraceRankRosterAuthority{}
+	for _, board := range got {
+		byChannel[board.BoardChannel] = board
+	}
+	for _, channel := range []string{"on_chain", "adjacent"} {
+		board, ok := byChannel[channel]
+		if !ok || !board.Complete || board.Status != "complete" || len(board.Seats) != 2 ||
+			board.Seats[0].Rank != 1 || board.Seats[1].Rank != 2 {
+			t.Fatalf("channel %s board drifted: %+v", channel, board)
+		}
+	}
+}

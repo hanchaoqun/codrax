@@ -1951,7 +1951,7 @@ syntax/no-test fallback。
 
 | ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
 |---|---:|---|---|---|---|
-| EVAL-B11-AC1 | P1 | rank board channel identity | 同 target/window/params 的 on-chain 与 adjacent 独立榜被合并，产生重复序数并使完整 roster 失权 | board identity 增加 typed channel；逐 channel 连续校验和发布，禁止跨 channel 比较 | filed |
+| EVAL-B11-AC1 | P1 | rank board channel identity | 同 target/window/params 的 on-chain 与 adjacent 独立榜被合并，产生重复序数并使完整 roster 失权 | board identity 增加 typed channel；逐 channel 连续校验和发布，禁止跨 channel 比较 | covered |
 | EVAL-B11-AC2 | P1 | value-owner temporal authority | typed 等待值与自身 occurrence 窗在场，但 command aggregate 可携另一 transaction stage 的 timestamp 覆盖成文 | 从 typed observation 发布 subject/type/value/occurrence 的紧凑权限；冲突/多值 fail-closed，aggregate 不铸新窗 | filed |
 | EVAL-B11-AC3 | P1 | runnable TestSurface signal precedence | plan-touched runner 偏好在无 candidate 时合成未配置 native runner，并以同目录去重挤掉真实 make test surface | 真实 HasTestSignal candidate 优先；仅在零真实 test signal 时允许 inferred preferred-runner fallback | covered |
 | EVAL-B11-AB2 | P1 | trace aggregate temporal identity | pacing occurrence carrier 真实回放已正确 | carrier covered；成文消费由 AC2 收尾 | verified-partial |
@@ -1980,3 +1980,16 @@ plan-touched 偏好没有实际 candidate，且 TestSurface 存在同 family 的
 cmake；Python 变更面对只有 Go 测试的仓库仍由 plan-touched Python fallback
 先行。专项测试与完整 `go test ./internal/tool -count=1` 通过
 （160.817s）。
+
+批 AC1 在 answer-side roster identity 中增加
+`BoardChannel=ChainRelevance`，没有修改 projection 原有 board key、去重、
+聚合或排序。相同 artifact/target/window/params 的 `on_chain` 与
+`adjacent` 因而各自从 #1 连续校验；空 channel 明确落入 `unspecified`，
+不继承另一榜的权限。writer 逐板发布 `board_channel`，并明确序数只能在
+同 channel 内比较。
+
+回归覆盖 types 层双 channel 各有 #1/#2 且均 complete，以及生产
+`renderAnswerDocObservationLedger` 同时输出两张 complete roster、零
+`duplicate_rank`；skill 的 soft handoff 同步 channel 边界。完整
+`go test ./internal/types ./internal/agent ./internal/skill ./internal/tool -count=1`
+通过（types 18.371s、agent 3.096s、skill 0.359s、tool 157.491s）。

@@ -46,6 +46,9 @@ func TestRenderAnswerDocObservationLedgerCarriesTraceRankAuthorityZ3(t *testing.
 		rank("rank:4", "root_cause_tertiary", "tertiary", "running", "com.baidu.tieba-59566", "frequency_thermal", "10.331", 4),
 		rank("context:binder", "root_cause_context_only", "context_only", "binder_wait", "binder:496_9-10961", "io_dependency", "1.409", 0),
 	}
+	adjacent := rank("adjacent:1", "root_cause_tertiary", "tertiary", "runnable_wait", "neighbor-1", "scheduler_supply", "2.000", 1)
+	adjacent.RichNotes[len(adjacent.RichNotes)-2] = "chain_relevance=adjacent"
+	observations = append(observations, adjacent)
 	mut := types.NewMutableState("分析显式窗口内需求侧与供给侧")
 	mut.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
 		ToolName:     "trace_query",
@@ -64,6 +67,8 @@ func TestRenderAnswerDocObservationLedgerCarriesTraceRankAuthorityZ3(t *testing.
 		"cross_row_additivity=`forbidden`",
 		"Never add several seats into a new total",
 		"roster_status=`complete`",
+		"board_channel=`on_chain`",
+		"board_channel=`adjacent`",
 		"ordered_ranked_roster",
 		"`#1`; type=`priority_inversion_candidate`; subject=`CookieMonsterCl-59843`; effective=23.994ms",
 		"`#2`; type=`d_state_or_io_wait`; subject=`ThreadPoolForeg-60555`; effective=10.433ms",
@@ -77,6 +82,9 @@ func TestRenderAnswerDocObservationLedgerCarriesTraceRankAuthorityZ3(t *testing.
 		if !strings.Contains(got, want) {
 			t.Fatalf("typed trace-rank authority missing %q:\n%s", want, got)
 		}
+	}
+	if strings.Count(got, "roster_status=`complete`") != 2 || strings.Contains(got, "roster_status=`duplicate_rank`") {
+		t.Fatalf("on-chain and adjacent ordinals must publish as two complete boards:\n%s", got)
 	}
 	authorityStart := strings.Index(got, "### Trace Rank Arithmetic And Supply Authority")
 	if authorityStart < 0 {

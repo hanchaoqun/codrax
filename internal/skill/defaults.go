@@ -199,7 +199,7 @@ func RegisterDefaults(r *Registry) {
 			{
 				// EVAL-B11-AB3: final prose consumes the typed per-board
 				// roster. Soft guidance only; no request/answer text scan.
-				Body:      "TRACE ORDERED RANK ROSTER AUTHORITY: when `Trace Rank Arithmetic And Supply Authority` provides an `ordered_ranked_roster`, copy its `#N` ordinals, type, subject, effective value, and board identity exactly. The roster is the only ordinal authority: a measured component, context-only row, target symptom, data gap, caliber side rail, or absorbed row that is absent from it has no rank seat; never infer a rank from duration, discovery order, another table, or narrative importance. When `roster_status` is not `complete`, preserve the listed ordinals but describe the board as incomplete/ambiguous instead of inventing missing seats. Ranked rows remain non-additive across seats.",
+				Body:      "TRACE ORDERED RANK ROSTER AUTHORITY: when `Trace Rank Arithmetic And Supply Authority` provides an `ordered_ranked_roster`, copy its `#N` ordinals, type, subject, effective value, and board identity exactly. Board identity includes `board_channel`: on-chain and adjacent rosters are independent ordinal domains, so never compare or merge their `#N` values. The roster is the only ordinal authority: a measured component, context-only row, target symptom, data gap, caliber side rail, or absorbed row that is absent from it has no rank seat; never infer a rank from duration, discovery order, another table, or narrative importance. When `roster_status` is not `complete`, preserve the listed ordinals but describe the board as incomplete/ambiguous instead of inventing missing seats. Ranked rows remain non-additive across seats.",
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},
 			{
@@ -647,7 +647,7 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 			},
 			{
 				// EVAL-B11-AB3 answer-side mirror.
-				Body:      "TRACE ORDERED RANK ROSTER AUTHORITY: when `Trace Rank Arithmetic And Supply Authority` provides an `ordered_ranked_roster`, copy its `#N` ordinals, type, subject, effective value, and board identity exactly. The roster is the only ordinal authority: a measured component, context-only row, target symptom, data gap, caliber side rail, or absorbed row that is absent from it has no rank seat; never infer a rank from duration, discovery order, another table, or narrative importance. When `roster_status` is not `complete`, preserve the listed ordinals but describe the board as incomplete/ambiguous instead of inventing missing seats. Ranked rows remain non-additive across seats.",
+				Body:      "TRACE ORDERED RANK ROSTER AUTHORITY: when `Trace Rank Arithmetic And Supply Authority` provides an `ordered_ranked_roster`, copy its `#N` ordinals, type, subject, effective value, and board identity exactly. Board identity includes `board_channel`: on-chain and adjacent rosters are independent ordinal domains, so never compare or merge their `#N` values. The roster is the only ordinal authority: a measured component, context-only row, target symptom, data gap, caliber side rail, or absorbed row that is absent from it has no rank seat; never infer a rank from duration, discovery order, another table, or narrative importance. When `roster_status` is not `complete`, preserve the listed ordinals but describe the board as incomplete/ambiguous instead of inventing missing seats. Ranked rows remain non-additive across seats.",
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},
 			{

@@ -4164,13 +4164,14 @@ func renderAnswerDocTraceRankAuthority(ledger types.ObservationLedger) string {
 		if authority.BoardTarget != "" {
 			fmt.Fprintf(&b, "; board_target=`%s`", authority.BoardTarget)
 		}
+		fmt.Fprintf(&b, "; board_channel=`%s`", authority.BoardChannel)
 		if authority.WindowEndTs > authority.WindowStartTs {
 			fmt.Fprintf(&b, "; board_window=`%.6f..%.6f`", authority.WindowStartTs, authority.WindowEndTs)
 		}
 		if authority.BoardParamsFingerprint != "" {
 			fmt.Fprintf(&b, "; board_params=`%s`", authority.BoardParamsFingerprint)
 		}
-		b.WriteString("; cross_row_additivity=`forbidden` — ranked effective impacts are comparable attribution/head-room values but may overlap across rows, threads, segments, and fix directions. Never add several seats into a new total; only a total already published inside one merged row is additive under that row's typed fold caliber.\n")
+		b.WriteString("; cross_row_additivity=`forbidden` — ranked effective impacts are comparable only inside this board channel and may overlap across rows, threads, segments, and fix directions. Never compare `#N` ordinals across channels. Never add several seats into a new total; only a total already published inside one merged row is additive under that row's typed fold caliber.\n")
 		if !authority.Complete {
 			b.WriteString("  - roster is incomplete or ambiguous; preserve the listed typed ordinals, do not invent missing seats, and do not claim this is the complete board.\n")
 		}
