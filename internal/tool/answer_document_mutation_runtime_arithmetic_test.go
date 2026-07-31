@@ -10,7 +10,7 @@ import (
 )
 
 func TestRuntimeTraceArithmeticRelationCaveatRecomputesCustomerMismatch(t *testing.T) {
-	const original = "累计约 1.0ms，占比 0.44%。8 段碎片合计约 0.817ms，总 CPU 占比仅 0.44%。"
+	const original = "累计约 1.0ms，占比 0.44%。8 段碎片合计约 0.817ms，占总 CPU 时间的 0.44%。"
 	doc := &types.AnswerDocumentV2{
 		DocumentModel: "v2",
 		Blocks: []types.AnswerBlock{{
@@ -42,6 +42,40 @@ func TestRuntimeTraceArithmeticRelationCaveatRecomputesCustomerMismatch(t *testi
 	}
 	if strings.Contains(got, "1.000ms / 0.440%") {
 		t.Fatalf("correct rounded relation should not be flagged:\n%s", got)
+	}
+}
+
+func TestRuntimeTraceArithmeticRelationCaveatRejectsCrossMetricSubjectJoin(t *testing.T) {
+	for _, text := range []string{
+		"同窗口 running 52.478ms、sleep 85.915ms，io_wait 占比极小（< 0.5%）。",
+		"sleep was 85.915ms, while io_wait was below 0.5%.",
+	} {
+		doc := &types.AnswerDocumentV2{
+			DocumentModel: "v2",
+			Blocks: []types.AnswerBlock{{
+				ID: "summary", Kind: types.BlockSummary, Text: text,
+			}},
+		}
+		if materializeRuntimeTraceArithmeticRelationCaveat(doc, runtimeTraceArithmeticTestContext("complete", true)) {
+			t.Fatalf("cross-metric duration/percentage must not be joined: text=%q caveats=%v", text, doc.Caveats)
+		}
+	}
+}
+
+func TestRuntimeTraceArithmeticRelationCaveatKeepsExplicitRelationConnectors(t *testing.T) {
+	for _, text := range []string{
+		"碎片合计 0.817ms，占总窗口的 0.44%。",
+		"Eight slices total 0.817ms, representing 0.44% of the selected window.",
+	} {
+		doc := &types.AnswerDocumentV2{
+			DocumentModel: "v2",
+			Blocks: []types.AnswerBlock{{
+				ID: "summary", Kind: types.BlockSummary, Text: text,
+			}},
+		}
+		if !materializeRuntimeTraceArithmeticRelationCaveat(doc, runtimeTraceArithmeticTestContext("complete", true)) {
+			t.Fatalf("explicit same-metric relation connector must remain checkable: %q", text)
+		}
 	}
 }
 

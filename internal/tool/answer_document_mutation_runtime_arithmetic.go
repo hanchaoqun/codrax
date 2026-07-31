@@ -10,10 +10,12 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// A relation is deliberately narrow: a duration immediately followed by a
-// percentage in the same sentence/answer row. This is an advisory cross-check
-// of model-authored arithmetic, never an authority for rewriting that prose.
-var runtimeTraceDurationPercentRelationRE = regexp.MustCompile(`(?i)([0-9]+(?:\.[0-9]+)?)\s*(?:ms|毫秒)[^。.!?\n]{0,96}?([0-9]+(?:\.[0-9]+)?)\s*%`)
+// A relation is deliberately narrow: a duration followed by a percentage in
+// the same sentence/answer row. The bridge is captured separately so
+// runtimeTraceArithmeticBridgeBindsSameMetric can reject a comma-separated
+// switch to another metric subject. This is an advisory cross-check of
+// model-authored arithmetic, never an authority for rewriting that prose.
+var runtimeTraceDurationPercentRelationRE = regexp.MustCompile(`(?i)([0-9]+(?:\.[0-9]+)?)\s*(?:ms|毫秒)([^。.!?\n]{0,96}?)([0-9]+(?:\.[0-9]+)?)\s*%`)
 
 const (
 	runtimeTraceArithmeticRelationCap       = 4
@@ -143,11 +145,11 @@ func runtimeTraceModelArithmeticRelations(doc *types.AnswerDocumentV2) []runtime
 		}
 		surface := types.AnswerBlockVisibleSurface(block)
 		for _, match := range runtimeTraceDurationPercentRelationRE.FindAllStringSubmatch(surface, -1) {
-			if len(match) != 3 {
+			if len(match) != 4 || !runtimeTraceArithmeticBridgeBindsSameMetric(match[2]) {
 				continue
 			}
 			durationMS, durationErr := strconv.ParseFloat(match[1], 64)
-			claimedPercent, percentErr := strconv.ParseFloat(match[2], 64)
+			claimedPercent, percentErr := strconv.ParseFloat(match[3], 64)
 			if durationErr != nil || percentErr != nil || durationMS < 0 || claimedPercent < 0 {
 				continue
 			}
@@ -169,7 +171,7 @@ func runtimeTraceModelArithmeticRelations(doc *types.AnswerDocumentV2) []runtime
 			out = append(out, runtimeTraceArithmeticRelation{
 				durationMS:     durationMS,
 				claimedPercent: claimedPercent,
-				percentToken:   match[2],
+				percentToken:   match[3],
 			})
 			if len(out) >= runtimeTraceArithmeticRelationCap {
 				return out
@@ -177,6 +179,46 @@ func runtimeTraceModelArithmeticRelations(doc *types.AnswerDocumentV2) []runtime
 		}
 	}
 	return out
+}
+
+// runtimeTraceArithmeticBridgeBindsSameMetric rejects the R20 false-join
+// shape:
+//
+//	sleep=85.915ms，io_wait 占比 <0.5%
+//
+// Both values occur in one sentence, but the comma introduces a new metric
+// subject. Only a suffix that is empty or begins with a closed relation
+// connector can cross a comma/semicolon. This is deliberately a precision
+// filter for a soft advisory: uncertain prose is skipped rather than turned
+// into a user-visible arithmetic warning. It does not inspect the request,
+// case identity, PID, or concrete values.
+func runtimeTraceArithmeticBridgeBindsSameMetric(bridge string) bool {
+	lastBoundaryEnd := -1
+	for i, r := range bridge {
+		switch r {
+		case ',', '，', ';', '；':
+			lastBoundaryEnd = i + len(string(r))
+		}
+	}
+	if lastBoundaryEnd < 0 {
+		return true
+	}
+	tail := strings.TrimSpace(bridge[lastBoundaryEnd:])
+	tail = strings.TrimLeft(tail, " \t\r\n()（）[]【】<>＜＞=≈~～")
+	if tail == "" {
+		return true
+	}
+	lower := strings.ToLower(tail)
+	for _, prefix := range []string{
+		"占", "约占", "占比", "比例", "为", "约为", "相当于", "对应",
+		"about ", "approximately ", "roughly ", "which ", "represent",
+		"account", "equal", "or ", "around ",
+	} {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // runtimeTraceTypedWindowsMS collects the deduplicated typed window-length
