@@ -76,6 +76,13 @@ func ApplyWorkflowDecisionToRun(run types.WriteWorkflowRun, decision WriteWorkfl
 			run.Budget.BatchesUsed++
 		}
 		applyWorkflowBatchPlanMetadata(&run, batchID, decision.Batch)
+		if decision.Batch != nil &&
+			decision.Batch.ExecutionMode == types.WriteWorkflowBatchExecutionVerifyOnly {
+			// A cumulative observation follow-up reuses the already-applied
+			// plan/worktree. It never enters planner/apply merely because a
+			// new durable batch was appended.
+			updateWorkflowBatch(&run, batchID, goal, types.WriteWorkflowBatchVerifying)
+		}
 		run.ActiveBatchID = batchID
 		run.Status = types.WriteWorkflowRunInProgress
 		appendWorkflowEdge(&run, types.WriteWorkflowEdgeFollowup, "", batchID, decision.ReasonCode)
@@ -230,19 +237,28 @@ func applyWorkflowBatchPlanMetadata(run *types.WriteWorkflowRun, id string, batc
 		if strings.TrimSpace(run.Batches[i].ID) != id {
 			continue
 		}
-		if normalized.Goal != "" {
-			run.Batches[i].Goal = normalized.Goal
+		// Controller-owned verify-only metadata is immutable to later
+		// model-authored batch echoes. It is the exact observation contract
+		// that justified this non-mutating follow-up. On the minting append
+		// the durable batch is still empty, so copy the whole typed envelope
+		// before the mode becomes locked.
+		locked := run.Batches[i].ExecutionMode != ""
+		if !locked {
+			if normalized.Goal != "" {
+				run.Batches[i].Goal = normalized.Goal
+			}
+			if normalized.Purpose != "" {
+				run.Batches[i].Purpose = normalized.Purpose
+			}
+			if len(normalized.ExpectedPaths) > 0 {
+				run.Batches[i].ExpectedPaths = append([]string(nil), normalized.ExpectedPaths...)
+			}
+			if len(normalized.SuccessCriteria) > 0 {
+				run.Batches[i].SuccessCriteria = append([]string(nil), normalized.SuccessCriteria...)
+			}
+			run.Batches[i].ExecutionMode = normalized.ExecutionMode
 		}
-		if normalized.Purpose != "" {
-			run.Batches[i].Purpose = normalized.Purpose
-		}
-		if len(normalized.ExpectedPaths) > 0 {
-			run.Batches[i].ExpectedPaths = append([]string(nil), normalized.ExpectedPaths...)
-		}
-		if len(normalized.SuccessCriteria) > 0 {
-			run.Batches[i].SuccessCriteria = append([]string(nil), normalized.SuccessCriteria...)
-		}
-		if len(normalized.DependsOn) > 0 {
+		if !locked && len(normalized.DependsOn) > 0 {
 			run.Batches[i].DependsOn = append([]string(nil), normalized.DependsOn...)
 		}
 		run.Batches[i].UpdatedAt = time.Now()

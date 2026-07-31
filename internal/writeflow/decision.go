@@ -92,6 +92,7 @@ func batchPlanIsEmpty(batch WriteBatchPlan) bool {
 	return batch.ID == "" &&
 		batch.Goal == "" &&
 		batch.Purpose == "" &&
+		batch.ExecutionMode == "" &&
 		batch.Status == BatchPending &&
 		batch.WhyThisBatch == "" &&
 		!batch.NeedsCodeExploration &&
@@ -123,6 +124,10 @@ func HydrateWriteWorkflowDecisionFromRun(decision WriteWorkflowDecision, run typ
 		if strings.TrimSpace(decision.Batch.Purpose) == "" {
 			decision.Batch.Purpose = strings.TrimSpace(batch.Purpose)
 		}
+		// ExecutionMode is controller-owned durable routing authority. It is
+		// not present in the model-facing schema, so always hydrate it from the
+		// run rather than trusting or requiring model output.
+		decision.Batch.ExecutionMode = batch.ExecutionMode
 		if len(decision.Batch.ExpectedPaths) == 0 {
 			decision.Batch.ExpectedPaths = append([]string(nil), batch.ExpectedPaths...)
 		}

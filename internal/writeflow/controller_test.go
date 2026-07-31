@@ -62,6 +62,64 @@ func TestApplyWorkflowDecisionToRunExploreThenPlan(t *testing.T) {
 	}
 }
 
+func TestApplyWorkflowDecisionToRunAppendsVerifyOnlyBatchWithoutPlanningState(t *testing.T) {
+	run := types.WriteWorkflowRun{
+		RunID:         "wf-verify-only",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchComplete,
+		}},
+	}
+	got, err := ApplyWorkflowDecisionToRun(run, WriteWorkflowDecision{
+		Action: ActionAppendBatch,
+		Batch: &WriteBatchPlan{
+			ID:              "batch-1-cumulative-review",
+			Goal:            "verify the applied diff",
+			Purpose:         "verification_proof_followup",
+			ExecutionMode:   types.WriteWorkflowBatchExecutionVerifyOnly,
+			ExpectedPaths:   []string{"pkg/fix.ts", "pkg/fix.test.ts"},
+			SuccessCriteria: []string{"contract_ref=retains-existing-default"},
+			DependsOn:       []string{"batch-1"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("append verify-only decision failed: %v", err)
+	}
+	if got.ActiveBatchID != "batch-1-cumulative-review" || len(got.Batches) != 2 {
+		t.Fatalf("verify-only batch not appended: %+v", got)
+	}
+	batch := got.Batches[1]
+	if batch.Status != types.WriteWorkflowBatchVerifying ||
+		batch.ExecutionMode != types.WriteWorkflowBatchExecutionVerifyOnly {
+		t.Fatalf("verify-only batch entered a change-planning state: %+v", batch)
+	}
+	if batch.Purpose != "verification_proof_followup" ||
+		len(batch.SuccessCriteria) != 1 ||
+		batch.SuccessCriteria[0] != "contract_ref=retains-existing-default" {
+		t.Fatalf("controller-owned verify contract missing: %+v", batch)
+	}
+
+	// A later model echo must not rewrite the controller-owned observation
+	// contract into a change-capable cumulative review.
+	echo := &WriteBatchPlan{
+		ID:              batch.ID,
+		Goal:            "rewrite the implementation",
+		Purpose:         "free-form cumulative review",
+		ExpectedPaths:   []string{"pkg/other.ts"},
+		SuccessCriteria: []string{"replace ??= with ="},
+	}
+	applyWorkflowBatchPlanMetadata(&got, batch.ID, echo)
+	batch = got.Batches[1]
+	if batch.Goal != "verify the applied diff" ||
+		batch.Purpose != "verification_proof_followup" ||
+		len(batch.ExpectedPaths) != 2 ||
+		batch.SuccessCriteria[0] != "contract_ref=retains-existing-default" {
+		t.Fatalf("model echo overwrote verify-only authority: %+v", batch)
+	}
+}
+
 func TestApplyWorkflowDecisionToRunFinishAndBlock(t *testing.T) {
 	run := types.WriteWorkflowRun{
 		RunID:         "wf-1",

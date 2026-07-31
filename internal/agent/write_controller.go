@@ -209,6 +209,9 @@ func renderWriteControllerRunSection(ctx *types.AgentContext) string {
 			if st.FailedVerifyAttempts > 0 {
 				line += fmt.Sprintf(" failed_verify_attempts=%d", st.FailedVerifyAttempts)
 			}
+			if batch.ExecutionMode != "" {
+				line += " execution_mode=" + string(batch.ExecutionMode)
+			}
 			line += fmt.Sprintf(" goal=%s plan=%s", limitWriteControllerText(batch.Goal, 120), batch.PlanID)
 			b.WriteString(line + "\n")
 		}

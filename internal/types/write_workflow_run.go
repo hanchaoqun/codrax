@@ -106,6 +106,17 @@ const (
 	WriteWorkflowBatchBlocked          WriteWorkflowBatchStatus = "blocked"
 )
 
+// WriteWorkflowBatchExecutionMode is controller-owned routing authority for a
+// durable batch. Empty means the ordinary change-capable workflow. Verify-only
+// is minted only by deterministic controller code after an already-applied
+// patch needs another observation; model-authored batch prose must never
+// upgrade it back into a change-planning lane.
+type WriteWorkflowBatchExecutionMode string
+
+const (
+	WriteWorkflowBatchExecutionVerifyOnly WriteWorkflowBatchExecutionMode = "verify_only"
+)
+
 type WriteWorkflowCompletionVerdict string
 
 const (
@@ -214,27 +225,28 @@ type WriteWorkflowSliceEvent struct {
 }
 
 type WriteWorkflowBatch struct {
-	ID              string                    `json:"id"`
-	Goal            string                    `json:"goal,omitempty"`
-	Purpose         string                    `json:"purpose,omitempty"`
-	ExpectedPaths   []string                  `json:"expected_paths,omitempty"`
-	SuccessCriteria []string                  `json:"success_criteria,omitempty"`
-	Status          WriteWorkflowBatchStatus  `json:"status,omitempty"`
-	Completion      *WriteWorkflowCompletion  `json:"completion,omitempty"`
-	DependsOn       []string                  `json:"depends_on,omitempty"`
-	PlanID          string                    `json:"plan_id,omitempty"`
-	PlanRef         string                    `json:"plan_ref,omitempty"`
-	ApplyRef        string                    `json:"apply_ref,omitempty"`
-	VerifyRef       string                    `json:"verify_ref,omitempty"`
-	ApprovalRef     string                    `json:"approval_ref,omitempty"`
-	ContextPackIDs  []string                  `json:"context_pack_ids,omitempty"`
-	Attempts        []WriteWorkflowAttempt    `json:"attempts,omitempty"`
-	Revisions       []WriteWorkflowRevision   `json:"revisions,omitempty"`
-	ActiveSliceID   string                    `json:"active_slice_id,omitempty"`
-	Slices          []WriteWorkflowSlice      `json:"slices,omitempty"`
-	SliceEvents     []WriteWorkflowSliceEvent `json:"slice_events,omitempty"`
-	CreatedAt       time.Time                 `json:"created_at,omitempty"`
-	UpdatedAt       time.Time                 `json:"updated_at,omitempty"`
+	ID              string                          `json:"id"`
+	Goal            string                          `json:"goal,omitempty"`
+	Purpose         string                          `json:"purpose,omitempty"`
+	ExecutionMode   WriteWorkflowBatchExecutionMode `json:"execution_mode,omitempty"`
+	ExpectedPaths   []string                        `json:"expected_paths,omitempty"`
+	SuccessCriteria []string                        `json:"success_criteria,omitempty"`
+	Status          WriteWorkflowBatchStatus        `json:"status,omitempty"`
+	Completion      *WriteWorkflowCompletion        `json:"completion,omitempty"`
+	DependsOn       []string                        `json:"depends_on,omitempty"`
+	PlanID          string                          `json:"plan_id,omitempty"`
+	PlanRef         string                          `json:"plan_ref,omitempty"`
+	ApplyRef        string                          `json:"apply_ref,omitempty"`
+	VerifyRef       string                          `json:"verify_ref,omitempty"`
+	ApprovalRef     string                          `json:"approval_ref,omitempty"`
+	ContextPackIDs  []string                        `json:"context_pack_ids,omitempty"`
+	Attempts        []WriteWorkflowAttempt          `json:"attempts,omitempty"`
+	Revisions       []WriteWorkflowRevision         `json:"revisions,omitempty"`
+	ActiveSliceID   string                          `json:"active_slice_id,omitempty"`
+	Slices          []WriteWorkflowSlice            `json:"slices,omitempty"`
+	SliceEvents     []WriteWorkflowSliceEvent       `json:"slice_events,omitempty"`
+	CreatedAt       time.Time                       `json:"created_at,omitempty"`
+	UpdatedAt       time.Time                       `json:"updated_at,omitempty"`
 }
 
 // AppendWriteWorkflowApprovalRecord appends one approval decision to
@@ -387,6 +399,15 @@ func normalizeWriteWorkflowBatchStatus(in WriteWorkflowBatchStatus) WriteWorkflo
 	}
 }
 
+func NormalizeWriteWorkflowBatchExecutionMode(in WriteWorkflowBatchExecutionMode) WriteWorkflowBatchExecutionMode {
+	switch in {
+	case WriteWorkflowBatchExecutionVerifyOnly:
+		return in
+	default:
+		return ""
+	}
+}
+
 func normalizeWriteWorkflowCompletionPtr(in *WriteWorkflowCompletion) *WriteWorkflowCompletion {
 	if in == nil {
 		return nil
@@ -436,6 +457,7 @@ func normalizeWriteWorkflowBatches(in []WriteWorkflowBatch) []WriteWorkflowBatch
 		}
 		batch.Goal = trimWriteWorkflowRunText(batch.Goal)
 		batch.Purpose = trimWriteWorkflowRunText(batch.Purpose)
+		batch.ExecutionMode = NormalizeWriteWorkflowBatchExecutionMode(batch.ExecutionMode)
 		batch.ExpectedPaths = dedupTrimWriteWorkflowRunStrings(batch.ExpectedPaths)
 		batch.SuccessCriteria = dedupTrimWriteWorkflowRunStrings(batch.SuccessCriteria)
 		batch.DependsOn = dedupTrimWriteWorkflowRunStrings(batch.DependsOn)

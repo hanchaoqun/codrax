@@ -53,17 +53,21 @@ type WriteWorkflowPlan struct {
 // The model should unfold only the next useful batch, not an exhaustive
 // one-shot implementation plan for the whole user request.
 type WriteBatchPlan struct {
-	ID                   string      `json:"id,omitempty"`
-	Goal                 string      `json:"goal"`
-	Purpose              string      `json:"purpose,omitempty"`
-	Status               BatchStatus `json:"status,omitempty"`
-	WhyThisBatch         string      `json:"why_this_batch,omitempty"`
-	NeedsCodeExploration bool        `json:"needs_code_exploration,omitempty"`
-	ExploreTargets       []string    `json:"explore_targets,omitempty"`
-	ExpectedChangeKinds  []string    `json:"expected_change_kinds,omitempty"`
-	ExpectedPaths        []string    `json:"expected_paths,omitempty"`
-	SuccessCriteria      []string    `json:"success_criteria,omitempty"`
-	DependsOn            []string    `json:"depends_on,omitempty"`
+	ID      string `json:"id,omitempty"`
+	Goal    string `json:"goal"`
+	Purpose string `json:"purpose,omitempty"`
+	// ExecutionMode is controller-owned and deliberately omitted from the
+	// model-facing batchPlanSchema. The deterministic scheduler uses it to
+	// keep cumulative observation batches out of ChangePlan/apply lanes.
+	ExecutionMode        types.WriteWorkflowBatchExecutionMode `json:"execution_mode,omitempty"`
+	Status               BatchStatus                           `json:"status,omitempty"`
+	WhyThisBatch         string                                `json:"why_this_batch,omitempty"`
+	NeedsCodeExploration bool                                  `json:"needs_code_exploration,omitempty"`
+	ExploreTargets       []string                              `json:"explore_targets,omitempty"`
+	ExpectedChangeKinds  []string                              `json:"expected_change_kinds,omitempty"`
+	ExpectedPaths        []string                              `json:"expected_paths,omitempty"`
+	SuccessCriteria      []string                              `json:"success_criteria,omitempty"`
+	DependsOn            []string                              `json:"depends_on,omitempty"`
 }
 
 // NormalizeWorkflowPlan trims and defaults a workflow plan after schema-level
@@ -103,6 +107,7 @@ func NormalizeBatchPlan(batch WriteBatchPlan) WriteBatchPlan {
 	batch.ID = strings.TrimSpace(batch.ID)
 	batch.Goal = strings.TrimSpace(batch.Goal)
 	batch.Purpose = strings.TrimSpace(batch.Purpose)
+	batch.ExecutionMode = types.NormalizeWriteWorkflowBatchExecutionMode(batch.ExecutionMode)
 	batch.Status = normalizeBatchStatus(batch.Status)
 	batch.WhyThisBatch = strings.TrimSpace(batch.WhyThisBatch)
 	batch.ExploreTargets = dedupTrimWorkflowStrings(batch.ExploreTargets)

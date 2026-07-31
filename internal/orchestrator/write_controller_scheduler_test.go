@@ -79,7 +79,7 @@ func testOwnerLocalizationContextPack(batchID, sourcePath, owner string) types.W
 	})
 }
 
-func TestImpactObligationRepairFollowupBatchGraphTargetNeedsNavigationExploration(t *testing.T) {
+func TestImpactObligationRepairFollowupBatchGraphTargetStaysVerifyOnly(t *testing.T) {
 	run := &types.WriteWorkflowRun{
 		RunID:         "wf-graph",
 		ActiveBatchID: "batch-1",
@@ -105,8 +105,9 @@ func TestImpactObligationRepairFollowupBatchGraphTargetNeedsNavigationExploratio
 	if batch == nil {
 		t.Fatal("expected graph impact follow-up batch")
 	}
-	if !batch.NeedsCodeExploration {
-		t.Fatalf("graph impact follow-up should require read-only navigation exploration: %+v", batch)
+	if batch.NeedsCodeExploration ||
+		batch.ExecutionMode != types.WriteWorkflowBatchExecutionVerifyOnly {
+		t.Fatalf("non-failed cumulative follow-up must remain observation-only: %+v", batch)
 	}
 	if !containsString(batch.ExpectedPaths, "pkg/axis.py") ||
 		!containsString(batch.ExpectedPaths, "pkg/caller.py") {
@@ -116,13 +117,13 @@ func TestImpactObligationRepairFollowupBatchGraphTargetNeedsNavigationExploratio
 	for _, want := range []string{
 		"impact_obligation=",
 		"kind=dependent",
-		"repo_map_navigation_requirement route=edit_impact",
-		"repo_map_navigation_requirement route=relation_map",
-		"required=typed_impact_navigation_coverage",
 	} {
 		if !strings.Contains(criteria, want) {
 			t.Fatalf("success criteria missing %q:\n%s", want, criteria)
 		}
+	}
+	if strings.Contains(criteria, "repo_map_navigation_requirement") {
+		t.Fatalf("verify-only follow-up must not mint a new source-navigation contract:\n%s", criteria)
 	}
 }
 
@@ -160,7 +161,7 @@ func TestImpactObligationRepairFollowupBatchContractDoesNotForceGraphExploration
 	}
 }
 
-func TestNormalizeControllerTypedStateDecisionUnverifiedImpactGraphFollowupExploresBeforeFinish(t *testing.T) {
+func TestNormalizeControllerTypedStateDecisionUnverifiedImpactGraphFollowupVerifiesBeforeFinish(t *testing.T) {
 	mu := types.NewMutableState("fix graph impact")
 	mu.SetChangePlan(&types.ChangePlan{
 		ID: "plan-graph",
@@ -197,20 +198,21 @@ func TestNormalizeControllerTypedStateDecisionUnverifiedImpactGraphFollowupExplo
 		Action:     writeflow.ActionFinish,
 		ReasonCode: "controller_done",
 	}, run)
-	if got.Action != writeflow.ActionExploreCode || got.ExplorationRequest == nil {
-		t.Fatalf("finish should be rewritten to graph-navigation exploration, got %+v", got)
+	if got.Action != writeflow.ActionAppendBatch || got.Batch == nil {
+		t.Fatalf("finish should be rewritten to a verify-only follow-up, got %+v", got)
 	}
-	if got.ReasonCode != "impact_obligation_followup_explore" {
-		t.Fatalf("reason_code = %q, want impact_obligation_followup_explore", got.ReasonCode)
+	if got.ReasonCode != "impact_obligation_followup" {
+		t.Fatalf("reason_code = %q, want impact_obligation_followup", got.ReasonCode)
 	}
-	if got.ExplorationRequest.BatchID == "" ||
-		!strings.Contains(got.ExplorationRequest.BatchID, "impact-repair") {
-		t.Fatalf("unexpected exploration batch id: %+v", got.ExplorationRequest)
+	if got.Batch.ID == "" ||
+		!strings.Contains(got.Batch.ID, "impact-repair") ||
+		got.Batch.ExecutionMode != types.WriteWorkflowBatchExecutionVerifyOnly {
+		t.Fatalf("unexpected verify-only batch: %+v", got.Batch)
 	}
-	requirements := strings.Join(got.ExplorationRequest.EvidenceRequirements, "\n")
-	if !strings.Contains(requirements, "repo_map_navigation_requirement route=edit_impact") ||
-		!strings.Contains(requirements, "required=typed_impact_navigation_coverage") {
-		t.Fatalf("exploration request missing typed graph-navigation requirements:\n%s", requirements)
+	requirements := strings.Join(got.Batch.SuccessCriteria, "\n")
+	if !strings.Contains(requirements, "kind=dependent") ||
+		strings.Contains(requirements, "repo_map_navigation_requirement") {
+		t.Fatalf("verify-only batch has the wrong typed criteria:\n%s", requirements)
 	}
 }
 
@@ -5908,7 +5910,7 @@ func TestNormalizeControllerTypedStateDecisionProofLedgerPlacementGapBecomesProo
 	}
 }
 
-func TestNormalizeControllerTypedStateDecisionImpactRepairWithoutPathExploresFirst(t *testing.T) {
+func TestNormalizeControllerTypedStateDecisionProofGapWithoutPathStaysVerifyOnly(t *testing.T) {
 	mu := types.NewMutableState("impact repair needs localization")
 	mu.SetChangePlan(&types.ChangePlan{
 		ID:     "plan-contract",
@@ -5943,14 +5945,16 @@ func TestNormalizeControllerTypedStateDecisionImpactRepairWithoutPathExploresFir
 		ReasonCode: "done",
 	}, run)
 
-	if got.Action != writeflow.ActionExploreCode || got.ExplorationRequest == nil {
-		t.Fatalf("pathless impact repair should explore before planning, got %+v", got)
+	if got.Action != writeflow.ActionAppendBatch || got.Batch == nil {
+		t.Fatalf("pathless proof gap should verify the applied plan, got %+v", got)
 	}
-	if got.ExplorationRequest.BatchID != "batch-1-proof-repair" {
-		t.Fatalf("exploration should target the proof repair batch, got %+v", got.ExplorationRequest)
+	if got.Batch.ID != "batch-1-proof-repair" ||
+		got.Batch.ExecutionMode != types.WriteWorkflowBatchExecutionVerifyOnly ||
+		got.Batch.NeedsCodeExploration {
+		t.Fatalf("proof follow-up should be controller-owned verify-only: %+v", got.Batch)
 	}
-	if !strings.Contains(strings.Join(got.ExplorationRequest.EvidenceRequirements, "\n"), "behavior_contract_without_verify_coverage") {
-		t.Fatalf("exploration requirements should preserve typed finding code, got %+v", got.ExplorationRequest.EvidenceRequirements)
+	if !strings.Contains(strings.Join(got.Batch.SuccessCriteria, "\n"), "behavior_contract_without_verify_coverage") {
+		t.Fatalf("verify-only criteria should preserve typed finding code, got %+v", got.Batch.SuccessCriteria)
 	}
 }
 
@@ -6363,6 +6367,13 @@ func TestAppendCumulativePatchReviewFollowupCoversSourcePatchAfterTestOnlyPlan(t
 	if batch == nil || !containsString(batch.ExpectedPaths, "pkg/bug.py") {
 		t.Fatalf("follow-up should carry production source path, batch=%+v", batch)
 	}
+	if batch.ExecutionMode != types.WriteWorkflowBatchExecutionVerifyOnly ||
+		batch.Status != types.WriteWorkflowBatchVerifying {
+		t.Fatalf("cumulative review must be a non-mutating verification batch: %+v", batch)
+	}
+	if got := mu.ChangePlan(); got == nil || got.ID != "plan-test-only" {
+		t.Fatalf("cumulative review must reuse the applied plan, got %+v", got)
+	}
 	criteria := strings.Join(batch.SuccessCriteria, "\n")
 	for _, want := range []string{"changed_symbol_without_probe_coverage", "pkg.bug.VALUE"} {
 		if !strings.Contains(criteria, want) {
@@ -6384,6 +6395,181 @@ func TestAppendCumulativePatchReviewFollowupCoversSourcePatchAfterTestOnlyPlan(t
 	if writeContextViewContains(view, "patch_effect", "build/generated.c") ||
 		writeContextViewContains(view, "patch_review_finding", "build/generated.c") {
 		t.Fatalf("cumulative review should ignore unowned verify-generated artifacts: %+v", view.Items)
+	}
+}
+
+func TestNormalizeControllerTypedStateDecision_VerifyOnlyRejectsModificationPlan(t *testing.T) {
+	mu := types.NewMutableState("verify-only cumulative review")
+	original := &types.ChangePlan{
+		ID:     "plan-original",
+		Status: types.PlanStatusApplied,
+		Changes: []types.FileChange{{
+			Path: "pkg/defaults.ts",
+			Kind: "patch",
+		}},
+	}
+	mu.SetChangePlan(original)
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-verify-only",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1-cumulative-review",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:              "batch-1-cumulative-review",
+			Goal:            "verify existing default retention",
+			Purpose:         "verification_proof_followup",
+			ExecutionMode:   types.WriteWorkflowBatchExecutionVerifyOnly,
+			Status:          types.WriteWorkflowBatchVerifying,
+			ExpectedPaths:   []string{"pkg/defaults.ts"},
+			SuccessCriteria: []string{"existing default remains unchanged"},
+		}},
+	}
+	mu.SetWriteWorkflowRun(run)
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+
+	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action: writeflow.ActionPlanBatch,
+		Batch: &writeflow.WriteBatchPlan{
+			ID:              run.ActiveBatchID,
+			Goal:            "replace nullish assignment",
+			Purpose:         "cumulative review changes",
+			ExpectedPaths:   []string{"pkg/defaults.ts"},
+			SuccessCriteria: []string{"replace ??= with ="},
+		},
+	}, run)
+	if got.Action != writeflow.ActionVerifyBatch ||
+		got.ReasonCode != "verification_only_batch_requires_verify" {
+		t.Fatalf("verify-only batch allowed a modification plan: %+v", got)
+	}
+	if current := mu.ChangePlan(); current == nil || current.ID != original.ID {
+		t.Fatalf("verify-only normalization replaced the applied plan: %+v", current)
+	}
+}
+
+func TestRunWriteControllerWorkflow_VerifyOnlyCumulativeReviewNeverRunsPlannerOrApply(t *testing.T) {
+	const objective = "preserve an existing default while validating falsy prefault values"
+	plan := &types.ChangePlan{
+		ID:          "plan-applied",
+		Status:      types.PlanStatusApplied,
+		Summary:     objective,
+		TargetPaths: []string{"pkg/defaults.ts", "pkg/defaults.test.ts"},
+		AppliedPaths: []string{
+			"pkg/defaults.ts",
+			"pkg/defaults.test.ts",
+		},
+	}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-verify-only-e2e",
+		Goal:          objective,
+		Identity:      testWorkflowIdentity(objective),
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1-cumulative-review",
+		Batches: []types.WriteWorkflowBatch{
+			{
+				ID:     "batch-1",
+				Status: types.WriteWorkflowBatchComplete,
+				Completion: &types.WriteWorkflowCompletion{
+					Verdict:    types.WriteWorkflowCompletionVerified,
+					ReasonCode: "tests_passed",
+				},
+			},
+			{
+				ID:              "batch-1-cumulative-review",
+				Goal:            "verify the applied default semantics",
+				Purpose:         "verification_proof_followup",
+				ExecutionMode:   types.WriteWorkflowBatchExecutionVerifyOnly,
+				Status:          types.WriteWorkflowBatchVerifying,
+				ExpectedPaths:   []string{"pkg/defaults.ts", "pkg/defaults.test.ts"},
+				SuccessCriteria: []string{"an existing default is not overwritten by prefault"},
+			},
+		},
+	}
+	store := &fakeWorkflowRunStore{active: run}
+	mu := types.NewMutableState(objective)
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{Task: types.WriteTask{Summary: objective}},
+	})
+	mu.SetChangePlan(plan)
+	decisions := []writeflow.WriteWorkflowDecision{
+		{
+			// This is the fifth-replay failure shape. Typed state must replace
+			// it with verify_batch before the StagePlan switch can run.
+			Action: writeflow.ActionPlanBatch,
+			Batch: &writeflow.WriteBatchPlan{
+				ID:              run.ActiveBatchID,
+				Goal:            "replace the already-correct implementation",
+				Purpose:         "cumulative review changes",
+				ExpectedPaths:   []string{"pkg/defaults.ts", "pkg/defaults.test.ts"},
+				SuccessCriteria: []string{"replace ??= with ="},
+			},
+		},
+		{Action: writeflow.ActionFinish, FinishDisposition: writeflow.FinishDispositionAllVerified},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelTokenPtr.Store(NewCancelToken())
+	o.writeWorkflowRunStore = store
+	verifyCalls := 0
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StageVerify:
+			verifyCalls++
+			mu.SetChangeReport(&types.ChangeReport{
+				PlanID:             plan.ID,
+				Channel:            types.ChangeReportChannelPostApplyVerify,
+				Passed:             true,
+				VerificationStatus: types.VerificationStatusPassed,
+				TestResults: []types.TestResult{{
+					Kind:        types.TestResultKindUnit,
+					AssertionID: "existing-default-retained",
+					Suite:       "defaults",
+					Passed:      true,
+				}},
+			})
+		case types.StagePlan, types.StageApply:
+			t.Fatalf("verify-only cumulative review reached mutating stage %s", stage)
+		default:
+			t.Fatalf("unexpected stage %s", stage)
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("verify-only workflow failed: %v", err)
+	}
+	if controllerCalls != 2 || verifyCalls != 1 {
+		t.Fatalf("controllerCalls=%d verifyCalls=%d, want 2/1", controllerCalls, verifyCalls)
+	}
+	if got := mu.ChangePlan(); got == nil || got.ID != plan.ID || len(got.Changes) != 0 {
+		t.Fatalf("verify-only workflow manufactured a replacement ChangePlan: %+v", got)
+	}
+	if store.last == nil || store.last.Status != types.WriteWorkflowRunComplete {
+		t.Fatalf("verify-only workflow did not finish: %+v", store.last)
+	}
+	if got := store.last.Batches[1]; got.ExecutionMode != types.WriteWorkflowBatchExecutionVerifyOnly ||
+		got.Status != types.WriteWorkflowBatchComplete {
+		t.Fatalf("verify-only batch lost its typed mode/verdict: %+v", got)
+	}
+}
+
+func TestImpactRepairQueueVerificationProbeSourceStaysProofOnly(t *testing.T) {
+	item := impactRepairQueueItem{
+		ID:             "impact-target:changed-symbol",
+		Code:           "changed_symbol_coverage_unverified",
+		Kind:           "changed_symbol",
+		Symbol:         "finalizeDefault",
+		CoverageStatus: impactCoverageUnverified,
+		Source:         "verification_probe",
+	}
+	if !impactRepairQueueItemFromVerificationProof(item) {
+		t.Fatalf("verification_probe target was misclassified as an impact edit: %+v", item)
+	}
+	if got := repairFollowupPurposeForItems([]impactRepairQueueItem{item}); got != "verification_proof_followup" {
+		t.Fatalf("proof-only target purpose = %q", got)
 	}
 }
 

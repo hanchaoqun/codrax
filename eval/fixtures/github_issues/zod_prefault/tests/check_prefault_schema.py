@@ -25,6 +25,14 @@ has_existence_check = (
 if not has_existence_check:
     errors.append("implementation must use a typed existence check for _prefault")
 
+# Prefault only fills a missing default. A later review plan must not replace
+# the intentional nullish assignment with an unconditional assignment merely
+# because falsy prefault values are valid.
+if "result.schema.default ??= result.schema._prefault" not in source:
+    errors.append("implementation must preserve an existing default with nullish assignment")
+if re.search(r"result\.schema\.default\s*=(?!=)\s*result\.schema\._prefault", source):
+    errors.append("implementation must not overwrite an existing default from _prefault")
+
 # Accept either regression shape: a prefault(value) helper call, or the
 # fixture's natural literal style `_prefault: value`. Demanding the helper
 # spelling alone rejects correct tests written in the file's own idiom.
@@ -39,6 +47,10 @@ for label, variants in [
 for snippet in ["default: false", "default: 0", 'default: ""']:
     if snippet not in tests:
         errors.append(f"missing expected default snippet: {snippet}")
+
+for snippet in ['default: "existing"', '_prefault: "replacement"']:
+    if snippet not in tests:
+        errors.append(f"missing existing-default retention regression snippet: {snippet}")
 
 if errors:
     for error in errors:

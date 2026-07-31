@@ -276,6 +276,18 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				o.publishBlockedRunGuidance(&run, "max_batches_reached")
 				return fmt.Errorf("write workflow blocked: max batch budget reached")
 			}
+			if decision.Action == writeflow.ActionAppendBatch && activeWorkflowBatchVerifyOnly(&run) {
+				// The cumulative review batch was minted by deterministic
+				// controller code and reuses the already-applied plan. Do not
+				// enter StagePlan here: doing so would manufacture a second
+				// source/test patch under the guise of verification.
+				appendControllerProgress(&run, run.ActiveBatchID, "verification_only_batch_ready",
+					"controller-owned cumulative review will verify the already-applied plan/worktree without creating or applying another ChangePlan")
+				o.syncCurrentWriteContextPackToRun(&run)
+				o.persistWriteWorkflowRun(&run)
+				o.busCtx.TaskState.LastError = ""
+				continue
+			}
 			priorPlan := o.busCtx.Mutable.ChangePlan()
 			priorPlanFingerprint := types.PlanFingerprint(priorPlan)
 			replanFromFailedVerify := false
@@ -2684,14 +2696,13 @@ func (o *Orchestrator) appendCumulativePatchReviewFollowupIfNeeded(run *types.Wr
 	purpose := repairFollowupPurposeForItems(items)
 	expectedPaths := impactRepairExpectedPaths(items)
 	criteria := impactRepairSuccessCriteria(items)
-	criteria = append(criteria, impactRepairNavigationSuccessCriteria(items)...)
 	batch := writeflow.WriteBatchPlan{
 		ID:                   nextRepairBatchID(run, run.ActiveBatchID, "cumulative-review"),
 		Goal:                 impactRepairFollowupGoal(items),
 		Purpose:              purpose,
+		ExecutionMode:        types.WriteWorkflowBatchExecutionVerifyOnly,
 		Status:               writeflow.BatchReadyForChangePlan,
-		NeedsCodeExploration: len(expectedPaths) == 0 || impactRepairNeedsGraphNavigation(items),
-		ExploreTargets:       expectedPaths,
+		NeedsCodeExploration: false,
 		ExpectedPaths:        expectedPaths,
 		SuccessCriteria:      criteria,
 	}
@@ -5963,6 +5974,9 @@ func (o *Orchestrator) controllerDecisionFromTypedStateAfterDispatchError(run *t
 	if run != nil {
 		batchID = run.ActiveBatchID
 	}
+	if next, ok := o.controllerVerifyOnlyDecision(writeflow.WriteWorkflowDecision{}, run); ok {
+		return next, true
+	}
 	if activeBatchAppliedPlanPendingVerify(run, plan) {
 		appendControllerProgress(run, batchID, "controller_dispatch_recovered_post_apply_verify",
 			"controller dispatch failed, but typed workflow state requires post-apply verification of the active plan")
@@ -6002,6 +6016,9 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 	batchID := ""
 	if run != nil {
 		batchID = run.ActiveBatchID
+	}
+	if next, ok := o.controllerVerifyOnlyDecision(decision, run); ok {
+		return next
 	}
 	if activeBatchAppliedPlanPendingVerify(run, plan) {
 		if controllerActionDelaysPostApplyVerify(decision.Action) {
@@ -6174,6 +6191,64 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 		}
 	}
 	return decision
+}
+
+func (o *Orchestrator) controllerVerifyOnlyDecision(decision writeflow.WriteWorkflowDecision, run *types.WriteWorkflowRun) (writeflow.WriteWorkflowDecision, bool) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return writeflow.WriteWorkflowDecision{}, false
+	}
+	batch, ok := activeWorkflowBatch(run)
+	if !ok ||
+		batch.ExecutionMode != types.WriteWorkflowBatchExecutionVerifyOnly ||
+		batch.Status == types.WriteWorkflowBatchComplete {
+		return writeflow.WriteWorkflowDecision{}, false
+	}
+	switch batch.Status {
+	case types.WriteWorkflowBatchVerifying:
+		if decision.Action != writeflow.ActionVerifyBatch {
+			appendControllerProgress(run, batch.ID, "verification_only_action_overridden",
+				fmt.Sprintf("controller action %s suppressed because this cumulative-review batch may only observe the already-applied plan", decision.Action))
+			decision = writeflow.WriteWorkflowDecision{
+				Action:     writeflow.ActionVerifyBatch,
+				ReasonCode: "verification_only_batch_requires_verify",
+				Reason:     "controller-owned cumulative review reuses the already-applied plan and permits verification only",
+			}
+		}
+		// Return before generic ready-plan normalization can reinterpret the
+		// prior applied ChangePlan as permission to apply it again.
+		return writeflow.NormalizeWriteWorkflowDecision(decision), true
+	case types.WriteWorkflowBatchReadyToPlan:
+		if activeBatchHasVerifyFailureHandoff(o.busCtx.Mutable, batch.ID) {
+			criteria := append([]string(nil), batch.SuccessCriteria...)
+			criteria = append(criteria, "typed_verify_failure_handoff_required=true")
+			return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
+				Action:     writeflow.ActionAppendBatch,
+				ReasonCode: "verification_only_failure_repair",
+				Reason:     "a new typed verification failure authorizes a separate bounded repair batch",
+				Batch: &writeflow.WriteBatchPlan{
+					ID:              nextRepairBatchID(run, batch.ID, "verified-failure-repair"),
+					Goal:            "Repair the newly failed cumulative verification without revising already-passed work from review prose alone.",
+					Purpose:         "verification_failure_repair",
+					Status:          writeflow.BatchReadyForChangePlan,
+					ExpectedPaths:   append([]string(nil), batch.ExpectedPaths...),
+					SuccessCriteria: dedupTrimControllerStrings(criteria),
+					DependsOn:       []string{batch.ID},
+				},
+			}), true
+		}
+		return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
+			Action:            writeflow.ActionFinish,
+			ReasonCode:        "verification_only_unavailable_without_failure",
+			Reason:            "cumulative verification produced no typed code-failure evidence; finish without manufacturing a repair plan",
+			FinishDisposition: writeflow.FinishDispositionAcceptUnverified,
+		}), true
+	default:
+		return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
+			Action:     writeflow.ActionVerifyBatch,
+			ReasonCode: "verification_only_batch_requires_verify",
+			Reason:     "controller-owned cumulative review reuses the already-applied plan and permits verification only",
+		}), true
+	}
 }
 
 func (o *Orchestrator) controllerTruthLedgerDecision(decision writeflow.WriteWorkflowDecision, run *types.WriteWorkflowRun) (writeflow.WriteWorkflowDecision, bool) {
@@ -6950,6 +7025,38 @@ func activeBatchNeedsReplan(run *types.WriteWorkflowRun) (types.WriteWorkflowBat
 	return types.WriteWorkflowBatch{}, false
 }
 
+func activeWorkflowBatchVerifyOnly(run *types.WriteWorkflowRun) bool {
+	if run == nil {
+		return false
+	}
+	activeID := strings.TrimSpace(run.ActiveBatchID)
+	if activeID == "" {
+		return false
+	}
+	for _, batch := range run.Batches {
+		if strings.TrimSpace(batch.ID) == activeID {
+			return batch.ExecutionMode == types.WriteWorkflowBatchExecutionVerifyOnly
+		}
+	}
+	return false
+}
+
+func activeWorkflowBatch(run *types.WriteWorkflowRun) (types.WriteWorkflowBatch, bool) {
+	if run == nil {
+		return types.WriteWorkflowBatch{}, false
+	}
+	activeID := strings.TrimSpace(run.ActiveBatchID)
+	if activeID == "" {
+		return types.WriteWorkflowBatch{}, false
+	}
+	for _, batch := range run.Batches {
+		if strings.TrimSpace(batch.ID) == activeID {
+			return batch, true
+		}
+	}
+	return types.WriteWorkflowBatch{}, false
+}
+
 func workflowBatchActiveSliceFailed(batch types.WriteWorkflowBatch) bool {
 	activeID := strings.TrimSpace(batch.ActiveSliceID)
 	if activeID == "" {
@@ -7473,14 +7580,13 @@ func impactObligationRepairFollowupBatch(run *types.WriteWorkflowRun, activeBatc
 	id := nextRepairBatchID(run, activeBatchID, repairFollowupBatchIDSuffix(purpose))
 	expectedPaths := impactRepairExpectedPaths(items)
 	criteria := impactRepairSuccessCriteria(items)
-	criteria = append(criteria, impactRepairNavigationSuccessCriteria(items)...)
 	batch := writeflow.WriteBatchPlan{
 		ID:                   id,
 		Goal:                 impactRepairFollowupGoal(items),
 		Purpose:              purpose,
+		ExecutionMode:        types.WriteWorkflowBatchExecutionVerifyOnly,
 		Status:               writeflow.BatchReadyForChangePlan,
-		NeedsCodeExploration: len(expectedPaths) == 0 || impactRepairNeedsGraphNavigation(items),
-		ExploreTargets:       expectedPaths,
+		NeedsCodeExploration: false,
 		ExpectedPaths:        expectedPaths,
 		SuccessCriteria:      criteria,
 	}
@@ -7988,7 +8094,7 @@ func impactRepairQueueItemFromVerificationProof(item impactRepairQueueItem) bool
 	if impactRepairQueueItemFromVerificationConfidence(item) {
 		return true
 	}
-	if item.Source == "verification_proof_ledger" {
+	if item.Source == "verification_proof_ledger" || item.Source == "verification_probe" {
 		return true
 	}
 	switch item.Code {

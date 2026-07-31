@@ -16,6 +16,7 @@ func TestNormalizeWriteWorkflowRunPersistsContextPacks(t *testing.T) {
 		Batches: []WriteWorkflowBatch{{
 			ID:              " batch-1 ",
 			Purpose:         " verification_proof_followup ",
+			ExecutionMode:   WriteWorkflowBatchExecutionVerifyOnly,
 			ExpectedPaths:   []string{" pkg/fix.py ", "pkg/fix.py"},
 			SuccessCriteria: []string{" contract_ref=outcome-1 ", "contract_ref=outcome-1"},
 			Status:          WriteWorkflowBatchNeedsExploration,
@@ -83,6 +84,7 @@ func TestNormalizeWriteWorkflowRunPersistsContextPacks(t *testing.T) {
 		t.Fatalf("batch dependencies not normalized: %+v", got.Batches[0].DependsOn)
 	}
 	if got.Batches[0].Purpose != "verification_proof_followup" ||
+		got.Batches[0].ExecutionMode != WriteWorkflowBatchExecutionVerifyOnly ||
 		len(got.Batches[0].ExpectedPaths) != 1 || got.Batches[0].ExpectedPaths[0] != "pkg/fix.py" ||
 		len(got.Batches[0].SuccessCriteria) != 1 || got.Batches[0].SuccessCriteria[0] != "contract_ref=outcome-1" {
 		t.Fatalf("batch typed criteria not normalized: %+v", got.Batches[0])
