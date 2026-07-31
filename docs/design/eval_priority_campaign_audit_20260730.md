@@ -1176,3 +1176,59 @@ entity resolutions=3、contributions=2、decisions=5、reconcile=pass，
 `Status=failed` 与一个 `status=failed` 精确计为2、executed不计。
 `bash -n eval/runner_lib.sh eval/run.sh eval/runner_lib_test.sh`及
 `bash eval/runner_lib_test.sh`通过；待提交推送。
+
+### B9 r1 人工审计与批 U（2026-07-31）
+
+批 T `05d6f4f90` 推送、重建并通过 revision/clean-input 校验后，以严格
+`parallel=2` 执行：
+
+- `eval/results/trace_query_frame_timeline_flow-20260731-104036`
+- `eval/results/read_combo_trace_current_code_boundary-20260731-104036`
+
+runner 2/2 PASS；人工 Frame FAIL、mixed trace/current-source partial。
+
+Frame case 的四个 B/E span 时间线和角色分类正确，但输入没有 async S/F
+cookie、scheduler/binder edge、官方 flow ID 或其他显式连接器。旧
+`buildFrameTimelineFromPipeline` 仍把时间排序后的每对相邻 span 无条件写成
+`FrameFlowEdge`，其 JSON 只有端点、phase、latency、line 和 summary，
+没有 relation kind/source/causality。主答案遂错误宣称
+UI→RenderService→GPU 的跨线程 flow 已确认且“无丢失跳”。这是 engine
+权限泄漏，不是单次模型措辞波动。
+
+Mixed case 正确算出 86.111ms，且源码机制和 trace/source 文件名空间总体
+分开；但 principal scalar `86.111ms` 的 item 把
+`internal/tracequery/query.go:20636` 作为 citation。该行只证明
+`BuildFrameRootCauseBundle` 调用机制，不能证明客户 trace 的 86.111ms。
+Analyzer 已正确发出 active `artifact_value_profile`，scalar block 也声明
+`claim_form=external_observation`；缺口是 mixed-origin 模式只在整份答案
+级保留 current-source lane，没有按 item 的 typed origin 对齐引用。
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B9-T1 | P1 | 帧边因果权限 | 相邻 span 被命名为 flow，但边无 connector/causality authority，模型可把顺序升级为因果 | 边增加 typed relation kind/source/causal conclusion；B/E 相邻固定为 temporal_sequence/unproven；JSON、evidence、工具文本、系统覆盖块同源发布 | 批 U 已施工 |
+| EVAL-B9-C1 | P1 | mixed-origin item 引用 | mixed 请求需要保留源码解释，旧 cleanup 仅整份答案判定，artifact scalar可借用兄弟机制项的 current-source citation | active artifact value profile + scalar block + external_observation claim_use 作为精确门，仅移除该 item 的 current-source ref，保留正文与源码解释引用 | 下一批 V |
+| EVAL-B9-W1 | P2 | 帧 oracle 判决力 | runner 只检查阶段词和 flow 文本，未约束因果权限，错误过度结论仍 PASS | 批 U 后让 fixture要求确定性 authority surface；eval oracle只验系统发布字段，不作为产品正文关键词硬门 | filed |
+
+批 U 不变量：
+
+1. 不读取 raw request、case ID、模型 thinking/final answer；边权限只由
+   engine 构造时实际使用的 typed connector 决定。
+2. 保留 `frame_flow` view/JSON 数组作为兼容入口，但现有相邻 span 边明确
+   是 `relation_kind=temporal_sequence`、
+   `relation_source=sorted_complete_span_adjacency`、
+   `causal_conclusion=unproven`；后续显式 connector 可独立获得更高权限。
+3. 不改变 span 发现、角色分类、目标选择、显式时间窗、Trace 因果投影、
+   根因排序、唤醒链、窗内可消除量或自动补齐；只收回原本不存在的跨线程
+   因果权限。
+4. `frame_causality=unproven` 的原“帧证据 absent/unavailable”语义保留；
+   新增的是“帧存在但边仅时间相邻”的分席权限，不能混为无帧。
+
+`B9-U/P1` 施工验证：`FrameFlowEdge` 新增三项 typed authority；相邻边
+summary 改为 `frame temporal sequence ... causal_link=unproven`，
+EvidenceFact predicate 改为 `frame_temporal_sequence`，工具文本明确输出
+relation/source/conclusion。`TraceEvidenceAuthority` 汇总 edge count 和
+relation ceiling，系统覆盖块确定性发布中英文“不能升级为已确认的跨线程
+因果 flow”。工具 schema 参数说明同步纠正；PIN-1 检查确认独立的
+Description byte golden 未发生变化（本批没有占用 Description 槽）。
+该变更是既有错误权限的撤回，不引入 prompt case 词或硬门。
+专项 tracequery/tool/types tests 已通过；待全包验证、提交推送。

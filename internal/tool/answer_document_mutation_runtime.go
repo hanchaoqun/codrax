@@ -3318,6 +3318,9 @@ type runtimeTraceCoverageAuthorityBoundary struct {
 	causalUnproven        bool
 	frameUnproven         bool
 	frameEvidenceStatus   string
+	frameFlowUnproven     bool
+	frameFlowEdgeCount    int
+	frameFlowRelation     string
 	enumerationIncomplete bool
 	compactedViews        []string
 	enumerationBoundaries []types.ToolEnumerationBoundary
@@ -3358,6 +3361,11 @@ func runtimeTraceCoverageAuthority(input types.ObservationLedgerInput) runtimeTr
 				if out.frameEvidenceStatus == "" || authority.FrameEvidenceStatus == "unavailable" {
 					out.frameEvidenceStatus = authority.FrameEvidenceStatus
 				}
+			}
+			if authority.FrameFlowCausalConclusion == tracequery.FrameFlowCausalityUnproven {
+				out.frameFlowUnproven = true
+				out.frameFlowEdgeCount += authority.FrameFlowEdgeCount
+				out.frameFlowRelation = firstNonEmpty(out.frameFlowRelation, authority.FrameFlowRelationAuthority)
 			}
 			out.lifecycleBoundaries = runtimeTraceMergeLifecycleBoundaries(out.lifecycleBoundaries, authority.LifecycleBoundaries)
 		}
@@ -3771,11 +3779,17 @@ func runtimeTraceCoverageAuthorityText(authority runtimeTraceCoverageAuthorityBo
 	}
 	if authority.causalUnproven {
 		if zh {
-			if authority.frameUnproven {
+			if authority.frameFlowUnproven {
+				parts = append(parts, fmt.Sprintf("帧边权限: frame_flow_causality=unproven，relation=%s，edges=%d；这些边只表示完整 span 按时间排序后的相邻关系，没有 async cookie、调度/IPC 边或官方 flow 标识时，不能升级为已确认的跨线程因果 flow",
+					firstNonEmpty(authority.frameFlowRelation, tracequery.FrameFlowRelationTemporalSequence), authority.frameFlowEdgeCount))
+			} else if authority.frameUnproven {
 				parts = append(parts, "证据权限: frame_causality=unproven，frame_evidence_status="+firstNonEmpty(authority.frameEvidenceStatus, "absent")+"；未获得可绑定到目标的 frame/deadline 证据或 typed causal row，调度、IO、频率观察只能描述窗口背景，不能证明具体丢帧因果")
 			} else {
 				parts = append(parts, "证据权限: causal_conclusion=unproven；当前没有 typed causal row，背景观察不能升级为确定根因")
 			}
+		} else if authority.frameFlowUnproven {
+			parts = append(parts, fmt.Sprintf("Frame-edge authority: frame_flow_causality=unproven, relation=%s, edges=%d; these edges only describe adjacency among complete time-sorted spans and cannot be promoted to a proven cross-thread causal flow without an async cookie, scheduler/IPC edge, or official flow identifier",
+				firstNonEmpty(authority.frameFlowRelation, tracequery.FrameFlowRelationTemporalSequence), authority.frameFlowEdgeCount))
 		} else if authority.frameUnproven {
 			parts = append(parts, "Evidence authority: frame_causality=unproven, frame_evidence_status="+firstNonEmpty(authority.frameEvidenceStatus, "absent")+"; no target-bound frame/deadline evidence or typed causal row was produced, so scheduler, IO, and frequency observations describe window context but do not prove a specific frame-drop cause")
 		} else {

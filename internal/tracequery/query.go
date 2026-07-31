@@ -21245,16 +21245,19 @@ func buildFrameTimelineFromPipeline(q Query, frame FramePipelineResult) FrameTim
 			latency = 0
 		}
 		res.Flows = append(res.Flows, FrameFlowEdge{
-			FromIndex: from.Index,
-			ToIndex:   to.Index,
-			From:      from.Thread,
-			To:        to.Thread,
-			FromPhase: from.Phase,
-			ToPhase:   to.Phase,
-			LatencyMs: latency,
-			LineStart: firstPositive(from.EndLine, from.StartLine),
-			LineEnd:   firstPositive(to.StartLine, to.EndLine),
-			Summary:   fmt.Sprintf("frame flow #%d->#%d %s/%s to %s/%s latency=%.3fms", from.Index, to.Index, threadLabel(from.Thread), from.Phase, threadLabel(to.Thread), to.Phase, latency),
+			FromIndex:           from.Index,
+			ToIndex:             to.Index,
+			From:                from.Thread,
+			To:                  to.Thread,
+			FromPhase:           from.Phase,
+			ToPhase:             to.Phase,
+			LatencyMs:           latency,
+			LineStart:           firstPositive(from.EndLine, from.StartLine),
+			LineEnd:             firstPositive(to.StartLine, to.EndLine),
+			RelationKind:        FrameFlowRelationTemporalSequence,
+			RelationSource:      FrameFlowSourceSortedSpanAdjacency,
+			CausalityConclusion: FrameFlowCausalityUnproven,
+			Summary:             fmt.Sprintf("frame temporal sequence #%d->#%d %s/%s to %s/%s latency=%.3fms causal_link=unproven", from.Index, to.Index, threadLabel(from.Thread), from.Phase, threadLabel(to.Thread), to.Phase, latency),
 		})
 	}
 	res.Caveats = append(res.Caveats, frame.Caveats...)
@@ -21264,6 +21267,9 @@ func buildFrameTimelineFromPipeline(q Query, frame FramePipelineResult) FrameTim
 	}
 	if len(res.Flows) == 0 && len(res.Items) > 1 {
 		res.Caveats = append(res.Caveats, "frame timeline had items but no flow edges were emitted")
+	}
+	if len(res.Flows) > 0 {
+		res.Caveats = append(res.Caveats, "frame_flow_authority=temporal_sequence_only; edges connect adjacent time-sorted complete spans and do not prove cross-thread causal linkage without an explicit typed connector")
 	}
 	return res
 }
@@ -26567,7 +26573,7 @@ func evidenceFromFrameTimeline(frame FrameTimelineResult) []EvidenceFact {
 	for _, flow := range frame.Flows {
 		out = append(out, EvidenceFact{
 			Subject:    threadLabel(flow.From),
-			Predicate:  "frame_flow",
+			Predicate:  "frame_temporal_sequence",
 			Object:     threadLabel(flow.To),
 			Summary:    flow.Summary,
 			LineStart:  flow.LineStart,

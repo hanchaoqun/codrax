@@ -6580,13 +6580,16 @@ type ToolRuntimeArtifactRead struct {
 // boundary. System-authored answer appendices consume this record without
 // parsing model or tool prose.
 type TraceEvidenceAuthority struct {
-	View                string `json:"view,omitempty"`
-	FrameEvidenceStatus string `json:"frame_evidence_status,omitempty"`
-	FrameItemCount      int    `json:"frame_item_count,omitempty"`
-	TypedCausalRowCount int    `json:"typed_causal_row_count,omitempty"`
-	CausalConclusion    string `json:"causal_conclusion,omitempty"`
-	PrioritySemantics   string `json:"priority_semantics,omitempty"`
-	SchedulerSemantics  string `json:"scheduler_semantics,omitempty"`
+	View                       string `json:"view,omitempty"`
+	FrameEvidenceStatus        string `json:"frame_evidence_status,omitempty"`
+	FrameItemCount             int    `json:"frame_item_count,omitempty"`
+	FrameFlowEdgeCount         int    `json:"frame_flow_edge_count,omitempty"`
+	FrameFlowRelationAuthority string `json:"frame_flow_relation_authority,omitempty"`
+	FrameFlowCausalConclusion  string `json:"frame_flow_causal_conclusion,omitempty"`
+	TypedCausalRowCount        int    `json:"typed_causal_row_count,omitempty"`
+	CausalConclusion           string `json:"causal_conclusion,omitempty"`
+	PrioritySemantics          string `json:"priority_semantics,omitempty"`
+	SchedulerSemantics         string `json:"scheduler_semantics,omitempty"`
 	// FrequencyTransitionEventCount retains its historical wire name, but its
 	// caliber is now the exact positive cpu_frequency row census only. Generic
 	// clock_set_rate activity is carried separately and must never be summed

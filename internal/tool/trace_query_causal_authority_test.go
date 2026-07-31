@@ -30,6 +30,60 @@ func TestTraceQueryEvidenceAuthorityWithdrawsFrameCausality(t *testing.T) {
 	}
 }
 
+func TestTraceQueryEvidenceAuthorityKeepsTemporalFrameEdgesUnproven(t *testing.T) {
+	result := tracequery.Result{
+		View: "frame_flow",
+		FrameTimeline: &tracequery.FrameTimelineResult{
+			Items: []tracequery.FrameTimelineItem{{Index: 1}, {Index: 2}},
+			Flows: []tracequery.FrameFlowEdge{{
+				FromIndex:           1,
+				ToIndex:             2,
+				RelationKind:        tracequery.FrameFlowRelationTemporalSequence,
+				RelationSource:      tracequery.FrameFlowSourceSortedSpanAdjacency,
+				CausalityConclusion: tracequery.FrameFlowCausalityUnproven,
+			}},
+		},
+	}
+	authority := traceQueryEvidenceAuthority(result)
+	if authority == nil ||
+		authority.FrameEvidenceStatus != "present" ||
+		authority.FrameFlowEdgeCount != 1 ||
+		authority.FrameFlowRelationAuthority != tracequery.FrameFlowRelationTemporalSequence ||
+		authority.FrameFlowCausalConclusion != tracequery.FrameFlowCausalityUnproven ||
+		authority.CausalConclusion != "unproven" {
+		t.Fatalf("temporal edge authority drifted: %+v", authority)
+	}
+}
+
+func TestTraceCausalCoveragePublishesTemporalFrameEdgeCeiling(t *testing.T) {
+	input := types.ObservationLedgerInput{ToolResults: []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		TraceEvidenceAuthority: &types.TraceEvidenceAuthority{
+			View:                       "frame_flow",
+			FrameEvidenceStatus:        "present",
+			FrameFlowEdgeCount:         3,
+			FrameFlowRelationAuthority: tracequery.FrameFlowRelationTemporalSequence,
+			FrameFlowCausalConclusion:  tracequery.FrameFlowCausalityUnproven,
+			CausalConclusion:           "unproven",
+		},
+	}}}
+	block := runtimeTraceCausalProjectionCoverageBlock(input, "zh")
+	if block == nil {
+		t.Fatal("typed temporal frame-edge ceiling must create a deterministic coverage block")
+	}
+	for _, want := range []string{
+		"frame_flow_causality=unproven",
+		"relation=temporal_sequence",
+		"edges=3",
+		"不能升级为已确认的跨线程因果 flow",
+	} {
+		if !strings.Contains(block.Text, want) {
+			t.Fatalf("coverage block missing %q:\n%s", want, block.Text)
+		}
+	}
+}
+
 func TestTraceCausalCoverageBlockPublishesAuthorityCeiling(t *testing.T) {
 	input := types.ObservationLedgerInput{ToolResults: []types.ToolResult{{
 		ToolName: "trace_query",

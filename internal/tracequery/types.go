@@ -5202,17 +5202,30 @@ type FrameTimelineItem struct {
 }
 
 type FrameFlowEdge struct {
-	FromIndex int       `json:"from_index,omitempty"`
-	ToIndex   int       `json:"to_index,omitempty"`
-	From      ThreadRef `json:"from,omitempty"`
-	To        ThreadRef `json:"to,omitempty"`
-	FromPhase string    `json:"from_phase,omitempty"`
-	ToPhase   string    `json:"to_phase,omitempty"`
-	LatencyMs float64   `json:"latency_ms,omitempty"`
-	LineStart int       `json:"line_start,omitempty"`
-	LineEnd   int       `json:"line_end,omitempty"`
-	Summary   string    `json:"summary,omitempty"`
+	FromIndex           int       `json:"from_index,omitempty"`
+	ToIndex             int       `json:"to_index,omitempty"`
+	From                ThreadRef `json:"from,omitempty"`
+	To                  ThreadRef `json:"to,omitempty"`
+	FromPhase           string    `json:"from_phase,omitempty"`
+	ToPhase             string    `json:"to_phase,omitempty"`
+	LatencyMs           float64   `json:"latency_ms,omitempty"`
+	LineStart           int       `json:"line_start,omitempty"`
+	LineEnd             int       `json:"line_end,omitempty"`
+	RelationKind        string    `json:"relation_kind,omitempty"`
+	RelationSource      string    `json:"relation_source,omitempty"`
+	CausalityConclusion string    `json:"causality_conclusion,omitempty"`
+	Summary             string    `json:"summary,omitempty"`
 }
+
+const (
+	// FrameFlowRelationTemporalSequence is an ordering relation between two
+	// adjacent complete frame-like spans. It is intentionally weaker than a
+	// causal flow: no async cookie, scheduler/binder edge, or official flow
+	// identifier was used to connect the endpoints.
+	FrameFlowRelationTemporalSequence  = "temporal_sequence"
+	FrameFlowSourceSortedSpanAdjacency = "sorted_complete_span_adjacency"
+	FrameFlowCausalityUnproven         = "unproven"
+)
 
 type FramePhaseSummary struct {
 	Thread                  ThreadRef `json:"thread,omitempty"`

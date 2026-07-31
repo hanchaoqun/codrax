@@ -1,6 +1,9 @@
 package tracequery
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestFrameTimelinePublishesTypedThreadRoleAuthority(t *testing.T) {
 	frame := buildFrameTimelineFromPipeline(Query{}, FramePipelineResult{
@@ -25,6 +28,34 @@ func TestFrameTimelinePublishesTypedThreadRoleAuthority(t *testing.T) {
 	marker := frame.Items[2].RoleAuthority
 	if marker == nil || marker.Role != "expected" || marker.Kind != "frame_marker_role" {
 		t.Fatalf("expected marker must not become a thread role: %+v", marker)
+	}
+}
+
+func TestFrameTimelineAdjacencyDoesNotMintCausalFlowAuthority(t *testing.T) {
+	frame := buildFrameTimelineFromPipeline(Query{}, FramePipelineResult{
+		Items: []FramePhaseSummary{
+			{Thread: ThreadRef{Comm: "ui", PID: 11}, Phase: "frame_schedule", Name: "Choreographer#doFrame frame=7", StartTs: 1, EndTs: 1.01, StartLine: 3, EndLine: 4},
+			{Thread: ThreadRef{Comm: "rs", PID: 12}, Phase: "render", Name: "RenderFrame frame=7", StartTs: 1.02, EndTs: 1.03, StartLine: 5, EndLine: 6},
+		},
+	})
+	if len(frame.Flows) != 1 {
+		t.Fatalf("temporal sequence edge missing: %+v", frame.Flows)
+	}
+	edge := frame.Flows[0]
+	if edge.RelationKind != FrameFlowRelationTemporalSequence ||
+		edge.RelationSource != FrameFlowSourceSortedSpanAdjacency ||
+		edge.CausalityConclusion != FrameFlowCausalityUnproven {
+		t.Fatalf("adjacent spans gained causal authority: %+v", edge)
+	}
+	if !strings.Contains(edge.Summary, "causal_link=unproven") {
+		t.Fatalf("text face hid causal ceiling: %q", edge.Summary)
+	}
+	if len(frame.Caveats) == 0 || !strings.Contains(frame.Caveats[len(frame.Caveats)-1], "temporal_sequence_only") {
+		t.Fatalf("frame-level causal ceiling missing: %+v", frame.Caveats)
+	}
+	facts := evidenceFromFrameTimeline(frame)
+	if len(facts) < 3 || facts[2].Predicate != "frame_temporal_sequence" {
+		t.Fatalf("evidence lane mislabeled adjacency as causal flow: %+v", facts)
 	}
 }
 
