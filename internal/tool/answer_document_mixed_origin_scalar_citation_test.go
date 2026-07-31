@@ -9,7 +9,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-func TestNormalizeRuntimeArtifactScalarCitationRefsDetachesOnlyCrossOriginEdge(t *testing.T) {
+func TestNormalizeRuntimeArtifactObservationCitationRefsDetachesOnlyCrossOriginEdge(t *testing.T) {
 	ctx := mixedOriginArtifactScalarContext(t)
 	doc := &types.AnswerDocumentV2{
 		DocumentModel: "v2",
@@ -27,6 +27,11 @@ func TestNormalizeRuntimeArtifactScalarCitationRefsDetachesOnlyCrossOriginEdge(t
 				ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
 				Items:     []types.AnswerBlockItem{{ID: "source-proof", CitationRef: 0}},
 			},
+			{
+				ID: "runtime-decision", Kind: types.BlockDecision,
+				ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimExternalObservation}},
+				Items:     []types.AnswerBlockItem{{ID: "decision-value", CitationRef: 0}},
+			},
 		},
 		Citations: []types.Citation{
 			{File: "source.go", Line: 1},
@@ -34,8 +39,8 @@ func TestNormalizeRuntimeArtifactScalarCitationRefsDetachesOnlyCrossOriginEdge(t
 		},
 	}
 	pctx := newPreEmitCheckContext(ctx)
-	if fixed := normalizeRuntimeArtifactScalarCurrentSourceCitationRefsWithContext(doc, ctx, pctx); fixed != 1 {
-		t.Fatalf("fixed=%d, want one cross-origin edge detached", fixed)
+	if fixed := normalizeRuntimeArtifactObservationCurrentSourceCitationRefsWithContext(doc, ctx, pctx); fixed != 2 {
+		t.Fatalf("fixed=%d, want scalar and decision cross-origin edges detached", fixed)
 	}
 	if got := doc.Blocks[0].Items[0].CitationRef; got != -1 {
 		t.Fatalf("runtime scalar retained current-source citation_ref=%d", got)
@@ -46,14 +51,20 @@ func TestNormalizeRuntimeArtifactScalarCitationRefsDetachesOnlyCrossOriginEdge(t
 	if got := doc.Blocks[1].Items[0].CitationRef; got != 0 {
 		t.Fatalf("sibling mechanism source citation was detached: %d", got)
 	}
+	if got := doc.Blocks[2].Items[0].CitationRef; got != -1 {
+		t.Fatalf("runtime decision retained current-source citation_ref=%d", got)
+	}
 	records := pctx.detachedCitationDisclosures()
-	if len(records) != 1 || records[0].Kind != types.DetachedCitationKindEvidenceOriginMismatch ||
+	if len(records) != 2 || records[0].Kind != types.DetachedCitationKindEvidenceOriginMismatch ||
 		records[0].BlockID != "runtime-value" || records[0].ItemID != "wrong-source" {
 		t.Fatalf("origin-mismatch disclosure drifted: %+v", records)
 	}
+	if records[1].BlockID != "runtime-decision" || records[1].ItemID != "decision-value" {
+		t.Fatalf("decision-shaped origin mismatch was not disclosed: %+v", records)
+	}
 }
 
-func TestNormalizeRuntimeArtifactScalarCitationRefsTypedNegativeArms(t *testing.T) {
+func TestNormalizeRuntimeArtifactObservationCitationRefsTypedNegativeArms(t *testing.T) {
 	tests := []struct {
 		name    string
 		mutate  func(*types.BusContext, *types.AnswerBlock, *types.Citation)
@@ -67,9 +78,23 @@ func TestNormalizeRuntimeArtifactScalarCitationRefsTypedNegativeArms(t *testing.
 			wantRef: 0,
 		},
 		{
-			name: "source scalar claim",
+			name: "source-only claim",
 			mutate: func(_ *types.BusContext, block *types.AnswerBlock, _ *types.Citation) {
 				block.ClaimUses[0].ClaimForm = types.ClaimLiteralValueFact
+			},
+			wantRef: 0,
+		},
+		{
+			name: "mixed observation and source claim",
+			mutate: func(_ *types.BusContext, block *types.AnswerBlock, _ *types.Citation) {
+				block.ClaimUses = append(block.ClaimUses, types.RenderedClaimUse{ClaimForm: types.ClaimDefinitionFact})
+			},
+			wantRef: 0,
+		},
+		{
+			name: "missing claim use",
+			mutate: func(_ *types.BusContext, block *types.AnswerBlock, _ *types.Citation) {
+				block.ClaimUses = nil
 			},
 			wantRef: 0,
 		},
@@ -99,7 +124,7 @@ func TestNormalizeRuntimeArtifactScalarCitationRefsTypedNegativeArms(t *testing.
 			citation := types.Citation{File: "source.go", Line: 1}
 			tc.mutate(ctx, &block, &citation)
 			doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{block}, Citations: []types.Citation{citation}}
-			normalizeRuntimeArtifactScalarCurrentSourceCitationRefsWithContext(doc, ctx, nil)
+			normalizeRuntimeArtifactObservationCurrentSourceCitationRefsWithContext(doc, ctx, nil)
 			if got := doc.Blocks[0].Items[0].CitationRef; got != tc.wantRef {
 				t.Fatalf("citation_ref=%d, want %d", got, tc.wantRef)
 			}
@@ -107,7 +132,7 @@ func TestNormalizeRuntimeArtifactScalarCitationRefsTypedNegativeArms(t *testing.
 	}
 }
 
-func TestNormalizeAnswerDocumentForPreEmitWiresArtifactScalarOriginGate(t *testing.T) {
+func TestNormalizeAnswerDocumentForPreEmitWiresArtifactObservationOriginGate(t *testing.T) {
 	ctx := mixedOriginArtifactScalarContext(t)
 	doc := &types.AnswerDocumentV2{
 		DocumentModel: "v2",

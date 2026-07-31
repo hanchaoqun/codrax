@@ -813,9 +813,9 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		pctx.recordPreEmitRepair("normalizeClaimUseEvidenceIDsByProjection", fixed)
 		logging.Warning("[%s] detached %d incompatible claim_use evidence_id value(s) from citation-backed blocks", toolName, fixed)
 	}
-	if fixed := normalizeRuntimeArtifactScalarCurrentSourceCitationRefsWithContext(doc, ctx, pctx); fixed > 0 {
-		pctx.recordPreEmitRepair("normalizeRuntimeArtifactScalarCurrentSourceCitationRefsWithContext", fixed)
-		logging.Warning("[%s] detached %d current-source citation_ref value(s) from typed runtime-artifact scalar items", toolName, fixed)
+	if fixed := normalizeRuntimeArtifactObservationCurrentSourceCitationRefsWithContext(doc, ctx, pctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeRuntimeArtifactObservationCurrentSourceCitationRefsWithContext", fixed)
+		logging.Warning("[%s] detached %d current-source citation_ref value(s) from typed runtime-artifact observation items", toolName, fixed)
 	}
 	// §29.174 F6: the two typed pool-cleanup passes below are the drop
 	// points behind the "N citations submitted → M registered" delta.

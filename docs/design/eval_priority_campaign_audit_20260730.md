@@ -1287,7 +1287,7 @@ runner 2/2 PASS。Frame 主问题已修复：四段仍完整，三条边明确�
 | ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
 |---|---:|---|---|---|---|
 | EVAL-B9-W1 | P1 | 多查询 census 聚合 | per-view 数量是重复/嵌套视图的局部 census，跨 ToolResult 求和会把重复读取伪装成新增事实 | 跨结果取最完整单视图 `max`；auto/combined 结果若确有子视图聚合，已在自己的 authority 内给出总数 | 批 W1 已施工 |
-| EVAL-B9-W2 | P1 | mixed-origin 引用 | 批 V 把来源门绑定 `BlockScalar`，模型换成 decision 形后同一 external observation 又借用源码引用 | 门提升为“block 的非空 claim-use 全部为 external_observation”，不依赖块类型 | 待批 W2 |
+| EVAL-B9-W2 | P1 | mixed-origin 引用 | 批 V 把来源门绑定 `BlockScalar`，模型换成 decision 形后同一 external observation 又借用源码引用 | 门提升为“block 的非空 claim-use 全部为 external_observation”，不依赖块类型 | 批 W2 已施工 |
 | EVAL-B9-W3 | P1 | error-granularity 适用性 | diagnostic scalar 被误当作失败范围的专属形，阈值判断被渲染成 `per_item_rejection/逐条拒绝` | 修正 typed applicability：普通 scalar 不等于 item-vs-batch failure scope；保留真正 return-value failure-scope lane | 待批 W3 |
 | EVAL-B9-W4 | P2 | 数值关系模型波动 | 本轮模型声称 86.111ms 大于 100ms，和数值本身矛盾；r1 未复现 | 记录为 model variance；后续若跨 case 复现再建设 typed numeric relation carrier，不扫描正文硬改 | filed-model-variance |
 
@@ -1303,3 +1303,17 @@ runner 2/2 PASS。Frame 主问题已修复：四段仍完整，三条边明确�
 
 `B9-W1/P1` 单测固定四份 authority 的 `1/1/3/3` 输入，覆盖块必须发布
 `edges=3` 且禁止回到 `edges=8`。
+
+批 W2 将批 V 的 item-level origin 对齐从 scalar 特例提升为 claim-use
+不变量。`BlockScalar/Decision/Summary/List` 只要非空 `ClaimUses` 全部是
+`external_observation`，其中引用当前仓库源码的 item 都会移除这条不兼容
+引用；只要混有 `definition_fact/call_edge/literal_value_fact` 等源码机制
+claim，则保持源码引用，禁止把混合块误当纯观测块。
+
+批 W2 不变量：
+
+1. block kind 不再参与来源权限；渲染形变化不能改变同一事实的证据 origin。
+2. 空 claim-use fail-open，混合 claim-use 保留源码引用；不从正文猜 claim。
+3. artifact citation、仓外 external source、inactive artifact profile 与兄弟
+   源码机制块保持不变；仍只拆 item→citation edge，不删正文或 citation pool。
+4. 不影响 Trace query、显式时间窗、因果投影、自动补齐及所有调度分析面。

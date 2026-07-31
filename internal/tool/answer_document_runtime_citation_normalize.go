@@ -231,25 +231,28 @@ func normalizeRuntimeArtifactCitationRefs(doc *types.AnswerDocumentV2, ctx *type
 	return normalizeRuntimeArtifactCitationRefsWithContext(doc, ctx, nil)
 }
 
-// normalizeRuntimeArtifactScalarCurrentSourceCitationRefsWithContext keeps
+// normalizeRuntimeArtifactObservationCurrentSourceCitationRefsWithContext keeps
 // mixed-origin answers lane-correct at item granularity. A mixed
 // runtime-artifact + current-source request legitimately needs repo citations
 // for its mechanism explanation, so the document-level citation cleanup must
-// retain them. But the principal runtime scalar itself is an external
-// observation and cannot borrow one of those source citations.
+// retain them. But a block whose typed claims are exclusively runtime
+// observations cannot borrow one of those source citations.
 //
 // The gate is fully typed:
 //   - analyzer emitted an active RuntimeArtifactValueProfile;
-//   - the answer block is scalar;
-//   - the block declares ClaimExternalObservation;
+//   - the block has one or more claim uses and every one is
+//     ClaimExternalObservation;
 //   - the referenced citation resolves inside the current repository and is
 //     not a typed/path-shaped runtime artifact.
 //
-// No answer text, user wording, numeric literal, case name, or model reasoning
-// participates. The item text and the source citation pool entry are kept;
-// only this incompatible item-to-citation edge is detached. A sibling
-// mechanism block may continue using the same source entry.
-func normalizeRuntimeArtifactScalarCurrentSourceCitationRefsWithContext(doc *types.AnswerDocumentV2, ctx *types.BusContext, pctx *preEmitCheckContext) int {
+// Block kind is deliberately not part of the gate: the same measured artifact
+// fact may be rendered as a scalar, decision, summary, or list without changing
+// its evidence origin. No answer text, user wording, numeric literal, case
+// name, or model reasoning participates. The item text and the source citation
+// pool entry are kept; only this incompatible item-to-citation edge is
+// detached. A sibling mechanism block may continue using the same source
+// entry.
+func normalizeRuntimeArtifactObservationCurrentSourceCitationRefsWithContext(doc *types.AnswerDocumentV2, ctx *types.BusContext, pctx *preEmitCheckContext) int {
 	if doc == nil || ctx == nil || ctx.AnalysisIR == nil ||
 		ctx.AnalysisIR.RequestModel.RuntimeArtifactValueProfile == nil ||
 		!ctx.AnalysisIR.RequestModel.RuntimeArtifactValueProfile.Active() {
@@ -259,7 +262,7 @@ func normalizeRuntimeArtifactScalarCurrentSourceCitationRefsWithContext(doc *typ
 	fixed := 0
 	for bi := range doc.Blocks {
 		block := &doc.Blocks[bi]
-		if block.Kind != types.BlockScalar || !answerBlockHasClaimForm(*block, types.ClaimExternalObservation) {
+		if !answerBlockClaimUsesOnly(*block, types.ClaimExternalObservation) {
 			continue
 		}
 		for ii := range block.Items {
@@ -286,13 +289,16 @@ func normalizeRuntimeArtifactScalarCurrentSourceCitationRefsWithContext(doc *typ
 	return fixed
 }
 
-func answerBlockHasClaimForm(block types.AnswerBlock, want types.ClaimForm) bool {
+func answerBlockClaimUsesOnly(block types.AnswerBlock, want types.ClaimForm) bool {
+	if len(block.ClaimUses) == 0 {
+		return false
+	}
 	for _, claim := range block.ClaimUses {
-		if claim.ClaimForm == want {
-			return true
+		if claim.ClaimForm != want {
+			return false
 		}
 	}
-	return false
+	return true
 }
 
 // normalizeRuntimeArtifactCitationRefsWithContext is the chain-facing variant:
