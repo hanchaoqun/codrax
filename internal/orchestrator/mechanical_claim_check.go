@@ -880,9 +880,13 @@ func mechanicalClaimNegationBarrier(r rune) bool {
 // '.', an elided second 在) while going O(n²) on degenerate sentences —
 // that machinery is retired. The former barrier consumer is replaced by
 // the mechanicalClaimZaiAdverbialAmbiguous skip rule and no longer
-// shares this predicate; admitting a 在 from an earlier clause at worst
-// admits a comparator that the ambiguity rule or the operand binding
-// then discards.
+// shares this predicate. 【R10 更正】the R9 claim that "admitting a 在
+// from an earlier clause at worst admits a comparator that the
+// ambiguity rule or the operand binding then discards" was FALSIFIED
+// live (round-10 sweep): for 之内/以内 the closer sits inside the
+// comparator word itself, so the ambiguity rule cannot protect the
+// earlier-clause shape and a correct sentence raised a decisive false
+// contradiction — hence the clause-bounded walk in the body below.
 func mechanicalClaimWithinAdmitted(sent string, compStart int) bool {
 	if compStart < 0 || compStart > len(sent) {
 		return false
