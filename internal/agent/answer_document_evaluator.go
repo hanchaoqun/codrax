@@ -3867,6 +3867,9 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	if coverage := renderAnswerDocTraceObservationCoverage(ledger); coverage != "" {
 		b.WriteString(coverage)
 	}
+	if authority := renderAnswerDocTraceValueOccurrenceAuthority(ctx, ledger); authority != "" {
+		b.WriteString(authority)
+	}
 	if authority := renderAnswerDocTraceTargetStateScopeAuthority(ledger); authority != "" {
 		b.WriteString(authority)
 	}
@@ -4123,6 +4126,42 @@ func renderAnswerDocTraceTargetStateScopeAuthority(ledger types.ObservationLedge
 			authority.DStateMS,
 			authority.TotalMS,
 		)
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func renderAnswerDocTraceValueOccurrenceAuthority(ctx *types.AgentContext, ledger types.ObservationLedger) string {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return ""
+	}
+	authorities := types.BuildTraceValueOccurrenceAuthorities(ledger, &ctx.AnalysisIR.RequestModel)
+	if len(authorities) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("### Trace Value-Owner Temporal Authority\n\n")
+	b.WriteString("- Each exact row below binds a measured value to the occurrence interval owned by the same deterministic trace observation. If a command aggregate, transaction phase, neighboring event, or narrative note gives a different timestamp, it cannot replace this value-owner interval.\n")
+	b.WriteString("- This authority changes no query, projection, rank, wakeup chain, supplementation, or measured value. `ambiguous_multiple_occurrences` means no single interval may be selected by arrival order.\n")
+	for _, authority := range authorities {
+		fmt.Fprintf(&b,
+			"- artifact=`%s`; subject=`%s`; type=`%s`; value=%.3fms; temporal_status=`%s`; occurrence_count=%d",
+			authority.ArtifactLabel,
+			authority.Subject,
+			authority.Type,
+			authority.ValueMS,
+			authority.Status,
+			authority.OccurrenceN,
+		)
+		if authority.Status == "exact" {
+			fmt.Fprintf(&b, "; value_owner_occurrence=`%.6f..%.6f`", authority.StartTs, authority.EndTs)
+		} else {
+			b.WriteString("; value_owner_occurrence=`unavailable`")
+		}
+		if len(authority.RecordIDs) > 0 {
+			fmt.Fprintf(&b, "; source_records=`%s`", strings.Join(authority.RecordIDs, "`,`"))
+		}
+		b.WriteByte('\n')
 	}
 	b.WriteString("\n")
 	return b.String()

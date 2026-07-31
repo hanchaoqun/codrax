@@ -1952,7 +1952,7 @@ syntax/no-test fallback。
 | ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
 |---|---:|---|---|---|---|
 | EVAL-B11-AC1 | P1 | rank board channel identity | 同 target/window/params 的 on-chain 与 adjacent 独立榜被合并，产生重复序数并使完整 roster 失权 | board identity 增加 typed channel；逐 channel 连续校验和发布，禁止跨 channel 比较 | covered |
-| EVAL-B11-AC2 | P1 | value-owner temporal authority | typed 等待值与自身 occurrence 窗在场，但 command aggregate 可携另一 transaction stage 的 timestamp 覆盖成文 | 从 typed observation 发布 subject/type/value/occurrence 的紧凑权限；冲突/多值 fail-closed，aggregate 不铸新窗 | filed |
+| EVAL-B11-AC2 | P1 | value-owner temporal authority | typed 等待值与自身 occurrence 窗在场，但 command aggregate 可携另一 transaction stage 的 timestamp 覆盖成文 | 从 typed observation 发布 subject/type/value/occurrence 的紧凑权限；冲突/多值 fail-closed，aggregate 不铸新窗 | covered |
 | EVAL-B11-AC3 | P1 | runnable TestSurface signal precedence | plan-touched runner 偏好在无 candidate 时合成未配置 native runner，并以同目录去重挤掉真实 make test surface | 真实 HasTestSignal candidate 优先；仅在零真实 test signal 时允许 inferred preferred-runner fallback | covered |
 | EVAL-B11-AB2 | P1 | trace aggregate temporal identity | pacing occurrence carrier 真实回放已正确 | carrier covered；成文消费由 AC2 收尾 | verified-partial |
 | EVAL-B11-AB4 | P2 | incomplete enumeration wording | `enumeration_status=incomplete` 在场，正文仍写“其余所有睡眠段均…” | 保持既有 filed；不为当前 P1 批扫描答案词面 | reproduced-filed |
@@ -1993,3 +1993,27 @@ cmake；Python 变更面对只有 Go 测试的仓库仍由 plan-touched Python f
 `duplicate_rank`；skill 的 soft handoff 同步 channel 边界。完整
 `go test ./internal/types ./internal/agent ./internal/skill ./internal/tool -count=1`
 通过（types 18.371s、agent 3.096s、skill 0.359s、tool 157.491s）。
+
+批 AC2 新增通用 `TraceValueOccurrenceAuthority`，没有按 Binder、H1 或固定
+数值分支。候选必须同时满足：
+
+1. deterministic `trace_query` + runtime artifact + hard grounding；
+2. subject 匹配 typed user `RuntimeTarget`（exploration cursor 排除）；
+3. 属于 root-cause / critical-blocking / evidence-pack typed dimension；
+4. 单位为 ms，且 `ObservationSpan` 宽度与发布值在 trace 六位时间戳和
+   三位毫秒显示容差内一致。
+
+最后一条是 value ownership 的精确信号：查询包络、链路锚或 transaction
+其他阶段即使也有时间，都不能借给该值。相同 artifact/subject/type/value
+的重复发布在同一 interval 去重；若存在多个不同 interval，则只发布
+`ambiguous_multiple_occurrences` 和 occurrence count，start/end 保持空，
+禁止按到达顺序任选。
+
+answer-writer 的 `Trace Value-Owner Temporal Authority` 明确 exact interval
+优先于 command aggregate、transaction send/receive phase、邻近事件或叙事
+timestamp；skill 仅同步 soft guidance，不新增答案扫描或 hard reject。测试
+固定 H1 形的正确 `13762.835861..13762.837270`，确认错误 command timestamp
+不参与铸造；另固定多 occurrence fail-closed、聚合包络和非目标拒绝、生产
+writer 接线。完整
+`go test ./internal/types ./internal/agent ./internal/skill ./internal/tool -count=1`
+通过（types 18.271s、agent 3.007s、skill 0.295s、tool 161.506s）。

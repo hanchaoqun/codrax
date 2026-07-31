@@ -203,6 +203,12 @@ func RegisterDefaults(r *Registry) {
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},
 			{
+				// EVAL-B11-AC2: value/window identity comes from the same
+				// deterministic observation. Soft guidance only.
+				Body:      "TRACE VALUE-OWNER TEMPORAL AUTHORITY: when `Trace Value-Owner Temporal Authority` publishes `temporal_status=exact`, use its `value_owner_occurrence` for that subject/type/value measurement. A command aggregate, transaction send/receive phase, neighboring scheduler event, or narrative timestamp cannot replace the interval owned by the same measured value. When status is ambiguous, do not choose one occurrence by arrival order.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+			},
+			{
 				// C1 值词库教学批 (§29.104.16.1 M5①, 2026-07-17). EVOLUTION
 				// RECORD: the wire-token ↔ display-word bridge directive —
 				// witness cust_span_vs_prio_info: bare `gated_runnable` and
@@ -648,6 +654,11 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 			{
 				// EVAL-B11-AB3 answer-side mirror.
 				Body:      "TRACE ORDERED RANK ROSTER AUTHORITY: when `Trace Rank Arithmetic And Supply Authority` provides an `ordered_ranked_roster`, copy its `#N` ordinals, type, subject, effective value, and board identity exactly. Board identity includes `board_channel`: on-chain and adjacent rosters are independent ordinal domains, so never compare or merge their `#N` values. The roster is the only ordinal authority: a measured component, context-only row, target symptom, data gap, caliber side rail, or absorbed row that is absent from it has no rank seat; never infer a rank from duration, discovery order, another table, or narrative importance. When `roster_status` is not `complete`, preserve the listed ordinals but describe the board as incomplete/ambiguous instead of inventing missing seats. Ranked rows remain non-additive across seats.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+			},
+			{
+				// EVAL-B11-AC2 answer-side mirror.
+				Body:      "TRACE VALUE-OWNER TEMPORAL AUTHORITY: when `Trace Value-Owner Temporal Authority` publishes `temporal_status=exact`, use its `value_owner_occurrence` for that subject/type/value measurement. A command aggregate, transaction send/receive phase, neighboring scheduler event, or narrative timestamp cannot replace the interval owned by the same measured value. When status is ambiguous, do not choose one occurrence by arrival order.",
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},
 			{
