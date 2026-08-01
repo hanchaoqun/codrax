@@ -812,6 +812,94 @@ func TestTraceQueryAttachedTraceNormalizesDotPath(t *testing.T) {
 	}
 }
 
+func TestTraceQueryAttachedTraceNormalizesExactSessionBlobPath(t *testing.T) {
+	repo := t.TempDir()
+	work := t.TempDir()
+	trace := strings.Join([]string{
+		`waker-10 (10) [000] .... 1.000000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`,
+		`app-20 (20) [001] .... 1.020000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53`,
+	}, "\n")
+	blob := filepath.Join(work, promptctx.AttachedTraceBlobName)
+	if err := os.WriteFile(blob, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	original := filepath.Join(repo, "customer.systrace")
+	ctx := &types.BusContext{
+		RepoRoot: repo,
+		WorkDir:  work,
+		RuntimeArtifactPreflight: types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+			Artifacts: []types.RuntimeArtifactPreflightArtifact{{
+				Kind: "trace", Source: original, Carrier: "attachment",
+			}},
+		}),
+	}
+	params, _ := json.Marshal(map[string]any{
+		"source": "path", "path": blob, "view": "window_stats", "pid": 20,
+		"time_start": 1.0, "time_end": 1.03,
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success || !strings.Contains(res.Summary, "source=attached_trace") {
+		t.Fatalf("exact current-session attachment path was not normalized:\n%s", res.Summary)
+	}
+	if len(res.Observations) == 0 {
+		t.Fatalf("attachment query emitted no typed observations: %+v", res)
+	}
+	for _, record := range res.Observations {
+		if record.SourceRef.ArtifactID != "attached_trace" {
+			t.Fatalf("session attachment observation artifact_id=%q, want attached_trace: %+v", record.SourceRef.ArtifactID, record.SourceRef)
+		}
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInput{
+		RepoRoot:                 repo,
+		RuntimeArtifactPreflight: ctx.RuntimeArtifactPreflight,
+		ToolResults:              []types.ToolResult{res},
+	})
+	if len(ledger.Records) == 0 {
+		t.Fatalf("session attachment observations disappeared from ledger: %+v", ledger)
+	}
+	for _, record := range ledger.Records {
+		if record.SourceRef.CaptureIdentityPath != "customer.systrace" {
+			t.Fatalf("session snapshot capture identity=%q, want original attachment identity: %+v", record.SourceRef.CaptureIdentityPath, record.SourceRef)
+		}
+	}
+}
+
+func TestTraceQuerySameBasenameOutsideSessionStaysExplicitPath(t *testing.T) {
+	repo := t.TempDir()
+	work := t.TempDir()
+	attached := `attached-30 (30) [000] .... 1.000000: tracing_mark_write: B|30|session-only`
+	if err := os.WriteFile(filepath.Join(work, promptctx.AttachedTraceBlobName), []byte(attached), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	explicit := filepath.Join(repo, promptctx.AttachedTraceBlobName)
+	if err := os.WriteFile(explicit, []byte(`explicit-10 (10) [000] .... 1.000000: tracing_mark_write: B|10|repo-only`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: repo, WorkDir: work}
+	params, _ := json.Marshal(map[string]any{
+		"source": "path", "path": explicit, "view": "event_search",
+		"pattern": "repo-only", "time_start": 1.0, "time_end": 1.01,
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success || !strings.Contains(res.Summary, "[trace_query params: view=event_search source=path ") {
+		t.Fatalf("same-basename repo file was aliased to the session attachment:\n%s", res.Summary)
+	}
+	if len(res.Observations) == 0 {
+		t.Fatalf("explicit query emitted no typed observations: %+v", res)
+	}
+	for _, record := range res.Observations {
+		if record.SourceRef.ArtifactID != "trace_query" {
+			t.Fatalf("ordinary explicit path artifact_id=%q, want trace_query: %+v", record.SourceRef.ArtifactID, record.SourceRef)
+		}
+	}
+}
+
 func TestTraceQueryDirectoryPathWithoutAttachmentFailsFast(t *testing.T) {
 	dir := t.TempDir()
 	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}

@@ -3469,6 +3469,23 @@ func traceQueryPathDefaultsToAttachedTrace(ctx *types.BusContext, rawPath string
 			resolved = filepath.Clean(abs)
 		}
 	}
+	// The prompt exposes the current session's immutable attachment snapshot
+	// as <WorkDir>/attached_trace.txt, and models commonly pass that exact
+	// address back with source=path. This is still the typed attached_trace
+	// carrier, not an independent path artifact. Match the fully resolved
+	// session-owned file only; a same-basename file elsewhere must remain an
+	// ordinary explicit path so unrelated captures can never be aliased.
+	if workDir := strings.TrimSpace(ctxWorkDir(ctx)); workDir != "" {
+		attached := filepath.Clean(filepath.Join(workDir, promptctx.AttachedTraceBlobName))
+		if !filepath.IsAbs(attached) {
+			if abs, err := filepath.Abs(attached); err == nil {
+				attached = filepath.Clean(abs)
+			}
+		}
+		if toolPathsEqual(resolved, attached) {
+			return true
+		}
+	}
 	for _, base := range []string{ctxRepoRoot(ctx), ctxWorkDir(ctx)} {
 		base = strings.TrimSpace(base)
 		if base == "" {

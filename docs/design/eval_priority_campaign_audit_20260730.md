@@ -4072,6 +4072,45 @@ unknown，禁止从线程名、state、priority class 或模型文字猜相位�
 
 状态：`EVAL-B26-PHASE1=implemented / full-agent-tests-pass / replay-with-ALIAS1-next`。
 
+#### B26-ALIAS1：补齐当前 session 附件快照的 source 归一化
+
+真实日志证明不是 projection partition 再次缺少合并算法，而是既有 capture identity
+接线的生产前置条件没有成立：
+
+1. 主附件原始身份为
+   `eval/fixtures/real_traces/donghu_tieba_frame.systrace`，当前 session 将其不可变
+   快照物化为 `<WorkDir>/attached_trace.txt`。
+2. prompt 给出了该绝对快照路径，模型以 `source=path,path=<该路径>` 调用
+   `trace_query`。
+3. `traceQueryPathDefaultsToAttachedTrace` 只识别空/`.`/RepoRoot/WorkDir，遗漏
+   `<WorkDir>/attached_trace.txt` 这个真实文件地址，所以探索记录被铸成
+   `artifact_id=trace_query`。
+4. ObservationLedger 的安全门只允许 `artifact_id=attached_trace` 的保留 blob 使用
+   attachment lineage；它正确拒绝把普通 `trace_query + basename` 猜成附件。系统补采
+   记录带原始附件身份，于是两边无法共享 `CaptureIdentityPath`，投影被分为两件。
+
+最优修复前移到 trace_query source 解析单点：当且仅当 resolved path 精确等于当前
+`WorkDir/attached_trace.txt` 时，把 `source=path` 规范成 `source=attached_trace`。
+由此 producer 自然发出 `artifact_id=attached_trace`，既有 ledger requalify 再把它绑定
+到 run-entry preflight 的唯一 attachment 原始身份；projection、pair relation、目标状态
+等全部既有消费者自动共享一件 capture。没有新增 basename、时间戳、内容相似度或模型
+文字启发式。
+
+反向不变量：RepoRoot、其它目录或其它 session 中即使也叫 `attached_trace.txt`，仍是
+普通显式 path，保留 `artifact_id=trace_query`；多附件时既有 unique-attachment 门继续
+fail-open，不猜合并；Path/SupportRefs 仍保存各自真实坐标，只有 CaptureIdentityPath
+用于物理工件分区。
+
+验证：
+
+- 精确 session blob path：`source=attached_trace`，typed observations 的
+  `ArtifactID=attached_trace`，ledger `CaptureIdentityPath=customer.systrace`；
+- 同名 repo 文件反向臂：`source=path`、`ArtifactID=trace_query`；
+- capture identity / attachment ledger 定向回归通过（types 0.648s）；
+- `go test ./internal/tool -count=1`：通过（166.530s）。
+
+状态：`EVAL-B26-ALIAS1=implemented / full-tool-tests-pass / same-pair-replay-next`。
+
 ### B24 r1：写模式通过，调用边方向权限缺失（2026-08-01）
 
 严格并行 2 个 case，机器均 PASS；人工结果为 1 PASS / 1 FAIL：
