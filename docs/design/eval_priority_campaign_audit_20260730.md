@@ -4232,6 +4232,50 @@ precedence 负臂。`go test ./internal/tool -count=1` 全量通过（167.761s�
 进入最终证据池且精确 receiver 不再漂移后才可 closed；否则继续设计 typed
 receiver→method relation carrier，不以答案文本扫描代替。
 
+#### B22 r4：Trace 主合同通过；稳定证据 amendment 形成混合载体（2026-08-01）
+
+同一 `main@6bbb5896f` 二进制快照下严格并行 2 个 read case：
+
+- `trace_query_frame_semantic_span_optimization`：runner/human PASS，127s；
+- `qf_config_precedence`：runner PASS / human FAIL，266s。
+
+Trace 正证完整：显式 `5.000000..5.007000` 窗、目标四态分区、主要时间占用与规则可消除
+双轴、根因排序、`worker-200 -> app-100` 唤醒链、代表窗、完整 `Trace 因果投影` 和系统
+自动补采均在；首结论及边界保持
+`frame_causality=unproven / frame_evidence_status=absent`。因此本轮新 gap 不触及 Trace
+值计算和发布合同，后续施工必须继续以该 case 作反向不变量。
+
+配置 case 的默认值 50 与总体优先级方向仍正确，但最终把源码
+`if !cmd.Flags().Changed("pipeline-max-steps") { flagMaxSteps = mergedMaxSteps }` 写成
+`flagMaxSteps != defaultMaxSteps`，且叙述成反向赋值 `mergedMaxSteps = flagMaxSteps`；末尾
+标量 `50` 又引用了 `PipelineMaxStepsCeil` 字段行。日志显示这不是 B22-D 的布尔等价器
+失效，而是后发 amendment 破坏了已经 grounded 的完整载体：
+
+1. 首次 item 是 `anchor_kind=condition`，含完整 Condition；B22-D 把不可见 anchor
+   收敛为当前 guard 行可见的 `Changed`。
+2. 模型补读后再次发出同 stable-ID item，但删除 Condition，并把 anchor 改回
+   `flagMaxSteps`，同时把三元组改成 `flagMaxSteps assigns mergedMaxSteps`。
+3. `MergeEvidenceItemByStableID` 对非空字段逐字段采用新值，却因新 Condition 为空保留
+   旧 Condition；结果是旧 guard、新 anchor、新 assignment triple、新 multiline snippet
+   的不可能混合体。
+4. Answer support 再把 condition anchor 当 assignment relation 输出，并把 body line 的
+   文本挂到 guard 行坐标；finalizer 据此反转真实赋值方向。一次 504 重试只影响耗时，
+   不改变该确定性系统 gap。
+
+新登记：
+
+| ID | 优先级 | 系统 GAP | 泛化方案 |
+|---|---:|---|---|
+| `EVAL-B22-EVMERGE1` | P1 | 同 stable-ID 的后发、同 authority 但更稀疏 amendment 可逐字段覆盖完整 typed carrier，形成跨版本混合事实 | 合并按结构化 coherence bundle 与 authority/完整度单调进行：低完整度版本只能补空/set-like 字段，不能拆散已有 Condition/anchor/claim triple；完整的新版本仍可整体纠错。测试同时覆盖 sparse retry 不降级与 richer correction 可替换 |
+| `EVAL-B22-STMTSPAN1` | P1 | `anchor_kind=condition` 的多行 snippet 和 assignment triple 被支持面解释为 guard 行上的赋值语句 | claim-form 权限优先：condition item 只发布 guard/Condition；body assignment 必须由 body 精确行上的独立 assignment evidence 承载。emit-time 用 typed anchor/predicate/scope 提示拆项，不扫描答案 prose |
+| `EVAL-B22-CITNEIGH1` | P1 | citation quote repair 可把相邻 body 行文本挂到原 guard 行坐标，形成 `line=2664 / quote=line2665` | citation 坐标与摘录保持原子一致；若使用邻行，必须以已 grounded typed evidence 同步改坐标，否则保留真实当前行或拒绝回填 |
+| `EVAL-B22-SCALARCIT1` | P1 | scalar block 的 `50` 可引用不含 50、且语义属于另一配置键的行 | scalar block 只接受 typed scalar/value carrier，或标量 token 在 cited quote 精确可见；派生值走显式 aggregate/external-observation 通道，不以最终 prose 关键词硬门 |
+| `EVAL-B22-NEARKEY1` | P2 | exact target 为 `PipelineMaxSteps` 时，相邻 sibling key `PipelineMaxStepsCeil` 进入 principal answer | 先修 typed support/citation 权限后回放；若仍复现，再在 exact-target typed role 上做 principal/context 分层，不加配置名特例 |
+
+状态：`EVAL-B22-CONDNEG1=implemented`；`EVAL-B22-COMPOUNDREL1` 不能关闭，根因已收窄为
+`EVMERGE1 + STMTSPAN1`。下一批先修这两个共同载体问题，再用恰好 2 个异构 case 并行回放；
+`CITNEIGH1/SCALARCIT1` 独立成后续批，避免把引用和值权限混成一个大改。
+
 ### B19a r1：Trace 主合同保留，精确集合暴露静默改写（2026-08-01）
 
 严格并行 2 个用例，runner 2/2 PASS，人工审计 0/2：
