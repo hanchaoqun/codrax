@@ -519,6 +519,9 @@ func runJavaVerificationProbe(ctx *types.BusContext, probe types.VerificationPro
 }
 
 func runGoVerificationProbe(ctx *types.BusContext, probe types.VerificationProbe, id, wd, rel, source string) verificationProbeRunResult {
+	if _, testName, ok := goSamePackageTestProbe(probe.Code); ok {
+		return runGoSamePackageTestVerificationProbe(ctx, probe, id, testName, wd, rel, source)
+	}
 	tmp, cleanup, err := createGoVerificationProbeTemp(ctx.RepoRoot)
 	if err != nil {
 		detail := fmt.Sprintf("verification probe %q could not create temp Go source: %v", id, err)
@@ -545,6 +548,95 @@ func runGoVerificationProbe(ctx *types.BusContext, probe types.VerificationProbe
 		Source:      source,
 		CommandText: "go run <verification_probe:" + id + ">",
 	})
+}
+
+func runGoSamePackageTestVerificationProbe(ctx *types.BusContext, probe types.VerificationProbe, id, testName, wd, rel, source string) verificationProbeRunResult {
+	overlayPath, cleanup, err := createGoSamePackageTestProbeOverlay(ctx.RepoRoot, wd, probe.Code)
+	if err != nil {
+		detail := fmt.Sprintf("verification probe %q could not create Go same-package test overlay: %v", id, err)
+		return verificationProbeConfigError(id, "go", rel, source, detail)
+	}
+	defer cleanup()
+	execCtx, cmd, timeout, cancel := newVerificationProbeCommand(
+		"go",
+		[]string{"test", "-v", "-count=1", "-overlay", overlayPath, "-run", "^" + regexp.QuoteMeta(testName) + "$", "."},
+		wd,
+		"go",
+		ctx,
+		probe,
+		"",
+	)
+	defer cancel()
+	return runExternalVerificationProbe(ctx, probe, externalVerificationProbeInput{
+		ID:          id,
+		Language:    "go",
+		Command:     cmd,
+		ExecCtx:     execCtx,
+		Timeout:     timeout,
+		WorkingDir:  rel,
+		Source:      source,
+		CommandText: "go test <same-package-verification_probe:" + id + ">",
+	})
+}
+
+func createGoSamePackageTestProbeOverlay(repoRoot, wd, code string) (string, func(), error) {
+	base := ""
+	if strings.TrimSpace(repoRoot) != "" {
+		base = filepath.Join(repoRoot, ".codrax", "tmp", "verification-probes")
+		if err := os.MkdirAll(base, 0o700); err != nil {
+			base = ""
+		}
+	}
+	backing, err := os.CreateTemp(base, "same-package-probe-*.go")
+	if err != nil {
+		return "", func() {}, err
+	}
+	cleanupPaths := []string{backing.Name()}
+	cleanup := func() {
+		for _, path := range cleanupPaths {
+			_ = os.Remove(path)
+		}
+	}
+	if _, err := backing.WriteString(code); err != nil {
+		_ = backing.Close()
+		cleanup()
+		return "", func() {}, err
+	}
+	if err := backing.Close(); err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	wdAbs, err := filepath.Abs(wd)
+	if err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	virtualName := "zz_codrax_" + strings.TrimSuffix(filepath.Base(backing.Name()), ".go") + "_test.go"
+	virtualPath := filepath.Join(wdAbs, virtualName)
+	overlay, err := os.CreateTemp(base, "same-package-overlay-*.json")
+	if err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	cleanupPaths = append(cleanupPaths, overlay.Name())
+	payload, err := json.Marshal(struct {
+		Replace map[string]string `json:"Replace"`
+	}{Replace: map[string]string{virtualPath: backing.Name()}})
+	if err != nil {
+		_ = overlay.Close()
+		cleanup()
+		return "", func() {}, err
+	}
+	if _, err := overlay.Write(payload); err != nil {
+		_ = overlay.Close()
+		cleanup()
+		return "", func() {}, err
+	}
+	if err := overlay.Close(); err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	return overlay.Name(), cleanup, nil
 }
 
 func createGoVerificationProbeTemp(repoRoot string) (*os.File, func(), error) {

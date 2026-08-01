@@ -2,7 +2,13 @@ package tool
 
 import (
 	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 const defaultVerificationProbeLanguage = "python"
@@ -167,6 +173,76 @@ func goVerificationProbeHasExecutableFailureSignal(code string) bool {
 		}
 	}
 	return false
+}
+
+// goSamePackageTestProbe parses a Go verification probe as a real _test.go
+// source file. This is the typed carrier for command packages and unexported
+// symbols, which cannot be exercised by the ordinary external-import probe.
+// It deliberately accepts only a go-test-recognized TestX(*testing.T)
+// declaration so a syntactically plausible but unexecuted helper cannot pass.
+func goSamePackageTestProbe(code string) (packageName, testName string, ok bool) {
+	file, err := parser.ParseFile(token.NewFileSet(), "codrax_verification_probe_test.go", code, 0)
+	if err != nil || file == nil || file.Name == nil || strings.TrimSpace(file.Name.Name) == "" {
+		return "", "", false
+	}
+	testingAliases := map[string]struct{}{}
+	for _, spec := range file.Imports {
+		if spec == nil || spec.Path == nil {
+			continue
+		}
+		path, err := strconv.Unquote(spec.Path.Value)
+		if err != nil || path != "testing" {
+			continue
+		}
+		alias := "testing"
+		if spec.Name != nil {
+			alias = strings.TrimSpace(spec.Name.Name)
+		}
+		if alias != "" && alias != "_" && alias != "." {
+			testingAliases[alias] = struct{}{}
+		}
+	}
+	if len(testingAliases) == 0 {
+		return "", "", false
+	}
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn == nil || fn.Recv != nil || fn.Name == nil || fn.Body == nil || !goTestFunctionName(fn.Name.Name) {
+			continue
+		}
+		if fn.Type == nil || fn.Type.Params == nil || len(fn.Type.Params.List) != 1 || fn.Type.Results != nil && len(fn.Type.Results.List) != 0 {
+			continue
+		}
+		param := fn.Type.Params.List[0]
+		if param == nil || len(param.Names) > 1 {
+			continue
+		}
+		star, ok := param.Type.(*ast.StarExpr)
+		if !ok {
+			continue
+		}
+		sel, ok := star.X.(*ast.SelectorExpr)
+		if !ok || sel.Sel == nil || sel.Sel.Name != "T" {
+			continue
+		}
+		ident, ok := sel.X.(*ast.Ident)
+		if !ok {
+			continue
+		}
+		if _, ok := testingAliases[ident.Name]; !ok {
+			continue
+		}
+		return file.Name.Name, fn.Name.Name, true
+	}
+	return "", "", false
+}
+
+func goTestFunctionName(name string) bool {
+	if !strings.HasPrefix(name, "Test") || len(name) == len("Test") {
+		return false
+	}
+	next, _ := utf8.DecodeRuneInString(name[len("Test"):])
+	return next != 0 && !unicode.IsLower(next)
 }
 
 func compactProbeSignalSurface(src string) string {

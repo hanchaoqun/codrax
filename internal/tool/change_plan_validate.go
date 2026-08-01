@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"sort"
@@ -639,6 +641,9 @@ func validateVerificationProbeCouplingForProvider(repoRoot string, changes []typ
 			continue
 		}
 		probeCount++
+		if language == "go" && goSamePackageTestProbeCoversChangedPackage(repoRoot, changes, probe) {
+			return ""
+		}
 		refs := provider.ProbeRefs(probe)
 		if len(refs) == 0 {
 			continue
@@ -654,9 +659,48 @@ func validateVerificationProbeCouplingForProvider(repoRoot string, changes []typ
 		return ""
 	}
 	if len(refsSeen) == 0 {
+		if provider.Language == "go" {
+			return fmt.Sprintf("verification_probes do not include any Go imports for changed production modules %s and do not provide a same-package TestX(*testing.T) probe whose working_dir and package match a changed Go package; use the same-package form for package main or unexported symbols", formatStringSet(targets))
+		}
 		return fmt.Sprintf("verification_probes do not include any %s import/require declarations for changed production modules %s; at least one %s probe must import or require the changed module under test instead of checking an isolated copy", provider.DisplayName, formatStringSet(targets), provider.DisplayName)
 	}
+	if provider.Language == "go" {
+		return fmt.Sprintf("verification_probes reference %s but do not reference any changed Go production module %s and do not provide a same-package TestX(*testing.T) probe whose working_dir and package match a changed Go package; use the same-package form for package main or unexported symbols", formatStringSet(refsSeen), formatStringSet(targets))
+	}
 	return fmt.Sprintf("verification_probes reference %s but do not reference any changed %s production module %s; at least one %s probe must exercise the changed code, not a copied implementation fragment", formatStringSet(refsSeen), provider.DisplayName, formatStringSet(targets), provider.DisplayName)
+}
+
+func goSamePackageTestProbeCoversChangedPackage(repoRoot string, changes []types.FileChange, probe types.VerificationProbe) bool {
+	probePackage, _, ok := goSamePackageTestProbe(probe.Code)
+	if !ok {
+		return false
+	}
+	workingDir := filepath.ToSlash(filepath.Clean(strings.TrimSpace(probe.WorkingDir)))
+	if workingDir == "" || workingDir == "." {
+		workingDir = ""
+	}
+	for _, change := range changes {
+		path := strings.TrimPrefix(filepath.ToSlash(strings.TrimSpace(change.Path)), "./")
+		if path == "" || !strings.HasSuffix(path, ".go") || types.LooksLikeTestFilePath(path) || strings.TrimSpace(change.Kind) == "delete" {
+			continue
+		}
+		changeDir := filepath.ToSlash(filepath.Clean(filepath.Dir(path)))
+		if changeDir == "." {
+			changeDir = ""
+		}
+		if changeDir != workingDir {
+			continue
+		}
+		content, available, _ := plannedPythonContent(repoRoot, change)
+		if !available {
+			continue
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), path, content, parser.PackageClauseOnly)
+		if err == nil && file != nil && file.Name != nil && file.Name.Name == probePackage {
+			return true
+		}
+	}
+	return false
 }
 
 func probeRefsCoverAnyTarget(refs, targets map[string]struct{}, covers func(ref, target string) bool) bool {

@@ -453,6 +453,46 @@ func TestRunTestsDryRunGoVerificationProbeCanImportModuleInternalPackage(t *test
 	}
 }
 
+func TestRunTestsDryRunGoVerificationProbeCanExerciseSamePackageMain(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go not available on PATH")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/command\n\ngo 1.22\n"), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n\nfunc greet(name string) string { return \"hello \" + name }\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatalf("write main.go: %v", err)
+	}
+	mu := types.NewMutableState("go same-package probe")
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StagePlan,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"dry_run": true,
+		"verification_probe": map[string]any{
+			"id":              "go_same_package_value",
+			"language":        "go",
+			"working_dir":     ".",
+			"code":            "package main\n\nimport (\n  \"fmt\"\n  \"testing\"\n)\n\nfunc TestGreet(t *testing.T) { got := greet(\"codrax\"); if got != \"hello codrax\" { t.Fatalf(\"got %q\", got) }; fmt.Println(got) }\n",
+			"expected_stdout": []string{"hello codrax"},
+		},
+	}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("expected same-package Go probe to pass, got: %s", result.Summary)
+	}
+	if matches, _ := filepath.Glob(filepath.Join(root, ".codrax", "tmp", "verification-probes", "same-package-*")); len(matches) != 0 {
+		t.Fatalf("same-package Go probe temp files should be removed, found %v", matches)
+	}
+}
+
 func TestEmitChangePlanAcceptsJavaScriptVerificationProbe(t *testing.T) {
 	tool := &EmitChangePlan{}
 	ctx := newTestBusCtx()
@@ -696,5 +736,53 @@ func TestValidateVerificationProbeCouplingForGoModuleImports(t *testing.T) {
 	}}
 	if rej := validateVerificationProbeCoupling(ctx, changes, importingProbe); rej != "" {
 		t.Fatalf("expected Go probe importing changed package to pass, got: %s", rej)
+	}
+}
+
+func TestValidateVerificationProbeCouplingAcceptsGoSamePackageTest(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/command\n\ngo 1.22\n"), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n\nfunc greet() string { return \"old\" }\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatalf("write main.go: %v", err)
+	}
+	ctx := &types.BusContext{RepoRoot: root}
+	changes := []types.FileChange{{
+		Path:       "main.go",
+		Kind:       "modify",
+		NewContent: "package main\n\nfunc greet() string { return \"new\" }\nfunc main() {}\n",
+	}}
+	probe := []types.VerificationProbe{{
+		ID:                "same_package_greet",
+		Language:          "go",
+		WorkingDir:        ".",
+		Code:              "package main\n\nimport \"testing\"\n\nfunc TestGreet(t *testing.T) { if greet() != \"new\" { t.Fatal(\"wrong\") } }\n",
+		ChangedSymbolRefs: []string{"greet"},
+	}}
+	if rej := validateVerificationProbeCoupling(ctx, changes, probe); rej != "" {
+		t.Fatalf("expected same-package Go test probe to pass coupling, got: %s", rej)
+	}
+}
+
+func TestValidateVerificationProbeCouplingRejectsGoSamePackageMismatch(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/command\n\ngo 1.22\n"), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	ctx := &types.BusContext{RepoRoot: root}
+	changes := []types.FileChange{{
+		Path:       "cmd/app/main.go",
+		Kind:       "modify",
+		NewContent: "package main\n\nfunc greet() string { return \"new\" }\nfunc main() {}\n",
+	}}
+	probe := []types.VerificationProbe{{
+		ID:         "wrong_package_dir",
+		Language:   "go",
+		WorkingDir: ".",
+		Code:       "package main\n\nimport \"testing\"\n\nfunc TestGreet(t *testing.T) { t.Fatal(\"must run\") }\n",
+	}}
+	if rej := validateVerificationProbeCoupling(ctx, changes, probe); !strings.Contains(rej, "same-package TestX") {
+		t.Fatalf("expected mismatched same-package Go test rejection, got: %q", rej)
 	}
 }

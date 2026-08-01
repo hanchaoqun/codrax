@@ -4086,6 +4086,61 @@ typed causal ceiling 及 trace_query 输出保持原样。
 状态：`EVAL-B22-SEMAXIS1=implemented/full-tests-pass/replay-next`。下一批严格并行
 2 case 覆盖 partial-overlap semantic span 与另一种高优先模式。
 
+#### B22 r2：双轴正证 + write/apply 的 Go 同包探针缺口
+
+同一 `main@7e8b03c98` 二进制快照下严格并行 2 个 case：
+
+- `trace_query_frame_semantic_span_optimization`：runner/human PASS，146s；
+- `patch_go_typo`（`MODE=apply`）：runner/human PASS，158s。
+
+Trace 正证中，确定性优化表已同时发布 `窗内 span 墙钟=5.000ms` 与
+`规则可消除=4.600ms / 65.7%`，不再把 raw span 当作有效收益；显式
+`5.000000..5.007000` 窗、主要占用、根因排序、唤醒链、代表窗、完整
+`Trace 因果投影` 和自动补采均保留。typed
+`frame_causality=unproven / frame_evidence_status=absent` 继续接管最终主结论，
+证明 B22-A 与 B19 causal ceiling 可共同工作。状态：
+`EVAL-B22-SEMAXIS1=covered`，`EVAL-B19-CAUSAL1=covered`。
+
+write/apply 的最终 patch、隔离 worktree 和 deterministic `go test` 均正确；但规划过程
+连续三次触发同一 coupling reject：
+
+1. 旧 Go verification probe 只能由 standalone `package main` 通过 `import` 变更包；
+2. 当变更包本身是 `package main` 时，该包不能作为普通库导入；需要验证未导出符号时
+   也存在同样结构障碍；
+3. planner 已生成合法形状的同包 `TestGreet(*testing.T)`，但 validator 仍只读取 imports，
+   因而拒绝；删掉 `changed_symbol_refs` 也无效，最终只能删除整个 probe；
+4. 项目既有测试兜底使本 case 仍然正确，但无测试仓库会失去本可执行的 bounded proof。
+
+登记 `EVAL-B22-GOMAINPROBE1/P1`。它覆盖所有 Go command package 和未导出符号，
+不是 `greet`/typo 单例，也不能靠放松 `changed_symbol_refs` 或接受自报引用解决。
+
+#### B22-B：Go external-import / same-package test 双载体
+
+已实现通用 typed 方案：
+
+1. `language=go` 的外部 import 探针保持原路径和原耦合门；
+2. 新增同包载体，只接受 AST 可证、Go test 会实际执行的
+   `TestX(*testing.T)` 完整源码；假的 helper、缺 `testing` import、错误签名不会进入该车道；
+3. emit-time coupling 要求 probe 的 repo-relative `working_dir` 精确等于某个变更 Go
+   production package 目录，且 probe package declaration 精确等于该变更应用后的 package；
+   package/目录错配继续 fail-closed；
+4. verify 时不向 worktree 写测试文件：系统创建私有临时 backing source 和 overlay JSON，
+   用 `go test -overlay ... -run ^TestX$ -count=1 .` 仅执行该 bounded test，随后清理；
+5. planner soft guidance 明确 `package main`/未导出符号使用同包测试；没有读取或扫描
+   用户原文、模型 thinking/summary/final，也没有 case ID/函数名规则；硬门只读取 typed
+   probe code AST、working_dir、变更路径和应用后 package clause；
+6. 定向测试固定 external import 不回归、同包 command probe 真执行、临时载体清理，
+   以及同包 coupling 的正例和 package/目录错配负例。
+
+完整 `go test ./internal/tool -count=1` 通过（158.208s），
+`go test ./internal/skill -count=1` 通过（0.480s），`git diff --check` 通过。
+
+不变量：该批只触及 write-mode bounded verification probe 的 Go 执行/耦合车道；read
+mode 字节路径、Trace 显式窗、因果投影、根因排序、唤醒链、可消除计算和系统自动补采
+均未改变。
+
+状态：`EVAL-B22-GOMAINPROBE1=implemented/full-tests-pass/replay-next`。
+
 ### B19a r1：Trace 主合同保留，精确集合暴露静默改写（2026-08-01）
 
 严格并行 2 个用例，runner 2/2 PASS，人工审计 0/2：
