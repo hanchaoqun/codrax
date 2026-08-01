@@ -259,6 +259,13 @@ func (t *EmitEvidence) Description() string {
 		"the containing function/method and `object` must be the callee on that line. Example: if " +
 		"`outer()` contains `return inner(...)`, emit `subject=\"outer\"`, `predicate=\"calls\"`, " +
 		"`object=\"inner\"`.\n\n" +
+		"Evidence entailment is bounded by the typed anchor and source span. A call-site item proves only " +
+		"that the caller invokes the callee; it does NOT prove the callee's internal guards, return value, " +
+		"side effects, or pipeline/stage ordering. A definition item proves the declaration/signature, not " +
+		"arbitrary behavior inside the body; condition, return, assignment, and initializer items prove only " +
+		"the construct at their grounded line/range. If a summary needs behavior from another function or " +
+		"a line outside this item's grounded span, read that source and emit a separate evidence item there. " +
+		"Never combine sibling functions' behavior into one line-anchored evidence summary.\n\n" +
 		"Optional hint fields: `context_role_hint` may be `defining`, `absence_support`, `related_context`, or `illustrative_only` " +
 		"to recommend how the item should be used for exact-target answers. `diagram_role_hint` may be `default`, " +
 		"`config`, `runtime`, or `override` for config-precedence traces (`config` = grounded repo/user config-file layer such as YAML/JSON/TOML/INI/etc.). These are recommendations only: the tool " +

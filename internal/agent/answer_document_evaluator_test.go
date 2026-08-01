@@ -3414,7 +3414,8 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDiagramContractA
 		// transformation.
 		"innermost:",
 		"Do not invent shorthand labels from citation line numbers",
-		"split the hop or cite the line that actually names the action",
+		"A call-site citation proves only caller -> callee, not the callee's internal behavior or stage ordering",
+		"split the hop and cite each line that actually proves that part",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)

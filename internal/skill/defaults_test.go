@@ -636,6 +636,9 @@ func TestFinalizerSkill_TeachesTextReferenceAndExplicitRelationSurface(t *testin
 		"visible source / config / doc / comment text itself is the evidence",
 		"explicit edge surface",
 		"Boundary / comparison / exclusion prose",
+		"Evidence-entailment boundary",
+		"call-site citation authorizes only caller -> callee",
+		"Never widen one evidence item's free-form summary",
 	} {
 		if !strings.Contains(blob, want) {
 			t.Fatalf("answer-document-skill missing typed carrier guidance %q:\n%s", want, blob)

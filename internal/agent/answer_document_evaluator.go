@@ -1149,7 +1149,7 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 						"Emit the principal `ordered_list` block with `items[]` of ordered logical hops. Per-item top-level `citation_ref=N` (zero-based index into doc.citations[]). Declare the block-level `claim_uses[]` to cover every form the items use — list one entry per form (`call_edge` for caller→callee sites, `guard_condition` for conditional branches, `return_fact` for return-value hops).",
 						"Keep the hop-by-hop detail in items[] `text`; the lead summary block is only the lead-in.",
 						"Do not invent shorthand labels from citation line numbers (for example `L877` or `Line 42`) unless that exact token is itself grounded in cited text.",
-						"Keep each cited item at the abstraction directly named by its own citation. If one hop needs both a guard/condition and a downstream action that are named on different lines, split the hop or cite the line that actually names the action.",
+						"Keep each cited item at the abstraction directly named by its own citation. A call-site citation proves only caller -> callee, not the callee's internal behavior or stage ordering. If one hop needs both a guard/condition and a downstream action that are named on different lines or functions, split the hop and cite each line that actually proves that part.",
 					)
 				}
 			case types.BlockSection:

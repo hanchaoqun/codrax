@@ -1769,6 +1769,21 @@ func TestEmitEvidenceToolDescription_NoSalienceInternalLeakage(t *testing.T) {
 	}
 }
 
+func TestEmitEvidenceToolDescription_BoundsEvidenceEntailmentByAnchorAndSpan(t *testing.T) {
+	desc := (&EmitEvidence{}).Description()
+	for _, want := range []string{
+		"Evidence entailment is bounded by the typed anchor and source span",
+		"call-site item proves only that the caller invokes the callee",
+		"does NOT prove the callee's internal guards",
+		"emit a separate evidence item",
+		"Never combine sibling functions' behavior",
+	} {
+		if !strings.Contains(desc, want) {
+			t.Fatalf("description missing entailment boundary %q:\n%s", want, desc)
+		}
+	}
+}
+
 func TestEmitEvidence_RejectsUnknownKind(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

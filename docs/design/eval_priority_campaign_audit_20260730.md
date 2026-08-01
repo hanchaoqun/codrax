@@ -4003,6 +4003,34 @@ Trace 查询、显式窗因果投影、根因排序、唤醒链、窗内可消�
 claim-entailment 设计审计；若安全施工范围过大，则先保持 filed 并按既定顺序转入
 显式 Trace 窗 + write/plan 的严格并行 2-case 异构 eval。
 
+#### B21-ENT1：anchor/span entailment 共享软边界
+
+代码审计结论：现有系统已经有 typed `ClaimFormOf(EvidenceItem)`、`anchor_kind`、
+`line_start/line_end`、block-level `claim_uses` 与部分 citation-role gate；但 item 级没有
+稳定的 claim→evidence binding，section/summary 也没有逐句 citation carrier。当前若直接加
+硬拒绝，只能依赖答案 prose 反推“行为/阶段”含义，违反 noisy-signal 不做硬门的红线，且会
+误伤合法机制说明。因此本批先落高覆盖软边界，不伪称 hard authority 已完结：
+
+1. `emit_evidence` 在 investigator 写入点明确 typed entailment：call-site 只证明
+   caller→callee，不证明 callee 内部 guard/return/side effect/stage ordering；definition 只证明
+   declaration/signature；condition/return/assignment 只证明各自 grounded span；
+2. 跨函数、跨 source span 的行为必须先读对应源码并拆成独立 evidence item，禁止一个
+   line anchor 的自由 summary 合并 sibling functions；
+3. finalizer 全局 skill 使用同一边界，要求跨函数/阶段解释为每一 hop 分别引用；动态
+   ordered-hop checklist 同步强调 call-site 权限上限；
+4. 全部是 typed workflow guidance，不扫描用户原文或最终答案，不拒绝结构合法答案，
+   不认识 `emit_analysis`、本轮函数名、case ID 或语言/框架。
+
+定向测试固定 investigator 与 finalizer 两个 producer 都携带边界文案。该批是
+`EVAL-B21-CALLEE1/SPAN1=soft-mitigation`；真正 complete 需要未来通用 item/section
+claim→evidence 载体能表达逐项/逐句权限后，再让精确 enum/id 对齐承担硬校验，不能以
+prose matcher 代替。
+
+全相关回归通过：agent 3.213s、skill 0.790s、tool 160.398s；`git diff --check` 通过。
+
+不变量：该指导不触及 Trace evidence 的 typed causal authority、显式窗口、根因/唤醒/
+可消除计算或系统自动补采；Trace 外部观察继续由 `external_observation` 独立承载。
+
 ### B19a r1：Trace 主合同保留，精确集合暴露静默改写（2026-08-01）
 
 严格并行 2 个用例，runner 2/2 PASS，人工审计 0/2：
