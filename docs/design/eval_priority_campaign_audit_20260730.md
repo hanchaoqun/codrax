@@ -4934,7 +4934,7 @@ r2 在内部词面修复后 runner 2/2 PASS：无窗 case 恢复 `bounded_fact_s
 | ID | 优先级 | 系统 GAP | 泛化方案 | 状态 |
 |---|---|---|---|---|
 | `EVAL-B20-W1` | P0 | passed bounded probe 即使遗漏 planner 声明的 required 非 fallback 合同，也会跳过已检测到且有 test signal 的项目 suite | `run_tests` 只读 typed plan/probe refs/TestSurface：当 probe 未覆盖任一 required、非 `expected_outcome_fallback` 合同时继续项目 suite；fallback 文案缺口和 baseline-only 警告不单独触发昂贵 suite | implemented/full-tests-pass，待同 case 回放 |
-| `EVAL-B20-W2` | P0 | `changeReportHasConcretePassedTestResult` 把 probe-only TestResult 当“具体本地测试”，过滤 proof follow-up；truth ledger 随后对 complete workflow 发出不可执行的 verify | 以 `ExecutedCommand` typed provenance 区分 project runner 与 `verification_probe`；probe-only 不得压掉 proof repair。若最终仍 weak，完成态不得铸 `verified`，应进入一次 bounded proof follow-up 或诚实 `accept_unverified` | open，批 W2 |
+| `EVAL-B20-W2` | P0 | `changeReportHasConcretePassedTestResult` 把 probe-only TestResult 当“具体本地测试”，过滤 proof follow-up；truth ledger 随后对 complete workflow 发出不可执行的 verify | 以 `ExecutedCommand` typed provenance 区分 project runner 与 `verification_probe`；probe-only 不得压掉 proof repair。若最终仍 weak，完成态不得铸 `verified`，应进入一次 bounded proof follow-up 或诚实 `accept_unverified` | implemented/full-tests-pass，待同 case 回放 |
 | `EVAL-B20-W3` | P2 | `expects_baseline_failure=true` 但没有 baseline 结果；报告只告警，不能证明补丁前失败/补丁后修复 | 保留 typed warning；先观察其他 case，若跨 case 复现再设计一次性 baseline snapshot/probe，不以题型或语言硬门 | watch |
 | `EVAL-B20-W4` | P2 | plan repair 时模型删除了原 Java verification probe | 本轮已有 strong project runner，不影响正确性；按模型过程波动留样，跨语言复现后再增强 repair pack 的结构字段保留提示 | model-variance-watch |
 
@@ -4965,7 +4965,34 @@ confidence telemetry，不触发项目套件；baseline-only 告警也不触发�
 `go test ./internal/tool -count=1` 全量通过（158.045s）。
 
 状态：`EVAL-B20-W1=implemented/full-tests-pass/replay-next`；
-`EVAL-B20-W2=P0/open`。
+`EVAL-B20-W2=implemented/full-tests-pass/replay-next`。
+
+#### B20-W2：probe provenance 与完成态 truth 一致性
+
+`changeReportHasConcretePassedTestResult` 现在要求当前格式的 ChangeReport 至少有一条
+`outcome=executed` 且 runner 不是 `verification_probe` 的 typed 命令，才把已通过结果
+视作可降级 proof warning 的项目测试。只有 bounded probe 的报告即使 TestResult 全绿，
+也不能过滤带 contract/symbol ref 的 proof follow-up；无 `ExecutedCommands` 的旧持久化
+报告保留原 score fallback，避免破坏 resume 兼容。
+
+完成态修正为两级闭环：有 typed ref 的弱 proof 仍只追加一次 bounded proof batch；该批
+已请求且仍无可行动 proof 时，truth ledger 不再发出 complete 状态下不可执行的
+`verify_batch`，而是发出 `finish/accept_unverified`。在聚合完成 verdict 前，活动批最后一条
+passed verify attempt 和 batch completion 同步降为 `unverified`，防止
+`ApplyWorkflowDecisionToRun` 再从旧 passed attempt 恢复 `all_batches_verified`。这只改变
+证据强度，不把 proof 缺失误判成代码失败，也不触发重复 replan/apply。
+
+测试覆盖：真实 project runner 通过时 soft proof 继续作为 telemetry；probe-only 通过但
+contract ref 缺失时追加一次 proof batch；已用尽 follow-up 后不递归且最终 verdict 保持
+unverified；纯 truth-ledger complete fallback 同样固定 `accept_unverified`。完整回归
+`go test ./internal/orchestrator ./internal/writeflow ./internal/types -count=1` 通过
+（orchestrator 11.209s、writeflow 0.517s、types 17.384s）。
+
+不变量：全部决策只消费 plan/report/workflow 的 typed provenance；没有读取用户原文或
+模型输出，也未触及 read/Trace 查询、显式时间窗、因果投影、根因排序、唤醒链、窗内
+可消除量和自动补齐代码。
+
+状态：`EVAL-B20-W2=implemented/full-tests-pass/replay-next`。
 
 ### B19g-b r1：target authority 通过，有限事实集仍被扩张（2026-08-01）
 

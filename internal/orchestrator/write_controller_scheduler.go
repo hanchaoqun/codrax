@@ -6294,7 +6294,49 @@ func (o *Orchestrator) controllerTruthLedgerDecision(decision writeflow.WriteWor
 		Plan:   plan,
 		Report: report,
 	})
-	return controllerTruthLedgerDecisionFromView(decision, view, ledger, run)
+	next, ok := controllerTruthLedgerDecisionFromView(decision, view, ledger, run)
+	if ok && next.Action == writeflow.ActionFinish &&
+		next.FinishDisposition == writeflow.FinishDispositionAcceptUnverified &&
+		next.ReasonCode == "truth_ledger_weak_accept_unverified" {
+		markActiveBatchWeakProofUnverified(run, firstNonEmptyController(ledger.ReasonCode, "truth_ledger_weak"))
+	}
+	return next, ok
+}
+
+func markActiveBatchWeakProofUnverified(run *types.WriteWorkflowRun, reasonCode string) {
+	if run == nil {
+		return
+	}
+	activeID := strings.TrimSpace(run.ActiveBatchID)
+	if activeID == "" {
+		return
+	}
+	reasonCode = firstNonEmptyController(reasonCode, "truth_ledger_weak")
+	for i := range run.Batches {
+		batch := &run.Batches[i]
+		if strings.TrimSpace(batch.ID) != activeID {
+			continue
+		}
+		for j := len(batch.Attempts) - 1; j >= 0; j-- {
+			attempt := &batch.Attempts[j]
+			if strings.TrimSpace(attempt.Kind) != "verify" {
+				continue
+			}
+			if strings.TrimSpace(attempt.Status) == "passed" {
+				attempt.Status = "unverified"
+				attempt.ReasonCode = reasonCode
+			}
+			break
+		}
+		batch.Completion = &types.WriteWorkflowCompletion{
+			Verdict:    types.WriteWorkflowCompletionUnverified,
+			ReasonCode: reasonCode,
+			Source:     "truth_ledger",
+			At:         time.Now(),
+		}
+		batch.UpdatedAt = time.Now()
+		return
+	}
 }
 
 func controllerTruthLedgerDecisionFromView(decision writeflow.WriteWorkflowDecision, view writeflow.WorkflowExecutionView, ledger types.TruthLedger, run *types.WriteWorkflowRun) (writeflow.WriteWorkflowDecision, bool) {
@@ -6367,10 +6409,16 @@ func controllerTruthLedgerWeakDecision(decision writeflow.WriteWorkflowDecision,
 		if view.State != writeflow.WorkflowExecutionComplete {
 			return writeflow.WriteWorkflowDecision{}, false
 		}
+		// Actionable typed proof obligations are converted to an appended proof
+		// batch by normalizeControllerTypedStateDecision before this fallback.
+		// Re-verifying the active batch is impossible once the workflow view is
+		// complete, so finish honestly as unverified instead of emitting an action
+		// the transition validator would rewrite to a verified finish.
 		return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
-			Action:     writeflow.ActionVerifyBatch,
-			ReasonCode: "truth_ledger_weak_requires_proof",
-			Reason:     "typed truth ledger is weak (" + firstNonEmptyController(ledger.ReasonCode, "truth_weak") + "); collect proof before finishing",
+			Action:            writeflow.ActionFinish,
+			ReasonCode:        "truth_ledger_weak_accept_unverified",
+			Reason:            "typed truth ledger remains weak (" + firstNonEmptyController(ledger.ReasonCode, "truth_weak") + ") and has no actionable proof batch; finish without claiming verified completion",
+			FinishDisposition: writeflow.FinishDispositionAcceptUnverified,
 		}), true
 	case types.TruthActionRepair:
 		if view.State != writeflow.WorkflowExecutionNeedsReplan && view.State != writeflow.WorkflowExecutionComplete {
@@ -7745,7 +7793,29 @@ func changeReportHasConcretePassedTestResult(report *types.ChangeReport) bool {
 		return false
 	}
 	passed, total := report.Score()
-	return total > 0 && passed == total
+	if total <= 0 || passed != total {
+		return false
+	}
+	// A bounded verification probe is useful evidence, but it is not the
+	// concrete project test result this filter is meant to recognize. Current
+	// reports carry typed command provenance, so require at least one executed
+	// non-probe runner before advisory proof gaps can be demoted to telemetry.
+	// Reports persisted before ExecutedCommands existed retain the legacy score
+	// fallback for resume compatibility.
+	hasExecutedCommand := false
+	for _, cmd := range report.ExecutedCommands {
+		if strings.TrimSpace(cmd.Outcome) != "executed" {
+			continue
+		}
+		hasExecutedCommand = true
+		if strings.TrimSpace(cmd.Runner) != "verification_probe" {
+			return true
+		}
+	}
+	if hasExecutedCommand {
+		return false
+	}
+	return len(report.ExecutedCommands) == 0
 }
 
 func activeBatchLatestVerifyStatus(run *types.WriteWorkflowRun, activeBatchID string) string {

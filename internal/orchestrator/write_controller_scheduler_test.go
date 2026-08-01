@@ -5130,6 +5130,11 @@ func TestNormalizeControllerTypedStateDecisionPassedLocalVerifySoftProofStaysTel
 			AssertionID: "TestAxisConvert",
 			Passed:      true,
 		}},
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner:  "python",
+			Command: "python3 -m unittest",
+			Outcome: "executed",
+		}},
 		VerificationConfidence: []types.VerificationConfidenceRecord{{
 			Source:       "verification_probe",
 			Category:     "probe_soft_contract_refs",
@@ -5173,6 +5178,65 @@ func TestNormalizeControllerTypedStateDecisionPassedLocalVerifySoftProofStaysTel
 	}
 }
 
+func TestNormalizeControllerTypedStateDecisionProbeOnlySoftProofAppendsProofFollowup(t *testing.T) {
+	mu := types.NewMutableState("probe-only verification with uncovered contract")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-probe-only-soft-proof",
+		Status:      types.PlanStatusApplied,
+		TargetPaths: []string{"pkg/axis.py"},
+	})
+	mu.SetChangeReport(&types.ChangeReport{
+		PlanID:             "plan-probe-only-soft-proof",
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		TestResults: []types.TestResult{{
+			Kind:        types.TestResultKindUnit,
+			AssertionID: "bounded-probe",
+			Passed:      true,
+		}},
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner:  "verification_probe",
+			Command: "python -c <verification_probe:bounded-probe>",
+			Source:  "pre_suite_verification_probe",
+			Outcome: "executed",
+		}},
+		VerificationConfidence: []types.VerificationConfidenceRecord{{
+			Source:       "verification_probe",
+			Category:     "probe_soft_contract_refs",
+			Status:       "missing",
+			Severity:     "warning",
+			ReasonCode:   "verification_probe_missing_soft_contract_ref",
+			ContractRefs: []string{"soft-outcome"},
+		}},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-probe-only-soft-proof",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchComplete,
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "apply", Status: "applied", PlanID: "plan-probe-only-soft-proof"},
+				{Kind: "verify", Status: "passed", ReasonCode: "tests_passed", PlanID: "plan-probe-only-soft-proof"},
+			},
+		}},
+	}
+
+	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action:     writeflow.ActionFinish,
+		ReasonCode: "done",
+	}, run)
+
+	if got.Action != writeflow.ActionAppendBatch || got.Batch == nil || got.Batch.Purpose != "verification_proof_followup" {
+		t.Fatalf("probe-only pass must not suppress the typed proof follow-up, got %+v", got)
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "verification_proof_followup_requested") {
+		t.Fatalf("probe-only proof follow-up progress missing: %+v", run.ProgressLedger)
+	}
+}
+
 func TestNormalizeControllerTypedStateDecisionMissingProofWithoutRefsDoesNotAppendBlindBatch(t *testing.T) {
 	mu := types.NewMutableState("verified but proof record has no refs")
 	mu.SetChangePlan(&types.ChangePlan{
@@ -5213,7 +5277,7 @@ func TestNormalizeControllerTypedStateDecisionMissingProofWithoutRefsDoesNotAppe
 	}, run)
 
 	if got.Action != writeflow.ActionFinish {
-		t.Fatalf("proof records without typed refs should remain telemetry, got %+v", got)
+		t.Fatalf("proof records without typed refs should not append a blind batch, got %+v", got)
 	}
 }
 
@@ -5223,11 +5287,55 @@ func TestNormalizeControllerTypedStateDecisionProofFollowupDoesNotRecurse(t *tes
 		ID:          "plan-proof-recursion",
 		Status:      types.PlanStatusApplied,
 		TargetPaths: []string{"pkg/axis.py"},
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID:       "hard-outcome",
+			Kind:     types.WriteBehaviorObservable,
+			Polarity: types.WriteBehaviorPolarityExpected,
+			Operator: types.WriteBehaviorOpEquals,
+			Expected: "42",
+			Required: true,
+			Source:   "write_analyzer",
+		}},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:                "bounded-probe",
+			Language:          "python",
+			Code:              "assert True",
+			ChangedSymbolRefs: []string{"Axis.convert"},
+		}},
+		PatchReview: &types.PatchReviewRecord{
+			Findings: []types.PatchReviewFinding{{
+				Code:           "behavior_contract_without_verify_coverage",
+				Severity:       types.PatchReviewSeverityWarning,
+				Category:       types.PatchReviewCategorySemanticCoverage,
+				ImpactKind:     types.PatchReviewImpactKindBehaviorContract,
+				Path:           "pkg/axis.py",
+				CoverageStatus: types.PatchReviewCoverageUnverified,
+				EvidenceRef:    "hard-outcome",
+			}},
+		},
 	})
 	mu.SetChangeReport(&types.ChangeReport{
 		PlanID:             "plan-proof-recursion",
 		Passed:             true,
 		VerificationStatus: types.VerificationStatusPassed,
+		TestResults: []types.TestResult{{
+			Kind:        types.TestResultKindUnit,
+			AssertionID: "bounded-probe",
+			Passed:      true,
+		}},
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner:  "verification_probe",
+			Command: "python -c <verification_probe:bounded-probe>",
+			Source:  "pre_suite_verification_probe",
+			Outcome: "executed",
+		}},
+		ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+			Path:    "pkg/axis.py",
+			Status:  types.ChangedPathVerificationCovered,
+			Caliber: types.ChangedPathVerificationProbe,
+			Runner:  "verification_probe",
+			Source:  "bounded-probe",
+		}},
 		VerificationConfidence: []types.VerificationConfidenceRecord{{
 			Source:       "verification_probe",
 			Category:     "probe_contract_refs",
@@ -5250,6 +5358,9 @@ func TestNormalizeControllerTypedStateDecisionProofFollowupDoesNotRecurse(t *tes
 				{Kind: "verify", Status: "passed", ReasonCode: "tests_passed", PlanID: "plan-proof-recursion"},
 			},
 		}},
+		ContextPacks: []types.WriteContextPack{
+			testOwnerLocalizationContextPack("batch-1-proof-repair", "pkg/axis.py", "Axis.convert"),
+		},
 		ProgressLedger: []types.WriteWorkflowProgress{{
 			BatchID:    "batch-1",
 			ReasonCode: "verification_proof_followup_requested",
@@ -5261,8 +5372,23 @@ func TestNormalizeControllerTypedStateDecisionProofFollowupDoesNotRecurse(t *tes
 		ReasonCode: "done",
 	}, run)
 
-	if got.Action != writeflow.ActionFinish {
-		t.Fatalf("proof follow-up should not recursively append another batch, got %+v", got)
+	if got.Action != writeflow.ActionFinish ||
+		got.FinishDisposition != writeflow.FinishDispositionAcceptUnverified ||
+		got.ReasonCode != "truth_ledger_weak_accept_unverified" {
+		t.Fatalf("exhausted proof follow-up should finish honestly unverified without recursion, got %+v", got)
+	}
+	state := writeflow.DeriveBatchAttemptState(run.Batches[0])
+	if state.LatestVerifyStatus != "unverified" ||
+		run.Batches[0].Completion == nil ||
+		run.Batches[0].Completion.Verdict != types.WriteWorkflowCompletionUnverified {
+		t.Fatalf("typed weak proof should downgrade the terminal batch before finish, state=%+v completion=%+v", state, run.Batches[0].Completion)
+	}
+	done, err := writeflow.ApplyWorkflowDecisionToRun(*run, got)
+	if err != nil {
+		t.Fatalf("unverified finish should be applicable after exhausted proof follow-up: %v", err)
+	}
+	if done.Completion == nil || done.Completion.Verdict != types.WriteWorkflowCompletionUnverified {
+		t.Fatalf("run completion must remain unverified, got %+v", done.Completion)
 	}
 }
 
@@ -7174,7 +7300,7 @@ func TestControllerTruthLedgerFailedFinishRequiresReplan(t *testing.T) {
 	}
 }
 
-func TestControllerTruthLedgerWeakProofFinishRequiresVerify(t *testing.T) {
+func TestControllerTruthLedgerWeakProofWithoutActionableBatchFinishesUnverified(t *testing.T) {
 	got, ok := controllerTruthLedgerDecisionFromView(
 		writeflow.WriteWorkflowDecision{Action: writeflow.ActionFinish, ReasonCode: "done"},
 		writeflow.WorkflowExecutionView{
@@ -7188,8 +7314,10 @@ func TestControllerTruthLedgerWeakProofFinishRequiresVerify(t *testing.T) {
 		},
 		&types.WriteWorkflowRun{ActiveBatchID: "batch-1"},
 	)
-	if !ok || got.Action != writeflow.ActionVerifyBatch || got.ReasonCode != "truth_ledger_weak_requires_proof" {
-		t.Fatalf("weak proof should verify before finish, ok=%v got=%+v", ok, got)
+	if !ok || got.Action != writeflow.ActionFinish ||
+		got.ReasonCode != "truth_ledger_weak_accept_unverified" ||
+		got.FinishDisposition != writeflow.FinishDispositionAcceptUnverified {
+		t.Fatalf("weak proof without an actionable follow-up must finish unverified, ok=%v got=%+v", ok, got)
 	}
 }
 
