@@ -4906,6 +4906,49 @@ r2 在内部词面修复后 runner 2/2 PASS：无窗 case 恢复 `bounded_fact_s
 权威冲突时才提升为施工项。每批都更新本节、manual audit 和统一 GAP 状态后再进入
 下一批，避免未记档积压。
 
+### B20 r1：跨语言 write/apply 症状定位（2026-08-01）
+
+严格并行运行 Java Gson 与 Python dateutil 两个症状定位 case，runner 2/2 PASS，
+人工 1 PASS / 1 FAIL：
+
+- Gson：补丁只触及 `LazilyParsedNumber.java`，新增 value-based `equals/hashCode`，
+  保留全部 Number 转换方法和测试文件。Maven/JDK 缺失后，项目声明的
+  `make check` source oracle 真执行并覆盖唯一 changed path；final proof=`strong`，
+  completion=`verified`，无第二计划或重复 apply。首次 plan 因冗余重叠 edit 被
+  `old_text` guard 正确拒绝；模型修复时漏掉原 Java probe，但项目 runner 已补足，
+  暂记过程波动。
+- dateutil：生产 diff 对 fixture 的 4 个要求实际正确，人工在 applied tree 独立执行
+  `python3 -m unittest discover -v` 为 4/4 PASS；产品本身却只执行一个覆盖 months 与
+  non-integer 的局部 probe，已发现的 `python/unittest@.` 被记录为 `suite_skipped`。
+  ChangeReport 明确给出
+  `verification_probe_missing_soft_contract_ref`（含 `bc-float-years-apply`）和
+  `verification_probe_baseline_not_run`；WriteFinalReport 同时发布 proof=`weak` 与
+  completion=`verified/all_batches_verified`，形成 typed 权威自相矛盾。
+- 日志进一步固定状态机链：controller 的 `finish/all_verified` 先被 truth ledger 改为
+  `verify_batch/truth_ledger_weak_requires_proof`，随后 transition validator 因 workflow
+  已 complete 又将其改回 `finish/workflow_already_complete`。因此这不是最终措辞问题，
+  也不是 Python 特例，而是“probe-only 成功→弱 proof→完成态”这一整类写模式闭环缺口。
+
+新增 GAP 与最优批次：
+
+| ID | 优先级 | 系统 GAP | 泛化方案 | 状态 |
+|---|---|---|---|---|
+| `EVAL-B20-W1` | P0 | passed bounded probe 即使遗漏 planner 声明的 required 非 fallback 合同，也会跳过已检测到且有 test signal 的项目 suite | `run_tests` 只读 typed plan/probe refs/TestSurface：当 probe 未覆盖任一 required、非 `expected_outcome_fallback` 合同时继续项目 suite；fallback 文案缺口和 baseline-only 警告不单独触发昂贵 suite | open，批 W1 |
+| `EVAL-B20-W2` | P0 | `changeReportHasConcretePassedTestResult` 把 probe-only TestResult 当“具体本地测试”，过滤 proof follow-up；truth ledger 随后对 complete workflow 发出不可执行的 verify | 以 `ExecutedCommand` typed provenance 区分 project runner 与 `verification_probe`；probe-only 不得压掉 proof repair。若最终仍 weak，完成态不得铸 `verified`，应进入一次 bounded proof follow-up 或诚实 `accept_unverified` | open，批 W2 |
+| `EVAL-B20-W3` | P2 | `expects_baseline_failure=true` 但没有 baseline 结果；报告只告警，不能证明补丁前失败/补丁后修复 | 保留 typed warning；先观察其他 case，若跨 case 复现再设计一次性 baseline snapshot/probe，不以题型或语言硬门 | watch |
+| `EVAL-B20-W4` | P2 | plan repair 时模型删除了原 Java verification probe | 本轮已有 strong project runner，不影响正确性；按模型过程波动留样，跨语言复现后再增强 repair pack 的结构字段保留提示 | model-variance-watch |
+
+不变量：所有决定均基于 ChangePlan contracts、verification probe refs、TestSurface 与
+ExecutedCommand/ChangeReport provenance；不扫描用户原文、模型 thinking 或最终答案。
+写模式修复不得改变 read/Trace materializer，显式时间窗 Trace 因果投影及自动补齐
+继续由既有负回归看护。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b20r1_20260801.md`；
+- `eval/parallel_selected_summary_evalcampaign_b20r1_20260801_manual_audit.md`；
+- 两个结果目录时间戳 `20260801-043649`。
+
 ### B19g-b r1：target authority 通过，有限事实集仍被扩张（2026-08-01）
 
 同一二进制快照下严格并行 2 个 Trace case，runner 均 PASS，人工均 FAIL：
