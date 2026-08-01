@@ -1531,11 +1531,13 @@ func verificationProbePassProjectSuiteContinuationReason(ctx *types.BusContext, 
 		return verificationProbeContinuationChangedPathUncovered
 	}
 	// A bounded probe may skip a detected project suite only when it covers every
-	// required analyzer-owned contract. Generic expected_outcome_fallback atoms
-	// deliberately remain advisory here: they mirror request prose and would
-	// otherwise turn nearly every scoped probe into a full-suite run. This gate
-	// consumes only typed contract sources/IDs and probe refs.
-	if len(verificationProbeMissingRequiredNonFallbackContractRefs(plan)) > 0 {
+	// required typed contract, including fallback contracts. The downstream
+	// proof ledger treats missing fallback refs as an open soft obligation; if a
+	// deterministic project suite is already available, skipping it here creates
+	// an impossible follow-up that can only rerun the same bounded probe. Running
+	// the suite gives that obligation independent concrete coverage without
+	// promoting noisy fallback text into a hard validation gate.
+	if len(verificationProbeMissingRequiredIncludingFallbackContractRefs(plan)) > 0 {
 		return verificationProbeContinuationMissingPlanContractRef
 	}
 	if changePlanTouchesTestOrSpecPath(plan) {
@@ -1654,11 +1656,11 @@ func verificationProbeMissingRequiredContractRefs(plan *types.ChangePlan) []stri
 	return sortedStringSet(subtractStringSet(required, covered))
 }
 
-func verificationProbeMissingRequiredNonFallbackContractRefs(plan *types.ChangePlan) []string {
+func verificationProbeMissingRequiredIncludingFallbackContractRefs(plan *types.ChangePlan) []string {
 	if plan == nil {
 		return nil
 	}
-	required := types.RequiredWriteBehaviorContractIDs(plan.BehaviorContracts, false)
+	required := types.RequiredWriteBehaviorContractIDs(plan.BehaviorContracts, true)
 	if len(required) == 0 {
 		return nil
 	}

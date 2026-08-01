@@ -138,6 +138,33 @@ func TestNormalizeVerificationProbesRejectsPrintOnlyJavaProbe(t *testing.T) {
 	}
 }
 
+func TestGoVerificationProbeFailureSignalUsesASTAndTestingParameter(t *testing.T) {
+	accepted := []string{
+		"package main\nfunc main() { panic(\"bad\") }\n",
+		"package main\nimport exitpkg \"os\"\nfunc main() { exitpkg.Exit(1) }\n",
+		"package main\nimport logger \"log\"\nfunc main() { logger.Fatalln(\"bad\") }\n",
+		"package main\nimport testpkg \"testing\"\nfunc TestValue(check *testpkg.T) { check.Errorf(\"bad\") }\n",
+		"package main\nimport \"testing\"\nfunc TestValue(t *testing.T) { t.Fail() }\n",
+	}
+	for _, code := range accepted {
+		if !goVerificationProbeHasExecutableFailureSignal(code) {
+			t.Fatalf("expected AST failure signal to be accepted:\n%s", code)
+		}
+	}
+	rejected := []string{
+		"package main\nfunc main() { println(\"panic(\\\"bad\\\")\") }\n",
+		"package main\n// panic(\"bad\")\nfunc main() {}\n",
+		"package main\nfunc main() { panic := func(string) {}; panic(\"shadowed\") }\n",
+		"package main\ntype fake struct{}\nfunc (fake) Errorf(string, ...any) {}\nfunc main() { var t fake; t.Errorf(\"not testing.T\") }\n",
+		"package main\nimport \"testing\"\ntype fake struct{}\nfunc (fake) Errorf(string, ...any) {}\nfunc TestValue(t *testing.T) { { var t fake; t.Errorf(\"shadowed\") } }\n",
+	}
+	for _, code := range rejected {
+		if goVerificationProbeHasExecutableFailureSignal(code) {
+			t.Fatalf("expected non-semantic text/call to be rejected:\n%s", code)
+		}
+	}
+}
+
 func TestRunTestsDryRunJavaScriptVerificationProbe(t *testing.T) {
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node not available on PATH")
@@ -490,6 +517,57 @@ func TestRunTestsDryRunGoVerificationProbeCanExerciseSamePackageMain(t *testing.
 	}
 	if matches, _ := filepath.Glob(filepath.Join(root, ".codrax", "tmp", "verification-probes", "same-package-*")); len(matches) != 0 {
 		t.Fatalf("same-package Go probe temp files should be removed, found %v", matches)
+	}
+}
+
+func TestRunTestsDryRunGoSamePackageProbeExecutesEveryDeclaredTest(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go not available on PATH")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/command\n\ngo 1.22\n"), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n\nfunc greet() string { return \"ok\" }\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatalf("write main.go: %v", err)
+	}
+	mu := types.NewMutableState("go multi-test same-package probe")
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StagePlan,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"dry_run": true,
+		"verification_probe": map[string]any{
+			"id":          "go_same_package_multi",
+			"language":    "go",
+			"working_dir": ".",
+			"code": "package main\n\nimport \"testing\"\n\n" +
+				"func TestFirst(t *testing.T) { if greet() != \"ok\" { t.Errorf(\"bad greet\") } }\n" +
+				"func TestSecond(t *testing.T) { t.Fatalf(\"SECOND_TEST_EXECUTED\") }\n",
+		},
+	}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Success {
+		t.Fatalf("second declared test must execute and fail the probe: %s", result.Summary)
+	}
+	if !strings.Contains(result.Summary, "SECOND_TEST_EXECUTED") {
+		t.Fatalf("failure should prove the second test executed: %s", result.Summary)
+	}
+}
+
+func TestInlineVerificationProbeDiagnosticsDoesNotClassifySuccessfulNativeProcess(t *testing.T) {
+	diags := inlineVerificationProbeDiagnostics("go", inlineVerificationProbeDiagnosticInput{
+		Outcome:  "executed",
+		ExitCode: 0,
+	})
+	if len(diags) != 0 {
+		t.Fatalf("successful native process must not emit an unclassified warning: %+v", diags)
 	}
 }
 

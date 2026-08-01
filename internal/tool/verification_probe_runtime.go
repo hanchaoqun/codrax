@@ -159,82 +159,149 @@ func javaVerificationProbeHasExecutableFailureSignal(code string) bool {
 }
 
 func goVerificationProbeHasExecutableFailureSignal(code string) bool {
-	surface := compactProbeSignalSurface(stripCLikeProbeStringsAndComments(code))
-	for _, signal := range []string{
-		"panic(",
-		"os.Exit(",
-		"log.Fatal(",
-		"log.Fatalf(",
-		"t.Fatal(",
-		"t.Fatalf(",
-	} {
-		if strings.Contains(surface, compactProbeSignalSurface(signal)) {
-			return true
-		}
+	file, err := parser.ParseFile(token.NewFileSet(), "codrax_verification_probe.go", code, 0)
+	if err != nil || file == nil {
+		return false
 	}
-	return false
-}
-
-// goSamePackageTestProbe parses a Go verification probe as a real _test.go
-// source file. This is the typed carrier for command packages and unexported
-// symbols, which cannot be exercised by the ordinary external-import probe.
-// It deliberately accepts only a go-test-recognized TestX(*testing.T)
-// declaration so a syntactically plausible but unexecuted helper cannot pass.
-func goSamePackageTestProbe(code string) (packageName, testName string, ok bool) {
-	file, err := parser.ParseFile(token.NewFileSet(), "codrax_verification_probe_test.go", code, 0)
-	if err != nil || file == nil || file.Name == nil || strings.TrimSpace(file.Name.Name) == "" {
-		return "", "", false
-	}
-	testingAliases := map[string]struct{}{}
+	packageAliases := map[string]string{}
 	for _, spec := range file.Imports {
 		if spec == nil || spec.Path == nil {
 			continue
 		}
 		path, err := strconv.Unquote(spec.Path.Value)
-		if err != nil || path != "testing" {
+		if err != nil || path == "" {
 			continue
 		}
-		alias := "testing"
+		alias := path
+		if idx := strings.LastIndexByte(alias, '/'); idx >= 0 {
+			alias = alias[idx+1:]
+		}
 		if spec.Name != nil {
 			alias = strings.TrimSpace(spec.Name.Name)
 		}
 		if alias != "" && alias != "_" && alias != "." {
-			testingAliases[alias] = struct{}{}
+			packageAliases[alias] = path
 		}
 	}
-	if len(testingAliases) == 0 {
-		return "", "", false
+	testingParams := goTestingParameterObjects(file, packageAliases)
+	found := false
+	ast.Inspect(file, func(node ast.Node) bool {
+		if found {
+			return false
+		}
+		call, ok := node.(*ast.CallExpr)
+		if !ok || call == nil {
+			return true
+		}
+		switch fun := call.Fun.(type) {
+		case *ast.Ident:
+			found = fun != nil && fun.Name == "panic" && fun.Obj == nil
+		case *ast.SelectorExpr:
+			qualifier, ok := fun.X.(*ast.Ident)
+			if !ok || qualifier == nil || fun.Sel == nil {
+				return true
+			}
+			switch {
+			case qualifier.Obj == nil && packageAliases[qualifier.Name] == "os":
+				found = fun.Sel.Name == "Exit"
+			case qualifier.Obj == nil && packageAliases[qualifier.Name] == "log":
+				found = fun.Sel.Name == "Fatal" || fun.Sel.Name == "Fatalf" || fun.Sel.Name == "Fatalln"
+			default:
+				if _, ok := testingParams[qualifier.Obj]; ok {
+					switch fun.Sel.Name {
+					case "Error", "Errorf", "Fail", "FailNow", "Fatal", "Fatalf":
+						found = true
+					}
+				}
+			}
+		}
+		return !found
+	})
+	return found
+}
+
+func goTestingParameterObjects(file *ast.File, packageAliases map[string]string) map[*ast.Object]struct{} {
+	out := map[*ast.Object]struct{}{}
+	if file == nil {
+		return out
 	}
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn == nil || fn.Recv != nil || fn.Name == nil || fn.Body == nil || !goTestFunctionName(fn.Name.Name) {
-			continue
-		}
-		if fn.Type == nil || fn.Type.Params == nil || len(fn.Type.Params.List) != 1 || fn.Type.Results != nil && len(fn.Type.Results.List) != 0 {
+		if !ok || !goTestFunctionDecl(fn, packageAliases) {
 			continue
 		}
 		param := fn.Type.Params.List[0]
-		if param == nil || len(param.Names) > 1 {
-			continue
+		if len(param.Names) == 1 && param.Names[0] != nil && param.Names[0].Obj != nil {
+			out[param.Names[0].Obj] = struct{}{}
 		}
-		star, ok := param.Type.(*ast.StarExpr)
-		if !ok {
-			continue
-		}
-		sel, ok := star.X.(*ast.SelectorExpr)
-		if !ok || sel.Sel == nil || sel.Sel.Name != "T" {
-			continue
-		}
-		ident, ok := sel.X.(*ast.Ident)
-		if !ok {
-			continue
-		}
-		if _, ok := testingAliases[ident.Name]; !ok {
-			continue
-		}
-		return file.Name.Name, fn.Name.Name, true
 	}
-	return "", "", false
+	return out
+}
+
+// goSamePackageTestProbe parses a Go verification probe as a real _test.go
+// source file. This is the typed carrier for command packages and unexported
+// symbols, which cannot be exercised by the ordinary external-import probe.
+// It deliberately accepts only go-test-recognized TestX(*testing.T)
+// declarations so syntactically plausible but unexecuted helpers cannot pass;
+// every accepted declaration is returned for the bounded runner to execute.
+func goSamePackageTestProbe(code string) (packageName string, testNames []string, ok bool) {
+	file, err := parser.ParseFile(token.NewFileSet(), "codrax_verification_probe_test.go", code, 0)
+	if err != nil || file == nil || file.Name == nil || strings.TrimSpace(file.Name.Name) == "" {
+		return "", nil, false
+	}
+	packageAliases := map[string]string{}
+	for _, spec := range file.Imports {
+		if spec == nil || spec.Path == nil {
+			continue
+		}
+		path, err := strconv.Unquote(spec.Path.Value)
+		if err != nil || path == "" {
+			continue
+		}
+		alias := path
+		if idx := strings.LastIndexByte(alias, '/'); idx >= 0 {
+			alias = alias[idx+1:]
+		}
+		if spec.Name != nil {
+			alias = strings.TrimSpace(spec.Name.Name)
+		}
+		if alias != "" && alias != "_" && alias != "." {
+			packageAliases[alias] = path
+		}
+	}
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if ok && goTestFunctionDecl(fn, packageAliases) {
+			testNames = append(testNames, fn.Name.Name)
+		}
+	}
+	if len(testNames) == 0 {
+		return "", nil, false
+	}
+	return file.Name.Name, testNames, true
+}
+
+func goTestFunctionDecl(fn *ast.FuncDecl, packageAliases map[string]string) bool {
+	if fn == nil || fn.Recv != nil || fn.Name == nil || fn.Body == nil || !goTestFunctionName(fn.Name.Name) {
+		return false
+	}
+	if fn.Type == nil || fn.Type.Params == nil || len(fn.Type.Params.List) != 1 || fn.Type.Results != nil && len(fn.Type.Results.List) != 0 {
+		return false
+	}
+	param := fn.Type.Params.List[0]
+	if param == nil || len(param.Names) > 1 {
+		return false
+	}
+	star, ok := param.Type.(*ast.StarExpr)
+	if !ok {
+		return false
+	}
+	sel, ok := star.X.(*ast.SelectorExpr)
+	if !ok || sel.Sel == nil || sel.Sel.Name != "T" {
+		return false
+	}
+	ident, ok := sel.X.(*ast.Ident)
+	return ok && packageAliases[ident.Name] == "testing"
 }
 
 func goTestFunctionName(name string) bool {

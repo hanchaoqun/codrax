@@ -4141,6 +4141,67 @@ mode 字节路径、Trace 显式窗、因果投影、根因排序、唤醒链、
 
 状态：`EVAL-B22-GOMAINPROBE1=implemented/full-tests-pass/replay-next`。
 
+#### B22 r3：Go 同包载体接通，验证权威四处失配；配置答案出现复合 API 幻觉
+
+同一 `main@1e1e0c03a` 二进制快照下严格并行 2 个 case：
+
+- `patch_go_typo`（`MODE=apply`）：runner PASS / human FAIL，170s；
+- `qf_config_precedence`（read）：runner PASS / human FAIL，123s。
+
+write 正证与新 gap：
+
+1. 第一版 external-import probe 被 coupling gate 拒绝后，planner 按 repair pack 改成
+   `package main + TestX(*testing.T)`，证明 B22-B 接线生效；patch 也精确修正目标字节。
+2. 登记 `EVAL-B22-GOFAILSIG1/P1`：合法同包测试使用 `t.Errorf`，旧 failure-signal
+   检测只接受 `t.Fatal/t.Fatalf`，把 Go test 原生失败语义误判成无失败信号。
+3. 登记 `EVAL-B22-GOMULTITEST1/P1`：一个 probe 声明两个合法 `TestX`，解析器只返回
+   第一个名字，`go test -run ^first$` 导致第二个真正行为测试从未执行。
+4. 登记 `EVAL-B22-NATIVEDIAG1/P2`：Go/Java 成功由 process exit=0 表达，不生成解释型
+   wrapper status；诊断器却把缺 status 误记为 `verification_probe_unclassified` warning。
+5. 登记 `EVAL-B22-PROOFSKIP1/P1`：probe 没有引用 3 个 fallback behavior contracts 时，
+   pre-suite 决策把它们视为 advisory 而跳过已发现的 `go test ./...`；下游 proof ledger
+   又把相同缺口视为开放义务，追加 cumulative review。follow-up 只能重跑相同 probe，
+   因而必然以 `verification_proof_incomplete / accept_unverified` 结束。这是同一 typed
+   contract 在上下游权限不一致，不是 Go/typo 特例。
+
+read case 的默认值 50、`code default → codrax.yaml → CLI` 结论正确，但精确 API 被写成
+不存在的 `flagMaxSteps.Changed()`；源码实际为
+`cmd.Flags().Changed("pipeline-max-steps")`。Explorer 已读取真实行，第一次因 gutter 未读被拒
+后补读；第二次用 `anchor_kind=condition, anchor_symbol=flagMaxSteps` 再被拒，模型识别出
+应锚定 `Changed` 却直接 complete。最终 citation pool 没有 2664 行，finalizer 仍从未授权
+上下文拼出错误 receiver。登记 `EVAL-B22-COMPOUNDREL1/P1`：单个 token 分别可见不等于
+receiver→method 复合关系已证。它与 B21-CALLEE1/SPAN1 同属 typed source relation
+entailment，继续保持 open，禁止用答案 prose 的 `.Changed()` regex 硬门拟合。
+
+#### B22-C：结构化 Go 语义与 verification contract 权威收敛
+
+本批完成四个通用闭环：
+
+1. Go failure signal 改由 `go/parser + AST` 判定，支持 builtin `panic`、实际导入别名的
+   `os.Exit/log.Fatal*`，以及真实 `TestX(*testing.T)` 参数上的
+   `Error/Errorf/Fail/FailNow/Fatal/Fatalf`；字符串、注释、假对象及局部 shadow 不再能
+   冒充失败信号。硬门读取结构化代码 AST，不扫描用户请求或模型答案 prose。
+2. 同包 carrier 返回全部合法 `TestX` 名字，runner 用转义后的精确 regex union 一次执行
+   全部声明测试；定向负例让第二个测试失败，确认不会再出现“首测通过掩盖后续未运行”。
+3. 对 Go/Java 的 native process，`exit=0 + outcome=executed + 无 typed reason/status`
+   明确表示成功，不再生成 unclassified authoring warning；非零退出和 wrapper typed status
+   的原诊断保持。
+4. probe 只有在覆盖全部 required typed contract refs（包括 fallback）时才可跳过已发现的
+   deterministic project suite。缺 fallback ref 本身仍只是 soft obligation，不成为 emit
+   hard reject；但既然已有项目 suite，就实际运行它提供独立 concrete proof，避免下游创建
+   不可能闭合的重复 probe follow-up。全 refs 已覆盖时仍允许 bounded probe 快速跳过 suite。
+
+测试覆盖 AST alias/shadow、`t.Errorf`、多 Test 执行、native success 零误告警、fallback
+缺引用续跑与引用完备不续跑。`go test ./internal/tool -count=1` 全量通过（160.441s），
+定向追加回归通过，`git diff --check` 通过。
+
+不变量：本批仅修改 write verification probe/项目 suite 的 typed 执行与证明闭环；read
+mode 事实抽取、Trace 显式时间窗、因果投影、根因排序、唤醒链、窗内可消除量和自动补采
+均未改动。
+
+状态：`GOFAILSIG1/GOMULTITEST1/NATIVEDIAG1/PROOFSKIP1=implemented/full-tests-pass/replay-next`；
+`COMPOUNDREL1=open/next-design`。
+
 ### B19a r1：Trace 主合同保留，精确集合暴露静默改写（2026-08-01）
 
 严格并行 2 个用例，runner 2/2 PASS，人工审计 0/2：

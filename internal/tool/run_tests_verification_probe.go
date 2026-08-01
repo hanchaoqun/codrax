@@ -519,8 +519,8 @@ func runJavaVerificationProbe(ctx *types.BusContext, probe types.VerificationPro
 }
 
 func runGoVerificationProbe(ctx *types.BusContext, probe types.VerificationProbe, id, wd, rel, source string) verificationProbeRunResult {
-	if _, testName, ok := goSamePackageTestProbe(probe.Code); ok {
-		return runGoSamePackageTestVerificationProbe(ctx, probe, id, testName, wd, rel, source)
+	if _, testNames, ok := goSamePackageTestProbe(probe.Code); ok {
+		return runGoSamePackageTestVerificationProbe(ctx, probe, id, testNames, wd, rel, source)
 	}
 	tmp, cleanup, err := createGoVerificationProbeTemp(ctx.RepoRoot)
 	if err != nil {
@@ -550,16 +550,20 @@ func runGoVerificationProbe(ctx *types.BusContext, probe types.VerificationProbe
 	})
 }
 
-func runGoSamePackageTestVerificationProbe(ctx *types.BusContext, probe types.VerificationProbe, id, testName, wd, rel, source string) verificationProbeRunResult {
+func runGoSamePackageTestVerificationProbe(ctx *types.BusContext, probe types.VerificationProbe, id string, testNames []string, wd, rel, source string) verificationProbeRunResult {
 	overlayPath, cleanup, err := createGoSamePackageTestProbeOverlay(ctx.RepoRoot, wd, probe.Code)
 	if err != nil {
 		detail := fmt.Sprintf("verification probe %q could not create Go same-package test overlay: %v", id, err)
 		return verificationProbeConfigError(id, "go", rel, source, detail)
 	}
 	defer cleanup()
+	testPatterns := make([]string, 0, len(testNames))
+	for _, name := range testNames {
+		testPatterns = append(testPatterns, regexp.QuoteMeta(name))
+	}
 	execCtx, cmd, timeout, cancel := newVerificationProbeCommand(
 		"go",
-		[]string{"test", "-v", "-count=1", "-overlay", overlayPath, "-run", "^" + regexp.QuoteMeta(testName) + "$", "."},
+		[]string{"test", "-v", "-count=1", "-overlay", overlayPath, "-run", "^(?:" + strings.Join(testPatterns, "|") + ")$", "."},
 		wd,
 		"go",
 		ctx,
@@ -1315,6 +1319,14 @@ type inlineVerificationProbeDiagnosticInput struct {
 
 func inlineVerificationProbeDiagnostics(language string, in inlineVerificationProbeDiagnosticInput) []types.VerificationDiagnostic {
 	reasonCode := strings.TrimSpace(in.ReasonCode)
+	nativeProcess := strings.TrimSpace(language) == "go" || strings.TrimSpace(language) == "java"
+	if nativeProcess && reasonCode == "" && strings.TrimSpace(in.Outcome) == "executed" && in.ExitCode == 0 && strings.TrimSpace(in.Status.Outcome) == "" {
+		// Native probes (currently Go and Java) report success through the
+		// process exit status and do not emit the wrapper status envelope used
+		// by interpreted runtimes. Absence of that envelope on exit 0 is not an
+		// authoring failure.
+		return nil
+	}
 	if reasonCode == "" {
 		reasonCode = inlineVerificationProbeReasonCode(language, in.Status)
 	}

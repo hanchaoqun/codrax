@@ -1022,7 +1022,7 @@ func TestRunTestsVerificationProbePassContinuesProjectSuiteWhenPlanContractRefMi
 	}
 }
 
-func TestRunTestsVerificationProbePassSkipsProjectSuiteWhenOnlyFallbackContractMissing(t *testing.T) {
+func TestRunTestsVerificationProbePassContinuesProjectSuiteWhenFallbackContractMissing(t *testing.T) {
 	if _, ok := resolvePythonDryBuildRunner(); !ok {
 		t.Skip("no usable python on PATH; skip")
 	}
@@ -1075,24 +1075,53 @@ func TestRunTestsVerificationProbePassSkipsProjectSuiteWhenOnlyFallbackContractM
 	if err != nil {
 		t.Fatalf("Execute returned error: %v", err)
 	}
-	if !result.Success {
-		t.Fatalf("fallback-only contract gaps must not escalate a passing bounded probe, got %+v", result)
+	if result.Success {
+		t.Fatalf("failing project suite must remain authoritative when fallback contract coverage is missing, got %+v", result)
 	}
 	report := mu.ChangeReport()
 	if report == nil {
 		t.Fatal("run_tests should populate ChangeReport")
 	}
-	foundSkippedSuite := false
+	foundContinuedSuite := false
+	foundExecutedSuite := false
 	for _, cmd := range report.ExecutedCommands {
-		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Source == "probe_primary_suite_skipped" && cmd.Outcome == "suite_skipped" {
-			foundSkippedSuite = true
+		if cmd.Runner == "python" && cmd.Framework == "unittest" &&
+			cmd.Source == verificationProbeContinuationSourceProbeSuiteContinued &&
+			cmd.Outcome == "suite_continued" &&
+			cmd.ReasonCode == verificationProbeContinuationMissingPlanContractRef {
+			foundContinuedSuite = true
 		}
 		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Outcome == "executed" {
-			t.Fatalf("fallback-only proof gap must not execute project suite: %+v", report.ExecutedCommands)
+			foundExecutedSuite = true
+		}
+		if cmd.Source == "probe_primary_suite_skipped" {
+			t.Fatalf("suite must not be skipped while fallback contract coverage is missing: %+v", report.ExecutedCommands)
 		}
 	}
-	if !foundSkippedSuite {
-		t.Fatalf("fallback-only proof gap should retain skipped-suite evidence: %+v", report.ExecutedCommands)
+	if !foundContinuedSuite || !foundExecutedSuite {
+		t.Fatalf("fallback contract gap should continue the detected suite: %+v", report.ExecutedCommands)
+	}
+}
+
+func TestVerificationProbeMissingRequiredIncludingFallbackContractRefs(t *testing.T) {
+	plan := &types.ChangePlan{
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID:       "outcome-1",
+			Kind:     types.WriteBehaviorObservable,
+			Polarity: types.WriteBehaviorPolarityExpected,
+			Operator: types.WriteBehaviorOpSatisfies,
+			Expected: "widget value is 42",
+			Required: true,
+			Source:   "expected_outcome_fallback",
+		}},
+		VerificationProbes: []types.VerificationProbe{{ID: "value_contract"}},
+	}
+	if got := verificationProbeMissingRequiredIncludingFallbackContractRefs(plan); len(got) != 1 || got[0] != "outcome-1" {
+		t.Fatalf("missing fallback refs = %v, want [outcome-1]", got)
+	}
+	plan.VerificationProbes[0].ContractRefs = []string{"outcome-1"}
+	if got := verificationProbeMissingRequiredIncludingFallbackContractRefs(plan); len(got) != 0 {
+		t.Fatalf("covered fallback refs must not force suite continuation: %v", got)
 	}
 }
 
