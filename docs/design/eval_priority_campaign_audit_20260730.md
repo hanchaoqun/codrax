@@ -3436,3 +3436,50 @@ B16 不继续围绕 C2/H8 拟合。按“客户错误严重度 × 证据口径�
 也暂不优先 NEG2，因为 NEG2 当前是 system fail-closed + model overclaim，而
 这两席覆盖的 off-CPU caliber 与 relation rowset 一旦出错会直接反转 principal
 事实。
+
+### B16 r1 perf caliber 与 typed called-by 审计（2026-08-01）
+
+在 revision `c4cdb71b8` 重建后严格 `parallel=2` 回放：
+
+- `eval/results/trace_query_perf_quality_simpleperf_proto_offcpu-20260731-195632`
+- `eval/results/qf_called_by_typed_relation_query-20260731-195632`
+
+runner 2/2、人工 2/2（perf 111s、relation 70s）。
+
+perf 席：
+
+1. `sample_kind=off_cpu`、`cpu=-1`、`cpu_known=false`、
+   `sample_cpu_scope=unknown`、`weight_unit=ns_off_cpu_event`、
+   symbolized/simpleperf source 全部在；
+2. 正文明确 1/1 样本是 off-CPU，window running=0，sample_weight=7000
+   是 event weight 而非 CPU 执行时长；
+3. 没有把它归因到 CPU0，也没有写成 7000ms/7s；
+4. system typed perf-quality caveat 明确 CPU unknown 只是不允许 concrete
+   CPU/core attribution，off_cpu 才是不允许 running 叙述的独立权限。
+
+模型有一句把 `cpu=-1` 单独解释为“线程不在任何物理核心上”。严格说该字段只
+证明 CPU 归属未知；本例“不在运行”由 `sample_kind=off_cpu` 与
+running=0 独立证明，因此主结论正确。作为
+`EVAL-B16-PFMV1 / P3 / model prose caliber` 留档；不扫描答案、不添加
+case-specific gate。
+
+relation 席：
+
+1. 完整列出两个生产 caller：
+   `BuildTypedRelationQueryWithResolvedSources@219` 与
+   `TypedRelationKindsForRequest@246`；
+2. 两者逐行绑定 `internal/types/typed_relation_hint.go`，无 test caller、
+   无跨文件/相邻行串位；
+3. 模型列表与系统 accepted-enumeration supplement 有重复展示，但成员集合、
+   call edge 与文件均正确；这只是呈现冗余，不影响 principal。
+
+B16 r2 按同一多维排序选择：
+
+1. `trace_query_path_question_multi_trace_files`：两个显式 trace path、两个不同
+   target/window，验证 per-artifact 隔离、跨工件 relation authority 与各自
+   结论不串位；
+2. `qf_type_relation_loop_controller`：非 runtime 域，验证接口→主要实现类型
+   的完整 typed relation inventory、文件绑定和 Mermaid 关系面。
+
+这对同时覆盖 runtime multi-artifact 与 repo polytype relation；不会因上一对
+通过就只跑同类 perf/caller 近邻。
