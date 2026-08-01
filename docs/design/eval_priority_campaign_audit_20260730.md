@@ -2939,3 +2939,55 @@ WS2 已按上述边界落地：
 - 同一代码状态下
   `go test ./internal/tracequery ./internal/agent ./internal/orchestrator ./internal/skill -count=1`
   分别为 76.539s、4.313s、17.214s、3.624s。
+
+### B14 r3 WS2 收账与批 REL1（2026-08-01）
+
+在 revision `772f922b7` 重建二进制后严格 `parallel=2` 回放：
+
+- `eval/results/real_trace_c2_dstate_iowait-20260731-183451`
+- `eval/results/real_trace_h3_iofam_one_seat-20260731-183451`
+
+runner 2/2（C2 210s、H3 217s）。C2 人工通过，H3 因模型跨集合平均值绑定错误
+人工失败；两个 answer-shape 不变量均通过。
+
+C2 的 WS2 结果：
+
+1. `finalizer_rejects 8→0`，无 rewrite、breaker 或 degraded export；
+2. system lead 发布 complete producer-paired roster：
+   3 次、0.635ms、三条精确 start/end/duration/state/iowait/caller；
+3. 模型正文同步收敛，不再把无关 capacity flag 写成“实际次数可能高于 3”；
+4. `trace_query_final_projection_blocks=0`，无
+   `materialized runtime trace causal projection`，证明 focused 无窗仍未获得
+   root/wakeup/eliminable 全报告。
+
+H3 的显式窗非回退结果：
+
+1. `trace_query_final_projection_blocks=2`，完整因果投影、root rank、wakeup
+   chain、critical blocking、窗内可消除量和自动补采均在；
+2. IOFAM 的 `完成端到端·IO延迟（io_latency）`、
+   `块设备层·块设备IO(inode)`、`综合评分,非墙钟` 全部在场；
+3. 模型正文列出 6 条 0.865/0.884/1.056/1.058/1.248/1.347ms 后，却把
+   `storage_latency_by_layer` 的 85-op `avg=0.343ms` 写成“6 次平均”。
+   这是 aggregate denominator 错绑 visible subset，系统投影本身无误。
+
+按本战役约束，不围绕“平均”词面增加 hard gate。该项作为
+`EVAL-B14-MV2 / P2 / model cross-set caliber binding` 留档；若后续不同 case
+重复出现，再设计 typed numerator/denominator relation surface。
+
+本轮另发现一个确定性且可泛化的新 GAP：
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B14-REL1 | P1 | runtime artifact physical identity | 同一 immutable runtime blob path 可在不同 query/system supplement 上携带 `attached_trace`、`attached_trace.txt` 等 artifact_id 别名；pair builder 以 ID 优先分桶，生成 `same path ↔ same path` 的伪跨工件关系 | identity election 改为 canonical typed path 优先、artifact_id 仅作无 path fallback；同 path 多别名合并为一个 endpoint，真正不同 path 仍保留 unproven relation | planned-REL1 |
+| EVAL-B14-MV2 | P2 | aggregate denominator binding | 模型把 85-op aggregate avg 绑定到 6-row visible subset | 暂按波动留档；跨 case 复现后再提供 typed count/sum/avg relation，不扫描答案 prose | filed-model-variance |
+
+REL1 不变量：
+
+1. 只消费 `ObservationSourceRef.Path/ArtifactID/ArtifactKind` 的 typed 字段；
+2. path 使用既有 canonical runtime-artifact identity 规范化，不扫描请求/答案；
+3. 同 path 视为同一 immutable turn artifact，即使不同 query 使用不同 alias ID；
+4. 不同 canonical path 即使本地 time-domain/alignment 标签相同，仍是独立 endpoint，
+   relation status 保持 unproven；
+5. 无 path 时继续用非 generic artifact_id；generic `trace_query` ID 继续
+   fail over 到可用 path，避免跨工件合并；
+6. 不改完整因果投影或 focused principal-value gate。
