@@ -1286,12 +1286,13 @@ func materializeRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2, c
 // TraceEvidenceAuthority, and replacement reads only block role/kind plus the
 // unforgeable system marker. It never searches or rewrites user/model text.
 //
-// The deterministic projection remains lossless. We remove only model-owned
-// principal blocks after a system projection lead exists; model-owned
-// non-principal timeline/background/caveat blocks remain in their original
-// order. This preserves the two independent analysis axes while preventing a
-// model summary from promoting a ranked eliminable candidate into proven
-// frame causation.
+// The deterministic projection remains lossless. Once a system projection
+// lead exists, the typed unproven ceiling owns the whole published report:
+// model-owned blocks are excluded structurally, regardless of their prose.
+// Keeping only model "supporting" blocks is unsafe because a timeline or
+// caveat can still promote a candidate into a definite cause. The system
+// cluster already carries both analysis axes, ranked candidates, wakeup
+// relationships, representative windows, details, evidence, and supplements.
 func materializeRuntimeTraceCausalConclusionBlock(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {
 	if doc == nil || ctx == nil || !runtimeTraceFullReportMaterializationAllowed(ctx) {
 		return false
@@ -1329,8 +1330,7 @@ func materializeRuntimeTraceCausalConclusionBlock(doc *types.AnswerDocumentV2, c
 	out := make([]types.AnswerBlock, 0, len(doc.Blocks)+1)
 	out = append(out, conclusion)
 	for _, block := range doc.Blocks {
-		if !RuntimeTraceSystemBlock(block) &&
-			(block.Kind == types.BlockSummary || block.SurfaceRole == types.SurfacePrincipal) {
+		if !RuntimeTraceSystemBlock(block) {
 			continue
 		}
 		out = append(out, block)

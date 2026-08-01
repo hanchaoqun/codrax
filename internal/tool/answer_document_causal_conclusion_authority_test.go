@@ -74,8 +74,8 @@ func TestTypedUnprovenCausalityOwnsPrincipalConclusionWithoutProseScan(t *testin
 			t.Fatalf("model-owned principal block survived typed replacement: %+v", block)
 		}
 	}
-	if projectionClusterBlock(persisted.Blocks, "model_timeline") == nil {
-		t.Fatal("bounded non-principal model context must remain")
+	if projectionClusterBlock(persisted.Blocks, "model_timeline") != nil {
+		t.Fatal("model-owned supporting prose must not survive an unproven typed causal ceiling")
 	}
 	projection := projectionClusterBlock(persisted.Blocks, runtimeTraceCausalProjectionBlockIDBase)
 	if projection == nil || !strings.Contains(projection.Text, "首要可消除候选(不等于已证帧因果)") ||

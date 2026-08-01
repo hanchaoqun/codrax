@@ -4767,17 +4767,17 @@ Git 用例 human FAIL 还包括一个独立事实错误：grep 原始结果明�
 - 发布条件只消费 `TraceEvidenceAuthority.causal_conclusion=unproven` 及系统已经构造出的
   非空 Trace 因果投影。没有真实投影时不制造结论；窄事实报告、
   `bounded_by_typed_rows` 和已证因果车道均不触发。
-- 当 typed 因果权限为 unproven 时，系统生成的主结论成为首块；仅移除模型拥有的
-  `summary/principal` 块，模型时间线、背景、caveat 以及全部系统补齐块保持原顺序。
-  这样不能再由模型 principal 把“有序候选”升级为“已证直接根因”。
+- 当 typed 因果权限为 unproven 时，系统生成的主结论成为首块；系统投影与全部系统
+  补齐块保持原顺序。首版仅移除模型 `summary/principal`；r2 人工审计证明模型的
+  supporting 时间线同样可能越权，现已收紧为该形下不发布任何模型拥有块。
 - 主结论明确保留两个互不替代的分析维度：主要时间占用/关键路径候选用于探索新的
   优化方向；窗内可消除量用于按既有规则安排修复验证。候选排序和可消除量均不等于
   帧因果裁定。
 - 单 trace 投影、多 artifact 投影和跨 artifact 对比表统一把主冠名降为
   “首要可消除候选（不等于已证帧因果）”；rank、effective impact、唤醒链、
   代表窗、证据索引和自动补齐数据均不删减。
-- 新增正反结构测试：unproven + 非空系统投影必须接管 principal 且保留非 principal
-  上下文；bounded typed 因果不得接管。`go test ./internal/tool -count=1` 全量通过
+- 新增正反结构测试：unproven + 非空系统投影必须接管整个发布面；bounded typed
+  因果不得接管。`go test ./internal/tool -count=1` 全量通过
   （157.813s）。
 
 状态：`implemented / internal-tool-full-tests-pass / same-pair replay next`。
@@ -4794,6 +4794,11 @@ Git 用例 human FAIL 还包括一个独立事实错误：grep 原始结果明�
   “对主根因…下钻”。这不是模型原文，而是确定性投影的旧词面。已追加统一 typed
   分支：unproven 时分别改为候选榜定义、首要可消除候选位置、针对候选的验证建议；
   已证车道继续走原有词面。新增结构测试遍历所有发布块，禁止上述已证因果残留。
+- r2 又发现模型 supporting 时间线写出“真正的瓶颈在于…”。这证明仅按
+  `SurfacePrincipal` 删除模型块不能封闭因果权限；模型块的角色标签不保证其内部
+  每句话都只作 supporting。最终方案不扫描模型原文：在
+  `unproven + 非空系统投影` 下只发布系统拥有块。系统投影已完整承载两轴、排序、
+  唤醒链、代表窗、逐节点明细、证据索引与自动补齐；已证/窄事实车道不受影响。
 - 无窗有限事实 case runner 与人工均失败：analyzer 本轮发出
   `runtime_question_profile=causal_diagnosis`，虽然其 typed rationale 只描述“是否、
   时间、原因、总量”；紧邻上一轮同 case 则正确发出 `bounded_fact_set`。因此系统按
@@ -4805,7 +4810,12 @@ Git 用例 human FAIL 还包括一个独立事实错误：grep 原始结果明�
 捕获新增徽章字面量，已改为复用 `tracefence.BadgeGlyphs()` 单源；第二次
 `go test ./internal/tool -count=1` 全量通过（157.674s）。
 
-状态：`EVAL-B19-CAUSAL1=implemented/full-tests-pass/replay-next`；
+r2 在内部词面修复后 runner 2/2 PASS：无窗 case 恢复 `bounded_fact_set` 并正确
+收口，显式窗 case 的主结论、标题、图例、明细位置、下一步均服从 unproven。
+人工审计捕获 supporting 时间线越权后，完整发布权限修补的定向测试与
+`go test ./internal/tool -count=1` 再次全量通过（166.046s）。
+
+状态：`EVAL-B19-CAUSAL1=implemented/full-tests-pass/final-replay-next`；
 `EVAL-B19-DECL1=P1/open`；`EVAL-B19-FACTSET1=covered-but-declaration-unstable`。
 
 ### 后续 eval 维度扩展（用户追加，2026-08-01）
