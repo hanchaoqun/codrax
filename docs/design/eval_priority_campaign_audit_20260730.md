@@ -5409,6 +5409,42 @@ merge 答案仍有真实错误：正文把 `explicitRuntimeArtifactLog` 写成�
 吸收 `MAP1`；B21-S 收窄非枚举补表权限；`GREP1` 作为软工具语义提示小批。三批均不修改
 Trace 显式窗的 full-report 判定、因果投影构造、根因排序、唤醒链、窗内可消除量与自动补采。
 
+#### B21-C：historical observation ↔ current checkout typed boundary
+
+`EVAL-B21-TRANS1` 与 `EVAL-B21-MAP1` 的共享边界已落地：
+
+1. 新增 `HistoricalCurrentSourceAuthority`，只从 accepted Observation Ledger 编译
+   `runtime_artifact / vcs_metadata / vcs_diff` 历史席、typed VCS changed-path 清册和
+   Grounded/Recovered 的精确 current-source line spans；不读取 RawRequest、模型 thinking、
+   closure reason 或最终答案。
+2. 当前没有任何 producer 携带“客户工件 revision 映射”或完整 behavioural transition
+   witness，因此历史席与当前源码席同时在场时，唯一合法 transition 状态为
+   `unproven`。同 symbol、同 path、相近 line 都不能自行升级；未来要增加 proven 状态必须
+   先增加 typed producer，不能靠 prompt/prose 猜造。
+3. VCS changed-path 完整清册存在时，current binding 只列 changed path 内已验证的
+   current-source records；每项逐条发布 `symbol + current_path + current_lines`。
+   `historical_path_match=true` 只证明路径在历史变更清册中，不证明 symbol continuity 或
+   行为延续。历史 symbol 不在 exact current binding 清册中时，Finalizer 被明确要求保持
+   当前位置/status unproven，不能借附近 helper 的 citation 代位。
+4. Current-status enum 仍表示“当前 checkout 的同类风险是否存在/已被 guard 阻断”，不再
+   暗示已经证明客户历史事件发生了版本迁移。中文用户可见标签由“仍然存在/已修复”收窄为
+   “当前代码仍存在同类风险/当前代码已阻断同类风险”；schema 与 finalizer prompt 同步说明
+   无 transition witness 时不能声称“是哪次改动修复客户事件”或“客户构建已包含该修复”。
+5. 这是成文前 typed ceiling 与用户可读 enum 口径，不扫描、拒绝或改写模型答案正文。
+   历史 diff 事实和当前实现事实仍都可回答，只禁止把两席自动连接成未经证明的历史变化。
+
+测试矩阵：VCS changed-path + 精确 current definition 正臂、changed-path 外当前记录排除、
+runtime artifact 与同名 current symbol 仍保持 unproven、单席 inactive、Finalizer 生产 prompt
+接线、current-status 中英文词面与全 enum 映射。完整回归：
+
+- `go test ./internal/types ./internal/agent ./internal/render ./internal/tool -count=1`：
+  types 18.505s、agent 2.797s、render 0.871s、tool 160.855s；
+- `git diff --check` 通过。
+
+状态：`EVAL-B21-TRANS1=implemented/full-tests-pass/replay-next`；
+`EVAL-B21-MAP1=implemented/full-tests-pass/replay-next`。本批没有改动 Trace query/family、
+显式用户窗优先级、因果投影、根因排序、唤醒链、窗内可消除量或系统自动补采。
+
 ### B19g-b r1：target authority 通过，有限事实集仍被扩张（2026-08-01）
 
 同一二进制快照下严格并行 2 个 Trace case，runner 均 PASS，人工均 FAIL：

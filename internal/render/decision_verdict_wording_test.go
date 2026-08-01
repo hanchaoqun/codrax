@@ -84,7 +84,7 @@ func TestRenderV2BlockDecision_ZHCurrentStatusMappedWording(t *testing.T) {
 	if strings.Contains(out, "still_present") {
 		t.Fatalf("zh decision surface must not leak the raw enum token, got:\n%s", out)
 	}
-	if !strings.Contains(out, "**结论：** 仍然存在 — 当前代码仍缺少该锁保护。") {
+	if !strings.Contains(out, "**结论：** 当前代码仍存在同类风险 — 当前代码仍缺少该锁保护。") {
 		t.Fatalf("zh decision must render mapped wording with preserved prose, got:\n%s", out)
 	}
 }
@@ -133,7 +133,7 @@ func TestRenderV2BlockDecision_ZeroEvidenceDowngradeCaveatFormZH(t *testing.T) {
 	if !strings.Contains(out, "是。无法判断该优先级反转问题在最新代码中是否已修复。") {
 		t.Fatalf("model prose must be preserved verbatim (downgrade is disclosure, not rewrite), got:\n%s", out)
 	}
-	if strings.Contains(out, "仍然存在") {
+	if strings.Contains(out, "当前代码仍存在同类风险") {
 		t.Fatalf("downgraded verdict must not render as an asserted conclusion wording, got:\n%s", out)
 	}
 }
@@ -156,7 +156,7 @@ func TestRenderV2BlockDecision_NoStampKeepsAssertedForm(t *testing.T) {
 	if strings.Contains(out, "未评估：本轮无源码证据") {
 		t.Fatalf("evidence runs (no stamp) must not render the caveat form, got:\n%s", out)
 	}
-	if !strings.Contains(out, "仍然存在") {
+	if !strings.Contains(out, "当前代码仍存在同类风险") {
 		t.Fatalf("evidence runs keep the asserted wording surface, got:\n%s", out)
 	}
 }

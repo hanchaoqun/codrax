@@ -368,6 +368,46 @@ func TestRenderAnswerDocObservationLedger_BindsPrincipalToTypedLatestMerge(t *te
 	}
 }
 
+func TestRenderAnswerDocObservationLedger_SeparatesHistoricalTransitionAndCurrentDefinitionBindings(t *testing.T) {
+	mut := types.NewMutableState("explain historical change in current source")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{
+		ToolResults: []types.ToolResult{{
+			ToolName: "git_show", Success: true,
+			VCSHistory: &types.ToolVCSHistory{
+				Kind:    types.ToolVCSHistoryKindGitShow,
+				Commits: []string{"abc123"},
+				ChangedPathSets: []types.ToolVCSChangedPathSet{{
+					Commit: "abc123", Paths: []string{"internal/agent/agent_test.go"}, Total: 1, Complete: true,
+				}},
+			},
+		}},
+	})
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID: "helper", Source: "internal/agent/agent_test.go", LineStart: 1808, LineEnd: 1820,
+		Scope: types.ScopeLineRange, AnchorKind: types.AnchorDefinition,
+		AnchorSymbol: "explicitRuntimeArtifactLog", Subject: "explicitRuntimeArtifactLog",
+		GroundingStatus: types.GroundingGrounded,
+	},
+	})
+	ctx := &types.AgentContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:     types.IntentExplain,
+		Predicates: types.SemanticPredicates{IsHistoryLookup: true},
+	}}}
+	got := renderAnswerDocObservationLedger(ctx)
+	for _, want := range []string{
+		"Historical Observation / Current Checkout Boundary",
+		"historical_transition=`unproven`",
+		"no typed revision mapping or behavioural transition witness",
+		"symbol=`explicitRuntimeArtifactLog`; current_path=`internal/agent/agent_test.go`",
+		"historical_path_match=true",
+		"If a historical symbol has no exact current binding below",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("historical/current boundary missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestRenderAnswerDocObservationLedger_PreservesAggregateMemberNotes(t *testing.T) {
 	mut := types.NewMutableState("Kind 常量说明")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

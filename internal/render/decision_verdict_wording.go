@@ -24,8 +24,8 @@ import "github.com/hanchaoqun/codrax/internal/types"
 // across families (`not_enough_evidence`) has exactly one wording.
 var decisionVerdictWordingZH = map[string]string{
 	// current_status_verdict family
-	string(types.CurrentStatusStillPresent):      "仍然存在",
-	string(types.CurrentStatusFixed):             "已修复",
+	string(types.CurrentStatusStillPresent):      "当前代码仍存在同类风险",
+	string(types.CurrentStatusFixed):             "当前代码已阻断同类风险",
 	string(types.CurrentStatusNotEnoughEvidence): "证据不足",
 	// error_granularity_verdict family (not_enough_evidence shared above)
 	string(types.ErrorGranularityPerItemRejection): "逐条拒绝",

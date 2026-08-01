@@ -3877,6 +3877,9 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	if authority := renderAnswerDocVCSChangedPathAuthority(ledger); authority != "" {
 		b.WriteString(authority)
 	}
+	if authority := renderAnswerDocHistoricalCurrentSourceAuthority(ledger); authority != "" {
+		b.WriteString(authority)
+	}
 	if relation := renderAnswerDocRuntimeArtifactPairRelationAuthority(ledger); relation != "" {
 		b.WriteString(relation)
 	}
@@ -4023,6 +4026,38 @@ func renderAnswerDocVCSChangedPathAuthority(ledger types.ObservationLedger) stri
 				fmt.Fprintf(&b, "  - `%s`\n", changedPath)
 			}
 		}
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func renderAnswerDocHistoricalCurrentSourceAuthority(ledger types.ObservationLedger) string {
+	authority := types.BuildHistoricalCurrentSourceAuthority(ledger)
+	if !authority.Active {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("### Historical Observation / Current Checkout Boundary\n\n")
+	fmt.Fprintf(&b, "- historical_transition=`%s`; reason=`%s`; historical_origins=", authority.TransitionStatus, authority.Reason)
+	for i, origin := range authority.HistoricalOrigins {
+		if i > 0 {
+			b.WriteString(",")
+		}
+		fmt.Fprintf(&b, "`%s`", origin)
+	}
+	b.WriteString("\n")
+	b.WriteString("- Historical observations/diffs and current-checkout facts are independently valid lanes. `unproven` means no typed revision mapping or behavioural transition witness connects them: do not claim the historical incident was fixed, introduced, preserved, or caused by the current checkout. You may still describe what the historical lane changed/observed and what the current source independently does.\n")
+	b.WriteString("- The exact current-source bindings below are the only verified current locations in this boundary. A historical path match means only that the path appears in the typed changed-path roster; it does not prove symbol identity or behavioural continuity. If a historical symbol has no exact current binding below, keep its current location/status unproven instead of assigning it to a nearby cited helper.\n")
+	for _, def := range authority.CurrentDefinitions {
+		symbol := strings.TrimSpace(def.Symbol)
+		if symbol == "" {
+			symbol = "(unnamed exact source span)"
+		}
+		fmt.Fprintf(&b, "  - symbol=`%s`; current_path=`%s`; current_lines=%d-%d; historical_path_match=%t\n",
+			symbol, def.Path, def.LineStart, def.LineEnd, def.HistoricalPathMatch)
+	}
+	if authority.CurrentDefinitionsCapped {
+		fmt.Fprintf(&b, "  - current_definition_roster_capped=true; emitted=%d; total=%d — omitted definitions are not absent, but they are not exact location authority in this prompt view.\n", len(authority.CurrentDefinitions), authority.CurrentDefinitionTotal)
 	}
 	b.WriteString("\n")
 	return b.String()
@@ -7145,8 +7180,8 @@ func renderAnswerDocCurrentStatusDiagnostic(ctx *types.AgentContext) string {
 	b.WriteString("- Current code verification: cite the current code that was read and explain whether the same risk path is still present, blocked, removed, or not provable from the available evidence.\n")
 	b.WriteString("- Verdict: emit a principal `decision` block with `current_status_verdict` set to exactly one of `still_present`, `fixed`, or `not_enough_evidence`, then explain the evidence boundary in the decision prose.\n\n")
 	b.WriteString("Verdict semantics:\n")
-	b.WriteString("- `still_present`: current cited code still contains the comparable risk path or missing guard, even if the historical artifact's exact old-build line or exact runtime branch remains uncertain.\n")
-	b.WriteString("- `fixed`: current cited code removes, guards, or otherwise blocks the comparable risk path.\n")
+	b.WriteString("- `still_present`: current cited code still contains the comparable risk path or missing guard. This is a current-checkout assessment, not proof that the historical artifact came from this revision.\n")
+	b.WriteString("- `fixed`: current cited code removes, guards, or otherwise blocks the comparable risk path. Render it as a current-checkout risk assessment; unless a separate typed revision/transition witness exists, do not claim which change fixed the historical incident or that the captured build contains this fix.\n")
 	b.WriteString("- `not_enough_evidence`: current cited code cannot decide between `still_present` and `fixed`; do not use it merely because the artifact line number drifted or the precise historical branch is uncertain.\n")
 	b.WriteString("- Use `current_status_verdict` as the only canonical status token; the decision text is rationale and boundary explanation, not a second verdict channel.\n\n")
 	if profile := ctx.AnalysisIR.RequestModel.ArtifactObservationProfile; profile != nil {
