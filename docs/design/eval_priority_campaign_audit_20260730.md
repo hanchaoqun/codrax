@@ -3483,3 +3483,67 @@ B16 r2 按同一多维排序选择：
 
 这对同时覆盖 runtime multi-artifact 与 repo polytype relation；不会因上一对
 通过就只跑同类 perf/caller 近邻。
+
+### B16 r2 multi-artifact projection 与 type relation source-role 审计（2026-08-01）
+
+在 revision `4d5e535ae` 重建后严格 `parallel=2` 回放：
+
+- `eval/results/trace_query_path_question_multi_trace_files-20260731-200022`
+- `eval/results/qf_type_relation_loop_controller-20260731-200022`
+
+runner 2/2 PASS，但人工 0/2；两席分别揭示 system projection one-seat 与
+typed relation source-role 的确定性缺口。
+
+multi-trace 席中，系统正确完成：
+
+1. 两个 path、target、window、state roster 完全隔离；
+2. shared clock/direct alignment/device/session relation 全部诚实标
+   `未证明`，没有用局部同形时间戳制造跨工件因果；
+3. 两个工件的显式窗 Trace 因果投影都保留，最终
+   `trace_query_final_projection_blocks=3`。
+
+但 trace1 的同一 app-20 runnable 物理 aggregate 同时占了 root-rank 与
+wakeup-causal-impact 两席，因果树和指标表都出现两次 5.000ms。这不是模型
+波动，而是 system-generated projection 的重复计量，构成既有
+`EVAL-B7-T2 / P1` 的 production witness。修复必须落在唯一 projection
+absorption 点，读取 typed membership/provenance；只凭 subject/state/value
+相等会误合并两个真实的等长区间，禁止采用。
+
+模型另把 1.001200→1.010000s 的 endpoint 差写成 10.000ms；typed 板仍正确
+区分 target sleep=10ms、worker effective=8.3ms 与 cumulative=9.0ms。
+登记 `EVAL-B16-TRMV1 / P3 / model variance`，不扫描答案 prose、不为单值
+加 gate。
+
+LoopController 席中，relation edge 与文件绑定正确，但 12 个生产实现和
+3 个 `agent_test.go` 测试桩同时进入“主要实现”主表/主图。模型能口头标出
+测试项，不等于 system 有权限稳定分栏。新增
+`EVAL-B16-REL1 / P1 / typed source-role authority`：
+
+1. relation producer/normalizer 提供
+   `source_role={production,test,fixture,generated,unknown}`；
+2. 完整成员 rowset 不删除，principal 与 auxiliary projection 按 typed role
+   分席；
+3. caller/implementation/subtype 等 relation kind 共用同一协议；
+4. role unknown 时 fail-open 且显式披露；
+5. 不扫描 RawRequest 中的“主要”、不在答案阶段按 `_test.go` 做硬门。
+
+该 case 另有 5 次 accepted investigation_complete、10 次 midloop、299s，
+登记 `EVAL-B16-REL2 / P2` 探索成本；先审计 typed dispatch/complete reason，
+不以 case/path 特判压缩。
+
+当前施工/验证顺序冻结为：
+
+1. B17：修复 `EVAL-B7-T2` one-seat，并严格并行回放
+   `multi_trace_files + H8 explicit-window`，前者收账、后者守住完整
+   root/wakeup/eliminable/auto-supplement；
+2. B18：完成 `EVAL-B16-REL1` producer 设计与跨 relation-kind fixtures，
+   再施工；不得与 B7-T2 混批；
+3. B19：回到优先级矩阵选两个新的高风险、异维度 eval，不连续拟合当前
+   witness。模型单轮 endpoint 波动继续留档。
+
+| ID | 优先级 | 状态 |
+|---|---:|---|
+| EVAL-B7-T2 | P1 | production-witness-confirmed / implementation-next |
+| EVAL-B16-REL1 | P1 | filed-design |
+| EVAL-B16-TRMV1 | P3 | filed-model-variance |
+| EVAL-B16-REL2 | P2 | filed-audit |
