@@ -801,6 +801,10 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 			logging.Warning("[%s] materialized %d principal support surface-term row(s) from accepted evidence handoff", toolName, fixed)
 		}
 	}
+	if fixed := normalizeCallChainReachabilityAuthority(doc, view, ctx, pctx.evidenceItems()); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeCallChainReachabilityAuthority", fixed)
+		logging.Warning("[%s] normalized %d call-chain reachability carrier(s) from typed endpoint and call-edge authority", toolName, fixed)
+	}
 	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed > 0 {
 		pctx.recordPreEmitRepair("normalizeViewCompatibleAnswerDocument", fixed)
 		logging.Warning("[%s] repaired %d view-compatible typed lane field(s)", toolName, fixed)

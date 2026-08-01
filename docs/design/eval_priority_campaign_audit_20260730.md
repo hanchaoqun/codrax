@@ -4320,6 +4320,63 @@ skill 2.395s）。下一步在提交推送后复放同一 read/write 两 case，
 `EVAL-B24-ENDPOINTSCOPE1=P1/implemented/replay-next`；
 `EVAL-B24-ENDPOINT1=covered`；`EVAL-B24-KEYSET1=P2/open`。
 
+#### B24-g r1：双轴修复生效，endpoint presence 仍不等于 reachability
+
+`main@9745226b3` 同一 read/write 两 case 严格并行：runner 2 PASS，人工 1 PASS / 1 FAIL。
+
+1. write apply 129s/0 reject，单行变更与 plan/apply/verify 不回归。
+2. call-chain 从 472s/10 rejects 降至 293s/8 rejects；required endpoint 数从 3 收敛为
+   2，`analyzer.go` 不再进入 endpoint set，日志也不再出现 endpoint 被 pruning 删除后重复
+   hard reject。因此 `ENDPPRUNE1`、`ENDPOINTSCOPE1` 均由真实 replay 覆盖。
+3. 剩余 8 rejects 全部来自 diagram call-edge authority：validator 逐轮删除
+   `RunWith → Run` 反向边、把 check 函数画成 self-loop 的无证边，最终图只保留
+   `buildAnalysisIR → .../gate.RunWith` 的 accepted typed edges。这个约束工作正常。
+4. 人工仍判 FAIL：最终 summary 写“通过 `gate.RunWith` 调用 `gate.Run`”，principal path
+   list 也写“完整调用顺序”，但已校验图没有 source→`gate.Run` 路径；源码实际 wrapper
+   方向是 `gate.Run → gate.RunWith`。endpoint identity 行在场只证明两个符号都被说明，
+   不证明两者有向可达。
+5. 新登记 `EVAL-B24-REACH1/P1`：对 `QFCallChain` 且恰有两个 typed required endpoint
+   的请求，从 accepted citable `ClaimCallEdge` 编译 directed reachability。若 source→sink
+   未证明，由 deterministic system authority 将 summary 与 principal-path carrier 收敛成
+   `unproven`，保留 verified diagram 边；不扫描 raw request、model prose 或 rendered text，
+   不把 definition/sibling/prefix 当成 edge。
+6. `EVAL-B24-EVALDIR1/P1` 继续开放：diagram 初稿仍从 model 生成大量错误边，正确性 gate
+   最终兜住但代价 8 rejects。先完成 REACH1 后再决定是否提供 typed diagram seed/patch，避免
+   把正确性与效率混成一个 case 特补。
+
+状态：`EVAL-B24-ENDPPRUNE1=covered`；`EVAL-B24-ENDPOINTSCOPE1=covered`；
+`EVAL-B24-REACH1=P1/fix-in-progress`；`EVAL-B24-EVALDIR1=P1/open`；
+`EVAL-B24-KEYSET1=P2/open`。
+
+#### B24-h：typed call-chain reachability authority（2026-08-01）
+
+`EVAL-B24-REACH1` 已按“精确信号用于收敛、无原文关键词门”完成：
+
+1. 激活条件仅为 `AnswerSemanticView.Family == QFCallChain` 且
+   `RequiredMechanismAnchors` 恰有两个；超过两个端点时，当前 typed 模型没有明确
+   source/sink role，保持不动作而不是猜 first/last。
+2. 图只消费 accepted citable evidence 中 `ClaimFormOf(ev)==ClaimCallEdge` 的
+   `Subject → Object/AnchorSymbol`。`Object` 与 `AnchorSymbol` 仅因同一 grounded call-site
+   记录而作为目标别名；不做 prefix、substring、owner 或 prose 推断。
+3. 对 exact source→sink 做 directed BFS。endpoint definition 在场、同名前缀 sibling、
+   `source → X ← target` 汇聚形都不能证明可达；真实 multi-hop typed path 才得到 proven。
+4. proven 时模型答案字节不动；unproven 时 deterministic normalizer 覆盖首个 summary 与
+   `principal_path_edge` 载体，明确“端点在场不等于有向可达”，并保留两个 exact endpoint
+   structured labels，确保 endpoint hard contract 仍闭合。已验证 diagram 与辅助完整清册不删。
+5. 这不是新 hard retry gate：收敛在 pre-emit normalizer 同轮完成。production wiring 测试
+   直接调用完整 `normalizeAnswerDocumentForPreEmit`，防止仅 helper 绿而接线被删。
+6. `QFRootCauseTrace` 负向 fixture 明确保持原 summary/path；带时间窗 Trace 因果投影、
+   根因排序、唤醒链、窗内可消除量与自动补齐不进入源码 call-chain reachability authority。
+
+验证：定向 directed/unproven/definition/sibling/production-wiring/Trace-negative 全绿；完整
+`go test ./internal/types ./internal/tool ./internal/orchestrator ./internal/agent ./internal/analysis/hint ./internal/skill -count=1`
+全绿（types 19.280s、tool 161.079s、orchestrator 11.305s、agent 4.716s、hint 3.280s、
+skill 2.111s）。下一步提交推送后复放同一 read/write 两 case；若人工正确性闭合，再转入
+更高优先级的显式时间窗 Trace + 另一模式双 case，而不是继续对本 case 做措辞拟合。
+
+状态：`EVAL-B24-REACH1=P1/implemented/replay-next`；
+`EVAL-B24-EVALDIR1=P1/open`；`EVAL-B24-KEYSET1=P2/open`。
+
 ### B21-GREP：literal/regex 查询语义进入 typed 证据链（2026-08-01）
 
 `EVAL-B21-GREP1` 已按软恢复而非硬拒绝施工：
