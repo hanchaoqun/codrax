@@ -68,6 +68,41 @@ func TestDiagramCallEdgeEvidenceMismatches_NodeDisplayMetadataDoesNotChangeIdent
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_SameLineSupportRefDoesNotChangeIdentity(t *testing.T) {
+	doc := diagramEvidenceTestDoc("A", "B")
+	doc.Blocks[0].Diagram.Body = "sequenceDiagram\n" +
+		"  participant A as Alpha.Run (internal/example.go:10)\n" +
+		"  participant B as Beta.Run (internal/example.go:20)\n" +
+		"  A->>B: invoke\n"
+	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
+		[]types.EvidenceItem{diagramEvidenceTestCall("Alpha.Run", "Beta.Run")})
+	if len(got) != 0 {
+		t.Fatalf("typed support-ref suffix must not become part of endpoint identity: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_BodyEdgeCannotOmitTypedAnchor(t *testing.T) {
+	doc := diagramEvidenceTestDoc("A", "B")
+	doc.Blocks[0].EdgeAnchors = nil
+	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
+		[]types.EvidenceItem{diagramEvidenceTestCall("Alpha.Run", "Beta.Run")})
+	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueMissingAnchor || got[0].FromSymbol != "Alpha.Run" || got[0].ToSymbol != "Beta.Run" {
+		t.Fatalf("a parsed sequence edge without typed metadata must hard-fail: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_CallDAGBodyEdgeCannotOmitTypedAnchor(t *testing.T) {
+	doc := diagramEvidenceTestDoc("A", "B")
+	doc.Blocks[0].Diagram.Kind = types.DiagramCallDAG
+	doc.Blocks[0].Diagram.Body = "flowchart TD\n  A[Alpha.Run] --> B[Beta.Run]\n"
+	doc.Blocks[0].EdgeAnchors = nil
+	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
+		[]types.EvidenceItem{diagramEvidenceTestCall("Alpha.Run", "Beta.Run")})
+	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueMissingAnchor {
+		t.Fatalf("a parsed call_dag edge without typed metadata must hard-fail: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_DefinitionCannotAuthorizeDirection(t *testing.T) {
 	view := &types.AnswerSemanticView{Family: types.QFCallChain}
 	evidence := []types.EvidenceItem{{
@@ -123,4 +158,23 @@ func TestRunPreEmitChecks_DiagramCallEdgeEvidenceAlignmentIsWired(t *testing.T) 
 	if len(hard) != 1 || hard[0].Kind != types.ViolDiagramCallEdgeUnproven {
 		t.Fatalf("typed source call-edge mismatch must reject same-turn: %+v", hints)
 	}
+}
+
+func TestRunPreEmitChecks_DiagramBodyEdgeWithoutAnchorIsWired(t *testing.T) {
+	mut := types.NewMutableState("diagram body edge")
+	mut.AppendEvidence([]types.EvidenceItem{diagramEvidenceTestCall("Alpha.Run", "Beta.Run")})
+	ctx := &types.BusContext{Mutable: mut}
+	doc := diagramEvidenceTestDoc("A", "B")
+	doc.Blocks[0].EdgeAnchors = nil
+	hints := runPreEmitChecks(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, nil, ctx)
+	for _, hint := range hints {
+		if hint.Kind == types.ViolDiagramCallEdgeUnproven &&
+			strings.Contains(hint.ExpectedShape, diagramCallEdgeIssueMissingAnchor) {
+			hard, _ := splitPreEmitHintsByGate(hints)
+			if len(hard) == 1 && hard[0].Kind == types.ViolDiagramCallEdgeUnproven {
+				return
+			}
+		}
+	}
+	t.Fatalf("pre-emit dispatch must hard-reject a body edge whose typed anchor was omitted: %+v", hints)
 }

@@ -687,8 +687,10 @@ func filterAcceptedAnswerDisplayAttachments(doc *types.AnswerDocumentV2, in []ty
 // attachment boundary used by the emit tools. Once a structured
 // AnswerDocumentV2 has been accepted, markdown/text recovered from failed
 // drafts is retry telemetry, not an additional answer carrier. Diagram
-// attachments survive because they can represent visible content that did not
-// fit the structured document.
+// attachments survive only when the accepted document has no diagram of its
+// own. A diagram from a rejected model draft is retry telemetry once a later
+// accepted document supplies the structured diagram surface; system-authored
+// deterministic attachments retain their independent authority.
 func FilterAcceptedAnswerDisplayAttachments(doc *types.AnswerDocumentV2, in []types.AnswerDisplayAttachment) []types.AnswerDisplayAttachment {
 	return filterAcceptedAnswerDisplayAttachments(doc, in)
 }
@@ -696,12 +698,27 @@ func FilterAcceptedAnswerDisplayAttachments(doc *types.AnswerDocumentV2, in []ty
 func answerDisplayAttachmentSurvivesAcceptedDoc(doc *types.AnswerDocumentV2, att types.AnswerDisplayAttachment) bool {
 	switch strings.TrimSpace(att.Kind) {
 	case types.AnswerDisplayAttachmentDiagram:
-		return strings.TrimSpace(att.Body) != ""
+		if strings.TrimSpace(att.Body) == "" {
+			return false
+		}
+		return att.SystemAuthored() || !answerDocumentHasVisibleDiagram(doc)
 	case types.AnswerDisplayAttachmentMarkdown, types.AnswerDisplayAttachmentText:
 		return false
 	default:
 		return strings.TrimSpace(att.Body) != "" && doc == nil
 	}
+}
+
+func answerDocumentHasVisibleDiagram(doc *types.AnswerDocumentV2) bool {
+	if doc == nil {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		if block.Kind == types.BlockDiagram && block.Diagram != nil && strings.TrimSpace(block.Diagram.Body) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // validateMergedV2Doc runs the merged-doc invariants both write

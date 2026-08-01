@@ -2950,8 +2950,9 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 	parts := make([]string, 0, len(mismatches))
 	for _, mismatch := range mismatches {
 		parts = append(parts, fmt.Sprintf(
-			"block=%q edge=%s(%s) -> %s(%s)",
+			"block=%q issue=%s edge=%s(%s) -> %s(%s)",
 			mismatch.BlockID,
+			mismatch.Issue,
 			mismatch.FromNode, mismatch.FromSymbol,
 			mismatch.ToNode, mismatch.ToSymbol,
 		))
@@ -2959,9 +2960,9 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 	return []emitFixHint{{
 		Field:      "blocks[kind=diagram].edge_anchors[] AND diagram.body",
 		HardSignal: preEmitHardSignalTypedCallEdgeEvidence,
-		ExpectedShape: "every structured relation_kind=call edge in a call-chain diagram must preserve the exact direction of one citable typed call-edge EvidenceItem; remove or correct unsupported edges and their corresponding principal-list claims: " +
+		ExpectedShape: "every parsed edge in a typed sequence/call_dag call-chain diagram must have a same-direction structured relation_kind=call edge_anchor, and every structured call edge must preserve the exact direction of one citable typed call-edge EvidenceItem; add missing anchors or remove/correct unsupported edges and their corresponding principal-list claims: " +
 			strings.Join(parts, "; "),
-		Reason: "a function definition proves that a symbol exists, but cannot prove caller-to-callee direction; only grounded call-site evidence with the same Subject -> Object pair can authorize the edge.",
+		Reason: "diagram body edges cannot bypass typed authority by omitting edge_anchors; a function definition proves that a symbol exists, but only a grounded call-site EvidenceItem with the same Subject -> Object pair can authorize caller-to-callee direction.",
 	}}
 }
 

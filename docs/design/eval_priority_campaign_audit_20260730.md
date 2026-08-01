@@ -4029,6 +4029,70 @@ B18c 使用一条通用 typed 规则修复：
 状态：`EVAL-B24-EDGEAUTH1=implemented / full-tests-pass / same-pair-replay-next`；
 `EVAL-B24-DIAGKIND1=implemented-soft-guidance / replay-next`；其余 B24 gap 保持开放。
 
+#### B24-b r1：kind 修复覆盖；hard authority 暴露三条绕行面
+
+同一 read/write 组合严格并行 2 个复放，runner 2 PASS，人工 1 PASS / 1 FAIL：
+
+1. `patch_c_typo` 继续通过；`qf_sequence_analyzer_gate` 的 analyzer 已明确发出
+   `diagram_hint=sequence`，最终主图也使用 `sequenceDiagram`，所以
+   `EVAL-B24-DIAGKIND1=covered`。
+2. typed hard gate 确实触发 6 次 pre-emit reject。第一次拒绝后，模型准确自诊断：
+   `normalizer.Normalize`、`compiler.Compile` 等都是 `buildAnalysisIR` 的直接 callee，
+   不能画成 sibling→sibling 链。这证明方向 authority 与 retry guidance 有效。
+3. 新登记 `EVAL-B24-EDGEDECOR1/P0`：模型第二次已改成正确 star，但 participant label
+   使用 `buildAnalysisIR (analyzer.go:1820)` 同行 support-ref；authority 只剥离换行/
+   `<br/>` 后缀，未复用现有 typed support-ref parser，因此把整串当 Subject，与
+   evidence `Subject=buildAnalysisIR` 不等，造成正确边连续误拒。
+4. 新登记 `EVAL-B24-EDGEANCHOR1/P0`：模型最终把 `edge_anchors=[]`，而 matcher 只遍历
+   anchors，不核对 Mermaid body 中仍存在的 10 条 edge；硬门被 metadata omission
+   绕过。最优方案是在 call-chain 的 typed `sequence|call_dag` 图上，要求每条 parsed
+   Mermaid edge 都有同向 `relation_kind=call` anchor，再与 typed evidence 合取；不能
+   通过删 metadata 放行。
+5. 新登记 `EVAL-B24-ATTACH1/P0`：每次 rejected draft 的 diagram 被保存在
+   `AnswerDisplayAttachment`；接受新 doc 后，filter 只删除 body 完全相同的 attachment，
+   因而首个已被 hard gate 拒绝的旧伪图又以“系统保留内容”追加。最优规则：接受文档
+   已有 diagram block 时，删除所有非 system-authored rejected-draft diagram attachments；
+   只有结构化文档没有图时才允许恢复图附件。
+6. runner 仍因 `EXPECT_CONTAINS=gate.Run` 可被 `gate.RunWith` substring 满足，且 regex
+   不校验 typed kind/edge direction 而 PASS；`EVAL-B24-EVALDIR1` 再次确认。
+7. 运行日志显示 `required_mechanism_anchors=0`。call-chain 同时要求列出中间函数后，
+   reconciled category-enumeration flag 会提前关闭 endpoint anchors；这是
+   `EVAL-B24-ENDPOINT1` 的 typed 编译侧原因之一，安排在 P0 绕行面关闭后的独立批次。
+
+状态：`EVAL-B24-DIAGKIND1=covered`；`EVAL-B24-EDGEAUTH1=partial`；
+`EVAL-B24-EDGEDECOR1=P0/open`；`EVAL-B24-EDGEANCHOR1=P0/open`；
+`EVAL-B24-ATTACH1=P0/open`；`EVAL-B24-ENDPOINT1=P1/open`；
+`EVAL-B24-EVALDIR1=P1/open`。
+
+#### B24-c：关闭 call-edge authority 的三条 retry 绕行面
+
+本批按同一 typed authority 边界完成，不读取 RawRequest、thinking、summary 或 final prose，
+也未改动 `QFRootCauseTrace` 的时间窗因果投影/自动补齐路径：
+
+1. `EVAL-B24-EDGEDECOR1`：Mermaid endpoint label 先确定性剥离 `<br/>`/换行显示行，
+   再复用 `ParseAnswerSupportRefMemberLocation` 解析同一行 `symbol (file:line)`；最终仍以
+   精确 symbol 与 EvidenceItem Subject/Object 比较，不使用 prefix、substring 或相似度。
+2. `EVAL-B24-EDGEANCHOR1`：对 `QFCallChain` 且 typed diagram kind 为
+   `sequence|call_dag` 的图，逐条解析 Mermaid body edge；每条 body edge 必须存在同向
+   `relation_kind=call` anchor，随后该方向还必须存在 citable typed call-site evidence。
+   因此清空 `edge_anchors` 不再能绕过 hard authority；缺 anchor 与缺 evidence 以
+   `missing_call_anchor` / `call_edge_unproven` 分开诊断。
+3. pre-emit 与 post-emit 均增加 omission 接线钉：即使 evidence pool 已有正确 call edge，
+   只要 diagram body edge 没有 typed anchor，两个发布边界都必须拒绝。
+4. `EVAL-B24-ATTACH1`：接受文档已经含非空 diagram block 时，所有非 system-authored
+   rejected-draft diagram attachments 都视为 retry telemetry 并删除；接受文档没有图时
+   仍保留恢复图，system-authored deterministic attachment 也保留独立权限。
+5. 负例继续固定 `QFRootCauseTrace` 在 matcher 入口返回，因此不会把源码 call-chain
+   规则伸入 Trace 因果投影、根因排序、唤醒链、窗内可消除量或系统补齐。
+
+验证：`go test ./internal/tool ./internal/orchestrator` 全量通过（tool 159.658s，
+orchestrator 11.937s）；新增测试覆盖同行 support-ref、sequence/call_dag 空 anchor、
+pre/post 双接线、接受图删除 rejected model 图、无接受图继续保留、system-authored 保留。
+
+状态：`EVAL-B24-EDGEDECOR1=covered`；`EVAL-B24-EDGEANCHOR1=covered`；
+`EVAL-B24-ATTACH1=covered`；`EVAL-B24-EDGEAUTH1=implemented / replay-next`；
+`EVAL-B24-ENDPOINT1=P1/open`；`EVAL-B24-EVALDIR1=P1/open`。
+
 ### B21-GREP：literal/regex 查询语义进入 typed 证据链（2026-08-01）
 
 `EVAL-B21-GREP1` 已按软恢复而非硬拒绝施工：

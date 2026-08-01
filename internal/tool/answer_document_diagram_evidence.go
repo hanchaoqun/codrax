@@ -15,11 +15,17 @@ import (
 // vocabulary, or rendered final text for hard-gate keywords.
 type DiagramCallEdgeEvidenceMismatch struct {
 	BlockID    string
+	Issue      string
 	FromNode   string
 	ToNode     string
 	FromSymbol string
 	ToSymbol   string
 }
+
+const (
+	diagramCallEdgeIssueMissingAnchor = "missing_call_anchor"
+	diagramCallEdgeIssueNoEvidence    = "call_edge_unproven"
+)
 
 // DiagramCallEdgeEvidenceMismatches cross-checks the directed call edges in a
 // call-chain diagram against the accepted evidence pool. The family check is
@@ -33,16 +39,49 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 	var out []DiagramCallEdgeEvidenceMismatch
 	for i := range doc.Blocks {
 		block := &doc.Blocks[i]
-		if block.Kind != types.BlockDiagram || block.Diagram == nil || len(block.EdgeAnchors) == 0 {
+		if block.Kind != types.BlockDiagram || block.Diagram == nil {
 			continue
 		}
 		labels := diagramEvidenceNodeLabels(block.Diagram.Body)
-		for _, anchor := range block.EdgeAnchors {
-			relation := anchor.RelationKind
-			if !relation.IsValid() {
-				relation = types.RelationForClaimForm(anchor.ClaimForm)
+		parsedEdges := mermaidcompat.ParseEdges(block.Diagram.Body)
+		parsedEdgeKeys := make(map[string]bool, len(parsedEdges))
+		strictBodyCoverage := block.Diagram.Kind == types.DiagramSequence || block.Diagram.Kind == types.DiagramCallDAG
+		if strictBodyCoverage {
+			callAnchorKeys := diagramCallAnchorKeySet(block.EdgeAnchors)
+			for _, edge := range parsedEdges {
+				key := diagramEvidenceEdgeKey(edge.From, edge.To)
+				parsedEdgeKeys[key] = true
+				fromSymbol := diagramEvidenceEndpointSymbol(edge.From, labels)
+				toSymbol := diagramEvidenceEndpointSymbol(edge.To, labels)
+				if !callAnchorKeys[key] {
+					out = append(out, DiagramCallEdgeEvidenceMismatch{
+						BlockID:    block.ID,
+						Issue:      diagramCallEdgeIssueMissingAnchor,
+						FromNode:   strings.TrimSpace(edge.From),
+						ToNode:     strings.TrimSpace(edge.To),
+						FromSymbol: fromSymbol,
+						ToSymbol:   toSymbol,
+					})
+					continue
+				}
+				if diagramCallEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol) {
+					continue
+				}
+				out = append(out, DiagramCallEdgeEvidenceMismatch{
+					BlockID:    block.ID,
+					Issue:      diagramCallEdgeIssueNoEvidence,
+					FromNode:   strings.TrimSpace(edge.From),
+					ToNode:     strings.TrimSpace(edge.To),
+					FromSymbol: fromSymbol,
+					ToSymbol:   toSymbol,
+				})
 			}
-			if relation != types.DiagramRelCall {
+		}
+		for _, anchor := range block.EdgeAnchors {
+			if diagramAnchorRelation(anchor) != types.DiagramRelCall {
+				continue
+			}
+			if strictBodyCoverage && parsedEdgeKeys[diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode)] {
 				continue
 			}
 			fromSymbol := diagramEvidenceEndpointSymbol(anchor.FromNode, labels)
@@ -52,6 +91,7 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 			}
 			out = append(out, DiagramCallEdgeEvidenceMismatch{
 				BlockID:    block.ID,
+				Issue:      diagramCallEdgeIssueNoEvidence,
 				FromNode:   strings.TrimSpace(anchor.FromNode),
 				ToNode:     strings.TrimSpace(anchor.ToNode),
 				FromSymbol: fromSymbol,
@@ -60,6 +100,31 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 		}
 	}
 	return out
+}
+
+func diagramCallAnchorKeySet(anchors []types.DiagramEdgeAnchor) map[string]bool {
+	out := make(map[string]bool, len(anchors))
+	for _, anchor := range anchors {
+		if diagramAnchorRelation(anchor) != types.DiagramRelCall {
+			continue
+		}
+		if key := diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode); key != "\x00" {
+			out[key] = true
+		}
+	}
+	return out
+}
+
+func diagramAnchorRelation(anchor types.DiagramEdgeAnchor) types.DiagramRelationKind {
+	relation := anchor.RelationKind
+	if !relation.IsValid() {
+		relation = types.RelationForClaimForm(anchor.ClaimForm)
+	}
+	return relation
+}
+
+func diagramEvidenceEdgeKey(from, to string) string {
+	return strings.ToLower(strings.TrimSpace(from)) + "\x00" + strings.ToLower(strings.TrimSpace(to))
 }
 
 func diagramEvidenceNodeLabels(body string) map[string]string {
@@ -112,7 +177,11 @@ func diagramEvidenceLabelSymbol(label string) string {
 			cut = idx
 		}
 	}
-	return strings.TrimSpace(label[:cut])
+	label = strings.TrimSpace(label[:cut])
+	if symbol, _, ok := types.ParseAnswerSupportRefMemberLocation(label); ok && strings.TrimSpace(symbol) != "" {
+		return strings.TrimSpace(symbol)
+	}
+	return label
 }
 
 func diagramCallEdgeHasTypedEvidence(evidence []types.EvidenceItem, fromSymbol, toSymbol string) bool {

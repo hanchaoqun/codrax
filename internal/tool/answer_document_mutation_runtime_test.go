@@ -1911,6 +1911,41 @@ func TestApplyAndPersistMutation_AcceptedDocDropsRejectedTextAttachments(t *test
 	}
 }
 
+func TestFilterAcceptedAnswerDisplayAttachments_AcceptedDiagramDropsRejectedModelDiagram(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "accepted-diagram",
+		Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramSequence,
+			Body: "sequenceDiagram\n  A->>B: accepted",
+		},
+	}}}
+	attachments := []types.AnswerDisplayAttachment{{
+		Kind:   types.AnswerDisplayAttachmentDiagram,
+		Body:   "sequenceDiagram\n  A->>B: rejected",
+		Source: "emit_answer_document.rejected_payload",
+	}}
+	if got := filterAcceptedAnswerDisplayAttachments(doc, attachments); len(got) != 0 {
+		t.Fatalf("rejected model diagram must not re-enter an accepted document that already has a diagram: %+v", got)
+	}
+}
+
+func TestFilterAcceptedAnswerDisplayAttachments_SystemDiagramSurvivesAcceptedDiagram(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:      "accepted-diagram",
+		Kind:    types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Body: "sequenceDiagram\n  A->>B: accepted"},
+	}}}
+	attachments := []types.AnswerDisplayAttachment{{
+		Kind:   types.AnswerDisplayAttachmentDiagram,
+		Body:   "flowchart TD\n  X --> Y",
+		Source: types.AnswerDisplayAttachmentSourceSystemCrossCheck,
+	}}
+	if got := filterAcceptedAnswerDisplayAttachments(doc, attachments); len(got) != 1 || !got[0].SystemAuthored() {
+		t.Fatalf("system-authored deterministic attachment keeps independent authority: %+v", got)
+	}
+}
+
 // TestApplyAndPersistMutation_DuplicateBlockIDRejected — merged-doc
 // validation enforces unique block ids. Both paths get the same
 // rejection message.

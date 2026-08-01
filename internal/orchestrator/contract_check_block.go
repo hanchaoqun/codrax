@@ -2371,7 +2371,7 @@ func validateDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 	byBlock := make(map[string][]string)
 	for _, mismatch := range mismatches {
 		byBlock[mismatch.BlockID] = append(byBlock[mismatch.BlockID], fmt.Sprintf(
-			"%s(%s) -> %s(%s)", mismatch.FromNode, mismatch.FromSymbol, mismatch.ToNode, mismatch.ToSymbol))
+			"issue=%s %s(%s) -> %s(%s)", mismatch.Issue, mismatch.FromNode, mismatch.FromSymbol, mismatch.ToNode, mismatch.ToSymbol))
 	}
 	blockIDs := make([]string, 0, len(byBlock))
 	for blockID := range byBlock {
@@ -2383,9 +2383,9 @@ func validateDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 		out = append(out, types.Violation{
 			Kind: types.ViolDiagramCallEdgeUnproven,
 			Detail: fmt.Sprintf(
-				"call-chain diagram block id=%q has structured call edge(s) with no citable typed EvidenceItem in the same direction: [%s]",
+				"call-chain diagram block id=%q has body edge(s) without a same-direction typed call anchor or structured call edge(s) without citable typed EvidenceItem in the same direction: [%s]",
 				blockID, strings.Join(byBlock[blockID], "; ")),
-			Repair:     "remove or correct each unsupported diagram edge and its corresponding principal-list claim; a definition citation cannot authorize a caller-to-callee edge, so preserve only directions backed by a grounded call-site EvidenceItem Subject -> Object pair.",
+			Repair:     "add a same-direction relation_kind=call edge_anchor for every sequence/call_dag body edge, then remove or correct each unsupported edge and corresponding principal-list claim; preserve only directions backed by a grounded call-site EvidenceItem Subject -> Object pair.",
 			ClusterKey: blockClusterKey(blockID, "diagram_call_edge_evidence"),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "diagram_call_edge_evidence",
