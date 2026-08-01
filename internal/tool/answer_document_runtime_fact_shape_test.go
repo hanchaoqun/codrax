@@ -88,6 +88,35 @@ func TestRuntimeExplainMechanismFactSuppressesFullTraceReportShape(t *testing.T)
 	}
 }
 
+func TestRuntimeExplainConditionalFactSuppressesCollectedCausalRows(t *testing.T) {
+	bus := runtimeConditionalFactBusForTest()
+	rm := &bus.AnalysisIR.RequestModel
+	rm.Intent = types.IntentExplain
+	rm.AnalyzerHints.Kind = string(types.ReqConditional)
+	rm.PredicateAxis = types.AxisCondition
+	bus.ToolResults = []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			GroundingPolicy: types.ClaimGroundingHard,
+			Predicate:       "root_cause_primary",
+			ClaimKey:        "root_cause_primary:runnable_delay",
+			Subject:         "other-thread-9",
+			Value:           "3.2",
+			Unit:            "ms",
+			RichNotes:       []string{"chain_relevance=on_chain", "causality=on_wakeup_chain", "impact_ms=3.2"},
+		}},
+	}}
+	if runtimeTraceFullReportMaterializationAllowed(bus) {
+		t.Fatal("focused explain/conditional fact must not be widened by incidentally collected causal rows")
+	}
+	if !runtimeTracePrincipalValueMaterializationAllowed(bus) {
+		t.Fatal("focused explain/conditional fact must retain deterministic principal values")
+	}
+}
+
 func TestRuntimeGenericArtifactComparisonRequiresCausalRowsForFullReport(t *testing.T) {
 	bus := newBusForMutationTest()
 	bus.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{

@@ -602,7 +602,7 @@ type FacetCoverageContract struct {
 // IsFocusedRuntimeFactQuestion reports the precise, typed answer shape for one
 // runtime process/thread fact rather than a causal report. It covers the
 // original conditional/condition shape and the analyzer's equally valid
-// explain+mechanism shape for a non-diagnostic target-state explanation
+// explain+conditional or explain+mechanism shape for a non-diagnostic target-state explanation
 // ("did target X enter state Y; when; what kernel reason").
 //
 // The conjunction is deliberately structural: a typed runtime target, no
@@ -624,7 +624,7 @@ func IsFocusedRuntimeFactQuestion(rm RequestModel) bool {
 		return true
 	}
 	return rm.Intent == IntentExplain &&
-		kind == ReqMechanism &&
+		(kind == ReqMechanism || hasConditionalShape) &&
 		!rm.Predicates.IsDiagnosticQuestion &&
 		!rm.DiagnosticProfile.IsDiagnostic
 }

@@ -4484,6 +4484,62 @@ CookieMonsterCl 的 `sleep 47.282ms ×1` 与 `sleep 44.836ms ×6` 以同名同�
 模型在 retry 后仍把负例铸成 relational call chain，才启动 B19g-b 独立
 runtime request-purpose enum，禁止继续叠加通用字段启发式。
 
+##### B19g-a r1：分类已收敛，focused predicate 漏 explain+conditional
+
+严格并行 2 个回放仍为 runner 1 PASS / 1 FAIL，但 B19g-a 的 analyzer 修复
+已经命中：无窗 D/IO 用例从前轮 `trace/call_chain` 收敛为
+`intent=explain + question_kind=conditional + predicate_axis=condition +
+family=generic`，没有 analyzer retry/reject，说明不需要新增 request-purpose
+enum。
+
+主体答案已经正确发布：
+
+- 3 段 `34579.451701/0.138ms`、`34579.452934/0.147ms`、
+  `34579.471372/0.350ms`；
+- Σ`0.635ms`，三段均 `iowait=1`；
+- caller 均为 `sync_buffer_read_wi+0x60/0x11c[sysmgr.elf]`；
+- `non-IO d_state=0` 与 `io_wait=3` 分型正确。
+
+仍然出现 `root_cause_rank` system supplement、`主要时间占用` 和完整
+`Trace 因果投影` 的原因是 `IsFocusedRuntimeFactQuestion` 的枚举不闭合：它
+承认 trace/root_cause+conditional 与 explain+mechanism，却漏了同样合法的
+非诊断 explain+conditional。QuestionFamily 已经 generic，但 supplement 和
+report authority 仍把 `focused=false` 当成可扩大，随后被已收集 causal rows
+反向授予 full-report 权限。
+
+`B19g-a2` 已实现：
+
+1. 非诊断 `IntentExplain ∧ (ReqMechanism ∨ conditional/condition) ∧
+   runtime_target ∧ ¬call_relation` 统一成为 focused runtime fact；
+2. 该 authority 同时驱动 supplement 窄视图和所有 full-report
+   materializer；偶然收集到 root rows 也不能反向扩大问题；
+3. deterministic principal value 继续允许；显式 typed 时间窗仍是最高权限，
+   保留完整 projection/root/wakeup/eliminable/supplement；
+4. 不读取 RawRequest、keywords、thinking、closure/final prose。
+
+结构测试覆盖 explain+conditional family、report authority 即使有 root row
+仍收窄、D-state supplement 只选 `window_stats`、principal-value 保留。
+完整回归：types 19.800s、agent 3.037s、tool 172.272s。
+
+本轮 runner 的无窗唯一失败是 eval 顺序假设：主体数值全部正确，但旧
+`EXPECT_PRINCIPAL_MATCHES_TEXT_REGEX` 只接受“清单在前、count/Σ 在后”。
+现拆成两个仍然严格的 principal 断言：三行+单位完整；count=3 与 Σ0.635
+同现。二者顺序不再参与事实判定；没有放宽任一数值、caller 或分型要求。
+
+状态：
+
+| ID | 状态 |
+|---|---|
+| EVAL-B19-NOWINPROJ1 | B19g-a2 implemented / full tests pass / replay next |
+| EVAL-B19-SCOPEJOIN1 | principal prose 已正确；等待无 full-report 回放后关闭 |
+| EVAL-B19-ORACLE1 | covered：principal roster/count/Σ 精确且顺序无关 |
+| EVAL-B19-FRAME1 | open P1；本轮模型改为“丢帧风险主导”，仍强于 unproven authority |
+| EVAL-B19-ARITH2 | open P2；Cookie sleep 两套账仍无关系披露 |
+
+下一步提交推送 B19g-a2，使用同一 pair 再回放一次；负例必须同时满足
+`system supplement=window_stats`、`final_projection_blocks=0` 和主答案精确
+roster，正例必须保持双轴与完整显式窗因果能力。
+
 #### B18f r1：图兼容与显式窗非回归回放（2026-08-01）
 
 严格并行 2 个回放均为 runner PASS / human PASS：

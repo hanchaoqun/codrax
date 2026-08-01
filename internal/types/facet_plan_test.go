@@ -93,6 +93,16 @@ func TestFocusedRuntimeFactIncludesNonDiagnosticExplainMechanism(t *testing.T) {
 	if got := ResolveQuestionFamily(rm); got != QFGeneric {
 		t.Fatalf("focused explain/mechanism got family %q, want generic", got)
 	}
+	rm.AnalyzerHints.Kind = string(ReqConditional)
+	rm.PredicateAxis = AxisCondition
+	if !IsFocusedRuntimeFactQuestion(rm) {
+		t.Fatal("non-diagnostic explain/conditional with one typed runtime target must be a focused runtime fact")
+	}
+	if got := ResolveQuestionFamily(rm); got != QFGeneric {
+		t.Fatalf("focused explain/conditional got family %q, want generic", got)
+	}
+	rm.AnalyzerHints.Kind = string(ReqMechanism)
+	rm.PredicateAxis = AxisUnknown
 
 	rm.Predicates.IsDiagnosticQuestion = true
 	if IsFocusedRuntimeFactQuestion(rm) {

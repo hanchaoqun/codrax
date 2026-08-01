@@ -55,4 +55,12 @@ func TestRuntimeTraceReportMaterializationAuthorityMatrix(t *testing.T) {
 	if !RuntimeTraceReportMaterializationAllowed(&callRelation, TraceCausalProjectionSet{}) {
 		t.Fatal("typed call relation must retain full trace report authority regardless of broad intent label")
 	}
+
+	focusedConditional := *generic
+	focusedConditional.RuntimeTargets = []RuntimeTarget{{Kind: RuntimeTargetKindThread, PID: 59566}}
+	focusedConditional.AnalyzerHints.Kind = string(ReqConditional)
+	focusedConditional.PredicateAxis = AxisCondition
+	if RuntimeTraceReportMaterializationAllowed(&focusedConditional, withRoot) {
+		t.Fatal("non-diagnostic explain/conditional target fact must stay narrow even when exploration collected causal rows")
+	}
 }
