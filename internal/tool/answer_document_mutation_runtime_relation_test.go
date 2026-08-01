@@ -56,6 +56,16 @@ func TestRuntimeArtifactPairRelationMaterialization_SingleArtifactInactive(t *te
 	}
 }
 
+func TestRuntimeArtifactPairRelationMaterialization_SamePathIDAliasesInactive(t *testing.T) {
+	ctx := runtimeArtifactPairRelationTestBus("one.systrace", "./one.systrace")
+	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "summary", Kind: types.BlockSummary, Text: "one artifact queried twice",
+	}}}
+	if materializeRuntimeArtifactPairRelationAuthorityBlock(doc, ctx) {
+		t.Fatalf("ID aliases for one canonical path must not gain a self-pair relation block: %+v", doc.Blocks)
+	}
+}
+
 func TestRuntimeArtifactPairRelationMaterialization_EnglishAndIdempotent(t *testing.T) {
 	ctx := runtimeArtifactPairRelationTestBus("one.systrace", "two.systrace")
 	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{

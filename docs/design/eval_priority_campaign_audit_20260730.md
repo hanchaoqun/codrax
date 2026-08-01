@@ -2978,7 +2978,7 @@ H3 的显式窗非回退结果：
 
 | ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
 |---|---:|---|---|---|---|
-| EVAL-B14-REL1 | P1 | runtime artifact physical identity | 同一 immutable runtime blob path 可在不同 query/system supplement 上携带 `attached_trace`、`attached_trace.txt` 等 artifact_id 别名；pair builder 以 ID 优先分桶，生成 `same path ↔ same path` 的伪跨工件关系 | identity election 改为 canonical typed path 优先、artifact_id 仅作无 path fallback；同 path 多别名合并为一个 endpoint，真正不同 path 仍保留 unproven relation | planned-REL1 |
+| EVAL-B14-REL1 | P1 | runtime artifact physical identity | 同一 immutable runtime blob path 可在不同 query/system supplement 上携带 `attached_trace`、`attached_trace.txt` 等 artifact_id 别名；pair builder 以 ID 优先分桶，生成 `same path ↔ same path` 的伪跨工件关系 | identity election 改为 canonical typed path 优先、artifact_id 仅作无 path fallback；同 path 多别名合并为一个 endpoint，真正不同 path 仍保留 unproven relation | covered-pending-replay |
 | EVAL-B14-MV2 | P2 | aggregate denominator binding | 模型把 85-op aggregate avg 绑定到 6-row visible subset | 暂按波动留档；跨 case 复现后再提供 typed count/sum/avg relation，不扫描答案 prose | filed-model-variance |
 
 REL1 不变量：
@@ -2991,3 +2991,23 @@ REL1 不变量：
 5. 无 path 时继续用非 generic artifact_id；generic `trace_query` ID 继续
    fail over 到可用 path，避免跨工件合并；
 6. 不改完整因果投影或 focused principal-value gate。
+
+REL1 已落地：`runtimeArtifactRelationIdentity` 现在以既有
+`runtimeArtifactIdentityPathKey` 为第一身份，统一 slash、相对路径以及 Windows
+盘符/路径大小写；path 缺席时才使用非 generic artifact_id。endpoint 的显示
+path 同样使用 canonical 形，避免同一物理路径因词面差异变成 `multiple`。
+
+相反臂测试同时锁定：
+
+- `D:\trace\one.sys` + `d:/trace/one.sys` 且 ID 分别为
+  `attached_trace/attached_trace.txt` → 单工件、pair authority inactive；
+- 同一个 `trace_query` ID + `a.systrace/b.systrace` → 两工件、一个 unproven
+  relation pair；
+- answer materializer 的 `one.systrace/./one.systrace` 别名不会生成 self-pair
+  system block。
+
+回归：
+
+- 定向 types/tool relation tests 通过；
+- `go test ./internal/types ./internal/tool -count=1` 通过
+  （types 21.290s、tool 167.207s）。

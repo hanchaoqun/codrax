@@ -52,12 +52,22 @@ func TestBuildRuntimeArtifactPairRelationAuthority_SingleArtifactInactive(t *tes
 	}
 }
 
-func TestBuildRuntimeArtifactPairRelationAuthority_GenericTraceQueryIDFallsBackToTypedPath(t *testing.T) {
+func TestBuildRuntimeArtifactPairRelationAuthority_PathIsPrimaryAcrossIDAliases(t *testing.T) {
+	got := BuildRuntimeArtifactPairRelationAuthority(ObservationLedger{Records: []ObservationRecord{
+		runtimeArtifactPairTestRecord("attached_trace", `D:\trace\one.sys`, "trace_seconds", "trace_seconds", "identity"),
+		runtimeArtifactPairTestRecord("attached_trace.txt", `d:/trace/one.sys`, "trace_seconds", "trace_seconds", "identity"),
+	}})
+	if got.Active || len(got.Artifacts) != 0 || len(got.Pairs) != 0 {
+		t.Fatalf("one canonical physical path with ID aliases must remain one artifact: %+v", got)
+	}
+}
+
+func TestBuildRuntimeArtifactPairRelationAuthority_ReusedIDRemainsDistinctByTypedPath(t *testing.T) {
 	left := runtimeArtifactPairTestRecord("trace_query", "a.systrace", "trace_seconds", "trace_seconds", "identity")
 	right := runtimeArtifactPairTestRecord("trace_query", "b.systrace", "trace_seconds", "trace_seconds", "identity")
 	got := BuildRuntimeArtifactPairRelationAuthority(ObservationLedger{Records: []ObservationRecord{left, right}})
 	if !got.Active || len(got.Artifacts) != 2 || len(got.Pairs) != 1 {
-		t.Fatalf("generic producer IDs must remain distinct by typed source path: %+v", got)
+		t.Fatalf("reused producer IDs must remain distinct by typed source path: %+v", got)
 	}
 	if got.Artifacts[0].ArtifactID == got.Artifacts[1].ArtifactID {
 		t.Fatalf("path fallback identities collided: %+v", got.Artifacts)

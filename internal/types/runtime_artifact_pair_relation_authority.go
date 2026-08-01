@@ -105,16 +105,18 @@ func BuildRuntimeArtifactPairRelationAuthority(ledger ObservationLedger) Runtime
 
 func runtimeArtifactRelationIdentity(ref ObservationSourceRef) (key, displayID string) {
 	id := strings.TrimSpace(ref.ArtifactID)
-	path := canonicalRuntimeArtifactIdentityPath(ref.Path, "")
-	if id != "" && !strings.EqualFold(id, "trace_query") {
-		return "artifact_id\x00" + id, id
-	}
+	// The runtime attachment path identifies the immutable turn artifact.
+	// Different query/supplement producers may assign different local IDs to
+	// that same blob; grouping by ID first would mint a false cross-artifact
+	// pair for one physical input. Conversely, one generic ID can be reused
+	// across two paths, so a present canonical path must remain primary.
+	path := runtimeArtifactIdentityPathKey(ref.Path)
 	if path != "" {
 		return "artifact_path\x00" + path, "runtime_artifact:" + RuntimeArtifactHashString(
-			strings.TrimSpace(ref.ArtifactKind)+"\x00"+path,
+			path,
 		)
 	}
-	if id != "" {
+	if id != "" && !strings.EqualFold(id, "trace_query") {
 		return "artifact_id\x00" + id, id
 	}
 	return "", ""
@@ -131,7 +133,7 @@ type runtimeArtifactRelationEndpointAccumulator struct {
 }
 
 func (acc *runtimeArtifactRelationEndpointAccumulator) add(ref ObservationSourceRef) {
-	runtimeArtifactRelationAddValue(&acc.paths, ref.Path)
+	runtimeArtifactRelationAddValue(&acc.paths, runtimeArtifactIdentityPathKey(ref.Path))
 	runtimeArtifactRelationAddValue(&acc.kinds, ref.ArtifactKind)
 	runtimeArtifactRelationAddValue(&acc.timeDomains, ref.TimeDomain)
 	runtimeArtifactRelationAddValue(&acc.canonicalDomains, ref.CanonicalTimeDomain)
