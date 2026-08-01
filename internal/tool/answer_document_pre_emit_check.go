@@ -1612,7 +1612,7 @@ func normalizeScalarLiteralCitationRefsWithContext(doc *types.AnswerDocumentV2, 
 		if !ok {
 			continue
 		}
-		candidate, candidateOK := preEmitUniqueScalarLiteralCitation(doc, pctx, value)
+		candidate, candidateOK := preEmitPreferredScalarLiteralCitation(doc, pctx, *block, value)
 		candidateRef := -1
 		if candidateOK {
 			candidateRef = appendOrReusePreEmitCitation(doc, candidate)
@@ -1687,19 +1687,32 @@ func preEmitScalarLiteralAppearsOnCitation(value string, cit types.Citation) boo
 	return preEmitAggregateScalarValueAppears(value, strings.TrimSpace(cit.Quote))
 }
 
-func preEmitUniqueScalarLiteralCitation(doc *types.AnswerDocumentV2, pctx *preEmitCheckContext, value string) (types.Citation, bool) {
-	seen := map[string]types.Citation{}
-	add := func(cit types.Citation) {
+// preEmitPreferredScalarLiteralCitation selects one value-bearing source by
+// typed authority, not raw token cardinality. The same literal can legitimately
+// occur at a definition, a config example, and a registration note; lower-
+// authority corroboration must not make the source definition unusable. Equal
+// highest-authority candidates remain fail-closed.
+func preEmitPreferredScalarLiteralCitation(doc *types.AnswerDocumentV2, pctx *preEmitCheckContext, block types.AnswerBlock, value string) (types.Citation, bool) {
+	type rankedCitation struct {
+		cit   types.Citation
+		score int
+	}
+	seen := map[string]rankedCitation{}
+	add := func(cit types.Citation, score int) {
 		cit = pctx.canonicalCitation(cit)
 		key := preEmitCitationLocationKey(cit)
-		if key != "" {
-			seen[key] = cit
+		if key == "" {
+			return
+		}
+		if current, ok := seen[key]; !ok || score > current.score {
+			seen[key] = rankedCitation{cit: cit, score: score}
 		}
 	}
 	if doc != nil {
 		for _, cit := range doc.Citations {
-			if preEmitScalarLiteralAppearsOnCitation(value, cit) {
-				add(cit)
+			canonical := pctx.canonicalCitation(cit)
+			if preEmitScalarLiteralAppearsOnCitation(value, canonical) {
+				add(canonical, 10)
 			}
 		}
 	}
@@ -1707,34 +1720,93 @@ func preEmitUniqueScalarLiteralCitation(doc *types.AnswerDocumentV2, pctx *preEm
 		if ev.GroundingStatus == types.GroundingUngrounded || strings.TrimSpace(ev.Source) == "" || ev.LineStart <= 0 {
 			continue
 		}
-		surfaces := []string{
+		claim := types.ClaimFormOf(ev)
+		if claim == types.ClaimExternalObservation || claim == types.ClaimAbsenceFact {
+			continue
+		}
+		typedSurfaces := []string{
 			ev.Snippet,
 			types.EvidenceAuthoritativeSurfaceText(ev, false),
 			ev.Subject,
 			ev.Object,
 			ev.Condition,
 		}
-		if ev.LoadBearingSummary {
-			surfaces = append(surfaces, ev.Summary)
-		}
-		matched := false
-		for _, surface := range surfaces {
+		typedMatch := false
+		for _, surface := range typedSurfaces {
 			if preEmitAggregateScalarValueAppears(value, surface) {
-				matched = true
+				typedMatch = true
 				break
 			}
 		}
-		if matched {
-			add(types.Citation{File: ev.Source, Line: ev.LineStart})
+		summaryMatch := ev.LoadBearingSummary && preEmitAggregateScalarValueAppears(value, ev.Summary)
+		cit := pctx.canonicalCitation(types.Citation{File: ev.Source, Line: ev.LineStart, LineEnd: ev.LineEnd})
+		lineMatch := preEmitScalarLiteralAppearsOnCitation(value, cit)
+		if !typedMatch && !summaryMatch && !lineMatch {
+			continue
+		}
+		add(cit, preEmitScalarLiteralEvidenceAuthorityScore(block, ev, claim, lineMatch, typedMatch, summaryMatch))
+	}
+	bestScore := -1
+	var best types.Citation
+	ties := 0
+	for _, candidate := range seen {
+		switch {
+		case candidate.score > bestScore:
+			bestScore = candidate.score
+			best = candidate.cit
+			ties = 1
+		case candidate.score == bestScore:
+			ties++
 		}
 	}
-	if len(seen) != 1 {
+	if bestScore < 0 || ties != 1 {
 		return types.Citation{}, false
 	}
-	for _, cit := range seen {
-		return cit, true
+	return best, true
+}
+
+func preEmitScalarLiteralEvidenceAuthorityScore(block types.AnswerBlock, ev types.EvidenceItem, claim types.ClaimForm, lineMatch, typedMatch, summaryMatch bool) int {
+	score := 20
+	if lineMatch {
+		score += 100
 	}
-	return types.Citation{}, false
+	if typedMatch {
+		score += 40
+	}
+	if summaryMatch {
+		score += 5
+	}
+	switch claim {
+	case types.ClaimLiteralValueFact:
+		score += 90
+	case types.ClaimDefinitionFact, types.ClaimAssignmentFact, types.ClaimReturnFact:
+		score += 70
+	case types.ClaimPrecedenceRole:
+		score += 20
+	case types.ClaimTextReferenceFact:
+		score += 10
+	}
+	for _, use := range block.ClaimUses {
+		if use.ClaimForm == claim {
+			score += 15
+			break
+		}
+	}
+	switch ev.AnchorKind {
+	case types.AnchorStringLiteral:
+		score += 20
+	case types.AnchorDefinition, types.AnchorAssignment, types.AnchorInitializer, types.AnchorReturn:
+		score += 10
+	}
+	switch ev.Salience {
+	case types.SalienceLoadBearing:
+		score += 6
+	case types.SalienceExhaustListed:
+		score += 4
+	case types.SalienceSupporting:
+		score += 2
+	}
+	return score
 }
 
 func normalizeItemCitationRefsByUniqueLabelCitation(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctx *types.BusContext) int {

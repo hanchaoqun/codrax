@@ -4369,6 +4369,62 @@ claim-form enum、block scalar value、精确 citation quote 和 grounded eviden
 `EVAL-B22-SCALARCIT1=implemented/full-tests-pass/replay-next`；
 `EVAL-B22-NEARKEY1=repeat-after-authority-fixes`。
 
+#### B22-F r1：Trace 不变量通过，标量重绑被后置发布链撤销（2026-08-01）
+
+严格并行 2 个案例，runner 2/2 PASS；人工审计为 Trace PASS、配置 FAIL：
+
+1. 显式 5.000000..5.007000 Trace 窗完整保留目标状态账
+   `running=1.200ms / runnable=0.800ms / sleep=5.000ms`、真实占用与规则可消除
+   双轴、`class_verification raw=5.000ms / eliminable=4.600ms`、根因排序、
+   `worker-200 -> app-100` 唤醒链、代表窗、`Trace 因果投影`、
+   `frame_causality=unproven / frame_evidence_status=absent` 和 45 条系统补采。
+   因此 B22-F 没有破坏显式时间窗的核心能力。
+2. 配置答案的 mechanism 正确，`PipelineMaxStepsCeil` sibling key 也未进入最终答案，
+   `EVAL-B22-NEARKEY1` 可更新为 `covered-after-authority-fixes`。
+3. 但 `EVAL-B22-SCALARCIT1` 尚不能关闭。生产日志的
+   `normalizeScalarLiteralCitationRefsWithContext×1` 最初被误读为“已重绑”；结合代码
+   与完整 citation ledger 冷读后纠正：`50` 同时出现在代码常量定义、示例注释和
+   CLI 注册的证据摘要里，旧实现把所有 token 命中视为同权，`len(seen)!=1` 后走
+   typed mismatch detach。随后 unused prune 删除无人引用的 `cmd/root.go:88`，这是
+   摘除后的正常级联，不是 prune 自己改坏了已绑定引用。
+4. 登记 `EVAL-B22-SCALARAUTH1/P1`：atomic scalar 候选只有“值是否出现”的集合，
+   缺少 typed claim/anchor/origin/实际源码行的 authority 排序。source literal 定义、
+   precedence 注释与 load-bearing 摘要被放在同一档，多个正确相关位置反而导致主值
+   完全失去引用。该问题适用于所有同值多出处的配置、常量和返回值，不是 `50` 特例。
+5. 最优方案：候选先按真实当前源码行是否含值、`ClaimFormOf` 是否属于
+   `literal/definition/assignment/return`、结构化 snippet/authoritative surface、
+   grounding/salience 分层；只接受唯一最高 authority，最高档仍并列才 fail-closed
+   摘除。低权 precedence 注释和 summary 只在没有更强值载体时兜底。以完整生产链
+   测试固定 `wrong sibling citation -> typed authority winner -> prune/remap -> persist`。
+   仍不读取 RawRequest、thinking 或 summary/final answer prose，也不新增硬门。
+
+状态：`EVAL-B22-SCALARCIT1=partial`；
+`EVAL-B22-SCALARAUTH1=P1/open`；`EVAL-B22-NEARKEY1=covered`。
+
+#### B22-G：atomic scalar typed authority 排序
+
+已按上述冷读结论完成通用修复：
+
+1. scalar 候选由“所有值命中必须唯一”改为“唯一最高 authority”；同一位置只保留
+   最高分，最高档并列仍 fail-closed，不用 map 顺序或首条猜测。
+2. authority 只来自当前源码 canonical quote、`EvidenceItem` 的 grounding、
+   `ClaimFormOf`、anchor kind、typed authoritative surface 与 salience。
+   `literal_value` 最高，`definition/assignment/return` 次之，`precedence_role` 与
+   `text_reference` 只作低权兜底；load-bearing summary 不能压过真实源码行。
+3. doc citation pool 只在 canonical current-source quote 确实包含 atomic value 时进入
+   候选，模型提交的陈旧/错 quote 不能自己制造权威。
+4. 完整 full-emit 组合测试覆盖 sibling 错引、同值 precedence 注释、typed definition
+   胜出、枚举载体物化、unused citation prune 与最终 persist；原有同档双定义歧义
+   摘除、`50` 不匹配 `500`、external/absence/prose 负例继续通过。
+5. 无 RawRequest、case ID、模型 thinking/summary/final prose 扫描；没有新增 hard reject，
+   显式 Trace 窗路径不在修改面。
+
+验证：`go test ./internal/types -count=1` 通过（21.612s）；
+`go test ./internal/tool -count=1` 通过（159.957s）；`git diff --check` 通过。
+
+状态：`EVAL-B22-SCALARAUTH1=implemented/full-tests-pass/replay-next`；
+`EVAL-B22-SCALARCIT1=implemented/full-tests-pass/replay-next`。
+
 ### B19a r1：Trace 主合同保留，精确集合暴露静默改写（2026-08-01）
 
 严格并行 2 个用例，runner 2/2 PASS，人工审计 0/2：
