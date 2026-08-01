@@ -5219,7 +5219,7 @@ authority。模型在空 authority 下又把当前 checkout 中无关的后续�
 | ID | 优先级 | GAP | 泛化方案 | 状态 |
 |---|---:|---|---|---|
 | `EVAL-B21-MERGE1` | P0 | merge commit 的 exact changed-path producer 未选父边，却发布 complete zero | 单 commit 清册统一使用 first-parent diff；普通单父提交语义不变。真实 no-ff merge 固定红/绿，不按 commit id 或题面识别 merge | B21-B2 已施工 |
-| `EVAL-B21-CIT1` | P1 | principal scalar 的 visible symbol 与 citation anchor identity 可不一致，清理器仍保留错误引用 | 从 block/item 的 typed claim form 与 evidence/citation anchor 构造 symbol identity 校验或精确重绑；无法唯一匹配则去引用/软披露。不得扫描自然语言段落 | next |
+| `EVAL-B21-CIT1` | P1 | principal scalar 的 visible symbol 与 citation anchor identity 可不一致，清理器仍保留错误引用 | 从 block/item 的 typed claim form 与 evidence/citation anchor 构造 symbol identity 校验或精确重绑；无法唯一匹配则去引用/软披露。不得扫描自然语言段落 | implemented/full-tests-pass；replay-next |
 | `EVAL-B21-E1` | P3 | read-combo regex 要求 diff/current-source 词面同一行，分段等价答案假 FAIL | eval-only oracle 改为两个独立语义存在臂或结构化 facet；不修改生产 finalizer，不扫描生产答案做 gate | filed-low |
 
 证据：
@@ -5244,6 +5244,35 @@ complete=true`。该测试在旧命令下得到空清册，在新命令下通过
 状态：`EVAL-B21-MERGE1=implemented/full-tests-pass/replay-next`；
 `EVAL-B21-VCS1=implemented，待 merge 回放正证`。本批仍未修改任何 Trace family、查询、
 显式窗 authority、因果投影、根因/唤醒/可消除计算或系统补采逻辑。
+
+#### B21-CIT：scalar code-identity citation alignment
+
+`EVAL-B21-CIT1` 已在统一 pre-emit normalization 链施工：
+
+1. scalar 与 list/table 的可见载体不同：scalar 的事实在 `block.Text`，
+   `items[]` 只是 citation anchor，因此原有 item-label alignment 永远看不到 principal
+   scalar 的符号。本批增加独立但复用同一 evidence endpoint 匹配器的 scalar 消费面。
+2. 适用条件是精确 typed 合取：`kind=scalar`，claim form 属于
+   `definition/call/guard/assignment/return/import`，且 `block.Text` 是含 ASCII 字母的单一
+   code identity。数值 literal、external observation、absence、precedence、text reference
+   与含空格自由文本全部不进入此 lane。
+3. 当前 citation 已与 evidence subject/object/anchor/owner 或 source-verified quote 对齐时
+   保持；只有一个 grounded candidate 时重绑到该 file:line；当前 endpoint 已被证明不符
+   且候选多义时移除错误 ref，并复用既有 typed detached-citation disclosure。证据不足时
+   fail-open，不猜第一个候选。
+4. 生产接线测试从完整 `normalizeAnswerDocumentForPreEmit` 入口固定
+   `observationRecordForVCSChangedPaths` 从错误类型定义引用重绑到它自己的 call evidence；
+   另有双候选 detach、numeric/external/absence/free-text 四个负臂，避免扩成所有 scalar
+   的文本匹配器。
+5. 判定不读取 RawRequest、route reason、模型 thinking/final 段落或关键字；只消费
+   schema 字段 `kind/text/claim_uses/citation_ref` 与 typed evidence endpoint。它是可恢复
+   normalization，不新增 answer hard reject。
+
+验证：专项测试通过；`go test ./internal/tool -count=1` 全包通过（160.861s）；
+`git diff --check` 通过。
+
+状态：`EVAL-B21-CIT1=implemented/full-tests-pass/replay-next`。Trace 显式窗口及
+因果投影、根因排序、唤醒链、窗内可消除量、系统自动补齐均未改。
 
 ### B19g-b r1：target authority 通过，有限事实集仍被扩张（2026-08-01）
 

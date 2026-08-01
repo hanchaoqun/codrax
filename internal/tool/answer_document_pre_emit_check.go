@@ -1485,6 +1485,108 @@ func preEmitBlockRendersItemSurface(kind types.AnswerBlockKind) bool {
 	return types.AnswerBlockKindRendersStructuredItems(kind)
 }
 
+// normalizeScalarCodeIdentityCitationRefsWithContext aligns the hidden
+// citation carrier of a scalar block with the scalar's exact typed code
+// identity. Scalar blocks render block.Text, not item.Label, so the ordinary
+// structured-item alignment pass cannot see this surface. The repair is
+// intentionally narrow: it requires a source-code claim form plus a single
+// ASCII code-identity token. Numeric/literal, external-observation,
+// precedence, absence and free-text scalars remain outside this lane.
+func normalizeScalarCodeIdentityCitationRefsWithContext(doc *types.AnswerDocumentV2, ctx *types.BusContext, pctx *preEmitCheckContext) int {
+	if doc == nil || ctx == nil || ctx.Mutable == nil {
+		return 0
+	}
+	if pctx == nil {
+		pctx = newPreEmitCheckContext(ctx)
+	}
+	fixed := 0
+	for bi := range doc.Blocks {
+		block := &doc.Blocks[bi]
+		surface, ok := preEmitScalarCodeIdentitySurface(*block)
+		if !ok {
+			continue
+		}
+		candidate, candidateOK := preEmitUniqueCandidateCitationForItemWithContext(pctx, surface, "")
+		candidateRef := -1
+		if candidateOK {
+			candidateRef = appendOrReusePreEmitCitation(doc, candidate)
+		}
+		for ii := range block.Items {
+			item := &block.Items[ii]
+			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
+				continue
+			}
+			current := pctx.canonicalCitation(doc.Citations[item.CitationRef])
+			if preEmitScalarCodeIdentityCitationAligned(pctx, surface, current) {
+				continue
+			}
+			if candidateRef >= 0 {
+				if item.CitationRef != candidateRef {
+					item.CitationRef = candidateRef
+					fixed++
+				}
+				continue
+			}
+			// Detach only when typed evidence makes the mismatch provable:
+			// either the current location resolves to a different endpoint, or
+			// the requested scalar has multiple grounded candidates and no
+			// unique safe rebind. Unknown/unindexed citations remain fail-open.
+			_, currentKnown := pctx.citedEvidenceItems(current)
+			ambiguousCandidates := len(preEmitCandidateCitationLocationsForLabelWithContext(pctx, surface, 2)) > 0
+			if !currentKnown && !ambiguousCandidates {
+				continue
+			}
+			item.CitationRef = -1
+			pctx.recordDetachedCitationItem(block.ID, item.ID, surface)
+			fixed++
+		}
+	}
+	return fixed
+}
+
+func preEmitScalarCodeIdentitySurface(block types.AnswerBlock) (string, bool) {
+	if block.Kind != types.BlockScalar || !preEmitScalarHasSourceCodeClaim(block) {
+		return "", false
+	}
+	surface := strings.TrimSpace(block.Text)
+	if !types.IsCodeIdentitySurface(surface) {
+		return "", false
+	}
+	hasASCIIAlpha := false
+	for _, r := range surface {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+			hasASCIIAlpha = true
+			break
+		}
+	}
+	if !hasASCIIAlpha {
+		return "", false
+	}
+	return surface, true
+}
+
+func preEmitScalarHasSourceCodeClaim(block types.AnswerBlock) bool {
+	for _, use := range block.ClaimUses {
+		switch use.ClaimForm {
+		case types.ClaimDefinitionFact,
+			types.ClaimCallEdge,
+			types.ClaimGuardCondition,
+			types.ClaimAssignmentFact,
+			types.ClaimReturnFact,
+			types.ClaimImportEdge:
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitScalarCodeIdentityCitationAligned(pctx *preEmitCheckContext, surface string, cit types.Citation) bool {
+	if preEmitItemCitationAlignedWithContext(pctx, surface, "", cit) {
+		return true
+	}
+	return preEmitCodeSurfaceAppearsVerbatim(surface, cit.Quote)
+}
+
 func normalizeItemCitationRefsByUniqueLabelCitation(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctx *types.BusContext) int {
 	return normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc, view, ctx, newPreEmitCheckContext(ctx))
 }

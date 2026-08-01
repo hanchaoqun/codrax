@@ -597,6 +597,143 @@ func TestPreEmitBlockCitationRoleForms_TableParticipates(t *testing.T) {
 	}
 }
 
+func TestNormalizeAnswerDocumentForPreEmit_RebindsScalarCodeIdentityCitation(t *testing.T) {
+	mu := types.NewMutableState("scalar code identity citation")
+	mu.AppendEvidence([]types.EvidenceItem{
+		{
+			ID:              "ev-other",
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/context.go",
+			LineStart:       20,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "ToolVCSChangedPathSet",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID:              "ev-target",
+			Kind:            types.EvidenceRelationship,
+			Source:          "internal/types/observation_ledger.go",
+			LineStart:       30,
+			AnchorKind:      types.AnchorCall,
+			AnchorSymbol:    "observationRecordForVCSChangedPaths",
+			Object:          "observationRecordForVCSChangedPaths",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
+	ctx := &types.BusContext{Mutable: mu}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "internal/types/context.go", Line: 20},
+			{File: "internal/types/observation_ledger.go", Line: 30},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:          "principal-symbol",
+			Kind:        types.BlockScalar,
+			Text:        "observationRecordForVCSChangedPaths",
+			SurfaceRole: types.SurfacePrincipal,
+			ClaimUses:   []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+			Items:       []types.AnswerBlockItem{{ID: "value", CitationRef: 0}},
+		}},
+	}
+
+	pctx := newPreEmitCheckContext(ctx)
+	normalizeAnswerDocumentForPreEmit("test", doc, &types.AnswerSemanticView{}, ctx, pctx)
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 1 {
+		t.Fatalf("production pre-emit chain scalar citation_ref=%d, want target endpoint 1", got)
+	}
+}
+
+func TestNormalizeScalarCodeIdentityCitationRefs_TypedBoundaries(t *testing.T) {
+	newContext := func() *types.BusContext {
+		mu := types.NewMutableState("scalar citation boundary")
+		mu.AppendEvidence([]types.EvidenceItem{
+			{
+				ID:              "ev-other",
+				Kind:            types.EvidenceDirect,
+				Source:          "other.go",
+				LineStart:       10,
+				AnchorKind:      types.AnchorDefinition,
+				AnchorSymbol:    "OtherSymbol",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				ID:              "ev-target-a",
+				Kind:            types.EvidenceDirect,
+				Source:          "a.go",
+				LineStart:       20,
+				AnchorKind:      types.AnchorDefinition,
+				AnchorSymbol:    "TargetSymbol",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				ID:              "ev-target-b",
+				Kind:            types.EvidenceDirect,
+				Source:          "b.go",
+				LineStart:       30,
+				AnchorKind:      types.AnchorDefinition,
+				AnchorSymbol:    "TargetSymbol",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		})
+		return &types.BusContext{Mutable: mu}
+	}
+
+	t.Run("ambiguous target detaches provably wrong citation", func(t *testing.T) {
+		ctx := newContext()
+		doc := &types.AnswerDocumentV2{
+			Citations: []types.Citation{{File: "other.go", Line: 10}},
+			Blocks: []types.AnswerBlock{{
+				ID:        "target",
+				Kind:      types.BlockScalar,
+				Text:      "TargetSymbol",
+				ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimDefinitionFact}},
+				Items:     []types.AnswerBlockItem{{ID: "value", CitationRef: 0}},
+			}},
+		}
+		pctx := newPreEmitCheckContext(ctx)
+		if fixed := normalizeScalarCodeIdentityCitationRefsWithContext(doc, ctx, pctx); fixed != 1 {
+			t.Fatalf("fixed=%d, want one detach", fixed)
+		}
+		if got := doc.Blocks[0].Items[0].CitationRef; got != -1 {
+			t.Fatalf("ambiguous scalar retained wrong citation_ref=%d", got)
+		}
+		if records := pctx.detachedCitationDisclosures(); len(records) != 1 || records[0].BlockID != "target" {
+			t.Fatalf("typed detach disclosure missing: %+v", records)
+		}
+	})
+
+	for _, tc := range []struct {
+		name  string
+		text  string
+		claim types.ClaimForm
+	}{
+		{name: "numeric literal", text: "42", claim: types.ClaimLiteralValueFact},
+		{name: "external observation", text: "TargetSymbol", claim: types.ClaimExternalObservation},
+		{name: "absence", text: "TargetSymbol", claim: types.ClaimAbsenceFact},
+		{name: "free text", text: "Target symbol explanation", claim: types.ClaimDefinitionFact},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := newContext()
+			doc := &types.AnswerDocumentV2{
+				Citations: []types.Citation{{File: "other.go", Line: 10}},
+				Blocks: []types.AnswerBlock{{
+					ID:        "scalar",
+					Kind:      types.BlockScalar,
+					Text:      tc.text,
+					ClaimUses: []types.RenderedClaimUse{{ClaimForm: tc.claim}},
+					Items:     []types.AnswerBlockItem{{ID: "value", CitationRef: 0}},
+				}},
+			}
+			if fixed := normalizeScalarCodeIdentityCitationRefsWithContext(doc, ctx, nil); fixed != 0 {
+				t.Fatalf("fixed=%d, typed negative arm must stay unchanged", fixed)
+			}
+			if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
+				t.Fatalf("citation_ref=%d, want unchanged 0", got)
+			}
+		})
+	}
+}
+
 func TestNormalizeCitationBackedPrincipalClaimUses_AddsFormsFromCitedEvidence(t *testing.T) {
 	mu := &types.MutableState{}
 	mu.AppendEvidence([]types.EvidenceItem{
