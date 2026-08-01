@@ -3385,3 +3385,54 @@ typed arithmetic pair election：
 - 原有中文/英文、cross-metric、重复 claim、无窗、多窗唯一/零/多解和
   persist 接线测试全通过；
 - `go test ./internal/tool -count=1` 全包通过（167.520s）。
+
+### B15 r5 AR1 收账与 B16 选批（2026-08-01）
+
+在 revision `c47f45c15` 重建后严格 `parallel=2` 回放：
+
+- `eval/results/real_trace_c2_dstate_iowait-20260731-195107`
+- `eval/results/real_trace_h8_semantic_edge_anchor_sentinel-20260731-195107`
+
+runner 2/2、人工 2/2（C2 189s、H8 210s）。
+
+C2 收账：
+
+1. 修前 system-authored
+   `144.557ms / 0.440% → 100.000%` 错误附注完全消失；
+2. 正确 principal 保持 3 次、0.635ms、约 0.44%，system authority 的
+   complete 3-row roster、`d_state_occurrences=0`、
+   `io_wait_occurrences=3` 和 caller 全在；
+3. 无 finalizer reject/patch，focused 无窗仍为
+   `trace_query_final_projection_blocks=0`，没有重新套入 full projection。
+
+H8 收账：
+
+1. 正式中点 oracle 在 `LC_ALL=C grep -E` 下通过；
+2. `trace_query_final_projection_blocks=2`；
+3. 完整因果投影、根因榜、窗内可消除量、0.285ms 类校验、精确
+   34579.496810s 直接裸边与系统补采都在；
+4. 模型 principal 本轮也正确把 semantic span 放到链上 #2。
+
+状态：
+
+| ID | 状态 |
+|---|---|
+| EVAL-B15-AR1 | covered |
+| EVAL-B15-H8O1 | covered |
+| EVAL-B15-H8MV1 | filed-model-variance（r5 未复现） |
+| EVAL-B15-NEG2 | filed-audit-next |
+
+B16 不继续围绕 C2/H8 拟合。按“客户错误严重度 × 证据口径风险 × 域多样性 ×
+最近回放时间”排序，下一对冻结为：
+
+1. `trace_query_perf_quality_simpleperf_proto_offcpu`：runtime/perf 证据口径；
+   最近结果停在 2026-06-18。它验证 CPU unknown + off_cpu sample 不能被写成
+   running CPU 执行，属于把样本性质写反的高影响风险；
+2. `qf_called_by_typed_relation_query`：repo typed call relation 与完整生产调用者
+   枚举；最近结果停在 2026-05-24。它覆盖非 trace 域，能检验 typed relation
+   provider、排除测试调用者和逐成员文件绑定。
+
+两席仍严格 `parallel=2`。不选择相邻的另一个 H/C trace case，避免样本集中；
+也暂不优先 NEG2，因为 NEG2 当前是 system fail-closed + model overclaim，而
+这两席覆盖的 off-CPU caliber 与 relation rowset 一旦出错会直接反转 principal
+事实。
