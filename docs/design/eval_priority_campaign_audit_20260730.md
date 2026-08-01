@@ -2849,3 +2849,64 @@ typed 时间合法时升级；缺端点、负起点、`end <= start` 均不升�
   `go test ./internal/types ./internal/tool ./internal/tracequery ./internal/agent ./internal/orchestrator ./internal/skill -count=1`
   （types 19.173s、tool 169.448s、tracequery 69.743s、agent 3.009s、
   orchestrator 13.284s、skill 1.749s）。
+
+### B14 r2 A/B 审计与批 WS2 设计（2026-08-01）
+
+在 revision `ecc639def` 严格 `parallel=2` 同时回放：
+
+- 显式窗正向：
+  `eval/results/real_trace_h3_iofam_one_seat-20260731-181050`
+- 无窗 focused 负向：
+  `eval/results/real_trace_c2_dstate_iowait-20260731-181050`
+
+runner 2/2（H3 156s、C2 193s），人工 0/2，但两个报告形状边界均符合设计：
+
+1. H3 日志出现 scope canonicalization warning，system supplement 补齐 1 个缺失
+   trace view，完整 Trace 因果投影、root rank、wakeup chain、critical
+   blocking、窗内可消除量及 IOFAM 单席全部恢复。
+2. C2 仍是 `full_artifact` focused runtime fact，只补采 whole-trace
+   `window_stats`；没有 materialize 完整因果投影。因此 WS1 没有把状态查询
+   错误套回全量因果合同。
+
+H3 的正文仍把 blocked_reason interval Σ 和 scheduler state duration 说成
+“非墙钟”；确定性投影正确，属于 typed caliber 到自然语言的模型残余，沿用
+`EVAL-B14-MV1`，不加答案词面硬门。
+
+C2 暴露两个同根高 ROI 缺口。typed
+`target_window_wait_occurrences` 已明确
+`status=complete / emitted=3 / total=3 / sum=0.635ms`，三行起止、duration、
+state、iowait、caller 均齐全；finalizer recap 也授权
+`permission=exact_complete_rowset`。初稿表格逐条抄对了 3 行，却被
+`targetWaitOccurrenceSegmentConflict` 错误拒绝：它把同一 summary 中的分析窗
+`34579.450000..34579.600000` 当成 occurrence interval，再把同段任意 duration
+token 绑定给该窗。ForceHard 连续拒绝 8 次，最终 breaker/degraded export。
+
+这不是缺一条 regex，而是架构方向错误：对模型自由文本做 hard consistency
+scan，天然无法区分分析窗、发生窗、引用窗和表格行。最优方案是：
+
+1. 将 occurrence prose consistency 从 pre-emit hard reject 降为日志/advisory；
+2. 由同一 typed authority builder 在 system-owned principal-value card
+   确定性发布 complete roster；
+3. 只放宽这个小型主值卡在 focused no-window 问题中的发布，不放宽完整因果
+   projection；
+4. complete roster 明确声明不受无关 result/census
+   `capacity_truncated=true` 降级，避免正文“实际可能多于 3 次”的假 caveat。
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B14-HG1 | P0 | raw-prose hard-gate false conflict | 同一自由文本段可含分析窗、发生窗和多个 duration；正则式 hard gate 无 typed 归属，正确答案也会被拒绝 | occurrence consistency 仅保留 advisory；不再触发 retry/degraded export | planned-WS2 |
+| EVAL-B14-PV1 | P0 | focused principal-value publication | focused 无窗问题正确抑制 full projection，但连 exact typed roster 的窄权威卡也一起被抑制 | 新增 typed principal-value materialization authority；仅发布 state/complete roster，不发布 root/wakeup/eliminable | planned-WS2 |
+| EVAL-B14-CAP1 | P1 | coverage scope mismatch | 全结果或 blocked_reason census 的 capacity flag 被模型用于降级已 complete 的 target roster | system card 明确 producer-paired complete roster 优先；不同 scope 的容量边界不可跨载体传播 | planned-WS2 |
+| EVAL-B14-MV1 | P3 | model narrative caliber drift | 模型把墙钟 interval/state duration 写成非墙钟 | deterministic authority 已正确；先按波动留档，不做 prose 特判 | filed-model-variance |
+
+WS2 不变量：
+
+1. 不扫描用户原始输入或模型答案原文来决定 hard accept/reject；
+2. 不修改 `runtimeTraceFullReportMaterializationAllowed` 的完整报告边界；
+3. 显式窗仍发布完整因果投影并保留自动补齐；
+4. focused 无窗只获得与问题目标匹配的 typed state/occurrence 主值卡，不获得
+   root rank、wakeup chain、critical blocking、窗内可消除量；
+5. complete roster 必须来自同 artifact、同 subject、同 selected window、
+   连续 ordinal 和自洽 sum；冲突或不完整继续 fail-closed，不猜造行；
+6. broad capacity flag 仍保留在其原 observation 上，本批只禁止它越权降级另一
+   个已经 complete 的 typed roster，不以删证据方式“修复”。
