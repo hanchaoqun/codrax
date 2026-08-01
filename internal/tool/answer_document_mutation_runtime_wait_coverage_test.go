@@ -172,7 +172,7 @@ func TestRuntimeWaitCoverageCaveatsUseTypedAuthoritiesWithoutRewritingModelProse
 	if !materializeRuntimeTraceBlockedReasonCensusCaliberCaveat(doc, bus) {
 		t.Fatal("blocked-reason record census must materialize a caliber caveat")
 	}
-	if doc.Blocks[len(doc.Blocks)-1].ID != "summary" || doc.Blocks[len(doc.Blocks)-1].Text != original {
+	if doc.Blocks[0].ID != "summary" || doc.Blocks[0].Text != original {
 		t.Fatalf("typed authorities must not scan or rewrite model prose: %+v", doc.Blocks)
 	}
 	var surfaces []string
@@ -181,18 +181,16 @@ func TestRuntimeWaitCoverageCaveatsUseTypedAuthoritiesWithoutRewritingModelProse
 	}
 	got := strings.Join(surfaces, "\n")
 	for _, want := range []string{
-		"observed_blocking_lower_bound=1.409ms",
-		"observed_occurrences>=1",
-		"coverage_status=lower_bound_capacity_truncated",
-		"不授权全窗阻塞总量、唯一 occurrence",
-		"requests=2，sync=1，oneway=1，unknown=0",
-		"完整请求数仍不等于完整阻塞 occurrence 数",
-		"non_io_d_state=0.000ms",
-		"accounted_total=233.190ms",
-		"coverage_status=complete",
-		"blocked_reason_records=50",
-		"caller_linked_record_census_not_scheduler_state_partition",
-		"不能单独证明每一段 sleep",
+		"当前至少观测到 1 段、合计 1.409ms",
+		"结果达到容量上限",
+		"不能据此给出全窗阻塞总量、唯一发生段",
+		"同窗共记录 IPC 请求 2 次（同步 1、单向 1、类型未知 0）",
+		"非 IO D-state 0.000ms",
+		"已归账 233.190ms / 窗口 233.190ms",
+		"覆盖=完整",
+		"记录到 50 条 blocked_reason",
+		"不是完整的线程调度状态分区",
+		"不能据此认定每一段 sleep",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("typed wait coverage caveat missing %q:\n%s", want, got)
@@ -204,11 +202,16 @@ func TestRuntimeWaitCoverageCaveatsUseTypedAuthoritiesWithoutRewritingModelProse
 		t.Fatalf("materializers must be idempotent: %+v", doc.Blocks)
 	}
 	if len(doc.Blocks) != 4 ||
-		doc.Blocks[0].ID != runtimeTraceBlockingCoverageAuthorityBlockID ||
-		doc.Blocks[1].ID != runtimeTraceTargetStateAuthorityBlockID ||
-		doc.Blocks[2].ID != runtimeTraceBlockedReasonCensusCaliberBlockID ||
-		doc.Blocks[3].ID != "summary" {
-		t.Fatalf("typed authority blocks must lead the model narrative: %+v", doc.Blocks)
+		doc.Blocks[0].ID != "summary" ||
+		doc.Blocks[1].ID != runtimeTraceBlockingCoverageAuthorityBlockID ||
+		doc.Blocks[2].ID != runtimeTraceTargetStateAuthorityBlockID ||
+		doc.Blocks[3].ID != runtimeTraceBlockedReasonCensusCaliberBlockID {
+		t.Fatalf("typed data boundaries must follow the model narrative: %+v", doc.Blocks)
+	}
+	for _, forbidden := range []string{"系统权威", "系统 authority", "后续模型正文", "以本块为准"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("internal authority protocol leaked through %q:\n%s", forbidden, got)
+		}
 	}
 }
 
@@ -229,6 +232,41 @@ func TestRuntimeWaitCoverageAuthorityLeadsDoNotMintWithoutTypedRows(t *testing.T
 	}
 	if len(doc.Blocks) != 1 || doc.Blocks[0].ID != "summary" {
 		t.Fatalf("empty authority lanes changed the document: %+v", doc.Blocks)
+	}
+}
+
+func TestRuntimeWaitCoverageDataBoundariesUseReaderFacingEnglish(t *testing.T) {
+	bus := runtimeWaitCoverageTestBus()
+	bus.AnalysisIR.AnswerContract.Language = "en"
+	bus.AnalysisIR.RequestModel.Language = "en"
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "summary", Kind: types.BlockSummary, Text: "model answer",
+	}}}
+	if !materializeRuntimeTraceBlockingCoverageAuthorityCaveat(doc, bus) ||
+		!materializeRuntimeTraceTargetStateAuthorityBlock(doc, bus) ||
+		!materializeRuntimeTraceBlockedReasonCensusCaliberCaveat(doc, bus) {
+		t.Fatalf("reader-facing English boundaries did not materialize: %+v", doc.Blocks)
+	}
+	if doc.Blocks[0].ID != "summary" {
+		t.Fatalf("English model narrative must remain first: %+v", doc.Blocks)
+	}
+	surface := answerDocumentTestVisibleSurface(doc)
+	for _, want := range []string{
+		"Observed scope of target blocking",
+		"at least 1 interval totaling 1.409ms",
+		"Target-thread states and wait details",
+		"Target-thread state:",
+		"How to read blocked_reason records",
+		"not a complete scheduler-state partition",
+	} {
+		if !strings.Contains(surface, want) {
+			t.Fatalf("English data boundary missing %q:\n%s", want, surface)
+		}
+	}
+	for _, forbidden := range []string{"System authority", "later model prose", "takes precedence", "typed authority"} {
+		if strings.Contains(surface, forbidden) {
+			t.Fatalf("internal English authority protocol leaked through %q:\n%s", forbidden, surface)
+		}
 	}
 }
 
@@ -336,16 +374,39 @@ func TestPersistMergedAnswerDocumentWiresTypedWaitCoverageCaveats(t *testing.T) 
 		surfaces = append(surfaces, block.Title, types.AnswerBlockVisibleSurface(block))
 	}
 	got := strings.Join(surfaces, "\n")
-	if !strings.Contains(got, "observed_blocking_lower_bound=1.409ms") ||
-		!strings.Contains(got, "blocked_reason_records=50") {
+	if !strings.Contains(got, "当前至少观测到 1 段、合计 1.409ms") ||
+		!strings.Contains(got, "记录到 50 条 blocked_reason") {
 		t.Fatalf("production persist path lost typed wait coverage caveats:\n%s", got)
 	}
-	if len(persisted.Blocks) < 4 ||
-		persisted.Blocks[0].ID != runtimeTraceBlockingCoverageAuthorityBlockID ||
-		persisted.Blocks[1].ID != runtimeTraceTargetStateAuthorityBlockID ||
-		persisted.Blocks[2].ID != runtimeTraceBlockedReasonCensusCaliberBlockID ||
-		persisted.Blocks[3].ID != "summary" {
-		t.Fatalf("production hierarchy must keep typed principal authorities before model prose: %+v", persisted.Blocks)
+	if len(persisted.Blocks) < 4 || persisted.Blocks[0].ID != "summary" {
+		t.Fatalf("production hierarchy must keep user narrative first: %+v", persisted.Blocks)
+	}
+	projectionIndex := -1
+	for i := range persisted.Blocks {
+		if RuntimeTraceSystemBlock(persisted.Blocks[i]) &&
+			runtimeTraceCausalProjectionStandaloneLeadBlockID(persisted.Blocks[i].ID) {
+			projectionIndex = i
+			break
+		}
+	}
+	if projectionIndex <= 0 {
+		t.Fatalf("fixture lost the causal decision surface: %+v", persisted.Blocks)
+	}
+	for _, id := range []string{
+		runtimeTraceBlockingCoverageAuthorityBlockID,
+		runtimeTraceTargetStateAuthorityBlockID,
+		runtimeTraceBlockedReasonCensusCaliberBlockID,
+	} {
+		index := -1
+		for i := range persisted.Blocks {
+			if persisted.Blocks[i].ID == id {
+				index = i
+				break
+			}
+		}
+		if index <= projectionIndex {
+			t.Fatalf("data boundary %q must follow narrative and causal decision surfaces: %+v", id, persisted.Blocks)
+		}
 	}
 }
 
@@ -403,19 +464,17 @@ func TestRuntimeTargetStateAuthorityPublishesCompleteOccurrenceSummary(t *testin
 	if !materializeRuntimeTraceTargetStateAuthorityBlock(doc, bus) {
 		t.Fatal("complete target occurrence roster must materialize")
 	}
-	got := types.AnswerBlockVisibleSurface(doc.Blocks[0])
+	got := types.AnswerBlockVisibleSurface(
+		answerDocumentTestBlockByID(t, doc, runtimeTraceTargetStateAuthorityBlockID),
+	)
 	for _, want := range []string{
-		"non_io_d_state=6.000ms",
-		"target_wait_occurrence_roster=complete",
-		"roster_scope=producer_paired_complete",
-		"occurrences=2",
-		"d_state_occurrences=2",
-		"occurrence_wall_clock_sum=6.000ms",
-		"wait_callers=dma_fence_default_w",
-		"unrelated_capacity_truncation_does_not_downgrade=true",
-		"target_wait_occurrence=#1 state=d_sleep 13762.811000..13762.813000 duration=2.000ms iowait=0 caller=dma_fence_default_w",
-		"target_wait_occurrence=#2 state=d_sleep 13762.821000..13762.825000 duration=4.000ms iowait=0 caller=dma_fence_default_w",
-		"与上述 D/IO 配对状态账一致",
+		"非 IO D-state 6.000ms",
+		"等待明细完整，共 2 段（D-state 2",
+		"墙钟合计 6.000ms",
+		"已解析 caller：dma_fence_default_w",
+		"第 1 段：d_sleep，13762.811000..13762.813000，2.000ms，iowait=0，caller=dma_fence_default_w",
+		"第 2 段：d_sleep，13762.821000..13762.825000，4.000ms，iowait=0，caller=dma_fence_default_w",
+		"逐段合计与上述 D/IO 状态账一致",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("target-state authority missing %q:\n%s", want, got)
@@ -442,10 +501,11 @@ func TestRuntimeTargetStateAuthorityPublishesCompleteOccurrenceSummary(t *testin
 	if !materializeRuntimeTraceTargetStateAuthorityBlock(consensusDoc, bus) {
 		t.Fatal("typed entity/supplement consensus must recover target wait authority")
 	}
-	consensusSurface := types.AnswerBlockVisibleSurface(consensusDoc.Blocks[0])
-	if !strings.Contains(consensusSurface, "target_wait_occurrence_roster=complete") ||
-		!strings.Contains(consensusSurface, "occurrences=2") ||
-		!strings.Contains(consensusSurface, "occurrence_wall_clock_sum=6.000ms") {
+	consensusSurface := types.AnswerBlockVisibleSurface(
+		answerDocumentTestBlockByID(t, consensusDoc, runtimeTraceTargetStateAuthorityBlockID),
+	)
+	if !strings.Contains(consensusSurface, "等待明细完整，共 2 段") ||
+		!strings.Contains(consensusSurface, "墙钟合计 6.000ms") {
 		t.Fatalf("consensus target lost complete occurrence values:\n%s", consensusSurface)
 	}
 }
@@ -513,20 +573,20 @@ func TestFocusedRuntimeFactPublishesTypedRosterWithoutFullCausalReport(t *testin
 	}
 	persisted := bus.Mutable.AnswerDocumentV2()
 	if persisted == nil || len(persisted.Blocks) < 2 ||
-		persisted.Blocks[0].ID != runtimeTraceTargetStateAuthorityBlockID {
-		t.Fatalf("focused fact lost typed principal-value lead: %+v", persisted)
+		persisted.Blocks[0].ID != "summary" {
+		t.Fatalf("focused fact must retain the user narrative lead: %+v", persisted)
 	}
 	if answerDocumentHasRuntimeTraceCausalProjectionBlock(persisted) {
 		t.Fatalf("focused fact must not inherit the full causal projection: %+v", persisted.Blocks)
 	}
-	surface := types.AnswerBlockVisibleSurface(persisted.Blocks[0])
+	surface := types.AnswerBlockVisibleSurface(
+		answerDocumentTestBlockByID(t, persisted, runtimeTraceTargetStateAuthorityBlockID),
+	)
 	for _, want := range []string{
-		"target_wait_occurrence_roster=complete",
-		"occurrences=3",
-		"occurrence_wall_clock_sum=0.635ms",
-		"unrelated_capacity_truncation_does_not_downgrade=true",
-		"target_wait_occurrence=#1 state=io_wait 13762.801000..13762.801138 duration=0.138ms iowait=1 caller=sync_buffer_read_wi",
-		"target_wait_occurrence=#3 state=io_wait 13762.803000..13762.803350 duration=0.350ms iowait=1 caller=sync_buffer_read_wi",
+		"等待明细完整，共 3 段",
+		"墙钟合计 0.635ms",
+		"第 1 段：io_wait，13762.801000..13762.801138，0.138ms，iowait=1，caller=sync_buffer_read_wi",
+		"第 3 段：io_wait，13762.803000..13762.803350，0.350ms，iowait=1，caller=sync_buffer_read_wi",
 	} {
 		if !strings.Contains(surface, want) {
 			t.Fatalf("focused typed principal-value card missing %q:\n%s", want, surface)
@@ -575,20 +635,20 @@ func TestRuntimeTargetStateAuthorityRealDonghuPublishesElevenOccurrencesAndParti
 	if !materializeRuntimeTraceTargetStateAuthorityBlock(doc, bus) {
 		t.Fatal("real donghu target-state authority did not materialize")
 	}
-	got := types.AnswerBlockVisibleSurface(doc.Blocks[0])
+	got := types.AnswerBlockVisibleSurface(
+		answerDocumentTestBlockByID(t, doc, runtimeTraceTargetStateAuthorityBlockID),
+	)
 	for _, want := range []string{
-		"artifact=donghu.ftrace",
-		"accounted_total=231.794ms",
-		"window=233.190ms",
-		"coverage_status=partial_unaccounted",
-		"unaccounted=1.396ms",
-		"tail_open=8.793ms(state=sleep",
-		"target_wait_occurrence_roster=complete",
-		"occurrences=11",
-		"d_state_occurrences=11",
-		"occurrence_wall_clock_sum=36.757ms",
-		"wait_callers=dma_fence_default_w+0x260/0x4dc[devhost.elf]",
-		"与上述 D/IO 配对状态账一致",
+		"工件=donghu.ftrace",
+		"已归账 231.794ms / 窗口 233.190ms",
+		"覆盖=部分（存在未归账区间）",
+		"另有 1.396ms 未归账",
+		"窗口尾部开放 8.793ms（状态=sleep",
+		"等待明细完整，共 11 段",
+		"D-state 11",
+		"墙钟合计 36.757ms",
+		"已解析 caller：dma_fence_default_w+0x260/0x4dc[devhost.elf]",
+		"逐段合计与上述 D/IO 状态账一致",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("real target-state authority missing %q:\n%s", want, got)

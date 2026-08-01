@@ -43,55 +43,78 @@ func materializeCurrentSourceNegativeScopeAuthority(doc *types.AnswerDocumentV2,
 	}
 	var b strings.Builder
 	if zh {
-		block.Title = "系统权威：否定证据的目标与搜索范围"
-		b.WriteString("以下每行只证明列明 pattern 在列明 scope 内返回 0 个匹配；不能扩写到其他文件、目录、配置层或仓库，也不能借用另一目标的正向行证明当前目标 absent。\n\n")
+		block.Title = "未命中结果的搜索范围"
+		b.WriteString("以下每行只说明指定查询在指定范围内返回 0 个匹配。结果不能外推到其他文件、目录、配置层或仓库，也不能用另一目标的正向结果证明当前目标不存在。\n\n")
 	} else {
-		block.Title = "System authority: negative-evidence targets and search scopes"
-		b.WriteString("Each row proves only that its pattern returned zero matches inside its stated scope. It does not extend to another file, directory, configuration layer, or repository, and positive evidence for another target cannot prove this target absent.\n\n")
+		block.Title = "Search scope for no-match results"
+		b.WriteString("Each row says only that the stated query returned zero matches inside its stated scope. It does not extend to another file, directory, configuration layer, or repository, and positive evidence for another target cannot prove this target absent.\n\n")
 	}
 	for _, row := range rows {
-		fmt.Fprintf(
-			&b,
-			"- producer=%s; pattern=`%s`; scope=`%s`; result_count=0\n",
-			row.Producer,
-			currentSourceNegativeScopeAuthorityCell(row.Pattern),
-			currentSourceNegativeScopeAuthorityCell(row.Scope),
-		)
+		if zh {
+			fmt.Fprintf(
+				&b,
+				"- 来源=%s；查询=`%s`；范围=`%s`；匹配数=0\n",
+				currentSourceNegativeScopeProducerLabel(row.Producer, true),
+				currentSourceNegativeScopeAuthorityCell(row.Pattern),
+				currentSourceNegativeScopeAuthorityCell(row.Scope),
+			)
+		} else {
+			fmt.Fprintf(
+				&b,
+				"- source=%s; query=`%s`; scope=`%s`; matches=0\n",
+				currentSourceNegativeScopeProducerLabel(row.Producer, false),
+				currentSourceNegativeScopeAuthorityCell(row.Pattern),
+				currentSourceNegativeScopeAuthorityCell(row.Scope),
+			)
+		}
 	}
 	if total > len(rows) {
 		if zh {
-			fmt.Fprintf(&b, "\nroster_status=bounded；emitted=%d；total=%d；未展示查询不能据此判定存在或不存在。", len(rows), total)
+			fmt.Fprintf(&b, "\n这里只展示 %d/%d 条查询；未展示的查询不能据此判定存在或不存在。", len(rows), total)
 		} else {
-			fmt.Fprintf(&b, "\nroster_status=bounded; emitted=%d; total=%d; omitted queries remain neither proven present nor proven absent.", len(rows), total)
+			fmt.Fprintf(&b, "\nThis compact view shows %d/%d queries; omitted queries remain neither proven present nor proven absent.", len(rows), total)
 		}
 	}
 	if zh {
-		b.WriteString("\n\nunlisted_scope_status=unproven；cross_target_borrowing=forbidden。")
+		b.WriteString("\n\n未列出的范围仍属未验证，不能跨目标借用证据。")
 	} else {
-		b.WriteString("\n\nunlisted_scope_status=unproven; cross_target_borrowing=forbidden.")
+		b.WriteString("\n\nUnlisted scopes remain unproven, and evidence cannot be borrowed across targets.")
 	}
 	block.Text = b.String()
 
 	if index := currentSourceNegativeScopeAuthorityBlockIndex(doc); index >= 0 {
 		block.ID = doc.Blocks[index].ID
 		changed := types.AnswerBlockVisibleSurface(doc.Blocks[index]) != types.AnswerBlockVisibleSurface(block) ||
-			doc.Blocks[index].SystemGeneratedKind != block.SystemGeneratedKind ||
-			index != 0
+			doc.Blocks[index].SystemGeneratedKind != block.SystemGeneratedKind
 		doc.Blocks[index] = block
-		if index > 0 {
-			copy(doc.Blocks[1:index+1], doc.Blocks[:index])
-			doc.Blocks[0] = block
-		}
 		return changed
 	}
 	if len(doc.Blocks) >= maxBlocksPerDoc {
 		return false
 	}
 	block.ID = currentSourceNegativeScopeAuthorityUniqueBlockID(doc)
-	doc.Blocks = append(doc.Blocks, types.AnswerBlock{})
-	copy(doc.Blocks[1:], doc.Blocks[:len(doc.Blocks)-1])
-	doc.Blocks[0] = block
+	doc.Blocks = append(doc.Blocks, block)
 	return true
+}
+
+func currentSourceNegativeScopeProducerLabel(producer string, zh bool) string {
+	switch strings.TrimSpace(producer) {
+	case "verified_negative_evidence":
+		if zh {
+			return "已验证的精确未命中证据"
+		}
+		return "verified exact no-match evidence"
+	case "typed_grep_no_match":
+		if zh {
+			return "grep 完整未命中结果"
+		}
+		return "complete grep no-match result"
+	default:
+		if zh {
+			return "已验证查询"
+		}
+		return "verified query"
+	}
 }
 
 func currentSourceNegativeScopeAuthorityRows(ctx *types.BusContext) []currentSourceNegativeScopeAuthorityRow {

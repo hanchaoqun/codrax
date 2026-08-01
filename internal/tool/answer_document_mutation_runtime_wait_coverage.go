@@ -160,32 +160,34 @@ func materializeRuntimeTraceBlockingCoverageAuthorityCaveat(doc *types.AnswerDoc
 		var caveat string
 		if zh {
 			caveat = fmt.Sprintf(
-				"目标阻塞覆盖权限：artifact=%s，selected_window=%s，subject=%s，blocking_type=%s；observed_blocking_lower_bound=%.3fms，observed_occurrences>=%d，coverage_status=%s；这里只证明已列出的观测下界，不授权全窗阻塞总量、唯一 occurrence，也不授权“其余请求没有阻塞”的结论。同步 IPC request 数、send-to-receive transport latency 与目标阻塞墙钟/次数是不同量纲，不能互相补齐",
+				"目标阻塞观测：工件=%s，窗口=%s，线程=%s，类型=%s；当前至少观测到 %d 段、合计 %.3fms。结果达到容量上限，因此这里只能作为下界，不能据此给出全窗阻塞总量、唯一发生段，或断言其余请求都没有阻塞。同步 IPC 请求数、send-to-receive 传输延迟与目标阻塞墙钟/次数是不同口径，不能互相补齐",
 				authority.ArtifactLabel,
 				authority.SelectedWindow,
 				authority.Subject,
 				authority.Type,
-				authority.ObservedMS,
 				len(authority.Occurrences),
-				authority.CoverageStatus,
+				authority.ObservedMS,
 			)
 		} else {
+			intervalWord := "intervals"
+			if len(authority.Occurrences) == 1 {
+				intervalWord = "interval"
+			}
 			caveat = fmt.Sprintf(
-				"Target blocking coverage authority: artifact=%s, selected_window=%s, subject=%s, blocking_type=%s; observed_blocking_lower_bound=%.3fms, observed_occurrences>=%d, coverage_status=%s. This proves only the listed observed lower bound; it does not authorize an exhaustive window total, a unique occurrence, or a claim that every other request caused no blocking. Synchronous IPC request count, send-to-receive transport latency, target blocking wall clock, and blocking occurrence count are separate calibers and cannot complete one another",
+				"Target blocking observation: artifact=%s, window=%s, thread=%s, type=%s; at least %d %s totaling %.3fms were observed. The result reached its capacity limit, so this is a lower bound, not an exhaustive window total or a unique occurrence, and it does not show that every other request caused no blocking. Synchronous IPC request count, send-to-receive transport latency, target blocking wall clock, and blocking occurrence count are separate measures and cannot complete one another",
 				authority.ArtifactLabel,
 				authority.SelectedWindow,
 				authority.Subject,
 				authority.Type,
-				authority.ObservedMS,
 				len(authority.Occurrences),
-				authority.CoverageStatus,
+				intervalWord,
+				authority.ObservedMS,
 			)
 		}
 		if request, ok := matchingTraceIPCRequestCensusAuthority(authority, requests); ok {
 			if zh {
 				caveat += fmt.Sprintf(
-					"；同窗 IPC request census=%s：requests=%d，sync=%d，oneway=%d，unknown=%d；完整请求数仍不等于完整阻塞 occurrence 数",
-					request.CoverageStatus,
+					"；同窗共记录 IPC 请求 %d 次（同步 %d、单向 %d、类型未知 %d）。即使请求清单完整，也不等于阻塞发生段清单完整",
 					request.TotalRequests,
 					request.SyncRequests,
 					request.OnewayRequests,
@@ -193,8 +195,7 @@ func materializeRuntimeTraceBlockingCoverageAuthorityCaveat(doc *types.AnswerDoc
 				)
 			} else {
 				caveat += fmt.Sprintf(
-					"; same-window IPC request census=%s: requests=%d, sync=%d, oneway=%d, unknown=%d; a complete request count is still not a complete blocking-occurrence count",
-					request.CoverageStatus,
+					"; the same window contains %d IPC requests (%d synchronous, %d oneway, %d unknown). A complete request roster is still not a complete blocking-interval roster",
 					request.TotalRequests,
 					request.SyncRequests,
 					request.OnewayRequests,
@@ -207,17 +208,15 @@ func materializeRuntimeTraceBlockingCoverageAuthorityCaveat(doc *types.AnswerDoc
 	if len(caveats) == 0 {
 		return false
 	}
-	title := "关键口径：目标阻塞仅为观测下界"
-	lead := "本块是目标阻塞数值与覆盖范围的系统 authority；后续模型正文若给出冲突的总量、次数或“其余均无阻塞”结论，以本块为准。"
+	title := "目标阻塞的观测范围"
 	if !zh {
-		title = "Key caliber: target blocking is an observed lower bound"
-		lead = "This block is the system authority for target-blocking values and coverage. If later model prose conflicts on totals, occurrence counts, or claims that every other request did not block, this block takes precedence."
+		title = "Observed scope of target blocking"
 	}
-	return insertRuntimeTraceLeadAuthorityBlock(doc, types.AnswerBlock{
+	return insertRuntimeTraceDataBoundaryBlock(doc, types.AnswerBlock{
 		ID:    runtimeTraceBlockingCoverageAuthorityBlockID,
 		Kind:  types.BlockCaveat,
 		Title: title,
-		Text:  lead + "\n\n" + strings.Join(caveats, "\n\n"),
+		Text:  strings.Join(caveats, "\n\n"),
 	})
 }
 
@@ -261,7 +260,7 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 		var row string
 		if zh {
 			row = fmt.Sprintf(
-				"目标线程状态主值：artifact=%s，selected_window=%.6f..%.6f，subject=%s，scope=target_thread_wall_clock_partition；running=%.3fms，runnable=%.3fms，sleep=%.3fms（其中 S 态 IO等待=%.3fms，已包含在 sleep），non_io_d_state=%.3fms，io_wait=%.3fms，accounted_total=%.3fms，window=%.3fms，coverage_status=%s",
+				"目标线程状态：工件=%s，窗口=%.6f..%.6f，线程=%s；running %.3fms，runnable %.3fms，sleep %.3fms（其中 S 态 IO 等待 %.3fms，已包含在 sleep），非 IO D-state %.3fms，io_wait %.3fms；已归账 %.3fms / 窗口 %.3fms，覆盖=%s",
 				state.ArtifactLabel,
 				state.WindowStartTs,
 				state.WindowEndTs,
@@ -274,11 +273,11 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 				state.IOWaitMS,
 				state.TotalMS,
 				state.WindowMS,
-				state.CoverageStatus,
+				runtimeTraceTargetStateCoverageLabel(state.CoverageStatus, true),
 			)
 		} else {
 			row = fmt.Sprintf(
-				"Target-thread state authority: artifact=%s, selected_window=%.6f..%.6f, subject=%s, scope=target_thread_wall_clock_partition; running=%.3fms, runnable=%.3fms, sleep=%.3fms (S-state IO wait=%.3fms, already included in sleep), non_io_d_state=%.3fms, io_wait=%.3fms, accounted_total=%.3fms, window=%.3fms, coverage_status=%s",
+				"Target-thread state: artifact=%s, window=%.6f..%.6f, thread=%s; running %.3fms, runnable %.3fms, sleep %.3fms (including %.3fms of S-state IO wait), non-IO D-state %.3fms, io_wait %.3fms; accounted %.3fms / window %.3fms, coverage=%s",
 				state.ArtifactLabel,
 				state.WindowStartTs,
 				state.WindowEndTs,
@@ -291,34 +290,34 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 				state.IOWaitMS,
 				state.TotalMS,
 				state.WindowMS,
-				state.CoverageStatus,
+				runtimeTraceTargetStateCoverageLabel(state.CoverageStatus, false),
 			)
 		}
 		if state.CoverageStatus == "partial_unaccounted" {
 			if zh {
 				row += fmt.Sprintf(
-					"；unaccounted=%.3fms，未覆盖部分没有足够 typed 调度边界，不能分配到任一状态",
+					"；另有 %.3fms 未归账：该区间缺少足够的调度边界，不能分配到任一状态",
 					state.UnaccountedMS,
 				)
 			} else {
 				row += fmt.Sprintf(
-					"; unaccounted=%.3fms; the uncovered interval has insufficient typed scheduler boundaries and cannot be assigned to any state",
+					"; %.3fms remains unaccounted because the interval lacks sufficient scheduler boundaries to assign a state",
 					state.UnaccountedMS,
 				)
 			}
 		}
 		if state.HeadCarryMS > 0 && state.HeadCarryState != "" {
 			if zh {
-				row += fmt.Sprintf("；head_carry=%.3fms(state=%s，已包含在对应状态)", state.HeadCarryMS, state.HeadCarryState)
+				row += fmt.Sprintf("；窗口起点继承 %.3fms（状态=%s，已计入对应状态）", state.HeadCarryMS, state.HeadCarryState)
 			} else {
-				row += fmt.Sprintf("; head_carry=%.3fms(state=%s, already included in that state)", state.HeadCarryMS, state.HeadCarryState)
+				row += fmt.Sprintf("; %.3fms is carried in at the window head (state=%s, already included)", state.HeadCarryMS, state.HeadCarryState)
 			}
 		}
 		if state.TailOpenMS > 0 && state.TailOpenState != "" {
 			if zh {
-				row += fmt.Sprintf("；tail_open=%.3fms(state=%s，已包含在对应状态)", state.TailOpenMS, state.TailOpenState)
+				row += fmt.Sprintf("；窗口尾部开放 %.3fms（状态=%s，已计入对应状态）", state.TailOpenMS, state.TailOpenState)
 			} else {
-				row += fmt.Sprintf("; tail_open=%.3fms(state=%s, already included in that state)", state.TailOpenMS, state.TailOpenState)
+				row += fmt.Sprintf("; %.3fms remains open at the window tail (state=%s, already included)", state.TailOpenMS, state.TailOpenState)
 			}
 		}
 		if wait, ok := matchingTraceTargetWaitSummary(state, waits); ok {
@@ -334,7 +333,7 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 		var row string
 		if zh {
 			row = fmt.Sprintf(
-				"目标等待发生主值：artifact=%s，selected_window=%.6f..%.6f，subject=%s",
+				"目标等待：工件=%s，窗口=%.6f..%.6f，线程=%s",
 				wait.ArtifactLabel,
 				wait.WindowStartTs,
 				wait.WindowEndTs,
@@ -342,7 +341,7 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 			)
 		} else {
 			row = fmt.Sprintf(
-				"Target-wait occurrence authority: artifact=%s, selected_window=%.6f..%.6f, subject=%s",
+				"Target waits: artifact=%s, window=%.6f..%.6f, thread=%s",
 				wait.ArtifactLabel,
 				wait.WindowStartTs,
 				wait.WindowEndTs,
@@ -354,18 +353,38 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 	if len(rows) == 0 {
 		return false
 	}
-	title := "系统权威主值：目标线程状态与等待发生"
-	lead := "以下值来自 typed 调度状态账和同一结果内 producer 配对的完整等待 roster；后续模型正文若给出冲突的次数、总量、明细或量纲，以本块为准。blocked_reason 的记录数/Σdelay、IPC 传输延迟与线程状态墙钟不得互相替代；其他 observation/census 的 capacity_truncated 不会降级这里已标为 complete 的 roster。"
+	title := "目标线程状态与等待明细"
+	lead := "以下为所选窗口内的调度状态账；若同时列出逐段等待，次数和总量来自同一查询结果的完整配对。blocked_reason 记录数、IPC 传输延迟和线程状态墙钟属于不同口径，不能互相替代。"
 	if !zh {
-		title = "System authority: target-thread state and wait occurrences"
-		lead = "These values come from the typed scheduler-state account and the complete producer-paired wait roster in one result. If later model prose conflicts on count, total, rows, or caliber, this block is authoritative. blocked_reason record count/Σdelay, IPC transport latency, and thread-state wall clock are not interchangeable; capacity_truncated on another observation/census does not downgrade a roster marked complete here."
+		title = "Target-thread states and wait details"
+		lead = "This is the scheduler-state account for the selected window. When per-interval waits are listed, their count and total come from the complete pairing in the same query result. blocked_reason record counts, IPC transport latency, and thread-state wall clock are different measures and are not interchangeable."
 	}
-	return insertRuntimeTraceLeadAuthorityBlock(doc, types.AnswerBlock{
+	return insertRuntimeTraceDataBoundaryBlock(doc, types.AnswerBlock{
 		ID:    runtimeTraceTargetStateAuthorityBlockID,
 		Kind:  types.BlockCaveat,
 		Title: title,
 		Text:  lead + "\n\n" + strings.Join(rows, "\n\n"),
 	})
+}
+
+func runtimeTraceTargetStateCoverageLabel(status string, zh bool) string {
+	switch strings.TrimSpace(status) {
+	case "complete":
+		if zh {
+			return "完整"
+		}
+		return "complete"
+	case "partial_unaccounted":
+		if zh {
+			return "部分（存在未归账区间）"
+		}
+		return "partial (unaccounted interval present)"
+	default:
+		if zh {
+			return "未说明"
+		}
+		return "not stated"
+	}
 }
 
 func runtimeTraceTargetWaitSummarySuffix(
@@ -378,9 +397,9 @@ func runtimeTraceTargetWaitSummarySuffix(
 		pairedStateMS := state.DStateMS + state.IOWaitMS + state.SleepIOWaitMS
 		if math.Abs(wait.WallClockMS-pairedStateMS) <= 0.002 {
 			if zh {
-				identity = "；occurrence_wall_clock_sum 与上述 D/IO 配对状态账一致"
+				identity = "；逐段合计与上述 D/IO 状态账一致"
 			} else {
-				identity = "; occurrence_wall_clock_sum matches the paired D/IO state account above"
+				identity = "; the interval sum matches the paired D/IO state account above"
 			}
 		}
 	}
@@ -388,7 +407,7 @@ func runtimeTraceTargetWaitSummarySuffix(
 	if zh {
 		fmt.Fprintf(
 			&b,
-			"；target_wait_occurrence_roster=complete，roster_scope=producer_paired_complete，occurrences=%d，d_state_occurrences=%d，io_wait_occurrences=%d，sleep_iowait_occurrences=%d，other_wait_occurrences=%d，occurrence_wall_clock_sum=%.3fms，wait_callers=%s，unrelated_capacity_truncation_does_not_downgrade=true%s",
+			"；等待明细完整，共 %d 段（D-state %d、io_wait %d、S 态 IO 等待 %d、其他 %d），墙钟合计 %.3fms，已解析 caller：%s%s",
 			wait.Count,
 			wait.DStateOccurrences,
 			wait.IOWaitOccurrences,
@@ -401,7 +420,7 @@ func runtimeTraceTargetWaitSummarySuffix(
 	} else {
 		fmt.Fprintf(
 			&b,
-			"; target_wait_occurrence_roster=complete, roster_scope=producer_paired_complete, occurrences=%d, d_state_occurrences=%d, io_wait_occurrences=%d, sleep_iowait_occurrences=%d, other_wait_occurrences=%d, occurrence_wall_clock_sum=%.3fms, wait_callers=%s, unrelated_capacity_truncation_does_not_downgrade=true%s",
+			"; the wait roster is complete: %d intervals (D-state %d, io_wait %d, S-state IO wait %d, other %d), totaling %.3fms wall clock; resolved callers: %s%s",
 			wait.Count,
 			wait.DStateOccurrences,
 			wait.IOWaitOccurrences,
@@ -413,8 +432,31 @@ func runtimeTraceTargetWaitSummarySuffix(
 		)
 	}
 	for _, occurrence := range wait.Occurrences {
-		b.WriteString("\n- target_wait_occurrence=")
-		b.WriteString(occurrence.CanonicalLine())
+		if zh {
+			fmt.Fprintf(
+				&b,
+				"\n- 第 %d 段：%s，%s..%s，%.3fms，iowait=%s，caller=%s",
+				occurrence.Ordinal,
+				occurrence.State,
+				occurrence.StartToken(),
+				occurrence.EndToken(),
+				occurrence.DurationM,
+				occurrence.IOWait,
+				occurrence.Caller,
+			)
+		} else {
+			fmt.Fprintf(
+				&b,
+				"\n- Interval %d: %s, %s..%s, %.3fms, iowait=%s, caller=%s",
+				occurrence.Ordinal,
+				occurrence.State,
+				occurrence.StartToken(),
+				occurrence.EndToken(),
+				occurrence.DurationM,
+				occurrence.IOWait,
+				occurrence.Caller,
+			)
+		}
 	}
 	return b.String()
 }
@@ -498,19 +540,19 @@ func materializeRuntimeTraceBlockedReasonCensusCaliberCaveat(doc *types.AnswerDo
 		var caveat string
 		if zh {
 			caveat = fmt.Sprintf(
-				"阻塞原因普查口径：artifact=%s，selected_window=%s，subject=%s，blocked_reason_records=%d，callers=%s，caliber=caller_linked_record_census_not_scheduler_state_partition；这些计数及 Σdelay 只说明其自身已记录的 caller 关联证据，不能单独证明每一段 sleep 都有该 caller，也不能外推为整个 sleep 墙钟均由这些原因构成",
+				"工件=%s，窗口=%s，线程=%s：记录到 %d 条 blocked_reason，caller=%s。这些记录及其 Σdelay 只描述已建立 caller 关联的事件，不是完整的线程调度状态分区；不能据此认定每一段 sleep 都具有这些 caller，也不能把整个 sleep 墙钟都归因于它们",
 				row.artifact, row.selectedWindow, row.subject, row.count, row.callers,
 			)
 			if row.callerOverflow > 0 {
-				caveat += fmt.Sprintf("；caller_roster_overflow=%d，展示的 caller roster 还不是完整列表", row.callerOverflow)
+				caveat += fmt.Sprintf("；另有 %d 个 caller 未在此紧凑列表中展示", row.callerOverflow)
 			}
 		} else {
 			caveat = fmt.Sprintf(
-				"Blocked-reason census caliber: artifact=%s, selected_window=%s, subject=%s, blocked_reason_records=%d, callers=%s, caliber=caller_linked_record_census_not_scheduler_state_partition. These counts and Σdelay values describe only their recorded caller-linked evidence; by themselves they do not prove that every sleep interval has one of those callers or that the entire sleep wall clock is explained by those reasons",
+				"Artifact=%s, window=%s, thread=%s: %d blocked_reason records were observed, with callers=%s. These records and their Σdelay describe only events with a caller association; they are not a complete scheduler-state partition. They do not show that every sleep interval has one of these callers or that these reasons explain the entire sleep wall clock",
 				row.artifact, row.selectedWindow, row.subject, row.count, row.callers,
 			)
 			if row.callerOverflow > 0 {
-				caveat += fmt.Sprintf("; caller_roster_overflow=%d, so the displayed caller roster is also incomplete", row.callerOverflow)
+				caveat += fmt.Sprintf("; %d additional callers are omitted from this compact list", row.callerOverflow)
 			}
 		}
 		caveats = append(caveats, caveat)
@@ -518,17 +560,15 @@ func materializeRuntimeTraceBlockedReasonCensusCaliberCaveat(doc *types.AnswerDo
 	if len(caveats) == 0 {
 		return false
 	}
-	title := "关键口径：blocked_reason 不是完整 sleep 分区"
-	lead := "本块是 blocked_reason 记录口径的系统 authority；后续模型正文若把记录数或 Σdelay 当作线程状态发生次数/墙钟总量，以本块和同窗目标状态主值为准。"
+	title := "blocked_reason 的记录口径"
 	if !zh {
-		title = "Key caliber: blocked_reason is not a complete sleep partition"
-		lead = "This block is the system authority for blocked_reason record caliber. If later model prose treats record count or Σdelay as thread-state occurrence count or wall-clock total, use this block and the same-window target-state authority instead."
+		title = "How to read blocked_reason records"
 	}
-	return insertRuntimeTraceLeadAuthorityBlock(doc, types.AnswerBlock{
+	return insertRuntimeTraceDataBoundaryBlock(doc, types.AnswerBlock{
 		ID:    runtimeTraceBlockedReasonCensusCaliberBlockID,
 		Kind:  types.BlockCaveat,
 		Title: title,
-		Text:  lead + "\n\n" + strings.Join(caveats, "\n\n"),
+		Text:  strings.Join(caveats, "\n\n"),
 	})
 }
 
@@ -598,7 +638,7 @@ func runtimeTraceBlockedReasonCensusCalibers(
 	return out
 }
 
-func insertRuntimeTraceLeadAuthorityBlock(doc *types.AnswerDocumentV2, block types.AnswerBlock) bool {
+func insertRuntimeTraceDataBoundaryBlock(doc *types.AnswerDocumentV2, block types.AnswerBlock) bool {
 	if doc == nil || strings.TrimSpace(block.ID) == "" || strings.TrimSpace(block.Text) == "" {
 		return false
 	}
@@ -609,19 +649,6 @@ func insertRuntimeTraceLeadAuthorityBlock(doc *types.AnswerDocumentV2, block typ
 		return false
 	}
 	markRuntimeTraceSystemBlock(&block)
-	insertAt := 0
-	for insertAt < len(doc.Blocks) {
-		id := strings.TrimSpace(doc.Blocks[insertAt].ID)
-		if id != runtimeTraceFrequencyAuthorityBlockID &&
-			id != runtimeTraceBlockingCoverageAuthorityBlockID &&
-			id != runtimeTraceTargetStateAuthorityBlockID &&
-			id != runtimeTraceBlockedReasonCensusCaliberBlockID {
-			break
-		}
-		insertAt++
-	}
-	doc.Blocks = append(doc.Blocks, types.AnswerBlock{})
-	copy(doc.Blocks[insertAt+1:], doc.Blocks[insertAt:])
-	doc.Blocks[insertAt] = block
+	doc.Blocks = append(doc.Blocks, block)
 	return true
 }

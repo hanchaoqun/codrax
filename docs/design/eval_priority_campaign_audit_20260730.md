@@ -4086,6 +4086,90 @@ blocked_reason authority 已经把内部优先级协议暴露给用户，并抢�
 | EVAL-B19-ARITH2 | next：复用 projection 主结论/不相加口径，不新增平行答案 |
 | EVAL-B19-GREP1 | deferred P3：本轮不出现，按模型波动保留 |
 
+#### B19d user-first typed accuracy surfaces
+
+用户审阅指出“系统权威/系统权威主值”属于内部安全协议，不应强行占据答案
+开头。全仓审计确认五类同源面：
+
+- Trace frequency、target-state/wait、blocking lower-bound、
+  blocked_reason caliber 均由同一个 lead helper 插到 tier 0；
+- config/current-source negative-scope 独立把自己搬到 block 0；
+- 它们混合了 provenance 优先级、精确值和用户所需口径，既重复正文，又把
+  `typed/authority/roster_scope/后续模型正文/以本块为准` 暴露给用户。
+
+本批保持所有 typed 构造、内部 trusted system marker、finalizer handoff 和
+fail-closed 规则不变，只收敛用户可见组织：
+
+1. 模型正文保持第一层；显式窗 Trace 的因果 projection lead/key metrics
+   仍是第二层；
+2. 四类 Trace 精确值/边界进入统一 data-caliber tier，位于因果决策面之后、
+   lossless drill-down 之前；无窗 focused fact 仍是正文后精确明细，且不生成
+   因果投影；
+3. 标题改为“频率证据与结论边界”“目标线程状态与等待明细”“目标阻塞的
+   观测范围”“blocked_reason 的记录口径”；正文只说明值、覆盖和不能外推
+   的边界；
+4. 完整等待 roster 继续逐段发布开始/结束/时长/state/iowait/caller，但去掉
+   内部协议字段；
+5. negative-scope 改为“未命中结果的搜索范围”，正文后发布，producer 映射
+   为用户可读来源；
+6. 中英文 tripwire 均禁止 `System authority/系统权威`、`后续模型正文`、
+   `以本块为准/takes precedence` 泄漏；不读取 RawRequest 或模型 prose，
+   不做 claim rewrite/reject。
+
+验证：
+
+- 定向中英文、顺序、精确 roster、frequency limit、negative scope 测试通过；
+- `go test ./internal/types -count=1`：21.151s；
+- `go test ./internal/tool -count=1`：最终复跑 166.543s。
+
+状态：`implemented / full-tests-pass / explicit-window + focused-negative replay next`。
+
+#### TWODIM-2：Trace 根因双轴的现状与下一批验收
+
+用户再次明确 Trace 性能根因必须并列覆盖两个维度：
+
+1. **实际时间占用/关键路径**：无论当前是否存在可消除公式，单个长 span、
+   同类短 span 高频聚族后的累计、真实 running/runnable/D/IO/sleep 和链上
+   等待都要可见，用于探索新的修复方向；
+2. **已知规则可消除收益**：优先级反转纠正、算力供给折算、已证 IO/唤醒
+   依赖等按现有规则计算、排序，回答“修什么预计能回收多少”。
+
+代码冷审显示 `TWODIM-1/SPANVIS-1` 已实现重要基座，并非从零开始：
+
+- engine 已按 `(tid, verbatim span name)` 聚族，使用
+  `单次最长 TOP8 ∪ 合计最长 TOP8`，自身和 typed 链上 span 均可进入
+  `◈ 业务线索`，族间不可相加；
+- semantic-class spans 有独立确定性优化表；
+- 可消除量计价为 0 的 on-chain context-only 原始占用，会以
+  `未计价占用/真实占时/自身工作量(新方向)` 留在辅助账；
+- tool description/parameters 与结构测试已经明确“root causes have TWO
+  dimensions”。
+
+但 B19c 真实输出仍证明展示闭环是 partial：
+
+- 报告唯一醒目主结论仍定义为“已证链上单项最大可消除量”；
+- 44.836ms 的未计价真实占用只在辅助行显示“3 行/最大值”，没有独立列出
+  占用主体和时间维度排序；
+- 业务 span、semantic span、scheduler raw occupancy、CPU cpu·ms 分散在
+  不同区块，没有统一的“主要时间占用/关键路径”决策面；
+- 因而高占时但暂未计价的工作仍可能被客户误读为非根因或不重要。
+
+登记 `EVAL-TWODIM-2`（P1，下一 Trace 结构批）：
+
+1. 复用现有 typed raw-window occupancy、BusinessSpanMention 和
+   SemanticSpans，不新造第二套 span 聚类或链判定；
+2. 增加独立“主要时间占用/关键路径候选”面，按各自合法口径展示主体、
+   单次最长、族累计、发生窗和证据指针；wall-clock 与 cpu·ms 分栏，禁止
+   混排或求和；
+3. 现有“可消除收益”榜保持原值、原排序、重叠不可相加和修复方向；
+4. 两轴互相引用但不互相改值：高占时可以是“新方向候选”，不自动获得可
+   消除量；高可消除席必须同时保留其实际占时口径；
+5. `frame_causality=unproven` 时只能称“该窗主要占用/候选瓶颈”，不得宣称
+   已证明导致具体丢帧；有 typed frame/deadline 边时才升级帧结果措辞；
+6. 以 long-single span、many-small clustered span、unpriced on-chain
+   occupancy、cpu·ms 多核占用和无 span 负例组成结构矩阵；不得按 span 名、
+   case ID 或用户关键词触发。
+
 #### B18f r1：图兼容与显式窗非回归回放（2026-08-01）
 
 严格并行 2 个回放均为 runner PASS / human PASS：

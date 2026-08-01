@@ -8567,11 +8567,11 @@ func runtimeTraceReportHierarchyTier(block types.AnswerBlock) int {
 			id == runtimeTraceBlockingCoverageAuthorityBlockID ||
 			id == runtimeTraceTargetStateAuthorityBlockID ||
 			id == runtimeTraceBlockedReasonCensusCaliberBlockID:
-			// Typed principal values and coverage/caliber corrections lead
-			// the model narrative. They are decision-critical authorities,
-			// not a thousand-line report-tail footnote. Their insertion
-			// helper preserves all model-authored relative order.
-			return 0
+			// The trusted marker and typed values stay intact, but these are
+			// reader-facing data/caliber details rather than a second answer.
+			// Keep the model narrative and causal decision surfaces first;
+			// publish the deterministic account before lossless drill-down.
+			return 6
 		case id == runtimeTraceCausalProjectionPartitionBlockID || block.Kind == types.BlockCaveat:
 			return 9
 		case id == runtimeTraceCausalProjectionCompareBlockID || runtimeTraceCausalProjectionStandaloneLeadBlockID(id):

@@ -15,9 +15,9 @@ const runtimeTraceFrequencyAuthorityBlockID = "runtime_trace_frequency_authority
 // activity on the background lane even when the model prose promoted a large
 // count into a low-frequency/throttling claim. The count itself never
 // authorizes supply causality; any stronger wording must bind to the separate
-// typed supply-evidence roster. The authority is a leading system block rather
-// than a footer caveat so a contradictory model principal cannot precede the
-// typed policy-limit/binding boundary.
+// typed supply-evidence roster. The trusted system marker remains internal;
+// the visible block is a reader-facing data boundary placed after the answer's
+// narrative and causal decision surfaces.
 func materializeRuntimeTraceFrequencyAuthorityCaveat(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {
 	if doc == nil || ctx == nil {
 		return false
@@ -55,10 +55,6 @@ func materializeRuntimeTraceFrequencyAuthorityCaveat(doc *types.AnswerDocumentV2
 		evidence = append(evidence, token)
 	}
 	sort.Strings(evidence)
-	conclusion := "unproven_from_transition_count"
-	if len(evidence) > 0 || len(limitWitnesses) > 0 {
-		conclusion = "bounded_by_typed_supply_evidence"
-	}
 	frequencyRows := "not_reported"
 	if count > 0 {
 		frequencyRows = strconv.Itoa(count)
@@ -71,47 +67,80 @@ func materializeRuntimeTraceFrequencyAuthorityCaveat(doc *types.AnswerDocumentV2
 	var caveat string
 	if zh {
 		caveat = fmt.Sprintf(
-			"频率证据权限：cpu_frequency_rows=%s，clock_set_rate_events=%s，transition_authority=background_only；两类计数分别表示 CPU 频点样本和通用时钟变更活动，均不单独证明低频、降频、限频或计算供给不足。frequency_supply_conclusion=%s",
-			frequencyRows, clockSetRateEvents, conclusion,
+			"窗内记录了 %s 条 CPU 频点样本和 %s 条通用时钟变更事件；这两类计数只表示观测活动，均不能单独证明低频、降频、限频或计算供给不足。",
+			frequencyRows, clockSetRateEvents,
 		)
 		if len(evidence) == 0 {
-			caveat += "；typed_supply_evidence=none，任何低频/供给因果措辞均未获当前计数授权"
+			caveat += " 当前没有独立的频率供给证据，因此不能仅凭这些计数判断供给影响。"
 		} else {
-			caveat += "；typed_supply_evidence=" + strings.Join(evidence, ",") +
-				"；低频/供给措辞只能绑定这些 typed 证据及其链/排序口径，不能归因于上述两类计数"
+			caveat += " 可用于供给判断的独立证据为：" + runtimeTraceFrequencyEvidenceRoster(evidence, true) +
+				"；相关结论只能按这些证据各自的链路和排序口径解释，不能归因于上述事件计数。"
 		}
 		if len(limitWitnesses) > 0 {
-			caveat += "；direct_in_window_policy_limits=" + runtimeTraceFrequencyLimitWitnessRoster(limitWitnesses) +
-				"；policy_limit_status=present：这些 min/max 行直接证明窗内存在 policy ceiling，实际/平均/驻留频率低于 ceiling 不能反推「无策略限制」；binding_caliber=limit_row_proves_ceiling_presence;binding_impact_requires_separate_overlap_or_supply_evidence，是否顶到 ceiling 及其性能影响须由独立 overlap/compute-supply 证据证明；thermal_or_policy_mechanism=requires_typed_causal_witness：低于 ceiling 的实际/驻留频率不能单独区分 workload demand、policy、thermal 或其他治理机制，也不能单独证明热节流"
+			caveat += " 窗内策略上下限记录：" + runtimeTraceFrequencyLimitWitnessRoster(limitWitnesses, true) +
+				"。这些 min/max 记录可以证明策略上限存在，但不能证明已经触顶或已造成性能影响；实际、平均或驻留频率低于上限，也不能单独区分负载需求、策略控制、热约束或其他治理机制，更不能单独证明热节流。"
 		}
 	} else {
 		caveat = fmt.Sprintf(
-			"Frequency evidence authority: cpu_frequency_rows=%s, clock_set_rate_events=%s, transition_authority=background_only; the counts separately represent CPU frequency samples and generic clock-change activity, and neither count by itself proves low frequency, throttling, a frequency limit, or compute-supply shortage. frequency_supply_conclusion=%s",
-			frequencyRows, clockSetRateEvents, conclusion,
+			"The window contains %s CPU-frequency samples and %s generic clock-change events. These counts describe observation activity only; neither count by itself proves low frequency, throttling, a frequency limit, or a compute-supply shortage.",
+			frequencyRows, clockSetRateEvents,
 		)
 		if len(evidence) == 0 {
-			caveat += "; typed_supply_evidence=none, so no low-frequency or supply-causal wording is authorized by the count"
+			caveat += " No independent frequency-supply evidence is available, so the counts alone cannot establish a supply impact."
 		} else {
-			caveat += "; typed_supply_evidence=" + strings.Join(evidence, ",") +
-				"; low-frequency/supply wording must bind to that typed evidence and its chain/rank caliber, never to either count above"
+			caveat += " Independent evidence available for supply analysis: " + runtimeTraceFrequencyEvidenceRoster(evidence, false) +
+				". Any supply conclusion must follow the chain and ranking scope of that evidence, not the event counts above."
 		}
 		if len(limitWitnesses) > 0 {
-			caveat += "; direct_in_window_policy_limits=" + runtimeTraceFrequencyLimitWitnessRoster(limitWitnesses) +
-				"; policy_limit_status=present: these min/max rows directly prove that a policy ceiling existed in the window, and an actual/average/residency frequency below the ceiling cannot be used to conclude that no policy limit existed; binding_caliber=limit_row_proves_ceiling_presence;binding_impact_requires_separate_overlap_or_supply_evidence, so hitting the ceiling and its performance impact require independent overlap/compute-supply evidence; thermal_or_policy_mechanism=requires_typed_causal_witness: an actual/residency frequency below the ceiling cannot by itself distinguish workload demand, policy, thermal, or another governance mechanism and does not by itself prove thermal throttling"
+			caveat += " In-window policy-limit records: " + runtimeTraceFrequencyLimitWitnessRoster(limitWitnesses, false) +
+				". These min/max rows prove that a policy ceiling existed, but not that it was reached or had a performance impact. An actual, average, or residency frequency below the ceiling cannot by itself distinguish workload demand, policy control, thermal constraints, or another governance mechanism, and does not by itself prove thermal throttling."
 		}
 	}
-	title := "系统权威：CPU 频率供给与策略限制"
-	lead := "本块是频率样本、供给证据与 policy-limit 权限的系统 authority；后续模型正文若对 ceiling 是否存在、是否触顶、性能影响或 thermal/policy 成因给出冲突结论，以本块为准。"
+	title := "频率证据与结论边界"
 	if !zh {
-		title = "System authority: CPU frequency supply and policy limits"
-		lead = "This block is the system authority for frequency samples, supply evidence, and policy-limit permissions. If later model prose conflicts about ceiling presence, hitting the ceiling, performance impact, or a thermal/policy mechanism, this block takes precedence."
+		title = "Frequency evidence and conclusion limits"
 	}
-	return insertRuntimeTraceLeadAuthorityBlock(doc, types.AnswerBlock{
+	return insertRuntimeTraceDataBoundaryBlock(doc, types.AnswerBlock{
 		ID:    runtimeTraceFrequencyAuthorityBlockID,
 		Kind:  types.BlockCaveat,
 		Title: title,
-		Text:  lead + "\n\n" + caveat,
+		Text:  caveat,
 	})
+}
+
+func runtimeTraceFrequencyEvidenceRoster(in []string, zh bool) string {
+	rows := make([]string, 0, len(in))
+	for _, token := range in {
+		label := runtimeTraceFrequencyEvidenceLabel(token, zh)
+		if label != "" {
+			rows = append(rows, label)
+		}
+	}
+	separator := ", "
+	if zh {
+		separator = "、"
+	}
+	return strings.Join(rows, separator)
+}
+
+func runtimeTraceFrequencyEvidenceLabel(token string, zh bool) string {
+	token = strings.TrimSpace(token)
+	labels := map[string][2]string{
+		"frequency_residency_low_frequency":    {"low-frequency residency", "低频驻留"},
+		"direct_in_window_policy_limit":        {"in-window policy limits", "窗内策略上下限"},
+		"cluster_frequency_ceiling":            {"cluster frequency ceilings", "簇频率上限"},
+		"frequency_limit_or_cluster_ceiling":   {"policy or cluster frequency ceilings", "策略或簇频率上限"},
+		"compute_supply_low_frequency_deficit": {"low-frequency compute-supply deficit", "低频运行折算缺口"},
+		"ranked_frequency_supply_evidence":     {"ranked frequency-supply evidence", "根因榜中的频率影响项"},
+		"ranked_cap_or_supply_deficit":         {"ranked cap or supply deficit", "根因榜中的频率/核类受限项"},
+	}
+	if pair, ok := labels[token]; ok {
+		if zh {
+			return pair[1]
+		}
+		return pair[0]
+	}
+	return token
 }
 
 func runtimeTraceDedupFrequencyLimitWitnesses(in []types.TraceFrequencyLimitAuthority, limit int) []types.TraceFrequencyLimitAuthority {
@@ -150,23 +179,36 @@ func runtimeTraceDedupFrequencyLimitWitnesses(in []types.TraceFrequencyLimitAuth
 	return out
 }
 
-func runtimeTraceFrequencyLimitWitnessRoster(in []types.TraceFrequencyLimitAuthority) string {
+func runtimeTraceFrequencyLimitWitnessRoster(in []types.TraceFrequencyLimitAuthority, zh bool) string {
 	rows := make([]string, 0, len(in))
 	for _, witness := range in {
-		rows = append(rows, fmt.Sprintf(
-			"cpu%d[min=%dkHz,max=%dkHz,limit_rows=%d,line=%d,ts=%.6f,window=%.6f..%.6f,authority=%s]",
-			witness.CPU,
-			witness.MinFrequencyKHz,
-			witness.MaxFrequencyKHz,
-			witness.LimitRowCount,
-			witness.WitnessLine,
-			witness.WitnessTs,
-			witness.WindowStartTs,
-			witness.WindowEndTs,
-			strings.TrimSpace(witness.Authority),
-		))
+		if zh {
+			rows = append(rows, fmt.Sprintf(
+				"CPU%d %d–%dkHz（%d条，样例行%d@%.6fs，窗口%.6f..%.6f）",
+				witness.CPU,
+				witness.MinFrequencyKHz,
+				witness.MaxFrequencyKHz,
+				witness.LimitRowCount,
+				witness.WitnessLine,
+				witness.WitnessTs,
+				witness.WindowStartTs,
+				witness.WindowEndTs,
+			))
+		} else {
+			rows = append(rows, fmt.Sprintf(
+				"CPU%d %d–%dkHz (%d rows, sample line %d at %.6fs, window %.6f..%.6f)",
+				witness.CPU,
+				witness.MinFrequencyKHz,
+				witness.MaxFrequencyKHz,
+				witness.LimitRowCount,
+				witness.WitnessLine,
+				witness.WitnessTs,
+				witness.WindowStartTs,
+				witness.WindowEndTs,
+			))
+		}
 	}
-	return strings.Join(rows, "|")
+	return strings.Join(rows, "；")
 }
 
 // materializeRuntimeTraceVsyncAuthorityCaveat — GAP-B3 (§13.3, 2026-07-25):
