@@ -10,6 +10,9 @@ const (
 	traceObservationShardAggregateWindowMaxMs = 200.0
 	traceObservationShardAggregateLimit       = 6
 	traceObservationShardAggregateWindowLimit = 4
+
+	TraceObservationShardAdditivityDisjointWindows    = "disjoint_windows_additive"
+	TraceObservationShardAdditivityOverlappingWindows = "overlapping_windows_non_additive"
 )
 
 // TraceObservationShardAggregate summarizes repeated bounded trace_query shards
@@ -26,6 +29,7 @@ type TraceObservationShardAggregate struct {
 	Window           string   `json:"window,omitempty"`
 	TotalImpactMS    float64  `json:"total_impact_ms,omitempty"`
 	MaxShardImpactMS float64  `json:"max_shard_impact_ms,omitempty"`
+	AdditivityStatus string   `json:"additivity_status,omitempty"`
 	ExampleWindows   []string `json:"example_windows,omitempty"`
 	SourceRefs       []string `json:"source_refs,omitempty"`
 	SupportRefs      []string `json:"support_refs,omitempty"`
@@ -49,6 +53,7 @@ type TraceObservationShardStateAggregate struct {
 	Window                string   `json:"window,omitempty"`
 	TotalImpactMS         float64  `json:"total_impact_ms,omitempty"`
 	MaxShardImpactMS      float64  `json:"max_shard_impact_ms,omitempty"`
+	AdditivityStatus      string   `json:"additivity_status,omitempty"`
 	RecommendedViews      []string `json:"recommended_views,omitempty"`
 	ExampleWindows        []string `json:"example_windows,omitempty"`
 	SourceRefs            []string `json:"source_refs,omitempty"`
@@ -66,6 +71,8 @@ func traceObservationShardAggregates(records []TraceObservationCoverageRecord) [
 		start   float64
 		end     float64
 		have    bool
+		spans   [][2]float64
+		overlap bool
 	}
 	buckets := map[string]*bucket{}
 	for _, record := range records {
@@ -110,6 +117,10 @@ func traceObservationShardAggregates(records []TraceObservationCoverageRecord) [
 			continue
 		}
 		b.windows[window] = true
+		if traceObservationShardWindowOverlaps(b.spans, start, end) {
+			b.overlap = true
+		}
+		b.spans = append(b.spans, [2]float64{start, end})
 		b.ShardCount++
 		if !b.have || start < b.start {
 			b.start = start
@@ -137,6 +148,12 @@ func traceObservationShardAggregates(records []TraceObservationCoverageRecord) [
 			continue
 		}
 		agg := b.TraceObservationShardAggregate
+		if b.overlap {
+			agg.TotalImpactMS = 0
+			agg.AdditivityStatus = TraceObservationShardAdditivityOverlappingWindows
+		} else {
+			agg.AdditivityStatus = TraceObservationShardAdditivityDisjointWindows
+		}
 		agg.Window = traceObservationCoverageFormatWindow(b.start, b.end)
 		agg.ExampleWindows = traceObservationCoverageLimitStrings(agg.ExampleWindows, traceObservationShardAggregateWindowLimit)
 		agg.SourceRefs = traceObservationCoverageLimitStrings(agg.SourceRefs, 3)
@@ -172,6 +189,8 @@ func traceObservationShardStateAggregates(records []TraceObservationCoverageReco
 		start   float64
 		end     float64
 		have    bool
+		spans   [][2]float64
+		overlap bool
 	}
 	buckets := map[string]*bucket{}
 	for _, record := range records {
@@ -220,6 +239,10 @@ func traceObservationShardStateAggregates(records []TraceObservationCoverageReco
 			continue
 		}
 		b.windows[window] = true
+		if traceObservationShardWindowOverlaps(b.spans, start, end) {
+			b.overlap = true
+		}
+		b.spans = append(b.spans, [2]float64{start, end})
 		b.ShardCount++
 		if record.Significant {
 			b.SignificantShardCount++
@@ -250,6 +273,12 @@ func traceObservationShardStateAggregates(records []TraceObservationCoverageReco
 			continue
 		}
 		agg := b.TraceObservationShardStateAggregate
+		if b.overlap {
+			agg.TotalImpactMS = 0
+			agg.AdditivityStatus = TraceObservationShardAdditivityOverlappingWindows
+		} else {
+			agg.AdditivityStatus = TraceObservationShardAdditivityDisjointWindows
+		}
 		agg.Window = traceObservationCoverageFormatWindow(b.start, b.end)
 		agg.ExampleWindows = traceObservationCoverageLimitStrings(agg.ExampleWindows, traceObservationShardAggregateWindowLimit)
 		agg.SourceRefs = traceObservationCoverageLimitStrings(agg.SourceRefs, 3)
@@ -278,6 +307,17 @@ func traceObservationShardStateAggregates(records []TraceObservationCoverageReco
 		out = out[:traceObservationShardAggregateLimit]
 	}
 	return out
+}
+
+func traceObservationShardWindowOverlaps(existing [][2]float64, start, end float64) bool {
+	for _, span := range existing {
+		// Adjacent half-open measurement windows are additive; any positive
+		// intersection means the same physical trace time can be counted twice.
+		if start < span[1] && end > span[0] {
+			return true
+		}
+	}
+	return false
 }
 
 func traceObservationShardAggregateKey(record TraceObservationCoverageRecord) string {

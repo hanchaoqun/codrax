@@ -4057,6 +4057,52 @@ caller 非 holder 与 typed lock holder 正向臂；无这些 typed 载体时不
 状态：`EVAL-B27-REL1=implemented / full-agent-tests-pass`；
 `EVAL-B27-CALLER1=implemented / full-agent-tests-pass`；下一步同一双 case 回放，
 人工检查模型是否消费关系；模型波动不升级为系统答案改写。
+
+#### B27b r1：CALLER 覆盖、REL 改善，发现 coverage shard 假总量
+
+严格并行 2 个回放 runner 均 PASS，人工结论：
+
+- bounded D/io_wait：human PASS，114s，finalizer reject=0；3 段与 0.635ms
+  全部正确，模型明确说明 caller 是内核等待调用点而非锁/资源 holder。
+  `EVAL-B27-CALLER1=covered`；`EVAL-B27-OWNGUARD1=covered`。
+- 显式窗复杂 trace：human FAIL，230s。REL1 被实际消费：模型明确写出
+  7.386ms io_wait 已含于 10.433ms D/IO 父席，没有再加 D+io_wait+latency；
+  `EVAL-B27-REL1=covered_with_residual`。但模型仍把 pre-wakeup dependency
+  写成持有者/CPU 竞争，并把 sleep 解释为“被唤醒后立即切出”；精确 PHASE
+  输入已在 finalizer，系统不据此改写模型答案，`EVAL-B26-PHASE1=partial`。
+
+新登记 `EVAL-B28-SHARD1/P1`：Trace Observation Coverage 的 shard aggregate
+按 distinct window 去重后无条件 Σ value，却不检查子窗是否相交。本次 6 个
+`resource_pressure/block_rq` 查询窗大面积重叠，系统仍发布
+`total_impact=14.204ms`；模型据此写成 block_rq 累计。答案后的 arithmetic
+advisory 虽披露“证据面未单独发布”，但错误数已经由系统 prompt 提供，不能
+归咎于模型，也不能靠答案扫描修补。
+
+#### B28a SHARD1：重叠查询窗撤销跨 shard 总量权限
+
+在 coverage aggregate 单一铸点做区间权限判定：
+
+1. root-cause shard 与 state/resource shard 共用严格区间相交判定；相邻
+   half-open 窗可加，任意正交集即不可加；
+2. 窗不重叠时保留 Σ，并发布
+   `additivity_status=disjoint_windows_additive`；
+3. 窗重叠时 `TotalImpactMS` 从 authority wire 撤销为 0，保留 shard_count、
+   union window、example windows、support refs 和 max_shard，并发布
+   `overlapping_windows_non_additive`；
+4. explorer stage report 与 finalizer coverage handoff 均渲染
+   `total_impact=unavailable` +
+   `cross_shard_additivity=forbidden_overlapping_windows`，不再把错误 Σ 暴露
+   给模型；
+5. 不扫描用户输入、模型输出或具体 resource type；所有 root/state/resource
+   shard 共用，且不新增答案 hard gate。
+
+定向覆盖：不相交窗口维持 21ms/32ms 旧 Σ；重叠 4.262ms+3.100ms 不再发布
+7.362ms，max=4.262ms 与 union coverage 保留；两条生产 prompt 消费面均钉。
+
+完整回归：`go test ./internal/types ./internal/agent -count=1` 通过
+（types 21.867s，agent 2.859s）。
+
+状态：`EVAL-B28-SHARD1=implemented / full-tests-pass / replay-next`。
 `eval/parallel_selected_summary_evalcampaign_b26phasealias_r1_20260801.md`、
 `eval/parallel_selected_summary_evalcampaign_b26phasealias_r1_20260801_manual_audit.md`。
 

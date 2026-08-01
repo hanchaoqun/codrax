@@ -4133,8 +4133,9 @@ func renderAnswerDocTraceObservationCoverage(ledger types.ObservationLedger) str
 			if i >= 4 {
 				break
 			}
-			fmt.Fprintf(&b, "  - shard[%d] subject=`%s`; object=`%s`; chain_relevance=`%s`; shards=%d; total_impact=%.3fms; max_shard=%.3fms",
-				i+1, agg.Subject, agg.Object, agg.ChainRelevance, agg.ShardCount, agg.TotalImpactMS, agg.MaxShardImpactMS)
+			fmt.Fprintf(&b, "  - shard[%d] subject=`%s`; object=`%s`; chain_relevance=`%s`; shards=%d",
+				i+1, agg.Subject, agg.Object, agg.ChainRelevance, agg.ShardCount)
+			writeAnswerDocTraceShardAmount(&b, agg.AdditivityStatus, agg.TotalImpactMS, agg.MaxShardImpactMS)
 			if agg.Window != "" {
 				fmt.Fprintf(&b, "; window=%s", agg.Window)
 			}
@@ -4153,8 +4154,9 @@ func renderAnswerDocTraceObservationCoverage(ledger types.ObservationLedger) str
 			if i >= 4 {
 				break
 			}
-			fmt.Fprintf(&b, "  - state_shard[%d] dimension=`%s`; subject=`%s`; object=`%s`; shards=%d; significant_shards=%d; total_impact=%.3fms; max_shard=%.3fms",
-				i+1, agg.Dimension, agg.Subject, agg.Object, agg.ShardCount, agg.SignificantShardCount, agg.TotalImpactMS, agg.MaxShardImpactMS)
+			fmt.Fprintf(&b, "  - state_shard[%d] dimension=`%s`; subject=`%s`; object=`%s`; shards=%d; significant_shards=%d",
+				i+1, agg.Dimension, agg.Subject, agg.Object, agg.ShardCount, agg.SignificantShardCount)
+			writeAnswerDocTraceShardAmount(&b, agg.AdditivityStatus, agg.TotalImpactMS, agg.MaxShardImpactMS)
 			if agg.DrilldownSource != "" {
 				fmt.Fprintf(&b, "; source=`%s`", agg.DrilldownSource)
 			}
@@ -4228,6 +4230,17 @@ func renderAnswerDocTraceObservationCoverage(ledger types.ObservationLedger) str
 	}
 	b.WriteByte('\n')
 	return b.String()
+}
+
+func writeAnswerDocTraceShardAmount(b *strings.Builder, status string, totalMS, maxMS float64) {
+	if b == nil {
+		return
+	}
+	if status == types.TraceObservationShardAdditivityOverlappingWindows {
+		fmt.Fprintf(b, "; total_impact=`unavailable`; max_shard=%.3fms; cross_shard_additivity=`forbidden_overlapping_windows`", maxMS)
+		return
+	}
+	fmt.Fprintf(b, "; total_impact=%.3fms; max_shard=%.3fms; cross_shard_additivity=`disjoint_windows`", totalMS, maxMS)
 }
 
 func renderAnswerDocTraceTargetStateScopeAuthority(ledger types.ObservationLedger) string {

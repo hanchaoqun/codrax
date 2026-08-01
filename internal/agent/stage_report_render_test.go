@@ -191,6 +191,7 @@ func TestRenderExplorerStageReport_RendersTraceShardAggregates(t *testing.T) {
 		"trace_query_shard_aggregate[1]: subject=main-1 object=running",
 		"chain_relevance=on_chain",
 		"shards=2 total_impact=21.000ms max_shard=12.000ms",
+		"cross_shard_additivity=disjoint_windows",
 		"window=1.000000..1.200000",
 		"example_windows=`1.000000..1.100000`, `1.100000..1.200000`",
 		"soft_handoff=true",
@@ -205,6 +206,28 @@ func TestRenderExplorerStageReport_RendersTraceShardAggregates(t *testing.T) {
 	}
 	if strings.Contains(got, "completion_blocker") || strings.Contains(got, "hard_block") {
 		t.Fatalf("trace shard aggregates must remain soft handoff:\n%s", got)
+	}
+}
+
+func TestRenderExplorerStageReport_OverlappingTraceShardsWithdrawTotal(t *testing.T) {
+	observations := []types.ObservationRecord{
+		stageReportTraceObservation("block1", "trace_query[1]", "block_io_by_inode", "block_io_by_inode:block", "block", "block_rq", "4.262", nil, types.ObservationSpan{StartTs: 1.000, EndTs: 1.150}),
+		stageReportTraceObservation("block2", "trace_query[2]", "block_io_by_inode", "block_io_by_inode:block", "block", "block_rq", "3.100", nil, types.ObservationSpan{StartTs: 1.100, EndTs: 1.200}),
+	}
+	got := renderExplorerStageReport("trace", "runtime", nil, nil, nil, nil, nil, nil, false, observations...)
+	for _, want := range []string{
+		"trace_query_state_shard_aggregate[1]",
+		"shards=2 significant_shards=0",
+		"total_impact=unavailable",
+		"max_shard=4.262ms",
+		"cross_shard_additivity=forbidden_overlapping_windows",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("overlapping shard stage report missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "total_impact=7.362ms") {
+		t.Fatalf("overlapping shard windows fabricated an additive total:\n%s", got)
 	}
 }
 

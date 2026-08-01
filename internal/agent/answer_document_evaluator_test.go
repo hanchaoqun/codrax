@@ -9115,6 +9115,7 @@ func TestRenderAnswerDocObservationLedger_IncludesTraceShardAggregates(t *testin
 	for _, want := range []string{
 		"shard_aggregates: bounded shard summaries below are soft parent-window handoff, not completion blockers.",
 		"shard[1] subject=`main-1`; object=`running`; chain_relevance=`on_chain`; shards=2; total_impact=21.000ms; max_shard=12.000ms",
+		"cross_shard_additivity=`disjoint_windows`",
 		"window=1.000000..1.200000",
 		"example_windows=`1.000000..1.100000`, `1.100000..1.200000`",
 		"support_refs=`trace.systrace:10-20`",
@@ -9130,6 +9131,32 @@ func TestRenderAnswerDocObservationLedger_IncludesTraceShardAggregates(t *testin
 	}
 	if strings.Contains(got, "hard_block=true") || strings.Contains(got, "completion_blocker=true") {
 		t.Fatalf("trace shard aggregates should remain soft handoff:\n%s", got)
+	}
+}
+
+func TestRenderAnswerDocObservationLedger_OverlappingTraceShardsWithdrawTotal(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{
+			stageReportTraceObservation("block1", "trace_query[1]", "block_io_by_inode", "block_io_by_inode:block", "block", "block_rq", "4.262", nil, types.ObservationSpan{StartTs: 1.000, EndTs: 1.150}),
+			stageReportTraceObservation("block2", "trace_query[2]", "block_io_by_inode", "block_io_by_inode:block", "block", "block_rq", "3.100", nil, types.ObservationSpan{StartTs: 1.100, EndTs: 1.200}),
+		},
+	}}})
+	got := renderAnswerDocObservationLedger(&types.AgentContext{Mutable: mu})
+	for _, want := range []string{
+		"state_shard[1] dimension=`resource_pressure`",
+		"total_impact=`unavailable`",
+		"max_shard=4.262ms",
+		"cross_shard_additivity=`forbidden_overlapping_windows`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("overlapping shard finalizer handoff missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "total_impact=7.362ms") {
+		t.Fatalf("overlapping shard windows fabricated an additive total:\n%s", got)
 	}
 }
 

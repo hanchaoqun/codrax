@@ -200,12 +200,29 @@ func TestTraceObservationCoverageAggregatesBoundedRootCauseShards(t *testing.T) 
 		agg.Window != "1.000000..1.200000" ||
 		agg.TotalImpactMS != 21 ||
 		agg.MaxShardImpactMS != 12 ||
+		agg.AdditivityStatus != TraceObservationShardAdditivityDisjointWindows ||
 		!slices.Contains(agg.ExampleWindows, "1.000000..1.100000") ||
 		!slices.Contains(agg.ExampleWindows, "1.100000..1.200000") {
 		t.Fatalf("unexpected shard aggregate: %+v", agg)
 	}
 	if got.ShardAggregates[1].ChainRelevance != "background" {
 		t.Fatalf("on-chain aggregate should sort before larger background aggregate: %+v", got.ShardAggregates)
+	}
+}
+
+func TestTraceObservationCoverageDoesNotSumOverlappingShardWindows(t *testing.T) {
+	got := TraceObservationCoverageFromObservationRecords([]ObservationRecord{
+		traceCoverageRecord("block1", "trace_query:1", "block_io_by_inode", "block_io_by_inode:block", "block", "block_rq", "4.262", nil, ObservationSpan{StartTs: 1.000, EndTs: 1.150}),
+		traceCoverageRecord("block2", "trace_query:2", "block_io_by_inode", "block_io_by_inode:block", "block", "block_rq", "3.100", nil, ObservationSpan{StartTs: 1.100, EndTs: 1.200}),
+	})
+	if len(got.ShardStateAggregates) != 1 {
+		t.Fatalf("expected one overlapping state shard aggregate, got %+v", got.ShardStateAggregates)
+	}
+	agg := got.ShardStateAggregates[0]
+	if agg.AdditivityStatus != TraceObservationShardAdditivityOverlappingWindows ||
+		agg.TotalImpactMS != 0 || agg.MaxShardImpactMS != 4.262 ||
+		agg.Window != "1.000000..1.200000" {
+		t.Fatalf("overlapping shards must keep max/coverage but withdraw the sum: %+v", agg)
 	}
 }
 
@@ -251,6 +268,7 @@ func TestTraceObservationCoverageAggregatesBoundedStateDrilldownShards(t *testin
 		!long.RecursiveDrilldown ||
 		long.TotalImpactMS != 32 ||
 		long.MaxShardImpactMS != 18 ||
+		long.AdditivityStatus != TraceObservationShardAdditivityDisjointWindows ||
 		long.Window != "1.000000..1.200000" ||
 		!slices.Contains(long.RecommendedViews, "wakeup_chain") ||
 		!slices.Contains(long.RecommendedViews, "root_cause_rank") {

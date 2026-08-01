@@ -229,7 +229,8 @@ func renderTraceObservationCoverageForStageReport(coverage types.TraceObservatio
 		if agg.ChainRelevance != "" {
 			fmt.Fprintf(&b, " chain_relevance=%s", agg.ChainRelevance)
 		}
-		fmt.Fprintf(&b, " shards=%d total_impact=%.3fms max_shard=%.3fms", agg.ShardCount, agg.TotalImpactMS, agg.MaxShardImpactMS)
+		fmt.Fprintf(&b, " shards=%d", agg.ShardCount)
+		writeStageTraceShardAmount(&b, agg.AdditivityStatus, agg.TotalImpactMS, agg.MaxShardImpactMS)
 		if agg.Window != "" {
 			fmt.Fprintf(&b, " window=%s", agg.Window)
 		}
@@ -250,8 +251,8 @@ func renderTraceObservationCoverageForStageReport(coverage types.TraceObservatio
 		if agg.ChainRelevance != "" {
 			fmt.Fprintf(&b, " chain_relevance=%s", agg.ChainRelevance)
 		}
-		fmt.Fprintf(&b, " shards=%d significant_shards=%d total_impact=%.3fms max_shard=%.3fms",
-			agg.ShardCount, agg.SignificantShardCount, agg.TotalImpactMS, agg.MaxShardImpactMS)
+		fmt.Fprintf(&b, " shards=%d significant_shards=%d", agg.ShardCount, agg.SignificantShardCount)
+		writeStageTraceShardAmount(&b, agg.AdditivityStatus, agg.TotalImpactMS, agg.MaxShardImpactMS)
 		if agg.Window != "" {
 			fmt.Fprintf(&b, " window=%s", agg.Window)
 		}
@@ -309,6 +310,17 @@ func renderTraceObservationCoverageForStageReport(coverage types.TraceObservatio
 	}
 	b.WriteByte('\n')
 	return b.String()
+}
+
+func writeStageTraceShardAmount(b *strings.Builder, status string, totalMS, maxMS float64) {
+	if b == nil {
+		return
+	}
+	if status == types.TraceObservationShardAdditivityOverlappingWindows {
+		fmt.Fprintf(b, " total_impact=unavailable max_shard=%.3fms cross_shard_additivity=forbidden_overlapping_windows", maxMS)
+		return
+	}
+	fmt.Fprintf(b, " total_impact=%.3fms max_shard=%.3fms cross_shard_additivity=disjoint_windows", totalMS, maxMS)
 }
 
 func primaryEvidenceForReport(items []types.EvidenceItem) []types.EvidenceItem {
