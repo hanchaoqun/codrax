@@ -67,6 +67,7 @@ const (
 	verificationProbeContinuationMissingChangedSymbolRef   = "verification_probe_missing_changed_symbol_ref"
 	verificationProbeContinuationImpactRelatedTestSurface  = "impact_related_test_surface"
 	verificationProbeContinuationChangedPathUncovered      = "verification_probe_changed_path_uncovered"
+	verificationProbeContinuationMissingPlanContractRef    = "verification_probe_missing_plan_contract_ref"
 	verificationProbeContinuationSourceImpactTestSurface   = "impact_test_surface"
 	verificationProbeContinuationSourceProbeSuiteContinued = "probe_primary_suite_continued"
 )
@@ -1529,11 +1530,14 @@ func verificationProbePassProjectSuiteContinuationReason(ctx *types.BusContext, 
 	if verificationProbeHasUncoveredChangedPathWithMatchingRunner(ctx, probeReport, plans) {
 		return verificationProbeContinuationChangedPathUncovered
 	}
-	// Missing contract refs are recorded by verificationConfidenceRecordsFromReport
-	// as a typed confidence downgrade. They are not, by themselves, a reason to
-	// escalate a passed scoped probe into a potentially expensive full project
-	// suite; otherwise partial customer environments turn usable proof into a
-	// timeout hard failure.
+	// A bounded probe may skip a detected project suite only when it covers every
+	// required analyzer-owned contract. Generic expected_outcome_fallback atoms
+	// deliberately remain advisory here: they mirror request prose and would
+	// otherwise turn nearly every scoped probe into a full-suite run. This gate
+	// consumes only typed contract sources/IDs and probe refs.
+	if len(verificationProbeMissingRequiredNonFallbackContractRefs(plan)) > 0 {
+		return verificationProbeContinuationMissingPlanContractRef
+	}
 	if changePlanTouchesTestOrSpecPath(plan) {
 		return verificationProbeContinuationPlanTouchesTestPath
 	}
@@ -1635,6 +1639,26 @@ func verificationProbeMissingRequiredContractRefs(plan *types.ChangePlan) []stri
 		return nil
 	}
 	required := types.HardRequiredWriteBehaviorContractIDs(plan.BehaviorContracts)
+	if len(required) == 0 {
+		return nil
+	}
+	covered := map[string]struct{}{}
+	for _, probe := range plan.VerificationProbes {
+		for _, ref := range probe.ContractRefs {
+			ref = strings.TrimSpace(ref)
+			if ref != "" {
+				covered[ref] = struct{}{}
+			}
+		}
+	}
+	return sortedStringSet(subtractStringSet(required, covered))
+}
+
+func verificationProbeMissingRequiredNonFallbackContractRefs(plan *types.ChangePlan) []string {
+	if plan == nil {
+		return nil
+	}
+	required := types.RequiredWriteBehaviorContractIDs(plan.BehaviorContracts, false)
 	if len(required) == 0 {
 		return nil
 	}

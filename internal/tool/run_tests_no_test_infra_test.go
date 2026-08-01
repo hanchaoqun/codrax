@@ -938,7 +938,7 @@ func TestRunTestsVerificationProbePassSkipsProjectSuiteWhenProbeComplete(t *test
 	}
 }
 
-func TestRunTestsVerificationProbePassSkipsProjectSuiteWhenOnlyContractRefMissing(t *testing.T) {
+func TestRunTestsVerificationProbePassContinuesProjectSuiteWhenPlanContractRefMissing(t *testing.T) {
 	if _, ok := resolvePythonDryBuildRunner(); !ok {
 		t.Skip("no usable python on PATH; skip")
 	}
@@ -991,8 +991,92 @@ func TestRunTestsVerificationProbePassSkipsProjectSuiteWhenOnlyContractRefMissin
 	if err != nil {
 		t.Fatalf("Execute returned error: %v", err)
 	}
+	if result.Success {
+		t.Fatalf("project-suite failure should remain authoritative when a required plan contract is uncovered, got %+v", result)
+	}
+	report := mu.ChangeReport()
+	if report == nil {
+		t.Fatal("run_tests should populate ChangeReport")
+	}
+	foundContinuedSuite := false
+	foundExecutedSuite := false
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Runner == "python" && cmd.Framework == "unittest" &&
+			cmd.Source == verificationProbeContinuationSourceProbeSuiteContinued &&
+			cmd.Outcome == "suite_continued" &&
+			cmd.ReasonCode == verificationProbeContinuationMissingPlanContractRef {
+			foundContinuedSuite = true
+		}
+		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Source == "llm_choice" && cmd.Outcome == "executed" {
+			foundExecutedSuite = true
+		}
+		if cmd.Source == "probe_primary_suite_skipped" {
+			t.Fatalf("suite must not be marked skipped while a required plan contract is uncovered: %+v", report.ExecutedCommands)
+		}
+	}
+	if !foundContinuedSuite || !foundExecutedSuite {
+		t.Fatalf("expected typed contract continuation and project-suite execution, got %+v", report.ExecutedCommands)
+	}
+	if report.NormalizeVerificationStatus() != types.VerificationStatusFailed {
+		t.Fatalf("failing continued suite must make the combined report failed, got %+v", report)
+	}
+}
+
+func TestRunTestsVerificationProbePassSkipsProjectSuiteWhenOnlyFallbackContractMissing(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "tests"), 0o755); err != nil {
+		t.Fatalf("mkdir tests: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "tests", "__init__.py"), []byte(""), 0o644); err != nil {
+		t.Fatalf("write tests package marker: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "widget.py"), []byte("VALUE = 42\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	testBody := "import unittest\n\nclass ProjectSuite(unittest.TestCase):\n    def test_project_suite_would_fail(self):\n        self.assertTrue(False)\n"
+	if err := os.WriteFile(filepath.Join(root, "tests", "test_project_suite.py"), []byte(testBody), 0o644); err != nil {
+		t.Fatalf("write test: %v", err)
+	}
+	mu := types.NewMutableState("probe missing fallback contract ref")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-probe-missing-fallback-ref",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"widget.py"},
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID:       "outcome-1",
+			Kind:     types.WriteBehaviorObservable,
+			Polarity: types.WriteBehaviorPolarityExpected,
+			Operator: types.WriteBehaviorOpSatisfies,
+			Expected: "widget value is 42",
+			Required: true,
+			Source:   "expected_outcome_fallback",
+		}},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:                "value_contract",
+			Language:          "python",
+			Code:              "import widget\nassert widget.VALUE == 42\n",
+			ChangedSymbolRefs: []string{"widget.VALUE"},
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"runner":    "python",
+		"framework": "unittest",
+	}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
 	if !result.Success {
-		t.Fatalf("passing verification_probe should pass without project-suite hard gate, got %+v", result)
+		t.Fatalf("fallback-only contract gaps must not escalate a passing bounded probe, got %+v", result)
 	}
 	report := mu.ChangeReport()
 	if report == nil {
@@ -1003,18 +1087,12 @@ func TestRunTestsVerificationProbePassSkipsProjectSuiteWhenOnlyContractRefMissin
 		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Source == "probe_primary_suite_skipped" && cmd.Outcome == "suite_skipped" {
 			foundSkippedSuite = true
 		}
-		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Source == "llm_choice" && cmd.Outcome == "executed" {
-			t.Fatalf("missing contract refs alone must not execute project suite after passing bounded probe: %+v", report.ExecutedCommands)
+		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Outcome == "executed" {
+			t.Fatalf("fallback-only proof gap must not execute project suite: %+v", report.ExecutedCommands)
 		}
 	}
 	if !foundSkippedSuite {
-		t.Fatalf("executed command evidence should record skipped project suite, got %+v", report.ExecutedCommands)
-	}
-	if !changeReportHasVerificationConfidence(report, "probe_contract_refs", "missing", "verification_probe_missing_required_contract_ref") {
-		t.Fatalf("missing contract-ref confidence downgrade should be retained: %+v", report.VerificationConfidence)
-	}
-	if !strings.Contains(result.Summary, "verification_probes verdict=PASSED") {
-		t.Fatalf("summary should explain probe-primary verdict, got %q", result.Summary)
+		t.Fatalf("fallback-only proof gap should retain skipped-suite evidence: %+v", report.ExecutedCommands)
 	}
 }
 

@@ -4933,7 +4933,7 @@ r2 在内部词面修复后 runner 2/2 PASS：无窗 case 恢复 `bounded_fact_s
 
 | ID | 优先级 | 系统 GAP | 泛化方案 | 状态 |
 |---|---|---|---|---|
-| `EVAL-B20-W1` | P0 | passed bounded probe 即使遗漏 planner 声明的 required 非 fallback 合同，也会跳过已检测到且有 test signal 的项目 suite | `run_tests` 只读 typed plan/probe refs/TestSurface：当 probe 未覆盖任一 required、非 `expected_outcome_fallback` 合同时继续项目 suite；fallback 文案缺口和 baseline-only 警告不单独触发昂贵 suite | open，批 W1 |
+| `EVAL-B20-W1` | P0 | passed bounded probe 即使遗漏 planner 声明的 required 非 fallback 合同，也会跳过已检测到且有 test signal 的项目 suite | `run_tests` 只读 typed plan/probe refs/TestSurface：当 probe 未覆盖任一 required、非 `expected_outcome_fallback` 合同时继续项目 suite；fallback 文案缺口和 baseline-only 警告不单独触发昂贵 suite | implemented/full-tests-pass，待同 case 回放 |
 | `EVAL-B20-W2` | P0 | `changeReportHasConcretePassedTestResult` 把 probe-only TestResult 当“具体本地测试”，过滤 proof follow-up；truth ledger 随后对 complete workflow 发出不可执行的 verify | 以 `ExecutedCommand` typed provenance 区分 project runner 与 `verification_probe`；probe-only 不得压掉 proof repair。若最终仍 weak，完成态不得铸 `verified`，应进入一次 bounded proof follow-up 或诚实 `accept_unverified` | open，批 W2 |
 | `EVAL-B20-W3` | P2 | `expects_baseline_failure=true` 但没有 baseline 结果；报告只告警，不能证明补丁前失败/补丁后修复 | 保留 typed warning；先观察其他 case，若跨 case 复现再设计一次性 baseline snapshot/probe，不以题型或语言硬门 | watch |
 | `EVAL-B20-W4` | P2 | plan repair 时模型删除了原 Java verification probe | 本轮已有 strong project runner，不影响正确性；按模型过程波动留样，跨语言复现后再增强 repair pack 的结构字段保留提示 | model-variance-watch |
@@ -4948,6 +4948,24 @@ ExecutedCommand/ChangeReport provenance；不扫描用户原文、模型 thinkin
 - `eval/parallel_selected_summary_evalcampaign_b20r1_20260801.md`；
 - `eval/parallel_selected_summary_evalcampaign_b20r1_20260801_manual_audit.md`；
 - 两个结果目录时间戳 `20260801-043649`。
+
+#### B20-W1：required plan contract 决定 probe 后是否续跑 suite
+
+`run_tests` 新增 typed continuation reason
+`verification_probe_missing_plan_contract_ref`。通过的 bounded probe 只有覆盖全部
+required、非 fallback 行为合同，才可跳过已经检测到且 `has_test_signal=true` 的项目
+suite；缺一个就继续既有 TestSurface，让项目 runner 决定最终 pass/fail。
+
+性能边界保持：`expected_outcome_fallback` 仅是请求摘要的兼容载体，缺失时仍只记
+confidence telemetry，不触发项目套件；baseline-only 告警也不触发。本批不读合同正文、
+用户请求或模型答案，只比较规范化 contract ID/source 与 probe `contract_refs`。
+
+测试覆盖完整 probe 仍跳过、required analyzer contract 缺失时续跑且失败 suite 拥有
+判决、fallback-only 缺失仍跳过三臂。定向测试和
+`go test ./internal/tool -count=1` 全量通过（158.045s）。
+
+状态：`EVAL-B20-W1=implemented/full-tests-pass/replay-next`；
+`EVAL-B20-W2=P0/open`。
 
 ### B19g-b r1：target authority 通过，有限事实集仍被扩张（2026-08-01）
 
