@@ -1001,6 +1001,57 @@ func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_ArchitectureNarrati
 	}
 }
 
+func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_TypedRelationAuthorityWinsOverBroaderInventory(t *testing.T) {
+	rm := sourceInventoryProjectionRequestModel(nil)
+	rm.Intent = IntentExplain
+	rm.Scenario = ScenarioArchitectureExplain
+	rm.DiagramHint = &DiagramHint{Kind: DiagramArchitecture}
+	relationFact := AnswerAggregateFact{
+		Kind:       AnswerAggregateMemberSet,
+		Label:      "LoopController implementations",
+		Value:      "2",
+		Role:       AnswerAggregateRolePrincipalAnswer,
+		Provenance: TypedRelationPrincipalMemberSetAggregateProvenance,
+		Members:    []string{"prodA", "prodB"},
+		SupportRefs: []string{
+			"prodA @ internal/agent/a.go:10",
+			"prodB @ internal/agent/b.go:20",
+		},
+	}
+	obs := sourceInventoryProjectionObservation(
+		SourceInventoryObservationMember{Name: "LoopController", Role: AnswerCandidateRoleType, File: "internal/agent/agent.go", Line: 5, Language: "go"},
+		SourceInventoryObservationMember{Name: "prodA", Role: AnswerCandidateRoleType, File: "internal/agent/a.go", Line: 10, Language: "go"},
+		SourceInventoryObservationMember{Name: "prodB", Role: AnswerCandidateRoleType, File: "internal/agent/b.go", Line: 20, Language: "go"},
+		SourceInventoryObservationMember{Name: "testStub", Role: AnswerCandidateRoleType, File: "internal/agent/agent_test.go", Line: 30, Language: "go"},
+	)
+
+	got := ProjectSourceInventoryPrincipalRowSetAggregateFacts([]AnswerAggregateFact{relationFact}, obs, rm)
+	if len(got) != 1 || strings.Join(got[0].Members, ",") != "prodA,prodB" {
+		t.Fatalf("typed relation principal set must not be replaced by broad inventory: %+v", got)
+	}
+	if !AnswerAggregateFactHasTypedRelationPrincipalAuthority(got[0]) {
+		t.Fatalf("typed relation authority marker was lost: %+v", got[0])
+	}
+
+	snapshot := BuildSourceInventoryAuthoritySnapshot(SourceInventoryAuthoritySnapshotInput{
+		Observation:            obs,
+		RequestModel:           rm,
+		ExistingAggregateFacts: got,
+	})
+	if snapshot.PrincipalAuthority || !snapshot.SupportOnly {
+		t.Fatalf("source inventory must become support-only under relation authority: %+v", snapshot)
+	}
+	if snapshot.PrincipalRowSet.PrincipalTotal != 0 || len(snapshot.PrincipalRowSet.PrincipalRows) != 0 {
+		t.Fatalf("source-inventory principal rows must be demoted, not compete with relation slate: %+v", snapshot.PrincipalRowSet)
+	}
+	if len(snapshot.PrincipalRowSet.SupportRows)+len(snapshot.PrincipalRowSet.AuditRows) == 0 {
+		t.Fatalf("demotion must preserve source-inventory rows for audit: %+v", snapshot.PrincipalRowSet)
+	}
+	if !strings.Contains(strings.Join(snapshot.ReasonCodes, ","), "typed_relation_principal_authority") {
+		t.Fatalf("snapshot must disclose relation ownership: %+v", snapshot.ReasonCodes)
+	}
+}
+
 func sourceInventoryProjectionRequestModel(scope *SourceScope) RequestModel {
 	rm := RequestModel{
 		Intent: IntentEnumerate,

@@ -71,6 +71,68 @@ func TestRenderAnswerDocSourceInventoryHandoffUsesPrincipalRowSet(t *testing.T) 
 	}
 }
 
+func TestRenderAnswerDocSourceInventoryHandoffDoesNotOverrideTypedRelationPrincipalSet(t *testing.T) {
+	mu := types.NewMutableState("relation roster with source inventory navigation")
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleType,
+			Complete: true,
+			Count:    3,
+			Members: []types.SourceInventoryObservationMember{
+				{Name: "LoopController", Role: types.AnswerCandidateRoleType, File: "internal/agent/agent.go", Line: 5},
+				{Name: "prodA", Role: types.AnswerCandidateRoleType, File: "internal/agent/a.go", Line: 10},
+				{Name: "testStub", Role: types.AnswerCandidateRoleType, File: "internal/agent/agent_test.go", Line: 30},
+			},
+		}},
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "LoopController implementations",
+		Value:      "1",
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Provenance: types.TypedRelationPrincipalMemberSetAggregateProvenance,
+		Members:    []string{"prodA"},
+		SupportRefs: []string{
+			"prodA @ internal/agent/a.go:10",
+		},
+	}})
+	mu.SetInvestigationComplete("typed relation principal set accepted")
+	mu.SetInvestigationResultKind("resolved")
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.AgentContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:     types.IntentExplain,
+			Scenario:   types.ScenarioArchitectureExplain,
+			Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+			DiagramHint: &types.DiagramHint{
+				Kind: types.DiagramArchitecture,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+				Confidence:        0.95,
+			},
+		}},
+	}
+
+	snapshot := answerDocSourceInventoryAuthoritySnapshot(ctx, types.SourceInventoryObservationFromMutable(mu))
+	if snapshot.PrincipalRowSet.PrincipalTotal != 0 || snapshot.PrincipalAuthority {
+		t.Fatalf("answer document must not re-mint source inventory as principal: %+v", snapshot)
+	}
+	out := renderAnswerDocSourceInventoryHandoff(ctx)
+	if strings.Contains(out, "Principal candidate rows") {
+		t.Fatalf("source inventory must remain advisory under typed relation authority:\n%s", out)
+	}
+	for _, want := range []string{"member=`LoopController`", "member=`prodA`", "member=`testStub`"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("advisory audit roster should preserve %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestAnswerDocSourceInventoryAuthoritySnapshotHonorsAcceptedClosure(t *testing.T) {
 	mu := types.NewMutableState("source inventory accepted closure")
 	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{

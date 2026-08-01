@@ -3732,5 +3732,98 @@ discipline；测试改为逐项固定 40 条前缀，没有删除规则或放宽
 
 | ID | 状态 |
 |---|---|
-| EVAL-B16-REL1 | implementation-complete / full-tests-pass / replay-next |
+| EVAL-B16-REL1 | partial：source-role carrier covered；B18 r1 发现 completion authority convergence gap |
 | EVAL-B16-REL2 | filed-audit（等待 REL1 回放后继续审计成本） |
+
+#### B18 r1：runner PASS / human FAIL（2026-08-01）
+
+严格并行 2 个回放：
+
+- `qf_type_relation_loop_controller`：runner PASS，273s，人工 FAIL；
+- `real_trace_h8_semantic_edge_anchor_sentinel`：runner PASS，152s，人工 PASS。
+
+H8 非回退证据完整：显式 `34579.490–34579.500s` 窗、根因排序、两跳
+wakeup chain、Trace 因果投影、窗内可消除量和成文前
+`critical_blocking_calls` 自动补采均在，B18 没有影响 runtime family。
+
+LoopController 的 B18 carrier 也确实生效：explorer/finalizer prompt 都显示
+`complete=15, principal=12, auxiliary=3, unknown=0`。但答案仍错误，深层原因是
+完成权没有随 typed relation carrier 收敛：
+
+1. analyzer 发出 `intent=explain + architecture diagram +
+   category_enumeration + source_inventory(type)`，却把
+   `is_relational_lookup` 留为 false；
+2. source-inventory 机械行集先铸造 16 个 principal type（接口本身、12 个
+   production 实现、3 个 test 实现）；
+3. B18 的 relation scope gate 原来只在 `RequiresRelationMemberSetHandoff`
+   为真时运行，因此这次没有消费已经在场的 exact relation roster；
+4. source-inventory completion、generic exhaustive completion 和 finalizer
+   又把 16 行视为权威，relation 的 12/3 分席只剩 advisory；
+5. 结果是 17 次 explore、10 次 midloop、8 次 completion 尝试，最终仍把
+   3 个测试实现放入主表和主图。现有 oracle 只检查生产实现出现，没有禁止
+   auxiliary 行，所以 runner 误报 PASS。
+
+立案 `EVAL-B18-CONV1`（P1）：typed relation / source_inventory 完成权限
+收敛缺失。它是“producer 正确、consumer 权限错误”的通用通道问题，不是
+LoopController、Go `_test.go` 或“主要”一词的特例。
+
+#### B18b typed relation completion authority convergence
+
+方案只消费 precise structured signals：
+
+1. request 必须已经是 typed relation member shape，或同时具备
+   `category_enumeration + non-none diagram + source_inventory(type)`；
+2. coverage provider 必须返回 exact typed relation candidates；
+3. model-authored principal `member_set` 的每个成员必须能精确匹配 relation
+   member 或其 source anchor；出现任意无关 generic inventory row即不接管；
+4. exact auxiliary/test row 进入 principal 时，在
+   `emit_investigation_complete` 入口硬拒绝。该拒绝不进入 low-delta
+   convergence，不能在重试后被绕过；same-name 跨 role、unknown path 和
+   非 exact carrier 继续 fail-open；
+5. 校验通过后由系统给 principal member_set 铸造保留 provenance。入口先
+   剥离任何 model-supplied 同名 token，防止模型伪造权限；
+6. source-inventory row-set landing、resolved/lens completion 和 generic
+   exhaustive gate 遇到该权威时让位；完整 source-inventory roster 保留为
+   support/audit，不被删除；
+7. AnswerSurfacePlan 和 finalizer 识别同一 provenance，保留 relation 主集合，
+   不再用更宽的机械 type/function row set 覆盖；纯名称成员无需靠箭头或
+   自然语言 label 猜 relation；
+8. 普通“所有类型/函数”只要包含一个不能匹配 exact relation member/source
+   的成员，就继续由 source_inventory 拥有完成权。
+
+红线核对：
+
+- 不读取 RawRequest、model thinking、closure reason 或 final answer prose；
+- 不识别“主要”、`LoopController`、`_test.go`、case ID 或任何语言关键词；
+- Trace resolver、显式窗、root rank、wakeup chain、eliminable projection、
+  system supplement 未修改，H8 保持专门非回退席；
+- source-inventory 不是被关闭，而是在 exact relation 主集合已成立时降为
+  audit/support；没有 relation 证明时行为不变。
+
+新增验证：
+
+- analyzer-drift 结构（relation=false）仍能由 exact roster + exact member
+  set 收敛；
+- 去掉 diagram 或加入任一 unrelated type 后不激活；
+- model 伪造 system provenance 会被剥离；
+- production 主集合保留，test auxiliary promotion 为不可收敛硬拒绝；
+- source-inventory 机械 4 行不能覆盖 relation 3 行；
+- snapshot/finalizer 把机械行降为 audit/support，同时完整保留候选 roster；
+- LOC ratchet 与 tool user-facing glossary lint 继续守住。
+
+回归：
+
+- `go test ./internal/types ./internal/context ./internal/agent -count=1`
+  通过（19.074s / 2.533s / 3.615s）；
+- `go test ./internal/tool -count=1` 通过（161.123s）；
+- 新拆分的 `source_inventory_authority_snapshot_support.go` 按实际 63 LOC
+  登记独立 ratchet；旧 snapshot/projection 文件分别降到 226/342 LOC，
+  未提高任何既有 ceiling。
+
+状态：
+
+| ID | 状态 |
+|---|---|
+| EVAL-B18-CONV1 | implemented / full-tests-pass / replay-next |
+| EVAL-B16-REL1 | B18b replay pending |
+| H8 explicit-window non-regression | r1 human-pass；B18b replay must retain |

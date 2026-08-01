@@ -60,6 +60,14 @@ func BuildSourceInventoryAuthoritySnapshot(input SourceInventoryAuthoritySnapsho
 		RequestModel: rm,
 	})
 	projected := ProjectSourceInventoryPrincipalRowSetAggregateFacts(input.ExistingAggregateFacts, observation, rm)
+	typedRelationPrincipalAuthority := len(PrincipalTypedRelationMemberSetFactRefsForRequest(projected, &rm)) > 0
+	if typedRelationPrincipalAuthority {
+		// The source lens remains useful as an audit/navigation roster, but it
+		// cannot own the answer slate once an exact typed-relation member_set
+		// has been accepted. Demote its rows rather than deleting them.
+		rowSet = sourceInventoryDemotePrincipalRowsForTypedRelation(rowSet)
+		completion = SourceInventoryCompletionAuthority{}
+	}
 	rowSet, requestedUniverse := sourceInventoryApplyRequestedUniverse(rowSet, rm, projected)
 	rowSet = sourceInventoryLimitPrincipalRowSet(rowSet,
 		sourceInventorySnapshotLimit(input.MaxPrincipalRows),
@@ -76,8 +84,8 @@ func BuildSourceInventoryAuthoritySnapshot(input SourceInventoryAuthoritySnapsho
 
 	out := SourceInventoryAuthoritySnapshot{
 		Active:                       observation.IsActive() || SourceInventoryPrincipalAuthorityActive(rm),
-		PrincipalAuthority:           SourceInventoryPrincipalAuthorityActive(rm),
-		SupportOnly:                  SourceInventoryCompletionIsSupportOnly(rm),
+		PrincipalAuthority:           SourceInventoryPrincipalAuthorityActive(rm) && !typedRelationPrincipalAuthority,
+		SupportOnly:                  SourceInventoryCompletionIsSupportOnly(rm) || typedRelationPrincipalAuthority,
 		LensExecuted:                 SourceInventoryLensExecuted(observation),
 		RepoWideRequired:             SourceInventoryRequiresRepoWideLens(rm),
 		ObservationComplete:          observation.Complete,
@@ -111,6 +119,9 @@ func BuildSourceInventoryAuthoritySnapshot(input SourceInventoryAuthoritySnapsho
 		out.LensExecuted &&
 		!out.SupportOnly
 	out.ReasonCodes = sourceInventorySnapshotReasonCodes(out)
+	if typedRelationPrincipalAuthority {
+		out.ReasonCodes = sourceInventorySnapshotUniqueStrings(append(out.ReasonCodes, "typed_relation_principal_authority"))
+	}
 	return out
 }
 
@@ -212,49 +223,4 @@ func sourceInventorySnapshotPathCoveredByScope(file, scope string) bool {
 		return false
 	}
 	return scope == "." || file == scope || strings.HasPrefix(file, scope+"/")
-}
-
-func sourceInventorySnapshotReasonCodes(s SourceInventoryAuthoritySnapshot) []string {
-	var out []string
-	add := func(code string) {
-		code = strings.TrimSpace(code)
-		if code != "" {
-			out = append(out, code)
-		}
-	}
-	if !s.Active {
-		add("inactive")
-	}
-	if s.SupportOnly {
-		add("support_only")
-	}
-	if s.NeedsFollowup {
-		add("followup_required")
-	}
-	if !s.RequiredFilesCovered {
-		add("required_files_uncovered")
-	}
-	if s.PrincipalAggregateFactCount == 0 && s.PrincipalAuthority {
-		add("principal_aggregate_fact_missing")
-	}
-	if s.CanEnterMechanicalLanding {
-		add("mechanical_landing_ready")
-	}
-	add(s.CompletionAuthority.ReasonCode)
-	add(s.FollowupDebt.ReasonCode)
-	return sourceInventorySnapshotUniqueStrings(out)
-}
-
-func sourceInventorySnapshotUniqueStrings(in []string) []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, value := range in {
-		value = strings.TrimSpace(value)
-		if value == "" || seen[value] {
-			continue
-		}
-		seen[value] = true
-		out = append(out, value)
-	}
-	return out
 }

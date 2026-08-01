@@ -6,8 +6,6 @@ import (
 	"strings"
 )
 
-const SourceInventoryPrincipalRowSetAggregateProvenance = "system:source_inventory_principal_row_set"
-
 // ProjectSourceInventoryPrincipalRowSetAggregateFacts makes the typed
 // source-inventory row universe available to the existing aggregate-fact /
 // EnumerationDisplayRows / AnswerSupportPlan contract path. It derives only
@@ -17,6 +15,9 @@ const SourceInventoryPrincipalRowSetAggregateProvenance = "system:source_invento
 func ProjectSourceInventoryPrincipalRowSetAggregateFacts(facts []AnswerAggregateFact, observation SourceInventoryObservation, rm RequestModel) []AnswerAggregateFact {
 	out := cloneAnswerAggregateFacts(facts)
 	out = sourceInventoryDemoteAttributeMemberSetFacts(out, observation, rm)
+	if len(PrincipalTypedRelationMemberSetFactRefsForRequest(out, &rm)) > 0 {
+		return out
+	}
 	if sourceInventoryPrincipalRowSetProjectionDisabled(observation, rm) {
 		return out
 	}
@@ -123,11 +124,6 @@ func NormalizeSourceInventoryPrincipalRowSet(rowSet SourceInventoryPrincipalRowS
 	rowSet.AuditTotal = maxSourceInventoryObservationTotal(rowSet.AuditTotal, len(rowSet.AuditRows))
 	rowSet.Active = rowSet.Active && rowSet.PrincipalTotal > 0
 	return rowSet
-}
-
-func sourceInventoryAllPrincipalRows(rowSet SourceInventoryPrincipalRowSet) []SourceInventoryRow {
-	rows := append([]SourceInventoryRow(nil), rowSet.PrincipalRows...)
-	return sourceInventoryFamilyBalancedRows(rows)
 }
 
 func sourceInventoryAggregateFactHasAnyRowSetOverlap(fact AnswerAggregateFact, rowKeys map[string]bool) bool {

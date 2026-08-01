@@ -2053,6 +2053,23 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			Timestamp: time.Now(),
 		}, nil
 	}
+	// B18b: when a broad source_inventory analysis shape converges on an exact
+	// typed relation roster, prevent an auxiliary/test implementation from
+	// entering the principal member_set. This is a hard structured reject:
+	// exact provider candidates + deterministic path roles + model-authored
+	// aggregate members only. It never scans the request, closure, or answer
+	// prose, and unlike the generic low-delta gate it cannot be converged away.
+	if violations := relationPrincipalMemberSetScopeViolations(ctx, aggregateFacts); len(violations) > 0 {
+		return types.ToolResult{
+			ToolName: t.Name(),
+			Summary: "emit_investigation_complete rejected: the principal relation member_set promotes exact typed relation rows outside the requested source scope: " +
+				relationScopeViolationSummary(violations) +
+				". Move these rows to excluded[] or an explicitly auxiliary aggregate; retain them in the complete audit roster, but do not count them as principal unless SourceScopeProfile selects that role.",
+			Success:   false,
+			Timestamp: time.Now(),
+		}, nil
+	}
+	aggregateFacts = markExactTypedRelationPrincipalMemberSets(ctx, aggregateFacts)
 	aggregateFacts = sourceInventoryPrincipalRowSetLandingFacts(ctx, aggregateFacts)
 	// has_per_member_table completion obligation (2026-06-12
 	// sequence-table forensics): the analyzer-declared typed shape
@@ -5199,7 +5216,8 @@ func relationMemberSetHandoffDowngrade(ctx *types.BusContext, closure *types.Evi
 		return ""
 	}
 	rm := ctx.AnalysisIR.RequestModel
-	if !types.RequiresRelationMemberSetHandoff(rm) {
+	if !types.RequiresRelationMemberSetHandoff(rm) &&
+		!exactTypedRelationProjectionActive(ctx, aggregateFacts) {
 		return ""
 	}
 	ok, invalid := exhaustiveEnumerationMemberSetUsable(ctx, aggregateFacts)
@@ -5265,7 +5283,8 @@ func relationPrincipalMemberSetScopeViolations(ctx *types.BusContext, facts []ty
 		return nil
 	}
 	rm := ctx.AnalysisIR.RequestModel
-	if !types.RequiresRelationMemberSetHandoff(rm) {
+	if !types.RequiresRelationMemberSetHandoff(rm) &&
+		!exactTypedRelationProjectionActive(ctx, facts) {
 		return nil
 	}
 	candidates := relationCandidatesForRequestAllSourceRoles(ctx, rm)
@@ -5350,7 +5369,8 @@ func relationMemberSetCoverageGaps(ctx *types.BusContext, facts []types.AnswerAg
 		return nil
 	}
 	rm := ctx.AnalysisIR.RequestModel
-	if !types.HasTypedRelationMemberSetShape(rm) {
+	if !types.HasTypedRelationMemberSetShape(rm) &&
+		!exactTypedRelationProjectionActive(ctx, facts) {
 		return nil
 	}
 	expected := relationCandidatesForRequest(ctx, rm)
@@ -5435,6 +5455,146 @@ func relationCandidatesForRequestAllSourceRoles(ctx *types.BusContext, rm types.
 	return relationFilterCoverageCandidatesAllSourceRoles((types.EvidenceRelationCandidateSource{
 		Items: relationEvidenceItemsForCoverage(ctx),
 	}).TypedRelationCandidates(query))
+}
+
+// exactTypedRelationProjectionActive recognizes the analyzer-drift shape where
+// a request is classified as source_inventory even though the accepted
+// principal member_set is exactly a typed relation roster. It is deliberately
+// downstream and evidence-driven: the structured request must ask for a typed
+// relation/diagram member surface, an exact provider must return candidates,
+// and every principal member must match either an exact relation member or its
+// exact source anchor. A generic "all types" set with unrelated rows therefore
+// cannot activate this lane.
+func exactTypedRelationProjectionActive(ctx *types.BusContext, facts []types.AnswerAggregateFact) bool {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil || len(facts) == 0 {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if !exactTypedRelationProjectionRequestShape(rm) {
+		return false
+	}
+	candidates := relationCandidatesForRequestAllSourceRoles(ctx, rm)
+	if len(candidates) == 0 {
+		return false
+	}
+	return len(exactTypedRelationPrincipalFactIndexes(facts, rm, candidates)) > 0
+}
+
+func exactTypedRelationProjectionRequestShape(rm types.RequestModel) bool {
+	if types.HasTypedRelationMemberSetShape(rm) {
+		return true
+	}
+	if !rm.Predicates.IsCategoryEnumeration ||
+		rm.DiagramHint == nil ||
+		rm.DiagramHint.Kind == types.DiagramNone ||
+		rm.SourceInventoryProfile == nil ||
+		!rm.SourceInventoryProfile.Active() {
+		return false
+	}
+	for _, role := range rm.SourceInventoryProfile.PrincipalTargetRoles() {
+		if role == types.AnswerCandidateRoleType {
+			return true
+		}
+	}
+	return false
+}
+
+func exactTypedRelationPrincipalFactIndexes(
+	facts []types.AnswerAggregateFact,
+	rm types.RequestModel,
+	candidates []types.TypedRelationCandidate,
+) map[int]bool {
+	memberKeys := map[string]bool{}
+	sourceKeys := map[string]bool{}
+	for _, candidate := range candidates {
+		if !candidate.Precision.CoverageGateEligible() {
+			continue
+		}
+		if key := aggregateMemberKey(candidate.Member.Name); key != "" {
+			memberKeys[key] = true
+		}
+		if key := aggregateMemberKey(candidate.SourceName); key != "" {
+			sourceKeys[key] = true
+		}
+	}
+	if len(memberKeys) == 0 {
+		return nil
+	}
+	out := map[int]bool{}
+	for i, fact := range facts {
+		if !types.AnswerAggregateFactCarriesCompleteMemberSet(fact) ||
+			!types.AnswerAggregateFactRoleForRequest(fact, &rm).IsPrincipal() ||
+			len(fact.Members) == 0 {
+			continue
+		}
+		matchedMembers := map[string]bool{}
+		allRecognized := true
+		for _, raw := range fact.Members {
+			recognized := false
+			for _, display := range aggregateMemberDisplayCandidates(raw) {
+				key := aggregateMemberKey(display)
+				if key == "" {
+					continue
+				}
+				if memberKeys[key] {
+					matchedMembers[key] = true
+					recognized = true
+				}
+				if sourceKeys[key] {
+					recognized = true
+				}
+			}
+			if !recognized {
+				allRecognized = false
+				break
+			}
+		}
+		if allRecognized && len(matchedMembers) > 0 {
+			out[i] = true
+		}
+	}
+	return out
+}
+
+func markExactTypedRelationPrincipalMemberSets(ctx *types.BusContext, facts []types.AnswerAggregateFact) []types.AnswerAggregateFact {
+	if len(facts) == 0 {
+		return facts
+	}
+	// This provenance token is reserved for the system decision below. Strip
+	// any model-supplied copy first so downstream code never trusts a spoofed
+	// marker.
+	out := cloneCompletionAggregateFacts(facts)
+	for i := range out {
+		out[i].Provenance = strings.Trim(
+			strings.ReplaceAll(out[i].Provenance, types.TypedRelationPrincipalMemberSetAggregateProvenance, ""),
+			" ;,",
+		)
+	}
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
+		return out
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if !exactTypedRelationProjectionRequestShape(rm) {
+		return out
+	}
+	candidates := relationCandidatesForRequestAllSourceRoles(ctx, rm)
+	indexes := exactTypedRelationPrincipalFactIndexes(out, rm, candidates)
+	if len(indexes) == 0 {
+		return out
+	}
+	for i := range out {
+		if !indexes[i] ||
+			strings.Contains(out[i].Provenance, types.TypedRelationPrincipalMemberSetAggregateProvenance) {
+			continue
+		}
+		if strings.TrimSpace(out[i].Provenance) == "" {
+			out[i].Provenance = types.TypedRelationPrincipalMemberSetAggregateProvenance
+		} else {
+			out[i].Provenance = strings.TrimSpace(out[i].Provenance) + "; " +
+				types.TypedRelationPrincipalMemberSetAggregateProvenance
+		}
+	}
+	return out
 }
 
 func relationEvidenceItemsForCoverage(ctx *types.BusContext) []types.EvidenceItem {
@@ -5783,6 +5943,12 @@ func exhaustiveEnumerationMemberSetDowngrade(ctx *types.BusContext, closure *typ
 		return ""
 	}
 	rm := ctx.AnalysisIR.RequestModel
+	if exactTypedRelationProjectionActive(ctx, aggregateFacts) {
+		// The preceding relation handoff gate owns this exact member slate.
+		// Running the generic/source-inventory universe gate as a second owner
+		// would re-expand it to every mechanically observed type.
+		return ""
+	}
 	if !types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) {
 		return ""
 	}
@@ -5937,6 +6103,9 @@ func sourceInventoryResolvedCompletionDowngrade(ctx *types.BusContext, resultKin
 		return ""
 	}
 	if !strings.EqualFold(strings.TrimSpace(resultKind), "resolved") {
+		return ""
+	}
+	if exactTypedRelationProjectionActive(ctx, aggregateFacts) {
 		return ""
 	}
 	profile := ctx.AnalysisIR.RequestModel.SourceInventoryProfile
@@ -6265,6 +6434,9 @@ func sourceInventoryResolvedCompletionSummary(observation types.SourceInventoryO
 }
 
 func sourceInventoryLensExecutionDowngrade(ctx *types.BusContext, aggregateFacts []types.AnswerAggregateFact) string {
+	if exactTypedRelationProjectionActive(ctx, aggregateFacts) {
+		return ""
+	}
 	if SourceInventoryAcceptedClosureCoversExactUniverse(ctx, aggregateFacts) ||
 		sourceInventoryLensExecutionPathHandoffComplete(ctx, aggregateFacts) {
 		return ""
@@ -12259,7 +12431,8 @@ func relationMemberSetCompletesGenericForcedReadBoundary(ctx *types.BusContext, 
 		return false
 	}
 	rm := ctx.AnalysisIR.RequestModel
-	if !types.RequiresRelationMemberSetHandoff(rm) {
+	if !types.RequiresRelationMemberSetHandoff(rm) &&
+		!exactTypedRelationProjectionActive(ctx, aggregateFacts) {
 		return false
 	}
 	ok, _ := exhaustiveEnumerationMemberSetUsable(ctx, aggregateFacts)

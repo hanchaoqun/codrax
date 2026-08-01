@@ -3377,7 +3377,8 @@ func PrincipalRelationMemberSetFactRefsForRequest(facts []AnswerAggregateFact, r
 	}
 	out := make([]AnswerAggregateFactRef, 0, len(refs))
 	for _, ref := range refs {
-		if AnswerAggregateFactHasRelationMembers(ref.Fact) {
+		if AnswerAggregateFactHasRelationMembers(ref.Fact) ||
+			AnswerAggregateFactHasTypedRelationPrincipalAuthority(ref.Fact) {
 			out = append(out, ref)
 		}
 	}
