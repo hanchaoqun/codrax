@@ -1587,6 +1587,156 @@ func preEmitScalarCodeIdentityCitationAligned(pctx *preEmitCheckContext, surface
 	return preEmitCodeSurfaceAppearsVerbatim(surface, cit.Quote)
 }
 
+// normalizeScalarLiteralCitationRefsWithContext binds an atomic scalar value
+// to a source citation whose exact line visibly carries that value. This is the
+// literal-value companion to normalizeScalarCodeIdentityCitationRefsWithContext:
+// the latter resolves symbol identities, while this lane handles values such as
+// 50, false, "debug", or 4.6ms. It consumes only typed block kind/claim forms,
+// exact citation quotes, and grounded EvidenceItem fields; it never reads the
+// request or model-authored prose outside the scalar block's typed value slot.
+//
+// Derived aggregates and external observations deliberately stay outside this
+// lane: their value may be correct without appearing in any source line, and
+// their own typed carriers are the authority.
+func normalizeScalarLiteralCitationRefsWithContext(doc *types.AnswerDocumentV2, ctx *types.BusContext, pctx *preEmitCheckContext) int {
+	if doc == nil || ctx == nil || ctx.Mutable == nil {
+		return 0
+	}
+	if pctx == nil {
+		pctx = newPreEmitCheckContext(ctx)
+	}
+	fixed := 0
+	for bi := range doc.Blocks {
+		block := &doc.Blocks[bi]
+		value, ok := preEmitAtomicScalarLiteralSurface(*block)
+		if !ok {
+			continue
+		}
+		candidate, candidateOK := preEmitUniqueScalarLiteralCitation(doc, pctx, value)
+		candidateRef := -1
+		if candidateOK {
+			candidateRef = appendOrReusePreEmitCitation(doc, candidate)
+		}
+		for ii := range block.Items {
+			item := &block.Items[ii]
+			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
+				continue
+			}
+			current := pctx.canonicalCitation(doc.Citations[item.CitationRef])
+			if preEmitScalarLiteralAppearsOnCitation(value, current) {
+				continue
+			}
+			if candidateRef >= 0 {
+				if item.CitationRef != candidateRef {
+					item.CitationRef = candidateRef
+					fixed++
+				}
+				continue
+			}
+			// Only detach a mismatch that the typed evidence index can prove.
+			// An unreadable/unindexed current-source citation remains fail-open.
+			if _, currentKnown := pctx.citedEvidenceItems(current); !currentKnown {
+				continue
+			}
+			item.CitationRef = -1
+			pctx.recordDetachedCitationItem(block.ID, item.ID, value)
+			fixed++
+		}
+	}
+	return fixed
+}
+
+func preEmitAtomicScalarLiteralSurface(block types.AnswerBlock) (string, bool) {
+	if block.Kind != types.BlockScalar || !preEmitScalarHasLiteralSourceClaim(block) {
+		return "", false
+	}
+	value := strings.TrimSpace(block.Text)
+	if len(value) >= 2 && strings.HasPrefix(value, "`") && strings.HasSuffix(value, "`") && !strings.HasPrefix(value, "```") {
+		value = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(value, "`"), "`"))
+	}
+	if value == "" || strings.ContainsAny(value, "\r\n") || len(value) > 256 {
+		return "", false
+	}
+	// Unquoted whitespace means the scalar block contains explanatory prose,
+	// not one atomic value. Quoted source literals may legitimately contain it.
+	quoted := len(value) >= 2 && ((value[0] == '"' && value[len(value)-1] == '"') ||
+		(value[0] == '\'' && value[len(value)-1] == '\''))
+	if !quoted && strings.IndexFunc(value, func(r rune) bool { return r == ' ' || r == '\t' }) >= 0 {
+		return "", false
+	}
+	return value, true
+}
+
+func preEmitScalarHasLiteralSourceClaim(block types.AnswerBlock) bool {
+	for _, use := range block.ClaimUses {
+		switch use.ClaimForm {
+		case types.ClaimDefinitionFact,
+			types.ClaimAssignmentFact,
+			types.ClaimReturnFact,
+			types.ClaimLiteralValueFact:
+			return true
+		case types.ClaimExternalObservation,
+			types.ClaimAbsenceFact:
+			return false
+		}
+	}
+	return false
+}
+
+func preEmitScalarLiteralAppearsOnCitation(value string, cit types.Citation) bool {
+	return preEmitAggregateScalarValueAppears(value, strings.TrimSpace(cit.Quote))
+}
+
+func preEmitUniqueScalarLiteralCitation(doc *types.AnswerDocumentV2, pctx *preEmitCheckContext, value string) (types.Citation, bool) {
+	seen := map[string]types.Citation{}
+	add := func(cit types.Citation) {
+		cit = pctx.canonicalCitation(cit)
+		key := preEmitCitationLocationKey(cit)
+		if key != "" {
+			seen[key] = cit
+		}
+	}
+	if doc != nil {
+		for _, cit := range doc.Citations {
+			if preEmitScalarLiteralAppearsOnCitation(value, cit) {
+				add(cit)
+			}
+		}
+	}
+	for _, ev := range pctx.evidenceItems() {
+		if ev.GroundingStatus == types.GroundingUngrounded || strings.TrimSpace(ev.Source) == "" || ev.LineStart <= 0 {
+			continue
+		}
+		surfaces := []string{
+			ev.Snippet,
+			types.EvidenceAuthoritativeSurfaceText(ev, false),
+			ev.Subject,
+			ev.Object,
+			ev.Condition,
+		}
+		if ev.LoadBearingSummary {
+			surfaces = append(surfaces, ev.Summary)
+		}
+		matched := false
+		for _, surface := range surfaces {
+			if preEmitAggregateScalarValueAppears(value, surface) {
+				matched = true
+				break
+			}
+		}
+		if matched {
+			add(types.Citation{File: ev.Source, Line: ev.LineStart})
+		}
+	}
+	if len(seen) != 1 {
+		return types.Citation{}, false
+	}
+	for _, cit := range seen {
+		return cit, true
+	}
+	return types.Citation{}, false
+}
+
 func normalizeItemCitationRefsByUniqueLabelCitation(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctx *types.BusContext) int {
 	return normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc, view, ctx, newPreEmitCheckContext(ctx))
 }

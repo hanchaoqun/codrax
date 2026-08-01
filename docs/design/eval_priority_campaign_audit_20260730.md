@@ -4336,6 +4336,39 @@ prose 或 case ID。Trace external observation、显式窗、投影计算、根�
 混进高耗时审计；最优方案是按 typed mode/workflow phase 校准期望预算，不按 case ID 或日志
 关键词豁免。该项低于引用权限和下一轮高优先 eval，先 filed。
 
+#### B22-F：atomic scalar → value-bearing citation authority
+
+对 `CITNEIGH1` 冷读后修正分类：`normalizeCurrentSourceCitationQuotes` 始终按 citation 的
+精确 `file+line` 回填该行，没有把 2665 摘录写入 2664；r4 的错位来自 condition evidence
+surface 优先回放 multiline snippet/body，已由 B22-E 的 claim-form 修复关闭。因此
+`EVAL-B22-CITNEIGH1=covered-by-B22-E`，不重复修改 citation normalizer。
+
+`EVAL-B22-SCALARCIT1` 则是真正独立的值权限 gap，本批按以下合同修复：
+
+1. 新增 atomic scalar literal citation 归一化，作为既有 code-identity scalar 车道的并列
+   typed 车道；只处理 `BlockScalar` 且 claim form 为 source-code
+   definition/assignment/return/literal-value 的单一原子值。
+2. 若当前 citation 的精确 source-line quote 不含 scalar token，则在当前 citation pool 与
+   grounded EvidenceItem 的 snippet/authoritative typed fields 中寻找唯一 value-bearing
+   `file+line`；唯一则重绑，多候选且当前 mismatch 可证则 detach 并走既有 typed disclosure。
+3. token 匹配复用代码边界规则，`50` 不会命中 `500`；反引号包裹的单值可归一，未加引号且
+   含空白的解释性 text 不进入此车道。
+4. external observation、absence 与 derived aggregate 保持原 typed 权限：它们的值无需在
+   源码行字面出现，不会被本车道重绑或硬拒绝。
+5. 生产接线 pin 直接调用完整 `normalizeAnswerDocumentForPreEmit`，固定错误 sibling citation
+   被重绑到唯一承载 `50` 的常量行；另覆盖多候选 detach、external/absence/prose 负臂。
+
+硬决策不读取 RawRequest、summary/thinking/final prose 或 case ID，只读取 block kind、
+claim-form enum、block scalar value、精确 citation quote 和 grounded evidence typed fields。
+它不触及 Trace 显式窗、因果投影、根因排序、唤醒链、可消除计算与自动补采。
+
+验证：定向与生产接线测试通过；`go test ./internal/tool -count=1` 全量通过（159.008s），
+`git diff --check` 通过。
+
+状态：`EVAL-B22-CITNEIGH1=covered`；
+`EVAL-B22-SCALARCIT1=implemented/full-tests-pass/replay-next`；
+`EVAL-B22-NEARKEY1=repeat-after-authority-fixes`。
+
 ### B19a r1：Trace 主合同保留，精确集合暴露静默改写（2026-08-01）
 
 严格并行 2 个用例，runner 2/2 PASS，人工审计 0/2：

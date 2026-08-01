@@ -734,6 +734,126 @@ func TestNormalizeScalarCodeIdentityCitationRefs_TypedBoundaries(t *testing.T) {
 	}
 }
 
+func TestNormalizeScalarLiteralCitationRefsRebindsExactValueCarrier(t *testing.T) {
+	mu := types.NewMutableState("scalar literal citation")
+	mu.AppendEvidence([]types.EvidenceItem{
+		{
+			ID:              "ev-neighbor",
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/config/runtime.go",
+			LineStart:       786,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "PipelineMaxStepsCeil",
+			Snippet:         `PipelineMaxStepsCeil *int ` + "`yaml:\"pipeline_max_steps_ceil\"`",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID:              "ev-value",
+			Kind:            types.EvidenceDirect,
+			Source:          "cmd/root.go",
+			LineStart:       88,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "defaultMaxSteps",
+			Snippet:         "defaultMaxSteps = 50",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
+	ctx := &types.BusContext{Mutable: mu}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "internal/config/runtime.go", Line: 786, Quote: `PipelineMaxStepsCeil *int ` + "`yaml:\"pipeline_max_steps_ceil\"`"},
+			{File: "cmd/root.go", Line: 88, Quote: "defaultMaxSteps = 50"},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:        "default",
+			Kind:      types.BlockScalar,
+			Text:      "50",
+			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimLiteralValueFact}},
+			Items:     []types.AnswerBlockItem{{ID: "value", CitationRef: 0}},
+		}},
+	}
+
+	if fixed := normalizeScalarLiteralCitationRefsWithContext(doc, ctx, nil); fixed != 1 {
+		t.Fatalf("fixed=%d, want one scalar literal rebind", fixed)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 1 {
+		t.Fatalf("scalar citation_ref=%d, want exact value-bearing citation 1", got)
+	}
+}
+
+func TestNormalizeAnswerDocumentForPreEmitRebindsScalarLiteralCitation(t *testing.T) {
+	mu := types.NewMutableState("scalar literal production wiring")
+	mu.AppendEvidence([]types.EvidenceItem{
+		{ID: "neighbor", Kind: types.EvidenceDirect, Source: "neighbor.go", LineStart: 10, AnchorKind: types.AnchorDefinition, AnchorSymbol: "NeighborLimit", Snippet: "const NeighborLimit = 100", GroundingStatus: types.GroundingGrounded},
+		{ID: "target", Kind: types.EvidenceDirect, Source: "target.go", LineStart: 20, AnchorKind: types.AnchorDefinition, AnchorSymbol: "DefaultLimit", Snippet: "const DefaultLimit = 50", GroundingStatus: types.GroundingGrounded},
+	})
+	ctx := &types.BusContext{Mutable: mu}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "neighbor.go", Line: 10, Quote: "const NeighborLimit = 100"},
+			{File: "target.go", Line: 20, Quote: "const DefaultLimit = 50"},
+		},
+		Blocks: []types.AnswerBlock{{ID: "default", Kind: types.BlockScalar, Text: "50", ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimLiteralValueFact}}, Items: []types.AnswerBlockItem{{ID: "value", CitationRef: 0}}}},
+	}
+
+	pctx := newPreEmitCheckContext(ctx)
+	normalizeAnswerDocumentForPreEmit("test", doc, &types.AnswerSemanticView{}, ctx, pctx)
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 1 {
+		t.Fatalf("production pre-emit scalar literal citation_ref=%d, want 1", got)
+	}
+}
+
+func TestNormalizeScalarLiteralCitationRefsTypedBoundaries(t *testing.T) {
+	newContext := func() *types.BusContext {
+		mu := types.NewMutableState("scalar literal boundaries")
+		mu.AppendEvidence([]types.EvidenceItem{
+			{ID: "wrong", Kind: types.EvidenceDirect, Source: "wrong.go", LineStart: 1, AnchorKind: types.AnchorDefinition, AnchorSymbol: "Wrong", Snippet: "const Wrong = 500", GroundingStatus: types.GroundingGrounded},
+			{ID: "a", Kind: types.EvidenceDirect, Source: "a.go", LineStart: 2, AnchorKind: types.AnchorDefinition, AnchorSymbol: "A", Snippet: "const A = 50", GroundingStatus: types.GroundingGrounded},
+			{ID: "b", Kind: types.EvidenceDirect, Source: "b.go", LineStart: 3, AnchorKind: types.AnchorDefinition, AnchorSymbol: "B", Snippet: "const B = 50", GroundingStatus: types.GroundingGrounded},
+		})
+		return &types.BusContext{Mutable: mu}
+	}
+
+	t.Run("ambiguous source literals detach a provably wrong citation", func(t *testing.T) {
+		ctx := newContext()
+		doc := &types.AnswerDocumentV2{
+			Citations: []types.Citation{{File: "wrong.go", Line: 1, Quote: "const Wrong = 500"}},
+			Blocks:    []types.AnswerBlock{{ID: "v", Kind: types.BlockScalar, Text: "50", ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimLiteralValueFact}}, Items: []types.AnswerBlockItem{{ID: "value", CitationRef: 0}}}},
+		}
+		pctx := newPreEmitCheckContext(ctx)
+		if fixed := normalizeScalarLiteralCitationRefsWithContext(doc, ctx, pctx); fixed != 1 {
+			t.Fatalf("fixed=%d, want one detach", fixed)
+		}
+		if got := doc.Blocks[0].Items[0].CitationRef; got != -1 {
+			t.Fatalf("ambiguous scalar retained wrong citation_ref=%d", got)
+		}
+	})
+
+	for _, tc := range []struct {
+		name  string
+		claim types.ClaimForm
+		text  string
+	}{
+		{name: "external derived value", claim: types.ClaimExternalObservation, text: "50"},
+		{name: "absence value", claim: types.ClaimAbsenceFact, text: "50"},
+		{name: "explanatory prose", claim: types.ClaimLiteralValueFact, text: "default is 50"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := newContext()
+			doc := &types.AnswerDocumentV2{
+				Citations: []types.Citation{{File: "wrong.go", Line: 1, Quote: "const Wrong = 500"}},
+				Blocks:    []types.AnswerBlock{{ID: "v", Kind: types.BlockScalar, Text: tc.text, ClaimUses: []types.RenderedClaimUse{{ClaimForm: tc.claim}}, Items: []types.AnswerBlockItem{{ID: "value", CitationRef: 0}}}},
+			}
+			if fixed := normalizeScalarLiteralCitationRefsWithContext(doc, ctx, nil); fixed != 0 {
+				t.Fatalf("fixed=%d, typed negative arm must stay unchanged", fixed)
+			}
+			if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
+				t.Fatalf("citation_ref=%d, want unchanged 0", got)
+			}
+		})
+	}
+}
+
 func TestNormalizeCitationBackedPrincipalClaimUses_AddsFormsFromCitedEvidence(t *testing.T) {
 	mu := &types.MutableState{}
 	mu.AppendEvidence([]types.EvidenceItem{

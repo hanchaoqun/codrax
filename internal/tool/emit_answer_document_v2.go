@@ -741,6 +741,10 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		pctx.recordPreEmitRepair("normalizeScalarCodeIdentityCitationRefsWithContext", fixed)
 		logging.Warning("[%s] normalized %d scalar code-identity citation_ref value(s) by typed evidence endpoints", toolName, fixed)
 	}
+	if fixed := normalizeScalarLiteralCitationRefsWithContext(doc, ctx, pctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeScalarLiteralCitationRefsWithContext", fixed)
+		logging.Warning("[%s] normalized %d scalar literal citation_ref value(s) by exact value-bearing source evidence", toolName, fixed)
+	}
 	if fixed := detachInvalidItemCitationRefsWithoutSafeCandidateWithContext(doc, view, ctx, pctx); fixed > 0 {
 		pctx.recordPreEmitRepair("detachInvalidItemCitationRefsWithoutSafeCandidateWithContext", fixed)
 		logging.Warning("[%s] detached %d invalid item citation_ref value(s) with no safe replacement candidate", toolName, fixed)
