@@ -4251,6 +4251,53 @@ typed coverage 已明确
 | EVAL-B19-FRAME1 | open P1 / production witness reconfirmed / B19g |
 | EVAL-B19-ARITH2 | open P2 / 与 FRAME1 同批做 typed relation 融合 |
 
+#### B19e：requested-scope principal wait roster 收敛
+
+本批只修复 `EVAL-B19-SCOPEJOIN1`，不修改 trace 查询、projection gate、根因
+排序、唤醒链、可消除量、自动补采或模型正文顺序。
+
+实现：
+
+1. `TraceTargetWaitSummaryAuthority` 增加内部 typed
+   `RequestedScopeRole`：
+   - 显式时间窗必须与 quote-anchored `time_start/time_end` 精确匹配；
+   - full-artifact 的模型查询必须有**同一 result prefix** 的
+     `runtime_artifact_scope_coverage`；
+   - full-artifact 的确定性 supplement 只在当前 validated profile 也是
+     full-artifact 时获得 principal；
+   - 仅仅“窗口更大/包含另一个窗口”不能铸造主范围。
+2. 一个 requested-scope principal 存在时，finalizer recap 只为它发布
+   `principal_conclusion` 与完整逐段 occurrence 清单；探索子窗保留紧凑
+   count/total，但明确为 supporting，不能替代主范围。
+3. 确定性用户数据块同样把“请求主范围”排在“探索子范围”之前；两个范围都
+   保留完整值，不删除证据。
+4. typed state 种类在两面统一声明为独立口径：
+   `D-state`、`io_wait`、`S-state IO wait` 不互相改名；尤其
+   `d_state_occurrences=0` 时不得把 `io_wait` 行叙述为 D-state。
+5. legacy 未分类范围保持旧行为；相同 roster 去重时 principal 角色优先，
+   冲突 roster 继续 fail-closed。
+6. 全过程不读取 RawRequest、模型 thinking/final prose，不新增答案
+   rewrite/reject，不按时间戳、caller 或 case ID 拟合。
+
+结构矩阵覆盖：
+
+- full-artifact supplement principal + narrow exploration；
+- 同 result unbounded-query coverage principal；
+- unrelated coverage 不得给另一查询铸权；
+- explicit requested window；
+- finalizer 只给 principal 发布完整 occurrence rows；
+- 用户数据块 principal-first；
+- D/io_wait 分型文案。
+
+完整回归：
+
+- `go test ./internal/types ./internal/agent -count=1`：18.373s / 2.871s；
+- `go test ./internal/tool -count=1`：167.975s。
+
+状态：`implemented / full-tests-pass / same-pair replay after B19f`。为减少
+真实 trace 回放成本，按冻结批次先完成 B19f 双轴结构，再用同一正负 pair
+同时验收 scopejoin 与双轴；若 B19f 改动超出纯展示结构则拆开回放。
+
 #### B18f r1：图兼容与显式窗非回归回放（2026-08-01）
 
 严格并行 2 个回放均为 runner PASS / human PASS：

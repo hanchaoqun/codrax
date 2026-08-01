@@ -594,6 +594,95 @@ func TestFocusedRuntimeFactPublishesTypedRosterWithoutFullCausalReport(t *testin
 	}
 }
 
+func TestRuntimeTargetWaitAuthorityListsRequestedScopeBeforeExploration(t *testing.T) {
+	target := "com.baidu.tieba-59566"
+	ref := types.ObservationSourceRef{
+		Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "attached_trace",
+		Path: "/tmp/attached_trace.txt",
+	}
+	makeRoster := func(scope string, start, end float64, durations []float64) []types.ObservationRecord {
+		count := len(durations)
+		records := []types.ObservationRecord{{
+			ID:     "trace_query:" + scope + "#target_window_wait_occurrences",
+			Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+			GroundingPolicy: types.ClaimGroundingHard, SourceRef: ref,
+			Span:      types.ObservationSpan{StartTs: start, EndTs: end},
+			Predicate: "target_window_wait_occurrences", Subject: target,
+			Object: "complete", Value: strconv.Itoa(count), ResultCount: &count,
+		}}
+		cursor := start + 0.001
+		for i, duration := range durations {
+			rowEnd := cursor + duration/1000
+			records = append(records, types.ObservationRecord{
+				ID:     fmt.Sprintf("trace_query:%s#target_window_wait_occurrence:%d", scope, i+1),
+				Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+				GroundingPolicy: types.ClaimGroundingHard, SourceRef: ref,
+				Span:      types.ObservationSpan{StartTs: cursor, EndTs: rowEnd},
+				Predicate: "target_window_wait_occurrence", Subject: target,
+				Object: "state=io_wait;iowait=1;caller=sync_buffer_read_wi",
+				Value:  fmt.Sprintf("%.3f", duration), Unit: "ms",
+			})
+			cursor = rowEnd + 0.001
+		}
+		return records
+	}
+	narrow := makeRoster("narrow", 10, 10.02, []float64{0.2})
+	full := makeRoster("full", 10, 10.1, []float64{0.2, 0.3})
+	profile := &types.RuntimeArtifactScopeProfile{
+		RequestedScope: types.RuntimeArtifactScopeFullArtifact,
+		SourceQuote:    "这份 trace",
+	}
+	bus := &types.BusContext{
+		Mutable: types.NewMutableState("requested trace scope"),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentRootCause,
+				Scenario: types.ScenarioRootCause,
+				RuntimeTargets: []types.RuntimeTarget{{
+					Kind: types.RuntimeTargetKindThread, PID: 59566,
+					Thread: target, Source: "user_explicit",
+				}},
+				RuntimeArtifactScopeProfile: profile,
+			},
+			AnswerContract: types.AnswerContract{Language: "zh"},
+		},
+		ToolResults: []types.ToolResult{{
+			ToolName: "trace_query", Success: true, Observations: narrow,
+		}},
+	}
+	bus.Mutable.SetRequestModel(bus.AnalysisIR.RequestModel)
+	bus.Mutable.SetSystemTraceSupplement(types.SystemTraceSupplementMeta{
+		Views:                  []string{"window_stats"},
+		RequestedArtifactScope: types.RuntimeArtifactScopeFullArtifact,
+	}, []types.ToolResult{{
+		ToolName: "trace_query", Success: true, Observations: full,
+	}})
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "summary", Kind: types.BlockSummary, Text: "model answer",
+	}}}
+	if !materializeRuntimeTraceTargetStateAuthorityBlock(doc, bus) {
+		t.Fatal("requested-scope wait account did not materialize")
+	}
+	got := types.AnswerBlockVisibleSurface(
+		answerDocumentTestBlockByID(t, doc, runtimeTraceTargetStateAuthorityBlockID),
+	)
+	principalAt := strings.Index(got, "请求主范围；工件=attached_trace.txt，窗口=10.000000..10.100000")
+	supportAt := strings.Index(got, "探索子范围；工件=attached_trace.txt，窗口=10.000000..10.020000")
+	if principalAt < 0 || supportAt < 0 || principalAt > supportAt {
+		t.Fatalf("requested scope must lead the exploration row: principal=%d support=%d\n%s", principalAt, supportAt, got)
+	}
+	for _, want := range []string{
+		"请求主范围先列",
+		"不能替代主范围的次数、总量或清单",
+		"D-state、io_wait 与 S 态 IO 等待是分开的记录类型",
+		"等待明细完整，共 2 段（D-state 0、io_wait 2",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("requested-scope data card missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestRuntimeTargetStateAuthorityRealDonghuPublishesElevenOccurrencesAndPartialCoverage(t *testing.T) {
 	const trace = "../../eval/fixtures/real_traces/donghu.ftrace"
 	idx, err := tracequery.BuildIndex(context.Background(), trace)

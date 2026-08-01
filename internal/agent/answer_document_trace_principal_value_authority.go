@@ -39,6 +39,7 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 	b.WriteString("## Runtime Trace Principal Values — Final Typed Recap\n\n")
 	b.WriteString("- Use these typed rows for the leading numeric conclusion. They are a compact recap of the same authority used by the deterministic answer lead; later blocked-reason records, IPC request counts, transport latency, capped exploration rows, per-CPU aggregate groups, or narrative estimates cannot replace their caliber.\n")
 	b.WriteString("- A complete target-wait row authorizes its exact occurrence count and wall-clock sum. A capacity-truncated blocking row authorizes only the displayed observed lower bound (`>=`); never turn it into an exact total, a unique/only occurrence, or a claim that every other request caused no blocking.\n\n")
+	b.WriteString("- Target wait state kinds remain separate: `d_state_occurrences`, `io_wait_occurrences`, and `sleep_iowait_occurrences` are independent typed counts. Do not rename an `io_wait` row to D-state when the same authority reports `d_state_occurrences=0`.\n\n")
 	if zh {
 		b.WriteString("- 不同 authority 行的数值差本身不是关系证据；除非另有 explicit typed relation 证明，不得把 record/occurrence/partition 的差值解释成窗口边界、重叠、精度误差或缺失闭合。\n\n")
 	} else {
@@ -76,13 +77,25 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 		}
 		b.WriteByte('\n')
 	}
+	hasRequestedWaitPrincipal := false
 	for _, wait := range waits {
+		if wait.IsRequestedScopePrincipal() {
+			hasRequestedWaitPrincipal = true
+			break
+		}
+	}
+	for _, wait := range waits {
+		scopeRole := strings.TrimSpace(string(wait.RequestedScopeRole))
+		if scopeRole == "" {
+			scopeRole = "unclassified"
+		}
 		fmt.Fprintf(&b,
-			"- principal_wait_occurrences: artifact=`%s`; target=`%s`; window=`%.6f..%.6f`; permission=`exact_complete_rowset`; occurrence_count=%d; d_state_occurrences=%d; io_wait_occurrences=%d; sleep_iowait_occurrences=%d; other_wait_occurrences=%d; wall_clock_sum=%.3fms",
+			"- principal_wait_occurrences: artifact=`%s`; target=`%s`; window=`%.6f..%.6f`; scope_role=`%s`; permission=`exact_complete_rowset`; occurrence_count=%d; d_state_occurrences=%d; io_wait_occurrences=%d; sleep_iowait_occurrences=%d; other_wait_occurrences=%d; wall_clock_sum=%.3fms",
 			wait.ArtifactLabel,
 			wait.Subject,
 			wait.WindowStartTs,
 			wait.WindowEndTs,
+			scopeRole,
 			wait.Count,
 			wait.DStateOccurrences,
 			wait.IOWaitOccurrences,
@@ -94,6 +107,13 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 			fmt.Fprintf(&b, "; callers=`%s`", strings.Join(wait.Callers, "`, `"))
 		}
 		b.WriteString("; use this occurrence count rather than blocked_reason record count or aggregate-group count\n")
+		if hasRequestedWaitPrincipal && !wait.IsRequestedScopePrincipal() {
+			b.WriteString("  - scope_boundary=`supporting exploration window only; do not use this row's count, total, or occurrence roster as the answer for the requested artifact scope.`\n")
+			continue
+		}
+		for _, occurrence := range wait.Occurrences {
+			fmt.Fprintf(&b, "  - principal_occurrence=`%s`\n", occurrence.CanonicalLine())
+		}
 		if zh {
 			fmt.Fprintf(&b,
 				"  - principal_conclusion_zh=`%s 在 %.6f..%.6f 窗内确切发生 %d 次目标等待，目标等待墙钟合计 %.3fms",

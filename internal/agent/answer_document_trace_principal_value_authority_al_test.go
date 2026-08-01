@@ -87,6 +87,85 @@ func TestRenderAnswerDocTracePrincipalValueAuthorityCarriesCompleteElevenRowWait
 	}
 }
 
+func TestRenderAnswerDocTracePrincipalValueAuthorityKeepsRequestedScopePrincipalAL(t *testing.T) {
+	const subject = "com.baidu.tieba-59566"
+	ref := types.ObservationSourceRef{
+		Kind: types.ObservationSourceRuntimeArtifact,
+		Path: "/tmp/attached_trace.txt", ArtifactID: "attached_trace",
+	}
+	makeRoster := func(scope string, start, end float64, durations []float64, supplement bool) []types.ObservationRecord {
+		count := len(durations)
+		records := []types.ObservationRecord{{
+			ID:     "trace_query:" + scope + "#target_window_wait_occurrences",
+			Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+			GroundingPolicy: types.ClaimGroundingHard, SourceRef: ref,
+			Span:      types.ObservationSpan{StartTs: start, EndTs: end},
+			Predicate: "target_window_wait_occurrences", Subject: subject,
+			Object: "complete", Value: fmt.Sprintf("%d", count), ResultCount: &count,
+			SystemSupplement: supplement,
+		}}
+		cursor := start + 0.001
+		for i, duration := range durations {
+			rowEnd := cursor + duration/1000
+			records = append(records, types.ObservationRecord{
+				ID:     fmt.Sprintf("trace_query:%s#target_window_wait_occurrence:%d", scope, i+1),
+				Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+				GroundingPolicy: types.ClaimGroundingHard, SourceRef: ref,
+				Span:      types.ObservationSpan{StartTs: cursor, EndTs: rowEnd},
+				Predicate: "target_window_wait_occurrence", Subject: subject,
+				Object: "state=io_wait;iowait=1;caller=sync_buffer_read_wi",
+				Value:  fmt.Sprintf("%.3f", duration), Unit: "ms",
+				SystemSupplement: supplement,
+			})
+			cursor = rowEnd + 0.001
+		}
+		return records
+	}
+	narrow := makeRoster("narrow", 10, 10.02, []float64{0.2, 0.3}, false)
+	full := makeRoster("full", 10, 10.1, []float64{0.2, 0.3, 0.4}, false)
+	ctx := tracePrincipalValueAuthorityTestContext(subject, 59566, narrow)
+	ctx.Language = "zh"
+	ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile = &types.RuntimeArtifactScopeProfile{
+		RequestedScope: types.RuntimeArtifactScopeFullArtifact,
+		SourceQuote:    "这份 trace",
+	}
+	ctx.Mutable.SetRequestModel(ctx.AnalysisIR.RequestModel)
+	ctx.Mutable.SetSystemTraceSupplement(types.SystemTraceSupplementMeta{
+		Views:                  []string{"window_stats"},
+		RequestedArtifactScope: types.RuntimeArtifactScopeFullArtifact,
+	}, []types.ToolResult{{
+		ToolName: "trace_query", Success: true, Observations: full,
+	}})
+
+	got := renderAnswerDocTracePrincipalValueAuthority(ctx)
+	fullAt := strings.Index(got, "window=`10.000000..10.100000`")
+	narrowAt := strings.Index(got, "window=`10.000000..10.020000`")
+	if fullAt < 0 || narrowAt < 0 || fullAt > narrowAt {
+		t.Fatalf("requested-scope row must lead supporting exploration: full=%d narrow=%d\n%s", fullAt, narrowAt, got)
+	}
+	for _, want := range []string{
+		"scope_role=`requested_scope_principal`",
+		"occurrence_count=3",
+		"d_state_occurrences=0",
+		"io_wait_occurrences=3",
+		"principal_occurrence=`#3 state=io_wait",
+		"scope_role=`supporting_exploration`",
+		"supporting exploration window only",
+		"Do not rename an `io_wait` row to D-state",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("requested-scope recap missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Count(got, "principal_occurrence=`") != 3 {
+		t.Fatalf("supporting roster leaked into principal occurrence list:\n%s", got)
+	}
+	if strings.Count(got, "principal_conclusion_zh=") != 1 ||
+		!strings.Contains(got, "确切发生 3 次目标等待") {
+		t.Fatalf("only the requested-scope row may mint a principal conclusion:\n%s", got)
+	}
+}
+
 func TestRenderAnswerDocTracePrincipalValueAuthorityKeepsTruncatedBlockingAsLowerBoundAL(t *testing.T) {
 	const subject = ".ugc.aweme.lite-17267"
 	record := types.ObservationRecord{

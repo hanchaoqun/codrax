@@ -119,6 +119,103 @@ func TestBuildTraceTargetWaitSummaryAuthoritiesUsesCompleteSameResultRows(t *tes
 	}
 }
 
+func TestBuildTraceTargetWaitSummaryAuthoritiesElectsRequestedScopeWithoutTimestampGuessing(t *testing.T) {
+	target := "com.baidu.tieba-59566"
+	ref := ObservationSourceRef{
+		Kind: ObservationSourceRuntimeArtifact, ArtifactID: "attached_trace",
+		Path: "/tmp/attached_trace.txt",
+	}
+	makeRoster := func(scope string, start, end float64, durations []float64, supplement bool) []ObservationRecord {
+		count := len(durations)
+		aggregate := ObservationRecord{
+			ID:     "trace_query:" + scope + "#target_window_wait_occurrences",
+			Origin: AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+			GroundingPolicy: ClaimGroundingHard, SourceRef: ref,
+			Span:      ObservationSpan{StartTs: start, EndTs: end},
+			Predicate: "target_window_wait_occurrences", Subject: target,
+			Object: "complete", Value: fmt.Sprintf("%d", count), ResultCount: &count,
+			SystemSupplement: supplement,
+		}
+		records := []ObservationRecord{aggregate}
+		cursor := start + 0.001
+		for i, duration := range durations {
+			rowEnd := cursor + duration/1000
+			records = append(records, ObservationRecord{
+				ID:     fmt.Sprintf("trace_query:%s#target_window_wait_occurrence:%d", scope, i+1),
+				Origin: AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+				GroundingPolicy: ClaimGroundingHard, SourceRef: ref,
+				Span:      ObservationSpan{StartTs: cursor, EndTs: rowEnd},
+				Predicate: "target_window_wait_occurrence", Subject: target,
+				Object: "state=io_wait;iowait=1;caller=sync_buffer_read_wi",
+				Value:  fmt.Sprintf("%.3f", duration), Unit: "ms",
+				SystemSupplement: supplement,
+			})
+			cursor = rowEnd + 0.001
+		}
+		return records
+	}
+
+	narrow := makeRoster("narrow", 10, 10.02, []float64{0.2}, false)
+	full := makeRoster("full", 10, 10.1, []float64{0.2, 0.3}, true)
+	records := append(append([]ObservationRecord(nil), narrow...), full...)
+	rm := RequestModel{
+		RuntimeTargets: []RuntimeTarget{{
+			Kind: RuntimeTargetKindThread, PID: 59566, Thread: target,
+		}},
+		RuntimeArtifactScopeProfile: &RuntimeArtifactScopeProfile{
+			RequestedScope: RuntimeArtifactScopeFullArtifact,
+			SourceQuote:    "这份 trace",
+		},
+	}
+	got := BuildTraceTargetWaitSummaryAuthorities(ObservationLedger{Records: records}, &rm)
+	if len(got) != 2 ||
+		!got[0].IsRequestedScopePrincipal() ||
+		got[0].WindowEndTs != 10.1 ||
+		got[1].RequestedScopeRole != TraceTargetWaitScopeSupportingExploration {
+		t.Fatalf("full-artifact supplement must lead and the narrow query must remain supporting: %+v", got)
+	}
+
+	// A non-supplement query can earn the same role only through a SAME-result
+	// deterministic full-artifact coverage sibling.
+	for i := range records {
+		records[i].SystemSupplement = false
+	}
+	records = append(records, ObservationRecord{
+		ID:     "trace_query:full#runtime_artifact_scope_coverage",
+		Origin: AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+		GroundingPolicy: ClaimGroundingHard, SourceRef: ref,
+		Predicate: RuntimeArtifactScopeCoveragePredicate,
+		Object:    string(RuntimeArtifactScopeFullArtifact),
+		Scope:     string(RuntimeArtifactScopeFullArtifact),
+	})
+	got = BuildTraceTargetWaitSummaryAuthorities(ObservationLedger{Records: records}, &rm)
+	if len(got) != 2 || !got[0].IsRequestedScopePrincipal() || got[0].WindowEndTs != 10.1 {
+		t.Fatalf("same-result full coverage did not elect the matching rowset: %+v", got)
+	}
+
+	// A coverage record from another query cannot crown the wider rowset by
+	// size alone.
+	records[len(records)-1].ID = "trace_query:other#runtime_artifact_scope_coverage"
+	got = BuildTraceTargetWaitSummaryAuthorities(ObservationLedger{Records: records}, &rm)
+	for _, authority := range got {
+		if authority.IsRequestedScopePrincipal() {
+			t.Fatalf("unrelated coverage record minted requested-scope authority: %+v", got)
+		}
+	}
+
+	explicitStart, explicitEnd := 10.0, 10.02
+	rm.RuntimeArtifactScopeProfile = &RuntimeArtifactScopeProfile{
+		RequestedScope: RuntimeArtifactScopeExplicitWindow,
+		TimeStart:      &explicitStart, TimeEnd: &explicitEnd, SourceQuote: "10..10.02",
+	}
+	got = BuildTraceTargetWaitSummaryAuthorities(ObservationLedger{Records: records}, &rm)
+	if len(got) != 2 || !got[0].IsRequestedScopePrincipal() ||
+		got[0].WindowEndTs != explicitEnd ||
+		got[1].RequestedScopeRole != TraceTargetWaitScopeSupportingExploration {
+		t.Fatalf("explicit requested window election drifted: %+v", got)
+	}
+}
+
 func TestBuildTraceTargetWaitSummaryAuthoritiesFailsClosedOnMissingOrConflictingRows(t *testing.T) {
 	target := "worker-200"
 	count := 2

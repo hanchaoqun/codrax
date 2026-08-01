@@ -330,10 +330,26 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 		if len(rows) >= 4 || matchedWaits[wait.RecordID] {
 			continue
 		}
+		scopeLabel := ""
+		switch wait.RequestedScopeRole {
+		case types.TraceTargetWaitScopeRequestedPrincipal:
+			if zh {
+				scopeLabel = "请求主范围；"
+			} else {
+				scopeLabel = "requested scope; "
+			}
+		case types.TraceTargetWaitScopeSupportingExploration:
+			if zh {
+				scopeLabel = "探索子范围；"
+			} else {
+				scopeLabel = "supporting exploration scope; "
+			}
+		}
 		var row string
 		if zh {
 			row = fmt.Sprintf(
-				"目标等待：工件=%s，窗口=%.6f..%.6f，线程=%s",
+				"目标等待：%s工件=%s，窗口=%.6f..%.6f，线程=%s",
+				scopeLabel,
 				wait.ArtifactLabel,
 				wait.WindowStartTs,
 				wait.WindowEndTs,
@@ -341,7 +357,8 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 			)
 		} else {
 			row = fmt.Sprintf(
-				"Target waits: artifact=%s, window=%.6f..%.6f, thread=%s",
+				"Target waits: %sartifact=%s, window=%.6f..%.6f, thread=%s",
+				scopeLabel,
 				wait.ArtifactLabel,
 				wait.WindowStartTs,
 				wait.WindowEndTs,
@@ -354,10 +371,10 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 		return false
 	}
 	title := "目标线程状态与等待明细"
-	lead := "以下为所选窗口内的调度状态账；若同时列出逐段等待，次数和总量来自同一查询结果的完整配对。blocked_reason 记录数、IPC 传输延迟和线程状态墙钟属于不同口径，不能互相替代。"
+	lead := "以下为所选窗口内的调度状态账；若存在请求主范围与探索子范围，请求主范围先列，探索子范围只用于下钻，不能替代主范围的次数、总量或清单。若同时列出逐段等待，次数和总量来自同一查询结果的完整配对。D-state、io_wait 与 S 态 IO 等待是分开的记录类型；blocked_reason 记录数、IPC 传输延迟和线程状态墙钟也属于不同口径，不能互相替代。"
 	if !zh {
 		title = "Target-thread states and wait details"
-		lead = "This is the scheduler-state account for the selected window. When per-interval waits are listed, their count and total come from the complete pairing in the same query result. blocked_reason record counts, IPC transport latency, and thread-state wall clock are different measures and are not interchangeable."
+		lead = "This is the scheduler-state account for the selected window. When both a requested scope and supporting exploration scopes exist, the requested scope is listed first; exploration scopes are drill-down only and cannot replace its count, total, or roster. When per-interval waits are listed, their count and total come from the complete pairing in the same query result. D-state, io_wait, and S-state IO wait are separate record kinds; blocked_reason record counts, IPC transport latency, and thread-state wall clock are also different measures and are not interchangeable."
 	}
 	return insertRuntimeTraceDataBoundaryBlock(doc, types.AnswerBlock{
 		ID:    runtimeTraceTargetStateAuthorityBlockID,

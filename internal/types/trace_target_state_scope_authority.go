@@ -112,6 +112,7 @@ type TraceTargetWaitSummaryAuthority struct {
 	Subject                string
 	WindowStartTs          float64
 	WindowEndTs            float64
+	RequestedScopeRole     TraceTargetWaitRequestedScopeRole
 	Count                  int
 	WallClockMS            float64
 	DStateOccurrences      int
@@ -121,6 +122,23 @@ type TraceTargetWaitSummaryAuthority struct {
 	Callers                []string
 	Occurrences            []TargetWaitOccurrenceAuthorityRow
 	RecordID               string
+}
+
+// TraceTargetWaitRequestedScopeRole distinguishes the account that answers
+// the user's typed runtime-artifact scope from narrower exploration accounts.
+// It is compiled from the quote-anchored RuntimeArtifactScopeProfile plus
+// same-result deterministic scope coverage; timestamps alone never mint the
+// full-artifact role.
+type TraceTargetWaitRequestedScopeRole string
+
+const (
+	TraceTargetWaitScopeUnclassified          TraceTargetWaitRequestedScopeRole = ""
+	TraceTargetWaitScopeRequestedPrincipal    TraceTargetWaitRequestedScopeRole = "requested_scope_principal"
+	TraceTargetWaitScopeSupportingExploration TraceTargetWaitRequestedScopeRole = "supporting_exploration"
+)
+
+func (a TraceTargetWaitSummaryAuthority) IsRequestedScopePrincipal() bool {
+	return a.RequestedScopeRole == TraceTargetWaitScopeRequestedPrincipal
 }
 
 // BuildTraceTargetWaitSummaryAuthorities returns complete, same-result wait
@@ -186,12 +204,13 @@ func BuildTraceTargetWaitSummaryAuthorities(ledger ObservationLedger, rm *Reques
 			continue
 		}
 		authority := TraceTargetWaitSummaryAuthority{
-			ArtifactLabel: traceTargetStateAuthorityArtifactLabel(aggregate.SourceRef),
-			Subject:       strings.TrimSpace(aggregate.Subject),
-			WindowStartTs: aggregate.Span.StartTs,
-			WindowEndTs:   aggregate.Span.EndTs,
-			Count:         count,
-			RecordID:      strings.TrimSpace(aggregate.ID),
+			ArtifactLabel:      traceTargetStateAuthorityArtifactLabel(aggregate.SourceRef),
+			Subject:            strings.TrimSpace(aggregate.Subject),
+			WindowStartTs:      aggregate.Span.StartTs,
+			WindowEndTs:        aggregate.Span.EndTs,
+			RequestedScopeRole: traceTargetWaitRequestedScopeRole(aggregate, ledger, rm),
+			Count:              count,
+			RecordID:           strings.TrimSpace(aggregate.ID),
 		}
 		callers := map[string]bool{}
 		for ordinal := 1; ordinal <= count; ordinal++ {
@@ -270,7 +289,9 @@ func BuildTraceTargetWaitSummaryAuthorities(ledger ObservationLedger, rm *Reques
 			continue
 		}
 		fingerprints[candidate.key] = candidate.fingerprint
-		if _, ok := byKey[candidate.key]; !ok {
+		if prior, ok := byKey[candidate.key]; !ok ||
+			traceTargetWaitRequestedScopeRolePriority(candidate.authority.RequestedScopeRole) <
+				traceTargetWaitRequestedScopeRolePriority(prior.RequestedScopeRole) {
 			byKey[candidate.key] = candidate.authority
 		}
 	}
@@ -280,12 +301,83 @@ func BuildTraceTargetWaitSummaryAuthorities(ledger ObservationLedger, rm *Reques
 			keys = append(keys, key)
 		}
 	}
-	sort.Strings(keys)
+	sort.Slice(keys, func(i, j int) bool {
+		left, right := byKey[keys[i]], byKey[keys[j]]
+		lp := traceTargetWaitRequestedScopeRolePriority(left.RequestedScopeRole)
+		rp := traceTargetWaitRequestedScopeRolePriority(right.RequestedScopeRole)
+		if lp != rp {
+			return lp < rp
+		}
+		return keys[i] < keys[j]
+	})
 	out := make([]TraceTargetWaitSummaryAuthority, 0, len(keys))
 	for _, key := range keys {
 		out = append(out, byKey[key])
 	}
 	return out
+}
+
+func traceTargetWaitRequestedScopeRole(
+	aggregate ObservationRecord,
+	ledger ObservationLedger,
+	rm *RequestModel,
+) TraceTargetWaitRequestedScopeRole {
+	if rm == nil || rm.RuntimeArtifactScopeProfile == nil {
+		return TraceTargetWaitScopeUnclassified
+	}
+	profile := rm.RuntimeArtifactScopeProfile
+	if start, end, ok := profile.ExplicitTimeWindow(); ok {
+		if math.Abs(aggregate.Span.StartTs-start) <= 0.000002 &&
+			math.Abs(aggregate.Span.EndTs-end) <= 0.000002 {
+			return TraceTargetWaitScopeRequestedPrincipal
+		}
+		return TraceTargetWaitScopeSupportingExploration
+	}
+	if !profile.FullArtifact() {
+		return TraceTargetWaitScopeUnclassified
+	}
+	// The deterministic supplement executes with the analyzer's validated
+	// requested scope. A supplement row under a full-artifact profile is
+	// therefore a direct requested-scope account.
+	if aggregate.SystemSupplement {
+		return TraceTargetWaitScopeRequestedPrincipal
+	}
+	// Model-issued unbounded queries prove their physical artifact scope with a
+	// sibling record from the SAME result. Pair by the producer-owned record
+	// prefix; a coverage row from another query must not crown this account.
+	scopePrefix, ok := strings.CutSuffix(
+		strings.TrimSpace(aggregate.ID),
+		"#target_window_wait_occurrences",
+	)
+	if ok && scopePrefix != "" {
+		coverageID := scopePrefix + "#runtime_artifact_scope_coverage"
+		for _, record := range ledger.Records {
+			if strings.TrimSpace(record.ID) != coverageID ||
+				record.Origin != AnswerEvidenceOriginRuntimeArtifact ||
+				record.SourceRef.Kind != ObservationSourceRuntimeArtifact ||
+				record.GroundingPolicy != ClaimGroundingHard ||
+				!RuntimeObservationProducerIsDeterministicQuery(record.Producer) ||
+				strings.TrimSpace(record.Predicate) != RuntimeArtifactScopeCoveragePredicate ||
+				strings.TrimSpace(record.Object) != string(RuntimeArtifactScopeFullArtifact) ||
+				strings.TrimSpace(record.Scope) != string(RuntimeArtifactScopeFullArtifact) ||
+				!traceTargetWaitSameResultSource(aggregate, record) {
+				continue
+			}
+			return TraceTargetWaitScopeRequestedPrincipal
+		}
+	}
+	return TraceTargetWaitScopeSupportingExploration
+}
+
+func traceTargetWaitRequestedScopeRolePriority(role TraceTargetWaitRequestedScopeRole) int {
+	switch role {
+	case TraceTargetWaitScopeRequestedPrincipal:
+		return 0
+	case TraceTargetWaitScopeSupportingExploration:
+		return 2
+	default:
+		return 1
+	}
 }
 
 func traceTargetWaitSameResultSource(aggregate, row ObservationRecord) bool {
