@@ -112,6 +112,22 @@ func runtimeTraceAuthorityRequestModel(ctx *types.BusContext) *types.RequestMode
 	return &cloned
 }
 
+// RuntimeTraceAuthorityRequestModelForAgentContext exposes the same private,
+// typed answer-authority target resolution to the finalizer prompt. Keeping
+// this as an adapter over the BusContext implementation prevents the
+// pre-finalize guidance and post-finalize system materializer from drifting
+// onto different target identities. It never reads raw request/model prose
+// and never mutates either context.
+func RuntimeTraceAuthorityRequestModelForAgentContext(ctx *types.AgentContext) *types.RequestModel {
+	if ctx == nil {
+		return nil
+	}
+	return runtimeTraceAuthorityRequestModel(&types.BusContext{
+		AnalysisIR: ctx.AnalysisIR,
+		Mutable:    ctx.Mutable,
+	})
+}
+
 // materializeRuntimeTraceBlockingCoverageAuthorityCaveat publishes the
 // lower-bound boundary already carried by typed target-owned blocking
 // intervals. It never inspects model prose: the caveat is present whenever

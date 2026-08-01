@@ -1,0 +1,117 @@
+package agent
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/tool"
+	"github.com/hanchaoqun/codrax/internal/types"
+)
+
+// renderAnswerDocTracePrincipalValueAuthority is the final, compact typed
+// numeric handoff shown immediately before the submission checklist. The same
+// target resolver and authority builders feed the post-finalize deterministic
+// leading cards, so the model sees their principal values before composing its
+// prose instead of learning them only after emit.
+//
+// This is deliberately soft guidance. It reads no raw request, model thinking,
+// or draft answer text and does not reject or rewrite the answer.
+func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string {
+	if ctx == nil {
+		return ""
+	}
+	authorityRM := tool.RuntimeTraceAuthorityRequestModelForAgentContext(ctx)
+	if authorityRM == nil {
+		return ""
+	}
+	ledger := answerDocObservationLedger(ctx)
+	states := types.BuildTraceTargetStateScopeAuthorities(
+		types.CompileTraceCausalProjectionSet(ledger),
+	)
+	waits := types.BuildTraceTargetWaitSummaryAuthorities(ledger, authorityRM)
+	blocking := types.BuildTraceBlockingWallClockAuthorities(ledger, authorityRM)
+	if len(states) == 0 && len(waits) == 0 && len(blocking) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("## Runtime Trace Principal Values — Final Typed Recap\n\n")
+	b.WriteString("- Use these typed rows for the leading numeric conclusion. They are a compact recap of the same authority used by the deterministic answer lead; later blocked-reason records, IPC request counts, transport latency, capped exploration rows, per-CPU aggregate groups, or narrative estimates cannot replace their caliber.\n")
+	b.WriteString("- A complete target-wait row authorizes its exact occurrence count and wall-clock sum. A capacity-truncated blocking row authorizes only the displayed observed lower bound (`>=`); never turn it into an exact total, a unique/only occurrence, or a claim that every other request caused no blocking.\n\n")
+
+	for i, state := range states {
+		if i >= 4 {
+			fmt.Fprintf(&b, "- (%d additional target-state account(s) omitted from this compact recap)\n", len(states)-i)
+			break
+		}
+		fmt.Fprintf(&b,
+			"- principal_state: artifact=`%s`; target=`%s`; window=`%.6f..%.6f`; running=%.3fms; runnable=%.3fms; sleep=%.3fms; d_state=%.3fms; io_wait=%.3fms; accounted_total=%.3fms; window_ms=%.3fms; coverage_status=`%s`",
+			state.ArtifactLabel,
+			state.Subject,
+			state.WindowStartTs,
+			state.WindowEndTs,
+			state.RunningMS,
+			state.RunnableMS,
+			state.SleepMS,
+			state.DStateMS,
+			state.IOWaitMS,
+			state.TotalMS,
+			state.WindowMS,
+			state.CoverageStatus,
+		)
+		if state.UnaccountedMS > 0 {
+			fmt.Fprintf(&b, "; unaccounted=%.3fms (typed boundary evidence is insufficient to assign this remainder to any state)", state.UnaccountedMS)
+		}
+		if state.HeadCarryMS > 0 && state.HeadCarryState != "" {
+			fmt.Fprintf(&b, "; head_carry=%.3fms state=`%s` already_included=true", state.HeadCarryMS, state.HeadCarryState)
+		}
+		if state.TailOpenMS > 0 && state.TailOpenState != "" {
+			fmt.Fprintf(&b, "; tail_open=%.3fms state=`%s` already_included=true", state.TailOpenMS, state.TailOpenState)
+		}
+		b.WriteByte('\n')
+	}
+	for _, wait := range waits {
+		fmt.Fprintf(&b,
+			"- principal_wait_occurrences: artifact=`%s`; target=`%s`; window=`%.6f..%.6f`; permission=`exact_complete_rowset`; occurrence_count=%d; d_state_occurrences=%d; io_wait_occurrences=%d; sleep_iowait_occurrences=%d; other_wait_occurrences=%d; wall_clock_sum=%.3fms",
+			wait.ArtifactLabel,
+			wait.Subject,
+			wait.WindowStartTs,
+			wait.WindowEndTs,
+			wait.Count,
+			wait.DStateOccurrences,
+			wait.IOWaitOccurrences,
+			wait.SleepIOWaitOccurrences,
+			wait.OtherWaitOccurrences,
+			wait.WallClockMS,
+		)
+		if len(wait.Callers) > 0 {
+			fmt.Fprintf(&b, "; callers=`%s`", strings.Join(wait.Callers, "`, `"))
+		}
+		b.WriteString("; use this occurrence count rather than blocked_reason record count or aggregate-group count\n")
+	}
+	for _, block := range blocking {
+		permission := "bounded_observation"
+		occurrenceToken := fmt.Sprintf("%d", len(block.Occurrences))
+		wallClockToken := fmt.Sprintf("%.3fms", block.ObservedMS)
+		if block.CoverageStatus == "complete" {
+			permission = "exact_complete"
+		} else if block.CoverageStatus == "lower_bound_capacity_truncated" {
+			permission = "lower_bound_only"
+			occurrenceToken = fmt.Sprintf(">=%d", len(block.Occurrences))
+			wallClockToken = fmt.Sprintf(">=%.3fms", block.ObservedMS)
+		}
+		fmt.Fprintf(&b,
+			"- principal_blocking: artifact=`%s`; target=`%s`; selected_window=`%s`; blocking_type=`%s`; permission=`%s`; observed_occurrences=%s; observed_wall_clock=%s; coverage_status=`%s`\n",
+			block.ArtifactLabel,
+			block.Subject,
+			block.SelectedWindow,
+			block.Type,
+			permission,
+			occurrenceToken,
+			wallClockToken,
+			block.CoverageStatus,
+		)
+	}
+	b.WriteByte('\n')
+	return b.String()
+}

@@ -671,6 +671,11 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}) {
 		return b.String()
 	}
+	if !trace.appendSection(&b, "runtime_trace_principal_value_authority", func() string {
+		return renderAnswerDocTracePrincipalValueAuthority(ctx)
+	}) {
+		return b.String()
+	}
 	if !trace.appendSection(&b, "submission_checklist", func() string {
 		return renderAnswerDocSubmissionChecklist(ctx, view, e.diagramRequired)
 	}) {

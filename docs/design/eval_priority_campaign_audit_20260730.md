@@ -2592,3 +2592,72 @@ basename，而不是一边 `attached_trace.txt`、一边 lane marker
 - `go test ./internal/types ./internal/tool ./internal/tracequery ./internal/agent ./internal/orchestrator ./internal/skill -count=1`
   （types 19.383s、tool 166.671s、tracequery 70.093s、agent 2.765s、
   orchestrator 11.595s、skill 2.163s）。
+
+### B13 r4 人工审计与批 AL 设计（2026-08-01）
+
+在 revision `02a429854` 重建后，以严格 `parallel=2` 回放：
+
+- `eval/results/real_trace_h1_binder_true_false_attribution-20260731-172238`
+- `eval/results/real_trace_h2_dstate_dma_fence_triform-20260731-172238`
+
+runner 2/2（H2 181s、H1 191s），人工仍为 0/2；显式窗 Trace 因果投影、
+system supplement、根因排序、wakeup chain、critical blocking 和窗内可消除量
+均完整，无能力回退。
+
+AK1/AK2 已在真实 H2 生效：答案顶部现在发布同一窗的完整主值：
+`occurrences=11`、`d_state_occurrences=11`、
+`occurrence_wall_clock_sum=36.757ms`、单一
+`dma_fence_default_w+0x260/0x4dc[devhost.elf]` caller，以及
+`accounted_total=231.794ms / window=233.190ms /
+partial_unaccounted=1.396ms`；tail-open 8.793ms 明确已包含在 sleep。
+
+但模型正文仍回答“12 条 sched_blocked_reason / 8 次 D-state 入口”，同一答案
+形成三种次数口径。12/39.157 是 caller-linked record/delay census，不是
+scheduler-state occurrence；8 则是模型在 capped 探索行上手工数出的漏计值。
+H1 亦仍把 typed `coverage_status=lower_bound_capacity_truncated`、
+`observed_occurrences>=1`、`observed_blocking_lower_bound=1.409ms` 写成
+“只有/唯一一次”，并断言其余同步请求没有等待。
+
+两例同根不是 trace 数据缺失，而是成文时序：system-owned principal card 在
+模型发出 AnswerDocument 后才 materialize；finalizer prompt 的早期 Observation
+Ledger 已有 blocking lower-bound，却没有 AK 的 11-row summary 紧凑重述，
+且长提示后模型仍优先采用探索叙事。不能靠扫描/删除模型词面修复。
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B13-AL1 | P0 | finalize principal-value handoff | 成文后 authority 正确，但 finalizer 未在提交前看到 complete occurrence summary 与最后一次 typed 口径重述 | 在 finalizer 尾部加入 typed-only principal-value recap：同一 authoritative RM、ledger 和 builders；complete 才授权 exact N/sum，truncated 只授权 ≥N/lower-bound | covered-pending-replay |
+| EVAL-B13-AK1 | P0 | cross-authority artifact identity | path label / lane marker 曾使 complete roster 末端失联 | 单一 typed artifact resolver，真实 replay 已发布 11-row roster | covered |
+| EVAL-B13-AK2 | P1 | target state coverage caliber | 状态和小于窗口却显示成完整 partition | typed complete/partial_unaccounted + boundary fold，真实 replay 已披露 1.396ms | covered |
+| EVAL-B13-AK3 | P2 | aggregate group vs occurrence unit | 四个 per-CPU aggregate bucket 被 renderer 写成“4次” | typed merge caliber 后显示“4组 CPU 汇总”；保留真实 11 occurrence authority | filed |
+| EVAL-B13-A3 | P1 | typed authority vs contradictory model prose | 模型忽略 completeness/主值 | 由 AL1 先做成文前软接应；不扫描/改写 prose，回放后再判断是否仍需 system-owned conclusion 结构 | subsumed-by-AL1 |
+
+批 AL 不变量：
+
+1. 只消费 typed RequestModel、ObservationLedger、system supplement
+   meta/results 和确定性 authority builders；不读取 raw request、case ID、模型
+   thinking 或 AnswerDocument 原文。
+2. 仅是 finalizer 软指导，不新增 hard gate、contract reject、自动删改或答案词面
+   检查；模型波动仍可留档。
+3. complete occurrence rowset 必须同 result/source、同 target/window、连续
+   1..N、行数/墙钟自洽；否则不授权 exact count/sum。
+4. lower-bound blocking 与 complete IPC request census 永远分量纲；后者不能把
+   前者补成“唯一/全部/其余无阻塞”。
+5. 不改 supplement 选路和显式时间窗因果投影构造，继续守住 root rank、
+   wakeup chain、critical blocking、窗内可消除量与无窗窄查询优化。
+
+批 AL1 已实现 `Runtime Trace Principal Values — Final Typed Recap`，位置在
+principal boundary 之后、submission checklist 之前。它与成文后主值卡复用
+同一个 typed target resolver：正常 user RuntimeTarget 优先；缺失时仍必须由
+严格 `name-pid` entity 与已成功执行的 targeted supplement 同 PID 共识，
+cursor-only、空/失败/census-only 继续 fail-closed。recap 直接消费
+`BuildTraceTargetWaitSummaryAuthorities`、
+`BuildTraceBlockingWallClockAuthorities` 与 target-state authority：
+complete 11-row 形发布 exact count/sum/caller；capacity-truncated 形只发布
+`>=occurrence` 与 `>=wall_clock`，并提示 IPC/census/group 量纲不可替换。
+
+结构 pin 覆盖 11-row 集合、lower-bound 权限、entity+supplement 共识及
+recap→submission 的真实接线顺序。完整回归通过：
+
+- `go test ./internal/types ./internal/tool ./internal/tracequery ./internal/agent ./internal/orchestrator ./internal/skill -count=1`
+  （types 18.161s、tool 162.868s、tracequery 70.694s、agent 3.658s、
+  orchestrator 13.004s、skill 0.850s）。

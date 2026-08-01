@@ -1,0 +1,198 @@
+package agent
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/types"
+)
+
+func TestRenderAnswerDocTracePrincipalValueAuthorityCarriesCompleteElevenRowWaitSetAL(t *testing.T) {
+	const (
+		subject = "CompThread_0-2955"
+		start   = 13762.791708
+		end     = 13763.024898
+	)
+	count := 11
+	ref := types.ObservationSourceRef{
+		Kind:       types.ObservationSourceRuntimeArtifact,
+		Path:       "/tmp/attached_trace.txt",
+		ArtifactID: "attached_trace",
+		PayloadRef: "trace-query-result.json",
+	}
+	aggregate := types.ObservationRecord{
+		ID:              "trace_query:window#target_window_wait_occurrences",
+		Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            types.AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: types.ClaimGroundingHard,
+		SourceRef:       ref,
+		ObservedAt:      "result-1",
+		Span:            types.ObservationSpan{StartTs: start, EndTs: end},
+		Subject:         subject,
+		Predicate:       "target_window_wait_occurrences",
+		Object:          "complete",
+		Value:           "11",
+		Unit:            "occurrences",
+		ResultCount:     &count,
+	}
+	observations := []types.ObservationRecord{aggregate}
+	for i := 1; i <= count; i++ {
+		rowStart := start + float64(i)*0.002
+		observations = append(observations, types.ObservationRecord{
+			ID:              fmt.Sprintf("trace_query:window#target_window_wait_occurrence:%d", i),
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef:       ref,
+			ObservedAt:      "result-1",
+			Span:            types.ObservationSpan{StartTs: rowStart, EndTs: rowStart + 0.001},
+			Subject:         subject,
+			Predicate:       "target_window_wait_occurrence",
+			Object:          "state=d_sleep;iowait=0;caller=dma_fence_default_w",
+			Value:           "1.000",
+			Unit:            "ms",
+		})
+	}
+	ctx := tracePrincipalValueAuthorityTestContext(subject, 2955, observations)
+
+	got := renderAnswerDocTracePrincipalValueAuthority(ctx)
+	for _, want := range []string{
+		"## Runtime Trace Principal Values — Final Typed Recap",
+		"permission=`exact_complete_rowset`",
+		"occurrence_count=11",
+		"d_state_occurrences=11",
+		"wall_clock_sum=11.000ms",
+		"callers=`dma_fence_default_w`",
+		"rather than blocked_reason record count or aggregate-group count",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("principal-value recap missing %q:\n%s", want, got)
+		}
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	recapAt := strings.Index(prompt, "## Runtime Trace Principal Values — Final Typed Recap")
+	checklistAt := strings.Index(prompt, "## Submission Checklist")
+	if recapAt < 0 || checklistAt < 0 || recapAt > checklistAt {
+		t.Fatalf("principal-value recap must be wired immediately before the submission tail: recap=%d checklist=%d", recapAt, checklistAt)
+	}
+}
+
+func TestRenderAnswerDocTracePrincipalValueAuthorityKeepsTruncatedBlockingAsLowerBoundAL(t *testing.T) {
+	const subject = ".ugc.aweme.lite-17267"
+	record := types.ObservationRecord{
+		ID:              "blocking:binder",
+		Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            types.AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: types.ClaimGroundingHard,
+		SourceRef: types.ObservationSourceRef{
+			Kind:       types.ObservationSourceRuntimeArtifact,
+			Path:       "/tmp/attached_trace.txt",
+			ArtifactID: "attached_trace",
+		},
+		Span:      types.ObservationSpan{StartTs: 13762.835861, EndTs: 13762.837270},
+		ClaimKey:  "critical_blocking:binder_wait",
+		Predicate: "critical_blocking",
+		Subject:   subject,
+		Object:    "binder:496_9-10961",
+		Value:     "1.409",
+		Unit:      "ms",
+		RichNotes: []string{
+			"type=binder_wait",
+			"peer=binder:496_9-10961",
+			"blocking_candidate=true",
+			"selected_window=13762.791708..13763.024898",
+			types.TraceNoteKeyCapacityTruncated + "=true",
+		},
+	}
+	ctx := tracePrincipalValueAuthorityTestContext(subject, 17267, []types.ObservationRecord{record})
+
+	got := renderAnswerDocTracePrincipalValueAuthority(ctx)
+	for _, want := range []string{
+		"blocking_type=`binder_wait`",
+		"permission=`lower_bound_only`",
+		"observed_occurrences=>=1",
+		"observed_wall_clock=>=1.409ms",
+		"coverage_status=`lower_bound_capacity_truncated`",
+		"never turn it into an exact total",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("lower-bound principal recap missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestRenderAnswerDocTracePrincipalValueAuthorityUsesTypedEntitySupplementConsensusAL(t *testing.T) {
+	const subject = "CompThread_0-2955"
+	record := types.ObservationRecord{
+		ID:              "blocking:dma",
+		Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            types.AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: types.ClaimGroundingHard,
+		SourceRef: types.ObservationSourceRef{
+			Kind:       types.ObservationSourceRuntimeArtifact,
+			Path:       "/tmp/attached_trace.txt",
+			ArtifactID: "attached_trace",
+		},
+		Span:      types.ObservationSpan{StartTs: 1, EndTs: 1.004},
+		ClaimKey:  "critical_blocking:d_state",
+		Predicate: "critical_blocking",
+		Subject:   subject,
+		Object:    "dma_fence_default_w",
+		Value:     "4.000",
+		Unit:      "ms",
+		RichNotes: []string{
+			"type=d_state_or_io_wait",
+			"selected_window=1.000000..2.000000",
+			types.TraceNoteKeyCapacityTruncated + "=true",
+		},
+	}
+	ctx := tracePrincipalValueAuthorityTestContext(subject, 2955, []types.ObservationRecord{record})
+	ctx.AnalysisIR.RequestModel.RuntimeTargets[0].Source = types.RuntimeTargetSourceExplicitToolCall
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{subject}
+	ctx.Mutable.SetRequestModel(ctx.AnalysisIR.RequestModel)
+	ctx.Mutable.SetSystemTraceSupplement(types.SystemTraceSupplementMeta{
+		Views:        []string{"root_cause_rank"},
+		TargetPID:    2955,
+		TargetThread: subject,
+		TargetSource: "cursor",
+	}, []types.ToolResult{{ToolName: "trace_query", Success: true}})
+
+	got := renderAnswerDocTracePrincipalValueAuthority(ctx)
+	if !strings.Contains(got, "target=`CompThread_0-2955`") ||
+		!strings.Contains(got, "permission=`lower_bound_only`") {
+		t.Fatalf("typed entity + executed supplement consensus must feed the same finalizer authority:\n%s", got)
+	}
+	if !types.RuntimeTargetIsExplorationCursorSource(ctx.AnalysisIR.RequestModel.RuntimeTargets[0].Source) {
+		t.Fatalf("prompt-time consensus mutated persistent request model: %+v", ctx.AnalysisIR.RequestModel.RuntimeTargets)
+	}
+}
+
+func tracePrincipalValueAuthorityTestContext(subject string, pid int, observations []types.ObservationRecord) *types.AgentContext {
+	mut := types.NewMutableState("typed trace authority test")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
+		ToolName:     "trace_query",
+		Success:      true,
+		Observations: observations,
+	}}})
+	return &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentRootCause,
+				RuntimeTargets: []types.RuntimeTarget{{
+					Kind:   types.RuntimeTargetKindThread,
+					PID:    pid,
+					Thread: subject,
+					Source: "user_explicit",
+				}},
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+	}
+}
