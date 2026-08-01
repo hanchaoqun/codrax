@@ -65,6 +65,13 @@ type ObservationSourceRef struct {
 	ResourceURI         string                `json:"resource_uri,omitempty"`
 	MIMEType            string                `json:"mime_type,omitempty"`
 	Connector           string                `json:"connector,omitempty"`
+	// CaptureIdentityPath is the canonical identity of the physical runtime
+	// capture behind Path. Path remains the exact addressable carrier used by
+	// the producer (and therefore owns its line coordinates); this field lets
+	// an original attachment path and Codrax's reserved materialized blob be
+	// grouped as one capture without rewriting either locator. It is minted
+	// only from run-entry RuntimeArtifactPreflight provenance.
+	CaptureIdentityPath string `json:"capture_identity_path,omitempty"`
 }
 
 // ObservationSpan locates the observation inside SourceRef when that source has

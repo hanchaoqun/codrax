@@ -110,7 +110,7 @@ func runtimeArtifactRelationIdentity(ref ObservationSourceRef) (key, displayID s
 	// that same blob; grouping by ID first would mint a false cross-artifact
 	// pair for one physical input. Conversely, one generic ID can be reused
 	// across two paths, so a present canonical path must remain primary.
-	path := runtimeArtifactIdentityPathKey(ref.Path)
+	path := runtimeArtifactIdentityPathKey(RuntimeArtifactCaptureIdentityPath(ref))
 	if path != "" {
 		return "artifact_path\x00" + path, "runtime_artifact:" + RuntimeArtifactHashString(
 			path,
@@ -133,7 +133,7 @@ type runtimeArtifactRelationEndpointAccumulator struct {
 }
 
 func (acc *runtimeArtifactRelationEndpointAccumulator) add(ref ObservationSourceRef) {
-	runtimeArtifactRelationAddValue(&acc.paths, runtimeArtifactIdentityPathKey(ref.Path))
+	runtimeArtifactRelationAddValue(&acc.paths, runtimeArtifactIdentityPathKey(RuntimeArtifactCaptureIdentityPath(ref)))
 	runtimeArtifactRelationAddValue(&acc.kinds, ref.ArtifactKind)
 	runtimeArtifactRelationAddValue(&acc.timeDomains, ref.TimeDomain)
 	runtimeArtifactRelationAddValue(&acc.canonicalDomains, ref.CanonicalTimeDomain)

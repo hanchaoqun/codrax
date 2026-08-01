@@ -161,7 +161,7 @@ func traceValueOccurrenceCandidateFromRecord(record ObservationRecord, rm *Reque
 	}
 	artifact := strings.TrimSpace(record.SourceRef.ArtifactID)
 	if artifact == "" {
-		artifact = strings.TrimSpace(record.SourceRef.Path)
+		artifact = RuntimeArtifactCaptureIdentityPath(record.SourceRef)
 	}
 	subject := strings.TrimSpace(record.Subject)
 	typ := traceValueOccurrenceType(record)

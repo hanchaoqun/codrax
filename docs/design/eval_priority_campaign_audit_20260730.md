@@ -4438,6 +4438,34 @@ alias：仅当记录携带 `ArtifactID=attached_trace`、路径命中 Codrax 保
 
 状态：`EVAL-B25-TRACEALIAS1=P1/filed / implementation-next`；plan-only mode=`covered`。
 
+#### B25-A：运行时 capture 身份与可寻址载体解耦
+
+`EVAL-B25-TRACEALIAS1` 已在 Observation Ledger 的单一身份铸造口完成：
+
+1. `ObservationSourceRef` 新增 system-minted `capture_identity_path`。`Path` 继续表示
+   producer 实际读取的载体及其行坐标；capture identity 只用于物理工件分组。因而原文件
+   第 N 行与含一行 `codrax-source` 包装头的 blob 第 N+1 行都保持可核验，不做危险的
+   locator 改写。
+2. preflight source index 只有在以下 typed 合取成立时才给保留 blob 绑定 capture：
+   `ArtifactID=attached_trace`、`ArtifactKind=trace`、路径是 Codrax 保留 trace blob、
+   且恰有一个可寻址的 `carrier=attachment` trace 源。request-path 先登记、attachment
+   后登记的生产顺序也可建立绑定。
+3. projection partition、跨工件 relation authority、IPC census、value occurrence 与
+   blocking wall-clock authority 共用 `RuntimeArtifactCaptureIdentityPath`；引用、raw read、
+   payload 仍使用各自 `Path`，身份和坐标不再互相污染。
+4. 正臂固定原路径查询 + system supplement blob 形成一份 projection，重叠的确定性事实
+   继续由既有 duplicate-publication 规则折叠，不生成 comparison 或 cross-artifact
+   boundary。反臂固定普通用户同名文件、多 attachment、inline source 均 fail-open；
+   两个真实路径的既有多工件测试保持。
+5. 生产成文回归使用显式 `34579.472865..34579.587805` scope，确认单 capture 的
+   Trace 因果投影仍发布，只有重复的第二套板和伪 relation 被删除。
+
+完整相关回归通过：`go test ./internal/agent ./internal/orchestrator ./internal/types
+./internal/tool ./internal/skill -count=1`（agent 4.074s、orchestrator 12.350s、
+types 18.775s、tool 163.421s、skill 1.379s），`git diff --check` 通过。
+
+状态：`EVAL-B25-TRACEALIAS1=P1/implemented / same-pair-replay-next`。
+
 ### B21-GREP：literal/regex 查询语义进入 typed 证据链（2026-08-01）
 
 `EVAL-B21-GREP1` 已按软恢复而非硬拒绝施工：

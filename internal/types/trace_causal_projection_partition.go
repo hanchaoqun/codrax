@@ -534,12 +534,13 @@ func TraceCausalProjectionRecordMatchesArtifact(record ObservationRecord, projec
 }
 
 // traceCausalProjectionArtifactIdentity extracts a record's typed artifact
-// identity: partition key, display label (basename), and the canonical path
+// identity: partition key, display label (basename), and the canonical capture path
 // (empty when the identity came from a bare artifact id). Precise typed lanes
-// only — SourceRef.Path (shared canonicaliser), SourceRef.ArtifactID, then the
-// evidence locator's artifact path; never prose. Empty key = no identity.
+// only — SourceRef.CaptureIdentityPath/Path (shared canonicaliser),
+// SourceRef.ArtifactID, then the evidence locator's artifact path; never
+// prose. Empty key = no identity.
 func traceCausalProjectionArtifactIdentity(record ObservationRecord) (string, string, string) {
-	if path := strings.TrimSpace(record.SourceRef.Path); path != "" {
+	if path := RuntimeArtifactCaptureIdentityPath(record.SourceRef); path != "" {
 		canon := canonpath.CanonicalRepoRelative(path, "")
 		return "path\x00" + canon, traceCausalProjectionArtifactBasename(canon), canon
 	}

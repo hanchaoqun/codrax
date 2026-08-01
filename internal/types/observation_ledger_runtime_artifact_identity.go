@@ -16,8 +16,10 @@ import (
 // are valid, and unrelated .log/.sys files are not attachments. Only a path
 // present in RuntimeArtifactPreflight may match.
 type runtimeArtifactPreflightSourceIndex struct {
-	byPath   map[string]runtimeArtifactPreflightSource
-	repoRoot string
+	byPath                map[string]runtimeArtifactPreflightSource
+	repoRoot              string
+	attachedTraceSource   runtimeArtifactPreflightSource
+	attachedTraceResolved bool
 }
 
 type runtimeArtifactPreflightSource struct {
@@ -32,6 +34,7 @@ func compileRuntimeArtifactPreflightSourceIndex(profile RuntimeArtifactPreflight
 		byPath:   make(map[string]runtimeArtifactPreflightSource, len(normalized.Artifacts)),
 		repoRoot: strings.TrimSpace(repoRoot),
 	}
+	attachedTraceByKey := map[string]runtimeArtifactPreflightSource{}
 	for _, artifact := range normalized.Artifacts {
 		source := canonicalRuntimeArtifactIdentityPath(artifact.Source, repoRoot)
 		if source == "" {
@@ -42,13 +45,24 @@ func compileRuntimeArtifactPreflightSourceIndex(profile RuntimeArtifactPreflight
 			kind = strings.TrimSpace(artifact.Kind)
 		}
 		key := runtimeArtifactIdentityPathKey(source)
-		if _, exists := index.byPath[key]; exists {
-			continue
+		entry, exists := index.byPath[key]
+		if !exists {
+			entry = runtimeArtifactPreflightSource{
+				path:         source,
+				artifactID:   "runtime_artifact:" + RuntimeArtifactHashString(kind+"\x00"+source),
+				artifactKind: kind,
+			}
+			index.byPath[key] = entry
 		}
-		index.byPath[key] = runtimeArtifactPreflightSource{
-			path:         source,
-			artifactID:   "runtime_artifact:" + RuntimeArtifactHashString(kind+"\x00"+source),
-			artifactKind: kind,
+		if strings.EqualFold(strings.TrimSpace(artifact.Carrier), "attachment") &&
+			kind == "trace" && runtimeArtifactAttachmentSourceIsAddressable(source) {
+			attachedTraceByKey[key] = entry
+		}
+	}
+	if len(attachedTraceByKey) == 1 {
+		for _, source := range attachedTraceByKey {
+			index.attachedTraceSource = source
+			index.attachedTraceResolved = true
 		}
 	}
 	return index
@@ -64,6 +78,9 @@ func (index runtimeArtifactPreflightSourceIndex) requalify(record ObservationRec
 	}
 	canonicalPath := canonicalRuntimeArtifactIdentityPath(sourcePath, index.repoRoot)
 	artifact, ok := index.byPath[runtimeArtifactIdentityPathKey(canonicalPath)]
+	if !ok && index.recordUsesAttachedTraceMaterialization(record, canonicalPath) {
+		artifact, ok = index.attachedTraceSource, true
+	}
 	if !ok {
 		return record
 	}
@@ -83,10 +100,45 @@ func (index runtimeArtifactPreflightSourceIndex) requalify(record ObservationRec
 	record.SourceRef.Kind = ObservationSourceRuntimeArtifact
 	record.SourceRef.ArtifactID = artifact.artifactID
 	record.SourceRef.ArtifactKind = artifact.artifactKind
+	record.SourceRef.CaptureIdentityPath = artifact.path
 	// Keep the producer's existing grounding strength. In particular,
 	// trace_query publishes hard pair-atomic rows; origin enrichment must not
 	// soften those rows and silently remove them from causal projection.
 	return record
+}
+
+// recordUsesAttachedTraceMaterialization recognizes only Codrax's typed
+// attachment-materialization lane. A user file that merely happens to be
+// named attached_trace.txt carries ArtifactID=trace_query and cannot enter.
+// Multiple attachment candidates leave attachedTraceResolved false and fail
+// open to distinct paths.
+func (index runtimeArtifactPreflightSourceIndex) recordUsesAttachedTraceMaterialization(record ObservationRecord, canonicalPath string) bool {
+	if !index.attachedTraceResolved ||
+		!strings.EqualFold(strings.TrimSpace(record.SourceRef.ArtifactID), "attached_trace") ||
+		!strings.EqualFold(strings.TrimSpace(record.SourceRef.ArtifactKind), "trace") {
+		return false
+	}
+	return ReservedRuntimeArtifactBlobKind(canonicalPath) == "trace"
+}
+
+func runtimeArtifactAttachmentSourceIsAddressable(source string) bool {
+	switch strings.ToLower(strings.TrimSpace(source)) {
+	case "", "-", "(inline)", "attached_trace", "harmony_hitrace", "android_atrace", "generic_ftrace":
+		return false
+	default:
+		return true
+	}
+}
+
+// RuntimeArtifactCaptureIdentityPath returns the physical-capture identity
+// when the ledger could prove one, otherwise the producer's addressable path.
+// Runtime-artifact grouping consumers share this chokepoint; citation and raw
+// read consumers must continue to use Path.
+func RuntimeArtifactCaptureIdentityPath(ref ObservationSourceRef) string {
+	if identity := strings.TrimSpace(ref.CaptureIdentityPath); identity != "" {
+		return identity
+	}
+	return strings.TrimSpace(ref.Path)
 }
 
 func canonicalRuntimeArtifactIdentityPath(source, repoRoot string) string {

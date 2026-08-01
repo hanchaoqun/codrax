@@ -193,7 +193,7 @@ func traceBlockingWallClockCandidateFromRecord(record ObservationRecord, rm *Req
 	}
 	artifact := strings.TrimSpace(record.SourceRef.ArtifactID)
 	if artifact == "" {
-		artifact = strings.TrimSpace(record.SourceRef.Path)
+		artifact = RuntimeArtifactCaptureIdentityPath(record.SourceRef)
 	}
 	selectedWindow := strings.TrimSpace(traceObservationRichNoteValue(record.RichNotes, TraceNoteKeySelectedWindow))
 	subject := strings.TrimSpace(record.Subject)

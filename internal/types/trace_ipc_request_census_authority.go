@@ -159,7 +159,7 @@ func BuildTraceIPCRequestCensusAuthorities(ledger ObservationLedger, rm *Request
 func traceIPCRequestCensusRecordKey(record ObservationRecord) (traceIPCRequestCensusKey, bool) {
 	artifact := strings.TrimSpace(record.SourceRef.ArtifactID)
 	if artifact == "" {
-		artifact = strings.TrimSpace(record.SourceRef.Path)
+		artifact = RuntimeArtifactCaptureIdentityPath(record.SourceRef)
 	}
 	window := strings.TrimSpace(traceObservationRichNoteValue(record.RichNotes, TraceNoteKeySelectedWindow))
 	subject := strings.TrimSpace(record.Subject)

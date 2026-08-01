@@ -183,6 +183,29 @@ func TestTraceCausalProjectionSetPartitionsByArtifactIdentity(t *testing.T) {
 	}
 }
 
+func TestTraceCausalProjectionSetCaptureIdentityMergesMaterializedCarrier(t *testing.T) {
+	original := partitionTestRecord("original", "/repo/frame.systrace", "root_cause_primary", "root_cause_primary:original",
+		"worker-1", "running", "5.000", 5.0, 10, 20, ObservationSpan{LineStart: 10, LineEnd: 20},
+		"rank=1", "tier=primary", "chain_relevance=on_chain")
+	blob := partitionTestRecord("blob", "/repo/.codrax/blob/session/attached_trace.txt", "root_cause_primary", "root_cause_primary:blob",
+		"worker-1", "running", "5.000", 5.0, 11, 21, ObservationSpan{LineStart: 11, LineEnd: 21},
+		"rank=1", "tier=primary", "chain_relevance=on_chain")
+	original.SourceRef.CaptureIdentityPath = "/repo/frame.systrace"
+	blob.SourceRef.CaptureIdentityPath = "/repo/frame.systrace"
+
+	set := TraceCausalProjectionSetFromObservationRecords([]ObservationRecord{original, blob})
+	if len(set.Projections) != 1 || set.Projections[0].ArtifactLabel != "frame.systrace" {
+		t.Fatalf("materialized carrier must share the original capture partition: %+v", set)
+	}
+	if got := len(set.Projections[0].PrimaryRootCauses); got != 1 {
+		t.Fatalf("overlapping duplicate publications inside one capture must fold, got %d: %+v",
+			got, set.Projections[0].PrimaryRootCauses)
+	}
+	if original.SourceRef.Path == blob.SourceRef.Path {
+		t.Fatal("fixture must retain distinct addressable carrier paths")
+	}
+}
+
 func TestTraceCausalProjectionSetSupportRefIdentityLane(t *testing.T) {
 	// Records without SourceRef but with a path-carrying evidence locator
 	// partition through the locator lane (typed character-class split).

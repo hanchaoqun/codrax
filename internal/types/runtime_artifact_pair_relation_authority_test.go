@@ -62,6 +62,17 @@ func TestBuildRuntimeArtifactPairRelationAuthority_PathIsPrimaryAcrossIDAliases(
 	}
 }
 
+func TestBuildRuntimeArtifactPairRelationAuthority_CaptureIdentityPrecedesMaterializedPaths(t *testing.T) {
+	original := runtimeArtifactPairTestRecord("trace_query", "/repo/frame.systrace", "trace_seconds", "trace_seconds", "identity")
+	blob := runtimeArtifactPairTestRecord("attached_trace", "/repo/.codrax/blob/session/attached_trace.txt", "trace_seconds", "trace_seconds", "identity")
+	original.SourceRef.CaptureIdentityPath = "frame.systrace"
+	blob.SourceRef.CaptureIdentityPath = "frame.systrace"
+	got := BuildRuntimeArtifactPairRelationAuthority(ObservationLedger{Records: []ObservationRecord{original, blob}})
+	if got.Active || len(got.Artifacts) != 0 || len(got.Pairs) != 0 {
+		t.Fatalf("one capture behind two addressable carriers must remain one artifact: %+v", got)
+	}
+}
+
 func TestBuildRuntimeArtifactPairRelationAuthority_ReusedIDRemainsDistinctByTypedPath(t *testing.T) {
 	left := runtimeArtifactPairTestRecord("trace_query", "a.systrace", "trace_seconds", "trace_seconds", "identity")
 	right := runtimeArtifactPairTestRecord("trace_query", "b.systrace", "trace_seconds", "trace_seconds", "identity")

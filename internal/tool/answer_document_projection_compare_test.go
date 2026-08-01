@@ -236,6 +236,73 @@ func TestTraceProjectionMultiArtifactRendersPerArtifactSections(t *testing.T) {
 	}
 }
 
+func TestTraceProjectionAttachedMaterializationAliasRendersOneCapture(t *testing.T) {
+	start, end := 34579.472865, 34579.587805
+	const originalPath = "/repo/eval/fixtures/real_traces/donghu_tieba_frame.systrace"
+	const blobPath = "/repo/.codrax/blob/session/attached_trace.txt"
+	original := compareProjObs("original", originalPath, "root_cause_primary", "root_cause_primary:worker",
+		"worker-1", "sleep_wait", "8.740", 8.740, 100, 200,
+		types.ObservationSpan{LineStart: 100, LineEnd: 200, StartTs: 34579.525319, EndTs: 34579.534164},
+		"rank=1", "tier=primary", "chain_relevance=on_chain", "causality=on_wakeup_chain",
+		"selected_window=34579.472865..34579.587805")
+	original.SourceRef.ArtifactID = "trace_query"
+	blob := compareProjObs("supplement", blobPath, "root_cause_primary", "root_cause_primary:worker",
+		"worker-1", "sleep_wait", "8.740", 8.740, 101, 201,
+		types.ObservationSpan{LineStart: 101, LineEnd: 201, StartTs: 34579.525319, EndTs: 34579.534164},
+		"rank=1", "tier=primary", "chain_relevance=on_chain", "causality=on_wakeup_chain",
+		"selected_window=34579.472865..34579.587805")
+	blob.SourceRef.ArtifactID = "attached_trace"
+
+	bus := newBusForMutationTest()
+	bus.RepoRoot = "/repo"
+	bus.RuntimeArtifactPreflight = types.NormalizeRuntimeArtifactPreflightProfile(types.RuntimeArtifactPreflightProfile{
+		Artifacts: []types.RuntimeArtifactPreflightArtifact{{
+			Kind: "trace", Source: originalPath, Carrier: "attachment",
+		}},
+	})
+	bus.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Intent:   types.IntentTrace,
+			Scenario: types.ScenarioPerformanceBottleneck,
+			RuntimeArtifactScopeProfile: &types.RuntimeArtifactScopeProfile{
+				RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
+				TimeStart:      &start,
+				TimeEnd:        &end,
+				SourceQuote:    "34579.472865s 到 34579.587805s",
+			},
+		},
+		AnswerContract: types.AnswerContract{Language: "zh"},
+	}
+	bus.ToolResults = []types.ToolResult{{
+		ToolName: "trace_query", Success: true, Observations: []types.ObservationRecord{original},
+	}}
+	bus.Mutable.SetSystemTraceSupplement(types.SystemTraceSupplementMeta{Views: []string{"root_cause_rank"}}, []types.ToolResult{{
+		ToolName: "trace_query", Success: true, Observations: []types.ObservationRecord{blob},
+	}})
+
+	got := compareProjApply(t, bus)
+	if projectionClusterBlock(got.Blocks, runtimeTraceCausalProjectionBlockIDBase) == nil {
+		t.Fatalf("single capture lost its causal projection: %+v", got.Blocks)
+	}
+	if projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_a1") != nil ||
+		projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_a2") != nil ||
+		projectionClusterBlock(got.Blocks, runtimeTraceCausalProjectionCompareBlockID) != nil {
+		t.Fatalf("one capture behind an original path and reserved blob rendered as a comparison: %+v", got.Blocks)
+	}
+	if projectionClusterBlock(got.Blocks, runtimeArtifactPairRelationAuthorityBlockID) != nil {
+		t.Fatalf("one capture minted a false cross-artifact relation boundary: %+v", got.Blocks)
+	}
+	count := 0
+	for _, block := range got.Blocks {
+		if strings.HasPrefix(block.Title, "Trace 因果投影") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("Trace causal projection section count=%d, want 1: %+v", count, got.Blocks)
+	}
+}
+
 func TestTraceProjectionMultiArtifactComparisonOverviewTable(t *testing.T) {
 	got := compareProjApply(t, compareProjBus(true))
 	compare := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_compare")
