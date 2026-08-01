@@ -418,6 +418,8 @@ func summariseExactFix(violations []types.Violation, ctx Context) string {
 		// match the family contract's required diagram kind, OR an
 		// edge in the diagram has no supporting evidence.
 		return "Set `diagram.kind` to the SEMANTIC family the contract expects (`flow` / `sequence` / `architecture` / `call_dag`), NOT a Mermaid keyword. Mermaid syntax (`flowchart` / `sequenceDiagram`) goes inside `diagram.body`. If the family contract is too strict for this answer, drop the diagram block instead of fabricating edges."
+	case types.ViolDiagramCallEdgeUnproven:
+		return "For every structured `relation_kind=call` edge in this source call-chain diagram, preserve the exact direction of a grounded call-site EvidenceItem `Subject -> Object`. Remove pseudo-sequential edges between sibling calls and do not use a function definition to prove call direction."
 	case types.ViolUncertaintyBlockMissing:
 		// V2 carrier — UncertaintyRule fired but no caveat block
 		// covers the disclosure facet.
@@ -521,7 +523,7 @@ func buildAllowedSet(violations []types.Violation, ctx Context) []Allowed {
 				Hint:  "valid claim_form for principal block annotation",
 			})
 		}
-	case types.ViolDiagramEdgeUnsupported:
+	case types.ViolDiagramEdgeUnsupported, types.ViolDiagramCallEdgeUnproven:
 		// Surface the 4 SEMANTIC diagram families. LLM commonly
 		// types `kind=flow` when the contract expects `architecture`
 		// — Allowed list nudges it back.

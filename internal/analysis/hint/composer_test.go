@@ -211,6 +211,7 @@ var composerExactFixSwitchKinds = map[types.ViolationKind]bool{
 	// V2 carrier kinds (B2 1:1 mapping rollout).
 	types.ViolPrincipalClaimUseMissing:        true,
 	types.ViolDiagramEdgeUnsupported:          true,
+	types.ViolDiagramCallEdgeUnproven:         true,
 	types.ViolUncertaintyBlockMissing:         true,
 	types.ViolClaimFormUnsupported:            true,
 	types.ViolBlockCoverageMissing:            true,

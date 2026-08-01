@@ -188,8 +188,9 @@ func TestEmitAnalysisSchemaIncludesDiagramHintEnum(t *testing.T) {
 		t.Fatal("emit_analysis schema is missing property \"diagram_hint\"")
 	}
 	var prop struct {
-		Type       string `json:"type"`
-		Properties map[string]struct {
+		Type        string `json:"type"`
+		Description string `json:"description"`
+		Properties  map[string]struct {
 			Type string   `json:"type"`
 			Enum []string `json:"enum"`
 		} `json:"properties"`
@@ -200,6 +201,11 @@ func TestEmitAnalysisSchemaIncludesDiagramHintEnum(t *testing.T) {
 	}
 	if prop.Type != "object" {
 		t.Fatalf("diagram_hint type = %q, want object", prop.Type)
+	}
+	for _, want := range []string{"explicitly requested visual modality is authoritative", "sequence even when the topic is a call chain", "Do not replace an explicit sequence request with call_dag"} {
+		if !strings.Contains(prop.Description, want) {
+			t.Fatalf("diagram_hint schema description must preserve explicit modality; missing %q in %q", want, prop.Description)
+		}
 	}
 	kindProp, ok := prop.Properties["kind"]
 	if !ok {

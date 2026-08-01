@@ -42,7 +42,7 @@ func TestRunV2BlockOracles_DiagramCallEdgeDirectionRequiresTypedEvidence(t *test
 	violations := runV2BlockOraclesWithMut(doc, view, mut)
 	found := false
 	for _, violation := range violations {
-		if violation.Kind == types.ViolCitation && violation.SuspectedRoot.IRField == "diagram_call_edge_evidence" {
+		if violation.Kind == types.ViolDiagramCallEdgeUnproven && violation.SuspectedRoot.IRField == "diagram_call_edge_evidence" {
 			found = true
 		}
 	}
@@ -57,7 +57,7 @@ func TestRunV2BlockOracles_DiagramCallEdgeDirectionRequiresTypedEvidence(t *test
 	doc.Blocks[0].EdgeAnchors[0].FromNode = "R"
 	doc.Blocks[0].EdgeAnchors[0].ToNode = "RW"
 	for _, violation := range runV2BlockOraclesWithMut(doc, view, mut) {
-		if violation.Kind == types.ViolCitation && violation.SuspectedRoot.IRField == "diagram_call_edge_evidence" {
+		if violation.Kind == types.ViolDiagramCallEdgeUnproven && violation.SuspectedRoot.IRField == "diagram_call_edge_evidence" {
 			t.Fatalf("evidence-backed direction must pass post-emit oracle: %+v", violation)
 		}
 	}

@@ -13,12 +13,12 @@
 //   - the table's kind set equals the kinds actually passed to
 //     appendPreEmitHints/tagPreEmitHints in the checker body
 //     (go/parser scan — self-updating, no manual sync);
-//   - exactly one ForceHard producer site exists in the checker file.
+//   - exactly one legacy ForceHard producer site exists in the checker file.
 //
 // Ping-pong guard: the advisory rows pin the settled post-D1-G95
 // state (D1-F7w hardened citation carriers, D1-G95 reverted them).
 // Do NOT "fix" an advisory row to hard here — that would be round
-// three. Only the two typed policy-row lanes are hard.
+// three. Only the explicit typed policy-row lanes are hard.
 //
 // The go/parser scans are TEST-ONLY; production code never inspects
 // source text.
@@ -105,6 +105,15 @@ func TestPreEmitSubgateRouteTableRoutesMatchGateSplit(t *testing.T) {
 			if preEmitHintHardByDefault(plain) {
 				t.Errorf("subgate %q kind %q without ForceHard must stay advisory", row.Subgate, row.ViolationKind)
 			}
+		case preEmitHardSignalTypedCallEdgeEvidence:
+			if !policyRows[preEmitSameTurnHardPolicyRow{Kind: row.ViolationKind, Signal: row.HardLane}] {
+				t.Errorf("subgate %q hard lane %q has no policy row", row.Subgate, row.HardLane)
+			}
+			typed := plain
+			typed.HardSignal = preEmitHardSignalTypedCallEdgeEvidence
+			if !preEmitHintHardByDefault(typed) {
+				t.Errorf("subgate %q typed call-edge evidence hint must route hard", row.Subgate)
+			}
 		default:
 			t.Errorf("subgate %q declares unknown hard lane %q", row.Subgate, row.HardLane)
 		}
@@ -149,7 +158,8 @@ func TestPreEmitSubgateRouteTableMatchesCheckerBody(t *testing.T) {
 // complete-principal-member-set hint. Free-prose target-wait consistency was
 // deliberately demoted to advisory because interval/duration ownership is not
 // typed in the rendered text. Every future hard producer still needs a
-// preEmitSameTurnHardPolicyRows ruling.
+// preEmitSameTurnHardPolicyRows ruling. The call-edge lane is hard by
+// registered typed kind and therefore does not add a ForceHard producer.
 func TestPreEmitForceHardProducerSitesPinned(t *testing.T) {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, preEmitCheckerSourceFile, nil, 0)

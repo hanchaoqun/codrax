@@ -165,6 +165,7 @@ func TestViolationProfileFor_RetryEligibleFromSeverity(t *testing.T) {
 	}{
 		{ViolPrincipalClaimUseMissing, false, SeverityCritical, true},
 		{ViolBlockCoverageMissing, false, SeverityCritical, true},
+		{ViolDiagramCallEdgeUnproven, false, SeverityHigh, true},
 		{ViolFacetUncovered, false, SeverityMedium, true}, // not strict → Medium per DeriveSeverity
 		{ViolFacetUncovered, true, SeverityHigh, true},    // strict → High
 		{ViolRichnessRegression, false, SeveritySoft, false},

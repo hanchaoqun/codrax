@@ -373,6 +373,7 @@ type preEmitSameTurnHardSignal string
 const (
 	preEmitHardSignalCompletePrincipalMemberSet preEmitSameTurnHardSignal = "complete_principal_member_set"
 	preEmitHardSignalTypedRequiredBlockKind     preEmitSameTurnHardSignal = "typed_required_block_kind"
+	preEmitHardSignalTypedCallEdgeEvidence      preEmitSameTurnHardSignal = "typed_call_edge_evidence"
 )
 
 type preEmitSameTurnHardPolicyRow struct {
@@ -384,6 +385,7 @@ func preEmitSameTurnHardPolicyRows() []preEmitSameTurnHardPolicyRow {
 	return []preEmitSameTurnHardPolicyRow{
 		{Kind: types.ViolExhaustiveMemberSetCoverageDrift, Signal: preEmitHardSignalCompletePrincipalMemberSet},
 		{Kind: types.ViolBlockCoverageMissing, Signal: preEmitHardSignalTypedRequiredBlockKind},
+		{Kind: types.ViolDiagramCallEdgeUnproven, Signal: preEmitHardSignalTypedCallEdgeEvidence},
 	}
 }
 
@@ -405,7 +407,7 @@ func preEmitSameTurnHardPolicyRows() []preEmitSameTurnHardPolicyRow {
 //     appendPreEmitHints/tagPreEmitHints in the checker body
 //     (go/parser scan — self-updating, no manual sync),
 //  4. hard lanes exist ONLY where preEmitSameTurnHardPolicyRows has
-//     a row (two tightly pinned typed signals).
+//     a row (three tightly pinned typed signals).
 //
 // The table pins the CURRENT advisory routing. ViolCitation carriers
 // went hard→advisory through D1-F7w→D1-G95 (documented ping-pong);
@@ -446,7 +448,7 @@ func preEmitSubgateRouteTable() []preEmitSubgateRouteRow {
 		// 5. Item/citation alignment + typed handoff preservation.
 		{Subgate: "item_citation_alignment", ViolationKind: types.ViolCitation},
 		{Subgate: "call_chain_item_citation_role_alignment", ViolationKind: types.ViolCitation},
-		{Subgate: "diagram_call_edge_evidence_alignment", ViolationKind: types.ViolCitation},
+		{Subgate: "diagram_call_edge_evidence_alignment", ViolationKind: types.ViolDiagramCallEdgeUnproven, HardLane: preEmitHardSignalTypedCallEdgeEvidence},
 		{Subgate: "principal_support_member_coverage", ViolationKind: types.ViolPrincipalSupportMemberOmitted},
 		{Subgate: "inactive_scope_disclosure", ViolationKind: types.ViolInactiveScopeDisclosureMissing},
 		{Subgate: "aggregate_scalar_value_coverage", ViolationKind: types.ViolAcceptance},
@@ -707,7 +709,7 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 	// declarations, and EvidenceItem Subject/Object direction are the complete
 	// input. A function definition cannot therefore prove the reverse call.
 	if h := preCheckDiagramCallEdgeEvidenceAlignment(doc, view, pctx); len(h) > 0 {
-		hints = appendPreEmitHints(hints, types.ViolCitation, h)
+		hints = appendPreEmitHints(hints, types.ViolDiagramCallEdgeUnproven, h)
 	}
 
 	// 5c. Principal support member coverage. For enumeration answers,
@@ -2955,7 +2957,8 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 		))
 	}
 	return []emitFixHint{{
-		Field: "blocks[kind=diagram].edge_anchors[] AND diagram.body",
+		Field:      "blocks[kind=diagram].edge_anchors[] AND diagram.body",
+		HardSignal: preEmitHardSignalTypedCallEdgeEvidence,
 		ExpectedShape: "every structured relation_kind=call edge in a call-chain diagram must preserve the exact direction of one citable typed call-edge EvidenceItem; remove or correct unsupported edges and their corresponding principal-list claims: " +
 			strings.Join(parts, "; "),
 		Reason: "a function definition proves that a symbol exists, but cannot prove caller-to-callee direction; only grounded call-site evidence with the same Subject -> Object pair can authorize the edge.",

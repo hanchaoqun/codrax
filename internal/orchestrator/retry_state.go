@@ -199,7 +199,7 @@ func inferFieldPathFromKind(kind types.ViolationKind, detail string) string {
 		// Detail names the missing block kind. Field path is
 		// "add a new block of that kind".
 		return "blocks (add new block kind=...)"
-	case types.ViolDiagramEdgeUnsupported:
+	case types.ViolDiagramEdgeUnsupported, types.ViolDiagramCallEdgeUnproven:
 		if blockID != "" {
 			return fmt.Sprintf("blocks[id=%q].diagram", blockID)
 		}

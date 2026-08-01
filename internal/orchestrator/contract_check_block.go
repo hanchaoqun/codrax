@@ -2381,7 +2381,7 @@ func validateDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 	out := make([]types.Violation, 0, len(blockIDs))
 	for _, blockID := range blockIDs {
 		out = append(out, types.Violation{
-			Kind: types.ViolCitation,
+			Kind: types.ViolDiagramCallEdgeUnproven,
 			Detail: fmt.Sprintf(
 				"call-chain diagram block id=%q has structured call edge(s) with no citable typed EvidenceItem in the same direction: [%s]",
 				blockID, strings.Join(byBlock[blockID], "; ")),

@@ -27,7 +27,7 @@ type DiagramCallEdgeEvidenceMismatch struct {
 // time-window causal projections and their automatic supplements, do not enter
 // this source-code call-edge contract.
 func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, evidence []types.EvidenceItem) []DiagramCallEdgeEvidenceMismatch {
-	if doc == nil || view == nil || view.Family != types.QFCallChain || len(evidence) == 0 {
+	if doc == nil || view == nil || view.Family != types.QFCallChain {
 		return nil
 	}
 	var out []DiagramCallEdgeEvidenceMismatch
@@ -93,9 +93,26 @@ func diagramEvidenceEndpointSymbol(node string, labels map[string]string) string
 		return ""
 	}
 	if label := strings.TrimSpace(labels[strings.ToLower(node)]); label != "" {
-		return label
+		return diagramEvidenceLabelSymbol(label)
 	}
 	return node
+}
+
+// diagramEvidenceLabelSymbol removes only the deterministic presentation
+// suffix commonly carried by Mermaid node labels (for example
+// `buildAnalysisIR<br/>analyzer.go:1820`). The first line is the typed endpoint
+// identity; later lines are file/line display metadata. This is deliberately
+// not a fuzzy symbol matcher: no prefix, token-overlap, or prose inference is
+// accepted after the exact first-line projection.
+func diagramEvidenceLabelSymbol(label string) string {
+	label = strings.TrimSpace(label)
+	cut := len(label)
+	for _, separator := range []string{"<br/>", "<br>", `\n`, "\n"} {
+		if idx := strings.Index(label, separator); idx >= 0 && idx < cut {
+			cut = idx
+		}
+	}
+	return strings.TrimSpace(label[:cut])
 }
 
 func diagramCallEdgeHasTypedEvidence(evidence []types.EvidenceItem, fromSymbol, toSymbol string) bool {

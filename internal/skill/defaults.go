@@ -557,6 +557,7 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 				AppliesTo: AppliesToFilter{RequiresDiagram: true},
 				OnViolation: []types.ViolationKind{
 					types.ViolDiagramEdgeUnsupported,
+					types.ViolDiagramCallEdgeUnproven,
 					types.ViolDiagramEdgeLabelMismatch,
 					types.ViolDiagramRelationLabelOnly,
 				},

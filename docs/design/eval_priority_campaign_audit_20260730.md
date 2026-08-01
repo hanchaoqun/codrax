@@ -3974,6 +3974,61 @@ B18c 使用一条通用 typed 规则修复：
 当前状态：`EVAL-B24-EDGEAUTH1=implemented / full-tests-pass / replay-next`；
 `EVAL-B24-EVALDIR1=P1/open`；`EVAL-B24-KEYSET1=P2/open`。
 
+#### B24-a r1：方向识别正确，但复用 citation 软权限导致零拒绝
+
+同一组 read/write case 严格并行 2 个复放，runner 仍为 2 PASS；人工为
+`patch_c_typo=PASS`、`qf_sequence_analyzer_gate=FAIL`：
+
+1. 写模式补丁继续只有 `main.c` 一行 typo 修复，plan/apply/verify 稳定。
+2. 调用链 case 的新 matcher 精确报出 19 条无同向 typed call-site 证据的边；日志
+   `advisory_by_field.diagram_call_edge_evidence=1` 证明生产接线已生效。
+3. 但 producer 复用了 `ViolCitation`；该 kind 在商业默认策略中是
+   `SoftByDefault=true`，所以 `strict_findings=0 / fin_reject=0`，19 条伪边仍出厂。
+   `EVAL-B24-EDGEAUTH1` 因此从 implemented 修正为 `partial`：检测已覆盖，权限未覆盖。
+4. 最优修正是独立的 `diagram_call_edge_unproven`：仅消费 call-chain family、
+   structured `relation_kind=call`、Mermaid alias/node 与 citable typed
+   `EvidenceItem Subject->Object`；默认 High、finalizer-local、same-turn hard。它不读取
+   RawRequest、模型 prose/label，也明确排除 `QFRootCauseTrace`。
+5. 新登记 `EVAL-B24-DIAGKIND1/P1`：typed analyzer 把明确请求的 Mermaid 时序图
+   归类为 `call_dag`，最终生成 flowchart。修复应加强 analyzer schema/prompt 中
+   “显式 presentation modality 优先于主题推断”的规则，不在 Go runtime 扫描原文硬改。
+6. 新登记 `EVAL-B24-ENDPOINT1/P1`：答案以 `gate.RunWith` 替代精确请求终点
+   `gate.Run`，且没有先披露“当前源码不存在 buildAnalysisIR→gate.Run 路径”。需在
+   硬边修复复放后审计 typed exact-target token 权限，禁止用 substring/prefix 视为命中。
+7. `EVAL-B24-KEYSET1/P2` 复现：主列表 20 项、补充 1 项、系统清册 26 项；“关键
+   subset”与“complete roster”仍缺 typed 枚举范围，继续保持开放，不扫描“关键”字样。
+
+状态：`EVAL-B24-EDGEAUTH1=partial / hard-authority-fix-in-progress`；
+`EVAL-B24-DIAGKIND1=P1/open`；`EVAL-B24-ENDPOINT1=P1/open`；
+`EVAL-B24-EVALDIR1=P1/open`；`EVAL-B24-KEYSET1=P2/open`。
+
+#### B24-b：typed call-edge hard authority + explicit visual modality priority
+
+已完成本轮 corrective batch：
+
+1. 新增独立 `diagram_call_edge_unproven`，默认 High、retry eligible、
+   finalizer-only repair；不再借用全局软 `citation` 权限。
+2. pre-emit policy 显式新增第三条 typed hard lane；post-emit V2 oracle 使用同一 kind，
+   policy report、registry golden、CGEC producer、retry field path、hint composer、finalizer
+   skill、co-occurrence singleton 均同步登记，不存在隐藏 hard row。
+3. 比较两侧仍只有 closed typed carriers：`QFCallChain`、structured call edge、Mermaid
+   node/participant declaration、citable `ClaimForm=call_edge` evidence 与精确
+   `Subject->Object`。空 evidence、definition evidence、反向 evidence 均不能授权边。
+4. Mermaid node 的第二行 file:line 仅作为显示 metadata；确定性取首行 symbol 后做精确
+   比较，不使用 prefix、substring、token overlap 或自由 prose 推断。
+5. `QFRootCauseTrace` 负例继续固定，因此显式时间窗 Trace 因果投影、根因排序、唤醒链、
+   窗内可消除量和自动补齐均不进入 source call-edge hard gate。
+6. `diagram_hint` schema 与 analyzer skill 明确：用户已通过 typed Presentation Directive
+   指定 sequence/timeline/interaction 时，`sequence` 优先于 call-chain / `axis=call`
+   的主题推断；这是 emit-time 软分类指导，不在 runtime 扫描 RawRequest 或模型答案。
+
+验证：相关 `types/tool/orchestrator/analysis-hint/skill/agent` 全量回归通过；新增测试覆盖
+正向、反向、definition、absent、带 file:line 显示后缀、pre/post 双接线、默认 High retry、
+三条 hard policy 清册及 Trace family 隔离。
+
+状态：`EVAL-B24-EDGEAUTH1=implemented / full-tests-pass / same-pair-replay-next`；
+`EVAL-B24-DIAGKIND1=implemented-soft-guidance / replay-next`；其余 B24 gap 保持开放。
+
 ### B21-GREP：literal/regex 查询语义进入 typed 证据链（2026-08-01）
 
 `EVAL-B21-GREP1` 已按软恢复而非硬拒绝施工：

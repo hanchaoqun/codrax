@@ -244,6 +244,7 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolBlockCoverageMissing:     true, // orchestrator/contract_check_block.go validateRequiredBlockCoverage
 		ViolPrincipalClaimUseMissing: true, // orchestrator/contract_check_block.go validatePrincipalClaimUse
 		ViolDiagramEdgeUnsupported:   true, // orchestrator/contract_check_block.go validateDiagramEdgeSupport
+		ViolDiagramCallEdgeUnproven:  true, // orchestrator/contract_check_block.go validateDiagramCallEdgeEvidenceAlignment
 		ViolUncertaintyBlockMissing:  true, // orchestrator/contract_check_block.go validateUncertaintyBlockPresence
 		// B6-F1 (post-shape consolidated audit, 2026-05-04).
 		ViolCrossCitationConflict: true, // orchestrator/contract_check.go runCrossCitationConflictOracleV2
@@ -402,6 +403,7 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolBlockCoverageMissing:              "ViolBlockCoverageMissing",
 		ViolPrincipalClaimUseMissing:          "ViolPrincipalClaimUseMissing",
 		ViolDiagramEdgeUnsupported:            "ViolDiagramEdgeUnsupported",
+		ViolDiagramCallEdgeUnproven:           "ViolDiagramCallEdgeUnproven",
 		ViolDiagramEdgeLabelMismatch:          "ViolDiagramEdgeLabelMismatch",
 		ViolAnswerSemanticUnderfilled:         "ViolAnswerSemanticUnderfilled",
 		ViolAnswerTopicMismatch:               "ViolAnswerTopicMismatch",

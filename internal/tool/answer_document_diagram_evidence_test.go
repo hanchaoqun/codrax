@@ -55,6 +55,19 @@ func TestDiagramCallEdgeEvidenceMismatches_DirectionUsesTypedEvidence(t *testing
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_NodeDisplayMetadataDoesNotChangeIdentity(t *testing.T) {
+	doc := diagramEvidenceTestDoc("A", "B")
+	doc.Blocks[0].Diagram.Body = "flowchart TD\n" +
+		`  A["Alpha.Run\ninternal/example.go:10"]` + "\n" +
+		`  B["Beta.Run<br/>internal/example.go:20"]` + "\n" +
+		"  A --> B\n"
+	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
+		[]types.EvidenceItem{diagramEvidenceTestCall("Alpha.Run", "Beta.Run")})
+	if len(got) != 0 {
+		t.Fatalf("file/line display suffix must not become part of typed endpoint identity: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_DefinitionCannotAuthorizeDirection(t *testing.T) {
 	view := &types.AnswerSemanticView{Family: types.QFCallChain}
 	evidence := []types.EvidenceItem{{
@@ -70,6 +83,14 @@ func TestDiagramCallEdgeEvidenceMismatches_DefinitionCannotAuthorizeDirection(t 
 	got := DiagramCallEdgeEvidenceMismatches(diagramEvidenceTestDoc("A", "B"), view, evidence)
 	if len(got) != 1 {
 		t.Fatalf("a definition proves symbol existence, not Alpha.Run -> Beta.Run: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_AbsentEvidenceCannotAuthorizeDirection(t *testing.T) {
+	got := DiagramCallEdgeEvidenceMismatches(diagramEvidenceTestDoc("A", "B"),
+		&types.AnswerSemanticView{Family: types.QFCallChain}, nil)
+	if len(got) != 1 || got[0].FromSymbol != "Alpha.Run" || got[0].ToSymbol != "Beta.Run" {
+		t.Fatalf("an empty typed call-edge pool cannot authorize a structured edge: %+v", got)
 	}
 }
 
@@ -90,12 +111,16 @@ func TestRunPreEmitChecks_DiagramCallEdgeEvidenceAlignmentIsWired(t *testing.T) 
 	hints := runPreEmitChecks(diagramEvidenceTestDoc("B", "A"), view, nil, ctx)
 	found := false
 	for _, hint := range hints {
-		if hint.Kind == types.ViolCitation && strings.Contains(hint.Field, "edge_anchors") &&
+		if hint.Kind == types.ViolDiagramCallEdgeUnproven && strings.Contains(hint.Field, "edge_anchors") &&
 			strings.Contains(hint.ExpectedShape, "Beta.Run") && strings.Contains(hint.ExpectedShape, "Alpha.Run") {
 			found = true
 		}
 	}
 	if !found {
 		t.Fatalf("pre-emit dispatch did not publish the structured edge-direction diagnosis: %+v", hints)
+	}
+	hard, _ := splitPreEmitHintsByGate(hints)
+	if len(hard) != 1 || hard[0].Kind != types.ViolDiagramCallEdgeUnproven {
+		t.Fatalf("typed source call-edge mismatch must reject same-turn: %+v", hints)
 	}
 }

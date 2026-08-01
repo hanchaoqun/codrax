@@ -34,15 +34,18 @@ func TestViolationPolicyCoverageReportCoversEveryKind(t *testing.T) {
 	}
 }
 
-func TestViolationPolicyCoverageReportDefaultHasNoHiddenHardRows(t *testing.T) {
+func TestViolationPolicyCoverageReportPinsExplicitHardRows(t *testing.T) {
 	var hard []violationPolicyCoverageRow
 	for _, row := range buildViolationPolicyCoverageReport() {
 		if !row.RuntimeSoftDefault {
 			hard = append(hard, row)
 		}
 	}
-	if len(hard) != 0 {
-		t.Fatalf("default commercial post-emit policy should not hide hard retry rows; got %+v", hard)
+	if len(hard) != 1 || hard[0].Kind != types.ViolDiagramCallEdgeUnproven {
+		t.Fatalf("default commercial post-emit policy must expose exactly the reviewed typed call-edge hard row; got %+v", hard)
+	}
+	if hard[0].DefaultSeverity != types.SeverityHigh || !hard[0].DefaultRetryEligible || hard[0].FallbackTarget != FallbackFinalizerOnly {
+		t.Fatalf("typed call-edge hard row policy drifted: %+v", hard[0])
 	}
 }
 

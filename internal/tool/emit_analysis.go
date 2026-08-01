@@ -822,7 +822,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"diagram_hint": map[string]any{
 				"type":        "object",
-				"description": "Optional. Emit only when the CURRENT request explicitly asks for a diagram / visual / drawing, or when the answer would be structurally incomplete without a visual. Omit for ordinary call-chain, architecture, log, or trace questions where prose/list/table blocks answer the user directly.",
+				"description": "Optional. Emit only when the CURRENT request explicitly asks for a diagram / visual / drawing, or when the answer would be structurally incomplete without a visual. An explicitly requested visual modality is authoritative: sequence/timeline/interaction view -> sequence even when the topic is a call chain; call graph/DAG/fan-out view -> call_dag. Do not replace an explicit sequence request with call_dag merely because predicate_axis=call. Omit for ordinary call-chain, architecture, log, or trace questions where prose/list/table blocks answer the user directly.",
 				"properties": map[string]any{
 					"kind": stringProp{Type: "string", Enum: skill.AnalysisDiagramKindValues()},
 				},
