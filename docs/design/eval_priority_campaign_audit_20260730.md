@@ -5274,6 +5274,53 @@ complete=true`。该测试在旧命令下得到空清册，在新命令下通过
 状态：`EVAL-B21-CIT1=implemented/full-tests-pass/replay-next`。Trace 显式窗口及
 因果投影、根因排序、唤醒链、窗内可消除量、系统自动补齐均未改。
 
+### B21 r3：merge/path/citation 回放通过，首项选择权威缺失（2026-08-01）
+
+在 `main@e34510ffb` 同一二进制快照下严格并行 2 个读模式 case：
+
+- `read_combo_git_current_source_explanation`：runner FAIL，177s，人工 FAIL；
+- `read_combo_git_diff_hunk_current_code`：runner PASS，191s，人工 PASS。
+
+已闭环的生产链路：
+
+1. merge 用例的 `ToolVCSHistory` 现在把最新 merge `2a58a60d...` 发布为
+   `emitted=3 / total=3 / complete=true`，三个 exact paths 全部进入 ledger 和
+   finalizer typed authority；`EVAL-B21-MERGE1`、`EVAL-B21-VCS1` 的 merge 正臂通过。
+2. 普通最新 commit 用例正确解释 `e34510ff...` 的 diff hunk、当前源码调用链、作用与
+   边界；所有 scalar code identity 均引用各自函数 endpoint，
+   `EVAL-B21-CIT1` 回放通过。
+3. 第二例 runner PASS、人工 PASS；第一例 runner 的单行 regex 仍有 P3 形状问题，但
+   本轮人工失败有独立真实原因，不能只归咎于 oracle。
+
+第一例的 Explorer 在第 2 轮明确识别“最近一次 merge 是 `2a58a60d`，修改 3 个测试
+文件”，却在下一轮自行裁定它“只是 test fix”，把前一 merge `ab6f9cba` 改称
+“真正的功能特性”，最终整份 current-source 解释围绕后者展开。工具有稳定有序结果，
+changed-path authority 也正确，但系统没有独立表达“请求选择的是有序结果第 1 项”；
+因此模型把用户的选择标准从 recent 改成 substantive。末尾再次出现的
+“系统按已验证证据补充缺失成员”表，是错误 principal target 对后续聚合事实的级联，
+不是 merge 清册 producer 回退。
+
+新增台账：
+
+| ID | 优先级 | GAP | 泛化方案 | 状态 |
+|---|---:|---|---|---|
+| `EVAL-B21-ORD1` | P0 | 请求要求有序历史中的单一首项，但 AnalysisIR 没有选择序数/cardinality authority；模型可在拿到正确 ordered tool result 后自行跳项 | 先复用或补充 typed `selection_profile`（single first/latest、single last/earliest、top-N、range、unspecified），与承载 query order/filters 的 `ToolVCSHistory` 合取后铸造 principal selection；finalizer 只把 selected row 作为主目标，其余为上下文。不得扫描 RawRequest、模型 thinking/final、commit message 或“重要/功能”等词面 | P0/open，B21-D |
+| `EVAL-B21-E1` | P3 | 单行 regex 不能识别跨段落满足 diff/current-source 两个维度 | 仅调整 eval oracle 为独立 facet/typed presence；不改生产答案 | filed-low |
+
+施工约束：优先检查现有 request schema 是否已有 cardinality/order/selection 载体；若已有则
+只补消费面，若没有才扩闭集 enum。selection 只约束“哪个 typed row 是 principal”，不把
+commit 主题、文件类型或模型判断硬编码为价值标准；不生成新的“系统权威”前置块。
+显式 Trace 时间窗的因果投影、根因排序、唤醒链、窗内可消除量与自动补采保持原权限。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b21r3_20260801.md`；
+- `eval/parallel_selected_summary_evalcampaign_b21r3_20260801_manual_audit.md`；
+- 结果目录时间戳 `20260801-062943`。
+
+状态：`EVAL-B21-MERGE1=covered`；`EVAL-B21-VCS1=covered`；
+`EVAL-B21-CIT1=covered`；`EVAL-B21-ORD1=P0/open`。
+
 ### B19g-b r1：target authority 通过，有限事实集仍被扩张（2026-08-01）
 
 同一二进制快照下严格并行 2 个 Trace case，runner 均 PASS，人工均 FAIL：
