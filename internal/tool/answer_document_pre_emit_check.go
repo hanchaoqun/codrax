@@ -7258,6 +7258,17 @@ func normalizeItemCitationRefsByUniqueBacktickCitationQuote(doc *types.AnswerDoc
 			if len(surfaces) == 0 {
 				continue
 			}
+			// A unique visible path:line is a more precise source identity than
+			// a code token that may occur at several nearby phases in the same
+			// function. Once the model-authored citation already matches that
+			// exact location, this lower-authority quote heuristic must not move
+			// it to another occurrence merely because another backtick token is
+			// unique there. Mismatched, absent, and ambiguous location carriers
+			// remain eligible for the ordinary soft repair below.
+			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) &&
+				preEmitItemHasAlignedUniqueExplicitSourceLocation(*item, doc.Citations[item.CitationRef]) {
+				continue
+			}
 			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) &&
 				preEmitCitationQuoteMatchesAnyCodeSurface(doc.Citations[item.CitationRef], surfaces) {
 				continue
@@ -7271,6 +7282,13 @@ func normalizeItemCitationRefsByUniqueBacktickCitationQuote(doc *types.AnswerDoc
 		}
 	}
 	return fixed
+}
+
+func preEmitItemHasAlignedUniqueExplicitSourceLocation(item types.AnswerBlockItem, cit types.Citation) bool {
+	parts := []string{item.Label, item.Text}
+	parts = append(parts, item.Cells...)
+	surfaces := preEmitExplicitSourceLocationSurfaces(parts...)
+	return len(surfaces) == 1 && types.AnswerSourceLocationSurfaceMatchesCitation(surfaces[0], cit)
 }
 
 func preEmitExplicitCodeSurfacesFromItem(item types.AnswerBlockItem) []string {

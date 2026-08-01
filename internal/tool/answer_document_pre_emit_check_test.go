@@ -6836,6 +6836,40 @@ func TestNormalizeItemCitationRefsByUniqueBacktickCitationQuote_LeavesAmbiguousC
 	}
 }
 
+func TestNormalizeItemCitationRefsByUniqueBacktickCitationQuote_PreservesAlignedExactLocation(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{
+				File:  "internal/tool/builtin.go",
+				Line:  2097,
+				Quote: "case params.FixedString && len(grepFixedStringRegexMarkers(params.Pattern)) > 0:",
+			},
+			{
+				File:  "internal/tool/builtin.go",
+				Line:  2142,
+				Quote: "if reasonCode == \"grep_fixed_string_regex_syntax_zero_match\" {",
+			},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:   "hunks",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "h1",
+				Label:       "Hunk 1 — 零命中 refinement 条件分支",
+				Text:        "当前源码 internal/tool/builtin.go:2097 设置 `grep_fixed_string_regex_syntax_zero_match`。",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	if fixed := normalizeItemCitationRefsByUniqueBacktickCitationQuote(doc); fixed != 0 {
+		t.Fatalf("exact visible source location must outrank code-token repair, fixed=%d", fixed)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
+		t.Fatalf("citation_ref=%d, want exact model-authored location 0", got)
+	}
+}
+
 // === preEmitDisplaySurfaceAppears typographic normalisation ===
 //
 // docs/design/post_phase2a_forensic_followups.md §2.3 — finalizer

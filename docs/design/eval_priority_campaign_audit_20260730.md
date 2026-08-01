@@ -3981,6 +3981,28 @@ write/plan 等异构模式。
 claim-entailment 批，避免分别对“emit_analysis”或某两个函数做 case 拟合。两批都不修改
 Trace 查询、显式窗因果投影、根因排序、唤醒链、窗内可消除量或自动补采。
 
+#### B21-CIT2：精确 source location 高于 code-token 软修复
+
+已在统一 pre-emit citation normalization 链修复：
+
+1. ordered/table item 若只有一个可解析的显式 source location，且当前
+   `citation_ref` 已与该 `path:line[/range]` 对齐，则冻结该精确绑定；
+2. 后续 `normalizeItemCitationRefsByUniqueBacktickCitationQuote` 不得再用另一个位置的
+   反引号 token 命中覆盖它。显式位置是单一坐标，code token 可能在同函数的条件、赋值、
+   分支中重复，前者权限更高；
+3. item 没有显式位置、位置不唯一、当前引用越界或与显式位置不一致时，原 code-surface
+   软修复继续生效；既有 unique-repair 与 ambiguous-fail-open 回归保持；
+4. 判定只消费结构化 item fields、parsed source-location surface 与 citation pool，
+   不读取 RawRequest、case ID、模型 thinking/summary/final，也不按 Go/Hunk/具体符号拟合。
+
+验证：定向回归固定“正确 `:2097` 与附近唯一 token `:2142` 竞争”时必须保留 `:2097`，
+同时保留无显式位置的旧修复臂；`go test ./internal/tool -count=1` 全量通过（157.439s），
+`git diff --check` 通过。
+
+状态：`EVAL-B21-CIT2=implemented/full-tests-pass/replay-later`。下一批进入共享
+claim-entailment 设计审计；若安全施工范围过大，则先保持 filed 并按既定顺序转入
+显式 Trace 窗 + write/plan 的严格并行 2-case 异构 eval。
+
 ### B19a r1：Trace 主合同保留，精确集合暴露静默改写（2026-08-01）
 
 严格并行 2 个用例，runner 2/2 PASS，人工审计 0/2：
