@@ -3011,3 +3011,56 @@ path 同样使用 canonical 形，避免同一物理路径因词面差异变成 
 - 定向 types/tool relation tests 通过；
 - `go test ./internal/types ./internal/tool -count=1` 通过
   （types 21.290s、tool 167.207s）。
+
+### B15 r1 REL1 收账与频率权限审计（2026-08-01）
+
+在 revision `dc624779e` 重建后严格 `parallel=2` 回放：
+
+- `eval/results/real_trace_c2_dstate_iowait-20260731-184613`
+- `eval/results/real_trace_h4_supply_thermal_witness-20260731-184613`
+
+runner 1/2（C2 PASS 174s、H4 FAIL 117s），人工同为 1/2。
+
+C2 证明 REL1 covered：答案/日志均不再出现 self-pair
+`attached_trace.txt ↔ attached_trace.txt`，complete roster 和 focused 无窗
+窄报告均无回退。它同时暴露 `EVAL-B15-AR1`：正文正确写
+`0.635ms / 144.557ms ≈ 0.44%`，系统 arithmetic advisory 却把 144.557ms
+误选为 numerator，发布“144.557ms / 0.440% 重算为 100%”。该错误附注不参与
+hard gate，但会误导用户。
+
+H4 的 trace 值与完整显式窗报告均齐：模型正文发布 157.248/5.604/70.338/
+0.000ms 四态，CPU4 direct 2.10GHz policy ceiling，`132.041` 不在场；完整
+Trace 因果投影、root rank、wakeup chain、窗内可消除量与自动补采继续在。
+
+失败发生在 typed 权限到自然语言的最后一跳。finalizer prompt 已明确：
+
+```text
+policy_limit_status=present
+binding_caliber=limit_row_proves_ceiling_presence
+binding_impact_requires_separate_overlap_or_supply_evidence
+```
+
+并说明 actual/average/residency 低于 ceiling 不能反推无 policy limit，也不能
+单独证明 workload hit ceiling 或其性能影响。模型仍写“558MHz 远低于 2.10GHz，
+因此明确 thermal throttle，且不是 policy 层硬上限约束”。同一正确 authority
+当前只写入 `doc.Caveats`，在约千行因果报告后的系统附注才出现，不能优先保护
+客户阅读。
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B15-FQ1 | P0 | frequency authority publication order | typed policy-limit/binding boundary 已到 prompt，但模型可忽略；正确 authority 仅在 footer Caveats，错误 principal 先到达用户 | 复用同一 typed authority 构造 system-owned leading block；分开 ceiling presence、binding/impact、thermal/policy mechanism，后续 prose 冲突时以 lead 为准 | planned-FQ1 |
+| EVAL-B15-AR1 | P1 | arithmetic prose relation operand binding | 同一自由句中 value、window denominator、percentage 三个数值无 typed relation owner，regex/邻近启发式选错 operand | 不增加词面特判；审计现有 arithmetic compiler，优先只发布 typed/结构化 relation 或在多候选时静默 fail-open | filed-next |
+| EVAL-B14-REL1 | P1 | runtime artifact physical identity | 同 path 不同 ID 生成 self-pair | canonical path primary identity；C2 真实回放不再发布 pair block | covered |
+
+FQ1 不变量：
+
+1. 复用 `TraceEvidenceAuthority` 的 typed counts、supply-evidence roster 与
+   `TraceFrequencyLimitAuthority`，不读请求或模型答案原文；
+2. 不重写/删除模型正文，不增加 hard reject 或 retry；
+3. direct limit row 只授权指定 CPU/窗的 ceiling presence；
+4. actual/residency 低于 ceiling 既不能否定 policy limit，也不能单独证明
+   binding、性能影响或 thermal mechanism；
+5. 独立 compute-supply evidence 可证明其自身口径的 supply deficit，但 thermal
+   与 policy 的成因归属仍需对应 typed causal witness；
+6. leading block 使用保留 ID + unforgeable system marker，先于模型正文；
+7. 不改变显式窗因果投影、补采、root/wakeup/eliminable 选路。
