@@ -420,6 +420,8 @@ func summariseExactFix(violations []types.Violation, ctx Context) string {
 		return "Set `diagram.kind` to the SEMANTIC family the contract expects (`flow` / `sequence` / `architecture` / `call_dag`), NOT a Mermaid keyword. Mermaid syntax (`flowchart` / `sequenceDiagram`) goes inside `diagram.body`. If the family contract is too strict for this answer, drop the diagram block instead of fabricating edges."
 	case types.ViolDiagramCallEdgeUnproven:
 		return "For every structured `relation_kind=call` edge in this source call-chain diagram, preserve the exact direction of a grounded call-site EvidenceItem `Subject -> Object`. Remove pseudo-sequential edges between sibling calls and do not use a function definition to prove call direction."
+	case types.ViolCallChainEndpointOmitted:
+		return "Preserve every typed source/sink endpoint as an exact structured label or table token. If grounded call-edge evidence reaches only a sibling or nearby symbol, keep the requested endpoint visible and state that the collected evidence did not prove a path to it; do not silently substitute the nearby symbol."
 	case types.ViolUncertaintyBlockMissing:
 		// V2 carrier — UncertaintyRule fired but no caveat block
 		// covers the disclosure facet.

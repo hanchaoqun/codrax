@@ -4201,6 +4201,60 @@ cell 正臂及旧 owner/member 承载能力。
 状态：`EVAL-B24-ENDPOINT1=implemented / full-tests-pass / same-pair-replay-next`；
 `EVAL-B24-EVALDIR1=P1/open`；`EVAL-B24-KEYSET1=P2/open`。
 
+#### B24-e r1：endpoint 编译/精确匹配通过，soft 发布权限仍放行
+
+`main@ac4b9ea8b` 下同一 read/write 两 case 严格并行，runner 2 PASS；人工仍为
+1 PASS / 1 FAIL：
+
+1. 写模式 99s，单行 patch 与 plan/apply/verify 继续通过。
+2. read case 207s / 2 rejects；`required_mechanism_anchors` 从 0 恢复为 3，日志的
+   missing set 明确包含 `gate.Run`、`analyzer.go`，证明 call-chain relation/category
+   编译例外已生效；`gate.RunWith` 没有再通过 owner/substring 冒充 `gate.Run`，证明
+   qualified exact matcher 已生效。
+3. 但 pre-emit 日志明确写出 `accepted as soft advisory`。根因是 call-chain endpoint
+   miss 仍复用 `principal_support_member_omitted`；该 kind 面向普通枚举/机制覆盖，注册为
+   Medium + soft-by-default。最终文档因此继续只发布 `gate.RunWith`，未单独裁定
+   `gate.Run`，人工仍 FAIL。
+4. `EVAL-B24-ENDPOINT1` 的编译/匹配部分已经覆盖，剩余 gap 收敛为 typed publication
+   authority。最优修复不是全局硬化旧 kind，而是新增只适用于 `QFCallChain` 的
+   `call_chain_endpoint_omitted`：输入仅为 semantic family、compiled endpoints 与
+   structured label/cell/title/edge endpoint，High、finalizer-local、same-turn hard；普通
+   mechanism/architecture/enumeration 保持原 soft policy，`QFRootCauseTrace` 保持隔离。
+
+状态：`EVAL-B24-ENDPOINT1=partial / publication-authority-fix-in-progress`；
+`EVAL-B24-EVALDIR1=P1/open`；`EVAL-B24-KEYSET1=P2/open`。
+
+#### B24-f：typed call-chain endpoint publication authority
+
+本批完成独立 violation 与双发布边界接线：
+
+1. 新增 `call_chain_endpoint_omitted`，默认 High、retry eligible、finalizer-local，
+   repair phase 为 consistency；只在 `AnswerSemanticView.Family=QFCallChain` 且
+   `RequiredMechanismAnchors` 存在缺项时产生。
+2. pre-emit 新增第四条明确 hard lane `typed_call_chain_endpoints`；普通
+   `required_mechanism_anchors` 继续使用旧的 soft
+   `principal_support_member_omitted`。同一 helper 只负责 exact structured carrier
+   比较，不读取答案 text/summary/final prose。
+3. post-emit `validateRequiredMechanismAnchorsRendered` 对 call-chain 返回新 kind，
+   其它 family 返回旧 kind；cluster/IR field 固定为
+   `root:call_chain_endpoints / answer_contract.call_chain_endpoints`，confidence=1.0。
+4. registry、policy report、CGEC producer/closure、retry field path、repair plan、hint
+   composer、legacy golden 与 same-turn hard-policy ratchet 全部接线；不存在“检测到了但
+   仍按 soft 出厂”的第二条绕行面。
+5. guidance 只根据 typed missing endpoint 说明：保留 exact requested label；若 evidence
+   仅证明 sibling/nearby target，则披露未证明该 exact path，不得静默替换。
+6. `QFRootCauseTrace` 不产生该 kind，显式时间窗 Trace 因果投影、根因排序、唤醒链、
+   窗内可消除量和自动补齐不受影响。
+
+验证：`go test ./internal/types ./internal/tool ./internal/orchestrator ./internal/agent
+./internal/analysis/hint ./internal/skill -count=1` 全部通过（types 18.382s、tool
+160.997s、orchestrator 12.308s、agent 3.238s、hint 0.377s、skill 1.785s）；定向测试
+固定 pre-emit hard split、post-emit kind/root metadata、exact endpoint 正臂与四条 hard
+policy 清册。
+
+状态：`EVAL-B24-ENDPOINT1=implemented / full-tests-pass / same-pair-replay-next`；
+`EVAL-B24-EVALDIR1=P1/open`；`EVAL-B24-KEYSET1=P2/open`。
+
 ### B21-GREP：literal/regex 查询语义进入 typed 证据链（2026-08-01）
 
 `EVAL-B21-GREP1` 已按软恢复而非硬拒绝施工：

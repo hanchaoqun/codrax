@@ -64,6 +64,46 @@ func TestRunPreEmitChecks_RequiredMechanismAnchorsIntegrated(t *testing.T) {
 	}
 }
 
+func TestRunPreEmitChecks_CallChainEndpointMissingIsTypedHard(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "summary", Kind: types.BlockSummary, Text: "gate.RunWith is the observed callee.",
+	}}}
+	view := &types.AnswerSemanticView{
+		Family: types.QFCallChain,
+		RequiredMechanismAnchors: []types.AnswerRequiredAnchor{
+			{Text: "gate.Run", Kind: types.ContractTermSymbol},
+		},
+	}
+	hints := runPreEmitChecks(doc, view, nil)
+	found := false
+	for _, hint := range hints {
+		if hint.Kind == types.ViolCallChainEndpointOmitted &&
+			strings.Contains(hint.ExpectedShape, "gate.Run") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("missing exact call-chain endpoint must use its typed violation: %+v", hints)
+	}
+	hard, _ := splitPreEmitHintsByGate(hints)
+	if len(hard) != 1 || hard[0].Kind != types.ViolCallChainEndpointOmitted {
+		t.Fatalf("typed call-chain endpoint omission must be same-turn hard: %+v", hard)
+	}
+
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{
+		ID: "endpoint", Kind: types.BlockOrderedList,
+		Items: []types.AnswerBlockItem{{
+			Label: "gate.Run",
+			Text:  "The collected typed call-edge evidence did not prove a path to this exact endpoint.",
+		}},
+	})
+	for _, hint := range runPreEmitChecks(doc, view, nil) {
+		if hint.Kind == types.ViolCallChainEndpointOmitted {
+			t.Fatalf("exact structured endpoint should close the typed hard gate: %+v", hint)
+		}
+	}
+}
+
 func TestNormalizeRequiredMechanismAnchorCarriers_AppendsCitedAnchorBlock(t *testing.T) {
 	mu := types.NewMutableState("required anchor repair")
 	mu.AppendEvidence([]types.EvidenceItem{{

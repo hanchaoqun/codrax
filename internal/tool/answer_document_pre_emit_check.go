@@ -374,6 +374,7 @@ const (
 	preEmitHardSignalCompletePrincipalMemberSet preEmitSameTurnHardSignal = "complete_principal_member_set"
 	preEmitHardSignalTypedRequiredBlockKind     preEmitSameTurnHardSignal = "typed_required_block_kind"
 	preEmitHardSignalTypedCallEdgeEvidence      preEmitSameTurnHardSignal = "typed_call_edge_evidence"
+	preEmitHardSignalTypedCallChainEndpoints    preEmitSameTurnHardSignal = "typed_call_chain_endpoints"
 )
 
 type preEmitSameTurnHardPolicyRow struct {
@@ -386,6 +387,7 @@ func preEmitSameTurnHardPolicyRows() []preEmitSameTurnHardPolicyRow {
 		{Kind: types.ViolExhaustiveMemberSetCoverageDrift, Signal: preEmitHardSignalCompletePrincipalMemberSet},
 		{Kind: types.ViolBlockCoverageMissing, Signal: preEmitHardSignalTypedRequiredBlockKind},
 		{Kind: types.ViolDiagramCallEdgeUnproven, Signal: preEmitHardSignalTypedCallEdgeEvidence},
+		{Kind: types.ViolCallChainEndpointOmitted, Signal: preEmitHardSignalTypedCallChainEndpoints},
 	}
 }
 
@@ -407,7 +409,7 @@ func preEmitSameTurnHardPolicyRows() []preEmitSameTurnHardPolicyRow {
 //     appendPreEmitHints/tagPreEmitHints in the checker body
 //     (go/parser scan — self-updating, no manual sync),
 //  4. hard lanes exist ONLY where preEmitSameTurnHardPolicyRows has
-//     a row (three tightly pinned typed signals).
+//     a row (four tightly pinned typed signals).
 //
 // The table pins the CURRENT advisory routing. ViolCitation carriers
 // went hard→advisory through D1-F7w→D1-G95 (documented ping-pong);
@@ -437,6 +439,7 @@ func preEmitSubgateRouteTable() []preEmitSubgateRouteRow {
 		// 2. Principal-block claim/verdict presence.
 		{Subgate: "principal_claim_use", ViolationKind: types.ViolPrincipalClaimUseMissing},
 		{Subgate: "required_candidate_roles", ViolationKind: types.ViolMissingRequestedRoleUndisclosed},
+		{Subgate: "call_chain_endpoints", ViolationKind: types.ViolCallChainEndpointOmitted, HardLane: preEmitHardSignalTypedCallChainEndpoints},
 		{Subgate: "required_mechanism_anchors", ViolationKind: types.ViolPrincipalSupportMemberOmitted},
 		{Subgate: "inactive_typed_decision_verdicts", ViolationKind: types.ViolAcceptance},
 		{Subgate: "error_granularity_verdict", ViolationKind: types.ViolAcceptance},
@@ -662,6 +665,9 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 	}
 	if h := preCheckRequiredCandidateRoles(doc, view); len(h) > 0 {
 		hints = appendPreEmitHints(hints, types.ViolMissingRequestedRoleUndisclosed, h)
+	}
+	if h := preCheckCallChainEndpoints(doc, view); len(h) > 0 {
+		hints = appendPreEmitHints(hints, types.ViolCallChainEndpointOmitted, h)
 	}
 	if h := preCheckRequiredMechanismAnchors(doc, view); len(h) > 0 {
 		hints = appendPreEmitHints(hints, types.ViolPrincipalSupportMemberOmitted, h)
@@ -10908,6 +10914,24 @@ func preCheckRequiredCandidateRoles(doc *types.AnswerDocumentV2, view *types.Ans
 }
 
 func preCheckRequiredMechanismAnchors(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []emitFixHint {
+	if view != nil && view.Family == types.QFCallChain {
+		return nil
+	}
+	return preCheckRequiredMechanismAnchorSet(doc, view)
+}
+
+func preCheckCallChainEndpoints(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []emitFixHint {
+	if view == nil || view.Family != types.QFCallChain {
+		return nil
+	}
+	hints := preCheckRequiredMechanismAnchorSet(doc, view)
+	for i := range hints {
+		hints[i].HardSignal = preEmitHardSignalTypedCallChainEndpoints
+	}
+	return hints
+}
+
+func preCheckRequiredMechanismAnchorSet(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []emitFixHint {
 	if doc == nil || view == nil || len(view.RequiredMechanismAnchors) == 0 {
 		return nil
 	}

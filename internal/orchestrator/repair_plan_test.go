@@ -364,6 +364,7 @@ func TestEveryHardDefaultViolKindHasCooccurrenceCoverage(t *testing.T) {
 		// to render/caveat that member rather than re-investigate.
 		types.ViolPrincipalSupportMemberOmitted: "principal support member omitted from enumeration surface; finalizer-local render coverage",
 		types.ViolDiagramCallEdgeUnproven:       "typed source call edge lacks same-direction call-site evidence; finalizer-local edge/list rewrite",
+		types.ViolCallChainEndpointOmitted:      "typed source/sink endpoint omitted from structured call-chain answer; finalizer-local endpoint disclosure",
 		// Semantic-quality topic mismatch is intentionally standalone:
 		// the reviewer already identified a wrong-subject final answer,
 		// and the repair is a finalizer-local rewrite around the

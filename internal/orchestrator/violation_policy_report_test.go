@@ -41,11 +41,15 @@ func TestViolationPolicyCoverageReportPinsExplicitHardRows(t *testing.T) {
 			hard = append(hard, row)
 		}
 	}
-	if len(hard) != 1 || hard[0].Kind != types.ViolDiagramCallEdgeUnproven {
-		t.Fatalf("default commercial post-emit policy must expose exactly the reviewed typed call-edge hard row; got %+v", hard)
+	if len(hard) != 2 ||
+		hard[0].Kind != types.ViolDiagramCallEdgeUnproven ||
+		hard[1].Kind != types.ViolCallChainEndpointOmitted {
+		t.Fatalf("default commercial post-emit policy must expose exactly the reviewed typed call-chain hard rows; got %+v", hard)
 	}
-	if hard[0].DefaultSeverity != types.SeverityHigh || !hard[0].DefaultRetryEligible || hard[0].FallbackTarget != FallbackFinalizerOnly {
-		t.Fatalf("typed call-edge hard row policy drifted: %+v", hard[0])
+	for _, row := range hard {
+		if row.DefaultSeverity != types.SeverityHigh || !row.DefaultRetryEligible || row.FallbackTarget != FallbackFinalizerOnly {
+			t.Fatalf("typed call-chain hard row policy drifted: %+v", row)
+		}
 	}
 }
 

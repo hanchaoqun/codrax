@@ -428,6 +428,16 @@ const (
 	// the comparison are closed typed carriers.
 	ViolDiagramCallEdgeUnproven ViolationKind = "diagram_call_edge_unproven"
 
+	// ViolCallChainEndpointOmitted fires only for source call-chain answers
+	// when a current-request endpoint compiled into
+	// AnswerSemanticView.RequiredMechanismAnchors is missing from every
+	// structured answer surface. Both sides are closed typed carriers; prose
+	// is deliberately ignored. It prevents a nearby qualified symbol from
+	// silently replacing the exact requested endpoint. Runtime/root-cause
+	// trace families do not compile this violation. Stage="finalize".
+	// HARD-by-default.
+	ViolCallChainEndpointOmitted ViolationKind = "call_chain_endpoint_omitted"
+
 	// ViolDiagramEdgeLabelMismatch fires when an edge carries a typed
 	// RelationKind on its EdgeAnchor entry AND the rendered label
 	// resolves (via InferRelationFromLabel) to a DIFFERENT non-Unknown
@@ -1109,6 +1119,7 @@ func AllViolationKinds() []ViolationKind {
 		ViolPrincipalClaimUseMissing,
 		ViolDiagramEdgeUnsupported,
 		ViolDiagramCallEdgeUnproven,
+		ViolCallChainEndpointOmitted,
 		ViolDiagramEdgeLabelMismatch,
 		ViolUncertaintyBlockMissing,
 		// G5 (post_v2_runtime_gap_remediation, 2026-05-04) — semantic-

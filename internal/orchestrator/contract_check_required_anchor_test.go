@@ -35,6 +35,22 @@ func TestRequiredMechanismAnchorsRenderedMissing(t *testing.T) {
 	}
 }
 
+func TestCallChainEndpointsRenderedMissingUsesTypedHardKind(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "s1", Kind: types.BlockSummary, Text: "gate.RunWith only",
+	}}}
+	view := requiredAnchorView("gate.Run")
+	view.Family = types.QFCallChain
+	v := validateRequiredMechanismAnchorsRendered(doc, view)
+	if len(v) != 1 || v[0].Kind != types.ViolCallChainEndpointOmitted {
+		t.Fatalf("call-chain endpoint omission must use typed hard kind, got %+v", v)
+	}
+	if v[0].SuspectedRoot.IRField != "answer_contract.call_chain_endpoints" ||
+		v[0].SuspectedRoot.Confidence != 1.0 {
+		t.Fatalf("typed endpoint root metadata drifted: %+v", v[0].SuspectedRoot)
+	}
+}
+
 // Table cells are a legitimate carrier: an anchor annotated inside a
 // cell suppresses the violation (forensic shape — the model's table
 // carried every anchor in cells, not labels).

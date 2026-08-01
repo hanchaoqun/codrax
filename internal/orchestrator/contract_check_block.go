@@ -1957,7 +1957,7 @@ func validateRequiredMechanismAnchorsRendered(doc *types.AnswerDocumentV2, view 
 	for _, anchor := range missing {
 		labels = append(labels, anchor.Text)
 	}
-	return []types.Violation{{
+	violation := types.Violation{
 		Kind: types.ViolPrincipalSupportMemberOmitted,
 		Detail: fmt.Sprintf(
 			"the final document carries none of these question-named anchors on a structured surface (block title, item label, table cell, or diagram endpoint): %s",
@@ -1970,7 +1970,15 @@ func validateRequiredMechanismAnchorsRendered(doc *types.AnswerDocumentV2, view 
 			Confidence: 0.7,
 		},
 		Stage: string(types.StageFinalize),
-	}}
+	}
+	if view.Family == types.QFCallChain {
+		violation.Kind = types.ViolCallChainEndpointOmitted
+		violation.ClusterKey = "root:call_chain_endpoints"
+		violation.SuspectedRoot.IRField = "answer_contract.call_chain_endpoints"
+		violation.SuspectedRoot.Reason = "typed source/sink endpoint missing from the final structured surfaces"
+		violation.SuspectedRoot.Confidence = 1.0
+	}
+	return []types.Violation{violation}
 }
 
 // validateExactResolutionGrounding enforces the typed-vs-typed

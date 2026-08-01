@@ -204,6 +204,8 @@ func inferFieldPathFromKind(kind types.ViolationKind, detail string) string {
 			return fmt.Sprintf("blocks[id=%q].diagram", blockID)
 		}
 		return "blocks[kind=diagram].diagram"
+	case types.ViolCallChainEndpointOmitted:
+		return "blocks[].items[].label"
 	case types.ViolUncertaintyBlockMissing:
 		return "blocks (add new block kind=caveat)"
 	case types.ViolCurrentStatusVerdictMissing:

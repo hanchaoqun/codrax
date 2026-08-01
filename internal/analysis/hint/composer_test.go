@@ -212,6 +212,7 @@ var composerExactFixSwitchKinds = map[types.ViolationKind]bool{
 	types.ViolPrincipalClaimUseMissing:        true,
 	types.ViolDiagramEdgeUnsupported:          true,
 	types.ViolDiagramCallEdgeUnproven:         true,
+	types.ViolCallChainEndpointOmitted:        true,
 	types.ViolUncertaintyBlockMissing:         true,
 	types.ViolClaimFormUnsupported:            true,
 	types.ViolBlockCoverageMissing:            true,

@@ -1063,6 +1063,13 @@ func init() {
 		FixableByAgents: []AgentName{AgentFinalizer},
 	})
 	RegisterViolKind(ViolKindSpec{
+		Kind: ViolCallChainEndpointOmitted, DefaultSeverity: SeverityHigh, RepairPhase: RepairPhaseConsistency,
+		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
+		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,
+		SchemaDescriptionFragment: "In a source call-chain answer, every typed current-request endpoint MUST remain visible on an exact structured answer surface; a sibling qualified symbol, summary prose, or an unproven nearby call target cannot substitute for the endpoint.",
+		FixableByAgents:           []AgentName{AgentFinalizer},
+	})
+	RegisterViolKind(ViolKindSpec{
 		Kind: ViolInlineIdentifierHallucinated, DefaultSeverity: SeverityMedium,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "contract_check", CaveatFamilyID: CaveatFamilyEnumerationDepth,
