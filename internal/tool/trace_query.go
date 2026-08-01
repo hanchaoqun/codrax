@@ -11999,6 +11999,10 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 	// customer's runnable-dominant report (FFRT runnable 2528ms of a 3000ms
 	// window) had no mechanism explanation at all.
 	out = append(out, traceQueryTypedRunnableOccupancyObservations(stats, ref, scope, at)...)
+	// TWODIM-2: publish the already-computed process CPU occupancy as a typed
+	// cpu·ms side channel. It remains resource context, never a causal/rank
+	// row, and is rendered separately from wall-clock critical-path values.
+	out = append(out, traceQueryTypedCPUOccupancyProcessObservations(stats, ref, scope, at)...)
 
 	for i, load := range stats.ThreadCPULoad {
 		if i >= traceQueryWidthTypedFamilyRowCap() {
@@ -12931,6 +12935,71 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 		}
 	}
 	out = append(out, traceQueryTypedPluginObservations(stats, ref, scope, at)...)
+	return out
+}
+
+func traceQueryTypedCPUOccupancyProcessObservations(
+	stats tracequery.WindowStats,
+	ref types.ObservationSourceRef,
+	scope, at string,
+) []types.ObservationRecord {
+	if stats.CPUOccupancy == nil || len(stats.CPUOccupancy.TopProcesses) == 0 {
+		return nil
+	}
+	selectedWindow := traceQuerySelectedWindowNoteValue(stats.Window)
+	if selectedWindow == "" {
+		return nil
+	}
+	var out []types.ObservationRecord
+	for i, process := range stats.CPUOccupancy.TopProcesses {
+		if i >= traceQueryWidthTypedFamilyRowCap() {
+			break
+		}
+		subject := traceThreadLabel(process.Process)
+		if strings.TrimSpace(subject) == "" || process.RunningMs <= 0 || process.ThreadCount <= 0 {
+			continue
+		}
+		out = append(out, types.ObservationRecord{
+			ID:              fmt.Sprintf("trace_query:%s#cpu_occupancy_process:%d", scope, i+1),
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: types.ClaimGroundingHard,
+			ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
+			SourceRef:       ref,
+			Span: types.ObservationSpan{
+				LineStart: process.LineStart,
+				LineEnd:   process.LineEnd,
+			},
+			ClaimKey:  "cpu_occupancy_process:" + subject,
+			Subject:   subject,
+			Predicate: "cpu_occupancy_process",
+			Object:    "running_cpu_time",
+			Value:     traceQueryObservationMSValue(process.RunningMs),
+			Unit:      "cpu·ms",
+			Summary: fmt.Sprintf(
+				"cpu_occupancy_process %s running=%.3fcpu·ms threads=%d top_thread=%s %.3fms cpus=%s core_classes=%s",
+				subject,
+				process.RunningMs,
+				process.ThreadCount,
+				traceThreadLabel(process.TopThread),
+				process.TopThreadMs,
+				traceIntList(process.CPUs),
+				strings.Join(process.CoreClasses, ","),
+			),
+			RichNotes: traceQueryTypedKVNotes([][2]string{
+				{types.TraceNoteKeySelectedWindow, selectedWindow},
+				{types.TraceNoteKeyCPUOccupancyThreadCount, traceQueryTypedCount(process.ThreadCount)},
+				{types.TraceNoteKeyCPUOccupancyTopThread, traceThreadLabel(process.TopThread)},
+				{types.TraceNoteKeyCPUOccupancyTopThreadMS, traceQueryObservationMSValue(process.TopThreadMs)},
+				{types.TraceNoteKeyCPUOccupancyCPUs, traceIntList(process.CPUs)},
+				{types.TraceNoteKeyCPUOccupancyCoreClasses, strings.Join(process.CoreClasses, ",")},
+			}),
+			SupportRefs: traceQueryObservationSupportRefs(ref, process.LineStart, process.LineEnd),
+			ObservedAt:  at,
+			Confidence:  0.70,
+		})
+	}
 	return out
 }
 

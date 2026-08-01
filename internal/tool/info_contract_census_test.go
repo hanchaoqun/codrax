@@ -454,6 +454,7 @@ var projectionFieldContract = map[string]fieldDisposition{
 	// runtimeTraceProjBusinessSpanMentionRowText) + the honest omitted row.
 	"BusinessSpanMentions":       {Status: "displayed", Ref: "◈ 业务span提示块 + ◎ 旁栏(runtimeTraceProjBusinessSpanMentionLines)"},
 	"BusinessSpanMentionOmitted": {Status: "displayed", Ref: "◈ 另有N个span族截断行"},
+	"CPUOccupancyProcesses":      {Status: "displayed", Ref: "TWODIM-2 主要时间占用 CPU资源组(runtimeTraceOccupancyCPUCandidates)"},
 	// PARTSPLIT-1 (§29.150④): the R4-refusal non-seat mention side channel.
 	"GatedCompositeEdgeShareDisclosures": {Status: "displayed", Ref: "PARTSPLIT-1 ◎ 边前份披露(R4拒转·整席不拆)非席 mention 块(runtimeTraceProjElimGatedCompositeEdgeShareMentionLines)"},
 	// RULER2-1 (§29.150②): the self runnable two-ruler accounting side

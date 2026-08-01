@@ -106,6 +106,16 @@ const (
 	TraceNoteKeyActualWindow       = "actual_window"
 	TraceNoteKeyNearestChainWindow = "nearest_chain_window"
 	TraceNoteKeyOccurrenceWindows  = "occurrence_windows"
+	// TraceNoteKeyCPUOccupancy* (TWODIM-2, 2026-08-01) carries the existing
+	// selected-window process CPU census into the causal projection as a
+	// NON-SEAT resource-context side channel. Running cpu·ms stays in the
+	// record Value/Unit; these notes carry the process roster/context fields.
+	// They never affect causal rank or eliminable pricing.
+	TraceNoteKeyCPUOccupancyThreadCount = "threads"
+	TraceNoteKeyCPUOccupancyTopThread   = "top_thread"
+	TraceNoteKeyCPUOccupancyTopThreadMS = "top_thread_ms"
+	TraceNoteKeyCPUOccupancyCPUs        = "cpus"
+	TraceNoteKeyCPUOccupancyCoreClasses = "core_classes"
 )
 
 // 因果排名族 (causal-rank family).
@@ -2069,12 +2079,12 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 
 	// 负载/约束族 (cpu load & affinity).
 	{"thread", "cpu_load", TraceNoteCarrierDisplayOnly},
-	{"threads", "cpu_load", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyCPUOccupancyThreadCount, "cpu_load", TraceNoteCarrierHardConsumer},
 	{"process", "cpu_load", TraceNoteCarrierDisplayOnly},
 	{"cpu", "cpu_load", TraceNoteCarrierDisplayOnly},
-	{"cpus", "cpu_load", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyCPUOccupancyCPUs, "cpu_load", TraceNoteCarrierHardConsumer},
 	{"core_class", "cpu_load", TraceNoteCarrierDisplayOnly},
-	{"core_classes", "cpu_load", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyCPUOccupancyCoreClasses, "cpu_load", TraceNoteCarrierHardConsumer},
 	{"freq", "cpu_load", TraceNoteCarrierDisplayOnly},
 	{"priority", "cpu_load", TraceNoteCarrierDisplayOnly},
 	{"target_priority", "cpu_load", TraceNoteCarrierDisplayOnly},
@@ -2086,8 +2096,8 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{"system_or_kernel_running", "cpu_load", TraceNoteCarrierDisplayOnly},
 	{"system_or_kernel_overlap", "cpu_load", TraceNoteCarrierDisplayOnly},
 	{"system_or_kernel_competitors", "cpu_load", TraceNoteCarrierDisplayOnly},
-	{"top_thread", "cpu_load", TraceNoteCarrierDisplayOnly},
-	{"top_thread_ms", "cpu_load", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyCPUOccupancyTopThread, "cpu_load", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyCPUOccupancyTopThreadMS, "cpu_load", TraceNoteCarrierHardConsumer},
 	{"top_background_threads", "cpu_load", TraceNoteCarrierDisplayOnly},
 	{"top_background_process", "cpu_load", TraceNoteCarrierDisplayOnly},
 	{"same_cpu_busy", "cpu_load", TraceNoteCarrierDisplayOnly},

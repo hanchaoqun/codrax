@@ -156,7 +156,7 @@ var traceNoteKeyGoldenRows = []string{
 	"constraint_epoch_total|cpu_load|display_only",
 	"context|dma_fence|display_only",
 	"core_class|cpu_load|display_only",
-	"core_classes|cpu_load|display_only",
+	"core_classes|cpu_load|hard_consumer",
 	"core_limited_cpu_ms|compute_supply|display_only",
 	"count|io|display_only",
 	"coverage_mode|causal_rank|display_only",
@@ -175,7 +175,7 @@ var traceNoteKeyGoldenRows = []string{
 	"cpu_constraint_kind|state|hard_consumer",
 	"cpu_constraint_policy|state|hard_consumer",
 	"cpu_count|compute_supply|display_only",
-	"cpus|cpu_load|display_only",
+	"cpus|cpu_load|hard_consumer",
 	"cpuset|cpu_load|display_only",
 	// AXIOM-V2 件2/件3 (2026-07-18): the cross-direction overlap pair roster
 	// (display 互指句, hard) and the un-pointable pair type-token disclosure
@@ -616,7 +616,9 @@ var traceNoteKeyGoldenRows = []string{
 	// CR-3 件⑥ F-10 (2026-07-12): the cap's in-window witness bit (冷读 D5).
 	"thermal_cap_witnessed|supply_fold|hard_consumer",
 	"thread|cpu_load|display_only",
-	"threads|cpu_load|display_only",
+	// TWODIM-2: the selected-window process CPU occupancy side channel
+	// promotes its roster/context quintet into projection compile.
+	"threads|cpu_load|hard_consumer",
 	"throughput|supply_pressure|display_only",
 	"tier|causal_rank|hard_consumer",
 	"timeline|dma_fence|display_only",
@@ -631,8 +633,8 @@ var traceNoteKeyGoldenRows = []string{
 	"top_dev|io|display_only",
 	"top_inode|io|display_only",
 	"top_name|io|display_only",
-	"top_thread|cpu_load|display_only",
-	"top_thread_ms|cpu_load|display_only",
+	"top_thread|cpu_load|hard_consumer",
+	"top_thread_ms|cpu_load|hard_consumer",
 	"top_threads|io|display_only",
 	// EVOLUTION RECORD (R-P2-2 反向臂首跑, 2026-07-12): soft→hard (compile
 	// parses node.TotalMS — column under-reported).

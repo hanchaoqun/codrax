@@ -203,6 +203,12 @@ type TraceCausalProjection struct {
 	// (≥significance floor) families beyond the mention cap (件3 截断诚实
 	// 披露; micro families never count). First parsed value wins.
 	BusinessSpanMentionOmitted int `json:"business_span_mention_omitted,omitempty"`
+	// CPUOccupancyProcesses is the selected-window process running census from
+	// the existing CPU-occupancy pass. Values are cpu·ms (cross-thread CPU
+	// time), never wall-clock elapsed time and never a causal/rank seat. The
+	// answer-side two-dimension surface renders this as a separate resource
+	// context group so it cannot be added to wall-clock critical-path rows.
+	CPUOccupancyProcesses []TraceCausalProjectionCPUOccupancyProcess `json:"cpu_occupancy_processes,omitempty"`
 	// GatedCompositeEdgeShareDisclosures (PARTSPLIT-1, §29.150④ user ruling
 	// 2026-07-19): the R4-mirror refusal NON-SEAT disclosure side channel —
 	// compiled from gated_composite_edge_share records (each parsed
@@ -324,6 +330,23 @@ type TraceCausalProjectionBusinessSpanMention struct {
 	// (POOL2-1 件①, §29.160①: no longer an admission input; 0 = the family is
 	// fully visible on the bounded seat view and still mentions).
 	Hidden int `json:"hidden"`
+}
+
+// TraceCausalProjectionCPUOccupancyProcess is one strict typed side-channel
+// row produced from WindowStats.CPUOccupancy.TopProcesses.
+type TraceCausalProjectionCPUOccupancyProcess struct {
+	Subject      string   `json:"subject"`
+	RunningCPUMS float64  `json:"running_cpu_ms"`
+	ThreadCount  int      `json:"thread_count"`
+	TopThread    string   `json:"top_thread,omitempty"`
+	TopThreadMS  float64  `json:"top_thread_ms,omitempty"`
+	CPUs         []int    `json:"cpus,omitempty"`
+	CoreClasses  []string `json:"core_classes,omitempty"`
+	WindowStart  float64  `json:"window_start,omitempty"`
+	WindowEnd    float64  `json:"window_end,omitempty"`
+	LineStart    int      `json:"line_start,omitempty"`
+	LineEnd      int      `json:"line_end,omitempty"`
+	EvidenceID   string   `json:"evidence_id,omitempty"`
 }
 
 // TraceCausalProjectionTargetStateAccount is the §29.27② typed carrier of the
@@ -1753,6 +1776,10 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 	var businessSpanMentions []TraceCausalProjectionBusinessSpanMention
 	businessSpanMentionOmitted := 0
 	businessSpanMentionSeen := map[string]bool{}
+	// TWODIM-2: cpu·ms process occupancy stays a projection side channel. It
+	// never enters node classification, causal ranks, or eliminable pricing.
+	var cpuOccupancyProcesses []TraceCausalProjectionCPUOccupancyProcess
+	cpuOccupancySeen := map[string]bool{}
 	// PARTSPLIT-1 (§29.150④): the R4-mirror refusal disclosure side channel —
 	// collected per record (all-or-nothing strict parse), deduped by
 	// (subject, boundary) identity.
@@ -1791,6 +1818,18 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 				}
 				if businessSpanMentionOmitted == 0 && omitted > 0 {
 					businessSpanMentionOmitted = omitted
+				}
+			}
+			continue
+		}
+		if strings.TrimSpace(record.Predicate) == "cpu_occupancy_process" {
+			if occupancy, ok := traceCausalProjectionCPUOccupancyProcessFromRecord(record); ok {
+				key := strings.ToLower(occupancy.Subject) + "\x00" +
+					strconv.FormatFloat(occupancy.WindowStart, 'f', 6, 64) + "\x00" +
+					strconv.FormatFloat(occupancy.WindowEnd, 'f', 6, 64)
+				if !cpuOccupancySeen[key] {
+					cpuOccupancySeen[key] = true
+					cpuOccupancyProcesses = append(cpuOccupancyProcesses, occupancy)
 				}
 			}
 			continue
@@ -2132,6 +2171,7 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 		QueryWindowsTruncated:              queryWindowsTruncated,
 		BusinessSpanMentions:               businessSpanMentions,
 		BusinessSpanMentionOmitted:         businessSpanMentionOmitted,
+		CPUOccupancyProcesses:              cpuOccupancyProcesses,
 		GatedCompositeEdgeShareDisclosures: gatedCompositeEdgeShares,
 		SelfRunnableTwoRulerAccountings:    selfRunnableTwoRulers,
 		SelfRunningFoldUnmeasured:          selfRunningFoldUnmeasured,
@@ -5732,6 +5772,46 @@ func traceCausalProjectionBusinessSpanMentionFromRecord(record ObservationRecord
 		omitted = 0
 	}
 	return out, omitted, true
+}
+
+func traceCausalProjectionCPUOccupancyProcessFromRecord(record ObservationRecord) (TraceCausalProjectionCPUOccupancyProcess, bool) {
+	var out TraceCausalProjectionCPUOccupancyProcess
+	if record.Origin != AnswerEvidenceOriginRuntimeArtifact ||
+		!RuntimeObservationProducerIsDeterministicQuery(record.Producer) ||
+		record.GroundingPolicy != ClaimGroundingHard ||
+		strings.TrimSpace(record.Predicate) != "cpu_occupancy_process" ||
+		strings.TrimSpace(record.Unit) != "cpu·ms" {
+		return out, false
+	}
+	out.Subject = strings.TrimSpace(record.Subject)
+	running, err := strconv.ParseFloat(strings.TrimSpace(record.Value), 64)
+	if out.Subject == "" || err != nil || !(running > 0) {
+		return out, false
+	}
+	start, end, ok := traceCausalProjectionSelectedWindowNote(record.RichNotes)
+	if !ok {
+		return out, false
+	}
+	threads := traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyCPUOccupancyThreadCount)
+	if threads <= 0 {
+		return out, false
+	}
+	out.RunningCPUMS = running
+	out.ThreadCount = threads
+	out.TopThread = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyCPUOccupancyTopThread))
+	out.TopThreadMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyCPUOccupancyTopThreadMS)
+	out.CPUs = traceCausalProjectionRichNoteCPUList(record.RichNotes, TraceNoteKeyCPUOccupancyCPUs)
+	if raw := strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyCPUOccupancyCoreClasses)); raw != "" {
+		for _, part := range strings.Split(raw, ",") {
+			if value := strings.TrimSpace(part); value != "" {
+				out.CoreClasses = append(out.CoreClasses, value)
+			}
+		}
+	}
+	out.WindowStart, out.WindowEnd = start, end
+	out.LineStart, out.LineEnd = record.Span.LineStart, record.Span.LineEnd
+	out.EvidenceID = strings.TrimSpace(record.ID)
+	return out, true
 }
 
 func traceCausalProjectionRichNoteInt(notes []string, key string) int {

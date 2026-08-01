@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -65,5 +66,224 @@ func TestTwoDimTeachingOnBothLLMFaces(t *testing.T) {
 				t.Fatalf("%s must teach the two-dimension frame, missing %q", name, want)
 			}
 		}
+	}
+}
+
+func twodimOccupancyMatrixProjection() types.TraceCausalProjection {
+	projection := twodimProjectionWithUnpricedRunning()
+	projection.OnChainCauses[len(projection.OnChainCauses)-1].EffectiveImpactMS = 0
+	projection.OnChainCauses[len(projection.OnChainCauses)-1].EffectiveImpactPublished = true
+
+	semantic := elimChainNode("E-semantic", "RenderThread-7788", "semantic_trace_span", "running", 0, 36, 510)
+	semantic.Predicate = "semantic_trace_span"
+	semantic.SpanName = "RenderTask"
+	semantic.SemanticClass = "render_work"
+	semantic.FamilyMemberCount = 3
+	semantic.FamilyMemberMaxMS = 18
+	semantic.EffectiveImpactMS = 0
+	projection.SemanticSpans = []types.TraceCausalProjectionNode{semantic}
+
+	projection.BusinessSpanMentions = []types.TraceCausalProjectionBusinessSpanMention{
+		{
+			Subject: "Worker-9001", Name: "one long span",
+			Count: 1, TotalMS: 52, MaxMS: 52,
+			StartLine: 600, EndLine: 610, Basis: "chain_member",
+		},
+		{
+			Subject: "Worker-9002", Name: "many small spans",
+			Count: 40, TotalMS: 80, MaxMS: 2,
+			StartLine: 700, EndLine: 900, Basis: "self",
+		},
+	}
+	projection.CPUOccupancyProcesses = []types.TraceCausalProjectionCPUOccupancyProcess{
+		{
+			Subject: "render_service-411", RunningCPUMS: 120, ThreadCount: 4,
+			TopThread: "RSHardwareThre-1063", TopThreadMS: 70,
+			CPUs: []int{2, 3}, CoreClasses: []string{"big"},
+			WindowStart: projection.WindowStartTs, WindowEnd: projection.WindowEndTs,
+			LineStart: 1000, LineEnd: 1200,
+		},
+	}
+	projection.TargetStateAccount = &types.TraceCausalProjectionTargetStateAccount{
+		Subject:   "target-42",
+		RunningMS: 60, RunnableMS: 30, SleepMS: 80,
+		SleepIOWaitMS: 8, DStateMS: 10, IOWaitMS: 20, TotalMS: 200,
+		WindowStartTs: projection.WindowStartTs, WindowEndTs: projection.WindowEndTs,
+	}
+	return projection
+}
+
+// TWODIM-2 matrix: actual occupancy is a first-class decision surface while
+// retaining separate wall-clock/cpu-time rulers and separate existing-rule
+// pricing. The family names are arbitrary fixtures; no production branch
+// reads them.
+func TestTwoDimOccupancyDecisionSurfaceMatrix(t *testing.T) {
+	projection := twodimOccupancyMatrixProjection()
+	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
+	block := runtimeTraceCausalProjectionOccupancyBlock(
+		projection, model, true, runtimeTraceCausalProjectionBlockIDBase, "", nil, nil,
+	)
+	if block == nil {
+		t.Fatal("typed occupancy matrix must publish the independent decision surface")
+	}
+	if block.Title != "主要时间占用 / 关键路径候选" {
+		t.Fatalf("unexpected occupancy title: %q", block.Title)
+	}
+	joined := block.Text
+	for _, item := range block.Items {
+		joined += "\n" + strings.Join(item.Cells, " | ")
+	}
+	for _, want := range []string{
+		"两轴独立，不能相加或互相替代",
+		"本表自身不证明某个占用已经导致具体丢帧",
+		"running 60.000ms、runnable 30.000ms、sleep 80.000ms",
+		"非 IO D-state 10.000ms、io_wait 20.000ms",
+		"不能直接当作可消除收益",
+		"Worker-9001 / one long span",
+		"52.000ms",
+		"Worker-9002 / many small spans",
+		"80.000ms",
+		"2.000ms",
+		"40",
+		"RenderThread-7788 / RenderTask",
+		"真实占时但现有规则未计价",
+		"现规则可消 26.392ms 另见可消除榜",
+		"render_service-411",
+		"120.000cpu·ms",
+		"多核并行可超过墙钟窗口",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("occupancy matrix missing %q:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "120.000ms") {
+		t.Fatalf("cross-thread process CPU time must never be relabeled as wall clock:\n%s", joined)
+	}
+
+	// Producer order is not authority: the business family group must rank by
+	// its own cumulative wall-clock ruler.
+	many := strings.Index(joined, "many small spans")
+	long := strings.Index(joined, "one long span")
+	if many < 0 || long < 0 || many > long {
+		t.Fatalf("business families must be ordered by cumulative wall clock:\n%s", joined)
+	}
+
+	// EN parity and the no-frame-proof boundary.
+	enModel := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), false)
+	en := runtimeTraceCausalProjectionOccupancyBlock(
+		projection, enModel, false, runtimeTraceCausalProjectionBlockIDBase, "", nil, nil,
+	)
+	if en == nil || !strings.Contains(en.Text, "The two axes are independent") ||
+		!strings.Contains(en.Text, "does not prove that an occupancy caused a specific dropped frame") {
+		t.Fatalf("english occupancy boundary missing: %+v", en)
+	}
+}
+
+// The occupancy block leads the existing causal/eliminable projection inside
+// the cluster; it does not replace or mutate the priced board.
+func TestTwoDimOccupancyLeadsUnchangedEliminableBoard(t *testing.T) {
+	projection := twodimOccupancyMatrixProjection()
+	cluster := runtimeTraceCausalProjectionClusterFor(
+		projection, "zh-CN", runtimeTraceProjUserFocus{}, runtimeTraceCausalProjectionBlockIDBase, "",
+	)
+	if len(cluster) < 2 ||
+		cluster[0].ID != runtimeTraceCausalProjectionBlockIDBase+runtimeTraceCausalProjectionOccupancySuffix ||
+		cluster[1].ID != runtimeTraceCausalProjectionBlockIDBase {
+		t.Fatalf("occupancy must lead the existing projection cluster: %+v", cluster)
+	}
+	if !strings.Contains(cluster[1].Text, "窗内可消除量") ||
+		!strings.Contains(cluster[1].Text, "26.392ms") {
+		t.Fatalf("existing eliminable board must remain present and numerically unchanged:\n%s", cluster[1].Text)
+	}
+	markRuntimeTraceSystemBlocks(cluster)
+	model := types.AnswerBlock{ID: "model_answer", Kind: types.BlockSection, Title: "结论"}
+	doc := &types.AnswerDocumentV2{Blocks: append([]types.AnswerBlock{model}, cluster...)}
+	normalizeRuntimeTraceReportHierarchy(doc)
+	if doc.Blocks[0].ID != "model_answer" ||
+		doc.Blocks[1].ID != runtimeTraceCausalProjectionBlockIDBase+runtimeTraceCausalProjectionOccupancySuffix ||
+		doc.Blocks[2].ID != runtimeTraceCausalProjectionBlockIDBase {
+		t.Fatalf("model narrative → occupancy → priced projection order must hold: %+v", doc.Blocks[:3])
+	}
+}
+
+// No span evidence must not mint a fake span family. Real on-chain state
+// occupancy may still keep the independent surface alive.
+func TestTwoDimOccupancyNoSpanNegative(t *testing.T) {
+	projection := twodimProjectionWithUnpricedRunning()
+	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
+	block := runtimeTraceCausalProjectionOccupancyBlock(
+		projection, model, true,
+		runtimeTraceCausalProjectionBlockIDBase, "", nil, nil,
+	)
+	if block == nil {
+		t.Fatal("real on-chain occupancy should remain visible without span evidence")
+	}
+	for _, item := range block.Items {
+		if strings.Contains(item.Cells[0], "span") {
+			t.Fatalf("absence of span evidence must not fabricate a span row: %+v", item)
+		}
+	}
+}
+
+// Wire pin: the existing WindowStats CPU census publishes one strict cpu·ms
+// side-channel record and the projection compiler carries it without adding a
+// causal node, rank ordinal, or wall-clock conversion.
+func TestTwoDimCPUOccupancyTypedSideChannel(t *testing.T) {
+	stats := tracequery.WindowStats{
+		Window: tracequery.TimeWindow{StartTs: 10, EndTs: 10.2, StartSet: true},
+		CPUOccupancy: &tracequery.CPUOccupancyStats{
+			TopProcesses: []tracequery.ProcessCPULoadSummary{
+				{
+					Process:     tracequery.ThreadRef{Comm: "render_service", PID: 411},
+					ThreadCount: 4, RunningMs: 120,
+					TopThread:   tracequery.ThreadRef{Comm: "RSHardwareThre", PID: 1063},
+					TopThreadMs: 70, CPUs: []int{2, 3}, CoreClasses: []string{"big"},
+					LineStart: 100, LineEnd: 200,
+				},
+			},
+		},
+	}
+	records := traceQueryTypedWindowStatsObservations(
+		stats, types.ObservationSourceRef{ArtifactID: "trace.systrace"}, "w1", "now",
+	)
+	var occupancy []types.ObservationRecord
+	for _, record := range records {
+		if record.Predicate == "cpu_occupancy_process" {
+			occupancy = append(occupancy, record)
+		}
+	}
+	if len(occupancy) != 1 || occupancy[0].Unit != "cpu·ms" || occupancy[0].Value != "120.000" {
+		t.Fatalf("expected one strict cpu·ms side-channel record: %+v", occupancy)
+	}
+	root := types.ObservationRecord{
+		ID:              "trace_query:w1#root_cause_primary:1",
+		Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		GroundingPolicy: types.ClaimGroundingHard,
+		ClaimKey:        "root_cause_primary:target-1",
+		Subject:         "target-1",
+		Predicate:       "root_cause_primary",
+		Object:          "runnable_wait",
+		Value:           "1.000",
+		Unit:            "ms",
+		RichNotes: []string{
+			"rank=1", "tier=primary", "chain_relevance=on_chain",
+			"selected_window=10.000000..10.200000",
+		},
+	}
+	projection := types.TraceCausalProjectionFromObservationRecords(append(occupancy, root))
+	if len(projection.CPUOccupancyProcesses) != 1 {
+		t.Fatalf("projection must carry the cpu occupancy side channel: record=%+v projection=%+v", occupancy[0], projection)
+	}
+	got := projection.CPUOccupancyProcesses[0]
+	if got.RunningCPUMS != 120 || got.ThreadCount != 4 ||
+		got.TopThread != "RSHardwareThre-1063" || got.TopThreadMS != 70 ||
+		got.WindowStart != 10 || got.WindowEnd != 10.2 {
+		t.Fatalf("typed cpu occupancy payload drifted: %+v", got)
+	}
+	if len(projection.PrimaryRootCauses) != 1 || projection.PrimaryRootCauses[0].EvidenceID != root.ID ||
+		len(projection.OnChainCauses) != 1 || projection.OnChainCauses[0].EvidenceID != root.ID ||
+		len(projection.AdjacentCauses) != 0 || len(projection.BackgroundCauses) != 0 {
+		t.Fatalf("cpu resource context must never add a causal/rank seat beside the seed root: %+v", projection)
 	}
 }

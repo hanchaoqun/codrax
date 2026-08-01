@@ -782,6 +782,7 @@ const (
 	runtimeTraceCausalProjectionCompareNotesBlockID  = runtimeTraceCausalProjectionCompareBlockID + "_notes"
 	runtimeTraceCausalProjectionCoverageBlockID      = runtimeTraceCausalProjectionBlockIDBase + "_coverage"
 	runtimeTraceCausalProjectionPartitionBlockID     = runtimeTraceCausalProjectionBlockIDBase + "_partition"
+	runtimeTraceCausalProjectionOccupancySuffix      = "_occupancy"
 	runtimeTraceCausalProjectionRepresentativeSuffix = "_representative_windows"
 	runtimeTraceCausalProjectionArtifactBlockIDInfix = "_a"
 )
@@ -823,6 +824,7 @@ func runtimeTraceCausalProjectionFamilyBlockID(id string) bool {
 	// feed face — its engine numerals could not ground prose (false-positive
 	// repair rounds) while its text was scanned as model prose.
 	case "", "_detail", "_detail_full", "_evidence", "_compare", "_compare_notes", "_coverage", "_partition",
+		runtimeTraceCausalProjectionOccupancySuffix,
 		runtimeTraceCausalProjectionRepresentativeSuffix:
 		return true
 	}
@@ -838,7 +840,9 @@ func runtimeTraceCausalProjectionFamilyBlockID(id string) bool {
 		return false
 	}
 	switch digits[i:] {
-	case "", "_detail", "_detail_full", "_evidence", runtimeTraceCausalProjectionRepresentativeSuffix:
+	case "", "_detail", "_detail_full", "_evidence",
+		runtimeTraceCausalProjectionOccupancySuffix,
+		runtimeTraceCausalProjectionRepresentativeSuffix:
 		return true
 	}
 	return false
@@ -1338,7 +1342,7 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 		leadText += "\n\n" + elimFence
 	}
 	leadText += "\n\n" + fence
-	out := []types.AnswerBlock{{
+	leadBlock := types.AnswerBlock{
 		ID:          idPrefix,
 		Kind:        types.BlockSection,
 		Title:       runtimeTraceCausalProjectionTitle(lang) + titleSuffix,
@@ -1346,7 +1350,17 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 		SurfaceRole: types.SurfacePrincipal,
 		ClaimUses:   claimUses,
 		FacetIDs:    facets,
-	}}
+	}
+	out := make([]types.AnswerBlock, 0, 6)
+	// TWODIM-2: actual occupancy is an independent decision surface and leads
+	// the priced causal board inside the system projection cluster. It reuses
+	// typed projection values only; the priced board below is unchanged.
+	if block := runtimeTraceCausalProjectionOccupancyBlock(
+		projection, model, zh, idPrefix, titleSuffix, claimUses, facets,
+	); block != nil {
+		out = append(out, *block)
+	}
+	out = append(out, leadBlock)
 	if block := runtimeTraceCausalProjectionRepresentativeWindowsBlock(
 		projection, zh, idPrefix, titleSuffix, claimUses, facets,
 	); block != nil {
@@ -1733,6 +1747,415 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 	return out
 }
 
+const (
+	runtimeTraceOccupancyPathLimit     = 5
+	runtimeTraceOccupancySemanticLimit = 5
+	runtimeTraceOccupancyCPULimit      = 3
+)
+
+type runtimeTraceOccupancyCandidate struct {
+	group    string
+	subject  string
+	totalMS  float64
+	maxMS    float64
+	count    int
+	unit     string
+	location string
+	caliber  string
+}
+
+// runtimeTraceCausalProjectionOccupancyBlock is the TWODIM-2 answer surface:
+// actual in-window work/wait occupancy for discovering NEW repair directions.
+// It is deliberately independent from the existing priced eliminable board.
+// Every value comes from an existing typed projection carrier; this function
+// neither prices nor ranks a causal seat and never adds values across groups.
+func runtimeTraceCausalProjectionOccupancyBlock(
+	projection types.TraceCausalProjection,
+	model runtimeTraceProjTreeModel,
+	zh bool,
+	idPrefix string,
+	titleSuffix string,
+	claimUses []types.RenderedClaimUse,
+	facets []string,
+) *types.AnswerBlock {
+	var rows []runtimeTraceOccupancyCandidate
+	rows = append(rows, runtimeTraceOccupancyPathCandidates(model, zh)...)
+	rows = append(rows, runtimeTraceOccupancySemanticCandidates(model, zh)...)
+	rows = append(rows, runtimeTraceOccupancyBusinessSpanCandidates(projection, zh)...)
+	rows = append(rows, runtimeTraceOccupancyCPUCandidates(projection, zh)...)
+
+	stateAccount := runtimeTraceOccupancyTargetStateText(projection.TargetStateAccount, zh)
+	if len(rows) == 0 && stateAccount == "" {
+		return nil
+	}
+	title := "主要时间占用 / 关键路径候选"
+	columns := []string{"维度", "主体 / 工作族", "累计占用", "单次最长", "次数", "发生窗 / 定位", "解读边界"}
+	text := "本表回答“时间实际花在哪里、下一步应探索什么新修向”；下方「窗内可消除量」回答“按现有规则预计可回收多少”。两轴独立，不能相加或互相替代。墙钟 ms 与 cpu·ms 分组展示；本表自身不证明某个占用已经导致具体丢帧，缺少可绑定的 frame/deadline 证据时只能读作所选窗口的主要占用或关键路径候选。"
+	if !zh {
+		title = "Major Time Occupancy / Critical-path Candidates"
+		columns = []string{"Dimension", "Subject / work family", "Cumulative occupancy", "Longest single", "Count", "Occurrence / location", "Interpretation boundary"}
+		text = "This table answers where time was actually spent and which NEW repair direction deserves exploration. The eliminable-work board below answers how much the existing rules can price as recoverable. The two axes are independent and cannot be added or substituted. Wall-clock ms and cpu·ms are grouped separately. This table alone does not prove that an occupancy caused a specific dropped frame; without target-bound frame/deadline evidence it is only a major occupancy or critical-path candidate in the selected window."
+	}
+	if stateAccount != "" {
+		text += "\n\n" + stateAccount
+	}
+	items := make([]types.AnswerBlockItem, 0, len(rows))
+	for i, row := range rows {
+		maxValue := "—"
+		if row.maxMS > 0 {
+			maxValue = fmt.Sprintf("%.3f%s", row.maxMS, row.unit)
+		}
+		count := "—"
+		if row.count > 0 {
+			count = strconv.Itoa(row.count)
+		}
+		items = append(items, types.AnswerBlockItem{
+			ID: fmt.Sprintf("%s_occupancy_%d", idPrefix, i+1),
+			Cells: []string{
+				row.group,
+				row.subject,
+				fmt.Sprintf("%.3f%s", row.totalMS, row.unit),
+				maxValue,
+				count,
+				row.location,
+				row.caliber,
+			},
+			CitationRef: -1,
+		})
+	}
+	return &types.AnswerBlock{
+		ID:          idPrefix + runtimeTraceCausalProjectionOccupancySuffix,
+		Kind:        types.BlockTable,
+		Title:       title + titleSuffix,
+		Text:        text,
+		Columns:     columns,
+		Items:       items,
+		SurfaceRole: types.SurfacePrincipal,
+		ClaimUses:   append([]types.RenderedClaimUse(nil), claimUses...),
+		FacetIDs:    append([]string(nil), facets...),
+	}
+}
+
+func runtimeTraceOccupancyTargetStateText(
+	account *types.TraceCausalProjectionTargetStateAccount,
+	zh bool,
+) string {
+	if account == nil || strings.TrimSpace(account.Subject) == "" || account.TotalMS <= 0 {
+		return ""
+	}
+	if zh {
+		return fmt.Sprintf(
+			"目标线程状态墙钟分区：%s 在 %.6f..%.6f 内 running %.3fms、runnable %.3fms、sleep %.3fms（其中 S 态 IO 等待 %.3fms）、非 IO D-state %.3fms、io_wait %.3fms。状态分区描述目标经历了什么；sleep/runnable 等等待症状仍需沿 typed 唤醒链或阻塞边下钻，不能直接当作可消除收益。",
+			account.Subject,
+			account.WindowStartTs,
+			account.WindowEndTs,
+			account.RunningMS,
+			account.RunnableMS,
+			account.SleepMS,
+			account.SleepIOWaitMS,
+			account.DStateMS,
+			account.IOWaitMS,
+		)
+	}
+	return fmt.Sprintf(
+		"Target-thread wall-clock state partition: %s in %.6f..%.6f has running %.3fms, runnable %.3fms, sleep %.3fms (including %.3fms of S-state IO wait), non-IO D-state %.3fms, and io_wait %.3fms. This partition describes what the target experienced; wait symptoms such as sleep/runnable still require drill-down through typed wakeup or blocking edges and are not automatically eliminable benefit.",
+		account.Subject,
+		account.WindowStartTs,
+		account.WindowEndTs,
+		account.RunningMS,
+		account.RunnableMS,
+		account.SleepMS,
+		account.SleepIOWaitMS,
+		account.DStateMS,
+		account.IOWaitMS,
+	)
+}
+
+func runtimeTraceOccupancyPathCandidates(
+	model runtimeTraceProjTreeModel,
+	zh bool,
+) []runtimeTraceOccupancyCandidate {
+	seen := map[string]bool{}
+	var out []runtimeTraceOccupancyCandidate
+	rows := append([]runtimeTraceProjTreeRow(nil), model.TreeRows...)
+	rows = append(rows, model.SelfRows...)
+	for _, row := range rows {
+		switch row.Kind {
+		case runtimeTraceProjTreeRowChain,
+			runtimeTraceProjTreeRowCause,
+			runtimeTraceProjTreeRowDepthless,
+			runtimeTraceProjTreeRowSelf:
+		default:
+			continue
+		}
+		node := row.Node
+		if !row.HasData ||
+			node.OnChainOverflowFold ||
+			node.Unit == types.TraceObservationUnitCompositeScore ||
+			(node.WithinRequestedWindow != nil && !*node.WithinRequestedWindow) {
+			continue
+		}
+		total := node.ImpactMS
+		if total <= 0 {
+			continue
+		}
+		key := strings.TrimSpace(node.EvidenceID)
+		if key == "" {
+			key = strings.Join([]string{
+				strings.TrimSpace(node.Subject),
+				strings.TrimSpace(node.Predicate),
+				strconv.FormatFloat(node.StartTs, 'f', 6, 64),
+				strconv.FormatFloat(node.EndTs, 'f', 6, 64),
+			}, "\x00")
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		count, maxValue := runtimeTraceOccupancyNodeCountAndMax(node, total)
+		subject := strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(node, zh))
+		cause := strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(node, zh))
+		if cause != "" && cause != subject {
+			subject += " / " + cause
+		}
+		caliber := "真实墙钟占用；与可消除收益分账"
+		if !zh {
+			caliber = "actual wall-clock occupancy; accounted separately from eliminable benefit"
+		}
+		if strings.EqualFold(strings.TrimSpace(node.StateKind), "s_sleep") ||
+			strings.EqualFold(strings.TrimSpace(node.StateKind), "sleep") {
+			if zh {
+				caliber = "等待症状 / 关键路径占用；沿唤醒链继续下钻，不自动计价"
+			} else {
+				caliber = "wait symptom / critical-path occupancy; drill through the wakeup chain, not automatically priced"
+			}
+		} else if node.EffectiveImpactPublished && node.EffectiveImpactMS <= 0 {
+			if zh {
+				caliber = "真实占时但现有规则未计价；新修向候选"
+			} else {
+				caliber = "real occupancy unpriced by existing rules; candidate for a new repair direction"
+			}
+		} else if node.EffectiveImpactMS > 0 {
+			if zh {
+				caliber = fmt.Sprintf("真实占时；现规则可消 %.3fms 另见可消除榜，两值不可替代", node.EffectiveImpactMS)
+			} else {
+				caliber = fmt.Sprintf("actual occupancy; %.3fms is separately priced by existing rules on the eliminable board", node.EffectiveImpactMS)
+			}
+		}
+		out = append(out, runtimeTraceOccupancyCandidate{
+			group:    runtimeTraceOccupancyGroupLabel("path", zh),
+			subject:  subject,
+			totalMS:  total,
+			maxMS:    maxValue,
+			count:    count,
+			unit:     "ms",
+			location: runtimeTraceOccupancyNodeLocation(node, zh),
+			caliber:  caliber,
+		})
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].totalMS > out[j].totalMS })
+	if len(out) > runtimeTraceOccupancyPathLimit {
+		out = out[:runtimeTraceOccupancyPathLimit]
+	}
+	return out
+}
+
+func runtimeTraceOccupancySemanticCandidates(
+	model runtimeTraceProjTreeModel,
+	zh bool,
+) []runtimeTraceOccupancyCandidate {
+	var out []runtimeTraceOccupancyCandidate
+	for _, row := range model.TreeRows {
+		if row.Kind != runtimeTraceProjTreeRowSemantic || !row.HasData {
+			continue
+		}
+		node := row.Node
+		if (node.WithinRequestedWindow != nil && !*node.WithinRequestedWindow) ||
+			node.ImpactMS <= 0 {
+			continue
+		}
+		count, maxValue := runtimeTraceOccupancyNodeCountAndMax(node, node.ImpactMS)
+		name := strings.TrimSpace(node.SpanName)
+		if name == "" {
+			name = strings.TrimSpace(node.SemanticClass)
+		}
+		subject := strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(node, zh))
+		if name != "" {
+			subject += " / " + name
+		}
+		caliber := "确定性工作 span 的原始窗内墙钟；不以有效归因替代"
+		if !zh {
+			caliber = "raw in-window wall clock of deterministic work spans; effective attribution does not replace it"
+		}
+		out = append(out, runtimeTraceOccupancyCandidate{
+			group:    runtimeTraceOccupancyGroupLabel("semantic", zh),
+			subject:  subject,
+			totalMS:  node.ImpactMS,
+			maxMS:    maxValue,
+			count:    count,
+			unit:     "ms",
+			location: runtimeTraceOccupancyNodeLocation(node, zh),
+			caliber:  caliber,
+		})
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].totalMS > out[j].totalMS })
+	if len(out) > runtimeTraceOccupancySemanticLimit {
+		out = out[:runtimeTraceOccupancySemanticLimit]
+	}
+	return out
+}
+
+func runtimeTraceOccupancyBusinessSpanCandidates(
+	projection types.TraceCausalProjection,
+	zh bool,
+) []runtimeTraceOccupancyCandidate {
+	out := make([]runtimeTraceOccupancyCandidate, 0, len(projection.BusinessSpanMentions))
+	for _, span := range projection.BusinessSpanMentions {
+		if strings.TrimSpace(span.Subject) == "" || strings.TrimSpace(span.Name) == "" ||
+			span.Count <= 0 || span.TotalMS <= 0 || span.MaxMS <= 0 {
+			continue
+		}
+		location := runtimeTraceOccupancyLineLocation(span.StartLine, span.EndLine, zh)
+		caliber := fmt.Sprintf("原始墙钟；按 (tid, span name) 聚族，依据=%s；不占根因席位、不自动计价", span.Basis)
+		if !zh {
+			caliber = fmt.Sprintf("raw wall clock grouped by (tid, span name), basis=%s; no root ordinal and no automatic pricing", span.Basis)
+		}
+		out = append(out, runtimeTraceOccupancyCandidate{
+			group:    runtimeTraceOccupancyGroupLabel("business", zh),
+			subject:  span.Subject + " / " + span.Name,
+			totalMS:  span.TotalMS,
+			maxMS:    span.MaxMS,
+			count:    span.Count,
+			unit:     "ms",
+			location: location,
+			caliber:  caliber,
+		})
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].totalMS > out[j].totalMS })
+	return out
+}
+
+func runtimeTraceOccupancyCPUCandidates(
+	projection types.TraceCausalProjection,
+	zh bool,
+) []runtimeTraceOccupancyCandidate {
+	var out []runtimeTraceOccupancyCandidate
+	for _, cpu := range projection.CPUOccupancyProcesses {
+		if cpu.RunningCPUMS <= 0 ||
+			(types.TraceCausalProjectionWindowPresent(projection.WindowStartTs, projection.WindowEndTs) &&
+				(math.Abs(cpu.WindowStart-projection.WindowStartTs) > types.TraceCausalProjectionSameWindowToleranceS ||
+					math.Abs(cpu.WindowEnd-projection.WindowEndTs) > types.TraceCausalProjectionSameWindowToleranceS)) {
+			continue
+		}
+		location := fmt.Sprintf("%.6f..%.6f", cpu.WindowStart, cpu.WindowEnd)
+		if lines := runtimeTraceOccupancyLineLocation(cpu.LineStart, cpu.LineEnd, zh); lines != "—" {
+			location += "；" + lines
+		}
+		caliber := "进程内跨线程 CPU time（cpu·ms）；多核并行可超过墙钟窗口，仅作资源占用背景，不直接证明关键路径因果"
+		if !zh {
+			caliber = "cross-thread process CPU time (cpu·ms); multi-CPU overlap may exceed wall time and is resource context, not direct critical-path proof"
+		}
+		subject := cpu.Subject
+		if cpu.TopThread != "" && cpu.TopThreadMS > 0 {
+			if zh {
+				subject += fmt.Sprintf("（最高线程 %s %.3fms）", cpu.TopThread, cpu.TopThreadMS)
+			} else {
+				subject += fmt.Sprintf(" (top thread %s %.3fms)", cpu.TopThread, cpu.TopThreadMS)
+			}
+		}
+		out = append(out, runtimeTraceOccupancyCandidate{
+			group:    runtimeTraceOccupancyGroupLabel("cpu", zh),
+			subject:  subject,
+			totalMS:  cpu.RunningCPUMS,
+			unit:     "cpu·ms",
+			location: location,
+			caliber:  caliber,
+		})
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].totalMS > out[j].totalMS })
+	if len(out) > runtimeTraceOccupancyCPULimit {
+		out = out[:runtimeTraceOccupancyCPULimit]
+	}
+	return out
+}
+
+func runtimeTraceOccupancyNodeCountAndMax(
+	node types.TraceCausalProjectionNode,
+	fallback float64,
+) (int, float64) {
+	if node.FamilyMemberCount > 1 {
+		maxValue := node.FamilyMemberMaxMS
+		if maxValue <= 0 {
+			maxValue = fallback
+		}
+		return node.FamilyMemberCount, maxValue
+	}
+	if node.MergedCount > 1 {
+		maxValue := node.MergedMaxMS
+		if maxValue <= 0 {
+			maxValue = fallback
+		}
+		return node.MergedCount, maxValue
+	}
+	return 1, fallback
+}
+
+func runtimeTraceOccupancyNodeLocation(node types.TraceCausalProjectionNode, zh bool) string {
+	var parts []string
+	if types.TraceCausalProjectionWindowPresent(node.StartTs, node.EndTs) {
+		parts = append(parts, fmt.Sprintf("%.6f..%.6f", node.StartTs, node.EndTs))
+	} else if types.TraceCausalProjectionWindowPresent(node.ActualWindowStartTs, node.ActualWindowEndTs) {
+		parts = append(parts, fmt.Sprintf("%.6f..%.6f", node.ActualWindowStartTs, node.ActualWindowEndTs))
+	}
+	if lines := runtimeTraceOccupancyLineLocation(node.LineStart, node.LineEnd, zh); lines != "—" {
+		parts = append(parts, lines)
+	}
+	if len(parts) == 0 {
+		return "—"
+	}
+	return strings.Join(parts, "；")
+}
+
+func runtimeTraceOccupancyLineLocation(start, end int, zh bool) string {
+	if start <= 0 {
+		return "—"
+	}
+	if end < start {
+		end = start
+	}
+	if zh {
+		return fmt.Sprintf("行 %d–%d", start, end)
+	}
+	return fmt.Sprintf("lines %d–%d", start, end)
+}
+
+func runtimeTraceOccupancyGroupLabel(group string, zh bool) string {
+	if zh {
+		switch group {
+		case "path":
+			return "关键路径 / 状态占用（墙钟）"
+		case "semantic":
+			return "确定性工作 span（墙钟）"
+		case "business":
+			return "业务 span 族（墙钟）"
+		case "cpu":
+			return "CPU 资源占用（cpu·ms）"
+		}
+	}
+	switch group {
+	case "path":
+		return "Critical path / state occupancy (wall clock)"
+	case "semantic":
+		return "Deterministic work spans (wall clock)"
+	case "business":
+		return "Business span families (wall clock)"
+	case "cpu":
+		return "CPU resource occupancy (cpu·ms)"
+	default:
+		return group
+	}
+}
+
 // runtimeTraceCausalProjectionMultiCluster renders the CMP-1 multi-artifact
 // layout: [compare overview (deterministic ≥2-active-projection gate, NEW-2)]
 // + one section cluster per artifact projection + [partition caveat]. Every
@@ -1789,6 +2212,7 @@ func runtimeTraceCausalProjectionMultiCluster(set types.TraceCausalProjectionSet
 		for _, block := range section {
 			switch block.ID {
 			case sectionPrefix,
+				sectionPrefix + runtimeTraceCausalProjectionOccupancySuffix,
 				sectionPrefix + runtimeTraceCausalProjectionRepresentativeSuffix,
 				sectionPrefix + "_detail":
 				leads = append(leads, block)
@@ -8612,7 +9036,9 @@ func runtimeTraceCausalProjectionMetricBlockID(id string) bool {
 	if !ok {
 		return false
 	}
-	if rest == "_detail" || rest == runtimeTraceCausalProjectionRepresentativeSuffix {
+	if rest == "_detail" ||
+		rest == runtimeTraceCausalProjectionOccupancySuffix ||
+		rest == runtimeTraceCausalProjectionRepresentativeSuffix {
 		return true
 	}
 	digits, ok := strings.CutPrefix(rest, runtimeTraceCausalProjectionArtifactBlockIDInfix)
@@ -8624,6 +9050,7 @@ func runtimeTraceCausalProjectionMetricBlockID(id string) bool {
 		i++
 	}
 	return i > 0 && (digits[i:] == "_detail" ||
+		digits[i:] == runtimeTraceCausalProjectionOccupancySuffix ||
 		digits[i:] == runtimeTraceCausalProjectionRepresentativeSuffix)
 }
 

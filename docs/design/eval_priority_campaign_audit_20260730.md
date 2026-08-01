@@ -4247,7 +4247,7 @@ typed coverage 已明确
 |---|---|
 | B19d user-first surfaces | covered：正负回放均确认顺序、词面与 projection gate |
 | EVAL-B19-SCOPEJOIN1 | filed P1 / B19e next |
-| EVAL-TWODIM-2 | filed P1 / production witness confirmed / B19f next |
+| EVAL-TWODIM-2 | implemented / full tests pass / same-pair replay next |
 | EVAL-B19-FRAME1 | open P1 / production witness reconfirmed / B19g |
 | EVAL-B19-ARITH2 | open P2 / 与 FRAME1 同批做 typed relation 融合 |
 
@@ -4297,6 +4297,83 @@ typed coverage 已明确
 状态：`implemented / full-tests-pass / same-pair replay after B19f`。为减少
 真实 trace 回放成本，按冻结批次先完成 B19f 双轴结构，再用同一正负 pair
 同时验收 scopejoin 与双轴；若 B19f 改动超出纯展示结构则拆开回放。
+
+#### B19f：Trace 根因双轴结构闭环（TWODIM-2）
+
+状态：`implemented / full-tests-pass / same-pair replay next`。
+
+本批把用户再次裁定的两个性能根因维度做成并列、互不替代的决策面：
+
+1. **主要时间占用 / 关键路径候选**回答“时间实际花在哪里、下一步应探索
+   什么新修向”：
+   - 复用最终 projection tree model 已完成降级、同段 twin 合并、同状态
+     occurrence fold、窗域过滤后的真实行，以 `ImpactMS` 展示墙钟占用；
+   - 目标线程 `running/runnable/sleep/S-state IO wait/non-IO
+     D-state/io_wait` 继续使用同窗 typed 状态分区，不把等待症状直接计价；
+   - deterministic semantic span 展示原始窗内墙钟；
+   - business span 继续复用既有 `(tid, verbatim span name)` 双 TOP
+     聚族，分别给出族累计、单次最长、次数和行区间，覆盖“单个长段”和
+     “频繁小段累计”两种新修向；
+   - 进程 CPU 占用复用 `WindowStats.CPUOccupancy.TopProcesses`，通过
+     `cpu_occupancy_process` typed side channel 携带同窗进程/线程/CPU/
+     core-class 清单，单位固定为 `cpu·ms`，与墙钟分组且不进入因果席位。
+2. **窗内可消除量 / 根因排序**保持原实现：优先级反转、算力供给折算、
+   已证 IO/唤醒依赖等继续按原规则、原值、原榜位和原重叠纪律发布。
+3. 两轴只互相引用，不互改数：
+   - 高占时但未被现有规则计价，标成“真实占时 / 新修向候选”，不铸造
+     可消除收益；
+   - 已计价席同时保留原始占时和“现规则可消 Xms 另见可消除榜”，两值
+     不替代、不相加；
+   - `ms` 与 `cpu·ms` 不混排求和；多核 CPU time 可超过墙钟窗口，只作
+     资源背景，不自动证明关键路径。
+4. 帧权限继续 fail-closed：本表明确声明自身不能证明某占用已导致具体
+   丢帧；没有 target-bound frame/deadline 证据时只能称“所选窗主要占用 /
+   关键路径候选”。`FRAME1` 的主体结论融合仍由 B19g 处理。
+5. 用户可见顺序为：模型正文 → 每工件“主要时间占用 → Trace 因果投影
+   （含原可消除榜）→ 代表窗 → 关键指标”→ 后续建议/精确数据/无损明细。
+   无窗 focused fact 仍不生成 projection，因此也不会单独生成此因果双轴
+   cluster。
+
+第一次全量回归发现并修复了一个重要的二次判定风险：初稿直接遍历
+`OnChainCauses/PrimaryRootCauses`，会把既有树模型已经降级到背景的
+aggregate/unknown 行重新叫成关键路径，也会把既有同段 twin fold 再拆成
+两行。最终实现删除该平行判定，轴 A 的路径/状态行只消费**同一个最终树
+模型**的 chain/cause/depthless/self/semantic 行；背景降级、身份判定、合并
+和窗域权威因此与原因果面完全同源。
+
+typed 契约同步：
+
+- `threads/top_thread/top_thread_ms/cpus/core_classes` 从 display-only
+  note 升级为 projection compile 的 `TraceNoteKeyCPUOccupancy*` 常量和
+  hard-consumer 登记；
+- `CPUOccupancyProcesses` 登记到 projection 信息契约表，明确为 displayed
+  non-seat side channel；
+- 自动补采 value census 因新增一条 CPU 占用 typed 值记录，从 fixture 的
+  `54/其他29` 如实演进为 `55/其他30`，中英文同值。
+
+结构矩阵：
+
+- long-single business span；
+- many-small business span family（累计、最大单次、次数）；
+- on-chain raw occupancy 但现规则计价为 0；
+- 同一行 raw occupancy 与规则可消值分账；
+- deterministic semantic span；
+- 目标五类状态与 S-state IO refinement 分型；
+- process CPU `cpu·ms` 与 wall-clock `ms` 隔离；
+- no-span 负例不造 span 行；
+- aggregate/unknown 背景降级不被抬升；
+- same-segment twin fold 不被拆开；
+- 中英文 frame-unproven 边界；
+- 单工件、多工件顺序与原可消除榜值保持。
+
+完整回归：
+
+- `go test ./internal/types ./internal/agent -count=1`：19.782s / 2.967s；
+- `go test ./internal/tool -count=1`：173.447s。
+
+下一步仍按冻结顺序执行同一正负 pair 回放，同时验收 B19e 的主范围选择和
+B19f 的双轴可见性；随后进入 B19g `FRAME1 + ARITH2`，不得通过用户关键词
+或模型输出原文硬门实现。
 
 #### B18f r1：图兼容与显式窗非回归回放（2026-08-01）
 
