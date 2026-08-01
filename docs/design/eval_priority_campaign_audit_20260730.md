@@ -4994,6 +4994,46 @@ unverified；纯 truth-ledger complete fallback 同样固定 `accept_unverified`
 
 状态：`EVAL-B20-W2=implemented/full-tests-pass/replay-next`。
 
+### B20 r2：W1/W2 回放通过，终态呈现暴露独立 GAP（2026-08-01）
+
+同一 `e66739944` 二进制快照严格并行 2 个原 case，runner 2/2 PASS，人工
+1 PASS / 1 FAIL：
+
+1. dateutil 明确记录 probe 通过后
+   `continuing to project suite reason=verification_probe_missing_plan_contract_ref`，
+   随后真实执行 `python3 -m unittest discover -v`，4/4 PASS；ChangeReport
+   `caliber=project_runner`，无 confidence warning，WriteFinalReport
+   proof=`strong`、completion=`verified/all_batches_verified`。独立 applied-tree
+   回放同样 4/4 PASS。`EVAL-B20-W1=covered`。
+2. Gson 的一文件补丁正确，独立 `make check` source oracle 通过；但本机无 JDK，
+   Java behavior probe 为 `runner_missing`，Maven 也缺失。累计 proof 合理保持
+   `weak`，第二批和总 workflow 均为
+   `unverified/verification_proof_incomplete`，没有再次被 passed ChangeReport 洗成
+   verified。`EVAL-B20-W2=covered`，且这是它的 fail-closed 正臂。
+3. Gson 的用户可见 stdout 却只追加了两张同名“测试通过”卡，末尾没有发布最终
+   `unverified`、缺失 JDK 或 proof incomplete；也没有区分初验与 cumulative review。
+   机器 runner PASS 只检查补丁，不会捕获这一 typed final-report 与用户结果矛盾。
+
+新增通用 GAP：
+
+| ID | 优先级 | 系统 GAP | 泛化方案 | 状态 |
+|---|---|---|---|---|
+| `EVAL-B20-W5` | P0 | StageVerify 按局部 ChangeReport 逐次追加“测试通过”，而 ActionFinish 仅在 Result 为空时写 completion；已有 apply/verify 文本时最终 typed workflow verdict 完全不出厂 | 在所有 write terminal completion choke point，以 `WriteWorkflowRun.Completion` 和 batch attempts 生成一张简洁终态卡并追加/设置；verified、unverified、accepted_failed 分席，unverified 区分 no-tests、runner unavailable、proof incomplete。不得扫描或改写已有 stdout/model prose | open，批 W3 |
+
+W5 是终态权威发布，不改变测试判决：Gson 在 source oracle 通过但 Java runtime
+behavior 未执行时仍应是 unverified，不能为了让表面“更绿”把 source shape check
+升级成行为证明。实现只消费 typed workflow completion/attempt reason，不读取请求、
+模型输出或 case/语言；也不触及 read/Trace 的显式时间窗、因果投影、自动补齐。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b20r2_20260801.md`；
+- `eval/parallel_selected_summary_evalcampaign_b20r2_20260801_manual_audit.md`；
+- 结果目录时间戳 `20260801-050919`。
+
+状态：`EVAL-B20-W1=covered`；`EVAL-B20-W2=covered`；
+`EVAL-B20-W5=P0/open`。
+
 ### B19g-b r1：target authority 通过，有限事实集仍被扩张（2026-08-01）
 
 同一二进制快照下严格并行 2 个 Trace case，runner 均 PASS，人工均 FAIL：
