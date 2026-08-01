@@ -336,3 +336,44 @@ func TestCompletionCaveatLanesReachAnswerSurface(t *testing.T) {
 		t.Fatalf("replay register must keep the disclosure single, got: %q", again)
 	}
 }
+
+func TestBoundedRuntimeFactSuppressesOnlyCausalCoverageDebt(t *testing.T) {
+	mu := types.NewMutableState("bounded runtime fact")
+	mu.MarkTerminationFloorDegradedArm(types.TerminationFloorArmFollowupCoverage, "unused causal drill")
+	closure := mu.EvidenceClosure()
+	closure.AppendCompletionCaveat(types.CompletionCaveat{
+		Lane: types.DowngradeLaneWakeupChainDrilldown, ReasonCode: "wakeup", Reason: "not requested",
+	})
+	closure.AppendCompletionCaveat(types.CompletionCaveat{
+		Lane: types.DowngradeLaneExactResolvedDefiningProof, ReasonCode: "definition", Reason: "control",
+	})
+	ir := &types.AnalysisIR{RequestModel: types.RequestModel{
+		RuntimeQuestionProfile: &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeBoundedFactSet},
+		RuntimeTargets: []types.RuntimeTarget{{
+			Kind: types.RuntimeTargetKindThread, PID: 59566, Thread: "app-59566", Source: "user_explicit",
+		}},
+	}}
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, AnalysisIR: ir, Language: "zh"}}
+	if got := degradedTerminationSystemCaveat(o); got != "" {
+		t.Fatalf("bounded fact leaked generic follow-up debt: %q", got)
+	}
+	caveats := completionCaveatLaneSystemCaveats(o)
+	joined := strings.Join(caveats, "\n")
+	if strings.Contains(joined, "唤醒者") || !strings.Contains(joined, "定义位置") {
+		t.Fatalf("bounded fact must suppress only causal drill debt: %q", joined)
+	}
+
+	start, end := 10.0, 10.1
+	ir.RequestModel.RuntimeArtifactScopeProfile = &types.RuntimeArtifactScopeProfile{
+		RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
+		TimeStart:      &start,
+		TimeEnd:        &end,
+		SourceQuote:    "10.0..10.1",
+	}
+	if got := degradedTerminationSystemCaveat(o); !strings.Contains(got, "未执行") {
+		t.Fatalf("explicit-window causal-capable shape must retain follow-up disclosure: %q", got)
+	}
+	if got := strings.Join(completionCaveatLaneSystemCaveats(o), "\n"); !strings.Contains(got, "唤醒者") {
+		t.Fatalf("explicit-window shape must retain wakeup-drill disclosure: %q", got)
+	}
+}

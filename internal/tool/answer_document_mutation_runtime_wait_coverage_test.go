@@ -563,8 +563,13 @@ func TestFocusedRuntimeFactPublishesTypedRosterWithoutFullCausalReport(t *testin
 	}
 	persisted := bus.Mutable.AnswerDocumentV2()
 	if persisted == nil || len(persisted.Blocks) < 2 ||
-		persisted.Blocks[0].ID != "summary" {
-		t.Fatalf("focused fact must retain the user narrative lead: %+v", persisted)
+		persisted.Blocks[0].ID != runtimeTraceBoundedWaitConclusionBlockID {
+		t.Fatalf("focused fact must use the typed wait conclusion as its lead: %+v", persisted)
+	}
+	for _, block := range persisted.Blocks {
+		if block.ID == "summary" {
+			t.Fatalf("model scheduler prose must not survive a complete typed wait authority: %+v", persisted.Blocks)
+		}
 	}
 	if answerDocumentHasRuntimeTraceCausalProjectionBlock(persisted) {
 		t.Fatalf("focused fact must not inherit the full causal projection: %+v", persisted.Blocks)
@@ -580,6 +585,17 @@ func TestFocusedRuntimeFactPublishesTypedRosterWithoutFullCausalReport(t *testin
 	} {
 		if !strings.Contains(surface, want) {
 			t.Fatalf("focused typed principal-value card missing %q:\n%s", want, surface)
+		}
+	}
+	leadSurface := types.AnswerBlockVisibleSurface(persisted.Blocks[0])
+	for _, want := range []string{
+		"共记录 3 段目标等待，墙钟合计 0.635ms",
+		"非 IO D-state 0 段、io_wait 3 段、S 态 IO 等待 0 段",
+		"只说明 trace_query 的统计口径",
+		"不用于推导这些内核状态标签之间的包含或排斥关系",
+	} {
+		if !strings.Contains(leadSurface, want) {
+			t.Fatalf("typed bounded-wait conclusion missing %q:\n%s", want, leadSurface)
 		}
 	}
 
@@ -617,6 +633,10 @@ func TestFocusedRuntimeFactPublishesTypedRosterWithoutFullCausalReport(t *testin
 		t.Fatalf("declared finite fact persist failed: result=%+v err=%v", traceResult, traceErr)
 	}
 	tracePersisted := traceBus.Mutable.AnswerDocumentV2()
+	if tracePersisted == nil || len(tracePersisted.Blocks) == 0 ||
+		tracePersisted.Blocks[0].ID != runtimeTraceBoundedWaitConclusionBlockID {
+		t.Fatalf("declared finite fact must use typed wait conclusion: %+v", tracePersisted)
+	}
 	if answerDocumentHasRuntimeTraceCausalProjectionBlock(tracePersisted) {
 		t.Fatalf("declared finite fact must not inherit the full causal projection: %+v", tracePersisted.Blocks)
 	}

@@ -30,6 +30,9 @@ func degradedTerminationSystemCaveat(o *Orchestrator) string {
 	// statement (承诺面 discipline). Empty/legacy arm keeps the ratio
 	// wording byte-stable.
 	if tp.FloorArm == types.TerminationFloorArmFollowupCoverage {
+		if narrowRuntimeFactCaveatScope(o) {
+			return ""
+		}
 		if isChineseLang(o.busCtx.Language) {
 			return "本回答生成前,系统建议的部分补充定位/钻取步骤未执行;结论以已收集的证据为准,未覆盖的部分请按未验证对待。"
 		}
@@ -60,6 +63,9 @@ func completionCaveatLaneSystemCaveats(o *Orchestrator) []string {
 	for _, caveat := range closure.CompletionCaveats() {
 		switch caveat.Lane {
 		case types.DowngradeLaneWakeupChainDrilldown:
+			if narrowRuntimeFactCaveatScope(o) {
+				continue
+			}
 			if zh {
 				out = append(out, "trace 中部分线程的睡眠等待未定位到上游唤醒者;相关结论基于已收集的证据,未定位的唤醒来源请按未验证对待。")
 			} else {
@@ -80,6 +86,27 @@ func completionCaveatLaneSystemCaveats(o *Orchestrator) []string {
 		}
 	}
 	return out
+}
+
+// narrowRuntimeFactCaveatScope keeps causal-investigation debt out of a
+// bounded runtime fact answer. The decision reuses the same validated typed
+// report-shape authority as answer materialization; raw request and model
+// prose are never inspected. Other caveat lanes remain unaffected.
+func narrowRuntimeFactCaveatScope(o *Orchestrator) bool {
+	if o == nil || o.busCtx == nil {
+		return false
+	}
+	var rm *types.RequestModel
+	if o.busCtx.AnalysisIR != nil {
+		rm = &o.busCtx.AnalysisIR.RequestModel
+	} else if o.busCtx.Mutable != nil {
+		rm = o.busCtx.Mutable.RequestModel()
+	}
+	if rm == nil {
+		return false
+	}
+	decided, allowed := types.RuntimeTraceReportShapeAuthority(rm)
+	return decided && !allowed
 }
 
 func suppressDegradedTerminationDisclosure(doc *types.AnswerDocumentV2) bool {

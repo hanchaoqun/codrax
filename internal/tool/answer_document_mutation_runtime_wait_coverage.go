@@ -14,6 +14,7 @@ const (
 	runtimeTraceBlockingCoverageAuthorityBlockID  = "runtime_trace_blocking_coverage_authority"
 	runtimeTraceTargetStateAuthorityBlockID       = "runtime_trace_target_state_authority"
 	runtimeTraceBlockedReasonCensusCaliberBlockID = "runtime_trace_blocked_reason_census_caliber"
+	runtimeTraceBoundedWaitConclusionBlockID      = "runtime_trace_bounded_wait_conclusion"
 )
 
 // runtimeTraceAuthorityRequestModel returns the typed user-target authority
@@ -344,6 +345,82 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 		Title: title,
 		Text:  lead + "\n\n" + strings.Join(rows, "\n\n"),
 	})
+}
+
+// materializeRuntimeTraceBoundedWaitConclusionBlock lets a complete typed
+// target-wait roster own the answer to a narrow runtime fact question. It
+// avoids asking model prose to interpret scheduler-state taxonomy: d_sleep,
+// io_wait, and S-state IO wait are reported as the producer's mutually
+// exclusive accounting buckets, with no inferred containment semantics.
+//
+// Activation is structural only: narrow RequestModel shape + deterministic
+// complete roster + typed user target. Once active, model-authored blocks are
+// excluded and the already-materialized system detail card remains intact.
+func materializeRuntimeTraceBoundedWaitConclusionBlock(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {
+	if doc == nil || ctx == nil || ctx.AnalysisIR == nil ||
+		runtimeTraceFullReportMaterializationAllowed(ctx) ||
+		!types.IsNarrowRuntimeArtifactFactShape(ctx.AnalysisIR.RequestModel) ||
+		answerDocumentHasRuntimeTraceSystemBlockID(doc, runtimeTraceBoundedWaitConclusionBlockID) {
+		return false
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(
+		ctx, types.ObservationExtractLedgerEvidenceLimit,
+	))
+	waits := types.BuildTraceTargetWaitSummaryAuthorities(ledger, runtimeTraceAuthorityRequestModel(ctx))
+	selected := make([]types.TraceTargetWaitSummaryAuthority, 0, len(waits))
+	for _, wait := range waits {
+		if wait.IsRequestedScopePrincipal() {
+			selected = append(selected, wait)
+		}
+	}
+	// Legacy validated request models did not carry a runtime-artifact scope
+	// profile. A single unambiguous complete roster is still safe; two or more
+	// unclassified windows fail closed because no request-scope winner exists.
+	if len(selected) == 0 && len(waits) == 1 {
+		selected = append(selected, waits[0])
+	}
+	if len(selected) == 0 {
+		return false
+	}
+	zh := runtimeTraceCausalProjectionUseChinese(requestedAnswerDocumentLanguage(ctx))
+	lines := make([]string, 0, len(selected))
+	for _, wait := range selected {
+		if zh {
+			lines = append(lines, fmt.Sprintf(
+				"在请求范围 %.6f..%.6f 内，%s 共记录 %d 段目标等待，墙钟合计 %.3fms；按本报告的互斥记账分栏：非 IO D-state %d 段、io_wait %d 段、S 态 IO 等待 %d 段、其他 %d 段；内核记录的 caller：%s。下方逐段列出时间、时长、iowait 与 caller。这里的分栏只说明 trace_query 的统计口径，不用于推导这些内核状态标签之间的包含或排斥关系。",
+				wait.WindowStartTs, wait.WindowEndTs, wait.Subject, wait.Count,
+				wait.WallClockMS, wait.DStateOccurrences, wait.IOWaitOccurrences,
+				wait.SleepIOWaitOccurrences, wait.OtherWaitOccurrences,
+				runtimeTraceWaitCallerRoster(wait.Callers, true),
+			))
+		} else {
+			lines = append(lines, fmt.Sprintf(
+				"Within the requested scope %.6f..%.6f, %s has %d target-wait intervals totaling %.3fms wall clock. The report's mutually exclusive accounting buckets are: %d non-IO D-state, %d io_wait, %d S-state IO-wait, and %d other intervals; kernel-recorded callers: %s. The per-interval time, duration, iowait flag, and caller are listed below. These buckets state trace_query's accounting caliber only; they do not infer containment or exclusion semantics among kernel state labels.",
+				wait.WindowStartTs, wait.WindowEndTs, wait.Subject, wait.Count,
+				wait.WallClockMS, wait.DStateOccurrences, wait.IOWaitOccurrences,
+				wait.SleepIOWaitOccurrences, wait.OtherWaitOccurrences,
+				runtimeTraceWaitCallerRoster(wait.Callers, false),
+			))
+		}
+	}
+	conclusion := types.AnswerBlock{
+		ID:                  runtimeTraceBoundedWaitConclusionBlockID,
+		Kind:                types.BlockSummary,
+		Text:                strings.Join(lines, "\n\n"),
+		SurfaceRole:         types.SurfacePrincipal,
+		ClaimUses:           []types.RenderedClaimUse{{ClaimForm: types.ClaimExternalObservation}},
+		FacetIDs:            []string{"observed_artifact_fact"},
+		SystemGeneratedKind: types.AnswerSystemGeneratedRuntimeTrace,
+	}
+	out := make([]types.AnswerBlock, 0, len(doc.Blocks)+1)
+	out = append(out, conclusion)
+	for _, block := range doc.Blocks {
+		if RuntimeTraceSystemBlock(block) {
+			out = append(out, block)
+		}
+	}
+	doc.Blocks = out
+	return true
 }
 
 func runtimeTraceTargetStateCoverageLabel(status string, zh bool) string {

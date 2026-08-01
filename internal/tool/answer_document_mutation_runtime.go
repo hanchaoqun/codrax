@@ -178,6 +178,9 @@ func persistMergedAnswerDocument(
 	if materializeRuntimeTraceTargetStateAuthorityBlock(merged, ctx) {
 		logging.Info("[%s] materialized typed target-thread state and wait-occurrence authority", toolName)
 	}
+	if materializeRuntimeTraceBoundedWaitConclusionBlock(merged, ctx) {
+		logging.Info("[%s] replaced narrow model scheduler prose with typed target-wait conclusion", toolName)
+	}
 	if materializeRuntimeTraceBlockedReasonCensusCaliberCaveat(merged, ctx) {
 		logging.Info("[%s] materialized typed blocked-reason census caliber caveat", toolName)
 	}
@@ -874,6 +877,7 @@ func RuntimeTraceSystemBlockID(id string) bool {
 		"runtime_trace_metric_snapshot",
 		"runtime_trace_perf_quality",
 		runtimeTraceCausalConclusionBlockID,
+		runtimeTraceBoundedWaitConclusionBlockID,
 		runtimeTraceFrequencyAuthorityBlockID,
 		runtimeTraceBlockingCoverageAuthorityBlockID,
 		runtimeTraceTargetStateAuthorityBlockID,
@@ -9115,7 +9119,7 @@ func runtimeTraceReportHierarchyTier(block types.AnswerBlock) int {
 	id := strings.TrimSpace(block.ID)
 	if block.SystemGeneratedKind.IsRuntimeTraceSupplement() {
 		switch {
-		case id == runtimeTraceCausalConclusionBlockID:
+		case id == runtimeTraceCausalConclusionBlockID || id == runtimeTraceBoundedWaitConclusionBlockID:
 			return 0
 		case id == runtimeTraceFrequencyAuthorityBlockID ||
 			id == runtimeTraceBlockingCoverageAuthorityBlockID ||

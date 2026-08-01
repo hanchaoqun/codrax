@@ -4835,6 +4835,29 @@ r2 在内部词面修复后 runner 2/2 PASS：无窗 case 恢复 `bounded_fact_s
 `EVAL-B19-DECL1`）；`EVAL-B19-SCHEDPROSE1=P1/open`；
 `EVAL-B19-NARROWCAVEAT1=P2/open`。
 
+#### B19h-d：有限等待事实的 typed 主结论与 caveat 范围
+
+针对 r2/r3 的窄事实残余，采用同一 typed report-shape authority 完成两项泛化修复：
+
+1. `bounded runtime fact + typed user target + complete target-wait roster` 形成系统主结论。
+   结论直接发布请求范围、线程、完整段数、墙钟合计、非 IO D-state/io_wait/
+   S 态 IO 等待/其他四个互斥统计分栏及 caller；明确这些分栏只说明
+   `trace_query` 记账口径，不推导内核状态标签之间的包含或排斥关系。逐段时间、
+   时长、iowait 与 caller 继续由现有完整明细块承载。
+2. 上述窄车道不再发布“补充定位/钻取未执行”和“睡眠未定位上游唤醒者”两条只服务
+   全因果调查的通用 caveat。判定只复用 `RuntimeTraceReportShapeAuthority`；定义位置、
+   强制阅读、解析降级等其他 caveat 不受影响。显式时间窗仍有最高全报告权限，
+   因果投影和相同两条 coverage disclosure 均保留。
+
+该方案不扫描用户原文、模型答案或模型 rationale。完整 typed 清单存在时，模型拥有块
+不进入窄事实最终答案；缺少/冲突/多窗无法选出请求主范围时 fail closed，仍保留模型
+车道和已有数据边界，不猜造主值。定向测试通过；
+`go test ./internal/tool ./internal/orchestrator -count=1` 全量通过
+（tool 158.920s，orchestrator 12.486s）。
+
+状态：`EVAL-B19-SCHEDPROSE1=implemented/replay-next`；
+`EVAL-B19-NARROWCAVEAT1=implemented/replay-next`；显式窗同对负回归待跑。
+
 ### 后续 eval 维度扩展（用户追加，2026-08-01）
 
 当前 Trace P0 收口并回放后，继续维持每批严格并行 2 个，按风险交叉覆盖：
