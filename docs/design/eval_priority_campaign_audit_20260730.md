@@ -3244,7 +3244,7 @@ runner 失败只因 case oracle 写死 ASCII 逗号
 | EVAL-B15-XR1 | P1 | mixed exact target global verdict | 多目标 contract 只有一个无 target_ref 的 document-level resolution；mixed present/absent 时任何全局 absent 横幅都越权 | 短期 typed fail-closed：当 contract 有多个 distinct target 且 document verdict=absent 时抑制全局 exact-resolution 横幅，同时保留 scalar、scoped NEG1 与模型事实块；长期增加 per-target resolution/target_ref | covered-pending-replay |
 | EVAL-B15-H8O1 | P3 | eval oracle punctuation drift | oracle 把非语义分隔符写死 | oracle 匹配 typed 内容并容许正式中点分隔；不改生产代码 | planned-eval-only |
 | EVAL-B15-H8MV1 | P2 | model window-membership binding | 模型忽略 typed start/end 与 selected window，叙述成窗外 | typed projection 已正确；先观察跨 case 复现，不扫描请求/答案、不加 case-specific hard gate | filed-model-variance |
-| EVAL-B15-AR1 | P1 | arithmetic operand binding | 多数值自由句 relation owner 不明确 | 只消费 typed relation 或多候选 fail-open | filed-next |
+| EVAL-B15-AR1 | P1 | arithmetic operand binding | 多数值自由句 relation owner 不明确 | 同句 duration 候选 × typed window 的唯一算术自洽 pair 才允许 advisory 复算；多解/无唯一解 fail-closed | covered-pending-replay |
 
 XR1 短期批不变量：
 
@@ -3337,3 +3337,51 @@ expression `[·,]` 的兼容问题，不是生产答案缺证。case 已固定�
 下一批优先级仍为 AR1 高于 NEG2：AR1 已由真实 C2 重现确定的“系统附注算错”，
 属于 system-authored misinformation；NEG2 当前是 system fail-closed +
 model overclaim，风险较低。施工时继续保留 H8 作为显式窗非回退席。
+
+### AR1 typed arithmetic pair election（2026-08-01）
+
+客户实形红测固定：
+
+```text
+总时长 0.635ms，占全窗 144.557ms 的约 0.44%。
+```
+
+修前 `runtimeTraceDurationPercentRelationRE` 只保留百分号前最近的 duration，
+把 denominator `144.557ms` 当 numerator，系统发布
+`144.557 / 0.44% = 100%` 的错误附注。它不是模型波动，而是
+system-authored misinformation。
+
+AR1 最优解不是增加“总时长/全窗/占比”等语言关键词，而是把关系解析改为
+typed arithmetic pair election：
+
+1. 每个模型 block 按句/行识别 percentage token；
+2. 收集其前最多 96 rune、且通过既有 same-metric bridge 精度过滤的全部
+   duration token；
+3. 对 `同句 duration candidates × producer-typed selected windows` 计算全部
+   pair；
+4. 只有一个 pair 在该 percentage 显示精度导出的统一容差内自洽时，才允许
+   复算或 completeness 附注；
+5. 多个自洽 pair、多个 numerator 且零自洽 pair，均发布有界
+   “未选出唯一 pair/未复算”说明，不按邻近 token 猜；
+6. 单 numerator + 多窗的既有 denominator election、complete 自洽静默、
+   mismatch-vs-all 与 cross-metric 拒绝臂保持不变；
+7. 句界扫描明确区分 ASCII sentence period 与 digit`.`digit 小数点，防止
+   `0.817ms` 被截成 `817ms`。
+
+不变量：
+
+- 只读 model block 的结构化可见 surface 和 typed observation window；
+- 不读 RawRequest，不按用户/模型业务关键词硬门，不按 PID/case/value 特判；
+- advisory-only：不改写正文、不 reject/retry；
+- system-generated blocks 不进入扫描；
+- 完整显式窗 Trace 因果投影、root/wakeup/eliminable/auto-supplement 不变。
+
+验证面：
+
+- 客户实形 `0.635/144.557/0.44%` 只选 0.635 为 numerator，禁止出现
+  `144.557ms / 0.440%` 与 `100.000%`；
+- 同形 completeness=complete 时唯一正确 pair 静默；
+- 两个 numerator、零唯一 pair 时不猜任意一个；
+- 原有中文/英文、cross-metric、重复 claim、无窗、多窗唯一/零/多解和
+  persist 接线测试全通过；
+- `go test ./internal/tool -count=1` 全包通过（167.520s）。

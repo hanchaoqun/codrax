@@ -6,16 +6,20 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// A relation is deliberately narrow: a duration followed by a percentage in
-// the same sentence/answer row. The bridge is captured separately so
-// runtimeTraceArithmeticBridgeBindsSameMetric can reject a comma-separated
-// switch to another metric subject. This is an advisory cross-check of
-// model-authored arithmetic, never an authority for rewriting that prose.
-var runtimeTraceDurationPercentRelationRE = regexp.MustCompile(`(?i)([0-9]+(?:\.[0-9]+)?)\s*(?:ms|毫秒)([^。.!?\n]{0,96}?)([0-9]+(?:\.[0-9]+)?)\s*%`)
+// Arithmetic tokens are collected per sentence/answer row. A percentage may
+// have more than one preceding duration in the same clause (for example
+// "total 0.635ms, over a 144.557ms window, 0.44%"). The materializer elects
+// one duration/window pair only when typed arithmetic makes that pair unique;
+// nearest-token order is not authority.
+var (
+	runtimeTraceDurationTokenRE = regexp.MustCompile(`(?i)[0-9]+(?:\.[0-9]+)?\s*(?:ms|毫秒)`)
+	runtimeTracePercentTokenRE  = regexp.MustCompile(`[0-9]+(?:\.[0-9]+)?\s*%`)
+)
 
 const (
 	runtimeTraceArithmeticRelationCap       = 4
@@ -29,6 +33,10 @@ type runtimeTraceArithmeticRelation struct {
 	percentToken   string
 }
 
+type runtimeTraceArithmeticRelationGroup struct {
+	candidates []runtimeTraceArithmeticRelation
+}
+
 // materializeRuntimeTraceArithmeticRelationCaveat checks only model-authored
 // visible text against producer-typed trace windows. It never edits a block,
 // never rejects the answer, and never promotes a capped sample into a complete
@@ -38,8 +46,8 @@ func materializeRuntimeTraceArithmeticRelationCaveat(doc *types.AnswerDocumentV2
 	if doc == nil || ctx == nil {
 		return false
 	}
-	relations := runtimeTraceModelArithmeticRelations(doc)
-	if len(relations) == 0 {
+	relationGroups := runtimeTraceModelArithmeticRelationGroups(doc)
+	if len(relationGroups) == 0 {
 		return false
 	}
 	input := types.ObservationLedgerInputFromBusContext(ctx, types.ObservationExtractLedgerEvidenceLimit)
@@ -67,55 +75,14 @@ func materializeRuntimeTraceArithmeticRelationCaveat(doc *types.AnswerDocumentV2
 		}
 		notes = append(notes, note)
 	}
-	for _, relation := range relations {
+	for _, group := range relationGroups {
 		if len(notes) >= runtimeTraceArithmeticRelationCap {
 			break
 		}
-		switch {
-		case !windowUnique && len(windows) < 2:
-			appendNote(runtimeTraceArithmeticUnverifiedText(relation, completeness, zh))
-		case !windowUnique:
-			// ARITH-DENOM (2026-07-24, NW-WIN-TYPED 拆件): with a multi-window
-			// census the denominator is disambiguated per relation by
-			// arithmetic consistency — a PRECISE uniqueness signal, advisory
-			// effect only. Exactly one consistent window → recompute against
-			// it (disclosing the election); zero → the claim disagrees with
-			// every candidate (mismatch vs the closest); several → still
-			// ambiguous, keep the honest unverified wording.
-			tolerance := runtimeTraceArithmeticPercentTolerance(relation.percentToken)
-			var consistent []float64
-			closest, closestDiff := 0.0, math.MaxFloat64
-			for _, w := range windows {
-				computed := relation.durationMS / w * 100
-				diff := math.Abs(computed - relation.claimedPercent)
-				if diff <= tolerance {
-					consistent = append(consistent, w)
-				}
-				if diff < closestDiff {
-					closest, closestDiff = w, diff
-				}
-			}
-			switch len(consistent) {
-			case 1:
-				if completeness == "complete" {
-					continue
-				}
-				appendNote(runtimeTraceArithmeticElectedDenominatorText(relation, consistent[0], len(windows), completeness, zh))
-			case 0:
-				appendNote(runtimeTraceArithmeticNoConsistentWindowText(relation, closest, len(windows), tolerance, completeness, zh))
-			default:
-				appendNote(runtimeTraceArithmeticUnverifiedText(relation, completeness, zh))
-			}
-		default:
-			computed := relation.durationMS / windowMS * 100
-			tolerance := runtimeTraceArithmeticPercentTolerance(relation.percentToken)
-			mismatch := math.Abs(computed-relation.claimedPercent) > tolerance
-			if !mismatch && completeness == "complete" {
-				continue
-			}
-			appendNote(runtimeTraceArithmeticCheckedText(
-				relation, windowMS, computed, tolerance, completeness, mismatch, zh,
-			))
+		if note, publish := runtimeTraceArithmeticRelationGroupNote(
+			group, windows, windowMS, windowUnique, completeness, zh,
+		); publish {
+			appendNote(note)
 		}
 	}
 	if len(notes) == 0 {
@@ -137,48 +104,210 @@ func materializeRuntimeTraceArithmeticRelationCaveat(doc *types.AnswerDocumentV2
 	return true
 }
 
-func runtimeTraceModelArithmeticRelations(doc *types.AnswerDocumentV2) []runtimeTraceArithmeticRelation {
-	var out []runtimeTraceArithmeticRelation
+func runtimeTraceArithmeticRelationGroupNote(
+	group runtimeTraceArithmeticRelationGroup,
+	windows []float64,
+	windowMS float64,
+	windowUnique bool,
+	completeness string,
+	zh bool,
+) (string, bool) {
+	if len(group.candidates) == 0 {
+		return "", false
+	}
+	type consistentPair struct {
+		relation runtimeTraceArithmeticRelation
+		windowMS float64
+	}
+	var consistent []consistentPair
+	for _, relation := range group.candidates {
+		tolerance := runtimeTraceArithmeticPercentTolerance(relation.percentToken)
+		for _, candidateWindowMS := range windows {
+			computed := relation.durationMS / candidateWindowMS * 100
+			if math.Abs(computed-relation.claimedPercent) <= tolerance {
+				consistent = append(consistent, consistentPair{
+					relation: relation,
+					windowMS: candidateWindowMS,
+				})
+			}
+		}
+	}
+	if len(consistent) == 1 {
+		pair := consistent[0]
+		if completeness == "complete" {
+			return "", false
+		}
+		if windowUnique {
+			computed := pair.relation.durationMS / pair.windowMS * 100
+			return runtimeTraceArithmeticCheckedText(
+				pair.relation,
+				pair.windowMS,
+				computed,
+				runtimeTraceArithmeticPercentTolerance(pair.relation.percentToken),
+				completeness,
+				false,
+				zh,
+			), true
+		}
+		return runtimeTraceArithmeticElectedPairText(
+			pair.relation,
+			pair.windowMS,
+			len(group.candidates),
+			len(windows),
+			completeness,
+			zh,
+		), true
+	}
+	if len(consistent) > 1 {
+		return runtimeTraceArithmeticUnverifiedText(group.candidates[0], completeness, zh), true
+	}
+	if len(group.candidates) > 1 {
+		return runtimeTraceArithmeticAmbiguousPairText(
+			group.candidates[0],
+			len(group.candidates),
+			len(windows),
+			completeness,
+			zh,
+		), true
+	}
+
+	relation := group.candidates[0]
+	switch {
+	case !windowUnique && len(windows) < 2:
+		return runtimeTraceArithmeticUnverifiedText(relation, completeness, zh), true
+	case !windowUnique:
+		// ARITH-DENOM (2026-07-24, NW-WIN-TYPED 拆件): with one
+		// syntactically possible numerator and a multi-window census, the
+		// denominator is disambiguated per relation by arithmetic
+		// consistency. Multiple syntactic numerators are handled above and
+		// may never be collapsed by token proximity.
+		tolerance := runtimeTraceArithmeticPercentTolerance(relation.percentToken)
+		closest, closestDiff := 0.0, math.MaxFloat64
+		for _, w := range windows {
+			computed := relation.durationMS / w * 100
+			diff := math.Abs(computed - relation.claimedPercent)
+			if diff < closestDiff {
+				closest, closestDiff = w, diff
+			}
+		}
+		return runtimeTraceArithmeticNoConsistentWindowText(
+			relation, closest, len(windows), tolerance, completeness, zh,
+		), true
+	default:
+		computed := relation.durationMS / windowMS * 100
+		tolerance := runtimeTraceArithmeticPercentTolerance(relation.percentToken)
+		return runtimeTraceArithmeticCheckedText(
+			relation,
+			windowMS,
+			computed,
+			tolerance,
+			completeness,
+			true,
+			zh,
+		), true
+	}
+}
+
+func runtimeTraceModelArithmeticRelationGroups(doc *types.AnswerDocumentV2) []runtimeTraceArithmeticRelationGroup {
+	var out []runtimeTraceArithmeticRelationGroup
 	for _, block := range doc.Blocks {
 		if RuntimeTraceSystemBlock(block) {
 			continue
 		}
 		surface := types.AnswerBlockVisibleSurface(block)
-		for _, match := range runtimeTraceDurationPercentRelationRE.FindAllStringSubmatch(surface, -1) {
-			if len(match) != 4 || !runtimeTraceArithmeticBridgeBindsSameMetric(match[2]) {
+		for _, percentMatch := range runtimeTracePercentTokenRE.FindAllStringIndex(surface, -1) {
+			if len(percentMatch) != 2 {
 				continue
 			}
-			durationMS, durationErr := strconv.ParseFloat(match[1], 64)
-			claimedPercent, percentErr := strconv.ParseFloat(match[3], 64)
-			if durationErr != nil || percentErr != nil || durationMS < 0 || claimedPercent < 0 {
+			percentToken := strings.TrimSpace(strings.TrimSuffix(
+				surface[percentMatch[0]:percentMatch[1]],
+				"%",
+			))
+			claimedPercent, percentErr := strconv.ParseFloat(percentToken, 64)
+			if percentErr != nil || claimedPercent < 0 {
 				continue
 			}
-			// One claim repeated in prose (possibly at different token
-			// precision, e.g. 18.76% vs 18.760%) is one relation: parsed
-			// values are the dedupe key, the first occurrence's token keeps
-			// tolerance authority. Without this, repeated prose multiplies
-			// byte-identical notes (no_window.txt 客户形).
-			duplicate := false
-			for _, existing := range out {
-				if existing.durationMS == durationMS && existing.claimedPercent == claimedPercent {
-					duplicate = true
-					break
+			clauseStart := runtimeTraceArithmeticClauseStart(surface, percentMatch[0])
+			clause := surface[clauseStart:percentMatch[0]]
+			group := runtimeTraceArithmeticRelationGroup{}
+			for _, durationMatch := range runtimeTraceDurationTokenRE.FindAllStringIndex(clause, -1) {
+				if len(durationMatch) != 2 {
+					continue
 				}
+				durationEnd := clauseStart + durationMatch[1]
+				bridge := surface[durationEnd:percentMatch[0]]
+				if utf8.RuneCountInString(bridge) > 96 ||
+					!runtimeTraceArithmeticBridgeBindsSameMetric(bridge) {
+					continue
+				}
+				durationToken := strings.TrimSpace(clause[durationMatch[0]:durationMatch[1]])
+				lowerDurationToken := strings.ToLower(durationToken)
+				if strings.HasSuffix(lowerDurationToken, "ms") {
+					durationToken = strings.TrimSpace(durationToken[:len(durationToken)-2])
+				} else {
+					durationToken = strings.TrimSpace(strings.TrimSuffix(durationToken, "毫秒"))
+				}
+				durationMS, durationErr := strconv.ParseFloat(durationToken, 64)
+				if durationErr != nil || durationMS < 0 {
+					continue
+				}
+				duplicate := false
+				for _, existing := range group.candidates {
+					if existing.durationMS == durationMS {
+						duplicate = true
+						break
+					}
+				}
+				if duplicate {
+					continue
+				}
+				group.candidates = append(group.candidates, runtimeTraceArithmeticRelation{
+					durationMS:     durationMS,
+					claimedPercent: claimedPercent,
+					percentToken:   percentToken,
+				})
 			}
-			if duplicate {
+			if len(group.candidates) == 0 {
 				continue
 			}
-			out = append(out, runtimeTraceArithmeticRelation{
-				durationMS:     durationMS,
-				claimedPercent: claimedPercent,
-				percentToken:   match[3],
-			})
+			out = append(out, group)
 			if len(out) >= runtimeTraceArithmeticRelationCap {
 				return out
 			}
 		}
 	}
 	return out
+}
+
+func runtimeTraceArithmeticClauseStart(surface string, percentStart int) int {
+	if percentStart <= 0 || percentStart > len(surface) {
+		return 0
+	}
+	before := surface[:percentStart]
+	index := strings.LastIndexAny(before, "。!?\n！？")
+	// An ASCII period is a sentence boundary only when it is not the decimal
+	// point between two digits. Treating every '.' as a boundary turns
+	// 0.817ms into 817ms and can manufacture a false arithmetic advisory.
+	for i := len(before) - 1; i >= 0; i-- {
+		if before[i] != '.' {
+			continue
+		}
+		decimalPoint := i > 0 && i+1 < len(before) &&
+			before[i-1] >= '0' && before[i-1] <= '9' &&
+			before[i+1] >= '0' && before[i+1] <= '9'
+		if !decimalPoint && i > index {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		return 0
+	}
+	_, size := utf8.DecodeRuneInString(before[index:])
+	if size <= 0 {
+		return index + 1
+	}
+	return index + size
 }
 
 // runtimeTraceArithmeticBridgeBindsSameMetric rejects the R20 false-join
@@ -335,6 +464,57 @@ func runtimeTraceArithmeticElectedDenominatorText(
 	return fmt.Sprintf(
 		"model text %.3fms / %.3f%% recomputes to %.3f%% (denominator = the only arithmetically consistent typed window %.3fms of %d candidates), but completeness=%s cannot establish that the numerator is a complete total; model prose was retained unchanged",
 		relation.durationMS, relation.claimedPercent, computed, windowMS, windowCount, completeness,
+	)
+}
+
+func runtimeTraceArithmeticElectedPairText(
+	relation runtimeTraceArithmeticRelation,
+	windowMS float64,
+	numeratorCount int,
+	windowCount int,
+	completeness string,
+	zh bool,
+) string {
+	if numeratorCount <= 1 {
+		return runtimeTraceArithmeticElectedDenominatorText(
+			relation,
+			windowMS,
+			windowCount,
+			completeness,
+			zh,
+		)
+	}
+	computed := relation.durationMS / windowMS * 100
+	if zh {
+		return fmt.Sprintf(
+			"正文 %.3fms / %.3f%% 的关系复算为 %.3f%%(分子=%d 个同句 duration、分母=%d 个 typed 窗长中唯一算术自洽的一对；分母 %.3fms)，但 completeness=%s，无法确认该分子是完整总量；正文保留未改写",
+			relation.durationMS, relation.claimedPercent, computed,
+			numeratorCount, windowCount, windowMS, completeness,
+		)
+	}
+	return fmt.Sprintf(
+		"model text %.3fms / %.3f%% recomputes to %.3f%% (the unique arithmetically consistent pair across %d same-clause durations and %d typed windows; denominator %.3fms), but completeness=%s cannot establish that the numerator is a complete total; model prose was retained unchanged",
+		relation.durationMS, relation.claimedPercent, computed,
+		numeratorCount, windowCount, windowMS, completeness,
+	)
+}
+
+func runtimeTraceArithmeticAmbiguousPairText(
+	relation runtimeTraceArithmeticRelation,
+	numeratorCount int,
+	windowCount int,
+	completeness string,
+	zh bool,
+) string {
+	if zh {
+		return fmt.Sprintf(
+			"正文 %.3f%% 前有 %d 个可绑定 duration，且 %d 个 typed 窗长未能选出唯一算术自洽的分子/分母对，关系未复算；completeness=%s，正文保留未改写",
+			relation.claimedPercent, numeratorCount, windowCount, completeness,
+		)
+	}
+	return fmt.Sprintf(
+		"model text %.3f%% has %d bindable same-clause durations, and %d typed windows do not identify one unique arithmetically consistent numerator/denominator pair; the relation was not recomputed; completeness=%s and model prose was retained unchanged",
+		relation.claimedPercent, numeratorCount, windowCount, completeness,
 	)
 }
 

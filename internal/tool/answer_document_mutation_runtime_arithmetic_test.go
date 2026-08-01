@@ -104,6 +104,94 @@ func TestRuntimeTraceArithmeticRelationCaveatDisclosesIncompleteNumerator(t *tes
 	}
 }
 
+func TestRuntimeTraceArithmeticRelationCaveatElectsUniqueNumeratorInOneClause(t *testing.T) {
+	const original = "总时长 0.635ms，占全窗 144.557ms 的约 0.44%。"
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: original,
+		}},
+	}
+	ctx := runtimeTraceArithmeticMultiWindowTestContext(
+		"incomplete",
+		[]string{"selected_window=34579.450627..34579.595184"},
+	)
+	if !materializeRuntimeTraceArithmeticRelationCaveat(doc, ctx) {
+		t.Fatal("expected incomplete-enumeration caveat for the uniquely consistent numerator")
+	}
+	got := strings.Join(doc.Caveats, "\n")
+	for _, want := range []string{
+		"0.635ms / 0.440%",
+		"关系复算为 0.439%",
+		"completeness=incomplete",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("unique numerator relation missing %q:\n%s", want, got)
+		}
+	}
+	for _, banned := range []string{
+		"144.557ms / 0.440%",
+		"重算为 100.000%",
+	} {
+		if strings.Contains(got, banned) {
+			t.Fatalf("denominator was mis-bound as numerator (%q):\n%s", banned, got)
+		}
+	}
+}
+
+func TestRuntimeTraceArithmeticRelationCaveatUniquePairStaysSilentWhenComplete(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: "Total wait 0.635ms over a 144.557ms window, approximately 0.44%.",
+		}},
+	}
+	ctx := runtimeTraceArithmeticMultiWindowTestContext(
+		"complete",
+		[]string{"selected_window=34579.450627..34579.595184"},
+	)
+	if materializeRuntimeTraceArithmeticRelationCaveat(doc, ctx) {
+		t.Fatalf("one complete arithmetically consistent pair should stay silent: %+v", doc.Caveats)
+	}
+}
+
+func TestRuntimeTraceArithmeticRelationCaveatFailsClosedForMultipleNumeratorsWithoutUniquePair(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: "候选值 10ms，另一个值 20ms，占窗口 30%。",
+		}},
+	}
+	ctx := runtimeTraceArithmeticMultiWindowTestContext(
+		"incomplete",
+		[]string{"selected_window=100.000..100.100"},
+	)
+	if !materializeRuntimeTraceArithmeticRelationCaveat(doc, ctx) {
+		t.Fatal("ambiguous numerator relation should publish a bounded unverified caveat")
+	}
+	got := strings.Join(doc.Caveats, "\n")
+	for _, want := range []string{
+		"30.000% 前有 2 个可绑定 duration",
+		"未能选出唯一算术自洽的分子/分母对",
+		"关系未复算",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("ambiguous relation caveat missing %q:\n%s", want, got)
+		}
+	}
+	for _, banned := range []string{"10.000ms / 30.000%", "20.000ms / 30.000%"} {
+		if strings.Contains(got, banned) {
+			t.Fatalf("ambiguous relation guessed one numerator (%q):\n%s", banned, got)
+		}
+	}
+}
+
 func TestRuntimeTraceArithmeticRelationCaveatFailsClosedWithoutUniqueWindow(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		DocumentModel: "v2",
