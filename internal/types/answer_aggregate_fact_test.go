@@ -113,21 +113,20 @@ func TestNormalizeAnswerAggregateFacts_DropsPartialCountMembers(t *testing.T) {
 	}
 }
 
-func TestNormalizeAnswerAggregateFacts_DoesNotDropMemberSetMembers(t *testing.T) {
-	out, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+func TestNormalizeAnswerAggregateFacts_RejectsNumericMemberSetCardinalityDrift(t *testing.T) {
+	_, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
 		Kind:    AnswerAggregateMemberSet,
 		Label:   "principal implementations",
 		Value:   "4",
 		Members: []string{"A", "B", "C"},
 	}})
-	if err != nil {
-		t.Fatalf("member_set value should use existing len(members) canonicalization: %v", err)
+	if err == nil {
+		t.Fatal("numeric member_set cardinality drift must fail loud")
 	}
-	if len(out) != 1 || len(out[0].Members) != 3 {
-		t.Fatalf("member_set members must be preserved, got %+v", out)
-	}
-	if out[0].Value != "3" {
-		t.Fatalf("member_set value = %q, want canonical len(members)", out[0].Value)
+	for _, want := range []string{"value 4", "3 member(s)", "exact member set"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error missing %q: %v", want, err)
+		}
 	}
 }
 
@@ -849,7 +848,7 @@ func TestMergeAnswerAggregateFacts_RemovesStaleCountQualifierFromMemberSetLabel(
 	got := MergeAnswerAggregateFacts([]AnswerAggregateFact{{
 		Kind:    AnswerAggregateMemberSet,
 		Label:   "Kind const block 成员（读模式 20 个）",
-		Value:   "20",
+		Value:   "25",
 		Role:    AnswerAggregateRolePrincipalAnswer,
 		Members: members,
 	}})
@@ -1615,25 +1614,16 @@ func TestNormalizeAnswerAggregateFacts_CanonicalizesMemberSetValueFromMembers(t 
 	}
 }
 
-func TestNormalizeAnswerAggregateFacts_CanonicalizesNumericMemberSetValueDrift(t *testing.T) {
-	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+func TestNormalizeAnswerAggregateFacts_RejectsNumericMemberSetValueDrift(t *testing.T) {
+	_, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
 		Kind:    AnswerAggregateMemberSet,
 		Label:   "pipeline stages",
 		Value:   "3",
 		Unit:    "stages",
 		Members: []string{"analyze", "explore", "extract", "finalize"},
 	}})
-	if err != nil {
-		t.Fatalf("member_set with numeric value drift should canonicalize from structured members: %v", err)
-	}
-	if len(got) != 1 {
-		t.Fatalf("got %d facts, want 1: %+v", len(got), got)
-	}
-	if got[0].Value != "4" {
-		t.Fatalf("member_set value = %q, want canonical len(members)=4", got[0].Value)
-	}
-	if len(got[0].Members) != 4 {
-		t.Fatalf("members not preserved: %+v", got[0].Members)
+	if err == nil || !strings.Contains(err.Error(), "value 3 but 4 member(s)") {
+		t.Fatalf("numeric member_set drift must retain its contradiction and reject, got %v", err)
 	}
 }
 

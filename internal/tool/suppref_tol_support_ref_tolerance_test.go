@@ -31,6 +31,17 @@ import (
 // whose "链路节点" fact carries the decorated prose support ref.
 const supprefTolWitnessEmit2Params = `{"reason": "基于 trace 数据分析完成。RenderThread-17597 在 13762.791708s 至 13763.024898s（233.19ms）窗口内卡顿根因如下：\n\n**链路结构**：RenderThread-17597（depth=0）← .ugc.aweme.lite-17267（depth=1）← keva-3-17439/keva-1-17437（depth=2，优先级20/ohos_cfs，低于目标的53/ohos_rt，构成优先级反转候选）\n\n**running 时间折算基准**：running 折算值 = 链路上该线程 measured running 时间（基于目标线程的 CPU 频率基准进行折算）；当 measured running 时间对应的 CPU 频率低于目标线程频率时，差值计入 supply_fold_deficit（供给缺口），形成 effective attribution。\n\n**各线程 effective attribution 汇总**：\n\n1. **.ugc.aweme.lite-17267**：running 折算 143.499ms（4次唤醒事件聚合，running=143.499ms，runnable=3.400ms，无供给缺口）；无优先级反转。\n2. **RenderThread-17597 自身**：running 折算 4.958ms。\n3. **keva-1-17437**（优先级反转候选）：runnable 2.181ms + running 1.419ms（供给缺口主导）= effective 3.437ms；另有 io_wait 0.922ms。\n4. **keva-3-17439**（优先级反转候选）：running 2.579ms（供给缺口 2.286ms 下界）+ io_wait 1.354ms + runnable 1.319ms = effective 3.309ms。\n5. **binder:496_9-10961**：running 1.409ms（supply_fold_deficit=0.933ms，ideal=0.476ms）。\n6. **.ugc.aweme.lite-17267 runnable**：3.437ms（聚合 runnable 贡献）。\n\n**同时有 runnable 和 running 贡献的席位构成**：\n- keva-3-17439 优先级反转候选·供给缺口主导：反转等待(全额) 1.023ms + running 折算 2.286ms（供给缺口 2.286ms 下界为主，热限压 1.53GHz）——两因并提。\n- keva-1-17437：runnable 2.181ms + running 1.419ms（供给缺口构成有效 attribution）。\n\n**根因排序**：\n1. .ugc.aweme.lite-17267 running 143.499ms（primary，自身 CPU 密集型任务占用链路上游）\n2. RenderThread-17597 running 4.958ms（secondary，自身执行）\n3. .ugc.aweme.lite-17267 runnable 3.437ms（同优先级竞争）\n4. keva-1-17437 优先级反转候选 3.437ms（反转等待+供给缺口）\n5. keva-3-17439 优先级反转候选 3.309ms（反转等待+io_wait+供给缺口）\n6. keva-3-17439 io_wait 1.354ms\n7. keva-3-17439 runnable_wait 1.319ms\n8. binder:496_9-10961 running 0.933ms（供给缺口折算）", "confidence": "high", "result_kind": "resolved", "aggregate_facts": [{"kind": "scalar_value", "label": "窗口时长", "value": "233.19ms", "role": "principal_answer", "provenance": "trace_query: time_end - time_start"}, {"kind": "member_set", "label": "链路节点", "value": "3", "members": ["RenderThread-17597 (depth=0)", ".ugc.aweme.lite-17267 (depth=1)", "keva-3-17439 (depth=2)", "keva-1-17437 (depth=2)", "binder:496_9-10961 (depth=2)"], "support_refs": ["attached_trace.txt: wakeup_chain path"]}, {"kind": "grouped_count", "label": "running 时间折算（effective attribution）", "value": "5", "dimensions": [{"name": "thread", "value": ".ugc.aweme.lite-17267"}, {"name": "thread", "value": "RenderThread-17597"}, {"name": "thread", "value": "keva-1-17437"}, {"name": "thread", "value": "keva-3-17439"}, {"name": "thread", "value": "binder:496_9-10961"}], "members": ["143.499ms (.ugc.aweme.lite-17267)", "4.958ms (RenderThread-17597)", "3.437ms (keva-1-17437, priority_inversion)", "3.309ms (keva-3-17439, priority_inversion)", "0.933ms (binder:496_9-10961, supply_deficit)"]}, {"kind": "member_set", "label": "同时有 runnable 和 running 贡献的席位", "value": "2", "members": ["keva-3-17439 (runnable 1.023ms + running supply折算 2.286ms)", "keva-1-17437 (runnable 2.181ms + running 1.419ms)"], "member_notes": ["keva-3-17439: 反转等待(全额) 1.023ms + running折算 2.286ms（供给缺口 2.286ms 下界为主，热限压 1.53GHz）", "keva-1-17437: runnable 2.181ms + running 1.419ms（供给缺口构成有效 attribution）"]}, {"kind": "scalar_value", "label": "折算基准", "value": "目标线程 CPU 频率基准（supply_fold_deficit = chain_running × (target_freq / chain_actual_freq - 1)）", "role": "principal_answer"}, {"kind": "member_set", "label": "根因排序", "value": "8", "members": ["#1: .ugc.aweme.lite-17267 running 143.499ms (primary)", "#2: RenderThread-17597 running 4.958ms (secondary)", "#3: .ugc.aweme.lite-17267 runnable 3.437ms", "#4: keva-1-17437 priority_inversion 3.437ms", "#5: keva-3-17439 priority_inversion 3.309ms", "#6: keva-3-17439 io_wait 1.354ms", "#7: keva-3-17439 runnable_wait 1.319ms", "#8: binder:496_9-10961 running supply_deficit 0.933ms"]}], "evidence_floor_waiver": {"reason": "external_only_trace", "rationale": "分析基于 attached_trace.txt（donghu.ftrace），trace_query 已完成解析，无 current_source 代码需要分析。"}}`
 
+// The historical emit above is intentionally byte-faithful, including its
+// contradictory 链路节点 value=3 / members=5 payload. Modern exact-set
+// cardinality validation rejects that contradiction. Tests whose subject is
+// the later support-ref/origin mechanism use this one-field repair so they do
+// not silently depend on the obsolete cardinality behavior.
+func supprefTolWitnessEmit2CardinalityConsistent() json.RawMessage {
+	const old = `"label": "链路节点", "value": "3"`
+	const replacement = `"label": "链路节点", "value": "5"`
+	return json.RawMessage(strings.Replace(supprefTolWitnessEmit2Params, old, replacement, 1))
+}
+
 // supprefTolWitnessEmit4Params is the downgraded emit#4 (log line 2862): the
 // engine-truth emit (keva-1 3.429ms + supply-fold basis) that never reached
 // the handoff before SUPPREF-TOL.
@@ -292,7 +303,7 @@ func TestSupprefTol_WitnessReplay_FaithfulStateEmitFourLandsAfterCSP63(t *testin
 	bus, mut := supprefTolWitnessBus(supprefTolFaithfulH9Policy())
 	tool := &EmitInvestigationComplete{}
 
-	res2, err := tool.Execute(bus, json.RawMessage(supprefTolWitnessEmit2Params))
+	res2, err := tool.Execute(bus, supprefTolWitnessEmit2CardinalityConsistent())
 	if err != nil {
 		t.Fatalf("emit#2 replay error: %v", err)
 	}
@@ -414,7 +425,7 @@ func TestSupprefTol_AcceptedExcludeLane_EmitFourLandsInHandoff(t *testing.T) {
 	bus, mut := supprefTolWitnessBus(supprefTolAcceptedExcludePolicy())
 	tool := &EmitInvestigationComplete{}
 
-	res2, err := tool.Execute(bus, json.RawMessage(supprefTolWitnessEmit2Params))
+	res2, err := tool.Execute(bus, supprefTolWitnessEmit2CardinalityConsistent())
 	if err != nil {
 		t.Fatalf("emit#2 replay error: %v", err)
 	}

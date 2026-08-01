@@ -223,11 +223,15 @@ func (e *AggregateFactsCapExceededError) Error() string {
 // kind enum, required label/value, bounded list sizes, and whitespace
 // trimming. They do not infer or repair values from evidence. The derived
 // cardinality canonicalization is limited to structured exact-member carriers:
-// member_set.value is derived from members, and grouped_count / bucket_count
-// may derive a missing value from their own members when the model clearly used
-// them as a per-group/per-bucket exact-member carrier. total_count and
-// unique_count still require explicit values because their members can be
-// samples rather than the full measured set.
+// an omitted member_set.value is derived from members, while an explicit valid
+// integer must agree with len(members). A numeric disagreement is semantic
+// evidence that the roster is partial or the count is wrong and therefore
+// remains fail-loud. Only schema-adjacent non-integer surfaces such as "1+" are
+// repaired from the exact members. grouped_count / bucket_count may derive a
+// missing value from their own members when the model clearly used them as a
+// per-group/per-bucket exact-member carrier. total_count and unique_count still
+// require explicit values because their members can be samples rather than the
+// full measured set.
 func NormalizeAnswerAggregateFacts(in []AnswerAggregateFact) ([]AnswerAggregateFact, error) {
 	if len(in) == 0 {
 		return nil, nil
@@ -3900,6 +3904,18 @@ func normalizeAnswerAggregateFactCollect(raw AnswerAggregateFact, sink *aggregat
 	} else {
 		fact.Members = normalizeAggregateStrings(raw.Members, maxAnswerAggregateMembers)
 	}
+	// Record whether an explicit integer described the pre-dedupe structured
+	// slots exactly. Semantic member normalization may collapse two spelling
+	// variants of the same occurrence; in that case deriving the smaller
+	// post-dedupe value is safe. An integer that disagreed before dedupe is a
+	// real count/roster contradiction and must survive to the cardinality
+	// validator instead of being hidden by normalization.
+	memberSetValueMatchedPreDedupe := false
+	if fact.Kind == AnswerAggregateMemberSet && len(fact.Members) > 0 {
+		if n, err := strconv.Atoi(fact.Value); err == nil && n >= 0 && n == len(fact.Members) {
+			memberSetValueMatchedPreDedupe = true
+		}
+	}
 	fact.Excluded = normalizeAggregateStrings(raw.Excluded, maxAnswerAggregateMembers)
 	if fact.Kind == AnswerAggregateMemberSet {
 		fact.SupportRefs = normalizeAggregateStringSlots(raw.SupportRefs, maxAnswerAggregateMembers)
@@ -3924,11 +3940,19 @@ func normalizeAnswerAggregateFactCollect(raw AnswerAggregateFact, sink *aggregat
 	if fact.Kind == AnswerAggregateMemberSet && len(fact.Members) > 0 {
 		if fact.Value == "" {
 			fact.Value = strconv.Itoa(len(fact.Members))
-		} else if n, err := strconv.Atoi(fact.Value); err != nil || n < 0 || n != len(fact.Members) {
+		} else if n, err := strconv.Atoi(fact.Value); err != nil || n < 0 {
 			// member_set is an exact structured carrier: members[] is the
-			// authoritative boundary and value is derived metadata. Absorb
-			// schema-adjacent count surfaces such as "1+" locally instead of
-			// spending another model retry on a form-only correction.
+			// authoritative boundary only when value is omitted or malformed.
+			// Absorb schema-adjacent count surfaces such as "1+" locally
+			// instead of spending another model retry on a form-only
+			// correction. A valid integer disagreement is not form-only: keep
+			// it so validateAggregateCountCardinality rejects the partial or
+			// contradictory roster below.
+			fact.Value = strconv.Itoa(len(fact.Members))
+		} else if memberSetValueMatchedPreDedupe && n != len(fact.Members) {
+			// Exact pre-dedupe cardinality plus a smaller post-dedupe set means
+			// the member normalizer proved aliases/duplicate occurrences, not
+			// that the model supplied a partial roster.
 			fact.Value = strconv.Itoa(len(fact.Members))
 		}
 		fact.Label = normalizeAggregateMemberSetLabelCardinality(fact.Label, len(fact.Members))

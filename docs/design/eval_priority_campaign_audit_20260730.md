@@ -3919,6 +3919,60 @@ B18c 使用一条通用 typed 规则修复：
 
 状态：`implemented / full-tests-pass / cross-relation replay next`。
 
+### B19a r1：Trace 主合同保留，精确集合暴露静默改写（2026-08-01）
+
+严格并行 2 个用例，runner 2/2 PASS，人工审计 0/2：
+
+1. `trace_query_donghu_real_frame_multicausal` 完整保留指定
+   `34579.472865..34579.587805` 窗、根因排序、wakeup chain、
+   `◎ 窗内可消除量总览`、`Trace 因果投影`、coverage boundary 和系统补采。
+   因果边界也诚实披露 `frame_causality=unproven`、
+   `frame_evidence_status=absent`、`enumeration_status=incomplete`。
+2. 但 explorer 的结构化 payload 同时声明
+   `member_set value=19` 与 7 个 members，其中末项还是“其他13个线程”占位。
+   当时的归一化器把合法整数 19 静默覆盖为 `len(members)=7`，final 又据此写成
+   “全窗口共有7个 D/IO 阻塞线程”。这是把“总数 + 部分样本”伪装成“精确完整
+   成员集”，人工判 FAIL。
+3. `read_combo_git_two_diffs_current_code` 不再发布
+   “系统按已验证证据补充缺失成员”主表，证明 `EVAL-B19-HIST1` 已覆盖。
+   但模型把定义计入所谓 10 个调用点，同时漏掉 `facet_plan.go` 和
+   `answer_intent_contract.go` 的另一处调用，并把部分调用位置写成不存在的
+   函数名；人工判 FAIL。该错误与权限修复不同族，当前按 P3
+   repeat-before-code，禁止针对函数名或数字做答案文本硬门。
+
+状态：
+
+| ID | 优先级 | GAP | 状态 |
+|---|---:|---|---|
+| EVAL-B19-INF1 | P1 eval | 真实 Trace fixture 路径漂移 | covered：仓内同 SHA fixture，回放启动成功 |
+| EVAL-B19-HIST1 | P1 | mixed history/current-code 被强制补 principal member table | covered：本轮系统补表消失 |
+| EVAL-B19-SET1 | P1 | 显式合法 member_set 整数与 members 不一致时被静默覆盖 | implemented / full-tests-pass / replay next |
+| EVAL-B19-GREP1 | P3 | 行/文件/调用点单位或完整清册被模型误述 | observed twice in related shapes / soft investigation next |
+
+#### B19b exact member-set cardinality fail-loud
+
+通用修复只消费结构化 `aggregate_facts`：
+
+1. `member_set.value` 缺省时仍从非空 `members[]` 派生；
+2. `value="1+"` 这类 schema-adjacent 非整数仍可从精确 members 低成本修形；
+3. 显式合法非负整数若与 members 长度不一致，保留矛盾并交给既有 cardinality
+   validator 拒绝，不能猜 count 对还是 roster 对；
+4. 若整数原本与 pre-dedupe slots 一致，仅因确定性 alias/duplicate
+   normalization 缩短 members，则允许同步派生新值，避免安全去重被误拒；
+5. 历史 SUPPREF-TOL 原样 witness 继续保留其 `3/5` 矛盾作为档案；只在验证
+   后续 support-ref 机制的测试输入中显式做单字段 `3→5` 修正，不篡改见证；
+6. 不扫描 RawRequest、模型 reason/thinking/final prose，不识别“其他”、
+   D/IO、线程名或任何具体 case/type；Trace projection、窗口补采与 answer
+   mutation 路径均未修改。
+
+回归：
+
+- `go test ./internal/types -count=1`：25.724s；
+- SUPPREF-TOL 两条定向回归：1.128s；
+- `go test ./internal/tool -count=1`：166.756s。
+
+状态：`implemented / full-tests-pass / same-pair replay next`。
+
 #### B18f r1：图兼容与显式窗非回归回放（2026-08-01）
 
 严格并行 2 个回放均为 runner PASS / human PASS：

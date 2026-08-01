@@ -1183,6 +1183,48 @@ func TestEmitInvestigationComplete_DropsOptionalInvalidAggregateFactsOnNarrative
 	}
 }
 
+func TestEmitInvestigationComplete_DropsOptionalTraceMemberSetWithContradictoryCardinality(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentTrace,
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"the trace investigation has a measured total but only a partial structured roster",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"member_set",
+			"label":"runtime members",
+			"value":"19",
+			"members":["m1","m2","m3","m4","m5","m6","partial remainder"]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("optional trace aggregate contradiction should be disclosed and dropped without losing the investigation: %s", res.Summary)
+	}
+	for _, want := range []string{
+		"dropped optional aggregate_facts[0]",
+		"value 19 but 7 member(s)",
+		"exact member set",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("summary missing %q: %s", want, res.Summary)
+		}
+	}
+	if got := mut.StableInvestigationAggregateFacts(); len(got) != 0 {
+		t.Fatalf("contradictory member_set must not reach the stable answer handoff: %+v", got)
+	}
+}
+
 func TestEmitInvestigationComplete_DerivesBucketCountValueFromMembers(t *testing.T) {
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{Mutable: mut}
