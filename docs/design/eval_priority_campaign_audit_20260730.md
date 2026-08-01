@@ -2744,3 +2744,27 @@ H2 r5 人工通过、r6 失败，证明正文存在显著模型波动。
 
 下一步离开 H1/H2，从全量 eval 按客户风险、能力覆盖、历史失败率、运行成本
 四轴选择下一对，继续严格 `parallel=2`。
+
+### B14 cases 四轴排序与第 1 对（2026-08-01）
+
+本轮对当前 case inventory 以四轴排序，每轴 0..3：
+
+1. `客户/生产风险`：错误是否会直接误导客户故障定位或代码变更。
+2. `泛化覆盖`：能否覆盖一类 trace caliber、跨语言关系、exact resolution 或
+   write safety，而不是一个词面。
+3. `覆盖缺口`：当前分支真实回放次数；0 次优先，旧回放次之。
+4. `执行杠杆`：一次回放能否同时验证多层接线，成本过高且重复覆盖者降序。
+
+| 顺序 | case | 风险 | 泛化 | 缺口 | 杠杆 | 选择理由 | 状态 |
+|---:|---|---:|---:|---:|---:|---|---|
+| 1 | `real_trace_h3_iofam_one_seat` | 3 | 3 | 3 | 3 | 0 次回放；同一真实客户窗同时检验 IO wall-clock/composite caliber、同 episode 单席与非墙钟展示，能发现跨口径误归因 | selected-B14-r1 |
+| 2 | `mr_poly_binding_chain` | 2 | 3 | 3 | 3 | 0 次回放；跨 repo、Python→native module→Rust 关系链与 fallback，补足 trace 战役之外的 source/relation 泛化 | selected-B14-r1 |
+| 3 | `real_trace_h4_supply_thermal_witness` | 3 | 3 | 1 | 3 | CPU thread-state/供给/直接 policy-limit 权限高危，但已有 4 次旧回放 | queued |
+| 4 | `read_combo_config_absent_present_mix` | 2 | 3 | 3 | 2 | 双目标 absent/present exact-resolution 绑定，0 次；客户风险略低于 trace | queued |
+| 5 | `real_trace_h8_semantic_edge_anchor_sentinel` | 2 | 3 | 3 | 2 | semantic span 只有 typed wakeup edge 才能入链，0 次；适合后续 relation authority 对照 | queued |
+| 6 | `patch_java_typo` | 2 | 2 | 1 | 2 | write-plan 精准 patch 安全重要，但已有 19 次旧回放且当前批未改 write path | queued-later |
+
+B14 r1 仍严格 `parallel=2`，两例刻意跨能力域。Trace 例继续验收显式窗系统
+补采与因果投影；polyglot 例验收完整 relation chain、原生模块桥和 fallback。
+人工审计不只看 runner token，还检查因果/调用边是否有证据、量纲是否正确、
+是否把 support/context 升格成 principal。
