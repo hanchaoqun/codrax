@@ -4377,6 +4377,28 @@ skill 2.111s）。下一步提交推送后复放同一 read/write 两 case；若
 状态：`EVAL-B24-REACH1=P1/implemented/replay-next`；
 `EVAL-B24-EVALDIR1=P1/open`；`EVAL-B24-KEYSET1=P2/open`。
 
+#### B24-h r1：reachability 正确性与重试成本同时闭环
+
+`main@8cfef5158` 同一 read/write 两 case 严格并行，runner 与人工均 2 PASS：
+
+1. write apply 114s/0 reject，applied tree 仍只有 `main.c` 的单行 typo 修复。
+2. call-chain 158s/2 rejects；相比 B24-f 的 472s/10、B24-g 的 293s/8，重试和时长
+   连续收敛。剩余一次答案 patch 只修正 diagram source 简称
+   `ParseOutput`→`analyzerEvaluator.ParseOutput`，没有 endpoint/pruning/reachability 循环。
+3. 最终首段与 principal path 均明确：accepted typed call edges 未证明
+   `buildAnalysisIR → gate.Run` 有向路径；两个 exact endpoints 都在场但不等于可达。
+   diagram 只展示 `buildAnalysisIR → gate.RunWith` 等逐边已证关系，不再反向拼接。
+4. `required_mechanism_anchors` 仅补一个未解析的 `gate.Run` 边界行，未借用
+   `gate.RunWith` citation；与 reachability verdict 一致。多份 enumeration supplement 仍偏宽，
+   但没有改变首要结论。
+5. 因此 `EVAL-B24-REACH1` 关闭；`EVAL-B24-EVALDIR1` 从 P1 降为 P2/observe，
+   `EVAL-B24-KEYSET1` 继续 P2/open。遵守 campaign 原则，不再对本 case 做函数名/措辞拟合；
+   下一批切到显式时间窗 Trace + 另一模式，检查保护边界和更高 ROI gap。
+
+状态：`EVAL-B24-REACH1=covered`；`EVAL-B24-ENDPPRUNE1=covered`；
+`EVAL-B24-ENDPOINTSCOPE1=covered`；`EVAL-B24-EVALDIR1=P2/observe`；
+`EVAL-B24-KEYSET1=P2/open`。
+
 ### B21-GREP：literal/regex 查询语义进入 typed 证据链（2026-08-01）
 
 `EVAL-B21-GREP1` 已按软恢复而非硬拒绝施工：
