@@ -275,6 +275,16 @@ func TestRenderAnswerDocObservationLedger_RendersTypedVCSHistoryAsOriginSpecific
 			Commits:  []string{"abc123abc123abc123abc123abc123abc123abcd"},
 			Ref:      "HEAD",
 			Pathspec: "internal/agent",
+			ChangedPathSets: []types.ToolVCSChangedPathSet{{
+				Commit: "abc123abc123abc123abc123abc123abc123abcd",
+				Paths: []string{
+					"internal/agent/agent.go",
+					"internal/agent/agent_test.go",
+					"internal/tool/test_surface_test.go",
+				},
+				Total:    3,
+				Complete: true,
+			}},
 		},
 	}}})
 	ctx := &types.AgentContext{
@@ -298,6 +308,11 @@ func TestRenderAnswerDocObservationLedger_RendersTypedVCSHistoryAsOriginSpecific
 		"range=ref=HEAD count=1",
 		"pathspec=internal/agent",
 		"vcs_history kind=git_log ref=HEAD commits=1 pathspec=internal/agent",
+		"Typed VCS Changed-Path Authority",
+		"emitted=3; total=3; complete=true",
+		"`internal/agent/agent.go`",
+		"`internal/agent/agent_test.go`",
+		"`internal/tool/test_surface_test.go`",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("typed vcs history prompt missing %q:\n%s", want, got)

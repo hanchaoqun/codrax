@@ -163,6 +163,7 @@ type ObservationRecord struct {
 	Unit            string                    `json:"unit,omitempty"`
 	Negative        bool                      `json:"negative,omitempty"`
 	ResultCount     *int                      `json:"result_count,omitempty"`
+	Enumeration     *ToolEnumerationBoundary  `json:"enumeration,omitempty"`
 	Summary         string                    `json:"summary,omitempty"`
 	RawExcerpt      string                    `json:"raw_excerpt,omitempty"`
 	RichNotes       []string                  `json:"rich_notes,omitempty"`
@@ -1751,6 +1752,14 @@ func compileToolResultCarrierObservations(index int, result ToolResult, rowSetWr
 				add(record)
 			}
 		}
+		for setIndex, changed := range result.VCSHistory.ChangedPathSets {
+			if record, ok := observationRecordForVCSChangedPaths(index, setIndex, result, *result.VCSHistory, changed, observedAt); ok {
+				if !seen[record.ID] {
+					seen[record.ID] = true
+					add(record)
+				}
+			}
+		}
 	}
 	if result.PathDiscovery != nil {
 		covered = true
@@ -1853,6 +1862,73 @@ func observationRecordForVCSHistory(index int, result ToolResult, history ToolVC
 		record.Value = strings.TrimSpace(history.Commits[0])
 	}
 	return record, true
+}
+
+func observationRecordForVCSChangedPaths(index, setIndex int, result ToolResult, history ToolVCSHistory, changed ToolVCSChangedPathSet, observedAt string) (ObservationRecord, bool) {
+	commit := strings.TrimSpace(changed.Commit)
+	if commit == "" && len(changed.Paths) == 0 && strings.TrimSpace(changed.UnavailableReason) == "" {
+		return ObservationRecord{}, false
+	}
+	emitted := len(changed.Paths)
+	total := changed.Total
+	totalKnown := strings.TrimSpace(changed.UnavailableReason) == ""
+	if totalKnown && total < emitted {
+		total = emitted
+	}
+	reason := "complete"
+	if !totalKnown {
+		reason = "unavailable"
+	} else if !changed.Complete || emitted < total {
+		reason = "path_cap"
+	}
+	boundary := &ToolEnumerationBoundary{
+		Scope:      commit,
+		Dimension:  "vcs_changed_paths",
+		Emitted:    emitted,
+		Total:      total,
+		TotalKnown: totalKnown,
+		Reason:     reason,
+	}
+	summary := fmt.Sprintf("vcs_changed_paths commit=%s emitted=%d", commit, emitted)
+	if totalKnown {
+		summary += fmt.Sprintf(" total=%d complete=%t", total, changed.Complete && emitted == total)
+	} else {
+		summary += " total=unknown complete=false"
+	}
+	var notes []string
+	if unavailable := strings.TrimSpace(changed.UnavailableReason); unavailable != "" {
+		notes = append(notes, "unavailable_reason="+unavailable)
+	}
+	var resultCount *int
+	if totalKnown {
+		value := total
+		resultCount = &value
+	}
+	return ObservationRecord{
+		ID:              fmt.Sprintf("tool:%d#%s:changed_paths:%d", index, AnswerEvidenceOriginVCSDiff, setIndex),
+		Origin:          AnswerEvidenceOriginVCSDiff,
+		Producer:        strings.TrimSpace(result.ToolName),
+		Role:            AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginVCSDiff, AnswerAggregateRoleSupportingCoverage),
+		SourceRef: ObservationSourceRef{
+			Kind:       ObservationSourceVCSDiff,
+			Commit:     commit,
+			Range:      typedVCSHistoryRange(history),
+			Pathspec:   strings.TrimSpace(history.Pathspec),
+			ToolCallID: fmt.Sprintf("%s[%d]", strings.TrimSpace(result.ToolName), index),
+			RawRef:     strings.TrimSpace(result.RawRef),
+			PayloadRef: strings.TrimSpace(result.RawRef),
+		},
+		ClaimKey:     "vcs_changed_paths:" + commit,
+		Subject:      commit,
+		Predicate:    "changed_paths",
+		ResultCount:  resultCount,
+		Enumeration:  boundary,
+		Summary:      summary,
+		RichNotes:    notes,
+		SurfaceTerms: append([]string(nil), changed.Paths...),
+		ObservedAt:   observedAt,
+	}, true
 }
 
 func observationRecordForPathDiscovery(index int, result ToolResult, discovery ToolPathDiscovery, observedAt string) (ObservationRecord, bool) {
@@ -2069,6 +2145,10 @@ func typedVCSHistorySummary(history ToolVCSHistory) string {
 	parts = append(parts, fmt.Sprintf("commits=%d", len(history.Commits)))
 	if pathspec := strings.TrimSpace(history.Pathspec); pathspec != "" {
 		parts = append(parts, "pathspec="+pathspec)
+	}
+	if len(history.ChangedPathSets) > 0 || history.ChangedPathCommitsOmitted > 0 {
+		parts = append(parts, fmt.Sprintf("changed_path_sets=%d", len(history.ChangedPathSets)))
+		parts = append(parts, fmt.Sprintf("changed_path_commits_omitted=%d", history.ChangedPathCommitsOmitted))
 	}
 	return strings.Join(parts, " ")
 }

@@ -3871,6 +3871,9 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	if authority := renderAnswerDocRuntimeSourceAuthority(ctx, ledger); authority != "" {
 		b.WriteString(authority)
 	}
+	if authority := renderAnswerDocVCSChangedPathAuthority(ledger); authority != "" {
+		b.WriteString(authority)
+	}
 	if relation := renderAnswerDocRuntimeArtifactPairRelationAuthority(ledger); relation != "" {
 		b.WriteString(relation)
 	}
@@ -3949,6 +3952,45 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 			fmt.Fprintf(&b, "; support_refs=%d", record.SupportRefCount)
 		}
 		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func renderAnswerDocVCSChangedPathAuthority(ledger types.ObservationLedger) string {
+	var records []types.ObservationRecord
+	for _, record := range ledger.Records {
+		if record.Origin != types.AnswerEvidenceOriginVCSDiff ||
+			record.Predicate != "changed_paths" || record.Enumeration == nil {
+			continue
+		}
+		recordCopy := record
+		records = append(records, recordCopy)
+	}
+	if len(records) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("### Typed VCS Changed-Path Authority\n\n")
+	b.WriteString("The paths below come from tool-computed `git show --name-only` rosters, not abbreviated `--stat` display text. When the answer states a changed-file count or list for one of these commits, preserve this total and every emitted path exactly. Keep current implementation relevance as a separate current-source claim; it must not silently replace the historical changed-path roster.\n")
+	for _, record := range records {
+		boundary := record.Enumeration
+		complete := boundary.TotalKnown && boundary.Emitted == boundary.Total && boundary.Reason == "complete"
+		fmt.Fprintf(&b, "- commit=`%s`; emitted=%d; ", strings.TrimSpace(record.Subject), boundary.Emitted)
+		if boundary.TotalKnown {
+			fmt.Fprintf(&b, "total=%d; complete=%t", boundary.Total, complete)
+		} else {
+			b.WriteString("total=unknown; complete=false")
+		}
+		if boundary.Reason != "" {
+			fmt.Fprintf(&b, "; reason=`%s`", boundary.Reason)
+		}
+		b.WriteString("\n")
+		for _, changedPath := range record.SurfaceTerms {
+			if changedPath = strings.TrimSpace(changedPath); changedPath != "" {
+				fmt.Fprintf(&b, "  - `%s`\n", changedPath)
+			}
+		}
 	}
 	b.WriteString("\n")
 	return b.String()

@@ -6048,18 +6048,40 @@ func (t *GitShow) Execute(ctx *types.BusContext, params json.RawMessage) (types.
 			Timestamp: time.Now(),
 		}, nil
 	}
+	var changedPathSets []types.ToolVCSChangedPathSet
+	changedPathCommitsOmitted := 0
+	if p.Stat || p.NameOnly {
+		changedPathSets, changedPathCommitsOmitted = gitCollectChangedPathSets(dir, []string{ref}, pathspec)
+	}
 	body := banner
 	if p.Stat {
-		body += gitExactChangedPathsSection(dir, []string{ref}, pathspec)
+		body += gitExactChangedPathsSectionFromSets(changedPathSets, changedPathCommitsOmitted)
 	}
 	body += stdout.String()
 	summary, refBlob := StoreBlob(ctx, t.Name(), body)
+	var vcsHistory *types.ToolVCSHistory
+	// A default git_show result contains a patch body. Until that patch has its
+	// own typed carrier, leave VCSHistory nil so the observation ledger keeps
+	// compiling the existing vcs_metadata + vcs_diff rows from the banner and
+	// summary. no_patch is metadata-only; stat/name_only have the exact changed
+	// path carrier below and therefore no longer need summary parsing.
+	if p.NoPatch || p.Stat || p.NameOnly {
+		vcsHistory = &types.ToolVCSHistory{
+			Kind:                      types.ToolVCSHistoryKindGitShow,
+			Commits:                   []string{ref},
+			Ref:                       ref,
+			Pathspec:                  pathspec,
+			ChangedPathSets:           changedPathSets,
+			ChangedPathCommitsOmitted: changedPathCommitsOmitted,
+		}
+	}
 	return types.ToolResult{
 		ToolName:   t.Name(),
 		Success:    true,
 		Summary:    summary,
 		RawRef:     refBlob,
 		Refinement: gitShowRefinement(p, len(body)),
+		VCSHistory: vcsHistory,
 		Timestamp:  time.Now(),
 	}, nil
 }
@@ -6213,23 +6235,35 @@ func (t *GitLog) Execute(ctx *types.BusContext, params json.RawMessage) (types.T
 	}
 
 	commitOrder, commitOrderErr := gitLogCommitOrderHashes(dir, ref, count, pathspec, p.FirstParent, p.MergesOnly, p.NoMerges)
+	changedPathCommits := commitOrder
+	if len(changedPathCommits) == 0 && (p.Stat || p.NameOnly) {
+		if commits, errSummary := gitLogCommitHashes(dir, ref, count, pathspec, p.FirstParent, p.MergesOnly, p.NoMerges); errSummary == "" {
+			changedPathCommits = commits
+		}
+	}
+	var changedPathSets []types.ToolVCSChangedPathSet
+	changedPathCommitsOmitted := 0
+	if p.Stat || p.NameOnly {
+		changedPathSets, changedPathCommitsOmitted = gitCollectChangedPathSets(dir, changedPathCommits, pathspec)
+	}
 	var vcsHistory *types.ToolVCSHistory
-	if commitOrderErr == "" && len(commitOrder) > 0 {
+	if (commitOrderErr == "" && len(commitOrder) > 0) || len(changedPathSets) > 0 {
 		vcsHistory = &types.ToolVCSHistory{
-			Kind:     types.ToolVCSHistoryKindGitLog,
-			Commits:  commitOrder,
-			Ref:      ref,
-			Pathspec: pathspec,
+			Kind:                      types.ToolVCSHistoryKindGitLog,
+			Commits:                   append([]string(nil), commitOrder...),
+			Ref:                       ref,
+			Pathspec:                  pathspec,
+			ChangedPathSets:           changedPathSets,
+			ChangedPathCommitsOmitted: changedPathCommitsOmitted,
+		}
+		if len(vcsHistory.Commits) == 0 {
+			vcsHistory.Commits = append([]string(nil), changedPathCommits...)
 		}
 	}
 
 	body := banner
 	if p.Stat {
-		if len(commitOrder) > 0 {
-			body += gitExactChangedPathsSection(dir, commitOrder, pathspec)
-		} else if commits, errSummary := gitLogCommitHashes(dir, ref, count, pathspec, p.FirstParent, p.MergesOnly, p.NoMerges); errSummary == "" {
-			body += gitExactChangedPathsSection(dir, commits, pathspec)
-		}
+		body += gitExactChangedPathsSectionFromSets(changedPathSets, changedPathCommitsOmitted)
 	}
 	body += stdout.String()
 	summary, ref := StoreBlob(ctx, t.Name(), body)
@@ -6746,28 +6780,62 @@ func gitCommitHashesFromOutput(output string) []string {
 }
 
 func gitExactChangedPathsSection(dir string, commits []string, pathspec string) string {
+	sets, commitsOmitted := gitCollectChangedPathSets(dir, commits, pathspec)
+	return gitExactChangedPathsSectionFromSets(sets, commitsOmitted)
+}
+
+func gitCollectChangedPathSets(dir string, commits []string, pathspec string) ([]types.ToolVCSChangedPathSet, int) {
 	if len(commits) == 0 {
+		return nil, 0
+	}
+	limit := len(commits)
+	if limit > gitExactChangedPathsMaxCommits {
+		limit = gitExactChangedPathsMaxCommits
+	}
+	sets := make([]types.ToolVCSChangedPathSet, 0, limit)
+	for i, hash := range commits {
+		if i >= gitExactChangedPathsMaxCommits {
+			break
+		}
+		paths, errSummary := gitChangedPathsForCommit(dir, hash, pathspec)
+		set := types.ToolVCSChangedPathSet{Commit: strings.TrimSpace(hash)}
+		if errSummary != "" {
+			set.UnavailableReason = errSummary
+			sets = append(sets, set)
+			continue
+		}
+		set.Total = len(paths)
+		set.Complete = len(paths) <= gitExactChangedPathsMaxPaths
+		emitted := len(paths)
+		if emitted > gitExactChangedPathsMaxPaths {
+			emitted = gitExactChangedPathsMaxPaths
+		}
+		set.Paths = append([]string(nil), paths[:emitted]...)
+		sets = append(sets, set)
+	}
+	return sets, len(commits) - limit
+}
+
+func gitExactChangedPathsSectionFromSets(sets []types.ToolVCSChangedPathSet, commitsOmitted int) string {
+	if len(sets) == 0 && commitsOmitted <= 0 {
 		return ""
 	}
 	var b strings.Builder
 	b.WriteString("exact_changed_paths: copy these exact paths; do not expand abbreviated --stat paths containing `...`.\n")
-	for i, hash := range commits {
-		if i >= gitExactChangedPathsMaxCommits {
-			fmt.Fprintf(&b, "exact_path_omitted commits=%d\n", len(commits)-i)
-			break
-		}
-		paths, errSummary := gitChangedPathsForCommit(dir, hash, pathspec)
-		if errSummary != "" {
-			fmt.Fprintf(&b, "exact_path_unavailable commit=%s reason=%q\n", shortGitHash(hash), errSummary)
+	for _, set := range sets {
+		if reason := strings.TrimSpace(set.UnavailableReason); reason != "" {
+			fmt.Fprintf(&b, "exact_path_unavailable commit=%s reason=%q\n", shortGitHash(set.Commit), reason)
 			continue
 		}
-		for j, changedPath := range paths {
-			if j >= gitExactChangedPathsMaxPaths {
-				fmt.Fprintf(&b, "exact_path_omitted commit=%s paths=%d\n", shortGitHash(hash), len(paths)-j)
-				break
-			}
-			fmt.Fprintf(&b, "exact_path commit=%s path=%q\n", shortGitHash(hash), changedPath)
+		for _, changedPath := range set.Paths {
+			fmt.Fprintf(&b, "exact_path commit=%s path=%q\n", shortGitHash(set.Commit), changedPath)
 		}
+		if !set.Complete && set.Total > len(set.Paths) {
+			fmt.Fprintf(&b, "exact_path_omitted commit=%s paths=%d\n", shortGitHash(set.Commit), set.Total-len(set.Paths))
+		}
+	}
+	if commitsOmitted > 0 {
+		fmt.Fprintf(&b, "exact_path_omitted commits=%d\n", commitsOmitted)
 	}
 	b.WriteByte('\n')
 	return b.String()

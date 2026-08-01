@@ -188,6 +188,12 @@ func TestCompileObservationLedgerVCSHistoryUsesTypedCarrier(t *testing.T) {
 			Commits:  commits,
 			Ref:      "HEAD",
 			Pathspec: "internal/types",
+			ChangedPathSets: []ToolVCSChangedPathSet{{
+				Commit:   commits[0],
+				Paths:    []string{"internal/types/a.go", "internal/types/b.go"},
+				Total:    2,
+				Complete: true,
+			}},
 		},
 		Timestamp: time.Date(2026, 6, 26, 9, 0, 0, 0, time.UTC),
 	}
@@ -203,9 +209,16 @@ func TestCompileObservationLedgerVCSHistoryUsesTypedCarrier(t *testing.T) {
 		len(got.SurfaceTerms) != 2 {
 		t.Fatalf("vcs carrier was not projected from typed fields: %+v", got)
 	}
+	changed := findTypedToolObservationRecord(t, ledger, "tool:0#vcs_diff:changed_paths:0")
+	if changed.Origin != AnswerEvidenceOriginVCSDiff || changed.Predicate != "changed_paths" ||
+		changed.Enumeration == nil || !changed.Enumeration.TotalKnown || changed.Enumeration.Total != 2 ||
+		changed.Enumeration.Emitted != 2 || changed.Enumeration.Reason != "complete" ||
+		len(changed.SurfaceTerms) != 2 || changed.SurfaceTerms[1] != "internal/types/b.go" {
+		t.Fatalf("typed changed-path carrier not projected: %+v", changed)
+	}
 	for _, record := range ledger.Records {
-		if record.ID != "tool:0#vcs_metadata" {
-			t.Fatalf("summary fallback leaked alongside typed vcs carrier: %+v", ledger.Records)
+		if record.ID != "tool:0#vcs_metadata" && record.ID != "tool:0#vcs_diff:changed_paths:0" {
+			t.Fatalf("summary fallback leaked alongside typed vcs carriers: %+v", ledger.Records)
 		}
 	}
 }

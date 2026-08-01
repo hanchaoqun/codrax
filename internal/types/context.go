@@ -5053,6 +5053,22 @@ func appendPrescanVCSHistoryCorpus(b *strings.Builder, remaining *int, h *ToolVC
 	for _, commit := range h.Commits {
 		appendPrescanCorpusLine(b, remaining, "commit="+commit)
 	}
+	for _, changed := range h.ChangedPathSets {
+		appendPrescanCorpusLine(b, remaining,
+			"vcs_changed_paths",
+			prescanCorpusKV("commit", changed.Commit),
+			prescanCorpusInt("emitted", len(changed.Paths)),
+			prescanCorpusInt("total", changed.Total),
+			prescanCorpusBool("complete", changed.Complete),
+			prescanCorpusKV("unavailable_reason", changed.UnavailableReason),
+		)
+		for _, changedPath := range changed.Paths {
+			appendPrescanCorpusLine(b, remaining, "changed_path="+changedPath)
+		}
+	}
+	if h.ChangedPathCommitsOmitted > 0 {
+		appendPrescanCorpusLine(b, remaining, prescanCorpusInt("changed_path_commits_omitted", h.ChangedPathCommitsOmitted))
+	}
 }
 
 func appendPrescanSourceInventoryCorpus(b *strings.Builder, remaining *int, obs *SourceInventoryObservation) {
@@ -6497,6 +6513,7 @@ const (
 	ToolPathDiscoveryKindRepoMap    = "repo_map"
 	ToolCommandMeasurementKindCount = "count"
 	ToolVCSHistoryKindGitLog        = "git_log"
+	ToolVCSHistoryKindGitShow       = "git_show"
 )
 
 // ToolPathDiscovery is the typed call-shape/result carrier for tools that
@@ -6536,10 +6553,24 @@ type ToolCommandMeasurement struct {
 // output before Summary rendering; downstream self-consistency and audit logic
 // must not parse rendered git_log text to recover commit order.
 type ToolVCSHistory struct {
-	Kind     string   `json:"kind,omitempty"`
-	Commits  []string `json:"commits,omitempty"`
-	Ref      string   `json:"ref,omitempty"`
-	Pathspec string   `json:"pathspec,omitempty"`
+	Kind                      string                  `json:"kind,omitempty"`
+	Commits                   []string                `json:"commits,omitempty"`
+	Ref                       string                  `json:"ref,omitempty"`
+	Pathspec                  string                  `json:"pathspec,omitempty"`
+	ChangedPathSets           []ToolVCSChangedPathSet `json:"changed_path_sets,omitempty"`
+	ChangedPathCommitsOmitted int                     `json:"changed_path_commits_omitted,omitempty"`
+}
+
+// ToolVCSChangedPathSet is the tool-computed exact changed-file roster for one
+// commit/ref. Paths come from `git show --name-only`, never from abbreviated
+// --stat display text. Total/Complete preserve the enumeration boundary when a
+// large commit exceeds the bounded inline roster.
+type ToolVCSChangedPathSet struct {
+	Commit            string   `json:"commit,omitempty"`
+	Paths             []string `json:"paths,omitempty"`
+	Total             int      `json:"total,omitempty"`
+	Complete          bool     `json:"complete,omitempty"`
+	UnavailableReason string   `json:"unavailable_reason,omitempty"`
 }
 
 // ToolReadCoverage is the typed load-bearing read_file coverage projection.

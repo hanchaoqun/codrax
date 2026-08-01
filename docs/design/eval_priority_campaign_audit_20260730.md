@@ -5111,8 +5111,8 @@ scenario=architecture_explain` 且遗漏 `CurrentSourceExplanationProfile` 和
 
 | ID | 优先级 | GAP | 泛化方案 | 状态 |
 |---|---:|---|---|---|
-| `EVAL-B21-MIX1` | P0 | route 已 typed 声明 current source required，但 history+architecture analyzer 漏 profile 时 mixed lane 仍丢失 | 在分析归一化铸造 route-backed typed obligation：只接受 `history lookup ∧ explain/trace ∧ architecture_explain ∧ route current_source=required`，排除 scalar/count/relation/diagnostic/enumerate；让统一 history/current-code 谓词消费该信号。不得读取 route reason、RawRequest、答案 prose | Batch B21-A next |
-| `EVAL-B21-VCS1` | P1 | `exact_changed_paths` 只存在 blob/summary 文本，`ToolVCSHistory` 只有 commits；下游无法 typed 检测漏文件 | 为 `git_log`/`git_show` 发布有界 per-commit changed-path roster、total/complete/omitted；ledger/prompt 使用 carrier，完整路径清册不得由 `--stat` 缩写或模型计数代替 | Batch B21-B |
+| `EVAL-B21-MIX1` | P0 | route 已 typed 声明 current source required，但 history+architecture analyzer 漏 profile 时 mixed lane 仍丢失 | 在分析归一化铸造 route-backed typed obligation：只接受 `history lookup ∧ explain/trace ∧ architecture_explain ∧ route current_source=required`，排除 scalar/count/relation/diagnostic/enumerate；让统一 history/current-code 谓词消费该信号。不得读取 route reason、RawRequest、答案 prose | implemented/full-tests-pass；B21 r2 回放 |
+| `EVAL-B21-VCS1` | P1 | `exact_changed_paths` 只存在 blob/summary 文本，`ToolVCSHistory` 只有 commits；下游无法 typed 检测漏文件 | 为 `git_log`/`git_show` 发布有界 per-commit changed-path roster、total/complete/omitted；ledger/prompt 使用 carrier，完整路径清册不得由 `--stat` 缩写或模型计数代替 | implemented/full-tests-pass；B21 r2 回放 |
 | `EVAL-B21-TRANS1` | P1 | runtime artifact 与 current checkout 同时有证据，却没有“历史变化是否已证明”的独立 authority | 建立 typed artifact↔checkout transition authority；无 artifact revision/version mapping 或 VCS transition witness 时只允许说明当前差异，确定性披露 historical transition=`unproven`，不改写模型正文 | Batch B21-C |
 | `EVAL-B21-M1` | P3 | 模型把 mutex 保护路径描述成会因两个调用者并发而 crash，并选错 current-status enum | 先由 MIX/TRANS authority 限定可声称范围；作为 model-variance 样本保留，跨 case 复现再设计结构化 side-specific proof，不加 Go/mutex/答案关键词门 | watch |
 
@@ -5151,6 +5151,37 @@ tool 159.840s）；新增生产接线/类型专项通过；`go test ./internal/a
 状态：`EVAL-B21-MIX1=implemented/full-tests-pass/replay-with-B21-B`。不单独消耗一次
 模型回放；先补 VCS typed changed-path carrier，再用同一 Git case 验证两项，避免在
 同一题面连续拟合。
+
+#### B21-B：exact VCS changed-path authority
+
+`EVAL-B21-VCS1` 已按工具真值载体施工：
+
+1. `ToolVCSHistory` 增加逐 commit 的 `ChangedPathSets`，每组保留 full commit/ref、
+   exact paths、`total/complete`、不可用原因及被 commit cap 省略的组数。路径来自独立
+   `git show --name-only`，不从可能含 `...` 的 `--stat` 文本反解析；20 commits、
+   每 commit 24 paths 的既有有界策略继续保留并显式披露边界。
+2. `git_log --stat/--name-only` 和 `git_show --stat/--name-only` 只采集一次 exact
+   roster，同一结果同时用于人类可读 summary 与 typed carrier，避免两条查询路径漂移。
+   `git_show --no-patch` 发布 metadata-only carrier；默认 patch 在尚无 typed patch-body
+   carrier 前故意保持 `VCSHistory=nil`，让现有 ledger 继续从 origin banner 编译
+   `vcs_metadata + vcs_diff`，防止新 carrier 遮蔽补丁证据。
+3. Observation Ledger 从 carrier 铸造独立 `origin=vcs_diff / predicate=changed_paths`
+   记录，并携带 `Enumeration{emitted,total,total_known,reason}` 与 exact path
+   `SurfaceTerms`。完整性与路径清册因此不再依赖 blob、summary 截断或模型自行计数。
+4. finalizer prompt 增加 typed changed-path authority：只有模型声称该 commit 的变更文件
+   数量/列表时，才要求保持 carrier 的精确清册；当前源码相关性仍是独立 current-source
+   claim。这里是 typed 软约束，不扫描用户请求、模型 thinking/final，不增加 answer
+   hard gate，也不重新注入“系统权威/系统权威主值”确定性块。
+5. 测试固定 `git_show` 三种 typed 模式、默认 patch 兼容臂、`git_log` exact roster、
+   carrier→ledger enumeration 以及 ledger→finalizer prompt 的三路径生产接线。
+
+验证：定向 tool/types/agent 测试通过；`go test ./internal/types ./internal/agent
+./internal/tool -count=1` 全包通过（types 18.792s、agent 2.876s、tool 162.628s）；
+`git diff --check` 通过。
+
+状态：`EVAL-B21-VCS1=implemented/full-tests-pass`；下一步重建同一二进制并严格并行
+2 个 Git/current-source 读模式 case，同时回放 B21-A/B，不用单一原题作为唯一正证。
+显式 Trace 时间窗、根因排序、唤醒链、窗内可消除量、因果投影和系统自动补采未改。
 
 ### B19g-b r1：target authority 通过，有限事实集仍被扩张（2026-08-01）
 

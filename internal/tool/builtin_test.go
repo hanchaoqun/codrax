@@ -4423,6 +4423,22 @@ func TestGitShow(t *testing.T) {
 			if tc.name == "stat" && !strings.Contains(result.Summary, `exact_path commit=HEAD path="file.txt"`) {
 				t.Fatalf("git_show stat should expose exact changed path, got %q", result.Summary)
 			}
+			wantCarrier := tc.in.NoPatch || tc.in.Stat || tc.in.NameOnly
+			if (result.VCSHistory != nil) != wantCarrier {
+				t.Fatalf("git_show %s typed VCS carrier presence=%v, want %v: %+v", tc.name, result.VCSHistory != nil, wantCarrier, result.VCSHistory)
+			}
+			if wantCarrier && result.VCSHistory.Kind != types.ToolVCSHistoryKindGitShow {
+				t.Fatalf("git_show %s typed VCS kind=%q, want %q", tc.name, result.VCSHistory.Kind, types.ToolVCSHistoryKindGitShow)
+			}
+			if wantCarrier && (tc.in.Stat || tc.in.NameOnly) {
+				if len(result.VCSHistory.ChangedPathSets) != 1 {
+					t.Fatalf("git_show %s changed-path sets=%+v", tc.name, result.VCSHistory.ChangedPathSets)
+				}
+				set := result.VCSHistory.ChangedPathSets[0]
+				if !set.Complete || set.Total != 1 || len(set.Paths) != 1 || set.Paths[0] != "file.txt" {
+					t.Fatalf("git_show %s typed changed paths=%+v", tc.name, set)
+				}
+			}
 		})
 	}
 	params, _ := json.Marshal(gitShowParams{Ref: "HEAD", NoPatch: true, Stat: true})
@@ -4599,6 +4615,13 @@ func TestGitLog(t *testing.T) {
 			if !strings.Contains(result.Summary, want) {
 				t.Fatalf("git_log stat exact path output missing %q:\n%s", want, result.Summary)
 			}
+		}
+		if result.VCSHistory == nil || len(result.VCSHistory.ChangedPathSets) != 1 {
+			t.Fatalf("git_log stat should publish one typed changed-path set: %+v", result.VCSHistory)
+		}
+		set := result.VCSHistory.ChangedPathSets[0]
+		if !set.Complete || set.Total != 1 || len(set.Paths) != 1 || set.Paths[0] != exactPath {
+			t.Fatalf("git_log typed changed-path set mismatch: %+v", set)
 		}
 	})
 
