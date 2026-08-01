@@ -602,8 +602,10 @@ type FacetCoverageContract struct {
 // IsFocusedRuntimeFactQuestion reports the precise, typed answer shape for one
 // runtime process/thread fact rather than a causal report. It covers the
 // original conditional/condition shape and the analyzer's equally valid
-// explain+conditional or explain+mechanism shape for a non-diagnostic target-state explanation
-// ("did target X enter state Y; when; what kernel reason").
+// trace/explain + mechanism shape for a non-diagnostic target-state explanation
+// ("did target X enter state Y; when; what kernel reason"). Trace is the
+// evidence-source intent, not permission to widen a bounded fact set into a
+// whole-window performance diagnosis.
 //
 // The conjunction is deliberately structural: a typed runtime target, no
 // call relation, and either the established trace/root-cause conditional
@@ -615,7 +617,7 @@ type FacetCoverageContract struct {
 // changing the query family.
 func IsFocusedRuntimeFactQuestion(rm RequestModel) bool {
 	kind := NormalizeRequirementKind(rm.AnalyzerHints.Kind)
-	hasCallRelation := kind == ReqCallChain || rm.PredicateAxis == AxisCall
+	hasCallRelation := kind == ReqCallChain || rm.PredicateAxis == AxisCall || rm.Predicates.IsRelationalLookup
 	hasConditionalShape := kind == ReqConditional || rm.PredicateAxis == AxisCondition
 	if len(rm.RuntimeTargets) == 0 || hasCallRelation {
 		return false
@@ -623,10 +625,12 @@ func IsFocusedRuntimeFactQuestion(rm RequestModel) bool {
 	if (rm.Intent == IntentTrace || rm.Intent == IntentRootCause) && hasConditionalShape {
 		return true
 	}
-	return rm.Intent == IntentExplain &&
+	return (rm.Intent == IntentTrace || rm.Intent == IntentExplain) &&
 		(kind == ReqMechanism || hasConditionalShape) &&
 		!rm.Predicates.IsDiagnosticQuestion &&
-		!rm.DiagnosticProfile.IsDiagnostic
+		!rm.DiagnosticProfile.IsDiagnostic &&
+		rm.Scenario != ScenarioRootCause &&
+		rm.Scenario != ScenarioPerformanceBottleneck
 }
 
 // IsNarrowRuntimeArtifactFactShape reports a runtime answer whose principal

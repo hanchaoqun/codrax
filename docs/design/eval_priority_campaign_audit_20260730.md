@@ -4739,6 +4739,55 @@ Git 用例 human FAIL 还包括一个独立事实错误：grep 原始结果明�
 权威冲突时才提升为施工项。每批都更新本节、manual audit 和统一 GAP 状态后再进入
 下一批，避免未记档积压。
 
+### B19g-b r1：target authority 通过，有限事实集仍被扩张（2026-08-01）
+
+同一二进制快照下严格并行 2 个 Trace case，runner 均 PASS，人工均 FAIL：
+
+1. 无窗口 D-state/IO 事实查询已发出
+   `runtime_target_profile=named_target`，且 PID 59566 仅来自
+   `runtime_targets.source=user_explicit`。最终主值恢复为 3 次/0.635ms，证明
+   `entities_fallback` 和 entity+cursor+supplement 的噪声扩权已关闭。
+2. 本轮 analyzer 将同一请求标为
+   `intent=trace / kind=mechanism / diagnostic=false / relation=false`。请求仍只要“是否、
+   时间、kernel reason、总量”这个有限运行时事实集，但旧的窄形状只接受
+   trace+conditional 或 explain+mechanism，因而系统仍补跑
+   `root_cause_rank + critical_blocking_calls`，追加完整因果投影。
+3. 登记 `EVAL-B19-FACTSET1/P0`：这是 typed 问题形状的缺口，不是目标身份缺失。
+   最优小修是将“有 runtime target、非关系、非诊断、非 performance
+   bottleneck 的 trace+mechanism”纳入共享窄事实谓词；该谓词同时约束 family、
+   supplement 和 materializer，不增加 case 名/原文关键词规则。
+4. 显式时间窗正例仍完整发布主要占用、可消除量、根因排序、唤醒链、
+   代表窗和 Trace 因果投影，自动补采也在；这是 B19g-b 的不变量正证。
+5. 正例仍复现 `EVAL-B19-CAUSAL1/P1`：model principal 把候选链写成结构性瓶颈、
+   次根因/三级原因，而 typed footer 明确
+   `frame_causality=unproven / frame_evidence_status=absent`。该项要用 typed
+   causal ceiling 改变系统结论面的权限/词法，不通过扫描模型原文做替换门。
+
+状态：B19g-b target authority=`covered`；`EVAL-B19-FACTSET1=P0/open`；
+`EVAL-B19-CAUSAL1=P1/open`。
+
+#### B19h-a：finite runtime fact-set authority
+
+已实现：
+
+1. `IsFocusedRuntimeFactQuestion` 现在同时接受非诊断的
+   `intent=trace|explain + kind=mechanism + typed runtime target`；`trace` 只表示证据
+   来源，不再自动授权全窗根因报告。
+2. 判定显式排除 call-chain/`is_relational_lookup`、diagnostic、
+   `scenario=root_cause|performance_bottleneck`；另外显式 user time window 仍在
+   `RuntimeTraceReportShapeAuthority` 中先于窄事实判定，不会伤及窗内因果投影。
+3. family、system supplement、AnswerDocument materializer 继续共用一个 typed
+   谓词；没有新增任何用户原文、模型 thinking/summary/final 或 case ID 扫描。
+4. 回归固定 trace/mechanism 只补 `window_stats`、已有完整事实则零因果补采、
+   最终文档保留 3 段/0.635ms typed roster 但不形成 Trace 因果投影；并固定
+   performance/root-cause/relation/显式时间窗负例。
+
+验证：`go test ./internal/types ./internal/tool -count=1` 全部通过
+（types 22.784s，tool 167.889s）。
+
+状态：`EVAL-B19-FACTSET1=implemented / same-pair replay next`；
+`EVAL-B19-CAUSAL1=P1/open`。
+
 #### EVAL-B18-SCOPE1：typed exclusion 被自动 all-scope 覆盖（P1）
 
 implements 的最终答案虽然正确，但 r1 日志暴露权限层冲突：

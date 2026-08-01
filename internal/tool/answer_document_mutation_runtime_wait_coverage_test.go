@@ -213,6 +213,7 @@ func TestRuntimeWaitCoverageCaveatsUseTypedAuthoritiesWithoutRewritingModelProse
 			t.Fatalf("internal authority protocol leaked through %q:\n%s", forbidden, got)
 		}
 	}
+
 }
 
 func TestRuntimeWaitCoverageAuthorityLeadsDoNotMintWithoutTypedRows(t *testing.T) {
@@ -580,6 +581,47 @@ func TestFocusedRuntimeFactPublishesTypedRosterWithoutFullCausalReport(t *testin
 		if !strings.Contains(surface, want) {
 			t.Fatalf("focused typed principal-value card missing %q:\n%s", want, surface)
 		}
+	}
+
+	// Analyzer-variance twin from B19g-b r1: trace is the artifact-source
+	// intent, while mechanism is the finite fact-set shape. It must converge
+	// to the same narrow publication contract without inspecting request or
+	// answer prose.
+	traceBus := runtimeWaitCoverageTestBus()
+	traceRM := &traceBus.AnalysisIR.RequestModel
+	traceRM.Intent = types.IntentTrace
+	traceRM.Scenario = types.ScenarioGeneric
+	traceRM.AnalyzerHints.Kind = string(types.ReqMechanism)
+	traceRM.PredicateAxis = types.AxisUnknown
+	traceRM.Predicates.IsDiagnosticQuestion = false
+	traceRM.DiagnosticProfile.IsDiagnostic = false
+	traceBus.ToolResults[0].Observations = append(traceBus.ToolResults[0].Observations, records...)
+	traceDoc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID: "summary", Kind: types.BlockSummary,
+			Text: "model trace/mechanism fact narrative",
+		}},
+	}
+	traceResult, traceErr := ApplyAndPersistMutation(
+		traceBus,
+		"test_emit",
+		types.NewReplaceAllMutation(traceDoc),
+		nil,
+		time.Now(),
+	)
+	if traceErr != nil || !traceResult.Success {
+		t.Fatalf("trace/mechanism fact persist failed: result=%+v err=%v", traceResult, traceErr)
+	}
+	tracePersisted := traceBus.Mutable.AnswerDocumentV2()
+	if answerDocumentHasRuntimeTraceCausalProjectionBlock(tracePersisted) {
+		t.Fatalf("trace/mechanism fact must not inherit the full causal projection: %+v", tracePersisted.Blocks)
+	}
+	traceSurface := types.AnswerBlockVisibleSurface(
+		answerDocumentTestBlockByID(t, tracePersisted, runtimeTraceTargetStateAuthorityBlockID),
+	)
+	if !strings.Contains(traceSurface, "等待明细完整，共 3 段") || !strings.Contains(traceSurface, "墙钟合计 0.635ms") {
+		t.Fatalf("trace/mechanism fact lost typed finite-fact authority:\n%s", traceSurface)
 	}
 }
 

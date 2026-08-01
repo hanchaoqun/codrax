@@ -132,6 +132,43 @@ func TestFocusedRuntimeFactIncludesNonDiagnosticExplainMechanism(t *testing.T) {
 	}
 }
 
+func TestFocusedRuntimeFactIncludesNonDiagnosticTraceMechanism(t *testing.T) {
+	rm := RequestModel{
+		Intent:        IntentTrace,
+		Scenario:      ScenarioGeneric,
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqMechanism)},
+		RuntimeTargets: []RuntimeTarget{{
+			Kind: RuntimeTargetKindProcess,
+			PID:  59566,
+		}},
+	}
+	if !IsFocusedRuntimeFactQuestion(rm) {
+		t.Fatal("non-diagnostic trace/mechanism with a typed target must remain a focused runtime fact")
+	}
+	if got := ResolveQuestionFamily(rm); got != QFGeneric {
+		t.Fatalf("focused trace/mechanism got family %q, want generic", got)
+	}
+
+	rm.Scenario = ScenarioPerformanceBottleneck
+	if IsFocusedRuntimeFactQuestion(rm) {
+		t.Fatal("a typed performance-bottleneck scenario must retain full report authority")
+	}
+	rm.Scenario = ScenarioRootCause
+	if IsFocusedRuntimeFactQuestion(rm) {
+		t.Fatal("a typed root-cause scenario must retain full report authority")
+	}
+	rm.Scenario = ScenarioGeneric
+	rm.Predicates.IsRelationalLookup = true
+	if IsFocusedRuntimeFactQuestion(rm) || IsNarrowRuntimeArtifactFactShape(rm) {
+		t.Fatal("a typed relation must retain causal/call report authority")
+	}
+	rm.Predicates.IsRelationalLookup = false
+	rm.RuntimeTargets = nil
+	if IsFocusedRuntimeFactQuestion(rm) {
+		t.Fatal("target-less trace mechanism is not a focused runtime fact")
+	}
+}
+
 func TestResolveQuestionFamily_TraceWithoutArtifactNeedsTypedCallRelation(t *testing.T) {
 	// Trace names the evidence source. Without a typed call-relation kind or
 	// axis, a runtime fact question must not inherit the call-chain scaffold.

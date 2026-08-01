@@ -121,6 +121,15 @@ func TestTraceSupplementDStateFactUsesNarrowStateFamilies(t *testing.T) {
 	if got := traceSupplementViewsForRequest(ctx, traceSupplementFamilyPresence{}, false, false); len(got) != 1 || got[0] != "window_stats" {
 		t.Fatalf("explain/conditional state fact must request only window_stats, got %v", got)
 	}
+	ctx.AnalysisIR.RequestModel.Intent = types.IntentTrace
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Kind = string(types.ReqMechanism)
+	ctx.AnalysisIR.RequestModel.PredicateAxis = types.AxisUnknown
+	if !types.IsFocusedRuntimeFactQuestion(ctx.AnalysisIR.RequestModel) {
+		t.Fatal("trace/mechanism must retain the same focused runtime-fact authority")
+	}
+	if got := traceSupplementViewsForRequest(ctx, traceSupplementFamilyPresence{}, false, false); len(got) != 1 || got[0] != "window_stats" {
+		t.Fatalf("trace/mechanism state fact must request only window_stats, got %v", got)
+	}
 }
 
 func TestTraceSupplementExplicitWindowDStateFactRetainsCoreFamilies(t *testing.T) {

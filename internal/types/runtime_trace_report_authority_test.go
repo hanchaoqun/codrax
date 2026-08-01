@@ -64,6 +64,18 @@ func TestRuntimeTraceReportMaterializationAuthorityMatrix(t *testing.T) {
 		t.Fatal("non-diagnostic explain/conditional target fact must stay narrow even when exploration collected causal rows")
 	}
 
+	focusedTraceMechanism := *generic
+	focusedTraceMechanism.Intent = IntentTrace
+	focusedTraceMechanism.AnalyzerHints.Kind = string(ReqMechanism)
+	focusedTraceMechanism.RuntimeTargets = []RuntimeTarget{{Kind: RuntimeTargetKindProcess, PID: 59566}}
+	if RuntimeTraceReportMaterializationAllowed(&focusedTraceMechanism, withRoot) {
+		t.Fatal("non-diagnostic trace/mechanism target fact must stay narrow even when exploration collected causal rows")
+	}
+	focusedTraceMechanism.Scenario = ScenarioPerformanceBottleneck
+	if !RuntimeTraceReportMaterializationAllowed(&focusedTraceMechanism, withRoot) {
+		t.Fatal("typed performance-bottleneck scenario must retain full trace report authority")
+	}
+
 	missingTargetScalar := *generic
 	missingTargetScalar.Intent = IntentReturnValue
 	missingTargetScalar.AnalyzerHints.Kind = string(ReqReturnValue)
