@@ -612,7 +612,8 @@ func insertRuntimeTraceLeadAuthorityBlock(doc *types.AnswerDocumentV2, block typ
 	insertAt := 0
 	for insertAt < len(doc.Blocks) {
 		id := strings.TrimSpace(doc.Blocks[insertAt].ID)
-		if id != runtimeTraceBlockingCoverageAuthorityBlockID &&
+		if id != runtimeTraceFrequencyAuthorityBlockID &&
+			id != runtimeTraceBlockingCoverageAuthorityBlockID &&
 			id != runtimeTraceTargetStateAuthorityBlockID &&
 			id != runtimeTraceBlockedReasonCensusCaliberBlockID {
 			break

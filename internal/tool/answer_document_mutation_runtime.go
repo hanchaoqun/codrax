@@ -860,6 +860,7 @@ func RuntimeTraceSystemBlockID(id string) bool {
 		"runtime_trace_semantic_optimizations",
 		"runtime_trace_metric_snapshot",
 		"runtime_trace_perf_quality",
+		runtimeTraceFrequencyAuthorityBlockID,
 		runtimeTraceBlockingCoverageAuthorityBlockID,
 		runtimeTraceTargetStateAuthorityBlockID,
 		runtimeTraceBlockedReasonCensusCaliberBlockID,
@@ -8439,7 +8440,8 @@ func runtimeTraceReportHierarchyTier(block types.AnswerBlock) int {
 	id := strings.TrimSpace(block.ID)
 	if block.SystemGeneratedKind.IsRuntimeTraceSupplement() {
 		switch {
-		case id == runtimeTraceBlockingCoverageAuthorityBlockID ||
+		case id == runtimeTraceFrequencyAuthorityBlockID ||
+			id == runtimeTraceBlockingCoverageAuthorityBlockID ||
 			id == runtimeTraceTargetStateAuthorityBlockID ||
 			id == runtimeTraceBlockedReasonCensusCaliberBlockID:
 			// Typed principal values and coverage/caliber corrections lead

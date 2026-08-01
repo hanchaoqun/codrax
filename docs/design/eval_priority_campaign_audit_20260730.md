@@ -3048,7 +3048,7 @@ binding_impact_requires_separate_overlap_or_supply_evidence
 
 | ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
 |---|---:|---|---|---|---|
-| EVAL-B15-FQ1 | P0 | frequency authority publication order | typed policy-limit/binding boundary 已到 prompt，但模型可忽略；正确 authority 仅在 footer Caveats，错误 principal 先到达用户 | 复用同一 typed authority 构造 system-owned leading block；分开 ceiling presence、binding/impact、thermal/policy mechanism，后续 prose 冲突时以 lead 为准 | planned-FQ1 |
+| EVAL-B15-FQ1 | P0 | frequency authority publication order | typed policy-limit/binding boundary 已到 prompt，但模型可忽略；正确 authority 仅在 footer Caveats，错误 principal 先到达用户 | 复用同一 typed authority 构造 system-owned leading block；分开 ceiling presence、binding/impact、thermal/policy mechanism，后续 prose 冲突时以 lead 为准 | covered-pending-replay |
 | EVAL-B15-AR1 | P1 | arithmetic prose relation operand binding | 同一自由句中 value、window denominator、percentage 三个数值无 typed relation owner，regex/邻近启发式选错 operand | 不增加词面特判；审计现有 arithmetic compiler，优先只发布 typed/结构化 relation 或在多候选时静默 fail-open | filed-next |
 | EVAL-B14-REL1 | P1 | runtime artifact physical identity | 同 path 不同 ID 生成 self-pair | canonical path primary identity；C2 真实回放不再发布 pair block | covered |
 
@@ -3064,3 +3064,31 @@ FQ1 不变量：
    与 policy 的成因归属仍需对应 typed causal witness；
 6. leading block 使用保留 ID + unforgeable system marker，先于模型正文；
 7. 不改变显式窗因果投影、补采、root/wakeup/eliminable 选路。
+
+FQ1 已按上述不变量落地：
+
+- 原有 `runtime_trace_frequency_authority` 不再滞留在 `doc.Caveats` 尾部，
+  而是使用和 blocking/state authority 相同的 system-owned lead 插入、保留
+  ID、防碰撞 marker 与最终 hierarchy tier；
+- authority 同源发布
+  `policy_limit_status=present`、
+  `binding_caliber=limit_row_proves_ceiling_presence`、
+  `binding_impact_requires_separate_overlap_or_supply_evidence` 和
+  `thermal_or_policy_mechanism=requires_typed_causal_witness`。低于 ceiling 的
+  actual/residency 不能单独区分 workload demand、policy、thermal 或其他治理
+  机制，也不能单独证明热节流；
+- 不读取或匹配用户请求、模型正文；不重写模型块、不增加 hard gate/retry；
+  `normalizeRuntimeTraceReportHierarchy` 只按 authenticated system kind + 精确
+  block ID 将其放入既有 typed lead tier，模型块之间的相对顺序不变；
+- production persist pin 以一段故意冲突的模型摘要验证：持久化后 typed
+  frequency authority 必须位于摘要之前，模型原文保持不变；direct unit pin
+  同时覆盖幂等、typed limit witness 与 thermal/policy 权限边界。
+
+验证：
+
+- 定向 authority/materializer/hierarchy/persist 测试通过（1.361s）；
+- `go test ./internal/tool -count=1` 全包通过（160.880s）。
+
+状态保持 `covered-pending-replay`：代码确定性出厂与顺序已由生产接线 pin
+证明；仍须用 H4 真实回放确认 HTML 可见顺序，并同时固定显式时间窗的完整
+Trace 因果投影、root rank、wakeup chain、窗内可消除量与自动补采均未回退。

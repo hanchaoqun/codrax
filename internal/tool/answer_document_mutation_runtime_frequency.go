@@ -9,11 +9,15 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+const runtimeTraceFrequencyAuthorityBlockID = "runtime_trace_frequency_authority"
+
 // materializeRuntimeTraceFrequencyAuthorityCaveat keeps frequency transition
 // activity on the background lane even when the model prose promoted a large
 // count into a low-frequency/throttling claim. The count itself never
 // authorizes supply causality; any stronger wording must bind to the separate
-// typed supply-evidence roster.
+// typed supply-evidence roster. The authority is a leading system block rather
+// than a footer caveat so a contradictory model principal cannot precede the
+// typed policy-limit/binding boundary.
 func materializeRuntimeTraceFrequencyAuthorityCaveat(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {
 	if doc == nil || ctx == nil {
 		return false
@@ -78,7 +82,7 @@ func materializeRuntimeTraceFrequencyAuthorityCaveat(doc *types.AnswerDocumentV2
 		}
 		if len(limitWitnesses) > 0 {
 			caveat += "；direct_in_window_policy_limits=" + runtimeTraceFrequencyLimitWitnessRoster(limitWitnesses) +
-				"；policy_limit_status=present：这些 min/max 行直接证明窗内存在 policy ceiling，实际/平均/驻留频率低于 ceiling 不能反推「无策略限制」；binding_caliber=limit_row_proves_ceiling_presence;binding_impact_requires_separate_overlap_or_supply_evidence，是否顶到 ceiling 及其性能影响须由独立 overlap/compute-supply 证据证明"
+				"；policy_limit_status=present：这些 min/max 行直接证明窗内存在 policy ceiling，实际/平均/驻留频率低于 ceiling 不能反推「无策略限制」；binding_caliber=limit_row_proves_ceiling_presence;binding_impact_requires_separate_overlap_or_supply_evidence，是否顶到 ceiling 及其性能影响须由独立 overlap/compute-supply 证据证明；thermal_or_policy_mechanism=requires_typed_causal_witness：低于 ceiling 的实际/驻留频率不能单独区分 workload demand、policy、thermal 或其他治理机制，也不能单独证明热节流"
 		}
 	} else {
 		caveat = fmt.Sprintf(
@@ -93,16 +97,21 @@ func materializeRuntimeTraceFrequencyAuthorityCaveat(doc *types.AnswerDocumentV2
 		}
 		if len(limitWitnesses) > 0 {
 			caveat += "; direct_in_window_policy_limits=" + runtimeTraceFrequencyLimitWitnessRoster(limitWitnesses) +
-				"; policy_limit_status=present: these min/max rows directly prove that a policy ceiling existed in the window, and an actual/average/residency frequency below the ceiling cannot be used to conclude that no policy limit existed; binding_caliber=limit_row_proves_ceiling_presence;binding_impact_requires_separate_overlap_or_supply_evidence, so hitting the ceiling and its performance impact require independent overlap/compute-supply evidence"
+				"; policy_limit_status=present: these min/max rows directly prove that a policy ceiling existed in the window, and an actual/average/residency frequency below the ceiling cannot be used to conclude that no policy limit existed; binding_caliber=limit_row_proves_ceiling_presence;binding_impact_requires_separate_overlap_or_supply_evidence, so hitting the ceiling and its performance impact require independent overlap/compute-supply evidence; thermal_or_policy_mechanism=requires_typed_causal_witness: an actual/residency frequency below the ceiling cannot by itself distinguish workload demand, policy, thermal, or another governance mechanism and does not by itself prove thermal throttling"
 		}
 	}
-	for _, existing := range doc.Caveats {
-		if strings.TrimSpace(existing) == caveat {
-			return false
-		}
+	title := "系统权威：CPU 频率供给与策略限制"
+	lead := "本块是频率样本、供给证据与 policy-limit 权限的系统 authority；后续模型正文若对 ceiling 是否存在、是否触顶、性能影响或 thermal/policy 成因给出冲突结论，以本块为准。"
+	if !zh {
+		title = "System authority: CPU frequency supply and policy limits"
+		lead = "This block is the system authority for frequency samples, supply evidence, and policy-limit permissions. If later model prose conflicts about ceiling presence, hitting the ceiling, performance impact, or a thermal/policy mechanism, this block takes precedence."
 	}
-	doc.Caveats = append(doc.Caveats, caveat)
-	return true
+	return insertRuntimeTraceLeadAuthorityBlock(doc, types.AnswerBlock{
+		ID:    runtimeTraceFrequencyAuthorityBlockID,
+		Kind:  types.BlockCaveat,
+		Title: title,
+		Text:  lead + "\n\n" + caveat,
+	})
 }
 
 func runtimeTraceDedupFrequencyLimitWitnesses(in []types.TraceFrequencyLimitAuthority, limit int) []types.TraceFrequencyLimitAuthority {

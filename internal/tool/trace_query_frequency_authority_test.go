@@ -3,6 +3,7 @@ package tool
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -173,11 +174,18 @@ func TestRuntimeTraceFrequencyAuthorityCaveatRejectsCountOnlyCausality(t *testin
 	if !materializeRuntimeTraceFrequencyAuthorityCaveat(doc, ctx) {
 		t.Fatal("expected frequency authority caveat")
 	}
-	if doc.Blocks[0].Text != original {
-		t.Fatalf("model prose was rewritten: %q", doc.Blocks[0].Text)
+	if len(doc.Blocks) != 2 ||
+		doc.Blocks[0].ID != runtimeTraceFrequencyAuthorityBlockID ||
+		doc.Blocks[1].Text != original ||
+		!RuntimeTraceSystemBlock(doc.Blocks[0]) {
+		t.Fatalf("frequency authority must lead model prose as a system block: %+v", doc.Blocks)
 	}
-	got := strings.Join(doc.Caveats, "\n")
+	if len(doc.Caveats) != 0 {
+		t.Fatalf("frequency authority must not remain stranded in footer caveats: %+v", doc.Caveats)
+	}
+	got := types.AnswerBlockVisibleSurface(doc.Blocks[0])
 	for _, want := range []string{
+		"系统权威：CPU 频率供给与策略限制",
 		"cpu_frequency_rows=172",
 		"clock_set_rate_events=323",
 		"transition_authority=background_only",
@@ -223,13 +231,86 @@ func TestRuntimeTraceFrequencyAuthorityCaveatNamesIndependentTypedEvidence(t *te
 	if !materializeRuntimeTraceFrequencyAuthorityCaveat(doc, ctx) {
 		t.Fatal("expected frequency authority caveat")
 	}
-	got := strings.Join(doc.Caveats, "\n")
+	if materializeRuntimeTraceFrequencyAuthorityCaveat(doc, ctx) {
+		t.Fatal("frequency authority block must be idempotent")
+	}
+	if len(doc.Blocks) != 2 ||
+		doc.Blocks[0].ID != runtimeTraceFrequencyAuthorityBlockID ||
+		!RuntimeTraceSystemBlock(doc.Blocks[0]) {
+		t.Fatalf("typed frequency authority must lead model prose: %+v", doc.Blocks)
+	}
+	got := types.AnswerBlockVisibleSurface(doc.Blocks[0])
 	if !strings.Contains(got, "typed_supply_evidence=frequency_residency_low_frequency") ||
 		!strings.Contains(got, "不能归因于上述两类计数") ||
 		!strings.Contains(got, "direct_in_window_policy_limits=cpu0[min=418000kHz,max=1530000kHz") ||
 		!strings.Contains(got, "policy_limit_status=present") ||
 		!strings.Contains(got, "低于 ceiling 不能反推「无策略限制」") ||
-		!strings.Contains(got, "binding_impact_requires_separate_overlap_or_supply_evidence") {
+		!strings.Contains(got, "binding_impact_requires_separate_overlap_or_supply_evidence") ||
+		!strings.Contains(got, "thermal_or_policy_mechanism=requires_typed_causal_witness") ||
+		!strings.Contains(got, "不能单独证明热节流") {
 		t.Fatalf("typed frequency caveat = %q", got)
+	}
+}
+
+func TestPersistMergedAnswerDocumentPublishesFrequencyAuthorityBeforeModelProse(t *testing.T) {
+	ctx := newBusForMutationTest()
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{Intent: types.IntentRootCause},
+		AnswerContract: types.AnswerContract{
+			Language: "zh",
+		},
+	}
+	ctx.ToolResults = []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		TraceEvidenceAuthority: &types.TraceEvidenceAuthority{
+			FrequencyTransitionEventCount:   830,
+			FrequencyClockSetRateEventCount: 767,
+			FrequencyTypedSupplyEvidence: []string{
+				"compute_supply_low_frequency_deficit",
+				"direct_in_window_policy_limit",
+			},
+			FrequencyLimitWitnesses: []types.TraceFrequencyLimitAuthority{{
+				CPU: 4, MinFrequencyKHz: 558000, MaxFrequencyKHz: 2100000,
+				LimitRowCount: 28, WitnessLine: 17113, WitnessTs: 13762.940114,
+				WindowStartTs: 13762.791708, WindowEndTs: 13763.024898,
+				Authority: "direct_in_window_policy_limit",
+			}},
+		},
+	}}
+	modelText := "558MHz 低于 2.10GHz，所以明确是热节流而不是 policy 限制。"
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID: "summary", Kind: types.BlockSummary, Text: modelText,
+		}},
+	}
+	result, err := ApplyAndPersistMutation(
+		ctx,
+		"test_emit",
+		types.NewReplaceAllMutation(doc),
+		nil,
+		time.Now(),
+	)
+	if err != nil || !result.Success {
+		t.Fatalf("persist frequency authority failed: result=%+v err=%v", result, err)
+	}
+	persisted := ctx.Mutable.AnswerDocumentV2()
+	if persisted == nil || len(persisted.Blocks) != 2 ||
+		persisted.Blocks[0].ID != runtimeTraceFrequencyAuthorityBlockID ||
+		persisted.Blocks[1].Text != modelText ||
+		!RuntimeTraceSystemBlock(persisted.Blocks[0]) {
+		t.Fatalf("production persist must lead with system frequency authority without rewriting model prose: %+v", persisted)
+	}
+	surface := types.AnswerBlockVisibleSurface(persisted.Blocks[0])
+	for _, want := range []string{
+		"cpu4[min=558000kHz,max=2100000kHz",
+		"policy_limit_status=present",
+		"binding_impact_requires_separate_overlap_or_supply_evidence",
+		"thermal_or_policy_mechanism=requires_typed_causal_witness",
+	} {
+		if !strings.Contains(surface, want) {
+			t.Fatalf("production frequency authority missing %q:\n%s", want, surface)
+		}
 	}
 }
