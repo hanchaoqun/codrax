@@ -19,6 +19,7 @@ func NormalizeSourceForMarkdown(body string) string {
 	body = NormalizeSequenceParticipantMessagePrefixes(body)
 	body = NormalizeSequenceStops(body)
 	body = NormalizeFlowchartQuotedLabelNewlines(body)
+	body = NormalizeFlowchartClassRelationEdges(body)
 	body = NormalizeFlowchartQuotedEdgeFragments(body)
 	body = NormalizeFlowchartSplitNodeLabels(body)
 	body = NormalizeFlowchartSubgraphTitles(body)
@@ -35,6 +36,103 @@ func NormalizeSourceForMarkdown(body string) string {
 			sourceRepairHash(original, body), len(original), len(body))
 	}
 	return body
+}
+
+// NormalizeFlowchartClassRelationEdges repairs classDiagram generalization
+// operators emitted under a flowchart/graph declaration. Mermaid does not
+// accept <|-- / --|> in flowcharts; a labelled parent-to-child edge preserves
+// the topology and relation meaning without switching the whole diagram kind.
+func NormalizeFlowchartClassRelationEdges(body string) string {
+	if !isFlowchartOrGraph(body) ||
+		(!strings.Contains(body, "<|--") && !strings.Contains(body, "--|>")) {
+		return body
+	}
+	lines := strings.Split(body, "\n")
+	changed := false
+	for idx, line := range lines {
+		rewritten, ok := normalizeFlowchartClassRelationEdgeLine(line)
+		if !ok {
+			continue
+		}
+		lines[idx] = rewritten
+		changed = true
+	}
+	if !changed {
+		return body
+	}
+	return strings.Join(lines, "\n")
+}
+
+func normalizeFlowchartClassRelationEdgeLine(line string) (string, bool) {
+	for _, relation := range []struct {
+		token   string
+		reverse bool
+	}{
+		{token: "<|--"},
+		{token: "--|>", reverse: true},
+	} {
+		pos := unquotedMermaidTokenIndex(line, relation.token)
+		if pos < 0 {
+			continue
+		}
+		left := strings.TrimSpace(line[:pos])
+		right := strings.TrimSpace(line[pos+len(relation.token):])
+		if left == "" || right == "" ||
+			unquotedMermaidTokenIndex(right, relation.token) >= 0 {
+			return line, false
+		}
+		relationLabel := ""
+		if labelPos := unquotedMermaidTokenIndex(right, " : "); labelPos >= 0 {
+			relationLabel = strings.TrimSpace(right[labelPos+3:])
+			right = strings.TrimSpace(right[:labelPos])
+			if right == "" {
+				return line, false
+			}
+		}
+		indent := line[:len(line)-len(strings.TrimLeftFunc(line, unicode.IsSpace))]
+		if relation.reverse {
+			left, right = right, left
+		}
+		labelSurface := "|generalization|"
+		if relationLabel != "" {
+			relationLabel = strings.ReplaceAll(relationLabel, `"`, `\"`)
+			labelSurface = `|"generalization: ` + relationLabel + `"|`
+		}
+		return indent + left + " -->" + labelSurface + " " + right, true
+	}
+	return line, false
+}
+
+func unquotedMermaidTokenIndex(line, token string) int {
+	quote := rune(0)
+	escaped := false
+	runes := []rune(line)
+	tokenRunes := []rune(token)
+	for idx, r := range runes {
+		if quote != 0 {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if r == '\\' {
+				escaped = true
+				continue
+			}
+			if r == quote {
+				quote = 0
+			}
+			continue
+		}
+		if r == '"' || r == '\'' {
+			quote = r
+			continue
+		}
+		if idx+len(tokenRunes) <= len(runes) &&
+			string(runes[idx:idx+len(tokenRunes)]) == token {
+			return len(string(runes[:idx]))
+		}
+	}
+	return -1
 }
 
 func sourceRepairHash(before, after string) string {

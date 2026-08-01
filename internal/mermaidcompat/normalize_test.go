@@ -47,6 +47,40 @@ func TestNormalizeSequenceStops_LeavesNonSequenceBodiesAlone(t *testing.T) {
 	}
 }
 
+func TestNormalizeSourceForMarkdown_RewritesClassGeneralizationInsideFlowchart(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		`    LoopController["LoopController"]`,
+		`    analyzerEvaluator["analyzerEvaluator"]`,
+		`    LoopController <|-- analyzerEvaluator`,
+		`    Worker --|> BaseWorker : extends`,
+	}, "\n")
+	got := NormalizeSourceForMarkdown(in)
+	for _, want := range []string{
+		`LoopController -->|generalization| analyzerEvaluator`,
+		`BaseWorker -->|"generalization: extends"| Worker`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("mixed class/flowchart edge was not normalized; missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "<|--") || strings.Contains(got, "--|>") ||
+		strings.Contains(got, "codraxNode") {
+		t.Fatalf("class-only operator leaked into normalized flowchart:\n%s", got)
+	}
+}
+
+func TestNormalizeFlowchartClassRelationEdges_LeavesQuotedLabelsAndClassDiagramAlone(t *testing.T) {
+	flow := "flowchart TD\n  A[\"literal <|-- label\"] --> B"
+	if got := NormalizeFlowchartClassRelationEdges(flow); got != flow {
+		t.Fatalf("quoted label must remain byte-preserved:\n%s", got)
+	}
+	class := "classDiagram\n  Base <|-- Child"
+	if got := NormalizeFlowchartClassRelationEdges(class); got != class {
+		t.Fatalf("valid classDiagram relation must remain byte-preserved:\n%s", got)
+	}
+}
+
 func TestNormalizeSequenceParticipantMessagePrefixes_RewritesMessageLine(t *testing.T) {
 	in := strings.Join([]string{
 		"sequenceDiagram",
@@ -644,15 +678,15 @@ func TestNormalizeSourceForMarkdown_QuotesUnlexableSubgraphTitleRunes(t *testing
 	// Every title below fails Mermaid 11.12.0's statement-level lexer when
 	// left bare (verified against the embedded mermaid.min.js).
 	for _, title := range []string{
-		"次因–候选",   // en dash
-		"次因×候选",   // multiplication sign
-		"次因·候选",   // middle dot
-		"次因、候选",   // ideographic comma
-		"次因：候选",   // fullwidth colon
-		"次因（候选）",  // fullwidth parentheses
-		"次因…候选",   // ellipsis
-		"次因１候选",   // fullwidth digit
-		"次因①候选",   // circled digit
+		"次因–候选",     // en dash
+		"次因×候选",     // multiplication sign
+		"次因·候选",     // middle dot
+		"次因、候选",     // ideographic comma
+		"次因：候选",     // fullwidth colon
+		"次因（候选）",    // fullwidth parentheses
+		"次因…候选",     // ellipsis
+		"次因１候选",     // fullwidth digit
+		"次因①候选",     // circled digit
 		"stage,two", // ASCII comma
 		"stage@two", // ASCII at
 		"stage=two", // ASCII equals

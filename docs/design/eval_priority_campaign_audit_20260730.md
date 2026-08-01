@@ -3978,6 +3978,54 @@ all-scope 与 test exclusion 同时存在时 test=auxiliary、production=princip
 
 状态：`implemented / full-tests-pass / replay next`。
 
+#### B18e r1：scope authority 通过，图语法另有独立失败（2026-08-01）
+
+严格并行 2 个回放：
+
+- called-by：runner/human PASS，117s，roster=2 principal；
+- implements：runner PASS / human FAIL，126s。
+
+B18e 的权限目标已经覆盖：implements 清册恢复为
+`complete=15, principal=12, auxiliary=3, unknown=0`，最终列表/图仅含
+12 个 production，3 个 test 只在 caveat。`EVAL-B18-SCOPE1` 状态：
+`covered`。
+
+implements 的 human FAIL 来自独立 Mermaid 语法：
+
+1. structured diagram 声明 `flowchart TD`；
+2. model body 却使用 classDiagram generalization operator `<|--`；
+3. 现有 flowchart unsafe-node compatibility pass 把 operator 片段别名成
+   `codraxNode1["<"]|codraxNode2["--"]`；
+4. 最终虽保留节点和数量，但实现关系边变成伪节点，不能算合格关系图。
+
+登记 `EVAL-B18-DIAG1`（P2）：diagram grammar/operator mismatch 的兼容层
+缺口。
+
+#### B18f Mermaid mixed-grammar soft normalization
+
+采用 source compatibility soft rewrite，不增加 answer hard gate：
+
+1. 仅当 structured Mermaid body 首指令为 `flowchart/graph` 时生效；
+2. 在 unsafe-node aliasing 前，把 class generalization
+   `Parent <|-- Child` 转为
+   `Parent -->|generalization| Child`；
+3. 对反向写法 `Child --|> Parent` 交换端点后生成同一 parent→child 语义；
+4. class relation 的 `: extends/implements` 后缀保留到 quoted edge label；
+5. quoted node labels 内的 `<|--` 不改，真正的 `classDiagram` byte-preserve；
+6. 这是语法兼容修复，不拒绝模型答案，不扫描 RawRequest、summary、items
+   或其它 prose。
+
+定向 `internal/mermaidcompat` 与 `internal/render` 回归通过
+（0.753s / 1.856s）。
+
+全相关回归通过：
+
+- `internal/mermaidcompat`：0.640s；
+- `internal/render`：1.552s；
+- `internal/tool`：166.060s。
+
+状态：`implemented / full-tests-pass / Loop+H8 replay next`。
+
 #### B18c r1：implements 通过，called-by 暴露实体轴冲突（2026-08-01）
 
 严格并行 2 个回放：
