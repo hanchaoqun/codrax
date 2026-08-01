@@ -3947,6 +3947,40 @@ B18c 使用一条通用 typed 规则修复：
 严格并行 2 个 B21 读模式用例，联合回放 B21-C/S/GREP；然后转入显式 Trace 窗与
 write/plan 等异构模式。
 
+### B21 r5：runner 双 PASS，人工暴露 citation 优先级与证据跨度缺口（2026-08-01）
+
+严格并行 2 个读模式 case（同一 `main@df8cdbd0b` 二进制快照）：
+
+- diff-hunk/current-code：runner PASS，177s；
+- latest-merge/current-source：runner PASS，212s；
+- 人工审计均 FAIL。runner 的 answer regex 未检查引用身份、阶段顺序或 evidence span，
+  因此不能替代人工判定。
+
+已获得的正证：
+
+1. 两次 typed history selection 均选中有序结果第 1 项：latest commit=`df8cdbd0b`，
+   latest merge=`2a58a60d7`；`EVAL-B21-ORD1` 继续 covered。
+2. 历史 diff 与 current checkout 分席有效。没有把历史行号当作当前行号，也没有复发
+   `explicitRuntimeArtifactLog` 被投射到邻近 helper 的旧错位；
+   `EVAL-B21-TRANS1/MAP1` 的主体边界 covered。
+3. 两份答案均未出现旧的“系统按已验证证据补充缺失成员”或同义内部协议补表；
+   `EVAL-B21-SUP1=covered`。
+4. `EVAL-B21-GREP1` 代码和 typed 单测已覆盖；本轮模型使用默认 regex grep，未走
+   literal-zero-match live arm，因此状态为 `implemented/test-covered/live-arm-not-exercised`，
+   不伪称真实复放正证。
+
+新登记：
+
+| ID | 优先级 | 系统 GAP | 代码/日志真相 | 泛化方案 |
+|---|---:|---|---|---|
+| `EVAL-B21-CIT2` | P1 | 精确 visible source location 的正确 citation 可被后续低权限 code-surface heuristic 覆盖 | model 提交 Hunk 1 `citation_ref=0 -> builtin.go:2097`；`normalizeVisibleSourceLocationCarriers` 后，`normalizeItemCitationRefsByUniqueBacktickCitationQuote` 又改 1 项，最终 prune `:2097` 并把条目显示为 `:2142` | 冻结证据优先级：item 中唯一、可解析且与 current citation 对齐的 exact `path:line` 是更精确信号；后续 backtick/label 候选只能修无引用、越界或与 exact location 不一致的引用，不能覆盖正确精确绑定。不得扫描 RawRequest/答案整体语义，只消费结构化 item 与 citation |
+| `EVAL-B21-CALLEE1` | P1 | call-site 证据被允许承载被调函数内部行为与跨阶段时序 | latest-merge 答案只引用 `parallelExploreMustWaitForSiblingHandoffs` 调用点，却声称其保证“证据在 emit_analysis 前完成”；真实 pipeline 先 analyze/emit_analysis 后 explore，该说法顺序相反 | 为 mechanism/call-chain 证据建立 typed entailment：call-site 只授权“调用发生”；callee guard/return/时序必须有 callee definition/body 或 typed topology edge。软引导补读，答案侧按 claim form 限权，不做 prose 关键词门 |
+| `EVAL-B21-SPAN1` | P1 | 单行 grounded anchor 可携带跨函数行为摘要，summary 文本没有 evidence span 权限 | `pathDiscoveryObservationSummary:2099` 的证据被扩写为 summary 和 `pathDiscoveryObservationNotes` 均投影；最终甚至写成 Summary 函数“在 notes 中追加” | 将 evidence behavior claim 与 typed source span/endpoint 合取；跨函数说明要求分别 grounded 的 evidence item，不能用一个 anchor 的自由 summary 扩权。优先改证据铸造/claim binding，不扫描最终 prose |
+
+施工顺序：先修完全确定且低耦合的 `CIT2`；`CALLEE1/SPAN1` 合并设计成统一的
+claim-entailment 批，避免分别对“emit_analysis”或某两个函数做 case 拟合。两批都不修改
+Trace 查询、显式窗因果投影、根因排序、唤醒链、窗内可消除量或自动补采。
+
 ### B19a r1：Trace 主合同保留，精确集合暴露静默改写（2026-08-01）
 
 严格并行 2 个用例，runner 2/2 PASS，人工审计 0/2：
