@@ -4818,6 +4818,23 @@ r2 在内部词面修复后 runner 2/2 PASS：无窗 case 恢复 `bounded_fact_s
 状态：`EVAL-B19-CAUSAL1=implemented/full-tests-pass/final-replay-next`；
 `EVAL-B19-DECL1=P1/open`；`EVAL-B19-FACTSET1=covered-but-declaration-unstable`。
 
+#### B19h-c r3：因果发布权限闭环
+
+最终同对回放 runner 2/2 PASS，人工结论为 1 PASS、1 PASS-with-open-gaps：
+
+- 显式窗正例中，模型草稿仍在日志里虚构“持有关键锁/延迟传导”等确定机理，证明
+  本批不是为一次措辞波动修补；最终答案中这些模型块已全部消失。用户可见面只剩
+  typed canonical lead 与系统证据报告，且没有“真正瓶颈/直接根因/主根因=已证”残留。
+- 主要时间占用/关键路径新修向、窗内可消除量既有规则、候选排序、唤醒关系、
+  代表窗、完整投影、证据索引、目标身份和自动补齐均保留；答案前部没有
+  “系统权威/系统权威主值”式内部权限标签。
+- 无窗 case 再次发出 `bounded_fact_set` 并正确收口，确认 projection 权限修复不影响
+  窄事实车道；r1 的相反结果已坐实 analyzer declaration 波动。
+
+状态：`EVAL-B19-CAUSAL1=covered`；`EVAL-B19-FACTSET1=covered`（声明稳定性转
+`EVAL-B19-DECL1`）；`EVAL-B19-SCHEDPROSE1=P1/open`；
+`EVAL-B19-NARROWCAVEAT1=P2/open`。
+
 ### 后续 eval 维度扩展（用户追加，2026-08-01）
 
 当前 Trace P0 收口并回放后，继续维持每批严格并行 2 个，按风险交叉覆盖：
