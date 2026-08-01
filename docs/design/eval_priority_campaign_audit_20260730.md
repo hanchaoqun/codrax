@@ -3918,3 +3918,59 @@ B18c 使用一条通用 typed 规则修复：
 - 完整 `internal/tool` 回归通过（159.461s）。
 
 状态：`implemented / full-tests-pass / cross-relation replay next`。
+
+#### B18c r1：implements 通过，called-by 暴露实体轴冲突（2026-08-01）
+
+严格并行 2 个回放：
+
+- `qf_type_relation_loop_controller`：runner PASS / human PASS，160s；
+- `qf_called_by_typed_relation_query`：runner PASS / human FAIL，212s。
+
+implements 答案只保留一个 12 项 production 主表和一张 Mermaid，系统没有
+再追加 accepted-checklist 清单，B18c 的结构化主键去重生效。
+
+called-by 的重复是更上游的新问题，不能由显示层去重掩盖：
+
+1. typed graph 权威 roster 是 2 个 caller members；
+2. explorer 把 3 个 call-site observations 当成 `member_set`：
+   同一 `BuildTypedRelationQueryWithResolvedSources` 的 line 290、291 各一项，
+   加上 `TypedRelationKindsForRequest` line 317；
+3. exact relation authority 只验证每行能否匹配 candidate，却没有验证多行
+   是否映射到同一 candidate identity，于是把 value=3 的 observation set
+   铸成 principal member-set；
+4. 模型主列表按 function axis 正确列 2 项，系统 aggregate carrier 按
+   observation axis 列 3 项，答案形成“2 个函数 / 3 个函数”的硬矛盾。
+
+登记 `EVAL-B18-AXIS1`（P1）：typed relation entity-axis normalization
+缺失。它适用于 called-by、references、registers 等“一成员多 observation”
+关系，不是某个函数或行号特例。
+
+#### B18d typed relation candidate-identity canonicalization
+
+最优方案在 relation authority 铸造点统一处理：
+
+1. 只对已通过 exact typed relation 匹配、将获得 system provenance 的
+   principal member-set 生效；
+2. 每个结构化 member 解析为 typed candidate identity：
+   `member name + canonical source file`，relation source 使用独立 source
+   identity；
+3. 同一 identity 的多条 observation 只保留第一条主成员，`value` 重新从
+   canonical members 派生；全部原始 call-site evidence 仍保留在 Evidence
+   Pool / relation edge lane；
+4. 同名但位于不同文件的 candidates 保持两个身份；source/member 同名或
+   无法唯一映射时 fail-open，不做折叠；
+5. Members、MemberNotes、SupportRefs 同索引投影，避免成员去重后引用错位；
+6. 不读取用户原文、模型 thinking/reason/final prose，不识别 caller、
+   function、行号或具体 relation kind 字面；所有 relation kinds 共用。
+
+定向测试已覆盖：
+
+- 同一 candidate 的两条 observation 折成一个 member；
+- relation source 仍可与 member roster 同席；
+- 同名不同文件的 candidates 不折叠；
+- 同名但 support_ref 指向非 candidate 文件时 fail-open；
+- 旧 analyzer-drift relation authority / source inventory convergence 保持。
+
+完整 `internal/tool` 回归通过（最终复跑 161.534s）。
+
+状态：`implemented / full-tests-pass / cross-relation replay next`。

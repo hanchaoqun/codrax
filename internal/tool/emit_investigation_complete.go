@@ -5587,6 +5587,11 @@ func markExactTypedRelationPrincipalMemberSets(ctx *types.BusContext, facts []ty
 			strings.Contains(out[i].Provenance, types.TypedRelationPrincipalMemberSetAggregateProvenance) {
 			continue
 		}
+		var removed int
+		out[i], removed = canonicalizeExactTypedRelationFactMembers(out[i], candidates)
+		if removed > 0 {
+			logging.Info("[emit_investigation_complete] canonicalized %d duplicate typed relation member row(s) onto the accepted candidate identity axis", removed)
+		}
 		if strings.TrimSpace(out[i].Provenance) == "" {
 			out[i].Provenance = types.TypedRelationPrincipalMemberSetAggregateProvenance
 		} else {

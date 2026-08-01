@@ -153,6 +153,102 @@ func TestExactTypedRelationProjectionMarksFactAndPreventsInventoryReplacement(t 
 	}
 }
 
+func TestExactTypedRelationProjectionCanonicalizesRepeatedObservationsByCandidateIdentity(t *testing.T) {
+	bus := relationProjectionDriftBus()
+	fact := relationProjectionDriftFact("LoopController", "prodA", "prodB")
+	fact.Members = []string{
+		"LoopController",
+		"prodA @ internal/agent/a.go:10",
+		"prodA @ internal/agent/a.go:11",
+		"prodB",
+	}
+	fact.SupportRefs = []string{
+		"LoopController @ internal/agent/agent.go:5",
+		"prodA @ internal/agent/a.go:10",
+		"prodA @ internal/agent/a.go:11",
+		"prodB @ internal/agent/b.go:20",
+	}
+	fact.MemberNotes = []string{"interface", "first observation", "second observation", "second implementation"}
+	fact.Value = "4"
+
+	marked := markExactTypedRelationPrincipalMemberSets(bus, []types.AnswerAggregateFact{fact})
+	if len(marked) != 1 || !types.AnswerAggregateFactHasTypedRelationPrincipalAuthority(marked[0]) {
+		t.Fatalf("duplicate observations should retain typed relation authority: %+v", marked)
+	}
+	got := marked[0]
+	if got.Value != "3" || len(got.Members) != 3 ||
+		strings.Join(got.Members, ",") != "LoopController,prodA @ internal/agent/a.go:10,prodB" {
+		t.Fatalf("relation members must follow source/member candidate identity, got %+v", got)
+	}
+	if len(got.SupportRefs) != 3 || strings.Contains(strings.Join(got.SupportRefs, ","), "a.go:11") {
+		t.Fatalf("parallel support refs must remain aligned to canonical members: %+v", got.SupportRefs)
+	}
+	if len(got.MemberNotes) != 3 || got.MemberNotes[1] != "first observation" {
+		t.Fatalf("parallel member notes must remain aligned to canonical members: %+v", got.MemberNotes)
+	}
+}
+
+func TestExactTypedRelationProjectionKeepsSameNameCandidatesFromDistinctFiles(t *testing.T) {
+	fact := types.AnswerAggregateFact{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "handlers",
+		Value: "2",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"Handle @ internal/a/handler.go:10",
+			"Handle @ internal/b/handler.go:20",
+		},
+		SupportRefs: []string{
+			"Handle @ internal/a/handler.go:10",
+			"Handle @ internal/b/handler.go:20",
+		},
+	}
+	candidates := []types.TypedRelationCandidate{
+		{
+			Relation: types.TypedRelationCalledBy, SourceName: "Dispatch",
+			Member:    types.TypedRelationMember{Name: "Handle", File: "internal/a/handler.go", Line: 10},
+			Precision: types.TypedRelationPrecisionExactSymbolID,
+		},
+		{
+			Relation: types.TypedRelationCalledBy, SourceName: "Dispatch",
+			Member:    types.TypedRelationMember{Name: "Handle", File: "internal/b/handler.go", Line: 20},
+			Precision: types.TypedRelationPrecisionExactSymbolID,
+		},
+	}
+
+	got, removed := canonicalizeExactTypedRelationFactMembers(fact, candidates)
+	if removed != 0 || len(got.Members) != 2 {
+		t.Fatalf("same-name candidates in distinct files are distinct typed identities: removed=%d fact=%+v", removed, got)
+	}
+}
+
+func TestExactTypedRelationProjectionFailsOpenOnSupportFileMismatch(t *testing.T) {
+	fact := types.AnswerAggregateFact{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "handlers",
+		Value: "2",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"Handle @ internal/a/handler.go:10",
+			"Handle @ internal/untyped/handler.go:20",
+		},
+		SupportRefs: []string{
+			"Handle @ internal/a/handler.go:10",
+			"Handle @ internal/untyped/handler.go:20",
+		},
+	}
+	candidates := []types.TypedRelationCandidate{{
+		Relation: types.TypedRelationCalledBy, SourceName: "Dispatch",
+		Member:    types.TypedRelationMember{Name: "Handle", File: "internal/a/handler.go", Line: 10},
+		Precision: types.TypedRelationPrecisionExactSymbolID,
+	}}
+
+	got, removed := canonicalizeExactTypedRelationFactMembers(fact, candidates)
+	if removed != 0 || len(got.Members) != 2 {
+		t.Fatalf("a same-name row anchored outside the typed candidate file must fail open: removed=%d fact=%+v", removed, got)
+	}
+}
+
 func TestEmitInvestigationCompleteHardRejectsExactAuxiliaryRelationPromotion(t *testing.T) {
 	bus := relationProjectionDriftBus()
 	fact := relationProjectionDriftFact("LoopController", "prodA", "prodB", "testStub")
