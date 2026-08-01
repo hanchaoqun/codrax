@@ -3919,6 +3919,92 @@ B18c 使用一条通用 typed 规则修复：
 
 状态：`implemented / full-tests-pass / cross-relation replay next`。
 
+### B26-OWN：Trace 精确信息与模型结论的职责边界回裁（2026-08-01）
+
+客户/人工 witness：
+`.codrax/output/20260801-142120.269-13967.html`。最终答案首段只有固定的
+“尚不能证明 + 两个维度”声明，随后堆叠系统表格，缺少丢帧根因综合、关键优化方向和
+可消除影响的结论性语言。对照同轮原始模型工件
+`.codrax/blob/20260801-141800-000-13967/tool-call_function_spdvrqqvd67s_1-emit_answer_document-params-16aa3155.json`
+确认：模型原本提交了 7 个块，包含总结、四跳唤醒依赖、根因排序、修向、代表窗和
+边界；持久化阶段在 `causal_conclusion=unproven` 下删除所有模型块，只保留系统生成的
+因果投影。此次“泛泛而谈”的直接原因不是模型没写，而是系统越权清空了模型推理。
+
+#### 破坏红线的提交责任链
+
+`git log -S` 与逐提交 diff 复核后的责任链如下（提交时间按原提交记录）：
+
+| commit | 时间 | 引入的越权行为 | 当前裁定 |
+|---|---|---|---|
+| `1491ff97d585194e8c4eade30c22e735553e45bf` | 2026-06-29 05:59 +08:00 | 首次把 Harmony priority typed 事实接成 persist-time 模型标题/正文/item/caveat 字符串改写 | 生产调用撤销；事实只进入 prompt/typed 系统明细 |
+| `5d91b433d8fd3b104a50421c28cf95f9d1708fdc` | 2026-07-10 18:30 +08:00 | 新增 priority-inversion 与 low-coverage 根因措辞扫描/替换；当系统表缺席位时还曾允许删除最后一个非系统块 | 三类 model-prose rewrite 的生产调用撤销；非系统块驱逐已由 `c60400844` 先行修成禁止，保留系统块让位/跳过逻辑 |
+| `cf6b31cc520a3a529fb33b892f8b96119ba267cd` | 2026-08-01 03:47 -07:00 | 新增 `materializeRuntimeTraceCausalConclusionBlock`，在 unproven 下删除全部模型块并生成系统 principal summary；本次客户答案退化的直接提交 | 整条 materializer、reserved ID、层级席位删除 |
+| `62ee975e955da2e2f45dc885ccaccacd4f12c634` | 2026-08-01 04:29 -07:00 | 新增 bounded-wait 系统 principal，同样过滤掉所有模型块 | 整条 materializer、reserved ID、层级席位删除 |
+
+其中 `cf6b31cc5` 与 `62ee975e9` 是“系统删除模型回答并自行替换”的两个直接破坏
+提交；`1491ff97d` 与 `5d91b433d` 是更早形成“持久化层可以改模型结论”错误方向的源头。
+修复不采用反向关键词表，而是在持久化 choke point 增加精确结构不变量：runtime-trace
+补充与层级整理前后，所有非 system-marker block 的完整 JSON wire 与相对顺序必须一致；
+否则本次 emit fail-loud，不允许悄悄发布被系统改写的答案。
+
+#### 红线裁定
+
+Trace 因果投影是“两路采集、一个确定性编译器”：
+
+1. 模型探索产生 accepted `trace_query` typed observations；
+2. 系统按请求范围、目标和覆盖缺口产生 deterministic `system_supplement` observations；
+3. 投影编译器把两路观测合并为根因席位、唤醒链、实际占用、可消除量、coverage 和
+   证据索引。
+
+系统只拥有第 3 步的精确信息与因果上限，不拥有用户可见的诊断结论。最终职责冻结为：
+
+- 系统可在成文前提供 typed 精确值、口径、候选与写作引导；
+- 系统可在成文后追加确定性因果投影/明细/边界作为审计面；
+- 模型必须自行综合“实际占时/新探索方向”和“现规则可消除/优先修复方向”，给出关键
+  优化建议；
+- 系统不得删除模型块、用系统 summary 替换模型 summary、扫描并改写模型结论措辞，
+  也不得让系统投影冒充最终诊断；
+- `causal_conclusion=unproven` 约束结论强度，但不等于删除推理。模型仍应给出“最值得先
+  验证的候选、理由和下一步”，只是不能宣称已经证明具体 frame/deadline 因果。
+
+#### GAP 与通用处置
+
+| ID | 级别 | GAP | 处置 |
+|---|---|---|---|
+| EVAL-B26-OWN1 | P0 | `materializeRuntimeTraceCausalConclusionBlock` 在 unproven 下删除全部模型块并生成系统主结论 | 删除整条 replacement materializer；模型块保持原字节/原顺序，投影作为后续 sibling 数据面 |
+| EVAL-B26-OWN2 | P0 | 窄事实 `materializeRuntimeTraceBoundedWaitConclusionBlock` 同样删除模型正文、由系统接管 summary | 删除 replacement materializer；完整 wait roster 继续作为系统精确明细追加 |
+| EVAL-B26-OWN3 | P0 | persist 链仍调用 priority-inversion、low-coverage、Harmony priority 三类 model-prose rewrite | 三类 production 调用全部撤销；精确 authority 与口径迁到 finalize prompt/系统明细，不再改模型字符串 |
+| EVAL-B26-OWN4 | P0 | 只删当前函数仍可能换名复发，过去没有“系统补充不得改变模型 block wire”的 choke-point 不变量 | persist 在 runtime trace 补充前后和 hierarchy 前后各做一次 system-marker 隔离的精确模型 block wire 校验；删除/替换/改字/调换模型块均 fail-loud |
+| EVAL-B26-SYNTH1 | P1 | finalizer 虽能看到大 ledger，但缺少一个高显著度、同源的双维度决策输入，模型容易只列证据或漏掉未计价占用 | 在 finalizer 成文前编译 `Trace Decision Inputs`：目标状态症状、选定唤醒路径、Axis A typed state/span 占用、Axis B 排名/有效归因/修向，并逐行保留 exploration/system-supplement 来源；明确模型拥有结论且必须总结方向 |
+
+`Trace Decision Inputs` 只进入 prompt，不生成用户可见 AnswerBlock，不参与 hard gate，
+不读取 RawRequest、case ID、模型 thinking/summary/final prose。Axis A 只收 typed
+state/semantic/business-span 时间，不把无底层状态的 priced composite 假装成真实占时；
+Axis B 只收正 `rank/effective_impact` 席位。跨行、跨修向、wall-clock 与 cpu·ms 继续禁止
+相加。多工件按 projection partition 分节，禁止跨 artifact 合成一个根因。
+
+看护强度回裁：模型所有权使用 hard structural invariant，因为输入是精确的
+`SystemGeneratedKind` 与完整 block wire；双维度综合只使用 soft prompt，不拒绝、不重试、
+不修改答案。prompt 复用 `RuntimeTraceReportMaterializationAllowed` 的同一 typed 权限：
+`bounded_fact_set` 即使探索偶然采到 causal row 也不注入；显式 typed time window 仍优先
+授权。提示内容按实际数据自适应：两轴都存在才要求比较两轴，只有一轴时只提示该轴并
+禁止虚构另一轴。测试只固定这组权限与 typed 值透传，不把客户线程名、case ID 或期望
+根因作为生产门控。
+
+不变量：显式时间窗的 Trace 因果投影、根因排序、唤醒链、代表窗、窗内可消除量、
+双维度占用表、coverage 和系统自动补齐全部保留；无窗有限事实仍不扩张为全量因果报告。
+
+验证：
+
+- `go test ./internal/agent -count=1`：通过（3.048s）；
+- `go test ./internal/tool -count=1`：通过（169.020s）；
+- 两条旧回归曾要求 persist 改写 low-coverage 根因句和 Harmony priority 正文，已反向
+  改为“模型 block wire 不变、typed 边界/事实以 sibling 系统面发布”。
+
+状态：`EVAL-B26-OWN1/2/3/4=implemented-full-tests-pass`；
+`EVAL-B26-SYNTH1=implemented-full-tests-pass`；下一步用同一显式窗 case 与一个无窗
+有限事实 case 严格并行 2 个回放。
+
 ### B24 r1：写模式通过，调用边方向权限缺失（2026-08-01）
 
 严格并行 2 个 case，机器均 PASS；人工结果为 1 PASS / 1 FAIL：

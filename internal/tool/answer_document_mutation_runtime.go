@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"regexp"
@@ -154,14 +155,15 @@ func persistMergedAnswerDocument(
 	if fixed := normalizeRuntimeTraceReservedBlockIDCollisions(merged); fixed > 0 {
 		logging.Warning("[%s] renamed %d model-authored runtime-trace reserved block id collision(s) before materialization", toolName, fixed)
 	}
+	// OWN4 red line: keep this snapshot immediately after the only permitted
+	// runtime namespace normalization. Every subsequent typed supplement may
+	// add system-marked siblings, but may not mutate the model-owned subsequence.
+	modelBlocksBeforeTrace, snapshotErr := modelOwnedAnswerBlockWire(merged)
+	if snapshotErr != nil {
+		return failEmit(toolName, now, "snapshot model-authored blocks before runtime trace supplementation: %v", snapshotErr)
+	}
 	if materializeCurrentSourceNegativeScopeAuthority(merged, ctx) {
 		logging.Info("[%s] materialized typed current-source negative-search scope authority", toolName)
-	}
-	if fixed := normalizePriorityInversionCandidateAnswerSurface(merged, ctx); fixed > 0 {
-		logging.Warning("[%s] repaired %d priority-inversion claim(s) to typed authority-calibrated wording before persist", toolName, fixed)
-	}
-	if fixed := normalizeRuntimeTraceLowCoverageRootCauseSurface(merged, ctx); fixed > 0 {
-		logging.Warning("[%s] weakened %d whole-frame root-cause claim(s) to low-coverage candidate wording before persist", toolName, fixed)
 	}
 	if materializeRuntimeTraceArithmeticRelationCaveat(merged, ctx) {
 		logging.Info("[%s] materialized runtime trace arithmetic relation caveat without rewriting model prose", toolName)
@@ -178,9 +180,6 @@ func persistMergedAnswerDocument(
 	if materializeRuntimeTraceTargetStateAuthorityBlock(merged, ctx) {
 		logging.Info("[%s] materialized typed target-thread state and wait-occurrence authority", toolName)
 	}
-	if materializeRuntimeTraceBoundedWaitConclusionBlock(merged, ctx) {
-		logging.Info("[%s] replaced narrow model scheduler prose with typed target-wait conclusion", toolName)
-	}
 	if materializeRuntimeTraceBlockedReasonCensusCaliberCaveat(merged, ctx) {
 		logging.Info("[%s] materialized typed blocked-reason census caliber caveat", toolName)
 	}
@@ -189,9 +188,6 @@ func persistMergedAnswerDocument(
 	}
 	if materializeRuntimeTraceCausalProjectionBlock(merged, ctx) {
 		logging.Info("[%s] materialized runtime trace causal projection from structured trace observations", toolName)
-	}
-	if materializeRuntimeTraceCausalConclusionBlock(merged, ctx) {
-		logging.Info("[%s] replaced model principal causal claims with typed runtime causal conclusion authority", toolName)
 	}
 	if materializeRuntimeTraceSemanticOptimizationBlock(merged, ctx) {
 		logging.Info("[%s] materialized runtime trace deterministic optimization points from typed semantic spans", toolName)
@@ -205,14 +201,14 @@ func persistMergedAnswerDocument(
 	if materializeRuntimeTracePerfQualityBlock(merged, ctx) {
 		logging.Info("[%s] materialized runtime trace perf quality block from structured observation notes", toolName)
 	}
-	if fixed := normalizeHarmonyPriorityAnswerSurface(merged, ctx); fixed > 0 {
-		logging.Warning("[%s] repaired %d Harmony priority class surface(s) from typed prio/class facts", toolName, fixed)
-	}
 	if materializeRuntimeTraceObservationBlock(merged, ctx) {
 		logging.Info("[%s] materialized runtime trace observation block from structured perf facts", toolName)
 	}
 	if materializeRuntimeTraceSupplementDisclosureCaveat(merged, ctx) {
 		logging.Info("[%s] stamped the system trace supplement disclosure caveat (SUPP-CORE single-line provenance)", toolName)
+	}
+	if err := requireModelOwnedAnswerBlockWirePreserved(modelBlocksBeforeTrace, merged); err != nil {
+		return failEmit(toolName, now, "runtime trace supplementation violated model-answer ownership: %v", err)
 	}
 	normalizeAnswerDocumentRowsBeforePersist(toolName, ctx, merged)
 	if stamped := stampReadOwnerAnchorsFromTurnA(ctx, merged); stamped > 0 {
@@ -227,11 +223,15 @@ func persistMergedAnswerDocument(
 	if stampReadReasoningGraph(ctx, merged) {
 		logging.Info("[%s] stamped read reasoning graph summary from typed read artifacts", toolName)
 	}
-	if fixed := normalizeHarmonyPriorityAnswerSurface(merged, ctx); fixed > 0 {
-		logging.Warning("[%s] repaired %d late Harmony priority class surface(s) from typed prio/class facts", toolName, fixed)
+	modelBlocksBeforeHierarchy, snapshotErr := modelOwnedAnswerBlockWire(merged)
+	if snapshotErr != nil {
+		return failEmit(toolName, now, "snapshot model-authored blocks before runtime trace hierarchy: %v", snapshotErr)
 	}
 	if moved := normalizeRuntimeTraceReportHierarchy(merged); moved > 0 {
 		logging.Info("[%s] reordered %d runtime trace report block(s) into decision-first hierarchy", toolName, moved)
+	}
+	if err := requireModelOwnedAnswerBlockWirePreserved(modelBlocksBeforeHierarchy, merged); err != nil {
+		return failEmit(toolName, now, "runtime trace hierarchy violated model-answer ownership: %v", err)
 	}
 	if deduped := dedupeVisibleAnswerBlocks(merged); deduped > 0 {
 		logging.Warning("[%s] dropped %d duplicate visible answer block(s) before persist", toolName, deduped)
@@ -299,6 +299,46 @@ func persistMergedAnswerDocument(
 			summarizeV2Blocks(merged.Blocks)),
 		Timestamp: now,
 	}, nil
+}
+
+// modelOwnedAnswerBlockWire snapshots the exact serialized model-owned block
+// subsequence. Runtime-trace supplementation may append system-authenticated
+// fact/caliber/projection blocks around that subsequence, but it must never
+// delete, replace, rewrite, or reorder the model's answer. The system marker is
+// in-memory authority (json:"-"); an unmarked block is therefore always model
+// owned even when its ID resembles a reserved system ID.
+func modelOwnedAnswerBlockWire(doc *types.AnswerDocumentV2) ([]string, error) {
+	if doc == nil {
+		return nil, nil
+	}
+	out := make([]string, 0, len(doc.Blocks))
+	for _, block := range doc.Blocks {
+		if block.SystemGeneratedKind != "" {
+			continue
+		}
+		raw, err := json.Marshal(block)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, string(raw))
+	}
+	return out, nil
+}
+
+func requireModelOwnedAnswerBlockWirePreserved(before []string, doc *types.AnswerDocumentV2) error {
+	after, err := modelOwnedAnswerBlockWire(doc)
+	if err != nil {
+		return err
+	}
+	if len(before) != len(after) {
+		return fmt.Errorf("model block count changed from %d to %d", len(before), len(after))
+	}
+	for i := range before {
+		if before[i] != after[i] {
+			return fmt.Errorf("model block %d changed", i+1)
+		}
+	}
+	return nil
 }
 
 func normalizeAnswerDocumentRowsBeforePersist(toolName string, ctx *types.BusContext, doc *types.AnswerDocumentV2) {
@@ -798,7 +838,6 @@ const (
 	runtimeTraceCausalProjectionBlockIDBase     = "runtime_trace_causal_projection"
 	runtimeTraceCausalProjectionCompareBlockID  = runtimeTraceCausalProjectionBlockIDBase + "_compare"
 	runtimeArtifactPairRelationAuthorityBlockID = "runtime_artifact_pair_relation_authority"
-	runtimeTraceCausalConclusionBlockID         = "runtime_trace_causal_conclusion"
 	// runtimeTraceCausalProjectionCompareNotesBlockID (PTV8-LAD L6, 2026-07-08)
 	// is the overview's 对比注记明细 sibling — emitted ONLY when the layered
 	// table notes fold past the visible cap (the full set must stay reachable
@@ -893,8 +932,6 @@ func RuntimeTraceSystemBlockID(id string) bool {
 		"runtime_trace_semantic_optimizations",
 		"runtime_trace_metric_snapshot",
 		"runtime_trace_perf_quality",
-		runtimeTraceCausalConclusionBlockID,
-		runtimeTraceBoundedWaitConclusionBlockID,
 		runtimeTraceFrequencyAuthorityBlockID,
 		runtimeTraceBlockingCoverageAuthorityBlockID,
 		runtimeTraceTargetStateAuthorityBlockID,
@@ -1299,84 +1336,6 @@ func materializeRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2, c
 	doc.Blocks = append(doc.Blocks[:insertAt], cluster...)
 	doc.Blocks = append(doc.Blocks, tail...)
 	return true
-}
-
-// materializeRuntimeTraceCausalConclusionBlock makes the typed causal ceiling
-// the actual lead conclusion instead of a footer that can contradict the
-// model's principal prose. It is intentionally structural: activation reads
-// TraceEvidenceAuthority, and replacement reads only block role/kind plus the
-// unforgeable system marker. It never searches or rewrites user/model text.
-//
-// The deterministic projection remains lossless. Once a system projection
-// lead exists, the typed unproven ceiling owns the whole published report:
-// model-owned blocks are excluded structurally, regardless of their prose.
-// Keeping only model "supporting" blocks is unsafe because a timeline or
-// caveat can still promote a candidate into a definite cause. The system
-// cluster already carries both analysis axes, ranked candidates, wakeup
-// relationships, representative windows, details, evidence, and supplements.
-func materializeRuntimeTraceCausalConclusionBlock(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {
-	if doc == nil || ctx == nil || !runtimeTraceFullReportMaterializationAllowed(ctx) {
-		return false
-	}
-	for _, block := range doc.Blocks {
-		if RuntimeTraceSystemBlock(block) && strings.TrimSpace(block.ID) == runtimeTraceCausalConclusionBlockID {
-			return false
-		}
-	}
-	input := types.ObservationLedgerInputFromBusContext(ctx, types.ObservationExtractLedgerEvidenceLimit)
-	authority := runtimeTraceCoverageAuthority(input)
-	if !authority.causalUnproven || !answerDocumentHasRuntimeTracePublicationLead(doc) {
-		return false
-	}
-	zh := runtimeTraceCausalProjectionUseChinese(requestedAnswerDocumentLanguage(ctx))
-	text := "The current trace confirms scheduling, IO, frequency, and dependency candidates inside the selected window, but typed causal authority does not prove a definite root-cause mechanism. The report therefore keeps two independent axes: major occupancy/critical-path candidates for discovering new optimization directions, and in-window eliminable estimates for prioritizing repairs under existing rules. Candidate rank and eliminable magnitude are not a causality verdict."
-	if authority.frameUnproven || authority.frameFlowUnproven {
-		text = "The current trace confirms scheduling, IO, frequency, and dependency candidates inside the selected window, but it does not prove that any candidate caused the target frame to stall or drop: no evidence binds those candidates to the target frame/deadline outcome. The report therefore keeps two independent axes: major occupancy/critical-path candidates for discovering new optimization directions, and in-window eliminable estimates for prioritizing repairs under existing rules. Candidate rank and eliminable magnitude are not a frame-causality verdict."
-	}
-	if zh {
-		text = "当前 trace 只能确认所选窗口内的调度、IO、频率与依赖链候选，现有因果证据尚不能证明确定根因机理。下面保留两个独立维度：一是主要时间占用/关键路径候选，用于发现新的优化方向；二是窗内可消除量，按既有规则估算并排序优先验证的修复候选。候选排序和可消除量都不是因果裁定。"
-		if authority.frameUnproven || authority.frameFlowUnproven {
-			text = "当前 trace 只能确认所选窗口内的调度、IO、频率与依赖链候选，尚不能证明其中任何一项导致了目标帧卡顿或丢帧：现有证据没有把这些候选绑定到目标 frame/deadline 结果。下面保留两个独立维度：一是主要时间占用/关键路径候选，用于发现新的优化方向；二是窗内可消除量，按既有规则估算并排序优先验证的修复候选。候选排序和可消除量都不是帧因果裁定。"
-		}
-	}
-	conclusion := types.AnswerBlock{
-		ID:                  runtimeTraceCausalConclusionBlockID,
-		Kind:                types.BlockSummary,
-		Text:                text,
-		SurfaceRole:         types.SurfacePrincipal,
-		ClaimUses:           []types.RenderedClaimUse{{ClaimForm: types.ClaimExternalObservation}},
-		FacetIDs:            []string{"observed_artifact_fact", "uncertainty_boundary"},
-		SystemGeneratedKind: types.AnswerSystemGeneratedRuntimeTrace,
-	}
-	out := make([]types.AnswerBlock, 0, len(doc.Blocks)+1)
-	out = append(out, conclusion)
-	for _, block := range doc.Blocks {
-		if !RuntimeTraceSystemBlock(block) {
-			continue
-		}
-		out = append(out, block)
-	}
-	doc.Blocks = out
-	return true
-}
-
-func answerDocumentHasRuntimeTracePublicationLead(doc *types.AnswerDocumentV2) bool {
-	if doc == nil {
-		return false
-	}
-	for _, block := range doc.Blocks {
-		if !RuntimeTraceSystemBlock(block) {
-			continue
-		}
-		id := strings.TrimSpace(block.ID)
-		if id == runtimeTraceCausalProjectionBlockIDBase {
-			return true
-		}
-		if runtimeTraceCausalProjectionStandaloneLeadBlockID(id) && id != runtimeTraceCausalProjectionCoverageBlockID {
-			return true
-		}
-	}
-	return false
 }
 
 // runtimeTraceCausalProjectionCluster builds the presentation v3 block cluster
@@ -9165,8 +9124,6 @@ func runtimeTraceReportHierarchyTier(block types.AnswerBlock) int {
 	id := strings.TrimSpace(block.ID)
 	if block.SystemGeneratedKind.IsRuntimeTraceSupplement() {
 		switch {
-		case id == runtimeTraceCausalConclusionBlockID || id == runtimeTraceBoundedWaitConclusionBlockID:
-			return 0
 		case id == runtimeTraceFrequencyAuthorityBlockID ||
 			id == runtimeTraceBlockingCoverageAuthorityBlockID ||
 			id == runtimeTraceTargetStateAuthorityBlockID ||

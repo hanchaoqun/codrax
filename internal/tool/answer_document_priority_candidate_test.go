@@ -10,7 +10,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-func TestPriorityInversionCandidateTypedGateKeepsFinalWordingCandidate(t *testing.T) {
+func TestPriorityInversionTypedAuthorityDoesNotRewriteModelConclusionAtPersist(t *testing.T) {
 	bus := newBusForMutationTest()
 	bus.ToolResults = []types.ToolResult{{
 		ToolName: "trace_query",
@@ -61,28 +61,21 @@ func TestPriorityInversionCandidateTypedGateKeepsFinalWordingCandidate(t *testin
 		t.Fatalf("marshal observations after persist: %v", err)
 	}
 	if string(observationsAfter) != string(observationsBefore) {
-		t.Fatalf("wording repair must not mutate rank/tier/impact observation wire:\nbefore=%s\nafter=%s", observationsBefore, observationsAfter)
+		t.Fatalf("persistence must not mutate rank/tier/impact observation wire:\nbefore=%s\nafter=%s", observationsBefore, observationsAfter)
 	}
 	visible := answerDocumentVisibleSurfaceForRuntimeTrace(got)
 	for _, want := range []string{
-		"存在优先级反转候选（lower_priority_waker）",
-		"优先级反转候选：低优先级唤醒者",
-		"There is a priority-inversion candidate on this lower_priority_waker edge.",
+		"存在优先级反转（lower_priority_waker）",
+		"优先级反转：低优先级唤醒者",
+		"There is a priority inversion on this lower_priority_waker edge.",
 		"存在优先级反转候选（typed）",
 	} {
 		if !strings.Contains(visible, want) {
-			t.Fatalf("final surface missing candidate-bounded wording %q:\n%s", want, visible)
+			t.Fatalf("persist-time system changed or dropped model wording %q:\n%s", want, visible)
 		}
 	}
-	for _, forbidden := range []string{
-		"存在优先级反转（",
-		"优先级反转：低优先级",
-		"There is a priority inversion",
-		"候选候选",
-	} {
-		if strings.Contains(visible, forbidden) {
-			t.Fatalf("final surface retained/created forbidden wording %q:\n%s", forbidden, visible)
-		}
+	if strings.Contains(visible, "候选候选") {
+		t.Fatalf("final surface created duplicated candidate wording:\n%s", visible)
 	}
 }
 

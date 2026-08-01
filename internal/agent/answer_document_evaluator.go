@@ -548,6 +548,16 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}) {
 		return b.String()
 	}
+	// TRACE-MODEL-OWNERSHIP: the deterministic projection is already complete
+	// at this point (exploration + system supplement). Give its compact
+	// decision inputs to the finalizer before the larger ledger view so the
+	// model can synthesize the conclusion itself. This section is prompt-only;
+	// persistence must never replace or rewrite model reasoning from it.
+	if !trace.appendSection(&b, "runtime_trace_decision_handoff", func() string {
+		return renderAnswerDocTraceDecisionHandoff(ctx)
+	}) {
+		return b.String()
+	}
 	if !trace.appendSection(&b, "observation_ledger", func() string {
 		return renderAnswerDocObservationLedger(ctx)
 	}) {
@@ -8206,6 +8216,9 @@ type runtimeTraceGuidanceView struct {
 	// causal_conclusion=unproven. Precise trigger, soft effect: it only adds
 	// one composition directive; nothing blocks, retries, or rewrites.
 	CausalUnproven bool
+	// FrameEvidenceStatus carries only the closed typed absent/unavailable
+	// caliber. It is prompt guidance; no answer-text check or mutation reads it.
+	FrameEvidenceStatus string
 	// FrameFlowUnproven is narrower than CausalUnproven: frame spans exist,
 	// but trace_query only related them by sorted temporal adjacency. These
 	// fields drive soft composition guidance and never inspect or gate model
@@ -8256,6 +8269,12 @@ func answerDocRuntimeTraceGuidanceView(ctx *types.AgentContext) runtimeTraceGuid
 		}
 		if strings.TrimSpace(result.TraceEvidenceAuthority.CausalConclusion) == "unproven" {
 			view.CausalUnproven = true
+		}
+		status := strings.TrimSpace(result.TraceEvidenceAuthority.FrameEvidenceStatus)
+		if status == "absent" || status == "unavailable" {
+			if view.FrameEvidenceStatus == "" || status == "unavailable" {
+				view.FrameEvidenceStatus = status
+			}
 		}
 		if strings.TrimSpace(result.TraceEvidenceAuthority.FrameFlowCausalConclusion) == "unproven" {
 			view.RuntimeTrace = true

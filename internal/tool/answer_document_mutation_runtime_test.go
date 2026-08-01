@@ -50,7 +50,7 @@ func TestApplyAndPersistMutation_ReplaceAllPersistsDocAndClearsPatchFlag(t *test
 	}
 }
 
-func TestApplyAndPersistMutation_UpgradesLegacyHarmonyPriorityRuleAndNormalizesClassSurface(t *testing.T) {
+func TestApplyAndPersistMutation_PublishesHarmonyPriorityFactsWithoutRewritingModelSurface(t *testing.T) {
 	bus := newBusForMutationTest()
 	bus.Mutable.SetPerfTrace(&types.PerfBundle{
 		Meta: types.PerfMeta{Source: "hitrace"},
@@ -85,6 +85,10 @@ func TestApplyAndPersistMutation_UpgradesLegacyHarmonyPriorityRuleAndNormalizesC
 			Text: "| 线程 | 优先级值 | 调度类 |\n|---|---|---|\n| rcu_preempt | prio=98/ohos_cfs | ohos_cfs（CFS） |",
 		}},
 	}
+	wantModelWire, err := modelOwnedAnswerBlockWire(doc)
+	if err != nil {
+		t.Fatalf("snapshot model blocks: %v", err)
+	}
 
 	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
 	if err != nil {
@@ -94,37 +98,16 @@ func TestApplyAndPersistMutation_UpgradesLegacyHarmonyPriorityRuleAndNormalizesC
 		t.Fatalf("expected mutation success, got %+v", res)
 	}
 	stored := bus.Mutable.AnswerDocumentV2()
-	priority := (*types.AnswerBlock)(nil)
-	if stored != nil {
-		priority = projectionClusterBlock(stored.Blocks, "prio")
+	if stored == nil {
+		t.Fatal("stored answer missing")
 	}
-	if priority == nil || len(priority.Items) < 2 {
-		t.Fatalf("stored answer missing priority rows: %+v", stored)
+	if err := requireModelOwnedAnswerBlockWirePreserved(wantModelWire, stored); err != nil {
+		t.Fatalf("Harmony priority authority changed the model answer: %v", err)
 	}
-	if got := priority.Items[0].Text; !strings.Contains(got, "属于 RT 区间（41-159）") || strings.Contains(got, "属于 CFS 区间（1-40）") {
-		t.Fatalf("prio=98/ohos_rt row was not normalized from typed class: %q", got)
-	}
-	if got := stored.Blocks[0].Text; !strings.Contains(got, "1-40=CFS, 41-159=RT") || !strings.Contains(got, ">159=system_or_kernel/raw") {
-		t.Fatalf("legacy priority rule should be upgraded to the current Harmony boundary: %q", got)
-	}
-	if got := stored.Blocks[0].Text; !strings.Contains(got, "处于 RT 类（prio=98）") || strings.Contains(got, "处于 CFS 类（prio=98）") {
-		t.Fatalf("bare prio=98 summary class should be normalized from typed map while preserving rule text: %q", got)
-	}
-	if got := stored.Blocks[0].Text; !strings.Contains(got, "prio=98（RT，rcu_preempt）") || strings.Contains(got, "prio=98（CFS，rcu_preempt）") {
-		t.Fatalf("paren class after bare prio should be normalized from typed map: %q", got)
-	}
-	if got := stored.Blocks[0].Text; !strings.Contains(got, "prio=98 落入 RT 41-159 波段") || strings.Contains(got, "prio=98 落入 CFS 1–40 波段") {
-		t.Fatalf("class/range phrase after bare prio should be normalized from typed map: %q", got)
-	}
-	if got := priority.Items[1].Text; !strings.Contains(got, "RT 区间（41-159）") {
-		t.Fatalf("legacy RT range should be upgraded: %q", got)
-	}
-	table := projectionClusterBlock(stored.Blocks, "table")
-	if table == nil {
-		t.Fatalf("stored answer missing priority table: %+v", stored)
-	}
-	if got := table.Text; !strings.Contains(got, "prio=98/ohos_rt") || !strings.Contains(got, "ohos_rt（RT）") || strings.Contains(got, "ohos_cfs") {
-		t.Fatalf("table row should be normalized from typed priority map: %q", got)
+	facts := projectionClusterBlock(stored.Blocks, "runtime_trace_facts")
+	if facts == nil || !RuntimeTraceSystemBlock(*facts) ||
+		!strings.Contains(types.AnswerBlockVisibleSurface(*facts), "prio=98/ohos_rt") {
+		t.Fatalf("typed Harmony priority facts were not published on a sibling system surface: %+v", stored.Blocks)
 	}
 }
 

@@ -227,7 +227,7 @@ func TestLowCoverageIncomparableTypedShapesDoNotWeaken(t *testing.T) {
 	}
 }
 
-func TestLowCoveragePersistPipelineUsesCompiledProjectionVerdict(t *testing.T) {
+func TestLowCoveragePersistPipelinePublishesBoundaryWithoutRewritingModelConclusion(t *testing.T) {
 	bus := newBusForMutationTest()
 	bus.ToolResults = []types.ToolResult{{
 		ToolName: "trace_query", Success: true,
@@ -249,6 +249,10 @@ func TestLowCoveragePersistPipelineUsesCompiledProjectionVerdict(t *testing.T) {
 	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
 		ID: "model-summary", Kind: types.BlockSummary, Text: "shadowhook-task线程是整帧核心原因。",
 	}}}
+	wantModelWire, err := modelOwnedAnswerBlockWire(doc)
+	if err != nil {
+		t.Fatalf("snapshot model blocks: %v", err)
+	}
 	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
 	if err != nil || !res.Success {
 		t.Fatalf("persist: err=%v success=%v summary=%s", err, res.Success, res.Summary)
@@ -257,14 +261,11 @@ func TestLowCoveragePersistPipelineUsesCompiledProjectionVerdict(t *testing.T) {
 	if got == nil {
 		t.Fatal("missing persisted document")
 	}
-	for _, block := range got.Blocks {
-		if block.ID != "model-summary" {
-			continue
-		}
-		if block.Text != "shadowhook-task线程是当前已解释部分中最大候选。" {
-			t.Fatalf("persist hook did not consume the compiled low-coverage verdict: %q", block.Text)
-		}
-		return
+	if err := requireModelOwnedAnswerBlockWirePreserved(wantModelWire, got); err != nil {
+		t.Fatalf("typed low-coverage authority changed the model answer: %v", err)
 	}
-	t.Fatalf("model block missing after persist: %+v", got.Blocks)
+	projection := projectionClusterBlock(got.Blocks, runtimeTraceCausalProjectionBlockIDBase)
+	if projection == nil || !RuntimeTraceSystemBlock(*projection) {
+		t.Fatalf("typed low-coverage projection boundary was not published as a sibling system block: %+v", got.Blocks)
+	}
 }

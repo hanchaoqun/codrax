@@ -9,7 +9,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-func TestTypedUnprovenCausalityOwnsPrincipalConclusionWithoutProseScan(t *testing.T) {
+func TestTypedUnprovenCausalityPreservesModelConclusionAndAddsProjection(t *testing.T) {
 	ctx := traceAuthorityWiringContext("zh")
 	result := tracequery.Result{
 		View:       "root_cause_rank",
@@ -51,6 +51,10 @@ func TestTypedUnprovenCausalityOwnsPrincipalConclusionWithoutProseScan(t *testin
 			{ID: "model_timeline", Kind: types.BlockSection, Title: "timeline", Text: "keep this bounded context"},
 		},
 	}
+	wantModelWire, err := modelOwnedAnswerBlockWire(doc)
+	if err != nil {
+		t.Fatalf("snapshot model blocks: %v", err)
+	}
 	res, err := ApplyAndPersistMutation(ctx, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
 	if err != nil || !res.Success {
 		t.Fatalf("persist failed: result=%+v err=%v", res, err)
@@ -59,23 +63,18 @@ func TestTypedUnprovenCausalityOwnsPrincipalConclusionWithoutProseScan(t *testin
 	if persisted == nil || len(persisted.Blocks) == 0 {
 		t.Fatal("persisted document missing")
 	}
+	if err := requireModelOwnedAnswerBlockWirePreserved(wantModelWire, persisted); err != nil {
+		t.Fatalf("runtime trace system changed the model block wire: %v", err)
+	}
 	lead := persisted.Blocks[0]
-	if lead.ID != runtimeTraceCausalConclusionBlockID || !RuntimeTraceSystemBlock(lead) ||
-		lead.SurfaceRole != types.SurfacePrincipal {
-		t.Fatalf("typed causal conclusion did not own the lead: %+v", lead)
+	if lead.ID != "model_summary" || lead.Text != "arbitrary model overclaim" ||
+		lead.SurfaceRole != types.SurfacePrincipal || RuntimeTraceSystemBlock(lead) {
+		t.Fatalf("system must not replace the model-authored conclusion: %+v", lead)
 	}
-	for _, want := range []string{"尚不能证明", "两个独立维度", "主要时间占用/关键路径候选", "窗内可消除量", "不是帧因果裁定"} {
-		if !strings.Contains(lead.Text, want) {
-			t.Fatalf("typed lead missing %q:\n%s", want, lead.Text)
+	for _, wantID := range []string{"model_summary", "model_chain", "model_timeline"} {
+		if block := projectionClusterBlock(persisted.Blocks, wantID); block == nil {
+			t.Fatalf("model-owned reasoning block %q was deleted under an unproven ceiling", wantID)
 		}
-	}
-	for _, forbiddenID := range []string{"model_summary", "model_chain"} {
-		if block := projectionClusterBlock(persisted.Blocks, forbiddenID); block != nil {
-			t.Fatalf("model-owned principal block survived typed replacement: %+v", block)
-		}
-	}
-	if projectionClusterBlock(persisted.Blocks, "model_timeline") != nil {
-		t.Fatal("model-owned supporting prose must not survive an unproven typed causal ceiling")
 	}
 	projection := projectionClusterBlock(persisted.Blocks, runtimeTraceCausalProjectionBlockIDBase)
 	if projection == nil || !strings.Contains(projection.Text, "首要可消除候选(不等于已证帧因果)") ||
@@ -107,7 +106,7 @@ func TestTypedUnprovenCausalityOwnsPrincipalConclusionWithoutProseScan(t *testin
 	}
 }
 
-func TestBoundedTypedCausalityDoesNotReplaceModelPrincipal(t *testing.T) {
+func TestBoundedTypedCausalityKeepsModelPrincipal(t *testing.T) {
 	ctx := traceAuthorityWiringContext("en")
 	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
 		ToolName: "trace_query",
@@ -121,10 +120,10 @@ func TestBoundedTypedCausalityDoesNotReplaceModelPrincipal(t *testing.T) {
 	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
 		ID: "model_summary", Kind: types.BlockSummary, SurfaceRole: types.SurfacePrincipal, Text: "keep model principal",
 	}}}
-	if materializeRuntimeTraceCausalConclusionBlock(doc, ctx) {
-		t.Fatal("positive/bounded typed causality must not synthesize an unproven conclusion")
-	}
+	// No post-model causal conclusion materializer exists: both unproven and
+	// bounded lanes leave synthesis to the finalizer model. Deterministic trace
+	// projection remains a sibling evidence surface.
 	if len(doc.Blocks) != 1 || doc.Blocks[0].ID != "model_summary" {
-		t.Fatalf("model principal changed without unproven authority: %+v", doc.Blocks)
+		t.Fatalf("model principal changed: %+v", doc.Blocks)
 	}
 }
