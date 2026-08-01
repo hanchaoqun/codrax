@@ -5126,6 +5126,32 @@ gate；日志与 VCS 坐标继续分席，route 元数据只决定证据义务�
 - `eval/parallel_selected_summary_evalcampaign_b21r1_20260801_manual_audit.md`；
 - 结果目录时间戳 `20260801-053446`。
 
+#### B21-A：route-backed history/current-code authority
+
+`EVAL-B21-MIX1` 已按双 producer 合取施工：
+
+1. 新 carrier `route_backed_history_explanation` 不存 route reason、请求 quote、
+   dimension label 或模型 prose，只记录 typed obligation kind；
+2. 铸造条件同时要求 router 的闭集枚举 `current_source=required`，以及 analyzer 的
+   `history lookup + explain/trace + architecture_explain`；scalar、role lookup、count、
+   relation、diagnostic、enumerate、change-impact、field/runtime value、diagram 和多 bucket
+   全部排除；
+3. `IsHistoryBackedCurrentCodeExplanation` 在旧 `ReqHistory` 纯历史 carve 之前消费该
+   carrier。普通纯历史、optional route 和单一 commit 标量保持原行为；
+4. 生产接线测试从 `EmitAnalysis.Execute` 输入 route hint 与 analyzer payload，固定
+   signal 铸造、summary 计数和 mixed predicate 三个端点，避免只有 helper 测试而挂点
+   可删除；
+5. 该 carrier 只恢复证据义务和答案形状，不成为 VCS/current-source 事实，不生成
+   citation，也不改写已有答案。
+
+验证：`go test ./internal/types ./internal/tool -count=1` 全包通过（types 21.064s、
+tool 159.840s）；新增生产接线/类型专项通过；`go test ./internal/agent
+./internal/orchestrator -count=1` 通过（2.754s/12.900s）；`git diff --check` 通过。
+
+状态：`EVAL-B21-MIX1=implemented/full-tests-pass/replay-with-B21-B`。不单独消耗一次
+模型回放；先补 VCS typed changed-path carrier，再用同一 Git case 验证两项，避免在
+同一题面连续拟合。
+
 ### B19g-b r1：target authority 通过，有限事实集仍被扩张（2026-08-01）
 
 同一二进制快照下严格并行 2 个 Trace case，runner 均 PASS，人工均 FAIL：

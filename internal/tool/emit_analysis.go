@@ -1788,6 +1788,20 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		CompletenessObligation:          completenessObligation,
 		Buckets:                         buckets,
 	}
+	routeHint := types.TurnRouteHint{}
+	if ctx != nil {
+		routeHint = ctx.TurnRouteHint
+	}
+	if types.RouteBackedHistoryCurrentCodeExplanation(rm, routeHint) &&
+		!rm.HasCurrentSourceObligationSignal() {
+		rm.CurrentSourceObligationSignals = append(rm.CurrentSourceObligationSignals,
+			types.CurrentSourceObligationSignal{
+				Kind: types.CurrentSourceObligationSignalRouteBackedHistoryExplanation,
+			})
+		warning := "route-backed history/current-code obligation preserved after optional analyzer profile omission"
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
 	projectRuntimeArtifactPathHintsFromRawRequest(&rm, raw)
 	attachRuntimeArtifactsToRequestModel(ctx, &rm)
 	if types.ErrorGranularityConflictsWithDiagnosticMechanism(rm) {

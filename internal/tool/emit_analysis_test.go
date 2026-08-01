@@ -963,6 +963,72 @@ func TestEmitAnalysis_CurrentSourceExplanationProfileSoftProfile(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysis_RouteBackedHistoryExplanationPreservesMixedLane(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	mu := types.NewMutableState("latest integration feature with current implementation impact")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		TurnRouteHint: types.TurnRouteHint{
+			Route:                     "repo",
+			Source:                    "repo",
+			NeedsRepoAccess:           true,
+			CurrentSourceEvidenceMode: types.TurnRouteCurrentSourceEvidenceRequired,
+		},
+	}
+	payload := json.RawMessage(`{
+		"intent":"explain",
+		"scenario":"architecture_explain",
+		"complexity":"complex",
+		"keywords":["git","merge","implementation","impact"],
+		"entities":[],
+		"question_kind":"history",
+		"intent_confidence":0.9,
+		"complexity_confidence":0.9,
+		"kind_confidence":0.9,
+		"predicates":{
+			"is_scalar_answer":false,
+			"is_role_locate_lookup":false,
+			"is_count_question":false,
+			"is_cross_component":false,
+			"is_relational_lookup":false,
+			"is_category_enumeration":false,
+			"is_history_lookup":true,
+			"is_diagnostic_question":false,
+			"has_per_member_table":false
+		},
+		"diagnostic_profile":{
+			"is_diagnostic":false,
+			"current_risk":false,
+			"historical_regression":false,
+			"current_version_check":false,
+			"confidence":0.9
+		},
+		"answer_role_profile":{"is_role_binding_requested":false,"confidence":0.9},
+		"error_granularity_profile":{"is_granularity_question":false,"confidence":0.9},
+		"runtime_artifact_scope_profile":{"requested_scope":"not_applicable","confidence":0.9},
+		"runtime_target_profile":{"declaration":"not_applicable","confidence":0.9},
+		"runtime_question_profile":{"scope":"not_applicable","confidence":0.9}
+	}`)
+	res, err := (&EmitAnalysis{}).Execute(ctx, payload)
+	if err != nil || !res.Success {
+		t.Fatalf("Execute err=%v result=%+v", err, res)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || len(rm.CurrentSourceObligationSignals) != 1 ||
+		rm.CurrentSourceObligationSignals[0].Kind != types.CurrentSourceObligationSignalRouteBackedHistoryExplanation {
+		t.Fatalf("route-backed history obligation not minted: %+v", rm)
+	}
+	if !types.IsHistoryBackedCurrentCodeExplanation(*rm) {
+		t.Fatal("production emit path must recover mixed history/current-code authority")
+	}
+	if !strings.Contains(res.Summary, "current_source_obligation_signals=1") {
+		t.Fatalf("typed signal count missing from result summary: %q", res.Summary)
+	}
+}
+
 func TestEmitAnalysis_CurrentSourceExplanationProfileMissingFieldsSoftDrops(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

@@ -670,6 +670,14 @@ func IsHistoryBackedCurrentCodeExplanation(rm RequestModel) bool {
 	if historyHasRequiredDiffCurrentCodeDimensionPair(rm) {
 		return true
 	}
+	// The route-backed carrier is minted only when the router independently
+	// required current-checkout evidence and the analyzer emitted the bounded
+	// non-scalar history+architecture shape. Consume that typed agreement before
+	// the ReqHistory pure-history carve-out below; no route rationale, request
+	// text, dimension label, or answer prose participates here.
+	if rm.HasCurrentSourceObligationSignal() {
+		return true
+	}
 	if rm.CurrentSourceExplanationProfile != nil &&
 		rm.CurrentSourceExplanationProfile.Active() {
 		return true
@@ -691,6 +699,41 @@ func IsHistoryBackedCurrentCodeExplanation(rm RequestModel) bool {
 	default:
 		return false
 	}
+}
+
+// RouteBackedHistoryCurrentCodeExplanation reports whether two independent
+// typed classifiers agree that a history request also requires current-source
+// explanation. The result is answer-shape authority only: it does not prove a
+// repository fact and must never be rendered as evidence.
+func RouteBackedHistoryCurrentCodeExplanation(rm RequestModel, hint TurnRouteHint) bool {
+	if NormalizeTurnRouteCurrentSourceEvidenceMode(string(hint.CurrentSourceEvidenceMode)) != TurnRouteCurrentSourceEvidenceRequired ||
+		!hint.RequiresCurrentSourceEvidence() {
+		return false
+	}
+	if !rm.Predicates.IsHistoryLookup ||
+		(rm.Intent != IntentExplain && rm.Intent != IntentTrace) ||
+		rm.Scenario != ScenarioArchitectureExplain {
+		return false
+	}
+	if rm.Predicates.IsScalarAnswer ||
+		rm.Predicates.IsRoleLocateLookup ||
+		rm.Predicates.IsCountQuestion ||
+		rm.Predicates.IsRelationalLookup ||
+		rm.Predicates.IsDiagnosticQuestion ||
+		rm.Intent == IntentEnumerate {
+		return false
+	}
+	if rm.DiagnosticProfile.RequiresDiagnosticRootCause() ||
+		rm.DiagnosticProfile.RequiresCurrentStatusDiagnostic() ||
+		(rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active()) ||
+		(rm.FieldValueProfile != nil && rm.FieldValueProfile.Active()) ||
+		(rm.RuntimeArtifactValueProfile != nil && rm.RuntimeArtifactValueProfile.Active()) {
+		return false
+	}
+	if rm.DiagramHint != nil && rm.DiagramHint.Kind != "" {
+		return false
+	}
+	return len(rm.QuestionStructure().Buckets) < 2
 }
 
 func historyHasRequiredDiffCurrentCodeDimensionPair(rm RequestModel) bool {

@@ -83,6 +83,13 @@ type CurrentSourceObligationSignalKind string
 const (
 	CurrentSourceObligationSignalUnknown                   CurrentSourceObligationSignalKind = ""
 	CurrentSourceObligationSignalDroppedRequestedDimension CurrentSourceObligationSignalKind = "dropped_requested_dimension"
+	// CurrentSourceObligationSignalRouteBackedHistoryExplanation records
+	// agreement between two independent typed producers: the analyzer emitted
+	// a non-scalar history architecture explanation, while the turn router
+	// required current-checkout evidence. It carries no request/route prose and
+	// exists so omission of the optional current-source display profile cannot
+	// collapse a mixed history/current-code answer back to pure history.
+	CurrentSourceObligationSignalRouteBackedHistoryExplanation CurrentSourceObligationSignalKind = "route_backed_history_explanation"
 )
 
 // CurrentSourceObligationSignal is a compact, typed routing/audit carrier for
@@ -102,8 +109,14 @@ type CurrentSourceObligationSignal struct {
 }
 
 func (s CurrentSourceObligationSignal) Active() bool {
-	return s.Kind == CurrentSourceObligationSignalDroppedRequestedDimension &&
-		RequestedAnswerDimensionRoleCarriesCurrentSourceObligation(s.Role)
+	switch s.Kind {
+	case CurrentSourceObligationSignalDroppedRequestedDimension:
+		return RequestedAnswerDimensionRoleCarriesCurrentSourceObligation(s.Role)
+	case CurrentSourceObligationSignalRouteBackedHistoryExplanation:
+		return true
+	default:
+		return false
+	}
 }
 
 func RequestedAnswerDimensionRoleCarriesCurrentSourceObligation(role RequestedAnswerDimensionRole) bool {

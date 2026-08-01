@@ -1603,6 +1603,40 @@ func TestIsHistoryBackedCurrentCodeExplanation_RequiredTypedDimensionPair(t *tes
 	}
 }
 
+func TestRouteBackedHistoryCurrentCodeExplanation_TypedAgreement(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentExplain,
+		Scenario: ScenarioArchitectureExplain,
+		Predicates: SemanticPredicates{
+			IsHistoryLookup: true,
+		},
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqHistory)},
+	}
+	required := TurnRouteHint{
+		NeedsRepoAccess:           true,
+		CurrentSourceEvidenceMode: TurnRouteCurrentSourceEvidenceRequired,
+	}
+	if !RouteBackedHistoryCurrentCodeExplanation(rm, required) {
+		t.Fatal("history architecture plus typed required route must recover mixed answer shape")
+	}
+	rm.CurrentSourceObligationSignals = []CurrentSourceObligationSignal{{
+		Kind: CurrentSourceObligationSignalRouteBackedHistoryExplanation,
+	}}
+	if !IsHistoryBackedCurrentCodeExplanation(rm) {
+		t.Fatal("minted route-backed obligation must survive ReqHistory pure-history carve-out")
+	}
+
+	optional := required
+	optional.CurrentSourceEvidenceMode = TurnRouteCurrentSourceEvidenceOptional
+	if RouteBackedHistoryCurrentCodeExplanation(rm, optional) {
+		t.Fatal("optional current-source route must not mint mixed history obligation")
+	}
+	rm.Predicates.IsScalarAnswer = true
+	if RouteBackedHistoryCurrentCodeExplanation(rm, required) {
+		t.Fatal("scalar history lookup must remain scalar even on a required repo route")
+	}
+}
+
 func TestIsCategoryEnumerationAnswerShape_TypedOnly(t *testing.T) {
 	rm := RequestModel{
 		Predicates: SemanticPredicates{IsCategoryEnumeration: true},
