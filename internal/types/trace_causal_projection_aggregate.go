@@ -94,6 +94,10 @@ func traceCausalProjectionAggregateForPresentation(out *TraceCausalProjection) {
 	// (valueless raw copies; keepers valued on the eff/actual lanes only)
 	// converge HERE, so R4/V4/R2 never see the bare double seat.
 	traceCausalProjectionConvergeRawSegmentTwins(out)
+	// B7-T2: a rank seat and wakeup-impact view carrying the same
+	// producer-minted exact scheduler-segment inventory occupy one seat.
+	// This runs before R2 so the duplicate cannot be summed into a family.
+	traceCausalProjectionConvergeStateAccountPublications(out)
 	// R4 peer-alias fold runs between R1 (same-fact) and R2 (×N): the two alias
 	// rows carry slightly different ms, so R1's strict identity never catches
 	// them, and letting them reach R2 would risk a double-counting ×2 sum.

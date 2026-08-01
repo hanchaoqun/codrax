@@ -1208,6 +1208,11 @@ const (
 	TraceNoteKeyAbsorbedByRankFamily = "absorbed_by_rank_family"
 	TraceNoteKeyAbsorbedInto         = "absorbed_into"
 	TraceNoteKeyRankFamilyKey        = "rank_family_key"
+	// TraceNoteKeyStateAccountKey (B7-T2): opaque exact segment-inventory
+	// identity shared by one root-rank seat and one wakeup causal-impact
+	// publication. The projection joins it verbatim; values, line envelopes,
+	// labels, request prose and answer prose are never fallback identities.
+	TraceNoteKeyStateAccountKey = "state_account_key"
 )
 
 // 门控族 (gated-composition family, §7.30.3 D3).
@@ -1532,6 +1537,10 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// the absorbing rank observation (absorbed-side markers ride the blocking
 	// family below) — projection compile joins the two sides on it.
 	{TraceNoteKeyRankFamilyKey, "causal_rank", TraceNoteCarrierHardConsumer},
+	// B7-T2 one physical scheduler-state account, one projection seat.
+	// The same key is emitted on causal_rank and wakeup-impact observations;
+	// this single registry row owns the shared cross-publication protocol.
+	{TraceNoteKeyStateAccountKey, "state_account", TraceNoteCarrierHardConsumer},
 
 	// 冲击度量族.
 	{TraceNoteKeyImpact, "impact", TraceNoteCarrierHardConsumer},

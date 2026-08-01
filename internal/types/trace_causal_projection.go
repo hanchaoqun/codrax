@@ -1238,6 +1238,10 @@ type TraceCausalProjectionNode struct {
 	RankFamilyKey        string `json:"rank_family_key,omitempty"`
 	AbsorbedByRankFamily bool   `json:"absorbed_by_rank_family,omitempty"`
 	AbsorbedInto         string `json:"absorbed_into,omitempty"`
+	// StateAccountKey is the producer-minted exact scheduler-segment
+	// inventory identity. One-seat convergence compares it verbatim across a
+	// rank row and wakeup-impact row; empty/ambiguous identities stay split.
+	StateAccountKey string `json:"state_account_key,omitempty"`
 	// BackgroundRank mirrors the producer's typed background_rank note (DCS
 	// §23.1: a non-on-chain semantic span-work contender's position among the
 	// non-chain rows — the 背景综合排序 board). Promoted for the RCM-2 display
@@ -4026,6 +4030,7 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	node.RankFamilyKey = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyRankFamilyKey))
 	node.AbsorbedByRankFamily = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyAbsorbedByRankFamily)) == "true"
 	node.AbsorbedInto = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyAbsorbedInto))
+	node.StateAccountKey = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyStateAccountKey))
 	return node
 }
 

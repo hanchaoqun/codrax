@@ -3935,6 +3935,12 @@ type RootCauseRankItem struct {
 	// guesses — the thread's own comm is NOT a process name). Display /
 	// board-summary identity slot only; rank lanes never read it.
 	ProcessComm string `json:"process_comm,omitempty"`
+	// StateAccountKey is an opaque producer-minted identity shared with one
+	// wakeup_causal_impact row only when both publications carry the complete
+	// exact same scheduler-segment inventory. Projection one-seat logic joins
+	// this token verbatim; it is never reconstructed from prose, equal values,
+	// or line envelopes. Empty means identity was absent or ambiguous.
+	StateAccountKey string `json:"state_account_key,omitempty"`
 	// PhysicalSourcePath is the bundle-local physical artifact identity behind
 	// duration rows. Logical Source (window_stats/semantic/...) describes the
 	// producer lane; this field prevents lookalike intervals from different
@@ -5934,7 +5940,10 @@ type WakeupCausalImpact struct {
 	Thread       ThreadRef  `json:"thread"`
 	Window       TimeWindow `json:"window"`
 	ActualWindow TimeWindow `json:"actual_window,omitempty"`
-	ChainDepth   int        `json:"chain_depth,omitempty"`
+	// StateAccountKey is the exact segment-inventory identity shared with one
+	// active root-rank state seat. See RootCauseRankItem.StateAccountKey.
+	StateAccountKey string `json:"state_account_key,omitempty"`
+	ChainDepth      int    `json:"chain_depth,omitempty"`
 	// ChainBranch is the 1-based branch ordinal this impact row was measured
 	// in (same identity as ChainNode.Branch — P0-E CHAIN-PATH, ledger §22.1).
 	// It rides the chain_branch rich note so the display tree can key its
@@ -5999,6 +6008,10 @@ type WakeupCausalImpact struct {
 	GatedRunnableMs       float64 `json:"gated_runnable_ms,omitempty"`
 	GatedRunningDeficitMs float64 `json:"gated_running_deficit_ms,omitempty"`
 	GatedCapabilitySource string  `json:"gated_capability_source,omitempty"`
+	// stateAccountIntervals is the complete clamped inventory of the dominant
+	// scheduler state. It never serializes; the final result reconciler uses
+	// it to mint StateAccountKey without relying on a hull or display value.
+	stateAccountIntervals []foldInterval
 	// GatedClusterTopology (CAP-2 §28.4/§28.5): typed cluster-topology source
 	// of the capability map that priced the discounted running component —
 	// CoreCapabilityTopology* tokens, empty on explicit/legacy records

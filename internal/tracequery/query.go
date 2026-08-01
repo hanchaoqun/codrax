@@ -1013,6 +1013,7 @@ func Run(idx *Index, q Query) Result {
 // (the attach gates discarded everything else — 禁半账). A nil / never-fired
 // carrier returns res untouched, byte-identical.
 func runCancelFinalize(res *Result, cancel *runCancelState) Result {
+	stampResultStateAccountPublicationKeys(res)
 	if cancel.fired() {
 		res.ViewCancellation = cancel.record(res.View)
 		res.Caveats = append(res.Caveats, cancel.caveat(res.View))
@@ -25072,6 +25073,14 @@ func summarizeWakeupCausalImpact(idx *Index, q Query, cache *chainQueryCache, th
 	}
 	item.P95SegmentMs = percentileFloat64(segments, 0.95)
 	item.DominantState, item.DominantImpactMs = dominantCausalImpactState(item)
+	for _, it := range intervals {
+		if string(it.State) != item.DominantState || it.EndTs <= it.StartTs {
+			continue
+		}
+		item.stateAccountIntervals = append(item.stateAccountIntervals, foldInterval{
+			start: it.StartTs, end: it.EndTs, valueMs: it.DurationMs,
+		})
+	}
 	item.ProjectedImpactMs = causalImpactBlockingMs(item)
 	item.ActualImpactMs = actualCausalImpactBlockingMs(item)
 	// GAP-B2 (§13.7 wire, 2026-07-25): a d_sleep-dominant occurrence carries

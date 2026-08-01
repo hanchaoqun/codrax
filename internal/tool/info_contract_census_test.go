@@ -16,6 +16,9 @@ package tool
 //                    authority sources (runtime_tree/_rcr/runtime/_typelabels/
 //                    _supplyfold/_rcm, comments stripped).
 //   internal_gate  — consumed as a typed gate input only; same presence arm.
+//   projection_gate — consumed only by the deterministic projection engine;
+//                    arm: the field token MUST appear in ../types non-test
+//                    sources. It deliberately has no rendered word face.
 //   exempt         — adjudicated word-face exemption; Ref names a W-# row of
 //                    the exemption registry (no scan arm — the ruling, not
 //                    the code, is the authority).
@@ -64,7 +67,7 @@ import (
 )
 
 type fieldDisposition struct {
-	Status string // displayed | internal_gate | exempt | known_gap | node_mirror | note_consumed | note_displayed | engine_gate
+	Status string // displayed | internal_gate | projection_gate | exempt | known_gap | node_mirror | note_consumed | note_displayed | engine_gate
 	Ref    string // face/gate/W-#/OM-# pointer
 	Token  string // optional scan-token override (method-mediated consumption)
 	NoScan bool   // documented name collision — presence/absence arms skipped
@@ -334,6 +337,7 @@ var nodeFieldContract = map[string]fieldDisposition{
 	// ELIM-V2 (2026-07-18): the parsed 件3 conservation finding — the ◎
 	// 守恒尾行 violation transcription.
 	"DirectionConservationExcess": {Status: "displayed", Ref: "◎ 守恒违例行(ELIM-V2 守恒尾行)"},
+	"StateAccountKey":             {Status: "projection_gate", Ref: "B7-T2 精确状态段账目一席"},
 	"RankFamilyKey":               {Status: "displayed", Ref: "明细链上并入(G1 对账键)"},
 	"AbsorbedByRankFamily":        {Status: "displayed", Ref: "明细链上并入 + audit"},
 	"AbsorbedInto":                {Status: "displayed", Ref: "明细链上并入"},
@@ -729,6 +733,7 @@ var rankItemContract = map[string]fieldDisposition{
 	"Inode":                      {Status: "node_mirror", Ref: "Node.Inode"},
 	"Dev":                        {Status: "node_mirror", Ref: "Node.Dev"},
 	"TraceGapKind":               {Status: "node_mirror", Ref: "Node.TraceGapKind"},
+	"StateAccountKey":            {Status: "node_mirror", Ref: "Node.StateAccountKey(B7-T2 精确状态段账目一席)"},
 	"RankFamilyKey":              {Status: "node_mirror", Ref: "Node.RankFamilyKey"},
 	"AbsorbedChainRows":          {Status: "node_mirror", Ref: "Projection.AbsorbedChainRows"},
 	"AbsorbedRankRows":           {Status: "exempt", Ref: "W-16(收窄已折 IC-A)"},
@@ -802,6 +807,28 @@ func readTracequeryEngineSources(t *testing.T) string {
 	return b.String()
 }
 
+func readProjectionEngineSources(t *testing.T) string {
+	t.Helper()
+	entries, err := os.ReadDir("../types")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b strings.Builder
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join("../types", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		b.WriteString(uxg1StripComments(string(raw)))
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
 func identTokenAppears(src, field, override string) bool {
 	if override != "" {
 		return strings.Contains(src, override)
@@ -859,7 +886,7 @@ func keysOf(m map[string]bool) []string {
 }
 
 var infoContractT1Statuses = map[string]bool{
-	"displayed": true, "internal_gate": true, "exempt": true, "known_gap": true,
+	"displayed": true, "internal_gate": true, "projection_gate": true, "exempt": true, "known_gap": true,
 }
 
 // infoContractTypesLedgerOMRefs reads the OM-# references out of the
@@ -961,6 +988,7 @@ func TestInfoContractFieldCensus(t *testing.T) {
 // must have a real token in the display authority; known_gap rows must NOT.
 func TestInfoContractDisplayedClaimsHaveRealConsumers(t *testing.T) {
 	src := readDisplayAuthoritySources(t)
+	projectionSrc := readProjectionEngineSources(t)
 	check := func(table string, contract map[string]fieldDisposition) {
 		for name, d := range contract {
 			if d.NoScan {
@@ -970,6 +998,10 @@ func TestInfoContractDisplayedClaimsHaveRealConsumers(t *testing.T) {
 			case "displayed", "internal_gate":
 				if !identTokenAppears(src, name, d.Token) {
 					t.Errorf("%s.%s 声明 %s 但显示权威零引用(假指针;Ref=%s)", table, name, d.Status, d.Ref)
+				}
+			case "projection_gate":
+				if !identTokenAppears(projectionSrc, name, d.Token) {
+					t.Errorf("%s.%s 声明 projection_gate 但投影引擎零引用(假指针;Ref=%s)", table, name, d.Ref)
 				}
 			case "known_gap":
 				if identTokenAppears(src, name, d.Token) {

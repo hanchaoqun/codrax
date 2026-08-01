@@ -250,6 +250,82 @@ func traceCausalProjectionOneSeatAbsorbEvidence(out *TraceCausalProjection, keep
 	}
 }
 
+// --- Arm D: exact state-account cross-publication convergence ---------------
+
+// traceCausalProjectionConvergeStateAccountPublications folds the
+// wakeup_causal_impact view of an exact scheduler-state account into the one
+// active root-rank seat carrying the SAME producer-minted StateAccountKey.
+//
+// The key is a hash of the complete physical segment inventory. This layer
+// never derives identity from subject/state/value equality, line-envelope
+// overlap, or prose. Exactly one distinct rank identity and one distinct
+// impact identity are required; any missing/duplicate side fails open.
+func traceCausalProjectionConvergeStateAccountPublications(out *TraceCausalProjection) {
+	type group struct {
+		rankIDs   map[string]TraceCausalProjectionNode
+		impactIDs map[string]TraceCausalProjectionNode
+	}
+	groups := map[string]*group{}
+	for _, bucket := range traceCausalProjectionOneSeatBuckets(out) {
+		for _, node := range *bucket {
+			key := strings.TrimSpace(node.StateAccountKey)
+			id := traceCausalProjectionCanonicalNode(node.EvidenceID)
+			if key == "" || id == "" {
+				continue
+			}
+			g := groups[key]
+			if g == nil {
+				g = &group{
+					rankIDs:   map[string]TraceCausalProjectionNode{},
+					impactIDs: map[string]TraceCausalProjectionNode{},
+				}
+				groups[key] = g
+			}
+			switch {
+			case node.Rank > 0 && strings.HasPrefix(strings.TrimSpace(node.Predicate), "root_cause_"):
+				g.rankIDs[id] = node
+			case strings.TrimSpace(node.Predicate) == "wakeup_causal_impact":
+				g.impactIDs[id] = node
+			}
+		}
+	}
+	for _, g := range groups {
+		if len(g.rankIDs) != 1 || len(g.impactIDs) != 1 {
+			continue
+		}
+		var keeper, loser TraceCausalProjectionNode
+		for _, node := range g.rankIDs {
+			keeper = node
+		}
+		for _, node := range g.impactIDs {
+			loser = node
+		}
+		if traceCausalProjectionCanonicalNode(keeper.EvidenceID) ==
+			traceCausalProjectionCanonicalNode(loser.EvidenceID) {
+			continue
+		}
+		traceCausalProjectionOneSeatAbsorbEvidence(out, keeper.EvidenceID, loser, "")
+		keeperID := traceCausalProjectionCanonicalNode(keeper.EvidenceID)
+		for _, bucket := range traceCausalProjectionOneSeatBuckets(out) {
+			for i := range *bucket {
+				node := &(*bucket)[i]
+				if traceCausalProjectionCanonicalNode(node.EvidenceID) != keeperID {
+					continue
+				}
+				if node.DuplicatePublications < 1 {
+					node.DuplicatePublications = 1
+				}
+				add := loser.DuplicatePublications
+				if add < 1 {
+					add = 1
+				}
+				node.DuplicatePublications += add
+			}
+		}
+		traceCausalProjectionOneSeatDropByEvidenceID(out, loser.EvidenceID)
+	}
+}
+
 // --- Arm A: raw same-segment twin convergence (equality arm) -----------------
 
 // traceCausalProjectionConvergeRawSegmentTwins folds a raw root_evidence copy

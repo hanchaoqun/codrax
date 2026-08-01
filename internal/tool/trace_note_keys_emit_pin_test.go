@@ -127,8 +127,9 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 	}
 	impact := tracequery.WakeupCausalImpact{
 		Thread: tracequery.ThreadRef{Comm: "dep", PID: 21}, Window: window,
-		ActualWindow: tracequery.TimeWindow{StartTs: 0.9, EndTs: 2.1},
-		ChainDepth:   1, ChainBranch: 1, OnChain: true, DominantState: string(tracequery.StateSSleep),
+		ActualWindow:    tracequery.TimeWindow{StartTs: 0.9, EndTs: 2.1},
+		StateAccountKey: "state_account:v1:emit-fixture",
+		ChainDepth:      1, ChainBranch: 1, OnChain: true, DominantState: string(tracequery.StateSSleep),
 		DominantImpactMs: 4, ProjectedImpactMs: 4, TotalMs: 5, ProjectedTotalMs: 5,
 		ActualImpactMs: 6, ActualTotalMs: 7, TargetBlockedMs: 3,
 		FragmentCount: 2, StateSwitches: 3, MaxSegmentMs: 2, P95SegmentMs: 1,
@@ -493,9 +494,10 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				Rank: 1, Tier: "primary", Type: "runnable_wait", SubjectKind: "thread",
 				// CR-3 件③ P11 (2026-07-12): TGID + resolved process comm —
 				// exercises the tgid / process_comm contract keys.
-				Thread:      tracequery.ThreadRef{Comm: "app:ui", PID: 61, TGID: 60},
-				ProcessComm: "app",
-				ImpactMs:    12, ProjectedImpactMs: 12, CumulativeImpactMs: 14,
+				Thread:          tracequery.ThreadRef{Comm: "app:ui", PID: 61, TGID: 60},
+				ProcessComm:     "app",
+				StateAccountKey: "state_account:v1:emit-fixture",
+				ImpactMs:        12, ProjectedImpactMs: 12, CumulativeImpactMs: 14,
 				EffectiveImpactMs: 14, TargetImpactMs: 10, ActualImpactMs: 15, ActualTotalMs: 16,
 				ActualStartTs: 0.9, ActualEndTs: 2.05, Score: 0.9, Confidence: 0.85,
 				LineStart: 3, LineEnd: 4, Source: "wakeup_chain", Causality: "on_wakeup_chain",

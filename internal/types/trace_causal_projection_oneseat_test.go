@@ -39,6 +39,75 @@ func oneSeatSeatCount(projection TraceCausalProjection, subject string) (int, []
 	return len(seats), seats
 }
 
+// --- Carrier: exact cross-publication scheduler-state account (B7-T2).
+
+func stateAccountOneSeatNode(id, predicate, key string, rank, lineStart, lineEnd int) TraceCausalProjectionNode {
+	return TraceCausalProjectionNode{
+		EvidenceID:        id,
+		Subject:           "app-20",
+		Predicate:         predicate,
+		Object:            "runnable_wait",
+		StateKind:         "runnable",
+		StateAccountKey:   key,
+		Rank:              rank,
+		ImpactMS:          5,
+		EffectiveImpactMS: 5,
+		LineStart:         lineStart,
+		LineEnd:           lineEnd,
+	}
+}
+
+func TestOneSeatExactStateAccountConvergesAcrossDifferentLineEnvelopes(t *testing.T) {
+	const key = "state_account:v1:exact-segment-inventory"
+	rank := stateAccountOneSeatNode("E-rank", "root_cause_primary", key, 1, 4, 23)
+	impact := stateAccountOneSeatNode("E-impact", "wakeup_causal_impact", key, 0, 3, 23)
+	projection := TraceCausalProjection{
+		PrimaryRootCauses: []TraceCausalProjectionNode{rank},
+		OnChainCauses:     []TraceCausalProjectionNode{impact},
+	}
+
+	traceCausalProjectionAggregateForPresentation(&projection)
+	count, seats := oneSeatSeatCount(projection, "app-20")
+	if count != 1 || seats[0].EvidenceID != "E-rank" || seats[0].Rank != 1 {
+		t.Fatalf("exact account must keep the rank seat across differing envelopes, got %d: %+v", count, seats)
+	}
+	if !strings.Contains(strings.Join(seats[0].MergedEvidenceIDs, ","), "E-impact") {
+		t.Fatalf("absorbed impact evidence must remain auditable: %+v", seats[0])
+	}
+}
+
+func TestOneSeatStateAccountNeverFallsBackToEqualValueOrEnvelope(t *testing.T) {
+	rank := stateAccountOneSeatNode("E-rank", "root_cause_primary", "state_account:v1:a", 1, 4, 23)
+	impact := stateAccountOneSeatNode("E-impact", "wakeup_causal_impact", "state_account:v1:b", 0, 4, 23)
+	projection := TraceCausalProjection{
+		PrimaryRootCauses: []TraceCausalProjectionNode{rank},
+		OnChainCauses:     []TraceCausalProjectionNode{impact},
+	}
+
+	traceCausalProjectionConvergeStateAccountPublications(&projection)
+	count, seats := oneSeatSeatCount(projection, "app-20")
+	if count != 2 {
+		t.Fatalf("equal value/envelope with different typed identities must fail open, got %d: %+v", count, seats)
+	}
+}
+
+func TestOneSeatStateAccountAmbiguityFailsOpen(t *testing.T) {
+	const key = "state_account:v1:ambiguous"
+	rank := stateAccountOneSeatNode("E-rank", "root_cause_primary", key, 1, 4, 23)
+	impactA := stateAccountOneSeatNode("E-impact-a", "wakeup_causal_impact", key, 0, 3, 23)
+	impactB := stateAccountOneSeatNode("E-impact-b", "wakeup_causal_impact", key, 0, 2, 23)
+	projection := TraceCausalProjection{
+		PrimaryRootCauses: []TraceCausalProjectionNode{rank},
+		OnChainCauses:     []TraceCausalProjectionNode{impactA, impactB},
+	}
+
+	traceCausalProjectionConvergeStateAccountPublications(&projection)
+	count, seats := oneSeatSeatCount(projection, "app-20")
+	if count != 3 {
+		t.Fatalf("one-to-many account publication must remain visible, got %d: %+v", count, seats)
+	}
+}
+
 // --- Carrier: valued equality twin (14704 archetype) — R1 pre-existing cover.
 
 func oneSeatEqualityRecords(rawValue string) []ObservationRecord {

@@ -3547,3 +3547,58 @@ LoopController 席中，relation edge 与文件绑定正确，但 12 个生产�
 | EVAL-B16-REL1 | P1 | filed-design |
 | EVAL-B16-TRMV1 | P3 | filed-model-variance |
 | EVAL-B16-REL2 | P2 | filed-audit |
+
+### B17 exact state-account one-seat 施工（2026-08-01）
+
+针对 `multi_trace_files` 的生产实形，代码冷读确认 root-rank runnable 席与
+`wakeup_causal_impact` 席虽然都来自同一 app-20 物理状态账，但两条发布线的
+证据包络分别是行 4..23 与行 3..23；既有 one-seat 只认完全相同的行范围，
+因此两条 5.000ms 都保留。仅用“同 subject/state/value + 包络包含”折叠不可
+接受：两个真实、互不相交的等长 runnable 段也可能满足这些条件。
+
+B17 落地为 producer-minted exact identity：
+
+1. tracequery 只在持有完整状态段库存时，对
+   `(pid, state, selected window, ordered exact interval inventory)` 计算
+   `state_account:v1:<sha256-prefix>`；
+2. 每个区间必须有限、正长、互不重叠，库存总长必须与发布值在既有 µs 口径
+   内完全对齐；
+3. 同一结果中必须恰好一个 active rank 席与一个 causal-impact 席产生同键，
+   才把键同时发布到两边；任一侧缺失或一对多歧义均不发键；
+4. typed observation 用注册键 `state_account_key` 携带，projection 只按
+   verbatim key equality 合并；rank 席保留，impact 的 E# 并入审计 roster，
+   数值不相加；
+5. 合并发生在 per-artifact projection 分区内部、R2 聚合之前，因此不同
+   trace 工件不会串账，同账也不会先被 ×N 求和；
+6. 当前只开放 runnable：rank carrier 已保留其完整
+   `runnableIntervals`。running、S、D、IO 在缺少同等级完整 rank 库存前
+   一律 fail-open，禁止用标量、hull 或模型文字补身份。
+
+新增的结构性防回归：
+
+- 真实 `fragmentedChurnTrace` 固定 rank/impact 两条生产路径生成同一个 key；
+- 同值但不同精确区间库存生成不同 key，重叠库存拒绝；
+- exact 1:1 成功，一对多不发 credential；
+- 不同行包络 + 同 key 折为一个 rank 席；不同 key、歧义 key 都保留多席；
+- rank 与 impact 两条 observation wire 都必须发布注册键；
+- thread-state universe 清册明确 runnable-only 准入与其他状态 fail-open；
+- info-contract 清册新增通用 `projection_gate` disposition，机械扫描
+  `internal/types` 非测试源码，诚实区分“投影引擎判官”和“显示层判官”，不为
+  新字段开免检。
+- `go test ./internal/tracequery ./internal/types ./internal/tool -count=1`
+  三包全量通过（tracequery 69.153s、types 18.412s、tool 165.201s）。
+
+不变量：
+
+- 不读 RawRequest，不扫描模型答案业务关键词，不按 case/PID/value 特判；
+- 不改变 root-cause rank、wakeup chain、selected-window、窗内可消除量、
+  auto-supplement 的生成与准入；
+- 显式窗 H8 必须继续发布完整 Trace 因果投影；
+- 无 credential 的 legacy/unsupported/ambiguous 形保持原多席，宁重勿假并。
+
+状态：
+
+| ID | 状态 |
+|---|---|
+| EVAL-B7-T2 | implementation-complete / full-tests-pass / replay-next |
+| EVAL-B16-REL1 | filed-design / B18 |

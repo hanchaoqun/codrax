@@ -556,6 +556,7 @@ var traceNoteKeyGoldenRows = []string{
 	"span_subcategory|span|hard_consumer",
 	"starved_runnable_ms|occupancy|display_only",
 	"state|state|display_only",
+	"state_account_key|state_account|hard_consumer",
 	// RANKDIS-EXT A3 (§29.104.16.1 M15, 2026-07-16): the state_drilldown
 	// ordinal's dedicated lane — `rank` stays exclusively causal-board.
 	"state_rank|state|display_only",

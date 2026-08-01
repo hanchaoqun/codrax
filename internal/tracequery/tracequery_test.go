@@ -1892,6 +1892,24 @@ func TestRootCauseRankPromotesFragmentedStateChurn(t *testing.T) {
 		first.AbsorbedRankRows == 0 || !strings.Contains(first.RankFamilyKey, "fragmented_runnable_wait") {
 		t.Fatalf("件4: the member seat must own the single fragmented-churn account, got %+v all=%+v", first, res.RootCauseRank.Items)
 	}
+	if first.StateAccountKey == "" {
+		t.Fatalf("B7-T2: the exact runnable segment inventory must mint an account identity: %+v", first)
+	}
+	if res.WakeupChain == nil {
+		t.Fatalf("B7-T2: root_cause_rank result must retain its wakeup causal-impact companion")
+	}
+	joinedImpact := false
+	for _, impact := range res.WakeupChain.CausalImpacts {
+		if impact.Thread.PID == 20 && impact.DominantState == string(StateRunnable) &&
+			impact.StateAccountKey == first.StateAccountKey {
+			joinedImpact = true
+			break
+		}
+	}
+	if !joinedImpact {
+		t.Fatalf("B7-T2: rank and wakeup publications must share the producer-minted exact account key; rank=%q impacts=%+v",
+			first.StateAccountKey, res.WakeupChain.CausalImpacts)
+	}
 	var churnRow *RootCauseRankItem
 	for i := range res.RootCauseRank.AbsorbedItems {
 		item := &res.RootCauseRank.AbsorbedItems[i]

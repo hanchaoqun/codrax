@@ -8488,6 +8488,9 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// absorbed same-(thread,type family,window) critical_blocking
 				// rows; the projection joins absorbed rows against it verbatim.
 				{types.TraceNoteKeyRankFamilyKey, item.RankFamilyKey},
+				// B7-T2 exact scheduler-state account identity. The
+				// projection consumes only verbatim equality.
+				{types.TraceNoteKeyStateAccountKey, item.StateAccountKey},
 				// B4 exact cross-type rank-seat reconciliation: the absorbed
 				// io_burst_episode keeps publishing as a supporting observation
 				// with the same generic marker pair the projection's single G1/B4
@@ -10196,6 +10199,9 @@ func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) 
 		{types.TraceNoteKeyCausality, traceQueryCausalityLabel(impact.OnChain)},
 		{types.TraceNoteKeyTier, tier},
 		{types.TraceNoteKeyDominantState, impact.DominantState},
+		// B7-T2 producer-minted exact segment-inventory identity. Empty on
+		// absent, incomplete, or ambiguous accounts.
+		{types.TraceNoteKeyStateAccountKey, impact.StateAccountKey},
 		{types.TraceNoteKeyImpact, traceQueryObservationMSValue(impact.DominantImpactMs)},
 		// PTV5 Q1 (#68 用户裁定 2026-07-05, 上游根治): every wakeup_causal_impact
 		// row publishes its effective attribution with the SAME semantics as
