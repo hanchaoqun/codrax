@@ -4760,6 +4760,28 @@ Git 用例 human FAIL 还包括一个独立事实错误：grep 原始结果明�
 `EVAL-B19-SCHEDPROSE1=P1/open`（本轮最终答案未复现，但已有 production witness）；
 `EVAL-B19-DECL1=P1/open`；`EVAL-B19-NARROWCAVEAT1=P2/open`。
 
+#### B19h-c：typed 因果权限接管主结论
+
+本批实现 `EVAL-B19-CAUSAL1` 的泛化修复，不扫描用户问题或模型答案原文：
+
+- 发布条件只消费 `TraceEvidenceAuthority.causal_conclusion=unproven` 及系统已经构造出的
+  非空 Trace 因果投影。没有真实投影时不制造结论；窄事实报告、
+  `bounded_by_typed_rows` 和已证因果车道均不触发。
+- 当 typed 因果权限为 unproven 时，系统生成的主结论成为首块；仅移除模型拥有的
+  `summary/principal` 块，模型时间线、背景、caveat 以及全部系统补齐块保持原顺序。
+  这样不能再由模型 principal 把“有序候选”升级为“已证直接根因”。
+- 主结论明确保留两个互不替代的分析维度：主要时间占用/关键路径候选用于探索新的
+  优化方向；窗内可消除量用于按既有规则安排修复验证。候选排序和可消除量均不等于
+  帧因果裁定。
+- 单 trace 投影、多 artifact 投影和跨 artifact 对比表统一把主冠名降为
+  “首要可消除候选（不等于已证帧因果）”；rank、effective impact、唤醒链、
+  代表窗、证据索引和自动补齐数据均不删减。
+- 新增正反结构测试：unproven + 非空系统投影必须接管 principal 且保留非 principal
+  上下文；bounded typed 因果不得接管。`go test ./internal/tool -count=1` 全量通过
+  （157.813s）。
+
+状态：`implemented / internal-tool-full-tests-pass / same-pair replay next`。
+
 ### 后续 eval 维度扩展（用户追加，2026-08-01）
 
 当前 Trace P0 收口并回放后，继续维持每批严格并行 2 个，按风险交叉覆盖：

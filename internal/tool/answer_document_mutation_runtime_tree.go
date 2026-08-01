@@ -686,6 +686,12 @@ type runtimeTraceProjAbsorbedChainPeer struct {
 
 type runtimeTraceProjTreeModel struct {
 	Target string
+	// CausalConclusionUnproven is copied from trace_query's typed evidence
+	// authority by the system projection assembler. It changes only the
+	// user-facing conclusion caliber: ranked/on-chain values remain available,
+	// but the elected row is named an eliminable candidate rather than a proven
+	// frame cause. No request or answer prose participates.
+	CausalConclusionUnproven bool
 	// RankBoardEffSumMS (冷读扩臂④ 板级警示, SMR-1 修复轮 2026-07-13): the
 	// Σ of the rank-seated rows' effective attributions when it EXCEEDS the
 	// analysis-window length (typed precise: only over-window mints the
@@ -15297,7 +15303,13 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 	// The full definition rides the legend entry; 「首要可消除项」 is the
 	// reserved rename should plan A ever be ruled. The no-crown (未定位)
 	// lanes keep the bare prefix — they elect nobody, nothing to define.
-	if zh {
+	if model.CausalConclusionUnproven {
+		if zh {
+			b.WriteString("**首要可消除候选(不等于已证帧因果):** ")
+		} else {
+			b.WriteString("**Leading eliminable candidate (not proven frame causation):** ")
+		}
+	} else if zh {
 		b.WriteString("**主根因(=已证链上单项最大可消除量):** ")
 	} else {
 		b.WriteString("**Primary root cause (= the largest single proven on-chain eliminable contribution):** ")

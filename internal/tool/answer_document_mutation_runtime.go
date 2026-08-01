@@ -187,6 +187,9 @@ func persistMergedAnswerDocument(
 	if materializeRuntimeTraceCausalProjectionBlock(merged, ctx) {
 		logging.Info("[%s] materialized runtime trace causal projection from structured trace observations", toolName)
 	}
+	if materializeRuntimeTraceCausalConclusionBlock(merged, ctx) {
+		logging.Info("[%s] replaced model principal causal claims with typed runtime causal conclusion authority", toolName)
+	}
 	if materializeRuntimeTraceSemanticOptimizationBlock(merged, ctx) {
 		logging.Info("[%s] materialized runtime trace deterministic optimization points from typed semantic spans", toolName)
 	}
@@ -775,6 +778,7 @@ const (
 	runtimeTraceCausalProjectionBlockIDBase     = "runtime_trace_causal_projection"
 	runtimeTraceCausalProjectionCompareBlockID  = runtimeTraceCausalProjectionBlockIDBase + "_compare"
 	runtimeArtifactPairRelationAuthorityBlockID = "runtime_artifact_pair_relation_authority"
+	runtimeTraceCausalConclusionBlockID         = "runtime_trace_causal_conclusion"
 	// runtimeTraceCausalProjectionCompareNotesBlockID (PTV8-LAD L6, 2026-07-08)
 	// is the overview's 对比注记明细 sibling — emitted ONLY when the layered
 	// table notes fold past the visible cap (the full set must stay reachable
@@ -869,6 +873,7 @@ func RuntimeTraceSystemBlockID(id string) bool {
 		"runtime_trace_semantic_optimizations",
 		"runtime_trace_metric_snapshot",
 		"runtime_trace_perf_quality",
+		runtimeTraceCausalConclusionBlockID,
 		runtimeTraceFrequencyAuthorityBlockID,
 		runtimeTraceBlockingCoverageAuthorityBlockID,
 		runtimeTraceTargetStateAuthorityBlockID,
@@ -1192,18 +1197,19 @@ func materializeRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2, c
 	}
 	lang := requestedAnswerDocumentLanguage(ctx)
 	focus := runtimeTraceProjUserFocusFromBusContext(ctx)
+	coverageAuthority := runtimeTraceCoverageAuthority(input)
 	var cluster []types.AnswerBlock
 	if len(set.Projections) > 1 {
 		// CMP-1: multi-artifact ledger — one projection section per trace
 		// artifact (per-artifact tree/table/evidence/scale) plus, for typed
 		// comparison shapes, a compact cross-artifact overview table.
-		cluster = runtimeTraceCausalProjectionMultiCluster(set, ledger, ctx, lang, focus)
+		cluster = runtimeTraceCausalProjectionMultiCluster(set, ledger, ctx, lang, focus, coverageAuthority.causalUnproven)
 	} else {
 		var projection types.TraceCausalProjection
 		if len(set.Projections) == 1 {
 			projection = set.Projections[0]
 		}
-		cluster = runtimeTraceCausalProjectionCluster(projection, lang, focus)
+		cluster = runtimeTraceCausalProjectionClusterWithAuthority(projection, lang, focus, coverageAuthority.causalUnproven)
 		// F2c: a multi-identity ledger can still land here when only ONE
 		// partition compiled Active — the unattributed/omitted caveat must
 		// render exactly as on the multi lane instead of silently dropping.
@@ -1274,6 +1280,84 @@ func materializeRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2, c
 	return true
 }
 
+// materializeRuntimeTraceCausalConclusionBlock makes the typed causal ceiling
+// the actual lead conclusion instead of a footer that can contradict the
+// model's principal prose. It is intentionally structural: activation reads
+// TraceEvidenceAuthority, and replacement reads only block role/kind plus the
+// unforgeable system marker. It never searches or rewrites user/model text.
+//
+// The deterministic projection remains lossless. We remove only model-owned
+// principal blocks after a system projection lead exists; model-owned
+// non-principal timeline/background/caveat blocks remain in their original
+// order. This preserves the two independent analysis axes while preventing a
+// model summary from promoting a ranked eliminable candidate into proven
+// frame causation.
+func materializeRuntimeTraceCausalConclusionBlock(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {
+	if doc == nil || ctx == nil || !runtimeTraceFullReportMaterializationAllowed(ctx) {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		if RuntimeTraceSystemBlock(block) && strings.TrimSpace(block.ID) == runtimeTraceCausalConclusionBlockID {
+			return false
+		}
+	}
+	input := types.ObservationLedgerInputFromBusContext(ctx, types.ObservationExtractLedgerEvidenceLimit)
+	authority := runtimeTraceCoverageAuthority(input)
+	if !authority.causalUnproven || !answerDocumentHasRuntimeTracePublicationLead(doc) {
+		return false
+	}
+	zh := runtimeTraceCausalProjectionUseChinese(requestedAnswerDocumentLanguage(ctx))
+	text := "The current trace confirms scheduling, IO, frequency, and dependency candidates inside the selected window, but typed causal authority does not prove a definite root-cause mechanism. The report therefore keeps two independent axes: major occupancy/critical-path candidates for discovering new optimization directions, and in-window eliminable estimates for prioritizing repairs under existing rules. Candidate rank and eliminable magnitude are not a causality verdict."
+	if authority.frameUnproven || authority.frameFlowUnproven {
+		text = "The current trace confirms scheduling, IO, frequency, and dependency candidates inside the selected window, but it does not prove that any candidate caused the target frame to stall or drop: no evidence binds those candidates to the target frame/deadline outcome. The report therefore keeps two independent axes: major occupancy/critical-path candidates for discovering new optimization directions, and in-window eliminable estimates for prioritizing repairs under existing rules. Candidate rank and eliminable magnitude are not a frame-causality verdict."
+	}
+	if zh {
+		text = "当前 trace 只能确认所选窗口内的调度、IO、频率与依赖链候选，现有因果证据尚不能证明确定根因机理。下面保留两个独立维度：一是主要时间占用/关键路径候选，用于发现新的优化方向；二是窗内可消除量，按既有规则估算并排序优先验证的修复候选。候选排序和可消除量都不是因果裁定。"
+		if authority.frameUnproven || authority.frameFlowUnproven {
+			text = "当前 trace 只能确认所选窗口内的调度、IO、频率与依赖链候选，尚不能证明其中任何一项导致了目标帧卡顿或丢帧：现有证据没有把这些候选绑定到目标 frame/deadline 结果。下面保留两个独立维度：一是主要时间占用/关键路径候选，用于发现新的优化方向；二是窗内可消除量，按既有规则估算并排序优先验证的修复候选。候选排序和可消除量都不是帧因果裁定。"
+		}
+	}
+	conclusion := types.AnswerBlock{
+		ID:                  runtimeTraceCausalConclusionBlockID,
+		Kind:                types.BlockSummary,
+		Text:                text,
+		SurfaceRole:         types.SurfacePrincipal,
+		ClaimUses:           []types.RenderedClaimUse{{ClaimForm: types.ClaimExternalObservation}},
+		FacetIDs:            []string{"observed_artifact_fact", "uncertainty_boundary"},
+		SystemGeneratedKind: types.AnswerSystemGeneratedRuntimeTrace,
+	}
+	out := make([]types.AnswerBlock, 0, len(doc.Blocks)+1)
+	out = append(out, conclusion)
+	for _, block := range doc.Blocks {
+		if !RuntimeTraceSystemBlock(block) &&
+			(block.Kind == types.BlockSummary || block.SurfaceRole == types.SurfacePrincipal) {
+			continue
+		}
+		out = append(out, block)
+	}
+	doc.Blocks = out
+	return true
+}
+
+func answerDocumentHasRuntimeTracePublicationLead(doc *types.AnswerDocumentV2) bool {
+	if doc == nil {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		if !RuntimeTraceSystemBlock(block) {
+			continue
+		}
+		id := strings.TrimSpace(block.ID)
+		if id == runtimeTraceCausalProjectionBlockIDBase {
+			return true
+		}
+		if runtimeTraceCausalProjectionStandaloneLeadBlockID(id) && id != runtimeTraceCausalProjectionCoverageBlockID {
+			return true
+		}
+	}
+	return false
+}
+
 // runtimeTraceCausalProjectionCluster builds the presentation v3 block cluster
 // (docs/design/trace_projection_presentation_v3_20260702.md): a lead block
 // whose Text carries the fact-only conclusion + window anchor + tree reading
@@ -1284,8 +1368,13 @@ func materializeRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2, c
 // across HTML / markdown / terminal. Every projection node appears exactly
 // twice (one tree row + one table row).
 func runtimeTraceCausalProjectionCluster(projection types.TraceCausalProjection, lang string, focus runtimeTraceProjUserFocus) []types.AnswerBlock {
-	return runtimeTraceCausalProjectionClusterFor(projection, lang, focus,
-		runtimeTraceCausalProjectionBlockIDBase, "")
+	return runtimeTraceCausalProjectionClusterForAuthority(projection, lang, focus,
+		runtimeTraceCausalProjectionBlockIDBase, "", false)
+}
+
+func runtimeTraceCausalProjectionClusterWithAuthority(projection types.TraceCausalProjection, lang string, focus runtimeTraceProjUserFocus, causalUnproven bool) []types.AnswerBlock {
+	return runtimeTraceCausalProjectionClusterForAuthority(projection, lang, focus,
+		runtimeTraceCausalProjectionBlockIDBase, "", causalUnproven)
 }
 
 // runtimeTraceCausalProjectionClusterFor is the id/label-parametrized section
@@ -1296,6 +1385,10 @@ func runtimeTraceCausalProjectionCluster(projection types.TraceCausalProjection,
 // with per-artifact block ids, tree, detail table, evidence index (fresh E#
 // numbering) and bar scale.
 func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjection, lang string, focus runtimeTraceProjUserFocus, idPrefix, artifactLabel string) []types.AnswerBlock {
+	return runtimeTraceCausalProjectionClusterForAuthority(projection, lang, focus, idPrefix, artifactLabel, false)
+}
+
+func runtimeTraceCausalProjectionClusterForAuthority(projection types.TraceCausalProjection, lang string, focus runtimeTraceProjUserFocus, idPrefix, artifactLabel string, causalUnproven bool) []types.AnswerBlock {
 	if !projection.Active() {
 		return nil
 	}
@@ -1308,6 +1401,7 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 	// already carry it.
 	evidence.flatChain = len(runtimeTraceCausalProjectionCleanPath(projection.WakeupPath)) < 2
 	model := buildRuntimeTraceProjTreeModel(projection, evidence, zh)
+	model.CausalConclusionUnproven = causalUnproven
 	// PTV8-LAD L7 (§24.14 补2): the single-artifact lane is the caller's own
 	// id-prefix fact — the D-4 tree-head deviation line renders only here (the
 	// comparison overview carries its own folded per-side note; 批名即界).
@@ -2162,7 +2256,7 @@ func runtimeTraceOccupancyGroupLabel(group string, zh bool) string {
 // per-artifact section reuses the SINGLE-artifact section builder verbatim
 // (no parallel subsystem) with per-artifact ids, titles, E# numbering and bar
 // scale.
-func runtimeTraceCausalProjectionMultiCluster(set types.TraceCausalProjectionSet, ledger types.ObservationLedger, ctx *types.BusContext, lang string, focus runtimeTraceProjUserFocus) []types.AnswerBlock {
+func runtimeTraceCausalProjectionMultiCluster(set types.TraceCausalProjectionSet, ledger types.ObservationLedger, ctx *types.BusContext, lang string, focus runtimeTraceProjUserFocus, causalUnproven bool) []types.AnswerBlock {
 	zh := runtimeTraceCausalProjectionUseChinese(lang)
 	var leads, details []types.AnswerBlock
 	if runtimeTraceProjComparisonShape(len(set.Projections)) {
@@ -2170,7 +2264,7 @@ func runtimeTraceCausalProjectionMultiCluster(set types.TraceCausalProjectionSet
 		// the layered table notes folded past the visible cap. The compact
 		// overview is a decision surface; its lossless note sibling belongs to
 		// the later detail tier, after every artifact's root-cause lead.
-		for _, block := range runtimeTraceProjCompareOverviewBlocks(set.Projections, ledger, lang, zh, focus) {
+		for _, block := range runtimeTraceProjCompareOverviewBlocksWithAuthority(set.Projections, ledger, lang, zh, focus, causalUnproven) {
 			if block.ID == runtimeTraceCausalProjectionCompareBlockID {
 				leads = append(leads, block)
 			} else {
@@ -2208,7 +2302,7 @@ func runtimeTraceCausalProjectionMultiCluster(set types.TraceCausalProjectionSet
 		}
 		sectionPrefix := fmt.Sprintf("%s%s%d", runtimeTraceCausalProjectionBlockIDBase,
 			runtimeTraceCausalProjectionArtifactBlockIDInfix, i+1)
-		section := runtimeTraceCausalProjectionClusterFor(projection, lang, focus, sectionPrefix, label)
+		section := runtimeTraceCausalProjectionClusterForAuthority(projection, lang, focus, sectionPrefix, label, causalUnproven)
 		for _, block := range section {
 			switch block.ID {
 			case sectionPrefix,
@@ -2450,6 +2544,21 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 		return nil
 	}
 	return &blocks[0]
+}
+
+func runtimeTraceProjCompareOverviewBlocksWithAuthority(projections []types.TraceCausalProjection, ledger types.ObservationLedger, lang string, zh bool, focus runtimeTraceProjUserFocus, causalUnproven bool) []types.AnswerBlock {
+	blocks := runtimeTraceProjCompareOverviewBlocks(projections, ledger, lang, zh, focus)
+	if !causalUnproven || len(blocks) == 0 || blocks[0].ID != runtimeTraceCausalProjectionCompareBlockID || len(blocks[0].Columns) < 2 {
+		return blocks
+	}
+	if zh {
+		blocks[0].Columns[1] = "首要可消除候选(" + tracefence.SeatChannelChainZH + "#1)"
+		blocks[0].Text += " 候选排序用于安排修复验证，不代表已证明具体帧卡顿或丢帧因果。"
+	} else {
+		blocks[0].Columns[1] = "Leading eliminable candidate (" + tracefence.SeatChannelChainEN + " #1)"
+		blocks[0].Text += " Candidate ordering prioritizes repair validation; it is not proof of causation for a specific stalled or dropped frame."
+	}
+	return blocks
 }
 
 // runtimeTraceProjCompareOverviewBlocks assembles the compact cross-artifact
@@ -8987,6 +9096,8 @@ func runtimeTraceReportHierarchyTier(block types.AnswerBlock) int {
 	id := strings.TrimSpace(block.ID)
 	if block.SystemGeneratedKind.IsRuntimeTraceSupplement() {
 		switch {
+		case id == runtimeTraceCausalConclusionBlockID:
+			return 0
 		case id == runtimeTraceFrequencyAuthorityBlockID ||
 			id == runtimeTraceBlockingCoverageAuthorityBlockID ||
 			id == runtimeTraceTargetStateAuthorityBlockID ||
