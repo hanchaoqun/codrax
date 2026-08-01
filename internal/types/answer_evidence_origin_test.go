@@ -189,6 +189,84 @@ func TestAnswerAggregateFactEvidenceOrigins_CurrentSourceRequiredSupportRefsAugm
 	}
 }
 
+func TestAnswerAggregateFactEvidenceOrigins_HistoryRequestDoesNotStampVCSOnExactCurrentSourceFact(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentExplain,
+		Predicates: SemanticPredicates{
+			IsHistoryLookup: true,
+		},
+		CurrentSourceExplanationProfile: &CurrentSourceExplanationProfile{
+			IsCurrentSourceExplanationRequested: true,
+			Modes:                               []CurrentSourceExplanationMode{CurrentSourceExplanationExplainCurrentMechanism},
+			SourceQuotes:                        []string{"结合当前源码解释"},
+			Confidence:                          0.9,
+		},
+	}
+	fact := AnswerAggregateFact{
+		Kind:        AnswerAggregateMemberSet,
+		Label:       "current implementation paths",
+		Value:       "1",
+		Members:     []string{"resolveCurrentImplementation"},
+		SupportRefs: []string{"internal/agent/agent.go:5484"},
+	}
+
+	got := AnswerAggregateFactEvidenceOrigins(fact, &rm)
+	want := []AnswerEvidenceOrigin{AnswerEvidenceOriginCurrentSource}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("exact current-source fact inherited history origin\ngot:  %#v\nwant: %#v", got, want)
+	}
+}
+
+func TestAnswerAggregateFactEvidenceOrigins_HistoryRequestPreservesExplicitDualOrigin(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentExplain,
+		Predicates: SemanticPredicates{
+			IsHistoryLookup: true,
+		},
+		CurrentSourceExplanationProfile: &CurrentSourceExplanationProfile{
+			IsCurrentSourceExplanationRequested: true,
+			Modes:                               []CurrentSourceExplanationMode{CurrentSourceExplanationExplainCurrentMechanism},
+			SourceQuotes:                        []string{"结合当前源码解释"},
+			Confidence:                          0.9,
+		},
+	}
+	fact := AnswerAggregateFact{
+		Kind:        AnswerAggregateMemberSet,
+		Label:       "verified historical and current path",
+		Value:       "1",
+		Members:     []string{"resolveCurrentImplementation"},
+		SupportRefs: []string{"internal/agent/agent.go:5484"},
+		Dimensions: []AnswerAggregateDimension{
+			{Name: "origin", Value: string(AnswerEvidenceOriginVCSMetadata)},
+		},
+	}
+
+	got := AnswerAggregateFactEvidenceOrigins(fact, &rm)
+	want := []AnswerEvidenceOrigin{
+		AnswerEvidenceOriginVCSMetadata,
+		AnswerEvidenceOriginCurrentSource,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("explicit dual-origin fact mismatch\ngot:  %#v\nwant: %#v", got, want)
+	}
+}
+
+func TestAnswerAggregateFactEvidenceOrigins_HistoryRequestKeepsUntypedFallback(t *testing.T) {
+	fact := AnswerAggregateFact{
+		Kind:    AnswerAggregateScalar,
+		Label:   "latest commit",
+		Value:   "abc123",
+		Members: nil,
+	}
+	got := AnswerAggregateFactEvidenceOrigins(fact, &RequestModel{
+		Predicates: SemanticPredicates{IsHistoryLookup: true},
+	})
+	want := []AnswerEvidenceOrigin{AnswerEvidenceOriginVCSMetadata}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("history fallback mismatch\ngot:  %#v\nwant: %#v", got, want)
+	}
+}
+
 func TestAnswerAggregateFactEvidenceOrigins_ExternalArtifactRequestDefaultsToMCP(t *testing.T) {
 	fact := AnswerAggregateFact{
 		Kind:  AnswerAggregateMemberSet,

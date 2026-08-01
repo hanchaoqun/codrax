@@ -4454,6 +4454,69 @@ claim-form enum、block scalar value、精确 citation quote 和 grounded eviden
 状态：`EVAL-B22-SCALARCIT1=covered`；`EVAL-B22-SCALARAUTH1=covered`；
 `EVAL-B22-NEARKEY1=covered`；`EVAL-B22-COUNTDOMAIN1=P3/filed`。
 
+### B23 r1：plan/read 异构回放与 aggregate origin 越权（2026-08-01）
+
+同一 `main@b292678ca` 二进制快照下严格并行 2 个案例：
+
+- `patch_python_typo`：runner PASS，64s，人工 PASS；
+- `read_combo_git_current_source_explanation`：runner FAIL，127s，人工 FAIL。
+
+正证与机器判定边界：
+
+1. Python plan-only 正确生成 `main.py` 单文件单行 `kind=patch`，
+   `retrun -> return`，pre-apply 与 Python dry-build 通过，主仓未修改。首次把同一
+   verification probe 同时放在 change/top-level，被 typed repair 精确拒绝；第二次收敛并
+   规范化成一个顶层 probe。这是安全自恢复，不登记新 gap。
+2. read case 的 typed `latest_one/merge` 与
+   `git_log count=1/merges_only=true/first_parent=true` 正确锁定
+   `2a58a60d...`，3/3 changed paths 完整；历史/current path 错绑和旧 member supplement
+   均未复发。runner FAIL 仍是 `EVAL-B21-E1/P3` 的单行 regex 假阴性：答案分段具备
+   history 与 current-source 两维，不为机器分数修改生产文案。
+3. 人工失败有独立真因。`AnswerAggregateFactEvidenceOrigins` 只因
+   `RequestModel.Predicates.IsHistoryLookup=true`，就把带两个精确 current-source
+   `support_refs` 的“受影响的生产代码链路”member-set 同时铸成
+   `current_source + vcs_metadata`。Finalizer prompt 因而收到同一 fact 的 factual 当前源码
+   binding 与 historical binding，绕过已经存在的
+   `historical_transition=unproven` 分席边界。
+4. 最终把通用 `detectRunnerMissingForPlan` 写成“该逻辑仅在 pytest 相关路径生效，
+   不影响 go test/make 等其他 runner”。源码函数实际先对所有 runner 执行通用缺失检测与
+   exit 126/127 判断，再有 Python/unittest 的窄例外。该错误再次复现
+   `EVAL-B21-CALLEE1/SPAN1`：definition anchor 与自由 summary/section 缺少逐 claim 的
+   source-span entailment。现有软提示没有阻止模型扩写，因此状态保持 P1，不按 pytest、
+   函数名或最终答案词面追加硬门。
+
+登记 `EVAL-B23-ORIGIN1/P1`：request evidence-source shape 不能给每个 aggregate fact
+批量继承相同 origin。history/current、runtime/current、command/current 混合问题都必须由
+fact 自身的显式 origin 与精确 support carrier 决定；请求形状最多在 fact 完全没有来源时
+提供兼容 fallback。
+
+#### B23-A：history fallback 不再覆盖 fact-local origin
+
+已在唯一 origin 铸造点完成通用收窄：
+
+1. `AnswerAggregateFactEvidenceOrigins` 先计算 fact 自身的显式 origin 和精确
+   current-source support。history request 只有在二者都不存在时，才为可承载类型补
+   `vcs_metadata` fallback。
+2. 带精确源码行的 current fact 不再因题目同时问历史而获得 historical binding；
+   `CompileAnswerClaimBindingsFromAggregateFacts` 生产接线测试固定最终只能出现
+   `current_source` hard binding，不能再出现 `vcs_metadata/vcs_diff`。
+3. producer 显式给出 `vcs_metadata` 且同时带源码 support 时，双 origin 保持；没有来源
+   的 latest-commit scalar 仍走 VCS fallback；`git_history_search` 等既有 typed provenance
+   不变。因此修的是来源权限，不是关闭混合证据答案。
+4. 规则只读 aggregate 的 typed dimensions/support refs 和 RequestModel enum；不读取
+   RawRequest、commit subject、case ID、模型 thinking/summary/final prose，也不增加
+   answer hard reject。
+
+验证：`go test ./internal/types -count=1` 通过（17.140s）；
+`go test ./internal/tool ./internal/agent -count=1` 通过（tool 159.695s、agent 3.056s）；
+`git diff --check` 通过。
+
+状态：`EVAL-B23-ORIGIN1=implemented/full-tests-pass/replay-later`；
+`EVAL-B21-ORD1/MERGE1/TRANS1/MAP1/SUP1=covered`；
+`EVAL-B21-CALLEE1/SPAN1=P1/reproduced-after-soft-mitigation`；
+`EVAL-B21-E1=P3/filed`。本批未修改 Trace query/family、显式时间窗 authority、
+因果投影、根因排序、唤醒链、窗内可消除量或系统自动补采。
+
 ### B19a r1：Trace 主合同保留，精确集合暴露静默改写（2026-08-01）
 
 严格并行 2 个用例，runner 2/2 PASS，人工审计 0/2：

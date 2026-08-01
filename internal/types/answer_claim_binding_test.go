@@ -53,6 +53,37 @@ func TestCompileAnswerClaimBindingsFromAggregateFacts_CurrentSourcePrincipalIsHa
 	}
 }
 
+func TestCompileAnswerClaimBindingsFromAggregateFacts_HistoryRequestKeepsExactCurrentFactInSourceLane(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentExplain,
+		Predicates: SemanticPredicates{
+			IsHistoryLookup: true,
+		},
+		CurrentSourceExplanationProfile: &CurrentSourceExplanationProfile{
+			IsCurrentSourceExplanationRequested: true,
+			Modes:                               []CurrentSourceExplanationMode{CurrentSourceExplanationExplainCurrentMechanism},
+			SourceQuotes:                        []string{"结合当前源码解释"},
+			Confidence:                          0.9,
+		},
+	}
+	facts := []AnswerAggregateFact{{
+		Kind:        AnswerAggregateMemberSet,
+		Label:       "current implementation paths",
+		Value:       "1",
+		Role:        AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"resolveCurrentImplementation"},
+		SupportRefs: []string{"internal/agent/agent.go:5484"},
+	}}
+
+	got := CompileAnswerClaimBindingsFromAggregateFacts(facts, &rm, nil)
+	assertClaimBinding(t, got, AnswerEvidenceOriginCurrentSource, ClaimGroundingHard, AnswerRequestedOutputMechanism)
+	for _, binding := range got {
+		if binding.Origin == AnswerEvidenceOriginVCSMetadata || binding.Origin == AnswerEvidenceOriginVCSDiff {
+			t.Fatalf("request history shape minted a historical binding for an exact current-source fact: %+v", got)
+		}
+	}
+}
+
 // EVOLUTION RECORD (CSP-RM, §29.21 ruling 2026-07-10): previously this pin
 // asserted a no-support-ref model fact compiled a REPAIRABLE current_source
 // binding — the binding face of the terminal fallback that also fed

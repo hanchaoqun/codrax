@@ -36,15 +36,26 @@ func AnswerAggregateFactEvidenceOrigins(fact AnswerAggregateFact, rm *RequestMod
 	if fact.Kind == AnswerAggregateNegativeSearch {
 		add(AnswerEvidenceOriginRepoNegativeSearch)
 	}
-	for _, origin := range answerAggregateFactExplicitEvidenceOrigins(fact) {
+	explicitOrigins := answerAggregateFactExplicitEvidenceOrigins(fact)
+	for _, origin := range explicitOrigins {
 		add(origin)
 	}
 
 	if rm != nil {
-		if rm.CurrentSourceLaneDecision().RequiresCurrentSource() && answerAggregateFactHasExactCurrentSourceSupportRef(fact) {
+		hasExactCurrentSourceSupport := answerAggregateFactHasExactCurrentSourceSupportRef(fact)
+		if rm.CurrentSourceLaneDecision().RequiresCurrentSource() && hasExactCurrentSourceSupport {
 			add(AnswerEvidenceOriginCurrentSource)
 		}
-		if rm.Predicates.IsHistoryLookup && aggregateFactKindCanCarryVCSMetadata(fact.Kind) {
+		// A history-shaped request is only a fallback origin for an otherwise
+		// untyped aggregate. It must not stamp vcs_metadata onto a fact that is
+		// already bound to an exact current-checkout source line or to another
+		// explicit origin. Historical and current-source facts may still form a
+		// legitimate dual-origin carrier, but only when the producer explicitly
+		// supplies the VCS origin instead of inheriting it from request shape.
+		if rm.Predicates.IsHistoryLookup &&
+			aggregateFactKindCanCarryVCSMetadata(fact.Kind) &&
+			len(explicitOrigins) == 0 &&
+			!hasExactCurrentSourceSupport {
 			add(AnswerEvidenceOriginVCSMetadata)
 		}
 		if rm.Predicates.IsCountQuestion && aggregateFactKindCanCarryCommandMeasurement(fact.Kind) {
