@@ -4375,6 +4375,84 @@ typed 契约同步：
 B19f 的双轴可见性；随后进入 B19g `FRAME1 + ARITH2`，不得通过用户关键词
 或模型输出原文硬门实现。
 
+#### B19f r1：双轴正例通过，无窗事实被误升级为因果报告（2026-08-01）
+
+严格并行 2 个真实 Trace 用例，runner 1 PASS / 1 FAIL，人工 0 PASS / 2
+FAIL。两类结果必须拆开判断。
+
+显式窗 `trace_query_donghu_real_frame_multicausal` 证明 B19f 本体有效：
+
+- `主要时间占用 / 关键路径候选` 已独立展示目标状态、链上 raw occupancy、
+  semantic/business span 和 process CPU `cpu·ms`；
+- 原 `Trace 因果投影`、根因排序、唤醒链、`◎ 窗内可消除量`、代表窗和
+  system supplement 全部保留，窗口仍为
+  `34579.472865..34579.587805`；
+- raw 占时与规则可消值没有互相替代，B19f 结构目标判定为 covered。
+
+但 human FAIL 重新确认 `EVAL-B19-FRAME1`：typed coverage 明确
+`frame_causality=unproven/frame_evidence_status=absent`，主体仍断言
+“114.94ms 的帧窗口未能完成”“16ms 帧预算超约 7 倍”；同时把 typed
+优先级反转候选/依赖边扩大成“NetworkService 持有共享锁”。这些结论没有
+frame deadline 或 lock-owner typed 证据，不能由后置 caveat 抵消。
+
+同一正例还为 `EVAL-B19-ARITH2` 增加了通用账目关系 witness：占用表把
+CookieMonsterCl 的 `sleep 47.282ms ×1` 与 `sleep 44.836ms ×6` 以同名同态
+并列，却没有说明两者来自不同覆盖集/账目体系；目标状态分区的 sleep
+84.358ms 与路径候选 76.599ms 也没有可见关系。它们不是可直接相加的独立
+耗时。B19g 应复用 projection 已有 `账目关系` typed 判定，在双轴摘要中做
+关系融合或择一主账，不能按数值近似或主体名称猜测。
+
+无窗 `real_trace_c2_dstate_iowait` 暴露 `EVAL-B19-NOWINPROJ1`（P1）：
+
+1. 用户 typed 范围是 `full_artifact`，目标只有
+   `com.baidu.tieba-59566`，scenario=generic，diagnostic=false；问题要求
+   “是否发生、何时、内核原因、总量”，不是根因诊断；
+2. analyzer 却发出 `question_kind=call_chain + predicate_axis=call`，而
+   `is_relational_lookup=false`；现有单 runtime-target consistency 允许
+   `AxisCall` 单独放行，QuestionFamily 因而变成 `call_chain`；
+3. `traceSupplementNarrowDStateQuestion` 被该 family 否决，系统以
+   `no_typed_window` 为由 windowless 补跑 full-trace
+   `root_cause_rank`，而不是原设计的最小 `window_stats`；
+4. full report 权限同样把这个错误 call-chain 标签当最高权威，最终注入
+   B19f 占用块和完整因果投影；报告同时携带全 trace
+   `34579.450627..34579.595184` 与另一探索窗
+   `34579.472865..34579.587805`，形成跨窗拼接；
+5. 主体把正确的 3 段
+   `0.138/0.147/0.350ms`、Σ`0.635ms` 写成
+   `0.197/17.903/19.565ms`、Σ`37.665ms`。这是相同 scope-join 症状在
+   错误报告扩张下的稳定复现，不按单次模型波动关闭。
+
+最优修复拆成两层，均只消费 schema-validated typed 字段：
+
+1. **B19g-a analyzer runtime relation consistency（先做）**：一个 runtime
+   target 的 `call_chain` 不能再由 `predicate_axis=call` 单独放行；必须有
+   `is_relational_lookup=true`（例如“哪些 waker/caller 与该目标存在关系”）
+   或至少两个 distinct runtime targets。单目标状态/时长/次数/原因问题应
+   重试为 conditional/mechanism。源码两端点 call chain、两个 runtime
+   target 关系、显式时间窗均保持。
+2. **B19g-b publication defense（随后评估）**：如果 production replay 仍
+   出现 analyzer 把事实查询误铸为 relational call chain，再增加独立 typed
+   runtime request-purpose enum；不得从 RawRequest、analyzer keywords、
+   thinking、closure reason 或 final prose 扫词硬门。不得用
+   `full_artifact` 单独否决真正的无窗调用链。
+3. **B19g-c FRAME1 + ARITH2**：把 frame authority 与账目 relation 融入
+   一个用户结论槽；无 frame/deadline 不得升级帧结果，无 lock-owner row
+   不得升级锁持有；不新增答案前置“系统权威”块，不扫描模型原文做硬门。
+
+状态：
+
+| ID | 状态 |
+|---|---|
+| EVAL-TWODIM-2 | covered：正例确认两轴可见且原 projection 能力无回归 |
+| EVAL-B19-NOWINPROJ1 | open P1 / B19g-a next；typed 单目标 relation consistency |
+| EVAL-B19-SCOPEJOIN1 | partial：B19e typed 载体在场，主体仍未收敛；与 NOWINPROJ1 联合复放 |
+| EVAL-B19-FRAME1 | open P1 / B19g-c |
+| EVAL-B19-ARITH2 | open P2 / 新增双轴账目关系 witness / B19g-c |
+
+下一批先提交这份 production witness，再落 B19g-a 并运行完整 types/tool
+回归；随后仍按严格并行 2 个回放同一正负 pair。只有分类/发布扩张消失且
+显式窗投影保持，才进入 FRAME1/ARITH2 融合，避免多变量同时变化。
+
 #### B18f r1：图兼容与显式窗非回归回放（2026-08-01）
 
 严格并行 2 个回放均为 runner PASS / human PASS：
