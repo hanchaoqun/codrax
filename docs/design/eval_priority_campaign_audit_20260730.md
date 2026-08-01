@@ -2768,3 +2768,66 @@ B14 r1 仍严格 `parallel=2`，两例刻意跨能力域。Trace 例继续验收
 补采与因果投影；polyglot 例验收完整 relation chain、原生模块桥和 fallback。
 人工审计不只看 runner token，还检查因果/调用边是否有证据、量纲是否正确、
 是否把 support/context 升格成 principal。
+
+### B14 r1 人工审计与批 WS1 设计（2026-08-01）
+
+在 revision `0f5a2f44e` 严格 `parallel=2` 回放：
+
+- `eval/results/real_trace_h3_iofam_one_seat-20260731-175904`
+- `eval/results/mr_poly_binding_chain-20260731-175904`
+
+runner 1/2（polyglot PASS 136s、H3 FAIL 184s），人工 0/2。
+
+H3 不是 trace 证据缺失。模型执行了 6 次有窗 `trace_query`，其中
+`window_stats`、`root_cause_rank` 与各 IO 事件查询均使用正确的
+`13762.791708..13763.024898 / pid=17267`。真正断点发生在分析 IR：
+
+```text
+requested_scope=bounded_selector
+time_start=13762.791708
+time_end=13763.024898
+source_quote=<已锚定的用户精确窗口>
+```
+
+`parseRuntimeArtifactScopeProfile` 的 `bounded_selector` 分支随后清空 start/end，
+使下游 `ExplicitTimeWindow()` 失败。系统补采因此以 `families_present` 跳过，
+而发布层又把问题识别成 focused runtime fact，抑制完整报告。最终没有系统
+IOFAM 席位/因果投影块，模型自由叙述漏掉
+`完成端到端·IO延迟（io_latency）`、`块设备层·块设备IO(inode)` 与
+`综合评分,非墙钟`，并把 blocked-reason interval Σ 错写成非墙钟内部估算。
+
+这是 typed 载体内部自相矛盾，而不是要通过用户/答案关键词识别的场景。
+最优修复是在 emit-analysis 解析边界 canonicalize：
+
+1. runtime artifact 在场；
+2. `bounded_selector` 的 quote 已通过当前请求 exact-anchor；
+3. typed `time_start/time_end` 均在场、非负且 `end > start`；
+4. 满足时将 scope 规范化为 `explicit_time_window` 并保留时间，记录 warning；
+5. 其他 enum/time 冲突继续按原规则清空或 fail-open。
+
+该规则只消费 schema-valid enum、数值和既有 quote-anchor 结果，不扫描用户
+关键词或模型答案。它恢复所有精确窗问题的统一 authority，同时不改变真正
+无窗状态查询的窄报告策略。
+
+polyglot 的 runner PASS 掩盖另一通用缺口：typed relation ledger 与 finalizer
+prompt 已有 Python fast path、pyo3 registration/wrapper、Rust core 和
+`_tokenize_slow` fallback 全边；正文结论也正确。但 ordered-list 的
+`citation_ref` 错位到相邻 claim，fallback 只留在 summary，未成为有证据的
+分支行。当前 validator 只验证 citation index/quote 可用性，不验证一条
+relation row 的 subject/predicate/object 是否与所引 citation 的 typed edge
+一致。
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B14-WS1 | P0 | runtime artifact scope canonicalization | 精确 start/end 与 `bounded_selector` enum 可同时通过，解析器按 enum 丢弃更精确 typed 窗 | 在 emit-analysis 边界以已锚定 quote + 合法 typed 数值规范化为 `explicit_time_window`；补 parse、report-authority、supplement 接线 pin | approved |
+| EVAL-B14-RC1 | P2 | relation row ↔ citation semantic alignment | citation_ref 仅做结构/存在性校验，无法发现 call edge 行引用相邻定义/调用 | 从 typed relation surface 给 row 提供 endpoint-aligned citation候选或作 advisory；不得扫描答案 prose、不得因启发式相似度 hard reject | filed |
+| EVAL-B14-MV1 | P3 | model narrative caliber drift | system IO family 被抑制后，模型把 interval Σ、rank absence 等自由解释为错误口径 | 先由 WS1 恢复 deterministic typed display；回放后仍出现才另行立项 | subsumed-by-WS1 |
+
+WS1 不变量：
+
+1. 不读取/匹配用户或模型答案关键词，不增加 case/type 特判；
+2. 无有效双端时间值时绝不升级为显式窗；
+3. full-artifact、真正 bounded-selector、unspecified 与无附件行为保持不变；
+4. 显式窗继续保留 Trace 因果投影、root rank、wakeup chain、critical
+   blocking、窗内可消除量及自动补齐；
+5. focused、无时间窗的状态/计数查询继续使用窄报告，不重新套入全量因果合同。
