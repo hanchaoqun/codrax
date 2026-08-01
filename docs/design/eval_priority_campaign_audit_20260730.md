@@ -4858,6 +4858,38 @@ r2 在内部词面修复后 runner 2/2 PASS：无窗 case 恢复 `bounded_fact_s
 状态：`EVAL-B19-SCHEDPROSE1=implemented/replay-next`；
 `EVAL-B19-NARROWCAVEAT1=implemented/replay-next`；显式窗同对负回归待跑。
 
+#### B19h-d r1：有限等待事实与显式窗负回归均闭环
+
+严格并行 2 个相同 Trace case，runner 2/2 PASS，人工 2/2 PASS：
+
+- 无窗有限事实 case 的最终答案由 typed 完整等待清单接管：请求范围
+  `34579.450627..34579.595184`、目标 `com.baidu.tieba-59566`、3 段、
+  墙钟合计 `0.635ms`、caller
+  `sync_buffer_read_wi+0x60/0x11c[sysmgr.elf]` 与逐段明细一致。D-state、
+  io_wait、S 态 IO 等待和 other 以互斥统计分栏发布，并明确只代表本报告记账口径，
+  不推导内核状态标签间的包含/排斥语义。
+- 模型探索阶段把两次 `sched_switch` 时间差误算成 `19.671ms D-state`，但该值没有
+  进入最终答案，证明 typed 完整清单已真正拥有主值权限，而非只增加提示词。
+  最终答案也不再发布 Trace 因果投影、根因榜、全量钻取未执行或上游唤醒者缺失
+  caveat；来源说明和输出维度核对没有扩张证据或结论。
+- 同批显式 114.940ms 时间窗仍发布 typed unproven 主结论、主要时间占用/新修向与
+  现规则可消除量双轴、板内根因候选排序、唤醒链、代表窗、Trace 因果投影、
+  证据索引及系统自动补采。模型草稿里的确定性因果过 claim 被发布权限隔离，窄事实
+  接管和 caveat 过滤没有外溢。
+- analyzer 本轮为无窗 case 正确声明 `bounded_fact_set`，但跨历史回放仍出现过一次
+  `causal_diagnosis`。`EVAL-B19-DECL1` 保留为 typed declaration 跨运行稳定性样本；
+  当前证据符合模型波动，且系统已有 fail-closed 权限边界，暂不以题面关键词或模型
+  rationale 扫描增加硬门。后续若跨 case 复现，再按结构化声明重试一致性统一处理。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b19hd_r1_20260801.md`；
+- `eval/parallel_selected_summary_evalcampaign_b19hd_r1_20260801_manual_audit.md`；
+- 结果目录时间戳 `20260801-043001`。
+
+状态：`EVAL-B19-SCHEDPROSE1=covered`；`EVAL-B19-NARROWCAVEAT1=covered`；
+显式时间窗因果能力负回归=`pass`；`EVAL-B19-DECL1=P1/open-model-variance-watch`。
+
 ### 后续 eval 维度扩展（用户追加，2026-08-01）
 
 当前 Trace P0 收口并回放后，继续维持每批严格并行 2 个，按风险交叉覆盖：
