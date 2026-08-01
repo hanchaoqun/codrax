@@ -782,6 +782,7 @@ const (
 	runtimeTraceCausalProjectionCompareNotesBlockID  = runtimeTraceCausalProjectionCompareBlockID + "_notes"
 	runtimeTraceCausalProjectionCoverageBlockID      = runtimeTraceCausalProjectionBlockIDBase + "_coverage"
 	runtimeTraceCausalProjectionPartitionBlockID     = runtimeTraceCausalProjectionBlockIDBase + "_partition"
+	runtimeTraceCausalProjectionRepresentativeSuffix = "_representative_windows"
 	runtimeTraceCausalProjectionArtifactBlockIDInfix = "_a"
 )
 
@@ -821,7 +822,8 @@ func runtimeTraceCausalProjectionFamilyBlockID(id string) bool {
 	// (PSG §25(b)) the system-authored block was excluded from the evidence
 	// feed face — its engine numerals could not ground prose (false-positive
 	// repair rounds) while its text was scanned as model prose.
-	case "", "_detail", "_detail_full", "_evidence", "_compare", "_compare_notes", "_coverage", "_partition":
+	case "", "_detail", "_detail_full", "_evidence", "_compare", "_compare_notes", "_coverage", "_partition",
+		runtimeTraceCausalProjectionRepresentativeSuffix:
 		return true
 	}
 	digits, ok := strings.CutPrefix(rest, runtimeTraceCausalProjectionArtifactBlockIDInfix)
@@ -836,7 +838,7 @@ func runtimeTraceCausalProjectionFamilyBlockID(id string) bool {
 		return false
 	}
 	switch digits[i:] {
-	case "", "_detail", "_detail_full", "_evidence":
+	case "", "_detail", "_detail_full", "_evidence", runtimeTraceCausalProjectionRepresentativeSuffix:
 		return true
 	}
 	return false
@@ -1345,6 +1347,11 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 		ClaimUses:   claimUses,
 		FacetIDs:    facets,
 	}}
+	if block := runtimeTraceCausalProjectionRepresentativeWindowsBlock(
+		projection, zh, idPrefix, titleSuffix, claimUses, facets,
+	); block != nil {
+		out = append(out, *block)
+	}
 	if columns, rows := runtimeTraceProjDetailTable(model, zh); len(rows) > 0 {
 		title := "因果投影关键指标"
 		if !zh {
@@ -1781,7 +1788,9 @@ func runtimeTraceCausalProjectionMultiCluster(set types.TraceCausalProjectionSet
 		section := runtimeTraceCausalProjectionClusterFor(projection, lang, focus, sectionPrefix, label)
 		for _, block := range section {
 			switch block.ID {
-			case sectionPrefix, sectionPrefix + "_detail":
+			case sectionPrefix,
+				sectionPrefix + runtimeTraceCausalProjectionRepresentativeSuffix,
+				sectionPrefix + "_detail":
 				leads = append(leads, block)
 			default:
 				details = append(details, block)
@@ -1794,6 +1803,117 @@ func runtimeTraceCausalProjectionMultiCluster(set types.TraceCausalProjectionSet
 	}
 	if block := runtimeTraceProjPartitionCaveatBlock(set, zh); block != nil {
 		out = append(out, *block)
+	}
+	return out
+}
+
+const runtimeTraceCausalProjectionRepresentativeWindowLimit = 3
+
+// runtimeTraceCausalProjectionRepresentativeWindowsBlock publishes a compact
+// occurrence-window surface from the projection's typed ranked seats. The
+// projection already carries these intervals independently of model prose;
+// rendering them here prevents a one-block finalizer draft from hiding the
+// concrete episodes behind the lossless detail/evidence tail.
+//
+// This is deliberately unconditional once ranked causal seats expose valid
+// intervals. It does not inspect RawRequest, requested-dimension labels, model
+// reasoning, or final-answer text, and it never gates completion. The row
+// caliber also keeps a representative occurrence distinct from the seat's
+// whole-query aggregate value.
+func runtimeTraceCausalProjectionRepresentativeWindowsBlock(
+	projection types.TraceCausalProjection,
+	zh bool,
+	idPrefix string,
+	titleSuffix string,
+	claimUses []types.RenderedClaimUse,
+	facets []string,
+) *types.AnswerBlock {
+	nodes := runtimeTraceCausalProjectionRepresentativeWindowNodes(projection)
+	if len(nodes) == 0 {
+		return nil
+	}
+	title := "代表性时间窗"
+	columns := []string{"排序", "链上席位", "时间窗", "口径"}
+	if !zh {
+		title = "Representative Time Windows"
+		columns = []string{"Rank", "On-chain seat", "Window", "Caliber"}
+	}
+	items := make([]types.AnswerBlockItem, 0, len(nodes))
+	for i, node := range nodes {
+		rank := "—"
+		if node.Rank > 0 {
+			rank = fmt.Sprintf("#%d", node.Rank)
+		}
+		subject := strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(node, zh))
+		cause := strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(node, zh))
+		seat := subject
+		if cause != "" && cause != subject {
+			seat += " / " + cause
+		}
+		window := fmt.Sprintf("%.6f..%.6f", node.StartTs, node.EndTs)
+		caliber := "该窗是此排序席的一处代表性发生片段；席位值按完整查询窗聚合，不能把席位值当作此单窗时长。"
+		if !zh {
+			caliber = "This is one representative occurrence for the ranked seat; the seat value aggregates over the full query window and is not this single-window duration."
+		}
+		items = append(items, types.AnswerBlockItem{
+			ID:          fmt.Sprintf("%s_rep_%d", idPrefix, i+1),
+			Cells:       []string{rank, seat, window, caliber},
+			CitationRef: -1,
+		})
+	}
+	return &types.AnswerBlock{
+		ID:          idPrefix + runtimeTraceCausalProjectionRepresentativeSuffix,
+		Kind:        types.BlockTable,
+		Title:       title + titleSuffix,
+		Columns:     columns,
+		Items:       items,
+		SurfaceRole: types.SurfacePrincipal,
+		ClaimUses:   append([]types.RenderedClaimUse(nil), claimUses...),
+		FacetIDs:    append([]string(nil), facets...),
+	}
+}
+
+func runtimeTraceCausalProjectionRepresentativeWindowNodes(
+	projection types.TraceCausalProjection,
+) []types.TraceCausalProjectionNode {
+	candidates := append([]types.TraceCausalProjectionNode(nil), projection.RankedSeats...)
+	if len(candidates) == 0 {
+		if projection.PrimaryRootCause != nil {
+			candidates = append(candidates, *projection.PrimaryRootCause)
+		}
+		candidates = append(candidates, projection.PrimaryRootCauses...)
+		candidates = append(candidates, projection.OnChainCauses...)
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		ri, rj := candidates[i].Rank, candidates[j].Rank
+		if ri <= 0 {
+			ri = int(^uint(0) >> 1)
+		}
+		if rj <= 0 {
+			rj = int(^uint(0) >> 1)
+		}
+		return ri < rj
+	})
+	seen := map[string]bool{}
+	out := make([]types.TraceCausalProjectionNode, 0, runtimeTraceCausalProjectionRepresentativeWindowLimit)
+	for _, node := range candidates {
+		if !(node.EndTs > node.StartTs) || node.StartTs < 0 {
+			continue
+		}
+		key := strings.Join([]string{
+			runtimeTraceCausalProjectionCanonicalNode(node.Subject),
+			strings.TrimSpace(node.Predicate),
+			strconv.FormatFloat(node.StartTs, 'g', -1, 64),
+			strconv.FormatFloat(node.EndTs, 'g', -1, 64),
+		}, "\x00")
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, node)
+		if len(out) >= runtimeTraceCausalProjectionRepresentativeWindowLimit {
+			break
+		}
 	}
 	return out
 }
@@ -8492,7 +8612,7 @@ func runtimeTraceCausalProjectionMetricBlockID(id string) bool {
 	if !ok {
 		return false
 	}
-	if rest == "_detail" {
+	if rest == "_detail" || rest == runtimeTraceCausalProjectionRepresentativeSuffix {
 		return true
 	}
 	digits, ok := strings.CutPrefix(rest, runtimeTraceCausalProjectionArtifactBlockIDInfix)
@@ -8503,7 +8623,8 @@ func runtimeTraceCausalProjectionMetricBlockID(id string) bool {
 	for i < len(digits) && digits[i] >= '0' && digits[i] <= '9' {
 		i++
 	}
-	return i > 0 && digits[i:] == "_detail"
+	return i > 0 && (digits[i:] == "_detail" ||
+		digits[i:] == runtimeTraceCausalProjectionRepresentativeSuffix)
 }
 
 func runtimeTraceObservationItems(doc *types.AnswerDocumentV2, perf *types.PerfBundle) []types.AnswerBlockItem {

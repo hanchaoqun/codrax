@@ -189,7 +189,8 @@ func TestDisp3MultiProjectionTreesFirstDetailsAfter(t *testing.T) {
 	if len(order) < 4 {
 		t.Fatalf("expected per-artifact sections: %+v", order)
 	}
-	// Every head (lead + 关键指标) must precede every tail (明细 + 证据索引).
+	// Every head (lead + representative windows + 关键指标) must precede
+	// every tail (明细 + 证据索引).
 	seenTail := false
 	for _, s := range order {
 		if s.kind == "tail" {
@@ -213,14 +214,20 @@ func TestDisp3MultiProjectionTreesFirstDetailsAfter(t *testing.T) {
 	// 落账, 2026-07-10) — round-trip record. §29.10-3 用户裁定原文: "投影树
 	// (含头/覆盖句/关键指标)依次全部优先显示,因果明细依次殿后" (the 关键指标
 	// table is INSIDE each projection's priority unit; §29.18 ② 验收句 "各投影
-	// lead+关键指标依次"). The DISP-3 as-built pinned the paired order
+	// lead+关键指标依次"). B19c adds one typed representative-window decision
+	// face to that same per-artifact unit, so the current triplet is
+	// lead,representative,detail. The DISP-3 as-built pinned the paired order
 	// (a1,a1_detail,a2,a2_detail); a remote batch (e920a5d8) flipped this pin
 	// to the three-tier split (a1,a2,a1_detail,a2_detail) without citing a
 	// §29.10-3 re-adjudication; restored here. Any future flip of wantHeads
 	// MUST cite a user re-ruling of §29.10-3.
 	wantHeads := []string{
-		"runtime_trace_causal_projection_a1", "runtime_trace_causal_projection_a1_detail",
-		"runtime_trace_causal_projection_a2", "runtime_trace_causal_projection_a2_detail",
+		"runtime_trace_causal_projection_a1",
+		"runtime_trace_causal_projection_a1_representative_windows",
+		"runtime_trace_causal_projection_a1_detail",
+		"runtime_trace_causal_projection_a2",
+		"runtime_trace_causal_projection_a2_representative_windows",
+		"runtime_trace_causal_projection_a2_detail",
 	}
 	if strings.Join(headIDs, ",") != strings.Join(wantHeads, ",") {
 		t.Fatalf("head group must keep the §29.10-3 paired order (各投影 lead+关键指标 成对依次): %v", headIDs)

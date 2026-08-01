@@ -3973,6 +3973,60 @@ B18c 使用一条通用 typed 规则修复：
 
 状态：`implemented / full-tests-pass / same-pair replay next`。
 
+### B19b r1：精确集合覆盖，Trace 展示与因果权限继续暴露（2026-08-01）
+
+严格并行 2 个用例：
+
+- Git runner/human PASS，128s；上轮调用点/文件数误述未复发，按模型波动处理，
+  `EVAL-B19-GREP1` 不施工；
+- Trace runner/human FAIL，172s。显式窗、根因排序、唤醒链、窗内可消除量、
+  因果投影、coverage 和成文前补采全部保留，且本轮没有 `19/7` 矛盾；
+  runner 因最终正文没有代表性时间窗而失败。
+
+Trace 调查闭环已经发布三个具体代表窗，root-cause ranked seats 也携带 typed
+occurrence interval；finalizer 却只提交一个 summary block。当前 requested
+dimension evaluator 只对 count/member-set/boundary/evidence-source 角色启用
+精确 patch retry，`stage_or_workflow` 仍是软展示提示，系统因果投影也没有
+紧凑代表窗面。因此这是“证据已在、发布面缺席”，不是需要再查 trace。
+
+同时登记两个独立权限问题：
+
+| ID | 优先级 | GAP | 状态 |
+|---|---:|---|---|
+| EVAL-B19-SET1 | P1 | exact member-set count/roster 矛盾被静默覆盖 | covered：本轮无伪精确集，Trace 主合同无回归 |
+| EVAL-B19-TWIN1 | P1 | typed ranked-seat occurrence windows 没有稳定可见发布面 | implemented / tests next |
+| EVAL-B19-FRAME1 | P1 | `frame_causality=unproven` 在报告尾部，模型首段仍断言确定帧结果/根因 | filed：typed authority-first，禁止扩大 prose phrase rewrite |
+| EVAL-B19-ARITH2 | P2 | 重叠根因席被模型相加成“累计超过53ms”，仅尾部 caveat 纠正 | filed：与 principal claim authority 合并设计 |
+| EVAL-B19-GREP1 | P3 | 行/文件/调用点计量误述 | not reproduced / model variance |
+
+#### B19c typed representative occurrence-window publication
+
+通用方案直接扩充系统因果投影，不做请求/答案文本硬门：
+
+1. 从 `TraceCausalProjection.RankedSeats` 读取 rank、subject、cause、
+   `StartTs/EndTs`；旧载体无 RankedSeats 时回退现有 primary/on-chain nodes；
+2. 仅接纳 `end > start` 且 start 非负的 typed interval，按 rank 稳定排序，
+   以 subject/predicate/start/end 精确去重，最多发布前三席；
+3. 在投影 lead 后生成“代表性时间窗”紧凑表，明确每行只是一个 occurrence，
+   排序席位值仍是全查询窗聚合，禁止把两者混为单窗时长；
+4. single/multi-artifact 共用同一 builder；多工件仍保持所有 decision surface
+   在 lossless details/evidence 前；
+5. 新 block id 纳入 exact reserved system family、cap budget 与 hierarchy；
+   无合法 interval 时零输出；
+6. 不读取 RawRequest、requested dimension label/source quote、模型
+   reason/thinking/final text，不触发 retry/reject，不改变因果排序、投影、
+   自动补采或 coverage 计算。
+
+验证：
+
+- 代表窗接纳/排序/去重/非法区间/精确 reserved-id 定向测试通过；
+- 多工件顺序钉死为每工件
+  `lead → representative_windows → key_metrics`，全部 lossless
+  details/evidence 仍在决策面之后；
+- `go test ./internal/tool -count=1`：160.413s。
+
+状态：`implemented / full-tests-pass / replay next`。
+
 #### B18f r1：图兼容与显式窗非回归回放（2026-08-01）
 
 严格并行 2 个回放均为 runner PASS / human PASS：
