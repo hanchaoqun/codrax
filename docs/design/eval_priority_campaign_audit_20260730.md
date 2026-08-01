@@ -4399,6 +4399,45 @@ skill 2.111s）。下一步提交推送后复放同一 read/write 两 case；若
 `EVAL-B24-ENDPOINTSCOPE1=covered`；`EVAL-B24-EVALDIR1=P2/observe`；
 `EVAL-B24-KEYSET1=P2/open`。
 
+### B25 r1：plan-only 隔离通过，单附件物化别名被误判为双 trace（2026-08-01）
+
+`main@1634ee1e6` 严格并行执行一个显式时间窗 Trace read case 与一个 Java
+plan-only write case：runner 均 PASS，人工 1 PASS / 1 FAIL。
+
+1. `patch_java_typo` 54s：ChangePlan 只包含 `Main.java` 的
+   `retrun`→`return` 单行 patch；repo 中 `Main.java` 无 diff，未进入 apply/verify。
+   plan-only 隔离正证通过。
+2. `trace_query_donghu_real_frame_multicausal` 194s：显式用户窗
+   `34579.472865..34579.587805`、主要时间占用、窗内可消除量、根因排序、唤醒链、
+   代表性时间窗、Trace 因果投影和系统自动补采全部保留；真实占用与规则可消除量仍是
+   两个独立维度。`frame_causality=unproven / frame_evidence_status=absent` 也正确出厂。
+3. 但最终答案发布了两套完整板：一套标为 `donghu_tieba_frame.systrace`，另一套标为
+   `attached_trace.txt`；主要占用、因果投影、可消除量、代表窗和关键指标各出现两次，
+   Evidence Index 中同一事实也以相差一行的 locator 成对出现。系统还生成
+   `attached_trace.txt ↔ donghu_tieba_frame.systrace` 的伪跨工件关系边界。
+4. 日志证明两者是一个物理输入：用户/模型查询原始路径；system supplement 通过
+   `resolveTraceQuerySource` 查询 Codrax 为同一 `AttachedHitrace` 写出的保留 blob。
+   path attachment 固定多一行 `# codrax-source: <path>` 包装头，因此证据行号整体 +1。
+   当前 partitioner 只合并同路径的相对/绝对拼写，不知道“原附件路径 ↔ 保留 blob”这条
+   typed 物化关系，于是把两组确定性查询记录分成两个 capture。
+
+登记 `EVAL-B25-TRACEALIAS1/P1`。最优通用方案不是按 basename、内容相似度或答案文字
+去重，而是在 Observation Ledger 的唯一运行时工件身份入口增加 typed materialization
+alias：仅当记录携带 `ArtifactID=attached_trace`、路径命中 Codrax 保留 trace blob 形状，
+且 run-entry preflight 恰有一个 `carrier=attachment` 的 trace 源时，把 blob 的
+`SourceRef.Path/ArtifactID` 归一到该附件源。随后既有 projection duplicate-publication
+规则在一个 partition 内消除重复发布，cross-artifact authority 也不会再铸假 pair。
+
+安全边界：
+
+- 两个真实 trace 路径永不合并；同名不同目录也不合并；
+- 用户自己的 `attached_trace.txt` 若没有 `ArtifactID=attached_trace` 结构标记，不合并；
+- 多个 attachment 候选或无法唯一绑定时 fail-open，保留分区；
+- 不读取 RawRequest、模型 thinking/summary/final，不修改窗口、target、root rank、
+  wakeup、可消除量、frame authority 或 supplement 选取逻辑。
+
+状态：`EVAL-B25-TRACEALIAS1=P1/filed / implementation-next`；plan-only mode=`covered`。
+
 ### B21-GREP：literal/regex 查询语义进入 typed 证据链（2026-08-01）
 
 `EVAL-B21-GREP1` 已按软恢复而非硬拒绝施工：
