@@ -4497,6 +4497,48 @@ types 18.775s、tool 163.421s、skill 1.379s），`git diff --check` 通过。
 状态：`EVAL-B25-TRACEALIAS1=covered`；`EVAL-B25-LOCATOR1=P2/open`；
 `EVAL-B25-QUOTE1=P2/open`；plan-only mode=`covered`。
 
+### B26 r1：span 成员形正确，但 requested-dimension 主结论与 typed 真值冲突（2026-08-01）
+
+本批按“客户风险、泛化覆盖、当前回放缺口、跨模式杠杆”选择一个从未在本战役回放的
+真实 Trace span-family case 与一个仅有一次旧回放的 C++ write/apply case；
+`main@bf2e5653c` 严格 `parallel=2`。runner 2/2 PASS，人工 1 PASS / 1 FAIL。
+
+1. `github_issue_nlohmann_long_double_symptom` 人工 PASS：applied tree 只把普通头和
+   single-include 头中的 `%.*lg` 各改为 `%.*Lf`；`make check` 以
+   `-Wall -Wextra -Wformat -Werror` 编译并运行通过。只有一个修改批、一次 apply、
+   一次 verify 和 verified finish。planner 在 typed read budget 已耗尽后仍尝试两个
+   不可用读工具，属 P2 过程效率样本，不影响本轮正确性，不为 C++/格式串单例加硬门。
+2. `real_trace_h10_spantop_member_subrows` 的系统投影正确发布
+   `Jit thread pool-17284 / JIT编译 2次`，合计 `2.388ms`；两个 constituent 分别为
+   `1.781ms（行5969..6114）` 与 `0.607ms（行12611..12664）`。SPANTOP 子行形、
+   成员守恒、显式窗 `13762.791708..13763.024898`、主要占用/新修向、现规则可消除、
+   根因排序、唤醒关系和系统补采均在。
+3. 但模型拥有的首块连续断言“所有搜索零匹配”“窗口内不存在 JIT/类校验等 span”。
+   同一答案后部的 deterministic semantic-class 投影直接反证它。模型探索只用目标线程
+   查询 JIT，而系统最终 projection 在同一请求窗发现链路/邻近线程的 JIT family；当前
+   `materialized runtime trace deterministic optimization points` 只是模型块之后的加法
+   补表，没有接管用户明确要求的枚举主结论。
+4. 自动 oracle 假 PASS：它只在全答找到 JIT/2.388/成员值，没有约束 principal 结论与
+   typed semantic rowset 一致。该问题不是某个 JIT 名或时间值的拟合点，而是所有
+   deterministic runtime fact family 的“后置真值不能纠正前置模型结论”共同缺口。
+
+登记 `EVAL-B26-SEMCONCL1/P1`。最优方案：从最终 projection 的 typed
+`semantic_class` rows 编译一个 requested-scope semantic-span authority，保持原始窗、
+宿主、类别、完整 member roster、逐项 duration/locator 与 completeness；在成文前给
+finalizer 一个紧凑、不可被 Top-N 挤出的 handoff，并由同一 authority 生成自然语言的
+用户结论槽。结构化请求确属 runtime bounded enumeration/fact-set 且该 authority 可用时，
+模型拥有的同维度 `member_set` 不得作为主值；其他等待/根因内容仍保留。硬决定只读
+analysis enum、validated scope、typed projection rows 与 completeness，不读取
+RawRequest、keywords、sub-topic/free-form label、模型 thinking/summary/final。不得改动
+trace query、root rank、wakeup、可消除量、双轴或自动补采。
+
+另登记 `EVAL-B26-ORACLE1/P2`：增加 principal/system relation oracle，使“主块说 0、
+typed 完整 rowset 说 N>0”不能再由后置 token 假 PASS；它是 eval 关系约束，不是生产
+答案词面硬门。
+
+状态：`EVAL-B26-SEMCONCL1=P1/filed / implementation-next`；
+`EVAL-B26-ORACLE1=P2/filed`；C++ write/apply=`covered`。
+
 ### B21-GREP：literal/regex 查询语义进入 typed 证据链（2026-08-01）
 
 `EVAL-B21-GREP1` 已按软恢复而非硬拒绝施工：
