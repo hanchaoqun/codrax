@@ -4312,6 +4312,30 @@ prose 或 case ID。Trace external observation、显式窗、投影计算、根�
 `EVAL-B22-STMTSPAN1=implemented/full-tests-pass`；
 `EVAL-B22-COMPOUNDREL1=replay-required`。`CITNEIGH1/SCALARCIT1` 保持下一独立批。
 
+#### B22-E r1：read/write 双模式正证（2026-08-01）
+
+同一 `main@db3b1e2d5` 二进制快照下严格并行 2 个异构 case，runner/human 均 2/2 PASS：
+
+1. `qf_config_precedence`（read，137s）：2664 的 prompt 支持面只发布
+   `initApp guard condition IF !cmd.Flags().Changed("pipeline-max-steps")`；relation dossier
+   也为 `verified guard`，不再出现 `flagMaxSteps -> mergedMaxSteps relation=assigns`。
+   最终准确说明“CLI 未显式传入时，`mergedMaxSteps` 回写 `flagMaxSteps`；否则保留 CLI
+   值”，默认值 50 引用 `cmd/root.go:88`，没有 sibling ceiling 或行号/摘录错位。
+2. `patch_go_typo`（write/apply，108s）：单一 ChangePlan、单一一行 patch，只将
+   `retrun` 改为 `return`；隔离 worktree 内 `go test -json ./...` 成功，changed path 为
+   project-runner covered，最终 verified 与 typed report 一致。worktree 保留来自 eval fixture
+   显式 `pipeline_keep_worktree_on_success=true`，用于 post-apply oracle，并非产品清理失效。
+3. 本轮证明稀疏 amendment、condition claim-form 和 write verification 可以同时工作；
+   `EVAL-B22-EVMERGE1/STMTSPAN1/COMPOUNDREL1` 状态更新为 `covered`。
+4. `CITNEIGH1/SCALARCIT1/NEARKEY1` 本轮均未复现，但前一轮已证明系统允许错误形状，
+   因而暂不以一次绿样本关闭；继续按独立引用/标量权限批施工。
+
+新增低优先级 eval 基建项 `EVAL-B22-EVALMODE1/P3`：write/apply 固定的安全控制器流程本轮
+有 10 个合法 dispatch（分析、控制器 plan/apply/verify/finish 等），通用效率阈值仍以
+`limit=8` 标记 `high_pipeline_dispatches`。它不影响产品结果，但会把正常 write 状态机噪声
+混进高耗时审计；最优方案是按 typed mode/workflow phase 校准期望预算，不按 case ID 或日志
+关键词豁免。该项低于引用权限和下一轮高优先 eval，先 filed。
+
 ### B19a r1：Trace 主合同保留，精确集合暴露静默改写（2026-08-01）
 
 严格并行 2 个用例，runner 2/2 PASS，人工审计 0/2：
