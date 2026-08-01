@@ -9875,8 +9875,36 @@ func normalizeViewCompatibleAnswerDocument(doc *types.AnswerDocumentV2, view *ty
 	fixed += normalizeExcessRequiredSummaryBlocks(doc, view)
 	fixed += normalizeImplicitDefinitionClaimUses(doc, view)
 	fixed += normalizeAutoRepairableRequiredFacetIDs(doc, view)
+	fixed += normalizeAmbiguousMultiTargetAbsentExactResolution(doc, view)
 	fixed += normalizeAbsentExactResolutionScalarBlocks(doc, view)
 	return fixed
+}
+
+// normalizeAmbiguousMultiTargetAbsentExactResolution drops a document-wide
+// absence verdict when the typed contract names more than one distinct target.
+// AnswerExactResolution has no target_ref, so one absent status cannot say
+// which member is absent and would render as a false all-target banner for a
+// mixed present/absent request. The visible answer blocks and scoped negative
+// authority remain intact; a future per-target carrier can replace this
+// fail-closed compatibility repair.
+func normalizeAmbiguousMultiTargetAbsentExactResolution(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) int {
+	if doc == nil || doc.ExactResolution == nil ||
+		doc.ExactResolution.Status != types.AnswerExactResolutionAbsent ||
+		view == nil || view.ExactResolution == nil {
+		return 0
+	}
+	seen := make(map[string]struct{}, len(view.ExactResolution.Targets))
+	for _, target := range view.ExactResolution.Targets {
+		target = strings.TrimSpace(target)
+		if target != "" {
+			seen[target] = struct{}{}
+		}
+	}
+	if len(seen) <= 1 {
+		return 0
+	}
+	doc.ExactResolution = nil
+	return 1
 }
 
 // normalizeObservedArtifactClaimUseCarriers repairs the non-visible typed

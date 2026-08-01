@@ -3241,7 +3241,7 @@ runner 失败只因 case oracle 写死 ASCII 逗号
 | ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
 |---|---:|---|---|---|---|
 | EVAL-B15-NEG1 | P1 | negative proof target/scope authority | 局部 no-match 被扩写 | typed target/scope system lead | covered |
-| EVAL-B15-XR1 | P1 | mixed exact target global verdict | 多目标 contract 只有一个无 target_ref 的 document-level resolution；mixed present/absent 时任何全局 absent 横幅都越权 | 短期 typed fail-closed：当 contract 有多个 distinct target 且 document verdict=absent 时抑制全局 exact-resolution 横幅，同时保留 scalar、scoped NEG1 与模型事实块；长期增加 per-target resolution/target_ref | planned-next |
+| EVAL-B15-XR1 | P1 | mixed exact target global verdict | 多目标 contract 只有一个无 target_ref 的 document-level resolution；mixed present/absent 时任何全局 absent 横幅都越权 | 短期 typed fail-closed：当 contract 有多个 distinct target 且 document verdict=absent 时抑制全局 exact-resolution 横幅，同时保留 scalar、scoped NEG1 与模型事实块；长期增加 per-target resolution/target_ref | covered-pending-replay |
 | EVAL-B15-H8O1 | P3 | eval oracle punctuation drift | oracle 把非语义分隔符写死 | oracle 匹配 typed 内容并容许正式中点分隔；不改生产代码 | planned-eval-only |
 | EVAL-B15-H8MV1 | P2 | model window-membership binding | 模型忽略 typed start/end 与 selected window，叙述成窗外 | typed projection 已正确；先观察跨 case 复现，不扫描请求/答案、不加 case-specific hard gate | filed-model-variance |
 | EVAL-B15-AR1 | P1 | arithmetic operand binding | 多数值自由句 relation owner 不明确 | 只消费 typed relation 或多候选 fail-open | filed-next |
@@ -3256,3 +3256,18 @@ XR1 短期批不变量：
 4. exact/alias match 不在本小批推断或改写；长期 per-target carrier 独立立案；
 5. 不读取 RawRequest、模型文本或 renderer 文案，不新增 hard reject/retry；
 6. 不触碰 runtime trace report shape、显式窗因果投影或自动补采。
+
+XR1 短期批已按上述不变量落地：
+
+- `normalizeViewCompatibleAnswerDocument` 在所有 full emit、patch/persist 与
+  recovery 共享的 typed normalizer 中，先统计
+  `view.ExactResolution.Targets` 的非空 distinct target；
+- 当且仅当 distinct target 大于 1 且模型给出 targetless
+  `exact_resolution.status=absent` 时，将 document verdict 清空。renderer
+  因此不再生成覆盖全部目标的全局 absent 横幅；
+- blocks、citations、present scalar、NEG1 scoped authority 与模型正文均不
+  改写；单目标 absent 的横幅/标量抑制保持不变，同一 target 的重复空白拼写
+  也仍按单目标处理；
+- production persist→render pin 同时固定：全局横幅消失、NEG1 system lead
+  仍在、模型事实与 present-target scalar 均保留。实现没有读取请求或答案
+  prose，也没有增加 reject/retry。

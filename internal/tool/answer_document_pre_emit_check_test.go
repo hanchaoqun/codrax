@@ -4994,11 +4994,36 @@ func TestNormalizeViewCompatibleAnswerDocument_KeepsScalarWhenAbsentExactResolut
 			{ID: "existing", Kind: types.BlockScalar, Text: "42", SurfaceRole: types.SurfacePrincipal},
 		},
 	}
-	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed != 0 {
-		t.Fatalf("multi-target absent exact-resolution must not remove unrelated scalar, got %d", fixed)
+	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed != 1 {
+		t.Fatalf("multi-target absent exact-resolution should drop only the ambiguous document verdict, got %d", fixed)
+	}
+	if doc.ExactResolution != nil {
+		t.Fatalf("targetless multi-target absence verdict must be suppressed, got %+v", doc.ExactResolution)
 	}
 	if len(doc.Blocks) != 2 || doc.Blocks[1].Kind != types.BlockScalar {
 		t.Fatalf("mixed-target scalar should be retained: %+v", doc.Blocks)
+	}
+}
+
+func TestNormalizeViewCompatibleAnswerDocument_KeepsAbsentResolutionForDuplicateSingleTarget(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		ExactResolution: &types.ExactResolutionContract{
+			Targets: []string{"missing_key", " missing_key "},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		ExactResolution: &types.AnswerExactResolution{Status: types.AnswerExactResolutionAbsent},
+		Blocks: []types.AnswerBlock{{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: "target is absent",
+		}},
+	}
+	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed != 0 {
+		t.Fatalf("duplicate spellings of one typed target must retain the single-target verdict, got %d", fixed)
+	}
+	if doc.ExactResolution == nil || doc.ExactResolution.Status != types.AnswerExactResolutionAbsent {
+		t.Fatalf("single distinct target absence should remain renderable: %+v", doc.ExactResolution)
 	}
 }
 

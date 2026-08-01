@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -15,7 +16,13 @@ func TestPersistMergedAnswerDocumentPublishesTypedNegativeScopesBeforeModelProse
 			Scenario: types.ScenarioConfigTrace,
 			Language: "zh",
 		},
-		AnswerContract: types.AnswerContract{Language: "zh"},
+		AnswerContract: types.AnswerContract{
+			Language: "zh",
+			ExactResolution: &types.ExactResolutionContract{
+				Targets:      []string{"missing_config_key", "existing_config_key"},
+				AllowAbsence: true,
+			},
+		},
 	}
 	ctx.EvidenceItems = []types.EvidenceItem{{
 		ID:              "neg-1",
@@ -42,10 +49,12 @@ func TestPersistMergedAnswerDocumentPublishesTypedNegativeScopesBeforeModelProse
 	}}
 	modelText := "该键在默认值、配置文件和 CLI 三层都不存在。"
 	doc := &types.AnswerDocumentV2{
-		DocumentModel: "v2",
-		Blocks: []types.AnswerBlock{{
-			ID: "summary", Kind: types.BlockSummary, Text: modelText,
-		}},
+		DocumentModel:   "v2",
+		ExactResolution: &types.AnswerExactResolution{Status: types.AnswerExactResolutionAbsent},
+		Blocks: []types.AnswerBlock{
+			{ID: "summary", Kind: types.BlockSummary, Text: modelText},
+			{ID: "existing", Kind: types.BlockScalar, Text: "0", SurfaceRole: types.SurfacePrincipal},
+		},
 	}
 	result, err := ApplyAndPersistMutation(
 		ctx,
@@ -58,10 +67,22 @@ func TestPersistMergedAnswerDocumentPublishesTypedNegativeScopesBeforeModelProse
 		t.Fatalf("persist negative scope authority failed: result=%+v err=%v", result, err)
 	}
 	persisted := ctx.Mutable.AnswerDocumentV2()
-	if persisted == nil || len(persisted.Blocks) != 2 ||
+	if persisted == nil || len(persisted.Blocks) != 3 ||
 		persisted.Blocks[0].SystemGeneratedKind != types.AnswerSystemGeneratedNegativeSearchAuthority ||
 		persisted.Blocks[1].Text != modelText {
 		t.Fatalf("negative scope authority must lead without rewriting model prose: %+v", persisted)
+	}
+	if persisted.ExactResolution != nil {
+		t.Fatalf("multi-target targetless absence verdict must not survive production persist: %+v", persisted.ExactResolution)
+	}
+	rendered := render.RenderAnswerDocument(persisted, "zh")
+	if strings.Contains(rendered, "当前已验证范围内未找到完全一致的精确目标") {
+		t.Fatalf("ambiguous global absence banner leaked into rendered mixed-target answer:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "系统权威：否定证据的目标与搜索范围") ||
+		!strings.Contains(rendered, modelText) ||
+		!strings.Contains(rendered, "0") {
+		t.Fatalf("scoped authority, model facts, or present-target scalar was lost:\n%s", rendered)
 	}
 	surface := types.AnswerBlockVisibleSurface(persisted.Blocks[0])
 	for _, want := range []string{
