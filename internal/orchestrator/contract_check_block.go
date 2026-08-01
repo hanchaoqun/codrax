@@ -2297,6 +2297,9 @@ func runV2BlockOraclesWithOracleContext(ctx context.Context, doc *types.AnswerDo
 	if !appendIfLive(func() []types.Violation { return validateDiagramEdgeSupport(doc, view) }) {
 		return out
 	}
+	if !appendIfLive(func() []types.Violation { return validateDiagramCallEdgeEvidenceAlignment(doc, view, mut) }) {
+		return out
+	}
 	if !appendIfLive(func() []types.Violation { return validateUncertaintyBlockPresence(doc, view) }) {
 		return out
 	}
@@ -2354,6 +2357,45 @@ func runV2BlockOraclesWithOracleContext(ctx context.Context, doc *types.AnswerDo
 		return out
 	}
 	appendIfLive(func() []types.Violation { return validateInlineIdentifierHallucination(doc, oracle, denials, mut) })
+	return out
+}
+
+func validateDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, mut *types.MutableState) []types.Violation {
+	if mut == nil {
+		return nil
+	}
+	mismatches := tool.DiagramCallEdgeEvidenceMismatches(doc, view, mut.EmittedEvidence())
+	if len(mismatches) == 0 {
+		return nil
+	}
+	byBlock := make(map[string][]string)
+	for _, mismatch := range mismatches {
+		byBlock[mismatch.BlockID] = append(byBlock[mismatch.BlockID], fmt.Sprintf(
+			"%s(%s) -> %s(%s)", mismatch.FromNode, mismatch.FromSymbol, mismatch.ToNode, mismatch.ToSymbol))
+	}
+	blockIDs := make([]string, 0, len(byBlock))
+	for blockID := range byBlock {
+		blockIDs = append(blockIDs, blockID)
+	}
+	sort.Strings(blockIDs)
+	out := make([]types.Violation, 0, len(blockIDs))
+	for _, blockID := range blockIDs {
+		out = append(out, types.Violation{
+			Kind: types.ViolCitation,
+			Detail: fmt.Sprintf(
+				"call-chain diagram block id=%q has structured call edge(s) with no citable typed EvidenceItem in the same direction: [%s]",
+				blockID, strings.Join(byBlock[blockID], "; ")),
+			Repair:     "remove or correct each unsupported diagram edge and its corresponding principal-list claim; a definition citation cannot authorize a caller-to-callee edge, so preserve only directions backed by a grounded call-site EvidenceItem Subject -> Object pair.",
+			ClusterKey: blockClusterKey(blockID, "diagram_call_edge_evidence"),
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "diagram_call_edge_evidence",
+				Reason:     "structured call-edge direction lacks matching typed call-site evidence",
+				Confidence: 0.95,
+			},
+			Stage:               string(types.StageFinalize),
+			RepairLocusOverride: types.LocusFinalizer,
+		})
+	}
 	return out
 }
 

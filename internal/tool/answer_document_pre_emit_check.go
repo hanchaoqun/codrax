@@ -446,6 +446,7 @@ func preEmitSubgateRouteTable() []preEmitSubgateRouteRow {
 		// 5. Item/citation alignment + typed handoff preservation.
 		{Subgate: "item_citation_alignment", ViolationKind: types.ViolCitation},
 		{Subgate: "call_chain_item_citation_role_alignment", ViolationKind: types.ViolCitation},
+		{Subgate: "diagram_call_edge_evidence_alignment", ViolationKind: types.ViolCitation},
 		{Subgate: "principal_support_member_coverage", ViolationKind: types.ViolPrincipalSupportMemberOmitted},
 		{Subgate: "inactive_scope_disclosure", ViolationKind: types.ViolInactiveScopeDisclosureMissing},
 		{Subgate: "aggregate_scalar_value_coverage", ViolationKind: types.ViolAcceptance},
@@ -697,6 +698,15 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 	// (import/path/span/route/etc.) extend the central contract instead
 	// of adding validator-specific patches.
 	if h := preCheckCallChainItemCitationRoleAlignmentWithContext(doc, view, pctx); len(h) > 0 {
+		hints = appendPreEmitHints(hints, types.ViolCitation, h)
+	}
+
+	// 5b.1. Structured diagram call-edge authority. Unlike the legacy item
+	// surface alignment above, this check does not interpret model prose: the
+	// typed call-chain family, edge_anchors relation enum, Mermaid participant
+	// declarations, and EvidenceItem Subject/Object direction are the complete
+	// input. A function definition cannot therefore prove the reverse call.
+	if h := preCheckDiagramCallEdgeEvidenceAlignment(doc, view, pctx); len(h) > 0 {
 		hints = appendPreEmitHints(hints, types.ViolCitation, h)
 	}
 
@@ -2924,6 +2934,31 @@ func preCheckCallChainItemCitationRoleAlignmentWithContext(doc *types.AnswerDocu
 		ExpectedShape: "each item whose visible label/text/cells name a typed evidence role must cite the evidence line for that same role: " +
 			strings.Join(parts, "; "),
 		Reason: "item citations must support the typed role asserted by the item; definition lines or adjacent items cannot stand in for a different role named in the item surface.",
+	}}
+}
+
+func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, pctx *preEmitCheckContext) []emitFixHint {
+	if pctx == nil {
+		return nil
+	}
+	mismatches := DiagramCallEdgeEvidenceMismatches(doc, view, pctx.evidenceItems())
+	if len(mismatches) == 0 {
+		return nil
+	}
+	parts := make([]string, 0, len(mismatches))
+	for _, mismatch := range mismatches {
+		parts = append(parts, fmt.Sprintf(
+			"block=%q edge=%s(%s) -> %s(%s)",
+			mismatch.BlockID,
+			mismatch.FromNode, mismatch.FromSymbol,
+			mismatch.ToNode, mismatch.ToSymbol,
+		))
+	}
+	return []emitFixHint{{
+		Field: "blocks[kind=diagram].edge_anchors[] AND diagram.body",
+		ExpectedShape: "every structured relation_kind=call edge in a call-chain diagram must preserve the exact direction of one citable typed call-edge EvidenceItem; remove or correct unsupported edges and their corresponding principal-list claims: " +
+			strings.Join(parts, "; "),
+		Reason: "a function definition proves that a symbol exists, but cannot prove caller-to-callee direction; only grounded call-site evidence with the same Subject -> Object pair can authorize the edge.",
 	}}
 }
 

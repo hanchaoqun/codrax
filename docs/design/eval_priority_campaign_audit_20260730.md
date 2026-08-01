@@ -3919,6 +3919,61 @@ B18c 使用一条通用 typed 规则修复：
 
 状态：`implemented / full-tests-pass / cross-relation replay next`。
 
+### B24 r1：写模式通过，调用边方向权限缺失（2026-08-01）
+
+严格并行 2 个 case，机器均 PASS；人工结果为 1 PASS / 1 FAIL：
+
+1. `patch_c_typo` 完成 plan→apply→verify，applied tree 只有
+   `main.c` 的 `retrun`→`return` 一行，编译与 diff 验收均通过。计划摘要出现一次
+   “误写成 retrun”自反文案，但 ChangePlan rationale、实际 patch 和最终验证均正确，
+   暂按模型文案波动保留，不立硬规则。
+2. `qf_sequence_analyzer_gate` 的 grounded source 已明确
+   `buildAnalysisIR -> gate.RunWith`；`gate.go:134-135` 的真实调用方向是
+   `gate.Run -> RunWith`。最终 principal item、summary 和 Mermaid 却统一写成
+   `gate.RunWith -> gate.Run`，只引用 `func Run(...)` 定义行。定义证据证明符号存在，
+   不能证明 caller→callee 方向。
+3. 登记 `EVAL-B24-EDGEAUTH1/P0`：现有 diagram gate 只校验端点出现、typed
+   `relation_kind` 与标签关系一致，没有把结构化边方向与
+   `EvidenceItem.Subject/Object + ClaimFormOf(call_edge)` 合取。模型因此可用 definition
+   citation 铸造反向调用边。该项是一般调用图/时序图权限缺口，不是
+   `gate.Run` 特例。
+4. 登记 `EVAL-B24-EVALDIR1/P1`：eval runner 只用名称/正则存在性判断时序图，
+   没有方向 oracle，所以错误答案仍机器 PASS。后续应让 case 声明 typed expected
+   edge，runner 比较 from/to，不用答案关键词近似方向。
+5. 登记 `EVAL-B24-KEYSET1/P2`：用户要“关键中间函数”，答案却发布 18 项主列表、
+   9 项完整性补充和 27 项完整清单；条件调用也被压成无条件顺序。这是
+   `key subset` 与 `complete roster` 缺少 typed scope/cardinality 区分，不应通过扫描
+   “关键”原文或删某个固定函数解决。
+6. `EVAL-B22-COUNTDOMAIN1/P3` 再现：可见整数 18、1570、1820、2663 与 aggregate
+   27 被软计数器放在同一比较域；未改变最终内容，维持 P3。
+7. B21 CALLEE/SPAN 软提示不足再次复现；本轮把可结构化的 diagram call edge
+   提升到精确证据合同，非结构化 prose 的通用实体归属仍保持开放，禁止关键词硬门。
+
+#### B24-a：structured call-edge evidence direction authority
+
+本批采用共享 typed authority，而不是对答案文本做箭头/函数名特判：
+
+1. 仅当 `AnswerSemanticView.Family == QFCallChain` 时启用；Trace 根因家族、显式
+   时间窗因果投影、根因排序、唤醒链、窗内可消除量和自动补齐不进入该谓词。
+2. 从 `AnswerBlock.EdgeAnchors[].relation_kind=call` 取得待验证边，从 Mermaid
+   participant/node declaration 结构取得 alias→visible symbol 映射；不读取 edge
+   message、summary、item prose、RawRequest 或模型 thinking。
+3. 权威匹配只接受 citable typed `EvidenceItem`，且要求
+   `ClaimFormOf(evidence)==call_edge` 与 `Subject == from`、`Object == to` 精确同向。
+   definition、反向 call、不可引用 evidence 均不能授权该边。
+4. 同一判定函数同时接入 emit-time 诊断与 post-emit V2 oracle，避免只补 prompt
+   而没有发布接线；post-emit 以 `ViolCitation` 返回 finalizer-local repair，明确要求
+   同时修正/删除 diagram edge 与对应 principal-list claim。
+5. 回归固定：participant alias 正向通过、反向失败、pre-emit 调度接线、post-emit
+   oracle 接线，以及 `QFRootCauseTrace` 负例不受影响。
+
+验证：`go test ./internal/types ./internal/tool ./internal/orchestrator -count=1` 均通过
+（types 18.116s、tool 161.167s、orchestrator 10.026s）；定义证据负例、方向正反例、
+双接线与 Trace family 隔离测试均通过。
+
+当前状态：`EVAL-B24-EDGEAUTH1=implemented / full-tests-pass / replay-next`；
+`EVAL-B24-EVALDIR1=P1/open`；`EVAL-B24-KEYSET1=P2/open`。
+
 ### B21-GREP：literal/regex 查询语义进入 typed 证据链（2026-08-01）
 
 `EVAL-B21-GREP1` 已按软恢复而非硬拒绝施工：
