@@ -35,9 +35,15 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 	}
 
 	var b strings.Builder
+	zh := strings.HasPrefix(strings.ToLower(strings.TrimSpace(extractAnswerDocLang(ctx))), "zh")
 	b.WriteString("## Runtime Trace Principal Values — Final Typed Recap\n\n")
 	b.WriteString("- Use these typed rows for the leading numeric conclusion. They are a compact recap of the same authority used by the deterministic answer lead; later blocked-reason records, IPC request counts, transport latency, capped exploration rows, per-CPU aggregate groups, or narrative estimates cannot replace their caliber.\n")
 	b.WriteString("- A complete target-wait row authorizes its exact occurrence count and wall-clock sum. A capacity-truncated blocking row authorizes only the displayed observed lower bound (`>=`); never turn it into an exact total, a unique/only occurrence, or a claim that every other request caused no blocking.\n\n")
+	if zh {
+		b.WriteString("- 不同 authority 行的数值差本身不是关系证据；除非另有 explicit typed relation 证明，不得把 record/occurrence/partition 的差值解释成窗口边界、重叠、精度误差或缺失闭合。\n\n")
+	} else {
+		b.WriteString("- A numeric delta between authority rows is not relation evidence. Unless a separate explicit typed relation proves it, do not explain record/occurrence/partition differences as window-boundary effects, overlap, precision drift, or missing closure.\n\n")
+	}
 
 	for i, state := range states {
 		if i >= 4 {
@@ -88,6 +94,33 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 			fmt.Fprintf(&b, "; callers=`%s`", strings.Join(wait.Callers, "`, `"))
 		}
 		b.WriteString("; use this occurrence count rather than blocked_reason record count or aggregate-group count\n")
+		if zh {
+			fmt.Fprintf(&b,
+				"  - principal_conclusion_zh=`%s 在 %.6f..%.6f 窗内确切发生 %d 次目标等待，目标等待墙钟合计 %.3fms",
+				wait.Subject,
+				wait.WindowStartTs,
+				wait.WindowEndTs,
+				wait.Count,
+				wait.WallClockMS,
+			)
+			if len(wait.Callers) > 0 {
+				fmt.Fprintf(&b, "，已解析等待对象为 %s", strings.Join(wait.Callers, "、"))
+			}
+			b.WriteString("。`\n")
+		} else {
+			fmt.Fprintf(&b,
+				"  - principal_conclusion_en=`In %.6f..%.6f, %s has exactly %d target-wait occurrence(s), totaling %.3fms of target-wait wall clock",
+				wait.WindowStartTs,
+				wait.WindowEndTs,
+				wait.Subject,
+				wait.Count,
+				wait.WallClockMS,
+			)
+			if len(wait.Callers) > 0 {
+				fmt.Fprintf(&b, ", with resolved wait object(s) %s", strings.Join(wait.Callers, ", "))
+			}
+			b.WriteString(".`\n")
+		}
 	}
 	for _, block := range blocking {
 		permission := "bounded_observation"
@@ -111,6 +144,24 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 			wallClockToken,
 			block.CoverageStatus,
 		)
+		switch {
+		case block.CoverageStatus == "complete" && zh:
+			fmt.Fprintf(&b,
+				"  - principal_conclusion_zh=`关于 %s，%s 在窗 %s 内确切发生 %d 次，目标阻塞墙钟合计 %.3fms。`\n",
+				block.Type, block.Subject, block.SelectedWindow, len(block.Occurrences), block.ObservedMS)
+		case block.CoverageStatus == "complete":
+			fmt.Fprintf(&b,
+				"  - principal_conclusion_en=`For %s, %s has exactly %d occurrence(s) in %s, totaling %.3fms of target blocking wall clock.`\n",
+				block.Type, block.Subject, len(block.Occurrences), block.SelectedWindow, block.ObservedMS)
+		case block.CoverageStatus == "lower_bound_capacity_truncated" && zh:
+			fmt.Fprintf(&b,
+				"  - principal_conclusion_zh=`关于 %s，当前只确认 %s 在窗 %s 内至少 %d 次、至少 %.3fms；由于覆盖被截断，全窗总次数和总量未知，不能表述为只有、唯一或总计，也不能断言其他请求没有阻塞。`\n",
+				block.Type, block.Subject, block.SelectedWindow, len(block.Occurrences), block.ObservedMS)
+		case block.CoverageStatus == "lower_bound_capacity_truncated":
+			fmt.Fprintf(&b,
+				"  - principal_conclusion_en=`For %s, the current evidence confirms at least %d occurrence(s) and at least %.3fms for %s in %s. Coverage is truncated, so the full-window count and total are unknown; do not say only/unique/total or claim that every other request caused no blocking.`\n",
+				block.Type, len(block.Occurrences), block.ObservedMS, block.Subject, block.SelectedWindow)
+		}
 	}
 	b.WriteByte('\n')
 	return b.String()

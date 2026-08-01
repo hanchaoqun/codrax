@@ -2661,3 +2661,54 @@ recap→submission 的真实接线顺序。完整回归通过：
 - `go test ./internal/types ./internal/tool ./internal/tracequery ./internal/agent ./internal/orchestrator ./internal/skill -count=1`
   （types 18.161s、tool 162.868s、tracequery 70.694s、agent 3.658s、
   orchestrator 13.004s、skill 0.850s）。
+
+### B13 r5 人工审计与批 AL2（2026-08-01）
+
+在 revision `2249e12c9` 严格 `parallel=2` 回放：
+
+- `eval/results/real_trace_h1_binder_true_false_attribution-20260731-173547`
+- `eval/results/real_trace_h2_dstate_dma_fence_triform-20260731-173547`
+
+runner 2/2（H2 189s、H1 193s），人工 1/2。两份 raw finalizer prompt 均实际
+包含 AL1 recap，证明接线有效；两例显式窗 Trace 因果投影、system supplement、
+root rank、wakeup chain、critical blocking 和窗内可消除量继续完整。
+
+H2 的 principal answer 已从 r4 的 12-record/8-entry 冲突收敛到正确的
+11 个 D-state occurrence、36.757ms、`dma_fence_default_w`，人工主问题通过。
+残余有两条次级债：
+
+1. 模型无 typed relation 却猜 12-record/39.157ms 与
+   11-occurrence/36.757ms 的差值“来自窗口边界外记录”；当前 authority 只证明
+   两者不同量纲，未证明差值机制。
+2. 仍把 CPU3/1/2/7 四个 per-CPU aggregate group 的 16.064/10.424/
+   6.495/3.774ms 描述成“单次”，归入既有 AK3。
+
+H1 prompt 明确携带
+`permission=lower_bound_only, observed_occurrences=>=1,
+observed_wall_clock=>=1.409ms`；模型末句也承认
+`coverage_status=lower_bound_capacity_truncated`，但首段与标题仍写
+“只有/唯一 1 次、总时长 1.409ms”。这已经不是 authority 缺席，而是结构化
+权限到自然语言的转换失败。
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B13-AL2 | P1 | authority-to-language composition | 模型看见 typed permission 但仍把下界写成 exact，或给跨量纲差值猜原因 | 从 typed authority 直接生成本地化 principal-conclusion 软模板；lower-bound 明说“至少/全窗总量未知”，complete 明说 exact；无 typed relation 时禁止猜差值机制 | covered-pending-replay |
+| EVAL-B13-AL1 | P0 | finalize principal-value handoff | principal values 未在成文前到达 | 尾部 typed recap；H2 真实回放主值已收敛 | covered |
+| EVAL-B13-AK3 | P2 | aggregate group vs occurrence unit | per-CPU bucket 被写成次数/单次 | typed merge caliber 显示“组/汇总”，另批施工 | filed |
+
+AL2 继续遵守 AL 不变量：模板只由 typed count/value/coverage/status/language
+构造，不读取用户原文或模型原文；仅作 prompt 软指导，不作 hard gate、retry、
+删除或改写。
+
+批 AL2 已在同一 recap 中加入本地化 `principal_conclusion_zh/en`。complete
+rowset 直接给出“确切 N 次、目标等待墙钟合计 Xms”；capacity-truncated
+直接给出“至少 N 次、至少 Xms、全窗总次数/总量未知”，并禁止“只有/唯一/
+总计/其余无阻塞”。另加入通用 cross-caliber relation boundary：数值差本身
+不铸造关系，除非另有 explicit typed relation，否则不得猜成窗口边界、重叠、
+精度漂移或缺失闭合。
+
+完整回归通过：
+
+- `go test ./internal/types ./internal/tool ./internal/tracequery ./internal/agent ./internal/orchestrator ./internal/skill -count=1`
+  （types 17.528s、tool 165.773s、tracequery 70.623s、agent 4.245s、
+  orchestrator 14.206s、skill 2.836s）。

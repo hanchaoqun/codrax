@@ -57,6 +57,7 @@ func TestRenderAnswerDocTracePrincipalValueAuthorityCarriesCompleteElevenRowWait
 		})
 	}
 	ctx := tracePrincipalValueAuthorityTestContext(subject, 2955, observations)
+	ctx.Language = "zh-CN"
 
 	got := renderAnswerDocTracePrincipalValueAuthority(ctx)
 	for _, want := range []string{
@@ -67,6 +68,11 @@ func TestRenderAnswerDocTracePrincipalValueAuthorityCarriesCompleteElevenRowWait
 		"wall_clock_sum=11.000ms",
 		"callers=`dma_fence_default_w`",
 		"rather than blocked_reason record count or aggregate-group count",
+		"principal_conclusion_zh=`CompThread_0-2955",
+		"确切发生 11 次目标等待",
+		"目标等待墙钟合计 11.000ms",
+		"数值差本身不是关系证据",
+		"不得把 record/occurrence/partition 的差值解释成窗口边界",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("principal-value recap missing %q:\n%s", want, got)
@@ -110,6 +116,7 @@ func TestRenderAnswerDocTracePrincipalValueAuthorityKeepsTruncatedBlockingAsLowe
 		},
 	}
 	ctx := tracePrincipalValueAuthorityTestContext(subject, 17267, []types.ObservationRecord{record})
+	ctx.Language = "zh"
 
 	got := renderAnswerDocTracePrincipalValueAuthority(ctx)
 	for _, want := range []string{
@@ -119,6 +126,10 @@ func TestRenderAnswerDocTracePrincipalValueAuthorityKeepsTruncatedBlockingAsLowe
 		"observed_wall_clock=>=1.409ms",
 		"coverage_status=`lower_bound_capacity_truncated`",
 		"never turn it into an exact total",
+		"principal_conclusion_zh=`关于 binder_wait",
+		"至少 1 次、至少 1.409ms",
+		"全窗总次数和总量未知",
+		"不能表述为只有、唯一或总计",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("lower-bound principal recap missing %q:\n%s", want, got)
