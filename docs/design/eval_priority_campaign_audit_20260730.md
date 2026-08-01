@@ -3827,3 +3827,64 @@ LoopController、Go `_test.go` 或“主要”一词的特例。
 | EVAL-B18-CONV1 | implemented / full-tests-pass / replay-next |
 | EVAL-B16-REL1 | B18b replay pending |
 | H8 explicit-window non-regression | r1 human-pass；B18b replay must retain |
+
+#### B18b r2：typed relation 权限收敛通过（2026-08-01）
+
+严格并行 2 个回放均为 runner PASS / human PASS：
+
+- `qf_type_relation_loop_controller`：199s，4 次 explorer invocation、3 次
+  midloop、3 次 repo_map、0 次 source_lens；
+- `real_trace_h8_semantic_edge_anchor_sentinel`：135s，1 次 explorer
+  invocation、0 次 midloop、3 次 trace_query。
+
+LoopController 的主列表与 Mermaid 均只保留 12 个 production 实现；3 个
+test 实现仅以 excluded 身份披露。typed relation 完整清册仍为
+`complete=15, principal=12, auxiliary=3, unknown=0`，source inventory
+明确降为 `authority=false ... support_only`，说明结果是权限收敛而非删除
+候选。相较 r1，重复探索从 10 次 midloop 降至 3 次；单次运行只作机制
+证据，不据此承诺稳定性能比例。
+
+H8 继续保留：
+
+- 显式 `34579.490–34579.500s` 用户窗；
+- 根因排序、直接唤醒点和两跳 wakeup chain；
+- `trace-causal-projection` 与窗内可消除量总览；
+- `enumeration_status=incomplete` 覆盖边界；
+- 成文前 `critical_blocking_calls` 确定性自动补采。
+
+因此 B18b 没有回退有具体时间窗的 Trace 因果投影、根因排序、唤醒链、
+可消除量或自动补齐能力。
+
+状态：
+
+| ID | 状态 |
+|---|---|
+| EVAL-B18-CONV1 | covered：r2 runner/human 双 PASS |
+| EVAL-B16-REL1 | covered：production principal 与 auxiliary audit 分席贯通 |
+| H8 explicit-window non-regression | covered：B18b r2 human PASS |
+
+#### EVAL-B18-DUP1：结构化成员载体重复发布（P2）
+
+B18b r2 还暴露一个不影响成员正确性、但影响答案密度的通用 gap：
+
+1. 模型已经用一个结构化 `ordered_list` 完整展示 12 个 principal members；
+2. AnswerDocument 预发布归一化仍追加
+   “来自已验收的结构化调查清单”的第二个 12 项 ordered list；
+3. 同样症状已在 B16 `qf_called_by_typed_relation_query` 出现，因此不是
+   LoopController、implements 或单次模型波动特例；
+4. 归一化日志明确报告
+   `materialized 12 principal aggregate member row(s)`，最终 block 数从模型
+   提交的 3 个变为 5 个。
+
+最优方案冻结为结构化 carrier 覆盖判定：
+
+- 只读取 AnswerDocument block kind、item label/row cells 与 accepted typed
+  aggregate member set；
+- 若一个可见列表或表格的结构化成员键完整覆盖 principal member set，就不
+  再追加系统清单；
+- diagram 节点不单独视为可审计枚举载体；缺一项仍必须补齐；
+- 不扫描 RawRequest、model thinking、summary/prose text 或用户关键词；
+- 不修改 Trace family resolver、projection、root rank、wakeup、
+  eliminable、supplement 等 runtime 路径。
+
+状态：`filed / B18c next`。
