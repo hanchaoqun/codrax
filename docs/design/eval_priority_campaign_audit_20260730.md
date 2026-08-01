@@ -4005,6 +4005,33 @@ Axis B 只收正 `rank/effective_impact` 席位。跨行、跨修向、wall-cloc
 `EVAL-B26-SYNTH1=implemented-full-tests-pass`；下一步用同一显式窗 case 与一个无窗
 有限事实 case 严格并行 2 个回放。
 
+#### B26-OWN r1：所有权通过，暴露工件身份与调度阶段语义新 GAP
+
+当前 `main@629828739` 重建二进制后严格并行 2 个回放（sweep
+`20260801-152610`）：runner 2/2 PASS；人工为 bounded fact PASS、显式窗 FAIL。
+
+OWN 验收本身通过：
+
+1. bounded fact 仍是模型的单一 summary，系统只追加完整 target-wait roster；没有
+   `Trace Decision Inputs`、没有 Trace 因果投影、没有 replacement summary；
+2. 显式窗 finalizer 收到两轴 typed handoff，模型一次 emit 的 6 个 blocks 在最终答案中
+   全部保留，系统投影作为 sibling 追加；日志只有 materialize/add/reorder，已无
+   `replaced model ... conclusion` 路径；
+3. 模型给出了总结、四跳链、根因排序、资源背景、代表窗与修向，不再退化为固定系统
+   声明；`EVAL-B26-OWN1/2/3/4` 因此保持 covered。
+
+人工 FAIL 来自两个独立、可泛化的新 GAP：
+
+| ID | 级别 | 现象与机制 | 最优方向 |
+|---|---|---|---|
+| EVAL-B26-ALIAS1 | P1 | 同一附件的探索行以 blob `attached_trace.txt` 标识，系统补采以原始 `donghu_tieba_frame.systrace` 标识；projection partition 未消费二者的 attachment lineage/content identity，误当成两个互不校准工件，整套投影、明细、证据索引重复一次 | 在 ObservationLedger/ProjectionSet 分区前建立 typed runtime-artifact canonical identity；只合并能由同一 attachment ID、不可变快照 lineage 或已验证 digest 证明同一内容的 alias，不用 basename/时间戳相似度猜测；保留 exploration/system-supplement source lane |
+| EVAL-B26-PHASE1 | P0 | 模型把 wakeup-chain 的 11.103ms 投影解释成“主线程被唤醒后的 runnable 调度延迟”，进而声称 RT 主线程因 CFS 调度器优先调度 CFS 任务而延迟；但目标全窗 runnable 仅 3.636ms。这里混淆了 pre-wakeup dependency/sleep 投影与 post-wakeup ready-to-run 等待，随后又给出“把中间节点移入 RT/设置 PI”的过强建议 | 在 trace producer→observation→projection→finalizer handoff 贯通 typed `impact_phase`/`scheduler_role`，明确 dependency completion before wake 与 target runnable after wake 是互斥阶段；Harmony RT/CFS 只作为精确类事实和软语义说明，不扫描/改写模型答案。只有 confirmed holder/waiter 才建议 PI；仅 dependency candidate 要求先验证等待原语/临界区/CPU 竞争 |
+
+`EVAL-B26-SYNTH1` 的 prompt 接线有效但不升级为硬验收：本轮模型确实消费了两轴输入，
+仍可能在自然语言中侧重某一轴，这是模型波动；系统不得为追求固定段落结构再接管答案。
+后续只修 ALIAS1 的 typed 身份收敛和 PHASE1 的精确信息/软引导，不增加用户原文或模型
+输出关键词门。
+
 ### B24 r1：写模式通过，调用边方向权限缺失（2026-08-01）
 
 严格并行 2 个 case，机器均 PASS；人工结果为 1 PASS / 1 FAIL：
