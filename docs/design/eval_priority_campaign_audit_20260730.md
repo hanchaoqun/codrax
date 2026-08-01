@@ -4655,6 +4655,90 @@ Git 用例 human FAIL 还包括一个独立事实错误：grep 原始结果明�
 
 `EVAL-B18-AXIS1` 状态：`covered`。
 
+### B19g-a2 r1：无窗口目标事实再次扩成全量报告（2026-08-01）
+
+严格并行 2 个 Trace 用例，runner 为 1 PASS / 1 FAIL，人工均 FAIL：
+
+- `trace_query_donghu_real_frame_multicausal`：runner PASS。显式
+  `34579.472865..34579.587805` 窗仍完整保留主要时间占用、窗内可消除量、
+  根因排序、唤醒链和 Trace 因果投影，证明 B19f 双轴与显式窗能力未退化；
+  但模型开头把优先级反转/IO 候选写成“卡顿根因、直接原因、传导链”，系统
+  尾部却明确 `frame_causality=unproven / frame_evidence_status=absent`，同一
+  答案自相矛盾。登记 `EVAL-B19-CAUSAL1/P1`：typed causal authority 已有，
+  但模型 principal block 没有按该权限降格候选措辞。
+- `real_trace_c2_dstate_iowait`：runner/human FAIL。Analyzer 最终发出
+  `intent=return_value + question_kind=return_value + predicate_axis=condition +
+  scalar=true`，却把用户明确的 `com.baidu.tieba 59566` 只放进普通
+  `entities`，`runtime_targets` 为空。系统随后从模型的 trace_query 游标和
+  analyzer entity fallback 猜出目标，在模型选取的 19ms 窗补跑
+  `root_cause_rank + critical_blocking_calls`，把普通状态事实扩成两份因果
+  投影；正文也回退成错误的 2 次、0.285/0.351ms，而完整 artifact 权威值是
+  3 次、0.635ms。
+
+这不是 B19g-a 的 explain/conditional 分支再次失效，而是更上游的“目标存在性
+只靠 prompt 约定”加上下游两处噪声扩权：`entities_fallback` 把普通字符串升级
+为执行目标，答案层又把 entity + cursor + supplement success 合成为用户目标。
+
+### B19g-b：运行时目标声明与无目标 fail-narrow
+
+通用方案冻结如下：
+
+1. `AnalysisIR v16` 新增必填 `runtime_target_profile`，闭集为
+   `not_applicable / no_named_target / named_target / unspecified`；时间/范围继续
+   由 `runtime_artifact_scope_profile` 独立承载，身份与时间窗不混为一个字段。
+2. `named_target` 必须同时提供逐字锚定的当前请求 `source_quote` 和至少一个
+   结构合法、`source=user_explicit` 的 `runtime_targets`；缺项 fail-loud，要求
+   analyzer 同轮修正。`no_named_target/unspecified` 与 target rows 同时存在也
+   fail-loud，禁止一边否认一边偷偷带目标。
+3. 删除补齐层的 analyzer `entities` 目标恢复；答案数值 authority 同样不再把
+   entity + 模型游标 + 补采成功合成为用户身份。普通 entity 只能继续作为软
+   搜索提示。
+4. 新增 `IsNarrowRuntimeArtifactFactShape`：非诊断的 typed scalar return-value
+   即使 target 意外缺失也 fail-narrow，不能因模型探索到 root rows 而发布全量
+   报告；既有 focused conditional/mechanism 复用同一入口。
+5. 模型游标只可在 typed diagnostic/root-cause/call-relation 或用户显式时间窗
+   下驱动自动补齐；普通无目标单值事实不得扩权。显式时间窗在报告 materialize
+   和补齐 target 派生中仍是最高优先级，故系统窗内因果投影、根因排序、唤醒链、
+   可消除量和自动补齐不受窄事实规则影响。
+6. 所有硬决定只消费 schema 枚举、typed predicates/intent/diagnostic、
+   quote-validated scope/target 和结构化 RuntimeTargets；不扫描用户题面关键词、
+   模型 thinking/summary/final prose。`source_quote` 只做分析器主动提交值的逐字
+   存在性校验，不从原文反向检索/猜目标。
+
+专项覆盖：named 缺 target 拒绝、named quote 锚定正例、no-named 与 targets
+冲突拒绝、普通 scalar+cursor 不补因果、同一 shape 加显式窗后 cursor 自动补齐
+仍可用、entity/cursor/supplement consensus 不再铸答案目标、显式窗优先于 scalar
+窄化、runtime profile schema/枚举闭包。
+
+验证：
+
+- `go test ./internal/agent ./internal/orchestrator ./internal/types ./internal/tool ./internal/skill`
+  全部通过（agent 3.197s、orchestrator 13.079s，types/tool/skill 命中缓存）；
+- 首次 `go test ./...` 暴露并修正了一条旧的 agent 单测期望：旧测试仍要求
+  entity + cursor + supplement 合成用户目标，现已改为负例，确认不再扩权；
+- 全仓还有两类与本批修改文件无关的既有基线失败：
+  `internal/tracequery::TestNonEventPrioritySchemaPins` 的 schema hash 漂移，
+  以及 `internal/tracediag::TestRunBerlinMagnitudeCoordinatesFixedPoint` 的科学计数法泄漏。
+  两者不在 B19g-b 目标和 diff 内，不与本批混修；按独立 GAP 后续排序。
+
+状态：`implemented / relevant-full-tests-pass / same-pair replay next`。
+
+### 后续 eval 维度扩展（用户追加，2026-08-01）
+
+当前 Trace P0 收口并回放后，继续维持每批严格并行 2 个，按风险交叉覆盖：
+
+| 顺位 | 模式维度 | 首选 case 形状 | 核心人工检查 |
+|---:|---|---|---|
+| 1 | write/apply 症状定位 | `github_issue_gson_lazy_number_symptom` + 一个跨语言写 case | 首计划机制、最小修改、负例测试、verify-only 不二次改码 |
+| 2 | read 混合权威 | log/trace + current-code、history + current-code | 外部事实与当前源码边界、principal/supporting 权限、引用单位 |
+| 3 | read 结构关系 | called-by / implements / references | typed roster、成员身份、scope/exclusion、关系图语法 |
+| 4 | write/plan 隔离 | `patch_java_typo` + 一项 plan-only | worktree/risk/approval 不变量、计划不越权、无 apply 泄漏 |
+| 5 | Trace 复杂根因 | supply/thermal、state churn、cross-trace | 双轴、时基/覆盖、根因凭证、性能与查询复用 |
+
+模型单次措辞波动只登记样本，不据此增加硬门；只有跨 case/跨运行复现、或有 typed
+权威冲突时才提升为施工项。每批都更新本节、manual audit 和统一 GAP 状态后再进入
+下一批，避免未记档积压。
+
 #### EVAL-B18-SCOPE1：typed exclusion 被自动 all-scope 覆盖（P1）
 
 implements 的最终答案虽然正确，但 r1 日志暴露权限层冲突：

@@ -18,7 +18,7 @@ func RuntimeTraceReportShapeAuthority(rm *RequestModel) (decided bool, allowed b
 		rm.PredicateAxis == AxisCall {
 		return true, true
 	}
-	if IsFocusedRuntimeFactQuestion(*rm) {
+	if IsNarrowRuntimeArtifactFactShape(*rm) {
 		return true, false
 	}
 	if rm.Intent == IntentRootCause ||

@@ -629,6 +629,30 @@ func IsFocusedRuntimeFactQuestion(rm RequestModel) bool {
 		!rm.DiagnosticProfile.IsDiagnostic
 }
 
+// IsNarrowRuntimeArtifactFactShape reports a runtime answer whose principal
+// payload is one fact/value rather than a causal report. Unlike
+// IsFocusedRuntimeFactQuestion, the scalar return-value arm does not require a
+// target: this lets publication and supplement routing fail narrow when an
+// analyzer accidentally omits the target instead of widening through model
+// exploration. Explicit windows and call relations retain higher authority in
+// their callers. The predicate consumes typed fields only.
+func IsNarrowRuntimeArtifactFactShape(rm RequestModel) bool {
+	kind := NormalizeRequirementKind(rm.AnalyzerHints.Kind)
+	if kind == ReqCallChain || rm.PredicateAxis == AxisCall || rm.Predicates.IsRelationalLookup {
+		return false
+	}
+	if rm.Predicates.IsDiagnosticQuestion ||
+		rm.DiagnosticProfile.RequiresDiagnosticRootCause() ||
+		rm.Scenario == ScenarioPerformanceBottleneck {
+		return false
+	}
+	if rm.Intent == IntentReturnValue &&
+		(rm.Predicates.IsScalarAnswer || kind == ReqReturnValue || rm.PredicateAxis == AxisCondition || rm.PredicateAxis == AxisReturn) {
+		return true
+	}
+	return IsFocusedRuntimeFactQuestion(rm)
+}
+
 // IsRuntimeConditionalFactQuestion is retained as the compatibility name for
 // callers and old fixtures. New cross-layer consumers should use
 // IsFocusedRuntimeFactQuestion so the explain/mechanism lane is not lost.

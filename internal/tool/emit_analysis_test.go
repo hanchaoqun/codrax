@@ -70,7 +70,15 @@ func withV4Required(partial string) string {
 	body := strings.TrimRightFunc(trimmed[:len(trimmed)-1], func(r rune) bool {
 		return r == ',' || r == ' ' || r == '\t' || r == '\n' || r == '\r'
 	})
-	return body + v4DefaultsJSON + "}"
+	defaults := v4DefaultsJSON
+	if !strings.Contains(trimmed, `"runtime_target_profile"`) && !strings.Contains(trimmed, `"runtime_targets"`) {
+		defaults += `,
+	"runtime_target_profile": {
+		"declaration": "unspecified",
+		"confidence": 0.7
+	}`
+	}
+	return body + defaults + "}"
 }
 
 func withRequiredAnswerRoleProfile(payload string) string {
@@ -86,6 +94,11 @@ func withRequiredAnswerRoleProfile(payload string) string {
 	}
 	if _, ok := obj["runtime_artifact_scope_profile"]; !ok {
 		obj["runtime_artifact_scope_profile"] = json.RawMessage(`{"requested_scope":"not_applicable","confidence":0.7}`)
+	}
+	if _, hasProfile := obj["runtime_target_profile"]; !hasProfile {
+		if _, hasTargets := obj["runtime_targets"]; !hasTargets {
+			obj["runtime_target_profile"] = json.RawMessage(`{"declaration":"unspecified","confidence":0.7}`)
+		}
 	}
 	out, err := json.Marshal(obj)
 	if err != nil {
@@ -181,6 +194,36 @@ func TestParseRuntimeArtifactScopeProfileAnchorsUserScopeAndSoftensModelScope(t 
 	)
 	if errText != "" || softened.RequestedScope != types.RuntimeArtifactScopeUnspecified || len(warnings) == 0 {
 		t.Fatalf("unanchored model scope must soften, not become authority: profile=%+v err=%q warnings=%v", softened, errText, warnings)
+	}
+}
+
+func TestParseRuntimeTargetProfileRequiresDeclaredNamedTarget(t *testing.T) {
+	confidence := 0.95
+	targets := []types.RuntimeTarget{{
+		Kind: types.RuntimeTargetKindThread, PID: 59566, Thread: "com.baidu.tieba",
+		Source: "user_explicit", Confidence: confidence,
+	}}
+	if _, errText, _ := parseRuntimeTargetProfile("分析 com.baidu.tieba-59566 的状态", true, nil, nil); errText == "" {
+		t.Fatal("runtime artifact analysis must fail loud when runtime_target_profile is missing")
+	}
+	named := &emitRuntimeTargetProfileParam{
+		Declaration: string(types.RuntimeTargetDeclarationNamedTarget),
+		SourceQuote: "com.baidu.tieba-59566",
+		Confidence:  &confidence,
+	}
+	if _, errText, _ := parseRuntimeTargetProfile("分析 com.baidu.tieba-59566 的状态", true, named, nil); !strings.Contains(errText, "requires at least one") {
+		t.Fatalf("named declaration without runtime_targets must fail loud, got %q", errText)
+	}
+	profile, errText, warnings := parseRuntimeTargetProfile("分析 com.baidu.tieba-59566 的状态", true, named, targets)
+	if errText != "" || len(warnings) != 0 || !profile.NamedTarget() {
+		t.Fatalf("anchored named target should survive: profile=%+v err=%q warnings=%v", profile, errText, warnings)
+	}
+	noNamed := &emitRuntimeTargetProfileParam{
+		Declaration: string(types.RuntimeTargetDeclarationNoNamedTarget),
+		Confidence:  &confidence,
+	}
+	if _, errText, _ := parseRuntimeTargetProfile("分析整份 trace", true, noNamed, targets); !strings.Contains(errText, "conflicts") {
+		t.Fatalf("no_named_target must reject contradictory target rows, got %q", errText)
 	}
 }
 
@@ -363,7 +406,12 @@ func TestEmitAnalysis_Execute_RejectsSingleTargetRuntimeStateAsCallChain(t *test
 			"thread": "com.baidu.tieba-59566",
 			"source": "user_explicit",
 			"confidence": 0.95
-		}]
+		}],
+		"runtime_target_profile": {
+			"declaration": "named_target",
+			"source_quote": "com.baidu.tieba-59566",
+			"confidence": 0.95
+		}
 	}`)
 	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
 	if err != nil {
@@ -2189,6 +2237,7 @@ func TestEmitAnalysis_Execute_StringWrappedRuntimeTargets(t *testing.T) {
 		"keywords": ["trace", "pid", "42591", "jank"],
 		"entities": ["42591"],
 		"question_kind": "root_cause",
+		"runtime_target_profile": {"declaration":"named_target","source_quote":"42591进程","confidence":0.96},
 		"runtime_targets": "[{\"kind\":\"process\",\"pid\":42591,\"source\":\"user_explicit\",\"confidence\":0.96}]"
 	}`)
 	payload = strings.Replace(payload, `"is_diagnostic_question": false, "has_per_member_table": false`, `"is_diagnostic_question": true, "has_per_member_table": false`, 1)
@@ -4637,6 +4686,7 @@ func TestEmitAnalysis_Execute_PersistsTypedRuntimeTargets(t *testing.T) {
 			"current_version_check": false,
 			"confidence": 0.88
 		},
+		"runtime_target_profile": {"declaration":"named_target","source_quote":"42591进程","confidence":0.96},
 		"runtime_targets": [{
 			"kind": "process",
 			"pid": 42591,
@@ -4725,7 +4775,7 @@ func TestParseRuntimeTargetsRejectsWholeSetWhenAnyIdentityIsMalformed(t *testing
 	}
 }
 
-func TestEmitAnalysis_Execute_RuntimeTargetInvalidSourceIsNonFatal(t *testing.T) {
+func TestEmitAnalysis_Execute_RuntimeTargetInvalidSourceCannotCarryNamedAuthority(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
 	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
@@ -4758,6 +4808,7 @@ func TestEmitAnalysis_Execute_RuntimeTargetInvalidSourceIsNonFatal(t *testing.T)
 			"current_version_check": false,
 			"confidence": 0.88
 		},
+		"runtime_target_profile": {"declaration":"named_target","source_quote":"42591进程","confidence":0.96},
 		"runtime_targets": [{
 			"kind": "process",
 			"pid": 42591,
@@ -4766,19 +4817,11 @@ func TestEmitAnalysis_Execute_RuntimeTargetInvalidSourceIsNonFatal(t *testing.T)
 		}]
 	}`
 	res, mu := runEmitAnalysisPayload(t, "分析42591进程在6793222s 到 6793225s 期间滑动卡顿的深层次根因", payload)
-	if !res.Success {
-		t.Fatalf("invalid optional runtime target source should not reject analysis, got %q", res.Summary)
+	if res.Success || !strings.Contains(res.Summary, "source must be user_explicit") {
+		t.Fatalf("named target with invalid/cleared provenance must fail loud, got success=%t summary=%q", res.Success, res.Summary)
 	}
-	rm := mu.RequestModel()
-	if rm == nil || len(rm.RuntimeTargets) != 1 {
-		t.Fatalf("runtime target should persist after clearing invalid source: %+v", rm)
-	}
-	got := rm.RuntimeTargets[0]
-	if got.PID != 42591 || got.Kind != types.RuntimeTargetKindProcess {
-		t.Fatalf("runtime target identity changed: %+v", got)
-	}
-	if got.Source != "" {
-		t.Fatalf("invalid source should be cleared, got %+v", got)
+	if mu.RequestModel() != nil {
+		t.Fatalf("rejected named target must not persist request authority: %+v", mu.RequestModel())
 	}
 }
 
@@ -5514,6 +5557,10 @@ func TestEmitAnalysis_RouteBackedRuntimeOnlyRepairsMissingExclusionKind(t *testi
 			"runtime_artifact_scope_profile": {
 				"requested_scope": "full_artifact",
 				"source_quote": "这份 trace",
+				"confidence": 0.95
+			},
+			"runtime_target_profile": {
+				"declaration": "no_named_target",
 				"confidence": 0.95
 			},
 			"external_observation_policy": {

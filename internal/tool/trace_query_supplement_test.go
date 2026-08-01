@@ -1108,7 +1108,7 @@ func TestTraceSupplementLabelFormUserTargetParsesPid(t *testing.T) {
 
 func TestTraceSupplementTargetDerivation(t *testing.T) {
 	ctx := &types.BusContext{Mutable: types.NewMutableState("q")}
-	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{RuntimeTargets: []types.RuntimeTarget{
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{Intent: types.IntentRootCause, RuntimeTargets: []types.RuntimeTarget{
 		{Kind: types.RuntimeTargetKindThread, PID: 200, Thread: "worker", Source: "user_explicit"},
 		{Kind: types.RuntimeTargetKindThread, PID: 999, Thread: "elsewhere", Source: types.RuntimeTargetSourceExplicitToolCall},
 	}}}
@@ -1170,13 +1170,39 @@ func TestTraceSupplementTargetDerivation(t *testing.T) {
 	}
 }
 
-// --- SUPP-TARGET (§29.90.1, 2026-07-15) entities-lane fallback pins ------------
+func TestTraceSupplementTargetProfileSeparatesFactCursorFromExplicitWindow(t *testing.T) {
+	ctx := &types.BusContext{Mutable: types.NewMutableState("q")}
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:        types.IntentReturnValue,
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqReturnValue)},
+		Predicates:    types.SemanticPredicates{IsScalarAnswer: true},
+		RuntimeTargetProfile: &types.RuntimeTargetProfile{
+			Declaration: types.RuntimeTargetDeclarationNoNamedTarget,
+		},
+		RuntimeTargets: []types.RuntimeTarget{{
+			Kind: types.RuntimeTargetKindThread, PID: 59566, Thread: "com.baidu.tieba",
+			Source: types.RuntimeTargetSourceExplicitToolCall,
+		}},
+	}}
+	if _, _, ok := traceSupplementDeriveTarget(ctx); ok {
+		t.Fatal("a generic scalar fact with no named user target must not promote its model cursor")
+	}
+	start, end := 10.0, 10.1
+	ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile = &types.RuntimeArtifactScopeProfile{
+		RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
+		TimeStart:      &start,
+		TimeEnd:        &end,
+		SourceQuote:    "10.0..10.1",
+	}
+	target, source, ok := traceSupplementDeriveTarget(ctx)
+	if !ok || source != "cursor" || target.PID != 59566 {
+		t.Fatalf("an explicit user window must retain cursor-backed automatic supplementation: target=%+v source=%q ok=%t", target, source, ok)
+	}
+}
 
-// TestTraceSupplementEntitiesFallbackTargetDerivation pins the precise parse
-// gate (name-pid split + uniqueness, 歧义即弃) and the trigger gate (typed
-// lane minted NOTHING at all — an ambiguous typed lane is a deliberate skip
-// the entities face must never override).
-func TestTraceSupplementEntitiesFallbackTargetDerivation(t *testing.T) {
+// --- Runtime target authority: analyzer entities stay soft -------------------
+
+func TestTraceSupplementEntitiesNeverBecomeTargetAuthority(t *testing.T) {
 	build := func(entities []string, targets []types.RuntimeTarget) *types.BusContext {
 		ctx := &types.BusContext{Mutable: types.NewMutableState("q")}
 		ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
@@ -1185,14 +1211,10 @@ func TestTraceSupplementEntitiesFallbackTargetDerivation(t *testing.T) {
 		}}
 		return ctx
 	}
-	// One thread-shaped `name-pid` entity: fallback engages with the parsed
-	// pid, the verbatim label, and the disclosed lane.
-	target, source, ok := traceSupplementDeriveTarget(build([]string{"worker-200"}, nil))
-	if !ok || target.PID != 200 || target.Thread != "worker-200" || source != "entities_fallback" {
-		t.Fatalf("parseable entity must recover the target: %+v source=%q ok=%t", target, source, ok)
-	}
-	// Precise parse gate — every miss stays a skip:
+	// Every entity spelling stays a skip. Syntactic PID/name plausibility does
+	// not turn an analyzer search hint into user identity authority.
 	for name, entities := range map[string][]string{
+		"parseable name-pid":        {"worker-200"},
 		"no entities":               nil,
 		"no dash-digit tail":        {"worker"},
 		"bare numeric range":        {"100-200"},
@@ -1207,18 +1229,6 @@ func TestTraceSupplementEntitiesFallbackTargetDerivation(t *testing.T) {
 			t.Errorf("%s must fail open: entities=%v", name, entities)
 		}
 	}
-	// One pid under two spellings: pid-only (lane-unification precedent).
-	target, source, ok = traceSupplementDeriveTarget(build([]string{"Worker-200", "worker-200 "}, nil))
-	if !ok || target.PID != 200 || source != "entities_fallback" {
-		t.Fatalf("case-equal spellings must keep the pid: %+v source=%q ok=%t", target, source, ok)
-	}
-	target, _, ok = traceSupplementDeriveTarget(build([]string{"workerA-200", "workerB-200"}, nil))
-	if !ok || target.PID != 200 || target.Thread != "" {
-		t.Fatalf("one-pid mixed-label entities must go pid-only: %+v ok=%t", target, ok)
-	}
-	// Trigger gate: ANY minted typed target (even an ambiguous or unsafe
-	// pair) keeps the fallback out — rung 3 recovers only the
-	// nothing-was-minted variant.
 	ambiguous := []types.RuntimeTarget{
 		{Kind: types.RuntimeTargetKindThread, PID: 200, Thread: "worker", Source: "user_explicit"},
 		{Kind: types.RuntimeTargetKindThread, PID: 300, Thread: "peer", Source: "user_explicit"},
@@ -1226,23 +1236,9 @@ func TestTraceSupplementEntitiesFallbackTargetDerivation(t *testing.T) {
 	if _, _, ok := traceSupplementDeriveTarget(build([]string{"worker-200"}, ambiguous)); ok {
 		t.Fatal("an ambiguous typed lane is a deliberate skip — entities must not override it")
 	}
-	// A consistent cursor lane still outranks the entities face.
-	cursor := []types.RuntimeTarget{
-		{Kind: types.RuntimeTargetKindThread, PID: 999, Thread: "elsewhere", Source: types.RuntimeTargetSourceExplicitToolCall},
-	}
-	target, source, ok = traceSupplementDeriveTarget(build([]string{"worker-200"}, cursor))
-	if !ok || target.PID != 999 || source != "cursor" {
-		t.Fatalf("cursor lane must outrank the entities fallback: %+v source=%q ok=%t", target, source, ok)
-	}
 }
 
-// TestTraceSupplementEntitiesFallbackRedToGreen — the h2 20260714-221545
-// variant, full chain: the classifier minted NO runtime_targets (the thread
-// identity sits only on the entities list) and every model call was
-// pattern-only (zero cursor targets). Pre-fix this skipped no_typed_target
-// and three hard answer faces failed to mint; the fallback recovers the
-// typed target and the supplement executes with disclosed provenance.
-func TestTraceSupplementEntitiesFallbackRedToGreen(t *testing.T) {
+func TestTraceSupplementParseableEntityWithoutTypedTargetSkips(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, types.AttachedTraceBlobBasename), []byte(suppCoreTrace), 0o644); err != nil {
 		t.Fatal(err)
@@ -1255,25 +1251,7 @@ func TestTraceSupplementEntitiesFallbackRedToGreen(t *testing.T) {
 	suppCoreModelCall(t, ctx, `{"view":"event_search","pattern":"worker","time_start":3.0,"time_end":3.2}`)
 
 	out := RunTraceQuerySystemSupplement(ctx)
-	if !out.Attempted || out.SkipReason != "" || len(out.Executed) == 0 {
-		t.Fatalf("entities fallback must let the supplement execute: %+v", out)
-	}
-	meta := ctx.Mutable.SystemTraceSupplementMeta()
-	if meta == nil {
-		t.Fatal("executed supplement must store typed meta")
-	}
-	if meta.TargetPID != 200 || meta.TargetThread != "worker-200" || meta.TargetSource != "entities_fallback" {
-		t.Fatalf("meta target = pid=%d thread=%q source=%q, want 200/worker-200/entities_fallback",
-			meta.TargetPID, meta.TargetThread, meta.TargetSource)
-	}
-	// The recovered target mints the anchored faces (the h2 disease killed
-	// exactly these).
-	after := suppCoreTreeFence(t, ctx)
-	for _, anchored := range []string{"⊚ worker-200 ‹用户关注线程›", "➊", "自身·D-state", "等待对象 dma_fence_default_wait"} {
-		if !strings.Contains(after, anchored) {
-			t.Fatalf("fallback-supplemented fence must carry %q:\n%s", anchored, after)
-		}
-	}
+	suppCoreAssertFailOpen(t, ctx, out, "no_typed_target")
 }
 
 // TestTraceSupplementEntitiesFallbackUnparseableStillSkips — the negative

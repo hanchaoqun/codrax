@@ -819,9 +819,10 @@ func TestAnalysisSkill_RuntimeFocusIdentityGuidance(t *testing.T) {
 	out := strings.Join(append([]string{cfg.Goal, cfg.OutputFormat}, cfg.Workflow...), "\n")
 	for _, want := range []string{
 		"Runtime-artifact focus identities",
-		"`runtime_targets` lane with the matching kind",
+		"`runtime_target_profile.declaration=named_target`",
+		"A named_target declaration without runtime_targets is rejected",
 		"EVENT LOCATORS",
-		"never the thread itself",
+		"not focus subjects",
 		// SUPP-TARGET (§29.90.1, 2026-07-15) prompt-face teaching: the
 		// classifier variant that copied the thread identity into entities
 		// but skipped the typed lane (h2 20260714-221545) traced to the
@@ -829,7 +830,7 @@ func TestAnalysisSkill_RuntimeFocusIdentityGuidance(t *testing.T) {
 		// checklist and the no-pre-scan trace fast path. The two reminders
 		// below are the fix; dropping either re-opens the leak.
 		"the Runtime-artifact focus identities rule applies on this no-pre-scan path too",
-		"runtime_targets (optional in general, but MUST be emitted whenever a trace/log/perf request names a thread/process identity",
+		"runtime_targets (required when runtime_target_profile.declaration=named_target",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("classification prompt missing runtime focus-identity guidance token %q", want)

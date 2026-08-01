@@ -270,7 +270,7 @@ func TestRuntimeWaitCoverageDataBoundariesUseReaderFacingEnglish(t *testing.T) {
 	}
 }
 
-func TestRuntimeTraceAuthorityTargetRequiresTypedEntitySupplementConsensus(t *testing.T) {
+func TestRuntimeTraceAuthorityTargetRejectsEntitySupplementConsensus(t *testing.T) {
 	bus := runtimeWaitCoverageTestBus()
 	target := bus.AnalysisIR.RequestModel.RuntimeTargets[0]
 	bus.AnalysisIR.RequestModel.RuntimeTargets = []types.RuntimeTarget{{
@@ -286,11 +286,8 @@ func TestRuntimeTraceAuthorityTargetRequiresTypedEntitySupplementConsensus(t *te
 		TargetSource: "cursor",
 	}, []types.ToolResult{{ToolName: "trace_query", Success: true}})
 
-	rm := runtimeTraceAuthorityRequestModel(bus)
-	if rm == nil || len(rm.RuntimeTargets) != 2 ||
-		rm.RuntimeTargets[1].PID != target.PID ||
-		rm.RuntimeTargets[1].Source != runtimeTraceTypedTargetConsensusSource {
-		t.Fatalf("typed entity + executed supplement agreement must recover private answer authority: %+v", rm)
+	if rm := runtimeTraceAuthorityRequestModel(bus); rm != nil {
+		t.Fatalf("entity + model cursor/supplement consensus must not recover user answer authority: %+v", rm)
 	}
 	if len(bus.AnalysisIR.RequestModel.RuntimeTargets) != 1 ||
 		!types.RuntimeTargetIsExplorationCursorSource(bus.AnalysisIR.RequestModel.RuntimeTargets[0].Source) {
@@ -300,9 +297,9 @@ func TestRuntimeTraceAuthorityTargetRequiresTypedEntitySupplementConsensus(t *te
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "summary", Kind: types.BlockSummary, Text: "model answer",
 	}}}
-	if !materializeRuntimeTraceBlockingCoverageAuthorityCaveat(doc, bus) ||
-		!materializeRuntimeTraceBlockedReasonCensusCaliberCaveat(doc, bus) {
-		t.Fatalf("recovered target authority must expose its matching deterministic rows: %+v", doc.Blocks)
+	if materializeRuntimeTraceBlockingCoverageAuthorityCaveat(doc, bus) ||
+		materializeRuntimeTraceBlockedReasonCensusCaliberCaveat(doc, bus) {
+		t.Fatalf("non-user target consensus must not expose target-bound deterministic rows: %+v", doc.Blocks)
 	}
 
 	for name, mutate := range map[string]func(){
@@ -481,10 +478,9 @@ func TestRuntimeTargetStateAuthorityPublishesCompleteOccurrenceSummary(t *testin
 		}
 	}
 
-	// Analyzer-emission-gap twin: the durable request model contains only the
-	// model cursor, while its typed entity and the executed supplement agree
-	// on the same PID. The complete occurrence roster must remain available
-	// to the principal card without promoting the cursor globally.
+	// Analyzer-emission-gap twin: a model cursor plus analyzer entity and an
+	// executed supplement are still not user identity authority. The complete
+	// occurrence roster must therefore stay out of the target-bound card.
 	bus.AnalysisIR.RequestModel.RuntimeTargets = []types.RuntimeTarget{{
 		Kind: types.RuntimeTargetKindThread, PID: 17267, Thread: target,
 		Source: types.RuntimeTargetSourceExplicitToolCall, Confidence: 1,
@@ -498,15 +494,8 @@ func TestRuntimeTargetStateAuthorityPublishesCompleteOccurrenceSummary(t *testin
 	consensusDoc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "summary", Kind: types.BlockSummary, Text: "model text",
 	}}}
-	if !materializeRuntimeTraceTargetStateAuthorityBlock(consensusDoc, bus) {
-		t.Fatal("typed entity/supplement consensus must recover target wait authority")
-	}
-	consensusSurface := types.AnswerBlockVisibleSurface(
-		answerDocumentTestBlockByID(t, consensusDoc, runtimeTraceTargetStateAuthorityBlockID),
-	)
-	if !strings.Contains(consensusSurface, "等待明细完整，共 2 段") ||
-		!strings.Contains(consensusSurface, "墙钟合计 6.000ms") {
-		t.Fatalf("consensus target lost complete occurrence values:\n%s", consensusSurface)
+	if materializeRuntimeTraceTargetStateAuthorityBlock(consensusDoc, bus) {
+		t.Fatalf("entity/cursor/supplement consensus must not publish target-bound values: %+v", consensusDoc.Blocks)
 	}
 }
 

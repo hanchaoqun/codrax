@@ -216,7 +216,7 @@ func TestRenderAnswerDocTracePrincipalValueAuthorityKeepsTruncatedBlockingAsLowe
 	}
 }
 
-func TestRenderAnswerDocTracePrincipalValueAuthorityUsesTypedEntitySupplementConsensusAL(t *testing.T) {
+func TestRenderAnswerDocTracePrincipalValueAuthorityRejectsEntitySupplementConsensusAL(t *testing.T) {
 	const subject = "CompThread_0-2955"
 	record := types.ObservationRecord{
 		ID:              "blocking:dma",
@@ -254,9 +254,8 @@ func TestRenderAnswerDocTracePrincipalValueAuthorityUsesTypedEntitySupplementCon
 	}, []types.ToolResult{{ToolName: "trace_query", Success: true}})
 
 	got := renderAnswerDocTracePrincipalValueAuthority(ctx)
-	if !strings.Contains(got, "target=`CompThread_0-2955`") ||
-		!strings.Contains(got, "permission=`lower_bound_only`") {
-		t.Fatalf("typed entity + executed supplement consensus must feed the same finalizer authority:\n%s", got)
+	if got != "" {
+		t.Fatalf("entity + model cursor + supplement consensus must not mint finalizer user-target authority:\n%s", got)
 	}
 	if !types.RuntimeTargetIsExplorationCursorSource(ctx.AnalysisIR.RequestModel.RuntimeTargets[0].Source) {
 		t.Fatalf("prompt-time consensus mutated persistent request model: %+v", ctx.AnalysisIR.RequestModel.RuntimeTargets)

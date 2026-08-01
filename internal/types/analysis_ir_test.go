@@ -186,13 +186,13 @@ func TestRequestModel_DoesNotExposeLegacyTopLevelEntities(t *testing.T) {
 }
 
 func TestAnalysisIR_VersionConstant(t *testing.T) {
-	// v15 adds the required runtime_artifact_scope_profile so user-requested
-	// artifact scope cannot be replaced by model-authored query windows.
-	if AnalysisIRVersion != "v15" {
+	// v16 adds runtime_target_profile so absence of a typed runtime target
+	// cannot be reinterpreted through analyzer entities or a model cursor.
+	if AnalysisIRVersion != "v16" {
 		t.Fatalf("unexpected AnalysisIRVersion: %q", AnalysisIRVersion)
 	}
 	ir := AnalysisIR{Version: AnalysisIRVersion}
-	if ir.Version != "v15" {
+	if ir.Version != "v16" {
 		t.Fatalf("version not propagated: %q", ir.Version)
 	}
 }

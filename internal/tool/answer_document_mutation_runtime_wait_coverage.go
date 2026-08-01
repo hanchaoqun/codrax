@@ -14,24 +14,16 @@ const (
 	runtimeTraceBlockingCoverageAuthorityBlockID  = "runtime_trace_blocking_coverage_authority"
 	runtimeTraceTargetStateAuthorityBlockID       = "runtime_trace_target_state_authority"
 	runtimeTraceBlockedReasonCensusCaliberBlockID = "runtime_trace_blocked_reason_census_caliber"
-	runtimeTraceTypedTargetConsensusSource        = "typed_entity_supplement_consensus"
 )
 
 // runtimeTraceAuthorityRequestModel returns the typed user-target authority
 // used by deterministic answer-side numeric compilers.
 //
-// Analyzer-emitted RuntimeTargets remain the primary lane. When that lane is
-// absent (a demonstrated classifier emission gap), answer authority may be
-// recovered only through agreement between two structured runtime faces:
-//
-//   - exactly one analyzer entity that passes the strict name-pid parser; and
-//   - an actually executed system supplement whose canonical positive target
-//     PID is identical and came from the cursor/entities fallback lane.
-//
-// Model cursor identity alone is never promoted. Raw request text and model
-// answer prose are never read. The returned RequestModel is a private clone,
-// so this answer-time consensus cannot mutate user intent or affect future
-// trace_query inheritance/supplement selection.
+// Only analyzer-emitted user_explicit RuntimeTargets under a named target
+// declaration carry answer authority. Analyzer entity strings, model cursors,
+// and supplement metadata are exploration hints and are never promoted into a
+// user identity by agreement/consensus. The returned RequestModel is a private
+// clone and raw request/model prose is never read.
 func runtimeTraceAuthorityRequestModel(ctx *types.BusContext) *types.RequestModel {
 	if ctx == nil {
 		return nil
@@ -54,8 +46,11 @@ func runtimeTraceAuthorityRequestModel(ctx *types.BusContext) *types.RequestMode
 		if rm == nil {
 			return false
 		}
+		if rm.RuntimeTargetProfile != nil && !rm.RuntimeTargetProfile.NamedTarget() {
+			return false
+		}
 		for _, target := range rm.RuntimeTargets {
-			if types.RuntimeTargetIsExplorationCursorSource(target.Source) {
+			if strings.TrimSpace(target.Source) != "user_explicit" {
 				continue
 			}
 			scope := traceSupplementRuntimeTargetScope(target.Kind)
@@ -70,46 +65,13 @@ func runtimeTraceAuthorityRequestModel(ctx *types.BusContext) *types.RequestMode
 	if hasUserTarget(base) {
 		return base
 	}
-	if ctx.Mutable == nil {
-		return nil
-	}
-	if rm := ctx.Mutable.RequestModel(); hasUserTarget(rm) {
-		cloned := *rm
-		return &cloned
-	}
-	meta := ctx.Mutable.SystemTraceSupplementMeta()
-	if meta == nil || meta.TargetPID <= 0 || meta.TargetPID > types.RuntimeTargetMaxPID ||
-		len(meta.Views) == 0 {
-		return nil
-	}
-	supplementExecuted := false
-	for _, result := range ctx.Mutable.SystemTraceSupplementResults() {
-		if result.Success {
-			supplementExecuted = true
-			break
+	if ctx.Mutable != nil {
+		if rm := ctx.Mutable.RequestModel(); hasUserTarget(rm) {
+			cloned := *rm
+			return &cloned
 		}
 	}
-	if !supplementExecuted {
-		return nil
-	}
-	switch strings.TrimSpace(meta.TargetSource) {
-	case "cursor", traceSupplementTargetSourceEntitiesFallback:
-	default:
-		return nil
-	}
-	entityTarget, ok := traceSupplementEntitiesFallbackTarget(ctx)
-	if !ok || entityTarget.PID != meta.TargetPID {
-		return nil
-	}
-	cloned := *base
-	cloned.RuntimeTargets = append(append([]types.RuntimeTarget(nil), base.RuntimeTargets...), types.RuntimeTarget{
-		Kind:       types.RuntimeTargetKindThread,
-		PID:        meta.TargetPID,
-		Thread:     strings.TrimSpace(entityTarget.Thread),
-		Source:     runtimeTraceTypedTargetConsensusSource,
-		Confidence: 1,
-	})
-	return &cloned
+	return nil
 }
 
 // RuntimeTraceAuthorityRequestModelForAgentContext exposes the same private,

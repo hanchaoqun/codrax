@@ -83,6 +83,7 @@ type emitAnalysisParams struct {
 	FieldValueProfile            *emitFieldValueProfileParam            `json:"field_value_profile,omitempty"`
 	RuntimeArtifactValueProfile  *emitRuntimeArtifactValueProfileParam  `json:"artifact_value_profile,omitempty"`
 	RuntimeArtifactScopeProfile  *emitRuntimeArtifactScopeProfileParam  `json:"runtime_artifact_scope_profile"`
+	RuntimeTargetProfile         *emitRuntimeTargetProfileParam         `json:"runtime_target_profile"`
 	RuntimeTargets               []emitRuntimeTargetParam               `json:"runtime_targets,omitempty"`
 	AnswerExclusionPolicy        *emitAnswerExclusionPolicyParam        `json:"answer_exclusion_policy,omitempty"`
 	AnswerRoleProfile            *emitAnswerRoleProfileParam            `json:"answer_role_profile,omitempty"`
@@ -259,6 +260,13 @@ type emitRuntimeArtifactScopeProfileParam struct {
 	SourceQuote    string   `json:"source_quote,omitempty"`
 	Confidence     *float64 `json:"confidence"`
 	Rationale      string   `json:"rationale,omitempty"`
+}
+
+type emitRuntimeTargetProfileParam struct {
+	Declaration string   `json:"declaration"`
+	SourceQuote string   `json:"source_quote,omitempty"`
+	Confidence  *float64 `json:"confidence"`
+	Rationale   string   `json:"rationale,omitempty"`
 }
 
 type emitRuntimeTargetParam struct {
@@ -639,6 +647,17 @@ func buildEmitAnalysisSchema() {
 				},
 				"required": []string{"requested_scope", "confidence"},
 			},
+			"runtime_target_profile": map[string]any{
+				"type":        "object",
+				"description": "Required typed declaration of whether the current runtime-artifact request names a concrete process/thread identity. This is independent of the artifact time/range. Use named_target only with an exact current-request source_quote and one or more matching runtime_targets; use no_named_target when the artifact question names no process/thread identity; use unspecified when genuinely unclear; use not_applicable when no runtime artifact is attached or referenced. This declaration prevents ordinary analyzer entities or model exploration cursors from silently becoming user target authority.",
+				"properties": map[string]any{
+					"declaration":  map[string]any{"type": "string", "enum": runtimeTargetDeclarationValues(), "description": "not_applicable, no_named_target, named_target, or unspecified."},
+					"source_quote": map[string]any{"type": "string", "description": "For named_target, an exact verbatim current-request phrase containing the named process/thread identity."},
+					"confidence":   map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Classification confidence in [0,1]."},
+					"rationale":    map[string]any{"type": "string", "description": "Short audit rationale."},
+				},
+				"required": []string{"declaration", "confidence"},
+			},
 			"runtime_targets": map[string]any{
 				"type":        "array",
 				"description": "Optional typed runtime-artifact target list. Emit only when the current request explicitly identifies trace/log/perf targets as structured process IDs, thread IDs, or concrete thread labels. This is the only lane downstream trace tools may use to preserve omitted pid/thread filters; do not put timestamps, file paths, span names, generic entities, or guessed values here.",
@@ -822,7 +841,7 @@ func buildEmitAnalysisSchema() {
 			"intent", "scenario", "complexity", "keywords", "entities", "question_kind",
 			"intent_confidence", "complexity_confidence", "kind_confidence",
 			"predicates", "diagnostic_profile", "answer_role_profile", "error_granularity_profile",
-			"runtime_artifact_scope_profile",
+			"runtime_artifact_scope_profile", "runtime_target_profile",
 		},
 	}
 
@@ -959,6 +978,15 @@ func runtimeArtifactRequestedScopeValues() []string {
 	return out
 }
 
+func runtimeTargetDeclarationValues() []string {
+	values := types.AllRuntimeTargetDeclarations()
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		out = append(out, string(value))
+	}
+	return out
+}
+
 func answerCandidateRoleValues() []string {
 	values := types.AllAnswerCandidateRoles()
 	out := make([]string, 0, len(values))
@@ -1087,6 +1115,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		"field_value_profile",
 		"artifact_value_profile",
 		"runtime_artifact_scope_profile",
+		"runtime_target_profile",
 		"answer_exclusion_policy",
 		"answer_role_profile",
 		"error_granularity_profile",
@@ -1461,6 +1490,19 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
+	runtimeTargetProfile, runtimeTargetProfileErr, runtimeTargetProfileWarnings := parseRuntimeTargetProfile(raw, runtimeArtifactCarrier, p.RuntimeTargetProfile, runtimeTargets)
+	if runtimeTargetProfileErr != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + runtimeTargetProfileErr,
+			Timestamp: time.Now(),
+		}, nil
+	}
+	for _, warning := range runtimeTargetProfileWarnings {
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
 	fieldValueProfile, fieldValueErr := parseFieldValueProfile(raw, p.FieldValueProfile)
 	if fieldValueErr != "" {
 		if runtimeArtifactCarrier && runtimeArtifactValueProfile == nil {
@@ -1684,6 +1726,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		RuntimeArtifactValueProfile:     runtimeArtifactValueProfile,
 		RuntimeArtifactScopeProfile:     runtimeArtifactScopeProfile,
 		RuntimeTargets:                  runtimeTargets,
+		RuntimeTargetProfile:            runtimeTargetProfile,
 		AnswerExclusionPolicy:           answerExclusionPolicy,
 		AnswerRoleProfile:               answerRoleProfile,
 		ErrorGranularityProfile:         errorGranularityProfile,
@@ -3480,6 +3523,83 @@ func parseRuntimeTargets(in []emitRuntimeTargetParam) ([]types.RuntimeTarget, []
 	return out, warnings, ""
 }
 
+func parseRuntimeTargetProfile(raw string, runtimeArtifactCarrier bool, p *emitRuntimeTargetProfileParam, targets []types.RuntimeTarget) (*types.RuntimeTargetProfile, string, []string) {
+	if p == nil {
+		if runtimeArtifactCarrier {
+			return nil, "runtime_target_profile object missing — declare named_target, no_named_target, or unspecified; do not let entities or exploration cursors stand in for user target authority", nil
+		}
+		return &types.RuntimeTargetProfile{Declaration: types.RuntimeTargetDeclarationNotApplicable}, "", nil
+	}
+	if strings.TrimSpace(p.Declaration) == "" || p.Confidence == nil {
+		var missing []string
+		if strings.TrimSpace(p.Declaration) == "" {
+			missing = append(missing, "declaration")
+		}
+		if p.Confidence == nil {
+			missing = append(missing, "confidence")
+		}
+		return nil, "runtime_target_profile missing required field(s): " + strings.Join(missing, ", "), nil
+	}
+	if *p.Confidence < 0 || *p.Confidence > 1 {
+		return nil, fmt.Sprintf("runtime_target_profile.confidence %.2f out of [0,1]", *p.Confidence), nil
+	}
+	declaration := types.RuntimeTargetDeclaration(strings.TrimSpace(p.Declaration))
+	if !declaration.IsValid() {
+		return nil, fmt.Sprintf(
+			"runtime_target_profile.declaration %q is invalid; use one of %s",
+			p.Declaration, strings.Join(runtimeTargetDeclarationValues(), ", "),
+		), nil
+	}
+	if !runtimeArtifactCarrier {
+		if len(targets) == 0 {
+			var warnings []string
+			if declaration != types.RuntimeTargetDeclarationNotApplicable && declaration != types.RuntimeTargetDeclarationUnspecified {
+				warnings = append(warnings, "runtime_target_profile normalized to not_applicable because no runtime artifact carrier is present")
+			}
+			return &types.RuntimeTargetProfile{
+				Declaration: types.RuntimeTargetDeclarationNotApplicable,
+				Confidence:  *p.Confidence,
+			}, "", warnings
+		}
+		// A schema-valid named declaration plus typed targets is itself a
+		// precise runtime-request carrier. This supports explicit trace/log
+		// paths whose preflight attachment is established after analysis and
+		// keeps unit/adapter callers from having to manufacture an artifact.
+		if declaration != types.RuntimeTargetDeclarationNamedTarget {
+			return nil, fmt.Sprintf("runtime_targets conflict with runtime_target_profile %s outside an attached runtime artifact; declare named_target with an anchored source_quote", declaration), nil
+		}
+	}
+
+	profile := &types.RuntimeTargetProfile{
+		Declaration: declaration,
+		Confidence:  *p.Confidence,
+		Rationale:   strings.TrimSpace(p.Rationale),
+	}
+	switch declaration {
+	case types.RuntimeTargetDeclarationNamedTarget:
+		quote := strings.TrimSpace(p.SourceQuote)
+		if quote == "" || !sourceQuotePresentInCurrentRequest(raw, quote) {
+			return nil, "runtime_target_profile named_target requires source_quote copied verbatim from the current request", nil
+		}
+		if len(targets) == 0 {
+			return nil, "runtime_target_profile named_target requires at least one structurally valid runtime_targets entry; emit the named process/thread instead of omitting it", nil
+		}
+		for i, target := range targets {
+			if strings.TrimSpace(target.Source) != "user_explicit" {
+				return nil, fmt.Sprintf("runtime_targets[%d].source must be user_explicit under runtime_target_profile named_target", i), nil
+			}
+		}
+		profile.SourceQuote = quote
+	case types.RuntimeTargetDeclarationNoNamedTarget, types.RuntimeTargetDeclarationUnspecified:
+		if len(targets) > 0 {
+			return nil, fmt.Sprintf("runtime_target_profile %s conflicts with %d runtime_targets entries; declare named_target with an anchored source_quote or remove the targets", declaration, len(targets)), nil
+		}
+	case types.RuntimeTargetDeclarationNotApplicable:
+		return nil, "runtime_target_profile not_applicable conflicts with the attached/referenced runtime request; use named_target, no_named_target, or unspecified", nil
+	}
+	return profile, "", nil
+}
+
 // emitRuntimeTargetMaxPID is the shared Linux PID_MAX_LIMIT sanity cap
 // (types.RuntimeTargetMaxPID; F4 教义统一).
 const emitRuntimeTargetMaxPID = types.RuntimeTargetMaxPID
@@ -5047,6 +5167,9 @@ func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val
 	}
 	if len(rm.RuntimeTargets) > 0 {
 		fmt.Fprintf(&b, " runtime_targets=%d", len(rm.RuntimeTargets))
+	}
+	if rm.RuntimeTargetProfile != nil {
+		fmt.Fprintf(&b, " runtime_target_profile=%s", rm.RuntimeTargetProfile.Declaration)
 	}
 	if rm.AnswerExclusionPolicy != nil && rm.AnswerExclusionPolicy.Active() {
 		roles := make([]string, 0, len(rm.AnswerExclusionPolicy.ExcludedCandidateRoles))

@@ -63,4 +63,17 @@ func TestRuntimeTraceReportMaterializationAuthorityMatrix(t *testing.T) {
 	if RuntimeTraceReportMaterializationAllowed(&focusedConditional, withRoot) {
 		t.Fatal("non-diagnostic explain/conditional target fact must stay narrow even when exploration collected causal rows")
 	}
+
+	missingTargetScalar := *generic
+	missingTargetScalar.Intent = IntentReturnValue
+	missingTargetScalar.AnalyzerHints.Kind = string(ReqReturnValue)
+	missingTargetScalar.PredicateAxis = AxisCondition
+	missingTargetScalar.Predicates.IsScalarAnswer = true
+	if RuntimeTraceReportMaterializationAllowed(&missingTargetScalar, withRoot) {
+		t.Fatal("non-diagnostic scalar runtime fact must not widen into a causal report when its target is missing")
+	}
+	missingTargetScalar.RuntimeArtifactScopeProfile = windowed.RuntimeArtifactScopeProfile
+	if !RuntimeTraceReportMaterializationAllowed(&missingTargetScalar, TraceCausalProjectionSet{}) {
+		t.Fatal("an explicit typed user window must outrank the scalar narrow-fact rule")
+	}
 }

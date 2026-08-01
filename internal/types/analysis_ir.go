@@ -40,7 +40,7 @@ type AnalysisIR struct {
 // AnalysisIRVersion is the current schema version string. Bump on any
 // breaking change to the wire format so downstream consumers can refuse
 // to parse IRs they do not understand.
-const AnalysisIRVersion = "v15"
+const AnalysisIRVersion = "v16"
 
 // ── RequestModel ────────────────────────────────────────────────────────
 
@@ -173,6 +173,12 @@ type RequestModel struct {
 	// consumed by trace tools to preserve target filters across follow-up calls.
 	// Producers must not derive it by scanning arbitrary answer prose.
 	RuntimeTargets []RuntimeTarget `json:"runtime_targets,omitempty"`
+
+	// RuntimeTargetProfile declares whether the current runtime-artifact
+	// request names a process/thread identity at all. It prevents absence of
+	// RuntimeTargets from being reinterpreted through analyzer entity strings
+	// or a model-selected exploration cursor.
+	RuntimeTargetProfile *RuntimeTargetProfile `json:"runtime_target_profile,omitempty"`
 
 	// AnswerExclusionPolicy is the analyzer LLM's typed lane for user-stated
 	// candidate categories that must stay out of the principal answer rows.

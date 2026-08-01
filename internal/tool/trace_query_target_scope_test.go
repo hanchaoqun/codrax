@@ -45,7 +45,7 @@ func TestTraceQueryCursorTargetKindFollowsExplicitScopeOnly(t *testing.T) {
 func TestTraceQueryCursorCanonicalizesEquivalentSelectorSpellings(t *testing.T) {
 	ctx := &types.BusContext{
 		Mutable:    types.NewMutableState("q"),
-		AnalysisIR: &types.AnalysisIR{},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{Intent: types.IntentRootCause}},
 	}
 	var named, pidOnly traceQueryParams
 	if err := json.Unmarshal([]byte(`{"thread":"CompThread_0-2955"}`), &named); err != nil {

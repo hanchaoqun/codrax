@@ -354,35 +354,32 @@ func TestTraceSupplementCensusLiteWindowedAdjunct(t *testing.T) {
 	}
 	ctx.ToolResults = append(ctx.ToolResults, res)
 	out := RunTraceQuerySystemSupplement(ctx)
-	if len(out.Executed) != 2 || out.Executed[0] != "frame_root_cause_bundle" || out.Executed[1] != "event_search" {
-		t.Fatalf("executed = %v (skip=%s), want [frame_root_cause_bundle event_search]", out.Executed, out.SkipReason)
+	if len(out.Executed) != 1 || out.Executed[0] != "event_search" {
+		t.Fatalf("executed = %v (skip=%s), want census-only [event_search]; generic no-target fact must not promote its cursor into a frame root-cause target", out.Executed, out.SkipReason)
 	}
 	meta := ctx.Mutable.SystemTraceSupplementMeta()
 	if meta == nil || !meta.CensusLite {
 		t.Fatalf("meta = %+v, want CensusLite=true on the windowed adjunct", meta)
 	}
-	// meta.Views keeps ONLY the windowed executions — the disclosure's
-	// windowed sentence must not claim the whole-trace scan ran on the
-	// derived window.
-	if len(meta.Views) != 1 || meta.Views[0] != "frame_root_cause_bundle" {
-		t.Fatalf("meta.Views = %v, want the frame windowed view only", meta.Views)
+	if len(meta.Views) != 0 {
+		t.Fatalf("meta.Views = %v, want no target-bound windowed execution", meta.Views)
 	}
 	results := ctx.Mutable.SystemTraceSupplementResults()
-	if len(results) != 2 {
-		t.Fatalf("supplement results = %d, want 2 (frame bundle + the census adjunct)", len(results))
+	if len(results) != 1 {
+		t.Fatalf("supplement results = %d, want the target-independent census only", len(results))
 	}
-	records := vsyncSAF2ObservationsByPredicate(results[1], "vsync_generator_census")
+	records := vsyncSAF2ObservationsByPredicate(results[0], "vsync_generator_census")
 	if len(records) != 1 || !strings.Contains(records[0].Value, "period:16552213ns") {
 		t.Fatalf("adjunct census = %+v, want the authoritative period", records)
 	}
-	// Combined disclosure: windowed sentence + the lite tail clause.
+	// Disclosure must mention only the target-independent whole-trace census.
 	zh := runtimeTraceSupplementDisclosureText(meta, true)
-	if !strings.Contains(zh, "成文前确定性补跑") || !strings.Contains(zh, ";另对全 trace 补跑 VSync/帧节拍发生器轻量普查(event_search·vsync)") {
-		t.Fatalf("zh combined disclosure = %q", zh)
+	if strings.Contains(zh, "成文前确定性补跑") || !strings.Contains(zh, "全 trace 补跑 VSync/帧节拍发生器轻量普查") {
+		t.Fatalf("zh census-only disclosure = %q", zh)
 	}
 	en := runtimeTraceSupplementDisclosureText(meta, false)
-	if !strings.Contains(en, "deterministic pre-report re-run") || !strings.Contains(en, "also ran a lightweight whole-trace VSync/frame-pacing generator census") {
-		t.Fatalf("en combined disclosure = %q", en)
+	if strings.Contains(en, "deterministic pre-report re-run") || !strings.Contains(en, "lightweight whole-trace VSync/frame-pacing generator census") {
+		t.Fatalf("en census-only disclosure = %q", en)
 	}
 }
 
@@ -401,8 +398,8 @@ func TestTraceSupplementCensusLiteCensusPresentStaysDark(t *testing.T) {
 	}
 	ctx.ToolResults = append(ctx.ToolResults, res)
 	out := RunTraceQuerySystemSupplement(ctx)
-	if len(out.Executed) != 0 || out.SkipReason != "no_typed_window" {
-		t.Fatalf("outcome = %+v, want plain no_typed_window skip (census already on the ledger)", out)
+	if len(out.Executed) != 0 || out.SkipReason != "no_typed_target" {
+		t.Fatalf("outcome = %+v, want plain no_typed_target skip (census already on the ledger)", out)
 	}
 	if meta := ctx.Mutable.SystemTraceSupplementMeta(); meta != nil {
 		t.Fatalf("census-present run must store no supplement meta, got %+v", meta)

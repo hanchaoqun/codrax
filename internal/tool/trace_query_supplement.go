@@ -259,7 +259,7 @@ func traceSupplementNarrowDStateQuestion(ctx *types.BusContext) bool {
 			return
 		}
 		family := types.ResolveQuestionFamily(*rm)
-		if family == types.QFGeneric && types.IsFocusedRuntimeFactQuestion(*rm) {
+		if family == types.QFGeneric && types.IsNarrowRuntimeArtifactFactShape(*rm) {
 			narrowStateFact = true
 		}
 		switch family {
@@ -295,23 +295,13 @@ func traceSupplementFrameEvidencePresent(input types.ObservationLedgerInput) boo
 // traceSupplementTarget derives the supplement's typed target. Priority (R2
 // ruling: user intent first):
 //
-//  1. USER lane — request-model RuntimeTargets excluding the exploration
-//     cursor source, unified to ONE unambiguous target (below).
-//  2. CURSOR lane — the model's own explicit trace_query pid/thread targets
-//     (RuntimeTargetSourceExplicitToolCall): the model explored one thread
-//     consistently, so the supplement follows it.
-//  3. ENTITIES fallback (SUPP-TARGET §29.90.1, 2026-07-15) — ONLY when the
-//     typed RuntimeTargets lane minted NOTHING AT ALL (h2 20260714-221545
-//     witness: a classifier variant copied the thread identity into the
-//     entities list but skipped the typed lane, and the model's own calls
-//     were pattern-only, so both lanes above were empty and three hard
-//     answer faces silently failed to mint): a thread-shaped `name-pid`
-//     entity that parses unambiguously (precise gate below) recovers the
-//     target; meta.TargetSource discloses the lane as "entities_fallback".
-//     Targets that EXIST but are ambiguous never reach this rung — an
-//     ambiguous typed lane is a deliberate skip and must not be overridden
-//     by the noisier entities face.
-//  4. Anything else (ambiguous / absent / unparseable) ⇒ fail-open skip. 禁猜.
+//  1. USER lane — runtime_target_profile=named_target plus request-model
+//     RuntimeTargets(source=user_explicit), unified to ONE unambiguous target.
+//  2. CURSOR lane — a model trace_query cursor is eligible only for a typed
+//     diagnostic/root-cause/call-relation request or an explicit user window,
+//     and only when the target profile did not declare named_target.
+//  3. Anything else ⇒ fail-open skip. Analyzer entities are deliberately not
+//     a target recovery lane: they are noisy soft hints, not identity authority.
 //
 // Lane unification (h4 first-trip witness, 2026-07-14): a lane is
 // unambiguous when its entries share exactly ONE distinct positive pid —
@@ -322,12 +312,10 @@ func traceSupplementFrameEvidencePresent(input types.ObservationLedgerInput) boo
 // mixed pids or mixed thread-only labels stay ambiguous ⇒ skip.
 func traceSupplementDeriveTarget(ctx *types.BusContext) (traceQueryRequestTarget, string, bool) {
 	var userLane, cursorLane []traceQueryRequestTarget
-	rawTargets := 0
 	collect := func(rm *types.RequestModel) {
 		if rm == nil {
 			return
 		}
-		rawTargets += len(rm.RuntimeTargets)
 		for _, runtimeTarget := range rm.RuntimeTargets {
 			target := traceQueryRequestTarget{
 				PID:         runtimeTarget.PID,
@@ -356,7 +344,7 @@ func traceSupplementDeriveTarget(ctx *types.BusContext) (traceQueryRequestTarget
 			}
 			if types.RuntimeTargetIsExplorationCursorSource(target.Source) {
 				cursorLane = append(cursorLane, target)
-			} else {
+			} else if target.Source == "user_explicit" {
 				userLane = append(userLane, target)
 			}
 		}
@@ -367,22 +355,72 @@ func traceSupplementDeriveTarget(ctx *types.BusContext) (traceQueryRequestTarget
 	if ctx.Mutable != nil {
 		collect(ctx.Mutable.RequestModel())
 	}
-	if target, ok := traceSupplementUnifyLaneTargets(userLane); ok {
-		return target, "user", true
+	profile := traceSupplementRequestedTargetProfile(ctx)
+	if profile != nil && profile.NamedTarget() {
+		if target, ok := traceSupplementUnifyLaneTargets(userLane); ok {
+			return target, "user", true
+		}
+		return traceQueryRequestTarget{}, "", false
 	}
-	if len(userLane) == 0 {
+	// Backward compatibility for pre-profile persisted RequestModels: an
+	// already-typed user_explicit RuntimeTarget remains authoritative. Missing
+	// typed targets never revive the retired entities fallback.
+	if profile == nil {
+		if target, ok := traceSupplementUnifyLaneTargets(userLane); ok {
+			return target, "user", true
+		}
+	}
+	if traceSupplementCursorTargetAllowed(ctx) {
 		if target, ok := traceSupplementUnifyLaneTargets(cursorLane); ok {
 			return target, "cursor", true
 		}
 	}
-	if rawTargets == 0 {
-		if target, ok := traceSupplementEntitiesFallbackTarget(ctx); ok {
-			logging.Info("[trace_supplement] target derived from analyzer entities fallback pid=%d thread=%q (typed runtime_targets lane empty; source=%s)",
-				target.PID, target.Thread, traceSupplementTargetSourceEntitiesFallback)
-			return target, traceSupplementTargetSourceEntitiesFallback, true
+	return traceQueryRequestTarget{}, "", false
+}
+
+func traceSupplementRequestedTargetProfile(ctx *types.BusContext) *types.RuntimeTargetProfile {
+	if ctx == nil {
+		return nil
+	}
+	if ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.RuntimeTargetProfile != nil {
+		return ctx.AnalysisIR.RequestModel.RuntimeTargetProfile
+	}
+	if ctx.Mutable != nil {
+		if rm := ctx.Mutable.RequestModel(); rm != nil {
+			return rm.RuntimeTargetProfile
 		}
 	}
-	return traceQueryRequestTarget{}, "", false
+	return nil
+}
+
+func traceSupplementCursorTargetAllowed(ctx *types.BusContext) bool {
+	allowed := false
+	collect := func(rm *types.RequestModel) {
+		if rm == nil || allowed {
+			return
+		}
+		if _, _, ok := rm.RuntimeArtifactScopeProfile.ExplicitTimeWindow(); ok {
+			allowed = true
+			return
+		}
+		if rm.Intent == types.IntentRootCause ||
+			rm.Predicates.IsDiagnosticQuestion ||
+			rm.DiagnosticProfile.RequiresDiagnosticRootCause() {
+			allowed = true
+			return
+		}
+		switch types.ResolveQuestionFamily(*rm) {
+		case types.QFRootCauseTrace, types.QFCallChain:
+			allowed = true
+		}
+	}
+	if ctx != nil && ctx.AnalysisIR != nil {
+		collect(&ctx.AnalysisIR.RequestModel)
+	}
+	if ctx != nil && ctx.Mutable != nil {
+		collect(ctx.Mutable.RequestModel())
+	}
+	return allowed
 }
 
 func traceSupplementRuntimeTargetScope(kind types.RuntimeTargetKind) string {
@@ -396,27 +434,6 @@ func traceSupplementRuntimeTargetScope(kind types.RuntimeTargetKind) string {
 	}
 }
 
-// traceSupplementTargetSourceEntitiesFallback is the meta.TargetSource /
-// derivation-lane label for rung 3 of traceSupplementDeriveTarget
-// (disclosure/audit only, beside "user" and "cursor").
-const traceSupplementTargetSourceEntitiesFallback = "entities_fallback"
-
-// traceSupplementEntitiesFallbackTarget parses the analyzer's typed entities
-// list for EXACTLY ONE thread-shaped `name-pid` identity (SUPP-TARGET
-// §29.90.1). Precise parse gate — every miss is a silent skip (宁缺勿假):
-//
-//   - split at the LAST dash: the tail must be ALL digits (1..7 of them) and
-//     parse to a pid in (0, RuntimeTargetMaxPID] — the name part may itself
-//     contain dashes or trailing digits ("CompThread_0-2955" splits to name
-//     "CompThread_0", pid 2955);
-//   - the name part must contain at least one letter — bare numeric ranges
-//     ("100-200": line spans, windows) never become targets;
-//   - the whole verbatim label must pass the shared typed-target safety gate
-//     (length / forbidden characters);
-//   - uniqueness: all parseable entities must agree on ONE distinct pid, or
-//     the whole fallback is abandoned; same pid under different spellings
-//     keeps the pid and drops the label (the lane-unification precedent).
-//
 // traceSupplementValueObservationCount — R3B-C2 (§13.8, 2026-07-25): the
 // disclosure line claimed "成文前确定性补跑 根因排序…" on the fifth replay
 // while the compiled ledger held zero causal rows — a Success=true view whose
@@ -492,73 +509,6 @@ func traceSupplementParseThreadLabel(label string) (int, string, bool) {
 		}
 	}
 	return 0, "", false
-}
-
-func traceSupplementEntitiesFallbackTarget(ctx *types.BusContext) (traceQueryRequestTarget, bool) {
-	if ctx == nil {
-		return traceQueryRequestTarget{}, false
-	}
-	var entities []string
-	collect := func(rm *types.RequestModel) {
-		if rm == nil {
-			return
-		}
-		entities = append(entities, rm.AnalyzerHints.Entities...)
-	}
-	if ctx.AnalysisIR != nil {
-		collect(&ctx.AnalysisIR.RequestModel)
-	}
-	if ctx.Mutable != nil {
-		collect(ctx.Mutable.RequestModel())
-	}
-	pid := 0
-	thread := ""
-	threadUnanimous := true
-	for _, entity := range entities {
-		label := strings.TrimSpace(entity)
-		i := strings.LastIndexByte(label, '-')
-		if i <= 0 || i == len(label)-1 {
-			continue
-		}
-		name, digits := label[:i], label[i+1:]
-		if len(digits) > 7 || strings.IndexFunc(digits, func(r rune) bool { return r < '0' || r > '9' }) >= 0 {
-			continue
-		}
-		if !strings.ContainsFunc(name, unicode.IsLetter) {
-			continue
-		}
-		parsed, err := strconv.Atoi(digits)
-		if err != nil || parsed <= 0 || parsed > traceQueryMaxInheritedPID {
-			continue
-		}
-		candidate := traceQueryRequestTarget{PID: parsed, Thread: label, TargetScope: tracequery.TargetScopeThread}
-		if !traceQueryTypedRuntimeTargetSafe(candidate) {
-			continue
-		}
-		if pid == 0 {
-			pid = parsed
-			thread = label
-			continue
-		}
-		if parsed != pid {
-			// Two distinct thread-shaped pids on the entities face —
-			// ambiguous, the fallback is abandoned whole.
-			return traceQueryRequestTarget{}, false
-		}
-		if !strings.EqualFold(thread, label) {
-			threadUnanimous = false
-		}
-	}
-	if pid == 0 {
-		return traceQueryRequestTarget{}, false
-	}
-	if !threadUnanimous {
-		thread = ""
-	}
-	return traceQueryRequestTarget{
-		PID: pid, Thread: thread, Source: "analyzer_hints_entities",
-		TargetScope: tracequery.TargetScopeThread,
-	}, true
 }
 
 // traceSupplementUnifyLaneTargets reduces one lane to a single unambiguous
