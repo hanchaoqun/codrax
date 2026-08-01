@@ -5082,6 +5082,50 @@ write/apply case，runner 均 PASS，人工审计均 PASS：
 `EVAL-B20-W5=covered`；`EVAL-B20-W4=model-variance-watch`。下一优先批转向读模式
 混合 authority，避免继续围绕两种语言和单一补丁形状过拟合。
 
+### B21 r1：读模式 mixed authority 机器双 PASS、人工双 FAIL（2026-08-01）
+
+在 `main@766e2f715` 的同一二进制快照下严格并行 2 个读模式 case：
+
+- `read_combo_log_current_source_bucketed_units`：runner PASS，134s；
+- `read_combo_git_current_source_explanation`：runner PASS，219s；
+- 人工审计均 FAIL。
+
+日志用例保留了 `concurrent map writes` 三个 artifact-local 栈帧，也真实读取了
+当前 `RankGraph`、`RankGraphScoresWithOptions` 和 `buildTaskMapData`。但本轮没有
+artifact build revision、版本映射、Git diff 或变更 commit，模型仅凭旧栈行号漂移
+和当前路径不同，就断言“旧版直接调用该实现、当前已经修复”。当前源码只能证明
+当前 checkout 的路径和风险边界，不能证明历史工件来自哪个 revision、是哪次变更
+修复。最终 decision 还携带 `current_status_verdict=still_present`，渲染成“仍然存在”，
+而同一段 rationale 又称“风险已消除”，机器 oracle 未覆盖这类 typed verdict
+一致性与跨来源 transition authority。
+
+Git 用例正确找到最近 merge `2a58a60d` 及主题；但 `git_show --stat` 的
+`exact_changed_paths` 明确有 3 个文件，模型 handoff 却把“受影响的测试文件”写成
+2 个并漏掉 `internal/tool/test_surface_test.go`。更上游的 route 已正确发出
+`current_source=required`，analyzer 却保持 `question_kind=history /
+scenario=architecture_explain` 且遗漏 `CurrentSourceExplanationProfile` 和
+`diff_clue + current_key_code` 维度对。现有 `IsHistoryBackedCurrentCodeExplanation`
+把 `ReqHistory` 提前判成纯历史，未消费正确 route，B19-HIST1 的系统补表因而复发。
+
+登记与批次：
+
+| ID | 优先级 | GAP | 泛化方案 | 状态 |
+|---|---:|---|---|---|
+| `EVAL-B21-MIX1` | P0 | route 已 typed 声明 current source required，但 history+architecture analyzer 漏 profile 时 mixed lane 仍丢失 | 在分析归一化铸造 route-backed typed obligation：只接受 `history lookup ∧ explain/trace ∧ architecture_explain ∧ route current_source=required`，排除 scalar/count/relation/diagnostic/enumerate；让统一 history/current-code 谓词消费该信号。不得读取 route reason、RawRequest、答案 prose | Batch B21-A next |
+| `EVAL-B21-VCS1` | P1 | `exact_changed_paths` 只存在 blob/summary 文本，`ToolVCSHistory` 只有 commits；下游无法 typed 检测漏文件 | 为 `git_log`/`git_show` 发布有界 per-commit changed-path roster、total/complete/omitted；ledger/prompt 使用 carrier，完整路径清册不得由 `--stat` 缩写或模型计数代替 | Batch B21-B |
+| `EVAL-B21-TRANS1` | P1 | runtime artifact 与 current checkout 同时有证据，却没有“历史变化是否已证明”的独立 authority | 建立 typed artifact↔checkout transition authority；无 artifact revision/version mapping 或 VCS transition witness 时只允许说明当前差异，确定性披露 historical transition=`unproven`，不改写模型正文 | Batch B21-C |
+| `EVAL-B21-M1` | P3 | 模型把 mutex 保护路径描述成会因两个调用者并发而 crash，并选错 current-status enum | 先由 MIX/TRANS authority 限定可声称范围；作为 model-variance 样本保留，跨 case 复现再设计结构化 side-specific proof，不加 Go/mutex/答案关键词门 | watch |
+
+不变量：上述三批不得修改 Trace family/query、显式时间窗 full-report、根因排序、
+wakeup chain、窗内可消除量、因果投影、系统补采或任何基于用户/模型原文的 hard
+gate；日志与 VCS 坐标继续分席，route 元数据只决定证据义务，不成为答案事实。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b21r1_20260801.md`；
+- `eval/parallel_selected_summary_evalcampaign_b21r1_20260801_manual_audit.md`；
+- 结果目录时间戳 `20260801-053446`。
+
 ### B19g-b r1：target authority 通过，有限事实集仍被扩张（2026-08-01）
 
 同一二进制快照下严格并行 2 个 Trace case，runner 均 PASS，人工均 FAIL：
