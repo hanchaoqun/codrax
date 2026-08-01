@@ -3189,3 +3189,70 @@ NEG1 已按不变量落地：
 状态为 `covered-pending-replay`：下一对仍严格 `parallel=2`，用 config mix
 验证系统 lead 只列 `runtime.go` 与 `cmd`、明确 YAML 未证；另一席使用显式窗
 Trace case，固定本次非 runtime 改动没有影响因果投影和自动补充。
+
+### B15 r3 NEG1 收账与 mixed-target exact-resolution 审计（2026-08-01）
+
+在 revision `3a25fc462` 重建后严格 `parallel=2` 回放：
+
+- `eval/results/read_combo_config_absent_present_mix-20260731-191829`
+- `eval/results/real_trace_h8_semantic_edge_anchor_sentinel-20260731-191829`
+
+runner 1/2（config mix PASS 150s、H8 FAIL 177s），人工 0/2。两项人工失败
+原因不同，不能合并成一个 production 修点。
+
+config mix 证明 `EVAL-B15-NEG1` covered：
+
+1. 系统首块逐条列出 phantom target 的三个已验证范围：
+   `cmd/root.go (file)`、`codrax.yaml.example (file)`、
+   `internal/config/runtime.go (file)`；
+2. 每行 producer 都是 `verified_negative_evidence`，没有把另一 target
+   `explore_per_tool_default_cap` 的正向行借给 phantom target；
+3. block 明示 `unlisted_scope_status=unproven` 与
+   `cross_target_borrowing=forbidden`；
+4. 第二个 target 的注释示例值 0、runtime 字段和 CLI 接线仍正确在场。
+
+但同一答案在 NEG1 block 之前仍发布：
+
+```text
+当前已验证范围内未找到完全一致的精确目标。
+```
+
+本轮 analyzer 已正确发出两个 `exact_targets`；错误不再是路由缺字段，而是
+`AnswerDocumentV2.ExactResolution` 只有一个 document-level status/anchor，
+无法表达 target A absent + target B present。模型给出全局 `absent` 后，
+renderer 将其扩成覆盖两个目标的横幅，与后续 scoped 权威和 present scalar
+自相矛盾。
+
+H8 的 production typed 面没有丢：
+
+1. `trace_query_final_projection_blocks=2`，完整 Trace 因果投影、根因榜、
+   wakeup/边锚定、窗内可消除量与系统补充都在；
+2. 语义席明确发布 `VerifyClass ...` / `类校验` / `0.285ms`；
+3. 同席明确发布
+   `最晚相关边 34579.496810s·凭证=直接裸边`。
+
+runner 失败只因 case oracle 写死 ASCII 逗号
+`34579.496810s,凭证`，而正式系统板使用中点分隔；这是 oracle drift，不应
+反向修改生产文案。整体人工仍 fail，因为模型摘要把
+`34579.495841–34579.496126` 错说成不在
+`34579.490–34579.500` 目标窗内，与正确系统板冲突。按“不扫描模型原文做硬门”
+红线，该项先作为模型窗口归属波动留档。
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B15-NEG1 | P1 | negative proof target/scope authority | 局部 no-match 被扩写 | typed target/scope system lead | covered |
+| EVAL-B15-XR1 | P1 | mixed exact target global verdict | 多目标 contract 只有一个无 target_ref 的 document-level resolution；mixed present/absent 时任何全局 absent 横幅都越权 | 短期 typed fail-closed：当 contract 有多个 distinct target 且 document verdict=absent 时抑制全局 exact-resolution 横幅，同时保留 scalar、scoped NEG1 与模型事实块；长期增加 per-target resolution/target_ref | planned-next |
+| EVAL-B15-H8O1 | P3 | eval oracle punctuation drift | oracle 把非语义分隔符写死 | oracle 匹配 typed 内容并容许正式中点分隔；不改生产代码 | planned-eval-only |
+| EVAL-B15-H8MV1 | P2 | model window-membership binding | 模型忽略 typed start/end 与 selected window，叙述成窗外 | typed projection 已正确；先观察跨 case 复现，不扫描请求/答案、不加 case-specific hard gate | filed-model-variance |
+| EVAL-B15-AR1 | P1 | arithmetic operand binding | 多数值自由句 relation owner 不明确 | 只消费 typed relation 或多候选 fail-open | filed-next |
+
+XR1 短期批不变量：
+
+1. 只读取 `AnswerSemanticView.ExactResolution.Targets` 的 typed target 数量和
+   `doc.ExactResolution.Status`；
+2. 多目标 + global absent 时只清除无法绑定 target 的 document verdict，
+   不删除任何 principal/scalar/evidence block；
+3. 单目标 absent 的现有横幅、scalar 抑制和 exact-absence contract 不变；
+4. exact/alias match 不在本小批推断或改写；长期 per-target carrier 独立立案；
+5. 不读取 RawRequest、模型文本或 renderer 文案，不新增 hard reject/retry；
+6. 不触碰 runtime trace report shape、显式窗因果投影或自动补采。
