@@ -4027,6 +4027,65 @@ dimension evaluator 只对 count/member-set/boundary/evidence-source 角色启�
 
 状态：`implemented / full-tests-pass / replay next`。
 
+### B19c r1：代表窗正负边界覆盖，结论权限顺序待修（2026-08-01）
+
+严格并行 2 个回放，runner 2/2 PASS，人工 1 PASS / 1 FAIL：
+
+1. `trace_query_donghu_real_frame_multicausal`：153s。显式窗、根因排序、
+   唤醒链、窗内可消除量、因果投影、coverage 和成文前系统补采全部保留；
+   projection lead 后稳定发布三行 typed 代表性时间窗，且每行明确单次
+   occurrence 与全窗席位聚合不可互换。`EVAL-B19-TWIN1` 转 covered。
+2. `real_trace_c2_dstate_iowait`：109s。无用户时间窗，0 次
+   root/wakeup/blocking 查询，`trace_query_final_projection_blocks=0`；
+   最终没有因果投影或代表窗表。模型探索虽在错误的 2段/0.351ms 与
+   3段/19.671ms 间摆动，typed complete roster 仍使系统主值和正文收敛到
+   `0.138+0.147+0.350=0.635ms`。人工通过。
+
+因此 B19c 的产品边界已由同批正负 witness 覆盖：它没有把无窗状态查询重新
+套进全量因果合同，也没有削弱显式窗因果与自动补齐。
+
+显式窗正文仍有两个同源权限失败：
+
+- typed coverage 明确
+  `frame_causality=unproven/frame_evidence_status=absent`，模型首段却断言
+  窗后 VSync 证明“上一帧仍在渲染并造成视觉卡顿”；
+- 模型把可能重叠的 #1/#2 席相加成 42.9ms，并以“超过窗口一半”加固主张，
+  而 typed 投影明确禁止跨席/跨修向简单相加。
+
+这不是 B19c 的接线回归，也不是再增加 trace 查询能解决。原计划新增
+`typed causal conclusion authority-first`，经用户审阅后回裁：不得继续在
+答案最前面堆叠“系统权威”块。现有 frequency/target-state/blocking/
+blocked_reason authority 已经把内部优先级协议暴露给用户，并抢在按意图组织
+的正文之前；新建第五个前置块会继续恶化答案。
+
+下一批改为通用 `user-first typed accuracy surfaces`：
+
+1. 成文 prompt 继续只消费 validated coverage 与 causal projection typed
+   seats，安全权限不删；
+2. 用户可见标题/正文只保留与问题有关的精确值、证据范围和口径，不再出现
+   “系统权威/以本块为准/后续模型正文”及裸 `typed authority` 实现协议；
+3. frequency、target-state/wait、blocking lower-bound、blocked_reason
+   caliber 和 current-source negative-scope 块不再强制占据第 0 位；保持
+   模型正文及因果 decision surfaces 在前，确定性明细进入后续“数据与口径”
+   层；
+4. FRAME1/ARITH2 不另加前置块。先用既有 projection lead/coverage 的用户
+   可读权限表达和结构顺序解决；若仍需系统拥有的 principal claim，必须先
+   建立可与正文结论槽融合的 typed schema，而不是平行再造一份答案；
+5. 不扫描 RawRequest、模型 thinking/reason/final prose，不做 phrase
+   rewrite/reject，不改变 trace query、因果构造、投影、自动补采或无窗窄
+   报告 gate；
+6. 结构测试覆盖显式窗 projection 正例、无窗 focused 负例、精确 roster、
+   frequency/coverage 边界和中英文用户可见词面。
+
+状态：
+
+| ID | 状态 |
+|---|---|
+| EVAL-B19-TWIN1 | covered：正例 deterministic table + 无窗负例零泄漏 |
+| EVAL-B19-FRAME1 | next：user-first typed conclusion integration，不新增前置 authority |
+| EVAL-B19-ARITH2 | next：复用 projection 主结论/不相加口径，不新增平行答案 |
+| EVAL-B19-GREP1 | deferred P3：本轮不出现，按模型波动保留 |
+
 #### B18f r1：图兼容与显式窗非回归回放（2026-08-01）
 
 严格并行 2 个回放均为 runner PASS / human PASS：
