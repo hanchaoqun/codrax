@@ -4466,6 +4466,37 @@ types 18.775s、tool 163.421s、skill 1.379s），`git diff --check` 通过。
 
 状态：`EVAL-B25-TRACEALIAS1=P1/implemented / same-pair-replay-next`。
 
+#### B25-A r1：同对回放关闭 capture 别名 gap
+
+`main@815f2071d` 使用同一构建产物严格并行回放原 Trace 与 plan-only 两 case，runner
+与人工均 2 PASS：
+
+1. Trace 最终答案只剩一份主要时间占用、一份窗内可消除量、一份代表性时间窗、一份
+   关键指标和一份 Trace 因果投影；`attached_trace.txt ↔ 原附件` 的伪跨工件关系消失。
+2. 用户显式窗 `34579.472865..34579.587805`、根因排序、唤醒链、系统自动补采、
+   `frame_causality=unproven / frame_evidence_status=absent` 全部保留。真实占用方向与
+   规则可消除方向继续独立发布，答案共 928 行，没有通过删能力或压证据掩盖重复。
+3. plan-only 的 ChangePlan 仍只含 `Main.java` 中 `retrun`→`return` 的单行 patch；
+   `Main.java` 无 diff，未进入 apply/verify。
+4. 因此 `EVAL-B25-TRACEALIAS1` 关闭。typed capture identity 已证明既能合并一个物理
+   capture 的两个载体，也不改变载体坐标和显式时间窗 Trace 合同。
+
+同批登记两个不阻塞关闭的通用残余：
+
+- `EVAL-B25-LOCATOR1/P2`：system supplement 成为最终选中记录时，Evidence Index 会
+  如实显示私有物化载体 `attached_trace.txt`，但客户难以持久定位。不能直接改名，因为
+  blob 含一行包装头，行号与原附件相差一行。后续最优方案是让系统铸造 typed locator
+  transform（capture source、carrier path、精确 header offset），仅在变换被证明时渲染
+  原附件坐标，否则同时显示 capture source 与实际 carrier；禁止按文件名或行号启发式换算。
+- `EVAL-B25-QUOTE1/P2`：analyzer 连续两次给
+  `runtime_question_profile.source_quote` 生成非连续原文，第三次才用 `卡顿原因` 通过，
+  额外消耗约 31 秒。问题属于 exact-source-span 的结构化修复反馈不足，不是 Trace
+  推理波动。通用解应返回字段级 typed repair metadata 或由 analysis 输入携带已验证的
+  source span；不得按“卡顿”等关键词解释用户原文，也不得把它扩成答案发布硬门。
+
+状态：`EVAL-B25-TRACEALIAS1=covered`；`EVAL-B25-LOCATOR1=P2/open`；
+`EVAL-B25-QUOTE1=P2/open`；plan-only mode=`covered`。
+
 ### B21-GREP：literal/regex 查询语义进入 typed 证据链（2026-08-01）
 
 `EVAL-B21-GREP1` 已按软恢复而非硬拒绝施工：
