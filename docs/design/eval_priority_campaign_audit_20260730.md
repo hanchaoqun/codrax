@@ -4017,6 +4017,46 @@ wire 级回归，既允许模型自由组织多块答案，也继续拒绝任何
 状态：`EVAL-B27-OWNGUARD1=implemented / full-tests-pass`；
 `EVAL-B27-MWAUTH1=implemented / replay-not-observed`；
 `EVAL-B26-PHASE1=partial`；`EVAL-B27-REL1/CALLER1=open`。
+
+#### B27b REL1/CALLER1：typed 行间关系与角色进入模型决策输入
+
+冷读确认，system projection 明细已经消费了完整关系载体，但 finalizer 高显著度
+决策输入只给出泛化 `cross_row_additivity=forbidden`：
+
+- `CrossDirectionOverlaps` 已持有 overlap_ms、对端 line envelope、修向与
+  basis；
+- `DStateSplitMS/IOWaitSplitMS` 已声明父席内含分量；
+- `ResourceCompletionClosure` 已声明 IO completion 对 anchored wait 的闭合；
+- `BlockedReasonCaller` 是 `sched_blocked_reason.caller`，却在窄事实 recap 被
+  系统主动措辞成“已解析等待对象”，诱导模型进一步写成资源持有者；
+- `BlockingSubjectIsHolder + BlockingPeer` 才是锁 holder/waiter 角色权限。
+
+本批不新增结论、不扫描模型答案，也不增加 emit hard gate：
+
+1. Axis A/B 每行携带 `row_identity`，同一 typed node 跨两轴可识别为同一行，
+   不是两个可相加事实；
+2. 随行发布 `embedded_components=...`、
+   `component_relation=already_inside_parent_row` 和
+   `addition_with_parent=forbidden`；
+3. 随行发布最多 3 个已编译 `physical_overlap` 关系，包括 overlap_ms、对端
+   lines、peer_fix_direction、basis 与 `overlap_addition=forbidden`；上限只控制
+   prompt 体积，不改变系统 lossless projection；
+4. `resource_completion_closure` 明确是 completion path→anchored wait，且
+   `completion_thread_holder_authority=not_provided`；
+5. `blocked_reason_caller` 明确为 kernel-reported wait call-site/symbol，单独
+   声明 `holder_authority=not_provided_by_caller`；
+6. 仅 `BlockingSubjectIsHolder=true` 输出 `subject_lock_role=typed_holder`；
+   waiter-subject 形输出 `typed_lock_holder=<peer>`；
+7. bounded fact 的 principal recap 同步把中英文“等待对象/resolved wait
+   object”纠正为“等待调用点/符号”，不再由系统先铸造错误角色。
+
+定向覆盖包含 D/io_wait 父子账、6.673ms 物理重叠对端、IO completion 角色、
+caller 非 holder 与 typed lock holder 正向臂；无这些 typed 载体时不注入关系
+段。完整 `go test ./internal/agent -count=1` 通过（2.878s）。
+
+状态：`EVAL-B27-REL1=implemented / full-agent-tests-pass`；
+`EVAL-B27-CALLER1=implemented / full-agent-tests-pass`；下一步同一双 case 回放，
+人工检查模型是否消费关系；模型波动不升级为系统答案改写。
 `eval/parallel_selected_summary_evalcampaign_b26phasealias_r1_20260801.md`、
 `eval/parallel_selected_summary_evalcampaign_b26phasealias_r1_20260801_manual_audit.md`。
 

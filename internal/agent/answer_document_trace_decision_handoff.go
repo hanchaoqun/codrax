@@ -66,6 +66,9 @@ func renderAnswerDocTraceDecisionHandoffSet(set types.TraceCausalProjectionSet, 
 	if traceDecisionHasEvidenceBoundary(set) {
 		b.WriteString("- evidence_boundary_semantics: `missing_wakeup` means the selected trace/query window contains no matching `sched_wakeup` row for a measured sleep interval. Preserve the interval as a target-state symptom and a chain-drill coverage boundary; it does not prove that a physical wakeup was absent, does not identify a blocker, and owns no positive causal/eliminable amount. Window boundaries, event coverage/loss, or an unrepresented wake source remain possible until separately typed evidence resolves them.\n")
 	}
+	if traceDecisionHasAccountOrRoleRelations(set) {
+		b.WriteString("- typed_relation_semantics: consume each row's exact relation fields before comparing values. `embedded_components` are already inside their parent row; `physical_overlap` rows share measured wall clock; neither relation is additive. `resource_completion_closure` connects a completion path to an anchored wait but does not make the completion thread a resource holder. `sched_blocked_reason.caller` is a kernel-reported wait call-site/symbol, not a resource or lock owner; holder language requires a separate typed holder relation.\n")
+	}
 	b.WriteString("- Input provenance: the projection compiler merges accepted exploration observations with deterministic system-supplement observations when present; each candidate below preserves its own source lane.\n\n")
 
 	for index, projection := range set.Projections {
@@ -115,7 +118,9 @@ func renderAnswerDocTraceDecisionHandoffSet(set types.TraceCausalProjectionSet, 
 					fmt.Fprintf(&b, "; lines=%d..%d", node.LineStart, maxInt(node.LineStart, node.LineEnd))
 				}
 				fmt.Fprintf(&b, "; source_lane=`%s`", traceDecisionNodeSourceLane(node))
+				traceDecisionWriteNodeIdentity(&b, node)
 				traceDecisionWritePhase(&b, node)
+				traceDecisionWriteNodeRelations(&b, node)
 				b.WriteString("\n")
 			}
 			business := traceDecisionBusinessSpanCandidates(projection.BusinessSpanMentions, 5)
@@ -139,16 +144,90 @@ func renderAnswerDocTraceDecisionHandoffSet(set types.TraceCausalProjectionSet, 
 					fmt.Fprintf(&b, "; window_projection=%.3fms", node.ImpactMS)
 				}
 				fmt.Fprintf(&b, "; source_lane=`%s`", traceDecisionNodeSourceLane(node))
+				traceDecisionWriteNodeIdentity(&b, node)
 				traceDecisionWritePhase(&b, node)
 				if node.PriorityInversionCandidate && traceDecisionNodePhase(node) == "pre_wakeup_dependency" {
 					b.WriteString("; priority_candidate_scope=`dependency_scheduler_supply`; post_wakeup_preemption_authority=`not_provided_by_this_seat`; holder_waiter_authority=`not_provided_by_candidate_flag`")
 				}
+				traceDecisionWriteNodeRelations(&b, node)
 				b.WriteString("\n")
 			}
 		}
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+func traceDecisionHasAccountOrRoleRelations(set types.TraceCausalProjectionSet) bool {
+	for _, projection := range set.Projections {
+		for _, lane := range [][]types.TraceCausalProjectionNode{
+			projection.RankedSeats,
+			projection.PrimaryRootCauses,
+			projection.OnChainCauses,
+			projection.SemanticSpans,
+		} {
+			for _, node := range lane {
+				if len(node.CrossDirectionOverlaps) > 0 || node.DStateSplitMS > 0 ||
+					node.IOWaitSplitMS > 0 || node.ResourceCompletionClosure ||
+					strings.TrimSpace(node.BlockedReasonCaller) != "" ||
+					strings.TrimSpace(node.BlockingKind) != "" {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func traceDecisionWriteNodeIdentity(b *strings.Builder, node types.TraceCausalProjectionNode) {
+	if b == nil {
+		return
+	}
+	if evidenceID := strings.TrimSpace(node.EvidenceID); evidenceID != "" {
+		fmt.Fprintf(b, "; row_identity=`%s`", evidenceID)
+	}
+}
+
+// traceDecisionWriteNodeRelations exposes already-compiled typed relations to
+// the answer-writing model. It never derives a relation from prose, subject
+// names, or approximate values, and it never rejects or rewrites an answer.
+func traceDecisionWriteNodeRelations(b *strings.Builder, node types.TraceCausalProjectionNode) {
+	if b == nil {
+		return
+	}
+	if node.DStateSplitMS > 0 || node.IOWaitSplitMS > 0 {
+		fmt.Fprintf(b, "; embedded_components=`d_state:%.3fms,io_wait:%.3fms`; component_relation=`already_inside_parent_row`; addition_with_parent=`forbidden`",
+			node.DStateSplitMS, node.IOWaitSplitMS)
+	}
+	for index, overlap := range node.CrossDirectionOverlaps {
+		if index >= 3 || overlap.OverlapMS <= 0 || overlap.LineStart <= 0 || overlap.LineEnd < overlap.LineStart {
+			continue
+		}
+		fmt.Fprintf(b, "; physical_overlap_%d=`%.3fms@lines:%d..%d`; peer_fix_direction=`%s`; overlap_basis=`%s`; overlap_addition=`forbidden`",
+			index+1, overlap.OverlapMS, overlap.LineStart, overlap.LineEnd,
+			strings.TrimSpace(overlap.Direction), strings.TrimSpace(overlap.Basis))
+	}
+	if node.ResourceCompletionClosure {
+		b.WriteString("; completion_relation=`resource_completion_closure_for_anchored_wait`; completion_thread_holder_authority=`not_provided`")
+	}
+	if caller := strings.TrimSpace(node.BlockedReasonCaller); caller != "" {
+		fmt.Fprintf(b, "; blocked_reason_caller=`%s`; caller_role=`kernel_reported_wait_callsite`; holder_authority=`not_provided_by_caller`", caller)
+	}
+	if strings.TrimSpace(node.BlockingKind) == "" {
+		return
+	}
+	peer := strings.TrimSpace(node.BlockingPeer)
+	if node.BlockingSubjectIsHolder {
+		b.WriteString("; subject_lock_role=`typed_holder`")
+		if peer != "" {
+			fmt.Fprintf(b, "; blocked_waiter=`%s`", peer)
+		}
+		return
+	}
+	b.WriteString("; subject_lock_role=`blocked_waiter`")
+	if peer != "" {
+		fmt.Fprintf(b, "; typed_lock_holder=`%s`", peer)
+	}
 }
 
 func traceDecisionHasEvidenceBoundary(set types.TraceCausalProjectionSet) bool {

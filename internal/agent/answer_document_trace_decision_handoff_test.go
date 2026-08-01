@@ -102,7 +102,7 @@ func TestTraceDecisionHandoffDoesNotGuessPhaseFromStateOrPriorityWords(t *testin
 		runtimeTraceGuidanceView{},
 	)
 	for _, forbidden := range []string{
-		"phase_semantics:", "impact_phase=", "priority_candidate_scope=",
+		"phase_semantics:", "impact_phase=", "priority_candidate_scope=", "typed_relation_semantics:",
 	} {
 		if strings.Contains(got, forbidden) {
 			t.Fatalf("zero/absent chain depth guessed a phase from non-phase fields %q:\n%s", forbidden, got)
@@ -148,6 +148,64 @@ func TestTraceDecisionHandoffKeepsMissingWakeupAsEvidenceBoundary(t *testing.T) 
 	} {
 		if strings.Contains(got, forbidden) {
 			t.Fatalf("absence boundary was promoted through %q:\n%s", forbidden, got)
+		}
+	}
+}
+
+func TestTraceDecisionHandoffCarriesTypedNonAdditiveAndCallerRoles(t *testing.T) {
+	inside := true
+	wait := types.TraceCausalProjectionNode{
+		EvidenceID: "wait-row", Subject: "ThreadPool-300", StateKind: "d_state_or_io_wait",
+		ImpactMS: 10.433, EffectiveImpactMS: 7.386, Rank: 1,
+		DStateSplitMS: 3.047, IOWaitSplitMS: 7.386,
+		BlockedReasonCaller: "sync_buffer_read_wi",
+		CrossDirectionOverlaps: []types.TraceCausalProjectionCrossDirectionOverlap{{
+			OverlapMS: 6.673, LineStart: 420, LineEnd: 430,
+			Direction: "io_path", Basis: "interval_intersection",
+		}},
+		WithinRequestedWindow: &inside,
+	}
+	completion := types.TraceCausalProjectionNode{
+		EvidenceID: "completion-row", Subject: "udk-irq-78", SemanticClass: "io_latency",
+		ImpactMS: 6.673, EffectiveImpactMS: 6.673, Rank: 2,
+		ResourceCompletionClosure: true, WithinRequestedWindow: &inside,
+	}
+	holder := types.TraceCausalProjectionNode{
+		EvidenceID: "lock-holder", Subject: "holder-11", SemanticClass: "lock_contention",
+		ImpactMS: 2, EffectiveImpactMS: 2, Rank: 3, BlockingKind: "lock_contention",
+		BlockingPeer: "waiter-22", BlockingSubjectIsHolder: true,
+		WithinRequestedWindow: &inside,
+	}
+	projection := types.TraceCausalProjection{
+		OnChainCauses: []types.TraceCausalProjectionNode{wait, completion, holder},
+		RankedSeats:   []types.TraceCausalProjectionNode{wait, completion, holder},
+	}
+	got := renderAnswerDocTraceDecisionHandoffSet(
+		types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}},
+		runtimeTraceGuidanceView{},
+	)
+	for _, want := range []string{
+		"typed_relation_semantics:",
+		"`embedded_components` are already inside their parent row",
+		"`sched_blocked_reason.caller` is a kernel-reported wait call-site/symbol, not a resource or lock owner",
+		"row_identity=`wait-row`",
+		"embedded_components=`d_state:3.047ms,io_wait:7.386ms`",
+		"component_relation=`already_inside_parent_row`",
+		"physical_overlap_1=`6.673ms@lines:420..430`",
+		"peer_fix_direction=`io_path`",
+		"overlap_addition=`forbidden`",
+		"blocked_reason_caller=`sync_buffer_read_wi`",
+		"caller_role=`kernel_reported_wait_callsite`",
+		"holder_authority=`not_provided_by_caller`",
+		"row_identity=`completion-row`",
+		"completion_relation=`resource_completion_closure_for_anchored_wait`",
+		"completion_thread_holder_authority=`not_provided`",
+		"row_identity=`lock-holder`",
+		"subject_lock_role=`typed_holder`",
+		"blocked_waiter=`waiter-22`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("typed relation handoff missing %q:\n%s", want, got)
 		}
 	}
 }

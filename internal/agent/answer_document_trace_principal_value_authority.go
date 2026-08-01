@@ -40,6 +40,7 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 	b.WriteString("- Use these typed rows for the leading numeric conclusion. They are a compact recap of the same authority used by the deterministic answer lead; later blocked-reason records, IPC request counts, transport latency, capped exploration rows, per-CPU aggregate groups, or narrative estimates cannot replace their caliber.\n")
 	b.WriteString("- A complete target-wait row authorizes its exact occurrence count and wall-clock sum. A capacity-truncated blocking row authorizes only the displayed observed lower bound (`>=`); never turn it into an exact total, a unique/only occurrence, or a claim that every other request caused no blocking.\n\n")
 	b.WriteString("- Target wait state kinds remain separate: `d_state_occurrences`, `io_wait_occurrences`, and `sleep_iowait_occurrences` are independent typed counts. Do not rename an `io_wait` row to D-state when the same authority reports `d_state_occurrences=0`.\n\n")
+	b.WriteString("- `sched_blocked_reason.caller` is the kernel-reported wait call-site/symbol associated with that target interval. It can describe where the target blocked, but it is not a typed resource identity, lock owner, or holder thread. Only a separate typed holder/owner relation may authorize holder language.\n\n")
 	if zh {
 		b.WriteString("- 不同 authority 行的数值差本身不是关系证据；除非另有 explicit typed relation 证明，不得把 record/occurrence/partition 的差值解释成窗口边界、重叠、精度误差或缺失闭合。\n\n")
 	} else {
@@ -104,7 +105,7 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 			wait.WallClockMS,
 		)
 		if len(wait.Callers) > 0 {
-			fmt.Fprintf(&b, "; callers=`%s`", strings.Join(wait.Callers, "`, `"))
+			fmt.Fprintf(&b, "; blocked_reason_callers=`%s`; caller_role=`kernel_reported_wait_callsite`; holder_authority=`not_provided_by_caller`", strings.Join(wait.Callers, "`, `"))
 		}
 		b.WriteString("; use this occurrence count rather than blocked_reason record count or aggregate-group count\n")
 		if hasRequestedWaitPrincipal && !wait.IsRequestedScopePrincipal() {
@@ -124,7 +125,7 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 				wait.WallClockMS,
 			)
 			if len(wait.Callers) > 0 {
-				fmt.Fprintf(&b, "，已解析等待对象为 %s", strings.Join(wait.Callers, "、"))
+				fmt.Fprintf(&b, "，内核报告的等待调用点/符号为 %s（不据此推断资源持有者）", strings.Join(wait.Callers, "、"))
 			}
 			b.WriteString("。`\n")
 		} else {
@@ -137,7 +138,7 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 				wait.WallClockMS,
 			)
 			if len(wait.Callers) > 0 {
-				fmt.Fprintf(&b, ", with resolved wait object(s) %s", strings.Join(wait.Callers, ", "))
+				fmt.Fprintf(&b, ", with kernel-reported wait call-site/symbol(s) %s (not holder identity)", strings.Join(wait.Callers, ", "))
 			}
 			b.WriteString(".`\n")
 		}
