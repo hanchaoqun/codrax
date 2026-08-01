@@ -81,6 +81,34 @@ func TestDiagramCallEdgeEvidenceMismatches_SameLineSupportRefDoesNotChangeIdenti
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_ExactCalleeAnchorSymbolAuthorizesShortLabel(t *testing.T) {
+	doc := diagramEvidenceTestDoc("A", "B")
+	doc.Blocks[0].Diagram.Body = "sequenceDiagram\n" +
+		"  participant A as Alpha.Run\n" +
+		"  participant B as Run\n" +
+		"  A->>B: invoke\n"
+	evidence := diagramEvidenceTestCall("Alpha.Run", "normalizer.Run")
+	evidence.AnchorSymbol = "Run"
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
+		[]types.EvidenceItem{evidence}); len(got) != 0 {
+		t.Fatalf("exact grounded callee AnchorSymbol is an authoritative display alias for Object: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_UnrelatedShortLabelDoesNotMatchCallee(t *testing.T) {
+	doc := diagramEvidenceTestDoc("A", "B")
+	doc.Blocks[0].Diagram.Body = "sequenceDiagram\n" +
+		"  participant A as Alpha.Run\n" +
+		"  participant B as Other\n" +
+		"  A->>B: invoke\n"
+	evidence := diagramEvidenceTestCall("Alpha.Run", "normalizer.Run")
+	evidence.AnchorSymbol = "Run"
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
+		[]types.EvidenceItem{evidence}); len(got) != 1 || got[0].Issue != diagramCallEdgeIssueNoEvidence {
+		t.Fatalf("only exact Object/AnchorSymbol surfaces may authorize the destination: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_BodyEdgeCannotOmitTypedAnchor(t *testing.T) {
 	doc := diagramEvidenceTestDoc("A", "B")
 	doc.Blocks[0].EdgeAnchors = nil

@@ -9213,6 +9213,48 @@ func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_RendersRetryStateDraftAn
 	}
 }
 
+func TestAnswerDocumentEvaluator_ParseOutput_RetryStateDiagramDropsOlderRejectedDiagramAttachment(t *testing.T) {
+	prevDoc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{ID: "summary", Kind: types.BlockSummary, Text: "恢复正文"},
+			{
+				ID:   "current-diagram",
+				Kind: types.BlockDiagram,
+				Diagram: &types.AnswerDiagramBlock{
+					Kind: types.DiagramSequence,
+					Body: "sequenceDiagram\n  Current->>Target: current",
+				},
+			},
+		},
+	}
+	prevJSON, err := json.Marshal(prevDoc)
+	if err != nil {
+		t.Fatalf("marshal prev doc: %v", err)
+	}
+	ctx := &types.AgentContext{Mutable: types.NewMutableState("")}
+	ctx.Mutable.SetRetryState(&types.RetryState{Attempt: 2, PrevEmitJSON: prevJSON})
+	ctx.Mutable.SetAnswerDisplayAttachments([]types.AnswerDisplayAttachment{{
+		Kind:   types.AnswerDisplayAttachmentDiagram,
+		Body:   "sequenceDiagram\n  Old->>Wrong: rejected",
+		Source: "emit_answer_document.rejected_payload",
+	}})
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, []llm.Message{{Role: "assistant", Content: "最终 patch 未通过"}}, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	if !strings.Contains(out.FinalAnswer, "Current->>Target: current") {
+		t.Fatalf("retry-state diagram was lost:\n%s", out.FinalAnswer)
+	}
+	if strings.Contains(out.FinalAnswer, "Old->>Wrong: rejected") || strings.Contains(out.FinalAnswer, "系统保留内容") {
+		t.Fatalf("older rejected diagram must not re-enter beside the shipped retry-state diagram:\n%s", out.FinalAnswer)
+	}
+	if got := ctx.Mutable.AnswerDisplayAttachments(); len(got) != 0 {
+		t.Fatalf("stale retry attachment must be cleared from mutable state: %+v", got)
+	}
+}
+
 func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_RendersLastRejectedDraft(t *testing.T) {
 	rejected := &types.AnswerDocumentV2{
 		DocumentModel: "v2",

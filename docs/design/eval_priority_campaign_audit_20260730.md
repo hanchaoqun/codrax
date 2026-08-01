@@ -4093,6 +4093,52 @@ pre/post 双接线、接受图删除 rejected model 图、无接受图继续保�
 `EVAL-B24-ATTACH1=covered`；`EVAL-B24-EDGEAUTH1=implemented / replay-next`；
 `EVAL-B24-ENDPOINT1=P1/open`；`EVAL-B24-EVALDIR1=P1/open`。
 
+#### B24-c r1：metadata omission 已封；typed callee 双表面与降级附件仍有缺口
+
+同一 read/write 两 case 严格并行复放，runner 2 PASS，人工 1 PASS / 1 FAIL：
+
+1. `patch_c_typo` 93s 继续通过；read case 458s，出现 12 次 finalizer reject。
+2. `EVAL-B24-EDGEANCHOR1` 已覆盖：首稿空 anchor 的 11 条边全部以
+   `missing_call_anchor` 拒绝；没有再次通过 metadata omission 出厂。
+3. 模型收到诊断后准确改为 `buildAnalysisIR -> each callee` 的 star，证明方向 guidance
+   生效。但新登记 `EVAL-B24-CALLEEALIAS1/P0`：同一 grounded call EvidenceItem 同时携带
+   `Object=normalizer.Normalize` 与 schema 明确定义的 `AnchorSymbol=Normalize`（callee
+   name）。图用精确短 callee label `Normalize` 时，matcher 只比 Object，故把真实边误判
+   为 `call_edge_unproven`。这不是 fuzzy alias：两种表面来自同一 grounded typed record。
+4. `EVAL-B24-ATTACH1` 降为 partial：正常 accepted-doc 路径已覆盖，但本轮没有最终
+   accepted doc，finalizer 改为发运 retry-state structured draft；该 draft 已含最新 star 图，
+   恢复车道却未调用共享 attachment filter，旧 rejected chain 图仍以“系统保留内容”追加。
+5. `EVAL-B24-ENDPOINT1` 仍开放：答案识别实际调用是 `gate.RunWith`，但未把请求的
+   `gate.Run` 裁为当前源码无精确路径；runner 的 substring oracle 继续误报 PASS。
+
+状态：`EVAL-B24-EDGEANCHOR1=covered`；`EVAL-B24-CALLEEALIAS1=P0/fix-in-progress`；
+`EVAL-B24-ATTACH1=partial / degraded-lane-open`；`EVAL-B24-ENDPOINT1=P1/open`；
+`EVAL-B24-EVALDIR1=P1/open`。
+
+#### B24-d：同一 grounded call record 的 callee 双表面 + 降级附件优先级
+
+已完成本轮 corrective batch：
+
+1. call-edge authority 继续要求 exact Subject；callee 只允许匹配同一 citable
+   `ClaimCallEdge` EvidenceItem 的 exact Object 或 exact AnchorSymbol。后者在
+   `emit_evidence` schema 中明确定义为“调用行上由 grounder 验证的 callee name”；因此
+   `normalizer.Normalize` / `Normalize` 是一个 typed record 的两个权威表面，不是运行时
+   从字符串后缀猜 alias。
+2. 新增负例保证 `Other` 不能匹配 `Object=normalizer.Run, AnchorSymbol=Run`；没有
+   suffix、prefix、substring、token overlap 或模型 prose 参与 hard gate。
+3. retry-state / last-rejected structured draft 成为降级发运 doc 时，在渲染前调用共享
+   `FilterAcceptedAnswerDisplayAttachments`：doc 已有非空 diagram 时删除旧的非系统
+   model diagram attachment，并同步清理 MutableState；system-authored attachment 权限不变。
+4. `QFRootCauseTrace` 的 matcher 入口隔离未改，Trace 时间窗因果投影与自动补齐无影响。
+
+验证：`go test ./internal/tool ./internal/orchestrator ./internal/agent` 全量通过（tool
+161.575s、orchestrator 12.831s、agent 2.731s）；新增 exact AnchorSymbol 正/负例和
+retry-state doc 图覆盖旧 rejected attachment 的端到端测试。
+
+状态：`EVAL-B24-CALLEEALIAS1=covered`；`EVAL-B24-ATTACH1=implemented / replay-next`；
+`EVAL-B24-EDGEAUTH1=implemented / replay-next`；`EVAL-B24-ENDPOINT1=P1/open`；
+`EVAL-B24-EVALDIR1=P1/open`。
+
 ### B21-GREP：literal/regex 查询语义进入 typed 证据链（2026-08-01）
 
 `EVAL-B21-GREP1` 已按软恢复而非硬拒绝施工：

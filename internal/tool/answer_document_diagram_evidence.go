@@ -194,7 +194,16 @@ func diagramCallEdgeHasTypedEvidence(evidence []types.EvidenceItem, fromSymbol, 
 		if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimCallEdge {
 			continue
 		}
-		if strings.TrimSpace(ev.Subject) == fromSymbol && strings.TrimSpace(ev.Object) == toSymbol {
+		if strings.TrimSpace(ev.Subject) != fromSymbol {
+			continue
+		}
+		// Object is the typed fully-qualified callee surface, while
+		// AnchorSymbol is the exact callee identifier verified on the call
+		// line (for example Object=normalizer.Normalize and
+		// AnchorSymbol=Normalize). Both are closed typed fields of the SAME
+		// grounded call-site record, so either exact surface may label the
+		// destination node without introducing fuzzy/prefix matching.
+		if strings.TrimSpace(ev.Object) == toSymbol || strings.TrimSpace(ev.AnchorSymbol) == toSymbol {
 			return true
 		}
 	}

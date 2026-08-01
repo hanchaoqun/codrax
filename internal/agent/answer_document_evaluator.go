@@ -11922,6 +11922,13 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 		attachments := []types.AnswerDisplayAttachment(nil)
 		if ctx != nil && ctx.Mutable != nil {
 			attachments = append(attachments, ctx.Mutable.AnswerDisplayAttachments()...)
+			// The retry-state document is now the customer-visible
+			// structured draft. If it already carries a diagram, older
+			// model-authored diagram attachments came from rejected attempts
+			// and must not be appended as a second, contradictory graph.
+			// The shared typed source policy keeps system-authored appendices.
+			attachments = tool.FilterAcceptedAnswerDisplayAttachments(doc, attachments)
+			ctx.Mutable.SetAnswerDisplayAttachments(attachments)
 		}
 		prose := strings.TrimSpace(e.renderAnswerDocumentWithLastMileSupplements(ctx, doc, attachments))
 		if prose != "" {
