@@ -234,7 +234,7 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 		var row string
 		if zh {
 			row = fmt.Sprintf(
-				"目标线程状态主值：artifact=%s，selected_window=%.6f..%.6f，subject=%s，scope=target_thread_wall_clock_partition；running=%.3fms，runnable=%.3fms，sleep=%.3fms（其中 S 态 IO等待=%.3fms，已包含在 sleep），non_io_d_state=%.3fms，io_wait=%.3fms，partition_total=%.3fms",
+				"目标线程状态主值：artifact=%s，selected_window=%.6f..%.6f，subject=%s，scope=target_thread_wall_clock_partition；running=%.3fms，runnable=%.3fms，sleep=%.3fms（其中 S 态 IO等待=%.3fms，已包含在 sleep），non_io_d_state=%.3fms，io_wait=%.3fms，accounted_total=%.3fms，window=%.3fms，coverage_status=%s",
 				state.ArtifactLabel,
 				state.WindowStartTs,
 				state.WindowEndTs,
@@ -246,10 +246,12 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 				state.DStateMS,
 				state.IOWaitMS,
 				state.TotalMS,
+				state.WindowMS,
+				state.CoverageStatus,
 			)
 		} else {
 			row = fmt.Sprintf(
-				"Target-thread state authority: artifact=%s, selected_window=%.6f..%.6f, subject=%s, scope=target_thread_wall_clock_partition; running=%.3fms, runnable=%.3fms, sleep=%.3fms (S-state IO wait=%.3fms, already included in sleep), non_io_d_state=%.3fms, io_wait=%.3fms, partition_total=%.3fms",
+				"Target-thread state authority: artifact=%s, selected_window=%.6f..%.6f, subject=%s, scope=target_thread_wall_clock_partition; running=%.3fms, runnable=%.3fms, sleep=%.3fms (S-state IO wait=%.3fms, already included in sleep), non_io_d_state=%.3fms, io_wait=%.3fms, accounted_total=%.3fms, window=%.3fms, coverage_status=%s",
 				state.ArtifactLabel,
 				state.WindowStartTs,
 				state.WindowEndTs,
@@ -261,7 +263,36 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 				state.DStateMS,
 				state.IOWaitMS,
 				state.TotalMS,
+				state.WindowMS,
+				state.CoverageStatus,
 			)
+		}
+		if state.CoverageStatus == "partial_unaccounted" {
+			if zh {
+				row += fmt.Sprintf(
+					"；unaccounted=%.3fms，未覆盖部分没有足够 typed 调度边界，不能分配到任一状态",
+					state.UnaccountedMS,
+				)
+			} else {
+				row += fmt.Sprintf(
+					"; unaccounted=%.3fms; the uncovered interval has insufficient typed scheduler boundaries and cannot be assigned to any state",
+					state.UnaccountedMS,
+				)
+			}
+		}
+		if state.HeadCarryMS > 0 && state.HeadCarryState != "" {
+			if zh {
+				row += fmt.Sprintf("；head_carry=%.3fms(state=%s，已包含在对应状态)", state.HeadCarryMS, state.HeadCarryState)
+			} else {
+				row += fmt.Sprintf("; head_carry=%.3fms(state=%s, already included in that state)", state.HeadCarryMS, state.HeadCarryState)
+			}
+		}
+		if state.TailOpenMS > 0 && state.TailOpenState != "" {
+			if zh {
+				row += fmt.Sprintf("；tail_open=%.3fms(state=%s，已包含在对应状态)", state.TailOpenMS, state.TailOpenState)
+			} else {
+				row += fmt.Sprintf("; tail_open=%.3fms(state=%s, already included in that state)", state.TailOpenMS, state.TailOpenState)
+			}
 		}
 		if wait, ok := matchingTraceTargetWaitSummary(state, waits); ok {
 			pairedStateMS := state.DStateMS + state.IOWaitMS + state.SleepIOWaitMS
@@ -275,24 +306,26 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 			}
 			if zh {
 				row += fmt.Sprintf(
-					"；target_wait_occurrence_roster=complete，occurrences=%d，d_state_occurrences=%d，io_wait_occurrences=%d，sleep_iowait_occurrences=%d，other_wait_occurrences=%d，occurrence_wall_clock_sum=%.3fms%s",
+					"；target_wait_occurrence_roster=complete，occurrences=%d，d_state_occurrences=%d，io_wait_occurrences=%d，sleep_iowait_occurrences=%d，other_wait_occurrences=%d，occurrence_wall_clock_sum=%.3fms，wait_callers=%s%s",
 					wait.Count,
 					wait.DStateOccurrences,
 					wait.IOWaitOccurrences,
 					wait.SleepIOWaitOccurrences,
 					wait.OtherWaitOccurrences,
 					wait.WallClockMS,
+					runtimeTraceWaitCallerRoster(wait.Callers, zh),
 					identity,
 				)
 			} else {
 				row += fmt.Sprintf(
-					"; target_wait_occurrence_roster=complete, occurrences=%d, d_state_occurrences=%d, io_wait_occurrences=%d, sleep_iowait_occurrences=%d, other_wait_occurrences=%d, occurrence_wall_clock_sum=%.3fms%s",
+					"; target_wait_occurrence_roster=complete, occurrences=%d, d_state_occurrences=%d, io_wait_occurrences=%d, sleep_iowait_occurrences=%d, other_wait_occurrences=%d, occurrence_wall_clock_sum=%.3fms, wait_callers=%s%s",
 					wait.Count,
 					wait.DStateOccurrences,
 					wait.IOWaitOccurrences,
 					wait.SleepIOWaitOccurrences,
 					wait.OtherWaitOccurrences,
 					wait.WallClockMS,
+					runtimeTraceWaitCallerRoster(wait.Callers, zh),
 					identity,
 				)
 			}
@@ -314,6 +347,16 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 		Title: title,
 		Text:  lead + "\n\n" + strings.Join(rows, "\n\n"),
 	})
+}
+
+func runtimeTraceWaitCallerRoster(callers []string, zh bool) string {
+	if len(callers) == 0 {
+		if zh {
+			return "无已解析 caller"
+		}
+		return "none resolved"
+	}
+	return strings.Join(callers, "|")
 }
 
 func matchingTraceTargetWaitSummary(

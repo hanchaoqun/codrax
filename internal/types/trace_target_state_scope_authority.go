@@ -13,19 +13,28 @@ import (
 // target thread's own wall-clock state partition; none is a CPU-wide
 // utilization or saturation measurement.
 type TraceTargetStateScopeAuthority struct {
-	ArtifactLabel string
-	Subject       string
-	WindowStartTs float64
-	WindowEndTs   float64
-	RunningMS     float64
-	RunnableMS    float64
-	SleepMS       float64
-	DStateMS      float64
-	IOWaitMS      float64
-	SleepIOWaitMS float64
-	TotalMS       float64
-	EvidenceID    string
+	ArtifactLabel  string
+	Subject        string
+	WindowStartTs  float64
+	WindowEndTs    float64
+	WindowMS       float64
+	RunningMS      float64
+	RunnableMS     float64
+	SleepMS        float64
+	DStateMS       float64
+	IOWaitMS       float64
+	SleepIOWaitMS  float64
+	TotalMS        float64
+	UnaccountedMS  float64
+	CoverageStatus string
+	HeadCarryMS    float64
+	HeadCarryState string
+	TailOpenMS     float64
+	TailOpenState  string
+	EvidenceID     string
 }
+
+const traceTargetStateCoverageToleranceMS = 0.002
 
 // BuildTraceTargetStateScopeAuthorities compiles the target-thread scope
 // authorities from the already-selected projection accounts. It deliberately
@@ -40,6 +49,24 @@ func BuildTraceTargetStateScopeAuthorities(set TraceCausalProjectionSet) []Trace
 		if account == nil || strings.TrimSpace(account.Subject) == "" || account.TotalMS <= 0 {
 			continue
 		}
+		windowMS := 0.0
+		if account.WindowEndTs > account.WindowStartTs {
+			windowMS = (account.WindowEndTs - account.WindowStartTs) * 1000
+		}
+		// An account above its own selected window is impossible and cannot
+		// become answer authority. Allow only µs-level representation drift.
+		if windowMS > 0 && account.TotalMS > windowMS+traceTargetStateCoverageToleranceMS {
+			continue
+		}
+		coverageStatus := "window_unknown"
+		unaccountedMS := 0.0
+		if windowMS > 0 {
+			coverageStatus = "complete"
+			if windowMS-account.TotalMS > traceTargetStateCoverageToleranceMS {
+				coverageStatus = "partial_unaccounted"
+				unaccountedMS = windowMS - account.TotalMS
+			}
+		}
 		key := strings.Join([]string{
 			strings.TrimSpace(projection.ArtifactPath),
 			strings.TrimSpace(account.Subject),
@@ -50,18 +77,25 @@ func BuildTraceTargetStateScopeAuthorities(set TraceCausalProjectionSet) []Trace
 		}
 		seen[key] = true
 		out = append(out, TraceTargetStateScopeAuthority{
-			ArtifactLabel: strings.TrimSpace(projection.ArtifactLabel),
-			Subject:       strings.TrimSpace(account.Subject),
-			WindowStartTs: account.WindowStartTs,
-			WindowEndTs:   account.WindowEndTs,
-			RunningMS:     account.RunningMS,
-			RunnableMS:    account.RunnableMS,
-			SleepMS:       account.SleepMS,
-			DStateMS:      account.DStateMS,
-			IOWaitMS:      account.IOWaitMS,
-			SleepIOWaitMS: account.SleepIOWaitMS,
-			TotalMS:       account.TotalMS,
-			EvidenceID:    strings.TrimSpace(account.EvidenceID),
+			ArtifactLabel:  strings.TrimSpace(projection.ArtifactLabel),
+			Subject:        strings.TrimSpace(account.Subject),
+			WindowStartTs:  account.WindowStartTs,
+			WindowEndTs:    account.WindowEndTs,
+			WindowMS:       windowMS,
+			RunningMS:      account.RunningMS,
+			RunnableMS:     account.RunnableMS,
+			SleepMS:        account.SleepMS,
+			DStateMS:       account.DStateMS,
+			IOWaitMS:       account.IOWaitMS,
+			SleepIOWaitMS:  account.SleepIOWaitMS,
+			TotalMS:        account.TotalMS,
+			UnaccountedMS:  unaccountedMS,
+			CoverageStatus: coverageStatus,
+			HeadCarryMS:    account.HeadCarryMS,
+			HeadCarryState: strings.TrimSpace(account.HeadCarryState),
+			TailOpenMS:     account.TailOpenMS,
+			TailOpenState:  strings.TrimSpace(account.TailOpenState),
+			EvidenceID:     strings.TrimSpace(account.EvidenceID),
 		})
 	}
 	return out
@@ -284,8 +318,12 @@ func traceTargetWaitOccurrenceFingerprint(record ObservationRecord) string {
 }
 
 func traceTargetStateAuthorityArtifactLabel(ref ObservationSourceRef) string {
-	if label := strings.TrimSpace(ref.ArtifactID); label != "" {
+	// Match the causal projection's typed artifact identity. Attached traces
+	// carry Path=.../attached_trace.txt plus lane marker
+	// ArtifactID=attached_trace; preferring the marker here made occurrence
+	// rows from the same result fail to pair with the projection state card.
+	if _, label, _ := traceCausalProjectionArtifactIdentity(ObservationRecord{SourceRef: ref}); label != "" {
 		return label
 	}
-	return strings.TrimSpace(ref.Path)
+	return strings.TrimSpace(ref.ArtifactID)
 }

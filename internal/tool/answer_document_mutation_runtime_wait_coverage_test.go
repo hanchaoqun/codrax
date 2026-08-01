@@ -1,12 +1,14 @@
 package tool
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -16,6 +18,7 @@ func runtimeWaitCoverageTestBus() *types.BusContext {
 	ref := types.ObservationSourceRef{
 		Kind:       types.ObservationSourceRuntimeArtifact,
 		ArtifactID: "attached_trace",
+		Path:       "/tmp/attached_trace.txt",
 	}
 	blocking := types.ObservationRecord{
 		ID:              "root:binder",
@@ -185,7 +188,8 @@ func TestRuntimeWaitCoverageCaveatsUseTypedAuthoritiesWithoutRewritingModelProse
 		"requests=2，sync=1，oneway=1，unknown=0",
 		"完整请求数仍不等于完整阻塞 occurrence 数",
 		"non_io_d_state=0.000ms",
-		"partition_total=233.190ms",
+		"accounted_total=233.190ms",
+		"coverage_status=complete",
 		"blocked_reason_records=50",
 		"caller_linked_record_census_not_scheduler_state_partition",
 		"不能单独证明每一段 sleep",
@@ -369,6 +373,7 @@ func TestRuntimeTargetStateAuthorityPublishesCompleteOccurrenceSummary(t *testin
 	count := 2
 	ref := types.ObservationSourceRef{
 		Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "attached_trace",
+		Path: "/tmp/attached_trace.txt",
 	}
 	records := []types.ObservationRecord{{
 		ID: "trace_query:waits#target_window_wait_occurrences", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
@@ -405,6 +410,7 @@ func TestRuntimeTargetStateAuthorityPublishesCompleteOccurrenceSummary(t *testin
 		"occurrences=2",
 		"d_state_occurrences=2",
 		"occurrence_wall_clock_sum=6.000ms",
+		"wait_callers=dma_fence_default_w",
 		"与上述 D/IO 配对状态账一致",
 	} {
 		if !strings.Contains(got, want) {
@@ -437,6 +443,68 @@ func TestRuntimeTargetStateAuthorityPublishesCompleteOccurrenceSummary(t *testin
 		!strings.Contains(consensusSurface, "occurrences=2") ||
 		!strings.Contains(consensusSurface, "occurrence_wall_clock_sum=6.000ms") {
 		t.Fatalf("consensus target lost complete occurrence values:\n%s", consensusSurface)
+	}
+}
+
+func TestRuntimeTargetStateAuthorityRealDonghuPublishesElevenOccurrencesAndPartialCoverage(t *testing.T) {
+	const trace = "../../eval/fixtures/real_traces/donghu.ftrace"
+	idx, err := tracequery.BuildIndex(context.Background(), trace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start, end := 13762.791708, 13763.024898
+	result := tracequery.Run(idx, tracequery.Query{
+		View: "root_cause_rank", PID: 2955, TimeStart: start, TimeEnd: end,
+		TraceFlavorHint: tracequery.TraceFlavorHarmonyHitrace, Limit: 12,
+	})
+	records := traceQueryTypedObservations(
+		result, "attached_trace", "payload-root", "raw-root", "",
+		time.Unix(1751600000, 0).UTC(),
+	)
+	bus := &types.BusContext{
+		Mutable: types.NewMutableState("donghu state authority"),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentTrace,
+				RuntimeTargets: []types.RuntimeTarget{{
+					Kind: types.RuntimeTargetKindThread, PID: 2955,
+					Thread: "CompThread_0-2955", Source: "user_explicit",
+				}},
+				RuntimeArtifactScopeProfile: &types.RuntimeArtifactScopeProfile{
+					RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
+					TimeStart:      &start, TimeEnd: &end, SourceQuote: "typed-window",
+				},
+			},
+			AnswerContract: types.AnswerContract{Language: "zh"},
+		},
+		ToolResults: []types.ToolResult{{
+			ToolName: "trace_query", Success: true, Observations: records,
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "summary", Kind: types.BlockSummary, Text: "model text",
+	}}}
+	if !materializeRuntimeTraceTargetStateAuthorityBlock(doc, bus) {
+		t.Fatal("real donghu target-state authority did not materialize")
+	}
+	got := types.AnswerBlockVisibleSurface(doc.Blocks[0])
+	for _, want := range []string{
+		"artifact=donghu.ftrace",
+		"accounted_total=231.794ms",
+		"window=233.190ms",
+		"coverage_status=partial_unaccounted",
+		"unaccounted=1.396ms",
+		"tail_open=8.793ms(state=sleep",
+		"target_wait_occurrence_roster=complete",
+		"occurrences=11",
+		"d_state_occurrences=11",
+		"occurrence_wall_clock_sum=36.757ms",
+		"wait_callers=dma_fence_default_w+0x260/0x4dc[devhost.elf]",
+		"与上述 D/IO 配对状态账一致",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("real target-state authority missing %q:\n%s", want, got)
+		}
 	}
 }
 

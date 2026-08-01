@@ -2513,3 +2513,82 @@ IPC census、complete target wait occurrence 与 blocked_reason builder
 - `go test ./internal/tracequery ./internal/tool ./internal/types ./internal/agent ./internal/orchestrator ./internal/skill -count=1`
   （tracequery 69.978s、tool 161.756s、types 19.817s、agent 3.517s、
   orchestrator 14.447s、skill 0.585s）。
+
+### B13 r3 人工审计与批 AK（2026-08-01）
+
+在 revision `9de705742` 重建后，以严格 `parallel=2` 回放：
+
+- `eval/results/real_trace_h1_binder_true_false_attribution-20260731-170125`
+- `eval/results/real_trace_h2_dstate_dma_fence_triform-20260731-170125`
+
+runner 2/2，人工仍为 0/2。
+
+H2 已恢复完整精确窗因果面：supplement 在
+13762.791708..13763.024898、PID 2955 上执行 `root_cause_rank`，最终报告有
+根因排序、wakeup chain、`自身·D-state 36.757ms`、窗内可消除量及 typed
+覆盖边界；H1 的完整投影亦无回退。本轮 analyzer 自身发出了有效
+`runtime_targets`，所以真实 replay 证明 AJ 不破坏正常 typed-target 路径，
+但没有单独重演 r2 的漏发 + 双 selector 形；AJ 的该形由端到端 fixture
+守住。
+
+runner PASS 仍掩盖了 H2 的 principal-value gap。引擎 payload 中
+`wait_occurrence_status=complete`，11 条不相交 D-state occurrence 从
+13762.811273..13763.014598，墙钟和严格为 36.757ms，且 caller 一致为
+`dma_fence_default_w+0x260/0x4dc[devhost.elf]`。12 条/39.157ms 则是另一
+量纲的 blocked_reason record/delay census。AI2 的 complete-roster builder
+其实已看到全部 11 行，却在最后关联处把 projection 的 artifact label
+`attached_trace.txt` 与 wait authority 的 `attached_trace` 判成不同 artifact，
+所以主值卡没有发布 11 次；模型随后用 12 次回答“发生几次”，又无 typed
+证明地把差额说成窗口尾部触发。
+
+同一 state account 的 running/runnable/sleep/D-state 合计为 231.794ms，
+而显式窗为 233.190ms，差 1.396ms。`tail_open=8.793ms sleep` 已包含在
+sleep，不是该差额的补数；剩余区间没有足够调度边界，不能猜分给任一状态。
+旧主值卡写 `partition_total=231.794ms` 却没有 coverage status，容易被理解
+为完整分区。
+
+H2 还有一个较低优先级的既有词义债：因果树的 `4次(3.774~16.064ms)` 是
+CPU3/1/2/7 四个“每 CPU 汇总桶”，其成员实际为 5/3/2/1 个 interval，总计
+11 次。case oracle 明确把 legacy `4次` 当硬 token，所以 runner PASS 不能
+回答用户真正的 occurrence count；应另批用 typed fold caliber 将其改成
+“4组 CPU 汇总”，不能把该 oracle 继续当语义真值。
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B13-AK1 | P0 | cross-authority artifact identity | 同一 SourceRef 在 projection 和 occurrence builder 使用 path label / ArtifactID 两套显示身份，完整 roster 末端失联 | occurrence authority 复用 causal projection 的单一 typed artifact identity resolver；path basename 优先，lane marker 不作物理 artifact | covered-pending-replay |
+| EVAL-B13-AK2 | P1 | target state coverage caliber | 状态和小于显式窗时仍显示为 partition total，无未知余量/边界折入说明 | 从 typed window endpoints 与 accounted sum 计算 complete/partial_unaccounted；披露 unaccounted，head/tail carry 只说明已包含；超窗账户 fail-closed | covered-pending-replay |
+| EVAL-B13-AK3 | P2 | aggregate group vs occurrence unit | per-CPU state aggregate bucket 的 merged_count 被通用 renderer 写成 N次，与真实 interval count 冲突 | 增加 typed merge caliber（per_cpu_state_aggregate），显示 N组 CPU 汇总；更新旧 oracle 钉正确单位，保持 11 occurrence authority | filed |
+| EVAL-B13-A3 | P1 | typed authority vs contradictory model prose | H1 模型正文仍与领先系统主值相反 | 继续立案，寻找 system-owned conclusion 通用结构；不扫/删改模型 prose | open |
+
+批 AK 不变量：
+
+1. 不读取 raw request、模型 thinking、最终答案词面或 case ID。
+2. artifact join 读取同一 `ObservationSourceRef` 的 typed path/id，复用
+   projection 单一 identity；不同物理 path 仍不得合并。
+3. complete occurrence 仅由同 result/source、同 subject、1..N 连续、
+   窗内 span-duration 自洽的独立 typed rows构造；11 与 12 两量纲永不换算。
+4. 状态 coverage 只做 typed endpoints 与状态总和的算术；未知余量不猜状态，
+   `head_carry`/`tail_open` 明示“已包含”，不重复相加；超过窗口的账户拒绝
+   成为主值 authority。
+5. 不改显式窗 supplement 选路、根因排序、wakeup chain、critical blocking、
+   窗内可消除量和无窗窄 D-state 优化。
+
+批 AK1 将 wait authority 的 artifact label 改为调用
+`traceCausalProjectionArtifactIdentity`：同一 attached trace 统一得到物理
+basename，而不是一边 `attached_trace.txt`、一边 lane marker
+`attached_trace`。真实 donghu fixture 回归确认主值卡现发布
+`occurrences=11`、`d_state_occurrences=11`、
+`occurrence_wall_clock_sum=36.757ms` 与完整 `wait_callers`。
+
+批 AK2 给 target-state authority 增加 `window`、`accounted_total`、
+`coverage_status`、`unaccounted`、head/tail boundary-fold typed 字段。
+231.794/233.190ms 形发布
+`coverage_status=partial_unaccounted, unaccounted=1.396ms`；明确未知部分不能
+分配状态，且 tail-open 8.793ms 已包含在 sleep。完整账户保持 complete，
+超过自身窗口 0.002ms 容差的账户 fail-closed。
+
+批 AK 完整回归通过：
+
+- `go test ./internal/types ./internal/tool ./internal/tracequery ./internal/agent ./internal/orchestrator ./internal/skill -count=1`
+  （types 19.383s、tool 166.671s、tracequery 70.093s、agent 2.765s、
+  orchestrator 11.595s、skill 2.163s）。

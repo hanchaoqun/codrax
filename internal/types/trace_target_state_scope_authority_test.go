@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"math"
 	"testing"
 )
 
@@ -33,14 +34,42 @@ func TestBuildTraceTargetStateScopeAuthoritiesPreservesThreadLocalScope(t *testi
 	if got[0].Subject != "com.baidu.tieba-59566" ||
 		got[0].RunningMS != 26.946 ||
 		got[0].RunnableMS != 3.636 ||
-		got[0].TotalMS != 114.940 {
+		got[0].TotalMS != 114.940 ||
+		got[0].CoverageStatus != "complete" ||
+		got[0].UnaccountedMS != 0 {
 		t.Fatalf("thread-local account drifted: %+v", got[0])
+	}
+}
+
+func TestBuildTraceTargetStateScopeAuthoritiesDisclosesPartialCoverageAndRejectsOverWindow(t *testing.T) {
+	build := func(total float64) TraceCausalProjectionSet {
+		return TraceCausalProjectionSet{Projections: []TraceCausalProjection{{
+			ArtifactPath: "/tmp/trace.systrace", ArtifactLabel: "trace.systrace",
+			TargetStateAccount: &TraceCausalProjectionTargetStateAccount{
+				Subject: "worker-200", WindowStartTs: 1, WindowEndTs: 1.1,
+				RunningMS: 40, SleepMS: total - 40, TotalMS: total,
+				TailOpenMS: 5, TailOpenState: "sleep", EvidenceID: "state",
+			},
+		}}}
+	}
+	got := BuildTraceTargetStateScopeAuthorities(build(90))
+	if len(got) != 1 || got[0].CoverageStatus != "partial_unaccounted" ||
+		math.Abs(got[0].WindowMS-100) > 0.001 ||
+		math.Abs(got[0].UnaccountedMS-10) > 0.001 ||
+		got[0].TailOpenMS != 5 || got[0].TailOpenState != "sleep" {
+		t.Fatalf("partial state coverage must stay typed: %+v", got)
+	}
+	if over := BuildTraceTargetStateScopeAuthorities(build(100.01)); len(over) != 0 {
+		t.Fatalf("over-window state account must fail closed: %+v", over)
 	}
 }
 
 func TestBuildTraceTargetWaitSummaryAuthoritiesUsesCompleteSameResultRows(t *testing.T) {
 	target := "CompThread_0-2955"
-	ref := ObservationSourceRef{Kind: ObservationSourceRuntimeArtifact, ArtifactID: "attached_trace"}
+	ref := ObservationSourceRef{
+		Kind: ObservationSourceRuntimeArtifact, ArtifactID: "attached_trace",
+		Path: "/tmp/attached_trace.txt",
+	}
 	count := 3
 	aggregate := ObservationRecord{
 		ID:              "trace_query:scope#target_window_wait_occurrences",
@@ -81,7 +110,8 @@ func TestBuildTraceTargetWaitSummaryAuthoritiesUsesCompleteSameResultRows(t *tes
 	got := BuildTraceTargetWaitSummaryAuthorities(ObservationLedger{Records: records}, &rm)
 	if len(got) != 1 || got[0].Count != 3 || got[0].DStateOccurrences != 3 ||
 		got[0].WallClockMS != 6 || len(got[0].Callers) != 1 ||
-		got[0].Callers[0] != "dma_fence_default_w" {
+		got[0].Callers[0] != "dma_fence_default_w" ||
+		got[0].ArtifactLabel != "attached_trace.txt" {
 		t.Fatalf("complete typed wait summary drifted: %+v", got)
 	}
 }
