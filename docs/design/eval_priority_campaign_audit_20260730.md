@@ -3888,3 +3888,33 @@ B18b r2 还暴露一个不影响成员正确性、但影响答案密度的通用
   eliminable、supplement 等 runtime 路径。
 
 状态：`filed / B18c next`。
+
+#### B18c 结构化主键载体去重施工
+
+代码冷读确认 DUP1 的直接机制：`normalizeAggregateMemberSetCarriers`
+已经判定模型列表覆盖完整，但 relation label 不在 block title/text 时，又调用
+`appendAggregateMemberSetCarrier`；该函数不是只补标签，而是重建完整成员行，
+于是正确的模型列表后出现第二份系统列表。
+
+B18c 使用一条通用 typed 规则修复：
+
+1. 在同一个可见结构化 block 内，对 accepted member-set 与
+   `items[].label` 做逐项、一对一匹配；
+2. 若全部 member 都占有独立主键行，只给原 block 补 typed relation title、
+   principal surface role 和 enumeration facet/claim，不新增 block、不重建行；
+3. 匹配只看结构化 item label。成员仅出现在 item text、table detail column、
+   prose、summary 或 diagram node 时不获得主键权限，原补充行为保留；
+4. diagram 继续不是独立的枚举清单；缺一项、成员跨多个零散 block、或只有
+   详情列巧合命中时，系统仍能补齐完整 member-set；
+5. 不读取 RawRequest、模型思考/答案 prose 或 case/type 字面，不改变任何
+   Trace runtime contract。
+
+测试覆盖：
+
+- 完整 relation ordered-list + diagram：保留一个列表，typed label 原位写入，
+  不再出现 accepted-checklist supplement；
+- `public classes` 表中 package 只作为详情列：继续单独发布
+  `package declarations`，防止跨轴误去重；
+- 完整 `internal/tool` 回归通过（159.461s）。
+
+状态：`implemented / full-tests-pass / cross-relation replay next`。

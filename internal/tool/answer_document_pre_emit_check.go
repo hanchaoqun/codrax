@@ -2730,6 +2730,10 @@ func normalizeAggregateMemberSetCarriers(doc *types.AnswerDocumentV2, ctx *types
 			covered {
 			if covered && relationLabelRefs[ref.Index] &&
 				!preEmitPrincipalStructuredBlockClaimsAggregateCategory(doc, fact) {
+				if blockIdx := preEmitPrimaryMemberCarrierIndex(doc, fact); blockIdx >= 0 {
+					annotateAggregateMemberSetCarrier(&doc.Blocks[blockIdx], fact, zh)
+					continue
+				}
 				fixed += appendAggregateMemberSetCarrier(doc, ctx, ref.Index, fact, rows, aggregateMemberSetLabelCarrierTitle(fact, zh), aggregateMemberSetLabelCarrierText(fact.Label, zh))
 			}
 			continue
@@ -2740,6 +2744,71 @@ func normalizeAggregateMemberSetCarriers(doc *types.AnswerDocumentV2, ctx *types
 		fixed += appendAggregateMemberSetCarrier(doc, ctx, ref.Index, fact, rows, aggregateMemberSetCarrierTitle(fact, zh), aggregateMemberSetCarrierText(fact.Label, zh))
 	}
 	return fixed
+}
+
+// preEmitPrimaryMemberCarrierIndex returns one model-authored structured block
+// whose row keys cover the complete accepted member set. Restricting the match
+// to item labels is deliberate: a relation dimension that merely appears in a
+// detail/text column is not the primary enumeration axis and still needs its
+// own carrier.
+func preEmitPrimaryMemberCarrierIndex(doc *types.AnswerDocumentV2, fact types.AnswerAggregateFact) int {
+	if doc == nil || len(fact.Members) == 0 {
+		return -1
+	}
+	for blockIdx, block := range doc.Blocks {
+		if preEmitSystemEnumerationRowSupplementBlock(block) ||
+			!preEmitStructuredMemberSetBlockCanCarry(block) ||
+			len(block.Items) < len(fact.Members) {
+			continue
+		}
+		used := make([]bool, len(block.Items))
+		allMatched := true
+		for _, member := range fact.Members {
+			match := -1
+			for itemIdx, item := range block.Items {
+				if used[itemIdx] || strings.TrimSpace(item.Label) == "" {
+					continue
+				}
+				if preEmitAggregateMemberAppearsInText(member, item.Label) {
+					match = itemIdx
+					break
+				}
+			}
+			if match < 0 {
+				allMatched = false
+				break
+			}
+			used[match] = true
+		}
+		if allMatched {
+			return blockIdx
+		}
+	}
+	return -1
+}
+
+func annotateAggregateMemberSetCarrier(block *types.AnswerBlock, fact types.AnswerAggregateFact, zh bool) {
+	if block == nil {
+		return
+	}
+	if strings.TrimSpace(block.Title) == "" {
+		block.Title = aggregateMemberSetLabelCarrierTitle(fact, zh)
+	}
+	block.SurfaceRole = types.SurfacePrincipal
+	block.FacetIDs = mergeStringSet(block.FacetIDs, []string{string(types.FacetEnumerationItem)})
+	hasEnumerationClaim := false
+	for _, use := range block.ClaimUses {
+		if use.FacetID == string(types.FacetEnumerationItem) {
+			hasEnumerationClaim = true
+			break
+		}
+	}
+	if !hasEnumerationClaim {
+		block.ClaimUses = append(block.ClaimUses, types.RenderedClaimUse{
+			FacetID:   string(types.FacetEnumerationItem),
+			ClaimForm: types.ClaimDefinitionFact,
+		})
+	}
 }
 
 func preEmitRelationMemberSetLabelCarrierRefs(ctx *types.BusContext, facts []types.AnswerAggregateFact) map[int]bool {

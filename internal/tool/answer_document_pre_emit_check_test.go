@@ -1838,6 +1838,78 @@ func TestNormalizeAggregateMemberSetCarriers_PreservesRelationDimensionLabel(t *
 	}
 }
 
+func TestNormalizeAggregateMemberSetCarriers_AnnotatesCompletePrimaryRelationListWithoutDuplicatingRows(t *testing.T) {
+	mu := types.NewMutableState("list implementations")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "Controller implementations",
+		Value:      "2",
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Members:    []string{"alphaController", "betaController"},
+		Provenance: types.TypedRelationPrincipalMemberSetAggregateProvenance,
+		SupportRefs: []string{
+			"alphaController @ internal/alpha.go:11",
+			"betaController @ internal/beta.go:22",
+		},
+	}})
+	mu.SetInvestigationComplete("typed relation handoff ready")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentExplain,
+			Language: "en",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+				IsRelationalLookup:    true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID:          "implementations",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{
+				{ID: "a", Label: "alphaController", Text: "implements Controller", CitationRef: 0},
+				{ID: "b", Label: "betaController", Text: "implements Controller", CitationRef: 1},
+			},
+		},
+		{
+			ID:   "diagram",
+			Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{
+				Kind:     "architecture",
+				Language: "mermaid",
+				Body:     "```mermaid\nflowchart TD\nController --> alphaController\nController --> betaController\n```",
+			},
+		},
+	}, Citations: []types.Citation{
+		{File: "internal/alpha.go", Line: 11},
+		{File: "internal/beta.go", Line: 22},
+	}}
+
+	before := len(doc.Blocks)
+	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 0 {
+		t.Fatalf("annotating an existing complete primary carrier must not count as materialized rows, fixed=%d", fixed)
+	}
+	if len(doc.Blocks) != before {
+		t.Fatalf("complete structured member labels must not gain a duplicate carrier: before=%d after=%d doc=%+v", before, len(doc.Blocks), doc.Blocks)
+	}
+	if doc.Blocks[0].Title != "Controller implementations (2)" {
+		t.Fatalf("typed relation label should annotate the existing carrier, got %+v", doc.Blocks[0])
+	}
+	if !principalEnumerationBlockHasEnumerationFacet(doc.Blocks[0]) {
+		t.Fatalf("annotated carrier must retain an explicit enumeration facet: %+v", doc.Blocks[0])
+	}
+	visible := answerDocumentTestVisibleSurface(doc)
+	if got := strings.Count(visible, "alphaController"); got != 2 {
+		t.Fatalf("expected one list row plus one diagram node, got %d occurrences:\n%s", got, visible)
+	}
+	if strings.Contains(visible, "accepted structured investigation checklist") {
+		t.Fatalf("system relation supplement must not duplicate an already complete primary list:\n%s", visible)
+	}
+}
+
 func TestNormalizeAggregateMemberSetCarriers_LocalizesEnglishSystemSupplement(t *testing.T) {
 	mu := types.NewMutableState("exhaustive aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
