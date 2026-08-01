@@ -120,6 +120,7 @@ func prunePrincipalEnumerationExtraneousItems(doc *types.AnswerDocumentV2, ctx *
 	if doc == nil || len(sets) == 0 {
 		return 0
 	}
+	callChainEndpoints := principalEnumerationCallChainRequiredEndpoints(ctx)
 	changed := 0
 	for bi := range doc.Blocks {
 		block := &doc.Blocks[bi]
@@ -158,6 +159,13 @@ func prunePrincipalEnumerationExtraneousItems(doc *types.AnswerDocumentV2, ctx *
 			if !keep && !strictSourceInventoryRows && principalEnumerationItemBackedByAcceptedMemberSetMember(ctx, item) {
 				keep = true
 			}
+			// Call-chain endpoint identity and principal member-set identity are
+			// orthogonal typed axes. Preserve only a structured item that carries
+			// an exact required endpoint; item prose is never consulted. Strict
+			// source-inventory carriers retain their exclusive row-set semantics.
+			if !keep && !strictSourceInventoryRows && principalEnumerationItemCarriesRequiredEndpoint(item, callChainEndpoints) {
+				keep = true
+			}
 			if keep {
 				out = append(out, item)
 				continue
@@ -167,6 +175,29 @@ func prunePrincipalEnumerationExtraneousItems(doc *types.AnswerDocumentV2, ctx *
 		block.Items = out
 	}
 	return changed
+}
+
+func principalEnumerationCallChainRequiredEndpoints(ctx *types.BusContext) []types.AnswerRequiredAnchor {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	view := types.BuildAnswerSemanticView(ctx.AnalysisIR, answerSurfacePlan(ctx))
+	if view == nil || view.Family != types.QFCallChain {
+		return nil
+	}
+	return view.RequiredMechanismAnchors
+}
+
+func principalEnumerationItemCarriesRequiredEndpoint(item types.AnswerBlockItem, required []types.AnswerRequiredAnchor) bool {
+	if len(required) == 0 {
+		return false
+	}
+	// MissingRequiredMechanismAnchors reads only structured labels/cells/edge
+	// endpoints. A one-item document therefore provides the same exact
+	// qualified-symbol identity rule as the hard endpoint contract, without
+	// promoting arbitrary model prose into a pruning control signal.
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{Items: []types.AnswerBlockItem{item}}}}
+	return len(types.MissingRequiredMechanismAnchors(doc, required)) < len(required)
 }
 
 // principalEnumerationItemBackedByAcceptedMemberSetMember reports whether

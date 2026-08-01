@@ -172,12 +172,32 @@ func TestCompileRequiredMechanismAnchors_CallChainKeepsEndpointsAcrossRelationFl
 		},
 	}
 	got := CompileRequiredMechanismAnchors(rm, AnswerContract{}, QFCallChain, nil)
-	if len(got) != 3 {
+	if len(got) != 2 {
 		t.Fatalf("call-chain endpoints must survive relation/category flags, got %+v", got)
 	}
-	for i, want := range []string{"buildAnalysisIR", "gate.Run", "analyzer.go"} {
+	for i, want := range []string{"buildAnalysisIR", "gate.Run"} {
 		if got[i].Text != want {
 			t.Fatalf("anchor[%d]=%+v, want %q", i, got[i], want)
 		}
+	}
+}
+
+func TestCompileRequiredMechanismAnchors_CallChainFiltersPathContextNotQualifiedSymbols(t *testing.T) {
+	rm := RequestModel{
+		Intent:        IntentTrace,
+		PredicateAxis: AxisCall,
+		AnalyzerHints: AnalyzerHints{
+			Kind: string(ReqCallChain),
+			MentionedEntities: []string{
+				"internal/agent/analyzer.go",
+				"config.yaml",
+				"gate.Run",
+				"StageOutput.AnalysisIR",
+			},
+		},
+	}
+	got := CompileRequiredMechanismAnchors(rm, AnswerContract{}, QFCallChain, nil)
+	if len(got) != 2 || got[0].Text != "gate.Run" || got[1].Text != "StageOutput.AnalysisIR" {
+		t.Fatalf("call-chain path context must not become endpoints; qualified symbols must survive: %+v", got)
 	}
 }

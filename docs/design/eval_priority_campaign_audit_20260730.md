@@ -4255,6 +4255,71 @@ policy 清册。
 状态：`EVAL-B24-ENDPOINT1=implemented / full-tests-pass / same-pair-replay-next`；
 `EVAL-B24-EVALDIR1=P1/open`；`EVAL-B24-KEYSET1=P2/open`。
 
+#### B24-f r1：endpoint 正确性覆盖，跨轴 pruning 形成 hard retry loop
+
+`main@84e31677d` 下同一 read/write 两 case 严格并行，runner 与人工均 2 PASS：
+
+1. 写模式 116s，单行 patch 与 plan/apply/verify 继续稳定。
+2. read case 最终明确保留 `gate.Run` 结构化行，并说明源码实际调用
+   `gate.RunWith`；图中仍只有 exact typed call evidence 支持的 star edges，旧 rejected
+   diagram 没有回流。因此 `EVAL-B24-ENDPOINT1` 的用户可见正确性已覆盖。
+3. 但 runtime 从 207s / 2 rejects 恶化到 472s / 10 rejects。日志显示模型多轮已经在
+   `hops` 中加入 exact `buildAnalysisIR` / `gate.Run` / `analyzer.go` labels，下一轮却又
+   报缺；最终改成独立 table 后才通过。根因是 principal enumeration 规范化/裁剪把
+   endpoint identity 行按“中间函数完整 member-set”轴判成 extraneous 后删除，随后
+   endpoint hard gate 又要求补回。
+4. 新登记 `EVAL-B24-ENDPPRUNE1/P1`：typed endpoint 与 principal member-set 是两个
+   正交身份轴。最优修复是在 pruning 前编译 call-chain required endpoint set，并保护
+   exact endpoint structured rows；不能放软 endpoint hard gate，也不能把全部模型行免裁剪。
+5. 新登记 `EVAL-B24-ENDPOINTSCOPE1/P1`：`MentionedEntities` 的源码文件上下文
+   `analyzer.go` 也被提升为 endpoint。call-chain endpoint 编译应排除 typed
+   code/config path surface，但保留 qualified code symbol（例如 `gate.Run`）；不能按
+   “含点号”粗判，因为 qualified symbol 也含点号。
+6. 当前 system required-anchor materializer 因 `RequiresAnchorSkeleton=false` 不服务
+   call-chain，导致可由 typed system block 安全完成的 endpoint disclosure 全靠模型重试。
+   B24-g 将允许 call-chain 专用 materialization：exact label；无 exact evidence 时明确写
+   “本轮 typed evidence 未解析该 endpoint，nearby symbol 不替代”；为避免 citation
+   扩权，系统补位 endpoint 不借用 sibling citation。
+7. `EVAL-B24-KEYSET1/P2` 加剧：模型主列表 19、系统完整清册 32、补充 2、endpoint
+   表 3。正确性已恢复但宽度失控；该项继续独立等待 typed key-subset/complete-roster
+   scope，不扫描“关键”或模型 prose。
+
+状态：`EVAL-B24-ENDPOINT1=covered`；`EVAL-B24-ENDPPRUNE1=P1/fix-in-progress`；
+`EVAL-B24-ENDPOINTSCOPE1=P1/fix-in-progress`；`EVAL-B24-EVALDIR1=P1/open`；
+`EVAL-B24-KEYSET1=P2/open`。
+
+#### B24-g：调用链 endpoint 与成员集双轴解耦（2026-08-01）
+
+本批按 B24-f r1 的 production witness 完成泛化修复：
+
+1. `CompileRequiredMechanismAnchors` 在 `QFCallChain` typed family 内排除
+   `HasCodeOrConfigPathSuffix` 命中的源码/配置路径上下文，因此 `analyzer.go`、
+   `internal/agent/analyzer.go` 不再升级为 source/sink；`gate.Run`、
+   `StageOutput.AnalysisIR` 等 qualified symbol 原样保留。未读取 raw request 或答案 prose。
+2. call-chain 现在可以由 system required-anchor materializer 建立 exact structured endpoint
+   行。系统行不借用 sibling citation；当 evidence 只有 `gate.RunWith` 而请求端点是
+   `gate.Run` 时，typed disclosure 明确报告“未精确解析、相邻/同名前缀不可替代”，不会
+   猜造调用边。
+3. principal enumeration pruning 在非 strict-source-inventory lane 内读取同一 typed
+   `RequiredMechanismAnchors`，只保护 exact structured label/cell 命中的 endpoint。
+   item text/prose 不参与判断；普通 extraneous row 继续删除，strict source inventory 的
+   排他语义不变。
+4. `call_chain_endpoint_omitted` hard gate 继续保留为最终 backstop；materializer 与 pruning
+   共享 `MissingRequiredMechanismAnchors` 的 exact qualified-symbol identity，不再出现
+   “补入→裁掉→再 hard reject”的跨轴循环。
+5. 负向边界已钉：`QFRootCauseTrace` 不获得 endpoint pruning 豁免；因此带明确时间窗的
+   Trace 因果投影、根因排序、唤醒链和系统自动补齐路径未被改写。
+
+验证：定向 endpoint/path/pruning 测试全绿；完整
+`go test ./internal/types ./internal/tool ./internal/orchestrator ./internal/agent ./internal/analysis/hint ./internal/skill -count=1`
+全绿（types 19.311s、tool 161.421s、orchestrator 10.668s、agent 3.901s、hint 1.041s、
+skill 2.395s）。下一步在提交推送后复放同一 read/write 两 case，确认 finalizer rejects 与
+时长真实收敛，再决定是否关闭两项 P1。
+
+状态：`EVAL-B24-ENDPPRUNE1=P1/implemented/replay-next`；
+`EVAL-B24-ENDPOINTSCOPE1=P1/implemented/replay-next`；
+`EVAL-B24-ENDPOINT1=covered`；`EVAL-B24-KEYSET1=P2/open`。
+
 ### B21-GREP：literal/regex 查询语义进入 typed 证据链（2026-08-01）
 
 `EVAL-B21-GREP1` 已按软恢复而非硬拒绝施工：

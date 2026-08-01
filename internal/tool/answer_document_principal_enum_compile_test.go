@@ -2479,6 +2479,71 @@ func TestNormalizePrincipalEnumerationRowBlocks_PrunesExtraItemsOutsideAcceptedS
 	}
 }
 
+func TestPrunePrincipalEnumerationExtraneousItems_PreservesTypedCallChainEndpoint(t *testing.T) {
+	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:        types.IntentTrace,
+		PredicateAxis: types.AxisCall,
+		AnalyzerHints: types.AnalyzerHints{
+			Kind:              string(types.ReqCallChain),
+			MentionedEntities: []string{"buildAnalysisIR", "gate.Run", "analyzer.go"},
+		},
+	}}}
+	sets := []types.EnumerationDisplaySet{{
+		ID: "principal", Label: "intermediate functions", Role: types.AnswerAggregateRolePrincipalAnswer,
+		Rows: []types.EnumerationDisplayRow{{
+			RowID: "build", SetID: "principal", SetLabel: "intermediate functions",
+			Member: "buildAnalysisIR", DisplayLabel: "buildAnalysisIR",
+		}},
+	}}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "hops", Kind: types.BlockOrderedList, Title: "intermediate functions",
+		SurfaceRole: types.SurfacePrincipal,
+		FacetIDs:    []string{string(types.FacetEnumerationItem)},
+		Items: []types.AnswerBlockItem{
+			{ID: "build", Label: "buildAnalysisIR", CitationRef: -1},
+			{ID: "endpoint", Label: "gate.Run", Text: "Exact requested endpoint boundary.", CitationRef: -1},
+			{ID: "extra", Label: "unrelatedHelper", Text: "Not a member or endpoint.", CitationRef: -1},
+		},
+	}}}
+
+	if changed := prunePrincipalEnumerationExtraneousItems(doc, ctx, sets); changed != 1 {
+		t.Fatalf("changed=%d want only unrelated row pruned: %+v", changed, doc.Blocks)
+	}
+	if len(doc.Blocks[0].Items) != 2 || doc.Blocks[0].Items[1].Label != "gate.Run" {
+		t.Fatalf("exact typed call-chain endpoint must survive member-set pruning: %+v", doc.Blocks[0].Items)
+	}
+}
+
+func TestPrunePrincipalEnumerationExtraneousItems_DoesNotProtectEndpointOutsideCallChain(t *testing.T) {
+	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentRootCause,
+		AnalyzerHints: types.AnalyzerHints{
+			MentionedEntities: []string{"gate.Run"},
+		},
+	}}}
+	sets := []types.EnumerationDisplaySet{{
+		ID: "principal", Label: "members", Role: types.AnswerAggregateRolePrincipalAnswer,
+		Rows: []types.EnumerationDisplayRow{{
+			RowID: "build", SetID: "principal", SetLabel: "members",
+			Member: "buildAnalysisIR", DisplayLabel: "buildAnalysisIR",
+		}},
+	}}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "members", Kind: types.BlockOrderedList, Title: "members",
+		SurfaceRole: types.SurfacePrincipal,
+		FacetIDs:    []string{string(types.FacetEnumerationItem)},
+		Items: []types.AnswerBlockItem{
+			{ID: "build", Label: "buildAnalysisIR", CitationRef: -1},
+			{ID: "extra", Label: "gate.Run", CitationRef: -1},
+		},
+	}}}
+
+	prunePrincipalEnumerationExtraneousItems(doc, ctx, sets)
+	if len(doc.Blocks[0].Items) != 1 || doc.Blocks[0].Items[0].Label != "buildAnalysisIR" {
+		t.Fatalf("root-cause/trace families must keep their existing pruning semantics: %+v", doc.Blocks[0].Items)
+	}
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_StructuredItemRelationFieldsPreventMissingSupplement(t *testing.T) {
 	mu := types.NewMutableState("列出 internal/analysis 子包和入口函数")
 	mu.AppendEvidence([]types.EvidenceItem{

@@ -55,6 +55,15 @@ func CompileRequiredMechanismAnchors(rm RequestModel, contract AnswerContract, f
 		if text == "" || !mechanismAnchorTermKindEligible(kind) {
 			return
 		}
+		// A call-chain obligation names executable source/sink symbols. Analyzer
+		// context also carries source files in MentionedEntities, but a file is
+		// evidence context rather than a graph endpoint. Keep the distinction
+		// typed and suffix-based: qualified symbols such as gate.Run still pass,
+		// while analyzer.go and internal/agent/analyzer.go do not become visible
+		// endpoint obligations.
+		if family == QFCallChain && HasCodeOrConfigPathSuffix(text) {
+			return
+		}
 		key := requiredAnchorKey(text)
 		if key == "" {
 			return

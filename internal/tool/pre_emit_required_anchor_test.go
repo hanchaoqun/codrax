@@ -207,3 +207,77 @@ func TestNormalizeRequiredMechanismAnchorCarriers_EnglishTitle(t *testing.T) {
 		t.Fatalf("English request should keep English system title, got %q", got)
 	}
 }
+
+func TestNormalizeRequiredMechanismAnchorCarriers_CallChainMaterializesExactUncitedBoundaries(t *testing.T) {
+	mu := types.NewMutableState("call-chain endpoints")
+	mu.AppendEvidence([]types.EvidenceItem{
+		{
+			ID: "build", Kind: types.EvidenceDirect, Scope: types.ScopeLine,
+			Subject: "buildAnalysisIR", AnchorSymbol: "buildAnalysisIR",
+			Source: "internal/agent/analyzer.go", LineStart: 10,
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID: "runwith", Kind: types.EvidenceDirect, Scope: types.ScopeLine,
+			Subject: "buildAnalysisIR", Object: "gate.RunWith", AnchorSymbol: "RunWith",
+			Source: "internal/agent/analyzer.go", LineStart: 20,
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
+	ctx := &types.BusContext{
+		Mutable:  mu,
+		Language: "en",
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentTrace, PredicateAxis: types.AxisCall,
+		}},
+	}
+	view := &types.AnswerSemanticView{
+		Family: types.QFCallChain,
+		RequiredMechanismAnchors: []types.AnswerRequiredAnchor{
+			{Text: "buildAnalysisIR", Kind: types.ContractTermSymbol},
+			{Text: "gate.Run", Kind: types.ContractTermSymbol},
+		},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{ID: "summary", Kind: types.BlockSummary, Text: "Call path."}}}
+
+	if fixed := normalizeRequiredMechanismAnchorCarriers(doc, view, ctx); fixed != 2 {
+		t.Fatalf("fixed=%d want 2: %+v", fixed, doc.Blocks)
+	}
+	block := doc.Blocks[len(doc.Blocks)-1]
+	if len(block.Items) != 2 {
+		t.Fatalf("endpoint block items=%+v", block.Items)
+	}
+	if block.Items[0].Label != "buildAnalysisIR" ||
+		!strings.Contains(block.Items[0].Text, "resolved this exact requested endpoint") {
+		t.Fatalf("exact evidence endpoint should be disclosed as resolved: %+v", block.Items[0])
+	}
+	if block.Items[1].Label != "gate.Run" ||
+		!strings.Contains(block.Items[1].Text, "did not resolve this exact requested endpoint") {
+		t.Fatalf("sibling-only evidence must be disclosed as unresolved: %+v", block.Items[1])
+	}
+	for _, item := range block.Items {
+		if item.CitationRef != -1 {
+			t.Fatalf("system endpoint identity rows must not borrow sibling citations: %+v", item)
+		}
+	}
+	if len(doc.Citations) != 0 {
+		t.Fatalf("call-chain endpoint materialization must not synthesize citations: %+v", doc.Citations)
+	}
+	for _, hint := range runPreEmitChecks(doc, view, nil, ctx) {
+		if hint.Kind == types.ViolCallChainEndpointOmitted {
+			t.Fatalf("materialized exact endpoint rows should satisfy hard gate: %+v", hint)
+		}
+	}
+}
+
+func TestPreEmitExactEvidenceResolvesRequiredAnchor_DoesNotUseSamePrefixSibling(t *testing.T) {
+	evidence := []types.EvidenceItem{{
+		Subject: "buildAnalysisIR", Object: "gate.RunWith", AnchorSymbol: "RunWith",
+	}}
+	if preEmitExactEvidenceResolvesRequiredAnchor("gate.Run", evidence) {
+		t.Fatal("gate.RunWith must not resolve exact endpoint gate.Run")
+	}
+	if !preEmitExactEvidenceResolvesRequiredAnchor("buildAnalysisIR", evidence) {
+		t.Fatal("exact evidence subject should resolve the endpoint")
+	}
+}

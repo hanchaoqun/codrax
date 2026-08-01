@@ -10978,10 +10978,22 @@ func normalizeRequiredMechanismAnchorCarriersWithContext(doc *types.AnswerDocume
 		if label == "" {
 			continue
 		}
+		citationRef := -1
+		text := ""
+		if view.Family == types.QFCallChain {
+			// Call-chain endpoints are identity obligations, not inferred
+			// source claims. Never borrow a sibling symbol's citation (for
+			// example gate.RunWith for gate.Run); disclose the exact typed
+			// evidence boundary instead.
+			text = requiredCallChainEndpointDisclosureText(ctx, label, pctx.evidenceItems())
+		} else {
+			citationRef = citationRefForRequiredMechanismAnchorWithContext(doc, pctx, label)
+		}
 		item := types.AnswerBlockItem{
 			ID:          nextRequiredMechanismAnchorItemID(doc.Blocks[blockIdx], label),
 			Label:       label,
-			CitationRef: citationRefForRequiredMechanismAnchorWithContext(doc, pctx, label),
+			Text:        text,
+			CitationRef: citationRef,
 		}
 		doc.Blocks[blockIdx].Items = append(doc.Blocks[blockIdx].Items, item)
 		added++
@@ -10993,7 +11005,49 @@ func shouldMaterializeRequiredMechanismAnchorBlock(view *types.AnswerSemanticVie
 	if view == nil || ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
+	if view.Family == types.QFCallChain {
+		return true
+	}
 	return view.RequiresAnchorSkeleton(ctx.AnalysisIR.RequestModel)
+}
+
+func requiredCallChainEndpointDisclosureText(ctx *types.BusContext, label string, evidence []types.EvidenceItem) string {
+	resolved := preEmitExactEvidenceResolvesRequiredAnchor(label, evidence)
+	if answerDocumentRequiresChinese(requestedAnswerDocumentLanguage(ctx)) {
+		if resolved {
+			return "已接受的 typed 当前源码证据精确解析到该请求端点；调用关系仍以已验证的边为准。"
+		}
+		return "已接受的 typed 当前源码证据未精确解析到该请求端点；相邻或同名前缀符号不能替代它。"
+	}
+	if resolved {
+		return "Accepted typed current-source evidence resolved this exact requested endpoint; call relations remain governed by verified edges."
+	}
+	return "Accepted typed current-source evidence did not resolve this exact requested endpoint; nearby or same-prefix symbols do not substitute for it."
+}
+
+// preEmitExactEvidenceResolvesRequiredAnchor deliberately reuses the typed
+// structured-anchor matcher instead of a fuzzy code-surface matcher. Evidence
+// prose, snippets, and source paths are excluded, so gate.RunWith cannot prove
+// gate.Run through a shared owner or prefix.
+func preEmitExactEvidenceResolvesRequiredAnchor(label string, evidence []types.EvidenceItem) bool {
+	label = strings.TrimSpace(label)
+	if label == "" || len(evidence) == 0 {
+		return false
+	}
+	items := make([]types.AnswerBlockItem, 0, len(evidence)*3)
+	for _, ev := range evidence {
+		for _, endpoint := range []string{ev.Subject, ev.Object, ev.AnchorSymbol} {
+			if endpoint = strings.TrimSpace(endpoint); endpoint != "" {
+				items = append(items, types.AnswerBlockItem{Label: endpoint, CitationRef: -1})
+			}
+		}
+	}
+	if len(items) == 0 {
+		return false
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{Items: items}}}
+	required := []types.AnswerRequiredAnchor{{Text: label, Kind: types.ContractTermSymbol}}
+	return len(types.MissingRequiredMechanismAnchors(doc, required)) == 0
 }
 
 func requiredMechanismAnchorBlockIndex(doc *types.AnswerDocumentV2) int {
