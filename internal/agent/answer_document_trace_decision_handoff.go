@@ -59,6 +59,10 @@ func renderAnswerDocTraceDecisionHandoffSet(set types.TraceCausalProjectionSet, 
 	if authority.FrameEvidenceStatus != "" {
 		fmt.Fprintf(&b, "- frame_evidence_status=`%s`: no stronger frame/deadline attribution may be invented.\n", authority.FrameEvidenceStatus)
 	}
+	if traceDecisionHasPreWakeupDependency(set) {
+		b.WriteString("- phase_semantics: `pre_wakeup_dependency` measures an upstream thread while its downstream consumer has not yet been woken. It may explain the consumer's sleep/blocked interval, but it is not the consumer's post-wakeup runnable/dispatch delay. Attribute post-wakeup delay only from the consumer's own typed runnable interval plus same-CPU scheduler ordering; never infer that a CFS dependency preempted an RT consumer after wake from this seat.\n")
+		b.WriteString("- A typed `priority_inversion_candidate` on that phase prices the dependency's own proven-lower runnable/running supply before the downstream wake. The candidate flag alone proves neither a lock holder/waiter relation nor post-wakeup preemption; treat PI-mutex or RT-promotion changes as validation directions unless separate typed evidence proves the corresponding mechanism.\n")
+	}
 	b.WriteString("- Input provenance: the projection compiler merges accepted exploration observations with deterministic system-supplement observations when present; each candidate below preserves its own source lane.\n\n")
 
 	for index, projection := range set.Projections {
@@ -96,7 +100,9 @@ func renderAnswerDocTraceDecisionHandoffSet(set types.TraceCausalProjectionSet, 
 				if node.LineStart > 0 {
 					fmt.Fprintf(&b, "; lines=%d..%d", node.LineStart, maxInt(node.LineStart, node.LineEnd))
 				}
-				fmt.Fprintf(&b, "; source_lane=`%s`\n", traceDecisionNodeSourceLane(node))
+				fmt.Fprintf(&b, "; source_lane=`%s`", traceDecisionNodeSourceLane(node))
+				traceDecisionWritePhase(&b, node)
+				b.WriteString("\n")
 			}
 			business := traceDecisionBusinessSpanCandidates(projection.BusinessSpanMentions, 5)
 			for _, span := range business {
@@ -118,12 +124,56 @@ func renderAnswerDocTraceDecisionHandoffSet(set types.TraceCausalProjectionSet, 
 				if node.ImpactMS > 0 && node.ImpactMS != node.EffectiveImpactMS {
 					fmt.Fprintf(&b, "; window_projection=%.3fms", node.ImpactMS)
 				}
-				fmt.Fprintf(&b, "; source_lane=`%s`\n", traceDecisionNodeSourceLane(node))
+				fmt.Fprintf(&b, "; source_lane=`%s`", traceDecisionNodeSourceLane(node))
+				traceDecisionWritePhase(&b, node)
+				if node.PriorityInversionCandidate && traceDecisionNodePhase(node) == "pre_wakeup_dependency" {
+					b.WriteString("; priority_candidate_scope=`dependency_scheduler_supply`; post_wakeup_preemption_authority=`not_provided_by_this_seat`; holder_waiter_authority=`not_provided_by_candidate_flag`")
+				}
+				b.WriteString("\n")
 			}
 		}
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+func traceDecisionHasPreWakeupDependency(set types.TraceCausalProjectionSet) bool {
+	for _, projection := range set.Projections {
+		for _, lane := range [][]types.TraceCausalProjectionNode{
+			projection.RankedSeats,
+			projection.PrimaryRootCauses,
+			projection.OnChainCauses,
+			projection.SemanticSpans,
+		} {
+			for _, node := range lane {
+				if traceDecisionNodePhase(node) == "pre_wakeup_dependency" {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// traceDecisionNodePhase is a prompt-only semantic projection of the engine's
+// typed chain depth. A positive depth is minted only for an upstream chain
+// member measured in the edge-closed interval before it wakes its downstream
+// consumer. The zero/absent lane stays unknown: legacy records and target
+// depth zero share that wire shape, so absence must not guess a phase.
+func traceDecisionNodePhase(node types.TraceCausalProjectionNode) string {
+	if node.ChainDepth > 0 {
+		return "pre_wakeup_dependency"
+	}
+	return ""
+}
+
+func traceDecisionWritePhase(b *strings.Builder, node types.TraceCausalProjectionNode) {
+	if b == nil {
+		return
+	}
+	if phase := traceDecisionNodePhase(node); phase != "" {
+		fmt.Fprintf(b, "; impact_phase=`%s`", phase)
+	}
 }
 
 func traceDecisionAxesPresent(set types.TraceCausalProjectionSet) (actual, eliminable bool) {

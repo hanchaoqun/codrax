@@ -4032,6 +4032,46 @@ OWN 验收本身通过：
 后续只修 ALIAS1 的 typed 身份收敛和 PHASE1 的精确信息/软引导，不增加用户原文或模型
 输出关键词门。
 
+#### B26-PHASE1：用既有 chain depth 单一权限补齐调度阶段语义
+
+代码冷读后对原方案作一处架构收敛：不再新增一份可与 chain depth 漂移的
+`impact_phase/scheduler_role` wire。`tracequery.expandChain` 已经给出了精确且更强的
+单一权限：depth=0 是目标分支自身，depth>0 的节点只可能来自
+`expandChainSleepSegment` 对 `[下游睡眠开始, sched_wakeup 时刻]` 的上游递归；该正
+depth 已经经 `depth/chain_depth` rich note 进入
+`TraceCausalProjectionNode.ChainDepth`。因此 finalizer handoff 只在
+`ChainDepth>0` 时派生闭集语义 `impact_phase=pre_wakeup_dependency`，零值/旧记录保持
+unknown，禁止从线程名、state、priority class 或模型文字猜相位。
+
+本批实现：
+
+1. 只要决策输入中存在正 depth 节点，prompt 明示该席位测量的是“下游尚未唤醒时”的
+   上游线程状态/工作；它可解释下游 sleep/blocked，但不是下游唤醒后的 runnable/
+   dispatch delay。
+2. 唤醒后延迟只能由下游线程自己的 typed runnable interval 与同 CPU scheduler
+   ordering 支撑；不得用上游 CFS class 推导“CFS 抢占/延迟了已唤醒 RT 目标”。
+3. Axis A / Axis B 的每条正 depth 行都携带
+   `impact_phase=pre_wakeup_dependency`。优先级候选另带
+   `priority_candidate_scope=dependency_scheduler_supply`，并明确该席位不提供
+   post-wakeup preemption 或 holder/waiter 权限。
+4. PI mutex、RT promotion 等机制性建议仍归模型，但 candidate-only 时提示先验证
+   等待原语/临界区/CPU 竞争；另有 typed 证明时模型可以升级结论。
+5. 全部改动只在 prompt handoff；不创建 AnswerBlock、不扫描 RawRequest/case ID/
+   模型 prose、不拒绝/重试、不删除/替换/改写模型答案。显式窗的投影、根因排序、
+   唤醒链、窗内可消除量与系统补齐权限不变。
+
+看护强度：测试固定 typed depth→phase 的单向投影、候选权限边界和 depth=0/absent
+不猜相位；不固定客户线程名、11.103ms、期望根因、最终答案段落或模型措辞。模型所有权
+结构不变量继续由 B26-OWN4 独立保护。
+
+验证：
+
+- `go test ./internal/agent -count=1`：通过（2.884s）；
+- 定向覆盖双轴 handoff、显式窗接线、bounded-fact 不扩张，以及 legacy depth=0
+  反向臂。
+
+状态：`EVAL-B26-PHASE1=implemented / full-agent-tests-pass / replay-with-ALIAS1-next`。
+
 ### B24 r1：写模式通过，调用边方向权限缺失（2026-08-01）
 
 严格并行 2 个 case，机器均 PASS；人工结果为 1 PASS / 1 FAIL：

@@ -22,11 +22,12 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 			{
 				EvidenceID: "sleep", Subject: "Cookie-150", Object: "s_sleep",
 				StateKind: "s_sleep", ImpactMS: 44.836, CumulativeImpactMS: 47.282,
-				MergedCount: 7, MergedMaxMS: 10.976, WithinRequestedWindow: &inside,
+				ChainDepth: 2, MergedCount: 7, MergedMaxMS: 10.976, WithinRequestedWindow: &inside,
 			},
 			{
 				EvidenceID: "priced-only", Subject: "Cookie-150", Object: "priority_inversion_candidate",
 				ImpactMS: 23.994, EffectiveImpactMS: 23.994, Rank: 1,
+				ChainDepth: 2, PriorityInversionCandidate: true,
 				FixDirection: "lock_priority", WithinRequestedWindow: &inside,
 			},
 		},
@@ -34,6 +35,7 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 			{
 				EvidenceID: "priced-only", Subject: "Cookie-150", Object: "priority_inversion_candidate",
 				ImpactMS: 23.994, EffectiveImpactMS: 23.994, Rank: 1,
+				ChainDepth: 2, PriorityInversionCandidate: true,
 				FixDirection: "lock_priority", WithinRequestedWindow: &inside,
 			},
 			{
@@ -59,6 +61,10 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 		"two independent decision axes that are actually available",
 		"causal_conclusion=`unproven`",
 		"frame_evidence_status=`absent`",
+		"phase_semantics: `pre_wakeup_dependency`",
+		"not the consumer's post-wakeup runnable/dispatch delay",
+		"never infer that a CFS dependency preempted an RT consumer after wake",
+		"candidate flag alone proves neither a lock holder/waiter relation nor post-wakeup preemption",
 		"target_state_symptom: subject=`target-100`",
 		"elected_wakeup_path=`ThreadPool-300 -> Network-200 -> Cookie-150 -> target-100`",
 		"axis_A_actual_occupancy_candidates",
@@ -66,6 +72,10 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 		"span=`ParseCards`; total=18.500ms; occurrences=12; member_max=3.200ms",
 		"axis_B_existing_rule_eliminable",
 		"rank=#1; subject=`Cookie-150`; kind=`priority_inversion_candidate`; effective_attribution=23.994ms; fix_direction=`lock_priority`",
+		"impact_phase=`pre_wakeup_dependency`",
+		"priority_candidate_scope=`dependency_scheduler_supply`",
+		"post_wakeup_preemption_authority=`not_provided_by_this_seat`",
+		"holder_waiter_authority=`not_provided_by_candidate_flag`",
 		"rank=#2; subject=`target-100`; kind=`running`; effective_attribution=10.331ms; fix_direction=`frequency_thermal`",
 		"source_lane=`deterministic_system_supplement`",
 		"cross_row_additivity=`forbidden`",
@@ -77,6 +87,26 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 	axisA := got[strings.Index(got, "axis_A_actual_occupancy_candidates"):strings.Index(got, "axis_B_existing_rule_eliminable")]
 	if strings.Contains(axisA, "kind=`priority_inversion_candidate`") {
 		t.Fatalf("priced composite seat leaked into actual-time axis:\n%s", axisA)
+	}
+}
+
+func TestTraceDecisionHandoffDoesNotGuessPhaseFromStateOrPriorityWords(t *testing.T) {
+	projection := types.TraceCausalProjection{
+		RankedSeats: []types.TraceCausalProjectionNode{{
+			EvidenceID: "legacy-depth-zero", Subject: "worker-20", StateKind: "runnable",
+			PriorityInversionCandidate: true, Rank: 1, ImpactMS: 4, EffectiveImpactMS: 4,
+		}},
+	}
+	got := renderAnswerDocTraceDecisionHandoffSet(
+		types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}},
+		runtimeTraceGuidanceView{},
+	)
+	for _, forbidden := range []string{
+		"phase_semantics:", "impact_phase=", "priority_candidate_scope=",
+	} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("zero/absent chain depth guessed a phase from non-phase fields %q:\n%s", forbidden, got)
+		}
 	}
 }
 
