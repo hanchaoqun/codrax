@@ -131,3 +131,40 @@ func TestReauthenticateSystemSnapshotBlockKinds_NeverInvents(t *testing.T) {
 		t.Fatalf("existing non-empty kind must never be overwritten: got=%d kind=%q", got, doc.Blocks[1].SystemGeneratedKind)
 	}
 }
+
+func TestNegativeSearchAuthorityMarkerSurvivesSystemSnapshotRoundTrip(t *testing.T) {
+	src := &AnswerDocumentV2{DocumentModel: "v2", Blocks: []AnswerBlock{
+		{
+			ID:                  "current_source_negative_scope_authority",
+			Kind:                BlockCaveat,
+			Text:                "typed negative scopes",
+			SystemGeneratedKind: AnswerSystemGeneratedNegativeSearchAuthority,
+		},
+		{
+			ID:   "model-lookalike",
+			Kind: BlockCaveat,
+			Text: "model prose",
+		},
+	}}
+	kinds := CaptureSystemGeneratedBlockKinds(src)
+	if len(kinds) != 1 ||
+		kinds["current_source_negative_scope_authority"] != AnswerSystemGeneratedNegativeSearchAuthority {
+		t.Fatalf("negative authority capture = %v", kinds)
+	}
+	raw, err := json.Marshal(src)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var decoded AnswerDocumentV2
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.Blocks[0].SystemGeneratedKind != AnswerSystemGeneratedBlockUnknown {
+		t.Fatal("json round trip must strip negative authority marker")
+	}
+	if got := ReauthenticateSystemSnapshotBlockKinds(&decoded, kinds); got != 1 ||
+		decoded.Blocks[0].SystemGeneratedKind != AnswerSystemGeneratedNegativeSearchAuthority ||
+		decoded.Blocks[1].SystemGeneratedKind != AnswerSystemGeneratedBlockUnknown {
+		t.Fatalf("negative authority reauthentication failed: got=%d blocks=%+v", got, decoded.Blocks)
+	}
+}

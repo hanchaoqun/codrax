@@ -154,6 +154,9 @@ func persistMergedAnswerDocument(
 	if fixed := normalizeRuntimeTraceReservedBlockIDCollisions(merged); fixed > 0 {
 		logging.Warning("[%s] renamed %d model-authored runtime-trace reserved block id collision(s) before materialization", toolName, fixed)
 	}
+	if materializeCurrentSourceNegativeScopeAuthority(merged, ctx) {
+		logging.Info("[%s] materialized typed current-source negative-search scope authority", toolName)
+	}
 	if fixed := normalizePriorityInversionCandidateAnswerSurface(merged, ctx); fixed > 0 {
 		logging.Warning("[%s] repaired %d priority-inversion claim(s) to typed authority-calibrated wording before persist", toolName, fixed)
 	}

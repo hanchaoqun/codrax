@@ -3139,7 +3139,7 @@ cmd
 | ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
 |---|---:|---|---|---|---|
 | EVAL-B15-FQ1 | P0 | frequency authority publication order | 正确权限滞留 footer | typed system authority lead；真实 H4 已验证顺序和显式窗非回退 | covered |
-| EVAL-B15-NEG1 | P1 | negative proof target/scope authority | `PathDiscovery.NoMatches`、negative `EvidenceItem`、aggregate claim 与最终结论没有共享的作用域 authority；局部 no-match 可扩写成全局 absence | 从 typed no-match 与 negative query 构建有界 authority roster；可见系统块只授权逐条列出的 target/scope，并声明未列 scope 未证；不读取模型/用户 prose，不把任意导航 miss 提升成 principal | planned-NEG1 |
+| EVAL-B15-NEG1 | P1 | negative proof target/scope authority | `PathDiscovery.NoMatches`、negative `EvidenceItem`、aggregate claim 与最终结论没有共享的作用域 authority；局部 no-match 可扩写成全局 absence | 从 typed no-match 与 negative query 构建有界 authority roster；可见系统块只授权逐条列出的 target/scope，并声明未列 scope 未证；不读取模型/用户 prose，不把任意导航 miss 提升成 principal | covered-pending-replay |
 | EVAL-B15-XR1 | P2 | mixed exact target binding | 双 config key 被路由成 source inventory，缺 `exact_targets/context_roles`；document-level exact_resolution 不能表达 A absent + B present | 设计 per-target resolution/target_ref + per-target requested roles；先保留当前防串值短期 guard，禁止按 case 关键词特判 | filed-design |
 | EVAL-B15-AR1 | P1 | arithmetic operand binding | 多数值自由句的 relation owner 不明确 | 只消费 typed relation 或多候选 fail-open | filed-next |
 
@@ -3155,3 +3155,37 @@ NEG1 施工不变量：
 4. 不解析用户原文、模型 summary、aggregate label/member 或最终答案正文；
 5. 不增加 hard reject/retry；导航阶段的无关 miss 不得污染答案；
 6. 不触碰 Trace report-shape、显式窗因果投影或自动补采。
+
+NEG1 已按不变量落地：
+
+1. 新增 `current_source_negative_scope_authority` system-owned lead block；
+   它只在 `ScenarioConfigTrace` 且至少存在一条 grounder 已接受的
+   `EvidenceAbsent + ScopeNegative + NegativeQuery + NegativeScope` 时发布；
+2. verified negative evidence 逐条保留 pattern、file 与
+   `file/range/section/struct_fields` 口径；同轮成功、`result_count=0`、无
+   truncated/skipped-large 的 explicit-path grep no-match 作为独立行加入；
+3. 单独的 navigation miss 没有 verified negative anchor 时不发布；path
+   为空的广域 grep、candidate/result truncated、skipped-large 均不能进入
+   authority；
+4. authority 明示
+   `unlisted_scope_status=unproven` 和
+   `cross_target_borrowing=forbidden`，不会把一个 `runtime.go(file)` 查询扩成
+   YAML/CLI/repo-wide absence；
+5. block 使用新的 `json:"-"` system marker；模型若占用保留 ID，系统选择
+   无冲突后缀，不按标题或正文恢复 authority。system snapshot 的 sidecar
+   capture/reauth pin 已覆盖新 marker；patch 前 summary canonicalization
+   即使暂时把摘要移到前面，materializer 也会刷新并恢复 authority lead；
+6. 实现不读取 RawRequest、模型 block 文本、aggregate label/member 或 renderer
+   输出，也不增加拒绝/重试。模型原文保持字节不变，系统块只覆盖证据权限。
+
+验证：
+
+- 定向 materialize/persist/navigation-negative/incomplete-grep/patch-order
+  测试通过（1.052s）；
+- system marker capture/reauth 定向测试通过（2.694s）；
+- `go test ./internal/types -count=1` 通过（19.779s）；
+- `go test ./internal/tool -count=1` 通过（173.073s）。
+
+状态为 `covered-pending-replay`：下一对仍严格 `parallel=2`，用 config mix
+验证系统 lead 只列 `runtime.go` 与 `cmd`、明确 YAML 未证；另一席使用显式窗
+Trace case，固定本次非 runtime 改动没有影响因果投影和自动补充。

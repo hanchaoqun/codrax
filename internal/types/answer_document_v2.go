@@ -301,6 +301,13 @@ const (
 	AnswerSystemGeneratedPrincipalEnumerationNotes   AnswerSystemGeneratedBlockKind = "principal_enumeration_notes"
 	AnswerSystemGeneratedPrincipalEnumerationSection AnswerSystemGeneratedBlockKind = "principal_enumeration_section"
 
+	// AnswerSystemGeneratedNegativeSearchAuthority marks the deterministic
+	// current-source no-match scope roster. It is deliberately separate from
+	// principal-enumeration and runtime-trace supplements: the block only
+	// bounds which typed query returned zero rows, and never authors a global
+	// absence conclusion.
+	AnswerSystemGeneratedNegativeSearchAuthority AnswerSystemGeneratedBlockKind = "negative_search_authority"
+
 	// AnswerSystemGeneratedRuntimeTrace marks blocks minted by the
 	// deterministic runtime-trace report assembler. The field carrying this
 	// value is json:"-", so a model can never self-assign the authority that
