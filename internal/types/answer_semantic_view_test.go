@@ -231,6 +231,40 @@ func TestMissingRequiredMechanismAnchors_StructuredQualifiedLabelsSatisfyParts(t
 	}
 }
 
+func TestMissingRequiredMechanismAnchors_QualifiedRequiredEndpointIsExact(t *testing.T) {
+	required := []AnswerRequiredAnchor{{Text: "gate.Run", Kind: ContractTermSymbol}}
+	doc := &AnswerDocumentV2{Blocks: []AnswerBlock{{
+		ID:   "mechanism",
+		Kind: BlockSection,
+		Items: []AnswerBlockItem{{
+			Label: "gate.RunWith",
+			Text:  "The collected call edge reaches RunWith, not the requested Run endpoint.",
+		}},
+	}}}
+	missing := MissingRequiredMechanismAnchors(doc, required)
+	if len(missing) != 1 || missing[0].Text != "gate.Run" {
+		t.Fatalf("qualified sibling must not satisfy exact endpoint, missing=%+v", missing)
+	}
+	doc.Blocks[0].Items = append(doc.Blocks[0].Items, AnswerBlockItem{
+		Label: "gate.Run",
+		Text:  "No citable call-edge path to this exact endpoint was established.",
+	})
+	if missing := MissingRequiredMechanismAnchors(doc, required); len(missing) != 0 {
+		t.Fatalf("exact qualified endpoint should satisfy itself, missing=%+v", missing)
+	}
+	doc.Blocks[0].Items = nil
+	doc.Blocks[0].Items = []AnswerBlockItem{{Cells: []string{
+		"requested endpoint", "gate.RunWith is the observed callee",
+	}}}
+	if missing := MissingRequiredMechanismAnchors(doc, required); len(missing) != 1 {
+		t.Fatalf("qualified sibling in a table cell must not satisfy exact endpoint, missing=%+v", missing)
+	}
+	doc.Blocks[0].Items[0].Cells[1] = "gate.Run (requested endpoint): no citable path established"
+	if missing := MissingRequiredMechanismAnchors(doc, required); len(missing) != 0 {
+		t.Fatalf("annotated exact endpoint in a table cell should satisfy it, missing=%+v", missing)
+	}
+}
+
 func TestMissingRequiredMechanismAnchors_StructuredIdentifierVariantSatisfiesToolName(t *testing.T) {
 	required := []AnswerRequiredAnchor{
 		{Text: "emit_analysis", Kind: ContractTermToolName},

@@ -156,3 +156,28 @@ func TestCompileRequiredMechanismAnchors_RuntimeCurrentSourceRequiredKeepsAnchor
 		t.Fatalf("runtime questions with a current-source lane should keep source anchors, got %+v", got)
 	}
 }
+
+func TestCompileRequiredMechanismAnchors_CallChainKeepsEndpointsAcrossRelationFlags(t *testing.T) {
+	rm := RequestModel{
+		Intent:        IntentTrace,
+		Scenario:      ScenarioArchitectureExplain,
+		PredicateAxis: AxisCall,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+			IsRelationalLookup:    true,
+		},
+		AnalyzerHints: AnalyzerHints{
+			Kind:              string(ReqCallChain),
+			MentionedEntities: []string{"buildAnalysisIR", "gate.Run", "analyzer.go"},
+		},
+	}
+	got := CompileRequiredMechanismAnchors(rm, AnswerContract{}, QFCallChain, nil)
+	if len(got) != 3 {
+		t.Fatalf("call-chain endpoints must survive relation/category flags, got %+v", got)
+	}
+	for i, want := range []string{"buildAnalysisIR", "gate.Run", "analyzer.go"} {
+		if got[i].Text != want {
+			t.Fatalf("anchor[%d]=%+v, want %q", i, got[i], want)
+		}
+	}
+}

@@ -10921,7 +10921,7 @@ func preCheckRequiredMechanismAnchors(doc *types.AnswerDocumentV2, view *types.A
 	}
 	return []emitFixHint{{
 		Field:         "blocks[].items[].label",
-		ExpectedShape: "structured answer anchor label(s) must preserve: " + strings.Join(labels, ", ") + ". Add or keep an ordered_list/table item whose label is exactly each missing anchor; use a matching citation_ref when available, otherwise leave it uncited.",
+		ExpectedShape: "structured answer anchor label(s) must preserve: " + strings.Join(labels, ", ") + ". Add or keep an ordered_list/table item whose label is exactly each missing anchor; use a matching citation_ref when available. If collected typed evidence proves only a sibling/nearby symbol or does not prove a path to the exact endpoint, keep the exact requested label and disclose that evidence boundary in the item text instead of substituting the nearby symbol.",
 		Reason:        "the typed mechanism-anchor contract requires exact endpoint anchors in structured fields; summary prose alone cannot satisfy this boundary.",
 	}}
 }

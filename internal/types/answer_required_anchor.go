@@ -27,7 +27,10 @@ type AnswerRequiredAnchor struct {
 //
 // The result is restricted to explanation/mechanism families. Scalar,
 // enumeration, config, and relation lookups already have stronger principal
-// lanes and should not gain a second anchor-list obligation.
+// lanes and should not gain a second anchor-list obligation. QFCallChain is a
+// deliberate exception to the relation/category suppression: source and sink
+// names are endpoint identity, not answer-member enumeration, and must remain
+// visible even when the analyzer also marks the path as relational.
 //
 // subRepoNames is the snapshot of multi-repo identifiers (Slug + RootRel +
 // RootRel basename) stamped on the AnswerSurfacePlan. Entities matching this
@@ -95,15 +98,20 @@ func requiredMechanismAnchorsEnabled(rm RequestModel, family QuestionFamily) boo
 	}
 	if rm.Predicates.IsScalarAnswer ||
 		rm.Predicates.IsCountQuestion ||
-		rm.Predicates.IsCategoryEnumeration ||
-		rm.Predicates.IsRelationalLookup ||
 		rm.Intent == IntentReturnValue ||
-		rm.Intent == IntentEnumerate ||
 		rm.Intent == IntentConfigQuery {
 		return false
 	}
+	if family == QFCallChain {
+		return rm.Intent == IntentExplain || rm.Intent == IntentTrace
+	}
+	if rm.Predicates.IsCategoryEnumeration ||
+		rm.Predicates.IsRelationalLookup ||
+		rm.Intent == IntentEnumerate {
+		return false
+	}
 	switch family {
-	case QFArchitecture, QFCallChain, QFGeneric:
+	case QFArchitecture, QFGeneric:
 		return rm.Intent == IntentExplain ||
 			rm.Intent == IntentTrace ||
 			rm.Scenario == ScenarioArchitectureExplain
@@ -221,11 +229,42 @@ func requiredAnchorPresentInCells(key string, cells []string) bool {
 		return false
 	}
 	for _, cell := range cells {
+		if _, _, qualified := requiredAnchorQualifiedParts(key); qualified {
+			if requiredAnchorQualifiedTokenPresent(cell, key) {
+				return true
+			}
+			continue
+		}
 		if strings.Contains(cell, key) {
 			return true
 		}
 	}
 	return false
+}
+
+func requiredAnchorQualifiedTokenPresent(cell, key string) bool {
+	for from := 0; from <= len(cell)-len(key); {
+		rel := strings.Index(cell[from:], key)
+		if rel < 0 {
+			return false
+		}
+		start := from + rel
+		end := start + len(key)
+		leftOK := start == 0 || !requiredAnchorIdentifierByte(cell[start-1])
+		rightOK := end == len(cell) || !requiredAnchorIdentifierByte(cell[end])
+		if leftOK && rightOK {
+			return true
+		}
+		from = start + 1
+	}
+	return false
+}
+
+func requiredAnchorIdentifierByte(b byte) bool {
+	return b >= 'a' && b <= 'z' ||
+		b >= 'A' && b <= 'Z' ||
+		b >= '0' && b <= '9' ||
+		b == '_' || b == '.' || b == ':'
 }
 
 func recordAnchorSurface(dst map[string]struct{}, text string) {
@@ -247,12 +286,30 @@ func requiredAnchorKey(text string) string {
 }
 
 func requiredAnchorAnyKeyPresent(text string, present map[string]struct{}) bool {
-	for _, key := range requiredAnchorSurfaceKeys(text) {
+	for _, key := range requiredAnchorRequiredKeys(text) {
 		if _, ok := present[key]; ok {
 			return true
 		}
 	}
 	return false
+}
+
+// requiredAnchorRequiredKeys preserves the identity boundary of a qualified
+// required endpoint. A present surface may still expand into owner/member keys
+// (so StageOutput.AnalysisIR can carry the two simple anchors StageOutput and
+// AnalysisIR), but a required gate.Run must not itself degrade to owner=gate
+// or member=run: that would let gate.RunWith satisfy it through the shared
+// owner. Matching remains exact after deterministic punctuation compaction.
+func requiredAnchorRequiredKeys(text string) []string {
+	primary := requiredAnchorKey(text)
+	if primary == "" {
+		return nil
+	}
+	out := []string{primary}
+	if compact := requiredAnchorCompactKey(primary); compact != "" {
+		out = append(out, "compact:"+compact)
+	}
+	return out
 }
 
 func requiredAnchorSurfaceKeys(text string) []string {

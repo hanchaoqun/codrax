@@ -4139,6 +4139,68 @@ retry-state doc 图覆盖旧 rejected attachment 的端到端测试。
 `EVAL-B24-EDGEAUTH1=implemented / replay-next`；`EVAL-B24-ENDPOINT1=P1/open`；
 `EVAL-B24-EVALDIR1=P1/open`。
 
+#### B24-d r1：call-edge authority 通过，精确 endpoint 合同成为唯一 P1 主阻塞
+
+同一 read/write 两 case 在 `main@6fd46c10b` 严格并行复放，runner 仍为 2 PASS；
+人工为 `patch_c_typo=PASS`、`qf_sequence_analyzer_gate=FAIL`：
+
+1. 写模式 102s，plan/apply/verify 与单行 typo patch 继续稳定。
+2. read case 从上一轮 458s / 12 rejects 降到 252s / 4 rejects。首稿伪 sibling
+   sequence 被 hard authority 拒绝；最终只剩一张 `buildAnalysisIR -> each grounded
+   callee` 的 star 图，`AnchorSymbol` 短表面正确授权，旧 rejected 图没有回流。
+   因此 `EVAL-B24-EDGEAUTH1`、`EVAL-B24-CALLEEALIAS1`、
+   `EVAL-B24-ATTACH1` 均由真实复放覆盖。
+3. `EVAL-B24-ENDPOINT1/P1` 仍导致人工失败：用户精确终点是 `gate.Run`，源码主路径
+   终点是 `gate.RunWith`；答案静默采用后者，没有披露“收集到的 typed call-edge
+   证据未证明到 `gate.Run` 的路径”。runner 仍因 substring oracle 将
+   `gate.RunWith` 误当成 `gate.Run` 而 PASS。
+4. 深层原因有两层：semantic view 日志始终为 `required_mechanism_anchors=0`，精确
+   source/sink 没有成为 call-chain 可见义务；即使义务存在，现有 required-anchor
+   matcher 也会把 qualified required key 分解成 owner/member，导致 `gate.RunWith`
+   通过共享 owner `gate` 冒充 `gate.Run`。
+5. 最优通用修复冻结为：call-chain family 的 typed endpoint 优先于 relation/category
+   抑制；qualified **required** anchor 只允许 exact qualified/compact-qualified 命中，
+   但 present qualified surface 仍可展开 owner/member，以保留
+   `StageOutput.AnalysisIR` 同时承载两个简单 anchor 的旧能力。不得扫描 RawRequest、
+   summary/final prose、case ID 或用 prefix/substring/fuzzy symbol 匹配。
+6. `EVAL-B24-KEYSET1/P2` 仍开放：主列表 17 项、系统清册 19 项、summary 使用 19；
+   这是 key subset 与 complete roster 的 typed scope/cardinality gap，不与 endpoint P1
+   混批，不通过扫描“关键”等字样解决。
+
+状态：`EVAL-B24-EDGEAUTH1=covered`；`EVAL-B24-CALLEEALIAS1=covered`；
+`EVAL-B24-ATTACH1=covered`；`EVAL-B24-ENDPOINT1=P1/fix-in-progress`；
+`EVAL-B24-EVALDIR1=P1/open`；`EVAL-B24-KEYSET1=P2/open`。
+
+#### B24-e：call-chain endpoint identity authority
+
+本批完成 typed endpoint 的编译和匹配修复：
+
+1. `QFCallChain` 成为 relation/category suppression 的显式例外。源码 call-chain 的
+   source/sink 是 endpoint identity，不是待枚举的 answer-member；即使 analyzer 同时
+   发出 `is_relational_lookup` / `is_category_enumeration`，current-request 的 typed
+   `MentionedEntities/ExactTargets` 仍编译为 required mechanism anchors。scalar、count、
+   config 和 runtime external-source suppression 保持原样。
+2. qualified **required** anchor 只生成 exact primary 与 exact compact-qualified key；
+   不再降级成 owner/member。present qualified surface 仍展开 owner/member，所以
+   `StageOutput.AnalysisIR` 继续能同时承载简单 anchors `StageOutput`、`AnalysisIR`，但
+   `gate.RunWith` 不能再通过 owner=`gate` 冒充 `gate.Run`。
+3. table-cell 兼容面同步改为 qualified token boundary；`gate.Run (requested endpoint)`
+   可以承载 exact endpoint，`gate.RunWith ...` 不可通过 substring 绕行。
+4. pre-emit repair guidance 只读取 typed missing-anchor 集：若证据仅证明 sibling/nearby
+   symbol 或未证明到 exact endpoint 的路径，要求保留 exact requested label 并在 item
+   text 披露证据边界，不得静默替换。硬判定仍不读取 item text、RawRequest、summary、
+   final prose 或 case ID。
+5. `QFRootCauseTrace` 不在启用 family，显式时间窗的 Trace 因果投影、根因排序、唤醒链、
+   窗内可消除量和自动补齐路径未改。
+
+验证：`go test ./internal/types ./internal/tool ./internal/orchestrator ./internal/agent -count=1`
+全部通过（types 18.901s、tool 162.403s、orchestrator 11.128s、agent 3.663s）；新增回归
+固定 relation/category call-chain 正臂、qualified sibling 的 label/cell 负臂、annotated exact
+cell 正臂及旧 owner/member 承载能力。
+
+状态：`EVAL-B24-ENDPOINT1=implemented / full-tests-pass / same-pair-replay-next`；
+`EVAL-B24-EVALDIR1=P1/open`；`EVAL-B24-KEYSET1=P2/open`。
+
 ### B21-GREP：literal/regex 查询语义进入 typed 证据链（2026-08-01）
 
 `EVAL-B21-GREP1` 已按软恢复而非硬拒绝施工：
