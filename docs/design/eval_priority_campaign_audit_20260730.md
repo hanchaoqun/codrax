@@ -3919,6 +3919,47 @@ B18c 使用一条通用 typed 规则修复：
 
 状态：`implemented / full-tests-pass / cross-relation replay next`。
 
+#### B18f r1：图兼容与显式窗非回归回放（2026-08-01）
+
+严格并行 2 个回放均为 runner PASS / human PASS：
+
+- `qf_type_relation_loop_controller`：270s，最终 typed roster 为
+  `principal=12, auxiliary=3`，可见清单只列 12 个 production 实现；
+  Mermaid 为合法 `flowchart TD`，没有 `codraxNode` 伪节点；
+- `real_trace_h8_semantic_edge_anchor_sentinel`：135s，3 次
+  `trace_query`、0 次 midloop。
+
+LoopController 本轮模型原始提交已经使用合法
+`LoopController -->|implements| implementation` 边，因此生产回放没有再次
+触发 `<|--` 的兼容改写。不能把“最终图正确”夸大为“本轮运行命中改写分支”；
+B18e 的真实坏图是 production witness，`Parent <|-- Child`、
+`Child --|> Parent`、quoted label 与真正 `classDiagram` 的精确行为由
+`internal/mermaidcompat` 结构测试覆盖。
+
+H8 再次逐项确认显式窗能力未回归：
+
+- 用户窗保持为 `34579.490000..34579.500000`；
+- 根因排序主因仍为 NetworkService 的 5.951ms 有效归因；
+- 唤醒链仍为
+  `NetworkService -> CookieMonsterCl -> com.baidu.tieba-59566`；
+- `◎ 窗内可消除量总览` 与 `trace-causal-projection` 均发布；
+- `Trace 因果投影覆盖边界` 保留
+  `frame_causality=unproven` 和 `enumeration_status=incomplete`；
+- 成文前确定性 `frame_root_cause_bundle` 系统补采仍绑定同一个显式窗。
+
+H8 的 `style=1` 只来自“值得注意的是”一次；运行日志明确写明
+`answer style advisory (observation-only, never gates)`，不是答案缺证或
+合同失败。Loop 的 270s/8 次 midloop 相比前轮偏高，但语义面正确，当前仅记
+单次模型/探索成本波动，不为它新增硬门或单 case 拟合。
+
+状态：
+
+| ID | 状态 |
+|---|---|
+| EVAL-B18-DIAG1 | covered：production witness + exact structural fixtures + valid replay；本轮未命中 rewrite 分支 |
+| H8 explicit-window non-regression | covered：B18f r1 runner/human PASS |
+| B18 campaign | closed；下一批回到异构高优先级矩阵 |
+
 #### B18d r1：candidate identity 收敛通过（2026-08-01）
 
 严格并行 2 个回放均为 runner PASS / human PASS：
