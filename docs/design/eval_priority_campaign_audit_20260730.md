@@ -4782,6 +4782,32 @@ Git 用例 human FAIL 还包括一个独立事实错误：grep 原始结果明�
 
 状态：`implemented / internal-tool-full-tests-pass / same-pair replay next`。
 
+#### B19h-c r1：主结论接管有效，发现系统投影内部残余与声明波动
+
+严格并行 2 个相同 Trace case，runner 1/2 PASS；人工审计结论如下：
+
+- 显式时间窗正例的人工作答主要求通过：答案第一块已由 typed authority 接管，明确
+  `frame causation=unproven`，且主要时间占用/新修向与窗内可消除量/既有规则两轴、
+  根因候选排序、唤醒链、代表窗、Trace 因果投影、系统自动补采均保持。
+- 同一正例暴露 `EVAL-B19-CAUSAL1` 的系统内部三处残余：动态图例仍定义
+  “主根因=已证链上候选”，逐节点明细仍标“因果位置:主根因(优先处理)”，下一步仍写
+  “对主根因…下钻”。这不是模型原文，而是确定性投影的旧词面。已追加统一 typed
+  分支：unproven 时分别改为候选榜定义、首要可消除候选位置、针对候选的验证建议；
+  已证车道继续走原有词面。新增结构测试遍历所有发布块，禁止上述已证因果残留。
+- 无窗有限事实 case runner 与人工均失败：analyzer 本轮发出
+  `runtime_question_profile=causal_diagnosis`，虽然其 typed rationale 只描述“是否、
+  时间、原因、总量”；紧邻上一轮同 case 则正确发出 `bounded_fact_set`。因此系统按
+  当前 typed 声明合法展开了全因果报告，三段和 `0.635ms` 事实本身仍正确。
+  该现象把 `EVAL-B19-DECL1` 从字段漏报扩展为 typed question-profile 稳定性问题；
+  不通过扫描用户原文/模型 rationale 修补，需从结构化声明一致性与重试稳定性处理。
+
+本轮后续修补的定向测试已通过；`internal/tool` 全量测试曾被表词面单源 tripwire
+捕获新增徽章字面量，已改为复用 `tracefence.BadgeGlyphs()` 单源；第二次
+`go test ./internal/tool -count=1` 全量通过（157.674s）。
+
+状态：`EVAL-B19-CAUSAL1=implemented/full-tests-pass/replay-next`；
+`EVAL-B19-DECL1=P1/open`；`EVAL-B19-FACTSET1=covered-but-declaration-unstable`。
+
 ### 后续 eval 维度扩展（用户追加，2026-08-01）
 
 当前 Trace P0 收口并回放后，继续维持每批严格并行 2 个，按风险交叉覆盖：

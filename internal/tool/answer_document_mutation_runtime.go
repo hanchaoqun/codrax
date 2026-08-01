@@ -7998,6 +7998,9 @@ func runtimeTraceNextStepItems(doc *types.AnswerDocumentV2, ctx *types.BusContex
 		return nil
 	}
 	zh := runtimeTraceCausalProjectionUseChinese(requestedAnswerDocumentLanguage(ctx))
+	causalUnproven := runtimeTraceCoverageAuthority(
+		types.ObservationLedgerInputFromBusContext(ctx, types.ObservationExtractLedgerEvidenceLimit),
+	).causalUnproven
 	// PTV8-RCR-B (UXA 域C #12, 2026-07-08). EVOLUTION RECORD: every item used
 	// to re-print a bold 「下一步」 label under a block already titled 下一步
 	// (4 条 8 个"下一步") — the per-item label is retired; the renderer's
@@ -8081,7 +8084,7 @@ func runtimeTraceNextStepItems(doc *types.AnswerDocumentV2, ctx *types.BusContex
 	// guarantees the seat even when the comparison family already filled the
 	// base cap (see the N2 ruling on the constant).
 	undrilledHeadlineRows := 0
-	for _, hint := range runtimeTraceNextStepUndrilledHeadlineHints(ledger, zh) {
+	for _, hint := range runtimeTraceNextStepUndrilledHeadlineHintsWithAuthority(ledger, zh, causalUnproven) {
 		if hint == "" || seenText[hint] {
 			continue
 		}
@@ -8435,6 +8438,10 @@ func runtimeTraceNextStepUnsampledComparisonHint(ctx *types.BusContext, ledger t
 // disambiguate with the artifact label; identical texts dedupe here and the
 // caller layers the shared verbatim display dedupe on top.
 func runtimeTraceNextStepUndrilledHeadlineHints(ledger types.ObservationLedger, zh bool) []string {
+	return runtimeTraceNextStepUndrilledHeadlineHintsWithAuthority(ledger, zh, false)
+}
+
+func runtimeTraceNextStepUndrilledHeadlineHintsWithAuthority(ledger types.ObservationLedger, zh, causalUnproven bool) []string {
 	set := types.CompileTraceCausalProjectionSet(ledger)
 	multi := len(set.Projections) > 1
 	var out []string
@@ -8461,7 +8468,7 @@ func runtimeTraceNextStepUndrilledHeadlineHints(ledger types.ObservationLedger, 
 		if multi {
 			artifact = strings.TrimSpace(projection.ArtifactLabel)
 		}
-		text := runtimeTraceNextStepUndrilledHeadlineText(*lead, artifact, depthUnresolved, zh)
+		text := runtimeTraceNextStepUndrilledHeadlineTextWithAuthority(*lead, artifact, depthUnresolved, zh, causalUnproven)
 		if text == "" || seen[text] {
 			continue
 		}
@@ -8508,6 +8515,10 @@ func runtimeTraceNextStepHeadlineDepthUnresolved(lead types.TraceCausalProjectio
 // Identity strings and typed enum wording only — the row carries no scalar
 // claims.
 func runtimeTraceNextStepUndrilledHeadlineText(lead types.TraceCausalProjectionNode, artifact string, depthUnresolved, zh bool) string {
+	return runtimeTraceNextStepUndrilledHeadlineTextWithAuthority(lead, artifact, depthUnresolved, zh, false)
+}
+
+func runtimeTraceNextStepUndrilledHeadlineTextWithAuthority(lead types.TraceCausalProjectionNode, artifact string, depthUnresolved, zh, causalUnproven bool) string {
 	name := strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(lead, zh))
 	if name == "" {
 		return ""
@@ -8549,15 +8560,23 @@ func runtimeTraceNextStepUndrilledHeadlineText(lead types.TraceCausalProjectionN
 		residualEN = ", yet the " + runtimeTraceProjBlockedReasonResidualWord(lead, false)
 	}
 	if zh {
-		if depthUnresolved {
-			return fmt.Sprintf("对主根因 %s%s在其发生窗执行 wakeup_chain / critical_blocking_calls 下钻:该行当前深度未解析,尚无已核实的上游因果%s", subject, zhTail, residualZH)
+		subjectKind := "主根因"
+		if causalUnproven {
+			subjectKind = "首要可消除候选"
 		}
-		return fmt.Sprintf("对主根因 %s%s执行 critical_blocking_calls,并调整窗口后重试 wakeup_chain:所选窗口内无匹配唤醒记录,无法继续上溯", subject, zhTail)
+		if depthUnresolved {
+			return fmt.Sprintf("对%s %s%s在其发生窗执行 wakeup_chain / critical_blocking_calls 下钻:该行当前深度未解析,尚无已核实的上游因果%s", subjectKind, subject, zhTail, residualZH)
+		}
+		return fmt.Sprintf("对%s %s%s执行 critical_blocking_calls,并调整窗口后重试 wakeup_chain:所选窗口内无匹配唤醒记录,无法继续上溯", subjectKind, subject, zhTail)
+	}
+	primaryKind := "primary root cause"
+	if causalUnproven {
+		primaryKind = "leading eliminable candidate"
 	}
 	if depthUnresolved {
-		return fmt.Sprintf("Drill into the primary root cause %s with wakeup_chain / critical_blocking_calls in its occurrence window: its chain depth is unresolved and no verified upstream cause is attached yet%s", subject, residualEN)
+		return fmt.Sprintf("Drill into the %s %s with wakeup_chain / critical_blocking_calls in its occurrence window: its chain depth is unresolved and no verified upstream cause is attached yet%s", primaryKind, subject, residualEN)
 	}
-	return fmt.Sprintf("Run critical_blocking_calls for the primary root cause %s and retry wakeup_chain over an adjusted window: the selected window has no matching wakeup record, so the chain cannot be traced further", subject)
+	return fmt.Sprintf("Run critical_blocking_calls for the %s %s and retry wakeup_chain over an adjusted window: the selected window has no matching wakeup record, so the chain cannot be traced further", primaryKind, subject)
 }
 
 // runtimeTraceNextStepFlatAnchorRecoveryHints returns the RN-13(b) recovery

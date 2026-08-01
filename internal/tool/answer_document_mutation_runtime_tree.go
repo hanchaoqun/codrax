@@ -2500,7 +2500,27 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 // keep their catalog wording verbatim (NEW-1 included) and nest under the
 // group header with a two-space indent. Empty groups render no header.
 func runtimeTraceProjLegendGroupLines(marks *runtimeTraceProjMarkSet, zh bool) []string {
+	return runtimeTraceProjLegendGroupLinesWithAuthority(marks, zh, false)
+}
+
+func runtimeTraceProjLegendGroupLinesWithAuthority(marks *runtimeTraceProjMarkSet, zh, causalUnproven bool) []string {
 	catalog := runtimeTraceProjLegendCatalog()
+	if causalUnproven {
+		badges := tracefence.BadgeGlyphs()
+		badgeRange, badgeOne := "TOP5", "TOP1"
+		if len(badges) > 0 {
+			badgeRange = badges[0] + ".." + badges[len(badges)-1]
+			badgeOne = badges[0]
+		}
+		for i := range catalog {
+			if catalog[i].Mark != runtimeTraceProjMarkBadge {
+				continue
+			}
+			catalog[i].ZH = "- `" + badgeRange + "` = " + tracefence.SeatChannelChainZH + "候选前五(依有效归因),按板各发(每块查询板各自的 TOP5);佩章行行2不再复读 " + tracefence.SeatChannelChainZH + "#N 词(徽章即序数;未佩章而有序数的行保留词形);标题首要可消除候选由凭证强度与有效归因共同选出," + badgeOne + "为引擎发布的板内有效归因序,两者可能不同;该排序只安排修复验证,不证明具体帧卡顿或丢帧因果。"
+			catalog[i].EN = "- `" + badgeRange + "` = the top-5 " + tracefence.SeatChannelChainEN + " candidates (by effective attribution), issued per board (each query board its own TOP5); a badge-wearing row does not restate the " + tracefence.SeatChannelChainEN + " #N word on its identity line (the badge IS the ordinal; un-badged rows with an ordinal keep the word form); the leading eliminable candidate is elected from credential strength and effective attribution while " + badgeOne + " is the engine-published within-board effective-attribution order, so they may differ; this ordering prioritizes repair validation and does not prove causation for a specific stalled or dropped frame."
+			break
+		}
+	}
 	collect := func(group string) []runtimeTraceProjLegendEntry {
 		var out []runtimeTraceProjLegendEntry
 		for _, entry := range catalog {
@@ -5511,6 +5531,10 @@ func runtimeTraceProjCausalPositionLayerCell(node types.TraceCausalProjectionNod
 // non-lead rows — a ◇ stanza row never prints 主根因(优先处理); it wears the
 // §29.36.2 adjacent channel word instead (audit fact stays on 邻近影响#N).
 func runtimeTraceProjDetailPositionCell(row runtimeTraceProjTreeRow, leadKey string, zh bool) string {
+	return runtimeTraceProjDetailPositionCellWithAuthority(row, leadKey, zh, false)
+}
+
+func runtimeTraceProjDetailPositionCellWithAuthority(row runtimeTraceProjTreeRow, leadKey string, zh, causalUnproven bool) string {
 	node := row.Node
 	// PTV8-RCR-B (UXA 域B #24 / B#3 verify 关注线程 family, 2026-07-08): the
 	// focused thread's own rows never fall to the 支撑 default arm (the block
@@ -5551,6 +5575,12 @@ func runtimeTraceProjDetailPositionCell(row runtimeTraceProjTreeRow, leadKey str
 			display.ChainRelevance = "adjacent"
 		}
 		return runtimeTraceProjDetailPositionMerged(display, zh, row.FlatChain)
+	}
+	if causalUnproven && leadKey != "" && runtimeTraceCausalProjectionNodeKey(node) == leadKey {
+		if zh {
+			return "首要可消除候选(优先验证;帧因果未证)"
+		}
+		return "leading eliminable candidate (validate first; frame causation unproven)"
 	}
 	return runtimeTraceProjDetailPositionMerged(node, zh, row.FlatChain)
 }
@@ -14987,7 +15017,7 @@ func runtimeTraceProjLeadText(projection types.TraceCausalProjection, model runt
 			// 远在证据索引导语,导语版保留).
 			"- 时长与排序均来自 trace 证据;行尾 [E#] 可在文末证据索引查到对应 trace 行号/时间区间,E#(+N) 表示另合并 N 条同类观测(与 N次 实例合并计数是两种口径,互不换算)。",
 		}
-		lines = append(lines, runtimeTraceProjLegendGroupLines(model.Marks, true)...)
+		lines = append(lines, runtimeTraceProjLegendGroupLinesWithAuthority(model.Marks, true, model.CausalConclusionUnproven)...)
 		sections = append(sections, strings.Join(lines, "\n"))
 	} else {
 		headClause := "- Top-down = tracing upstream from the focused thread."
@@ -14999,7 +15029,7 @@ func runtimeTraceProjLeadText(projection types.TraceCausalProjection, model runt
 			headClause,
 			"- Durations and ranks come from trace evidence; a trailing [E#] resolves to trace line/time spans in the evidence index at the end, and E#(+N) means N more observations of the same kind were merged in (a different count from n=N instance merging; the two never convert).",
 		}
-		lines = append(lines, runtimeTraceProjLegendGroupLines(model.Marks, false)...)
+		lines = append(lines, runtimeTraceProjLegendGroupLinesWithAuthority(model.Marks, false, model.CausalConclusionUnproven)...)
 		sections = append(sections, strings.Join(lines, "\n"))
 	}
 	if len(model.Background) == 0 {
@@ -18945,7 +18975,7 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 		// only; a node without the typed pair renders nothing.
 		add("进程", "process", runtimeTraceProjDetailProcessCell(node))
 		add("层级", "layer", runtimeTraceProjDetailLayerCell(row, zh, flat))
-		add("因果位置", "causal position", runtimeTraceProjDetailPositionCell(row, model.LeadKey, zh))
+		add("因果位置", "causal position", runtimeTraceProjDetailPositionCellWithAuthority(row, model.LeadKey, zh, model.CausalConclusionUnproven))
 		typeToken := runtimeTraceCausalProjectionRawTypeToken(node)
 		add("类型", "type", runtimeTraceCausalProjectionMarkdownSafe(typeToken))
 		// PTV8-RCR-B (UXA 域B #17, 2026-07-08). EVOLUTION RECORD: the

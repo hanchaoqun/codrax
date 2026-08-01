@@ -82,6 +82,29 @@ func TestTypedUnprovenCausalityOwnsPrincipalConclusionWithoutProseScan(t *testin
 		strings.Contains(projection.Text, "主根因(=已证链上单项最大可消除量)") {
 		t.Fatalf("system projection retained a proven-cause crown under unproven authority:\n%+v", projection)
 	}
+	var rendered strings.Builder
+	for _, block := range persisted.Blocks {
+		rendered.WriteString(block.Title)
+		rendered.WriteString("\n")
+		rendered.WriteString(block.Text)
+		for _, item := range block.Items {
+			rendered.WriteString("\n")
+			rendered.WriteString(item.Text)
+		}
+	}
+	for _, forbidden := range []string{
+		"标题主根因", "主根因=已证", "因果位置: 主根因", "对主根因",
+		"headline primary root cause", "primary root cause = the seat", "causal position: primary", "Drill into the primary root cause",
+	} {
+		if strings.Contains(rendered.String(), forbidden) {
+			t.Fatalf("unproven system surfaces retained proven-cause wording %q:\n%s", forbidden, rendered.String())
+		}
+	}
+	for _, want := range []string{"候选前五", "首要可消除候选(优先验证;帧因果未证)"} {
+		if !strings.Contains(rendered.String(), want) {
+			t.Fatalf("unproven system surfaces missing authority-aware wording %q:\n%s", want, rendered.String())
+		}
+	}
 }
 
 func TestBoundedTypedCausalityDoesNotReplaceModelPrincipal(t *testing.T) {
