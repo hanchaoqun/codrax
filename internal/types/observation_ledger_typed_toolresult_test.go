@@ -260,6 +260,32 @@ func TestCompileObservationLedgerPathDiscoveryUsesTypedCarrier(t *testing.T) {
 	}
 }
 
+func TestCompileObservationLedgerGrepLiteralRegexSyntaxKeepsTypedSemantics(t *testing.T) {
+	result := ToolResult{
+		ToolName: "grep",
+		Success:  true,
+		Summary:  "no matches found",
+		PathDiscovery: &ToolPathDiscovery{
+			Kind:                   ToolPathDiscoveryKindGrep,
+			Pattern:                "Alpha|Beta",
+			MatchMode:              "literal",
+			LiteralRegexSyntaxHint: true,
+			Path:                   "internal",
+			NoMatches:              true,
+		},
+		Timestamp: time.Date(2026, 8, 1, 9, 0, 0, 0, time.UTC),
+	}
+	ledger := CompileObservationLedger(ObservationLedgerInput{ToolResults: []ToolResult{result}})
+	got := findTypedToolObservationRecord(t, ledger, "tool:0#path_discovery")
+	if got.EvidenceKind != EvidenceAbsent ||
+		!strings.Contains(got.Summary, "match_mode=literal") ||
+		!strings.Contains(got.Summary, "literal_regex_syntax_hint=true") ||
+		!observationRecordHasNote(got, "match_mode=literal") ||
+		!observationRecordHasNote(got, "literal_regex_syntax_hint=true; exact-literal zero-match is not a regex-alternative absence proof") {
+		t.Fatalf("typed literal/regex ambiguity was not preserved in ledger: %+v", got)
+	}
+}
+
 func TestCompileObservationLedgerReadCoverageUsesTypedCarrier(t *testing.T) {
 	result := ToolResult{
 		ToolName: "read_file",

@@ -2094,6 +2094,8 @@ func grepZeroMatchRefinement(ctx *types.BusContext, params grepToolParams, searc
 		requiredFields = []string{"path", "view"}
 	case grepParamsTargetRuntimeArtifactFile(ctx, params) || grepParamsTargetTraceQueryArtifactFile(ctx, params):
 		reasonCode = "grep_runtime_artifact_zero_match"
+	case params.FixedString && len(grepFixedStringRegexMarkers(params.Pattern)) > 0:
+		reasonCode = "grep_fixed_string_regex_syntax_zero_match"
 	case !params.FixedString && grepPatternHasCommonRegexShorthand(params.Pattern):
 		reasonCode = "grep_regex_shorthand_zero_match"
 	default:
@@ -2136,6 +2138,9 @@ func grepZeroMatchRefinement(ctx *types.BusContext, params grepToolParams, searc
 	}
 	if params.LineEnd > 0 {
 		preferred["line_end"] = strconv.Itoa(params.LineEnd)
+	}
+	if reasonCode == "grep_fixed_string_regex_syntax_zero_match" {
+		preferred["fixed_string"] = "false"
 	}
 	hint := types.NormalizeToolRefinementHint(types.ToolRefinementHint{
 		ReasonCode:        reasonCode,
@@ -3330,9 +3335,15 @@ func grepPathDiscoveryAdvisory(params grepToolParams) string {
 
 func grepPathDiscovery(params grepToolParams, noMatches bool, resultCount int, candidateFiles []string) *types.ToolPathDiscovery {
 	files, truncated := boundedPathDiscoveryCandidateFiles(candidateFiles, toolWidthPathDiscoveryCandidateFileLimit())
+	matchMode := "regex"
+	if params.FixedString {
+		matchMode = "literal"
+	}
 	return &types.ToolPathDiscovery{
 		Kind:                    types.ToolPathDiscoveryKindGrep,
 		Pattern:                 strings.TrimSpace(params.Pattern),
+		MatchMode:               matchMode,
+		LiteralRegexSyntaxHint:  params.FixedString && len(grepFixedStringRegexMarkers(params.Pattern)) > 0,
 		Path:                    strings.TrimSpace(params.Path),
 		Include:                 strings.TrimSpace(params.Include),
 		FileType:                strings.TrimSpace(params.FileType),
@@ -3420,7 +3431,7 @@ func grepFixedStringRegexAdvisory(params grepToolParams) string {
 	if len(markers) == 0 {
 		return ""
 	}
-	return "fixed_string_regex_note=fixed_string=true treats regex syntax as literal text; pattern contains " + strings.Join(markers, ", ") + ". If you intended regex matching, re-run with fixed_string=false; if you intended exact text, remove regex escapes/metacharacters from the literal.\n"
+	return "fixed_string_regex_note=fixed_string=true treats regex syntax as literal text; pattern contains " + strings.Join(markers, ", ") + ". If you intended regex matching or alternatives, re-run with fixed_string=false. If you intended this exact literal (including punctuation), keep fixed_string=true; this zero-match proves only that exact literal was not found, not that regex alternatives were absent.\n"
 }
 
 func grepFixedStringRegexMarkers(pattern string) []string {
@@ -3436,7 +3447,28 @@ func grepFixedStringRegexMarkers(pattern string) []string {
 			out = append(out, marker+"]")
 		}
 	}
+	if grepPatternContainsUnescapedRune(pattern, '|') {
+		out = append(out, "|")
+	}
 	return out
+}
+
+func grepPatternContainsUnescapedRune(pattern string, want rune) bool {
+	escaped := false
+	for _, r := range pattern {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if r == '\\' {
+			escaped = true
+			continue
+		}
+		if r == want {
+			return true
+		}
+	}
+	return false
 }
 
 func grepRuntimeArtifactParamAdvisory(params grepToolParams) string {

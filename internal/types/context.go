@@ -6528,6 +6528,8 @@ const (
 type ToolPathDiscovery struct {
 	Kind                    string   `json:"kind,omitempty"`
 	Pattern                 string   `json:"pattern,omitempty"`
+	MatchMode               string   `json:"match_mode,omitempty"`
+	LiteralRegexSyntaxHint  bool     `json:"literal_regex_syntax_hint,omitempty"`
 	Path                    string   `json:"path,omitempty"`
 	Recursive               bool     `json:"recursive,omitempty"`
 	Include                 string   `json:"include,omitempty"`

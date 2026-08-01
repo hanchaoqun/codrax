@@ -3636,6 +3636,42 @@ func TestGrepTool(t *testing.T) {
 		}
 	})
 
+	t.Run("fixed string alternation-looking no-match gives typed recovery", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "helpers.go")
+		if err := os.WriteFile(path, []byte("func explicitRuntimeArtifactLog() {}\nfunc ExplicitRuntimeArtifact() {}\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		ctx := newBusContext()
+		params, _ := json.Marshal(grepToolParams{
+			Pattern:     "explicitRuntimeArtifactLog|explicit_runtime_artifact|ExplicitRuntimeArtifact",
+			Path:        path,
+			FixedString: true,
+		})
+		res, err := (&GrepTool{}).Execute(ctx, params)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range []string{
+			"no matches found",
+			"fixed_string_regex_note=",
+			"pattern contains |",
+			"regex alternatives were absent",
+		} {
+			if !strings.Contains(res.Summary, want) {
+				t.Fatalf("fixed-string alternation advisory missing %q:\n%s", want, res.Summary)
+			}
+		}
+		if res.Refinement == nil || res.Refinement.ReasonCode != "grep_fixed_string_regex_syntax_zero_match" ||
+			res.Refinement.PreferredNextTool != "grep" || res.Refinement.PreferredParams["fixed_string"] != "false" {
+			t.Fatalf("typed refinement=%+v", res.Refinement)
+		}
+		if res.PathDiscovery == nil || res.PathDiscovery.MatchMode != "literal" ||
+			!res.PathDiscovery.LiteralRegexSyntaxHint || !res.PathDiscovery.NoMatches {
+			t.Fatalf("typed path discovery=%+v", res.PathDiscovery)
+		}
+	})
+
 	t.Run("runtime artifact grep surfaces parameter advisory", func(t *testing.T) {
 		ctx := newBusContext()
 		contextLines := 3

@@ -2095,6 +2095,12 @@ func pathDiscoveryObservationSummary(discovery ToolPathDiscovery) string {
 	if discovery.NoMatches {
 		parts = append(parts, "no_matches=true")
 	}
+	if mode := strings.TrimSpace(discovery.MatchMode); mode != "" {
+		parts = append(parts, "match_mode="+mode)
+	}
+	if discovery.LiteralRegexSyntaxHint {
+		parts = append(parts, "literal_regex_syntax_hint=true")
+	}
 	if discovery.CandidateFilesTruncated {
 		parts = append(parts, "candidate_files_truncated=true")
 	}
@@ -2111,6 +2117,12 @@ func pathDiscoveryObservationNotes(discovery ToolPathDiscovery) []string {
 	}
 	if discovery.IncludeAuxiliary {
 		notes = append(notes, "include_auxiliary=true")
+	}
+	if mode := strings.TrimSpace(discovery.MatchMode); mode != "" {
+		notes = append(notes, "match_mode="+mode)
+	}
+	if discovery.LiteralRegexSyntaxHint {
+		notes = append(notes, "literal_regex_syntax_hint=true; exact-literal zero-match is not a regex-alternative absence proof")
 	}
 	if include := strings.TrimSpace(discovery.Include); include != "" {
 		notes = append(notes, "include="+include)

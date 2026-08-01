@@ -3919,6 +3919,34 @@ B18c 使用一条通用 typed 规则修复：
 
 状态：`implemented / full-tests-pass / cross-relation replay next`。
 
+### B21-GREP：literal/regex 查询语义进入 typed 证据链（2026-08-01）
+
+`EVAL-B21-GREP1` 已按软恢复而非硬拒绝施工：
+
+1. `ToolPathDiscovery` 新增 `match_mode` 与
+   `literal_regex_syntax_hint`。它们直接来自 grep schema 参数和工具侧语法检查，
+   不解析用户原始输入、模型 thinking/summary/final，也不把噪声分数用于硬门。
+2. `fixed_string=true` 且零命中时，若 pattern 含未转义的 `|` 或已有正则语法标记，
+   返回 typed refinement
+   `grep_fixed_string_regex_syntax_zero_match`，建议下一步仍用 grep，但显式切换
+   `fixed_string=false`。runtime artifact/trace query 的专用恢复仍保持更高优先级。
+3. 该调用仍可合法搜索带 `|` 的精确字面量，不会被拒绝；工具只披露“本次零命中仅
+   证明完整字面量不存在，不能证明各 regex alternative 均不存在”。因此这是查询语义
+   澄清，不是 absence 事实扩张。
+4. typed match mode 与 ambiguity hint 进入 Observation Ledger 的 summary/notes，
+   后续 agent 即使只消费结构化证据，也不会把 literal zero-match 当成 regex alternatives
+   的排除证明。
+5. 定向回归固定 B21 的三符号 alternation 形、typed recovery 参数、ledger 投影；
+   `go test ./internal/types ./internal/tool -count=1` 全量通过
+   （types 20.991s，tool 159.954s），`git diff --check` 通过。
+
+不变量：未修改 Trace query/family、显式时间窗报告、根因排序、唤醒链、窗内可消除量、
+因果投影或系统自动补采；未增加任何答案原文关键词硬门。
+
+状态：`EVAL-B21-GREP1=implemented/full-tests-pass/replay-next`。下一步重建当前二进制，
+严格并行 2 个 B21 读模式用例，联合回放 B21-C/S/GREP；然后转入显式 Trace 窗与
+write/plan 等异构模式。
+
 ### B19a r1：Trace 主合同保留，精确集合暴露静默改写（2026-08-01）
 
 严格并行 2 个用例，runner 2/2 PASS，人工审计 0/2：
