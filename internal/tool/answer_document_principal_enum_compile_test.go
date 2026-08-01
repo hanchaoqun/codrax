@@ -83,7 +83,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsOnlyMissingRowsForPartial
 		t.Fatalf("authored markdown table should be preserved, got: %+v", table)
 	}
 	joined := answerDocumentTestVisibleSurface(doc)
-	for _, want := range []string{"系统按已验证证据补充缺失成员", "IsRegistered", "RegisteredKinds"} {
+	for _, want := range []string{"清单完整性补充", "IsRegistered", "RegisteredKinds"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("missing typed row supplement lost %q:\n%s", want, joined)
 		}
@@ -224,7 +224,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_SectionItemsSuppressSystemSupple
 		t.Fatal("expected deterministic annotation/citation normalization")
 	}
 	visible := answerDocumentTestVisibleSurface(doc)
-	if strings.Contains(visible, "系统按已验证证据补充成员") {
+	if strings.Contains(visible, "成员清单补充") {
 		t.Fatalf("section item enum carrier should suppress duplicate system supplement:\n%s", visible)
 	}
 	for _, blockID := range []string{"entry", "builder"} {
@@ -376,7 +376,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsMissingSameNameDifferentL
 	}
 	visible := answerDocumentTestVisibleSurface(doc)
 	for _, want := range []string{
-		"系统按已验证证据补充缺失成员",
+		"清单完整性补充",
 		"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
 		"demo.ffi",
 	} {
@@ -521,7 +521,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsOnlyMissingRowsForCorrupt
 		}
 	}
 	visible := answerDocumentTestVisibleSurface(doc)
-	for _, want := range []string{"系统按已验证证据补充缺失成员", "QuestionFamily", "AnswerRequestedOutput"} {
+	for _, want := range []string{"清单完整性补充", "QuestionFamily", "AnswerRequestedOutput"} {
 		if !strings.Contains(visible, want) {
 			t.Fatalf("source-inventory missing row supplement lost %q:\n%s", want, visible)
 		}
@@ -777,7 +777,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsMissingRowsForCorruptComp
 		t.Fatalf("model-authored table should remain visibly separate, got %+v", doc.Blocks[0])
 	}
 	visible := answerDocumentTestVisibleSurface(doc)
-	for _, want := range []string{"系统按已验证证据补充缺失成员", "BetaKind", "GammaKind"} {
+	for _, want := range []string{"清单完整性补充", "BetaKind", "GammaKind"} {
 		if !strings.Contains(visible, want) {
 			t.Fatalf("corrupt authored table missing deterministic supplement %q:\n%s", want, visible)
 		}
@@ -1019,7 +1019,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_SuppressesCountMetadataBehindRic
 	visible := strings.Join(surfaces, "\n")
 	if strings.Contains(visible, "Kind 值按阶段分组") ||
 		strings.Contains(visible, "读模式 Kind (18个)") ||
-		strings.Contains(visible, "系统按已验证证据补充成员：Kind 值按阶段分组") {
+		strings.Contains(visible, "成员清单补充：Kind 值按阶段分组") {
 		t.Fatalf("count/group metadata must not materialize over richer member rows:\n%s", visible)
 	}
 	if got := strings.Count(visible, "KindSymbolPresent"); got != 1 {
@@ -1081,7 +1081,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_DecoratedMemberCoveredByCitedBar
 		surfaces = append(surfaces, block.Title, types.AnswerBlockVisibleSurface(block))
 	}
 	visible := strings.Join(surfaces, "\n")
-	if strings.Contains(visible, "系统按已验证证据补充成员：导出包级变量") {
+	if strings.Contains(visible, "成员清单补充：导出包级变量") {
 		t.Fatalf("cited bare-label item already covers decorated member; no duplicate supplement expected:\n%s", visible)
 	}
 	if got := strings.Count(visible, "ErrUnknownKind"); got != 1 {
@@ -1138,7 +1138,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_CommaLineMemberCoveredByVisibleC
 		surfaces = append(surfaces, block.Title, types.AnswerBlockVisibleSurface(block))
 	}
 	visible := strings.Join(surfaces, "\n")
-	if strings.Contains(visible, "系统按已验证证据补充缺失成员") {
+	if strings.Contains(visible, "清单完整性补充") {
 		t.Fatalf("visible caller list already covers comma-line aggregate members; no duplicate supplement expected:\n%s", visible)
 	}
 	if got := strings.Count(visible, "BuildTypedRelationQueryWithResolvedSources"); got != 1 {
@@ -1197,7 +1197,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_DoesNotDuplicateVCSCommitRowsAlr
 		t.Fatalf("visible commit rows already cover the member_set; no duplicate supplement expected: %+v", doc.Blocks)
 	}
 	for _, block := range doc.Blocks {
-		if strings.Contains(block.Title, "系统按已验证证据补充成员") {
+		if strings.Contains(block.Title, "成员清单补充") {
 			t.Fatalf("must not append duplicate VCS member supplement when labels already cover commit hashes: %+v", block)
 		}
 	}
@@ -1285,7 +1285,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_VCSSupplementUsesCommitColumn(t 
 	}
 	var supplement *types.AnswerBlock
 	for i := range doc.Blocks {
-		if strings.Contains(doc.Blocks[i].Title, "系统按已验证证据补充缺失成员：最近提交") {
+		if strings.Contains(doc.Blocks[i].Title, "清单完整性补充：最近提交") {
 			supplement = &doc.Blocks[i]
 			break
 		}
@@ -1307,7 +1307,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_VCSSupplementUsesCommitColumn(t 
 	}
 }
 
-func TestNormalizePrincipalEnumerationRowBlocks_VCSChangedPathSupplementUsesFileColumn(t *testing.T) {
+func TestNormalizePrincipalEnumerationRowBlocks_NarrativeHistoryDoesNotForceChangedPathSupplement(t *testing.T) {
 	mu := types.NewMutableState("对比最近两次提交的代码 diff，并结合当前源码分析影响链路")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
 		Kind:  types.AnswerAggregateMemberSet,
@@ -1339,29 +1339,57 @@ func TestNormalizePrincipalEnumerationRowBlocks_VCSChangedPathSupplementUsesFile
 		Text:        "当前回答已经说明了 internal/agent/explorer.go 的 FilterToolSchemas 机制，还需要补充其它变更文件。",
 	}}}
 
-	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
-		t.Fatal("expected missing changed-path supplement")
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed != 0 {
+		t.Fatalf("narrative history/current-code explanation must not force a changed-path table, fixed=%d blocks=%+v", fixed, doc.Blocks)
 	}
-	var supplement *types.AnswerBlock
-	for i := range doc.Blocks {
-		if strings.Contains(doc.Blocks[i].Title, "系统按已验证证据补充缺失成员：commit c9d1fe22 涉及文件") {
-			supplement = &doc.Blocks[i]
-			break
-		}
+	if len(doc.Blocks) != 1 {
+		t.Fatalf("narrative answer should keep its model-authored shape, got %+v", doc.Blocks)
 	}
-	if supplement == nil {
-		t.Fatalf("expected changed-path supplement, got %+v", doc.Blocks)
+	if preEmitAggregateMemberSetCoverageHardGate(ctx) {
+		t.Fatal("narrative history explanation must not turn a model-authored member_set into a hard answer-set contract")
 	}
-	if got, want := supplement.Columns, []string{"文件"}; len(got) != len(want) || got[0] != want[0] {
-		t.Fatalf("changed-path VCS supplement should use file column label, got %#v", got)
+	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 0 {
+		t.Fatalf("legacy aggregate carrier must share the narrative-history suppression, fixed=%d blocks=%+v", fixed, doc.Blocks)
 	}
-	visible := types.AnswerBlockVisibleSurface(*supplement)
-	if strings.Contains(visible, "| 提交 |") || strings.Contains(visible, "| 变更 |") {
-		t.Fatalf("changed-path supplement must not render commit/change column:\n%s", visible)
+}
+
+func TestPrincipalEnumerationNarrativeHistorySupplementSuppressed_PreservesTypedHistoryLists(t *testing.T) {
+	base := types.RequestModel{
+		Intent: types.IntentExplain,
+		Predicates: types.SemanticPredicates{
+			IsHistoryLookup:    true,
+			IsRelationalLookup: true,
+		},
 	}
-	for _, want := range []string{"docs/design/local_model_eval_compat_20260523.md", "internal/agent/explorer_test.go"} {
-		if !strings.Contains(visible, want) {
-			t.Fatalf("supplement missing changed path %q:\n%s", want, visible)
+	if !principalEnumerationNarrativeHistorySupplementSuppressed(base) {
+		t.Fatal("history-backed relational explanation without a set obligation should suppress deterministic member tables")
+	}
+	base.HistorySelectionProfile = &types.HistorySelectionProfile{
+		Mode: types.HistorySelectionRecentN, ItemKind: types.HistorySelectionItemCommit, Count: 3,
+	}
+	if principalEnumerationNarrativeHistorySupplementSuppressed(base) {
+		t.Fatal("typed recent-N history list must retain completeness supplement authority")
+	}
+	base.HistorySelectionProfile = nil
+	base.CompletenessObligation = &types.CompletenessObligation{Required: true, SourceQuote: "all three"}
+	if principalEnumerationNarrativeHistorySupplementSuppressed(base) {
+		t.Fatal("typed completeness obligation must retain supplement authority")
+	}
+}
+
+func TestPrincipalEnumerationRowsBlockTitle_DoesNotLeakInternalAuthorityProtocol(t *testing.T) {
+	set := types.EnumerationDisplaySet{Label: "公开函数"}
+	rows := []types.EnumerationDisplayRow{{Member: "Eval"}}
+	for _, got := range []string{
+		principalEnumerationRowsBlockTitle(set, rows, true, principalEnumerationSupplementMissing),
+		principalEnumerationRowsBlockTitle(set, rows, false, principalEnumerationSupplementMissing),
+		aggregateMemberSetCarrierTitle(types.AnswerAggregateFact{Label: "公开函数", Members: []string{"Eval"}}, true),
+		aggregateMemberSetCarrierTitle(types.AnswerAggregateFact{Label: "exported functions", Members: []string{"Eval"}}, false),
+	} {
+		for _, forbidden := range []string{"系统按已验证证据", "System-verified", "authority"} {
+			if strings.Contains(got, forbidden) {
+				t.Fatalf("user-visible supplement title leaked internal protocol %q: %q", forbidden, got)
+			}
 		}
 	}
 }
@@ -1456,7 +1484,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_ExternalResourceSupplementIsMark
 		t.Fatalf("system supplement must append only and preserve authored summary: %+v", doc.Blocks)
 	}
 	supplement := doc.Blocks[1]
-	if !strings.Contains(supplement.Title, "系统按已验证证据补充缺失成员：打开事故") {
+	if !strings.Contains(supplement.Title, "清单完整性补充：打开事故") {
 		t.Fatalf("external resource supplement should be clearly marked, got %q", supplement.Title)
 	}
 	if got, want := supplement.Columns, []string{"资源项", "说明"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
@@ -1551,7 +1579,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_VisibleArchitectureCoveragePreve
 	normalizePrincipalEnumerationRowBlocks(doc, ctx)
 
 	for _, block := range doc.Blocks {
-		if strings.Contains(block.Title, "系统按已验证证据补充成员") {
+		if strings.Contains(block.Title, "成员清单补充") {
 			t.Fatalf("visible architecture prose/list already covers aggregate rows; duplicate supplement should not render: %+v", doc.Blocks)
 		}
 	}
@@ -1597,7 +1625,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_SkipsRuntimeArtifactCoordinateOn
 	if strings.Contains(joined, "<native>@runtime:0") {
 		t.Fatalf("runtime artifact coordinate-only placeholder must not render as a system supplement:\n%s", joined)
 	}
-	if strings.Contains(joined, "系统按已验证证据补充成员：运行时帧占位成员") {
+	if strings.Contains(joined, "成员清单补充：运行时帧占位成员") {
 		t.Fatalf("coordinate-only runtime artifact member supplement should be skipped:\n%s", joined)
 	}
 }
@@ -1639,7 +1667,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_RuntimeArtifactProseCoveragePrev
 		visible = append(visible, block.Title, types.AnswerBlockVisibleSurface(block))
 	}
 	joined := strings.Join(visible, "\n")
-	if strings.Contains(joined, "系统按已验证证据补充成员：触发错误的函数") {
+	if strings.Contains(joined, "成员清单补充：触发错误的函数") {
 		t.Fatalf("runtime artifact prose already covers member; duplicate supplement should not render:\n%s", joined)
 	}
 }
@@ -1738,7 +1766,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_ObservationOnlyRuntimeDoesNotApp
 		t.Fatalf("normalizers should preserve the model-authored artifact answer shape, got %+v", doc.Blocks)
 	}
 	for _, block := range doc.Blocks {
-		if strings.Contains(block.Title, "系统按已验证证据补充成员") ||
+		if strings.Contains(block.Title, "成员清单补充") ||
 			testStringSliceContains(block.FacetIDs, string(types.FacetEnumerationItem)) {
 			t.Fatalf("observation-only runtime answer polluted by enumeration supplement/facet: %+v", block)
 		}
@@ -1838,7 +1866,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_UsesEnglishSupplementTitle(t *te
 		t.Fatalf("authored English table should remain and receive missing typed rows only, got %+v", doc.Blocks)
 	}
 	visible := answerDocumentTestVisibleSurface(doc)
-	for _, want := range []string{"System-verified missing member supplement", "EvalAll"} {
+	for _, want := range []string{"List completeness supplement", "EvalAll"} {
 		if !strings.Contains(visible, want) {
 			t.Fatalf("English missing row supplement lost %q:\n%s", want, visible)
 		}
@@ -1885,7 +1913,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_SystemSupplementOmitsEmptyLocati
 	if supplement == nil {
 		t.Fatalf("expected system supplement table, got %+v", doc.Blocks)
 	}
-	if !strings.Contains(supplement.Title, "系统按已验证证据补充缺失成员") {
+	if !strings.Contains(supplement.Title, "清单完整性补充") {
 		t.Fatalf("system-generated table should be explicitly marked, got %q", supplement.Title)
 	}
 	if got, want := supplement.Columns, []string{"符号名称"}; len(got) != len(want) || got[0] != want[0] {
@@ -2044,7 +2072,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_PreservesAuthoredRichRowNotes(t 
 	if strings.Contains(visible, "KindSymbolPresent常量定义") || strings.Contains(visible, "KindNoCallSites常量定义") {
 		t.Fatalf("weak evidence summaries should not overwrite richer same-row finalizer text:\n%s", visible)
 	}
-	if strings.Contains(visible, "系统按已验证证据补充说明") {
+	if strings.Contains(visible, "成员说明补充") {
 		t.Fatalf("authored row descriptions should not receive a system note supplement:\n%s", visible)
 	}
 }
@@ -2105,7 +2133,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsVerifiedNoteSupplementFor
 	if authored.Text != originalTable {
 		t.Fatalf("model-authored markdown table must not be rewritten:\n%s", authored.Text)
 	}
-	if visible := answerDocumentTestVisibleSurface(doc); strings.Contains(visible, "系统按已验证证据补充说明：Kind 常量") {
+	if visible := answerDocumentTestVisibleSurface(doc); strings.Contains(visible, "成员说明补充：Kind 常量") {
 		t.Fatalf("authored dry table must suppress note补表; notes remain available in evidence context:\n%s", visible)
 	}
 }
@@ -2152,7 +2180,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_SkipsVerifiedNoteSupplementWhenS
 
 	normalizePrincipalEnumerationRowBlocks(doc, ctx)
 	joined := answerDocumentTestVisibleSurface(doc)
-	if strings.Contains(joined, "系统按已验证证据补充说明") {
+	if strings.Contains(joined, "成员说明补充") {
 		t.Fatalf("system note supplement must not appear when typed request only asks for names/locations:\n%s", joined)
 	}
 	for _, want := range []string{"KindSymbolPresent", "KindNoCallSites"} {
@@ -2227,7 +2255,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_SkipsStaleSourceInventoryNoteSup
 
 	normalizePrincipalEnumerationRowBlocks(doc, ctx)
 	joined := answerDocumentTestVisibleSurface(doc)
-	if strings.Contains(joined, "系统按已验证证据补充说明") {
+	if strings.Contains(joined, "成员说明补充") {
 		t.Fatalf("stale source_inventory_profile ignored for a typed relation must not re-enable system note supplements:\n%s", joined)
 	}
 }
@@ -2269,7 +2297,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_CrossColumnMemberCoveragePrevent
 
 	normalizePrincipalEnumerationRowBlocks(doc, ctx)
 	joined := answerDocumentTestVisibleSurface(doc)
-	if strings.Contains(joined, "系统按已验证证据补充缺失成员") {
+	if strings.Contains(joined, "清单完整性补充") {
 		t.Fatalf("member identity split across table columns should count as visible coverage, not trigger a system table:\n%s", joined)
 	}
 	if !strings.Contains(joined, "counterfactual") || !strings.Contains(joined, "Expand") {
@@ -2314,7 +2342,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_CrossColumnMemberRequiresSameFil
 
 	normalizePrincipalEnumerationRowBlocks(doc, ctx)
 	joined := answerDocumentTestVisibleSurface(doc)
-	if !strings.Contains(joined, "系统按已验证证据补充缺失成员") ||
+	if !strings.Contains(joined, "清单完整性补充") ||
 		!strings.Contains(joined, "internal/analysis/counterfactual/expander.go:59") {
 		t.Fatalf("different-file mismatch should append the precise typed row instead of accepting the wrong file:\n%s", joined)
 	}
@@ -2385,8 +2413,8 @@ func TestNormalizePrincipalEnumerationRowBlocks_DuplicateLabelsUseMemberLocation
 
 	normalizePrincipalEnumerationRowBlocks(doc, ctx)
 	joined := answerDocumentTestVisibleSurface(doc)
-	if strings.Contains(joined, "系统按已验证证据补充缺失成员") ||
-		strings.Contains(joined, "系统按已验证证据补充可校验字段") {
+	if strings.Contains(joined, "清单完整性补充") ||
+		strings.Contains(joined, "可核验字段补充") {
 		t.Fatalf("same-label rows already visible with their own source locations must not get a duplicate system table:\n%s", joined)
 	}
 }
@@ -2489,7 +2517,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_StructuredItemRelationFieldsPrev
 
 	normalizePrincipalEnumerationRowBlocks(doc, ctx)
 	joined := answerDocumentTestVisibleSurface(doc)
-	if strings.Contains(joined, "系统按已验证证据补充缺失成员") {
+	if strings.Contains(joined, "清单完整性补充") {
 		t.Fatalf("relation identity split across structured label/text should count as visible coverage:\n%s", joined)
 	}
 }
@@ -2536,7 +2564,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_CitedPrincipalRelationRowSuppres
 
 	normalizePrincipalEnumerationRowBlocks(doc, ctx)
 	joined := answerDocumentTestVisibleSurface(doc)
-	if strings.Contains(joined, "系统按已验证证据补充缺失成员") {
+	if strings.Contains(joined, "清单完整性补充") {
 		t.Fatalf("complete cited principal row should not receive deterministic supplement:\n%s", joined)
 	}
 	if len(doc.Blocks) != 1 {
@@ -2588,7 +2616,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_DoesNotDuplicateVisibleVerifiedN
 
 	normalizePrincipalEnumerationRowBlocks(doc, ctx)
 	joined := answerDocumentTestVisibleSurface(doc)
-	if strings.Contains(joined, "系统按已验证证据补充说明") {
+	if strings.Contains(joined, "成员说明补充") {
 		t.Fatalf("already visible verified note should not be duplicated:\n%s", joined)
 	}
 }
@@ -2665,7 +2693,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_ProseDescriptionsPreventVerified
 
 	normalizePrincipalEnumerationRowBlocks(doc, ctx)
 	joined := answerDocumentTestVisibleSurface(doc)
-	if strings.Contains(joined, "系统按已验证证据补充说明") {
+	if strings.Contains(joined, "成员说明补充") {
 		t.Fatalf("model-authored prose descriptions should not receive duplicate note supplements:\n%s", joined)
 	}
 }
@@ -2719,7 +2747,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_NoteSupplementSupportsExternalOr
 
 	normalizePrincipalEnumerationRowBlocks(doc, ctx)
 	joined := answerDocumentTestVisibleSurface(doc)
-	if strings.Contains(joined, "系统按已验证证据补充说明：最近提交") ||
+	if strings.Contains(joined, "成员说明补充：最近提交") ||
 		strings.Contains(joined, "typed relation selector") {
 		t.Fatalf("authored external-origin table must suppress note补表:\n%s", joined)
 	}
@@ -3267,7 +3295,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_DoesNotAppendSingletonCountBasis
 	joined := strings.Join(visible, "\n")
 	if strings.Contains(joined, "const () block @") ||
 		strings.Contains(joined, "| const () block") ||
-		strings.Contains(joined, "系统按已验证证据补充缺失成员：Kind const block") {
+		strings.Contains(joined, "清单完整性补充：Kind const block") {
 		t.Fatalf("count-basis singleton metadata must not be appended as a principal row:\n%s", joined)
 	}
 	if !strings.Contains(joined, "Kind const block 数量说明") ||
@@ -3311,7 +3339,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_RuntimeArtifactGoroutineShorthan
 
 	normalizePrincipalEnumerationRowBlocks(doc, ctx)
 	for _, block := range doc.Blocks {
-		if strings.Contains(block.Title, "系统按已验证证据补充成员") {
+		if strings.Contains(block.Title, "成员清单补充") {
 			t.Fatalf("compact goroutine shorthand should count as visible coverage without a supplement block: %+v", doc.Blocks)
 		}
 	}
@@ -3400,7 +3428,7 @@ func TestNormalizeAggregateMemberSetCarriers_CrossColumnModelTablePreventsDuplic
 		t.Fatalf("model table already covers aggregate rows across columns; system carrier must not duplicate it, fixed=%d doc=%+v", fixed, doc.Blocks)
 	}
 	joined := answerDocumentTestVisibleSurface(doc)
-	if strings.Contains(joined, "系统按已验证证据补充成员") {
+	if strings.Contains(joined, "成员清单补充") {
 		t.Fatalf("duplicate aggregate carrier leaked after cross-column coverage:\n%s", joined)
 	}
 }
@@ -3449,10 +3477,10 @@ func TestNormalizeAggregateMemberSetCarriers_SystemRowSupplementPreventsDuplicat
 	}
 	var missingSupplements, legacyCarriers int
 	for _, block := range doc.Blocks {
-		if strings.Contains(block.Title, "系统按已验证证据补充缺失成员") {
+		if strings.Contains(block.Title, "清单完整性补充") {
 			missingSupplements++
 		}
-		if strings.Contains(block.Title, "系统按已验证证据补充成员") {
+		if strings.Contains(block.Title, "成员清单补充") {
 			legacyCarriers++
 		}
 	}
@@ -3536,7 +3564,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_RemovesRedundantPathOnlyDetailTa
 		t.Fatalf("empty detail table was removed; surface-term materialization must not create label-only rows, fixed=%d doc=%+v", fixed, doc.Blocks)
 	}
 	visible := answerDocumentTestVisibleSurface(doc)
-	if strings.Contains(visible, "foreign func 声明详情") || strings.Contains(visible, "source labels") || strings.Contains(visible, "系统按已验证证据补充成员") {
+	if strings.Contains(visible, "foreign func 声明详情") || strings.Contains(visible, "source labels") || strings.Contains(visible, "成员清单补充") {
 		t.Fatalf("redundant table/supplement noise should be suppressed:\n%s", visible)
 	}
 	if !strings.Contains(visible, "demo.bridge") || !strings.Contains(visible, "demo.ffi") {
@@ -3868,7 +3896,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_SourceInventorySectionItemsSuppr
 		t.Fatalf("expected section item carrier annotations to be normalized")
 	}
 	visible := answerDocumentTestVisibleSurface(doc)
-	if strings.Contains(visible, "系统按已验证证据补充缺失成员") {
+	if strings.Contains(visible, "清单完整性补充") {
 		t.Fatalf("section items already carry the scoped source-inventory rows; duplicate supplement leaked:\n%s", visible)
 	}
 	for _, want := range []string{"extend String", "extend Cart", "demo.stringext", "demo.cart"} {
@@ -4075,7 +4103,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_PreservesVisibleSourceInventoryS
 			t.Fatalf("normalizer lost visible source-inventory row field %q:\n%s", want, visible)
 		}
 	}
-	if strings.Contains(visible, "系统按已验证证据补充缺失成员") {
+	if strings.Contains(visible, "清单完整性补充") {
 		t.Fatalf("visible section rows already cover the scoped source-inventory sets; duplicate supplement leaked:\n%s", visible)
 	}
 }
@@ -4527,7 +4555,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_PreservesDirectSectionSourceInve
 			t.Fatalf("missing direct section row surface %q:\n%s", want, visible)
 		}
 	}
-	if strings.Contains(visible, "系统按已验证证据补充缺失成员") {
+	if strings.Contains(visible, "清单完整性补充") {
 		t.Fatalf("direct section carriers should not be replaced by generic supplement:\n%s", visible)
 	}
 }
@@ -4625,7 +4653,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_MaterializesEmptySourceInventory
 			t.Fatalf("missing materialized source-inventory section field %q:\n%s", want, visible)
 		}
 	}
-	if strings.Contains(visible, "系统按已验证证据补充缺失成员") {
+	if strings.Contains(visible, "清单完整性补充") {
 		t.Fatalf("empty source-inventory section should materialize in place instead of appending supplement:\n%s", visible)
 	}
 }
@@ -5354,7 +5382,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_SourceInventoryMarkdownRowsSuppr
 		t.Fatalf("expected source-inventory answer-preemit authority to normalize visible row coverage")
 	}
 	visible := answerDocumentTestVisibleSurface(doc)
-	if strings.Contains(visible, "系统按已验证证据补充缺失成员") {
+	if strings.Contains(visible, "清单完整性补充") {
 		t.Fatalf("visible source-inventory rows already cover the answer; duplicate supplement leaked:\n%s", visible)
 	}
 	for _, want := range []string{

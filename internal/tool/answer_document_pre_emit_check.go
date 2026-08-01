@@ -3234,12 +3234,12 @@ func aggregateMemberSetCarrierTitle(fact types.AnswerAggregateFact, zh bool) str
 		if n > 0 && !strings.Contains(label, strconv.Itoa(n)) {
 			label = fmt.Sprintf("%s（%d）", label, n)
 		}
-		return "系统按已验证证据补充成员：" + label
+		return "成员清单补充：" + label
 	}
 	if n > 0 && !strings.Contains(label, strconv.Itoa(n)) {
 		label = fmt.Sprintf("%s (%d)", label, n)
 	}
-	return "System-verified member supplement: " + label
+	return "Member list supplement: " + label
 }
 
 func aggregateMemberSetLabelCarrierTitle(fact types.AnswerAggregateFact, zh bool) string {
@@ -5224,6 +5224,9 @@ func preEmitAggregateMemberSetCoverageHardGate(ctxOpt ...*types.BusContext) bool
 	}
 	ctx := ctxOpt[0]
 	rm := ctx.AnalysisIR.RequestModel
+	if principalEnumerationNarrativeHistorySupplementSuppressed(rm) {
+		return false
+	}
 	if ctx.Mutable != nil {
 		facts := preEmitStableAggregateFacts(ctx)
 		if preEmitHasExplicitPrincipalMemberSetForRequest(ctx, facts) {

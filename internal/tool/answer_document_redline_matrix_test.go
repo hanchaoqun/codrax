@@ -263,13 +263,13 @@ func TestAnswerDocumentRedlineMatrix_MissingMemberSupplementIsSingleMarkedAppend
 	}
 	var markedSupplements int
 	for _, block := range doc.Blocks {
-		if strings.Contains(block.Title, "系统按已验证证据补充缺失成员") {
+		if strings.Contains(block.Title, "清单完整性补充") {
 			markedSupplements++
 			if !preEmitSystemEnumerationRowSupplementBlock(block) {
 				t.Fatalf("missing-member supplement must be recognized by the shared system-supplement predicate: %+v", block)
 			}
 		}
-		if strings.Contains(block.Title, "系统按已验证证据补充成员：") {
+		if strings.Contains(block.Title, "成员清单补充：") {
 			t.Fatalf("legacy aggregate carrier must not duplicate the missing-member supplement: %+v", doc.Blocks)
 		}
 	}

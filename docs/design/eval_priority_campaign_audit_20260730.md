@@ -5445,6 +5445,38 @@ runtime artifact 与同名 current symbol 仍保持 unproven、单席 inactive�
 `EVAL-B21-MAP1=implemented/full-tests-pass/replay-next`。本批没有改动 Trace query/family、
 显式用户窗优先级、因果投影、根因排序、唤醒链、窗内可消除量或系统自动补采。
 
+#### B21-S：非枚举解释不再被 model member_set 强制改造成系统补表
+
+`EVAL-B21-SUP1` 已按 answer-set 权限而不是题面/标签施工：
+
+1. history lookup 若没有 typed set/count/completeness obligation，即使 Explorer 自行把
+   coverage/member ledger 标成 `principal_answer member_set`，也不再启用
+   principal-enumeration hard gate、missing-row table 或 legacy ordered-list carrier。
+   历史 diff 与当前源码的解释仍保留在模型正文和 Observation Ledger，系统不再把辅助
+   hunk/module 清册变成第二份用户答案。
+2. 以下闭集继续拥有完整性补表权限：`IntentEnumerate`、category enumeration、count、
+   per-member table、`CompletenessObligation/EnumerationBoundary/buckets`、recent-N/oldest-N
+   history selection、relation member-set、source-operation site set、source inventory 和
+   change-impact。单个 latest/earliest history target 不因模型自铸 member_set 获得集合权限。
+3. 合法补表的用户标题由“系统按已验证证据补充……”改为按用途表达：
+   “清单完整性补充 / 可核验字段补充 / 成员说明补充 / 成员清单补充”；英文对应
+   `List completeness / Verifiable field / Member note / Member list supplement`。typed
+   provenance、完整性和 SystemGeneratedKind 保持内部可审计，不再泄漏到标题。
+4. eval runner 的 `enumeration_push` 统计同步新标题，避免可见文案改名造成监测盲区。
+5. 判定只消费 RequestModel enum/profile；不读取 RawRequest、aggregate label、commit
+   subject、模型 thinking/closure/final prose。Trace 的因果 projection、根因榜、唤醒链、
+   occurrence/state 主值与窗内可消除量均由独立 typed materializer 发布，不经过本次
+   history-only suppression。
+
+测试覆盖 narrative history 的 row compiler + legacy carrier + hard gate 三端同时关闭，
+recent-N/completeness 正臂仍开，中英文标题禁止内部 authority 词面；既有 enum/relation/
+source inventory/runtime 矩阵全部回归。`go test ./internal/tool -count=1` 通过（157.904s），
+`git diff --check` 通过。
+
+状态：`EVAL-B21-SUP1=implemented/full-tests-pass/replay-next`。下一项为低耦合
+`EVAL-B21-GREP1` 软语义提示；完成后用严格并行 2 case 回放 B21-C/S/GREP，再转 Trace
+显式窗与 write/plan 模式，避免长期停留在 Git 单一维度。
+
 ### B19g-b r1：target authority 通过，有限事实集仍被扩张（2026-08-01）
 
 同一二进制快照下严格并行 2 个 Trace case，runner 均 PASS，人工均 FAIL：

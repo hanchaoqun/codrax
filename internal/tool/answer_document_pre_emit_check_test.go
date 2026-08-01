@@ -422,7 +422,7 @@ func TestPreEmitStructuredMemberBlockCoversFactAcrossBlocks(t *testing.T) {
 		{
 			ID:    "system_missing_rows",
 			Kind:  types.BlockTable,
-			Title: "系统按已验证证据补充成员：公开函数（1）",
+			Title: "成员清单补充：公开函数（1）",
 			Items: []types.AnswerBlockItem{{
 				ID:    "registered",
 				Label: "RegisteredKinds",
@@ -1913,7 +1913,7 @@ func TestNormalizeAggregateMemberSetCarriers_MaterializesExhaustiveEnumerationRo
 	if block.Items[0].Label != "KindA" || block.Items[0].CitationRef < 0 || len(doc.Citations) != 3 {
 		t.Fatalf("items should preserve member labels and cite support_refs: block=%+v citations=%+v", block, doc.Citations)
 	}
-	if !strings.Contains(block.Title, "系统按已验证证据补充成员") ||
+	if !strings.Contains(block.Title, "成员清单补充") ||
 		!strings.Contains(block.Text, "结构化调查清单") {
 		t.Fatalf("zh system supplement should be clearly marked and localized: %+v", block)
 	}
@@ -1967,7 +1967,7 @@ func TestNormalizeAggregateMemberSetCarriers_PreservesRelationDimensionLabel(t *
 	if block.Title != "package declarations（2）" {
 		t.Fatalf("relation label carrier should preserve typed label, got %+v", block)
 	}
-	if strings.Contains(block.Title+block.Text, "系统按已验证证据补充成员") {
+	if strings.Contains(block.Title+block.Text, "成员清单补充") {
 		t.Fatalf("label carrier should not use noisy system supplement copy: %+v", block)
 	}
 	if len(block.Items) != 2 || block.Items[0].Label != "demo.app" || block.Items[1].Label != "demo.cart" {
@@ -2085,7 +2085,7 @@ func TestNormalizeAggregateMemberSetCarriers_LocalizesEnglishSystemSupplement(t 
 		t.Fatalf("fixed=%d, want 2", fixed)
 	}
 	block := doc.Blocks[1]
-	if !strings.Contains(block.Title, "System-verified member supplement") ||
+	if !strings.Contains(block.Title, "Member list supplement") ||
 		!strings.Contains(block.Text, "accepted structured investigation checklist") {
 		t.Fatalf("English system supplement should be clearly marked and localized: %+v", block)
 	}
@@ -2562,6 +2562,9 @@ func TestRunPreEmitChecks_AggregateMemberSetCoverageHardForHistoryList(t *testin
 			Intent: types.IntentExplain,
 			Predicates: types.SemanticPredicates{
 				IsHistoryLookup: true,
+			},
+			HistorySelectionProfile: &types.HistorySelectionProfile{
+				Mode: types.HistorySelectionRecentN, ItemKind: types.HistorySelectionItemCommit, Count: 2,
 			},
 		}},
 	}
@@ -3513,7 +3516,7 @@ func TestPreCheckAggregateCardinalityConsistency_IgnoresSystemMissingMemberSuppl
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID:                  "supplement",
 		Kind:                types.BlockTable,
-		Title:               "系统按已验证证据补充缺失成员：commit c9d1fe22 涉及文件（3）",
+		Title:               "清单完整性补充：commit c9d1fe22 涉及文件（3）",
 		SystemGeneratedKind: types.AnswerSystemGeneratedPrincipalEnumerationMissing,
 		Columns: []string{
 			"文件",
@@ -6911,7 +6914,7 @@ func TestPreEmitDisplaySurfaceAppears_NineNineOhNineForensicReplay(t *testing.T)
 }
 
 func TestPreEmitSystemEnumerationRowSupplementBlock_UsesTypedSystemMarkerNotTitle(t *testing.T) {
-	title := "系统按已验证证据补充缺失成员：公开函数（2）"
+	title := "清单完整性补充：公开函数（2）"
 	if preEmitSystemEnumerationRowSupplementBlock(types.AnswerBlock{Title: title}) {
 		t.Fatalf("title-only block must not be classified as system supplement")
 	}

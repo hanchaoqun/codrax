@@ -2,7 +2,7 @@ package tool
 
 // answer_document_principal_enum_backfill_template_test.go — 件2 backfill
 // 借壳修 pins (复核 E1-F3, 2026-07-13; witness: the waker report's
-// 「系统按已验证证据补充缺失成员」 table restated the model's claim-of-absence
+// 「清单完整性补充」 table restated the model's claim-of-absence
 // variant 「…均无独立的 sched_wakeup 终点」/「嵌入 s_sleep 16.419ms 区间」
 // verbatim under the system's voice). The system supplement face emits only
 // its own typed template: member value tokens + typed facts; the model's

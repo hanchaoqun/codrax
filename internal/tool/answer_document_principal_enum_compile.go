@@ -1009,7 +1009,13 @@ const (
 )
 
 func principalEnumerationSystemSupplementSuppressed(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {
-	if doc == nil || ctx == nil || ctx.AnalysisIR == nil || doc.ExactResolution == nil {
+	if doc == nil || ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	if principalEnumerationNarrativeHistorySupplementSuppressed(ctx.AnalysisIR.RequestModel) {
+		return true
+	}
+	if doc.ExactResolution == nil {
 		return false
 	}
 	if doc.ExactResolution.Status != types.AnswerExactResolutionAbsent {
@@ -1018,6 +1024,42 @@ func principalEnumerationSystemSupplementSuppressed(doc *types.AnswerDocumentV2,
 	rm := ctx.AnalysisIR.RequestModel
 	if rm.Predicates.IsCategoryEnumeration || rm.Intent == types.IntentEnumerate {
 		return false
+	}
+	return true
+}
+
+// principalEnumerationNarrativeHistorySupplementSuppressed keeps a
+// model-authored coverage/member ledger from becoming a second deterministic
+// answer table when the request asks for a history-backed explanation rather
+// than a closed member set.  The decision is typed-only: history shape plus
+// the absence of a set/count/completeness obligation.  It does not inspect the
+// user request, aggregate labels, model prose, commit messages, or answer text.
+//
+// Recent-N/oldest-N, category enumeration, per-member tables, completeness,
+// source inventory, relation-set, operation-site, and change-impact requests
+// retain the existing supplement authority.  Dedicated Trace projection/root
+// cause/occurrence materializers are outside this compiler and are unaffected.
+func principalEnumerationNarrativeHistorySupplementSuppressed(rm types.RequestModel) bool {
+	if !rm.Predicates.IsHistoryLookup {
+		return false
+	}
+	if rm.Intent == types.IntentEnumerate ||
+		rm.Predicates.IsCategoryEnumeration ||
+		rm.Predicates.IsCountQuestion ||
+		rm.Predicates.HasPerMemberTable ||
+		types.HasPrincipalAnswerSetObligation(rm) ||
+		types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) ||
+		types.RequiresRelationMemberSetHandoff(rm) ||
+		types.RequiresSourceOperationSiteMemberSetHandoff(rm) ||
+		(rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active()) ||
+		(rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active()) {
+		return false
+	}
+	if profile := rm.HistorySelectionProfile; profile != nil {
+		switch profile.Mode {
+		case types.HistorySelectionRecentN, types.HistorySelectionOldestN:
+			return false
+		}
 	}
 	return true
 }
@@ -2593,26 +2635,26 @@ func principalEnumerationRowsBlockTitle(set types.EnumerationDisplaySet, rows []
 	}
 	if mode == principalEnumerationSupplementMissing {
 		if zh {
-			return fmt.Sprintf("系统按已验证证据补充缺失成员：%s（%d）", label, len(rows))
+			return fmt.Sprintf("清单完整性补充：%s（%d）", label, len(rows))
 		}
-		return fmt.Sprintf("System-verified missing member supplement: %s (%d)", label, len(rows))
+		return fmt.Sprintf("List completeness supplement: %s (%d)", label, len(rows))
 	}
 	if mode == principalEnumerationSupplementVerifiedFields {
 		if zh {
-			return fmt.Sprintf("系统按已验证证据补充可校验字段：%s（%d）", label, len(rows))
+			return fmt.Sprintf("可核验字段补充：%s（%d）", label, len(rows))
 		}
-		return fmt.Sprintf("System-verified field supplement: %s (%d)", label, len(rows))
+		return fmt.Sprintf("Verifiable field supplement: %s (%d)", label, len(rows))
 	}
 	if mode == principalEnumerationSupplementVerifiedNotes {
 		if zh {
-			return fmt.Sprintf("系统按已验证证据补充说明：%s（%d）", label, len(rows))
+			return fmt.Sprintf("成员说明补充：%s（%d）", label, len(rows))
 		}
-		return fmt.Sprintf("System-verified note supplement: %s (%d)", label, len(rows))
+		return fmt.Sprintf("Member note supplement: %s (%d)", label, len(rows))
 	}
 	if zh {
-		return fmt.Sprintf("系统按已验证证据补充成员：%s（%d）", label, len(rows))
+		return fmt.Sprintf("成员清单补充：%s（%d）", label, len(rows))
 	}
-	return fmt.Sprintf("System-verified member supplement: %s (%d)", label, len(rows))
+	return fmt.Sprintf("Member list supplement: %s (%d)", label, len(rows))
 }
 
 // principalEnumerationRuntimeTypedTokenRE — 件A 权属模型终态 (复核 P2-2
