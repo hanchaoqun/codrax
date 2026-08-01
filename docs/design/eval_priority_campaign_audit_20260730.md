@@ -5360,6 +5360,55 @@ commit 主题、文件类型或模型判断硬编码为价值标准；不生成�
 family/query、显式时间窗 authority、因果投影、根因排序、唤醒链、窗内可消除量或系统
 自动补采；这些路径不受 `history_selection_profile` 影响。
 
+#### B21 r4：有序 principal 已收敛，历史→当前映射与非枚举补表仍有缺口（2026-08-01）
+
+在 `main@c0866048c` 的同一二进制快照下严格并行 2 个 Git/current-source case：
+
+- `read_combo_git_current_source_explanation`：runner FAIL，200s，人工 FAIL；
+- `read_combo_git_diff_hunk_current_code`：runner FAIL，159s，人工 PASS。
+
+`EVAL-B21-ORD1` 已获得真实正证。两次 analyzer 分别发出
+`latest_one/merge` 与 `latest_one/commit`；Explorer 分别调用
+`git_log merges_only=true first_parent=true` 和 `git_log count=1`；Finalizer 的
+typed principal 分别固定为 `2a58a60d...` 与 `c0866048...`。模型不再按
+commit subject、文件角色或主观“功能性”跳过第 1 项，因此该项转为 covered。
+
+两个 runner FAIL 都命中 `EVAL-B21-E1`：答案已分段覆盖 diff/current-source/作用/边界，
+旧 oracle 却要求相关词面出现在同一行。普通 commit 答案的 principal 结论正确，人工通过；
+不为修机器分数给生产答案增加词面硬门。
+
+merge 答案仍有真实错误：正文把 `explicitRuntimeArtifactLog` 写成定义在
+`internal/tool/test_surface_test.go`，而当前 checkout 的真实定义在
+`internal/agent/agent_test.go`。日志显示 Explorer 多次以 `fixed_string=true` 调用 grep，
+同时把 `A|B`、`foo|bar` 形模式当正则交替；工具忠实执行字面搜索返回零命中，模型据此一度
+断言两个测试函数“不存在”。后续局部纠正没有形成每个历史符号到当前 path/definition 的
+独立对齐，最终错误位置仍进入正文。
+
+普通 commit 答案还复现“系统按已验证证据补充缺失成员”表。当前请求是四维解释，不是完整
+枚举；Explorer 自行发出的 `principal_answer member_set` 仍可触发 deterministic backfill，
+把内部英文 reason 和二次清册追加到正文末尾。这与 B19d 已收敛的前置 authority block
+同源但不是同一发布器，不能视为已覆盖。
+
+新增/刷新台账：
+
+| ID | 优先级 | GAP | 泛化方案 | 状态 |
+|---|---:|---|---|---|
+| `EVAL-B21-ORD1` | P0 | 有序历史第 1 项可被模型按主观重要性跳过 | typed request selection × typed ordered tool result 已接线并获 merge/commit 双正证 | covered |
+| `EVAL-B21-MAP1` | P1 | VCS diff 中的 symbol/path 事实可在没有 current-checkout 逐符号对齐时，被写成当前源码位置；历史坐标与当前定义席位混用 | 将历史 changed-symbol/path observation 与 current-source definition observation 分席；只有 exact canonical path+symbol 对齐或显式 rename/transition witness 才铸 `aligned`，否则只允许分别陈述历史改动与当前查得事实。复用并推广 `EVAL-B21-TRANS1` 的 transition authority，不扫描答案 prose | open；并入 B21-C |
+| `EVAL-B21-GREP1` | P2 | `fixed_string=true` 与含 regex metachar 的 pattern 组合会产生高置信静默零命中 | grep 返回 typed query-semantics advisory：明确 literal 模式，并在零命中且含正则元字符时软建议以 regex 模式重试；不拒绝合法的字面 `|` 搜索，不把 advisory 当 absence 事实 | open |
+| `EVAL-B21-SUP1` | P1 | 非 enumeration 请求中，模型自铸 principal member-set 也能触发用户可见 deterministic 补表，泄漏内部协议并重复正文 | 补表发布需同时具备 typed enumeration/relation/inventory obligation 或系统拥有的完整 roster；普通解释题的 model-authored aggregate 只留在 handoff/审计层。保持 Trace typed projection、根因榜、窗内可消除量和系统自动补采独立发布权限 | open |
+| `EVAL-B21-E1` | P3 | 单行 regex 假阴性 | 改 eval-only 为分维度 oracle；不改生产成文 | filed-low |
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b21r4_20260801.md`；
+- `eval/parallel_selected_summary_evalcampaign_b21r4_20260801_manual_audit.md`；
+- 结果目录时间戳 `20260801-065801`。
+
+下一批按杠杆排序：B21-C 先统一历史/外部工件→current checkout transition authority，并
+吸收 `MAP1`；B21-S 收窄非枚举补表权限；`GREP1` 作为软工具语义提示小批。三批均不修改
+Trace 显式窗的 full-report 判定、因果投影构造、根因排序、唤醒链、窗内可消除量与自动补采。
+
 ### B19g-b r1：target authority 通过，有限事实集仍被扩张（2026-08-01）
 
 同一二进制快照下严格并行 2 个 Trace case，runner 均 PASS，人工均 FAIL：
