@@ -4170,6 +4170,87 @@ fail-closed 规则不变，只收敛用户可见组织：
    occupancy、cpu·ms 多核占用和无 span 负例组成结构矩阵；不得按 span 名、
    case ID 或用户关键词触发。
 
+#### B19d r1：用户优先顺序通过，typed scope 与双轴展示仍开放（2026-08-01）
+
+严格并行 2 个同批回放，runner 1 PASS / 1 FAIL，人工 0 PASS / 2 FAIL。
+本轮先确认 B19d 的目标本身已经覆盖：
+
+- 两个答案都由模型按用户意图组织的正文起首，不再出现“系统权威”“系统
+  权威主值”“后续模型正文”“以本块为准”等内部协议；
+- 显式窗样本的 `Trace 因果投影`、根因排序、唤醒链、`◎ 窗内可消除量
+  总览`、三行代表窗、coverage 和成文前确定性补采全部保留；
+- frequency/state 等确定性数据与口径位于因果决策面之后、lossless 明细
+  之前；
+- focused 无窗事实样本保持 0 个 projection/root/wakeup/blocking 面，没有
+  被重新套进全量因果合同。
+
+人工失败揭示两个不能由前置系统块掩盖的系统问题。
+
+**`EVAL-B19-SCOPEJOIN1`（P1）：多个 typed 查询窗没有选出唯一请求主范围。**
+
+无窗问题要求“这份 trace”全文件清单。ledger 同时携带：
+
+- 探索子窗 `34579.450000..34579.470000`：2 段、0.285ms；
+- 全工件请求窗 `34579.450627..34579.595184`：3 段、0.635ms。
+
+确定性数据块完整发布了两份 roster，但 finalizer 正文把全工件的
+“3 次/0.635ms”与探索子窗的两条明细拼在一起，第三段
+`34579.471372..34579.471722` 没有进入主体答案；同时把 typed
+`非 IO D-state=0、io_wait=3` 叙述成“io_wait 内核又称 D 状态”。runner
+的 principal-answer oracle 因而正确失败。
+
+通用最优方案冻结为：
+
+1. 只消费 `RuntimeArtifactScopeProfile`、请求窗 authority、query
+   coverage/roster completeness 等 typed 字段，选出一个
+   `principal requested scope`；
+2. finalizer 权限面只把该范围的 complete roster 作为主值；嵌套探索窗保留
+   为 supporting/drill-down，并明确标记，不能与主范围总量拼接；
+3. `D-state`、`io_wait`、`S-state iowait` 继续按 typed state kind 分开，
+   不新增同义词硬门；
+4. 确定性数据块仍在正文后，但主范围先列、探索范围后列；
+5. 不读 RawRequest、模型 thinking/final prose，不按此 case 时间戳或 caller
+   名称拟合，不把系统权威块搬回答案前面。
+
+**`EVAL-B19-FRAME1` 仍开放。** 显式窗为
+`34579.472865..34579.587805`，模型却把窗外
+`34579.595130 Choreographer#onVsync` 写成窗口结束证据；同一答案后部的
+typed coverage 已明确
+`frame_causality=unproven/frame_evidence_status=absent`。这是已有 typed
+帧权限没有收敛到主体结论槽的生产见证，不能靠追加另一个并列答案块解决。
+
+**`EVAL-TWODIM-2` 获得生产见证。** 投影中确有 44.836ms 的链上 sleep
+真实占用，但用户可见的独立摘要只有“未计价占用 2 行/最大 44.836ms”，
+没有主体、单次/聚族口径或时间窗；相比之下可消除收益已经有完整独立总览。
+因此双轴要求仍是 partial：
+
+- 轴 A：实际占时/关键路径候选，用来发现新修复方向；
+- 轴 B：现有规则可消除收益，用来量化优先级反转、算力供给、已证 IO/唤醒
+  等已知机制。
+
+两轴必须并列可见、各守各的量纲和重叠纪律；不得把 raw occupancy 自动铸成
+可消除量，也不得用可消除榜替代实际占时榜。无 typed frame/deadline 证据
+时，轴 A 只能称“窗口主要占用/关键路径候选”，不能升级为“已证明丢帧
+根因”。
+
+下一施工顺序：
+
+| 批次 | 内容 | 边界 |
+|---|---|---|
+| B19e | `SCOPEJOIN1`：requested-scope principal roster 选择与子窗降级 | 不改 projection gate，不改模型块顺序 |
+| B19f | `TWODIM-2`：独立主要时间占用/关键路径候选面 | 复用现有 typed 占用与 span 聚族，不新造计价规则 |
+| B19g | `FRAME1`：typed frame conclusion 槽融合 + ARITH2 不相加关系 | 不新增前置 authority，不扫描答案原文 |
+
+状态：
+
+| ID | 状态 |
+|---|---|
+| B19d user-first surfaces | covered：正负回放均确认顺序、词面与 projection gate |
+| EVAL-B19-SCOPEJOIN1 | filed P1 / B19e next |
+| EVAL-TWODIM-2 | filed P1 / production witness confirmed / B19f next |
+| EVAL-B19-FRAME1 | open P1 / production witness reconfirmed / B19g |
+| EVAL-B19-ARITH2 | open P2 / 与 FRAME1 同批做 typed relation 融合 |
+
 #### B18f r1：图兼容与显式窗非回归回放（2026-08-01）
 
 严格并行 2 个回放均为 runner PASS / human PASS：
