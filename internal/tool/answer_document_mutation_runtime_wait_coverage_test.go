@@ -236,6 +236,32 @@ func TestRuntimeWaitCoverageAuthorityLeadsDoNotMintWithoutTypedRows(t *testing.T
 	}
 }
 
+func TestRuntimeWaitCoverageDoesNotMaterializeMissingWakeupAsProvenBlocking(t *testing.T) {
+	bus := runtimeWaitCoverageTestBus()
+	missing := bus.ToolResults[0].Observations[0]
+	missing.ID = "missing-wakeup"
+	missing.ClaimKey = "root_cause_target_self_state"
+	missing.Predicate = "root_cause_target_self_state"
+	missing.Object = "missing_wakeup"
+	missing.Value = "1.409"
+	missing.RichNotes = []string{
+		types.TraceNoteKeyTier + "=" + types.TraceCausalTierTargetSelfState,
+		types.TraceNoteKeyType + "=missing_wakeup",
+		types.TraceNoteKeySelectedWindow + "=13762.791708..13763.024898",
+		types.TraceNoteKeyCapacityTruncated + "=true",
+	}
+	bus.ToolResults[0].Observations = []types.ObservationRecord{missing}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "summary", Kind: types.BlockSummary, Text: "model answer",
+	}}}
+	if materializeRuntimeTraceBlockingCoverageAuthorityCaveat(doc, bus) {
+		t.Fatalf("absence evidence must not materialize a positive target-blocking card: %+v", doc.Blocks)
+	}
+	if len(doc.Blocks) != 1 || doc.Blocks[0].Text != "model answer" {
+		t.Fatalf("absence-boundary handling changed model prose or document shape: %+v", doc.Blocks)
+	}
+}
+
 func TestRuntimeWaitCoverageDataBoundariesUseReaderFacingEnglish(t *testing.T) {
 	bus := runtimeWaitCoverageTestBus()
 	bus.AnalysisIR.AnswerContract.Language = "en"

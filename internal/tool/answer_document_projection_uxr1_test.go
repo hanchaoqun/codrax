@@ -189,7 +189,7 @@ func TestUXR1UndrillableBanner(t *testing.T) {
 	})
 	longModel := buildRuntimeTraceProjTreeModel(long, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	longFence := runtimeTraceProjTreeFence(longModel, true)
-	if !strings.Contains(longFence, "⊘ 唤醒链无法上溯(窗内无唤醒记录)") {
+	if !strings.Contains(longFence, "⊘ 唤醒链无法上溯(窗内未找到匹配唤醒记录)") {
 		t.Fatalf("the missing-wakeup head must speak the compressed banner:\n%s", longFence)
 	}
 	if strings.Contains(longFence, "睡眠区间在查询窗内无 sched_wakeup 记录") {

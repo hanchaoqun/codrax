@@ -60,6 +60,54 @@ func TestRenderAnswerDocObservationLedgerCarriesTraceValueOccurrenceAuthority(t 
 	}
 }
 
+func TestRenderAnswerDocObservationLedgerDoesNotPromoteMissingWakeupToPositiveAuthority(t *testing.T) {
+	record := types.ObservationRecord{
+		ID:              "missing-wakeup",
+		Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            types.AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: types.ClaimGroundingHard,
+		SourceRef: types.ObservationSourceRef{
+			Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "attached_trace.txt",
+		},
+		Span:      types.ObservationSpan{StartTs: 10.046416, EndTs: 10.050000},
+		ClaimKey:  "root_cause_target_self_state",
+		Predicate: "root_cause_target_self_state",
+		Subject:   "target-100",
+		Object:    "missing_wakeup",
+		Value:     "3.584",
+		Unit:      "ms",
+		RichNotes: []string{
+			"type=missing_wakeup",
+			types.TraceNoteKeyTier + "=" + types.TraceCausalTierTargetSelfState,
+			"selected_window=10.000000..10.050000",
+		},
+	}
+	mut := types.NewMutableState("analyze trace")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
+		ToolName: "trace_query", Success: true, Observations: []types.ObservationRecord{record},
+	}}})
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentRootCause,
+			RuntimeTargets: []types.RuntimeTarget{{
+				Kind: types.RuntimeTargetKindThread, PID: 100, Thread: "target-100", Source: "user_explicit",
+			}},
+		}},
+	}
+	got := renderAnswerDocObservationLedger(ctx)
+	for _, forbidden := range []string{
+		"### Trace Value-Owner Temporal Authority",
+		"### Trace Target Blocking Wall-Clock Authority",
+		"proven_blocking_wall_clock=3.584ms",
+	} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("missing-wakeup absence was promoted through %q:\n%s", forbidden, got)
+		}
+	}
+}
+
 func TestRenderAnswerDocObservationLedgerCarriesTraceBlockingWallClockAuthority(t *testing.T) {
 	record := types.ObservationRecord{
 		ID:              "blocking:binder",

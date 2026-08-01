@@ -10627,7 +10627,7 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 		// legend's ⊘ entry; the raw enum keeps its (a)-table ⊘ legend home).
 		// PTV8-RCR-B (UXA 域A #30 REVISE 补主语稿, 2026-07-08): a self row that
 		// otherwise carries NO descriptive word states the missing_wakeup fact
-		// inline (无唤醒记录·⊘链止) — the second same-value sibling used to
+		// inline (窗内未找到匹配唤醒记录·⊘链止) — the second same-value sibling used to
 		// read as a second unexplained account. Exact typed reason match;
 		// worded rows keep the bare marker byte-identically.
 		row.marks.mark(runtimeTraceProjMarkUndrillable)
@@ -10637,9 +10637,9 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 		}
 		if wordless && strings.TrimSpace(node.UndrillableReason) == "missing_wakeup" {
 			if zh {
-				tag = "无唤醒记录·⊘链止"
+				tag = "窗内未找到匹配唤醒记录·⊘链止"
 			} else {
-				tag = "missing_wakeup·⊘chain ends"
+				tag = "no matching wakeup record found in window·⊘chain ends"
 			}
 		}
 		main = append(main, tag)

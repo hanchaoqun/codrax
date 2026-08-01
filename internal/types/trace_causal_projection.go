@@ -1713,6 +1713,24 @@ func (n TraceCausalProjectionNode) Undrillable() bool {
 	return strings.TrimSpace(n.UndrillableReason) != ""
 }
 
+// IsEvidenceBoundaryRow reports whether this node carries a typed absence or
+// trace-coverage marker rather than a positive causal fact. It is deliberately
+// closed over the currently registered boundary tokens and exact typed fields;
+// no summary text or user/model prose is inspected.
+func (n TraceCausalProjectionNode) IsEvidenceBoundaryRow() bool {
+	if strings.TrimSpace(n.UndrillableReason) == "missing_wakeup" ||
+		strings.TrimSpace(n.Tier) == TraceCausalTierDataGap {
+		return true
+	}
+	for _, token := range []string{n.TypeToken, n.Object, n.Predicate} {
+		switch strings.TrimSpace(token) {
+		case "missing_wakeup", "trace_gap":
+			return true
+		}
+	}
+	return false
+}
+
 func CompileTraceCausalProjection(ledger ObservationLedger) TraceCausalProjection {
 	return traceCausalProjectionFromObservationRecords(ledger.Records,
 		traceCausalProjectionAnchorEntitiesFromLedger(ledger.AnchorUserEntities))

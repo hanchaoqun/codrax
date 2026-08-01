@@ -112,8 +112,8 @@ func TargetProvenanceChips() []string {
 // zh/en each. These are COMPLETE constant strings: the generator emits them
 // verbatim as the fence's first line (followed by the scale note).
 const (
-	FlatHeadMissingWakeupZH = "⊘ 唤醒链无法上溯(窗内无唤醒记录)"
-	FlatHeadMissingWakeupEN = "⊘ wakeup chain not traceable (no sched_wakeup record in the window)"
+	FlatHeadMissingWakeupZH = "⊘ 唤醒链无法上溯(窗内未找到匹配唤醒记录)"
+	FlatHeadMissingWakeupEN = "⊘ wakeup chain not traceable (no matching sched_wakeup record found in the window)"
 	FlatHeadNotDrilledZH    = "⊘ 唤醒链未下钻(本报告未运行 wakeup_chain,可追问补齐)"
 	FlatHeadNotDrilledEN    = "⊘ wakeup chain not drilled (wakeup_chain was not run for this report; ask a follow-up to fill it in)"
 	FlatHeadUnresolvedZH    = "⊘ 唤醒链路径未解析"

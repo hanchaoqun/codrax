@@ -110,6 +110,48 @@ func TestTraceDecisionHandoffDoesNotGuessPhaseFromStateOrPriorityWords(t *testin
 	}
 }
 
+func TestTraceDecisionHandoffKeepsMissingWakeupAsEvidenceBoundary(t *testing.T) {
+	inside := true
+	projection := types.TraceCausalProjection{
+		ArtifactLabel: "customer.systrace",
+		WindowStartTs: 10,
+		WindowEndTs:   10.050,
+		SupportingHops: []types.TraceCausalProjectionNode{{
+			EvidenceID: "missing", Subject: "target-100", Predicate: "missing_wakeup",
+			Object: "missing_wakeup", TypeToken: "missing_wakeup",
+			UndrillableReason: "missing_wakeup", StartTs: 10.046416, EndTs: 10.050,
+			ImpactMS: 3.584, WithinRequestedWindow: &inside,
+		}},
+	}
+	got := renderAnswerDocTraceDecisionHandoffSet(
+		types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}},
+		runtimeTraceGuidanceView{},
+	)
+	for _, want := range []string{
+		"evidence_boundary_semantics:",
+		"contains no matching `sched_wakeup` row",
+		"does not prove that a physical wakeup was absent",
+		"owns no positive causal/eliminable amount",
+		"evidence_boundary: subject=`target-100`; kind=`missing_wakeup`",
+		"status=`no_matching_sched_wakeup_row_in_selected_window`",
+		"positive_blocker_authority=`not_provided`",
+		"causal_identity=`unresolved`",
+		"observed_sleep_interval=`10.046416..10.050000`; interval_ms=3.584",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing-wakeup evidence boundary handoff missing %q:\n%s", want, got)
+		}
+	}
+	for _, forbidden := range []string{
+		"axis_A_actual_occupancy_candidates", "axis_B_existing_rule_eliminable",
+		"proven blocking", "physical wakeup was missing",
+	} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("absence boundary was promoted through %q:\n%s", forbidden, got)
+		}
+	}
+}
+
 func TestTraceDecisionHandoffFiltersOutsideWindowAndDoesNotInventAnAnswer(t *testing.T) {
 	outside := false
 	projection := types.TraceCausalProjection{

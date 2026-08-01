@@ -101,3 +101,43 @@ func TestBuildTraceBlockingWallClockAuthoritiesRejectsEnvelopeNonTargetAndMissin
 		t.Fatalf("non-owned/mis-scoped blocking rows must be rejected: %+v", got)
 	}
 }
+
+func TestTracePositiveValueAuthoritiesRejectMissingEvidenceBoundary(t *testing.T) {
+	rm := traceValueOccurrenceAuthorityRequest()
+	missing := traceBlockingWallClockAuthorityRecord(
+		"missing", "missing_wakeup", 3.584, 10.000, 10.003584,
+		TraceNoteKeyCapacityTruncated+"=true",
+	)
+	missing.ClaimKey = "root_cause_target_self_state"
+	missing.Predicate = "root_cause_target_self_state"
+	missing.Object = "missing_wakeup"
+	missing.RichNotes = append(missing.RichNotes, TraceNoteKeyTier+"="+TraceCausalTierTargetSelfState)
+
+	if !TraceObservationIsEvidenceBoundary(missing) {
+		t.Fatalf("typed missing_wakeup row must be classified as an evidence boundary: %+v", missing)
+	}
+	if got := BuildTraceBlockingWallClockAuthorities(ObservationLedger{Records: []ObservationRecord{missing}}, &rm); len(got) != 0 {
+		t.Fatalf("absence evidence must not mint proven target blocking wall clock: %+v", got)
+	}
+	if got := BuildTraceValueOccurrenceAuthorities(ObservationLedger{Records: []ObservationRecord{missing}}, &rm); len(got) != 0 {
+		t.Fatalf("absence evidence must not mint a positive value-owner authority: %+v", got)
+	}
+
+	positive := missing
+	positive.ID = "positive"
+	positive.Object = "binder_wait"
+	positive.RichNotes = []string{
+		"type=binder_wait",
+		"selected_window=13762.791708..13763.024898",
+		TraceNoteKeyTier + "=" + TraceCausalTierTargetSelfState,
+	}
+	if TraceObservationIsEvidenceBoundary(positive) {
+		t.Fatalf("positive typed wait was misclassified as an evidence boundary: %+v", positive)
+	}
+	if got := BuildTraceBlockingWallClockAuthorities(ObservationLedger{Records: []ObservationRecord{positive}}, &rm); len(got) != 1 {
+		t.Fatalf("positive target-owned wait must keep blocking authority: %+v", got)
+	}
+	if got := BuildTraceValueOccurrenceAuthorities(ObservationLedger{Records: []ObservationRecord{positive}}, &rm); len(got) != 1 {
+		t.Fatalf("positive target-owned wait must keep value-owner authority: %+v", got)
+	}
+}

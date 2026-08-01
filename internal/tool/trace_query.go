@@ -8550,14 +8550,18 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				provenance = types.ObservationProvenanceArtifactSpan
 				claimKey = "root_cause_absorbed"
 				predicate = "root_cause_absorbed"
-			} else if tier == tracequery.RootCauseTierDataGap || tier == tracequery.RootCauseTierContextOnly ||
+			} else if strings.TrimSpace(item.Type) == "missing_wakeup" ||
+				tier == tracequery.RootCauseTierDataGap || tier == tracequery.RootCauseTierContextOnly ||
 				tier == tracequery.RootCauseTierCaliberSide {
 				// V2-P0 (2026-07-12): a ⌗ 口径旁栏 row (count/composite-score
 				// caliber) left the ranking — like the blind-spot/context arms
 				// it is never a principal answer; the typed
 				// root_cause_caliber_side claim/predicate identity is
 				// preserved verbatim.
-				// 复核 P3-2 (2026-07-09): a data blind spot is NEVER a
+				// EVAL-B27-MWAUTH1: missing_wakeup is the sibling absence
+				// boundary — no matching sched_wakeup row was found in the
+				// selected window. It remains lossless evidence but is never a
+				// principal/direct-cause observation. 复核 P3-2 (2026-07-09): a data blind spot is NEVER a
 				// principal answer — the role/provenance demote UNCONDITIONALLY
 				// (the background arm below requires a foreground root cause,
 				// so a foregroundless result used to keep the blind spot at
@@ -9028,11 +9032,14 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				rootNotes = append(rootNotes, types.TraceNoteKeyTraceGapKind+"="+strings.TrimSpace(root.GapKind))
 			}
 			rootProvenance := types.ObservationProvenanceObservedDirectCause
-			if root.Type == "trace_gap" {
+			if root.Type == "trace_gap" || root.Type == "missing_wakeup" {
 				// EVAL-B10-Z1: a missing/insufficient scheduler interval is an
 				// observation-coverage boundary, never a directly observed
 				// runtime cause. Keep the reduced-shape root_evidence copy on
 				// the same authority lane as its tier=data_gap rank twin.
+				// EVAL-B27-MWAUTH1 extends the same rule to missing_wakeup:
+				// absence of a matching row is not positive proof that a wakeup
+				// or blocker physically failed.
 				// The typed Type is the only gate; do not infer this from the
 				// free-form summary.
 				rootProvenance = types.ObservationProvenanceArtifactSpan
@@ -9055,13 +9062,16 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				GroundingPolicy: types.ClaimGroundingHard,
 				ProvenanceLane:  rootProvenance,
 				SourceRef:       ref,
-				Span:            types.ObservationSpan{LineStart: root.LineStart, LineEnd: root.LineEnd},
-				ClaimKey:        "root_evidence:" + root.Type,
-				Subject:         traceThreadLabel(root.Thread),
-				Predicate:       root.Type,
-				Value:           traceQueryObservationMSValue(root.DurationMs),
-				Unit:            "ms",
-				Summary:         root.Summary,
+				Span: types.ObservationSpan{
+					LineStart: root.LineStart, LineEnd: root.LineEnd,
+					StartTs: root.StartTs, EndTs: root.EndTs,
+				},
+				ClaimKey:  "root_evidence:" + root.Type,
+				Subject:   traceThreadLabel(root.Thread),
+				Predicate: root.Type,
+				Value:     traceQueryObservationMSValue(root.DurationMs),
+				Unit:      "ms",
+				Summary:   root.Summary,
 				// RootEvidence is a lossless, reduced-shape wakeup witness. It does
 				// not carry CAP/gated/state-union provenance, so only the richer
 				// root_cause_rank/causal-impact lanes may participate in ranking.

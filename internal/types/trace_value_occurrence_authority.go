@@ -132,7 +132,8 @@ func traceValueOccurrenceCandidateFromRecord(record ObservationRecord, rm *Reque
 	if record.Origin != AnswerEvidenceOriginRuntimeArtifact ||
 		!RuntimeObservationProducerIsDeterministicQuery(record.Producer) ||
 		record.GroundingPolicy != ClaimGroundingHard ||
-		!ObservationRecordMatchesUserRuntimeTarget(record, rm) {
+		!ObservationRecordMatchesUserRuntimeTarget(record, rm) ||
+		TraceObservationIsEvidenceBoundary(record) {
 		return traceValueOccurrenceCandidate{}, false
 	}
 	switch traceObservationDimension(record) {
@@ -177,6 +178,25 @@ func traceValueOccurrenceCandidateFromRecord(record ObservationRecord, rm *Reque
 		endTs:    endTs,
 		recordID: strings.TrimSpace(record.ID),
 	}, true
+}
+
+// TraceObservationIsEvidenceBoundary reports whether a deterministic trace
+// observation describes a missing-evidence boundary instead of a positive
+// runtime cause or blocker. The exact typed cause token is the authority:
+// free-form summaries, subject names and model prose never participate.
+//
+// A missing_wakeup row means only that the selected trace/query window has no
+// matching sched_wakeup row for the measured sleep interval. A trace_gap row
+// likewise describes unavailable scheduler evidence. Their intervals remain
+// useful coverage/symptom coordinates, but neither may enter a positive
+// value-owner or proven-blocking authority.
+func TraceObservationIsEvidenceBoundary(record ObservationRecord) bool {
+	switch strings.TrimSpace(traceValueOccurrenceType(record)) {
+	case "missing_wakeup", "trace_gap":
+		return true
+	default:
+		return false
+	}
 }
 
 func traceValueOccurrenceType(record ObservationRecord) string {

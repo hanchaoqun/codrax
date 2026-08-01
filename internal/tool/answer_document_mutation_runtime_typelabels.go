@@ -120,11 +120,14 @@ func runtimeTraceRootCauseTypeZHLabel(token string) string {
 		// translation); the raw token stays on the detail 类型 row (D2).
 		return "持锁阻塞"
 	case "missing_wakeup":
-		// PTV8-RCR-B (UXA 域A #22 / 域B #15 / 域D #7, 任务令终词 2026-07-08):
-		// the data-gap marker's display word (无唤醒记录) — display-only, the
+		// PTV8-RCR-B (UXA 域A #22 / 域B #15 / 域D #7, 任务令终词 2026-07-08),
+		// narrowed by EVAL-B27-MWAUTH1: the data-gap marker says exactly what
+		// the typed observation proves — no matching row was FOUND in this
+		// window. It must not claim that the physical wakeup did not happen.
+		// Display-only; the
 		// registry wakeup_chain lane is untouched (红线 §7.2.1/§7.4/§7.5) and
 		// the raw token stays on the detail 类型 row / evidence predicate.
-		return "无唤醒记录"
+		return "窗内未找到匹配唤醒记录"
 	case "trace_gap":
 		// §22 PTV7-SPN F5 (用户措辞裁定 2026-07-07): the diagnostic trace_gap
 		// marker's display word — the raw token stays on the detail table's
@@ -232,7 +235,7 @@ func runtimeTraceRootCauseTypeENLabel(token string) string {
 	case "blocking_span":
 		return "lock-holder blocking"
 	case "missing_wakeup":
-		return "no wakeup record"
+		return "no matching wakeup record found in window"
 	case "trace_gap":
 		return "data blind spot"
 	case "irq_burst":

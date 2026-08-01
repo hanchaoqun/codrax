@@ -3919,6 +3919,67 @@ B18c 使用一条通用 typed 规则修复：
 
 状态：`implemented / full-tests-pass / cross-relation replay next`。
 
+### B26 PHASE/ALIAS r1 与 B27 absence-authority 根修（2026-08-01）
+
+严格并行 2 个回放：
+
+- `real_trace_c2_dstate_iowait`：runner PASS，140s；human
+  `pass_with_advisory`。请求主窗 3 段 io_wait（0.138 + 0.147 + 0.350 =
+  0.635ms）、非 IO D-state=0、caller=`sync_buffer_read_wi` 均正确；没有被
+  扩成 Trace 因果投影。模型把 `udk-irq` 行解释为“代为采样/内核跨线程采样”
+  没有 typed 权限，记低优先级 semantic advisory，不由系统改写正文。
+- `trace_query_donghu_real_frame_multicausal`：runner PASS，159s；human
+  FAIL。`EVAL-B26-ALIAS1` 已覆盖：同一附件只产生一套主投影、明细、指标和
+  证据索引；`EVAL-B26-PHASE1` 部分覆盖：finalizer 收到每行
+  `impact_phase=pre_wakeup_dependency`，旧的“RT 目标唤醒后被 CFS 线程抢占
+  11.103ms”误判消失，但模型仍把未证 holder/waiter 的 candidate 称为核心
+  优先级反转。
+
+本轮更高优先级的新 GAP：
+
+| ID | 优先级 | 机制证据 | 泛化处置 |
+|---|---:|---|---|
+| `EVAL-B27-MWAUTH1` | P0/P1 | `missing_wakeup` 的真实含义是“所选窗内没有匹配 `sched_wakeup` 行”；producer 却把 target-self rank 副本铸成 `principal_answer/observed_direct_cause`，root-evidence 副本也用 direct-cause provenance；随后 value-owner 与 target-blocking authority 又把 3.584ms 发布成正向 `proven_blocking_wall_clock`，最终诱导“直接唤醒缺失/直接阻塞” | 建立 exact typed evidence-boundary 分类；保留 sleep 区间、行号、下钻失败与原始 token，但拒绝进入正向值归属/已证阻塞 authority，producer 两个副本都降到 supporting coverage；finalizer 只接收 evidence-boundary 语义和区间，不接收系统结论 |
+| `EVAL-B27-REL1` | P2 | 模型把同一链节点的 D-state、io_wait、io_latency 三种可能重叠/不同口径值直接相加，generic `cross_row_additivity=forbidden` 未被稳定消费 | 冷读现有 overlap/reconciliation typed carrier，优先补行间 relation/所有权输入；不得扫描答案做算术硬门或替换模型结论 |
+| `EVAL-B27-CALLER1` | P2 | `sched_blocked_reason.caller` 被模型写成“持有等待对象”，`udk-irq` 事件线程被写成“代为采样” | 明确 typed caller/event-thread 角色语义；只有 holder/owner carrier 能授权“持有”，不从 caller 名或正文词汇猜测 |
+
+#### B27a `missing_wakeup` evidence-boundary 单一语义
+
+施工规则：
+
+1. `TraceObservationIsEvidenceBoundary` 是 Observation 层单一分类点，当前闭集
+   为 `missing_wakeup / trace_gap`；只读 exact typed type/object/predicate，
+   不读 summary、用户原文、模型 thinking/final。
+2. `trace_query` 发布 `missing_wakeup` 的 target-self rank 与
+   root-evidence 两个 lossless 视图时，统一使用
+   `supporting_coverage + artifact_span`；值、区间、line span、token 保留。
+   RootEvidence 已存在的 typed `StartTs/EndTs` 补通到 Observation span，避免
+   下游拿行号包络猜时间。
+3. `TraceValueOccurrenceAuthority` 与
+   `TraceBlockingWallClockAuthority` 拒收 evidence boundary。正向
+   binder/futex/D/IO wait 行不变；`missing_wakeup` 的 3.584ms 仍是目标 sleep
+   症状/下钻覆盖边界，不再是“已证 blocker”。
+4. `Trace Decision Inputs` 增加高显著度、prompt-only 的
+   `evidence_boundary` 行：没有匹配行不等于物理唤醒未发生，不提供 blocker
+   identity，也不拥有正向 causal/eliminable amount；窗口边界、事件覆盖/丢失、
+   未表示的唤醒源均待独立 typed 证据区分。
+5. 系统投影的 reader-facing label 收窄为“窗内未找到匹配唤醒记录” /
+   “no matching wakeup record found in window”，raw `missing_wakeup` token 和
+   `⊘链止` 保留。该显示说明数据边界，不生成/删除/替换模型结论。
+6. 看护测试只固定结构所有权与 typed transport：absence 不得进入 positive
+   authority、模型 block 保持原文、显式窗 handoff 保留。测试不要求模型必须
+   得出某个根因、采用某句措辞或选择某项优化，避免看护用例自己越权/过硬。
+
+定向测试覆盖 producer 双副本降权、两类 positive authority 拒收、正向 wait
+反向保留、prompt evidence-boundary、系统 materializer 不铸正向阻塞卡、ZH/EN
+精确边界措辞。
+
+状态：`EVAL-B26-ALIAS1=covered`；`EVAL-B26-PHASE1=partial`；
+`EVAL-B27-MWAUTH1=implemented / focused-tests-pass / full-regression-next`；
+`EVAL-B27-REL1/P2`、`EVAL-B27-CALLER1/P2=open`。本轮原始机器汇总与人工审计：
+`eval/parallel_selected_summary_evalcampaign_b26phasealias_r1_20260801.md`、
+`eval/parallel_selected_summary_evalcampaign_b26phasealias_r1_20260801_manual_audit.md`。
+
 ### B26-OWN：Trace 精确信息与模型结论的职责边界回裁（2026-08-01）
 
 客户/人工 witness：

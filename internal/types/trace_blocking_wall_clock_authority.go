@@ -165,6 +165,7 @@ func traceBlockingWallClockCandidateFromRecord(record ObservationRecord, rm *Req
 		!RuntimeObservationProducerIsDeterministicQuery(record.Producer) ||
 		record.GroundingPolicy != ClaimGroundingHard ||
 		!ObservationRecordMatchesUserRuntimeTarget(record, rm) ||
+		TraceObservationIsEvidenceBoundary(record) ||
 		!strings.EqualFold(strings.TrimSpace(record.Unit), "ms") {
 		return traceBlockingWallClockCandidate{}, false
 	}

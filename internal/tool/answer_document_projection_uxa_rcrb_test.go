@@ -138,25 +138,26 @@ func TestUXALeadBlockingSpanZHLabel(t *testing.T) {
 	}
 }
 
-// TestUXAMissingWakeupDisplayWord — UXA 域A #22/#30 (任务令终词 无唤醒记录):
+// TestUXAMissingWakeupDisplayWord — UXA 域A #22/#30, narrowed by
+// EVAL-B27-MWAUTH1 to the exact evidence-boundary fact:
 // the data-gap marker speaks zh on the display faces, the wordless self row
 // names the fact, and a WORDED row keeps the bare ⊘链止 byte-identically.
 func TestUXAMissingWakeupDisplayWord(t *testing.T) {
-	if got := runtimeTraceCausalProjectionDisplayCauseName("missing_wakeup", true); got != "无唤醒记录" {
+	if got := runtimeTraceCausalProjectionDisplayCauseName("missing_wakeup", true); got != "窗内未找到匹配唤醒记录" {
 		t.Fatalf("zh display cause = %q", got)
 	}
-	if got := runtimeTraceCausalProjectionNarrativeCauseName("missing_wakeup", true); got != "无唤醒记录（missing_wakeup）" {
+	if got := runtimeTraceCausalProjectionNarrativeCauseName("missing_wakeup", true); got != "窗内未找到匹配唤醒记录（missing_wakeup）" {
 		t.Fatalf("zh narrative = %q", got)
 	}
 	fence, _ := rcrOpendirFence(t, true)
-	if !strings.Contains(fence, "无唤醒记录·⊘链止") {
+	if !strings.Contains(fence, "窗内未找到匹配唤醒记录·⊘链止") {
 		t.Fatalf("wordless missing_wakeup self row must name the fact:\n%s", fence)
 	}
 	// Worded row (sleep wording present) keeps the bare marker.
 	flat := revisit76FlatUndrillableProjection()
 	model := buildRuntimeTraceProjTreeModel(flat, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	flatFence := runtimeTraceProjTreeFence(model, true)
-	if strings.Contains(flatFence, "无唤醒记录·⊘链止") {
+	if strings.Contains(flatFence, "窗内未找到匹配唤醒记录·⊘链止") {
 		t.Fatalf("a worded sleep row must keep the bare ⊘链止:\n%s", flatFence)
 	}
 	if !strings.Contains(flatFence, "⊘链止") {
@@ -179,7 +180,7 @@ func TestUXAMissingWakeupDisplayWord(t *testing.T) {
 	if !strings.Contains(blocks, "- 类型: missing_wakeup") {
 		t.Fatalf("the raw token must survive on the 类型 lossless line:\n%s", blocks)
 	}
-	if !strings.Contains(blocks, "无唤醒记录") {
+	if !strings.Contains(blocks, "窗内未找到匹配唤醒记录") {
 		t.Fatalf("the zh display word must lead the block name:\n%s", blocks)
 	}
 }

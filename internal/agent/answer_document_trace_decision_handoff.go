@@ -63,6 +63,9 @@ func renderAnswerDocTraceDecisionHandoffSet(set types.TraceCausalProjectionSet, 
 		b.WriteString("- phase_semantics: `pre_wakeup_dependency` measures an upstream thread while its downstream consumer has not yet been woken. It may explain the consumer's sleep/blocked interval, but it is not the consumer's post-wakeup runnable/dispatch delay. Attribute post-wakeup delay only from the consumer's own typed runnable interval plus same-CPU scheduler ordering; never infer that a CFS dependency preempted an RT consumer after wake from this seat.\n")
 		b.WriteString("- A typed `priority_inversion_candidate` on that phase prices the dependency's own proven-lower runnable/running supply before the downstream wake. The candidate flag alone proves neither a lock holder/waiter relation nor post-wakeup preemption; treat PI-mutex or RT-promotion changes as validation directions unless separate typed evidence proves the corresponding mechanism.\n")
 	}
+	if traceDecisionHasEvidenceBoundary(set) {
+		b.WriteString("- evidence_boundary_semantics: `missing_wakeup` means the selected trace/query window contains no matching `sched_wakeup` row for a measured sleep interval. Preserve the interval as a target-state symptom and a chain-drill coverage boundary; it does not prove that a physical wakeup was absent, does not identify a blocker, and owns no positive causal/eliminable amount. Window boundaries, event coverage/loss, or an unrepresented wake source remain possible until separately typed evidence resolves them.\n")
+	}
 	b.WriteString("- Input provenance: the projection compiler merges accepted exploration observations with deterministic system-supplement observations when present; each candidate below preserves its own source lane.\n\n")
 
 	for index, projection := range set.Projections {
@@ -83,6 +86,17 @@ func renderAnswerDocTraceDecisionHandoffSet(set types.TraceCausalProjectionSet, 
 		if len(projection.WakeupPath) > 0 {
 			fmt.Fprintf(&b, "- elected_wakeup_path=`%s`; use it to connect observations, but do not upgrade the path itself beyond the typed causal ceiling.\n",
 				strings.Join(projection.WakeupPath, " -> "))
+		}
+		for _, node := range traceDecisionEvidenceBoundaries(projection, 8) {
+			fmt.Fprintf(&b, "- evidence_boundary: subject=`%s`; kind=`%s`; status=`no_matching_sched_wakeup_row_in_selected_window`; positive_blocker_authority=`not_provided`; causal_identity=`unresolved`",
+				strings.TrimSpace(node.Subject), traceDecisionNodeKind(node))
+			if node.EndTs > node.StartTs {
+				fmt.Fprintf(&b, "; observed_sleep_interval=`%.6f..%.6f`; interval_ms=%.3f",
+					node.StartTs, node.EndTs, (node.EndTs-node.StartTs)*1000)
+			} else if node.ImpactMS > 0 {
+				fmt.Fprintf(&b, "; observed_sleep_interval=`unavailable`; interval_ms=%.3f", node.ImpactMS)
+			}
+			fmt.Fprintf(&b, "; source_lane=`%s`\n", traceDecisionNodeSourceLane(node))
 		}
 
 		actual := traceDecisionActualOccupancyCandidates(projection, 8)
@@ -135,6 +149,53 @@ func renderAnswerDocTraceDecisionHandoffSet(set types.TraceCausalProjectionSet, 
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+func traceDecisionHasEvidenceBoundary(set types.TraceCausalProjectionSet) bool {
+	for _, projection := range set.Projections {
+		if len(traceDecisionEvidenceBoundaries(projection, 1)) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func traceDecisionEvidenceBoundaries(projection types.TraceCausalProjection, limit int) []types.TraceCausalProjectionNode {
+	pool := make([]types.TraceCausalProjectionNode, 0,
+		len(projection.RankedSeats)+len(projection.PrimaryRootCauses)+len(projection.OnChainCauses)+
+			len(projection.AdjacentCauses)+len(projection.BackgroundCauses)+len(projection.SupportingHops))
+	pool = append(pool, projection.RankedSeats...)
+	pool = append(pool, projection.PrimaryRootCauses...)
+	pool = append(pool, projection.OnChainCauses...)
+	pool = append(pool, projection.AdjacentCauses...)
+	pool = append(pool, projection.BackgroundCauses...)
+	pool = append(pool, projection.SupportingHops...)
+	seen := map[string]bool{}
+	out := make([]types.TraceCausalProjectionNode, 0, len(pool))
+	for _, node := range pool {
+		if !node.IsEvidenceBoundaryRow() ||
+			(node.WithinRequestedWindow != nil && !*node.WithinRequestedWindow) {
+			continue
+		}
+		key := fmt.Sprintf("%s\x00%s\x00%.9f\x00%.9f\x00%.6f\x00%d\x00%d",
+			strings.TrimSpace(node.Subject), traceDecisionNodeKind(node),
+			node.StartTs, node.EndTs, node.ImpactMS, node.LineStart, node.LineEnd)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, node)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].StartTs != out[j].StartTs {
+			return out[i].StartTs < out[j].StartTs
+		}
+		return traceDecisionNodeIdentity(out[i]) < traceDecisionNodeIdentity(out[j])
+	})
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out
 }
 
 func traceDecisionHasPreWakeupDependency(set types.TraceCausalProjectionSet) bool {

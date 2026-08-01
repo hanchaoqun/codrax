@@ -168,7 +168,7 @@ func TestTraceProjection730FlatFallbackNamesMissingWakeupZH(t *testing.T) {
 	// EVOLUTION RECORD (UXR-1 §29.36①, 2026-07-11): the long-sentence banner
 	// compressed to the unified 「⊘ <短结论>(<短因>)」 form; the 按层级平铺
 	// render note left the head (the legend head clause carries it).
-	if !strings.Contains(md, "⊘ 唤醒链无法上溯(窗内无唤醒记录)") {
+	if !strings.Contains(md, "⊘ 唤醒链无法上溯(窗内未找到匹配唤醒记录)") {
 		t.Fatalf("flat fallback must name the missing_wakeup cause:\n%s", md)
 	}
 	if strings.Contains(md, "唤醒链路径未解析") {

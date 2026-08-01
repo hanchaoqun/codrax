@@ -1078,6 +1078,48 @@ func TestTraceQueryTypedObservationsPublishSemanticSpanOutsideRootCauseRank(t *t
 	}
 }
 
+func TestTraceQueryTypedObservationsPublishMissingWakeupAsCoverageBoundary(t *testing.T) {
+	target := tracequery.ThreadRef{Comm: "target", PID: 100}
+	result := tracequery.Result{
+		View: "root_cause_rank", TimeStart: 10, TimeEnd: 10.050,
+		RootCauseRank: &tracequery.RootCauseRankResult{
+			Target: target,
+			Window: tracequery.TimeWindow{StartTs: 10, EndTs: 10.050},
+			Items: []tracequery.RootCauseRankItem{{
+				Tier: tracequery.RootCauseTierTargetSelfState, Type: "missing_wakeup",
+				Thread: target, SubjectIsAnalysisTarget: true,
+				ImpactMs: 3.584, StartTs: 10.046416, EndTs: 10.050,
+				LineStart: 100, LineEnd: 120,
+				Summary: "sleep interval has no matching sched_wakeup row in the selected trace window",
+			}},
+		},
+		WakeupChain: &tracequery.ChainResult{
+			Target: target,
+			Window: tracequery.TimeWindow{StartTs: 10, EndTs: 10.050},
+			RootEvidence: []tracequery.RootEvidence{{
+				Type: "missing_wakeup", Thread: target, DurationMs: 3.584,
+				StartTs: 10.046416, EndTs: 10.050, LineStart: 100, LineEnd: 120,
+				Summary: "sleep interval has no matching sched_wakeup row in the selected trace window",
+			}},
+		},
+	}
+	rows := traceQueryTypedObservations(result, "attached_trace", "/blobs/trace.json", "", "", time.Now())
+	found := 0
+	for _, row := range rows {
+		if row.Object != "missing_wakeup" && row.Predicate != "missing_wakeup" {
+			continue
+		}
+		found++
+		if row.Role != types.AnswerAggregateRoleSupportingCoverage ||
+			row.ProvenanceLane != types.ObservationProvenanceArtifactSpan {
+			t.Fatalf("missing_wakeup must remain a supporting coverage boundary, not a principal/direct cause: %+v", row)
+		}
+	}
+	if found != 2 {
+		t.Fatalf("expected rank and root-evidence boundary rows, got %d in %+v", found, rows)
+	}
+}
+
 // TestTraceQueryExecuteAttachesTypedObservations runs the real Execute path on
 // a small fixture and pins that the returned ToolResult carries typed rows of
 // runtime-artifact origin alongside the prose Summary.
