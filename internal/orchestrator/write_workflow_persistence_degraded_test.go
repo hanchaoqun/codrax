@@ -314,10 +314,9 @@ func TestCompleteBudgetExhaustedRunDisclosesPersistenceOnCompletion(t *testing.T
 }
 
 // FIX-1 negative arm (real completion path): the same helper with a healthy
-// successful store leaves the completion result exactly "write workflow
-// complete" — no persistence note, no verdict caveat. This locks the CLI
-// single-shot healthy completion output too.
-func TestCompleteBudgetExhaustedRunHealthyCompletionResultUnchanged(t *testing.T) {
+// successful store publishes the typed terminal verdict without a persistence
+// caveat. Batch-local verify cards are not the workflow completion authority.
+func TestCompleteBudgetExhaustedRunHealthyCompletionPublishesTerminalVerdict(t *testing.T) {
 	mu := types.NewMutableState("budget healthy")
 	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, WorkDir: t.TempDir(), Mode: types.ModeApply}}
 	o.writeWorkflowRunStore = &fakeWorkflowRunStore{}
@@ -338,7 +337,86 @@ func TestCompleteBudgetExhaustedRunHealthyCompletionResultUnchanged(t *testing.T
 	if !o.completeBudgetExhaustedRunIfAllBatchesComplete(run, "controller_turn_budget_all_batches_complete") {
 		t.Fatal("all batches complete must terminalize the run")
 	}
-	if result := mu.Result(); result != "write workflow complete" {
-		t.Fatalf("healthy completion result must be byte-unchanged, got: %q", result)
+	result := mu.Result()
+	if !strings.HasPrefix(result, "write workflow complete") ||
+		!strings.Contains(result, "最终交付状态：已验证") ||
+		strings.Contains(result, "could not be fully saved") {
+		t.Fatalf("healthy completion must publish the typed final verdict only, got: %q", result)
+	}
+}
+
+func TestPublishWriteWorkflowCompletionResultAppendsUnverifiedAfterPassedCard(t *testing.T) {
+	mu := types.NewMutableState("terminal truth after local pass")
+	mu.SetResult("## 测试通过\n\n1 个测试通过。\n")
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, WorkDir: t.TempDir(), Mode: types.ModeApply, Language: "zh"}}
+	run := types.WriteWorkflowRun{
+		RunID:         "wf-proof-incomplete",
+		Status:        types.WriteWorkflowRunComplete,
+		ActiveBatchID: "batch-1-cumulative-review",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchComplete,
+			Completion: &types.WriteWorkflowCompletion{
+				Verdict:    types.WriteWorkflowCompletionVerified,
+				ReasonCode: "tests_passed",
+			},
+		}, {
+			ID:     "batch-1-cumulative-review",
+			Status: types.WriteWorkflowBatchComplete,
+			Completion: &types.WriteWorkflowCompletion{
+				Verdict:    types.WriteWorkflowCompletionUnverified,
+				ReasonCode: "verification_proof_incomplete",
+			},
+		}},
+		Completion: &types.WriteWorkflowCompletion{
+			Verdict:    types.WriteWorkflowCompletionUnverified,
+			ReasonCode: "verification_proof_incomplete",
+		},
+	}
+
+	o.publishWriteWorkflowCompletionResult(run, "write workflow complete")
+
+	result := mu.Result()
+	for _, want := range []string{
+		"## 测试通过",
+		"## 最终交付状态：未完全验证",
+		"`batch-1-cumulative-review` (`verification_proof_incomplete`)",
+		"测试结果可能已经通过，但声明的行为或影响证明仍未完全闭合",
+	} {
+		if !strings.Contains(result, want) {
+			t.Fatalf("terminal completion result missing %q:\n%s", want, result)
+		}
+	}
+	if strings.LastIndex(result, "最终交付状态") < strings.LastIndex(result, "测试通过") {
+		t.Fatalf("terminal verdict must be the last authority card:\n%s", result)
+	}
+}
+
+func TestRenderWriteWorkflowTerminalStatusEnglishRunnerUnavailable(t *testing.T) {
+	run := types.WriteWorkflowRun{
+		Status: types.WriteWorkflowRunComplete,
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-2",
+			Status: types.WriteWorkflowBatchComplete,
+			Completion: &types.WriteWorkflowCompletion{
+				Verdict:    types.WriteWorkflowCompletionUnverified,
+				ReasonCode: "runner_missing",
+			},
+		}},
+		Completion: &types.WriteWorkflowCompletion{
+			Verdict:    types.WriteWorkflowCompletionUnverified,
+			ReasonCode: "runner_missing",
+		},
+	}
+
+	got := renderWriteWorkflowTerminalStatus(run, "en")
+	for _, want := range []string{
+		"Final delivery status: unverified",
+		"`batch-2` (`runner_missing`)",
+		"test runner, dependencies, or result parser were unavailable",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("English terminal status missing %q:\n%s", want, got)
+		}
 	}
 }

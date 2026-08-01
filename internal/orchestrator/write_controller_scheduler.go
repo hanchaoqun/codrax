@@ -632,18 +632,16 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			writeflow.MarkWorkflowRunCompletionFromBatches(&run)
 			o.busCtx.Mutable.ResetVerifyFailureHandoff()
 			o.persistWriteWorkflowRun(&run)
-			if strings.TrimSpace(o.busCtx.Mutable.Result()) == "" {
-				result := "write workflow complete"
-				if decision.FinishDisposition == writeflow.FinishDispositionAcceptUnverified {
-					if unverified := writeflow.UnverifiedBatchSummaries(run); len(unverified) > 0 {
-						result += " — accepted with failed verification: " + strings.Join(unverified, ", ")
-					}
+			result := "write workflow complete"
+			if decision.FinishDisposition == writeflow.FinishDispositionAcceptUnverified {
+				if unverified := writeflow.UnverifiedBatchSummaries(run); len(unverified) > 0 {
+					result += " — accepted with failed verification: " + strings.Join(unverified, ", ")
 				}
-				if caveat := writeWorkflowUnverifiedCompletionCaveat(run); caveat != "" {
-					result += " — " + caveat
-				}
-				o.setWriteWorkflowCompletionResult(run, result)
 			}
+			if caveat := writeWorkflowUnverifiedCompletionCaveat(run); caveat != "" {
+				result += " — " + caveat
+			}
+			o.publishWriteWorkflowCompletionResult(run, result)
 			return nil
 		case writeflow.ActionBlock, writeflow.ActionAskUser:
 			run.Status = types.WriteWorkflowRunBlocked
@@ -9100,13 +9098,11 @@ func (o *Orchestrator) completeDispatchInterruptedProofFollowupIfSourceComplete(
 	run.Status = types.WriteWorkflowRunComplete
 	writeflow.MarkWorkflowRunCompletionFromBatches(run)
 	o.persistWriteWorkflowRun(run)
-	if strings.TrimSpace(o.busCtx.Mutable.Result()) == "" {
-		result := "write workflow complete"
-		if caveat := writeWorkflowUnverifiedCompletionCaveat(*run); caveat != "" {
-			result += " — " + caveat
-		}
-		o.setWriteWorkflowCompletionResult(*run, result)
+	result := "write workflow complete"
+	if caveat := writeWorkflowUnverifiedCompletionCaveat(*run); caveat != "" {
+		result += " — " + caveat
 	}
+	o.publishWriteWorkflowCompletionResult(*run, result)
 	return true
 }
 
@@ -9149,13 +9145,11 @@ func (o *Orchestrator) completeInterruptedFollowupIfSourceComplete(run *types.Wr
 	run.Status = types.WriteWorkflowRunComplete
 	writeflow.MarkWorkflowRunCompletionFromBatches(run)
 	o.persistWriteWorkflowRun(run)
-	if strings.TrimSpace(o.busCtx.Mutable.Result()) == "" {
-		result := "write workflow complete"
-		if caveat := writeWorkflowUnverifiedCompletionCaveat(*run); caveat != "" {
-			result += " — " + caveat
-		}
-		o.setWriteWorkflowCompletionResult(*run, result)
+	result := "write workflow complete"
+	if caveat := writeWorkflowUnverifiedCompletionCaveat(*run); caveat != "" {
+		result += " — " + caveat
 	}
+	o.publishWriteWorkflowCompletionResult(*run, result)
 	return true
 }
 
@@ -9266,13 +9260,11 @@ func (o *Orchestrator) runAppliedPendingCompletionVerify(run *types.WriteWorkflo
 		run.Status = types.WriteWorkflowRunComplete
 		writeflow.MarkWorkflowRunCompletionFromBatches(run)
 		o.persistWriteWorkflowRun(run)
-		if strings.TrimSpace(o.busCtx.Mutable.Result()) == "" {
-			result := "write workflow complete"
-			if caveat := writeWorkflowUnverifiedCompletionCaveat(*run); caveat != "" {
-				result += " — " + caveat
-			}
-			o.setWriteWorkflowCompletionResult(*run, result)
+		result := "write workflow complete"
+		if caveat := writeWorkflowUnverifiedCompletionCaveat(*run); caveat != "" {
+			result += " — " + caveat
 		}
+		o.publishWriteWorkflowCompletionResult(*run, result)
 		return true
 	}
 	if innerErr == nil && report != nil {
@@ -9294,16 +9286,14 @@ func (o *Orchestrator) completeBudgetExhaustedRunIfAllBatchesComplete(run *types
 	writeflow.MarkWorkflowRunCompletionFromBatches(run)
 	appendControllerProgress(run, run.ActiveBatchID, reasonCode, "all workflow batches already have typed completion verdicts")
 	o.persistWriteWorkflowRun(run)
-	if strings.TrimSpace(o.busCtx.Mutable.Result()) == "" {
-		result := "write workflow complete"
-		if run.Completion != nil && run.Completion.Verdict == types.WriteWorkflowCompletionAcceptedFailed {
-			result += " — accepted with failed verification: " + strings.TrimSpace(run.Completion.ReasonCode)
-		}
-		if caveat := writeWorkflowUnverifiedCompletionCaveat(*run); caveat != "" {
-			result += " — " + caveat
-		}
-		o.setWriteWorkflowCompletionResult(*run, result)
+	result := "write workflow complete"
+	if run.Completion != nil && run.Completion.Verdict == types.WriteWorkflowCompletionAcceptedFailed {
+		result += " — accepted with failed verification: " + strings.TrimSpace(run.Completion.ReasonCode)
 	}
+	if caveat := writeWorkflowUnverifiedCompletionCaveat(*run); caveat != "" {
+		result += " — " + caveat
+	}
+	o.publishWriteWorkflowCompletionResult(*run, result)
 	return true
 }
 
@@ -9354,6 +9344,25 @@ func (o *Orchestrator) setWriteWorkflowCompletionResult(run types.WriteWorkflowR
 		result += " — " + caveat
 	}
 	o.busCtx.Mutable.SetResult(result)
+}
+
+// publishWriteWorkflowCompletionResult preserves any already-rendered apply or
+// per-generation verify cards, then appends the typed terminal workflow
+// verdict. The merge is structural: it never inspects prior prose for words or
+// tries to rewrite a model answer. Callers provide a fallback only for lanes
+// that have no earlier user-visible result.
+func (o *Orchestrator) publishWriteWorkflowCompletionResult(run types.WriteWorkflowRun, fallback string) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return
+	}
+	result := o.busCtx.Mutable.Result()
+	if strings.TrimSpace(result) == "" {
+		result = strings.TrimSpace(fallback)
+	}
+	if terminal := renderWriteWorkflowTerminalStatus(run, o.busCtx.Language); terminal != "" {
+		result = strings.TrimRight(result, "\n") + terminal
+	}
+	o.setWriteWorkflowCompletionResult(run, result)
 }
 
 func writeWorkflowUnverifiedCompletionCaveat(run types.WriteWorkflowRun) string {

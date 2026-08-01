@@ -5018,7 +5018,7 @@ unverified；纯 truth-ledger complete fallback 同样固定 `accept_unverified`
 
 | ID | 优先级 | 系统 GAP | 泛化方案 | 状态 |
 |---|---|---|---|---|
-| `EVAL-B20-W5` | P0 | StageVerify 按局部 ChangeReport 逐次追加“测试通过”，而 ActionFinish 仅在 Result 为空时写 completion；已有 apply/verify 文本时最终 typed workflow verdict 完全不出厂 | 在所有 write terminal completion choke point，以 `WriteWorkflowRun.Completion` 和 batch attempts 生成一张简洁终态卡并追加/设置；verified、unverified、accepted_failed 分席，unverified 区分 no-tests、runner unavailable、proof incomplete。不得扫描或改写已有 stdout/model prose | open，批 W3 |
+| `EVAL-B20-W5` | P0 | StageVerify 按局部 ChangeReport 逐次追加“测试通过”，而 ActionFinish 仅在 Result 为空时写 completion；已有 apply/verify 文本时最终 typed workflow verdict 完全不出厂 | 在所有 write terminal completion choke point，以 `WriteWorkflowRun.Completion` 和 batch attempts 生成一张简洁终态卡并追加/设置；verified、unverified、accepted_failed 分席，unverified 区分 no-tests、runner unavailable、proof incomplete。不得扫描或改写已有 stdout/model prose | implemented/full-tests-pass，待回放 |
 
 W5 是终态权威发布，不改变测试判决：Gson 在 source oracle 通过但 Java runtime
 behavior 未执行时仍应是 unverified，不能为了让表面“更绿”把 source shape check
@@ -5032,7 +5032,27 @@ behavior 未执行时仍应是 unverified，不能为了让表面“更绿”把
 - 结果目录时间戳 `20260801-050919`。
 
 状态：`EVAL-B20-W1=covered`；`EVAL-B20-W2=covered`；
-`EVAL-B20-W5=P0/open`。
+`EVAL-B20-W5=implemented/full-tests-pass/replay-next`。
+
+#### B20-W5：write workflow 终态权威卡
+
+所有 apply workflow completion choke point 现在统一调用
+`publishWriteWorkflowCompletionResult`：已有 apply/verify 内容原样保留，随后从
+`WriteWorkflowRun.Completion` 和每批 completion reason 追加唯一终态卡；没有既有结果
+时才使用原 completion fallback。合并过程不读取或匹配已有 prose，只做顺序拼接。
+
+终态按三席发布：`verified` 明确所有批次完成验证；`unverified` 列出未闭合 batch 与
+typed reason，并分别解释 `verification_proof_incomplete`、`no_tests`、
+runner/parser unavailable；`accepted_failed` 不伪装成成功。这样局部“测试通过”仍是
+真实 stage observation，但不会再成为用户看到的最后权威结论。中英文均有固定正臂。
+
+结构上新逻辑放在独立 `write_workflow_terminal_render.go`，没有扩大
+`write_verify_render.go` 的 hot-file 行预算。专项测试固定“已有测试通过卡 + 最终 proof
+incomplete”顺序、英文 runner-missing 文案及正常 verified completion；
+`go test ./internal/orchestrator ./internal/writeflow ./internal/types -count=1` 全部通过
+（orchestrator 11.448s、writeflow 0.866s、types 17.138s）。
+
+状态：`EVAL-B20-W5=implemented/full-tests-pass/replay-next`。
 
 ### B19g-b r1：target authority 通过，有限事实集仍被扩张（2026-08-01）
 
