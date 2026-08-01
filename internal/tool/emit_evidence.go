@@ -715,6 +715,12 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 		// cascade; schema-level scopes (File / Crossfile / Negative)
 		// route to their own grounders.
 		r := ground.GroundItemScoped(&built[i], gc)
+		if compatNote := normalizeConditionEvidenceAnchorSymbol(&built[i], gc); compatNote != "" {
+			r = ground.GroundItemScoped(&built[i], gc)
+			if appendGroundingNoteOnce(&built[i], compatNote) {
+				r.Note = built[i].GroundingNote
+			}
+		}
 		if stabilizeStringLiteralIdentifierAnchor(&built[i], gc) {
 			r = ground.GroundItemScoped(&built[i], gc)
 			compatNote := "anchor_kind=string_literal was treated as definition because anchor_symbol matched a non-comment identifier on the cited source line, while no source-code literal span matched that exact value"
@@ -2936,6 +2942,10 @@ func stabilizeConditionAnchorClaim(it *types.EvidenceItem, gc *ground.Context) b
 	if claim == "" {
 		return false
 	}
+	lineText := statementLocalAnchorWindowText(gc, it.Source, it.LineStart, 0)
+	if conditionClaimsStructurallyEquivalent(it.Condition, lineText) {
+		return false
+	}
 	window := normalizeStatementLocalAnchorClaim(statementLocalAnchorWindowText(gc, it.Source, it.LineStart, 2))
 	if window == "" {
 		return false
@@ -2954,6 +2964,265 @@ func stabilizeConditionAnchorClaim(it *types.EvidenceItem, gc *ground.Context) b
 		"this condition anchor is not supported by the grounded source lines at the cited location. Keep condition anchors tied to the actual current-code guard text shown by the read_file gutter or drop the speculative conditional claim. Do NOT repair this item.",
 	)
 	return true
+}
+
+// normalizeConditionEvidenceAnchorSymbol repairs only the navigation token of
+// an already line-equivalent typed condition. The condition remains the
+// semantic authority; a model-supplied label from the guarded body must not
+// make the true guard ungrounded when the same typed condition carries a
+// unique visible identifier on the cited line.
+func normalizeConditionEvidenceAnchorSymbol(it *types.EvidenceItem, gc *ground.Context) string {
+	if it == nil || gc == nil || it.AnchorKind != types.AnchorCondition || it.Source == "" || it.LineStart <= 0 {
+		return ""
+	}
+	lineText := statementLocalAnchorWindowText(gc, it.Source, it.LineStart, 0)
+	if !conditionClaimsStructurallyEquivalent(it.Condition, lineText) {
+		return ""
+	}
+	if _, ok := ground.VerifyLineAnchor(gc, it.Source, it.LineStart, strings.TrimSpace(it.AnchorSymbol), 0); ok {
+		return ""
+	}
+	candidates := emitEvidenceIdentifierCandidates(it.Condition)
+	seen := map[string]bool{}
+	visible := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" || seen[candidate] {
+			continue
+		}
+		seen[candidate] = true
+		if _, ok := ground.VerifyLineAnchor(gc, it.Source, it.LineStart, candidate, 0); ok {
+			visible = append(visible, candidate)
+		}
+	}
+	if len(visible) == 0 {
+		return ""
+	}
+	// Prefer the last visible typed-field identifier: for selector chains this
+	// is the outer method/member (x.Flags().Changed(...) -> Changed), while it
+	// remains only a line-navigation anchor rather than a semantic call claim.
+	replacement := visible[len(visible)-1]
+	previous := strings.TrimSpace(it.AnchorSymbol)
+	if previous == replacement {
+		return ""
+	}
+	it.AnchorSymbol = replacement
+	return fmt.Sprintf("condition anchor_symbol %q was not visible on the cited guard; normalized it to visible typed-condition token %q", previous, replacement)
+}
+
+func conditionClaimsStructurallyEquivalent(left, right string) bool {
+	leftExpr, leftNegated, leftOK := canonicalAtomicBooleanCondition(left)
+	rightExpr, rightNegated, rightOK := canonicalAtomicBooleanCondition(right)
+	return leftOK && rightOK && leftExpr == rightExpr && leftNegated == rightNegated
+}
+
+var (
+	conditionBooleanSuffixRe = regexp.MustCompile(`(?is)^(.*?)\s*(==|!=)\s*(true|false)\s*$`)
+	conditionBooleanPrefixRe = regexp.MustCompile(`(?is)^(true|false)\s*(==|!=)\s*(.*?)\s*$`)
+)
+
+// canonicalAtomicBooleanCondition recognizes exact syntactic equivalences for
+// one atomic boolean expression only. In particular, !x, not x, x == false,
+// false == x, x != true, and language-level unless x share the same carrier.
+// It deliberately rejects top-level compound/comparison expressions so this
+// remains a precise grounding signal rather than a general theorem prover.
+func canonicalAtomicBooleanCondition(raw string) (expr string, negated bool, ok bool) {
+	body, keywordNegated := trimConditionStatementSyntax(raw)
+	if body == "" {
+		return "", false, false
+	}
+	negated = keywordNegated
+	body = trimBalancedConditionParens(body)
+	if match := conditionBooleanSuffixRe.FindStringSubmatch(body); len(match) == 4 {
+		body = trimBalancedConditionParens(match[1])
+		literal := strings.EqualFold(strings.TrimSpace(match[3]), "true")
+		comparisonNegated := (match[2] == "==" && !literal) || (match[2] == "!=" && literal)
+		negated = negated != comparisonNegated
+	} else if match := conditionBooleanPrefixRe.FindStringSubmatch(body); len(match) == 4 {
+		body = trimBalancedConditionParens(match[3])
+		literal := strings.EqualFold(strings.TrimSpace(match[1]), "true")
+		comparisonNegated := (match[2] == "==" && !literal) || (match[2] == "!=" && literal)
+		negated = negated != comparisonNegated
+	} else {
+		trimmed := strings.TrimSpace(body)
+		for {
+			switch {
+			case strings.HasPrefix(trimmed, "!") && !strings.HasPrefix(trimmed, "!="):
+				negated = !negated
+				trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "!"))
+			case conditionStartsWithKeyword(trimmed, "not"):
+				negated = !negated
+				trimmed = strings.TrimSpace(trimmed[len("not"):])
+			default:
+				body = trimBalancedConditionParens(trimmed)
+				goto normalized
+			}
+		}
+	}
+
+normalized:
+	if body == "" || conditionHasTopLevelBinaryOperator(body) {
+		return "", false, false
+	}
+	expr = normalizeStatementLocalAnchorClaim(body)
+	if expr == "" {
+		return "", false, false
+	}
+	return expr, negated, true
+}
+
+func trimConditionStatementSyntax(raw string) (body string, negated bool) {
+	body = strings.TrimSpace(raw)
+	for _, keyword := range []string{"if", "when", "while", "guard"} {
+		if conditionStartsWithKeyword(body, keyword) {
+			body = strings.TrimSpace(body[len(keyword):])
+			break
+		}
+	}
+	if conditionStartsWithKeyword(body, "unless") {
+		body = strings.TrimSpace(body[len("unless"):])
+		negated = true
+	}
+	body = strings.TrimSpace(body)
+	if strings.HasSuffix(strings.ToLower(body), " then") {
+		body = strings.TrimSpace(body[:len(body)-len(" then")])
+	}
+	for len(body) > 0 {
+		last := body[len(body)-1]
+		if last != '{' && last != ':' {
+			break
+		}
+		body = strings.TrimSpace(body[:len(body)-1])
+	}
+	return body, negated
+}
+
+func conditionStartsWithKeyword(raw, keyword string) bool {
+	raw = strings.TrimSpace(raw)
+	if len(raw) < len(keyword) || !strings.EqualFold(raw[:len(keyword)], keyword) {
+		return false
+	}
+	if len(raw) == len(keyword) {
+		return true
+	}
+	next := raw[len(keyword)]
+	return next == ' ' || next == '\t' || next == '\r' || next == '\n' || next == '('
+}
+
+func trimBalancedConditionParens(raw string) string {
+	raw = strings.TrimSpace(raw)
+	for len(raw) >= 2 && raw[0] == '(' && raw[len(raw)-1] == ')' && conditionOuterParensBalanced(raw) {
+		raw = strings.TrimSpace(raw[1 : len(raw)-1])
+	}
+	return raw
+}
+
+func conditionOuterParensBalanced(raw string) bool {
+	depth := 0
+	quote := byte(0)
+	escaped := false
+	for i := 0; i < len(raw); i++ {
+		ch := raw[i]
+		if quote != 0 {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == quote {
+				quote = 0
+			}
+			continue
+		}
+		if ch == '\'' || ch == '"' || ch == '`' {
+			quote = ch
+			continue
+		}
+		switch ch {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 && i != len(raw)-1 {
+				return false
+			}
+			if depth < 0 {
+				return false
+			}
+		}
+	}
+	return depth == 0 && quote == 0
+}
+
+func conditionHasTopLevelBinaryOperator(raw string) bool {
+	depth := 0
+	quote := byte(0)
+	escaped := false
+	for i := 0; i < len(raw); i++ {
+		ch := raw[i]
+		if quote != 0 {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == quote {
+				quote = 0
+			}
+			continue
+		}
+		if ch == '\'' || ch == '"' || ch == '`' {
+			quote = ch
+			continue
+		}
+		switch ch {
+		case '(', '[', '{':
+			depth++
+			continue
+		case ')', ']', '}':
+			if depth > 0 {
+				depth--
+			}
+			continue
+		}
+		if depth != 0 {
+			continue
+		}
+		if i+1 < len(raw) {
+			pair := raw[i : i+2]
+			switch pair {
+			case "&&", "||", "==", "!=", "<=", ">=":
+				return true
+			}
+		}
+		if ch == '<' || ch == '>' {
+			return true
+		}
+		if conditionWordOperatorAt(raw, i, "and") || conditionWordOperatorAt(raw, i, "or") {
+			return true
+		}
+	}
+	return false
+}
+
+func conditionWordOperatorAt(raw string, index int, word string) bool {
+	if index < 0 || index+len(word) > len(raw) || !strings.EqualFold(raw[index:index+len(word)], word) {
+		return false
+	}
+	leftBoundary := index == 0 || !isConditionIdentifierByte(raw[index-1])
+	right := index + len(word)
+	rightBoundary := right == len(raw) || !isConditionIdentifierByte(raw[right])
+	return leftBoundary && rightBoundary
+}
+
+func isConditionIdentifierByte(ch byte) bool {
+	return ch == '_' || ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9'
 }
 
 func conditionClaimCorroboratedBySnippet(it *types.EvidenceItem, normalizedWindow string) bool {

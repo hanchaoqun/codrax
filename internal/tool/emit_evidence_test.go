@@ -4403,6 +4403,74 @@ func TestEmitEvidence_DemotesConditionClaimThatDoesNotMatchGroundedLine(t *testi
 	}
 }
 
+func TestEmitEvidence_NormalizesEquivalentBooleanConditionAndVisibleAnchor(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "cmd/root.go", 2664,
+		`if !cmd.Flags().Changed("pipeline-max-steps") {`,
+		"\tflagMaxSteps = mergedMaxSteps",
+		"}",
+	)
+	params := json.RawMessage(`{
+		"items": [
+			{
+				"evidence_kind": "conditional",
+				"source": "cmd/root.go",
+				"line_start": 2664,
+				"condition": "cmd.Flags().Changed(\"pipeline-max-steps\") == false",
+				"summary": "the merged value is used when the flag was not explicitly changed",
+				"anchor_kind": "condition",
+				"anchor_symbol": "flagMaxSteps"
+			}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected equivalent condition to ground, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item in buffer, got %d", len(got))
+	}
+	if got[0].GroundingStatus != types.GroundingGrounded {
+		t.Fatalf("status = %q, want grounded; note=%q", got[0].GroundingStatus, got[0].GroundingNote)
+	}
+	if got[0].AnchorSymbol != "Changed" {
+		t.Fatalf("anchor_symbol = %q, want visible condition token Changed", got[0].AnchorSymbol)
+	}
+	if !strings.Contains(got[0].GroundingNote, "normalized it to visible typed-condition token") {
+		t.Fatalf("normalization audit note missing: %q", got[0].GroundingNote)
+	}
+}
+
+func TestConditionClaimsStructurallyEquivalentBooleanForms(t *testing.T) {
+	cases := []struct {
+		name       string
+		left       string
+		right      string
+		equivalent bool
+	}{
+		{"go negation", `cmd.Flags().Changed("pipeline-max-steps") == false`, `if !cmd.Flags().Changed("pipeline-max-steps") {`, true},
+		{"python not", "ready == false", "if not ready:", true},
+		{"ruby unless", "ready != true", "unless ready then", true},
+		{"positive literal", "ready == true", "if ready {", true},
+		{"opposite polarity", "ready == true", "if !ready {", false},
+		{"quoted false is data", `value == "false"`, "if !value {", false},
+		{"compound prefix negation is not whole-expression negation", "(a && b) == false", "if !a && b {", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := conditionClaimsStructurallyEquivalent(tc.left, tc.right); got != tc.equivalent {
+				t.Fatalf("equivalent(%q, %q) = %v, want %v", tc.left, tc.right, got, tc.equivalent)
+			}
+		})
+	}
+}
+
 func TestEmitEvidence_ConditionSnippetCorroboratesAbbreviatedClaimAcrossLanguages(t *testing.T) {
 	cases := []struct {
 		name   string

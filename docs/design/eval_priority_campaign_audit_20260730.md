@@ -4202,6 +4202,36 @@ mode 事实抽取、Trace 显式时间窗、因果投影、根因排序、唤醒
 状态：`GOFAILSIG1/GOMULTITEST1/NATIVEDIAG1/PROOFSKIP1=implemented/full-tests-pass/replay-next`；
 `COMPOUNDREL1=open/next-design`。
 
+#### B22-D：typed boolean condition 等价与行内 anchor 收敛
+
+对 `COMPOUNDREL1` 冷读后，先修其确定的上游根因，不直接约束 final prose：
+
+1. qf 证据提交的 typed condition 是
+   `cmd.Flags().Changed("pipeline-max-steps") == false`，源码是
+   `if !cmd.Flags().Changed("pipeline-max-steps")`；两者是精确布尔等价，旧 grounder 只做
+   归一化子串比较，错误 demote 为 unsupported condition。
+2. 同一 item 的 `anchor_symbol=flagMaxSteps` 来自 guard body 下一行，不在 condition 行；
+   旧系统没有在“condition 已与当前行等价”的前提下收敛 navigation anchor，最终整条
+   2664 行 evidence/citation 消失。
+3. 新增语言中立、保守的 atomic boolean canonicalizer，仅识别单一表达式上的
+   `!x / not x / unless x / x == false / false == x / x != true` 等精确同义；相反极性、
+   引号内 `"false"`、顶层 `&&/||/and/or/比较` 一律不等价，不尝试通用逻辑证明。
+4. 只有 typed condition 与 read_file 当前行精确/上述等价时，才允许把不可见的
+   `anchor_symbol` 改为 condition 字段中当前行可验证的 durable token；selector chain
+   取最外层可见成员，例如 `Changed`。它只修导航锚点，不把 condition 偷换成 call claim。
+5. 原有错误 condition 继续 ungrounded；没有读取 RawRequest、模型 thinking/closure、
+   final answer 或 case ID，也没有针对 pipeline_max_steps、Go 或某个 receiver 写规则。
+
+定向测试覆盖 qf 原始 payload 形状并确认 evidence 变为 grounded、anchor 收敛为
+`Changed`；另覆盖 Go/Python/Ruby 等价正臂以及 quoted-false、相反极性、compound
+precedence 负臂。`go test ./internal/tool -count=1` 全量通过（167.761s），
+`git diff --check` 通过。
+
+状态：`EVAL-B22-CONDNEG1=implemented/full-tests-pass`；
+`EVAL-B22-COMPOUNDREL1=upstream-root-fixed/replay-required`。只有回放确认 2664 citation
+进入最终证据池且精确 receiver 不再漂移后才可 closed；否则继续设计 typed
+receiver→method relation carrier，不以答案文本扫描代替。
+
 ### B19a r1：Trace 主合同保留，精确集合暴露静默改写（2026-08-01）
 
 严格并行 2 个用例，runner 2/2 PASS，人工审计 0/2：
