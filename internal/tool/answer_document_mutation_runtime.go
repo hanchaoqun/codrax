@@ -9077,11 +9077,13 @@ func runtimeTraceCausalProjectionDetailBlockID(id string) bool {
 // §29.10-3 ruling (projection-cluster-only reorder, 纯块序重排) onto the whole
 // model narrative and broke model discourse order (系统不重排模型叙事红线).
 // Narrowed here: ONLY system-marked runtime-trace supplements participate in
-// the tier sort; every non-system block keeps its original relative order in
-// ONE body bucket (trailing model caveats keep the pre-existing
-// insert-before-caveat convention and stay behind the system tiers). Within
-// the system tiers, each projection lead and its own key-metric "_detail"
-// table share ONE tier so the §29.10-3 pairing survives the stable sort.
+// the tier sort; every other block keeps its original relative order,
+// including model-authored caveats. The sorted supplement sequence is inserted
+// before the first non-trace caveat so established caveat-boundary readers
+// still see it, without moving that caveat across any later model carrier.
+// Within the system tiers, each projection lead and its own key-metric
+// "_detail" table share ONE tier so the §29.10-3 pairing survives the stable
+// sort.
 // The marker prerequisite makes an exact model-authored ID inert even before
 // the collision normalizer's deterministic rename.
 func normalizeRuntimeTraceReportHierarchy(doc *types.AnswerDocumentV2) int {
@@ -9099,15 +9101,31 @@ func normalizeRuntimeTraceReportHierarchy(doc *types.AnswerDocumentV2) int {
 		return 0
 	}
 	const tierCount = 10
-	buckets := make([][]types.AnswerBlock, tierCount)
+	systemBuckets := make([][]types.AnswerBlock, tierCount)
+	bodyBeforeCaveat := make([]types.AnswerBlock, 0, len(doc.Blocks))
+	bodyFromCaveat := make([]types.AnswerBlock, 0, len(doc.Blocks))
+	caveatBoundary := false
 	for _, block := range doc.Blocks {
-		tier := runtimeTraceReportHierarchyTier(block)
-		buckets[tier] = append(buckets[tier], block)
+		if block.SystemGeneratedKind.IsRuntimeTraceSupplement() {
+			tier := runtimeTraceReportHierarchyTier(block)
+			systemBuckets[tier] = append(systemBuckets[tier], block)
+			continue
+		}
+		if !caveatBoundary && block.Kind == types.BlockCaveat {
+			caveatBoundary = true
+		}
+		if caveatBoundary {
+			bodyFromCaveat = append(bodyFromCaveat, block)
+		} else {
+			bodyBeforeCaveat = append(bodyBeforeCaveat, block)
+		}
 	}
 	reordered := make([]types.AnswerBlock, 0, len(doc.Blocks))
-	for _, bucket := range buckets {
+	reordered = append(reordered, bodyBeforeCaveat...)
+	for _, bucket := range systemBuckets {
 		reordered = append(reordered, bucket...)
 	}
+	reordered = append(reordered, bodyFromCaveat...)
 	moved := 0
 	for i := range reordered {
 		if reordered[i].ID != doc.Blocks[i].ID {
@@ -9158,13 +9176,11 @@ func runtimeTraceReportHierarchyTier(block types.AnswerBlock) int {
 			return 5
 		}
 	}
-	// 审计 #59 收窄: non-system blocks form ONE order-preserving body bucket —
-	// the system never re-orders the model narrative among itself. Trailing
-	// disclosure caveats keep the established end-of-report seat (the
-	// insert-before-caveat convention predates this sort).
-	if block.Kind == types.BlockCaveat {
-		return 9
-	}
+	// EVAL-B27-OWNGUARD1: a non-system block never participates in the system
+	// tier sort. BlockCaveat is a presentation boundary, not provenance. The
+	// caller preserves the entire non-trace subsequence and inserts the sorted
+	// system sequence before that boundary; it never moves the caveat across a
+	// later model-owned mechanism carrier.
 	return 0
 }
 

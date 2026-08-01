@@ -184,21 +184,32 @@ func TestDispW1HierarchyPreservesModelNarrativeOrder(t *testing.T) {
 		{ID: "m_summary", Kind: types.BlockSummary, Text: "结论,细节如下表"},
 		{ID: "m_background", Kind: types.BlockSection, Text: "背景"},
 		{ID: "next_steps", Kind: types.BlockSection, Text: "模型自己的建议"},
+		// A model caveat may precede another model carrier after a mechanical
+		// repair. Its kind does not authorize the hierarchy pass to move it.
+		{ID: "m_caveat", Kind: types.BlockCaveat, Text: "范围披露"},
 		{ID: "m_table", Kind: types.BlockTable, Text: "分析表"},
 		system("runtime_trace_causal_projection"),
-		{ID: "m_caveat", Kind: types.BlockCaveat, Text: "范围披露"},
 	}}
+	wantModelWire, err := modelOwnedAnswerBlockWire(doc)
+	if err != nil {
+		t.Fatalf("snapshot model wire: %v", err)
+	}
 	normalizeRuntimeTraceReportHierarchy(doc)
+	if err := requireModelOwnedAnswerBlockWirePreserved(wantModelWire, doc); err != nil {
+		t.Fatalf("#59/B27: hierarchy changed model-owned block wire: %v", err)
+	}
 	var ids []string
 	for _, block := range doc.Blocks {
 		ids = append(ids, block.ID)
 	}
 	got := strings.Join(ids, ",")
-	// Model narrative keeps its relative order as ONE body bucket (including
-	// the model-authored next_steps-shaped ID — never promoted by bare ID),
-	// system lead precedes system detail, trailing caveat closes.
-	want := "m_summary,m_background,next_steps,m_table," +
-		"runtime_trace_causal_projection,runtime_trace_causal_projection_detail_full,m_caveat"
+	// Model narrative keeps its exact relative subsequence (including caveats
+	// and a model-authored next_steps-shaped ID — never promoted by bare ID).
+	// The sorted system sequence is inserted before the established caveat
+	// boundary without moving the caveat across m_table.
+	want := "m_summary,m_background,next_steps," +
+		"runtime_trace_causal_projection,runtime_trace_causal_projection_detail_full," +
+		"m_caveat,m_table"
 	if got != want {
 		t.Fatalf("#59 narrowed hierarchy broken:\n got %s\nwant %s", got, want)
 	}

@@ -3977,6 +3977,46 @@ B18c 使用一条通用 typed 规则修复：
 状态：`EVAL-B26-ALIAS1=covered`；`EVAL-B26-PHASE1=partial`；
 `EVAL-B27-MWAUTH1=implemented / focused-tests-pass / full-regression-next`；
 `EVAL-B27-REL1/P2`、`EVAL-B27-CALLER1/P2=open`。本轮原始机器汇总与人工审计：
+
+#### B27a r1 与 OWNGUARD1：absence 形未触发，模型 wire 看护发现真实越权
+
+严格并行 2 个回放均为 runner PASS；人工结论：
+
+1. `real_trace_c2_dstate_iowait` 为 `pass_with_advisory`：D-state=0、3 条
+   io_wait、0.635ms 均正确；
+2. `trace_query_donghu_real_frame_multicausal` 为 human FAIL：本轮模型只调用
+   两次 trace_query，没有形成 `missing_wakeup` 行，因此
+   `EVAL-B27-MWAUTH1` 只能记为 `not_observed_in_this_replay`，不能把生产者和
+   authority 单测冒充客户形回放覆盖；
+3. PHASE handoff 已明确给出 `impact_phase=pre_wakeup_dependency`、非 consumer
+   post-wakeup、无 holder/waiter 证明，模型仍把候选写成根因并混成唤醒后调度；
+   这是模型未消费精确信息，不授权系统改写答案；
+4. system projection 已有 typed overlap/non-additive relation，但 finalizer 的
+   高显著度 decision handoff 只有泛化 `cross_row_additivity=forbidden`，登记的
+   `EVAL-B27-REL1` 仍应从 typed 行间关系补强，而不是扫描模型算式。
+
+同时发现 `EVAL-B27-OWNGUARD1/P0`：bounded case 的前两稿均报
+`runtime trace hierarchy violated model-answer ownership: model block 2 changed`。
+冷读证明 OWN4 看护本身正确，真正错误在 hierarchy sorter：它把未带系统
+marker 的 model caveat 单列 tier 9，却把随后由 pre-emit mechanical repair
+补出的 model-owned carrier 留在 tier 0，因而改变模型块子序列。该异常来自
+`c60400844a` 对 `e920a5d8c1` 全局排序的收窄仍保留 caveat 例外；不是本轮
+`629828739` 所加 OWN4 造成，OWN4 只是首次 fail-loud 暴露旧越权。
+
+修复：所有非 runtime-trace system blocks（包括 model caveat）保持完整原序
+子序列；只允许 authenticated runtime-trace system blocks 参与 tier 排序，
+排序后的 system 序列整体插入首个非 trace caveat 边界之前。这样兼容既有
+“caveat 之前是可读正文/附录”的消费者，同时不再把 caveat 跨过随后由机械
+repair 补出的 model-owned carrier。增加 model caveat 位于机械 carrier 前的
+wire 级回归，既允许模型自由组织多块答案，也继续拒绝任何系统删除、改字或
+调换模型块。该看护不读取用户输入、模型正文语义或关键词，不钉具体结论。
+
+验证：7 个 hierarchy/materializer 定向回归通过；完整
+`go test ./internal/tool -count=1` 通过（166.478s）。
+
+状态：`EVAL-B27-OWNGUARD1=implemented / full-tests-pass`；
+`EVAL-B27-MWAUTH1=implemented / replay-not-observed`；
+`EVAL-B26-PHASE1=partial`；`EVAL-B27-REL1/CALLER1=open`。
 `eval/parallel_selected_summary_evalcampaign_b26phasealias_r1_20260801.md`、
 `eval/parallel_selected_summary_evalcampaign_b26phasealias_r1_20260801_manual_audit.md`。
 
