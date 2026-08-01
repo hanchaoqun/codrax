@@ -3602,3 +3602,47 @@ B17 落地为 producer-minted exact identity：
 |---|---|
 | EVAL-B7-T2 | implementation-complete / full-tests-pass / replay-next |
 | EVAL-B16-REL1 | filed-design / B18 |
+
+### B17 r1 one-seat 收账与显式窗非回退（2026-08-01）
+
+在 revision `1aefc8b5e` 重建后严格 `parallel=2` 回放：
+
+- `eval/results/trace_query_path_question_multi_trace_files-20260731-203253`
+- `eval/results/real_trace_h8_semantic_edge_anchor_sentinel-20260731-203253`
+
+runner 2/2、人工 2/2（multi-trace 104s、H8 115s），均为单轮
+analyze/explore/finalize，0 midloop、0 finalizer reject、0 patch。
+
+multi-trace 收账：
+
+1. 两个 trace 的 path、target、selected window、状态账与跨工件 authority
+   继续完全隔离，三个 projection block 均在；
+2. app-20 的 root-rank 与 wakeup-impact 5.000ms 已收敛成唯一
+   `E1(+1)` 席；树、指标表与 ◎ 窗内可消除量都只计一次，不再出现两个
+   5.000ms 席；
+3. `(+1)` 与 `2次同值` 是既有 duplicate-publication 审计词面，图例明确
+   “同一测量被重复发布、数值不是 N 份”；两个原始 observation 仍保留在
+   系统核对区，信息不丢；
+4. 模型再次把 1.001200→1.010000 的端点跨度叙述成 10.000ms，typed 投影
+   没有跟错。`EVAL-B16-TRMV1` 从单轮波动更新为 repeated model-prose
+   issue，但仍不以答案关键词或具体数值硬门；其严重度低于 B18 typed
+   source-role authority。
+
+H8 非回退：
+
+1. 完整显式 10ms Trace 因果投影仍在，包含根因排序、wakeup chain、
+   ◎ 窗内可消除量、coverage boundary 与系统自动补充；
+2. `VerifyClass com.baidu.zeus.mml.lac.LacUtils` 仍为链上 #2，
+   effective=0.285ms；
+3. 宿主→目标最晚相关边仍为精确 `34579.496810s`，凭证仍为
+   `直接裸边`；
+4. target 四态账、missing-wakeup 下界与 capacity-truncated 权限均未被
+   one-seat 收窄影响。
+
+状态：
+
+| ID | 状态 |
+|---|---|
+| EVAL-B7-T2 | covered |
+| EVAL-B16-TRMV1 | filed-repeated-model-prose（不做 raw-answer hard gate） |
+| EVAL-B16-REL1 | next / B18 |
