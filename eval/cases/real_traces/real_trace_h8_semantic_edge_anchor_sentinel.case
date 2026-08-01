@@ -44,7 +44,7 @@ HTRACE_FILE="eval/fixtures/real_traces/donghu_tieba_frame.systrace"
 # real_traces/PROFILE.md and tracequery tests all carry them verbatim).
 FIXTURE="eval/fixtures/stub_repo"
 EXPECT_CONTAINS="类校验 0.285 边锚定 直接裸边"
-EXPECT_MATCHES_REGEX="最晚相关边 34579\\.496810s[·,]凭证=直接裸边
+EXPECT_MATCHES_REGEX="最晚相关边 34579\\.496810s·凭证=直接裸边
 VerifyClass com\\.baidu\\.zeus\\.mml\\.lac\\.LacUtils"
 EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
 EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

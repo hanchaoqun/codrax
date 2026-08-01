@@ -3271,3 +3271,69 @@ XR1 短期批已按上述不变量落地：
 - production persist→render pin 同时固定：全局横幅消失、NEG1 system lead
   仍在、模型事实与 present-target scalar 均保留。实现没有读取请求或答案
   prose，也没有增加 reject/retry。
+
+### B15 r4 XR1 收账与 negative-producer 分裂审计（2026-08-01）
+
+在 revision `d717f6044` 重建后严格 `parallel=2` 回放：
+
+- `eval/results/read_combo_config_absent_present_mix-20260731-193544`
+- `eval/results/real_trace_h8_semantic_edge_anchor_sentinel-20260731-193544`
+
+runner 1/2（config mix PASS 170s、H8 FAIL 198s），人工为 config uncertain、
+H8 pass。
+
+XR1 已由 config mix 真实收账：
+
+1. 错误的 document-level
+   `当前已验证范围内未找到完全一致的精确目标` 横幅不再出现；
+2. 两个 target 的模型事实块均保留，present target 的示例值 0 和
+   `runtime.go:1035` / `root.go:3799` 锚点没有被 scalar 归一化误删；
+3. 单次 finalizer、0 reject/patch，说明修复不是靠重试波动生效。
+
+本轮同时暴露 NEG1 的下一层 producer 分裂。explorer 两次尝试发 negative
+EvidenceItem，但 source/negative_query file 分别写成抽象
+`internal/tool` vs `production Go files`、以及测试文件 vs repo 根，grounder
+正确拒绝，`evidence round ingest ... accepted_evidence=0`。因此 NEG1
+system lead 按设计 fail-closed 不发布。
+
+completion 另有一条 accepted typed aggregate：
+
+```text
+kind=negative_search
+origin=repo_negative_search
+target=explore_xyz_phantom_unique_budget
+scope=production Go files excluding test/docs
+result_count=0
+```
+
+现有 negative-proof supplement 在答案尾部忠实转录该范围，但模型正文仍把它
+扩成 YAML/example/CLI 三层 absence。事实可能正确，权限链却不完整。不能通过
+扫描模型文字拦截；也不能把 model-authored aggregate 无条件提升为系统真值。
+后续最优方向是统一经过 completion 校验、且具精确 typed
+target/query/scope/result_count 的 negative producer roster，在 lead 明示每条
+权限上限；未验证范围继续 unproven。
+
+H8 的显式窗非回退验证通过：
+
+1. `trace_query_final_projection_blocks=2`；
+2. 完整 Trace 因果投影、root rank、wakeup/边锚定、窗内可消除量和系统补充
+   均在；
+3. `VerifyClass` / `类校验` / `0.285ms` / 链上 #2 /
+   `34579.496810s` / `直接裸边` 全部在，模型本轮也正确复述。
+
+runner FAIL 是 eval harness 在 `LC_ALL=C grep -E` 下对 UTF-8 bracket
+expression `[·,]` 的兼容问题，不是生产答案缺证。case 已固定为正式系统板
+实际字面 `·`；不为测试改生产渲染。上轮的模型窗归属错误本轮未复现，继续按
+波动留档。
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B15-XR1 | P1 | mixed exact target global verdict | targetless global absent 覆盖 mixed targets | multi-target absent fail-closed suppression；真实回放横幅消失且 scalar 保留 | covered |
+| EVAL-B15-H8O1 | P3 | eval UTF-8 regex authority | C locale bracket expression 不可靠 | oracle 使用正式 UTF-8 字面，不改生产 | covered-pending-replay |
+| EVAL-B15-H8MV1 | P2 | model window-membership binding | 模型一轮错读 typed 窗 | 本轮未复现；不做 prose gate | filed-model-variance |
+| EVAL-B15-NEG2 | P2 | negative authority producer split | verified negative evidence 缺席时，accepted aggregate negative-search 只在 footer 出现，scope authority 不领先 | 审计 aggregate completion validation；仅对精确 typed target/query/scope/result_count 的 accepted producer 建统一 lead，保持每行有界、未列 scope unproven | filed-audit-next |
+| EVAL-B15-AR1 | P1 | arithmetic operand binding | 多数值自由句 relation owner 不明确 | 只消费 typed relation 或多候选 fail-open | filed-next |
+
+下一批优先级仍为 AR1 高于 NEG2：AR1 已由真实 C2 重现确定的“系统附注算错”，
+属于 system-authored misinformation；NEG2 当前是 system fail-closed +
+model overclaim，风险较低。施工时继续保留 H8 作为显式窗非回退席。
