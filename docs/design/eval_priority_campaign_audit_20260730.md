@@ -4425,6 +4425,35 @@ claim-form enum、block scalar value、精确 citation quote 和 grounded eviden
 状态：`EVAL-B22-SCALARAUTH1=implemented/full-tests-pass/replay-next`；
 `EVAL-B22-SCALARCIT1=implemented/full-tests-pass/replay-next`。
 
+#### B22-G r1：typed scalar authority 与 Trace 不变量回放（2026-08-01）
+
+严格并行 2 个案例，runner 2/2 PASS，人工审计 2/2 PASS：
+
+1. `qf_config_precedence` 最终把默认值 `50` 引用到真实定义
+   `cmd/root.go:88`，引用池未混入 sibling key `PipelineMaxStepsCeil`；解析、YAML
+   回填与 CLI 显式覆盖的机制也正确。因此
+   `EVAL-B22-SCALARCIT1/SCALARAUTH1/NEARKEY1=covered`。
+2. 本次模型首次提交已经选择正确 value carrier，生产回放没有触发 B22-G 的重绑分支；
+   因而它是最终行为正证，不冒充修复臂的直接动态证据。修复臂由完整 production-chain
+   单测固定：错误 sibling citation 与同值低权 precedence carrier 同时存在时，typed
+   definition 唯一胜出，并穿过枚举物化、unused prune 与 persist。
+3. `trace_query_frame_semantic_span_optimization` 完整保留显式
+   `5.000000..5.007000` 窗、`running=1.200ms / runnable=0.800ms /
+   sleep=5.000ms`、主要时间占用/规则可消除双轴、
+   `class_verification raw=5.000ms / eliminable=4.600ms`、根因排序、
+   `worker-200 -> app-100` 唤醒链、代表窗、`Trace 因果投影`、
+   `frame_causality=unproven / frame_evidence_status=absent` 与 45 条系统补采。
+   B22-G 未触及也未回归显式 Trace 窗合同。
+4. 新登记 `EVAL-B22-COUNTDOMAIN1/P3`：配置日志的软结构提示把“配置优先级层共 3 项”
+   与 summary/scalar/table 中独立事实 `50` 比较，连续产生
+   `expected_count=3 visible_count=50`。根因是 aggregate member-set count 校验没有按
+   typed facet/carrier domain 隔离数字；当前只产生一次 soft advisory，不硬拒、不改变
+   最终答案，故低于跨模式高优先 eval。后续应只读取该 aggregate 自身的 typed count
+   claims/成员载体，不能扫描无关 block 文本，也不能按 case、配置名或数字特判。
+
+状态：`EVAL-B22-SCALARCIT1=covered`；`EVAL-B22-SCALARAUTH1=covered`；
+`EVAL-B22-NEARKEY1=covered`；`EVAL-B22-COUNTDOMAIN1=P3/filed`。
+
 ### B19a r1：Trace 主合同保留，精确集合暴露静默改写（2026-08-01）
 
 严格并行 2 个用例，runner 2/2 PASS，人工审计 0/2：
