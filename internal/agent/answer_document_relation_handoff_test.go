@@ -192,3 +192,52 @@ func TestRequiresRelationMemberSetHandoffStillSkipsMechanismOnlyRelation(t *test
 		t.Fatal("mechanism-only relation explanation must remain advisory, not a hard relation member-set gate")
 	}
 }
+
+func TestRenderAnswerDocTypedRelationSourceRoleHandoffPartitionsCompleteRoster(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{}},
+		TypedRelationHints: []types.TypedRelationHint{{
+			Relation:   types.TypedRelationImplements,
+			SourceName: "LoopController",
+			Members: []types.TypedRelationMember{
+				{Name: "prodEvaluator", File: "internal/agent/prod.go", Line: 10},
+				{Name: "stubEvaluator", File: "internal/agent/prod_test.go", Line: 20},
+				{Name: "pathlessEvaluator"},
+			},
+		}},
+	}
+	got := renderAnswerDocTypedRelationSourceRoleHandoff(ctx)
+	for _, want := range []string{
+		"Typed Relation Source-Role Projection",
+		"complete_relation_roster=3; principal=1; auxiliary=1; unknown=1",
+		"lane=`principal` source_role=`production`",
+		"lane=`auxiliary` source_role=`test`",
+		"lane=`unknown` source_role=`unknown`",
+		"does not scan the raw request or answer prose",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("typed source-role handoff missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestRenderAnswerDocTypedRelationSourceRoleHandoffHonorsTypedTestScope(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			SourceScopeProfile: &types.SourceScopeProfile{RequestedScope: types.SourceScopeTest},
+		}},
+		TypedRelationHints: []types.TypedRelationHint{{
+			Relation:   types.TypedRelationImplements,
+			SourceName: "LoopController",
+			Members: []types.TypedRelationMember{
+				{Name: "prodEvaluator", File: "internal/agent/prod.go"},
+				{Name: "stubEvaluator", File: "internal/agent/prod_test.go"},
+			},
+		}},
+	}
+	got := renderAnswerDocTypedRelationSourceRoleHandoff(ctx)
+	if !strings.Contains(got, "lane=`principal` source_role=`test`") ||
+		!strings.Contains(got, "lane=`auxiliary` source_role=`production`") {
+		t.Fatalf("typed test scope not honored:\n%s", got)
+	}
+}

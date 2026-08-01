@@ -49,6 +49,36 @@ func TestTypedRelationCandidates_ExactFileImportsAndExports(t *testing.T) {
 	}
 }
 
+func TestTypedRelationCandidates_AllGraphKindsCarryDeterministicSourceRole(t *testing.T) {
+	cases := []struct {
+		name  string
+		graph *rmtypes.Graph
+		query types.TypedRelationQuery
+	}{
+		{"imports", importGraphFixture(rmtypes.LangGo), types.TypedRelationQuery{Kinds: []types.TypedRelationKind{types.TypedRelationImports}, Sources: []string{"cmd/root.go"}, Purpose: types.TypedRelationPurposeCoverageGate}},
+		{"exports", importGraphFixture(rmtypes.LangGo), types.TypedRelationQuery{Kinds: []types.TypedRelationKind{types.TypedRelationExports}, Sources: []string{"internal/tool/tool.go"}, Purpose: types.TypedRelationPurposeCoverageGate}},
+		{"called_by", callGraphFixture(rmtypes.LangGo), types.TypedRelationQuery{Kinds: []types.TypedRelationKind{types.TypedRelationCalledBy}, Sources: []string{"Target"}, Purpose: types.TypedRelationPurposeCoverageGate}},
+		{"references", referenceGraphFixture(rmtypes.LangGo), types.TypedRelationQuery{Kinds: []types.TypedRelationKind{types.TypedRelationReferences}, Sources: []string{"RuntimeConfig"}, Purpose: types.TypedRelationPurposeCoverageGate}},
+		{"extends", inheritanceGraphFixture(rmtypes.LangGo), types.TypedRelationQuery{Kinds: []types.TypedRelationKind{types.TypedRelationExtends}, Sources: []string{"Base"}, Purpose: types.TypedRelationPurposeCoverageGate}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rows := TypedRelationCandidates(tc.graph, tc.query)
+			if len(rows) == 0 {
+				t.Fatalf("expected relation rows")
+			}
+			for _, row := range rows {
+				if row.Member.SourceRole != types.SourcePathRoleProduction {
+					t.Fatalf("row missing deterministic production source role: %+v", row)
+				}
+				if row.Member.ScopeLane != types.TypedRelationMemberLaneUnknown {
+					t.Fatalf("provider must not mint request-scoped lane: %+v", row)
+				}
+			}
+		})
+	}
+}
+
 func TestTypedRelationCandidates_DirectoryAndPackageArePromptOnly(t *testing.T) {
 	g := importGraphFixture(rmtypes.LangJava)
 	g.FileIndex["cmd/root.go"].Package = "com.example.app"

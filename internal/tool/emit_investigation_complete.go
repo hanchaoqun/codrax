@@ -5204,13 +5204,17 @@ func relationMemberSetHandoffDowngrade(ctx *types.BusContext, closure *types.Evi
 	}
 	ok, invalid := exhaustiveEnumerationMemberSetUsable(ctx, aggregateFacts)
 	relationGaps := relationMemberSetCoverageGaps(ctx, aggregateFacts)
-	if ok && len(relationGaps) == 0 {
+	scopeViolations := relationPrincipalMemberSetScopeViolations(ctx, aggregateFacts)
+	if ok && len(relationGaps) == 0 && len(scopeViolations) == 0 {
 		return ""
 	}
 	if closure != nil {
 		files := completionMaterializationReadFiles(closure)
 		for _, gap := range relationGaps {
 			files = append(files, gap.File)
+		}
+		for _, violation := range scopeViolations {
+			files = append(files, violation.File)
 		}
 		closure.AddRepair(types.RepairDirective{
 			Kind:      types.RepairEmitEvidence,
@@ -5229,6 +5233,9 @@ func relationMemberSetHandoffDowngrade(ctx *types.BusContext, closure *types.Evi
 	if len(relationGaps) > 0 {
 		fmt.Fprintf(&b, "The current `member_set` omits grounded typed relation evidence that was already emitted and is inside the requested source scope: %s. Include these members in the principal `member_set`, or place them in `excluded[]` with an explicit reason if the user-facing answer intentionally excludes them.\n\n", relationMemberSetGapSummary(relationGaps))
 	}
+	if len(scopeViolations) > 0 {
+		fmt.Fprintf(&b, "The current principal `member_set` promotes exact typed relation rows outside the analyzer-emitted source scope: %s. Keep those rows in the complete audit roster, but move them to `excluded[]` or an explicitly auxiliary aggregate; do not count them in the principal relation set unless `SourceScopeProfile` selects that role.\n\n", relationScopeViolationSummary(scopeViolations))
+	}
 	b.WriteString("Emit `aggregate_facts` with kind=`member_set`, value equal to the exact qualifying-member count, and members containing the verified relation answer set. For relation rows you may use compact surfaces such as `caller → callee`, `package: entry`, `module/import`, or a plain qualifying member when the relation target is already clear from the request and evidence. Each member must be backed by typed evidence or member-specific support_refs. Then re-call `emit_investigation_complete`.")
 	return b.String()
 }
@@ -5239,6 +5246,103 @@ type relationCoverageGap struct {
 	Name       string
 	File       string
 	Line       int
+}
+
+type relationScopeViolation struct {
+	Name       string
+	SourceRole types.SourcePathRole
+	File       string
+}
+
+// relationPrincipalMemberSetScopeViolations prevents an exact auxiliary
+// structural member from being minted as a principal answer row under the
+// default production scope. It consumes only the typed relation candidate
+// protocol and structured aggregate_facts members. Unknown or ambiguous roles
+// fail open; raw request text, closure prose, and final-answer prose are never
+// read.
+func relationPrincipalMemberSetScopeViolations(ctx *types.BusContext, facts []types.AnswerAggregateFact) []relationScopeViolation {
+	if ctx == nil || ctx.AnalysisIR == nil || len(facts) == 0 {
+		return nil
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if !types.RequiresRelationMemberSetHandoff(rm) {
+		return nil
+	}
+	candidates := relationCandidatesForRequestAllSourceRoles(ctx, rm)
+	if len(candidates) == 0 {
+		return nil
+	}
+	byMember := map[string][]types.TypedRelationMember{}
+	for _, candidate := range candidates {
+		member := types.NormalizeTypedRelationMemberSourceRole(candidate.Member)
+		if member.SourceRole == types.SourcePathRoleUnknown {
+			continue
+		}
+		key := aggregateMemberKey(member.Name)
+		if key == "" {
+			continue
+		}
+		byMember[key] = append(byMember[key], member)
+	}
+	if len(byMember) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []relationScopeViolation
+	for _, fact := range facts {
+		if !types.AnswerAggregateFactCarriesCompleteMemberSet(fact) ||
+			!types.AnswerAggregateFactRoleForRequest(fact, &rm).IsPrincipal() {
+			continue
+		}
+		for _, raw := range fact.Members {
+			var matches []types.TypedRelationMember
+			for _, display := range aggregateMemberDisplayCandidates(raw) {
+				matches = append(matches, byMember[aggregateMemberKey(display)]...)
+			}
+			if len(matches) == 0 {
+				continue
+			}
+			inScope := false
+			for _, member := range matches {
+				if relationSourceInRequestedScope(member.File, rm) {
+					inScope = true
+					break
+				}
+			}
+			// Same-name production + auxiliary candidates are ambiguous and
+			// therefore fail open. Exact all-auxiliary matches are rejected.
+			if inScope {
+				continue
+			}
+			member := matches[0]
+			key := aggregateMemberKey(raw) + "|" + string(member.SourceRole) + "|" + member.File
+			if key == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, relationScopeViolation{
+				Name:       strings.TrimSpace(raw),
+				SourceRole: member.SourceRole,
+				File:       member.File,
+			})
+		}
+	}
+	return out
+}
+
+func relationScopeViolationSummary(violations []relationScopeViolation) string {
+	parts := make([]string, 0, len(violations))
+	for _, violation := range violations {
+		part := strings.TrimSpace(violation.Name)
+		if violation.SourceRole != types.SourcePathRoleUnknown {
+			part += " [source_role=" + string(violation.SourceRole) + "]"
+		}
+		if violation.File != "" {
+			part += " @ " + violation.File
+		}
+		parts = append(parts, part)
+	}
+	return strings.Join(parts, "; ")
 }
 
 func relationMemberSetCoverageGaps(ctx *types.BusContext, facts []types.AnswerAggregateFact) []relationCoverageGap {
@@ -5306,6 +5410,33 @@ func relationCandidatesForRequest(ctx *types.BusContext, rm types.RequestModel) 
 	return nil
 }
 
+// relationCandidatesForRequestAllSourceRoles returns the same exact typed
+// structural universe before request-scope projection. It exists only to
+// detect principal member_set rows that promote an auxiliary relation member;
+// normal coverage still uses relationCandidatesForRequest and therefore
+// requires every in-scope expected member.
+func relationCandidatesForRequestAllSourceRoles(ctx *types.BusContext, rm types.RequestModel) []types.TypedRelationCandidate {
+	if ctx == nil || ctx.Mutable == nil {
+		return nil
+	}
+	query := types.BuildTypedRelationQuery(rm, types.TypedRelationPurposeCoverageGate, 0)
+	if len(query.Kinds) == 0 || len(query.Sources) == 0 {
+		return nil
+	}
+	if provider, ok := ctx.MultiGraph.(types.TypedRelationCandidateSource); ok && provider != nil {
+		if out := relationFilterCoverageCandidatesAllSourceRoles(provider.TypedRelationCandidates(query)); len(out) > 0 {
+			return out
+		}
+	}
+	graph, _ := ctx.Mutable.SearchGraph().(*repotypes.Graph)
+	if out := relationFilterCoverageCandidatesAllSourceRoles(rmrelation.TypedRelationCandidates(graph, query)); len(out) > 0 {
+		return out
+	}
+	return relationFilterCoverageCandidatesAllSourceRoles((types.EvidenceRelationCandidateSource{
+		Items: relationEvidenceItemsForCoverage(ctx),
+	}).TypedRelationCandidates(query))
+}
+
 func relationEvidenceItemsForCoverage(ctx *types.BusContext) []types.EvidenceItem {
 	if ctx == nil {
 		return nil
@@ -5363,6 +5494,7 @@ func relationTypedImplementersFromProvider(provider types.TypedRelationImplement
 			seen[key] = true
 			member.Name = name
 			member.File = file
+			member = types.NormalizeTypedRelationMemberSourceRole(member)
 			out = append(out, types.TypedRelationCandidate{
 				Relation:   types.TypedRelationImplements,
 				SourceName: candidate,
@@ -5411,11 +5543,12 @@ func relationTypedImplementersFromGraph(graph *repotypes.Graph, candidates []str
 				Relation:   types.TypedRelationImplements,
 				SourceName: candidate,
 				Member: types.TypedRelationMember{
-					Name:     strings.TrimSpace(sym.Name),
-					File:     file,
-					Line:     sym.Line,
-					Kind:     sym.Kind,
-					Distance: 1,
+					Name:       strings.TrimSpace(sym.Name),
+					File:       file,
+					Line:       sym.Line,
+					Kind:       sym.Kind,
+					SourceRole: types.ClassifySourcePathRole(file),
+					Distance:   1,
 				},
 				Carrier:   types.TypedRelationCarrierGraph,
 				Precision: types.TypedRelationPrecisionExactSymbolID,
@@ -5441,7 +5574,36 @@ func relationFilterCoverageCandidates(candidates []types.TypedRelationCandidate,
 		member := candidate.Member
 		member.Name = strings.TrimSpace(member.Name)
 		member.File = canonicalRelationSourcePath(member.File)
+		member = types.NormalizeTypedRelationMemberSourceRole(member)
 		if member.Name == "" || !relationSourceInRequestedScope(member.File, rm) {
+			continue
+		}
+		candidate.Member = member
+		key := relationCandidateEvidenceKey(candidate)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, candidate)
+	}
+	return out
+}
+
+func relationFilterCoverageCandidatesAllSourceRoles(candidates []types.TypedRelationCandidate) []types.TypedRelationCandidate {
+	if len(candidates) == 0 {
+		return nil
+	}
+	out := make([]types.TypedRelationCandidate, 0, len(candidates))
+	seen := map[string]bool{}
+	for _, candidate := range candidates {
+		if !candidate.CoverageGateEligible() {
+			continue
+		}
+		member := candidate.Member
+		member.Name = strings.TrimSpace(member.Name)
+		member.File = canonicalRelationSourcePath(member.File)
+		member = types.NormalizeTypedRelationMemberSourceRole(member)
+		if member.Name == "" || member.SourceRole == types.SourcePathRoleUnknown {
 			continue
 		}
 		candidate.Member = member
@@ -12104,7 +12266,8 @@ func relationMemberSetCompletesGenericForcedReadBoundary(ctx *types.BusContext, 
 	if !ok {
 		return false
 	}
-	return len(relationMemberSetCoverageGaps(ctx, aggregateFacts)) == 0
+	return len(relationMemberSetCoverageGaps(ctx, aggregateFacts)) == 0 &&
+		len(relationPrincipalMemberSetScopeViolations(ctx, aggregateFacts)) == 0
 }
 
 func genericForcedReadBoundarySatisfiedByGroundedEvidence(ctx *types.BusContext, evidence []types.EvidenceItem) bool {

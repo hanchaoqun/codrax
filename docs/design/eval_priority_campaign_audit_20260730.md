@@ -3646,3 +3646,91 @@ H8 非回退：
 | EVAL-B7-T2 | covered |
 | EVAL-B16-TRMV1 | filed-repeated-model-prose（不做 raw-answer hard gate） |
 | EVAL-B16-REL1 | next / B18 |
+
+### B18 typed relation source-role authority 施工（2026-08-01）
+
+对 `qf_type_relation_loop_controller` 的完整链路冷读确认，问题不是 graph
+误判实现关系：15 条 implements edge 全都真实存在。缺口是同一份完整结构
+roster 在进入 relation 协议时丢失了已有的 repo path role：
+
+1. analyzer 没有发 `source_scope_profile`，按既有合同应使用默认
+   production scope；
+2. source-inventory lane 已把 12 个生产类型标为 principal candidate、3 个
+   `agent_test.go` 测试桩标为 support；
+3. `TypedRelationMember` 原来只有 name/file/line/kind/distance，relation
+   dossier、completion member_set 和 finalizer 都拿不到 source role；
+4. explorer 因而把完整 15 项 roster 重新铸成 principal `member_set`，
+   principal contract 又忠实地把 15 项写进主表和主图。
+
+B18 采用共享、typed、relation-kind 无关的协议：
+
+1. `TypedRelationMember` 新增 `source_role` 与 request-scoped
+   `scope_lane`。`source_role` 复用既有闭集
+   `production/test/fixture/example/documentation/prompt_support/thirdparty/
+   vendor/generated/unknown`，只由精确路径结构计算；
+2. graph implements/extends/called-by/references/imports/exports、evidence
+   registers/configures/routes-to、observation source-anchor 与 multigraph
+   最终 prefix 边界共用同一 role normalizer；provider 不铸 request lane；
+3. context 在唯一投影点把 role 与 analyzer-emitted `SourceScopeProfile`
+   合成 `principal/auxiliary/unknown`。未声明范围时默认 production；
+   显式 test/docs/aux/all 才改变 principal；完整成员 roster 永不删除；
+4. repo_map implementers、Knowledge/Evidence row、relation dossier 与
+   finalizer handoff 都显示 role/lane 和 principal/auxiliary/unknown 总数。
+   explorer 被明确要求 principal `member_set` 只取 principal lane，
+   auxiliary 进入 labelled support/excluded，unknown 必须披露核实；
+5. completion 增加精确信号校验：只在结构化 member_set 的某成员能与 exact
+   typed candidates 对齐、且该名字的所有候选都在 typed request scope
+   之外时，要求模型把它移出 principal。相同名字同时存在 production/test、
+   pathless/unknown、非 exact carrier 均 fail-open；
+6. 硬校验只读 typed query、candidate、SourceScopeProfile 与结构化
+   `aggregate_facts.members`，不扫描 RawRequest、closure reason 或最终答案
+   prose。测试故意把 RawRequest 写成与 typed scope 矛盾的句子，结果仍由
+   typed scope 决定。
+
+通用性与防过拟合：
+
+- 不识别“主要”、`main`、具体接口名、`agent_test.go` 字面或 case ID；
+- implements、subtype、caller/reference、import/export 和 evidence relation
+  共享 wire，不为 LoopController 开旁路；
+- 普通 production 问题保留完整 auxiliary audit roster，不把测试实现假装成
+  “不存在”；显式 test scope 会反向把 test 设为 principal、production
+  设为 auxiliary；
+- 不修改 Trace family resolver、显式窗、root rank、wakeup chain、
+  eliminable projection、auto-supplement 或任何 runtime-artifact contract。
+
+当前测试面：
+
+- types：默认 production、显式 test、unknown fail-open、provider 不得铸 lane；
+- context：完整三类 roster 不丢，typed scope 可逆投影，evidence/dossier
+  必须显示 role/lane 与分席总数；
+- provider：imports/exports/called-by/references/extends 全 kind role 清册，
+  implements 由真实 probe fixture 固定；
+- repo_map：完整 implementers 输出同时标 production/test；
+- completion：exact auxiliary principal promotion 拒绝、同名跨 role 歧义
+  fail-open、显式 test scope 放行；
+- finalizer：完整 roster 的 principal/auxiliary/unknown handoff 与 typed test
+  scope 反向投影。
+
+全量回归同时发现一个与 B18 业务逻辑无关、但属于最近提交审计范围的基线
+清册 drift：`answer-document-skill` 实际已有 40 条 Tier-B workflow，结构测试
+仍把旧 32 条写死。逐项冷读确认新增的 8 条恰好是
+data-gap、mixed-supply、ordered-rank、value-owner temporal、target-blocking
+wall-clock、IPC request census、target-thread-vs-CPU 与 wakeup census typed
+discipline；测试改为逐项固定 40 条前缀，没有删除规则或放宽清册。
+
+验证：
+
+- targeted source-role/projection/provider/completion/finalizer fixtures 六包通过；
+- `go test ./internal/types ./internal/context
+  ./internal/tool/repomap/relation ./internal/tool/repomap/render
+  ./internal/tool/repomap/multigraph ./internal/agent ./internal/tool -count=1`
+  通过；其中 types 18.814s、context 复跑 1.423s、relation 1.416s、
+  render 1.870s、multigraph 2.577s、agent 4.768s、tool 168.145s；
+- `go test ./internal/skill -count=1` 通过（0.592s）。
+
+状态：
+
+| ID | 状态 |
+|---|---|
+| EVAL-B16-REL1 | implementation-complete / full-tests-pass / replay-next |
+| EVAL-B16-REL2 | filed-audit（等待 REL1 回放后继续审计成本） |

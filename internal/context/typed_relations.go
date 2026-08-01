@@ -204,7 +204,7 @@ func ProbeTypedRelations(graph any, rm *types.RequestModel) []types.TypedRelatio
 		}
 	}
 	if len(hints) > 0 {
-		return hints
+		return projectTypedRelationHintsForRequest(hints, *rm)
 	}
 	if !query.AllowsKind(types.TypedRelationImplements) {
 		return nil
@@ -218,6 +218,19 @@ func ProbeTypedRelations(graph any, rm *types.RequestModel) []types.TypedRelatio
 		// implements probe: typed Symbol.Implements relation.
 		if hint := probeImplements(graph, name); hint != nil {
 			hints = append(hints, *hint)
+		}
+	}
+	return projectTypedRelationHintsForRequest(hints, *rm)
+}
+
+// projectTypedRelationHintsForRequest is the single request-scope projection
+// point for relation members. Providers own structural membership and exact
+// paths; this layer owns only the typed principal/auxiliary view. The complete
+// member roster is retained in both lanes.
+func projectTypedRelationHintsForRequest(hints []types.TypedRelationHint, rm types.RequestModel) []types.TypedRelationHint {
+	for i := range hints {
+		for j := range hints[i].Members {
+			hints[i].Members[j] = types.ProjectTypedRelationMemberScopeLane(hints[i].Members[j], rm)
 		}
 	}
 	return hints
@@ -417,6 +430,7 @@ func appendTypedRelationHints(dst []types.TypedRelationHint, src ...types.TypedR
 		}
 		var members []types.TypedRelationMember
 		for _, member := range hint.Members {
+			member = types.NormalizeTypedRelationMemberSourceRole(member)
 			key := typedRelationHintMemberKey(hint, member)
 			if key == "" || seen[key] {
 				continue
@@ -467,6 +481,7 @@ func probeTypedRelationCandidateSource(graph any, query types.TypedRelationQuery
 		member := row.Member
 		member.Name = strings.TrimSpace(member.Name)
 		member.File = strings.TrimSpace(member.File)
+		member = types.NormalizeTypedRelationMemberSourceRole(member)
 		dedupKey := string(key.relation) + "|" + string(key.provenance) + "|" + strings.ToLower(key.source) + "|" + strings.ToLower(member.Name) + "|" + member.File
 		if seen[dedupKey] {
 			continue
@@ -589,11 +604,12 @@ func probeImplements(graph any, name string) *types.TypedRelationHint {
 		}
 		seen[key] = true
 		hint.Members = append(hint.Members, types.TypedRelationMember{
-			Name:     sym.Name,
-			File:     sym.File,
-			Line:     sym.Line,
-			Kind:     sym.Kind,
-			Distance: 1,
+			Name:       sym.Name,
+			File:       sym.File,
+			Line:       sym.Line,
+			Kind:       sym.Kind,
+			SourceRole: types.ClassifySourcePathRole(sym.File),
+			Distance:   1,
 		})
 	}
 	if len(hint.Members) == 0 {

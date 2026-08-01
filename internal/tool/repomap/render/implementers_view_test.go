@@ -26,14 +26,25 @@ func TestImplementersView_ExhaustiveAndGrounded(t *testing.T) {
 				{Name: "Done", Receiver: name, Kind: "method"},
 			}}
 	}
-	g := index.BuildGraph(".", []*types.FileInfo{iface, mkImpl("loop/a.go", "AlphaLoop"), mkImpl("loop/b.go", "BetaLoop")})
+	g := index.BuildGraph(".", []*types.FileInfo{
+		iface,
+		mkImpl("loop/a.go", "AlphaLoop"),
+		mkImpl("loop/b.go", "BetaLoop"),
+		mkImpl("loop/stub_test.go", "StubLoop"),
+	})
 
 	d := GenerateViewData(g, "implementers", types.ViewParams{Query: "LoopController"})
 	if d == nil || d.Type != "implementers" {
 		t.Fatalf("expected implementers view, got %+v", d)
 	}
 	md := RenderMarkdown(d)
-	for _, want := range []string{"AlphaLoop", "BetaLoop", "loop/a.go", "loop/b.go", "(2)"} {
+	for _, want := range []string{
+		"AlphaLoop", "BetaLoop", "StubLoop",
+		"loop/a.go", "loop/b.go", "loop/stub_test.go", "(3)",
+		"[source_role=production]", "[source_role=test]",
+		"complete verified structural navigation roster",
+		"default production scope",
+	} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("implementers view missing %q:\n%s", want, md)
 		}

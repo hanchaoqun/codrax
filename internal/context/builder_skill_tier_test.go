@@ -569,7 +569,7 @@ func TestBuildPromptContext_ExploreSkillRendersTraceWorkflowForTypedTrace(t *tes
 }
 
 // TestSkillTierAwareWorkflow_AnswerDocumentSkill_TierBCount — pin
-// the migration shape: 32 Tier B Workflow items (6 from the P5-B
+// the migration shape: 40 Tier B Workflow items (6 from the P5-B
 // migration + 5 trace prose disciplines from the SG soft-guidance
 // batches: periodic-source discount, on-chain blocking disposition,
 // window-stats core numbers, background-aggregate headline,
@@ -577,7 +577,8 @@ func TestBuildPromptContext_ExploreSkillRendersTraceWorkflowForTypedTrace(t *tes
 // prose number grounding, object identity assertions + 3 Wave-3.1
 // GAP-C §27.4/§28.1 (2026-07-09) trace disciplines: primary-cause
 // entity consistency, lock-wait site quotation, hop citation-assertion
-// alignment) + 2 Tier B Prohibitions are present on the
+// alignment + 8 later typed trace-authority disciplines) + 2 Tier B
+// Prohibitions are present on the
 // answer-document-skill, with the expected bodies (verbatim).
 func TestSkillTierAwareWorkflow_AnswerDocumentSkill_TierBCount(t *testing.T) {
 	r := skill.NewRegistry()
@@ -599,8 +600,11 @@ func TestSkillTierAwareWorkflow_AnswerDocumentSkill_TierBCount(t *testing.T) {
 	// match their parts) — 26 → 30. TARGET WAIT OCCURRENCE AUTHORITY
 	// adds the exact engine-paired roster discipline (30 → 31);
 	// EVAL-B3-S5 adds typed-explain producer-chain separation (31 → 32).
-	if len(sk.WorkflowTierB) != 32 {
-		t.Errorf("answer-document-skill should declare 32 Tier B Workflow items; got %d", len(sk.WorkflowTierB))
+	// Later typed trace authorities add data-gap, mixed-supply, ordered-rank,
+	// value-owner temporal, target-blocking wall-clock, IPC request census,
+	// target-thread-vs-CPU scope, and wakeup census semantics (32 → 40).
+	if len(sk.WorkflowTierB) != 40 {
+		t.Errorf("answer-document-skill should declare 40 Tier B Workflow items; got %d", len(sk.WorkflowTierB))
 	}
 	if len(sk.ProhibitionsTierB) != 2 {
 		t.Errorf("answer-document-skill should declare 2 Tier B Prohibitions; got %d", len(sk.ProhibitionsTierB))
@@ -619,6 +623,12 @@ func TestSkillTierAwareWorkflow_AnswerDocumentSkill_TierBCount(t *testing.T) {
 		"WINDOW-STATS CORE NUMBERS:",
 		"BACKGROUND AGGREGATE HEADLINE:",
 		"INFERRED ATTRIBUTION DISCLOSURE:",
+		"TRACE DATA-GAP AUTHORITY:",
+		"TRACE MIXED SUPPLY VERDICT:",
+		"TRACE ORDERED RANK ROSTER AUTHORITY:",
+		"TRACE VALUE-OWNER TEMPORAL AUTHORITY:",
+		"TRACE TARGET BLOCKING WALL-CLOCK AUTHORITY:",
+		"TRACE IPC REQUEST CENSUS AUTHORITY:",
 		"PROSE NUMBER GROUNDING:",
 		"OBJECT IDENTITY ASSERTIONS:",
 		"TRACE PRIMARY-CAUSE ENTITY CONSISTENCY:",
@@ -634,6 +644,7 @@ func TestSkillTierAwareWorkflow_AnswerDocumentSkill_TierBCount(t *testing.T) {
 		"IO-LATENCY ROLE WORDS:",
 		"STATE-DURATION CALIBER SEPARATION:",
 		"TARGET WAIT OCCURRENCE AUTHORITY:",
+		"TARGET THREAD VERSUS CPU SCOPE:",
 		"NO SILENT SOURCE FALLBACK ON AN EMPTY TRACE RESULT:",
 		// ANSWERFACE-1 件1/件6 (§29.140, 2026-07-19).
 		"BLOCKED-REASON CENSUS CONSUMPTION:",
@@ -643,6 +654,7 @@ func TestSkillTierAwareWorkflow_AnswerDocumentSkill_TierBCount(t *testing.T) {
 		"READER WORDS OVER FIELD SPELLINGS:",
 		"TRACE ANSWER SKELETON:",
 		"TOTALS MATCH THEIR PARTS:",
+		"WAKEUP CENSUS DIRECTION AND STATE:",
 		"MECHANICAL PRODUCER-CHAIN SEPARATION:",
 	}
 	if len(sk.WorkflowTierB) != len(wantWorkflowPrefixes) {

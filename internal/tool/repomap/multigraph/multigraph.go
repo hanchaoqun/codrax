@@ -817,11 +817,12 @@ func (m *MultiGraph) ImplementerMembersOf(interfaceName string) []types.TypedRel
 		}
 		seen[key] = true
 		out = append(out, types.TypedRelationMember{
-			Name:     strings.TrimSpace(sym.Name),
-			File:     file,
-			Line:     sym.Line,
-			Kind:     sym.Kind,
-			Distance: 1,
+			Name:       strings.TrimSpace(sym.Name),
+			File:       file,
+			Line:       sym.Line,
+			Kind:       sym.Kind,
+			SourceRole: types.ClassifySourcePathRole(file),
+			Distance:   1,
 		})
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -848,6 +849,11 @@ func (m *MultiGraph) TypedRelationCandidates(q types.TypedRelationQuery) []types
 		if row.Relation == "" || strings.TrimSpace(row.SourceName) == "" || strings.TrimSpace(row.Member.Name) == "" {
 			return false
 		}
+		// Multi-repo prefixing changes the final path authority. Reclassify at
+		// this public boundary so thirdparty/vendor/test parent paths cannot
+		// inherit a stale role from the inner single-repo graph.
+		row.Member.SourceRole = types.ClassifySourcePathRole(row.Member.File)
+		row = types.NormalizeTypedRelationCandidateSourceRole(row)
 		key := strings.ToLower(string(row.Relation)) + "|" +
 			strings.ToLower(strings.TrimSpace(row.SourceName)) + "|" +
 			strings.ToLower(strings.TrimSpace(row.Member.Name)) + "|" +

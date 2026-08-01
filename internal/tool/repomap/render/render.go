@@ -7,6 +7,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/retrieve"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/types"
+	ctypes "github.com/hanchaoqun/codrax/internal/types"
 )
 
 // ViewData is the structured intermediate representation of a
@@ -244,14 +245,15 @@ func buildImplementersData(g *types.Graph, params types.ViewParams) *ViewData {
 		if file == "" {
 			file = fileByID[id]
 		}
+		sourceRole := ctypes.ClassifySourcePathRole(file)
 		section.Items = append(section.Items, ViewItem{
-			Text: fmt.Sprintf("%s (%s) — %s", sym.Name, kind, file),
+			Text: fmt.Sprintf("%s (%s) — %s [source_role=%s]", sym.Name, kind, file, sourceRole),
 			File: file,
 			Kind: kind,
 		})
 	}
 	d.Sections = []ViewSection{section}
-	d.Footer = "These rows are verified structural navigation facts (the Implements relation). Read or grep the listed files to cite implementation behavior before quoting source."
+	d.Footer = "These rows are the complete verified structural navigation roster (the Implements relation). source_role is deterministic path authority: under the default production scope, production rows are principal candidates and test/fixture/example/docs/generated/vendor/thirdparty rows are auxiliary audit candidates; an explicit typed source scope may opt an auxiliary role into principal scope. Read or grep the listed files to cite implementation behavior before quoting source."
 	return d
 }
 

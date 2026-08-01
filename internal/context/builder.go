@@ -2005,6 +2005,7 @@ func renderTypedRelationAppendix(hints []types.TypedRelationHint, llmItems []typ
 // typed_* rows are navigation candidates, not model-authored evidence
 // and not system-authored final answers.
 func evidenceLineForTypedMember(h types.TypedRelationHint, m types.TypedRelationMember, ak types.AnchorKind) string {
+	m = types.NormalizeTypedRelationMemberSourceRole(m)
 	var b strings.Builder
 	b.WriteString("[")
 	b.WriteString(string(h.Relation))
@@ -2037,6 +2038,18 @@ func evidenceLineForTypedMember(h types.TypedRelationHint, m types.TypedRelation
 	if m.Kind != "" {
 		b.WriteString(" member_kind=")
 		b.WriteString(m.Kind)
+	}
+	b.WriteString(" source_role=")
+	if m.SourceRole == types.SourcePathRoleUnknown {
+		b.WriteString("unknown")
+	} else {
+		b.WriteString(string(m.SourceRole))
+	}
+	b.WriteString(" relation_lane=")
+	if m.ScopeLane == types.TypedRelationMemberLaneUnknown {
+		b.WriteString("unknown")
+	} else {
+		b.WriteString(string(m.ScopeLane))
 	}
 	return b.String()
 }
@@ -2073,6 +2086,7 @@ func formatRelationDossier(ac *types.AgentContext) string {
 	var b strings.Builder
 	b.WriteString("- Advisory only: use these relation directions to decide what to verify next; do not treat candidate rows as final answer members or completion authority.\n")
 	b.WriteString("- Verified evidence rows may be cited through the normal citation path. Partial or unknown relation sets should be narrowed, verified, or caveated by the model.\n\n")
+	b.WriteString("- Typed source-role boundary: keep the complete structural roster, but build an ordinary relation answer's principal `member_set` from relation_lane=principal rows. Keep relation_lane=auxiliary rows in an explicitly labelled support/audit section or `excluded[]`; they become principal only when the analyzer's typed source scope selects that role. relation_lane=unknown must be disclosed and verified, never silently promoted or removed.\n\n")
 	b.WriteString(strings.Join(sections, "\n\n"))
 	return strings.TrimSpace(b.String())
 }
@@ -2095,8 +2109,9 @@ func formatRelationDossierTypedHints(hints []types.TypedRelationHint) string {
 		if provenance == "" {
 			provenance = types.TypedRelationProvenanceTypedGraph
 		}
-		fmt.Fprintf(&b, "- candidate [%s] %s -> %d member(s), provenance=%s",
-			hint.Relation, relationDossierClip(source), len(hint.Members), provenance)
+		principal, auxiliary, unknown := relationDossierTypedLaneCounts(hint.Members)
+		fmt.Fprintf(&b, "- candidate [%s] %s -> %d member(s), principal=%d, auxiliary=%d, unknown=%d, provenance=%s",
+			hint.Relation, relationDossierClip(source), len(hint.Members), principal, auxiliary, unknown, provenance)
 		if hint.SourceKind != "" {
 			fmt.Fprintf(&b, ", source_kind=%s", relationDossierClip(hint.SourceKind))
 		}
@@ -2353,6 +2368,16 @@ func relationDossierTypedMemberExamples(members []types.TypedRelationMember, lim
 			continue
 		}
 		item := relationDossierClip(name)
+		member = types.NormalizeTypedRelationMemberSourceRole(member)
+		role := string(member.SourceRole)
+		if role == "" {
+			role = "unknown"
+		}
+		lane := string(member.ScopeLane)
+		if lane == "" {
+			lane = "unknown"
+		}
+		item += " [" + role + "/" + lane + "]"
 		if member.File != "" {
 			loc := member.File
 			if member.Line > 0 {
@@ -2369,6 +2394,20 @@ func relationDossierTypedMemberExamples(members []types.TypedRelationMember, lim
 		examples = append(examples, fmt.Sprintf("+%d more", len(members)-len(examples)))
 	}
 	return strings.Join(examples, "; ")
+}
+
+func relationDossierTypedLaneCounts(members []types.TypedRelationMember) (principal, auxiliary, unknown int) {
+	for _, member := range members {
+		switch member.ScopeLane {
+		case types.TypedRelationMemberLanePrincipal:
+			principal++
+		case types.TypedRelationMemberLaneAuxiliary:
+			auxiliary++
+		default:
+			unknown++
+		}
+	}
+	return principal, auxiliary, unknown
 }
 
 func relationDossierAggregateMemberExamples(members []string, limit int) string {

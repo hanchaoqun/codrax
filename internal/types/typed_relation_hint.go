@@ -58,10 +58,81 @@ type TypedRelationMember struct {
 	File string `json:"file"`
 	Line int    `json:"line"`
 	Kind string `json:"kind"`
+	// SourceRole is deterministic path authority shared by every relation
+	// kind. It describes where the member is defined; it does not decide
+	// whether that role is principal for the current request.
+	SourceRole SourcePathRole `json:"source_role,omitempty"`
+	// ScopeLane is a request-scoped prompt projection over SourceRole and the
+	// analyzer-emitted SourceScopeProfile. Providers leave it unknown; the
+	// context normalizer assigns it without reading raw request/model prose.
+	ScopeLane TypedRelationMemberLane `json:"scope_lane,omitempty"`
 	// Distance encodes transitive-closure depth for relations where
 	// depth matters (inheritance chain, call-graph). 1 = direct; 2+ =
 	// transitive. Direct-only relations leave it 0 / 1.
 	Distance int `json:"distance,omitempty"`
+}
+
+// TypedRelationMemberLane is the request-scoped presentation lane of one
+// typed relation member. Auxiliary rows remain in the complete audit roster;
+// the lane only tells agents which rows may answer the principal relation
+// under the typed repository source scope.
+type TypedRelationMemberLane string
+
+const (
+	TypedRelationMemberLaneUnknown   TypedRelationMemberLane = ""
+	TypedRelationMemberLanePrincipal TypedRelationMemberLane = "principal"
+	TypedRelationMemberLaneAuxiliary TypedRelationMemberLane = "auxiliary"
+)
+
+// NormalizeTypedRelationMemberSourceRole stamps deterministic path authority
+// on a member. A valid provider-authored role is preserved. Invalid values are
+// treated as unknown and reclassified from the exact file path when possible.
+// No request text, model prose, symbol name, or relation kind participates.
+func NormalizeTypedRelationMemberSourceRole(member TypedRelationMember) TypedRelationMember {
+	if !member.SourceRole.IsValid() {
+		member.SourceRole = SourcePathRoleUnknown
+	}
+	if member.SourceRole == SourcePathRoleUnknown && strings.TrimSpace(member.File) != "" {
+		member.SourceRole = ClassifySourcePathRole(member.File)
+	}
+	return member
+}
+
+// ProjectTypedRelationMemberScopeLane combines deterministic path authority
+// with analyzer-emitted typed source scope. Ordinary relation questions default
+// to production. Explicit test/docs/aux/all scopes opt those roles into the
+// principal lane. Unknown path authority stays unknown and is disclosed rather
+// than silently promoted or removed.
+func ProjectTypedRelationMemberScopeLane(member TypedRelationMember, rm RequestModel) TypedRelationMember {
+	member = NormalizeTypedRelationMemberSourceRole(member)
+	if member.SourceRole == SourcePathRoleUnknown {
+		member.ScopeLane = TypedRelationMemberLaneUnknown
+		return member
+	}
+	scope := SourceScopeProduction
+	if rm.SourceScopeProfile != nil {
+		switch {
+		case rm.SourceScopeProfile.IncludeAuxiliaryAsPrincipal:
+			scope = SourceScopeAll
+		case rm.SourceScopeProfile.RequestedScope != "":
+			scope = rm.SourceScopeProfile.RequestedScope
+		}
+	}
+	if SourceScopeAllowsPathRole(scope, member.SourceRole) {
+		member.ScopeLane = TypedRelationMemberLanePrincipal
+	} else {
+		member.ScopeLane = TypedRelationMemberLaneAuxiliary
+	}
+	return member
+}
+
+// NormalizeTypedRelationCandidateSourceRole applies the shared member role
+// contract at provider boundaries. It intentionally leaves ScopeLane empty
+// because providers do not own request-scope projection.
+func NormalizeTypedRelationCandidateSourceRole(candidate TypedRelationCandidate) TypedRelationCandidate {
+	candidate.Member = NormalizeTypedRelationMemberSourceRole(candidate.Member)
+	candidate.Member.ScopeLane = TypedRelationMemberLaneUnknown
+	return candidate
 }
 
 // TypedRelationMemberSurfaceKey is the canonical member-level dedup key for a

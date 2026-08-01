@@ -53,7 +53,7 @@ func (s ObservationRelationCandidateSource) TypedRelationCandidates(q TypedRelat
 				continue
 			}
 			seen[key] = true
-			out = append(out, TypedRelationCandidate{
+			out = append(out, NormalizeTypedRelationCandidateSourceRole(TypedRelationCandidate{
 				Relation:   TypedRelationSourceAnchor,
 				SourceName: source,
 				SourceKind: string(ext.Origin),
@@ -62,7 +62,7 @@ func (s ObservationRelationCandidateSource) TypedRelationCandidates(q TypedRelat
 				Member:     member,
 				Carrier:    TypedRelationCarrierExternalObservation,
 				Precision:  precision,
-			})
+			}))
 		}
 	}
 	if len(out) == 0 {

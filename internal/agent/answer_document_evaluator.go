@@ -603,6 +603,11 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}) {
 		return b.String()
 	}
+	if !trace.appendSection(&b, "typed_relation_source_roles", func() string {
+		return renderAnswerDocTypedRelationSourceRoleHandoff(ctx)
+	}) {
+		return b.String()
+	}
 	if !trace.appendSection(&b, "relation_surface_handoff", func() string {
 		return renderAnswerDocRelationSurfaceHandoff(ctx)
 	}) {
@@ -5384,6 +5389,7 @@ func renderAnswerDocPrincipalMemberSetContract(ctx *types.AgentContext) string {
 }
 
 const answerDocMaxRelationSurfaceRows = 10
+const answerDocMaxTypedRelationRoleRows = 24
 
 type answerDocRelationSurfaceRow struct {
 	role    string
@@ -5392,6 +5398,88 @@ type answerDocRelationSurfaceRow struct {
 	surface string
 	score   int
 	index   int
+}
+
+func renderAnswerDocTypedRelationSourceRoleHandoff(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.AnalysisIR == nil || len(ctx.TypedRelationHints) == 0 {
+		return ""
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	type row struct {
+		relation types.TypedRelationKind
+		source   string
+		member   types.TypedRelationMember
+	}
+	var rows []row
+	principal, auxiliary, unknown := 0, 0, 0
+	for _, hint := range ctx.TypedRelationHints {
+		for _, raw := range hint.Members {
+			member := types.ProjectTypedRelationMemberScopeLane(raw, rm)
+			switch member.ScopeLane {
+			case types.TypedRelationMemberLanePrincipal:
+				principal++
+			case types.TypedRelationMemberLaneAuxiliary:
+				auxiliary++
+			default:
+				unknown++
+			}
+			rows = append(rows, row{
+				relation: hint.Relation,
+				source:   strings.TrimSpace(hint.SourceName),
+				member:   member,
+			})
+		}
+	}
+	if len(rows) == 0 {
+		return ""
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].member.ScopeLane != rows[j].member.ScopeLane {
+			return rows[i].member.ScopeLane == types.TypedRelationMemberLanePrincipal
+		}
+		if rows[i].relation != rows[j].relation {
+			return rows[i].relation < rows[j].relation
+		}
+		if rows[i].source != rows[j].source {
+			return rows[i].source < rows[j].source
+		}
+		if rows[i].member.Name != rows[j].member.Name {
+			return rows[i].member.Name < rows[j].member.Name
+		}
+		return rows[i].member.File < rows[j].member.File
+	})
+
+	var b strings.Builder
+	b.WriteString("## Typed Relation Source-Role Projection (Advisory)\n\n")
+	fmt.Fprintf(&b, "- complete_relation_roster=%d; principal=%d; auxiliary=%d; unknown=%d.\n", len(rows), principal, auxiliary, unknown)
+	b.WriteString("- This projection reads only typed relation members, deterministic path roles, and analyzer-emitted `SourceScopeProfile`; it does not scan the raw request or answer prose.\n")
+	b.WriteString("- For the principal relation table/diagram/member_set, use lane=`principal`. Preserve lane=`auxiliary` as an explicitly labelled support/audit roster unless the typed scope opts that source role into principal. Disclose lane=`unknown` and verify it; never silently promote or delete it.\n")
+	b.WriteString("- The complete structural roster and the principal answer set are intentionally different surfaces. Auxiliary membership proves the structural edge exists, but does not by itself authorize a row as a principal production answer.\n")
+	for i, row := range rows {
+		if i >= answerDocMaxTypedRelationRoleRows {
+			fmt.Fprintf(&b, "- (%d additional typed relation role row(s) omitted only from this compact prompt view; the complete roster remains upstream)\n", len(rows)-i)
+			break
+		}
+		role := string(row.member.SourceRole)
+		if role == "" {
+			role = "unknown"
+		}
+		lane := string(row.member.ScopeLane)
+		if lane == "" {
+			lane = "unknown"
+		}
+		fmt.Fprintf(&b, "- lane=`%s` source_role=`%s` relation=`%s` source=`%s` member=`%s`",
+			lane, role, row.relation, row.source, row.member.Name)
+		if row.member.File != "" {
+			fmt.Fprintf(&b, " @ %s", row.member.File)
+			if row.member.Line > 0 {
+				fmt.Fprintf(&b, ":%d", row.member.Line)
+			}
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+	return b.String()
 }
 
 func renderAnswerDocRelationSurfaceHandoff(ctx *types.AgentContext) string {

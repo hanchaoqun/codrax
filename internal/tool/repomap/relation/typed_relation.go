@@ -41,6 +41,9 @@ func TypedRelationCandidates(g *rmtypes.Graph, q types.TypedRelationQuery) []typ
 	if len(out) == 0 {
 		return nil
 	}
+	for i := range out {
+		out[i] = types.NormalizeTypedRelationCandidateSourceRole(out[i])
+	}
 	sortTypedRelationCandidates(out)
 	if q.MaxMembers > 0 && len(out) > q.MaxMembers {
 		out = out[:q.MaxMembers]

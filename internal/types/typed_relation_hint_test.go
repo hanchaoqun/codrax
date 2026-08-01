@@ -39,6 +39,58 @@ func TestTypedRelationAnchorKindUnknownReturnsEmpty(t *testing.T) {
 	}
 }
 
+func TestTypedRelationMemberSourceRoleAndScopeLaneUseTypedAuthority(t *testing.T) {
+	production := ProjectTypedRelationMemberScopeLane(TypedRelationMember{
+		Name: "Worker",
+		File: "internal/worker.go",
+	}, RequestModel{})
+	if production.SourceRole != SourcePathRoleProduction || production.ScopeLane != TypedRelationMemberLanePrincipal {
+		t.Fatalf("default production member = %+v", production)
+	}
+
+	testMember := ProjectTypedRelationMemberScopeLane(TypedRelationMember{
+		Name: "workerStub",
+		File: "internal/worker_test.go",
+	}, RequestModel{})
+	if testMember.SourceRole != SourcePathRoleTest || testMember.ScopeLane != TypedRelationMemberLaneAuxiliary {
+		t.Fatalf("default test member = %+v", testMember)
+	}
+
+	testScope := RequestModel{SourceScopeProfile: &SourceScopeProfile{RequestedScope: SourceScopeTest}}
+	testMember = ProjectTypedRelationMemberScopeLane(testMember, testScope)
+	if testMember.ScopeLane != TypedRelationMemberLanePrincipal {
+		t.Fatalf("explicit typed test scope must opt test member into principal: %+v", testMember)
+	}
+	production = ProjectTypedRelationMemberScopeLane(production, testScope)
+	if production.ScopeLane != TypedRelationMemberLaneAuxiliary {
+		t.Fatalf("explicit typed test scope must move production member to auxiliary: %+v", production)
+	}
+}
+
+func TestTypedRelationMemberUnknownRoleFailsOpen(t *testing.T) {
+	member := ProjectTypedRelationMemberScopeLane(TypedRelationMember{Name: "ExternalMember"}, RequestModel{})
+	if member.SourceRole != SourcePathRoleUnknown || member.ScopeLane != TypedRelationMemberLaneUnknown {
+		t.Fatalf("pathless member must stay explicitly unknown: %+v", member)
+	}
+}
+
+func TestNormalizeTypedRelationCandidateSourceRoleDoesNotCarryRequestLane(t *testing.T) {
+	candidate := NormalizeTypedRelationCandidateSourceRole(TypedRelationCandidate{
+		Relation: TypedRelationImplements,
+		Member: TypedRelationMember{
+			Name:      "workerStub",
+			File:      "internal/worker_test.go",
+			ScopeLane: TypedRelationMemberLanePrincipal,
+		},
+	})
+	if candidate.Member.SourceRole != SourcePathRoleTest {
+		t.Fatalf("candidate source role = %q, want test", candidate.Member.SourceRole)
+	}
+	if candidate.Member.ScopeLane != TypedRelationMemberLaneUnknown {
+		t.Fatalf("provider boundary must not mint request scope lane: %+v", candidate.Member)
+	}
+}
+
 func TestTypedRelationPrecisionCoverageGateEligibility(t *testing.T) {
 	tests := []struct {
 		name      string

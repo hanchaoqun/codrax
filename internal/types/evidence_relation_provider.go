@@ -60,6 +60,7 @@ func (s EvidenceRelationCandidateSource) TypedRelationCandidates(q TypedRelation
 
 func appendEvidenceRelationCandidates(dst []TypedRelationCandidate, seen map[string]bool, candidates ...TypedRelationCandidate) []TypedRelationCandidate {
 	for _, candidate := range candidates {
+		candidate = NormalizeTypedRelationCandidateSourceRole(candidate)
 		key := evidenceRelationCandidateKey(candidate)
 		if key == "" || seen[key] {
 			continue

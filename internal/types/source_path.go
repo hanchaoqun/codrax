@@ -25,6 +25,27 @@ const (
 	SourcePathRoleGenerated     SourcePathRole = "generated"
 )
 
+// IsValid reports whether the role belongs to the closed source-path role
+// vocabulary. The empty value is the explicit unknown role and is therefore
+// valid; callers must not silently promote it to production without a path.
+func (r SourcePathRole) IsValid() bool {
+	switch r {
+	case SourcePathRoleUnknown,
+		SourcePathRoleProduction,
+		SourcePathRoleTest,
+		SourcePathRoleFixture,
+		SourcePathRoleExample,
+		SourcePathRoleDocumentation,
+		SourcePathRolePromptSupport,
+		SourcePathRoleThirdParty,
+		SourcePathRoleVendor,
+		SourcePathRoleGenerated:
+		return true
+	default:
+		return false
+	}
+}
+
 // LooksLikePromptSupportPath reports whether a repo-relative path
 // points at prompt / hint / skill support material. These files may be
 // real implementation in the repo, but they are not runtime behavior

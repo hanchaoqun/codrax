@@ -79,6 +79,41 @@ func TestProbeTypedRelations_CategoryEnumerationFires(t *testing.T) {
 		if m.Name != wantOrder[i] {
 			t.Errorf("member[%d] name=%q; want %q", i, m.Name, wantOrder[i])
 		}
+		if m.SourceRole != types.SourcePathRoleProduction || m.ScopeLane != types.TypedRelationMemberLanePrincipal {
+			t.Errorf("member[%d] missing default production role/lane: %+v", i, m)
+		}
+	}
+}
+
+func TestProjectTypedRelationHintsForRequestPreservesCompleteRosterAndPartitionsRoles(t *testing.T) {
+	hints := []types.TypedRelationHint{{
+		Relation:   types.TypedRelationImplements,
+		SourceName: "Looper",
+		Members: []types.TypedRelationMember{
+			{Name: "Prod", File: "internal/prod.go"},
+			{Name: "Stub", File: "internal/prod_test.go"},
+			{Name: "Pathless"},
+		},
+	}}
+	got := projectTypedRelationHintsForRequest(hints, types.RequestModel{})
+	if len(got) != 1 || len(got[0].Members) != 3 {
+		t.Fatalf("complete roster changed: %+v", got)
+	}
+	if got[0].Members[0].ScopeLane != types.TypedRelationMemberLanePrincipal {
+		t.Fatalf("production row must be principal: %+v", got[0].Members[0])
+	}
+	if got[0].Members[1].ScopeLane != types.TypedRelationMemberLaneAuxiliary {
+		t.Fatalf("test row must be auxiliary: %+v", got[0].Members[1])
+	}
+	if got[0].Members[2].ScopeLane != types.TypedRelationMemberLaneUnknown {
+		t.Fatalf("pathless row must fail open as unknown: %+v", got[0].Members[2])
+	}
+
+	testScope := types.RequestModel{SourceScopeProfile: &types.SourceScopeProfile{RequestedScope: types.SourceScopeTest}}
+	got = projectTypedRelationHintsForRequest(got, testScope)
+	if got[0].Members[0].ScopeLane != types.TypedRelationMemberLaneAuxiliary ||
+		got[0].Members[1].ScopeLane != types.TypedRelationMemberLanePrincipal {
+		t.Fatalf("typed test scope projection = %+v", got[0].Members)
 	}
 }
 
@@ -989,17 +1024,18 @@ func TestRelationDossier_TypedHintsAreAdvisory(t *testing.T) {
 			SourceKind: "interface",
 			Provenance: types.TypedRelationProvenanceTypedGraph,
 			Members: []types.TypedRelationMember{
-				{Name: "StripePort", File: "payments/stripe.ts", Line: 42, Kind: "class"},
-				{Name: "MockPort", File: "payments/mock.ts", Line: 11, Kind: "class"},
+				{Name: "StripePort", File: "payments/stripe.ts", Line: 42, Kind: "class", SourceRole: types.SourcePathRoleProduction, ScopeLane: types.TypedRelationMemberLanePrincipal},
+				{Name: "MockPort", File: "payments/mock_test.ts", Line: 11, Kind: "class", SourceRole: types.SourcePathRoleTest, ScopeLane: types.TypedRelationMemberLaneAuxiliary},
 			},
 		}},
 	})
 	for _, want := range []string{
 		"Advisory only",
 		"Index candidates:",
-		"candidate [implements] PaymentPort -> 2 member(s)",
+		"Typed source-role boundary",
+		"candidate [implements] PaymentPort -> 2 member(s), principal=1, auxiliary=1, unknown=0",
 		"provenance=typed_graph",
-		"StripePort (payments/stripe.ts:42)",
+		"StripePort [production/principal] (payments/stripe.ts:42)",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("relation dossier missing %q:\n%s", want, out)
@@ -1100,6 +1136,9 @@ func TestRenderTypedRelationAppendix_AllNewRowsRendered(t *testing.T) {
 	}
 	if !strings.Contains(out, "anchor_kind=definition") {
 		t.Errorf("expected anchor_kind tag matching implements relation; got %q", out)
+	}
+	if !strings.Contains(out, "source_role=production relation_lane=unknown") {
+		t.Errorf("expected explicit source role and unresolved scope lane; got %q", out)
 	}
 }
 

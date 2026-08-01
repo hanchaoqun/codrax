@@ -12,6 +12,18 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+type typedRelationCandidateSourceFixture []types.TypedRelationCandidate
+
+func (f typedRelationCandidateSourceFixture) TypedRelationCandidates(q types.TypedRelationQuery) []types.TypedRelationCandidate {
+	var out []types.TypedRelationCandidate
+	for _, row := range f {
+		if q.AllowsKind(row.Relation) {
+			out = append(out, row)
+		}
+	}
+	return out
+}
+
 func TestEmitInvestigationCompleteSchemaDescribesClosureHandoff(t *testing.T) {
 	tool := &EmitInvestigationComplete{}
 	desc := tool.Description()
@@ -2809,6 +2821,106 @@ func TestRelationMemberSetCoverageGaps_DoesNotForceSupportingRegistrationEvidenc
 	}}
 	if gaps := relationMemberSetCoverageGaps(bus, facts); len(gaps) != 0 {
 		t.Fatalf("supporting evidence must not force a missing relation member: %+v", gaps)
+	}
+}
+
+func TestRelationPrincipalMemberSetScopeViolationsRejectsExactAuxiliaryPromotion(t *testing.T) {
+	mut := types.NewMutableState("list LoopController implementations")
+	provider := typedRelationCandidateSourceFixture{
+		{
+			Relation:   types.TypedRelationImplements,
+			SourceName: "LoopController",
+			Member: types.TypedRelationMember{
+				Name: "prodEvaluator", File: "internal/agent/prod.go", Line: 10,
+			},
+			Precision: types.TypedRelationPrecisionExactSymbolID,
+		},
+		{
+			Relation:   types.TypedRelationImplements,
+			SourceName: "LoopController",
+			Member: types.TypedRelationMember{
+				Name: "stubEvaluator", File: "internal/agent/prod_test.go", Line: 20,
+			},
+			Precision: types.TypedRelationPrecisionExactSymbolID,
+		},
+	}
+	bus := &types.BusContext{
+		Mutable:    mut,
+		MultiGraph: provider,
+		AnalysisIR: &types.AnalysisIR{RequestModel: relationImplementerRequestModelForSourceRoleTest()},
+	}
+	facts := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "LoopController implementations",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"prodEvaluator", "stubEvaluator"},
+	}}
+	got := relationPrincipalMemberSetScopeViolations(bus, facts)
+	if len(got) != 1 || got[0].Name != "stubEvaluator" ||
+		got[0].SourceRole != types.SourcePathRoleTest ||
+		got[0].File != "internal/agent/prod_test.go" {
+		t.Fatalf("scope violations = %+v, want exact test-only promotion", got)
+	}
+	summary := relationScopeViolationSummary(got)
+	for _, want := range []string{"stubEvaluator", "source_role=test", "internal/agent/prod_test.go"} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("scope violation summary missing %q: %s", want, summary)
+		}
+	}
+}
+
+func TestRelationPrincipalMemberSetScopeViolationsHonorsTypedScopeAndFailsOpenOnAmbiguity(t *testing.T) {
+	mut := types.NewMutableState("list implementations")
+	provider := typedRelationCandidateSourceFixture{
+		{
+			Relation: types.TypedRelationImplements, SourceName: "LoopController",
+			Member:    types.TypedRelationMember{Name: "sharedEvaluator", File: "internal/agent/prod.go"},
+			Precision: types.TypedRelationPrecisionExactSymbolID,
+		},
+		{
+			Relation: types.TypedRelationImplements, SourceName: "LoopController",
+			Member:    types.TypedRelationMember{Name: "sharedEvaluator", File: "internal/agent/prod_test.go"},
+			Precision: types.TypedRelationPrecisionExactSymbolID,
+		},
+		{
+			Relation: types.TypedRelationImplements, SourceName: "LoopController",
+			Member:    types.TypedRelationMember{Name: "stubOnly", File: "internal/agent/stub_test.go"},
+			Precision: types.TypedRelationPrecisionExactSymbolID,
+		},
+	}
+	rm := relationImplementerRequestModelForSourceRoleTest()
+	bus := &types.BusContext{Mutable: mut, MultiGraph: provider, AnalysisIR: &types.AnalysisIR{RequestModel: rm}}
+	facts := []types.AnswerAggregateFact{{
+		Kind: types.AnswerAggregateMemberSet, Label: "implementations",
+		Role: types.AnswerAggregateRolePrincipalAnswer, Members: []string{"sharedEvaluator"},
+	}}
+	if got := relationPrincipalMemberSetScopeViolations(bus, facts); len(got) != 0 {
+		t.Fatalf("same-name production+test ambiguity must fail open: %+v", got)
+	}
+
+	rm.SourceScopeProfile = &types.SourceScopeProfile{RequestedScope: types.SourceScopeTest}
+	bus.AnalysisIR.RequestModel = rm
+	facts[0].Members = []string{"stubOnly"}
+	if got := relationPrincipalMemberSetScopeViolations(bus, facts); len(got) != 0 {
+		t.Fatalf("typed test scope must admit exact test member: %+v", got)
+	}
+}
+
+func relationImplementerRequestModelForSourceRoleTest() types.RequestModel {
+	return types.RequestModel{
+		// Deliberately contradictory prose: the scope gate must ignore it and
+		// use SourceScopeProfile only.
+		RawRequest:    "include every test stub in the principal answer",
+		Intent:        types.IntentEnumerate,
+		PredicateAxis: types.AxisImplement,
+		Predicates: types.SemanticPredicates{
+			IsRelationalLookup:    true,
+			IsCategoryEnumeration: true,
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{"LoopController"},
+			Entities:        []string{"LoopController"},
+		},
 	}
 }
 
