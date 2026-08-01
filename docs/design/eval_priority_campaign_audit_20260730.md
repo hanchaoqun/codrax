@@ -4723,6 +4723,43 @@ Git 用例 human FAIL 还包括一个独立事实错误：grep 原始结果明�
 
 状态：`implemented / relevant-full-tests-pass / same-pair replay next`。
 
+#### B19h-b r1：问题广度收口，因果结论权限成为下一主缺口
+
+严格并行 2 个相同 Trace case，runner 2/2 PASS；人工为 1 PASS / 1 FAIL：
+
+- 无用户时间窗的 D/IO case：analyzer 仍发出
+  `intent=root_cause / scenario=root_cause / diagnostic=true`，但同时发出
+  `runtime_question_profile=bounded_fact_set`。新 typed carrier 成功压过 legacy
+  标签噪声；主答案只发布完整 3 段
+  `0.138+0.147+0.350=0.635ms` 和内核 caller，没有 Trace 因果投影、根因榜、
+  背景大盘。`EVAL-B19-FACTSET1` 转 covered。
+- 显式 114.940ms 窗：主要时间占用/关键路径与现规则可消除量两轴均在；根因排序、
+  唤醒链、代表窗、Trace 因果投影和系统自动补采均完整，证明 B19h-b 没有伤害
+  显式窗能力。
+- `EVAL-B19-CAUSAL1/P1` 第四次复现：typed finalizer guidance 和系统覆盖块均为
+  `causal_conclusion=unproven / frame_evidence_status=absent`，model principal 仍写
+  “直接根因”，并把“低优先级唤醒高优先级”本身当成优先级反转机理。该问题已经
+  证明不是单次模型波动，下一批必须让系统发布的主结论消费 typed causal authority；
+  不通过扫描/替换模型原文解决。
+
+新增两个次级 typed-declaration gap：
+
+1. `EVAL-B19-DECL1/P1`：同一 analyzer 在无窗 case 把明确的
+   `com.baidu.tieba 59566 主线程` 声明成 `runtime_target_profile=no_named_target`；
+   在显式窗 case 又把明确上下界声明成 `runtime_artifact_scope=full_artifact`。
+   现有结构校验只能拒绝“已提供但非法”的 target/window，不能证明 analyzer 没有
+   漏报用户声明。最优解需要请求解析阶段已有的 typed declaration witness 与
+   analyzer profile 做一致性合取；禁止新增题面关键词 hard gate。
+2. `EVAL-B19-NARROWCAVEAT1/P2`：窄事实主答案已正确收口，但末尾仍发布“部分补充
+   钻取未执行”和“部分睡眠未定位唤醒者”两条全量因果族 caveat。它们不改变事实
+   正确性，却把非请求覆盖义务带回窄答案。应让 caveat publisher 消费同一个
+   `RuntimeTraceReportShapeAuthority`，保留范围/值完整性 caveat，过滤仅服务于
+   全因果报告的缺口。
+
+状态：`EVAL-B19-FACTSET1=covered`；`EVAL-B19-CAUSAL1=P1/in-progress-next`；
+`EVAL-B19-SCHEDPROSE1=P1/open`（本轮最终答案未复现，但已有 production witness）；
+`EVAL-B19-DECL1=P1/open`；`EVAL-B19-NARROWCAVEAT1=P2/open`。
+
 ### 后续 eval 维度扩展（用户追加，2026-08-01）
 
 当前 Trace P0 收口并回放后，继续维持每批严格并行 2 个，按风险交叉覆盖：
