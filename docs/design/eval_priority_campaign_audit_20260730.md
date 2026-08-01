@@ -5054,6 +5054,34 @@ incomplete”顺序、英文 runner-missing 文案及正常 verified completion�
 
 状态：`EVAL-B20-W5=implemented/full-tests-pass/replay-next`。
 
+### B20 r3：write 终态权威回放闭环（2026-08-01）
+
+在 `main@18174ef4d` 的同一二进制快照下，严格并行回放 Gson 与 dateutil 两个
+write/apply case，runner 均 PASS，人工审计均 PASS：
+
+1. Gson 的一文件 `equals`/`hashCode` 补丁和 `make check` source oracle 通过；Java
+   runner 与 Maven 不可用，因此累计 proof 保持 weak。stdout 最后一块现在是
+   “最终交付状态：未完全验证”，精确列出 `batch-1-cumulative-review` 和
+   `verification_proof_incomplete`，与 final JSON 一致；此前两张局部“测试通过”卡
+   不再占据最终权威位置。
+2. dateutil 的生产补丁正确，未修改的项目 suite 实跑 4/4 PASS；模型新写的三个
+   Python probe 各多一个右括号，被确定性归类为
+   `verification_probe_syntax_error`。最终同样诚实发布未完全验证及同一 typed reason，
+   没有把项目 suite 成功夸大成完整合同验证。
+3. dateutil probe 的语法错误属于模型过程波动，产品已 fail-closed 且未误伤正确
+   patch；本轮不新增语言、case、异常字符或答案原文硬门，仅作为 `EVAL-B20-W4`
+   的第二个观察样本保留。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b20r3_20260801.md`；
+- `eval/parallel_selected_summary_evalcampaign_b20r3_20260801_manual_audit.md`；
+- 结果目录时间戳 `20260801-052638`。
+
+状态：`EVAL-B20-W1=covered`；`EVAL-B20-W2=covered`；
+`EVAL-B20-W5=covered`；`EVAL-B20-W4=model-variance-watch`。下一优先批转向读模式
+混合 authority，避免继续围绕两种语言和单一补丁形状过拟合。
+
 ### B19g-b r1：target authority 通过，有限事实集仍被扩张（2026-08-01）
 
 同一二进制快照下严格并行 2 个 Trace case，runner 均 PASS，人工均 FAIL：
