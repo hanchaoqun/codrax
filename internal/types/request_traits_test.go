@@ -1563,6 +1563,46 @@ func TestIsHistoryBackedCurrentCodeExplanation_TypedBoundary(t *testing.T) {
 	}
 }
 
+func TestIsHistoryBackedCurrentCodeExplanation_RequiredTypedDimensionPair(t *testing.T) {
+	rm := RequestModel{
+		Intent:     IntentExplain,
+		Scenario:   ScenarioGeneric,
+		Predicates: SemanticPredicates{IsHistoryLookup: true},
+		AnalyzerHints: AnalyzerHints{
+			Kind: string(ReqHistory),
+		},
+		RequestedAnswerDimensions: &RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Dimensions: []RequestedAnswerDimension{
+				{Role: RequestedAnswerDimensionDiffClue, Required: true},
+				{Role: RequestedAnswerDimensionCurrentKeyCode, Required: true},
+				{Role: RequestedAnswerDimensionFunctionOrPurpose, Required: true},
+				{Role: RequestedAnswerDimensionImpact, Required: true},
+			},
+		},
+	}
+	if !IsHistoryBackedCurrentCodeExplanation(rm) {
+		t.Fatal("required diff_clue + current_key_code roles must recover the mixed history/current-code lane")
+	}
+
+	rm.RequestedAnswerDimensions.Dimensions[0].Required = false
+	if IsHistoryBackedCurrentCodeExplanation(rm) {
+		t.Fatal("a lone current_key_code role must not override a pure history classification")
+	}
+
+	rm.RequestedAnswerDimensions = nil
+	rm.CurrentSourceExplanationProfile = &CurrentSourceExplanationProfile{
+		IsCurrentSourceExplanationRequested: true,
+		Modes: []CurrentSourceExplanationMode{
+			CurrentSourceExplanationCompareWithCurrent,
+		},
+		SourceQuotes: []string{"current source"},
+	}
+	if !IsHistoryBackedCurrentCodeExplanation(rm) {
+		t.Fatal("an active typed current-source explanation bridge must recover the mixed lane")
+	}
+}
+
 func TestIsCategoryEnumerationAnswerShape_TypedOnly(t *testing.T) {
 	rm := RequestModel{
 		Predicates: SemanticPredicates{IsCategoryEnumeration: true},

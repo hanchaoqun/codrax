@@ -3310,6 +3310,42 @@ func TestPrincipalAggregateMemberSetFactRefsForRequest_HistoryMechanismTreatsExp
 	}
 }
 
+func TestPrincipalAggregateMemberSetFactRefsForRequest_HistoryCurrentCodeDimensionPairDemotesSupportSet(t *testing.T) {
+	facts := []AnswerAggregateFact{{
+		Kind:    AnswerAggregateMemberSet,
+		Label:   "changed code files",
+		Value:   "2",
+		Role:    AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"internal/a.go", "internal/b.go"},
+		Dimensions: []AnswerAggregateDimension{
+			{Name: "evidence_origin", Value: "vcs_metadata"},
+			{Name: "origin", Value: "current_source"},
+		},
+	}}
+	rm := RequestModel{
+		Intent:     IntentExplain,
+		Predicates: SemanticPredicates{IsHistoryLookup: true},
+		AnalyzerHints: AnalyzerHints{
+			Kind: string(ReqHistory),
+		},
+		RequestedAnswerDimensions: &RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Dimensions: []RequestedAnswerDimension{
+				{Role: RequestedAnswerDimensionDiffClue, Required: true},
+				{Role: RequestedAnswerDimensionCurrentKeyCode, Required: true},
+			},
+		},
+	}
+
+	if got := PrincipalAggregateMemberSetFactRefsForRequest(facts, &rm); len(got) != 0 {
+		t.Fatalf("mixed history/current-code support set must not create a deterministic principal supplement, got %+v", got)
+	}
+	normalized := NormalizeAggregateFactRolesForRequest(facts, &rm)
+	if got := NormalizeAnswerAggregateRole(normalized[0].Role); got != AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("mixed history/current-code member set role = %q, want supporting: %+v", got, normalized[0])
+	}
+}
+
 func TestDropPartialAggregateExcludedLists_KeepsCountAndOmitsNonExactList(t *testing.T) {
 	facts := []AnswerAggregateFact{{
 		Kind:       AnswerAggregateExcluded,

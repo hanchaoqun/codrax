@@ -3960,6 +3960,67 @@ H8 的 `style=1` 只来自“值得注意的是”一次；运行日志明确写
 | H8 explicit-window non-regression | covered：B18f r1 runner/human PASS |
 | B18 campaign | closed；下一批回到异构高优先级矩阵 |
 
+### B19：异构高优先级批（真实 Trace × Git diff/current source）
+
+#### B19 r0：runner 失败拆分与人工审计（2026-08-01）
+
+严格并行 2 个用例，runner 结果为 0/2，但失败性质不同：
+
+1. `trace_query_donghu_real_frame_multicausal` 在 0s LAUNCH_FAIL，没有生成
+   result dir。case 的 `HTRACE_FILE="../../customlogs/xxx_all.systrace"`
+   按仓库 cwd 解析到不存在的 `/Users/han/customlogs`；仓内
+   `eval/fixtures/real_traces/donghu_tieba_frame.systrace` 与
+   `/Users/han/opt/customlogs/xxx_all.systrace` 的 SHA-256 同为
+   `f5d85dd9723d75c9121def4cbf20fc1ace8e2b6f35422cd794c9d8d68573d78d`。
+   这是 eval fixture 路径漂移，不是 Trace 产品失败，也没有产出可审计答案。
+2. `read_combo_git_two_diffs_current_code` 运行 120s；主体正确比较最新纯文档
+   commit 与上一笔 Mermaid 代码 commit，并把代码改动落到当前
+   `NormalizeSourceForMarkdown` 链路，但 runner 因系统追加
+   “系统按已验证证据补充缺失成员”命中禁词而 FAIL。
+
+Git 用例 human FAIL 还包括一个独立事实错误：grep 原始结果明确是
+`50 matching lines` 且带 `result_truncated`，模型却写成“50 个文件”。
+当前仓库实际为 30 个匹配行、7 个文件；排除定义和测试后有 6 个 production
+调用点。工具原始头已经披露单位，故当前先登记为低优先级的计量语义/模型
+波动；若异构用例复现，再统一补 typed unit 的 prompt projection 与软指导，
+不对答案原文加数值或关键词硬门。
+
+登记：
+
+| ID | 优先级 | GAP | 状态 |
+|---|---:|---|---|
+| EVAL-B19-INF1 | P1 eval | 外部机器相对路径使真实 Trace case 无法启动 | implemented：改为仓内同 SHA fixture |
+| EVAL-B19-HIST1 | P1 | typed `diff_clue + current_key_code` 未恢复 mixed history/current-code 权限，支持 member_set 被铸成 principal 补表 | implemented / full-tests-pass / replay next |
+| EVAL-B19-GREP1 | P3 | matching-line count 被模型误述为 file count | filed / repeat-before-code |
+
+#### B19a typed history/current-code authority convergence
+
+最优方案只消费规范化 typed 字段：
+
+1. `IsHistoryBackedCurrentCodeExplanation` 新增精确合取：
+   `IsHistoryLookup ∧ IntentExplain ∧ required(diff_clue) ∧
+   required(current_key_code)`；
+2. 单独一个 `current_key_code` 角色不生效，避免 analyzer 偶发误标把纯历史或
+   其它问题改道；Active `CurrentSourceExplanationProfile` 仍是更直接的
+   mixed-lane 证明；
+3. 即使 analyzer 保持 `question_kind=history`，这个维度对也会把 current
+   source/VCS 混合 member-set 保持为 supporting coverage，不再生成强制
+   principal enumeration supplement；
+4. 不读取 dimension label/source quote、RawRequest、模型 thinking、closure
+   reason 或最终答案文本；不新增 answer rejection；
+5. Trace runtime family、显式时间窗、projection、root rank、wakeup、
+   eliminable 与 supplement 路径均未修改。
+
+同时把两个使用旧外部路径的东湖 case 改为仓内固定 fixture，消除开发机目录
+结构依赖。
+
+回归：
+
+- `go test ./internal/types -count=1`：25.609s；
+- `go test ./internal/tool -count=1`：163.734s。
+
+状态：`implemented / full-tests-pass / same-pair replay next`。
+
 #### B18d r1：candidate identity 收敛通过（2026-08-01）
 
 严格并行 2 个回放均为 runner PASS / human PASS：

@@ -660,6 +660,20 @@ func IsHistoryBackedCurrentCodeExplanation(rm RequestModel) bool {
 	if len(rm.QuestionStructure().Buckets) >= 2 {
 		return false
 	}
+	// A history analyzer can correctly keep question_kind=history while still
+	// omitting the optional CurrentSourceExplanationProfile. Preserve the
+	// mixed lane when its normalized, request-anchored output contract carries
+	// both halves explicitly: a required VCS diff clue and required current
+	// key code. This is a typed dimension-role conjunction; it does not inspect
+	// labels, source quotes, RawRequest, or model prose. In particular, a lone
+	// current_key_code misclassification cannot activate this arm.
+	if historyHasRequiredDiffCurrentCodeDimensionPair(rm) {
+		return true
+	}
+	if rm.CurrentSourceExplanationProfile != nil &&
+		rm.CurrentSourceExplanationProfile.Active() {
+		return true
+	}
 	kind := NormalizeRequirementKind(rm.AnalyzerHints.Kind)
 	if kind == ReqHistory {
 		return false
@@ -677,6 +691,26 @@ func IsHistoryBackedCurrentCodeExplanation(rm RequestModel) bool {
 	default:
 		return false
 	}
+}
+
+func historyHasRequiredDiffCurrentCodeDimensionPair(rm RequestModel) bool {
+	if rm.RequestedAnswerDimensions == nil || !rm.RequestedAnswerDimensions.Active() {
+		return false
+	}
+	hasDiff := false
+	hasCurrentCode := false
+	for _, dim := range rm.RequestedAnswerDimensions.Dimensions {
+		if !dim.Required {
+			continue
+		}
+		switch dim.Role {
+		case RequestedAnswerDimensionDiffClue:
+			hasDiff = true
+		case RequestedAnswerDimensionCurrentKeyCode:
+			hasCurrentCode = true
+		}
+	}
+	return hasDiff && hasCurrentCode
 }
 
 func historyBackedTraceHasExplicitEndpoints(rm RequestModel) bool {
