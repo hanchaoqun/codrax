@@ -1774,7 +1774,7 @@ func TestEvidenceDeterministicSurfaceText_DefinitionPrefersGroundedSnippetOverFr
 	}
 }
 
-func TestEvidenceDeterministicSurfaceText_ConditionPrefersGroundedSnippetOverFreeformSemantics(t *testing.T) {
+func TestEvidenceDeterministicSurfaceText_ConditionPublishesTypedGuardNotInlineBody(t *testing.T) {
 	item := EvidenceItem{
 		Kind:         EvidenceConditional,
 		AnchorKind:   AnchorCondition,
@@ -1791,8 +1791,8 @@ func TestEvidenceDeterministicSurfaceText_ConditionPrefersGroundedSnippetOverFre
 	if strings.Contains(got, "proves caller-side nil provenance") || strings.Contains(got, "returns") {
 		t.Fatalf("condition deterministic surface leaked unsupported semantic escalation: %q", got)
 	}
-	if got != "if ctx == nil || ctx.Mutable == nil { return nil, errors.New(\"analyzer: missing AgentContext.Mutable\") }" {
-		t.Fatalf("condition deterministic surface = %q, want grounded snippet", got)
+	if got != "buildAnalysisIR guard condition IF ctx == nil || ctx.Mutable == nil" {
+		t.Fatalf("condition deterministic surface = %q, want typed guard only", got)
 	}
 }
 

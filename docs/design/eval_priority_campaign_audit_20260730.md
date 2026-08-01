@@ -4276,6 +4276,42 @@ Trace 正证完整：显式 `5.000000..5.007000` 窗、目标四态分区、主�
 `EVMERGE1 + STMTSPAN1`。下一批先修这两个共同载体问题，再用恰好 2 个异构 case 并行回放；
 `CITNEIGH1/SCALARCIT1` 独立成后续批，避免把引用和值权限混成一个大改。
 
+#### B22-E：evidence coherence bundle + claim-form 权限收敛
+
+本批完成 `EVAL-B22-EVMERGE1` 与 `EVAL-B22-STMTSPAN1` 的通用结构修复：
+
+1. `MergeEvidenceItemByStableID` 不再逐字段采用“最新非空值”。Kind/scope、
+   subject/predicate/object、Condition、anchor kind/symbol/owner 与 snippet 组成同一个
+   claim carrier bundle；只有 grounding 不低、coherence 与结构完整度不低的新版本才可
+   原子替换。
+2. 已有 coherent carrier 遇到更稀疏版本时，后者只能合并 summary、surface terms、
+   provenance 等独立/set-like 字段，不能把空位补成跨版本混合事实；更高 grounding 的
+   完整 assignment/definition 等纠错仍可整体替换并清掉旧 Condition。
+3. condition 的 typed `ClaimFormOf=guard_condition` 现在压过自由三元组和 multiline
+   snippet：authoritative evidence surface、两套 exact-resolution seed、relation dossier、
+   AnswerDocument relation handoff 都只发布 guard/Condition。body assignment/return 必须由
+   对应 statement 行的 assignment/return evidence 独立承载。
+4. Condition 存在时不再回放可能包含 body 的整段 snippet；Condition 缺席时最多显示
+   snippet 第一行，禁止把后续正文挂到 guard line 上。
+5. 定向测试固定本轮真实形状：完整 `Changed` guard 后跟 condition-less assignment
+   retry，合并结果保持完整 guard；另固定更高 grounding 的完整纠错可替换，以及四个
+   下游面均不再输出 `flagMaxSteps -> mergedMaxSteps relation=assigns`。
+
+这不是 Go、某个配置键或 `Changed` 的特例：硬决策只消费 typed grounding status、
+anchor kind、Condition 与结构完整度；不读取 RawRequest、模型 thinking/summary/final
+prose 或 case ID。Trace external observation、显式窗、投影计算、根因排序、唤醒链、
+可消除量和系统补采均未改动。
+
+全相关回归通过：
+
+- `go test ./internal/types ./internal/context ./internal/agent ./internal/tool -count=1`；
+- types 18.790s、context 0.777s、agent 3.105s、tool 170.604s；
+- `git diff --check` 通过。
+
+状态：`EVAL-B22-EVMERGE1=implemented/full-tests-pass`；
+`EVAL-B22-STMTSPAN1=implemented/full-tests-pass`；
+`EVAL-B22-COMPOUNDREL1=replay-required`。`CITNEIGH1/SCALARCIT1` 保持下一独立批。
+
 ### B19a r1：Trace 主合同保留，精确集合暴露静默改写（2026-08-01）
 
 严格并行 2 个用例，runner 2/2 PASS，人工审计 0/2：

@@ -2144,6 +2144,28 @@ func formatRelationDossierEvidence(items []types.EvidenceItem) string {
 		}
 		subject := relationDossierCleanText(item.Subject)
 		object := relationDossierCleanText(item.Object)
+		if types.ClaimFormOf(item) == types.ClaimGuardCondition {
+			guard := relationDossierCleanText(types.EvidenceAuthoritativeSurfaceText(item, false))
+			if guard == "" {
+				continue
+			}
+			key := "guard\x00" + strings.ToLower(guard) + "\x00" + strings.ToLower(item.Source)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			status := "lead"
+			if item.IsCitable() {
+				status = "verified"
+			}
+			fmt.Fprintf(&b, "- %s guard %s", status, relationDossierClip(guard))
+			if loc := item.DisplayLocation(false); loc != "" {
+				fmt.Fprintf(&b, " @ %s", loc)
+			}
+			b.WriteByte('\n')
+			written++
+			continue
+		}
 		if subject == "" || object == "" {
 			continue
 		}

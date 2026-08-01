@@ -1036,10 +1036,12 @@ func EvidenceStableMergeKey(item EvidenceItem) string {
 // deliberately excludes mutable anchoring metadata such as AnchorKind and
 // AnchorSymbol, so retries can amend a row that was structurally accepted with a
 // wrong source-surface classification. This helper is the single contract for
-// that amendment: semantic identity fields are filled only when missing, while
-// latest non-empty anchor metadata can replace stale metadata. Rich summaries
-// and set-like fields are unioned so corrections do not erase useful model
-// explanation.
+// that amendment. The structured claim carrier is merged as one coherence
+// bundle: a later sparse retry may enrich independent set-like fields, but it
+// cannot combine its anchor/triple/snippet with an older typed condition and
+// create a claim no accepted version ever stated. An equal-or-better grounded, equally complete
+// carrier may still replace the bundle, so richer corrections remain possible.
+// Rich summaries and set-like fields are unioned independently.
 func MergeEvidenceItemByStableID(dst, src EvidenceItem) EvidenceItem {
 	if dst.ID == "" {
 		if src.ID != "" {
@@ -1048,35 +1050,10 @@ func MergeEvidenceItemByStableID(dst, src EvidenceItem) EvidenceItem {
 			dst.ID = StableEvidenceID(dst)
 		}
 	}
-	if src.Kind != "" {
-		dst.Kind = src.Kind
-	}
-	if src.Scope != "" {
-		dst.Scope = src.Scope
-	}
-	if strings.TrimSpace(src.Subject) != "" {
-		dst.Subject = src.Subject
-	}
-	if strings.TrimSpace(src.Predicate) != "" {
-		dst.Predicate = src.Predicate
-	}
-	if strings.TrimSpace(src.Object) != "" {
-		dst.Object = src.Object
-	}
-	if strings.TrimSpace(src.Condition) != "" {
-		dst.Condition = src.Condition
-	}
-	if src.AnchorKind != "" {
-		dst.AnchorKind = src.AnchorKind
-	}
-	if strings.TrimSpace(src.AnchorSymbol) != "" {
-		dst.AnchorSymbol = src.AnchorSymbol
-	}
-	if strings.TrimSpace(src.OwnerSymbol) != "" {
-		dst.OwnerSymbol = src.OwnerSymbol
-	}
-	if strings.TrimSpace(src.Snippet) != "" {
-		dst.Snippet = src.Snippet
+	if evidenceCarrierMayReplace(dst, src) {
+		dst = replaceEvidenceClaimCarrier(dst, src)
+	} else {
+		dst = enrichMissingEvidenceClaimCarrier(dst, src)
 	}
 	dst.Summary = MergeEvidenceSummaries(dst.Summary, src.Summary)
 	if dst.Source == "" {
@@ -1153,6 +1130,120 @@ func MergeEvidenceItemByStableID(dst, src EvidenceItem) EvidenceItem {
 	}
 	if dst.ID == "" {
 		dst.ID = StableEvidenceID(dst)
+	}
+	return dst
+}
+
+// evidenceCarrierMayReplace compares two versions of the same stable fact.
+// Grounding authority is primary. Within the same authority, typed carrier
+// coherence and completeness are monotonic: a condition anchor with a typed
+// Condition is richer than a condition-shaped retry that omits it, regardless
+// of unrelated body fields populated by that retry.
+func evidenceCarrierMayReplace(dst, src EvidenceItem) bool {
+	dstRank := groundingStatusRank(dst.GroundingStatus)
+	srcRank := groundingStatusRank(src.GroundingStatus)
+	if srcRank < dstRank {
+		return false
+	}
+	dstCoherent := evidenceClaimCarrierCoherent(dst)
+	srcCoherent := evidenceClaimCarrierCoherent(src)
+	if dstCoherent && !srcCoherent {
+		return false
+	}
+	if srcRank > dstRank && srcCoherent {
+		return true
+	}
+	if srcCoherent != dstCoherent {
+		return srcCoherent
+	}
+	return evidenceClaimCarrierCompleteness(src) >= evidenceClaimCarrierCompleteness(dst)
+}
+
+func evidenceClaimCarrierCoherent(item EvidenceItem) bool {
+	if item.AnchorKind == AnchorCondition {
+		return strings.TrimSpace(item.Condition) != ""
+	}
+	return item.AnchorKind != "" ||
+		strings.TrimSpace(item.Subject) != "" ||
+		strings.TrimSpace(item.Predicate) != "" ||
+		strings.TrimSpace(item.Object) != "" ||
+		strings.TrimSpace(item.Snippet) != ""
+}
+
+func evidenceClaimCarrierCompleteness(item EvidenceItem) int {
+	score := 0
+	if item.Kind != "" {
+		score++
+	}
+	if item.Scope != "" {
+		score++
+	}
+	if item.AnchorKind != "" {
+		score += 2
+	}
+	for _, value := range []string{item.Subject, item.Predicate, item.Object, item.AnchorSymbol, item.OwnerSymbol, item.Snippet} {
+		if strings.TrimSpace(value) != "" {
+			score++
+		}
+	}
+	if strings.TrimSpace(item.Condition) != "" {
+		// Condition is the typed semantic sidecar for an entire guard
+		// claim, not one optional string among body-derived relation fields.
+		score += 8
+	}
+	return score
+}
+
+func replaceEvidenceClaimCarrier(dst, src EvidenceItem) EvidenceItem {
+	dst.Kind = src.Kind
+	dst.Scope = src.Scope
+	dst.Subject = src.Subject
+	dst.Predicate = src.Predicate
+	dst.Object = src.Object
+	dst.Condition = src.Condition
+	dst.AnchorKind = src.AnchorKind
+	dst.AnchorSymbol = src.AnchorSymbol
+	dst.OwnerSymbol = src.OwnerSymbol
+	dst.Snippet = src.Snippet
+	return dst
+}
+
+func enrichMissingEvidenceClaimCarrier(dst, src EvidenceItem) EvidenceItem {
+	// Once a coherent bundle exists, partial claim fields from another
+	// version must not fill its blanks: that would still create a hybrid
+	// carrier. Independent summary/set/provenance fields merge below.
+	if evidenceClaimCarrierCoherent(dst) {
+		return dst
+	}
+	if dst.Kind == "" {
+		dst.Kind = src.Kind
+	}
+	if dst.Scope == "" {
+		dst.Scope = src.Scope
+	}
+	if strings.TrimSpace(dst.Subject) == "" {
+		dst.Subject = src.Subject
+	}
+	if strings.TrimSpace(dst.Predicate) == "" {
+		dst.Predicate = src.Predicate
+	}
+	if strings.TrimSpace(dst.Object) == "" {
+		dst.Object = src.Object
+	}
+	if strings.TrimSpace(dst.Condition) == "" {
+		dst.Condition = src.Condition
+	}
+	if dst.AnchorKind == "" {
+		dst.AnchorKind = src.AnchorKind
+	}
+	if strings.TrimSpace(dst.AnchorSymbol) == "" {
+		dst.AnchorSymbol = src.AnchorSymbol
+	}
+	if strings.TrimSpace(dst.OwnerSymbol) == "" {
+		dst.OwnerSymbol = src.OwnerSymbol
+	}
+	if strings.TrimSpace(dst.Snippet) == "" {
+		dst.Snippet = src.Snippet
 	}
 	return dst
 }

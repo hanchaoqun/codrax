@@ -2283,7 +2283,11 @@ func hasVisibleNearbyGroundedContext(plan *AnswerSurfacePlan) bool {
 // human-readable seed text used in finalizer prompts and repair hints.
 func FormatExactResolutionSeed(ev EvidenceItem) string {
 	parts := make([]string, 0, 3)
-	if triple := strings.TrimSpace(strings.Join(filterEmptySurfaceStrings(ev.Subject, ev.Predicate, ev.Object), " ")); triple != "" {
+	if ClaimFormOf(ev) == ClaimGuardCondition {
+		if guard := strings.TrimSpace(EvidenceAuthoritativeSurfaceText(ev, false)); guard != "" {
+			parts = append(parts, guard)
+		}
+	} else if triple := strings.TrimSpace(strings.Join(filterEmptySurfaceStrings(ev.Subject, ev.Predicate, ev.Object), " ")); triple != "" {
 		parts = append(parts, triple)
 	}
 	if summary := strings.TrimSpace(ev.Summary); summary != "" {

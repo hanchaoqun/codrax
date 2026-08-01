@@ -5926,6 +5926,14 @@ func answerDocEvidenceHasStructuredRelationSurface(item types.EvidenceItem, incl
 }
 
 func answerDocRelationSurfaceLabel(item types.EvidenceItem) string {
+	if types.ClaimFormOf(item) == types.ClaimGuardCondition {
+		for _, raw := range []string{item.AnchorSymbol, item.OwnerSymbol, item.Subject} {
+			if trimmed := strings.TrimSpace(raw); trimmed != "" {
+				return trimmed
+			}
+		}
+		return "guard"
+	}
 	left := strings.TrimSpace(item.Subject)
 	right := strings.TrimSpace(item.Object)
 	if right == "" {
@@ -5966,7 +5974,7 @@ func answerDocRelationSurfaceRole(item types.EvidenceItem) string {
 		case types.AnchorImport:
 			return "import_or_dependency"
 		case types.AnchorCondition:
-			return "guarded_relation"
+			return "guard_condition"
 		default:
 			return "relationship"
 		}
@@ -5977,7 +5985,7 @@ func answerDocRelationSurfaceRole(item types.EvidenceItem) string {
 	case types.AnchorImport:
 		return "import_or_dependency"
 	case types.AnchorCondition:
-		return "guarded_relation"
+		return "guard_condition"
 	default:
 		return "relationship"
 	}
@@ -9035,7 +9043,11 @@ func scoreExactResolutionEvidence(ev types.EvidenceItem, contract *types.ExactRe
 
 func formatExactResolutionSeed(ev types.EvidenceItem) string {
 	parts := make([]string, 0, 3)
-	if triple := strings.TrimSpace(strings.Join(filterEmptyStrings(ev.Subject, ev.Predicate, ev.Object), " ")); triple != "" {
+	if types.ClaimFormOf(ev) == types.ClaimGuardCondition {
+		if guard := strings.TrimSpace(types.EvidenceAuthoritativeSurfaceText(ev, false)); guard != "" {
+			parts = append(parts, guard)
+		}
+	} else if triple := strings.TrimSpace(strings.Join(filterEmptyStrings(ev.Subject, ev.Predicate, ev.Object), " ")); triple != "" {
 		parts = append(parts, triple)
 	}
 	surface := strings.TrimSpace(types.EvidenceAuthoritativeSurfaceText(ev, false))

@@ -51,15 +51,19 @@ func evidenceAnchorLocalSurfaceText(item EvidenceItem, includeKind bool) string 
 			return prependEvidenceKind(includeKind, item, snippet)
 		}
 	case AnchorCondition:
-		if snippet != "" {
-			return prependEvidenceKind(includeKind, item, snippet)
-		}
 		cond := strings.TrimSpace(item.Condition)
 		switch {
 		case locationName != "" && cond != "":
 			return prependEvidenceKind(includeKind, item, fmt.Sprintf("%s guard condition IF %s", locationName, cond))
 		case cond != "":
 			return prependEvidenceKind(includeKind, item, fmt.Sprintf("guard condition IF %s", cond))
+		case snippet != "":
+			// A condition anchor can cite the guard line, but a multiline
+			// snippet may also contain body assignments/returns that require
+			// their own statement anchors. Publish only the first source line.
+			if first, _, _ := strings.Cut(snippet, "\n"); strings.TrimSpace(first) != "" {
+				return prependEvidenceKind(includeKind, item, strings.TrimSpace(first))
+			}
 		case locationName != "":
 			return prependEvidenceKind(includeKind, item, fmt.Sprintf("%s guard anchor", locationName))
 		case strings.TrimSpace(item.AnchorSymbol) != "":
