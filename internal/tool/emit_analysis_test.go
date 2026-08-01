@@ -132,6 +132,44 @@ func TestParseRuntimeArtifactScopeProfileAnchorsUserScopeAndSoftensModelScope(t 
 	if errText != "" || len(warnings) != 0 || !ok || gotStart != start || gotEnd != end {
 		t.Fatalf("anchored explicit scope should survive: profile=%+v err=%q warnings=%v", explicit, errText, warnings)
 	}
+	canonical, errText, warnings := parseRuntimeArtifactScopeProfile(
+		"分析目标在 34579.45..34579.48 秒窗口内的状态",
+		true,
+		&emitRuntimeArtifactScopeProfileParam{
+			RequestedScope: string(types.RuntimeArtifactScopeBoundedSelector),
+			TimeStart:      &start,
+			TimeEnd:        &end,
+			SourceQuote:    "目标在 34579.45..34579.48 秒窗口内",
+			Confidence:     &confidence,
+		},
+	)
+	gotStart, gotEnd, ok = canonical.ExplicitTimeWindow()
+	if errText != "" || len(warnings) != 1 || !ok || gotStart != start || gotEnd != end {
+		t.Fatalf("anchored bounded selector with a valid typed window should canonicalize: profile=%+v err=%q warnings=%v", canonical, errText, warnings)
+	}
+	if decided, allowed := types.RuntimeTraceReportShapeAuthority(&types.RequestModel{
+		Intent:                      types.IntentExplain,
+		RuntimeArtifactScopeProfile: canonical,
+	}); !decided || !allowed {
+		t.Fatalf("canonicalized exact window must retain deterministic trace report authority: decided=%t allowed=%t profile=%+v", decided, allowed, canonical)
+	}
+	invalidEnd := start
+	bounded, errText, warnings := parseRuntimeArtifactScopeProfile(
+		"分析目标 span-A",
+		true,
+		&emitRuntimeArtifactScopeProfileParam{
+			RequestedScope: string(types.RuntimeArtifactScopeBoundedSelector),
+			TimeStart:      &start,
+			TimeEnd:        &invalidEnd,
+			SourceQuote:    "span-A",
+			Confidence:     &confidence,
+		},
+	)
+	if errText != "" || len(warnings) != 0 ||
+		bounded.RequestedScope != types.RuntimeArtifactScopeBoundedSelector ||
+		bounded.TimeStart != nil || bounded.TimeEnd != nil {
+		t.Fatalf("invalid typed times must not promote a bounded selector: profile=%+v err=%q warnings=%v", bounded, errText, warnings)
+	}
 	softened, errText, warnings := parseRuntimeArtifactScopeProfile(
 		"只分析这份 trace",
 		true,

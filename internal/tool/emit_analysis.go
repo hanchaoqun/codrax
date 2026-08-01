@@ -3372,12 +3372,36 @@ func parseRuntimeArtifactScopeProfile(raw string, runtimeArtifactCarrier bool, p
 	quote := strings.TrimSpace(p.SourceQuote)
 	anchored := quote != "" && sourceQuotePresentInCurrentRequest(raw, quote)
 	switch scope {
-	case types.RuntimeArtifactScopeFullArtifact, types.RuntimeArtifactScopeBoundedSelector:
+	case types.RuntimeArtifactScopeFullArtifact:
 		if !anchored {
 			profile.RequestedScope = types.RuntimeArtifactScopeUnspecified
 			profile.TimeStart = nil
 			profile.TimeEnd = nil
 			warnings = append(warnings, "runtime_artifact_scope_profile auto-softened to unspecified because source_quote is not verbatim in the current request")
+		} else {
+			profile.SourceQuote = quote
+			profile.TimeStart = nil
+			profile.TimeEnd = nil
+		}
+	case types.RuntimeArtifactScopeBoundedSelector:
+		if !anchored {
+			profile.RequestedScope = types.RuntimeArtifactScopeUnspecified
+			profile.TimeStart = nil
+			profile.TimeEnd = nil
+			warnings = append(warnings, "runtime_artifact_scope_profile auto-softened to unspecified because source_quote is not verbatim in the current request")
+		} else if p.TimeStart != nil && p.TimeEnd != nil &&
+			*p.TimeStart >= 0 && *p.TimeEnd > *p.TimeStart {
+			// A valid typed start/end pair is the structurally more precise
+			// subtype of bounded_selector. Analyzer models occasionally emit
+			// both shapes at once. Preserve the precise carrier instead of
+			// discarding it based on the noisier enum choice: downstream
+			// exact-window authority then remains independent of scenario
+			// wording. This consumes only schema-valid typed fields plus the
+			// existing exact current-request quote anchor; it does not scan
+			// request or answer prose for keywords.
+			profile.RequestedScope = types.RuntimeArtifactScopeExplicitWindow
+			profile.SourceQuote = quote
+			warnings = append(warnings, "runtime_artifact_scope_profile canonicalized bounded_selector with valid typed time_start/time_end to explicit_time_window")
 		} else {
 			profile.SourceQuote = quote
 			profile.TimeStart = nil

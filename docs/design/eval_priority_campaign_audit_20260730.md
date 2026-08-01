@@ -2790,8 +2790,9 @@ source_quote=<已锚定的用户精确窗口>
 ```
 
 `parseRuntimeArtifactScopeProfile` 的 `bounded_selector` 分支随后清空 start/end，
-使下游 `ExplicitTimeWindow()` 失败。系统补采因此以 `families_present` 跳过，
-而发布层又把问题识别成 focused runtime fact，抑制完整报告。最终没有系统
+使下游 `ExplicitTimeWindow()` 失败。模型已经采齐 core families，所以系统补采
+以 `families_present` 跳过是正确 no-op；缺口是发布层随后把问题识别成
+focused runtime fact，反而抑制这些已有 family 的完整报告。最终没有系统
 IOFAM 席位/因果投影块，模型自由叙述漏掉
 `完成端到端·IO延迟（io_latency）`、`块设备层·块设备IO(inode)` 与
 `综合评分,非墙钟`，并把 blocked-reason interval Σ 错写成非墙钟内部估算。
@@ -2819,7 +2820,7 @@ relation row 的 subject/predicate/object 是否与所引 citation 的 typed edg
 
 | ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
 |---|---:|---|---|---|---|
-| EVAL-B14-WS1 | P0 | runtime artifact scope canonicalization | 精确 start/end 与 `bounded_selector` enum 可同时通过，解析器按 enum 丢弃更精确 typed 窗 | 在 emit-analysis 边界以已锚定 quote + 合法 typed 数值规范化为 `explicit_time_window`；补 parse、report-authority、supplement 接线 pin | approved |
+| EVAL-B14-WS1 | P0 | runtime artifact scope canonicalization | 精确 start/end 与 `bounded_selector` enum 可同时通过，解析器按 enum 丢弃更精确 typed 窗 | 在 emit-analysis 边界以已锚定 quote + 合法 typed 数值规范化为 `explicit_time_window`；补 parse→report-authority 接线 pin | covered-pending-replay |
 | EVAL-B14-RC1 | P2 | relation row ↔ citation semantic alignment | citation_ref 仅做结构/存在性校验，无法发现 call edge 行引用相邻定义/调用 | 从 typed relation surface 给 row 提供 endpoint-aligned citation候选或作 advisory；不得扫描答案 prose、不得因启发式相似度 hard reject | filed |
 | EVAL-B14-MV1 | P3 | model narrative caliber drift | system IO family 被抑制后，模型把 interval Σ、rank absence 等自由解释为错误口径 | 先由 WS1 恢复 deterministic typed display；回放后仍出现才另行立项 | subsumed-by-WS1 |
 
@@ -2831,3 +2832,20 @@ WS1 不变量：
 4. 显式窗继续保留 Trace 因果投影、root rank、wakeup chain、critical
    blocking、窗内可消除量及自动补齐；
 5. focused、无时间窗的状态/计数查询继续使用窄报告，不重新套入全量因果合同。
+
+批 WS1 已按上述边界落地。`full_artifact` 仍无条件清掉多余 query-time 字段；
+`bounded_selector` 仅在 quote 已通过既有 current-request exact anchor 且双端
+typed 时间合法时升级；缺端点、负起点、`end <= start` 均不升级并继续清空
+时间。结构测试直接把 parse 结果送入
+`RuntimeTraceReportShapeAuthority`，确认不依赖 analyzer 的 intent/scenario
+词面即可恢复完整显式窗报告。
+
+回归通过：
+
+- 定向：
+  `go test ./internal/tool -run 'TestParseRuntimeArtifactScopeProfileAnchorsUserScopeAndSoftensModelScope|TestRuntimeTraceReportMaterializationAuthorityMatrix|TestSupplementH3WindowMintsIOFacetEndToEndWord' -count=1`
+  （3.824s）；
+- 完整相关包：
+  `go test ./internal/types ./internal/tool ./internal/tracequery ./internal/agent ./internal/orchestrator ./internal/skill -count=1`
+  （types 19.173s、tool 169.448s、tracequery 69.743s、agent 3.009s、
+  orchestrator 13.284s、skill 1.749s）。
