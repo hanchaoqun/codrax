@@ -4451,6 +4451,42 @@ func TestGitShow(t *testing.T) {
 	}
 }
 
+func TestGitCollectChangedPathSets_MergeUsesFirstParentDiff(t *testing.T) {
+	ctx := gitWorktreeFixture(t, "seed\n")
+	runGit := func(args ...string) string {
+		t.Helper()
+		cmd, cancel := NewGitCommand(nil, args...)
+		defer cancel()
+		cmd.Dir = ctx.RepoRoot
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@example.com",
+			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@example.com")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	baseBranch := runGit("symbolic-ref", "--short", "HEAD")
+	runGit("checkout", "-q", "-b", "feature")
+	if err := os.WriteFile(filepath.Join(ctx.RepoRoot, "feature.txt"), []byte("feature\n"), 0o644); err != nil {
+		t.Fatalf("write feature file: %v", err)
+	}
+	runGit("add", "feature.txt")
+	runGit("commit", "-q", "-m", "feature")
+	runGit("checkout", "-q", baseBranch)
+	runGit("merge", "-q", "--no-ff", "feature", "-m", "merge feature")
+
+	sets, commitsOmitted := gitCollectChangedPathSets(ctx.RepoRoot, []string{"HEAD"}, "")
+	if commitsOmitted != 0 || len(sets) != 1 {
+		t.Fatalf("merge changed-path sets=%+v omitted=%d", sets, commitsOmitted)
+	}
+	set := sets[0]
+	if !set.Complete || set.Total != 1 || len(set.Paths) != 1 || set.Paths[0] != "feature.txt" {
+		t.Fatalf("merge first-parent changed paths=%+v", set)
+	}
+}
+
 func TestGitLog(t *testing.T) {
 	t.Run("description teaches merge history lane", func(t *testing.T) {
 		desc := (&GitLog{}).Description()

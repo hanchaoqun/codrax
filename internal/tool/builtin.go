@@ -6846,7 +6846,13 @@ func gitChangedPathsForCommit(dir, hash, pathspec string) ([]string, string) {
 	if hash == "" {
 		return nil, "empty commit"
 	}
-	args := []string{"show", "--format=", "--name-only", "--no-ext-diff", hash}
+	// Use the first-parent edge for merge commits. Plain `git show
+	// --name-only <merge>` emits no paths unless a merge-diff mode is selected,
+	// which would otherwise turn a real merge change set into the false typed
+	// claim total=0, complete=true. First-parent matches the feature-as-landed
+	// view used by git log --first-parent and remains equivalent for ordinary
+	// single-parent commits.
+	args := []string{"show", "--format=", "--name-only", "--no-ext-diff", "--first-parent", hash}
 	if strings.TrimSpace(pathspec) != "" {
 		args = append(args, "--", pathspec)
 	}

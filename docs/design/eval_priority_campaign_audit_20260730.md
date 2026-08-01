@@ -5111,8 +5111,8 @@ scenario=architecture_explain` 且遗漏 `CurrentSourceExplanationProfile` 和
 
 | ID | 优先级 | GAP | 泛化方案 | 状态 |
 |---|---:|---|---|---|
-| `EVAL-B21-MIX1` | P0 | route 已 typed 声明 current source required，但 history+architecture analyzer 漏 profile 时 mixed lane 仍丢失 | 在分析归一化铸造 route-backed typed obligation：只接受 `history lookup ∧ explain/trace ∧ architecture_explain ∧ route current_source=required`，排除 scalar/count/relation/diagnostic/enumerate；让统一 history/current-code 谓词消费该信号。不得读取 route reason、RawRequest、答案 prose | implemented/full-tests-pass；B21 r2 回放 |
-| `EVAL-B21-VCS1` | P1 | `exact_changed_paths` 只存在 blob/summary 文本，`ToolVCSHistory` 只有 commits；下游无法 typed 检测漏文件 | 为 `git_log`/`git_show` 发布有界 per-commit changed-path roster、total/complete/omitted；ledger/prompt 使用 carrier，完整路径清册不得由 `--stat` 缩写或模型计数代替 | implemented/full-tests-pass；B21 r2 回放 |
+| `EVAL-B21-MIX1` | P0 | route 已 typed 声明 current source required，但 history+architecture analyzer 漏 profile 时 mixed lane 仍丢失 | 在分析归一化铸造 route-backed typed obligation：只接受 `history lookup ∧ explain/trace ∧ architecture_explain ∧ route current_source=required`，排除 scalar/count/relation/diagnostic/enumerate；让统一 history/current-code 谓词消费该信号。不得读取 route reason、RawRequest、答案 prose | covered；B21 r2 生产信号/混合证据链正证 |
+| `EVAL-B21-VCS1` | P1 | `exact_changed_paths` 只存在 blob/summary 文本，`ToolVCSHistory` 只有 commits；下游无法 typed 检测漏文件 | 为 `git_log`/`git_show` 发布有界 per-commit changed-path roster、total/complete/omitted；ledger/prompt 使用 carrier，完整路径清册不得由 `--stat` 缩写或模型计数代替 | partial；普通 commit 8/8 正证，merge 父边由 B21-B2 修复 |
 | `EVAL-B21-TRANS1` | P1 | runtime artifact 与 current checkout 同时有证据，却没有“历史变化是否已证明”的独立 authority | 建立 typed artifact↔checkout transition authority；无 artifact revision/version mapping 或 VCS transition witness 时只允许说明当前差异，确定性披露 historical transition=`unproven`，不改写模型正文 | Batch B21-C |
 | `EVAL-B21-M1` | P3 | 模型把 mutex 保护路径描述成会因两个调用者并发而 crash，并选错 current-status enum | 先由 MIX/TRANS authority 限定可声称范围；作为 model-variance 样本保留，跨 case 复现再设计结构化 side-specific proof，不加 Go/mutex/答案关键词门 | watch |
 
@@ -5182,6 +5182,68 @@ tool 159.840s）；新增生产接线/类型专项通过；`go test ./internal/a
 状态：`EVAL-B21-VCS1=implemented/full-tests-pass`；下一步重建同一二进制并严格并行
 2 个 Git/current-source 读模式 case，同时回放 B21-A/B，不用单一原题作为唯一正证。
 显式 Trace 时间窗、根因排序、唤醒链、窗内可消除量、因果投影和系统自动补采未改。
+
+#### B21 r2：mixed lane 恢复，merge 父边与 citation 身份暴露（2026-08-01）
+
+在 `main@6b1d5156b` 同一二进制快照下严格并行 2 个读模式 case：
+
+- `read_combo_git_current_source_explanation`：runner PASS，113s，人工 FAIL；
+- `read_combo_git_diff_hunk_current_code`：runner FAIL，169s，人工 FAIL。
+
+本轮先确认两个正证：
+
+1. 最近 merge 用例由 router 的 `current_source=required` 与 analyzer 的
+   `history_lookup + explain + architecture_explain` 铸出
+   `current_source_obligation_signals=1`；当前源码读取和 VCS 历史同时在场，旧的
+   “系统按已验证证据补充缺失成员”表没有复发。因此 `EVAL-B21-MIX1=covered`。
+2. 普通最新 commit `6b1d5156...` 的 typed authority 精确携带 8/8 paths，且 finalizer
+   逐项收到全部文件，证明 B21-B 的 carrier→ledger→prompt 主链有效。
+
+但 merge 用例暴露 P0 真值错误：`git_log --merges --first-parent --stat` 可见最新 merge
+`2a58a60d...` 实际改变 3 个文件，而独立 `git show --format= --name-only <merge>` 默认
+不选择 merge 父边，返回空输出；collector 随即把它铸成
+`emitted=0/total=0/complete=true`。这不是模型漏抄，而是 producer 发布了错误 typed
+authority。模型在空 authority 下又把当前 checkout 中无关的后续测试混成“新增四个测试
+场景”，并一面说 test helper 直接影响 production candidate construction，一面说不影响
+生产路径，故机器 PASS 不能算人工正确。
+
+第二例的 8/8 roster 正确，最终也分别写出 diff hunk、当前源码依据、作用和边界；runner
+只因这些内容位于相邻段落而不是同一行，未匹配单行 regex。这是 eval oracle 的 P3
+假阴性，不应推动生产答案硬门。但答案的 principal scalar
+`observationRecordForVCSChangedPaths` 借用了 `ToolVCSChangedPathSet` 定义的 citation，
+且把仅适用于 `git_show` 默认 patch 的 `VCSHistory=nil` 边界扩写成 `git_log/git_show`，
+人工仍判 FAIL。
+
+新增台账：
+
+| ID | 优先级 | GAP | 泛化方案 | 状态 |
+|---|---:|---|---|---|
+| `EVAL-B21-MERGE1` | P0 | merge commit 的 exact changed-path producer 未选父边，却发布 complete zero | 单 commit 清册统一使用 first-parent diff；普通单父提交语义不变。真实 no-ff merge 固定红/绿，不按 commit id 或题面识别 merge | B21-B2 已施工 |
+| `EVAL-B21-CIT1` | P1 | principal scalar 的 visible symbol 与 citation anchor identity 可不一致，清理器仍保留错误引用 | 从 block/item 的 typed claim form 与 evidence/citation anchor 构造 symbol identity 校验或精确重绑；无法唯一匹配则去引用/软披露。不得扫描自然语言段落 | next |
+| `EVAL-B21-E1` | P3 | read-combo regex 要求 diff/current-source 词面同一行，分段等价答案假 FAIL | eval-only oracle 改为两个独立语义存在臂或结构化 facet；不修改生产 finalizer，不扫描生产答案做 gate | filed-low |
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b21r2_20260801.md`；
+- `eval/parallel_selected_summary_evalcampaign_b21r2_20260801_manual_audit.md`；
+- 结果目录时间戳 `20260801-060743`。
+
+#### B21-B2：merge first-parent exact roster
+
+`gitChangedPathsForCommit` 现统一调用
+`git show --format= --name-only --no-ext-diff --first-parent <commit>`。first-parent 对普通
+单父 commit 与原语义等价；对 merge 明确选择“相对第一父、最终落地主线”的文件集，
+不再把未指定 merge diff format 的空输出误铸成 measured zero。
+
+新增真实临时 Git 仓库测试：feature branch 新增 `feature.txt`，主分支执行
+`merge --no-ff`，collector 必须发布单一 set、`paths=[feature.txt] / total=1 /
+complete=true`。该测试在旧命令下得到空清册，在新命令下通过；原有 GitShow/GitLog
+定向测试同时通过。`go test ./internal/tool -count=1` 全包通过（159.400s），
+`git diff --check` 通过。
+
+状态：`EVAL-B21-MERGE1=implemented/full-tests-pass/replay-next`；
+`EVAL-B21-VCS1=implemented，待 merge 回放正证`。本批仍未修改任何 Trace family、查询、
+显式窗 authority、因果投影、根因/唤醒/可消除计算或系统补采逻辑。
 
 ### B19g-b r1：target authority 通过，有限事实集仍被扩张（2026-08-01）
 
