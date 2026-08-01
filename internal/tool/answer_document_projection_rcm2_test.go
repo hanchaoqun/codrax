@@ -554,8 +554,8 @@ func TestRCM2C4BlockFamilyGrouping(t *testing.T) {
 		t.Fatalf("family grouping = header + counted pointer row, got %d rows: %+v", len(rows), rows)
 	}
 	header := rows[0].Cells
-	if header[0] != "类校验 14次" || header[3] != "合计7.124ms" {
-		t.Fatalf("header row must carry 类型词 ×N + 合计 cost: %+v", header)
+	if header[0] != "类校验 14次" || header[3] != "合计7.124ms" || header[4] != "7.124ms" {
+		t.Fatalf("header row must carry 类型词 ×N plus independent raw/effective values: %+v", header)
 	}
 	// The pointer row keeps the ↳ subordinate connector (P2a rider 件4) and
 	// the counted account (roster 折叠必带计数披露): this fixture's roster is a

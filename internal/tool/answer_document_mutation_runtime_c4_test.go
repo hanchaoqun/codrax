@@ -91,7 +91,7 @@ func TestApplyAndPersistMutation_MaterializesDeterministicOptimizationBlock(t *t
 	if block.Title != "确定性优化点" {
 		t.Fatalf("ZH title mismatch: %q", block.Title)
 	}
-	for _, want := range []string{"优化点", "类别", "宿主线程", "有效成本", "证据"} {
+	for _, want := range []string{"优化点", "类别", "宿主线程", "窗内 span 墙钟", "规则可消除", "可消占窗%", "证据"} {
 		if !stringSliceContains(block.Columns, want) {
 			t.Fatalf("optimization block missing column %q: %+v", want, block.Columns)
 		}
@@ -145,6 +145,11 @@ func TestApplyAndPersistMutation_MaterializesDeterministicOptimizationBlock(t *t
 	} {
 		if !strings.Contains(flat, want) {
 			t.Fatalf("optimization rows missing %q:\n%s", want, flat)
+		}
+	}
+	for _, row := range block.Items {
+		if len(row.Cells) != 7 || row.Cells[4] != "—" || row.Cells[5] != "—" {
+			t.Fatalf("semantic spans without typed effective attribution must keep raw wall time separate and render eliminability unavailable: %+v", row.Cells)
 		}
 	}
 	if !strings.Contains(block.Text, "JIT编译") || !strings.Contains(block.Text, "纹理上传") || strings.Contains(block.Text, "Texture upload") {
@@ -452,7 +457,7 @@ func TestApplyAndPersistMutation_MaterializesDeterministicOptimizationBlockInEng
 	if block.Title != "Deterministic Optimization Points" {
 		t.Fatalf("EN title mismatch: %q", block.Title)
 	}
-	for _, want := range []string{"Optimization point", "Class", "Host thread", "Effective cost", "Evidence"} {
+	for _, want := range []string{"Optimization point", "Class", "Host thread", "In-window span wall time", "Rule-eliminable", "Eliminable % of window", "Evidence"} {
 		if !stringSliceContains(block.Columns, want) {
 			t.Fatalf("optimization block missing EN column %q: %+v", want, block.Columns)
 		}

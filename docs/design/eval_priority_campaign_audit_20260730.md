@@ -4031,6 +4031,61 @@ prose matcher 代替。
 不变量：该指导不触及 Trace evidence 的 typed causal authority、显式窗口、根因/唤醒/
 可消除计算或系统自动补采；Trace 外部观察继续由 `external_observation` 独立承载。
 
+### B22 r1：显式 Trace 窗 + write/plan 异构回放（2026-08-01）
+
+同一 `main@a4cff1c42` 二进制快照下严格并行 2 个不同模式 case：
+
+- `trace_query_frame_semantic_span_optimization`：runner PASS，148s，人工 FAIL；
+- `patch_cpp_typo`（`MODE=plan`）：runner PASS，78s，人工 PASS。
+
+write/plan 正证：系统只生成 `main.cpp` 单文件单行 `kind=patch`，没有修改主仓；
+write analyzer 的未绑定 hard expected 和 planner 的 tab/space `old_text` 各经一次 typed
+拒绝/repair pack 后收敛，最终 patch 可 apply、验收项与 fixture 一致。这里的受控重试没有
+扩大变更范围，也没有形成新的高 ROI gap。
+
+Trace 正证：
+
+1. 用户显式 `5.000000..5.007000` 窗保持最高 scope 权限；报告完整保留主要时间占用、
+   可消除候选、根因排序、唤醒链、代表窗、完整投影明细与系统自动补采。
+2. typed `frame_causality=unproven / frame_evidence_status=absent` 已结构化接管首结论，
+   model 自写的 definite-cause blocks 没有进入最终文档；系统正文统一使用“候选/优先验证、
+   不等于帧因果”的词面。`EVAL-B19-CAUSAL1` 因而获得真实显式窗正证，状态更新为
+   `covered`，且没有牺牲 Trace 因果投影能力。
+3. 两个时间维度的引擎值本身正确：`VerifyClass` 完整窗内 span 为 5.000ms；它与目标
+   等待链窗 `5.000000..5.005000` 的精确交集为 4.600ms，后者才是 typed
+   `effective_impact_ms` 和可消除候选排序值。worker 的链窗 running 4.000ms 与完整
+   scheduler running 4.600ms 也是同样的“投影/实际”双口径，不应相加。
+
+新登记：
+
+| ID | 优先级 | 系统 GAP | 代码/日志真相 | 泛化方案 |
+|---|---:|---|---|---|
+| `EVAL-B22-SEMAXIS1` | P1 | “确定性优化点”表把语义 span 的原始窗内墙钟回填为“有效成本”，把真实占用与规则可消除量混成一个轴 | 因果投影树/明细正确发布 `窗口投影=5.000ms / 有效归因=4.600ms`；但 `runtimeTraceSemanticOptimizationParts` 只读 `EffectiveImpactMS`，单 span 的有效交集实际在 typed `SemanticChainProjectedMS`，该槽为空时函数回退 `runtimeTraceProjNodeDisplayImpact=5.000ms`，最终表写成“有效成本 5.000ms / 71.4%” | 将优化表拆成两个 typed 列：`窗内 span 墙钟` 只读 observation union；`规则可消除` 只读已发布 effective 或 typed chain intersection，缺失时为 `—`，禁止拿 raw span 回填；百分比明确绑定可消除值。复用已有 `runtimeTraceProjSemanticChainIntersectionMS`/family helper，不重算区间、不扫描答案 prose |
+
+本项是跨所有 semantic class、单 span/同类 family、on-chain/off-chain 的共同消费面，
+不是对 VerifyClass 或 5.000/4.600 的特例修复。施工只改确定性展示值路由与中英文列名，
+不改 trace_query 的区间计算、根因排序、唤醒链、显式窗选举、可消除值生产或自动补采。
+
+#### B22-A：semantic span 原始占时 / 规则可消除双轴
+
+已按 typed 值权限完成：
+
+1. 确定性优化表扩为 `窗内 span 墙钟 / 规则可消除 / 可消占窗%` 三个值面；前者只读
+   semantic observation 的窗内 union，后两者只读 `EffectiveImpactMS`（含 published-zero）
+   或 `SemanticChainProjectedMS` 精确链窗交集。
+2. 缺少 typed effective/intersection 时，规则可消除及其百分比显示 `—`；不再以 raw
+   span 墙钟回填。已发布 0 仍显示 `0.000ms/0.0%`，与 unavailable 保持可区分。
+3. 单 span partial-overlap 回归固定 `raw=5.000ms / eliminable=4.600ms /
+   eliminable-share=65.7%`；另固定 authority 缺席和 published-zero 两臂。
+4. family 表头、计数折叠指针、多工件 evidence label 和中英文 7 列同步更新；完整
+   `go test ./internal/tool -count=1` 通过（157.681s），`git diff --check` 通过。
+
+不变量：没有重算区间或改变 root rank；显式窗选举、唤醒链、两维投影、系统自动补采、
+typed causal ceiling 及 trace_query 输出保持原样。
+
+状态：`EVAL-B22-SEMAXIS1=implemented/full-tests-pass/replay-next`。下一批严格并行
+2 case 覆盖 partial-overlap semantic span 与另一种高优先模式。
+
 ### B19a r1：Trace 主合同保留，精确集合暴露静默改写（2026-08-01）
 
 严格并行 2 个用例，runner 2/2 PASS，人工审计 0/2：

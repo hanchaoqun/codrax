@@ -6277,8 +6277,8 @@ func materializeRuntimeTraceSemanticOptimizationBlock(doc *types.AnswerDocumentV
 			columns = cols
 			label := strings.TrimSpace(projection.ArtifactLabel)
 			for _, row := range sectionRows {
-				if label != "" && len(row.Cells) == 6 && row.Cells[5] != "—" {
-					row.Cells[5] = runtimeTraceCausalProjectionMarkdownSafe(label) + " " + row.Cells[5]
+				if label != "" && len(row.Cells) == 7 && row.Cells[6] != "—" {
+					row.Cells[6] = runtimeTraceCausalProjectionMarkdownSafe(label) + " " + row.Cells[6]
 				}
 				rows = append(rows, row)
 			}
@@ -6315,10 +6315,10 @@ func materializeRuntimeTraceSemanticOptimizationBlock(doc *types.AnswerDocumentV
 	// C8PROSE-1 (§29.164 残余清单收账, 2026-07-20): prose intro — the depth-0
 	// semicolon goes full-width; the parenthetical span-class roster keeps its
 	// half-width interior comma.
-	text := "trace 中的确定性语义优化 span(类校验/JIT编译/着色器编译/运行时编译/纹理上传/GC暂停等,来自 typed semantic_class 通道):每行都是可直接落地的优化点；时长与 E# 证据均可经证据索引定位到 trace 行号区间。"
+	text := "trace 中的确定性语义优化 span(类校验/JIT编译/着色器编译/运行时编译/纹理上传/GC暂停等,来自 typed semantic_class 通道):每行分别列出原始窗内墙钟与现有规则可消除量；后者仅在 typed 有效归因可用时发布。时长与 E# 证据均可经证据索引定位到 trace 行号区间。"
 	if !zh {
 		title = tracefence.SectionOptimizationEN
-		text = "Deterministic semantic optimization spans found in the trace (class verification / JIT / shader compilation / texture upload / explicit GC pauses, from the typed semantic_class channel): each row is a directly actionable optimization point; durations and E# tags resolve to trace line spans via the evidence index."
+		text = "Deterministic semantic optimization spans found in the trace (class verification / JIT / shader compilation / texture upload / explicit GC pauses, from the typed semantic_class channel): each row separates raw in-window wall time from the amount eliminable under existing typed rules; the latter is published only when typed effective attribution is available. Durations and E# tags resolve to trace line spans via the evidence index."
 	}
 	block := types.AnswerBlock{
 		ID:      "runtime_trace_semantic_optimizations",
@@ -6765,9 +6765,11 @@ func materializeRuntimeTraceSupplementDisclosureCaveat(doc *types.AnswerDocument
 
 // runtimeTraceSemanticOptimizationParts builds the ZH/EN-symmetric table rows
 // for the deterministic optimization block: span name, typed semantic class,
-// host thread, effective cost (EffectiveImpactMS with the display-impact
-// fallback), and the shared E# evidence tag. CitationRef=-1 on every
-// system-injected row (red-line invariant).
+// host thread, raw in-window span wall time, independently-authorized
+// rule-eliminable impact, its window share, and the shared E# evidence tag.
+// The eliminable lane never falls back to raw display impact: absence stays
+// typed-unavailable instead of turning observed occupancy into a repair claim.
+// CitationRef=-1 on every system-injected row (red-line invariant).
 // runtimeTraceSemanticSpanInlineLocator renders a span's own trace locator
 // (time window first, line span fallback) for surfaces that must not mint a
 // fresh E# (修复轮 D1). "" when the span carries neither coordinate.
@@ -6785,11 +6787,11 @@ func runtimeTraceSemanticSpanInlineLocator(span types.TraceCausalProjectionNode,
 }
 
 func runtimeTraceSemanticOptimizationParts(projection types.TraceCausalProjection, evidence *runtimeTraceCausalProjectionEvidenceIndex, windowMS float64, zh bool) ([]string, []types.AnswerBlockItem) {
-	// 占窗% (RANK-U Stage 2 rider, §29.61 d, caliber ruling ⑤ 2026-07-13):
-	// the C4 table gains a window-share column — basis = THE SAME published
-	// effective-cost value the ms cell prints (one field, one value source;
-	// the member_sum basis was rejected: it would split the row across two
-	// calibers) divided by the analysis-window length. Semantic-class rows
+	// 可消占窗% (RANK-U Stage 2 rider, §29.61 d, caliber ruling ⑤
+	// 2026-07-13; EVAL-B22-SEMAXIS1 split 2026-08-01): basis = THE SAME typed
+	// rule-eliminable value the preceding cell prints, divided by the analysis
+	// window. Raw span wall time has its own column and can no longer become an
+	// eliminable value by fallback. Semantic-class rows
 	// only (typed SemanticClass gate — the whole table is semantic, but
 	// member/fold subordinate rows and class-less spans render "—"), and a
 	// merged row straddling MULTIPLE query windows renders "—" (§21.1 CWD-2 ①:
@@ -6797,17 +6799,17 @@ func runtimeTraceSemanticOptimizationParts(projection types.TraceCausalProjectio
 	// denominator). Legality: semantic eff is pure wall clock (union /
 	// intersection calibers, zero supply-discount component), so the §29.27
 	// discounted-value percentage ban does not bind here.
-	columns := []string{tracefence.ActionWordZH, "类别", "宿主线程", "有效成本", "占窗%", "证据"}
+	columns := []string{tracefence.ActionWordZH, "类别", "宿主线程", "窗内 span 墙钟", "规则可消除", "可消占窗%", "证据"}
 	if !zh {
-		columns = []string{"Optimization point", "Class", "Host thread", "Effective cost", "% of window", "Evidence"}
+		columns = []string{"Optimization point", "Class", "Host thread", "In-window span wall time", "Rule-eliminable", "Eliminable % of window", "Evidence"}
 	}
 	dash := "—"
-	windowShare := func(span types.TraceCausalProjectionNode, cost float64) string {
-		if strings.TrimSpace(span.SemanticClass) == "" || windowMS <= 0 || cost <= 0 ||
+	windowShare := func(span types.TraceCausalProjectionNode, eliminable float64, known bool) string {
+		if strings.TrimSpace(span.SemanticClass) == "" || windowMS <= 0 || !known || eliminable < 0 ||
 			runtimeTraceProjMultiWindowMergedRow(span) {
 			return dash
 		}
-		return fmt.Sprintf("%.1f%%", cost/windowMS*100)
+		return fmt.Sprintf("%.1f%%", eliminable/windowMS*100)
 	}
 	var rows []types.AnswerBlockItem
 	for _, span := range projection.SemanticSpans {
@@ -6829,13 +6831,15 @@ func runtimeTraceSemanticOptimizationParts(projection types.TraceCausalProjectio
 		if host == "" {
 			host = dash
 		}
-		cost := span.EffectiveImpactMS
-		if cost <= 0 {
-			cost = runtimeTraceProjNodeDisplayImpact(span)
+		rawWallMS := runtimeTraceProjNodeDisplayImpact(span)
+		rawWallCell := dash
+		if rawWallMS > 0 {
+			rawWallCell = fmt.Sprintf("%.3fms", rawWallMS)
 		}
-		costCell := dash
-		if cost > 0 {
-			costCell = fmt.Sprintf("%.3fms", cost)
+		eliminableMS, eliminableKnown := runtimeTraceSemanticOptimizationEliminableMS(span)
+		eliminableCell := dash
+		if eliminableKnown {
+			eliminableCell = fmt.Sprintf("%.3fms", eliminableMS)
 		}
 		// 修复轮 D1 (冷读 donghu r2 「证据 E39」悬空, 2026-07-12): an E# renders
 		// ONLY when the model walk already allocated it (the tag then exists in
@@ -6856,14 +6860,15 @@ func runtimeTraceSemanticOptimizationParts(projection types.TraceCausalProjectio
 		// the pre-RCM table hid behind one member's value) followed by capped
 		// member rows and a COUNTED fold row (计数折叠, never a silent cut).
 		if runtimeTraceProjFamilyRow(span) {
-			famName, famCost := runtimeTraceProjSemanticCellParts(span, runtimeTraceProjFamilyPublishedMS(span), zh)
+			famName, famRawWall := runtimeTraceProjSemanticCellParts(span, rawWallMS, zh)
 			rows = append(rows, types.AnswerBlockItem{
 				Cells: []string{
 					runtimeTraceCausalProjectionMarkdownSafe(famName),
 					class,
 					runtimeTraceCausalProjectionMarkdownSafe(host),
-					famCost,
-					windowShare(span, runtimeTraceProjFamilyPublishedMS(span)),
+					famRawWall,
+					eliminableCell,
+					windowShare(span, eliminableMS, eliminableKnown),
 					tag,
 				},
 				CitationRef: -1,
@@ -6900,7 +6905,7 @@ func runtimeTraceSemanticOptimizationParts(projection types.TraceCausalProjectio
 				}
 			}
 			rows = append(rows, types.AnswerBlockItem{
-				Cells:       []string{runtimeTraceCausalProjectionMarkdownSafe(pointerCell), dash, dash, dash, dash, dash},
+				Cells:       []string{runtimeTraceCausalProjectionMarkdownSafe(pointerCell), dash, dash, dash, dash, dash, dash},
 				CitationRef: -1,
 			})
 			continue
@@ -6910,14 +6915,38 @@ func runtimeTraceSemanticOptimizationParts(projection types.TraceCausalProjectio
 				runtimeTraceCausalProjectionMarkdownSafe(name),
 				class,
 				runtimeTraceCausalProjectionMarkdownSafe(host),
-				costCell,
-				windowShare(span, cost),
+				rawWallCell,
+				eliminableCell,
+				windowShare(span, eliminableMS, eliminableKnown),
 				tag,
 			},
 			CitationRef: -1,
 		})
 	}
 	return columns, rows
+}
+
+// runtimeTraceSemanticOptimizationEliminableMS selects only typed authority
+// for the optimization table's rule-eliminable axis. A positive published
+// EffectiveImpactMS wins; an explicit published zero remains a measured zero;
+// otherwise an on-chain semantic row may use the engine-promoted exact
+// member∩chain intersection. Missing authority returns known=false and must
+// render unavailable — raw span wall time is an observation axis, not a safe
+// substitute for eliminability.
+func runtimeTraceSemanticOptimizationEliminableMS(span types.TraceCausalProjectionNode) (value float64, known bool) {
+	if span.EffectiveImpactPublished {
+		if span.EffectiveImpactMS < 0 {
+			return 0, false
+		}
+		return span.EffectiveImpactMS, true
+	}
+	if span.EffectiveImpactMS > 0 {
+		return span.EffectiveImpactMS, true
+	}
+	if intersection := runtimeTraceProjSemanticChainIntersectionMS(span); intersection > 0 {
+		return intersection, true
+	}
+	return 0, false
 }
 
 func materializeRuntimeTraceMetricSnapshotBlock(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {

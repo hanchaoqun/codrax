@@ -1242,9 +1242,10 @@ func TestElimOverviewDonghuJitEngineRealWitness(t *testing.T) {
 
 // --- C4 占窗% column (rider, §29.61 d / 裁定⑤) ----------------------------------
 
-// TestC4WindowShareColumn — the optimization table's % column: same value
-// source as the ms cell over the analysis window, semantic-class rows only,
-// subordinate member/fold cells and windowless renders stay "—".
+// TestC4WindowShareColumn — the optimization table keeps raw span wall time
+// separate from the typed rule-eliminable value. The % column uses the latter
+// over the analysis window; subordinate member/fold cells and windowless
+// renders stay "—".
 func TestC4WindowShareColumn(t *testing.T) {
 	projection := types.TraceCausalProjection{
 		RootCauseFamilyObserved: true,
@@ -1260,19 +1261,20 @@ func TestC4WindowShareColumn(t *testing.T) {
 	evidence := newRuntimeTraceCausalProjectionEvidenceIndex()
 	model := buildRuntimeTraceProjTreeModel(projection, evidence, true)
 	columns, rows := runtimeTraceSemanticOptimizationParts(projection, evidence, model.WindowMS, true)
-	if len(columns) != 6 || columns[4] != "占窗%" {
-		t.Fatalf("C4 must carry the 占窗%% column: %v", columns)
+	if len(columns) != 7 || columns[3] != "窗内 span 墙钟" || columns[4] != "规则可消除" || columns[5] != "可消占窗%" {
+		t.Fatalf("C4 must carry independent raw/effective axes and the eliminable window-share column: %v", columns)
 	}
-	if len(rows) == 0 || len(rows[0].Cells) != 6 {
-		t.Fatalf("C4 rows must carry six cells: %+v", rows)
+	if len(rows) == 0 || len(rows[0].Cells) != 7 {
+		t.Fatalf("C4 rows must carry seven cells: %+v", rows)
 	}
-	// 12.900/150 = 8.6% — the SAME published value the ms cell prints.
-	if rows[0].Cells[3] != "12.900ms" || rows[0].Cells[4] != "8.6%" {
-		t.Fatalf("%% must divide the ms cell's own value by the window: %v", rows[0].Cells)
+	// raw=13.006 while 12.900/150 = 8.6% — the percentage follows only
+	// the typed rule-eliminable cell.
+	if rows[0].Cells[3] != "13.006ms" || rows[0].Cells[4] != "12.900ms" || rows[0].Cells[5] != "8.6%" {
+		t.Fatalf("raw wall time and rule-eliminable share must stay on separate axes: %v", rows[0].Cells)
 	}
 	// Windowless render: no denominator, no claim.
 	_, noWin := runtimeTraceSemanticOptimizationParts(projection, evidence, 0, true)
-	if noWin[0].Cells[4] != "—" {
+	if noWin[0].Cells[5] != "—" {
 		t.Fatalf("windowless C4 must not mint a share: %v", noWin[0].Cells)
 	}
 	// Family subordinate rows stay dash-celled (SPANTOP-1 件5: header + ONE
@@ -1285,13 +1287,46 @@ func TestC4WindowShareColumn(t *testing.T) {
 	if len(famRows) != 2 {
 		t.Fatalf("family form must render header + counted pointer row: %+v", famRows)
 	}
-	if famRows[0].Cells[4] == "—" {
+	if famRows[0].Cells[5] == "—" {
 		t.Fatalf("the family header row (semantic class) must carry its share: %v", famRows[0].Cells)
 	}
 	for i, row := range famRows[1:] {
-		if row.Cells[4] != "—" {
+		if row.Cells[5] != "—" {
 			t.Fatalf("subordinate row %d must not mint a share: %v", i+1, row.Cells)
 		}
+	}
+}
+
+func TestC4SemanticIntersectionIsTheRuleEliminableAxis(t *testing.T) {
+	projection := types.TraceCausalProjection{
+		WindowStartTs: 5.000, WindowEndTs: 5.007,
+		SemanticSpans: []types.TraceCausalProjectionNode{{
+			Role: types.TraceCausalRoleSemanticSpan, EvidenceID: "E-verify",
+			Subject: "worker-200", Object: "class_verification",
+			Predicate: "trace_semantic_span", SemanticClass: "class_verification",
+			SpanName: "VerifyClass com.example.Foo", ChainRelevance: "on_chain",
+			ImpactMS: 5.000, CumulativeImpactMS: 5.000,
+			SemanticChainProjectedMS: 4.600,
+			LineStart:                4, LineEnd: 7, Confidence: 0.82,
+		}},
+	}
+	_, rows := runtimeTraceSemanticOptimizationParts(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), 7.000, true)
+	if len(rows) != 1 || len(rows[0].Cells) != 7 {
+		t.Fatalf("single semantic span must render one dual-axis row: %+v", rows)
+	}
+	if got := rows[0].Cells; got[3] != "5.000ms" || got[4] != "4.600ms" || got[5] != "65.7%" {
+		t.Fatalf("typed span∩chain intersection must own eliminability without overwriting raw wall time: %+v", got)
+	}
+	if value, known := runtimeTraceSemanticOptimizationEliminableMS(types.TraceCausalProjectionNode{
+		SemanticClass: "class_verification", ImpactMS: 5,
+	}); known || value != 0 {
+		t.Fatalf("missing effective/intersection authority must stay unavailable, got value=%v known=%v", value, known)
+	}
+	if value, known := runtimeTraceSemanticOptimizationEliminableMS(types.TraceCausalProjectionNode{
+		SemanticClass: "class_verification", ImpactMS: 5,
+		EffectiveImpactPublished: true, EffectiveImpactMS: 0,
+	}); !known || value != 0 {
+		t.Fatalf("published zero must remain a measured zero, got value=%v known=%v", value, known)
 	}
 }
 
