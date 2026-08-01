@@ -1641,6 +1641,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		ctx,
 		sourceScopeProfile,
 		sourceInventoryProfile,
+		answerExclusionPolicy,
 		intent,
 		predicates,
 		requiredFileHints,
@@ -6052,6 +6053,7 @@ func reconcilePrincipalScopeIrrelevantFiles(
 	ctx *types.BusContext,
 	sourceScopeProfile *types.SourceScopeProfile,
 	sourceInventoryProfile *types.SourceInventoryProfile,
+	answerExclusionPolicy *types.AnswerExclusionPolicy,
 	intent types.Intent,
 	predicates types.SemanticPredicates,
 	required []types.RequiredFileHint,
@@ -6083,6 +6085,10 @@ func reconcilePrincipalScopeIrrelevantFiles(
 		}
 		role := types.ClassifySourcePathRole(rel)
 		if !types.SourcePathRoleIsAuxiliary(role) {
+			filtered = append(filtered, rel)
+			continue
+		}
+		if answerExclusionPolicy.ExcludesSourcePathRole(role) {
 			filtered = append(filtered, rel)
 			continue
 		}

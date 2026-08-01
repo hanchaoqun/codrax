@@ -3919,6 +3919,65 @@ B18c 使用一条通用 typed 规则修复：
 
 状态：`implemented / full-tests-pass / cross-relation replay next`。
 
+#### B18d r1：candidate identity 收敛通过（2026-08-01）
+
+严格并行 2 个回放均为 runner PASS / human PASS：
+
+- called-by：85s。completion 记录
+  `canonicalized 1 duplicate typed relation member row(s)`，最终只有一个
+  2 行 caller 表；同一 caller 的 line 290/291 两个调用点保留在同一成员行
+  的详情中；
+- implements：131s。最终主列表与图仍为 12 个 production 类型，无重复
+  aggregate carrier。
+
+`EVAL-B18-AXIS1` 状态：`covered`。
+
+#### EVAL-B18-SCOPE1：typed exclusion 被自动 all-scope 覆盖（P1）
+
+implements 的最终答案虽然正确，但 r1 日志暴露权限层冲突：
+
+1. analyzer 发出精确 typed
+   `answer_exclusion_policy.excluded_candidate_roles=["test"]`；
+2. 同一 payload 把 `internal/agent/agent_test.go` 放入 `irrelevant_files`；
+3. source-inventory negative-channel reconciliation 为避免隐藏辅助源，提升该
+   路径为 required，并合成
+   `source_scope=all/include_auxiliary_as_principal=true`；
+4. typed relation projection 只看 source scope，没有消费 exclusion policy，
+   最终把 3 个 test rows 标成 principal，清册变为
+   `principal=15, auxiliary=0`；
+5. 本轮模型手工只写 12 个 production，因而 human PASS，但换一次模型就
+   可能再次把 test 提升进主表。
+
+这是 typed policy 之间的优先级/合取 gap，不是“主要”一词或 test 文件名
+特例。
+
+#### B18e exclusion × source-scope authority convergence
+
+通用方案：
+
+1. `AnswerExclusionPolicy` 增加
+   `ExcludesSourcePathRole`，把 typed candidate-role exclusion 映射到
+   deterministic path role（test/docs/example/fixture/generated）；
+2. `reconcilePrincipalScopeIrrelevantFiles` 在提升 auxiliary irrelevant path
+   前先消费该 typed exclusion：明确排除的路径留在 negative channel，不得
+   触发 synthetic all-scope；
+3. `ProjectTypedRelationMemberScopeLane` 同样先消费 exclusion，再消费
+   SourceScopeProfile；即使其它未排除的辅助类要求 all-scope，被明确排除的
+   类仍保持 auxiliary；
+4. production、unknown 及同名符号行为不变；所有 implements/called-by/
+   references/registers relation kinds 共用；
+5. 不扫描 RawRequest、答案 prose、模型 thinking/rationale 或具体路径字面。
+
+定向测试覆盖 exclusion 阻止 irrelevant test 路径合成 all-scope，以及
+all-scope 与 test exclusion 同时存在时 test=auxiliary、production=principal。
+
+全量回归：
+
+- `go test ./internal/types -count=1`：20.407s；
+- `go test ./internal/tool -count=1`：162.585s。
+
+状态：`implemented / full-tests-pass / replay next`。
+
 #### B18c r1：implements 通过，called-by 暴露实体轴冲突（2026-08-01）
 
 严格并行 2 个回放：

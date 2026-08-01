@@ -136,6 +136,7 @@ func TestReconcilePrincipalScopeIrrelevantFiles_PromotesAllScopeSourceInventoryP
 			IsSourceInventory: true,
 			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
 		},
+		nil,
 		types.IntentEnumerate,
 		types.SemanticPredicates{IsCategoryEnumeration: true},
 		nil,
@@ -172,6 +173,7 @@ func TestReconcilePrincipalScopeIrrelevantFiles_SynthesizesAllScopeForAuxiliaryI
 		&types.BusContext{RepoRoot: root},
 		nil,
 		nil,
+		nil,
 		types.IntentEnumerate,
 		types.SemanticPredicates{IsCategoryEnumeration: true},
 		nil,
@@ -192,6 +194,44 @@ func TestReconcilePrincipalScopeIrrelevantFiles_SynthesizesAllScopeForAuxiliaryI
 	}
 }
 
+func TestReconcilePrincipalScopeIrrelevantFiles_TypedExclusionPreventsAllScopeSynthesis(t *testing.T) {
+	root := t.TempDir()
+	rel := "internal/agent/agent_test.go"
+	mustWriteTestFile(t, root, rel, "package agent\n")
+
+	val := &analysisValidationResult{}
+	required, irrelevant, scope := reconcilePrincipalScopeIrrelevantFiles(
+		&types.BusContext{RepoRoot: root},
+		nil,
+		&types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+		},
+		&types.AnswerExclusionPolicy{
+			IsExclusionRequested:   true,
+			ExcludedCandidateRoles: []types.AnswerCandidateRole{types.AnswerCandidateRoleTest},
+			SourceQuotes:           []string{"main implementations"},
+		},
+		types.IntentExplain,
+		types.SemanticPredicates{IsCategoryEnumeration: true},
+		nil,
+		[]string{rel},
+		val,
+	)
+	if len(required) != 0 {
+		t.Fatalf("typed-excluded auxiliary path must not become a required principal file: %+v", required)
+	}
+	if len(irrelevant) != 1 || irrelevant[0] != rel {
+		t.Fatalf("typed-excluded path should remain in the negative channel: %+v", irrelevant)
+	}
+	if scope != nil {
+		t.Fatalf("typed exclusion must prevent synthetic all-scope authority: %+v", scope)
+	}
+	if containsAny(val.Warnings, "synthesized all-scope") {
+		t.Fatalf("typed exclusion must not be overwritten by automatic all-scope repair: %+v", val.Warnings)
+	}
+}
+
 func TestReconcilePrincipalScopeIrrelevantFiles_KeepsProductionIrrelevantFilesNegative(t *testing.T) {
 	root := t.TempDir()
 	rel := "internal/tool/source_inventory_language_census.go"
@@ -208,6 +248,7 @@ func TestReconcilePrincipalScopeIrrelevantFiles_KeepsProductionIrrelevantFilesNe
 			IsSourceInventory: true,
 			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction, types.AnswerCandidateRoleType},
 		},
+		nil,
 		types.IntentEnumerate,
 		types.SemanticPredicates{IsCategoryEnumeration: true},
 		nil,
@@ -241,6 +282,7 @@ func TestReconcilePrincipalScopeIrrelevantFiles_KeepsQuotedProductionScopeAuxili
 			IsSourceInventory: true,
 			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
 		},
+		nil,
 		types.IntentEnumerate,
 		types.SemanticPredicates{IsCategoryEnumeration: true},
 		nil,
@@ -274,6 +316,7 @@ func TestReconcilePrincipalScopeIrrelevantFiles_RepairsUnquotedProductionScopeAu
 			IsSourceInventory: true,
 			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
 		},
+		nil,
 		types.IntentEnumerate,
 		types.SemanticPredicates{IsCategoryEnumeration: true},
 		nil,

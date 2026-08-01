@@ -109,6 +109,10 @@ func ProjectTypedRelationMemberScopeLane(member TypedRelationMember, rm RequestM
 		member.ScopeLane = TypedRelationMemberLaneUnknown
 		return member
 	}
+	if rm.AnswerExclusionPolicy.ExcludesSourcePathRole(member.SourceRole) {
+		member.ScopeLane = TypedRelationMemberLaneAuxiliary
+		return member
+	}
 	scope := SourceScopeProduction
 	if rm.SourceScopeProfile != nil {
 		switch {

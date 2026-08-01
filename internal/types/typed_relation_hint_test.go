@@ -65,6 +65,25 @@ func TestTypedRelationMemberSourceRoleAndScopeLaneUseTypedAuthority(t *testing.T
 	if production.ScopeLane != TypedRelationMemberLaneAuxiliary {
 		t.Fatalf("explicit typed test scope must move production member to auxiliary: %+v", production)
 	}
+
+	allScopeWithTestExclusion := RequestModel{
+		SourceScopeProfile: &SourceScopeProfile{
+			RequestedScope:              SourceScopeAll,
+			IncludeAuxiliaryAsPrincipal: true,
+		},
+		AnswerExclusionPolicy: &AnswerExclusionPolicy{
+			IsExclusionRequested:   true,
+			ExcludedCandidateRoles: []AnswerCandidateRole{AnswerCandidateRoleTest},
+		},
+	}
+	testMember = ProjectTypedRelationMemberScopeLane(testMember, allScopeWithTestExclusion)
+	if testMember.ScopeLane != TypedRelationMemberLaneAuxiliary {
+		t.Fatalf("typed test exclusion must outrank automatic all-scope projection: %+v", testMember)
+	}
+	production = ProjectTypedRelationMemberScopeLane(production, allScopeWithTestExclusion)
+	if production.ScopeLane != TypedRelationMemberLanePrincipal {
+		t.Fatalf("test exclusion must not demote production members: %+v", production)
+	}
 }
 
 func TestTypedRelationMemberUnknownRoleFailsOpen(t *testing.T) {

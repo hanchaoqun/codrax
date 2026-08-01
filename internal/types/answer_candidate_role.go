@@ -241,6 +241,29 @@ func (p *AnswerExclusionPolicy) ExcludesAuxiliarySourceClasses() bool {
 	return false
 }
 
+// ExcludesSourcePathRole projects a typed candidate-role exclusion onto the
+// deterministic repository path role. Consumers with path authority can use
+// this without re-reading request or model prose.
+func (p *AnswerExclusionPolicy) ExcludesSourcePathRole(role SourcePathRole) bool {
+	if !p.Active() {
+		return false
+	}
+	switch role {
+	case SourcePathRoleTest:
+		return p.ExcludesRole(AnswerCandidateRoleTest)
+	case SourcePathRoleDocumentation:
+		return p.ExcludesRole(AnswerCandidateRoleDocumentation)
+	case SourcePathRoleExample:
+		return p.ExcludesRole(AnswerCandidateRoleExample)
+	case SourcePathRoleFixture:
+		return p.ExcludesRole(AnswerCandidateRoleFixture)
+	case SourcePathRoleGenerated:
+		return p.ExcludesRole(AnswerCandidateRoleGenerated)
+	default:
+		return false
+	}
+}
+
 // AnswerRoleProfile is the analyzer-emitted typed lane for positive
 // role-binding requests such as "the retry budget parameter", "the attempt
 // counter", "the guard condition", "the tool name", or "the commit hash".
