@@ -4424,7 +4424,7 @@ CookieMonsterCl 的 `sleep 47.282ms ×1` 与 `sleep 44.836ms ×6` 以同名同�
 
 最优修复拆成两层，均只消费 schema-validated typed 字段：
 
-1. **B19g-a analyzer runtime relation consistency（先做）**：一个 runtime
+1. **B19g-a analyzer runtime relation consistency（已实现）**：一个 runtime
    target 的 `call_chain` 不能再由 `predicate_axis=call` 单独放行；必须有
    `is_relational_lookup=true`（例如“哪些 waker/caller 与该目标存在关系”）
    或至少两个 distinct runtime targets。单目标状态/时长/次数/原因问题应
@@ -4444,7 +4444,7 @@ CookieMonsterCl 的 `sleep 47.282ms ×1` 与 `sleep 44.836ms ×6` 以同名同�
 | ID | 状态 |
 |---|---|
 | EVAL-TWODIM-2 | covered：正例确认两轴可见且原 projection 能力无回归 |
-| EVAL-B19-NOWINPROJ1 | open P1 / B19g-a next；typed 单目标 relation consistency |
+| EVAL-B19-NOWINPROJ1 | implemented / full tests pass / same-pair replay next |
 | EVAL-B19-SCOPEJOIN1 | partial：B19e typed 载体在场，主体仍未收敛；与 NOWINPROJ1 联合复放 |
 | EVAL-B19-FRAME1 | open P1 / B19g-c |
 | EVAL-B19-ARITH2 | open P2 / 新增双轴账目关系 witness / B19g-c |
@@ -4452,6 +4452,37 @@ CookieMonsterCl 的 `sleep 47.282ms ×1` 与 `sleep 44.836ms ×6` 以同名同�
 下一批先提交这份 production witness，再落 B19g-a 并运行完整 types/tool
 回归；随后仍按严格并行 2 个回放同一正负 pair。只有分类/发布扩张消失且
 显式窗投影保持，才进入 FRAME1/ARITH2 融合，避免多变量同时变化。
+
+##### B19g-a 实现与结构回归
+
+实现位于 analyzer typed emit 边界，而不是答案层：
+
+- `validateRuntimeArtifactCallChainConsistency` 对恰好一个 runtime target 的
+  `call_chain` 要求 `predicates.is_relational_lookup=true`；
+- `predicate_axis=call` 继续表达关系动作轴，但不再单独授予调用链/全因果
+  报告权限；单目标状态、时长、次数、原因、压力或当前状态必须重试为
+  conditional/mechanism；
+- 单目标真实 waker/caller 关系可通过 relational predicate 保留；两个
+  runtime endpoints 继续通过；不带 runtime target 的普通源码 call chain
+  仍按原有 axis/endpoint 规则处理；
+- analyzer skill 同步说明该合取，避免只依靠失败重试教学；
+- 没有读取 RawRequest、analyzer keyword、模型 thinking/final prose，也没有
+  修改 trace_query、projection、root rank、wakeup、可消除量或 supplement
+  的实现。
+
+回归：
+
+- 定向 analyzer/tool：2.245s；
+- `internal/skill`：0.718s；
+- 完整 `internal/types`：19.442s；
+- 完整 `internal/agent`：3.494s；
+- 完整 `internal/tool`：169.531s；同 PID 多 target identity pin 加入后复跑
+  166.517s。
+
+状态：`implemented / full-tests-pass / same-pair replay next`。下一步先构建
+同一 HEAD，并严格并行 2 个回放显式窗正例与 full-artifact D/IO 负例；若
+模型在 retry 后仍把负例铸成 relational call chain，才启动 B19g-b 独立
+runtime request-purpose enum，禁止继续叠加通用字段启发式。
 
 #### B18f r1：图兼容与显式窗非回归回放（2026-08-01）
 

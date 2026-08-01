@@ -294,7 +294,7 @@ func TestValidateSelfConsistency_CallChainRequiresPreciseRelationshipSignal(t *t
 		entities []string
 	}{
 		{
-			name:     "explicit call axis permits one-target caller or wakeup lookup",
+			name:     "explicit call axis permits a general caller lookup without typed runtime target",
 			axis:     types.AxisCall,
 			entities: []string{"RenderThread"},
 		},
@@ -357,6 +357,7 @@ func TestEmitAnalysis_Execute_RejectsSingleTargetRuntimeStateAsCallChain(t *test
 		"keywords": ["trace", "thread", "state", "duration", "reason"],
 		"entities": ["com.baidu.tieba", "59566"],
 		"question_kind": "call_chain",
+		"predicate_axis": "call",
 		"runtime_targets": [{
 			"kind": "thread",
 			"thread": "com.baidu.tieba-59566",
@@ -368,11 +369,47 @@ func TestEmitAnalysis_Execute_RejectsSingleTargetRuntimeStateAsCallChain(t *test
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if res.Success || !strings.Contains(res.Summary, "with one runtime target requires") {
-		t.Fatalf("single-target runtime state classification must retry instead of persisting call_chain, got success=%t summary=%q", res.Success, res.Summary)
+	if res.Success || !strings.Contains(res.Summary, "requires predicates.is_relational_lookup=true") {
+		t.Fatalf("call-axis-only single-target runtime state classification must retry instead of persisting call_chain, got success=%t summary=%q", res.Success, res.Summary)
 	}
 	if mu.RequestModel() != nil {
 		t.Fatalf("rejected call_chain classification must not persist RequestModel: %+v", mu.RequestModel())
+	}
+}
+
+func TestValidateRuntimeArtifactCallChainConsistencyRequiresTypedRelationForOneTarget(t *testing.T) {
+	target := []types.RuntimeTarget{{
+		Kind:   types.RuntimeTargetKindThread,
+		PID:    59566,
+		Thread: "com.baidu.tieba-59566",
+	}}
+	if got := validateRuntimeArtifactCallChainConsistency(
+		string(types.ReqCallChain),
+		types.SemanticPredicates{},
+		target,
+	); !strings.Contains(got, "predicate_axis=call only names the relationship axis") {
+		t.Fatalf("one-target call chain without relational authority must reject, got %q", got)
+	}
+	if got := validateRuntimeArtifactCallChainConsistency(
+		string(types.ReqCallChain),
+		types.SemanticPredicates{IsRelationalLookup: true},
+		target,
+	); got != "" {
+		t.Fatalf("one-target typed waker/caller relation must remain valid, got %q", got)
+	}
+	if got := validateRuntimeArtifactCallChainConsistency(
+		string(types.ReqCallChain),
+		types.SemanticPredicates{},
+		append(target, types.RuntimeTarget{Kind: types.RuntimeTargetKindThread, PID: 59843, Thread: "CookieMonsterCl-59843"}),
+	); got != "" {
+		t.Fatalf("two runtime endpoints must remain valid without a redundant relational predicate, got %q", got)
+	}
+	if got := validateRuntimeArtifactCallChainConsistency(
+		string(types.ReqCallChain),
+		types.SemanticPredicates{},
+		append(target, types.RuntimeTarget{Kind: types.RuntimeTargetKindProcess, PID: 59566, Thread: "com.baidu.tieba"}),
+	); got == "" {
+		t.Fatal("two rows for the same positive pid must remain one focus identity, not source + sink")
 	}
 }
 

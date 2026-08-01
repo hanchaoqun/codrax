@@ -1604,7 +1604,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			}, nil
 		}
 	}
-	if issue := validateRuntimeArtifactCallChainConsistency(kind, predicates, axis, runtimeTargets); issue != "" {
+	if issue := validateRuntimeArtifactCallChainConsistency(kind, predicates, runtimeTargets); issue != "" {
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
@@ -2381,17 +2381,35 @@ func writeModeAnalysisRootCauseTolerance(ctx *types.BusContext, kind selfConsist
 func validateRuntimeArtifactCallChainConsistency(
 	kind string,
 	preds types.SemanticPredicates,
-	axis types.PredicateAxis,
 	runtimeTargets []types.RuntimeTarget,
 ) string {
 	if types.NormalizeRequirementKind(kind) != types.ReqCallChain ||
-		axis == types.AxisCall ||
 		preds.IsRelationalLookup ||
 		len(runtimeTargets) == 0 ||
-		len(runtimeTargets) >= 2 {
+		runtimeArtifactDistinctTargetCount(runtimeTargets) >= 2 {
 		return ""
 	}
-	return "question_kind=call_chain with one runtime target requires predicate_axis=call, predicates.is_relational_lookup=true, or at least two distinct runtime targets — a process/thread label and its numeric pid are one focus identity, not caller/source and callee/sink endpoints"
+	return "question_kind=call_chain with one runtime target requires predicates.is_relational_lookup=true or at least two distinct runtime targets — predicate_axis=call only names the relationship axis and cannot by itself turn a target's state, duration, count, reason, or current status into a call chain; use question_kind=conditional/mechanism for that fact shape"
+}
+
+// runtimeArtifactDistinctTargetCount counts endpoint identities, not emitted
+// rows. A process/thread spelling pair with the same positive pid is one
+// focus identity and cannot impersonate source + sink. PID-less thread labels
+// remain exact, case-insensitive identities; no name-to-pid guess is made.
+func runtimeArtifactDistinctTargetCount(targets []types.RuntimeTarget) int {
+	seen := map[string]struct{}{}
+	for _, target := range targets {
+		key := ""
+		if target.PID > 0 {
+			key = fmt.Sprintf("pid:%d", target.PID)
+		} else if thread := strings.ToLower(strings.TrimSpace(target.Thread)); thread != "" {
+			key = "thread:" + thread
+		}
+		if key != "" {
+			seen[key] = struct{}{}
+		}
+	}
+	return len(seen)
 }
 
 func roleLocateSubjectKindAllowed(kind types.AnswerSubjectKind) bool {
