@@ -3092,3 +3092,66 @@ FQ1 已按上述不变量落地：
 状态保持 `covered-pending-replay`：代码确定性出厂与顺序已由生产接线 pin
 证明；仍须用 H4 真实回放确认 HTML 可见顺序，并同时固定显式时间窗的完整
 Trace 因果投影、root rank、wakeup chain、窗内可消除量与自动补采均未回退。
+
+### B15 r2 FQ1 收账与跨域 negative-scope 审计（2026-08-01）
+
+在 revision `99703dbe9` 重建后严格 `parallel=2` 回放：
+
+- `eval/results/real_trace_h4_supply_thermal_witness-20260731-185941`
+- `eval/results/read_combo_config_absent_present_mix-20260731-185941`
+
+runner 1/2（H4 FAIL 194s、config mix PASS 239s），人工 0/2；机器与人工
+差异分别来自 legacy principal oracle 和 negative-proof scope 漏检。
+
+H4 证明 `EVAL-B15-FQ1` covered：
+
+1. 最终答案第一个可见块就是
+   `runtime_trace_frequency_authority`，先于模型摘要；不是 footer caveat；
+2. block 完整发布 CPU0 `1530000/16/line8048`、CPU4
+   `2100000/28/line17113`，以及 ceiling presence、binding/impact 与
+   thermal/policy mechanism 三层权限；
+3. `trace_query_final_projection_blocks=2`；完整 Trace 因果投影、主根因、
+   链/唤醒读法、58.320ms 供给折算可消除量和系统自动补充均在；
+4. 模型正文仍写“结论：受限”“CPU12 受热节流约束”，并把窗尾 runnable
+   误写成已计入 running。整体答案仍有正文冲突，故人工 fail；但 system
+   authority 已领先并明确声明冲突时以自身为准。按本战役约束，该残余归
+   `model-prose variance`，不增加用户/答案关键词 hard gate，也不删除显式窗
+   因果能力。
+
+config mix 的机器 PASS 掩盖了证据作用域 GAP。结果的两个值没有串位：
+`explore_per_tool_default_cap=0` 与 `internal/config/runtime.go:1035` 正确；
+但 `explore_xyz_phantom_unique_budget` 的三层 absence 只有一个 accepted
+negative `EvidenceItem`，其作用域严格是
+`internal/config/runtime.go` 单文件。另一次 `cmd` no-match 只存在于 typed
+`ToolPathDiscovery`，YAML 则只读了另一个键的正值行。completion 仍用
+`member_set` 加以下 support refs 宣布三层均 absent：
+
+```text
+internal/config/runtime.go:0
+codrax.yaml.example:1171
+cmd
+```
+
+其中 `:0` 不是正向源码锚点，1171 是另一个键的正值 witness，裸 `cmd` 也
+不是可引用位置。最终答案进一步声称“codrax.yaml.example 中所有 flag 注释”
+可证明 CLI 不存在，属于跨 target、跨 scope 越权。
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B15-FQ1 | P0 | frequency authority publication order | 正确权限滞留 footer | typed system authority lead；真实 H4 已验证顺序和显式窗非回退 | covered |
+| EVAL-B15-NEG1 | P1 | negative proof target/scope authority | `PathDiscovery.NoMatches`、negative `EvidenceItem`、aggregate claim 与最终结论没有共享的作用域 authority；局部 no-match 可扩写成全局 absence | 从 typed no-match 与 negative query 构建有界 authority roster；可见系统块只授权逐条列出的 target/scope，并声明未列 scope 未证；不读取模型/用户 prose，不把任意导航 miss 提升成 principal | planned-NEG1 |
+| EVAL-B15-XR1 | P2 | mixed exact target binding | 双 config key 被路由成 source inventory，缺 `exact_targets/context_roles`；document-level exact_resolution 不能表达 A absent + B present | 设计 per-target resolution/target_ref + per-target requested roles；先保留当前防串值短期 guard，禁止按 case 关键词特判 | filed-design |
+| EVAL-B15-AR1 | P1 | arithmetic operand binding | 多数值自由句的 relation owner 不明确 | 只消费 typed relation 或多候选 fail-open | filed-next |
+
+NEG1 施工不变量：
+
+1. 只消费 `EvidenceItem{scope=negative, negative_query,
+   negative_scope}` 与成功、无截断的
+   `ToolResult.PathDiscovery{kind=grep,no_matches=true}`；
+2. target/pattern、file/path、scope、result_count 逐条保留，禁止把一个 scope
+   合并成 repo-wide 或另一配置层；
+3. 系统块只说明“这些查询在这些范围内为零命中”；未列 scope 明示 unproven，
+   不自动断言目标全局不存在；
+4. 不解析用户原文、模型 summary、aggregate label/member 或最终答案正文；
+5. 不增加 hard reject/retry；导航阶段的无关 miss 不得污染答案；
+6. 不触碰 Trace report-shape、显式窗因果投影或自动补采。
