@@ -40,7 +40,7 @@ type AnalysisIR struct {
 // AnalysisIRVersion is the current schema version string. Bump on any
 // breaking change to the wire format so downstream consumers can refuse
 // to parse IRs they do not understand.
-const AnalysisIRVersion = "v16"
+const AnalysisIRVersion = "v17"
 
 // ── RequestModel ────────────────────────────────────────────────────────
 
@@ -179,6 +179,14 @@ type RequestModel struct {
 	// RuntimeTargets from being reinterpreted through analyzer entity strings
 	// or a model-selected exploration cursor.
 	RuntimeTargetProfile *RuntimeTargetProfile `json:"runtime_target_profile,omitempty"`
+
+	// RuntimeQuestionProfile declares whether the runtime request asks for a
+	// bounded set of observed facts, a causal diagnosis, a relation analysis,
+	// or a system overview. It is independent of the artifact's time/range and
+	// target identity. Downstream report gates consume this typed declaration
+	// instead of trying to infer answer breadth from unstable intent/scenario
+	// combinations or from request/model prose.
+	RuntimeQuestionProfile *RuntimeQuestionProfile `json:"runtime_question_profile,omitempty"`
 
 	// AnswerExclusionPolicy is the analyzer LLM's typed lane for user-stated
 	// candidate categories that must stay out of the principal answer rows.

@@ -78,6 +78,7 @@ func TestEmitAnalysisSchemaMatchesContract(t *testing.T) {
 		"error_granularity_profile":      true,
 		"runtime_artifact_scope_profile": true,
 		"runtime_target_profile":         true,
+		"runtime_question_profile":       true,
 	}
 	gotRequired := make(map[string]bool, len(parsed.Required))
 	for _, r := range parsed.Required {
@@ -581,6 +582,37 @@ func TestEmitAnalysisSchemaIncludesRuntimeTargetProfile(t *testing.T) {
 	for _, required := range []string{"declaration", "confidence"} {
 		if !slices.Contains(prop.Required, required) {
 			t.Fatalf("runtime_target_profile.required=%v missing %s", prop.Required, required)
+		}
+	}
+}
+
+func TestEmitAnalysisSchemaIncludesRuntimeQuestionProfile(t *testing.T) {
+	var parsed struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal((&EmitAnalysis{}).Parameters(), &parsed); err != nil {
+		t.Fatal(err)
+	}
+	propRaw, ok := parsed.Properties["runtime_question_profile"]
+	if !ok {
+		t.Fatal("emit_analysis schema is missing runtime_question_profile")
+	}
+	var prop struct {
+		Properties map[string]struct {
+			Enum []string `json:"enum"`
+		} `json:"properties"`
+		Required []string `json:"required"`
+	}
+	if err := json.Unmarshal(propRaw, &prop); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"not_applicable", "bounded_fact_set", "causal_diagnosis", "relation_analysis", "system_overview", "unspecified"}
+	if !reflect.DeepEqual(prop.Properties["scope"].Enum, want) {
+		t.Fatalf("runtime_question_profile scope enum=%v want=%v", prop.Properties["scope"].Enum, want)
+	}
+	for _, required := range []string{"scope", "confidence"} {
+		if !slices.Contains(prop.Required, required) {
+			t.Fatalf("runtime_question_profile.required=%v missing %s", prop.Required, required)
 		}
 	}
 }

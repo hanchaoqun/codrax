@@ -645,6 +645,20 @@ func IsNarrowRuntimeArtifactFactShape(rm RequestModel) bool {
 	if kind == ReqCallChain || rm.PredicateAxis == AxisCall || rm.Predicates.IsRelationalLookup {
 		return false
 	}
+	// v17: this dedicated declaration outranks the legacy analyzer labels.
+	// Identical bounded-fact requests have legitimately arrived as
+	// return_value, trace/mechanism, and root_cause/conditional. Once the
+	// analyzer has explicitly declared bounded_fact_set, those noisy labels
+	// cannot widen report authority. Explicit user windows remain a stronger
+	// positive authority in RuntimeTraceReportShapeAuthority.
+	if rm.RuntimeQuestionProfile != nil {
+		if rm.RuntimeQuestionProfile.BoundedFactSet() {
+			return true
+		}
+		if rm.RuntimeQuestionProfile.RequiresFullReport() {
+			return false
+		}
+	}
 	if rm.Predicates.IsDiagnosticQuestion ||
 		rm.DiagnosticProfile.RequiresDiagnosticRootCause() ||
 		rm.Scenario == ScenarioPerformanceBottleneck {
@@ -686,7 +700,7 @@ func ResolveQuestionFamily(rm RequestModel, sinks ...RichnessTelemetrySink) Ques
 	// RuntimeTargets + conditional kind/axis is a precise conjunction. Keep
 	// explicit call relations and target-less root-cause diagnostics out of
 	// this lane.
-	if IsFocusedRuntimeFactQuestion(rm) {
+	if IsNarrowRuntimeArtifactFactShape(rm) {
 		return QFGeneric
 	}
 

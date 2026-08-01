@@ -78,6 +78,13 @@ func withV4Required(partial string) string {
 		"confidence": 0.7
 	}`
 	}
+	if !strings.Contains(trimmed, `"runtime_question_profile"`) {
+		defaults += `,
+	"runtime_question_profile": {
+		"scope": "unspecified",
+		"confidence": 0.7
+	}`
+	}
 	return body + defaults + "}"
 }
 
@@ -99,6 +106,9 @@ func withRequiredAnswerRoleProfile(payload string) string {
 		if _, hasTargets := obj["runtime_targets"]; !hasTargets {
 			obj["runtime_target_profile"] = json.RawMessage(`{"declaration":"unspecified","confidence":0.7}`)
 		}
+	}
+	if _, ok := obj["runtime_question_profile"]; !ok {
+		obj["runtime_question_profile"] = json.RawMessage(`{"scope":"unspecified","confidence":0.7}`)
 	}
 	out, err := json.Marshal(obj)
 	if err != nil {
@@ -224,6 +234,46 @@ func TestParseRuntimeTargetProfileRequiresDeclaredNamedTarget(t *testing.T) {
 	}
 	if _, errText, _ := parseRuntimeTargetProfile("分析整份 trace", true, noNamed, targets); !strings.Contains(errText, "conflicts") {
 		t.Fatalf("no_named_target must reject contradictory target rows, got %q", errText)
+	}
+}
+
+func TestParseRuntimeQuestionProfileSeparatesFactBreadthFromLegacyLabels(t *testing.T) {
+	confidence := 0.95
+	if _, errText, _ := parseRuntimeQuestionProfile("分析这份 trace", true, nil, false); errText == "" {
+		t.Fatal("runtime artifact analysis must fail loud when runtime_question_profile is missing")
+	}
+	bounded := &emitRuntimeQuestionProfileParam{
+		Scope:       "bounded_fact_set",
+		SourceQuote: "有没有进入过不可中断等待",
+		Confidence:  &confidence,
+	}
+	profile, errText, warnings := parseRuntimeQuestionProfile(
+		"这份 trace 里有没有进入过不可中断等待，时间、记录原因和总量是什么",
+		true,
+		bounded,
+		false,
+	)
+	if errText != "" || len(warnings) != 0 || profile == nil || !profile.BoundedFactSet() {
+		t.Fatalf("bounded runtime fact profile rejected: profile=%+v err=%q warnings=%v", profile, errText, warnings)
+	}
+	if _, errText, _ := parseRuntimeQuestionProfile(
+		"有没有进入过不可中断等待",
+		true,
+		bounded,
+		true,
+	); !strings.Contains(errText, "conflicts with an explicit call/relation") {
+		t.Fatalf("bounded fact plus typed relation must fail loud, got %q", errText)
+	}
+	badQuote := *bounded
+	badQuote.SourceQuote = "paraphrased quote"
+	if _, errText, _ := parseRuntimeQuestionProfile("analyze this trace", true, &badQuote, false); !strings.Contains(errText, "copied verbatim") {
+		t.Fatalf("unanchored concrete runtime question scope must fail, got %q", errText)
+	}
+	notApplicable := &emitRuntimeQuestionProfileParam{
+		Scope: "not_applicable", Confidence: &confidence,
+	}
+	if _, errText, _ := parseRuntimeQuestionProfile("analyze this trace", true, notApplicable, false); !strings.Contains(errText, "conflicts") {
+		t.Fatalf("runtime not_applicable must conflict with an attached artifact, got %q", errText)
 	}
 }
 
@@ -5561,6 +5611,11 @@ func TestEmitAnalysis_RouteBackedRuntimeOnlyRepairsMissingExclusionKind(t *testi
 			},
 			"runtime_target_profile": {
 				"declaration": "no_named_target",
+				"confidence": 0.95
+			},
+			"runtime_question_profile": {
+				"scope": "causal_diagnosis",
+				"source_quote": "卡顿原因",
 				"confidence": 0.95
 			},
 			"external_observation_policy": {

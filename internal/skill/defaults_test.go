@@ -831,6 +831,10 @@ func TestAnalysisSkill_RuntimeFocusIdentityGuidance(t *testing.T) {
 		// below are the fix; dropping either re-opens the leak.
 		"the Runtime-artifact focus identities rule applies on this no-pre-scan path too",
 		"runtime_targets (required when runtime_target_profile.declaration=named_target",
+		"Runtime question scope (REQUIRED)",
+		"`runtime_question_profile`",
+		"`bounded_fact_set`",
+		"do not relabel it as causal diagnosis merely because it asks for the recorded `reason`",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("classification prompt missing runtime focus-identity guidance token %q", want)

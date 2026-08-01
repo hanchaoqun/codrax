@@ -1149,7 +1149,7 @@ func runtimeTracePrincipalValueMaterializationAllowed(ctx *types.BusContext) boo
 	}
 	return ctx != nil &&
 		ctx.AnalysisIR != nil &&
-		types.IsFocusedRuntimeFactQuestion(ctx.AnalysisIR.RequestModel)
+		types.IsNarrowRuntimeArtifactFactShape(ctx.AnalysisIR.RequestModel)
 }
 
 // runtimeTraceCausalProjectionMaterializationAllowed is the narrower

@@ -4788,6 +4788,61 @@ Git 用例 human FAIL 还包括一个独立事实错误：grep 原始结果明�
 状态：`EVAL-B19-FACTSET1=implemented / same-pair replay next`；
 `EVAL-B19-CAUSAL1=P1/open`。
 
+#### B19h-a r1：legacy label 组合不能承载运行时答案范围
+
+严格并行 2 个 case 均 runner PASS，人工均 FAIL。无窗口请求第三次出现新的
+analyzer 合法形：
+
+`intent=root_cause / scenario=root_cause / kind=conditional / axis=condition /
+diagnostic=true`。
+
+这证伪了继续罗列 intent/scenario/kind 组合的方案：同一个“是否、时间、记录原因、
+总量”请求已先后落到 return-value、trace/mechanism、root-cause/diagnostic 三种组合。
+主值 3 次/0.635ms 仍正确，但整份因果报告再次被追加。
+
+同时登记 `EVAL-B19-SCHEDPROSE1/P1`：model 把 `sched_switch prev_state=D`
+解释成“被 Hilogd 强制抢占的瞬时快照”。实际上 `prev_state=D` 表示被切出任务已
+进入不可中断等待；只有 `R/R+` 才能成为 still-runnable preemption 候选。现有软 prompt
+已教授该语义，但没有一个可直接成文的 typed scheduler-event interpretation 卡。
+
+显式 114.940ms 窗仍完整保留两维占用、可消除量、根因排序、唤醒链、
+Trace 因果投影和自动补采。但 `EVAL-B19-CAUSAL1` 第三次复现：principal 把候选写成
+“直接原因”和低优先级线程“持续持有 CPU”，typed 边界则明确 frame causality
+unproven。该项已不能归为单次模型波动。
+
+#### B19h-b：runtime question-scope authority
+
+通用方案：
+
+1. `AnalysisIR v17` 新增必填 `runtime_question_profile`，闭集为
+   `not_applicable / bounded_fact_set / causal_diagnosis / relation_analysis /
+   system_overview / unspecified`。
+2. 该 profile 与 artifact scope（全工件/显式窗/selector）、target identity 正交；
+   legacy intent/scenario/kind 继续用于路由，但不再独自决定运行时报告宽度。
+3. `bounded_fact_set` 包含一个或多个有限观测字段：状态是否存在、时间、次数、
+   总时长、压力/驻留值、kernel/tool-recorded reason。“recorded reason”是观测字段，
+   只有请求进一步问它为何导致故障时才是 `causal_diagnosis`。
+4. 具体 scope 要求 exact current-request `source_quote`；`bounded_fact_set` 与 typed
+   call/relation 同时出现时 fail-loud。硬决策只读 scope enum，不扫描 quote 语义、
+   RawRequest、thinking/summary/final 或 case ID。
+5. 权限顺序冻结为：显式 user time window > typed call relation >
+   runtime question scope > legacy fallback。因此显式窗的投影/根因/唤醒/可消除/补齐
+   不受影响。
+6. family、supplement、full-report materializer 共用同一 typed 窄化谓词；
+   principal-value materializer 也改用该谓词，保证窄化后仍发布 complete typed
+   occurrence/state 卡。
+
+验证：
+
+- `go test ./internal/agent ./internal/orchestrator ./internal/types ./internal/tool ./internal/skill -count=1`
+  全部通过（agent 5.093s、orchestrator 11.734s、types 23.024s、
+  tool 171.101s、skill 0.698s）；
+- 回归同时固定 root-cause/diagnostic label 噪声被 `bounded_fact_set`
+  收窄、`causal_diagnosis` 反向压过 scalar label，显式 user window 仍压过
+  bounded scope，typed relation 与 bounded 冲突时 fail-loud。
+
+状态：`implemented / relevant-full-tests-pass / same-pair replay next`。
+
 #### EVAL-B18-SCOPE1：typed exclusion 被自动 all-scope 覆盖（P1）
 
 implements 的最终答案虽然正确，但 r1 日志暴露权限层冲突：

@@ -130,6 +130,18 @@ func TestTraceSupplementDStateFactUsesNarrowStateFamilies(t *testing.T) {
 	if got := traceSupplementViewsForRequest(ctx, traceSupplementFamilyPresence{}, false, false); len(got) != 1 || got[0] != "window_stats" {
 		t.Fatalf("trace/mechanism state fact must request only window_stats, got %v", got)
 	}
+	ctx.AnalysisIR.RequestModel.Intent = types.IntentRootCause
+	ctx.AnalysisIR.RequestModel.Scenario = types.ScenarioRootCause
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Kind = string(types.ReqConditional)
+	ctx.AnalysisIR.RequestModel.PredicateAxis = types.AxisCondition
+	ctx.AnalysisIR.RequestModel.Predicates.IsDiagnosticQuestion = true
+	ctx.AnalysisIR.RequestModel.DiagnosticProfile.IsDiagnostic = true
+	ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile = &types.RuntimeQuestionProfile{
+		Scope: types.RuntimeQuestionScopeBoundedFactSet,
+	}
+	if got := traceSupplementViewsForRequest(ctx, traceSupplementFamilyPresence{}, false, false); len(got) != 1 || got[0] != "window_stats" {
+		t.Fatalf("declared bounded fact set must outrank root-cause/diagnostic labels, got %v", got)
+	}
 }
 
 func TestTraceSupplementExplicitWindowDStateFactRetainsCoreFamilies(t *testing.T) {

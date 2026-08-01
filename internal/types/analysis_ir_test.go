@@ -186,13 +186,13 @@ func TestRequestModel_DoesNotExposeLegacyTopLevelEntities(t *testing.T) {
 }
 
 func TestAnalysisIR_VersionConstant(t *testing.T) {
-	// v16 adds runtime_target_profile so absence of a typed runtime target
-	// cannot be reinterpreted through analyzer entities or a model cursor.
-	if AnalysisIRVersion != "v16" {
+	// v17 adds runtime_question_profile so a bounded runtime fact set cannot
+	// be widened through analyzer intent/scenario label variance.
+	if AnalysisIRVersion != "v17" {
 		t.Fatalf("unexpected AnalysisIRVersion: %q", AnalysisIRVersion)
 	}
 	ir := AnalysisIR{Version: AnalysisIRVersion}
-	if ir.Version != "v16" {
+	if ir.Version != "v17" {
 		t.Fatalf("version not propagated: %q", ir.Version)
 	}
 }

@@ -583,24 +583,27 @@ func TestFocusedRuntimeFactPublishesTypedRosterWithoutFullCausalReport(t *testin
 		}
 	}
 
-	// Analyzer-variance twin from B19g-b r1: trace is the artifact-source
-	// intent, while mechanism is the finite fact-set shape. It must converge
-	// to the same narrow publication contract without inspecting request or
+	// Analyzer-variance twin from B19h-a r1: identical finite facts arrived as
+	// root_cause + diagnostic + conditional. The dedicated typed question
+	// scope must outrank those legacy labels without inspecting request or
 	// answer prose.
 	traceBus := runtimeWaitCoverageTestBus()
 	traceRM := &traceBus.AnalysisIR.RequestModel
-	traceRM.Intent = types.IntentTrace
-	traceRM.Scenario = types.ScenarioGeneric
-	traceRM.AnalyzerHints.Kind = string(types.ReqMechanism)
-	traceRM.PredicateAxis = types.AxisUnknown
-	traceRM.Predicates.IsDiagnosticQuestion = false
-	traceRM.DiagnosticProfile.IsDiagnostic = false
+	traceRM.Intent = types.IntentRootCause
+	traceRM.Scenario = types.ScenarioRootCause
+	traceRM.AnalyzerHints.Kind = string(types.ReqConditional)
+	traceRM.PredicateAxis = types.AxisCondition
+	traceRM.Predicates.IsDiagnosticQuestion = true
+	traceRM.DiagnosticProfile.IsDiagnostic = true
+	traceRM.RuntimeQuestionProfile = &types.RuntimeQuestionProfile{
+		Scope: types.RuntimeQuestionScopeBoundedFactSet,
+	}
 	traceBus.ToolResults[0].Observations = append(traceBus.ToolResults[0].Observations, records...)
 	traceDoc := &types.AnswerDocumentV2{
 		DocumentModel: "v2",
 		Blocks: []types.AnswerBlock{{
 			ID: "summary", Kind: types.BlockSummary,
-			Text: "model trace/mechanism fact narrative",
+			Text: "model root-cause-labelled finite-fact narrative",
 		}},
 	}
 	traceResult, traceErr := ApplyAndPersistMutation(
@@ -611,17 +614,17 @@ func TestFocusedRuntimeFactPublishesTypedRosterWithoutFullCausalReport(t *testin
 		time.Now(),
 	)
 	if traceErr != nil || !traceResult.Success {
-		t.Fatalf("trace/mechanism fact persist failed: result=%+v err=%v", traceResult, traceErr)
+		t.Fatalf("declared finite fact persist failed: result=%+v err=%v", traceResult, traceErr)
 	}
 	tracePersisted := traceBus.Mutable.AnswerDocumentV2()
 	if answerDocumentHasRuntimeTraceCausalProjectionBlock(tracePersisted) {
-		t.Fatalf("trace/mechanism fact must not inherit the full causal projection: %+v", tracePersisted.Blocks)
+		t.Fatalf("declared finite fact must not inherit the full causal projection: %+v", tracePersisted.Blocks)
 	}
 	traceSurface := types.AnswerBlockVisibleSurface(
 		answerDocumentTestBlockByID(t, tracePersisted, runtimeTraceTargetStateAuthorityBlockID),
 	)
 	if !strings.Contains(traceSurface, "等待明细完整，共 3 段") || !strings.Contains(traceSurface, "墙钟合计 0.635ms") {
-		t.Fatalf("trace/mechanism fact lost typed finite-fact authority:\n%s", traceSurface)
+		t.Fatalf("declared finite fact lost typed authority:\n%s", traceSurface)
 	}
 }
 

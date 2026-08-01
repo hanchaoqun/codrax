@@ -84,6 +84,7 @@ type emitAnalysisParams struct {
 	RuntimeArtifactValueProfile  *emitRuntimeArtifactValueProfileParam  `json:"artifact_value_profile,omitempty"`
 	RuntimeArtifactScopeProfile  *emitRuntimeArtifactScopeProfileParam  `json:"runtime_artifact_scope_profile"`
 	RuntimeTargetProfile         *emitRuntimeTargetProfileParam         `json:"runtime_target_profile"`
+	RuntimeQuestionProfile       *emitRuntimeQuestionProfileParam       `json:"runtime_question_profile"`
 	RuntimeTargets               []emitRuntimeTargetParam               `json:"runtime_targets,omitempty"`
 	AnswerExclusionPolicy        *emitAnswerExclusionPolicyParam        `json:"answer_exclusion_policy,omitempty"`
 	AnswerRoleProfile            *emitAnswerRoleProfileParam            `json:"answer_role_profile,omitempty"`
@@ -264,6 +265,13 @@ type emitRuntimeArtifactScopeProfileParam struct {
 
 type emitRuntimeTargetProfileParam struct {
 	Declaration string   `json:"declaration"`
+	SourceQuote string   `json:"source_quote,omitempty"`
+	Confidence  *float64 `json:"confidence"`
+	Rationale   string   `json:"rationale,omitempty"`
+}
+
+type emitRuntimeQuestionProfileParam struct {
+	Scope       string   `json:"scope"`
 	SourceQuote string   `json:"source_quote,omitempty"`
 	Confidence  *float64 `json:"confidence"`
 	Rationale   string   `json:"rationale,omitempty"`
@@ -658,6 +666,17 @@ func buildEmitAnalysisSchema() {
 				},
 				"required": []string{"declaration", "confidence"},
 			},
+			"runtime_question_profile": map[string]any{
+				"type":        "object",
+				"description": "Required typed declaration of the answer breadth requested from a runtime artifact. This is independent of artifact range and target identity. Use bounded_fact_set for a finite set of observed state/value/count/time/recorded-reason facts without a requested causal diagnosis; causal_diagnosis for why/root-cause/jank diagnosis; relation_analysis for a requested caller/wakeup/IPC/dependency relation; system_overview for a broad hotspot/health/summary report; unspecified only when genuinely unclear; not_applicable outside runtime artifacts. A kernel-recorded reason field is a bounded observed fact unless the request separately asks why it caused a failure. Downstream uses this enum instead of unstable intent/scenario combinations and never scans request or answer prose.",
+				"properties": map[string]any{
+					"scope":        map[string]any{"type": "string", "enum": runtimeQuestionScopeValues(), "description": "not_applicable, bounded_fact_set, causal_diagnosis, relation_analysis, system_overview, or unspecified."},
+					"source_quote": map[string]any{"type": "string", "description": "For every concrete runtime scope, an exact current-request phrase that expresses the requested facts, diagnosis, relation, or overview."},
+					"confidence":   map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Classification confidence in [0,1]."},
+					"rationale":    map[string]any{"type": "string", "description": "Short audit rationale."},
+				},
+				"required": []string{"scope", "confidence"},
+			},
 			"runtime_targets": map[string]any{
 				"type":        "array",
 				"description": "Optional typed runtime-artifact target list. Emit only when the current request explicitly identifies trace/log/perf targets as structured process IDs, thread IDs, or concrete thread labels. This is the only lane downstream trace tools may use to preserve omitted pid/thread filters; do not put timestamps, file paths, span names, generic entities, or guessed values here.",
@@ -841,7 +860,7 @@ func buildEmitAnalysisSchema() {
 			"intent", "scenario", "complexity", "keywords", "entities", "question_kind",
 			"intent_confidence", "complexity_confidence", "kind_confidence",
 			"predicates", "diagnostic_profile", "answer_role_profile", "error_granularity_profile",
-			"runtime_artifact_scope_profile", "runtime_target_profile",
+			"runtime_artifact_scope_profile", "runtime_target_profile", "runtime_question_profile",
 		},
 	}
 
@@ -987,6 +1006,15 @@ func runtimeTargetDeclarationValues() []string {
 	return out
 }
 
+func runtimeQuestionScopeValues() []string {
+	values := types.AllRuntimeQuestionScopes()
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		out = append(out, string(value))
+	}
+	return out
+}
+
 func answerCandidateRoleValues() []string {
 	values := types.AllAnswerCandidateRoles()
 	out := make([]string, 0, len(values))
@@ -1116,6 +1144,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		"artifact_value_profile",
 		"runtime_artifact_scope_profile",
 		"runtime_target_profile",
+		"runtime_question_profile",
 		"answer_exclusion_policy",
 		"answer_role_profile",
 		"error_granularity_profile",
@@ -1503,6 +1532,24 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
+	runtimeQuestionProfile, runtimeQuestionProfileErr, runtimeQuestionProfileWarnings := parseRuntimeQuestionProfile(
+		raw,
+		runtimeArtifactCarrier,
+		p.RuntimeQuestionProfile,
+		types.NormalizeRequirementKind(kind) == types.ReqCallChain || axis == types.AxisCall || predicates.IsRelationalLookup,
+	)
+	if runtimeQuestionProfileErr != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + runtimeQuestionProfileErr,
+			Timestamp: time.Now(),
+		}, nil
+	}
+	for _, warning := range runtimeQuestionProfileWarnings {
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
 	fieldValueProfile, fieldValueErr := parseFieldValueProfile(raw, p.FieldValueProfile)
 	if fieldValueErr != "" {
 		if runtimeArtifactCarrier && runtimeArtifactValueProfile == nil {
@@ -1727,6 +1774,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		RuntimeArtifactScopeProfile:     runtimeArtifactScopeProfile,
 		RuntimeTargets:                  runtimeTargets,
 		RuntimeTargetProfile:            runtimeTargetProfile,
+		RuntimeQuestionProfile:          runtimeQuestionProfile,
 		AnswerExclusionPolicy:           answerExclusionPolicy,
 		AnswerRoleProfile:               answerRoleProfile,
 		ErrorGranularityProfile:         errorGranularityProfile,
@@ -3600,6 +3648,65 @@ func parseRuntimeTargetProfile(raw string, runtimeArtifactCarrier bool, p *emitR
 	return profile, "", nil
 }
 
+func parseRuntimeQuestionProfile(raw string, runtimeArtifactCarrier bool, p *emitRuntimeQuestionProfileParam, hasExplicitRelation bool) (*types.RuntimeQuestionProfile, string, []string) {
+	if p == nil {
+		if runtimeArtifactCarrier {
+			return nil, "runtime_question_profile object missing — declare bounded_fact_set, causal_diagnosis, relation_analysis, system_overview, or unspecified; intent/scenario labels do not substitute for runtime answer breadth", nil
+		}
+		return &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeNotApplicable}, "", nil
+	}
+	var missing []string
+	if strings.TrimSpace(p.Scope) == "" {
+		missing = append(missing, "scope")
+	}
+	if p.Confidence == nil {
+		missing = append(missing, "confidence")
+	}
+	if len(missing) > 0 {
+		return nil, "runtime_question_profile missing required field(s): " + strings.Join(missing, ", "), nil
+	}
+	if *p.Confidence < 0 || *p.Confidence > 1 {
+		return nil, fmt.Sprintf("runtime_question_profile.confidence %.2f out of [0,1]", *p.Confidence), nil
+	}
+	scope := types.RuntimeQuestionScope(strings.TrimSpace(p.Scope))
+	if !scope.IsValid() {
+		return nil, fmt.Sprintf(
+			"runtime_question_profile.scope %q is invalid; use one of %s",
+			p.Scope, strings.Join(runtimeQuestionScopeValues(), ", "),
+		), nil
+	}
+	if !runtimeArtifactCarrier {
+		var warnings []string
+		if scope != types.RuntimeQuestionScopeNotApplicable && scope != types.RuntimeQuestionScopeUnspecified {
+			warnings = append(warnings, "runtime_question_profile normalized to not_applicable because no runtime artifact carrier is present")
+		}
+		return &types.RuntimeQuestionProfile{
+			Scope:      types.RuntimeQuestionScopeNotApplicable,
+			Confidence: *p.Confidence,
+		}, "", warnings
+	}
+	if scope == types.RuntimeQuestionScopeNotApplicable {
+		return nil, "runtime_question_profile not_applicable conflicts with the attached/referenced runtime request", nil
+	}
+	if scope == types.RuntimeQuestionScopeBoundedFactSet && hasExplicitRelation {
+		return nil, "runtime_question_profile bounded_fact_set conflicts with an explicit call/relation shape; use relation_analysis or correct the relation fields", nil
+	}
+	profile := &types.RuntimeQuestionProfile{
+		Scope:      scope,
+		Confidence: *p.Confidence,
+		Rationale:  strings.TrimSpace(p.Rationale),
+	}
+	if scope == types.RuntimeQuestionScopeUnspecified {
+		return profile, "", nil
+	}
+	quote := strings.TrimSpace(p.SourceQuote)
+	if quote == "" || !sourceQuotePresentInCurrentRequest(raw, quote) {
+		return nil, "runtime_question_profile concrete scope requires source_quote copied verbatim from the current request", nil
+	}
+	profile.SourceQuote = quote
+	return profile, "", nil
+}
+
 // emitRuntimeTargetMaxPID is the shared Linux PID_MAX_LIMIT sanity cap
 // (types.RuntimeTargetMaxPID; F4 教义统一).
 const emitRuntimeTargetMaxPID = types.RuntimeTargetMaxPID
@@ -5170,6 +5277,9 @@ func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val
 	}
 	if rm.RuntimeTargetProfile != nil {
 		fmt.Fprintf(&b, " runtime_target_profile=%s", rm.RuntimeTargetProfile.Declaration)
+	}
+	if rm.RuntimeQuestionProfile != nil {
+		fmt.Fprintf(&b, " runtime_question_profile=%s", rm.RuntimeQuestionProfile.Scope)
 	}
 	if rm.AnswerExclusionPolicy != nil && rm.AnswerExclusionPolicy.Active() {
 		roles := make([]string, 0, len(rm.AnswerExclusionPolicy.ExcludedCandidateRoles))

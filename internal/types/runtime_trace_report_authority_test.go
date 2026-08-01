@@ -76,6 +76,26 @@ func TestRuntimeTraceReportMaterializationAuthorityMatrix(t *testing.T) {
 		t.Fatal("typed performance-bottleneck scenario must retain full trace report authority")
 	}
 
+	// The dedicated v17 breadth declaration outranks unstable legacy labels:
+	// the same bounded fact request has appeared as root_cause+diagnostic in
+	// real replays. Explicit windows and relations are tested above and still
+	// retain stronger positive authority.
+	declaredFactSet := rootCause
+	declaredFactSet.Scenario = ScenarioRootCause
+	declaredFactSet.Predicates.IsDiagnosticQuestion = true
+	declaredFactSet.DiagnosticProfile.IsDiagnostic = true
+	declaredFactSet.AnalyzerHints.Kind = string(ReqConditional)
+	declaredFactSet.PredicateAxis = AxisCondition
+	declaredFactSet.RuntimeTargets = []RuntimeTarget{{Kind: RuntimeTargetKindProcess, PID: 59566}}
+	declaredFactSet.RuntimeQuestionProfile = &RuntimeQuestionProfile{Scope: RuntimeQuestionScopeBoundedFactSet}
+	if RuntimeTraceReportMaterializationAllowed(&declaredFactSet, withRoot) {
+		t.Fatal("declared bounded fact set must outrank root-cause/diagnostic label variance")
+	}
+	declaredFactSet.RuntimeArtifactScopeProfile = windowed.RuntimeArtifactScopeProfile
+	if !RuntimeTraceReportMaterializationAllowed(&declaredFactSet, TraceCausalProjectionSet{}) {
+		t.Fatal("explicit typed window must still outrank a bounded fact-set declaration")
+	}
+
 	missingTargetScalar := *generic
 	missingTargetScalar.Intent = IntentReturnValue
 	missingTargetScalar.AnalyzerHints.Kind = string(ReqReturnValue)
@@ -83,6 +103,11 @@ func TestRuntimeTraceReportMaterializationAuthorityMatrix(t *testing.T) {
 	missingTargetScalar.Predicates.IsScalarAnswer = true
 	if RuntimeTraceReportMaterializationAllowed(&missingTargetScalar, withRoot) {
 		t.Fatal("non-diagnostic scalar runtime fact must not widen into a causal report when its target is missing")
+	}
+	declaredCausal := missingTargetScalar
+	declaredCausal.RuntimeQuestionProfile = &RuntimeQuestionProfile{Scope: RuntimeQuestionScopeCausalDiagnosis}
+	if !RuntimeTraceReportMaterializationAllowed(&declaredCausal, TraceCausalProjectionSet{}) {
+		t.Fatal("declared causal diagnosis must retain a full-report authority boundary despite scalar label noise")
 	}
 	missingTargetScalar.RuntimeArtifactScopeProfile = windowed.RuntimeArtifactScopeProfile
 	if !RuntimeTraceReportMaterializationAllowed(&missingTargetScalar, TraceCausalProjectionSet{}) {
