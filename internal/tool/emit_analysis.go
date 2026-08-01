@@ -85,6 +85,7 @@ type emitAnalysisParams struct {
 	RuntimeArtifactScopeProfile  *emitRuntimeArtifactScopeProfileParam  `json:"runtime_artifact_scope_profile"`
 	RuntimeTargetProfile         *emitRuntimeTargetProfileParam         `json:"runtime_target_profile"`
 	RuntimeQuestionProfile       *emitRuntimeQuestionProfileParam       `json:"runtime_question_profile"`
+	HistorySelectionProfile      *emitHistorySelectionProfileParam      `json:"history_selection_profile"`
 	RuntimeTargets               []emitRuntimeTargetParam               `json:"runtime_targets,omitempty"`
 	AnswerExclusionPolicy        *emitAnswerExclusionPolicyParam        `json:"answer_exclusion_policy,omitempty"`
 	AnswerRoleProfile            *emitAnswerRoleProfileParam            `json:"answer_role_profile,omitempty"`
@@ -272,6 +273,15 @@ type emitRuntimeTargetProfileParam struct {
 
 type emitRuntimeQuestionProfileParam struct {
 	Scope       string   `json:"scope"`
+	SourceQuote string   `json:"source_quote,omitempty"`
+	Confidence  *float64 `json:"confidence"`
+	Rationale   string   `json:"rationale,omitempty"`
+}
+
+type emitHistorySelectionProfileParam struct {
+	Mode        string   `json:"mode"`
+	ItemKind    string   `json:"item_kind"`
+	Count       int      `json:"count,omitempty"`
 	SourceQuote string   `json:"source_quote,omitempty"`
 	Confidence  *float64 `json:"confidence"`
 	Rationale   string   `json:"rationale,omitempty"`
@@ -677,6 +687,19 @@ func buildEmitAnalysisSchema() {
 				},
 				"required": []string{"scope", "confidence"},
 			},
+			"history_selection_profile": map[string]any{
+				"type":        "object",
+				"description": "Required typed declaration of ordinal/cardinality selection over repository history. Use not_applicable when is_history_lookup=false. For history questions, use latest_one or earliest_one for one endpoint, recent_n or oldest_n for a user-requested ordered N, bounded_range for an explicit ref/date/range whose endpoints are not one ordinal, and unspecified only when the current request genuinely does not select an order. item_kind is commit, merge, non_merge, matching_commit, unspecified, or not_applicable. This is soft request guidance: downstream conjoins it with tool-carried order/filter fields and never scans request or answer prose.",
+				"properties": map[string]any{
+					"mode":         map[string]any{"type": "string", "enum": historySelectionModeValues(), "description": "not_applicable, latest_one, earliest_one, recent_n, oldest_n, bounded_range, or unspecified."},
+					"item_kind":    map[string]any{"type": "string", "enum": historySelectionItemKindValues(), "description": "not_applicable, commit, merge, non_merge, matching_commit, or unspecified."},
+					"count":        map[string]any{"type": "integer", "minimum": 1, "description": "Required only for recent_n/oldest_n; the requested number of principal history rows."},
+					"source_quote": map[string]any{"type": "string", "description": "For every concrete history selection, one exact current-request phrase that states the order/range selection."},
+					"confidence":   map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Classification confidence in [0,1]."},
+					"rationale":    map[string]any{"type": "string", "description": "Short audit rationale."},
+				},
+				"required": []string{"mode", "item_kind", "confidence"},
+			},
 			"runtime_targets": map[string]any{
 				"type":        "array",
 				"description": "Optional typed runtime-artifact target list. Emit only when the current request explicitly identifies trace/log/perf targets as structured process IDs, thread IDs, or concrete thread labels. This is the only lane downstream trace tools may use to preserve omitted pid/thread filters; do not put timestamps, file paths, span names, generic entities, or guessed values here.",
@@ -860,7 +883,7 @@ func buildEmitAnalysisSchema() {
 			"intent", "scenario", "complexity", "keywords", "entities", "question_kind",
 			"intent_confidence", "complexity_confidence", "kind_confidence",
 			"predicates", "diagnostic_profile", "answer_role_profile", "error_granularity_profile",
-			"runtime_artifact_scope_profile", "runtime_target_profile", "runtime_question_profile",
+			"runtime_artifact_scope_profile", "runtime_target_profile", "runtime_question_profile", "history_selection_profile",
 		},
 	}
 
@@ -1015,6 +1038,24 @@ func runtimeQuestionScopeValues() []string {
 	return out
 }
 
+func historySelectionModeValues() []string {
+	values := types.AllHistorySelectionModes()
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		out = append(out, string(value))
+	}
+	return out
+}
+
+func historySelectionItemKindValues() []string {
+	values := types.AllHistorySelectionItemKinds()
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		out = append(out, string(value))
+	}
+	return out
+}
+
 func answerCandidateRoleValues() []string {
 	values := types.AllAnswerCandidateRoles()
 	out := make([]string, 0, len(values))
@@ -1145,6 +1186,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		"runtime_artifact_scope_profile",
 		"runtime_target_profile",
 		"runtime_question_profile",
+		"history_selection_profile",
 		"answer_exclusion_policy",
 		"answer_role_profile",
 		"error_granularity_profile",
@@ -1241,6 +1283,19 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	if reconciled, reason := reconcileSetValuedCountPredicates(intent, predicates); reason != "" {
 		predicates = reconciled
 		val.Warnings = append(val.Warnings, reason)
+	}
+	historySelectionProfile, historySelectionErr, historySelectionWarnings := parseHistorySelectionProfile(raw, predicates.IsHistoryLookup, p.HistorySelectionProfile)
+	if historySelectionErr != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + historySelectionErr,
+			Timestamp: time.Now(),
+		}, nil
+	}
+	for _, warning := range historySelectionWarnings {
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
 	}
 	diagnosticProfile, diagnosticErr, diagnosticWarnings := parseDiagnosticProfile(p.DiagnosticProfile, predicates)
 	if diagnosticErr != "" {
@@ -1775,6 +1830,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		RuntimeTargets:                  runtimeTargets,
 		RuntimeTargetProfile:            runtimeTargetProfile,
 		RuntimeQuestionProfile:          runtimeQuestionProfile,
+		HistorySelectionProfile:         historySelectionProfile,
 		AnswerExclusionPolicy:           answerExclusionPolicy,
 		AnswerRoleProfile:               answerRoleProfile,
 		ErrorGranularityProfile:         errorGranularityProfile,
@@ -3721,6 +3777,87 @@ func parseRuntimeQuestionProfile(raw string, runtimeArtifactCarrier bool, p *emi
 	return profile, "", nil
 }
 
+func parseHistorySelectionProfile(raw string, isHistoryLookup bool, p *emitHistorySelectionProfileParam) (*types.HistorySelectionProfile, string, []string) {
+	if p == nil {
+		if !isHistoryLookup {
+			return &types.HistorySelectionProfile{
+				Mode:     types.HistorySelectionNotApplicable,
+				ItemKind: types.HistorySelectionItemNotApplicable,
+			}, "", nil
+		}
+		return nil, "history_selection_profile object missing — declare latest/earliest/recent-N/range selection for history lookup or not_applicable outside repository history", nil
+	}
+	var missing []string
+	if strings.TrimSpace(p.Mode) == "" {
+		missing = append(missing, "mode")
+	}
+	if strings.TrimSpace(p.ItemKind) == "" {
+		missing = append(missing, "item_kind")
+	}
+	if p.Confidence == nil {
+		missing = append(missing, "confidence")
+	}
+	if len(missing) > 0 {
+		return nil, "history_selection_profile missing required field(s): " + strings.Join(missing, ", "), nil
+	}
+	if *p.Confidence < 0 || *p.Confidence > 1 {
+		return nil, fmt.Sprintf("history_selection_profile.confidence %.2f out of [0,1]", *p.Confidence), nil
+	}
+	mode := types.HistorySelectionMode(strings.TrimSpace(p.Mode))
+	if !mode.IsValid() {
+		return nil, fmt.Sprintf("history_selection_profile.mode %q is invalid; use one of %s", p.Mode, strings.Join(historySelectionModeValues(), ", ")), nil
+	}
+	itemKind := types.HistorySelectionItemKind(strings.TrimSpace(p.ItemKind))
+	if !itemKind.IsValid() {
+		return nil, fmt.Sprintf("history_selection_profile.item_kind %q is invalid; use one of %s", p.ItemKind, strings.Join(historySelectionItemKindValues(), ", ")), nil
+	}
+	if !isHistoryLookup {
+		var warnings []string
+		if mode != types.HistorySelectionNotApplicable || itemKind != types.HistorySelectionItemNotApplicable {
+			warnings = append(warnings, "history_selection_profile normalized to not_applicable because predicates.is_history_lookup=false")
+		}
+		return &types.HistorySelectionProfile{
+			Mode:       types.HistorySelectionNotApplicable,
+			ItemKind:   types.HistorySelectionItemNotApplicable,
+			Confidence: *p.Confidence,
+		}, "", warnings
+	}
+	if mode == types.HistorySelectionNotApplicable || itemKind == types.HistorySelectionItemNotApplicable {
+		return nil, "history_selection_profile not_applicable conflicts with predicates.is_history_lookup=true", nil
+	}
+	profile := &types.HistorySelectionProfile{
+		Mode:       mode,
+		ItemKind:   itemKind,
+		Count:      p.Count,
+		Confidence: *p.Confidence,
+		Rationale:  strings.TrimSpace(p.Rationale),
+	}
+	if mode == types.HistorySelectionUnspecified {
+		profile.Count = 0
+		return profile, "", nil
+	}
+	quote := strings.TrimSpace(p.SourceQuote)
+	if quote == "" || !sourceQuotePresentInCurrentRequest(raw, quote) {
+		return nil, "history_selection_profile concrete mode requires source_quote copied verbatim from the current request", nil
+	}
+	profile.SourceQuote = quote
+	var warnings []string
+	switch mode {
+	case types.HistorySelectionLatestOne, types.HistorySelectionEarliestOne:
+		if profile.Count != 0 && profile.Count != 1 {
+			warnings = append(warnings, "history_selection_profile count normalized to 1 for single-endpoint selection")
+		}
+		profile.Count = 1
+	case types.HistorySelectionRecentN, types.HistorySelectionOldestN:
+		if profile.Count <= 0 || profile.Count > 100 {
+			return nil, "history_selection_profile recent_n/oldest_n requires count in [1,100]", nil
+		}
+	case types.HistorySelectionBoundedRange:
+		profile.Count = 0
+	}
+	return profile, "", warnings
+}
+
 // emitRuntimeTargetMaxPID is the shared Linux PID_MAX_LIMIT sanity cap
 // (types.RuntimeTargetMaxPID; F4 教义统一).
 const emitRuntimeTargetMaxPID = types.RuntimeTargetMaxPID
@@ -5294,6 +5431,12 @@ func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val
 	}
 	if rm.RuntimeQuestionProfile != nil {
 		fmt.Fprintf(&b, " runtime_question_profile=%s", rm.RuntimeQuestionProfile.Scope)
+	}
+	if rm.HistorySelectionProfile != nil {
+		fmt.Fprintf(&b, " history_selection=%s/%s", rm.HistorySelectionProfile.Mode, rm.HistorySelectionProfile.ItemKind)
+		if rm.HistorySelectionProfile.Count > 0 {
+			fmt.Fprintf(&b, ":%d", rm.HistorySelectionProfile.Count)
+		}
 	}
 	if rm.AnswerExclusionPolicy != nil && rm.AnswerExclusionPolicy.Active() {
 		roles := make([]string, 0, len(rm.AnswerExclusionPolicy.ExcludedCandidateRoles))

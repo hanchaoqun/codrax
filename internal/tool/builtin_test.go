@@ -4550,6 +4550,10 @@ func TestGitLog(t *testing.T) {
 		if result.VCSHistory.Ref != "HEAD" {
 			t.Fatalf("git_log VCS history ref = %q, want HEAD", result.VCSHistory.Ref)
 		}
+		if result.VCSHistory.QueryOrder != "recent" || result.VCSHistory.QueryLimit != 1 ||
+			result.VCSHistory.MergesOnly || result.VCSHistory.NoMerges || result.VCSHistory.FirstParent {
+			t.Fatalf("git_log typed query shape = %+v, want recent limit=1 unfiltered", result.VCSHistory)
+		}
 	})
 
 	t.Run("supports stat name-only and pathspec for recent summaries", func(t *testing.T) {

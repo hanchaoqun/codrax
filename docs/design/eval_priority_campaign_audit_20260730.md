@@ -5321,6 +5321,45 @@ commit 主题、文件类型或模型判断硬编码为价值标准；不生成�
 状态：`EVAL-B21-MERGE1=covered`；`EVAL-B21-VCS1=covered`；
 `EVAL-B21-CIT1=covered`；`EVAL-B21-ORD1=P0/open`。
 
+#### B21-D：typed history selection × ordered VCS result
+
+`EVAL-B21-ORD1` 已按请求权威与工具真值合取施工：
+
+1. `AnalysisIR v18` 新增必填 `history_selection_profile`，把历史证据来源与选择形状
+   正交拆开。闭集 mode 为 `latest_one / earliest_one / recent_n / oldest_n /
+   bounded_range / unspecified / not_applicable`，item kind 为
+   `commit / merge / non_merge / matching_commit / unspecified / not_applicable`；具体选择要求
+   exact current-request `source_quote`，但下游从不读取 quote 语义。
+2. `git_log` 的 `ToolVCSHistory` 现在携带工具真实参数：`query_order/query_limit /
+   merges_only/no_merges/first_parent`。commit 顺序仍来自独立 structured Git 查询，不从
+   summary、commit subject、`--stat` 或答案文本反解析。
+3. Explorer 在工具调用前收到 typed selection：merge 选择指导
+   `merges_only=true + first_parent=true`，并要求最小充分 count；无论窗口多宽，都禁止按
+   subject、patch size、文件角色或主观“重要性”跳过已选序数。
+4. Finalizer 只在 request profile 与 compatible typed `git_log` 顺序/过滤器一致时铸造
+   `VCSHistorySelectionAuthority`。`latest_one + merge` 即使工具查 5 条，也只把第 1 条
+   commit 作为 principal，其余仅作 context；若无匹配工具结果则发布 prompt 内
+   `unproven` 边界，不猜一个目标。
+5. 这是 prompt authority，不是答案硬门：不扫描 RawRequest、模型 thinking/reason/final，
+   不扫描 commit message，不确定性改写正文，也不注入用户可见“系统权威/主值”块。
+   `matching_commit`、earliest/oldest 等当前工具不具备兼容 ordered carrier 时会诚实
+   fail-open，后续随相应工具载体扩展，而不会借 prose 猜造。
+6. 测试覆盖：latest merge 从 5 条窗口选首项、merge profile 拒绝普通 commit stream、
+   recent-N 选择最小充分 typed 窗、GitLog producer 参数、Analyzer profile 解析与 schema、
+   Explorer 生产 prompt、Finalizer carrier→principal prompt；负臂固定 summary 文本不能
+   冒充 typed merge filter。
+
+验证：
+
+- `go test ./internal/types ./internal/skill -count=1`：18.869s / 0.352s；
+- `go test ./internal/agent ./internal/tool -count=1`：2.721s / 164.484s；
+- `go test ./internal/context ./internal/orchestrator -count=1`：0.749s / 10.170s；
+- `git diff --check` 通过。
+
+状态：`EVAL-B21-ORD1=implemented/full-tests-pass/replay-next`。本批没有引用 Trace
+family/query、显式时间窗 authority、因果投影、根因排序、唤醒链、窗内可消除量或系统
+自动补采；这些路径不受 `history_selection_profile` 影响。
+
 ### B19g-b r1：target authority 通过，有限事实集仍被扩张（2026-08-01）
 
 同一二进制快照下严格并行 2 个 Trace case，runner 均 PASS，人工均 FAIL：

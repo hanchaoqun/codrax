@@ -54,6 +54,11 @@ const v4DefaultsJSON = `,
 	"runtime_artifact_scope_profile": {
 		"requested_scope": "not_applicable",
 		"confidence": 0.7
+	},
+	"history_selection_profile": {
+		"mode": "not_applicable",
+		"item_kind": "not_applicable",
+		"confidence": 0.7
 	}
 `
 
@@ -110,6 +115,21 @@ func withRequiredAnswerRoleProfile(payload string) string {
 	if _, ok := obj["runtime_question_profile"]; !ok {
 		obj["runtime_question_profile"] = json.RawMessage(`{"scope":"unspecified","confidence":0.7}`)
 	}
+	if _, ok := obj["history_selection_profile"]; !ok {
+		isHistoryLookup := false
+		if rawPredicates, ok := obj["predicates"]; ok {
+			var predicates struct {
+				IsHistoryLookup bool `json:"is_history_lookup"`
+			}
+			_ = json.Unmarshal(rawPredicates, &predicates)
+			isHistoryLookup = predicates.IsHistoryLookup
+		}
+		if isHistoryLookup {
+			obj["history_selection_profile"] = json.RawMessage(`{"mode":"unspecified","item_kind":"unspecified","confidence":0.7}`)
+		} else {
+			obj["history_selection_profile"] = json.RawMessage(`{"mode":"not_applicable","item_kind":"not_applicable","confidence":0.7}`)
+		}
+	}
 	out, err := json.Marshal(obj)
 	if err != nil {
 		return payload
@@ -123,6 +143,50 @@ func testBoolPtr(v bool) *bool {
 
 func testFloatPtr(v float64) *float64 {
 	return &v
+}
+
+func TestParseHistorySelectionProfileSeparatesOrdinalFromHistoryEvidenceOrigin(t *testing.T) {
+	confidence := 0.9
+	profile, errText, warnings := parseHistorySelectionProfile(
+		"解释最近一次合入",
+		true,
+		&emitHistorySelectionProfileParam{
+			Mode:        "latest_one",
+			ItemKind:    "merge",
+			SourceQuote: "最近一次合入",
+			Confidence:  &confidence,
+		},
+	)
+	if errText != "" || len(warnings) != 0 || profile == nil ||
+		profile.Mode != types.HistorySelectionLatestOne ||
+		profile.ItemKind != types.HistorySelectionItemMerge || profile.Count != 1 {
+		t.Fatalf("profile=%+v err=%q warnings=%v", profile, errText, warnings)
+	}
+	if _, errText, _ := parseHistorySelectionProfile("普通源码问题", false, nil); errText != "" {
+		t.Fatalf("non-history direct callers should default to not_applicable: %q", errText)
+	}
+	if _, errText, _ := parseHistorySelectionProfile("历史问题", true, nil); errText == "" {
+		t.Fatal("history lookup must fail loud when the selection profile is missing")
+	}
+	badQuote := &emitHistorySelectionProfileParam{
+		Mode:        "latest_one",
+		ItemKind:    "commit",
+		SourceQuote: "earliest commit",
+		Confidence:  &confidence,
+	}
+	if _, errText, _ := parseHistorySelectionProfile("latest commit", true, badQuote); !strings.Contains(errText, "copied verbatim") {
+		t.Fatalf("unanchored selection quote should fail, got %q", errText)
+	}
+	badCount := &emitHistorySelectionProfileParam{
+		Mode:        "recent_n",
+		ItemKind:    "commit",
+		Count:       0,
+		SourceQuote: "recent commits",
+		Confidence:  &confidence,
+	}
+	if _, errText, _ := parseHistorySelectionProfile("recent commits", true, badCount); !strings.Contains(errText, "count in [1,100]") {
+		t.Fatalf("recent_n without a bounded count should fail, got %q", errText)
+	}
 }
 
 func TestParseRuntimeArtifactScopeProfileAnchorsUserScopeAndSoftensModelScope(t *testing.T) {
@@ -1010,7 +1074,8 @@ func TestEmitAnalysis_RouteBackedHistoryExplanationPreservesMixedLane(t *testing
 		"error_granularity_profile":{"is_granularity_question":false,"confidence":0.9},
 		"runtime_artifact_scope_profile":{"requested_scope":"not_applicable","confidence":0.9},
 		"runtime_target_profile":{"declaration":"not_applicable","confidence":0.9},
-		"runtime_question_profile":{"scope":"not_applicable","confidence":0.9}
+		"runtime_question_profile":{"scope":"not_applicable","confidence":0.9},
+		"history_selection_profile":{"mode":"latest_one","item_kind":"merge","source_quote":"latest integration","confidence":0.9}
 	}`)
 	res, err := (&EmitAnalysis{}).Execute(ctx, payload)
 	if err != nil || !res.Success {

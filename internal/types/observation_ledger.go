@@ -1856,6 +1856,7 @@ func observationRecordForVCSHistory(index int, result ToolResult, history ToolVC
 		ResultCount:  &count,
 		Summary:      typedVCSHistorySummary(history),
 		SurfaceTerms: compactVCSHistorySurfaceTerms(history.Commits, 4),
+		RichNotes:    typedVCSHistoryQueryNotes(history),
 		ObservedAt:   observedAt,
 	}
 	if len(history.Commits) > 0 {
@@ -2146,11 +2147,37 @@ func typedVCSHistorySummary(history ToolVCSHistory) string {
 	if pathspec := strings.TrimSpace(history.Pathspec); pathspec != "" {
 		parts = append(parts, "pathspec="+pathspec)
 	}
+	if order := strings.TrimSpace(history.QueryOrder); order != "" {
+		parts = append(parts, "query_order="+order)
+	}
+	if history.QueryLimit > 0 {
+		parts = append(parts, fmt.Sprintf("query_limit=%d", history.QueryLimit))
+	}
 	if len(history.ChangedPathSets) > 0 || history.ChangedPathCommitsOmitted > 0 {
 		parts = append(parts, fmt.Sprintf("changed_path_sets=%d", len(history.ChangedPathSets)))
 		parts = append(parts, fmt.Sprintf("changed_path_commits_omitted=%d", history.ChangedPathCommitsOmitted))
 	}
 	return strings.Join(parts, " ")
+}
+
+func typedVCSHistoryQueryNotes(history ToolVCSHistory) []string {
+	var notes []string
+	if order := strings.TrimSpace(history.QueryOrder); order != "" {
+		notes = append(notes, "query_order="+order)
+	}
+	if history.QueryLimit > 0 {
+		notes = append(notes, fmt.Sprintf("query_limit=%d", history.QueryLimit))
+	}
+	if history.MergesOnly {
+		notes = append(notes, "merges_only=true")
+	}
+	if history.NoMerges {
+		notes = append(notes, "no_merges=true")
+	}
+	if history.FirstParent {
+		notes = append(notes, "first_parent=true")
+	}
+	return notes
 }
 
 func compactVCSHistorySurfaceTerms(commits []string, max int) []string {

@@ -1307,6 +1307,41 @@ func TestBuildInitialInstructionRecentCommitEnumerationUsesVCSLane(t *testing.T)
 	}
 }
 
+func TestBuildInitialInstructionHistorySelectionKeepsLatestMergePrincipal(t *testing.T) {
+	eval := &explorerEvaluator{}
+	ctx := &types.AgentContext{
+		Objective: "最近一次合入是什么，结合当前源码解释",
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentExplain,
+			Scenario: types.ScenarioArchitectureExplain,
+			Predicates: types.SemanticPredicates{
+				IsHistoryLookup: true,
+			},
+			HistorySelectionProfile: &types.HistorySelectionProfile{
+				Mode:     types.HistorySelectionLatestOne,
+				ItemKind: types.HistorySelectionItemMerge,
+				Count:    1,
+			},
+		}},
+		RepoRoot: ".",
+	}
+	prompt := eval.BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"Typed History Selection Request",
+		"selection_mode=`latest_one`",
+		"item_kind=`merge`",
+		"principal_count=1",
+		"merges_only=true",
+		"first_parent=true",
+		"count=1",
+		"Do not skip a selected row because its subject, file role, patch size, or perceived importance",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("typed history selection prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 func TestBuildInitialInstructionHistoryComparisonUsesVCSLane(t *testing.T) {
 	eval := &explorerEvaluator{}
 	ctx := &types.AgentContext{

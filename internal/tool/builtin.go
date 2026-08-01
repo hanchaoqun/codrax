@@ -6253,6 +6253,11 @@ func (t *GitLog) Execute(ctx *types.BusContext, params json.RawMessage) (types.T
 			Commits:                   append([]string(nil), commitOrder...),
 			Ref:                       ref,
 			Pathspec:                  pathspec,
+			QueryOrder:                "recent",
+			QueryLimit:                count,
+			MergesOnly:                p.MergesOnly,
+			NoMerges:                  p.NoMerges,
+			FirstParent:               p.FirstParent,
 			ChangedPathSets:           changedPathSets,
 			ChangedPathCommitsOmitted: changedPathCommitsOmitted,
 		}

@@ -79,6 +79,7 @@ func TestEmitAnalysisSchemaMatchesContract(t *testing.T) {
 		"runtime_artifact_scope_profile": true,
 		"runtime_target_profile":         true,
 		"runtime_question_profile":       true,
+		"history_selection_profile":      true,
 	}
 	gotRequired := make(map[string]bool, len(parsed.Required))
 	for _, r := range parsed.Required {
@@ -130,6 +131,47 @@ func TestEmitAnalysisSchemaIncludesRuntimeArtifactScopeProfile(t *testing.T) {
 	}
 	if prop.Properties["time_start"].Type != "number" || prop.Properties["time_end"].Type != "number" {
 		t.Fatalf("explicit window bounds must be numeric: %+v", prop.Properties)
+	}
+}
+
+func TestEmitAnalysisSchemaIncludesHistorySelectionProfile(t *testing.T) {
+	var parsed struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal((&EmitAnalysis{}).Parameters(), &parsed); err != nil {
+		t.Fatalf("emit_analysis schema is not valid JSON: %v", err)
+	}
+	propRaw, ok := parsed.Properties["history_selection_profile"]
+	if !ok {
+		t.Fatal("emit_analysis schema is missing history_selection_profile")
+	}
+	var prop struct {
+		Properties map[string]struct {
+			Enum []string `json:"enum"`
+		} `json:"properties"`
+		Required []string `json:"required"`
+	}
+	if err := json.Unmarshal(propRaw, &prop); err != nil {
+		t.Fatalf("history_selection_profile schema: %v", err)
+	}
+	var wantModes []string
+	for _, value := range types.AllHistorySelectionModes() {
+		wantModes = append(wantModes, string(value))
+	}
+	if !reflect.DeepEqual(prop.Properties["mode"].Enum, wantModes) {
+		t.Fatalf("history selection mode enum=%v, want %v", prop.Properties["mode"].Enum, wantModes)
+	}
+	var wantKinds []string
+	for _, value := range types.AllHistorySelectionItemKinds() {
+		wantKinds = append(wantKinds, string(value))
+	}
+	if !reflect.DeepEqual(prop.Properties["item_kind"].Enum, wantKinds) {
+		t.Fatalf("history selection item kind enum=%v, want %v", prop.Properties["item_kind"].Enum, wantKinds)
+	}
+	for _, field := range []string{"mode", "item_kind", "confidence"} {
+		if !slices.Contains(prop.Required, field) {
+			t.Fatalf("history_selection_profile.required=%v missing %s", prop.Required, field)
+		}
 	}
 }
 

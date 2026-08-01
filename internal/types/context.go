@@ -5049,6 +5049,11 @@ func appendPrescanVCSHistoryCorpus(b *strings.Builder, remaining *int, h *ToolVC
 		prescanCorpusKV("kind", h.Kind),
 		prescanCorpusKV("ref", h.Ref),
 		prescanCorpusKV("pathspec", h.Pathspec),
+		prescanCorpusKV("query_order", h.QueryOrder),
+		prescanCorpusInt("query_limit", h.QueryLimit),
+		prescanCorpusBool("merges_only", h.MergesOnly),
+		prescanCorpusBool("no_merges", h.NoMerges),
+		prescanCorpusBool("first_parent", h.FirstParent),
 	)
 	for _, commit := range h.Commits {
 		appendPrescanCorpusLine(b, remaining, "commit="+commit)
@@ -6557,6 +6562,11 @@ type ToolVCSHistory struct {
 	Commits                   []string                `json:"commits,omitempty"`
 	Ref                       string                  `json:"ref,omitempty"`
 	Pathspec                  string                  `json:"pathspec,omitempty"`
+	QueryOrder                string                  `json:"query_order,omitempty"`
+	QueryLimit                int                     `json:"query_limit,omitempty"`
+	MergesOnly                bool                    `json:"merges_only,omitempty"`
+	NoMerges                  bool                    `json:"no_merges,omitempty"`
+	FirstParent               bool                    `json:"first_parent,omitempty"`
 	ChangedPathSets           []ToolVCSChangedPathSet `json:"changed_path_sets,omitempty"`
 	ChangedPathCommitsOmitted int                     `json:"changed_path_commits_omitted,omitempty"`
 }

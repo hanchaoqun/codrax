@@ -324,6 +324,50 @@ func TestRenderAnswerDocObservationLedger_RendersTypedVCSHistoryAsOriginSpecific
 	}
 }
 
+func TestRenderAnswerDocObservationLedger_BindsPrincipalToTypedLatestMerge(t *testing.T) {
+	mut := types.NewMutableState("最近一次合入是什么")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
+		ToolName: "git_log",
+		Success:  true,
+		VCSHistory: &types.ToolVCSHistory{
+			Kind:        types.ToolVCSHistoryKindGitLog,
+			Commits:     []string{"newest-merge", "older-feature"},
+			Ref:         "HEAD",
+			QueryOrder:  "recent",
+			QueryLimit:  5,
+			MergesOnly:  true,
+			FirstParent: true,
+		},
+	}}})
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Predicates: types.SemanticPredicates{IsHistoryLookup: true},
+			HistorySelectionProfile: &types.HistorySelectionProfile{
+				Mode:     types.HistorySelectionLatestOne,
+				ItemKind: types.HistorySelectionItemMerge,
+				Count:    1,
+			},
+		}},
+	}
+	got := renderAnswerDocObservationLedger(ctx)
+	for _, want := range []string{
+		"Typed VCS Principal Selection",
+		"selection=`latest_one`",
+		"item_kind=`merge`",
+		"principal_ordinal=1; commit=`newest-merge`",
+		"Later rows from a wider query are context only",
+		"Do not replace the selected row based on commit subject, patch size, changed-file role",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("typed VCS principal selection prompt missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "principal_ordinal=2") {
+		t.Fatalf("latest_one must not promote the older contextual row:\n%s", got)
+	}
+}
+
 func TestRenderAnswerDocObservationLedger_PreservesAggregateMemberNotes(t *testing.T) {
 	mut := types.NewMutableState("Kind 常量说明")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

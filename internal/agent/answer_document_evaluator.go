@@ -3871,6 +3871,9 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	if authority := renderAnswerDocRuntimeSourceAuthority(ctx, ledger); authority != "" {
 		b.WriteString(authority)
 	}
+	if authority := renderAnswerDocVCSSelectionAuthority(ctx); authority != "" {
+		b.WriteString(authority)
+	}
 	if authority := renderAnswerDocVCSChangedPathAuthority(ledger); authority != "" {
 		b.WriteString(authority)
 	}
@@ -3954,6 +3957,35 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
+	return b.String()
+}
+
+func renderAnswerDocVCSSelectionAuthority(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
+		return ""
+	}
+	profile := ctx.AnalysisIR.RequestModel.HistorySelectionProfile
+	if profile == nil || !profile.Active() {
+		return ""
+	}
+	var results []types.ToolResult
+	if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
+		results = append(results, ta.ToolResults...)
+	}
+	results = append(results, ctx.Mutable.DispatchToolResults()...)
+	authority, ok := types.BuildVCSHistorySelectionAuthority(&ctx.AnalysisIR.RequestModel, results)
+	var b strings.Builder
+	b.WriteString("### Typed VCS Principal Selection\n\n")
+	if !ok {
+		fmt.Fprintf(&b, "- request selection=`%s`; item_kind=`%s`; status=`unproven` — no compatible typed ordered VCS result is available. Do not silently substitute a subjectively important history row; preserve the selection boundary and state what evidence is missing.\n\n", profile.Mode, profile.ItemKind)
+		return b.String()
+	}
+	fmt.Fprintf(&b, "- selection=`%s`; item_kind=`%s`; query_order=`%s`; query_limit=%d; complete=%t; reason=`%s`\n",
+		authority.Mode, authority.ItemKind, authority.QueryOrder, authority.QueryLimit, authority.Complete, authority.Reason)
+	for i, commit := range authority.SelectedCommits {
+		fmt.Fprintf(&b, "  - principal_ordinal=%d; commit=`%s`\n", i+1, strings.TrimSpace(commit))
+	}
+	b.WriteString("- Treat exactly these selected row(s) as the principal history target. Later rows from a wider query are context only. Do not replace the selected row based on commit subject, patch size, changed-file role, or a judgment that another row is more substantive. Current-source explanation must follow the selected target; if current-source evidence for it is incomplete, disclose that boundary instead of changing targets.\n\n")
 	return b.String()
 }
 

@@ -981,6 +981,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			ctx.RepoRoot)
 	}
 	if ctx != nil && ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.Predicates.IsHistoryLookup {
+		b.WriteString(renderExplorerHistorySelectionRequest(ctx.AnalysisIR.RequestModel))
 		if explorerHistoryPrefersVCSNarrativePrincipal(ctx) {
 			b.WriteString("### VCS History Narrative Handoff\n\n")
 			b.WriteString("This question's principal evidence is repository history: commits, refs, subjects, authorship, diff/stat/name-only output, and verified history-search results. Use the VCS tools first and do not turn commit metadata into fake source `emit_evidence` rows.\n")
@@ -1753,6 +1754,34 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		b.WriteString(guide)
 	}
 
+	return b.String()
+}
+
+func renderExplorerHistorySelectionRequest(rm types.RequestModel) string {
+	profile := rm.HistorySelectionProfile
+	if profile == nil || !profile.Active() {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("### Typed History Selection Request\n\n")
+	fmt.Fprintf(&b, "- selection_mode=`%s`; item_kind=`%s`", profile.Mode, profile.ItemKind)
+	if count := profile.PrincipalCount(); count > 0 {
+		fmt.Fprintf(&b, "; principal_count=%d", count)
+	}
+	b.WriteString(". This is request-shape guidance, not VCS evidence.\n")
+	b.WriteString("- Use an ordered VCS tool call whose typed order and filters match this profile. Preserve the selected ordinal row(s) as the principal history target; additional rows may provide context only. Do not skip a selected row because its subject, file role, patch size, or perceived importance looks less substantial.\n")
+	switch profile.ItemKind {
+	case types.HistorySelectionItemMerge:
+		b.WriteString("- For merge history, use `git_log` with `merges_only=true` and `first_parent=true`.\n")
+	case types.HistorySelectionItemNonMerge:
+		b.WriteString("- For explicitly non-merge history, use `git_log` with `no_merges=true`.\n")
+	case types.HistorySelectionItemCommit:
+		b.WriteString("- For the ordinary commit stream, do not add merge-only or no-merge filtering unless another typed requirement demands it.\n")
+	}
+	if count := profile.PrincipalCount(); count > 0 {
+		fmt.Fprintf(&b, "- Request the smallest sufficient ordered window (normally `count=%d`); a wider context query does not change which first row(s) are principal.\n", count)
+	}
+	b.WriteString("\n")
 	return b.String()
 }
 

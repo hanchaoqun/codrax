@@ -40,7 +40,7 @@ type AnalysisIR struct {
 // AnalysisIRVersion is the current schema version string. Bump on any
 // breaking change to the wire format so downstream consumers can refuse
 // to parse IRs they do not understand.
-const AnalysisIRVersion = "v17"
+const AnalysisIRVersion = "v18"
 
 // ── RequestModel ────────────────────────────────────────────────────────
 
@@ -187,6 +187,13 @@ type RequestModel struct {
 	// instead of trying to infer answer breadth from unstable intent/scenario
 	// combinations or from request/model prose.
 	RuntimeQuestionProfile *RuntimeQuestionProfile `json:"runtime_question_profile,omitempty"`
+
+	// HistorySelectionProfile declares which position(s) in an ordered VCS
+	// history result the user selected and which typed commit universe applies.
+	// It is orthogonal to history evidence origin and requested output shape.
+	// Consumers conjoin it with tool-carried query order/filter fields; they do
+	// not scan request or answer prose to recover latest/earliest/top-N intent.
+	HistorySelectionProfile *HistorySelectionProfile `json:"history_selection_profile,omitempty"`
 
 	// AnswerExclusionPolicy is the analyzer LLM's typed lane for user-stated
 	// candidate categories that must stay out of the principal answer rows.
