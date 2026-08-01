@@ -2438,3 +2438,78 @@ persist 接线。完整回归通过：
 任务 reasoning graph 多一块、exact-fit trace 报告挤掉 next_steps。修复在
 三 materializer 的 typed row 集为空时直接 no-op，并新增专门负臂；没有
 提高 64-block cap、删除模型 block 或牺牲既有投影/行动面。
+
+### B13 r2 人工审计与批 AJ（2026-07-31）
+
+在 revision `42ecbb98a` 重建后，以严格 `parallel=2` 回放：
+
+- `eval/results/real_trace_h1_binder_true_false_attribution-20260731-164336`
+- `eval/results/real_trace_h2_dstate_dma_fence_triform-20260731-164336`
+
+runner 1/2，人工 0/2。
+
+H1 证明 AI 的三张系统 authority 已真正领先模型正文：1.409ms binder
+blocking 明确是 `lower_bound_capacity_truncated`，目标线程状态账为
+157.248/5.604/70.338/0ms，blocked_reason 为 50 条 caller-linked records
+而不是 sleep partition。显式用户窗、完整 Trace 因果投影、系统自动补采、
+根因排序、wakeup chain、IPC census 和窗内可消除量均未回退。但后续模型
+正文仍声称“只有一次/其余未阻塞/49 段全部为 fscache”，且 39+11 的
+blocked_reason roster 本身就是 50 条。typed authority 已降低误导风险，
+但答案仍内部冲突，人工继续判 fail；不能用扫描“唯一/全部”等答案词的
+hard gate 修补。
+
+H2 的模型本轮已正确区分 11 条 D-state segment、36.757ms 状态墙钟与 12 条
+blocked_reason record、39.157ms 自报 delay，却无 typed 证据地把差额归因
+为跨窗。更深的确定性故障发生在 supplement 之前：analyzer 发出了
+`entities=["CompThread_0-2955"]` 和精确
+13762.791708..13763.024898 用户窗，却漏发必需的 `runtime_targets`；六次
+模型调用又分别使用 `thread=CompThread_0-2955` 与 `thread=pid=2955`。
+两者在 trace engine 中都是 TID 2955，但游标登记层保留原字符串，
+`traceSupplementDeriveTarget` 因此误判多目标并记录
+`skip reason=no_typed_target`。结果只有降级状态投影，没有系统补齐的
+root rank、wakeup chain、锚定发生段与可消除量。这是 selector identity
+归一 gap，不是 oracle 或模型波动。
+
+| ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
+|---|---:|---|---|---|---|
+| EVAL-B13-AJ1 | P0 | equivalent selector identity | 引擎接受的 numeric、`pid=`、bracket、space、`name-pid` 形在游标层各自成 target | 暴露并复用 engine 单一 selector parser；游标以 kind+positive PID+source 合并，名称只作展示，异 PID 继续歧义失败 | covered-pending-replay |
+| EVAL-B13-AJ2 | P1 | analyzer target emission recovery | analyzer entity 存在但 runtime target 漏发时，补采可恢复证据而答案 authority 仍只认原请求 target | 仅在 strict typed entity 与已实际执行 supplement meta 同 PID 时，为答案 builder 私有克隆注入 consensus target；不回写请求模型 | covered-pending-replay |
+| EVAL-B13-A3 | P1 | typed authority vs contradictory model prose | 系统主值虽领先，后续模型叙事仍可发布相反 exhaustive 结论 | 保持立案；优先寻找系统拥有结论结构的通用方案，不扫描/删改模型 prose，不在 H1 词面过拟合 | open |
+
+批 AJ 不变量：
+
+1. 不读取 raw request、case ID、模型 thinking 或答案原文做 hard gate。
+2. selector 归一只复用 trace engine 已接受的结构语法；PID 是身份主键，
+   不同正 PID、不同 target scope 或 user/cursor provenance 不合并。
+3. 显式时间窗仍补齐 `root_cause_rank + critical_blocking_calls`，并保留
+   wakeup chain、自身状态发生段、根因榜和窗内可消除量；无窗窄 D-state
+   事实继续保持低成本 `window_stats`。
+4. 模型 cursor 单独不能升级成用户 authority。AJ2 必须同时看到严格
+   `name-pid` typed entity、至少一个已成功执行的 targeted supplement view、
+   允许的 cursor/entities-fallback source 及完全相同 PID；仅 census-lite、
+   失败/空 results 或任一其他条件缺失都 fail-closed。
+5. AJ2 只返回 answer-time `RequestModel` 私有克隆，不修改 AnalysisIR、
+   Mutable request model 或后续工具继承/补采选路。
+
+批 AJ1 在 `internal/tracequery` 暴露唯一 selector identity parser，覆盖
+bare numeric、`pid/tid/thread_id` token、bracket、space 与末尾
+`name-pid` 形。`traceQueryRecordExplicitRuntimeTarget` 在登记前调用该
+parser；同 cursor provenance、同 kind、同正 PID 的重复拼写合为一条：
+空名与有名取有名，两条不同非空名降为 pid-only；不同 PID 保持两条并让
+补采 fail-closed。端到端 fixture 从无 runtime target、只有 typed entity
+和两种 cursor 拼写出发，确认精确用户窗重新执行 root rank + critical 两
+核心 view 并保存 canonical target。
+
+批 AJ2 新增 answer-time typed target consensus。已有非 cursor 用户 target
+仍优先；缺失时必须由严格 entity parser 与实际执行的 system supplement
+meta 对同一 PID 达成一致，且至少一个 targeted view 成功，才给 blocking、
+IPC census、complete target wait occurrence 与 blocked_reason builder
+提供私有 target。负臂覆盖 cursor-only、PID 不同、仅 census-lite、
+失败 result 和 meta 无实际结果；
+正臂确认完整 occurrence roster/墙钟恢复而持久请求模型不变。
+
+完整回归通过：
+
+- `go test ./internal/tracequery ./internal/tool ./internal/types ./internal/agent ./internal/orchestrator ./internal/skill -count=1`
+  （tracequery 69.978s、tool 161.756s、types 19.817s、agent 3.517s、
+  orchestrator 14.447s、skill 0.585s）。

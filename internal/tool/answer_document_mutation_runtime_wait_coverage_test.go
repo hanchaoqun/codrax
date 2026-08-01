@@ -228,6 +228,81 @@ func TestRuntimeWaitCoverageAuthorityLeadsDoNotMintWithoutTypedRows(t *testing.T
 	}
 }
 
+func TestRuntimeTraceAuthorityTargetRequiresTypedEntitySupplementConsensus(t *testing.T) {
+	bus := runtimeWaitCoverageTestBus()
+	target := bus.AnalysisIR.RequestModel.RuntimeTargets[0]
+	bus.AnalysisIR.RequestModel.RuntimeTargets = []types.RuntimeTarget{{
+		Kind: types.RuntimeTargetKindThread, PID: target.PID, Thread: target.Thread,
+		Source: types.RuntimeTargetSourceExplicitToolCall, Confidence: 1,
+	}}
+	bus.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{target.Thread}
+	bus.Mutable.SetRequestModel(bus.AnalysisIR.RequestModel)
+	bus.Mutable.SetSystemTraceSupplement(types.SystemTraceSupplementMeta{
+		Views:        []string{"root_cause_rank"},
+		TargetPID:    target.PID,
+		TargetThread: target.Thread,
+		TargetSource: "cursor",
+	}, []types.ToolResult{{ToolName: "trace_query", Success: true}})
+
+	rm := runtimeTraceAuthorityRequestModel(bus)
+	if rm == nil || len(rm.RuntimeTargets) != 2 ||
+		rm.RuntimeTargets[1].PID != target.PID ||
+		rm.RuntimeTargets[1].Source != runtimeTraceTypedTargetConsensusSource {
+		t.Fatalf("typed entity + executed supplement agreement must recover private answer authority: %+v", rm)
+	}
+	if len(bus.AnalysisIR.RequestModel.RuntimeTargets) != 1 ||
+		!types.RuntimeTargetIsExplorationCursorSource(bus.AnalysisIR.RequestModel.RuntimeTargets[0].Source) {
+		t.Fatalf("answer-time consensus must not mutate the persistent request model: %+v",
+			bus.AnalysisIR.RequestModel.RuntimeTargets)
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "summary", Kind: types.BlockSummary, Text: "model answer",
+	}}}
+	if !materializeRuntimeTraceBlockingCoverageAuthorityCaveat(doc, bus) ||
+		!materializeRuntimeTraceBlockedReasonCensusCaliberCaveat(doc, bus) {
+		t.Fatalf("recovered target authority must expose its matching deterministic rows: %+v", doc.Blocks)
+	}
+
+	for name, mutate := range map[string]func(){
+		"cursor without analyzer entity": func() {
+			bus.AnalysisIR.RequestModel.AnalyzerHints.Entities = nil
+			bus.Mutable.SetRequestModel(bus.AnalysisIR.RequestModel)
+		},
+		"mismatched supplement pid": func() {
+			bus.Mutable.SetSystemTraceSupplement(types.SystemTraceSupplementMeta{
+				Views: []string{"root_cause_rank"}, TargetPID: 999, TargetSource: "cursor",
+			}, []types.ToolResult{{ToolName: "trace_query", Success: true}})
+		},
+		"meta without executed results": func() {
+			bus.Mutable.SetSystemTraceSupplement(types.SystemTraceSupplementMeta{
+				Views: []string{"root_cause_rank"}, TargetPID: target.PID, TargetSource: "cursor",
+			}, nil)
+		},
+		"failed supplement result": func() {
+			bus.Mutable.SetSystemTraceSupplement(types.SystemTraceSupplementMeta{
+				Views: []string{"root_cause_rank"}, TargetPID: target.PID, TargetSource: "cursor",
+			}, []types.ToolResult{{ToolName: "trace_query", Success: false}})
+		},
+		"census-only meta without targeted view": func() {
+			bus.Mutable.SetSystemTraceSupplement(types.SystemTraceSupplementMeta{
+				TargetPID: target.PID, TargetSource: "cursor", CensusLite: true,
+			}, []types.ToolResult{{ToolName: "trace_query", Success: true}})
+		},
+	} {
+		// Restore the common typed entity and valid executed meta, then apply
+		// one independent negative mutation.
+		bus.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{target.Thread}
+		bus.Mutable.SetRequestModel(bus.AnalysisIR.RequestModel)
+		bus.Mutable.SetSystemTraceSupplement(types.SystemTraceSupplementMeta{
+			Views: []string{"root_cause_rank"}, TargetPID: target.PID, TargetSource: "cursor",
+		}, []types.ToolResult{{ToolName: "trace_query", Success: true}})
+		mutate()
+		if got := runtimeTraceAuthorityRequestModel(bus); got != nil {
+			t.Errorf("%s must fail closed, got %+v", name, got.RuntimeTargets)
+		}
+	}
+}
+
 func TestPersistMergedAnswerDocumentWiresTypedWaitCoverageCaveats(t *testing.T) {
 	bus := runtimeWaitCoverageTestBus()
 	doc := &types.AnswerDocumentV2{
@@ -335,6 +410,33 @@ func TestRuntimeTargetStateAuthorityPublishesCompleteOccurrenceSummary(t *testin
 		if !strings.Contains(got, want) {
 			t.Fatalf("target-state authority missing %q:\n%s", want, got)
 		}
+	}
+
+	// Analyzer-emission-gap twin: the durable request model contains only the
+	// model cursor, while its typed entity and the executed supplement agree
+	// on the same PID. The complete occurrence roster must remain available
+	// to the principal card without promoting the cursor globally.
+	bus.AnalysisIR.RequestModel.RuntimeTargets = []types.RuntimeTarget{{
+		Kind: types.RuntimeTargetKindThread, PID: 17267, Thread: target,
+		Source: types.RuntimeTargetSourceExplicitToolCall, Confidence: 1,
+	}}
+	bus.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{target}
+	bus.Mutable.SetRequestModel(bus.AnalysisIR.RequestModel)
+	bus.Mutable.SetSystemTraceSupplement(types.SystemTraceSupplementMeta{
+		Views: []string{"root_cause_rank"}, TargetPID: 17267,
+		TargetThread: target, TargetSource: "cursor",
+	}, []types.ToolResult{{ToolName: "trace_query", Success: true}})
+	consensusDoc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "summary", Kind: types.BlockSummary, Text: "model text",
+	}}}
+	if !materializeRuntimeTraceTargetStateAuthorityBlock(consensusDoc, bus) {
+		t.Fatal("typed entity/supplement consensus must recover target wait authority")
+	}
+	consensusSurface := types.AnswerBlockVisibleSurface(consensusDoc.Blocks[0])
+	if !strings.Contains(consensusSurface, "target_wait_occurrence_roster=complete") ||
+		!strings.Contains(consensusSurface, "occurrences=2") ||
+		!strings.Contains(consensusSurface, "occurrence_wall_clock_sum=6.000ms") {
+		t.Fatalf("consensus target lost complete occurrence values:\n%s", consensusSurface)
 	}
 }
 

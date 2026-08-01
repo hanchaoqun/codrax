@@ -42,6 +42,43 @@ func TestTraceQueryCursorTargetKindFollowsExplicitScopeOnly(t *testing.T) {
 	}
 }
 
+func TestTraceQueryCursorCanonicalizesEquivalentSelectorSpellings(t *testing.T) {
+	ctx := &types.BusContext{
+		Mutable:    types.NewMutableState("q"),
+		AnalysisIR: &types.AnalysisIR{},
+	}
+	var named, pidOnly traceQueryParams
+	if err := json.Unmarshal([]byte(`{"thread":"CompThread_0-2955"}`), &named); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(`{"thread":"pid=2955"}`), &pidOnly); err != nil {
+		t.Fatal(err)
+	}
+	traceQueryRecordExplicitRuntimeTarget(ctx, named)
+	traceQueryRecordExplicitRuntimeTarget(ctx, pidOnly)
+	targets := ctx.AnalysisIR.RequestModel.RuntimeTargets
+	if len(targets) != 1 || targets[0].PID != 2955 || targets[0].Thread != "CompThread_0" ||
+		!types.RuntimeTargetIsExplorationCursorSource(targets[0].Source) {
+		t.Fatalf("equivalent selector spellings must mint one canonical cursor target: %+v", targets)
+	}
+	if target, source, ok := traceSupplementDeriveTarget(ctx); !ok ||
+		target.PID != 2955 || target.Thread != "CompThread_0" || source != "cursor" {
+		t.Fatalf("canonical cursor must be supplementable: target=%+v source=%q ok=%t", target, source, ok)
+	}
+
+	var distinct traceQueryParams
+	if err := json.Unmarshal([]byte(`{"thread":"peer-3000"}`), &distinct); err != nil {
+		t.Fatal(err)
+	}
+	traceQueryRecordExplicitRuntimeTarget(ctx, distinct)
+	if len(ctx.AnalysisIR.RequestModel.RuntimeTargets) != 2 {
+		t.Fatalf("distinct pids must remain separate: %+v", ctx.AnalysisIR.RequestModel.RuntimeTargets)
+	}
+	if _, _, ok := traceSupplementDeriveTarget(ctx); ok {
+		t.Fatal("distinct cursor pids must remain ambiguous")
+	}
+}
+
 func TestTraceQueryTargetScopeSchemaAndQueryPropagation(t *testing.T) {
 	schema := string((&TraceQuery{}).Parameters())
 	if !strings.Contains(schema, `"target_scope"`) ||

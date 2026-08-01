@@ -14662,6 +14662,20 @@ func traceQueryRecordExplicitRuntimeTarget(ctx *types.BusContext, p traceQueryPa
 	}
 	pid := p.PID.Int()
 	thread := strings.TrimSpace(p.Thread)
+	// EVAL-B13-AJ1 (2026-07-31): cursor identity must use the SAME selector
+	// grammar as the engine. "CompThread_0-2955" and "pid=2955" are legal
+	// spellings of one TID, not two thread-only labels. Keeping their raw
+	// spellings here made the deterministic supplement fail no_typed_target
+	// under an otherwise exact user window.
+	if parsedPID, parsedName, ok := tracequery.ParseThreadSelectorIdentity(thread); ok {
+		switch {
+		case pid <= 0:
+			pid = parsedPID
+			thread = parsedName
+		case pid == parsedPID:
+			thread = parsedName
+		}
+	}
 	if pid <= 0 && thread == "" {
 		return
 	}
@@ -14766,9 +14780,35 @@ func traceQueryAppendRuntimeTarget(existing []types.RuntimeTarget, target types.
 		return existing
 	}
 	key := traceQueryRuntimeTargetKey(target)
-	for _, current := range existing {
+	for index, current := range existing {
 		if traceQueryRuntimeTargetKey(current) == key {
 			return existing
+		}
+		// Cursor entries are model exploration locations, so equivalent legal
+		// selector spellings for the same positive PID are one identity. Merge
+		// only within this provenance lane and kind; user-pinned targets are
+		// never rewritten. A name adds display precision, while two genuinely
+		// different names conservatively collapse to pid-only. Distinct PIDs
+		// remain separate and therefore keep the supplement fail-closed.
+		if types.RuntimeTargetIsExplorationCursorSource(target.Source) &&
+			types.RuntimeTargetIsExplorationCursorSource(current.Source) &&
+			types.NormalizeRuntimeTargetKind(current.Kind) == types.NormalizeRuntimeTargetKind(target.Kind) &&
+			current.PID > 0 && current.PID == target.PID {
+			merged := append([]types.RuntimeTarget(nil), existing...)
+			currentName := strings.TrimSpace(current.Thread)
+			targetName := strings.TrimSpace(target.Thread)
+			switch {
+			case currentName == "":
+				merged[index].Thread = targetName
+			case targetName == "":
+				// Keep the existing, more informative name.
+			case !strings.EqualFold(currentName, targetName):
+				merged[index].Thread = ""
+			}
+			if target.Confidence > merged[index].Confidence {
+				merged[index].Confidence = target.Confidence
+			}
+			return merged
 		}
 	}
 	return append(existing, target)

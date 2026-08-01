@@ -192,6 +192,44 @@ func TestTraceSupplementExplicitWindowDStateFactRunsCoreFamiliesEndToEnd(t *test
 	}
 }
 
+func TestTraceSupplementExplicitWindowUnifiesEquivalentCursorSelectorsEndToEnd(t *testing.T) {
+	ctx := suppCoreContext(t)
+	start, end := 3.0, 3.2
+	rm := &ctx.AnalysisIR.RequestModel
+	rm.RuntimeTargets = nil
+	rm.Intent = types.IntentTrace
+	rm.PredicateAxis = types.AxisCondition
+	rm.RuntimeArtifactScopeProfile = &types.RuntimeArtifactScopeProfile{
+		RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
+		TimeStart:      &start,
+		TimeEnd:        &end,
+		SourceQuote:    "typed-window-witness",
+	}
+	rm.AnalyzerHints = types.AnalyzerHints{
+		Kind:     string(types.ReqConditional),
+		Keywords: []string{"D-state", "blocked_reason"},
+		Entities: []string{"worker-200"},
+	}
+
+	// The engine accepts both forms as TID 200. The run-scoped cursor must
+	// canonicalize them before target unification; otherwise this exact-window
+	// investigation incorrectly skips the causal supplement as ambiguous.
+	suppCoreModelCall(t, ctx, `{"view":"event_search","thread":"worker-200","time_start":3.0,"time_end":3.2}`)
+	suppCoreModelCall(t, ctx, `{"view":"event_search","thread":"pid=200","time_start":3.0,"time_end":3.2}`)
+	out := RunTraceQuerySystemSupplement(ctx)
+	if !out.Attempted || out.SkipReason != "" ||
+		len(out.Executed) != 2 ||
+		out.Executed[0] != "root_cause_rank" ||
+		out.Executed[1] != "critical_blocking_calls" {
+		t.Fatalf("equivalent cursor selectors must restore the exact-window causal supplement: %+v", out)
+	}
+	meta := ctx.Mutable.SystemTraceSupplementMeta()
+	if meta == nil || meta.TargetPID != 200 || meta.TargetThread != "worker" ||
+		meta.TargetSource != "cursor" || meta.WindowStart != start || meta.WindowEnd != end {
+		t.Fatalf("supplement meta lost canonical target/window identity: %+v", meta)
+	}
+}
+
 func TestTraceSupplementExplainMechanismStateFactUsesNarrowFamilies(t *testing.T) {
 	ctx := &types.BusContext{
 		Mutable: types.NewMutableState("explain target state and kernel wait reason"),

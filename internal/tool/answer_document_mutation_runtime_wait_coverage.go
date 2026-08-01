@@ -14,7 +14,103 @@ const (
 	runtimeTraceBlockingCoverageAuthorityBlockID  = "runtime_trace_blocking_coverage_authority"
 	runtimeTraceTargetStateAuthorityBlockID       = "runtime_trace_target_state_authority"
 	runtimeTraceBlockedReasonCensusCaliberBlockID = "runtime_trace_blocked_reason_census_caliber"
+	runtimeTraceTypedTargetConsensusSource        = "typed_entity_supplement_consensus"
 )
+
+// runtimeTraceAuthorityRequestModel returns the typed user-target authority
+// used by deterministic answer-side numeric compilers.
+//
+// Analyzer-emitted RuntimeTargets remain the primary lane. When that lane is
+// absent (a demonstrated classifier emission gap), answer authority may be
+// recovered only through agreement between two structured runtime faces:
+//
+//   - exactly one analyzer entity that passes the strict name-pid parser; and
+//   - an actually executed system supplement whose canonical positive target
+//     PID is identical and came from the cursor/entities fallback lane.
+//
+// Model cursor identity alone is never promoted. Raw request text and model
+// answer prose are never read. The returned RequestModel is a private clone,
+// so this answer-time consensus cannot mutate user intent or affect future
+// trace_query inheritance/supplement selection.
+func runtimeTraceAuthorityRequestModel(ctx *types.BusContext) *types.RequestModel {
+	if ctx == nil {
+		return nil
+	}
+	var base *types.RequestModel
+	if ctx.AnalysisIR != nil {
+		cloned := ctx.AnalysisIR.RequestModel
+		base = &cloned
+	}
+	if base == nil && ctx.Mutable != nil {
+		if rm := ctx.Mutable.RequestModel(); rm != nil {
+			cloned := *rm
+			base = &cloned
+		}
+	}
+	if base == nil {
+		return nil
+	}
+	hasUserTarget := func(rm *types.RequestModel) bool {
+		if rm == nil {
+			return false
+		}
+		for _, target := range rm.RuntimeTargets {
+			if types.RuntimeTargetIsExplorationCursorSource(target.Source) {
+				continue
+			}
+			scope := traceSupplementRuntimeTargetScope(target.Kind)
+			if traceQueryTypedRuntimeTargetSafe(traceQueryRequestTarget{
+				PID: target.PID, Thread: strings.TrimSpace(target.Thread), TargetScope: scope,
+			}) {
+				return true
+			}
+		}
+		return false
+	}
+	if hasUserTarget(base) {
+		return base
+	}
+	if ctx.Mutable == nil {
+		return nil
+	}
+	if rm := ctx.Mutable.RequestModel(); hasUserTarget(rm) {
+		cloned := *rm
+		return &cloned
+	}
+	meta := ctx.Mutable.SystemTraceSupplementMeta()
+	if meta == nil || meta.TargetPID <= 0 || meta.TargetPID > types.RuntimeTargetMaxPID ||
+		len(meta.Views) == 0 {
+		return nil
+	}
+	supplementExecuted := false
+	for _, result := range ctx.Mutable.SystemTraceSupplementResults() {
+		if result.Success {
+			supplementExecuted = true
+			break
+		}
+	}
+	if !supplementExecuted {
+		return nil
+	}
+	switch strings.TrimSpace(meta.TargetSource) {
+	case "cursor", traceSupplementTargetSourceEntitiesFallback:
+	default:
+		return nil
+	}
+	entityTarget, ok := traceSupplementEntitiesFallbackTarget(ctx)
+	if !ok || entityTarget.PID != meta.TargetPID {
+		return nil
+	}
+	cloned := *base
+	cloned.RuntimeTargets = append(append([]types.RuntimeTarget(nil), base.RuntimeTargets...), types.RuntimeTarget{
+		Kind:       types.RuntimeTargetKindThread,
+		PID:        meta.TargetPID,
+		Thread:     strings.TrimSpace(entityTarget.Thread),
+		Source:     runtimeTraceTypedTargetConsensusSource,
+		Confidence: 1,
+	})
+	return &cloned
+}
 
 // materializeRuntimeTraceBlockingCoverageAuthorityCaveat publishes the
 // lower-bound boundary already carried by typed target-owned blocking
@@ -32,11 +128,12 @@ func materializeRuntimeTraceBlockingCoverageAuthorityCaveat(doc *types.AnswerDoc
 	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(
 		ctx, types.ObservationExtractLedgerEvidenceLimit,
 	))
+	authorityRM := runtimeTraceAuthorityRequestModel(ctx)
 	blocking := types.BuildTraceBlockingWallClockAuthorities(
-		ledger, &ctx.AnalysisIR.RequestModel,
+		ledger, authorityRM,
 	)
 	requests := types.BuildTraceIPCRequestCensusAuthorities(
-		ledger, &ctx.AnalysisIR.RequestModel,
+		ledger, authorityRM,
 	)
 	zh := runtimeTraceCausalProjectionUseChinese(requestedAnswerDocumentLanguage(ctx))
 	var caveats []string
@@ -127,7 +224,7 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 	if len(states) == 0 {
 		return false
 	}
-	waits := types.BuildTraceTargetWaitSummaryAuthorities(ledger, &ctx.AnalysisIR.RequestModel)
+	waits := types.BuildTraceTargetWaitSummaryAuthorities(ledger, runtimeTraceAuthorityRequestModel(ctx))
 	zh := runtimeTraceCausalProjectionUseChinese(requestedAnswerDocumentLanguage(ctx))
 	rows := make([]string, 0, len(states))
 	for i, state := range states {
@@ -278,7 +375,7 @@ func materializeRuntimeTraceBlockedReasonCensusCaliberCaveat(doc *types.AnswerDo
 	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(
 		ctx, types.ObservationExtractLedgerEvidenceLimit,
 	))
-	rows := runtimeTraceBlockedReasonCensusCalibers(ledger, &ctx.AnalysisIR.RequestModel)
+	rows := runtimeTraceBlockedReasonCensusCalibers(ledger, runtimeTraceAuthorityRequestModel(ctx))
 	if len(rows) == 0 {
 		return false
 	}

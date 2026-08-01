@@ -70,6 +70,22 @@ func parseThreadSelector(raw string) threadSelector {
 	return sel
 }
 
+// ParseThreadSelectorIdentity exposes the canonical identity parsed by the
+// trace engine's single selector grammar. Callers that record/query typed
+// target identity must use this helper rather than re-parsing the accepted
+// numeric, pid=/tid=, bracket, space, or name-pid spellings independently.
+//
+// A selector without a positive pid is not a complete identity and returns
+// ok=false. Name is the canonical bare name and may be empty for pid-only
+// selectors.
+func ParseThreadSelectorIdentity(raw string) (pid int, name string, ok bool) {
+	sel := parseThreadSelector(raw)
+	if !sel.HasPID || sel.PID <= 0 {
+		return 0, "", false
+	}
+	return sel.PID, sel.Name, true
+}
+
 func lastRegexpMatch(re *regexp.Regexp, s string) []int {
 	matches := re.FindAllStringSubmatchIndex(s, -1)
 	if len(matches) == 0 {
