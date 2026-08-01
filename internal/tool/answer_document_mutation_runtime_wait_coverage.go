@@ -230,19 +230,30 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 	if doc == nil || ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
-	if !runtimeTraceFullReportMaterializationAllowed(ctx) {
+	if !runtimeTracePrincipalValueMaterializationAllowed(ctx) {
 		return false
 	}
 	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(
 		ctx, types.ObservationExtractLedgerEvidenceLimit,
 	))
+	authorityRM := runtimeTraceAuthorityRequestModel(ctx)
 	states := types.BuildTraceTargetStateScopeAuthorities(types.CompileTraceCausalProjectionSet(ledger))
-	if len(states) == 0 {
+	targetStates := make([]types.TraceTargetStateScopeAuthority, 0, len(states))
+	for _, state := range states {
+		if types.ObservationRecordMatchesUserRuntimeTarget(types.ObservationRecord{
+			Subject: state.Subject,
+		}, authorityRM) {
+			targetStates = append(targetStates, state)
+		}
+	}
+	states = targetStates
+	waits := types.BuildTraceTargetWaitSummaryAuthorities(ledger, authorityRM)
+	if len(states) == 0 && len(waits) == 0 {
 		return false
 	}
-	waits := types.BuildTraceTargetWaitSummaryAuthorities(ledger, runtimeTraceAuthorityRequestModel(ctx))
 	zh := runtimeTraceCausalProjectionUseChinese(requestedAnswerDocumentLanguage(ctx))
 	rows := make([]string, 0, len(states))
+	matchedWaits := map[string]bool{}
 	for i, state := range states {
 		if i >= 4 {
 			break
@@ -311,51 +322,43 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 			}
 		}
 		if wait, ok := matchingTraceTargetWaitSummary(state, waits); ok {
-			pairedStateMS := state.DStateMS + state.IOWaitMS + state.SleepIOWaitMS
-			identity := ""
-			if math.Abs(wait.WallClockMS-pairedStateMS) <= 0.002 {
-				if zh {
-					identity = "；occurrence_wall_clock_sum 与上述 D/IO 配对状态账一致"
-				} else {
-					identity = "; occurrence_wall_clock_sum matches the paired D/IO state account above"
-				}
-			}
-			if zh {
-				row += fmt.Sprintf(
-					"；target_wait_occurrence_roster=complete，occurrences=%d，d_state_occurrences=%d，io_wait_occurrences=%d，sleep_iowait_occurrences=%d，other_wait_occurrences=%d，occurrence_wall_clock_sum=%.3fms，wait_callers=%s%s",
-					wait.Count,
-					wait.DStateOccurrences,
-					wait.IOWaitOccurrences,
-					wait.SleepIOWaitOccurrences,
-					wait.OtherWaitOccurrences,
-					wait.WallClockMS,
-					runtimeTraceWaitCallerRoster(wait.Callers, zh),
-					identity,
-				)
-			} else {
-				row += fmt.Sprintf(
-					"; target_wait_occurrence_roster=complete, occurrences=%d, d_state_occurrences=%d, io_wait_occurrences=%d, sleep_iowait_occurrences=%d, other_wait_occurrences=%d, occurrence_wall_clock_sum=%.3fms, wait_callers=%s%s",
-					wait.Count,
-					wait.DStateOccurrences,
-					wait.IOWaitOccurrences,
-					wait.SleepIOWaitOccurrences,
-					wait.OtherWaitOccurrences,
-					wait.WallClockMS,
-					runtimeTraceWaitCallerRoster(wait.Callers, zh),
-					identity,
-				)
-			}
+			row += runtimeTraceTargetWaitSummarySuffix(wait, &state, zh)
+			matchedWaits[wait.RecordID] = true
 		}
 		rows = append(rows, row)
+	}
+	for _, wait := range waits {
+		if len(rows) >= 4 || matchedWaits[wait.RecordID] {
+			continue
+		}
+		var row string
+		if zh {
+			row = fmt.Sprintf(
+				"目标等待发生主值：artifact=%s，selected_window=%.6f..%.6f，subject=%s",
+				wait.ArtifactLabel,
+				wait.WindowStartTs,
+				wait.WindowEndTs,
+				wait.Subject,
+			)
+		} else {
+			row = fmt.Sprintf(
+				"Target-wait occurrence authority: artifact=%s, selected_window=%.6f..%.6f, subject=%s",
+				wait.ArtifactLabel,
+				wait.WindowStartTs,
+				wait.WindowEndTs,
+				wait.Subject,
+			)
+		}
+		rows = append(rows, row+runtimeTraceTargetWaitSummarySuffix(wait, nil, zh))
 	}
 	if len(rows) == 0 {
 		return false
 	}
 	title := "系统权威主值：目标线程状态与等待发生"
-	lead := "以下值来自同一显式窗的 typed 调度状态账；后续模型正文若给出冲突的次数、总量或量纲，以本块为准。blocked_reason 的记录数/Σdelay、IPC 传输延迟与线程状态墙钟不得互相替代。"
+	lead := "以下值来自 typed 调度状态账和同一结果内 producer 配对的完整等待 roster；后续模型正文若给出冲突的次数、总量、明细或量纲，以本块为准。blocked_reason 的记录数/Σdelay、IPC 传输延迟与线程状态墙钟不得互相替代；其他 observation/census 的 capacity_truncated 不会降级这里已标为 complete 的 roster。"
 	if !zh {
 		title = "System authority: target-thread state and wait occurrences"
-		lead = "These values come from the typed scheduler-state account for the same selected window. If later model prose conflicts on count, total, or caliber, this block is authoritative. blocked_reason record count/Σdelay, IPC transport latency, and thread-state wall clock are not interchangeable."
+		lead = "These values come from the typed scheduler-state account and the complete producer-paired wait roster in one result. If later model prose conflicts on count, total, rows, or caliber, this block is authoritative. blocked_reason record count/Σdelay, IPC transport latency, and thread-state wall clock are not interchangeable; capacity_truncated on another observation/census does not downgrade a roster marked complete here."
 	}
 	return insertRuntimeTraceLeadAuthorityBlock(doc, types.AnswerBlock{
 		ID:    runtimeTraceTargetStateAuthorityBlockID,
@@ -363,6 +366,57 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 		Title: title,
 		Text:  lead + "\n\n" + strings.Join(rows, "\n\n"),
 	})
+}
+
+func runtimeTraceTargetWaitSummarySuffix(
+	wait types.TraceTargetWaitSummaryAuthority,
+	state *types.TraceTargetStateScopeAuthority,
+	zh bool,
+) string {
+	identity := ""
+	if state != nil {
+		pairedStateMS := state.DStateMS + state.IOWaitMS + state.SleepIOWaitMS
+		if math.Abs(wait.WallClockMS-pairedStateMS) <= 0.002 {
+			if zh {
+				identity = "；occurrence_wall_clock_sum 与上述 D/IO 配对状态账一致"
+			} else {
+				identity = "; occurrence_wall_clock_sum matches the paired D/IO state account above"
+			}
+		}
+	}
+	var b strings.Builder
+	if zh {
+		fmt.Fprintf(
+			&b,
+			"；target_wait_occurrence_roster=complete，roster_scope=producer_paired_complete，occurrences=%d，d_state_occurrences=%d，io_wait_occurrences=%d，sleep_iowait_occurrences=%d，other_wait_occurrences=%d，occurrence_wall_clock_sum=%.3fms，wait_callers=%s，unrelated_capacity_truncation_does_not_downgrade=true%s",
+			wait.Count,
+			wait.DStateOccurrences,
+			wait.IOWaitOccurrences,
+			wait.SleepIOWaitOccurrences,
+			wait.OtherWaitOccurrences,
+			wait.WallClockMS,
+			runtimeTraceWaitCallerRoster(wait.Callers, zh),
+			identity,
+		)
+	} else {
+		fmt.Fprintf(
+			&b,
+			"; target_wait_occurrence_roster=complete, roster_scope=producer_paired_complete, occurrences=%d, d_state_occurrences=%d, io_wait_occurrences=%d, sleep_iowait_occurrences=%d, other_wait_occurrences=%d, occurrence_wall_clock_sum=%.3fms, wait_callers=%s, unrelated_capacity_truncation_does_not_downgrade=true%s",
+			wait.Count,
+			wait.DStateOccurrences,
+			wait.IOWaitOccurrences,
+			wait.SleepIOWaitOccurrences,
+			wait.OtherWaitOccurrences,
+			wait.WallClockMS,
+			runtimeTraceWaitCallerRoster(wait.Callers, zh),
+			identity,
+		)
+	}
+	for _, occurrence := range wait.Occurrences {
+		b.WriteString("\n- target_wait_occurrence=")
+		b.WriteString(occurrence.CanonicalLine())
+	}
+	return b.String()
 }
 
 func runtimeTraceWaitCallerRoster(callers []string, zh bool) string {

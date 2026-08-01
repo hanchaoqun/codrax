@@ -24,7 +24,7 @@ func TestRunPreEmitChecks_NilSafe(t *testing.T) {
 	}
 }
 
-func TestPreCheckTargetWaitOccurrenceConsistencyUsesCompleteTypedRosterAsHardGate(t *testing.T) {
+func TestPreCheckTargetWaitOccurrenceConsistencyIsAdvisoryOnly(t *testing.T) {
 	count := 3
 	observation := types.ObservationRecord{
 		ID:              "trace_query:window#target_window_wait_occurrences",
@@ -71,13 +71,13 @@ func TestPreCheckTargetWaitOccurrenceConsistencyUsesCompleteTypedRosterAsHardGat
 		},
 	}}}
 	hints := preCheckTargetWaitOccurrenceConsistency(wrong, newPreEmitCheckContext(ctx))
-	if len(hints) != 1 || !hints[0].ForceHard ||
+	if len(hints) != 1 || hints[0].ForceHard || hints[0].HardSignal != "" ||
 		!strings.Contains(hints[0].ExpectedShape, "34579.471372..34579.471722") {
-		t.Fatalf("wrong complete occurrence relation should produce a precise hard repair: %+v", hints)
+		t.Fatalf("wrong complete occurrence relation should produce a precise advisory: %+v", hints)
 	}
 	hard, advisory := splitPreEmitHintsByGate(hints)
-	if len(hard) != 1 || len(advisory) != 0 {
-		t.Fatalf("typed complete roster must route same-turn hard: hard=%+v advisory=%+v", hard, advisory)
+	if len(hard) != 0 || len(advisory) != 1 {
+		t.Fatalf("model-prose occurrence scan must never route same-turn hard: hard=%+v advisory=%+v", hard, advisory)
 	}
 
 	wrong.Blocks[0].Items[2].Text = "34579.471372..34579.471722，0.350ms"
@@ -85,18 +85,35 @@ func TestPreCheckTargetWaitOccurrenceConsistencyUsesCompleteTypedRosterAsHardGat
 		t.Fatalf("exact complete roster should pass: %+v", got)
 	}
 
-	// EVAL-B1-R21: a model-authored visible section is still an answer claim
-	// when the optional surface_role annotation is absent. The complete typed
-	// roster must reject the ninth-replay shape before persistence.
+	// A model-authored visible section still contributes an advisory when the
+	// optional surface_role annotation is absent, but it cannot reject the
+	// answer: interval/duration ownership is not typed in free prose.
 	unannotatedSections := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
 		{ID: "one", Kind: types.BlockSection, Text: "34579.451701 ~ 34579.451839，0.138ms"},
 		{ID: "two", Kind: types.BlockSection, Text: "34579.452934 ~ 34579.453081，0.147ms"},
 		{ID: "three", Kind: types.BlockSection, Text: "34579.471372 ~ 34579.471743，0.371ms（账面 0.350ms）"},
 	}}
 	hints = preCheckTargetWaitOccurrenceConsistency(unannotatedSections, newPreEmitCheckContext(ctx))
-	if len(hints) != 1 || !hints[0].ForceHard ||
+	if len(hints) != 1 || hints[0].ForceHard || hints[0].HardSignal != "" ||
 		!strings.Contains(hints[0].ExpectedShape, "34579.471372..34579.471722") {
-		t.Fatalf("unannotated visible section must receive exact roster repair: %+v", hints)
+		t.Fatalf("unannotated visible section must receive an exact-roster advisory: %+v", hints)
+	}
+
+	// Customer replay shape: one summary contains the selected analysis
+	// window and all three correct occurrence rows. The old segment-wide
+	// matcher reported the selected window as a conflict and forced eight
+	// retries. It may remain observable as a noisy advisory, but can never be
+	// a hard gate.
+	combined := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "summary", Kind: types.BlockSummary, Text: "selected_window=34579.450000..34579.600000\n" +
+			"34579.451701..34579.451839 0.138ms\n" +
+			"34579.452934..34579.453081 0.147ms\n" +
+			"34579.471372..34579.471722 0.350ms",
+	}}}
+	hints = preCheckTargetWaitOccurrenceConsistency(combined, newPreEmitCheckContext(ctx))
+	hard, advisory = splitPreEmitHintsByGate(hints)
+	if len(hard) != 0 || len(advisory) == 0 {
+		t.Fatalf("analysis-window collision may be advisory only: hard=%+v advisory=%+v", hard, advisory)
 	}
 }
 

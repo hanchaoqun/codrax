@@ -373,7 +373,6 @@ type preEmitSameTurnHardSignal string
 const (
 	preEmitHardSignalCompletePrincipalMemberSet preEmitSameTurnHardSignal = "complete_principal_member_set"
 	preEmitHardSignalTypedRequiredBlockKind     preEmitSameTurnHardSignal = "typed_required_block_kind"
-	preEmitHardSignalCompleteTargetWaitRoster   preEmitSameTurnHardSignal = "complete_target_wait_roster"
 )
 
 type preEmitSameTurnHardPolicyRow struct {
@@ -385,7 +384,6 @@ func preEmitSameTurnHardPolicyRows() []preEmitSameTurnHardPolicyRow {
 	return []preEmitSameTurnHardPolicyRow{
 		{Kind: types.ViolExhaustiveMemberSetCoverageDrift, Signal: preEmitHardSignalCompletePrincipalMemberSet},
 		{Kind: types.ViolBlockCoverageMissing, Signal: preEmitHardSignalTypedRequiredBlockKind},
-		{Kind: types.ViolExhaustiveMemberSetCoverageDrift, Signal: preEmitHardSignalCompleteTargetWaitRoster},
 	}
 }
 
@@ -407,7 +405,7 @@ func preEmitSameTurnHardPolicyRows() []preEmitSameTurnHardPolicyRow {
 //     appendPreEmitHints/tagPreEmitHints in the checker body
 //     (go/parser scan — self-updating, no manual sync),
 //  4. hard lanes exist ONLY where preEmitSameTurnHardPolicyRows has
-//     a row (three tightly pinned typed signals).
+//     a row (two tightly pinned typed signals).
 //
 // The table pins the CURRENT advisory routing. ViolCitation carriers
 // went hard→advisory through D1-F7w→D1-G95 (documented ping-pong);
@@ -452,7 +450,7 @@ func preEmitSubgateRouteTable() []preEmitSubgateRouteRow {
 		{Subgate: "inactive_scope_disclosure", ViolationKind: types.ViolInactiveScopeDisclosureMissing},
 		{Subgate: "aggregate_scalar_value_coverage", ViolationKind: types.ViolAcceptance},
 		{Subgate: "aggregate_member_set_coverage", ViolationKind: types.ViolExhaustiveMemberSetCoverageDrift, HardLane: preEmitHardSignalCompletePrincipalMemberSet},
-		{Subgate: "target_wait_occurrence_consistency", ViolationKind: types.ViolExhaustiveMemberSetCoverageDrift, HardLane: preEmitHardSignalCompleteTargetWaitRoster},
+		{Subgate: "target_wait_occurrence_consistency", ViolationKind: types.ViolExhaustiveMemberSetCoverageDrift},
 		{Subgate: "source_inventory_candidate_universe_coverage", ViolationKind: types.ViolExhaustiveMemberSetCoverageDrift},
 		{Subgate: "aggregate_cardinality_consistency", ViolationKind: types.ViolCardinalityShort},
 		{Subgate: "relation_member_set_answer_shape", ViolationKind: types.ViolExhaustiveMemberSetCoverageDrift},
@@ -736,7 +734,13 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 		}
 	}
 	if h := preCheckTargetWaitOccurrenceConsistency(doc, pctx); len(h) > 0 {
-		hints = appendPreEmitHints(hints, types.ViolExhaustiveMemberSetCoverageDrift, h)
+		// A visible model block can contain an analysis window, one or more
+		// occurrence windows, and several duration tokens. Their relation is
+		// not represented in free text, so this regex-based comparison is a
+		// noisy diagnostic rather than a precise hard signal. The persisted
+		// system-owned principal-value card publishes the complete typed
+		// roster without asking the model to repair its prose.
+		logSoftPreEmitAdvisory("emit_answer_document", "target wait occurrence consistency", h)
 	}
 	if h := preCheckSourceInventoryCandidateUniverseCoverage(doc, ctxOpt...); len(h) > 0 {
 		hints = appendPreEmitHints(hints, types.ViolExhaustiveMemberSetCoverageDrift, h)
@@ -805,11 +809,6 @@ func preCheckTargetWaitOccurrenceConsistency(doc *types.AnswerDocumentV2, pctx *
 		for _, row := range issue.Authority.Rows {
 			rows = append(rows, row.CanonicalLine())
 		}
-		fingerprintSource := strings.Join(append(
-			[]string{issue.Authority.Subject},
-			append(issue.Missing, issue.Conflicts...)...,
-		), "\n")
-		sum := sha256.Sum256([]byte(fingerprintSource))
 		reason := fmt.Sprintf(
 			"principal occurrence rows for typed target %q conflict with or omit the engine-paired complete roster",
 			issue.Authority.Subject,
@@ -822,11 +821,6 @@ func preCheckTargetWaitOccurrenceConsistency(doc *types.AnswerDocumentV2, pctx *
 			ExpectedShape: fmt.Sprintf("preserve exactly %d occurrence row(s), count=%d, sum_ms=%.3f: %s", len(rows), issue.Authority.Count, issue.Authority.SumMS, strings.Join(rows, " | ")),
 			Reason:        reason,
 			Kind:          types.ViolExhaustiveMemberSetCoverageDrift,
-			ForceHard:     true,
-			HardSignal:    preEmitHardSignalCompleteTargetWaitRoster,
-			SameCauseFingerprint: hex.EncodeToString(
-				sum[:],
-			),
 		}
 		hints = append(hints, hint)
 	}

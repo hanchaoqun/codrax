@@ -407,10 +407,14 @@ func TestRuntimeTargetStateAuthorityPublishesCompleteOccurrenceSummary(t *testin
 	for _, want := range []string{
 		"non_io_d_state=6.000ms",
 		"target_wait_occurrence_roster=complete",
+		"roster_scope=producer_paired_complete",
 		"occurrences=2",
 		"d_state_occurrences=2",
 		"occurrence_wall_clock_sum=6.000ms",
 		"wait_callers=dma_fence_default_w",
+		"unrelated_capacity_truncation_does_not_downgrade=true",
+		"target_wait_occurrence=#1 state=d_sleep 13762.811000..13762.813000 duration=2.000ms iowait=0 caller=dma_fence_default_w",
+		"target_wait_occurrence=#2 state=d_sleep 13762.821000..13762.825000 duration=4.000ms iowait=0 caller=dma_fence_default_w",
 		"与上述 D/IO 配对状态账一致",
 	} {
 		if !strings.Contains(got, want) {
@@ -443,6 +447,90 @@ func TestRuntimeTargetStateAuthorityPublishesCompleteOccurrenceSummary(t *testin
 		!strings.Contains(consensusSurface, "occurrences=2") ||
 		!strings.Contains(consensusSurface, "occurrence_wall_clock_sum=6.000ms") {
 		t.Fatalf("consensus target lost complete occurrence values:\n%s", consensusSurface)
+	}
+}
+
+func TestFocusedRuntimeFactPublishesTypedRosterWithoutFullCausalReport(t *testing.T) {
+	bus := runtimeWaitCoverageTestBus()
+	rm := &bus.AnalysisIR.RequestModel
+	rm.Intent = types.IntentExplain
+	rm.Scenario = types.ScenarioGeneric
+	rm.AnalyzerHints.Kind = string(types.ReqMechanism)
+	rm.PredicateAxis = types.AxisUnknown
+	rm.Predicates.IsDiagnosticQuestion = false
+	rm.DiagnosticProfile.IsDiagnostic = false
+
+	target := ".ugc.aweme.lite-17267"
+	count := 3
+	ref := types.ObservationSourceRef{
+		Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "attached_trace",
+		Path: "/tmp/attached_trace.txt",
+	}
+	records := []types.ObservationRecord{{
+		ID:     "trace_query:focused#target_window_wait_occurrences",
+		Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+		GroundingPolicy: types.ClaimGroundingHard, SourceRef: ref,
+		Span:      types.ObservationSpan{StartTs: 13762.791708, EndTs: 13763.024898},
+		Predicate: "target_window_wait_occurrences", Subject: target,
+		Object: "complete", Value: "3", ResultCount: &count,
+	}}
+	for index, bounds := range [][3]float64{
+		{13762.801000, 13762.801138, 0.138},
+		{13762.802000, 13762.802147, 0.147},
+		{13762.803000, 13762.803350, 0.350},
+	} {
+		records = append(records, types.ObservationRecord{
+			ID: fmt.Sprintf(
+				"trace_query:focused#target_window_wait_occurrence:%d",
+				index+1,
+			),
+			Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+			GroundingPolicy: types.ClaimGroundingHard, SourceRef: ref,
+			Span:      types.ObservationSpan{StartTs: bounds[0], EndTs: bounds[1]},
+			Predicate: "target_window_wait_occurrence", Subject: target,
+			Object: "state=io_wait;iowait=1;caller=sync_buffer_read_wi",
+			Value:  fmt.Sprintf("%.3f", bounds[2]), Unit: "ms",
+		})
+	}
+	bus.ToolResults[0].Observations = append(bus.ToolResults[0].Observations, records...)
+
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID: "summary", Kind: types.BlockSummary,
+			Text: "model prose contains an unrelated capacity caveat",
+		}},
+	}
+	result, err := ApplyAndPersistMutation(
+		bus,
+		"test_emit",
+		types.NewReplaceAllMutation(doc),
+		nil,
+		time.Now(),
+	)
+	if err != nil || !result.Success {
+		t.Fatalf("focused principal-value persist failed: result=%+v err=%v", result, err)
+	}
+	persisted := bus.Mutable.AnswerDocumentV2()
+	if persisted == nil || len(persisted.Blocks) < 2 ||
+		persisted.Blocks[0].ID != runtimeTraceTargetStateAuthorityBlockID {
+		t.Fatalf("focused fact lost typed principal-value lead: %+v", persisted)
+	}
+	if answerDocumentHasRuntimeTraceCausalProjectionBlock(persisted) {
+		t.Fatalf("focused fact must not inherit the full causal projection: %+v", persisted.Blocks)
+	}
+	surface := types.AnswerBlockVisibleSurface(persisted.Blocks[0])
+	for _, want := range []string{
+		"target_wait_occurrence_roster=complete",
+		"occurrences=3",
+		"occurrence_wall_clock_sum=0.635ms",
+		"unrelated_capacity_truncation_does_not_downgrade=true",
+		"target_wait_occurrence=#1 state=io_wait 13762.801000..13762.801138 duration=0.138ms iowait=1 caller=sync_buffer_read_wi",
+		"target_wait_occurrence=#3 state=io_wait 13762.803000..13762.803350 duration=0.350ms iowait=1 caller=sync_buffer_read_wi",
+	} {
+		if !strings.Contains(surface, want) {
+			t.Fatalf("focused typed principal-value card missing %q:\n%s", want, surface)
+		}
 	}
 }
 

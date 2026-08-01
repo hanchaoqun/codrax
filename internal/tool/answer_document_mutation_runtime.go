@@ -1124,6 +1124,24 @@ func runtimeTraceFullReportMaterializationAllowed(ctx *types.BusContext) bool {
 	)
 }
 
+// runtimeTracePrincipalValueMaterializationAllowed is the narrower publication
+// authority for deterministic target-state / target-wait principal values.
+// A focused runtime fact intentionally suppresses the full causal report, but
+// it still needs the exact typed values that directly answer that fact. This
+// predicate never enables root ranking, wakeup chains, critical blocking, or
+// removable-work surfaces; those continue to use the full-report predicate.
+//
+// Only validated RequestModel fields participate. Raw request text and
+// model-authored answer prose are not read.
+func runtimeTracePrincipalValueMaterializationAllowed(ctx *types.BusContext) bool {
+	if runtimeTraceFullReportMaterializationAllowed(ctx) {
+		return true
+	}
+	return ctx != nil &&
+		ctx.AnalysisIR != nil &&
+		types.IsFocusedRuntimeFactQuestion(ctx.AnalysisIR.RequestModel)
+}
+
 // runtimeTraceCausalProjectionMaterializationAllowed is the narrower
 // authority for the causal-projection report itself. Trace evidence can answer
 // a generic artifact-coverage, timebase, sampling, or state question without

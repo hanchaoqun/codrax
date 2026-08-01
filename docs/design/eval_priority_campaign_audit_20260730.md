@@ -2894,9 +2894,9 @@ scan，天然无法区分分析窗、发生窗、引用窗和表格行。最优�
 
 | ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
 |---|---:|---|---|---|---|
-| EVAL-B14-HG1 | P0 | raw-prose hard-gate false conflict | 同一自由文本段可含分析窗、发生窗和多个 duration；正则式 hard gate 无 typed 归属，正确答案也会被拒绝 | occurrence consistency 仅保留 advisory；不再触发 retry/degraded export | planned-WS2 |
-| EVAL-B14-PV1 | P0 | focused principal-value publication | focused 无窗问题正确抑制 full projection，但连 exact typed roster 的窄权威卡也一起被抑制 | 新增 typed principal-value materialization authority；仅发布 state/complete roster，不发布 root/wakeup/eliminable | planned-WS2 |
-| EVAL-B14-CAP1 | P1 | coverage scope mismatch | 全结果或 blocked_reason census 的 capacity flag 被模型用于降级已 complete 的 target roster | system card 明确 producer-paired complete roster 优先；不同 scope 的容量边界不可跨载体传播 | planned-WS2 |
+| EVAL-B14-HG1 | P0 | raw-prose hard-gate false conflict | 同一自由文本段可含分析窗、发生窗和多个 duration；正则式 hard gate 无 typed 归属，正确答案也会被拒绝 | occurrence consistency 仅保留 advisory；不再触发 retry/degraded export | covered-pending-replay |
+| EVAL-B14-PV1 | P0 | focused principal-value publication | focused 无窗问题正确抑制 full projection，但连 exact typed roster 的窄权威卡也一起被抑制 | 新增 typed principal-value materialization authority；仅发布 state/complete roster，不发布 root/wakeup/eliminable | covered-pending-replay |
+| EVAL-B14-CAP1 | P1 | coverage scope mismatch | 全结果或 blocked_reason census 的 capacity flag 被模型用于降级已 complete 的 target roster | system card 明确 producer-paired complete roster 优先；不同 scope 的容量边界不可跨载体传播 | covered-pending-replay |
 | EVAL-B14-MV1 | P3 | model narrative caliber drift | 模型把墙钟 interval/state duration 写成非墙钟 | deterministic authority 已正确；先按波动留档，不做 prose 特判 | filed-model-variance |
 
 WS2 不变量：
@@ -2910,3 +2910,32 @@ WS2 不变量：
    连续 ordinal 和自洽 sum；冲突或不完整继续 fail-closed，不猜造行；
 6. broad capacity flag 仍保留在其原 observation 上，本批只禁止它越权降级另一
    个已经 complete 的 typed roster，不以删证据方式“修复”。
+
+WS2 已按上述边界落地：
+
+1. `complete_target_wait_roster` 已从 same-turn hard policy 和 subgate hard lane
+   移除；全文件 `ForceHard` 生产点 ratchet 从 2 收窄为 1。
+   `CheckTargetWaitOccurrencePrincipalConsistency` 仍可提供可观测 advisory，但
+   不再进入 reject/repair/breaker。
+2. 新增 `runtimeTracePrincipalValueMaterializationAllowed`：完整报告允许时保持
+   原行为；完整报告被 focused runtime fact 明确抑制时，只授权 target
+   state/wait principal card。其他完整报告 materializer 仍逐个受
+   `runtimeTraceFullReportMaterializationAllowed` 约束。
+3. `TraceTargetWaitSummaryAuthority` 现在保留同 result 已校验的 occurrence
+   结构行；主值卡逐条发布 ordinal、state、start/end、duration、iowait 和
+   caller，不从模型正文或相邻 sched 事件重建。
+4. 卡片发布
+   `roster_scope=producer_paired_complete` 和
+   `unrelated_capacity_truncation_does_not_downgrade=true`，明确别的
+   observation/census 容量边界不能降级这份 complete roster。
+5. 状态主值只保留与 typed RuntimeTarget 匹配的 subject；无状态分区但有完整
+   wait roster 时仍可单独发布 wait 主值，冲突/缺行继续 fail-closed。
+
+验证：
+
+- 定向 authority/pre-emit/persist/shape/registry tests 通过；
+- `go test ./internal/types -count=1`：20.785s；
+- `go test ./internal/tool -count=1`：164.446s；
+- 同一代码状态下
+  `go test ./internal/tracequery ./internal/agent ./internal/orchestrator ./internal/skill -count=1`
+  分别为 76.539s、4.313s、17.214s、3.624s。

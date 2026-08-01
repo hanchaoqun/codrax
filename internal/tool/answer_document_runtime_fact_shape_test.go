@@ -29,12 +29,18 @@ func TestRuntimeConditionalFactSuppressesFullTraceReportShape(t *testing.T) {
 	if runtimeTraceFullReportMaterializationAllowed(bus) {
 		t.Fatal("a typed target-state fact must not inherit the full trace report")
 	}
+	if !runtimeTracePrincipalValueMaterializationAllowed(bus) {
+		t.Fatal("a typed target-state fact must retain narrow principal-value publication")
+	}
 
 	// Adjacent negative controls: removing the target or asking for a call
 	// relation restores the report authority.
 	bus.AnalysisIR.RequestModel.RuntimeTargets = nil
 	if !runtimeTraceFullReportMaterializationAllowed(bus) {
 		t.Fatal("a target-less root-cause diagnostic still needs the full trace report")
+	}
+	if !runtimeTracePrincipalValueMaterializationAllowed(bus) {
+		t.Fatal("a full trace report also permits its principal-value card")
 	}
 	bus = runtimeConditionalFactBusForTest()
 	bus.AnalysisIR.RequestModel.AnalyzerHints.Kind = string(types.ReqCallChain)
@@ -54,6 +60,9 @@ func TestRuntimeExplainMechanismFactSuppressesFullTraceReportShape(t *testing.T)
 	rm.DiagnosticProfile.IsDiagnostic = false
 	if runtimeTraceFullReportMaterializationAllowed(bus) {
 		t.Fatal("non-diagnostic explain/mechanism target fact must not inherit the full trace report")
+	}
+	if !runtimeTracePrincipalValueMaterializationAllowed(bus) {
+		t.Fatal("non-diagnostic explain/mechanism target fact must retain narrow principal values")
 	}
 
 	windowStart, windowEnd := 34579.45, 34579.50
@@ -136,29 +145,39 @@ func TestRuntimeConditionalFactReportMaterializersShareShapeGate(t *testing.T) {
 	})
 	assertFunctionsUseRuntimeFactShapeGate(t, "answer_document_mutation_runtime_wait_coverage.go", []string{
 		"materializeRuntimeTraceBlockingCoverageAuthorityCaveat",
-		"materializeRuntimeTraceTargetStateAuthorityBlock",
 		"materializeRuntimeTraceBlockedReasonCensusCaliberCaveat",
 	})
+	assertFunctionsUseNamedShapeGate(
+		t,
+		"answer_document_mutation_runtime_wait_coverage.go",
+		"materializeRuntimeTraceTargetStateAuthorityBlock",
+		"runtimeTracePrincipalValueMaterializationAllowed(ctx)",
+	)
 }
 
 func assertFunctionsUseRuntimeFactShapeGate(t *testing.T, path string, names []string) {
+	t.Helper()
+	for _, name := range names {
+		assertFunctionsUseNamedShapeGate(t, path, name, "runtimeTraceFullReportMaterializationAllowed(ctx)")
+	}
+}
+
+func assertFunctionsUseNamedShapeGate(t *testing.T, path, name, gate string) {
 	t.Helper()
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	source := string(raw)
-	for _, name := range names {
-		start := strings.Index(source, "func "+name)
-		if start < 0 {
-			t.Fatalf("missing materializer %s in %s", name, path)
-		}
-		body := source[start:]
-		if next := strings.Index(body[len("func "):], "\nfunc "); next >= 0 {
-			body = body[:len("func ")+next]
-		}
-		if !strings.Contains(body, "runtimeTraceFullReportMaterializationAllowed(ctx)") {
-			t.Fatalf("%s bypasses the shared narrow-fact answer-shape gate", name)
-		}
+	start := strings.Index(source, "func "+name)
+	if start < 0 {
+		t.Fatalf("missing materializer %s in %s", name, path)
+	}
+	body := source[start:]
+	if next := strings.Index(body[len("func "):], "\nfunc "); next >= 0 {
+		body = body[:len("func ")+next]
+	}
+	if !strings.Contains(body, gate) {
+		t.Fatalf("%s bypasses answer-shape gate %s", name, gate)
 	}
 }

@@ -105,19 +105,6 @@ func TestPreEmitSubgateRouteTableRoutesMatchGateSplit(t *testing.T) {
 			if preEmitHintHardByDefault(plain) {
 				t.Errorf("subgate %q kind %q without ForceHard must stay advisory", row.Subgate, row.ViolationKind)
 			}
-		case preEmitHardSignalCompleteTargetWaitRoster:
-			if !policyRows[preEmitSameTurnHardPolicyRow{Kind: row.ViolationKind, Signal: row.HardLane}] {
-				t.Errorf("subgate %q hard lane %q has no policy row", row.Subgate, row.HardLane)
-			}
-			forced := plain
-			forced.ForceHard = true
-			forced.HardSignal = preEmitHardSignalCompleteTargetWaitRoster
-			if !preEmitHintHardByDefault(forced) {
-				t.Errorf("subgate %q typed complete target-wait roster hint must route hard", row.Subgate)
-			}
-			if preEmitHintHardByDefault(plain) {
-				t.Errorf("subgate %q kind %q without typed target-wait signal must stay advisory", row.Subgate, row.ViolationKind)
-			}
 		default:
 			t.Errorf("subgate %q declares unknown hard lane %q", row.Subgate, row.HardLane)
 		}
@@ -158,10 +145,11 @@ func TestPreEmitSubgateRouteTableMatchesCheckerBody(t *testing.T) {
 	}
 }
 
-// Exactly TWO ForceHard producer sites may exist in the checker file:
-// the complete-principal-member-set hint and the complete typed target-wait
-// roster consistency hint. Both are governed by distinct
-// preEmitSameTurnHardPolicyRows signals.
+// Exactly ONE ForceHard producer site may exist in the checker file: the
+// complete-principal-member-set hint. Free-prose target-wait consistency was
+// deliberately demoted to advisory because interval/duration ownership is not
+// typed in the rendered text. Every future hard producer still needs a
+// preEmitSameTurnHardPolicyRows ruling.
 func TestPreEmitForceHardProducerSitesPinned(t *testing.T) {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, preEmitCheckerSourceFile, nil, 0)
@@ -185,8 +173,8 @@ func TestPreEmitForceHardProducerSitesPinned(t *testing.T) {
 		}
 		return true
 	})
-	if producers != 2 {
-		t.Fatalf("expected exactly 2 ForceHard producer sites in %s, found %d — new hard producers must go through a preEmitSameTurnHardPolicyRows ruling", preEmitCheckerSourceFile, producers)
+	if producers != 1 {
+		t.Fatalf("expected exactly 1 ForceHard producer site in %s, found %d — new hard producers must go through a preEmitSameTurnHardPolicyRows ruling", preEmitCheckerSourceFile, producers)
 	}
 }
 

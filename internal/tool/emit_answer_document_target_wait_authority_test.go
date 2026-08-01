@@ -71,22 +71,29 @@ func targetWaitAuthorityEmit(third string) json.RawMessage {
 	}`)
 }
 
-func TestEmitAnswerDocumentRejectsConflictingCompleteTargetWaitRosterBeforePersist(t *testing.T) {
+func TestEmitAnswerDocumentTreatsModelTargetWaitRosterDriftAsAdvisory(t *testing.T) {
 	bus := targetWaitAuthorityIntegrationBus()
 	emit := &EmitAnswerDocument{}
 	res, err := emit.Execute(bus, targetWaitAuthorityEmit("34579.471723..34579.471876"))
 	if err != nil {
 		t.Fatalf("tool errors are carried in ToolResult, got Go error: %v", err)
 	}
-	if res.Success || res.Repair == nil ||
-		!strings.Contains(res.Summary, "34579.471372..34579.471722") ||
-		!strings.Contains(res.Repair.Metadata["expected_shapes"], "34579.471372..34579.471722") {
-		t.Fatalf("conflicting target wait row should fail with exact repair: %+v", res)
+	if !res.Success || res.Repair != nil {
+		t.Fatalf("free-prose target wait drift must not trigger a hard repair: %+v", res)
 	}
-	if got := bus.Mutable.AnswerDocumentV2(); got != nil {
-		t.Fatalf("conflicting principal values must not persist: %+v", got)
+	if got := bus.Mutable.AnswerDocumentV2(); got == nil {
+		t.Fatal("advisory-only prose did not persist")
+	} else {
+		var surfaces []string
+		for _, block := range got.Blocks {
+			surfaces = append(surfaces, types.AnswerBlockVisibleSurface(block))
+		}
+		if !strings.Contains(strings.Join(surfaces, "\n"), "34579.471723..34579.471876") {
+			t.Fatalf("advisory-only prose must persist unchanged: %+v", got)
+		}
 	}
 
+	bus = targetWaitAuthorityIntegrationBus()
 	res, err = emit.Execute(bus, targetWaitAuthorityEmit("34579.471372..34579.471722"))
 	if err != nil || !res.Success {
 		t.Fatalf("exact target wait roster should persist: result=%+v err=%v", res, err)

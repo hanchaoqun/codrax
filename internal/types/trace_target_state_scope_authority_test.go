@@ -111,7 +111,10 @@ func TestBuildTraceTargetWaitSummaryAuthoritiesUsesCompleteSameResultRows(t *tes
 	if len(got) != 1 || got[0].Count != 3 || got[0].DStateOccurrences != 3 ||
 		got[0].WallClockMS != 6 || len(got[0].Callers) != 1 ||
 		got[0].Callers[0] != "dma_fence_default_w" ||
-		got[0].ArtifactLabel != "attached_trace.txt" {
+		got[0].ArtifactLabel != "attached_trace.txt" ||
+		len(got[0].Occurrences) != 3 ||
+		got[0].Occurrences[2].CanonicalLine() !=
+			"#3 state=d_sleep 10.020000..10.023000 duration=3.000ms iowait=0 caller=dma_fence_default_w" {
 		t.Fatalf("complete typed wait summary drifted: %+v", got)
 	}
 }

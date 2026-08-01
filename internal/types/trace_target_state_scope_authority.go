@@ -119,6 +119,7 @@ type TraceTargetWaitSummaryAuthority struct {
 	SleepIOWaitOccurrences int
 	OtherWaitOccurrences   int
 	Callers                []string
+	Occurrences            []TargetWaitOccurrenceAuthorityRow
 	RecordID               string
 }
 
@@ -209,6 +210,15 @@ func BuildTraceTargetWaitSummaryAuthorities(ledger ObservationLedger, rm *Reques
 				conflict = true
 				break
 			}
+			authority.Occurrences = append(authority.Occurrences, TargetWaitOccurrenceAuthorityRow{
+				Ordinal:   ordinal,
+				State:     fields["state"],
+				StartTs:   row.Span.StartTs,
+				EndTs:     row.Span.EndTs,
+				DurationM: duration,
+				IOWait:    fields["iowait"],
+				Caller:    fields["caller"],
+			})
 			authority.WallClockMS += duration
 			switch {
 			case fields["state"] == "d_sleep":
@@ -246,6 +256,9 @@ func BuildTraceTargetWaitSummaryAuthorities(ledger ObservationLedger, rm *Reques
 			authority.OtherWaitOccurrences,
 			strings.Join(authority.Callers, "\x00"),
 		)
+		for _, occurrence := range authority.Occurrences {
+			fingerprint += "|" + occurrence.CanonicalLine()
+		}
 		candidates = append(candidates, candidate{key: key, fingerprint: fingerprint, authority: authority})
 	}
 	byKey := map[string]TraceTargetWaitSummaryAuthority{}
