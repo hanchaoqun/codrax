@@ -2712,3 +2712,35 @@ rowset 直接给出“确切 N 次、目标等待墙钟合计 Xms”；capacity-
 - `go test ./internal/types ./internal/tool ./internal/tracequery ./internal/agent ./internal/orchestrator ./internal/skill -count=1`
   （types 17.528s、tool 165.773s、tracequery 70.623s、agent 4.245s、
   orchestrator 14.206s、skill 2.836s）。
+
+### B13 r6 收账（2026-08-01）
+
+在 revision `1a70d38b8` 严格 `parallel=2` 回放：
+
+- `eval/results/real_trace_h1_binder_true_false_attribution-20260731-174609`
+- `eval/results/real_trace_h2_dstate_dma_fence_triform-20260731-174609`
+
+runner 2/2（H1 197s、H2 225s），人工 0/2。AL2 的中文
+`principal_conclusion` 与 relation-boundary 均真实出现在 raw finalizer
+prompt，剩余问题不是接线遗漏。
+
+H1 模型仍把下界写成“只有 1.409ms/只有一个产生等待”，还把其余 sleep 全归给
+fscache；system-owned leading authority 仍正确说明 `>=1 / >=1.409ms /
+lower_bound_capacity_truncated`。H2 主答仍含正确的 11 次/36.757ms/caller，
+但另造“5 段合计约 43.541ms”并猜跨窗差值原因。相同代码与 typed 主值下，
+H2 r5 人工通过、r6 失败，证明正文存在显著模型波动。
+
+本轮停止继续强化 prompt：再围绕“只有/唯一/窗口边界”等词面加 gate 或重写会
+违反本战役的泛化约束。B13 收账如下：
+
+1. `AL1/AL2 covered`：typed 主值已在成文前后双面到达；complete 与 lower-bound
+   权限有结构化值和本地化模板。
+2. `explicit-window non-regression covered`：所有回放均保留完整 Trace 因果投影、
+   root rank、wakeup chain、critical blocking、窗内可消除量与系统补采。
+3. `model-prose residual accepted`：系统主值正确但模型正文可能矛盾，按模型波动
+   留档，不再过拟合。
+4. `AK3 filed/P2`：per-CPU aggregate group 的“4次/单次”展示仍需未来 typed
+   merge-caliber 批次解决；不在 B13 修改 legacy oracle。
+
+下一步离开 H1/H2，从全量 eval 按客户风险、能力覆盖、历史失败率、运行成本
+四轴选择下一对，继续严格 `parallel=2`。
