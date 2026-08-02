@@ -4159,6 +4159,49 @@ caller/holder 与 causal ceiling 已在 finalizer 输入，故维持
 `eval/parallel_selected_summary_evalcampaign_b28shard_read_r1_20260801.md`、
 `eval/parallel_selected_summary_evalcampaign_b28shard_read_r1_20260801_manual_audit.md`。
 
+#### B29a r1：summary 扩权已闭合，源码合同自身仍相互矛盾
+
+同一 `main@11759e6dc` 二进制严格并行 2 个回放，runner 2/2 PASS，人工 0/2：
+
+- read live witness 已证明 `EVAL-B29-SPAN2` 生效。finalizer 的 principal support
+  不再出现 default/nil/write fallback 自由 Summary Evidence note，最终答案也不再把
+  `fallbackWriteAnalysisIR` 拼入 read 路径。
+- read 仍错误声称 missing emit 时 `out.Error=""` 且预算耗尽后整个 Run 终止。
+  `analyzerEvaluator.ParseOutput` 的 production 代码实际返回 populated Error；Run 在
+  `runAnalyzePhase` 之后按 error class 分流：stream transport hard-fail，missing emit /
+  gate rejection 安装 `buildDegradedSemanticIR`（无 partial IR 时委托
+  `buildDegradedFallbackIR`）并继续 bounded phase 2。
+- 错误并非纯模型波动：`analyzer.go` 顶部 Fail-loud contract 和
+  `runAnalyzePhase` 函数注释仍明确写旧的“whole Run terminates”，与同文件 production
+  control flow、架构文档和 degraded tests 冲突；`runTaskGraph` 的 nil guard 也未注明
+  它只是 join-contract defensive arm，不是常规 analyze exhaustion 路径。
+- trace 显式窗、因果投影、根因排序、唤醒链、窗内可消除量与系统补采均保留，B28
+  重叠 shard 仍撤销 total。模型仍越过 `frame_causality=unproven`/pre-wakeup phase 给出
+  强因果；继续按 PHASE1 model-consumption-watch，不由系统替换。
+
+登记 `EVAL-B29-DOC1/P1`：production control flow 与源码注释合同漂移会把错误陈述作为
+高可信当前源码证据暴露给 analyzer/explorer/finalizer；所有机制解释、代码审计和后续开发
+都会受影响。修复应统一更新 owner/callee/defensive guard 注释，行为测试继续作为真相，
+不能靠 final answer 关键词纠正。
+
+#### B29b：analyze exhaustion 源码合同收敛
+
+本批只修正代码内权威说明，不改变 runtime：
+
+1. `analyzerEvaluator` 明确 attempt 级 fail-loud：missing emit 返回 populated Error +
+   nil IR；预算耗尽后由 Run 分类，transport hard-fail，semantic/gate 进入 degraded IR；
+2. `runAnalyzePhase` 注释只承诺“向 Run 返回 error”，不再越权声明整个 Run 终止；
+3. `runTaskGraph` nil/empty guard 明确为 join-contract defensive failure；正常非 transport
+   exhaustion 在进入该函数前已经安装 degraded task graph，transport failure 不进入；
+4. `buildDegradedFallbackIR` 的诊断说明改为真实 `SoftAnalyzerError + QualityGate detail`，
+   不再声称 caller 保留 hard `LastError`；
+5. 不修改调度/重试/降级分支，不扫描用户或模型文本，不触及 Trace/写模式所有权。
+
+状态：`EVAL-B29-SPAN2=covered`；`EVAL-B29-DOC1=implemented/replay-next`；
+`EVAL-B29-LANE1=P1/filed`。工件：
+`eval/parallel_selected_summary_evalcampaign_b29span_r1_20260801.md`、
+`eval/parallel_selected_summary_evalcampaign_b29span_r1_20260801_manual_audit.md`。
+
 ### B26-OWN：Trace 精确信息与模型结论的职责边界回裁（2026-08-01）
 
 客户/人工 witness：

@@ -2425,11 +2425,14 @@ func (o *Orchestrator) dynamicAnalyzeRetries(base int) int {
 	return adjusted
 }
 
-// runAnalyzePhase dispatches the analyze stage with hard fail-loud
-// retry semantics. Each attempt is counted; the loop exits early
-// on a clean StageOutput (no Error, non-nil AnalysisIR). After the
-// retry budget is exhausted the phase returns an error so Run
-// terminates without entering the per-task phase.
+// runAnalyzePhase dispatches the analyze stage with fail-loud attempt
+// semantics. Each attempt is counted; the loop exits early on a clean
+// StageOutput (no Error, non-nil AnalysisIR). After the retry budget is
+// exhausted this function returns an error to Run. Run then classifies the
+// error: stream-level transport failures hard-fail, while missing-emit and
+// quality-gate failures install an explicit degraded AnalysisIR and continue
+// through the bounded recovery task graph. This function never accepts a nil
+// or zero-value IR as a successful analyze result.
 func (o *Orchestrator) runAnalyzePhase() (int, error) {
 	o.busCtx.PipelineStage = types.StageAnalyze
 	o.busCtx.TaskState.Stage = types.StageAnalyze
@@ -4193,8 +4196,11 @@ func renderChangePlanSummary(plan *types.ChangePlan, lang string) string {
 func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 	ir := o.busCtx.AnalysisIR
 	if ir == nil || len(ir.TaskGraph.Nodes) == 0 {
-		// Defensive: analyzer should always produce a non-empty read TaskGraph;
-		// an empty graph means upstream failed and we cannot execute the task.
+		// Defensive internal-contract guard, not the normal analyze-exhaustion
+		// path. Run installs buildDegradedSemanticIR/buildDegradedFallbackIR for
+		// non-transport exhaustion before entering this scheduler; transport
+		// exhaustion skips the task phase. Reaching nil/empty here means that
+		// join contract itself was violated, so fail closed.
 		logging.Error("[orchestrator] task: empty TaskGraph — upstream failed to produce a valid graph")
 		o.busCtx.Mutable.SetResult("")
 		o.busCtx.TaskState.LastError = "empty TaskGraph"
@@ -8686,8 +8692,9 @@ func extractSubAgentProposal(output *agent.StageOutput, agentName types.AgentNam
 // Result: the user gets a degraded but honest reply ("I couldn't
 // classify this question after N retries — please rephrase or
 // break it down") instead of a hard failure with empty result.
-// The TaskState.LastError still carries the diagnostic so wrapping
-// CLI / REPL layers can surface it to the operator.
+// Run carries the original diagnostic in SoftAnalyzerError and in this
+// IR's QualityGate detail while clearing the stale hard LastError so the
+// bounded recovery scheduler can run.
 //
 // Shape: pre-PR2 the fallback set AnalyzerHints.Shape and
 // AnswerContract.RequiredAnswerShape to ShapeExplanation. With

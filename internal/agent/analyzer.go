@@ -38,12 +38,14 @@ import (
 // (TermGraph, TaskGraph, EvidencePlan, AnswerContract, Hypotheses,
 // QualityGate) is derived deterministically after the ReAct loop exits.
 //
-// Fail-loud contract: when the LLM fails to call emit_analysis at
+// Fail-loud-attempt contract: when the LLM fails to call emit_analysis at
 // all, or when the deterministic pipeline cannot build a valid IR,
 // ParseOutput returns a StageOutput with a populated Error and a nil
-// AnalysisIR. The orchestrator's runAnalyzePhase loop retries up to
-// MaxRetriesPerStage; after the budget is exhausted the whole Run
-// terminates without entering the task phase.
+// AnalysisIR. The orchestrator's runAnalyzePhase loop retries up to its
+// dynamically resolved budget. Exhaustion is then classified by Run: a
+// stream-level transport failure hard-fails, while missing-emit / quality-gate
+// exhaustion installs an explicit degraded AnalysisIR and continues through a
+// bounded task graph. Neither branch silently accepts a nil or zero-value IR.
 type analyzerEvaluator struct {
 	// prescanRounds counts PhaseMidLoop observations whose
 	// LastToolResult was a pre-scan navigation tool. Reset at the
@@ -2302,7 +2304,8 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// set), but at analyze time the LLM has not read code yet so it can only
 	// name the interface itself, populating entities=[LoopController]. The
 	// L0-B gate below then rejects (distinctNamedEntities ≤ 1) and the
-	// analyze stage exhausts its retry budget with no answer.
+	// analyze stage exhausts its retry budget and forces the caller's explicit
+	// degraded-recovery path instead of reaching the normal classified graph.
 	//
 	// Fix: when the analyzer's classification declares enumeration intent
 	// AND the named entity is a known interface/trait/protocol Symbol in
