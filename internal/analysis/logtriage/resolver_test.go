@@ -233,3 +233,26 @@ func TestGlobByBasename_SkipsVendorAndHidden(t *testing.T) {
 			got, want)
 	}
 }
+
+func TestGlobByBasenames_ResolvesSeveralNamesInOneInventory(t *testing.T) {
+	dir := t.TempDir()
+	for _, rel := range []string{"src/One.java", "pkg/Two.java", "other/One.java"} {
+		path := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("//"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := GlobByBasenames(dir, []string{"One.java", "Two.java"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"other/One.java", "src/One.java"}; !reflect.DeepEqual(got["One.java"], want) {
+		t.Fatalf("One.java got %v, want %v", got["One.java"], want)
+	}
+	if want := []string{"pkg/Two.java"}; !reflect.DeepEqual(got["Two.java"], want) {
+		t.Fatalf("Two.java got %v, want %v", got["Two.java"], want)
+	}
+}

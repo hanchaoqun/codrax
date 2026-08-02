@@ -170,9 +170,10 @@ func ValidateBundle(in ValidateInput, repoRoot string) *types.LogBundle {
 	if repoRoot != "" {
 		repoBase := filepath.Base(filepath.Clean(repoRoot))
 		fileIdentifiers := make(map[string]map[string]bool)
+		basenameIndex, _ := GlobByBasenames(repoRoot, resolvableFrameBasenames(out.Errors))
 		walkErrors(out.Errors, func(e *types.LogError) {
 			for j := range e.Frames {
-				validateFrame(&e.Frames[j], repoRoot, repoBase, fileIdentifiers)
+				validateFrame(&e.Frames[j], repoRoot, repoBase, fileIdentifiers, basenameIndex)
 			}
 		})
 	} else {
@@ -450,7 +451,7 @@ func walkError(e *types.LogError, fn func(*types.LogError)) {
 // strips build prefix, filters runtime internals, resolves via
 // filesystem, then cross-checks any stable function token against the
 // resolved file's identifiers. Mutates the frame in place.
-func validateFrame(f *types.LogFrame, repoRoot, repoBase string, fileIdentifiers map[string]map[string]bool) {
+func validateFrame(f *types.LogFrame, repoRoot, repoBase string, fileIdentifiers map[string]map[string]bool, basenameIndex map[string][]string) {
 	clampConfidence(f)
 	if f.Line < 0 {
 		f.Line = 0
@@ -466,8 +467,8 @@ func validateFrame(f *types.LogFrame, repoRoot, repoBase string, fileIdentifiers
 	// Java basename: defer to the basename resolver via
 	// GlobByBasename + ResolveJavaFile.
 	if (f.Lang == "java" || isJavaBasename(f.File)) && !strings.ContainsAny(f.File, "/\\") {
-		candidates, err := GlobByBasename(repoRoot, f.File)
-		if err != nil || len(candidates) == 0 {
+		candidates := basenameIndex[f.File]
+		if len(candidates) == 0 {
 			f.File = ""
 			return
 		}
@@ -483,8 +484,8 @@ func validateFrame(f *types.LogFrame, repoRoot, repoBase string, fileIdentifiers
 	// carry only a bare `Index.ets` when the minifier strips paths.
 	// Glob + rank by entry/src/main/ets/ project layout.
 	if (f.Lang == "arkts" || isArkTSBasename(f.File)) && !strings.ContainsAny(f.File, "/\\") {
-		candidates, err := GlobByBasename(repoRoot, f.File)
-		if err != nil || len(candidates) == 0 {
+		candidates := basenameIndex[f.File]
+		if len(candidates) == 0 {
 			f.File = ""
 			return
 		}
@@ -500,8 +501,8 @@ func validateFrame(f *types.LogFrame, repoRoot, repoBase string, fileIdentifiers
 	// carry file paths like `src/cart/Cart.cj`; when truncated to
 	// just `Cart.cj`, glob + rank by Cangjie project layout.
 	if (f.Lang == "cangjie" || isCangjieBasename(f.File)) && !strings.ContainsAny(f.File, "/\\") {
-		candidates, err := GlobByBasename(repoRoot, f.File)
-		if err != nil || len(candidates) == 0 {
+		candidates := basenameIndex[f.File]
+		if len(candidates) == 0 {
 			f.File = ""
 			return
 		}
@@ -517,8 +518,8 @@ func validateFrame(f *types.LogFrame, repoRoot, repoBase string, fileIdentifiers
 	// to the basename (`MainActivity.kt`). Glob + rank by Android
 	// Gradle / JB multiplatform source roots.
 	if (f.Lang == "kotlin" || isKotlinBasename(f.File)) && !strings.ContainsAny(f.File, "/\\") {
-		candidates, err := GlobByBasename(repoRoot, f.File)
-		if err != nil || len(candidates) == 0 {
+		candidates := basenameIndex[f.File]
+		if len(candidates) == 0 {
 			f.File = ""
 			return
 		}
@@ -531,8 +532,8 @@ func validateFrame(f *types.LogFrame, repoRoot, repoBase string, fileIdentifiers
 		return
 	}
 	if (f.Lang == "swift" || isSwiftBasename(f.File)) && !strings.ContainsAny(f.File, "/\\") {
-		candidates, err := GlobByBasename(repoRoot, f.File)
-		if err != nil || len(candidates) == 0 {
+		candidates := basenameIndex[f.File]
+		if len(candidates) == 0 {
 			f.File = ""
 			return
 		}
@@ -545,8 +546,8 @@ func validateFrame(f *types.LogFrame, repoRoot, repoBase string, fileIdentifiers
 		return
 	}
 	if (f.Lang == "lua" || isLuaBasename(f.File)) && !strings.ContainsAny(f.File, "/\\") {
-		candidates, err := GlobByBasename(repoRoot, f.File)
-		if err != nil || len(candidates) == 0 {
+		candidates := basenameIndex[f.File]
+		if len(candidates) == 0 {
 			f.File = ""
 			return
 		}
@@ -559,8 +560,8 @@ func validateFrame(f *types.LogFrame, repoRoot, repoBase string, fileIdentifiers
 		return
 	}
 	if (f.Lang == "proto" || isProtoBasename(f.File)) && !strings.ContainsAny(f.File, "/\\") {
-		candidates, err := GlobByBasename(repoRoot, f.File)
-		if err != nil || len(candidates) == 0 {
+		candidates := basenameIndex[f.File]
+		if len(candidates) == 0 {
 			f.File = ""
 			return
 		}
@@ -584,6 +585,33 @@ func validateFrame(f *types.LogFrame, repoRoot, repoBase string, fileIdentifiers
 		// coincidence seed ResolvedFiles or downstream file ceilings.
 		f.File = ""
 	}
+}
+
+func resolvableFrameBasenames(errors []types.LogError) []string {
+	seen := make(map[string]bool)
+	var out []string
+	walkErrors(errors, func(e *types.LogError) {
+		for _, f := range e.Frames {
+			if f.File == "" || strings.ContainsAny(f.File, `/\\`) {
+				continue
+			}
+			if !(f.Lang == "java" || isJavaBasename(f.File) ||
+				f.Lang == "arkts" || isArkTSBasename(f.File) ||
+				f.Lang == "cangjie" || isCangjieBasename(f.File) ||
+				f.Lang == "kotlin" || isKotlinBasename(f.File) ||
+				f.Lang == "swift" || isSwiftBasename(f.File) ||
+				f.Lang == "lua" || isLuaBasename(f.File) ||
+				f.Lang == "proto" || isProtoBasename(f.File)) {
+				continue
+			}
+			if !seen[f.File] {
+				seen[f.File] = true
+				out = append(out, f.File)
+			}
+		}
+	})
+	sort.Strings(out)
+	return out
 }
 
 func clampConfidence(f *types.LogFrame) {

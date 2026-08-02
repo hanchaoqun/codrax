@@ -1,10 +1,15 @@
 package logtriage
 
 import (
+	"bytes"
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 // sourcePrefix is the package-level user-provided build-path prefix
@@ -283,16 +288,55 @@ func ResolveFrameFile(repoRoot, cand string) string {
 	return ""
 }
 
-// GlobByBasename walks repoRoot and returns every file whose basename
-// equals baseName. Capped at 64 matches; skips .git, node_modules,
-// vendor, and hidden directories. Used by the Java frame resolver when
-// the frame carries only a basename.
+// GlobByBasename returns every current-source file whose basename equals
+// baseName. In a git checkout it asks git for tracked plus non-ignored
+// untracked files, avoiding generated/ignored artifact trees. Outside git it
+// falls back to the bounded directory walk used historically.
 func GlobByBasename(repoRoot, baseName string) ([]string, error) {
+	indexed, err := GlobByBasenames(repoRoot, []string{baseName})
+	if err != nil {
+		return nil, err
+	}
+	return indexed[baseName], nil
+}
+
+// GlobByBasenames resolves several bare stack-frame basenames in one source
+// inventory pass. Stack traces commonly repeat a basename or contain a Java
+// cause chain with several basenames; walking the repository once per frame
+// made validation proportional to frames × repository artifacts.
+func GlobByBasenames(repoRoot string, baseNames []string) (map[string][]string, error) {
 	const maxHits = 64
-	var out []string
+	wanted := make(map[string]bool, len(baseNames))
+	out := make(map[string][]string, len(baseNames))
+	for _, baseName := range baseNames {
+		baseName = strings.TrimSpace(baseName)
+		if baseName == "" || strings.ContainsAny(baseName, `/\\`) {
+			continue
+		}
+		wanted[baseName] = true
+		out[baseName] = nil
+	}
+	if len(wanted) == 0 {
+		return out, nil
+	}
 	rootAbs, err := filepath.Abs(repoRoot)
 	if err != nil {
 		return nil, err
+	}
+	if gitPaths, ok := gitSourcePaths(rootAbs); ok {
+		for _, rel := range gitPaths {
+			baseName := filepath.Base(filepath.FromSlash(rel))
+			if !wanted[baseName] || len(out[baseName]) >= maxHits {
+				continue
+			}
+			info, statErr := os.Stat(filepath.Join(rootAbs, filepath.FromSlash(rel)))
+			if statErr != nil || info.IsDir() {
+				continue
+			}
+			out[baseName] = append(out[baseName], filepath.ToSlash(rel))
+		}
+		normaliseBasenameIndex(out)
+		return out, nil
 	}
 	err = filepath.Walk(rootAbs, func(path string, info os.FileInfo, werr error) error {
 		if werr != nil {
@@ -309,20 +353,51 @@ func GlobByBasename(repoRoot, baseName string) ([]string, error) {
 			}
 			return nil
 		}
-		if info.Name() != baseName {
+		baseName := info.Name()
+		if !wanted[baseName] || len(out[baseName]) >= maxHits {
 			return nil
 		}
 		rel, rerr := filepath.Rel(rootAbs, path)
 		if rerr != nil {
 			return nil
 		}
-		out = append(out, filepath.ToSlash(rel))
-		if len(out) >= maxHits {
-			return filepath.SkipAll
-		}
+		out[baseName] = append(out[baseName], filepath.ToSlash(rel))
 		return nil
 	})
+	normaliseBasenameIndex(out)
 	return out, err
+}
+
+// gitSourcePaths returns the checkout's source-visible universe. A bounded
+// subprocess prevents a pathological worktree from stalling log triage. False
+// asks the caller to use its non-git fallback.
+func gitSourcePaths(repoRoot string) ([]string, bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "-C", repoRoot, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+	raw, err := cmd.Output()
+	if err != nil {
+		return nil, false
+	}
+	parts := bytes.Split(raw, []byte{0})
+	out := make([]string, 0, len(parts))
+	seen := make(map[string]bool, len(parts))
+	for _, part := range parts {
+		rel := filepath.ToSlash(strings.TrimSpace(string(part)))
+		if rel == "" || seen[rel] {
+			continue
+		}
+		seen[rel] = true
+		out = append(out, rel)
+	}
+	return out, true
+}
+
+func normaliseBasenameIndex(index map[string][]string) {
+	for baseName, paths := range index {
+		sort.Strings(paths)
+		index[baseName] = paths
+	}
 }
 
 // isJavaBasename reports whether path looks like a bare Java
