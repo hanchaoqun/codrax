@@ -4349,6 +4349,40 @@ operation 人工审计还发现量具本身跨模式污染：该 case 无 trace 
 披露边界。系统不从 URL、用户原文或模型答案关键词判断相关性，不硬拒绝 `complete`，也不替
 模型生成结论。
 
+#### B44 r2：截断边界已送达但模型忽略；reconcile 错用中间展示契约（2026-08-02）
+
+干净 `main@7d4575a13` 同对严格并行，runner 0/2；人工 operation partial、data FAIL。
+
+operation 在首页一次 fetch 后，evaluator 的思考和 typed complete reason 明确只引用
+`source_truncated=false`，忽略同一 material row 的 `excerpt_truncated=true`，没有继续读取
+已经发现的 `user_guide.html`。最终答案仍正确给出安装、PATH、provider、启动、REPL/CLI 与
+八类场景，并诚实说详细文档“需进一步读取”，但不满足用户要求的长页分页/正文完整总结。
+精确 context 已存在、软规则也逐字要求 omitted scope 相关时继续，因此本轮归为
+`EVAL-B44-OPEXTRACT1=implemented / model-variance-watch`；不继续堆 hard completion gate、URL
+特判或系统答案替换。
+
+该 operation 的 runner FAIL 另有看护过硬：oracle 只接受连续短语“用户使用手册”或英文
+manual/guide，答案的“CODRAX 用户手册摘要”语义正确却未匹配。eval 评分放宽为中文
+`用户(使用)?手册|使用指南`，仍要求使用/配置/启动等内容与 codrax.net 来源；这不影响产品
+行为，也不把答案关键词变成系统硬门。
+
+data 则暴露 P0 新 gap：模型本轮选择完整 typed ledger 路径，系统最终已有 5 条 decisions、
+3 条 rules 和 2 条 target contributions（u1/u3，operation=count）。
+`reconcile_artifacts` 由贡献账确定性得到 single-group expected/actual=`2`，但 validator 又把
+早期 `- rules_artifacts... - coverage_records...` artifact summary 当作最终答案比较，导致
+11 data rounds、6 repair rounds、9 failed actions 后 terminal failure。
+
+| ID | P | gap | 最优方案 | 状态 |
+|---|---:|---|---|---|
+| EVAL-B44-RECONAUTH1 | P0 | intermediate batch 为继续规划而发布 freeform contract；reconcile validator 复用该展示契约，因而把任何旧摘要当可比较的最终答案，和 contribution-derived expected/actual 硬冲突 | 将“中间结果如何展示”与“什么 answer 可参加 reconcile”分权：结果继续 freeform；reconcileComparableAnswer 单独消费原始 workflow/output contract。只有满足该 contract 的 answer 才做 answer-level 交叉核对 | implemented/tests-pass |
+| EVAL-B44-OPORACLE1 | P2 | operation oracle 将“用户使用手册”固定成不可变连续词，误杀“用户手册摘要” | 只在 eval 中接受同义中文标题；保留来源和实质使用内容两个独立断言 | implemented |
+
+`RECONAUTH1` 不根据摘要前缀或答案关键词扩充 heuristic：`validateRunnerResult` 接受独立的
+reconcile output authority，ActionRunner 即使使用 relaxed intermediate validation plan，也
+把原始 `plan.OutputContract` 传给 reconcile。定向回归固定：旧 artifact summary 不参与 JSON
+final-answer 对比、贡献 count 仍严格核成 2、intermediate result 仍发布 freeform；真正满足
+JSON contract 的答案仍会接受 expected/actual 交叉核对。
+
 ### B41：data 终批材料 × Binder 方向语义审计（2026-08-02）
 
 本批严格并行 `data_text_filter_count` 与 `trace_query_binder_ipc_peer`。runner

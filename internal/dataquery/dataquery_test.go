@@ -1681,6 +1681,44 @@ func TestActionRunnerCustomTransformKeepsIntermediateContractRelaxed(t *testing.
 	}
 }
 
+func TestActionRunnerIntermediateReconcileIgnoresNonFinalArtifactSummary(t *testing.T) {
+	seed := Result{
+		Answer:         "- records.json: extracted complete records from 1 material(s)",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Contributions: []ContributionRecord{
+			{ItemID: "u1", GroupKey: "ids", Metric: "active_user_ids", Value: "u1", Operation: "count", Role: "target", Source: "active_users", SourceLocator: "line:1"},
+			{ItemID: "u3", GroupKey: "ids", Metric: "active_user_ids", Value: "u3", Operation: "count", Role: "target", Source: "active_users", SourceLocator: "line:2"},
+		},
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputJSONOnly, ExplanationAllowed: false},
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		ContinueAfter: true,
+		Actions: []DataAction{{
+			ID:             "reconcile_ids",
+			Kind:           DataActionReconcile,
+			OutputArtifact: "reconciled_ids",
+		}},
+	}
+	res, err := (ActionRunner{Seed: seed}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Reconcile == nil || res.Reconcile.Status.String() != "pass" || len(res.Reconcile.Groups) != 1 {
+		t.Fatalf("Reconcile=%+v, want one passing count group", res.Reconcile)
+	}
+	if res.Reconcile.ActualAnswer.String() != "2" {
+		t.Fatalf("ActualAnswer=%q, want deterministic contribution count", res.Reconcile.ActualAnswer.String())
+	}
+	if res.OutputContract.Format != OutputFreeform || !res.OutputContract.ExplanationAllowed {
+		t.Fatalf("OutputContract=%+v, intermediate publication must remain relaxed", res.OutputContract)
+	}
+}
+
 func TestActionRunnerJSONRecordsReadsArrayAndWrapperArtifacts(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")

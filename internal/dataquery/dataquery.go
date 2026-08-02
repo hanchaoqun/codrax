@@ -2060,10 +2060,10 @@ func (r Runner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 		return Result{}, err
 	}
 	res.ResultPatches = append(res.ResultPatches, applyDataResultPatchEngine(&res)...)
-	return validateRunnerResult(plan, res)
+	return validateRunnerResult(plan, res, plan.OutputContract)
 }
 
-func validateRunnerResult(plan TaskPlan, res Result) (Result, error) {
+func validateRunnerResult(plan TaskPlan, res Result, reconcileOutputContracts ...OutputContract) (Result, error) {
 	contract := plan.CoverageContract
 	if plan.ContinueAfter && len(plan.Actions) == 0 {
 		// A top-level script with continue_after=true is an intermediate
@@ -2097,7 +2097,19 @@ func validateRunnerResult(plan TaskPlan, res Result) (Result, error) {
 			"data coverage incomplete: coverage_contract.decision_records_required=true but result.rows contains no meaningful decision records",
 		))
 	}
-	if err := validateRequiredLedgers(contract, res, LedgerSatisfactionFacts{EntityStageMaterialized: ResultMaterializesEntityStage(res)}); err != nil {
+	// Intermediate action batches intentionally publish a relaxed freeform
+	// contract, but that presentation contract must not decide whether an
+	// accumulated result.Answer is comparable with a newly produced
+	// reconciliation.  Use the workflow/output contract when the caller has
+	// it; otherwise fall back to the validation plan and then the result.  This
+	// keeps artifact summaries out of answer-level reconciliation without
+	// falsely tightening the intermediate result shown to the next planner.
+	ledgerResult := res
+	ledgerResult.OutputContract = firstOutputContract(reconcileOutputContracts...)
+	if ledgerResult.OutputContract.Format == "" {
+		ledgerResult.OutputContract = firstOutputContract(plan.OutputContract, res.OutputContract)
+	}
+	if err := validateRequiredLedgers(contract, ledgerResult, LedgerSatisfactionFacts{EntityStageMaterialized: ResultMaterializesEntityStage(res)}); err != nil {
 		return Result{}, wrapDataResultValidationError(res, err)
 	}
 	if res.OutputContract.Format == "" {

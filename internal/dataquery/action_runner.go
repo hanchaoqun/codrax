@@ -1001,7 +1001,7 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 		if strings.TrimSpace(out.AuditSummary) == "" {
 			out.AuditSummary = strings.Join(cleanArtifactSummaries(summaries), "; ")
 		}
-		return validateRunnerResult(validationPlan, out)
+		return validateRunnerResult(validationPlan, out, plan.OutputContract)
 	}
 	answer := projectedAnswer
 	answerFromArtifactSummary := false
@@ -1044,7 +1044,7 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 	if out.OutputContract.Format == "" {
 		out.OutputContract = OutputContract{Format: OutputMarkdown, ExplanationAllowed: true}.Normalize()
 	}
-	return validateRunnerResult(actionRunnerValidationPlan(plan, r.Seed), out)
+	return validateRunnerResult(actionRunnerValidationPlan(plan, r.Seed), out, plan.OutputContract)
 }
 
 func actionRunnerValidationPlan(plan TaskPlan, seed Result) TaskPlan {
