@@ -13,6 +13,6 @@ LOG='2026-05-23T10:00:00.000 DEBUG [diag finalizer] iter=0 phase=llm_request mod
 2026-05-23T10:00:40.002 INFO [render] ⟳ 4/4 模型响应出错,正在重新撰写答案
 '
 EXPECT_NOT_CONTAINS="**值：**"
-EXPECT_MATCHES_REGEX="(日志|timeout|超时|first_byte_timeout).*(当前源码|源码|current|internal/)|(当前源码|源码|current|internal/).*(日志|timeout|超时|first_byte_timeout)
+EXPECT_MATCHES_REGEX="(日志|timeout|超时|first_byte_timeout)
 (模型响应|LLM|timeout|超时).*(成文校验|校验失败|answer|contract|区别|区分)|(成文校验|校验失败|answer|contract|区别|区分).*(模型响应|LLM|timeout|超时)
 internal/(orchestrator|agent|llm|render|tool)/[^[:space:]]+\.go:[0-9]+"

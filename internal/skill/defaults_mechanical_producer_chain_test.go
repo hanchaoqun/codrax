@@ -80,7 +80,13 @@ func TestIndependentMechanismContrastDirectiveSharedAndMechanismGated(t *testing
 		"each side through its own producer and control path",
 		"false branch or logical complement is not evidence",
 		"explicit handoff, shared decision, or return-value flow",
-		"every side",
+		"repo_map/grep only to locate each side",
+		"aggregate_facts.member_set",
+		"one `members[]` entry per compared mechanism",
+		"index-aligned `member_notes[]`",
+		"index-aligned `support_refs[]`",
+		"ungrounded grouped_count dimensions",
+		"independently supported members",
 		"state that evidence boundary",
 	} {
 		if !strings.Contains(independentMechanismContrastDirective, required) {

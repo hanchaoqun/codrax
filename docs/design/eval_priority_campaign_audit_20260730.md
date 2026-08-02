@@ -3989,8 +3989,18 @@ join/handoff；A 的 predicate false/complement 不得充当 B 的证据，缺�
 - [x] B42-T4：生成物验证 soft guidance + fixture generated-output scope oracle；
 - [x] B42-T5：`internal/skill` 0.478s、`make`、Python 编译与 oracle 负证验证通过；
   原始 fixture 与 r1 应用树均被拒绝，第一施工批提交推送；
-- [ ] B42-T6：干净 HEAD 同对严格并行 r2，人工审计生成物 scope、独立机制证据与答案；
-- [ ] B42-T7：更新统一台账；若 soft guidance 已给足但模型仍波动，不增加硬门，转后续
+- [x] B42-T6：干净 `main@409d8452a` 同对严格并行 r2；写模式 runner/human PASS，
+  `GENART1=covered`；读模式 runner/human FAIL，`CONTRAST1=partial`；
+- [x] B42-T7：r2 深审登记 `EVAL-B42-MECHCARRIER1/P1`：模型虽然采用“两条正交路径”
+  措辞，却以 timeout 单侧两锚构造双机制 grouped_count，第二机制没有独立 source member/
+  support_ref，且误借 write-mode budget；
+- [x] B42-T8：第二施工批复用 member_set 的 index-aligned member/member_note/support_ref
+  作为机制对比载体；explore/finalize shared directive 与 completion schema 同步教学；
+  eval regex 拆除“日志词与源码词必须同一行”的显示形过硬条件；
+- [x] B42-T9：`internal/skill` 0.698s、tool schema 定向 0.892s、
+  `internal/tool` 全包 159.367s 与 `make` 通过；第二施工批提交推送；
+- [ ] B42-T10：干净 HEAD 做 r3 同对回放；若结构化软引导已给足但模型仍波动，
+  不增加硬门，转后续
   高优先级跨模式 pair。
 
 ### B41：data 终批材料 × Binder 方向语义审计（2026-08-02）
