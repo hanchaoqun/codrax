@@ -4216,6 +4216,31 @@ wakeup census authority，因此最终通用 scheduler prompt 缺少三时间点
 `artifact_spans` selector 后，尾部仍写“3 处引用已移除”，虽然技术上指 citation pool
 条目而非 selector，用户可读性较差。本批不以显示文案项阻塞 P1 调度语义收口。
 
+#### B41 r9：转移区间收口；优先级错分属于已有 typed 权威下的模型波动
+
+r9 使用干净 `main@6c8756050`，runner 2/2 PASS，人工 1/2 PASS：
+
+- data 42s，`route=data`，一次执行、一次执行前 material repair，最终严格只有 `2`；
+- Binder 请求的目标 PID 100/TID 101、transaction=42、direct waker
+  `binder:100_1-101` 与 emitter/receiver 方向全部正确；没有 target-state card、full
+  supplement、heavy floor、根因排序、可消除量或 Trace 因果投影；r8 的 15ms
+  sleep-to-wakeup 误称也未复现，`EVAL-B41-TRANSITIONPHASE1=covered`；
+- 模型主动扩写了用户未请求的 `prio=53 属于 CFS`，但同一轮在三个独立输入面已经
+  明确携带 `prio=53/ohos_rt`：perf typed observation、`trace_query` JSON/event row，以及
+  finalizer 的 Harmony `1-40=CFS / 41-159=RT / >159=raw` 提醒。工具输出和 prompt 均无
+  事实缺口，模型仍违反精确信号。
+
+因此将该现象登记为 `EVAL-B41-PRIOWAVE1/P3-watch`，不再施工产品硬门。若为它增加
+正文扫描、emit reject、系统替换 CFS/RT 文案，都会重新越过“模型负责结论、系统只给
+准确事实和引导”的红线；而为具体 53 加例子也属于单值过拟合。后续若在不同模型、
+不同优先级值、且已经携带 typed class 的多个高优先级 eval 中重复，再考虑提升为模型
+遵循性/供应商路由问题，仍不得由系统改写答案。
+
+本轮 finalizer 因 artifact selector 完整性要求发生一次 patch，并把内部
+`artifact_spans=...` 形式直接写进正文；归入既有 `EVAL-B41-CITEINFO1/P3-watch`，不阻塞
+B41 主机制收口。analyzer 5 次尝试、总耗时 171s 也记为效率 watch，不为该 case 增加
+分类特判。
+
 任务：
 
 - [x] B41-T1：严格并行 2 case，完整日志/答案人工审计；
@@ -4270,7 +4295,9 @@ wakeup census authority，因此最终通用 scheduler prompt 缺少三时间点
   新增 TRANSITIONPHASE1 与 CITEINFO1 watch；
 - [x] B41-T30：所有 runtime-trace finalizer 增加三阶段 scheduler transition soft
   guidance，不增加 hard gate/answer mutation；agent 全包与构建通过；
-- [ ] B41-T31：提交推送后做 r9 同对回放，验收时长语义与 FACTFAMILY1 不回退。
+- [x] B41-T31：提交推送后做 r9 同对回放；TRANSITIONPHASE1 与 FACTFAMILY1 均
+  covered，请求主事实正确；额外优先级错分确认为 typed 权威已在场时的模型波动，
+  登记 PRIOWAVE1/CITEINFO1 watch，不增加硬门或答案改写。
 
 ### B40：analyze retry 回放 × blocked-reason Trace 语义审计（2026-08-02）
 
