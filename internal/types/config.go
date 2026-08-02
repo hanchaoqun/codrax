@@ -5,12 +5,19 @@ package types
 // internal/orchestrator/topology.go — only per-run budget limits
 // and gate/explore thresholds still live in config.
 type PipelineSettings struct {
-	// MaxRetriesPerStage bounds the number of times a single
-	// stage may be re-dispatched after a failure. The analyze
-	// stage reads it via runAnalyzePhase — when the LLM fails to
-	// call emit_analysis or the quality gate rejects the IR, the
-	// stage is re-dispatched up to this many times before the
-	// whole Run terminates with an error.
+	// MaxRetriesPerStage is the resolved in-memory baseline used to bound
+	// semantic re-dispatches of one stage. The public codrax.yaml override is
+	// the flat key pipeline_max_retries_per_stage on RuntimeSettings; cmd/root.go
+	// merges that optional value over the code default before constructing
+	// PipelineSettings. The
+	// yaml tag below belongs to this internal settings carrier and is not the
+	// public runtime-config key.
+	//
+	// The analyze stage passes this baseline through dynamicAnalyzeRetries and
+	// returns an error to Run after the resolved budget is exhausted. Run then
+	// classifies the error: stream-level transport failures hard-fail, while
+	// missing-emit and quality-gate failures install an explicit degraded IR
+	// and continue through the bounded recovery graph.
 	MaxRetriesPerStage int `yaml:"max_retries_per_stage"`
 
 	// MaxStageVisits caps how many times any single stage may be

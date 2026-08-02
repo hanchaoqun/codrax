@@ -4202,6 +4202,41 @@ caller/holder 与 causal ceiling 已在 finalizer 输入，故维持
 `eval/parallel_selected_summary_evalcampaign_b29span_r1_20260801.md`、
 `eval/parallel_selected_summary_evalcampaign_b29span_r1_20260801_manual_audit.md`。
 
+#### B29b r1 与 B29c：恢复合同主体已纠正，内部配置载体仍残留旧口径
+
+同一 `main@7f0a2a607` 二进制严格并行 2 个 case：runner 2/2 PASS；人工审计为
+read FAIL、write PASS。
+
+- read 主体已经正确说明 missing emit 返回 populated `Error` + nil IR，预算耗尽后
+  semantic/gate failure 安装 degraded IR，无 partial IR 时才委托 fallback builder；
+  `fallbackWriteAnalysisIR` 不再进入 read 答案。说明 B29a 的 span 收敛和 B29b 的
+  owner/callee 注释修正均已生效。
+- 但最终答案仍把 `runAnalyzePhase` 说成由 `runTaskGraph` 调用。真实 production 拓扑是
+  外层 `Run` 先调用 `runAnalyzePhase`，之后才进入 `runTaskPhase -> runTaskGraph`。
+  Current-Source Mechanism Relation Authority 已明确“无 edge 不得连接”，模型仍沿用用户
+  前提和同文件邻接形成假边。该项归并 `EVAL-B29-LANE1`：软关系提示已有但模型消费不稳；
+  后续方案必须是 item/claim 级 typed edge/path membership，不能扫描或替换模型答案。
+- `internal/types/config.go::PipelineSettings.MaxRetriesPerStage` 仍保留两层旧合同：声称预算
+  耗尽后 whole Run terminates，并让内部 carrier tag `max_retries_per_stage` 看起来像公开
+  `codrax.yaml` 键。实际公开 runtime override 是
+  `pipeline_max_retries_per_stage`，`cmd/root.go` 将其覆盖到默认值 3 后才构造已解析的
+  `PipelineSettings`。本轮已补齐这处残余，明确 public key、default/override merge 与
+  semantic degraded 分流；不改变 runtime。
+- 模型把 `base + (estimated/2)*extra` 说成“复杂度与 base 的乘积”，并声称存在
+  `QualityGate.Error` 字段；源码实际是加法并封顶，`GateReport` 只有
+  Passed/Rejected/Retryable/Checks/Fingerprint。两项没有系统生成错误值，先记为模型
+  措辞/字段幻觉观察；若跨机制 case 复现，再提升为公式/schema typed support gap，当前
+  不为单例增加答案硬门。
+- write case 只修改 `main.go` 一行 `retrun -> return`，applied-tree 无其它生产差异，
+  验证通过。analyzer 为满足 owner-qualified field-value shape 用了 4 次 emit，属于效率
+  观察，不影响改动正确性。
+
+状态：`EVAL-B29-SPAN2=covered`；`EVAL-B29-DOC1=implemented-residual-fixed/replay-next`；
+`EVAL-B29-LANE1=P1/open`；公式/schema 单例=`watch`。本批仍不改 Trace 显式窗、因果
+投影、根因排序、唤醒链、窗内可消除量、自动补采或模型答案所有权。工件：
+`eval/parallel_selected_summary_evalcampaign_b29doc_write_r1_20260801.md`、
+`eval/parallel_selected_summary_evalcampaign_b29doc_write_r1_20260801_manual_audit.md`。
+
 ### B26-OWN：Trace 精确信息与模型结论的职责边界回裁（2026-08-01）
 
 客户/人工 witness：
