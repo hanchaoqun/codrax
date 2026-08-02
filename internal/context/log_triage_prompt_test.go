@@ -350,6 +350,37 @@ func TestFormatLogTriageStructured_SystemOperationalSemanticsSupersedeAdvisory(t
 	}
 }
 
+func TestFormatLogTriageStructured_OperationalSemanticsRemainVisibleWithoutModelRows(t *testing.T) {
+	bundle := &types.LogBundle{OperationalSemantics: []types.LogOperationalSemantic{
+		{
+			Protocol: "codrax_orchestrator_attempt_v1", Producer: "orchestrator",
+			EventKind: types.LogOperationalEventDispatchAttemptFailed, Subject: "finalizer",
+			CounterDomain: types.LogOperationalCounterDispatchAttempt, ValueKind: types.LogOperationalValueAttemptOrdinal,
+			Numerator: 1, Denominator: 3, NumeratorMeaning: "current_dispatch_attempt_ordinal",
+			DenominatorMeaning: "maximum_dispatch_attempts", TransitionAuthority: types.LogOperationalTransitionEventLocalOnly,
+			LineStart: 3, LineEnd: 3, RawExcerpt: "WARN [orchestrator] finalizer attempt 1/3 failed: timeout",
+		},
+		{
+			Protocol: "codrax_status_v1", Producer: "render",
+			EventKind: types.LogOperationalEventPipelineStageLifecycle, Subject: "finalize", StageKey: "finalize", Lifecycle: "retry",
+			CounterDomain: types.LogOperationalCounterPipelineStageProgress, ValueKind: types.LogOperationalValueStageOrdinal,
+			Numerator: 4, Denominator: 4, NumeratorMeaning: "one_based_pipeline_stage_position",
+			DenominatorMeaning: "total_configured_pipeline_stages", TransitionAuthority: types.LogOperationalTransitionEventLocalOnly,
+			LineStart: 4, LineEnd: 4, RawExcerpt: "INFO [render] 4/4 retry",
+		},
+	}}
+	got := formatLogTriageStructured(bundle, nil)
+	for _, want := range []string{
+		"System-decoded operational semantics",
+		"cross_event_transition=unproven",
+		"typed_transition_witness=absent",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("semantics-only bundle missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestFormatLogTriageStructured_ThreadSnapshotsStayContextOnly(t *testing.T) {
 	bundle := &types.LogBundle{
 		Meta:   types.LogMeta{Lang: "go"},

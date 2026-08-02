@@ -3977,7 +3977,7 @@ B18c 使用一条通用 typed 规则修复：
 - [x] B47-T5：实现 typed runtime-event semantics；核心四包与完整 tool 回归通过，独立提交推送；
 - [x] B47-T6：干净 HEAD 严格并行同 pair r2；runner 2/2 PASS，人工 0/2 PASS，登记下一层
   value-semantics 与跨 plan proof closure GAP；
-- [ ] B47-T7：修复 SEMCAL1；独立测试/提交推送后同 read case 与一个新高优先 data/operation
+- [x] B47-T7：修复 SEMCAL1；独立测试/提交推送后同 read case 与一个新高优先 data/operation
   case 严格并行 2 个；
 - [ ] B47-T8：修复 REPLANPROOF1/CAPCAL1，独立提交推送；后续 write case 验证累计路径与
   capability caliber，不以最终“verified”字样为 oracle。
@@ -4079,7 +4079,7 @@ write 全链人工审计：
 
 | GAP | 优先级 | 泛化问题 | 最优方案 | 状态 |
 |---|---:|---|---|---|
-| `EVAL-B47-SEMCAL1` | P1 | counter domain 精确但 value/unit 未铸造，stage ordinal 仍被升级成 retry count/exhaustion；system protocol principal row 又被 compact ledger 排掉 | protocol carrier 增加 value kind、分子/分母语义与 typed exclusions；compact principal selection 为 system protocol rows 保留 bounded seats，冲突 model rows 保持 advisory。无答案扫描/替换 | implemented/full-tests-pass；replay next |
+| `EVAL-B47-SEMCAL1` | P1 | counter domain 精确但 value/unit 未铸造，stage ordinal 仍被升级成 retry count/exhaustion；system protocol principal row 又被 compact ledger 排掉 | protocol carrier 增加 value kind、分子/分母语义与 typed exclusions；compact principal selection 为 system protocol rows 保留 bounded seats，冲突 model rows 保持 advisory。无答案扫描/替换 | covered/live-replay |
 | `EVAL-B47-REPLANPROOF1` | P1 | repair plan 只验证自己的 target path/contract，前 plan 仍应用的测试/源码和行为义务从最终 proof closure 消失 | workflow verification input 取 cumulative still-applied path + contract closure；successful exact roster 可逐成员授权，失败历史保留但由后续成功证据 supersede，不能静默遗忘 | filed |
 | `EVAL-B47-CAPCAL1` | P1 | Go/Python 源码 token scan 被计成“2 tests/strong”，虽无目标语言行为执行且无 contract coverage | 每个 command/probe 发布 typed verification capability/caliber；source-static 只授权结构/path/check，target behavior 必须由执行型、身份绑定且 contract-bound 证据授权；最终强度按能力而非 test_count | filed |
 
@@ -4116,6 +4116,59 @@ write 全链人工审计：
 - `go test ./internal/agent ./internal/context ./internal/render ./internal/types -count=1` 全通过
   （types 22.893s）；
 - `go test ./internal/tool -count=1` 全通过（161.256s）。
+
+#### B47 r3：value semantics 通过；事件邻接仍被升级为因果跳转
+
+干净 `main@fe34ac2ee` 严格并行 2 个异构 case：
+
+- `read_combo_log_current_code_dimensions`：177s，runner PASS / human FAIL；
+- `operation_system_inventory`：44s，runner/human PASS。
+
+operation 上下文审计结论为健康：首轮组合 awk 把三个 sysctl 值逐行误解，虽 exit=0 但模型
+根据畸形输出主动续采；第二轮三条独立 sysctl 分别得到 18、18、137438953472，GPU 命令得到
+M5 Max 40-core。最终 128 GiB 可复算，坏的派生行没有取得最终权限。这说明 command result 的
+原始值、状态和补采上下文足以支撑正确答案；不应把一次 planner 脆弱命令硬化成固定 OS 模板。
+
+read/log 的真实回放确认 `EVAL-B47-SEMCAL1=covered`：Log Triager 已在解释前读取
+`stage_ordinal`/`attempt_ordinal`，最终不再把 4/4 说成四个模型或四次重试；两个 system
+protocol principal rows 也在 94 条 ledger 压力下保留。新失败位于关系权限：模型仍把相邻的
+dispatch attempt failure 与 renderer lifecycle 行串成“驱动、重置/推进、回到 pipeline 起点”，
+并将 current-source retry predicates/EventAdapterRetry 升级为该历史运行已走过的完整链。
+现有 `transition_authority=event_local_only` 精确但不够醒目地表达：附件只证明各事件和行序，
+没有 correlation/typed transition witness。
+
+新增项：
+
+| GAP | 优先级 | 泛化问题 | 最优方案 | 状态 |
+|---|---:|---|---|---|
+| `EVAL-B47-RELSEM1` | P1 | 多个 producer-owned 事件各自精确，但模型把时间邻接升级成跨 counter/subsystem 因果跳转 | 在 exact OperationalSemantics 集合上发布 typed relation fence：`relation_authority=observed_log_line_order_only`、`cross_event_transition=unproven`、`typed_transition_witness=absent`；同样携带到 compact protocol rows。只提供证据权限和软指导，不扫描/改写答案 | implemented/full-tests-pass；replay next |
+| `EVAL-B47-LOGCITE1` | P2-watch | 最终 runtime citation 出现原始 line 2→3、3→4 偏移 | 先用异构日志复现并定位 citation compiler/join；不按四行 fixture 添加偏移修正 | watch |
+
+`RELSEM1` 施工边界：
+
+1. 仅当两个以上系统解码事件均无 typed transition witness 时发布 relation fence；单事件不虚构
+   跨事件关系，未来真实 transition authority 存在时不发布 absent；
+2. prompt 明确行序只能证明 observed order，不能证明 drive/reset/advance/re-enter/return-to-start；
+   current-source call path 也必须与 exact runtime event identity 联结才能证明历史跳转；
+3. 每个 compact `log:protocol:N` principal row 携带同一 typed relation caliber，避免独立关系行
+   额外挤占 source/protocol seat；
+4. structured LogBundle 即使没有任何 model-authored observation，只要 OperationalSemantics 非空也
+   不再被 empty-bundle 快路径丢弃；
+5. 不读取 RawRequest、model thinking/summary/final，不做 answer hard gate 或 answer mutation；
+   Trace query/materializer、显式时间窗因果投影和系统自动补齐未触碰。
+
+验证：`go test ./internal/render ./internal/types ./internal/context ./internal/agent -count=1`
+全通过（render 1.699s、types 22.603s、context 1.239s、agent 2.570s）；
+`go test ./internal/tool -count=1` 全通过（161.419s）。
+
+任务状态：
+
+- [x] B47-T7：SEMCAL1 实现、全量测试、独立推送，并以 read + operation 严格并行 2 个回放；
+- [x] B47-T7a：完整人工审计两例的系统上下文、原始结果与最终答案；
+- [x] B47-T7b：RELSEM1 完整 tool 回归、提交推送；下一异构日志批验证关系 fence，并观察
+  LOGCITE1 是否复现；
+- [ ] B47-T8：修复 REPLANPROOF1/CAPCAL1，独立提交推送；write 回放必须审累计 still-applied
+  paths/contracts 与 capability caliber，不以 `verified` 字样作 oracle。
 
 ### B42：生成物写模式 × 日志/源码机制对比审计（2026-08-02）
 

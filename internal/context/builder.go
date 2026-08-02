@@ -4017,6 +4017,7 @@ func formatLogTriageStructured(bundle *types.LogBundle, locator types.SymbolLoca
 	}
 	if bundle.Meta.Lang == "" && len(bundle.Errors) == 0 &&
 		len(bundle.Observations) == 0 &&
+		len(bundle.OperationalSemantics) == 0 &&
 		len(bundle.Residue.UnknownChunks) == 0 {
 		return ""
 	}

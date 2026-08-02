@@ -1137,6 +1137,41 @@ func TestCompileObservationLedger_SystemOperationalSemanticDemotesConflictingInt
 	}
 }
 
+func TestCompileObservationLedger_SystemOperationalRowsCarryCrossEventRelationFence(t *testing.T) {
+	bundle := &LogBundle{OperationalSemantics: []LogOperationalSemantic{
+		{
+			Protocol: "codrax_orchestrator_attempt_v1", Producer: "orchestrator",
+			EventKind: LogOperationalEventDispatchAttemptFailed, Subject: "finalizer",
+			CounterDomain: LogOperationalCounterDispatchAttempt, ValueKind: LogOperationalValueAttemptOrdinal,
+			Numerator: 1, Denominator: 3, NumeratorMeaning: "current_dispatch_attempt_ordinal",
+			DenominatorMeaning: "maximum_dispatch_attempts", TransitionAuthority: LogOperationalTransitionEventLocalOnly,
+			LineStart: 3, LineEnd: 3, RawExcerpt: "WARN [orchestrator] finalizer attempt 1/3 failed: timeout",
+		},
+		{
+			Protocol: "codrax_status_v1", Producer: "render",
+			EventKind: LogOperationalEventPipelineStageLifecycle, Subject: "finalize", StageKey: "finalize", Lifecycle: "retry",
+			CounterDomain: LogOperationalCounterPipelineStageProgress, ValueKind: LogOperationalValueStageOrdinal,
+			Numerator: 4, Denominator: 4, NumeratorMeaning: "one_based_pipeline_stage_position",
+			DenominatorMeaning: "total_configured_pipeline_stages", TransitionAuthority: LogOperationalTransitionEventLocalOnly,
+			LineStart: 4, LineEnd: 4, RawExcerpt: "INFO [render] 4/4 retry",
+		},
+	}}
+	ledger := CompileObservationLedger(ObservationLedgerInput{LogBundle: bundle})
+	for _, id := range []string{"log:protocol:0", "log:protocol:1"} {
+		record := findObservationRecord(t, ledger, id)
+		notes := strings.Join(record.RichNotes, "\n")
+		for _, want := range []string{
+			"relation_authority=observed_log_line_order_only",
+			"cross_event_transition=unproven",
+			"typed_transition_witness=absent",
+		} {
+			if !strings.Contains(notes, want) {
+				t.Fatalf("%s lost relation fence %q: %+v", id, want, record.RichNotes)
+			}
+		}
+	}
+}
+
 func TestPrioritizeObservationRecords_SystemOperationalProtocolOutranksModelAggregate(t *testing.T) {
 	records := []ObservationRecord{
 		{

@@ -64,9 +64,21 @@ func TestRenderLogOperationalSemanticsForPromptPinsCounterNamespaces(t *testing.
 		"separate namespaces",
 		"lifecycle=retry describes this event's recoverable state; it does not turn value_kind=stage_ordinal into a retry",
 		"does not prove that gate was traversed",
+		"relation_authority=observed_log_line_order_only cross_event_transition=unproven typed_transition_witness=absent",
+		"adjacency does not prove that one event drove another",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestRenderLogOperationalSemanticsForPromptSingleEventDoesNotInventRelationFence(t *testing.T) {
+	rows := DetectLogOperationalSemantics(
+		"INFO [render] ⟳ 4/4 Model response error, re-composing the final answer",
+	)
+	got := RenderLogOperationalSemanticsForPrompt(rows)
+	if strings.Contains(got, "cross_event_transition=") {
+		t.Fatalf("a single event has no cross-event relation to fence:\n%s", got)
 	}
 }

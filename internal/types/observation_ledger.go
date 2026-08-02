@@ -3520,8 +3520,9 @@ func compileLogBundleObservations(bundle *LogBundle, add func(ObservationRecord)
 	for _, err := range bundle.Errors {
 		walkErr(err)
 	}
+	relationFence := logOperationalSemanticsNeedRelationFence(bundle.OperationalSemantics)
 	for i, semantic := range bundle.OperationalSemantics {
-		add(logOperationalSemanticObservationRecord(i, semantic))
+		add(logOperationalSemanticObservationRecord(i, semantic, relationFence))
 	}
 	for i, obs := range bundle.Observations {
 		role := logObservationRecordRole(bundle, obs)
@@ -3562,7 +3563,7 @@ func compileLogBundleObservations(bundle *LogBundle, add func(ObservationRecord)
 	}
 }
 
-func logOperationalSemanticObservationRecord(index int, semantic LogOperationalSemantic) ObservationRecord {
+func logOperationalSemanticObservationRecord(index int, semantic LogOperationalSemantic, relationFence bool) ObservationRecord {
 	summary := fmt.Sprintf("%s producer=%s", semantic.EventKind, semantic.Producer)
 	if semantic.StageKey != "" {
 		summary += fmt.Sprintf(" stage=%s lifecycle=%s", semantic.StageKey, semantic.Lifecycle)
@@ -3585,6 +3586,13 @@ func logOperationalSemanticObservationRecord(index int, semantic LogOperationalS
 		"protocol="+semantic.Protocol,
 		"transition_authority="+semantic.TransitionAuthority,
 	)
+	if relationFence {
+		richNotes = append(richNotes,
+			"relation_authority=observed_log_line_order_only",
+			"cross_event_transition=unproven",
+			"typed_transition_witness=absent",
+		)
+	}
 	if len(semantic.ExcludedMeanings) > 0 {
 		richNotes = append(richNotes, "does_not_mean="+strings.Join(semantic.ExcludedMeanings, ","))
 	}
@@ -3614,6 +3622,19 @@ func logOperationalSemanticObservationRecord(index int, semantic LogOperationalS
 		RichNotes:  richNotes,
 		Confidence: 1,
 	}
+}
+
+func logOperationalSemanticsNeedRelationFence(rows []LogOperationalSemantic) bool {
+	if len(rows) < 2 {
+		return false
+	}
+	for _, row := range rows {
+		if strings.TrimSpace(row.TransitionAuthority) != "" &&
+			row.TransitionAuthority != LogOperationalTransitionEventLocalOnly {
+			return false
+		}
+	}
+	return true
 }
 
 func logOperationalSemanticRefsForObservation(bundle *LogBundle, obs LogObservation) []string {
