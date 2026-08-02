@@ -4871,9 +4871,52 @@ authority producer 仍属于 `B46-T9b-c`；但 wire schema、生命周期、Expl
 - [x] B46-T11a：通用 physical/arithmetic 双轴 schema、typed content-stable authority；
 - [x] B46-T11b：Explorer closure + AnswerDocument model-owned claims，精确失败只触发模型重试；
 - [x] B46-T11c-a：提交推送本批；
-- [ ] B46-T11c-b：从干净 HEAD 严格并行同 Trace/write pair r6 并人工审计；
+- [x] B46-T11c-b：从干净 HEAD 严格并行同 Trace/write pair r6 并人工审计；
 - [ ] B46-T9b-c：后续抽取 SMR/AXIOM/RSPA renderer-only exact pair producer；
 - [ ] B47：r6 验证后切换下一对高优先 read/data/log/operation cases。
+
+#### B46 r6：model-owned 校验闭环成立，relation authority producer 覆盖仍不足
+
+从干净 `main@c2e65b6c270f` 严格并行同一 Trace/write pair。runner 1/2 PASS，人工
+1/2 PASS：
+
+1. write runner/human 双 PASS。补丁只改 `memoclaw/client.py`，sync/async 都使用
+   POST `/v1/search` + JSON body，保留可选 namespace；API reference 与测试未改。
+   verification probe、真实 `make check` 均通过，ChangeReport=`passed`，changed path
+   `covered/project_runner`，执行来源为 `declared_coverage_test_surface`。规划模型经历
+   contract refs、精确 old-text 与 probe 结构的数轮自修，但没有扩大改动面。
+2. Trace runner 仍只被旧固定词形 `等待对象 dma_fence_default_w` 判负；typed kernel
+   callsite 在 projection/detail 中存在，继续归 `EVAL-B46-ORACLE1`，不修改生产逻辑拟合。
+3. REL3 首批协议已形成端到端生产见证。Explorer 在 closure 中提交并获准三条结构化
+   model-owned claim：`#4+#13=5.149ms` 墙钟同尺、`#10=1.648ms` 唤醒边同尺、三席
+   cross-ruler=`physical unresolved + addition forbidden`。Finalizer 第一稿漏带 claims 被
+   persist validator 拒绝；第二稿由模型自己复制 accepted claims，并把正文的跨尺合并改为
+   禁止。日志 `finalizer_rewrites=0`，系统没有删除、替换或代写模型答案。
+4. 显式用户窗、4 次 windowed query、确定性自动补齐、真实占用/现规则可消两轴、根因排序、
+   唤醒链与完整 Trace 因果投影均保留。REL3 没有破坏已有 Trace 能力，write 也零义务。
+5. Trace human 仍 FAIL，但失败边界已收窄为 authority producer coverage。模型对首批未建
+   authority 的其它 pair 继续声称：target running 包含 runnable、IO latency 与 IO burst
+   部分重叠、CompThread/JankManager 的链上与 adjacent 行存在包含/重叠/独立。至少第一条
+   明确错误：closed target state partition 中 running/runnable 是物理互斥成员，却可按该
+   精确分区相加重构总窗；“互斥”不等于“不可相加”。现有 finalizer 软提示其实已准确说明
+   这两个正交轴，模型仍未服从。
+6. 因此上下文审计结论分两层：two-ruler carrier 的上下文精准、足量且已能强制模型自修；
+   其它 pair 没有 model-visible structured authority，只有 `typed_pair_only` 软边界，尚不足以
+   支撑正确回答。不能通过扫描 RawRequest、thinking、summary/final 中的“包含/重叠”等词
+   加硬门，也不能让系统重写结论。最优方案是复用现有 model-owned wire/validator，从 typed
+   closed partition、same-source exact fold、interval join 与 renderer-only exact carriers
+   批量铸造关系 authority。
+
+登记 `EVAL-B46-REL4/P1`：关系协议已 covered，producer roster 不完整。下一施工批：
+
+- [ ] B46-T12a：确保 target closed state partition 始终铸造
+  `mutually_exclusive + authorized_to_published_subtotal` authority，并固定
+  “互斥但可加”的双轴正反回归；
+- [ ] B46-T12b：抽取通用 same-source exact fold / interval-relation producer，只有精确
+  typed carrier 才发布 overlap/contains/contained_by；无 carrier 保持 unresolved；
+- [ ] B46-T12c：盘点并迁移 SMR/AXIOM/RSPA renderer-only 关系载体，避免 renderer 与
+  model authority 使用两套判定；
+- [ ] B46-T12d：全量测试、独立提交推送，然后同 pair r7；通过后转 B47，不长期停留单 case。
 
 ### B41：data 终批材料 × Binder 方向语义审计（2026-08-02）
 
