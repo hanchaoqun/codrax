@@ -212,6 +212,7 @@ func TestEnumerationLabelSupplementReplacesGenericCaveat(t *testing.T) {
 			t.Fatalf("fixture must produce the enum-label violation")
 		}
 		mut := types.NewMutableState("q")
+		mut.SetRequestModel(types.RequestModel{Intent: types.IntentEnumerate})
 		mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, doc)
 		return &types.BusContext{Mutable: mut, TypedDenials: denials, Language: lang}, violations
 	}
@@ -260,6 +261,7 @@ func TestEnumerationLabelSupplementReplacesGenericCaveat(t *testing.T) {
 			Items: []types.AnswerBlockItem{{ID: "i1", Label: "poolMismatchOnlyLabel"}},
 		}}}
 		mut := types.NewMutableState("q")
+		mut.SetRequestModel(types.RequestModel{Intent: types.IntentEnumerate})
 		mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, doc)
 		ctx := &types.BusContext{Mutable: mut, TypedDenials: types.NewTypedDenialSet(), Language: "en"}
 		violations := []types.Violation{{Kind: types.ViolEnumerationLabelUngrounded, Detail: "pool mismatch"}}
@@ -283,12 +285,35 @@ func TestEnumerationLabelSupplementReplacesGenericCaveat(t *testing.T) {
 			Items: []types.AnswerBlockItem{{ID: "i1", Label: "RealRepairedIdentifier"}},
 		}}}
 		mut := types.NewMutableState("q")
+		mut.SetRequestModel(types.RequestModel{Intent: types.IntentEnumerate})
 		mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, doc)
 		ctx := &types.BusContext{Mutable: mut, TypedDenials: denials, Language: "en"}
 		violations := []types.Violation{{Kind: types.ViolEnumerationLabelHallucinated, Detail: "residual"}}
 		out := AppendSoftContractCaveatsToAnswerForBus("answer body", violations, "en", ctx)
 		if strings.Contains(out, "System supplement: enumeration label verification") {
 			t.Fatalf("stale advisory token must not resurface after deterministic repair: %q", out)
+		}
+	})
+
+	t.Run("config table does not authorize system label commentary", func(t *testing.T) {
+		doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+			ID: "config", Kind: types.BlockTable,
+			Items: []types.AnswerBlockItem{{ID: "env", Label: "CLINIC_MAX_VISITS(environment)"}},
+		}}}
+		denials := types.NewTypedDenialSet()
+		denials.AddAnswerSurfaceAdvisory("CLINIC_MAX_VISITS", "repository symbol oracle miss")
+		mut := types.NewMutableState("q")
+		mut.SetRequestModel(types.RequestModel{
+			Intent:        types.IntentConfigQuery,
+			AnalyzerHints: types.AnalyzerHints{Kind: "config_mapping"},
+		})
+		mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, doc)
+		ctx := &types.BusContext{Mutable: mut, TypedDenials: denials, Language: "en"}
+		violations := []types.Violation{{Kind: types.ViolEnumerationLabelHallucinated, Detail: "symbol oracle miss"}}
+
+		out := AppendSoftContractCaveatsToAnswerForBus("model-owned answer", violations, "en", ctx)
+		if out != "model-owned answer" {
+			t.Fatalf("non-enumeration config table must not receive system label commentary: %q", out)
 		}
 	})
 }

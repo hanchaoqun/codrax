@@ -260,12 +260,30 @@ func AppendSoftContractCaveatsToAnswerForBus(answer string, violations []types.V
 // kinds (noise is eliminated at the source: one specific note instead
 // of a vague caveat plus a note).
 func softContractCaveatPayloadForBus(violations []types.Violation, lang string, ctx *types.BusContext) (bullets []string, raws []string) {
+	// Enumeration-label warnings are meaningful user-facing disclosures only
+	// when the typed request authorizes principal enumeration rows. A table or
+	// list used to explain a mechanism/configuration is model-owned prose, not
+	// a declaration roster for the system to annotate. Filter both the specific
+	// supplement and its generic caveat family here as defense in depth against
+	// stale/legacy advisory stamps; true enumeration requests retain the
+	// established disclosure path below.
+	if !enumerationLabelVerificationAuthorized(ctx) {
+		violations = suppressEnumerationLabelVerificationCaveats(violations)
+	}
 	supplement := enumerationLabelVerificationSupplement(violations, ctx, lang)
 	if supplement != "" {
 		violations = suppressEnumerationLabelVerificationCaveats(violations)
 		raws = append(raws, supplement)
 	}
 	return softContractCaveatBulletsForBusFiltered(violations, lang, ctx), raws
+}
+
+func enumerationLabelVerificationAuthorized(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	rm := ctx.Mutable.RequestModel()
+	return rm != nil && types.ShouldCompileEnumerationDisplaySetsForRequest(*rm)
 }
 
 func softContractCaveatBulletsForBusFiltered(violations []types.Violation, lang string, ctx *types.BusContext) []string {
