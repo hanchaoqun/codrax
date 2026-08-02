@@ -89,11 +89,7 @@ func runtimeTraceProjSelfTwoRulerRulerIdentityHolds(effs []float64, ranks []int,
 // hold (宁漏勿假指 — a diverged record silently never renders instead of
 // lying).
 func runtimeTraceProjSelfTwoRulerRecordAdmitted(record types.TraceCausalProjectionSelfRunnableTwoRuler) bool {
-	if strings.TrimSpace(record.Subject) == "" {
-		return false
-	}
-	return runtimeTraceProjSelfTwoRulerRulerIdentityHolds(record.WallEffsMS, record.WallRanks, record.WallSubtotalMS) &&
-		runtimeTraceProjSelfTwoRulerRulerIdentityHolds(record.EdgeEffsMS, record.EdgeRanks, record.EdgeSubtotalMS)
+	return types.TraceCausalProjectionSelfRunnableTwoRulerValid(record)
 }
 
 // runtimeTraceProjSelfTwoRulerLead returns the record's LEAD seat — the

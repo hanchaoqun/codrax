@@ -44,7 +44,7 @@ func renderAnswerDocTraceDecisionHandoffSet(set types.TraceCausalProjectionSet, 
 	hasActual, hasEliminable := traceDecisionAxesPresent(set)
 	switch {
 	case hasActual && hasEliminable:
-		b.WriteString("- Write a concise synthesis before the detailed evidence. Compare the two independent decision axes that are actually available: (A) actual time occupancy / critical-path work, including high-cost work that current formulas do not price, to identify new optimization directions; and (B) existing-rule eliminable impact, to prioritize already-priced repairs. Explain why the leading direction matters and what to verify or change first.\n")
+		b.WriteString("- Write a concise synthesis before the detailed evidence. Compare the two distinct decision axes that are actually available (this distinction is not a claim of physical independence): (A) actual time occupancy / critical-path work, including high-cost work that current formulas do not price, to identify new optimization directions; and (B) existing-rule eliminable impact, to prioritize already-priced repairs. Explain why the leading direction matters and what to verify or change first.\n")
 	case hasActual:
 		b.WriteString("- Write a concise synthesis of the available actual time occupancy / critical-path work and the next optimization direction. No positive existing-rule eliminable seat is available here; do not invent one.\n")
 	case hasEliminable:
@@ -52,7 +52,7 @@ func renderAnswerDocTraceDecisionHandoffSet(set types.TraceCausalProjectionSet, 
 	default:
 		b.WriteString("- Synthesize only the available target-state, wakeup-path, and evidence-boundary inputs. Do not invent an occupancy or eliminable ranking that is absent below.\n")
 	}
-	b.WriteString("- Never add values across rows, fix directions, wall-clock and cpu·ms, or overlapping seats. A high occupancy is not automatically eliminable; a high eliminable estimate is not automatically proven frame causality.\n")
+	b.WriteString("- Do not add values across arbitrary rows, fix directions, wall-clock and cpu·ms, or overlapping seats. Addition is authorized only by an exact typed additive carrier, such as the target's closed four-state partition or a same-source disjoint bipartition with its published subtotal. Mutually exclusive partition members may be added to reconstruct that exact partition total; do not misstate mutual exclusion as general non-additivity. A high occupancy is not automatically eliminable; a high eliminable estimate is not automatically proven frame causality.\n")
 	b.WriteString("- relation_authority=`typed_pair_only`: different state names, metric families, fix directions, rows, or threads do not by themselves prove independence, containment, overlap, mutual exclusion, or additivity. State one of those pairwise relations only from an exact typed relation/fold carrier or the target's closed four-state partition. When a pair has no such carrier, say its physical relationship is unresolved and that cross-row addition is not authorized; do not upgrade missing relation evidence into the stronger physical claim that the rows are independent or intrinsically non-additive.\n")
 	if authority.CausalUnproven {
 		b.WriteString("- causal_conclusion=`unproven`: keep the synthesis useful but calibrated as the strongest candidate / first validation direction, not a proven dropped-frame cause.\n")
@@ -83,10 +83,11 @@ func renderAnswerDocTraceDecisionHandoffSet(set types.TraceCausalProjectionSet, 
 				projection.WindowStartTs, projection.WindowEndTs, projection.WindowDurationMS())
 		}
 		if account := projection.TargetStateAccount; account != nil && strings.TrimSpace(account.Subject) != "" && account.TotalMS > 0 {
-			fmt.Fprintf(&b, "- target_state_symptom: subject=`%s`; running=%.3fms; runnable=%.3fms; sleep=%.3fms; d_state=%.3fms; io_wait=%.3fms; total=%.3fms. This describes what the target experienced, not the upstream cause or recoverable amount.\n",
+			fmt.Fprintf(&b, "- target_state_symptom: subject=`%s`; running=%.3fms; runnable=%.3fms; sleep=%.3fms; d_state=%.3fms; io_wait=%.3fms; total=%.3fms; partition_relation=`mutually_exclusive_and_additive_to_total`; partition_addition_authority=`these_five_members_only`. This describes what the target experienced, not the upstream cause or recoverable amount.\n",
 				account.Subject, account.RunningMS, account.RunnableMS, account.SleepMS,
 				account.DStateMS, account.IOWaitMS, account.TotalMS)
 		}
+		traceDecisionWriteSelfRunnableTwoRulerFacts(&b, projection.SelfRunnableTwoRulerAccountings)
 		if len(projection.WakeupPath) > 0 {
 			fmt.Fprintf(&b, "- elected_wakeup_path=`%s`; use it to connect observations, but do not upgrade the path itself beyond the typed causal ceiling.\n",
 				strings.Join(projection.WakeupPath, " -> "))
@@ -135,7 +136,7 @@ func renderAnswerDocTraceDecisionHandoffSet(set types.TraceCausalProjectionSet, 
 
 		seats := traceDecisionEliminableSeats(projection, 8)
 		if len(seats) > 0 {
-			b.WriteString("- axis_B_existing_rule_eliminable (ordered typed seats; cross_row_additivity=`forbidden`):\n")
+			b.WriteString("- axis_B_existing_rule_eliminable (ordered typed seats; cross_row_additivity=`not_authorized_without_exact_pair_carrier`):\n")
 			for _, node := range seats {
 				fmt.Fprintf(&b, "  - rank=#%d; subject=`%s`; kind=`%s`; effective_attribution=%.3fms",
 					node.Rank, strings.TrimSpace(node.Subject), traceDecisionNodeKind(node), node.EffectiveImpactMS)
@@ -158,6 +159,31 @@ func renderAnswerDocTraceDecisionHandoffSet(set types.TraceCausalProjectionSet, 
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+func traceDecisionWriteSelfRunnableTwoRulerFacts(b *strings.Builder, records []types.TraceCausalProjectionSelfRunnableTwoRuler) {
+	if b == nil {
+		return
+	}
+	for index, record := range records {
+		if index >= 4 || !types.TraceCausalProjectionSelfRunnableTwoRulerValid(record) {
+			continue
+		}
+		fmt.Fprintf(b, "- authorized_relation_fact: family=`self_runnable_two_ruler`; subject=`%s`; self_wall_clock_seats=`%s`; self_wall_clock_subtotal=%.3fms; wakeup_edge_seats=`%s`; wakeup_edge_subtotal=%.3fms; same_ruler_addition=`authorized_to_published_subtotal`; cross_ruler_addition=`forbidden`; cross_ruler_physical_relation=`unresolved`. The two subtotals use different accounting rulers and must not be combined.\n",
+			strings.TrimSpace(record.Subject), traceDecisionRulerSeats(record.WallRanks, record.WallEffsMS), record.WallSubtotalMS,
+			traceDecisionRulerSeats(record.EdgeRanks, record.EdgeEffsMS), record.EdgeSubtotalMS)
+	}
+}
+
+func traceDecisionRulerSeats(ranks []int, values []float64) string {
+	parts := make([]string, 0, len(ranks))
+	for i := range ranks {
+		if i >= len(values) {
+			break
+		}
+		parts = append(parts, fmt.Sprintf("#%d:%.3fms", ranks[i], values[i]))
+	}
+	return strings.Join(parts, ",")
 }
 
 func traceDecisionHasAccountOrRoleRelations(set types.TraceCausalProjectionSet) bool {

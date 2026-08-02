@@ -4688,7 +4688,7 @@ meta-runner 语义断链。
 | EVAL-B46-XMAKE1/XMAKE2 | P1 | 项目测试选择与 meta-runner execution semantics→changed-path coverage 曾断链 | exact target + concrete execution family + successful command + exact declared roster 的合取已通过生产回放 | covered |
 | EVAL-B46-OCCUNIT1 | P1 | 非墙钟计数当量混入墙钟 occupancy | 共享 caliber guard 已通过生产回放；值保留在旁栏 | covered |
 | EVAL-B46-REL2A | P1 | pre-finalizer handoff 把 row-local state split 无条件伪装成 cross-row containment | 已删除伪关系；D/IO 数值只标为 `row_state_breakdown`，并带 `this_observation_only / not_provided_by_state_breakdown` 权限边界 | implemented/agent-tests-pass |
-| EVAL-B46-REL2B | P1 | 用户要求跨行关系时，准确关系只在 post-finalize renderer 的内部 tree model 中，模型成文前拿不到同源的精确 pair roster | 把既有 SMR/AXIOM/RSPA typed pair adjudication 抽成共享 relation fact surface；finalizer 只消费其已铸关系与 unresolved 边界，禁止复制第二套判定、禁止扫描答案、禁止改写答案 | design-after-REL2A |
+| EVAL-B46-REL2B | P1 | 用户要求跨行关系时，准确关系只在 post-finalize renderer 的内部 tree model 中，模型成文前拿不到同源的精确 pair roster | 第一段已补共享 typed facts：目标四态明确“互斥且仅可加到闭合总量”，self-runnable two-ruler 的合法性下沉为 types 单一校验，handoff 携带同尺席/小计、跨尺禁加和物理关系 unresolved；SMR/AXIOM/RSPA renderer-only pair roster 仍待共享化 | partial/replay-first |
 | EVAL-B46-REL2C | P2 model-compliance | 即使负向边界在高显著 prompt 中，模型仍可能越界陈述无载体关系 | 先修上下文自相矛盾并提供正向 exact pair facts；仍跨例复现时走普通语义审阅/重试，不做字符串 gate 或系统替答 | watch-after-context-fix |
 
 上下文审计结论：本轮不是“信息不够多”，而是“关系信息太多但 authority 不一致”。数值、单位、
@@ -4700,8 +4700,15 @@ meta-runner 语义断链。
 - [x] B46-T9a：删除 `DStateSplitMS/IOWaitSplitMS => embedded cross-row relation` 的伪映射，
   改为诚实 row-local breakdown；正向固定数值继续传递，负向固定不再铸 containment；
   `go test ./internal/agent -count=1` 通过（2.917s）；
-- [ ] B46-T9b：设计共享 typed pair relation fact surface，复用 renderer 判定而非复制；
-- [ ] B46-T9c：相关测试、提交推送；干净 HEAD 严格并行同 pair r4；
+- [x] B46-T9b-a：修正关系上下文自相矛盾：两条“决策轴”不再称物理 independent；任意跨行
+  禁加改为“仅 exact additive carrier 授权”；互斥分区成员可加还原其 typed 总量；
+- [x] B46-T9b-b：新增 types 共享 two-ruler admission authority，renderer 与 finalizer handoff
+  同源消费；handoff 逐尺列 rank/value/subtotal，跨尺只授权禁止相加且物理关系 unresolved；
+- [ ] B46-T9b-c：若 r4 仍需要更多关系事实，再把 SMR/AXIOM/RSPA renderer-only pair roster
+  抽为共享 typed surface；不得在 agent 复制第二套 pair 判定；
+- [x] B46-T9c：`go test ./internal/types ./internal/agent -count=1` 通过
+  （types 22.595s、agent 2.819s），`go test ./internal/tool -count=1` 通过（159.683s）；
+  本批提交推送后从干净 HEAD 严格并行同 pair r4；
 - [ ] B47：r4 后按优先矩阵切换到下一对 read/data/log/operation 用例，避免停留在单一 Trace/write。
 
 ### B41：data 终批材料 × Binder 方向语义审计（2026-08-02）

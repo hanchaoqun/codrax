@@ -288,6 +288,38 @@ type TraceCausalProjectionSelfRunnableTwoRuler struct {
 	EdgeSubtotalMS float64 `json:"edge_subtotal_ms"`
 }
 
+// TraceCausalProjectionSelfRunnableTwoRulerValid is the shared authority for
+// admitting a two-ruler account outside the wire parser. Both rulers must be
+// populated, their values/ranks must stay parallel, and each published
+// subtotal must equal the sum of its own ruler at the 3-decimal print quantum.
+// It deliberately says nothing about the physical relationship between the
+// two rulers and never authorizes a cross-ruler total.
+func TraceCausalProjectionSelfRunnableTwoRulerValid(record TraceCausalProjectionSelfRunnableTwoRuler) bool {
+	if strings.TrimSpace(record.Subject) == "" {
+		return false
+	}
+	validRuler := func(effs []float64, ranks []int, subtotal float64) bool {
+		if len(effs) == 0 || len(effs) != len(ranks) || !(subtotal > 0) {
+			return false
+		}
+		sum := 0.0
+		for i := range effs {
+			if !(effs[i] > 0) || ranks[i] <= 0 {
+				return false
+			}
+			sum += effs[i]
+		}
+		// Every value and the subtotal are published at millisecond precision.
+		// One microsecond per participating value is the existing RULER2 print-
+		// quantum allowance, not a tolerance borrowed from another relation.
+		tol := float64(len(effs)+1) * 0.001
+		diff := sum - subtotal
+		return diff <= tol && diff >= -tol
+	}
+	return validRuler(record.WallEffsMS, record.WallRanks, record.WallSubtotalMS) &&
+		validRuler(record.EdgeEffsMS, record.EdgeRanks, record.EdgeSubtotalMS)
+}
+
 // TraceCausalProjectionSelfRunningFoldUnmeasured is the self supply-fold
 // 「量不了」 absence disclosure (SELFRUN-DISC, §29.192① (b)): the analysis
 // target ran RunningMS inside the window while the fold basis was ENTIRELY
@@ -5711,6 +5743,9 @@ func traceCausalProjectionSelfRunnableTwoRulerFromRecord(record ObservationRecor
 	}
 	out.WallEffsMS, out.WallRanks, out.WallSubtotalMS = wallEffs, wallRanks, wallSubtotal
 	out.EdgeEffsMS, out.EdgeRanks, out.EdgeSubtotalMS = edgeEffs, edgeRanks, edgeSubtotal
+	if !TraceCausalProjectionSelfRunnableTwoRulerValid(out) {
+		return TraceCausalProjectionSelfRunnableTwoRuler{}, false
+	}
 	return out, true
 }
 
