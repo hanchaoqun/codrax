@@ -2656,7 +2656,7 @@ func TestRunTestsVerificationProbeMissingChildExecutableFallsThroughToTypedSurfa
 	}
 }
 
-func TestRunTestsTypedPolyglotMakeSurfaceCannotReplaceRustExecution(t *testing.T) {
+func TestRunTestsTypedPolyglotMakeSurfaceCarriesExactCheckWithoutPretendingRustExecution(t *testing.T) {
 	if _, err := exec.LookPath("make"); err != nil {
 		t.Skip("make not on PATH; skip")
 	}
@@ -2699,18 +2699,18 @@ func TestRunTestsTypedPolyglotMakeSurfaceCannotReplaceRustExecution(t *testing.T
 		t.Fatalf("Execute returned error: %v", err)
 	}
 	report := mu.ChangeReport()
-	if result.Success || report == nil || report.Passed ||
-		report.NormalizeVerificationStatus() != types.VerificationStatusUnavailable ||
-		report.FailureReasonCode != changedPathVerificationUncoveredReasonCode {
-		t.Fatalf("Python text scan behind Make must not verify Rust behavior: result=%+v report=%+v", result, report)
+	if !result.Success || report == nil || !report.Passed ||
+		report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
+		t.Fatalf("successful exact repository check should cover its declared Rust path: result=%+v report=%+v", result, report)
 	}
 	if report.TestSurface == nil {
 		t.Fatal("final report must retain the typed surface used for cross-language authority")
 	}
 	if len(report.ChangedPathCoverage) != 1 ||
 		report.ChangedPathCoverage[0].Path != "src/types/list.rs" ||
-		report.ChangedPathCoverage[0].Status != types.ChangedPathVerificationUncovered {
-		t.Fatalf("Rust path must stay uncovered without Rust execution: %+v", report.ChangedPathCoverage)
+		report.ChangedPathCoverage[0].Status != types.ChangedPathVerificationCovered ||
+		report.ChangedPathCoverage[0].Caliber != types.ChangedPathVerificationDeclaredProjectCheck {
+		t.Fatalf("cross-language check must use its narrow caliber, not Rust project-runner authority: %+v", report.ChangedPathCoverage)
 	}
 	var makeCommand *types.ExecutedCommand
 	for i := range report.ExecutedCommands {
@@ -2720,8 +2720,9 @@ func TestRunTestsTypedPolyglotMakeSurfaceCannotReplaceRustExecution(t *testing.T
 			break
 		}
 	}
-	if makeCommand == nil || len(makeCommand.CoveredPaths) != 0 {
-		t.Fatalf("executed Make may remain evidence but cannot claim Rust covered_paths: %+v", report.ExecutedCommands)
+	if makeCommand == nil || len(makeCommand.CoveredPaths) != 1 ||
+		makeCommand.CoveredPaths[0] != "src/types/list.rs" {
+		t.Fatalf("executed Make must carry only its exact declared changed path: %+v", report.ExecutedCommands)
 	}
 }
 

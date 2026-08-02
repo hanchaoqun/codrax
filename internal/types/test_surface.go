@@ -45,9 +45,10 @@ type TestSurfaceCandidate struct {
 	// candidate's typed test entry. For Make this is a bounded static
 	// expansion of the selected target's direct file prerequisites and
 	// directly invoked local test scripts' exact existing path literals.
-	// This roster is dependency/audit context only: naming or reading a file
-	// does not prove that another language's compiler or runtime exercised it,
-	// so it must not grant cross-language project-runner authority.
+	// The roster has no authority by itself. A successful command matching the
+	// exact candidate and MakeTarget may use an exact member as bounded
+	// declared-project-check evidence; it never grants directory- or
+	// language-wide project-runner coverage.
 	DeclaredCoveragePaths []string `json:"declared_coverage_paths,omitempty"`
 
 	// DeclaredExecutionLanguageFamilies identifies the concrete language
@@ -100,12 +101,13 @@ type ExecutedCommand struct {
 	DurationMS int64  `json:"duration_ms,omitempty"`
 
 	// CoveredPaths names the repo-relative changed source paths this
-	// successful command authoritatively exercised. Project runners derive
-	// it from the runner's typed language family plus WorkingDir; a meta
-	// runner's declared input roster cannot upgrade it across language
-	// families. Source checks and verification probes must bind exact paths.
-	// It is produced by Codrax and is never inferred from user text or model
-	// prose.
+	// successful command authoritatively exercised. Ordinary project runners
+	// derive it from the runner's typed language family plus WorkingDir. A
+	// repository-declared meta runner may add only exact members of its bounded
+	// DeclaredCoveragePaths roster after the exact candidate/target succeeds;
+	// its driver language never authorizes other target paths. Source checks
+	// and verification probes must also bind exact paths. It is produced by
+	// Codrax and is never inferred from user text or model prose.
 	CoveredPaths []string `json:"covered_paths,omitempty"`
 
 	// Source is the typed provenance of the execution decision:

@@ -1114,9 +1114,10 @@ const (
 type ChangedPathVerificationCaliber string
 
 const (
-	ChangedPathVerificationProjectRunner ChangedPathVerificationCaliber = "project_runner"
-	ChangedPathVerificationSourceCheck   ChangedPathVerificationCaliber = "source_check"
-	ChangedPathVerificationProbe         ChangedPathVerificationCaliber = "verification_probe"
+	ChangedPathVerificationProjectRunner        ChangedPathVerificationCaliber = "project_runner"
+	ChangedPathVerificationDeclaredProjectCheck ChangedPathVerificationCaliber = "declared_project_check"
+	ChangedPathVerificationSourceCheck          ChangedPathVerificationCaliber = "source_check"
+	ChangedPathVerificationProbe                ChangedPathVerificationCaliber = "verification_probe"
 )
 
 // ChangedPathVerificationCoverage records the strongest typed successful

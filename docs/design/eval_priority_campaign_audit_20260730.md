@@ -3919,6 +3919,64 @@ B18c 使用一条通用 typed 规则修复：
 
 状态：`implemented / full-tests-pass / cross-relation replay next`。
 
+### B47：运行日志语义所有权 × write 跨语言检查权限（2026-08-02）
+
+严格并行 2 个跨模式 case：
+
+- `read_combo_log_current_code_dimensions`：runner PASS / human FAIL，258s；
+- `github_issue_commons_lang_random_ascii_symptom`：runner FAIL / human FAIL，426s。
+
+完整人工审计结论：
+
+1. read/log case 的日志/当前源码两条证据通道已经分离，Explorer 实际读取 6 个源码文件，
+   finalizer 也没有系统重写；但 Log Triage 首先把
+   `⟳ 4/4 模型响应出错,正在重新撰写答案` 解释成“四个模型全部失败”。当前 renderer
+   的 `K/N` 是 pipeline stage ordinal/total：read finalize 正是第 4/4 阶段，与模型数无关。
+   该错误结构化 observation 随后污染 Analyzer、Explorer aggregate 和最终答案。
+2. 同一 read 答案又把日志的 `attempt 1/3`、当前源码的
+   `finalizerIdenticalErrorStreak=4`、`finalizerLocalRetriesUsed`、
+   `finalizeRepairHardCapValue=2` 串成一条历史执行链。它们属于不同 owner/domain；
+   “当前定义存在”只能解释候选机制，不能证明历史日志实际跨过每一个 gate。
+3. write case 首次实现被项目 `make check` 正确打红；replan 后源代码以
+   `end <= 0x7f` 约束 ASCII fast path，非 ASCII 字母/数字测试也改为明确码点，第二次
+   `make check` exit=0。最终却因检查脚本运行于 Python、变更目标为 Java 而把两个精确
+   changed paths 都判 uncovered，交付降为 unverified。
+4. 这不是“Python 是否能证明 Java 行为”的二选一。系统混淆了三个维度：
+   driver execution family、exact checked artifact、behavior-contract strength。changed-path
+   coverage 只回答成功检查是否精确触及变更路径，不应冒充目标语言 project runner，
+   也不应替代独立 behavior-contract authority。
+
+| GAP | 优先级 | 泛化问题 | 最优方案 | 状态 |
+|---|---:|---|---|---|
+| `EVAL-B47-XCOV1` | P1 | repository-declared meta-runner 的 driver family 被要求与 exact target family 相等，Python 静态/行为检查无法覆盖 Java/C/Rust 等精确输入 | 分离 driver 与 target 两轴；只有 exact TestSurface candidate + exact Make target + concrete driver + exit=0 + exact bounded roster member 合取才授权该路径；新增 `declared_project_check` caliber，禁止目录/语言扩权 | implemented/full-tests-pass |
+| `EVAL-B47-RUNTIMESEM1` | P1 | Log Triage 对 renderer progress 与独立 retry counters 缺少 typed owner/domain，上游错误结构化后全链放大 | 在日志解释前提供 typed operational event semantics；`K/N` 明确 carrier kind/owner/numerator/denominator，retry/cap 明确 domain/owner；历史因果连接必须有 typed transition witness。只给模型准确上下文和软指导，不扫描/替换模型正文 | filed/next batch |
+| `EVAL-B47-ANAFORM1` | P3 | Analyzer 对 runtime scope 与 request-only quote 连续 3 次 schema 修复 | 已 fail-loud 且最终收敛；待更高优先问题完成后审计 schema ergonomics，不为本 case 加宽校验 | watch |
+
+#### B47-XCOV1：exact declared project check
+
+本批实现：
+
+1. 普通 runner 保持既有 `target language family ∩ runner family + working_dir` 权限；
+2. meta-runner 只有匹配精确 TestSurface key/MakeTarget、携带 concrete driver family、
+   有界 `DeclaredCoveragePaths` 且命令成功时，才以 exact roster membership 授权；
+3. 跨语言 exact member 的 caliber 为 `declared_project_check`，不伪装成目标语言
+   `project_runner`；driver family 也不能授权同目录 sibling；
+4. roster 单独存在、动态 executor、target 不匹配、失败命令、部分 roster 的缺席成员均
+   fail-closed；普通 Python pass 仍不能覆盖未声明 Java 路径；
+5. changed-path presence 与 behavior-contract proof 保持分层，系统没有从测试脚本 prose
+   猜合同，也没有读取用户输入/模型答案做硬门。
+
+施工清单：
+
+- [x] B47-T1：严格并行 read/log + write/Java，完整人工审计答案、日志、patch、两次报告；
+- [x] B47-T2：实现 driver/target 双轴与 `declared_project_check`；
+- [x] B47-T3：覆盖同语言正例、跨语言 exact 正例、部分 roster sibling 负例、失败命令、
+  无 execution-family roster、普通跨语言 runner 和 suite mismatch；
+- [x] B47-T4：完整 `internal/types + internal/tool` 回归通过（types 22.711s、tool 162.029s）；
+  提交推送；
+- [ ] B47-T5：实现 typed runtime-event semantics，独立提交推送；
+- [ ] B47-T6：干净 HEAD 严格并行同 pair r2；通过后按优先矩阵进入下一对 data/operation/plan。
+
 ### B42：生成物写模式 × 日志/源码机制对比审计（2026-08-02）
 
 本批按跨模式优先级严格并行：

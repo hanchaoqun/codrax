@@ -153,10 +153,7 @@ func enrichSuccessfulCommandCoveredPaths(
 		}
 		for _, path := range targets {
 			if !repoPathWithinWorkingDir(path, cmd.WorkingDir) ||
-				!verificationLanguageFamiliesIntersect(targetFamilies[path], runnerFamilies) {
-				continue
-			}
-			if declaredPaths != nil && !declaredPaths[strings.ToLower(cleanRepoRelPath(path))] {
+				!executedCommandAuthorizesChangedPath(path, targetFamilies[path], runnerFamilies, declaredPaths) {
 				continue
 			}
 			cmd.CoveredPaths = appendUniqueRepoPath(cmd.CoveredPaths, path)
@@ -184,16 +181,21 @@ func changedPathCoverageFromCommands(
 		default:
 			continue
 		}
-		runnerFamilies, _ := executedCommandCoverageAuthority(cmd, surface)
+		runnerFamilies, declaredPaths := executedCommandCoverageAuthority(cmd, surface)
 		for _, raw := range cmd.CoveredPaths {
 			path := cleanRepoRelPath(raw)
 			canonical, ok := targetSet[strings.ToLower(path)]
 			if !ok ||
-				!verificationLanguageFamiliesIntersect(targetFamilies[canonical], runnerFamilies) {
+				!executedCommandAuthorizesChangedPath(canonical, targetFamilies[canonical], runnerFamilies, declaredPaths) {
 				continue
 			}
+			pathCaliber := caliber
+			if caliber == types.ChangedPathVerificationProjectRunner &&
+				!verificationLanguageFamiliesIntersect(targetFamilies[canonical], runnerFamilies) {
+				pathCaliber = types.ChangedPathVerificationDeclaredProjectCheck
+			}
 			next := changedPathCoverageEvidence{
-				caliber: caliber,
+				caliber: pathCaliber,
 				runner:  strings.TrimSpace(cmd.Runner),
 				source:  strings.TrimSpace(cmd.Source),
 			}
@@ -204,6 +206,23 @@ func changedPathCoverageFromCommands(
 		}
 	}
 	return out
+}
+
+// executedCommandAuthorizesChangedPath keeps the meta-runner driver language
+// and the checked artifact language on separate axes. Ordinary runners retain
+// language+working-directory authority. A matched repository-declared target
+// carries a non-nil exact roster; in that lane membership is the whole target
+// authority and the driver language cannot broaden it to sibling files.
+func executedCommandAuthorizesChangedPath(
+	path string,
+	targetFamilies []types.VerificationLanguageFamily,
+	runnerFamilies []types.VerificationLanguageFamily,
+	declaredPaths map[string]bool,
+) bool {
+	if declaredPaths != nil {
+		return declaredPaths[strings.ToLower(cleanRepoRelPath(path))]
+	}
+	return verificationLanguageFamiliesIntersect(targetFamilies, runnerFamilies)
 }
 
 // executedCommandCoverageAuthority resolves the concrete execution family of
@@ -223,7 +242,8 @@ func executedCommandCoverageAuthority(
 	}
 	key := testSurfaceCandidateKey(cmd.Runner, cmd.Framework, cmd.WorkingDir)
 	for _, cand := range surface.Candidates {
-		if testSurfaceCandidateKey(cand.Runner, cand.Framework, cand.WorkingDir) != key ||
+		if !cand.HasTestSignal ||
+			testSurfaceCandidateKey(cand.Runner, cand.Framework, cand.WorkingDir) != key ||
 			strings.TrimSpace(cand.MakeTarget) != strings.TrimSpace(cmd.Suite) ||
 			len(cand.DeclaredExecutionLanguageFamilies) == 0 ||
 			len(cand.DeclaredCoveragePaths) == 0 {
@@ -338,6 +358,8 @@ func verificationProbeChangedTargetPaths(
 func changedPathCoverageCaliberRank(caliber types.ChangedPathVerificationCaliber) int {
 	switch caliber {
 	case types.ChangedPathVerificationProjectRunner:
+		return 4
+	case types.ChangedPathVerificationDeclaredProjectCheck:
 		return 3
 	case types.ChangedPathVerificationProbe:
 		return 2

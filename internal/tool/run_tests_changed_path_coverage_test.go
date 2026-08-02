@@ -166,7 +166,7 @@ func TestChangedPathCoverageAcceptsMatchingExecutedPythonMakeTarget(t *testing.T
 	}
 }
 
-func TestChangedPathCoverageRejectsMatchingPythonMakeTargetForRustPath(t *testing.T) {
+func TestChangedPathCoverageAcceptsExactCrossLanguageDeclaredProjectCheck(t *testing.T) {
 	ctx := changedPathCoverageTestContext([]string{"src/types/list.rs"})
 	report := &types.ChangeReport{
 		Passed: true,
@@ -197,9 +197,89 @@ func TestChangedPathCoverageRejectsMatchingPythonMakeTargetForRustPath(t *testin
 
 	applyChangedPathVerificationCoverage(ctx, report)
 
-	if report.Passed || report.NormalizeVerificationStatus() != types.VerificationStatusUnavailable ||
-		report.ChangedPathCoverage[0].Status != types.ChangedPathVerificationUncovered {
-		t.Fatalf("Python Make target must not authorize Rust path: %+v", report)
+	if !report.Passed || report.NormalizeVerificationStatus() != types.VerificationStatusPassed ||
+		report.ChangedPathCoverage[0].Status != types.ChangedPathVerificationCovered ||
+		report.ChangedPathCoverage[0].Caliber != types.ChangedPathVerificationDeclaredProjectCheck {
+		t.Fatalf("exact repository-declared target must cover its Rust member without pretending Python is Rust: %+v", report)
+	}
+}
+
+func TestChangedPathCoverageDeclaredProjectCheckDoesNotBroadenToSiblingLanguagePath(t *testing.T) {
+	ctx := changedPathCoverageTestContext([]string{
+		"src/types/list.rs",
+		"src/types/tuple.rs",
+	})
+	report := &types.ChangeReport{
+		Passed: true,
+		TestSurface: &types.TestSurface{Candidates: []types.TestSurfaceCandidate{{
+			ID:            "make@.",
+			Runner:        "make",
+			WorkingDir:    ".",
+			MakeTarget:    "check",
+			HasTestSignal: true,
+			DeclaredCoveragePaths: []string{
+				"src/types/list.rs",
+				"tests/check_source.py",
+			},
+			DeclaredExecutionLanguageFamilies: []types.VerificationLanguageFamily{
+				types.VerificationLanguagePython,
+			},
+		}}},
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner:     "make",
+			WorkingDir: ".",
+			Suite:      "check",
+			Command:    "make check",
+			Outcome:    "executed",
+			ExitCode:   0,
+		}},
+	}
+
+	applyChangedPathVerificationCoverage(ctx, report)
+
+	if report.Passed || report.NormalizeVerificationStatus() != types.VerificationStatusUnavailable {
+		t.Fatalf("partial exact roster must leave the sibling Rust path uncovered: %+v", report)
+	}
+	if len(report.ChangedPathCoverage) != 2 ||
+		report.ChangedPathCoverage[0].Status != types.ChangedPathVerificationCovered ||
+		report.ChangedPathCoverage[0].Caliber != types.ChangedPathVerificationDeclaredProjectCheck ||
+		report.ChangedPathCoverage[1].Status != types.ChangedPathVerificationUncovered {
+		t.Fatalf("declared-project-check path boundary widened: %+v", report.ChangedPathCoverage)
+	}
+	if got := report.ExecutedCommands[0].CoveredPaths; len(got) != 1 || got[0] != "src/types/list.rs" {
+		t.Fatalf("meta-runner must publish only the exact declared changed path: %+v", got)
+	}
+}
+
+func TestChangedPathCoverageFailedDeclaredProjectCheckHasNoAuthority(t *testing.T) {
+	ctx := changedPathCoverageTestContext([]string{"src/Widget.java"})
+	report := &types.ChangeReport{
+		Passed: true,
+		TestSurface: &types.TestSurface{Candidates: []types.TestSurfaceCandidate{{
+			ID:                    "make@.",
+			Runner:                "make",
+			WorkingDir:            ".",
+			MakeTarget:            "check",
+			HasTestSignal:         true,
+			DeclaredCoveragePaths: []string{"src/Widget.java", "tests/check_widget.py"},
+			DeclaredExecutionLanguageFamilies: []types.VerificationLanguageFamily{
+				types.VerificationLanguagePython,
+			},
+		}}},
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner:     "make",
+			WorkingDir: ".",
+			Suite:      "check",
+			Outcome:    "executed",
+			ExitCode:   1,
+		}},
+	}
+
+	applyChangedPathVerificationCoverage(ctx, report)
+
+	if report.Passed || report.ChangedPathCoverage[0].Status != types.ChangedPathVerificationUncovered ||
+		len(report.ExecutedCommands[0].CoveredPaths) != 0 {
+		t.Fatalf("failed declared target must mint no changed-path authority: %+v", report)
 	}
 }
 
