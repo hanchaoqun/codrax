@@ -4494,7 +4494,7 @@ finalizer 关系”发出 `answer_subject=string_literal + exact_targets=2`，�
 
 | ID | P | gap | 最优方案 | 状态 |
 |---|---:|---|---|---|
-| EVAL-B45-OPREPLAN1 | P1 | replan plan 的 terminal `complete` 绕过 evaluator material coverage 合同；同一 operation 有两套完成权限 | 给 command-plan terminal 复用同一 typed coverage schema/validator。只有 replan/continuation 存在截断 payload 时检查；`not_applicable` 保留模型相关性判断，`complete` 必须引用本轮已记录且完整可见的抽取，否则进入 compact structured-tool repair。不能由系统把 complete 改成 partial | planned/batch-B |
+| EVAL-B45-OPREPLAN1 | P1 | replan plan 的 terminal `complete` 绕过 evaluator material coverage 合同；同一 operation 有两套完成权限 | 给 command-plan terminal 复用同一 typed coverage schema/validator。只有 replan/continuation 存在截断 payload 时检查；`not_applicable` 保留模型相关性判断，`complete` 必须引用本轮已记录且完整可见的抽取，否则进入 compact structured-tool repair。不能由系统把 complete 改成 partial | implemented/tests-pass/batch-B |
 | EVAL-B45-SISCOPE1 | P1 | 有限 exact-target 的标量/字面量比较被 source-inventory profile 扩权成 repo-wide exhaustive function inventory | 在共享 `SourceInventoryCompletionIsSupportOnly` 增加 schema-only 边界：已验证 finite exact targets + scalar source-literal answer subject，且没有 count/member-set/completeness/const-set 义务时，source_inventory 仅作导航支持。精确 observed row-set mismatch 仍由既有 gate 管；真正全量清册不放宽 | implemented/tests-pass/batch-A |
 | EVAL-B45-ANCHORDUP1 | P3 | 模型正文已给注册/合法检查位置，系统又追加 6 行 owner 表，形成低价值重复 | 留样；先观察其它 read case。除非跨题复现，不做答案 prose 去重或系统删改 | watch |
 
@@ -4509,12 +4509,30 @@ finalizer 关系”发出 `answer_subject=string_literal + exact_targets=2`，�
 4. 本批无 trace attachment/query，projection metric=0；不修改 Trace 路由、显式窗、因果投影或
    自动补齐。
 
+Batch B 已落地：
+
+1. `emit_command_operation_plan` 增加与 evaluator 同义的
+   `material_coverage_status/coverage_material_refs`；它只约束 replan/continuation 的 terminal
+   `complete`，初始无观测 complete 和非终态计划保持兼容。
+2. planner 与 evaluator 共用 `validateCompleteCommandMaterialCoverage`。系统仅枚举当前 command
+   records 的 payload refs，并从有界 excerpt 的精确
+   `source_truncated/excerpt_truncated/skipped` 位判断“完整可见”；不读取用户原文、模型 reason、
+   thinking 或 final prose。
+3. 不完整材料上的无证据 complete 进入既有 compact structured-tool repair。repair context 只增加
+   `material_ref=<ref> fully_visible=<bool>`，让模型自己选择继续有界抽取、部分完成、预算耗尽、
+   `not_applicable` 或引用完整抽取后的 complete；系统不降级、不改写结论。
+4. 生产见证固定两条相反路径：失败抽取后的 replan-complete 必须修成一个可执行的后续抽取批；同时
+   存在长原件和完整可见的小型抽取物时，模型引用后者可一次通过 terminal complete。
+5. 定向测试与 `go test ./internal/operation ./internal/repl -count=1` 全通过，`make` 通过；
+   Trace 代码零改动。
+
 施工顺序：
 
 - [x] B45-T1：严格并行 2 case，读完两案全过程与答案，runner PASS 不作为人工结论；
 - [x] B45-T2（batch A）：有限 exact-target scalar comparison 将 source inventory 降为 support-only；
-- [ ] B45-T3（batch B）：command replan terminal 复用 typed material coverage contract；
-- [ ] B45-T4：每批相关全包测试、提交推送；干净 HEAD 恰好 2 case 回放。
+- [x] B45-T3（batch B）：command replan/continuation terminal 复用 typed material coverage contract；
+- [x] B45-T4a：batch A/B 相关全包测试、构建、提交推送；
+- [ ] B45-T4b：从干净 HEAD 恰好并行 2 case 回放，人工复核全过程、答案与上下文。
 
 ### B41：data 终批材料 × Binder 方向语义审计（2026-08-02）
 

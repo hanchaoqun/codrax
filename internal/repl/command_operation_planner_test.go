@@ -1025,6 +1025,94 @@ func TestCommandOperationReplannerIncludesFailureContext(t *testing.T) {
 	}
 }
 
+func TestCommandOperationReplannerRepairsCompleteOverTruncatedMaterial(t *testing.T) {
+	dir := t.TempDir()
+	longRef := filepath.Join(dir, "long-manual.html")
+	if err := os.WriteFile(longRef, []byte("<!doctype html><html><body>"+strings.Repeat("manual section ", 800)+"</body></html>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	adapter := &scriptedChatAdapter{responses: []llm.Response{
+		commandOperationPlanResp(`{"status":"complete","risk_level":"low","block_reason":"downloaded manual is enough","steps":[]}`),
+		commandOperationPlanResp(fmt.Sprintf(`{"status":"ready","risk_level":"low","goal":"extract the remaining manual sections","steps":[{"id":"extract","title":"extract bounded visible manual text","program":"python3","args":["-c","print('extract')",%q],"risk_level":"low","side_effects":[]}]}`, longRef)),
+	}}
+	replanner := NewCommandOperationPlanner(adapter).(CommandOperationReplanner)
+	previous := operation.CommandOperationPlan{
+		ID:          "op-long",
+		Status:      operation.StatusReady,
+		RequestText: "总结完整手册",
+		Steps:       []operation.CommandStep{{ID: "download", Title: "download manual", Program: "curl", RiskLevel: "low"}},
+	}
+	result := operation.CommandOperationResult{
+		PlanID: "op-long",
+		Status: operation.StatusFailed,
+		StepResults: []operation.CommandStepResult{
+			{StepID: "download", Status: operation.StatusExecuted, PayloadRef: longRef},
+			{StepID: "extract", Status: operation.StatusFailed, FailureClass: "command_failed", Error: "extract failed"},
+		},
+	}
+	req, err := replanner.ReplanCommandOperation(context.Background(), "总结完整手册", "/repo", TurnPolicy{
+		Operation: "computer_operation", OperationKind: "computer_operation", RiskLevel: "low",
+	}, operation.CapabilitySnapshot{}, previous, result)
+	if err != nil {
+		t.Fatalf("ReplanCommandOperation: %v", err)
+	}
+	if len(adapter.calls) != 2 {
+		t.Fatalf("Chat calls=%d, want planner + compact repair", len(adapter.calls))
+	}
+	if req.TerminalStatus != "" || len(req.Steps) != 1 || req.Steps[0].ID != "extract" {
+		t.Fatalf("repaired request=%+v, want a nonterminal bounded extraction plan", req)
+	}
+	repairPrompt := lastUserMessage(adapter.calls[1].messages)
+	for _, want := range []string{
+		"terminal complete over truncated saved material",
+		"material_coverage_status",
+		"compact_operation_context",
+		"material_ref=" + longRef + " fully_visible=false",
+	} {
+		if !strings.Contains(repairPrompt, want) {
+			t.Fatalf("repair prompt missing %q:\n%s", want, repairPrompt)
+		}
+	}
+}
+
+func TestCommandOperationReplannerAcceptsCompleteWithVisibleExtractionCoverage(t *testing.T) {
+	dir := t.TempDir()
+	longRef := filepath.Join(dir, "long-manual.html")
+	extractedRef := filepath.Join(dir, "manual-sections.txt")
+	if err := os.WriteFile(longRef, []byte("<!doctype html><html><body>"+strings.Repeat("manual section ", 800)+"</body></html>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(extractedRef, []byte("section 1\nsection 2\nsection 3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	adapter := &scriptedChatAdapter{responses: []llm.Response{
+		commandOperationPlanResp(fmt.Sprintf(`{"status":"complete","risk_level":"low","block_reason":"bounded extraction covers the requested sections","material_coverage_status":"complete","coverage_material_refs":[%q],"steps":[]}`, extractedRef)),
+	}}
+	replanner := NewCommandOperationPlanner(adapter).(CommandOperationReplanner)
+	previous := operation.CommandOperationPlan{ID: "op-extracted", Status: operation.StatusReady, RequestText: "总结手册"}
+	result := operation.CommandOperationResult{
+		PlanID: "op-extracted",
+		Status: operation.StatusFailed,
+		StepResults: []operation.CommandStepResult{
+			{StepID: "download", Status: operation.StatusExecuted, PayloadRef: longRef},
+			{StepID: "extract", Status: operation.StatusExecuted, PayloadRef: extractedRef},
+			{StepID: "follow-link", Status: operation.StatusFailed, FailureClass: "command_failed"},
+		},
+	}
+	req, err := replanner.ReplanCommandOperation(context.Background(), "总结手册", "/repo", TurnPolicy{
+		Operation: "computer_operation", OperationKind: "computer_operation", RiskLevel: "low",
+	}, operation.CapabilitySnapshot{}, previous, result)
+	if err != nil {
+		t.Fatalf("ReplanCommandOperation: %v", err)
+	}
+	if len(adapter.calls) != 1 {
+		t.Fatalf("Chat calls=%d, want no compact repair", len(adapter.calls))
+	}
+	if req.TerminalStatus != operation.StatusComplete || len(req.Steps) != 0 {
+		t.Fatalf("request=%+v, want evidence-backed terminal complete", req)
+	}
+}
+
 func TestCommandOperationPlannerPromptForbidsNoopFactCommands(t *testing.T) {
 	for _, want := range []string{
 		"capability_snapshot is advisory context",

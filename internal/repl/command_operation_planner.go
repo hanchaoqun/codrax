@@ -225,6 +225,16 @@ var commandOperationPlanTool = llm.ToolSchema{
       "type": "boolean",
       "description": "true when this command batch is only a discovery/probe batch and the operation loop should feed its results back to the planner for the next batch before writing the final answer. Use for multi-step tasks such as checking whether software is running and then finding version/metadata, reading a tool manual before using it, probing a remote host before acting, or narrowing a large file before the next targeted command."
     },
+    "material_coverage_status": {
+      "type": "string",
+      "enum": ["not_applicable", "not_evaluated", "partial", "complete"],
+      "description": "For terminal complete after prior command observations: whether user-relevant material content was actually visible. Saved bytes alone are not complete coverage."
+    },
+    "coverage_material_refs": {
+      "type": "array",
+      "items": {"type":"string"},
+      "description": "Recorded payload refs whose fully visible extracted content supports terminal material_coverage_status=complete."
+    },
     "questions": {
       "type": "array",
       "items": {
@@ -333,6 +343,7 @@ Hard rules:
 - Operation approval is independent from write-mode write_enabled. Do not mention write_enabled for command-operation approval.
 - Use capability_snapshot when present. Prefer commands shown as available. If a needed tool is absent, either ask for clarification or plan a safe check/install workflow when the user explicitly asked for installation.
 - capability_snapshot is advisory context, not a substitute for requested facts. For factual computer/environment queries, plan real read-only commands that retrieve the requested facts; do not answer by echoing or paraphrasing the snapshot unless the exact requested field is explicitly present there.
+- On replan/continuation, terminal status=complete over saved or truncated material must state material_coverage_status. Use not_applicable only when omitted material does not affect the user goal. Otherwise complete requires coverage_material_refs naming already-recorded bounded extractions whose source and prompt excerpt are both fully visible. A downloaded file or failed/truncated extraction is not complete content coverage.
 - Do not invent installed tools that are absent from capability_snapshot unless the user explicitly named a custom command or requested installing it.
 - Do not use echo, printf, comments, or no-op placeholder commands to claim that facts were obtained. If you cannot retrieve the facts safely, emit needs_clarification or plan a safe discovery command.
 - For unfamiliar software or command-line tools, prefer safe discovery steps such as --help, help, version, or documentation reads before planning risky or irreversible actions. If exact usage is still unclear after discovery, ask a clarification question instead of guessing flags.
@@ -712,22 +723,86 @@ func validateCommandOperationEvaluationCoverage(d operationEvaluationDraft, reco
 		return nil
 	}
 	coverage := operation.NormalizeMaterialCoverageStatus(string(d.MaterialCoverageStatus))
+	return validateCompleteCommandMaterialCoverage(
+		operationEvaluationTool.Name,
+		"command operation evaluator material coverage",
+		coverage,
+		[]string(d.CoverageMaterialRefs),
+		available,
+		incomplete,
+		rawLen,
+	)
+}
+
+// validateCommandOperationPlanTerminalCoverage closes the replan/continuation
+// terminal path that does not pass through the operation evaluator. It applies
+// the same typed material-authority rule at the shared planner boundary, so
+// both CLI and REPL loops are covered without rewriting a model conclusion.
+// The gate reads only recorded payload refs and their exact excerpt metadata;
+// it never scans the user request, planner prose, or final answer text.
+func validateCommandOperationPlanTerminalCoverage(d commandPlanDraft, req commandOperationPlannerRequest, rawLen int) error {
+	if !req.Replan && !req.Continuation {
+		return nil
+	}
+	if strings.ToLower(strings.TrimSpace(string(d.Status))) != string(operation.StatusComplete) {
+		return nil
+	}
+
+	available := map[string]bool{}
+	incomplete := map[string]bool{}
+	addResult := func(result operation.CommandOperationResult) {
+		for _, ref := range commandOperationResultPayloadRefs(result) {
+			ref = strings.TrimSpace(ref)
+			if ref == "" {
+				continue
+			}
+			available[ref] = true
+			if !commandPayloadMaterialExcerptFullyVisible(ref) {
+				incomplete[ref] = true
+			}
+		}
+	}
+	if req.Replan {
+		addResult(req.Result)
+	}
+	if req.Continuation {
+		for _, record := range req.Records {
+			addResult(record.Result)
+		}
+	}
+	if len(incomplete) == 0 {
+		return nil
+	}
+
+	coverage := operation.NormalizeMaterialCoverageStatus(string(d.MaterialCoverageStatus))
+	return validateCompleteCommandMaterialCoverage(
+		commandOperationPlanTool.Name,
+		"command operation planner terminal material coverage",
+		coverage,
+		[]string(d.CoverageMaterialRefs),
+		available,
+		incomplete,
+		rawLen,
+	)
+}
+
+func validateCompleteCommandMaterialCoverage(toolName, scope string, coverage operation.MaterialCoverageStatus, rawRefs []string, available, incomplete map[string]bool, rawLen int) error {
 	if coverage == operation.MaterialCoverageNotApplicable {
 		return nil
 	}
 	invalid := func(detail string) error {
 		return &replStructuredToolParamError{
-			ToolName: operationEvaluationTool.Name,
-			Scope:    "command operation evaluator material coverage",
+			ToolName: toolName,
+			Scope:    scope,
 			RawLen:   rawLen,
 			Err:      errors.New(detail),
-			Hint:     "a complete verdict over truncated saved material requires material_coverage_status=complete and coverage_material_refs pointing only to fully visible extracted outputs; otherwise emit continue_command, partial_answer_possible, or budget_exhausted",
+			Hint:     "terminal complete over truncated saved material requires material_coverage_status=complete and coverage_material_refs pointing only to fully visible recorded extractions (not source/excerpt truncated; source_truncated=false and excerpt_truncated=false); otherwise continue bounded extraction or emit partial_answer_possible or budget_exhausted",
 		}
 	}
 	if coverage != operation.MaterialCoverageComplete {
-		return invalid(fmt.Sprintf("status=complete conflicts with material_coverage_status=%s while %d saved payload excerpt(s) are incomplete", coverage, len(incomplete)))
+		return invalid(fmt.Sprintf("status=complete conflicts with material_coverage_status=%s while %d recorded payload excerpt(s) are incomplete", coverage, len(incomplete)))
 	}
-	refs := cleanPolicyStringList([]string(d.CoverageMaterialRefs))
+	refs := cleanPolicyStringList(rawRefs)
 	if len(refs) == 0 {
 		return invalid("material_coverage_status=complete has no coverage_material_refs")
 	}
@@ -876,10 +951,16 @@ func (p *llmCommandOperationPlanner) planCommandOperationDraft(ctx context.Conte
 		return zeroDraft, newOperationPlannerUnexpectedToolError("command operation planner", call.Name, nil)
 	}
 	parsed, err := unmarshalCommandOperationPlan(call.Params)
+	if err == nil {
+		err = validateCommandOperationPlanTerminalCoverage(parsed, req, len(call.Params))
+	}
 	if err != nil {
 		repaired, repairErr := p.repairCommandOperationPlan(ctx, err, req)
 		if repairErr != nil {
 			return zeroDraft, repairErr
+		}
+		if coverageErr := validateCommandOperationPlanTerminalCoverage(repaired, req, len(call.Params)); coverageErr != nil {
+			return zeroDraft, fmt.Errorf("command operation plan material coverage repair remained invalid: %w", coverageErr)
 		}
 		return repaired, nil
 	}
@@ -1149,6 +1230,9 @@ func operationResultRepairContext(result operation.CommandOperationResult) strin
 			oneLineClamp(step.Error, 240),
 			oneLineClamp(step.OutputPreview, 600),
 			step.PayloadRef)
+	}
+	for _, ref := range commandOperationResultPayloadRefs(result) {
+		fmt.Fprintf(&b, "  material_ref=%s fully_visible=%t\n", ref, commandPayloadMaterialExcerptFullyVisible(ref))
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -1500,20 +1584,22 @@ func indentPromptBlock(text, prefix string) string {
 }
 
 type commandPlanDraft struct {
-	Status               flexiblePolicyString       `json:"status"`
-	RiskLevel            flexiblePolicyString       `json:"risk_level"`
-	WorkDir              flexiblePolicyString       `json:"work_dir"`
-	Goal                 flexiblePolicyString       `json:"goal"`
-	KnownConstraints     flexiblePolicyStringList   `json:"known_constraints"`
-	MissingObservations  flexiblePolicyStringList   `json:"missing_observations"`
-	SuccessCriteria      flexiblePolicyStringList   `json:"success_criteria"`
-	NextBatch            flexiblePolicyString       `json:"next_batch"`
-	WhyThisBatch         flexiblePolicyString       `json:"why_this_batch"`
-	RequiresConfirmation flexiblePolicyBool         `json:"requires_confirmation"`
-	ContinueAfter        flexiblePolicyBool         `json:"continue_after"`
-	Questions            []commandPlanQuestionDraft `json:"questions"`
-	BlockReason          flexiblePolicyString       `json:"block_reason"`
-	Steps                flexibleCommandPlanSteps   `json:"steps"`
+	Status                 flexiblePolicyString       `json:"status"`
+	RiskLevel              flexiblePolicyString       `json:"risk_level"`
+	WorkDir                flexiblePolicyString       `json:"work_dir"`
+	Goal                   flexiblePolicyString       `json:"goal"`
+	KnownConstraints       flexiblePolicyStringList   `json:"known_constraints"`
+	MissingObservations    flexiblePolicyStringList   `json:"missing_observations"`
+	SuccessCriteria        flexiblePolicyStringList   `json:"success_criteria"`
+	NextBatch              flexiblePolicyString       `json:"next_batch"`
+	WhyThisBatch           flexiblePolicyString       `json:"why_this_batch"`
+	RequiresConfirmation   flexiblePolicyBool         `json:"requires_confirmation"`
+	ContinueAfter          flexiblePolicyBool         `json:"continue_after"`
+	MaterialCoverageStatus flexiblePolicyString       `json:"material_coverage_status"`
+	CoverageMaterialRefs   flexiblePolicyStringList   `json:"coverage_material_refs"`
+	Questions              []commandPlanQuestionDraft `json:"questions"`
+	BlockReason            flexiblePolicyString       `json:"block_reason"`
+	Steps                  flexibleCommandPlanSteps   `json:"steps"`
 }
 
 type commandPlanQuestionDraft struct {
