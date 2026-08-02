@@ -4476,6 +4476,46 @@ operation 的 href 修复也已生效：模型从首页 typed link inventory 精
 - [x] B44-r4-T4：operation/repl 全包回归通过；
 - [x] B44-r4-T5：提交推送本批；下一步从干净 HEAD 用严格并行 2 case 验收并继续跨模式优先队列。
 
+### B45：operation 覆盖合同旁路 × 有限目标读模式被扩成全仓清册（2026-08-02）
+
+干净 `main@fccb65d23` 严格并行 operation + read，runner 2/2 PASS；人工 0/2。
+
+operation 的 evaluator 在前两轮正确消费 `excerpt_truncated=true` 并要求继续。正文抽取命令失败后，
+replan planner 直接发出 plan `status=complete`；CLI 的
+`commandOperationTerminalAfterReplan` 随即终态化，没有再调用 evaluator，因此 B44 r4 新增的
+`material_coverage_status/coverage_material_refs` 完全没有执行机会。最终答案比 r4 诚实，末尾承认
+只摘要第 1–2 章、3–8 章仍在原 HTML，但开头仍称“任务完成”，并写入未完整可见章节的细节。
+
+read 的最终正文事实正确，却用了 419s、20 次 source_inventory、42 explorer iterations、9 次
+completion 调用。typed 根因十分明确：analyzer 对“比较两个已命名工具的 Name() literal 与
+finalizer 关系”发出 `answer_subject=string_literal + exact_targets=2`，同时误发
+`source_inventory_profile(function)`。完成门把后者解释成 repo-wide 227 个 function 的主清册债务，
+强迫模型遍历与答案无关的 fixture、testdata、skill；两份精确源码早已读完也不能关闭。
+
+| ID | P | gap | 最优方案 | 状态 |
+|---|---:|---|---|---|
+| EVAL-B45-OPREPLAN1 | P1 | replan plan 的 terminal `complete` 绕过 evaluator material coverage 合同；同一 operation 有两套完成权限 | 给 command-plan terminal 复用同一 typed coverage schema/validator。只有 replan/continuation 存在截断 payload 时检查；`not_applicable` 保留模型相关性判断，`complete` 必须引用本轮已记录且完整可见的抽取，否则进入 compact structured-tool repair。不能由系统把 complete 改成 partial | planned/batch-B |
+| EVAL-B45-SISCOPE1 | P1 | 有限 exact-target 的标量/字面量比较被 source-inventory profile 扩权成 repo-wide exhaustive function inventory | 在共享 `SourceInventoryCompletionIsSupportOnly` 增加 schema-only 边界：已验证 finite exact targets + scalar source-literal answer subject，且没有 count/member-set/completeness/const-set 义务时，source_inventory 仅作导航支持。精确 observed row-set mismatch 仍由既有 gate 管；真正全量清册不放宽 | implemented/tests-pass/batch-A |
+| EVAL-B45-ANCHORDUP1 | P3 | 模型正文已给注册/合法检查位置，系统又追加 6 行 owner 表，形成低价值重复 | 留样；先观察其它 read case。除非跨题复现，不做答案 prose 去重或系统删改 | watch |
+
+上下文精度审计：
+
+1. operation 的 href、payload、双截断位都准确；缺口是 replan completion 没有消费这些 typed 位，
+   不是需要更多 prompt 文案。
+2. read 的精确目标、字符串字面量、两个源码文件、finalizer 关系证据都准确足量；错误上下文来自
+   同时注入的 repo-wide function universe，且被 hard completion gate 放大。
+3. 两项修复都只消费 schema enum/boolean、exact target 数、系统 payload refs 和截断位；不扫描用户
+   原文、模型 thinking/reason/final，也不替模型写结论。
+4. 本批无 trace attachment/query，projection metric=0；不修改 Trace 路由、显式窗、因果投影或
+   自动补齐。
+
+施工顺序：
+
+- [x] B45-T1：严格并行 2 case，读完两案全过程与答案，runner PASS 不作为人工结论；
+- [x] B45-T2（batch A）：有限 exact-target scalar comparison 将 source inventory 降为 support-only；
+- [ ] B45-T3（batch B）：command replan terminal 复用 typed material coverage contract；
+- [ ] B45-T4：每批相关全包测试、提交推送；干净 HEAD 恰好 2 case 回放。
+
 ### B41：data 终批材料 × Binder 方向语义审计（2026-08-02）
 
 本批严格并行 `data_text_filter_count` 与 `trace_query_binder_ipc_peer`。runner

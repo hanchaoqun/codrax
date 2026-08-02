@@ -9,6 +9,5 @@ func SourceInventoryCompletionIsSupportOnly(rm RequestModel) bool {
 	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
 		return false
 	}
-	return SourceInventoryProfileCompletionIsSupportOnly(rm.SourceInventoryProfile) ||
-		SourceInventoryProfileConflictsWithRoleBinding(rm)
+	return sourceInventoryCompletionSupportBoundary(rm)
 }

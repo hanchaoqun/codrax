@@ -2433,6 +2433,105 @@ func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryNavigationDeb
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_FiniteExactScalarComparisonDoesNotExpandToRepoInventory(t *testing.T) {
+	mut := types.NewMutableState("compare two exact tool Name literals and explain their relationship")
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     false,
+		Scopes:       []string{"."},
+		Provenance:   []string{"source_inventory_profile", "repo_lens:tool_query", "repo_lens:candidate_budget_truncated"},
+		Lens:         []string{"members", "symbols", "count"},
+		Page: &types.SourceInventoryObservationPage{
+			Offset:     0,
+			Limit:      24,
+			Total:      227,
+			Emitted:    24,
+			NextCursor: "24",
+			Complete:   false,
+		},
+		Execution: &types.SourceInventoryExecutionState{
+			Budgeted:                 true,
+			CandidateBudgetTruncated: true,
+		},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: false,
+			Count:    227,
+			Total:    227,
+		}},
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:     types.IntentExplain,
+				Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+				AnalyzerHints: types.AnalyzerHints{
+					ExactTargets: []string{"EmitAnswerDocument", "EmitAnswerDocumentPatch"},
+				},
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectStringLiteral},
+				SourceInventoryProfile: &types.SourceInventoryProfile{
+					IsSourceInventory: true,
+					TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+					RequestedFields:   []types.SourceInventoryRequestedField{types.SourceInventoryFieldName, types.SourceInventoryFieldLocation},
+					Confidence:        0.9,
+				},
+				SourceScopeProfile: &types.SourceScopeProfile{RequestedScope: types.SourceScopeProduction},
+			},
+			AnswerContract: types.AnswerContract{CitationReq: types.CitationReq{Required: false}},
+		},
+	}
+	bus.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			ID:              "ev-full",
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			Source:          "internal/tool/emit_answer_document.go",
+			LineStart:       35,
+			LineEnd:         35,
+			AnchorSymbol:    "EmitAnswerDocument.Name",
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			ID:              "ev-patch",
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			Source:          "internal/tool/emit_answer_document_patch.go",
+			LineStart:       47,
+			LineEnd:         47,
+			AnchorSymbol:    "EmitAnswerDocumentPatch.Name",
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	})
+
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "both exact targets and their scalar values were verified",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":         "member_set",
+			"label":        "exact tool literals",
+			"value":        "2",
+			"role":         "principal_answer",
+			"members":      []string{"emit_answer_document", "emit_answer_document_patch"},
+			"support_refs": []string{"EmitAnswerDocument.Name: internal/tool/emit_answer_document.go:35", "EmitAnswerDocumentPatch.Name: internal/tool/emit_answer_document_patch.go:47"},
+		}},
+	})
+	res, err := (&EmitInvestigationComplete{}).Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "source-inventory result is still incomplete") || strings.Contains(res.Summary, "source-inventory lens has not run") {
+		t.Fatalf("finite exact scalar comparison must not inherit repo-wide source inventory debt:\n%s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("finite exact scalar comparison should close from exact grounded evidence, summary:\n%s", res.Summary)
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryRepoWideRepairIgnoresSupportScopes(t *testing.T) {
 	mut := types.NewMutableState("列出仓库里的 Cangjie extend / foreign func / public class")
 	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{

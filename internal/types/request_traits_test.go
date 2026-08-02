@@ -1953,6 +1953,61 @@ func TestSourceInventoryProfileConflictsWithRoleBinding_TypedBoundary(t *testing
 	}
 }
 
+func TestSourceInventoryCompletionIsSupportOnlyForFiniteExactScalarComparison(t *testing.T) {
+	rm := RequestModel{
+		Intent:     IntentExplain,
+		Predicates: SemanticPredicates{IsCategoryEnumeration: true},
+		AnalyzerHints: AnalyzerHints{
+			ExactTargets: []string{"EmitAnswerDocument", "EmitAnswerDocumentPatch"},
+		},
+		AnswerSubject: AnswerSubject{Kind: SubjectStringLiteral},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},
+			RequestedFields:   []SourceInventoryRequestedField{SourceInventoryFieldName, SourceInventoryFieldLocation},
+			Confidence:        0.9,
+		},
+		SourceScopeProfile: &SourceScopeProfile{RequestedScope: SourceScopeProduction},
+	}
+	if !SourceInventoryCompletionIsSupportOnly(rm) {
+		t.Fatal("finite exact-target string-literal comparison must keep source inventory support-only")
+	}
+	if SourceInventoryPrincipalAuthorityActive(rm) {
+		t.Fatal("finite exact-target string-literal comparison must not own exhaustive completion")
+	}
+	if !SourceInventoryPrincipalNavigationActive(RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},
+			RequestedFields:   []SourceInventoryRequestedField{SourceInventoryFieldName, SourceInventoryFieldLocation},
+			Confidence:        0.9,
+		},
+		SourceScopeProfile: &SourceScopeProfile{RequestedScope: SourceScopeProduction},
+	}) {
+		t.Fatal("ordinary scoped function inventory must retain principal authority")
+	}
+
+	rm.CompletenessObligation = &CompletenessObligation{Required: true, SourceQuote: "all requested members"}
+	if SourceInventoryCompletionIsSupportOnly(rm) {
+		t.Fatal("explicit completeness obligation must keep source inventory principal")
+	}
+	rm.CompletenessObligation = nil
+	rm.RequestedAnswerDimensions = &RequestedAnswerDimensionProfile{
+		IsDimensionedAnswer: true,
+		Dimensions: []RequestedAnswerDimension{{
+			Role:     RequestedAnswerDimensionMemberSet,
+			Required: true,
+		}},
+	}
+	if SourceInventoryCompletionIsSupportOnly(rm) {
+		t.Fatal("required member-set dimension must keep source inventory principal")
+	}
+}
+
 func TestSourceInventoryPrincipalAuthorityRequiresTypedPrecision(t *testing.T) {
 	rm := RequestModel{
 		Intent: IntentEnumerate,
