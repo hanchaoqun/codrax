@@ -1214,12 +1214,16 @@ func runtimeTraceFullReportMaterializationAllowed(ctx *types.BusContext) bool {
 // Only validated RequestModel fields participate. Raw request text and
 // model-authored answer prose are not read.
 func runtimeTracePrincipalValueMaterializationAllowed(ctx *types.BusContext) bool {
-	if runtimeTraceFullReportMaterializationAllowed(ctx) {
-		return true
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
 	}
-	return ctx != nil &&
-		ctx.AnalysisIR != nil &&
-		types.IsNarrowRuntimeArtifactFactShape(ctx.AnalysisIR.RequestModel)
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(
+		ctx, types.ObservationExtractLedgerEvidenceLimit,
+	))
+	return types.RuntimeTracePrincipalValueMaterializationAllowed(
+		&ctx.AnalysisIR.RequestModel,
+		types.CompileTraceCausalProjectionSet(ledger),
+	)
 }
 
 // runtimeTraceCausalProjectionMaterializationAllowed is the narrower

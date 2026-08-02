@@ -25,9 +25,11 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 		return ""
 	}
 	ledger := answerDocObservationLedger(ctx)
-	states := types.BuildTraceTargetStateScopeAuthorities(
-		types.CompileTraceCausalProjectionSet(ledger),
-	)
+	projectionSet := types.CompileTraceCausalProjectionSet(ledger)
+	if !types.RuntimeTracePrincipalValueMaterializationAllowed(authorityRM, projectionSet) {
+		return ""
+	}
+	states := types.BuildTraceTargetStateScopeAuthorities(projectionSet)
 	waits := types.BuildTraceTargetWaitSummaryAuthorities(ledger, authorityRM)
 	blocking := types.BuildTraceBlockingWallClockAuthorities(ledger, authorityRM)
 	if len(states) == 0 && len(waits) == 0 && len(blocking) == 0 {

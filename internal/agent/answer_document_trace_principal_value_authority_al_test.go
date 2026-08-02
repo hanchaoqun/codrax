@@ -265,6 +265,27 @@ func TestRenderAnswerDocTracePrincipalValueAuthorityRejectsEntitySupplementConse
 	}
 }
 
+func TestRenderAnswerDocTracePrincipalValueAuthoritySkipsBoundedRelationAL(t *testing.T) {
+	subject := "client-20"
+	observations := []types.ObservationRecord{{
+		ID: "state", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard,
+		Predicate: "target_window_state", Subject: subject,
+		Span:      types.ObservationSpan{StartTs: 3.0, EndTs: 3.05},
+		RichNotes: []string{"running_ms=35", "runnable_ms=10", "sleep_ms=5", "d_state_ms=0", "io_wait_ms=0"},
+	}}
+	ctx := tracePrincipalValueAuthorityTestContext(subject, 20, observations)
+	rm := &ctx.AnalysisIR.RequestModel
+	rm.Intent = types.IntentExplain
+	rm.AnalyzerHints.Kind = string(types.ReqCallChain)
+	rm.PredicateAxis = types.AxisCall
+	rm.Predicates.IsRelationalLookup = true
+	rm.RuntimeQuestionProfile = &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeBoundedFactSet}
+	if got := renderAnswerDocTracePrincipalValueAuthority(ctx); got != "" {
+		t.Fatalf("bounded relation must not receive an unrelated state recap:\n%s", got)
+	}
+}
+
 func tracePrincipalValueAuthorityTestContext(subject string, pid int, observations []types.ObservationRecord) *types.AgentContext {
 	mut := types.NewMutableState("typed trace authority test")
 	mut.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{

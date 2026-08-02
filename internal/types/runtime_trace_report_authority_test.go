@@ -60,9 +60,15 @@ func TestRuntimeTraceReportMaterializationAuthorityMatrix(t *testing.T) {
 	if RuntimeTraceReportMaterializationAllowed(&boundedCallRelation, withRoot) {
 		t.Fatal("a finite relation fact set must not widen into the full causal report")
 	}
+	if RuntimeTracePrincipalValueMaterializationAllowed(&boundedCallRelation, withRoot) {
+		t.Fatal("a finite relation fact set must not inherit a target-state principal-value card")
+	}
 	boundedCallRelation.RuntimeArtifactScopeProfile = windowed.RuntimeArtifactScopeProfile
 	if !RuntimeTraceReportMaterializationAllowed(&boundedCallRelation, TraceCausalProjectionSet{}) {
 		t.Fatal("an explicit typed window must still outrank a bounded relation fact set")
+	}
+	if !RuntimeTracePrincipalValueMaterializationAllowed(&boundedCallRelation, TraceCausalProjectionSet{}) {
+		t.Fatal("an explicit typed window must retain target-state principal values inside the full report")
 	}
 
 	focusedConditional := *generic
@@ -79,6 +85,9 @@ func TestRuntimeTraceReportMaterializationAuthorityMatrix(t *testing.T) {
 	focusedTraceMechanism.RuntimeTargets = []RuntimeTarget{{Kind: RuntimeTargetKindProcess, PID: 59566}}
 	if RuntimeTraceReportMaterializationAllowed(&focusedTraceMechanism, withRoot) {
 		t.Fatal("non-diagnostic trace/mechanism target fact must stay narrow even when exploration collected causal rows")
+	}
+	if !RuntimeTracePrincipalValueMaterializationAllowed(&focusedTraceMechanism, withRoot) {
+		t.Fatal("a focused target-state fact must retain its target-state principal values")
 	}
 	focusedTraceMechanism.Scenario = ScenarioPerformanceBottleneck
 	if !RuntimeTraceReportMaterializationAllowed(&focusedTraceMechanism, withRoot) {

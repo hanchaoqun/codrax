@@ -1509,6 +1509,10 @@ func TestClassifyPolicy_TeachesDataRoute(t *testing.T) {
 	for _, want := range []string{
 		"route=data",
 		"structured or semi-structured files/materials",
+		"Route by the requested objective",
+		"rules/instructions material",
+		"even for .txt/.md inputs",
+		"file access is the mechanism, not the objective",
 		"These examples are not exhaustive",
 		"Strict output format alone is NOT sufficient for data",
 		"JSON-only, CSV-only",

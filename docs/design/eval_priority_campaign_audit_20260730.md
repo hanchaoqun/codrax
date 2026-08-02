@@ -4071,6 +4071,36 @@ false。共享 report/supplement/floor authority 因而按设计放行，系统�
 `runtime_question_profile=bounded_fact_set` 的 case-specific hard oracle；生产 hard gate
 约束的是所有 runtime 请求共有的 typed schema 自洽性，不要求模型给出某个样例答案。
 
+#### B41 r5：完整扩面关闭，残留状态主值相关性与 data 路由目标漂移
+
+r5 runner 1/2 PASS、人工 1/2 PASS。Binder analyzer 首次发射因无 value 的可选
+artifact profile 被既有门拒绝，第二次正确发出 `bounded_fact_set`；模型只跑
+`ipc_graph + wakeup_chain`。日志无 pre-finalize heavy debt，system supplement 明确
+`skip reason=families_present`，最终无根因排序、可消除量或 Trace 因果投影。三个用户
+事实和方向语义正确，说明 RELWIDTH/SUPPBREADTH/FLOORBREADTH/PROFILECOHERENCE 的
+主链已关闭。
+
+但 final answer 仍追加一条与三个 IPC 字段无关的 `client-20` 五态 typed 事实。根因是
+`runtimeTracePrincipalValueMaterializationAllowed` 把所有 `bounded_fact_set` 都视为
+target-state/target-wait principal authority；`bounded` 只说明答案宽度，不能说明事实种类。
+登记 `EVAL-B41-PRINCIPALREL1/P1`。共享修复：完整 causal report 可带状态主值；窄报告
+只有 `IsFocusedRuntimeFactQuestion`（typed target + state/condition/mechanism，非 call
+relation）可带。tool 的确定性块与 agent 成文前 typed recap 消费同一 types authority；
+finite IPC peer/transaction/waker 不再收到状态卡。无 RawRequest/answer prose 扫描。
+
+data 本轮没有进入 data workflow：router 在 reasoning 中反复争论 txt 应属于 data 还是
+operation，最终选 operation；虽然 `cat + grep -c` 得到 2，operation finalizer 输出标题、
+解释、列表和代码块，违反“只输出一个数字”，runner 正确 FAIL。登记
+`EVAL-B41-DATAROUTEOBJ1/P1`。这不是 AST/material guard 回退，而是路由把打开文件的
+手段误当成任务目标。修复保持 soft guidance：
+
+- route 按 objective，不按是否需要 cat/grep/awk；
+- 读取 rules/instructions + 本地输入，计算/filter/count/reshape 派生值，即使是 txt/md
+  也属于 data；
+- operation 保留给用户显式要求 computer/file operation、机器/文件系统状态、side
+  effect，或只做原样检索/展示而不产生派生数据结果；
+- 保留“请作为电脑操作读取文件”既有正例，不加 filename/extension/原文关键词硬门。
+
 任务：
 
 - [x] B41-T1：严格并行 2 case，完整日志/答案人工审计；
@@ -4103,7 +4133,15 @@ false。共享 report/supplement/floor authority 因而按设计放行，系统�
   diagnosis 正臂；
 - [x] B41-T17：helper 正反臂与 `EmitAnalysis.Execute` 真实接线测试通过；
 - [x] B41-T18：完整 `internal/tool` 158.620s 与 `make` 通过；第四施工批提交推送；
-- [ ] B41-T19：同对严格并行 r5 回放并人工收账。
+- [x] B41-T19：同对严格并行 r5 回放并人工收账；Binder 主扩面关闭，发现
+  PRINCIPALREL1；data 路由漂到 operation，发现 DATAROUTEOBJ1；
+- [x] B41-T20：types 增加 target-state principal-value 共享 authority，tool/agent 两发布
+  面接线；bounded IPC relation 负臂、focused state 与 explicit-window 正臂；
+- [x] B41-T21：router schema/system prompt 增加 objective-vs-mechanism 通用 soft guidance，
+  txt/md rules+input 计算与显式 computer-operation 对偶示例；无 hard input scan；
+- [x] B41-T22：完整 `types` 19.817s、`tool` 162.127s、`agent` 3.219s、
+  `repl` 32.531s 与 `make` 通过；第五施工批提交推送；
+- [ ] B41-T23：同对严格并行 r6 回放并人工收账。
 
 ### B40：analyze retry 回放 × blocked-reason Trace 语义审计（2026-08-02）
 

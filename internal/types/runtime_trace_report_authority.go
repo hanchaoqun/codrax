@@ -72,3 +72,19 @@ func RuntimeTraceReportMaterializationAllowed(rm *RequestModel, set TraceCausalP
 	}
 	return TraceCausalProjectionSetHasPublicationGradeRows(set)
 }
+
+// RuntimeTracePrincipalValueMaterializationAllowed is the shared authority
+// for target-state / target-wait principal-value recaps. A full causal report
+// may include those values. A narrow report may include them only when the
+// typed request is actually a focused target-state fact; bounded breadth by
+// itself is insufficient because finite IPC peers, transaction IDs, direct
+// wakers, timestamps, and other facts do not ask for a scheduler-state card.
+//
+// The decision consumes only the validated RequestModel and compiled typed
+// projection. It never inspects request or answer prose.
+func RuntimeTracePrincipalValueMaterializationAllowed(rm *RequestModel, set TraceCausalProjectionSet) bool {
+	if RuntimeTraceReportMaterializationAllowed(rm, set) {
+		return true
+	}
+	return rm != nil && IsFocusedRuntimeFactQuestion(*rm)
+}

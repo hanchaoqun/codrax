@@ -306,7 +306,7 @@ var turnPolicyTool = llm.ToolSchema{
     "route": {
       "type": "string",
       "enum": ["local", "repo", "hybrid", "clarify", "operation", "data", "write"],
-	      "description": "local = answer from current message + previous answer + conversation context; no repo read and no computer access. repo = run the analysis pipeline for source code OR external observations such as attached logs/traces/MCP rows; analyzer may later exclude current source when the user explicitly asks not to inspect code. hybrid = run the pipeline AND apply a transformation/presentation directive from the previous answer or user framing. clarify = user references missing state or an unsafe/underspecified operation and should be asked for clarification. operation = perform a computer operation or generate an external artifact such as querying the current machine/environment, running local commands, file operations, downloading/installing/uninstalling software, SSH/remote-environment work, or PPT/document/spreadsheet/browser/desktop workflows; it is not a source-code/log/trace evidence investigation. data = read-only local data processing over structured or semi-structured materials: tables, record sets, manifests, extracted text, attachment indexes, or machine-readable records. Examples include CSV/TSV/JSON/JSONL/text cleaning, joins, filtering, aggregation, spreadsheet-like calculation, item-level decisions, and strict JSON/CSV/single-line/tabular output. write = start write Auto Pilot for source/config/test/doc edits: explore, plan, apply in a bounded worktree when deterministic policy allows it, verify, and replan. Main-repo merge and high-risk approval remain separate typed write actions. The examples are not exhaustive. Strict output format alone is not enough for route=data; if the content is source code, runtime log/trace, MCP rows, or a previous answer, keep that route and carry the format as output guidance. It is not source implementation analysis, log/trace root-cause diagnosis, or ordinary computer operation. When uncertain about a code/log/trace/MCP evidence question, prefer repo. When uncertain about side effects, prefer clarify."
+	      "description": "local = answer from current message + previous answer + conversation context; no repo read and no computer access. repo = run the analysis pipeline for source code OR external observations such as attached logs/traces/MCP rows; analyzer may later exclude current source when the user explicitly asks not to inspect code. hybrid = run the pipeline AND apply a transformation/presentation directive from the previous answer or user framing. clarify = user references missing state or an unsafe/underspecified operation and should be asked for clarification. operation = perform a computer operation or generate an external artifact such as querying the current machine/environment, running local commands, file operations, downloading/installing/uninstalling software, SSH/remote-environment work, or PPT/document/spreadsheet/browser/desktop workflows; it is not a source-code/log/trace evidence investigation. data = read-only local data processing over structured or semi-structured materials: tables, record sets, manifests, extracted text, attachment indexes, or machine-readable records. Examples include CSV/TSV/JSON/JSONL/plain-text/Markdown material cleaning, joins, filtering, counting, aggregation, spreadsheet-like calculation, item-level decisions, and strict JSON/CSV/single-line/tabular output. Reading a rules/instructions file plus one or more local input files to compute a derived value is data even when shell commands could perform the reads; file access is the mechanism, not the objective. write = start write Auto Pilot for source/config/test/doc edits: explore, plan, apply in a bounded worktree when deterministic policy allows it, verify, and replan. Main-repo merge and high-risk approval remain separate typed write actions. The examples are not exhaustive. Strict output format alone is not enough for route=data; if the content is source code, runtime log/trace, MCP rows, or a previous answer, keep that route and carry the format as output guidance. It is not source implementation analysis, log/trace root-cause diagnosis, or ordinary computer operation. When uncertain about a code/log/trace/MCP evidence question, prefer repo. When uncertain about side effects, prefer clarify."
     },
     "needs_repo_access": {
       "type": "boolean",
@@ -472,11 +472,22 @@ The seven routes:
 	            structured or semi-structured files/materials: tables,
 	            record sets, manifests, extracted text, attachment indexes, or
 	            machine-readable records. Examples include CSV/TSV/JSON/
-	            JSONL/text data cleaning, joins, filters, aggregations,
+	            JSONL/plain-text/Markdown data cleaning, joins, filters, counts,
+	            aggregations,
 	            spreadsheet-like calculations, item-level decisions, and strict
             output-only requests such as JSON-only, CSV-only, a single line,
             or a Markdown table. These examples are not exhaustive; future
             document/spreadsheet/OCR adapters can feed the same data lane.
+	            Route by the requested objective, not by the incidental command
+	            needed to open a file: file access is the mechanism, not the objective.
+	            Reading a rules/instructions material and
+	            one or more local input materials to compute/filter/count/reshape
+	            a derived result is route=data, even for .txt/.md inputs and even
+	            when cat/grep/awk could perform it. Use route=operation for an
+	            explicitly requested computer/file operation, machine/filesystem
+	            state inspection, side effect, or raw retrieval/display task with
+	            no derived data result. Explicit user framing such as "as a
+	            computer operation" remains operation.
             Strict output format alone is NOT sufficient for data: if the
             content to compute or explain is source code, a runtime log/trace,
             MCP rows, or a previous answer, keep the corresponding route and
@@ -742,6 +753,13 @@ Examples (illustrative, NOT exhaustive — judge by structure):
     → route=data, needs_data_access=true, needs_repo_access=false,
       needs_operation_access=false, operation=data_cleaning,
       data_task_kind=data_cleaning, source=data,
+      risk_level=low, side_effects=[], requires_confirmation=false,
+      confidence≈0.85
+
+  Current: "读取 rules.md，按其中规则处理 records.txt，只输出最终计数"
+    → route=data, needs_data_access=true, needs_repo_access=false,
+      needs_operation_access=false, operation=answer_only_data_query,
+      data_task_kind=answer_only_data_query, source=data,
       risk_level=low, side_effects=[], requires_confirmation=false,
       confidence≈0.85
 

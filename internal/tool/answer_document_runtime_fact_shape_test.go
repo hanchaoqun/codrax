@@ -52,8 +52,8 @@ func TestRuntimeConditionalFactSuppressesFullTraceReportShape(t *testing.T) {
 	if runtimeTraceFullReportMaterializationAllowed(bus) {
 		t.Fatal("a declared finite call-relation fact set must stay narrow")
 	}
-	if !runtimeTracePrincipalValueMaterializationAllowed(bus) {
-		t.Fatal("a finite call-relation fact set must retain principal typed values")
+	if runtimeTracePrincipalValueMaterializationAllowed(bus) {
+		t.Fatal("a finite call-relation fact set must not inherit unrelated target-state principal values")
 	}
 }
 
