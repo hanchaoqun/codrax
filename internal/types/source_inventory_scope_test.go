@@ -125,3 +125,52 @@ func TestSourceInventoryRequiresRepoWideLens_TypedScopeOnly(t *testing.T) {
 		t.Fatal("non-source-inventory requests must not activate root inventory policy")
 	}
 }
+
+func TestSourceInventoryRequiresRepoWideLens_ExactRequestedFileBoundaryWinsOverClass(t *testing.T) {
+	rm := RequestModel{
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType},
+		},
+		SourceScopeProfile: &SourceScopeProfile{
+			RequestedScope: SourceScopeProduction,
+			SourceQuotes:   []string{"internal/types/evidence.go"},
+		},
+		AnalyzerHints: AnalyzerHints{RequiredFileHints: []RequiredFileHint{{
+			Path:       "internal/types/evidence.go",
+			Confidence: 0.82,
+		}}},
+	}
+	if !SourceInventoryHasExactRequestedFileBoundary(rm) {
+		t.Fatal("matching typed source quote and required file should form an exact boundary")
+	}
+	if SourceInventoryRequiresRepoWideLens(rm) {
+		t.Fatal("exact requested file must not be widened to the repository source universe")
+	}
+
+	rm.SourceScopeProfile.RequestedScope = SourceScopeAll
+	if SourceInventoryHasExactRequestedFileBoundary(rm) {
+		t.Fatal("an explicit all-source scope must outrank a sampled exact-file quote")
+	}
+	if !SourceInventoryRequiresRepoWideLens(rm) {
+		t.Fatal("an explicit all-source scope must retain repo-wide semantics")
+	}
+	rm.SourceScopeProfile.RequestedScope = SourceScopeProduction
+
+	rm.SourceScopeProfile.SourceQuotes = []string{"production files"}
+	if SourceInventoryHasExactRequestedFileBoundary(rm) {
+		t.Fatal("a source-class phrase is not an exact file boundary")
+	}
+	if !SourceInventoryRequiresRepoWideLens(rm) {
+		t.Fatal("production class scope must retain repo-wide semantics")
+	}
+
+	rm.SourceScopeProfile.SourceQuotes = []string{"internal/types/evidence.go"}
+	rm.AnalyzerHints.RequiredFileHints = append(rm.AnalyzerHints.RequiredFileHints, RequiredFileHint{
+		Path:       "internal/types/context.go",
+		Confidence: 0.82,
+	})
+	if SourceInventoryHasExactRequestedFileBoundary(rm) {
+		t.Fatal("a quote/hint set mismatch must fail closed")
+	}
+}

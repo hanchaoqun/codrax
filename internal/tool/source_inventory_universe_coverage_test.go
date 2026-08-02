@@ -2588,6 +2588,15 @@ func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_ExactRequiredFile
 		RequiresConstSet:  true,
 		Confidence:        0.95,
 	}
+	ctx.AnalysisIR.RequestModel.SourceScopeProfile = &types.SourceScopeProfile{
+		RequestedScope: types.SourceScopeProduction,
+		SourceQuotes:   []string{"internal/types/evidence.go"},
+		Confidence:     0.95,
+	}
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.RequiredFileHints = []types.RequiredFileHint{{
+		Path:       "internal/types/evidence.go",
+		Confidence: 0.82,
+	}}
 	ctx.AnalysisIR.EvidencePlan.RequiredFiles = []string{"internal/types/evidence.go"}
 	prior := types.SourceInventoryObservationFromMutable(ctx.Mutable)
 	prior.Sets = []types.SourceInventoryObservationSet{{
@@ -2606,7 +2615,7 @@ func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_ExactRequiredFile
 
 	facts := sourceInventoryExactRequiredFileFacts(false)
 	if !SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, facts) {
-		t.Fatalf("executed complete lens over the exact required file should close stale repo-wide same-role debt")
+		t.Fatalf("executed complete lens over the exact requested file should close stale repo-wide same-role debt even when its source class is also carried")
 	}
 	if downgrade := sourceInventoryResolvedCompletionDowngrade(ctx, "resolved", facts); downgrade != "" {
 		t.Fatalf("exact requested-file closure should not downgrade:\n%s", downgrade)

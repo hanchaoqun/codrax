@@ -5085,6 +5085,10 @@ func TestExplorer_BuildInitialInstruction_SourceInventoryLensSurface(t *testing.
 		ExploreToolSurface: types.ExploreToolSurfaceSourceInventoryLens,
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
 				SourceInventoryProfile: &types.SourceInventoryProfile{
 					IsSourceInventory: true,
 					TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
@@ -5145,6 +5149,44 @@ func TestExplorer_BuildInitialInstruction_SourceInventoryLensSurfaceRepoWideUses
 	}
 	if strings.Contains(got, "internal/tool/repomap/index") {
 		t.Fatalf("source-inventory without explicit source scope must not turn analyzer RequiredFiles into bounded scopes:\n%s", got)
+	}
+}
+
+func TestExplorer_BuildInitialInstruction_SourceInventoryExactFileIsNotWidenedBySourceClass(t *testing.T) {
+	eval := &explorerEvaluator{}
+	ctx := &types.AgentContext{
+		Stage:              types.StageExplore,
+		ExploreToolSurface: types.ExploreToolSurfaceSourceInventoryLens,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+				SourceInventoryProfile: &types.SourceInventoryProfile{
+					IsSourceInventory: true,
+					TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+				},
+				SourceScopeProfile: &types.SourceScopeProfile{
+					RequestedScope: types.SourceScopeProduction,
+					SourceQuotes:   []string{"internal/types/evidence.go"},
+				},
+				AnalyzerHints: types.AnalyzerHints{RequiredFileHints: []types.RequiredFileHint{{
+					Path:       "internal/types/evidence.go",
+					Confidence: 0.82,
+				}}},
+			},
+			EvidencePlan: types.EvidencePlan{RequiredFiles: []string{"internal/types/evidence.go"}},
+		},
+		RepoRoot: ".",
+	}
+
+	got := eval.BuildInitialInstruction(ctx, nil)
+	if !strings.Contains(got, "typed bounded scopes: `internal/types/evidence.go`") {
+		t.Fatalf("exact requested file should own the typed lens boundary:\n%s", got)
+	}
+	if strings.Contains(got, "typed bounded scopes: `.`") {
+		t.Fatalf("production source class must not widen an exact requested file:\n%s", got)
 	}
 }
 

@@ -3973,10 +3973,64 @@ PASS；逐份日志和最终答案人工审计后，三轮均为 0/2 human PASS�
 精确缺口不可 force-complete、negative-observation 排除不污染、发布器不做 token
 rewrite、缺行不补写、多行不静默裁剪。
 
-状态：`B37-a=committed/pushed`；`B37-b=implemented/tests-pass/commit-next`；同一
-trace/read 对的 R4 是提交后的下一步。Trace 模型过度热归因仍为 open model-guidance
-项，只允许基于 typed `GovernanceCapWitnessed=false` 的软提示/证据组织优化，禁止
-系统正文改写或关键词硬门。
+状态：`B37-a=committed/pushed`；`B37-b=committed/pushed@0a42a5e83`。Trace 模型
+过度热归因仍为 open model-guidance 项，只允许基于 typed
+`GovernanceCapWitnessed=false` 的软提示/证据组织优化，禁止系统正文改写或关键词
+硬门。
+
+#### B37-R4：所有权红线恢复，但暴露两个新的权威冲突
+
+R4 继续严格并行 2 case。runner 为 2/2 PASS；人工为 1/2 PASS：
+
+- read 人工 PASS：模型自己给出精确 11 个 enum 类型、职责和引用；没有系统替换
+  清单、空说明或 `[excluded]` 改写，证明 B37-b 的模型所有权边界已生效。
+- Trace 人工 FAIL：四次模型 `trace_query` 都使用用户显式窗
+  `13762.791708..13763.024898`，主状态表也使用 233.190ms；但系统发布的因果投影
+  根窗却变成 `13762.795456..13762.795569`（0.113ms），同时仍携带 157.248ms 等
+  全窗根因量，导致分母、百分比和重叠核算失真。runner 只证明“投影存在”，未证明
+  投影窗口正确。
+
+##### EVAL-B37-SCOPECLASS1：精确文件权威被 production 类别扩成全仓（P1）
+
+read 最终答案正确，但过程用了 503s、27 次 read、15 次 repo_map、15 次
+source_lens 和 28 次 midloop。日志显示 complete 的
+`scope=internal/types/evidence.go count=11` 已经取得，系统仍把 follow-up 扩到
+`cmd`、fixture 和 `internal/skill` 等无关目录。
+
+根因不是模型“不会停”，而是 analyzer 同时给出：
+
+- 高置信 `EvidencePlan.RequiredFiles=[internal/types/evidence.go]`；
+- `SourceScopeProfile.requested_scope=production`，且 `source_quotes` 也是同一精确文件。
+
+旧逻辑一见非空 SourceScopeProfile 就拒绝 exact-file closure，并把 production 类别
+解释为 repo-wide；宽类别权威覆盖了更精确的文件边界。
+
+通用修复：新增 typed exact requested-file boundary。只有 source inventory 已激活、
+高置信 RequiredFiles 全是具体源码/配置文件，且结构化 source_quotes 规范化后的文件
+集合与之完全相等时，文件边界才优先于 production 类别。集合不等、额外文件、宽泛
+quote 或非文件目标全部 fail-closed，继续走 repo-wide。判断不读取 RawRequest、
+rationale、thinking 或最终答案文本。exact-file complete lens 可据此关闭陈旧根级债务，
+explorer 首轮也固定在精确文件。
+
+无缓存测试额外发现两条旧测试仍在要求系统给 model-owned source inventory 自动铸造
+facet，以及结构门只允许一个 `ForceHard` 生产点。前者改为断言“保持模型文档不变并
+返回精确修复缺口”；后者登记缺行/多行两个 closed typed member-set 硬门。两者都不
+扫描自由文本，也不允许系统静默补写或裁剪。
+
+状态：`implemented / uncached package tests in progress / commit-next`。
+
+##### EVAL-B37-PROJWIN1：因果投影根窗与显式用户窗权威分裂（P1）
+
+这是确定性系统 gap，不是模型波动。显式用户窗、模型查询窗、系统补采披露窗和状态
+账一致为 233.190ms，只有系统因果投影选择了 0.113ms 的派生 frame span 作为根分母。
+下一批必须建立通用窗口优先级：当 typed runtime scope 是显式时间窗时，投影根窗与
+所有窗口占比以该窗为唯一权威；派生 frame/span 只能作为窗内 witness，不能覆盖根窗。
+显式 frame/span selector 仍可使用其自身派生窗，不能损害现有带窗 Trace 自动补采。
+
+Trace 答案中“热治理”“精确 12 因素”“PI/fscache 修复关系”等无 typed proof 的升级
+仍归 model-guidance lane；只改善 typed 边界和 prompt 软引导，禁止系统重写模型结论。
+
+状态：`open / next batch`。
 
 ### B36：配置映射 × write plan 权限与模型结论所有权（2026-08-01）
 

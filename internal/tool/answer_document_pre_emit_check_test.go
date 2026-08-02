@@ -3097,7 +3097,7 @@ func TestPreCheckAggregateMemberSetCoverage_CodeEnumCitationSatisfiesDisplayAlia
 	}
 }
 
-func TestNormalizeAnswerDocumentForPreEmit_SourceInventoryRowSetCoversEnumerationFacet(t *testing.T) {
+func TestNormalizeAnswerDocumentForPreEmit_SourceInventoryRowSetDoesNotAuthorEnumerationFacet(t *testing.T) {
 	mu := types.NewMutableState("source inventory facet accounting")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
 		Kind:        types.AnswerAggregateMemberSet,
@@ -3162,11 +3162,11 @@ func TestNormalizeAnswerDocumentForPreEmit_SourceInventoryRowSetCoversEnumeratio
 	}}}
 
 	normalizeAnswerDocumentForPreEmit("test", doc, view, ctx, newPreEmitCheckContext(ctx))
-	if hints := preCheckFacetCoverage(doc, view); len(hints) != 0 {
-		t.Fatalf("projected source-inventory row-set should materialize enumeration facet metadata, got %+v doc=%+v", hints, doc.Blocks)
+	if hints := preCheckFacetCoverage(doc, view); len(hints) == 0 {
+		t.Fatalf("model-owned source inventory without a facet carrier must remain a repair gap, got doc=%+v", doc.Blocks)
 	}
-	if !testStringSliceContains(doc.Blocks[0].FacetIDs, string(types.FacetEnumerationItem)) {
-		t.Fatalf("summary carrier should receive enumeration facet metadata, got %+v", doc.Blocks[0])
+	if testStringSliceContains(doc.Blocks[0].FacetIDs, string(types.FacetEnumerationItem)) || len(doc.Blocks[0].ClaimUses) != 0 {
+		t.Fatalf("pre-emit normalization must not author model-owned enumeration authority, got %+v", doc.Blocks[0])
 	}
 }
 

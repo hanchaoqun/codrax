@@ -456,6 +456,7 @@ func preEmitSubgateRouteTable() []preEmitSubgateRouteRow {
 		{Subgate: "inactive_scope_disclosure", ViolationKind: types.ViolInactiveScopeDisclosureMissing},
 		{Subgate: "aggregate_scalar_value_coverage", ViolationKind: types.ViolAcceptance},
 		{Subgate: "aggregate_member_set_coverage", ViolationKind: types.ViolExhaustiveMemberSetCoverageDrift, HardLane: preEmitHardSignalCompletePrincipalMemberSet},
+		{Subgate: "source_inventory_extraneous_principal_items", ViolationKind: types.ViolExhaustiveMemberSetCoverageDrift, HardLane: preEmitHardSignalCompletePrincipalMemberSet},
 		{Subgate: "target_wait_occurrence_consistency", ViolationKind: types.ViolExhaustiveMemberSetCoverageDrift},
 		{Subgate: "source_inventory_candidate_universe_coverage", ViolationKind: types.ViolExhaustiveMemberSetCoverageDrift},
 		{Subgate: "aggregate_cardinality_consistency", ViolationKind: types.ViolCardinalityShort},

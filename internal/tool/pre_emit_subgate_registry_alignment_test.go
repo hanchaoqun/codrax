@@ -13,7 +13,7 @@
 //   - the table's kind set equals the kinds actually passed to
 //     appendPreEmitHints/tagPreEmitHints in the checker body
 //     (go/parser scan — self-updating, no manual sync);
-//   - exactly one legacy ForceHard producer site exists in the checker file.
+//   - exactly two typed member-set ForceHard producer sites exist in the checker file.
 //
 // Ping-pong guard: the advisory rows pin the settled post-D1-G95
 // state (D1-F7w hardened citation carriers, D1-G95 reverted them).
@@ -163,12 +163,14 @@ func TestPreEmitSubgateRouteTableMatchesCheckerBody(t *testing.T) {
 	}
 }
 
-// Exactly ONE ForceHard producer site may exist in the checker file: the
-// complete-principal-member-set hint. Free-prose target-wait consistency was
-// deliberately demoted to advisory because interval/duration ownership is not
-// typed in the rendered text. Every future hard producer still needs a
-// preEmitSameTurnHardPolicyRows ruling. The call-edge lane is hard by
-// registered typed kind and therefore does not add a ForceHard producer.
+// Exactly TWO ForceHard producer sites may exist in the checker file: missing
+// and extraneous rows against the complete typed principal member set. Both
+// are closed-set comparisons over structured item rows; neither reads model
+// prose. Free-prose target-wait consistency remains advisory because
+// interval/duration ownership is not typed in rendered text. Every future hard
+// producer still needs a preEmitSameTurnHardPolicyRows ruling. The call-edge
+// lane is hard by registered typed kind and therefore does not add a ForceHard
+// producer.
 func TestPreEmitForceHardProducerSitesPinned(t *testing.T) {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, preEmitCheckerSourceFile, nil, 0)
@@ -192,8 +194,8 @@ func TestPreEmitForceHardProducerSitesPinned(t *testing.T) {
 		}
 		return true
 	})
-	if producers != 1 {
-		t.Fatalf("expected exactly 1 ForceHard producer site in %s, found %d — new hard producers must go through a preEmitSameTurnHardPolicyRows ruling", preEmitCheckerSourceFile, producers)
+	if producers != 2 {
+		t.Fatalf("expected exactly 2 typed member-set ForceHard producer sites in %s, found %d — new hard producers must go through a preEmitSameTurnHardPolicyRows ruling", preEmitCheckerSourceFile, producers)
 	}
 }
 

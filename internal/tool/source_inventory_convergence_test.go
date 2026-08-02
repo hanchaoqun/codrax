@@ -43,13 +43,14 @@ var sourceInventoryFileLOCCeiling = map[string]int{
 	"source_inventory_render.go":                                1308,
 	"source_inventory_render_paging.go":                         17,
 	"source_inventory_symbol_sort.go":                           38,
-	"source_inventory_universe_coverage.go":                     666, // DELIBERATE raise (LENSBURN-FIX 病B + fix round): executed-empty acceptance arm + defence-in-depth note on its SourceInventoryLensExecuted conjunct.
+	"source_inventory_universe_coverage.go":                     670, // DELIBERATE raise (B37): exact requested-file coverage gap shares the accepted row-set identity kernel.
 	"source_inventory_requested_census.go":                      60,
 	"source_inventory_requested_complete_lens.go":               74,
 	"source_inventory_requested_family_boundary.go":             120,
 	"source_inventory_requested_family_evidence.go":             90,
-	"source_inventory_requested_followup.go":                    130,
-	"source_inventory_requested_universe.go":                    213,
+	"source_inventory_requested_followup.go":                    160, // DELIBERATE raise (B37): typed requested_file_boundary route outranks unrelated class samples.
+	"source_inventory_requested_universe.go":                    215, // DELIBERATE raise (B37): accepted requested-file closure records exact-universe parity.
+	"source_inventory_requested_file_closure.go":                314, // B37 extracted exact requested-file closure concern; keep it out of reconcile.go.
 	"source_inventory_requested_zero_lens.go":                   77,
 	"source_inventory_requested_family.go":                      60,
 	"source_inventory_requested_surface_family.go":              100,
@@ -86,6 +87,7 @@ var sourceInventoryFileLOCCeiling = map[string]int{
 	"../types/source_inventory_authority_snapshot_normalize.go": 24,
 	"../types/source_inventory_authority_snapshot_support.go":   63,
 	"../types/source_inventory_inclusion.go":                    38,
+	"../types/source_inventory_exact_file_boundary.go":          73, // B37 typed equality bridge plus explicit SourceScopeAll fail-closed guard.
 	"../types/source_inventory_class_complete.go":               35,
 	"../types/source_inventory_language_census.go":              75,
 	// DELIBERATE raise (LENSBURN-FIX §29.122/§29.127 病B): the typed

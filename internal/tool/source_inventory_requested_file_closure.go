@@ -64,9 +64,12 @@ func sourceInventoryRequestedFileClosureProof(
 		return false, SourceInventoryCandidateUniverseGap{}
 	}
 	rm := ctx.AnalysisIR.RequestModel
-	// An explicit source-class scope (all/production/test/etc.) owns the
-	// universe. A navigation file inside such a request must never narrow it.
-	if rm.SourceScopeProfile != nil {
+	// An explicit source-class scope (all/production/test/etc.) normally owns
+	// the universe. The one exception is a typed exact-file boundary: analyzer
+	// providers may carry the same concrete boundary both as source-scope quotes
+	// and high-confidence RequiredFiles. In that shape the file set, not its
+	// broader source class, is the requested universe.
+	if rm.SourceScopeProfile != nil && !types.SourceInventoryHasExactRequestedFileBoundary(rm) {
 		return false, SourceInventoryCandidateUniverseGap{}
 	}
 	requested := sourceInventoryRequestedFileSet(ctx.AnalysisIR.EvidencePlan.RequiredFiles)
