@@ -625,7 +625,7 @@ func TestBuildAnswerSupportPlan_CallChainExcludesConcreteValueSideEvidence(t *te
 	}
 }
 
-func TestBuildAnswerSupportPlan_CallChainSortsSameFileEvidenceAndCarriesSummaryDetail(t *testing.T) {
+func TestBuildAnswerSupportPlan_CallChainSortsSameFileEvidenceWithoutFreeSummaryDetail(t *testing.T) {
 	plan := &AnswerSurfacePlan{
 		SurfaceEvidence: []EvidenceItem{
 			{
@@ -684,22 +684,22 @@ func TestBuildAnswerSupportPlan_CallChainSortsSameFileEvidenceAndCarriesSummaryD
 	if gotOrder := []string{path.Entries[0].Text, path.Entries[1].Text, path.Entries[2].Text}; !strings.Contains(gotOrder[0], "first") || !strings.Contains(gotOrder[1], "second") || !strings.Contains(gotOrder[2], "third") {
 		t.Fatalf("same-file call-chain evidence should be line ordered, got %+v", gotOrder)
 	}
-	if !strings.Contains(path.Entries[0].Detail, "normalized request") || !strings.Contains(path.Entries[1].Detail, "task graph") {
-		t.Fatalf("model-authored summaries should survive as per-hop detail, got %+v", path.Entries)
+	if strings.Contains(path.Entries[0].Detail, "normalized request") || strings.Contains(path.Entries[1].Detail, "task graph") {
+		t.Fatalf("non-load-bearing model summaries must not widen per-hop source spans, got %+v", path.Entries)
 	}
 }
 
 func TestBuildAnswerSupportPlan_FacetFamiliesCompilePrincipalEvidenceLane(t *testing.T) {
 	tests := []struct {
-		name           string
-		rm             RequestModel
-		family         QuestionFamily
-		facet          AnswerFacetKind
-		item           EvidenceItem
-		allowed        string
-		wantText       string
-		wantGuidance   string
-		wantDetailTerm string
+		name                 string
+		rm                   RequestModel
+		family               QuestionFamily
+		facet                AnswerFacetKind
+		item                 EvidenceItem
+		allowed              string
+		wantText             string
+		wantGuidance         string
+		forbiddenSummaryTerm string
 	}{
 		{
 			name:   "config precedence",
@@ -718,10 +718,10 @@ func TestBuildAnswerSupportPlan_FacetFamiliesCompilePrincipalEvidenceLane(t *tes
 				Summary:         "default runtime budget is overridden by config and then by CLI",
 				GroundingStatus: GroundingGrounded,
 			},
-			allowed:        "summary,scalar,table,ordered_list",
-			wantText:       "PipelineMaxSteps: 50",
-			wantGuidance:   "real default/config/CLI/runtime layer anchors",
-			wantDetailTerm: "overridden by config",
+			allowed:              "summary,scalar,table,ordered_list",
+			wantText:             "PipelineMaxSteps: 50",
+			wantGuidance:         "real default/config/CLI/runtime layer anchors",
+			forbiddenSummaryTerm: "overridden by config",
 		},
 		{
 			name:   "role lookup",
@@ -739,10 +739,10 @@ func TestBuildAnswerSupportPlan_FacetFamiliesCompilePrincipalEvidenceLane(t *tes
 				Summary:         "runReadSchedulerLoop is the read-mode scheduler entrypoint",
 				GroundingStatus: GroundingGrounded,
 			},
-			allowed:        "summary,scalar,section",
-			wantText:       "runReadSchedulerLoop",
-			wantGuidance:   "do not add uncited helper names",
-			wantDetailTerm: "scheduler entrypoint",
+			allowed:              "summary,scalar,section",
+			wantText:             "runReadSchedulerLoop",
+			wantGuidance:         "do not add uncited helper names",
+			forbiddenSummaryTerm: "scheduler entrypoint",
 		},
 		{
 			name:   "enumeration",
@@ -760,10 +760,10 @@ func TestBuildAnswerSupportPlan_FacetFamiliesCompilePrincipalEvidenceLane(t *tes
 				Summary:         "QFCallChain is one enumerated question family",
 				GroundingStatus: GroundingGrounded,
 			},
-			allowed:        "summary,ordered_list,table,bullet_list,section",
-			wantText:       "QFCallChain",
-			wantGuidance:   "do not invent missing members",
-			wantDetailTerm: "enumerated question family",
+			allowed:              "summary,ordered_list,table,bullet_list,section",
+			wantText:             "QFCallChain",
+			wantGuidance:         "do not invent missing members",
+			forbiddenSummaryTerm: "enumerated question family",
 		},
 		{
 			name:   "architecture",
@@ -782,10 +782,10 @@ func TestBuildAnswerSupportPlan_FacetFamiliesCompilePrincipalEvidenceLane(t *tes
 				Summary:         "scheduler delegates repository investigation to explorer",
 				GroundingStatus: GroundingGrounded,
 			},
-			allowed:        "summary,section,ordered_list,bullet_list,diagram",
-			wantText:       "scheduler calls explorer",
-			wantGuidance:   "unrelated helper calls",
-			wantDetailTerm: "repository investigation",
+			allowed:              "summary,section,ordered_list,bullet_list,diagram",
+			wantText:             "scheduler calls explorer",
+			wantGuidance:         "unrelated helper calls",
+			forbiddenSummaryTerm: "repository investigation",
 		},
 		{
 			name: "comparison",
@@ -806,10 +806,10 @@ func TestBuildAnswerSupportPlan_FacetFamiliesCompilePrincipalEvidenceLane(t *tes
 				Summary:         "runWriteControllerWorkflow is the write-mode controller entry point",
 				GroundingStatus: GroundingGrounded,
 			},
-			allowed:        "summary,section,table,ordered_list,bullet_list",
-			wantText:       "runWriteControllerWorkflow",
-			wantGuidance:   "bucket labels",
-			wantDetailTerm: "write-mode controller",
+			allowed:              "summary,section,table,ordered_list,bullet_list",
+			wantText:             "runWriteControllerWorkflow",
+			wantGuidance:         "bucket labels",
+			forbiddenSummaryTerm: "write-mode controller",
 		},
 		{
 			name:   "generic",
@@ -828,10 +828,10 @@ func TestBuildAnswerSupportPlan_FacetFamiliesCompilePrincipalEvidenceLane(t *tes
 				Summary:         "compiler.Compile builds the initial TaskGraph and EvidencePlan",
 				GroundingStatus: GroundingGrounded,
 			},
-			allowed:        "summary,section,ordered_list,bullet_list,diagram",
-			wantText:       "analyzer calls compiler.Compile",
-			wantGuidance:   "do not add uncited helper names",
-			wantDetailTerm: "TaskGraph and EvidencePlan",
+			allowed:              "summary,section,ordered_list,bullet_list,diagram",
+			wantText:             "analyzer calls compiler.Compile",
+			wantGuidance:         "do not add uncited helper names",
+			forbiddenSummaryTerm: "TaskGraph and EvidencePlan",
 		},
 	}
 
@@ -870,8 +870,8 @@ func TestBuildAnswerSupportPlan_FacetFamiliesCompilePrincipalEvidenceLane(t *tes
 			if !strings.Contains(lane.Entries[0].Text, tt.wantText) {
 				t.Fatalf("entry text missing %q: %+v", tt.wantText, lane.Entries[0])
 			}
-			if !strings.Contains(lane.Entries[0].Detail, tt.wantDetailTerm) {
-				t.Fatalf("entry detail should preserve model-authored enrichment %q: %+v", tt.wantDetailTerm, lane.Entries[0])
+			if strings.Contains(lane.Entries[0].Detail, tt.forbiddenSummaryTerm) {
+				t.Fatalf("entry detail must not promote non-load-bearing model summary %q: %+v", tt.forbiddenSummaryTerm, lane.Entries[0])
 			}
 			if !strings.Contains(lane.Entries[0].Detail, "typed_surface: claim_form=") {
 				t.Fatalf("entry detail should carry typed surface metadata for finalizer enrichment: %+v", lane.Entries[0])
@@ -4446,8 +4446,8 @@ func TestBuildAnswerSupportPlan_RootCauseTracePathLanePrefersObservedFrameTransi
 	if strings.Contains(body, "RequestModel") {
 		t.Fatalf("path lane should not elevate intra-function helper calls into the principal path, got:\n%s", body)
 	}
-	if len(pathLane.Entries) == 0 || !strings.Contains(pathLane.Entries[0].Detail, "observed frame transition") {
-		t.Fatalf("path lane should preserve model-emitted evidence detail as enrichment, got %+v", pathLane.Entries)
+	if len(pathLane.Entries) == 0 || strings.Contains(pathLane.Entries[0].Detail, "observed frame transition") {
+		t.Fatalf("path lane must not widen a call-site span with non-load-bearing model prose, got %+v", pathLane.Entries)
 	}
 }
 
@@ -4513,8 +4513,8 @@ func TestBuildAnswerSupportPlan_RootCauseTracePromotesIndependentMechanismCompan
 	for _, entry := range mechanismLane.Entries {
 		mechanismDetail += entry.Detail + "\n"
 	}
-	if !strings.Contains(mechanismDetail, "original analyzer entity shortlist") {
-		t.Fatalf("mechanism lane should preserve structured evidence detail, got %+v", mechanismLane.Entries)
+	if strings.Contains(mechanismDetail, "original analyzer entity shortlist") {
+		t.Fatalf("mechanism lane must not widen an assignment span with non-load-bearing model prose, got %+v", mechanismLane.Entries)
 	}
 }
 
@@ -4700,5 +4700,35 @@ func TestIsCrashSourcedRootCause(t *testing.T) {
 				t.Errorf("got %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestEvidenceSupportDetailDoesNotWidenGroundedSpanWithFreeSummary(t *testing.T) {
+	item := EvidenceItem{
+		Kind:            EvidenceDirect,
+		Scope:           ScopeLine,
+		Source:          "internal/orchestrator/orchestrator.go",
+		LineStart:       100,
+		AnchorKind:      AnchorDefinition,
+		AnchorSymbol:    "readPath",
+		Subject:         "readPath",
+		Summary:         "a sibling write-only fallback silently replaces the read result",
+		GroundingStatus: GroundingGrounded,
+	}
+	text := EvidenceAuthoritativeSurfaceText(item, false)
+	detail := callChainEvidenceSupportDetail(item, text)
+	if strings.Contains(detail, item.Summary) || strings.Contains(detail, "write-only fallback") {
+		t.Fatalf("non-load-bearing model summary must not widen a grounded source span: %q", detail)
+	}
+	for _, want := range []string{"claim_form=definition_fact", "anchor_kind=definition"} {
+		if !strings.Contains(detail, want) {
+			t.Fatalf("typed support metadata must remain after summary withdrawal; missing %q in %q", want, detail)
+		}
+	}
+
+	item.LoadBearingSummary = true
+	detail = callChainEvidenceSupportDetail(item, text)
+	if !strings.Contains(detail, item.Summary) {
+		t.Fatalf("explicit LoadBearingSummary opt-in must retain the summary: %q", detail)
 	}
 }

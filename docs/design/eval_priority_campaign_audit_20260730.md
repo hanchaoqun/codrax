@@ -4106,6 +4106,59 @@ advisory 虽披露“证据面未单独发布”，但错误数已经由系统 p
 `eval/parallel_selected_summary_evalcampaign_b26phasealias_r1_20260801.md`、
 `eval/parallel_selected_summary_evalcampaign_b26phasealias_r1_20260801_manual_audit.md`。
 
+#### B28a r1 与 B29：shard 权限覆盖，读模式暴露 source-span 扩权
+
+严格并行 2 个回放 runner 均 PASS，人工均 FAIL；机器 oracle 只验证结构面，不能
+替代事实审计。
+
+显式窗 trace 的 B28 目标已覆盖：6 个相交 `resource_pressure/block_rq` shard
+现在发布 `total_impact=unavailable`、
+`cross_shard_additivity=forbidden_overlapping_windows`，日志与答案均不再出现
+14.204ms 伪总量。模型仍把 pre-wakeup dependency 写成“直接优先级反转/持有调度
+依赖”，并在 `frame_causality=unproven` 下声称“卡顿完全来自调度”；精确 phase、
+caller/holder 与 causal ceiling 已在 finalizer 输入，故维持
+`EVAL-B26-PHASE1=partial/model-consumption-watch`，不以答案扫描、系统改写或硬化
+结论处理模型波动。
+
+读模式用例暴露两个层次：
+
+1. 事实真相是代码默认 `MaxRetriesPerStage=3`，runtime YAML 的 `*int` 只是可选
+   override；`dynamicAnalyzeRetries` 收到的是已合并的 `int`，小于 1 才规范为 1。
+   read analyze 非 transport 耗尽后安装 `buildDegradedSemanticIR`，无任何 partial IR
+   时才委托 `buildDegradedFallbackIR`；`fallbackWriteAnalysisIR` 只属于随后独立的
+   write_analyzer 路径。最终答案却写成“默认 5/nil 回退 1/read 走 write fallback”。
+2. `emit_evidence` 已声明 call/definition/span entailment，finalizer 也已有 mechanism
+   relation authority；但 `callChainEvidenceSupportDetail` 又无条件把每个
+   `EvidenceItem.Summary` 作为主支持 lane 的 `Evidence note`。于是定义行旁的模型自由
+   summary 可重新承载函数体、兄弟函数、配置默认值与跨模式时序，直接绕过
+   `ClaimFormOf` 和 grounded span。
+
+登记：
+
+| ID | 优先级 | GAP | 泛化方案 |
+|---|---:|---|---|
+| `EVAL-B29-SPAN2` | P1 | 非 load-bearing 的模型自由 summary 被支持 lane 再提升为 answer-authority detail，复现并具体化 B21-CALLEE1/SPAN1 | 支持 lane 与 `EvidenceAuthoritativeSurfaceText` 使用同一权限：默认只发布 typed anchor/condition/surface metadata；仅显式 `LoadBearingSummary` 可携带 summary。跨行/跨函数行为必须拆成各自 grounded evidence，不扫描最终 prose |
+| `EVAL-B29-LANE1` | P1 | 当前没有 typed execution-lane/path membership；同文件中互斥的 read/write 相邻实现都可能进入 principal mechanism evidence | 后续建立从 principal endpoint、typed call edge/flow path 到 evidence 的 lane membership；无路径证明的相邻定义只能作 enrichment/boundary。禁止按 `fallbackWriteAnalysisIR`、case、模式词或答案文本特判 |
+
+#### B29a：support lane 与 source-span authority 收敛
+
+`callChainEvidenceSupportDetail` 不再无条件读取 `EvidenceItem.Summary`：
+
+1. typed `claim_form`、anchor kind、condition 与 surface terms 保持；定义、调用、
+   guard、return、assignment 等精确载体不受影响；
+2. 默认 false 的自由 summary 不再以 `Evidence note` 进入主支持面；
+3. 只有 producer 显式声明 `LoadBearingSummary=true` 的窄值载体保留 summary，和
+   `EvidenceAuthoritativeSurfaceText` 既有合同一致；
+4. 测试把过去“任意 summary 都应保留”的错误预期改成“不扩张 grounded span”，
+   并固定 typed metadata 保留与 load-bearing 正向臂；
+5. 不读取 RawRequest、模型 thinking/final、函数名、语言或 case ID；不新增答案硬门，
+   不触及 Trace query、显式窗、因果投影、自动补采或系统/模型所有权边界。
+
+状态：`EVAL-B28-SHARD1=covered`；`EVAL-B29-SPAN2=implemented/focused-tests-pass`；
+`EVAL-B29-LANE1=P1/filed`。本轮工件：
+`eval/parallel_selected_summary_evalcampaign_b28shard_read_r1_20260801.md`、
+`eval/parallel_selected_summary_evalcampaign_b28shard_read_r1_20260801_manual_audit.md`。
+
 ### B26-OWN：Trace 精确信息与模型结论的职责边界回裁（2026-08-01）
 
 客户/人工 witness：

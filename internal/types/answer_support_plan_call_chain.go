@@ -181,7 +181,19 @@ func callChainStepSupportDetail(anchor StepSurfaceAnchor, text string) string {
 }
 
 func callChainEvidenceSupportDetail(item EvidenceItem, text string) string {
-	detail := strings.TrimSpace(item.Summary)
+	// Summary is model-authored prose, while the support lane is an
+	// answer-authority surface. A grounded line/range proves only its typed
+	// anchor carrier (call, condition, return, assignment, ...); grounding the
+	// location does not semantically validate an arbitrary Summary that may
+	// describe sibling functions or lines outside the cited span. EvidenceItem
+	// already has the explicit LoadBearingSummary opt-in for the narrow cases
+	// where dropping a model-authored scalar would drop the answer. Honour that
+	// authority boundary here as EvidenceAuthoritativeSurfaceText does, instead
+	// of silently re-attaching every Summary as an "Evidence note".
+	detail := ""
+	if item.LoadBearingSummary {
+		detail = strings.TrimSpace(item.Summary)
+	}
 	if cond := strings.TrimSpace(item.Condition); cond != "" && !strings.Contains(strings.ToLower(detail), strings.ToLower(cond)) {
 		if detail == "" {
 			detail = "condition: " + cond
