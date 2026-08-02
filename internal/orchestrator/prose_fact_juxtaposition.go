@@ -175,7 +175,7 @@ func proseFactJuxtapositionFindings(doc *types.AnswerDocumentV2, bus *types.BusC
 	}
 	statePrincipalAllowed := true
 	if bus.AnalysisIR != nil {
-		statePrincipalAllowed = types.RuntimeTracePrincipalValueMaterializationAllowed(
+		statePrincipalAllowed = types.RuntimeTraceTargetStateMaterializationAllowed(
 			&bus.AnalysisIR.RequestModel,
 			types.CompileTraceCausalProjectionSet(ledger),
 		)

@@ -81,6 +81,17 @@ func TestRuntimeTraceReportMaterializationAuthorityMatrix(t *testing.T) {
 	if !RuntimeTracePrincipalValueMaterializationAllowed(&boundedState, withRoot) {
 		t.Fatal("a bounded target-state family must retain its exact principal values")
 	}
+	boundedWait := boundedState
+	boundedWait.RuntimeQuestionProfile = &RuntimeQuestionProfile{
+		Scope:        RuntimeQuestionScopeBoundedFactSet,
+		FactFamilies: []RuntimeQuestionFactFamily{RuntimeQuestionFactTargetWaitOccurrences, RuntimeQuestionFactDirectWaker},
+	}
+	if RuntimeTraceTargetStateMaterializationAllowed(&boundedWait, withRoot) {
+		t.Fatal("a target-wait roster must not authorize the scheduler-state partition")
+	}
+	if !RuntimeTraceTargetWaitMaterializationAllowed(&boundedWait, withRoot) {
+		t.Fatal("a target-wait roster must retain only its own principal-value lane")
+	}
 	boundedCallRelation.RuntimeArtifactScopeProfile = windowed.RuntimeArtifactScopeProfile
 	if !RuntimeTraceReportMaterializationAllowed(&boundedCallRelation, TraceCausalProjectionSet{}) {
 		t.Fatal("an explicit typed window must still outrank a bounded relation fact set")

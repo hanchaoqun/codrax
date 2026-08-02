@@ -191,14 +191,20 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 	if doc == nil || ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
-	if !runtimeTracePrincipalValueMaterializationAllowed(ctx) {
-		return false
-	}
 	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(
 		ctx, types.ObservationExtractLedgerEvidenceLimit,
 	))
+	projectionSet := types.CompileTraceCausalProjectionSet(ledger)
 	authorityRM := runtimeTraceAuthorityRequestModel(ctx)
-	states := types.BuildTraceTargetStateScopeAuthorities(types.CompileTraceCausalProjectionSet(ledger))
+	stateAllowed := types.RuntimeTraceTargetStateMaterializationAllowed(authorityRM, projectionSet)
+	waitAllowed := types.RuntimeTraceTargetWaitMaterializationAllowed(authorityRM, projectionSet)
+	if !stateAllowed && !waitAllowed {
+		return false
+	}
+	var states []types.TraceTargetStateScopeAuthority
+	if stateAllowed {
+		states = types.BuildTraceTargetStateScopeAuthorities(projectionSet)
+	}
 	targetStates := make([]types.TraceTargetStateScopeAuthority, 0, len(states))
 	for _, state := range states {
 		if types.ObservationRecordMatchesUserRuntimeTarget(types.ObservationRecord{
@@ -208,7 +214,10 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 		}
 	}
 	states = targetStates
-	waits := types.BuildTraceTargetWaitSummaryAuthorities(ledger, authorityRM)
+	var waits []types.TraceTargetWaitSummaryAuthority
+	if waitAllowed {
+		waits = types.BuildTraceTargetWaitSummaryAuthorities(ledger, authorityRM)
+	}
 	if len(states) == 0 && len(waits) == 0 {
 		return false
 	}

@@ -4143,6 +4143,44 @@ r6 runner 2/2 PASS，人工 1/2 PASS：
 `internal/agent` 2.930s、`internal/orchestrator` 14.610s、`internal/repl` 34.270s，
 `make` 通过。下一步从干净提交重建并做 r7 同对回放。
 
+#### B41 r7：事实族轴已在场，但 state/wait 主值权限仍被合并（P1）
+
+r7 使用干净 `main@d9c2fd150`，runner 2/2 PASS，人工 1/2 PASS：
+
+- data route 与最终值均正确，输出严格只有 `2`；本轮 planner 多次跨 dependent DAG
+  ranks，被确定性 guard 分批收敛，最终
+  `data_rounds=6 / repair_rounds=3 / wall=149s / reconcile=pass`。这是效率模型波动
+  watch；不为单一简单计数增加 plan/action 特判。
+- Binder 仍无 full supplement、heavy floor、根因排序、可消除量或因果投影；模型三个
+  principal facts 正确。analyzer 发出
+  `fact_families=[target_wait_occurrences,recorded_reason,direct_waker]`：它把“直接唤醒者”
+  误带成 wait occurrence，但没有发 `target_scheduler_state`。
+- 当前 `RuntimeTracePrincipalValueMaterializationAllowed` 把
+  `target_scheduler_state OR target_wait_occurrences` 合并成一个布尔权限；tool 状态块、
+  agent recap 和 cross-check 只要该布尔为真就同时拿到 state partition。因此事实族
+  schema 本身生效，但 consumer 又把两个正交 family 合并，状态卡仍误扩。
+
+`EVAL-B41-FACTFAMILY1` 保持 P1/partial，施工修正为三条独立权限：
+
+1. `RuntimeTraceTargetStateMaterializationAllowed` 只接受
+   `target_scheduler_state`，只发布 running/runnable/sleep/D/io_wait 分区；
+2. `RuntimeTraceTargetWaitMaterializationAllowed` 只接受
+   `target_wait_occurrences`，只发布完整 occurrence roster/count/wall-clock；没有 typed
+   wait roster 时不得回退到 state partition；
+3. full causal report 与显式 user window 对两类权限均为 true；legacy 空 family 仍走旧
+   compatibility；共享 union 仅留给确实同时承载两类主值的兼容调用方。
+
+tool materializer 与 agent recap 先分别计算 state/wait authority，再分别构造 rows；
+orchestrator per-thread/state juxtaposition 只消费 state authority。prompt 同时明确
+`target_wait_occurrences` 是用户要求 scheduler wait 区间的次数/清单/总墙钟，不等于
+direct waker、wakeup event 或 wakeup latency。这是 typed 语义澄清与权限分离，不扫描
+用户原文或模型正文，不硬拒绝模型结论，也不替换模型答案。
+
+完整无缓存回归通过：`internal/types` 19.821s、`internal/skill` 1.013s、
+`internal/agent` 2.857s、`internal/orchestrator` 12.962s、`internal/repl` 33.435s、
+`internal/tool` 最终复跑 158.503s；`make` 通过。首次 tool 全包仅命中旧结构 tripwire
+仍要求 union helper，更新为同时 pin state/wait 两条真实调用后，全包无其它失败。
+
 任务：
 
 - [x] B41-T1：严格并行 2 case，完整日志/答案人工审计；
@@ -4188,7 +4226,12 @@ r6 runner 2/2 PASS，人工 1/2 PASS：
 - [x] B41-T24：runtime question fact-family typed schema + bounded 非空校验；tool/agent/
   orchestrator 状态发布面共用精确 family authority，legacy 空 family 仅作兼容；
 - [x] B41-T25：完整相关包测试与构建通过；第六施工批提交推送；
-- [ ] B41-T26：干净 HEAD 重建后同对严格并行 r7 回放并人工收账。
+- [x] B41-T26：干净 HEAD 重建后同对严格并行 r7 回放并人工收账；data human PASS，
+  Binder 发现 state/wait family consumer 合并 gap；
+- [x] B41-T27：拆分 state partition 与 wait roster 两类 materialization authority，
+  tool/agent/orchestrator 分别消费；补 wait-only/state-only/full-report 对偶 pin；
+- [x] B41-T28：完整相关包回归与构建通过；第七施工批提交推送；
+- [ ] B41-T29：干净 HEAD 重建后做 r8 同对回放并人工收账。
 
 ### B40：analyze retry 回放 × blocked-reason Trace 语义审计（2026-08-02）
 

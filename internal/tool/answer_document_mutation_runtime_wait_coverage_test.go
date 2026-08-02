@@ -216,6 +216,36 @@ func TestRuntimeWaitCoverageCaveatsUseTypedAuthoritiesWithoutRewritingModelProse
 
 }
 
+func TestTargetWaitFamilyDoesNotPublishStatePartitionWithoutWaitRoster(t *testing.T) {
+	bus := runtimeWaitCoverageTestBus()
+	rm := &bus.AnalysisIR.RequestModel
+	rm.Intent = types.IntentExplain
+	rm.Scenario = types.ScenarioGeneric
+	rm.AnalyzerHints.Kind = string(types.ReqMechanism)
+	rm.RuntimeQuestionProfile = &types.RuntimeQuestionProfile{
+		Scope: types.RuntimeQuestionScopeBoundedFactSet,
+		FactFamilies: []types.RuntimeQuestionFactFamily{
+			types.RuntimeQuestionFactTargetWaitOccurrences,
+			types.RuntimeQuestionFactRecordedReason,
+			types.RuntimeQuestionFactDirectWaker,
+		},
+	}
+	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "summary", Kind: types.BlockSummary, Text: "model-owned bounded IPC facts",
+	}}}
+	if materializeRuntimeTraceTargetStateAuthorityBlock(doc, bus) {
+		t.Fatalf("target_wait_occurrences without a typed wait roster must not fall through to the state partition: %+v", doc.Blocks)
+	}
+
+	rm.RuntimeQuestionProfile.FactFamilies = append(
+		rm.RuntimeQuestionProfile.FactFamilies,
+		types.RuntimeQuestionFactTargetSchedulerState,
+	)
+	if !materializeRuntimeTraceTargetStateAuthorityBlock(doc, bus) {
+		t.Fatal("an explicitly requested scheduler-state family must restore the state partition")
+	}
+}
+
 func TestRuntimeWaitCoverageAuthorityLeadsDoNotMintWithoutTypedRows(t *testing.T) {
 	bus := &types.BusContext{
 		Mutable: types.NewMutableState("no runtime authority rows"),

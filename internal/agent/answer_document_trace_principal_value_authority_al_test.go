@@ -270,6 +270,9 @@ func TestRenderAnswerDocTracePrincipalValueAuthoritySkipsBoundedRelationAL(t *te
 	observations := []types.ObservationRecord{{
 		ID: "state", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
 		Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard,
+		SourceRef: types.ObservationSourceRef{
+			Kind: types.ObservationSourceRuntimeArtifact, Path: "/tmp/attached_trace.txt", ArtifactID: "attached_trace",
+		},
 		Predicate: "target_window_state", Subject: subject,
 		Span:      types.ObservationSpan{StartTs: 3.0, EndTs: 3.05},
 		RichNotes: []string{"running_ms=35", "runnable_ms=10", "sleep_ms=5", "d_state_ms=0", "io_wait_ms=0"},
@@ -283,6 +286,62 @@ func TestRenderAnswerDocTracePrincipalValueAuthoritySkipsBoundedRelationAL(t *te
 	rm.RuntimeQuestionProfile = &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeBoundedFactSet}
 	if got := renderAnswerDocTracePrincipalValueAuthority(ctx); got != "" {
 		t.Fatalf("bounded relation must not receive an unrelated state recap:\n%s", got)
+	}
+}
+
+func TestRenderAnswerDocTracePrincipalValueAuthoritySeparatesWaitAndStateFamiliesAL(t *testing.T) {
+	subject := "client-20"
+	ref := types.ObservationSourceRef{
+		Kind: types.ObservationSourceRuntimeArtifact, Path: "/tmp/attached_trace.txt", ArtifactID: "attached_trace",
+	}
+	observations := []types.ObservationRecord{{
+		ID: "root", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard,
+		SourceRef: ref, Predicate: "root_cause_primary", ClaimKey: "root_cause_primary:" + subject,
+		Subject: subject, Object: "runnable", Value: "10", Unit: "ms",
+		RichNotes: []string{
+			"rank=1", "tier=primary", "chain_relevance=on_chain",
+			"effective_impact_ms=10", "selected_window=3.000000..3.050000",
+		},
+	}, {
+		ID: "state", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard,
+		SourceRef: ref,
+		Predicate: "target_window_states", ClaimKey: "target_window_states:" + subject,
+		Subject: subject, Object: "state_partition", Value: "50", Unit: "ms",
+		Span: types.ObservationSpan{StartTs: 3.0, EndTs: 3.05},
+		RichNotes: []string{
+			"selected_window=3.000000..3.050000",
+			"running=35",
+			"runnable=10",
+			"sleep=5",
+			"d_state=0",
+			"io_wait=0",
+			"total=50",
+		},
+	}}
+	ctx := tracePrincipalValueAuthorityTestContext(subject, 20, observations)
+	rm := &ctx.AnalysisIR.RequestModel
+	rm.Intent = types.IntentExplain
+	rm.Scenario = types.ScenarioGeneric
+	rm.AnalyzerHints.Kind = string(types.ReqMechanism)
+	rm.RuntimeQuestionProfile = &types.RuntimeQuestionProfile{
+		Scope: types.RuntimeQuestionScopeBoundedFactSet,
+		FactFamilies: []types.RuntimeQuestionFactFamily{
+			types.RuntimeQuestionFactTargetWaitOccurrences,
+			types.RuntimeQuestionFactDirectWaker,
+		},
+	}
+	if got := renderAnswerDocTracePrincipalValueAuthority(ctx); got != "" {
+		t.Fatalf("a wait family without a typed wait roster must not expose the unrelated state account:\n%s", got)
+	}
+
+	rm.RuntimeQuestionProfile.FactFamilies = append(
+		rm.RuntimeQuestionProfile.FactFamilies,
+		types.RuntimeQuestionFactTargetSchedulerState,
+	)
+	if got := renderAnswerDocTracePrincipalValueAuthority(ctx); !strings.Contains(got, "principal_state:") {
+		t.Fatalf("an explicitly requested scheduler-state family must restore its recap:\n%s", got)
 	}
 }
 

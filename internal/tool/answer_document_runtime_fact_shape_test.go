@@ -216,7 +216,13 @@ func TestRuntimeConditionalFactReportMaterializersShareShapeGate(t *testing.T) {
 		t,
 		"answer_document_mutation_runtime_wait_coverage.go",
 		"materializeRuntimeTraceTargetStateAuthorityBlock",
-		"runtimeTracePrincipalValueMaterializationAllowed(ctx)",
+		"types.RuntimeTraceTargetStateMaterializationAllowed(authorityRM, projectionSet)",
+	)
+	assertFunctionsUseNamedShapeGate(
+		t,
+		"answer_document_mutation_runtime_wait_coverage.go",
+		"materializeRuntimeTraceTargetStateAuthorityBlock",
+		"types.RuntimeTraceTargetWaitMaterializationAllowed(authorityRM, projectionSet)",
 	)
 }
 

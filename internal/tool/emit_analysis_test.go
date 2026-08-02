@@ -321,7 +321,7 @@ func TestParseRuntimeQuestionProfileSeparatesFactBreadthFromLegacyLabels(t *test
 	if errText != "" || len(warnings) != 0 || profile == nil || !profile.BoundedFactSet() {
 		t.Fatalf("bounded runtime fact profile rejected: profile=%+v err=%q warnings=%v", profile, errText, warnings)
 	}
-	if !profile.RequestsTargetStatePrincipalValues() || len(profile.FactFamilies) != 5 {
+	if len(profile.FactFamilies) != 5 || profile.FactFamilies[0] != types.RuntimeQuestionFactTargetSchedulerState {
 		t.Fatalf("bounded state/wait fact families not preserved: %+v", profile)
 	}
 	emptyFamilies := *bounded

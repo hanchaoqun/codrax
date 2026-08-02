@@ -73,25 +73,65 @@ func RuntimeTraceReportMaterializationAllowed(rm *RequestModel, set TraceCausalP
 	return TraceCausalProjectionSetHasPublicationGradeRows(set)
 }
 
-// RuntimeTracePrincipalValueMaterializationAllowed is the shared authority
-// for target-state / target-wait principal-value recaps. A full causal report
-// may include those values. A narrow report may include them only when the
-// typed request is actually a focused target-state fact; bounded breadth by
-// itself is insufficient because finite IPC peers, transaction IDs, direct
-// wakers, timestamps, and other facts do not ask for a scheduler-state card.
+// runtimeTraceBoundedFactFamilyMaterializationAllowed is the shared primitive
+// for independently authorized bounded principal-value families. A full
+// causal report may include them all. A narrow report may include only the
+// explicitly requested typed family; bounded breadth by itself is
+// insufficient because finite IPC peers, transaction IDs, direct wakers,
+// timestamps, and other facts do not ask for a scheduler-state card.
 //
 // The decision consumes only the validated RequestModel and compiled typed
 // projection. It never inspects request or answer prose.
-func RuntimeTracePrincipalValueMaterializationAllowed(rm *RequestModel, set TraceCausalProjectionSet) bool {
+func runtimeTraceBoundedFactFamilyMaterializationAllowed(
+	rm *RequestModel,
+	set TraceCausalProjectionSet,
+	families ...RuntimeQuestionFactFamily,
+) bool {
 	if RuntimeTraceReportMaterializationAllowed(rm, set) {
 		return true
 	}
 	if rm != nil && rm.RuntimeQuestionProfile != nil && rm.RuntimeQuestionProfile.BoundedFactSet() && len(rm.RuntimeQuestionProfile.FactFamilies) > 0 {
-		return rm.RuntimeQuestionProfile.RequestsTargetStatePrincipalValues()
+		for _, requested := range rm.RuntimeQuestionProfile.FactFamilies {
+			for _, allowed := range families {
+				if requested == allowed {
+					return true
+				}
+			}
+		}
+		return false
 	}
 	// Compatibility for old serialized RequestModels and focused synthetic
 	// fixtures created before fact_families existed. New analyzer emissions
 	// must declare at least one family for bounded_fact_set, so production
 	// requests do not enter this coarse legacy arm.
 	return rm != nil && IsFocusedRuntimeFactQuestion(*rm)
+}
+
+// RuntimeTraceTargetStateMaterializationAllowed authorizes only the target's
+// scheduler-state partition. A requested wait-occurrence roster does not
+// imply that the user asked for running/runnable/sleep/D/io_wait totals.
+func RuntimeTraceTargetStateMaterializationAllowed(rm *RequestModel, set TraceCausalProjectionSet) bool {
+	return runtimeTraceBoundedFactFamilyMaterializationAllowed(
+		rm,
+		set,
+		RuntimeQuestionFactTargetSchedulerState,
+	)
+}
+
+// RuntimeTraceTargetWaitMaterializationAllowed authorizes only the exact
+// target-wait occurrence roster. It is independent of the state partition.
+func RuntimeTraceTargetWaitMaterializationAllowed(rm *RequestModel, set TraceCausalProjectionSet) bool {
+	return runtimeTraceBoundedFactFamilyMaterializationAllowed(
+		rm,
+		set,
+		RuntimeQuestionFactTargetWaitOccurrences,
+	)
+}
+
+// RuntimeTracePrincipalValueMaterializationAllowed is the compatibility union
+// for consumers that render both principal lanes. New consumers should prefer
+// the state/wait-specific predicates and filter their rows independently.
+func RuntimeTracePrincipalValueMaterializationAllowed(rm *RequestModel, set TraceCausalProjectionSet) bool {
+	return RuntimeTraceTargetStateMaterializationAllowed(rm, set) ||
+		RuntimeTraceTargetWaitMaterializationAllowed(rm, set)
 }

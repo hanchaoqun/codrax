@@ -115,17 +115,3 @@ func (p *RuntimeQuestionProfile) RequiresFullReport() bool {
 		return false
 	}
 }
-
-func (p *RuntimeQuestionProfile) RequestsTargetStatePrincipalValues() bool {
-	if p == nil {
-		return false
-	}
-	for _, family := range p.FactFamilies {
-		switch family {
-		case RuntimeQuestionFactTargetSchedulerState,
-			RuntimeQuestionFactTargetWaitOccurrences:
-			return true
-		}
-	}
-	return false
-}
