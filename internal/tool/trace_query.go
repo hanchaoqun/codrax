@@ -4378,6 +4378,15 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	// Large rowsets remain explicitly truncated and keep payload_ref as the
 	// lossless continuation rather than flooding the model context.
 	writeTraceTargetWaitOccurrencePreview(&b, traceQueryTargetWindowStatesAccount(result), payloadRef)
+	// B37-RANKPREVIEW (2026-08-01): root_cause_rank can share a composite
+	// result with enough wakeup/resource detail that StoreBlob's bounded head
+	// and tail preview hides the complete rank board in the omitted middle.
+	// The model then has to page through the lossless JSON merely to recover
+	// the already-bounded, already-sorted candidate roster. Publish a compact
+	// typed mirror near the head. This is a transport/value carrier only: it
+	// preserves engine order and values, reads no request/answer prose, and
+	// neither elects a cause nor changes the full rank/projection sections.
+	writeTraceRootCauseRankPreview(&b, traceQueryRootCauseRankForHeadPreview(result), payloadRef)
 	for _, suppression := range result.LifecycleSuppressions {
 		fmt.Fprintf(&b, "lifecycle_suppression conflict_tid=%d signal=%s boundary_line=%d boundary_ts=%.6f scope=%s affects_target=%t affected_lanes=%s preserved_lanes=%s frame_ownership_status=%s candidate_selectors=%s suggested_queries=%s\n",
 			suppression.ConflictTID, sanitizeForBanner(suppression.Signal), suppression.BoundaryLine, suppression.BoundaryTs,
@@ -7897,6 +7906,72 @@ func writeTraceTimelineStateTotals(b *strings.Builder, intervals []tracequery.In
 }
 
 const traceQueryTargetWaitOccurrencePreviewCap = 8
+
+const (
+	traceQueryRootCauseRankPreviewCap    = 12
+	traceQueryRootCauseOverlapPreviewCap = 4
+)
+
+// traceQueryRootCauseRankForHeadPreview picks the same typed board that the
+// long result body will publish. Composite frame views may carry the board on
+// the bundle rather than the result envelope, so the fallback keeps that
+// already-computed board visible without constructing a second one.
+func traceQueryRootCauseRankForHeadPreview(result tracequery.Result) *tracequery.RootCauseRankResult {
+	if result.RootCauseRank != nil {
+		return result.RootCauseRank
+	}
+	if result.FrameRootCauseBundle != nil {
+		return result.FrameRootCauseBundle.RootCauseRank
+	}
+	return nil
+}
+
+// writeTraceRootCauseRankPreview renders an early compact mirror of the
+// engine-published root-cause board. It deliberately uses Items in their
+// existing order and copies only typed fields: no re-ranking, candidate
+// filtering, prose classification, or conclusion is performed here. The
+// full rank section and payload remain the lossless authority for member,
+// occurrence, perf and supply-fold detail.
+func writeTraceRootCauseRankPreview(b *strings.Builder, rank *tracequery.RootCauseRankResult, payloadRef string) {
+	if b == nil || rank == nil || len(rank.Items) == 0 {
+		return
+	}
+	visible := min(len(rank.Items), traceQueryRootCauseRankPreviewCap)
+	status := "complete"
+	if visible < len(rank.Items) {
+		status = "incomplete"
+	}
+	fmt.Fprintf(b, "root_cause_rank_preview status=%s emitted=%d published_total=%d order=engine_published_board values=typed_no_re_election\n",
+		status, visible, len(rank.Items))
+	for i := 0; i < visible; i++ {
+		item := rank.Items[i]
+		value := traceQueryRankImpactValue(item.Type)
+		channel := tracequery.RootCauseRankOrdinalChannelWord(item)
+		if channel == "" {
+			channel = "none"
+		}
+		subject := traceThreadLabel(item.Thread)
+		if item.SubjectKind == tracequery.RootCauseSubjectKindAggregateMetric && item.Thread.PID <= 0 && strings.TrimSpace(item.Thread.Comm) == "" {
+			subject = item.Type
+		}
+		overlaps := item.CrossDirectionOverlaps
+		overlapOmitted := 0
+		if len(overlaps) > traceQueryRootCauseOverlapPreviewCap {
+			overlapOmitted = len(overlaps) - traceQueryRootCauseOverlapPreviewCap
+			overlaps = overlaps[:traceQueryRootCauseOverlapPreviewCap]
+		}
+		fmt.Fprintf(b, "- root_cause_rank_preview_row board_order=%d rank=%d rank_channel=%s tier=%s type=%s subject=%s dominant_state=%s effective_impact=%s cumulative_impact=%s fix_direction=%s causality=%s chain_relevance=%s member_count=%d cross_direction_overlaps=%s cross_direction_overlaps_omitted=%d lines=%d-%d source=%s\n",
+			i+1, item.Rank, sanitizeForBanner(channel), sanitizeForBanner(item.Tier), sanitizeForBanner(item.Type),
+			sanitizeForBanner(subject), sanitizeForBanner(item.DominantState), value(traceQueryRootCauseEffectiveImpact(item)), value(item.CumulativeImpactMs),
+			sanitizeForBanner(item.FixDirection), sanitizeForBanner(item.Causality), sanitizeForBanner(item.ChainRelevance), item.MemberCount,
+			sanitizeForBanner(traceQueryCrossDirectionOverlapsNote(overlaps)), overlapOmitted,
+			item.LineStart, item.LineEnd, sanitizeForBanner(item.Source))
+	}
+	if status != "complete" {
+		fmt.Fprintf(b, "root_cause_rank_preview_continuation omitted=%d payload_ref=%s\n",
+			len(rank.Items)-visible, sanitizeForBanner(payloadRef))
+	}
+}
 
 // writeTraceTargetWaitOccurrencePreview renders the target account's exact
 // small D/io-wait roster before the long per-view body. The account and its
