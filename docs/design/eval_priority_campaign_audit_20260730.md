@@ -4782,6 +4782,45 @@ meta-runner 语义断链。
   不得直接默认开启高延迟 reviewer；
 - [ ] B46-T10d：相关单测通过后同 pair r5；确认关系正确再进入 B47 多维批次。
 
+#### B46 r5：跨阶段 transport 生效，但软提示不能约束模型关系声明
+
+从干净 `main@0423e44fe478` 严格并行同一 Trace/write pair。runner 1/2 PASS，人工 1/2：
+
+1. write runner/human 双 PASS。补丁仍只改 `memoclaw/client.py`，sync/async 都使用
+   POST `/v1/search` + JSON body；verification probe 与真实 `make check` 都通过，后者输出
+   `python text search contract ok`。ChangeReport=`passed`，Python changed path=`covered`，
+   execution source=`declared_coverage_test_surface`；写模式继续无回归。
+2. Trace runner 唯一失败是旧固定词形 `等待对象 dma_fence_default_w`；typed 内核调用点在
+   projection/tree/detail 均完整存在，继续归 `EVAL-B46-ORACLE1`，生产代码不拟合。
+3. 新 transport 已形成生产见证：root-cause tool result 的第 20–24 行、在长 body 之前，
+   明确发布 `#4+#13=5.149ms` 自身墙钟尺、`#10=1.648ms` 唤醒边尺、跨尺禁加、物理关系
+   unresolved；同时给出 row-local state scope、fix-direction 非加法权限，以及
+   blocked-reason census 不能代替 typed interval join。说明模型上下文在结论形成前已精准且足量。
+4. 人工仍 FAIL。Explorer closure 明知上述载体，仍把 #4 3.956ms 与 #10 1.648ms 拼成
+   5.604ms，把 CompThread running 8.294ms 与 row-local D-state 3.598ms 拼成 11.892ms；
+   Finalizer 收到同源准确 handoff 后继续沿用，还把 JankManager priority-inversion/runnable
+   及 keva running/io_wait 各自跨行相加。最终系统附加的 Trace projection 则正确显示
+   two-ruler 分账、CompThread 同源二分关系和 typed 小计 12.115ms，因而答案内部形成硬矛盾。
+5. 显式用户窗、5 次 windowed trace query、自动补齐、真实占用/现规则可消两轴、根因排序、
+   唤醒链和完整 Trace 因果投影全部保留。失败不是能力被窄化，而是模型在结构化证据面前仍
+   越权声明关系；继续追加自然语言提示已无高 ROI。
+
+结论：`EVAL-B46-REL2B` 的 transport 部分可判 covered；`EVAL-B46-REL3` 升为
+`confirmed/P1`。下一批采用 model-owned structured relation claim：模型在 Explorer closure
+和/或 AnswerDocument 中显式提交 seat identity、relation kind、typed carrier/subtotal 引用；
+校验器只 against 同源 typed authority 做精确集合/数值比较。无 carrier 的 containment、
+overlap、mutual-exclusion、addition 声明触发模型重试，由模型自己修正总结/答案。不得扫描
+RawRequest、thinking、summary/final prose，不得由系统删除、替换或撰写结论，也不得启用
+依赖固定词形的 hard gate。普通 semantic reviewer 仍非默认依赖。
+
+- [x] B46-T10d-a：完成 r5 同 pair 严格并行与全链人工审计；
+- [x] B46-T10d-b：确认 pre-Explore typed transport、显式窗投影/补齐、write 回归均生效；
+- [ ] B46-T11a：设计最小 model-authored relation-claim schema，并复用现有 types admission
+  authority；先覆盖加法/包含/重叠/互斥四类，不按 case/type 造专用规则；
+- [ ] B46-T11b：Explorer closure 与 AnswerDocument 的 claim 必须由模型提交；typed 精确失败
+  只触发模型重试，系统不改正文。补正反/absent/invalid-carrier/普通非 Trace 回归；
+- [ ] B46-T11c：相关全量测试、独立提交推送后同 pair r6；通过后进入 B47。
+
 ### B41：data 终批材料 × Binder 方向语义审计（2026-08-02）
 
 本批严格并行 `data_text_filter_count` 与 `trace_query_binder_ipc_peer`。runner
