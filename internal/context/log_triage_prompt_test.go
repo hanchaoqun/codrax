@@ -303,6 +303,49 @@ func TestFormatLogTriageStructured_OperationalObservationsRendered(t *testing.T)
 	}
 }
 
+func TestFormatLogTriageStructured_SystemOperationalSemanticsSupersedeAdvisory(t *testing.T) {
+	bundle := &types.LogBundle{
+		Meta: types.LogMeta{Lang: "unknown"},
+		OperationalSemantics: []types.LogOperationalSemantic{{
+			Protocol:            "codrax_status_v1",
+			Producer:            "render",
+			EventKind:           types.LogOperationalEventPipelineStageLifecycle,
+			Subject:             "finalize",
+			StageKey:            "finalize",
+			Lifecycle:           "retry",
+			CounterDomain:       types.LogOperationalCounterPipelineStageProgress,
+			Numerator:           4,
+			Denominator:         4,
+			TransitionAuthority: types.LogOperationalTransitionEventLocalOnly,
+			ExcludedMeanings:    []string{"model_count", "llm_attempt_count"},
+			LineStart:           4,
+			LineEnd:             4,
+			RawExcerpt:          "INFO [render] ⟳ 4/4 模型响应出错,正在重新撰写答案",
+		}},
+		Observations: []types.LogObservation{{
+			Kind:       types.LogObservationRuntimeEvent,
+			Summary:    "all four models failed",
+			Evidence:   "⟳ 4/4 模型响应出错,正在重新撰写答案",
+			LineStart:  4,
+			LineEnd:    4,
+			Diagnostic: true,
+			Confidence: 0.9,
+		}},
+	}
+	got := formatLogTriageStructured(bundle, nil)
+	for _, want := range []string{
+		"System-decoded operational semantics",
+		"counter_domain=pipeline_stage_progress value=4/4",
+		"does_not_mean=model_count,llm_attempt_count",
+		"superseded wherever they conflict",
+		"triager_interpretation (advisory): all four models failed",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("system operational semantics missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestFormatLogTriageStructured_ThreadSnapshotsStayContextOnly(t *testing.T) {
 	bundle := &types.LogBundle{
 		Meta:   types.LogMeta{Lang: "go"},

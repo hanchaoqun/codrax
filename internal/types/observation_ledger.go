@@ -3470,8 +3470,16 @@ func compileLogBundleObservations(bundle *LogBundle, add func(ObservationRecord)
 	for _, err := range bundle.Errors {
 		walkErr(err)
 	}
+	for i, semantic := range bundle.OperationalSemantics {
+		add(logOperationalSemanticObservationRecord(i, semantic))
+	}
 	for i, obs := range bundle.Observations {
 		role := logObservationRecordRole(bundle, obs)
+		supersededBy := logOperationalSemanticRefsForObservation(bundle, obs)
+		richNotes := logObservationInterpretationNotes(obs)
+		for _, ref := range supersededBy {
+			richNotes = appendUniqueObservationString(richNotes, "triager_interpretation_superseded_by="+ref)
+		}
 		add(ObservationRecord{
 			ID:              fmt.Sprintf("log:observation:%d", i),
 			Origin:          AnswerEvidenceOriginRuntimeArtifact,
@@ -3498,10 +3506,80 @@ func compileLogBundleObservations(bundle *LogBundle, add func(ObservationRecord)
 			// that the log text itself never established.
 			Summary:    firstNonEmptyString(strings.TrimSpace(obs.Evidence), strings.TrimSpace(obs.Summary)),
 			RawExcerpt: strings.TrimSpace(obs.Evidence),
-			RichNotes:  logObservationInterpretationNotes(obs),
+			RichNotes:  richNotes,
 			Confidence: obs.Confidence,
 		})
 	}
+}
+
+func logOperationalSemanticObservationRecord(index int, semantic LogOperationalSemantic) ObservationRecord {
+	summary := fmt.Sprintf("%s producer=%s", semantic.EventKind, semantic.Producer)
+	if semantic.StageKey != "" {
+		summary += fmt.Sprintf(" stage=%s lifecycle=%s", semantic.StageKey, semantic.Lifecycle)
+	} else if semantic.Subject != "" {
+		summary += " subject=" + semantic.Subject
+	}
+	if semantic.CounterDomain != "" {
+		summary += fmt.Sprintf(" counter_domain=%s value=%d/%d", semantic.CounterDomain, semantic.Numerator, semantic.Denominator)
+	}
+	richNotes := []string{
+		"protocol=" + semantic.Protocol,
+		"transition_authority=" + semantic.TransitionAuthority,
+	}
+	if len(semantic.ExcludedMeanings) > 0 {
+		richNotes = append(richNotes, "does_not_mean="+strings.Join(semantic.ExcludedMeanings, ","))
+	}
+	return ObservationRecord{
+		ID:              fmt.Sprintf("log:protocol:%d", index),
+		Origin:          AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "log_protocol_decoder",
+		Role:            AnswerAggregateRolePrincipalAnswer,
+		GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginRuntimeArtifact, AnswerAggregateRolePrincipalAnswer),
+		ProvenanceLane:  ObservationProvenanceArtifactSpan,
+		SourceRef: ObservationSourceRef{
+			Kind:         ObservationSourceRuntimeArtifact,
+			ArtifactID:   "attached_log",
+			ArtifactKind: "log",
+		},
+		Span: ObservationSpan{
+			LineStart: semantic.LineStart,
+			LineEnd:   semantic.LineEnd,
+		},
+		ClaimKey:   string(semantic.EventKind) + ":" + semantic.Subject,
+		Subject:    semantic.Subject,
+		Predicate:  string(semantic.EventKind),
+		Object:     string(semantic.CounterDomain),
+		Value:      fmt.Sprintf("%d/%d", semantic.Numerator, semantic.Denominator),
+		Summary:    summary,
+		RawExcerpt: strings.TrimSpace(semantic.RawExcerpt),
+		RichNotes:  richNotes,
+		Confidence: 1,
+	}
+}
+
+func logOperationalSemanticRefsForObservation(bundle *LogBundle, obs LogObservation) []string {
+	if bundle == nil || len(bundle.OperationalSemantics) == 0 {
+		return nil
+	}
+	start, end := obs.LineStart, obs.LineEnd
+	if start <= 0 {
+		return nil
+	}
+	if end < start {
+		end = start
+	}
+	var refs []string
+	for i, semantic := range bundle.OperationalSemantics {
+		semanticEnd := semantic.LineEnd
+		if semanticEnd < semantic.LineStart {
+			semanticEnd = semantic.LineStart
+		}
+		if semantic.LineStart <= 0 || end < semantic.LineStart || semanticEnd < start {
+			continue
+		}
+		refs = append(refs, fmt.Sprintf("log:protocol:%d", i))
+	}
+	return refs
 }
 
 func logObservationInterpretationNotes(obs LogObservation) []string {
@@ -3540,6 +3618,9 @@ func logObservationRecordRole(bundle *LogBundle, obs LogObservation) AnswerAggre
 		return AnswerAggregateRoleSupportingCoverage
 	}
 	if strings.TrimSpace(obs.Evidence) == "" {
+		return AnswerAggregateRoleSupportingCoverage
+	}
+	if len(logOperationalSemanticRefsForObservation(bundle, obs)) > 0 {
 		return AnswerAggregateRoleSupportingCoverage
 	}
 	if bundle == nil {

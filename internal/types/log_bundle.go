@@ -77,6 +77,53 @@ type LogBundle struct {
 	// escalation decision: a coverage below the configured threshold
 	// triggers segmentation + per-segment extraction. Range [0.0, 1.0].
 	Coverage float64 `json:"coverage"`
+
+	// OperationalSemantics is a deterministic decode of exact, versioned
+	// Codrax operational-protocol fields found in the attached log. Unlike
+	// Observations, these rows are not model-authored: the owning producer
+	// (for example the renderer's pipeline-stage progress protocol) mints
+	// their counter domain and lifecycle meaning. A match explains only the
+	// event-local fields; it does not prove that the attached log came from
+	// the current revision or that another current-source retry/cap gate was
+	// traversed.
+	OperationalSemantics []LogOperationalSemantic `json:"operational_semantics,omitempty"`
+}
+
+type LogOperationalEventKind string
+
+const (
+	LogOperationalEventPipelineStageLifecycle LogOperationalEventKind = "pipeline_stage_lifecycle"
+	LogOperationalEventDispatchAttemptFailed  LogOperationalEventKind = "dispatch_attempt_failed"
+)
+
+type LogOperationalCounterDomain string
+
+const (
+	LogOperationalCounterPipelineStageProgress LogOperationalCounterDomain = "pipeline_stage_progress"
+	LogOperationalCounterDispatchAttempt       LogOperationalCounterDomain = "agent_dispatch_attempt"
+)
+
+const LogOperationalTransitionEventLocalOnly = "event_local_only"
+
+// LogOperationalSemantic is one system-decoded protocol event. Every field is
+// derived from an exact producer grammar and a verbatim attached-log line; no
+// user request, model rationale, investigation summary, or final answer text
+// participates in this carrier.
+type LogOperationalSemantic struct {
+	Protocol            string                      `json:"protocol"`
+	Producer            string                      `json:"producer"`
+	EventKind           LogOperationalEventKind     `json:"event_kind"`
+	Subject             string                      `json:"subject,omitempty"`
+	StageKey            string                      `json:"stage_key,omitempty"`
+	Lifecycle           string                      `json:"lifecycle,omitempty"`
+	CounterDomain       LogOperationalCounterDomain `json:"counter_domain,omitempty"`
+	Numerator           int                         `json:"numerator,omitempty"`
+	Denominator         int                         `json:"denominator,omitempty"`
+	TransitionAuthority string                      `json:"transition_authority"`
+	ExcludedMeanings    []string                    `json:"excluded_meanings,omitempty"`
+	LineStart           int                         `json:"line_start,omitempty"`
+	LineEnd             int                         `json:"line_end,omitempty"`
+	RawExcerpt          string                      `json:"raw_excerpt"`
 }
 
 // LogMeta carries the log-as-a-whole classification the LLM emitted.

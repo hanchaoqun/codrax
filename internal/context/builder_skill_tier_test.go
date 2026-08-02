@@ -569,7 +569,7 @@ func TestBuildPromptContext_ExploreSkillRendersTraceWorkflowForTypedTrace(t *tes
 }
 
 // TestSkillTierAwareWorkflow_AnswerDocumentSkill_TierBCount — pin
-// the migration shape: 40 Tier B Workflow items (6 from the P5-B
+// the migration shape: 42 Tier B Workflow items (6 from the P5-B
 // migration + 5 trace prose disciplines from the SG soft-guidance
 // batches: periodic-source discount, on-chain blocking disposition,
 // window-stats core numbers, background-aggregate headline,
@@ -577,7 +577,8 @@ func TestBuildPromptContext_ExploreSkillRendersTraceWorkflowForTypedTrace(t *tes
 // prose number grounding, object identity assertions + 3 Wave-3.1
 // GAP-C §27.4/§28.1 (2026-07-09) trace disciplines: primary-cause
 // entity consistency, lock-wait site quotation, hop citation-assertion
-// alignment + 8 later typed trace-authority disciplines) + 2 Tier B
+// alignment + 8 later typed trace-authority disciplines + 2 generalized
+// mechanism/runtime-proof disciplines) + 2 Tier B
 // Prohibitions are present on the
 // answer-document-skill, with the expected bodies (verbatim).
 func TestSkillTierAwareWorkflow_AnswerDocumentSkill_TierBCount(t *testing.T) {
@@ -603,8 +604,10 @@ func TestSkillTierAwareWorkflow_AnswerDocumentSkill_TierBCount(t *testing.T) {
 	// Later typed trace authorities add data-gap, mixed-supply, ordered-rank,
 	// value-owner temporal, target-blocking wall-clock, IPC request census,
 	// target-thread-vs-CPU scope, and wakeup census semantics (32 → 40).
-	if len(sk.WorkflowTierB) != 40 {
-		t.Errorf("answer-document-skill should declare 40 Tier B Workflow items; got %d", len(sk.WorkflowTierB))
+	// Generalized independent-mechanism grounding and runtime-rule
+	// instantiation disciplines then extend the registry (40 → 42).
+	if len(sk.WorkflowTierB) != 42 {
+		t.Errorf("answer-document-skill should declare 42 Tier B Workflow items; got %d", len(sk.WorkflowTierB))
 	}
 	if len(sk.ProhibitionsTierB) != 2 {
 		t.Errorf("answer-document-skill should declare 2 Tier B Prohibitions; got %d", len(sk.ProhibitionsTierB))
@@ -656,6 +659,8 @@ func TestSkillTierAwareWorkflow_AnswerDocumentSkill_TierBCount(t *testing.T) {
 		"TOTALS MATCH THEIR PARTS:",
 		"WAKEUP CENSUS DIRECTION AND STATE:",
 		"MECHANICAL PRODUCER-CHAIN SEPARATION:",
+		"INDEPENDENT MECHANISM CONTRAST:",
+		"RUNTIME RULE INSTANTIATION:",
 	}
 	if len(sk.WorkflowTierB) != len(wantWorkflowPrefixes) {
 		t.Fatalf("Tier B count mismatch: want %d, got %d", len(wantWorkflowPrefixes), len(sk.WorkflowTierB))

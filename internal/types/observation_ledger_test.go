@@ -1087,6 +1087,50 @@ func TestCompileObservationLedger_LogObservationKeepsInterpretationAdvisory(t *t
 	}
 }
 
+func TestCompileObservationLedger_SystemOperationalSemanticDemotesConflictingInterpretation(t *testing.T) {
+	bundle := &LogBundle{
+		OperationalSemantics: []LogOperationalSemantic{{
+			Protocol:            "codrax_status_v1",
+			Producer:            "render",
+			EventKind:           LogOperationalEventPipelineStageLifecycle,
+			Subject:             "finalize",
+			StageKey:            "finalize",
+			Lifecycle:           "retry",
+			CounterDomain:       LogOperationalCounterPipelineStageProgress,
+			Numerator:           4,
+			Denominator:         4,
+			TransitionAuthority: LogOperationalTransitionEventLocalOnly,
+			ExcludedMeanings:    []string{"model_count", "llm_attempt_count"},
+			LineStart:           4,
+			LineEnd:             4,
+			RawExcerpt:          "INFO [render] ⟳ 4/4 model response error, rewriting",
+		}},
+		Observations: []LogObservation{{
+			Kind:       LogObservationRuntimeEvent,
+			Subject:    "all models",
+			Summary:    "all four models failed",
+			Evidence:   "⟳ 4/4 model response error, rewriting",
+			LineStart:  4,
+			LineEnd:    4,
+			Diagnostic: true,
+			Confidence: 0.9,
+		}},
+	}
+	ledger := CompileObservationLedger(ObservationLedgerInput{LogBundle: bundle})
+	protocol := findObservationRecord(t, ledger, "log:protocol:0")
+	if protocol.Role != AnswerAggregateRolePrincipalAnswer ||
+		protocol.Producer != "log_protocol_decoder" ||
+		protocol.Object != string(LogOperationalCounterPipelineStageProgress) ||
+		protocol.Value != "4/4" {
+		t.Fatalf("system protocol row lost authority: %+v", protocol)
+	}
+	modelRow := findObservationRecord(t, ledger, "log:observation:0")
+	if modelRow.Role != AnswerAggregateRoleSupportingCoverage ||
+		!strings.Contains(strings.Join(modelRow.RichNotes, "\n"), "triager_interpretation_superseded_by=log:protocol:0") {
+		t.Fatalf("conflicting triager interpretation must become support-only: %+v", modelRow)
+	}
+}
+
 func TestCompileObservationLedger_ObservationWithoutEvidenceCannotBecomePrincipal(t *testing.T) {
 	ledger := CompileObservationLedger(ObservationLedgerInput{
 		LogBundle: &LogBundle{Observations: []LogObservation{{

@@ -3949,7 +3949,7 @@ B18c 使用一条通用 typed 规则修复：
 | GAP | 优先级 | 泛化问题 | 最优方案 | 状态 |
 |---|---:|---|---|---|
 | `EVAL-B47-XCOV1` | P1 | repository-declared meta-runner 的 driver family 被要求与 exact target family 相等，Python 静态/行为检查无法覆盖 Java/C/Rust 等精确输入 | 分离 driver 与 target 两轴；只有 exact TestSurface candidate + exact Make target + concrete driver + exit=0 + exact bounded roster member 合取才授权该路径；新增 `declared_project_check` caliber，禁止目录/语言扩权 | implemented/full-tests-pass |
-| `EVAL-B47-RUNTIMESEM1` | P1 | Log Triage 对 renderer progress 与独立 retry counters 缺少 typed owner/domain，上游错误结构化后全链放大 | 在日志解释前提供 typed operational event semantics；`K/N` 明确 carrier kind/owner/numerator/denominator，retry/cap 明确 domain/owner；历史因果连接必须有 typed transition witness。只给模型准确上下文和软指导，不扫描/替换模型正文 | filed/next batch |
+| `EVAL-B47-RUNTIMESEM1` | P1 | Log Triage 对 renderer progress 与独立 retry counters 缺少 typed owner/domain，上游错误结构化后全链放大 | 在日志解释前提供 typed operational event semantics；`K/N` 明确 carrier kind/owner/numerator/denominator，retry/cap 明确 domain/owner；历史因果连接必须有 typed transition witness。只给模型准确上下文和软指导，不扫描/替换模型正文 | implemented/full-tests-pass；replay next |
 | `EVAL-B47-ANAFORM1` | P3 | Analyzer 对 runtime scope 与 request-only quote 连续 3 次 schema 修复 | 已 fail-loud 且最终收敛；待更高优先问题完成后审计 schema ergonomics，不为本 case 加宽校验 | watch |
 
 #### B47-XCOV1：exact declared project check
@@ -3974,8 +3974,59 @@ B18c 使用一条通用 typed 规则修复：
   无 execution-family roster、普通跨语言 runner 和 suite mismatch；
 - [x] B47-T4：完整 `internal/types + internal/tool` 回归通过（types 22.711s、tool 162.029s）；
   提交推送；
-- [ ] B47-T5：实现 typed runtime-event semantics，独立提交推送；
+- [x] B47-T5：实现 typed runtime-event semantics；核心四包与完整 tool 回归通过，独立提交推送；
 - [ ] B47-T6：干净 HEAD 严格并行同 pair r2；通过后按优先矩阵进入下一对 data/operation/plan。
+
+#### B47-RUNTIMESEM1：producer-owned operational semantics
+
+进一步冷读确认：静态 log-triage skill 原本已经要求模型不得猜 numeric prefix、progress
+ordinal 和 attempt counter 的 producer/meaning，但 r1 的 Log Triager 仍先生成错误 structured
+observation。说明单纯再写一条自然语言纪律不是高 ROI 修复；必须让拥有协议的系统在模型解释前
+发布精确字段，同时保持模型对“这些事实意味着什么”的结论权。
+
+本批实现的通用边界：
+
+1. `LogBundle` 新增只由系统铸造的 Layer 4 `OperationalSemantics`。它不接受模型 tool
+   payload，也不读取用户 request、模型 thinking、summary 或 final prose；
+2. decoder 只接受锚定 producer 的精确协议行。renderer 行必须同时满足 `[render]`、已知
+   本地化 stage/lifecycle 词组，以及 producer 自己的 `progressForStageKey` 的 K/N；视觉相似的
+   customer/collector 行、嵌套引号和错误 ordinal 均不 mint 权限；
+3. r1 witness 被明确解码为
+   `producer=render,event_kind=pipeline_stage_lifecycle,stage=finalize,lifecycle=retry,`
+   `counter_domain=pipeline_stage_progress,value=4/4`，并显式排除 model/LLM/fallback/repair
+   count；orchestrator 的 `finalizer attempt 1/3 failed` 属于独立
+   `counter_domain=agent_dispatch_attempt`；
+4. `transition_authority=event_local_only`：不同 counter domain 不能相加、比较或串成执行链，
+   除非另有 typed transition witness。当前源码存在 streak/local-fallback/hard-cap 常量只提供
+   mechanism context，日志未发布相应 domain 时不能证明历史事件穿过那些 gate；
+5. typed 字段在 Log Triager 初始上下文中先于模型观察出现，triage 完成后再从原始完整日志
+   重铸进 immutable-copy bundle。下游 context 将其前置；同一 artifact line 上冲突的模型
+   observation 不删除，只降为 `supporting_coverage` 并记录
+   `triager_interpretation_superseded_by=log:protocol:N`；
+6. 因此系统只纠正证据权限，不替模型生成“根因”、不删除或重写答案。没有新增 answer-text
+   scanner、case/type 关键词门或用户原文门，也没有修改 Trace resolver/query/materializer、
+   显式时间窗因果投影、自动补采或自动补齐。
+
+上下文精准性/充分性审计：
+
+- 精准：K/N、owner、stage、lifecycle 与 excluded meanings 都由同一个 producer grammar
+  决定，不从邻近自由文本或当前源码猜取；每行保留 exact artifact line 和 line span；
+- 充分：模型现在可回答“4/4 是什么”“1/3 与 4/4 是否同一计数”“当前源码的 4/2 是否能
+  证明该次历史事件”三个 r1 核心问题；
+- 有意不充分：typed row 不证明故障最终根因、未观测 gate 的 branch result、运行二进制与
+  当前源码版本相同，也不证明两个 domain 间存在跳转。这些仍需模型基于其它证据判断；
+- 接线：pre-triage instruction、post-triage bundle、final context、observation ledger 四面均有
+  测试；producer/ordinal/nested-quote 负例防止“看起来像日志”的文本获得硬权限。
+
+验证：
+
+- targeted operational-semantic/ledger/context tests：四包通过；
+- `go test ./internal/agent ./internal/context ./internal/render ./internal/types -count=1`：
+  全通过（types 22.198s）；
+- `go test ./internal/tool -count=1`：全通过（162.889s）；
+- 完整测试另发现已有注册表已从 40 扩展至 42 项，而 Tier-B 结构 pin 仍冻结 40；精确补入
+  `INDEPENDENT MECHANISM CONTRAST` 与 `RUNTIME RULE INSTANTIATION` 两个既有前缀，
+  只修测试合同，不改变 production prompt/behavior。
 
 ### B42：生成物写模式 × 日志/源码机制对比审计（2026-08-02）
 

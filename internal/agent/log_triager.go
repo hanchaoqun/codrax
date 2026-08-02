@@ -8,6 +8,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/analysis/logtriage"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -104,15 +105,18 @@ type logTriagerEvaluator struct {
 	llmCalls int  // counter toward settings.MaxLLMCalls
 }
 
-// BuildInitialInstruction — the skill carries everything structural;
-// there is no per-dispatch dynamic supplement beyond the attached log
-// itself, which the prompt builder renders as a first-class user
-// section (see internal/context/builder.go::formatAttachedLog).
-// Returning "" keeps the Skill / Evaluator boundary clean (see
-// docs/architecture.md §3.3).
-func (e *logTriagerEvaluator) BuildInitialInstruction(_ *types.AgentContext, _ *skill.Config) string {
+// BuildInitialInstruction adds only deterministic semantics decoded by the
+// owning operational protocol. The attached log remains the evidence; this
+// supplement prevents the model from guessing that a renderer K/N progress
+// slot is a model count or retry budget before it emits Layer 1-3.
+func (e *logTriagerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, _ *skill.Config) string {
 	e.emitSeen = false
-	return ""
+	if ctx == nil {
+		return ""
+	}
+	return render.RenderLogOperationalSemanticsForPrompt(
+		render.DetectLogOperationalSemantics(ctx.AttachedLog),
+	)
 }
 
 // ShouldStop terminates the ReAct loop as soon as the LLM calls
@@ -295,6 +299,11 @@ func (a *logTriager) Name() types.AgentName { return types.AgentLogTriager }
 // Execute runs the full log-triage flow: gate → single-shot → optional
 // two-step escalation. The staged dispatch returns the final StageOutput.
 func (a *logTriager) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOutput, error) {
+	rawLog := ""
+	if ctx != nil {
+		rawLog = ctx.AttachedLog
+	}
+	defer stampLogOperationalSemantics(ctx, rawLog)
 	if !a.settings.Enabled {
 		return a.skipped(ctx, "log_triage_enabled=false"), nil
 	}
@@ -337,6 +346,19 @@ func (a *logTriager) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageO
 	}
 	logging.Info("[log_triage] escalating to two-step: reason=%s", reason)
 	return a.runTwoStep(ctx, sk, reason)
+}
+
+func stampLogOperationalSemantics(ctx *types.AgentContext, rawLog string) {
+	if ctx == nil || ctx.Mutable == nil {
+		return
+	}
+	bundle := ctx.Mutable.LogTriage()
+	if bundle == nil {
+		return
+	}
+	stamped := *bundle
+	stamped.OperationalSemantics = render.DetectLogOperationalSemantics(rawLog)
+	ctx.Mutable.SetLogTriage(&stamped)
 }
 
 // skipped returns a no-op StageOutput that marks the stage as

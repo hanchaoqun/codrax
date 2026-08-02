@@ -15,6 +15,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/config"
 	"github.com/hanchaoqun/codrax/internal/hitraceconv"
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/textfmt"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -4031,6 +4032,12 @@ func formatLogTriageStructured(bundle *types.LogBundle, locator types.SymbolLoca
 		"language and runtime) are observation-only encodings. Do NOT map their positional values to a specific receiver, " +
 		"source parameter, caller-side provenance, or exact downstream branch unless a current cited code line explicitly " +
 		"proves that mapping.\n\n")
+
+	if semantics := render.RenderLogOperationalSemanticsForPrompt(bundle.OperationalSemantics); semantics != "" {
+		b.WriteString("### System-decoded operational semantics\n\n")
+		b.WriteString(semantics)
+		b.WriteString("\n\nModel-authored observation summaries on the same log line are advisory and are superseded wherever they conflict with these producer-owned fields.\n\n")
+	}
 
 	// Fix-C (2026-05-10) ── Primary Error Signal ──
 	// The runtime emits a verbatim error MESSAGE (e.g. "fatal
