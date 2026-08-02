@@ -4483,6 +4483,59 @@ func TestPrincipalEnumerationAuthoritativeMarkdownTableShape_UsesDataCellsNotNot
 	}
 }
 
+func TestNormalizePrincipalEnumerationAuthoritativeMarkdownTables_PreservesExactModelCarrier(t *testing.T) {
+	set := types.EnumerationDisplaySet{
+		ID:    "enum-types",
+		Label: "source inventory principal rows",
+		Rows: []types.EnumerationDisplayRow{
+			{
+				RowID:        "evidence-kind",
+				SetLabel:     "source inventory principal rows",
+				Member:       "EvidenceKind",
+				DisplayLabel: "EvidenceKind",
+				Source:       "internal/types/evidence.go",
+				LineStart:    13,
+				Location:     "internal/types/evidence.go:13",
+				Note:         "typed fallback note",
+			},
+			{
+				RowID:        "grounding-status",
+				SetLabel:     "source inventory principal rows",
+				Member:       "GroundingStatus",
+				DisplayLabel: "GroundingStatus",
+				Source:       "internal/types/evidence.go",
+				LineStart:    125,
+				Location:     "internal/types/evidence.go:125",
+				Note:         "typed fallback note",
+			},
+		},
+	}
+	original := strings.Join([]string{
+		"| 类型名 | 位置 | 职责说明 |",
+		"|---|---|---|",
+		"| EvidenceKind | internal/types/evidence.go:13 | 模型给出的完整职责说明。 |",
+		"| GroundingStatus | internal/types/evidence.go:125 | 模型给出的另一条完整职责说明。 |",
+	}, "\n")
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:          "enum-table",
+		Kind:        types.BlockTable,
+		SurfaceRole: types.SurfacePrincipal,
+		FacetIDs:    []string{string(types.FacetEnumerationItem)},
+		Text:        original,
+	}}}
+	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{Language: "zh"}}}
+
+	if fixed := normalizePrincipalEnumerationAuthoritativeMarkdownTables(doc, ctx, []types.EnumerationDisplaySet{set}); fixed != 0 {
+		t.Fatalf("exact model-authored carrier must not be rebuilt, fixed=%d doc=%+v", fixed, doc.Blocks)
+	}
+	if got := doc.Blocks[0].Text; got != original {
+		t.Fatalf("model carrier changed:\n%s", got)
+	}
+	if len(doc.Blocks[0].Items) != 0 || len(doc.Blocks[0].Columns) != 0 {
+		t.Fatalf("model markdown must not be replaced by a system structured carrier: %+v", doc.Blocks[0])
+	}
+}
+
 func TestPrincipalEnumerationCleanSourceInventoryDisplaySurface_CollapsesRepeatedAliasFamilies(t *testing.T) {
 	row := types.EnumerationDisplayRow{
 		Member:       "Animal",

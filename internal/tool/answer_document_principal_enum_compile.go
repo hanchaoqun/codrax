@@ -367,6 +367,19 @@ func normalizePrincipalEnumerationAuthoritativeMarkdownTables(doc *types.AnswerD
 		if stats.dataRows == 0 || stats.missingRows > 0 {
 			continue
 		}
+		// A complete model-authored table whose member identities match the
+		// accepted typed roster exactly is already a valid principal carrier.
+		// Keep its locations, explanations, column names, ordering, and prose
+		// byte-for-byte. Typed source-inventory authority validates membership;
+		// it does not own the model's presentation or conclusion wording.
+		// Rebuilding an exact carrier here can erase user-requested dimensions
+		// that the model already supplied when a later structured pass derives a
+		// narrower shape from the same rows. Tables with an unexpected,
+		// duplicate, or missing identity still take the existing deterministic
+		// repair path below.
+		if principalEnumerationMarkdownTableIsExactIdentityRoster(stats, len(scoped.Rows)) {
+			continue
+		}
 		shape := principalEnumerationAuthoritativeMarkdownTableShape(*block, scoped.Rows)
 		block.Text = ""
 		block.Columns = principalEnumerationTableColumns(zh, shape, scoped.Rows)
@@ -377,6 +390,15 @@ func normalizePrincipalEnumerationAuthoritativeMarkdownTables(doc *types.AnswerD
 		changed++
 	}
 	return changed
+}
+
+func principalEnumerationMarkdownTableIsExactIdentityRoster(stats principalEnumerationMarkdownTableStats, expected int) bool {
+	return expected > 0 &&
+		stats.dataRows == expected &&
+		stats.matchedRows == expected &&
+		stats.missingRows == 0 &&
+		stats.duplicateRows == 0 &&
+		stats.unexpectedRows == 0
 }
 
 func normalizePrincipalEnumerationAuthoritativeStructuredCarriers(doc *types.AnswerDocumentV2, ctx *types.BusContext, sets []types.EnumerationDisplaySet) int {
