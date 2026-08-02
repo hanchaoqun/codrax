@@ -342,6 +342,80 @@ func TestParseRuntimeQuestionProfileSeparatesFactBreadthFromLegacyLabels(t *test
 	}
 }
 
+func TestRuntimeQuestionCausalDiagnosisRequiresTypedDiagnosisCarrier(t *testing.T) {
+	profile := &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeCausalDiagnosis}
+	if issue := validateRuntimeQuestionProfileConsistency(
+		profile,
+		types.IntentTrace,
+		types.ScenarioGeneric,
+		types.SemanticPredicates{},
+		types.DiagnosticIntentProfile{},
+	); !strings.Contains(issue, "causal_diagnosis requires") {
+		t.Fatalf("causal diagnosis without a typed diagnosis carrier must fail loud: %q", issue)
+	}
+	if issue := validateRuntimeQuestionProfileConsistency(
+		&types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeBoundedFactSet},
+		types.IntentTrace,
+		types.ScenarioGeneric,
+		types.SemanticPredicates{},
+		types.DiagnosticIntentProfile{},
+	); issue != "" {
+		t.Fatalf("bounded facts must stay orthogonal to diagnosis lanes: %q", issue)
+	}
+	if issue := validateRuntimeQuestionProfileConsistency(
+		profile,
+		types.IntentTrace,
+		types.ScenarioPerformanceBottleneck,
+		types.SemanticPredicates{},
+		types.DiagnosticIntentProfile{},
+	); issue != "" {
+		t.Fatalf("typed performance diagnosis must retain causal breadth: %q", issue)
+	}
+}
+
+func TestEmitAnalysisRejectsCausalBreadthWithoutTypedDiagnosisCarrier(t *testing.T) {
+	raw := "请说明目标进程、transaction 编号和直接唤醒者"
+	payload := `{
+		"intent":"trace",
+		"scenario":"generic",
+		"complexity":"simple",
+		"intent_confidence":0.95,
+		"complexity_confidence":0.95,
+		"kind_confidence":0.95,
+		"keywords":["binder_transaction","sched_wakeup"],
+		"entities":["client-20","binder:100_1-101","transaction=42"],
+		"question_kind":"call_chain",
+		"predicates":{"is_scalar_answer":false,"is_role_locate_lookup":false,"is_count_question":false,"is_cross_component":false,"is_relational_lookup":false,"is_category_enumeration":false,"is_history_lookup":false,"is_diagnostic_question":false,"has_per_member_table":false},
+		"diagnostic_profile":{"is_diagnostic":false,"current_risk":false,"historical_regression":false,"current_version_check":false,"confidence":0.95},
+		"answer_role_profile":{"is_role_binding_requested":false,"confidence":0.95},
+		"error_granularity_profile":{"is_granularity_question":false,"confidence":0.95},
+		"runtime_artifact_scope_profile":{"requested_scope":"full_artifact","source_quote":"请说明目标进程、transaction 编号和直接唤醒者","confidence":0.95},
+		"runtime_target_profile":{"declaration":"no_named_target","confidence":0.95},
+		"runtime_question_profile":{"scope":"causal_diagnosis","source_quote":"请说明目标进程、transaction 编号和直接唤醒者","confidence":0.95},
+		"history_selection_profile":{"mode":"not_applicable","item_kind":"not_applicable","confidence":0.95}
+	}`
+	ctx := &types.BusContext{Mutable: types.NewMutableState(raw)}
+	ctx.Mutable.SetPerfTrace(&types.PerfBundle{Meta: types.PerfMeta{Source: "attached.systrace", Signals: []string{"binder_transaction"}}})
+	res, err := (&EmitAnalysis{}).Execute(ctx, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Success || !strings.Contains(res.Summary, "causal_diagnosis requires") {
+		t.Fatalf("incoherent causal breadth must reject for analyzer retry: success=%t summary=%q", res.Success, res.Summary)
+	}
+
+	bounded := strings.Replace(payload, `"scope":"causal_diagnosis"`, `"scope":"bounded_fact_set"`, 1)
+	ctx = &types.BusContext{Mutable: types.NewMutableState(raw)}
+	ctx.Mutable.SetPerfTrace(&types.PerfBundle{Meta: types.PerfMeta{Source: "attached.systrace", Signals: []string{"binder_transaction"}}})
+	res, err = (&EmitAnalysis{}).Execute(ctx, json.RawMessage(bounded))
+	if err != nil {
+		t.Fatalf("bounded Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("finite bounded relation facts must remain admissible: %q", res.Summary)
+	}
+}
+
 func TestEmitAnalysisRuntimeArtifactCarrierIncludesRunEntryPreflight(t *testing.T) {
 	preflight := &types.BusContext{RuntimeArtifactPreflight: types.RuntimeArtifactPreflightProfile{
 		Artifacts: []types.RuntimeArtifactPreflightArtifact{{

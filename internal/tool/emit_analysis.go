@@ -1605,6 +1605,16 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
+	if issue := validateRuntimeQuestionProfileConsistency(
+		runtimeQuestionProfile, intent, scenario, predicates, diagnosticProfile,
+	); issue != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + issue,
+			Timestamp: time.Now(),
+		}, nil
+	}
 	fieldValueProfile, fieldValueErr := parseFieldValueProfile(raw, p.FieldValueProfile)
 	if fieldValueErr != "" {
 		if runtimeArtifactCarrier && runtimeArtifactValueProfile == nil {
@@ -3772,6 +3782,39 @@ func parseRuntimeQuestionProfile(raw string, runtimeArtifactCarrier bool, p *emi
 	}
 	profile.SourceQuote = quote
 	return profile, "", nil
+}
+
+// validateRuntimeQuestionProfileConsistency keeps the dedicated runtime
+// breadth declaration coherent with the analyzer's other typed diagnosis
+// lanes. causal_diagnosis is the full root-cause/attribution contract, not a
+// synonym for "one of the requested facts is a relation". If every typed
+// diagnosis carrier is negative, the analyzer must choose bounded_fact_set
+// for finitely named facts or relation_analysis for an actual path/topology.
+//
+// This is a structural emit-time consistency check over schema-validated
+// enums and booleans. It does not inspect the source quote, raw request, model
+// reasoning, or answer prose, and it rejects for model retry instead of
+// silently replacing the model's classification.
+func validateRuntimeQuestionProfileConsistency(
+	profile *types.RuntimeQuestionProfile,
+	intent types.Intent,
+	scenario types.Scenario,
+	predicates types.SemanticPredicates,
+	diagnostic types.DiagnosticIntentProfile,
+) string {
+	if profile == nil || profile.Scope != types.RuntimeQuestionScopeCausalDiagnosis {
+		return ""
+	}
+	if intent == types.IntentRootCause ||
+		predicates.IsDiagnosticQuestion ||
+		diagnostic.RequiresDiagnosticRootCause() {
+		return ""
+	}
+	switch scenario {
+	case types.ScenarioRootCause, types.ScenarioPerformanceBottleneck:
+		return ""
+	}
+	return "runtime_question_profile.scope=causal_diagnosis requires a typed diagnosis/attribution carrier (intent=root_cause, predicates.is_diagnostic_question=true, diagnostic_profile diagnostic/risk/regression, or scenario=root_cause/performance_bottleneck); for a finite set of observed fields use bounded_fact_set even when one field is a direct peer/transaction/waker relation, and for a requested caller/wakeup/IPC/dependency path or topology use relation_analysis"
 }
 
 func parseHistorySelectionProfile(raw string, isHistoryLookup bool, p *emitHistorySelectionProfileParam) (*types.HistorySelectionProfile, string, []string) {

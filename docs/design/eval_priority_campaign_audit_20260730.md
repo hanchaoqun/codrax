@@ -4043,6 +4043,34 @@ causal contract；D-state 的 typed state-only 特例继续只补 `window_stats`
 仍以最高权限穿过 guard，保留根因排序、唤醒链、可消除量、因果投影及自动补齐。决策
 只读 typed enum/profile，不读 Binder 字样、RawRequest 或模型/答案 prose。
 
+#### B41 r4：breadth profile 与诊断 typed lanes 自相矛盾（P1）
+
+r4 runner 2/2 PASS、人工 1/2 PASS。data 的 AST 执行前 guard 连续生效，仍是一次 repair、
+一次执行、最终严格值 `2`。evaluator 对“当前批 freeform”与“workflow effective strict
+contract”短暂混淆并重复权衡，但 deterministic projection/terminal gate 正确，最终无
+可见错误；按用户要求记为 P3 模型波动 watch，不在高优先级批上做答案拟合。
+
+Binder 这次没有复现 r3 的 `bounded_fact_set`：analyzer 首次发出
+`runtime_question_profile=causal_diagnosis`，同时发出 `intent=trace`、
+`scenario=generic`、`predicates.is_diagnostic_question=false`、diagnostic profile 四腿全
+false。共享 report/supplement/floor authority 因而按设计放行，系统补采与完整因果投影
+再次出现；这不是 T11/T12 旁路回退，而是上游 breadth enum 与其余 typed 诊断面自相
+矛盾。登记 `EVAL-B41-PROFILECOHERENCE1/P1`。
+
+最优通用方案是 emit-time schema coherence，而不是 case oracle 或下游答案接管：
+
+- `causal_diagnosis` 必须至少有一个 typed attribution carrier：root-cause intent、diagnostic
+  predicate/profile、root-cause/performance scenario；
+- 全部为 negative 时 fail-loud，提示有限字段用 `bounded_fact_set`、实际路径/拓扑用
+  `relation_analysis`；由 analyzer 重发，不静默归一成系统想要的 scope；
+- `bounded_fact_set` 与 call/relation 仍可共存；显式时间窗正权限不变；
+- gate 只读 schema-validated enum/boolean，不读 source quote 语义、RawRequest、模型推理或
+  最终答案，不包含 Binder/type/case 字面。
+
+这也回答“看护用例是否过硬”：该 eval 仍只核对用户要求的三个可见事实，没有新增
+`runtime_question_profile=bounded_fact_set` 的 case-specific hard oracle；生产 hard gate
+约束的是所有 runtime 请求共有的 typed schema 自洽性，不要求模型给出某个样例答案。
+
 任务：
 
 - [x] B41-T1：严格并行 2 case，完整日志/答案人工审计；
@@ -4068,7 +4096,14 @@ causal contract；D-state 的 typed state-only 特例继续只补 `window_stats`
   bounded/explicit-window 对偶 pin；定向测试通过；
 - [x] B41-T14：完整 `internal/tool` 160.072s、`internal/orchestrator` 9.899s
   回归及 `make` 通过；第三施工批提交推送；
-- [ ] B41-T15：同对严格并行 r4 回放并人工收账。
+- [x] B41-T15：同对严格并行 r4 回放并人工收账；data human PASS，Binder 因 analyzer
+  profile 自相矛盾导致 human FAIL；
+- [x] B41-T16：增加 runtime breadth typed schema coherence gate；拒绝不带任何诊断/
+  attribution carrier 的 `causal_diagnosis`，保留 bounded relation 与真实 performance
+  diagnosis 正臂；
+- [x] B41-T17：helper 正反臂与 `EmitAnalysis.Execute` 真实接线测试通过；
+- [x] B41-T18：完整 `internal/tool` 158.620s 与 `make` 通过；第四施工批提交推送；
+- [ ] B41-T19：同对严格并行 r5 回放并人工收账。
 
 ### B40：analyze retry 回放 × blocked-reason Trace 语义审计（2026-08-02）
 
