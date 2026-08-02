@@ -8,6 +8,25 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+func TestAddExcludedAggregateCandidates_OnlyExcludedCountOwnsGlobalDenyList(t *testing.T) {
+	got := map[string]bool{}
+	addExcludedAggregateCandidates([]types.AnswerAggregateFact{
+		{
+			Kind:     types.AnswerAggregateNegativeObservation,
+			Label:    "no matching rows",
+			Excluded: []string{"EvidenceKind", "GroundingStatus"},
+		},
+		{
+			Kind:     types.AnswerAggregateExcluded,
+			Label:    "excluded helpers",
+			Excluded: []string{"privateHelper"},
+		},
+	}, func(value string) { got[value] = true })
+	if len(got) != 1 || !got["privateHelper"] {
+		t.Fatalf("negative-observation bookkeeping must not become a global text deny list: %+v", got)
+	}
+}
+
 func TestNormalizeTypedExcludedAnswerSurface_RedactsSafeGraphVariableNamesFromProse(t *testing.T) {
 	graph := &repotypes.Graph{SymbolDefs: map[string][]*repotypes.Symbol{
 		"registered": {{

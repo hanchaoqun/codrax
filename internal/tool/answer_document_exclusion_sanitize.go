@@ -12,11 +12,11 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// normalizeTypedExcludedAnswerSurface removes concrete excluded candidates
-// from the user-visible answer surface when the analyzer emitted a typed
-// AnswerExclusionPolicy. This is a compatibility/salvage pass, not a hard
-// gate: the model's answer is otherwise accepted, and the scope signal remains
-// visible without forcing a finalizer rewrite.
+// normalizeTypedExcludedAnswerSurface is retained for legacy unit-level
+// compatibility probes only. Production answer emission must not call it:
+// rewriting model-authored prose or rows after emit would let the framework
+// replace the model's answer instead of supplying typed evidence and asking the
+// model to correct its own document.
 func normalizeTypedExcludedAnswerSurface(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
 	if doc == nil || ctx == nil || ctx.AnalysisIR == nil {
 		return 0
@@ -443,6 +443,13 @@ func answerDocumentGraphExcludedCandidateSafeForTextRedaction(raw string) bool {
 
 func addExcludedAggregateCandidates(facts []types.AnswerAggregateFact, add func(string)) {
 	for _, fact := range facts {
+		// Excluded is also a legacy input carrier used by negative_observation
+		// auto-repair to infer its missing target. Such bookkeeping does not
+		// declare a global answer-surface deny list. Only excluded_count owns
+		// exact structured exclusions for this policy consumer.
+		if fact.Kind != types.AnswerAggregateExcluded {
+			continue
+		}
 		for _, excluded := range fact.Excluded {
 			add(excluded)
 			if head := answerDocumentExcludedCandidateHead(excluded); head != "" {

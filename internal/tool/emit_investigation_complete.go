@@ -2624,9 +2624,9 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 				Timestamp: time.Now(),
 			}, nil
 		}
-	} else if downgrade := sourceInventoryResolvedCompletionDowngrade(ctx, resultKind, mergeCompletionAggregateFacts(effectiveAggregateFacts, aggregateFacts)); downgrade != "" {
+	} else if downgrade, sourceInventoryFacts := sourceInventoryResolvedCompletionDowngradeForFacts(ctx, resultKind, effectiveAggregateFacts, aggregateFacts); downgrade != "" {
 		recordToolRuntimeTiming(&runtimeTimings, "pre_complete_source_inventory_completion", preCompleteStart, len(preflight.Evidence))
-		if !preCompleteDowngradeConverges(ctx, types.DowngradeLaneSourceInventoryCompletion) {
+		if !preCompleteSourceInventoryDowngradeConverges(ctx, sourceInventoryFacts) {
 			if ctx != nil && ctx.Mutable != nil {
 				ctx.Mutable.EvidenceClosure().BumpPreCompleteDowngrades(1)
 			}
@@ -2774,6 +2774,27 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		Success:   true,
 		Timestamp: time.Now(),
 	}, nil
+}
+
+func sourceInventoryResolvedCompletionDowngradeForFacts(
+	ctx *types.BusContext,
+	resultKind string,
+	effective, current []types.AnswerAggregateFact,
+) (string, []types.AnswerAggregateFact) {
+	facts := mergeCompletionAggregateFacts(effective, current)
+	return sourceInventoryResolvedCompletionDowngrade(ctx, resultKind, facts), facts
+}
+
+// preCompleteSourceInventoryDowngradeConverges bounds noisy navigation debt,
+// but never force-completes a precise typed row omission. A complete exact lens
+// already supplies every missing row needed for a cheap structured retry; using
+// convergence here would accept a known-incomplete handoff and force the answer
+// publisher to invent the omitted principal row later.
+func preCompleteSourceInventoryDowngradeConverges(ctx *types.BusContext, facts []types.AnswerAggregateFact) bool {
+	if sourceInventoryResolvedCompletionPreciseCoverageGap(ctx, facts).Blocking {
+		return false
+	}
+	return preCompleteDowngradeConverges(ctx, types.DowngradeLaneSourceInventoryCompletion)
 }
 
 func validateAggregateRequestedDecoratorAlignment(ctx *types.BusContext, facts []types.AnswerAggregateFact) error {

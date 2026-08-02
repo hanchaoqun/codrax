@@ -262,7 +262,9 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		recordCitationQuoteRewriteDegradation(ctx, fixed)
 		logCurrentSourceCitationQuoteRepairs(toolName, fixed)
 	}
-	normalizeTypedExcludedAnswerSurface(doc, ctx)
+	// Model-authority red line: typed exclusion policy is supplied to the
+	// finalizer as guidance and to structured validators as evidence. It must
+	// never become a post-hoc token replacement pass over model-authored text.
 
 	// P1 (2026-05-10) — emit-time pre-validation chokepoint.
 	// Before we persist the doc, run the structural checks and split
@@ -765,16 +767,18 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		pctx.recordPreEmitRepair("normalizeOutOfRangeItemCitationRefsByEvidenceSurfaceWithContext", fixed)
 		logging.Warning("[%s] repaired %d out-of-range item citation_ref value(s) by evidence-surface corroboration", toolName, fixed)
 	}
-	if fixed := compileEnumerationDisplayTableRows(doc, ctx); fixed > 0 {
-		logging.Warning("[%s] compiled %d deterministic enumeration table row(s) from accepted principal evidence handoff", toolName, fixed)
-	}
-	if fixed := normalizeEnumerationDisplayRequestedFieldSurfaces(doc, ctx); fixed > 0 {
-		pctx.recordPreEmitRepair("normalizeEnumerationDisplayRequestedFieldSurfaces", fixed)
-		logging.Warning("[%s] materialized %d requested source-inventory field surface(s) from typed principal rows", toolName, fixed)
-	}
-	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed > 0 {
-		pctx.recordPreEmitRepair("normalizePrincipalEnumerationRowBlocks", fixed)
-		logging.Warning("[%s] normalized %d principal enumeration block(s) from accepted evidence-rich row contract", toolName, fixed)
+	if !sourceInventoryPrincipalAnswerIsModelOwned(ctx) {
+		if fixed := compileEnumerationDisplayTableRows(doc, ctx); fixed > 0 {
+			logging.Warning("[%s] compiled %d deterministic enumeration table row(s) from accepted principal evidence handoff", toolName, fixed)
+		}
+		if fixed := normalizeEnumerationDisplayRequestedFieldSurfaces(doc, ctx); fixed > 0 {
+			pctx.recordPreEmitRepair("normalizeEnumerationDisplayRequestedFieldSurfaces", fixed)
+			logging.Warning("[%s] materialized %d requested source-inventory field surface(s) from typed principal rows", toolName, fixed)
+		}
+		if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed > 0 {
+			pctx.recordPreEmitRepair("normalizePrincipalEnumerationRowBlocks", fixed)
+			logging.Warning("[%s] normalized %d principal enumeration block(s) from accepted evidence-rich row contract", toolName, fixed)
+		}
 	}
 	if fixed := normalizeCurrentSourceCitationSupplement(doc, ctx, pctx); fixed > 0 {
 		pctx.recordPreEmitRepair("normalizeCurrentSourceCitationSupplement", fixed)
@@ -788,9 +792,11 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		logging.Warning("[%s] compiled %d citation-backed table row(s) from incomplete structured table carriers", toolName, fixed)
 	}
 	if ctx != nil {
-		if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed > 0 {
-			pctx.recordPreEmitRepair("normalizeAggregateMemberSetCarriers", fixed)
-			logging.Warning("[%s] materialized %d principal aggregate member row(s) from accepted exhaustive enumeration handoff", toolName, fixed)
+		if !sourceInventoryPrincipalAnswerIsModelOwned(ctx) {
+			if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed > 0 {
+				pctx.recordPreEmitRepair("normalizeAggregateMemberSetCarriers", fixed)
+				logging.Warning("[%s] materialized %d principal aggregate member row(s) from accepted exhaustive enumeration handoff", toolName, fixed)
+			}
 		}
 		if fixed := normalizePrincipalSupportMemberCarriers(doc, types.BuildAnswerSupportPlanForBusContext(ctx)); fixed > 0 {
 			pctx.recordPreEmitRepair("normalizePrincipalSupportMemberCarriers", fixed)

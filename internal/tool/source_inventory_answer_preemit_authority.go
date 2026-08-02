@@ -20,6 +20,7 @@ type SourceInventoryAnswerPreEmitAuthority struct {
 	Snapshot                  types.SourceInventoryAuthoritySnapshot   `json:"snapshot,omitempty"`
 	View                      types.SourceInventoryAnswerAuthorityView `json:"view,omitempty"`
 	CandidateUniverseGap      SourceInventoryCandidateUniverseGap      `json:"candidate_universe_gap,omitempty"`
+	RequestedFileCoverageGap  SourceInventoryCandidateUniverseGap      `json:"requested_file_coverage_gap,omitempty"`
 	DuplicateLocationGap      SourceInventoryCandidateUniverseGap      `json:"duplicate_location_gap,omitempty"`
 	SurfaceFamilyGap          SourceInventoryCandidateUniverseGap      `json:"surface_family_gap,omitempty"`
 	BestUniverseGap           SourceInventoryCandidateUniverseGap      `json:"best_universe_gap,omitempty"`
@@ -62,9 +63,13 @@ func BuildSourceInventoryAnswerPreEmitAuthority(ctx *types.BusContext, facts []t
 		RequiredFiles:             requiredFiles,
 	})
 	candidate := SourceInventoryCandidateUniverseCoverageGap(ctx, facts)
+	requestedFile := SourceInventoryRequestedFileCoverageGap(ctx, facts)
 	duplicate := SourceInventoryObservedDuplicateLocationCoverageGap(ctx, facts)
 	surfaceFamily := SourceInventoryObservedSurfaceFamilyCoverageGap(ctx, facts)
 	best := candidate
+	if sourceInventoryCandidateUniverseGapBetter(requestedFile, best) {
+		best = requestedFile
+	}
 	if sourceInventoryCandidateUniverseGapBetter(duplicate, best) {
 		best = duplicate
 	}
@@ -89,10 +94,11 @@ func BuildSourceInventoryAnswerPreEmitAuthority(ctx *types.BusContext, facts []t
 	snapshot = types.NormalizeSourceInventoryAuthoritySnapshot(snapshot)
 	view := types.BuildSourceInventoryAnswerAuthorityView(snapshot)
 	out := SourceInventoryAnswerPreEmitAuthority{
-		Active:                    view.Active || candidate.IsActive() || duplicate.IsActive() || surfaceFamily.IsActive() || absenceBlocking,
+		Active:                    view.Active || candidate.IsActive() || requestedFile.IsActive() || duplicate.IsActive() || surfaceFamily.IsActive() || absenceBlocking,
 		Snapshot:                  snapshot,
 		View:                      view,
 		CandidateUniverseGap:      candidate,
+		RequestedFileCoverageGap:  requestedFile,
 		DuplicateLocationGap:      duplicate,
 		SurfaceFamilyGap:          surfaceFamily,
 		BestUniverseGap:           best,

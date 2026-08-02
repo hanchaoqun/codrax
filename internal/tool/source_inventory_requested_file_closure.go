@@ -2,6 +2,7 @@ package tool
 
 import (
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -28,24 +29,56 @@ func sourceInventoryRequestedFileUniverseClosedByCompleteLens(
 	roles map[types.AnswerCandidateRole]bool,
 	included, excluded map[string]bool,
 ) bool {
+	closed, _ := sourceInventoryRequestedFileClosureProof(ctx, observation, facts, roles, included, excluded)
+	return closed
+}
+
+// SourceInventoryRequestedFileCoverageGap returns the exact missing rows from
+// an executed complete lens over analyzer-resolved requested files. It is the
+// repair twin of sourceInventoryRequestedFileUniverseClosedByCompleteLens:
+// complete coverage grants closure; partial coverage names the still-unhandled
+// typed rows instead of sending the model into unrelated repo-wide families.
+func SourceInventoryRequestedFileCoverageGap(ctx *types.BusContext, facts []types.AnswerAggregateFact) SourceInventoryCandidateUniverseGap {
+	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil || len(facts) == 0 {
+		return SourceInventoryCandidateUniverseGap{}
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	observation := types.SourceInventoryObservationFromMutable(ctx.Mutable)
+	included, excluded := sourceInventoryAggregateCoverageKeys(facts, &rm)
+	if len(included) == 0 {
+		return SourceInventoryCandidateUniverseGap{}
+	}
+	roles := sourceInventoryRequestedUniverseRoleSet(rm, observation, included)
+	_, gap := sourceInventoryRequestedFileClosureProof(ctx, observation, facts, roles, included, excluded)
+	return gap
+}
+
+func sourceInventoryRequestedFileClosureProof(
+	ctx *types.BusContext,
+	observation types.SourceInventoryObservation,
+	facts []types.AnswerAggregateFact,
+	roles map[types.AnswerCandidateRole]bool,
+	included, excluded map[string]bool,
+) (bool, SourceInventoryCandidateUniverseGap) {
 	if ctx == nil || ctx.AnalysisIR == nil || len(observation.CompleteLenses) == 0 || len(included) == 0 {
-		return false
+		return false, SourceInventoryCandidateUniverseGap{}
 	}
 	rm := ctx.AnalysisIR.RequestModel
 	// An explicit source-class scope (all/production/test/etc.) owns the
 	// universe. A navigation file inside such a request must never narrow it.
 	if rm.SourceScopeProfile != nil {
-		return false
+		return false, SourceInventoryCandidateUniverseGap{}
 	}
 	requested := sourceInventoryRequestedFileSet(ctx.AnalysisIR.EvidencePlan.RequiredFiles)
 	if len(requested) == 0 {
-		return false
+		return false, SourceInventoryCandidateUniverseGap{}
 	}
 	located := sourceInventoryPrincipalAggregateLocatedKeys(facts, &rm)
 	if len(located) == 0 {
-		return false
+		return false, SourceInventoryCandidateUniverseGap{}
 	}
 	coveredFiles := map[string]bool{}
+	bestGap := SourceInventoryCandidateUniverseGap{}
 	for _, lens := range observation.CompleteLenses {
 		if !sourceInventoryRequestedUniverseRoleAllowed(roles, lens.Role) ||
 			lens.Count <= 0 || lens.Total != lens.Count ||
@@ -60,28 +93,36 @@ func sourceInventoryRequestedFileUniverseClosedByCompleteLens(
 		if len(members) != lens.Count {
 			continue
 		}
-		covered := 0
-		closed := true
+		gap := SourceInventoryCandidateUniverseGap{
+			Role:  lens.Role,
+			Scope: strings.Join(sourceInventoryRequestedFileSortedSet(scopes), ","),
+			Count: len(members),
+		}
 		for _, member := range members {
 			keys := sourceInventoryUniverseMemberKeys(member)
 			switch {
 			case sourceInventoryUniverseAnyKey(keys, excluded):
 				// Explicit model exclusion closes the row without promoting it
 				// into the answer slate.
+				gap.Excluded++
 			case sourceInventoryUniverseAnyKey(keys, included):
 				if !sourceInventoryLocatedKeyWithinScopes(keys, located, scopes) {
-					closed = false
-					break
+					gap.Missing = append(gap.Missing, member)
+					continue
 				}
-				covered++
+				gap.Covered++
 			default:
-				closed = false
-			}
-			if !closed {
-				break
+				gap.Missing = append(gap.Missing, member)
 			}
 		}
-		if !closed || covered == 0 {
+		if len(gap.Missing) > 0 {
+			gap.Blocking = gap.Covered > 0
+			if gap.Blocking && sourceInventoryCandidateUniverseGapBetter(gap, bestGap) {
+				bestGap = gap
+			}
+			continue
+		}
+		if gap.Covered == 0 {
 			continue
 		}
 		for file := range scopes {
@@ -89,14 +130,14 @@ func sourceInventoryRequestedFileUniverseClosedByCompleteLens(
 		}
 	}
 	if len(coveredFiles) != len(requested) {
-		return false
+		return false, bestGap
 	}
 	for file := range requested {
 		if !coveredFiles[file] {
-			return false
+			return false, bestGap
 		}
 	}
-	return true
+	return true, SourceInventoryCandidateUniverseGap{}
 }
 
 func sourceInventoryRequestedFileSet(files []string) map[string]bool {
@@ -111,6 +152,15 @@ func sourceInventoryRequestedFileSet(files []string) map[string]bool {
 	if len(out) == 0 {
 		return nil
 	}
+	return out
+}
+
+func sourceInventoryRequestedFileSortedSet(set map[string]bool) []string {
+	out := make([]string, 0, len(set))
+	for value := range set {
+		out = append(out, value)
+	}
+	sort.Strings(out)
 	return out
 }
 

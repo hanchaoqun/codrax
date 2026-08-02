@@ -116,6 +116,11 @@ func normalizePrincipalEnumerationRowBlocks(doc *types.AnswerDocumentV2, ctx *ty
 	return changed
 }
 
+func sourceInventoryPrincipalAnswerIsModelOwned(ctx *types.BusContext) bool {
+	return ctx != nil && ctx.AnalysisIR != nil &&
+		types.SourceInventoryPrincipalNavigationActive(ctx.AnalysisIR.RequestModel)
+}
+
 func prunePrincipalEnumerationExtraneousItems(doc *types.AnswerDocumentV2, ctx *types.BusContext, sets []types.EnumerationDisplaySet) int {
 	if doc == nil || len(sets) == 0 {
 		return 0

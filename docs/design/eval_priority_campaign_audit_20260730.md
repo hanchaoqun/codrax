@@ -3919,6 +3919,65 @@ B18c 使用一条通用 typed 规则修复：
 
 状态：`implemented / full-tests-pass / cross-relation replay next`。
 
+### B37：显式窗 Trace × 精确单文件 read，模型答案所有权审计（2026-08-01）
+
+严格并行 2 case、连续 3 轮。runner 结果分别为 2/2 PASS、1/2 PASS、1/2
+PASS；逐份日志和最终答案人工审计后，三轮均为 0/2 human PASS。发现集中在两类：
+
+1. Trace 正例始终保留显式用户窗优先级、自动补采、主要实际占用/新修向与现有
+   规则可消除量两轴、根因排序、唤醒链和 Trace 因果投影，证明前述 report-shape
+   窄化没有伤到显式窗能力。但模型连续三轮把 neutral 的 frequency/policy ceiling
+   升级成「热控轨/热治理主根因」，并在修向独立与物理重叠之间自相矛盾。typed
+   频率结论边界已经正确发布；该项属于模型结论权限/推理质量 gap，禁止通过系统
+   扫描或替换正文来“修成想要的答案”。
+2. read R1 中，模型原始 11 行 Markdown 表含完整职责，确定性编译器却将其改成
+   11 行空说明；R2/R3 中，typed exclusion 后处理把模型路径或 10 个类型名改写成
+   `[excluded]`；R3 又在调查端强制接受缺 1 行的 handoff，并由系统追加
+   `CompletenessClaim`。这是确定的模型答案所有权违例，不是普通模型波动。
+
+#### B37-a：exact-file closure 与成员身份
+
+`fa8bf100e` 已完成：
+
+- analyzer `EvidencePlan.RequiredFiles` 为精确文件、且无显式 broad source scope 时，
+  执行完的 complete exact-file source_inventory lens 可关闭该文件 universe，不再被
+  陈旧 repo-wide source-class 债务拖回无关目录；
+- 闭合要求 lens count/total/row parity、principal member_set 覆盖或显式排除每一行，
+  且每个 included row 有同文件位置；
+- type/function 成员身份不再把 containing file 当成成员 key，避免文件内任一类型
+  覆盖全部同文件 sibling；只有 file/config_file 清单可用路径本身作 identity；
+- partial、different required file、显式 broad scope 均保持 fail-closed。
+
+#### B37-b：模型所有权边界与精确修复路由
+
+本批实现：
+
+1. 新增 exact requested-file coverage gap；缺口直接给出遗漏成员与位置，并将 follow-up
+   路由固定回 RequiredFiles，而不是 repo-wide 同语言样例目录。
+2. 精确 typed 行遗漏不再进入 low-delta convergence force-complete；只有 pagination、
+   candidate budget 等非精确导航债务保留有界 caveat 收敛。
+3. `negative_observation.excluded` 只可用于该事实的 target auto-repair，不再成为全局
+   文本 deny-list；只有 `excluded_count` 拥有结构化排除语义。
+4. 生产发布删除 post-hoc exclusion token rewrite。typed exclusion 继续进入模型 prompt
+   和结构化验证，但系统不得在模型 emit 后替换 prose/label/cell/citation 文本。
+5. source_inventory principal rows 仅作为 finalizer 输入与 exact coverage oracle；生产
+   pre-emit/persist 不再改写表格、补 requested fields、追加 missing-member carrier 或
+   删除 supporting row。缺行/多行均以精确结构化 repair 返回模型，由模型重发。
+6. 新的 extraneous-row gate 只读 typed row set 与结构化 item label/cell/citation，不扫
+   用户原文、thinking、summary/final prose；它明确点名多余行并拒绝，绝不静默删行。
+7. Trace 系统补采与因果投影走独立的 runtime supplement 路径，且继续使用
+   model-owned block wire preservation；本批没有关闭或改写该能力。
+
+验证：`go test ./internal/tool`、`go test ./internal/types ./internal/agent
+./internal/orchestrator ./internal/skill` 全部通过。新增 pin 覆盖 exact-file partial gap、
+精确缺口不可 force-complete、negative-observation 排除不污染、发布器不做 token
+rewrite、缺行不补写、多行不静默裁剪。
+
+状态：`B37-a=committed/pushed`；`B37-b=implemented/tests-pass/commit-next`；同一
+trace/read 对的 R4 是提交后的下一步。Trace 模型过度热归因仍为 open model-guidance
+项，只允许基于 typed `GovernanceCapWitnessed=false` 的软提示/证据组织优化，禁止
+系统正文改写或关键词硬门。
+
 ### B36：配置映射 × write plan 权限与模型结论所有权（2026-08-01）
 
 本批严格并行 2 个 case：

@@ -34,6 +34,9 @@ func sourceInventoryAnswerPreEmitReasonCodes(a SourceInventoryAnswerPreEmitAutho
 	if a.CandidateUniverseGap.Blocking {
 		add("candidate_universe_blocking")
 	}
+	if a.RequestedFileCoverageGap.Blocking {
+		add("requested_file_coverage_blocking")
+	}
 	if a.DuplicateLocationGap.Blocking {
 		add("duplicate_location_blocking")
 	}

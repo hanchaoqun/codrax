@@ -5,6 +5,7 @@ import "strings"
 const (
 	SourceInventoryFollowupDebtMissingSourceClass = "missing_source_class_family"
 	SourceInventoryFollowupDebtPagination         = "pagination_debt"
+	SourceInventoryFollowupDebtRequestedFiles     = "requested_file_boundary"
 
 	sourceInventoryFollowupMaxScopes = 8
 )

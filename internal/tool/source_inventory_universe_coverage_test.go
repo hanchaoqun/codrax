@@ -2643,6 +2643,26 @@ func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_ExactRequiredFile
 		if SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, facts) {
 			t.Fatalf("a complete lens must not close when the principal member_set omits one scoped row")
 		}
+		gap := SourceInventoryRequestedFileCoverageGap(ctx, facts)
+		if !gap.Blocking || gap.Count != 3 || gap.Covered != 2 || len(gap.Missing) != 1 || gap.Missing[0].Name != "AnchorKind" {
+			t.Fatalf("exact requested-file gap must name the omitted typed row: %+v", gap)
+		}
+		downgrade := sourceInventoryResolvedCompletionDowngrade(ctx, "resolved", facts)
+		if !strings.Contains(downgrade, "exact typed row-set mismatch") ||
+			!strings.Contains(downgrade, "AnchorKind @ internal/types/evidence.go:163") ||
+			strings.Contains(downgrade, "internal/skill") {
+			t.Fatalf("partial requested-file closure must repair the missing row without unrelated repo scopes:\n%s", downgrade)
+		}
+		authority := BuildSourceInventoryAnswerPreEmitAuthority(ctx, facts)
+		if !authority.RequestedFileCoverageGap.Blocking ||
+			!containsString(authority.ReasonCodes, "requested_file_coverage_blocking") {
+			t.Fatalf("answer authority must preserve requested-file gap provenance: %+v", authority)
+		}
+		for attempt := 0; attempt < downgradeConvergenceHardThreshold+2; attempt++ {
+			if preCompleteSourceInventoryDowngradeConverges(ctx, facts) {
+				t.Fatalf("precise requested-file row omission must never force-complete on attempt %d", attempt+1)
+			}
+		}
 	})
 
 	t.Run("different required file", func(t *testing.T) {
@@ -2663,6 +2683,34 @@ func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_ExactRequiredFile
 			t.Fatalf("an explicit repo-wide scope must not be narrowed by one required-file lens")
 		}
 	})
+}
+
+func TestSourceInventoryRequestedUniverseFollowupDebt_PrioritizesExactRequiredFiles(t *testing.T) {
+	ctx := sourceInventoryRequestedUniverseTestContext(nil, []types.SourceInventorySourceClassCount{{
+		Role:      types.SourcePathRoleProduction,
+		Count:     1461,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "go", Count: 1461}},
+	}, {
+		Role:      types.SourcePathRoleTest,
+		Count:     2225,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "go", Count: 2225}},
+	}})
+	ctx.AnalysisIR.RequestModel.SourceInventoryProfile = &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+		Confidence:        0.95,
+	}
+	ctx.AnalysisIR.EvidencePlan.RequiredFiles = []string{"internal/types/evidence.go"}
+	debt := sourceInventoryRequestedUniverseFollowupDebt(
+		ctx,
+		types.SourceInventoryObservationFromMutable(ctx.Mutable),
+		ctx.AnalysisIR.RequestModel,
+		sourceInventoryExactRequiredFileFacts(true),
+	)
+	if !debt.IsActive() || debt.ReasonCode != types.SourceInventoryFollowupDebtRequestedFiles ||
+		len(debt.Query.Scopes) != 1 || debt.Query.Scopes[0] != "internal/types/evidence.go" {
+		t.Fatalf("exact requested files must outrank unrelated same-language class samples: %+v", debt)
+	}
 }
 
 func sourceInventoryExactRequiredFileObservation() types.SourceInventoryObservation {

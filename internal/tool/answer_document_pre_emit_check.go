@@ -751,6 +751,9 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 			logSoftPreEmitAdvisory("emit_answer_document", "aggregate member_set coverage", h)
 		}
 	}
+	if h := preCheckSourceInventoryExtraneousPrincipalItems(doc, ctxOpt...); len(h) > 0 {
+		hints = appendPreEmitHints(hints, types.ViolExhaustiveMemberSetCoverageDrift, h)
+	}
 	if h := preCheckTargetWaitOccurrenceConsistency(doc, pctx); len(h) > 0 {
 		// A visible model block can contain an analysis window, one or more
 		// occurrence windows, and several duration tokens. Their relation is
@@ -5267,6 +5270,63 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 		ForceHard:            preEmitAggregateMemberSetCoverageHardGate(ctxOpt...),
 		SameCauseFingerprint: preEmitMemberSetMissingFingerprint(roster),
 	}}
+}
+
+// preCheckSourceInventoryExtraneousPrincipalItems is the non-mutating twin of
+// the legacy source-inventory row pruner. The complete typed row set may reject
+// a structured principal item that belongs only to supporting coverage, but it
+// must never delete that item behind the model's back. Matching is restricted
+// to structured labels/cells/citations and exact typed rows; free-form answer
+// prose is not a control signal.
+func preCheckSourceInventoryExtraneousPrincipalItems(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {
+	if doc == nil || len(ctxOpt) == 0 || ctxOpt[0] == nil ||
+		!sourceInventoryPrincipalAnswerIsModelOwned(ctxOpt[0]) {
+		return nil
+	}
+	ctx := ctxOpt[0]
+	plan := answerSurfacePlan(ctx)
+	if plan == nil {
+		return nil
+	}
+	sets := types.CompileEnumerationDisplaySets(&ctx.AnalysisIR.RequestModel, plan)
+	if len(sets) == 0 {
+		return nil
+	}
+	var hints []emitFixHint
+	for blockIdx, block := range doc.Blocks {
+		if block.SurfaceRole != types.SurfacePrincipal || len(block.Items) == 0 ||
+			!principalEnumerationBlockCanCarryRows(block) ||
+			preEmitSystemEnumerationRowSupplementBlock(block) {
+			continue
+		}
+		rows, strict := principalEnumerationPruneRowsForBlockAtWithMode(doc, blockIdx, sets)
+		if !strict || len(rows) == 0 {
+			continue
+		}
+		var extra []string
+		for _, item := range block.Items {
+			if principalEnumerationItemCoversAnySourceInventoryScopedRow(item, doc, rows) {
+				continue
+			}
+			label := strings.TrimSpace(item.Label)
+			if label == "" {
+				label = strings.TrimSpace(strings.Join(item.Cells, " | "))
+			}
+			if label != "" {
+				extra = append(extra, label)
+			}
+		}
+		if len(extra) == 0 {
+			continue
+		}
+		hints = append(hints, emitFixHint{
+			Field:         fmt.Sprintf("blocks[%d].items", blockIdx),
+			ExpectedShape: "remove or move out of the principal inventory carrier these item(s), because they are not in the complete typed principal row set: " + strings.Join(extra, ", "),
+			Reason:        "the item(s) are supported context or a different declaration family. The system will not silently prune model-authored rows; re-emit the corrected principal carrier yourself.",
+			ForceHard:     true,
+		})
+	}
+	return hints
 }
 
 // preEmitMemberSetObligationRosterCap bounds the ✓/✗ obligation roster in

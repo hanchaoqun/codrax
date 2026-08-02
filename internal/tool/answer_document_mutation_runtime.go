@@ -345,6 +345,12 @@ func normalizeAnswerDocumentRowsBeforePersist(toolName string, ctx *types.BusCon
 	if doc == nil || ctx == nil {
 		return
 	}
+	if sourceInventoryPrincipalAnswerIsModelOwned(ctx) {
+		// The source-inventory roster remains typed input to the model and to
+		// pre-emit coverage validation. Persist must not author or rewrite the
+		// principal answer after that validation boundary.
+		return
+	}
 	itemsBefore := answerDocumentStructuredItemCount(doc)
 	if fixed := compileEnumerationDisplayTableRows(doc, ctx); fixed > 0 {
 		logging.Warning("[%s] compiled %d deterministic enumeration table row(s) from accepted principal evidence handoff before persist", toolName, fixed)

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -127,7 +128,7 @@ func TestEmitAnswerDocumentV2_PrunesUnusedCitationPoolEntries(t *testing.T) {
 	}
 }
 
-func TestEmitAnswerDocumentV2_PersistsPrincipalEnumerationPruneBeforeSave(t *testing.T) {
+func TestEmitAnswerDocumentV2_RejectsExtraneousSourceInventoryRowWithoutRewriting(t *testing.T) {
 	bus := &types.BusContext{
 		Mutable: types.NewMutableState("列出 public class"),
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
@@ -207,23 +208,99 @@ func TestEmitAnswerDocumentV2_PersistsPrincipalEnumerationPruneBeforeSave(t *tes
 	if err != nil {
 		t.Fatalf("unexpected exec error: %v", err)
 	}
-	if !res.Success {
-		t.Fatalf("expected emit to succeed, got %+v", res)
+	if res.Success {
+		t.Fatalf("typed extra principal row must be returned to the model, not silently pruned: %+v", res)
+	}
+	if !strings.Contains(res.Summary, "Item") || !strings.Contains(res.Summary, "will not silently prune") {
+		t.Fatalf("repair must name the exact extra row and model-authority boundary: %s", res.Summary)
+	}
+	if doc := bus.Mutable.AnswerDocumentV2(); doc != nil {
+		t.Fatalf("rejected model document must not be replaced by a system-pruned answer: %+v", doc)
+	}
+}
+
+func TestEmitAnswerDocumentV2_RejectsMissingSourceInventoryRowWithoutSupplement(t *testing.T) {
+	bus := &types.BusContext{
+		Mutable: types.NewMutableState("列出 public class"),
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+				SourceQuotes:      []string{"public class"},
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+				},
+				Confidence: 0.95,
+			},
+		}},
+	}
+	bus.Mutable.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "source inventory principal rows",
+		Value:      "2",
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Provenance: types.SourceInventoryPrincipalRowSetAggregateProvenance,
+		Members: []string{
+			"Bridge @ src/Bridge.cj:15",
+			"Cart @ src/Cart.cj:14",
+		},
+		SupportRefs: []string{
+			"Bridge: src/Bridge.cj:15",
+			"Cart: src/Cart.cj:14",
+		},
+	}})
+	bus.Mutable.RetainInvestigationAggregateFacts()
+
+	raw := json.RawMessage(`{
+		"blocks":[{"id":"classes","kind":"ordered_list","surface_role":"principal","facet_ids":["enumeration_item"],"items":[
+			{"id":"bridge","label":"Bridge","text":"src/Bridge.cj:15","citation_ref":0}
+		]}],
+		"citations":[{"file":"src/Bridge.cj","line":15,"quote":"public class Bridge"}]
+	}`)
+	res, err := (&EmitAnswerDocument{}).Execute(bus, raw)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if res.Success || !strings.Contains(res.Summary, "Cart") {
+		t.Fatalf("missing typed row must be returned to the model with the exact roster: %+v", res)
+	}
+	if doc := bus.Mutable.AnswerDocumentV2(); doc != nil {
+		t.Fatalf("framework must not append Cart and persist a replacement answer: %+v", doc)
+	}
+}
+
+func TestEmitAnswerDocumentV2_DoesNotTokenRewriteModelExclusionExplanation(t *testing.T) {
+	graph := &repotypes.Graph{SymbolDefs: map[string][]*repotypes.Symbol{
+		"defaultExternalArtifactFloor": {{
+			Name: "defaultExternalArtifactFloor", Kind: "var", Exported: false,
+		}},
+	}}
+	mu := types.NewMutableState("只列公开 API")
+	mu.SetSearchGraph(graph)
+	bus := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			AnswerExclusionPolicy: &types.AnswerExclusionPolicy{
+				IsExclusionRequested:   true,
+				ExcludedCandidateRoles: []types.AnswerCandidateRole{types.AnswerCandidateRoleVariable},
+			},
+		}},
+	}
+	const modelText = "变量 defaultExternalArtifactFloor 按用户范围不列入结果。"
+	raw := json.RawMessage(`{"blocks":[{"id":"summary","kind":"summary","text":"` + modelText + `"}]}`)
+	res, err := (&EmitAnswerDocument{}).Execute(bus, raw)
+	if err != nil || !res.Success {
+		t.Fatalf("model exclusion explanation should pass without framework rewrite: res=%+v err=%v", res, err)
 	}
 	doc := bus.Mutable.AnswerDocumentV2()
-	if doc == nil {
-		t.Fatal("V2 doc not written")
-	}
-	visible := answerDocumentTestVisibleSurface(doc)
-	if strings.Contains(visible, "Item") || strings.Contains(visible, "public struct") {
-		t.Fatalf("persisted final document leaked supporting coverage item:\n%s", visible)
-	}
-	citationSurface := ""
-	for _, citation := range doc.Citations {
-		citationSurface += citation.File + "\n" + citation.Quote + "\n"
-	}
-	if strings.Contains(citationSurface, "public struct") {
-		t.Fatalf("unused public-struct citation should be pruned after item removal: %+v", doc.Citations)
+	if doc == nil || len(doc.Blocks) != 1 || doc.Blocks[0].Text != modelText {
+		t.Fatalf("model-authored exclusion explanation changed: %+v", doc)
 	}
 }
 

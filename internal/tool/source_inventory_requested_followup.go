@@ -11,6 +11,9 @@ func sourceInventoryRequestedUniverseFollowupDebt(ctx *types.BusContext, observa
 	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
 		return types.SourceInventoryFollowupDebt{}
 	}
+	if debt := sourceInventoryRequestedFileFollowupDebt(ctx, rm); debt.IsActive() {
+		return debt
+	}
 	covered := sourceInventoryAggregatePrincipalSourceFamily(ctx, facts, &rm)
 	if len(covered.languages) == 0 {
 		return types.SourceInventoryFollowupDebt{}
@@ -44,6 +47,33 @@ func sourceInventoryRequestedUniverseFollowupDebt(ctx *types.BusContext, observa
 		CoveredClasses:   sourceInventoryRequestedUniverseCoveredClasses(covered.classes),
 		MissingLanguages: sourceInventoryRequestedUniverseCoveredLanguages(covered.languages),
 		Roles:            roles,
+	})
+}
+
+func sourceInventoryRequestedFileFollowupDebt(ctx *types.BusContext, rm types.RequestModel) types.SourceInventoryFollowupDebt {
+	if ctx == nil || ctx.AnalysisIR == nil || rm.SourceScopeProfile != nil {
+		return types.SourceInventoryFollowupDebt{}
+	}
+	requested := sourceInventoryRequestedFileSet(ctx.AnalysisIR.EvidencePlan.RequiredFiles)
+	if len(requested) == 0 {
+		return types.SourceInventoryFollowupDebt{}
+	}
+	roles := rm.SourceInventoryProfile.PrincipalTargetRoles()
+	if len(roles) == 0 {
+		roles = append([]types.AnswerCandidateRole(nil), rm.SourceInventoryProfile.TargetRoles...)
+	}
+	return types.NormalizeSourceInventoryFollowupDebt(types.SourceInventoryFollowupDebt{
+		Active:     true,
+		ReasonCode: types.SourceInventoryFollowupDebtRequestedFiles,
+		Query: types.SourceInventoryLensQuery{
+			Path:              ".",
+			Scopes:            sourceInventoryRequestedFileSortedSet(requested),
+			Roles:             roles,
+			IncludeCounts:     true,
+			IncludeAttributes: false,
+			TopN:              50,
+		},
+		Roles: roles,
 	})
 }
 
