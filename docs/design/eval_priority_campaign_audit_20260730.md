@@ -4182,7 +4182,34 @@ missing/owner_missing 均为空。
 - [x] B42-T20：typed analyzer 自洽 retry 提示改为对称二选一，不替模型改字段；
 - [x] B42-T21：跨批 durable owner anchor 消费与 cumulative-review 直接回归；
 - [x] B42-T22：完整相关回归并提交本批；用 r6 验证上下文，不以模型答案绿灯为施工目标；
-- [ ] B42-T23：收口后转下一组更高优先级 read/write/data/trace pair。
+- [x] B42-T23：r6 收口 `ROUTEREPAIR1/LOCALIZE1`，模型波动不加固；转下一组更高优先级 pair。
+
+#### B42 r6：typed 上下文接线覆盖，停止单案硬化（2026-08-02）
+
+干净 `main@fb49ccd9c` 同对严格并行：read runner PASS（228s），write 因 typed final
+`unverified/verification_proof_incomplete` 正确 FAIL（179s）。
+
+read 的 analyzer 第 2 次 payload 收到对称修复说明后，模型在第 3 次明确解释当前请求是机制与
+日志边界说明，自行保留 `intent=explain`、改为 `scenario=architecture_explain` 并清除全部
+diagnostic flags；第 4 次仅补齐 `bounded_fact_set.fact_families` 后成功。由此
+`EVAL-B42-ROUTEREPAIR1=covered`，且日志确认系统没有语义替换。
+
+最终答案仍错误地构造了一个统一 `errors.As` 分发器，把 first-byte timeout 放进只匹配
+`StreamNoVisibleOutputTimeoutError` 的 fallback，并把 render 显示措辞当作 timeout 与
+post-success validation 共用的控制信号。真实 answer validation 仍须在 finalize 成功返回后经
+`runContractCheck`、typed violations 与 retry/requeue；本轮模型已收到 independent-mechanism、
+producer-role、runtime-rule-instantiation 指导并读取 6 个源码文件，却没有打开该 join。这里没有
+新的精确系统事实缺口，继续按最终措辞追加 hard gate、rewrite 或关键词路由属于单案拟合，状态
+保持 `model-variance-watch`。
+
+write final report 已变为 `localization_status=supported / owner_supported`，旧
+`plan_source_paths_missing_owner_context` 消失，`EVAL-B42-LOCALIZE1=covered`。生产 patch 正确；
+Node/npm 不在环境，JavaScript probe 未执行，模型本轮还显式声明了 `renderNativeBinding` symbol
+与三个 behavior contracts，因此对应 unverified 是真实证明边界，不得以 file coverage 覆盖。
+
+本轮 context audit 结论：读模式路由宽度与问题一致，系统提供的是 typed 事实/软指导而非结论；
+写模式 localization 与 verification context 不再自相矛盾。未修改 Trace resolver/query/authority/
+mutation，显式时间窗的因果投影、根因排序、唤醒链、窗内可消除量和自动补齐保持原状。
 
 ### B41：data 终批材料 × Binder 方向语义审计（2026-08-02）
 
