@@ -23,6 +23,8 @@ var (
 	operationMaterialScriptRE    = regexp.MustCompile(`(?is)<script\b[^>]*>.*?</script>`)
 	operationMaterialStyleRE     = regexp.MustCompile(`(?is)<style\b[^>]*>.*?</style>`)
 	operationMaterialSVGRE       = regexp.MustCompile(`(?is)<svg\b[^>]*>.*?</svg>`)
+	operationMaterialAnchorRE    = regexp.MustCompile(`(?is)<a\b[^>]*>`)
+	operationMaterialHrefRE      = regexp.MustCompile(`(?is)\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))`)
 	operationMaterialBlockTagRE  = regexp.MustCompile(`(?i)</?(article|section|main|div|p|br|li|ul|ol|h[1-6]|tr|td|th|blockquote|pre|code|table)\b[^>]*>`)
 	operationMaterialAnyTagRE    = regexp.MustCompile(`(?s)<[^>]+>`)
 	operationMaterialBlankLineRE = regexp.MustCompile(`\n{3,}`)
@@ -1218,12 +1220,15 @@ func commandPayloadMaterialExcerpt(ref string) string {
 	raw := string(data)
 	kind := "text"
 	text := raw
+	var htmlLinks []string
+	htmlLinksTruncated := false
 	if looksLikeHTML(raw) {
 		kind = "html_text"
+		htmlLinks, htmlLinksTruncated = extractHTMLLinkTargets(raw)
 		text = extractHTMLVisibleText(raw)
 	}
 	text = compactMaterialText(text)
-	if text == "" {
+	if text == "" && len(htmlLinks) == 0 {
 		return ""
 	}
 	const maxRunes = 4000
@@ -1233,7 +1238,11 @@ func commandPayloadMaterialExcerpt(ref string) string {
 		text = string(runes[:maxRunes]) + "\n...[material excerpt truncated]"
 		excerptTruncated = true
 	}
-	return fmt.Sprintf("payload_material_excerpt ref=%s kind=%s source_truncated=%t excerpt_truncated=%t\n%s", ref, kind, truncated, excerptTruncated, text)
+	var linkContext string
+	if kind == "html_text" {
+		linkContext = fmt.Sprintf("html_link_targets=%s html_link_targets_truncated=%t\n", marshalHTMLLinkTargets(htmlLinks), htmlLinksTruncated)
+	}
+	return fmt.Sprintf("payload_material_excerpt ref=%s kind=%s source_truncated=%t excerpt_truncated=%t\n%s%s", ref, kind, truncated, excerptTruncated, linkContext, text)
 }
 
 func commandPayloadHasMaterialExcerpt(ref string) bool {
@@ -1253,6 +1262,59 @@ func extractHTMLVisibleText(s string) string {
 	s = operationMaterialBlockTagRE.ReplaceAllString(s, "\n")
 	s = operationMaterialAnyTagRE.ReplaceAllString(s, " ")
 	return html.UnescapeString(s)
+}
+
+func marshalHTMLLinkTargets(targets []string) string {
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(targets); err != nil {
+		return "[]"
+	}
+	return strings.TrimSpace(b.String())
+}
+
+// extractHTMLLinkTargets preserves the navigation evidence that visible-text
+// extraction necessarily removes.  The result is a bounded, source-ordered,
+// deduplicated inventory of literal href values from the same bounded payload
+// prefix.  It is context for the operation planner/evaluator, not an automatic
+// navigation decision: the model still chooses which target is relevant.
+func extractHTMLLinkTargets(s string) ([]string, bool) {
+	const (
+		maxTargets     = 32
+		maxTargetRunes = 1024
+		maxTotalRunes  = 4096
+	)
+	seen := map[string]bool{}
+	out := make([]string, 0, maxTargets)
+	totalRunes := 0
+	truncated := false
+	for _, tag := range operationMaterialAnchorRE.FindAllString(s, -1) {
+		match := operationMaterialHrefRE.FindStringSubmatch(tag)
+		if len(match) != 4 {
+			continue
+		}
+		target := ""
+		for _, candidate := range match[1:] {
+			if candidate != "" {
+				target = candidate
+				break
+			}
+		}
+		target = strings.TrimSpace(html.UnescapeString(target))
+		if target == "" || seen[target] {
+			continue
+		}
+		targetRunes := len([]rune(target))
+		if targetRunes > maxTargetRunes || len(out) >= maxTargets || totalRunes+targetRunes > maxTotalRunes {
+			truncated = true
+			continue
+		}
+		seen[target] = true
+		out = append(out, target)
+		totalRunes += targetRunes
+	}
+	return out, truncated
 }
 
 func compactMaterialText(s string) string {

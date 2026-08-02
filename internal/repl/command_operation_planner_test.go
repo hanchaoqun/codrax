@@ -1192,7 +1192,7 @@ func TestRenderCommandResultForPromptIncludesCleanPayloadMaterialExcerpt(t *test
 	path := filepath.Join(dir, "manual.html")
 	if err := os.WriteFile(path, []byte(`<!doctype html>
 <html><head><style>.hidden { color: red; }</style><script>console.log("x")</script></head>
-<body><article><h1>codrax 使用指南</h1><p>用自然语言问代码。</p></article></body></html>`), 0o644); err != nil {
+<body><article><h1>codrax 使用指南</h1><a href="./user_guide.html">使用手册</a><a href='./trace.html?x=1&amp;y=2'>Trace</a><p>用自然语言问代码。</p></article></body></html>`), 0o644); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
 	got := renderCommandResultForPrompt(operation.CommandOperationResult{
@@ -1204,6 +1204,7 @@ func TestRenderCommandResultForPromptIncludesCleanPayloadMaterialExcerpt(t *test
 		"payload_material_excerpt",
 		"kind=html_text",
 		"source_truncated=false excerpt_truncated=false",
+		`html_link_targets=["./user_guide.html","./trace.html?x=1&y=2"] html_link_targets_truncated=false`,
 		"codrax 使用指南",
 		"用自然语言问代码",
 	} {
@@ -1214,6 +1215,24 @@ func TestRenderCommandResultForPromptIncludesCleanPayloadMaterialExcerpt(t *test
 	for _, banned := range []string{".hidden", "console.log"} {
 		if strings.Contains(got, banned) {
 			t.Fatalf("prompt should strip %q:\n%s", banned, got)
+		}
+	}
+}
+
+func TestCommandPayloadMaterialExcerptKeepsHTMLLinksOutsideVisibleTextPrefix(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "long-home.html")
+	body := strings.Repeat("首页说明 ", 5000) + `<a href=./manual.html>完整手册</a><a href="./manual.html">重复</a>`
+	if err := os.WriteFile(path, []byte("<!doctype html><html><body>"+body+"</body></html>"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	got := commandPayloadMaterialExcerpt(path)
+	for _, want := range []string{
+		"excerpt_truncated=true",
+		`html_link_targets=["./manual.html"] html_link_targets_truncated=false`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("excerpt missing %q:\n%s", want, got)
 		}
 	}
 }
