@@ -4446,8 +4446,8 @@ operation 的 href 修复也已生效：模型从首页 typed link inventory 精
 
 | ID | P | gap | 最优方案 | 状态 |
 |---|---:|---|---|---|
-| EVAL-B44-MATCOVER1 | P1 | evaluator 把完整 payload 已下载/保存当成全文内容已覆盖；即使所有 prompt excerpt 都是 truncated 或失败抽取，也能发布 complete | 新增 typed `material_coverage_status` 与 `coverage_material_refs`。当记录中存在截断 payload 且 evaluator 要 complete 时，只允许两条路：模型明确判定该材料与用户目标不相关（not_applicable），或引用本轮记录内、`source_truncated=false && excerpt_truncated=false` 的有界抽取。否则通过既有 structured-tool repair 要求继续/partial/budget，不替换结论 | implemented/tests-pass/replay-next |
-| EVAL-B44-HTMLBODY1 | P2 | operation planner 对 HTML 正文抽取缺少可靠的结构化分页/正文载体，模型只能临时拼 shell；一次 CSS 污染、一次错误范围就耗尽两轮 | 后续提供通用的 bounded text extraction/page material primitive（保留 ref、范围、截断、来源 hash），覆盖 HTML/长文本等材料；不能为 `doc-body`、某个 URL 或手册章节写特例 | open/next |
+| EVAL-B44-MATCOVER1 | P1 | evaluator 把完整 payload 已下载/保存当成全文内容已覆盖；即使所有 prompt excerpt 都是 truncated 或失败抽取，也能发布 complete | 新增 typed `material_coverage_status` 与 `coverage_material_refs`。当记录中存在截断 payload 且 evaluator 要 complete 时，只允许两条路：模型明确判定该材料与用户目标不相关（not_applicable），或引用本轮记录内、`source_truncated=false && excerpt_truncated=false` 的有界抽取。否则通过既有 structured-tool repair 要求继续/partial/budget，不替换结论 | covered/B45-r2 |
+| EVAL-B44-HTMLBODY1 | P1 | operation planner 对 HTML/长文本缺少可靠的结构化分页与来源覆盖载体；任意 shell 输出只形成新的 payload ref，没有 upstream source/range lineage，完整的 177KB 正文输出也只给下一轮 4000-rune 前缀 | 提供通用 bounded material read/extract primitive：记录 source ref/hash、representation、byte/rune range、page ordinal、complete/remaining，并用 coverage ledger 合并非重叠页；HTML/日志/手册/大命令输出共用，不能为某个 URL、CSS class 或章节写特例 | open/high-ROI；B45-r2 再现并升级 |
 
 `MATCOVER1` 的边界设计：
 
@@ -4532,7 +4532,41 @@ Batch B 已落地：
 - [x] B45-T2（batch A）：有限 exact-target scalar comparison 将 source inventory 降为 support-only；
 - [x] B45-T3（batch B）：command replan/continuation terminal 复用 typed material coverage contract；
 - [x] B45-T4a：batch A/B 相关全包测试、构建、提交推送；
-- [ ] B45-T4b：从干净 HEAD 恰好并行 2 case 回放，人工复核全过程、答案与上下文。
+- [x] B45-T4b：从干净 HEAD 恰好并行 2 case 回放，人工复核全过程、答案与上下文。
+
+#### B45 r2：合同闭合，但长材料 lineage 与模型结论波动仍在（2026-08-02）
+
+干净 `main@86102e418` 严格并行同对，runner 2/2 PASS，人工 0/2：
+
+1. operation 用例确认 `MATCOVER1 + OPREPLAN1` 均已生效。两次无证据 complete 都被 typed
+   validator 拒绝并进入 compact repair；模型继续抽取，最终 evaluator 发布
+   `partial_answer_possible`，系统首行也诚实显示“部分结果”，没有再从 replan 旁路 complete。
+2. operation 最终自由文本仍在末尾写“任务已完成/完整内容”，并再次把 `/repos focus` 写成
+   `/focus`。final answer prompt 已精确携带 `status=partial_answer_possible` 和
+   “Do not call the task fully complete”，所以这是模型对精确上下文的单次违背；按红线不扫描
+   final prose 做 hard gate，也不由系统删除或替换该句，登记 `EVAL-B45-OPFINAL1/P2-watch`。
+3. 更值得施工的是 `HTMLBODY1`：第三轮只打印前 8000 字符，第四轮打印完整正文，但每个任意 shell
+   输出都成为没有 source/range lineage 的新 payload，下一轮仍只见 4000-rune excerpt。系统能证明
+   “本轮 ref 的 prompt 可见性”，不能证明多个抽取页是否覆盖原材料，也不能给 planner 一个确定的
+   next offset；该项从 P2 升 P1，方案冻结为 first-class bounded material reader + coverage ledger。
+4. read 用例从 419s 降至 111s，`repo_map=1/read=4/explorer=5/completion=1`，没有再进入 227-function
+   清册循环。但本次 analyzer 恰好没有发 source-inventory profile，因此真实运行只证明性能恢复，
+   没有执行 batch A 的 support-only 分支；该分支仍以 production 接线测试为权威证据。
+5. read 最终把“有 prev 时优先 patch、完整重写仍可 full emit”缩成“有 prev 必走 patch”。源码第 49
+   行和 evidence snippet 已准确完整提供复合条件，r1 同案也曾答对，故登记
+   `EVAL-B45-READREL1/P2-model-variance-watch`；不为这个句子增加答案文本门或系统改写。若跨 case
+   再现，再考虑通用 typed mechanism-comparison carrier，而不是匹配工具名。
+
+上下文结论：两个答案都不是“系统没有材料”。read 上下文准确足量但模型缩窄了条件；operation
+终态上下文准确，但大材料的内容分页上下文不完整。前者留作波动观察，后者是可泛化、高 ROI 的
+系统能力缺口。两案均无 Trace 输入，projection=0；本批没有改变显式窗、因果投影或自动补齐。
+
+后续任务排序：
+
+- [ ] B45-T5（P1，独立设计/施工批）：bounded material read/extract + source-range coverage ledger；
+- [ ] B45-T6（P2 watch）：跨题观察 operation typed partial 与自由正文、mechanism compound condition
+  是否再次矛盾；未复现前禁止添加原文扫描、结论替换或具体工具名规则；
+- [x] B45-T7：r2 结果、人工裁定、上下文充分性和任务排序入统一台账并单独提交推送。
 
 ### B41：data 终批材料 × Binder 方向语义审计（2026-08-02）
 
