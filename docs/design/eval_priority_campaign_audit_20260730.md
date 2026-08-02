@@ -4347,6 +4347,42 @@ MutableState 角色的实质性遗漏才升级为系统 gap。
 `EVAL-B30-DOC2=implemented`；`EVAL-B30-EDGE2=P1-watch`；
 `EVAL-B30-LANE2=covered-live-replay`；`EVAL-B30-OWN2=covered-live-replay`。
 
+#### B31 r1：多日志事实完整但可见分组失去 artifact identity；operation 正常
+
+`main@9bfb4dbbb` 严格并行两个此前无本轮 campaign 记录的异构 case：
+
+- `operation_system_inventory` runner/human PASS（27s）；
+- `log_path_question_multi_runtime_files` runner/human FAIL（83s）。
+
+operation 路由为 typed `operation/computer_operation`，四条低风险只读命令均 exit 0；
+最终 macOS 版本、18 CPU cores、128 GiB 内存和 40-core Apple M5 Max GPU 均与原始
+输出一致，没有进入 repo/write lane，未发现生产 gap。
+
+多日志 case 的失败不是“未读取第二个文件”：CLI 已接纳两个 exact request-path log，
+explorer 对每个文件各执行一次 `read_file`，panic 的 nil dereference、
+`(*Store).Get/store.go:88`，以及 timeout 的 `context deadline exceeded`、
+`(*Client).Fetch/client.go:41` 全部正确。最终两个 principal ordered-list 内容也正确，
+但 block `title` 均为空；文件名只在末尾 caveat 一起出现，用户无法从可见结构确定哪个
+列表属于哪个文件，因而 runner 的逐文件关系 regex 失败。
+
+登记 `EVAL-B31-ARTGROUP1/P2-watch`：系统实际上已向 finalizer 提供完整 typed
+RuntimeArtifactSelectionView（两个 artifact ID/kind/source）、两个逐文件 sub-topic，且
+prompt 明确要求每 topic 有清晰标签；模型 thinking 也计划逐文件分组，最后仍漏 title。
+单次成文波动不足以授权系统因 optional title 为空就拒绝事实完整答案，更不能扫描正文
+文件名或事后代写标题。若该问题跨 multi-log/trace/data case 复现，通用方案是让 principal
+block 通过 `claim_uses.evidence_id` 或新的 typed subject 字段绑定 artifact selection ID，
+再验证结构化绑定；不使用答案 prose 关键词。
+
+另登记 eval 可观测性 `EVAL-B31-RUNMETRIC1/P3`：runner 对 request-path admitted +
+direct `read_file` 的 runtime 工件仍显示 `runtime_artifact_attached=none /
+runtime_authority_path=none`。应在审计 telemetry 中增加
+`direct_named_artifact_read`，避免把“直接读取精确工件”误看成无 runtime 权威；它不影响
+本轮用户答案，优先级低于生产正确性。
+
+本轮不修改生产代码，不为单次模型 title 遗漏增加硬门。工件：
+`eval/parallel_selected_summary_evalcampaign_b31_log_operation_r1_20260801.md`、
+`eval/parallel_selected_summary_evalcampaign_b31_log_operation_r1_20260801_manual_audit.md`。
+
 ### B26-OWN：Trace 精确信息与模型结论的职责边界回裁（2026-08-01）
 
 客户/人工 witness：
