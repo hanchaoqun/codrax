@@ -861,6 +861,19 @@ func aggregateMemberStructuredLocation(fact AnswerAggregateFact, memberIdx int, 
 		}
 		return refLocation.File, refLocation.LineStart, aggregateMemberStartLocation(refLocation)
 	}
+	// A file-path member already carries a precise typed identity. Do not zip
+	// it to a bare support_refs slot merely because the two arrays happen to
+	// have the same length: support_refs is also used as a general anchor
+	// roster, and its order need not mirror members. Prefer a same-file anchor;
+	// if none exists, keep the member uncited instead of manufacturing a
+	// cross-file definition location. Non-path members retain the established
+	// positional contract below (for example configuration precedence rows).
+	if memberFile, ok := ParseAnswerFilePathSurface(member); ok && answerAggregateMemberSetAllSourcePathSurfaces(fact) {
+		if refLocation, ok := aggregateMemberFileMatchedSupportRefLocation(fact, memberIdx, memberFile); ok {
+			return refLocation.File, refLocation.LineStart, aggregateMemberStartLocation(refLocation)
+		}
+		return "", 0, ""
+	}
 	memberKey := strings.ToLower(strings.TrimSpace(member))
 	memberLabel := aggregateMemberSupportSurfaceLabel(member)
 	// The completion schema accepts a positional support_refs form with one
@@ -929,6 +942,30 @@ func aggregateMemberStructuredLocation(fact AnswerAggregateFact, memberIdx int, 
 		return refLocation.File, refLocation.LineStart, aggregateMemberStartLocation(refLocation)
 	}
 	return "", 0, ""
+}
+
+func aggregateMemberFileMatchedSupportRefLocation(fact AnswerAggregateFact, memberIdx int, memberFile string) (AnswerSourceLocationSurface, bool) {
+	type indexedLocation struct {
+		index    int
+		location AnswerSourceLocationSurface
+	}
+	var matches []indexedLocation
+	for refIdx, ref := range fact.SupportRefs {
+		_, refLocation, ok := aggregateSupportRefMemberLocation(ref)
+		if !ok || !aggregateSupportRefPathCorresponds(refLocation.File, memberFile) {
+			continue
+		}
+		matches = append(matches, indexedLocation{index: refIdx, location: refLocation})
+	}
+	for _, match := range matches {
+		if match.index == memberIdx {
+			return match.location, true
+		}
+	}
+	if len(matches) == 1 {
+		return matches[0].location, true
+	}
+	return AnswerSourceLocationSurface{}, false
 }
 
 func aggregateMemberPreciseSupportRefLocation(fact AnswerAggregateFact, memberIdx int, memberLabel string, displayLocation AnswerSourceLocationSurface) (AnswerSourceLocationSurface, bool) {

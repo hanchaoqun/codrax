@@ -1314,6 +1314,79 @@ func TestCompileEnumerationDisplaySets_PositionalBareSupportRefsCarryLocations(t
 	}
 }
 
+func TestCompileEnumerationDisplaySets_FileMembersBindSupportRefsByPathNotPosition(t *testing.T) {
+	rm := &RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+	}
+	plan := &AnswerSurfacePlan{
+		StableAggregateFacts: []AnswerAggregateFact{{
+			Kind:  AnswerAggregateMemberSet,
+			Label: "changed source files",
+			Value: "3",
+			Role:  AnswerAggregateRolePrincipalAnswer,
+			Members: []string{
+				"internal/tool/trace_query.go",
+				"internal/agent/answer_document_trace_decision_handoff.go",
+				"internal/tool/trace_query_target_wait_preview_test.go",
+			},
+			// This is a general mechanism-anchor roster, not a member-aligned
+			// array: two anchors belong to trace_query.go, one to the handoff,
+			// and the test file has no line anchor.
+			SupportRefs: []string{
+				"internal/tool/trace_query.go:4380",
+				"internal/tool/trace_query.go:7907",
+				"internal/agent/answer_document_trace_decision_handoff.go:92",
+			},
+		}},
+		SurfaceEvidence: []EvidenceItem{{
+			ID:              "ev-query-call",
+			Kind:            EvidenceDirect,
+			Source:          "internal/tool/trace_query.go",
+			LineStart:       4380,
+			Scope:           ScopeLine,
+			GroundingStatus: GroundingGrounded,
+			Summary:         "query summary calls the preview helper",
+		}, {
+			ID:              "ev-query-helper",
+			Kind:            EvidenceDirect,
+			Source:          "internal/tool/trace_query.go",
+			LineStart:       7907,
+			Scope:           ScopeLine,
+			GroundingStatus: GroundingGrounded,
+			Summary:         "preview helper definition",
+		}, {
+			ID:              "ev-handoff",
+			Kind:            EvidenceDirect,
+			Source:          "internal/agent/answer_document_trace_decision_handoff.go",
+			LineStart:       92,
+			Scope:           ScopeLine,
+			GroundingStatus: GroundingGrounded,
+			Summary:         "wakeup path authority guidance",
+		}},
+	}
+
+	sets := CompileEnumerationDisplaySets(rm, plan)
+	if len(sets) != 1 || len(sets[0].Rows) != 3 {
+		t.Fatalf("sets = %+v", sets)
+	}
+	if got := sets[0].Rows[0].Location; got != "internal/tool/trace_query.go:4380" {
+		t.Fatalf("trace_query row location = %q, want same-file positional anchor", got)
+	}
+	if got := sets[0].Rows[1].Location; got != "internal/agent/answer_document_trace_decision_handoff.go:92" {
+		t.Fatalf("handoff row location = %q, want same-file non-positional anchor", got)
+	}
+	if row := sets[0].Rows[2]; row.Location != "" || row.HasCitation || row.Source != "" {
+		t.Fatalf("unanchored test-file row must stay uncited instead of borrowing another file: %+v", row)
+	}
+	if strings.Contains(sets[0].Rows[1].Note, "preview helper") ||
+		!strings.Contains(sets[0].Rows[1].Note, "wakeup path authority") {
+		t.Fatalf("handoff row inherited a cross-file note: %+v", sets[0].Rows[1])
+	}
+}
+
 func TestCompileEnumerationDisplaySets_RuntimeArtifactDoesNotPromoteFramePathToCurrentCitation(t *testing.T) {
 	rm := &RequestModel{
 		Intent: IntentExplain,
