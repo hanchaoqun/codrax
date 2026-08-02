@@ -100,8 +100,8 @@ type StageOutput struct {
 	Error string `json:"error,omitempty"`
 
 	// FinalAnswer is the user-facing text the finalizer agent produces.
-	// applyStageOutput copies it to BusContext.FinalAnswer when non-empty
-	// so the CLI (and any other caller of Run) can render it. Other
+	// The read scheduler consumes it directly and writes the task result;
+	// applyStageOutput deliberately does not store it on BusContext. Other
 	// agents leave this empty.
 	FinalAnswer string `json:"final_answer,omitempty"`
 

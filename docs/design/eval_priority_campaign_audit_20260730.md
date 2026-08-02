@@ -4290,6 +4290,63 @@ snake_case 词汇的噪声集合成员判断写入用户附注。typed 根因席
 `eval/parallel_selected_summary_evalcampaign_b30trace_lane_r1_20260801.md`、
 `eval/parallel_selected_summary_evalcampaign_b30trace_lane_r1_20260801_manual_audit.md`。
 
+#### B30 r2：typed 账目主键已贯通，但诊断引文仍被误授发布权
+
+`main@a7f7c1065` 严格并行回放同两个 case：Trace runner PASS，read runner 因
+`missing:Mutable` FAIL；人工审计两者均为 partial/FAIL。
+
+Trace 主体完整保留模型结论，显式 11.000..11.008s 窗、实际占时/关键路径候选与
+规则可消除量两轴、根因排序、唤醒链、Trace 因果投影和自动补采均在。OWN2 的生产
+断线也已生效：系统不再输出基于模型 prose 推断的“正文首因”判词。但指标快照仍并列
+同一 app-20 状态账的 `19 次切换/20 段` 与 `20 次切换/21 段`。
+
+逐层回查 typed query JSON 后修正 ACCOUNT1 的残余归因：
+
+1. canonical `state_churn`、root rank、wakeup impact 已共享精确
+   `state_account_key`，所以不是 key 铸造或跨 payload 去重再次失败；
+2. 第二行来自 `wakeup_chain.root_evidence` 的 typed `trace_gap`，其
+   `gap_kind=no_eligible_wait` summary 为解释链为何停止而引用了完整状态账；
+3. `runtimeTraceMetricSnapshotValues` 过去只要求 deterministic producer、正影响和
+   完整数值 token，没有消费 typed predicate，于是把诊断引文误认成第二个测量发布者。
+
+登记并实施 `EVAL-B30-ACCOUNT2/P1`：状态快照发布权改为闭集 typed predicate，允许
+canonical `state_churn`、`state_drilldown`、wakeup causal 与 root-cause 派生面；
+`trace_gap`、`missing_wakeup` 和未知 predicate 即使引用完整状态账也 fail-closed。
+这不是按 19/20、20/21、app-20 或 case 名去重；不读取请求/答案原文、subject 或数值
+相等关系。模型查询与 exact system supplement 继续可凭精确 key 合成一个席位；无 key
+的真实独立 occurrence 保持 fail-open。
+
+read 回放证明 `EVAL-B30-LANE2` 已 covered：答案不再出现
+`StageWriteAnalyze/runWriteAnalyzePhase`，四个 read canonical stages、图和表均在。
+但答案仍把 read 时序描述成 `Run` 遍历 `AllMainStages` 并逐阶段
+`dispatchStage/applyStageOutput`，还声称后者把 `FinalAnswer` 写进
+`BusContext.FinalAnswer`。生产事实是外层先单独执行 analyze，之后
+`runTaskGraph -> runReadSchedulerLoop` 依据 analyzer-emitted TaskGraph 调度；
+`applyStageOutput` 明确不消费 FinalAnswer，read scheduler 直接把返回值写入 task result。
+
+其中第二个错误有确定的源码污染源：`internal/agent/agent.go` 的旧字段注释与生产实现
+相反。本批登记并实施 `EVAL-B30-DOC2/P1`，只纠正文档合同，不改变运行时。第一个错误
+登记为 `EVAL-B30-EDGE2/P1-watch`：现有成文前 typed lane guidance 已明确 stage
+membership/order 不证明函数调用边，一次仍误推不足以授权系统重写答案；继续在其它机制
+case 观察，若跨 case 复现则优先增强探索阶段的 grounded call-site 证据，而不是扫描最终
+正文设硬门。
+
+runner 的 `missing:Mutable` 单独记为 oracle watch：用户原文为“例如”，答案已覆盖状态
+载体维度和 `BusContext`，不能为了 exact token 通过而注入答案关键词。只有后续出现
+MutableState 角色的实质性遗漏才升级为系统 gap。
+
+本批不改变 Trace 请求范围、投影/根因/唤醒/可消除算法、系统补采或模型答案所有权。
+定向回归覆盖 diagnostic predicate 拒绝、canonical 单席、same-query 双 payload 单席、
+正文已覆盖时不重复发布，以及中英文窗基准。工件：
+`eval/parallel_selected_summary_evalcampaign_b30_replay_r2_20260801.md`、
+`eval/parallel_selected_summary_evalcampaign_b30_replay_r2_20260801_manual_audit.md`。
+
+验证：`go test ./internal/tool -count=1` 通过（158.346s）；
+`go test ./internal/agent -count=1` 通过（2.816s）；`git diff --check` 通过。
+状态：`EVAL-B30-ACCOUNT2=implemented/full-package-tests-pass`；
+`EVAL-B30-DOC2=implemented`；`EVAL-B30-EDGE2=P1-watch`；
+`EVAL-B30-LANE2=covered-live-replay`；`EVAL-B30-OWN2=covered-live-replay`。
+
 ### B26-OWN：Trace 精确信息与模型结论的职责边界回裁（2026-08-01）
 
 客户/人工 witness：
