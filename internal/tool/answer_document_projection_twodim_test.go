@@ -179,6 +179,41 @@ func TestTwoDimOccupancyDecisionSurfaceMatrix(t *testing.T) {
 	}
 }
 
+func TestTwoDimOccupancyDedupesPhysicalStateAcrossPublicationLanes(t *testing.T) {
+	chain := types.TraceCausalProjectionNode{
+		EvidenceID:               "chain-state-row",
+		Subject:                  "app-100",
+		Predicate:                "runnable",
+		StateKind:                types.TraceStateKindRunnable,
+		ImpactMS:                 0.8,
+		EffectiveImpactMS:        0.8,
+		EffectiveImpactPublished: true,
+		StartTs:                  5.005,
+		EndTs:                    5.0058,
+		LineStart:                6,
+		LineEnd:                  10,
+	}
+	self := chain
+	self.EvidenceID = "ranked-target-self-row"
+	self.Predicate = "runnable_wait"
+	self.LineEnd = 9
+
+	rows := runtimeTraceOccupancyPathCandidates(runtimeTraceProjTreeModel{
+		TreeRows: []runtimeTraceProjTreeRow{{
+			Node: chain, Kind: runtimeTraceProjTreeRowChain, HasData: true,
+		}},
+		SelfRows: []runtimeTraceProjTreeRow{{
+			Node: self, Kind: runtimeTraceProjTreeRowSelf, HasData: true,
+		}},
+	}, true)
+	if len(rows) != 1 {
+		t.Fatalf("one physical runnable interval published through two lanes must render once, got %+v", rows)
+	}
+	if rows[0].subject != "app-100" || rows[0].totalMS != 0.8 || rows[0].location != "5.005000..5.005800；行 6–10" {
+		t.Fatalf("deduped physical-state occupancy lost the first rich carrier: %+v", rows[0])
+	}
+}
+
 // The occupancy block leads the existing causal/eliminable projection inside
 // the cluster; it does not replace or mutate the priced board.
 func TestTwoDimOccupancyLeadsUnchangedEliminableBoard(t *testing.T) {

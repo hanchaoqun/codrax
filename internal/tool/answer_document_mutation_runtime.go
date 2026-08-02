@@ -1973,7 +1973,10 @@ func runtimeTraceOccupancyPathCandidates(
 		if total <= 0 {
 			continue
 		}
-		key := strings.TrimSpace(node.EvidenceID)
+		key := runtimeTraceOccupancyPhysicalStateKey(node)
+		if key == "" {
+			key = strings.TrimSpace(node.EvidenceID)
+		}
 		if key == "" {
 			key = strings.Join([]string{
 				strings.TrimSpace(node.Subject),
@@ -2032,6 +2035,31 @@ func runtimeTraceOccupancyPathCandidates(
 		out = out[:runtimeTraceOccupancyPathLimit]
 	}
 	return out
+}
+
+// runtimeTraceOccupancyPhysicalStateKey identifies one physical scheduler
+// occupancy independently of the publication lane that carried it. A target
+// runnable/sleep segment can legitimately be published once as a chain/state
+// observation and once as a ranked target-self row; the occupancy table is a
+// physical-time surface, so those typed mirrors must render once even though
+// their EvidenceIDs differ. D-state and io_wait deliberately stay outside
+// this key because they are distinct calibrated drill-down lanes rather than
+// interchangeable scheduler-state aliases.
+func runtimeTraceOccupancyPhysicalStateKey(node types.TraceCausalProjectionNode) string {
+	state := types.TraceCausalProjectionStateClass(node.StateKind)
+	if state == "" && strings.EqualFold(strings.TrimSpace(node.StateKind), types.TraceStateKindRunning) {
+		state = types.TraceStateKindRunning
+	}
+	if state == "" || strings.TrimSpace(node.Subject) == "" || node.EndTs <= node.StartTs {
+		return ""
+	}
+	return strings.Join([]string{
+		"physical_state",
+		strings.ToLower(strings.TrimSpace(node.Subject)),
+		state,
+		strconv.FormatFloat(node.StartTs, 'f', 6, 64),
+		strconv.FormatFloat(node.EndTs, 'f', 6, 64),
+	}, "\x00")
 }
 
 func runtimeTraceOccupancySemanticCandidates(
