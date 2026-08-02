@@ -126,7 +126,7 @@ func (l *logSegFloorScriptedLLM) Chat(_ context.Context, _ []llm.Message, _ []ll
 	return llm.Response{ToolCalls: []llm.ToolCall{{
 		ID:     "extract",
 		Name:   "emit_log_triage",
-		Params: json.RawMessage(`{"meta":{"lang":"go","signals":[]},"errors":[{"type":"panic","message":"boom"}]}`),
+		Params: json.RawMessage(`{"meta":{"lang":"go","signals":[]},"errors":[],"observations":[{"kind":"runtime_event","subject":"segment","summary":"observed segment payload","evidence":"y","diagnostic":false,"confidence":0.9}]}`),
 	}}}, nil
 }
 
