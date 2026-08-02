@@ -4181,6 +4181,41 @@ direct waker、wakeup event 或 wakeup latency。这是 typed 语义澄清与权
 `internal/tool` 最终复跑 158.503s；`make` 通过。首次 tool 全包仅命中旧结构 tripwire
 仍要求 union helper，更新为同时 pin state/wait 两条真实调用后，全包无其它失败。
 
+#### B41 r8：FACTFAMILY1 关闭；调度转移区间仍被模型混称（P1）
+
+r8 使用干净 `main@d1098e065`，runner 2/2 PASS，人工 1/2 PASS：
+
+- data 44s，`data_rounds=1 / repair_rounds=1 / action_failed=0`，最终严格只有 `2`；
+  r7 的 149s/6 rounds 未复现，确认为 planner 效率波动 watch。
+- Binder 最终已经没有 target-state card、状态 typed 附注、full supplement、heavy
+  floor、根因排序、可消除量或 Trace 因果投影；target PID/TID、transaction=42、direct
+  waker 三项均正确。analyzer 本轮只发 `transaction_id + relation_peer`，但即使沿 r7
+  的 wait-only profile，新的分面权限回归也保证不会回退成 state partition。
+  `EVAL-B41-FACTFAMILY1=covered`。
+- 新的人工 FAIL 来自模型额外派生的未请求时长：正文先正确写
+  `sched_wakeup@3.020`，随后把 `3.015→3.030=15ms` 称为“睡眠到被唤醒”。真实三阶段是
+  `t_sleep=3.015 → t_wake=3.020` 的 5ms sleep/blocking，随后
+  `t_wake=3.020 → t_run=3.030` 的 10ms runnable scheduling delay；15ms 只能称为
+  sleep-entry 到 switch-in 的总 non-running，不能叫 wakeup latency/sleep-to-wakeup。
+
+登记 `EVAL-B41-TRANSITIONPHASE1/P1`。这与既有 Z4/B26 的“pre-wakeup dependency 与
+post-wakeup runnable 是互斥阶段”同类，但本轮只使用 `event_search`，没有触发专用
+wakeup census authority，因此最终通用 scheduler prompt 缺少三时间点的区间命名。
+最优小修是把以下不变量放到所有 runtime-trace finalizer 的 soft guidance：
+
+1. `sched_switch prev_state=S|D @ t_sleep` = 进入 sleep/blocking；
+2. `sched_wakeup|sched_waking @ t_wake` = 离开等待并进入 runnable；
+3. `sched_switch next_pid=target @ t_run` = switch-in running；
+4. 三个差值必须分别命名，total non-running 不得冒充 wakeup latency；bounded facts
+   未请求 duration 时不要仅因时间戳可见而主动派生。
+
+该修复只给模型精确的通用调度语义，不扫描用户/答案原文，不做 regex 硬门，不拒绝、
+删除、替换或改写模型结论。`internal/agent` 完整回归 2.866s、`make` 通过。
+
+同时登记 `EVAL-B41-CITEINFO1/P3-watch`：runtime citation rows 被正确重定向为正文
+`artifact_spans` selector 后，尾部仍写“3 处引用已移除”，虽然技术上指 citation pool
+条目而非 selector，用户可读性较差。本批不以显示文案项阻塞 P1 调度语义收口。
+
 任务：
 
 - [x] B41-T1：严格并行 2 case，完整日志/答案人工审计；
@@ -4231,7 +4266,11 @@ direct waker、wakeup event 或 wakeup latency。这是 typed 语义澄清与权
 - [x] B41-T27：拆分 state partition 与 wait roster 两类 materialization authority，
   tool/agent/orchestrator 分别消费；补 wait-only/state-only/full-report 对偶 pin；
 - [x] B41-T28：完整相关包回归与构建通过；第七施工批提交推送；
-- [ ] B41-T29：干净 HEAD 重建后做 r8 同对回放并人工收账。
+- [x] B41-T29：干净 HEAD 重建后做 r8 同对回放并人工收账；FACTFAMILY1 covered，
+  新增 TRANSITIONPHASE1 与 CITEINFO1 watch；
+- [x] B41-T30：所有 runtime-trace finalizer 增加三阶段 scheduler transition soft
+  guidance，不增加 hard gate/answer mutation；agent 全包与构建通过；
+- [ ] B41-T31：提交推送后做 r9 同对回放，验收时长语义与 FACTFAMILY1 不回退。
 
 ### B40：analyze retry 回放 × blocked-reason Trace 语义审计（2026-08-02）
 
