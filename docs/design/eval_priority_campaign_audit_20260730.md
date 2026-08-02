@@ -3919,6 +3919,62 @@ B18c 使用一条通用 typed 规则修复：
 
 状态：`implemented / full-tests-pass / cross-relation replay next`。
 
+### B41：data 终批材料 × Binder 方向语义审计（2026-08-02）
+
+本批严格并行 `data_text_filter_count` 与 `trace_query_binder_ipc_peer`。runner
+2/2 PASS，人工 1/2 PASS。data 最终值正确但先执行了一次已知不完整的计算；Binder
+目标、事务号、直接唤醒边正确，但 fixture 与答案把 `reply=1` 的发射方向解释反了。
+
+#### EVAL-B41-DATATERM1：终批执行前丢失显式用户材料义务（P1）
+
+用户明确要求按 `instructions.md` 处理 `notes.txt`，初始 exact-path workflow
+material floor 也包含两者。planner 却只把 `notes.txt` 放进 current required，把
+`instructions.md` 降为 optional，并发出 `continue_after=false` 的
+`custom_transform`。现有 staging guard 只读收窄后的 current-batch contract，故先
+执行；result validator 才从 workflow contract 发现遗漏并触发 repair。最终答案
+`2` 正确，但留下 `data_rounds=2 / repair_rounds=1 / action_failed=1`。
+
+通用修点在 current-batch contract，而不是为某个文件名加特判：
+
+1. 复用 `dataworkflow.PlanMayProduceFinalAnswer` 判断 typed final-answer producer；
+2. 仅对 `continue_after=false` 且可能产出最终答案的批次，恢复 workflow contract
+   中尚未覆盖的 explicit-user-material floor；
+3. 恢复发生在 terminal scheduling guard 之前，因此不完整批次不再先执行；
+4. 已消费材料不重复要求；derive/inspect 等中间批即使 legacy plan 没显式填写
+   `continue_after`，也不被误扩为全材料批；
+5. planner 同时获得 soft instruction：显式规则、说明、schema、example 都是
+   workflow obligation，终批必须真实消费，非终批可通过 typed continuation 延后；
+6. 不扫描答案 prose，不改写模型结论，也不把单个文件名或题型编码进 gate。
+
+#### EVAL-B41-BINDERSEM1 / EVAL-B41-EVAL1：发射方向缺口与 fixture 自相矛盾（P1）
+
+原 fixture 声称 client 发起同步 Binder 请求，但 raw row 是
+`client ... binder_transaction ... reply=1`。确定性 `ipc_graph` 正确输出
+`call_semantics=reply`；模型随后一边保留 REPLY，一边解释成“client 请求完成、server
+正在返回”，把 row emitter 与 destination 的角色倒置。`sched_wakeup` 的
+`binder:100_1-101 -> client-20` 直接边本身没有问题。
+
+修复分成两个互不越权的面：
+
+- fixture 改成 `reply=0 flags=0`，使“client 同步请求”与 typed
+  `call_semantics=sync_request` 一致；
+- perf pre-triage 与 finalizer 加同一条通用 soft guidance：transaction row 的线程
+  是 emitter，destination 是 receiver；`reply` 只允许“emitter 正在回复”，只有
+  typed `sync_request` + blocking authority 才允许同步阻塞请求叙述；后续 wakeup
+  保持独立 typed edge，只有图连接时才合并故事。
+
+没有新增用户/模型原文关键词门、emit reject、answer mutation 或系统结论替换；
+显式时间窗的 Trace 因果投影、根因排序、唤醒链、可消除量与自动补齐路径不变。
+
+任务：
+
+- [x] B41-T1：严格并行 2 case，完整日志/答案人工审计；
+- [x] B41-T2：终批 typed material-floor 恢复与多批/历史消费回归；
+- [x] B41-T3：Binder 方向 soft guidance 与同步请求 fixture 校正；
+- [x] B41-T4：`internal/repl`、`internal/dataquery`、`internal/dataworkflow`、
+  `internal/skill`、`internal/agent` 无缓存全包与构建通过；
+- [ ] B41-T5：提交推送后同对并行回放，人工收账。
+
 ### B40：analyze retry 回放 × blocked-reason Trace 语义审计（2026-08-02）
 
 本批严格并行 `read_combo_analyze_retry_anchor` 与

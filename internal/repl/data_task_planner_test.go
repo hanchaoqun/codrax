@@ -8919,6 +8919,44 @@ func TestPrepareDataTaskWorkflowPlanForExecutionPreservesScriptOnlyInputs(t *tes
 	}
 }
 
+func TestPrepareDataTaskWorkflowPlanTerminalBatchRestoresDeferredUserMaterialFloor(t *testing.T) {
+	candidates := []dataquery.CandidateFile{
+		{Path: "instructions.md", Kind: "text"},
+		{Path: "notes.txt", Kind: "text"},
+	}
+	plan := dataquery.TaskPlan{
+		Status:     "ready",
+		InputPaths: []string{"notes.txt"},
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{{
+				Path: "notes.txt", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed,
+			}},
+			OptionalMaterials: []dataquery.CoverageMaterial{{
+				Path: "instructions.md", UsageMode: dataquery.MaterialUseScriptConsumed,
+			}},
+		},
+		Actions: []dataquery.DataAction{{
+			ID: "count", Kind: dataquery.DataActionCustomTransform,
+			InputPaths: []string{"notes.txt"},
+			Script:     "notes = read_text('notes.txt')\nemit_result(answer=str(len(notes)))",
+		}},
+		ContinueAfter: false,
+	}
+	got := prepareDataTaskWorkflowPlanForExecution("", "按照 instructions.md 处理 notes.txt", candidates, nil, plan)
+	required := dataTaskCoverageMaterialKeySet(got.CoverageContract.RequiredMaterials)
+	keyFor := func(path string) string {
+		return dataTaskCoverageMaterialKey(dataquery.CoverageMaterial{Path: path, UsageMode: dataquery.MaterialUseScriptConsumed})
+	}
+	for _, want := range []string{"instructions.md", "notes.txt"} {
+		if !required[keyFor(want)] {
+			t.Fatalf("required=%+v, missing terminal user material %q", got.CoverageContract.RequiredMaterials, want)
+		}
+	}
+	if errText := dataTaskTerminalRequiredMaterialSchedulingError(nil, got); !strings.Contains(errText, "instructions.md") {
+		t.Fatalf("staging error=%q, want unscheduled explicit instruction material", errText)
+	}
+}
+
 func TestDataTaskWorkflowStateDoesNotRegressCoverageWhenNextPlanOmitsRequiredMaterials(t *testing.T) {
 	records := []dataTaskWorkflowRecord{{
 		Plan: dataquery.TaskPlan{

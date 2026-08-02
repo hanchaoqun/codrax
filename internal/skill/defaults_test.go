@@ -1296,6 +1296,9 @@ func TestPerfTriageSkillKeepsModelObservationsAdvisory(t *testing.T) {
 		"S, D, or io_wait is not occupying a CPU",
 		"typed wakeup/IPC/lock/flow/dependency edge",
 		"relationship unproven",
+		"`call_semantics=reply`",
+		"source thread is sending a reply",
+		"`call_semantics=sync_request`",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("perf-triage authority guidance missing %q", want)

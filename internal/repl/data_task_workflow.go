@@ -4196,6 +4196,37 @@ func dataTaskWorkflowCurrentBatchContract(records []dataTaskWorkflowRecord, curr
 
 func dataTaskExecutionCoverageContract(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, workflow dataquery.CoverageContract) dataquery.CoverageContract {
 	currentContract := dataTaskConstrainCurrentRequiredMaterials(dataquery.CoverageContract{}, plan)
+	// A terminal batch claims that no later batch will consume deferred
+	// materials. Restore the exact-path user floor from the workflow contract
+	// before the staging guard runs, otherwise current-batch scoping can demote
+	// an explicitly named rule/input material to optional, execute an
+	// incomplete calculation, and discover the omission only after the runner
+	// returns. Multi-batch plans keep the existing deferral behavior; prior
+	// consumption is counted by dataTaskScheduledMaterialConsumption.
+	if !plan.ContinueAfter && dataworkflow.PlanMayProduceFinalAnswer(plan, dataquery.Result{}) {
+		coveredBeforeBatch := dataTaskWorkflowCoveredMaterialPaths(records, dataquery.TaskPlan{}, 0)
+		userFloor := dataTaskFilterCoverageMaterials(workflow.RequiredMaterials, func(material dataquery.CoverageMaterial) bool {
+			if !dataTaskCoverageMaterialIsUserExplicitFloor(material) {
+				return false
+			}
+			runnerPaths := (dataquery.CoverageContract{RequiredMaterials: []dataquery.CoverageMaterial{material}}).RequiredRunnerInputPaths()
+			if len(runnerPaths) == 0 {
+				return true
+			}
+			for _, runnerPath := range runnerPaths {
+				if !dataTaskCoveragePathCovered(coveredBeforeBatch, runnerPath) {
+					return true
+				}
+			}
+			return false
+		})
+		currentContract.RequiredMaterials = mergeDataTaskCoverageMaterials(userFloor, currentContract.RequiredMaterials, true)
+		requiredKeys := dataTaskCoverageMaterialKeySet(currentContract.RequiredMaterials)
+		currentContract.OptionalMaterials = dataTaskFilterCoverageMaterials(currentContract.OptionalMaterials, func(material dataquery.CoverageMaterial) bool {
+			key := dataTaskCoverageMaterialKey(material)
+			return key == "" || !requiredKeys[key]
+		})
+	}
 	currentContract.DecisionRecordsRequired = workflow.DecisionRecordsRequired
 	currentContract.RuleCoverageRequired = workflow.RuleCoverageRequired
 	currentContract.ContributionLedgerRequired = workflow.ContributionLedgerRequired

@@ -11,7 +11,8 @@
 #
 # Ground truth (verbatim from internal/tracequery/tracequery_test.go
 # fixtures): client pid=20 binder_transaction transaction=42
-# dest_proc=100 dest_thread=101 code=0x3 at 3.010; received by
+# dest_proc=100 dest_thread=101 reply=0 flags=0x0 code=0x3 at 3.010;
+# typed call_semantics=sync_request; received by
 # binder:100_1-101 at 3.012; client woken at 3.020. Synthetic.
 ID="trace_query_binder_ipc_peer"
 NAME="trace query — binder IPC peer + transaction"
@@ -21,7 +22,7 @@ HTRACE='# tracer: nop
 #
 #           TASK-PID   CPU#    TIMESTAMP  FUNCTION
      client-20   (   20) [001] .... 3.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=client next_pid=20 next_prio=53
-     client-20   (   20) [001] .... 3.010000: binder_transaction: transaction=42 dest_node=0 dest_proc=100 dest_thread=101 reply=1 flags=0x0 code=0x3
+     client-20   (   20) [001] .... 3.010000: binder_transaction: transaction=42 dest_node=0 dest_proc=100 dest_thread=101 reply=0 flags=0x0 code=0x3
  binder:100_1-101 (  100) [002] .... 3.012000: binder_transaction_received: transaction=42
      client-20   (   20) [001] .... 3.015000: sched_switch: prev_comm=client prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
  binder:100_1-101 (  100) [002] .... 3.020000: sched_wakeup: comm=client pid=20 prio=53 target_cpu=001
