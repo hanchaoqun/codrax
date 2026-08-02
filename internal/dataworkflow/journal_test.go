@@ -616,6 +616,17 @@ func TestBuildWorkflowDecisionDowngradesExplicitCompleteWithGraphBlocker(t *test
 	if outputDecision.Status == "complete" || outputDecision.ReasonCode != "output_missing_answer" {
 		t.Fatalf("outputDecision=%+v, want non-complete output blocker", outputDecision)
 	}
+
+	derivedComplete := BuildWorkflowDecision(WorkflowDecisionInput{
+		NextStage: StageComplete,
+		OutputGraph: OutputProjectionGraph{
+			Status:          OutputProjectionStatusIncompleteReference,
+			ProducesActions: []string{string(dataquery.DataActionAssembleAnswer)},
+		},
+	})
+	if derivedComplete.Status == "complete" || derivedComplete.ReasonCode != "output_incomplete_reference" {
+		t.Fatalf("derivedComplete=%+v, output blocker must precede default complete derivation", derivedComplete)
+	}
 }
 
 func TestBuildWorkflowDecisionKeepsAllowedActionsWhenLedgerBlocked(t *testing.T) {

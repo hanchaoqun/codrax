@@ -57,6 +57,7 @@ type WorkflowStateViewBuildInput struct {
 	AdditionalViolations          []WorkflowViolation
 	NoProgressThreshold           int
 	LatestEvaluation              *dataquery.Evaluation
+	OutputGraphInput              *OutputProjectionGraphInput
 	ArtifactLimit                 int
 	ProgressLimit                 int
 	ActionEventLimit              int
@@ -168,6 +169,9 @@ func BuildWorkflowStateView(input WorkflowStateViewBuildInput) WorkflowStateView
 		ProjectionArtifactPresent: input.LedgerCounts.HasProjectionArtifact,
 		ReconcilePresent:          state.HasReconcile,
 		PlanHasCustomTransform:    PlanHasActionKind(input.Current, dataquery.DataActionCustomTransform),
+	}
+	if input.OutputGraphInput != nil {
+		outputGraphInput = *input.OutputGraphInput
 	}
 	decisionInput := WorkflowDecisionInput{
 		NextStage:          state.NextStage,

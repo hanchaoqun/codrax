@@ -4045,6 +4045,12 @@ func dataTaskWorkflowStateWithDeferredQueue(repoRoot string, records []dataTaskW
 		latestEvaluation = &copied
 	}
 	guardViolations := dataTaskWorkflowGuardViolations(records)
+	var outputGraphInput *dataworkflow.OutputProjectionGraphInput
+	if latestPlan, latestResult, ok := latestDataTaskResultWithPlan(records); ok {
+		answerPlan, answerResult := dataTaskCompletionAnswerSelection(repoRoot, records, latestPlan, latestResult)
+		exact := dataTaskWorkflowCompletionOutputProjectionGraphInput(repoRoot, records, answerPlan, answerResult)
+		outputGraphInput = &exact
+	}
 	return dataworkflow.BuildWorkflowStateView(dataworkflow.WorkflowStateViewBuildInput{
 		Records:              records,
 		Current:              current,
@@ -4082,6 +4088,7 @@ func dataTaskWorkflowStateWithDeferredQueue(repoRoot string, records []dataTaskW
 		GuardViolations:               guardViolations,
 		NoProgressThreshold:           DefaultDataTaskMaxNodeFailures,
 		LatestEvaluation:              latestEvaluation,
+		OutputGraphInput:              outputGraphInput,
 		ArtifactLimit:                 48,
 		ProgressLimit:                 6,
 		ActionEventLimit:              48,
@@ -4789,6 +4796,15 @@ func latestDataTaskResult(records []dataTaskWorkflowRecord) (dataquery.Result, b
 		}
 	}
 	return dataquery.Result{}, false
+}
+
+func latestDataTaskResultWithPlan(records []dataTaskWorkflowRecord) (dataquery.TaskPlan, dataquery.Result, bool) {
+	for i := len(records) - 1; i >= 0; i-- {
+		if records[i].Result != nil {
+			return records[i].Plan, *records[i].Result, true
+		}
+	}
+	return dataquery.TaskPlan{}, dataquery.Result{}, false
 }
 
 func latestDataTaskEvaluation(records []dataTaskWorkflowRecord) (dataquery.Evaluation, bool) {
@@ -5578,6 +5594,10 @@ func dataTaskOutputContractNeedsFinalProjection(contract dataquery.OutputContrac
 }
 
 func dataTaskWorkflowCompletionOutputProjectionGraph(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) dataworkflow.OutputProjectionGraph {
+	return dataworkflow.BuildOutputProjectionGraph(dataTaskWorkflowCompletionOutputProjectionGraphInput(repoRoot, records, current, result))
+}
+
+func dataTaskWorkflowCompletionOutputProjectionGraphInput(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) dataworkflow.OutputProjectionGraphInput {
 	result = dataquery.NormalizeResult(result)
 	var referenceGap dataworkflow.ReferenceProjectionGap
 	var answerItems int
@@ -5590,7 +5610,7 @@ func dataTaskWorkflowCompletionOutputProjectionGraph(repoRoot string, records []
 	if result.Reconcile != nil {
 		reconcileGroups = len(result.Reconcile.Groups)
 	}
-	return dataworkflow.BuildOutputProjectionGraph(dataworkflow.OutputProjectionGraphInput{
+	return dataworkflow.OutputProjectionGraphInput{
 		Output:                    firstNonEmptyOutputContract(result.OutputContract, dataTaskWorkflowOutputContract(records, current), current.OutputContract),
 		Coverage:                  dataTaskWorkflowCoverageContract(repoRoot, records, current),
 		AnswerPresent:             dataworkflow.ResultAnswerPresent(result),
@@ -5601,7 +5621,7 @@ func dataTaskWorkflowCompletionOutputProjectionGraph(repoRoot string, records []
 		ReferenceGapPresent:       referenceGap.Present && referenceGap.Declared,
 		ReferenceKeyCount:         referenceGap.Candidate.KeyCount,
 		AnswerItemCount:           answerItems,
-	})
+	}
 }
 
 // dataTaskOutputReferenceProjectionGap reports a reference-projection

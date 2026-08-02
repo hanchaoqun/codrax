@@ -194,6 +194,39 @@ func TestBuildWorkflowStateViewCentralizesCoverageStageAndDecision(t *testing.T)
 	}
 }
 
+func TestBuildWorkflowStateViewUsesPreciseOutputGraphInputBeforeCompleting(t *testing.T) {
+	exact := OutputProjectionGraphInput{
+		Output:                    dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false, CompleteReference: true},
+		AnswerPresent:             true,
+		ProjectionArtifactPresent: true,
+		ReconcilePresent:          true,
+		ReferenceGapPresent:       true,
+		ReferenceKeyCount:         3,
+		AnswerItemCount:           2,
+	}
+	view := BuildWorkflowStateView(WorkflowStateViewBuildInput{
+		HasMaterialProgress: true,
+		OutputContract:      exact.Output,
+		LedgerCounts: WorkflowStateLedgerCounts{
+			HasAnswer:             true,
+			HasProjectionArtifact: true,
+			HasReconcile:          true,
+		},
+		OutputGraphInput: &exact,
+	})
+	if view.NextStage != StageComplete {
+		t.Fatalf("NextStage=%q, ledger stages should be complete", view.NextStage)
+	}
+	if view.OutputProjectionGraph.Status != OutputProjectionStatusIncompleteReference ||
+		view.OutputProjectionGraph.ReferenceKeyCount != 3 ||
+		view.OutputProjectionGraph.AnswerItemCount != 2 {
+		t.Fatalf("OutputProjectionGraph=%+v, want precise reference gap", view.OutputProjectionGraph)
+	}
+	if view.Decision.Status == "complete" || view.Decision.ReasonCode != "output_incomplete_reference" {
+		t.Fatalf("Decision=%+v, precise output gap must prevent current completion", view.Decision)
+	}
+}
+
 func TestBuildWorkflowReducerSnapshotDerivesRecordInputs(t *testing.T) {
 	current := dataquery.TaskPlan{Actions: []dataquery.DataAction{{
 		ID:             "next",

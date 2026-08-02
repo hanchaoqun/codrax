@@ -1344,6 +1344,16 @@ func TestDataTaskWorkflowCompletionGateRequiresReferenceCompleteProjection(t *te
 	if got := plan.Actions[0].Params["complete_reference"]; got != "true" {
 		t.Fatalf("complete_reference param=%q, want true", got)
 	}
+
+	state := dataTaskWorkflowState(root, []dataTaskWorkflowRecord{{Plan: current, Result: &result}}, current)
+	if state.OutputProjectionGraph.Status != dataworkflow.OutputProjectionStatusIncompleteReference ||
+		state.OutputProjectionGraph.ReferenceKeyCount != 3 ||
+		state.OutputProjectionGraph.AnswerItemCount != 2 {
+		t.Fatalf("OutputProjectionGraph=%+v, live state must reuse completion reference-gap authority", state.OutputProjectionGraph)
+	}
+	if state.Decision.Status == "complete" || state.Decision.ReasonCode != "output_incomplete_reference" {
+		t.Fatalf("Decision=%+v, live state must not complete before reference projection", state.Decision)
+	}
 }
 
 func TestDataTaskWorkflowCompletionGateRejectsReferenceCardinalityMismatch(t *testing.T) {

@@ -312,6 +312,8 @@ func BuildWorkflowDecision(input WorkflowDecisionInput) WorkflowDecision {
 		switch {
 		case len(violationCodes) > 0:
 			status = "blocked"
+		case graphBlocked:
+			status = "continue"
 		case trimStateText(input.NextStage) == StageComplete:
 			status = "complete"
 		default:
