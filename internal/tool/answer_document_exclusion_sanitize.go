@@ -35,8 +35,9 @@ func normalizeTypedExcludedAnswerSurface(doc *types.AnswerDocumentV2, ctx *types
 	if len(candidates) == 0 {
 		return changed
 	}
+	protectedSourcePaths := answerDocumentCitationSourcePaths(doc)
 	rewrite := func(s string) string {
-		return redactExcludedCandidateTokens(s, candidates)
+		return redactExcludedCandidateTokensPreservingSourcePaths(s, candidates, protectedSourcePaths)
 	}
 	for i := range doc.Blocks {
 		before := doc.Blocks[i].Title
@@ -565,17 +566,56 @@ func answerDocumentSymbolKindIsType(kind string) bool {
 }
 
 func redactExcludedCandidateTokens(text string, candidates []string) string {
+	return redactExcludedCandidateTokensPreservingSourcePaths(text, candidates, nil)
+}
+
+// answerDocumentCitationSourcePaths returns exact, typed source provenance
+// carriers. Candidate exclusion is about symbols/rows, never their grounded
+// file identity: rewriting a candidate-shaped package substring inside one of
+// these paths corrupts citations and can make the later source-location repair
+// prepend a second path. The protection is structural (Citation.File), not a
+// keyword scan over user/model prose.
+func answerDocumentCitationSourcePaths(doc *types.AnswerDocumentV2) []string {
+	if doc == nil || len(doc.Citations) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, citation := range doc.Citations {
+		raw := strings.TrimSpace(citation.File)
+		for _, path := range []string{raw, strings.ReplaceAll(raw, "\\", "/"), strings.ReplaceAll(raw, "/", "\\")} {
+			if path == "" || seen[path] {
+				continue
+			}
+			seen[path] = true
+			out = append(out, path)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if len(out[i]) != len(out[j]) {
+			return len(out[i]) > len(out[j])
+		}
+		return out[i] < out[j]
+	})
+	return out
+}
+
+func redactExcludedCandidateTokensPreservingSourcePaths(text string, candidates, protectedSourcePaths []string) string {
 	if strings.TrimSpace(text) == "" || len(candidates) == 0 {
 		return text
 	}
 	out := text
 	for _, candidate := range candidates {
-		out = replaceIdentifierToken(out, candidate, "[excluded]")
+		out = replaceIdentifierTokenPreservingSourcePaths(out, candidate, "[excluded]", protectedSourcePaths)
 	}
 	return out
 }
 
 func replaceIdentifierToken(text, target, replacement string) string {
+	return replaceIdentifierTokenPreservingSourcePaths(text, target, replacement, nil)
+}
+
+func replaceIdentifierTokenPreservingSourcePaths(text, target, replacement string, protectedSourcePaths []string) string {
 	if target == "" || text == "" || !strings.Contains(text, target) {
 		return text
 	}
@@ -589,7 +629,8 @@ func replaceIdentifierToken(text, target, replacement string) string {
 		}
 		idx += start
 		end := idx + len(target)
-		if isIdentifierBoundary(text, idx, end) {
+		if isIdentifierBoundary(text, idx, end) &&
+			!answerDocumentOccurrenceInsideProtectedSourcePath(text, idx, end, protectedSourcePaths) {
 			b.WriteString(text[start:idx])
 			b.WriteString(replacement)
 		} else {
@@ -598,6 +639,28 @@ func replaceIdentifierToken(text, target, replacement string) string {
 		start = end
 	}
 	return b.String()
+}
+
+func answerDocumentOccurrenceInsideProtectedSourcePath(text string, start, end int, protectedSourcePaths []string) bool {
+	for _, path := range protectedSourcePaths {
+		if path == "" || !strings.Contains(text, path) {
+			continue
+		}
+		from := 0
+		for {
+			idx := strings.Index(text[from:], path)
+			if idx < 0 {
+				break
+			}
+			idx += from
+			pathEnd := idx + len(path)
+			if start >= idx && end <= pathEnd {
+				return true
+			}
+			from = pathEnd
+		}
+	}
+	return false
 }
 
 func isIdentifierBoundary(text string, start, end int) bool {

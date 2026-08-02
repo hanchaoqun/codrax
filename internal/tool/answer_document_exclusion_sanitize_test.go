@@ -119,6 +119,54 @@ func TestNormalizeTypedExcludedAnswerSurface_RedactsExplicitExcludedAggregateCan
 	}
 }
 
+func TestNormalizeTypedExcludedAnswerSurface_PreservesGroundedSourcePaths(t *testing.T) {
+	mut := types.NewMutableState("test")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{
+		AcceptedAggregateFacts: []types.AnswerAggregateFact{{
+			Kind:     types.AnswerAggregateExcluded,
+			Label:    "excluded packages",
+			Value:    "1",
+			Excluded: []string{"internal/types"},
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			AnswerExclusionPolicy: &types.AnswerExclusionPolicy{
+				IsExclusionRequested: true,
+				ExcludedCandidateRoles: []types.AnswerCandidateRole{
+					types.AnswerCandidateRolePackage,
+				},
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:    "summary",
+			Kind:  types.BlockSummary,
+			Title: "公开字符串枚举类型一览（internal/types/evidence.go）",
+			Text: "验证范围为 `internal/types/evidence.go` 单文件。排除的独立候选 internal/types 不应列入成员表。\n" +
+				"| EvidenceKind | internal/types/evidence.go:13 | 分类证据类型 |",
+		}},
+		Citations: []types.Citation{{File: "internal/types/evidence.go", Line: 13}},
+	}
+
+	changed := normalizeTypedExcludedAnswerSurface(doc, ctx)
+	if changed == 0 {
+		t.Fatal("the standalone excluded package should still be redacted")
+	}
+	visible := types.AnswerBlockVisibleSurface(doc.Blocks[0])
+	if strings.Count(visible, "internal/types/evidence.go") != 3 {
+		t.Fatalf("every grounded path/location carrier must remain byte-exact:\n%s", visible)
+	}
+	if !strings.Contains(visible, "独立候选 [excluded] 不应") {
+		t.Fatalf("standalone excluded candidate must still be redacted:\n%s", visible)
+	}
+	if strings.Contains(visible, "[excluded]/evidence.go") || strings.Contains(visible, "[excluded]internal/types") {
+		t.Fatalf("source path was corrupted by exclusion sanitization:\n%s", visible)
+	}
+}
+
 func TestNormalizeTypedExcludedAnswerSurface_PreservesAllowedHomonym(t *testing.T) {
 	graph := &repotypes.Graph{SymbolDefs: map[string][]*repotypes.Symbol{
 		"Kind": {
