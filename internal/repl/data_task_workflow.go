@@ -4792,12 +4792,7 @@ func latestDataTaskResult(records []dataTaskWorkflowRecord) (dataquery.Result, b
 }
 
 func latestDataTaskEvaluation(records []dataTaskWorkflowRecord) (dataquery.Evaluation, bool) {
-	for i := len(records) - 1; i >= 0; i-- {
-		if records[i].Evaluation != nil {
-			return *records[i].Evaluation, true
-		}
-	}
-	return dataquery.Evaluation{}, false
+	return dataworkflow.ActiveEvaluationFromRecords(records)
 }
 
 // latestDataTaskAnswerContestingEvaluation reports whether the answer

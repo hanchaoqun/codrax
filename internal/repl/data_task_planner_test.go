@@ -3966,6 +3966,42 @@ func TestDataTaskWorkflowStatePromotesLatestEvaluationIntoDecision(t *testing.T)
 	}
 }
 
+func TestDataTaskWorkflowStateDoesNotPromoteEvaluationAcrossNewResult(t *testing.T) {
+	output := dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false}
+	records := []dataTaskWorkflowRecord{{
+		Plan:   dataquery.TaskPlan{OutputContract: output},
+		Result: &dataquery.Result{Answer: "intermediate", OutputContract: output},
+		Evaluation: &dataquery.Evaluation{
+			Status: dataquery.EvalContinueData,
+			Reason: "contributions and reconcile are still missing",
+		},
+	}, {
+		Plan: dataquery.TaskPlan{
+			OutputContract: output,
+			Actions: []dataquery.DataAction{{
+				ID:   "assemble_answer",
+				Kind: dataquery.DataActionAssembleAnswer,
+			}},
+		},
+		Result: &dataquery.Result{
+			Answer:         "30",
+			OutputContract: output,
+			Artifacts: []dataquery.DataArtifact{{
+				ID:   "answer",
+				Kind: string(dataquery.DataActionAssembleAnswer),
+			}},
+		},
+	}}
+
+	state := dataTaskWorkflowState("", records, dataquery.TaskPlan{})
+	if !state.HasAnswer || state.NextStage != dataworkflow.StageComplete {
+		t.Fatalf("state=%+v, newer answer result should define a complete current state", state)
+	}
+	if state.Decision.Status != "complete" || state.Decision.ReasonCode == string(dataquery.EvalContinueData) {
+		t.Fatalf("Decision=%+v, historical evaluation must not override newer result facts", state.Decision)
+	}
+}
+
 func TestDataTaskWorkflowStateExposesTypedWorkflowViolations(t *testing.T) {
 	records := []dataTaskWorkflowRecord{{
 		Err: `data planning incomplete: action 1 (filter_eligible) references field(s) [currency, status] that are not present on input records fields [id, amount]. Use an existing artifact from workflow_state_json.artifact_availability, or first materialize the missing field(s) with derive_fields, extract_fields, group_records, enrich_records, join_records, or a valid prior typed action before consuming them.`,

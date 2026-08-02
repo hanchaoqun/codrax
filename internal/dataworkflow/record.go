@@ -17,6 +17,31 @@ type WorkflowRecord struct {
 	Admission  *ActionDAGAdmissionDecision
 }
 
+// ActiveEvaluationFromRecords returns the evaluator judgment that is still
+// authoritative for the live workflow state. An evaluation is attached to the
+// result record it judged. Once a newer execution outcome arrives without its
+// own evaluation, the older judgment becomes audit history and must not
+// override facts derived from that newer result or failure.
+//
+// Answer-face contests intentionally do not use this projection: their sticky
+// open/clear semantics are owned by the dedicated terminal-answer authority.
+func ActiveEvaluationFromRecords(records []WorkflowRecord) (dataquery.Evaluation, bool) {
+	for i := len(records) - 1; i >= 0; i-- {
+		rec := records[i]
+		if rec.Evaluation != nil {
+			return *rec.Evaluation, true
+		}
+		if workflowRecordHasExecutionOutcome(rec) {
+			return dataquery.Evaluation{}, false
+		}
+	}
+	return dataquery.Evaluation{}, false
+}
+
+func workflowRecordHasExecutionOutcome(rec WorkflowRecord) bool {
+	return rec.Result != nil || strings.TrimSpace(rec.Err) != "" || len(rec.Violations) > 0
+}
+
 // ReconcileFailureStreak counts consecutive reconcile-action rounds
 // that ended in a runtime failure, with no successful reconcile in
 // between (EVALFIX-1 Gap A). Records for OTHER action kinds neither
