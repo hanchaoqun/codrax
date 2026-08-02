@@ -4495,7 +4495,7 @@ func renderAnswerDocTraceRankAuthority(ledger types.ObservationLedger) string {
 				relation = "primary"
 			}
 			fmt.Fprintf(&b,
-				"  - compute_delivery_positive=true; relation_to_top=`%s`; seat=`#%d %s %s %.3fms`; authority: a positive `frequency_thermal` seat means compute-delivery head-room is measured. If another direction leads, describe supply as secondary/not the main cause, but never as absent, eliminated, or disproven.\n",
+				"  - compute_delivery_positive=true; relation_to_top=`%s`; seat=`#%d %s %s %.3fms`; fix_direction_role=`remedy_bucket`; mechanism_authority=`separate_positive_typed_observation_required`; authority: a positive `frequency_thermal` seat means compute-delivery head-room is measured, but the bucket does not by itself prove thermal throttling, governor limiting, or wrong-core placement. If another direction leads, describe supply as secondary/not the main cause, but never as absent, eliminated, or disproven.\n",
 				relation,
 				supply.Rank,
 				supply.Type,

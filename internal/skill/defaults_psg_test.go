@@ -107,12 +107,43 @@ func TestFinalizerSkillMixedSupplyVerdictZ3(t *testing.T) {
 		"positive effective_impact_ms",
 		"fix_direction=frequency_thermal",
 		"forbids saying compute supply was absent",
+		"`fix_direction` is a remedy bucket, not proof",
+		"Do not call it thermal throttling",
+		"a policy/thermal-rail upper bound or a below-maximum running frequency alone does not prove",
 		"secondary bounded candidate",
 		"`not the main cause` is not the same as `no supply issue`",
 		"different ranked rows are non-additive",
 	} {
 		if !strings.Contains(item.Body, want) {
 			t.Fatalf("mixed-supply authority rule missing %q:\n%s", want, item.Body)
+		}
+	}
+}
+
+func TestExplorerSkillMixedSupplyVerdictKeepsRemedyBucketSeparateFromMechanism(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	sk, err := r.Get("explore-skill")
+	if err != nil {
+		t.Fatalf("Get(explore-skill) returned error: %v", err)
+	}
+	var body string
+	for _, item := range sk.WorkflowTierB {
+		if strings.HasPrefix(item.Body, "TRACE MIXED SUPPLY VERDICT") {
+			body = item.Body
+			break
+		}
+	}
+	if body == "" {
+		t.Fatal("explore-skill missing TRACE MIXED SUPPLY VERDICT")
+	}
+	for _, want := range []string{
+		"`fix_direction` is a remedy bucket, not proof",
+		"Do not call it thermal throttling",
+		"separate positive typed observation",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("explore mixed-supply rule missing %q:\n%s", want, body)
 		}
 	}
 }

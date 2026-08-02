@@ -77,6 +77,9 @@ func TestRenderAnswerDocObservationLedgerCarriesTraceRankAuthorityZ3(t *testing.
 		"compute_delivery_positive=true",
 		"relation_to_top=`secondary_bounded_candidate`",
 		"#4 running com.baidu.tieba-59566 10.331ms",
+		"fix_direction_role=`remedy_bucket`",
+		"mechanism_authority=`separate_positive_typed_observation_required`",
+		"does not by itself prove thermal throttling, governor limiting, or wrong-core placement",
 		"never as absent, eliminated, or disproven",
 	} {
 		if !strings.Contains(got, want) {

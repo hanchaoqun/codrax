@@ -4568,6 +4568,55 @@ Batch B 已落地：
   是否再次矛盾；未复现前禁止添加原文扫描、结论替换或具体工具名规则；
 - [x] B45-T7：r2 结果、人工裁定、上下文充分性和任务排序入统一台账并单独提交推送。
 
+### B46：显式窗 Trace 修向桶越权 × write 跨语言项目测试被合成 runner 遮蔽（2026-08-02）
+
+干净 `main@bda6687e0` 严格并行以下两案，runner 0/2 PASS，人工 0/2：
+
+1. `real_trace_h5_smr_multirow_disposition`：runner 因答案正文未出现固定 regex
+   `等待对象 dma_fence_default_w` 失败；显式用户窗、6 次带窗 trace_query、自动补采、两维根因、
+   根因排序、唤醒链、窗内可消除量和完整 Trace 因果投影全部存在。
+2. `github_issue_memoclaw_text_search_multirepo_py`：补丁自身正确，sync/async 行为探针和 fixture
+   `make check` 均通过，但系统最终错误降为
+   `unverified:verification_proof_incomplete`。
+
+| ID | P | gap | 泛化最优方案 | 状态 |
+|---|---:|---|---|---|
+| EVAL-B46-XMAKE1 | P1 | typed TestSurface 已发现真实 `make check`，且 bounded declared roster 精确包含变更 Python 文件；plan-touched Python 偏好仍合成 pytest，并由同目录去重把 Make 从执行队列删掉。行为探针虽通过，却因缺 contract refs 被作为 probe-only proof 记成十项 missing | 新增 repository-declared coverage selection lane：只有 candidate 的 filesystem-verified roster 覆盖全部 recognized changed source paths 时，作为优先项目测试选路；仅决定执行哪个真实 suite，不给 roster 任何 changed-path/behavior proof 权限。部分覆盖不得遮蔽其它变更面 | implemented/full-tests-pass；replay next |
+| EVAL-B46-REMEDY1 | P1 | `fix_direction=frequency_thermal` 是修复方向桶，模型却升级成“受频率热节流”；同一上下文又明确策略上限/非最高频不能单独证明热机制，形成内部矛盾 | explore/finalizer 的 typed guidance 与 rank handoff 明确拆开 `remedy_bucket` 和 `mechanism_authority`：正值只证明 compute-delivery head-room/供给折算缺口；具体 thermal/governor/core-placement 机制必须有独立正向 typed observation。保持模型结论权，不做答案扫描/替换 | implemented/full-tests-pass；replay next |
+| EVAL-B46-FENCE1 | P2 model-variance/watch | `dma_fence_default_w` 已在 projection 树、detail、typed 校验事实中多次进入最终上下文，模型正文只写 D-state 数值，没有把内核等待点提升到优化摘要 | 现有上下文准确足量，先跨例观察。不得为固定“等待对象”词形增加 regex hard gate，也不得由系统替模型补结论；若跨题再现，考虑通用 typed actionable-lead priority guidance | watch |
+| EVAL-B46-PROBE1 | P2 | planner 生成了能直接验证六个 exact behavior contracts 的两个 probe，却没有填写任何 `contract_refs`；累计 proof-only batch 又重验原计划，未补元数据 | 保持 refs 为显式 typed claim，禁止从 probe code/答案文本自动猜合同。先由 XMAKE1 恢复独立项目 suite；后续单独审计 proof-only scheduler 是否应把 missing refs 送入 probe-only replan，而非原样 reverify | open/watch |
+| EVAL-B46-ORACLE1 | P3 eval | 旧 Trace oracle 把自然语言前缀 `等待对象` 与内核符号绑成单一 regex；事实已完整发布仍判 FAIL | eval 应优先钉 typed row/entity/value/authority，不以模型自由表达的固定前缀代替事实覆盖；先更新人工裁定，后续集中治理旧 oracle，生产代码不为其拟合 | open/eval-debt |
+
+上下文精度与红线审计：
+
+1. Trace 的事实载体足量，但角色语义不够精确：`frequency_thermal` 同时像“修向名称”和“已证机制”。
+   B46-REMEDY1 只改模型前的软指导与 typed handoff 元数据；不读 RawRequest、thinking、final prose，
+   不拒绝、不删除、不替换模型答案。
+2. Trace projection 在模型三块正文之后以“系统生成内容”边界追加，未取代模型正文；本批不改投影
+   materializer、显式窗优先级、根因算法、唤醒链、可消量或自动补采。
+3. write 的 API reference、源码、diff、probe 结果和 TestSurface inventory 均精确；错误发生在系统选路：
+   精确的 declared Make lane 已存在却未消费。XMAKE1 只使用 typed candidate、exact roster 和
+   recognized changed source paths，不扫描任务/模型原文。
+4. declared roster 仍不是验证权威：既有
+   “cross-language Make declared input 不得直接证明 changed path behavior”测试保持。执行成功的项目
+   suite、identity-coupled probes 和 proof ledger 继续各司其职。
+5. 当 passed pre-suite probe 后面确实执行项目 suite 时，两个结果现在都会进入最终 ChangeReport。
+   旧路径只保留 project report，会丢掉 probe 的 typed changed identity；本批只合并 `passed` probe，
+   unavailable/failed probe 仍按既有降级/失败语义处理，不能被项目 suite 静默洗白。
+
+本批施工：
+
+- [x] B46-T1：严格并行 Trace + write，逐段人工审计最终答案、tool calls、typed handoff、patch、
+  probes、TestSurface 与 final proof ledger；
+- [x] B46-T2（write）：让完整覆盖全部 recognized changed sources 的 declared test candidate 优先于
+  extension-inferred synthetic runner；增加全覆盖正臂、部分覆盖负臂和 probe+Make 执行接线测试；
+- [x] B46-T3（Trace）：在 explore/finalizer 双面及 rank authority handoff 明确
+  remedy bucket ≠ proven mechanism；不增加任何正文 hard gate；
+- [x] B46-T4：`go test ./internal/tool ./internal/agent ./internal/skill -count=1` 全通过
+  （tool 158.367s、agent 4.602s、skill 0.889s）；`make` 与 `git diff --check` 通过；
+- [x] B46-T5a：审计结果与修复状态更新入统一台账，write/Trace 两个代码批分开提交推送；
+- [ ] B46-T5b：从干净 HEAD 严格并行同对回放，之后继续覆盖优先队列。
+
 ### B41：data 终批材料 × Binder 方向语义审计（2026-08-02）
 
 本批严格并行 `data_text_filter_count` 与 `trace_query_binder_ipc_peer`。runner
