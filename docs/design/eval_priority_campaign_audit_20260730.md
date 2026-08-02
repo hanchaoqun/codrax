@@ -2235,7 +2235,7 @@ runner 的 typed ownership gap，不是补丁或测试失败。
 
 | ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
 |---|---:|---|---|---|---|
-| EVAL-B12-AG1 | P1 | polyglot project verification ownership | language-agnostic Make test target 成功后仍按 C/C++ family 判覆盖，跨语言 behavioral oracle 被丢权 | 成功命令须精确匹配 filesystem-derived TestSurface candidate，且目标路径须在该 target 的 typed declared-input roster；裸命令/无输入 witness 继续 fail-closed | covered-pending-replay |
+| EVAL-B12-AG1 | P1 | polyglot project verification ownership | language-agnostic Make test target 成功后仍按 C/C++ family 判覆盖，跨语言 behavioral oracle 被丢权 | 当时采用 exact TestSurface + declared-input roster；B43 证明“读取输入”不能代表“执行目标语言语义”，其硬权限已由 `EVAL-B43-METAAUTH1` supersede | superseded-by-B43 |
 | EVAL-B12-AG2 | P1 | lower-bound publication authority | typed lower-bound 只进 prompt，模型仍可发布 exhaustive total/absence | 从 typed blocking authority 无条件 materialize coverage caveat；不扫描请求/答案词面，不改模型正文和数值 | covered-pending-replay |
 | EVAL-B12-AG3 | P1 | record census vs state-duration caliber | blocked-reason occurrence count/record delay 被外推成完整 scheduler sleep 分区 | typed caveat 明确 caller-record census 只解释其自身记录；除非与完整 state occurrence roster 对账，不授权“全部 sleep” | covered-pending-replay |
 | EVAL-B11-AB4 | P2 | generic incomplete enumeration wording | 其他 enumeration authority 仍可能只靠 prompt 被写成 exhaustive | AG2/AG3 先覆盖本轮高危 typed calibers；通用结构化 coverage carrier 后续统一收敛，不扫描 prose | reproduced-filed |
@@ -2333,7 +2333,7 @@ authority placement gap，而非新值通道 gap。
 | ID | 优先级 | 类别 | 泛化根因 | 最优方案 | 状态 |
 |---|---:|---|---|---|---|
 | EVAL-B12-AH1 | P1 | typed correction placement | document-level Caveats 固定在全部 blocks 后渲染，关键 coverage correction 被千行 trace detail 淹没 | 将同一 typed authority 转成 authenticated runtime-trace caveat block，插入 summary 后；report hierarchy 给该 exact system ID 决策前置席位 | covered-pending-replay |
-| EVAL-B12-AG1 | P1 | polyglot verification ownership | PyO3 真回放需 Make 接管 Rust behavioral oracle | exact typed candidate + declared-input roster 已通过真实 replay | verified |
+| EVAL-B12-AG1 | P1 | polyglot verification ownership | PyO3 真回放需 Make 接管 Rust behavioral oracle | 历史 replay 只证明脚本成功与输入依赖，不能证明 Rust 原生行为；B43 已撤销该跨语言硬确权 | superseded-by-B43 |
 | EVAL-B12-AG2/AG3 | P1 | coverage caliber | typed 内容正确但原展示位过晚 | 内容 verified；placement 由 AH1 收尾 | verified-partial |
 
 批 AH 不变量：
@@ -4230,7 +4230,7 @@ windowed `trace_query`，并同时发布：`VerifyClass` span 墙钟 5.000ms、C
 | ID | P | gap | 最优方案 | 状态 |
 |---|---:|---|---|---|
 | EVAL-B43-METAAUTH1 | P0 | `cargo test` 缺失后，`make check` 只调用 Python 文本扫描；系统因脚本字面读取 Rust 文件，便把 Make 的 `DeclaredCoveragePaths` 铸成 Rust `project_runner`，最终错误签为 verified | declared-input roster 只保留为 dependency/audit context；硬 changed-path authority 必须由 runner language family 与目标 family 相交，跨语言 meta runner 即使成功且精确命中输入也不得升级 | implemented/tests-pass |
-| EVAL-B43-PROBEBIND1 | P1 | probe 的 `contract_refs` 可在未执行、导入或绑定任何变更身份时覆盖行为合同；文本 oracle 因而可把“读到了文件”冒充“验证了行为” | 仅从实际 PASS 且由 typed `changed_symbol_refs + language family + active target path` 绑定变更身份的 probe 汇总 contract/placement refs；无绑定时记录 uncoupled/missing，不授予行为合同 | open/next-batch |
+| EVAL-B43-PROBEBIND1 | P1 | probe 的 `contract_refs` 可在未执行、导入或绑定任何变更身份时覆盖行为合同；文本 oracle 因而可把“读到了文件”冒充“验证了行为” | 仅从实际 PASS 且由 typed `changed_symbol_refs + language family + active target path` 绑定变更身份的 probe 汇总 contract/placement refs；无绑定时记录 uncoupled/missing，不授予行为合同 | implemented/targeted-tests-pass |
 
 `METAAUTH1` 明确 supersede `EVAL-B12-AG1` 的硬权限结论：B12 的 exact candidate +
 declared-input roster 比任意 Make 命令更精确，但 B43 证明它仍只回答“脚本依赖了什么”，不能
@@ -4244,8 +4244,29 @@ thinking/summary/final，也不接管模型结论。
 - [x] B43-T2：确认显式窗因果投影、自动补齐和双轴上下文完整，模型越界留作 variance watch；
 - [x] B43-T3：撤销 declared-input roster 的跨语言 project-runner 硬权限，保留 typed audit context；
 - [x] B43-T4：定向 changed-path 与真实 RunTests meta-runner 负例通过；
-- [ ] B43-T5：probe contract refs 与实际 PASS、变更身份、语言 family 建立 typed 合取；
+- [x] B43-T5：probe contract refs 与实际 PASS、变更身份、语言 family 建立 typed 合取；
 - [ ] B43-T6：完整相关回归，分批提交推送；干净 HEAD 同对双并行回放并人工验收。
+
+#### B43-b：probe 合同必须由通过且身份耦合的执行证明
+
+第二施工批复用 changed-path authority 的同一解析器，避免合同账本另造一份判定：
+
+1. 先由 `TestResult{suite=verification_probe/*, passed=true, assertion_id}` 得到实际通过的
+   probe ID；未运行、失败或仅存在于 plan 的 probe 不参与任何 contract/placement/changed
+   coverage。
+2. `path:` identity 必须精确命中 active changed source path 且 probe language family 相交；
+   bare symbol 只在兼容 source target 唯一时可归属，多文件同 family 继续要求 `path:`。
+3. 只有上述 identity-coupled probe 的 `contract_refs` / `placement_refs` 可进入 satisfied
+   集合。probe 自报合同、stdout 成功、代码中出现目标文本都不能单独确权。
+4. 有 changed refs 但无法解析到兼容目标时，发布 typed
+   `verification_probe_changed_symbol_uncoupled`；没有 refs 则保留
+   `verification_probe_missing_changed_symbol_ref`。所引用行为合同保持 missing/unverified。
+5. soft/fallback contract 与 placement contract 同样受 identity 合取，不再只有 hard
+   contract 才要求 changed-symbol proof。
+
+定向测试覆盖跨语言 Python→Rust path claim、未通过 probe 不能覆盖合同、同语言单目标
+bare symbol 正例，以及原有 hard/soft/placement partial coverage。未读取 probe code、用户
+原文、模型 thinking/summary/final；系统只决定证据权限，不生成或替换模型结论。
 
 ### B41：data 终批材料 × Binder 方向语义审计（2026-08-02）
 

@@ -211,46 +211,16 @@ func changedPathCoverageFromPassedProbes(
 	targets []string,
 	targetFamilies map[string][]types.VerificationLanguageFamily,
 ) map[string]changedPathCoverageEvidence {
-	passedIDs := map[string]bool{}
-	for _, result := range report.TestResults {
-		if !result.Passed || !strings.HasPrefix(strings.TrimSpace(result.Suite), "verification_probe/") {
-			continue
-		}
-		if id := strings.TrimSpace(result.AssertionID); id != "" {
-			passedIDs[id] = true
-		}
-	}
+	passedIDs := passedVerificationProbeIDs(report)
 	if len(passedIDs) == 0 {
 		return nil
 	}
-	targetSet := repoPathKeySet(targets)
 	out := map[string]changedPathCoverageEvidence{}
 	for _, probe := range plan.VerificationProbes {
 		if !passedIDs[strings.TrimSpace(probe.ID)] {
 			continue
 		}
-		probeFamilies := sourceVerificationLanguageFamilies(
-			types.VerificationLanguageFamiliesFromVerificationProbeSuite("verification_probe/" + strings.TrimSpace(probe.Language)),
-		)
-		var exact []string
-		for _, ref := range probe.ChangedSymbolRefs {
-			ref = strings.TrimSpace(ref)
-			if !strings.HasPrefix(ref, "path:") {
-				continue
-			}
-			path := cleanRepoRelPath(strings.TrimPrefix(ref, "path:"))
-			if canonical, ok := targetSet[strings.ToLower(path)]; ok &&
-				verificationLanguageFamiliesIntersect(targetFamilies[canonical], probeFamilies) {
-				exact = appendUniqueRepoPath(exact, canonical)
-			}
-		}
-		// A non-path changed-symbol ref is path-unambiguous only for a single
-		// changed source file. Multi-file plans require explicit path: refs.
-		if len(exact) == 0 && len(targets) == 1 && len(probe.ChangedSymbolRefs) > 0 &&
-			verificationLanguageFamiliesIntersect(targetFamilies[targets[0]], probeFamilies) {
-			exact = append(exact, targets[0])
-		}
-		for _, path := range exact {
+		for _, path := range verificationProbeChangedTargetPaths(probe, targets, targetFamilies) {
 			out[path] = changedPathCoverageEvidence{
 				caliber: types.ChangedPathVerificationProbe,
 				runner:  "verification_probe",
@@ -259,6 +229,71 @@ func changedPathCoverageFromPassedProbes(
 		}
 	}
 	return out
+}
+
+func passedVerificationProbeIDs(report *types.ChangeReport) map[string]bool {
+	passedIDs := map[string]bool{}
+	if report == nil {
+		return passedIDs
+	}
+	for _, result := range report.TestResults {
+		if !result.Passed || !strings.HasPrefix(strings.TrimSpace(result.Suite), "verification_probe/") {
+			continue
+		}
+		if id := strings.TrimSpace(result.AssertionID); id != "" {
+			passedIDs[id] = true
+		}
+	}
+	return passedIDs
+}
+
+// verificationProbeChangedTargetPaths resolves the typed identity boundary
+// for one probe. Exact path: refs may select any compatible changed target;
+// a language-level symbol is unambiguous only when exactly one changed source
+// target belongs to the probe's language family. Contract labels and probe
+// code/prose do not participate in this authority decision.
+func verificationProbeChangedTargetPaths(
+	probe types.VerificationProbe,
+	targets []string,
+	targetFamilies map[string][]types.VerificationLanguageFamily,
+) []string {
+	probeFamilies := sourceVerificationLanguageFamilies(
+		types.VerificationLanguageFamiliesFromVerificationProbeSuite("verification_probe/" + strings.TrimSpace(probe.Language)),
+	)
+	if len(probeFamilies) == 0 || len(probe.ChangedSymbolRefs) == 0 {
+		return nil
+	}
+	targetSet := repoPathKeySet(targets)
+	var exact []string
+	hasNonPathRef := false
+	for _, ref := range probe.ChangedSymbolRefs {
+		ref = strings.TrimSpace(ref)
+		if ref == "" {
+			continue
+		}
+		if !strings.HasPrefix(ref, "path:") {
+			hasNonPathRef = true
+			continue
+		}
+		path := cleanRepoRelPath(strings.TrimPrefix(ref, "path:"))
+		if canonical, ok := targetSet[strings.ToLower(path)]; ok &&
+			verificationLanguageFamiliesIntersect(targetFamilies[canonical], probeFamilies) {
+			exact = appendUniqueRepoPath(exact, canonical)
+		}
+	}
+	if len(exact) > 0 || !hasNonPathRef {
+		return exact
+	}
+	var compatible []string
+	for _, target := range targets {
+		if verificationLanguageFamiliesIntersect(targetFamilies[target], probeFamilies) {
+			compatible = append(compatible, target)
+		}
+	}
+	if len(compatible) == 1 {
+		return compatible
+	}
+	return nil
 }
 
 func changedPathCoverageCaliberRank(caliber types.ChangedPathVerificationCaliber) int {

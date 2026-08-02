@@ -2983,7 +2983,8 @@ func TestVerificationDiagnosticsPreserveProbeAndSuiteSignals(t *testing.T) {
 
 func TestVerificationConfidenceRecordsFromProbeReport(t *testing.T) {
 	plan := &types.ChangePlan{
-		ID: "plan-confidence",
+		ID:          "plan-confidence",
+		TargetPaths: []string{"widget.py"},
 		BehaviorContracts: []types.WriteBehaviorContract{{
 			ID:       "outcome-1",
 			Kind:     types.WriteBehaviorObservable,
@@ -3062,6 +3063,8 @@ func TestVerificationConfidenceRecordsFromProbeReport(t *testing.T) {
 
 	report.TestResults[0].Suite = "verification_probe/javascript"
 	report.ExecutedCommands[0].Framework = "javascript"
+	plan.TargetPaths = []string{"widget.js"}
+	plan.VerificationProbes[0].Language = "javascript"
 	records = verificationConfidenceRecordsFromReport(plan, report)
 	if !verificationConfidenceContains(records, "probe_contract_refs", "satisfied", "verification_probe_contract_ref_covered") ||
 		!verificationConfidenceContains(records, "probe_changed_symbol", "satisfied", "verification_probe_changed_symbol_coupled") ||
@@ -3072,7 +3075,8 @@ func TestVerificationConfidenceRecordsFromProbeReport(t *testing.T) {
 
 func TestVerificationConfidenceRecordsDoNotRequirePlacementWithoutTypedContract(t *testing.T) {
 	plan := &types.ChangePlan{
-		ID: "plan-confidence-global-output",
+		ID:          "plan-confidence-global-output",
+		TargetPaths: []string{"widget.js"},
 		BehaviorContracts: []types.WriteBehaviorContract{{
 			ID:       "outcome-1",
 			Kind:     types.WriteBehaviorObservable,
@@ -3166,7 +3170,8 @@ func TestRunPlanVerificationProbesAttachesConfidenceToProbeReport(t *testing.T) 
 
 func TestVerificationConfidenceRecordsFromProbeReportRecordsSoftContractRefsSeparately(t *testing.T) {
 	plan := &types.ChangePlan{
-		ID: "plan-confidence-soft",
+		ID:          "plan-confidence-soft",
+		TargetPaths: []string{"widget.py"},
 		BehaviorContracts: []types.WriteBehaviorContract{{
 			ID:       "soft-outcome",
 			Kind:     types.WriteBehaviorObservable,
@@ -3212,6 +3217,7 @@ func TestVerificationConfidenceRecordsFromProbeReportRecordsSoftContractRefsSepa
 	}
 
 	plan.VerificationProbes[0].ContractRefs = []string{"soft-outcome"}
+	plan.VerificationProbes[0].ChangedSymbolRefs = []string{"widget.render"}
 	records = verificationConfidenceRecordsFromReport(plan, report)
 	if verificationConfidenceContains(records, "probe_soft_contract_refs", "missing", "verification_probe_missing_soft_contract_ref") {
 		t.Fatalf("covered soft satisfies contract should not emit soft missing record: %+v", records)
@@ -3223,7 +3229,8 @@ func TestVerificationConfidenceRecordsFromProbeReportRecordsSoftContractRefsSepa
 
 func TestVerificationConfidenceRecordsFromProbeReportRecordsPartialMissingContracts(t *testing.T) {
 	plan := &types.ChangePlan{
-		ID: "plan-confidence-partial",
+		ID:          "plan-confidence-partial",
+		TargetPaths: []string{"widget.py"},
 		BehaviorContracts: []types.WriteBehaviorContract{{
 			ID:       "c1",
 			Kind:     types.WriteBehaviorObservable,
@@ -3242,10 +3249,11 @@ func TestVerificationConfidenceRecordsFromProbeReportRecordsPartialMissingContra
 			Source:   "write_analyzer",
 		}},
 		VerificationProbes: []types.VerificationProbe{{
-			ID:           "probe",
-			Language:     "python",
-			Code:         "assert True",
-			ContractRefs: []string{"c1"},
+			ID:                "probe",
+			Language:          "python",
+			Code:              "assert True",
+			ContractRefs:      []string{"c1"},
+			ChangedSymbolRefs: []string{"widget.render"},
 		}},
 	}
 	report := &types.ChangeReport{
@@ -3275,6 +3283,101 @@ func TestVerificationConfidenceRecordsFromProbeReportRecordsPartialMissingContra
 	}
 	if len(missing) != 1 || missing[0] != "c2" {
 		t.Fatalf("missing contract refs = %+v, want [c2]; records=%+v", missing, records)
+	}
+}
+
+func TestVerificationConfidenceRejectsCrossLanguageProbeContractClaim(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID:          "plan-cross-language-probe-claim",
+		TargetPaths: []string{"src/duration.rs"},
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID:       "duration-boundary",
+			Kind:     types.WriteBehaviorObservable,
+			Polarity: types.WriteBehaviorPolarityExpected,
+			Operator: types.WriteBehaviorOpEquals,
+			Expected: "native Rust boundary behavior",
+			Required: true,
+			Source:   "write_analyzer",
+		}},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:                "text-oracle",
+			Language:          "python",
+			Code:              "assert True",
+			ContractRefs:      []string{"duration-boundary"},
+			ChangedSymbolRefs: []string{"path:src/duration.rs"},
+		}},
+	}
+	report := &types.ChangeReport{
+		Passed: true,
+		TestResults: []types.TestResult{{
+			AssertionID: "text-oracle",
+			Suite:       "verification_probe/python",
+			Passed:      true,
+		}},
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner:    "verification_probe",
+			Framework: "python",
+			Outcome:   "executed",
+		}},
+	}
+
+	records := verificationConfidenceRecordsFromReport(plan, report)
+	if verificationConfidenceContains(records, "probe_contract_refs", "satisfied", "verification_probe_contract_ref_covered") {
+		t.Fatalf("cross-language probe must not mint behavior authority: %+v", records)
+	}
+	if !verificationConfidenceContains(records, "probe_contract_refs", "missing", "verification_probe_missing_required_contract_ref") ||
+		!verificationConfidenceContains(records, "probe_changed_symbol", "missing", "verification_probe_changed_symbol_uncoupled") {
+		t.Fatalf("cross-language identity claim must remain typed-unverified: %+v", records)
+	}
+}
+
+func TestVerificationConfidenceIgnoresContractClaimsFromUnpassedProbe(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID:          "plan-passed-probe-only",
+		TargetPaths: []string{"widget.py"},
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID: "passed-contract", Kind: types.WriteBehaviorObservable,
+			Polarity: types.WriteBehaviorPolarityExpected, Operator: types.WriteBehaviorOpEquals,
+			Expected: "passed behavior", Required: true, Source: "write_analyzer",
+		}, {
+			ID: "failed-contract", Kind: types.WriteBehaviorObservable,
+			Polarity: types.WriteBehaviorPolarityExpected, Operator: types.WriteBehaviorOpEquals,
+			Expected: "failed behavior", Required: true, Source: "write_analyzer",
+		}},
+		VerificationProbes: []types.VerificationProbe{{
+			ID: "passed", Language: "python", Code: "assert True",
+			ContractRefs: []string{"passed-contract"}, ChangedSymbolRefs: []string{"widget.value"},
+		}, {
+			ID: "failed", Language: "python", Code: "assert False",
+			ContractRefs: []string{"failed-contract"}, ChangedSymbolRefs: []string{"widget.value"},
+		}},
+	}
+	report := &types.ChangeReport{
+		Passed: true,
+		TestResults: []types.TestResult{{
+			AssertionID: "passed", Suite: "verification_probe/python", Passed: true,
+		}, {
+			AssertionID: "failed", Suite: "verification_probe/python", Passed: false,
+		}},
+		ExecutedCommands: []types.ExecutedCommand{{Runner: "verification_probe", Framework: "python", Outcome: "executed"}},
+	}
+
+	records := verificationConfidenceRecordsFromReport(plan, report)
+	var covered, missing []string
+	for _, record := range records {
+		if record.Category != "probe_contract_refs" {
+			continue
+		}
+		if record.Status == "satisfied" {
+			covered = record.ContractRefs
+		}
+		if record.Status == "missing" {
+			missing = record.ContractRefs
+		}
+	}
+	if len(covered) != 1 || covered[0] != "passed-contract" ||
+		len(missing) != 1 || missing[0] != "failed-contract" {
+		t.Fatalf("only actually passed probes may cover contracts: covered=%v missing=%v records=%+v", covered, missing, records)
 	}
 }
 

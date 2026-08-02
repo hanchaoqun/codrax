@@ -372,10 +372,9 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		}
 		report = scopeBuildFailureReportToChangedLines(ctx, report)
 		// Attach the exact filesystem-derived surface before changed-path
-		// coverage is evaluated. Meta runners such as Make are intentionally
-		// language-agnostic; the coverage gate may trust them across language
-		// families only when the successful command matches this typed
-		// candidate (working directory + declared test target + command).
+		// coverage is evaluated. Its declared-input roster remains selection
+		// and audit context; it cannot promote a meta runner across language
+		// families into source execution authority.
 		surfaceCopy := surface
 		surfaceCopy.Candidates = append([]types.TestSurfaceCandidate(nil), surface.Candidates...)
 		report.TestSurface = &surfaceCopy
@@ -2956,11 +2955,33 @@ func verificationConfidenceRecordsFromReport(plan *types.ChangePlan, report *typ
 		required := types.HardRequiredWriteBehaviorContractIDs(plan.BehaviorContracts)
 		placementRequired := types.PlacementRequiredWriteBehaviorContractIDs(plan.BehaviorContracts)
 		softRequired := softRequiredWriteBehaviorContractIDs(plan.BehaviorContracts)
+		targetPaths, _ := types.ActiveChangePlanApplyTargetPaths(plan, nil)
+		targets, targetFamilies := recognizedChangedSourcePaths(targetPaths)
+		passedIDs := passedVerificationProbeIDs(report)
 		covered := map[string]struct{}{}
 		placementCovered := map[string]struct{}{}
 		changed := map[string]struct{}{}
+		declaredChanged := map[string]struct{}{}
 		baselineExpected := false
 		for _, probe := range plan.VerificationProbes {
+			if !passedIDs[strings.TrimSpace(probe.ID)] {
+				continue
+			}
+			for _, ref := range probe.ChangedSymbolRefs {
+				ref = strings.TrimSpace(ref)
+				if ref != "" {
+					declaredChanged[ref] = struct{}{}
+				}
+			}
+			if probe.ExpectsBaselineFailure {
+				baselineExpected = true
+			}
+			// A contract label is a claim, not proof. Only a probe whose typed
+			// changed identity resolves to a compatible active source target may
+			// mint behavior- or placement-contract authority.
+			if len(verificationProbeChangedTargetPaths(probe, targets, targetFamilies)) == 0 {
+				continue
+			}
 			for _, ref := range probe.ContractRefs {
 				ref = strings.TrimSpace(ref)
 				if ref != "" {
@@ -2978,9 +2999,6 @@ func verificationConfidenceRecordsFromReport(plan *types.ChangePlan, report *typ
 				if ref != "" {
 					changed[ref] = struct{}{}
 				}
-			}
-			if probe.ExpectsBaselineFailure {
-				baselineExpected = true
 			}
 		}
 		if len(required) > 0 {
@@ -3005,18 +3023,28 @@ func verificationConfidenceRecordsFromReport(plan *types.ChangePlan, report *typ
 					Severity:     "info",
 					ReasonCode:   "verification_probe_contract_ref_covered",
 					ContractRefs: matched,
-					Detail:       "passed verification probes referenced required behavior contracts",
+					Detail:       "passed identity-coupled verification probes covered required behavior contracts",
 				})
 			}
+		}
+		if len(required) > 0 || len(placementRequired) > 0 || len(softRequired) > 0 {
 			changedRefs := sortedStringSet(changed)
 			if len(changedRefs) == 0 {
+				declaredRefs := sortedStringSet(declaredChanged)
+				reasonCode := "verification_probe_missing_changed_symbol_ref"
+				detail := "passed verification probes did not name changed symbols"
+				if len(declaredRefs) > 0 {
+					reasonCode = "verification_probe_changed_symbol_uncoupled"
+					detail = "passed verification probes named changed symbols but none resolved to a compatible active changed source target"
+				}
 				out = append(out, types.VerificationConfidenceRecord{
-					Source:     "verification_probe",
-					Category:   "probe_changed_symbol",
-					Status:     "missing",
-					Severity:   "warning",
-					ReasonCode: "verification_probe_missing_changed_symbol_ref",
-					Detail:     "passed verification probes did not name changed symbols",
+					Source:            "verification_probe",
+					Category:          "probe_changed_symbol",
+					Status:            "missing",
+					Severity:          "warning",
+					ReasonCode:        reasonCode,
+					ChangedSymbolRefs: declaredRefs,
+					Detail:            detail,
 				})
 			} else {
 				out = append(out, types.VerificationConfidenceRecord{
@@ -3026,7 +3054,7 @@ func verificationConfidenceRecordsFromReport(plan *types.ChangePlan, report *typ
 					Severity:          "info",
 					ReasonCode:        "verification_probe_changed_symbol_coupled",
 					ChangedSymbolRefs: changedRefs,
-					Detail:            "passed verification probes named changed symbols",
+					Detail:            "passed verification probes resolved changed symbols to compatible active source targets",
 				})
 			}
 		}
@@ -3052,7 +3080,7 @@ func verificationConfidenceRecordsFromReport(plan *types.ChangePlan, report *typ
 					Severity:     "info",
 					ReasonCode:   "verification_probe_placement_ref_covered",
 					ContractRefs: matched,
-					Detail:       "passed verification probes bound rendered-text placement contracts",
+					Detail:       "passed identity-coupled verification probes bound rendered-text placement contracts",
 				})
 			}
 		}
@@ -3078,7 +3106,7 @@ func verificationConfidenceRecordsFromReport(plan *types.ChangePlan, report *typ
 					Severity:     "info",
 					ReasonCode:   "verification_probe_soft_contract_ref_covered",
 					ContractRefs: matched,
-					Detail:       "passed verification probes referenced soft or fallback expected outcomes",
+					Detail:       "passed identity-coupled verification probes covered soft or fallback expected outcomes",
 				})
 			}
 		}
