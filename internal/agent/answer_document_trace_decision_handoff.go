@@ -89,6 +89,7 @@ func renderAnswerDocTraceDecisionHandoffSet(set types.TraceCausalProjectionSet, 
 		if len(projection.WakeupPath) > 0 {
 			fmt.Fprintf(&b, "- elected_wakeup_path=`%s`; use it to connect observations, but do not upgrade the path itself beyond the typed causal ceiling.\n",
 				strings.Join(projection.WakeupPath, " -> "))
+			b.WriteString("  - wakeup_path_semantics: an edge `A -> B` proves the typed wakeup/dependency relation carried by that path. By itself it does not prove that B synchronously blocked waiting for A, that A held B's lock/resource, or that every hop formed one continuously blocking call chain. Use stronger blocked-wait/holder wording only when a separate typed blocking or holder relation provides that authority.\n")
 		}
 		for _, node := range traceDecisionEvidenceBoundaries(projection, 8) {
 			fmt.Fprintf(&b, "- evidence_boundary: subject=`%s`; kind=`%s`; status=`no_matching_sched_wakeup_row_in_selected_window`; positive_blocker_authority=`not_provided`; causal_identity=`unresolved`",

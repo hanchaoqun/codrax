@@ -71,10 +71,12 @@ var traceQueryDominantStateSwitchSiteGolden = map[string]string{
 // comparison surface against tracequery.State* members in the same file.
 var traceQueryDominantStateComparisonSiteGolden = map[string]string{
 	// Effective participation now delegates to tracequery's exported closed
-	// matrix helper; the tool-local recursive-handoff gate is the sole direct
-	// DominantState comparison left on this surface.
+	// matrix helper. The target-wait preview comparison is a display-only
+	// exhaustive classifier over the same state tokens; registering it here
+	// ensures a future state-universe change cannot silently mislabel a row.
 	"trace_query.go:traceQueryCausalImpactRecursive":                        "runnable#1",
 	"trace_query.go:traceQueryPriorityCausalImpactForPublicationInUniverse": "runnable,running#2",
+	"trace_query.go:writeTraceTargetWaitOccurrencePreview":                  "io_wait,d_sleep,s_sleep#3",
 }
 
 type traceQueryDominantStateSwitchSite struct {

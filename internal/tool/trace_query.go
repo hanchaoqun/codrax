@@ -4368,6 +4368,16 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			traceThreadLabel(selection.Selected), selection.NameMismatch, sanitizeForBanner(selection.Routing),
 			sanitizeForBanner(traceQueryThreadCandidateRoster(selection.NameCandidates)))
 	}
+	// B33-WAITPREVIEW (2026-08-01): target wait occurrences already have a
+	// complete typed account, but the ordinary thread_timeline preview lists
+	// only its first 12 scheduler intervals. A small wait rowset can therefore
+	// sit later in the payload even though it is exactly the finite answer the
+	// caller requested. Publish that typed rowset near the head of every
+	// target-anchored result. This is a value carrier, not a question/answer
+	// classifier: it reads no request prose and does not narrow causal views.
+	// Large rowsets remain explicitly truncated and keep payload_ref as the
+	// lossless continuation rather than flooding the model context.
+	writeTraceTargetWaitOccurrencePreview(&b, traceQueryTargetWindowStatesAccount(result), payloadRef)
 	for _, suppression := range result.LifecycleSuppressions {
 		fmt.Fprintf(&b, "lifecycle_suppression conflict_tid=%d signal=%s boundary_line=%d boundary_ts=%.6f scope=%s affects_target=%t affected_lanes=%s preserved_lanes=%s frame_ownership_status=%s candidate_selectors=%s suggested_queries=%s\n",
 			suppression.ConflictTID, sanitizeForBanner(suppression.Signal), suppression.BoundaryLine, suppression.BoundaryTs,
@@ -7883,6 +7893,75 @@ func writeTraceTimelineStateTotals(b *strings.Builder, intervals []tracequery.In
 		// carries actual_* tokens in the payload the model may consult. When no
 		// interval is window-cut the note is omitted — noise dies at the source.
 		b.WriteString(traceQueryTimelineActualGuardNote)
+	}
+}
+
+const traceQueryTargetWaitOccurrencePreviewCap = 8
+
+// writeTraceTargetWaitOccurrencePreview renders the target account's exact
+// small D/io-wait roster before the long per-view body. The account and its
+// occurrence rows are built from one ThreadTimeline decomposition, so count,
+// state kind, interval, caller and sum share one caliber. The preview never
+// reconstructs an occurrence from display rows and never claims completeness
+// when either the engine account or this head-preview cap omitted members.
+func writeTraceTargetWaitOccurrencePreview(b *strings.Builder, account *tracequery.TargetWindowStateAccount, payloadRef string) {
+	if b == nil || account == nil || strings.TrimSpace(account.WaitOccurrenceStatus) == "" {
+		return
+	}
+	visible := len(account.WaitOccurrences)
+	if visible > traceQueryTargetWaitOccurrencePreviewCap {
+		visible = traceQueryTargetWaitOccurrencePreviewCap
+	}
+	status := "complete"
+	if account.WaitOccurrenceStatus != "complete" || visible < account.WaitOccurrenceTotal {
+		status = "incomplete"
+	}
+	var dState, ioWait, sleepIOWait, other int
+	var sumMS float64
+	for _, occurrence := range account.WaitOccurrences {
+		sumMS += occurrence.DurationMs
+		switch {
+		case occurrence.State == tracequery.StateIOWait:
+			ioWait++
+		case occurrence.State == tracequery.StateDSleep:
+			dState++
+		case occurrence.State == tracequery.StateSSleep && occurrence.IOWaitKnown && occurrence.IOWait:
+			sleepIOWait++
+		default:
+			other++
+		}
+	}
+	fmt.Fprintf(b, "target_wait_occurrences status=%s account_status=%s emitted=%d total=%d",
+		status, sanitizeForBanner(account.WaitOccurrenceStatus), visible, account.WaitOccurrenceTotal)
+	if account.WaitOccurrenceStatus == "complete" {
+		fmt.Fprintf(b, " d_state=%d io_wait=%d sleep_iowait=%d other=%d wall_clock_sum=%.3fms",
+			dState, ioWait, sleepIOWait, other, sumMS)
+	} else {
+		fmt.Fprintf(b, " observed_d_state=%d observed_io_wait=%d observed_sleep_iowait=%d observed_other=%d observed_wall_clock_sum=%.3fms",
+			dState, ioWait, sleepIOWait, other, sumMS)
+	}
+	b.WriteString(" basis=single_thread_non_overlapping_typed_intervals\n")
+	for i := 0; i < visible; i++ {
+		occurrence := account.WaitOccurrences[i]
+		iowait := "unknown"
+		if occurrence.IOWaitKnown {
+			iowait = "0"
+			if occurrence.IOWait {
+				iowait = "1"
+			}
+		}
+		fmt.Fprintf(b, "- target_wait_occurrence ordinal=%d state=%s window=%.6f..%.6f duration=%.3fms iowait=%s caller=%s lines=%d-%d reason_line=%d\n",
+			occurrence.Ordinal, sanitizeForBanner(string(occurrence.State)), occurrence.StartTs, occurrence.EndTs,
+			occurrence.DurationMs, iowait, sanitizeForBanner(firstNonEmptyTraceString(occurrence.Caller, "unknown")),
+			occurrence.StartLine, occurrence.EndLine, occurrence.ReasonLine)
+	}
+	if status != "complete" {
+		omitted := account.WaitOccurrenceTotal - visible
+		if omitted < 0 {
+			omitted = 0
+		}
+		fmt.Fprintf(b, "target_wait_occurrences_continuation omitted=%d payload_ref=%s\n",
+			omitted, sanitizeForBanner(payloadRef))
 	}
 }
 
