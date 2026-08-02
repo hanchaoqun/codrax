@@ -1354,6 +1354,10 @@ func TestDataTaskWorkflowCompletionGateRequiresReferenceCompleteProjection(t *te
 	if state.Decision.Status == "complete" || state.Decision.ReasonCode != "output_incomplete_reference" {
 		t.Fatalf("Decision=%+v, live state must not complete before reference projection", state.Decision)
 	}
+	if state.NextStage != dataworkflow.StageEmitOutputContractAnswer ||
+		!slices.Contains(state.AllowedNextActions, string(dataquery.DataActionAssembleAnswer)) {
+		t.Fatalf("NextStage=%q AllowedNextActions=%v, incomplete output graph must reopen typed answer projection", state.NextStage, state.AllowedNextActions)
+	}
 }
 
 func TestDataTaskWorkflowCompletionGateRejectsReferenceCardinalityMismatch(t *testing.T) {
@@ -3772,6 +3776,10 @@ func TestDataTaskWorkflowStateDoesNotTreatIntermediateAnswerAsFinal(t *testing.T
 		Result: &dataquery.Result{
 			Answer:         "42",
 			OutputContract: dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false},
+			Artifacts: []dataquery.DataArtifact{{
+				ID:   "final_answer",
+				Kind: string(dataquery.DataActionAssembleAnswer),
+			}},
 			Contributions: []dataquery.ContributionRecord{{
 				ItemID:        dataquery.LooseText("item-1"),
 				Source:        dataquery.LooseText("records.csv"),

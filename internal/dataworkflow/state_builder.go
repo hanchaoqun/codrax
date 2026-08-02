@@ -110,12 +110,24 @@ func BuildWorkflowStateView(input WorkflowStateViewBuildInput) WorkflowStateView
 		ArtifactAvailabilityCount:     artifactAvailabilityCount,
 		ArtifactAvailabilityTruncated: input.ArtifactAvailabilityTruncated,
 	}
+	outputGraphInput := OutputProjectionGraphInput{
+		Output:                    input.OutputContract,
+		Coverage:                  workflowContract,
+		AnswerPresent:             state.HasAnswer,
+		ProjectionArtifactPresent: input.LedgerCounts.HasProjectionArtifact,
+		ReconcilePresent:          state.HasReconcile,
+		PlanHasCustomTransform:    PlanHasActionKind(input.Current, dataquery.DataActionCustomTransform),
+	}
+	if input.OutputGraphInput != nil {
+		outputGraphInput = *input.OutputGraphInput
+	}
+	outputGraph := BuildOutputProjectionGraph(outputGraphInput)
 	facts := state.Facts()
-	state.NextStage = NextStage(facts)
+	state.NextStage = NextStageWithOutputProjection(facts, outputGraph)
 	if input.CustomTransformDisabledFunc != nil {
 		state.CustomTransformDisabled = input.CustomTransformDisabledFunc(state)
 	}
-	state.AllowedNextActionContracts = AllowedNextActionContractsForFacts(facts)
+	state.AllowedNextActionContracts = AllowedNextActionContractsForStageFacts(facts, state.NextStage)
 	// Answer-repair lane: a typed, actionable evaluator repair_node signal on
 	// a completion-shaped state must never coexist with an empty allowed set.
 	// The "complete" stage table is empty by design, but while the latest
@@ -162,23 +174,12 @@ func BuildWorkflowStateView(input WorkflowStateViewBuildInput) WorkflowStateView
 	})
 	state.WorkflowViolations = append(state.WorkflowViolations, append([]WorkflowViolation(nil), input.AdditionalViolations...)...)
 	state.WorkflowViolationSummary = BuildWorkflowViolationSummary(state.WorkflowViolations)
-	outputGraphInput := OutputProjectionGraphInput{
-		Output:                    input.OutputContract,
-		Coverage:                  workflowContract,
-		AnswerPresent:             state.HasAnswer,
-		ProjectionArtifactPresent: input.LedgerCounts.HasProjectionArtifact,
-		ReconcilePresent:          state.HasReconcile,
-		PlanHasCustomTransform:    PlanHasActionKind(input.Current, dataquery.DataActionCustomTransform),
-	}
-	if input.OutputGraphInput != nil {
-		outputGraphInput = *input.OutputGraphInput
-	}
 	decisionInput := WorkflowDecisionInput{
 		NextStage:          state.NextStage,
 		AllowedNextActions: state.AllowedNextActions,
 		Violations:         state.WorkflowViolations,
 		LedgerGraph:        BuildLedgerGraph(facts),
-		OutputGraph:        BuildOutputProjectionGraph(outputGraphInput),
+		OutputGraph:        outputGraph,
 	}
 	if input.LatestEvaluation != nil {
 		decisionInput.Status = string(input.LatestEvaluation.Status)

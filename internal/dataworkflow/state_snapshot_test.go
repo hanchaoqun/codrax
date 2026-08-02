@@ -214,8 +214,9 @@ func TestBuildWorkflowStateViewUsesPreciseOutputGraphInputBeforeCompleting(t *te
 		},
 		OutputGraphInput: &exact,
 	})
-	if view.NextStage != StageComplete {
-		t.Fatalf("NextStage=%q, ledger stages should be complete", view.NextStage)
+	if view.NextStage != StageEmitOutputContractAnswer ||
+		!stringSliceContains(view.AllowedNextActions, string(dataquery.DataActionAssembleAnswer)) {
+		t.Fatalf("NextStage=%q AllowedNextActions=%v, precise output gap must reopen answer projection after ledger completion", view.NextStage, view.AllowedNextActions)
 	}
 	if view.OutputProjectionGraph.Status != OutputProjectionStatusIncompleteReference ||
 		view.OutputProjectionGraph.ReferenceKeyCount != 3 ||

@@ -75,6 +75,18 @@ func BuildOutputProjectionGraph(input OutputProjectionGraphInput) OutputProjecti
 	}
 }
 
+// NextStageWithOutputProjection gives a precise incomplete output projection
+// authority over the otherwise terminal ledger stage. Business-ledger facts
+// remain the primary stage machine; this only reopens the final projection
+// lane after those facts would report complete.
+func NextStageWithOutputProjection(facts StageFacts, graph OutputProjectionGraph) string {
+	stage := NextStage(facts)
+	if stage == StageComplete && graph.Status != "" && graph.Status != OutputProjectionStatusSatisfied {
+		return StageEmitOutputContractAnswer
+	}
+	return stage
+}
+
 func ResultAnswerPresent(result dataquery.Result) bool {
 	return strings.TrimSpace(result.Answer) != "" && !dataquery.AnswerLooksLikeArtifactSummary(result.Answer)
 }

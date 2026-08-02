@@ -43,6 +43,20 @@ func TestBuildOutputProjectionGraphReportsReferenceIncomplete(t *testing.T) {
 	}
 }
 
+func TestNextStageWithOutputProjectionReopensOnlyTerminalProjection(t *testing.T) {
+	completeFacts := StageFacts{MaterialCoverageSufficient: true, HasAnswer: true}
+	if got := NextStageWithOutputProjection(completeFacts, OutputProjectionGraph{Status: OutputProjectionStatusIncompleteReference}); got != StageEmitOutputContractAnswer {
+		t.Fatalf("stage=%q, want output projection repair stage", got)
+	}
+	if got := NextStageWithOutputProjection(completeFacts, OutputProjectionGraph{Status: OutputProjectionStatusSatisfied}); got != StageComplete {
+		t.Fatalf("stage=%q, satisfied output must remain complete", got)
+	}
+	pendingFacts := StageFacts{MaterialCoverageSufficient: true, ContributionLedgerRequired: true}
+	if got := NextStageWithOutputProjection(pendingFacts, OutputProjectionGraph{Status: OutputProjectionStatusIncompleteReference}); got != StagePrepareContributionInputs {
+		t.Fatalf("stage=%q, business ledger stage must precede output repair", got)
+	}
+}
+
 func TestResultIsFinalAnswerCandidateUsesTypedOutputPolicy(t *testing.T) {
 	contract := dataquery.CoverageContract{ContributionLedgerRequired: true}
 	expected := dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine}

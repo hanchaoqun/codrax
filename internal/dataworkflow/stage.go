@@ -752,7 +752,20 @@ func ReconcileEscapeActive(facts StageFacts) bool {
 }
 
 func AllowedNextActionContractsForFacts(facts StageFacts) []ActionContract {
-	stage := NextStage(facts)
+	return AllowedNextActionContractsForStageFacts(facts, NextStage(facts))
+}
+
+// AllowedNextActionContractsForStageFacts applies the same fact-dependent
+// admission modifiers as AllowedNextActionContractsForFacts to an effective
+// stage selected by another typed authority, such as an incomplete output
+// projection graph. This keeps next_stage, allowed_next_actions, and the
+// admission guard on one structural decision without teaching any layer to
+// inspect answer prose.
+func AllowedNextActionContractsForStageFacts(facts StageFacts, stage string) []ActionContract {
+	stage = strings.TrimSpace(stage)
+	if stage == "" {
+		stage = NextStage(facts)
+	}
 	contracts := AllowedNextActionContracts(stage)
 	if stage == StageReconcileArtifacts && ReconcileEscapeActive(facts) {
 		// EVALFIX-1 Gap A typed escape: after the threshold the planner
