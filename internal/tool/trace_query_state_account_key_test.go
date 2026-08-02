@@ -14,6 +14,14 @@ func TestTraceQueryPublishesStateAccountKeyOnBothTypedRows(t *testing.T) {
 	result := tracequery.Result{
 		View:       "root_cause_rank",
 		SourcePath: "/traces/app.systrace",
+		WindowStats: &tracequery.WindowStats{
+			Window: tracequery.TimeWindow{StartTs: 11, EndTs: 11.008},
+			StateChurn: []tracequery.ThreadStateChurnSummary{{
+				Thread: tracequery.ThreadRef{Comm: "app", PID: 20}, StateAccountKey: key,
+				DominantState: string(tracequery.StateRunnable), DominantImpactMs: 5,
+				RunningMs: 3, RunnableMs: 5, FragmentCount: 20, StateSwitches: 19,
+			}},
+		},
 		RootCauseRank: &tracequery.RootCauseRankResult{
 			Window: tracequery.TimeWindow{StartTs: 11, EndTs: 11.008},
 			Items: []tracequery.RootCauseRankItem{{
@@ -48,7 +56,7 @@ func TestTraceQueryPublishesStateAccountKeyOnBothTypedRows(t *testing.T) {
 	rows := traceQueryTypedObservations(result, "trace", "/blobs/trace.json", "", "", time.Now())
 	found := map[string]bool{}
 	for _, row := range rows {
-		if row.Predicate != "root_cause_primary" && row.Predicate != "wakeup_causal_impact" {
+		if row.Predicate != "root_cause_primary" && row.Predicate != "wakeup_causal_impact" && row.Predicate != "state_churn" {
 			continue
 		}
 		want := types.TraceNoteKeyStateAccountKey + "=" + key
@@ -58,7 +66,7 @@ func TestTraceQueryPublishesStateAccountKeyOnBothTypedRows(t *testing.T) {
 			}
 		}
 	}
-	for _, predicate := range []string{"root_cause_primary", "wakeup_causal_impact"} {
+	for _, predicate := range []string{"root_cause_primary", "wakeup_causal_impact", "state_churn"} {
 		if !found[predicate] {
 			t.Fatalf("%s must publish the exact state-account wire; rows=%+v", predicate, rows)
 		}

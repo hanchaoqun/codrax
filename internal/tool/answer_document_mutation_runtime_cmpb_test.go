@@ -176,6 +176,37 @@ func TestRuntimeTraceMetricSnapshot_ChainEpisodeRemainsIndependent(t *testing.T)
 	}
 }
 
+func TestRuntimeTraceMetricSnapshot_ExactStateAccountKeyCollapsesWholeWindowWakeupFace(t *testing.T) {
+	bus := newBusForMutationTest()
+	const key = "state_account:v1:shared"
+	canonical := cmpbSnapshotObservation("canonical", "app-20", "2.000", "state_churn", "state_churn:app-20",
+		"selected_window=11.000..11.008", types.TraceNoteKeyStateAccountKey+"="+key)
+	canonical.RichNotes[6] = "fragments=20"
+	canonical.RichNotes[7] = "switches=19"
+	wakeup := cmpbSnapshotObservation("wakeup", "app-20", "2.000", "wakeup_causal_impact", "wakeup_causal_impact:app-20",
+		"selected_window=11.000..11.008", "chain_relevance=on_chain", "impact_ms=2.000", types.TraceNoteKeyStateAccountKey+"="+key)
+	wakeup.RichNotes[6] = "fragments=21"
+	wakeup.RichNotes[7] = "switches=20"
+	canonical.SourceRef = types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "trace-a"}
+	wakeup.SourceRef = canonical.SourceRef
+	bus.ToolResults = []types.ToolResult{{ToolName: "trace_query", Success: true, Observations: []types.ObservationRecord{wakeup, canonical}}}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(bus, 64))
+	if len(ledger.Records) != 2 {
+		t.Fatalf("fixture ledger lost rows: %+v", ledger.Records)
+	}
+	for _, record := range ledger.Records {
+		if types.TraceCausalProjectionRecordArtifactIdentity(record) == "" ||
+			runtimeTraceObservationRichNoteValue(record.RichNotes, types.TraceNoteKeyStateAccountKey) != key {
+			t.Fatalf("fixture lost typed artifact/account identity: %+v", record)
+		}
+	}
+
+	items := runtimeTraceMetricSnapshotItems(cmpbSnapshotDoc(), bus)
+	if len(items) != 1 || !strings.Contains(items[0].Text, "19 次切换/20 段") {
+		t.Fatalf("shared exact state account must publish only the canonical whole-window snapshot: %+v", items)
+	}
+}
+
 // CMP-4b pin: a snapshot thread whose own observed span exceeds TWICE the
 // projection window carries the mismatch note; a within-2× thread does not.
 func TestRuntimeTraceMetricSnapshot_SpanMismatchAnnotation(t *testing.T) {

@@ -131,4 +131,50 @@ func stampResultStateAccountPublicationKeys(res *Result) {
 		return
 	}
 	stampStateAccountPublicationKeys(res.WakeupChain, res.RootCauseRank)
+	stampStateChurnAccountPublicationKeys(res.WindowStats, res.WakeupChain)
+}
+
+// stampStateChurnAccountPublicationKeys extends the exact rank<->wakeup join
+// credential onto the whole-window state_churn face. The key has already been
+// minted from the complete scheduler-segment inventories of one unambiguous
+// rank/impact pair; this propagation only accepts the same thread, state,
+// selected window, dominant impact, and five-state partition. It therefore
+// lets display consumers collapse three publications of one physical account
+// without treating an equal scalar from a different occurrence as identical.
+func stampStateChurnAccountPublicationKeys(stats *WindowStats, chain *ChainResult) {
+	if stats == nil || chain == nil {
+		return
+	}
+	for i := range stats.StateChurn {
+		stats.StateChurn[i].StateAccountKey = ""
+		churn := &stats.StateChurn[i]
+		keys := map[string]bool{}
+		for j := range chain.CausalImpacts {
+			impact := &chain.CausalImpacts[j]
+			key := strings.TrimSpace(impact.StateAccountKey)
+			if key == "" || !sameThreadRef(churn.Thread, impact.Thread) ||
+				!strings.EqualFold(strings.TrimSpace(churn.DominantState), strings.TrimSpace(impact.DominantState)) ||
+				math.Abs(stats.Window.StartTs-impact.Window.StartTs) > 1e-9 ||
+				math.Abs(stats.Window.EndTs-impact.Window.EndTs) > 1e-9 ||
+				!sameStateAccountMetric(churn.DominantImpactMs, impact.DominantImpactMs) ||
+				!sameStateAccountMetric(churn.RunningMs, impact.RunningMs) ||
+				!sameStateAccountMetric(churn.RunnableMs, impact.RunnableMs) ||
+				!sameStateAccountMetric(churn.SleepMs, impact.SleepMs) ||
+				!sameStateAccountMetric(churn.DStateMs, impact.DStateMs) ||
+				!sameStateAccountMetric(churn.IOWaitMs, impact.IOWaitMs) {
+				continue
+			}
+			keys[key] = true
+		}
+		if len(keys) == 1 {
+			for key := range keys {
+				churn.StateAccountKey = key
+			}
+		}
+	}
+}
+
+func sameStateAccountMetric(a, b float64) bool {
+	return !math.IsNaN(a) && !math.IsNaN(b) && !math.IsInf(a, 0) && !math.IsInf(b, 0) &&
+		math.Abs(a-b) < types.TraceCausalProjectionSameValueTieMS
 }

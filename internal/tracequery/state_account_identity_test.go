@@ -102,3 +102,35 @@ func TestStampStateAccountPublicationKeysExactPairAndAmbiguityFailOpen(t *testin
 		t.Fatalf("ambiguous publications must fail open without a join key: rank=%+v impacts=%+v", rank.Items, chain.CausalImpacts)
 	}
 }
+
+func TestStampResultStateAccountPublicationKeysCarriesExactIdentityToStateChurn(t *testing.T) {
+	intervals := stateAccountTestIntervals()
+	res := Result{
+		WindowStats: &WindowStats{
+			Window: TimeWindow{StartTs: 11, EndTs: 11.008},
+			StateChurn: []ThreadStateChurnSummary{{
+				Thread: ThreadRef{Comm: "app", PID: 20}, DominantState: string(StateRunnable),
+				DominantImpactMs: 5, RunningMs: 3, RunnableMs: 5,
+			}},
+		},
+		RootCauseRank: func() *RootCauseRankResult { v := stateAccountTestRank(intervals); return &v }(),
+		WakeupChain: &ChainResult{CausalImpacts: []WakeupCausalImpact{func() WakeupCausalImpact {
+			v := stateAccountTestImpact(intervals)
+			v.RunningMs = 3
+			v.RunnableMs = 5
+			return v
+		}()}},
+	}
+	stampResultStateAccountPublicationKeys(&res)
+	got := res.WindowStats.StateChurn[0].StateAccountKey
+	if got == "" || got != res.RootCauseRank.Items[0].StateAccountKey || got != res.WakeupChain.CausalImpacts[0].StateAccountKey {
+		t.Fatalf("one physical state account must share one key across churn/rank/wakeup: churn=%q rank=%q wakeup=%q",
+			got, res.RootCauseRank.Items[0].StateAccountKey, res.WakeupChain.CausalImpacts[0].StateAccountKey)
+	}
+
+	res.WindowStats.StateChurn[0].RunningMs = 2.5
+	stampResultStateAccountPublicationKeys(&res)
+	if res.WindowStats.StateChurn[0].StateAccountKey != "" {
+		t.Fatalf("different five-state partition must not inherit the key: %+v", res.WindowStats.StateChurn[0])
+	}
+}

@@ -7033,6 +7033,17 @@ func runtimeTraceMetricSnapshotItems(doc *types.AnswerDocumentV2, ctx *types.Bus
 		return value, true
 	}
 	sameWholeWindowStateAccount := func(a, b snapshotCandidate) bool {
+		aArtifact := types.TraceCausalProjectionRecordArtifactIdentity(a.record)
+		bArtifact := types.TraceCausalProjectionRecordArtifactIdentity(b.record)
+		sameArtifact := (a.projIdx >= 0 && a.projIdx == b.projIdx) ||
+			(aArtifact != "" && aArtifact == bArtifact)
+		if sameArtifact {
+			aKey := strings.TrimSpace(runtimeTraceObservationRichNoteValue(a.record.RichNotes, types.TraceNoteKeyStateAccountKey))
+			bKey := strings.TrimSpace(runtimeTraceObservationRichNoteValue(b.record.RichNotes, types.TraceNoteKeyStateAccountKey))
+			if aKey != "" && aKey == bKey {
+				return true
+			}
+		}
 		if runtimeTraceMetricSnapshotEpisodeScoped(a.record) ||
 			runtimeTraceMetricSnapshotEpisodeScoped(b.record) ||
 			a.projIdx < 0 || a.projIdx != b.projIdx ||
@@ -7077,8 +7088,7 @@ func runtimeTraceMetricSnapshotItems(doc *types.AnswerDocumentV2, ctx *types.Bus
 	authorityFiltered := candidates[:0:0]
 	for _, candidate := range candidates {
 		suppress := false
-		if strings.TrimSpace(candidate.record.Predicate) != "state_churn" &&
-			!runtimeTraceMetricSnapshotEpisodeScoped(candidate.record) {
+		if strings.TrimSpace(candidate.record.Predicate) != "state_churn" {
 			for _, canonical := range canonicalWholeWindow {
 				if sameWholeWindowStateAccount(candidate, canonical) {
 					suppress = true

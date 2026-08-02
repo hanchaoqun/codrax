@@ -2748,22 +2748,27 @@ func (td ThreadDuration) weightedFrequencyKHz() int64 {
 }
 
 type ThreadStateChurnSummary struct {
-	Thread            ThreadRef `json:"thread"`
-	DominantState     string    `json:"dominant_state,omitempty"`
-	TotalMs           float64   `json:"total_ms,omitempty"`
-	DominantImpactMs  float64   `json:"dominant_impact_ms,omitempty"`
-	RunningMs         float64   `json:"running_ms,omitempty"`
-	RunnableMs        float64   `json:"runnable_ms,omitempty"`
-	SleepMs           float64   `json:"sleep_ms,omitempty"`
-	DStateMs          float64   `json:"d_state_ms,omitempty"`
-	IOWaitMs          float64   `json:"io_wait_ms,omitempty"`
-	FragmentCount     int       `json:"fragment_count,omitempty"`
-	StateSwitches     int       `json:"state_switches,omitempty"`
-	MaxSegmentMs      float64   `json:"max_segment_ms,omitempty"`
-	P95SegmentMs      float64   `json:"p95_segment_ms,omitempty"`
-	RunnableCPU       int       `json:"runnable_cpu,omitempty"`
-	RunnableCoreClass string    `json:"runnable_core_class,omitempty"`
-	RunnableCPUKnown  bool      `json:"-"`
+	Thread ThreadRef `json:"thread"`
+	// StateAccountKey is the opaque exact scheduler-segment identity shared
+	// with the corresponding wakeup-impact/root-rank publication when all
+	// three views describe the same physical state account. Empty means the
+	// producer could not prove a unique cross-view join.
+	StateAccountKey   string  `json:"state_account_key,omitempty"`
+	DominantState     string  `json:"dominant_state,omitempty"`
+	TotalMs           float64 `json:"total_ms,omitempty"`
+	DominantImpactMs  float64 `json:"dominant_impact_ms,omitempty"`
+	RunningMs         float64 `json:"running_ms,omitempty"`
+	RunnableMs        float64 `json:"runnable_ms,omitempty"`
+	SleepMs           float64 `json:"sleep_ms,omitempty"`
+	DStateMs          float64 `json:"d_state_ms,omitempty"`
+	IOWaitMs          float64 `json:"io_wait_ms,omitempty"`
+	FragmentCount     int     `json:"fragment_count,omitempty"`
+	StateSwitches     int     `json:"state_switches,omitempty"`
+	MaxSegmentMs      float64 `json:"max_segment_ms,omitempty"`
+	P95SegmentMs      float64 `json:"p95_segment_ms,omitempty"`
+	RunnableCPU       int     `json:"runnable_cpu,omitempty"`
+	RunnableCoreClass string  `json:"runnable_core_class,omitempty"`
+	RunnableCPUKnown  bool    `json:"-"`
 	// TopCompetitor is only set when that thread's running time actually
 	// overlapped this thread's runnable waits on the same CPU (§7.30.2 R5g);
 	// zero-overlap co-residents (serial hand-offs) never qualify.

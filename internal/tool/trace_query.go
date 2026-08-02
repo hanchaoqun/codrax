@@ -12213,6 +12213,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 			}
 		}
 		appendNote(types.TraceNoteKeyDominantState, churn.DominantState)
+		appendNote(types.TraceNoteKeyStateAccountKey, churn.StateAccountKey)
 		if strings.HasPrefix(strings.TrimSpace(churn.Summary), "state_cluster ") {
 			appendNote("coverage_mode", "state_cluster")
 		}
