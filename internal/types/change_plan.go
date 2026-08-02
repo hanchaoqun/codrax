@@ -668,14 +668,17 @@ func PlanFingerprint(plan *ChangePlan) string {
 // local behaviour checks can run without parsing natural-language
 // acceptance_tests or opening an arbitrary shell-command escape hatch.
 type VerificationProbe struct {
-	ID                     string   `json:"id,omitempty"`
-	Language               string   `json:"language"`
-	WorkingDir             string   `json:"working_dir,omitempty"`
-	Code                   string   `json:"code"`
-	TimeoutSeconds         int      `json:"timeout_seconds,omitempty"`
-	ExpectedStdout         []string `json:"expected_stdout,omitempty"`
-	ContractRefs           []string `json:"contract_refs,omitempty"`
-	PlacementRefs          []string `json:"placement_refs,omitempty"`
+	ID             string   `json:"id,omitempty"`
+	Language       string   `json:"language"`
+	WorkingDir     string   `json:"working_dir,omitempty"`
+	Code           string   `json:"code"`
+	TimeoutSeconds int      `json:"timeout_seconds,omitempty"`
+	ExpectedStdout []string `json:"expected_stdout,omitempty"`
+	ContractRefs   []string `json:"contract_refs,omitempty"`
+	PlacementRefs  []string `json:"placement_refs,omitempty"`
+	// ChangedSymbolRefs carries typed changed identities. Language-level
+	// symbols remain bare (Axis.convert); file/module identities use the
+	// path:<repo-relative-file> form.
 	ChangedSymbolRefs      []string `json:"changed_symbol_refs,omitempty"`
 	ExpectsBaselineFailure bool     `json:"expects_baseline_failure,omitempty"`
 }

@@ -1347,7 +1347,7 @@ func TestValidateSelfConsistency_DiagnosticPredicateAlignsIntentAndScenario(t *t
 	}
 }
 
-func TestEmitAnalysis_NormalizesDiagnosticExplainRoute(t *testing.T) {
+func TestEmitAnalysis_RejectsContradictoryDiagnosticExplainRoute(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
 	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
@@ -1363,41 +1363,31 @@ func TestEmitAnalysis_NormalizesDiagnosticExplainRoute(t *testing.T) {
 	payload = strings.Replace(payload, `"is_diagnostic_question": false, "has_per_member_table": false`, `"is_diagnostic_question": true, "has_per_member_table": false`, 1)
 
 	res, mu := runEmitAnalysisPayload(t, "这是什么错误？", payload)
-	if !res.Success {
-		t.Fatalf("Execute should normalize diagnostic route, got %q", res.Summary)
+	if res.Success {
+		t.Fatalf("Execute must reject contradictory diagnostic route instead of replacing model intent: %q", res.Summary)
 	}
-	rm := mu.RequestModel()
-	if rm == nil {
-		t.Fatal("RequestModel not persisted")
+	if !strings.Contains(res.Summary, "is_diagnostic_question=true requires intent=root_cause") {
+		t.Fatalf("unexpected rejection: %q", res.Summary)
 	}
-	if rm.Intent != types.IntentRootCause {
-		t.Fatalf("Intent = %q, want root_cause", rm.Intent)
-	}
-	if rm.Scenario != types.ScenarioRootCause {
-		t.Fatalf("Scenario = %q, want root_cause", rm.Scenario)
-	}
-	if !rm.Predicates.IsDiagnosticQuestion || !rm.DiagnosticProfile.IsDiagnostic {
-		t.Fatalf("diagnostic typed lanes not aligned: predicates=%+v profile=%+v", rm.Predicates, rm.DiagnosticProfile)
-	}
-	if !strings.Contains(res.Summary, "diagnostic route auto-align") {
-		t.Fatalf("Summary missing auto-align warning, got %q", res.Summary)
+	if rm := mu.RequestModel(); rm != nil {
+		t.Fatalf("rejected contradictory analysis must not persist a rewritten RequestModel: %+v", rm)
 	}
 }
 
-func TestNormalizeDiagnosticRouteKeepsPerformanceScenario(t *testing.T) {
-	intent, scenario, warnings := normalizeDiagnosticRoute(
-		types.IntentExplain,
+func TestValidateSelfConsistency_AcceptsAlignedPerformanceDiagnosticRoute(t *testing.T) {
+	reason := validateSelfConsistency(
+		types.IntentRootCause,
 		types.ScenarioPerformanceBottleneck,
+		"mechanism",
 		types.SemanticPredicates{IsDiagnosticQuestion: true},
+		types.DiagnosticIntentProfile{IsDiagnostic: true},
+		types.AxisUnknown,
+		nil,
+		nil,
+		types.AnswerSubject{},
 	)
-	if intent != types.IntentRootCause {
-		t.Fatalf("intent = %q, want root_cause", intent)
-	}
-	if scenario != types.ScenarioPerformanceBottleneck {
-		t.Fatalf("scenario = %q, want performance_bottleneck", scenario)
-	}
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "intent") {
-		t.Fatalf("warnings = %#v, want only intent alignment", warnings)
+	if reason != "" {
+		t.Fatalf("aligned performance diagnostic route should pass, got %q", reason)
 	}
 }
 
@@ -3348,8 +3338,8 @@ func TestEmitAnalysis_Execute_DefaultsMissingDiagnosticProfile(t *testing.T) {
 	mu := types.NewMutableState("diagnose whether the current failure is still present")
 	tool := &EmitAnalysis{}
 	payload := `{
-		"intent": "explain",
-		"scenario": "architecture_explain",
+		"intent": "root_cause",
+		"scenario": "root_cause",
 		"complexity": "moderate",
 		"keywords": ["a"],
 		"entities": ["Foo"],
@@ -4854,7 +4844,7 @@ func TestEmitAnalysis_Execute_PersistsRuntimeArtifactValueProfileInMixedCurrentS
 	})
 	tool := &EmitAnalysis{}
 	payload := `{
-		"intent": "explain",
+		"intent": "root_cause",
 		"scenario": "performance_bottleneck",
 		"complexity": "medium",
 		"keywords": ["H:Frame", "duration", "86.1ms", "源码"],

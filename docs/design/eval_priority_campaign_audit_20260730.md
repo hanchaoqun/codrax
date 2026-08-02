@@ -4047,7 +4047,79 @@ write case 的生成 loader 生产补丁已经正确，但新增 TypeScript 测�
 - [x] B42-T12：generated-loader 行为测试与 fallback oracle 加固；原始 buggy fixture、r3
   无效测试应用树均被拒；
 - [x] B42-T13：eval apply 终态 typed truth 接线与正/负 runner contract；
-- [ ] B42-T14：提交推送第三施工批，在干净 HEAD 做 r4 严格并行复放并人工验收。
+- [x] B42-T14：提交推送第三施工批，在干净 HEAD 做 r4 严格并行复放并人工验收。
+
+#### B42 r4：上下文路由不得覆盖模型 typed 意图；路径身份不得冒充符号（2026-08-02）
+
+干净 `main@083095d28` 严格并行同一对 case。runner 为 1/2 PASS：read 的浅
+`answer_regex` PASS、write 因 same-plan typed final report
+`unverified/verification_proof_incomplete` 正确 FAIL。人工审计为 read FAIL、write 代码正确
+但验证边界未闭合。
+
+read 深审结论分成两层：
+
+1. 三轮 analyzer 原始 typed 输出均是
+   `intent=explain / scenario=architecture_explain / question_kind=mechanism`，系统因同一 payload
+   的 `is_diagnostic_question=true` 每轮都静默改写成 `root_cause/root_cause`；最终 family 变成
+   `root_cause_trace`，explorer 扩至 8 轮、上下文峰值约 65k/200k（33%），并注入根因 facets、
+   diagram 与枚举合同。对“当前源码如何区分两个机制、附件日志能证明到哪里”而言，这些上下文
+   不够精准，还诱导模型拼出单一因果链。
+2. producer-role 与 runtime-rule-instantiation 软指令已经准确到达 explore/finalize，7 次源码
+   读取也足够继续打开真实 validation check/requeue 路径；模型仍把 timeout classifier 的
+   complement 当第二机制，并把不满足 `model=demo` operand 的 soft warning rule 实例化为
+   本次原因。该残余记为 model-variance watch，不再增加 hard gate、答案替换或原文扫描。
+
+登记 `EVAL-B42-CONTEXTROUTE1/P1`：typed 分类矛盾时，系统只能 canonicalize enum spelling
+或 fail-loud 让 analyzer 重试，不能把一个答案语义静默替换成另一个。施工删除
+`normalizeDiagnosticRoute` 的 intent/scenario 改写，保留现有 typed 自洽校验；
+`is_diagnostic_question=true + explain/architecture` 现在拒绝且不持久化 RequestModel，
+已对齐的 root-cause 与 performance diagnostic 继续通过。此修改不读取 RawRequest、模型
+thinking/summary/final，也不碰 Trace resolver。显式时间窗仍由
+`RuntimeTraceReportShapeAuthority` 最高优先授权完整因果投影/自动补齐。
+
+write 深审确认生产 patch 与既有生成 loader 行为测试均正确；Node runner 缺失使最终
+`unverified` 是诚实边界，runner fail 不应放宽。但出现独立的
+`EVAL-B42-PROOFIDENT1/P1`：计划把
+`./cli/src/api/templates/js-binding` 这个 extensionless module import 填入
+`changed_symbol_refs`，后续无条件铸成 `changed_symbol` obligation；实际变更身份是
+`cli/src/api/templates/js-binding.ts` 文件，因而制造
+`changed_symbol_without_probe_coverage / source_localization_weak /
+impact_targets_unverified` 假缺口。
+
+通用施工方案：
+
+1. 保持 wire 字段兼容；语言级名字（如 `Axis.convert`）仍是 symbol，显式文件用
+   `path:<repo-relative-file>`；
+2. unprefixed module/path 只在对 `changes[].path`（含 extensionless、working-dir-relative、
+   index module）得到唯一匹配时提升为 `path:`；歧义和未匹配值原样保留，禁止猜测；
+3. `ImpactObligationSetFromChangePlan` 将 `path:` 铸成 changed-file/path-ref obligation，
+   不再进入 symbol lane；
+4. schema、planner soft guidance、skeleton 与 verify schema 使用同一身份语义。
+
+定向测试覆盖 unique module、working-dir-relative、index module、真实 symbol、显式 path、
+ambiguous module、canonical plan factory 接线，以及 impact obligation file/symbol 分流。
+冷读曾发现 helper 首版接在 probes 赋值之前、只有 helper 单测为绿；已将铸点移到 plan
+组装完成后，并覆盖 contract enrich 与 no-change proof-followup 两个后续入口，避免再次出现
+“算法存在但 production 未消费”。Node/runtime runner 缺失仍保留 unavailable，不通过身份
+归一化借文件覆盖伪造行为验证。
+
+验证：`internal/types` 22.452s、`internal/skill` 2.485s、`internal/analysis/...`
+全通过；`internal/tool` 首轮 157.978s、production 接线冷读修正后复跑 159.009s，
+`internal/orchestrator` 11.178s、`eval/runner_lib_test.sh` 与 `make` 通过。
+
+状态：`CONTEXTROUTE1=implemented/full-tests-pass`；
+`PROOFIDENT1=implemented/integration-test-pass/full-tests-pass`；
+`PRODUCERROLE1/RULEINSTANCE1=model-variance-watch`；
+`WRITETEST1/EVALSTATUS1=covered`。
+
+任务：
+
+- [x] B42-T15：r4 完整日志、答案、应用树、ChangeReport/WriteFinalReport 与系统上下文人工审计；
+- [x] B42-T16：删除 diagnostic typed 冲突的语义 auto-rewrite，改为自洽失败重试；
+- [x] B42-T17：verification probe module/path identity 唯一归一化与 impact obligation 分流；
+- [x] B42-T18：types/skill/analysis/tool/orchestrator、runner contracts 与 build 完整相关回归；
+- [ ] B42-T19：接线冷读修正后 tool 全包已通过；提交推送，在干净 HEAD 做 r5 同对双并行验收；
+- [ ] B42-T20：r5 收口后转下一组更高优先级跨模式 pair，不继续围绕模型波动做单 case 加固。
 
 ### B41：data 终批材料 × Binder 方向语义审计（2026-08-02）
 

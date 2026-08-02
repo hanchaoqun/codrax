@@ -2309,7 +2309,128 @@ func newChangePlanFromChanges(request, summary string, changes []types.FileChang
 	if len(verificationProbes) > 0 {
 		plan.VerificationProbes = append([]types.VerificationProbe(nil), verificationProbes...)
 	}
+	plan.VerificationProbes = normalizeVerificationProbeChangedTargetRefs(plan.VerificationProbes, plan.TargetPaths)
 	return plan
+}
+
+// normalizeVerificationProbeChangedTargetRefs keeps the existing
+// changed_symbol_refs wire field backward compatible while separating its two
+// documented identities. A language-level symbol (Axis.convert, pkg.VALUE)
+// remains a symbol. A module/path-shaped ref is promoted to the already
+// supported path:<repo-relative-file> form only when it uniquely resolves to a
+// changed target, including extensionless module imports and index modules.
+// Ambiguous or unmatched refs remain untouched; this function never guesses.
+func normalizeVerificationProbeChangedTargetRefs(probes []types.VerificationProbe, targetPaths []string) []types.VerificationProbe {
+	if len(probes) == 0 || len(targetPaths) == 0 {
+		return probes
+	}
+	targets := make([]string, 0, len(targetPaths))
+	for _, target := range targetPaths {
+		target = normalizeVerificationProbeTargetPath(target)
+		if target != "" {
+			targets = append(targets, target)
+		}
+	}
+	if len(targets) == 0 {
+		return probes
+	}
+	out := append([]types.VerificationProbe(nil), probes...)
+	for i := range out {
+		out[i].ChangedSymbolRefs = normalizeVerificationProbeChangedTargetRefSet(
+			out[i].ChangedSymbolRefs,
+			out[i].WorkingDir,
+			targets,
+		)
+	}
+	return out
+}
+
+func normalizeVerificationProbeChangedTargetRefSet(refs []string, workingDir string, targets []string) []string {
+	if len(refs) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(refs))
+	seen := map[string]bool{}
+	for _, raw := range refs {
+		ref := strings.TrimSpace(raw)
+		if ref == "" {
+			continue
+		}
+		if resolved := uniquelyResolvedVerificationProbeTarget(ref, workingDir, targets); resolved != "" {
+			ref = "path:" + resolved
+		}
+		if !seen[ref] {
+			seen[ref] = true
+			out = append(out, ref)
+		}
+	}
+	return out
+}
+
+func uniquelyResolvedVerificationProbeTarget(ref, workingDir string, targets []string) string {
+	explicitPath := strings.HasPrefix(strings.TrimSpace(ref), "path:")
+	raw := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(ref), "path:"))
+	raw = filepath.ToSlash(raw)
+	if raw == "" {
+		return ""
+	}
+	// Unprefixed dotted symbols are not path evidence. Slash/backslash or an
+	// explicit relative-module leader is required before module resolution.
+	if !explicitPath && !strings.Contains(raw, "/") && !strings.HasPrefix(raw, ".") {
+		return ""
+	}
+	candidates := []string{normalizeVerificationProbeTargetPath(raw)}
+	wd := normalizeVerificationProbeTargetPath(workingDir)
+	if wd != "" && wd != "." && !filepath.IsAbs(raw) {
+		candidates = append(candidates, normalizeVerificationProbeTargetPath(filepath.Join(wd, raw)))
+	}
+	matches := map[string]bool{}
+	for _, target := range targets {
+		for _, variant := range verificationProbeTargetModuleVariants(target) {
+			for _, candidate := range candidates {
+				if candidate != "" && candidate == variant {
+					matches[target] = true
+				}
+			}
+		}
+	}
+	if len(matches) != 1 {
+		return ""
+	}
+	for match := range matches {
+		return match
+	}
+	return ""
+}
+
+func verificationProbeTargetModuleVariants(target string) []string {
+	target = normalizeVerificationProbeTargetPath(target)
+	if target == "" {
+		return nil
+	}
+	variants := []string{target}
+	ext := filepath.Ext(target)
+	if ext != "" {
+		stem := strings.TrimSuffix(target, ext)
+		variants = append(variants, stem)
+		if strings.EqualFold(filepath.Base(stem), "index") {
+			variants = append(variants, normalizeVerificationProbeTargetPath(filepath.Dir(stem)))
+		}
+	}
+	return variants
+}
+
+func normalizeVerificationProbeTargetPath(raw string) string {
+	raw = strings.TrimSpace(filepath.ToSlash(raw))
+	if raw == "" {
+		return ""
+	}
+	clean := filepath.ToSlash(filepath.Clean(raw))
+	clean = strings.TrimPrefix(clean, "./")
+	if clean == "." || filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, "../") {
+		return ""
+	}
+	return clean
 }
 
 func attachWriteBehaviorContracts(ctx *types.BusContext, plan *types.ChangePlan) {
@@ -2337,6 +2458,7 @@ func enrichVerificationProbeRefs(plan *types.ChangePlan) {
 			probe.ChangedSymbolRefs = refs
 		}
 	}
+	plan.VerificationProbes = normalizeVerificationProbeChangedTargetRefs(plan.VerificationProbes, plan.TargetPaths)
 }
 
 func probeCoverageContractRefs(contracts []types.WriteBehaviorContract) []types.WriteBehaviorContract {

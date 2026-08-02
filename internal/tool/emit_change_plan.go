@@ -221,7 +221,7 @@ func (t *EmitChangePlan) Parameters() json.RawMessage {
                 "changed_symbol_refs": {
                   "type": "array",
                   "items": {"type": "string"},
-                  "description": "Optional changed symbols/modules this probe imports or executes."
+                  "description": "Optional changed identities this probe imports or executes. Use language-level symbols such as Axis.convert for symbols. Use path:<repo-relative-file> for files/modules. An unprefixed module path is normalized to path: only when it uniquely matches one changes[].path; ambiguous refs remain symbols and cannot borrow file coverage."
                 },
                 "expects_baseline_failure": {
                   "type": "boolean",
@@ -270,7 +270,7 @@ func (t *EmitChangePlan) Parameters() json.RawMessage {
           "changed_symbol_refs": {
             "type": "array",
             "items": {"type": "string"},
-            "description": "Optional changed symbols/modules this probe imports or executes."
+            "description": "Optional changed identities this probe imports or executes. Use language-level symbols such as Axis.convert for symbols. Use path:<repo-relative-file> for files/modules. An unprefixed module path is normalized to path: only when it uniquely matches one changes[].path; ambiguous refs remain symbols and cannot borrow file coverage."
           },
           "expects_baseline_failure": {
             "type": "boolean",
@@ -570,6 +570,7 @@ func proofFollowupProbeOnlyPlanSentinel(ctx *types.BusContext, p emitChangePlanP
 		plan.TargetPaths = append([]string(nil), batch.ExploreTargets...)
 	}
 	plan.TargetPaths = dedupTrimEmitChangePlanStrings(plan.TargetPaths)
+	plan.VerificationProbes = normalizeVerificationProbeChangedTargetRefs(plan.VerificationProbes, plan.TargetPaths)
 	return plan
 }
 

@@ -19,6 +19,82 @@ func newTestBusCtx() *types.BusContext {
 	}
 }
 
+func TestNormalizeVerificationProbeChangedTargetRefsSeparatesModulePathsFromSymbols(t *testing.T) {
+	probes := []types.VerificationProbe{{
+		ID:         "module-ref",
+		WorkingDir: ".",
+		ChangedSymbolRefs: []string{
+			"./cli/src/api/templates/js-binding",
+			"Axis.convert",
+			"path:./pkg/exact.py",
+		},
+	}, {
+		ID:                "relative-module",
+		WorkingDir:        "packages/app",
+		ChangedSymbolRefs: []string{"./src/widget"},
+	}}
+	targets := []string{
+		"cli/src/api/templates/js-binding.ts",
+		"pkg/exact.py",
+		"packages/app/src/widget.js",
+	}
+
+	got := normalizeVerificationProbeChangedTargetRefs(probes, targets)
+	wantFirst := []string{
+		"path:cli/src/api/templates/js-binding.ts",
+		"Axis.convert",
+		"path:pkg/exact.py",
+	}
+	if strings.Join(got[0].ChangedSymbolRefs, "\x00") != strings.Join(wantFirst, "\x00") {
+		t.Fatalf("module/path/symbol refs = %#v, want %#v", got[0].ChangedSymbolRefs, wantFirst)
+	}
+	if len(got[1].ChangedSymbolRefs) != 1 || got[1].ChangedSymbolRefs[0] != "path:packages/app/src/widget.js" {
+		t.Fatalf("working-dir-relative module ref = %#v", got[1].ChangedSymbolRefs)
+	}
+	if probes[0].ChangedSymbolRefs[0] != "./cli/src/api/templates/js-binding" {
+		t.Fatalf("normalizer mutated caller input: %#v", probes[0].ChangedSymbolRefs)
+	}
+}
+
+func TestNormalizeVerificationProbeChangedTargetRefsDoesNotGuessAmbiguousModule(t *testing.T) {
+	probes := []types.VerificationProbe{{
+		ChangedSymbolRefs: []string{"./pkg/widget", "pkg.Widget.render"},
+	}}
+	got := normalizeVerificationProbeChangedTargetRefs(probes, []string{"pkg/widget.ts", "pkg/widget.js"})
+	if len(got) != 1 || strings.Join(got[0].ChangedSymbolRefs, "\x00") != "./pkg/widget\x00pkg.Widget.render" {
+		t.Fatalf("ambiguous module and real symbol must remain unchanged: %#v", got)
+	}
+}
+
+func TestNormalizeVerificationProbeChangedTargetRefsResolvesIndexModule(t *testing.T) {
+	probes := []types.VerificationProbe{{
+		WorkingDir:        "packages/app",
+		ChangedSymbolRefs: []string{"./"},
+	}}
+	got := normalizeVerificationProbeChangedTargetRefs(probes, []string{"packages/app/index.ts"})
+	if len(got) != 1 || len(got[0].ChangedSymbolRefs) != 1 || got[0].ChangedSymbolRefs[0] != "path:packages/app/index.ts" {
+		t.Fatalf("index module ref = %#v", got)
+	}
+}
+
+func TestNewChangePlanNormalizesVerificationProbeModuleIdentity(t *testing.T) {
+	plan := newChangePlanFromChanges(
+		"fix loader",
+		"use exact environment values",
+		[]types.FileChange{{Path: "cli/src/api/templates/js-binding.ts", Kind: "patch"}},
+		nil,
+		[]types.VerificationProbe{{
+			ID:                "loader-behavior",
+			ChangedSymbolRefs: []string{"./cli/src/api/templates/js-binding"},
+		}},
+	)
+	if len(plan.VerificationProbes) != 1 ||
+		len(plan.VerificationProbes[0].ChangedSymbolRefs) != 1 ||
+		plan.VerificationProbes[0].ChangedSymbolRefs[0] != "path:cli/src/api/templates/js-binding.ts" {
+		t.Fatalf("canonical plan retained false symbol identity: %+v", plan.VerificationProbes)
+	}
+}
+
 // TestEmitChangePlan_HappyPath locks the canonical success path:
 // valid params in → ChangePlan installed on Mutable + PendingApply
 // entries enqueued on WriteClosure + ToolResult.Success == true.

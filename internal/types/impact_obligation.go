@@ -110,16 +110,9 @@ func ImpactObligationSetFromChangePlan(plan *ChangePlan) ImpactObligationSet {
 			if ref == "" {
 				continue
 			}
-			set.Obligations = append(set.Obligations, impactObligation(ImpactObligation{
-				Kind:              "changed_symbol",
-				Relation:          "symbol_ref",
-				Obligation:        "verify_changed_symbol",
-				SubjectSymbol:     ref,
-				VerificationProbe: probeID,
-				Source:            "verification_probe",
-				Strength:          ImpactObligationStrengthDeclared,
-				EvidenceRef:       ref,
-			}))
+			set.Obligations = append(set.Obligations, impactObligationFromChangedIdentity(
+				ref, "symbol_ref", "verification_probe", probeID, "",
+			))
 		}
 	}
 	for _, slice := range plan.Slices {
@@ -144,20 +137,45 @@ func ImpactObligationSetFromChangePlan(plan *ChangePlan) ImpactObligationSet {
 			if ref == "" {
 				continue
 			}
-			set.Obligations = append(set.Obligations, impactObligation(ImpactObligation{
-				Kind:          "changed_symbol",
-				Relation:      "slice_symbol_ref",
-				Obligation:    "verify_changed_symbol",
-				SubjectSymbol: ref,
-				SliceID:       strings.TrimSpace(slice.ID),
-				Source:        "change_plan_slice",
-				Strength:      ImpactObligationStrengthDeclared,
-				EvidenceRef:   ref,
-			}))
+			set.Obligations = append(set.Obligations, impactObligationFromChangedIdentity(
+				ref, "slice_symbol_ref", "change_plan_slice", "", strings.TrimSpace(slice.ID),
+			))
 		}
 	}
 	set.Obligations = normalizeImpactObligations(set.Obligations)
 	return set
+}
+
+func impactObligationFromChangedIdentity(ref, relation, source, probeID, sliceID string) ImpactObligation {
+	ref = strings.TrimSpace(ref)
+	if strings.HasPrefix(ref, "path:") {
+		path := normalizeImpactObligationPath(strings.TrimPrefix(ref, "path:"))
+		if path == "" {
+			return ImpactObligation{}
+		}
+		return ImpactObligation{
+			Kind:              "changed_file",
+			Relation:          strings.Replace(relation, "symbol", "path", 1),
+			Obligation:        "verify_changed_file",
+			SubjectPath:       path,
+			VerificationProbe: strings.TrimSpace(probeID),
+			SliceID:           strings.TrimSpace(sliceID),
+			Source:            strings.TrimSpace(source),
+			Strength:          ImpactObligationStrengthDeclared,
+			EvidenceRef:       ref,
+		}
+	}
+	return ImpactObligation{
+		Kind:              "changed_symbol",
+		Relation:          strings.TrimSpace(relation),
+		Obligation:        "verify_changed_symbol",
+		SubjectSymbol:     ref,
+		VerificationProbe: strings.TrimSpace(probeID),
+		SliceID:           strings.TrimSpace(sliceID),
+		Source:            strings.TrimSpace(source),
+		Strength:          ImpactObligationStrengthDeclared,
+		EvidenceRef:       ref,
+	}
 }
 
 func NormalizeImpactObligationSet(in ImpactObligationSet) ImpactObligationSet {

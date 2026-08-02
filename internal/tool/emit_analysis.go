@@ -1327,12 +1327,6 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
-	var diagnosticRouteWarnings []string
-	intent, scenario, diagnosticRouteWarnings = normalizeDiagnosticRoute(intent, scenario, predicates)
-	for _, warning := range diagnosticRouteWarnings {
-		logging.Warning("[emit_analysis] %s", warning)
-		val.Warnings = append(val.Warnings, warning)
-	}
 	externalObservationPolicy, externalObservationPolicyErr, externalObservationPolicyWarnings := parseExternalObservationPolicy(raw, p.ExternalObservationPolicy)
 	if externalObservationPolicyErr != "" {
 		return types.ToolResult{
@@ -2939,42 +2933,6 @@ func promoteInvalidExternalObservationExcludeToAllow(
 		normalized.Rationale = "invalid runtime-artifact source exclusion lacked precise current-request provenance"
 	}
 	return &normalized, "external_observation_policy invalid current_source_mode=exclude auto-softened to allow for runtime artifact: only anchored explicit user exclusions may close the current-source lane"
-}
-
-// normalizeDiagnosticRoute absorbs a narrow, typed self-consistency
-// drift: the analyzer already emitted the diagnostic predicate, but
-// left the generic explain/architecture route in place. The existing
-// validator still enforces this invariant for direct callers; the
-// normal Execute path repairs it before validation so an otherwise
-// valid analysis does not burn another model round.
-func normalizeDiagnosticRoute(
-	intent types.Intent,
-	scenario types.Scenario,
-	preds types.SemanticPredicates,
-) (types.Intent, types.Scenario, []string) {
-	if !preds.IsDiagnosticQuestion {
-		return intent, scenario, nil
-	}
-	var warnings []string
-	if intent != types.IntentRootCause {
-		warnings = append(warnings, fmt.Sprintf(
-			"diagnostic route auto-align: intent %q→%q because predicates.is_diagnostic_question=true",
-			intent, types.IntentRootCause,
-		))
-		intent = types.IntentRootCause
-	}
-	switch scenario {
-	case types.ScenarioRootCause, types.ScenarioPerformanceBottleneck:
-		// Keep a specific diagnostic/performance route when the model
-		// already chose one of the allowed typed scenarios.
-	default:
-		warnings = append(warnings, fmt.Sprintf(
-			"diagnostic route auto-align: scenario %q→%q because predicates.is_diagnostic_question=true",
-			scenario, types.ScenarioRootCause,
-		))
-		scenario = types.ScenarioRootCause
-	}
-	return intent, scenario, warnings
 }
 
 func parseConversationReferenceProfile(p *emitConversationReferenceProfileParam) (*types.ConversationReferenceProfile, string) {

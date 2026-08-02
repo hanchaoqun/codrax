@@ -41,6 +41,44 @@ func TestImpactObligationSetFromChangePlanDerivesPlanSignals(t *testing.T) {
 	}
 }
 
+func TestImpactObligationSetFromChangePlanKeepsPathRefsOutOfSymbolLane(t *testing.T) {
+	plan := &ChangePlan{
+		ID: "plan-path-ref",
+		Changes: []FileChange{{
+			Path: "pkg/widget.ts",
+			Kind: "patch",
+		}},
+		VerificationProbes: []VerificationProbe{{
+			ID:                "probe-widget",
+			ChangedSymbolRefs: []string{"path:pkg/widget.ts", "Widget.render"},
+		}},
+	}
+	set := ImpactObligationSetFromChangePlan(plan)
+	if !impactObligationSetHas(set, ImpactObligation{
+		Kind:              "changed_file",
+		Relation:          "path_ref",
+		Obligation:        "verify_changed_file",
+		SubjectPath:       "pkg/widget.ts",
+		VerificationProbe: "probe-widget",
+	}) {
+		t.Fatalf("missing probe path obligation: %+v", set.Obligations)
+	}
+	if !impactObligationSetHas(set, ImpactObligation{
+		Kind:              "changed_symbol",
+		Relation:          "symbol_ref",
+		Obligation:        "verify_changed_symbol",
+		SubjectSymbol:     "Widget.render",
+		VerificationProbe: "probe-widget",
+	}) {
+		t.Fatalf("missing symbol obligation: %+v", set.Obligations)
+	}
+	for _, ob := range set.Obligations {
+		if ob.SubjectSymbol == "path:pkg/widget.ts" {
+			t.Fatalf("path identity leaked into symbol lane: %+v", ob)
+		}
+	}
+}
+
 func impactObligationSetHas(set ImpactObligationSet, want ImpactObligation) bool {
 	want = impactObligation(want)
 	for _, got := range set.Obligations {

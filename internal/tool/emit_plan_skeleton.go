@@ -131,7 +131,7 @@ func (t *EmitPlanSkeleton) Parameters() json.RawMessage {
 	          "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 30},
 	          "expected_stdout": {"type": "array", "items": {"type": "string"}},
 	          "contract_refs": {"type": "array", "items": {"type": "string"}},
-	          "changed_symbol_refs": {"type": "array", "items": {"type": "string"}},
+	          "changed_symbol_refs": {"type": "array", "items": {"type": "string"}, "description": "Changed identities exercised by the probe: language-level symbol names stay symbols; files/modules use path:<repo-relative-file>. An unprefixed module path is promoted to path: only on a unique changes[].path match."},
 	          "expects_baseline_failure": {"type": "boolean"}
 	        },
 	        "required": ["language", "code"]
