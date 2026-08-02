@@ -158,7 +158,7 @@ func TestTraceDecisionHandoffKeepsMissingWakeupAsEvidenceBoundary(t *testing.T) 
 	}
 }
 
-func TestTraceDecisionHandoffCarriesTypedNonAdditiveAndCallerRoles(t *testing.T) {
+func TestTraceDecisionHandoffKeepsRowStateBreakdownBelowPairRelationAuthority(t *testing.T) {
 	inside := true
 	wait := types.TraceCausalProjectionNode{
 		EvidenceID: "wait-row", Subject: "ThreadPool-300", StateKind: "d_state_or_io_wait",
@@ -192,11 +192,12 @@ func TestTraceDecisionHandoffCarriesTypedNonAdditiveAndCallerRoles(t *testing.T)
 	)
 	for _, want := range []string{
 		"typed_relation_semantics:",
-		"`embedded_components` are already inside their parent row",
+		"A `row_state_breakdown` describes only that observation's own state accounting",
 		"`sched_blocked_reason.caller` is a kernel-reported wait call-site/symbol, not a resource or lock owner",
 		"row_identity=`wait-row`",
-		"embedded_components=`d_state:3.047ms,io_wait:7.386ms`",
-		"component_relation=`already_inside_parent_row`",
+		"row_state_breakdown=`d_state:3.047ms,io_wait:7.386ms`",
+		"state_breakdown_scope=`this_observation_only`",
+		"cross_row_relation_authority=`not_provided_by_state_breakdown`",
 		"physical_overlap_1=`6.673ms@lines:420..430`",
 		"peer_fix_direction=`io_path`",
 		"overlap_addition=`forbidden`",
@@ -212,6 +213,13 @@ func TestTraceDecisionHandoffCarriesTypedNonAdditiveAndCallerRoles(t *testing.T)
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("typed relation handoff missing %q:\n%s", want, got)
+		}
+	}
+	for _, forbidden := range []string{
+		"embedded_components=", "component_relation=`already_inside_parent_row`",
+	} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("row-local state split minted unsupported cross-row relation %q:\n%s", forbidden, got)
 		}
 	}
 }

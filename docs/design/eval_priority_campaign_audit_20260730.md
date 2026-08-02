@@ -4687,7 +4687,7 @@ meta-runner 语义断链。
 |---|---:|---|---|---|
 | EVAL-B46-XMAKE1/XMAKE2 | P1 | 项目测试选择与 meta-runner execution semantics→changed-path coverage 曾断链 | exact target + concrete execution family + successful command + exact declared roster 的合取已通过生产回放 | covered |
 | EVAL-B46-OCCUNIT1 | P1 | 非墙钟计数当量混入墙钟 occupancy | 共享 caliber guard 已通过生产回放；值保留在旁栏 | covered |
-| EVAL-B46-REL2A | P1 | pre-finalizer handoff 把 row-local state split 无条件伪装成 cross-row containment | 立即删除伪关系；只把 D/IO 数值标为 `row_state_breakdown`，明确它本身不给 pair relation 权限 | fix-next |
+| EVAL-B46-REL2A | P1 | pre-finalizer handoff 把 row-local state split 无条件伪装成 cross-row containment | 已删除伪关系；D/IO 数值只标为 `row_state_breakdown`，并带 `this_observation_only / not_provided_by_state_breakdown` 权限边界 | implemented/agent-tests-pass |
 | EVAL-B46-REL2B | P1 | 用户要求跨行关系时，准确关系只在 post-finalize renderer 的内部 tree model 中，模型成文前拿不到同源的精确 pair roster | 把既有 SMR/AXIOM/RSPA typed pair adjudication 抽成共享 relation fact surface；finalizer 只消费其已铸关系与 unresolved 边界，禁止复制第二套判定、禁止扫描答案、禁止改写答案 | design-after-REL2A |
 | EVAL-B46-REL2C | P2 model-compliance | 即使负向边界在高显著 prompt 中，模型仍可能越界陈述无载体关系 | 先修上下文自相矛盾并提供正向 exact pair facts；仍跨例复现时走普通语义审阅/重试，不做字符串 gate 或系统替答 | watch-after-context-fix |
 
@@ -4697,8 +4697,9 @@ meta-runner 语义断链。
 
 后续任务：
 
-- [ ] B46-T9a：删除 `DStateSplitMS/IOWaitSplitMS => embedded cross-row relation` 的伪映射，
-  改为诚实 row-local breakdown；定向固定正/负臂；
+- [x] B46-T9a：删除 `DStateSplitMS/IOWaitSplitMS => embedded cross-row relation` 的伪映射，
+  改为诚实 row-local breakdown；正向固定数值继续传递，负向固定不再铸 containment；
+  `go test ./internal/agent -count=1` 通过（2.917s）；
 - [ ] B46-T9b：设计共享 typed pair relation fact surface，复用 renderer 判定而非复制；
 - [ ] B46-T9c：相关测试、提交推送；干净 HEAD 严格并行同 pair r4；
 - [ ] B47：r4 后按优先矩阵切换到下一对 read/data/log/operation 用例，避免停留在单一 Trace/write。

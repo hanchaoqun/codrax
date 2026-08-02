@@ -68,7 +68,7 @@ func renderAnswerDocTraceDecisionHandoffSet(set types.TraceCausalProjectionSet, 
 		b.WriteString("- evidence_boundary_semantics: `missing_wakeup` means the selected trace/query window contains no matching `sched_wakeup` row for a measured sleep interval. Preserve the interval as a target-state symptom and a chain-drill coverage boundary; it does not prove that a physical wakeup was absent, does not identify a blocker, and owns no positive causal/eliminable amount. Window boundaries, event coverage/loss, or an unrepresented wake source remain possible until separately typed evidence resolves them.\n")
 	}
 	if traceDecisionHasAccountOrRoleRelations(set) {
-		b.WriteString("- typed_relation_semantics: consume each row's exact relation fields before comparing values. `embedded_components` are already inside their parent row; `physical_overlap` rows share measured wall clock; neither relation is additive. `resource_completion_closure` connects a completion path to an anchored wait but does not make the completion thread a resource holder. `sched_blocked_reason.caller` is a kernel-reported wait call-site/symbol, not a resource or lock owner; holder language requires a separate typed holder relation.\n")
+		b.WriteString("- typed_relation_semantics: consume each row's exact relation fields before comparing values. A `row_state_breakdown` describes only that observation's own state accounting; it does not establish containment, overlap, or identity with another row. `physical_overlap` rows share measured wall clock and are not additive. `resource_completion_closure` connects a completion path to an anchored wait but does not make the completion thread a resource holder. `sched_blocked_reason.caller` is a kernel-reported wait call-site/symbol, not a resource or lock owner; holder language requires a separate typed holder relation.\n")
 	}
 	b.WriteString("- Input provenance: the projection compiler merges accepted exploration observations with deterministic system-supplement observations when present; each candidate below preserves its own source lane.\n\n")
 
@@ -198,7 +198,13 @@ func traceDecisionWriteNodeRelations(b *strings.Builder, node types.TraceCausalP
 		return
 	}
 	if node.DStateSplitMS > 0 || node.IOWaitSplitMS > 0 {
-		fmt.Fprintf(b, "; embedded_components=`d_state:%.3fms,io_wait:%.3fms`; component_relation=`already_inside_parent_row`; addition_with_parent=`forbidden`",
+		// DStateSplitMS/IOWaitSplitMS are row-local state-accounting fields.
+		// They become a cross-row containment pointer only after the projection
+		// renderer's exact pair adjudication (same subject/state family, value
+		// identity, unique peer and compatible window). Do not mint that relation
+		// here from the split alone: doing so gives the answer model stronger
+		// authority than the deterministic user-visible projection actually has.
+		fmt.Fprintf(b, "; row_state_breakdown=`d_state:%.3fms,io_wait:%.3fms`; state_breakdown_scope=`this_observation_only`; cross_row_relation_authority=`not_provided_by_state_breakdown`",
 			node.DStateSplitMS, node.IOWaitSplitMS)
 	}
 	for index, overlap := range node.CrossDirectionOverlaps {
