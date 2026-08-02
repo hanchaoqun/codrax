@@ -4912,8 +4912,10 @@ authority producer 仍属于 `B46-T9b-c`；但 wire schema、生命周期、Expl
 - [x] B46-T12a：确保 target closed state partition 始终铸造
   `mutually_exclusive + authorized_to_published_subtotal` authority，并固定
   “互斥但可加”的双轴正反回归；
-- [ ] B46-T12b：抽取通用 same-source exact fold / interval-relation producer，只有精确
-  typed carrier 才发布 overlap/contains/contained_by；无 carrier 保持 unresolved；
+- [x] B46-T12b-a：把 RSPA engine-minted same-source anchored/remainder exact
+  bipartition 抽为统一 authority producer；
+- [ ] B46-T12b-b：继续评估 interval overlap/contains producer；只有查询头、ledger、
+  final handoff 能共享同一 typed identity/resolver 时才发布，无 carrier 保持 unresolved；
 - [ ] B46-T12c：盘点并迁移 SMR/AXIOM/RSPA renderer-only 关系载体，避免 renderer 与
   model authority 使用两套判定；
 - [ ] B46-T12d：全量测试、独立提交推送，然后同 pair r7；通过后转 B47，不长期停留单 case。
@@ -4955,6 +4957,51 @@ wire：
 状态：`B46-T12a=implemented/full-tests-pass`。按小批守战果先提交推送；下一批处理
 same-source exact fold / interval carrier，再决定是否需要 r7，避免把单个 Trace case 变成长期
 拟合场。
+
+#### B46 REL4 第二批：RSPA 同源二分关系权限（2026-08-02）
+
+本批完成 same-source exact fold 的高置信子集，但没有把 renderer 的 E# 互指判定照搬为
+模型硬合同：
+
+1. authority producer 直接读取 projection 的完整 `RankedSeats` typed roster。只有同一
+   rank board 中恰好一条 `on_chain` 锚定席与一条 `adjacent` 余段席，且 subject、type、
+   line envelope、`ChainAnchorFullMS/ChainAnchoredMS` 全部相同，才形成候选；renderer 的
+   树 cap、fold、merge 和 E# 分配不参与判定。
+2. 两席都必须带 engine-published effective value，且在生产 wire 的三位小数精度下分别
+   精确等于 `anchored` 与 `full-anchored`。缺对席、跨板 lookalike、重复候选、错发布值、
+   非 on-chain/adjacent 车道或 `ChainAnchorOwnershipDivergent` 均 fail closed；没有通过
+   “同线程/同方向/相近数值”之类噪声猜关系。
+3. 通过时铸造 closure-critical
+   `same_source_partition`：`physical_relation=mutually_exclusive` 与
+   `addition=authorized_to_published_subtotal` 同时成立，subtotal 只能复现 typed full account。
+   member ref 使用两席角色 + subject/type + 精确行包络，不借用不稳定的渲染 E# 或跨车道
+   裸 `#N`。
+4. root-cause compact head 只镜像上述 producer 所需字段，再调用同一个 types compiler；
+   observation ledger/final handoff 从投影调用同一 compiler。集成测试固定 raw engine float
+   经三位 wire 后 authority ID、member set、双轴与 subtotal 在 pre-Explore / post-ledger 两端
+   完全一致。
+5. Explorer/Finalizer 仍由模型自行提交 `relation_claims`、自行修正和撰写可见结论；系统只
+   校验结构化 metadata，不读 RawRequest、thinking、reason、summary/final prose，不删除、
+   替换或新增模型正文。普通 read/write、无该 typed pair 的 Trace 均零义务；显式时间窗、
+   自动补齐、根因排序、唤醒链、双分析轴与最终 Trace 因果投影接线未改。
+6. 上下文审计结论：RSPA 的 typed carrier 已足以支撑“锚定+余段=全窗”结论；AXIOM-V2
+   cross-direction overlap 虽有 typed interval-intersection roster，但当前同板/互指消歧仍在
+   renderer 私有 row resolver。未先抽成共享 typed resolver 前，不把它升级为 hard authority，
+   以免形成第二套判定或让模型在 Explorer 关账前看不到合同。
+
+验证：
+
+- same-source 正向、缺对席、错发布值、权属失合、跨板负向及 model-authored claim 校验通过；
+- compact-head 见证与 head/ledger content-stable ID 一致性测试通过；
+- `go test ./internal/types -count=1` 通过（20.696s）；
+- `go test ./internal/agent -count=1` 通过（2.692s）；
+- `go test ./internal/orchestrator -count=1` 通过（11.511s）；
+- `go test ./internal/tool -count=1` 通过（162.527s）。
+
+状态：`B46-T12b-a=implemented/full-tests-pass`；`B46-T12b-b` 与 `B46-T12c`
+保留为共享 resolver 架构件，不为单个 H5 case 复制 renderer 逻辑。先提交推送本批，再按
+优先级进入下一组双并发 eval；若后续 case 提供 typed interval-relation 真实 witness，再以
+同一 producer 协议扩展。
 
 ### B41：data 终批材料 × Binder 方向语义审计（2026-08-02）
 

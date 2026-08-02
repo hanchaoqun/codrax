@@ -8013,6 +8013,7 @@ func writeTraceRootCauseRelationAuthorityPreview(b *strings.Builder, result trac
 			WindowStartTs: account.Window.StartTs, WindowEndTs: account.Window.EndTs,
 		}
 	}
+	projection.RankedSeats = traceQueryRelationAuthorityRankedSeats(rank)
 	for _, authority := range types.CompileTraceAnswerRelationAuthorities(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}}) {
 		if !authority.RequiredForClosure {
 			continue
@@ -8042,6 +8043,36 @@ func writeTraceRootCauseRelationAuthorityPreview(b *strings.Builder, result trac
 			sanitizeForBanner(traceThreadLabel(census.Thread)), census.Count)
 		break
 	}
+}
+
+// traceQueryRelationAuthorityRankedSeats mirrors only the typed fields used by
+// relation-authority compilers. It lets the compact head and the later
+// observation-ledger projection run the same producer before/after Explorer
+// closure. No ranking, pairing or relation is inferred here.
+func traceQueryRelationAuthorityRankedSeats(rank *tracequery.RootCauseRankResult) []types.TraceCausalProjectionNode {
+	if rank == nil {
+		return nil
+	}
+	out := make([]types.TraceCausalProjectionNode, 0, len(rank.Items))
+	for _, item := range rank.Items {
+		if item.Rank <= 0 || item.ChainAnchorFullMs <= 0 {
+			continue
+		}
+		out = append(out, types.TraceCausalProjectionNode{
+			Subject:   strings.TrimSpace(traceThreadLabel(item.Thread)),
+			Object:    strings.TrimSpace(item.Type),
+			LineStart: item.LineStart, LineEnd: item.LineEnd,
+			Rank: item.Rank, ChainRelevance: strings.TrimSpace(item.ChainRelevance),
+			EffectiveImpactMS: traceQueryRootCauseEffectiveImpact(item), EffectiveImpactPublished: true,
+			ChainAnchoredMS: item.ChainAnchoredMs, ChainAnchorFullMS: item.ChainAnchorFullMs,
+			ChainAnchorRemainderSeat:      item.ChainAnchorRemainderSeat,
+			ChainAnchorOwnershipDivergent: item.ChainAnchorOwnershipDivergent,
+			QueryWindowStartTs:            rank.Window.StartTs, QueryWindowEndTs: rank.Window.EndTs,
+			RankBoardTarget:            traceThreadLabelOptional(rank.Target),
+			RankBoardParamsFingerprint: strings.TrimSpace(rank.BoardParamsFingerprint),
+		})
+	}
+	return out
 }
 
 func traceQuerySelfRunnableTwoRulerAuthority(rank *tracequery.RootCauseRankResult) (types.TraceCausalProjectionSelfRunnableTwoRuler, bool) {

@@ -139,3 +139,50 @@ func TestTraceCausalProjectionSelfRunnableTwoRulerRecordFeedsRelationAuthority(t
 		t.Fatalf("record authority count=%d, want 3: %+v", len(got), got)
 	}
 }
+
+func TestTraceSameSourcePartitionRequiresExactVisibleTypedPair(t *testing.T) {
+	base := TraceCausalProjectionNode{
+		Subject: "CompThread_0-2955", Object: "d_state_or_io_wait",
+		LineStart: 2261, LineEnd: 25863, RankBoardTarget: "target-17267",
+		RankBoardParamsFingerprint: "board-a", QueryWindowStartTs: 10, QueryWindowEndTs: 10.2,
+		ChainAnchoredMS: 3.598000001, ChainAnchorFullMS: 36.757000002,
+		EffectiveImpactPublished: true,
+	}
+	anchored := base
+	anchored.Rank, anchored.ChainRelevance, anchored.EffectiveImpactMS = 6, "on_chain", 3.598000001
+	remainder := base
+	remainder.Rank, remainder.ChainRelevance, remainder.EffectiveImpactMS = 1, "adjacent", 33.159000001
+	remainder.ChainAnchorRemainderSeat = true
+	set := TraceCausalProjectionSet{Projections: []TraceCausalProjection{{RankedSeats: []TraceCausalProjectionNode{anchored, remainder}}}}
+	got := CompileTraceAnswerRelationAuthorities(set)
+	if len(got) != 1 || got[0].Kind != AnswerRelationAuthoritySameSourcePartition ||
+		got[0].PhysicalRelation != AnswerPhysicalRelationMutuallyExclusive ||
+		got[0].Addition != AnswerRelationAdditionAuthorized || !got[0].RequiredForClosure ||
+		got[0].SubtotalValue == nil || *got[0].SubtotalValue != 36.757 || len(got[0].MemberRefs) != 2 {
+		t.Fatalf("exact same-source split did not become relation authority: %+v", got)
+	}
+	claims := claimsFromRequiredAuthorities(got)
+	if err := ValidateAnswerRelationClaims(claims, got, true); err != nil {
+		t.Fatalf("valid same-source split claim rejected: %v", err)
+	}
+
+	for name, mutate := range map[string]func(*TraceCausalProjectionNode){
+		"missing twin":              func(node *TraceCausalProjectionNode) {},
+		"wrong published remainder": func(node *TraceCausalProjectionNode) { node.EffectiveImpactMS = 30 },
+		"ownership divergent":       func(node *TraceCausalProjectionNode) { node.ChainAnchorOwnershipDivergent = true },
+		"cross board":               func(node *TraceCausalProjectionNode) { node.RankBoardParamsFingerprint = "board-b" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := remainder
+			mutate(&candidate)
+			seats := []TraceCausalProjectionNode{anchored, candidate}
+			if name == "missing twin" {
+				seats = seats[:1]
+			}
+			invalid := CompileTraceAnswerRelationAuthorities(TraceCausalProjectionSet{Projections: []TraceCausalProjection{{RankedSeats: seats}}})
+			if len(invalid) != 0 {
+				t.Fatalf("invalid pair must fail closed: %+v", invalid)
+			}
+		})
+	}
+}

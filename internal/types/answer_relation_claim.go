@@ -43,9 +43,10 @@ const (
 type AnswerRelationAuthorityKind string
 
 const (
-	AnswerRelationAuthoritySameRulerSubtotal  AnswerRelationAuthorityKind = "same_ruler_subtotal"
-	AnswerRelationAuthorityCrossRulerBoundary AnswerRelationAuthorityKind = "cross_ruler_boundary"
-	AnswerRelationAuthorityClosedPartition    AnswerRelationAuthorityKind = "closed_partition"
+	AnswerRelationAuthoritySameRulerSubtotal   AnswerRelationAuthorityKind = "same_ruler_subtotal"
+	AnswerRelationAuthorityCrossRulerBoundary  AnswerRelationAuthorityKind = "cross_ruler_boundary"
+	AnswerRelationAuthorityClosedPartition     AnswerRelationAuthorityKind = "closed_partition"
+	AnswerRelationAuthoritySameSourcePartition AnswerRelationAuthorityKind = "same_source_partition"
 )
 
 // AnswerRelationAuthority is system-owned typed input to the model and exact
@@ -114,8 +115,112 @@ func CompileTraceAnswerRelationAuthorities(set TraceCausalProjectionSet) []Answe
 				RequiredForClosure: true,
 			})
 		}
+		out = append(out, answerRelationSameSourcePartitionAuthorities(projection)...)
 	}
 	return out
+}
+
+// answerRelationSameSourcePartitionAuthorities compiles the engine-minted
+// RSPA chain-anchor split into a model-visible relation. It deliberately reads
+// the complete ranked-seat authority roster rather than renderer rows: tree
+// caps, folds and E# assignment must not create a second relation judgment.
+//
+// A relation is published only when one exact board contains exactly one
+// on-chain anchored seat and exactly one adjacent remainder seat with the same
+// subject/type/line envelope and the same typed full/anchored pair. Both
+// published effective values must reproduce the two partition terms at the
+// producer's 3-decimal wire precision. Missing twins, ownership divergence,
+// cross-board lookalikes and ambiguous duplicates all fail closed.
+func answerRelationSameSourcePartitionAuthorities(projection TraceCausalProjection) []AnswerRelationAuthority {
+	type pair struct {
+		anchored  []TraceCausalProjectionNode
+		remainder []TraceCausalProjectionNode
+	}
+	groups := map[string]*pair{}
+	for _, node := range projection.RankedSeats {
+		full := answerRelationPublishedMS(node.ChainAnchorFullMS)
+		anchored := answerRelationPublishedMS(node.ChainAnchoredMS)
+		if full <= 0 || anchored <= 0 || anchored >= full ||
+			node.ChainAnchorOwnershipDivergent || !node.EffectiveImpactPublished ||
+			node.LineStart <= 0 || node.LineEnd < node.LineStart ||
+			strings.TrimSpace(node.Subject) == "" || strings.TrimSpace(node.Object) == "" {
+			continue
+		}
+		component := anchored
+		if node.ChainAnchorRemainderSeat {
+			component = answerRelationPublishedMS(full - anchored)
+			if strings.TrimSpace(node.ChainRelevance) != "adjacent" {
+				continue
+			}
+		} else if strings.TrimSpace(node.ChainRelevance) != "on_chain" {
+			continue
+		}
+		if answerRelationPublishedMS(node.EffectiveImpactMS) != component {
+			continue
+		}
+		key := strings.Join([]string{
+			traceCausalProjectionRankBoardIdentityKey(node),
+			traceCausalProjectionCanonicalNode(node.Subject),
+			traceCausalProjectionCanonicalNode(node.Object),
+			fmt.Sprintf("%d..%d", node.LineStart, node.LineEnd),
+			fmt.Sprintf("%.3f|%.3f", full, anchored),
+		}, "\x00")
+		if groups[key] == nil {
+			groups[key] = &pair{}
+		}
+		if node.ChainAnchorRemainderSeat {
+			groups[key].remainder = append(groups[key].remainder, node)
+		} else {
+			groups[key].anchored = append(groups[key].anchored, node)
+		}
+	}
+
+	keys := make([]string, 0, len(groups))
+	for key := range groups {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	var out []AnswerRelationAuthority
+	for _, key := range keys {
+		group := groups[key]
+		if len(group.anchored) != 1 || len(group.remainder) != 1 {
+			continue
+		}
+		anchoredNode, remainderNode := group.anchored[0], group.remainder[0]
+		full := answerRelationPublishedMS(anchoredNode.ChainAnchorFullMS)
+		anchoredRef := answerRelationChainSplitMemberRef("on_chain_anchored", anchoredNode)
+		remainderRef := answerRelationChainSplitMemberRef("adjacent_remainder", remainderNode)
+		out = append(out, AnswerRelationAuthority{
+			ID:                 "trace:same_source_partition:" + answerRelationSameSourcePartitionFingerprint(anchoredNode),
+			Kind:               AnswerRelationAuthoritySameSourcePartition,
+			MemberRefs:         []string{anchoredRef, remainderRef},
+			PhysicalRelation:   AnswerPhysicalRelationMutuallyExclusive,
+			Addition:           AnswerRelationAdditionAuthorized,
+			SubtotalValue:      &full,
+			SubtotalUnit:       "ms",
+			RequiredForClosure: true,
+		})
+	}
+	return out
+}
+
+func answerRelationPublishedMS(value float64) float64 {
+	return math.Round(value*1000) / 1000
+}
+
+func answerRelationChainSplitMemberRef(role string, node TraceCausalProjectionNode) string {
+	return fmt.Sprintf("%s:%s:%s:lines=%d-%d", role, strings.TrimSpace(node.Subject),
+		strings.TrimSpace(node.Object), node.LineStart, node.LineEnd)
+}
+
+func answerRelationSameSourcePartitionFingerprint(node TraceCausalProjectionNode) string {
+	raw := fmt.Sprintf("%s|%s|%d..%d|%.3f|%.3f",
+		traceCausalProjectionCanonicalNode(node.Subject),
+		traceCausalProjectionCanonicalNode(node.Object), node.LineStart, node.LineEnd,
+		answerRelationPublishedMS(node.ChainAnchorFullMS),
+		answerRelationPublishedMS(node.ChainAnchoredMS))
+	sum := sha256.Sum256([]byte(raw))
+	return fmt.Sprintf("%x", sum[:8])
 }
 
 // answerRelationTargetStatePartitionClosed admits only the engine's exact

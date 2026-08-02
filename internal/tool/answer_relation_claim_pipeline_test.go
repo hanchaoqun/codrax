@@ -164,3 +164,37 @@ func TestFinalRelationClaimsIncludeClosureAuthorityAddedByDeterministicSupplemen
 		t.Fatalf("model-authored superset preserving Explorer claims was rejected: res=%+v err=%v", res, err)
 	}
 }
+
+func TestSameSourcePartitionAuthorityIDMatchesHeadAndLedger(t *testing.T) {
+	target := tracequery.ThreadRef{Comm: "target", PID: 17267}
+	thread := tracequery.ThreadRef{Comm: "CompThread_0", PID: 2955, TGID: 1864}
+	rank := &tracequery.RootCauseRankResult{
+		Target: target, Window: tracequery.TimeWindow{StartTs: 10, EndTs: 10.23319}, BoardParamsFingerprint: "board-a",
+		Items: []tracequery.RootCauseRankItem{
+			{Rank: 6, Tier: "tertiary", Type: "d_state_or_io_wait", Thread: thread, DominantState: "d_sleep", DStateMs: 3.598000001, ImpactMs: 3.598000001, CumulativeImpactMs: 3.598000001, EffectiveImpactMs: 3.598000001, LineStart: 2261, LineEnd: 25863, ChainAnchoredMs: 3.598000001, ChainAnchorFullMs: 36.757000002, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
+			{Rank: 1, Tier: "tertiary", Type: "d_state_or_io_wait", Thread: thread, DominantState: "d_sleep", DStateMs: 33.159000001, ImpactMs: 33.159000001, CumulativeImpactMs: 33.159000001, EffectiveImpactMs: 33.159000001, LineStart: 2261, LineEnd: 25863, ChainAnchoredMs: 3.598000001, ChainAnchorFullMs: 36.757000002, ChainAnchorRemainderSeat: true, ChainRelevance: "adjacent", Causality: "adjacent_to_wakeup_chain"},
+		},
+	}
+	preview := types.CompileTraceAnswerRelationAuthorities(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{{
+		RankedSeats: traceQueryRelationAuthorityRankedSeats(rank),
+	}}})
+	result := tracequery.Result{View: "root_cause_rank", RootCauseRank: rank}
+	records := traceQueryTypedObservations(result, "customer.systrace", "payload", "raw", "", time.Unix(1, 0).UTC())
+	ledger := types.ObservationLedger{Records: records}
+	compiled := types.CompileTraceAnswerRelationAuthoritiesFromLedger(ledger)
+	find := func(authorities []types.AnswerRelationAuthority) *types.AnswerRelationAuthority {
+		for i := range authorities {
+			if authorities[i].Kind == types.AnswerRelationAuthoritySameSourcePartition {
+				return &authorities[i]
+			}
+		}
+		return nil
+	}
+	pre, post := find(preview), find(compiled)
+	if pre == nil || post == nil || pre.ID != post.ID || !types.AnswerRelationClaimsEqual(
+		[]types.AnswerRelationClaim{{AuthorityID: pre.ID, MemberRefs: pre.MemberRefs, PhysicalRelation: pre.PhysicalRelation, Addition: pre.Addition, SubtotalValue: pre.SubtotalValue, SubtotalUnit: pre.SubtotalUnit}},
+		[]types.AnswerRelationClaim{{AuthorityID: post.ID, MemberRefs: post.MemberRefs, PhysicalRelation: post.PhysicalRelation, Addition: post.Addition, SubtotalValue: post.SubtotalValue, SubtotalUnit: post.SubtotalUnit}},
+	) {
+		t.Fatalf("head/ledger same-source authority drifted: preview=%+v compiled=%+v records=%+v", pre, post, records)
+	}
+}

@@ -12,10 +12,13 @@ func TestTraceQuerySummaryCarriesTypedRelationAuthorityBeforeExploreClosure(t *t
 	result := tracequery.Result{
 		View: "root_cause_rank",
 		RootCauseRank: &tracequery.RootCauseRankResult{
+			Target: target, Window: tracequery.TimeWindow{StartTs: 10, EndTs: 10.23319}, BoardParamsFingerprint: "board-a",
 			Items: []tracequery.RootCauseRankItem{
 				{Rank: 4, Type: "runnable_wait", Thread: target, EffectiveImpactMs: 3.956, FixDirection: "scheduling_supply", Causality: "self_wall_clock", ChainRelevance: "on_chain"},
 				{Rank: 10, Type: "runnable_wait", Thread: target, EffectiveImpactMs: 1.648, FixDirection: "scheduling_supply", Causality: "on_wakeup_chain", ChainRelevance: "on_chain"},
 				{Rank: 13, Type: "runnable_wait", Thread: target, EffectiveImpactMs: 1.193, FixDirection: "scheduling_supply", Causality: "self_wall_clock", ChainRelevance: "on_chain"},
+				{Rank: 6, Type: "d_state_or_io_wait", Thread: tracequery.ThreadRef{Comm: "CompThread_0", PID: 2955}, LineStart: 2261, LineEnd: 25863, DominantState: "d_sleep", DStateMs: 3.598000001, ImpactMs: 3.598000001, CumulativeImpactMs: 3.598000001, EffectiveImpactMs: 3.598000001, ChainAnchoredMs: 3.598000001, ChainAnchorFullMs: 36.757000002, ChainRelevance: "on_chain"},
+				{Rank: 1, Type: "d_state_or_io_wait", Thread: tracequery.ThreadRef{Comm: "CompThread_0", PID: 2955}, LineStart: 2261, LineEnd: 25863, DominantState: "d_sleep", DStateMs: 33.159000001, ImpactMs: 33.159000001, CumulativeImpactMs: 33.159000001, EffectiveImpactMs: 33.159000001, ChainAnchoredMs: 3.598000001, ChainAnchorFullMs: 36.757000002, ChainAnchorRemainderSeat: true, ChainRelevance: "adjacent"},
 			},
 			SelfRunnableTwoRuler: &tracequery.SelfRunnableTwoRulerAccounting{
 				Thread:         target,
@@ -51,6 +54,8 @@ func TestTraceQuerySummaryCarriesTypedRelationAuthorityBeforeExploreClosure(t *t
 		"physical_relation=unresolved addition=forbidden model_must_copy_to=emit_investigation_complete.relation_claims",
 		"relation_claim_required authority_id=trace:target_state_partition:",
 		"member_refs=running,runnable,sleep,d_state,io_wait physical_relation=mutually_exclusive addition=authorized_to_published_subtotal subtotal_value=233.190 subtotal_unit=ms",
+		"relation_claim_required authority_id=trace:same_source_partition:",
+		"member_refs=on_chain_anchored:CompThread_0-2955:d_state_or_io_wait:lines=2261-25863,adjacent_remainder:CompThread_0-2955:d_state_or_io_wait:lines=2261-25863 physical_relation=mutually_exclusive addition=authorized_to_published_subtotal subtotal_value=36.757 subtotal_unit=ms",
 		"blocked_reason_census_relation subject=target-17267 records=50 value_caliber=kernel_record_count caller_delay_caliber=vendor_reported_delay_sum state_relation_authority=census_alone_not_sufficient typed_interval_join_required=true add_or_subtract_from_state_total=not_authorized_by_census_alone",
 	} {
 		if !strings.Contains(got, want) {
