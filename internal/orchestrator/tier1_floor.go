@@ -582,6 +582,15 @@ func traceObservationDrillRetryLensActive(busCtx *types.BusContext, ir *types.An
 	if busCtx == nil || busCtx.Mutable == nil || ir == nil {
 		return false
 	}
+	// The drill retry is part of the full causal-report contract, so it must
+	// obey the same typed breadth authority as answer materialization and the
+	// deterministic trace supplement. In particular, a finite relation/fact
+	// lookup must not be upgraded to root-cause_rank/frame bundle coverage by
+	// the legacy call-chain axes below. An explicit user time window remains
+	// full-report authority and therefore passes this guard.
+	if decided, allowed := types.RuntimeTraceReportShapeAuthority(&ir.RequestModel); decided && !allowed {
+		return false
+	}
 	if readLocalizerTier1CurrentSourceRequired(ir.RequestModel) {
 		return false
 	}

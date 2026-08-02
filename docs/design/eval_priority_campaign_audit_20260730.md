@@ -4019,6 +4019,30 @@ guidance：goal/success_criteria 是流程意图，不是数值权威；只有�
 result/metrics、贡献账本或 reconcile 可支撑 expected value。保留现有确定性终态门，
 不改写最终答案值。
 
+#### B41 r3：共享宽度权限仍有两个 control-plane 旁路（P1）
+
+r3 runner 仍为 2/2 PASS，人工为 1/2 PASS。data 最终值 `2` 正确；初始 terminal
+script 虽声明两个材料却只读取 `notes.txt`，新的 AST 消费证明在任何执行前拒绝，repair
+脚本真实读取 `instructions.md + notes.txt` 后一次执行成功。指标从 r2 的执行后失败收敛为
+`data_rounds=1 / repair_rounds=1 / action_failed=0`；evaluator 也不再用 planner 自写的
+expected value 阻断。因此 DATAPREFLIGHT1 与 DATAEVAL1 在该生产回放关闭。
+
+Binder analyzer 第一次就接受 `runtime_question_profile=bounded_fact_set`，模型仅执行
+`ipc_graph + binder_transaction event_search + sched_wakeup event_search`，正文三个事实及
+方向语义均正确，且结构化 Trace 因果投影已经消失。但答案仍约 15.3K，日志证明两条旧
+接线绕过 shared report authority：
+
+1. `traceSupplementViewsForRequest` 在非 D-state 分支仍按缺失 family 无条件选择
+   `root_cause_rank + critical_blocking_calls`；
+2. `traceObservationDrillRetryLensActive` 仍把 legacy call/relation shape 当成全量钻取
+   合同，pre-finalize floor 发出 `window_sweep + heavy views` 覆盖债。
+
+分别登记 `EVAL-B41-SUPPBREADTH1/P1` 与 `EVAL-B41-FLOORBREADTH1/P1`。二者同根修复：
+先消费 `types.RuntimeTraceReportShapeAuthority`，`decided && !allowed` 时禁止扩到 full
+causal contract；D-state 的 typed state-only 特例继续只补 `window_stats`；显式用户时间窗
+仍以最高权限穿过 guard，保留根因排序、唤醒链、可消除量、因果投影及自动补齐。决策
+只读 typed enum/profile，不读 Binder 字样、RawRequest 或模型/答案 prose。
+
 任务：
 
 - [x] B41-T1：严格并行 2 case，完整日志/答案人工审计；
@@ -4033,8 +4057,18 @@ result/metrics、贡献账本或 reconcile 可支撑 expected value。保留现�
 - [x] B41-T8：evaluator success-criteria 非真值 soft guidance；
 - [x] B41-T9：第二施工批完整相关包测试与构建通过：`internal/repl` 34.739s、
   `dataquery` 2.760s、`dataworkflow` 0.707s、`skill` 1.626s、`agent` 4.493s、
-  `types` 20.312s、`tool` 159.156s，`make` 通过；待本提交推送；
-- [ ] B41-T10：同对严格并行 r3 回放并人工收账。
+  `types` 20.312s、`tool` 159.156s，`make` 通过并已提交推送；
+- [x] B41-T10：同对严格并行 r3 回放并人工收账；data human PASS，Binder 方向与模型
+  正文 PASS，但 control-plane 宽度旁路导致整体 human FAIL；
+- [x] B41-T11：system supplement 接 shared typed breadth authority；有限非 D-state 事实
+  零补采，D-state state-only lane 保留，显式时间窗 full supplement 正臂保留；
+- [x] B41-T12：pre-finalize trace-drill lens 接同一 authority，bounded relation 不再收到
+  heavy causal coverage debt，显式时间窗正臂保留；
+- [x] B41-T13：补 helper 与真实 `RunTraceQuerySystemSupplement` 接线 pin，以及 floor
+  bounded/explicit-window 对偶 pin；定向测试通过；
+- [x] B41-T14：完整 `internal/tool` 160.072s、`internal/orchestrator` 9.899s
+  回归及 `make` 通过；第三施工批提交推送；
+- [ ] B41-T15：同对严格并行 r4 回放并人工收账。
 
 ### B40：analyze retry 回放 × blocked-reason Trace 语义审计（2026-08-02）
 

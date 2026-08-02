@@ -1174,8 +1174,9 @@ func answerDocumentHasRuntimeTraceSystemBlockID(doc *types.AnswerDocumentV2, id 
 //   - generic artifact coverage/comparison shapes remain undecided here and
 //     must prove publication-grade causal rows in the compiled ledger.
 //
-// This authority neither changes deterministic supplement selection nor scans
-// raw request/model/answer prose.
+// This authority is also consumed by deterministic supplement selection and
+// the orchestrator's trace-drill coverage lens. It never scans raw request,
+// model, or answer prose.
 func runtimeTraceReportShapeAuthority(ctx *types.BusContext) (decided bool, allowed bool) {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return types.RuntimeTraceReportShapeAuthority(nil)

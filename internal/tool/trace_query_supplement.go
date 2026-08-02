@@ -197,12 +197,17 @@ func traceSupplementViews(f traceSupplementFamilyPresence, frameFamily, frameEvi
 }
 
 // traceSupplementViewsForRequest narrows deterministic supplementation to the
-// answer family the typed request actually asks for. A D-state/blocked-reason
-// runtime fact needs a five-state account and its blocked-reason census; it
-// does not need a wakeup tree, root-cause board, or critical-blocking list
-// merely because those unrelated families are absent. Root-cause and explicit
-// call-chain questions retain the full core supplement.
+// answer family the typed request actually asks for. The shared report-shape
+// authority runs before family/view inference: a bounded fact set must not be
+// widened merely because a relation or frame label is also present. A
+// D-state/blocked-reason runtime fact keeps its deliberately narrow five-state
+// account and blocked-reason census; other bounded facts need no deterministic
+// supplement. Explicit user windows outrank bounded breadth in the shared
+// authority and therefore retain the full causal supplement.
 func traceSupplementViewsForRequest(ctx *types.BusContext, f traceSupplementFamilyPresence, frameFamily, frameEvidencePresent bool) []string {
+	if decided, allowed := runtimeTraceReportShapeAuthority(ctx); decided && !allowed && !traceSupplementNarrowDStateQuestion(ctx) {
+		return nil
+	}
 	if frameFamily && !frameEvidencePresent {
 		return []string{"frame_root_cause_bundle"}
 	}

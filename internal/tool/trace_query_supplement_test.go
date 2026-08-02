@@ -338,6 +338,45 @@ func TestTraceSupplementExplicitCausalDStateRetainsCoreFamilies(t *testing.T) {
 	}
 }
 
+func TestTraceSupplementBoundedRelationDoesNotInheritCausalFamilies(t *testing.T) {
+	ctx := suppCoreContext(t)
+	ctx.AnalysisIR.RequestModel.Intent = types.IntentTrace
+	ctx.AnalysisIR.RequestModel.PredicateAxis = types.AxisCall
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Kind = string(types.ReqCallChain)
+	ctx.AnalysisIR.RequestModel.Predicates.IsRelationalLookup = true
+	ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile = &types.RuntimeQuestionProfile{
+		Scope: types.RuntimeQuestionScopeBoundedFactSet,
+	}
+	if got := traceSupplementViewsForRequest(ctx, traceSupplementFamilyPresence{}, false, false); len(got) != 0 {
+		t.Fatalf("finite bounded relation must not inherit causal supplement views: %v", got)
+	}
+
+	start, end := 3.0, 3.2
+	ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile = &types.RuntimeArtifactScopeProfile{
+		RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
+		TimeStart:      &start,
+		TimeEnd:        &end,
+		SourceQuote:    "3.0..3.2",
+	}
+	got := traceSupplementViewsForRequest(ctx, traceSupplementFamilyPresence{}, false, false)
+	if len(got) != 2 || got[0] != "root_cause_rank" || got[1] != "critical_blocking_calls" {
+		t.Fatalf("explicit window must outrank bounded breadth and retain causal supplement: %v", got)
+	}
+}
+
+func TestTraceSupplementBoundedRelationSkipsExecutionEndToEnd(t *testing.T) {
+	ctx := suppCoreContext(t)
+	ctx.AnalysisIR.RequestModel.Intent = types.IntentTrace
+	ctx.AnalysisIR.RequestModel.PredicateAxis = types.AxisCall
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Kind = string(types.ReqCallChain)
+	ctx.AnalysisIR.RequestModel.Predicates.IsRelationalLookup = true
+	ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile = &types.RuntimeQuestionProfile{
+		Scope: types.RuntimeQuestionScopeBoundedFactSet,
+	}
+	suppCoreModelCall(t, ctx, `{"view":"event_search","pid":200,"time_start":3.0,"time_end":3.2}`)
+	suppCoreAssertFailOpen(t, ctx, RunTraceQuerySystemSupplement(ctx), types.TraceSupplementReasonFamiliesPresent)
+}
+
 // suppCoreModelCall executes one trace_query through the SAME runner a model
 // dispatch uses and appends the result to the bus history (the model lane).
 func suppCoreModelCall(t *testing.T, ctx *types.BusContext, params string) types.ToolResult {

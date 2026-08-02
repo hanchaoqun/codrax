@@ -375,6 +375,31 @@ func TestTraceObservationDrillRetryLensActive_ConditionAxes(t *testing.T) {
 		t.Fatal("witness shape must enable the trace drill lens")
 	}
 
+	// B41: runtime relation and runtime breadth are orthogonal. A finite
+	// relation lookup must not inherit the heavy causal drill merely because
+	// its legacy axes say call-chain; the shared bounded profile is the
+	// stronger typed authority.
+	boundedRelation := cspCmp792TraceBusContext()
+	boundedRelation.AnalysisIR.RequestModel.PredicateAxis = types.AxisCall
+	boundedRelation.AnalysisIR.RequestModel.AnalyzerHints.Kind = string(types.ReqCallChain)
+	boundedRelation.AnalysisIR.RequestModel.Predicates.IsRelationalLookup = true
+	boundedRelation.AnalysisIR.RequestModel.RuntimeQuestionProfile = &types.RuntimeQuestionProfile{
+		Scope: types.RuntimeQuestionScopeBoundedFactSet,
+	}
+	if lens(boundedRelation) {
+		t.Fatal("bounded relation must not be upgraded to the heavy causal drill")
+	}
+	start, end := 10.0, 10.1
+	boundedRelation.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile = &types.RuntimeArtifactScopeProfile{
+		RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
+		TimeStart:      &start,
+		TimeEnd:        &end,
+		SourceQuote:    "10.0..10.1",
+	}
+	if !lens(boundedRelation) {
+		t.Fatal("explicit user window must retain the heavy causal drill")
+	}
+
 	// Axis (P1-1): typed current-source requirement on the request → lens
 	// off. PerfTrace with in-repo resolved files is the standard perf-triage
 	// product and readLocalizerTier1CurrentSourceRequired's typed carrier.
