@@ -1325,11 +1325,13 @@ type EntityCandidate struct {
 }
 
 type ReconcileReport struct {
-	Status         LooseText        `json:"status,omitempty"`
-	ExpectedAnswer LooseText        `json:"expected_answer,omitempty"`
-	ActualAnswer   LooseText        `json:"actual_answer,omitempty"`
-	Differences    []string         `json:"differences,omitempty"`
-	Groups         []ReconcileGroup `json:"groups,omitempty"`
+	Status                 LooseText        `json:"status,omitempty"`
+	ExpectedAnswer         LooseText        `json:"expected_answer,omitempty"`
+	ActualAnswer           LooseText        `json:"actual_answer,omitempty"`
+	AnswerComparisonStatus LooseText        `json:"answer_comparison_status,omitempty"`
+	AnswerComparisonReason LooseText        `json:"answer_comparison_reason,omitempty"`
+	Differences            []string         `json:"differences,omitempty"`
+	Groups                 []ReconcileGroup `json:"groups,omitempty"`
 }
 
 type ReconcileGroup struct {

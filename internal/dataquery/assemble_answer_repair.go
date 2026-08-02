@@ -97,6 +97,8 @@ func (r ActionRunner) runAssembleAnswerFromRepairSource(action DataAction, recon
 	next := *reconcile
 	next.ActualAnswer = LooseText(answer)
 	next.ExpectedAnswer = LooseText(answer)
+	next.AnswerComparisonStatus = LooseText("pass")
+	next.AnswerComparisonReason = LooseText("assemble_answer repair projection bound the final answer")
 	next.Groups = append(withoutFinalAnswerProjectionGroups(reconcile.Groups), ReconcileGroup{
 		GroupKey:   LooseText("final_answer"),
 		Metric:     LooseText("projection"),

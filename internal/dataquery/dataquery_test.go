@@ -1711,11 +1711,100 @@ func TestActionRunnerIntermediateReconcileIgnoresNonFinalArtifactSummary(t *test
 	if res.Reconcile == nil || res.Reconcile.Status.String() != "pass" || len(res.Reconcile.Groups) != 1 {
 		t.Fatalf("Reconcile=%+v, want one passing count group", res.Reconcile)
 	}
-	if res.Reconcile.ActualAnswer.String() != "2" {
-		t.Fatalf("ActualAnswer=%q, want deterministic contribution count", res.Reconcile.ActualAnswer.String())
+	if res.Reconcile.ActualAnswer.String() != "" || res.Reconcile.ExpectedAnswer.String() != "" {
+		t.Fatalf("Reconcile=%+v, contribution-scope count must not claim final-answer authority", res.Reconcile)
+	}
+	if res.Reconcile.AnswerComparisonStatus.String() != "not_evaluated" {
+		t.Fatalf("AnswerComparisonStatus=%q, want explicit projection boundary", res.Reconcile.AnswerComparisonStatus.String())
 	}
 	if res.OutputContract.Format != OutputFreeform || !res.OutputContract.ExplanationAllowed {
 		t.Fatalf("OutputContract=%+v, intermediate publication must remain relaxed", res.OutputContract)
+	}
+}
+
+func TestActionRunnerComputeContributionsRejectsIgnoredParams(t *testing.T) {
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputJSONOnly, ExplanationAllowed: false},
+		Actions: []DataAction{{
+			ID:         "collect_members",
+			Kind:       DataActionComputeContribs,
+			InputPaths: []string{"records.json"},
+			Params: map[string]string{
+				"include":       "id",
+				"item_id_field": "id",
+				"metric":        "ids",
+				"operation":     "count",
+			},
+		}},
+	}
+	_, err := (ActionRunner{}).Run(context.Background(), plan)
+	if err == nil {
+		t.Fatal("Run succeeded, want unsupported phantom parameter rejected")
+	}
+	var paramErr DataActionParamError
+	if !errors.As(err, &paramErr) {
+		t.Fatalf("err=%T %v, want DataActionParamError", err, err)
+	}
+	if paramErr.Param != "include" || !strings.Contains(err.Error(), "operation=include") || !strings.Contains(err.Error(), "count counts rows") {
+		t.Fatalf("paramErr=%+v err=%v, want typed repair guidance", paramErr, err)
+	}
+}
+
+func TestActionRunnerTerminalProjectionIsIndependentFromSingleAggregateGroup(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "active_users.json"), []byte(`[{"id":"u1"},{"id":"u3"}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seed := Result{Contributions: []ContributionRecord{
+		{ItemID: "u1", GroupKey: "all", Metric: "ids", Value: "1", Operation: "count", Role: "target", Source: "active_users.json", SourceLocator: "line:1"},
+		{ItemID: "u3", GroupKey: "all", Metric: "ids", Value: "1", Operation: "count", Role: "target", Source: "active_users.json", SourceLocator: "line:2"},
+	}}
+	reconcilePlan := TaskPlan{
+		Status:         "ready",
+		ContinueAfter:  true,
+		OutputContract: OutputContract{Format: OutputJSONOnly, ExplanationAllowed: false},
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []DataAction{{ID: "reconcile_ids", Kind: DataActionReconcile, OutputArtifact: "reconciled"}},
+	}
+	reconciled, err := (ActionRunner{RepoRoot: root, Seed: seed}).Run(context.Background(), reconcilePlan)
+	if err != nil {
+		t.Fatalf("reconcile Run: %v", err)
+	}
+	if reconciled.Answer != "2" || reconciled.Reconcile == nil || reconciled.Reconcile.AnswerComparisonStatus.String() != "not_evaluated" {
+		t.Fatalf("reconciled=%+v, want group count retained without final-answer authority", reconciled)
+	}
+	projectionPlan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputJSONOnly, ExplanationAllowed: false},
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []DataAction{{
+			ID:             "emit_ids",
+			Kind:           DataActionCustomTransform,
+			InputPaths:     []string{"active_users.json"},
+			OutputArtifact: "final_answer",
+			Script: `users = json_load("active_users.json")
+emit_result({"ids": [user["id"] for user in users]})`,
+		}},
+	}
+	projected, err := (ActionRunner{RepoRoot: root, Seed: reconciled}).Run(context.Background(), projectionPlan)
+	if err != nil {
+		t.Fatalf("projection Run: %v", err)
+	}
+	if projected.Answer != `{"ids":["u1","u3"]}` {
+		t.Fatalf("Answer=%q, want independent terminal JSON projection", projected.Answer)
+	}
+	if projected.Reconcile == nil || projected.Reconcile.AnswerComparisonStatus.String() != "not_evaluated" || projected.Reconcile.ActualAnswer.String() != "" {
+		t.Fatalf("Reconcile=%+v, aggregate verification must remain group-scoped", projected.Reconcile)
 	}
 }
 

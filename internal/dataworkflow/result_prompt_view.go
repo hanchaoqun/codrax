@@ -401,6 +401,8 @@ func ClampPromptReconcileReport(report *dataquery.ReconcileReport) *dataquery.Re
 	out.Status = dataquery.LooseText(ClampRecordViewText(out.Status.String(), 80))
 	out.ExpectedAnswer = dataquery.LooseText(ClampRecordViewText(out.ExpectedAnswer.String(), 400))
 	out.ActualAnswer = dataquery.LooseText(ClampRecordViewText(out.ActualAnswer.String(), 400))
+	out.AnswerComparisonStatus = dataquery.LooseText(ClampRecordViewText(out.AnswerComparisonStatus.String(), 80))
+	out.AnswerComparisonReason = dataquery.LooseText(ClampRecordViewText(out.AnswerComparisonReason.String(), 240))
 	if len(out.Differences) > 6 {
 		out.Differences = append([]string(nil), out.Differences[:6]...)
 	}

@@ -4332,7 +4332,7 @@ operation 人工审计还发现量具本身跨模式污染：该 case 无 trace 
   dataworkflow / repl 回归通过；
 - [x] B44-T3：修复 trace projection eval metric 跨模式污染，runner contract 测试通过；
 - [x] B44-T4：补 operation material 的 source-read/excerpt 双截断 typed context 与测试；
-- [ ] B44-T5：分批提交推送；干净 HEAD 同对回放，确认 JSON context 单一且 operation 会在广域
+- [x] B44-T5：分批提交推送；干净 HEAD 同对回放，确认 JSON context 单一且 operation 会在广域
   材料仍截断时优先继续定向抽取。
 
 #### B44-b：operation 长材料上下文必须同时披露两层截断
@@ -4382,6 +4382,52 @@ reconcile output authority，ActionRunner 即使使用 relaxed intermediate vali
 把原始 `plan.OutputContract` 传给 reconcile。定向回归固定：旧 artifact summary 不参与 JSON
 final-answer 对比、贡献 count 仍严格核成 2、intermediate result 仍发布 freeform；真正满足
 JSON contract 的答案仍会接受 expected/actual 交叉核对。
+
+#### B44 r3：HTML 导航证据丢失 × 聚合域冒充答案域（2026-08-02）
+
+干净 `main@84aba148c` 同对严格并行，runner 0/2；人工 operation FAIL、data FAIL。两案均不是
+“再提示模型一次”可以稳健解决，而是系统送给模型的 typed context/authority 不精确。
+
+operation 连续执行 5 轮：首次下载的首页 HTML 内已有精确
+`href="./user_guide.html"`，但 `extractHTMLVisibleText` 在把 payload 变成可见正文时删除所有 tag，
+所以 evaluator/planner 只见“使用手册”锚文本，看不见目标。随后模型使用 BSD grep 不支持的
+`-P`、引用不存在的临时路径、用中文锚文本搜索 href，最终猜 `/man` 并得到 404；答案又把
+不存在的 `/doc`、`/trace` 当成链接。`source_truncated/excerpt_truncated` 都无法补回已被结构化
+转换删除的导航字段。
+
+data 已形成 5 条 decisions、9 条 rules、2 条 target contributions，成员身份是 u1/u3。模型先
+用 `operation=add` 处理字符串而被 numeric typed gate 正确拒绝，后改成 count。系统得到
+single group `all/ids=2`；模型随后真实执行出正确 `{"ids":["u1","u3"]}`，但 validator 报
+`expected_answer "2" does not match result.answer ...`，最后 workflow 明知生成答案正确仍回退发布
+旧候选 `2`。
+
+| ID | P | gap | 最优方案 | 状态 |
+|---|---:|---|---|---|
+| EVAL-B44-OPLINK1 | P1 | HTML material context 保留可见文本但丢失 anchor target，模型无法从结构化证据定位下一页 | 从同一 256 KiB 有界源前缀抽取 source-ordered、去重、数量/单值/总 rune 三重有界的 literal href 清册；发布 `html_link_targets` 与 `html_link_targets_truncated`。它只提供证据，不自动选择或执行链接 | implemented/tests-pass/commit `8da6a0dc1` |
+| EVAL-B44-RECONSCOPE1 | P0 | `reconcile_artifacts` 仅凭 `len(groups)==1` 把 contribution aggregate 铸成 final-answer expected/actual；单一 count group 因而否决合法 object/list projection | group reconciliation 与 answer projection 分权：reconcile action 只保留每组 expected/actual，顶层 answer claim 留空并显式标 `answer_comparison_status=not_evaluated`；`assemble_answer` 才标 pass 并绑定 answer。已有显式 answer-scope 报告仍照常 hard check | implemented/tests-pass |
+| EVAL-B44-ACTIONPARAM1 | P1 | `DataAction.Params` 是开放 map；compute_contributions 对未知 `include` 静默忽略，模型以为请求 member list，runner 实际 count | 在该通用计算 action 边界按完整支持参数词表 fail-loud；错误列出未知/允许键并准确说明 count 与 include/set/rank+value_field。只读 typed params，不读 purpose/用户/答案 prose | implemented/tests-pass |
+| EVAL-B44-OPORACLE2 | P2 | eval 同义词 regex 覆盖“用户手册”“用户使用手册”，遗漏普通“使用手册” | eval-only 扩充同义短语，继续独立要求实质使用内容与 codrax.net 来源 | implemented |
+
+上下文精度不变量：
+
+1. HTML link inventory 与正文 excerpt 并列，不能取代 source/excerpt truncation；若源读取被截断，
+   清册也只代表已读前缀。
+2. 系统不根据 URL、anchor 文案或用户关键词自动导航；模型根据 typed target + 正文决定下一步。
+3. contribution group `pass` 只证明组内核对，不再暗示 final answer 已核对；answer comparison 的
+   `not_evaluated/pass` 状态必须随 prompt clamp 保留。
+4. 未知 action param 是精确 schema 违例，可 hard reject；任务语义、答案是否好仍由模型/evaluator
+   判断，不能从 purpose 或输出原文反推。
+5. 本批不触及 Trace 路由、显式窗识别、因果投影或自动补齐代码面；Trace projection eval metric
+   仍为 0，跨模式没有再次污染。
+
+任务状态：
+
+- [x] B44-r3-T1：严格并行同对，人工读完命令链/data repair 链和终态答案；
+- [x] B44-r3-T2：HTML href typed inventory + 三重限额 + 截断披露；
+- [x] B44-r3-T3：贡献聚合域与最终答案投影域分权，并让 prompt 保留 comparison status；
+- [x] B44-r3-T4：compute_contributions phantom param fail-loud；
+- [x] B44-r3-T5：相关 dataquery/dataworkflow/repl 全包回归；
+- [x] B44-r3-T6：提交推送 data 批；下一步从干净 HEAD 同对 r4 回放。
 
 ### B41：data 终批材料 × Binder 方向语义审计（2026-08-02）
 

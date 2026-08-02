@@ -8053,6 +8053,9 @@ func (r ActionRunner) runComputeContributions(action DataAction, defaultRuleRefs
 	if len(paths) == 0 {
 		return DataArtifact{}, nil, nil, dataActionMissingParamError(DataActionComputeContribs, "input_paths", "at least one executable record artifact path", action.InputPaths)
 	}
+	if err := validateComputeContributionActionParams(action); err != nil {
+		return DataArtifact{}, nil, nil, err
+	}
 	groupKeyFields := computeContributionGroupKeyFields(action)
 	groupKeyConst := strings.TrimSpace(action.Params["group_key"])
 	// group_key_literal — the deterministic completion lane's collision-free
@@ -8076,7 +8079,7 @@ func (r ActionRunner) runComputeContributions(action DataAction, defaultRuleRefs
 	}
 	operation, ok := normalizeContributionOperation(operation)
 	if !ok || operation == "" {
-		return DataArtifact{}, nil, nil, dataActionParamError(DataActionComputeContribs, "operation", "add or count", action.Params["operation"], nil)
+		return DataArtifact{}, nil, nil, dataActionParamError(DataActionComputeContribs, "operation", "add/sum/include/count/subtract/set/rank", action.Params["operation"], nil)
 	}
 	role := firstNonEmptyString(strings.TrimSpace(action.Params["role"]), strings.TrimSpace(action.Params["scope"]))
 	if role == "" {
@@ -8501,7 +8504,11 @@ func (r ActionRunner) runReconcileArtifacts(action DataAction, contributions []C
 		// groups still fails loudly. Auxiliary-only ledgers never become target
 		// answer groups.
 		if len(targetContributions) == 0 {
-			report := ReconcileReport{Status: LooseText("pass")}
+			report := ReconcileReport{
+				Status:                 LooseText("pass"),
+				AnswerComparisonStatus: LooseText("not_evaluated"),
+				AnswerComparisonReason: LooseText("reconcile_artifacts verified contribution scope; no final answer projection was produced"),
+			}
 			if err := validateReconcileReport(report, contributions, ""); err != nil {
 				return DataArtifact{}, ReconcileReport{}, err
 			}
@@ -8564,25 +8571,19 @@ func (r ActionRunner) runReconcileArtifacts(action DataAction, contributions []C
 			Fields:  fields,
 		})
 	}
-	// ExpectedAnswer/ActualAnswer is the reconciliation's claim about
-	// the FINAL answer. A single-group reconcile (one scalar total) IS
-	// the final answer, so it's set. A multi-group reconcile produces a
-	// per-group summary that is an INTERNAL reconciliation artifact, not
-	// the user-facing answer (which is assembled separately as a list /
-	// object / table). Setting the group-join string as ExpectedAnswer
-	// makes the downstream cross-check (expected_answer == result.answer)
-	// reject every multi-group extraction whose final answer is anything
-	// but that join string. Leave it empty for multi-group so the typed
-	// per-group checks still run while the answer-level cross-check
-	// correctly skips. Group cardinality is a precise structural signal.
+	// A reconcile group proves an aggregate in contribution scope. Group
+	// cardinality does NOT prove that the user-facing answer has the same
+	// shape: one count group may legitimately project to a JSON object or
+	// member list in a later action.  Therefore reconcile_artifacts never
+	// mints answer-level ExpectedAnswer/ActualAnswer from group count alone.
+	// assemble_answer (or an explicitly answer-scoped model report) owns that
+	// separate projection claim.  This prevents an intermediate scalar such
+	// as count=2 from vetoing a later, contract-valid {ids:[...]} projection.
 	report := ReconcileReport{
-		Status: LooseText("pass"),
-		Groups: groups,
-	}
-	if len(groups) == 1 {
-		answer := groups[0].Actual.String()
-		report.ExpectedAnswer = LooseText(answer)
-		report.ActualAnswer = LooseText(answer)
+		Status:                 LooseText("pass"),
+		AnswerComparisonStatus: LooseText("not_evaluated"),
+		AnswerComparisonReason: LooseText("reconcile_artifacts verified contribution groups; final answer projection is a separate stage"),
+		Groups:                 groups,
 	}
 	if err := validateReconcileReport(report, contributions, ""); err != nil {
 		return DataArtifact{}, ReconcileReport{}, err
@@ -8748,6 +8749,8 @@ func (r ActionRunner) runAssembleAnswerFromReconcileGroups(action DataAction, re
 	next := *reconcile
 	next.ActualAnswer = LooseText(answer)
 	next.ExpectedAnswer = LooseText(answer)
+	next.AnswerComparisonStatus = LooseText("pass")
+	next.AnswerComparisonReason = LooseText("assemble_answer projected and bound the final answer")
 	if referenceProjected {
 		next.Groups = withoutFinalAnswerProjectionGroups(reconcile.Groups)
 		next.Groups = append(next.Groups, ReconcileGroup{

@@ -8,6 +8,74 @@ import (
 	"strings"
 )
 
+var computeContributionAllowedParams = map[string]bool{
+	"allow_unqualified_records": true,
+	"expected_count":            true,
+	"expected_values_json":      true,
+	"filter_equals":             true,
+	"filter_field":              true,
+	"filter_not_equals":         true,
+	"filter_op":                 true,
+	"filter_value":              true,
+	"filters":                   true,
+	"filters_json":              true,
+	"generated_status_fields":   true,
+	"group_by":                  true,
+	"group_by_fields":           true,
+	"group_field":               true,
+	"group_fields":              true,
+	"group_key":                 true,
+	"group_key_field":           true,
+	"group_key_fields":          true,
+	"group_key_literal":         true,
+	"item_id_field":             true,
+	"key_field":                 true,
+	"max_contributions":         true,
+	"max_records":               true,
+	"metric":                    true,
+	"operation":                 true,
+	"reason":                    true,
+	"role":                      true,
+	"rule_refs":                 true,
+	"scope":                     true,
+	"status_fields":             true,
+	"value_field":               true,
+}
+
+// validateComputeContributionActionParams prevents a typed action from
+// silently accepting configuration that the executor never consumes.  A
+// phantom key is a precise structural error: without this check a planner can
+// believe it requested member collection (for example via an invented key)
+// while the runner executes an unrelated count.  The allowlist covers the
+// action family rather than any business/case vocabulary.
+func validateComputeContributionActionParams(action DataAction) error {
+	var unknown []string
+	for key := range action.Params {
+		key = strings.TrimSpace(key)
+		if key != "" && !computeContributionAllowedParams[key] {
+			unknown = append(unknown, key)
+		}
+	}
+	if len(unknown) == 0 {
+		return nil
+	}
+	sort.Strings(unknown)
+	allowed := make([]string, 0, len(computeContributionAllowedParams))
+	for key := range computeContributionAllowedParams {
+		allowed = append(allowed, key)
+	}
+	sort.Strings(allowed)
+	return DataActionParamError{
+		ActionKind:    DataActionComputeContribs,
+		Param:         strings.Join(unknown, ","),
+		ExpectedShape: "only supported compute_contributions parameters",
+		ActualSnippet: strings.Join(unknown, ","),
+		Message: fmt.Sprintf(
+			"compute_contributions has unsupported parameter(s) [%s]; allowed parameters are [%s]. For member/id/label lists use operation=include, set, or rank with value_field=<existing field>; operation=count counts rows and does not emit member values",
+			strings.Join(unknown, ", "), strings.Join(allowed, ", ")),
+	}
+}
+
 // validateComputeContributionExpectedClosure is the deterministic completion
 // plan's runtime value gate. Artifact schema and RowCount can admit a
 // candidate plan, but only the materialized values may close the existing

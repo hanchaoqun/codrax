@@ -116,6 +116,8 @@ func (r ActionRunner) runAssembleAnswerFromAnswerLevelReconcile(action DataActio
 	next := *reconcile
 	next.ActualAnswer = LooseText(answer)
 	next.ExpectedAnswer = LooseText(answer)
+	next.AnswerComparisonStatus = LooseText("pass")
+	next.AnswerComparisonReason = LooseText("assemble_answer projected and bound the final answer")
 	next.Groups = append(withoutFinalAnswerProjectionGroups(reconcile.Groups), ReconcileGroup{
 		GroupKey:   LooseText("final_answer"),
 		Metric:     LooseText("projection"),
