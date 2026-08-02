@@ -5730,8 +5730,8 @@ func dataTaskOutputReferenceProjectionGap(repoRoot string, records []dataTaskWor
 // proves contributions↔answer internal consistency; both replay runs
 // published internally-consistent wrong answers ("17,5" dropped a reference
 // slot; "17,4,5" let a non-reference group's total occupy a slot that must be
-// 0). When THE reference set is resolvable through a precise credential
-// (dataTaskResolveOutputReferenceSet), the answer must satisfy
+// 0). When typed output intent resolves THE reference set through
+// dataTaskResolveDeclaredOutputReferenceSet, the answer must satisfy
 //
 //	arm A: answer item count == reference key count
 //	arm B: answer[i] == contribution total(keys[i]), 0 when the key has
@@ -5946,8 +5946,8 @@ func dataTaskArtifactAliasSourceMaterialPaths(repoRoot string, records []dataTas
 //	lane 1 — typed declaration: output contract carries
 //	         complete_reference=true with a reference_path that is a task
 //	         source material (never a generated artifact — C1 hygiene);
-//	lane 2 — structural census (件D, replay#3 2026-07-19): activation is
-//	         derived from a typed engine census of the workflow's SOURCE
+//	lane 2 — structural census (件D, replay#3 2026-07-19): candidate discovery
+//	         is derived from a typed engine census of the workflow's SOURCE
 //	         materials (coverage required + optional + consumed source
 //	         paths), never from model-shaped state. A material is
 //	         reference-kind when it is a pure key table (every non-empty
@@ -5957,8 +5957,8 @@ func dataTaskArtifactAliasSourceMaterialPaths(repoRoot string, records []dataTas
 //	         (its keys appear in another source material). Neither the
 //	         model's declared output-contract format nor its contribution
 //	         grouping nor the required/optional census position of the
-//	         material can exempt the case: replay#3 bypassed the previous
-//	         activation once by writing a degenerate ledger (every group
+//	         material changes the structural candidate: replay#3 bypassed
+//	         the previous discovery once by writing a degenerate ledger (every group
 //	         key = the literal string "canonical_label" → overlap 0, grand
 //	         total 37 shipped) and once because targets.csv sat in
 //	         optional_materials while only required_materials were scanned.

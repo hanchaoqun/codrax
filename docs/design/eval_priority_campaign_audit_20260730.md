@@ -4569,6 +4569,74 @@ filter 值选错、投影格式错误和模型重试，尚不足以授权某字�
 - `eval/parallel_selected_summary_evalcampaign_b32_replay_r4_20260801.md`
 - `eval/parallel_selected_summary_evalcampaign_b32_replay_r4_20260801_manual_audit.md`
 
+#### B32 r5：同源伪关系已覆盖；同数量错槽位暴露 live grounding 与看护权限 gap
+
+`main@75767b8ba` 严格并行 2 个 data case，runner/human 均 PASS：
+
+- `data_basic_sum_with_rules`：192s，7 批、2 次 repair，最终严格单值 `17`；
+- `data_multifile_reference_projection`：234s，8 批、2 次 repair，最终
+  `17,0,5`。
+
+基础例没有再把 `orders.csv` 的聚合/子制品当成独立关系侧，执行序列收敛为
+custom fallback 失败后的 extract→rule→filter→contribution→reconcile→assemble，
+entity resolutions 从 4 降到 0，r4 的 11 批降到 7 批。因此
+`EVAL-B32-DATAREL1=covered-live-replay`。多文件例从 r4 的 657s/15 批降到
+234s/8 批，说明关系收窄同时消除了大部分级联参数修复；
+`EVAL-B32-DATAPERF1` 降为 P3-watch，不再是当前高优先级生产 gap。
+
+多文件例首个 answer 为 `17,4,5`：数量同为 3，但第二槽的 reference key 是无贡献的
+`GroupX`，必须为 0，实际却被非 reference 的 `GroupB=4` 占据。终态
+`output_reference_grounding_mismatch` 已精确给出 source path、key field 和逐槽差异，
+模型随后重发 assemble 得到 `17,0,5`；但终态校验前的 live graph/decision 仍为
+`satisfied/complete`。根因不是 DATASTATE4 stage 接线失效，而是 live
+`OutputProjectionGraph` 只消费 reference cardinality gap，没有消费已存在的 typed
+per-slot grounding report。
+
+登记并实施 `EVAL-B32-DATASTATE5/P1`，同时审计出并纠正
+`EVAL-B32-DATAAUTH1/P1`：旧看护用例只禁止未声明子集被确定性 zero-fill，却允许结构
+census 继续以另一错误码硬阻塞同一合法答案，属于看护自身过硬。
+
+通用裁定与实现如下：
+
+1. live OutputProjectionGraph 新增 typed
+   `reference_grounding_mismatch / cardinality_mismatch /
+   ledger_domain_mismatch / mismatch_count`，同一状态驱动 decision、next stage 和合法
+   `assemble_answer` action；终态 gate 仍保留更丰富的 path/field/slot violation。
+2. hard grounding 的“参考集合是什么”和“用户是否要求全量投影”分离：结构 key-table
+   census 只做候选发现；硬权限必须来自 typed `complete_reference` 合同，或模型已发出的
+   `assemble_answer.reference_path + reference_key_field`。
+3. `reference_path` 若是生成别名（真实 replay 为 `target_list`），别名本身不得成为参考
+   权威；只允许通过唯一、相容的 artifact `source_paths` 回溯到原始 source material，
+   再从原文件字节解析 key universe。多源/冲突 lineage fail-open，不猜测。
+4. 显式 complete-reference 若指向不能回溯到相容源字段的生成物，发布 typed
+   `output_reference_authority_invalid` 让模型修复，禁止系统偷偷换成另一个结构候选。
+5. 同数量的 value/slot grounding mismatch 只重开模型 answer stage，不进入 deterministic
+   projection plan；model repair 和 continuation 均失败后，既有 validator-proposal 候选车道
+   才可工作。系统没有直接写值、替换答案或抢先于模型。
+6. 已声明的纯 cardinality gap 保留既有 `incomplete_reference` 机械投影权限；未声明子集
+   新看护明确要求 completion guard 完全为空，不能只排除某一个错误码。
+7. 全部硬判只读 typed contract/action/artifact lineage/ledger/reference bytes，不扫描用户
+   原文、模型 thinking/reason/final、case ID、字段业务词或答案 prose。
+
+实现提交 `5bdfe9ac9`。`go test ./internal/dataworkflow ./internal/repl -count=1`
+全部通过（dataworkflow 0.709s，repl 30.724s），`git diff --check` 通过。
+
+另记 `EVAL-B32-DEFERAUTH1/P2-watch`：基础例一个使用不存在
+`amount_status/id_status` 的延后 qualification candidate 被正确拒绝后，旧 field-contract
+失败曾短暂与已完整 ledger/output current state 竞争；最终答案未受影响。单个 specimen
+不足以授权新的 active-suffix 规则，待不同 schema 第二次复现。
+
+状态：`EVAL-B32-DATAREL1=covered-live-replay`；
+`EVAL-B32-DATASTATE5=implemented/full-related-tests-pass/replay-later`；
+`EVAL-B32-DATAAUTH1=implemented/full-related-tests-pass`；
+`EVAL-B32-DEFERAUTH1=P2-watch`。本批不修改 Trace 显式窗、因果投影、根因排序、唤醒链、
+窗内可消除量、自动补采或模型答案所有权。
+
+工件：
+
+- `eval/parallel_selected_summary_evalcampaign_b32_replay_r5_20260801.md`
+- `eval/parallel_selected_summary_evalcampaign_b32_replay_r5_20260801_manual_audit.md`
+
 ### B26-OWN：Trace 精确信息与模型结论的职责边界回裁（2026-08-01）
 
 客户/人工 witness：

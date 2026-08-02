@@ -236,9 +236,8 @@ func TestReferenceGroundingGuardFailOpenLanes(t *testing.T) {
 	root := referenceGroundingFixtureRepo(t)
 	current := dataquery.TaskPlan{CoverageContract: referenceGroundingContract()}
 
-	// True negative: a repo with NO key-table material at all (data-basic
-	// shape). Activation is census-driven, so the absence must come from
-	// the bytes, not from the model's contract filing.
+	// True negative: typed intent names a source reference that does not exist
+	// in this repo. Missing bytes cannot be promoted into hard authority.
 	basicRoot := t.TempDir()
 	if err := os.WriteFile(filepath.Join(basicRoot, "orders.csv"), []byte("id,amount\na,10\nb,7\nc,7\n"), 0600); err != nil {
 		t.Fatal(err)
@@ -441,11 +440,11 @@ func TestAuditOnlyContributionLedgerFailsLoud(t *testing.T) {
 	}
 }
 
-// TestReferenceGroundingActivationIsCensusDriven pins 件D (replay#3
-// 2026-07-19, both runs bypassed the previous activation): the reference
-// obligation activates from the typed material census and no model-shaped
-// state can exempt it.
-func TestReferenceGroundingActivationIsCensusDriven(t *testing.T) {
+// TestReferenceGroundingTypedIntentSurvivesMaterialFiling pins the corrected
+// 件D boundary: typed complete-reference intent is hard authority regardless
+// of whether the source material was filed required, optional, or consumed;
+// filing/census alone is never the intent authority.
+func TestReferenceGroundingTypedIntentSurvivesMaterialFiling(t *testing.T) {
 	root := referenceGroundingFixtureRepo(t)
 
 	// Run-2 shape: targets.csv filed only under optional_materials (the
@@ -501,9 +500,8 @@ func TestReferenceGroundingActivationIsCensusDriven(t *testing.T) {
 // run-1 witness shape: every contribution carries the literal field name
 // "canonical_label" as its group key, the ledger sums everything (including
 // unmapped and non-target rows) to 37, reconcile self-passes, and "37"
-// shipped. The census anchor (targets.csv#canonical_label cross-linked into
-// labels.csv) must arm the obligation and red both the cardinality and the
-// ledger-domain arms.
+// shipped. The typed assemble reference selects targets.csv#canonical_label;
+// the guard must red both the cardinality and ledger-domain arms.
 func TestReferenceGroundingRedOnDegenerateLedgerGrandTotal(t *testing.T) {
 	root := referenceGroundingFixtureRepo(t)
 	res := dataquery.Result{
@@ -818,8 +816,8 @@ func TestReferencePathMaterialCredential(t *testing.T) {
 			t.Fatalf("dataTaskReferencePathIsWorkflowMaterial(%q)=%v, want %v", path, got, want)
 		}
 	}
-	// The gate resolver must resolve the laundered declaration to the
-	// structural material reference, not the declared artifact.
+	// The soft structural resolver may still discover the source candidate;
+	// hard grounding does not use this fallback to replace the bad declaration.
 	root := referenceGroundingFixtureRepo(t)
 	laundered := launderedResult("0", "metric")
 	candidate, ok := dataTaskResolveOutputReferenceSet(root, records, current, laundered, laundered.OutputContract.Normalize())
@@ -830,7 +828,7 @@ func TestReferencePathMaterialCredential(t *testing.T) {
 
 // TestReferenceGroundingDeclaredLane: lane 1 — an output contract that
 // declares complete_reference + reference_path resolves the reference set by
-// declaration, without needing the structural credential.
+// declaration, without structural intent inference.
 func TestReferenceGroundingDeclaredLane(t *testing.T) {
 	root := referenceGroundingFixtureRepo(t)
 	records := referenceGroundingRecords()
