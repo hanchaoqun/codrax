@@ -664,3 +664,41 @@ func TestDefaultRunnerPlansFromTestSurface_CompatibleSignalBeatsSyntheticNativeP
 		t.Fatalf("signaled C-family Make surface must beat inferred unconfigured cmake, got %+v", plans)
 	}
 }
+
+func TestDeclaredCoverageRunnerPlansFromChangePlan_PrefersExactCrossLanguageMakeRoster(t *testing.T) {
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "Makefile", "check:\n\tpython3 tests/check_widget.py\n")
+	writeSurfaceFile(t, root, "tests/check_widget.py", `
+from pathlib import Path
+Path("pkg/widget.py").read_text()
+`)
+	writeSurfaceFile(t, root, "pkg/widget.py", "VALUE = 42\n")
+
+	surface := BuildTestSurface(root, "")
+	plan := &types.ChangePlan{TargetPaths: []string{"pkg/widget.py"}}
+	declared := declaredCoverageRunnerPlansFromChangePlan(root, surface, plan)
+	if len(declared) != 1 || declared[0].Runner != "make" || declared[0].Suite != "check" {
+		t.Fatalf("exact declared Make roster should produce the priority plan, got %+v", declared)
+	}
+	queue := defaultRunnerPlansFromTestSurface(root, surface, "python", declared...)
+	if len(queue) == 0 || queue[0].Runner != "make" || queue[0].Manifest != "Makefile" {
+		t.Fatalf("declared cross-language project test must outrank synthetic Python, got %+v", queue)
+	}
+}
+
+func TestDeclaredCoverageRunnerPlansFromChangePlan_RequiresEveryChangedSource(t *testing.T) {
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "Makefile", "check:\n\tpython3 tests/check_widget.py\n")
+	writeSurfaceFile(t, root, "tests/check_widget.py", `
+from pathlib import Path
+Path("pkg/widget.py").read_text()
+`)
+	writeSurfaceFile(t, root, "pkg/widget.py", "VALUE = 42\n")
+	writeSurfaceFile(t, root, "pkg/other.py", "VALUE = 7\n")
+
+	surface := BuildTestSurface(root, "")
+	plan := &types.ChangePlan{TargetPaths: []string{"pkg/widget.py", "pkg/other.py"}}
+	if got := declaredCoverageRunnerPlansFromChangePlan(root, surface, plan); len(got) != 0 {
+		t.Fatalf("partial declared roster must not eclipse another changed source, got %+v", got)
+	}
+}

@@ -69,6 +69,7 @@ const (
 	verificationProbeContinuationChangedPathUncovered      = "verification_probe_changed_path_uncovered"
 	verificationProbeContinuationMissingPlanContractRef    = "verification_probe_missing_plan_contract_ref"
 	verificationProbeContinuationSourceImpactTestSurface   = "impact_test_surface"
+	verificationProbeContinuationSourceDeclaredCoverage    = "declared_coverage_test_surface"
 	verificationProbeContinuationSourceProbeSuiteContinued = "probe_primary_suite_continued"
 )
 
@@ -475,12 +476,18 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		}
 	} else {
 		preferredRunner := preferredRunnerFromChangePlan(ctx)
+		declaredCoveragePlans := declaredCoverageRunnerPlansFromChangePlan(ctx.RepoRoot, surface, ctx.Mutable.ChangePlan())
 		impactPlans := impactRunnerPlansFromChangePlan(ctx.RepoRoot, surface, ctx.Mutable.ChangePlan())
+		priorityPlans := append(append([]runnerPlan(nil), declaredCoveragePlans...), impactPlans...)
 		impactPlanKeys := map[string]bool{}
 		for _, plan := range impactPlans {
 			impactPlanKeys[testSurfaceCandidateKey(plan.Runner, plan.Framework, runnerPlanRel(ctx.RepoRoot, plan))] = true
 		}
-		plans = defaultRunnerPlansFromTestSurface(ctx.RepoRoot, surface, preferredRunner, impactPlans...)
+		declaredCoveragePlanKeys := map[string]bool{}
+		for _, plan := range declaredCoveragePlans {
+			declaredCoveragePlanKeys[testSurfaceCandidateKey(plan.Runner, plan.Framework, runnerPlanRel(ctx.RepoRoot, plan))] = true
+		}
+		plans = defaultRunnerPlansFromTestSurface(ctx.RepoRoot, surface, preferredRunner, priorityPlans...)
 		if len(plans) == 0 {
 			return errResult(t.Name(),
 				"run_tests: no supported test surface detected in "+ctx.RepoRoot+
@@ -493,10 +500,14 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				planSources[key] = "impact_test_surface"
 				continue
 			}
+			if declaredCoveragePlanKeys[key] {
+				planSources[key] = verificationProbeContinuationSourceDeclaredCoverage
+				continue
+			}
 			planSources[key] = "test_surface_default"
 		}
-		logging.Info("[run_tests] test-surface default selected %d runnable project(s) in %s (preferred_runner=%s impact_targets=%d)",
-			len(plans), ctx.RepoRoot, preferredRunner, len(impactPlans))
+		logging.Info("[run_tests] test-surface default selected %d runnable project(s) in %s (preferred_runner=%s declared_coverage=%d impact_targets=%d)",
+			len(plans), ctx.RepoRoot, preferredRunner, len(declaredCoveragePlans), len(impactPlans))
 	}
 
 	var (
@@ -1282,7 +1293,19 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		projectReports = append(projectReports, qualifyChangeReport(report, plan, ctx.RepoRoot))
 	}
 
+	// A pre-suite probe and an independently executed project suite are two
+	// complementary verification lanes. Keep the passed probe report in the
+	// aggregate after the project runner executes; otherwise its typed changed
+	// identity and contract evidence vanish exactly when the real suite is
+	// available, leaving cross-language meta-runners unable to close source-path
+	// coverage. Commands were already recorded above, so this only preserves the
+	// structured TestResults/diagnostics once.
 	report := mergeChangeReports(projectReports)
+	if preSuiteProbe != nil && preSuiteProbe.Report != nil && !preSuiteProbeConsumed &&
+		preSuiteProbe.Report.NormalizeVerificationStatus() == types.VerificationStatusPassed {
+		preSuiteProbeConsumed = true
+		report = mergeChangeReports([]*types.ChangeReport{preSuiteProbe.Report, report})
+	}
 	if plan := ctx.Mutable.ChangePlan(); plan != nil {
 		report.PlanID = plan.ID
 	}

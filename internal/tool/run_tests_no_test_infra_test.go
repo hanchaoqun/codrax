@@ -1298,6 +1298,83 @@ func TestRunTestsVerificationProbePassContinuesImpactRelatedTestSurface(t *testi
 	}
 }
 
+func TestRunTestsVerificationProbePassUsesDeclaredCrossLanguageMakeCoverageBeforeSyntheticRunner(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	if _, err := exec.LookPath("make"); err != nil {
+		t.Skip("make not available on PATH")
+	}
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "pkg"), 0o755); err != nil {
+		t.Fatalf("mkdir pkg: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "tests"), 0o755); err != nil {
+		t.Fatalf("mkdir tests: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "pkg", "widget.py"), []byte("VALUE = 42\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	check := "from pathlib import Path\nsrc = Path('pkg/widget.py').read_text()\nassert 'VALUE = 42' in src\nprint('declared make check ok')\n"
+	if err := os.WriteFile(filepath.Join(root, "tests", "check_widget.py"), []byte(check), 0o644); err != nil {
+		t.Fatalf("write check script: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "Makefile"), []byte("check:\n\tpython3 tests/check_widget.py\n"), 0o644); err != nil {
+		t.Fatalf("write Makefile: %v", err)
+	}
+
+	mu := types.NewMutableState("declared cross-language make coverage")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-declared-make-coverage",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"pkg/widget.py"},
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID:       "widget-value",
+			Kind:     types.WriteBehaviorObservable,
+			Operator: types.WriteBehaviorOpEquals,
+			Expected: "42",
+			Required: true,
+		}},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:                "widget-value-probe",
+			Language:          "python",
+			Code:              "from pkg import widget\nassert widget.VALUE == 42\n",
+			ChangedSymbolRefs: []string{"path:pkg/widget.py"},
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("probe plus declared Make check should pass: %+v", result)
+	}
+	report := mu.ChangeReport()
+	if report == nil || report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
+		t.Fatalf("expected passed report: %+v", report)
+	}
+	foundMake := false
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Runner == "make" && cmd.Outcome == "executed" && cmd.ExitCode == 0 &&
+			cmd.Source == verificationProbeContinuationSourceDeclaredCoverage {
+			foundMake = true
+		}
+	}
+	if !foundMake {
+		t.Fatalf("declared Make surface was not executed: %+v", report.ExecutedCommands)
+	}
+	if changeReportHasVerificationConfidence(report, "probe_contract_refs", "missing", "verification_probe_missing_required_contract_ref") {
+		t.Fatalf("independent project suite should avoid a probe-only contract-proof false negative: %+v", report.VerificationConfidence)
+	}
+}
+
 func TestRunTestsVerificationProbePassDowngradesImpactRelatedTestTimeout(t *testing.T) {
 	if _, ok := resolvePythonDryBuildRunner(); !ok {
 		t.Skip("no usable python on PATH; skip")

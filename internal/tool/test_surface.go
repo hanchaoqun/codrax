@@ -404,19 +404,26 @@ func defaultRunnerPlansFromTestSurface(repoRoot string, surface types.TestSurfac
 			// remains a fallback only when no compatible test work exists.
 			add(*cand)
 		} else {
-			root := repoRoot
-			framework := ""
-			if preferredRunner == "python" {
-				framework = normalizePythonFrameworkChoice(root, "")
+			// A precise priority plan already owns this working directory (for
+			// example a repository-declared cross-language Make check). Do not
+			// append an extension-inferred synthetic runner for the same root;
+			// its missing binary/no-tests result would override the real suite
+			// without adding an independent test surface.
+			if !seenDirs["."] {
+				root := repoRoot
+				framework := ""
+				if preferredRunner == "python" {
+					framework = normalizePythonFrameworkChoice(root, "")
+				}
+				out = append(out, runnerPlan{
+					Runner:    preferredRunner,
+					Root:      root,
+					Manifest:  "(plan-touched)",
+					Priority:  0,
+					Framework: framework,
+				})
+				seenDirs["."] = true
 			}
-			out = append(out, runnerPlan{
-				Runner:    preferredRunner,
-				Root:      root,
-				Manifest:  "(plan-touched)",
-				Priority:  0,
-				Framework: framework,
-			})
-			seenDirs["."] = true
 		}
 	}
 	for _, cand := range surface.Candidates {
@@ -549,6 +556,52 @@ func impactRunnerPlansFromChangePlan(repoRoot string, surface types.TestSurface,
 		}
 		seen[key] = true
 		out = append(out, next)
+	}
+	return out
+}
+
+// declaredCoverageRunnerPlansFromChangePlan promotes a repository-declared
+// cross-language test lane (currently the bounded Make target roster) ahead of
+// a synthetic runner inferred only from the changed file extension. This is a
+// selection hint, not verification authority: changed-path and behavior proof
+// are still decided later from executed commands, probes, and the proof ledger.
+//
+// Requiring the candidate roster to contain every recognized changed source
+// path prevents a broad Make target that merely mentions one touched file from
+// hiding another changed language surface. The roster itself is built from
+// filesystem-verified Make prerequisites/recipe inputs; no command or prose is
+// interpreted here.
+func declaredCoverageRunnerPlansFromChangePlan(repoRoot string, surface types.TestSurface, plan *types.ChangePlan) []runnerPlan {
+	if strings.TrimSpace(repoRoot) == "" || plan == nil {
+		return nil
+	}
+	targetPaths, _ := types.ActiveChangePlanApplyTargetPaths(plan, nil)
+	targets, _ := recognizedChangedSourcePaths(targetPaths)
+	if len(targets) == 0 {
+		return nil
+	}
+	surface = types.NormalizeTestSurface(surface)
+	var out []runnerPlan
+	for _, cand := range surface.Candidates {
+		if !cand.HasTestSignal || len(cand.DeclaredCoveragePaths) == 0 {
+			continue
+		}
+		declared := map[string]bool{}
+		for _, raw := range cand.DeclaredCoveragePaths {
+			if rel := cleanRepoRelPath(raw); rel != "" {
+				declared[rel] = true
+			}
+		}
+		coversAll := true
+		for _, target := range targets {
+			if !declared[cleanRepoRelPath(target)] {
+				coversAll = false
+				break
+			}
+		}
+		if coversAll {
+			out = append(out, runnerPlanFromSurfaceCandidate(repoRoot, cand))
+		}
 	}
 	return out
 }
