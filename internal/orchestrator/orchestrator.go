@@ -2427,12 +2427,14 @@ func (o *Orchestrator) dynamicAnalyzeRetries(base int) int {
 
 // runAnalyzePhase dispatches the analyze stage with fail-loud attempt
 // semantics. Each attempt is counted; the loop exits early on a clean
-// StageOutput (no Error, non-nil AnalysisIR). After the retry budget is
-// exhausted this function returns an error to Run. Run then classifies the
+// StageOutput with runnable work. After the retry budget is exhausted this
+// function returns an error to Run. Run then classifies the
 // error: stream-level transport failures hard-fail, while missing-emit and
 // quality-gate failures install an explicit degraded AnalysisIR and continue
 // through the bounded recovery task graph. This function never accepts a nil
-// or zero-value IR as a successful analyze result.
+// or structurally empty IR as a successful analyze result. The approved-plan
+// fast path below is the sole intentional stub-IR exception and returns before
+// the normal analyzer loop.
 func (o *Orchestrator) runAnalyzePhase() (int, error) {
 	o.busCtx.PipelineStage = types.StageAnalyze
 	o.busCtx.TaskState.Stage = types.StageAnalyze
@@ -2482,7 +2484,7 @@ func (o *Orchestrator) runAnalyzePhase() (int, error) {
 		o.emitStageRetryAttempt = attempt
 		out, err := o.dispatchStage(types.StageAnalyze)
 		if err != nil && o.busCtx.Mode == types.ModeRead && llm.IsStreamLevelRetryable(err) &&
-			out != nil && out.Error == "" && out.AnalysisIR != nil {
+			analyzeStageOutputUsable(out) {
 			used++
 			o.busCtx.AnalysisIR = out.AnalysisIR
 			logging.Warning("[orchestrator] analyze transient dispatch error after usable IR; preserving analyzed request and continuing: %v", err)
@@ -2510,7 +2512,7 @@ func (o *Orchestrator) runAnalyzePhase() (int, error) {
 		}
 		used++
 		attempt++
-		if err == nil && out != nil && out.Error == "" && out.AnalysisIR != nil {
+		if err == nil && analyzeStageOutputUsable(out) {
 			// Analyzer retries are attempt-scoped. applyStageOutput keeps
 			// the first non-nil IR for degraded-recovery context, so a
 			// later clean retry must explicitly promote its own IR before
@@ -2518,12 +2520,7 @@ func (o *Orchestrator) runAnalyzePhase() (int, error) {
 			o.busCtx.AnalysisIR = out.AnalysisIR
 			return used, nil
 		}
-		if out != nil {
-			lastErr = out.Error
-		}
-		if err != nil {
-			lastErr = err.Error()
-		}
+		lastErr = analyzeStageOutputFailure(err, out)
 		logging.Warning("[orchestrator] analyze attempt %d/%d failed: %s", attempt, max, lastErr)
 		// Read-mode answer-taxonomy signal: every retry within
 		// runAnalyzePhase records an event so the end-of-Run

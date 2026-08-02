@@ -59,6 +59,66 @@ func TestRunAnalyzePhase_PromotesCleanRetryIR(t *testing.T) {
 	}
 }
 
+func TestRunAnalyzePhase_RejectsStructurallyEmptyIRAndPromotesCleanRetry(t *testing.T) {
+	empty := &types.AnalysisIR{}
+	clean := dagIR(types.AnswerContract{Language: "en"})
+	clean.TaskGraph.Nodes[0].Objective = "usable retry graph"
+
+	var calls int
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			calls++
+			if calls == 1 {
+				return &agent.StageOutput{AnalysisIR: empty}, nil
+			}
+			return &agent.StageOutput{AnalysisIR: clean}, nil
+		},
+	}
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{MaxRetriesPerStage: 2}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: types.NewMutableState("reject empty analyzer IR")}
+
+	used, err := o.runAnalyzePhase()
+	if err != nil {
+		t.Fatalf("runAnalyzePhase: %v", err)
+	}
+	if used != 2 || calls != 2 {
+		t.Fatalf("used=%d calls=%d, want two attempts", used, calls)
+	}
+	if o.busCtx.AnalysisIR != clean {
+		t.Fatalf("AnalysisIR=%p, want clean retry %p", o.busCtx.AnalysisIR, clean)
+	}
+	if got := o.busCtx.AnalysisIR.TaskGraph.Nodes[0].Objective; got != "usable retry graph" {
+		t.Fatalf("promoted graph objective=%q", got)
+	}
+}
+
+func TestRunAnalyzePhase_StructurallyEmptyIRExhaustsFailLoud(t *testing.T) {
+	var calls int
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			calls++
+			return &agent.StageOutput{AnalysisIR: &types.AnalysisIR{}}, nil
+		},
+	}
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{MaxRetriesPerStage: 2}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: types.NewMutableState("empty analyzer IR exhausts")}
+
+	used, err := o.runAnalyzePhase()
+	if err == nil {
+		t.Fatal("runAnalyzePhase err=nil, want fail-loud exhaustion")
+	}
+	if used != 2 || calls != 2 {
+		t.Fatalf("used=%d calls=%d, want full two-attempt budget", used, calls)
+	}
+	for _, want := range []string{"exhausted after 2 attempt", "structurally empty analysis result", "no executable steps"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error missing %q: %v", want, err)
+		}
+	}
+}
+
 func TestRunAnalyzePhase_TransientRetryDoesNotConsumeSemanticBudget(t *testing.T) {
 	clean := dagIR(types.AnswerContract{Language: "en"})
 	clean.RequestModel.Intent = types.IntentRootCause

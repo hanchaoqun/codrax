@@ -3919,6 +3919,62 @@ B18c 使用一条通用 typed 规则修复：
 
 状态：`implemented / full-tests-pass / cross-relation replay next`。
 
+### B39：真实 write/apply × analyze retry read 审计（2026-08-02）
+
+本批严格并行 `github_issue_dayjs_duration_nan_symptom` 与
+`read_combo_analyze_retry_anchor`。runner 2/2 PASS，人工 1/2 PASS。
+
+#### B39-write：真实 symptom-only 修复通过
+
+模型从 `PT1H` 症状定位到正则缺失 capture 经 `Number(undefined)` 变成 NaN，计划和
+实际 patch 都只修改 `src/duration.js` 一行，将缺失分量折为 0；已有 PT1H 回归测试
+本来就是正确期望，未修改测试绕过。npm runner 不可用后 verifier 按 typed test
+surface 升级到 `make check`，Python 行为 oracle 检查生产表达式仍做数值转换、具备
+missing-component guard，并钉住 PT1H 的 parse/render 断言。补丁 1+/1-、目标路径、
+审批、applied commit 与 changed-path coverage 一致，人工 PASS。
+
+#### EVAL-B39-ANZERO1：非 nil 零值 AnalysisIR 被成功 join 接受（P1）
+
+read 答案命中所有 case 关键词，但人审代码后为 FAIL：
+
+1. `runAnalyzePhase` 注释承诺不接受 nil 或 zero-value IR；旧成功条件却只有
+   `err==nil && out!=nil && out.Error=="" && out.AnalysisIR!=nil`。
+   `&types.AnalysisIR{}` 因指针非 nil 会直接返回成功，后续 `runTaskGraph` 才因空
+   TaskGraph fail closed。这是生产代码/注释的真实矛盾，不是模型波动。
+2. final 答案声称 runAnalyzePhase 还校验 QualityGate；代码没有这一步。gate 失败是
+   上游以 `StageOutput.Error` 带到 join，runAnalyzePhase 不应复制一套 quality gate。
+3. `MaxRetriesPerStage` 经 `dynamicAnalyzeRetries` 后直接作为 `attempt < max` 上限，
+   在该函数中是总 semantic attempts，不是「初次尝试之外再重试 N 次」。transport
+   retry 另有预算且不消耗 semantic attempt。
+4. missing-emit/quality exhaustion 后的 explicit degraded IR 由外层 `Run` 安装；
+   `runTaskGraph` 只消费已安装 IR，并对 nil/empty graph 防御失败。答案把责任归给
+   runTaskGraph，层次错误。
+
+通用修复只改 typed join：新增 `analyzeStageOutputUsable`，要求 clean StageOutput
+同时具有非 nil IR 和至少一个 TaskGraph node；同一谓词复用于「stream error 但已有
+可用 IR」保留臂与正常成功臂。空 IR 产生精确 lastErr、消耗 semantic attempt，预算
+内可被后续 clean IR 替换；耗尽则 fail-loud，让既有外层 recovery 负责降级。批准计划
+的 apply/verify `--plan-file` stub fast path 在循环前返回，是唯一显式例外。
+
+该修复不扫描请求/答案 prose，不重做 QualityGate，不修改模型结论，也不触碰 read
+scheduler、write controller、Trace 投影或补采。
+
+测试：
+
+- 首轮空 IR、第二轮 clean graph：必须两次 attempt 且最终提升 clean IR；
+- 连续空 IR：必须耗尽并在 error 中披露 empty AnalysisIR/TaskGraph；
+- clean retry、transport retry 原行为保持。
+
+任务：
+
+- [x] B39-T1：2 case 并行执行与完整人工审计；
+- [x] B39-T2：write patch/report/test surface 核验；
+- [x] B39-T3：ANZERO1 typed join 修复与定向测试；
+- [x] B39-T4：orchestrator/agent/types 无缓存全包与构建通过；提交推送待收口；
+- [ ] B39-T5：read 同案重放，人工核对 attempt/recovery 层次。
+
+状态：`write=human-pass`；`ANZERO1=implemented/full-related-tests-pass/commit-next`。
+
 ### B38：日志显式错误身份 × data 结果通道审计（2026-08-02）
 
 本批严格并行 2 case：`logtri_goroutine_dump` 与
