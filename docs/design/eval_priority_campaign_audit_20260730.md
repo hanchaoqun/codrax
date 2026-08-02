@@ -3919,6 +3919,63 @@ B18c 使用一条通用 typed 规则修复：
 
 状态：`implemented / full-tests-pass / cross-relation replay next`。
 
+### B40：analyze retry 回放 × blocked-reason Trace 语义审计（2026-08-02）
+
+本批严格并行 `read_combo_analyze_retry_anchor` 与
+`trace_query_blocked_reason_chain`。runner 为 1/2 PASS，人工为 0/2 PASS。前者证明
+B39 empty-IR join 修复已生效，但模型仍误读 producer/attempt/phase 边界；后者是
+runner false PASS，暴露调度驻留语义、跨主体因果权限和 eval ground truth 三者错位。
+
+#### EVAL-B40-TRACESEM1：等待驻留被写成 CPU 占用并跨主体确权（P1）
+
+确定性查询只证明：worker-30 在 2.030–2.150s 为 `io_wait` 120ms，caller 为
+`fscache_page_wait_on_page_bit`。`wakeup_chain(pid=30)` 没有 edge，确定性投影明确
+`chain_shape=flat_untraceable`。模型却写成 worker 在 io_wait 时“持续占用 CPU”，并
+进一步断言它导致 main-20 的 doFrame 等待；还把 `R+` 切出说成主动 yield，把只有
+blocked-reason 记录的 waker-10 说成唤醒者。
+
+这是两条通用语义边界：
+
+1. S/D/io_wait 是非 running 驻留，不能称为占用 CPU；
+2. 一个主体的 wait 与另一个主体的慢 span 重叠，不等于二者存在因果。跨主体归因
+   必须有 typed wakeup/IPC/lock/flow/dependency connector，且区间时间相容。
+
+施工只增加两处 soft guidance：perf pre-triage 在铸造 navigation observation 前看到
+同一规则，finalizer 在模型成文前再次看到；不扫描用户或模型正文，不增加 emit
+reject，不删除、替换或追加系统结论。显式窗 Trace 因果投影与自动补齐保持原样。
+
+#### EVAL-B40-EVAL1：fixture 叙事 ground truth 过硬（P1）
+
+case 注释原称“frame stalls because a worker went into D sleep”，但 fixture 没有
+worker→main 的 wakeup/IPC/lock/flow edge，自动 oracle 也只验证 worker/state/iowait/
+caller。这是注释先验与可验证合同矛盾。已把注释改为“slow frame 与 worker wait
+重叠，只证明 worker 自身等待，跨主体关系未证”，不增加最终答案关键词禁令。
+
+#### B39-T5 replay 与 EVAL-B40-READMODEL1（P2-watch）
+
+新 join 已被模型正确读到：只有 clean `StageOutput` + 非 nil IR + 非空 TaskGraph 才
+成功，故 `ANZERO1=covered`。但同案答案仍有四处模型层错误：
+
+- missing emit 实际返回非 nil `StageOutput{Error: ...}`，不是 nil output；
+- semantic attempt 在 auto-correction 前已递增，修正只是不再 dispatch，不是本次
+  attempt 未消费；
+- 动态增量乘 `SubTopicRetryBudgetExtra`，不是恒定每两子话题 +1；
+- analyze 先由外层 `Run` 执行并安装 degraded IR，`runTaskGraph` 后续只消费它；
+  最终还漏写 `runTaskGraph`，runner FAIL。
+
+source localizer 已提供 `internal/agent/analyzer.go`，模型没有读取 producer。typed
+代码合同与证据入口均在，当前按模型 evidence-selection 残余观察；不为一个题面写
+固定答案，不用答案关键词门，也不由系统改写结论。
+
+任务：
+
+- [x] B40-T1：严格并行 2 case，完整日志/答案人工审计；
+- [x] B40-T2：纠正过硬 fixture 注释，保留原 typed 事实 oracle；
+- [x] B40-T3：perf-triage + finalizer 两处通用 soft guidance；
+- [x] B40-T4：`internal/skill`、`internal/agent` 无缓存回归与 CGO build 通过；
+  提交推送待收口；
+- [ ] B40-T5：转入下一组不同模式的 2-case eval。
+
 ### B39：真实 write/apply × analyze retry read 审计（2026-08-02）
 
 本批严格并行 `github_issue_dayjs_duration_nan_symptom` 与

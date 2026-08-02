@@ -5,16 +5,19 @@
 # scheduler parsing — sched_switch / sched_wakeup / sched_blocked_reason.
 # No existing eval case exercised it; the legacy hitrace_* cases only
 # have B/E mark spans (perf_triager path). This case attaches a trace
-# where a render frame stalls because a worker thread went into
-# uninterruptible (D) sleep on iowait, and the kernel blocked-reason
-# names the exact wait site. Those facts (D-state + iowait + caller)
+# where a slow render frame overlaps a worker thread in uninterruptible
+# (D) sleep on iowait, and the kernel blocked-reason names the exact wait
+# site. The fixture does NOT contain a wakeup/IPC/lock/flow edge from the
+# worker to main, so it proves the worker's own wait but not that this wait
+# caused the frame stall. Those facts (D-state + iowait + caller)
 # are ONLY recoverable via the engine's structured event parsing, not
 # a naive grep of B/E spans.
 #
 # Ground truth (verbatim from internal/tracequery/tracequery_test.go
 # fixtures): worker pid=30 prev_state=D at 2.030; sched_blocked_reason
 # pid=30 iowait=1 caller=fscache_page_wait_on_page_bit at 2.040; the
-# Choreographer#doFrame on main pid=20 is what stalls. Synthetic.
+# Choreographer#doFrame on main pid=20 is slow. Synthetic. Human audit must
+# reject any cross-subject causal upgrade based only on overlap/same CPU.
 ID="trace_query_blocked_reason_chain"
 NAME="trace query — worker blocked-reason (iowait) chain"
 QUESTION="这段 HiTrace 在 Choreographer#doFrame 期间出现卡顿。请基于 trace 给出阻塞链路：哪个线程被阻塞、处于什么调度状态、阻塞的内核原因（是否 iowait 及具体等待点）是什么。不要把 trace 行号当成源码行号。"

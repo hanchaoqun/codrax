@@ -1293,6 +1293,9 @@ func TestPerfTriageSkillKeepsModelObservationsAdvisory(t *testing.T) {
 		"Do not turn runnable time",
 		"context-switch overhead",
 		"frame-budget extrapolation",
+		"S, D, or io_wait is not occupying a CPU",
+		"typed wakeup/IPC/lock/flow/dependency edge",
+		"relationship unproven",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("perf-triage authority guidance missing %q", want)
