@@ -1976,7 +1976,7 @@ func runtimeTraceOccupancyPathCandidates(
 		node := row.Node
 		if !row.HasData ||
 			node.OnChainOverflowFold ||
-			node.Unit == types.TraceObservationUnitCompositeScore ||
+			runtimeTraceProjNonWallClockValueCaliber(node) ||
 			(node.WithinRequestedWindow != nil && !*node.WithinRequestedWindow) {
 			continue
 		}

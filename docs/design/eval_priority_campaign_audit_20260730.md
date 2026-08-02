@@ -4638,8 +4638,8 @@ Batch B 已落地：
 | ID | P | gap | 泛化最优方案 | 状态 |
 |---|---:|---|---|---|
 | EVAL-B46-XMAKE2 | P1 | 已成功执行的 meta runner 丢失其具体执行语言，导致同语言精确项目检查也不能覆盖 changed path | TestSurface 为有界 Make 目标携带 `declared_execution_language_families`；只有“成功执行的精确目标 + execution family 与变更语言相交 + 变更路径在 exact declared roster”合取才生成 `CoveredPaths`。动态 executor 不猜；roster 单独无权；Python 检查 Rust 的负例保持 uncovered | implemented/full-tool-tests-pass；commit/push next |
-| EVAL-B46-OCCUNIT1 | P1 | TWODIM 主要时间占用表把 `page_cache_churn` 计数当量 81.616 渲染成 `81.616ms`，同时 `max=84.300ms > total=81.616ms`；树/可消面已正确标成非墙钟，只有 occupancy path 漏 guard | occupancy path 复用单一 `runtimeTraceProjNonWallClockValueCaliber`，所有 count-equivalent/composite-score 行从墙钟占用候选排除；值仍留在口径旁栏/证据面，不删除信息、不改因果排序 | next Trace display batch |
-| EVAL-B46-REL2 | P1 guidance | 模型把“不同维度”直接推成“相互独立且不可相加”；typed context 只对部分同段镜像/embedded row 给出关系，没有为任意跨行 mint independent/non-additive 权限 | finalizer/explorer 增加通用 relation authority：只在 typed relation/fold/state-partition 明确时说包含/重叠/互斥/可加；不同 metric family 本身不证明关系，缺载体时应说 unresolved。只做软上下文，不扫描/改写答案 | next Trace context batch |
+| EVAL-B46-OCCUNIT1 | P1 | TWODIM 主要时间占用表把 `page_cache_churn` 计数当量 81.616 渲染成 `81.616ms`，同时 `max=84.300ms > total=81.616ms`；树/可消面已正确标成非墙钟，只有 occupancy path 漏 guard | occupancy path 复用单一 `runtimeTraceProjNonWallClockValueCaliber`，所有 count-equivalent/composite-score 行从墙钟占用候选排除；值仍留在口径旁栏/证据面，不删除信息、不改因果排序 | implemented/full-related-tests-pass；commit/push next |
+| EVAL-B46-REL2 | P1 guidance | 模型把“不同维度”直接推成“相互独立且不可相加”；typed context 只对部分同段镜像/embedded row 给出关系，没有为任意跨行 mint independent/non-additive 权限 | finalizer 高显著 handoff 增加通用 `relation_authority=typed_pair_only`：只在 typed relation/fold/state-partition 明确时说包含/重叠/互斥/可加；不同 metric family 本身不证明关系，缺载体时说 physical relation unresolved，只有 cross-row addition not authorized。只做软上下文，不扫描/改写答案 | implemented/full-related-tests-pass；commit/push next |
 | EVAL-B46-DUP1 | P3 model-variance/watch | 模型正文重复发布一遍根因清单 | 不影响 typed 值与 projection，单次模型表达波动；禁止系统删除/合并模型块，跨模型/跨例复现后再考虑结构化 answer schema guidance | watch |
 
 上下文精度结论：Trace 的 mechanism authority 修正已足以让模型自行纠偏，但系统自身的
@@ -4653,7 +4653,8 @@ meta-runner 语义断链。
 - [x] B46-T5b：r2 严格并行与完整人工审计；
 - [x] B46-T6a：XMAKE2 typed carrier、成功命令合取与 Python/Rust 正反臂；
 - [x] B46-T6b：XMAKE2 `go test ./internal/tool -count=1` 全通过（159.804s）；提交推送；
-- [ ] B46-T7：OCCUNIT1 + REL2 独立 Trace 批、全量回归、提交推送；
+- [x] B46-T7：OCCUNIT1 + REL2 独立 Trace 批；`go test ./internal/agent ./internal/tool -count=1`
+  全通过（agent 2.465s、tool 166.143s）；提交推送；
 - [ ] B46-T8：干净 HEAD 同 pair r3 验收后进入下一优先级 exactly-two batch。
 
 ### B41：data 终批材料 × Binder 方向语义审计（2026-08-02）

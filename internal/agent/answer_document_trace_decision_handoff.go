@@ -53,6 +53,7 @@ func renderAnswerDocTraceDecisionHandoffSet(set types.TraceCausalProjectionSet, 
 		b.WriteString("- Synthesize only the available target-state, wakeup-path, and evidence-boundary inputs. Do not invent an occupancy or eliminable ranking that is absent below.\n")
 	}
 	b.WriteString("- Never add values across rows, fix directions, wall-clock and cpu·ms, or overlapping seats. A high occupancy is not automatically eliminable; a high eliminable estimate is not automatically proven frame causality.\n")
+	b.WriteString("- relation_authority=`typed_pair_only`: different state names, metric families, fix directions, rows, or threads do not by themselves prove independence, containment, overlap, mutual exclusion, or additivity. State one of those pairwise relations only from an exact typed relation/fold carrier or the target's closed four-state partition. When a pair has no such carrier, say its physical relationship is unresolved and that cross-row addition is not authorized; do not upgrade missing relation evidence into the stronger physical claim that the rows are independent or intrinsically non-additive.\n")
 	if authority.CausalUnproven {
 		b.WriteString("- causal_conclusion=`unproven`: keep the synthesis useful but calibrated as the strongest candidate / first validation direction, not a proven dropped-frame cause.\n")
 	}

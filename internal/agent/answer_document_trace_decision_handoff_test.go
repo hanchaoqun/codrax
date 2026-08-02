@@ -82,6 +82,9 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 		"rank=#2; subject=`target-100`; kind=`running`; effective_attribution=10.331ms; fix_direction=`frequency_thermal`",
 		"source_lane=`deterministic_system_supplement`",
 		"cross_row_additivity=`forbidden`",
+		"relation_authority=`typed_pair_only`",
+		"physical relationship is unresolved",
+		"cross-row addition is not authorized",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("decision handoff missing %q:\n%s", want, got)

@@ -214,6 +214,48 @@ func TestTwoDimOccupancyDedupesPhysicalStateAcrossPublicationLanes(t *testing.T)
 	}
 }
 
+func TestTwoDimOccupancyExcludesNonWallClockCaliberRows(t *testing.T) {
+	pageCache := types.TraceCausalProjectionNode{
+		EvidenceID:        "count-equivalent-page-cache",
+		Subject:           "app-100",
+		Predicate:         "root_cause_caliber_side",
+		Object:            "page_cache_churn",
+		TypeToken:         "page_cache_churn",
+		Tier:              types.TraceCausalTierCaliberSide,
+		ChainRelevance:    "self_caliber_side",
+		ImpactMS:          81.616,
+		MergedCount:       2,
+		MergedMaxMS:       84.300,
+		FamilyFoldCaliber: tracequery.RootCauseMemberFoldCaliberCountSum,
+	}
+	composite := types.TraceCausalProjectionNode{
+		EvidenceID: "composite-io-score",
+		Subject:    "app-100",
+		Object:     "block_io_by_inode",
+		TypeToken:  "block_io_by_inode",
+		Unit:       types.TraceObservationUnitCompositeScore,
+		ImpactMS:   2.694,
+	}
+	running := types.TraceCausalProjectionNode{
+		EvidenceID: "real-running-wall-clock",
+		Subject:    "app-100",
+		StateKind:  types.TraceStateKindRunning,
+		ImpactMS:   12.5,
+		StartTs:    5,
+		EndTs:      5.0125,
+	}
+	rows := runtimeTraceOccupancyPathCandidates(runtimeTraceProjTreeModel{
+		SelfRows: []runtimeTraceProjTreeRow{
+			{Node: pageCache, Kind: runtimeTraceProjTreeRowSelf, HasData: true},
+			{Node: composite, Kind: runtimeTraceProjTreeRowSelf, HasData: true},
+			{Node: running, Kind: runtimeTraceProjTreeRowSelf, HasData: true},
+		},
+	}, true)
+	if len(rows) != 1 || rows[0].subject != "app-100" || rows[0].totalMS != 12.5 || rows[0].unit != "ms" {
+		t.Fatalf("only genuine wall-clock state may enter occupancy rows: %+v", rows)
+	}
+}
+
 // The occupancy block leads the existing causal/eliminable projection inside
 // the cluster; it does not replace or mutate the priced board.
 func TestTwoDimOccupancyLeadsUnchangedEliminableBoard(t *testing.T) {
