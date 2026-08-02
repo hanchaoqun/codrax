@@ -156,6 +156,23 @@ func CompileEnumerationDisplaySets(rm *RequestModel, plan *AnswerSurfacePlan) []
 	if rm == nil || !ShouldCompileEnumerationDisplaySetsForRequest(*rm) {
 		return nil
 	}
+	return compileEnumerationDisplaySets(rm, plan)
+}
+
+// CompileEnumerationCitationSupportSets compiles the same typed row/location
+// contract for citation reachability only. Unlike CompileEnumerationDisplaySets
+// it grants no permission to add, remove, or rewrite visible answer rows. This
+// lets a model-authored Markdown table keep citations the model already
+// submitted when its visible rows match accepted aggregate members and source
+// coordinates, even for a non-enumeration config/mechanism answer.
+func CompileEnumerationCitationSupportSets(rm *RequestModel, plan *AnswerSurfacePlan) []EnumerationDisplaySet {
+	if plan == nil || len(plan.StableAggregateFacts) == 0 || rm == nil {
+		return nil
+	}
+	return compileEnumerationDisplaySets(rm, plan)
+}
+
+func compileEnumerationDisplaySets(rm *RequestModel, plan *AnswerSurfacePlan) []EnumerationDisplaySet {
 	originalFacts := cloneAnswerAggregateFacts(plan.StableAggregateFacts)
 	stableFacts := NormalizeAnswerAggregateMemberSetSurfaces(plan.StableAggregateFacts)
 	refs := PrincipalAggregateMemberSetFactRefsForRequest(stableFacts, rm)

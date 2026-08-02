@@ -37,17 +37,25 @@ func TestNormalizePrincipalEnumerationRowBlocks_ConfigPrecedenceKeepsTypedRowCit
 		}},
 	}
 	doc := &types.AnswerDocumentV2{
-		Blocks: []types.AnswerBlock{{
-			ID:          "precedence",
-			Kind:        types.BlockTable,
-			Title:       "pipeline_max_steps 配置优先级（后者覆盖前者）",
-			SurfaceRole: types.SurfacePrincipal,
-			Text: "| 层级 | 来源文件:行 |\n" +
-				"|---|---|\n" +
-				"| 代码默认值 | cmd/root.go:88 |\n" +
-				"| codrax.yaml | codrax.yaml.example:485 |\n" +
-				"| CLI --pipeline-max-steps | cmd/root.go:649 |",
-		}},
+		Blocks: []types.AnswerBlock{
+			{
+				ID:    "summary",
+				Kind:  types.BlockSummary,
+				Text:  "pipeline_max_steps uses layered precedence.",
+				Items: []types.AnswerBlockItem{{ID: "default", CitationRef: 0}},
+			},
+			{
+				ID:          "precedence",
+				Kind:        types.BlockTable,
+				Title:       "pipeline_max_steps 配置优先级（后者覆盖前者）",
+				SurfaceRole: types.SurfacePrincipal,
+				Text: "| 层级 | 来源文件:行 |\n" +
+					"|---|---|\n" +
+					"| 代码默认值 | cmd/root.go:88 |\n" +
+					"| codrax.yaml | codrax.yaml.example:485 |\n" +
+					"| CLI --pipeline-max-steps | cmd/root.go:649 |",
+			},
+		},
 		Citations: []types.Citation{
 			{File: "cmd/root.go", Line: 88},
 			{File: "codrax.yaml.example", Line: 485},
@@ -56,8 +64,8 @@ func TestNormalizePrincipalEnumerationRowBlocks_ConfigPrecedenceKeepsTypedRowCit
 	}
 
 	normalizePrincipalEnumerationRowBlocks(doc, ctx)
-	if got := len(doc.Blocks[0].Items); got != 0 {
-		t.Fatalf("model-authored Markdown table items = %d, want 0: %+v", got, doc.Blocks[0].Items)
+	if got := len(doc.Blocks[1].Items); got != 0 {
+		t.Fatalf("model-authored Markdown table items = %d, want 0: %+v", got, doc.Blocks[1].Items)
 	}
 	if fixed := normalizeUnusedCitationPoolEntries(doc, ctx); fixed != 0 {
 		t.Fatalf("typed Markdown row citations were pruned/remapped: fixed=%d citations=%+v", fixed, doc.Citations)

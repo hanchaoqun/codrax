@@ -619,7 +619,7 @@ func markTypedMarkdownRowCitationsUsed(used map[int]bool, doc *types.AnswerDocum
 	if plan == nil {
 		return
 	}
-	sets := types.CompileEnumerationDisplaySets(&ctx.AnalysisIR.RequestModel, plan)
+	sets := types.CompileEnumerationCitationSupportSets(&ctx.AnalysisIR.RequestModel, plan)
 	if len(sets) == 0 {
 		return
 	}

@@ -85,20 +85,28 @@ func compileConfigPrecedence(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSem
 	// Config precedence is table/list-led by family default. A user-explicit
 	// DiagramContract is handled later by the family-independent presentation
 	// contract so this compiler does not need a diagram-specific branch.
-	view.UncertaintyRules = []UncertaintyRule{
-		{
-			TriggerFacet:      string(FacetUncertaintyBoundary),
+	if configPrecedenceRequiresUncertaintyDisclosure(view, plan) {
+		view.UncertaintyRules = []UncertaintyRule{{
+			TriggerFacet:      "",
 			ExpectedBlockKind: BlockCaveat,
 			MissingMessage: "Your answer claims an absence or fallback resolution; emit at least one " +
 				"caveat block naming the exact search scope (file glob / repo-wide / per-package) " +
 				"so the reader can reproduce the absence finding.",
-		},
+		}}
 	}
 	view.RichnessCandidates = richnessCandidatesFromOptionalFacets(view.FacetCoverage)
 	// v3 B2 — config-precedence answers benefit from explicit
 	// precedence-role context when typed evidence supports it.
 	markGlaringFacets(view, FacetConfigPrecedenceRole)
 	return view
+}
+
+func configPrecedenceRequiresUncertaintyDisclosure(view *AnswerSemanticView, plan *AnswerSurfacePlan) bool {
+	if view != nil && len(view.MissingRequestedRoles) > 0 {
+		return true
+	}
+	return plan != nil && plan.PreferredExactResolution != nil &&
+		plan.PreferredExactResolution.Status == AnswerExactResolutionAbsent
 }
 
 func configPrecedenceIsScalarLookup(ir *AnalysisIR) bool {

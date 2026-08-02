@@ -372,6 +372,9 @@ func TestCompileConfigPrecedence_NonScalarMappingRequiresLayerCarrierNotScalar(t
 	if !hasLayerCarrier {
 		t.Error("non-scalar config mapping must require a table/ordered-list layer carrier")
 	}
+	if len(view.UncertaintyRules) != 0 {
+		t.Fatalf("ordinary grounded config mapping must not activate uncertainty disclosure: %+v", view.UncertaintyRules)
+	}
 }
 
 func TestCompileConfigPrecedence_ScalarLookupRequiresScalarAndKeepsOptionalLayers(t *testing.T) {
@@ -437,6 +440,9 @@ func TestCompileConfigPrecedence_ExactAbsenceBecomesSummaryLed(t *testing.T) {
 	}
 	if len(summary.AcceptableClaimForms) == 0 || summary.AcceptableClaimForms[0] != ClaimAbsenceFact && !containsClaimForm(summary.AcceptableClaimForms, ClaimAbsenceFact) {
 		t.Fatalf("summary block must accept absence_fact in exact-absence mode: %+v", summary.AcceptableClaimForms)
+	}
+	if len(view.UncertaintyRules) != 1 || len(view.ActiveUncertaintyRules()) != 1 {
+		t.Fatalf("exact-absence config lookup must keep one active uncertainty disclosure: %+v", view.UncertaintyRules)
 	}
 }
 
