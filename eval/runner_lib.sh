@@ -587,6 +587,26 @@ eval_json_top_bool_field() {
   LC_ALL=C sed -nE 's/^  "'"$field"'"[[:space:]]*:[[:space:]]*(true|false),?$/\1/p' "$file" | head -1
 }
 
+eval_json_nested_string_field() {
+  local file="$1"
+  shift
+  [[ -f "$file" && "$#" -gt 0 ]] || return 1
+  python3 - "$file" "$@" <<'PY' 2>/dev/null
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    value = json.load(handle)
+for key in sys.argv[2:]:
+    if not isinstance(value, dict):
+        raise SystemExit(1)
+    value = value.get(key)
+if not isinstance(value, str):
+    raise SystemExit(1)
+sys.stdout.write(value)
+PY
+}
+
 eval_bool_literal() {
   case "$1" in
     1|true|TRUE|yes|YES)
@@ -619,6 +639,34 @@ eval_find_write_report_path() {
     fi
   done
   candidate="$(find "$outdir" -maxdepth 1 -type f -name "${plan_id}.report.json" 2>/dev/null | sort | tail -1)"
+  if [[ -n "$candidate" && -f "$candidate" ]]; then
+    printf '%s' "$candidate"
+    return 0
+  fi
+  return 1
+}
+
+eval_find_write_final_report_path() {
+  local plan_path="$1"
+  local outdir="$2"
+  local scratch="$3"
+  local worktree="$4"
+  local plan_id="$5"
+  local plan_dir candidate
+  [[ -n "$plan_id" ]] || return 1
+  plan_dir="$(dirname "$plan_path")"
+  for candidate in \
+    "$outdir/${plan_id}.final.json" \
+    "$plan_dir/${plan_id}.final.json" \
+    "$scratch/.codrax/plans/${plan_id}.final.json" \
+    "$worktree/.codrax/plans/${plan_id}.final.json"
+  do
+    if [[ -n "$candidate" && -f "$candidate" ]]; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done
+  candidate="$(find "$outdir" -maxdepth 1 -type f -name "${plan_id}.final.json" 2>/dev/null | sort | tail -1)"
   if [[ -n "$candidate" && -f "$candidate" ]]; then
     printf '%s' "$candidate"
     return 0
@@ -900,6 +948,7 @@ eval_write_apply_result_record() {
   local allow_unverified="$7"
   local plan_id="" worktree="" worktree_exists=false report_path="" report_exists=false
   local report_plan_id="" report_channel="" report_passed="" authoritative=false
+  local final_path="" final_exists=false final_plan_id="" final_run_status="" final_verdict="" final_reason_code=""
 
   if [[ -f "$plan_path" ]]; then
     plan_id="$(eval_json_top_string_field "$plan_path" id || true)"
@@ -915,7 +964,15 @@ eval_write_apply_result_record() {
     report_channel="$(eval_json_top_string_field "$report_path" channel || true)"
     report_passed="$(eval_json_top_bool_field "$report_path" passed || true)"
   fi
-  if [[ "$report_exists" == true && "$report_plan_id" == "$plan_id" && "$report_channel" == "post_apply_verify" && "$report_passed" == "true" ]]; then
+  final_path="$(eval_find_write_final_report_path "$plan_path" "$outdir" "$scratch" "$worktree" "$plan_id" || true)"
+  if [[ -n "$final_path" && -f "$final_path" ]]; then
+    final_exists=true
+    final_plan_id="$(eval_json_nested_string_field "$final_path" plan id || true)"
+    final_run_status="$(eval_json_top_string_field "$final_path" run_status || true)"
+    final_verdict="$(eval_json_nested_string_field "$final_path" completion verdict || true)"
+    final_reason_code="$(eval_json_nested_string_field "$final_path" completion reason_code || true)"
+  fi
+  if [[ "$report_exists" == true && "$report_plan_id" == "$plan_id" && "$report_channel" == "post_apply_verify" && "$report_passed" == "true" && "$final_exists" == true && "$final_plan_id" == "$plan_id" && "$final_run_status" == "complete" && "$final_verdict" == "verified" ]]; then
     authoritative=true
   fi
 
@@ -935,6 +992,12 @@ eval_write_apply_result_record() {
     else
       echo '  "report_passed": false,'
     fi
+    printf '  "final_report_path": "%s",\n' "$(eval_json_escape "$final_path")"
+    printf '  "final_report_exists": %s,\n' "$final_exists"
+    printf '  "final_plan_id": "%s",\n' "$(eval_json_escape "$final_plan_id")"
+    printf '  "final_run_status": "%s",\n' "$(eval_json_escape "$final_run_status")"
+    printf '  "final_verdict": "%s",\n' "$(eval_json_escape "$final_verdict")"
+    printf '  "final_reason_code": "%s",\n' "$(eval_json_escape "$final_reason_code")"
     printf '  "verify_authoritative": %s,\n' "$authoritative"
     printf '  "allow_unverified": %s\n' "$(eval_bool_literal "$allow_unverified")"
     echo "}"

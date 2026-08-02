@@ -81,6 +81,8 @@ func TestIndependentMechanismContrastDirectiveSharedAndMechanismGated(t *testing
 		"false branch or logical complement is not evidence",
 		"explicit handoff, shared decision, or return-value flow",
 		"repo_map/grep only to locate each side",
+		"carrier-only enum, constant, type, schema, or event-name declaration proves identity only",
+		"actual producer/callsite and consumer/handler branch",
 		"aggregate_facts.member_set",
 		"one `members[]` entry per compared mechanism",
 		"index-aligned `member_notes[]`",
@@ -91,6 +93,50 @@ func TestIndependentMechanismContrastDirectiveSharedAndMechanismGated(t *testing
 	} {
 		if !strings.Contains(independentMechanismContrastDirective, required) {
 			t.Fatalf("directive missing %q: %s", required, independentMechanismContrastDirective)
+		}
+	}
+}
+
+func TestRuntimeRuleInstantiationDirectiveSharedAndLogMechanismGated(t *testing.T) {
+	registry := NewRegistry()
+	RegisterDefaults(registry)
+
+	for _, skillName := range []string{"explore-skill", "answer-document-skill"} {
+		config, err := registry.Get(skillName)
+		if err != nil {
+			t.Fatalf("Get(%s): %v", skillName, err)
+		}
+		found := 0
+		for _, item := range config.WorkflowTierB {
+			if item.Body != runtimeRuleInstantiationDirective {
+				continue
+			}
+			found++
+			if !item.ShouldRender(AppliesToContext{HasLog: true, HasMechanism: true, Intent: types.IntentRootCause}) {
+				t.Fatalf("%s directive must render for typed log plus mechanism questions", skillName)
+			}
+			if item.ShouldRender(AppliesToContext{HasLog: true, Intent: types.IntentRootCause}) {
+				t.Fatalf("%s directive must require typed mechanism shape", skillName)
+			}
+			if item.ShouldRender(AppliesToContext{HasMechanism: true, Intent: types.IntentRootCause}) {
+				t.Fatalf("%s directive must require an attached log", skillName)
+			}
+		}
+		if found != 1 {
+			t.Fatalf("%s directive count=%d, want 1", skillName, found)
+		}
+	}
+
+	for _, required := range []string{
+		"defines a predicate, threshold, classifier, advisory, or routing rule",
+		"does not by itself prove that an attached runtime event satisfied the rule",
+		"bind every load-bearing operand",
+		"A declaration or soft-warning predicate is not the enforcement path",
+		"uninstantiated advisory",
+		"Do not upgrade source plausibility into runtime causality",
+	} {
+		if !strings.Contains(runtimeRuleInstantiationDirective, required) {
+			t.Fatalf("directive missing %q: %s", required, runtimeRuleInstantiationDirective)
 		}
 	}
 }

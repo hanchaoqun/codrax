@@ -37,7 +37,12 @@ const mechanicalProducerChainSeparationDirective = "MECHANICAL PRODUCER-CHAIN SE
 // treating one classifier's complement as proof of a different mechanism.
 // Like the producer-chain rule above, this is shared soft guidance selected
 // from typed mechanism shape; it does not inspect or rewrite answer prose.
-const independentMechanismContrastDirective = "INDEPENDENT MECHANISM CONTRAST: when explaining a distinction, boundary, or interaction between two or more named mechanisms, trace each side through its own producer and control path before comparing them. A predicate that classifies mechanism A proves only A's membership and branch behavior; its false branch or logical complement is not evidence for mechanism B unless source shows an explicit handoff, shared decision, or return-value flow. During exploration, use repo_map/grep only to locate each side, then open the load-bearing definition, branch, handler, or requeue path before claiming its behavior. Carry a principal mechanism comparison as `aggregate_facts.member_set`: one `members[]` entry per compared mechanism, an index-aligned `member_notes[]` entry describing that member's own path, and one index-aligned `support_refs[]` entry to that path; never leave one mechanism only in ungrounded grouped_count dimensions. During answer synthesis, preserve only independently supported members and the proven join. If one side's path was not established, state that evidence boundary instead of describing the mechanisms as a proven binary partition."
+const independentMechanismContrastDirective = "INDEPENDENT MECHANISM CONTRAST: when explaining a distinction, boundary, or interaction between two or more named mechanisms, trace each side through its own producer and control path before comparing them. A predicate that classifies mechanism A proves only A's membership and branch behavior; its false branch or logical complement is not evidence for mechanism B unless source shows an explicit handoff, shared decision, or return-value flow. During exploration, use repo_map/grep only to locate each side, then open the load-bearing definition, branch, handler, or requeue path before claiming its behavior. A carrier-only enum, constant, type, schema, or event-name declaration proves identity only; it does not prove who emits or calls it, what condition triggers it, who handles it, or which control-flow action follows. Ground a behavioral mechanism at its actual producer/callsite and consumer/handler branch, not at a declaration that merely names the carrier. Carry a principal mechanism comparison as `aggregate_facts.member_set`: one `members[]` entry per compared mechanism, an index-aligned `member_notes[]` entry describing that member's own path, and one index-aligned `support_refs[]` entry to that path; never leave one mechanism only in ungrounded grouped_count dimensions. During answer synthesis, preserve only independently supported members and the proven join. If one side's path was not established, state that evidence boundary instead of describing the mechanisms as a proven binary partition."
+
+// runtimeRuleInstantiationDirective separates a source-level rule from proof
+// that one attached runtime event instantiated that rule. It is selected from
+// typed log+mechanism context only; no request or answer prose is inspected.
+const runtimeRuleInstantiationDirective = "RUNTIME RULE INSTANTIATION: source code that defines a predicate, threshold, classifier, advisory, or routing rule proves that the rule exists; it does not by itself prove that an attached runtime event satisfied the rule or was caused by it. Before attributing the observed event to that rule, bind every load-bearing operand from the attached artifact or another typed runtime source (for example model/provider identity, configured threshold, attempt state, branch result, and enforcement site) and reconcile any mismatch. A declaration or soft-warning predicate is not the enforcement path. If an operand is missing or contradicts the rule, present the source rule as possible context or an uninstantiated advisory and keep the observed event's cause unproven. Do not upgrade source plausibility into runtime causality."
 
 // generatedArtifactVerificationDirective keeps generator/template changes
 // honest at the artifact boundary. It remains planner guidance: verification
@@ -295,6 +300,10 @@ func RegisterDefaults(r *Registry) {
 			{
 				Body:      independentMechanismContrastDirective,
 				AppliesTo: AppliesToFilter{RequiresMechanism: true},
+			},
+			{
+				Body:      runtimeRuleInstantiationDirective,
+				AppliesTo: AppliesToFilter{RequiresLog: true, RequiresMechanism: true},
 			},
 		},
 		ToolSuggestions: []string{
@@ -1039,6 +1048,10 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 			{
 				Body:      independentMechanismContrastDirective,
 				AppliesTo: AppliesToFilter{RequiresMechanism: true},
+			},
+			{
+				Body:      runtimeRuleInstantiationDirective,
+				AppliesTo: AppliesToFilter{RequiresLog: true, RequiresMechanism: true},
 			},
 		},
 		// P5-B Tier B prohibitions: 2 items the design classifies

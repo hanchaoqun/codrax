@@ -366,10 +366,20 @@ cat >"$tmp/write-eval/plan-write-eval-pass.report.json" <<'JSON'
   "passed": true
 }
 JSON
+cat >"$tmp/write-eval/plan-write-eval-pass.final.json" <<'JSON'
+{
+  "kind": "final_report",
+  "run_status": "complete",
+  "completion": {"verdict": "verified", "reason_code": "all_batches_verified"},
+  "plan": {"id": "plan-write-eval-pass"}
+}
+JSON
 eval_write_apply_result_record "$tmp/write-eval/pass.json" "$tmp/write-eval/run-1.plan.json" "$tmp/write-eval" "$tmp/write-scratch" 1 1 0
 assert_eq "$(eval_json_top_string_field "$tmp/write-eval/pass.json" plan_id)" "plan-write-eval-pass" "write apply result plan id"
 assert_eq "$(eval_json_top_bool_field "$tmp/write-eval/pass.json" report_exists)" "true" "write apply result report exists"
 assert_eq "$(eval_json_top_bool_field "$tmp/write-eval/pass.json" report_passed)" "true" "write apply result report passed"
+assert_eq "$(eval_json_top_bool_field "$tmp/write-eval/pass.json" final_report_exists)" "true" "write apply final report exists"
+assert_eq "$(eval_json_top_string_field "$tmp/write-eval/pass.json" final_verdict)" "verified" "write apply final verdict"
 assert_eq "$(eval_json_top_bool_field "$tmp/write-eval/pass.json" verify_authoritative)" "true" "write apply result authoritative"
 
 cat >"$tmp/write-eval/run-2.plan.json" <<JSON
@@ -419,6 +429,34 @@ JSON
 eval_write_apply_result_record "$tmp/write-eval/mismatch.json" "$tmp/write-eval/run-4.plan.json" "$tmp/write-eval" "$tmp/write-scratch" 1 1 0
 assert_eq "$(eval_json_top_string_field "$tmp/write-eval/mismatch.json" report_plan_id)" "other-plan" "write apply mismatched report plan"
 assert_eq "$(eval_json_top_bool_field "$tmp/write-eval/mismatch.json" verify_authoritative)" "false" "write apply mismatched report not authoritative"
+
+cat >"$tmp/write-eval/run-5.plan.json" <<JSON
+{
+  "id": "plan-write-eval-unverified",
+  "status": "applied",
+  "worktree_path": "$tmp/write-worktree"
+}
+JSON
+cat >"$tmp/write-eval/plan-write-eval-unverified.report.json" <<'JSON'
+{
+  "plan_id": "plan-write-eval-unverified",
+  "channel": "post_apply_verify",
+  "passed": true
+}
+JSON
+cat >"$tmp/write-eval/plan-write-eval-unverified.final.json" <<'JSON'
+{
+  "kind": "final_report",
+  "run_status": "complete",
+  "completion": {"verdict": "unverified", "reason_code": "verification_proof_incomplete"},
+  "plan": {"id": "plan-write-eval-unverified"}
+}
+JSON
+eval_write_apply_result_record "$tmp/write-eval/unverified.json" "$tmp/write-eval/run-5.plan.json" "$tmp/write-eval" "$tmp/write-scratch" 1 1 0
+assert_eq "$(eval_json_top_bool_field "$tmp/write-eval/unverified.json" report_passed)" "true" "write apply unverified keeps local report pass"
+assert_eq "$(eval_json_top_string_field "$tmp/write-eval/unverified.json" final_verdict)" "unverified" "write apply records final unverified verdict"
+assert_eq "$(eval_json_top_string_field "$tmp/write-eval/unverified.json" final_reason_code)" "verification_proof_incomplete" "write apply records final reason"
+assert_eq "$(eval_json_top_bool_field "$tmp/write-eval/unverified.json" verify_authoritative)" "false" "write apply final unverified is not authoritative"
 
 mkdir -p "$tmp/source-parent/archive-tree" "$tmp/source-root"
 git -C "$tmp/source-parent" init -q || fail "source-parent git init failed"
@@ -1118,6 +1156,21 @@ JSON
 }
 JSON
   fi
+  if [[ "${FAKE_WRITE_FINAL:-1}" == "1" ]]; then
+    final_verdict="${FAKE_WRITE_FINAL_VERDICT:-verified}"
+    final_reason="all_batches_verified"
+    if [[ "$final_verdict" != "verified" ]]; then
+      final_reason="verification_proof_incomplete"
+    fi
+    cat >"$plan_dir/plan-fake-write-apply.final.json" <<JSON
+{
+  "kind": "final_report",
+  "run_status": "complete",
+  "completion": {"verdict": "$final_verdict", "reason_code": "$final_reason"},
+  "plan": {"id": "plan-fake-write-apply"}
+}
+JSON
+  fi
   printf 'applied\n'
   exit 0
 fi
@@ -1143,6 +1196,32 @@ if [[ -z "$write_pass_dir" ]]; then
 fi
 assert_eq "$(cat "$write_pass_dir/run-1.verdict")" "PASS" "write apply report pass verdict"
 assert_eq "$(eval_json_top_bool_field "$write_pass_dir/run-1.write-apply.json" verify_authoritative)" "true" "write apply result authoritative in run.sh"
+
+write_unverified_case="$tmp/runner_write_apply_final_unverified.case"
+cat >"$write_unverified_case" <<'CASE'
+ID=runner_write_apply_final_unverified
+NAME="runner write apply final unverified"
+MODE=apply
+FIXTURE="eval/fixtures/testdata/patch_typo_python"
+QUESTION="fix typo"
+POST_APPLY_FILE="main.py"
+EXPECT_MATCHES_REGEX="return f"
+CASE
+FAKE_WRITE_REPORT=1 FAKE_WRITE_FINAL_VERDICT=unverified CODRAX_BIN="$fake_write_apply" EVAL_RESULTS_ROOT="$tmp/eval-results" bash eval/run.sh "$write_unverified_case" 1 >/dev/null 2>"$tmp/runner-write-unverified.err"
+write_unverified_dir="$(find "$tmp/eval-results" -maxdepth 1 -type d -name 'runner_write_apply_final_unverified-*' | sort | tail -1)"
+if [[ -z "$write_unverified_dir" ]]; then
+  fail "eval/run.sh did not write final-unverified result dir"
+fi
+write_unverified_verdict="$(cat "$write_unverified_dir/run-1.verdict")"
+case "$write_unverified_verdict" in
+  FAIL*write_final_verdict:unverified:verification_proof_incomplete*)
+    ;;
+  *)
+    fail "write apply final unverified must fail despite local report pass: $write_unverified_verdict"
+    ;;
+esac
+assert_eq "$(eval_json_top_bool_field "$write_unverified_dir/run-1.write-apply.json" report_passed)" "true" "write apply final-unverified local report remains passed"
+assert_eq "$(eval_json_top_bool_field "$write_unverified_dir/run-1.write-apply.json" verify_authoritative)" "false" "write apply final-unverified result not authoritative"
 
 write_ref_case="$tmp/runner_write_apply_report_ref.case"
 cat >"$write_ref_case" <<'CASE'

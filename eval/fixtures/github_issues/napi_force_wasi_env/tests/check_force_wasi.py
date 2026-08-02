@@ -76,14 +76,37 @@ else:
             if declaration.start() > force_branch.start():
                 errors.append("generated force-wasi state must be declared before it is used")
 
-for value in ["'false'", "'0'", "'true'", "'error'"]:
+for value in ["'false'", "'0'", "'true'", "'error'", "''"]:
     if value not in tests and value.replace("'", '"') not in tests:
         errors.append(f"regression tests must cover NAPI_RS_FORCE_WASI={value}")
 
-if not re.search(r"(?:doesNotMatch|strictEqual|equal)[^;\n]*(?:false|0)", tests):
-    errors.append("regression tests must assert false/0 do not force the WASI branch")
-if not re.search(r"(?:match|strictEqual|equal)[^;\n]*(?:true|error)", tests):
-    errors.append("regression tests must assert true/error keep forcing the WASI branch")
+if not re.search(r"\bFunction\s*\(", tests):
+    errors.append("regression tests must evaluate the emitted branch condition, not scan source presence")
+if not re.search(r"renderNativeBinding\s*\(", tests):
+    errors.append("regression tests must render the generated loader")
+if not re.search(r"Function\s*\([^;]+\)\s*\(\s*(?:true|\{[^}]+\})\s*\)", tests, flags=re.S):
+    errors.append("regression tests must isolate force semantics with a present native binding")
+
+
+def has_boolean_assert(value_pattern: str, expected: str) -> bool:
+    return bool(
+        re.search(
+            rf"assert\.(?:equal|strictEqual)\s*\(\s*[A-Za-z_$][A-Za-z0-9_$]*\s*\(\s*{value_pattern}\s*\)\s*,\s*{expected}\s*\)",
+            tests,
+        )
+    )
+
+
+for value_pattern, expected, label in [
+    (r"['\"]true['\"]", "true", "true"),
+    (r"['\"]error['\"]", "true", "error"),
+    (r"['\"]false['\"]", "false", "false"),
+    (r"['\"]0['\"]", "false", "0"),
+    (r"['\"]['\"]", "false", "empty"),
+    (r"undefined", "false", "undefined"),
+]:
+    if not has_boolean_assert(value_pattern, expected):
+        errors.append(f"regression tests must behaviorally assert {label} -> {expected}")
 
 if errors:
     for error in errors:

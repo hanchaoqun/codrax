@@ -4003,6 +4003,52 @@ join/handoff；A 的 predicate false/complement 不得充当 B 的证据，缺�
   不增加硬门，转后续
   高优先级跨模式 pair。
 
+#### B42 r3：载体声明、运行时规则实例与 eval 终态真值（2026-08-02）
+
+干净 `main@13e504315` 严格并行同一对 case，runner 2/2 PASS，人工 0/2 PASS。
+第二施工批的结构化 carrier 已生效：read explorer 发出了两个成员、两个 note、两个
+support ref 的 principal `member_set`，因此 `EVAL-B42-MECHCARRIER1=covered`；但深读证明
+两个更底层的证据权限 gap：
+
+1. `EVAL-B42-PRODUCERROLE1/P1`：第二机制的 support ref 只是
+   `NoticeAnswerCheckRetry` enum 声明。它能证明事件名字存在，却不能证明谁 emit、什么
+   条件触发、谁消费以及如何 requeue；模型仍据此宣称
+   `answerDocumentEvaluator -> NoticeAnswerCheckRetry` 完整行为路径。
+2. `EVAL-B42-RULEINSTANCE1/P1`：模型读取 `first_byte_floor_warn.go` 的 soft warning
+   predicate 后，把它说成本次 40s timeout 的根因；但该 rule 还要求
+   `reasoningFamilyModelName(model)`，attached log 的 model=`demo` 不满足。源码规则存在不等于
+   本次 runtime instance 命中，诊断/advisory predicate 也不等于 enforcement path。
+
+write case 的生成 loader 生产补丁已经正确，但新增 TypeScript 测试只检查生成源码是否包含
+`wasiBinding = require`。该语句对所有 env 分支都存在，因此 false/0/undefined 的
+`doesNotMatch` 在 Node 可用时必败。本机 Node/npm 不可用，旧 Python fallback 只检查 token，
+局部 `post_apply_verify` 仍 passed；产品的 `WriteFinalReport` 已诚实给出
+`unverified/verification_proof_incomplete`，eval runner 却只消费局部 report 而误报 PASS。
+
+新增/归并 GAP：
+
+| ID | 优先级 | 泛化方案 | 状态 |
+|---|---|---|---|
+| `EVAL-B42-PRODUCERROLE1` | P1 | mechanism 对比 soft guidance 明确：enum/constant/type/schema/event-name declaration 只具 identity 权限；行为必须打开 actual producer/callsite 与 consumer/handler branch | implemented/tests-pass/replay-next |
+| `EVAL-B42-RULEINSTANCE1` | P1 | typed log+mechanism soft guidance 要求从 runtime artifact 绑定 predicate 的全部 load-bearing operands；缺失/矛盾时只能报 possible/uninstantiated advisory，不能铸 runtime cause | implemented/tests-pass/replay-next |
+| `EVAL-B42-WRITETEST1` | P0 | fixture 回归测试渲染 generated loader、提取并实际执行 branch condition，在 native-present 前提验证 true/error 与 false/0/empty/undefined；fallback oracle 要求同一行为结构 | implemented/negative-proof-pass/replay-next |
+| `EVAL-B42-EVALSTATUS1` | P0 | 并入 B20 typed truth 闭环：apply eval 同时要求 current-plan ChangeReport passed 与 same-plan typed final report `run_status=complete, completion.verdict=verified`；最终 unverified/failed/missing 均 fail loud | implemented/runner-tests-pass/replay-next |
+
+本批没有给行为结论加 hard gate，也没有扫描 RawRequest、模型 thinking、final prose 或 case
+关键词。`aggregate_facts` schema 只同步证据载体语义；最终结论仍由模型形成。eval verdict
+消费的是 `ChangeReport`/`WriteFinalReport` typed fields，不从“未完全验证”等显示文本反推。
+未修改 Trace resolver、显式时间窗、因果投影、自动补齐、根因排序、唤醒链或窗内可消除量。
+
+任务状态：
+
+- [x] B42-T10：r3 回放与完整人工审计；
+- [x] B42-T11：producer-role 与 runtime-rule-instantiation shared soft guidance，explore/
+  answer-document 同源、typed filter 选用；
+- [x] B42-T12：generated-loader 行为测试与 fallback oracle 加固；原始 buggy fixture、r3
+  无效测试应用树均被拒；
+- [x] B42-T13：eval apply 终态 typed truth 接线与正/负 runner contract；
+- [ ] B42-T14：提交推送第三施工批，在干净 HEAD 做 r4 严格并行复放并人工验收。
+
 ### B41：data 终批材料 × Binder 方向语义审计（2026-08-02）
 
 本批严格并行 `data_text_filter_count` 与 `trace_query_binder_ipc_peer`。runner
