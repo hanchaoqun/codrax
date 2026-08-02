@@ -4637,6 +4637,63 @@ census 继续以另一错误码硬阻塞同一合法答案，属于看护自身�
 - `eval/parallel_selected_summary_evalcampaign_b32_replay_r5_20260801.md`
 - `eval/parallel_selected_summary_evalcampaign_b32_replay_r5_20260801_manual_audit.md`
 
+### B33：Trace 有限事实 / 显式因果窗权限对照（2026-08-01）
+
+`main@21959f219` 严格并行 2 个 real Trace case，runner 2/2 PASS：
+
+- `real_trace_c2_dstate_iowait`：129s；
+- `trace_query_donghu_real_frame_multicausal`：142s。
+
+权限对照正确：前者由 typed `runtime_question_profile=bounded_fact_set` 收窄，最终
+`trace_query_final_projection_blocks=0`，没有把状态/时间/caller 的有限事实查询扩大成调用链
+或全量因果报告；后者由 `explicit_time_window + causal_diagnosis` 保持完整
+`## Trace 因果投影`、确定性自动补采、根因席、唤醒链、实际占用和规则内可消除双轴。
+因此“窄事实不注入投影”没有破坏显式时间窗的因果投影能力。
+
+人工审计结论：
+
+1. 有限事实答案的主值正确：目标 D-state=0，io_wait 恰 3 段、合计 0.635ms，三段
+   时间/时长和 `sync_buffer_read_wi` caller 均完整。但首次 `thread_timeline` 文本预览只露出
+   前两段，第三段虽已存在于 typed payload/ledger，模型仍为它重复查询并回读 141KB JSON
+   4 次、调用一次 grep。登记 `EVAL-B33-WAITPREVIEW1/P1`。
+2. 同一 caller 的角色在系统内自相矛盾：final prompt 正确写明它只是
+   `kernel-reported wait call-site`，系统交叉核验/投影/上下文旧面却显示为“等待对象”或
+   `cause`，模型最终也写成“由该函数引起”。`sched_blocked_reason.caller` 不提供资源对象、
+   owner 或 holder 身份。登记 `EVAL-B33-CALLERROLE1/P1`。
+3. 显式窗的 typed wakeup path 确有
+   `ThreadPoolForeg -> NetworkService -> CookieMonsterCl -> target`，但模型把边进一步写成
+   “同步阻塞/等待某线程”。唤醒依赖边本身不证明锁/资源持有，也不保证所有 hop 构成一条
+   连续同步阻塞调用链。登记 `EVAL-B33-WAKEWORD1/P2`。
+4. 模型明示 `causal_conclusion=unproven`，但仍把相互重叠的 23.994ms 与 19.041ms 写成
+   “约43ms”后又称“非叠加”，且对“真实耗时/新探索方向”综合弱于“规则内可消除席”复述。
+   finalizer 已提供 model-owned 双轴、cross-row additivity forbidden 和 unproven ceiling；单次
+   witness 暂记 `EVAL-B33-MODELSYNTH1/P2-watch`，等待不同 trace/model 第二次复现。禁止据此
+   增加正文关键词硬门或由系统替模型写结论。
+
+已实施的通用处置：
+
+- `e881ea321`：目标线程的小型 typed wait occurrence 清单在 trace_query 工具文本头部完整
+  发布，最多 8 条；超过容量同时发布 `status=incomplete`、`account_status`、omitted 数和
+  `payload_ref` continuation。只有完整 account 才使用 exact count/sum 字段，不完整 account
+  使用 observed lower-bound 字段。该变更不读取问题原文、不选择答案范围，也不缩窄任何
+  causal view。另在 model-owned decision handoff 增加 wakeup-path 语义边界软提示；不拒绝、
+  不改写模型正文。`internal/tool` 全量 157.295s、`internal/agent` 全量 3.267s 通过。
+- `4b3c538f4`（`B33-CALLERROLE1`）：系统交叉核验、Trace 投影和成文上下文统一显示
+  “内核调用点 / kernel wait call-site”，明确 caller 不能铸造 waited-on object/owner/holder；
+  底层 typed caller 值、call-site family grouping、排序、有效归因、因果投影、自动补采和
+  model block wire 均不变。context / orchestrator / tool 三个相关包全量回归通过
+  （0.907s / 9.399s / 160.584s）。
+
+状态：`EVAL-B33-WAITPREVIEW1=implemented/full-related-tests-pass/replay-later`；
+`EVAL-B33-CALLERROLE1=implemented/full-related-tests-pass/replay-later`；
+`EVAL-B33-WAKEWORD1=implemented/soft-guidance/full-related-tests-pass`；
+`EVAL-B33-MODELSYNTH1=P2-watch`。
+
+工件：
+
+- `eval/parallel_selected_summary_evalcampaign_b33_trace_scope_r1_20260801.md`
+- `eval/parallel_selected_summary_evalcampaign_b33_trace_scope_r1_20260801_manual_audit.md`
+
 ### B26-OWN：Trace 精确信息与模型结论的职责边界回裁（2026-08-01）
 
 客户/人工 witness：
