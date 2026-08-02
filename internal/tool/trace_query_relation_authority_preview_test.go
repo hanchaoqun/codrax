@@ -43,6 +43,9 @@ func TestTraceQuerySummaryCarriesTypedRelationAuthorityBeforeExploreClosure(t *t
 		"self_wall_clock_seats=#4:3.956ms,#13:1.193ms self_wall_clock_subtotal=5.149ms",
 		"wakeup_edge_seats=#10:1.648ms wakeup_edge_subtotal=1.648ms",
 		"cross_ruler_addition=forbidden cross_ruler_physical_relation=unresolved",
+		"relation_claim_required authority_id=trace:self_runnable_two_ruler:",
+		"addition=authorized_to_published_subtotal subtotal_value=5.149 subtotal_unit=ms model_must_copy_to=emit_investigation_complete.relation_claims",
+		"physical_relation=unresolved addition=forbidden model_must_copy_to=emit_investigation_complete.relation_claims",
 		"blocked_reason_census_relation subject=target-17267 records=50 value_caliber=kernel_record_count caller_delay_caliber=vendor_reported_delay_sum state_relation_authority=census_alone_not_sufficient typed_interval_join_required=true add_or_subtract_from_state_total=not_authorized_by_census_alone",
 	} {
 		if !strings.Contains(got, want) {

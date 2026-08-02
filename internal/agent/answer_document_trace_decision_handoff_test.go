@@ -80,6 +80,7 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 		"same_ruler_addition=`authorized_to_published_subtotal`",
 		"cross_ruler_addition=`forbidden`",
 		"cross_ruler_physical_relation=`unresolved`",
+		"typed_relation_authority: authority_id=`trace:self_runnable_two_ruler:",
 		"elected_wakeup_path=`ThreadPool-300 -> Network-200 -> Cookie-150 -> target-100`",
 		"wakeup_path_semantics:",
 		"does not prove that B synchronously blocked waiting for A",
@@ -107,6 +108,37 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 	axisA := got[strings.Index(got, "axis_A_actual_occupancy_candidates"):strings.Index(got, "axis_B_existing_rule_eliminable")]
 	if strings.Contains(axisA, "kind=`priority_inversion_candidate`") {
 		t.Fatalf("priced composite seat leaked into actual-time axis:\n%s", axisA)
+	}
+}
+
+func TestTraceDecisionHandoffCarriesAcceptedModelRelationClaimsWithoutAuthoringConclusion(t *testing.T) {
+	record := types.TraceCausalProjectionSelfRunnableTwoRuler{
+		Subject: "target-100", WallEffsMS: []float64{2.2, 1.1}, WallRanks: []int{4, 9}, WallSubtotalMS: 3.3,
+		EdgeEffsMS: []float64{0.336}, EdgeRanks: []int{10}, EdgeSubtotalMS: 0.336,
+	}
+	set := types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{{SelfRunnableTwoRulerAccountings: []types.TraceCausalProjectionSelfRunnableTwoRuler{record}}}}
+	authorities := types.CompileTraceAnswerRelationAuthorities(set)
+	var claims []types.AnswerRelationClaim
+	for _, authority := range authorities {
+		members := authority.MemberRefs
+		if authority.Kind == types.AnswerRelationAuthorityCrossRulerBoundary {
+			members = append(append([]string(nil), authority.LeftMemberRefs...), authority.RightMemberRefs...)
+		}
+		claims = append(claims, types.AnswerRelationClaim{
+			AuthorityID: authority.ID, MemberRefs: members, PhysicalRelation: authority.PhysicalRelation,
+			Addition: authority.Addition, SubtotalValue: authority.SubtotalValue, SubtotalUnit: authority.SubtotalUnit,
+		})
+	}
+	got := renderAnswerDocTraceDecisionHandoffSet(set, runtimeTraceGuidanceView{}, claims)
+	for _, want := range []string{
+		"accepted_model_relation_claims: these declarations were authored by the investigation model",
+		"Preserve them on the model-authored answer block(s) via `relation_claims`",
+		"system will reject a mismatch but will not rewrite your prose",
+		"physical_relation=`unresolved`; addition=`forbidden`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("accepted relation handoff missing %q:\n%s", want, got)
+		}
 	}
 }
 

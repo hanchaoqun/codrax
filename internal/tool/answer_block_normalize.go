@@ -67,15 +67,16 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 		}
 	}
 	blk := types.AnswerBlock{
-		ID:          raw.ID,
-		Kind:        kind,
-		Title:       raw.Title,
-		Text:        raw.Text,
-		Columns:     normalizeTableStringSlice(raw.Columns),
-		ClaimUses:   raw.ClaimUses,
-		EdgeAnchors: raw.EdgeAnchors,
-		FacetIDs:    raw.FacetIDs,
-		SurfaceRole: types.SurfaceRole(raw.SurfaceRole),
+		ID:             raw.ID,
+		Kind:           kind,
+		Title:          raw.Title,
+		Text:           raw.Text,
+		Columns:        normalizeTableStringSlice(raw.Columns),
+		ClaimUses:      raw.ClaimUses,
+		EdgeAnchors:    raw.EdgeAnchors,
+		RelationClaims: types.CloneAnswerRelationClaims(raw.RelationClaims),
+		FacetIDs:       raw.FacetIDs,
+		SurfaceRole:    types.SurfaceRole(raw.SurfaceRole),
 	}
 	if raw.ErrorGranularityVerdict != "" {
 		verdict, ok := types.NormalizeErrorGranularityVerdict(raw.ErrorGranularityVerdict)
@@ -310,7 +311,7 @@ func nativeDisplayOnlyBlockFragmentText(raw emitAnswerBlockV2) (string, bool) {
 		return "", false
 	}
 	if len(raw.Items) > 0 || len(raw.Columns) > 0 || raw.Diagram != nil ||
-		len(raw.ClaimUses) > 0 || len(raw.EdgeAnchors) > 0 || len(raw.FacetIDs) > 0 ||
+		len(raw.ClaimUses) > 0 || len(raw.EdgeAnchors) > 0 || len(raw.RelationClaims) > 0 || len(raw.FacetIDs) > 0 ||
 		strings.TrimSpace(raw.SurfaceRole) != "" ||
 		strings.TrimSpace(raw.Caveat) != "" ||
 		strings.TrimSpace(raw.ErrorGranularityVerdict) != "" ||

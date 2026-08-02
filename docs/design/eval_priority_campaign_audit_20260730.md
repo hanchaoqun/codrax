@@ -4777,10 +4777,10 @@ meta-runner 语义断链。
 - [x] B46-T10b：盘点现有 AnswerDocument/claim schema；先选用共享 typed carrier 的
   pre-Explore transport，暂缓 schema 扩张，不增加答案字符串硬门；
 - [x] B46-T10c-a：补齐 pre-Explore 单源关系 authority 与正反单测；
-- [ ] B46-T10c-b：r5 若仍出现同类关系越权，再设计 model-authored structured relation
+- [x] B46-T10c-b：r5 若仍出现同类关系越权，再设计 model-authored structured relation
   claim 与精确 typed 校验；之后才评估 typed-complexity 驱动的可选 LLM reviewer，
   不得直接默认开启高延迟 reviewer；
-- [ ] B46-T10d：相关单测通过后同 pair r5；确认关系正确再进入 B47 多维批次。
+- [x] B46-T10d：相关单测通过后同 pair r5；确认关系正确再进入 B47 多维批次。
 
 #### B46 r5：跨阶段 transport 生效，但软提示不能约束模型关系声明
 
@@ -4815,11 +4815,65 @@ RawRequest、thinking、summary/final prose，不得由系统删除、替换或�
 
 - [x] B46-T10d-a：完成 r5 同 pair 严格并行与全链人工审计；
 - [x] B46-T10d-b：确认 pre-Explore typed transport、显式窗投影/补齐、write 回归均生效；
-- [ ] B46-T11a：设计最小 model-authored relation-claim schema，并复用现有 types admission
+- [x] B46-T11a：设计最小 model-authored relation-claim schema，并复用现有 types admission
   authority；先覆盖加法/包含/重叠/互斥四类，不按 case/type 造专用规则；
-- [ ] B46-T11b：Explorer closure 与 AnswerDocument 的 claim 必须由模型提交；typed 精确失败
+- [x] B46-T11b：Explorer closure 与 AnswerDocument 的 claim 必须由模型提交；typed 精确失败
   只触发模型重试，系统不改正文。补正反/absent/invalid-carrier/普通非 Trace 回归；
 - [ ] B46-T11c：相关全量测试、独立提交推送后同 pair r6；通过后进入 B47。
+
+#### B46 REL3 第一批：模型自有结构化关系声明（2026-08-02）
+
+r5 已证明上下文“准确且足量”仍不等于模型会服从：继续增加自然语言提示不能解决
+跨尺相加、row-local 拆分跨行拼接这一类关系越权。本批改为可校验但仍由模型拥有的协议：
+
+1. 新增通用 `AnswerRelationClaim`，把 `physical_relation` 与 `addition` 分成两个正交轴。
+   物理轴支持 `unresolved / mutually_exclusive / overlap / contains / contained_by`；算术轴
+   支持 `authorized_to_published_subtotal / forbidden`，并用可选 `subtotal_value/unit`
+   携带唯一已发布小计。这样“物理关系未知但禁止跨尺相加”不会再被错误压成“相互独立”。
+2. 首批 authority producer 复用现有严格 typed 载体：self-runnable two-ruler 生成墙钟同尺、
+   唤醒边同尺、跨尺边界三条权限；目标 state partition 生成闭合互斥/可加权限。
+   authority ID 由 typed 内容指纹构造，使 `trace_query` 头部、Explorer ledger、Finalizer
+   partition compile 在单/多工件下命名一致，不依赖本地化标题、投影顺序或 case ID。
+3. `trace_query` 在长正文前输出每条 `relation_claim_required`。当 two-ruler typed record
+   存在时，Explorer 的 `emit_investigation_complete.relation_claims` 必须完整承认三条权限：
+   同尺只能按精确成员集合复现已发布小计；跨尺必须 `unresolved + forbidden` 且不得带小计。
+   缺条目、伪 authority、错成员、错单位或错数值均精确拒绝，由 Explorer 模型重写自己的
+   closure。校验不读取 `reason`，也不解析 RawRequest/thinking/summary/final prose。
+4. accepted claims 进入 Mutable current/retained/fork/merge 生命周期，并在 Finalizer 的
+   `Trace Decision Inputs` 中以 `accepted_model_relation_claims` 交接。模型必须把它们复制到
+   使用这些值的 model-owned AnswerBlock `relation_claims`；full emit 与 patch 共用 normalizer、
+   quarantine、deep clone 和 persist validator。缺失/漂移只让 Finalizer 重试，系统不删除、
+   替换、重排或撰写模型正文；既有 model-owned wire-preservation 红线继续校验。
+5. 硬门只由“typed authority 是否存在 + 模型结构化 claim 是否精确匹配”触发。普通非 Trace、
+   没有 relation authority 的 Trace、写模式均零义务；显式时间窗 query、自动补齐、根因排序、
+   唤醒链、真实占用/现规则可消两轴和最终 Trace 因果投影路径均未改动。
+6. 施工时发现一个上下文精度 gap：`TraceCausalProjection.Active()` 是展示树谓词，不把
+   projection side-channel 算作 active；若校验器只从 Active projection 取权限，极端的
+   “two-ruler record 存在但无活跃树节点”会静默漏门。现在 completion/finalizer 从统一
+   observation ledger 用同一个 strict parser 编译 side-channel authority，再与投影 authority
+   按 content-stable ID 去重；展示活跃度不再决定关系证据是否存在。
+
+本批不声称已抽完全部 renderer-only pair roster：SMR/AXIOM/RSPA 的 `overlap/contains`
+authority producer 仍属于 `B46-T9b-c`；但 wire schema、生命周期、Explorer/Finalizer 校验与
+重试协议已经泛化，不需要再为每种 relation/case 建新答案门。
+
+验证：
+
+- relation authority/错跨尺/缺 claim/content-stable ID、Mutable reset/fork/merge/deep-clone、
+  full AnswerDocument persist、pre-Explore preview、Finalizer handoff 正反测试通过；
+- `go test ./internal/types -count=1` 通过（18.397s）；
+- `go test ./internal/agent -count=1` 通过（2.975s）；
+- `go test ./internal/tool -count=1` 通过（161.615s）。
+
+任务状态：
+
+- [x] B46-T10c-b：r5 已确认软 transport 不足，启动 structured claim；
+- [x] B46-T11a：通用 physical/arithmetic 双轴 schema、typed content-stable authority；
+- [x] B46-T11b：Explorer closure + AnswerDocument model-owned claims，精确失败只触发模型重试；
+- [x] B46-T11c-a：提交推送本批；
+- [ ] B46-T11c-b：从干净 HEAD 严格并行同 Trace/write pair r6 并人工审计；
+- [ ] B46-T9b-c：后续抽取 SMR/AXIOM/RSPA renderer-only exact pair producer；
+- [ ] B47：r6 验证后切换下一对高优先 read/data/log/operation cases。
 
 ### B41：data 终批材料 × Binder 方向语义审计（2026-08-02）
 

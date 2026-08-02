@@ -83,6 +83,11 @@ func TestNormalizeEmitAnswerBlock_HappyPathFullProjection(t *testing.T) {
 		EdgeAnchors: []types.DiagramEdgeAnchor{
 			{FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge},
 		},
+		RelationClaims: []types.AnswerRelationClaim{{
+			AuthorityID: "trace_projection:1:self_runnable_two_ruler:1:cross",
+			MemberRefs:  []string{"#4", "#10"}, PhysicalRelation: types.AnswerPhysicalRelationUnresolved,
+			Addition: types.AnswerRelationAdditionForbidden,
+		}},
 		FacetIDs:    []string{"f1", "f2"},
 		SurfaceRole: string(types.SurfacePrincipal),
 	}
@@ -475,6 +480,11 @@ func TestNormalizeEmitAnswerBlock_AllFieldsPropagate(t *testing.T) {
 		EdgeAnchors: []types.DiagramEdgeAnchor{
 			{FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge},
 		},
+		RelationClaims: []types.AnswerRelationClaim{{
+			AuthorityID: "trace:self_runnable_two_ruler:test:cross",
+			MemberRefs:  []string{"#4", "#10"}, PhysicalRelation: types.AnswerPhysicalRelationUnresolved,
+			Addition: types.AnswerRelationAdditionForbidden,
+		}},
 		FacetIDs:    []string{"f1", "f2"},
 		SurfaceRole: string(types.SurfacePrincipal),
 	}
@@ -505,17 +515,18 @@ func TestNormalizeEmitAnswerBlock_AllFieldsPropagate(t *testing.T) {
 	// a corresponding non-zero typed field. When a new field is added
 	// to emitAnswerBlockV2, fixturise it above AND extend this map.
 	checks := map[string]func() bool{
-		"ID":          func() bool { return got.ID != "" },
-		"Kind":        func() bool { return got.Kind != "" },
-		"Title":       func() bool { return got.Title != "" },
-		"Text":        func() bool { return got.Text != "" },
-		"Columns":     func() bool { return len(got.Columns) == 2 && got.Columns[0] == "维度" },
-		"Items":       func() bool { return len(got.Items) > 0 },
-		"Diagram":     func() bool { return got.Diagram != nil && got.Diagram.Body != "" },
-		"ClaimUses":   func() bool { return len(got.ClaimUses) > 0 },
-		"EdgeAnchors": func() bool { return len(got.EdgeAnchors) > 0 },
-		"FacetIDs":    func() bool { return len(got.FacetIDs) > 0 },
-		"SurfaceRole": func() bool { return got.SurfaceRole != "" },
+		"ID":             func() bool { return got.ID != "" },
+		"Kind":           func() bool { return got.Kind != "" },
+		"Title":          func() bool { return got.Title != "" },
+		"Text":           func() bool { return got.Text != "" },
+		"Columns":        func() bool { return len(got.Columns) == 2 && got.Columns[0] == "维度" },
+		"Items":          func() bool { return len(got.Items) > 0 },
+		"Diagram":        func() bool { return got.Diagram != nil && got.Diagram.Body != "" },
+		"ClaimUses":      func() bool { return len(got.ClaimUses) > 0 },
+		"EdgeAnchors":    func() bool { return len(got.EdgeAnchors) > 0 },
+		"RelationClaims": func() bool { return len(got.RelationClaims) > 0 },
+		"FacetIDs":       func() bool { return len(got.FacetIDs) > 0 },
+		"SurfaceRole":    func() bool { return got.SurfaceRole != "" },
 		"ErrorGranularityVerdict": func() bool {
 			return decisionGot.ErrorGranularityVerdict == types.ErrorGranularityWholeBatch
 		},

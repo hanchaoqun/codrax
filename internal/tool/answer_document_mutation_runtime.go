@@ -155,6 +155,9 @@ func persistMergedAnswerDocument(
 	if fixed := normalizeRuntimeTraceReservedBlockIDCollisions(merged); fixed > 0 {
 		logging.Warning("[%s] renamed %d model-authored runtime-trace reserved block id collision(s) before materialization", toolName, fixed)
 	}
+	if relationErr := validateModelAuthoredAnswerRelationClaims(ctx, merged); relationErr != nil {
+		return failEmit(toolName, now, "%v", relationErr)
+	}
 	// OWN4 red line: keep this snapshot immediately after the only permitted
 	// runtime namespace normalization. Every subsequent typed supplement may
 	// add system-marked siblings, but may not mutate the model-owned subsequence.

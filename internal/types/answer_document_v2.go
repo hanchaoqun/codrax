@@ -288,6 +288,12 @@ type AnswerBlock struct {
 	// read this field to match labelled edges against typed
 	// claim_form expectations.
 	EdgeAnchors []DiagramEdgeAnchor `json:"edge_anchors,omitempty"`
+
+	// RelationClaims are model-authored declarations that bind value
+	// comparisons/additions in this block to exact typed relation authorities
+	// accepted during investigation. The system validates and preserves this
+	// metadata but never derives it from Text and never rewrites Text from it.
+	RelationClaims []AnswerRelationClaim `json:"relation_claims,omitempty"`
 }
 
 type AnswerSystemGeneratedBlockKind string

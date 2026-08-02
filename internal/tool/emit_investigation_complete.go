@@ -170,6 +170,23 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 					"required": ["kind", "label", "value"]
 				}
 			},
+			"relation_claims": {
+				"type": "array",
+				"maxItems": 16,
+				"description": "Model-authored typed value-relation declarations. When a trace_query result publishes required relation_authority objects, copy EVERY required object into this array before closing. Keep reason consistent with these claims. The framework validates only this structured payload against typed trace carriers; it does not scan or rewrite reason. Each entry is {authority_id, member_refs[], physical_relation, addition, optional subtotal_value/subtotal_unit}. A cross-ruler authority requires physical_relation=unresolved and addition=forbidden with no subtotal; a same-ruler authority requires the exact member roster and published subtotal.",
+				"items": {
+					"type": "object",
+					"properties": {
+						"authority_id": {"type": "string"},
+						"member_refs": {"type": "array", "items": {"type": "string"}},
+						"physical_relation": {"type": "string", "enum": ["unresolved", "mutually_exclusive", "overlap", "contains", "contained_by"]},
+						"addition": {"type": "string", "enum": ["authorized_to_published_subtotal", "forbidden"]},
+						"subtotal_value": {"type": "number"},
+						"subtotal_unit": {"type": "string"}
+					},
+					"required": ["authority_id", "member_refs", "physical_relation", "addition"]
+				}
+			},
 			"evidence_floor_waiver": {
 				"type": "object",
 				"description": "OPTIONAL. The typed escape lane for declaring that ordinary repo-grounding requirements do NOT apply to this investigation. Set this when YOU have confidently determined that pretending to ground against repo code would be misleading — for example: the attached log is from a different system whose paths have no intersection with this repo (a customer-pasted panic from another service); a synthetic-looking log whose frame paths superficially match this repo but represent a different build / version / deployment; the input is informational with no failure component to ground against. A waiver is honored only when both reason and rationale are valid; incomplete or invalid waiver payloads are ignored and normal grounding gates still apply. Every accepted or ignored fire is logged so a reviewer can spot misuse. Do NOT set this to escape ordinary investigation work — only when the model's reading of the input materially conflicts with the system's default to-look-in-repo posture.",
@@ -253,6 +270,7 @@ type emitInvestigationCompleteParams struct {
 	ResultKind               string                                  `json:"result_kind"`
 	AbsenceJustification     string                                  `json:"absence_justification,omitempty"`
 	AggregateFacts           []types.AnswerAggregateFact             `json:"aggregate_facts,omitempty"`
+	RelationClaims           []types.AnswerRelationClaim             `json:"relation_claims,omitempty"`
 	EvidenceFloorWaiver      *emitInvestigationCompleteWaiverPayload `json:"evidence_floor_waiver,omitempty"`
 	ClearEvidenceWaiver      bool                                    `json:"clear_evidence_floor_waiver,omitempty"`
 	PrincipalSpanWaiver      *emitInvestigationCompleteWaiverPayload `json:"principal_span_waiver,omitempty"`
@@ -265,6 +283,7 @@ type emitInvestigationCompleteRawParams struct {
 	ResultKind               string                                  `json:"result_kind"`
 	AbsenceJustification     string                                  `json:"absence_justification,omitempty"`
 	AggregateFacts           json.RawMessage                         `json:"aggregate_facts,omitempty"`
+	RelationClaims           []types.AnswerRelationClaim             `json:"relation_claims,omitempty"`
 	EvidenceFloorWaiver      *emitInvestigationCompleteWaiverPayload `json:"evidence_floor_waiver,omitempty"`
 	ClearEvidenceWaiver      bool                                    `json:"clear_evidence_floor_waiver,omitempty"`
 	PrincipalSpanWaiver      *emitInvestigationCompleteWaiverPayload `json:"principal_span_waiver,omitempty"`
@@ -313,6 +332,7 @@ func (p *emitInvestigationCompleteParams) loadFromRaw(raw emitInvestigationCompl
 		ResultKind:               raw.ResultKind,
 		AbsenceJustification:     raw.AbsenceJustification,
 		AggregateFacts:           facts,
+		RelationClaims:           types.CloneAnswerRelationClaims(raw.RelationClaims),
 		EvidenceFloorWaiver:      raw.EvidenceFloorWaiver,
 		ClearEvidenceWaiver:      raw.ClearEvidenceWaiver,
 		PrincipalSpanWaiver:      raw.PrincipalSpanWaiver,
@@ -2000,6 +2020,15 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			Timestamp: time.Now(),
 		}, nil
 	}
+	relationClaims, relationErr := validateCompletionRelationClaims(ctx, p.RelationClaims)
+	if relationErr != nil {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Summary:   fmt.Sprintf("emit_investigation_complete rejected: %v", relationErr),
+			Success:   false,
+			Timestamp: time.Now(),
+		}, nil
+	}
 	aggregateStart := time.Now()
 	evidenceSnapshot := ctx.Mutable.EmittedEvidence()
 	aggregateFacts, softAggregateNotes, err := normalizeCompletionAggregateFacts(ctx, resultKind, p.AggregateFacts)
@@ -2692,9 +2721,11 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	stateWriteStart := time.Now()
 	reason = normalizeLogSourceDriftCompletionReason(ctx, reason)
 	ctx.Mutable.SetInvestigationAggregateFacts(effectiveAggregateFacts)
+	ctx.Mutable.SetInvestigationRelationClaims(relationClaims)
 	ctx.Mutable.SetInvestigationComplete(reason)
 	ctx.Mutable.SetInvestigationResultKind(resultKind)
 	ctx.Mutable.RetainInvestigationAggregateFacts()
+	ctx.Mutable.RetainInvestigationRelationClaims()
 	// A1 anchor advisory (soft): verified-but-unconsumed anchors ride a
 	// gate note into answer writing so the finalizer can disclose the
 	// boundary — never a denial (anchor relevance is a judgment call).
@@ -2753,6 +2784,9 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	}
 	if len(effectiveAggregateFacts) > 0 {
 		summary += fmt.Sprintf(" | aggregate_facts: %d", len(effectiveAggregateFacts))
+	}
+	if len(relationClaims) > 0 {
+		summary += fmt.Sprintf(" | relation_claims: %d", len(relationClaims))
 	}
 	if len(aggregateFactNormalizationNotes) > 0 {
 		summary += " | aggregate_facts normalized: " + strings.Join(aggregateFactNormalizationNotes, "; ")

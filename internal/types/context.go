@@ -576,6 +576,7 @@ type MutableState struct {
 	absenceJustification        string
 	investigationResultKind     string
 	investigationAggregateFacts []AnswerAggregateFact
+	investigationRelationClaims []AnswerRelationClaim
 	// exactContextRequiredFiles stores repo-relative production files
 	// that the explorer structurally ranked as same-scope related-
 	// context anchors for an exact-resolution task. When an
@@ -597,6 +598,7 @@ type MutableState struct {
 	retainedInvestigationResultKind     string
 	retainedInvestigationCompleteReason string
 	retainedInvestigationAggregateFacts []AnswerAggregateFact
+	retainedInvestigationRelationClaims []AnswerRelationClaim
 
 	// evidenceFloorWaiver (2026-05-10) is the model-declared typed
 	// escape lane consumed by emit_investigation_complete's
@@ -1283,6 +1285,8 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 	out.phase1Ranking = append([]Phase1RankedFile(nil), m.phase1Ranking...)
 	out.investigationAggregateFacts = cloneAnswerAggregateFacts(m.investigationAggregateFacts)
 	out.retainedInvestigationAggregateFacts = cloneAnswerAggregateFacts(m.retainedInvestigationAggregateFacts)
+	out.investigationRelationClaims = CloneAnswerRelationClaims(m.investigationRelationClaims)
+	out.retainedInvestigationRelationClaims = CloneAnswerRelationClaims(m.retainedInvestigationRelationClaims)
 	out.exactContextRequiredFiles = append([]string(nil), m.exactContextRequiredFiles...)
 	if m.exploreBudget != nil {
 		out.exploreBudget = m.exploreBudget.Clone()
@@ -1320,6 +1324,7 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 	absenceJustification := fork.absenceJustification
 	investigationResultKind := fork.investigationResultKind
 	investigationAggregateFacts := cloneAnswerAggregateFacts(fork.investigationAggregateFacts)
+	investigationRelationClaims := CloneAnswerRelationClaims(fork.investigationRelationClaims)
 	sourceInventoryAdvisory := CloneSourceInventoryAdvisory(fork.sourceInventoryAdvisory)
 	sourceInventoryObservation := CloneSourceInventoryObservation(fork.sourceInventoryObservation)
 	sourceInventoryDiscoveryHinted := cloneStringBoolMap(fork.sourceInventoryDiscoveryHinted)
@@ -1327,6 +1332,7 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 	retainedInvestigationResultKind := fork.retainedInvestigationResultKind
 	retainedInvestigationCompleteReason := fork.retainedInvestigationCompleteReason
 	retainedInvestigationAggregateFacts := cloneAnswerAggregateFacts(fork.retainedInvestigationAggregateFacts)
+	retainedInvestigationRelationClaims := CloneAnswerRelationClaims(fork.retainedInvestigationRelationClaims)
 	exactContextRequiredFiles := append([]string(nil), fork.exactContextRequiredFiles...)
 	traceQueryRuntimeObservationDelta := fork.traceQueryRuntimeObservationCount - fork.exploreForkTraceQueryRuntimeObservationBase
 	traceQueryBlobRefs := cloneStringStringMap(fork.traceQueryPublishedBlobRefs)
@@ -1366,6 +1372,8 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 		m.absenceJustification = absenceJustification
 		m.investigationResultKind = investigationResultKind
 		m.investigationAggregateFacts = mergedAggregateFacts
+		m.investigationRelationClaims = CloneAnswerRelationClaims(investigationRelationClaims)
+		m.retainedInvestigationRelationClaims = CloneAnswerRelationClaims(investigationRelationClaims)
 		if investigationCompleteReason != "" {
 			m.retainedInvestigationCompleteReason = investigationCompleteReason
 		}
@@ -1394,6 +1402,9 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 		m.retainedInvestigationAggregateFacts = MergeAnswerAggregateFacts(
 			SupersedeOrdinalMemberSetFactsByLabel(m.retainedInvestigationAggregateFacts, retainedInvestigationAggregateFacts),
 			retainedInvestigationAggregateFacts)
+	}
+	if len(retainedInvestigationRelationClaims) > 0 && !investigationComplete {
+		m.retainedInvestigationRelationClaims = CloneAnswerRelationClaims(retainedInvestigationRelationClaims)
 	}
 	if sourceInventoryAdvisory.IsActive() {
 		m.sourceInventoryAdvisory = MergeSourceInventoryAdvisory(m.sourceInventoryAdvisory, sourceInventoryAdvisory)
@@ -3541,6 +3552,9 @@ func cloneAnswerDocumentV2(in *AnswerDocumentV2) *AnswerDocumentV2 {
 			// The G2 cross-path equivalence audit caught this.
 			if len(b.EdgeAnchors) > 0 {
 				cloned.EdgeAnchors = append([]DiagramEdgeAnchor(nil), b.EdgeAnchors...)
+			}
+			if len(b.RelationClaims) > 0 {
+				cloned.RelationClaims = CloneAnswerRelationClaims(b.RelationClaims)
 			}
 			out.Blocks[i] = cloned
 		}
@@ -6025,6 +6039,7 @@ func (m *MutableState) ResetInvestigationComplete() {
 	m.absenceJustification = ""
 	m.investigationResultKind = ""
 	m.investigationAggregateFacts = nil
+	m.investigationRelationClaims = nil
 	m.exactContextRequiredFiles = nil
 	m.bumpAnswerSurfaceRevisionLocked()
 }
@@ -6226,6 +6241,43 @@ func (m *MutableState) StableInvestigationAggregateFacts() []AnswerAggregateFact
 		return cloneAnswerAggregateFacts(m.investigationAggregateFacts)
 	}
 	return cloneAnswerAggregateFacts(m.retainedInvestigationAggregateFacts)
+}
+
+// SetInvestigationRelationClaims stores the model-authored relation metadata
+// for the current completion attempt. It becomes stable only after the
+// completion tool passes every gate and calls RetainInvestigationRelationClaims.
+func (m *MutableState) SetInvestigationRelationClaims(claims []AnswerRelationClaim) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.investigationRelationClaims = CloneAnswerRelationClaims(claims)
+	m.bumpAnswerSurfaceRevisionLocked()
+}
+
+func (m *MutableState) RetainInvestigationRelationClaims() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.retainedInvestigationRelationClaims = CloneAnswerRelationClaims(m.investigationRelationClaims)
+	m.bumpAnswerSurfaceRevisionLocked()
+}
+
+// StableInvestigationRelationClaims returns only claims belonging to an
+// accepted completion. It never reconstructs claims from completion prose.
+func (m *MutableState) StableInvestigationRelationClaims() []AnswerRelationClaim {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.investigationComplete {
+		return CloneAnswerRelationClaims(m.investigationRelationClaims)
+	}
+	return CloneAnswerRelationClaims(m.retainedInvestigationRelationClaims)
 }
 
 // InvestigationResultKind returns the structured completion

@@ -65,21 +65,22 @@ type emitCodeSnippetV2 struct {
 }
 
 type emitAnswerBlockV2 struct {
-	ID                      string                    `json:"id"`
-	Kind                    string                    `json:"kind"`
-	Title                   string                    `json:"title,omitempty"`
-	Text                    string                    `json:"text,omitempty"`
-	Caveat                  string                    `json:"caveat,omitempty"`
-	ErrorGranularityVerdict string                    `json:"error_granularity_verdict,omitempty"`
-	CurrentStatusVerdict    string                    `json:"current_status_verdict,omitempty"`
-	ScopeDisclosure         string                    `json:"scope_disclosure,omitempty"`
-	Columns                 []string                  `json:"columns,omitempty"`
-	Items                   []emitAnswerBlockItemV2   `json:"items,omitempty"`
-	Diagram                 *emitAnswerDiagramV2      `json:"diagram,omitempty"`
-	ClaimUses               []types.RenderedClaimUse  `json:"claim_uses,omitempty"`
-	EdgeAnchors             []types.DiagramEdgeAnchor `json:"edge_anchors,omitempty"`
-	FacetIDs                []string                  `json:"facet_ids,omitempty"`
-	SurfaceRole             string                    `json:"surface_role,omitempty"`
+	ID                      string                      `json:"id"`
+	Kind                    string                      `json:"kind"`
+	Title                   string                      `json:"title,omitempty"`
+	Text                    string                      `json:"text,omitempty"`
+	Caveat                  string                      `json:"caveat,omitempty"`
+	ErrorGranularityVerdict string                      `json:"error_granularity_verdict,omitempty"`
+	CurrentStatusVerdict    string                      `json:"current_status_verdict,omitempty"`
+	ScopeDisclosure         string                      `json:"scope_disclosure,omitempty"`
+	Columns                 []string                    `json:"columns,omitempty"`
+	Items                   []emitAnswerBlockItemV2     `json:"items,omitempty"`
+	Diagram                 *emitAnswerDiagramV2        `json:"diagram,omitempty"`
+	ClaimUses               []types.RenderedClaimUse    `json:"claim_uses,omitempty"`
+	EdgeAnchors             []types.DiagramEdgeAnchor   `json:"edge_anchors,omitempty"`
+	RelationClaims          []types.AnswerRelationClaim `json:"relation_claims,omitempty"`
+	FacetIDs                []string                    `json:"facet_ids,omitempty"`
+	SurfaceRole             string                      `json:"surface_role,omitempty"`
 }
 
 type emitAnswerBlockItemV2 struct {
@@ -4144,7 +4145,7 @@ func repairNestedArraysInPatch(raw json.RawMessage) (json.RawMessage, []string, 
 	return out, paths, true
 }
 
-var answerBlockArrayFieldNames = []string{"items", "columns", "claim_uses", "edge_anchors", "facet_ids"}
+var answerBlockArrayFieldNames = []string{"items", "columns", "claim_uses", "edge_anchors", "relation_claims", "facet_ids"}
 var answerBlockObjectFieldNames = []string{"diagram"}
 var answerBlockFieldsAllowedFromDiagram = []string{"claim_uses", "edge_anchors", "facet_ids", "surface_role"}
 
@@ -4674,7 +4675,7 @@ func repairBlockArrayField(obj map[string]json.RawMessage, field string) (json.R
 
 func answerBlockArrayFieldAcceptsSingletonObject(field string) bool {
 	switch field {
-	case "items", "claim_uses", "edge_anchors":
+	case "items", "claim_uses", "edge_anchors", "relation_claims":
 		return true
 	default:
 		return false

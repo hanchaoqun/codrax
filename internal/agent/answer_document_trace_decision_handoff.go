@@ -31,10 +31,14 @@ func renderAnswerDocTraceDecisionHandoff(ctx *types.AgentContext) string {
 	if len(set.Projections) == 0 || !types.RuntimeTraceReportMaterializationAllowed(requestModel, set) {
 		return ""
 	}
-	return renderAnswerDocTraceDecisionHandoffSet(set, answerDocRuntimeTraceGuidanceView(ctx))
+	var claims []types.AnswerRelationClaim
+	if ctx.Mutable != nil {
+		claims = ctx.Mutable.StableInvestigationRelationClaims()
+	}
+	return renderAnswerDocTraceDecisionHandoffSet(set, answerDocRuntimeTraceGuidanceView(ctx), claims)
 }
 
-func renderAnswerDocTraceDecisionHandoffSet(set types.TraceCausalProjectionSet, authority runtimeTraceGuidanceView) string {
+func renderAnswerDocTraceDecisionHandoffSet(set types.TraceCausalProjectionSet, authority runtimeTraceGuidanceView, acceptedClaims ...[]types.AnswerRelationClaim) string {
 	if len(set.Projections) == 0 {
 		return ""
 	}
@@ -54,6 +58,7 @@ func renderAnswerDocTraceDecisionHandoffSet(set types.TraceCausalProjectionSet, 
 	}
 	b.WriteString("- Do not add values across arbitrary rows, fix directions, wall-clock and cpu·ms, or overlapping seats. Addition is authorized only by an exact typed additive carrier, such as the target's closed four-state partition or a same-source disjoint bipartition with its published subtotal. Mutually exclusive partition members may be added to reconstruct that exact partition total; do not misstate mutual exclusion as general non-additivity. A high occupancy is not automatically eliminable; a high eliminable estimate is not automatically proven frame causality.\n")
 	b.WriteString("- relation_authority=`typed_pair_only`: different state names, metric families, fix directions, rows, or threads do not by themselves prove independence, containment, overlap, mutual exclusion, or additivity. State one of those pairwise relations only from an exact typed relation/fold carrier or the target's closed four-state partition. When a pair has no such carrier, say its physical relationship is unresolved and that cross-row addition is not authorized; do not upgrade missing relation evidence into the stronger physical claim that the rows are independent or intrinsically non-additive.\n")
+	traceDecisionWriteRelationClaimHandoff(&b, set, acceptedClaims)
 	if authority.CausalUnproven {
 		b.WriteString("- causal_conclusion=`unproven`: keep the synthesis useful but calibrated as the strongest candidate / first validation direction, not a proven dropped-frame cause.\n")
 	}
@@ -159,6 +164,41 @@ func renderAnswerDocTraceDecisionHandoffSet(set types.TraceCausalProjectionSet, 
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+func traceDecisionWriteRelationClaimHandoff(b *strings.Builder, set types.TraceCausalProjectionSet, acceptedClaims [][]types.AnswerRelationClaim) {
+	if b == nil {
+		return
+	}
+	authorities := types.CompileTraceAnswerRelationAuthorities(set)
+	for _, authority := range authorities {
+		if !authority.RequiredForClosure {
+			continue
+		}
+		members := authority.MemberRefs
+		if authority.Kind == types.AnswerRelationAuthorityCrossRulerBoundary {
+			members = append(append([]string(nil), authority.LeftMemberRefs...), authority.RightMemberRefs...)
+		}
+		fmt.Fprintf(b, "- typed_relation_authority: authority_id=`%s`; member_refs=`%s`; physical_relation=`%s`; addition=`%s`",
+			authority.ID, strings.Join(members, ","), authority.PhysicalRelation, authority.Addition)
+		if authority.SubtotalValue != nil {
+			fmt.Fprintf(b, "; subtotal_value=%.3f; subtotal_unit=`%s`", *authority.SubtotalValue, authority.SubtotalUnit)
+		}
+		b.WriteString(".\n")
+	}
+	if len(acceptedClaims) == 0 || len(acceptedClaims[0]) == 0 {
+		return
+	}
+	b.WriteString("- accepted_model_relation_claims: these declarations were authored by the investigation model and accepted against the typed authorities. Preserve them on the model-authored answer block(s) via `relation_claims`; keep your visible conclusion consistent. The system will reject a mismatch but will not rewrite your prose.\n")
+	for _, raw := range acceptedClaims[0] {
+		claim := types.NormalizeAnswerRelationClaim(raw)
+		fmt.Fprintf(b, "  - authority_id=`%s`; member_refs=`%s`; physical_relation=`%s`; addition=`%s`",
+			claim.AuthorityID, strings.Join(claim.MemberRefs, ","), claim.PhysicalRelation, claim.Addition)
+		if claim.SubtotalValue != nil {
+			fmt.Fprintf(b, "; subtotal_value=%.3f; subtotal_unit=`%s`", *claim.SubtotalValue, claim.SubtotalUnit)
+		}
+		b.WriteString("\n")
+	}
 }
 
 func traceDecisionWriteSelfRunnableTwoRulerFacts(b *strings.Builder, records []types.TraceCausalProjectionSelfRunnableTwoRuler) {
