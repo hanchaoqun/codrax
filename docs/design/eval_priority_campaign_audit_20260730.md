@@ -4383,6 +4383,57 @@ runtime_authority_path=none`。应在审计 telemetry 中增加
 `eval/parallel_selected_summary_evalcampaign_b31_log_operation_r1_20260801.md`、
 `eval/parallel_selected_summary_evalcampaign_b31_log_operation_r1_20260801_manual_audit.md`。
 
+#### B32 r1：data 当前态误携带已修复失败；write 端到端通过
+
+`main@a33518189` 严格并行两个不同模式 case：
+
+- `data_json_strict_ids` runner PASS / human FAIL（44s）；
+- `github_issue_libgit2_foreach_worktree` runner/human PASS（163s）。
+
+data case 的最终值没有错误：第一批因未消费 `instructions.md` 被正确拒绝，第二批用
+`read_text("instructions.md")` 补读后消费 `instructions.md + users.json`，输出严格为
+`{"ids":["u1","u3"]}`。但第二批 evaluator 的 live `workflow_state_json` 同时发布：
+
+1. `material_coverage_sufficient=true`、两份必需材料均 covered、missing=0；
+2. `has_answer=true` 且 output projection satisfied；
+3. 第一批的 `required_material_not_consumed` 仍在 `workflow_violations`，current
+   `decision_status=blocked`。
+
+模型把第 3 项识别为历史残留并选择 complete，deterministic completion gate 也以当前
+完整事实收口，所以最终答案正确；terminal journal 同样已经把旧错误降为
+`last_nonterminal_error` 并保留 process/action lineage。真正的 gap 是 live current-state
+reducer 直接消费 `WorkflowViolationsFromRecordExecution` 全历史，迫使 evaluator 自行调和
+矛盾。runner 只看最终 JSON，未发现该过程权限分裂。
+
+登记并实施 `EVAL-B32-DATASTATE1/P1`：新增
+`ActiveExecutionViolationsFromRecords`，以最近一次结构化成功进展为 current/history
+边界；`BuildWorkflowStateViolations` 只消费 active suffix，reasoning/journal 继续调用
+原函数保留全历史。边界与 admission guard 一致，只读 `Result != nil && Err == ""`，
+不扫描错误内容、action 名、用户请求、模型 thinking/rationale/final，也不为 JSON 或材料
+消费类型写特例。
+
+三层回归固定：
+
+- 全历史函数仍返回旧失败和成功后新失败；active 投影只返回后者；
+- 当前 state 不再重发成功前的 execution failure；
+- REPL 真实接线中，补读两份材料并生成合规答案后，旧 material failure 不再进入
+  `WorkflowViolations`/blocked graph，current decision 为 complete。
+
+实现提交 `bab0fe0b4`；`go test ./internal/dataworkflow ./internal/repl -count=1` 通过，
+`git diff --check` 通过。
+
+write case 在隔离 worktree 只改 `repository.c` 两处运算符括号，准确保留 callback/lookup
+的负错误码；未修改测试，`make check` 以 `-Wall -Wextra -Werror` 编译并执行 1/1 通过，
+无 unverified/fallback。write analyzer 为 behavior contract 做四轮、planner 曾尝试不支持的
+C verification probe 后自行删除，记为 `EVAL-B32-WRITEITER1/P3-watch` 效率观察；单次
+出现不授权生产硬门或语言/case 特化。
+
+状态：`EVAL-B32-DATASTATE1=implemented/full-related-tests-pass/replay-next`；
+`EVAL-B32-WRITEITER1=P3-watch`。本批不修改 Trace 显式窗、因果投影、根因排序、
+唤醒链、窗内可消除量、自动补采或模型答案所有权。工件：
+`eval/parallel_selected_summary_evalcampaign_b32_data_write_r1_20260801.md`、
+`eval/parallel_selected_summary_evalcampaign_b32_data_write_r1_20260801_manual_audit.md`。
+
 ### B26-OWN：Trace 精确信息与模型结论的职责边界回裁（2026-08-01）
 
 客户/人工 witness：
