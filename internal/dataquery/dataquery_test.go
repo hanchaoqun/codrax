@@ -1613,6 +1613,72 @@ emit_result(str(total), output_contract={"format":"plain_single_line","explanati
 	if res.Answer != "30" {
 		t.Fatalf("Answer=%q, want 30", res.Answer)
 	}
+	if res.OutputContract.Format != OutputPlainSingleLine || res.OutputContract.ExplanationAllowed {
+		t.Fatalf("OutputContract=%+v, want terminal plan contract", res.OutputContract)
+	}
+}
+
+func TestActionRunnerCustomTransformPublishesTerminalJSONContract(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "users.json"), []byte(`[{"id":"u1","active":true},{"id":"u2","active":false}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		InputPaths:     []string{"users.json"},
+		OutputContract: OutputContract{Format: OutputJSONOnly, ExplanationAllowed: false},
+		Actions: []DataAction{{
+			ID:         "active_ids",
+			Kind:       DataActionCustomTransform,
+			InputPaths: []string{"users.json"},
+			Script: `
+users = json_load("users.json")
+emit_result({"ids": [row["id"] for row in users if row.get("active")]})
+`,
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != `{"ids":["u1"]}` {
+		t.Fatalf("Answer=%q, want JSON answer", res.Answer)
+	}
+	if res.OutputContract.Format != OutputJSONOnly || res.OutputContract.ExplanationAllowed {
+		t.Fatalf("OutputContract=%+v, want terminal JSON plan contract", res.OutputContract)
+	}
+}
+
+func TestActionRunnerCustomTransformKeepsIntermediateContractRelaxed(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "users.json"), []byte(`[{"id":"u1"}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		InputPaths:     []string{"users.json"},
+		OutputContract: OutputContract{Format: OutputJSONOnly, ExplanationAllowed: false},
+		ContinueAfter:  true,
+		Actions: []DataAction{{
+			ID:         "observe_ids",
+			Kind:       DataActionCustomTransform,
+			InputPaths: []string{"users.json"},
+			Script:     `emit_result({"observed": len(json_load("users.json"))})`,
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.OutputContract.Format != OutputFreeform || !res.OutputContract.ExplanationAllowed {
+		t.Fatalf("OutputContract=%+v, want relaxed intermediate contract", res.OutputContract)
+	}
 }
 
 func TestActionRunnerJSONRecordsReadsArrayAndWrapperArtifacts(t *testing.T) {

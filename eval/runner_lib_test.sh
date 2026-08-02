@@ -934,7 +934,7 @@ cat >"$logdir/codrax-20260608-000003-000-1.log" <<'LOG'
 2026-06-08T00:00:03.040 DEBUG [diag explorer] iter=0 phase=toolcall call[2] tool=trace_query params={"view":"wakeup_chain","thread":"main"}
 2026-06-08T00:00:03.050 DEBUG [diag explorer] iter=0 phase=toolresult TOOLRESULT trace_query ok=true summary="trace_query_target_inherited=true"
 LOG
-printf 'runtime authority answer\nTrace Causal Projection\n'
+printf 'runtime authority answer\n## Trace Causal Projection\n'
 FAKE
 chmod +x "$fake_runtime"
 runtime_case="$tmp/runner_runtime_authority.case"
@@ -964,6 +964,18 @@ fi
 if ! grep -q '| 1 | 4 | 1 | 1 | 0 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |' "$runtime_dir/summary.md"; then
   fail "trace query coverage audit summary missing expected row"
 fi
+
+projection_metric_fixture="$tmp/projection-metric-fixture.out"
+cat >"$projection_metric_fixture" <<'OUT'
+model progress mentions Trace 因果投影
+<title>Trace 因果投影 · manual</title>
+Trace Causal Projection
+## Trace 因果投影解读
+## Trace 因果投影
+> **Trace 因果投影覆盖边界** not a projection heading
+## Trace Causal Projection — target window
+OUT
+assert_eq "$(eval_count_trace_query_final_projection_blocks "$projection_metric_fixture")" "2" "trace projection metric counts only exact answer headings"
 
 fake_efficiency="$tmp/fake-codrax-efficiency-budget"
 cat >"$fake_efficiency" <<'FAKE'

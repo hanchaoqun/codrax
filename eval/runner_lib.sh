@@ -1363,7 +1363,14 @@ eval_count_trace_query_final_projection_blocks() {
     echo 0
     return
   fi
-  eval_count_pattern '(Trace 因果投影|Trace Causal Projection)' "$file"
+  # Count the deterministic answer block, not every mention of its title.
+  # Operation/data answers can legitimately quote manuals, HTML titles, or
+  # model progress containing the same words; treating those as a published
+  # trace projection contaminates cross-mode audits.
+  awk '
+    /^##[[:space:]]+(Trace 因果投影|Trace Causal Projection)([[:space:]]+—.*)?[[:space:]]*$/ { n++ }
+    END { print n + 0 }
+  ' "$file"
 }
 
 eval_count_trace_query_dimension_families() {

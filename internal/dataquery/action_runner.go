@@ -962,6 +962,20 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 	}
 	if lastResult != nil {
 		out := *lastResult
+		validationPlan := actionRunnerValidationPlan(plan, r.Seed)
+		// A custom_transform runs in a relaxed freeform sub-plan so its
+		// internal payload can carry ledgers and artifacts without being
+		// mistaken for the user-facing projection.  That execution detail
+		// must not escape as the published batch contract: a terminal batch
+		// is still governed by the workflow plan's output contract.  Keeping
+		// the relaxed contract here used to present models with two mutually
+		// exclusive authorities (for example json_only on the plan and
+		// freeform on the result) and could let callers validate the answer
+		// against the weaker face.  Intermediate batches retain their
+		// freeform contract through actionRunnerValidationPlan.
+		if validationPlan.OutputContract.Normalize().Format != OutputFreeform {
+			out.OutputContract = validationPlan.OutputContract.Normalize()
+		}
 		out.Artifacts = append(out.Artifacts, artifacts...)
 		out.ConsumedPaths = normalizeMaterialPaths(append(out.ConsumedPaths, consumed...))
 		out.Rows = DedupeRowDecisionRecords(append(out.Rows, rows...))
@@ -987,7 +1001,7 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 		if strings.TrimSpace(out.AuditSummary) == "" {
 			out.AuditSummary = strings.Join(cleanArtifactSummaries(summaries), "; ")
 		}
-		return validateRunnerResult(actionRunnerValidationPlan(plan, r.Seed), out)
+		return validateRunnerResult(validationPlan, out)
 	}
 	answer := projectedAnswer
 	answerFromArtifactSummary := false

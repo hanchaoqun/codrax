@@ -4298,6 +4298,43 @@ passed/failed/unavailable 继续只由 ChangeReport、workflow attempt 与 final
 - [x] B43-T7：verify done 生命周期词形去 verdict 化，新增中英双车道负例；
 - [x] B43-T8：render/orchestrator 相关回归通过；提交推送 VSTAT1 小批，转下一组跨模式 pair。
 
+### B44：严格 JSON 数据契约 × 外部手册操作上下文（2026-08-02）
+
+为避免持续停留在 Trace/Write，本批选择 data 与 operation 两个低近期覆盖维度，严格并行 2
+case。runner 2/2 PASS（data 52s、operation 121s）；人工为 data PASS、operation partial。
+
+data 最终精确输出 `{"ids":["u1","u3"]}`。首 plan 虽漏调度 `instructions.md`，但 B41 的
+terminal material scheduling guard 在脚本执行前以 typed `required_material_scheduling` 拒绝，
+模型修复后一次执行消费两份材料；这是应有 fail-loud，不是新 gap。新 gap 位于更下游：
+
+| ID | P | gap | 最优方案 | 状态 |
+|---|---:|---|---|---|
+| EVAL-B44-DATACONTRACT1 | P1 | terminal `custom_transform` 的 workflow/plan 明确 `json_only, explanation_allowed=false`，但内部 relaxed sub-plan 的 `freeform,true` 泄露到 `result.output_contract`，终态同时向模型提供两个相反 typed 权威面 | relaxed contract 仅限 action 内部执行；ActionRunner 发布 terminal result 前恢复 validation plan 的输出契约。`continue_after=true` 的中间批继续保持 freeform；不读答案文本推断契约 | implemented/tests-pass |
+| EVAL-B44-OPEXTRACT1 | P1 | operation 已下载完整长 HTML，但 evaluator/finalizer 每份只见 4000-rune material excerpt；`source_truncated=false` 只表示 256KiB 读取未截断，无法表达 prompt excerpt 已截断，模型却宣布“完整”并写出错误 `/focus` 和无来源“最近 3 轮” | 增加独立 typed `excerpt_truncated`，保留 `source_truncated` 的源读取语义；继续依靠已有软 continuation 指导做分页/正文定向提取，不按 URL、用户关键词或答案文本做 hard gate | open-next-batch |
+| EVAL-B44-EVALMETRIC1 | P2 | eval 把 operation 进度、HTML title、文档名中的任意“Trace 因果投影”子串计成 9 个系统投影块 | 只计最终答案中的精确 `## Trace 因果投影` / `## Trace Causal Projection` 标题（允许系统目标后缀）；其它正文提及不计 | implemented/tests-pass |
+
+`DATACONTRACT1` 的修复点是 typed publication boundary，不是对这个 JSON case 做格式拟合：
+
+1. custom transform 仍在 relaxed sub-plan 中运行，允许内部产出 artifact/ledger；
+2. terminal batch 的发布契约来自 `actionRunnerValidationPlan`，与 workflow/output projection
+   使用同一 authority；
+3. 中间 batch 的 validation plan 本来就是 freeform，因此不被错误收紧；
+4. 新测试同时固定 terminal JSON、terminal plain-single-line 和 intermediate freeform 三臂。
+
+operation 人工审计还发现量具本身跨模式污染：该 case 无 trace attachment、无 trace_query，
+却报告 `trace_query_final_projection_blocks=9`。原因是旧 metric 统计任意子串。修复只识别系统
+发布块的精确 Markdown heading，不扫描用户输入做系统行为门，也不改变运行时答案。
+
+任务清单：
+
+- [x] B44-T1：严格并行 data + operation，读取完整日志、执行材料与最终答案；
+- [x] B44-T2：修复 terminal custom-transform typed output contract 发布边界，相关 dataquery /
+  dataworkflow / repl 回归通过；
+- [x] B44-T3：修复 trace projection eval metric 跨模式污染，runner contract 测试通过；
+- [ ] B44-T4：补 operation material 的 source-read/excerpt 双截断 typed context 与测试；
+- [ ] B44-T5：分批提交推送；干净 HEAD 同对回放，确认 JSON context 单一且 operation 会在广域
+  材料仍截断时优先继续定向抽取。
+
 ### B41：data 终批材料 × Binder 方向语义审计（2026-08-02）
 
 本批严格并行 `data_text_filter_count` 与 `trace_query_binder_ipc_peer`。runner
