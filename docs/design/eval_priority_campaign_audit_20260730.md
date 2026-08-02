@@ -4268,6 +4268,36 @@ thinking/summary/final，也不接管模型结论。
 bare symbol 正例，以及原有 hard/soft/placement partial coverage。未读取 probe code、用户
 原文、模型 thinking/summary/final；系统只决定证据权限，不生成或替换模型结论。
 
+#### B43 r2：验证权威收口；进度生命周期仍冒充测试 verdict（2026-08-02）
+
+干净 `main@3f96383f7` 同对严格并行：Trace runner PASS（113s），Write 按 typed final
+正确 FAIL（644s，`write_final_verdict:unverified:verification_incomplete`）。
+
+Trace 的显式用户窗、两次 windowed query、双轴、根因排序、唤醒链、完整因果投影与自动
+补齐零回归；覆盖边界仍为 `frame_causality=unproven / frame_evidence_status=absent`。
+模型继续把首要候选写成主根因，并把 `lower_priority_waker` 升级成已发生的优先级反转，
+而 injected typed hint 已逐字说明该关系只证明低优先级依赖候选、没有 positive typed PI row
+时不能声称 measured inversion。本项保持 `EVAL-B19-CAUSAL1/EVAL-B19-SCHEDPROSE1`
+model-variance-watch，不增加关键词 gate、final rewrite 或系统替换。
+
+Write 的权限目标已覆盖：本轮 Go probe 执行失败，Rust `cargo test` runner missing，Make
+只运行脚本且成功；两个 Rust path 均为 `uncovered`，ChangeReport=`unavailable /
+changed_path_verification_uncovered`，proof 的 7 个 impact target 全部 unverified，最终
+`completion.verdict=unverified`。系统不再复现 r1 的 false green。patch 本身仍未经 Rust 编译：
+`const fn try_milliseconds` 使用派生 `PartialOrd` 比较，且模型的边界推理仍有明显漂移，故
+人工结果仍为 FAIL；这正是终态不得越权确证的原因，不是应由系统伪造成功的缺口。
+
+新登记 `EVAL-B43-VSTAT1/P1`：每次 verifier agent 成功完成一次 `run_tests` 调用后，dock
+节点均显示“✓ 已通过测试验证改动”，即使 typed ChangeReport 是 unavailable/unverified。
+根因是 `verify` 的 done phrase 表达 agent lifecycle，却使用 test verdict 词形。通用修复是
+把 done 改为 verdict-neutral 的“已完成测试验证 / Verification run complete”；真实
+passed/failed/unavailable 继续只由 ChangeReport、workflow attempt 与 final report 发布。
+不根据日志文本或模型答案决定措辞，也不改变验证门。
+
+- [x] B43-T6：干净 HEAD 同对双并行回放、完整人工审计与 METAAUTH1/PROBEBIND1 验收；
+- [x] B43-T7：verify done 生命周期词形去 verdict 化，新增中英双车道负例；
+- [x] B43-T8：render/orchestrator 相关回归通过；提交推送 VSTAT1 小批，转下一组跨模式 pair。
+
 ### B41：data 终批材料 × Binder 方向语义审计（2026-08-02）
 
 本批严格并行 `data_text_filter_count` 与 `trace_query_binder_ipc_peer`。runner

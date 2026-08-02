@@ -310,6 +310,25 @@ func TestStatus_WriteModeFlow(t *testing.T) {
 	}
 }
 
+func TestStatus_CompletedVerifyDoesNotClaimTypedPass(t *testing.T) {
+	row := &taskRow{
+		isNodeRow:  true,
+		nodeID:     "vN",
+		nodeKind:   "verify",
+		startTime:  time.Now().Add(-5 * time.Second),
+		endTime:    time.Now(),
+		okFinished: true,
+	}
+	zhOut := renderRows(t, "zh", row)
+	if !strings.Contains(zhOut, "已完成测试验证") || strings.Contains(zhOut, "已通过测试验证改动") {
+		t.Fatalf("completed verifier node must not impersonate ChangeReport pass: %s", zhOut)
+	}
+	enOut := renderRows(t, "en", row)
+	if !strings.Contains(enOut, "Verification run complete") || strings.Contains(enOut, "Tests passed") {
+		t.Fatalf("completed verifier node must remain verdict-neutral: %s", enOut)
+	}
+}
+
 // TestStatus_CompletedRowDropsLiveThinking pins the "completed rows
 // must drop live-progress detail" rule. The detail field on a
 // finished row carries whatever the last thinking / tool ticker

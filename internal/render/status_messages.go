@@ -243,9 +243,11 @@ func stagePhrase(key string, lang string, state stagePhraseState) string {
 		//   failed", which is closer to the truth (the LLM may have
 		//   produced prose / partial output / nothing at all).
 		// apply failure: "应用改动失败" — patches did not all land.
-		// verify failure: "测试未通过" — tests ran but failed; never
-		//   "已通过测试验证改动" which previously rendered alongside
-		//   the ✗ glyph (the bug that prompted this fix).
+		// verify lifecycle is the verifier-agent lifecycle, not the typed
+		// ChangeReport verdict. A clean node end therefore says verification
+		// completed, never "tests passed"; the report/final status owns
+		// passed, failed, and unavailable. A failed node still uses the
+		// failure slot so glyph and lifecycle remain aligned.
 		// write_analyze is the write-mode pre-stage that classifies the
 		// task into kind/scope/risk/constraints/outcomes (~3-10s LLM
 		// dispatch). Falls between read-mode analyze and the plan node.
@@ -259,7 +261,7 @@ func stagePhrase(key string, lang string, state stagePhraseState) string {
 		// so the retry phrasing keeps tool-side framing instead of the
 		// "模型响应出错…" prefix.
 		"apply":  {"正在应用改动", "已应用改动", "待应用改动", "未能应用改动", "应用改动出错,正在重试"},
-		"verify": {"正在跑测试验证改动", "已通过测试验证改动", "待跑测试验证改动", "测试未通过", "测试验证出错,正在重试"},
+		"verify": {"正在跑测试验证改动", "已完成测试验证", "待跑测试验证改动", "测试未通过", "测试验证出错,正在重试"},
 	}
 	// English retry mirrors the Chinese "模型响应出错,正在重新…X"
 	// shape: "Model response error, re-running X" puts the
@@ -282,7 +284,7 @@ func stagePhrase(key string, lang string, state stagePhraseState) string {
 		"write_analyze":    {"Analyzing task context", "Task context analyzed", "Awaiting task analysis", "Could not analyze task", "Model response error, re-analyzing task context"},
 		"plan":             {"Drafting change plan", "Change plan ready", "Awaiting change plan", "No change plan produced", "Model response error, re-drafting change plan"},
 		"apply":            {"Applying changes", "Changes applied", "Awaiting apply", "Apply incomplete", "Apply hit an error, retrying"},
-		"verify":           {"Running tests", "Tests passed", "Awaiting verification", "Tests did not pass", "Test verification hit an error, retrying"},
+		"verify":           {"Running tests", "Verification run complete", "Awaiting verification", "Tests did not pass", "Test verification hit an error, retrying"},
 	}
 	var t quint
 	var ok bool
