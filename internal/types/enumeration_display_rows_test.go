@@ -212,6 +212,29 @@ func TestCompileEnumerationDisplaySets_SourceInventorySuppressesUnrequestedValue
 	}
 }
 
+func TestCompileEnumerationDisplaySets_ConfigMappingDoesNotAuthorizeSystemRows(t *testing.T) {
+	rm := &RequestModel{
+		Intent:        IntentConfigQuery,
+		Scenario:      ScenarioConfigTrace,
+		PredicateAxis: AxisConfigure,
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqConfigMapping)},
+		Predicates:    SemanticPredicates{IsScalarAnswer: false},
+	}
+	plan := &AnswerSurfacePlan{StableAggregateFacts: []AnswerAggregateFact{{
+		Kind:    AnswerAggregateMemberSet,
+		Label:   "configuration layers",
+		Value:   "3",
+		Role:    AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"code default", "config file", "runtime environment"},
+	}}}
+	if ShouldCompileEnumerationDisplaySetsForRequest(*rm) {
+		t.Fatal("non-enumeration config mapping must not authorize system-authored principal rows")
+	}
+	if sets := CompileEnumerationDisplaySets(rm, plan); len(sets) != 0 {
+		t.Fatalf("config mapping aggregate should stay model guidance, got %+v", sets)
+	}
+}
+
 func TestCompileEnumerationDisplaySets_SourceInventoryRowAttributesPreservePackageDimension(t *testing.T) {
 	rm := &RequestModel{
 		Intent: IntentEnumerate,
@@ -1277,6 +1300,9 @@ func TestCompileEnumerationDisplaySets_PositionalBareSupportRefsCarryLocations(t
 	rm := &RequestModel{
 		Intent:   IntentExplain,
 		Scenario: ScenarioConfigTrace,
+		Predicates: SemanticPredicates{
+			HasPerMemberTable: true,
+		},
 		AnalyzerHints: AnalyzerHints{
 			Kind: string(ReqConfigMapping),
 		},
@@ -1389,9 +1415,9 @@ func TestCompileEnumerationDisplaySets_FileMembersBindSupportRefsByPathNotPositi
 
 func TestCompileEnumerationDisplaySets_RuntimeArtifactDoesNotPromoteFramePathToCurrentCitation(t *testing.T) {
 	rm := &RequestModel{
-		Intent: IntentExplain,
+		Intent: IntentEnumerate,
 		Predicates: SemanticPredicates{
-			IsDiagnosticQuestion: true,
+			IsCategoryEnumeration: true,
 		},
 	}
 	plan := &AnswerSurfacePlan{

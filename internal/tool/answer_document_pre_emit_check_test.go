@@ -5641,6 +5641,23 @@ func TestPreCheckUncertaintyBlock_NoRules(t *testing.T) {
 	}
 }
 
+func TestPreCheckUncertaintyBlock_UnpromotedTriggerDoesNotAuthorCaveat(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		FacetCoverage: &types.FacetCoverageContract{Required: []types.FacetRequirement{{
+			Kind:     types.FacetUncertaintyBoundary,
+			Required: types.FacetSoftRequired,
+		}}},
+		UncertaintyRules: []types.UncertaintyRule{{
+			TriggerFacet:      string(types.FacetUncertaintyBoundary),
+			ExpectedBlockKind: types.BlockCaveat,
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{ID: "summary", Kind: types.BlockSummary, Text: "grounded answer"}}}
+	if hints := preCheckUncertaintyBlock(doc, view); len(hints) != 0 {
+		t.Fatalf("unpromoted advisory uncertainty must not mint a caveat hint: %+v", hints)
+	}
+}
+
 func TestPreCheckFacetCoverage_SoftEvidenceAvailableDoesNotReject(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

@@ -11313,13 +11313,10 @@ func currentStatusVerdictValues(contract *types.CurrentStatusDiagnosticContract)
 // asked about has no grounded binding) and no caveat block sits in
 // the doc, surface a fix hint.
 //
-// Conservative pre-emit shape: we fire the hint only when the
-// view's UncertaintyRules slice is non-empty AND the doc has zero
-// caveat blocks. The full post-emit validator runs the per-rule
-// trigger logic; here we just want the LLM to emit the caveat at
-// all, which is the most common miss.
+// Pre-emit and post-emit share AnswerSemanticView.ActiveUncertaintyRules so an
+// unpromoted advisory facet cannot mint a generic caveat on the accepted path.
 func preCheckUncertaintyBlock(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []emitFixHint {
-	if len(view.UncertaintyRules) == 0 {
+	if len(view.ActiveUncertaintyRules()) == 0 {
 		return nil
 	}
 	hasCaveat := false

@@ -90,6 +90,39 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsOnlyMissingRowsForPartial
 	}
 }
 
+func TestNormalizePrincipalEnumerationRowBlocks_ConfigMappingPreservesModelCarrier(t *testing.T) {
+	mu := types.NewMutableState("config precedence")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "configuration layers",
+		Value:   "3",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"code default", "config file", "runtime environment"},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentConfigQuery,
+			Scenario:      types.ScenarioConfigTrace,
+			PredicateAxis: types.AxisConfigure,
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqConfigMapping)},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, Text: "The setting has three precedence layers."},
+		{ID: "layers", Kind: types.BlockTable, Text: "| layer | source |\n|---|---|\n| default | code |\n| config | file |\n| runtime | environment |"},
+	}}
+	before := answerDocumentTestVisibleSurface(doc)
+	beforeBlocks := len(doc.Blocks)
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed != 0 {
+		t.Fatalf("config mapping must remain model-owned, fixed=%d doc=%+v", fixed, doc)
+	}
+	if len(doc.Blocks) != beforeBlocks || answerDocumentTestVisibleSurface(doc) != before {
+		t.Fatalf("config mapping carrier changed: %+v", doc)
+	}
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_ParentheticalCategoryCarrierSuppressesSupplement(t *testing.T) {
 	mu := types.NewMutableState("read-mode pipeline stages")
 	mu.AppendEvidence([]types.EvidenceItem{
@@ -1467,8 +1500,11 @@ func TestNormalizePrincipalEnumerationRowBlocks_ExternalResourceSupplementIsMark
 	ctx := &types.BusContext{
 		Mutable: mu,
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
-			Intent:   types.IntentExplain,
+			Intent:   types.IntentEnumerate,
 			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
 		}},
 	}
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
@@ -1926,7 +1962,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_SystemSupplementOmitsEmptyLocati
 	}
 }
 
-func TestNormalizePrincipalEnumerationRowBlocks_SystemSupplementSkipsRowsThatWouldCreateBlankCells(t *testing.T) {
+func TestNormalizePrincipalEnumerationRowBlocks_ArchitectureSupportRowsDoNotAuthorSupplement(t *testing.T) {
 	mu := types.NewMutableState("梳理代码架构")
 	mu.AppendEvidence([]types.EvidenceItem{
 		enumEvidence("eval", "Eval", "internal/analysis/criterion/eval.go", 15, "Eval 对单个 Criterion 求值。"),
@@ -1956,29 +1992,11 @@ func TestNormalizePrincipalEnumerationRowBlocks_SystemSupplementSkipsRowsThatWou
 		Text: "正文已经解释架构。",
 	}}}
 
-	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
-		t.Fatal("expected deterministic supplement for the renderable row")
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed != 0 {
+		t.Fatalf("architecture support rows must remain model guidance, fixed=%d doc=%+v", fixed, doc)
 	}
-	var supplement *types.AnswerBlock
-	for i := range doc.Blocks {
-		if doc.Blocks[i].Kind == types.BlockTable &&
-			strings.Contains(doc.Blocks[i].Title, "系统补充候选") {
-			supplement = &doc.Blocks[i]
-			break
-		}
-	}
-	if supplement == nil {
-		t.Fatalf("expected system supplement table, got %+v", doc.Blocks)
-	}
-	if len(supplement.Items) != 1 || supplement.Items[0].Label != "Eval" {
-		t.Fatalf("coverage-only row should not render because it would create blank generated cells: %+v", supplement.Items)
-	}
-	for _, item := range supplement.Items {
-		for _, cell := range item.Cells {
-			if strings.TrimSpace(cell) == "" {
-				t.Fatalf("system-generated table must not contain blank cells: %+v", supplement.Items)
-			}
-		}
+	if len(doc.Blocks) != 1 || doc.Blocks[0].Text != "正文已经解释架构。" {
+		t.Fatalf("architecture answer must remain model-owned: %+v", doc.Blocks)
 	}
 }
 

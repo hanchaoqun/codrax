@@ -126,6 +126,36 @@ type AnswerSemanticView struct {
 	RichnessCandidates []RichnessCandidate
 }
 
+// ActiveUncertaintyRules returns only disclosure rules whose typed trigger is
+// live for this answer. Empty-trigger rules are unconditional; named triggers
+// activate only when the matching facet is promoted by evidence or by an
+// always-hard family contract. Both pre-emit and post-emit validators consume
+// this method so an advisory facet cannot make one path author a caveat that
+// the other path would not require.
+func (v *AnswerSemanticView) ActiveUncertaintyRules() []UncertaintyRule {
+	if v == nil || len(v.UncertaintyRules) == 0 {
+		return nil
+	}
+	promoted := make(map[string]bool)
+	if v.FacetCoverage != nil {
+		for _, requirement := range v.FacetCoverage.Required {
+			if requirement.IsPromoted() {
+				promoted[string(requirement.Kind)] = true
+			}
+		}
+	}
+	out := make([]UncertaintyRule, 0, len(v.UncertaintyRules))
+	for _, rule := range v.UncertaintyRules {
+		if rule.TriggerFacet == "" || promoted[rule.TriggerFacet] {
+			out = append(out, rule)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // BlockRequirement is one obligation entry on AnswerSemanticView's
 // RequiredBlocks / OptionalBlocks slice. It tells the V2 validator
 // (a) which block kinds are acceptable, (b) how many of them are

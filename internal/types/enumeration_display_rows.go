@@ -89,6 +89,36 @@ func ShouldCompileEnumerationDisplaySetsForRequest(rm RequestModel) bool {
 	if enumerationDisplayConflictsWithDiagnosticCurrentSourceMechanism(rm) {
 		return false
 	}
+	if rm.Intent == IntentEnumerate ||
+		rm.Predicates.IsCategoryEnumeration ||
+		rm.Predicates.HasPerMemberTable ||
+		rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() {
+		return true
+	}
+	if aggregateRequestRequiresPathMemberSetAsPrincipal(rm) {
+		return true
+	}
+	if enumerationDisplayHasPrincipalHistoryListShape(rm) {
+		return true
+	}
+	return rm.HasExternalOnlyRuntimeArtifact() && runtimeRequestRequiresPrincipalMemberSet(&rm)
+}
+
+// enumerationDisplayHasPrincipalHistoryListShape preserves the established
+// VCS recent-N/list carrier without reopening deterministic row authoring for
+// ordinary mechanism, config-mapping, or architecture explanations. The
+// eventual fact-level HistoryMemberSetIsPrincipalList check still verifies the
+// VCS origin and member-set role.
+func enumerationDisplayHasPrincipalHistoryListShape(rm RequestModel) bool {
+	if !rm.Predicates.IsHistoryLookup || rm.Predicates.IsScalarAnswer || rm.Predicates.IsCountQuestion {
+		return false
+	}
+	if IsHistoryBackedCurrentCodeExplanation(rm) ||
+		rm.Predicates.IsDiagnosticQuestion ||
+		rm.DiagnosticProfile.RequiresDiagnosticRootCause() ||
+		rm.DiagnosticProfile.RequiresCurrentStatusDiagnostic() {
+		return false
+	}
 	return true
 }
 
