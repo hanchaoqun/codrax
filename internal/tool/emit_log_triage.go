@@ -166,8 +166,12 @@ func buildEmitLogTriageSchema() {
 	var errorSchemaAtDepth func(depth int) map[string]any
 	errorSchemaAtDepth = func(depth int) map[string]any {
 		props := map[string]any{
-			"type":    map[string]any{"type": "string", "maxLength": 80},
-			"message": map[string]any{"type": "string", "maxLength": 500},
+			"type": map[string]any{"type": "string", "maxLength": 80},
+			"message": map[string]any{
+				"type":        "string",
+				"maxLength":   500,
+				"description": "Optional human-readable error text copied verbatim from the attached log. Interpretations, inferred synchronization failures, and synthetic per-thread messages belong in observations[].summary, not here.",
+			},
 			"frames": map[string]any{
 				"type":     "array",
 				"maxItems": 30,
@@ -290,6 +294,17 @@ func (t *EmitLogTriage) Execute(ctx *types.BusContext, params json.RawMessage) (
 	if err != nil {
 		return *decodeFailure, err
 	}
+	if field, message, ok := firstUnobservedLogTriageErrorMessage(p.Errors, ctx.AttachedLog); ok {
+		return types.ToolResult{
+			ToolName: t.Name(),
+			Success:  false,
+			Summary: fmt.Sprintf(
+				"emit_log_triage rejected: %s must be copied verbatim from the attached log; unobserved message=%q. Omit message when the log has no explicit error text, and put bounded interpretation in observations[].summary.",
+				field, message,
+			),
+			Timestamp: time.Now(),
+		}, nil
+	}
 
 	// Cross-field sanity: at least one error, observation, or
 	// unknown_chunk must be present. The schema declares errors as
@@ -388,6 +403,32 @@ func (t *EmitLogTriage) Execute(ctx *types.BusContext, params json.RawMessage) (
 		Summary:   summary + salvageNote,
 		Timestamp: time.Now(),
 	}, nil
+}
+
+// firstUnobservedLogTriageErrorMessage enforces the authority boundary of the
+// structured error-message lane. Downstream answer prompts preserve these
+// values as direct runtime-artifact facts, so a model-authored paraphrase must
+// never enter this field. The check is an exact structured-field ↔ held-log
+// substring comparison; it does not inspect the user request, model thoughts,
+// final answer prose, keywords, or semantic similarity.
+func firstUnobservedLogTriageErrorMessage(errors []emitLogTriageError, attachedLog string) (field, message string, found bool) {
+	var walk func([]emitLogTriageError, string) (string, string, bool)
+	walk = func(items []emitLogTriageError, prefix string) (string, string, bool) {
+		for i := range items {
+			path := fmt.Sprintf("%s[%d]", prefix, i)
+			message := strings.TrimSpace(items[i].Message)
+			if message != "" && !strings.Contains(attachedLog, message) {
+				return path + ".message", message, true
+			}
+			if items[i].Cause != nil {
+				if field, message, ok := walk([]emitLogTriageError{*items[i].Cause}, path+".cause"); ok {
+					return field, message, true
+				}
+			}
+		}
+		return "", "", false
+	}
+	return walk(errors, "errors")
 }
 
 func decodeEmitLogTriageParamsStrict(name string, params json.RawMessage, schema json.RawMessage) (emitLogTriageParams, string, *types.ToolResult, error) {

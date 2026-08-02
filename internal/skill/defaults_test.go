@@ -1137,6 +1137,29 @@ func TestLogTriageSkill_TeachesOperationalObservations(t *testing.T) {
 	}
 }
 
+func TestLogTriageSkillSeparatesExplicitErrorsFromConcurrentSnapshots(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	sk, err := r.Get("log-triage-skill")
+	if err != nil {
+		t.Fatalf("log-triage-skill missing: %v", err)
+	}
+	corpus := sk.Goal + "\n" + sk.OutputFormat + "\n" + allWorkflowBodies(sk) + "\n" + allProhibitionBodies(sk)
+	for _, want := range []string{
+		"explicit error occurrence",
+		"has no error/exception header of its own is NOT a sibling error",
+		"observations[] runtime_event",
+		"copied VERBATIM from the attached log",
+	} {
+		if !strings.Contains(corpus, want) {
+			t.Fatalf("log-triage snapshot authority guidance missing %q:\n%s", want, corpus)
+		}
+	}
+	if strings.Contains(corpus, "one entry per logical error (per goroutine in a Go panic dump") {
+		t.Fatalf("legacy per-goroutine error fanout guidance survived:\n%s", corpus)
+	}
+}
+
 // TestMultiSourceMarker_LogTriageSkillTeachesIt pins the contract:
 // the CLI loadMultiPathSlice + REPL handleLogAppend insert
 // `# codrax-source: <path>` separators between concatenated log

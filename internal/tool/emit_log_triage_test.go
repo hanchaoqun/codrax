@@ -113,6 +113,23 @@ func TestEmitLogTriage_Schema_HasObservations(t *testing.T) {
 	}
 }
 
+func TestEmitLogTriage_Schema_MessageRequiresVerbatimArtifactText(t *testing.T) {
+	tool := &EmitLogTriage{}
+	var schema map[string]any
+	if err := json.Unmarshal(tool.Parameters(), &schema); err != nil {
+		t.Fatal(err)
+	}
+	errors := schema["properties"].(map[string]any)["errors"].(map[string]any)
+	errorItem := errors["items"].(map[string]any)
+	message := errorItem["properties"].(map[string]any)["message"].(map[string]any)
+	description, _ := message["description"].(string)
+	for _, want := range []string{"verbatim", "attached log", "observations[].summary"} {
+		if !strings.Contains(description, want) {
+			t.Fatalf("error message schema description missing %q: %q", want, description)
+		}
+	}
+}
+
 func TestEmitLogTriage_Execute_ObservationOnlyAccepted(t *testing.T) {
 	bus := &types.BusContext{
 		Mutable:     types.NewMutableState("test"),
@@ -161,10 +178,68 @@ func TestEmitLogTriage_Execute_ObservationOnlyAccepted(t *testing.T) {
 	}
 }
 
+func TestEmitLogTriage_Execute_RejectsSynthesizedErrorMessage(t *testing.T) {
+	bus := &types.BusContext{
+		Mutable: types.NewMutableState("test"),
+		AttachedLog: "fatal error: concurrent map writes\n\n" +
+			"goroutine 87 [running]:\nmain.writeSession()\n",
+	}
+	params, err := json.Marshal(emitLogTriageParams{
+		Meta: emitLogTriageMeta{Lang: "go", Signals: []string{"panic"}},
+		Errors: []emitLogTriageError{{
+			Type:    "concurrent_write",
+			Message: "goroutine 87 wrote the map without synchronization",
+			Frames: []emitLogTriageFrame{{
+				Func: "main.writeSession", Raw: "main.writeSession()", Confidence: 1,
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := (&EmitLogTriage{}).Execute(bus, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Success || bus.Mutable.LogTriage() != nil {
+		t.Fatalf("synthesized error message must not become a structured runtime fact: %+v", res)
+	}
+	for _, want := range []string{"errors[0].message", "verbatim", "observations[].summary"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("rejection missing %q: %s", want, res.Summary)
+		}
+	}
+}
+
+func TestEmitLogTriage_Execute_AcceptsVerbatimNestedErrorMessages(t *testing.T) {
+	bus := &types.BusContext{
+		Mutable:     types.NewMutableState("test"),
+		AttachedLog: "outer failure\nCaused by: inner failure\n",
+	}
+	params, err := json.Marshal(emitLogTriageParams{
+		Meta: emitLogTriageMeta{Lang: "java", Signals: []string{"crash"}},
+		Errors: []emitLogTriageError{{
+			Type: "Outer", Message: "outer failure",
+			Cause: &emitLogTriageError{Type: "Inner", Message: "inner failure"},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := (&EmitLogTriage{}).Execute(bus, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success || bus.Mutable.LogTriage() == nil {
+		t.Fatalf("verbatim root/cause messages should be admitted: %+v", res)
+	}
+}
+
 func TestEmitLogTriage_Execute_SalvagesStringWrappedErrorsFromMalformedSibling(t *testing.T) {
 	bus := &types.BusContext{
 		Mutable:     types.NewMutableState("test"),
-		AttachedLog: "downstream timeout\nretry exhausted\ncircuit breaker opened\n",
+		AttachedLog: "downstream timeout upstream=user-svc\nretry exhausted attempts=3\ncircuit breaker opened\n",
 	}
 	params := json.RawMessage(`{
 		"meta":{"lang":"unknown","signals":["timeout"]},
