@@ -4745,6 +4745,75 @@ support_refs 被按下标强行 zip，导致 `trace_query.go:7907` 错配到
 - `eval/parallel_selected_summary_evalcampaign_b34_crossmode_r1_20260801.md`
 - `eval/parallel_selected_summary_evalcampaign_b34_crossmode_r1_20260801_manual_audit.md`
 
+### B35：write 最小修改 × log 错误权限与路径解析性能（2026-08-01）
+
+B35 首批在 `main@30ed39eab` 严格并行 2 个 case：
+
+- `patch_go_typo`：runner/human PASS，85s。只执行 `retrun`→`return` 一行 patch，隔离
+  worktree 与 `go test -json ./...` 均正确。case 的 `kind=patch` 是能力探针，不是产品正确性
+  的唯一表示；等价、精确的 modify 操作不应被产品审计判错。登记
+  `EVAL-B35-WRITEORACLE1/P2-eval-semantics`，当前无需修改生产路径。
+- `logtri_goroutine_dump`：runner PASS / human FAIL，73s。旧 case 注释和 triage prompt 均把
+  panic dump 中每个 goroutine block 当 sibling error；事实上日志只有一个 fatal header，87、
+  120 只有 capture-time stack snapshot。最终进一步编造三者都崩溃、共享同一 map、没有锁。
+
+分批实施与复放：
+
+1. `b707cf4ed` 规定 `errors[].message` 必须是 held log 的精确子串，并把无独立
+   error/exception header 的线程块移出 errors。r2 的 `errors[]` 已从 3 条降为 1 条，但
+   observation 解释仍被升级为主事实。
+2. r2 Java 例的 `emit_log_triage` tool call 阻塞约 444s、总耗时 522s。根因是每个 bare
+   Java basename 都独立 `filepath.Walk(repoRoot)`，并反复扫描 Git ignored 的海量 eval
+   产物。`93bebf522` 改为一次 Git-aware inventory（tracked + non-ignored untracked），非 Git
+   仓库才单次 walk 回退；仍逐候选 stat、语言排序、函数标识核验。r3/r4 tool return 约
+   41ms/40ms，整例降到 115s/91s。登记 `EVAL-B35-LOGPERF1=covered-live-replay`。
+3. `2768e0e32` 新增通用 `thread_snapshot` typed kind；validator 将其强制归一为
+   `severity=info / diagnostic=false`，ledger 进入 artifact-span supporting/soft lane，所有下游
+   prompt 明示它只能证明 dump 时正在执行的 frame，不能单独证明 crashed/emitted error/
+   same resource/causality。旧 case 的“三个 peer errors”错误规格同步纠正。
+4. r3 暴露新的旁路：triager 额外生成不存在于附件的 `runtime_event.evidence` 整句，重新
+   铸成 principal。`09e9cba4d` 对所有 `observations[].evidence` 增加精确 held-log 来源校验；
+   没有 evidence 的 model summary 永远只能 supporting/soft。该门只比较 schema 字段与持有
+   工件，不扫描用户请求、thinking、final prose 或关键词。
+5. r4 系统数据合同已正确：一个 explicit error、两个 thread snapshots、快照 supporting/
+   soft、authority boundary 在 analyzer/explorer/finalizer prompt 可见；但模型仍自行发出
+   “同时出错 goroutine=3”的 principal aggregate 并在最终答案声称 87/120 崩溃、共享 map/
+   无锁。系统没有删除、替换或重写模型块。登记
+   `EVAL-B35-LOGMODEL1/P1-model-owned-open`；继续添加答案关键词门或系统结论替换会违反
+   model ownership 红线，因此停止在此单例上加硬约束。
+
+看护审计结论：
+
+- `logtri_goroutine_dump` 只检查 map/race/并发词面，四轮均可在错误答案上 PASS，登记
+  `EVAL-B35-LOGORACLE1/P1-open`。优先补结构化 producer oracle（error count、typed snapshot
+  count/kind）；最终“谁实际触发错误”的语义仍应由模型基于 typed authority 作答或交给独立
+  模型评审，不能用 `EXPECT_NOT_CONTAINS` 扫最终原文。
+- r3 Java 偶发在 `resolved_files=0` 下探索 Codrax 当前源码并引用日志解析器，r4 未复现，记
+  `EVAL-B35-EXTSCOPE1/P2-watch`，待第二个不同外部栈复现后再改 typed origin/scope 路由。
+- Java r2-r4 均把 `Caused by` 扩写成 return-null、catch/wrap 和 PostgreSQL 实现机制；异常
+  nesting、消息和 frame order 是直接事实，具体控制流是模型推断。登记
+  `EVAL-B35-CAUSECAL1/P2-watch`，不得按类名、端口或题面关键词硬拟合。
+- 当前 watchdog 同时存在两类边界：`patch_go_typo` 的 patch-kind 只适合作能力探针，若拿来
+  判产品 correctness 就过硬；goroutine 的现有答案 regex 则明显过松。runner verdict 与人工
+  correctness 必须继续分栏。
+
+状态：`EVAL-B35-LOGPERF1=covered-live-replay`；
+`EVAL-B35-LOGAUTH1=implemented/full-related-tests-pass/live-typed-contract-covered`；
+`EVAL-B35-LOGMODEL1=P1/model-owned-open/no-system-rewrite`；
+`EVAL-B35-LOGORACLE1=P1/open`；`EVAL-B35-EXTSCOPE1=P2-watch`；
+`EVAL-B35-CAUSECAL1=P2-watch`；`EVAL-B35-WRITEORACLE1=P2-eval-semantics`。
+
+工件：
+
+- `eval/parallel_selected_summary_evalcampaign_b35_write_log_r1_20260801.md`
+- `eval/parallel_selected_summary_evalcampaign_b35_write_log_r1_20260801_manual_audit.md`
+- `eval/parallel_selected_summary_evalcampaign_b35_log_authority_r2_20260801.md`
+- `eval/parallel_selected_summary_evalcampaign_b35_log_authority_r2_20260801_manual_audit.md`
+- `eval/parallel_selected_summary_evalcampaign_b35_log_authority_r3_20260801.md`
+- `eval/parallel_selected_summary_evalcampaign_b35_log_authority_r3_20260801_manual_audit.md`
+- `eval/parallel_selected_summary_evalcampaign_b35_log_authority_r4_20260801.md`
+- `eval/parallel_selected_summary_evalcampaign_b35_log_authority_r4_20260801_manual_audit.md`
+
 ### B26-OWN：Trace 精确信息与模型结论的职责边界回裁（2026-08-01）
 
 客户/人工 witness：
