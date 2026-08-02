@@ -187,7 +187,7 @@ func TestFactRel_SingleStateProseSilent(t *testing.T) {
 // TestFactRel_SeatRosterCarriesUnprovenRemainder — arm b (R2-F1 tieba
 // witness: prose closed with a coverage/absence claim while the report
 // seated a 10.433ms cause-unproven remainder). The seat roster fact line
-// itself is the counter-face: cause seats wear their typed 等待对象 word and
+// itself is the counter-face: cause seats wear their typed 内核调用点 word and
 // the remainder seat wears 原因未证 — including past the roster capacity cap.
 func TestFactRel_SeatRosterCarriesUnprovenRemainder(t *testing.T) {
 	seat := func(id string, rank, eff string, notes ...string) types.ObservationRecord {
@@ -227,7 +227,7 @@ func TestFactRel_SeatRosterCarriesUnprovenRemainder(t *testing.T) {
 		t.Fatalf("the seat roster fact line must render, got %+v", facts)
 	}
 	for _, want := range []string{
-		"#1(有效归因 7.386ms,成员共17,等待对象=fscache_page_wait_o)",
+		"#1(有效归因 7.386ms,成员共17,内核调用点=fscache_page_wait_o)",
 		"#5(有效归因 10.433ms,原因未证)",
 	} {
 		if !strings.Contains(line, want) {

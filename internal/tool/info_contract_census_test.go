@@ -236,7 +236,7 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"CPUConstraintGlobalMaxTierKHz":  {Status: "displayed", Ref: "R5a 行3 绑核排除更大核档(全域最大核档)"},
 	"ResourceCompletionClosure":      {Status: "displayed", Ref: "RSPA M-IO 行2 完成闭合注记"},
 	"SystemSupplement":               {Status: "displayed", Ref: "SUPP-CORE 修复轮 件5: E# 审计面 origin=system_supplement 出处 token"},
-	"BlockedReasonCaller":            {Status: "displayed", Ref: "件③ 行2 等待对象 披露"},
+	"BlockedReasonCaller":            {Status: "displayed", Ref: "件③ 行2 内核调用点 披露"},
 	"BlockedReasonWindowCount":       {Status: "displayed", Ref: "CR-3 件② 行2/headline 未核销 blocked_reason 残余披露"},
 	"BlockedReasonWindowCaller":      {Status: "displayed", Ref: "CR-3 件② 行2/headline 未核销 caller 符号"},
 	"ProcessTGID":                    {Status: "displayed", Ref: "CR-3 件③ 明细「进程 tgid=G」行"},

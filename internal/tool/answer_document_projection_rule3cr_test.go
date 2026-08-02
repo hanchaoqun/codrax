@@ -34,8 +34,8 @@ var rule3crSnakeToken = regexp.MustCompile(`\b[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z][A
 // token 留证据引用键位"):
 //   - state-identity parentheticals: the label（token） combined form for the
 //     raw scheduler state (s_sleep / d_sleep / r_runnable families);
-//   - wait-object identifiers (lock/file object names beside 等待对象 / wait
-//     object words);
+//   - kernel wait-call-site identifiers beside 内核调用点 / kernel wait
+//     call-site words;
 //   - the detail table's "- type:" rows (raw token column by design).
 //
 // context is the de-wrapped neighborhood around the hit (the PTV4 T3 width
@@ -46,7 +46,7 @@ func rule3crSnakeWhitelisted(context, token string) bool {
 	case "s_sleep", "d_sleep", "d_state":
 		return true
 	}
-	for _, marker := range []string{"- type:", "- 类型:", "wait object", "等待对象"} {
+	for _, marker := range []string{"- type:", "- 类型:", "kernel wait call-site", "内核调用点"} {
 		if strings.Contains(context, marker) {
 			return true
 		}

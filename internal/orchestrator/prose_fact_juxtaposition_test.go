@@ -65,7 +65,7 @@ func TestCR4Fact_WaitingObjectLine(t *testing.T) {
 	var hit string
 	for _, f := range facts {
 		zh := f.userReadable("zh")
-		if strings.Contains(zh, "CompThread_0-2955") && strings.Contains(zh, "typed 等待对象=dma_fence_default_w") {
+		if strings.Contains(zh, "CompThread_0-2955") && strings.Contains(zh, "typed 内核调用点=dma_fence_default_w") {
 			hit = zh
 		}
 	}
@@ -241,7 +241,7 @@ func TestCR4Fact_FPVectorSentencesDrawNoVerdicts(t *testing.T) {
 		"CompThread_0-2955 的 D 态阻塞并非归因于 fscache_page_get_an,而是 dma_fence_default_w。",
 		"T7@ZeusThreadPo-61841 由锁持有者 tid 62020 阻塞,并未持有锁。",
 		"JankManager-9655 与目标线程分属不同进程组。",
-		"建议评估 CompThread_0-2955 的等待对象 fscache_page_get_an 缓存策略。",
+		"建议评估 CompThread_0-2955 的内核调用点 fscache_page_get_an。",
 		"如果 ugc.aweme.lite-17267 全程处于 s_sleep,则应检查唤醒链。",
 		"ugc.aweme.lite-17267 基本上全程处于繁忙状态。",
 		"CPU 3-5 运行于 1880MHz 的说法需按各簇分别核实。",

@@ -6150,14 +6150,15 @@ func offCPUStateIsIOWait(start offCPUStart, endTs float64, blockedReasons map[in
 // iowait-proven (rides the IOWaitTop ledger), whether a sched_blocked_reason
 // marker COVERED the segment at all (coverage proof for the refined
 // 「D-state」 word — absence of a marker proves nothing), and the marker's
-// semantic caller symbol (the 等待对象族 disclosure; hex/opaque callers were
+// semantic caller symbol (the 内核调用点 disclosure; hex/opaque callers were
 // already collapsed to "unknown" by blockedReasonSemanticCaller at parse).
 // offCPUCauseSymbol reduces a sched_blocked_reason caller to its semantic
-// wait-object symbol (§29.50.5 逐片段证明门, v5 P1 批 件②): the symbol before
-// '+' — same symbol at different offsets is ONE wait object (the offset/
+// wait-call-site family key (§29.50.5 逐片段证明门, v5 P1 批 件②): the symbol before
+// '+' — the same function at different offsets is ONE call-site family (the offset/
 // module detail stays on the raw evidence lines). ""/unknown → no proof
 // (absence never guesses). Single mint point for the partition key AND the
-// cause-seat 等待对象 word.
+// cause-seat 内核调用点 word. The key groups a measured wait mechanism; it
+// does not identify a resource object or holder.
 func offCPUCauseSymbol(caller string) string {
 	c := strings.TrimSpace(caller)
 	if c == "" || c == "unknown" {

@@ -3986,10 +3986,12 @@ type RootCauseRankItem struct {
 	// without a marker keeps the honest merged form). Wording input only —
 	// rank/score lanes never read it.
 	DStateAllNonIOProven bool `json:"d_state_all_noniowait,omitempty"`
-	// BlockedReasonCaller (件③ caller 等待对象族): the UNANIMOUS semantic
+	// BlockedReasonCaller (件③ caller lane; role corrected by
+	// B33-CALLERROLE1): the UNANIMOUS semantic
 	// caller symbol across the row's marked D-ledger segments
 	// (dma_fence_default_wait family); "" when members disagree or none was
-	// marked (absence never guesses). 行2 等待对象 disclosure input.
+	// marked (absence never guesses). 行2 内核调用点 disclosure input; never
+	// a resource object or holder identity.
 	BlockedReasonCaller string `json:"blocked_reason_caller,omitempty"`
 	// BlockedReasonWindowCount / BlockedReasonWindowCaller (CR-3 件② P10,
 	// 2026-07-12): the UNCONSUMED residual — when the unanimous-caller lane
@@ -4006,7 +4008,7 @@ type RootCauseRankItem struct {
 	// DStateCauseUnprovenRemainder (§29.50.5 证明分区, v5 P1 批 件②,
 	// 2026-07-13): true ONLY on the honest-remainder D/IO seat — the
 	// unproven fragments of a thread whose OTHER fragments proved a concrete
-	// wait object and were carved into sibling cause seat(s) (逐片段证明门:
+	// kernel call-site family and were carved into sibling cause seat(s) (逐片段证明门:
 	// 未证片段留通用 (线程,类型) 席; 绝不灌根因席). Drives the
 	// 「D-state(原因未证)」 display form. A thread with no cause seat never
 	// wears it (a lone generic seat is not a remainder). Wording input only

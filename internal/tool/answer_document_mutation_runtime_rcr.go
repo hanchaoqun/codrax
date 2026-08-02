@@ -1389,14 +1389,15 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 		}
 		row.marks.mark(runtimeTraceProjMarkFixDirection)
 	}
-	// DSTATE-REFINE caller 等待对象族 (件③, witness CompThread 12/12 iowait=0
+	// DSTATE-REFINE caller role (件③, witness CompThread 12/12 iowait=0
 	// dma_fence_default_wait): the unanimous blocked_reason semantic caller
-	// discloses on 行2 — engine-minted symbol only (absence never guesses).
+	// discloses on 行2 as a kernel wait call-site — engine-minted symbol only
+	// (absence never guesses), never a resource object or holder identity.
 	if caller := strings.TrimSpace(node.BlockedReasonCaller); caller != "" {
 		if zh {
-			identity = append(identity, "等待对象 "+caller)
+			identity = append(identity, "内核调用点 "+caller)
 		} else {
-			identity = append(identity, "wait object "+caller)
+			identity = append(identity, "kernel wait call-site "+caller)
 		}
 	} else if node.BlockedReasonWindowCount > 0 {
 		// CR-3 件② P10 (冷读案7 GPU-fence witness, 2026-07-12): the row

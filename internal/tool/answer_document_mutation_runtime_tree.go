@@ -10567,16 +10567,16 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 			demoted = append(demoted, runtimeTraceProjCaliberSideWord(node, zh))
 		}
 	}
-	// 修复轮二 件B (2026-07-13): the proven wait object discloses on the D/IO
-	// self row inline — with no rank-family seat in the ledger this row is
-	// the ONLY carrier of the refined proof, and the 等待对象 word must not
-	// depend on the dispatch shape (same engine-typed symbol as the rcr
-	// identity line; absent = absent).
+	// 修复轮二 件B (2026-07-13), corrected by B33-CALLERROLE1: the proven
+	// blocked_reason caller discloses on the D/IO self row inline. It is a
+	// kernel wait call-site, not a resource object or holder identity. With no
+	// rank-family seat this row is the only carrier of that typed symbol; its
+	// presence must not depend on the dispatch shape (absent = absent).
 	if caller := strings.TrimSpace(node.BlockedReasonCaller); caller != "" {
 		if zh {
-			demoted = append(demoted, "等待对象 "+caller)
+			demoted = append(demoted, "内核调用点 "+caller)
 		} else {
-			demoted = append(demoted, "wait object "+caller)
+			demoted = append(demoted, "kernel wait call-site "+caller)
 		}
 	}
 	if idleKind != "" {

@@ -572,8 +572,9 @@ type TraceCausalProjectionNode struct {
 	// the honest 「D-state/iowait」 merged word.
 	DStateRefinedNonIO bool `json:"d_state_refined_non_io,omitempty"`
 	// BlockedReasonCaller (件③): the unanimous blocked_reason semantic caller
-	// (dma_fence_default_wait family) for the 行2 等待对象 disclosure; ""
-	// when absent/conflicting (absence never guesses).
+	// (dma_fence_default_wait family) for the 行2 内核调用点 disclosure; ""
+	// when absent/conflicting (absence never guesses). It identifies where
+	// the kernel wait was recorded, not a resource object or holder identity.
 	BlockedReasonCaller string `json:"blocked_reason_caller,omitempty"`
 	// BlockedReasonWindowCount / BlockedReasonWindowCaller (CR-3 件② P10,
 	// 2026-07-12): the UNCONSUMED sched_blocked_reason residual — set only

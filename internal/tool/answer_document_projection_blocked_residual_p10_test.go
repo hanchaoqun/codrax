@@ -6,7 +6,7 @@ package tool
 // window holds markers for its thread discloses the unconsumed residual on
 // its identity face, and the unresolved next-step headline appends the
 // 「但窗内存在 N 条 blocked_reason 记录」 clause. Rows that consumed their
-// caller (CAL-1 等待对象) stay untouched.
+// caller (CAL-1 内核调用点) stay untouched.
 
 import (
 	"strings"
@@ -16,7 +16,7 @@ import (
 )
 
 // TestBlockedReasonResidualDisclosesOnTreeRow — the unconsumed residual
-// rides 行2 where the 等待对象 chip would sit.
+// rides 行2 where the 内核调用点 chip would sit.
 func TestBlockedReasonResidualDisclosesOnTreeRow(t *testing.T) {
 	fence := dstateRefineFence(t, "d_state_or_io_wait",
 		"blocked_reason_window_count=12", "blocked_reason_window_caller=gpu_fence_wait")
@@ -26,8 +26,8 @@ func TestBlockedReasonResidualDisclosesOnTreeRow(t *testing.T) {
 	if !strings.Contains(flat, "窗内存在12条blocked_reason记录(caller=gpu_fence_wait,未核销)") {
 		t.Fatalf("the unconsumed residual must disclose on the row identity face:\n%s", fence)
 	}
-	if strings.Contains(fence, "等待对象") {
-		t.Fatalf("no unanimous caller → no 等待对象 chip:\n%s", fence)
+	if strings.Contains(fence, "内核调用点") {
+		t.Fatalf("no unanimous caller → no 内核调用点 chip:\n%s", fence)
 	}
 }
 

@@ -22,7 +22,7 @@ import (
 //	presence trigger — a thread name / CPU id / numeric token APPEARS in
 //	  the model prose (pure token presence, zero semantic understanding);
 //	fact listing — the appendix lists that entity's system TYPED facts
-//	  (「<线程>:typed 席位=… · typed 等待对象=… · 窗内五态=…」), and the
+//	  (「<线程>:typed 席位=… · typed 内核调用点=… · 窗内五态=…」), and the
 //	  READER juxtaposes them against the prose. Over-selection is harmless:
 //	  listing more true facts is never wrong.
 //
@@ -38,7 +38,7 @@ import (
 // Witness coverage by juxtaposition (previously "caught" by the retired
 // accusatory arms, now covered by fact lines the reader compares):
 //   - F-CR3-3: prose mentions CompThread + fscache_page_get_an → fact line
-//     carries the thread's typed 等待对象=dma_fence_default_w(12条记录);
+//     carries the thread's typed 内核调用点=dma_fence_default_w(12条记录);
 //   - F-CR3-1: prose mentions ZeusThreadPo-61841 → fact line carries typed
 //     锁角色=等待侧(锁主 tid=62020);
 //   - F-CR3-2: prose mentions CPU0 + a frequency token → fact line carries
@@ -547,11 +547,12 @@ func proseFactThreadLine(f *proseFactThreadFacts) (string, string) {
 				de = append(de, fmt.Sprintf("%d members", seat.memberCount))
 			}
 			// FACT-REL arm b (§29.55.4 R2-F1, 2026-07-13): the seat's typed
-			// cause word and the honest cause-unproven remainder marker ride
-			// the roster chip (claim-of-absence counter-face).
+			// blocked_reason caller and the honest cause-unproven remainder
+			// marker ride the roster chip. The caller is a kernel wait call-site,
+			// never a resource object or holder identity.
 			if seat.causeSymbol != "" {
-				dz = append(dz, "等待对象="+seat.causeSymbol)
-				de = append(de, "cause="+seat.causeSymbol)
+				dz = append(dz, "内核调用点="+seat.causeSymbol)
+				de = append(de, "kernel wait call-site="+seat.causeSymbol)
 			}
 			if seat.unprovenRemainder {
 				dz = append(dz, "原因未证")
@@ -577,8 +578,8 @@ func proseFactThreadLine(f *proseFactThreadFacts) (string, string) {
 			count = fmt.Sprintf("(%d条记录)", f.callerCount)
 			countEN = fmt.Sprintf(" (%d record(s))", f.callerCount)
 		}
-		zh = append(zh, "typed 等待对象="+strings.Join(f.callers, "/")+count)
-		en = append(en, "typed waiting object="+strings.Join(f.callers, "/")+countEN)
+		zh = append(zh, "typed 内核调用点="+strings.Join(f.callers, "/")+count)
+		en = append(en, "typed kernel wait call-site="+strings.Join(f.callers, "/")+countEN)
 	}
 	if f.lockWaiter || f.lockHolder {
 		role, roleEN := "等待侧", "waiter side"

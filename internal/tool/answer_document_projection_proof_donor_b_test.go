@@ -4,7 +4,7 @@ package tool
 // pins (v5 P1 批, 2026-07-13): the refined 「D-state」 word's proof donor is
 // dispatch-independent — the window_stats face records (top_d_state) carry
 // the per-GROUP typed proof themselves, so the ×N raw-state fold row wears
-// the refined word and the 等待对象 symbol with OR without a rank-family
+// the refined word and the 内核调用点 symbol with OR without a rank-family
 // view in the ledger.
 //
 // EVOLUTION RECORD (h2 banned-word HEAD parity 实录, 2026-07-13): the golden
@@ -65,7 +65,7 @@ const proofDonorDonghu = "../../eval/fixtures/real_traces/donghu.ftrace"
 
 // TestProofDonorStatsOnlyDispatchRefined — the r3 banned dispatch shape (no
 // rank/bundle view anywhere): the ×4 raw-state fold row must now wear the
-// refined word + the unanimous 等待对象 symbol from the stats-face donor.
+// refined word + the unanimous 内核调用点 symbol from the stats-face donor.
 func TestProofDonorStatsOnlyDispatchRefined(t *testing.T) {
 	if _, err := os.Stat(proofDonorDonghu); err != nil {
 		t.Skipf("golden fixture not present: %v", err)
@@ -78,8 +78,8 @@ func TestProofDonorStatsOnlyDispatchRefined(t *testing.T) {
 	if strings.Contains(fence, "自身·D-state/iowait") {
 		t.Fatalf("the banned merged word must not survive a proven shape:\n%s", fence)
 	}
-	if !strings.Contains(fence, "等待对象 dma_fence_default_w") {
-		t.Fatalf("the unanimous wait object must ride the stats-face donor:\n%s", fence)
+	if !strings.Contains(fence, "内核调用点 dma_fence_default_w") {
+		t.Fatalf("the unanimous kernel wait call-site must ride the stats-face donor:\n%s", fence)
 	}
 }
 
@@ -98,14 +98,14 @@ func TestProofDonorWithRankDispatchRefined(t *testing.T) {
 	if !strings.Contains(fence, "自身·D-state") || !strings.Contains(fence, "36.757") {
 		t.Fatalf("the refined seat must render with the rank donor present:\n%s", fence)
 	}
-	if !strings.Contains(fence, "等待对象 dma_fence_default_w") {
-		t.Fatalf("the wait object must ride with the rank donor present:\n%s", fence)
+	if !strings.Contains(fence, "内核调用点 dma_fence_default_w") {
+		t.Fatalf("the kernel wait call-site must ride with the rank donor present:\n%s", fence)
 	}
 }
 
 // TestProofDonorNoMarkerKeepsMergedWord — 负向 (诚实词存续): a D shape with
 // NO markers anywhere yields no donor on any face — the merged
-// 「D-state/iowait」 word must persist and no wait object may be fabricated.
+// 「D-state/iowait」 word must persist and no kernel wait call-site may be fabricated.
 func TestProofDonorNoMarkerKeepsMergedWord(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "proof_donor_neg.systrace")
 	if err := os.WriteFile(path, []byte(case1DisplayPureDTrace), 0o644); err != nil {
@@ -115,8 +115,8 @@ func TestProofDonorNoMarkerKeepsMergedWord(t *testing.T) {
 	if !strings.Contains(fence, "D-state/iowait") {
 		t.Fatalf("an unproven D shape must keep the honest merged word:\n%s", fence)
 	}
-	if strings.Contains(fence, "等待对象") {
-		t.Fatalf("no donor may fabricate a wait object:\n%s", fence)
+	if strings.Contains(fence, "内核调用点") {
+		t.Fatalf("no donor may fabricate a kernel wait call-site:\n%s", fence)
 	}
 }
 
@@ -125,7 +125,7 @@ func TestProofDonorNoMarkerKeepsMergedWord(t *testing.T) {
 // CASE-1 absorption cannot fire and the THREE chain-lane rows ×3-merge):
 // members = D 20ms proven dma_fence_default_wait + io 30ms proven same
 // symbol + D 10ms unproven. AND semantics ⇒ merged word persists; unanimity
-// ⇒ no 等待对象 on the family (one memberless symbol vetoes).
+// ⇒ no 内核调用点 on the family (one memberless symbol vetoes).
 func TestProofDonorMixedMembersVetoBothLanes(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "proof_donor_mixed.systrace")
 	if err := os.WriteFile(path, []byte(proofDonorMixedTrace), 0o644); err != nil {
@@ -137,8 +137,8 @@ func TestProofDonorMixedMembersVetoBothLanes(t *testing.T) {
 		if !strings.Contains(line, "worker-200") {
 			continue
 		}
-		if strings.Contains(line, "等待对象") {
-			t.Fatalf("a non-unanimous ×N family must not wear a wait object:\n%s", fence)
+		if strings.Contains(line, "内核调用点") {
+			t.Fatalf("a non-unanimous ×N family must not wear a kernel wait call-site:\n%s", fence)
 		}
 		if strings.Contains(line, "D-state/iowait") {
 			workerMerged = true
@@ -147,7 +147,7 @@ func TestProofDonorMixedMembersVetoBothLanes(t *testing.T) {
 	if !workerMerged {
 		t.Fatalf("one unproven member must keep the honest merged word (AND, never OR):\n%s", fence)
 	}
-	if strings.Contains(fence, "等待对象 dma_fence_default_wait") {
+	if strings.Contains(fence, "内核调用点 dma_fence_default_wait") {
 		t.Fatalf("the seed symbol must not survive the unanimity veto:\n%s", fence)
 	}
 }

@@ -126,7 +126,7 @@ func TestDisplayWrapCJKWordRunNeverBisects(t *testing.T) {
 		{"同段IO另有 块设备层 2.694(综合评分,非墙钟) 等口径;证据 [E33]",
 			[]string{"证据", "等口径"}},
 		// witness L203-204 (「等待对\n象 dma_…」).
-		{"D状态候选·置信中·等待对象 dma_fence_default_w", []string{"等待对象"}},
+		{"D状态候选·置信中·内核调用点 dma_fence_default_w", []string{"内核调用点"}},
 		// witness L247-248 (「窗内该\n簇受热限压至 2.34GHz」): the word run —
 		// the 件①(d) word+value pair pins below at pair-holding widths.
 		{"接近全域最大核最高频,缺口仅 0.039ms;窗内该簇受热限压至 2.34GHz",

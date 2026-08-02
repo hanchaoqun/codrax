@@ -4,7 +4,7 @@ package tool
 // pins (v5 P1 批 件②, 2026-07-13): the proof partition's THREE faces through
 // the full chain (trace → Run(frame_root_cause_bundle) → typed observations →
 // compile → tree model → fence/detail):
-//   - the cause seat wears the proven 等待对象 word (cross-token D+iowait
+//   - the cause seat wears the proven 内核调用点 word (cross-token D+iowait
 //     merged into ONE seat);
 //   - the honest remainder wears the 「(原因未证)」 qualifier (§29.50.5
 //     「D-state(原因未证)」类诚实余数);
@@ -112,11 +112,11 @@ func TestDIOPartitionDisplayRemainderWordEndToEnd(t *testing.T) {
 	if strings.Contains(causeWord, "原因未证") {
 		t.Fatalf("the cause seat must never wear the remainder qualifier, got %q", causeWord)
 	}
-	// Rendered faces: the 等待对象 word rides the cause seat's fence 行2
+	// Rendered faces: the 内核调用点 word rides the cause seat's fence 行2
 	// (the rcr identity lane) and the remainder qualifier reaches the fence.
 	fence := runtimeTraceProjTreeFence(model, true)
-	if !strings.Contains(fence, "等待对象 dma_fence_default_wait") {
-		t.Fatalf("cause seat fence 行2 must carry the 等待对象 word:\n%s", fence)
+	if !strings.Contains(fence, "内核调用点 dma_fence_default_wait") {
+		t.Fatalf("cause seat fence 行2 must carry the 内核调用点 word:\n%s", fence)
 	}
 	detail := runtimeTraceProjDetailFullText(model, true)
 	full := fence + "\n" + detail

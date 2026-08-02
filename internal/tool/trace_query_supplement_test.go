@@ -14,7 +14,7 @@ package tool
 //   ① fallback-form red→green — the h2-20260713-223753 dispatch shape
 //     (event_search + window_stats + thread_timeline + critical, NO
 //     rank/chain) plus the supplement mints the anchored tree + self
-//     segment + rank seats + wait object.
+//     segment + rank seats + kernel wait call-site.
 //   ② no-op — all core families already present ⇒ zero engine execution and
 //     a byte-identical tree fence.
 //   ③ fail-open 禁猜 — missing typed target / inconsistent windows / no
@@ -211,7 +211,7 @@ func TestTraceSupplementExplicitWindowDStateFactRunsCoreFamiliesEndToEnd(t *test
 	for _, want := range []string{
 		"⊚ worker-200 ‹用户关注线程›",
 		"自身·D-state",
-		"等待对象 dma_fence_default_wait",
+		"内核调用点 dma_fence_default_wait",
 		"➊",
 	} {
 		if !strings.Contains(fence, want) {
@@ -410,11 +410,11 @@ func TestTraceSupplementH2FlatShapeRedToGreen(t *testing.T) {
 		t.Fatalf("flat shape needs exactly [root_cause_rank], got %v", out.Executed)
 	}
 
-	// GREEN: anchored tree + self segment + rank seat + wait object.
+	// GREEN: anchored tree + self segment + rank seat + kernel wait call-site.
 	after := suppCoreTreeFence(t, ctx)
 	for _, anchored := range []string{
 		"⊚ worker-200 ‹用户关注线程›", "满格=窗口", "➊", "自身·D-state",
-		"等待对象 dma_fence_default_wait",
+		"内核调用点 dma_fence_default_wait",
 	} {
 		if !strings.Contains(after, anchored) {
 			t.Fatalf("supplemented fence must carry %q:\n%s", anchored, after)

@@ -58,7 +58,7 @@ func dstateRefineFence(t *testing.T, object string, extraNotes ...string) string
 }
 
 // TestDStateRefineArmARefinedWordAndCallerDisclosure — the donghu CompThread
-// shape: coverage-proven merged row → refined 「D-state」 word, 行2 等待对象,
+// shape: coverage-proven merged row → refined 「D-state」 word, 行2 内核调用点,
 // and no bare 「· D-state」 tail.
 func TestDStateRefineArmARefinedWordAndCallerDisclosure(t *testing.T) {
 	fence := dstateRefineFence(t, "d_state_or_io_wait",
@@ -69,7 +69,7 @@ func TestDStateRefineArmARefinedWordAndCallerDisclosure(t *testing.T) {
 	if !strings.Contains(fence, "D-state") {
 		t.Fatalf("the refined word must stay in the D-state vocabulary:\n%s", fence)
 	}
-	if !strings.Contains(fence, "等待对象 dma_fence_default_wait") {
+	if !strings.Contains(fence, "内核调用点 dma_fence_default_wait") {
 		t.Fatalf("the unanimous caller must disclose on 行2:\n%s", fence)
 	}
 	// Tri-form (件③ arm b 用户补正): the coverage-proven PURE-D row keeps the
@@ -109,8 +109,8 @@ func TestDStateRefineArmAUnprovenKeepsMergedWord(t *testing.T) {
 	if strings.Contains(fence, "D状态候选") {
 		t.Fatalf("the bare pure-D category must not ride a mixed row:\n%s", fence)
 	}
-	if strings.Contains(fence, "等待对象") {
-		t.Fatalf("no caller note → no 等待对象 disclosure:\n%s", fence)
+	if strings.Contains(fence, "内核调用点") {
+		t.Fatalf("no caller note → no 内核调用点 disclosure:\n%s", fence)
 	}
 	for _, line := range strings.Split(fence, "\n") {
 		trimmed := strings.TrimSpace(strings.TrimLeft(line, "│ └├─"))
@@ -124,7 +124,7 @@ func TestDStateRefineArmAUnprovenKeepsMergedWord(t *testing.T) {
 // donghu E8/E9): the wakeup_chain causal-impact TWIN of the proof-carrying
 // window_stats fold row (same subject + exact line span = the existing
 // same-segment twin key) must speak the SAME refined wordface — the
-// pre-fix render put 「D-state·等待对象」 and 「D-state/iowait(对端未解析)」
+// pre-fix render put 「D-state·内核调用点」 and 「D-state/iowait(对端未解析)」
 // side by side for one physical set of segments.
 func TestDStateRefineProofPropagatesToSameSegmentTwin(t *testing.T) {
 	proof := types.TraceCausalProjectionNode{

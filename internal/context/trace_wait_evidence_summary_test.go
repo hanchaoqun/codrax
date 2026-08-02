@@ -62,7 +62,7 @@ func traceWaitTestLedger() types.ObservationLedger {
 	}}
 }
 
-// TestTraceWaitEvidence_BlockedReasonFacts — the wait-object lane: per-caller
+// TestTraceWaitEvidence_BlockedReasonFacts — the wait-call-site lane: per-caller
 // symbol × count × Σms verbatim, the honest cause-unproven remainder, and the
 // unconsumed window-marker lane.
 func TestTraceWaitEvidence_BlockedReasonFacts(t *testing.T) {
@@ -71,25 +71,30 @@ func TestTraceWaitEvidence_BlockedReasonFacts(t *testing.T) {
 		t.Fatalf("blocked_reason typed notes must render a wait-evidence summary")
 	}
 	for _, want := range []string{
-		"Kernel-recorded wait objects (sched_blocked_reason):",
+		"Kernel-recorded wait call-sites (sched_blocked_reason):",
 		"CompThread_0-2955 — caller=dma_fence_default_w · d_state_or_io_wait 36.757ms · members=4",
 		"caller=fscache_page_wait_o · io_wait 7.386ms · members=17",
-		"cause-unproven remainder (no blocked_reason record backs this share) · io_wait 10.433ms · members=3",
+		"cause-unproven remainder (no blocked_reason call-site backs this share) · io_wait 10.433ms · members=3",
 		"window holds 6 blocked_reason record(s) (caller=fscache_page_get_an/hmfs_read)",
 	} {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("wait-evidence summary missing %q:\n%s", want, summary)
 		}
 	}
-	// The consumption preamble: wait-object questions answer with the caller
-	// symbols verbatim; a cause-unproven share never gets an invented object.
+	// The consumption preamble keeps the caller in its actual role: a kernel
+	// wait call-site, never an inferred resource object or holder identity.
 	for _, want := range []string{
-		"the kernel's own record is the blocked_reason caller symbol",
+		"A sched_blocked_reason caller names the kernel call-site/symbol where the scheduler wait was recorded",
+		"does NOT by itself identify the resource, lock object, owner, or holder",
+		"Name a waited-on object or holder only when a separate typed relation provides that identity",
 		"never invent one",
 	} {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("wait-evidence preamble missing %q:\n%s", want, summary)
 		}
+	}
+	if strings.Contains(summary, "Kernel-recorded wait objects") {
+		t.Fatalf("blocked_reason caller regressed to a resource-object role:\n%s", summary)
 	}
 }
 
@@ -472,7 +477,7 @@ func TestTraceWaitEvidence_UnprovenRemainderFact(t *testing.T) {
 // direction pin + complete-list absence property), takes the per-pair MAX
 // across republications, and the PROSE-RC ① fallback lane (observed-edges-
 // only caliber) stays silent. PRC-F1 witness: the model invented
-//「OS_IPC_14_34911 ×4」for a pair whose only raw edge ran the OPPOSITE
+// 「OS_IPC_14_34911 ×4」for a pair whose only raw edge ran the OPPOSITE
 // direction — the census count (12 vs the 3 fed edge rows) plus the absence
 // sentence close both fabrication directions.
 func TestTraceWaitEvidence_WakeCensusCounts(t *testing.T) {
@@ -1082,7 +1087,7 @@ func TestBuildPromptContext_TraceWaitEvidenceSection(t *testing.T) {
 	} {
 		ac := &types.AgentContext{
 			Stage:             tc.stage,
-			TraceWaitEvidence: "Kernel-recorded wait objects (sched_blocked_reason):\n- CompThread_0-2955 — caller=dma_fence_default_w",
+			TraceWaitEvidence: "Kernel-recorded wait call-sites (sched_blocked_reason):\n- CompThread_0-2955 — caller=dma_fence_default_w",
 		}
 		pc := BuildPromptContext(ac, &skill.Config{Name: "any-skill"})
 		sec := findSectionTitle(pc, SectionTraceWaitEvidence)

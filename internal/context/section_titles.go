@@ -74,12 +74,12 @@ const (
 	// third ordering or a self-made aggregate.
 	SectionTraceRootCauseBoard = "Runtime Trace Root-Cause Board (authoritative order)"
 	// SectionTraceWaitEvidence (EVID-BR 件①, §29.55.4 F1/R2-F3, 2026-07-13):
-	// the typed kernel wait-object (sched_blocked_reason caller symbols) +
+	// the typed kernel wait-call-site (sched_blocked_reason caller symbols) +
 	// wakeup-source (sched_wakeup waker/timestamp edges) evidence summary —
-	// the donghu cold read showed the appendix carried the right wait object
+	// the donghu cold read showed the appendix carried the right caller symbol
 	// every run while the model face never saw it (四跑四答案), and the waker
 	// question was answered from the wrong lane 11/11 (R2-F3).
-	SectionTraceWaitEvidence  = "Runtime Trace Kernel Wait-Object & Wakeup Evidence"
+	SectionTraceWaitEvidence  = "Runtime Trace Kernel Wait Call-Site & Wakeup Evidence"
 	SectionRawToolOutputs     = "Raw Tool Outputs from the Investigation"
 	SectionKnownFacts         = "Known Facts"
 	SectionAnswerSymbolsAuth  = "Extracted Answer Symbols (authoritative)"

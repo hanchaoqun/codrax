@@ -522,12 +522,14 @@ const (
 	// the display's refined 「D-state」 word gate (coverage-less rows keep the
 	// honest merged 「D-state/iowait」 form).
 	TraceNoteKeyDStateRefinedNonIO = "dstate_all_noniowait"
-	// TraceNoteKeyBlockedReasonCaller (件③ caller 等待对象族, 2026-07-12): the
+	// TraceNoteKeyBlockedReasonCaller (件③ caller lane, 2026-07-12; role
+	// corrected by B33-CALLERROLE1): the
 	// UNANIMOUS semantic caller symbol of the row's D-ledger blocked_reason
 	// markers (dma_fence_default_wait family; witness CompThread 12/12).
 	// Emitted only when every marked member agrees on ONE caller; consumed by
 	// the projection compile into TraceCausalProjectionNode.BlockedReasonCaller
-	// for the 行2 等待对象 disclosure. Distinct from the lock-lane
+	// for the 行2 内核调用点 disclosure. This is a kernel wait call-site, not
+	// a resource object or holder identity. Distinct from the lock-lane
 	// wait_object key (different producer lane, different semantics).
 	TraceNoteKeyBlockedReasonCaller = "blocked_reason_caller"
 	// TraceNoteKeyBlockedReasonWindowCount / ...WindowCaller (CR-3 件② P10,

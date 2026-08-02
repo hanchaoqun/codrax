@@ -244,7 +244,7 @@ type traceWaitThreadFacts struct {
 // banner row for the pid-keyed blocked_reason census (FALLBACK lane only —
 // the typed note is the primary source):
 //
-//	- blocked_reason <thread> iowait=<n> count=<n> line=<n> caller=<reason>
+//   - blocked_reason <thread> iowait=<n> count=<n> line=<n> caller=<reason>
 //
 // Thread labels may contain spaces (lazy match up to the typed iowait=).
 var traceWaitCensusBannerRE = regexp.MustCompile(`(?m)^- blocked_reason (.+?) iowait=[0-9]+ count=([0-9]+) line=[0-9]+ caller=(\S+)`)
@@ -766,9 +766,9 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 	}
 
 	var b strings.Builder
-	b.WriteString("Measured kernel wait-object and wakeup-source evidence for this run (verbatim values). When the question asks WHAT a thread was waiting on in the kernel (uninterruptible / D-state / IO wait), the kernel's own record is the blocked_reason caller symbol below — answer with these symbols verbatim; a share marked cause-unproven has NO kernel-recorded wait object, so never invent one for it. Per-thread blocked_reason record counts are keyed by the waiting thread itself, not by the trace line a record happens to print on; a per-caller Σ value is the records' own self-reported delay= field and may include pre-window accumulation. When the question asks WHO woke a thread (and when), answer with the sched_wakeup edge below: its waker thread and its wakeup timestamp. Use the named counts, totals, and remainder shares below verbatim — never re-count listed rows yourself, and never derive a share by adding or subtracting other published values (the published value already IS the share it names).\n")
+	b.WriteString("Measured kernel wait-call-site and wakeup-source evidence for this run (verbatim values). A sched_blocked_reason caller names the kernel call-site/symbol where the scheduler wait was recorded; it does NOT by itself identify the resource, lock object, owner, or holder that the thread waited for. Report the caller symbol verbatim as a wait call-site. Name a waited-on object or holder only when a separate typed relation provides that identity. A share marked cause-unproven has NO kernel-recorded wait call-site, so never invent one for it. Per-thread blocked_reason record counts are keyed by the waiting thread itself, not by the trace line a record happens to print on; a per-caller Σ value is the records' own self-reported delay= field and may include pre-window accumulation. When the question asks WHO woke a thread (and when), answer with the sched_wakeup edge below: its waker thread and its wakeup timestamp. Use the named counts, totals, and remainder shares below verbatim — never re-count listed rows yourself, and never derive a share by adding or subtracting other published values (the published value already IS the share it names).\n")
 	if len(selectedSubjects) > 0 {
-		b.WriteString("Kernel-recorded wait objects (sched_blocked_reason):\n")
+		b.WriteString("Kernel-recorded wait call-sites (sched_blocked_reason):\n")
 		for _, subject := range selectedSubjects {
 			f := threads[subject]
 			var parts []string
@@ -779,7 +779,7 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 				}
 				var seg string
 				if fact.unproven {
-					seg = "cause-unproven remainder (no blocked_reason record backs this share)"
+					seg = "cause-unproven remainder (no blocked_reason call-site backs this share)"
 				} else {
 					seg = "caller=" + fact.caller
 				}
