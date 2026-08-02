@@ -576,7 +576,13 @@ func sourceInventoryUniverseMemberKeys(member types.SourceInventoryObservationMe
 	add(member.Name)
 	add(member.Key)
 	add(member.SupportRef)
-	add(member.File)
+	// A declaration's containing file is provenance, not member identity:
+	// treating it as a key makes one named row cover every sibling in the
+	// same file. File/config-file inventories are the narrow exception where
+	// the path itself is the requested member.
+	if member.Role == types.AnswerCandidateRoleFile || member.Role == types.AnswerCandidateRoleConfigFile {
+		add(member.File)
+	}
 	return sourceInventoryUniverseDedupKeys(out)
 }
 
@@ -589,9 +595,8 @@ func sourceInventoryUniverseAggregateMemberKeys(member string) []string {
 	for _, candidate := range types.AnswerAggregateMemberDisplayCandidates(member) {
 		add(candidate)
 	}
-	if label, loc, ok := types.ParseAnswerSupportRefMemberLocation(member); ok {
+	if label, _, ok := types.ParseAnswerSupportRefMemberLocation(member); ok {
 		add(label)
-		add(loc.File)
 	}
 	if left, right, ok := types.AnswerAggregateMemberRelationParts(member); ok {
 		add(left)
@@ -620,9 +625,8 @@ func sourceInventoryUniverseAppendSurfaceKeys(out []string, raw string) []string
 		}
 	}
 	add(raw)
-	if label, loc, ok := types.ParseAnswerSupportRefMemberLocation(raw); ok {
+	if label, _, ok := types.ParseAnswerSupportRefMemberLocation(raw); ok {
 		add(label)
-		add(loc.File)
 	}
 	normalizedPath := strings.Trim(strings.ReplaceAll(raw, `\`, `/`), "/")
 	if normalizedPath != "" && strings.Contains(normalizedPath, "/") {

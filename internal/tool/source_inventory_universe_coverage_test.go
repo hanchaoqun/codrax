@@ -2571,6 +2571,146 @@ func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_CompleteLensSurvi
 	}
 }
 
+func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_ExactRequiredFileCompleteLensClosesMergedRootDebt(t *testing.T) {
+	ctx := sourceInventoryRequestedUniverseTestContext(nil, []types.SourceInventorySourceClassCount{{
+		Role:      types.SourcePathRoleProduction,
+		Count:     1461,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "go", Count: 1461, Samples: []string{"cmd/root.go"}}},
+	}, {
+		Role:      types.SourcePathRoleTest,
+		Count:     2225,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "go", Count: 2225, Samples: []string{"internal/tool/builtin_test.go"}}},
+	}})
+	ctx.AnalysisIR.RequestModel.SourceInventoryProfile = &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType, types.AnswerCandidateRoleConstant},
+		TypeUnderlying:    types.SourceInventoryTypeUnderlyingString,
+		RequiresConstSet:  true,
+		Confidence:        0.95,
+	}
+	ctx.AnalysisIR.EvidencePlan.RequiredFiles = []string{"internal/types/evidence.go"}
+	prior := types.SourceInventoryObservationFromMutable(ctx.Mutable)
+	prior.Sets = []types.SourceInventoryObservationSet{{
+		Role:     types.AnswerCandidateRoleType,
+		Complete: false,
+		Total:    301,
+		Members: []types.SourceInventoryObservationMember{
+			sourceInventoryRequestedUniverseMemberWithLanguage("Root", types.AnswerCandidateRoleType, "cmd/root.go", 12, "go"),
+		},
+	}}
+	prior.Complete = false
+	prior.Scopes = []string{"."}
+	prior.Execution = &types.SourceInventoryExecutionState{Budgeted: true, CandidateBudgetTruncated: true}
+	current := sourceInventoryExactRequiredFileObservation()
+	ctx.Mutable.SetSourceInventoryObservation(types.MergeSourceInventoryObservation(prior, current))
+
+	facts := sourceInventoryExactRequiredFileFacts(false)
+	if !SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, facts) {
+		t.Fatalf("executed complete lens over the exact required file should close stale repo-wide same-role debt")
+	}
+	if downgrade := sourceInventoryResolvedCompletionDowngrade(ctx, "resolved", facts); downgrade != "" {
+		t.Fatalf("exact requested-file closure should not downgrade:\n%s", downgrade)
+	}
+}
+
+func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_ExactRequiredFileProofRejectsPartialOrBroaderShapes(t *testing.T) {
+	base := func() *types.BusContext {
+		ctx := sourceInventoryRequestedUniverseTestContext(nil, []types.SourceInventorySourceClassCount{{
+			Role:      types.SourcePathRoleProduction,
+			Count:     1461,
+			Languages: []types.SourceInventoryLanguageCount{{Language: "go", Count: 1461}},
+		}, {
+			Role:      types.SourcePathRoleTest,
+			Count:     2225,
+			Languages: []types.SourceInventoryLanguageCount{{Language: "go", Count: 2225}},
+		}})
+		ctx.AnalysisIR.RequestModel.SourceInventoryProfile = &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+			Confidence:        0.95,
+		}
+		ctx.AnalysisIR.EvidencePlan.RequiredFiles = []string{"internal/types/evidence.go"}
+		ctx.Mutable.SetSourceInventoryObservation(types.MergeSourceInventoryObservation(
+			types.SourceInventoryObservationFromMutable(ctx.Mutable),
+			sourceInventoryExactRequiredFileObservation(),
+		))
+		return ctx
+	}
+
+	t.Run("missing scoped member", func(t *testing.T) {
+		ctx := base()
+		facts := sourceInventoryExactRequiredFileFacts(true)
+		if SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, facts) {
+			t.Fatalf("a complete lens must not close when the principal member_set omits one scoped row")
+		}
+	})
+
+	t.Run("different required file", func(t *testing.T) {
+		ctx := base()
+		ctx.AnalysisIR.EvidencePlan.RequiredFiles = []string{"internal/types/analysis_ir.go"}
+		if SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, sourceInventoryExactRequiredFileFacts(false)) {
+			t.Fatalf("a complete lens over a different file must not narrow the requested universe")
+		}
+	})
+
+	t.Run("explicit repo wide scope", func(t *testing.T) {
+		ctx := base()
+		ctx.AnalysisIR.RequestModel.SourceScopeProfile = &types.SourceScopeProfile{
+			RequestedScope: types.SourceScopeAll,
+			Confidence:     0.95,
+		}
+		if SourceInventoryAcceptedClosureCoversRequestedUniverse(ctx, sourceInventoryExactRequiredFileFacts(false)) {
+			t.Fatalf("an explicit repo-wide scope must not be narrowed by one required-file lens")
+		}
+	})
+}
+
+func sourceInventoryExactRequiredFileObservation() types.SourceInventoryObservation {
+	members := []types.SourceInventoryObservationMember{
+		sourceInventoryRequestedUniverseMemberWithLanguage("EvidenceKind", types.AnswerCandidateRoleType, "internal/types/evidence.go", 13, "go"),
+		sourceInventoryRequestedUniverseMemberWithLanguage("GroundingStatus", types.AnswerCandidateRoleType, "internal/types/evidence.go", 125, "go"),
+		sourceInventoryRequestedUniverseMemberWithLanguage("AnchorKind", types.AnswerCandidateRoleType, "internal/types/evidence.go", 163, "go"),
+	}
+	return types.SourceInventoryObservation{
+		Active:     true,
+		Complete:   true,
+		Scopes:     []string{"internal/types/evidence.go"},
+		Provenance: []string{types.SourceInventoryProvenanceRepoLensToolQuery, types.SourceInventoryProvenanceStageExplore},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleType,
+			Complete: true,
+			Count:    len(members),
+			Total:    len(members),
+			Members:  members,
+		}},
+	}
+}
+
+func sourceInventoryExactRequiredFileFacts(partial bool) []types.AnswerAggregateFact {
+	members := []string{
+		"EvidenceKind (internal/types/evidence.go:13)",
+		"GroundingStatus (internal/types/evidence.go:125)",
+		"AnchorKind (internal/types/evidence.go:163)",
+	}
+	refs := []string{
+		"EvidenceKind: internal/types/evidence.go:13",
+		"GroundingStatus: internal/types/evidence.go:125",
+		"AnchorKind: internal/types/evidence.go:163",
+	}
+	if partial {
+		members = members[:2]
+		refs = refs[:2]
+	}
+	return []types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "public string enum types",
+		Value:       strconv.Itoa(len(members)),
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     members,
+		SupportRefs: refs,
+	}}
+}
+
 func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_CompleteLensUsesSupportRefsAcrossMixedClassLanguages(t *testing.T) {
 	ctx := sourceInventoryRequestedUniverseTestContext(nil, []types.SourceInventorySourceClassCount{{
 		Role:      types.SourcePathRoleProduction,
