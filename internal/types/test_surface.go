@@ -41,12 +41,13 @@ type TestSurfaceCandidate struct {
 	// MakeTarget is the detected Makefile test target for runner=make.
 	MakeTarget string `json:"make_target,omitempty"`
 
-	// DeclaredCoveragePaths are exact repo-relative files owned by the
+	// DeclaredCoveragePaths are exact repo-relative files read or named by the
 	// candidate's typed test entry. For Make this is a bounded static
 	// expansion of the selected target's direct file prerequisites and
 	// directly invoked local test scripts' exact existing path literals.
-	// It is deliberately empty for dynamic/opaque recipes; absence fails
-	// closed rather than granting cross-language project coverage.
+	// This roster is dependency/audit context only: naming or reading a file
+	// does not prove that another language's compiler or runtime exercised it,
+	// so it must not grant cross-language project-runner authority.
 	DeclaredCoveragePaths []string `json:"declared_coverage_paths,omitempty"`
 
 	// HasTestSignal is the typed "this candidate has actual test work"
@@ -91,12 +92,11 @@ type ExecutedCommand struct {
 
 	// CoveredPaths names the repo-relative changed source paths this
 	// successful command authoritatively exercised. Project runners derive
-	// it from the runner's typed language family plus WorkingDir. A
-	// language-agnostic meta runner may cover another family only when its
-	// executed command exactly matches a filesystem-derived typed test
-	// surface candidate. Source checks and verification probes must bind
-	// exact paths. It is produced by Codrax and is never inferred from user
-	// text or model prose.
+	// it from the runner's typed language family plus WorkingDir; a meta
+	// runner's declared input roster cannot upgrade it across language
+	// families. Source checks and verification probes must bind exact paths.
+	// It is produced by Codrax and is never inferred from user text or model
+	// prose.
 	CoveredPaths []string `json:"covered_paths,omitempty"`
 
 	// Source is the typed provenance of the execution decision:

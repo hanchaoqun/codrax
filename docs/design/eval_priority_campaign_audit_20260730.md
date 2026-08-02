@@ -4211,6 +4211,42 @@ Node/npm 不在环境，JavaScript probe 未执行，模型本轮还显式声明
 写模式 localization 与 verification context 不再自相矛盾。未修改 Trace resolver/query/authority/
 mutation，显式时间窗的因果投影、根因排序、唤醒链、窗内可消除量和自动补齐保持原状。
 
+### B43：显式窗 Trace 双轴 × 跨语言写验证权威（2026-08-02）
+
+优先级选择：一项覆盖用户反复强调的显式时间窗、Trace 因果投影、自动补齐与“两种根因
+维度”；另一项覆盖高风险写模式终态验证。干净 `main@30a993a43` 严格并行 2 case，runner
+均 PASS（Trace 158s、Write 391s），人工分别 partial / FAIL。
+
+Trace 案中系统接线符合红线：显式 `5.000..5.007s` 用户窗未被窄问题路由吞掉，执行了两次
+windowed `trace_query`，并同时发布：`VerifyClass` span 墙钟 5.000ms、CPU/规则可消除量
+4.600ms、runnable 0.800ms、`worker-200 -> app-100 @ 5.005s` 唤醒边，以及
+`frame_causality=unproven / frame_evidence_status=absent`。因果投影把首项称为“可消除候选，
+不等于已证帧因果”，自动补采在场，系统未替换模型正文。模型仍写成“全程 CPU 运行”及
+“阻塞主线程的根因”，是已有 `EVAL-B19-CAUSAL1` 的模型边界违背；typed context 已精确且
+足量，本批不增加答案关键词 gate、系统 rewrite 或单案硬约束。
+
+写案暴露两个可泛化的 authority gap：
+
+| ID | P | gap | 最优方案 | 状态 |
+|---|---:|---|---|---|
+| EVAL-B43-METAAUTH1 | P0 | `cargo test` 缺失后，`make check` 只调用 Python 文本扫描；系统因脚本字面读取 Rust 文件，便把 Make 的 `DeclaredCoveragePaths` 铸成 Rust `project_runner`，最终错误签为 verified | declared-input roster 只保留为 dependency/audit context；硬 changed-path authority 必须由 runner language family 与目标 family 相交，跨语言 meta runner 即使成功且精确命中输入也不得升级 | implemented/tests-pass |
+| EVAL-B43-PROBEBIND1 | P1 | probe 的 `contract_refs` 可在未执行、导入或绑定任何变更身份时覆盖行为合同；文本 oracle 因而可把“读到了文件”冒充“验证了行为” | 仅从实际 PASS 且由 typed `changed_symbol_refs + language family + active target path` 绑定变更身份的 probe 汇总 contract/placement refs；无绑定时记录 uncoupled/missing，不授予行为合同 | open/next-batch |
+
+`METAAUTH1` 明确 supersede `EVAL-B12-AG1` 的硬权限结论：B12 的 exact candidate +
+declared-input roster 比任意 Make 命令更精确，但 B43 证明它仍只回答“脚本依赖了什么”，不能
+回答“哪种语言的编译/运行语义被验证”。该 roster 仍可用于候选选择、日志说明和人工审计，
+不能进入跨语言硬确权。修复只读 typed runner/language/path/outcome；不扫描用户输入、模型
+thinking/summary/final，也不接管模型结论。
+
+任务清单：
+
+- [x] B43-T1：严格并行 2 case，人工读取 Trace 日志/答案与 Write plan、patch、report、final；
+- [x] B43-T2：确认显式窗因果投影、自动补齐和双轴上下文完整，模型越界留作 variance watch；
+- [x] B43-T3：撤销 declared-input roster 的跨语言 project-runner 硬权限，保留 typed audit context；
+- [x] B43-T4：定向 changed-path 与真实 RunTests meta-runner 负例通过；
+- [ ] B43-T5：probe contract refs 与实际 PASS、变更身份、语言 family 建立 typed 合取；
+- [ ] B43-T6：完整相关回归，分批提交推送；干净 HEAD 同对双并行回放并人工验收。
+
 ### B41：data 终批材料 × Binder 方向语义审计（2026-08-02）
 
 本批严格并行 `data_text_filter_count` 与 `trace_query_binder_ipc_peer`。runner

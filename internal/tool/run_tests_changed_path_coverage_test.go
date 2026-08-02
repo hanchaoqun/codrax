@@ -67,7 +67,7 @@ func TestChangedPathCoverageRejectsCrossLanguageSuccess(t *testing.T) {
 	}
 }
 
-func TestChangedPathCoverageAcceptsTypedPolyglotMakeProjectRunner(t *testing.T) {
+func TestChangedPathCoverageRejectsTypedPolyglotMakeDeclaredInputAsBehaviorProof(t *testing.T) {
 	ctx := changedPathCoverageTestContext([]string{
 		"src/types/list.rs",
 		"src/types/tuple.rs",
@@ -102,21 +102,21 @@ func TestChangedPathCoverageAcceptsTypedPolyglotMakeProjectRunner(t *testing.T) 
 
 	applyChangedPathVerificationCoverage(ctx, report)
 
-	if !report.Passed || report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
-		t.Fatalf("typed polyglot Make project runner should cover in-root Rust paths: %+v", report)
+	if report.Passed || report.NormalizeVerificationStatus() != types.VerificationStatusUnavailable ||
+		report.FailureReasonCode != changedPathVerificationUncoveredReasonCode {
+		t.Fatalf("cross-language Make declared inputs must not prove Rust behavior: %+v", report)
 	}
 	if len(report.ChangedPathCoverage) != 3 {
 		t.Fatalf("coverage rows=%d, want 3: %+v", len(report.ChangedPathCoverage), report.ChangedPathCoverage)
 	}
 	for _, row := range report.ChangedPathCoverage {
-		if row.Status != types.ChangedPathVerificationCovered ||
-			row.Caliber != types.ChangedPathVerificationProjectRunner ||
-			row.Runner != "make" {
-			t.Fatalf("polyglot Make coverage row wrong: %+v", row)
+		if row.Status != types.ChangedPathVerificationUncovered ||
+			row.ReasonCode != changedPathVerificationUncoveredReasonCode {
+			t.Fatalf("cross-language Make row must remain uncovered: %+v", row)
 		}
 	}
-	if len(report.ExecutedCommands[0].CoveredPaths) != 3 {
-		t.Fatalf("Make command must carry exact covered paths: %+v", report.ExecutedCommands[0])
+	if len(report.ExecutedCommands[0].CoveredPaths) != 0 {
+		t.Fatalf("dependency roster must not become hard covered_paths: %+v", report.ExecutedCommands[0])
 	}
 }
 
