@@ -103,6 +103,19 @@ const (
 	LogOperationalCounterDispatchAttempt       LogOperationalCounterDomain = "agent_dispatch_attempt"
 )
 
+type LogOperationalValueKind string
+
+const (
+	// LogOperationalValueStageOrdinal means K/N is the one-based position of
+	// one pipeline stage among the configured stages. It is not a count of
+	// retries, failures, models, budgets, or exhausted attempts.
+	LogOperationalValueStageOrdinal LogOperationalValueKind = "stage_ordinal"
+	// LogOperationalValueAttemptOrdinal means K/N is the current dispatch
+	// attempt ordinal and the configured maximum number of dispatch attempts.
+	// Attempt 1 is the initial attempt, so K is not a retry count.
+	LogOperationalValueAttemptOrdinal LogOperationalValueKind = "attempt_ordinal"
+)
+
 const LogOperationalTransitionEventLocalOnly = "event_local_only"
 
 // LogOperationalSemantic is one system-decoded protocol event. Every field is
@@ -117,8 +130,11 @@ type LogOperationalSemantic struct {
 	StageKey            string                      `json:"stage_key,omitempty"`
 	Lifecycle           string                      `json:"lifecycle,omitempty"`
 	CounterDomain       LogOperationalCounterDomain `json:"counter_domain,omitempty"`
+	ValueKind           LogOperationalValueKind     `json:"value_kind,omitempty"`
 	Numerator           int                         `json:"numerator,omitempty"`
 	Denominator         int                         `json:"denominator,omitempty"`
+	NumeratorMeaning    string                      `json:"numerator_meaning,omitempty"`
+	DenominatorMeaning  string                      `json:"denominator_meaning,omitempty"`
 	TransitionAuthority string                      `json:"transition_authority"`
 	ExcludedMeanings    []string                    `json:"excluded_meanings,omitempty"`
 	LineStart           int                         `json:"line_start,omitempty"`

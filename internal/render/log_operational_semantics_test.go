@@ -26,6 +26,7 @@ func TestDetectLogOperationalSemanticsSeparatesStageProgressFromDispatchAttempt(
 	}
 	if progress.EventKind != types.LogOperationalEventPipelineStageLifecycle ||
 		progress.CounterDomain != types.LogOperationalCounterPipelineStageProgress ||
+		progress.ValueKind != types.LogOperationalValueStageOrdinal ||
 		progress.StageKey != "finalize" || progress.Lifecycle != "retry" ||
 		progress.Numerator != 4 || progress.Denominator != 4 {
 		t.Fatalf("renderer progress semantic wrong: %+v", progress)
@@ -56,9 +57,12 @@ func TestRenderLogOperationalSemanticsForPromptPinsCounterNamespaces(t *testing.
 	got := RenderLogOperationalSemanticsForPrompt(rows)
 	for _, want := range []string{
 		"counter_domain=pipeline_stage_progress value=4/4",
-		"does_not_mean=model_count,llm_attempt_count,fallback_count,repair_round_count",
+		"value_kind=stage_ordinal numerator_meaning=one_based_pipeline_stage_position denominator_meaning=total_configured_pipeline_stages",
+		"does_not_mean=model_count,llm_attempt_count,stage_retry_count,failure_count,retry_budget,exhaustion,fallback_count,repair_round_count",
 		"counter_domain=agent_dispatch_attempt value=1/3",
+		"value_kind=attempt_ordinal numerator_meaning=current_dispatch_attempt_ordinal denominator_meaning=maximum_dispatch_attempts",
 		"separate namespaces",
+		"lifecycle=retry describes this event's recoverable state; it does not turn value_kind=stage_ordinal into a retry",
 		"does not prove that gate was traversed",
 	} {
 		if !strings.Contains(got, want) {

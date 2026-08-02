@@ -1097,8 +1097,11 @@ func TestCompileObservationLedger_SystemOperationalSemanticDemotesConflictingInt
 			StageKey:            "finalize",
 			Lifecycle:           "retry",
 			CounterDomain:       LogOperationalCounterPipelineStageProgress,
+			ValueKind:           LogOperationalValueStageOrdinal,
 			Numerator:           4,
 			Denominator:         4,
+			NumeratorMeaning:    "one_based_pipeline_stage_position",
+			DenominatorMeaning:  "total_configured_pipeline_stages",
 			TransitionAuthority: LogOperationalTransitionEventLocalOnly,
 			ExcludedMeanings:    []string{"model_count", "llm_attempt_count"},
 			LineStart:           4,
@@ -1124,10 +1127,72 @@ func TestCompileObservationLedger_SystemOperationalSemanticDemotesConflictingInt
 		protocol.Value != "4/4" {
 		t.Fatalf("system protocol row lost authority: %+v", protocol)
 	}
+	if !strings.Contains(strings.Join(protocol.RichNotes, "\n"), "value_semantics=stage_ordinal(one_based_pipeline_stage_position/total_configured_pipeline_stages)") {
+		t.Fatalf("system protocol row lost value semantics: %+v", protocol)
+	}
 	modelRow := findObservationRecord(t, ledger, "log:observation:0")
 	if modelRow.Role != AnswerAggregateRoleSupportingCoverage ||
 		!strings.Contains(strings.Join(modelRow.RichNotes, "\n"), "triager_interpretation_superseded_by=log:protocol:0") {
 		t.Fatalf("conflicting triager interpretation must become support-only: %+v", modelRow)
+	}
+}
+
+func TestPrioritizeObservationRecords_SystemOperationalProtocolOutranksModelAggregate(t *testing.T) {
+	records := []ObservationRecord{
+		{
+			ID: "aggregate:0#runtime_artifact", Origin: AnswerEvidenceOriginRuntimeArtifact,
+			Producer: "aggregate_facts", Role: AnswerAggregateRolePrincipalAnswer,
+			Summary: "model-authored counter interpretation",
+		},
+		{
+			ID: "log:protocol:0", Origin: AnswerEvidenceOriginRuntimeArtifact,
+			Producer: "log_protocol_decoder", Role: AnswerAggregateRolePrincipalAnswer,
+			Summary: "pipeline stage ordinal", RawExcerpt: "INFO [render] 4/4 retry",
+		},
+		{
+			ID: "source:1", Origin: AnswerEvidenceOriginCurrentSource,
+			Producer: "read_file", Role: AnswerAggregateRoleSupportingCoverage,
+			Summary: "current source context",
+		},
+	}
+	got := PrioritizeObservationRecords(records, nil, nil, 1)
+	if len(got) != 1 || got[0].ID != "log:protocol:0" {
+		t.Fatalf("system operational protocol must retain the compact principal seat: %+v", got)
+	}
+}
+
+func TestPrioritizeObservationRecords_ReservesBoundedSystemProtocolSeatsUnderSourcePressure(t *testing.T) {
+	var records []ObservationRecord
+	for i := 0; i < 20; i++ {
+		records = append(records, ObservationRecord{
+			ID: fmt.Sprintf("source:%d", i), Origin: AnswerEvidenceOriginCurrentSource,
+			Producer: "read_file", Role: AnswerAggregateRolePrincipalAnswer,
+			SourceRef: ObservationSourceRef{Kind: ObservationSourceCurrentSource, Path: "current.go"},
+			Span:      ObservationSpan{LineStart: i + 1}, AnchorKind: AnchorDefinition,
+			Summary: fmt.Sprintf("current source %d", i),
+		})
+	}
+	for i := 0; i < 2; i++ {
+		records = append(records, ObservationRecord{
+			ID: fmt.Sprintf("log:protocol:%d", i), Origin: AnswerEvidenceOriginRuntimeArtifact,
+			Producer: "log_protocol_decoder", Role: AnswerAggregateRolePrincipalAnswer,
+			Summary: fmt.Sprintf("protocol %d", i),
+		})
+	}
+	rm := &RequestModel{LogTriage: &LogBundle{}}
+	got := PrioritizeObservationRecords(records, rm, nil, 10)
+	protocolCount := 0
+	currentCount := 0
+	for _, record := range got {
+		if observationRecordIsSystemOperationalProtocol(record) {
+			protocolCount++
+		}
+		if record.Origin == AnswerEvidenceOriginCurrentSource {
+			currentCount++
+		}
+	}
+	if protocolCount != 2 || currentCount == 0 {
+		t.Fatalf("bounded protocol seats must survive without crowding current source: protocols=%d current=%d records=%+v", protocolCount, currentCount, got)
 	}
 }
 

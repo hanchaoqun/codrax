@@ -4079,13 +4079,43 @@ write 全链人工审计：
 
 | GAP | 优先级 | 泛化问题 | 最优方案 | 状态 |
 |---|---:|---|---|---|
-| `EVAL-B47-SEMCAL1` | P1 | counter domain 精确但 value/unit 未铸造，stage ordinal 仍被升级成 retry count/exhaustion；system protocol principal row 又被 compact ledger 排掉 | protocol carrier 增加 value kind、分子/分母语义与 typed exclusions；compact principal selection 为 system protocol rows 保留 bounded seats，冲突 model rows 保持 advisory。无答案扫描/替换 | filed/next |
+| `EVAL-B47-SEMCAL1` | P1 | counter domain 精确但 value/unit 未铸造，stage ordinal 仍被升级成 retry count/exhaustion；system protocol principal row 又被 compact ledger 排掉 | protocol carrier 增加 value kind、分子/分母语义与 typed exclusions；compact principal selection 为 system protocol rows 保留 bounded seats，冲突 model rows 保持 advisory。无答案扫描/替换 | implemented/full-tests-pass；replay next |
 | `EVAL-B47-REPLANPROOF1` | P1 | repair plan 只验证自己的 target path/contract，前 plan 仍应用的测试/源码和行为义务从最终 proof closure 消失 | workflow verification input 取 cumulative still-applied path + contract closure；successful exact roster 可逐成员授权，失败历史保留但由后续成功证据 supersede，不能静默遗忘 | filed |
 | `EVAL-B47-CAPCAL1` | P1 | Go/Python 源码 token scan 被计成“2 tests/strong”，虽无目标语言行为执行且无 contract coverage | 每个 command/probe 发布 typed verification capability/caliber；source-static 只授权结构/path/check，target behavior 必须由执行型、身份绑定且 contract-bound 证据授权；最终强度按能力而非 test_count | filed |
 
 上下文充分性结论：read 不是信息数量不足，而是 value semantics 少一层且 compact authority
 排序反转；write 不是 runner 没运行，而是最终 proof context 丢失跨 plan 目标与验证能力等级。
 两者都属于 system-to-model/context authority GAP，不能归为模型随机波动。
+
+#### B47-SEMCAL1：值量纲与 compact authority 补强
+
+施工结果：
+
+1. protocol row 新增 typed `value_kind`：renderer K/N 为 `stage_ordinal`，orchestrator
+   attempt K/N 为 `attempt_ordinal`；
+2. renderer 的 numerator/denominator 明确为
+   `one_based_pipeline_stage_position / total_configured_pipeline_stages`；attempt 行明确为
+   `current_dispatch_attempt_ordinal / maximum_dispatch_attempts`。attempt 1 是初始尝试，不能
+   直接叫“一次 retry”；
+3. renderer exclusions 扩为 model/LLM attempt、stage retry、failure、retry budget、exhaustion、
+   fallback、repair-round；attempt exclusions 包括 pipeline progress、retry count、model count、
+   identical-error streak、local fallback、repair cap；
+4. lifecycle 与 value kind 分席：`lifecycle=retry` 只说明该事件处于 recoverable state，不能把
+   `stage_ordinal` 的 K/N 改造成 retry/attempt/failure/budget/exhaustion count；
+5. observation protocol principal row 同时携带简短 `value_semantics` note。prompt 排序对 exact
+   `producer=log_protocol_decoder + id=log:protocol:* + principal` 保留分档 bounded seats：
+   limit≤4 保留 1、≤8 保留 2、其它保留最多 4；请求 origin floor 仍先保留，因此 log+source
+   混合问题不会被协议行挤掉 current-source lane；
+6. 这仍是 typed record 展示优先级，不读取 RawRequest、model aggregate prose、thinking 或 final
+   answer，不拒绝/改写模型结论。Trace 路由、时间窗、因果投影、自动补齐全部未改。
+
+测试：
+
+- 精确 producer/ordinal/lookalike、value semantics、两种 counter domain、pre/post-triage 接线；
+- 20 条强 current-source records 压力下两个 protocol rows 均保留且 current source 不丢；
+- `go test ./internal/agent ./internal/context ./internal/render ./internal/types -count=1` 全通过
+  （types 22.893s）；
+- `go test ./internal/tool -count=1` 全通过（161.256s）。
 
 ### B42：生成物写模式 × 日志/源码机制对比审计（2026-08-02）
 

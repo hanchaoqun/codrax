@@ -86,12 +86,19 @@ func decodeRendererOperationalSemantic(
 			StageKey:            candidate.stage,
 			Lifecycle:           candidate.lifecycle,
 			CounterDomain:       types.LogOperationalCounterPipelineStageProgress,
+			ValueKind:           types.LogOperationalValueStageOrdinal,
 			Numerator:           numerator,
 			Denominator:         denominator,
+			NumeratorMeaning:    "one_based_pipeline_stage_position",
+			DenominatorMeaning:  "total_configured_pipeline_stages",
 			TransitionAuthority: types.LogOperationalTransitionEventLocalOnly,
 			ExcludedMeanings: []string{
 				"model_count",
 				"llm_attempt_count",
+				"stage_retry_count",
+				"failure_count",
+				"retry_budget",
+				"exhaustion",
 				"fallback_count",
 				"repair_round_count",
 			},
@@ -119,11 +126,16 @@ func decodeDispatchAttemptOperationalSemantic(line string, lineNumber int) (type
 		EventKind:           types.LogOperationalEventDispatchAttemptFailed,
 		Subject:             match[1],
 		CounterDomain:       types.LogOperationalCounterDispatchAttempt,
+		ValueKind:           types.LogOperationalValueAttemptOrdinal,
 		Numerator:           numerator,
 		Denominator:         denominator,
+		NumeratorMeaning:    "current_dispatch_attempt_ordinal",
+		DenominatorMeaning:  "maximum_dispatch_attempts",
 		TransitionAuthority: types.LogOperationalTransitionEventLocalOnly,
 		ExcludedMeanings: []string{
 			"pipeline_stage_progress",
+			"retry_count",
+			"model_count",
 			"identical_error_streak",
 			"local_fallback_budget",
 			"repair_round_cap",
@@ -176,6 +188,7 @@ func RenderLogOperationalSemanticsForPrompt(rows []types.LogOperationalSemantic)
 	var b strings.Builder
 	b.WriteString("System-decoded operational protocol fields (authoritative for these exact fields):\n")
 	b.WriteString("Different counter_domain values are separate namespaces. Do not add, compare, or connect them without an explicit typed transition witness. A current-source constant whose domain is absent below is mechanism context only; this attached log does not prove that gate was traversed.\n")
+	b.WriteString("Lifecycle and value_kind are independent fields: lifecycle=retry describes this event's recoverable state; it does not turn value_kind=stage_ordinal into a retry, attempt, failure, budget, or exhaustion count.\n")
 	for i, row := range rows {
 		fmt.Fprintf(&b, "- row=%d log_line=%d producer=%s event_kind=%s", i+1, row.LineStart, row.Producer, row.EventKind)
 		if row.StageKey != "" {
@@ -186,6 +199,10 @@ func RenderLogOperationalSemanticsForPrompt(rows []types.LogOperationalSemantic)
 		}
 		if row.CounterDomain != "" {
 			fmt.Fprintf(&b, " counter_domain=%s value=%d/%d", row.CounterDomain, row.Numerator, row.Denominator)
+		}
+		if row.ValueKind != "" {
+			fmt.Fprintf(&b, " value_kind=%s numerator_meaning=%s denominator_meaning=%s",
+				row.ValueKind, row.NumeratorMeaning, row.DenominatorMeaning)
 		}
 		fmt.Fprintf(&b, " transition_authority=%s\n", row.TransitionAuthority)
 		if len(row.ExcludedMeanings) > 0 {

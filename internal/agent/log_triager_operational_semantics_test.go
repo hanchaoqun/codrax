@@ -16,7 +16,10 @@ func TestLogTriagerInitialInstructionCarriesProducerOwnedCounterSemantics(t *tes
 	got := e.BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
 		"counter_domain=agent_dispatch_attempt value=1/3",
+		"value_kind=attempt_ordinal",
 		"counter_domain=pipeline_stage_progress value=4/4",
+		"value_kind=stage_ordinal",
+		"does_not_mean=model_count,llm_attempt_count,stage_retry_count,failure_count,retry_budget,exhaustion",
 		"does_not_mean=model_count",
 	} {
 		if !strings.Contains(got, want) {

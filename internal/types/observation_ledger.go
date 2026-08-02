@@ -388,6 +388,29 @@ func budgetObservationRecordsByOrigin(sorted []ObservationRecord, intent *Answer
 			out = append(out, sorted[idx])
 		}
 	}
+	// Producer-owned protocol facts are few, exact, and can arbitrate later
+	// model interpretations of the same artifact line. Keep a bounded number
+	// visible even when dozens of exact current-source anchors rank ahead of
+	// runtime rows. The cap prevents protocol-heavy logs from crowding out the
+	// source lane in mixed questions.
+	protocolBudget := systemOperationalProtocolPromptBudget(limit)
+	protocolSelected := 0
+	for i, record := range sorted {
+		if selected[i] && observationRecordIsSystemOperationalProtocol(record) {
+			protocolSelected++
+		}
+	}
+	for i, record := range sorted {
+		if len(out) >= limit || protocolSelected >= protocolBudget {
+			break
+		}
+		if selected[i] || !observationRecordIsSystemOperationalProtocol(record) {
+			continue
+		}
+		selected[i] = true
+		out = append(out, record)
+		protocolSelected++
+	}
 	for i, record := range sorted {
 		if len(out) >= limit {
 			break
@@ -399,6 +422,19 @@ func budgetObservationRecordsByOrigin(sorted []ObservationRecord, intent *Answer
 		out = append(out, record)
 	}
 	return out
+}
+
+func systemOperationalProtocolPromptBudget(limit int) int {
+	switch {
+	case limit <= 0:
+		return 0
+	case limit <= 4:
+		return 1
+	case limit <= 8:
+		return 2
+	default:
+		return 4
+	}
 }
 
 func firstObservationRecordIndexForOrigin(records []ObservationRecord, selected []bool, origin AnswerEvidenceOrigin) int {
@@ -935,6 +971,14 @@ func observationRecordRank(record ObservationRecord, intent *AnswerIntentContrac
 	if observationRecordIsPrincipalAggregate(record) {
 		rank -= 120
 	}
+	// System-decoded operational protocol rows own the exact meaning and unit
+	// of their producer fields. Reserve bounded prompt priority for them ahead
+	// of later model-authored aggregates so a compact ledger cannot hide the
+	// source of truth it is supposed to arbitrate. This is display ranking over
+	// typed records only; it does not inspect or gate user/model prose.
+	if observationRecordIsSystemOperationalProtocol(record) {
+		rank -= 180
+	}
 	switch record.Origin {
 	case AnswerEvidenceOriginCurrentSource:
 		rank -= 40
@@ -982,6 +1026,12 @@ func observationRecordRank(record ObservationRecord, intent *AnswerIntentContrac
 		rank += 30
 	}
 	return rank
+}
+
+func observationRecordIsSystemOperationalProtocol(record ObservationRecord) bool {
+	return strings.TrimSpace(record.Producer) == "log_protocol_decoder" &&
+		strings.HasPrefix(strings.TrimSpace(record.ID), "log:protocol:") &&
+		NormalizeAnswerAggregateRole(record.Role).IsPrincipal()
 }
 
 func observationRecordHasRichNote(record ObservationRecord, note string) bool {
@@ -3522,10 +3572,19 @@ func logOperationalSemanticObservationRecord(index int, semantic LogOperationalS
 	if semantic.CounterDomain != "" {
 		summary += fmt.Sprintf(" counter_domain=%s value=%d/%d", semantic.CounterDomain, semantic.Numerator, semantic.Denominator)
 	}
-	richNotes := []string{
-		"protocol=" + semantic.Protocol,
-		"transition_authority=" + semantic.TransitionAuthority,
+	if semantic.ValueKind != "" {
+		summary += fmt.Sprintf(" value_kind=%s numerator_meaning=%s denominator_meaning=%s",
+			semantic.ValueKind, semantic.NumeratorMeaning, semantic.DenominatorMeaning)
 	}
+	var richNotes []string
+	if semantic.ValueKind != "" {
+		richNotes = append(richNotes, fmt.Sprintf("value_semantics=%s(%s/%s)",
+			semantic.ValueKind, semantic.NumeratorMeaning, semantic.DenominatorMeaning))
+	}
+	richNotes = append(richNotes,
+		"protocol="+semantic.Protocol,
+		"transition_authority="+semantic.TransitionAuthority,
+	)
 	if len(semantic.ExcludedMeanings) > 0 {
 		richNotes = append(richNotes, "does_not_mean="+strings.Join(semantic.ExcludedMeanings, ","))
 	}
