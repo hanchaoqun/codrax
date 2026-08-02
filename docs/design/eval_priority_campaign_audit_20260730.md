@@ -4711,6 +4711,51 @@ meta-runner 语义断链。
   本批提交推送后从干净 HEAD 严格并行同 pair r4；
 - [ ] B47：r4 后按优先矩阵切换到下一对 read/data/log/operation 用例，避免停留在单一 Trace/write。
 
+#### B46 r4：typed 关系上下文已准确，但跨阶段旧结论污染与模型服从性仍未闭环
+
+从干净 `main@18e276dfae76` 严格并行同一 Trace/write pair。runner 1/2 PASS，人工 1/2：
+
+1. write 再次 runner/human 双 PASS。sync/async 补丁、真实 `make check`、
+   `python text search contract ok`、ChangeReport=passed 和 Python changed-path=covered
+   全部一致，`EVAL-B46-XMAKE1/XMAKE2` 保持 covered。
+2. Trace 的两个 runner failure 均为 eval oracle 债：自然语言 multiplicity 的 `×2`
+   被旧“禁止退休计数词面”规则误杀；`dma_fence_default_w` 已完整出现在 typed projection/
+   tree/detail，仅缺固定前缀 `等待对象`。生产逻辑不得拟合这两个词面。
+3. Trace 人工仍 FAIL。模型把不同 ruler 的 rank #4 3.956ms 与 rank #10 1.648ms
+   相加成 5.604ms；把 row-local `d_state=3.598ms` 写成 priority-inversion 跨行包含；
+   把 blocked_reason 总和写成 target sleep 的已证子集；又把四个同修向席位相加为
+   18.853ms，而系统只发布了其中 exact mutually-exclusive pair 的 12.115ms subtotal。
+4. r4 同时证明 `REL2A` 与 `REL2B` 第一段已经生效：finalizer handoff 明确发布目标
+   四态互斥闭合、two-ruler 逐尺 seats/subtotal、跨尺禁加/物理关系 unresolved，以及
+   row-local state breakdown 不提供跨行关系权限。模型答案内部甚至复述“two-ruler
+   禁止跨口径相加”，随后仍执行跨尺加法。
+5. 深一层的上下文链路审计：错误关系已出现在 Explorer 的
+   `emit_investigation_complete` 总结，发生在精确 finalizer handoff 之前；Finalizer 同时
+   收到旧错误总结与新正确 authority，形成冲突输入。合同检查耗时约 104ms，日志没有
+   reviewer dispatch/skip；semantic/self-consistency reviewer 默认关闭，所以
+   `semantic_quality_dispatches=0` 不是 observation-only skip，不能针对该 skip 函数误修。
+
+| ID | P | gap | 泛化最优方案 | 状态 |
+|---|---:|---|---|---|
+| EVAL-B46-REL2A | P1 | row-local split 被伪铸跨行包含 | r4 生产见证显示 handoff 已诚实发布 row-local scope | covered |
+| EVAL-B46-REL2B | P1 | 精确 pair/ruler authority 未在模型决策全过程单源共享 | two-ruler/four-state 已进 finalizer；下一步把同一共享关系载体前移到探索结论形成前，并继续抽取 SMR/AXIOM/RSPA pair roster，禁止 agent 复制判定 | partial |
+| EVAL-B46-REL3 | P1 | Explorer 先形成错误关系结论，Finalizer 后收到准确 authority；模型保留两者且默认没有语义 reviewer | 为因果/关系型 Trace 建立 model-authored structured relation claims：声明 seat/ruler/relation/subtotal authority，精确校验 against shared typed carrier，失败只触发模型自修复；不读原文关键词，不扫描最终 prose，不由系统替答。普通 reviewer 可作为可选第二意见，不能假定默认已开 | filed/next |
+| EVAL-B46-ORACLE2 | P3 eval | `EXPECT_NOT_CONTAINS=×2..×9` 把合法 multiplicity prose 当退休 count face | 后续 oracle 治理改钉 typed merged-count carrier/表格位置；生产不适配 | open/eval-debt |
+
+上下文充分性结论：r3 的“authority 不一致”已消除；r4 已不是证据缺失，而是精确 typed
+关系只在最终阶段出现、Explorer 旧结论先入为主，以及模型没有可校验的结构化关系声明。
+继续增加自然语言禁令的 ROI 很低，还会扩大 prompt；应把 authority 变成跨阶段共享 typed
+协议，并让模型自己在协议失败后重写答案。这符合“系统供证据和边界、模型拥有判断”的红线。
+
+后续任务：
+
+- [x] B46-T10a：完成人工审计，纠正“semantic reviewer 被 observation-only skip”的误判；
+- [ ] B46-T10b：盘点现有 AnswerDocument/claim schema，设计最小 relation-claim 载体与共享
+  pair authority，不增加答案字符串硬门；
+- [ ] B46-T10c：先补跨阶段 prompt/handoff 的单源共享与结构化 claim 单测，再决定是否需要
+  typed-complexity 驱动的可选 LLM reviewer；不得直接默认开启高延迟 reviewer；
+- [ ] B46-T10d：相关单测通过后同 pair r5；确认关系正确再进入 B47 多维批次。
+
 ### B41：data 终批材料 × Binder 方向语义审计（2026-08-02）
 
 本批严格并行 `data_text_filter_count` 与 `trace_query_binder_ipc_peer`。runner
