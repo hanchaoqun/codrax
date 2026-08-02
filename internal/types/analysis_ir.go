@@ -880,8 +880,9 @@ type AnalyzerHints struct {
 	//
 	// Design doc: docs/design/analyzer_typed_resilience.md §0.2 / Batch 2.
 	EntityProvenance []EntityProvenance `json:"entity_provenance,omitempty"`
-	// MentionedEntities is the deterministic subset of PrimaryEntities
-	// whose surface forms are explicitly present in RawRequest. This is
+	// MentionedEntities is the deterministic subset of PrimaryEntities plus
+	// concrete high-confidence RequiredFileHints whose surface forms are
+	// explicitly present in RawRequest. This is
 	// the provenance-carrying "user mentioned it" lane: exact-resolution
 	// contracts and exact-anchor ranking should prefer this over broader
 	// entity lists so analyzer-derived context cannot be upgraded into an

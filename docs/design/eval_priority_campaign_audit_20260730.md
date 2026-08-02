@@ -4017,7 +4017,7 @@ facet，以及结构门只允许一个 `ForceHard` 生产点。前者改为断�
 返回精确修复缺口”；后者登记缺行/多行两个 closed typed member-set 硬门。两者都不
 扫描自由文本，也不允许系统静默补写或裁剪。
 
-状态：`implemented / uncached package tests in progress / commit-next`。
+状态：`partial / first arm committed@381161a4a / nil-class arm found by R5`。
 
 ##### EVAL-B37-PROJWIN1：因果投影根窗与显式用户窗权威分裂（P1）
 
@@ -4042,7 +4042,56 @@ Trace 答案中“热治理”“精确 12 因素”“PI/fscache 修复关系�
 根窗保留 233.190ms；另钉 malformed typed window 禁止 Span 降级。`internal/types`
 无缓存全包与 projection 相关 `internal/tool` 测试通过。
 
-状态：`implemented / commit-next / same-case replay-next`。
+状态：`covered / committed+pushed@58c2c7074 / R5 replay verified`。
+
+#### B37-R5：投影窗闭环；精确文件 nil-scope 与模型校准仍开放
+
+R5 在 `58c2c7074` 上严格并行同一 2 case。runner 仍为 2/2 PASS，人工为
+0/2 PASS，但失败面已经分离清楚：
+
+1. Trace 的确定性窗修复通过：投影根窗为
+   `13762.791708..13763.024898`（233.190ms），四态账恰好平衡 233.190ms，时长
+   标尺明确为 233.190ms；0.113ms selected-frame 只保留证据定位，不再充当分母。
+2. Trace 模型仍把 frequency supply fold 升级成热治理，把 overlap/incomplete
+   enumeration 下的若干席位相加成“理论最大总消除量 98.01ms”，并宣称调度供给与
+   其他方向正交、PI/lock 与 fscache 修复具有已证因果。typed 权限块已明确否定这些
+   升级，因此这是重复模型校准 gap。只允许增强 typed authority 的软引导，禁止
+   系统替换、删除或重写模型结论。
+3. read 从 503s 降到 123s，read 27→1、lens 15→6，且最终 11 行仍由模型撰写，
+   证明第一批有效且模型所有权未回退。但开头写成“共10个，另有1个”，与完整 11 行
+   自相矛盾；这是模型算术/表述波动，先不以正文硬门处理。
+
+##### EVAL-B37-SCOPECLASS2：具体文件请求无 source class 时仍被扩成全仓（P1）
+
+R5 analyzer 正确省略 `source_scope_profile`：用户给的是具体文件边界，不是
+production/test/all 路径类别。它同时给出 0.95 置信的精确 RequiredFileHint 和唯一
+EvidencePlan.RequiredFiles。旧 nil-profile 分支仍无条件要求 repo-wide lens，导致：
+
+- explorer 首次尝试精确 `internal/types` scope 被拒；
+- prompt 明示 `typed bounded scopes: .`；
+- 先跑全仓 lens，再跑多组无关 follow-up，共 6 次 lens。
+
+不能把 LLM RequiredFileHint 的置信度单独硬化成边界。最优通用方案是复用现有
+`AnalyzerHints.MentionedEntities` 的确定性 provenance lane：将高置信、具体源码/配置
+RequiredFileHint 也作为候选交给既有“当前请求逐字出现”校验；只有 hint 文件集合全部
+被这条 typed user-mentioned lane 精确佐证，且无显式 all/test/docs/auxiliary 类别冲突
+时，nil/production class 才可形成 exact-file boundary。后续 hard gate 只读该 typed
+provenance 与规范化文件集合，不再读取 RawRequest，也不读 rationale、thinking 或
+答案正文。显式 `all` 始终优先并保持全仓。
+
+施工：analyzer 的既有 `MentionedEntitiesFromRawRequest` provenance 校验候选，从
+PrimaryEntities 扩为 PrimaryEntities + 具体且置信度≥0.8 的 RequiredFileHints；低置信
+hint、目录和非代码/配置路径不进入候选。`SourceInventoryHasExactRequestedFileBoundary`
+随后要求全部高置信 required files 获得该 typed user-mentioned 佐证；production 的同集
+source quote 仍是另一条合法佐证，显式 `all/test/docs/auxiliary` 一律优先。任何新增 hint
+未被用户提及即回退 repo-wide。
+
+测试覆盖：当前 R5 的 nil SourceScope + 精确文件正例；同批额外未佐证 hint 反例；
+显式 all 反例；analyzer 仅把逐字出现的高置信具体文件写入 MentionedEntities；explorer
+首轮 scope 保持 `internal/types/evidence.go`。所有判断下游只读 typed provenance，
+不扫描答案/思考/模型 prose。
+
+状态：`implemented / targeted-tests-pass / commit-next`。
 
 ### B36：配置映射 × write plan 权限与模型结论所有权（2026-08-01）
 

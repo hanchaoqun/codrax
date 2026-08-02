@@ -1854,7 +1854,7 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// captures log/perf/sub-topic expansions.
 	rm.AnalyzerHints.PrimaryEntities = append([]string(nil), rm.AnalyzerHints.Entities...)
 	rm.AnalyzerHints.MentionedEntities = types.MentionedEntitiesFromRawRequest(
-		rm.RawRequest, rm.AnalyzerHints.PrimaryEntities)
+		rm.RawRequest, analyzerMentionedEntityCandidates(rm))
 	// v3.1 (2026-05-05): the regex-driven enumeration-boundary
 	// recovery path was deleted as a keyword-table band-aid (see
 	// internal/types/enumeration_boundary.go header). EnumerationBoundary

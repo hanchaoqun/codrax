@@ -5167,14 +5167,13 @@ func TestExplorer_BuildInitialInstruction_SourceInventoryExactFileIsNotWidenedBy
 					IsSourceInventory: true,
 					TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
 				},
-				SourceScopeProfile: &types.SourceScopeProfile{
-					RequestedScope: types.SourceScopeProduction,
-					SourceQuotes:   []string{"internal/types/evidence.go"},
+				AnalyzerHints: types.AnalyzerHints{
+					RequiredFileHints: []types.RequiredFileHint{{
+						Path:       "internal/types/evidence.go",
+						Confidence: 0.82,
+					}},
+					MentionedEntities: []string{"evidence.go", "internal/types/evidence.go"},
 				},
-				AnalyzerHints: types.AnalyzerHints{RequiredFileHints: []types.RequiredFileHint{{
-					Path:       "internal/types/evidence.go",
-					Confidence: 0.82,
-				}}},
 			},
 			EvidencePlan: types.EvidencePlan{RequiredFiles: []string{"internal/types/evidence.go"}},
 		},

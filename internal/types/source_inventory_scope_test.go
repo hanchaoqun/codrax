@@ -174,3 +174,42 @@ func TestSourceInventoryRequiresRepoWideLens_ExactRequestedFileBoundaryWinsOverC
 		t.Fatal("a quote/hint set mismatch must fail closed")
 	}
 }
+
+func TestSourceInventoryRequiresRepoWideLens_UserMentionedExactFileWinsWithoutClassProfile(t *testing.T) {
+	rm := RequestModel{
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType},
+		},
+		AnalyzerHints: AnalyzerHints{
+			RequiredFileHints: []RequiredFileHint{{
+				Path:       "internal/types/evidence.go",
+				Confidence: 0.95,
+			}},
+			MentionedEntities: []string{"evidence.go", "internal/types/evidence.go"},
+		},
+	}
+	if !SourceInventoryHasExactRequestedFileBoundary(rm) {
+		t.Fatal("deterministically user-mentioned required file should form an exact boundary without a source-class profile")
+	}
+	if SourceInventoryRequiresRepoWideLens(rm) {
+		t.Fatal("nil source class must not widen a provenance-backed exact file")
+	}
+
+	rm.AnalyzerHints.RequiredFileHints = append(rm.AnalyzerHints.RequiredFileHints, RequiredFileHint{
+		Path:       "internal/types/context.go",
+		Confidence: 0.9,
+	})
+	if SourceInventoryHasExactRequestedFileBoundary(rm) {
+		t.Fatal("every required file must have independent user-mentioned provenance")
+	}
+	if !SourceInventoryRequiresRepoWideLens(rm) {
+		t.Fatal("an uncorroborated required hint must keep nil-class inventory repo-wide")
+	}
+
+	rm.AnalyzerHints.RequiredFileHints = rm.AnalyzerHints.RequiredFileHints[:1]
+	rm.SourceScopeProfile = &SourceScopeProfile{RequestedScope: SourceScopeAll}
+	if SourceInventoryHasExactRequestedFileBoundary(rm) {
+		t.Fatal("explicit all-source scope must outrank exact mentioned-file provenance")
+	}
+}
