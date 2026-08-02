@@ -30,9 +30,10 @@ func TestTraceQuerySupplyFoldRichNotesFmaxProvenance(t *testing.T) {
 func TestTraceQuerySupplyFoldRichNotesThrottledFindingAndLaneCaveat(t *testing.T) {
 	notes := traceQueryTypedSupplyFoldRichNotes(&tracequery.SupplyFoldBasis{
 		KnownMs:              10,
-		FmaxKHz:              1500000,
-		FmaxSource:           tracequery.SupplyFoldFmaxSourceLimit,
+		FmaxKHz:              2000000,
+		FmaxSource:           tracequery.SupplyFoldFmaxSourceObserved,
 		LimitThrottled:       true,
+		PolicyCeilingKHz:     1500000,
 		TraceObservedMaxKHz:  2000000,
 		ClusterLaneName:      "cpu_freq",
 		ClusterLaneMaxKHz:    3000000,
@@ -40,16 +41,29 @@ func TestTraceQuerySupplyFoldRichNotesThrottledFindingAndLaneCaveat(t *testing.T
 	}, 3.333, 6.667)
 	joined := strings.Join(notes, "\n")
 	for _, want := range []string{
-		"fold_fmax=1.500GHz,source=limit",
-		"fold_fmax_finding=大核受策略/温控限频至 1.50 GHz,缺口部分源于压频(全程观测最高 2.00 GHz)",
+		"fold_fmax=2.000GHz,source=observed",
+		"fold_fmax_finding=大核策略频率上限 1.50 GHz 低于全程实测峰值 2.00 GHz(仅证明策略上限存在,不单独证明热机制或实际绑定影响)",
 		// 2026-07-04 review: divergent lane value renders RAW and unit-hedged
 		// (单位不明) — the flag now means no unit hypothesis matched, so the
 		// display must not assert a GHz reading or a direction.
-		"fold_cluster_lane_caveat=簇泳道 cpu_freq 最高原始值 3000000(单位不明)在原值/千分/百万分单位假设下均与折算 fmax 1.50 GHz 相差 >10%,泳道名与单位均为厂商自由词汇仅旁证",
+		"fold_cluster_lane_caveat=簇泳道 cpu_freq 最高原始值 3000000(单位不明)在原值/千分/百万分单位假设下均与折算 fmax 2.00 GHz 相差 >10%,泳道名与单位均为厂商自由词汇仅旁证",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("missing %q in:\n%s", want, joined)
 		}
+	}
+}
+
+func TestTraceQuerySupplyFoldRichNotesThrottledFindingRequiresComparisonPair(t *testing.T) {
+	// Persisted pre-B37 records may carry the boolean and observed endpoint but
+	// not the policy endpoint. Refuse a numeric sentence instead of borrowing
+	// FmaxKHz, which can itself be the observed max-over-lanes winner.
+	notes := traceQueryTypedSupplyFoldRichNotes(&tracequery.SupplyFoldBasis{
+		KnownMs: 10, FmaxKHz: 2000000, FmaxSource: tracequery.SupplyFoldFmaxSourceObserved,
+		LimitThrottled: true, TraceObservedMaxKHz: 2000000,
+	}, 3.333, 6.667)
+	if joined := strings.Join(notes, "\n"); strings.Contains(joined, "fold_fmax_finding=") {
+		t.Fatalf("an incomplete comparison pair must not fabricate a policy endpoint:\n%s", joined)
 	}
 }
 

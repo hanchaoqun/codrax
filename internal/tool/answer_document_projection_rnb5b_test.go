@@ -230,9 +230,11 @@ func TestRNB5BSelfRunningDeficitSeatCarriesMechanismClause(t *testing.T) {
 		Predicate: "root_cause_primary", Rank: 1, Tier: "primary",
 		ImpactMS: 157.248, CumulativeImpactMS: 157.248, EffectiveImpactMS: 58.320,
 		SupplyFoldComputed: true, SupplyFoldIdealMS: 98.928, SupplyFoldDeficitMS: 58.320,
-		SupplyFoldKnownMS: 157.248,
-		ThermalCapKHz:     1530000, ThermalCapWitnessed: true,
-		Confidence: 0.86, LineStart: 10, LineEnd: 20,
+		SupplyFoldKnownMS:      157.248,
+		GovernanceCapKHz:       1530000,
+		GovernanceCapMechanism: tracequery.SupplyFoldGovernanceCapThermalRail,
+		GovernanceCapWitnessed: true,
+		Confidence:             0.86, LineStart: 10, LineEnd: 20,
 	}
 	projection := types.TraceCausalProjection{
 		WakeupPath:    []string{"waker-1", "app-42"},
@@ -245,7 +247,7 @@ func TestRNB5BSelfRunningDeficitSeatCarriesMechanismClause(t *testing.T) {
 	if !strings.Contains(joined, "供给折算缺口 58.320ms(运行频点非最高,按前述基准折算,下界)为主") {
 		t.Fatalf("the self seat must carry the same-source mechanism clause (R5b mention riding):\n%s", fence)
 	}
-	if !strings.Contains(joined, "窗内该簇受热限压至 1.53GHz") {
+	if !strings.Contains(joined, "窗内该簇明确热控轨上限为 1.53GHz") {
 		t.Fatalf("the THERM disclosure must ride the self seat's clause:\n%s", fence)
 	}
 }

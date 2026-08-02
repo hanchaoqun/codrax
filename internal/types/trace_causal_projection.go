@@ -1508,16 +1508,14 @@ type TraceCausalProjectionNode struct {
 	// forks its freq_only wording through the SAME clause single point as
 	// the supply-fold face.
 	GatedCapabilityFreqOnlyReason string `json:"gated_capability_freq_only_reason,omitempty"`
-	// ThermalCapKHz (THERM §28.5-T7, disclosure-only): the fold's dominant
-	// running cluster was pressed below its fmax inside the governance window
-	// (thermal rail and/or governing limits Max) down to this kHz value —
-	// thermal_cap_khz rich note. The display appends the 窗内该簇受热限压至 X
-	// sentence; zero-weight (no number changes), absent when cluster
-	// attribution was unavailable (absence never guesses).
-	ThermalCapKHz int `json:"thermal_cap_khz,omitempty"`
-	// ThermalCapWitnessed (CR-3 件⑥ F-10, 2026-07-12; 冷读 D5): whether the
-	// cap has an IN-WINDOW limits/thermal event witness — the wording gate
-	// between 受热限压至 X and 运行于 X(限压原因未见证).
+	// GovernanceCap* carries the neutral governing ceiling, exact mechanism,
+	// and witness for the selected value. Only mechanism=thermal_rail proves a
+	// thermal source; policy_limit is not promoted to thermal causality.
+	GovernanceCapKHz       int    `json:"governance_cap_khz,omitempty"`
+	GovernanceCapMechanism string `json:"governance_cap_mechanism,omitempty"`
+	GovernanceCapWitnessed bool   `json:"governance_cap_witnessed,omitempty"`
+	// ThermalCap* stays for backward decoding of pre-B37 observation ledgers.
+	ThermalCapKHz       int  `json:"thermal_cap_khz,omitempty"`
 	ThermalCapWitnessed bool `json:"thermal_cap_witnessed,omitempty"`
 	// RunnableMS mirrors the node's typed "runnable=" rich note (the row's
 	// own in-window runnable wall clock) — consumed by the §7.10 decision
@@ -2732,16 +2730,18 @@ type traceCausalProjectionSupplyFoldDonor struct {
 	deficitMS, idealMS, knownMS, unknownMS float64
 	// capabilitySource / referenceClass (CAP §26 C3 + 复核 F1) ride the copied
 	// accounting group — the twin must disclose the SAME caliber and basis
-	// cluster its donor's numbers were priced at. topologySource +
-	// thermalCapKHz (CAP-2 §28.4 / THERM §28.5-T7) travel the same way: the
-	// twin's wording must name the same cluster-structure source and the same
-	// in-window press its donor's numbers were computed under.
+	// cluster its donor's numbers were priced at. topologySource and the
+	// governance-cap group travel the same way so the twin cannot lose or
+	// change the source mechanism of its donor's ceiling.
 	capabilitySource string
 	// capabilityFreqOnlyReason (CLUSTER-FIX-2 件1, S1) travels with its
 	// caliber token: the twin's wording fork must match its donor's.
 	capabilityFreqOnlyReason string
 	referenceClass           string
 	topologySource           string
+	governanceCapKHz         int
+	governanceCapMechanism   string
+	governanceCapWitnessed   bool
 	thermalCapKHz            int
 	thermalCapWitnessed      bool
 	windowStart, windowEnd   float64
@@ -2828,6 +2828,9 @@ func traceCausalProjectionJoinSupplyFoldTwins(projection *TraceCausalProjection)
 				capabilityFreqOnlyReason: node.SupplyFoldCapabilityFreqOnlyReason,
 				referenceClass:           node.SupplyFoldReferenceClass,
 				topologySource:           node.SupplyFoldTopologySource,
+				governanceCapKHz:         node.GovernanceCapKHz,
+				governanceCapMechanism:   node.GovernanceCapMechanism,
+				governanceCapWitnessed:   node.GovernanceCapWitnessed,
 				thermalCapKHz:            node.ThermalCapKHz,
 				thermalCapWitnessed:      node.ThermalCapWitnessed,
 				windowStart:              node.QueryWindowStartTs,
@@ -2890,6 +2893,9 @@ func traceCausalProjectionJoinSupplyFoldTwins(projection *TraceCausalProjection)
 			node.SupplyFoldCapabilityFreqOnlyReason = donor.capabilityFreqOnlyReason
 			node.SupplyFoldReferenceClass = donor.referenceClass
 			node.SupplyFoldTopologySource = donor.topologySource
+			node.GovernanceCapKHz = donor.governanceCapKHz
+			node.GovernanceCapMechanism = donor.governanceCapMechanism
+			node.GovernanceCapWitnessed = donor.governanceCapWitnessed
 			node.ThermalCapKHz = donor.thermalCapKHz
 			node.ThermalCapWitnessed = donor.thermalCapWitnessed
 		}
@@ -3972,11 +3978,17 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		// legacy — the default-table wording stands byte-identically) and the
 		// THERM in-window press disclosure.
 		node.SupplyFoldTopologySource = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyFoldClusterTopology))
-		node.ThermalCapKHz = traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyThermalCapKHz)
-		// CR-3 件⑥ F-10: the cap's in-window witness bit (冷读 D5) — read
-		// only beside its value.
-		node.ThermalCapWitnessed = node.ThermalCapKHz > 0 &&
-			strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyThermalCapWitnessed)) == "true"
+		node.GovernanceCapKHz = traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyGovernanceCapKHz)
+		if node.GovernanceCapKHz > 0 {
+			node.GovernanceCapMechanism = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyGovernanceCapMechanism))
+			node.GovernanceCapWitnessed = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyGovernanceCapWitnessed)) == "true"
+		} else {
+			// Backward-only decode. Mechanism remains empty because a legacy
+			// thermal_cap_khz may have come from a generic policy limit.
+			node.ThermalCapKHz = traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyThermalCapKHz)
+			node.ThermalCapWitnessed = node.ThermalCapKHz > 0 &&
+				strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyThermalCapWitnessed)) == "true"
+		}
 	}
 	node.RunnableMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyRunnable)
 	// WO-A1 (SMR-1 批, 2026-07-12): the d/io per-state split — the same

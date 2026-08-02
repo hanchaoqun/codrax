@@ -674,9 +674,9 @@ func TestCAP2Tier1FoldDisclosureEndToEnd(t *testing.T) {
 	}
 }
 
-// --- THERM (§28.5-T7, disclosure-only) -----------------------------------------
+// --- governance-ceiling authority (B37-CAPAUTH, disclosure-only) --------------
 
-func TestCAP2ThermalCapDisclosure(t *testing.T) {
+func TestCAP2GovernanceCapDisclosure(t *testing.T) {
 	t.Run("thermal rail presses the dominant cluster", func(t *testing.T) {
 		body := cap2SchedFiller() + cap2SweepLines + cap2LimitsLines + cap2ThermalInte1Lines + cap2DepBodyLate(5)
 		idx := buildTraceIndex(t, "cap2_therm_rail.systrace", body)
@@ -689,12 +689,13 @@ func TestCAP2ThermalCapDisclosure(t *testing.T) {
 		// thermal_inte1 anchors 4/3/3/5/2/3 all sit inside {2..9}; its
 		// governed window minimum 1850000 < the cluster fmax 2200000
 		// (limits) — the press is disclosed, numbers untouched.
-		if basis.ThermalCapKHz != 1850000 || basis.ThermalCapClusterClass != "middle" {
+		if basis.GovernanceCapKHz != 1850000 || basis.GovernanceCapClusterClass != "middle" ||
+			basis.GovernanceCapMechanism != SupplyFoldGovernanceCapThermalRail {
 			t.Fatalf("thermal press must disclose 1850000@middle: %+v", basis)
 		}
-		// CR-3 件⑥ F-10: the rail samples inside the governance window ARE
-		// the in-window witness — the 受热限压 word is earned.
-		if !basis.ThermalCapWitnessed {
+		// CR-3 件⑥ F-10: the explicitly thermal-named rail samples inside
+		// the governance window are the in-window thermal-rail witness.
+		if !basis.GovernanceCapWitnessed {
 			t.Fatalf("in-window thermal rail samples must mint the witness bit: %+v", basis)
 		}
 	})
@@ -704,14 +705,15 @@ func TestCAP2ThermalCapDisclosure(t *testing.T) {
 		dep := supplyFoldDepImpact(t, chain)
 		// cpu0's limits dropped 1750000→1550000 (specimen dynamic witness):
 		// the window-governing Max 1550000 < the {0,1} fmax 1750000.
-		if dep.SupplyFoldBasis == nil || dep.SupplyFoldBasis.ThermalCapKHz != 1550000 {
+		if dep.SupplyFoldBasis == nil || dep.SupplyFoldBasis.GovernanceCapKHz != 1550000 ||
+			dep.SupplyFoldBasis.GovernanceCapMechanism != SupplyFoldGovernanceCapPolicyLimit {
 			t.Fatalf("the dynamic limits press must disclose 1550000: %+v", dep.SupplyFoldBasis)
 		}
 		// CR-3 件⑥ F-10 (CR-2 冷读 D5 shape): every limits sample here sits
 		// BEFORE the fold window — a carry-in governance value presses the
-		// cap but earns NO in-window witness (the display words it 运行于
-		// X(限压原因未见证), never 受热限压至 X).
-		if dep.SupplyFoldBasis.ThermalCapWitnessed {
+		// cap but earns NO in-window witness (the display keeps the selected
+		// ceiling's source event explicitly unwitnessed).
+		if dep.SupplyFoldBasis.GovernanceCapWitnessed {
 			t.Fatalf("a pre-window carry-in cap must stay unwitnessed: %+v", dep.SupplyFoldBasis)
 		}
 	})
@@ -723,11 +725,25 @@ func TestCAP2ThermalCapDisclosure(t *testing.T) {
 		idx := buildTraceIndex(t, "cap2_therm_release.systrace", cap2SchedFiller()+cap2SweepLines+cap2LimitsLines+release+cap2DepBody(0))
 		chain := BuildWakeupChain(idx, cap2FoldQuery)
 		dep := supplyFoldDepImpact(t, chain)
-		if dep.SupplyFoldBasis == nil || dep.SupplyFoldBasis.ThermalCapKHz != 1550000 {
+		if dep.SupplyFoldBasis == nil || dep.SupplyFoldBasis.GovernanceCapKHz != 1550000 {
 			t.Fatalf("the carry-in press must still disclose 1550000: %+v", dep.SupplyFoldBasis)
 		}
-		if dep.SupplyFoldBasis.ThermalCapWitnessed {
+		if dep.SupplyFoldBasis.GovernanceCapWitnessed {
 			t.Fatalf("an in-window release-only sample must not mint the witness: %+v", dep.SupplyFoldBasis)
+		}
+	})
+	t.Run("selected minimum owns its witness", func(t *testing.T) {
+		// The carry-in minimum remains 1550000. An in-window 1650000 policy
+		// sample is also a press (<1750000 fmax), but it is NOT the selected
+		// ceiling and therefore cannot witness the lower carry-in value.
+		higherPress := "\n       hilogd.pst-647   (  629) [000] .... 15152.005000: cpu_frequency_limits: min=417000 max=1650000 cpu_id=0\n"
+		idx := buildTraceIndex(t, "cap2_governance_higher_press.systrace", cap2SchedFiller()+cap2SweepLines+cap2LimitsLines+higherPress+cap2DepBody(0))
+		dep := supplyFoldDepImpact(t, BuildWakeupChain(idx, cap2FoldQuery))
+		if dep.SupplyFoldBasis == nil || dep.SupplyFoldBasis.GovernanceCapKHz != 1550000 {
+			t.Fatalf("the selected ceiling must remain the lower carry-in value: %+v", dep.SupplyFoldBasis)
+		}
+		if dep.SupplyFoldBasis.GovernanceCapWitnessed {
+			t.Fatalf("a higher in-window press must not witness the selected lower carry-in ceiling: %+v", dep.SupplyFoldBasis)
 		}
 	})
 	t.Run("no press, no sentence (双向)", func(t *testing.T) {
@@ -735,7 +751,7 @@ func TestCAP2ThermalCapDisclosure(t *testing.T) {
 		chain := BuildWakeupChain(idx, cap2FoldQuery)
 		dep := supplyFoldDepImpact(t, chain)
 		// {10..13}: the single limits row 2295000 IS the fmax — no press.
-		if dep.SupplyFoldBasis == nil || dep.SupplyFoldBasis.ThermalCapKHz != 0 {
+		if dep.SupplyFoldBasis == nil || dep.SupplyFoldBasis.GovernanceCapKHz != 0 {
 			t.Fatalf("cap == fmax must emit nothing: %+v", dep.SupplyFoldBasis)
 		}
 	})
@@ -744,8 +760,8 @@ func TestCAP2ThermalCapDisclosure(t *testing.T) {
 		// scheduling data, with and without the thermal rails present, must
 		// produce BYTE-IDENTICAL fold numbers — deficit, ideal, basis split,
 		// fmax value+source, reference class, topology token. The only
-		// permitted delta is the ThermalCap* pair itself. A mutation pressing
-		// ThermalCapKHz into the fold reference (复核 M3 form,
+		// permitted delta is the GovernanceCap* group itself. A mutation pressing
+		// GovernanceCapKHz into the fold reference (复核 M3 form,
 		// supplyFoldRunningIntervals bigFmax) changes the deficit on the
 		// with-thermal side only and reds here.
 		base := cap2SchedFiller() + cap2SweepLines + cap2LimitsLines + cap2DepBodyLate(5)
@@ -757,8 +773,8 @@ func TestCAP2ThermalCapDisclosure(t *testing.T) {
 		if wb == nil || ob == nil {
 			t.Fatalf("both folds must run: %+v / %+v", wb, ob)
 		}
-		if wb.ThermalCapKHz != 1850000 || ob.ThermalCapKHz != 0 {
-			t.Fatalf("the thermal delta must be exactly the ThermalCap pair: with=%d without=%d", wb.ThermalCapKHz, ob.ThermalCapKHz)
+		if wb.GovernanceCapKHz != 1850000 || ob.GovernanceCapKHz != 0 {
+			t.Fatalf("the thermal delta must be exactly the GovernanceCap group: with=%d without=%d", wb.GovernanceCapKHz, ob.GovernanceCapKHz)
 		}
 		if withTherm.SupplyFoldDeficitMs != without.SupplyFoldDeficitMs ||
 			withTherm.SupplyFoldIdealMs != without.SupplyFoldIdealMs {
@@ -770,7 +786,7 @@ func TestCAP2ThermalCapDisclosure(t *testing.T) {
 			wb.ReferenceClass != ob.ReferenceClass ||
 			wb.CapabilitySource != ob.CapabilitySource ||
 			wb.ClusterTopologySource != ob.ClusterTopologySource {
-			t.Fatalf("零权重: every non-ThermalCap basis field must be identical:\nwith:    %+v\nwithout: %+v", wb, ob)
+			t.Fatalf("零权重: every non-GovernanceCap basis field must be identical:\nwith:    %+v\nwithout: %+v", wb, ob)
 		}
 	})
 	t.Run("freq_only cluster attribution unavailable emits nothing", func(t *testing.T) {
@@ -779,7 +795,7 @@ func TestCAP2ThermalCapDisclosure(t *testing.T) {
 		idx := buildTraceIndex(t, "cap2_therm_freqonly.systrace", cap2SchedFiller()+cap2LimitsLines+cap2ThermalInte1Lines+cap2DepBody(5))
 		chain := BuildWakeupChain(idx, cap2FoldQuery)
 		dep := supplyFoldDepImpact(t, chain)
-		if dep.SupplyFoldBasis == nil || dep.SupplyFoldBasis.ThermalCapKHz != 0 {
+		if dep.SupplyFoldBasis == nil || dep.SupplyFoldBasis.GovernanceCapKHz != 0 {
 			t.Fatalf("no cluster attribution → no THERM claim: %+v", dep.SupplyFoldBasis)
 		}
 	})

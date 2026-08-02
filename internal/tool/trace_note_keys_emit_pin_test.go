@@ -97,7 +97,7 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 	basis := &tracequery.SupplyFoldBasis{
 		KnownMs: 5, UnknownMs: 1,
 		FmaxKHz: 2400000, FmaxSource: tracequery.SupplyFoldFmaxSourceLimit,
-		LimitThrottled: true, TraceObservedMaxKHz: 2800000,
+		LimitThrottled: true, PolicyCeilingKHz: 2200000, TraceObservedMaxKHz: 2800000,
 		ClusterLaneName: "lane0", ClusterLaneMaxKHz: 999, ClusterLaneDivergent: true,
 		// CFR (#75 簇共频): exercises the fold_cluster_freq_reuse emission.
 		ClusterFreqReuse: []tracequery.SupplyFoldClusterReuse{{CPU: 3, DonorCPU: 4}},
@@ -107,14 +107,14 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 		CapabilitySource: tracequery.CoreCapabilitySourceDefault,
 		ReferenceClass:   "small",
 		// CAP-2 (§28.4/§28.5): exercises fold_cluster_topology + the
-		// fold_rail_basis audit note; THERM exercises thermal_cap_khz.
-		ClusterTopologySource: tracequery.CoreCapabilityTopologyKeyedRail,
-		RailFamily:            "m3_c#_freq",
-		RailGoverned:          []tracequery.SupplyFoldRailGoverned{{CPU: 12, Rail: "m3_c3_freq"}},
-		ThermalCapKHz:         1850000,
-		// CR-3 件⑥ F-10 (2026-07-12): exercises the thermal_cap_witnessed
-		// contract key.
-		ThermalCapWitnessed: true,
+		// fold_rail_basis audit note; B37-CAPAUTH exercises the neutral cap
+		// value, source mechanism and selected-value witness keys.
+		ClusterTopologySource:  tracequery.CoreCapabilityTopologyKeyedRail,
+		RailFamily:             "m3_c#_freq",
+		RailGoverned:           []tracequery.SupplyFoldRailGoverned{{CPU: 12, Rail: "m3_c3_freq"}},
+		GovernanceCapKHz:       1850000,
+		GovernanceCapMechanism: tracequery.SupplyFoldGovernanceCapThermalRail,
+		GovernanceCapWitnessed: true,
 	}
 	// CLUSTER-FIX-2 件1 (S1): the freq_only twin basis exercises the
 	// fold_capability_freq_only_reason contract key (the engine mints the
@@ -124,6 +124,10 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 		FmaxKHz: 2189000, FmaxSource: tracequery.SupplyFoldFmaxSourceObserved,
 		CapabilitySource:         tracequery.CoreCapabilitySourceFreqOnly,
 		CapabilityFreqOnlyReason: tracequery.CoreCapabilityFreqOnlyReasonSingleCluster,
+		// Backward-decoder contract keys remain exercised on a separate legacy
+		// record while new producers use GovernanceCap* above.
+		ThermalCapKHz:       1530000,
+		ThermalCapWitnessed: true,
 	}
 	impact := tracequery.WakeupCausalImpact{
 		Thread: tracequery.ThreadRef{Comm: "dep", PID: 21}, Window: window,

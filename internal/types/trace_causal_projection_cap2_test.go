@@ -23,16 +23,16 @@ func cap2FoldRecord(notes ...string) ObservationRecord {
 
 func TestTraceCausalProjectionCAP2TopologyAndThermalParse(t *testing.T) {
 	node := traceCausalProjectionNodeFromRecord(TraceCausalRoleRootCauseContext,
-		cap2FoldRecord("fold_cluster_topology=keyed_rail", "thermal_cap_khz=1850000"))
+		cap2FoldRecord("fold_cluster_topology=keyed_rail", "governance_cap_khz=1850000", "governance_cap_mechanism=thermal_rail", "governance_cap_witnessed=true"))
 	if node.SupplyFoldTopologySource != "keyed_rail" {
 		t.Fatalf("fold_cluster_topology must reach the node verbatim: %q", node.SupplyFoldTopologySource)
 	}
-	if node.ThermalCapKHz != 1850000 {
-		t.Fatalf("thermal_cap_khz must reach the node: %d", node.ThermalCapKHz)
+	if node.GovernanceCapKHz != 1850000 || node.GovernanceCapMechanism != "thermal_rail" || !node.GovernanceCapWitnessed {
+		t.Fatalf("governance-cap group must reach the node: %+v", node)
 	}
 	// Absence = explicit/legacy: no topology claim, no THERM sentence.
 	bare := traceCausalProjectionNodeFromRecord(TraceCausalRoleRootCauseContext, cap2FoldRecord())
-	if bare.SupplyFoldTopologySource != "" || bare.ThermalCapKHz != 0 {
+	if bare.SupplyFoldTopologySource != "" || bare.GovernanceCapKHz != 0 || bare.ThermalCapKHz != 0 {
 		t.Fatalf("absent notes must stay empty (byte-preserving legacy): %q/%d",
 			bare.SupplyFoldTopologySource, bare.ThermalCapKHz)
 	}
@@ -42,11 +42,16 @@ func TestTraceCausalProjectionCAP2TopologyAndThermalParse(t *testing.T) {
 		ID: "cap2-2", Origin: AnswerEvidenceOriginRuntimeArtifact,
 		Producer: "trace_query", GroundingPolicy: ClaimGroundingHard,
 		Predicate: "root_cause_context", Subject: "worker-9", Object: "running",
-		RichNotes: []string{"type=running", "fold_cluster_topology=keyed_rail", "thermal_cap_khz=1850000"},
+		RichNotes: []string{"type=running", "fold_cluster_topology=keyed_rail", "governance_cap_khz=1850000"},
 	}
 	if node := traceCausalProjectionNodeFromRecord(TraceCausalRoleRootCauseContext, stray); node.SupplyFoldComputed ||
-		node.SupplyFoldTopologySource != "" || node.ThermalCapKHz != 0 {
+		node.SupplyFoldTopologySource != "" || node.GovernanceCapKHz != 0 || node.ThermalCapKHz != 0 {
 		t.Fatalf("a topology/thermal claim without a fold is meaningless: %+v", node)
+	}
+	legacy := traceCausalProjectionNodeFromRecord(TraceCausalRoleRootCauseContext,
+		cap2FoldRecord("thermal_cap_khz=1530000", "thermal_cap_witnessed=true"))
+	if legacy.ThermalCapKHz != 1530000 || !legacy.ThermalCapWitnessed || legacy.GovernanceCapMechanism != "" {
+		t.Fatalf("legacy cap must preserve value while leaving mechanism unclassified: %+v", legacy)
 	}
 }
 

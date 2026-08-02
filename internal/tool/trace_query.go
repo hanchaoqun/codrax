@@ -10554,13 +10554,17 @@ func traceQueryTypedSupplyFoldRichNotes(basis *tracequery.SupplyFoldBasis, defic
 		}
 		notes = append(notes, fmt.Sprintf("%s=%s", types.TraceNoteKeyFoldRailBasis, strings.Join(parts, ";")))
 	}
-	// THERM (§28.5-T7): the in-window thermal/policy press on the dominant
-	// running cluster — disclosure-only, the display renders the
-	// 窗内该簇受热限压至 X sentence off this typed value.
-	if basis.ThermalCapKHz > 0 {
+	// B37-CAPAUTH: publish the neutral governance ceiling, its exact typed
+	// source, and the witness for that selected value. A policy ceiling never
+	// travels under a thermal key. Legacy ThermalCap fields remain a decode-
+	// only compatibility lane and are intentionally not emitted by new runs.
+	if basis.GovernanceCapKHz > 0 {
+		notes = append(notes, fmt.Sprintf("%s=%d", types.TraceNoteKeyGovernanceCapKHz, basis.GovernanceCapKHz))
+		notes = append(notes, fmt.Sprintf("%s=%s", types.TraceNoteKeyGovernanceCapMechanism, basis.GovernanceCapMechanism))
+		notes = append(notes, fmt.Sprintf("%s=%t", types.TraceNoteKeyGovernanceCapWitnessed, basis.GovernanceCapWitnessed))
+	} else if basis.ThermalCapKHz > 0 {
+		// Persisted pre-B37 fixture/record compatibility.
 		notes = append(notes, fmt.Sprintf("%s=%d", types.TraceNoteKeyThermalCapKHz, basis.ThermalCapKHz))
-		// CR-3 件⑥ F-10 (2026-07-12): the cap's in-window witness bit rides
-		// beside its value (the 受热限压 wording gate; 冷读 D5).
 		notes = append(notes, fmt.Sprintf("%s=%t", types.TraceNoteKeyThermalCapWitnessed, basis.ThermalCapWitnessed))
 	}
 	// VS-2b (§7.10): fmax ladder provenance — limits (policy authority) vs
@@ -10589,10 +10593,10 @@ func traceQueryTypedSupplyFoldRichNotes(basis *tracequery.SupplyFoldBasis, defic
 	// VS-2b companion finding (typed engine comparison, soft display
 	// wording): the governing policy ceiling sat below frequencies the same
 	// cluster demonstrably reached elsewhere in the trace.
-	if basis.LimitThrottled && basis.FmaxKHz > 0 {
-		notes = append(notes, fmt.Sprintf("%s=大核受策略/温控限频至 %.2f GHz,缺口部分源于压频(全程观测最高 %.2f GHz)",
+	if basis.LimitThrottled && basis.PolicyCeilingKHz > 0 && basis.TraceObservedMaxKHz > basis.PolicyCeilingKHz {
+		notes = append(notes, fmt.Sprintf("%s=大核策略频率上限 %.2f GHz 低于全程实测峰值 %.2f GHz(仅证明策略上限存在,不单独证明热机制或实际绑定影响)",
 			types.TraceNoteKeyFoldFmaxFinding,
-			float64(basis.FmaxKHz)/1e6, float64(basis.TraceObservedMaxKHz)/1e6))
+			float64(basis.PolicyCeilingKHz)/1e6, float64(basis.TraceObservedMaxKHz)/1e6))
 	}
 	// VS-2c(a): cluster-lane corroboration caveat, rendered ONLY on the
 	// precise divergence flag (一致时不加注). Lane names AND units are

@@ -33,10 +33,11 @@ package tool
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/tracefence"
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
-	"strings"
 )
 
 // Soft-face thresholds of the §7.10 decision table. Noisy-signal guidance
@@ -736,35 +737,62 @@ func runtimeTraceProjSupplyFoldClause(node types.TraceCausalProjectionNode, wind
 	if !ok {
 		return text, keep, ok
 	}
-	// THERM (§28.5-T7, disclosure-only zero-weight edit): the typed in-window
-	// thermal/policy press on the fold's dominant running cluster appends its
-	// own sentence — it never changes a number and never denies a neighbour
-	// value (数值+单位; absent field = no sentence, absence never guesses).
-	if node.ThermalCapKHz > 0 {
-		// CR-3 件⑥ F-10 (2026-07-12; CR-2 冷读 D5 witness — a carry-in cap
-		// wore the thermal word with zero in-window event): the 受热限压
-		// wording requires an IN-WINDOW limits/thermal event witness; an
-		// unwitnessed press states the governed frequency without asserting
-		// its cause (数值真实,标签不越权).
-		if node.ThermalCapWitnessed {
-			if zh {
-				text += fmt.Sprintf(";窗内该簇受热限压至 %.2fGHz", float64(node.ThermalCapKHz)/1e6)
-			} else {
-				text += fmt.Sprintf("; a thermal/policy cap pressed this cluster to %.2fGHz in-window", float64(node.ThermalCapKHz)/1e6)
-			}
-		} else {
-			if zh {
-				text += fmt.Sprintf(";窗内该簇运行于 %.2fGHz(限压原因未见证)", float64(node.ThermalCapKHz)/1e6)
-			} else {
-				text += fmt.Sprintf("; this cluster ran governed at %.2fGHz in-window (cap cause unwitnessed)", float64(node.ThermalCapKHz)/1e6)
-			}
-		}
+	// B37-CAPAUTH: append the typed governance ceiling without upgrading a
+	// generic policy limit into thermal causality or into an observed running
+	// frequency. This remains a zero-weight disclosure; the model owns the
+	// conclusion drawn from it.
+	if suffix := runtimeTraceProjGovernanceCapClause(node, zh); suffix != "" {
+		text += suffix
 	}
 	return text, keep, ok
 }
 
+func runtimeTraceProjGovernanceCapClause(node types.TraceCausalProjectionNode, zh bool) string {
+	khz := node.GovernanceCapKHz
+	mechanism := strings.TrimSpace(node.GovernanceCapMechanism)
+	witnessed := node.GovernanceCapWitnessed
+	if khz <= 0 && node.ThermalCapKHz > 0 {
+		// Persisted legacy records conflated policy limits and thermal rails.
+		// Preserve the value but deliberately keep the mechanism unclassified.
+		khz = node.ThermalCapKHz
+		witnessed = node.ThermalCapWitnessed
+	}
+	if khz <= 0 {
+		return ""
+	}
+	ghz := float64(khz) / 1e6
+	if !witnessed {
+		if zh {
+			return fmt.Sprintf(";该簇治理上限记录为 %.2fGHz(所选上限的窗内原因事件未见证)", ghz)
+		}
+		return fmt.Sprintf("; this cluster has a %.2fGHz governance ceiling (no in-window source event witnessed for the selected ceiling)", ghz)
+	}
+	switch mechanism {
+	case tracequery.SupplyFoldGovernanceCapPolicyLimit:
+		if zh {
+			return fmt.Sprintf(";窗内该簇策略频率上限为 %.2fGHz(不单独证明热机制或实际绑定影响)", ghz)
+		}
+		return fmt.Sprintf("; this cluster had a %.2fGHz policy frequency ceiling in-window (not proof by itself of a thermal mechanism or binding impact)", ghz)
+	case tracequery.SupplyFoldGovernanceCapThermalRail:
+		if zh {
+			return fmt.Sprintf(";窗内该簇明确热控轨上限为 %.2fGHz", ghz)
+		}
+		return fmt.Sprintf("; this cluster had a %.2fGHz explicitly thermal-named rail ceiling in-window", ghz)
+	case tracequery.SupplyFoldGovernanceCapPolicyAndThermal:
+		if zh {
+			return fmt.Sprintf(";窗内该簇策略上限与明确热控轨共同给出 %.2fGHz 上限", ghz)
+		}
+		return fmt.Sprintf("; this cluster had the same %.2fGHz ceiling from both a policy limit and an explicitly thermal-named rail in-window", ghz)
+	default:
+		if zh {
+			return fmt.Sprintf(";窗内该簇治理上限记录为 %.2fGHz(机制未分类)", ghz)
+		}
+		return fmt.Sprintf("; this cluster had a %.2fGHz governance ceiling in-window (mechanism unclassified)", ghz)
+	}
+}
+
 // runtimeTraceProjSupplyFoldClauseCore is the §7.10 four-branch body (see
-// runtimeTraceProjSupplyFoldClause for the THERM appendix).
+// runtimeTraceProjSupplyFoldClause for the B37-CAPAUTH appendix).
 func runtimeTraceProjSupplyFoldClauseCore(node types.TraceCausalProjectionNode, windowMS float64, hoisted, zh bool) (string, string, bool) {
 	verdict := runtimeTraceProjSupplyFoldVerdictFor(node, windowMS)
 	if verdict == runtimeTraceProjSupplyFoldNone {

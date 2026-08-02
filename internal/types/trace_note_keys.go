@@ -872,14 +872,17 @@ const (
 	// seat rows gain tgid=G).
 	TraceNoteKeyTGID        = "tgid"
 	TraceNoteKeyProcessComm = "process_comm"
-	// TraceNoteKeyThermalCapWitnessed (CR-3 件⑥ F-10, 2026-07-12; CR-2 冷读
-	// D5): whether the fold's thermal/policy cap has an IN-WINDOW
-	// cpu_frequency_limits / thermal-rail event witness ("true"/"false",
-	// emitted only beside thermal_cap_khz). Consumed by the projection
-	// compile into TraceCausalProjectionNode.ThermalCapWitnessed — the
-	// display words an unwitnessed press 运行于 X(限压原因未见证) instead of
-	// 受热限压至 X (词面仅当窗内存在 typed 见证).
+	// TraceNoteKeyThermalCapWitnessed is retained for backward decoding of
+	// pre-B37 ledgers. Its old value did not distinguish a generic policy
+	// ceiling from an explicitly thermal-named rail, so new producers never
+	// emit this family and consumers keep its mechanism unclassified.
 	TraceNoteKeyThermalCapWitnessed = "thermal_cap_witnessed"
+	// Governance-cap family (B37-CAPAUTH): the neutral ceiling value plus
+	// exact source mechanism and selected-value in-window witness. New
+	// producers use these keys; thermal_cap_* remains decode-only compatibility.
+	TraceNoteKeyGovernanceCapKHz       = "governance_cap_khz"
+	TraceNoteKeyGovernanceCapMechanism = "governance_cap_mechanism"
+	TraceNoteKeyGovernanceCapWitnessed = "governance_cap_witnessed"
 	// TraceNoteKeyDeterministicRunning (§29.27② COV-4, 2026-07-11): the
 	// target_window_states record's 确定性工作 lane — the wall-clock union of
 	// the focused thread's own semantic-span intervals ∩ its running
@@ -1788,12 +1791,14 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// fold_rail_basis (CAP-2 §28.5-T6 审计注): rail family + rail-governed
 	// slice roster traceback — display tier.
 	{TraceNoteKeyFoldRailBasis, "supply_fold", TraceNoteCarrierDisplayOnly},
-	// thermal_cap_khz (THERM §28.5-T7): typed node-field read-in — the
-	// 窗内该簇受热限压至 X disclosure sentence keys on it.
+	// thermal_cap_khz is backward-only input. It preserves the old value but
+	// cannot authorize a thermal mechanism because its source was conflated.
 	{TraceNoteKeyThermalCapKHz, "supply_fold", TraceNoteCarrierHardConsumer},
-	// CR-3 件⑥ F-10 (2026-07-12): the cap's in-window witness bit — the
-	// 受热限压 vs 运行于(限压原因未见证) wording gate.
+	// Legacy witness, consumed only beside the legacy value above.
 	{TraceNoteKeyThermalCapWitnessed, "supply_fold", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyGovernanceCapKHz, "supply_fold", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyGovernanceCapMechanism, "supply_fold", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyGovernanceCapWitnessed, "supply_fold", TraceNoteCarrierHardConsumer},
 
 	// 占用族 (RN-1) + CMP-9 density.
 	{TraceNoteKeyStarvedRunnableMS, "occupancy", TraceNoteCarrierDisplayOnly},

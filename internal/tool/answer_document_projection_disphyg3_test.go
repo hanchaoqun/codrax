@@ -24,6 +24,7 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/tracefence"
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -378,7 +379,9 @@ func TestDisphyg3ProseClauseRegimeSupplyFold(t *testing.T) {
 			SupplyFoldComputed: true, SupplyFoldKnownMS: 75.912,
 			SupplyFoldDeficitMS: 65.912, SupplyFoldIdealMS: 10.0,
 			SupplyFoldCapabilitySource: "freq_only",
-			ThermalCapKHz:              1530000, ThermalCapWitnessed: true,
+			GovernanceCapKHz:           1530000,
+			GovernanceCapMechanism:     tracequery.SupplyFoldGovernanceCapThermalRail,
+			GovernanceCapWitnessed:     true,
 		}},
 	}
 	lead := runtimeTraceProjConclusionLine(projection, runtimeTraceProjTreeModel{WindowMS: 233.190}, true)

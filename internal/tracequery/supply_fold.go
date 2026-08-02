@@ -72,7 +72,8 @@ type SupplyFoldBasis struct {
 	// evidence lanes, 最大可能频点): FmaxKHz is the big-cluster fmax the fold
 	// divided by; FmaxSource names the lane that actually supplied the max —
 	// "limit" (in-trace cpu_frequency_limits: the cpufreq POLICY ceiling,
-	// which includes thermal caps and is NOT the hardware rated maximum, so
+	// which may reflect several governance inputs and is NOT the hardware
+	// rated maximum, so
 	// the deficit's "下界" wording stands), "observed" (highest full-trace
 	// cpu_frequency sample — wins when it exceeds a pressed/stale limits
 	// ceiling), or "rail". Empty/zero when no governed sample existed
@@ -83,9 +84,13 @@ type SupplyFoldBasis struct {
 	// VS-2b companion finding (typed comparison, display renders the soft
 	// clause): the big cluster's governing limits.Max sat BELOW a higher
 	// cpu_frequency sample observed on the same cluster elsewhere in the
-	// loaded trace — part of the deficit is policy/thermal throttling, not
-	// scheduling. TraceObservedMaxKHz is that full-trace observed maximum.
+	// loaded trace — the policy ceiling was below an observed operating
+	// point, without identifying the mechanism or proving in-window binding.
+	// PolicyCeilingKHz and TraceObservedMaxKHz are the exact comparison pair;
+	// FmaxKHz is the independently selected max-over-lanes fold basis and must
+	// never substitute for either endpoint.
 	LimitThrottled      bool  `json:"limit_throttled,omitempty"`
+	PolicyCeilingKHz    int64 `json:"policy_ceiling_khz,omitempty"`
 	TraceObservedMaxKHz int64 `json:"trace_observed_max_khz,omitempty"`
 
 	// VS-2c(a) cluster-lane corroboration (§7.10 终局裁定): the highest
@@ -210,24 +215,32 @@ type SupplyFoldBasis struct {
 	RailFamily   string                   `json:"rail_family,omitempty"`
 	RailGoverned []SupplyFoldRailGoverned `json:"rail_governed,omitempty"`
 
-	// ThermalCapKHz / ThermalCapClusterClass (THERM, §28.5-T7, disclosure-only
-	// zero-weight edit): the dominant running cluster of this fold was pressed
-	// below its fmax inside the governance window — by a governing
-	// cpu_frequency_limits Max and/or a thermal-named per-cluster rail — down
-	// to ThermalCapKHz. No fold number changes; the display appends the
-	// 窗内该簇受热限压至 X sentence. Zero when no press or when the cluster
-	// attribution is unavailable (absence never guesses).
+	// GovernanceCap* (B37-CAPAUTH, 2026-08-01) is the disclosure-only
+	// governing ceiling below this fold's reference fmax. Mechanism is derived
+	// from the typed source that supplied the MINIMUM ceiling, not from a
+	// generic frequency-limits row: policy_limit is a cpufreq policy ceiling;
+	// thermal_rail is reserved for an explicitly thermal-named rail; a tie can
+	// carry both. Witnessed means that exact selected ceiling had an in-window
+	// source event. These fields never change a fold number, rank, or gate.
+	GovernanceCapKHz          int64  `json:"governance_cap_khz,omitempty"`
+	GovernanceCapClusterClass string `json:"governance_cap_cluster_class,omitempty"`
+	GovernanceCapMechanism    string `json:"governance_cap_mechanism,omitempty"`
+	GovernanceCapWitnessed    bool   `json:"governance_cap_witnessed,omitempty"`
+
+	// ThermalCap* are retained only for backward decoding of persisted
+	// pre-B37 records. New engine results leave them zero and publish the
+	// GovernanceCap* family above, because cpu_frequency_limits alone is not
+	// proof of a thermal mechanism.
 	ThermalCapKHz          int64  `json:"thermal_cap_khz,omitempty"`
 	ThermalCapClusterClass string `json:"thermal_cap_cluster_class,omitempty"`
-	// ThermalCapWitnessed (CR-3 件⑥ F-10, 2026-07-12; CR-2 冷读 D5 witness:
-	// 「受热限压至 1.53GHz」 with zero in-window thermal/limits event — the
-	// cap was a pre-window carry-in governance value): true iff at least one
-	// cpu_frequency_limits sample or thermal-rail sample with an IN-WINDOW
-	// timestamp pressed this cluster. False = the press is real governance
-	// but its cause is unwitnessed inside the window — the display words it
-	// 运行于 X(限压原因未见证) instead of 受热限压至 X. Wording input only.
-	ThermalCapWitnessed bool `json:"thermal_cap_witnessed,omitempty"`
+	ThermalCapWitnessed    bool   `json:"thermal_cap_witnessed,omitempty"`
 }
+
+const (
+	SupplyFoldGovernanceCapPolicyLimit      = "policy_limit"
+	SupplyFoldGovernanceCapThermalRail      = "thermal_rail"
+	SupplyFoldGovernanceCapPolicyAndThermal = "policy_limit_and_thermal_rail"
+)
 
 // SupplyFoldRailGoverned is one disclosed rail-governed slice CPU: slices on
 // CPU folded with the named keyed rail's governance timeline (CAP-2 Tier-2).
@@ -565,6 +578,7 @@ type supplyFoldFmax struct {
 	khz                 int64
 	source              string
 	throttled           bool
+	policyCeilingKHz    int64
 	traceObservedMaxKHz int64
 }
 
@@ -608,7 +622,7 @@ type supplyFoldFmax struct {
 // evidence participate (ghost topology entries carry no curves and no fmax).
 // The throttling companion keeps its DISCLOSURE shape (R5b 族, 照旧走披露
 // 车道不改基准): a limits ceiling sitting below the same cluster's
-// full-trace observed maximum ⇒ policy/thermal capping disclosed — the FACT
+// full-trace observed maximum ⇒ a lower policy ceiling is disclosed — the FACT
 // is unchanged even though the basis now takes the observed peak in that
 // shape.
 func (c *chainQueryCache) supplyFoldGlobalMaxBasis(capability coreCapabilityMap) (supplyFoldFmax, float64, string) {
@@ -637,7 +651,7 @@ func (c *chainQueryCache) supplyFoldGlobalMaxBasis(capability coreCapabilityMap)
 		// R5c max(): value = max over the lanes; source = the winning lane
 		// (authority-ordered attribution on ties). Throttling disclosure is
 		// value-independent: a limits ceiling below the observed peak is the
-		// typed policy/thermal fact regardless of which lane won the basis.
+		// typed policy-ceiling comparison regardless of which lane won the basis.
 		out := supplyFoldFmax{khz: railMax, source: SupplyFoldFmaxSourceRail, traceObservedMaxKHz: observed}
 		if observed > 0 && observed >= out.khz {
 			out.khz, out.source = observed, SupplyFoldFmaxSourceObserved
@@ -646,6 +660,9 @@ func (c *chainQueryCache) supplyFoldGlobalMaxBasis(capability coreCapabilityMap)
 			out.khz, out.source = limit, SupplyFoldFmaxSourceLimit
 		}
 		out.throttled = limit > 0 && observed > limit
+		if out.throttled {
+			out.policyCeilingKHz = limit
+		}
 		return out
 	}
 	if capability.usable() {
@@ -719,6 +736,7 @@ func (c *chainQueryCache) supplyFoldRunningIntervals(q Query, nodeStart, nodeEnd
 	basis.FmaxSource = fm.source
 	basis.LimitThrottled = fm.throttled
 	if fm.throttled {
+		basis.PolicyCeilingKHz = fm.policyCeilingKHz
 		basis.TraceObservedMaxKHz = fm.traceObservedMaxKHz
 	}
 	c.applyClusterLaneCorroboration(&basis, gStart, gEnd)
@@ -752,12 +770,12 @@ func (c *chainQueryCache) supplyFoldRunningIntervals(q Query, nodeStart, nodeEnd
 	}
 	// CAP-2 (§28.4/§28.5): the typed topology-source token rides the basis
 	// only on the two evidence forms (explicit/legacy stay token-less —
-	// byte-identical wire). THERM (§28.5-T7) appends the disclosure-only
-	// in-window thermal/policy press on the dominant running cluster.
+	// byte-identical wire). B37-CAPAUTH appends the disclosure-only in-window
+	// governance ceiling and its exact typed source on the dominant cluster.
 	if capability.usable() {
 		basis.ClusterTopologySource = capability.topologySource
 	}
-	c.applyThermalCapDisclosure(&basis, capability, gStart, gEnd, intervals)
+	c.applyGovernanceCapDisclosure(&basis, capability, gStart, gEnd, intervals)
 	if bigFmax > 0 {
 		basis.ReferenceClass = refClass
 	}
@@ -889,20 +907,20 @@ func recordSupplyFoldRailGoverned(basis *SupplyFoldBasis, cpu int, rail string) 
 	})
 }
 
-// applyThermalCapDisclosure (THERM, §28.5-T7) computes the disclosure-only
-// in-window thermal/policy press for the fold's dominant running cluster:
+// applyGovernanceCapDisclosure computes the disclosure-only governing
+// ceiling for the fold's dominant running cluster:
 //
 //	cap = min over the governance window of (a) the members' governing
 //	      cpu_frequency_limits Max samples and (b) the values of thermal-named
 //	      per-cluster rails whose anchors all sit inside this cluster;
 //	press exists ⇔ cap < the cluster's ladder fmax (precise int comparison).
 //
-// Zero-weight edit: nothing numeric changes — the display appends the
-// 窗内该簇受热限压至 X sentence off the typed field. The dominant cluster is
-// the wall-clock argmax over the node's own RUNNING slices (deterministic
-// label tie-break); an unattributable cluster emits nothing (归属不可得时
-// 不发, absence never guesses).
-func (c *chainQueryCache) applyThermalCapDisclosure(basis *SupplyFoldBasis, capability coreCapabilityMap, gStart, gEnd float64, intervals []Interval) {
+// The source of the selected minimum travels with the value. A generic
+// cpu_frequency_limits row therefore remains policy_limit and can never mint
+// a thermal claim; only an explicitly thermal-named rail can do that. The
+// witness bit also belongs to the selected minimum itself, so an unrelated
+// higher in-window cap cannot authenticate a lower carry-in ceiling.
+func (c *chainQueryCache) applyGovernanceCapDisclosure(basis *SupplyFoldBasis, capability coreCapabilityMap, gStart, gEnd float64, intervals []Interval) {
 	if !capability.usable() {
 		return
 	}
@@ -930,30 +948,27 @@ func (c *chainQueryCache) applyThermalCapDisclosure(basis *SupplyFoldBasis, capa
 		return
 	}
 	var cap int64
+	mechanism := ""
 	witnessed := false
-	press := func(sample freqSample) {
+	press := func(sample freqSample, source string) {
 		if sample.khz <= 0 {
 			return
 		}
 		if cap == 0 || sample.khz < cap {
 			cap = sample.khz
+			mechanism = source
+			witnessed = sample.ts > gStart && sample.khz < fmax
+			return
 		}
-		// CR-3 件⑥ F-10 (2026-07-12): governedWindowSamples re-timestamps
-		// the pre-window carry-in head to exactly gStart; a strictly-later
-		// timestamp is therefore a REAL in-window limits/thermal event — the
-		// typed witness the 受热限压 wording requires (冷读 D5: a carry-in
-		// cap wore the thermal word with zero in-window event).
-		// 修复轮 P4 (2026-07-12): the witness must itself PRESS — an
-		// in-window sample at (or above) the cluster fmax is a release/
-		// no-op event and never earns the thermal word for a carry-in cap.
-		if sample.ts > gStart && sample.khz < fmax {
-			witnessed = true
+		if sample.khz == cap {
+			mechanism = mergeSupplyFoldGovernanceCapMechanism(mechanism, source)
+			witnessed = witnessed || (sample.ts > gStart && sample.khz < fmax)
 		}
 	}
 	c.buildFreqLimitIndex()
 	for _, cpu := range capability.domains.members[label] {
 		for _, sample := range governedWindowSamples(c.freqLimitByCPU[cpu], gStart, gEnd) {
-			press(sample)
+			press(sample, SupplyFoldGovernanceCapPolicyLimit)
 		}
 	}
 	for _, rail := range c.thermalRailTimelines() {
@@ -961,14 +976,30 @@ func (c *chainQueryCache) applyThermalCapDisclosure(basis *SupplyFoldBasis, capa
 			continue
 		}
 		for _, sample := range governedWindowSamples(rail.samples, gStart, gEnd) {
-			press(sample)
+			press(sample, SupplyFoldGovernanceCapThermalRail)
 		}
 	}
 	if cap > 0 && cap < fmax {
-		basis.ThermalCapKHz = cap
-		basis.ThermalCapClusterClass = capability.classByCluster[label]
-		basis.ThermalCapWitnessed = witnessed
+		basis.GovernanceCapKHz = cap
+		basis.GovernanceCapClusterClass = capability.classByCluster[label]
+		basis.GovernanceCapMechanism = mechanism
+		basis.GovernanceCapWitnessed = witnessed
 	}
+}
+
+func mergeSupplyFoldGovernanceCapMechanism(a, b string) string {
+	if a == "" || a == b {
+		return b
+	}
+	if b == "" {
+		return a
+	}
+	if (a == SupplyFoldGovernanceCapPolicyLimit && b == SupplyFoldGovernanceCapThermalRail) ||
+		(a == SupplyFoldGovernanceCapThermalRail && b == SupplyFoldGovernanceCapPolicyLimit) ||
+		a == SupplyFoldGovernanceCapPolicyAndThermal || b == SupplyFoldGovernanceCapPolicyAndThermal {
+		return SupplyFoldGovernanceCapPolicyAndThermal
+	}
+	return ""
 }
 
 func supplyFoldSliceIdeal(sliceMs float64, freqKHz, bigFmaxKHz int64, capRatio float64, basis *SupplyFoldBasis) float64 {

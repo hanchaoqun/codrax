@@ -130,6 +130,7 @@ import (
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/tracefence"
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -180,16 +181,17 @@ type traceWaitCensusEntry struct {
 // SAME typed criterion as the display compound word —
 // types.TraceSupplyGapDominant over the same two note values, so the feed
 // and the report face can never fork). All magnitudes are VERBATIM note
-// strings (CR-1 rule, zero recompute); only the thermal cap converts its
-// unit (kHz → GHz) via the display layer's own formula.
+// strings (CR-1 rule, zero recompute); only the governance ceiling converts
+// its unit (kHz → GHz) via the display layer's own formula.
 type traceSeatCompositionFact struct {
-	rank             int
-	subject          string
-	runnable         string // gated_runnable note, verbatim ("" = no runnable component)
-	running          string // gated_running_deficit note, verbatim
-	deficit          string // supply_fold_deficit_ms note, verbatim
-	thermalKHz       int
-	thermalWitnessed bool
+	rank                int
+	subject             string
+	runnable            string // gated_runnable note, verbatim ("" = no runnable component)
+	running             string // gated_running_deficit note, verbatim
+	deficit             string // supply_fold_deficit_ms note, verbatim
+	governanceKHz       int
+	governanceMechanism string
+	governanceWitnessed bool
 }
 
 // traceSupplyDeficitFact is one FREQDIR-1 件2 (§29.149 修向②, 2026-07-19)
@@ -197,19 +199,58 @@ type traceSeatCompositionFact struct {
 // ran and published a positive deficit, and which the 席位构成 arm above did
 // NOT already feed (the composition arm keeps its own inversion+split gates;
 // witness 95946: the #1 non-inversion running seat — the owner of the
-// 58.320ms deficit — published NO thermal/frequency named fact while the
+// 58.320ms deficit — published NO governance-frequency named fact while the
 // inversion seats ➋➌#8 did, and the model absorbed the seat into the
 // inversion narrative). The fact publishes ONLY what the seat actually has —
-// the deficit and the thermal-cap facts — never a fabricated gated split
+// the deficit and the typed governance-ceiling facts — never a fabricated gated split
 // (禁伪造拆分). Magnitudes are VERBATIM note strings (CR-1 rule); only the
-// thermal cap converts kHz → GHz via the display layer's own formula.
+// governance ceiling converts kHz → GHz via the display layer's own formula.
 type traceSupplyDeficitFact struct {
-	rank             int
-	subject          string
-	typeToken        string // the row's own published type token (record.Object)
-	deficit          string // supply_fold_deficit_ms note, verbatim
-	thermalKHz       int
-	thermalWitnessed bool
+	rank                int
+	subject             string
+	typeToken           string // the row's own published type token (record.Object)
+	deficit             string // supply_fold_deficit_ms note, verbatim
+	governanceKHz       int
+	governanceMechanism string
+	governanceWitnessed bool
+}
+
+func traceGovernanceCapFromNotes(notes map[string]string) (khz int, mechanism string, witnessed bool) {
+	raw := strings.TrimSpace(notes[types.TraceNoteKeyGovernanceCapKHz])
+	if raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+			return parsed,
+				strings.TrimSpace(notes[types.TraceNoteKeyGovernanceCapMechanism]),
+				strings.TrimSpace(notes[types.TraceNoteKeyGovernanceCapWitnessed]) == "true"
+		}
+	}
+	// Backward-only decode. Legacy thermal_cap_khz could be backed by either
+	// policy limits or thermal rails, so its mechanism stays unclassified.
+	raw = strings.TrimSpace(notes[types.TraceNoteKeyThermalCapKHz])
+	if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+		return parsed, "", strings.TrimSpace(notes[types.TraceNoteKeyThermalCapWitnessed]) == "true"
+	}
+	return 0, "", false
+}
+
+func traceGovernanceCapFactSuffix(khz int, mechanism string, witnessed bool) string {
+	if khz <= 0 {
+		return ""
+	}
+	ghz := float64(khz) / 1e6
+	if !witnessed {
+		return fmt.Sprintf(",治理上限 %.2fGHz(所选上限的窗内原因事件未见证)", ghz)
+	}
+	switch mechanism {
+	case tracequery.SupplyFoldGovernanceCapPolicyLimit:
+		return fmt.Sprintf(",策略频率上限 %.2fGHz(不单独证明热机制或实际绑定影响)", ghz)
+	case tracequery.SupplyFoldGovernanceCapThermalRail:
+		return fmt.Sprintf(",明确热控轨上限 %.2fGHz", ghz)
+	case tracequery.SupplyFoldGovernanceCapPolicyAndThermal:
+		return fmt.Sprintf(",策略/明确热控共同上限 %.2fGHz", ghz)
+	default:
+		return fmt.Sprintf(",治理上限 %.2fGHz(机制未分类)", ghz)
+	}
 }
 
 type traceWaitThreadFacts struct {
@@ -490,12 +531,7 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 						running:  runningRaw,
 						deficit:  deficitRaw,
 					}
-					if raw := strings.TrimSpace(notes[types.TraceNoteKeyThermalCapKHz]); raw != "" {
-						if khz, err := strconv.Atoi(raw); err == nil && khz > 0 {
-							fact.thermalKHz = khz
-							fact.thermalWitnessed = strings.TrimSpace(notes[types.TraceNoteKeyThermalCapWitnessed]) == "true"
-						}
-					}
+					fact.governanceKHz, fact.governanceMechanism, fact.governanceWitnessed = traceGovernanceCapFromNotes(notes)
 					dup := false
 					for _, have := range seatComps {
 						if have == fact {
@@ -545,12 +581,7 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 						typeToken: strings.TrimSpace(record.Object),
 						deficit:   deficitRaw,
 					}
-					if raw := strings.TrimSpace(notes[types.TraceNoteKeyThermalCapKHz]); raw != "" {
-						if khz, err := strconv.Atoi(raw); err == nil && khz > 0 {
-							fact.thermalKHz = khz
-							fact.thermalWitnessed = strings.TrimSpace(notes[types.TraceNoteKeyThermalCapWitnessed]) == "true"
-						}
-					}
+					fact.governanceKHz, fact.governanceMechanism, fact.governanceWitnessed = traceGovernanceCapFromNotes(notes)
 					dup := false
 					for _, have := range supplyDeficits {
 						if have == fact {
@@ -935,8 +966,8 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 		// model never sees (it writes prose BEFORE rendering; 等待对象四跑四
 		// 答案 同构病根), so the composition rides the CR-1 dual-stage feed.
 		// Verbatim value chain (note strings, zero recompute); only the
-		// thermal cap converts kHz → GHz via the display layer's own formula
-		// (supplyfold.go THERM appendix, %.2f of khz/1e6 — a unit conversion
+		// governance ceiling converts kHz → GHz via the display layer's own formula
+		// (supplyfold.go B37-CAPAUTH appendix, %.2f of khz/1e6 — a unit conversion
 		// of ONE typed value, never a derivation).
 		sort.SliceStable(seatComps, func(i, j int) bool {
 			if seatComps[i].rank != seatComps[j].rank {
@@ -961,7 +992,7 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 		// trace_wait_evidence_summary_test.go tie the literals to the same
 		// table.
 		neverWord := tracefence.CaliberWordNeverPublishedZH()[0]
-		b.WriteString(fmt.Sprintf("Seat composition facts (typed, per-seat published split): each line below is that seat's OWN published composition — when naming that seat's cause, state BOTH factors together (the inversion wait AND the supply-gap/thermal-frequency component); quote each value verbatim and never re-derive, sum across seats, or drop either factor. The caliber word attached to each value is PART of the fact: quote the word and its value together exactly as printed (反转等待(全额) X / running 折算 Y / …下界), and never replace a caliber word with a near-synonym this report does not publish (e.g. %[1]s — the published word is 全额). 叙述下列席位的根因时必须两因并提:优先级反转等待 + 供给缺口/热限压(频点跑慢)成分——按行内构成值逐字引用;禁止把该席压缩为只提「优先级反转」的单因词形。口径词与数值同为具名事实:引用时连词带值整体照抄(「反转等待(全额) X」「running 折算 Y」「…下界」);禁止改写口径词,或以「%[1]s」等未发布近义词替换「全额」等发布词。\n",
+		b.WriteString(fmt.Sprintf("Seat composition facts (typed, per-seat published split): each line below is that seat's OWN published composition — when naming that seat's cause, state BOTH factors together (the inversion wait AND the compute-supply/governance-frequency component); quote each value verbatim and never re-derive, sum across seats, or drop either factor. A policy ceiling is not thermal proof and is not an observed running frequency. The caliber word attached to each value is PART of the fact: quote the word and its value together exactly as printed (反转等待(全额) X / running 折算 Y / …下界), and never replace a caliber word with a near-synonym this report does not publish (e.g. %[1]s — the published word is 全额). 叙述下列席位的根因时必须两因并提:优先级反转等待 + 供给缺口/治理频点成分——按行内构成值逐字引用;策略上限不等于热机制证明,也不等于实测运行频点;禁止把该席压缩为只提「优先级反转」的单因词形。口径词与数值同为具名事实:引用时连词带值整体照抄(「反转等待(全额) X」「running 折算 Y」「…下界」);禁止改写口径词,或以「%[1]s」等未发布近义词替换「全额」等发布词。\n",
 			neverWord))
 		badges := tracefence.BadgeGlyphs()
 		compoundWord := tracefence.InversionCandidateWordZH + "·" + tracefence.SupplyGapDominantWordZH
@@ -980,13 +1011,7 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 			}
 			terms = append(terms, "running 折算 "+fact.running+"ms")
 			paren := "供给缺口 " + fact.deficit + "ms 下界为主"
-			if fact.thermalKHz > 0 {
-				if fact.thermalWitnessed {
-					paren += fmt.Sprintf(",热限压 %.2fGHz", float64(fact.thermalKHz)/1e6)
-				} else {
-					paren += fmt.Sprintf(",窗内运行于 %.2fGHz(限压原因未见证)", float64(fact.thermalKHz)/1e6)
-				}
-			}
+			paren += traceGovernanceCapFactSuffix(fact.governanceKHz, fact.governanceMechanism, fact.governanceWitnessed)
 			b.WriteString(fmt.Sprintf("- 席位构成(%s %s %s): %s(%s)——两因并提,引用勿推导\n",
 				seat, fact.subject, compoundWord, strings.Join(terms, " + "), paren))
 		}
@@ -999,7 +1024,7 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 	// excludes every inversion-marked record). The fact carries the deficit
 	// with its caliber words embedded IN the string (口径词嵌串防加和: the
 	// verbatim-quote discipline then makes the model carry the words with the
-	// number) plus the thermal facts the seat actually published — never a
+	// number) plus the governance facts the seat actually published — never a
 	// fabricated gated split.
 	if len(supplyDeficits) > 0 {
 		filtered := supplyDeficits[:0]
@@ -1036,13 +1061,7 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 				seat = badges[fact.rank-1]
 			}
 			paren := "运行频点非最高"
-			if fact.thermalKHz > 0 {
-				if fact.thermalWitnessed {
-					paren += fmt.Sprintf(",热限压 %.2fGHz", float64(fact.thermalKHz)/1e6)
-				} else {
-					paren += fmt.Sprintf(",窗内运行于 %.2fGHz(限压原因未见证)", float64(fact.thermalKHz)/1e6)
-				}
-			}
+			paren += traceGovernanceCapFactSuffix(fact.governanceKHz, fact.governanceMechanism, fact.governanceWitnessed)
 			head := seat + " " + fact.subject
 			if fact.typeToken != "" {
 				head += " " + fact.typeToken

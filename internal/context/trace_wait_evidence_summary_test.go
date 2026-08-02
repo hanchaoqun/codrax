@@ -7,6 +7,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/tracefence"
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -892,8 +893,9 @@ func traceWaitInvSupplySeatRecord() types.ObservationRecord {
 		types.TraceNoteKeySupplyFoldDeficitMS+"=7.296",
 		types.TraceNoteKeySupplyFoldIdealMS+"=0.998",
 		types.TraceNoteKeyFoldBasis+"=known=8.294ms,unknown=0.000ms",
-		types.TraceNoteKeyThermalCapKHz+"=1530000",
-		types.TraceNoteKeyThermalCapWitnessed+"=true")
+		types.TraceNoteKeyGovernanceCapKHz+"=1530000",
+		types.TraceNoteKeyGovernanceCapMechanism+"=thermal_rail",
+		types.TraceNoteKeyGovernanceCapWitnessed+"=true")
 }
 
 // TestTraceWaitEvidence_SeatCompositionFact — the compound seat's composition
@@ -904,7 +906,7 @@ func TestTraceWaitEvidence_SeatCompositionFact(t *testing.T) {
 	ledger := traceWaitTestLedger()
 	ledger.Records = append(ledger.Records, traceWaitInvSupplySeatRecord())
 	summary := formatTraceWaitWakeEvidenceFromLedger(ledger, nil)
-	want := "- 席位构成(➊ CompThread_0-2955 优先级反转候选·供给缺口主导): 反转等待(全额) 0.109ms + running 折算 6.972ms(供给缺口 7.296ms 下界为主,热限压 1.53GHz)——两因并提,引用勿推导"
+	want := "- 席位构成(➊ CompThread_0-2955 优先级反转候选·供给缺口主导): 反转等待(全额) 0.109ms + running 折算 6.972ms(供给缺口 7.296ms 下界为主,明确热控轨上限 1.53GHz)——两因并提,引用勿推导"
 	if !strings.Contains(summary, want) {
 		t.Fatalf("seat composition fact missing/mutated:\n%s", summary)
 	}
@@ -999,20 +1001,40 @@ func TestTraceWaitEvidence_SeatCompositionGates(t *testing.T) {
 	}
 	// Unwitnessed thermal cap → honest wording, no 热限压 claim ON THE FACT
 	// LINE (the bilingual section lead legitimately names the 热限压 factor).
-	unwitnessed := render(func(r *types.ObservationRecord) { replaceNote(r, types.TraceNoteKeyThermalCapWitnessed, "false") })
+	unwitnessed := render(func(r *types.ObservationRecord) { replaceNote(r, types.TraceNoteKeyGovernanceCapWitnessed, "false") })
 	factLine := ""
 	for _, line := range strings.Split(unwitnessed, "\n") {
 		if strings.Contains(line, "席位构成(") {
 			factLine = line
 		}
 	}
-	if !strings.Contains(factLine, ",窗内运行于 1.53GHz(限压原因未见证))") || strings.Contains(factLine, "热限压") {
+	if !strings.Contains(factLine, ",治理上限 1.53GHz(所选上限的窗内原因事件未见证))") || strings.Contains(factLine, "热控") || strings.Contains(factLine, "运行于") {
 		t.Fatalf("unwitnessed cap must keep the honest wording:\n%s", unwitnessed)
+	}
+	// A witnessed generic cpu_frequency_limits ceiling remains policy-only:
+	// it must not be upgraded to a thermal mechanism or observed frequency.
+	policy := render(func(r *types.ObservationRecord) {
+		replaceNote(r, types.TraceNoteKeyGovernanceCapMechanism, tracequery.SupplyFoldGovernanceCapPolicyLimit)
+	})
+	policyFactLine := ""
+	for _, line := range strings.Split(policy, "\n") {
+		if strings.Contains(line, "席位构成(") {
+			policyFactLine = line
+		}
+	}
+	if !strings.Contains(policyFactLine, ",策略频率上限 1.53GHz(不单独证明热机制或实际绑定影响))") {
+		t.Fatalf("policy ceiling must carry its exact authority caveat:\n%s", policy)
+	}
+	for _, banned := range []string{"明确热控轨上限", "运行于 1.53GHz"} {
+		if strings.Contains(policyFactLine, banned) {
+			t.Fatalf("policy ceiling must not be promoted to %q:\n%s", banned, policyFactLine)
+		}
 	}
 	// Absent thermal cap → no frequency clause at all.
 	bare := render(func(r *types.ObservationRecord) {
-		replaceNote(r, types.TraceNoteKeyThermalCapKHz, "")
-		replaceNote(r, types.TraceNoteKeyThermalCapWitnessed, "")
+		replaceNote(r, types.TraceNoteKeyGovernanceCapKHz, "")
+		replaceNote(r, types.TraceNoteKeyGovernanceCapMechanism, "")
+		replaceNote(r, types.TraceNoteKeyGovernanceCapWitnessed, "")
 	})
 	if !strings.Contains(bare, "(供给缺口 7.296ms 下界为主)") {
 		t.Fatalf("capless seat must state the gap without a frequency claim:\n%s", bare)
@@ -1116,8 +1138,9 @@ func traceWaitFreqDirSeatRecord() types.ObservationRecord {
 		types.TraceNoteKeySupplyFoldDeficitMS+"=58.320",
 		types.TraceNoteKeySupplyFoldIdealMS+"=98.928",
 		types.TraceNoteKeyFoldBasis+"=known=157.248ms,unknown=0.000ms",
-		types.TraceNoteKeyThermalCapKHz+"=1530000",
-		types.TraceNoteKeyThermalCapWitnessed+"=true")
+		types.TraceNoteKeyGovernanceCapKHz+"=1530000",
+		types.TraceNoteKeyGovernanceCapMechanism+"=thermal_rail",
+		types.TraceNoteKeyGovernanceCapWitnessed+"=true")
 }
 
 // TestTraceWaitEvidence_SupplyDeficitFact — FREQDIR-1 件2 positive pin: the
@@ -1129,7 +1152,7 @@ func TestTraceWaitEvidence_SupplyDeficitFact(t *testing.T) {
 	ledger.Records = append(ledger.Records, traceWaitFreqDirSeatRecord())
 	summary := formatTraceWaitWakeEvidenceFromLedger(ledger, nil)
 	t.Logf("FREQDIR-1 件2 witness named-fact render:\n%s", summary)
-	want := "- 供给折算(➊ .ugc.aweme.lite-17267 running): 供给折算缺口 58.320ms(运行频点非最高,热限压 1.53GHz)——独立折算口径,不与墙钟(全额)值相加、不计入四态合计;连口径词与数值整体照抄,勿推导"
+	want := "- 供给折算(➊ .ugc.aweme.lite-17267 running): 供给折算缺口 58.320ms(运行频点非最高,明确热控轨上限 1.53GHz)——独立折算口径,不与墙钟(全额)值相加、不计入四态合计;连口径词与数值整体照抄,勿推导"
 	if !strings.Contains(summary, want) {
 		t.Fatalf("supply-fold deficit fact missing/mutated, want\n%q\nin:\n%s", want, summary)
 	}
@@ -1227,8 +1250,9 @@ func TestTraceWaitEvidence_SupplyDeficitFactSilence(t *testing.T) {
 		types.TraceNoteKeyGatedRunningDeficit+"=5.000",
 		types.TraceNoteKeySupplyFoldDeficitMS+"=5.000",
 		types.TraceNoteKeyFoldBasis+"=known=5.000ms,unknown=0.000ms",
-		types.TraceNoteKeyThermalCapKHz+"=1530000",
-		types.TraceNoteKeyThermalCapWitnessed+"=true")
+		types.TraceNoteKeyGovernanceCapKHz+"=1530000",
+		types.TraceNoteKeyGovernanceCapMechanism+"=thermal_rail",
+		types.TraceNoteKeyGovernanceCapWitnessed+"=true")
 	invLedger := traceWaitTestLedger()
 	invLedger.Records = append(invLedger.Records, subDominant)
 	invSummary := formatTraceWaitWakeEvidenceFromLedger(invLedger, nil)
@@ -1267,8 +1291,8 @@ func TestTraceWaitEvidence_SupplyDeficitFactSilence(t *testing.T) {
 		t.Fatalf("a composition-covered seat republication must not re-enter the deficit lane:\n%s", summary)
 	}
 	// Unwitnessed thermal cap → the honest wording on the fact line.
-	unwitnessed := render(func(r *types.ObservationRecord) { replaceNote(r, types.TraceNoteKeyThermalCapWitnessed, "false") })
-	if !strings.Contains(unwitnessed, ",窗内运行于 1.53GHz(限压原因未见证))") {
+	unwitnessed := render(func(r *types.ObservationRecord) { replaceNote(r, types.TraceNoteKeyGovernanceCapWitnessed, "false") })
+	if !strings.Contains(unwitnessed, ",治理上限 1.53GHz(所选上限的窗内原因事件未见证))") {
 		t.Fatalf("unwitnessed cap must keep the honest wording:\n%s", unwitnessed)
 	}
 }

@@ -754,7 +754,7 @@ var threadStateComparisonSiteGolden = map[string]string{
 	// CAP-2 THERM (§28.5-T7, 2026-07-09): the dominant-running-cluster walk
 	// filters to RUNNING slices — same membership semantics as the fold loop
 	// below (running wall attribution; reviewed, not a misclassification).
-	"supply_fold.go:applyThermalCapDisclosure":                  "running#1",
+	"supply_fold.go:applyGovernanceCapDisclosure":               "running#1",
 	"supply_fold.go:supplyFoldRunningIntervals":                 "running#1",
 	"thread_state_universe.go:stateChurnWakeupReopenIneligible": "running,runnable#2",
 }

@@ -285,6 +285,11 @@ var traceNoteKeyGoldenRows = []string{
 	"gated_share_constituent_seat|state|hard_consumer",
 	"gated_share_full|state|hard_consumer",
 	"gated_share_overlap|state|hard_consumer",
+	// B37-CAPAUTH: neutral governing ceiling + exact source mechanism +
+	// selected-value in-window witness.
+	"governance_cap_khz|supply_fold|hard_consumer",
+	"governance_cap_mechanism|supply_fold|hard_consumer",
+	"governance_cap_witnessed|supply_fold|hard_consumer",
 	// INODE (§28.6, 2026-07-09): top_io_inode whole-window fold row keys.
 	"groups_total|io|display_only",
 	// ANSWERFACE-1 件2 (§29.140 G6, 2026-07-19): target_window_states

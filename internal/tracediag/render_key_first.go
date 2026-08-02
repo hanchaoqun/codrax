@@ -1361,7 +1361,14 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// it single-point — 冷读 P3-2, census-column adoption deferred until a
 	// customer replay shows the caveat face insufficient); hash re-pinned
 	// after review.
-	reflect.TypeOf(tracequery.SupplyFoldBasis{}): "f7122564054aa8c52a16ae2ab2e0eda4746ebe0e393ae9250f304209532b856a",
+	// B37-CAPAUTH (2026-08-01): +GovernanceCapKHz / ClusterClass /
+	// Mechanism / Witnessed. This scalar group stays on generic key-first
+	// detail and separates policy_limit from explicitly thermal-named rails;
+	// no bulk/duplicate/skipped/ranking/priority lane changed. ThermalCap*
+	// remains backward-only. +PolicyCeilingKHz preserves the lower endpoint of
+	// LimitThrottled's typed comparison; FmaxKHz can be the higher observed
+	// winner and is never reused as the policy value. Same scalar detail lane.
+	reflect.TypeOf(tracequery.SupplyFoldBasis{}): "48c46a4dbd374f1c6e215066785754fc36e77bd7ce90e79ee38c2982217978db",
 }
 
 func detailSchemaFingerprint(typ reflect.Type) (fingerprint, schema string) {

@@ -1034,7 +1034,11 @@ func revisit76CAPCapabilityProjection(source string) types.TraceCausalProjection
 func revisit76CAP2TopologyProjection(topo string, thermalKHz int) types.TraceCausalProjection {
 	projection := revisit76CAPCapabilityProjection(runtimeTraceCapabilitySourceDefault)
 	projection.OnChainCauses[0].SupplyFoldTopologySource = topo
-	projection.OnChainCauses[0].ThermalCapKHz = thermalKHz
+	projection.OnChainCauses[0].GovernanceCapKHz = thermalKHz
+	if thermalKHz > 0 {
+		projection.OnChainCauses[0].GovernanceCapMechanism = tracequery.SupplyFoldGovernanceCapThermalRail
+		projection.OnChainCauses[0].GovernanceCapWitnessed = true
+	}
 	return projection
 }
 

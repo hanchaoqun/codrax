@@ -89,24 +89,23 @@ func TestCAP2SupplyFoldClauseTopologyUpgrade(t *testing.T) {
 	}
 }
 
-// --- THERM: 窗内该簇受热限压至 X (双向, zero-weight) ----------------------------
+// --- Governance cap authority (policy != thermal, zero-weight) ----------------
 
 func TestCAP2ThermalCapSentence(t *testing.T) {
 	node := capClauseNode(5, 15, 20, 0, 5, runtimeTraceCapabilitySourceDefault)
-	node.ThermalCapKHz = 1850000
-	// CR-3 件⑥ F-10 (2026-07-12): the 受热限压 word now requires the typed
-	// in-window witness bit beside the cap value.
-	node.ThermalCapWitnessed = true
+	node.GovernanceCapKHz = 1850000
+	node.GovernanceCapMechanism = tracequery.SupplyFoldGovernanceCapThermalRail
+	node.GovernanceCapWitnessed = true
 	clause, keep, ok := runtimeTraceProjSupplyFoldClause(node, 0, false, true)
-	if !ok || !strings.Contains(clause, ";窗内该簇受热限压至 1.85GHz") {
-		t.Fatalf("the THERM sentence must append with 数值+单位:\n%s", clause)
+	if !ok || !strings.Contains(clause, ";窗内该簇明确热控轨上限为 1.85GHz") {
+		t.Fatalf("the thermal-rail sentence must append with exact mechanism:\n%s", clause)
 	}
 	if keep != "供给折算缺口" {
 		t.Fatalf("the keep marker stays on the mechanism word (THERM is an appendix): %q", keep)
 	}
 	en, _, ok := runtimeTraceProjSupplyFoldClause(node, 0, false, false)
-	if !ok || !strings.Contains(en, "; a thermal/policy cap pressed this cluster to 1.85GHz in-window") {
-		t.Fatalf("EN THERM sentence missing:\n%s", en)
+	if !ok || !strings.Contains(en, "; this cluster had a 1.85GHz explicitly thermal-named rail ceiling in-window") {
+		t.Fatalf("EN thermal-rail sentence missing:\n%s", en)
 	}
 	// Zero-weight: the deficit figure is untouched by the sentence.
 	if !strings.Contains(clause, "供给折算缺口 5.000ms") {
@@ -115,30 +114,40 @@ func TestCAP2ThermalCapSentence(t *testing.T) {
 	// CR-3 件⑥ F-10 (CR-2 冷读 D5 witness — 1.53GHz wore the thermal word
 	// with zero in-window event): an UNWITNESSED press states the governed
 	// frequency without the thermal cause claim.
-	node.ThermalCapWitnessed = false
+	node.GovernanceCapWitnessed = false
 	unwitnessed, _, ok := runtimeTraceProjSupplyFoldClause(node, 0, false, true)
-	if !ok || !strings.Contains(unwitnessed, ";窗内该簇运行于 1.85GHz(限压原因未见证)") {
-		t.Fatalf("an unwitnessed press must speak the honest governed-frequency form:\n%s", unwitnessed)
+	if !ok || !strings.Contains(unwitnessed, ";该簇治理上限记录为 1.85GHz(所选上限的窗内原因事件未见证)") {
+		t.Fatalf("an unwitnessed ceiling must stay mechanism-neutral:\n%s", unwitnessed)
 	}
-	if strings.Contains(unwitnessed, "受热限压") {
-		t.Fatalf("the thermal word requires the in-window witness:\n%s", unwitnessed)
+	if strings.Contains(unwitnessed, "热控") || strings.Contains(unwitnessed, "运行于") {
+		t.Fatalf("an unwitnessed ceiling proves neither a thermal source nor actual running frequency:\n%s", unwitnessed)
 	}
 	unwitnessedEN, _, _ := runtimeTraceProjSupplyFoldClause(node, 0, false, false)
-	if !strings.Contains(unwitnessedEN, "; this cluster ran governed at 1.85GHz in-window (cap cause unwitnessed)") {
+	if !strings.Contains(unwitnessedEN, "; this cluster has a 1.85GHz governance ceiling (no in-window source event witnessed for the selected ceiling)") {
 		t.Fatalf("EN unwitnessed form missing:\n%s", unwitnessedEN)
 	}
+	// A witnessed generic cpufreq policy limit remains policy evidence. It
+	// must not borrow the thermal word and does not claim the ceiling bound
+	// actual performance by itself.
+	node.GovernanceCapMechanism = tracequery.SupplyFoldGovernanceCapPolicyLimit
+	node.GovernanceCapWitnessed = true
+	policy, _, _ := runtimeTraceProjSupplyFoldClause(node, 0, false, true)
+	if !strings.Contains(policy, ";窗内该簇策略频率上限为 1.85GHz(不单独证明热机制或实际绑定影响)") || strings.Contains(policy, "热控") {
+		t.Fatalf("policy limit must stay policy-only:\n%s", policy)
+	}
 	// 双向: no typed press, no sentence — byte-identical to the pre-THERM form.
-	node.ThermalCapKHz = 0
+	node.GovernanceCapKHz = 0
 	bare, _, _ := runtimeTraceProjSupplyFoldClause(node, 0, false, true)
 	if strings.Contains(bare, "热限") || strings.Contains(bare, "限压") {
 		t.Fatalf("no typed press must render no THERM words:\n%s", bare)
 	}
 	// The sentence rides the affirmative branch too (any fold branch).
 	affirmative := capClauseNode(0, 2.641, 2.641, 0, 0, runtimeTraceCapabilitySourceDefault)
-	affirmative.ThermalCapKHz = 1550000
-	affirmative.ThermalCapWitnessed = true
+	affirmative.GovernanceCapKHz = 1550000
+	affirmative.GovernanceCapMechanism = tracequery.SupplyFoldGovernanceCapThermalRail
+	affirmative.GovernanceCapWitnessed = true
 	sentence, _, ok := runtimeTraceProjSupplyFoldClause(affirmative, 0, false, true)
-	if !ok || !strings.Contains(sentence, ";窗内该簇受热限压至 1.55GHz") {
+	if !ok || !strings.Contains(sentence, ";窗内该簇明确热控轨上限为 1.55GHz") {
 		t.Fatalf("the THERM sentence must ride every fold branch:\n%s", sentence)
 	}
 }
@@ -167,7 +176,9 @@ func TestCAP2GatedCompositionTopologyUpgrade(t *testing.T) {
 func TestCAP2TopologyLegendSeats(t *testing.T) {
 	projection := capRunningDeficitProjection(runtimeTraceCapabilitySourceDefault)
 	projection.OnChainCauses[0].SupplyFoldTopologySource = runtimeTraceCapabilityTopologyKeyedRail
-	projection.OnChainCauses[0].ThermalCapKHz = 1850000
+	projection.OnChainCauses[0].GovernanceCapKHz = 1850000
+	projection.OnChainCauses[0].GovernanceCapMechanism = tracequery.SupplyFoldGovernanceCapThermalRail
+	projection.OnChainCauses[0].GovernanceCapWitnessed = true
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
 	if !strings.Contains(fence, "按簇轨实测折算(成员按锚点连续推定)") {
@@ -198,16 +209,20 @@ func TestCAP2TopologyLegendSeats(t *testing.T) {
 func TestCAP2NoteEmission(t *testing.T) {
 	basis := &tracequery.SupplyFoldBasis{
 		KnownMs: 5, CapabilitySource: tracequery.CoreCapabilitySourceDefault,
-		ClusterTopologySource: tracequery.CoreCapabilityTopologyKeyedRail,
-		RailFamily:            "m3_c#_freq",
-		RailGoverned:          []tracequery.SupplyFoldRailGoverned{{CPU: 12, Rail: "m3_c3_freq"}, {CPU: 13, Rail: "m3_c3_freq"}},
-		ThermalCapKHz:         1850000,
+		ClusterTopologySource:  tracequery.CoreCapabilityTopologyKeyedRail,
+		RailFamily:             "m3_c#_freq",
+		RailGoverned:           []tracequery.SupplyFoldRailGoverned{{CPU: 12, Rail: "m3_c3_freq"}, {CPU: 13, Rail: "m3_c3_freq"}},
+		GovernanceCapKHz:       1850000,
+		GovernanceCapMechanism: tracequery.SupplyFoldGovernanceCapThermalRail,
+		GovernanceCapWitnessed: true,
 	}
 	joined := strings.Join(traceQueryTypedSupplyFoldRichNotes(basis, 1, 4), "\n")
 	for _, want := range []string{
 		types.TraceNoteKeyFoldClusterTopology + "=keyed_rail",
 		types.TraceNoteKeyFoldRailBasis + "=族=m3_c#_freq;cpu12 频点=簇轨 m3_c3_freq;cpu13 频点=簇轨 m3_c3_freq",
-		types.TraceNoteKeyThermalCapKHz + "=1850000",
+		types.TraceNoteKeyGovernanceCapKHz + "=1850000",
+		types.TraceNoteKeyGovernanceCapMechanism + "=thermal_rail",
+		types.TraceNoteKeyGovernanceCapWitnessed + "=true",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("note %q must emit:\n%s", want, joined)
@@ -218,7 +233,7 @@ func TestCAP2NoteEmission(t *testing.T) {
 		KnownMs: 5, CapabilitySource: tracequery.CoreCapabilitySourceDefault,
 	}, 1, 4), "\n")
 	for _, absent := range []string{
-		types.TraceNoteKeyFoldClusterTopology, types.TraceNoteKeyFoldRailBasis, types.TraceNoteKeyThermalCapKHz,
+		types.TraceNoteKeyFoldClusterTopology, types.TraceNoteKeyFoldRailBasis, types.TraceNoteKeyGovernanceCapKHz,
 	} {
 		if strings.Contains(bare, absent) {
 			t.Fatalf("empty fields must emit no %q note:\n%s", absent, bare)

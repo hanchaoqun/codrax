@@ -433,7 +433,7 @@ func TestSupplyFoldLimitThrottledFinding(t *testing.T) {
 	if basis.FmaxKHz != 2000000 || basis.FmaxSource != SupplyFoldFmaxSourceObserved {
 		t.Fatalf("R5c 反向形: observed>limit must resolve the basis to the observed peak (2GHz/observed), got %+v", basis)
 	}
-	if !basis.LimitThrottled || basis.TraceObservedMaxKHz != 2000000 {
+	if !basis.LimitThrottled || basis.PolicyCeilingKHz != 1500000 || basis.TraceObservedMaxKHz != 2000000 {
 		t.Fatalf("limits below the cluster's full-trace 2GHz sample must raise the typed throttling finding: %+v", basis)
 	}
 	// ~9.9ms @1GHz small against big fmax 2GHz (R5c max() basis):

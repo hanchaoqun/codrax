@@ -345,11 +345,18 @@ func addWakeupAggregateSupplyFold(item *WakeupCausalAggregate, impact WakeupCaus
 	for _, entry := range src.RailGoverned {
 		recordSupplyFoldRailGoverned(dst, entry.CPU, entry.Rail)
 	}
-	if dst.ThermalCapKHz == 0 {
+	if dst.GovernanceCapKHz == 0 {
+		dst.GovernanceCapKHz = src.GovernanceCapKHz
+		dst.GovernanceCapClusterClass = src.GovernanceCapClusterClass
+		dst.GovernanceCapMechanism = src.GovernanceCapMechanism
+		// The witness and mechanism travel with their selected cap value —
+		// never mixed across aggregate donors.
+		dst.GovernanceCapWitnessed = src.GovernanceCapWitnessed
+	}
+	// Backward-only merge for persisted pre-B37 members.
+	if dst.GovernanceCapKHz == 0 && dst.ThermalCapKHz == 0 {
 		dst.ThermalCapKHz = src.ThermalCapKHz
 		dst.ThermalCapClusterClass = src.ThermalCapClusterClass
-		// CR-3 件⑥ F-10: the witness bit travels with its own cap value —
-		// never mixed across donors.
 		dst.ThermalCapWitnessed = src.ThermalCapWitnessed
 	}
 }
