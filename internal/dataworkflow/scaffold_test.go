@@ -67,6 +67,70 @@ func TestRelationActionScaffoldsUseArtifactSchemaProjection(t *testing.T) {
 	}
 }
 
+func TestRelationActionScaffoldsRejectDuplicateSourceViews(t *testing.T) {
+	projections := []ArtifactSchemaProjection{
+		{
+			ID:          "coverage_records",
+			Kind:        string(dataquery.DataActionExtractRecords),
+			NodeClass:   ArtifactNodeClassRecord,
+			Aliases:     []string{"coverage_records.json"},
+			Fields:      []string{"id", "amount"},
+			SourcePaths: []string{"orders.csv"},
+		},
+		{
+			ID:                "orders.csv#records",
+			Kind:              string(dataquery.DataActionExtractRecords) + "/csv",
+			NodeClass:         ArtifactNodeClassRecord,
+			Aliases:           []string{"orders.csv#records"},
+			Fields:            []string{"id", "amount"},
+			SourceRecordPaths: []string{"orders.csv"},
+		},
+	}
+
+	got := RelationActionScaffolds(projections, []string{
+		string(dataquery.DataActionJoinRecords),
+		string(dataquery.DataActionNormalizeEntities),
+		string(dataquery.DataActionMappingCandidate),
+	}, 8)
+	if len(got) != 0 {
+		t.Fatalf("duplicate source views produced automatic relation scaffolds: %+v", got)
+	}
+}
+
+func TestRelationActionScaffoldsKeepIndependentSourceAndReference(t *testing.T) {
+	projections := []ArtifactSchemaProjection{
+		{
+			ID:          "observations",
+			Kind:        string(dataquery.DataActionExtractRecords),
+			NodeClass:   ArtifactNodeClassRecord,
+			Aliases:     []string{"observations.json"},
+			Fields:      []string{"id", "raw_label"},
+			SourcePaths: []string{"observations.csv"},
+		},
+		{
+			ID:          "labels",
+			Kind:        string(dataquery.DataActionExtractRecords),
+			NodeClass:   ArtifactNodeClassRecord,
+			Aliases:     []string{"labels.json"},
+			Fields:      []string{"canonical_id", "canonical_label", "raw_label"},
+			SourcePaths: []string{"labels.csv"},
+		},
+	}
+
+	got := RelationActionScaffolds(projections, []string{
+		string(dataquery.DataActionNormalizeEntities),
+		string(dataquery.DataActionMappingCandidate),
+	}, 8)
+	if len(got) == 0 {
+		t.Fatal("independent source/reference lineage produced no relation scaffold")
+	}
+	for _, scaffold := range got {
+		if !scaffold.Executable {
+			t.Fatalf("scaffold=%+v, want executable independent relation", scaffold)
+		}
+	}
+}
+
 func TestConservativeContributionLedgerScaffoldBuildsExecutableTargetMembers(t *testing.T) {
 	scaffolds := ConservativeContributionLedgerScaffolds([]ArtifactSchemaProjection{{
 		ID:        "eligible_records",

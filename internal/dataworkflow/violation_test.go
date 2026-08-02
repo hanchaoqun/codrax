@@ -173,6 +173,24 @@ func TestActiveExecutionViolationsKeepLineageButDropFailuresBeforeSuccessfulProg
 	}
 }
 
+func TestActiveExecutionViolationsKeepViolationAttachedToResult(t *testing.T) {
+	records := []WorkflowRecord{{
+		Result: &dataquery.Result{Answer: "0"},
+		Violations: []dataquery.DataTaskViolation{{
+			Code:       "field_contract_violation",
+			ActionID:   "filter_bad",
+			ActionKind: string(dataquery.DataActionFilterRecords),
+			InputAlias: "records.json",
+			Summary:    "status is missing",
+		}},
+	}}
+
+	current := ActiveExecutionViolationsFromRecords(records)
+	if len(current) != 1 || current[0].Code != "field_contract_violation" || current[0].ActionID != "filter_bad" {
+		t.Fatalf("current=%+v, a result must not retire a violation attached to the same record", current)
+	}
+}
+
 func TestBuildWorkflowStateViolationsDoesNotRepublishRepairedExecutionFailure(t *testing.T) {
 	records := []WorkflowRecord{{
 		Err: "required material missing",

@@ -538,6 +538,15 @@ func JoinRecordScaffolds(records []ArtifactSchemaProjection, limit int) []Action
 			if rightAlias == "" || len(right.Fields) == 0 {
 				continue
 			}
+			// Two aliases derived from the same source material are not two
+			// independent relation sides. Treating an aggregate extraction and
+			// its child record view as left/right inputs creates a deterministic
+			// self-join and can multiply rows before contribution calculation.
+			// A model may still request an explicit self-join when the task calls
+			// for one; the automatic fallback must require independent lineage.
+			if !projectionsHaveIndependentLineage(left, right) {
+				continue
+			}
 			common := commonProjectionFields(left.Fields, right.Fields, 8)
 			if len(common) == 0 {
 				continue
@@ -624,6 +633,14 @@ func NormalizeEntityScaffolds(records []ArtifactSchemaProjection, limit int) []A
 		for _, reference := range records {
 			referenceAlias := firstProjectionAlias(reference)
 			if referenceAlias == "" || referenceAlias == sourceAlias || len(reference.Fields) == 0 {
+				continue
+			}
+			// Schema similarity cannot turn two views of one source into a
+			// source/reference pair. In particular, extract_records publishes an
+			// aggregate artifact and child record aliases with identical lineage;
+			// normalizing one against the other invents an entity obligation and
+			// sends otherwise simple workflows through relation-only loops.
+			if !projectionsHaveIndependentLineage(source, reference) {
 				continue
 			}
 			sourceFields := candidateMatchFields(source.Fields, 2)
@@ -1283,6 +1300,40 @@ func recordActionProjections(projections []ArtifactSchemaProjection) []ArtifactS
 		}
 	}
 	return out
+}
+
+// projectionsHaveIndependentLineage is a conservative fallback-authority
+// check. When both projections publish lineage, each side must own at least one
+// root absent from the other side before automatic relation work may pair them.
+// Missing lineage remains fail-open because older/external artifact producers
+// may only provide schema. This does not gate explicit model-authored actions.
+func projectionsHaveIndependentLineage(left, right ArtifactSchemaProjection) bool {
+	lineage := func(projection ArtifactSchemaProjection) map[string]bool {
+		values := append([]string(nil), projection.SourcePaths...)
+		values = append(values, projection.SourceRecordPaths...)
+		values = append(values, projection.ReferencePaths...)
+		return normalizedLineageSet(values)
+	}
+	leftRoots := lineage(left)
+	rightRoots := lineage(right)
+	if len(leftRoots) == 0 || len(rightRoots) == 0 {
+		return true
+	}
+	leftUnique := false
+	for root := range leftRoots {
+		if !rightRoots[root] {
+			leftUnique = true
+			break
+		}
+	}
+	rightUnique := false
+	for root := range rightRoots {
+		if !leftRoots[root] {
+			rightUnique = true
+			break
+		}
+	}
+	return leftUnique && rightUnique
 }
 
 func firstProjectionAlias(projection ArtifactSchemaProjection) string {

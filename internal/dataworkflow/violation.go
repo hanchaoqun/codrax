@@ -115,8 +115,10 @@ func ActiveGuardViolationsFromRecords(records []WorkflowRecord) []WorkflowViolat
 //
 // This intentionally shares the same progress boundary as
 // ActiveGuardViolationsFromRecords. The boundary is structural (Result is
-// present and Err is empty); it does not inspect error text, answer content,
-// action names, or model rationale.
+// present, Err is empty, and the record carries no typed execution violation);
+// it does not inspect error text, answer content, action names, or model
+// rationale. A result and its typed violations may coexist, so that record
+// cannot retire its own violation.
 func ActiveExecutionViolationsFromRecords(records []WorkflowRecord) []WorkflowViolation {
 	start := 0
 	for i, rec := range records {
@@ -128,7 +130,7 @@ func ActiveExecutionViolationsFromRecords(records []WorkflowRecord) []WorkflowVi
 }
 
 func workflowRecordHasSuccessfulProgress(rec WorkflowRecord) bool {
-	return rec.Result != nil && strings.TrimSpace(rec.Err) == ""
+	return rec.Result != nil && strings.TrimSpace(rec.Err) == "" && len(rec.Violations) == 0
 }
 
 func activeAdmissionGuard(admission *ActionDAGAdmissionDecision) GuardResult {
