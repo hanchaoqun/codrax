@@ -538,6 +538,11 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}) {
 		return b.String()
 	}
+	if !trace.appendSection(&b, "current_run_stage_lane_authority", func() string {
+		return renderAnswerDocCurrentRunStageLaneAuthority(ctx)
+	}) {
+		return b.String()
+	}
 	if !trace.appendSection(&b, "current_source_explanation_profile", func() string {
 		return renderAnswerDocCurrentSourceExplanationProfile(ctx)
 	}) {
@@ -15275,6 +15280,45 @@ func answerDocumentHasStageWorkflowRequestedDimension(ctx *types.AgentContext) b
 		}
 	}
 	return false
+}
+
+// renderAnswerDocCurrentRunStageLaneAuthority gives the answer model the
+// canonical mode-specific stage membership before it writes a workflow or
+// sequence diagram. The repository legitimately contains read and write stage
+// bindings together; a grounded definition from another mode proves that
+// symbol exists, but does not make it a member of the current read execution
+// lane. This is prompt-only authority: it neither scans nor rewrites the model
+// answer and it does not manufacture caller/callee edges.
+func renderAnswerDocCurrentRunStageLaneAuthority(ctx *types.AgentContext) string {
+	if ctx == nil || (ctx.Mode != "" && ctx.Mode != types.ModeRead) ||
+		!answerDocumentHasStageWorkflowRequestedDimension(ctx) ||
+		!answerDocumentHasPipelineStageAuthoritySource(ctx, nil) {
+		return ""
+	}
+	main := types.ReadModeMainStageBindings()
+	pre := types.ReadModeConditionalPreStageBindings()
+	if len(main) == 0 {
+		return ""
+	}
+	stageNames := func(bindings []types.StageBinding) []string {
+		out := make([]string, 0, len(bindings))
+		for _, binding := range bindings {
+			if stage := strings.TrimSpace(string(binding.Stage)); stage != "" {
+				out = append(out, stage)
+			}
+		}
+		return out
+	}
+	var b strings.Builder
+	b.WriteString("## Current Run Stage-Lane Authority\n\n")
+	b.WriteString("- current_mode=`read`; this authority applies to the requested current read-mode workflow, not to comparisons that explicitly discuss another mode.\n")
+	fmt.Fprintf(&b, "- canonical_read_main_sequence=`%s`.\n", strings.Join(stageNames(main), " -> "))
+	if names := stageNames(pre); len(names) > 0 {
+		fmt.Fprintf(&b, "- conditional_pre_stages=`%s`; these run before `analyze` only when their typed attachment guards fire.\n", strings.Join(names, ", "))
+	}
+	b.WriteString("- A real stage symbol or function definition absent from both lists is cross-mode/background evidence, not a member of the current read path. You may explain it separately when relevant, but do not connect it into the read sequence or stage table without an independently grounded current-read control-flow edge.\n")
+	b.WriteString("- Stage membership and stage order do not prove internal function-to-function calls. Use explicit grounded call edges for those finer mechanism claims.\n\n")
+	return b.String()
 }
 
 func answerDocumentHasPipelineStageAuthoritySource(ctx *types.AgentContext, doc *types.AnswerDocumentV2) bool {

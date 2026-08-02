@@ -7548,6 +7548,45 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsStageBindingForRequestedWork
 	}
 }
 
+func TestRenderAnswerDocCurrentRunStageLaneAuthoritySeparatesReadAndWriteStages(t *testing.T) {
+	ctx := &types.AgentContext{
+		Mode: types.ModeRead,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true,
+				Dimensions: []types.RequestedAnswerDimension{{
+					Index: 1, Label: "stage workflow", SourceQuote: "stage workflow", Required: true,
+					Role: types.RequestedAnswerDimensionStageWorkflow,
+				}},
+			},
+		}},
+		EvidenceItems: []types.EvidenceItem{{
+			Source: "internal/types/stage_binding.go", LineStart: 1,
+			GroundingStatus: types.GroundingGrounded,
+		}},
+	}
+	got := renderAnswerDocCurrentRunStageLaneAuthority(ctx)
+	for _, want := range []string{
+		"## Current Run Stage-Lane Authority",
+		"current_mode=`read`",
+		"canonical_read_main_sequence=`analyze -> explore -> extract -> finalize`",
+		"conditional_pre_stages=`log_triage, perf_triage`",
+		"cross-mode/background evidence",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("stage-lane authority missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "write_analyze") || strings.Contains(got, "StageWriteAnalyze") {
+		t.Fatalf("write-only stage must not enter canonical read membership:\n%s", got)
+	}
+
+	ctx.Mode = types.ModeApply
+	if got := renderAnswerDocCurrentRunStageLaneAuthority(ctx); got != "" {
+		t.Fatalf("read authority must stay inactive in apply mode:\n%s", got)
+	}
+}
+
 func TestAnswerDocumentEvaluator_ParseOutput_AppendsRequestedDimensionSourceQuotes(t *testing.T) {
 	mu := types.NewMutableState("")
 	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
