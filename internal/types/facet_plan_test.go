@@ -1324,6 +1324,44 @@ func TestCompileFacetCoverage_ConfigPrecedenceRoleUsesCoverageRoles(t *testing.T
 	}
 }
 
+func TestCompileFacetCoverage_ConfigPrecedenceResolvedLiteralFollowsTypedScalarShape(t *testing.T) {
+	base := RequestModel{
+		Intent:   IntentConfigQuery,
+		Scenario: ScenarioConfigTrace,
+	}
+	for _, tc := range []struct {
+		name     string
+		isScalar bool
+		want     FacetRequiredness
+	}{
+		{name: "mapping", isScalar: false, want: FacetOptional},
+		{name: "scalar lookup", isScalar: true, want: FacetHardRequired},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rm := base
+			rm.Predicates.IsScalarAnswer = tc.isScalar
+			plan := CompileFacetCoverage(rm, nil)
+			if plan == nil {
+				t.Fatal("facet plan nil")
+			}
+			var got *FacetRequirement
+			for i := range plan.Required {
+				if plan.Required[i].Kind == FacetResolvedLiteralOrSymbol {
+					got = &plan.Required[i]
+				}
+			}
+			for i := range plan.Optional {
+				if plan.Optional[i].Kind == FacetResolvedLiteralOrSymbol {
+					got = &plan.Optional[i]
+				}
+			}
+			if got == nil || got.Required != tc.want {
+				t.Fatalf("resolved literal facet = %+v, want requiredness %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestStableEvidenceID_DeterministicOverTypedFields pins the
 // EvidenceItem.ID provenance: identical typed fields produce
 // identical IDs (deterministic projection, suitable as hard gate

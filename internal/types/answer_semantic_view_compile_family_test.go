@@ -349,9 +349,9 @@ func TestCompileConfigPrecedence_ResolvesFamily(t *testing.T) {
 	}
 }
 
-func TestCompileConfigPrecedence_HasSummaryAndScalarRequired(t *testing.T) {
+func TestCompileConfigPrecedence_NonScalarMappingRequiresLayerCarrierNotScalar(t *testing.T) {
 	view := BuildAnswerSemanticView(irForConfigPrecedence(), nil)
-	hasSummary, hasScalar := false, false
+	hasSummary, hasScalar, hasLayerCarrier := false, false, false
 	for _, b := range view.RequiredBlocks {
 		if b.Kind == BlockSummary {
 			hasSummary = true
@@ -359,25 +359,42 @@ func TestCompileConfigPrecedence_HasSummaryAndScalarRequired(t *testing.T) {
 		if b.Kind == BlockScalar && b.Required {
 			hasScalar = true
 		}
+		if b.Kind == BlockTable && b.Required && b.AcceptsKind(BlockOrderedList) {
+			hasLayerCarrier = true
+		}
 	}
 	if !hasSummary {
 		t.Error("missing required Summary")
 	}
-	if !hasScalar {
-		t.Error("missing required Scalar for resolved value")
+	if hasScalar {
+		t.Error("non-scalar config mapping must not require a resolved Scalar")
+	}
+	if !hasLayerCarrier {
+		t.Error("non-scalar config mapping must require a table/ordered-list layer carrier")
 	}
 }
 
-func TestCompileConfigPrecedence_HasOptionalTableForLayers(t *testing.T) {
-	view := BuildAnswerSemanticView(irForConfigPrecedence(), nil)
+func TestCompileConfigPrecedence_ScalarLookupRequiresScalarAndKeepsOptionalLayers(t *testing.T) {
+	ir := irForConfigPrecedence()
+	ir.RequestModel.Predicates.IsScalarAnswer = true
+	view := BuildAnswerSemanticView(ir, nil)
+	hasScalar := false
+	for _, b := range view.RequiredBlocks {
+		if b.Kind == BlockScalar && b.Required {
+			hasScalar = true
+		}
+	}
+	if !hasScalar {
+		t.Error("typed scalar config lookup must require BlockScalar")
+	}
 	hasTable := false
 	for _, b := range view.OptionalBlocks {
-		if b.Kind == BlockTable {
+		if b.Kind == BlockTable && b.AcceptsKind(BlockOrderedList) {
 			hasTable = true
 		}
 	}
 	if !hasTable {
-		t.Error("expected BlockTable in OptionalBlocks for layer-by-key precedence rendering")
+		t.Error("expected optional table/ordered-list layers for scalar config lookup")
 	}
 }
 

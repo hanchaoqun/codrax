@@ -21,8 +21,15 @@ func TestNeedsPrincipalScalar(t *testing.T) {
 		},
 		{
 			name: "config_precedence compile produces principal scalar",
-			view: compileConfigPrecedence(&AnalysisIR{}, nil),
+			view: compileConfigPrecedence(&AnalysisIR{RequestModel: RequestModel{
+				Predicates: SemanticPredicates{IsScalarAnswer: true},
+			}}, nil),
 			want: true,
+		},
+		{
+			name: "config_precedence mapping does not produce principal scalar",
+			view: compileConfigPrecedence(&AnalysisIR{}, nil),
+			want: false,
 		},
 		{
 			name: "call_chain compile does not produce principal scalar",
@@ -241,8 +248,15 @@ func TestNeedsCitationFreeScalarIngest(t *testing.T) {
 		{name: "nil", view: nil, want: false},
 		{
 			name: "config_precedence (principal scalar) → true",
-			view: compileConfigPrecedence(&AnalysisIR{}, nil),
+			view: compileConfigPrecedence(&AnalysisIR{RequestModel: RequestModel{
+				Predicates: SemanticPredicates{IsScalarAnswer: true},
+			}}, nil),
 			want: true,
+		},
+		{
+			name: "config_precedence mapping → false",
+			view: compileConfigPrecedence(&AnalysisIR{}, nil),
+			want: false,
 		},
 		{
 			name: "role_lookup (principal scalar) → true",

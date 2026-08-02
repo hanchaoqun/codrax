@@ -1083,16 +1083,23 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 				AcceptableForms: diagramForms},
 		}, common...)
 	case QFConfigPrecedence:
-		return append([]FacetRequirement{
+		facets := []FacetRequirement{
 			{Kind: FacetConfigPrecedenceRole, Required: FacetHardRequired,
 				AcceptableForms: []ClaimForm{ClaimPrecedenceRole}},
-			{Kind: FacetResolvedLiteralOrSymbol, Required: FacetHardRequired,
-				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimAssignmentFact,
-					ClaimLiteralValueFact, ClaimAbsenceFact}},
 			uncertaintyBoundaryFacet(FacetSoftRequired),
 			{Kind: FacetDiagramSpine, Required: FacetOptional,
 				AcceptableForms: []ClaimForm{ClaimPrecedenceRole}},
-		}, common...)
+		}
+		resolvedRequiredness := FacetOptional
+		if rm.Predicates.IsScalarAnswer {
+			resolvedRequiredness = FacetHardRequired
+		}
+		facets = append(facets, FacetRequirement{
+			Kind: FacetResolvedLiteralOrSymbol, Required: resolvedRequiredness,
+			AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimAssignmentFact,
+				ClaimLiteralValueFact, ClaimAbsenceFact},
+		})
+		return append(facets, common...)
 	case QFRoleLookup:
 		return append([]FacetRequirement{
 			{Kind: FacetResolvedLiteralOrSymbol, Required: FacetHardRequired,

@@ -142,7 +142,7 @@ func applyExactAbsenceSummaryLead(view *AnswerSemanticView, plan *AnswerSurfaceP
 	if plan.PreferredExactResolution.Status != AnswerExactResolutionAbsent {
 		return
 	}
-	summaryIdx, scalarIdx := -1, -1
+	summaryIdx, scalarIdx, configCarrierIdx := -1, -1, -1
 	for i := range view.RequiredBlocks {
 		req := view.RequiredBlocks[i]
 		if !req.Required || req.SurfaceRoleHint != SurfacePrincipal {
@@ -155,9 +155,14 @@ func applyExactAbsenceSummaryLead(view *AnswerSemanticView, plan *AnswerSurfaceP
 			if containsString(req.FacetIDs, string(FacetResolvedLiteralOrSymbol)) {
 				scalarIdx = i
 			}
+		case BlockTable, BlockOrderedList:
+			if view.Family == QFConfigPrecedence &&
+				containsString(req.FacetIDs, string(FacetConfigPrecedenceRole)) {
+				configCarrierIdx = i
+			}
 		}
 	}
-	if summaryIdx < 0 || scalarIdx < 0 {
+	if summaryIdx < 0 || scalarIdx < 0 && configCarrierIdx < 0 {
 		return
 	}
 
@@ -179,12 +184,25 @@ func applyExactAbsenceSummaryLead(view *AnswerSemanticView, plan *AnswerSurfaceP
 			"Do not fabricate a placeholder scalar literal.")
 	}
 
-	scalar := &view.RequiredBlocks[scalarIdx]
-	scalar.Required = false
-	scalar.MinCount = 0
-	scalar.SurfaceRoleHint = ""
-	scalar.Rationale = strings.TrimSpace(scalar.Rationale +
-		" Optional only when a grounded literal truly exists; when the exact target is absent, do not emit a synthetic `(missing)` / `(不存在)` scalar.")
+	if scalarIdx >= 0 {
+		scalar := &view.RequiredBlocks[scalarIdx]
+		scalar.Required = false
+		scalar.MinCount = 0
+		scalar.SurfaceRoleHint = ""
+		scalar.Rationale = strings.TrimSpace(scalar.Rationale +
+			" Optional only when a grounded literal truly exists; when the exact target is absent, do not emit a synthetic `(missing)` / `(不存在)` scalar.")
+	}
+	if configCarrierIdx >= 0 {
+		carrier := &view.RequiredBlocks[configCarrierIdx]
+		optional := *carrier
+		optional.Required = false
+		optional.MinCount = 0
+		optional.SurfaceRoleHint = ""
+		optional.Rationale = strings.TrimSpace(optional.Rationale +
+			" Optional in exact-absence mode: include only grounded neighboring or fallback layers, and do not fabricate a layer for the absent target.")
+		*carrier = optional
+		view.OptionalBlocks = append(view.OptionalBlocks, optional)
+	}
 }
 
 // optionalCaveatBlock returns a caveat-style block requirement that
