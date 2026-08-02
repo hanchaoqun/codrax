@@ -49,6 +49,46 @@ func TestMechanicalProducerChainSeparationDirectiveSharedAndMechanismGated(t *te
 	}
 }
 
+func TestIndependentMechanismContrastDirectiveSharedAndMechanismGated(t *testing.T) {
+	registry := NewRegistry()
+	RegisterDefaults(registry)
+
+	for _, skillName := range []string{"explore-skill", "answer-document-skill"} {
+		config, err := registry.Get(skillName)
+		if err != nil {
+			t.Fatalf("Get(%s): %v", skillName, err)
+		}
+		found := 0
+		for _, item := range config.WorkflowTierB {
+			if item.Body != independentMechanismContrastDirective {
+				continue
+			}
+			found++
+			if !item.ShouldRender(AppliesToContext{HasMechanism: true, Intent: types.IntentExplain}) {
+				t.Fatalf("%s directive must render for typed mechanism comparisons", skillName)
+			}
+			if item.ShouldRender(AppliesToContext{Intent: types.IntentExplain}) {
+				t.Fatalf("%s directive must not infer mechanism shape from broad explain intent", skillName)
+			}
+		}
+		if found != 1 {
+			t.Fatalf("%s directive count=%d, want 1", skillName, found)
+		}
+	}
+
+	for _, required := range []string{
+		"each side through its own producer and control path",
+		"false branch or logical complement is not evidence",
+		"explicit handoff, shared decision, or return-value flow",
+		"every side",
+		"state that evidence boundary",
+	} {
+		if !strings.Contains(independentMechanismContrastDirective, required) {
+			t.Fatalf("directive missing %q: %s", required, independentMechanismContrastDirective)
+		}
+	}
+}
+
 func TestLogTriageComposedOutputInterpretationStaysAdvisory(t *testing.T) {
 	registry := NewRegistry()
 	RegisterDefaults(registry)

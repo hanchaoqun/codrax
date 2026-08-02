@@ -939,6 +939,31 @@ func TestChangePlanSkill_BatchLocalPlanningWorkflow(t *testing.T) {
 	}
 }
 
+func TestChangePlanSkillGeneratedArtifactVerificationUsesArtifactBoundary(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+
+	sk, err := r.Get("change-plan-skill")
+	if err != nil {
+		t.Fatalf("Get(change-plan-skill): %v", err)
+	}
+	wf := allWorkflowBodies(sk)
+	for _, want := range []string{
+		"verify the produced artifact",
+		"generated artifact's own lexical/runtime scope",
+		"cannot prove that the generated output parses, resolves names, executes, or preserves behavior",
+		"renders/builds the artifact",
+		"generated-output parser/scope check",
+	} {
+		if !strings.Contains(wf, want) {
+			t.Fatalf("generated-artifact verification guidance missing %q:\n%s", want, wf)
+		}
+	}
+	if strings.Count(wf, generatedArtifactVerificationDirective) != 1 {
+		t.Fatalf("generated-artifact directive must appear exactly once")
+	}
+}
+
 // TestChangePlanSkill_RollingBatchWorkflowGuidance pins the planner-facing
 // guidance that broad writes should unfold as bounded batches, not one
 // all-at-once ChangePlan. This is prompt teaching only; scheduler hard gates

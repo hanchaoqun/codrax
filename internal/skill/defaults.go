@@ -33,6 +33,18 @@ func sourceInventoryLensRoleProseBackquoted() string {
 // explicitly not promoted into mechanical authority.
 const mechanicalProducerChainSeparationDirective = "MECHANICAL PRODUCER-CHAIN SEPARATION: when explaining how a rendered status, diagnostic, generated message, configuration-derived value, or other composed output is produced, trace each visible fragment to its own producer before joining the explanation. Treat outer decoration (for example a prefix or progress ordinal), localized/status payload lookup, and retry/loop policy as separate mechanisms unless a direct call, assignment, parameter flow, or returned value connects them. Equal numbers, equal tokens, nearby constants, or appearance on the same rendered line are candidate clues only — never proof that one controls the other. Ground the visible fragment at the formatter/composer that emits it, then follow that fragment's actual inputs backward; if one producer chain was not established, state that boundary instead of borrowing a plausible constant from another subsystem."
 
+// independentMechanismContrastDirective prevents a comparison answer from
+// treating one classifier's complement as proof of a different mechanism.
+// Like the producer-chain rule above, this is shared soft guidance selected
+// from typed mechanism shape; it does not inspect or rewrite answer prose.
+const independentMechanismContrastDirective = "INDEPENDENT MECHANISM CONTRAST: when explaining a distinction, boundary, or interaction between two or more named mechanisms, trace each side through its own producer and control path before comparing them. A predicate that classifies mechanism A proves only A's membership and branch behavior; its false branch or logical complement is not evidence for mechanism B unless source shows an explicit handoff, shared decision, or return-value flow. Collect load-bearing source evidence for every side and for the join between them. If one side's path was not established, state that evidence boundary instead of describing the mechanisms as a proven binary partition."
+
+// generatedArtifactVerificationDirective keeps generator/template changes
+// honest at the artifact boundary. It remains planner guidance: verification
+// chooses and runs a behavioral probe, while no source-token hard gate is
+// introduced in the product runtime.
+const generatedArtifactVerificationDirective = "GENERATED-ARTIFACT VERIFICATION: when a change edits a template, generator, transpiler, serializer, code emitter, or build step, verify the produced artifact rather than only scanning the producer source. Any declaration, helper, guard, import, or reference used by generated code must exist in the generated artifact's own lexical/runtime scope and in emission order. A source-token or regex check can show that text exists in the generator, but cannot prove that the generated output parses, resolves names, executes, or preserves behavior; add a bounded probe that renders/builds the artifact and then parses, imports, compiles, or executes it at the closest available boundary. If the native runtime is unavailable, use a deterministic generated-output parser/scope check and disclose that narrower boundary."
+
 // RegisterDefaults registers all built-in skill configurations.
 //
 // The analyzer's "analysis-skill" is built programmatically from the
@@ -278,6 +290,10 @@ func RegisterDefaults(r *Registry) {
 			},
 			{
 				Body:      mechanicalProducerChainSeparationDirective,
+				AppliesTo: AppliesToFilter{RequiresMechanism: true},
+			},
+			{
+				Body:      independentMechanismContrastDirective,
 				AppliesTo: AppliesToFilter{RequiresMechanism: true},
 			},
 		},
@@ -1020,6 +1036,10 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 				Body:      mechanicalProducerChainSeparationDirective,
 				AppliesTo: AppliesToFilter{RequiresMechanism: true},
 			},
+			{
+				Body:      independentMechanismContrastDirective,
+				AppliesTo: AppliesToFilter{RequiresMechanism: true},
+			},
 		},
 		// P5-B Tier B prohibitions: 2 items the design classifies
 		// as style-polish (always relevant but lower priority).
@@ -1438,6 +1458,7 @@ Prose written outside the tool call is captured in the trace but does not drive 
 			"ONE CHANGE PER FILE: the changes[] array must NOT have two entries for the same path — the tool rejects duplicate paths. If a file needs two semantic edits, compose them into a single modify (full body) or patch (combined diff).",
 			"RESOURCE BUDGET — the verify stage will run your tests under hard caps (default 2 GiB memory, 600 CPU-seconds, plus the configured wall-clock timeout). A test that exceeds any cap is SIGKILLed and the verify→plan retry receives an explicit OOM / CPU-limit / timeout classification — meaning you don't get to blame 'tests failed' if the real cause is unbounded allocation or an infinite loop. To stay within budget: every loop in test or production code MUST have an explicit termination condition (no `while True:` / `for {}` / `loop {}` without a reachable break/return); every recursion MUST have a base case; every allocation whose size depends on input MUST validate the input is bounded before allocating; every blocking call (sleep / wait / lock / network / file open) MUST have a finite timeout. These rules apply to BOTH new test fixtures and production code the tests exercise. Raising the caps is NOT an acceptable fix — bounded execution IS the contract.",
 			"Use depends_on for ORDERING constraints between changes in this same plan: when creating a new file X and then modifying an existing file Y that will import / call X, set Y's depends_on to [\"X\"]. The apply stage topologically-sorts before writing, so declaring the edge guarantees X lands on disk before Y tries to reference it. depends_on is ALWAYS repo-relative paths of OTHER entries in THIS plan — cross-plan or absolute paths are rejected, as is any cycle (a → b → a). Leave depends_on empty when the default declaration order is correct.",
+			generatedArtifactVerificationDirective,
 			"Optionally list acceptance_tests[] — natural-language test assertions the apply stage's verify phase should confirm. Empty is legal (no explicit tests to check). When the behaviour can be checked by a small deterministic runtime assertion, emit verification_probes[] as typed bounded inline probes (supported languages: python, javascript for Node.js, ruby, java via JDK javac/java, go; repo-relative working_dir, short timeout, optional expected_stdout). When task framing lists behavior contracts, prioritize hard_required contract_refs; soft_required satisfies contracts are useful context but do not prove exact values unless the probe itself asserts the exact behavior from grounded evidence. Add changed_symbol_refs[] naming the changed module/symbol the probe imports or executes. A Go probe normally uses standalone `package main` code that imports the changed package. When the changed Go package is itself package main or the behavior requires an unexported symbol, instead emit a real same-package `TestX(*testing.T)` source, set working_dir to that changed package directory, and keep its package declaration equal to the changed package; the verifier mounts it through a temporary overlay and runs only that test. If a referenced contract carries comparator context, the probe should exercise the changed subject and the comparator relationship rather than only proving that the subject no longer crashes. If a referenced contract carries placement context, the probe should inspect the rendered line/surface and bind placement_refs[] to that contract id; contract_refs[] without placement_refs[] does not prove line-local placement. The verify executor runs these probes before project-level suites; passing probes become bounded local behaviour evidence and failing probes become typed tests_failed evidence. Probes must import/use the changed code and assert the externally requested behaviour directly; do not copy an isolated implementation expression into the probe and test only that copy. Include both positive and negative cases when the reported defect is boundary-like. Probes must exit non-zero on failure; do not encode broad shell commands or environment setup.",
 			"Do NOT invoke apply_patch from the plan stage. Do NOT invoke run_tests unless it has dry_run=true AND a typed verification_probe object; suite/runner test execution belongs to the verify stage that consumes the plan later.",
 		},

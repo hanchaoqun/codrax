@@ -3919,6 +3919,80 @@ B18c 使用一条通用 typed 规则修复：
 
 状态：`implemented / full-tests-pass / cross-relation replay next`。
 
+### B42：生成物写模式 × 日志/源码机制对比审计（2026-08-02）
+
+本批按跨模式优先级严格并行：
+
+- `github_issue_napi_force_wasi_env_symptom`：真实上游生成模板写模式；
+- `read_combo_log_current_source_explanation`：attached log 与 current source 的机制边界解释。
+
+runner 2/2 PASS，人工 0/2 PASS，两个都是结构性 false green。
+
+#### EVAL-B42-GENART1：producer token 验证掩盖生成物未定义变量（P0）
+
+写模式生成的补丁为：
+
+```typescript
+export function renderNativeBinding(localName: string): string {
+  const forceWasi = process.env.NAPI_RS_FORCE_WASI === 'true' ||
+    process.env.NAPI_RS_FORCE_WASI === 'error'
+  return `
+  // ... generated loader ...
+  if (!nativeBinding || forceWasi) {
+```
+
+布尔语义接近上游 PR #3236，但 declaration 在 generator 运行时作用域，reference 在
+返回的 JavaScript 字符串里。最终生成 loader 没有 `forceWasi` 声明，运行即引用未定义
+变量。verify 仍判通过，原因是 `tests/check_force_wasi.py`、`make check` 与现有 TypeScript
+测试都只在 producer source 上扫描/替换 token，没有渲染后解析、名称解析或执行。
+
+这不是 TypeScript 或某个变量名特例，而是 generator/template/transpiler/serializer/code
+emitter 的共同验证边界 gap。第一施工批：
+
+1. change-plan 共享 soft guidance 要求验证 produced artifact；生成代码使用的 declaration、
+   guard、import/reference 必须位于生成物自身 lexical/runtime scope 且先定义后使用；
+2. 优先 render/build 后 parse/import/compile/execute；缺少原生 runtime 时允许确定性的
+   generated-output parser/scope check，但必须披露较窄边界；
+3. fixture oracle 改为先提取实际返回的 loader 模板，再在该生成物内检查 force 条件、
+   declaration 与 emission order；producer 外层同名 token 不再构成通过证据；
+4. 修正 eval ground truth：`false` 是“不强制 WASI、native 优先”，不是 native 缺失时
+   禁止正常 fallback；`true/error` 保持强制语义。
+
+新 oracle 已证明：原始 fixture 以裸 truthiness 失败；B42 r1 应用树以生成物缺少
+`true` 判定和 `forceWasi` 未声明失败。产品不增加 case/标识符 hard gate。
+
+#### EVAL-B42-CONTRAST1：把机制 A 的 complement 当成机制 B 的实现（P1）
+
+读模式正确判断 attached log 只证明 `phase=llm_request` 的 first-byte timeout，不能证明
+后续 answer contract validation 的结果；但对代码机制给出错误结论：
+
+- `IsStreamLevelRetryable=true` 确实承载 stream/transport retry；
+- 它的 false 分支包含 HTTP API error、重试耗尽、auth/schema/config 等多种非流错误，
+  并不等于 content validation failure；
+- content contract failure 的 check/reject/retry-budget/scheduler requeue 位于独立控制路径，
+  本轮没有读取；
+- explorer 仅读超时 classifier 后，把 false/complement 臆断成第二套机制，并将该臆断
+  铸入 evidence aggregate，finalizer 只能忠实扩写错误前提。
+
+第一施工批增加 explore 与 answer-document 共用的 typed-mechanism soft directive：任何
+机制 distinction/comparison 必须把每一侧分别追到自己的 producer/control path，并证明
+join/handoff；A 的 predicate false/complement 不得充当 B 的证据，缺一侧就明确边界。
+它只由 `RequiresMechanism` typed shape 选择，不扫描 RawRequest、thinking、summary/final，
+不拒绝或重写模型结论。
+
+任务：
+
+- [x] B42-T1：严格并行 2 case，读取完整日志、最终答案、计划、应用 diff 与验证报告；
+- [x] B42-T2：登记 GENART1/P0 与 CONTRAST1/P1，确认均为跨项目机制类问题；
+- [x] B42-T3：共享 independent-mechanism contrast soft guidance，explore/finalize 同源且
+  typed mechanism gated；
+- [x] B42-T4：生成物验证 soft guidance + fixture generated-output scope oracle；
+- [x] B42-T5：`internal/skill` 0.478s、`make`、Python 编译与 oracle 负证验证通过；
+  原始 fixture 与 r1 应用树均被拒绝，第一施工批提交推送；
+- [ ] B42-T6：干净 HEAD 同对严格并行 r2，人工审计生成物 scope、独立机制证据与答案；
+- [ ] B42-T7：更新统一台账；若 soft guidance 已给足但模型仍波动，不增加硬门，转后续
+  高优先级跨模式 pair。
+
 ### B41：data 终批材料 × Binder 方向语义审计（2026-08-02）
 
 本批严格并行 `data_text_filter_count` 与 `trace_query_binder_ipc_peer`。runner
