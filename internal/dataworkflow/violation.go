@@ -106,6 +106,27 @@ func ActiveGuardViolationsFromRecords(records []WorkflowRecord) []WorkflowViolat
 	return cloneWorkflowViolations(out)
 }
 
+// ActiveExecutionViolationsFromRecords projects execution failures that are
+// still authoritative for the current reducer decision. A later record with a
+// successful result marks the preceding failures as repaired history: they
+// remain available through WorkflowViolationsFromRecordExecution for journal
+// and reasoning lineage, but they must not keep the live workflow state
+// blocked after progress has resumed.
+//
+// This intentionally shares the same progress boundary as
+// ActiveGuardViolationsFromRecords. The boundary is structural (Result is
+// present and Err is empty); it does not inspect error text, answer content,
+// action names, or model rationale.
+func ActiveExecutionViolationsFromRecords(records []WorkflowRecord) []WorkflowViolation {
+	start := 0
+	for i, rec := range records {
+		if workflowRecordHasSuccessfulProgress(rec) {
+			start = i + 1
+		}
+	}
+	return WorkflowViolationsFromRecordExecution(records[start:])
+}
+
 func workflowRecordHasSuccessfulProgress(rec WorkflowRecord) bool {
 	return rec.Result != nil && strings.TrimSpace(rec.Err) == ""
 }
@@ -128,7 +149,7 @@ func BuildWorkflowStateViolations(input WorkflowStateViolationInput) []WorkflowV
 			len(state.ZeroMatchFilterViolations)+
 			len(state.UnmatchedResolutionViolations)+
 			len(state.ZeroEligibleViolations))
-	additional = append(additional, WorkflowViolationsFromRecordExecution(input.Records)...)
+	additional = append(additional, ActiveExecutionViolationsFromRecords(input.Records)...)
 	for _, issue := range state.FieldContractViolations {
 		additional = append(additional, WorkflowViolation{
 			Code:                 "field_contract_violation",

@@ -7498,6 +7498,54 @@ func TestDataTaskWorkflowStateDropsStaleAdmissionGuardAfterProgress(t *testing.T
 	}
 }
 
+func TestDataTaskWorkflowStateDropsRepairedExecutionViolationAfterSuccessfulProgress(t *testing.T) {
+	contract := dataquery.CoverageContract{RequiredMaterials: []dataquery.CoverageMaterial{
+		{Path: "instructions.md", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+		{Path: "users.json", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+	}}
+	output := dataquery.OutputContract{Format: dataquery.OutputJSONOnly, ExplanationAllowed: false}
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{CoverageContract: contract, OutputContract: output},
+		Err:  "required material missing",
+		Violations: []dataquery.DataTaskViolation{{
+			Code:       "required_material_not_consumed",
+			ActionID:   "read_instructions",
+			InputAlias: "instructions.md",
+			Summary:    "instructions.md was not consumed",
+		}},
+	}, {
+		Plan: dataquery.TaskPlan{
+			CoverageContract: contract,
+			OutputContract:   output,
+			Actions: []dataquery.DataAction{{
+				ID:     "project_ids",
+				Kind:   dataquery.DataActionCustomTransform,
+				Script: `emit({"ids":["u1","u3"]})`,
+			}},
+		},
+		Result: &dataquery.Result{
+			Answer:         `{"ids":["u1","u3"]}`,
+			OutputContract: output,
+			ConsumedPaths:  []string{"instructions.md", "users.json"},
+		},
+	}}
+
+	state := dataTaskWorkflowState("", records, dataquery.TaskPlan{})
+	for _, violation := range state.WorkflowViolations {
+		if violation.Code == "required_material_not_consumed" {
+			t.Fatalf("WorkflowViolations=%+v, repaired execution failure must be audit-only", state.WorkflowViolations)
+		}
+	}
+	for _, node := range state.ActionGraph.Blocked {
+		if node.ID == "read_instructions" {
+			t.Fatalf("ActionGraph.Blocked=%+v, repaired execution failure must not block current state", state.ActionGraph.Blocked)
+		}
+	}
+	if !state.MaterialCoverageSufficient || !state.HasAnswer || state.Decision.Status != "complete" {
+		t.Fatalf("state=%+v, successful repair should publish a complete current decision", state)
+	}
+}
+
 func TestDataTaskWorkflowRecordForGuardProjectsBlockedAction(t *testing.T) {
 	action := dataquery.DataAction{
 		ID:         "compute_missing",

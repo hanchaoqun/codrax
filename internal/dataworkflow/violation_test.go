@@ -137,6 +137,67 @@ func TestActiveGuardViolationsDropsGuardsBeforeSuccessfulProgress(t *testing.T) 
 	}
 }
 
+func TestActiveExecutionViolationsKeepLineageButDropFailuresBeforeSuccessfulProgress(t *testing.T) {
+	stale := dataquery.DataTaskViolation{
+		Code:       "required_material_not_consumed",
+		Summary:    "instructions.md was not consumed",
+		RepairHint: "consume the required material",
+	}
+	active := dataquery.DataTaskViolation{
+		Code:       "field_contract_violation",
+		ActionID:   "filter_after_repair",
+		ActionKind: string(dataquery.DataActionFilterRecords),
+		InputAlias: "records.json",
+		Summary:    "records.json is missing status",
+	}
+	records := []WorkflowRecord{{
+		Err:        "required material missing",
+		Violations: []dataquery.DataTaskViolation{stale},
+	}, {
+		Result: &dataquery.Result{
+			Answer:        `{"ids":["u1","u3"]}`,
+			ConsumedPaths: []string{"instructions.md", "users.json"},
+		},
+	}, {
+		Err:        "field contract failed",
+		Violations: []dataquery.DataTaskViolation{active},
+	}}
+
+	lineage := WorkflowViolationsFromRecordExecution(records)
+	if len(lineage) != 2 || lineage[0].Code != stale.Code || lineage[1].Code != active.Code {
+		t.Fatalf("lineage=%+v, want both historical and active execution violations", lineage)
+	}
+	current := ActiveExecutionViolationsFromRecords(records)
+	if len(current) != 1 || current[0].Code != active.Code || current[0].ActionID != active.ActionID {
+		t.Fatalf("current=%+v, want only failures after latest successful progress", current)
+	}
+}
+
+func TestBuildWorkflowStateViolationsDoesNotRepublishRepairedExecutionFailure(t *testing.T) {
+	records := []WorkflowRecord{{
+		Err: "required material missing",
+		Violations: []dataquery.DataTaskViolation{{
+			Code:    "required_material_not_consumed",
+			Summary: "instructions.md was not consumed",
+		}},
+	}, {
+		Result: &dataquery.Result{
+			Answer:        `{"ids":["u1","u3"]}`,
+			ConsumedPaths: []string{"instructions.md", "users.json"},
+		},
+	}}
+	violations := BuildWorkflowStateViolations(WorkflowStateViolationInput{
+		Records: records,
+		State: WorkflowStateView{
+			MaterialCoverageSufficient: true,
+			HasAnswer:                  true,
+		},
+	})
+	if len(violations) != 0 {
+		t.Fatalf("violations=%+v, repaired execution failure must remain lineage-only", violations)
+	}
+}
+
 func TestBuildWorkflowStateViolationsProjectsTypedIssues(t *testing.T) {
 	state := WorkflowStateView{
 		MaterialCoverageSufficient: true,
