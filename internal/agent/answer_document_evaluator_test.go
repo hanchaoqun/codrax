@@ -7927,6 +7927,36 @@ func TestAnswerDocumentEvaluator_ParseOutput_RoutesNonCriticalReadAuditSupplemen
 	}
 }
 
+func TestAnswerDocumentEvaluator_ParseOutput_DoesNotPublishSuccessfulLocalizationForVisibleUncitedPath(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID: "principal", Kind: types.BlockSummary, SurfaceRole: types.SurfacePrincipal,
+			Text: "配置值来自 src/main/resources/application.properties。",
+		}},
+		Citations: []types.Citation{{File: "src/main/java/example/Config.java", Line: 21}},
+		ReadSourceLocalization: &types.SourceLocalizationReview{
+			Source:         "read_turn_a",
+			Status:         types.SourceLocalizationSupported,
+			SourcePaths:    []string{"src/main/resources/application.properties"},
+			SupportedPaths: []string{"src/main/resources/application.properties"},
+		},
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	if strings.Contains(out.FinalAnswer, "系统补充：源码定位状态") {
+		t.Fatalf("successful localization is operator telemetry and must not append a system-authored answer table:\n%s", out.FinalAnswer)
+	}
+	if !strings.Contains(out.FinalAnswer, "application.properties") {
+		t.Fatalf("model-authored answer was lost:\n%s", out.FinalAnswer)
+	}
+}
+
 func TestAnswerDocumentEvaluator_ParseOutput_KeepsAnswerCriticalReadAuditSupplementForVisibleUncitedPath(t *testing.T) {
 	mu := types.NewMutableState("")
 	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{

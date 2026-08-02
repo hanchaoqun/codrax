@@ -12794,6 +12794,18 @@ func readAuditSupplementShouldAppendToAnswer(ctx *types.AgentContext, doc *types
 	if doc == nil {
 		return false
 	}
+	if kind == readAuditSupplementLocalizationAuthority && types.SourceLocalizationReviewHasSignal(doc.ReadSourceLocalization) {
+		authority := loopkernel.DeriveLocalizationAuthority(doc.ReadSourceLocalization)
+		// A fully supported localization result is success telemetry, not an
+		// answer limitation. Keep it in the typed document/log for audit, but
+		// never append a second system-authored success table after the model's
+		// answer. Only observed/weak/missing/conflicted states may cross this
+		// last-mile disclosure gate.
+		if authority.State == loopkernel.LocalizationAuthorityOwnerSupported &&
+			len(authority.OwnerMissingPaths) == 0 && !authority.RequiresMoreContext {
+			return false
+		}
+	}
 	view := types.AnswerDocumentPrincipalEvidenceView(doc)
 	if view.HasGroundedPrincipalEvidence() &&
 		kind != readAuditSupplementNavigationCoverage &&

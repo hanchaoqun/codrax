@@ -154,6 +154,7 @@ func configPrecedenceLayerCarrier(required bool) BlockRequirement {
 		FacetIDs:         []string{string(FacetConfigPrecedenceRole)},
 		Rationale: "Render each grounded precedence layer once, from low to high, with its source and configured value when known. " +
 			"Use table rows or ordered-list items with citation_ref values so every source remains auditable. " +
+			"When a row states a configured literal, cite the source that contains both that key and literal; a lookup call proves the layer and key but not the configured value. " +
 			"For a runtime/CLI/environment layer whose live value was not observed, report the source and state that the runtime value is unknown; do not treat repository absence as proof that the layer is unset.",
 		SurfaceRoleHint: SurfacePrincipal,
 	}
