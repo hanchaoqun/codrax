@@ -944,6 +944,27 @@ func TestCompileObservationLedger_ExternalErrorInfoObservationIsSupportOnly(t *t
 	}
 }
 
+func TestCompileObservationLedger_ThreadSnapshotIsAlwaysSupportOnly(t *testing.T) {
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		LogBundle: &LogBundle{Observations: []LogObservation{{
+			Kind:       LogObservationThreadSnapshot,
+			Subject:    "goroutine 87",
+			Summary:    "captured in writeSession",
+			Evidence:   "goroutine 87 [running]",
+			Diagnostic: true,
+			Severity:   LogObservationFailure,
+			LineStart:  11,
+		}}},
+	})
+	record := findObservationRecord(t, ledger, "log:observation:0")
+	if record.Role != AnswerAggregateRoleSupportingCoverage || record.GroundingPolicy != ClaimGroundingSoft {
+		t.Fatalf("thread snapshot must remain supporting context: %+v", record)
+	}
+	if record.ProvenanceLane != ObservationProvenanceArtifactSpan {
+		t.Fatalf("thread snapshot must remain in artifact-span lane: %+v", record)
+	}
+}
+
 func TestCompileObservationLedger_RuntimeArtifactProvenanceLanes(t *testing.T) {
 	ledger := CompileObservationLedger(ObservationLedgerInput{
 		AggregateFacts: []AnswerAggregateFact{{

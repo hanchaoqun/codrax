@@ -3520,6 +3520,9 @@ func logErrorObservationRichNotes(err LogError) []string {
 }
 
 func observationProvenanceLaneForLogObservation(obs LogObservation) ObservationProvenanceLane {
+	if obs.Kind == LogObservationThreadSnapshot {
+		return ObservationProvenanceArtifactSpan
+	}
 	if obs.Diagnostic || obs.Severity == LogObservationFailure || obs.Severity == LogObservationWarning {
 		return ObservationProvenanceObservedDirectCause
 	}
@@ -3530,6 +3533,9 @@ func observationProvenanceLaneForLogObservation(obs LogObservation) ObservationP
 }
 
 func logObservationRecordRole(bundle *LogBundle, obs LogObservation) AnswerAggregateRole {
+	if obs.Kind == LogObservationThreadSnapshot {
+		return AnswerAggregateRoleSupportingCoverage
+	}
 	if bundle == nil {
 		return AnswerAggregateRolePrincipalAnswer
 	}

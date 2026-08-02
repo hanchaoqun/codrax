@@ -1,8 +1,9 @@
 # Log-triage — parallel Go goroutine dump
 #
-# Exercises the parallel Errors[] slice in the schema: multiple
-# goroutines at time of crash map to peer entries in Errors[], not
-# to Cause chains. The LLM should emit 3 errors (one per goroutine).
+# Exercises the explicit-error versus concurrent-snapshot boundary. The fatal
+# header and throw stack form one Errors[] entry. Goroutines 87 and 120 have no
+# error header of their own; they are thread_snapshot observations, not peer
+# errors and not Cause-chain entries.
 ID="logtri_goroutine_dump"
 NAME="log-triage Go concurrent map writes — parallel goroutines"
 QUESTION="哪些 goroutine 同时出错？它们的共同问题是什么？"

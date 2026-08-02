@@ -4150,6 +4150,9 @@ func formatLogTriageStructured(bundle *types.LogBundle, locator types.SymbolLoca
 			"Only `observed_evidence` plus its artifact-local line span is a runtime fact; `triager_interpretation` is a search hypothesis that must not establish code mechanism, producer identity, counter meaning, or causality by itself. " +
 			"These rows are not repo file:line citations by themselves. " +
 			"When the current request asks whether an observed issue still exists, answer in two lanes: what the log observed, and what current code evidence proves now.\n\n")
+		if logBundleHasThreadSnapshots(bundle) {
+			b.WriteString("**Thread-snapshot authority boundary**: rows with `kind=thread_snapshot` are concurrent execution context captured at dump time, not independent error occurrences. Only entries in the Errors tree establish an emitted panic/error/exception. A thread snapshot may support saying that a thread was executing the shown frame; it does not by itself support saying that thread crashed, emitted the error, touched the same resource, or caused the failure. Keep snapshot identities separate from explicit-error identities in reasoning and in the final answer.\n\n")
+		}
 		for i, obs := range bundle.Observations {
 			fmt.Fprintf(&b, "  %d. kind=%s", i+1, obs.Kind)
 			if obs.Severity != "" {
@@ -4237,6 +4240,18 @@ func formatLogTriageStructured(bundle *types.LogBundle, locator types.SymbolLoca
 		"this against any quote you attribute to that frame in your answer.\n")
 
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func logBundleHasThreadSnapshots(bundle *types.LogBundle) bool {
+	if bundle == nil {
+		return false
+	}
+	for _, obs := range bundle.Observations {
+		if obs.Kind == types.LogObservationThreadSnapshot {
+			return true
+		}
+	}
+	return false
 }
 
 // formatPerfTriageStructured renders the validated PerfBundle as an

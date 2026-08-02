@@ -750,6 +750,14 @@ func normaliseObservations(in []types.LogObservation) []types.LogObservation {
 		if obs.Severity != "" && !types.IsValidLogObservationSeverity(obs.Severity) {
 			obs.Severity = ""
 		}
+		// A thread/goroutine snapshot is capture-time context, not an error
+		// occurrence. Keep that authority boundary stable even when the
+		// triager overstates severity in its typed fields. This decision uses
+		// only the schema-validated enum, never prose or keyword matching.
+		if obs.Kind == types.LogObservationThreadSnapshot {
+			obs.Severity = types.LogObservationInfo
+			obs.Diagnostic = false
+		}
 		obs.Subject = trimCap(obs.Subject, 120)
 		obs.Summary = trimCap(obs.Summary, 240)
 		obs.Evidence = trimCap(obs.Evidence, 300)

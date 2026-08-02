@@ -1148,7 +1148,8 @@ func TestLogTriageSkillSeparatesExplicitErrorsFromConcurrentSnapshots(t *testing
 	for _, want := range []string{
 		"explicit error occurrence",
 		"has no error/exception header of its own is NOT a sibling error",
-		"observations[] runtime_event",
+		"observations[] thread_snapshot",
+		"does not prove that the thread crashed",
 		"copied VERBATIM from the attached log",
 	} {
 		if !strings.Contains(corpus, want) {

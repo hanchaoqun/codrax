@@ -105,11 +105,60 @@ func TestEmitLogTriage_Schema_HasObservations(t *testing.T) {
 		t.Fatalf("observation required missing: %v", wantReq)
 	}
 	obsProps := item["properties"].(map[string]any)
+	kindNode := obsProps["kind"].(map[string]any)
+	kindEnum, _ := kindNode["enum"].([]any)
+	foundThreadSnapshot := false
+	for _, value := range kindEnum {
+		if value == string(types.LogObservationThreadSnapshot) {
+			foundThreadSnapshot = true
+			break
+		}
+	}
+	if !foundThreadSnapshot {
+		t.Fatalf("observation kind enum missing %q: %v", types.LogObservationThreadSnapshot, kindEnum)
+	}
 	if _, ok := obsProps["line_start"]; !ok {
 		t.Fatal("observation schema missing line_start")
 	}
 	if _, ok := obsProps["line_end"]; !ok {
 		t.Fatal("observation schema missing line_end")
+	}
+}
+
+func TestEmitLogTriage_Execute_ThreadSnapshotIsSupportingContext(t *testing.T) {
+	bus := &types.BusContext{
+		Mutable:     types.NewMutableState("test"),
+		AttachedLog: "fatal error: concurrent map writes\n\ngoroutine 87 [running]:\nmain.writeSession()\n",
+	}
+	params, err := json.Marshal(emitLogTriageParams{
+		Meta: emitLogTriageMeta{Lang: "go", Signals: []string{"panic"}},
+		Errors: []emitLogTriageError{{
+			Type: "concurrent map writes", Message: "fatal error: concurrent map writes",
+		}},
+		Observations: []emitLogTriageObservation{{
+			Kind:       string(types.LogObservationThreadSnapshot),
+			Severity:   string(types.LogObservationFailure),
+			Subject:    "goroutine 87",
+			Summary:    "concurrent stack snapshot",
+			Evidence:   "goroutine 87 [running]:\nmain.writeSession()",
+			Diagnostic: true,
+			Confidence: 1,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := (&EmitLogTriage{}).Execute(bus, params)
+	if err != nil || !res.Success {
+		t.Fatalf("thread snapshot emit failed: result=%+v err=%v", res, err)
+	}
+	bundle := bus.Mutable.LogTriage()
+	if bundle == nil || len(bundle.Observations) != 1 {
+		t.Fatalf("thread snapshot missing: %+v", bundle)
+	}
+	obs := bundle.Observations[0]
+	if obs.Severity != types.LogObservationInfo || obs.Diagnostic {
+		t.Fatalf("thread snapshot gained failure authority: %+v", obs)
 	}
 }
 

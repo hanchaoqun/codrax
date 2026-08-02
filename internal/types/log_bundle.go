@@ -165,6 +165,7 @@ type LogObservationKind string
 
 const (
 	LogObservationRuntimeEvent      LogObservationKind = "runtime_event"
+	LogObservationThreadSnapshot    LogObservationKind = "thread_snapshot"
 	LogObservationContractViolation LogObservationKind = "contract_violation"
 	LogObservationRetryCycle        LogObservationKind = "retry_cycle"
 	LogObservationTopicMismatch     LogObservationKind = "topic_mismatch"
@@ -178,6 +179,7 @@ const (
 func AllLogObservationKinds() []LogObservationKind {
 	return []LogObservationKind{
 		LogObservationRuntimeEvent,
+		LogObservationThreadSnapshot,
 		LogObservationContractViolation,
 		LogObservationRetryCycle,
 		LogObservationTopicMismatch,

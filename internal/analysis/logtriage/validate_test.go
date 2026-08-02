@@ -130,6 +130,27 @@ func TestValidateBundle_DiagnosticObservationDerivesRootCauseHint(t *testing.T) 
 	}
 }
 
+func TestValidateBundle_ThreadSnapshotCannotBecomeFailure(t *testing.T) {
+	got := ValidateBundle(ValidateInput{
+		Meta: types.LogMeta{Lang: "go"},
+		Observations: []types.LogObservation{{
+			Kind:       types.LogObservationThreadSnapshot,
+			Severity:   types.LogObservationFailure,
+			Summary:    "captured goroutine stack",
+			Evidence:   "goroutine 87 [running]",
+			Diagnostic: true,
+			Confidence: 1,
+		}},
+	}, "")
+	if got == nil || len(got.Observations) != 1 {
+		t.Fatalf("thread snapshot lost: %+v", got)
+	}
+	obs := got.Observations[0]
+	if obs.Severity != types.LogObservationInfo || obs.Diagnostic {
+		t.Fatalf("thread snapshot gained failure authority: %+v", obs)
+	}
+}
+
 // TestValidateBundle_RuntimeInternalFilteredOut verifies Go runtime
 // / node / java.base paths never reach ResolvedFiles even when the
 // LLM emits them.

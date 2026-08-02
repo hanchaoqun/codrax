@@ -304,6 +304,34 @@ func TestFormatLogTriageStructured_OperationalObservationsRendered(t *testing.T)
 	}
 }
 
+func TestFormatLogTriageStructured_ThreadSnapshotsStayContextOnly(t *testing.T) {
+	bundle := &types.LogBundle{
+		Meta:   types.LogMeta{Lang: "go"},
+		Errors: []types.LogError{{Type: "concurrent map writes", Message: "fatal error: concurrent map writes"}},
+		Observations: []types.LogObservation{{
+			Kind:       types.LogObservationThreadSnapshot,
+			Severity:   types.LogObservationInfo,
+			Subject:    "goroutine 87",
+			Summary:    "goroutine 87 was captured in writeSession",
+			Evidence:   "goroutine 87 [running]: main.writeSession(...) ",
+			Diagnostic: false,
+			Confidence: 1,
+		}},
+	}
+	got := formatLogTriageStructured(bundle, nil)
+	for _, want := range []string{
+		"Thread-snapshot authority boundary",
+		"kind=thread_snapshot",
+		"not independent error occurrences",
+		"does not by itself support saying that thread crashed",
+		"Keep snapshot identities separate from explicit-error identities",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("thread snapshot boundary missing %q:\n%s", want, got)
+		}
+	}
+}
+
 // TestBuildPromptContext_LogTriageSection_RenderedForExplorer pins
 // the plumbing for downstream consumer agents: when a bundle is on
 // AgentContext.LogTriage, the explorer (and by symmetry extractor /
