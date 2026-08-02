@@ -4121,6 +4121,69 @@ ambiguous module、canonical plan factory 接线，以及 impact obligation file
 - [ ] B42-T19：接线冷读修正后 tool 全包已通过；提交推送，在干净 HEAD 做 r5 同对双并行验收；
 - [ ] B42-T20：r5 收口后转下一组更高优先级跨模式 pair，不继续围绕模型波动做单 case 加固。
 
+#### B42 r5：semantic rewrite 已消失；修复上下文仍有单向偏置（2026-08-02）
+
+干净 `main@9e3efb4d5` 同对严格并行。runner 仍为 read PASS、write 因 typed final
+`unverified/verification_proof_incomplete` FAIL；人工为 read FAIL、write 代码正确但行为验证
+未闭合。
+
+read 的系统上下文审计：
+
+1. `CONTEXTROUTE1` 已覆盖：第一次、第二次
+   `explain + diagnostic=true` payload 均 fail-loud，系统不再写回替换后的 RequestModel；
+   第三次 `root_cause` 是 analyzer 自己重发的选择。
+2. 新登记 `EVAL-B42-ROUTEREPAIR1/P1`：现有 reject 文本只说
+   `is_diagnostic_question=true requires intent=root_cause`，等价于只给一条修复方向。对当前这种
+   `explain/architecture/mechanism + attached-log conclusion boundary`，另一个合法方向是保留
+   explain/mechanism 并清除 diagnostic/current-risk flags。系统虽不直接改字段，修复上下文仍
+   单向推动 root-cause family、8 轮探索与约 68k/200k 上下文。
+3. 最终答案仍把 `IsStreamLevelRetryable=false` complement 当 content validation，把
+   `canUseFinalizerOutputAfterTransientProgress` 的 degraded fallback flags 当校验 verdict，
+   又把 render status 分类说成触发重试。真实边界是：dispatch error 在 finalize stage request
+   返回错误时处理；成文合同校验只在成功获得 StageOutput 后进入 `runContractCheck`，再由 typed
+   violations/retry/requeue 处理。软指导已准确、模型读取 8 个文件仍未闭合，继续增加答案 hard
+   gate/替换属于过拟合，记 model-variance watch。
+
+`ROUTEREPAIR1` 的通用施工只修改 typed 自洽失败反馈：同时列出两个合法修复方向——真正的
+cause/remediation/current-risk 选择 root-cause/performance；普通机制、架构、实现或附件日志边界
+解释则保留非 root-cause intent/scenario 并清除 diagnostic profile。系统不自动选择、不扫描
+RawRequest 或模型答案。
+
+write 的 `PROOFIDENT1` 已覆盖：canonical plan 中两个 probes 均携带
+`path:cli/src/api/templates/js-binding.ts`，impact obligations 只有 changed-file/path-ref，四个文件
+义务全部 covered，旧 `changed_symbol_without_probe_coverage` 消失。JS behavior probe 因 Node
+runner 缺失未执行，两个 behavior contracts 仍真实 unverified；typed final fail 必须保留。
+
+同时登记 `EVAL-B42-LOCALIZE1/P1`：final localization review 对
+`cli/src/api/templates/js-binding.ts` 同时携带两个 `strength=owner` 的 plan-edit anchors，却仍给出
+`plan_source_paths_missing_owner_context`。根因是 `LocalizationRequirementsFromWritePlanContext`
+用新的 `batch-1-cumulative-review` 过滤 owner view，而 prior-path/anchor 附注走的是 workflow
+unscoped 读取，于是同一 typed 事实一边展示、一边不授权。
+
+通用修复：owner-localization proof 按 consumer + source identity 在同一 workflow 内持久，repair、
+cumulative-review 或后续 slice 可复用前批对同一路径的 owner anchor；普通 verify failure、planner
+prose 等仍继续按 batch scope 隔离。路径匹配保证其它文件的 owner proof 不能串用。回归直接构造
+前批 owner anchor + 后批 cumulative review，要求 requirement satisfied、review supported、
+missing/owner_missing 均为空。
+
+状态：`CONTEXTROUTE1=covered`；`PROOFIDENT1=covered`；
+`ROUTEREPAIR1=implemented/full-tests-pass`；
+`LOCALIZE1=implemented/full-tests-pass`；read answer=`model-variance-watch`。
+
+完整相关回归：`internal/types` 20.414s、`internal/loopkernel` 1.846s、
+`internal/writeflow` 1.351s、`internal/tool` 158.809s、
+`internal/orchestrator` 9.427s，`make` 通过；`git diff --check` 通过。
+改动文件清册不含 Trace resolver、query、runtime authority 或 answer mutation；显式时间窗的
+因果投影、根因排序、唤醒链、窗内可消除量与自动补齐均未改动。
+
+任务：
+
+- [x] B42-T19：r5 双并行回放，人工审计完整 read/write 日志、答案、plan/report/final 与 context；
+- [x] B42-T20：typed analyzer 自洽 retry 提示改为对称二选一，不替模型改字段；
+- [x] B42-T21：跨批 durable owner anchor 消费与 cumulative-review 直接回归；
+- [x] B42-T22：完整相关回归并提交本批；用 r6 验证上下文，不以模型答案绿灯为施工目标；
+- [ ] B42-T23：收口后转下一组更高优先级 read/write/data/trace pair。
+
 ### B41：data 终批材料 × Binder 方向语义审计（2026-08-02）
 
 本批严格并行 `data_text_filter_count` 与 `trace_query_binder_ipc_peer`。runner

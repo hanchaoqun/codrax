@@ -66,7 +66,14 @@ func LocalizationRequirementsFromWritePlanContext(batchID, sliceID string, consu
 		return LocalizationRequirementSet{}
 	}
 	contextPaths := writeContextCoveragePriorPaths(prior)
-	ownerView := OwnerAnchorViewFromWriteContextPacks(prior, consumer, batchID, sliceID, 0)
+	// Owner-localization evidence is durable workflow proof keyed by source
+	// identity, not transient scheduler scope. A cumulative-review, repair, or
+	// later slice may verify the same changed path under a new batch id. Keep
+	// consumer filtering, but do not hide an earlier batch's typed owner anchor;
+	// path matching below still prevents unrelated evidence from satisfying the
+	// current plan. Ordinary stale failure/context items remain scoped by their
+	// own ViewForScope consumers and are not read here.
+	ownerView := OwnerAnchorViewFromWriteContextPacks(prior, consumer, "", "", 0)
 	items := make([]LocalizationRequirement, 0, len(planPaths))
 	for _, p := range planPaths {
 		ownerAnchors := localizationRequirementOwnerAnchorsForPath(ownerView, p)

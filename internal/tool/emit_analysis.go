@@ -2510,13 +2510,19 @@ func validateSelfConsistencyDetailed(
 	}
 	if preds.IsDiagnosticQuestion {
 		if intent != types.IntentRootCause {
-			return selfConsistencyIssue{Kind: selfConsistencyIssueOther, Reason: "is_diagnostic_question=true requires intent=root_cause — diagnostic questions ask for cause / current-risk analysis, not a general mechanism tour or scalar lookup"}
+			return selfConsistencyIssue{Kind: selfConsistencyIssueOther, Reason: fmt.Sprintf(
+				"is_diagnostic_question=true conflicts with intent=%s — choose from the CURRENT requested answer without system replacement: for cause / remediation / current-risk analysis set intent=root_cause (and root_cause or performance_bottleneck scenario); for an ordinary mechanism, architecture, implementation, or attached-log conclusion-boundary explanation keep its non-root-cause intent and set predicates.is_diagnostic_question plus diagnostic_profile.is_diagnostic/current_risk/historical_regression/current_version_check=false",
+				intent,
+			)}
 		}
 		switch scenario {
 		case types.ScenarioRootCause, types.ScenarioPerformanceBottleneck:
 			// ok
 		default:
-			return selfConsistencyIssue{Kind: selfConsistencyIssueOther, Reason: "is_diagnostic_question=true requires scenario=root_cause or scenario=performance_bottleneck — architecture_explain is for ordinary mechanism tours, not failure diagnosis"}
+			return selfConsistencyIssue{Kind: selfConsistencyIssueOther, Reason: fmt.Sprintf(
+				"is_diagnostic_question=true conflicts with scenario=%s — choose from the CURRENT requested answer without system replacement: for cause / remediation / current-risk analysis use scenario=root_cause or performance_bottleneck; for an ordinary mechanism, architecture, implementation, or attached-log conclusion-boundary explanation keep its non-root-cause scenario and clear the diagnostic predicate/profile flags",
+				scenario,
+			)}
 		}
 	}
 	if intent == types.IntentRootCause && !diagnosticRequired {

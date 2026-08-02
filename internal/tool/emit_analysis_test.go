@@ -1312,7 +1312,9 @@ func TestValidateSelfConsistency_DiagnosticPredicateAlignsIntentAndScenario(t *t
 		nil,
 		types.AnswerSubject{},
 	)
-	if reason == "" || !strings.Contains(reason, "intent=root_cause") {
+	if reason == "" || !strings.Contains(reason, "intent=root_cause") ||
+		!strings.Contains(reason, "set predicates.is_diagnostic_question") ||
+		!strings.Contains(reason, "without system replacement") {
 		t.Fatalf("expected diagnostic intent alignment reject, got %q", reason)
 	}
 
@@ -1327,7 +1329,8 @@ func TestValidateSelfConsistency_DiagnosticPredicateAlignsIntentAndScenario(t *t
 		nil,
 		types.AnswerSubject{},
 	)
-	if reason == "" || !strings.Contains(reason, "scenario=root_cause") {
+	if reason == "" || !strings.Contains(reason, "scenario=root_cause") ||
+		!strings.Contains(reason, "clear the diagnostic predicate/profile flags") {
 		t.Fatalf("expected diagnostic scenario alignment reject, got %q", reason)
 	}
 
@@ -1366,7 +1369,8 @@ func TestEmitAnalysis_RejectsContradictoryDiagnosticExplainRoute(t *testing.T) {
 	if res.Success {
 		t.Fatalf("Execute must reject contradictory diagnostic route instead of replacing model intent: %q", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "is_diagnostic_question=true requires intent=root_cause") {
+	if !strings.Contains(res.Summary, "is_diagnostic_question=true conflicts with intent=explain") ||
+		!strings.Contains(res.Summary, "attached-log conclusion-boundary explanation") {
 		t.Fatalf("unexpected rejection: %q", res.Summary)
 	}
 	if rm := mu.RequestModel(); rm != nil {

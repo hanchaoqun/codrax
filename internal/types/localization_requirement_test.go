@@ -127,6 +127,64 @@ func TestLocalizationRequirementsSupportingAnchorDoesNotSatisfyOwnerEvidence(t *
 	}
 }
 
+func TestLocalizationRequirementsCarryOwnerAnchorAcrossWorkflowBatches(t *testing.T) {
+	ref := WriteExplorationEvidenceRef{
+		ID:          "plan-edit-owner",
+		Source:      "pkg/loader.ts",
+		LineStart:   14,
+		OwnerSymbol: "renderLoader",
+	}
+	prior := []WriteContextPack{{
+		PackID:      "batch-1-plan-edit-owner",
+		BatchID:     "batch-1",
+		SourceStage: "plan_edit_owner",
+		Items: []WriteContextItem{{
+			Priority:    WriteContextP1,
+			Kind:        "localization_anchor",
+			SourceStage: "plan_edit_owner",
+			Consumers:   []WriteContextConsumer{WriteConsumerPlanner},
+			EvidenceRef: &ref,
+			LocalizationAnchor: &SourceLocalizationAnchor{
+				Path:        "pkg/loader.ts",
+				Role:        SourcePathRoleProduction,
+				SourceStage: "plan_edit_owner",
+				Kind:        SourceLocalizationAnchorGroundedEvidence,
+				Strength:    SourceLocalizationAnchorOwner,
+				EvidenceRef: &ref,
+				OwnerSymbol: "renderLoader",
+			},
+		}},
+	}}
+	plan := &ChangePlan{
+		ID:          "plan-loader",
+		TargetPaths: []string{"pkg/loader.ts"},
+		Changes:     []FileChange{{Path: "pkg/loader.ts", Kind: "patch"}},
+	}
+
+	reqs := LocalizationRequirementsFromWritePlanContext(
+		"batch-1-cumulative-review",
+		"",
+		WriteConsumerPlanner,
+		prior,
+		plan,
+		0,
+	)
+	if reqs.OpenItems != 0 || len(reqs.Items) != 1 || reqs.Items[0].Status != LocalizationRequirementSatisfied {
+		t.Fatalf("durable owner anchor was hidden by a later batch id: %+v", reqs)
+	}
+	review := SourceLocalizationReviewFromWritePlanContext(
+		"batch-1-cumulative-review",
+		"verify the applied plan",
+		prior,
+		plan,
+	)
+	if review.Status != SourceLocalizationSupported ||
+		strings.Join(review.OwnerSupportedPaths, ",") != "pkg/loader.ts" ||
+		len(review.OwnerMissingPaths) != 0 || len(review.MissingPaths) != 0 {
+		t.Fatalf("cross-batch review contradicts its owner anchor: %+v", review)
+	}
+}
+
 func TestLocalizationRequirementsFromSourceLocalizationReviewReportsReadOwnerDiscovery(t *testing.T) {
 	review := SourceLocalizationReviewFromTurnA(
 		[]string{"pkg/read_only.py"},
