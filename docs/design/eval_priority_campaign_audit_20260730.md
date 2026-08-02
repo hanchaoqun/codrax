@@ -3981,11 +3981,32 @@ plan guard 和 runner 文案同时允许 `emit(...)` 或直接 `result` 赋值�
 - [x] B38-T3：实现 data 非对象 Result 规范化与回归；
 - [x] B38-T4：实现 log verbatim message cardinality、合并拒绝与术语纠偏；
 - [x] B38-T5：全相关测试通过（dataquery/dataworkflow/tool/context/types/skill）；
-  提交、推送待本批收口；
-- [ ] B38-T6：重放同一 2 case，人工确认 87/120 保持 context-only 且 data 不再
-  发生 result schema repair。
+  `f6981d22b` 已提交推送；
+- [x] B38-T6：同一 2 case 严格并行重放；data schema repair 消失，log pre-stage
+  权限闭环，最终模型残余按既有 model-owned gap 留档。
 
-状态：`implemented / full-related-tests-pass / commit+push next`。
+#### B38-R2：确定性合同闭环，模型所有权残余不再硬化
+
+R2 runner 仍为 2/2 PASS，人工为 1/2 PASS：
+
+- data 最终 `2` 正确，`data_repair_rounds=0`，R1 的裸 scalar
+  `result_schema_mismatch` 已消失，DATARESULT1 closed。模型本轮选择了完整 typed
+  ledger DAG，7 个 rounds 中有 2 个可恢复 `missing_action_inputs` suffix；这是
+  planner 路径/效率波动，答案与审计账正确，登记
+  `EVAL-B38-DATACHURN1/P2-watch`，不为 4 行 JSONL 加特殊捷径或题面门。
+- log pre-stage 已正确输出 1 个 explicit Error，以及 goroutine 87/120 两个
+  `severity=info / diagnostic=false` 的 thread_snapshot；下游 prompt 逐字显示
+  snapshot 不能证明 crashed、same resource 或 causality。模型仍在 explorer 生成
+  一个无 support refs 的「同时出错=3」aggregate，并在最终答案称 87/120
+  在 mapassign 中崩溃。该残余与 `EVAL-B35-LOGMODEL1` 完全同类：系统 precise
+  authority 已正确，模型结论仍错。继续扫描 aggregate label/答案词面、禁止模型
+  列出 snapshot、或由系统替换主结论都会违反所有权红线，故合并到既有 gap 后停止
+  单例加硬。
+
+状态：`DATARESULT1=covered@f6981d22b/live-replay`；
+`LOGOCC1=covered@f6981d22b/live-prestage`；
+`LOGMODEL1=open/model-owned/no-system-rewrite`；
+`DATACHURN1=P2-watch`。
 
 ### B37：显式窗 Trace × 精确单文件 read，模型答案所有权审计（2026-08-01）
 
