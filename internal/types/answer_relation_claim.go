@@ -102,7 +102,7 @@ func CompileTraceAnswerRelationAuthorities(set TraceCausalProjectionSet) []Answe
 				},
 			)
 		}
-		if account := projection.TargetStateAccount; account != nil && strings.TrimSpace(account.Subject) != "" && account.TotalMS > 0 {
+		if account := projection.TargetStateAccount; answerRelationTargetStatePartitionClosed(projection, account) {
 			total := account.TotalMS
 			out = append(out, AnswerRelationAuthority{
 				ID:               "trace:target_state_partition:" + answerRelationTargetStateFingerprint(*account),
@@ -111,10 +111,42 @@ func CompileTraceAnswerRelationAuthorities(set TraceCausalProjectionSet) []Answe
 				PhysicalRelation: AnswerPhysicalRelationMutuallyExclusive,
 				Addition:         AnswerRelationAdditionAuthorized,
 				SubtotalValue:    &total, SubtotalUnit: "ms",
+				RequiredForClosure: true,
 			})
 		}
 	}
 	return out
+}
+
+// answerRelationTargetStatePartitionClosed admits only the engine's exact
+// five-lane wall-clock partition. The five raw lanes are mutually exclusive;
+// the renderer may merge d_state+io_wait into one human-facing D-state term,
+// but that display fold does not change the underlying arithmetic. Requiring
+// both the lane identity and the selected-window identity prevents a partial
+// or imbalanced state account from becoming closure authority.
+func answerRelationTargetStatePartitionClosed(projection TraceCausalProjection, account *TraceCausalProjectionTargetStateAccount) bool {
+	if account == nil || strings.TrimSpace(account.Subject) == "" || account.TotalMS <= 0 ||
+		account.RunningMS < 0 || account.RunnableMS < 0 || account.SleepMS < 0 ||
+		account.DStateMS < 0 || account.IOWaitMS < 0 {
+		return false
+	}
+	sum := account.RunningMS + account.RunnableMS + account.SleepMS + account.DStateMS + account.IOWaitMS
+	if fmt.Sprintf("%.3f", sum) != fmt.Sprintf("%.3f", account.TotalMS) {
+		return false
+	}
+	// The compact pre-Explore preview has no projection anchor yet; the typed
+	// result account still proves its own subtotal. Once an anchor exists, it
+	// must match the account window and the total must close that exact window.
+	if !TraceCausalProjectionWindowPresent(projection.WindowStartTs, projection.WindowEndTs) {
+		return true
+	}
+	if !TraceCausalProjectionWindowPresent(account.WindowStartTs, account.WindowEndTs) ||
+		math.Abs(account.WindowStartTs-projection.WindowStartTs) > TraceCausalProjectionSameWindowToleranceS ||
+		math.Abs(account.WindowEndTs-projection.WindowEndTs) > TraceCausalProjectionSameWindowToleranceS {
+		return false
+	}
+	windowMS := (projection.WindowEndTs - projection.WindowStartTs) * 1000
+	return fmt.Sprintf("%.3f", account.TotalMS) == fmt.Sprintf("%.3f", windowMS)
 }
 
 // CompileTraceAnswerRelationAuthoritiesFromLedger is the authority entry for

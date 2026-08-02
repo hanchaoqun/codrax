@@ -76,7 +76,7 @@ func TestAnswerDocumentRelationClaimsRemainModelOwnedAndCannotDrift(t *testing.T
 
 	missing := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{ID: "s", Kind: types.BlockSummary, Text: "model conclusion"}}}
 	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(missing), nil, time.Now())
-	if err != nil || res.Success || !strings.Contains(res.Summary, "must preserve every accepted") {
+	if err != nil || res.Success || !strings.Contains(res.Summary, "missing required model-authored relation claim") {
 		t.Fatalf("missing final claims should be retryable rejection: res=%+v err=%v", res, err)
 	}
 
@@ -90,5 +90,77 @@ func TestAnswerDocumentRelationClaimsRemainModelOwnedAndCannotDrift(t *testing.T
 	persisted := bus.Mutable.AnswerDocumentV2()
 	if persisted == nil || len(persisted.Blocks) == 0 || !types.AnswerRelationClaimsEqual(persisted.Blocks[0].RelationClaims, claims) {
 		t.Fatalf("relation claims did not survive persist: %+v", persisted)
+	}
+}
+
+func TestFinalRelationClaimsIncludeClosureAuthorityAddedByDeterministicSupplement(t *testing.T) {
+	bus, accepted := relationClaimPipelineFixture(t)
+	bus.Mutable.SetInvestigationRelationClaims(accepted)
+	bus.Mutable.SetInvestigationComplete("model accepted the explorer authorities")
+	bus.Mutable.RetainInvestigationRelationClaims()
+
+	ref := types.ObservationSourceRef{
+		Kind: types.ObservationSourceRuntimeArtifact, Path: "/tmp/customer.trace",
+		ArtifactID: "customer.trace", ArtifactKind: "trace",
+	}
+	window := types.TraceNoteKeySelectedWindow + "=10.000000..10.015000"
+	bus.Mutable.SetSystemTraceSupplement(types.SystemTraceSupplementMeta{Views: []string{"root_cause_rank"}}, []types.ToolResult{{
+		ToolName: "trace_query", Success: true, Summary: "deterministic target state supplement", Observations: []types.ObservationRecord{
+			{
+				ID: "trace_query:supplement#root", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard, SourceRef: ref,
+				ClaimKey: "root_cause_primary:target-7", Subject: "target-7", Predicate: "root_cause_primary",
+				Object: "running", Value: "1", Unit: "ms",
+				RichNotes: []string{"impact_ms=1.000", "cumulative_impact_ms=1.000", "rank=1", "tier=primary", "chain_relevance=on_chain", "causality=self_wall_clock", window},
+			},
+			{
+				ID: "trace_query:supplement#target_window_states", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard, SourceRef: ref,
+				ClaimKey: "target_window_states:target-7", Subject: "target-7", Predicate: "target_window_states",
+				Object: "state_partition", Value: "15.000", Unit: "ms",
+				RichNotes: []string{
+					types.TraceNoteKeyRunning + "=1.000", types.TraceNoteKeyRunnable + "=2.000",
+					types.TraceNoteKeySleep + "=3.000", types.TraceNoteKeyDState + "=4.000",
+					types.TraceNoteKeyIOWait + "=5.000", types.TraceNoteKeyTotal + "=15.000", window,
+				},
+			},
+		},
+	}})
+	preLedger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(bus, types.ObservationExtractLedgerEvidenceLimit))
+	preAuthorities := types.CompileTraceAnswerRelationAuthoritiesFromLedger(preLedger)
+	if len(preAuthorities) != len(accepted)+1 {
+		t.Fatalf("deterministic supplement did not compile its state relation authority: records=%+v authorities=%+v", preLedger.Records, preAuthorities)
+	}
+
+	missingSupplement := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "s", Kind: types.BlockSummary, Text: "model conclusion", RelationClaims: accepted,
+	}}}
+	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(missingSupplement), nil, time.Now())
+	if err != nil || res.Success || !strings.Contains(res.Summary, "trace:target_state_partition:") {
+		t.Fatalf("post-Explorer closure authority must require a model-authored final claim: res=%+v err=%v", res, err)
+	}
+
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(bus, types.ObservationExtractLedgerEvidenceLimit))
+	authorities := types.CompileTraceAnswerRelationAuthoritiesFromLedger(ledger)
+	submitted := types.CloneAnswerRelationClaims(accepted)
+	for _, authority := range authorities {
+		if !authority.RequiredForClosure || strings.HasPrefix(authority.ID, "trace:self_runnable_two_ruler:") {
+			continue
+		}
+		submitted = append(submitted, types.AnswerRelationClaim{
+			AuthorityID: authority.ID, MemberRefs: append([]string(nil), authority.MemberRefs...),
+			PhysicalRelation: authority.PhysicalRelation, Addition: authority.Addition,
+			SubtotalValue: authority.SubtotalValue, SubtotalUnit: authority.SubtotalUnit,
+		})
+	}
+	if len(submitted) != len(accepted)+1 {
+		t.Fatalf("supplement authority roster=%+v submitted=%+v", authorities, submitted)
+	}
+	valid := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "s", Kind: types.BlockSummary, Text: "model conclusion", RelationClaims: submitted,
+	}}}
+	res, err = ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(valid), nil, time.Now())
+	if err != nil || !res.Success {
+		t.Fatalf("model-authored superset preserving Explorer claims was rejected: res=%+v err=%v", res, err)
 	}
 }

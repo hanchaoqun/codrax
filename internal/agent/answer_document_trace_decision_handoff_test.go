@@ -15,7 +15,7 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 		WindowEndTs:   10.11494,
 		TargetStateAccount: &types.TraceCausalProjectionTargetStateAccount{
 			Subject: "target-100", RunningMS: 26.946, RunnableMS: 3.636,
-			SleepMS: 84.358, TotalMS: 114.940,
+			SleepMS: 84.358, TotalMS: 114.940, WindowStartTs: 10, WindowEndTs: 10.11494,
 		},
 		SelfRunnableTwoRulerAccountings: []types.TraceCausalProjectionSelfRunnableTwoRuler{{
 			Subject: "target-100", WallEffsMS: []float64{2.2, 1.1}, WallRanks: []int{4, 9},
@@ -81,6 +81,10 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 		"cross_ruler_addition=`forbidden`",
 		"cross_ruler_physical_relation=`unresolved`",
 		"typed_relation_authority: authority_id=`trace:self_runnable_two_ruler:",
+		"typed_relation_authority: authority_id=`trace:target_state_partition:",
+		"member_refs=`running,runnable,sleep,d_state,io_wait`; physical_relation=`mutually_exclusive`; addition=`authorized_to_published_subtotal`",
+		"final_relation_claim_obligation:",
+		"authority added by deterministic supplement after investigation closure",
 		"elected_wakeup_path=`ThreadPool-300 -> Network-200 -> Cookie-150 -> target-100`",
 		"wakeup_path_semantics:",
 		"does not prove that B synchronously blocked waiting for A",

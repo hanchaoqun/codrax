@@ -25,7 +25,10 @@ func TestTraceQuerySummaryCarriesTypedRelationAuthorityBeforeExploreClosure(t *t
 				EdgeSubtotalMs: 1.648,
 			},
 		},
-		TargetWindowStates: &tracequery.TargetWindowStateAccount{Thread: target, TotalMs: 233.190},
+		TargetWindowStates: &tracequery.TargetWindowStateAccount{
+			Thread: target, Window: tracequery.TimeWindow{StartTs: 10, EndTs: 10.23319}, WindowMs: 233.190,
+			RunningMs: 157.248, RunnableMs: 5.604, SleepMs: 70.338, TotalMs: 233.190,
+		},
 		WindowStats: &tracequery.WindowStats{BlockedReasonCensus: []tracequery.BlockedReasonPIDCensus{{
 			Thread: target,
 			Count:  50,
@@ -46,6 +49,8 @@ func TestTraceQuerySummaryCarriesTypedRelationAuthorityBeforeExploreClosure(t *t
 		"relation_claim_required authority_id=trace:self_runnable_two_ruler:",
 		"addition=authorized_to_published_subtotal subtotal_value=5.149 subtotal_unit=ms model_must_copy_to=emit_investigation_complete.relation_claims",
 		"physical_relation=unresolved addition=forbidden model_must_copy_to=emit_investigation_complete.relation_claims",
+		"relation_claim_required authority_id=trace:target_state_partition:",
+		"member_refs=running,runnable,sleep,d_state,io_wait physical_relation=mutually_exclusive addition=authorized_to_published_subtotal subtotal_value=233.190 subtotal_unit=ms",
 		"blocked_reason_census_relation subject=target-17267 records=50 value_caliber=kernel_record_count caller_delay_caliber=vendor_reported_delay_sum state_relation_authority=census_alone_not_sufficient typed_interval_join_required=true add_or_subtract_from_state_total=not_authorized_by_census_alone",
 	} {
 		if !strings.Contains(got, want) {
@@ -57,6 +62,23 @@ func TestTraceQuerySummaryCarriesTypedRelationAuthorityBeforeExploreClosure(t *t
 	}
 	if relationAt, bodyAt := strings.Index(got, "relation_authority scope="), strings.Index(got, "## Root cause rank"); relationAt < 0 || bodyAt < 0 || relationAt > bodyAt {
 		t.Fatalf("relation authority must remain in the model-visible head, relation=%d body=%d:\n%s", relationAt, bodyAt, got)
+	}
+}
+
+func TestTraceQuerySummaryDoesNotRequireImbalancedTargetStatePartition(t *testing.T) {
+	target := tracequery.ThreadRef{Comm: "target", PID: 7}
+	result := tracequery.Result{
+		View: "root_cause_rank",
+		RootCauseRank: &tracequery.RootCauseRankResult{Items: []tracequery.RootCauseRankItem{{
+			Rank: 1, Type: "running", Thread: target, EffectiveImpactMs: 1,
+		}}},
+		TargetWindowStates: &tracequery.TargetWindowStateAccount{
+			Thread: target, RunningMs: 1, RunnableMs: 1, TotalMs: 9,
+		},
+	}
+	got := traceQuerySummary(result, traceQueryParams{View: result.View}, "attached_trace", "/tmp/result.json")
+	if strings.Contains(got, "authority_id=trace:target_state_partition:") {
+		t.Fatalf("imbalanced target state account must not become relation authority:\n%s", got)
 	}
 }
 

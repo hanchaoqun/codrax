@@ -179,8 +179,10 @@ type TraceCausalProjection struct {
 	AbsorbedChainRows []TraceCausalProjectionNode `json:"absorbed_chain_rows,omitempty"`
 	// TargetStateAccount (§29.27② COV-4, 2026-07-11): the focused thread's
 	// full-window state partition compiled from the bundle's typed
-	// target_window_states record — running + runnable + sleep + D-state
-	// (io_wait = the typed IO refinement inside the D-state wall clock) plus
+	// target_window_states record — five mutually-exclusive raw lanes:
+	// running + runnable + sleep + non-IO D-state + io_wait. The renderer
+	// folds the last two lanes into one human-facing D-state term, with io_wait
+	// as its typed IO refinement, plus
 	// the deterministic-running intersection (确定性工作, wall clock). The
 	// attach admits ONLY the record whose typed selected_window matches the
 	// resolved anchor window within the F-2 tolerance (禁猜 — a partition

@@ -29,11 +29,29 @@ func validateModelAuthoredAnswerRelationClaims(ctx *types.BusContext, doc *types
 	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(
 		ctx, types.ObservationExtractLedgerEvidenceLimit))
 	authorities := types.CompileTraceAnswerRelationAuthoritiesFromLedger(ledger)
-	if err := types.ValidateAnswerRelationClaims(submitted, authorities, false); err != nil {
+	if err := types.ValidateAnswerRelationClaims(submitted, authorities, true); err != nil {
 		return fmt.Errorf("model-authored answer relation_claims do not match typed trace authority: %w", err)
 	}
-	if len(accepted) > 0 && !types.AnswerRelationClaimsEqual(submitted, accepted) {
-		return fmt.Errorf("model-authored answer relation_claims must preserve every accepted investigation relation claim exactly; copy the accepted_model_relation_claims from Trace Decision Inputs onto the block(s) using those values, then revise your own prose if needed")
+	if len(accepted) > 0 && !answerRelationClaimsContainAccepted(submitted, accepted) {
+		return fmt.Errorf("model-authored answer relation_claims must preserve every accepted investigation relation claim exactly and also include any closure-critical typed_relation_authority added by deterministic supplement; copy those Trace Decision Inputs onto the block(s), then revise your own prose if needed")
 	}
 	return nil
+}
+
+func answerRelationClaimsContainAccepted(submitted, accepted []types.AnswerRelationClaim) bool {
+	byID := make(map[string]types.AnswerRelationClaim, len(submitted))
+	for _, claim := range submitted {
+		normalized := types.NormalizeAnswerRelationClaim(claim)
+		byID[normalized.AuthorityID] = normalized
+	}
+	selected := make([]types.AnswerRelationClaim, 0, len(accepted))
+	for _, claim := range accepted {
+		normalized := types.NormalizeAnswerRelationClaim(claim)
+		matched, ok := byID[normalized.AuthorityID]
+		if !ok {
+			return false
+		}
+		selected = append(selected, matched)
+	}
+	return types.AnswerRelationClaimsEqual(selected, accepted)
 }

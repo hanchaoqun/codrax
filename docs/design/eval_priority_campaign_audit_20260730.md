@@ -4909,7 +4909,7 @@ authority producer 仍属于 `B46-T9b-c`；但 wire schema、生命周期、Expl
 
 登记 `EVAL-B46-REL4/P1`：关系协议已 covered，producer roster 不完整。下一施工批：
 
-- [ ] B46-T12a：确保 target closed state partition 始终铸造
+- [x] B46-T12a：确保 target closed state partition 始终铸造
   `mutually_exclusive + authorized_to_published_subtotal` authority，并固定
   “互斥但可加”的双轴正反回归；
 - [ ] B46-T12b：抽取通用 same-source exact fold / interval-relation producer，只有精确
@@ -4917,6 +4917,44 @@ authority producer 仍属于 `B46-T9b-c`；但 wire schema、生命周期、Expl
 - [ ] B46-T12c：盘点并迁移 SMR/AXIOM/RSPA renderer-only 关系载体，避免 renderer 与
   model authority 使用两套判定；
 - [ ] B46-T12d：全量测试、独立提交推送，然后同 pair r7；通过后转 B47，不长期停留单 case。
+
+#### B46 REL4 第一批：closed target-state partition 双轴权限
+
+本批先关闭 r6 最明确且最高杠杆的 producer 缺口，不一次把 renderer 全部关系判定搬入
+wire：
+
+1. target state authority 现在只有在五条 engine raw lane
+   `running/runnable/sleep/non-IO d_state/io_wait` 非负、三位小数下精确求和为 typed total，
+   且已有 projection anchor 时 account window 与选中窗口同窗、total 也精确闭窗时才铸造。
+   renderer 可把 d_state+io_wait 合成一个人类可读 D-state 项，但不会改变五条 raw lane 的
+   互斥/加法恒等式。失衡、错窗、partial account 均 fail closed。
+2. closed partition 现在是 closure-critical authority：
+   `physical_relation=mutually_exclusive` 与
+   `addition=authorized_to_published_subtotal` 同时必填，成员固定为五条 raw lane，总值/单位
+   精确复现 typed total。这样模型不能再用一个“不可相加”词混淆两个正交轴。
+3. root-cause query 的 compact head 直接从 typed `TargetWindowStateAccount` 发布相同
+   content-stable authority，保证 Explorer 在长 body 之前拿到；ledger/finalizer 仍从
+   observation projection 编译，同一数据得到同一 ID。无平衡账时 preview 静默，不造权限。
+4. Finalizer 校验从“只精确等于 Explorer accepted claims”提升为：所有 closure-critical
+   authority 必须提交，同时 accepted claims 必须作为精确子集保留。由确定性自动补采在
+   investigation closure 后新增的 closed partition 因此可由 Finalizer 模型追加；系统只比较
+   结构化 metadata，不扫描/改写正文。
+5. handoff 明确列出全部 required authority 与最终复制义务；`glossary_lint` 拒绝了首稿中的
+   内部术语，已改成普通面向模型表述。没有读取 RawRequest、thinking、reason、summary/final
+   prose，也没有按状态词扫描答案。
+
+验证：
+
+- target partition 平衡/失衡/同窗/错窗、compact head 正负、Explorer completion、Finalizer
+  accepted-subset + post-closure supplement superset、handoff 与模型自有持久化测试通过；
+- `go test ./internal/types -count=1` 通过（19.147s）；
+- `go test ./internal/tool -count=1` 通过（163.326s）；
+- `go test ./internal/orchestrator -count=1` 通过（11.139s）；
+- 首轮 `internal/agent` 仅 glossary lint 拒绝内部词，改词后完整复跑通过（2.734s）。
+
+状态：`B46-T12a=implemented/full-tests-pass`。按小批守战果先提交推送；下一批处理
+same-source exact fold / interval carrier，再决定是否需要 r7，避免把单个 Trace case 变成长期
+拟合场。
 
 ### B41：data 终批材料 × Binder 方向语义审计（2026-08-02）
 

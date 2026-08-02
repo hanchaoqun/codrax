@@ -46,8 +46,8 @@ func TestValidateAnswerRelationClaimsPinsTwoRulerArithmeticWithoutProse(t *testi
 	if err := ValidateAnswerRelationClaims(claims, authorities, true); err != nil {
 		t.Fatalf("valid claims rejected: %v", err)
 	}
-	if len(claims) != 3 {
-		t.Fatalf("required claims=%d, want 3", len(claims))
+	if len(claims) != 4 {
+		t.Fatalf("required claims=%d, want 4", len(claims))
 	}
 
 	wrong := CloneAnswerRelationClaims(claims)
@@ -70,6 +70,37 @@ func TestValidateAnswerRelationClaimsPinsTwoRulerArithmeticWithoutProse(t *testi
 	duplicate[0].MemberRefs = append(duplicate[0].MemberRefs, duplicate[0].MemberRefs[0])
 	if err := ValidateAnswerRelationClaims(duplicate, authorities, true); err == nil || !strings.Contains(err.Error(), "exact member set") {
 		t.Fatalf("duplicate member refs must not be silently normalized, got %v", err)
+	}
+}
+
+func TestTraceTargetStatePartitionRequiresExactClosedFiveLaneAccount(t *testing.T) {
+	projection := TraceCausalProjection{TargetStateAccount: &TraceCausalProjectionTargetStateAccount{
+		Subject: "target-7", RunningMS: 1, RunnableMS: 2, SleepMS: 3, DStateMS: 4, IOWaitMS: 5, TotalMS: 15,
+	}}
+	got := CompileTraceAnswerRelationAuthorities(TraceCausalProjectionSet{Projections: []TraceCausalProjection{projection}})
+	if len(got) != 1 || !got[0].RequiredForClosure || got[0].Kind != AnswerRelationAuthorityClosedPartition ||
+		got[0].PhysicalRelation != AnswerPhysicalRelationMutuallyExclusive || got[0].Addition != AnswerRelationAdditionAuthorized {
+		t.Fatalf("closed target partition did not become required dual-axis authority: %+v", got)
+	}
+	bad := projection
+	copyAccount := *projection.TargetStateAccount
+	copyAccount.TotalMS = 14
+	bad.TargetStateAccount = &copyAccount
+	if invalid := CompileTraceAnswerRelationAuthorities(TraceCausalProjectionSet{Projections: []TraceCausalProjection{bad}}); len(invalid) != 0 {
+		t.Fatalf("imbalanced target state account must fail closed: %+v", invalid)
+	}
+	windowed := projection
+	windowed.WindowStartTs, windowed.WindowEndTs = 10, 10.015
+	copyAccount = *projection.TargetStateAccount
+	copyAccount.WindowStartTs, copyAccount.WindowEndTs = 10, 10.015
+	windowed.TargetStateAccount = &copyAccount
+	if exact := CompileTraceAnswerRelationAuthorities(TraceCausalProjectionSet{Projections: []TraceCausalProjection{windowed}}); len(exact) != 1 {
+		t.Fatalf("exact selected-window partition rejected: %+v", exact)
+	}
+	copyAccount.WindowEndTs = 10.017
+	windowed.TargetStateAccount = &copyAccount
+	if drift := CompileTraceAnswerRelationAuthorities(TraceCausalProjectionSet{Projections: []TraceCausalProjection{windowed}}); len(drift) != 0 {
+		t.Fatalf("different-window target partition must fail closed: %+v", drift)
 	}
 }
 

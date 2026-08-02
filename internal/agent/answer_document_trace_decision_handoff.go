@@ -171,10 +171,12 @@ func traceDecisionWriteRelationClaimHandoff(b *strings.Builder, set types.TraceC
 		return
 	}
 	authorities := types.CompileTraceAnswerRelationAuthorities(set)
+	requiredCount := 0
 	for _, authority := range authorities {
 		if !authority.RequiredForClosure {
 			continue
 		}
+		requiredCount++
 		members := authority.MemberRefs
 		if authority.Kind == types.AnswerRelationAuthorityCrossRulerBoundary {
 			members = append(append([]string(nil), authority.LeftMemberRefs...), authority.RightMemberRefs...)
@@ -185,6 +187,9 @@ func traceDecisionWriteRelationClaimHandoff(b *strings.Builder, set types.TraceC
 			fmt.Fprintf(b, "; subtotal_value=%.3f; subtotal_unit=`%s`", *authority.SubtotalValue, authority.SubtotalUnit)
 		}
 		b.WriteString(".\n")
+	}
+	if requiredCount > 0 {
+		b.WriteString("- final_relation_claim_obligation: copy every typed_relation_authority above into `relation_claims` on your own answer block and keep your visible relation explanation consistent. This also applies to an authority added by deterministic supplement after investigation closure; deterministic checks compare only the structured metadata and do not rewrite prose.\n")
 	}
 	if len(acceptedClaims) == 0 || len(acceptedClaims[0]) == 0 {
 		return
