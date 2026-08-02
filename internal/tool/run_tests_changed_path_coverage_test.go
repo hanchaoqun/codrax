@@ -34,6 +34,34 @@ func TestChangedPathCoverageAcceptsSameLanguageProjectRunner(t *testing.T) {
 	}
 }
 
+func TestChangedPathCoverageIncludesRetainedReplanScope(t *testing.T) {
+	ctx := changedPathCoverageTestContext([]string{"new.go"})
+	plan := ctx.Mutable.ChangePlan()
+	plan.CumulativeVerificationScope = &types.CumulativeVerificationScope{
+		SourcePlanIDs: []string{"plan-old"},
+		TargetPaths:   []string{"old.java"},
+	}
+	ctx.Mutable.SetChangePlan(plan)
+	report := &types.ChangeReport{
+		Passed: true,
+		ExecutedCommands: []types.ExecutedCommand{
+			{Runner: "go", WorkingDir: ".", Outcome: "executed", ExitCode: 0},
+			{Runner: "java", WorkingDir: ".", Outcome: "executed", ExitCode: 0},
+		},
+	}
+
+	applyChangedPathVerificationCoverage(ctx, report)
+
+	if !report.Passed || len(report.ChangedPathCoverage) != 2 {
+		t.Fatalf("cumulative paths were not verified: %+v", report)
+	}
+	for _, row := range report.ChangedPathCoverage {
+		if row.Status != types.ChangedPathVerificationCovered {
+			t.Fatalf("retained path left uncovered: %+v", report.ChangedPathCoverage)
+		}
+	}
+}
+
 func TestChangedPathCoverageRejectsCrossLanguageSuccess(t *testing.T) {
 	ctx := changedPathCoverageTestContext([]string{
 		"src/main/java/example/Widget.java",

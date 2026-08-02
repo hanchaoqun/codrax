@@ -1579,7 +1579,7 @@ func verificationProbeHasUncoveredChangedPathWithMatchingRunner(ctx *types.BusCo
 	if plan == nil {
 		return false
 	}
-	targetPaths, _ := types.ActiveChangePlanApplyTargetPaths(plan, ctx.Mutable.WriteWorkflowRun())
+	targetPaths := types.ChangePlanVerificationTargetPaths(plan, ctx.Mutable.WriteWorkflowRun())
 	targets, targetFamilies := recognizedChangedSourcePaths(targetPaths)
 	if len(targets) == 0 {
 		return false
@@ -1662,12 +1662,12 @@ func verificationProbeMissingRequiredContractRefs(plan *types.ChangePlan) []stri
 	if plan == nil {
 		return nil
 	}
-	required := types.HardRequiredWriteBehaviorContractIDs(plan.BehaviorContracts)
+	required := types.HardRequiredWriteBehaviorContractIDs(types.ChangePlanVerificationBehaviorContracts(plan))
 	if len(required) == 0 {
 		return nil
 	}
 	covered := map[string]struct{}{}
-	for _, probe := range plan.VerificationProbes {
+	for _, probe := range types.ChangePlanVerificationProbes(plan) {
 		for _, ref := range probe.ContractRefs {
 			ref = strings.TrimSpace(ref)
 			if ref != "" {
@@ -1682,12 +1682,12 @@ func verificationProbeMissingRequiredIncludingFallbackContractRefs(plan *types.C
 	if plan == nil {
 		return nil
 	}
-	required := types.RequiredWriteBehaviorContractIDs(plan.BehaviorContracts, true)
+	required := types.RequiredWriteBehaviorContractIDs(types.ChangePlanVerificationBehaviorContracts(plan), true)
 	if len(required) == 0 {
 		return nil
 	}
 	covered := map[string]struct{}{}
-	for _, probe := range plan.VerificationProbes {
+	for _, probe := range types.ChangePlanVerificationProbes(plan) {
 		for _, ref := range probe.ContractRefs {
 			ref = strings.TrimSpace(ref)
 			if ref != "" {
@@ -1699,10 +1699,10 @@ func verificationProbeMissingRequiredIncludingFallbackContractRefs(plan *types.C
 }
 
 func verificationProbeMissingChangedSymbolRefs(plan *types.ChangePlan) bool {
-	if plan == nil || len(types.HardRequiredWriteBehaviorContractIDs(plan.BehaviorContracts)) == 0 {
+	if plan == nil || len(types.HardRequiredWriteBehaviorContractIDs(types.ChangePlanVerificationBehaviorContracts(plan))) == 0 {
 		return false
 	}
-	for _, probe := range plan.VerificationProbes {
+	for _, probe := range types.ChangePlanVerificationProbes(plan) {
 		for _, ref := range probe.ChangedSymbolRefs {
 			if strings.TrimSpace(ref) != "" {
 				return false
@@ -1716,7 +1716,7 @@ func changePlanTouchesTestOrSpecPath(plan *types.ChangePlan) bool {
 	if plan == nil {
 		return false
 	}
-	for _, p := range plan.TargetPaths {
+	for _, p := range types.ChangePlanVerificationTargetPaths(plan, nil) {
 		if types.LooksLikeTestFilePath(p) {
 			return true
 		}
@@ -2975,10 +2975,11 @@ func verificationConfidenceRecordsFromReport(plan *types.ChangePlan, report *typ
 		out = append(out, verificationConfidenceFromCommand(cmd, status)...)
 	}
 	if plan != nil && reportPassedOnlyByVerificationProbes(report) {
-		required := types.HardRequiredWriteBehaviorContractIDs(plan.BehaviorContracts)
-		placementRequired := types.PlacementRequiredWriteBehaviorContractIDs(plan.BehaviorContracts)
-		softRequired := softRequiredWriteBehaviorContractIDs(plan.BehaviorContracts)
-		targetPaths, _ := types.ActiveChangePlanApplyTargetPaths(plan, nil)
+		contracts := types.ChangePlanVerificationBehaviorContracts(plan)
+		required := types.HardRequiredWriteBehaviorContractIDs(contracts)
+		placementRequired := types.PlacementRequiredWriteBehaviorContractIDs(contracts)
+		softRequired := softRequiredWriteBehaviorContractIDs(contracts)
+		targetPaths := types.ChangePlanVerificationTargetPaths(plan, nil)
 		targets, targetFamilies := recognizedChangedSourcePaths(targetPaths)
 		passedIDs := passedVerificationProbeIDs(report)
 		covered := map[string]struct{}{}
@@ -2986,7 +2987,7 @@ func verificationConfidenceRecordsFromReport(plan *types.ChangePlan, report *typ
 		changed := map[string]struct{}{}
 		declaredChanged := map[string]struct{}{}
 		baselineExpected := false
-		for _, probe := range plan.VerificationProbes {
+		for _, probe := range types.ChangePlanVerificationProbes(plan) {
 			if !passedIDs[strings.TrimSpace(probe.ID)] {
 				continue
 			}
@@ -3815,7 +3816,7 @@ func preferredRunnerFromChangePlan(ctx *types.BusContext) string {
 		return ""
 	}
 	seen := map[string]bool{}
-	for _, p := range append(append([]string{}, plan.TargetPaths...), plan.AppliedPaths...) {
+	for _, p := range types.ChangePlanVerificationTargetPaths(plan, ctx.Mutable.WriteWorkflowRun()) {
 		runner := runnerForPath(p)
 		if runner != "" {
 			seen[runner] = true
@@ -3991,7 +3992,7 @@ func inferDjangoSuiteFromChangePlan(ctx *types.BusContext, repoRoot string) stri
 	if plan == nil {
 		return ""
 	}
-	paths := append(append([]string{}, plan.TargetPaths...), plan.AppliedPaths...)
+	paths := types.ChangePlanVerificationTargetPaths(plan, ctx.Mutable.WriteWorkflowRun())
 	for _, raw := range dedupeStringsPreserveOrder(paths) {
 		rel := cleanRepoRelPath(raw)
 		if rel == "" || !strings.HasSuffix(strings.ToLower(rel), ".py") {
@@ -4191,8 +4192,9 @@ func planFilesByExt(ctx *types.BusContext, root string, exts []string) []string 
 		rootAbs = root
 	}
 	var out []string
-	seen := make(map[string]bool, len(plan.TargetPaths))
-	for _, p := range plan.TargetPaths {
+	verificationPaths := types.ChangePlanVerificationTargetPaths(plan, ctx.Mutable.WriteWorkflowRun())
+	seen := make(map[string]bool, len(verificationPaths))
+	for _, p := range verificationPaths {
 		p = strings.TrimSpace(p)
 		lower := strings.ToLower(p)
 		matched := false

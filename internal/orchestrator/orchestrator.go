@@ -3920,6 +3920,7 @@ func (o *Orchestrator) persistCurrentChangePlanSnapshot() {
 		return
 	}
 	logging.Info("[orchestrator] ChangePlan snapshot persisted: %s", path)
+	o.persistImmutablePlanIDSnapshot(plan, path)
 }
 
 func writeWorkflowArtifactFileStem(id string) string {

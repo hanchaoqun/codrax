@@ -334,6 +334,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			if plan != nil {
 				o.stampWorkflowPlanForActiveBatch(plan, &run)
 				updateWorkflowRunBatchPlan(&run, run.ActiveBatchID, plan, priorPlan)
+				o.stampCumulativeVerificationScope(plan, &run, priorPlan)
 				run = attachPlanContextPackToWorkflowRun(run, plan)
 			}
 			if errors.Is(innerErr, errPlannerProbePassedExistingWorktree) {
@@ -2809,8 +2810,8 @@ func (o *Orchestrator) buildCumulativePatchReviewPlan(run *types.WriteWorkflowRu
 		VerificationProbes: nil,
 	}
 	if current != nil {
-		plan.BehaviorContracts = append([]types.WriteBehaviorContract(nil), current.BehaviorContracts...)
-		plan.VerificationProbes = append([]types.VerificationProbe(nil), current.VerificationProbes...)
+		plan.BehaviorContracts = append([]types.WriteBehaviorContract(nil), types.ChangePlanVerificationBehaviorContracts(current)...)
+		plan.VerificationProbes = append([]types.VerificationProbe(nil), types.ChangePlanVerificationProbes(current)...)
 	}
 	stampChangePlanImpactObligations(plan, graphProvider)
 	applyVerifyCoverageToChangePlan(plan, report, err)
@@ -2842,25 +2843,13 @@ func (o *Orchestrator) cumulativeReviewOwnedPaths(run *types.WriteWorkflowRun) [
 		seen[p] = true
 		out = append(out, p)
 	}
-	for _, batch := range run.Batches {
-		for _, attempt := range batch.Attempts {
-			if strings.TrimSpace(attempt.Kind) != "apply" || strings.TrimSpace(attempt.Status) != "applied" {
-				continue
-			}
-			plan := o.loadDurablePlanArtifact(attempt.PlanID)
-			if plan == nil {
-				continue
-			}
-			for _, p := range plan.TargetPaths {
-				add(p)
-			}
-			for _, p := range plan.AppliedPaths {
-				add(p)
-			}
-			for _, change := range plan.Changes {
-				add(change.Path)
-				add(change.NewPath)
-			}
+	for _, planID := range o.writeFinalReportAppliedPlanIDs(run) {
+		plan := o.loadDurablePlanArtifact(planID)
+		if plan == nil {
+			continue
+		}
+		for _, p := range writeFinalReportPlanChangePaths(plan) {
+			add(p)
 		}
 	}
 	sort.Strings(out)
@@ -4657,13 +4646,38 @@ func (o *Orchestrator) writeFinalReportProofArtifacts(run *types.WriteWorkflowRu
 		}
 		out = append(out, types.VerificationProofArtifact{Plan: plan, Report: report})
 	}
+	applied := map[string]bool{}
+	for _, planID := range o.writeFinalReportAppliedPlanIDs(run) {
+		applied[strings.TrimSpace(planID)] = true
+	}
 	for _, batch := range run.Batches {
 		if batch.Status != types.WriteWorkflowBatchComplete {
 			continue
 		}
+		// A batch may contain verify→replan→verify attempts for different
+		// plans. Batch.PlanID names only the last plan, so walk exact typed
+		// verify attempts in reverse and retain evidence for every plan whose
+		// bytes still contribute to delivery (plus the active/final plan).
+		for i := len(batch.Attempts) - 1; i >= 0; i-- {
+			attempt := batch.Attempts[i]
+			if strings.TrimSpace(attempt.Kind) != "verify" {
+				continue
+			}
+			planID := strings.TrimSpace(attempt.PlanID)
+			if planID == "" {
+				planID = strings.TrimSpace(batch.PlanID)
+			}
+			primaryID := ""
+			if primaryPlan != nil {
+				primaryID = strings.TrimSpace(primaryPlan.ID)
+			}
+			if !applied[planID] && planID != strings.TrimSpace(batch.PlanID) && planID != primaryID {
+				continue
+			}
+			add(planID, attempt.ReportID)
+		}
 		planID := strings.TrimSpace(batch.PlanID)
-		reportID := writeFinalReportBatchReportID(batch, planID)
-		add(planID, reportID)
+		add(planID, writeFinalReportBatchReportID(batch, planID))
 	}
 	return out
 }

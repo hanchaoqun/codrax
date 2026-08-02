@@ -403,6 +403,14 @@ type ChangePlan struct {
 	// atom IDs instead of re-reading mutable task prose after retries.
 	BehaviorContracts []WriteBehaviorContract `json:"behavior_contracts,omitempty"`
 
+	// CumulativeVerificationScope is a controller-owned snapshot of earlier
+	// plans whose bytes are still present in the worktree after a replan. It is
+	// deliberately separate from TargetPaths: apply must remain scoped to this
+	// plan, while verify must also cover retained changes from earlier plans.
+	// The controller rebuilds this field from durable typed workflow state; the
+	// planner is never trusted as its authority.
+	CumulativeVerificationScope *CumulativeVerificationScope `json:"cumulative_verification_scope,omitempty"`
+
 	// TargetPaths is the declared write scope — the set of files
 	// the apply stage is allowed to modify. Populated from Changes
 	// but also stored independently so the apply-stage pre-flight
@@ -681,6 +689,17 @@ type VerificationProbe struct {
 	// path:<repo-relative-file> form.
 	ChangedSymbolRefs      []string `json:"changed_symbol_refs,omitempty"`
 	ExpectsBaselineFailure bool     `json:"expects_baseline_failure,omitempty"`
+}
+
+// CumulativeVerificationScope carries only verification inputs retained from
+// earlier still-applied plans. The active plan's own paths, contracts and
+// probes remain in their ordinary fields and are combined by the helpers
+// below. SourcePlanIDs make the provenance auditable without parsing prose.
+type CumulativeVerificationScope struct {
+	SourcePlanIDs      []string                `json:"source_plan_ids,omitempty"`
+	TargetPaths        []string                `json:"target_paths,omitempty"`
+	BehaviorContracts  []WriteBehaviorContract `json:"behavior_contracts,omitempty"`
+	VerificationProbes []VerificationProbe     `json:"verification_probes,omitempty"`
 }
 
 // FileChange describes one file-level modification the apply stage

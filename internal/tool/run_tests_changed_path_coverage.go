@@ -29,7 +29,7 @@ func applyChangedPathVerificationCoverage(ctx *types.BusContext, report *types.C
 	if plan == nil {
 		return
 	}
-	targetPaths, _ := types.ActiveChangePlanApplyTargetPaths(plan, ctx.Mutable.WriteWorkflowRun())
+	targetPaths := types.ChangePlanVerificationTargetPaths(plan, ctx.Mutable.WriteWorkflowRun())
 	targets, targetFamilies := recognizedChangedSourcePaths(targetPaths)
 	if len(targets) == 0 {
 		report.ChangedPathCoverage = nil
@@ -275,7 +275,7 @@ func changedPathCoverageFromPassedProbes(
 		return nil
 	}
 	out := map[string]changedPathCoverageEvidence{}
-	for _, probe := range plan.VerificationProbes {
+	for _, probe := range types.ChangePlanVerificationProbes(plan) {
 		if !passedIDs[strings.TrimSpace(probe.ID)] {
 			continue
 		}

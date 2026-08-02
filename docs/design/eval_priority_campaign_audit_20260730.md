@@ -4080,7 +4080,7 @@ write 全链人工审计：
 | GAP | 优先级 | 泛化问题 | 最优方案 | 状态 |
 |---|---:|---|---|---|
 | `EVAL-B47-SEMCAL1` | P1 | counter domain 精确但 value/unit 未铸造，stage ordinal 仍被升级成 retry count/exhaustion；system protocol principal row 又被 compact ledger 排掉 | protocol carrier 增加 value kind、分子/分母语义与 typed exclusions；compact principal selection 为 system protocol rows 保留 bounded seats，冲突 model rows 保持 advisory。无答案扫描/替换 | covered/live-replay |
-| `EVAL-B47-REPLANPROOF1` | P1 | repair plan 只验证自己的 target path/contract，前 plan 仍应用的测试/源码和行为义务从最终 proof closure 消失 | workflow verification input 取 cumulative still-applied path + contract closure；successful exact roster 可逐成员授权，失败历史保留但由后续成功证据 supersede，不能静默遗忘 | filed |
+| `EVAL-B47-REPLANPROOF1` | P1 | repair plan 只验证自己的 target path/contract，前 plan 仍应用的测试/源码和行为义务从最终 proof closure 消失 | workflow verification input 取 cumulative still-applied path + contract closure；successful exact roster 可逐成员授权，失败历史保留但由后续成功证据 supersede，不能静默遗忘 | partial：累计作用域/不可变工件/多 plan proof 已实现；supersession 随 CAPCAL1 收口 |
 | `EVAL-B47-CAPCAL1` | P1 | Go/Python 源码 token scan 被计成“2 tests/strong”，虽无目标语言行为执行且无 contract coverage | 每个 command/probe 发布 typed verification capability/caliber；source-static 只授权结构/path/check，target behavior 必须由执行型、身份绑定且 contract-bound 证据授权；最终强度按能力而非 test_count | filed |
 
 上下文充分性结论：read 不是信息数量不足，而是 value semantics 少一层且 compact authority
@@ -4161,13 +4161,54 @@ dispatch attempt failure 与 renderer lifecycle 行串成“驱动、重置/推�
 全通过（render 1.699s、types 22.603s、context 1.239s、agent 2.570s）；
 `go test ./internal/tool -count=1` 全通过（161.419s）。
 
+#### B47-REPLANPROOF1a：重规划后仍应用改动的累计验证闭包
+
+冷读 write 回放的 workflow、两个 plan/report 与最终报告后确认：产品补丁本身同时保留了前一
+plan 的 Java 测试改动和后一 plan 的 Java 源码修复，但三处 typed 链断裂：
+
+1. `PlanPath` 是稳定别名，replan 写入新 plan 时覆盖旧 JSON；workflow 虽保留 exact plan ID，
+   final loader 却已无法按 ID 取回旧计划；
+2. `run_tests` 的 runner 选择、probe、contract、changed-path coverage 与 syntax fallback 都只读
+   active plan/slice，前一 plan 仍在工作树中的路径和行为义务不再属于验证输入；
+3. final proof artifact 只按 completed batch 的最后 `PlanID` 取一个报告，同 batch 内
+   verify→replan→verify 的前一 plan/report 被静默丢弃。
+
+本批采用 controller-owned `CumulativeVerificationScope`，而不是合并 `TargetPaths`：
+
+- 每次 plan 快照同时写当前别名和 `<plan-id>.json` 不可变 sibling，后续按 workflow plan ID
+  可恢复；既有空/非法 plan 加载仍 fail-closed；
+- controller 只从 restore-aware `writeFinalReportAppliedPlanIDs` 和 durable plan artifact 重建
+  `source_plan_ids + target_paths + behavior_contracts + verification_probes`，任何 planner 自带值
+  都先清空，不能伪造累计权限；
+- apply 继续只用 active plan/slice；verify 专用 helpers 合并 active scope 与 earlier still-applied
+  scope，接到 runner preference、Django selector、syntax fallback、probe 执行、contract coverage、
+  changed-path coverage 和 confidence；
+- cumulative actual-diff review 的 owned paths 同样改读 restore-aware still-applied plan IDs，不再把
+  已 rewind/discard 的 apply attempt 混入；
+- final proof artifact 按每个 exact verify attempt 反向收集仍应用 plan 的 report，不再由
+  `batch.PlanID` 抹除同 batch 的前序证据。
+
+边界：本批只恢复“验证了什么”的闭包，尚未改变证据能力等级，也未把旧失败静默覆盖成成功。
+failed→later success 的 typed capability supersession 与 `target_behavior` 缺席降级归入下一独立
+`CAPCAL1` 批共同完成。没有读取用户/模型原文，没有答案拒绝或改写；Trace 时间窗、因果投影和
+自动补齐路径未改。
+
+测试：
+
+- 新增 apply/verify 作用域分离、跨 replan 累计 path/contract/probe、固定别名覆盖后旧 plan ID
+  仍可加载、同 batch 双 plan proof artifact 与热文件行数护栏；
+- `go test ./internal/tool -count=1`：161.614s；
+- 修正 fixture 后 `go test ./internal/orchestrator ./internal/types -count=1`：12.284s / 17.654s；
+- 定向 `internal/orchestrator + internal/types + internal/tool`：全部通过。
+
 任务状态：
 
 - [x] B47-T7：SEMCAL1 实现、全量测试、独立推送，并以 read + operation 严格并行 2 个回放；
 - [x] B47-T7a：完整人工审计两例的系统上下文、原始结果与最终答案；
 - [x] B47-T7b：RELSEM1 完整 tool 回归、提交推送；下一异构日志批验证关系 fence，并观察
   LOGCITE1 是否复现；
-- [ ] B47-T8：修复 REPLANPROOF1/CAPCAL1，独立提交推送；write 回放必须审累计 still-applied
+- [x] B47-T8a：REPLANPROOF1a 累计作用域、不可变 plan 工件、多 plan proof artifact 独立实现并回归；
+- [ ] B47-T8b：实现 CAPCAL1 与 failed→later-success typed supersession，独立提交推送；write 回放必须审累计 still-applied
   paths/contracts 与 capability caliber，不以 `verified` 字样作 oracle。
 
 ### B42：生成物写模式 × 日志/源码机制对比审计（2026-08-02）

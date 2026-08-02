@@ -26,6 +26,60 @@ type fakeWorkflowRunStore struct {
 	active    *types.WriteWorkflowRun
 }
 
+func TestWriteFinalReportProofArtifactsRetainsEarlierAppliedPlanInSameReplanBatch(t *testing.T) {
+	planDir := t.TempDir()
+	o := New(types.PipelineSettings{}, nil, nil, nil)
+	o.busCtx = &types.BusContext{Mutable: types.NewMutableState("proof-artifacts")}
+	o.reportDir = planDir
+	oldPlan := &types.ChangePlan{ID: "plan-old", TargetPaths: []string{"old.java"}, Changes: []types.FileChange{{Path: "old.java", Kind: "modify", NewContent: "old"}}}
+	newPlan := &types.ChangePlan{ID: "plan-new", TargetPaths: []string{"new.java"}, Changes: []types.FileChange{{Path: "new.java", Kind: "modify", NewContent: "new"}}}
+	oldReport := &types.ChangeReport{PlanID: oldPlan.ID, Passed: false, FailureSummary: "old verify failed"}
+	newReport := &types.ChangeReport{PlanID: newPlan.ID, Passed: true}
+	if err := types.WritePlanToFile(oldPlan, filepath.Join(planDir, "plan-old.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := types.WritePlanToFile(newPlan, filepath.Join(planDir, "plan-new.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := types.WriteChangeReportToFile(oldReport, filepath.Join(planDir, "old.report.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := types.WriteChangeReportToFile(newReport, filepath.Join(planDir, "new.report.json")); err != nil {
+		t.Fatal(err)
+	}
+	run := &types.WriteWorkflowRun{Batches: []types.WriteWorkflowBatch{{
+		ID:     "batch-1",
+		PlanID: newPlan.ID,
+		Status: types.WriteWorkflowBatchComplete,
+		Attempts: []types.WriteWorkflowAttempt{
+			{Kind: "apply", Status: "applied", PlanID: oldPlan.ID},
+			{Kind: "verify", Status: "failed", PlanID: oldPlan.ID, ReportID: "old.report.json"},
+			{Kind: "apply", Status: "applied", PlanID: newPlan.ID},
+			{Kind: "verify", Status: "passed", PlanID: newPlan.ID, ReportID: "new.report.json"},
+		},
+	}}}
+	o.stampCumulativeVerificationScope(newPlan, run, oldPlan)
+	if newPlan.CumulativeVerificationScope == nil ||
+		len(newPlan.CumulativeVerificationScope.TargetPaths) != 1 ||
+		newPlan.CumulativeVerificationScope.TargetPaths[0] != "old.java" {
+		t.Fatalf("retained plan was not projected into verification scope: %+v", newPlan.CumulativeVerificationScope)
+	}
+
+	artifacts := o.writeFinalReportProofArtifacts(run, newPlan, newReport)
+	if len(artifacts) != 2 {
+		t.Fatalf("proof artifacts=%d, want both retained plans: %+v", len(artifacts), artifacts)
+	}
+	seen := map[string]bool{}
+	for _, artifact := range artifacts {
+		if artifact.Plan != nil {
+			seen[artifact.Plan.ID] = true
+		}
+	}
+	if !seen[oldPlan.ID] || !seen[newPlan.ID] {
+		t.Fatalf("proof artifacts omitted retained plan: %+v", seen)
+	}
+}
+
 func (s *fakeWorkflowRunStore) Save(run *types.WriteWorkflowRun) (string, error) {
 	s.saveCount++
 	if run != nil {

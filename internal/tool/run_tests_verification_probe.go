@@ -213,7 +213,8 @@ func runPlanVerificationProbes(ctx *types.BusContext, source string) (*verificat
 		return nil, false
 	}
 	plan := ctx.Mutable.ChangePlan()
-	if plan == nil || len(plan.VerificationProbes) == 0 {
+	probes := types.ChangePlanVerificationProbes(plan)
+	if plan == nil || len(probes) == 0 {
 		return nil, false
 	}
 	var (
@@ -222,7 +223,7 @@ func runPlanVerificationProbes(ctx *types.BusContext, source string) (*verificat
 		commands []types.ExecutedCommand
 		diags    []types.VerificationDiagnostic
 	)
-	for _, probe := range plan.VerificationProbes {
+	for _, probe := range probes {
 		res := runSingleVerificationProbe(ctx, probe, source)
 		results = append(results, res.Report.TestResults...)
 		diags = append(diags, res.Report.VerificationDiagnostics...)
@@ -291,7 +292,7 @@ func runPlanVerificationProbes(ctx *types.BusContext, source string) (*verificat
 	)
 	return &verificationProbeRunResult{
 		Report:   report,
-		Output:   renderVerificationProbeOutput(plan.VerificationProbes, outputs),
+		Output:   renderVerificationProbeOutput(probes, outputs),
 		Commands: commands,
 	}, true
 }

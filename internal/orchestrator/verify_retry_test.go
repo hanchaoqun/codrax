@@ -915,6 +915,33 @@ func TestPersistCurrentChangePlanSnapshot_PreservesApplyRecord(t *testing.T) {
 	}
 }
 
+func TestPersistCurrentChangePlanSnapshot_RetainsImmutablePlanIDSiblingsAcrossReplan(t *testing.T) {
+	tmp := t.TempDir()
+	o := New(types.PipelineSettings{}, nil, nil, nil)
+	o.busCtx = &types.BusContext{
+		PlanPath: filepath.Join(tmp, "run-1.plan.json"),
+		Mutable:  types.NewMutableState("probe"),
+	}
+
+	o.busCtx.Mutable.SetChangePlan(&types.ChangePlan{ID: "plan-old", TargetPaths: []string{"old.java"}, Changes: []types.FileChange{{Path: "old.java", Kind: "modify", NewContent: "old"}}})
+	o.persistCurrentChangePlanSnapshot()
+	o.busCtx.Mutable.SetChangePlan(&types.ChangePlan{ID: "plan-new", TargetPaths: []string{"new.java"}, Changes: []types.FileChange{{Path: "new.java", Kind: "modify", NewContent: "new"}}})
+	o.persistCurrentChangePlanSnapshot()
+
+	oldPlan, err := types.LoadChangePlanFromFile(filepath.Join(tmp, "plan-old.json"))
+	if err != nil || oldPlan.ID != "plan-old" {
+		t.Fatalf("old immutable plan missing after replan: plan=%+v err=%v", oldPlan, err)
+	}
+	newPlan, err := types.LoadChangePlanFromFile(filepath.Join(tmp, "plan-new.json"))
+	if err != nil || newPlan.ID != "plan-new" {
+		t.Fatalf("new immutable plan missing: plan=%+v err=%v", newPlan, err)
+	}
+	alias, err := types.LoadChangePlanFromFile(filepath.Join(tmp, "run-1.plan.json"))
+	if err != nil || alias.ID != "plan-new" {
+		t.Fatalf("current alias should still track latest plan: plan=%+v err=%v", alias, err)
+	}
+}
+
 func TestSaveChangeReport_WorkDirFallbackWhenNoPlanStore(t *testing.T) {
 	tmp := t.TempDir()
 	o := New(types.PipelineSettings{}, nil, nil, nil)
