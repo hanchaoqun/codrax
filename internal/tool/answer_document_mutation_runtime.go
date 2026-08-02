@@ -7529,6 +7529,9 @@ func runtimeTraceMetricSnapshotValues(record types.ObservationRecord) map[string
 	if !types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
 		return nil
 	}
+	if !runtimeTraceMetricSnapshotPredicateEligible(record.Predicate) {
+		return nil
+	}
 	if !runtimeTraceStateChurnHasPositiveImpact(record) {
 		return nil
 	}
@@ -7547,6 +7550,27 @@ func runtimeTraceMetricSnapshotValues(record types.ObservationRecord) map[string
 		}
 	}
 	return values
+}
+
+// runtimeTraceMetricSnapshotPredicateEligible is the typed publication
+// authority for the state-account snapshot. A diagnostic/root-evidence row
+// may quote a complete state account in its Summary to explain why a chain
+// stopped (for example trace_gap=no_eligible_wait), but that quotation is not
+// a second state measurement and must never occupy a snapshot seat.
+//
+// Keep the admitted family semantic rather than enumerating individual root
+// cause tiers: state_churn is the canonical whole-window face; state_drilldown,
+// wakeup causal rows, and root-cause rows are established derived state-account
+// faces. Unknown predicates fail closed. No prose, case ID, subject name, or
+// scalar equality participates in the authority decision.
+func runtimeTraceMetricSnapshotPredicateEligible(predicate string) bool {
+	predicate = strings.TrimSpace(predicate)
+	switch predicate {
+	case "state_churn", "state_drilldown", "wakeup_causal_impact", "wakeup_causal_aggregate", "root_cause_rank":
+		return true
+	default:
+		return strings.HasPrefix(predicate, "root_cause_")
+	}
 }
 
 var runtimeTraceMetricSnapshotRequiredKeys = []string{

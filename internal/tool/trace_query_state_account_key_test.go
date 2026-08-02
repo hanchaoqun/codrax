@@ -19,7 +19,9 @@ func TestTraceQueryPublishesStateAccountKeyOnBothTypedRows(t *testing.T) {
 			StateChurn: []tracequery.ThreadStateChurnSummary{{
 				Thread: tracequery.ThreadRef{Comm: "app", PID: 20}, StateAccountKey: key,
 				DominantState: string(tracequery.StateRunnable), DominantImpactMs: 5,
-				RunningMs: 3, RunnableMs: 5, FragmentCount: 20, StateSwitches: 19,
+				TotalMs: 8, RunningMs: 3, RunnableMs: 5, FragmentCount: 20, StateSwitches: 19,
+				MaxSegmentMs: 0.5, P95SegmentMs: 0.5,
+				Summary: "dominant_state=runnable impact=5.000ms total=8.000ms fragments=20 switches=19 max_segment=0.500ms p95_segment=0.500ms totals running=3.000ms runnable=5.000ms sleep=0.000ms d_state=0.000ms io_wait=0.000ms",
 			}},
 		},
 		RootCauseRank: &tracequery.RootCauseRankResult{
@@ -45,8 +47,17 @@ func TestTraceQueryPublishesStateAccountKeyOnBothTypedRows(t *testing.T) {
 				Thread:           tracequery.ThreadRef{Comm: "app", PID: 20},
 				Window:           tracequery.TimeWindow{StartTs: 11, EndTs: 11.008},
 				StateAccountKey:  key,
+				OnChain:          true,
 				DominantState:    string(tracequery.StateRunnable),
 				DominantImpactMs: 5,
+				TotalMs:          8,
+				RunningMs:        3,
+				RunnableMs:       5,
+				FragmentCount:    21,
+				StateSwitches:    20,
+				MaxSegmentMs:     0.5,
+				P95SegmentMs:     0.5,
+				Summary:          "dominant_state=runnable impact=5.000ms total=8.000ms fragments=21 switches=20 max_segment=0.500ms p95_segment=0.500ms totals running=3.000ms runnable=5.000ms sleep=0.000ms d_state=0.000ms io_wait=0.000ms",
 				LineStart:        3,
 				LineEnd:          23,
 			}},
@@ -70,5 +81,26 @@ func TestTraceQueryPublishesStateAccountKeyOnBothTypedRows(t *testing.T) {
 		if !found[predicate] {
 			t.Fatalf("%s must publish the exact state-account wire; rows=%+v", predicate, rows)
 		}
+	}
+
+	bus := newBusForMutationTest()
+	bus.ToolResults = []types.ToolResult{{
+		ToolName: "trace_query", Success: true, Observations: rows,
+	}}
+	items := runtimeTraceMetricSnapshotItems(cmpbSnapshotDoc(), bus)
+	if len(items) != 1 || !strings.Contains(items[0].Text, "19 次切换/20 段") {
+		t.Fatalf("typed result must publish the canonical whole-window account once: %+v", items)
+	}
+
+	// The system supplement executes the same exact bounded query into a
+	// distinct payload carrier. The state-account key and source path, not the
+	// payload filename, must keep the publication single-seated.
+	supplementRows := traceQueryTypedObservations(result, "trace", "/blobs/supplement.json", "", "", time.Now())
+	bus.Mutable.SetSystemTraceSupplement(types.SystemTraceSupplementMeta{}, []types.ToolResult{{
+		ToolName: "trace_query", Success: true, Observations: supplementRows,
+	}})
+	items = runtimeTraceMetricSnapshotItems(cmpbSnapshotDoc(), bus)
+	if len(items) != 1 || !strings.Contains(items[0].Text, "19 次切换/20 段") {
+		t.Fatalf("model query plus exact system supplement must retain one canonical account: %+v", items)
 	}
 }

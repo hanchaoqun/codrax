@@ -207,6 +207,35 @@ func TestRuntimeTraceMetricSnapshot_ExactStateAccountKeyCollapsesWholeWindowWake
 	}
 }
 
+// B30 ACCOUNT1 replay pin: a root-evidence diagnostic may quote the complete
+// scheduler-state account while explaining why the causal chain stopped. It
+// is not a state-account producer and cannot publish a second switch/fragment
+// face beside the canonical whole-window state_churn row.
+func TestRuntimeTraceMetricSnapshot_DiagnosticTraceGapCannotPublishStateAccount(t *testing.T) {
+	bus := newBusForMutationTest()
+	canonical := cmpbSnapshotObservation("canonical", "app-20", "0.000", "state_churn", "state_churn:app-20",
+		"selected_window=11.000..11.008")
+	canonical.Value = "5.000"
+	canonical.RichNotes[0], canonical.RichNotes[1], canonical.RichNotes[2] = "dominant_state=runnable", "running=3.000", "runnable=5.000"
+	canonical.RichNotes[6], canonical.RichNotes[7] = "fragments=20", "switches=19"
+	diagnostic := cmpbSnapshotObservation("gap", "app-20", "0.000", "trace_gap", "trace_gap:no_eligible_wait",
+		"selected_window=11.000..11.008")
+	diagnostic.Value = "5.000"
+	diagnostic.Object = "no_eligible_wait"
+	diagnostic.RichNotes[0], diagnostic.RichNotes[1], diagnostic.RichNotes[2] = "dominant_state=runnable", "running=3.000", "runnable=5.000"
+	diagnostic.RichNotes[6], diagnostic.RichNotes[7] = "fragments=21", "switches=20"
+	bus.ToolResults = []types.ToolResult{{
+		ToolName: "trace_query", Success: true,
+		Observations: []types.ObservationRecord{diagnostic, canonical},
+	}}
+
+	items := runtimeTraceMetricSnapshotItems(cmpbSnapshotDoc(), bus)
+	if len(items) != 1 || !strings.Contains(items[0].Text, "19 次切换/20 段") ||
+		strings.Contains(items[0].Text, "20 次切换/21 段") {
+		t.Fatalf("diagnostic trace-gap quotation must not publish a state-account snapshot: %+v", items)
+	}
+}
+
 // CMP-4b pin: a snapshot thread whose own observed span exceeds TWICE the
 // projection window carries the mismatch note; a within-2× thread does not.
 func TestRuntimeTraceMetricSnapshot_SpanMismatchAnnotation(t *testing.T) {
@@ -376,10 +405,11 @@ func TestRuntimeTraceProjResolvedChain_KeepsOnChainLabels(t *testing.T) {
 // pointer is retired) — the endpoint values track the note (= q window) at %.3f rounding.
 func TestRuntimeTraceMetricSnapshotDisplayText_SelectedWindowEndpoints(t *testing.T) {
 	record := types.ObservationRecord{
-		Origin:   types.AnswerEvidenceOriginRuntimeArtifact,
-		Producer: "trace_query",
-		Subject:  "app-20",
-		Value:    "5.000",
+		Origin:    types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer:  "trace_query",
+		Subject:   "app-20",
+		Predicate: "state_churn",
+		Value:     "5.000",
 		RichNotes: []string{
 			"dominant_state=runnable",
 			"running=3.500", "runnable=5.000", "sleep=0.000", "d_state=0.000", "io_wait=0.000",
