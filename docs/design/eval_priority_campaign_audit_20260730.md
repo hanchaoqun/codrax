@@ -4655,7 +4655,53 @@ meta-runner 语义断链。
 - [x] B46-T6b：XMAKE2 `go test ./internal/tool -count=1` 全通过（159.804s）；提交推送；
 - [x] B46-T7：OCCUNIT1 + REL2 独立 Trace 批；`go test ./internal/agent ./internal/tool -count=1`
   全通过（agent 2.465s、tool 166.143s）；提交推送；
-- [ ] B46-T8：干净 HEAD 同 pair r3 验收后进入下一优先级 exactly-two batch。
+- [x] B46-T8：干净 HEAD 同 pair r3 验收；write 与 occupancy 已通过，关系上下文发现新的
+  authority 缺口，先修后进入下一优先级 exactly-two batch。
+
+#### B46 r3：write 验证闭环、非墙钟占用闭环；关系 handoff 自身铸造了伪 authority
+
+从干净 `main@83cf8cb44c35` 严格并行同一 Trace/write pair。runner 1/2 PASS，人工 1/2：
+
+1. write 为 runner/human 双 PASS。补丁只修改 `memoclaw/client.py`，真实
+   `make check` 由 `declared_coverage_test_surface` 选中并执行，输出
+   `python text search contract ok`；ChangeReport 为 `verification_status=passed`，
+   `memoclaw/client.py` 的 Python changed-path coverage 为 `covered`。这为
+   `EVAL-B46-XMAKE1/XMAKE2` 提供了完整生产见证。
+2. Trace 仍仅因旧 regex `等待对象 dma_fence_default_w` 判 FAIL；符号已在模型可见
+   typed projection、最终树和 detail 中出现，继续归 `EVAL-B46-ORACLE1`，生产逻辑不拟合。
+   显式用户窗、4 次 windowed query、自动补采、两维占用/可消分析、根因排序、唤醒链和
+   完整因果投影全部保留。
+3. `EVAL-B46-OCCUNIT1` 已闭环：`page_cache_churn` 不再进入墙钟“主要时间占用”表；
+   81.616 继续以“计数当量(非墙钟)”保留在 projection 口径旁栏，信息未删除。
+4. `EVAL-B46-REMEDY1` 继续通过：模型把 58.320ms 写成 compute-delivery/
+   supply-fold headroom，没有再由 2.34GHz 轨上限推成已证 thermal throttling。
+5. `EVAL-B46-REL2` 必须重新打开，而且性质从“缺一条软提示”升级为系统上下文错误：
+   prompt 中虽有 `relation_authority=typed_pair_only`，模型仍把“不同通道/维度”升级为
+   independent、mutually exclusive、physical non-overlap 和 additive；更关键的是系统 handoff
+   把任何正值 `DStateSplitMS/IOWaitSplitMS` 无条件写成
+   `embedded_components / already_inside_parent_row`。这两个字段只是该 observation 的状态拆解；
+   post-finalize renderer 只有在“同主体同 IO 状态族 + 主值=D+IO + 唯一对席 + 值恒等 +
+   窗兼容”等合取成立后才铸跨行包含指针。handoff 跳过该判定，反而给模型提供了伪 typed authority。
+
+| ID | P | gap | 泛化最优方案 | 状态 |
+|---|---:|---|---|---|
+| EVAL-B46-XMAKE1/XMAKE2 | P1 | 项目测试选择与 meta-runner execution semantics→changed-path coverage 曾断链 | exact target + concrete execution family + successful command + exact declared roster 的合取已通过生产回放 | covered |
+| EVAL-B46-OCCUNIT1 | P1 | 非墙钟计数当量混入墙钟 occupancy | 共享 caliber guard 已通过生产回放；值保留在旁栏 | covered |
+| EVAL-B46-REL2A | P1 | pre-finalizer handoff 把 row-local state split 无条件伪装成 cross-row containment | 立即删除伪关系；只把 D/IO 数值标为 `row_state_breakdown`，明确它本身不给 pair relation 权限 | fix-next |
+| EVAL-B46-REL2B | P1 | 用户要求跨行关系时，准确关系只在 post-finalize renderer 的内部 tree model 中，模型成文前拿不到同源的精确 pair roster | 把既有 SMR/AXIOM/RSPA typed pair adjudication 抽成共享 relation fact surface；finalizer 只消费其已铸关系与 unresolved 边界，禁止复制第二套判定、禁止扫描答案、禁止改写答案 | design-after-REL2A |
+| EVAL-B46-REL2C | P2 model-compliance | 即使负向边界在高显著 prompt 中，模型仍可能越界陈述无载体关系 | 先修上下文自相矛盾并提供正向 exact pair facts；仍跨例复现时走普通语义审阅/重试，不做字符串 gate 或系统替答 | watch-after-context-fix |
+
+上下文审计结论：本轮不是“信息不够多”，而是“关系信息太多但 authority 不一致”。数值、单位、
+窗口、排序、唤醒边、修向边界都足以支持正确回答；relation handoff 与最终 renderer 不共享一个
+判定源，导致模型同时收到正确禁令和错误正向载体。优先修复单源性，不能用更长 prompt 掩盖。
+
+后续任务：
+
+- [ ] B46-T9a：删除 `DStateSplitMS/IOWaitSplitMS => embedded cross-row relation` 的伪映射，
+  改为诚实 row-local breakdown；定向固定正/负臂；
+- [ ] B46-T9b：设计共享 typed pair relation fact surface，复用 renderer 判定而非复制；
+- [ ] B46-T9c：相关测试、提交推送；干净 HEAD 严格并行同 pair r4；
+- [ ] B47：r4 后按优先矩阵切换到下一对 read/data/log/operation 用例，避免停留在单一 Trace/write。
 
 ### B41：data 终批材料 × Binder 方向语义审计（2026-08-02）
 
