@@ -49,9 +49,10 @@ func TestSoftProseLanesNeverRetry(t *testing.T) {
 	}
 }
 
-// TestSystemCrossCheckAppendixRendersFindings — S3' ②: unlocatable scalar +
-// unpublished token on the shipped doc render as ONE appendix attachment
-// with the humble lead-in and user-readable items.
+// TestSystemCrossCheckAppendixRendersFindings — S3' ②: an unlocatable
+// scalar on the shipped doc renders as ONE appendix attachment with the
+// humble lead-in. EVAL-B30-OWN2 retires free-prose vocabulary/conclusion
+// verdicts, so the snake_case token is deliberately not characterized.
 func TestSystemCrossCheckAppendixRendersFindings(t *testing.T) {
 	o, out := crossCheckHarness(t, "耗时 45.123ms,类型为 made_up_snake_token。")
 	o.attachSystemCrossCheckAppendix(out, "", nil)
@@ -63,13 +64,14 @@ func TestSystemCrossCheckAppendixRendersFindings(t *testing.T) {
 	for _, want := range []string{
 		"以下为系统对正文中出现的实体/数值的 typed 事实对照，供交叉核验；系统不判定正文正误。",
 		"45.123ms",
-		"made_up_snake_token",
 		"未能在本报告证据面复算或定位",
-		"未在本报告证据面出现",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("appendix body missing %q:\n%s", want, body)
 		}
+	}
+	if strings.Contains(body, "made_up_snake_token") || strings.Contains(body, "未在本报告证据面出现") {
+		t.Fatalf("free-prose vocabulary must not receive a system verdict:\n%s", body)
 	}
 }
 
@@ -121,35 +123,63 @@ func TestSystemCrossCheckAppendixNoInternalJargon(t *testing.T) {
 	}
 }
 
-// TestSystemCrossCheckAppendix76278WitnessShape — the §29.47.1 second
-// witness: the body quotes fscache_page_wait while the attached trace's
-// real token is the truncated fscache_page_wait_o. The near-quote still
-// counts as a finding (set membership is exact), but under S3' it ships
-// as ONE appendix item — the raise is never strict, so the whole-answer
-// rewrite that damaged the 76278 report can no longer happen.
+// TestSystemCrossCheckAppendix76278WitnessShape — EVAL-B30-OWN2 reverses
+// the old ruling for this witness. A near-quoted token in model prose is a
+// noisy language observation, not typed authority, so the system neither
+// repairs it nor publishes a user-visible correctness verdict.
 func TestSystemCrossCheckAppendix76278WitnessShape(t *testing.T) {
 	mut := psgTraceMutable(psgTraceRecord("r1", "state_drilldown:x", "15.758"))
 	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mut, Language: "zh"}}
 	o.busCtx.AttachedHitrace = "  kworker/0:1-42 (42) [000] .... 1.0: sched_blocked_reason: pid=7 iowait=1 caller=fscache_page_wait_o\n"
 	doc := psgProseDoc("等待原因为 fscache_page_wait，属于页缓存等待。")
 	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, doc)
-	violations := lexiconBoardViolations(runProseLexiconBoardCheck(doc, o.busCtx, mut))
-	if len(violations) != 1 || isStrictViolationForBus(violations[0], o.busCtx) {
-		t.Fatalf("the near-quote must raise exactly one NON-strict finding, got %+v", violations)
-	}
 	out := &agent.StageOutput{FinalAnswer: "正文"}
 	o.attachSystemCrossCheckAppendix(out, "", nil)
-	atts := o.busCtx.Mutable.AnswerDisplayAttachments()
-	if len(atts) != 1 || !strings.Contains(atts[0].Body, "fscache_page_wait") {
-		t.Fatalf("the finding must surface on the appendix, got %+v", atts)
+	for _, att := range o.busCtx.Mutable.AnswerDisplayAttachments() {
+		if strings.Contains(att.Body, "fscache_page_wait") || strings.Contains(att.Body, "未在本报告证据面出现") {
+			t.Fatalf("the retired free-prose verdict must not surface, got %+v", att)
+		}
 	}
-	// The trace's REAL truncated token is quotable (S1a corpus) — control.
-	mut2 := psgTraceMutable(psgTraceRecord("r1", "state_drilldown:x", "15.758"))
-	bus2 := psgBus(mut2)
-	bus2.AttachedHitrace = o.busCtx.AttachedHitrace
-	honest := psgProseDoc("等待原因为 fscache_page_wait_o（trace 原文截断形）。")
-	if got := lexiconBoardViolations(runProseLexiconBoardCheck(honest, bus2, mut2)); len(got) != 0 {
-		t.Fatalf("the attachment's own token must never flag, got %+v", got)
+}
+
+// TestModelConclusionProseScannerDisconnectedFromProduction is the exact
+// architectural guard for EVAL-B30-OWN2. It pins ownership at the two
+// production choke points, not any desired answer wording or case-specific
+// root cause: contract evaluation cannot inspect prose board conclusions,
+// and ship-time cross-check cannot publish such an interpretation.
+func TestModelConclusionProseScannerDisconnectedFromProduction(t *testing.T) {
+	for _, file := range []string{"contract_check.go", "system_crosscheck_appendix.go"} {
+		raw, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("read %s: %v", file, err)
+		}
+		text := string(raw)
+		for _, banned := range []string{
+			"runProseLexiconBoardCheck(" + "docV2",
+			"proseLexiconBoardResidualFindings(" + "doc",
+		} {
+			if strings.Contains(text, banned) {
+				t.Fatalf("%s reconnects retired model-conclusion prose scan %q", file, banned)
+			}
+		}
+	}
+}
+
+func TestSystemCrossCheckDoesNotCharacterizeModelPrimaryCause(t *testing.T) {
+	primary := lexiconBoardRankRecord(1, "app-20", "state_churn",
+		"rank=1", "tier=primary", "effective_impact_ms=5.000")
+	context := lexiconBoardRankRecord(2, "rival-30", "running_context",
+		"rank=2", "tier=context", "effective_impact_ms=2.000")
+	mut := psgTraceMutable(primary, context)
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mut, Language: "zh"}}
+	doc := psgProseDoc("app-20 是当前窗口首要根因候选；rival-30 是同 CPU 背景，需与关键路径分开。")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, doc)
+	for _, line := range o.collectSystemCrossCheckFindings() {
+		for _, banned := range []string{"正文首因", "the body's primary cause", "正文在不同位置"} {
+			if strings.Contains(line, banned) {
+				t.Fatalf("system must not characterize the model conclusion via prose scan: %s", line)
+			}
+		}
 	}
 }
 

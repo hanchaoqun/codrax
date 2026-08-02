@@ -357,14 +357,14 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 					trace.run("prose_scalar_grounding", func() []types.Violation {
 						return runProseScalarGroundingCheck(docV2, o.busCtx, mut)
 					})...)
-				// CR-1 件②/件⑤ (§29.42.4) prose vocabulary (P2) +
-				// board-order consistency (P3a/P3b) lane — same S3' ①
-				// information-only contract; never a hard reject, never
-				// a caveat, appendix at ship time.
-				result.Violations = append(result.Violations,
-					trace.run("prose_lexicon_board", func() []types.Violation {
-						return runProseLexiconBoardCheck(docV2, o.busCtx, mut)
-					})...)
+				// EVAL-B30-OWN2 (2026-08-01): do not infer the model's
+				// primary conclusion, ranking, or board membership from its
+				// free-form answer text. The former prose_lexicon_board lane
+				// was nominally information-only, but its regex binding still
+				// produced a user-visible system verdict about what the model
+				// had concluded. Typed facts remain available to the model and
+				// on the appendix fact surface; conclusion ownership remains
+				// with the model.
 				// EVALFIX-2C 类3 (2026-07-30) — mechanical claim
 				// contradiction: a prose sentence whose
 				// quantity-comparator-quantity direction contradicts its

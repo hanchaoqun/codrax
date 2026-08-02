@@ -4253,7 +4253,7 @@ connector，因此只能证明所选窗口的主要占用候选，不能证明�
 |---|---:|---|---|---|
 | `EVAL-B30-ACCOUNT1` | P1 | 同一 app-20/同一查询窗/同一五态分区在 `state_churn` 与 `wakeup_causal_impact` 两面分别发布 19次/20段和20次/21段。B4-T2 只靠 predicate 推测 occurrence scope；已有 `state_account_key` 仅连接 wakeup/rank，没有连接 canonical churn | producer 将已经由精确 segment inventory 铸造且唯一的 `state_account_key` 扩到匹配的 whole-window churn；显示层仅在同 artifact + 同 key 时保留 canonical churn，真实独立 occurrence 无 key 时继续 fail-open | implemented/focused-tests-pass |
 | `EVAL-B30-LANE2` | P1 | read workflow 答案把真实但异车道的 `StageWriteAnalyze/runWriteAnalyzePhase` 接到 read 主链。production 只在 plan/apply/verify 调用该阶段；read 直接进入 `runTaskPhase -> runTaskGraph -> runReadSchedulerLoop`。事后正确 StageBinding 表不能消除正文矛盾 | 在 finalizer 成文前按 typed `AgentContext.Mode` + requested `stage_or_workflow` dimension 发布 canonical read main/pre-stage membership，并明确其它 stage 是跨模式上下文、不得接入当前 read path；信息只指导模型，不改写答案 | implemented/full-package-tests-pass；并入/具体化 LANE1 |
-| `EVAL-B30-OWN2` | P1 | 旧 `proseLexiconBoardResidualFindings` 扫描模型自由 prose 后，系统附注误称“正文首因=rival-30”，正文首句和 typed #1 实为 app-20。系统再次越权评价模型结论且产生假阳性 | 退役基于自由 prose 的 primary/board 偏离用户可见判词与修复提示；继续把 typed board/事实并置给模型和用户，由模型作结论。若保留机械检查，只能消费结构化 claim relation，不能用正则绑定自由正文主体 | filed-next |
+| `EVAL-B30-OWN2` | P1 | 旧 `proseLexiconBoardResidualFindings` 扫描模型自由 prose 后，系统附注误称“正文首因=rival-30”，正文首句和 typed #1 实为 app-20。系统再次越权评价模型结论且产生假阳性 | 退役基于自由 prose 的 primary/board 偏离用户可见判词与修复提示；继续把 typed board/事实并置给模型和用户，由模型作结论。若保留机械检查，只能消费结构化 claim relation，不能用正则绑定自由正文主体 | implemented/full-package-tests-pass |
 
 `ACCOUNT1` 已完成：`ThreadStateChurnSummary` 新增可选 `StateAccountKey`；只有现成
 rank↔wakeup exact segment identity、thread/state/window/dominant impact 和五态分区全等且
@@ -4273,8 +4273,20 @@ whole-window churn 胜出。无 key 的真实 chain occurrence 继续双席，�
 模型答案、不制造函数调用边，apply 模式不激活，与 Trace 管线无关。
 `go test ./internal/agent -count=1` 通过。
 
+`OWN2` 已完成：从 contract evaluation 和 ship-time system cross-check 两个生产
+choke point 同时断开 `prose_lexicon_board` 自由正文扫描。系统不再从模型文字用
+正则推断“首因”、“双首因”、“榜序偏离”或“正文自排席位”，也不再将未发布
+snake_case 词汇的噪声集合成员判断写入用户附注。typed 根因席位、状态/时间数值、
+事实并置和机械数值复算继续保留，但系统不替模型宣告它们意味着什么。
+
+看护不固定客户 case、线程、根因或答案措辞；只结构性钉住上述两个生产路径不得重接
+自由正文结论扫描，并验证“正文先说 app-20、后提 rival-30 背景”时系统不再
+输出“正文首因”判词。`go test ./internal/orchestrator -count=1` 通过。
+
 状态：`EVAL-B30-ACCOUNT1=implemented/focused-tests-pass`；
-`EVAL-B30-LANE2=implemented/full-package-tests-pass`；`EVAL-B30-OWN2=P1/filed-next`。工件：
+`EVAL-B30-LANE2=implemented/full-package-tests-pass`；
+`EVAL-B30-OWN2=implemented/full-package-tests-pass`。下一步严格并行 2 个原 case 回放，
+同时验收账目合并、read/write 车道分离与模型结论所有权。工件：
 `eval/parallel_selected_summary_evalcampaign_b30trace_lane_r1_20260801.md`、
 `eval/parallel_selected_summary_evalcampaign_b30trace_lane_r1_20260801_manual_audit.md`。
 

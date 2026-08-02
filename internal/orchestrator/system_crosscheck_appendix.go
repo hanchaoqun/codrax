@@ -108,14 +108,13 @@ func (o *Orchestrator) collectSystemCrossCheckFindings() []string {
 		}
 		out = append(out, f.userReadable(lang))
 	}
-	findings := proseLexiconBoardResidualFindings(doc, o.busCtx, mut)
-	for i, f := range findings {
-		if i >= systemCrossCheckFindingCap {
-			out = append(out, systemCrossCheckMoreLine(lang, len(findings)-i))
-			break
-		}
-		out = append(out, f.userReadable(lang))
-	}
+	// EVAL-B30-OWN2: never characterize the model's conclusion or ordering
+	// by re-scanning its free-form prose at ship time. In particular, the
+	// retired lexicon/board residual lane could bind a later-mentioned
+	// context thread as "the body's primary cause" and publish a false
+	// system verdict. The fact-juxtaposition lane below continues to publish
+	// typed seats and measurements without deciding whether the prose is
+	// right or wrong; the reader/model owns that comparison.
 	// CR-3 件① P6 (2026-07-12): the wall-clock conservation arms — prose
 	// state durations vs the window and vs the published full-window state
 	// partition. Information lane only (§29.42.4 全批软纪律): disclosure
