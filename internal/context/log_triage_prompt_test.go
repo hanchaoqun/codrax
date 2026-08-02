@@ -228,11 +228,10 @@ func TestFormatLogTriageStructured_ProvenanceLegendPresent(t *testing.T) {
 	}
 }
 
-// TestFormatLogTriageStructured_ParallelSnapshotsLabelled confirms
-// the renderer distinguishes parallel error snapshots (e.g. Go
-// goroutine dump with multiple goroutines panicking on the same
-// shared resource) from a single error.
-func TestFormatLogTriageStructured_ParallelSnapshotsLabelled(t *testing.T) {
+// TestFormatLogTriageStructured_ExplicitOccurrencesLabelled confirms
+// the renderer labels multiple independently reported errors without
+// conflating them with concurrent thread snapshots.
+func TestFormatLogTriageStructured_ExplicitOccurrencesLabelled(t *testing.T) {
 	bundle := &types.LogBundle{
 		Meta: types.LogMeta{Lang: "go"},
 		Errors: []types.LogError{
@@ -242,8 +241,8 @@ func TestFormatLogTriageStructured_ParallelSnapshotsLabelled(t *testing.T) {
 		},
 	}
 	got := formatLogTriageStructured(bundle, nil)
-	if !strings.Contains(got, "3 parallel snapshots") {
-		t.Errorf("parallel snapshots not labelled:\n%s", got)
+	if !strings.Contains(got, "3 explicit occurrences") {
+		t.Errorf("explicit error occurrences not labelled:\n%s", got)
 	}
 }
 

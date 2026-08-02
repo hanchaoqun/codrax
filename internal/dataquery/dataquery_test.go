@@ -887,6 +887,43 @@ emit_result({
 	}
 }
 
+func TestRunnerNormalizesScalarAndArrayResultChannels(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "input.txt"), []byte("used\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name   string
+		script string
+		want   string
+	}{
+		{name: "emit scalar", script: "read_text(\"input.txt\")\nemit(2)", want: "2"},
+		{name: "assigned scalar", script: "read_text(\"input.txt\")\nresult = \"ok\"", want: "ok"},
+		{name: "emit array", script: "read_text(\"input.txt\")\nemit([\"a\", 2])", want: `["a",2]`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res, err := (Runner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+				InputPaths:     []string{"input.txt"},
+				OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+				Script:         tt.script,
+			})
+			if err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			if res.Answer != tt.want {
+				t.Fatalf("Answer=%q, want %q", res.Answer, tt.want)
+			}
+			if len(res.ConsumedPaths) != 1 || res.ConsumedPaths[0] != "input.txt" {
+				t.Fatalf("ConsumedPaths=%v, want input.txt", res.ConsumedPaths)
+			}
+		})
+	}
+}
+
 func TestRunnerPreservesExtraEmitPayloadAsArtifact(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "rules.md"), []byte("R1: keep paid rows\n"), 0600); err != nil {

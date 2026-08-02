@@ -261,6 +261,73 @@ func TestEmitLogTriage_Execute_RejectsSynthesizedErrorMessage(t *testing.T) {
 	}
 }
 
+func TestEmitLogTriage_Execute_RejectsMoreExplicitErrorsThanVerbatimMessages(t *testing.T) {
+	bus := &types.BusContext{
+		Mutable: types.NewMutableState("test"),
+		AttachedLog: "fatal error: concurrent map writes\n\n" +
+			"goroutine 15 [running]:\nmain.writeSession()\n\n" +
+			"goroutine 87 [running]:\nmain.writeSession()\n",
+	}
+	params, err := json.Marshal(emitLogTriageParams{
+		Meta: emitLogTriageMeta{Lang: "go", Signals: []string{"panic"}},
+		Errors: []emitLogTriageError{
+			{Type: "fatal error", Message: "concurrent map writes"},
+			{Type: "fatal error", Message: "concurrent map writes"},
+		},
+		Observations: []emitLogTriageObservation{{
+			Kind:       string(types.LogObservationRuntimeEvent),
+			Summary:    "two goroutines crashed",
+			Evidence:   "goroutine 15 [running]:\ngoroutine 87 [running]:",
+			Diagnostic: true,
+			Confidence: 1,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := (&EmitLogTriage{}).Execute(bus, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Success || bus.Mutable.LogTriage() != nil {
+		t.Fatalf("overclaimed peer errors must not publish a bundle: %+v", res)
+	}
+	for _, want := range []string{
+		"claims 2 explicit error occurrences",
+		"contains that message only 1 time(s)",
+		"kind=thread_snapshot",
+		"observations[0].evidence",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("combined rejection missing %q: %s", want, res.Summary)
+		}
+	}
+}
+
+func TestEmitLogTriage_Execute_AcceptsRepeatedExplicitMessagesWhenObserved(t *testing.T) {
+	bus := &types.BusContext{
+		Mutable:     types.NewMutableState("test"),
+		AttachedLog: "worker-a: failed request\nworker-b: failed request\n",
+	}
+	params, err := json.Marshal(emitLogTriageParams{
+		Meta: emitLogTriageMeta{Lang: "other", Signals: []string{"other"}},
+		Errors: []emitLogTriageError{
+			{Type: "request_error", Message: "failed request"},
+			{Type: "request_error", Message: "failed request"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := (&EmitLogTriage{}).Execute(bus, params)
+	if err != nil || !res.Success {
+		t.Fatalf("two observed explicit messages should be accepted: result=%+v err=%v", res, err)
+	}
+	if bundle := bus.Mutable.LogTriage(); bundle == nil || len(bundle.Errors) != 2 {
+		t.Fatalf("bundle=%+v, want two explicit errors", bundle)
+	}
+}
+
 func TestEmitLogTriage_Execute_RejectsSynthesizedObservationEvidence(t *testing.T) {
 	bus := &types.BusContext{
 		Mutable:     types.NewMutableState("test"),

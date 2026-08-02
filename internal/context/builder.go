@@ -4181,7 +4181,7 @@ func formatLogTriageStructured(bundle *types.LogBundle, locator types.SymbolLoca
 	// ── Errors tree ────────────────────────────────────────────
 	if len(bundle.Errors) > 0 {
 		if len(bundle.Errors) > 1 {
-			fmt.Fprintf(&b, "### Errors (%d parallel snapshots)\n\n", len(bundle.Errors))
+			fmt.Fprintf(&b, "### Errors (%d explicit occurrences)\n\n", len(bundle.Errors))
 		} else {
 			b.WriteString("### Error\n\n")
 		}

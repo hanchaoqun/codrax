@@ -294,25 +294,33 @@ func (t *EmitLogTriage) Execute(ctx *types.BusContext, params json.RawMessage) (
 	if err != nil {
 		return *decodeFailure, err
 	}
+	// Return all precise provenance/cardinality violations together. The
+	// triager has a deliberately small retry budget; surfacing one issue at a
+	// time can spend that budget without ever producing a valid bundle.
+	var authorityViolations []string
 	if field, message, ok := firstUnobservedLogTriageErrorMessage(p.Errors, ctx.AttachedLog); ok {
-		return types.ToolResult{
-			ToolName: t.Name(),
-			Success:  false,
-			Summary: fmt.Sprintf(
-				"emit_log_triage rejected: %s must be copied verbatim from the attached log; unobserved message=%q. Omit message when the log has no explicit error text, and put bounded interpretation in observations[].summary.",
-				field, message,
-			),
-			Timestamp: time.Now(),
-		}, nil
+		authorityViolations = append(authorityViolations, fmt.Sprintf(
+			"%s must be copied verbatim from the attached log; unobserved message=%q. Omit message when the log has no explicit error text, and put bounded interpretation in observations[].summary",
+			field, message,
+		))
+	}
+	if message, emitted, observed, ok := firstOverclaimedLogTriageErrorMessage(p.Errors, ctx.AttachedLog); ok {
+		authorityViolations = append(authorityViolations, fmt.Sprintf(
+			"errors tree claims %d explicit error occurrences carrying verbatim message %q, but the attached log contains that message only %d time(s). A goroutine/thread block without its own explicit error header belongs in observations[] as kind=thread_snapshot, severity=info, diagnostic=false; it is not a peer error",
+			emitted, message, observed,
+		))
 	}
 	if field, evidence, ok := firstUnobservedLogTriageObservationEvidence(p.Observations, ctx.AttachedLog); ok {
+		authorityViolations = append(authorityViolations, fmt.Sprintf(
+			"%s must be copied verbatim from the attached log; unobserved evidence=%q. Keep interpretation in observations[].summary, and omit evidence when no short exact excerpt exists",
+			field, evidence,
+		))
+	}
+	if len(authorityViolations) > 0 {
 		return types.ToolResult{
-			ToolName: t.Name(),
-			Success:  false,
-			Summary: fmt.Sprintf(
-				"emit_log_triage rejected: %s must be copied verbatim from the attached log; unobserved evidence=%q. Keep interpretation in observations[].summary, and omit evidence when no short exact excerpt exists.",
-				field, evidence,
-			),
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_log_triage rejected: " + strings.Join(authorityViolations, "; "),
 			Timestamp: time.Now(),
 		}, nil
 	}
@@ -440,6 +448,41 @@ func firstUnobservedLogTriageErrorMessage(errors []emitLogTriageError, attachedL
 		return "", "", false
 	}
 	return walk(errors, "errors")
+}
+
+// firstOverclaimedLogTriageErrorMessage checks cardinality only for the
+// already-verbatim message field. If N peer/cause errors carry the same exact
+// message, the held attachment must contain that exact message at least N
+// times. This prevents concurrent thread snapshots from being promoted into
+// peer errors while staying language- and runtime-agnostic. It does not parse
+// the user request or any model/final-answer prose.
+func firstOverclaimedLogTriageErrorMessage(errors []emitLogTriageError, attachedLog string) (message string, emitted, observed int, found bool) {
+	counts := make(map[string]int)
+	order := make([]string, 0)
+	var walk func([]emitLogTriageError)
+	walk = func(items []emitLogTriageError) {
+		for i := range items {
+			message := strings.TrimSpace(items[i].Message)
+			if message != "" {
+				if counts[message] == 0 {
+					order = append(order, message)
+				}
+				counts[message]++
+			}
+			if items[i].Cause != nil {
+				walk([]emitLogTriageError{*items[i].Cause})
+			}
+		}
+	}
+	walk(errors)
+	for _, message := range order {
+		emitted := counts[message]
+		observed := strings.Count(attachedLog, message)
+		if emitted > observed {
+			return message, emitted, observed, true
+		}
+	}
+	return "", 0, 0, false
 }
 
 // firstUnobservedLogTriageObservationEvidence protects the direct-artifact

@@ -4806,6 +4806,17 @@ if RESULT is None:
     RESULT = env.get("result")
 if RESULT is None:
     raise ValueError("data task script did not call emit(obj) or set result")
+# The public script contract accepts a scalar / array through either emit(...)
+# or direct result assignment. Normalize those values at the single runner
+# boundary so the Go side always receives the canonical Result object it
+# validates. Dicts stay untouched: they may already be a full Result envelope
+# or an ordinary JSON payload whose promotion is governed by output_contract.
+if not isinstance(RESULT, dict):
+    if isinstance(RESULT, (list, tuple)):
+        answer = json.dumps(list(RESULT), ensure_ascii=False, default=str, separators=(",", ":"))
+    else:
+        answer = str(RESULT)
+    RESULT = {"answer": answer}
 if isinstance(RESULT, dict):
     RESULT.setdefault("consumed_paths", sorted(CONSUMED))
 print(%q + json.dumps(RESULT, ensure_ascii=False, default=str))

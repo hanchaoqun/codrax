@@ -28,9 +28,11 @@ type LogBundle struct {
 	Meta LogMeta `json:"meta"`
 
 	// ── Layer 2 — Errors ───────────────────────────
-	// Top-level slice carries PARALLEL snapshots: multiple goroutines
-	// in a Go panic dump, or two independent exception stacks captured
-	// by a single log collector. Each LogError internally carries a
+	// Top-level slice carries explicit error occurrences: for example,
+	// two independently printed exception stacks captured by a single
+	// log collector. A goroutine/thread block without its own explicit
+	// error header is a LogObservationThreadSnapshot, not a LogError.
+	// Each LogError internally carries a
 	// Cause pointer for chronological causal chains (Java Caused-by,
 	// Rust #[source], Python __cause__). The two axes are distinct:
 	// parallel (Errors slice) vs chronological (Cause recursion).
@@ -228,9 +230,10 @@ func IsValidLogObservationSeverity(s LogObservationSeverity) bool {
 
 // LogError is one error snapshot with optional causal chain. The tree
 // is naturally recursive: Exception A wrapping Exception B wrapping
-// Exception C maps to a three-deep Cause chain. Parallel errors
-// (multiple goroutines, sibling exceptions in a sidecar dump) live
-// as peers in LogBundle.Errors, not via Cause.
+// Exception C maps to a three-deep Cause chain. Parallel explicit errors
+// (multiple independently printed panics, sibling exceptions in a sidecar
+// dump) live as peers in LogBundle.Errors, not via Cause. Concurrent thread
+// snapshots without their own error header live in LogBundle.Observations.
 type LogError struct {
 	// Type is the exception / panic class name, e.g.
 	// "java.lang.NullPointerException", "runtime error: index out of range",

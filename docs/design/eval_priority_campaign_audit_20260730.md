@@ -3919,6 +3919,74 @@ B18c 使用一条通用 typed 规则修复：
 
 状态：`implemented / full-tests-pass / cross-relation replay next`。
 
+### B38：日志显式错误身份 × data 结果通道审计（2026-08-02）
+
+本批严格并行 2 case：`logtri_goroutine_dump` 与
+`data_jsonl_filter_count`。runner 为 2/2 PASS，人工为 1/2 PASS。两案都不是
+特定错误名或数字的拟合，而是 typed 载体在「观测次数/结果信封」边界上的通用
+契约错位。
+
+#### EVAL-B38-LOGOCC1：线程快照被提升为显式错误（P1）
+
+日志只有一个 `fatal error` header，后接 goroutine 15 的 throw/mapassign/
+writeSession 栈；goroutine 87 与 120 只有 `[running]` 栈块，没有自己的 panic/error
+header。正确权限是：Errors 只有一个显式错误；87/120 是
+`thread_snapshot`，只证明采样时执行到了对应 frame。
+
+本轮 triager 无视已有 soft prompt，把同一 verbatim message 复制到 3 个 peer
+Errors，并把三线程合成 diagnostic runtime_event。下游虽然已有 thread-snapshot
+权限说明，但错误 typed 输入让 analyzer/explorer/finalizer 一致升级为「三者同时
+panic、都写同一 map」；最终又在源码未解析时断言 `writeSession` 缺少 mutex。
+runner 的宽关键词 oracle 只看 `map`/并发/竞争，未识别该事实身份错误。
+
+通用修复分三层：
+
+1. `errors[].message` 已要求来自附件逐字文本；在同一精确信号上增加基数对账：
+   若 N 个 peer/cause error 携同一 message，附件中该精确 message 至少出现 N 次；
+   超发拒绝 typed emission，并明确把无独立 header 的线程块放入
+   `thread_snapshot`。不解析语言、错误词、用户请求或最终答案。
+2. message provenance、message cardinality、observation evidence provenance 一次
+   返回全部 violation，避免有限 triager retry 被逐项耗尽。
+3. 将 `LogBundle.Errors` 与 prompt 标题中误导性的 `parallel snapshots` 统一改为
+   `explicit error occurrences`；真正 snapshot 只属于 Observations。
+
+该 gate 只校验模型申请进入「直接 runtime 事实」车道的结构化字段，属于
+verbatim 精确信号硬门；不替模型写最终结论，也不扫描用户/模型 prose。两个相同
+message 在附件中真实出现两次的多错误正例保持通过。
+
+#### EVAL-B38-DATARESULT1：非对象结果通道与 Go Result 信封不一致（P1）
+
+data 最终答案 `2` 正确且材料覆盖完整，但过程发生两次 repair：第一次模型给
+`custom_transform` 却漏 script；第二次脚本已正确计算 count，却调用 `emit(count)`，
+Python runner 输出裸 JSON number，Go 侧固定按 `dataquery.Result` object 解码而失败。
+模型改成 `emit_result(count)` 才完成。missing script 已被 typed plan guard 精确修复，
+本轮先按模型计划波动记档；裸值失败则是公共结果通道的确定性契约 gap，因为
+plan guard 和 runner 文案同时允许 `emit(...)` 或直接 `result` 赋值。
+
+通用修复在唯一 Python→Go runner 边界做无语义规范化：
+
+- 非 dict scalar 转成 `{answer: str(value)}`；
+- list/tuple 转成紧凑 JSON answer；
+- consumed_paths 随标准 Result 信封继续交付；
+- dict 保持原语义：可能是完整 Result，也可能是由 output_contract 决定是否提升的
+  普通 JSON payload；账本、规则和业务判断不由系统补造。
+
+测试覆盖 `emit(2)`、直接 `result="ok"`、`emit(["a",2])`，并保留既有
+`emit_result` 信封、普通 dict payload 与 ledger merge 行为。
+
+施工任务：
+
+- [x] B38-T1：严格并行 2 case、阅读完整日志/答案、人工判定；
+- [x] B38-T2：记录 LOGOCC1/DATARESULT1 及 runner oracle 盲区；
+- [x] B38-T3：实现 data 非对象 Result 规范化与回归；
+- [x] B38-T4：实现 log verbatim message cardinality、合并拒绝与术语纠偏；
+- [x] B38-T5：全相关测试通过（dataquery/dataworkflow/tool/context/types/skill）；
+  提交、推送待本批收口；
+- [ ] B38-T6：重放同一 2 case，人工确认 87/120 保持 context-only 且 data 不再
+  发生 result schema repair。
+
+状态：`implemented / full-related-tests-pass / commit+push next`。
+
 ### B37：显式窗 Trace × 精确单文件 read，模型答案所有权审计（2026-08-01）
 
 严格并行 2 case、连续 3 轮。runner 结果分别为 2/2 PASS、1/2 PASS、1/2
@@ -4091,7 +4159,7 @@ source quote 仍是另一条合法佐证，显式 `all/test/docs/auxiliary` 一�
 首轮 scope 保持 `internal/types/evidence.go`。所有判断下游只读 typed provenance，
 不扫描答案/思考/模型 prose。
 
-状态：`implemented / targeted-tests-pass / commit-next`。
+状态：`covered / committed+pushed@9b936d4e9`。
 
 ### B36：配置映射 × write plan 权限与模型结论所有权（2026-08-01）
 
