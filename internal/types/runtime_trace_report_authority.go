@@ -14,11 +14,16 @@ func RuntimeTraceReportShapeAuthority(rm *RequestModel) (decided bool, allowed b
 	if _, _, ok := rm.RuntimeArtifactScopeProfile.ExplicitTimeWindow(); ok {
 		return true, true
 	}
+	if rm.RuntimeQuestionProfile != nil {
+		if rm.RuntimeQuestionProfile.BoundedFactSet() {
+			return true, false
+		}
+		if rm.RuntimeQuestionProfile.RequiresFullReport() {
+			return true, true
+		}
+	}
 	if NormalizeRequirementKind(rm.AnalyzerHints.Kind) == ReqCallChain ||
 		rm.PredicateAxis == AxisCall || rm.Predicates.IsRelationalLookup {
-		return true, true
-	}
-	if rm.RuntimeQuestionProfile != nil && rm.RuntimeQuestionProfile.RequiresFullReport() {
 		return true, true
 	}
 	if IsNarrowRuntimeArtifactFactShape(*rm) {

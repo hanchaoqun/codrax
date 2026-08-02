@@ -2909,7 +2909,7 @@ func TestDataTaskEvaluatorParsesTypedStatus(t *testing.T) {
 		t.Fatalf("MissingInputs=%v", eval.MissingInputs)
 	}
 	user := adapter.calls[0].messages[1].Content
-	for _, want := range []string{"## data_workflow_rounds", "intermediate", "continue_after", "expand_graph", "repair_node", "continue_transform"} {
+	for _, want := range []string{"## data_workflow_rounds", "intermediate", "continue_after", "expand_graph", "repair_node", "continue_transform", "success_criteria describe workflow intent", "not independent expected-value evidence", "do not replace a deterministic result"} {
 		if !strings.Contains(user, want) {
 			t.Fatalf("evaluation prompt missing %q:\n%s", want, user)
 		}
@@ -8957,6 +8957,86 @@ func TestPrepareDataTaskWorkflowPlanTerminalBatchRestoresDeferredUserMaterialFlo
 	}
 }
 
+func TestDataTaskTerminalSchedulingUsesAuthoritativeScriptConsumption(t *testing.T) {
+	contract := dataquery.CoverageContract{RequiredMaterials: []dataquery.CoverageMaterial{
+		{Path: "instructions.md", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+		{Path: "notes.txt", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+	}}
+	plan := dataquery.TaskPlan{
+		Status:           "ready",
+		InputPaths:       []string{"instructions.md", "notes.txt"},
+		CoverageContract: contract,
+		Script:           `rows = read_text("notes.txt").splitlines()` + "\n" + `emit_result(len(rows))`,
+	}
+	if got := dataTaskTerminalRequiredMaterialSchedulingError(nil, plan); !strings.Contains(got, "instructions.md") {
+		t.Fatalf("staging error=%q, want literal helper census to reject declared-but-unread material", got)
+	}
+	plan.Script = `instructions = read_text("instructions.md")` + "\n" +
+		`rows = read_text("notes.txt").splitlines()` + "\n" +
+		`emit_result(len(rows))`
+	if got := dataTaskTerminalRequiredMaterialSchedulingError(nil, plan); got != "" {
+		t.Fatalf("staging error=%q, want both literal helper reads accepted", got)
+	}
+}
+
+func TestDataTaskAuthoritativeScriptConsumptionGapRoutesToRepairBeforeExecution(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		Status:     "ready",
+		InputPaths: []string{"instructions.md", "notes.txt"},
+		CoverageContract: dataquery.CoverageContract{RequiredMaterials: []dataquery.CoverageMaterial{
+			{Path: "instructions.md", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+			{Path: "notes.txt", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+		}},
+		Script: `rows = read_text("notes.txt").splitlines()` + "\n" + `emit_result(len(rows))`,
+	}
+	guard := dataTaskWorkflowStagingGuardResult("", nil, plan)
+	if !dataTaskGuardIsAuthoritativeScriptConsumptionGap(guard, plan) {
+		t.Fatalf("guard=%+v, want authoritative script-consumption gap", guard)
+	}
+	decision := dataTaskPreExecutionDecision("", nil, plan)
+	if decision.Action != dataworkflow.PreExecutionGuard {
+		t.Fatalf("decision=%+v, want repairable pre-execution guard instead of coverage fallback", decision)
+	}
+	recovery := dataTaskStagingGuardRecoveryDecision("", nil, plan, guard)
+	if recovery.Action != dataworkflow.GuardRecoveryRepair {
+		t.Fatalf("recovery=%+v, want planner repair before execution", recovery)
+	}
+}
+
+func TestDataTaskPreparedTopLevelScriptOmissionRoutesToRepair(t *testing.T) {
+	plan := prepareDataTaskWorkflowPlanForExecution("", "汇总 orders.csv，只输出总额", []dataquery.CandidateFile{{Path: "orders.csv", Kind: "csv"}}, nil, dataquery.TaskPlan{
+		Status:     "ready",
+		InputPaths: []string{"orders.csv"},
+		OutputContract: dataquery.OutputContract{
+			Format:             dataquery.OutputPlainSingleLine,
+			ExplanationAllowed: false,
+		},
+		Script: `raise ValueError("simulated script bug")` + "\n" + `emit({"answer":"unreachable"})`,
+	})
+	guard := dataTaskWorkflowStagingGuardResult("", nil, plan)
+	if !dataTaskGuardIsAuthoritativeScriptConsumptionGap(guard, plan) {
+		t.Fatalf("plan=%+v guard=%+v, want authoritative script-consumption gap", plan, guard)
+	}
+	decision := dataTaskPreExecutionDecision("", nil, plan)
+	if decision.Action != dataworkflow.PreExecutionGuard {
+		t.Fatalf("decision=%+v, want repairable pre-execution guard", decision)
+	}
+}
+
+func TestDataTaskScriptConsumptionProofFailsOpenForDynamicOrAliasedReaders(t *testing.T) {
+	for name, script := range map[string]string{
+		"dynamic": `p = "instructions.md"` + "\n" + `read_text(p)`,
+		"alias":   `reader = read_text` + "\n" + `reader("instructions.md")`,
+		"syntax":  `read_text(`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if paths, authoritative := dataTaskScriptLiteralConsumption(script); authoritative {
+				t.Fatalf("paths=%v authoritative=true, want fail-open proof", paths)
+			}
+		})
+	}
+}
+
 func TestDataTaskWorkflowStateDoesNotRegressCoverageWhenNextPlanOmitsRequiredMaterials(t *testing.T) {
 	records := []dataTaskWorkflowRecord{{
 		Plan: dataquery.TaskPlan{
@@ -9898,6 +9978,9 @@ func TestDataTaskWorkflowStagingGuardRejectsComputeStageCustomTransformWithPrere
 
 func TestDataTaskPlanStagingGuardAllowsBoundedCustomTransformBelowBroadLimit(t *testing.T) {
 	lines := make([]string, 0, dataTaskComplexCustomScriptLineLimit)
+	for _, path := range []string{"a.csv", "b.csv", "c.csv", "d.csv"} {
+		lines = append(lines, fmt.Sprintf("rows_%s = csv_rows(%q)", strings.TrimSuffix(path, ".csv"), path))
+	}
 	for i := 0; i < dataTaskComplexCustomScriptLineLimit-20; i++ {
 		lines = append(lines, fmt.Sprintf("value_%d = %d", i, i))
 	}

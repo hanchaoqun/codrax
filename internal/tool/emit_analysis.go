@@ -678,7 +678,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"runtime_question_profile": map[string]any{
 				"type":        "object",
-				"description": "Required typed declaration of the answer breadth requested from a runtime artifact. This is independent of artifact range and target identity. Use bounded_fact_set for a finite set of observed state/value/count/time/recorded-reason facts without a requested causal diagnosis; causal_diagnosis for why/root-cause/jank diagnosis; relation_analysis for a requested caller/wakeup/IPC/dependency relation; system_overview for a broad hotspot/health/summary report; unspecified only when genuinely unclear; not_applicable outside runtime artifacts. A kernel-recorded reason field is a bounded observed fact unless the request separately asks why it caused a failure. Downstream uses this enum instead of unstable intent/scenario combinations and never scans request or answer prose.",
+				"description": "Required typed declaration of the answer breadth requested from a runtime artifact. This is independent of artifact range, target identity, and relation shape. Use bounded_fact_set for a finite set of observed state/value/count/time/recorded-reason facts or directly named relation fields such as one peer, transaction id, or waker, without a requested causal report; causal_diagnosis for why/root-cause/jank diagnosis; relation_analysis for broader caller/wakeup/IPC/dependency path or topology analysis; system_overview for a broad hotspot/health/summary report; unspecified only when genuinely unclear; not_applicable outside runtime artifacts. A kernel-recorded reason or direct relation field remains a bounded observed fact unless the request asks to expand or diagnose it. Downstream uses this enum instead of unstable intent/scenario combinations and never scans request or answer prose.",
 				"properties": map[string]any{
 					"scope":        map[string]any{"type": "string", "enum": runtimeQuestionScopeValues(), "description": "not_applicable, bounded_fact_set, causal_diagnosis, relation_analysis, system_overview, or unspecified."},
 					"source_quote": map[string]any{"type": "string", "description": "For every concrete runtime scope, an exact current-request phrase that expresses the requested facts, diagnosis, relation, or overview."},
@@ -3718,7 +3718,7 @@ func parseRuntimeTargetProfile(raw string, runtimeArtifactCarrier bool, p *emitR
 	return profile, "", nil
 }
 
-func parseRuntimeQuestionProfile(raw string, runtimeArtifactCarrier bool, p *emitRuntimeQuestionProfileParam, hasExplicitRelation bool) (*types.RuntimeQuestionProfile, string, []string) {
+func parseRuntimeQuestionProfile(raw string, runtimeArtifactCarrier bool, p *emitRuntimeQuestionProfileParam, _ bool) (*types.RuntimeQuestionProfile, string, []string) {
 	if p == nil {
 		if runtimeArtifactCarrier {
 			return nil, "runtime_question_profile object missing — declare bounded_fact_set, causal_diagnosis, relation_analysis, system_overview, or unspecified; intent/scenario labels do not substitute for runtime answer breadth", nil
@@ -3757,9 +3757,6 @@ func parseRuntimeQuestionProfile(raw string, runtimeArtifactCarrier bool, p *emi
 	}
 	if scope == types.RuntimeQuestionScopeNotApplicable {
 		return nil, "runtime_question_profile not_applicable conflicts with the attached/referenced runtime request", nil
-	}
-	if scope == types.RuntimeQuestionScopeBoundedFactSet && hasExplicitRelation {
-		return nil, "runtime_question_profile bounded_fact_set conflicts with an explicit call/relation shape; use relation_analysis or correct the relation fields", nil
 	}
 	profile := &types.RuntimeQuestionProfile{
 		Scope:      scope,

@@ -2,7 +2,7 @@ package types
 
 // RuntimeQuestionScope is the analyzer's typed declaration of what kind of
 // answer a runtime artifact question requests. It is intentionally orthogonal
-// to artifact range, target identity, and the legacy intent/scenario labels:
+// to artifact range, target identity, relation shape, and legacy labels:
 // those labels varied across identical eval replays and must not silently
 // widen a finite fact lookup into a causal performance report.
 type RuntimeQuestionScope string

@@ -48,6 +48,13 @@ func TestRuntimeConditionalFactSuppressesFullTraceReportShape(t *testing.T) {
 	if !runtimeTraceFullReportMaterializationAllowed(bus) {
 		t.Fatal("an explicit call relation still needs causal materialization")
 	}
+	bus.AnalysisIR.RequestModel.RuntimeQuestionProfile = &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeBoundedFactSet}
+	if runtimeTraceFullReportMaterializationAllowed(bus) {
+		t.Fatal("a declared finite call-relation fact set must stay narrow")
+	}
+	if !runtimeTracePrincipalValueMaterializationAllowed(bus) {
+		t.Fatal("a finite call-relation fact set must retain principal typed values")
+	}
 }
 
 func TestRuntimeExplainMechanismFactSuppressesFullTraceReportShape(t *testing.T) {

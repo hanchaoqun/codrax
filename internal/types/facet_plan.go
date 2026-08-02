@@ -642,9 +642,6 @@ func IsFocusedRuntimeFactQuestion(rm RequestModel) bool {
 // their callers. The predicate consumes typed fields only.
 func IsNarrowRuntimeArtifactFactShape(rm RequestModel) bool {
 	kind := NormalizeRequirementKind(rm.AnalyzerHints.Kind)
-	if kind == ReqCallChain || rm.PredicateAxis == AxisCall || rm.Predicates.IsRelationalLookup {
-		return false
-	}
 	// v17: this dedicated declaration outranks the legacy analyzer labels.
 	// Identical bounded-fact requests have legitimately arrived as
 	// return_value, trace/mechanism, and root_cause/conditional. Once the
@@ -658,6 +655,9 @@ func IsNarrowRuntimeArtifactFactShape(rm RequestModel) bool {
 		if rm.RuntimeQuestionProfile.RequiresFullReport() {
 			return false
 		}
+	}
+	if kind == ReqCallChain || rm.PredicateAxis == AxisCall || rm.Predicates.IsRelationalLookup {
+		return false
 	}
 	if rm.Predicates.IsDiagnosticQuestion ||
 		rm.DiagnosticProfile.RequiresDiagnosticRootCause() ||

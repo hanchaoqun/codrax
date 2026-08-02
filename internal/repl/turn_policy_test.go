@@ -2255,10 +2255,13 @@ emit({"answer": "A," + str(total), "output_contract": {"format": "csv_line", "ex
 		t.Fatalf("data route must not enter source pipeline; requests=%v", runner.requests)
 	}
 	if planner.calls != 1 || planner.repairCalls != 1 {
-		t.Fatalf("planner calls=%d repairCalls=%d, want 1/1", planner.calls, planner.repairCalls)
+		t.Fatalf("planner calls=%d repairCalls=%d, want 1/1; output:\n%s", planner.calls, planner.repairCalls, out.String())
 	}
-	if len(planner.repairErrors) != 1 || !strings.Contains(planner.repairErrors[0], "simulated script bug") {
-		t.Fatalf("repairErrors=%v, want execution error", planner.repairErrors)
+	if len(planner.repairErrors) != 1 || !strings.Contains(planner.repairErrors[0], "not scheduled for script/typed-action consumption") || !strings.Contains(planner.repairErrors[0], "orders.csv") {
+		t.Fatalf("repairErrors=%v, want precise pre-execution material-consumption error", planner.repairErrors)
+	}
+	if strings.Contains(planner.repairErrors[0], "simulated script bug") {
+		t.Fatalf("repairErrors=%v, script must not execute before the material-consumption repair", planner.repairErrors)
 	}
 	if !strings.Contains(out.String(), "A,17") {
 		t.Fatalf("repaired data answer missing from REPL output:\n%s", out.String())
@@ -2312,7 +2315,7 @@ emit({"answer": str(total), "output_contract": {"format": "plain_single_line", "
 		t.Fatalf("RunDataTaskCLI: %v", err)
 	}
 	if planner.calls != 1 || planner.repairCalls != 1 || planner.evalCalls != 1 {
-		t.Fatalf("calls plan/repair/eval=%d/%d/%d, want 1/1/1", planner.calls, planner.repairCalls, planner.evalCalls)
+		t.Fatalf("calls plan/repair/eval=%d/%d/%d, want 1/1/1; progress:\n%s", planner.calls, planner.repairCalls, planner.evalCalls, progress.String())
 	}
 	if len(planner.evalRecordLens) != 1 || planner.evalRecordLens[0] != 2 {
 		t.Fatalf("evalRecordLens=%v, want evaluator fed from runtime records after failed+repaired batches", planner.evalRecordLens)
@@ -2324,7 +2327,7 @@ emit({"answer": str(total), "output_contract": {"format": "plain_single_line", "
 		t.Fatalf("answer=%q, want strict scalar 17", answer)
 	}
 	progressText := progress.String()
-	for _, want := range []string{"◇ 数据请求 · 已接收", "问题：汇总 orders.csv，只输出总额", "◇ 数据计划", "◇ 数据工作流 · 执行第 1 批", "◇ 数据工作流 · 修复第 1 次", "◇ 数据工作流 · 结果第 2 批", "◇ 数据工作流 · 评估第 2 批"} {
+	for _, want := range []string{"◇ 数据请求 · 已接收", "问题：汇总 orders.csv，只输出总额", "◇ 数据工作流 · 修复第 1 次", "not scheduled for script/typed-action consumption", "◇ 数据计划", "◇ 数据工作流 · 执行第 1 批", "◇ 数据工作流 · 结果第 1 批", "◇ 数据工作流 · 评估第 1 批"} {
 		if !strings.Contains(progressText, want) {
 			t.Fatalf("progress missing %q:\n%s", want, progressText)
 		}
@@ -2341,7 +2344,7 @@ emit({"answer": str(total), "output_contract": {"format": "plain_single_line", "
 		t.Fatalf("read terminal audit: %v", err)
 	}
 	terminalText := string(rawTerminal)
-	for _, want := range []string{`"data_rounds": 2`, `"repair_rounds": 1`, `"kind": "execute"`, `"kind": "repair"`, `"kind": "result"`, `"kind": "evaluate"`, `"plan_transitions"`, `"source": "repair"`, `"current_plan"`} {
+	for _, want := range []string{`"data_rounds": 1`, `"repair_rounds": 1`, `"kind": "execute"`, `"kind": "repair"`, `"kind": "result"`, `"kind": "evaluate"`, `"status": "rejected"`, `"plan_transitions"`, `"source": "repair"`, `"current_plan"`} {
 		if !strings.Contains(terminalText, want) {
 			t.Fatalf("terminal audit missing live process event %q:\n%s", want, terminalText)
 		}

@@ -269,6 +269,16 @@ func dataTaskPlanStagingGuardResult(repoRoot string, plan dataquery.TaskPlan) da
 	if guard := dataTaskTextConstraintCoverageGuardResult(plan); !guard.Empty() {
 		return guard
 	}
+	if guard := dataTaskTopLevelPlanShapeGuardResult(plan); !guard.Empty() {
+		return guard
+	}
+	if guard := dataTaskTerminalRequiredMaterialSchedulingGuardResult(nil, plan); !guard.Empty() {
+		return guard
+	}
+	return dataworkflow.GuardResult{}
+}
+
+func dataTaskTopLevelPlanShapeGuardResult(plan dataquery.TaskPlan) dataworkflow.GuardResult {
 	lines := dataTaskScriptLineCount(plan.Script)
 	requiredMaterials := len(plan.CoverageContract.RequiredMaterials)
 	validationLedgers := dataTaskValidationLedgerCount(plan.CoverageContract)
@@ -290,9 +300,6 @@ func dataTaskPlanStagingGuardResult(repoRoot string, plan dataquery.TaskPlan) da
 	}); !guard.Empty() {
 		return guard
 	}
-	if guard := dataTaskTerminalRequiredMaterialSchedulingGuardResult(nil, plan); !guard.Empty() {
-		return guard
-	}
 	return dataworkflow.GuardResult{}
 }
 
@@ -311,15 +318,28 @@ func dataTaskWorkflowStagingGuardResult(repoRoot string, records []dataTaskWorkf
 	if guard := dataTaskTextConstraintCoverageGuardResult(plan); !guard.Empty() {
 		return guard
 	}
+	if guard := dataTaskTopLevelPlanShapeGuardResult(plan); !guard.Empty() {
+		return guard
+	}
 	if guard := dataTaskTerminalRequiredMaterialSchedulingGuardResult(records, plan); !guard.Empty() {
 		return guard
 	}
-	return dataTaskPlanStagingGuardResult(repoRoot, plan)
+	return dataworkflow.GuardResult{}
 }
 
 func dataTaskPreExecutionDecision(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataworkflow.PreExecutionDecision {
+	guard := dataTaskWorkflowStagingGuardResult(repoRoot, records, plan)
 	coveragePlan, coverageOK := dataTaskCoverageExpansionFallback(repoRoot, records, plan, "missing material coverage before execution")
 	materialPlan, materialOK := dataTaskMaterialDiscoveryFallback(repoRoot, records, plan, "broad material custom action requires objective material discovery before execution")
+	if dataTaskGuardIsAuthoritativeScriptConsumptionGap(guard, plan) {
+		// A literal AST census has already proved that the terminal script did
+		// not read a required material. An inspect/coverage fallback would hide
+		// the faulty executable batch and eventually re-admit the same script;
+		// preserve the typed guard so the ordinary repair planner fixes it
+		// before any execution occurs.
+		coverageOK = false
+		materialOK = false
+	}
 	return dataworkflow.DecidePreExecution(dataworkflow.PreExecutionDecisionInput{
 		Fallbacks: []dataworkflow.PreExecutionFallbackCandidate{
 			{
@@ -335,11 +355,14 @@ func dataTaskPreExecutionDecision(repoRoot string, records []dataTaskWorkflowRec
 				Available: materialOK,
 			},
 		},
-		Guard: dataTaskWorkflowStagingGuardResult(repoRoot, records, plan),
+		Guard: guard,
 	})
 }
 
 func dataTaskStagingGuardRecoveryDecision(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, guard dataworkflow.GuardResult) dataworkflow.GuardRecoveryDecision {
+	if dataTaskGuardIsAuthoritativeScriptConsumptionGap(guard, plan) {
+		return dataworkflow.DecideGuardRecovery(dataworkflow.GuardRecoveryDecisionInput{Guard: guard})
+	}
 	errText := guard.ErrorText()
 	deterministicPlan, deterministicRemainder, deterministicReason, deterministicOK := dataTaskWorkflowDeterministicFallback(repoRoot, records, plan, guard)
 	coveragePlan, coverageOK := dataTaskCoverageExpansionFallback(repoRoot, records, plan, errText)
@@ -611,9 +634,6 @@ func dataTaskActionStagingGuardResult(repoRoot string, plan dataquery.TaskPlan) 
 	if guard := dataTaskTextConstraintCoverageGuardResult(plan); !guard.Empty() {
 		return guard
 	}
-	if guard := dataTaskTerminalRequiredMaterialSchedulingGuardResult(nil, plan); !guard.Empty() {
-		return guard
-	}
 	if guard := dataTaskActionBatchShapeGuardResult(nil, plan, dataworkflow.ActionBatchShapeChecks{
 		MultipleCustomScript: true,
 	}, false); !guard.Empty() {
@@ -630,6 +650,9 @@ func dataTaskActionStagingGuardResult(repoRoot string, plan dataquery.TaskPlan) 
 	if guard := dataTaskRuleCoveragePrerequisiteGuardResult(repoRoot, nil, plan); !guard.Empty() {
 		return guard
 	}
+	if guard := dataTaskTerminalRequiredMaterialSchedulingGuardResult(nil, plan); !guard.Empty() {
+		return guard
+	}
 	return dataworkflow.GuardResult{}
 }
 
@@ -641,9 +664,6 @@ func dataTaskWorkflowActionStagingGuardResult(repoRoot string, records []dataTas
 		return guard
 	}
 	if guard := dataTaskTextConstraintCoverageGuardResult(plan); !guard.Empty() {
-		return guard
-	}
-	if guard := dataTaskTerminalRequiredMaterialSchedulingGuardResult(records, plan); !guard.Empty() {
 		return guard
 	}
 	if guard := dataTaskWorkflowCustomTransformDisabledGuardResult(repoRoot, records, plan); !guard.Empty() {
@@ -700,6 +720,9 @@ func dataTaskWorkflowActionStagingGuardResult(repoRoot string, records []dataTas
 	if guard := dataTaskRuleCoveragePrerequisiteGuardResult(repoRoot, records, plan); !guard.Empty() {
 		return guard
 	}
+	if guard := dataTaskTerminalRequiredMaterialSchedulingGuardResult(records, plan); !guard.Empty() {
+		return guard
+	}
 	return dataworkflow.GuardResult{}
 }
 
@@ -753,6 +776,13 @@ func dataTaskActionShapeFacts(records []dataTaskWorkflowRecord, plan dataquery.T
 }
 
 func dataTaskWorkflowDeterministicFallback(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan, guard dataworkflow.GuardResult) (fallback dataquery.TaskPlan, remainder dataquery.TaskPlan, reason string, ok bool) {
+	if dataTaskGuardIsAuthoritativeScriptConsumptionGap(guard, plan) {
+		// The candidate-admission preflight shares this fallback selector with
+		// the runtime guard. Keep a proven executable-script omission visible
+		// to the repair planner instead of replacing the faulty terminal script
+		// with a coverage batch that merely reads the same material elsewhere.
+		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, "", false
+	}
 	errText := guard.ErrorText()
 	if dataTaskGuardHasCode(guard, "text_constraint_coverage_required", "text_constraint_rule_coverage_required", "rule_coverage_prerequisite_missing") {
 		contract := dataTaskWorkflowCoverageContract(repoRoot, records, plan)
@@ -2921,6 +2951,27 @@ func dataTaskTerminalRequiredMaterialSchedulingGuardResult(records []dataTaskWor
 	})
 }
 
+func dataTaskGuardIsAuthoritativeScriptConsumptionGap(guard dataworkflow.GuardResult, plan dataquery.TaskPlan) bool {
+	if !dataTaskGuardHasCode(guard, "required_material_scheduling") {
+		return false
+	}
+	if len(plan.Actions) == 0 {
+		_, authoritative := dataTaskScriptLiteralConsumption(plan.Script)
+		return authoritative
+	}
+	foundScript := false
+	for _, action := range plan.Actions {
+		if normalizeDataActionKindForWorkflow(action.Kind) != dataquery.DataActionCustomTransform || strings.TrimSpace(action.Script) == "" {
+			continue
+		}
+		foundScript = true
+		if _, authoritative := dataTaskScriptLiteralConsumption(action.Script); !authoritative {
+			return false
+		}
+	}
+	return foundScript
+}
+
 func dataTaskScheduledMaterialConsumption(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) map[string]bool {
 	out := map[string]bool{}
 	mark := func(values []string) {
@@ -2938,11 +2989,25 @@ func dataTaskScheduledMaterialConsumption(records []dataTaskWorkflowRecord, plan
 		}
 	}
 	if len(plan.Actions) == 0 {
-		mark(plan.InputPaths)
+		if consumed, authoritative := dataTaskScriptLiteralConsumption(plan.Script); authoritative {
+			for p := range consumed {
+				out[p] = true
+			}
+		} else {
+			mark(plan.InputPaths)
+		}
 	}
 	for _, action := range plan.Actions {
 		if normalizeDataActionKindForWorkflow(action.Kind) == dataquery.DataActionMaterialInventory {
 			continue
+		}
+		if normalizeDataActionKindForWorkflow(action.Kind) == dataquery.DataActionCustomTransform && strings.TrimSpace(action.Script) != "" {
+			if consumed, authoritative := dataTaskScriptLiteralConsumption(action.Script); authoritative {
+				for p := range consumed {
+					out[p] = true
+				}
+				continue
+			}
 		}
 		mark(action.InputPaths)
 	}

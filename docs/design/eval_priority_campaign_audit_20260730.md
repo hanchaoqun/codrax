@@ -3946,6 +3946,21 @@ material floor 也包含两者。planner 却只把 `notes.txt` 放进 current re
    workflow obligation，终批必须真实消费，非终批可通过 typed continuation 延后；
 6. 不扫描答案 prose，不改写模型结论，也不把单个文件名或题型编码进 gate。
 
+第一次施工只修复了 current-batch 声明面，r2 证明它仍是 partial：初始计划已经把
+`instructions.md` 与 `notes.txt` 同时声明为 required/input，但实际 Python script 只
+调用 `read_text("notes.txt")`。`dataTaskScheduledMaterialConsumption` 把声明
+`input_paths` 当成实际消费，终批 staging 继续放行，直到执行后 result validator 才
+失败。因此更深的 gap 是“声明消费≠可执行消费”，登记为
+`EVAL-B41-DATAPREFLIGHT1/P1`。
+
+B41 第二施工批使用 Python tree-sitter AST 对可执行结构做保守证明：只统计 data
+runner 规范 reader helper（`read_text/csv_rows/tsv_rows/json_load/json_records/
+jsonl_rows/open`）的 literal 第一参数；语法错误、动态 path、reader alias、转义/计算
+literal 或无法证明的调用形态都返回 non-authoritative，硬门回退到原 declared-input
+语义而不是误拒。该检查不读取用户原始文本、模型答案 prose、case/type 字面；它只读
+准备执行的结构化 script。由此，声明了说明文件但脚本未读取的 terminal batch 会在
+执行前进入 repair，不再制造 `action_failed`。
+
 #### EVAL-B41-BINDERSEM1 / EVAL-B41-EVAL1：发射方向缺口与 fixture 自相矛盾（P1）
 
 原 fixture 声称 client 发起同步 Binder 请求，但 raw row 是
@@ -3966,6 +3981,44 @@ material floor 也包含两者。planner 却只把 `notes.txt` 放进 current re
 没有新增用户/模型原文关键词门、emit reject、answer mutation 或系统结论替换；
 显式时间窗的 Trace 因果投影、根因排序、唤醒链、可消除量与自动补齐路径不变。
 
+#### B41 r2：有限关系事实被强制扩成全量因果报告（P1）
+
+r2 的方向语义已经完全正确：`reply=0`、`call_semantics=sync_request`、目标
+PID 100/TID 101、transaction 42、直接 waker `binder:100_1-101` 均一致。但最终
+答案长达约 25.3K 字符，额外注入根因排序、主要时间占用、窗内可消除量、完整
+Trace 因果投影和系统补采；用户只问三个有限事实，人工仍判 FAIL。
+
+日志给出无歧义的接线 witness：analyzer 首次正确发出
+`runtime_question_profile=bounded_fact_set`，source quote 正好是目标、transaction、
+waker 三字段；`emit_analysis` 仅因 payload 同时含 call/relation shape 就 hard reject。
+模型被迫重发 `relation_analysis/call_chain`，后续 full-report authority 与
+assembly-time supplement 才扩出整份因果报告。登记
+`EVAL-B41-RELWIDTH1/P1`。
+
+架构裁定是“关系形状”和“答案广度”正交：一个 peer、transaction id、direct waker
+仍可属于有限事实集；只有要求 caller/wakeup/IPC/dependency 的路径、拓扑或展开分析
+时才用 `relation_analysis`。共享权限顺序调整为：
+
+1. 显式 user time window；
+2. typed runtime breadth：bounded 窄化，causal/broad relation/overview 扩宽；
+3. legacy typed call/relation shape；
+4. legacy fallback。
+
+显式时间窗仍是第一权限，所以带具体窗的根因排序、唤醒链、可消除量、因果投影与
+自动补齐完全不受影响；无窗口但明确要求 causal diagnosis 或 broad relation 的请求
+也继续获得完整报告。本修复不扫描 RawRequest/answer prose，不做 answer mutation，
+系统只选择需要交给模型的 typed evidence/report breadth。
+
+#### B41 r2：planner 成功标准被 evaluator 当成真值（P2 watch）
+
+data 修复计划自己在 `success_criteria` 幻觉出预期计数 `(3)`，实际执行结果为正确的
+`2`。evaluator 把 planner-authored criterion 当成独立 ground truth 并建议 blocked；
+确定性 completion gate 根据已执行结果、材料覆盖和输出合同将终态归一为 complete。
+该 control-plane 裁定正确，不能让模型自写的 criterion 否决 typed 结果。只增加 soft
+guidance：goal/success_criteria 是流程意图，不是数值权威；只有用户材料、确定性
+result/metrics、贡献账本或 reconcile 可支撑 expected value。保留现有确定性终态门，
+不改写最终答案值。
+
 任务：
 
 - [x] B41-T1：严格并行 2 case，完整日志/答案人工审计；
@@ -3973,7 +4026,15 @@ material floor 也包含两者。planner 却只把 `notes.txt` 放进 current re
 - [x] B41-T3：Binder 方向 soft guidance 与同步请求 fixture 校正；
 - [x] B41-T4：`internal/repl`、`internal/dataquery`、`internal/dataworkflow`、
   `internal/skill`、`internal/agent` 无缓存全包与构建通过；
-- [ ] B41-T5：提交推送后同对并行回放，人工收账。
+- [x] B41-T5：首批提交推送后同对严格并行 r2 回放并人工审计；方向语义修复生效，
+  发现 DATAPREFLIGHT1/RELWIDTH1/DATAEVAL1；
+- [x] B41-T6：terminal script literal-consumption AST proof + 非权威形 fail-open；
+- [x] B41-T7：runtime breadth 与 relation shape 解耦，显式时间窗第一权限回归 pin；
+- [x] B41-T8：evaluator success-criteria 非真值 soft guidance；
+- [x] B41-T9：第二施工批完整相关包测试与构建通过：`internal/repl` 34.739s、
+  `dataquery` 2.760s、`dataworkflow` 0.707s、`skill` 1.626s、`agent` 4.493s、
+  `types` 20.312s、`tool` 159.156s，`make` 通过；待本提交推送；
+- [ ] B41-T10：同对严格并行 r3 回放并人工收账。
 
 ### B40：analyze retry 回放 × blocked-reason Trace 语义审计（2026-08-02）
 
@@ -8409,12 +8470,14 @@ unproven。该项已不能归为单次模型波动。
 3. `bounded_fact_set` 包含一个或多个有限观测字段：状态是否存在、时间、次数、
    总时长、压力/驻留值、kernel/tool-recorded reason。“recorded reason”是观测字段，
    只有请求进一步问它为何导致故障时才是 `causal_diagnosis`。
-4. 具体 scope 要求 exact current-request `source_quote`；`bounded_fact_set` 与 typed
-   call/relation 同时出现时 fail-loud。硬决策只读 scope enum，不扫描 quote 语义、
+4. 具体 scope 要求 exact current-request `source_quote`；本批曾令
+   `bounded_fact_set` 与 typed call/relation 同时出现时 fail-loud。B41 r2 的真实 Binder
+   witness 已证伪该合取：有限 direct peer/transaction/waker 事实同样带 relation shape；
+   该历史约束由 B41 正式取代。硬决策仍只读 typed enum，不扫描 quote 语义、
    RawRequest、thinking/summary/final 或 case ID。
-5. 权限顺序冻结为：显式 user time window > typed call relation >
-   runtime question scope > legacy fallback。因此显式窗的投影/根因/唤醒/可消除/补齐
-   不受影响。
+5. 本批当时冻结的权限顺序为“显式 window > typed call relation > runtime scope >
+   fallback”；B41 r2 将其纠正为“显式 window > runtime breadth > legacy typed relation >
+   fallback”。显式窗的投影/根因/唤醒/可消除/补齐始终不受影响。
 6. family、supplement、full-report materializer 共用同一 typed 窄化谓词；
    principal-value materializer 也改用该谓词，保证窄化后仍发布 complete typed
    occurrence/state 卡。
@@ -8426,7 +8489,8 @@ unproven。该项已不能归为单次模型波动。
   tool 171.101s、skill 0.698s）；
 - 回归同时固定 root-cause/diagnostic label 噪声被 `bounded_fact_set`
   收窄、`causal_diagnosis` 反向压过 scalar label，显式 user window 仍压过
-  bounded scope，typed relation 与 bounded 冲突时 fail-loud。
+  bounded scope。本行记录历史验收；typed relation 与 bounded 冲突的断言已由 B41 r2
+  supersede，并新增 finite-relation 与 explicit-window 双向回归。
 
 状态：`implemented / relevant-full-tests-pass / same-pair replay next`。
 

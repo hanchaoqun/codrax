@@ -328,6 +328,14 @@ func TestTraceSupplementExplicitCausalDStateRetainsCoreFamilies(t *testing.T) {
 	if len(got) != 2 || got[0] != "root_cause_rank" || got[1] != "critical_blocking_calls" {
 		t.Fatalf("explicit causal question lost core families: %v", got)
 	}
+	ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile = &types.RuntimeQuestionProfile{
+		Scope: types.RuntimeQuestionScopeBoundedFactSet,
+	}
+	for _, view := range traceSupplementViewsForRequest(ctx, traceSupplementFamilyPresence{}, false, false) {
+		if view == "root_cause_rank" || view == "critical_blocking_calls" || view == "frame_root_cause_bundle" {
+			t.Fatalf("bounded relation facts must not trigger causal supplement, got %v", traceSupplementViewsForRequest(ctx, traceSupplementFamilyPresence{}, false, false))
+		}
+	}
 }
 
 // suppCoreModelCall executes one trace_query through the SAME runner a model

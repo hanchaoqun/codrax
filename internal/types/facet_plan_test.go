@@ -76,6 +76,13 @@ func TestResolveQuestionFamily_RuntimeConditionalFactBeatsBroadRootCauseIntent(t
 	if got := ResolveQuestionFamily(rm); got != QFRootCauseTrace {
 		t.Fatalf("explicit root-cause call relation got %q, want QFRootCauseTrace", got)
 	}
+	rm.RuntimeQuestionProfile = &RuntimeQuestionProfile{Scope: RuntimeQuestionScopeBoundedFactSet}
+	if !IsNarrowRuntimeArtifactFactShape(rm) {
+		t.Fatal("a finite typed call-relation fact set must retain bounded breadth")
+	}
+	if got := ResolveQuestionFamily(rm); got != QFGeneric {
+		t.Fatalf("bounded call-relation facts got %q, want QFGeneric", got)
+	}
 }
 
 func TestFocusedRuntimeFactIncludesNonDiagnosticExplainMechanism(t *testing.T) {

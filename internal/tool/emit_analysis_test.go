@@ -320,13 +320,14 @@ func TestParseRuntimeQuestionProfileSeparatesFactBreadthFromLegacyLabels(t *test
 	if errText != "" || len(warnings) != 0 || profile == nil || !profile.BoundedFactSet() {
 		t.Fatalf("bounded runtime fact profile rejected: profile=%+v err=%q warnings=%v", profile, errText, warnings)
 	}
-	if _, errText, _ := parseRuntimeQuestionProfile(
+	relationProfile, errText, relationWarnings := parseRuntimeQuestionProfile(
 		"有没有进入过不可中断等待",
 		true,
 		bounded,
 		true,
-	); !strings.Contains(errText, "conflicts with an explicit call/relation") {
-		t.Fatalf("bounded fact plus typed relation must fail loud, got %q", errText)
+	)
+	if errText != "" || len(relationWarnings) != 0 || relationProfile == nil || !relationProfile.BoundedFactSet() {
+		t.Fatalf("finite typed relation facts must retain bounded breadth: profile=%+v err=%q warnings=%v", relationProfile, errText, relationWarnings)
 	}
 	badQuote := *bounded
 	badQuote.SourceQuote = "paraphrased quote"

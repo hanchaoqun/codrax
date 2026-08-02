@@ -55,6 +55,15 @@ func TestRuntimeTraceReportMaterializationAuthorityMatrix(t *testing.T) {
 	if !RuntimeTraceReportMaterializationAllowed(&callRelation, TraceCausalProjectionSet{}) {
 		t.Fatal("typed call relation must retain full trace report authority regardless of broad intent label")
 	}
+	boundedCallRelation := callRelation
+	boundedCallRelation.RuntimeQuestionProfile = &RuntimeQuestionProfile{Scope: RuntimeQuestionScopeBoundedFactSet}
+	if RuntimeTraceReportMaterializationAllowed(&boundedCallRelation, withRoot) {
+		t.Fatal("a finite relation fact set must not widen into the full causal report")
+	}
+	boundedCallRelation.RuntimeArtifactScopeProfile = windowed.RuntimeArtifactScopeProfile
+	if !RuntimeTraceReportMaterializationAllowed(&boundedCallRelation, TraceCausalProjectionSet{}) {
+		t.Fatal("an explicit typed window must still outrank a bounded relation fact set")
+	}
 
 	focusedConditional := *generic
 	focusedConditional.RuntimeTargets = []RuntimeTarget{{Kind: RuntimeTargetKindThread, PID: 59566}}
@@ -78,8 +87,8 @@ func TestRuntimeTraceReportMaterializationAuthorityMatrix(t *testing.T) {
 
 	// The dedicated v17 breadth declaration outranks unstable legacy labels:
 	// the same bounded fact request has appeared as root_cause+diagnostic in
-	// real replays. Explicit windows and relations are tested above and still
-	// retain stronger positive authority.
+	// real replays. Explicit windows remain stronger positive authority;
+	// relation shape is orthogonal and only widens when breadth is not bounded.
 	declaredFactSet := rootCause
 	declaredFactSet.Scenario = ScenarioRootCause
 	declaredFactSet.Predicates.IsDiagnosticQuestion = true
