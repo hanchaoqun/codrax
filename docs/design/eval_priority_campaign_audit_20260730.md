@@ -4694,6 +4694,57 @@ census 继续以另一错误码硬阻塞同一合法答案，属于看护自身�
 - `eval/parallel_selected_summary_evalcampaign_b33_trace_scope_r1_20260801.md`
 - `eval/parallel_selected_summary_evalcampaign_b33_trace_scope_r1_20260801_manual_audit.md`
 
+### B34：Trace 语义 span × read history/current-source 跨模式对照（2026-08-01）
+
+`main@153da8e7d` 同一二进制快照严格并行 2 个 case，runner 2/2 PASS，但人工 0/2：
+
+- `trace_query_frame_semantic_span_optimization`：146s；
+- `read_combo_git_diff_hunk_current_code`：174s。
+
+Trace typed 事实本身完整：系统根因席 #1 为 `worker-200 class_verification`
+4.600ms、#2 为目标自身 runnable 0.800ms，`frame_causality=unproven`、
+`frame_evidence_status=absent`，并已向模型明确 lower-priority dependency 与 wakeup edge
+均不单独证明同步阻塞/持锁/优先级反转。模型仍把它写成“低优先级 CFS 线程迫使 RT 线程
+等待”的反转机制，同时 caveat 又承认没有 typed priority-inversion impact，形成模型内部
+矛盾。系统没有删除或改写这段模型 principal；末尾只做了 advisory 交叉核验并指出正文与
+typed #1 不一致。因此该项不能通过恢复系统改写来修，登记
+`EVAL-B34-MODELCAL1/P1-model-owned-open`。
+
+Trace 系统面另有独立确定性错误：主要时间占用表把同一个
+`app-100 runnable 5.005000..5.005800 / 0.800ms` 物理区间显示两次，只因 chain state
+与 ranked target-self 两个发布 lane 使用不同 EvidenceID。登记并实施
+`EVAL-B34-TRACEPHYS1/P1`：占用表以
+`canonical subject + typed physical state family + exact start/end` 去重物理镜像；保留首个富
+载体，D-state/io_wait 不合并，projection 节点、根因排序和可消除账均不改。提交
+`7527c29cc`，`internal/tool` 全量 161.401s 通过。
+
+read 模式的模型 principal 基本正确地区分最新 docs commit、历史 diff 线索与当前源码，
+但系统「清单完整性补充」产生了错误表：3 个纯文件 members 与 3 个一般机制
+support_refs 被按下标强行 zip，导致 `trace_query.go:7907` 错配到
+`answer_document_trace_decision_handoff.go`，下一锚又错配到测试文件。登记并实施
+`EVAL-B34-READANCHOR1/P1`：当完整 member_set 的所有成员都是 typed 源码路径时，优先
+按 canonical file path identity 连接 support anchor；同路径多锚优先原槽，唯一同路径锚可
+跨槽重连，无同路径锚保持 uncited，禁止借用别的文件。配置层/符号等非纯路径 roster 的
+既有 positional contract 不变。提交 `1bf335d90`，`internal/types` 与 `internal/tool`
+全量 21.461s / 162.238s 通过。
+
+两 case 都是 runner PASS、人工 FAIL，登记 `EVAL-B34-ORACLE1/P1-open`。Trace oracle
+只验证 span/线程/时间窗存在，未校验 causal caliber；read oracle 只验证 diff/current-source
+词面，未校验系统补表的 member→anchor identity。由此可确认当前看护并非“过硬”，而是
+偏弱、会假绿；不能用 `EXPECT_NOT_CONTAINS` 某个根因词或扫描用户/模型原文补洞。后续应
+采用模型自有的 typed diagnosis decision/独立模型评审，以及 typed inventory row identity，
+系统不得替模型写首因或改正文。
+
+状态：`EVAL-B34-READANCHOR1=implemented/full-related-tests-pass/replay-later`；
+`EVAL-B34-TRACEPHYS1=implemented/full-related-tests-pass/replay-later`；
+`EVAL-B34-MODELCAL1=P1/model-owned-open/no-system-rewrite`；
+`EVAL-B34-ORACLE1=P1/open`。
+
+工件：
+
+- `eval/parallel_selected_summary_evalcampaign_b34_crossmode_r1_20260801.md`
+- `eval/parallel_selected_summary_evalcampaign_b34_crossmode_r1_20260801_manual_audit.md`
+
 ### B26-OWN：Trace 精确信息与模型结论的职责边界回裁（2026-08-01）
 
 客户/人工 witness：
