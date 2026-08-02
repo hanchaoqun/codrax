@@ -3975,7 +3975,12 @@ B18c 使用一条通用 typed 规则修复：
 - [x] B47-T4：完整 `internal/types + internal/tool` 回归通过（types 22.711s、tool 162.029s）；
   提交推送；
 - [x] B47-T5：实现 typed runtime-event semantics；核心四包与完整 tool 回归通过，独立提交推送；
-- [ ] B47-T6：干净 HEAD 严格并行同 pair r2；通过后按优先矩阵进入下一对 data/operation/plan。
+- [x] B47-T6：干净 HEAD 严格并行同 pair r2；runner 2/2 PASS，人工 0/2 PASS，登记下一层
+  value-semantics 与跨 plan proof closure GAP；
+- [ ] B47-T7：修复 SEMCAL1；独立测试/提交推送后同 read case 与一个新高优先 data/operation
+  case 严格并行 2 个；
+- [ ] B47-T8：修复 REPLANPROOF1/CAPCAL1，独立提交推送；后续 write case 验证累计路径与
+  capability caliber，不以最终“verified”字样为 oracle。
 
 #### B47-RUNTIMESEM1：producer-owned operational semantics
 
@@ -4027,6 +4032,60 @@ observation。说明单纯再写一条自然语言纪律不是高 ROI 修复；�
 - 完整测试另发现已有注册表已从 40 扩展至 42 项，而 Tier-B 结构 pin 仍冻结 40；精确补入
   `INDEPENDENT MECHANISM CONTRAST` 与 `RUNTIME RULE INSTANTIATION` 两个既有前缀，
   只修测试合同，不改变 production prompt/behavior。
+
+#### B47 r2：typed domain 生效，但 value semantics 与累计证明仍不闭环
+
+同 pair、干净 `main@9e187caf8` 严格并行 2 个：
+
+- read/log：159s，runner PASS / human FAIL；
+- write/Java：312s，runner PASS / human FAIL。
+
+read 全链人工审计：
+
+1. producer decoder 四面接线真实生效。Log Triager 首轮输入、Analyzer/Explorer 结构上下文均
+   明确显示 `agent_dispatch_attempt=1/3`、`pipeline_stage_progress=4/4`、
+   `transition_authority=event_local_only` 与不同 namespace 不可连接；
+2. 但当前字段只说 counter domain，没有明说值的量纲。Log Triager 仍把 renderer 行解释为
+   “4/4 个模型失败 / 4 次完整重试”；Explorer 和 Finalizer 虽改口为 pipeline progress，仍把
+   4 当 retry count，并进一步推出“耗尽、全部失败、无法继续复用输出”的因果链；
+3. observation compiler 已生成 `log:protocol:N` principal row，并把同 artifact line 的 model
+   observation 降权；最终 compact ledger 却在 94 条中优先展示 model-authored aggregate，
+   system protocol rows 落入 dropped principal runtime records。也就是说 source of truth 存在，
+   但 compact selection 没给它保留席位，后生成的错误 aggregate 再次遮蔽它；
+4. 因而 `RUNTIMESEM1` 是部分生效，不应通过追加“不要误解”提示收口。最优泛化补强是 typed
+   value semantics：`value_kind=stage_ordinal`、numerator=one-based stage position、
+   denominator=total configured pipeline stages，并显式排除 retry/attempt/failure/budget/
+   exhaustion；compact ledger 对 `log_protocol_decoder` principal row 保留有界席位。系统只提供
+   权威事实和关系边界，仍不扫描/删除/替换模型答案。
+
+write 全链人工审计：
+
+1. 第一 plan 删除错误 ASCII 收窄并新增非 ASCII Java 测试，第一次 `make check` 因缺
+   `end <= 0x7f` 正确失败；replan 只补主文件 fast-path guard，第二次 `make check` exit=0；
+2. XCOV1 对 active repair plan 生效：主 Java 文件获得
+   `caliber=declared_project_check`，不再因 Python driver 跨语言而误判 uncovered；
+3. 但最终 proof 只闭包 latest plan。前一 plan 仍留在 worktree 的 Java test-file 改动没有进入
+   最终 changed-path closure；成功 `make check` 的 exact declared roster 本可覆盖它，系统却没有
+   以 cumulative applied paths 为验证目标；
+4. 最终 `profile_status=strong/state=verified` 还把 Go probe 读 Java 源码查 token、Python
+   `make check` 查源码/测试 token 计作两个 tests。它们能证明结构条件和 exact path/check，
+   不能证明 Java runtime behavior；最终 proof ledger 没有继承前一 plan 的 behavior-contract
+   obligations，却宣称全部 obligation covered；
+5. 产品 patch 对 fixture 是正确的，但交付权限错误，因此人工仍 FAIL。修复必须分开：累计
+   still-applied paths/contracts 跨 replan 继承；验证 capability 增加 source_static/check 与
+   target_behavior 等 typed caliber，changed-path coverage 不等于 behavior proof。
+
+新增 GAP：
+
+| GAP | 优先级 | 泛化问题 | 最优方案 | 状态 |
+|---|---:|---|---|---|
+| `EVAL-B47-SEMCAL1` | P1 | counter domain 精确但 value/unit 未铸造，stage ordinal 仍被升级成 retry count/exhaustion；system protocol principal row 又被 compact ledger 排掉 | protocol carrier 增加 value kind、分子/分母语义与 typed exclusions；compact principal selection 为 system protocol rows 保留 bounded seats，冲突 model rows 保持 advisory。无答案扫描/替换 | filed/next |
+| `EVAL-B47-REPLANPROOF1` | P1 | repair plan 只验证自己的 target path/contract，前 plan 仍应用的测试/源码和行为义务从最终 proof closure 消失 | workflow verification input 取 cumulative still-applied path + contract closure；successful exact roster 可逐成员授权，失败历史保留但由后续成功证据 supersede，不能静默遗忘 | filed |
+| `EVAL-B47-CAPCAL1` | P1 | Go/Python 源码 token scan 被计成“2 tests/strong”，虽无目标语言行为执行且无 contract coverage | 每个 command/probe 发布 typed verification capability/caliber；source-static 只授权结构/path/check，target behavior 必须由执行型、身份绑定且 contract-bound 证据授权；最终强度按能力而非 test_count | filed |
+
+上下文充分性结论：read 不是信息数量不足，而是 value semantics 少一层且 compact authority
+排序反转；write 不是 runner 没运行，而是最终 proof context 丢失跨 plan 目标与验证能力等级。
+两者都属于 system-to-model/context authority GAP，不能归为模型随机波动。
 
 ### B42：生成物写模式 × 日志/源码机制对比审计（2026-08-02）
 
