@@ -33,15 +33,31 @@ func compileConfigPrecedence(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSem
 	if plan != nil {
 		view.FacetCoverage = plan.FacetCoverage
 		view.SummaryMode = plan.SummarySurfaceMode
-		view.MissingRequestedRoles = ConfigTraceMissingRequestedRoleDisclosures(
-			ir.RequestModel,
-			plan.ExactResolution,
-			plan.ExactContextRequiredFiles,
-			plan.SurfaceEvidence,
-		)
+		// Missing requested roles describe a proved exact-absence surface,
+		// not an unobserved live value on an otherwise present precedence
+		// layer. Keeping this carrier absence-only prevents a runtime/env
+		// source from being rendered as a missing user-requested layer merely
+		// because the current process binding was not observed.
+		if ir != nil && plan.PreferredExactResolution != nil &&
+			plan.PreferredExactResolution.Status == AnswerExactResolutionAbsent {
+			view.MissingRequestedRoles = ConfigTraceMissingRequestedRoleDisclosures(
+				ir.RequestModel,
+				plan.ExactResolution,
+				plan.ExactContextRequiredFiles,
+				plan.SurfaceEvidence,
+			)
+		}
 	}
+	// The analysis-level exact contract remains available to exploration for
+	// target focus and absence proof. It becomes a user-visible finalizer
+	// contract only when exact disposition is itself the answer: a scalar
+	// lookup, or a proved absence. A positive non-scalar mapping already names
+	// and explains its setting in model-authored blocks; forcing an additional
+	// exact_match carrier would let the renderer prepend a redundant system
+	// conclusion and can turn an alias-shaped search term into false authority.
 	if ir != nil && ir.AnswerContract.ExactResolution != nil {
 		view.ExactResolution = ir.AnswerContract.ExactResolution
+		view.SuppressExactResolutionAnswerSurface = !configPrecedenceNeedsVisibleExactResolution(ir, plan)
 	}
 	view.RequiredBlocks = []BlockRequirement{}
 	view.OptionalBlocks = []BlockRequirement{}
@@ -111,6 +127,17 @@ func configPrecedenceRequiresUncertaintyDisclosure(view *AnswerSemanticView, pla
 
 func configPrecedenceIsScalarLookup(ir *AnalysisIR) bool {
 	return ir != nil && ir.RequestModel.Predicates.IsScalarAnswer
+}
+
+func configPrecedenceNeedsVisibleExactResolution(ir *AnalysisIR, plan *AnswerSurfacePlan) bool {
+	if ir == nil || ir.AnswerContract.ExactResolution == nil {
+		return false
+	}
+	if configPrecedenceIsScalarLookup(ir) {
+		return true
+	}
+	return plan != nil && plan.PreferredExactResolution != nil &&
+		plan.PreferredExactResolution.Status == AnswerExactResolutionAbsent
 }
 
 func configPrecedenceLayerCarrier(required bool) BlockRequirement {

@@ -1513,10 +1513,11 @@ func answerDocDiagramHardRequirementDowngraded(ctx *types.AgentContext) bool {
 }
 
 func answerDocExactResolutionContract(ctx *types.AgentContext) *types.ExactResolutionContract {
-	if plan := answerSurfacePlan(ctx); plan != nil {
-		return plan.ExactResolution
+	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+	if view == nil || view.SuppressExactResolutionAnswerSurface {
+		return nil
 	}
-	return nil
+	return view.ExactResolution
 }
 
 func renderAnswerDocCapabilitySurface(ctx *types.AgentContext) string {
@@ -7708,7 +7709,7 @@ func renderAnswerDocPrincipalAnswerBoundary(ctx *types.AgentContext, view *types
 	hasRuntimeObservations := plan != nil && len(plan.ExternalObservationSeeds) > 0
 	hasPriorContext := rm.ConversationReferenceProfile != nil && rm.ConversationReferenceProfile.RequiresPriorContext
 	hasArtifactProfile := rm.ArtifactObservationProfile != nil
-	hasExact := view.ExactResolution != nil
+	hasExact := view.ExactResolution != nil && !view.SuppressExactResolutionAnswerSurface
 	hasDiagram := (view.DiagramPlan != nil && view.DiagramPlan.Kind != "") ||
 		(plan != nil && plan.Diagram != nil && (plan.Diagram.Required || len(plan.Diagram.PreferredKinds) > 0))
 	if !supportRendered && !hasRuntimeObservations && !hasPriorContext && !hasArtifactProfile && !hasExact && !hasDiagram {

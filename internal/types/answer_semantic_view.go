@@ -68,6 +68,15 @@ type AnswerSemanticView struct {
 	// question shapes that don't carry that contract.
 	ExactResolution *ExactResolutionContract
 
+	// SuppressExactResolutionAnswerSurface keeps ExactResolution available to
+	// internal evidence/normalization checks while withholding the document
+	// field, finalizer instruction, and deterministic renderer lead. This is
+	// used when exact targeting helps exploration but exact disposition is not
+	// itself the requested answer shape (for example a positive, non-scalar
+	// config-precedence explanation). It is compiled only from typed request
+	// and evidence state; it never scans user or model prose.
+	SuppressExactResolutionAnswerSurface bool
+
 	// CurrentStatusDiagnostic is a pointer alias to the answer
 	// contract's current-status diagnostic obligation. Validators use
 	// this typed field, rather than prompt prose, to enforce that

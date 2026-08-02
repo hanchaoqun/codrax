@@ -5376,6 +5376,26 @@ func TestNormalizeViewCompatibleAnswerDocument_KeepsScalarWhenExactResolutionMat
 	}
 }
 
+func TestNormalizeViewCompatibleAnswerDocument_DropsSuppressedExactResolutionMetadataOnly(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		ExactResolution:                      &types.ExactResolutionContract{Targets: []string{"max_visits"}},
+		SuppressExactResolutionAnswerSurface: true,
+	}
+	doc := &types.AnswerDocumentV2{
+		ExactResolution: &types.AnswerExactResolution{Status: types.AnswerExactResolutionExactMatch, Anchor: "max_visits"},
+		Blocks:          []types.AnswerBlock{{ID: "summary", Kind: types.BlockSummary, Text: "model-owned mechanism explanation"}},
+	}
+	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed != 1 {
+		t.Fatalf("suppressed legacy exact metadata should be removed once, got %d", fixed)
+	}
+	if doc.ExactResolution != nil {
+		t.Fatalf("suppressed exact metadata survived: %+v", doc.ExactResolution)
+	}
+	if len(doc.Blocks) != 1 || doc.Blocks[0].Text != "model-owned mechanism explanation" {
+		t.Fatalf("model-authored blocks must remain byte-stable: %+v", doc.Blocks)
+	}
+}
+
 func TestNormalizeViewCompatibleAnswerDocument_DoesNotInventShapeBearingFacetID(t *testing.T) {
 	view := &types.AnswerSemanticView{
 		FacetCoverage: &types.FacetCoverageContract{

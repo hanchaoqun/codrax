@@ -350,7 +350,12 @@ func TestCompileConfigPrecedence_ResolvesFamily(t *testing.T) {
 }
 
 func TestCompileConfigPrecedence_NonScalarMappingRequiresLayerCarrierNotScalar(t *testing.T) {
-	view := BuildAnswerSemanticView(irForConfigPrecedence(), nil)
+	ir := irForConfigPrecedence()
+	ir.AnswerContract.ExactResolution = &ExactResolutionContract{
+		TargetKind: SubjectConfigKey,
+		Targets:    []string{"max_visits"},
+	}
+	view := BuildAnswerSemanticView(ir, nil)
 	hasSummary, hasScalar, hasLayerCarrier := false, false, false
 	for _, b := range view.RequiredBlocks {
 		if b.Kind == BlockSummary {
@@ -375,11 +380,18 @@ func TestCompileConfigPrecedence_NonScalarMappingRequiresLayerCarrierNotScalar(t
 	if len(view.UncertaintyRules) != 0 {
 		t.Fatalf("ordinary grounded config mapping must not activate uncertainty disclosure: %+v", view.UncertaintyRules)
 	}
+	if view.ExactResolution == nil || !view.SuppressExactResolutionAnswerSurface {
+		t.Fatalf("positive non-scalar config mapping must retain internal exact focus while suppressing its rendered disposition: %+v suppress=%v", view.ExactResolution, view.SuppressExactResolutionAnswerSurface)
+	}
 }
 
 func TestCompileConfigPrecedence_ScalarLookupRequiresScalarAndKeepsOptionalLayers(t *testing.T) {
 	ir := irForConfigPrecedence()
 	ir.RequestModel.Predicates.IsScalarAnswer = true
+	ir.AnswerContract.ExactResolution = &ExactResolutionContract{
+		TargetKind: SubjectConfigKey,
+		Targets:    []string{"clinic.max-visits"},
+	}
 	view := BuildAnswerSemanticView(ir, nil)
 	hasScalar := false
 	for _, b := range view.RequiredBlocks {
@@ -399,16 +411,44 @@ func TestCompileConfigPrecedence_ScalarLookupRequiresScalarAndKeepsOptionalLayer
 	if !hasTable {
 		t.Error("expected optional table/ordered-list layers for scalar config lookup")
 	}
+	if view.ExactResolution == nil || view.SuppressExactResolutionAnswerSurface {
+		t.Error("typed scalar config lookup must retain visible exact-resolution contract")
+	}
+}
+
+func TestCompileConfigPrecedence_PositiveMappingDoesNotInventMissingRequestedRoles(t *testing.T) {
+	ir := irForConfigPrecedence()
+	ir.AnswerContract.ExactResolution = &ExactResolutionContract{
+		TargetKind:            SubjectConfigKey,
+		Targets:               []string{"max_visits"},
+		RequestedContextRoles: []EvidenceDiagramRole{EvidenceDiagramRoleDefault, EvidenceDiagramRoleRuntime},
+	}
+	plan := &AnswerSurfacePlan{
+		ExactResolution: ir.AnswerContract.ExactResolution,
+		// nil PreferredExactResolution means no exact absence was proved.
+	}
+	view := BuildAnswerSemanticView(ir, plan)
+	if len(view.MissingRequestedRoles) != 0 {
+		t.Fatalf("unobserved bindings on a positive mapping are not missing requested layers: %+v", view.MissingRequestedRoles)
+	}
+	if len(view.UncertaintyRules) != 0 {
+		t.Fatalf("positive mapping without typed absence must not force an uncertainty block: %+v", view.UncertaintyRules)
+	}
+	if view.ExactResolution == nil || !view.SuppressExactResolutionAnswerSurface {
+		t.Fatalf("positive non-scalar mapping must retain internal exact authority but suppress it from the answer renderer: %+v suppress=%v", view.ExactResolution, view.SuppressExactResolutionAnswerSurface)
+	}
 }
 
 func TestCompileConfigPrecedence_ExactAbsenceBecomesSummaryLed(t *testing.T) {
 	ir := irForConfigPrecedence()
 	ir.AnswerContract.ExactResolution = &ExactResolutionContract{
-		TargetKind:   SubjectConfigKey,
-		Targets:      []string{"explore_mid_loop_hint_budget"},
-		AllowAbsence: true,
+		TargetKind:            SubjectConfigKey,
+		Targets:               []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:          true,
+		RequestedContextRoles: []EvidenceDiagramRole{EvidenceDiagramRoleDefault, EvidenceDiagramRoleRuntime},
 	}
 	plan := &AnswerSurfacePlan{
+		ExactResolution: ir.AnswerContract.ExactResolution,
 		PreferredExactResolution: &AnswerExactResolution{
 			Status:      AnswerExactResolutionAbsent,
 			ContextMode: AnswerExactResolutionContextGroundedOnly,
@@ -417,6 +457,12 @@ func TestCompileConfigPrecedence_ExactAbsenceBecomesSummaryLed(t *testing.T) {
 	view := BuildAnswerSemanticView(ir, plan)
 	if view == nil {
 		t.Fatal("view nil")
+	}
+	if view.ExactResolution == nil || view.SuppressExactResolutionAnswerSurface {
+		t.Fatal("proved exact absence must retain visible exact-resolution contract")
+	}
+	if len(view.MissingRequestedRoles) != 2 {
+		t.Fatalf("proved exact absence must retain typed missing requested layers, got %+v", view.MissingRequestedRoles)
 	}
 	hasRequiredScalar := false
 	var summary *BlockRequirement

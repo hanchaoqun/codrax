@@ -10334,9 +10334,23 @@ func normalizeViewCompatibleAnswerDocument(doc *types.AnswerDocumentV2, view *ty
 	fixed += normalizeExcessRequiredSummaryBlocks(doc, view)
 	fixed += normalizeImplicitDefinitionClaimUses(doc, view)
 	fixed += normalizeAutoRepairableRequiredFacetIDs(doc, view)
+	fixed += normalizeSuppressedExactResolutionAnswerSurface(doc, view)
 	fixed += normalizeAmbiguousMultiTargetAbsentExactResolution(doc, view)
 	fixed += normalizeAbsentExactResolutionScalarBlocks(doc, view)
 	return fixed
+}
+
+// normalizeSuppressedExactResolutionAnswerSurface removes legacy/recovery
+// metadata from a lane the current typed schema does not expose. Normal model
+// emits cannot populate this field because BuildAnswerDocumentParametersFor
+// omits it; this is only a fail-closed compatibility guard for preserved or
+// older documents and never edits model-authored prose blocks.
+func normalizeSuppressedExactResolutionAnswerSurface(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) int {
+	if doc == nil || view == nil || !view.SuppressExactResolutionAnswerSurface || doc.ExactResolution == nil {
+		return 0
+	}
+	doc.ExactResolution = nil
+	return 1
 }
 
 // normalizeAmbiguousMultiTargetAbsentExactResolution drops a document-wide

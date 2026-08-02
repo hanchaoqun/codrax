@@ -147,6 +147,18 @@ func TestBuildAnswerDocumentParametersFor_ConfigPrecedenceKeepsMissingRoles(t *t
 	}
 }
 
+func TestBuildAnswerDocumentParametersFor_SuppressedExactResolutionStaysInternal(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		Family:                               types.QFConfigPrecedence,
+		ExactResolution:                      &types.ExactResolutionContract{Targets: []string{"max_visits"}},
+		SuppressExactResolutionAnswerSurface: true,
+	}
+	s := string(BuildAnswerDocumentParametersFor(view))
+	if strings.Contains(s, `"exact_resolution"`) {
+		t.Fatalf("internally retained exact contract must not leak into the model answer schema when its answer surface is suppressed:\n%s", s)
+	}
+}
+
 // TestBuildAnswerDocumentParametersFor_ArchitectureKeepsDiagramAndPinsKind
 // — an architecture family with a DiagramFacetGraph must keep
 // diagram + edge_anchors and pin the diagram.kind enum to the

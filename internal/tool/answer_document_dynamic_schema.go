@@ -26,7 +26,8 @@ import (
 //     set when none are declared).
 //   - missing_requested_roles is dropped when
 //     len(view.MissingRequestedRoles) == 0.
-//   - exact_resolution is dropped when view.ExactResolution is nil.
+//   - exact_resolution is dropped when view.ExactResolution is nil or its
+//     answer surface is explicitly suppressed.
 //   - All other fields and the description prose stay byte-identical
 //     to the canonical schema.
 //
@@ -62,7 +63,7 @@ func BuildAnswerDocumentParametersFor(view *types.AnswerSemanticView) json.RawMe
 	projectRequiredBlockArrayCardinality(blocksField, view)
 
 	// Document-level conditional fields.
-	if view.ExactResolution == nil {
+	if view.ExactResolution == nil || view.SuppressExactResolutionAnswerSurface {
 		delete(properties, "exact_resolution")
 	}
 	if len(view.MissingRequestedRoles) == 0 {
