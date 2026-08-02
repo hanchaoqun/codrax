@@ -4476,6 +4476,51 @@ evaluation 的 `continue_data`，reason 还声称 decisions/contributions/reconc
 `eval/parallel_selected_summary_evalcampaign_b32_replay_r2_20260801.md`、
 `eval/parallel_selected_summary_evalcampaign_b32_replay_r2_20260801_manual_audit.md`。
 
+#### B32 r3：evaluation 时效已覆盖；live output graph 与 completion gate 双权威
+
+`main@cb5b4c2a9` 严格并行两个多批 data case，runner 均 PASS：
+
+- `data_join_entity_reconcile` human PASS（205s）；
+- `data_multifile_reference_projection` human FAIL（163s）。
+
+join/reconcile 本轮采用与 r2 不同的批次序列：rule→material extract→join→derive→filter→
+contribution→reconcile→assemble。最终 5 条决策、2 条贡献、对账 pass 和答案 30 全部正确，
+最后 evaluation 前的 current decision 直接为 complete，没有再携带旧 evaluation。
+
+multi-file 也最终正确：inactive 行排除，10 条 entity resolutions、22 条决策、4 条贡献、
+reconcile pass；targets 的 `GroupA, GroupX, GroupC` 完整投影为 `17,0,5`。因此
+`EVAL-B32-DATASTATE2=covered-live-replay/cross-topology`。
+
+但 multi-file 的首个 assemble result 只生成已有 GroupA/B/C 的标签化 roster，既不符合
+纯逗号数字格式，也漏掉 reference universe 中的 GroupX=0。模型主动返回 repair，后置
+completion gate 随后用 typed reference candidate 精确拒绝
+`output_projection_incomplete_reference` 并生成 zero-fill 投影，因此最终答案没有错。
+然而 evaluator 调用前的 live `OutputProjectionGraph` 与 `decision` 已先发布
+`satisfied/complete`。根因是：
+
+1. completion gate 使用 `dataTaskOutputReferenceProjectionGap`，已有 reference path/field、
+   key count、answer item count 与 declared standing；
+2. live `BuildWorkflowStateView` 私自构造简化 OutputGraph，只看 answer/reconcile/projection
+   artifact presence，未消费上述精确事实；
+3. `BuildWorkflowDecision` 在输入 status 为空时又先按 `NextStage=complete` 推导 complete，
+   没让已存在的 output graph blocker 优先。
+
+登记并实施 `EVAL-B32-DATASTATE3/P2`：completion output graph 的精确 input 现在由 live
+state reducer 复用；选取的 answer result 继续走现有 terminal-answer single authority，
+所以后续 answerless helper 或已验证 incumbent 不会被误判。decision 默认顺序固定为
+typed violations → graph blocker → stage complete。reference gap 时 live state 直接发布
+`incomplete_reference`、精确 key/item count 和合法 `assemble_answer` 下一步。
+
+实现不扫描用户/模型文本，不根据 GroupX、数字或 case 名判断，也不修改答案；系统只把
+completion gate 已有 typed 精确信息提前提供给 evaluator。定向测试覆盖 generic reducer
+与真实 REPL reference-complete 接线；实现提交 `62c279edf`；
+`go test ./internal/dataworkflow ./internal/repl -count=1` 通过，`git diff --check` 通过。
+
+状态：`EVAL-B32-DATASTATE2=covered-live-replay/cross-topology`；
+`EVAL-B32-DATASTATE3=implemented/full-related-tests-pass/replay-next`。工件：
+`eval/parallel_selected_summary_evalcampaign_b32_replay_r3_20260801.md`、
+`eval/parallel_selected_summary_evalcampaign_b32_replay_r3_20260801_manual_audit.md`。
+
 ### B26-OWN：Trace 精确信息与模型结论的职责边界回裁（2026-08-01）
 
 客户/人工 witness：
