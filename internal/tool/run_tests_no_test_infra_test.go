@@ -1375,6 +1375,66 @@ func TestRunTestsVerificationProbePassUsesDeclaredCrossLanguageMakeCoverageBefor
 	}
 }
 
+func TestRunTestsDeclaredPythonMakeTargetClosesChangedPathWithoutProbe(t *testing.T) {
+	if _, err := exec.LookPath("make"); err != nil {
+		t.Skip("make not available on PATH")
+	}
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "pkg"), 0o755); err != nil {
+		t.Fatalf("mkdir pkg: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "tests"), 0o755); err != nil {
+		t.Fatalf("mkdir tests: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "pkg", "widget.py"), []byte("VALUE = 42\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	check := "from pathlib import Path\nsrc = Path('pkg/widget.py').read_text()\nassert 'VALUE = 42' in src\nprint('python make contract ok')\n"
+	if err := os.WriteFile(filepath.Join(root, "tests", "check_widget.py"), []byte(check), 0o644); err != nil {
+		t.Fatalf("write check script: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "Makefile"), []byte("check:\n\tpython3 tests/check_widget.py\n"), 0o644); err != nil {
+		t.Fatalf("write Makefile: %v", err)
+	}
+
+	mu := types.NewMutableState("declared Python Make execution")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-python-make-execution",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"pkg/widget.py"},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	report := mu.ChangeReport()
+	if !result.Success || report == nil || report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
+		t.Fatalf("executed Python Make contract should verify exact Python path: result=%+v report=%+v", result, report)
+	}
+	if len(report.ChangedPathCoverage) != 1 ||
+		report.ChangedPathCoverage[0].Path != "pkg/widget.py" ||
+		report.ChangedPathCoverage[0].Status != types.ChangedPathVerificationCovered ||
+		report.ChangedPathCoverage[0].Runner != "make" {
+		t.Fatalf("Python Make changed-path coverage missing: %+v", report.ChangedPathCoverage)
+	}
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Runner == "make" && cmd.Outcome == "executed" {
+			if len(cmd.CoveredPaths) != 1 || cmd.CoveredPaths[0] != "pkg/widget.py" {
+				t.Fatalf("executed Make exact covered_paths = %+v", cmd.CoveredPaths)
+			}
+			return
+		}
+	}
+	t.Fatalf("executed Make command missing: %+v", report.ExecutedCommands)
+}
+
 func TestRunTestsVerificationProbePassDowngradesImpactRelatedTestTimeout(t *testing.T) {
 	if _, ok := resolvePythonDryBuildRunner(); !ok {
 		t.Skip("no usable python on PATH; skip")

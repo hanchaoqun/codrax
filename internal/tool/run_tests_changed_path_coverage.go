@@ -37,10 +37,10 @@ func applyChangedPathVerificationCoverage(ctx *types.BusContext, report *types.C
 	}
 
 	report.ExecutedCommands = enrichSuccessfulCommandCoveredPaths(
-		report.ExecutedCommands, targets, targetFamilies,
+		report.ExecutedCommands, targets, targetFamilies, report.TestSurface,
 	)
 	evidence := changedPathCoverageFromCommands(
-		report.ExecutedCommands, targets, targetFamilies,
+		report.ExecutedCommands, targets, targetFamilies, report.TestSurface,
 	)
 	for path, probeEvidence := range changedPathCoverageFromPassedProbes(plan, report, targets, targetFamilies) {
 		if existing, ok := evidence[path]; !ok || changedPathCoverageCaliberRank(probeEvidence.caliber) > changedPathCoverageCaliberRank(existing.caliber) {
@@ -137,6 +137,7 @@ func enrichSuccessfulCommandCoveredPaths(
 	commands []types.ExecutedCommand,
 	targets []string,
 	targetFamilies map[string][]types.VerificationLanguageFamily,
+	surface *types.TestSurface,
 ) []types.ExecutedCommand {
 	out := append([]types.ExecutedCommand(nil), commands...)
 	for i := range out {
@@ -146,15 +147,16 @@ func enrichSuccessfulCommandCoveredPaths(
 		if outcome != "executed" || cmd.ExitCode != 0 || strings.TrimSpace(cmd.Runner) == "verification_probe" {
 			continue
 		}
-		runnerFamilies := sourceVerificationLanguageFamilies(
-			types.VerificationLanguageFamiliesFromRunner(cmd.Runner, cmd.Framework),
-		)
+		runnerFamilies, declaredPaths := executedCommandCoverageAuthority(*cmd, surface)
 		if len(runnerFamilies) == 0 {
 			continue
 		}
 		for _, path := range targets {
 			if !repoPathWithinWorkingDir(path, cmd.WorkingDir) ||
 				!verificationLanguageFamiliesIntersect(targetFamilies[path], runnerFamilies) {
+				continue
+			}
+			if declaredPaths != nil && !declaredPaths[strings.ToLower(cleanRepoRelPath(path))] {
 				continue
 			}
 			cmd.CoveredPaths = appendUniqueRepoPath(cmd.CoveredPaths, path)
@@ -167,6 +169,7 @@ func changedPathCoverageFromCommands(
 	commands []types.ExecutedCommand,
 	targets []string,
 	targetFamilies map[string][]types.VerificationLanguageFamily,
+	surface *types.TestSurface,
 ) map[string]changedPathCoverageEvidence {
 	targetSet := repoPathKeySet(targets)
 	out := map[string]changedPathCoverageEvidence{}
@@ -181,9 +184,7 @@ func changedPathCoverageFromCommands(
 		default:
 			continue
 		}
-		runnerFamilies := sourceVerificationLanguageFamilies(
-			types.VerificationLanguageFamiliesFromRunner(cmd.Runner, cmd.Framework),
-		)
+		runnerFamilies, _ := executedCommandCoverageAuthority(cmd, surface)
 		for _, raw := range cmd.CoveredPaths {
 			path := cleanRepoRelPath(raw)
 			canonical, ok := targetSet[strings.ToLower(path)]
@@ -203,6 +204,44 @@ func changedPathCoverageFromCommands(
 		}
 	}
 	return out
+}
+
+// executedCommandCoverageAuthority resolves the concrete execution family of
+// one successful command. Ordinary runners retain their existing language
+// identity. A meta runner may use a repository-declared family only when the
+// executed command matches the exact typed surface candidate and suite; in
+// that lane the exact declared path roster is also mandatory.
+func executedCommandCoverageAuthority(
+	cmd types.ExecutedCommand,
+	surface *types.TestSurface,
+) ([]types.VerificationLanguageFamily, map[string]bool) {
+	base := sourceVerificationLanguageFamilies(
+		types.VerificationLanguageFamiliesFromRunner(cmd.Runner, cmd.Framework),
+	)
+	if surface == nil {
+		return base, nil
+	}
+	key := testSurfaceCandidateKey(cmd.Runner, cmd.Framework, cmd.WorkingDir)
+	for _, cand := range surface.Candidates {
+		if testSurfaceCandidateKey(cand.Runner, cand.Framework, cand.WorkingDir) != key ||
+			strings.TrimSpace(cand.MakeTarget) != strings.TrimSpace(cmd.Suite) ||
+			len(cand.DeclaredExecutionLanguageFamilies) == 0 ||
+			len(cand.DeclaredCoveragePaths) == 0 {
+			continue
+		}
+		families := sourceVerificationLanguageFamilies(cand.DeclaredExecutionLanguageFamilies)
+		if len(families) == 0 {
+			return nil, nil
+		}
+		paths := make(map[string]bool, len(cand.DeclaredCoveragePaths))
+		for _, raw := range cand.DeclaredCoveragePaths {
+			if path := cleanRepoRelPath(raw); path != "" {
+				paths[strings.ToLower(path)] = true
+			}
+		}
+		return families, paths
+	}
+	return base, nil
 }
 
 func changedPathCoverageFromPassedProbes(

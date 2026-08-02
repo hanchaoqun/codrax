@@ -115,6 +115,7 @@ func testSurfaceCandidateForPlan(repoRoot string, plan runnerPlan) types.TestSur
 		cand.HasTestSignal = found
 		if found {
 			cand.DeclaredCoveragePaths = makeTargetDeclaredCoveragePaths(plan.Root, target)
+			cand.DeclaredExecutionLanguageFamilies = makeTargetDeclaredExecutionLanguageFamilies(plan.Root, target)
 		}
 	case "cmake", "meson":
 		cand.HasTestSignal = detectNativeBuildDir(plan.Root) != ""
@@ -199,6 +200,107 @@ func makeTargetDeclaredCoveragePaths(repoRoot, target string) []string {
 		paths = paths[:makeDeclaredCoverageMaxPaths]
 	}
 	return paths
+}
+
+// makeTargetDeclaredExecutionLanguageFamilies extracts the concrete language
+// runtimes directly invoked by the selected Make target. It deliberately does
+// not interpret shell expansions or infer a language from files merely named
+// in the recipe. This lets a successful meta-runner execution carry precise
+// language identity (for example Make -> Python) without allowing a Python
+// source scanner to authorize a Rust/C/Java change.
+func makeTargetDeclaredExecutionLanguageFamilies(repoRoot, target string) []types.VerificationLanguageFamily {
+	makefilePath := firstExistingMakefile(repoRoot)
+	if makefilePath == "" || strings.TrimSpace(target) == "" {
+		return nil
+	}
+	data, err := os.ReadFile(makefilePath)
+	if err != nil {
+		return nil
+	}
+	lines := strings.Split(string(data), "\n")
+	inTarget := false
+	var out []types.VerificationLanguageFamily
+	for _, line := range lines {
+		if !inTarget {
+			if _, ok := exactMakeTargetDependencies(line, target); ok {
+				inTarget = true
+			}
+			continue
+		}
+		if strings.HasPrefix(line, "\t") {
+			out = append(out, exactMakeRecipeExecutionLanguageFamilies(strings.TrimSpace(line))...)
+			continue
+		}
+		if strings.TrimSpace(line) == "" || strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		break
+	}
+	return types.NormalizeVerificationLanguageFamilies(out)
+}
+
+func exactMakeRecipeExecutionLanguageFamilies(recipe string) []types.VerificationLanguageFamily {
+	if recipe == "" || strings.ContainsAny(recipe, "$`") {
+		return nil
+	}
+	fields := strings.Fields(recipe)
+	var out []types.VerificationLanguageFamily
+	commandStart := true
+	for _, raw := range fields {
+		token := strings.TrimSpace(raw)
+		if token == "" {
+			continue
+		}
+		if token == "&&" || token == "||" || token == ";" {
+			commandStart = true
+			continue
+		}
+		if !commandStart {
+			continue
+		}
+		token = strings.TrimLeft(token, "@-+")
+		if token == "" || (strings.Contains(token, "=") && !strings.Contains(token, "/")) ||
+			token == "env" || token == "command" {
+			continue
+		}
+		commandStart = false
+		if family := exactCommandLanguageFamily(token); family != types.VerificationLanguageUnknown {
+			out = append(out, family)
+		}
+	}
+	return types.NormalizeVerificationLanguageFamilies(out)
+}
+
+func exactCommandLanguageFamily(raw string) types.VerificationLanguageFamily {
+	name := strings.ToLower(filepath.Base(strings.Trim(raw, `"'`)))
+	switch {
+	case name == "python" || strings.HasPrefix(name, "python3") || strings.HasPrefix(name, "pytest"):
+		return types.VerificationLanguagePython
+	case name == "node" || name == "nodejs" || name == "npm" || name == "npx" || name == "pnpm" || name == "yarn":
+		return types.VerificationLanguageJavaScript
+	case name == "go":
+		return types.VerificationLanguageGo
+	case name == "cargo" || name == "rustc":
+		return types.VerificationLanguageRust
+	case name == "java" || name == "javac" || name == "mvn" || name == "mvnw":
+		return types.VerificationLanguageJava
+	case name == "gradle" || name == "gradlew":
+		return types.VerificationLanguageKotlin
+	case name == "ruby" || name == "bundle" || name == "rspec":
+		return types.VerificationLanguageRuby
+	case name == "swift":
+		return types.VerificationLanguageSwift
+	case name == "php":
+		return types.VerificationLanguagePHP
+	case name == "lua":
+		return types.VerificationLanguageLua
+	case name == "hvigor" || name == "hvigorw":
+		return types.VerificationLanguageArkTS
+	case name == "cjpm":
+		return types.VerificationLanguageCangjie
+	default:
+		return types.VerificationLanguageUnknown
+	}
 }
 
 func firstExistingMakefile(repoRoot string) string {

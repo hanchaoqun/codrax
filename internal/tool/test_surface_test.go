@@ -145,6 +145,21 @@ test_path.read_text()
 			t.Fatalf("Make declared coverage missing %q: %+v", want, makeCand)
 		}
 	}
+	if gotFamilies := makeCand.DeclaredExecutionLanguageFamilies; len(gotFamilies) != 1 ||
+		gotFamilies[0] != types.VerificationLanguagePython {
+		t.Fatalf("Make concrete execution family = %+v, want [python]", gotFamilies)
+	}
+}
+
+func TestBuildTestSurface_MakeDynamicExecutorDoesNotGuessLanguage(t *testing.T) {
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "Makefile", "check:\n\t$(PYTHON) tests/check_widget.py\n")
+	writeSurfaceFile(t, root, "tests/check_widget.py", "assert True\n")
+
+	makeCand := surfaceCandidate(t, BuildTestSurface(root, ""), "make")
+	if len(makeCand.DeclaredExecutionLanguageFamilies) != 0 {
+		t.Fatalf("dynamic Make executor must remain unresolved: %+v", makeCand)
+	}
 }
 
 // Manifest priority stays the tiebreaker when both candidates carry test

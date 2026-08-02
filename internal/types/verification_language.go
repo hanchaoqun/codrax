@@ -262,6 +262,7 @@ func VerificationLanguageFamiliesFromReport(report *ChangeReport) []Verification
 	if report.TestSurface != nil {
 		for _, cand := range report.TestSurface.Candidates {
 			out = append(out, VerificationLanguageFamiliesFromRunner(cand.Runner, cand.Framework)...)
+			out = append(out, cand.DeclaredExecutionLanguageFamilies...)
 			out = append(out, VerificationLanguageFamiliesFromPath(cand.Source)...)
 		}
 	}

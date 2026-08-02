@@ -4617,6 +4617,45 @@ Batch B 已落地：
 - [x] B46-T5a：审计结果与修复状态更新入统一台账，write/Trace 两个代码批分开提交推送；
 - [ ] B46-T5b：从干净 HEAD 严格并行同对回放，之后继续覆盖优先队列。
 
+#### B46 r2：选路已通但 meta-runner 权威未贯通；Trace 修向正确后暴露单位与关系 GAP
+
+从干净 `main@8592d6b2c` 严格并行同一 Trace/write pair。runner 仍为 0/2，人工也为 0/2，
+但失败层已经收窄：
+
+1. write 的 `make check` 这次由 `declared_coverage_test_surface` 正确选中并真实执行，退出 0，
+   输出 `python text search contract ok`；补丁仍只修改 `memoclaw/client.py` 且行为正确。
+   随后的 changed-path ledger 仍失败，因为它只把外层 runner=`make` 映射成 C/C++，不知道
+   该精确 `check` 目标实际执行的是 Python。上一批解决的是 execution selection，本轮证明
+   execution semantics→coverage authority 仍断链。
+2. Trace 的 `EVAL-B46-REMEDY1` 已有生产见证：模型明确 58.320ms 是 compute-delivery
+   head-room/供给折算缺口，并明确 2.34GHz 热控轨上限不证明 thermal throttling；显式窗、
+   5 次 windowed trace query、自动补采、双轴、根因排序、唤醒链、可消量及完整投影均保留。
+   `dma_fence_default_w` 已在模型正文和系统事实中，runner 仍只因固定自然语言前缀
+   `等待对象` 缺失而失败，继续归 `EVAL-B46-ORACLE1`，不得污染生产逻辑。
+
+新增/收窄项：
+
+| ID | P | gap | 泛化最优方案 | 状态 |
+|---|---:|---|---|---|
+| EVAL-B46-XMAKE2 | P1 | 已成功执行的 meta runner 丢失其具体执行语言，导致同语言精确项目检查也不能覆盖 changed path | TestSurface 为有界 Make 目标携带 `declared_execution_language_families`；只有“成功执行的精确目标 + execution family 与变更语言相交 + 变更路径在 exact declared roster”合取才生成 `CoveredPaths`。动态 executor 不猜；roster 单独无权；Python 检查 Rust 的负例保持 uncovered | implemented/full-tool-tests-pass；commit/push next |
+| EVAL-B46-OCCUNIT1 | P1 | TWODIM 主要时间占用表把 `page_cache_churn` 计数当量 81.616 渲染成 `81.616ms`，同时 `max=84.300ms > total=81.616ms`；树/可消面已正确标成非墙钟，只有 occupancy path 漏 guard | occupancy path 复用单一 `runtimeTraceProjNonWallClockValueCaliber`，所有 count-equivalent/composite-score 行从墙钟占用候选排除；值仍留在口径旁栏/证据面，不删除信息、不改因果排序 | next Trace display batch |
+| EVAL-B46-REL2 | P1 guidance | 模型把“不同维度”直接推成“相互独立且不可相加”；typed context 只对部分同段镜像/embedded row 给出关系，没有为任意跨行 mint independent/non-additive 权限 | finalizer/explorer 增加通用 relation authority：只在 typed relation/fold/state-partition 明确时说包含/重叠/互斥/可加；不同 metric family 本身不证明关系，缺载体时应说 unresolved。只做软上下文，不扫描/改写答案 | next Trace context batch |
+| EVAL-B46-DUP1 | P3 model-variance/watch | 模型正文重复发布一遍根因清单 | 不影响 typed 值与 projection，单次模型表达波动；禁止系统删除/合并模型块，跨模型/跨例复现后再考虑结构化 answer schema guidance | watch |
+
+上下文精度结论：Trace 的 mechanism authority 修正已足以让模型自行纠偏，但系统自身的
+TWODIM occupancy 单位不精确，必须先修确定性事实面；跨行关系则是 typed authority
+缺席导致模型自由推断，适合通用软指导。两项都不能通过关键词扫描、final prose gate 或
+系统替换答案处理。write 的源码/API/patch/test context 一直精确，错误只在验证权威的
+meta-runner 语义断链。
+
+施工状态：
+
+- [x] B46-T5b：r2 严格并行与完整人工审计；
+- [x] B46-T6a：XMAKE2 typed carrier、成功命令合取与 Python/Rust 正反臂；
+- [x] B46-T6b：XMAKE2 `go test ./internal/tool -count=1` 全通过（159.804s）；提交推送；
+- [ ] B46-T7：OCCUNIT1 + REL2 独立 Trace 批、全量回归、提交推送；
+- [ ] B46-T8：干净 HEAD 同 pair r3 验收后进入下一优先级 exactly-two batch。
+
 ### B41：data 终批材料 × Binder 方向语义审计（2026-08-02）
 
 本批严格并行 `data_text_filter_count` 与 `trace_query_binder_ipc_peer`。runner

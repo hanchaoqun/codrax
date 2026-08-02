@@ -120,6 +120,89 @@ func TestChangedPathCoverageRejectsTypedPolyglotMakeDeclaredInputAsBehaviorProof
 	}
 }
 
+func TestChangedPathCoverageAcceptsMatchingExecutedPythonMakeTarget(t *testing.T) {
+	ctx := changedPathCoverageTestContext([]string{"pkg/client.py"})
+	report := &types.ChangeReport{
+		Passed: true,
+		TestSurface: &types.TestSurface{Candidates: []types.TestSurfaceCandidate{{
+			ID:            "make@.",
+			Runner:        "make",
+			WorkingDir:    ".",
+			Command:       "make check",
+			Source:        "Makefile",
+			MakeTarget:    "check",
+			HasTestSignal: true,
+			DeclaredCoveragePaths: []string{
+				"pkg/client.py",
+				"tests/check_client.py",
+			},
+			DeclaredExecutionLanguageFamilies: []types.VerificationLanguageFamily{
+				types.VerificationLanguagePython,
+			},
+		}}},
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner:     "make",
+			WorkingDir: ".",
+			Suite:      "check",
+			Command:    "make check",
+			Outcome:    "executed",
+			ExitCode:   0,
+			Source:     verificationProbeContinuationSourceDeclaredCoverage,
+		}},
+	}
+
+	applyChangedPathVerificationCoverage(ctx, report)
+
+	if !report.Passed || report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
+		t.Fatalf("matching executed Python Make target should cover exact Python path: %+v", report)
+	}
+	if len(report.ChangedPathCoverage) != 1 ||
+		report.ChangedPathCoverage[0].Status != types.ChangedPathVerificationCovered ||
+		report.ChangedPathCoverage[0].Caliber != types.ChangedPathVerificationProjectRunner {
+		t.Fatalf("typed meta-runner path coverage missing: %+v", report.ChangedPathCoverage)
+	}
+	if got := report.ExecutedCommands[0].CoveredPaths; len(got) != 1 || got[0] != "pkg/client.py" {
+		t.Fatalf("exact covered path missing from executed command: %+v", got)
+	}
+}
+
+func TestChangedPathCoverageRejectsMatchingPythonMakeTargetForRustPath(t *testing.T) {
+	ctx := changedPathCoverageTestContext([]string{"src/types/list.rs"})
+	report := &types.ChangeReport{
+		Passed: true,
+		TestSurface: &types.TestSurface{Candidates: []types.TestSurfaceCandidate{{
+			ID:            "make@.",
+			Runner:        "make",
+			WorkingDir:    ".",
+			Command:       "make check",
+			MakeTarget:    "check",
+			HasTestSignal: true,
+			DeclaredCoveragePaths: []string{
+				"src/types/list.rs",
+				"tests/check_source.py",
+			},
+			DeclaredExecutionLanguageFamilies: []types.VerificationLanguageFamily{
+				types.VerificationLanguagePython,
+			},
+		}}},
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner:     "make",
+			WorkingDir: ".",
+			Suite:      "check",
+			Command:    "make check",
+			Outcome:    "executed",
+			ExitCode:   0,
+		}},
+	}
+
+	applyChangedPathVerificationCoverage(ctx, report)
+
+	if report.Passed || report.NormalizeVerificationStatus() != types.VerificationStatusUnavailable ||
+		report.ChangedPathCoverage[0].Status != types.ChangedPathVerificationUncovered {
+		t.Fatalf("Python Make target must not authorize Rust path: %+v", report)
+	}
+}
+
 func TestChangedPathCoverageRejectsUntypedCrossLanguageMakeCommand(t *testing.T) {
 	ctx := changedPathCoverageTestContext([]string{"src/types/list.rs"})
 	report := &types.ChangeReport{

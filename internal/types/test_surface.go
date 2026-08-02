@@ -50,6 +50,15 @@ type TestSurfaceCandidate struct {
 	// so it must not grant cross-language project-runner authority.
 	DeclaredCoveragePaths []string `json:"declared_coverage_paths,omitempty"`
 
+	// DeclaredExecutionLanguageFamilies identifies the concrete language
+	// runtime(s) invoked by a meta-runner candidate's selected test entry.
+	// For example, a Make `check` target that directly invokes
+	// `python3 tests/check_client.py` carries python here. The value is
+	// compiled from the exact repository declaration, never from task/model
+	// prose. It has no authority on its own: changed-path coverage requires a
+	// successful matching command plus an exact DeclaredCoveragePaths member.
+	DeclaredExecutionLanguageFamilies []VerificationLanguageFamily `json:"declared_execution_language_families,omitempty"`
+
 	// HasTestSignal is the typed "this candidate has actual test work"
 	// bit. Detection per runner family:
 	//   - convention-scanning runners (go/python/node/ruby/swift/java):
