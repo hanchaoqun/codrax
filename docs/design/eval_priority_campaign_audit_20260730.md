@@ -3919,6 +3919,118 @@ B18c 使用一条通用 typed 规则修复：
 
 状态：`implemented / full-tests-pass / cross-relation replay next`。
 
+### B36：配置映射 × write plan 权限与模型结论所有权（2026-08-01）
+
+本批严格并行 2 个 case：
+
+- `sr_java_config_precedence`：read/config，多层配置键映射、默认值证据与运行态
+  不可观测边界；
+- `patch_cpp_typo`：write plan，一行最小修改与 plan-only 安全边界。
+
+选择这组不是继续拟合单个配置题，而是用一个“源码事实完整、运行态不完整”的
+read 面检验系统与模型的权限分工，并同时用 write case 看修复是否污染写模式。
+七轮 runner 都是 2/2 PASS；人工审计直到 r7 才是 2/2 PASS。r1-r6 的自动绿
+不能替代人工正确性。
+
+#### EVAL-B36-CONFIGSTATE1：配置映射被误铸成当前运行值（P1，covered）
+
+r1 把 `application.properties` 的源码值 50 表述成当前生效值，然而进程环境变量
+未观测。根因是 exact scalar 合同把“配置层映射”压成“单一当前值”。
+
+通用修复：
+
+1. 新增 typed config precedence 语义，区分 source/default mapping、override
+   mechanism 与 observed runtime value；
+2. 未观测 runtime 时只允许模型说明候选层级和优先关系，不把源码默认值提升为
+   当前主值；
+3. scalar lookup 的精确值能力不受影响；显式不存在也仍可精确披露；
+4. 不扫描用户或模型原文，不识别 Java、键名或数值字面。
+
+落地：`c49dd3ea0`、`98b7f266b`。状态：`covered`。
+
+#### EVAL-B36-SYSAUTH1：系统补充逐层接管模型答案（P1，covered）
+
+r2-r6 先后暴露同一架构根因的不同表面：
+
+- 非枚举配置题追加两份 enumeration completeness 表；
+- 追加泛化 uncertainty caveat；
+- 把环境变量名当枚举值补错误 label；
+- 在答案最前追加“精确目标命中”主值；
+- 把未观测运行环境误报成模型遗漏的 required role；
+- 在定位成功时追加 `owner_supported` 系统表。
+
+这些都不是信息不准确这么简单，而是系统把内部验证、成功遥测或证据权限直接
+发布为模型结论，违反“系统提供 typed facts/guidance，模型拥有推理与结论”的
+红线。
+
+通用修复：
+
+1. 系统 answer supplement 只披露会实质改变可相信范围的 typed 缺口、冲突或
+   降级，不发布成功遥测；
+2. enumeration label supplement 只在 typed enumeration authority 下进入答案，
+   内部 validator 仍可保持活跃；
+3. 配置映射的未观测 runtime 不再合成 `missing_requested_roles`；
+4. 非标量正向 exact evidence 保留给探索、归一化和安全校验，但从 answer
+   surface 隐藏；scalar lookup 与 proved absence 的答案权限保持；
+5. 所有调整都基于结构化 IR/authority，不扫描 RawRequest、模型 thinking、
+   summary、items 或 final prose。
+
+落地：`b916b0165`、`a7f19b80d`、`9cef53c39`、`a8035ce3b`、
+`3f9cdb89b`。状态：`covered`。
+
+#### EVAL-B36-EXACTDUAL1：内部精确证据与答案确权缺少双通道（P1，covered）
+
+直接删除 exact authority 会破坏多目标 targetless absence 的持久化安全；直接
+发布又会越权。因此采用双通道：
+
+- `ExactResolution` 继续服务探索、证据归一化、absence 安全和内部 contract；
+- `AnswerSemanticView.SuppressExactResolutionAnswerSurface` 仅控制答案权限；
+- dynamic schema、finalizer prompt 和 pre-emit metadata normalization 共同消费
+  answer view；不改模型已写 block；
+- trace 日志显式记录 `exact_resolution_answer_surface`，便于审计。
+
+这是权限分离，不是删除精确信息。状态：`covered`。
+
+#### EVAL-B36-CITATION1：配置值引用到查找逻辑而非值来源（P1，covered）
+
+r6 模型用 Java 的 lookup 行支撑 `50`，该行只能证明 key/机制，不能证明 literal。
+修复放在 config carrier 的软指导：陈述配置字面值时优先引用同时包含 key 与
+literal 的来源；lookup call 只证明读取机制。系统不替模型改引用、不做 prose
+硬门。r7 已引用 `application.properties:1`。状态：`covered`。
+
+#### EVAL-B36-LOCSTATUS1：成功定位遥测进入答案（P1，covered）
+
+`owner_supported` 且无 missing/conflict/more-context 时，源码定位状态只留在
+document/log telemetry，不再追加到用户答案。`weak / observed-only / missing /
+conflicted` 仍可披露，避免吞掉真实证据边界。落地：`3f9cdb89b`。
+
+#### EVAL-B36-DEGRADEFOOT1：过程降级 footer 噪声（P3，open/watch）
+
+r7 正文完全正确，末尾仍出现“引用摘录回填 ×3、必答面硬转软 ×1”。该 footer
+属于过程透明信息，没有替换结论，也没有制造事实矛盾。本批不为消掉一行文案而
+增加硬门；只有跨类型重复造成用户误判时再统一处理。
+
+#### EVAL-B36-LABELADV1：block label advisory 噪声（P3，watch）
+
+r7 日志仍有 `block_items_label:1` advisory，但未进入答案，也未改变事实或结论。
+目前判为软校验噪声/模型波动观察项，不做特例匹配。
+
+#### B36 验收与不变量
+
+- r7 config：模型自主给出三层映射、正确引用 value source、明确运行值未观测；
+  无系统 exact 前缀、枚举表、missing-role、成功定位表或泛化 caveat；
+- r1-r7 write plan：连续七轮均为最小一行计划，无主仓修改；
+- `go test ./internal/types ./internal/agent ./internal/tool ./internal/orchestrator`
+  相关全包通过；
+- 没有新增基于用户输入或模型输出原文的硬门；
+- 没有新增系统改写/替换模型结论；
+- 显式时间窗优先级、Trace 因果投影、自动补齐和内部 exact safety 未改变。
+
+本批提交：`c49dd3ea0`、`98b7f266b`、`b916b0165`、`a7f19b80d`、
+`9cef53c39`、`a8035ce3b`、`3f9cdb89b`。
+
+状态：`r7 runner 2/2 PASS / human 2/2 PASS / P3 telemetry watch only`。
+
 ### B26 PHASE/ALIAS r1 与 B27 absence-authority 根修（2026-08-01）
 
 严格并行 2 个回放：
