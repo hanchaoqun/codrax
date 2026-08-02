@@ -4434,6 +4434,48 @@ C verification probe 后自行删除，记为 `EVAL-B32-WRITEITER1/P3-watch` 效
 `eval/parallel_selected_summary_evalcampaign_b32_data_write_r1_20260801.md`、
 `eval/parallel_selected_summary_evalcampaign_b32_data_write_r1_20260801_manual_audit.md`。
 
+#### B32 r2：execution violation 已分层；历史 evaluation 仍覆盖新 result
+
+`main@e70441d90` 严格并行两个 data case：
+
+- `data_json_strict_ids` runner/human PASS（49s）；
+- `data_join_entity_reconcile` runner PASS / human FAIL（137s）。
+
+strict JSON 再次真实经历“首批未消费 instructions→第二批补读”而非绕过 witness。第二批
+live state 已无 `required_material_not_consumed`，coverage、answer、output projection 与
+decision 一致为 complete；terminal 仍在 `last_nonterminal_error`/历史事件保留首批失败。
+因此 `EVAL-B32-DATASTATE1=covered-live-replay`。
+
+不同的 join/entity/reconcile 拓扑正确产出 30：三份材料全覆盖，canonical join 完成两个
+Alpha 别名归一，5 条决策、2 条贡献、`expected=30/actual=30/reconcile=pass`，8 个 typed
+阶段后严格只输出单行数字。新 gap 位于最后评估前的 live state：最新
+`assemble_answer` result 已令 ledger/output 全部 satisfied，但 `decision` 仍发布上一批
+evaluation 的 `continue_data`，reason 还声称 decisions/contributions/reconcile missing。
+模型只能再次用其它 typed 图推翻这个 stale current decision 后选择 complete；runner 只验
+最终值，未报过程矛盾。
+
+登记并实施 `EVAL-B32-DATASTATE2/P1`。根因是 `latestDataTaskEvaluation` 无条件向后查找
+任意历史 evaluation，不判断其后是否已出现新的执行 outcome。共享
+`ActiveEvaluationFromRecords` 现在以结构化 record 边界裁定：
+
+1. evaluation 附着在它所判断的 result record 上时拥有当前权限；
+2. 更新的 `Result`、`Err` 或 typed `Violations` 到达且尚无自己的 evaluation 时，旧评估只
+   留在历史，不再覆盖 current reducer；
+3. 新 outcome 后附着新 evaluation 时，新评估正常恢复权限；
+4. answer-face sticky repair contest 继续走原有专用 open/clear authority，避免普通时效规则
+   洗掉尚未修复的 answer contest。
+
+实现不扫描错误/reason/答案内容、用户请求、模型 thinking 或 case/action 名。单元测试固定
+新 result、新 failure、最新附着 evaluation 三臂；REPL 接线测试固定旧 `continue_data`
+不得跨越新 complete answer result。实现提交 `fc533bfb8`；
+`go test ./internal/dataworkflow ./internal/repl -count=1` 通过，`git diff --check` 通过。
+
+状态：`EVAL-B32-DATASTATE1=covered-live-replay`；
+`EVAL-B32-DATASTATE2=implemented/full-related-tests-pass/replay-next`。本批仍不修改 Trace
+显式窗、因果投影、自动补采或模型答案所有权。工件：
+`eval/parallel_selected_summary_evalcampaign_b32_replay_r2_20260801.md`、
+`eval/parallel_selected_summary_evalcampaign_b32_replay_r2_20260801_manual_audit.md`。
+
 ### B26-OWN：Trace 精确信息与模型结论的职责边界回裁（2026-08-01）
 
 客户/人工 witness：
