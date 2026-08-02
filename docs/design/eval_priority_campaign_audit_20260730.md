@@ -4521,6 +4521,54 @@ completion gate 已有 typed 精确信息提前提供给 evaluator。定向测�
 `eval/parallel_selected_summary_evalcampaign_b32_replay_r3_20260801.md`、
 `eval/parallel_selected_summary_evalcampaign_b32_replay_r3_20260801_manual_audit.md`。
 
+#### B32 r4：live output authority 覆盖；同源伪关系与输出 stage 双权威
+
+严格并行 2 个 data case，runner 2/2 PASS，人工 2/2 PASS：
+
+- `data_multifile_reference_projection`：657s，15 批、5 次 repair、7 个失败 action，最终
+  `17,0,5`；
+- `data_basic_sum_with_rules`：155s，11 批、1 次 repair、2 个失败 action，最终 `17`。
+
+多文件例对 `EVAL-B32-DATASTATE3` 给出真实回放正证：第一次 assemble 只输出已有分组、
+遗漏完整 reference universe 时，live graph/decision 已发布
+`incomplete_reference / continue`；补齐 GroupX=0 并形成纯 CSV 三项后才 complete。因此
+`EVAL-B32-DATASTATE3=covered-live-replay`。
+
+审计新增并已修两项共享 GAP：
+
+1. `EVAL-B32-DATAREL1/P1`：简单求和的 typed contract 没有 entity obligation，但自动
+   fallback 把同一 `orders.csv` 的 aggregate artifact 与 child record alias 当作独立
+   source/reference，先 normalize，再 apply，再 mapping，形成无业务意义的关系循环。
+   `ba6bf1b6a` 在自动 join/normalize scaffold 铸造点加入 typed lineage 独立性：当两侧均
+   有 lineage 时，各侧必须至少有一个对侧没有的 root；缺 lineage 的兼容 producer
+   fail-open，显式 model-authored self-join 不受影响。真实 observations/labels 双源正例保留。
+2. `EVAL-B32-DATASTATE4/P1`：输出图和 decision 已要求修复时，ledger-only
+   `next_stage` 仍为 complete，`allowed_next_actions` 仍为空。`b218cf65c` 让精确
+   OutputProjectionGraph 在业务账本完成但最终投影未满足时，将有效 stage 重开到
+   `emit_output_contract_answer`，并从同一 stage authority 开放 `assemble_answer`；业务
+   ledger 未完成时仍优先原 stage，普通 satisfied 输出仍 complete。
+
+完整 `go test ./internal/dataworkflow ./internal/repl -count=1` 两个代码批次均通过。过程中
+还修正 `EVAL-B32-DATASTATE1` 的时效边界：同一 record 可同时带 Result 和 typed
+Violations，只有 `Result present / Err empty / Violations empty` 才能让更早执行违规退为
+历史，避免结果自我清除当前违规。
+
+剩余观察：多文件例 657 秒和多次 typed 参数/输出 repair 成本很高，但现有 witness 混合了
+filter 值选错、投影格式错误和模型重试，尚不足以授权某字段/某 case 的硬门。登记
+`EVAL-B32-DATAPERF1/P2-watch`，后续用不同 schema 的 reference/join case 复现后再决定
+是否收敛 action 参数契约。不得扫描用户或模型原文，不得由系统替模型生成业务答案。
+
+状态：`EVAL-B32-DATASTATE3=covered-live-replay`；
+`EVAL-B32-DATAREL1=implemented/full-related-tests-pass/replay-next`；
+`EVAL-B32-DATASTATE4=implemented/full-related-tests-pass/replay-next`；
+`EVAL-B32-DATAPERF1=P2-watch`。本批不修改 Trace 显式窗、因果投影、根因排序、唤醒链、
+窗内可消除量或自动补采路径。
+
+工件：
+
+- `eval/parallel_selected_summary_evalcampaign_b32_replay_r4_20260801.md`
+- `eval/parallel_selected_summary_evalcampaign_b32_replay_r4_20260801_manual_audit.md`
+
 ### B26-OWN：Trace 精确信息与模型结论的职责边界回裁（2026-08-01）
 
 客户/人工 witness：
