@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/dataquery"
+	"github.com/hanchaoqun/codrax/internal/dataworkflow"
 )
 
 // Witness-isomorphic pins for the reference-set output grounding gate
@@ -50,15 +52,31 @@ func referenceGroundingContract() dataquery.CoverageContract {
 
 func referenceGroundingRecords() []dataTaskWorkflowRecord {
 	return []dataTaskWorkflowRecord{{
-		Plan: dataquery.TaskPlan{CoverageContract: referenceGroundingContract()},
+		Plan: dataquery.TaskPlan{
+			CoverageContract: referenceGroundingContract(),
+			Actions: []dataquery.DataAction{{
+				ID:   "project_targets",
+				Kind: dataquery.DataActionAssembleAnswer,
+				Params: map[string]string{
+					"reference_path":      "targets.csv",
+					"reference_key_field": "canonical_label",
+				},
+			}},
+		},
 	}}
 }
 
 func referenceGroundingResult(answer string, groups map[string]string) dataquery.Result {
 	res := dataquery.Result{
-		Answer:         answer,
-		OutputContract: dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false},
-		ConsumedPaths:  []string{"observations.csv", "labels.csv", "targets.csv"},
+		Answer: answer,
+		OutputContract: dataquery.OutputContract{
+			Format:             dataquery.OutputPlainSingleLine,
+			ExplanationAllowed: false,
+			CompleteReference:  true,
+			ReferencePath:      "targets.csv",
+			ReferenceKeyField:  "canonical_label",
+		},
+		ConsumedPaths: []string{"observations.csv", "labels.csv", "targets.csv"},
 	}
 	for _, group := range []string{"GroupA", "GroupB", "GroupC"} {
 		value, ok := groups[group]
@@ -132,6 +150,67 @@ func TestReferenceGroundingGuardRedOnUsurpedSlotShape(t *testing.T) {
 	if dataTaskResultStructurallyCompleteWithRepo(root, records, current, result) {
 		t.Fatal("an ungrounded answer must not be structurally complete")
 	}
+	liveRecords := append(append([]dataTaskWorkflowRecord(nil), records...), dataTaskWorkflowRecord{Plan: current, Result: &result})
+	state := dataTaskWorkflowState(root, liveRecords, current)
+	if state.OutputProjectionGraph.Status != dataworkflow.OutputProjectionStatusGroundingMismatch ||
+		state.OutputProjectionGraph.ReferenceMismatchCount != 1 {
+		t.Fatalf("OutputProjectionGraph=%+v, live state must reuse per-slot grounding authority", state.OutputProjectionGraph)
+	}
+	if state.NextStage != dataworkflow.StageEmitOutputContractAnswer ||
+		state.Decision.Status == "complete" ||
+		!slices.Contains(state.AllowedNextActions, string(dataquery.DataActionAssembleAnswer)) {
+		t.Fatalf("state stage/decision/allowed=%q/%+v/%v, grounding mismatch must reopen typed answer projection", state.NextStage, state.Decision, state.AllowedNextActions)
+	}
+}
+
+// The live eval uses a generated key-list alias (target_list) as the typed
+// assemble_answer reference_path. The alias itself has no authority, but its
+// single source lineage points back to targets.csv; grounding must re-read
+// that source and publish the mismatch into the live graph before evaluation.
+func TestReferenceGroundingTypedGeneratedAliasUsesSourceLineage(t *testing.T) {
+	root := referenceGroundingFixtureRepo(t)
+	prior := dataquery.Result{Artifacts: []dataquery.DataArtifact{{
+		ID:          "target_list",
+		Kind:        string(dataquery.DataActionExtractRecords),
+		SourcePaths: []string{"targets.csv"},
+		Fields:      map[string]string{"artifact_aliases": "target_list,target_list.json"},
+	}}}
+	records := []dataTaskWorkflowRecord{{Plan: dataquery.TaskPlan{CoverageContract: referenceGroundingContract()}, Result: &prior}}
+	current := dataquery.TaskPlan{
+		CoverageContract: referenceGroundingContract(),
+		Actions: []dataquery.DataAction{{
+			ID:   "project_targets",
+			Kind: dataquery.DataActionAssembleAnswer,
+			Params: map[string]string{
+				"reference_path":      "target_list",
+				"reference_key_field": "canonical_label",
+			},
+		}},
+	}
+	result := referenceGroundingResult("17,4,5", map[string]string{"GroupA": "17", "GroupB": "4", "GroupC": "5"})
+	result.OutputContract = dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false}
+	result.Reconcile = &dataquery.ReconcileReport{
+		Status:         dataquery.LooseText("pass"),
+		ExpectedAnswer: dataquery.LooseText("17,4,5"),
+		ActualAnswer:   dataquery.LooseText("17,4,5"),
+		Groups: []dataquery.ReconcileGroup{
+			{GroupKey: dataquery.LooseText("GroupA"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("17"), Actual: dataquery.LooseText("17"), Difference: dataquery.LooseText("0")},
+			{GroupKey: dataquery.LooseText("GroupB"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("4"), Actual: dataquery.LooseText("4"), Difference: dataquery.LooseText("0")},
+			{GroupKey: dataquery.LooseText("GroupC"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("5"), Actual: dataquery.LooseText("5"), Difference: dataquery.LooseText("0")},
+		},
+	}
+	result.Artifacts = append(result.Artifacts, dataquery.DataArtifact{ID: "final_answer", Kind: string(dataquery.DataActionAssembleAnswer)})
+	report, candidate, applicable := dataTaskOutputReferenceGroundingReport(root, records, current, result)
+	if !applicable || !report.Violated() || candidate.Path != "targets.csv" || candidate.Field != "canonical_label" {
+		t.Fatalf("report=%+v candidate=%+v applicable=%v, want generated alias resolved to the one source-material reference", report, candidate, applicable)
+	}
+	liveRecords := append(append([]dataTaskWorkflowRecord(nil), records...), dataTaskWorkflowRecord{Plan: current, Result: &result})
+	state := dataTaskWorkflowState(root, liveRecords, current)
+	if state.OutputProjectionGraph.Status != dataworkflow.OutputProjectionStatusGroundingMismatch ||
+		state.NextStage != dataworkflow.StageEmitOutputContractAnswer ||
+		state.Decision.Status == "complete" {
+		t.Fatalf("state=%+v, typed alias lineage mismatch must reopen the model-owned answer stage", state)
+	}
 }
 
 // TestReferenceGroundingGuardAcceptsGroundedTruth: the correct "17,0,5"
@@ -179,6 +258,7 @@ func TestReferenceGroundingGuardFailOpenLanes(t *testing.T) {
 		t.Fatal(err)
 	}
 	wrong := referenceGroundingResult("17,4,5", map[string]string{"GroupA": "17", "GroupB": "4", "GroupC": "5"})
+	wrong.OutputContract = dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false}
 	ambiguous := referenceGroundingContract()
 	ambiguous.RequiredMaterials = append(ambiguous.RequiredMaterials, dataquery.CoverageMaterial{Path: "targets_alt.csv", Purpose: "second reference", Required: true})
 	ambiguousRecords := []dataTaskWorkflowRecord{{Plan: dataquery.TaskPlan{CoverageContract: ambiguous}}}
@@ -494,9 +574,15 @@ func stickinessContract() dataquery.CoverageContract {
 
 func stickinessResult(answer string) dataquery.Result {
 	res := dataquery.Result{
-		Answer:         answer,
-		OutputContract: dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false},
-		ConsumedPaths:  []string{"observations.csv", "labels.csv", "targets.csv"},
+		Answer: answer,
+		OutputContract: dataquery.OutputContract{
+			Format:             dataquery.OutputPlainSingleLine,
+			ExplanationAllowed: false,
+			CompleteReference:  true,
+			ReferencePath:      "targets.csv",
+			ReferenceKeyField:  "target_id",
+		},
+		ConsumedPaths: []string{"observations.csv", "labels.csv", "targets.csv"},
 	}
 	for _, row := range [][2]string{{"T1", "10"}, {"T1", "7"}, {"T3", "5"}} {
 		res.Contributions = append(res.Contributions, dataquery.ContributionRecord{

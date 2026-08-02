@@ -1328,8 +1328,8 @@ func TestDataTaskWorkflowCompletionGateRequiresReferenceCompleteProjection(t *te
 	}
 	guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(root, nil, current, result)
 	errText := guard.ErrorText()
-	if errText == "" || !strings.Contains(errText, "reference field") {
-		t.Fatalf("completion gate err=%q, want reference universe gap", errText)
+	if guard.Code != "output_projection_incomplete_reference" || !strings.Contains(errText, "reference field") {
+		t.Fatalf("completion gate guard=%+v, want declared reference universe gap", guard)
 	}
 	plan, ok := dataTaskRequiredLedgerCompletionPlanWithRepo(root, nil, current, result, guard)
 	if !ok {
@@ -1352,7 +1352,7 @@ func TestDataTaskWorkflowCompletionGateRequiresReferenceCompleteProjection(t *te
 		t.Fatalf("OutputProjectionGraph=%+v, live state must reuse completion reference-gap authority", state.OutputProjectionGraph)
 	}
 	if state.Decision.Status == "complete" || state.Decision.ReasonCode != "output_incomplete_reference" {
-		t.Fatalf("Decision=%+v, live state must not complete before reference projection", state.Decision)
+		t.Fatalf("Decision=%+v, live state must carry the declared reference gap before projection", state.Decision)
 	}
 	if state.NextStage != dataworkflow.StageEmitOutputContractAnswer ||
 		!slices.Contains(state.AllowedNextActions, string(dataquery.DataActionAssembleAnswer)) {
@@ -1438,9 +1438,9 @@ func TestDataTaskWorkflowCompletionGateRejectsReferenceCardinalityMismatch(t *te
 		t.Fatal("reference cardinality mismatch must block terminal completion")
 	}
 	if guard.Code != "output_projection_incomplete_reference" {
-		t.Fatalf("guard=%+v, want incomplete reference projection", guard)
+		t.Fatalf("guard=%+v, want declared incomplete reference projection", guard)
 	}
-	if !strings.Contains(guard.ErrorText(), "final answer has 8 item(s)") {
+	if !strings.Contains(guard.ErrorText(), "answer has 8 item(s)") {
 		t.Fatalf("guard text=%q, want answer/reference item count", guard.ErrorText())
 	}
 }
@@ -1509,7 +1509,7 @@ func TestDataTaskWorkflowCompletionGateInfersReferenceFromAssembleActionInput(t 
 		t.Fatal("assemble input reference set mismatch must block terminal completion")
 	}
 	if guard.Code != "output_projection_incomplete_reference" {
-		t.Fatalf("guard=%+v, want incomplete reference projection", guard)
+		t.Fatalf("guard=%+v, want declared incomplete reference projection", guard)
 	}
 	plan, ok := dataTaskRequiredLedgerCompletionPlanWithRepo(root, nil, current, result, guard)
 	if !ok {
@@ -1672,21 +1672,14 @@ func TestDataTaskWorkflowCompletionGateRejectsReferenceProjectionValueMismatch(t
 	if guard.Empty() {
 		t.Fatal("value-mismatched reference projection metadata must not satisfy terminal completion")
 	}
-	if guard.Code != "output_projection_incomplete_reference" {
-		t.Fatalf("guard=%+v, want incomplete reference projection", guard)
+	if guard.Code != "output_reference_grounding_mismatch" {
+		t.Fatalf("guard=%+v, want typed reference grounding mismatch", guard)
 	}
-	plan, ok := dataTaskRequiredLedgerCompletionPlanWithRepo(root, nil, current, result, guard)
-	if !ok {
-		t.Fatal("expected deterministic projection repair")
+	if plan, ok := dataTaskRequiredLedgerCompletionPlanWithRepo(root, nil, current, result, guard); ok {
+		t.Fatalf("same-count value mismatch must stay model-owned; deterministic repair=%+v", plan)
 	}
-	if plan.Actions[0].Kind != dataquery.DataActionAssembleAnswer {
-		t.Fatalf("Actions=%+v, want assemble_answer repair", plan.Actions)
-	}
-	inputs := strings.Join(plan.Actions[0].InputPaths, ",")
-	for _, want := range []string{"targets.csv", "reconcile_result", "workflow_contributions"} {
-		if !strings.Contains(inputs, want) {
-			t.Fatalf("InputPaths=%v, want structural handoff alias %q", plan.Actions[0].InputPaths, want)
-		}
+	if len(guard.Violations) != 1 || guard.Violations[0].InputAlias != "targets.csv" || guard.Violations[0].Field != "canonical_label" {
+		t.Fatalf("guard=%+v, want typed source reference parameters for model repair", guard)
 	}
 }
 
@@ -1748,7 +1741,7 @@ func TestDataTaskWorkflowCompletionGateRejectsMismatchedReferenceProjectionMetad
 		t.Fatal("broad reference projection metadata must not satisfy the target reference contract")
 	}
 	if guard.Code != "output_projection_incomplete_reference" {
-		t.Fatalf("guard=%+v, want incomplete reference projection", guard)
+		t.Fatalf("guard=%+v, want declared incomplete reference projection", guard)
 	}
 	plan, ok := dataTaskRequiredLedgerCompletionPlanWithRepo(root, nil, current, result, guard)
 	if !ok {
@@ -2240,17 +2233,11 @@ func TestDataTaskWorkflowCompletionGateRejectsUnprojectedSameCountReferenceAnswe
 	if guard.Empty() {
 		t.Fatal("same-count answer without reference projection metadata must block terminal completion")
 	}
-	if guard.Code != "output_projection_incomplete_reference" {
-		t.Fatalf("guard=%+v, want incomplete reference projection", guard)
+	if guard.Code != "output_reference_grounding_mismatch" {
+		t.Fatalf("guard=%+v, want typed reference grounding mismatch", guard)
 	}
-	plan, ok := dataTaskRequiredLedgerCompletionPlanWithRepo(root, nil, current, result, guard)
-	if !ok {
-		t.Fatal("expected deterministic reference projection repair")
-	}
-	if plan.OutputContract.ReferencePath != "targets.csv" ||
-		plan.OutputContract.ReferenceKeyField != "canonical_label" ||
-		!plan.OutputContract.CompleteReference {
-		t.Fatalf("OutputContract=%+v, want reference-complete targets.csv/canonical_label projection", plan.OutputContract)
+	if plan, ok := dataTaskRequiredLedgerCompletionPlanWithRepo(root, nil, current, result, guard); ok {
+		t.Fatalf("same-count slot mismatch must remain a model repair, deterministic plan=%+v", plan)
 	}
 }
 
@@ -2315,7 +2302,7 @@ func TestDataTaskWorkflowCompletionGateDetectsReferenceSubsetWithRollup(t *testi
 		t.Fatal("reference subset with rollup must block terminal completion")
 	}
 	if guard.Code != "output_projection_incomplete_reference" {
-		t.Fatalf("guard=%+v, want incomplete reference projection", guard)
+		t.Fatalf("guard=%+v, want declared incomplete reference projection", guard)
 	}
 	plan, ok := dataTaskRequiredLedgerCompletionPlanWithRepo(root, nil, current, result, guard)
 	if !ok {
@@ -2540,7 +2527,7 @@ func TestDataTaskReferenceProjectionRequiresExplicitAssembleReferenceField(t *te
 	}
 }
 
-func TestDataTaskWorkflowCompletionGateChoosesReferenceFieldByGroupOverlap(t *testing.T) {
+func TestDataTaskWorkflowCompletionGateHonorsDeclaredReferenceFieldAndReportsDomainMismatch(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "targets.csv"), []byte("target_id,canonical_label\nT1,GroupA\nT2,GroupX\nT3,GroupC\n"), 0600); err != nil {
 		t.Fatal(err)
@@ -2600,15 +2587,14 @@ func TestDataTaskWorkflowCompletionGateChoosesReferenceFieldByGroupOverlap(t *te
 	if guard.Empty() {
 		t.Fatal("misaligned reference field must block terminal completion")
 	}
-	if guard.Code != "output_projection_incomplete_reference" {
-		t.Fatalf("guard=%+v, want incomplete reference projection", guard)
+	if guard.Code != "output_reference_grounding_mismatch" {
+		t.Fatalf("guard=%+v, want typed reference grounding mismatch", guard)
 	}
-	plan, ok := dataTaskRequiredLedgerCompletionPlanWithRepo(root, nil, current, result, guard)
-	if !ok {
-		t.Fatal("expected deterministic reference projection repair")
+	if plan, ok := dataTaskRequiredLedgerCompletionPlanWithRepo(root, nil, current, result, guard); ok {
+		t.Fatalf("same-count field mismatch must remain model-owned, deterministic plan=%+v", plan)
 	}
-	if plan.OutputContract.ReferenceKeyField != "canonical_label" {
-		t.Fatalf("OutputContract=%+v, want overlap-selected canonical_label field", plan.OutputContract)
+	if len(guard.Violations) != 1 || guard.Violations[0].Field != "target_id" || !strings.Contains(guard.ErrorText(), "recomputed grouped by the reference key domain") {
+		t.Fatalf("guard=%+v, want declared target_id preserved with a ledger-domain mismatch", guard)
 	}
 }
 
@@ -11388,8 +11374,8 @@ func TestDataTaskWorkflowCompletionGateUndeclaredSubsetAnswerCompletes(t *testin
 		}},
 	}
 	guard := dataTaskWorkflowCompletionGateGuardResultWithRepo(root, nil, current, result)
-	if !guard.Empty() && guard.Code == "output_projection_incomplete_reference" {
-		t.Fatalf("undeclared subset answer must not be reference-blocked, got %q", guard.ErrorText())
+	if !guard.Empty() {
+		t.Fatalf("undeclared subset answer must not be hard-blocked by a structurally inferred reference set, got %+v", guard)
 	}
 	if plan, ok := dataTaskRequiredLedgerCompletionPlanWithRepo(root, nil, current, result, guard); ok && plan.OutputContract.CompleteReference {
 		t.Fatalf("undeclared subset answer must not be rewritten by zero-fill projection, plan=%+v", plan.OutputContract)

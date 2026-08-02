@@ -11,24 +11,30 @@ const (
 	OutputProjectionStatusMissingAnswer       = "missing_answer"
 	OutputProjectionStatusMissingProjection   = "missing_projection"
 	OutputProjectionStatusIncompleteReference = "incomplete_reference"
+	OutputProjectionStatusGroundingMismatch   = "reference_grounding_mismatch"
 
 	OutputProjectionReasonSatisfied           = "satisfied"
 	OutputProjectionReasonNoAnswer            = "no_answer"
 	OutputProjectionReasonStrictContract      = "strict_contract_projection_required"
 	OutputProjectionReasonReferenceIncomplete = "reference_projection_incomplete"
+	OutputProjectionReasonGroundingMismatch   = "reference_grounding_mismatch"
 )
 
 type OutputProjectionGraphInput struct {
-	Output                    dataquery.OutputContract
-	Coverage                  dataquery.CoverageContract
-	AnswerPresent             bool
-	ProjectionArtifactPresent bool
-	ReconcilePresent          bool
-	ReconcileGroups           int
-	PlanHasCustomTransform    bool
-	ReferenceGapPresent       bool
-	ReferenceKeyCount         int
-	AnswerItemCount           int
+	Output                        dataquery.OutputContract
+	Coverage                      dataquery.CoverageContract
+	AnswerPresent                 bool
+	ProjectionArtifactPresent     bool
+	ReconcilePresent              bool
+	ReconcileGroups               int
+	PlanHasCustomTransform        bool
+	ReferenceGapPresent           bool
+	ReferenceKeyCount             int
+	AnswerItemCount               int
+	ReferenceGroundingMismatch    bool
+	ReferenceCardinalityMismatch  bool
+	ReferenceLedgerDomainMismatch bool
+	ReferenceMismatchCount        int
 }
 
 func BuildOutputProjectionGraph(input OutputProjectionGraphInput) OutputProjectionGraph {
@@ -37,17 +43,25 @@ func BuildOutputProjectionGraph(input OutputProjectionGraphInput) OutputProjecti
 	answerPresent := input.AnswerPresent
 	projectionArtifactPresent := input.ProjectionArtifactPresent
 	reconcilePresent := input.ReconcilePresent || input.ReconcileGroups > 0
-	referenceRequired := input.ReferenceGapPresent
+	referenceRequired := input.ReferenceGapPresent || input.ReferenceGroundingMismatch
 	needsProjection := outputProjectionNeedsAssembly(input, strict, reconcilePresent)
 	required := referenceRequired || needsProjection || !answerPresent
 	status := OutputProjectionStatusSatisfied
 	reason := OutputProjectionReasonSatisfied
 	var missing []string
 	switch {
-	case referenceRequired:
+	case input.ReferenceGroundingMismatch && !input.ReferenceCardinalityMismatch:
+		status = OutputProjectionStatusGroundingMismatch
+		reason = OutputProjectionReasonGroundingMismatch
+		missing = append(missing, "reference_grounded_projection")
+	case input.ReferenceGapPresent:
 		status = OutputProjectionStatusIncompleteReference
 		reason = OutputProjectionReasonReferenceIncomplete
 		missing = append(missing, "reference_complete_projection")
+	case input.ReferenceGroundingMismatch:
+		status = OutputProjectionStatusGroundingMismatch
+		reason = OutputProjectionReasonGroundingMismatch
+		missing = append(missing, "reference_grounded_projection")
 	case needsProjection:
 		status = OutputProjectionStatusMissingProjection
 		reason = OutputProjectionReasonStrictContract
@@ -58,20 +72,24 @@ func BuildOutputProjectionGraph(input OutputProjectionGraphInput) OutputProjecti
 		missing = append(missing, "answer")
 	}
 	return OutputProjectionGraph{
-		Required:                  required,
-		StrictContract:            strict,
-		AnswerPresent:             answerPresent,
-		ProjectionArtifactPresent: projectionArtifactPresent,
-		ReconcilePresent:          reconcilePresent,
-		ReconcileGroups:           input.ReconcileGroups,
-		ReferenceCompleteRequired: referenceRequired,
-		ReferenceComplete:         !referenceRequired,
-		ReferenceKeyCount:         input.ReferenceKeyCount,
-		AnswerItemCount:           input.AnswerItemCount,
-		Status:                    status,
-		ReasonCode:                reason,
-		ProducesActions:           cleanStrings([]string{string(dataquery.DataActionAssembleAnswer)}),
-		MissingPrerequisites:      cleanStrings(missing),
+		Required:                      required,
+		StrictContract:                strict,
+		AnswerPresent:                 answerPresent,
+		ProjectionArtifactPresent:     projectionArtifactPresent,
+		ReconcilePresent:              reconcilePresent,
+		ReconcileGroups:               input.ReconcileGroups,
+		ReferenceCompleteRequired:     referenceRequired,
+		ReferenceComplete:             !referenceRequired,
+		ReferenceKeyCount:             input.ReferenceKeyCount,
+		AnswerItemCount:               input.AnswerItemCount,
+		ReferenceGroundingMismatch:    input.ReferenceGroundingMismatch,
+		ReferenceCardinalityMismatch:  input.ReferenceCardinalityMismatch,
+		ReferenceLedgerDomainMismatch: input.ReferenceLedgerDomainMismatch,
+		ReferenceMismatchCount:        input.ReferenceMismatchCount,
+		Status:                        status,
+		ReasonCode:                    reason,
+		ProducesActions:               cleanStrings([]string{string(dataquery.DataActionAssembleAnswer)}),
+		MissingPrerequisites:          cleanStrings(missing),
 	}
 }
 

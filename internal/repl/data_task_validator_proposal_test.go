@@ -58,6 +58,14 @@ func validatorProposalWitnessRecords() ([]dataTaskWorkflowRecord, dataquery.Task
 			Goal:             "project per-target totals",
 			CoverageContract: contract,
 			OutputContract:   wrong.OutputContract,
+			Actions: []dataquery.DataAction{{
+				ID:   "project_targets",
+				Kind: dataquery.DataActionAssembleAnswer,
+				Params: map[string]string{
+					"reference_path":      "targets.csv",
+					"reference_key_field": "canonical_label",
+				},
+			}},
 		},
 		Result: &wrong,
 	}}

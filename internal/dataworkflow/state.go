@@ -223,20 +223,24 @@ type LedgerDependency struct {
 }
 
 type OutputProjectionGraph struct {
-	Required                  bool     `json:"required,omitempty"`
-	StrictContract            bool     `json:"strict_contract,omitempty"`
-	AnswerPresent             bool     `json:"answer_present,omitempty"`
-	ProjectionArtifactPresent bool     `json:"projection_artifact_present,omitempty"`
-	ReconcilePresent          bool     `json:"reconcile_present,omitempty"`
-	ReconcileGroups           int      `json:"reconcile_groups,omitempty"`
-	ReferenceCompleteRequired bool     `json:"reference_complete_required,omitempty"`
-	ReferenceComplete         bool     `json:"reference_complete,omitempty"`
-	ReferenceKeyCount         int      `json:"reference_key_count,omitempty"`
-	AnswerItemCount           int      `json:"answer_item_count,omitempty"`
-	Status                    string   `json:"status,omitempty"`
-	ReasonCode                string   `json:"reason_code,omitempty"`
-	ProducesActions           []string `json:"produces_actions,omitempty"`
-	MissingPrerequisites      []string `json:"missing_prerequisites,omitempty"`
+	Required                      bool     `json:"required,omitempty"`
+	StrictContract                bool     `json:"strict_contract,omitempty"`
+	AnswerPresent                 bool     `json:"answer_present,omitempty"`
+	ProjectionArtifactPresent     bool     `json:"projection_artifact_present,omitempty"`
+	ReconcilePresent              bool     `json:"reconcile_present,omitempty"`
+	ReconcileGroups               int      `json:"reconcile_groups,omitempty"`
+	ReferenceCompleteRequired     bool     `json:"reference_complete_required,omitempty"`
+	ReferenceComplete             bool     `json:"reference_complete,omitempty"`
+	ReferenceKeyCount             int      `json:"reference_key_count,omitempty"`
+	AnswerItemCount               int      `json:"answer_item_count,omitempty"`
+	ReferenceGroundingMismatch    bool     `json:"reference_grounding_mismatch,omitempty"`
+	ReferenceCardinalityMismatch  bool     `json:"reference_cardinality_mismatch,omitempty"`
+	ReferenceLedgerDomainMismatch bool     `json:"reference_ledger_domain_mismatch,omitempty"`
+	ReferenceMismatchCount        int      `json:"reference_mismatch_count,omitempty"`
+	Status                        string   `json:"status,omitempty"`
+	ReasonCode                    string   `json:"reason_code,omitempty"`
+	ProducesActions               []string `json:"produces_actions,omitempty"`
+	MissingPrerequisites          []string `json:"missing_prerequisites,omitempty"`
 }
 
 type WorkflowProgress struct {
@@ -403,7 +407,7 @@ func workflowDecisionStatusLooksComplete(status string) bool {
 
 func workflowGraphDecisionDetails(ledgerGraph LedgerGraph, outputGraph OutputProjectionGraph) (string, string, []string) {
 	switch outputGraph.Status {
-	case OutputProjectionStatusIncompleteReference, OutputProjectionStatusMissingProjection:
+	case OutputProjectionStatusGroundingMismatch, OutputProjectionStatusIncompleteReference, OutputProjectionStatusMissingProjection:
 		return "output_" + outputGraph.Status,
 			outputProjectionDecisionReason(outputGraph),
 			cleanStrings(outputGraph.ProducesActions)
@@ -456,6 +460,8 @@ func workflowLedgerDecisionCode(dep LedgerDependency) string {
 
 func outputProjectionDecisionReason(graph OutputProjectionGraph) string {
 	switch graph.Status {
+	case OutputProjectionStatusGroundingMismatch:
+		return "current answer does not satisfy the typed reference-grounding verdict"
 	case OutputProjectionStatusIncompleteReference:
 		return "output projection is incomplete for the declared reference key universe"
 	case OutputProjectionStatusMissingProjection:

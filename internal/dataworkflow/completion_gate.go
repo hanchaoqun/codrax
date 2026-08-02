@@ -32,6 +32,15 @@ func CompletionGateGuardResult(input CompletionGateGuardInput) GuardResult {
 		return ledgerGuard
 	}
 	switch input.OutputGraph.Status {
+	case OutputProjectionStatusGroundingMismatch:
+		// Preserve the full typed grounding violation (reference path/field
+		// and per-slot evidence) when available. The graph status exists so
+		// live stage/decision authority is consistent before the terminal
+		// gate runs; it must not degrade the gate's richer repair payload.
+		if !input.ReferenceGrounding.Empty() {
+			return input.ReferenceGrounding
+		}
+		return outputProjectionGuardResult(input.OutputGraph, input.ReferenceGap)
 	case OutputProjectionStatusIncompleteReference:
 		return outputProjectionGuardResult(input.OutputGraph, input.ReferenceGap)
 	case OutputProjectionStatusMissingProjection:
@@ -186,6 +195,9 @@ func outputProjectionGuardResult(graph OutputProjectionGraph, gap ReferenceProje
 
 func outputProjectionCompletionMessage(graph OutputProjectionGraph, gap ReferenceProjectionGap) string {
 	switch graph.Status {
+	case OutputProjectionStatusGroundingMismatch:
+		return fmt.Sprintf("validate data workflow completion: data output reference grounding is inconsistent: %d answer item(s), %d reference key(s), cardinality_mismatch=%t, ledger_domain_mismatch=%t, slot_mismatches=%d; run assemble_answer from the typed reference and contribution ledgers",
+			graph.AnswerItemCount, graph.ReferenceKeyCount, graph.ReferenceCardinalityMismatch, graph.ReferenceLedgerDomainMismatch, graph.ReferenceMismatchCount)
 	case OutputProjectionStatusIncompleteReference:
 		candidate := gap.Candidate
 		return fmt.Sprintf("validate data workflow completion: data output incomplete: final answer has %d item(s), but reference field %q in %q defines %d output key(s); run assemble_answer with complete_reference=true, reference_path, and reference_key_field to project missing zero/empty values without changing contribution records",

@@ -5610,17 +5610,31 @@ func dataTaskWorkflowCompletionOutputProjectionGraphInput(repoRoot string, recor
 	if result.Reconcile != nil {
 		reconcileGroups = len(result.Reconcile.Groups)
 	}
+	groundingReport, _, groundingApplicable := dataTaskOutputReferenceGroundingReport(repoRoot, records, current, result)
+	groundingMismatch := groundingApplicable && groundingReport.Violated()
+	if groundingApplicable {
+		if groundingReport.ReferenceKeyCount > 0 {
+			referenceGap.Candidate.KeyCount = groundingReport.ReferenceKeyCount
+		}
+		if groundingReport.AnswerItemCount > 0 {
+			answerItems = groundingReport.AnswerItemCount
+		}
+	}
 	return dataworkflow.OutputProjectionGraphInput{
-		Output:                    firstNonEmptyOutputContract(result.OutputContract, dataTaskWorkflowOutputContract(records, current), current.OutputContract),
-		Coverage:                  dataTaskWorkflowCoverageContract(repoRoot, records, current),
-		AnswerPresent:             dataworkflow.ResultAnswerPresent(result),
-		ProjectionArtifactPresent: dataworkflow.ResultHasAssembleAnswerArtifact(result),
-		ReconcilePresent:          result.Reconcile != nil,
-		ReconcileGroups:           reconcileGroups,
-		PlanHasCustomTransform:    dataTaskPlanHasCustomTransform(current),
-		ReferenceGapPresent:       referenceGap.Present && referenceGap.Declared,
-		ReferenceKeyCount:         referenceGap.Candidate.KeyCount,
-		AnswerItemCount:           answerItems,
+		Output:                        firstNonEmptyOutputContract(result.OutputContract, dataTaskWorkflowOutputContract(records, current), current.OutputContract),
+		Coverage:                      dataTaskWorkflowCoverageContract(repoRoot, records, current),
+		AnswerPresent:                 dataworkflow.ResultAnswerPresent(result),
+		ProjectionArtifactPresent:     dataworkflow.ResultHasAssembleAnswerArtifact(result),
+		ReconcilePresent:              result.Reconcile != nil,
+		ReconcileGroups:               reconcileGroups,
+		PlanHasCustomTransform:        dataTaskPlanHasCustomTransform(current),
+		ReferenceGapPresent:           referenceGap.Present && referenceGap.Declared,
+		ReferenceKeyCount:             referenceGap.Candidate.KeyCount,
+		AnswerItemCount:               answerItems,
+		ReferenceGroundingMismatch:    groundingMismatch,
+		ReferenceCardinalityMismatch:  groundingReport.CardinalityMismatch,
+		ReferenceLedgerDomainMismatch: groundingReport.LedgerDomainMismatch,
+		ReferenceMismatchCount:        len(groundingReport.Mismatches),
 	}
 }
 
@@ -5731,7 +5745,10 @@ func dataTaskOutputReferenceProjectionGap(repoRoot string, records []dataTaskWor
 // Workflows with no resolvable reference set are untouched (fail-open).
 func dataTaskOutputReferenceGroundingGuardResult(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) dataworkflow.GuardResult {
 	report, candidate, applicable := dataTaskOutputReferenceGroundingReport(repoRoot, records, current, result)
-	if !applicable || !report.Violated() {
+	if !applicable {
+		return dataTaskInvalidGeneratedReferenceAuthorityGuardResult(repoRoot, records, current, result)
+	}
+	if !report.Violated() {
 		return dataworkflow.GuardResult{}
 	}
 	detail := dataquery.DescribeReferenceGroundingMismatches(report)
@@ -5756,6 +5773,36 @@ func dataTaskOutputReferenceGroundingGuardResult(repoRoot string, records []data
 	return dataworkflow.NewGuardResult("output_reference_grounding_mismatch", "error", dataworkflow.RepairNeedsTypedAction, message, violation)
 }
 
+// dataTaskInvalidGeneratedReferenceAuthorityGuardResult rejects an explicit
+// complete-reference contract that names a workflow-generated alias but
+// cannot be traced to a compatible source-material key field. It never
+// substitutes a structurally guessed reference set; the model receives the
+// invalid typed carrier and must repair it. Source-material declarations and
+// genuinely inapplicable ledgers remain owned by their existing gates.
+func dataTaskInvalidGeneratedReferenceAuthorityGuardResult(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) dataworkflow.GuardResult {
+	contract := firstNonEmptyOutputContract(result.OutputContract, dataTaskWorkflowOutputContract(records, current), current.OutputContract).Normalize()
+	path := strings.TrimSpace(contract.ReferencePath)
+	if !contract.CompleteReference || path == "" || dataTaskReferencePathIsWorkflowMaterial(repoRoot, records, current, result, path) {
+		return dataworkflow.GuardResult{}
+	}
+	if _, ok := dataTaskResolveDeclaredOutputReferenceSet(repoRoot, records, current, result, contract); ok {
+		return dataworkflow.GuardResult{}
+	}
+	message := fmt.Sprintf("validate data workflow completion: complete-reference authority %q is a generated artifact alias without one compatible source-material lineage for key field %q; repair assemble_answer to name the original source reference_path and reference_key_field", path, strings.TrimSpace(contract.ReferenceKeyField))
+	violation := dataworkflow.NewActionInputViolation(
+		"output_reference_authority_invalid",
+		"error",
+		dataworkflow.RepairNeedsTypedAction,
+		dataquery.DataAction{ID: "repair_output_reference_authority", Kind: dataquery.DataActionAssembleAnswer},
+		path,
+		nil,
+		message,
+		[]string{string(dataquery.DataActionAssembleAnswer)},
+	)
+	violation.Field = strings.TrimSpace(contract.ReferenceKeyField)
+	return dataworkflow.NewGuardResult("output_reference_authority_invalid", "error", dataworkflow.RepairNeedsTypedAction, message, violation)
+}
+
 // dataTaskOutputReferenceGroundingReport runs the full grounding evaluation
 // and reports applicability separately from the verdict: fail-open
 // (inapplicable) is NOT a positive validation — the stickiness gate must
@@ -5765,7 +5812,7 @@ func dataTaskOutputReferenceGroundingReport(repoRoot string, records []dataTaskW
 		return dataquery.ReferenceGroundingReport{}, dataquery.ReferenceKeyCandidate{}, false
 	}
 	contract := firstNonEmptyOutputContract(result.OutputContract, dataTaskWorkflowOutputContract(records, current), current.OutputContract).Normalize()
-	candidate, ok := dataTaskResolveOutputReferenceSet(repoRoot, records, current, result, contract)
+	candidate, ok := dataTaskResolveDeclaredOutputReferenceSet(repoRoot, records, current, result, contract)
 	if !ok {
 		return dataquery.ReferenceGroundingReport{}, dataquery.ReferenceKeyCandidate{}, false
 	}
@@ -5773,9 +5820,128 @@ func dataTaskOutputReferenceGroundingReport(repoRoot string, records []dataTaskW
 	return report, candidate, applicable
 }
 
-// dataTaskResolveOutputReferenceSet resolves THE reference key universe for
-// output grounding through precise credentials only (hard gates demand
-// precise signals):
+// dataTaskResolveDeclaredOutputReferenceSet resolves hard reference-grounding
+// authority from typed output intent, never from the structural census alone.
+// The census may discover useful reference candidates, but whether the user
+// requested a complete projection is an intent fact: only an explicit
+// complete_reference contract or an assemble_answer reference_path plus key
+// field can establish it. A generated reference alias is not itself trusted
+// as the universe; it may only lead to one unambiguous source material through
+// typed artifact lineage, and the source bytes are re-read for the candidate.
+func dataTaskResolveDeclaredOutputReferenceSet(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, contract dataquery.OutputContract) (dataquery.ReferenceKeyCandidate, bool) {
+	if len(result.Contributions) == 0 {
+		return dataquery.ReferenceKeyCandidate{}, false
+	}
+	runner := dataquery.ActionRunner{RepoRoot: strings.TrimSpace(repoRoot), Seed: result}
+	groupKeys := dataTaskContributionGroupKeys(result.Contributions)
+	if contract.CompleteReference && strings.TrimSpace(contract.ReferencePath) != "" {
+		if candidate, ok := dataTaskDeclaredReferenceCandidateForPath(repoRoot, records, current, result, runner, contract.ReferencePath, []string{contract.ReferenceKeyField}, groupKeys); ok {
+			return candidate, true
+		}
+		return dataquery.ReferenceKeyCandidate{}, false
+	}
+	plans := make([]dataquery.TaskPlan, 0, len(records)+1)
+	plans = append(plans, current)
+	for i := len(records) - 1; i >= 0; i-- {
+		plans = append(plans, records[i].Plan)
+	}
+	for _, plan := range plans {
+		for _, action := range plan.Actions {
+			if dataworkflow.NormalizeActionKind(action.Kind) != dataquery.DataActionAssembleAnswer {
+				continue
+			}
+			fields := dataTaskAssembleActionDeclaredReferenceFields(action, contract)
+			paths := cleanDataTaskStrings([]string{action.Params["reference_path"], action.Params["reference_paths"]})
+			if len(fields) == 0 || len(paths) == 0 {
+				continue
+			}
+			var candidates []dataquery.ReferenceKeyCandidate
+			for _, path := range paths {
+				if candidate, ok := dataTaskDeclaredReferenceCandidateForPath(repoRoot, records, current, result, runner, path, fields, groupKeys); ok {
+					candidates = append(candidates, candidate)
+				}
+			}
+			if candidate, ok := dataTaskConsensusReferenceCandidate(candidates); ok {
+				return candidate, true
+			}
+		}
+	}
+	return dataquery.ReferenceKeyCandidate{}, false
+}
+
+func dataTaskDeclaredReferenceCandidateForPath(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, runner dataquery.ActionRunner, path string, fields, groupKeys []string) (dataquery.ReferenceKeyCandidate, bool) {
+	var sourcePaths []string
+	if dataTaskReferencePathIsWorkflowMaterial(repoRoot, records, current, result, path) {
+		sourcePaths = append(sourcePaths, path)
+	} else {
+		sourcePaths = dataTaskArtifactAliasSourceMaterialPaths(repoRoot, records, current, result, path)
+	}
+	var candidates []dataquery.ReferenceKeyCandidate
+	for _, sourcePath := range cleanDataTaskStrings(sourcePaths) {
+		for _, candidate := range dataTaskReferenceCandidatesForPath(runner, sourcePath, fields, groupKeys) {
+			candidates = append(candidates, candidate)
+		}
+	}
+	return dataTaskConsensusReferenceCandidate(candidates)
+}
+
+func dataTaskConsensusReferenceCandidate(candidates []dataquery.ReferenceKeyCandidate) (dataquery.ReferenceKeyCandidate, bool) {
+	if len(candidates) == 0 {
+		return dataquery.ReferenceKeyCandidate{}, false
+	}
+	best := candidates[0]
+	for _, candidate := range candidates[1:] {
+		if !dataTaskStringSlicesEqual(candidate.Keys, best.Keys) {
+			return dataquery.ReferenceKeyCandidate{}, false
+		}
+		if dataTaskReferenceProjectionCandidateBetter(candidate, best) {
+			best = candidate
+		}
+	}
+	return best, true
+}
+
+func dataTaskArtifactAliasSourceMaterialPaths(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, alias string) []string {
+	want := normalizeDataTaskCoveragePath(alias)
+	if want == "" {
+		return nil
+	}
+	withLatest := append(append([]dataTaskWorkflowRecord(nil), records...), dataTaskWorkflowRecord{Plan: current, Result: &result})
+	var sourcePaths []string
+	var walk func(dataquery.DataArtifact)
+	walk = func(artifact dataquery.DataArtifact) {
+		matched := false
+		for _, candidateAlias := range append(dataTaskArtifactAliasPaths(artifact), artifact.Fields["artifact_path"]) {
+			if normalizeDataTaskCoveragePath(candidateAlias) == want {
+				matched = true
+				break
+			}
+		}
+		if matched {
+			for _, sourcePath := range artifact.SourcePaths {
+				if dataTaskReferencePathIsWorkflowMaterial(repoRoot, withLatest, current, result, sourcePath) {
+					sourcePaths = append(sourcePaths, sourcePath)
+				}
+			}
+		}
+		for _, child := range artifact.Children {
+			walk(child)
+		}
+	}
+	for _, artifact := range dataTaskWorkflowArtifacts(records, result) {
+		walk(artifact)
+	}
+	sourcePaths = cleanDataTaskStrings(sourcePaths)
+	if len(sourcePaths) != 1 {
+		return nil
+	}
+	return sourcePaths
+}
+
+// dataTaskResolveOutputReferenceSet is the structural reference candidate
+// resolver. Its result is suitable for soft discovery and diagnostics, but
+// does not by itself prove that the user requested a complete projection;
+// hard grounding uses dataTaskResolveDeclaredOutputReferenceSet above.
 //
 //	lane 1 — typed declaration: output contract carries
 //	         complete_reference=true with a reference_path that is a task
@@ -5798,11 +5964,8 @@ func dataTaskOutputReferenceGroundingReport(repoRoot string, records []dataTaskW
 //	         optional_materials while only required_materials were scanned.
 //
 // Any ambiguity — competing key sequences, no qualifying field, no
-// contributions at all — resolves to false and the grounding check stays
-// fail-open. Field names carry no business meaning here; the credential is
-// purely structural, and a corpus census over every data eval fixture
-// (2026-07-19) finds exactly one anchor (targets.csv#canonical_label) and
-// zero false anchors.
+// contributions at all — resolves to false. Field names carry no business
+// meaning here; the candidate is purely structural.
 func dataTaskResolveOutputReferenceSet(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, contract dataquery.OutputContract) (dataquery.ReferenceKeyCandidate, bool) {
 	if len(result.Contributions) == 0 {
 		return dataquery.ReferenceKeyCandidate{}, false

@@ -43,6 +43,50 @@ func TestBuildOutputProjectionGraphReportsReferenceIncomplete(t *testing.T) {
 	}
 }
 
+func TestBuildOutputProjectionGraphReportsReferenceGroundingMismatch(t *testing.T) {
+	graph := BuildOutputProjectionGraph(OutputProjectionGraphInput{
+		Output:                     dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false},
+		AnswerPresent:              true,
+		ReferenceKeyCount:          3,
+		AnswerItemCount:            3,
+		ReferenceGroundingMismatch: true,
+		ReferenceMismatchCount:     1,
+	})
+	if graph.Status != OutputProjectionStatusGroundingMismatch || !graph.ReferenceGroundingMismatch || graph.ReferenceComplete {
+		t.Fatalf("graph=%+v, want typed reference grounding mismatch", graph)
+	}
+	if graph.ReferenceKeyCount != 3 || graph.AnswerItemCount != 3 || graph.ReferenceMismatchCount != 1 {
+		t.Fatalf("graph=%+v, want grounding counts preserved", graph)
+	}
+}
+
+func TestBuildOutputProjectionGraphKeepsDeclaredCardinalityGapAuthority(t *testing.T) {
+	graph := BuildOutputProjectionGraph(OutputProjectionGraphInput{
+		AnswerPresent:                true,
+		ReferenceGapPresent:          true,
+		ReferenceKeyCount:            3,
+		AnswerItemCount:              2,
+		ReferenceGroundingMismatch:   true,
+		ReferenceCardinalityMismatch: true,
+	})
+	if graph.Status != OutputProjectionStatusIncompleteReference || !graph.ReferenceCardinalityMismatch {
+		t.Fatalf("graph=%+v, declared cardinality gaps must keep the existing incomplete-reference repair authority", graph)
+	}
+}
+
+func TestBuildOutputProjectionGraphKeepsUndeclaredGroundingModelOwned(t *testing.T) {
+	graph := BuildOutputProjectionGraph(OutputProjectionGraphInput{
+		AnswerPresent:                true,
+		ReferenceKeyCount:            3,
+		AnswerItemCount:              2,
+		ReferenceGroundingMismatch:   true,
+		ReferenceCardinalityMismatch: true,
+	})
+	if graph.Status != OutputProjectionStatusGroundingMismatch {
+		t.Fatalf("graph=%+v, a grounding verdict without a declared gap must remain on the model-owned repair lane", graph)
+	}
+}
+
 func TestNextStageWithOutputProjectionReopensOnlyTerminalProjection(t *testing.T) {
 	completeFacts := StageFacts{MaterialCoverageSufficient: true, HasAnswer: true}
 	if got := NextStageWithOutputProjection(completeFacts, OutputProjectionGraph{Status: OutputProjectionStatusIncompleteReference}); got != StageEmitOutputContractAnswer {
@@ -50,6 +94,9 @@ func TestNextStageWithOutputProjectionReopensOnlyTerminalProjection(t *testing.T
 	}
 	if got := NextStageWithOutputProjection(completeFacts, OutputProjectionGraph{Status: OutputProjectionStatusSatisfied}); got != StageComplete {
 		t.Fatalf("stage=%q, satisfied output must remain complete", got)
+	}
+	if got := NextStageWithOutputProjection(completeFacts, OutputProjectionGraph{Status: OutputProjectionStatusGroundingMismatch}); got != StageEmitOutputContractAnswer {
+		t.Fatalf("stage=%q, grounding mismatch must reopen the model-owned output stage", got)
 	}
 	pendingFacts := StageFacts{MaterialCoverageSufficient: true, ContributionLedgerRequired: true}
 	if got := NextStageWithOutputProjection(pendingFacts, OutputProjectionGraph{Status: OutputProjectionStatusIncompleteReference}); got != StagePrepareContributionInputs {
