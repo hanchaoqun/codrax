@@ -86,5 +86,12 @@ func RuntimeTracePrincipalValueMaterializationAllowed(rm *RequestModel, set Trac
 	if RuntimeTraceReportMaterializationAllowed(rm, set) {
 		return true
 	}
+	if rm != nil && rm.RuntimeQuestionProfile != nil && rm.RuntimeQuestionProfile.BoundedFactSet() && len(rm.RuntimeQuestionProfile.FactFamilies) > 0 {
+		return rm.RuntimeQuestionProfile.RequestsTargetStatePrincipalValues()
+	}
+	// Compatibility for old serialized RequestModels and focused synthetic
+	// fixtures created before fact_families existed. New analyzer emissions
+	// must declare at least one family for bounded_fact_set, so production
+	// requests do not enter this coarse legacy arm.
 	return rm != nil && IsFocusedRuntimeFactQuestion(*rm)
 }

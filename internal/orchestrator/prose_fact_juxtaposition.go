@@ -173,6 +173,13 @@ func proseFactJuxtapositionFindings(doc *types.AnswerDocumentV2, bus *types.BusC
 	if !ledger.HasDeterministicRuntimeQueryObservation() {
 		return nil
 	}
+	statePrincipalAllowed := true
+	if bus.AnalysisIR != nil {
+		statePrincipalAllowed = types.RuntimeTracePrincipalValueMaterializationAllowed(
+			&bus.AnalysisIR.RequestModel,
+			types.CompileTraceCausalProjectionSet(ledger),
+		)
+	}
 	facts, freqByCPU, freqSeen := buildProseFactEvidence(ledger)
 	prose := collectModelProseUnits(doc)
 
@@ -213,24 +220,28 @@ func proseFactJuxtapositionFindings(doc *types.AnswerDocumentV2, bus *types.BusC
 	// presence → the thread's typed state account with the mutual-exclusion
 	// partition fact (pure presence trigger + typed listing; the reader
 	// juxtaposes — no relation reading of the prose).
-	for _, f := range proseFactStatePartitionFindings(prose, facts) {
-		add(f)
+	if statePrincipalAllowed {
+		for _, f := range proseFactStatePartitionFindings(prose, facts) {
+			add(f)
+		}
 	}
 
 	// ── per-thread fact lines (presence-triggered) ───────────────────────
-	present := proseFactPresentThreads(prose, facts)
-	sort.SliceStable(present, func(i, j int) bool {
-		if facts[present[i]].richness() != facts[present[j]].richness() {
-			return facts[present[i]].richness() > facts[present[j]].richness()
-		}
-		return present[i] < present[j]
-	})
-	for i, tid := range present {
-		if i >= proseFactThreadCap {
-			break
-		}
-		if zh, en := proseFactThreadLine(facts[tid]); zh != "" {
-			add(proseScalarBindingFinding{entry: en, entryZH: zh})
+	if statePrincipalAllowed {
+		present := proseFactPresentThreads(prose, facts)
+		sort.SliceStable(present, func(i, j int) bool {
+			if facts[present[i]].richness() != facts[present[j]].richness() {
+				return facts[present[i]].richness() > facts[present[j]].richness()
+			}
+			return present[i] < present[j]
+		})
+		for i, tid := range present {
+			if i >= proseFactThreadCap {
+				break
+			}
+			if zh, en := proseFactThreadLine(facts[tid]); zh != "" {
+				add(proseScalarBindingFinding{entry: en, entryZH: zh})
+			}
 		}
 	}
 

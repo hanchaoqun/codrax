@@ -272,10 +272,11 @@ type emitRuntimeTargetProfileParam struct {
 }
 
 type emitRuntimeQuestionProfileParam struct {
-	Scope       string   `json:"scope"`
-	SourceQuote string   `json:"source_quote,omitempty"`
-	Confidence  *float64 `json:"confidence"`
-	Rationale   string   `json:"rationale,omitempty"`
+	Scope        string   `json:"scope"`
+	FactFamilies []string `json:"fact_families,omitempty"`
+	SourceQuote  string   `json:"source_quote,omitempty"`
+	Confidence   *float64 `json:"confidence"`
+	Rationale    string   `json:"rationale,omitempty"`
 }
 
 type emitHistorySelectionProfileParam struct {
@@ -680,10 +681,11 @@ func buildEmitAnalysisSchema() {
 				"type":        "object",
 				"description": "Required typed declaration of the answer breadth requested from a runtime artifact. This is independent of artifact range, target identity, and relation shape. Use bounded_fact_set for a finite set of observed state/value/count/time/recorded-reason facts or directly named relation fields such as one peer, transaction id, or waker, without a requested causal report; causal_diagnosis for why/root-cause/jank diagnosis; relation_analysis for broader caller/wakeup/IPC/dependency path or topology analysis; system_overview for a broad hotspot/health/summary report; unspecified only when genuinely unclear; not_applicable outside runtime artifacts. A kernel-recorded reason or direct relation field remains a bounded observed fact unless the request asks to expand or diagnose it. Downstream uses this enum instead of unstable intent/scenario combinations and never scans request or answer prose.",
 				"properties": map[string]any{
-					"scope":        map[string]any{"type": "string", "enum": runtimeQuestionScopeValues(), "description": "not_applicable, bounded_fact_set, causal_diagnosis, relation_analysis, system_overview, or unspecified."},
-					"source_quote": map[string]any{"type": "string", "description": "For every concrete runtime scope, an exact current-request phrase that expresses the requested facts, diagnosis, relation, or overview."},
-					"confidence":   map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Classification confidence in [0,1]."},
-					"rationale":    map[string]any{"type": "string", "description": "Short audit rationale."},
+					"scope":         map[string]any{"type": "string", "enum": runtimeQuestionScopeValues(), "description": "not_applicable, bounded_fact_set, causal_diagnosis, relation_analysis, system_overview, or unspecified."},
+					"fact_families": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": runtimeQuestionFactFamilyValues()}, "description": "Principal observed fact families requested by a bounded_fact_set. Use target_scheduler_state for state presence/status, target_wait_occurrences for a wait roster, recorded_reason for a kernel/tool reason, occurrence_time, count_or_duration, relation_peer, transaction_id, direct_waker, resource_pressure, frequency_residency, or other_observed_value. Required and non-empty for bounded_fact_set; omit for broader scopes. These enums control only which exact fact cards may accompany the model answer; they never authorize a causal conclusion."},
+					"source_quote":  map[string]any{"type": "string", "description": "For every concrete runtime scope, an exact current-request phrase that expresses the requested facts, diagnosis, relation, or overview."},
+					"confidence":    map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Classification confidence in [0,1]."},
+					"rationale":     map[string]any{"type": "string", "description": "Short audit rationale."},
 				},
 				"required": []string{"scope", "confidence"},
 			},
@@ -1031,6 +1033,15 @@ func runtimeTargetDeclarationValues() []string {
 
 func runtimeQuestionScopeValues() []string {
 	values := types.AllRuntimeQuestionScopes()
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		out = append(out, string(value))
+	}
+	return out
+}
+
+func runtimeQuestionFactFamilyValues() []string {
+	values := types.AllRuntimeQuestionFactFamilies()
 	out := make([]string, 0, len(values))
 	for _, value := range values {
 		out = append(out, string(value))
@@ -3772,6 +3783,24 @@ func parseRuntimeQuestionProfile(raw string, runtimeArtifactCarrier bool, p *emi
 		Scope:      scope,
 		Confidence: *p.Confidence,
 		Rationale:  strings.TrimSpace(p.Rationale),
+	}
+	if scope == types.RuntimeQuestionScopeBoundedFactSet {
+		if len(p.FactFamilies) == 0 {
+			return nil, "runtime_question_profile bounded_fact_set requires one or more fact_families; declare the requested observed value families instead of leaving principal-value publication ambiguous", nil
+		}
+		seen := make(map[types.RuntimeQuestionFactFamily]bool, len(p.FactFamilies))
+		for _, rawFamily := range p.FactFamilies {
+			family := types.RuntimeQuestionFactFamily(strings.TrimSpace(rawFamily))
+			if !family.IsValid() {
+				return nil, fmt.Sprintf("runtime_question_profile.fact_families contains invalid value %q; use one of %s", rawFamily, strings.Join(runtimeQuestionFactFamilyValues(), ", ")), nil
+			}
+			if !seen[family] {
+				seen[family] = true
+				profile.FactFamilies = append(profile.FactFamilies, family)
+			}
+		}
+	} else if len(p.FactFamilies) > 0 {
+		return nil, "runtime_question_profile.fact_families is only valid with scope=bounded_fact_set", nil
 	}
 	if scope == types.RuntimeQuestionScopeUnspecified {
 		return profile, "", nil

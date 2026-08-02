@@ -170,6 +170,47 @@ func TestCR4Fact_FourStateAccountLine(t *testing.T) {
 	}
 }
 
+func TestCR4Fact_BoundedRelationFamiliesDoNotTriggerStateJuxtaposition(t *testing.T) {
+	mut := psgTraceMutable(cr4FactRecords()...)
+	bus := psgBus(mut)
+	bus.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:        types.IntentExplain,
+		Scenario:      types.ScenarioGeneric,
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+		RuntimeTargets: []types.RuntimeTarget{{
+			Kind: types.RuntimeTargetKindThread, PID: 17267, Thread: ".ugc.aweme.lite-17267",
+		}},
+		RuntimeQuestionProfile: &types.RuntimeQuestionProfile{
+			Scope: types.RuntimeQuestionScopeBoundedFactSet,
+			FactFamilies: []types.RuntimeQuestionFactFamily{
+				types.RuntimeQuestionFactRelationPeer,
+				types.RuntimeQuestionFactTransactionID,
+				types.RuntimeQuestionFactDirectWaker,
+			},
+		},
+	}}
+	doc := psgProseDoc("ugc.aweme.lite-17267 的 peer、transaction 和直接唤醒者见正文；窗口内 sleep 70.338ms、running 157.248ms。")
+	for _, finding := range proseFactJuxtapositionFindings(doc, bus, mut) {
+		if strings.Contains(finding.userReadable("zh"), "窗内五态") {
+			t.Fatalf("bounded relation facts must not trigger an unrequested state appendix: %+v", finding)
+		}
+	}
+
+	bus.AnalysisIR.RequestModel.RuntimeQuestionProfile.FactFamilies = append(
+		bus.AnalysisIR.RequestModel.RuntimeQuestionProfile.FactFamilies,
+		types.RuntimeQuestionFactTargetSchedulerState,
+	)
+	found := false
+	for _, finding := range proseFactJuxtapositionFindings(doc, bus, mut) {
+		if strings.Contains(finding.userReadable("zh"), "窗内五态") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("an explicitly requested target-state family must retain its typed juxtaposition")
+	}
+}
+
 // TestCR4Fact_EquationVerdict — C-2 假等式臂 (witness verbatim:
 // 15.758+5.395=20.816, actual 21.153): the ONLY verdict wording, pure
 // arithmetic; a correct equation and an approx form stay silent.

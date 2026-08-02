@@ -57,6 +57,35 @@ func TestRuntimeConditionalFactSuppressesFullTraceReportShape(t *testing.T) {
 	}
 }
 
+func TestBoundedIPCFactsSuppressUnrequestedTargetStatePrincipalValues(t *testing.T) {
+	bus := runtimeConditionalFactBusForTest()
+	rm := &bus.AnalysisIR.RequestModel
+	rm.Intent = types.IntentExplain
+	rm.AnalyzerHints.Kind = string(types.ReqMechanism)
+	rm.PredicateAxis = types.AxisUnknown
+	rm.RuntimeQuestionProfile = &types.RuntimeQuestionProfile{
+		Scope: types.RuntimeQuestionScopeBoundedFactSet,
+		FactFamilies: []types.RuntimeQuestionFactFamily{
+			types.RuntimeQuestionFactRelationPeer,
+			types.RuntimeQuestionFactTransactionID,
+			types.RuntimeQuestionFactDirectWaker,
+		},
+	}
+	if runtimeTraceFullReportMaterializationAllowed(bus) {
+		t.Fatal("bounded IPC facts must not inherit a full causal report")
+	}
+	if runtimeTracePrincipalValueMaterializationAllowed(bus) {
+		t.Fatal("bounded IPC facts must not inherit a target-state principal-value card")
+	}
+	rm.RuntimeQuestionProfile.FactFamilies = append(
+		rm.RuntimeQuestionProfile.FactFamilies,
+		types.RuntimeQuestionFactTargetSchedulerState,
+	)
+	if !runtimeTracePrincipalValueMaterializationAllowed(bus) {
+		t.Fatal("an explicitly requested target-state family must restore only the principal-value lane")
+	}
+}
+
 func TestRuntimeExplainMechanismFactSuppressesFullTraceReportShape(t *testing.T) {
 	bus := runtimeConditionalFactBusForTest()
 	rm := &bus.AnalysisIR.RequestModel

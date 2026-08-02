@@ -56,12 +56,30 @@ func TestRuntimeTraceReportMaterializationAuthorityMatrix(t *testing.T) {
 		t.Fatal("typed call relation must retain full trace report authority regardless of broad intent label")
 	}
 	boundedCallRelation := callRelation
-	boundedCallRelation.RuntimeQuestionProfile = &RuntimeQuestionProfile{Scope: RuntimeQuestionScopeBoundedFactSet}
+	boundedCallRelation.RuntimeQuestionProfile = &RuntimeQuestionProfile{
+		Scope: RuntimeQuestionScopeBoundedFactSet,
+		FactFamilies: []RuntimeQuestionFactFamily{
+			RuntimeQuestionFactRelationPeer,
+			RuntimeQuestionFactTransactionID,
+			RuntimeQuestionFactDirectWaker,
+		},
+	}
 	if RuntimeTraceReportMaterializationAllowed(&boundedCallRelation, withRoot) {
 		t.Fatal("a finite relation fact set must not widen into the full causal report")
 	}
 	if RuntimeTracePrincipalValueMaterializationAllowed(&boundedCallRelation, withRoot) {
 		t.Fatal("a finite relation fact set must not inherit a target-state principal-value card")
+	}
+	boundedState := boundedCallRelation
+	boundedState.AnalyzerHints.Kind = string(ReqMechanism)
+	boundedState.PredicateAxis = AxisUnknown
+	boundedState.RuntimeTargets = []RuntimeTarget{{Kind: RuntimeTargetKindThread, PID: 59566}}
+	boundedState.RuntimeQuestionProfile = &RuntimeQuestionProfile{
+		Scope:        RuntimeQuestionScopeBoundedFactSet,
+		FactFamilies: []RuntimeQuestionFactFamily{RuntimeQuestionFactTargetSchedulerState},
+	}
+	if !RuntimeTracePrincipalValueMaterializationAllowed(&boundedState, withRoot) {
+		t.Fatal("a bounded target-state family must retain its exact principal values")
 	}
 	boundedCallRelation.RuntimeArtifactScopeProfile = windowed.RuntimeArtifactScopeProfile
 	if !RuntimeTraceReportMaterializationAllowed(&boundedCallRelation, TraceCausalProjectionSet{}) {

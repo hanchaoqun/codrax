@@ -4101,6 +4101,48 @@ operation，最终选 operation；虽然 `cat + grep -c` 得到 2，operation fi
   effect，或只做原样检索/展示而不产生派生数据结果；
 - 保留“请作为电脑操作读取文件”既有正例，不加 filename/extension/原文关键词硬门。
 
+#### B41 r6：路由收敛；`bounded` 仍缺事实种类轴（P1）
+
+r6 runner 2/2 PASS，人工 1/2 PASS：
+
+- data 已稳定走 `route=data`；terminal script 首次仍漏读 `instructions.md`，AST guard
+  在任何执行前拒绝，repair 后真实读取两份材料，指标为
+  `data_rounds=1 / repair_rounds=1 / action_failed=0`，最终严格只有 `2`。
+  `EVAL-B41-DATAROUTEOBJ1` 关闭。
+- Binder analyzer 正确接受 `runtime_question_profile=bounded_fact_set`，仅执行一次
+  `wakeup_chain`；system supplement 为 `skip reason=families_present`，没有 pre-finalize
+  heavy debt，也没有根因排序、可消除量或 Trace 因果投影。模型正文三个事实、Binder
+  emitter/receiver 方向与同步语义均正确。
+- 但最终仍追加 `client-20` 五态“目标线程状态与等待明细”，随后系统校验附注又追加
+  同一五态 typed 事实。说明 T20 的 shared predicate 接线已到位，但谓词语义仍过粗：
+  `IsFocusedRuntimeFactQuestion` 把“typed target + 非诊断 mechanism”统一视为状态事实；
+  `bounded_fact_set` 只回答“答案有多宽”，没有回答“用户要哪类主值”。
+
+登记 `EVAL-B41-FACTFAMILY1/P1`。通用修复在既有 typed profile 上增加正交的
+`fact_families` 闭集，而不是从 Binder 字样、trace_query view 或最终正文反推：
+
+1. bounded scope 必须声明一个或多个 principal fact family：
+   `target_scheduler_state / target_wait_occurrences / recorded_reason /
+   occurrence_time / count_or_duration / relation_peer / transaction_id /
+   direct_waker / resource_pressure / frequency_residency / other_observed_value`；
+2. peer + transaction + direct waker 不授予 target-state/target-wait 主值；只有显式
+   `target_scheduler_state` 或 `target_wait_occurrences` 才能在窄报告中追加状态/等待卡；
+3. tool 确定性状态块、agent pre-finalize recap、orchestrator 尾部 per-thread/state
+   juxtaposition 共用同一 types authority；尾部不能再通过扫描模型提到的线程名绕开
+   typed 用户意图；
+4. 老序列化 RequestModel/合成 fixture 的空 family 保留 legacy fallback；新 analyzer
+   的 bounded emission 对空 family fail-loud 重试，避免生产请求进入粗粒度兼容臂；
+5. causal/relation/overview full report 与显式 user time window 继续允许状态主值；显式窗
+   仍是最高权限，根因排序、唤醒链、窗内可消除量、Trace 因果投影和自动补齐完全不变；
+6. 该 schema 只提供精确信息面选择，不生成、删除、替换或改判模型结论；不扫描
+   RawRequest、source_quote 语义、thinking/summary/final prose 或 case/type 字面做硬门。
+
+第六施工批已完成 schema/parser/prompt/shared authority 与两条发布路径接线。定向测试
+覆盖 bounded IPC 负臂、target-state 正臂和 explicit-window/full-report 兼容臂；完整回归
+通过：`internal/types` 19.669s、`internal/tool` 162.574s、`internal/skill` 1.219s、
+`internal/agent` 2.930s、`internal/orchestrator` 14.610s、`internal/repl` 34.270s，
+`make` 通过。下一步从干净提交重建并做 r7 同对回放。
+
 任务：
 
 - [x] B41-T1：严格并行 2 case，完整日志/答案人工审计；
@@ -4141,7 +4183,12 @@ operation，最终选 operation；虽然 `cat + grep -c` 得到 2，operation fi
   txt/md rules+input 计算与显式 computer-operation 对偶示例；无 hard input scan；
 - [x] B41-T22：完整 `types` 19.817s、`tool` 162.127s、`agent` 3.219s、
   `repl` 32.531s 与 `make` 通过；第五施工批提交推送；
-- [ ] B41-T23：同对严格并行 r6 回放并人工收账。
+- [x] B41-T23：同对严格并行 r6 回放并人工收账；data human PASS，Binder 主链 PASS
+  但两个状态发布面仍误扩，登记 FACTFAMILY1；
+- [x] B41-T24：runtime question fact-family typed schema + bounded 非空校验；tool/agent/
+  orchestrator 状态发布面共用精确 family authority，legacy 空 family 仅作兼容；
+- [x] B41-T25：完整相关包测试与构建通过；第六施工批提交推送；
+- [ ] B41-T26：干净 HEAD 重建后同对严格并行 r7 回放并人工收账。
 
 ### B40：analyze retry 回放 × blocked-reason Trace 语义审计（2026-08-02）
 

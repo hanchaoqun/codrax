@@ -307,9 +307,10 @@ func TestParseRuntimeQuestionProfileSeparatesFactBreadthFromLegacyLabels(t *test
 		t.Fatal("runtime artifact analysis must fail loud when runtime_question_profile is missing")
 	}
 	bounded := &emitRuntimeQuestionProfileParam{
-		Scope:       "bounded_fact_set",
-		SourceQuote: "有没有进入过不可中断等待",
-		Confidence:  &confidence,
+		Scope:        "bounded_fact_set",
+		FactFamilies: []string{"target_scheduler_state", "target_wait_occurrences", "recorded_reason", "occurrence_time", "count_or_duration"},
+		SourceQuote:  "有没有进入过不可中断等待",
+		Confidence:   &confidence,
 	}
 	profile, errText, warnings := parseRuntimeQuestionProfile(
 		"这份 trace 里有没有进入过不可中断等待，时间、记录原因和总量是什么",
@@ -319,6 +320,14 @@ func TestParseRuntimeQuestionProfileSeparatesFactBreadthFromLegacyLabels(t *test
 	)
 	if errText != "" || len(warnings) != 0 || profile == nil || !profile.BoundedFactSet() {
 		t.Fatalf("bounded runtime fact profile rejected: profile=%+v err=%q warnings=%v", profile, errText, warnings)
+	}
+	if !profile.RequestsTargetStatePrincipalValues() || len(profile.FactFamilies) != 5 {
+		t.Fatalf("bounded state/wait fact families not preserved: %+v", profile)
+	}
+	emptyFamilies := *bounded
+	emptyFamilies.FactFamilies = nil
+	if _, errText, _ := parseRuntimeQuestionProfile("有没有进入过不可中断等待", true, &emptyFamilies, false); !strings.Contains(errText, "requires one or more fact_families") {
+		t.Fatalf("bounded fact set without fact families must fail loud, got %q", errText)
 	}
 	relationProfile, errText, relationWarnings := parseRuntimeQuestionProfile(
 		"有没有进入过不可中断等待",
@@ -404,7 +413,7 @@ func TestEmitAnalysisRejectsCausalBreadthWithoutTypedDiagnosisCarrier(t *testing
 		t.Fatalf("incoherent causal breadth must reject for analyzer retry: success=%t summary=%q", res.Success, res.Summary)
 	}
 
-	bounded := strings.Replace(payload, `"scope":"causal_diagnosis"`, `"scope":"bounded_fact_set"`, 1)
+	bounded := strings.Replace(payload, `"scope":"causal_diagnosis"`, `"scope":"bounded_fact_set","fact_families":["relation_peer","transaction_id","direct_waker"]`, 1)
 	ctx = &types.BusContext{Mutable: types.NewMutableState(raw)}
 	ctx.Mutable.SetPerfTrace(&types.PerfBundle{Meta: types.PerfMeta{Source: "attached.systrace", Signals: []string{"binder_transaction"}}})
 	res, err = (&EmitAnalysis{}).Execute(ctx, json.RawMessage(bounded))

@@ -647,7 +647,10 @@ func TestEmitAnalysisSchemaIncludesRuntimeQuestionProfile(t *testing.T) {
 	}
 	var prop struct {
 		Properties map[string]struct {
-			Enum []string `json:"enum"`
+			Enum  []string `json:"enum"`
+			Items *struct {
+				Enum []string `json:"enum"`
+			} `json:"items,omitempty"`
 		} `json:"properties"`
 		Required []string `json:"required"`
 	}
@@ -657,6 +660,11 @@ func TestEmitAnalysisSchemaIncludesRuntimeQuestionProfile(t *testing.T) {
 	want := []string{"not_applicable", "bounded_fact_set", "causal_diagnosis", "relation_analysis", "system_overview", "unspecified"}
 	if !reflect.DeepEqual(prop.Properties["scope"].Enum, want) {
 		t.Fatalf("runtime_question_profile scope enum=%v want=%v", prop.Properties["scope"].Enum, want)
+	}
+	wantFamilies := runtimeQuestionFactFamilyValues()
+	families := prop.Properties["fact_families"]
+	if families.Items == nil || !reflect.DeepEqual(families.Items.Enum, wantFamilies) {
+		t.Fatalf("runtime_question_profile fact_families enum=%v want=%v", families.Items, wantFamilies)
 	}
 	for _, required := range []string{"scope", "confidence"} {
 		if !slices.Contains(prop.Required, required) {
