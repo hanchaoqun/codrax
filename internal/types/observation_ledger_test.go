@@ -908,6 +908,7 @@ func TestCompileObservationLedger_ExternalErrorInfoObservationIsSupportOnly(t *t
 				Kind:       LogObservationRuntimeEvent,
 				Subject:    "UserCard.build",
 				Summary:    "UserCard.build 读取 undefined.name 时崩溃",
+				Evidence:   "TypeError at UserCard.build:42",
 				Diagnostic: true,
 				Severity:   LogObservationFailure,
 				LineStart:  42,
@@ -915,6 +916,7 @@ func TestCompileObservationLedger_ExternalErrorInfoObservationIsSupportOnly(t *t
 				Kind:      LogObservationRuntimeEvent,
 				Subject:   "IndexPage.build",
 				Summary:   "IndexPage.build 位于调用栈上",
+				Evidence:  "at IndexPage.build:128",
 				Severity:  LogObservationInfo,
 				LineStart: 128,
 			}},
@@ -1082,6 +1084,25 @@ func TestCompileObservationLedger_LogObservationKeepsInterpretationAdvisory(t *t
 		!strings.Contains(record.RichNotes[0], "triager_interpretation_advisory=") ||
 		!strings.Contains(record.RichNotes[0], "fourth retry") {
 		t.Fatalf("triager interpretation must remain lossless but advisory: %+v", record.RichNotes)
+	}
+}
+
+func TestCompileObservationLedger_ObservationWithoutEvidenceCannotBecomePrincipal(t *testing.T) {
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		LogBundle: &LogBundle{Observations: []LogObservation{{
+			Kind:       LogObservationRuntimeEvent,
+			Summary:    "model interpretation without an artifact excerpt",
+			Diagnostic: true,
+			Severity:   LogObservationFailure,
+			Confidence: 0.9,
+		}}},
+	})
+	record := findObservationRecord(t, ledger, "log:observation:0")
+	if record.Role != AnswerAggregateRoleSupportingCoverage || record.GroundingPolicy != ClaimGroundingSoft {
+		t.Fatalf("evidence-free interpretation became principal: %+v", record)
+	}
+	if record.ProvenanceLane != ObservationProvenanceUnknown {
+		t.Fatalf("evidence-free interpretation gained observed provenance: %+v", record)
 	}
 }
 

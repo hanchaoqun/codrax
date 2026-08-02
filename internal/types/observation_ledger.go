@@ -3523,6 +3523,9 @@ func observationProvenanceLaneForLogObservation(obs LogObservation) ObservationP
 	if obs.Kind == LogObservationThreadSnapshot {
 		return ObservationProvenanceArtifactSpan
 	}
+	if strings.TrimSpace(obs.Evidence) == "" {
+		return ObservationProvenanceUnknown
+	}
 	if obs.Diagnostic || obs.Severity == LogObservationFailure || obs.Severity == LogObservationWarning {
 		return ObservationProvenanceObservedDirectCause
 	}
@@ -3534,6 +3537,9 @@ func observationProvenanceLaneForLogObservation(obs LogObservation) ObservationP
 
 func logObservationRecordRole(bundle *LogBundle, obs LogObservation) AnswerAggregateRole {
 	if obs.Kind == LogObservationThreadSnapshot {
+		return AnswerAggregateRoleSupportingCoverage
+	}
+	if strings.TrimSpace(obs.Evidence) == "" {
 		return AnswerAggregateRoleSupportingCoverage
 	}
 	if bundle == nil {

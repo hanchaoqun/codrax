@@ -261,6 +261,45 @@ func TestEmitLogTriage_Execute_RejectsSynthesizedErrorMessage(t *testing.T) {
 	}
 }
 
+func TestEmitLogTriage_Execute_RejectsSynthesizedObservationEvidence(t *testing.T) {
+	bus := &types.BusContext{
+		Mutable:     types.NewMutableState("test"),
+		AttachedLog: "fatal error: concurrent map writes\n\ngoroutine 87 [running]:\nmain.writeSession()\n",
+	}
+	params, err := json.Marshal(emitLogTriageParams{
+		Meta: emitLogTriageMeta{Lang: "go", Signals: []string{"panic"}},
+		Errors: []emitLogTriageError{{
+			Type: "concurrent map writes", Message: "fatal error: concurrent map writes",
+		}},
+		Observations: []emitLogTriageObservation{{
+			Kind:       string(types.LogObservationRuntimeEvent),
+			Severity:   string(types.LogObservationFailure),
+			Summary:    "all goroutines crashed",
+			Evidence:   "goroutine 15, 87, and 120 all crashed on the same map",
+			Diagnostic: true,
+			Confidence: 1,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := (&EmitLogTriage{}).Execute(bus, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Success {
+		t.Fatalf("synthesized observation evidence accepted: %+v", res)
+	}
+	for _, want := range []string{"observations[0].evidence", "verbatim", "omit evidence"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("rejection missing %q: %s", want, res.Summary)
+		}
+	}
+	if bus.Mutable.LogTriage() != nil {
+		t.Fatal("rejected observation evidence must not publish a bundle")
+	}
+}
+
 func TestEmitLogTriage_Execute_AcceptsVerbatimNestedErrorMessages(t *testing.T) {
 	bus := &types.BusContext{
 		Mutable:     types.NewMutableState("test"),

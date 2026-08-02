@@ -305,6 +305,17 @@ func (t *EmitLogTriage) Execute(ctx *types.BusContext, params json.RawMessage) (
 			Timestamp: time.Now(),
 		}, nil
 	}
+	if field, evidence, ok := firstUnobservedLogTriageObservationEvidence(p.Observations, ctx.AttachedLog); ok {
+		return types.ToolResult{
+			ToolName: t.Name(),
+			Success:  false,
+			Summary: fmt.Sprintf(
+				"emit_log_triage rejected: %s must be copied verbatim from the attached log; unobserved evidence=%q. Keep interpretation in observations[].summary, and omit evidence when no short exact excerpt exists.",
+				field, evidence,
+			),
+			Timestamp: time.Now(),
+		}, nil
+	}
 
 	// Cross-field sanity: at least one error, observation, or
 	// unknown_chunk must be present. The schema declares errors as
@@ -429,6 +440,21 @@ func firstUnobservedLogTriageErrorMessage(errors []emitLogTriageError, attachedL
 		return "", "", false
 	}
 	return walk(errors, "errors")
+}
+
+// firstUnobservedLogTriageObservationEvidence protects the direct-artifact
+// observation lane. Summary is deliberately advisory/model-authored, while a
+// non-empty Evidence value is promoted as an observed runtime fact downstream;
+// therefore Evidence must be an exact excerpt of the held attachment. This is
+// a structured-field provenance check, not a scan of user or final-answer prose.
+func firstUnobservedLogTriageObservationEvidence(observations []emitLogTriageObservation, attachedLog string) (field, evidence string, found bool) {
+	for i := range observations {
+		evidence := strings.TrimSpace(observations[i].Evidence)
+		if evidence != "" && !strings.Contains(attachedLog, evidence) {
+			return fmt.Sprintf("observations[%d].evidence", i), evidence, true
+		}
+	}
+	return "", "", false
 }
 
 func decodeEmitLogTriageParamsStrict(name string, params json.RawMessage, schema json.RawMessage) (emitLogTriageParams, string, *types.ToolResult, error) {

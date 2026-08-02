@@ -1130,6 +1130,8 @@ func TestLogTriageSkill_TeachesOperationalObservations(t *testing.T) {
 		"line_mapping",
 		"retry_cycle",
 		"diagnostic=true",
+		"short evidence excerpt copied VERBATIM from the attached log",
+		"Omit evidence when no short exact excerpt exists",
 	} {
 		if !strings.Contains(blob, want) {
 			t.Errorf("log-triage-skill missing observation guidance %q", want)
