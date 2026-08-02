@@ -2,6 +2,7 @@ package repl
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -398,6 +399,72 @@ func TestCommandOperationEvaluatorRepairsInvalidToolParams(t *testing.T) {
 		if !strings.Contains(secondUser, want) {
 			t.Fatalf("repair prompt missing %q:\n%s", want, secondUser)
 		}
+	}
+}
+
+func TestCommandOperationEvaluatorRepairsCompleteVerdictOverTruncatedMaterial(t *testing.T) {
+	dir := t.TempDir()
+	longRef := filepath.Join(dir, "long-manual.html")
+	if err := os.WriteFile(longRef, []byte("<!doctype html><html><body>"+strings.Repeat("manual section ", 800)+"</body></html>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	adapter := &scriptedChatAdapter{responses: []llm.Response{
+		operationEvaluationResp(fmt.Sprintf(`{"status":"complete","reason":"payload was downloaded","confidence":"high","material_coverage_status":"complete","coverage_material_refs":[%q]}`, longRef)),
+		operationEvaluationResp(`{"status":"partial_answer_possible","reason":"only a prefix is visible","confidence":"high","material_coverage_status":"partial"}`),
+	}}
+	evaluator := NewCommandOperationPlanner(adapter).(CommandOperationEvaluator)
+	eval, err := evaluator.EvaluateCommandOperation(context.Background(), "总结完整手册", []commandOperationResultRecord{{
+		Plan: operation.CommandOperationPlan{ID: "op-long"},
+		Result: operation.CommandOperationResult{PlanID: "op-long", Status: operation.StatusExecuted, StepResults: []operation.CommandStepResult{{
+			StepID: "download", Status: operation.StatusExecuted, PayloadRef: longRef,
+		}}},
+	}}, "zh")
+	if err != nil {
+		t.Fatalf("EvaluateCommandOperation: %v", err)
+	}
+	if eval.Status != operation.EvalPartialAnswerPossible || eval.MaterialCoverageStatus != operation.MaterialCoveragePartial {
+		t.Fatalf("eval=%+v, want repaired partial verdict", eval)
+	}
+	if len(adapter.calls) != 2 {
+		t.Fatalf("Chat calls=%d, want initial + typed coverage repair", len(adapter.calls))
+	}
+	repairPrompt := lastUserMessage(adapter.calls[1].messages)
+	for _, want := range []string{"material_coverage_status", "source/excerpt truncated", "compact_operation_context"} {
+		if !strings.Contains(repairPrompt, want) {
+			t.Fatalf("repair prompt missing %q:\n%s", want, repairPrompt)
+		}
+	}
+}
+
+func TestCommandOperationEvaluatorAcceptsFullyVisibleExtractionAsCoverage(t *testing.T) {
+	dir := t.TempDir()
+	longRef := filepath.Join(dir, "long-manual.html")
+	extractedRef := filepath.Join(dir, "manual-summary.txt")
+	if err := os.WriteFile(longRef, []byte("<!doctype html><html><body>"+strings.Repeat("manual section ", 800)+"</body></html>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(extractedRef, []byte("section 1\nsection 2\nsection 3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	adapter := &scriptedChatAdapter{responses: []llm.Response{
+		operationEvaluationResp(fmt.Sprintf(`{"status":"complete","reason":"bounded extraction covers the goal","confidence":"high","material_coverage_status":"complete","coverage_material_refs":[%q]}`, extractedRef)),
+	}}
+	evaluator := NewCommandOperationPlanner(adapter).(CommandOperationEvaluator)
+	eval, err := evaluator.EvaluateCommandOperation(context.Background(), "总结手册", []commandOperationResultRecord{{
+		Plan: operation.CommandOperationPlan{ID: "op-extracted"},
+		Result: operation.CommandOperationResult{PlanID: "op-extracted", Status: operation.StatusExecuted, StepResults: []operation.CommandStepResult{
+			{StepID: "download", Status: operation.StatusExecuted, PayloadRef: longRef},
+			{StepID: "extract", Status: operation.StatusExecuted, PayloadRef: extractedRef},
+		}},
+	}}, "zh")
+	if err != nil {
+		t.Fatalf("EvaluateCommandOperation: %v", err)
+	}
+	if eval.Status != operation.EvalComplete || eval.MaterialCoverageStatus != operation.MaterialCoverageComplete || len(eval.CoverageMaterialRefs) != 1 || eval.CoverageMaterialRefs[0] != extractedRef {
+		t.Fatalf("eval=%+v, want complete verdict backed by fully visible extraction", eval)
+	}
+	if len(adapter.calls) != 1 {
+		t.Fatalf("Chat calls=%d, want no repair", len(adapter.calls))
 	}
 }
 

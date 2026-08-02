@@ -296,6 +296,16 @@ var operationEvaluationTool = llm.ToolSchema{
       "type": "array",
       "items": {"type": "string"},
       "description": "Payload/artifact/material refs that matter for the next step or final answer."
+    },
+    "material_coverage_status": {
+      "type": "string",
+      "enum": ["not_applicable", "not_evaluated", "partial", "complete"],
+      "description": "Coverage of user-relevant material CONTENT actually visible in the observations. Downloaded/saved bytes alone are not complete coverage."
+    },
+    "coverage_material_refs": {
+      "type": "array",
+      "items": {"type":"string"},
+      "description": "Refs whose fully visible extracted content supports material_coverage_status=complete. Do not cite a ref whose source/excerpt is truncated."
     }
   },
   "required": ["status"]
@@ -361,6 +371,7 @@ Hard rules:
 - If a configured provider follow-up is still needed and represented by a typed next action, emit status=continue_provider.
 - If existing observations already satisfy the user goal, emit status=complete.
 - A material row with source_truncated=true or excerpt_truncated=true is not proof of complete material coverage. When the user's goal depends on the omitted portion and a payload ref is available, emit continue_command so a bounded page/search/extraction step can collect the relevant content; do not infer it from the prefix.
+- Set material_coverage_status for material-backed goals. "complete" means the observations contain the user-relevant content, not merely that a payload was downloaded. When complete, coverage_material_refs must name the bounded extracted outputs that are fully visible (source_truncated=false and excerpt_truncated=false). If only a prefix, table of contents, failed extraction, or saved full payload is available, use partial/not_evaluated and do not emit status=complete.
 - Ask for clarification only for user-owned missing inputs: credentials, remote host, destructive scope, destination choice, business choice, or data that cannot be safely discovered.
 - If useful progress exists but budgets or capability limits prevent safe completion, emit budget_exhausted or partial_answer_possible.
 - Do not mention raw execution detail blocks in the reason; UI already shows per-round details.
@@ -590,6 +601,9 @@ func (p *llmCommandOperationPlanner) EvaluateCommandOperation(ctx context.Contex
 		return operation.OperationEvaluation{}, newOperationPlannerUnexpectedToolError("command operation evaluator", call.Name, nil)
 	}
 	parsed, err := unmarshalOperationEvaluation(call.Params)
+	if err == nil {
+		err = validateCommandOperationEvaluationCoverage(parsed, records, len(call.Params))
+	}
 	if err != nil {
 		repaired, repairErr := p.repairOperationEvaluation(ctx, err, operationStructuredToolRepairRequest{
 			Scope:         "command operation evaluator",
@@ -601,6 +615,9 @@ func (p *llmCommandOperationPlanner) EvaluateCommandOperation(ctx context.Contex
 			return operation.OperationEvaluation{}, repairErr
 		}
 		parsed = repaired
+		if coverageErr := validateCommandOperationEvaluationCoverage(parsed, records, len(call.Params)); coverageErr != nil {
+			return operation.OperationEvaluation{}, fmt.Errorf("operation evaluation material coverage repair remained invalid: %w", coverageErr)
+		}
 	}
 	return parsed.toEvaluationWithSource(operation.MaterialSourceCommand), nil
 }
@@ -619,11 +636,13 @@ type commandOperationPlannerRequest struct {
 }
 
 type operationEvaluationDraft struct {
-	Status       flexiblePolicyString     `json:"status"`
-	Reason       flexiblePolicyString     `json:"reason"`
-	Confidence   flexiblePolicyString     `json:"confidence"`
-	MissingInput flexiblePolicyStringList `json:"missing_inputs"`
-	MaterialRefs flexiblePolicyStringList `json:"material_refs"`
+	Status                 flexiblePolicyString     `json:"status"`
+	Reason                 flexiblePolicyString     `json:"reason"`
+	Confidence             flexiblePolicyString     `json:"confidence"`
+	MissingInput           flexiblePolicyStringList `json:"missing_inputs"`
+	MaterialRefs           flexiblePolicyStringList `json:"material_refs"`
+	MaterialCoverageStatus flexiblePolicyString     `json:"material_coverage_status"`
+	CoverageMaterialRefs   flexiblePolicyStringList `json:"coverage_material_refs"`
 }
 
 func unmarshalOperationEvaluation(raw []byte) (operationEvaluationDraft, error) {
@@ -655,12 +674,79 @@ func (d operationEvaluationDraft) toEvaluationWithSource(source string) operatio
 		})
 	}
 	return operation.OperationEvaluation{
-		Status:        status,
-		Reason:        strings.TrimSpace(string(d.Reason)),
-		Confidence:    strings.TrimSpace(string(d.Confidence)),
-		MissingInputs: []string(d.MissingInput),
-		Materials:     materials,
+		Status:                 status,
+		Reason:                 strings.TrimSpace(string(d.Reason)),
+		Confidence:             strings.TrimSpace(string(d.Confidence)),
+		MissingInputs:          []string(d.MissingInput),
+		Materials:              materials,
+		MaterialCoverageStatus: operation.NormalizeMaterialCoverageStatus(string(d.MaterialCoverageStatus)),
+		CoverageMaterialRefs:   cleanPolicyStringList([]string(d.CoverageMaterialRefs)),
 	}
+}
+
+// validateCommandOperationEvaluationCoverage checks only a typed authority
+// contradiction: a complete verdict over saved/truncated material must point
+// at fully visible extracted material. It does not decide whether that
+// extraction semantically answers the user; the model retains that judgment.
+// The gate reads system-owned payload refs and exact truncation bits, never the
+// user request, evaluator reason, or final answer prose.
+func validateCommandOperationEvaluationCoverage(d operationEvaluationDraft, records []commandOperationResultRecord, rawLen int) error {
+	if operation.NormalizeEvaluationStatus(string(d.Status)) != operation.EvalComplete {
+		return nil
+	}
+	available := map[string]bool{}
+	incomplete := map[string]bool{}
+	for _, record := range records {
+		for _, ref := range commandOperationResultPayloadRefs(record.Result) {
+			ref = strings.TrimSpace(ref)
+			if ref == "" {
+				continue
+			}
+			available[ref] = true
+			if !commandPayloadMaterialExcerptFullyVisible(ref) {
+				incomplete[ref] = true
+			}
+		}
+	}
+	if len(incomplete) == 0 {
+		return nil
+	}
+	coverage := operation.NormalizeMaterialCoverageStatus(string(d.MaterialCoverageStatus))
+	if coverage == operation.MaterialCoverageNotApplicable {
+		return nil
+	}
+	invalid := func(detail string) error {
+		return &replStructuredToolParamError{
+			ToolName: operationEvaluationTool.Name,
+			Scope:    "command operation evaluator material coverage",
+			RawLen:   rawLen,
+			Err:      errors.New(detail),
+			Hint:     "a complete verdict over truncated saved material requires material_coverage_status=complete and coverage_material_refs pointing only to fully visible extracted outputs; otherwise emit continue_command, partial_answer_possible, or budget_exhausted",
+		}
+	}
+	if coverage != operation.MaterialCoverageComplete {
+		return invalid(fmt.Sprintf("status=complete conflicts with material_coverage_status=%s while %d saved payload excerpt(s) are incomplete", coverage, len(incomplete)))
+	}
+	refs := cleanPolicyStringList([]string(d.CoverageMaterialRefs))
+	if len(refs) == 0 {
+		return invalid("material_coverage_status=complete has no coverage_material_refs")
+	}
+	for _, ref := range refs {
+		if !available[ref] {
+			return invalid(fmt.Sprintf("coverage_material_ref %q is not a payload produced by the recorded command rounds", ref))
+		}
+		if !commandPayloadMaterialExcerptFullyVisible(ref) {
+			return invalid(fmt.Sprintf("coverage_material_ref %q is not fully visible (source/excerpt truncated, skipped, empty, or unreadable)", ref))
+		}
+	}
+	return nil
+}
+
+func commandPayloadMaterialExcerptFullyVisible(ref string) bool {
+	excerpt := commandPayloadMaterialExcerpt(ref)
+	return excerpt != "" &&
+		!strings.Contains(excerpt, "skipped=true") &&
+		strings.Contains(excerpt, "source_truncated=false excerpt_truncated=false")
 }
 
 func (p *llmCommandOperationPlanner) planCommandOperation(ctx context.Context, req commandOperationPlannerRequest) (operation.CommandOperationRequest, error) {
@@ -1343,9 +1429,11 @@ func renderCommandOperationRecordsForPrompt(records []commandOperationResultReco
 		b.WriteString("\n")
 		b.WriteString(renderCommandResultForPrompt(rec.Result))
 		if rec.Evaluation != nil {
-			fmt.Fprintf(&b, "\noperation_evaluation status=%s confidence=%q reason=%q missing_inputs=%q materials=%q\n",
+			fmt.Fprintf(&b, "\noperation_evaluation status=%s confidence=%q material_coverage_status=%s coverage_material_refs=%q reason=%q missing_inputs=%q materials=%q\n",
 				rec.Evaluation.Status,
 				oneLineClamp(rec.Evaluation.Confidence, 80),
+				rec.Evaluation.MaterialCoverageStatus,
+				strings.Join(rec.Evaluation.CoverageMaterialRefs, " | "),
 				oneLineClamp(rec.Evaluation.Reason, 260),
 				strings.Join(rec.Evaluation.MissingInputs, " | "),
 				operation.RenderMaterialsInline(rec.Evaluation.Materials, 6))

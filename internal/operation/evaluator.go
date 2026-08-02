@@ -8,6 +8,8 @@ import "strings"
 // describe whether any one command or provider action executed.
 type OperationEvaluationStatus string
 
+type MaterialCoverageStatus string
+
 const (
 	EvalComplete              OperationEvaluationStatus = "complete"
 	EvalContinueCommand       OperationEvaluationStatus = "continue_command"
@@ -17,6 +19,11 @@ const (
 	EvalBlocked               OperationEvaluationStatus = "blocked"
 	EvalBudgetExhausted       OperationEvaluationStatus = "budget_exhausted"
 	EvalPartialAnswerPossible OperationEvaluationStatus = "partial_answer_possible"
+
+	MaterialCoverageNotApplicable MaterialCoverageStatus = "not_applicable"
+	MaterialCoverageNotEvaluated  MaterialCoverageStatus = "not_evaluated"
+	MaterialCoveragePartial       MaterialCoverageStatus = "partial"
+	MaterialCoverageComplete      MaterialCoverageStatus = "complete"
 )
 
 // OperationEvaluation is a compact operation-lane decision. It is not source
@@ -24,11 +31,26 @@ const (
 // follow-up work through the existing command/provider executors and approval
 // policy.
 type OperationEvaluation struct {
-	Status        OperationEvaluationStatus
-	Reason        string
-	Confidence    string
-	MissingInputs []string
-	Materials     []OperationMaterial
+	Status                 OperationEvaluationStatus
+	Reason                 string
+	Confidence             string
+	MissingInputs          []string
+	Materials              []OperationMaterial
+	MaterialCoverageStatus MaterialCoverageStatus
+	CoverageMaterialRefs   []string
+}
+
+func NormalizeMaterialCoverageStatus(status string) MaterialCoverageStatus {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case string(MaterialCoverageNotApplicable):
+		return MaterialCoverageNotApplicable
+	case string(MaterialCoverageComplete):
+		return MaterialCoverageComplete
+	case string(MaterialCoveragePartial):
+		return MaterialCoveragePartial
+	default:
+		return MaterialCoverageNotEvaluated
+	}
 }
 
 func NormalizeEvaluationStatus(status string) OperationEvaluationStatus {

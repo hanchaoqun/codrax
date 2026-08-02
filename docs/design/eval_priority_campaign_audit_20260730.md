@@ -4429,6 +4429,53 @@ single group `all/ids=2`；模型随后真实执行出正确 `{"ids":["u1","u3"]
 - [x] B44-r3-T5：相关 dataquery/dataworkflow/repl 全包回归；
 - [x] B44-r3-T6：提交推送 data 批；下一步从干净 HEAD 同对 r4 回放。
 
+#### B44 r4：材料持有被误当成内容覆盖（2026-08-02）
+
+干净 `main@72ecc977e` 同对严格并行，runner 2/2 PASS；人工 data PASS、operation FAIL。
+
+data 在 35s 内一批完成、零 repair，实际消费 `instructions.md + users.json`，终态只输出
+`{"ids":["u1","u3"]}`。本轮走 direct terminal custom-transform，没有触发 contribution
+reconcile，但证明 r3 的 authority 分权没有破坏稳定路径。
+
+operation 的 href 修复也已生效：模型从首页 typed link inventory 精确取得并抓取
+`user_guide.html`。它看到 `excerpt_truncated=true` 后继续两轮提取，但一次把 CSS 混进正文，
+另一次把 `.doc-body` 到 `.doc-kicker` 写成起止相邻的空范围。第 4 轮 evaluator 明确认知
+“第 2–8 章未获取”，随后却因完整的 32,901-byte HTML 已保存在 payload ref 而发出
+`status=complete/high`；最终答案反称“完整获取 8 章正文”。这不是 source/excerpt 边界不精确，
+而是系统没有表达“材料在手”和“相关正文已被模型可见地消费”之间的权限差。
+
+| ID | P | gap | 最优方案 | 状态 |
+|---|---:|---|---|---|
+| EVAL-B44-MATCOVER1 | P1 | evaluator 把完整 payload 已下载/保存当成全文内容已覆盖；即使所有 prompt excerpt 都是 truncated 或失败抽取，也能发布 complete | 新增 typed `material_coverage_status` 与 `coverage_material_refs`。当记录中存在截断 payload 且 evaluator 要 complete 时，只允许两条路：模型明确判定该材料与用户目标不相关（not_applicable），或引用本轮记录内、`source_truncated=false && excerpt_truncated=false` 的有界抽取。否则通过既有 structured-tool repair 要求继续/partial/budget，不替换结论 | implemented/tests-pass/replay-next |
+| EVAL-B44-HTMLBODY1 | P2 | operation planner 对 HTML 正文抽取缺少可靠的结构化分页/正文载体，模型只能临时拼 shell；一次 CSS 污染、一次错误范围就耗尽两轮 | 后续提供通用的 bounded text extraction/page material primitive（保留 ref、范围、截断、来源 hash），覆盖 HTML/长文本等材料；不能为 `doc-body`、某个 URL 或手册章节写特例 | open/next |
+
+`MATCOVER1` 的边界设计：
+
+1. hard check 只读取系统记录的 command payload ref，以及 material carrier 上精确的
+   `source_truncated/excerpt_truncated` 位；不读取用户原文、evaluator reason、thinking、summary
+   或最终答案。
+2. evaluator 仍决定哪些材料与目标相关、抽取内容是否足够。`not_applicable` 保留模型的相关性
+   判断；系统只阻止“截断材料 ref 本身就是 complete coverage”这一 typed 矛盾。
+3. `coverage_material_refs` 必须来自已经执行的 command records，且每个引用的 prompt excerpt
+   完整可见；不能凭空引用或引用尚未读取的文件。
+4. 首次违例进入已有 compact structured-tool repair；修复后仍矛盾则 fail loud。系统不会把
+   complete 改写成 partial，也不会生成或替换用户答案。
+5. 该合同只在 operation evaluator 的 `status=complete` 且确有不完整 payload 时生效；不触及
+   Trace 路由、显式窗、因果投影、自动补齐、read/data/write 的结论面。
+
+上下文审计结论：r4 的链接目标、payload 路径、字节数、source/excerpt 两层截断均准确，足以让
+模型继续探索；缺失的是跨轮“哪些完整可见抽取真正支撑完成”的 typed closure。新字段补的是
+证据覆盖权限，不是系统结论。`HTMLBODY1` 仍开放，因为阻止 false complete 不能自动让正文
+抽取变高效。
+
+任务状态：
+
+- [x] B44-r4-T1：严格并行同对，人工读取完整 operation 命令链、evaluator 决策和最终答案；
+- [x] B44-r4-T2：增加 typed material coverage carrier、schema、prompt 与完成态一致性检查；
+- [x] B44-r4-T3：固定截断 payload 触发 repair、完整有界抽取可完成两个正反臂；
+- [x] B44-r4-T4：operation/repl 全包回归通过；
+- [x] B44-r4-T5：提交推送本批；下一步从干净 HEAD 用严格并行 2 case 验收并继续跨模式优先队列。
+
 ### B41：data 终批材料 × Binder 方向语义审计（2026-08-02）
 
 本批严格并行 `data_text_filter_count` 与 `trace_query_binder_ipc_peer`。runner
