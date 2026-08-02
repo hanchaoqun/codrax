@@ -3311,15 +3311,24 @@ func traceCausalProjectionAnchorWindow(records []ObservationRecord) (float64, fl
 		default:
 			continue
 		}
-		s, e := record.Span.StartTs, record.Span.EndTs
-		// §29.183 G8: shared existence predicate — a frame anchor Span of
-		// [0,end] (rebased trace, explicit 0..X query window) IS the anchor.
+		// The frame-target record has two deliberately different time faces:
+		// Span locates the selected frame for citation, while the typed window
+		// note is FrameTargetResolution.Window — the analysis/denominator
+		// authority. A valid selected-frame Span must therefore never narrow an
+		// explicit query window. Legacy records without the typed note retain the
+		// Span fallback, including an explicit rebased [0,end] G8 window.
+		windowNote := strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyWindow))
+		s, e, windowOK := traceCausalProjectionWindow(record.RichNotes)
+		if windowNote != "" && !windowOK {
+			// A present-but-malformed typed authority is not a legacy record.
+			// Fail closed instead of silently promoting the citation Span.
+			continue
+		}
+		if windowNote == "" {
+			s, e = record.Span.StartTs, record.Span.EndTs
+		}
 		if !TraceCausalProjectionWindowPresent(s, e) {
-			if ws, we, wok := traceCausalProjectionWindow(record.RichNotes); wok {
-				s, e = ws, we
-			} else {
-				continue
-			}
+			continue
 		}
 		start, end, ok = s, e, true
 	}

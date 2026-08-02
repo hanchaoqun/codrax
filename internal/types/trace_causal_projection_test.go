@@ -724,6 +724,40 @@ func TestTraceCausalProjectionUnionWindowSourceIsValidAnchor(t *testing.T) {
 	}
 }
 
+func TestTraceCausalProjectionFrameAnchorUsesResolutionWindowNotSelectedFrameSpan(t *testing.T) {
+	const (
+		windowStart = 13762.791708
+		windowEnd   = 13763.024898
+		frameStart  = 13762.795456
+		frameEnd    = 13762.795569
+	)
+	anchor := traceProjectionFrameTargetAnchor("query_window", frameStart, frameEnd)
+	anchor.RichNotes = []string{
+		"window_source=query_window",
+		fmt.Sprintf("window=%.6f..%.6f", windowStart, windowEnd),
+	}
+
+	got := CompileTraceCausalProjection(ObservationLedger{Records: []ObservationRecord{
+		anchor,
+		traceProjectionSemanticSpanAt("semantic-full-window", "app-100", "class_verification", windowStart, windowEnd),
+	}})
+	if got.WindowStartTs != windowStart || got.WindowEndTs != windowEnd {
+		t.Fatalf("typed frame resolution window must own the projection denominator; selected-frame Span is citation-only: %.6f..%.6f", got.WindowStartTs, got.WindowEndTs)
+	}
+	if ms := got.WindowDurationMS(); ms < 233.189 || ms > 233.191 {
+		t.Fatalf("projection must retain the 233.190ms explicit window, got %.6fms", ms)
+	}
+
+	anchor.RichNotes = []string{"window_source=query_window", "window=malformed"}
+	malformed := CompileTraceCausalProjection(ObservationLedger{Records: []ObservationRecord{
+		anchor,
+		traceProjectionSemanticSpanAt("semantic-full-window", "app-100", "class_verification", windowStart, windowEnd),
+	}})
+	if malformed.WindowStartTs != 0 || malformed.WindowEndTs != 0 {
+		t.Fatalf("a malformed typed resolution window must fail closed, not promote the selected-frame Span: %.6f..%.6f", malformed.WindowStartTs, malformed.WindowEndTs)
+	}
+}
+
 func TestTraceCausalProjectionWindowParseAlignsWithProducerFormat(t *testing.T) {
 	// Mirror trace_query.go traceQueryWindowValue's "%.6f..%.6f" output.
 	notes := []string{fmt.Sprintf("window=%.6f..%.6f", 12.500000, 34.750000)}

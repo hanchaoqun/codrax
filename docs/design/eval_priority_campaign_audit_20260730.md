@@ -4023,14 +4023,26 @@ facet，以及结构门只允许一个 `ForceHard` 生产点。前者改为断�
 
 这是确定性系统 gap，不是模型波动。显式用户窗、模型查询窗、系统补采披露窗和状态
 账一致为 233.190ms，只有系统因果投影选择了 0.113ms 的派生 frame span 作为根分母。
-下一批必须建立通用窗口优先级：当 typed runtime scope 是显式时间窗时，投影根窗与
-所有窗口占比以该窗为唯一权威；派生 frame/span 只能作为窗内 witness，不能覆盖根窗。
-显式 frame/span selector 仍可使用其自身派生窗，不能损害现有带窗 Trace 自动补采。
+
+代码追踪确认补采参数与引擎没有缩窗。`frame_target_resolution` 同时承载两个合法但
+语义不同的时间面：Observation `Span` 为 selected frame 的引用定位区间；typed
+`window=` 为 `FrameTargetResolution.Window`，即分析和分母权威。旧投影编译器优先拿
+有效 Span，仅在 Span 无效时才读 `window=`，把引用区间误升为根窗。
+
+通用修复将优先级纠正为：白名单 `window_source=query_window`/显式 union 的 frame
+anchor 必须优先读取严格解析的 typed `window=`；只有旧记录完全没有该 note 时才回退
+Span。note 已存在但格式损坏时 fail-closed，不把 selected-frame Span 猜成用户窗。这样
+派生 frame/span 仍保留为证据 witness，显式 frame/span selector 的 resolution window
+也照常生效，但不会覆盖根分母。
 
 Trace 答案中“热治理”“精确 12 因素”“PI/fscache 修复关系”等无 typed proof 的升级
 仍归 model-guidance lane；只改善 typed 边界和 prompt 软引导，禁止系统重写模型结论。
 
-状态：`open / next batch`。
+验证：新增真实数值 pin（233.190ms 用户窗 × 0.113ms selected-frame Span），断言投影
+根窗保留 233.190ms；另钉 malformed typed window 禁止 Span 降级。`internal/types`
+无缓存全包与 projection 相关 `internal/tool` 测试通过。
+
+状态：`implemented / commit-next / same-case replay-next`。
 
 ### B36：配置映射 × write plan 权限与模型结论所有权（2026-08-01）
 
