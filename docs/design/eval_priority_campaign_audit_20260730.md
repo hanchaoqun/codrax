@@ -4747,13 +4747,39 @@ meta-runner 语义断链。
 继续增加自然语言禁令的 ROI 很低，还会扩大 prompt；应把 authority 变成跨阶段共享 typed
 协议，并让模型自己在协议失败后重写答案。这符合“系统供证据和边界、模型拥有判断”的红线。
 
+第一批施工采用更小、可回退的跨阶段 transport，而不是立即扩大 AnswerDocument schema：
+
+1. `trace_query` 的 compact root-cause board 后立即发布 `relation_authority`，使 Explorer
+   在第一次形成总结前就能看到同源 typed 边界；长正文、lossless JSON、finalizer handoff
+   与最终投影继续保留，不删除任何信息。
+2. self-runnable two-ruler 不复制合法性判定：engine carrier 转换后复用
+   `TraceCausalProjectionSelfRunnableTwoRulerValid`，只发布逐尺 seats/subtotal、同尺按已发布
+   小计可加、跨尺禁加及物理关系 unresolved。非法/不闭合 carrier fail-closed，只保留通用
+   `typed_pair_only` 边界。
+3. row state breakdown 明确限定为本行；相同 `fix_direction` 仅是 repair classification，
+   没有 exact typed subtotal 就没有相加权限。blocked-reason census 明确区分 kernel record
+   count、vendor delay sum，并声明 census 自身不足以证明与 scheduler state 的包含/重叠关系，
+   需要 typed interval join；不同 PID 的 census 不与目标账户建立关系。
+4. 该批只读 engine/types typed 字段，不读 RawRequest、Explorer/Finalizer/final prose，不做
+   hard reject，不生成或替换根因结论；显式窗 query、自动补齐、因果投影、根因排序、唤醒链
+   和可消除量路径均未改动。是否还需 model-authored structured relation claim，留待 r5
+   生产回放判断，避免在 transport 已足够时引入重 schema。
+
+定向回归覆盖 relation authority 位于长 root-cause body 前、非法 two-ruler fail-closed、
+跨线程 blocked-reason 不误配，以及原 compact rank/frame-bundle head 行为；
+`go test ./internal/tool -run 'TestTraceQuerySummary(CarriesTypedRelationAuthorityBeforeExploreClosure|SilencesInvalidTwoRulerCarrier|DoesNotInventBlockedReasonStateRelationAcrossThreads|PublishesTypedRootCauseRosterBeforeLongBody|UsesFrameBundleRankForCompleteHeadPreview)$' -count=1`
+通过（1.024s）。此前同代码形态的完整 `go test ./internal/tool -count=1` 已通过
+（159.274s）；措辞精化后的提交态完整复跑也通过（160.918s）。
+
 后续任务：
 
 - [x] B46-T10a：完成人工审计，纠正“semantic reviewer 被 observation-only skip”的误判；
-- [ ] B46-T10b：盘点现有 AnswerDocument/claim schema，设计最小 relation-claim 载体与共享
-  pair authority，不增加答案字符串硬门；
-- [ ] B46-T10c：先补跨阶段 prompt/handoff 的单源共享与结构化 claim 单测，再决定是否需要
-  typed-complexity 驱动的可选 LLM reviewer；不得直接默认开启高延迟 reviewer；
+- [x] B46-T10b：盘点现有 AnswerDocument/claim schema；先选用共享 typed carrier 的
+  pre-Explore transport，暂缓 schema 扩张，不增加答案字符串硬门；
+- [x] B46-T10c-a：补齐 pre-Explore 单源关系 authority 与正反单测；
+- [ ] B46-T10c-b：r5 若仍出现同类关系越权，再设计 model-authored structured relation
+  claim 与精确 typed 校验；之后才评估 typed-complexity 驱动的可选 LLM reviewer，
+  不得直接默认开启高延迟 reviewer；
 - [ ] B46-T10d：相关单测通过后同 pair r5；确认关系正确再进入 B47 多维批次。
 
 ### B41：data 终批材料 × Binder 方向语义审计（2026-08-02）

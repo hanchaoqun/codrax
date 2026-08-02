@@ -4387,6 +4387,10 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	// preserves engine order and values, reads no request/answer prose, and
 	// neither elects a cause nor changes the full rank/projection sections.
 	writeTraceRootCauseRankPreview(&b, traceQueryRootCauseRankForHeadPreview(result), payloadRef)
+	// B46-REL3 (2026-08-02): keep exact pair/ruler and non-authority
+	// boundaries beside the compact board so exploration cannot form a stale
+	// cross-row sum before the same typed projection reaches Finalizer.
+	writeTraceRootCauseRelationAuthorityPreview(&b, result)
 	for _, suppression := range result.LifecycleSuppressions {
 		fmt.Fprintf(&b, "lifecycle_suppression conflict_tid=%d signal=%s boundary_line=%d boundary_ts=%.6f scope=%s affects_target=%t affected_lanes=%s preserved_lanes=%s frame_ownership_status=%s candidate_selectors=%s suggested_queries=%s\n",
 			suppression.ConflictTID, sanitizeForBanner(suppression.Signal), suppression.BoundaryLine, suppression.BoundaryTs,
@@ -7971,6 +7975,82 @@ func writeTraceRootCauseRankPreview(b *strings.Builder, rank *tracequery.RootCau
 		fmt.Fprintf(b, "root_cause_rank_preview_continuation omitted=%d payload_ref=%s\n",
 			len(rank.Items)-visible, sanitizeForBanner(payloadRef))
 	}
+}
+
+// writeTraceRootCauseRelationAuthorityPreview publishes the small typed
+// relation carriers that qualify rank rows BEFORE the long result body. The
+// lossless JSON and observation ledger already preserve these facts, but a
+// bounded blob preview may hide them. An explorer closing from the compact
+// roster must not invent containment or addition merely because rows share a
+// subject, state word, or repair direction.
+//
+// This is transport only: it reads engine-typed fields, never request/model
+// prose; it neither rejects completion nor authors a diagnosis.
+func writeTraceRootCauseRelationAuthorityPreview(b *strings.Builder, result tracequery.Result) {
+	if b == nil {
+		return
+	}
+	rank := traceQueryRootCauseRankForHeadPreview(result)
+	if rank == nil || len(rank.Items) == 0 {
+		return
+	}
+	b.WriteString("relation_authority scope=root_cause_rank policy=typed_pair_only\n")
+	b.WriteString("- rank_row_state_breakdown scope=this_row_only cross_row_containment=unproven_without_exact_pair_carrier cross_row_overlap=unproven_without_exact_pair_carrier\n")
+	b.WriteString("- fix_direction role=repair_classification_only same_direction_addition=not_authorized_without_exact_typed_subtotal\n")
+
+	if record, ok := traceQuerySelfRunnableTwoRulerAuthority(rank); ok {
+		fmt.Fprintf(b, "- self_runnable_two_ruler subject=%s self_wall_clock_seats=%s self_wall_clock_subtotal=%.3fms wakeup_edge_seats=%s wakeup_edge_subtotal=%.3fms same_ruler_addition=authorized_to_published_subtotal cross_ruler_addition=forbidden cross_ruler_physical_relation=unresolved\n",
+			sanitizeForBanner(record.Subject), traceQueryRelationRulerSeats(record.WallRanks, record.WallEffsMS), record.WallSubtotalMS,
+			traceQueryRelationRulerSeats(record.EdgeRanks, record.EdgeEffsMS), record.EdgeSubtotalMS)
+	}
+
+	account := traceQueryTargetWindowStatesAccount(result)
+	if account == nil || account.Thread.PID <= 0 || result.WindowStats == nil {
+		return
+	}
+	for _, census := range result.WindowStats.BlockedReasonCensus {
+		if census.Thread.PID != account.Thread.PID || census.Count <= 0 {
+			continue
+		}
+		fmt.Fprintf(b, "- blocked_reason_census_relation subject=%s records=%d value_caliber=kernel_record_count caller_delay_caliber=vendor_reported_delay_sum state_relation_authority=census_alone_not_sufficient typed_interval_join_required=true add_or_subtract_from_state_total=not_authorized_by_census_alone\n",
+			sanitizeForBanner(traceThreadLabel(census.Thread)), census.Count)
+		break
+	}
+}
+
+func traceQuerySelfRunnableTwoRulerAuthority(rank *tracequery.RootCauseRankResult) (types.TraceCausalProjectionSelfRunnableTwoRuler, bool) {
+	if rank == nil || rank.SelfRunnableTwoRuler == nil {
+		return types.TraceCausalProjectionSelfRunnableTwoRuler{}, false
+	}
+	source := rank.SelfRunnableTwoRuler
+	record := types.TraceCausalProjectionSelfRunnableTwoRuler{
+		Subject:        traceThreadLabel(source.Thread),
+		WallSubtotalMS: source.WallSubtotalMs,
+		EdgeSubtotalMS: source.EdgeSubtotalMs,
+	}
+	for _, seat := range source.WallSeats {
+		record.WallRanks = append(record.WallRanks, seat.Rank)
+		record.WallEffsMS = append(record.WallEffsMS, seat.EffMs)
+	}
+	for _, seat := range source.EdgeSeats {
+		record.EdgeRanks = append(record.EdgeRanks, seat.Rank)
+		record.EdgeEffsMS = append(record.EdgeEffsMS, seat.EffMs)
+	}
+	if !types.TraceCausalProjectionSelfRunnableTwoRulerValid(record) {
+		return types.TraceCausalProjectionSelfRunnableTwoRuler{}, false
+	}
+	return record, true
+}
+
+func traceQueryRelationRulerSeats(ranks []int, values []float64) string {
+	parts := make([]string, 0, len(ranks))
+	for i := range ranks {
+		if i >= len(values) {
+			break
+		}
+		parts = append(parts, fmt.Sprintf("#%d:%.3fms", ranks[i], values[i]))
+	}
+	return strings.Join(parts, ",")
 }
 
 // writeTraceTargetWaitOccurrencePreview renders the target account's exact
