@@ -4310,7 +4310,7 @@ terminal material scheduling guard 在脚本执行前以 typed `required_materia
 | ID | P | gap | 最优方案 | 状态 |
 |---|---:|---|---|---|
 | EVAL-B44-DATACONTRACT1 | P1 | terminal `custom_transform` 的 workflow/plan 明确 `json_only, explanation_allowed=false`，但内部 relaxed sub-plan 的 `freeform,true` 泄露到 `result.output_contract`，终态同时向模型提供两个相反 typed 权威面 | relaxed contract 仅限 action 内部执行；ActionRunner 发布 terminal result 前恢复 validation plan 的输出契约。`continue_after=true` 的中间批继续保持 freeform；不读答案文本推断契约 | implemented/tests-pass |
-| EVAL-B44-OPEXTRACT1 | P1 | operation 已下载完整长 HTML，但 evaluator/finalizer 每份只见 4000-rune material excerpt；`source_truncated=false` 只表示 256KiB 读取未截断，无法表达 prompt excerpt 已截断，模型却宣布“完整”并写出错误 `/focus` 和无来源“最近 3 轮” | 增加独立 typed `excerpt_truncated`，保留 `source_truncated` 的源读取语义；继续依靠已有软 continuation 指导做分页/正文定向提取，不按 URL、用户关键词或答案文本做 hard gate | open-next-batch |
+| EVAL-B44-OPEXTRACT1 | P1 | operation 已下载完整长 HTML，但 evaluator/finalizer 每份只见 4000-rune material excerpt；`source_truncated=false` 只表示 256KiB 读取未截断，无法表达 prompt excerpt 已截断，模型却宣布“完整”并写出错误 `/focus` 和无来源“最近 3 轮” | 增加独立 typed `excerpt_truncated`，保留 `source_truncated` 的源读取语义；继续依靠已有软 continuation 指导做分页/正文定向提取，不按 URL、用户关键词或答案文本做 hard gate | implemented/tests-pass |
 | EVAL-B44-EVALMETRIC1 | P2 | eval 把 operation 进度、HTML title、文档名中的任意“Trace 因果投影”子串计成 9 个系统投影块 | 只计最终答案中的精确 `## Trace 因果投影` / `## Trace Causal Projection` 标题（允许系统目标后缀）；其它正文提及不计 | implemented/tests-pass |
 
 `DATACONTRACT1` 的修复点是 typed publication boundary，不是对这个 JSON case 做格式拟合：
@@ -4331,9 +4331,23 @@ operation 人工审计还发现量具本身跨模式污染：该 case 无 trace 
 - [x] B44-T2：修复 terminal custom-transform typed output contract 发布边界，相关 dataquery /
   dataworkflow / repl 回归通过；
 - [x] B44-T3：修复 trace projection eval metric 跨模式污染，runner contract 测试通过；
-- [ ] B44-T4：补 operation material 的 source-read/excerpt 双截断 typed context 与测试；
+- [x] B44-T4：补 operation material 的 source-read/excerpt 双截断 typed context 与测试；
 - [ ] B44-T5：分批提交推送；干净 HEAD 同对回放，确认 JSON context 单一且 operation 会在广域
   材料仍截断时优先继续定向抽取。
+
+#### B44-b：operation 长材料上下文必须同时披露两层截断
+
+`commandPayloadMaterialExcerpt` 现在为每份材料发布两个互不替代的 typed boolean：
+
+- `source_truncated`：256 KiB 有界源读取是否未覆盖完整 payload；
+- `excerpt_truncated`：HTML 正文抽取/文本压缩后，交给 evaluator/finalizer 的 4000-rune
+  prompt excerpt 是否仍只是一段前缀。
+
+小材料固定 `false/false`，大于 4000 rune 但小于读取上限固定 `false/true`，超过读取上限的
+长材料固定 `true/true`。operation evaluator 与 final answerer 只获得软、证据边界型指导：当
+遗漏部分与用户范围有关且 payload ref 可读时，继续安排 bounded page/search/extraction；否则
+披露边界。系统不从 URL、用户原文或模型答案关键词判断相关性，不硬拒绝 `complete`，也不替
+模型生成结论。
 
 ### B41：data 终批材料 × Binder 方向语义审计（2026-08-02）
 

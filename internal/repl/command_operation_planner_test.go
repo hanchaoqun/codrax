@@ -1203,6 +1203,7 @@ func TestRenderCommandResultForPromptIncludesCleanPayloadMaterialExcerpt(t *test
 	for _, want := range []string{
 		"payload_material_excerpt",
 		"kind=html_text",
+		"source_truncated=false excerpt_truncated=false",
 		"codrax 使用指南",
 		"用自然语言问代码",
 	} {
@@ -1214,6 +1215,36 @@ func TestRenderCommandResultForPromptIncludesCleanPayloadMaterialExcerpt(t *test
 		if strings.Contains(got, banned) {
 			t.Fatalf("prompt should strip %q:\n%s", banned, got)
 		}
+	}
+}
+
+func TestCommandPayloadMaterialExcerptSeparatesSourceAndPromptTruncation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "long-manual.txt")
+	if err := os.WriteFile(path, []byte(strings.Repeat("manual-section ", 500)), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	got := commandPayloadMaterialExcerpt(path)
+	for _, want := range []string{
+		"source_truncated=false",
+		"excerpt_truncated=true",
+		"...[material excerpt truncated]",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("excerpt missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestCommandPayloadMaterialExcerptReportsBothTruncationLayers(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "very-long-manual.txt")
+	if err := os.WriteFile(path, []byte(strings.Repeat("full-source-section ", 20000)), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	got := commandPayloadMaterialExcerpt(path)
+	if !strings.Contains(got, "source_truncated=true excerpt_truncated=true") {
+		t.Fatalf("excerpt lost typed truncation boundaries:\n%s", got)
 	}
 }
 

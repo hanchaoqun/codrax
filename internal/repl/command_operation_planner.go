@@ -358,6 +358,7 @@ Hard rules:
 - If the user goal depends on omitted or saved material content, and a safe local command can read/search/extract it, emit status=continue_command.
 - If a configured provider follow-up is still needed and represented by a typed next action, emit status=continue_provider.
 - If existing observations already satisfy the user goal, emit status=complete.
+- A material row with source_truncated=true or excerpt_truncated=true is not proof of complete material coverage. When the user's goal depends on the omitted portion and a payload ref is available, emit continue_command so a bounded page/search/extraction step can collect the relevant content; do not infer it from the prefix.
 - Ask for clarification only for user-owned missing inputs: credentials, remote host, destructive scope, destination choice, business choice, or data that cannot be safely discovered.
 - If useful progress exists but budgets or capability limits prevent safe completion, emit budget_exhausted or partial_answer_possible.
 - Do not mention raw execution detail blocks in the reason; UI already shows per-round details.
@@ -440,6 +441,7 @@ Rules:
 - Mention artifact refs, payload refs, verification results, and follow-up actions when they matter.
 - If verification_status is unknown for ui_visibility, do not claim the desktop/browser window definitely opened or became visible. Say that the command request was sent/accepted and visibility was not verified, then provide the safest next check or follow-up.
 - Treat payload refs, artifact refs, material refs, and workflow actions as external operation materials. A command/provider/Skill/MCP summary is only a compact observation; do not imply full material content was inspected unless the observations actually include the extracted user-relevant content.
+- source_truncated and excerpt_truncated describe different evidence boundaries: the first means the bounded source read did not cover the whole payload; the second means the prompt contains only a prefix of the extracted material. If either is true and the omitted content matters to the requested scope, do not claim complete coverage; use the payload ref for a bounded follow-up extraction or state the remaining boundary.
 - Keep raw logs/large output summarized; the UI will show execution details separately.
 - Do not include execution-detail headings such as "Operation plan ... completed" or "操作计划 ... 已执行完成"; per-round execution details are already shown outside the final report.
 - Match the requested language. If language=zh, every user-visible sentence must be Chinese except command names, file paths, product names, and raw command output snippets.
@@ -1225,11 +1227,13 @@ func commandPayloadMaterialExcerpt(ref string) string {
 		return ""
 	}
 	const maxRunes = 4000
+	excerptTruncated := false
 	runes := []rune(text)
 	if len(runes) > maxRunes {
 		text = string(runes[:maxRunes]) + "\n...[material excerpt truncated]"
+		excerptTruncated = true
 	}
-	return fmt.Sprintf("payload_material_excerpt ref=%s kind=%s source_truncated=%t\n%s", ref, kind, truncated, text)
+	return fmt.Sprintf("payload_material_excerpt ref=%s kind=%s source_truncated=%t excerpt_truncated=%t\n%s", ref, kind, truncated, excerptTruncated, text)
 }
 
 func commandPayloadHasMaterialExcerpt(ref string) bool {
