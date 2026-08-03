@@ -29,6 +29,12 @@ func validateModelAuthoredAnswerRelationClaims(ctx *types.BusContext, doc *types
 	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(
 		ctx, types.ObservationExtractLedgerEvidenceLimit))
 	authorities := types.CompileTraceAnswerRelationAuthoritiesFromLedger(ledger)
+	// Investigation claims are a model-owned snapshot of the authority slate
+	// that existed when Explore closed. A deterministic supplement can replace
+	// that slate before Finalize. Only the exact intersection remains a final
+	// obligation; requiring a superseded claim while also rejecting its stale
+	// authority ID would make the hard contract unsatisfiable.
+	accepted, _ = types.PartitionAnswerRelationClaimsByCurrentAuthorities(accepted, authorities)
 	if err := types.ValidateAnswerRelationClaims(submitted, authorities, true); err != nil {
 		return fmt.Errorf("model-authored answer relation_claims do not match typed trace authority: %w; carrier path: copy each exact Trace Decision Inputs object to blocks[i].relation_claims on a model-authored block (not top-level $.relation_claims)", err)
 	}

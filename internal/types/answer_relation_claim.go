@@ -374,6 +374,31 @@ func ValidateAnswerRelationClaims(claims []AnswerRelationClaim, authorities []An
 	return nil
 }
 
+// PartitionAnswerRelationClaimsByCurrentAuthorities separates previously
+// accepted model claims that are still backed by the final typed authority
+// slate from claims superseded by later typed evidence (for example a
+// deterministic post-Explore supplement or a replanned window). The match is
+// exact across identity, members, relation, addition, and subtotal. Callers
+// may keep the current claims as model-authored metadata, but must not require
+// superseded claims alongside the final authority slate: that would create an
+// impossible hard contract. No model prose is inspected or rewritten here.
+func PartitionAnswerRelationClaimsByCurrentAuthorities(claims []AnswerRelationClaim, authorities []AnswerRelationAuthority) (current, superseded []AnswerRelationClaim) {
+	byID := make(map[string]AnswerRelationAuthority, len(authorities))
+	for _, authority := range authorities {
+		byID[authority.ID] = authority
+	}
+	for _, raw := range claims {
+		claim := NormalizeAnswerRelationClaim(raw)
+		authority, ok := byID[claim.AuthorityID]
+		if !ok || len(answerRelationClaimAuthorityViolations(claim, authority)) > 0 {
+			superseded = append(superseded, claim)
+			continue
+		}
+		current = append(current, claim)
+	}
+	return CloneAnswerRelationClaims(current), CloneAnswerRelationClaims(superseded)
+}
+
 // answerRelationClaimAuthorityViolations reports every independently
 // actionable field mismatch for one claim. Identity failures are handled by
 // the caller and do not enter this function: comparing dependent fields

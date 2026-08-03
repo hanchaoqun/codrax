@@ -155,6 +155,38 @@ func TestTraceDecisionHandoffCarriesAcceptedModelRelationClaimsWithoutAuthoringC
 	}
 }
 
+func TestTraceDecisionHandoffWithdrawsAcceptedClaimSupersededByFinalAuthority(t *testing.T) {
+	account := types.TraceCausalProjectionTargetStateAccount{
+		Subject: "target-100", RunningMS: 1, RunnableMS: 2, SleepMS: 7,
+		TotalMS: 10, WindowStartTs: 1, WindowEndTs: 1.010,
+	}
+	set := types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{{
+		WindowStartTs: 1, WindowEndTs: 1.010, TargetStateAccount: &account,
+	}}}
+	oldSubtotal := 15.0
+	stale := types.AnswerRelationClaim{
+		AuthorityID:      "trace:target_state_partition:explore-window",
+		MemberRefs:       []string{"running", "runnable", "sleep", "d_state", "io_wait"},
+		PhysicalRelation: types.AnswerPhysicalRelationMutuallyExclusive,
+		Addition:         types.AnswerRelationAdditionAuthorized, SubtotalValue: &oldSubtotal, SubtotalUnit: "ms",
+	}
+	got := renderAnswerDocTraceDecisionHandoffSet(set, runtimeTraceGuidanceView{}, []types.AnswerRelationClaim{stale})
+	for _, want := range []string{
+		"typed_relation_authority: authority_id=`trace:target_state_partition:",
+		"accepted_model_relation_claims_superseded: count=1",
+		"do not copy them into the final document",
+		"revise your own visible conclusion",
+		"system does not rewrite your prose",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("superseded claim handoff missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, stale.AuthorityID) || strings.Contains(got, "- accepted_model_relation_claims: these declarations") {
+		t.Fatalf("stale investigation claim remained a final obligation:\n%s", got)
+	}
+}
+
 func TestTraceDecisionHandoffDoesNotGuessPhaseFromStateOrPriorityWords(t *testing.T) {
 	projection := types.TraceCausalProjection{
 		RankedSeats: []types.TraceCausalProjectionNode{{

@@ -111,6 +111,36 @@ func TestValidateAnswerRelationClaimsReportsIndependentViolationsInOneReject(t *
 	}
 }
 
+func TestPartitionAnswerRelationClaimsByCurrentAuthoritiesWithdrawsStaleSnapshot(t *testing.T) {
+	subtotal := 10.0
+	authorities := []AnswerRelationAuthority{{
+		ID: "trace:target_state_partition:current", Kind: AnswerRelationAuthorityClosedPartition,
+		MemberRefs:       []string{"running", "runnable", "sleep", "d_state", "io_wait"},
+		PhysicalRelation: AnswerPhysicalRelationMutuallyExclusive,
+		Addition:         AnswerRelationAdditionAuthorized, SubtotalValue: &subtotal,
+		SubtotalUnit: "ms", RequiredForClosure: true,
+	}}
+	current := AnswerRelationClaim{
+		AuthorityID: authorities[0].ID, MemberRefs: append([]string(nil), authorities[0].MemberRefs...),
+		PhysicalRelation: authorities[0].PhysicalRelation, Addition: authorities[0].Addition,
+		SubtotalValue: authorities[0].SubtotalValue, SubtotalUnit: authorities[0].SubtotalUnit,
+	}
+	oldSubtotal := 15.0
+	stale := current
+	stale.AuthorityID = "trace:target_state_partition:explore-window"
+	stale.SubtotalValue = &oldSubtotal
+
+	kept, withdrawn := PartitionAnswerRelationClaimsByCurrentAuthorities(
+		[]AnswerRelationClaim{stale, current}, authorities,
+	)
+	if !AnswerRelationClaimsEqual(kept, []AnswerRelationClaim{current}) {
+		t.Fatalf("current claim partition mismatch: %+v", kept)
+	}
+	if !AnswerRelationClaimsEqual(withdrawn, []AnswerRelationClaim{stale}) {
+		t.Fatalf("superseded claim partition mismatch: %+v", withdrawn)
+	}
+}
+
 func TestTraceTargetStatePartitionRequiresExactClosedFiveLaneAccount(t *testing.T) {
 	projection := TraceCausalProjection{TargetStateAccount: &TraceCausalProjectionTargetStateAccount{
 		Subject: "target-7", RunningMS: 1, RunnableMS: 2, SleepMS: 3, DStateMS: 4, IOWaitMS: 5, TotalMS: 15,

@@ -215,8 +215,15 @@ func traceDecisionWriteRelationClaimHandoff(b *strings.Builder, set types.TraceC
 	if len(acceptedClaims) == 0 || len(acceptedClaims[0]) == 0 {
 		return
 	}
+	currentClaims, supersededClaims := types.PartitionAnswerRelationClaimsByCurrentAuthorities(acceptedClaims[0], authorities)
+	if len(supersededClaims) > 0 {
+		fmt.Fprintf(b, "- accepted_model_relation_claims_superseded: count=%d. Later typed evidence replaced these investigation-time declarations; do not copy them into the final document. Use the final typed_relation_authority objects above and revise your own visible conclusion if their values differ. The system does not rewrite your prose.\n", len(supersededClaims))
+	}
+	if len(currentClaims) == 0 {
+		return
+	}
 	b.WriteString("- accepted_model_relation_claims: these declarations were authored by the investigation model and accepted against the typed authorities. Preserve them on the model-authored answer block(s) via `blocks[i].relation_claims`, never document-level `$.relation_claims`; keep your visible conclusion consistent. The system will reject a mismatch but will not rewrite your prose.\n")
-	for _, raw := range acceptedClaims[0] {
+	for _, raw := range currentClaims {
 		claim := types.NormalizeAnswerRelationClaim(raw)
 		fmt.Fprintf(b, "  - authority_id=`%s`; member_refs=`%s`; physical_relation=`%s`; addition=`%s`",
 			claim.AuthorityID, strings.Join(claim.MemberRefs, ","), claim.PhysicalRelation, claim.Addition)

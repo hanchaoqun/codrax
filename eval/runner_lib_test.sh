@@ -606,7 +606,14 @@ cat >"$tmp/finalizer-control.log" <<'LOG'
 2026-05-24T00:00:00.090 INFO [self_consistency_reviewer] V2 emitted 1 contradiction(s)
 2026-05-24T00:00:00.100 DEBUG [orchestrator] violation kind=self_contradiction detail=x
 LOG
-assert_eq "$(eval_count_finalizer_rejects "$tmp/finalizer-control.log")" "2" "finalizer reject control count"
+assert_eq "$(eval_count_finalizer_rejects "$tmp/finalizer-control.log")" "1" "finalizer reject mirror dedupe count"
+
+cat >"$tmp/finalizer-reject-asymmetric.log" <<'LOG'
+2026-05-24T00:00:00.010 DEBUG [diag finalizer] iter=0 phase=toolresult TOOLRESULT emit_answer_document ok=false len=12:
+2026-05-24T00:00:00.020 DEBUG [diag finalizer] iter=1 phase=toolresult TOOLRESULT emit_answer_document_patch ok=false len=12:
+2026-05-24T00:00:00.030 INFO [render]   • 成文校验未通过
+LOG
+assert_eq "$(eval_count_finalizer_rejects "$tmp/finalizer-reject-asymmetric.log")" "2" "finalizer reject asymmetric mirror count"
 assert_eq "$(eval_count_finalizer_rewrites "$tmp/finalizer-control.log")" "1" "finalizer rewrite control count"
 assert_eq "$(eval_count_answer_document_patch_calls "$tmp/finalizer-control.log")" "1" "answer patch control count"
 assert_eq "$(eval_count_midloop_injects "$tmp/finalizer-control.log")" "1" "midloop inject control count"

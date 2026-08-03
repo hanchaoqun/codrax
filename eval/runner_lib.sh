@@ -1113,7 +1113,14 @@ eval_count_finalizer_rejects() {
   # pattern can never match, silently zeroing the counter. Literal
   # alternation is byte-exact in every locale.
   render=$(eval_count_control_pattern 'INFO \[render\][[:space:]]+•[[:space:]]+(成文校验未通过|成文交验未通过)' "$file")
-  n=$((tool + render))
+  # The tool-result line and the user-facing render line are two mirrors of
+  # the SAME reject. Use the larger control-plane census so a build that omits
+  # either mirror remains observable without double-counting ordinary runs.
+  if [[ "$tool" -ge "$render" ]]; then
+    n="$tool"
+  else
+    n="$render"
+  fi
   echo "$n"
 }
 

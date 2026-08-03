@@ -96,6 +96,26 @@ func TestAnswerDocumentRelationClaimsRemainModelOwnedAndCannotDrift(t *testing.T
 	}
 }
 
+func TestFinalRelationClaimsDoNotRequireAcceptedSnapshotSupersededByCurrentAuthority(t *testing.T) {
+	bus, current := relationClaimPipelineFixture(t)
+	stale := types.CloneAnswerRelationClaims(current[:1])
+	stale[0].AuthorityID += ":explore-window"
+	oldSubtotal := 15.0
+	stale[0].SubtotalValue = &oldSubtotal
+	bus.Mutable.SetInvestigationRelationClaims(stale)
+	bus.Mutable.SetInvestigationComplete("model accepted an earlier typed window")
+	bus.Mutable.RetainInvestigationRelationClaims()
+
+	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "s", Kind: types.BlockSummary, Text: "model conclusion updated from final typed inputs",
+		RelationClaims: current,
+	}}}
+	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
+	if err != nil || !res.Success {
+		t.Fatalf("final current authority was trapped by a superseded accepted snapshot: res=%+v err=%v", res, err)
+	}
+}
+
 func TestFinalRelationClaimsIncludeClosureAuthorityAddedByDeterministicSupplement(t *testing.T) {
 	bus, accepted := relationClaimPipelineFixture(t)
 	bus.Mutable.SetInvestigationRelationClaims(accepted)

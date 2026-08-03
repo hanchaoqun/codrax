@@ -11647,3 +11647,72 @@ carrier 的判定不再由 coherence gate 二次派生；mixed 正例和结构 l
   `.codrax/output/20260803-054002.063-32776.html`。
 - 完整 `go test ./internal/analysis/gate ./internal/agent ./internal/tool -count=1`
   通过（gate 0.414s、agent 2.847s、tool 168.305s）。
+
+## EVAL-B54：探索期关系快照与最终补采 authority 冲突（2026-08-03）
+
+### B54 r1：显式窗 Trace 复现不可满足 hard contract；mixed 读例暴露伪调用边
+
+在 `main@cc73549c7` 同一二进制快照下严格并行 2 个 case：
+
+- `trace_query_wakeup_causal_runnable`：runner/human FAIL-system，538s；
+- `read_combo_trace_current_source_explanation`：runner PASS，人工核心答案通过但图关系不通过，298s。
+
+Trace 的查询与模型结论内容本身仍然完整：显式用户窗、`net-300 -> worker-200 -> app-100`
+唤醒路径、目标实际状态、8.300ms 规则可消除候选、background 非因果上下文和两维根因提示都在。
+失败发生在成文 typed 合同：
+
+1. Explorer 收口时，`validateCompletionRelationClaims` 按当时 ledger 接受并 retained
+   `trace:target_state_partition:c737...`，subtotal=15ms；
+2. closure 后 deterministic trace supplement 用用户精确窗重编译出最终
+   `trace:target_state_partition:aebf...`，subtotal=10ms，旧 ID 不再属于最终 authority roster；
+3. handoff 一边要求复制最终 10ms authority，一边要求原样保留 15ms accepted claim；
+4. final validator 对“只带 10ms”报缺 accepted，对“10+15ms 都带”报 15ms ID 无 authority。
+
+模型明确识别到 include/omit 均失败，仍被迫交替重试。实际连续 17 次
+`emit_answer_document` 拒绝后人工终止；旧 eval 指标把每次 DEBUG toolresult 与 INFO
+“成文校验未通过”镜像相加，误报 34。
+
+新增台账：
+
+| ID | 优先级 | GAP | 泛化方案 | 状态 |
+|---|---:|---|---|---|
+| `EVAL-B54-RELSTALE1` | P0/red-line | retained investigation relation claim 被当成永久 hard obligation；补采替换同族 authority 后，旧 claim 与最终 roster 互斥 | final typed authority 为唯一校验源；以 ID+成员+关系+加法+小计精确分区 accepted claims。仍被 final slate 支持的保留；失去支持的 typed 标为 superseded，只提示模型按最终值修订自己的正文，不搬运/替写结论 | implemented / full-related-tests-pass / replay-next |
+| `EVAL-B54-RETRYMETRIC1` | P2/audit | eval 把一次 reject 的 toolresult/render 两条镜像日志双计 | 两个精确控制面 census 取 max；任一日志面缺失仍可观测，普通镜像不重复 | implemented / runner-tests-pass |
+| `EVAL-B54-DIAGCALL1` | P1 | generic explanation 图在 `explicit_caller_callee_edges=0` 时仍可提交任意 `edge_anchors[].relation_kind=call`；本例把 5 条跨子系统逻辑顺序伪装为 direct call | 对所有 diagram family/语言统一复用 typed call-edge authority + endpoint alias resolver；显式 `relation_kind=call` 无对应 exact edge 时 fail-closed。逻辑流程改用 observe/contain/precedence，不扫描 Mermaid label、用户原文或答案 prose 来铸权 | open / next fix batch |
+
+#### B54-A：final authority 单源与 superseded investigation claims
+
+本批实现三个层次：
+
+1. `PartitionAnswerRelationClaimsByCurrentAuthorities` 仅按 typed 字段精确匹配当前 authority；
+2. final handoff 不再发射已失效的 accepted claim，改发 typed superseded count，并要求模型消费
+   final authority、自行修订可见结论；系统不修改任何 block text；
+3. final validator 只要求 accepted/current 交集，同时仍要求所有 closure-critical final authority。
+   补采“新增独立 authority”的旧正例保持，只有被最终证据替换的快照撤销。
+
+回归覆盖：stale/current 精确分区、handoff 不泄漏旧 ID、最终文档只带 current claim 可通过、
+补采新增 authority 仍要求 accepted+新增 superset、20µs 容差窗 ID 恒等保持。全程不读取
+RawRequest、模型 thinking/final 或错误文案，不放宽 relation 校验，也不系统代写结论。
+
+同类结构审计：`StableInvestigationRelationClaims` 的生产消费点只有 handoff 与 final validator，
+两处已统一走分区。aggregate facts 使用 typed merge/supersede 且没有“旧 authority ID 必须保留 +
+final roster 拒绝旧 ID”的双门；source inventory 在 final 前使用同一快照，Trace supplement 不改其
+universe；causal/coverage stamps 从最终 ledger 编译；write replan 走 append-only iteration/verification
+ledger。当前没有确认第二个同形不可满足合同，但这些面保留在后续异构回放矩阵中。没有增加通用
+A/B 循环硬熔断：它只能更快交付空/降级答案，无法修复 authority；本批在矛盾产生前撤销旧合同。
+
+mixed 读例的模型上下文审计：typed current-source/runtime 双 lane 最终足以促成 10 次 read 和正确
+源码锚点，首轮“仓内无实现”是模型过早闭合，后续 DAG evidence window 已纠正，暂不加题面硬门。
+但 final prompt 已明确 `explicit_caller_callee_edges=0 / ordered_path_authority=unproven`，模型仍提交
+5 个 `relation_kind=call` edge anchors，CGEC 只记 2 条 diagram advisory。该精确 typed 伪边是
+`DIAGCALL1` 的生产 witness，不能归为纯模型波动。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b54_trace_mixed_r1_20260803.md`；
+- `eval/parallel_selected_summary_evalcampaign_b54_trace_mixed_r1_20260803_manual_audit.md`；
+- result dirs：`eval/results/*-20260803-070344`；
+- mixed HTML：`.codrax/output/20260803-070840.297-88408.html`。
+- `bash eval/runner_lib_test.sh` 通过；
+- `go test ./internal/types ./internal/agent ./internal/tool -count=1` 全绿
+  （types 18.537s、agent 2.996s、tool 167.363s）；`git diff --check` 通过。
