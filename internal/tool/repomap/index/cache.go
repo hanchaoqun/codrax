@@ -228,20 +228,20 @@ const cacheFileInfosChunkSize = 1024
 // latency is a real bottleneck.
 var extractorVersions = map[string]int{
 	types.LangGo:         6, // HYG-2 G18 rune-safe sig cut (was 5: batch-2 gorilla/mux routes)
-	types.LangJava:       4, // HYG-2 G18 rune-safe sig cut (was 3: P0.4 Spring routes + interface-extends fix)
-	types.LangPython:     5, // HYG-2 G18 rune-safe sig cut (was 4: batch-2 Flask routes)
-	types.LangJavaScript: 4, // HYG-2 G18 rune-safe sig cut (was 3: batch-2 Express/NestJS routes)
-	types.LangTypeScript: 4, // HYG-2 G18 rune-safe sig cut via extractJS (was 3: batch-2 TS decorators)
-	types.LangArkTS:      4, // HYG-2 G18 rune-safe sig cut (routes through extractJS)
-	types.LangCangjie:    3,
-	types.LangKotlin:     4, // batch-2 Kotlin Spring routes
-	types.LangRuby:       3, // HYG-2 G18 rune-safe sig cut
-	types.LangSwift:      3,
-	types.LangLua:        3, // HYG-2 G18 rune-safe sig cut
+	types.LangJava:       5, // receiver-aware call identities (was 4: HYG-2 rune-safe signatures)
+	types.LangPython:     6, // receiver-aware call identities (was 5: HYG-2 rune-safe signatures)
+	types.LangJavaScript: 5, // receiver-aware call identities (was 4: HYG-2 rune-safe signatures)
+	types.LangTypeScript: 5, // receiver-aware call identities via extractJS
+	types.LangArkTS:      5, // receiver-aware call identities via extractJS
+	types.LangCangjie:    4, // token-level call edges and declared receiver identities
+	types.LangKotlin:     5, // navigation call edges and declared receiver identities
+	types.LangRuby:       4, // receiver-aware call identities
+	types.LangSwift:      4, // navigation call edges and declared receiver identities
+	types.LangLua:        4, // receiver-aware call identities
 	types.LangProto:      2,
-	types.LangRust:       3, // HYG-2 G18 rune-safe sig cut
-	types.LangC:          3, // HYG-2 G18 rune-safe sig cut (extractCCpp shared)
-	types.LangCpp:        3, // HYG-2 G18 rune-safe sig cut (extractCCpp shared)
+	types.LangRust:       4, // receiver-aware call identities
+	types.LangC:          4, // call extraction update through extractCCpp
+	types.LangCpp:        4, // receiver-aware call identities through extractCCpp
 }
 
 type cacheFileInfosManifest struct {

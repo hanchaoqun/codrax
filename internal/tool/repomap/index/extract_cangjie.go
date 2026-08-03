@@ -113,7 +113,8 @@ func cangjieUniqueReceiverTypeBindings(tokens []cangjieToken) map[string]string 
 	conflicts := make(map[string]bool)
 	for i := 0; i+2 < len(tokens); i++ {
 		if tokens[i].Kind != cjTokIdent || tokens[i+1].Kind != cjTokColon ||
-			(tokens[i+2].Kind != cjTokIdent && tokens[i+2].Kind != cjTokKeyword) {
+			(tokens[i+2].Kind != cjTokIdent && tokens[i+2].Kind != cjTokKeyword) ||
+			!cangjieBindingDeclarationAt(tokens, i) {
 			continue
 		}
 		name := strings.TrimSpace(tokens[i].Text)
@@ -129,6 +130,47 @@ func cangjieUniqueReceiverTypeBindings(tokens []cangjieToken) map[string]string 
 		bindings[name] = typeName
 	}
 	return bindings
+}
+
+func cangjieBindingDeclarationAt(tokens []cangjieToken, nameIndex int) bool {
+	if nameIndex <= 0 || nameIndex >= len(tokens) {
+		return false
+	}
+	prev := tokens[nameIndex-1]
+	if prev.Kind == cjTokKeyword && (prev.Text == "let" || prev.Text == "var" || prev.Text == "const") {
+		return true
+	}
+	depth := 0
+	open := -1
+	for i := nameIndex - 1; i >= 0; i-- {
+		switch tokens[i].Kind {
+		case cjTokRParen:
+			depth++
+		case cjTokLParen:
+			if depth == 0 {
+				open = i
+				i = -1
+				continue
+			}
+			depth--
+		}
+	}
+	if open < 1 {
+		return false
+	}
+	// Function/init/main/type declaration headers are the only parenthesized
+	// binding domains accepted here. A call such as submit(width: payload)
+	// therefore cannot contribute receiver type authority.
+	for i := open - 1; i >= 0 && i >= open-3; i-- {
+		if tokens[i].Kind != cjTokKeyword {
+			continue
+		}
+		switch tokens[i].Text {
+		case "func", "init", "main", "operator", "foreign", "class", "struct":
+			return true
+		}
+	}
+	return false
 }
 
 func cangjieReceiverBinding(receiver string) string {

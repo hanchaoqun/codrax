@@ -327,7 +327,14 @@ func javaDeclaredTypeName(node *sitter.Node, src []byte) string {
 	}
 	switch node.Type() {
 	case "type_identifier":
-		return strings.TrimSpace(nodeText(node, src))
+		typeName := strings.TrimSpace(nodeText(node, src))
+		// Java's local-variable type inference token `var` occupies the
+		// type_identifier grammar slot, but it is not a declared class identity.
+		// Keep the source receiver unless a real typed declaration proves it.
+		if typeName == "var" {
+			return ""
+		}
+		return typeName
 	case "scoped_type_identifier":
 		if name := node.ChildByFieldName("name"); name != nil {
 			return javaDeclaredTypeName(name, src)

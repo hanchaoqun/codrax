@@ -5,6 +5,8 @@ import (
 	"sort"
 	"testing"
 
+	sitter "github.com/smacker/go-tree-sitter"
+
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 )
 
@@ -101,6 +103,94 @@ func TestStaticLanguageReceiverTypesResolveToDefinitionEndpoints(t *testing.T) {
 		pkg, syms, _, rels, _ := extractArkTS(src, "service.ets")
 		requireResolvedCallTarget(t, &types.FileInfo{RelPath: "service.ets", Language: types.LangArkTS, Package: pkg, Symbols: syms, Relations: rels}, "load", "Repository")
 	})
+}
+
+func TestCReceiverParameterBindingsStayInsideDeclaringFunction(t *testing.T) {
+	src := []byte(`typedef struct Worker { void (*run)(void); } Worker;
+typedef struct Other { void (*run)(void); } Other;
+void parameter_call(Worker *worker) { worker->run(); }
+void local_call(void) { Other *worker; worker->run(); }
+`)
+	root := parseSourceFor(t, types.LangC, string(src))
+	_, _, _, rels := extractCCpp(root, src, "service.c", types.LangC)
+	want := map[int]string{3: "Worker", 4: "worker"}
+	for _, rel := range rels {
+		if rel.Kind != "call" || rel.ToEP.Name != "run" {
+			continue
+		}
+		if receiver, ok := want[rel.Line]; ok {
+			if rel.ToEP.Receiver != receiver {
+				t.Fatalf("line %d receiver=%q, want %q: %+v", rel.Line, rel.ToEP.Receiver, receiver, rel)
+			}
+			delete(want, rel.Line)
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing scoped C receiver calls: %+v; relations=%+v", want, rels)
+	}
+}
+
+func TestNavigationReceiverCensusIgnoresInitializerTypes(t *testing.T) {
+	tests := []struct {
+		name     string
+		language string
+		file     string
+		source   string
+		extract  func(*sitter.Node, []byte, string) []types.Relation
+	}{
+		{
+			name: "kotlin", language: types.LangKotlin, file: "Service.kt",
+			source: "class Noise\nfun run() {\n  val repo = Noise()\n  repo.load()\n}\n",
+			extract: func(root *sitter.Node, src []byte, file string) []types.Relation {
+				return extractNavigationCalls(root, src, file, "kotlin_ast_navigation_call")
+			},
+		},
+		{
+			name: "swift", language: types.LangSwift, file: "Service.swift",
+			source: "class Noise {}\nfunc run() {\n  let repo = Noise()\n  repo.load()\n}\n",
+			extract: func(root *sitter.Node, src []byte, file string) []types.Relation {
+				return extractNavigationCalls(root, src, file, "swift_ast_navigation_call")
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			src := []byte(tc.source)
+			root := parseSourceFor(t, tc.language, tc.source)
+			rels := tc.extract(root, src, tc.file)
+			requireCallReceiver(t, rels, "load", "repo")
+		})
+	}
+}
+
+func TestCangjieNamedArgumentDoesNotCorruptParameterBinding(t *testing.T) {
+	src := []byte(`package demo
+class Width { func load(): Unit {} }
+func submit(width: Width): Unit {}
+func run(width: Width, payload: Width): Unit {
+    submit(width: payload)
+    width.load()
+}`)
+	_, _, _, rels, _ := extractCangjie(src, "service.cj")
+	requireCallReceiver(t, rels, "load", "Width")
+}
+
+func TestCallReceiverExtractorCacheEpochFloors(t *testing.T) {
+	// b50f49233 changed call/receiver output semantics in these shared
+	// extractor lanes. Every affected persisted language domain must reject
+	// pre-change warm caches, including languages sharing one implementation.
+	floors := map[string]int{
+		types.LangJava: 5, types.LangPython: 6,
+		types.LangJavaScript: 5, types.LangTypeScript: 5, types.LangArkTS: 5,
+		types.LangCangjie: 4, types.LangKotlin: 5, types.LangRuby: 4,
+		types.LangSwift: 4, types.LangLua: 4, types.LangRust: 4,
+		types.LangC: 4, types.LangCpp: 4,
+	}
+	for language, floor := range floors {
+		if got := extractorVersions[language]; got < floor {
+			t.Errorf("extractorVersions[%q]=%d, want >=%d after receiver/call semantic change", language, got, floor)
+		}
+	}
 }
 
 func requireCallReceiver(t *testing.T, rels []types.Relation, name, receiver string) {

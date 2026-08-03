@@ -1270,3 +1270,30 @@ typed 图关系权限合同的三处分叉，不是 Java 或某个 Mermaid 模�
 下一批按 §8.5 进入 repomap：先验证并 bump extractor cache epoch，再修 Java `var`、C 参数作用域、
 Kotlin/Swift 声明类型边界与 Cangjie named argument，逐语言保留正反 fixture；不会把一种语言的字符串规则
 复制到其他语言。
+
+### §9.3 M4-B repomap receiver 权限与缓存代际批（已实现，待本节提交）
+
+复核确认 R7-1、R7-2、R7-3、R7-4、R7-6 均成立。R7-1 的失效域需从“改了多少提取文件”换算成
+“多少持久化语言缓存会消费这些实现”：`b50f49233` 改动实际影响 Java、Python、JavaScript、TypeScript、
+ArkTS、Cangjie、Kotlin、Ruby、Swift、Lua、Rust、C、C++ 共 **13 个** `extractorVersions` 域；共享的
+`extractJS` 与 `extractCCpp` 不能只 bump 一个表面语言。上述 13 域已各提升一代，并增加 floor pin，暖缓存会
+整体失配后重建，不再静默沿用旧 call/receiver 结果。
+
+谓词修复保持各语言自己的结构边界：
+
+- **R7-2 Java**：只有 Java AST `type_identifier` 的精确值为 `var` 时拒绝把它当声明类型；保留源 receiver，
+  不从 initializer 猜类型，也不影响显式类型、泛型容器和数组；
+- **R7-3 C/C++**：参数 receiver census 从 file-wide 收窄到调用所在 `function_definition` 的 declarator；
+  另一函数的同名参数不能改写本函数局部变量，C++ 共享提取面同步受益；
+- **R7-4 Kotlin/Swift**：类型只从 AST `type` field 或直接的 `user_type/type_annotation/nullable_type` 等
+  声明 carrier 读取；不再递归扫描整棵参数/属性子树，annotation 和 initializer 中的类型无权铸造绑定；
+- **R7-6 Cangjie**：`ident : ident` 只有位于 `let/var/const` 声明或函数/init/main/type 声明参数表时才
+  进入 receiver census；调用参数 `submit(width: payload)` 明确不能覆盖 `width: Width` 的声明身份。
+
+新增 fixture 覆盖：两个 Java `var` receiver 不折叠成伪类型 `var`；C 参数身份不跨函数污染同名局部变量；
+Kotlin/Swift initializer type 不冒充声明类型且显式参数仍能解析到定义；Cangjie named argument 不破坏参数
+类型；13 个缓存代际全部有下限 pin。
+
+状态：`R7-1=implemented`；`R7-2=implemented`；`R7-3=implemented`；`R7-4=implemented`；
+`R7-6=implemented`。R7-7/R7-8 保持低危独立项，待本批提交后用可执行反例复核，避免在高危批中夹带
+未经证实的行为改动。

@@ -93,13 +93,42 @@ func navigationDeclaredTypeName(node *sitter.Node, src []byte) string {
 	if node == nil {
 		return ""
 	}
-	var found string
-	walkNamedChildren(node, true, func(ch *sitter.Node) {
-		if found == "" && ch.Type() == "type_identifier" {
-			found = strings.TrimSpace(nodeText(ch, src))
+	if typed := node.ChildByFieldName("type"); typed != nil {
+		return navigationTypeIdentifier(typed, src)
+	}
+	// Kotlin exposes declaration types through direct grammar carriers rather
+	// than a stable `type` field. Stay inside those carriers: walking the whole
+	// declaration also sees annotation arguments and initializer expressions,
+	// whose first type_identifier is not the binding's declared type.
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		child := node.NamedChild(i)
+		switch child.Type() {
+		case "user_type", "type_annotation", "nullable_type", "type_identifier":
+			if typeName := navigationTypeIdentifier(child, src); typeName != "" {
+				return typeName
+			}
+		case "parameter_with_optional_type", "variable_declaration":
+			if typeName := navigationDeclaredTypeName(child, src); typeName != "" {
+				return typeName
+			}
 		}
-	})
-	return found
+	}
+	return ""
+}
+
+func navigationTypeIdentifier(node *sitter.Node, src []byte) string {
+	if node == nil {
+		return ""
+	}
+	if node.Type() == "type_identifier" {
+		return strings.TrimSpace(nodeText(node, src))
+	}
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		if typeName := navigationTypeIdentifier(node.NamedChild(i), src); typeName != "" {
+			return typeName
+		}
+	}
+	return ""
 }
 
 func navigationReceiverBinding(receiver string) string {

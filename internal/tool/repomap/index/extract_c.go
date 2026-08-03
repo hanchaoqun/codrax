@@ -347,7 +347,6 @@ func cDeclaratorName(node *sitter.Node, src []byte) string {
 
 func cExtractCalls(root *sitter.Node, src []byte, file string) []types.Relation {
 	var rels []types.Relation
-	receiverTypes := cUniqueReceiverTypeBindings(root, src)
 	walkNamedChildren(root, true, func(node *sitter.Node) {
 		if node.Type() != "call_expression" {
 			return
@@ -374,8 +373,10 @@ func cExtractCalls(root *sitter.Node, src []byte, file string) []types.Relation 
 				if argument := fn.ChildByFieldName("argument"); argument != nil {
 					receiver = strings.TrimSpace(nodeText(argument, src))
 				}
-				if binding := cReceiverBinding(receiver); binding != "" && receiverTypes[binding] != "" {
-					receiver = receiverTypes[binding]
+				if binding := cReceiverBinding(receiver); binding != "" {
+					if receiverType := cEnclosingFunctionReceiverType(node, src, binding); receiverType != "" {
+						receiver = receiverType
+					}
 				}
 				rels = append(rels, types.Relation{
 					Kind:       "call",
@@ -408,6 +409,24 @@ func cExtractCalls(root *sitter.Node, src []byte, file string) []types.Relation 
 		}
 	})
 	return rels
+}
+
+// cEnclosingFunctionReceiverType limits parameter-derived identities to the
+// function that owns the call. C/C++ routinely reuse short parameter/local
+// names across functions; a file-wide census can therefore rewrite an
+// unrelated local receiver to another function's parameter type.
+func cEnclosingFunctionReceiverType(node *sitter.Node, src []byte, binding string) string {
+	for current := node; current != nil; current = current.Parent() {
+		if current.Type() != "function_definition" {
+			continue
+		}
+		declarator := current.ChildByFieldName("declarator")
+		if declarator == nil {
+			return ""
+		}
+		return cUniqueReceiverTypeBindings(declarator, src)[binding]
+	}
+	return ""
 }
 
 func cUniqueReceiverTypeBindings(root *sitter.Node, src []byte) map[string]string {

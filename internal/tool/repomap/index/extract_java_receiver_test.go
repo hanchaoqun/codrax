@@ -86,3 +86,33 @@ class Holder {
 		t.Fatalf("generic binding type=%q, want container List", got)
 	}
 }
+
+func TestJavaVarDoesNotMintDeclaredReceiverType(t *testing.T) {
+	src := []byte(`class Alpha { void run() {} }
+class Beta { void run() {} }
+class Caller {
+  void invoke() {
+    var alpha = new Alpha();
+    var beta = new Beta();
+    alpha.run();
+    beta.run();
+  }
+}`)
+	root := parseJava(t, src)
+	_, _, _, rels := extractJava(root, src, "Caller.java")
+	want := map[int]string{7: "alpha", 8: "beta"}
+	for _, rel := range rels {
+		if rel.ToEP.Name != "run" {
+			continue
+		}
+		if got, ok := want[rel.Line]; ok {
+			if rel.ToEP.Receiver != got {
+				t.Fatalf("line %d receiver=%q, want source binding %q: %+v", rel.Line, rel.ToEP.Receiver, got, rel)
+			}
+			delete(want, rel.Line)
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing var receiver calls: %+v; relations=%+v", want, rels)
+	}
+}
