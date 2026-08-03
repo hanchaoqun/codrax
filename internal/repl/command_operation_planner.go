@@ -233,7 +233,7 @@ var commandOperationPlanTool = llm.ToolSchema{
     "coverage_material_refs": {
       "type": "array",
       "items": {"type":"string"},
-      "description": "Recorded payload refs whose fully visible extracted content supports terminal material_coverage_status=complete."
+      "description": "System-recorded material-coverage receipt refs or bounded payload refs whose fully visible content supports terminal material_coverage_status=complete."
     },
     "questions": {
       "type": "array",
@@ -315,7 +315,7 @@ var operationEvaluationTool = llm.ToolSchema{
     "coverage_material_refs": {
       "type": "array",
       "items": {"type":"string"},
-      "description": "Refs whose fully visible extracted content supports material_coverage_status=complete. Do not cite a ref whose source/excerpt is truncated."
+      "description": "System-recorded material-coverage receipt refs or bounded extraction refs whose fully visible content supports material_coverage_status=complete. Do not cite a page or source whose ledger is truncated."
     }
   },
   "required": ["status"]
@@ -343,7 +343,7 @@ Hard rules:
 - Operation approval is independent from write-mode write_enabled. Do not mention write_enabled for command-operation approval.
 - Use capability_snapshot when present. Prefer commands shown as available. If a needed tool is absent, either ask for clarification or plan a safe check/install workflow when the user explicitly asked for installation.
 - capability_snapshot is advisory context, not a substitute for requested facts. For factual computer/environment queries, plan real read-only commands that retrieve the requested facts; do not answer by echoing or paraphrasing the snapshot unless the exact requested field is explicitly present there.
-- On replan/continuation, terminal status=complete over saved or truncated material must state material_coverage_status. Use not_applicable only when omitted material does not affect the user goal. Otherwise complete requires coverage_material_refs naming already-recorded bounded extractions whose source and prompt excerpt are both fully visible. A downloaded file or failed/truncated extraction is not complete content coverage.
+- On replan/continuation, terminal status=complete over saved or truncated material must state material_coverage_status. Use not_applicable only when omitted material does not affect the user goal. Otherwise complete requires coverage_material_refs naming a system-recorded material-coverage receipt or an already-recorded bounded extraction whose source and prompt excerpt are both fully visible. Individual material-page refs do not prove whole-source coverage. A downloaded file or failed/truncated extraction is not complete content coverage.
 - Do not invent installed tools that are absent from capability_snapshot unless the user explicitly named a custom command or requested installing it.
 - Do not use echo, printf, comments, or no-op placeholder commands to claim that facts were obtained. If you cannot retrieve the facts safely, emit needs_clarification or plan a safe discovery command.
 - For unfamiliar software or command-line tools, prefer safe discovery steps such as --help, help, version, or documentation reads before planning risky or irreversible actions. If exact usage is still unclear after discovery, ask a clarification question instead of guessing flags.
@@ -382,7 +382,7 @@ Hard rules:
 - If a configured provider follow-up is still needed and represented by a typed next action, emit status=continue_provider.
 - If existing observations already satisfy the user goal, emit status=complete.
 - A material row with source_truncated=true or excerpt_truncated=true is not proof of complete material coverage. When the user's goal depends on the omitted portion and a payload ref is available, emit continue_command so a bounded page/search/extraction step can collect the relevant content; do not infer it from the prefix.
-- Set material_coverage_status for material-backed goals. "complete" means the observations contain the user-relevant content, not merely that a payload was downloaded. When complete, coverage_material_refs must name the bounded extracted outputs that are fully visible (source_truncated=false and excerpt_truncated=false). If only a prefix, table of contents, failed extraction, or saved full payload is available, use partial/not_evaluated and do not emit status=complete.
+- Set material_coverage_status for material-backed goals. "complete" means the observations contain the user-relevant content, not merely that a payload was downloaded. When a material_coverage_ledger publishes coverage_receipt_ref, every normalized page of that source is visible and that exact receipt may be named in coverage_material_refs. Otherwise complete requires bounded extracted outputs that are fully visible (source_truncated=false and excerpt_truncated=false). Individual page refs, a prefix, table of contents, failed extraction, or saved full payload do not prove complete source coverage.
 - Ask for clarification only for user-owned missing inputs: credentials, remote host, destructive scope, destination choice, business choice, or data that cannot be safely discovered.
 - If useful progress exists but budgets or capability limits prevent safe completion, emit budget_exhausted or partial_answer_possible.
 - Do not mention raw execution detail blocks in the reason; UI already shows per-round details.
@@ -705,20 +705,7 @@ func validateCommandOperationEvaluationCoverage(d operationEvaluationDraft, reco
 	if operation.NormalizeEvaluationStatus(string(d.Status)) != operation.EvalComplete {
 		return nil
 	}
-	available := map[string]bool{}
-	incomplete := map[string]bool{}
-	for _, record := range records {
-		for _, ref := range commandOperationResultPayloadRefs(record.Result) {
-			ref = strings.TrimSpace(ref)
-			if ref == "" {
-				continue
-			}
-			available[ref] = true
-			if !commandPayloadMaterialExcerptFullyVisible(ref) {
-				incomplete[ref] = true
-			}
-		}
-	}
+	available, complete, incomplete := commandOperationMaterialCoverageAuthority(records)
 	if len(incomplete) == 0 {
 		return nil
 	}
@@ -729,6 +716,7 @@ func validateCommandOperationEvaluationCoverage(d operationEvaluationDraft, reco
 		coverage,
 		[]string(d.CoverageMaterialRefs),
 		available,
+		complete,
 		incomplete,
 		rawLen,
 	)
@@ -748,27 +736,12 @@ func validateCommandOperationPlanTerminalCoverage(d commandPlanDraft, req comman
 		return nil
 	}
 
-	available := map[string]bool{}
-	incomplete := map[string]bool{}
-	addResult := func(result operation.CommandOperationResult) {
-		for _, ref := range commandOperationResultPayloadRefs(result) {
-			ref = strings.TrimSpace(ref)
-			if ref == "" {
-				continue
-			}
-			available[ref] = true
-			if !commandPayloadMaterialExcerptFullyVisible(ref) {
-				incomplete[ref] = true
-			}
-		}
-	}
+	var available, complete, incomplete map[string]bool
 	if req.Replan {
-		addResult(req.Result)
+		available, complete, incomplete = commandOperationMaterialCoverageAuthority(nil, req.Result)
 	}
 	if req.Continuation {
-		for _, record := range req.Records {
-			addResult(record.Result)
-		}
+		available, complete, incomplete = commandOperationMaterialCoverageAuthority(req.Records)
 	}
 	if len(incomplete) == 0 {
 		return nil
@@ -781,12 +754,13 @@ func validateCommandOperationPlanTerminalCoverage(d commandPlanDraft, req comman
 		coverage,
 		[]string(d.CoverageMaterialRefs),
 		available,
+		complete,
 		incomplete,
 		rawLen,
 	)
 }
 
-func validateCompleteCommandMaterialCoverage(toolName, scope string, coverage operation.MaterialCoverageStatus, rawRefs []string, available, incomplete map[string]bool, rawLen int) error {
+func validateCompleteCommandMaterialCoverage(toolName, scope string, coverage operation.MaterialCoverageStatus, rawRefs []string, available, complete, incomplete map[string]bool, rawLen int) error {
 	if coverage == operation.MaterialCoverageNotApplicable {
 		return nil
 	}
@@ -796,7 +770,7 @@ func validateCompleteCommandMaterialCoverage(toolName, scope string, coverage op
 			Scope:    scope,
 			RawLen:   rawLen,
 			Err:      errors.New(detail),
-			Hint:     "terminal complete over truncated saved material requires material_coverage_status=complete and coverage_material_refs pointing only to fully visible recorded extractions (not source/excerpt truncated; source_truncated=false and excerpt_truncated=false); otherwise continue bounded extraction or emit partial_answer_possible or budget_exhausted",
+			Hint:     "terminal complete over truncated saved material (source/excerpt truncated) requires material_coverage_status=complete and coverage_material_refs pointing only to a system-recorded complete coverage receipt or fully visible bounded extraction; otherwise continue bounded material reading/extraction or emit partial_answer_possible or budget_exhausted",
 		}
 	}
 	if coverage != operation.MaterialCoverageComplete {
@@ -810,8 +784,8 @@ func validateCompleteCommandMaterialCoverage(toolName, scope string, coverage op
 		if !available[ref] {
 			return invalid(fmt.Sprintf("coverage_material_ref %q is not a payload produced by the recorded command rounds", ref))
 		}
-		if !commandPayloadMaterialExcerptFullyVisible(ref) {
-			return invalid(fmt.Sprintf("coverage_material_ref %q is not fully visible (source/excerpt truncated, skipped, empty, or unreadable)", ref))
+		if !complete[ref] {
+			return invalid(fmt.Sprintf("coverage_material_ref %q is not a complete system coverage receipt or fully visible bounded extraction", ref))
 		}
 	}
 	return nil
@@ -1512,6 +1486,10 @@ func renderCommandOperationRecordsForPrompt(records []commandOperationResultReco
 		b.WriteString(renderCommandPlanForPrompt(rec.Plan))
 		b.WriteString("\n")
 		b.WriteString(renderCommandResultForPrompt(rec.Result))
+		if rendered := renderCommandOperationMaterialPages(rec.MaterialPages); rendered != "" {
+			b.WriteString("\n")
+			b.WriteString(rendered)
+		}
 		if rec.Evaluation != nil {
 			fmt.Fprintf(&b, "\noperation_evaluation status=%s confidence=%q material_coverage_status=%s coverage_material_refs=%q reason=%q missing_inputs=%q materials=%q\n",
 				rec.Evaluation.Status,

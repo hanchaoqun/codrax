@@ -2202,7 +2202,7 @@ func commandOperationHasUncoveredMaterialRef(records []commandOperationResultRec
 		}
 		later := commandOperationLaterCommandText(records, i+1)
 		for _, ref := range refs {
-			if commandPayloadHasMaterialExcerpt(ref) {
+			if commandOperationMaterialSourceFullyCovered(records, ref) {
 				continue
 			}
 			if ref != "" && !strings.Contains(later, ref) {

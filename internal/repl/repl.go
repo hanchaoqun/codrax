@@ -5487,6 +5487,10 @@ type commandOperationResultRecord struct {
 	Plan       operation.CommandOperationPlan
 	Result     operation.CommandOperationResult
 	Evaluation *operation.OperationEvaluation
+	// MaterialPages are exact system-owned observations derived from recorded
+	// payload refs. They supply evidence to the planner/evaluator/answerer but
+	// never replace or rewrite the model's conclusion.
+	MaterialPages []commandOperationMaterialPage
 }
 
 type providerOperationResultRecord struct {
