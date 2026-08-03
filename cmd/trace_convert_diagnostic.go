@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"unicode/utf8"
@@ -154,26 +153,18 @@ type traceConvertDiagnosticReportFile struct {
 	file *os.File
 }
 
-func openTraceConvertDiagnosticReport(path, input, output, dbOutput string) (*traceConvertDiagnosticReportFile, error) {
+func openTraceConvertDiagnosticReport(path string, opts hitraceconv.Options) (*traceConvertDiagnosticReportFile, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return nil, nil
 	}
-	candidates := []struct {
-		label string
-		path  string
-	}{
-		{label: "trace input", path: input},
-		{label: "systrace output", path: firstNonEmptyTraceConvertPath(output, hitraceconv.DefaultOutputPath(input))},
-		{label: "trace DB output", path: dbOutput},
-	}
-	for _, candidate := range candidates {
-		same, err := traceConvertPathsEqual(path, candidate.path)
+	for _, candidate := range hitraceconv.ConversionPathReservations(opts) {
+		same, err := hitraceconv.TracePathsAlias(path, candidate.Path)
 		if err != nil {
-			return nil, fmt.Errorf("resolve --diagnostic-report path against %s: %w", candidate.label, err)
+			return nil, fmt.Errorf("resolve --diagnostic-report path against %s: %w", candidate.Label, err)
 		}
 		if same {
-			return nil, fmt.Errorf("--diagnostic-report must not alias %s: %s", candidate.label, path)
+			return nil, fmt.Errorf("--diagnostic-report must not alias %s: %s", candidate.Label, path)
 		}
 	}
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
@@ -181,33 +172,6 @@ func openTraceConvertDiagnosticReport(path, input, output, dbOutput string) (*tr
 		return nil, fmt.Errorf("create --diagnostic-report %s: %w", path, err)
 	}
 	return &traceConvertDiagnosticReportFile{path: path, file: file}, nil
-}
-
-func firstNonEmptyTraceConvertPath(value, fallback string) string {
-	if strings.TrimSpace(value) != "" {
-		return value
-	}
-	return fallback
-}
-
-func traceConvertPathsEqual(left, right string) (bool, error) {
-	if strings.TrimSpace(right) == "" {
-		return false, nil
-	}
-	leftAbs, err := filepath.Abs(left)
-	if err != nil {
-		return false, err
-	}
-	rightAbs, err := filepath.Abs(right)
-	if err != nil {
-		return false, err
-	}
-	leftAbs = filepath.Clean(leftAbs)
-	rightAbs = filepath.Clean(rightAbs)
-	if runtime.GOOS == "windows" {
-		return strings.EqualFold(leftAbs, rightAbs), nil
-	}
-	return leftAbs == rightAbs, nil
 }
 
 func (report *traceConvertDiagnosticReportFile) Path() string {

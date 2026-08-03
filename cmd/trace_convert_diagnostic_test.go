@@ -192,25 +192,51 @@ func TestTraceConvertDiagnosticReportFileNeverOverwritesOrAliases(t *testing.T) 
 	dir := t.TempDir()
 	input := filepath.Join(dir, "capture.sys")
 	output := filepath.Join(dir, "capture.systrace")
+	db := filepath.Join(dir, "capture.trace.db")
+	opts := hitraceconv.Options{InputPath: input, OutputPath: output, TraceDBOutputPath: db}
 	reportPath := filepath.Join(dir, "diagnostic.txt")
 	if err := os.WriteFile(input, []byte("input"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	report, err := openTraceConvertDiagnosticReport(reportPath, input, output, "")
+	report, err := openTraceConvertDiagnosticReport(reportPath, opts)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := report.Write([]byte("receipt\n")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := openTraceConvertDiagnosticReport(reportPath, input, output, ""); err == nil || !errors.Is(err, os.ErrExist) {
+	if _, err := openTraceConvertDiagnosticReport(reportPath, opts); err == nil || !errors.Is(err, os.ErrExist) {
 		t.Fatalf("existing diagnostic report was not rejected with os.ErrExist: %v", err)
 	}
-	if _, err := openTraceConvertDiagnosticReport(input, input, output, ""); err == nil || !strings.Contains(err.Error(), "must not alias trace input") {
-		t.Fatalf("diagnostic report aliasing input was not rejected: %v", err)
+	for _, reservation := range hitraceconv.ConversionPathReservations(opts) {
+		if _, err := openTraceConvertDiagnosticReport(reservation.Path, opts); err == nil ||
+			!strings.Contains(err.Error(), "must not alias "+reservation.Label) {
+			t.Fatalf("diagnostic report aliasing %s was not rejected: %v", reservation.Label, err)
+		}
 	}
-	if _, err := openTraceConvertDiagnosticReport(output, input, output, ""); err == nil || !strings.Contains(err.Error(), "must not alias systrace output") {
-		t.Fatalf("diagnostic report aliasing output was not rejected: %v", err)
+}
+
+func TestTraceConvertDiagnosticReportRejectsProspectiveSymlinkDirectoryAlias(t *testing.T) {
+	realDir := t.TempDir()
+	linkRoot := t.TempDir()
+	linkDir := filepath.Join(linkRoot, "output-link")
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	opts := hitraceconv.Options{
+		InputPath:  filepath.Join(realDir, "capture.sys"),
+		OutputPath: filepath.Join(linkDir, "capture.systrace"),
+	}
+	if err := os.WriteFile(opts.InputPath, []byte("input"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reportPath := filepath.Join(realDir, "capture.systrace")
+	if _, err := openTraceConvertDiagnosticReport(reportPath, opts); err == nil ||
+		!strings.Contains(err.Error(), "must not alias systrace output") {
+		t.Fatalf("prospective symlink-directory alias escaped: %v", err)
+	}
+	if _, err := os.Lstat(reportPath); !os.IsNotExist(err) {
+		t.Fatalf("alias rejection must occur before report creation: %v", err)
 	}
 }
 

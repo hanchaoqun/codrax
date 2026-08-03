@@ -547,3 +547,29 @@ prompt 输入面。
 
 状态：`T4-2=confirmed / implemented / full-package-pass`。下一项按 ROI 审计 T2-3
 诊断目录 alias/path equivalence。
+
+---
+
+## §23 T2-3 施工结果：诊断 sideband 消费转换保留路径单源（2026-08-02）
+
+finding 准确。`--diagnostic-report` 在转换前创建文件，但旧实现只与 trace input、systrace
+output、显式 trace DB output 三个字符串比较；tracebundle、perftrace、自动 DB companion 没有
+进入候选清册。比较本身仅 `filepath.Abs+Clean`，也无法识别尚不存在的输出经 symlink parent
+映射到同一物理位置。
+
+修复把权限收口到转换包的两个单源 API：
+
+- `ConversionPathReservations(opts)` 按 route-neutral 方式给出 input、systrace、tracebundle、
+  可用 perftrace、retained DB 与 DB companion 的完整保留路径；CLI 不再复制 sidecar 公式；
+- `TracePathsAlias` 复用转换发布的 canonical path + `os.SameFile` 规则：存在文件比较物理身份，
+  prospective leaf 解析最近存在祖先，Windows 保持 case-insensitive；
+- diagnostic report 在 `O_EXCL` 创建前逐项避让清册。route 最终未使用某席也只会保守拒绝一个
+  sideband 文件名，不会改转换结果或证据内容。
+
+测试枚举清册每一席，并新增“output 经 symlink directory、diagnostic 用真实目录同名且两边 leaf
+均不存在”的回归，固定必须在创建前拒绝。
+
+验证：清册/软链接定向回归以及 `go test ./cmd ./internal/hitraceconv -count=1` 全包通过
+（7.022s / 92.890s）。
+
+状态：`T2-3=confirmed / implemented / full-package-pass`。下一项审计 T2-4 文档契约。

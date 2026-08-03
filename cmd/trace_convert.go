@@ -164,9 +164,7 @@ are never overwritten; delete the file first or choose another output path.`,
 		}
 		diagnosticReport, err := openTraceConvertDiagnosticReport(
 			strings.TrimSpace(traceConvertDiagnosticReport),
-			input,
-			opts.OutputPath,
-			opts.TraceDBOutputPath,
+			opts,
 		)
 		if err != nil {
 			return err

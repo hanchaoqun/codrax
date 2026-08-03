@@ -4120,6 +4120,16 @@ authority、schema 或最终答案。
 `go test ./internal/skill -count=1` 全包通过（0.316s）。状态：
 `implemented / full-package-pass`。
 
+#### 批 M14：T2-3 conversion sideband path authority（2026-08-02）
+
+确认 `--diagnostic-report` 只避让 3 席且使用弱 `Abs+Clean` 比较。M14 由 hitraceconv 单源导出
+route-neutral path reservations（input/systrace/tracebundle/perftrace/DB/companion）与 conversion
+canonical alias 判定，CLI 在创建 sideband 前消费，不再复制 sidecar 路径构造。测试覆盖清册
+每一席及 prospective symlink-parent alias。
+
+`go test ./cmd ./internal/hitraceconv -count=1` 全包通过（7.022s / 92.890s）。状态：
+`implemented / full-package-pass`。
+
 ### B47：运行日志语义所有权 × write 跨语言检查权限（2026-08-02）
 
 严格并行 2 个跨模式 case：

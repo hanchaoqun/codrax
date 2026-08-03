@@ -392,6 +392,60 @@ type traceCanonicalPath struct {
 	info os.FileInfo
 }
 
+// ConversionPathReservation is one public path reserved by a conversion
+// attempt. Route selection may leave a route-specific output unused, but a
+// sideband writer must not claim any of these names before the route is known.
+type ConversionPathReservation struct {
+	Label string
+	Path  string
+}
+
+// ConversionPathReservations returns the route-neutral public path census for
+// pre-route CLI sidebands. Keep its construction beside conversion's own path
+// builders so sidebands do not reproduce suffix and retained-DB formulas.
+func ConversionPathReservations(opts Options) []ConversionPathReservation {
+	input := strings.TrimSpace(opts.InputPath)
+	output := strings.TrimSpace(opts.OutputPath)
+	if output == "" && input != "" {
+		output = DefaultOutputPath(input)
+	}
+	base := traceSidecarBase(input, output)
+	out := []ConversionPathReservation{
+		{Label: "trace input", Path: input},
+		{Label: "systrace output", Path: output},
+		{Label: "tracebundle output", Path: base + ".tracebundle.json"},
+	}
+	if !opts.DisablePerfAdapter {
+		out = append(out, ConversionPathReservation{Label: "perftrace output", Path: base + ".perftrace"})
+	}
+	if db := retainedTraceDBOutputPath(opts, input, output); db != "" {
+		out = append(out,
+			ConversionPathReservation{Label: "trace DB output", Path: db},
+			ConversionPathReservation{Label: "trace DB companion output", Path: db + ".ohos.ts"},
+		)
+	}
+	return out
+}
+
+// TracePathsAlias applies the conversion publication path identity rule to
+// arbitrary public paths. Existing files use physical SameFile identity;
+// prospective files resolve their nearest existing ancestor so symlinked
+// directory spellings cannot bypass collision checks.
+func TracePathsAlias(left, right string) (bool, error) {
+	if strings.TrimSpace(left) == "" || strings.TrimSpace(right) == "" {
+		return false, nil
+	}
+	leftPath, err := canonicalTracePath(left)
+	if err != nil {
+		return false, err
+	}
+	rightPath, err := canonicalTracePath(right)
+	if err != nil {
+		return false, err
+	}
+	return traceCanonicalPathsEqual(leftPath, rightPath), nil
+}
+
 func validateTraceOutputPathCollisionsForInput(opts Options, input string, inputPath traceCanonicalPath) error {
 	input = strings.TrimSpace(input)
 	if input == "" {
