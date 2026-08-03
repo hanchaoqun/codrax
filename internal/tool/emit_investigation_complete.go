@@ -7899,6 +7899,10 @@ func enrichCompletionAggregateFactsWithMemberSupportWithEvidence(ctx *types.BusC
 			continue
 		}
 		if len(out[factIdx].SupportRefs) > 0 {
+			if refs, ok := aggregateMemberSetCanonicalObservationSupportRefs(out[factIdx], support); ok {
+				out[factIdx].SupportRefs = refs
+				continue
+			}
 			if refs, ok := aggregateMemberSetRepairedExistingSupportRefs(out[factIdx], support); ok {
 				out[factIdx].SupportRefs = refs
 			}
@@ -7914,6 +7918,87 @@ func enrichCompletionAggregateFactsWithMemberSupportWithEvidence(ctx *types.BusC
 		}
 	}
 	return out
+}
+
+// aggregateMemberSetCanonicalObservationSupportRefs reconciles two distinct
+// axes that an explorer may legitimately place in one member_set: Members is
+// the answer roster, while SupportRefs may enumerate every grounded
+// observation of those members.  A function can therefore have two call-site
+// refs even though it occupies one answer row.  Downstream row renderers need
+// exactly one positional ref per member; leaving the observation-shaped list
+// intact makes the later citation normalizer associate an unrelated ref with
+// a row and can cause it to append a contradictory partial roster.
+//
+// The reconciliation is deliberately exact and fail-open.  Each raw ref is
+// tested as a one-member positional fact against the already-grounded support
+// index.  We use it only when it resolves exactly one member and every member
+// has such a ref.  Ambiguous or incomplete evidence preserves the model's
+// original payload for the existing validation/repair lanes.  Extra
+// observations remain available in the evidence ledger; this function only
+// chooses the canonical citation used by each roster row.
+func aggregateMemberSetCanonicalObservationSupportRefs(fact types.AnswerAggregateFact, support aggregateMemberSupportIndex) ([]string, bool) {
+	if fact.Kind != types.AnswerAggregateMemberSet ||
+		len(fact.Members) == 0 ||
+		len(fact.SupportRefs) == 0 ||
+		len(fact.SupportRefs) == len(fact.Members) {
+		return nil, false
+	}
+
+	type exactObservationRef struct {
+		memberIdx int
+		canonical string
+	}
+	matches := make([]exactObservationRef, len(fact.SupportRefs))
+	for refIdx, raw := range fact.SupportRefs {
+		matchedMember := -1
+		canonical := ""
+		for memberIdx, member := range fact.Members {
+			probe := fact
+			probe.Members = []string{member}
+			probe.MemberNotes = nil
+			probe.SupportRefs = []string{raw}
+			if !aggregateMemberSetSupportRefsResolveMember(probe, member, support) {
+				continue
+			}
+			candidate := strings.TrimSpace(raw)
+			if repaired, ok := aggregateMemberCanonicalExistingSupportRef(raw, member, support); ok {
+				candidate = repaired
+			}
+			if candidate == "" || matchedMember >= 0 {
+				// One observation resolving two roster members is not precise
+				// enough to drive a positional citation hard contract.
+				matchedMember = -2
+				canonical = ""
+				break
+			}
+			matchedMember = memberIdx
+			canonical = candidate
+		}
+		matches[refIdx] = exactObservationRef{memberIdx: matchedMember, canonical: canonical}
+	}
+
+	refs := make([]string, len(fact.Members))
+	for memberIdx := range fact.Members {
+		for refIdx := range matches {
+			if matches[refIdx].memberIdx == memberIdx {
+				refs[memberIdx] = matches[refIdx].canonical
+				break
+			}
+		}
+		if refs[memberIdx] == "" {
+			return nil, false
+		}
+	}
+
+	reconciled := fact
+	reconciled.SupportRefs = refs
+	for memberIdx, member := range reconciled.Members {
+		if !aggregateMemberSetMemberUsableAt(reconciled, member, memberIdx, support) &&
+			!aggregateMemberSetSupportRefsResolveMember(reconciled, member, support) {
+			return nil, false
+		}
+	}
+	return refs, true
 }
 
 func aggregateMemberSupportIndexHasEvidenceAnchors(support aggregateMemberSupportIndex) bool {

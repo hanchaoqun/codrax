@@ -3984,6 +3984,25 @@ Java call-chain runner PASS/human FAIL（220s，12 rejects/5 patches）。reply 
 
 状态：`EVAL-B52-ENDPOINT1=implemented / full-tool-pass / replay pending`。
 
+#### B52 r3：端点 authority 已闭环，成员轴/观测轴仍会改坏模型答案（2026-08-02）
+
+`b50f49233` 上同 pair 严格并行回放均 runner PASS，且 Java 的四条限定方法边全部 exact，
+`finalizer reject/patch=0/0`，故跨语言端点身份批从 replay pending 更新为 covered。Java 答案仍有
+side branch 串行化、内存/日志伪称持久化以及 5/6 跳矛盾，暂列模型解释质量 residual；系统不得
+替换模型结论。
+
+called-by 则确定性复现新的系统错误：2 个 function members 携带 3 个 call-site support_refs，
+旧完成态 enrichment 不处理非等长数组，导致第一成员无逐行引用；后续 mutation 把第二成员的
+line 321 错配给第一成员，并追加一份仅 1 项的“完整性补充”。登记
+`EVAL-B52-MEMBER-OBS-AXIS1`（P1）。
+
+根修在 structured completion 层按 exact grounded support 做成员/观测轴归一：每个 ref 必须只
+解析到一个 member，每个 member 必须至少有一个唯一 ref，才按原序选择一成员一主引用；歧义或
+缺证全部 fail-open，额外观测继续留在 evidence ledger。等长 positional payload 不进入新臂。
+不扫描问题、模型正文或 thinking，也不触碰 Trace/窗/因果投影合同。
+
+状态：`implemented / directed-pass / full-tool-test-pass / same-pair-replay pending`。
+
 ---
 
 ### MERGE-AUDIT-3 H3：恢复计划不得丢失累计验证闭包（T7-1）

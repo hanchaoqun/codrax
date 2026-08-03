@@ -751,3 +751,40 @@ diagram 定向工具测试通过（1.019s）；最终 `go test ./internal/tool -
 
 状态：`B52a=partial superseded`；`B52b-CROSS-LANGUAGE-CALL-IDENTITY=implemented /
 index-full-pass / tool-full-pass / exact-pair-replay pending`。
+
+---
+
+## §29 B52 r3：全语言端点闭环与成员轴/观测轴引用错配（2026-08-02）
+
+在 `b50f49233` 上严格并行 2 个回放，runner 2/2 PASS，二者均为
+`finalizer reject=0 / patch=0`。Java 见证中的四条 typed call evidence 已精确归一为：
+
+- `VisitController.create -> VisitService.schedule`；
+- `VisitService.schedule -> ClinicConfig.resolveMaxVisits`；
+- `VisitService.schedule -> VisitRepository.insert`；
+- `VisitRepository.insert -> AuditLog.record`。
+
+因此 `B52b-CROSS-LANGUAGE-CALL-IDENTITY` 从 replay pending 更新为 `covered`。Java 最终答案
+仍把 side branch 写成串行 hop、把内存 append/println 说成持久化，并出现“5 跳/6 行”矛盾；
+这是模型对 typed 拓扑和用户前提的解释质量残余，不得由系统改写答案来掩盖。
+
+同轮 called-by 暴露确定性系统 gap `B52c-MEMBER-OBS-AXIS`：模型完成态正确表达 2 个 caller
+members，但 `support_refs` 忠实保留 3 个 call-site observations（同一 caller 有两处调用）。旧
+接线只有 `len(refs)==len(members)` 的 positional repair；cardinality 不等时首成员失去逐行位置，
+最终 mutation 又把第二成员 line 321 错配给首成员，并追加仅 1 项的系统清单，把正确模型答案
+改成“2 项/1 项”自相矛盾。
+
+施工冻结为通用 typed 归一，不识别 caller、函数名或语言：
+
+1. 对 cardinality 不等的 member-set，把每个现有 ref 作为单成员 positional probe，只在它对
+   grounded support index 精确解析到唯一 member 时取得权限；
+2. 每个 member 选择原序最早的唯一匹配 ref，构造成一成员一主引用；其余观测仍完整留在
+   Evidence Pool/relation lane，不删除证据；
+3. 任一 ref 同时匹配多个 member，或任一 member 无精确 ref 时 fail-open，保持原 payload；
+4. 已是 positional 的等长数组 byte-preserve，并继续由既有 swapped-ref repair 负责；
+5. 全过程不读 RawRequest、模型正文/thinking，不改变 Trace 因果投影、显式窗或自动补齐。
+
+回归覆盖多观测正臂、全歧义反臂、成员缺证反臂和既有 positional byte-preserve。
+
+状态：`B52b=covered`；`B52c=implemented / directed-pass / full-tool-test-pass /
+same-pair-replay pending`。
