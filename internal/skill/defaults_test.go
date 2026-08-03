@@ -1315,8 +1315,10 @@ func TestPerfTriageSkillKeepsModelObservationsAdvisory(t *testing.T) {
 	}
 	body := strings.Join(perf.Workflow, "\n")
 	for _, want := range []string{
-		"pre-triage model extractions",
-		"deterministic trace_query results supersede them",
+		"model-extracted navigation candidates, not causal proof",
+		"Keep the measured slow interval separate",
+		"model-extracted navigation facts",
+		"deterministic trace_query results remain authoritative",
 		"Do not turn runnable time",
 		"context-switch overhead",
 		"frame-budget extrapolation",
@@ -1329,6 +1331,15 @@ func TestPerfTriageSkillKeepsModelObservationsAdvisory(t *testing.T) {
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("perf-triage authority guidance missing %q", want)
+		}
+	}
+	for _, internalJargon := range []string{
+		"The validator stamps",
+		"downstream must",
+		"downstream agents",
+	} {
+		if strings.Contains(body, internalJargon) {
+			t.Fatalf("perf-triage task guidance leaked pipeline jargon %q", internalJargon)
 		}
 	}
 }

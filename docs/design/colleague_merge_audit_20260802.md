@@ -523,3 +523,27 @@ git 快车道必须与旧 walk 车道一致只返回 production 文件。
 
 状态：`T6-3=confirmed / implemented / full-package-pass`。下一项按 ROI 审计 T4-2
 perf-triage prompt 的内部机制行话泄漏。
+
+---
+
+## §22 T4-2 施工结果：perf-triage 改用证据任务语言（2026-08-02）
+
+finding 准确。`perf-triage-skill` 在两条关键 evidence-calibration 指令里使用
+“The validator stamps ... / downstream must ... / downstream agents ...”描述内部流水线。
+这些词不帮助当前模型完成抽取，还会诱导回答复述实现机制；既有答案行话检查也没有覆盖这一
+prompt 输入面。
+
+修复不新增用户/答案禁词硬门，也不放松任何 typed authority：
+
+- jank 指令直接说明 `trigger_span/reason/tags` 是 model-extracted navigation candidates，
+  不是 causal proof； measured slow interval 与候选保持分离，直到 deterministic trace_query
+  证明连接；
+- observations 指令直接说明其用途是定位 trace region，数值、scheduler class、mechanism、
+  causality 仍以 deterministic trace_query 为准；
+- 删除 validator/downstream 的组织结构叙述，保持原有提取字段、阈值、因果边界和工具 schema
+  字节语义；静态 skill 测试同时固定正向任务语义与三项旧内部短语不回退。
+
+验证：定向 authority guidance 回归与 `go test ./internal/skill -count=1` 全包通过（0.316s）。
+
+状态：`T4-2=confirmed / implemented / full-package-pass`。下一项按 ROI 审计 T2-3
+诊断目录 alias/path equivalence。

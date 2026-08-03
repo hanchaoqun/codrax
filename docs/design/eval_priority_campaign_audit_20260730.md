@@ -4109,6 +4109,17 @@ M12 在 resolver 内抽出单一 visibility predicate 给两条车道共同使�
 `go test ./internal/analysis/logtriage -count=1` 全包通过（1.024s）。状态：
 `implemented / full-package-pass`。
 
+#### 批 M13：T4-2 perf-triage task-language context（2026-08-02）
+
+确认 perf-triage 的模型输入混入 “validator stamps / downstream must/agents” 内部管线叙述。
+M13 把同一权限边界改写为模型当前可执行的证据任务：jank 的 trigger/reason/tags 是 navigation
+candidate 而非 causal proof；observation 用于定位区域；数值、调度类别、机制和因果以
+deterministic trace_query 为准。没有新增用户原文或模型答案关键词门，也没有改变 typed
+authority、schema 或最终答案。
+
+`go test ./internal/skill -count=1` 全包通过（0.316s）。状态：
+`implemented / full-package-pass`。
+
 ### B47：运行日志语义所有权 × write 跨语言检查权限（2026-08-02）
 
 严格并行 2 个跨模式 case：
