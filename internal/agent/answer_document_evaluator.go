@@ -563,6 +563,11 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}) {
 		return b.String()
 	}
+	if !trace.appendSection(&b, "runtime_enumeration_authority", func() string {
+		return renderAnswerDocRuntimeEnumerationAuthority(ctx)
+	}) {
+		return b.String()
+	}
 	if !trace.appendSection(&b, "observation_ledger", func() string {
 		return renderAnswerDocObservationLedger(ctx)
 	}) {
@@ -844,6 +849,50 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 		}
 	}
 
+	return b.String()
+}
+
+const answerDocRuntimeEnumerationBoundaryLimit = 16
+
+// renderAnswerDocRuntimeEnumerationAuthority gives the answer model the same
+// exact incomplete-enumeration boundary later used by the deterministic
+// appendix. It is guidance only: no request/answer prose is inspected and no
+// model-authored conclusion is rejected, removed, or rewritten here.
+func renderAnswerDocRuntimeEnumerationAuthority(ctx *types.AgentContext) string {
+	if ctx == nil {
+		return ""
+	}
+	input := types.ObservationLedgerInputFromAgentContext(ctx, 1)
+	results := make([]types.ToolResult, 0, len(input.ToolResults)+len(input.SystemTraceSupplementResults))
+	results = append(results, input.ToolResults...)
+	results = append(results, input.SystemTraceSupplementResults...)
+	authority := types.BuildRuntimeArtifactEnumerationAuthority(results)
+	if !authority.Incomplete {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("## Runtime Enumeration Authority\n\n")
+	fmt.Fprintf(&b, "- status=`incomplete`; affected_scopes=`%s`; exact_boundary_count=%d\n",
+		strings.Join(authority.Scopes, ","), len(authority.Boundaries))
+	limit := len(authority.Boundaries)
+	if limit > answerDocRuntimeEnumerationBoundaryLimit {
+		limit = answerDocRuntimeEnumerationBoundaryLimit
+	}
+	for _, boundary := range authority.Boundaries[:limit] {
+		total := "unknown"
+		if boundary.TotalKnown {
+			total = strconv.Itoa(boundary.Total)
+		}
+		fmt.Fprintf(&b, "  - scope=`%s`; dimension=`%s`; emitted=%d; total=%s; total_known=%t; reason=`%s`\n",
+			firstNonEmptyString(strings.TrimSpace(boundary.Scope), "unknown"),
+			firstNonEmptyString(strings.TrimSpace(boundary.Dimension), "rows"),
+			boundary.Emitted, total, boundary.TotalKnown, strings.TrimSpace(boundary.Reason))
+	}
+	if omitted := len(authority.Boundaries) - limit; omitted > 0 {
+		fmt.Fprintf(&b, "  - omitted_exact_boundaries=%d (the authority remains incomplete)\n", omitted)
+	}
+	b.WriteString("- These emitted rows are bounded samples or lower bounds, not an exhaustive census. Keep totals/counts/extrema/absence claims within the typed boundaries above and state the incomplete scope when it matters. You still own the diagnosis, prioritization, summary, and recommendations; this handoff supplies no conclusion and never replaces yours.\n\n")
 	return b.String()
 }
 

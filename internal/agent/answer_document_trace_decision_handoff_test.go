@@ -373,3 +373,60 @@ func TestFinalizerInitialInstructionWiresTraceDecisionHandoff(t *testing.T) {
 		t.Fatalf("explicit typed window did not retain decision-input authority:\n%s", windowPrompt)
 	}
 }
+
+func TestFinalizerInitialInstructionWiresRuntimeEnumerationAuthorityBeforeAnswer(t *testing.T) {
+	ctx := answerDocCausalCeilingTestContext(true)
+	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{
+		{
+			ToolName: "trace_query", Success: true,
+			EnumerationAuthority: &types.ToolEnumerationAuthority{Status: "incomplete", Boundaries: []types.ToolEnumerationBoundary{
+				{Scope: "root_cause_rank", Dimension: "candidates", Emitted: 12, Total: 61, TotalKnown: true, Reason: "capacity"},
+				{Scope: "span_window", Dimension: "spans", Emitted: 40, Total: 1475, TotalKnown: true, Reason: "capacity"},
+			}},
+		},
+		// Ordinary source pagination is not a runtime-artifact enumeration
+		// boundary and must not pollute this trace authority section.
+		{
+			ToolName: "read_file", Success: true,
+			EnumerationAuthority: &types.ToolEnumerationAuthority{Status: "incomplete", Boundaries: []types.ToolEnumerationBoundary{
+				{Scope: "internal/source.go", Dimension: "lines", Emitted: 200, Total: 500, TotalKnown: true},
+			}},
+		},
+	}})
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Runtime Enumeration Authority",
+		"status=`incomplete`",
+		"affected_scopes=`root_cause_rank,span_window`",
+		"scope=`root_cause_rank`; dimension=`candidates`; emitted=12; total=61; total_known=true",
+		"scope=`span_window`; dimension=`spans`; emitted=40; total=1475; total_known=true",
+		"bounded samples or lower bounds, not an exhaustive census",
+		"You still own the diagnosis, prioritization, summary, and recommendations",
+		"this handoff supplies no conclusion and never replaces yours",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("finalizer prompt missed runtime enumeration authority %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "scope=`internal/source.go`") {
+		t.Fatalf("ordinary source pagination polluted runtime enumeration authority:\n%s", prompt)
+	}
+	if strings.Index(prompt, "## Runtime Enumeration Authority") > strings.Index(prompt, "## Observation Ledger") {
+		t.Fatalf("runtime enumeration authority must precede the larger observation ledger:\n%s", prompt)
+	}
+}
+
+func TestFinalizerInitialInstructionOmitsCompleteRuntimeEnumerationAuthority(t *testing.T) {
+	ctx := answerDocCausalCeilingTestContext(true)
+	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
+		ToolName: "trace_query", Success: true,
+		EnumerationAuthority: &types.ToolEnumerationAuthority{Status: "complete", Boundaries: []types.ToolEnumerationBoundary{{
+			Scope: "window_stats", Dimension: "rows", Emitted: 1, Total: 1, TotalKnown: true,
+		}},
+		}}}})
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if strings.Contains(prompt, "## Runtime Enumeration Authority") {
+		t.Fatalf("complete runtime enumeration should not add an incomplete-boundary section:\n%s", prompt)
+	}
+}

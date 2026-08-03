@@ -26,5 +26,5 @@ This scaffold is for human review. The runner records typed metrics and declared
 - `EVAL-B49-HTMLBODY1`：live covered。完整材料 pages/receipt 贯通 command evaluator 与 final answer，模型拥有摘要和结论。
 - `EVAL-B46-ORACLE1`：继续属于 eval debt；生产代码不得为固定中文前缀拟合。
 - `EVAL-B50-CTXAUTH1`：confirmed/P1-small。runtime-only optional-source 的 typed snapshot 允许完成，但 prompt renderer 分支顺序误称双来源均在场；修复只调整 typed guidance。
-- `EVAL-B50-ENUMCTX1`：audit/P1-candidate。最终系统 appendix 有精确 enumeration_status/boundaries，但需确认同一信息在模型成文之前是否以 concise typed handoff 可见。
+- `EVAL-B50-ENUMCTX1`：confirmed/implemented/tests-pass。最终系统 appendix 原有精确 enumeration_status/boundaries，但模型成文前缺同等 concise handoff；现由共享 typed compiler 同时供给两面，模型仍拥有结论。
 - `EVAL-B50-H5IO1`：model-variance/watch。模型已收到 `>=6 occurrences / >=4.611ms / lower_bound_capacity_truncated`，仍把 3.670ms rank impact 与 occurrence roster 混用；禁止用答案关键词扫描或系统重写处理。

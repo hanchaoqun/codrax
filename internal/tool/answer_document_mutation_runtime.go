@@ -4064,8 +4064,10 @@ const runtimeTraceCoverageLifecycleBoundaryLimit = 8
 func runtimeTraceCoverageAuthority(input types.ObservationLedgerInput) runtimeTraceCoverageAuthorityBoundary {
 	var out runtimeTraceCoverageAuthorityBoundary
 	results := runtimeTraceCoverageResults(input)
-	seenViews := map[string]bool{}
-	seenBoundaries := map[types.ToolEnumerationBoundary]bool{}
+	enumeration := types.BuildRuntimeArtifactEnumerationAuthority(results)
+	out.enumerationIncomplete = enumeration.Incomplete
+	out.compactedViews = append([]string(nil), enumeration.Scopes...)
+	out.enumerationBoundaries = append([]types.ToolEnumerationBoundary(nil), enumeration.Boundaries...)
 	for _, result := range results {
 		toolName := strings.TrimSpace(result.ToolName)
 		if toolName == "trace_query" && result.TraceEvidenceAuthority != nil {
@@ -4097,26 +4099,6 @@ func runtimeTraceCoverageAuthority(input types.ObservationLedgerInput) runtimeTr
 			}
 			out.lifecycleBoundaries = runtimeTraceMergeLifecycleBoundaries(out.lifecycleBoundaries, authority.LifecycleBoundaries)
 		}
-		enumerationInScope := toolName == "trace_query" ||
-			(toolName == "read_file" && result.RuntimeArtifactRead != nil)
-		if !enumerationInScope || result.EnumerationAuthority == nil {
-			continue
-		}
-		if result.EnumerationAuthority.Status == "incomplete" {
-			out.enumerationIncomplete = true
-			for _, boundary := range result.EnumerationAuthority.Boundaries {
-				if !seenBoundaries[boundary] {
-					seenBoundaries[boundary] = true
-					out.enumerationBoundaries = append(out.enumerationBoundaries, boundary)
-				}
-				view := strings.TrimSpace(boundary.Scope)
-				if view == "" || seenViews[view] {
-					continue
-				}
-				seenViews[view] = true
-				out.compactedViews = append(out.compactedViews, view)
-			}
-		}
 	}
 	ledger := types.CompileObservationLedger(input)
 	out.analysisWindowStart, out.analysisWindowEnd, out.analysisWindowKnown = runtimeTraceCoverageAnalysisWindow(input, ledger)
@@ -4127,20 +4109,6 @@ func runtimeTraceCoverageAuthority(input types.ObservationLedgerInput) runtimeTr
 		out.analysisWindowEnd,
 		out.analysisWindowKnown,
 	)
-	sort.Strings(out.compactedViews)
-	sort.Slice(out.enumerationBoundaries, func(i, j int) bool {
-		a, b := out.enumerationBoundaries[i], out.enumerationBoundaries[j]
-		if a.Scope != b.Scope {
-			return a.Scope < b.Scope
-		}
-		if a.Dimension != b.Dimension {
-			return a.Dimension < b.Dimension
-		}
-		if a.Emitted != b.Emitted {
-			return a.Emitted < b.Emitted
-		}
-		return a.Total < b.Total
-	})
 	sort.Slice(out.lifecycleBoundaries, func(i, j int) bool {
 		a, b := out.lifecycleBoundaries[i], out.lifecycleBoundaries[j]
 		ar, br := runtimeTraceLifecycleWindowRelation(a, out), runtimeTraceLifecycleWindowRelation(b, out)

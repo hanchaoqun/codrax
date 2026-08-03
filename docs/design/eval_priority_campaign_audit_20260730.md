@@ -4538,10 +4538,28 @@ soft-caveat 分支明确只授权 runtime artifact claim，不虚构 source cita
 不读取 RawRequest、模型 thinking/summary/final，不拒绝、删除、替换或代写回答；显式窗 Trace 路由、
 查询、自动补齐与最终投影代码零改动。`go test ./internal/agent -count=1` 通过（3.058s）。
 
-另登记 `EVAL-B50-ENUMCTX1/P1-candidate`：精确枚举边界目前确定存在于模型回答后的系统 appendix，
-但尚需冷读确认在 AnswerDocument 模型成文前是否存在同等 concise typed handoff。若缺失，最优修复是
-从 observation ledger 的 `Enumeration` authority 生成模型前软指导；只投影 status/scope/dimension/
-emitted/total 与其权限含义，不能从用户/答案原文识别“全部”，也不能由系统改答案。
+`EVAL-B50-ENUMCTX1/P1` 冷读后确认：精确 `ToolResult.EnumerationAuthority` 随每次 trace_query 和
+runtime-artifact paged read 存在，但 trace producer rows 没有把 result-level authority 复制到每条
+ObservationRecord；AnswerDocument 模型前因此只有零散 compaction 摘要。回答后的 deterministic
+appendix 才独立遍历 ToolResults，发布完整的 status/scope/dimension/emitted/total。模型写“完整覆盖”
+时并未拿到与 appendix 同等的 concise 权限面，所以该层不是纯模型波动。
+
+最优修复落在 result-level 单一编译器，而不是把同一边界复制到每条 observation：
+
+1. `types.BuildRuntimeArtifactEnumerationAuthority` 统一消费 deterministic trace_query 与带
+   `RuntimeArtifactRead` 身份的 read_file；普通源码分页不进入。只接受精确 status=`incomplete`，
+   对完整 boundary 去重并按 scope/dimension/value 稳定排序。
+2. AnswerDocument 在 Trace Decision Inputs 后、较大的 Observation Ledger 前发布最多 16 条精确边界；
+   超出时给 omitted count 且保持 incomplete。每条保留 TotalKnown，未知总数不伪装 0。
+3. 回答后的 Trace coverage appendix 改用同一编译器，删除原来的第二份 in-scope/dedupe/sort 判定；
+   模型前与模型后不再可能因消费名单或排序漂移而给出不同枚举权限。
+4. 该面只提示 emitted rows 是 bounded sample/lower bound，并要求结论保持在权限内；明确保留模型对
+   diagnosis、priority、summary、recommendation 的所有权。没有读取 RawRequest、thinking/summary/final，
+   没有关键词 hard gate、答案拒绝或系统改写，也没有生成产品结论。
+
+定向正反测试覆盖 trace incomplete、runtime artifact read、重复 boundary、run-suffix producer、普通
+source read 排除、complete 静默，以及模型前 section 顺序。完整相关回归：types 19.195s、tool
+165.223s；agent 首轮被 glossary lint 捕获内部措辞，改成面向模型的所有权句后完整包通过（2.731s）。
 
 任务状态：
 
@@ -4549,8 +4567,8 @@ emitted/total 与其权限含义，不能从用户/答案原文识别“全部�
 - [x] B50-T2：人工读完命令/Trace 查询链、模型前上下文、答案与系统 appendix；
 - [x] B50-T3：确认 HTMLBODY1 live covered、Trace 能力无回归、旧词形 oracle 仍为 eval debt；
 - [x] B50-T4：修复并回归 CTXAUTH1；
-- [ ] B50-T5：审计 Enumeration authority 的 ledger 起点、origin/scope 与 AnswerDocument prompt
-  接线，再决定是否实施通用模型前 handoff；
+- [x] B50-T5：确认 result-level Enumeration authority 未进入模型前 concise context；以共享 typed
+  compiler 接通 AnswerDocument 和 deterministic appendix，相关完整包回归通过；
 - [ ] B50-T6：从优先队列选择下一对异构 eval，继续严格并行 2 个并人工审计。
 
 #### B50a：合入审计 P0 复核与 EventSearchCoverage 权限闭合
