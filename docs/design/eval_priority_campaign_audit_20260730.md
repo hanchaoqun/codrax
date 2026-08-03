@@ -3947,6 +3947,25 @@ B18c 使用一条通用 typed 规则修复：
 状态：`B52f=covered`；`B52g=implemented / directed-pass / full-tests-pass /
 same-pair-replay pending`。
 
+### B52 r8：图语义闭环与 callable:line 引用归属（2026-08-02）
+
+`51cb91ffc` 同 pair runner 2/2 PASS。Java 五条 callee-operation edge 完整出图、纯 guard 不再成为
+self-call，reject/patch 从 10/5 降为 2/1；called-by 保持两个 direct production callers、零系统重复。
+
+Java 人工仍 FAIL，原因是系统 citation normalizer 改坏了模型原本正确的 0..4 引用：方法 hop label
+按 endpoint affinity 被绑定到上一跳。登记 `B52h-CALLABLE-LINE-CITATION-OWNERSHIP`。施工使用
+语言无关的 `qualified_callable:line + typed evidence subject/owner + exact citation line` 三元匹配，
+并排除 source-file labels；正确引用保留、错误引用唯一修复、歧义 fail-open。该信号同步供 normalize、
+detach 与 pre-check 消费，不读请求/答案 prose，也不替模型判断结论。
+
+工件：
+
+- `eval/parallel_selected_summary_evalcampaign_b52_mergeaudit_callchain_r8_20260802.md`；
+- `eval/parallel_selected_summary_evalcampaign_b52_mergeaudit_callchain_r8_20260802_manual_audit.md`。
+
+状态：`B52g=no-regression-replay / production-trigger-pin-pass`；
+`B52h=implemented / directed-pass / full-tests-pass（tool 163.592s）/ replay pending`。
+
 ---
 
 ### B52 r5：mixed relation 图已闭环，relation principal 仍有隐式兄弟竞争（2026-08-02）

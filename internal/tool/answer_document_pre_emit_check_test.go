@@ -7017,6 +7017,98 @@ func TestNormalizeItemCitationRefsByUniqueLabelCitation_DoesNotUseFuzzyFirstCand
 	}
 }
 
+func TestNormalizeItemCitationRefsByUniqueLabelCitation_CallableLineLabelsKeepExactCallsiteOwnership(t *testing.T) {
+	mu := types.NewMutableState("trace the call chain")
+	mu.AppendEvidence([]types.EvidenceItem{
+		{ID: "schedule", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, AnchorSymbol: "schedule", Subject: "VisitController.create", Predicate: "calls", Object: "VisitService.schedule", Source: "src/main/java/com/clinic/web/VisitController.java", LineStart: 18, GroundingStatus: types.GroundingGrounded},
+		{ID: "max", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, AnchorSymbol: "resolveMaxVisits", Subject: "VisitService.schedule", Predicate: "calls", Object: "ClinicConfig.resolveMaxVisits", Source: "src/main/java/com/clinic/service/VisitService.java", LineStart: 17, GroundingStatus: types.GroundingGrounded},
+		{ID: "count", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, AnchorSymbol: "countOpenVisits", Subject: "VisitService.schedule", Predicate: "calls", Object: "VisitRepository.countOpenVisits", Source: "src/main/java/com/clinic/service/VisitService.java", LineStart: 18, GroundingStatus: types.GroundingGrounded},
+		{ID: "insert", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, AnchorSymbol: "insert", Subject: "VisitService.schedule", Predicate: "calls", Object: "VisitRepository.insert", Source: "src/main/java/com/clinic/service/VisitService.java", LineStart: 21, GroundingStatus: types.GroundingGrounded},
+		{ID: "record", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, AnchorSymbol: "record", Subject: "VisitRepository.insert", Predicate: "calls", Object: "AuditLog.record", Source: "src/main/java/com/clinic/repo/VisitRepository.java", LineStart: 23, GroundingStatus: types.GroundingGrounded},
+	})
+	ctx := &types.BusContext{Mutable: mu}
+	view := &types.AnswerSemanticView{Family: types.QFCallChain}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "src/main/java/com/clinic/web/VisitController.java", Line: 18},
+			{File: "src/main/java/com/clinic/service/VisitService.java", Line: 17},
+			{File: "src/main/java/com/clinic/service/VisitService.java", Line: 18},
+			{File: "src/main/java/com/clinic/service/VisitService.java", Line: 21},
+			{File: "src/main/java/com/clinic/repo/VisitRepository.java", Line: 23},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:          "chain",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetPrincipalPathEdge)},
+			ClaimUses:   []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+			Items: []types.AnswerBlockItem{
+				{ID: "h1", Label: "VisitController.create:18", Text: "calls `service.schedule(petId, reason)`", CitationRef: 0},
+				{ID: "h2", Label: "VisitService.schedule:17", Text: "calls `config.resolveMaxVisits()`", CitationRef: 1},
+				{ID: "h3", Label: "VisitService.schedule:18 (capacity check)", Text: "calls `repository.countOpenVisits(petId)`", CitationRef: 2},
+				{ID: "h4", Label: "VisitService.schedule:21", Text: "calls `repository.insert(petId, reason)`", CitationRef: 3},
+				{ID: "h5", Label: "VisitRepository.insert:23", Text: "calls `audit.record(\"visit.insert\", petId)`", CitationRef: 4},
+			},
+		}},
+	}
+	pctx := newPreEmitCheckContext(ctx)
+	if fixed := normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc, view, ctx, pctx); fixed != 0 {
+		t.Fatalf("already exact callable:line callsite refs must be byte-preserved, fixed=%d doc=%+v", fixed, doc.Blocks)
+	}
+	if fixed := detachInvalidItemCitationRefsWithoutSafeCandidateWithContext(doc, view, ctx, pctx); fixed != 0 {
+		t.Fatalf("exact callable:line callsite refs must not be detached, fixed=%d doc=%+v", fixed, doc.Blocks)
+	}
+	if hints := preCheckItemCitationAlignmentWithContext(doc, view, pctx); len(hints) != 0 {
+		t.Fatalf("exact callable:line callsite refs must pass alignment: %+v", hints)
+	}
+
+	for i := range doc.Blocks[0].Items {
+		doc.Blocks[0].Items[i].CitationRef = 0
+	}
+	if fixed := normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc, view, ctx, pctx); fixed != 4 {
+		t.Fatalf("wrong callsite refs should be restored by typed callable+line ownership, fixed=%d doc=%+v", fixed, doc.Blocks)
+	}
+	for i, item := range doc.Blocks[0].Items {
+		if item.CitationRef != i {
+			t.Fatalf("item %d citation_ref=%d, want %d; doc=%+v", i, item.CitationRef, i, doc.Blocks)
+		}
+	}
+}
+
+func TestPreEmitCallableLineLabelParts_CrossLanguageQualifiedCallables(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		label string
+		want  string
+		line  int
+	}{
+		{name: "go", label: "Server.Handle:42", want: "Server.Handle", line: 42},
+		{name: "java", label: "VisitService.schedule:17", want: "VisitService.schedule", line: 17},
+		{name: "kotlin", label: "CheckoutService.submit:31", want: "CheckoutService.submit", line: 31},
+		{name: "arkts", label: "IndexPage.onClick:28", want: "IndexPage.onClick", line: 28},
+		{name: "cpp", label: "Worker::Run:73", want: "Worker::Run", line: 73},
+		{name: "rust", label: "Engine::dispatch:55", want: "Engine::dispatch", line: 55},
+		{name: "python", label: "Pipeline.execute:19", want: "Pipeline.execute", line: 19},
+		{name: "ruby", label: "Job.perform:24", want: "Job.perform", line: 24},
+		{name: "swift", label: "Coordinator.start:64", want: "Coordinator.start", line: 64},
+		{name: "lua", label: "Runner.step:12", want: "Runner.step", line: 12},
+		{name: "cangjie", label: "Scheduler::submit:37", want: "Scheduler::submit", line: 37},
+		{name: "decorated", label: "VisitService.schedule:18 (capacity check)", want: "VisitService.schedule", line: 18},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, line, ok := preEmitCallableLineLabelParts(tc.label)
+			if !ok || got != tc.want || line != tc.line {
+				t.Fatalf("preEmitCallableLineLabelParts(%q)=(%q,%d,%v), want (%q,%d,true)", tc.label, got, line, ok, tc.want, tc.line)
+			}
+		})
+	}
+	for _, fileLabel := range []string{"src/main.ets:20", "worker.cpp:20", "mod.rs:20", "Bridge.cj:20"} {
+		if got, line, ok := preEmitCallableLineLabelParts(fileLabel); ok {
+			t.Fatalf("source location %q must not be reclassified as callable:line, got (%q,%d)", fileLabel, got, line)
+		}
+	}
+}
+
 func TestNormalizeVisibleSourceLocationCarriers_RepairsMismatchedItemCitationByExactLocation(t *testing.T) {
 	mu := types.NewMutableState("解释 trace span 解析机制")
 	ctx := &types.BusContext{Mutable: mu}

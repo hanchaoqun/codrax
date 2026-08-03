@@ -946,3 +946,43 @@ package/class 多维表“成员只在详情列出现”反臂，以及全语言
 
 状态：`B52f=covered`；`B52g=implemented / directed-pass / full-tests-pass /
 same-pair-replay pending`。
+
+---
+
+## §34 B52 r8：全语言图语义通过，调用点引用归属错配（2026-08-02）
+
+`51cb91ffc` 精确构建后同 pair 并行 2/2 PASS：Java 119s、called-by 155s。
+
+图层目标通过：Java 最终 call-DAG 发布五条 exact callee-operation edges；capacity guard 没有再伪造
+self-call；finalizer churn 从 r7 的 10 reject / 5 patch 降到 2 / 1。called-by 最终仅两个 direct
+production caller，零第二系统清单。该轮模型选择 structured list，因此 B52g 的真实回答只证明无回退，
+r7 Markdown 精确触发继续由 production 正反 pin 验收。
+
+人工审计发现新确定性 gap `B52h-CALLABLE-LINE-CITATION-OWNERSHIP`（P1）：模型首稿给五个 hop
+的 `citation_ref=0..4` 本来逐项正确；generic label/citation normalizer 把 `Owner.method:line` 当普通
+symbol label，按 endpoint name 重绑。调用链中同一方法既是上一条 edge 的 object，又是下一条 edge
+的 subject，故 `VisitService.schedule:21` 被错绑 Controller:18，`VisitRepository.insert:23` 被错绑
+Service:21，并产生一条无谓 detach caveat。
+
+通用修复：
+
+1. 新增结构化 `qualified_callable:line` 解析；先剥离可选展示 qualifier，再以最后一个冒号解析行号，
+   callable 仍必须通过 code-identity grammar；
+2. 明确排除 `*.go/*.java/*.ets/*.cpp/*.rs/*.cj:line` 等真实 source-location label，防止文件路径被
+   误判为 callable；
+3. 载体匹配要求 citation 行号相同，并由该位置的 typed evidence `subject/owner_symbol` 或 canonical
+   enclosing function 证明 callable owner；仅 method 名相似、上一跳 object 相同均不取得权限；
+4. 唯一精确匹配时既可 byte-preserve 正确模型引用，也可修复错误引用；歧义/缺 typed owner 时
+   fail-open，既有 hard alignment 继续负责；
+5. 同一 helper 进入 normalizer、detach guard 与 pre-check，避免先保留后被另一阶段删除；
+6. 不扫描 RawRequest、item prose 关键词或模型 thinking，不判断模型结论。该结构规则覆盖 Go、Java、
+   Kotlin、JS/TS/ArkTS、C/C++、Rust、Python、Ruby、Swift、Lua、Cangjie 等全部 callable lanes；
+   Trace 因果投影/显式窗口不进入本修复。
+
+定向回归复刻 r8 五条 Java hop：正确 0..4 必须零改动/零 detach/零 pre-check hint；全置 0 时必须
+恢复为 0..4。另有跨语言 callable grammar 与 source-file 反臂。
+
+完整回归：`go test ./internal/tool -count=1` 通过（163.592s）。
+
+状态：`B52g=implemented / no-regression-replay / production-trigger-pin-pass`；
+`B52h=implemented / directed-pass / full-tests-pass / replay pending`。

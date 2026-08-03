@@ -1409,6 +1409,10 @@ func preCheckItemCitationAlignmentWithContext(doc *types.AnswerDocumentV2, view 
 				continue
 			}
 			cit := pctx.canonicalCitation(doc.Citations[item.CitationRef])
+			if callable, line, ok := preEmitCallableLineLabelParts(label); ok &&
+				cit.Line == line && preEmitCallableSurfaceOwnsCitationWithContext(pctx, callable, cit) {
+				continue
+			}
 			if types.AnswerLocationLabelMatchesCitation(label, cit) {
 				continue
 			}
@@ -2117,6 +2121,13 @@ func normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc *types.Answer
 				continue
 			}
 			text := preEmitItemNonLabelSurface(*item)
+			if match, ok := preEmitUniqueCallableLineLabelCitationIndex(doc, pctx, label); ok {
+				if item.CitationRef != match {
+					item.CitationRef = match
+					fixed++
+				}
+				continue
+			}
 			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) &&
 				preEmitEnumerationDirectoryLabelCitationScoped(*block, label, doc.Citations[item.CitationRef]) {
 				continue
@@ -2328,7 +2339,12 @@ func detachInvalidItemCitationRefsWithoutSafeCandidateWithContext(doc *types.Ans
 				continue
 			}
 			cit := pctx.canonicalCitation(doc.Citations[item.CitationRef])
-			if types.AnswerLocationLabelMatchesCitation(label, cit) ||
+			callableLineAligned := false
+			if callable, line, ok := preEmitCallableLineLabelParts(label); ok && cit.Line == line {
+				callableLineAligned = preEmitCallableSurfaceOwnsCitationWithContext(pctx, callable, cit)
+			}
+			if callableLineAligned ||
+				types.AnswerLocationLabelMatchesCitation(label, cit) ||
 				preEmitEnumerationDirectoryLabelCitationScoped(*block, label, cit) ||
 				preEmitCitationEnclosingFunctionSupportsLabel(label, cit) ||
 				preEmitCitationSupportsAggregateItemWithContext(pctx, label, text, cit) ||
@@ -2391,6 +2407,86 @@ func preEmitUniqueExplicitSurfaceCitationIndex(doc *types.AnswerDocumentV2, pctx
 		return -1, false
 	}
 	return matches[0], true
+}
+
+func preEmitUniqueCallableLineLabelCitationIndex(doc *types.AnswerDocumentV2, pctx *preEmitCheckContext, label string) (int, bool) {
+	if doc == nil || pctx == nil || len(doc.Citations) == 0 {
+		return -1, false
+	}
+	callable, line, ok := preEmitCallableLineLabelParts(label)
+	if !ok {
+		return -1, false
+	}
+	matches := make([]int, 0, 1)
+	seen := map[string]bool{}
+	for idx, candidate := range doc.Citations {
+		cit := pctx.canonicalCitation(candidate)
+		if cit.Line != line || !preEmitCallableSurfaceOwnsCitationWithContext(pctx, callable, cit) {
+			continue
+		}
+		key := preEmitCitationLocationKey(cit)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		matches = append(matches, idx)
+	}
+	if len(matches) != 1 {
+		return -1, false
+	}
+	return matches[0], true
+}
+
+func preEmitCallableLineLabelParts(label string) (string, int, bool) {
+	label = strings.Trim(strings.TrimSpace(label), "`'\" ")
+	if base, _, ok := types.AnswerAggregateDecoratedLabelParts(label); ok {
+		label = strings.TrimSpace(base)
+	}
+	if label == "" {
+		return "", 0, false
+	}
+	if _, ok := types.ParseAnswerSourceLocationSurface(label); ok {
+		return "", 0, false
+	}
+	colon := strings.LastIndex(label, ":")
+	if colon <= 0 || colon >= len(label)-1 {
+		return "", 0, false
+	}
+	line, err := strconv.Atoi(strings.TrimSpace(label[colon+1:]))
+	callable := strings.TrimSpace(label[:colon])
+	if err != nil || line <= 0 || !types.IsCodeIdentitySurface(callable) {
+		return "", 0, false
+	}
+	return callable, line, true
+}
+
+func preEmitCallableSurfaceOwnsCitationWithContext(pctx *preEmitCheckContext, callable string, cit types.Citation) bool {
+	if pctx == nil || strings.TrimSpace(callable) == "" || cit.Line <= 0 {
+		return false
+	}
+	for _, ev := range pctx.evidenceItems() {
+		if ev.LineStart != cit.Line || !preEmitPathMatches(ev.Source, cit.File) {
+			continue
+		}
+		for _, owner := range []string{ev.Subject, ev.OwnerSymbol} {
+			if preEmitEnclosingFunctionSurfaceMatches(callable, owner) {
+				return true
+			}
+		}
+	}
+	if preEmitEnclosingFunctionSurfaceMatches(callable, cit.EnclosingFunction) {
+		return true
+	}
+	_, member, qualified := preEmitQualifiedCodeSurfaceParts(callable)
+	if !qualified {
+		member = callable
+	}
+	_, enclosingMember, enclosingQualified := preEmitQualifiedCodeSurfaceParts(cit.EnclosingFunction)
+	if !enclosingQualified {
+		enclosingMember = preEmitNormalizeCallableSurface(cit.EnclosingFunction)
+	}
+	return preEmitCodeIdentityKey(member) != "" &&
+		preEmitCodeIdentityKey(member) == preEmitCodeIdentityKey(enclosingMember)
 }
 
 func preEmitExplicitSourceLocationSurfaces(parts ...string) []types.AnswerSourceLocationSurface {
@@ -2855,6 +2951,10 @@ func preEmitItemCitationAligned(ctx *types.BusContext, label, text string, cit t
 }
 
 func preEmitItemCitationAlignedWithContext(pctx *preEmitCheckContext, label, text string, cit types.Citation) bool {
+	if callable, line, ok := preEmitCallableLineLabelParts(label); ok &&
+		cit.Line == line && preEmitCallableSurfaceOwnsCitationWithContext(pctx, callable, pctx.canonicalCitation(cit)) {
+		return true
+	}
 	if preEmitItemCitationStrictlyAlignedWithContext(pctx, label, text, cit) {
 		return true
 	}
