@@ -93,6 +93,28 @@ func TestDiagramCallEdgeEvidenceMismatches_SequenceReplyCannotHideReverseCallAnc
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_StructuralReplyStaysReplyWhenReverseCallExists(t *testing.T) {
+	doc := diagramEvidenceTestDoc("A", "B")
+	doc.Blocks[0].Diagram.Body += "  B-->>A: result\n"
+	evidence := []types.EvidenceItem{
+		diagramEvidenceTestCall("Alpha.Run", "Beta.Run"),
+		diagramEvidenceTestCall("Beta.Run", "Alpha.Run"),
+	}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, evidence); len(got) != 0 {
+		t.Fatalf("unrelated reverse typed evidence must not recapture a structurally paired response: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_UnpairedDashedEdgeIsNotSelfAuthorizingReply(t *testing.T) {
+	doc := diagramEvidenceTestDoc("A", "B")
+	doc.Blocks[0].Diagram.Body = "sequenceDiagram\n  participant A as Alpha.Run\n  participant B as Beta.Run\n  B-->>A: invoke\n"
+	doc.Blocks[0].EdgeAnchors = nil
+	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, nil)
+	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueMissingAnchor {
+		t.Fatalf("an unpaired dashed edge must remain in the fail-closed call contract: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_ClassParticipantsResolveUniqueTypedMethods(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "sequence", Kind: types.BlockDiagram,
@@ -319,6 +341,21 @@ func TestDiagramCallEdgeEvidenceMismatches_CallDAGBodyEdgeCannotOmitTypedAnchor(
 		[]types.EvidenceItem{diagramEvidenceTestCall("Alpha.Run", "Beta.Run")})
 	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueMissingAnchor {
 		t.Fatalf("a parsed call_dag edge without typed metadata must hard-fail: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_NormalizerCannotMintGuardAuthority(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "fabricated", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramCallDAG, Language: "mermaid",
+			Body: "flowchart TD\n  A[Alpha.Run] -->|guard| B[Beta.Run]\n"},
+	}}}
+	if fixed := normalizeDiagramEdgeAnchorMetadata(doc); fixed != 0 {
+		t.Fatalf("label text must not be promoted into typed edge authority: fixed=%d anchors=%+v", fixed, doc.Blocks[0].EdgeAnchors)
+	}
+	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, nil)
+	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueMissingAnchor {
+		t.Fatalf("an unanchored label-shaped guard must fail closed after normalization: %+v", got)
 	}
 }
 
@@ -578,6 +615,35 @@ func TestDiagramCallEdgeEvidenceMismatches_PrincipalCitationCallAlreadyVisible(t
 	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
 		[]types.EvidenceItem{evidence}); len(got) != 0 {
 		t.Fatalf("a class-level presentation with exact operation must cover the citation-selected call: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_PrincipalMethodItemsShareClassParticipantResolver(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID: "path", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:  []string{string(types.FacetPrincipalPathEdge)},
+			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+			Items:     []types.AnswerBlockItem{{Label: "VisitController.create"}, {Label: "VisitService.schedule"}},
+		},
+		{
+			ID: "diagram", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+				"sequenceDiagram",
+				"  participant C as VisitController",
+				"  participant S as VisitService",
+				"  C->>S: schedule(petId)",
+			}, "\n")},
+			EdgeAnchors: []types.DiagramEdgeAnchor{{
+				FromNode: "C", ToNode: "S", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge,
+			}},
+		},
+	}}
+	evidence := diagramEvidenceTestCall("VisitController.create", "VisitService.schedule")
+	evidence.AnchorSymbol = "schedule"
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
+		[]types.EvidenceItem{evidence}); len(got) != 0 {
+		t.Fatalf("principal completeness must reuse the class-participant typed resolver: %+v", got)
 	}
 }
 

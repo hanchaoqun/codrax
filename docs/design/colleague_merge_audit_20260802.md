@@ -1231,3 +1231,42 @@ R1-2 proven 臂明细词仍在单源外手写;R2-4 sequence 消息切分序改�
 5. 低危随批;R8-1/R8-2 在下一次 eval 战役排。
 
 **方法学**:修复响应波的"提交名↔finding 对应"极大降低了核验成本,30/42 项一次通过;新战役(repomap census 族)则重现了"新谓词族未过既有纪律(缓存版本/教学同步/别名同源)"的复发类——**修复批的工程纪律显著好于新功能批**,后续审计资源应向新功能面倾斜。
+
+---
+
+## §9 MERGE-AUDIT-4 复核与施工进度（2026-08-03）
+
+### §9.1 复核结论
+
+对 §8 的生产代码、调用顺序和可执行反例重新核验后，R2-1、R6-1、R2-2、R2-3 均准确，且属于同一份
+typed 图关系权限合同的三处分叉，不是 Java 或某个 Mermaid 模板的单点问题：
+
+1. R2-1 的第一条 citation-carrier 车道已经复用 typed call resolver，但第二条 principal item pair 车道仍用
+   `visibleCallSymbolPairs` 裸字符串键；因此方法级 principal 项和类级 participant 虽由同一 call evidence 证明，
+   后者仍会被误判为缺边；
+2. R6-1 的调用序成立：`normalizeDiagramEdgeAnchorMetadata` 先按 edge label 调
+   `InferRelationFromLabel` 自行追加 Guard/Import 等 anchor，之后 call-DAG 门把该 anchor 当模型提供的 typed
+   权限，形成“系统先铸权限、系统再验权限”的反向失效；
+3. R2-2/R2-3 来自同一个仅看 `-->>` 拼写的豁免：证据池恰有反向 call 时回复边被重新捕获；而一个没有
+   镜像正向 invocation 的孤立 `-->>` 又能自称回复逃逸。
+
+### §9.2 M4-A 图表权限同源批（已实现，待本节提交）
+
+- **R6-1**：归一化器只规范模型已经提交的 `edge_anchors`（节点别名、relation/claim 同步），彻底删除从
+  Mermaid label 新增 anchor 的能力。标签仍可做展示和 soft guidance，不能成为 typed hard-gate 权限来源；
+- **R2-2/R2-3**：sequence reply 改为结构判定——只有与图内反向的实线 invocation 配对、且自身没有
+  显式 call anchor 的 `-->>` 才是回复。会话中偶然存在反向 call evidence 不再改变其角色；孤立虚线边继续
+  进入 fail-closed call 合同；
+- **R2-1**：删除 principal 完备性车道的裸标签 pair 快路，先把 principal pair 解析回具体 typed call
+  EvidenceItem，再使用与可见边相同的 class/actor + exact operation resolver 核对；不引入模糊匹配；
+- **作用域不变**：入口仍严格限定 `QFCallChain`。Trace 显式时间窗因果投影、自动补齐和运行时根因图不进入
+  此源代码调用图合同；没有扫描原始请求、模型 prose 或最终渲染文本；没有系统改写模型结论。
+
+新增四组回归臂：class participant/principal method alias 正向；已有反向 call evidence 的结构回复正向；
+孤立 `-->>` 反向；执行完整 normalization 后 label-shaped Guard 仍无权、必须报 `missing_call_anchor` 反向。
+
+状态：`R2-1=implemented`；`R6-1=implemented`；`R2-2=implemented`；`R2-3=implemented`。
+
+下一批按 §8.5 进入 repomap：先验证并 bump extractor cache epoch，再修 Java `var`、C 参数作用域、
+Kotlin/Swift 声明类型边界与 Cangjie named argument，逐语言保留正反 fixture；不会把一种语言的字符串规则
+复制到其他语言。

@@ -133,7 +133,7 @@ func TestNormalizeDiagramDefinitionLabelsByEvidence_AddsMissingDefinitionLine(t 
 	}
 }
 
-func TestNormalizeDiagramEdgeAnchorMetadata_NormalizesAndAddsRelations(t *testing.T) {
+func TestNormalizeDiagramEdgeAnchorMetadata_NormalizesOnlyModelOwnedRelations(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID:   "d1",
 		Kind: types.BlockDiagram,
@@ -155,21 +155,16 @@ func TestNormalizeDiagramEdgeAnchorMetadata_NormalizesAndAddsRelations(t *testin
 	}}}
 
 	fixed := normalizeDiagramEdgeAnchorMetadata(doc)
-	if fixed < 4 {
-		t.Fatalf("fixed=%d, want at least 4; anchors=%+v", fixed, doc.Blocks[0].EdgeAnchors)
+	if fixed != 3 {
+		t.Fatalf("fixed=%d, want 3; anchors=%+v", fixed, doc.Blocks[0].EdgeAnchors)
 	}
 	anchors := doc.Blocks[0].EdgeAnchors
-	if len(anchors) != 2 {
-		t.Fatalf("len(edge_anchors)=%d, want 2: %+v", len(anchors), anchors)
+	if len(anchors) != 1 {
+		t.Fatalf("len(edge_anchors)=%d, want 1: label text must not mint typed authority: %+v", len(anchors), anchors)
 	}
 	if anchors[0].FromNode != "A" || anchors[0].ToNode != "B" ||
 		anchors[0].RelationKind != types.DiagramRelCall ||
 		anchors[0].ClaimForm != types.ClaimCallEdge {
 		t.Fatalf("existing anchor not normalized: %+v", anchors[0])
-	}
-	if anchors[1].FromNode != "B" || anchors[1].ToNode != "C" ||
-		anchors[1].RelationKind != types.DiagramRelImport ||
-		anchors[1].ClaimForm != types.ClaimImportEdge {
-		t.Fatalf("label-only relation anchor not added: %+v", anchors[1])
 	}
 }

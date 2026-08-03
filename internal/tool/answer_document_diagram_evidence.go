@@ -45,7 +45,6 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 		return nil
 	}
 	var out []DiagramCallEdgeEvidenceMismatch
-	visibleCallSymbolPairs := make(map[string]bool)
 	var visibleCallEdges []diagramVisibleCallEdge
 	hasStrictCallDiagram := false
 	strictCallDiagramID := ""
@@ -65,6 +64,7 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 			}
 			callAnchorKeys := diagramCallAnchorKeySet(block.EdgeAnchors)
 			typedAnchorRelations := diagramTypedAnchorRelationSet(block.EdgeAnchors)
+			structuralReplies := diagramSequenceStructuralReplyKeySet(block.Diagram.Kind, parsedEdges, typedAnchorRelations)
 			for _, edge := range parsedEdges {
 				key := diagramEvidenceEdgeKey(edge.From, edge.To)
 				fromSymbol := diagramEvidenceEndpointSymbol(edge.From, labels)
@@ -81,6 +81,9 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 				// by typed evidence: in a call_dag that visible edge must retain
 				// relation_kind=call (it may carry an additional guard anchor).
 				// Unanchored DAG edges retain the fail-closed call default.
+				if structuralReplies[key] {
+					continue
+				}
 				if !diagramParsedEdgeRequiresCallAuthority(block.Diagram.Kind, edge, typedAnchorRelations) &&
 					!hasTypedCallEvidence {
 					continue
@@ -102,7 +105,6 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 					})
 					continue
 				}
-				visibleCallSymbolPairs[diagramEvidenceEdgeKey(fromSymbol, toSymbol)] = true
 				if hasTypedCallEvidence {
 					continue
 				}
@@ -167,10 +169,21 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 		for _, fromSymbol := range principalSymbols {
 			for _, toSymbol := range principalSymbols {
 				key := diagramEvidenceEdgeKey(fromSymbol, toSymbol)
-				if fromSymbol == toSymbol || visibleCallSymbolPairs[key] || principalMissing[key] {
+				if fromSymbol == toSymbol || principalMissing[key] {
 					continue
 				}
-				if !diagramCallEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol, "") {
+				requiredCalls := diagramCallEvidenceForEndpoints(evidence, fromSymbol, toSymbol)
+				if len(requiredCalls) == 0 {
+					continue
+				}
+				visible := false
+				for _, required := range requiredCalls {
+					if diagramVisibleEdgesContainSpecificCall(visibleCallEdges, evidence, required) {
+						visible = true
+						break
+					}
+				}
+				if visible {
 					continue
 				}
 				principalMissing[key] = true
@@ -183,6 +196,33 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 					ToSymbol:   toSymbol,
 				})
 			}
+		}
+	}
+	return out
+}
+
+// diagramCallEvidenceForEndpoints resolves a model-selected principal pair to
+// the same typed call records used by the visible-edge lane. Returning the
+// records (rather than comparing raw labels) lets class/actor presentations be
+// checked through diagramVisibleEdgesContainSpecificCall without inventing a
+// second alias policy.
+func diagramCallEvidenceForEndpoints(evidence []types.EvidenceItem, fromSymbol, toSymbol string) []types.EvidenceItem {
+	definitions := make([]types.EvidenceItem, 0, len(evidence))
+	for _, ev := range evidence {
+		if types.ClaimFormOf(ev) == types.ClaimDefinitionFact {
+			definitions = append(definitions, ev)
+		}
+	}
+	var out []types.EvidenceItem
+	for _, ev := range evidence {
+		if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimCallEdge {
+			continue
+		}
+		proof := make([]types.EvidenceItem, 0, len(definitions)+1)
+		proof = append(proof, ev)
+		proof = append(proof, definitions...)
+		if diagramCallEdgeHasTypedEvidence(proof, fromSymbol, toSymbol, "") {
+			out = append(out, ev)
 		}
 	}
 	return out
@@ -346,9 +386,6 @@ func diagramBlockCarriesClaimForm(block *types.AnswerBlock, claim types.ClaimFor
 }
 
 func diagramParsedEdgeRequiresCallAuthority(kind types.DiagramKind, edge mermaidcompat.Edge, typedRelations map[string]map[types.DiagramRelationKind]bool) bool {
-	if kind == types.DiagramSequence && strings.TrimSpace(edge.Operator) == "-->>" {
-		return false
-	}
 	if kind != types.DiagramCallDAG {
 		return true
 	}
@@ -365,6 +402,38 @@ func diagramParsedEdgeRequiresCallAuthority(kind types.DiagramKind, edge mermaid
 		}
 	}
 	return true
+}
+
+// diagramSequenceStructuralReplyKeySet recognizes only a dashed reverse edge
+// paired with a visible forward sequence invocation. A standalone -->> edge is
+// not sufficient to self-declare as a reply, and an explicit call anchor keeps
+// the reverse edge inside the call-evidence contract. Typed evidence elsewhere
+// in the session cannot change the syntax role of a structurally paired reply.
+func diagramSequenceStructuralReplyKeySet(kind types.DiagramKind, edges []mermaidcompat.Edge, typedRelations map[string]map[types.DiagramRelationKind]bool) map[string]bool {
+	out := make(map[string]bool)
+	if kind != types.DiagramSequence {
+		return out
+	}
+	forward := make(map[string]bool)
+	for _, edge := range edges {
+		if strings.TrimSpace(edge.Operator) == "-->>" {
+			continue
+		}
+		forward[diagramEvidenceEdgeKey(edge.From, edge.To)] = true
+	}
+	for _, edge := range edges {
+		if strings.TrimSpace(edge.Operator) != "-->>" {
+			continue
+		}
+		key := diagramEvidenceEdgeKey(edge.From, edge.To)
+		if typedRelations[key][types.DiagramRelCall] {
+			continue
+		}
+		if forward[diagramEvidenceEdgeKey(edge.To, edge.From)] {
+			out[key] = true
+		}
+	}
+	return out
 }
 
 func diagramTypedAnchorRelationSet(anchors []types.DiagramEdgeAnchor) map[string]map[types.DiagramRelationKind]bool {

@@ -346,25 +346,6 @@ func normalizeDiagramEdgeAnchorMetadata(doc *types.AnswerDocumentV2) int {
 				}
 			}
 		}
-		existing := diagramEdgeAnchorKeySet(block.EdgeAnchors)
-		for _, edge := range mermaidcompat.ParseEdges(block.Diagram.Body) {
-			rel := types.InferRelationFromLabel(edge.Label)
-			if rel == types.DiagramRelUnknown {
-				continue
-			}
-			key := diagramEdgeAnchorKey(edge.From, edge.To, rel)
-			if existing[key] {
-				continue
-			}
-			block.EdgeAnchors = append(block.EdgeAnchors, types.DiagramEdgeAnchor{
-				FromNode:     edge.From,
-				ToNode:       edge.To,
-				RelationKind: rel,
-				ClaimForm:    types.ClaimFormForRelation(rel),
-			})
-			existing[key] = true
-			fixed++
-		}
 	}
 	return fixed
 }
@@ -400,25 +381,4 @@ func diagramNodeAliasIndex(body string) map[string]string {
 
 func diagramSurfaceKey(raw string) string {
 	return strings.ToLower(strings.TrimSpace(raw))
-}
-
-func diagramEdgeAnchorKeySet(anchors []types.DiagramEdgeAnchor) map[string]bool {
-	out := make(map[string]bool, len(anchors))
-	for _, anchor := range anchors {
-		rel := anchor.RelationKind
-		if !rel.IsValid() {
-			rel = types.RelationForClaimForm(anchor.ClaimForm)
-		}
-		if rel == types.DiagramRelUnknown {
-			continue
-		}
-		out[diagramEdgeAnchorKey(anchor.FromNode, anchor.ToNode, rel)] = true
-	}
-	return out
-}
-
-func diagramEdgeAnchorKey(from, to string, rel types.DiagramRelationKind) string {
-	return strings.ToLower(strings.TrimSpace(from)) + "\x00" +
-		strings.ToLower(strings.TrimSpace(to)) + "\x00" +
-		string(rel)
 }
