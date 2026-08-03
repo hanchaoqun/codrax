@@ -418,14 +418,15 @@ const (
 	// edge represents". Stage="finalize". SOFT-by-default.
 	ViolDiagramEdgeUnsupported ViolationKind = "diagram_edge_unsupported"
 
-	// ViolDiagramCallEdgeUnproven fires only for source call-chain
-	// diagrams when a structured relation_kind=call edge has no citable
-	// typed call-site EvidenceItem with the exact same Subject -> Object
-	// direction. It does not inspect user/model prose, infer relation
+	// ViolDiagramCallEdgeUnproven fires whenever a non-runtime-trace answer
+	// declares a structured relation_kind=call edge without a citable typed
+	// call-site EvidenceItem with the exact same Subject -> Object direction.
+	// Source call-chain diagrams additionally require body-edge and principal-
+	// path completeness. It does not inspect user/model prose, infer relation
 	// labels, or apply to runtime/root-cause trace diagrams. A function
-	// definition proves symbol existence but cannot authorize a call
-	// direction. Stage="finalize". HARD-by-default because both sides of
-	// the comparison are closed typed carriers.
+	// definition proves symbol existence but cannot authorize a call direction.
+	// Stage="finalize". HARD-by-default because both sides are closed typed
+	// carriers.
 	ViolDiagramCallEdgeUnproven ViolationKind = "diagram_call_edge_unproven"
 
 	// ViolCallChainEndpointOmitted fires only for source call-chain answers

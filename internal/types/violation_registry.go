@@ -822,7 +822,7 @@ func init() {
 		Kind: ViolDiagramCallEdgeUnproven, DefaultSeverity: SeverityHigh, RepairPhase: RepairPhaseConsistency,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyDiagramFidelity,
-		SchemaDescriptionFragment: "In a source call-chain answer, every structured relation_kind=call diagram edge MUST preserve the exact direction of a cited typed call-site evidence pair; a symbol definition does not prove that the symbol calls another symbol.",
+		SchemaDescriptionFragment: "In every non-runtime-trace answer, each structured relation_kind=call diagram edge MUST preserve the exact direction of a cited typed call-site evidence pair; source call-chain sequence/call-DAG diagrams additionally require invocation-body and selected-principal-path completeness. A symbol definition does not prove that the symbol calls another symbol.",
 		FixableByAgents:           []AgentName{AgentFinalizer},
 	})
 	RegisterViolKind(ViolKindSpec{

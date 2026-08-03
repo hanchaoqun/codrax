@@ -35,28 +35,38 @@ const (
 	diagramCallEdgeIssuePrincipalMiss = "principal_call_edge_missing"
 )
 
-// DiagramCallEdgeEvidenceMismatches cross-checks the directed call edges in a
-// call-chain diagram against the accepted evidence pool. The family check is
-// intentionally narrow: runtime/root-cause trace diagrams, including explicit
-// time-window causal projections and their automatic supplements, do not enter
-// this source-code call-edge contract.
+// DiagramCallEdgeEvidenceMismatches cross-checks model-authored typed call
+// edges against the accepted evidence pool. An explicit relation_kind=call is
+// an evidence claim regardless of the surrounding answer family, so it always
+// needs one same-direction citable call-site record. QFCallChain additionally
+// gets strict sequence/call-DAG body coverage and principal-path completeness.
+//
+// Runtime/root-cause trace diagrams, including explicit time-window causal
+// projections and their automatic supplements, use a separate runtime
+// relation authority and deliberately do not enter this source-code contract.
 func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, evidence []types.EvidenceItem) []DiagramCallEdgeEvidenceMismatch {
-	if doc == nil || view == nil || view.Family != types.QFCallChain {
+	if doc == nil || view == nil || view.Family == types.QFRootCauseTrace {
 		return nil
 	}
+	strictSourceCallChain := view.Family == types.QFCallChain
 	var out []DiagramCallEdgeEvidenceMismatch
 	var visibleCallEdges []diagramVisibleCallEdge
 	hasStrictCallDiagram := false
 	strictCallDiagramID := ""
 	for i := range doc.Blocks {
 		block := &doc.Blocks[i]
-		if block.Kind != types.BlockDiagram || block.Diagram == nil {
-			continue
+		labels := map[string]string(nil)
+		strictBodyCoverage := false
+		if block.Kind == types.BlockDiagram && block.Diagram != nil {
+			labels = diagramEvidenceNodeLabels(block.Diagram.Body)
+			strictBodyCoverage = strictSourceCallChain &&
+				(block.Diagram.Kind == types.DiagramSequence || block.Diagram.Kind == types.DiagramCallDAG)
 		}
-		labels := diagramEvidenceNodeLabels(block.Diagram.Body)
-		parsedEdges := mermaidcompat.ParseEdges(block.Diagram.Body)
+		var parsedEdges []mermaidcompat.Edge
+		if block.Diagram != nil {
+			parsedEdges = mermaidcompat.ParseEdges(block.Diagram.Body)
+		}
 		parsedEdgeKeys := make(map[string]bool, len(parsedEdges))
-		strictBodyCoverage := block.Diagram.Kind == types.DiagramSequence || block.Diagram.Kind == types.DiagramCallDAG
 		if strictBodyCoverage {
 			hasStrictCallDiagram = true
 			if strictCallDiagramID == "" {
@@ -140,7 +150,7 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 			})
 		}
 	}
-	if hasStrictCallDiagram {
+	if strictSourceCallChain && hasStrictCallDiagram {
 		principalMissing := make(map[string]bool)
 		for _, required := range diagramPrincipalPathCitationCallEvidence(doc, evidence) {
 			if diagramVisibleEdgesContainSpecificCall(visibleCallEdges, evidence, required) {

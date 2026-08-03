@@ -2373,9 +2373,9 @@ func validateDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 		out = append(out, types.Violation{
 			Kind: types.ViolDiagramCallEdgeUnproven,
 			Detail: fmt.Sprintf(
-				"call-chain diagram block id=%q has body edge(s) without a same-direction typed call anchor or structured call edge(s) without citable typed EvidenceItem in the same direction: [%s]",
+				"answer block id=%q has an explicit typed call edge without citable same-direction call-site evidence, or a strict source call-chain body/principal edge without its required typed carrier: [%s]",
 				blockID, strings.Join(byBlock[blockID], "; ")),
-			Repair:     "add a same-direction relation_kind=call edge_anchor for every sequence/call_dag body edge, then remove or correct each unsupported edge and corresponding principal-list claim; preserve only directions backed by one grounded call-site EvidenceItem using its exact Subject plus exact Object or grounded callee AnchorSymbol.",
+			Repair:     "preserve relation_kind=call only for directions backed by one grounded call-site EvidenceItem using its exact Subject plus exact Object or grounded callee AnchorSymbol; use observe/contain/precedence for non-invocation workflow arrows. In a strict source call-chain, also add a same-direction call anchor for every sequence/call_dag invocation body edge and preserve selected principal calls.",
 			ClusterKey: blockClusterKey(blockID, "diagram_call_edge_evidence"),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "diagram_call_edge_evidence",

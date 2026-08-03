@@ -11678,7 +11678,7 @@ Trace 的查询与模型结论内容本身仍然完整：显式用户窗、`net-
 |---|---:|---|---|---|
 | `EVAL-B54-RELSTALE1` | P0/red-line | retained investigation relation claim 被当成永久 hard obligation；补采替换同族 authority 后，旧 claim 与最终 roster 互斥 | final typed authority 为唯一校验源；以 ID+成员+关系+加法+小计精确分区 accepted claims。仍被 final slate 支持的保留；失去支持的 typed 标为 superseded，只提示模型按最终值修订自己的正文，不搬运/替写结论 | implemented / full-related-tests-pass / replay-next |
 | `EVAL-B54-RETRYMETRIC1` | P2/audit | eval 把一次 reject 的 toolresult/render 两条镜像日志双计 | 两个精确控制面 census 取 max；任一日志面缺失仍可观测，普通镜像不重复 | implemented / runner-tests-pass |
-| `EVAL-B54-DIAGCALL1` | P1 | generic explanation 图在 `explicit_caller_callee_edges=0` 时仍可提交任意 `edge_anchors[].relation_kind=call`；本例把 5 条跨子系统逻辑顺序伪装为 direct call | 对所有 diagram family/语言统一复用 typed call-edge authority + endpoint alias resolver；显式 `relation_kind=call` 无对应 exact edge 时 fail-closed。逻辑流程改用 observe/contain/precedence，不扫描 Mermaid label、用户原文或答案 prose 来铸权 | open / next fix batch |
+| `EVAL-B54-DIAGCALL1` | P1 | generic explanation 图在 `explicit_caller_callee_edges=0` 时仍可提交任意 `edge_anchors[].relation_kind=call`；本例把 5 条跨子系统逻辑顺序伪装为 direct call | 对所有 diagram family/语言统一复用 typed call-edge authority + endpoint alias resolver；显式 `relation_kind=call` 无对应 exact edge 时 fail-closed。逻辑流程改用 observe/contain/precedence，不扫描 Mermaid label、用户原文或答案 prose 来铸权 | implemented / full-related-tests-pass / replay-next |
 
 #### B54-A：final authority 单源与 superseded investigation claims
 
@@ -11716,3 +11716,37 @@ mixed 读例的模型上下文审计：typed current-source/runtime 双 lane 最
 - `bash eval/runner_lib_test.sh` 通过；
 - `go test ./internal/types ./internal/agent ./internal/tool -count=1` 全绿
   （types 18.537s、agent 2.996s、tool 167.363s）；`git diff --check` 通过。
+
+#### B54-B：显式 typed call authority 跨 family 单源（2026-08-03）
+
+`EVAL-B54-DIAGCALL1` 已按关系声明本身修复，而不是按单一问题、语言或 Mermaid 文案拟合：
+
+1. 除 `QFRootCauseTrace` 外，任意 answer family 的任意 block 只要显式提交
+   `edge_anchors[].relation_kind=call`，都必须由一条同向、可引用、typed call-site
+   `EvidenceItem.Subject -> Object/AnchorSymbol` 授权；generic、architecture、comparison、
+   enumeration、role/config 等家族不再成为逃逸通道。
+2. `QFCallChain` 仍保留更强的 sequence/call-DAG body 全覆盖和 model-selected principal path
+   完备性；此次没有把该更强合同扩散到普通解释图。普通图未声明 typed call 的箭头仍可作为
+   展示关系，显式 `observe/contain/precedence/guard/import` 也继续走各自关系合同。
+3. `QFRootCauseTrace` 明确隔离：其 wakeup、blocking、frame-flow、显式时间窗因果投影和系统
+   自动补采使用 runtime typed relation authority，不被源码 caller/callee contract 解释或拦截。
+4. 校验只读取 `QuestionFamily`、`edge_anchors` enum、Mermaid 结构端点和 typed evidence 字段；
+   不扫描用户原文、模型正文或 edge label 来制造 hard signal。模型仍可选择删除伪 call，或把
+   逻辑顺序改为准确的非调用关系；系统不重写图和结论。
+5. 同一实现同时服务 Go、Java、C/C++、Rust、Python、TypeScript/ArkTS、Cangjie 等语言；
+   语言差异只由既有 exact endpoint/owner/operation alias resolver 消化。本批 family 全矩阵 pin、
+   sibling block carrier pin、generic pre-emit/post-emit 双接线 pin，与仓内已有全部 executable-language
+   call-DAG/participant alias 矩阵共同防回归，没有新增任何语言专名分支。
+
+这一问题与 `RELSTALE1` 的关系也已区分：`RELSTALE1` 是两个阶段快照形成“旧声明必带、最终
+roster 又必拒”的不可满足合同；`DIAGCALL1` 是 typed 声明在部分 family 漏检，属于 authority
+绕过而非互斥。对 aggregate facts、source inventory、causal/coverage stamps、write replan 的同类
+审计暂未复现第二个同形不可满足环：前两者有 typed merge/final snapshot，stamp 从 final ledger
+编译，write verification ledger 为 append-only。此结论不是“全系统绝无”，上述面继续进入后续
+read/write/多语言异构 eval 否证矩阵。
+
+验证：
+
+- `go test ./internal/tool -run 'TestDiagramCallEdgeEvidenceMismatches|TestRunPreEmitChecks_(GenericExplicitCallEdgeEvidenceAlignmentIsWired|DiagramCallEdgeEvidenceAlignmentIsWired|DiagramBodyEdgeWithoutAnchorIsWired|MixedCallDAGGuardStaysOutsideCallAuthority)' -count=1` 通过；
+- `go test ./internal/types ./internal/skill ./internal/analysis/hint ./internal/agent ./internal/tool ./internal/orchestrator -count=1` 全绿（types 22.110s、skill 1.941s、hint 1.397s、agent 3.055s、tool 169.879s、orchestrator 13.806s）；
+- `git diff --check` 通过；生产双例回放排在下一批，仍严格并行 2 个。

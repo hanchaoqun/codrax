@@ -94,3 +94,25 @@ func TestRunV2BlockOracles_DiagramBodyEdgeCannotOmitTypedAnchor(t *testing.T) {
 	}
 	t.Fatalf("post-emit oracle must reject body-edge authority omission: %+v", violations)
 }
+
+func TestRunV2BlockOracles_GenericExplicitCallRequiresTypedEvidence(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "generic-sequence", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramSequence,
+			Body: "sequenceDiagram\n  participant P as Parser.Parse\n  participant D as Decoder.Decode\n  P->>D: decode\n",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "P", ToNode: "D", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge,
+		}},
+	}}}
+	mut := types.NewMutableState("generic explicit call")
+	violations := runV2BlockOraclesWithMut(doc, &types.AnswerSemanticView{Family: types.QFGeneric}, mut)
+	for _, violation := range violations {
+		if violation.Kind == types.ViolDiagramCallEdgeUnproven &&
+			violation.SuspectedRoot.IRField == "diagram_call_edge_evidence" {
+			return
+		}
+	}
+	t.Fatalf("post-emit oracle must not let a generic family bypass explicit typed call authority: %+v", violations)
+}

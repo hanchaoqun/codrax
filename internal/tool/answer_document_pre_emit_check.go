@@ -712,9 +712,10 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 
 	// 5b.1. Structured diagram call-edge authority. Unlike the legacy item
 	// surface alignment above, this check does not interpret model prose: the
-	// typed call-chain family, edge_anchors relation enum, Mermaid participant
-	// declarations, and EvidenceItem Subject/Object direction are the complete
-	// input. A function definition cannot therefore prove the reverse call.
+	// edge_anchors relation enum, Mermaid participant declarations, and
+	// EvidenceItem Subject/Object direction are the complete input. Every
+	// explicit typed call edge is checked; QFCallChain also receives strict body
+	// and principal-path coverage. A function definition cannot prove a call.
 	if h := preCheckDiagramCallEdgeEvidenceAlignment(doc, view, pctx); len(h) > 0 {
 		hints = appendPreEmitHints(hints, types.ViolDiagramCallEdgeUnproven, h)
 	}
@@ -3073,11 +3074,11 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 		))
 	}
 	return []emitFixHint{{
-		Field:      "blocks[kind=diagram].edge_anchors[] AND diagram.body",
+		Field:      "blocks[].edge_anchors[] AND blocks[kind=diagram].diagram.body",
 		HardSignal: preEmitHardSignalTypedCallEdgeEvidence,
-		ExpectedShape: "every invocation edge in a typed sequence/call_dag call-chain diagram must have a same-direction structured relation_kind=call edge_anchor, every structured call edge must preserve the exact direction of one citable typed call-edge EvidenceItem, and every citable typed call whose two endpoints were selected into the model's principal_path_edge items must remain visible as that same directed call in the diagram; a sequence -->> edge is a response/return and needs no reverse call anchor; method-qualified endpoint labels are exact, while class/actor participant labels require an exact message operation that resolves to one unique typed call edge; add missing anchors/edges or remove/correct unsupported invocation edges and their corresponding principal-list claims: " +
+		ExpectedShape: "every explicit relation_kind=call edge in a non-runtime-trace answer must preserve the exact direction of one citable typed call-edge EvidenceItem; a grounded call-chain sequence/call_dag additionally requires a same-direction call anchor for every invocation body edge and must keep model-selected principal calls visible; a sequence -->> edge is a response/return and needs no reverse call anchor; method-qualified endpoint labels are exact, while class/actor participant labels require an exact message operation that resolves to one unique typed call edge; when an arrow expresses observation, containment, or ordering rather than a direct invocation, use the matching non-call typed relation instead of inventing call authority; add missing anchors/edges or remove/correct unsupported invocation edges and their corresponding principal-list claims: " +
 			strings.Join(parts, "; "),
-		Reason: "diagram invocation edges cannot bypass typed authority by omitting edge_anchors or by replacing a model-selected principal call with an abstract control node; a function definition proves that a symbol exists, but only a grounded call-site EvidenceItem can authorize caller-to-callee direction. Supporting calls outside the model-selected principal path do not expand the diagram. Sequence responses preserve temporal readability without inventing a reverse source-code call.",
+		Reason: "an explicit typed call declaration cannot bypass typed authority merely because the answer was classified as a generic explanation, architecture, comparison, or another non-call-chain family; a function definition proves that a symbol exists, but only a grounded call-site EvidenceItem can authorize caller-to-callee direction. Logical workflow arrows remain available through non-call relations. Supporting calls outside a call-chain model-selected principal path do not expand the diagram. Sequence responses preserve temporal readability without inventing a reverse source-code call.",
 	}}
 }
 

@@ -836,6 +836,81 @@ func TestDiagramCallEdgeEvidenceMismatches_DoesNotGateTraceProjectionFamily(t *t
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_ExplicitCallAuthorityIsFamilyIndependent(t *testing.T) {
+	for _, family := range types.AllQuestionFamilies() {
+		if family == types.QFRootCauseTrace {
+			continue
+		}
+		t.Run(string(family), func(t *testing.T) {
+			doc := diagramEvidenceTestDoc("A", "B")
+			got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: family}, nil)
+			if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueNoEvidence {
+				t.Fatalf("explicit typed call must require same-direction evidence in family %s: %+v", family, got)
+			}
+			if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: family},
+				[]types.EvidenceItem{diagramEvidenceTestCall("Alpha.Run", "Beta.Run")}); len(got) != 0 {
+				t.Fatalf("exact typed call must pass in family %s: %+v", family, got)
+			}
+		})
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_GenericLogicalRelationsRemainAvailable(t *testing.T) {
+	for _, relation := range []types.DiagramRelationKind{
+		types.DiagramRelGuard,
+		types.DiagramRelImport,
+		types.DiagramRelPrecedence,
+		types.DiagramRelContain,
+		types.DiagramRelObserve,
+	} {
+		t.Run(string(relation), func(t *testing.T) {
+			doc := diagramEvidenceTestDoc("A", "B")
+			doc.Blocks[0].EdgeAnchors[0].RelationKind = relation
+			doc.Blocks[0].EdgeAnchors[0].ClaimForm = types.ClaimFormForRelation(relation)
+			if got := DiagramCallEdgeEvidenceMismatches(doc,
+				&types.AnswerSemanticView{Family: types.QFGeneric}, nil); len(got) != 0 {
+				t.Fatalf("generic typed %s relation must not be recast as a source call: %+v", relation, got)
+			}
+		})
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_SiblingCarrierCallStillNeedsEvidence(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "diagram-edge-carrier", Kind: types.BlockOrderedList,
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "Parser.Parse", ToNode: "Decoder.Decode",
+			RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge,
+		}},
+	}}}
+	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFGeneric}, nil)
+	if len(got) != 1 || got[0].FromSymbol != "Parser.Parse" || got[0].ToSymbol != "Decoder.Decode" {
+		t.Fatalf("a sibling carrier must not bypass explicit call authority: %+v", got)
+	}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFGeneric},
+		[]types.EvidenceItem{diagramEvidenceTestCall("Parser.Parse", "Decoder.Decode")}); len(got) != 0 {
+		t.Fatalf("a sibling carrier with exact typed authority should pass: %+v", got)
+	}
+}
+
+func TestRunPreEmitChecks_GenericExplicitCallEdgeEvidenceAlignmentIsWired(t *testing.T) {
+	mut := types.NewMutableState("generic diagram call edge")
+	ctx := &types.BusContext{Mutable: mut}
+	hints := runPreEmitChecks(diagramEvidenceTestDoc("A", "B"),
+		&types.AnswerSemanticView{Family: types.QFGeneric}, nil, ctx)
+	for _, hint := range hints {
+		if hint.Kind != types.ViolDiagramCallEdgeUnproven {
+			continue
+		}
+		hard, _ := splitPreEmitHintsByGate([]emitFixHint{hint})
+		if len(hard) != 1 {
+			t.Fatalf("generic explicit typed call must use the precise hard lane: %+v", hints)
+		}
+		return
+	}
+	t.Fatalf("generic explicit typed call bypassed pre-emit authority: %+v", hints)
+}
+
 func TestRunPreEmitChecks_DiagramCallEdgeEvidenceAlignmentIsWired(t *testing.T) {
 	mut := types.NewMutableState("diagram call edge")
 	mut.AppendEvidence([]types.EvidenceItem{diagramEvidenceTestCall("Alpha.Run", "Beta.Run")})
