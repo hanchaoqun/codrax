@@ -835,11 +835,11 @@ func subtopicResolverAsymmetryShouldBeAdvisory(rm types.RequestModel) bool {
 }
 
 func mixedRuntimeCurrentSourceQuestion(rm types.RequestModel) bool {
-	if !rm.CurrentSourceLaneDecision().RequiresCurrentSource() {
+	hint := types.TurnRouteHint{}
+	if types.RuntimeSourceRequestCurrentSourceRequirementPrecision(&rm, hint) == types.RuntimeSourceRequirementNone {
 		return false
 	}
-	return rm.HasExternalOnlyRuntimeArtifact() ||
-		rm.HasRuntimeArtifactPathReference()
+	return types.RuntimeSourceRequestHasExternalObservationCarrier(&rm, hint)
 }
 
 func historyOrDiagramSubTopicsBypassResolverAsymmetry(rm types.RequestModel) bool {

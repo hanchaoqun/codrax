@@ -11631,6 +11631,13 @@ R1.5 的 repo-symbol hit/miss 本来只适合单一 current-source 实体宇宙�
 后续 evidence plan、runtime artifact authority 与 current-source citation gate 均保持。定向测试固定
 `parseTraceMark` 可解析而 `86.111ms/frame budget` 不解析时 quality gate 仍通过并保留 advisory。
 
+闭环复核补正（2026-08-03）：首次实现直接调用 legacy
+`CurrentSourceLaneDecision().RequiresCurrentSource()`，被全仓 authority chokepoint lint 正确拦截。
+现改为组合共享的 request-only authority API：
+`RuntimeSourceRequestCurrentSourceRequirementPrecision != none` 与
+`RuntimeSourceRequestHasExternalObservationCarrier`。行为边界不变，但 soft/precise/excluded 与 artifact
+carrier 的判定不再由 coherence gate 二次派生；mixed 正例和结构 lint 均通过。
+
 证据：
 
 - `eval/parallel_selected_summary_evalcampaign_b53_trace_read_r3_20260803.md`；
