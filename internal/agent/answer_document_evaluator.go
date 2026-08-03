@@ -4616,9 +4616,9 @@ func renderAnswerDocRuntimeSourceAuthority(ctx *types.AgentContext, ledger types
 		b.WriteString("- guidance: a precise current-source obligation is still missing; if the final answer proceeds, disclose that source-proof boundary instead of presenting runtime rows as source citations.\n")
 	case authority.CanDowngradeToCaveat:
 		b.WriteString("- guidance: the missing current-source obligation is soft. Preserve runtime observations as answer-grade support and disclose the source boundary as a caveat when relevant; do not broaden the answer slate solely to satisfy this soft lane.\n")
-	case authority.CanCompleteWithCombinedProof:
+	case authority.CanCompleteWithCombinedProof && authority.CurrentSourceSatisfied:
 		b.WriteString("- guidance: runtime and current-source proof are both present; preserve both origins and keep their citations/provenance separate.\n")
-	case authority.RuntimeOnlySufficient:
+	case authority.RuntimeOnlySufficient || authority.CanUseRuntimeOnlyWithCaveat:
 		b.WriteString("- guidance: runtime evidence is sufficient for the runtime artifact claim; keep source citations out unless current-source records are present.\n")
 	}
 	b.WriteString("\n")

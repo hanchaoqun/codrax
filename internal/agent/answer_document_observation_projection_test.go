@@ -145,6 +145,33 @@ func TestRenderAnswerDocRuntimeSourceAuthority_PreciseRequirementHandoff(t *test
 	}
 }
 
+func TestRenderAnswerDocRuntimeSourceAuthority_RuntimeOnlyDoesNotClaimCombinedProof(t *testing.T) {
+	ctx := &types.AgentContext{
+		TurnRouteHint: types.TurnRouteHint{
+			Route:                     "repo",
+			Source:                    "artifact",
+			NeedsRepoAccess:           true,
+			CurrentSourceEvidenceMode: types.TurnRouteCurrentSourceEvidenceOptional,
+		},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{Intent: types.IntentRootCause}},
+	}
+	ledger := types.ObservationLedger{Records: []types.ObservationRecord{answerDocRuntimeAuthorityRuntimeRecord()}}
+
+	got := renderAnswerDocRuntimeSourceAuthority(ctx, ledger)
+	for _, want := range []string{
+		"current_source_satisfied=false",
+		"current_source_records=0",
+		"runtime evidence is sufficient for the runtime artifact claim",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("runtime-only authority handoff missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "runtime and current-source proof are both present") {
+		t.Fatalf("runtime-only authority must not claim absent current-source proof:\n%s", got)
+	}
+}
+
 func TestRenderAnswerDocRuntimeSourceAuthority_InactiveOmitted(t *testing.T) {
 	if got := renderAnswerDocRuntimeSourceAuthority(&types.AgentContext{}, types.ObservationLedger{}); got != "" {
 		t.Fatalf("inactive runtime/source authority should not render, got:\n%s", got)

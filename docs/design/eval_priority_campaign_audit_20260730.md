@@ -4496,8 +4496,62 @@ history 同步保留。完整回归：`operation 0.534s / repl 33.617s`。
 - [x] B47-T8j：独立提交 OPERMAX1，并完成 HTMLBODY1 batch-A 分页/receipt 证据载体；
 - [x] B47-T8k：独立提交推送 HTMLBODY1 batch A；batch B 接入 CLI/REPL/replan material context，
   完整相关回归通过；
-- [ ] B47-T8l：独立提交推送 HTMLBODY1 batch B；用 operation case + 异构高优 case 严格并行
+- [x] B47-T8l：独立提交推送 HTMLBODY1 batch B；用 operation case + 异构高优 Trace case 严格并行
   2 个回放，人工验收材料闭环、上下文精度与最终答案。
+
+#### B50 r1：长材料闭环通过；Trace 模型前权限上下文仍有矛盾
+
+从干净 `main@9f2a00e5a` 严格并行 operation + 显式窗 Trace：
+
+- `operation_web_manual_summary`：93s，runner/human 双 PASS；
+- `real_trace_h5_smr_multirow_disposition`：260s，runner/human 双 FAIL，但 runner 的失败面与人工失败面不同。
+
+operation 只执行两次 curl：首页的 32,655 bytes/3,390 visible runes 先形成完整 ledger，模型从 typed
+href 找到 `user_guide.html`；手册的 248,161 bytes/118,802 visible runes 随后被 20 个连续页面覆盖，
+`source_truncated=false / pages_truncated=false` 并铸造 complete receipt。evaluator 依据 receipt 发布
+complete，模型自行形成覆盖八章的使用总结，没有 shell 搬运循环、截断前缀冒充全文或系统代写。
+`HTMLBODY1` 因此获得首个生产回放闭环见证。耗时从历史同 case 的 141s 降为 93s，但单次运行受模型
+和网络波动影响，不把它宣称为稳定性能收益。
+
+Trace 的旧 oracle 仍只因缺固定中文词形 `等待对象 dma_fence_default_w` 判负；相同 typed 内核调用点
+已出现在模型正文、根因席位和系统投影中，继续归 `EVAL-B46-ORACLE1`，生产代码不拟合词形。能力面
+没有回归：233.190ms 显式用户窗被保留，模型查询了 window stats、root-cause rank、wakeup chain、
+critical blocking calls，系统在成文前补采 frame root-cause bundle；最终仍有实际占用/潜在新修向与
+现规则可消两维、根因排序、唤醒链、窗内可消除量和完整 Trace 因果投影。
+
+人工仍判 Trace FAIL，原因有两层：
+
+1. 模型开头宣称“全部主要等待与占用来源已完整覆盖”，但 deterministic appendix 明确给出
+   `enumeration_status=incomplete`，并列出 `critical_blocking_calls/root_cause_rank/span_window` 的
+   emitted/total capacity boundaries。不能把 capped samples 写成全部。
+2. 模型把根因排序的 overlap-folded 有效影响 `3.670ms` 写成“6 段有效归因”，又列出六条 raw
+   occurrence；模型前的精确 target-blocking authority 已写明 `>=6 occurrences / union wall clock
+   >=4.611ms / lower_bound_capacity_truncated`。这证明第二层当前是模型没有服从足量 typed context，
+   先留作 `EVAL-B50-H5IO1/P2-model-variance-watch`，不得扫描答案词面、替换模型结论或按该 trace
+   类型写专门门。
+
+上下文审计同时找到一个系统自身矛盾：runtime-only optional-source snapshot 精确写着
+`current_source_satisfied=false / current_source_records=0`，renderer 却因为先匹配
+`CanCompleteWithCombinedProof` 而提示“runtime and current-source proof are both present”。登记并修复
+`EVAL-B50-CTXAUTH1/P1-small`：combined 文案必须同时满足 `CurrentSourceSatisfied`；runtime-only 与
+soft-caveat 分支明确只授权 runtime artifact claim，不虚构 source citation。修复只消费 typed boolean，
+不读取 RawRequest、模型 thinking/summary/final，不拒绝、删除、替换或代写回答；显式窗 Trace 路由、
+查询、自动补齐与最终投影代码零改动。`go test ./internal/agent -count=1` 通过（3.058s）。
+
+另登记 `EVAL-B50-ENUMCTX1/P1-candidate`：精确枚举边界目前确定存在于模型回答后的系统 appendix，
+但尚需冷读确认在 AnswerDocument 模型成文前是否存在同等 concise typed handoff。若缺失，最优修复是
+从 observation ledger 的 `Enumeration` authority 生成模型前软指导；只投影 status/scope/dimension/
+emitted/total 与其权限含义，不能从用户/答案原文识别“全部”，也不能由系统改答案。
+
+任务状态：
+
+- [x] B50-T1：严格并行 operation + 显式窗 Trace 恰好 2 case；
+- [x] B50-T2：人工读完命令/Trace 查询链、模型前上下文、答案与系统 appendix；
+- [x] B50-T3：确认 HTMLBODY1 live covered、Trace 能力无回归、旧词形 oracle 仍为 eval debt；
+- [x] B50-T4：修复并回归 CTXAUTH1；
+- [ ] B50-T5：审计 Enumeration authority 的 ledger 起点、origin/scope 与 AnswerDocument prompt
+  接线，再决定是否实施通用模型前 handoff；
+- [ ] B50-T6：从优先队列选择下一对异构 eval，继续严格并行 2 个并人工审计。
 
 ### B42：生成物写模式 × 日志/源码机制对比审计（2026-08-02）
 
