@@ -3973,6 +3973,19 @@ message/evidence 会被读取原始附件的三类 hard gate 同时拒绝。修�
 
 状态：`T4-1=implemented / relevant-full-tests-pass`。
 
+### MERGE-AUDIT-3 M3：coverage witness sideband 自动闭包（T2-1）
+
+红测确认 cmd 的 9 项手抄表已经漏掉生产 `unknown_comm_witnesses`，超长 coverage
+截断后客户诊断无法看到该 witness。修复废弃消费端名单，改由 hitraceconv 暴露统一
+命名合同：安全的 `_witness` / `_witnesses` / `_witnesses_<reason>` payload 自动、排序
+进入 8 KiB sideband；emitted/omitted/cap accounting 与非法键不提升。未来新增 witness
+family 不再需要第二处同步，900 行总界和 receipt 均保持。
+
+验证：`go test ./internal/hitraceconv ./cmd -count=1` 全绿
+(130.346s / 9.090s)。
+
+状态：`T2-1=implemented / full-package-pass`。
+
 ### B47：运行日志语义所有权 × write 跨语言检查权限（2026-08-02）
 
 严格并行 2 个跨模式 case：

@@ -232,3 +232,27 @@ normalizer 的 CRLF/CR/LF pin。验证：
 
 状态：`T4-1=implemented / relevant-full-tests-pass`。下一项按 ROI 审计 T2-1
 诊断 sideband 保留键表分叉。
+
+---
+
+## §12 T2-1 施工结果：coverage witness sideband 单一命名合同(2026-08-02)
+
+finding 准确。红测把现有生产键 `unknown_comm_witnesses` 放入一个超过 8 KiB 的
+`TraceDBCoverage` 后，该 witness 只存在于被截断的 full line，cmd 手抄的 9 键表没有
+发布独立 sideband；任意未来 family 也会重复此问题。
+
+最优方案不是继续扩表，而是把 producer 的 witness 命名本身变成共享 typed policy：
+
+- `hitraceconv.TraceDBCoverageDiagnosticWitnessKeys` 是生产包和 report adapter 的单一合同；
+- 安全小写 ASCII key 以 `_witness` / `_witnesses` 结尾，或采用
+  `_witnesses_<reason>` 形时自动进入 sideband，并按 key 排序保证确定性；
+- `_emitted` / `_omitted` / `_cap` 等 witness accounting 不提升，避免行预算被计数副本消耗；
+- 非法字符 key 不进入 line-name 位置，保留 JSON full coverage 的原有边界；
+- 每条 sideband 仍受 8192-byte 单行界限，整报告仍受 900 行界限和 receipt 约束。
+
+新增现有漏网 family、未来 reason family、accounting 负例和非法键测试；能力清单增加
+`coverage_witness_key_convention_v1`。验证：
+`go test ./internal/hitraceconv ./cmd -count=1` 全绿(130.346s / 9.090s)。
+
+状态：`T2-1=implemented / full-package-pass`。下一项审计 T1-1 raw scheduler
+补发的时钟域前提，只允许增补软披露，不能把不充分矛盾信号升级为硬门。

@@ -102,6 +102,9 @@ func TestTraceConvertDiagnosticCoverageWitnessSidebandSurvivesOversizedCoverage(
 					"rejected_callstack_fence_witnesses":                          durationWitness,
 					"raw_marker_local_validation_witnesses":                       "emitter=1/start_ns=2/end_ns=3/reason=invalid_begin_payload_pid",
 					"official_viewer_typed_only_sync_witnesses_cpu_unknown_start": "reason=cpu_unknown_start/tid=7/start_ns=8/end_ns=9",
+					"unknown_comm_witnesses":                                      "itid=8/tid=9/tgid=10",
+					"future_family_witnesses_new_reason":                          "reason=future_family_exact_witness",
+					"future_family_witnesses_emitted":                             "99",
 				},
 			}},
 		},
@@ -122,11 +125,18 @@ func TestTraceConvertDiagnosticCoverageWitnessSidebandSurvivesOversizedCoverage(
 		"trace_db_coverage_witness[0].raw_marker_local_validation_witnesses=",
 		"trace_db_coverage_witness[0].official_viewer_typed_only_sync_witnesses_cpu_unknown_start=",
 		"reason=cpu_unknown_start/tid=7/start_ns=8/end_ns=9",
+		"trace_db_coverage_witness[0].unknown_comm_witnesses=",
+		"itid=8/tid=9/tgid=10",
+		"trace_db_coverage_witness[0].future_family_witnesses_new_reason=",
+		"reason=future_family_exact_witness",
 		"<truncated original_bytes=",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("sideband diagnostic missing %q:\n%s", want, body)
 		}
+	}
+	if strings.Contains(body, "trace_db_coverage_witness[0].future_family_witnesses_emitted=") {
+		t.Fatalf("witness accounting scalar was incorrectly duplicated as a witness payload:\n%s", body)
 	}
 	if got := bytes.Count([]byte(body), []byte("\n")); got > traceConvertDiagnosticReportMaxLines {
 		t.Fatalf("sideband diagnostic exceeded line limit: got=%d", got)

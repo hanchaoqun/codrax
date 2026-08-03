@@ -34,6 +34,7 @@ var traceConvertDiagnosticCapabilities = []string{
 	"callstack_local_fence_witness_v1",
 	"callstack_rejected_scalar_witness_v1",
 	"coverage_witness_sideband_v1",
+	"coverage_witness_key_convention_v1",
 	"coverage_receipt_sideband_v1",
 	"null_duration_raw_closure_census_v1",
 	"raw_marker_local_validation_witness_v1",
@@ -414,18 +415,6 @@ func traceConvertDiagnosticCoverageReceiptValue(value string) string {
 	return fmt.Sprintf("<omitted original_bytes=%d>", len(value))
 }
 
-var traceConvertDiagnosticCoverageWitnessKeys = []string{
-	"rejected_callstack_fence_witnesses",
-	"raw_async_mismatch_witnesses",
-	"raw_marker_local_validation_witnesses",
-	"official_viewer_typed_only_sync_witnesses_cpu_unknown_start",
-	"official_viewer_typed_only_sync_witnesses_cpu_unknown_end",
-	"official_viewer_typed_only_sync_witnesses_cpu_source_tainted",
-	"official_viewer_typed_only_sync_witnesses_cpu_lifecycle_rejected",
-	"official_viewer_typed_only_sync_witnesses_cpu_alias_ambiguous",
-	"official_viewer_typed_only_sync_witnesses_name_unrepresentable",
-}
-
 func appendTraceConvertDiagnosticCoverageWitnesses(
 	lines *traceConvertDiagnosticLineSet,
 	index int,
@@ -434,7 +423,7 @@ func appendTraceConvertDiagnosticCoverageWitnesses(
 	if lines == nil || len(coverage.Metadata) == 0 {
 		return
 	}
-	for _, key := range traceConvertDiagnosticCoverageWitnessKeys {
+	for _, key := range hitraceconv.TraceDBCoverageDiagnosticWitnessKeys(coverage.Metadata) {
 		value := coverage.Metadata[key]
 		if value == "" {
 			continue
