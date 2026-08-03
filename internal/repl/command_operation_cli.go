@@ -138,6 +138,7 @@ func runCommandOperationCLIPlan(ctx context.Context, cfg CommandOperationCLIConf
 
 		currentPlan.Status = result.Status
 		records = append(records, commandOperationResultRecord{Plan: currentPlan, Result: result})
+		records = commandOperationAttachMaterialPages(records)
 		operationCLIProgress(cfg.Progress, commandOperationResultMarkdown(cfg.Language, currentPlan, result))
 
 		if result.Status == operation.StatusFailed && !commandResultTimedOut(result) && repairRounds < commandOperationMaxRepairRounds {

@@ -418,6 +418,7 @@ func (p *llmCommandOperationPlanner) PlanCommandOperationWithHandoff(ctx context
 }
 
 func (p *llmCommandOperationPlanner) ReplanCommandOperation(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, snapshot operation.CapabilitySnapshot, previous operation.CommandOperationPlan, result operation.CommandOperationResult) (operation.CommandOperationRequest, error) {
+	records := commandOperationAttachMaterialPages([]commandOperationResultRecord{{Plan: previous, Result: result}})
 	return p.planCommandOperation(ctx, commandOperationPlannerRequest{
 		UserLine:     userLine,
 		RepoRoot:     repoRoot,
@@ -425,6 +426,7 @@ func (p *llmCommandOperationPlanner) ReplanCommandOperation(ctx context.Context,
 		Snapshot:     snapshot,
 		PreviousPlan: previous,
 		Result:       result,
+		Records:      records,
 		Replan:       true,
 	})
 }
@@ -738,7 +740,11 @@ func validateCommandOperationPlanTerminalCoverage(d commandPlanDraft, req comman
 
 	var available, complete, incomplete map[string]bool
 	if req.Replan {
-		available, complete, incomplete = commandOperationMaterialCoverageAuthority(nil, req.Result)
+		if len(req.Records) > 0 {
+			available, complete, incomplete = commandOperationMaterialCoverageAuthority(req.Records)
+		} else {
+			available, complete, incomplete = commandOperationMaterialCoverageAuthority(nil, req.Result)
+		}
 	}
 	if req.Continuation {
 		available, complete, incomplete = commandOperationMaterialCoverageAuthority(req.Records)
@@ -892,6 +898,12 @@ func (p *llmCommandOperationPlanner) planCommandOperationDraft(ctx context.Conte
 		b.WriteString(renderCommandPlanForPrompt(req.PreviousPlan))
 		b.WriteString("\n")
 		b.WriteString(renderCommandResultForPrompt(req.Result))
+		if len(req.Records) > 0 {
+			if rendered := renderCommandOperationMaterialPages(req.Records[len(req.Records)-1].MaterialPages); rendered != "" {
+				b.WriteString("\n")
+				b.WriteString(rendered)
+			}
+		}
 		b.WriteString("\n")
 	}
 	if req.Continuation {
@@ -1060,6 +1072,12 @@ func operationPlannerRepairContext(req commandOperationPlannerRequest) string {
 		b.WriteString(operationPlanRepairContext(req.PreviousPlan))
 		b.WriteString("\n")
 		b.WriteString(operationResultRepairContext(req.Result))
+		if len(req.Records) > 0 {
+			if rendered := renderCommandOperationMaterialPages(req.Records[len(req.Records)-1].MaterialPages); rendered != "" {
+				b.WriteString("\n")
+				b.WriteString(rendered)
+			}
+		}
 		b.WriteString("\n")
 	}
 	if req.Continuation {

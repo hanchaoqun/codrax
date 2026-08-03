@@ -4840,6 +4840,8 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 				}
 			}
 		}
+		records = commandOperationAttachMaterialPages(records)
+		r.syncCommandOperationResultRecord(records[len(records)-1])
 		logging.Info("[repl/operation] command loop result plan_id=%s status=%s step_results=%d repair_rounds=%d command_rounds=%d",
 			currentPlan.ID, result.Status, len(result.StepResults), repairRounds, commandRounds)
 		r.renderCommandOperationRoundResult(currentPlan, result)
@@ -4943,6 +4945,7 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 					evalCopy := eval
 					materialEvaluation = &evalCopy
 					records = commandOperationAttachEvaluation(records, eval)
+					r.syncCommandOperationResultRecord(records[len(records)-1])
 					logging.Info("[repl/operation] command evaluation status=%s confidence=%q reason=%q materials=%d rounds=%d",
 						eval.Status, oneLineClamp(eval.Confidence, 40), oneLineClamp(eval.Reason, 180), len(eval.Materials), len(records))
 					if terminal, ok := commandOperationEvaluationTerminalResult(currentPlan, eval); ok {
@@ -5526,6 +5529,23 @@ func (r *REPL) appendCommandOperationResult(plan operation.CommandOperationPlan,
 		if err := r.operationMemory.Append(entries...); err != nil {
 			logging.Warning("[repl/operation] append operation memory failed: %v", err)
 		}
+	}
+}
+
+func (r *REPL) syncCommandOperationResultRecord(record commandOperationResultRecord) {
+	for i := len(r.operationResults) - 1; i >= 0; i-- {
+		stored := &r.operationResults[i]
+		if stored.Plan.ID != record.Plan.ID || stored.Result.PlanID != record.Result.PlanID {
+			continue
+		}
+		stored.MaterialPages = append([]commandOperationMaterialPage(nil), record.MaterialPages...)
+		if record.Evaluation == nil {
+			stored.Evaluation = nil
+		} else {
+			evalCopy := *record.Evaluation
+			stored.Evaluation = &evalCopy
+		}
+		return
 	}
 }
 

@@ -4288,7 +4288,7 @@ write 全链人工审计：
 | `EVAL-B47-FACETAUTH1` | P1 | typed relation authority 明确 `transition=unproven`，答案合同仍硬要求 path-edge facet，精确上下文与结构要求互相冲突 | required facets 在 prompt 前按 typed evidence authority 投影：无 edge 时要求 independent facts + uncertainty，有 edge 时保留 path；不读 RawRequest/answer prose，不拒绝或改写模型答案 | implemented/full-tests-pass；cross-log replay next |
 | `EVAL-B47-REPLANPROOF1b` | P1 | restore cutoff 后只携带直接 retained plan 的来源与路径，三轮以上交替修改时，更早仍应用路径可能从 verify-only 闭包消失 | 从 controller-stamped retained durable plan 递归继承 SourcePlanIDs/TargetPaths；当前 planner scope 仍清空重建，apply scope 保持当前计划 | implemented/full-tests-pass；write replay next |
 | `EVAL-B49-OPERMAX1` | P1 | 第 5 个 command 执行后 material evaluator 被 `< max` 短路，末轮材料可在无 complete/partial/budget typed 裁定时直接进入 finalizer | 末轮始终评估；typed incomplete material 可一次 5→8 有界扩展，仍未闭环则发布 `budget_exhausted`；所有追加 plan 保留风险/审批 | implemented/full-tests-pass；operation replay next |
-| `EVAL-B49-HTMLBODY1` | P1 | 长 HTML/日志/命令输出只重复暴露首个 4000-rune excerpt；任意 shell 抽取产生新 ref，却没有来源身份、连续范围和完整覆盖证明 | 系统从已记录 payload 建立有界 normalized pages，发布 source identity、rune range、truncation 与仅在连续闭合时铸造的 coverage receipt；模型消费材料并保留结论权 | batch-A substrate implemented/tests-pass；batch-B runtime wiring next |
+| `EVAL-B49-HTMLBODY1` | P1 | 长 HTML/日志/命令输出只重复暴露首个 4000-rune excerpt；任意 shell 抽取产生新 ref，却没有来源身份、连续范围和完整覆盖证明 | 系统从已记录 payload 建立有界 normalized pages，发布 source identity、rune range、truncation 与仅在连续闭合时铸造的 coverage receipt；模型消费材料并保留结论权 | implemented/full-tests-pass；operation replay next |
 
 #### B47-PATHID1：安全仓库相对路径的单一身份
 
@@ -4448,6 +4448,32 @@ first-class bounded material reader + source-range coverage ledger。
 反向拒绝、最终答案 byte-preserve。batch B 才把载体接到 CLI/REPL 每次 material evaluator 前，
 并固定同一 source/hash 不重复注入及真实 operation 生产路径。
 
+#### B49-HTMLBODY1 batch B：CLI/REPL/replan 生产接线
+
+生产接线完成，且扩容与材料覆盖现在是两个正交控制面：
+
+1. CLI 与 REPL 在每个 command result 入账后立即从其系统记录的 payload refs 构建 pages；因此
+   base-limit 第 5 轮 evaluator、后续 continuation planner 和 final answerer 看到同一份精确 ledger，
+   不再靠模型重复规划 `cat/head/python print` 来搬运同一材料；
+2. REPL 将 pages 与 evaluator typed verdict 同步回 operation result history，后续本地继续/上下文渲染
+   不会退回只有 4000-rune prefix 的旧状态；同 source identity + representation 在同一 records 内只
+   注入一次，复制同一完整 payload 不会重复消耗 prompt；
+3. failed-command replan 也在 planner 边界从前序 result 建立同一 pages/receipt，并把 ledger 同时放入
+   初次 replan prompt、compact repair context 和 terminal coverage validator，关闭 evaluator 之外的
+   完成权限旁路；
+4. page reader 不执行新命令，不增加 side effect 或 approval 权限；超过 2 MiB/144k normalized runes、
+   binary/invalid UTF-8/非普通文件均不发 receipt，模型仍可选择有界 search/extract，typed partial 可按
+   OPERMAX1 获得 5→8 扩容，达到 8 仍不完整则 budget-exhausted；
+5. 系统没有从用户输入或模型 prose 扫关键词，也不推导“哪些章节重要”或写最终结论。它只提供
+   source/range/content/closure authority；相关性、摘要、结论和下一步建议仍由 evaluator/planner/
+   answerer 模型作出；
+6. Trace/read/write/data 的路由与上下文构造未改。显式时间窗 Trace 因果投影、系统自动补采/补齐、
+   根因双维度、唤醒链和可消除量保持原权限与行为。
+
+生产回归固定两条接线：CLI base-limit 大输出在 evaluator 前已有 pages + receipt，且 typed partial
+仍只获得既有一次扩容；REPL 大材料的 evaluator/continuation/final prompts 均出现 ledger/receipt，
+history 同步保留。完整回归：`operation 0.534s / repl 33.617s`。
+
 任务状态：
 
 - [x] B47-T7：SEMCAL1 实现、全量测试、独立推送，并以 read + operation 严格并行 2 个回放；
@@ -4468,8 +4494,10 @@ first-class bounded material reader + source-range coverage ledger。
   operation 定位 OPERMAX1；
 - [x] B47-T8i：末轮 material evaluator、typed 自适应预算和真实 budget-exhausted 状态实现并全量回归；
 - [x] B47-T8j：独立提交 OPERMAX1，并完成 HTMLBODY1 batch-A 分页/receipt 证据载体；
-- [ ] B47-T8k：独立提交推送 HTMLBODY1 batch A；batch B 接入 CLI/REPL material evaluator 前置
-  context，并用 operation case + 异构高优 case 严格并行 2 个回放人工验收。
+- [x] B47-T8k：独立提交推送 HTMLBODY1 batch A；batch B 接入 CLI/REPL/replan material context，
+  完整相关回归通过；
+- [ ] B47-T8l：独立提交推送 HTMLBODY1 batch B；用 operation case + 异构高优 case 严格并行
+  2 个回放，人工验收材料闭环、上下文精度与最终答案。
 
 ### B42：生成物写模式 × 日志/源码机制对比审计（2026-08-02）
 
@@ -4999,7 +5027,7 @@ operation 的 href 修复也已生效：模型从首页 typed link inventory 精
 | ID | P | gap | 最优方案 | 状态 |
 |---|---:|---|---|---|
 | EVAL-B44-MATCOVER1 | P1 | evaluator 把完整 payload 已下载/保存当成全文内容已覆盖；即使所有 prompt excerpt 都是 truncated 或失败抽取，也能发布 complete | 新增 typed `material_coverage_status` 与 `coverage_material_refs`。当记录中存在截断 payload 且 evaluator 要 complete 时，只允许两条路：模型明确判定该材料与用户目标不相关（not_applicable），或引用本轮记录内、`source_truncated=false && excerpt_truncated=false` 的有界抽取。否则通过既有 structured-tool repair 要求继续/partial/budget，不替换结论 | covered/B45-r2 |
-| EVAL-B44-HTMLBODY1 | P1 | operation planner 对 HTML/长文本缺少可靠的结构化分页与来源覆盖载体；任意 shell 输出只形成新的 payload ref，没有 upstream source/range lineage，完整的 177KB 正文输出也只给下一轮 4000-rune 前缀 | 提供通用 bounded material read/extract primitive：记录 source ref/hash、representation、byte/rune range、page ordinal、complete/remaining，并用 coverage ledger 合并非重叠页；HTML/日志/手册/大命令输出共用，不能为某个 URL、CSS class 或章节写特例 | batch-A substrate implemented；batch-B runtime wiring next |
+| EVAL-B44-HTMLBODY1 | P1 | operation planner 对 HTML/长文本缺少可靠的结构化分页与来源覆盖载体；任意 shell 输出只形成新的 payload ref，没有 upstream source/range lineage，完整的 177KB 正文输出也只给下一轮 4000-rune 前缀 | 提供通用 bounded material read/extract primitive：记录 source ref/hash、representation、byte/rune range、page ordinal、complete/remaining，并用 coverage ledger 合并非重叠页；HTML/日志/手册/大命令输出共用，不能为某个 URL、CSS class 或章节写特例 | implemented/full-tests-pass；operation replay next |
 
 `MATCOVER1` 的边界设计：
 

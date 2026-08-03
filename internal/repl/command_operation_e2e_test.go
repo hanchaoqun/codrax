@@ -2451,6 +2451,9 @@ func TestCommandOperationE2E_MaterialEvaluatorContinuesBeforeFinalAnswer(t *test
 	if len(adapter.calls) != 4 {
 		t.Fatalf("planner/evaluator/continuation/answer calls=%d want 4", len(adapter.calls))
 	}
+	if len(r.operationResults) == 0 || len(r.operationResults[0].MaterialPages) == 0 || r.operationResults[0].MaterialPages[0].CoverageReceiptRef == "" {
+		t.Fatalf("REPL did not persist system material pages/receipt: %+v", r.operationResults)
+	}
 	printed := out.String()
 	for _, want := range []string{
 		"用户手册说明",
@@ -2470,6 +2473,8 @@ func TestCommandOperationE2E_MaterialEvaluatorContinuesBeforeFinalAnswer(t *test
 		"## command_operation_rounds",
 		"saved command payload contains relevant manual material",
 		"payload_material_excerpt",
+		"material_coverage_ledger",
+		"coverage_receipt_ref=material-coverage:v1:",
 	} {
 		if !strings.Contains(combinedPrompts, want) {
 			t.Fatalf("material evaluator prompts missing %q:\n%s", want, combinedPrompts)

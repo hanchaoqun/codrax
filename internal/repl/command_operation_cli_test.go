@@ -17,9 +17,11 @@ type fakeCLICommandPlanner struct {
 }
 
 type adaptiveMaterialCLIPlanner struct {
-	evaluatorCalls    int
-	continuationCalls int
-	workDir           string
+	evaluatorCalls     int
+	continuationCalls  int
+	workDir            string
+	sawMaterialPages   bool
+	sawCoverageReceipt bool
 }
 
 func (p fakeCLICommandPlanner) PlanCommandOperation(ctx context.Context, userLine, repoRoot string, policy TurnPolicy) (operation.CommandOperationRequest, error) {
@@ -43,6 +45,11 @@ func (p *adaptiveMaterialCLIPlanner) PlanCommandOperation(context.Context, strin
 
 func (p *adaptiveMaterialCLIPlanner) EvaluateCommandOperation(_ context.Context, _ string, records []commandOperationResultRecord, _ string) (operation.OperationEvaluation, error) {
 	p.evaluatorCalls++
+	last := records[len(records)-1]
+	if len(last.MaterialPages) > 0 {
+		p.sawMaterialPages = true
+		p.sawCoverageReceipt = last.MaterialPages[0].CoverageReceiptRef != ""
+	}
 	if p.evaluatorCalls > 1 {
 		return operation.OperationEvaluation{
 			Status:                 operation.EvalComplete,
@@ -50,7 +57,6 @@ func (p *adaptiveMaterialCLIPlanner) EvaluateCommandOperation(_ context.Context,
 			MaterialCoverageStatus: operation.MaterialCoverageComplete,
 		}, nil
 	}
-	last := records[len(records)-1]
 	return operation.OperationEvaluation{
 		Status:                 operation.EvalContinueCommand,
 		Confidence:             "high",
@@ -180,6 +186,9 @@ func TestRunCommandOperationCLI_EvaluatesBaseLimitAndExtendsIncompleteMaterial(t
 	}
 	if planner.evaluatorCalls != 1 || planner.continuationCalls != 1 {
 		t.Fatalf("base-limit material did not earn exactly one continuation: evaluator=%d continuation=%d", planner.evaluatorCalls, planner.continuationCalls)
+	}
+	if !planner.sawMaterialPages || !planner.sawCoverageReceipt {
+		t.Fatalf("CLI evaluator did not receive system material pages/receipt: pages=%t receipt=%t", planner.sawMaterialPages, planner.sawCoverageReceipt)
 	}
 	if strings.Contains(answer, "预算上限") || !strings.Contains(answer, workDir) {
 		t.Fatalf("extended bounded command did not become the final observation:\n%s", answer)
