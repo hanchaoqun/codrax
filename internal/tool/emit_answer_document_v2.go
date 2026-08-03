@@ -779,10 +779,6 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 				logging.Warning("[%s] materialized %d principal aggregate member row(s) from accepted exhaustive enumeration handoff", toolName, fixed)
 			}
 		}
-		if fixed := normalizePrincipalSupportMemberCarriers(doc, types.BuildAnswerSupportPlanForBusContext(ctx)); fixed > 0 {
-			pctx.recordPreEmitRepair("normalizePrincipalSupportMemberCarriers", fixed)
-			logging.Warning("[%s] repaired %d principal support member citation carrier(s) from visible answer surface", toolName, fixed)
-		}
 		if fixed := normalizePrincipalSupportSurfaceTermSupplement(doc, types.BuildAnswerSupportPlanForBusContext(ctx), ctx); fixed > 0 {
 			pctx.recordPreEmitRepair("normalizePrincipalSupportSurfaceTermSupplement", fixed)
 			logging.Warning("[%s] materialized %d principal support surface-term row(s) from accepted evidence handoff", toolName, fixed)
@@ -1288,11 +1284,12 @@ func materializeRequiredCaveatWhenOnlyMissing(doc *types.AnswerDocumentV2, view 
 	}
 	title, text := materializedScopeCaveatCopy(ctx)
 	doc.Blocks = append(doc.Blocks, types.AnswerBlock{
-		ID:       uniqueAnswerBlockID(doc, "scope_caveat"),
-		Kind:     types.BlockCaveat,
-		Title:    title,
-		Text:     text,
-		FacetIDs: []string{string(types.FacetUncertaintyBoundary)},
+		ID:                  uniqueAnswerBlockID(doc, "scope_caveat"),
+		Kind:                types.BlockCaveat,
+		Title:               title,
+		Text:                text,
+		SystemGeneratedKind: types.AnswerSystemGeneratedEvidenceScope,
+		FacetIDs:            []string{string(types.FacetUncertaintyBoundary)},
 	})
 	return 1
 }

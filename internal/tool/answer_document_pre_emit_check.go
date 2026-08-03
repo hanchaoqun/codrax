@@ -1040,11 +1040,12 @@ func normalizeCurrentSourceCitationSupplement(doc *types.AnswerDocumentV2, ctx *
 	}
 	zh := principalEnumerationPrefersZH(ctx)
 	block := types.AnswerBlock{
-		ID:       nextCurrentSourceCitationSupplementBlockID(doc),
-		Kind:     types.BlockTable,
-		Title:    currentSourceCitationSupplementTitle(zh, len(rows)),
-		FacetIDs: []string{string(types.FacetCurrentCodePath)},
-		Columns:  currentSourceCitationSupplementColumns(zh),
+		ID:                  nextCurrentSourceCitationSupplementBlockID(doc),
+		Kind:                types.BlockTable,
+		Title:               currentSourceCitationSupplementTitle(zh, len(rows)),
+		SystemGeneratedKind: types.AnswerSystemGeneratedEvidenceSupplement,
+		FacetIDs:            []string{string(types.FacetCurrentCodePath)},
+		Columns:             currentSourceCitationSupplementColumns(zh),
 		ClaimUses: []types.RenderedClaimUse{{
 			FacetID:   string(types.FacetCurrentCodePath),
 			ClaimForm: types.ClaimDefinitionFact,
@@ -4800,10 +4801,11 @@ func normalizeAggregateNegativeProofSupplement(doc *types.AnswerDocumentV2, ctx 
 	}
 	zh := principalEnumerationPrefersZH(ctx)
 	block := types.AnswerBlock{
-		ID:    uniqueAnswerBlockID(doc, "negative-proof-supplement"),
-		Kind:  types.BlockCaveat,
-		Title: aggregateNegativeProofSupplementTitle(zh),
-		Text:  aggregateNegativeProofSupplementText(rows, zh),
+		ID:                  uniqueAnswerBlockID(doc, "negative-proof-supplement"),
+		Kind:                types.BlockCaveat,
+		Title:               aggregateNegativeProofSupplementTitle(zh),
+		Text:                aggregateNegativeProofSupplementText(rows, zh),
+		SystemGeneratedKind: types.AnswerSystemGeneratedEvidenceSupplement,
 	}
 	claimForms := map[types.ClaimForm]bool{}
 	for _, row := range rows {

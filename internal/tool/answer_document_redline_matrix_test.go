@@ -77,8 +77,11 @@ func TestAnswerDocumentRedlineMatrix_FullPreEmitPreservesModelAuthoredTable(t *t
 			t.Fatalf("system structural preference or weak evidence summary leaked into model-authored answer surface (%q):\n%s", banned, visible)
 		}
 	}
-	if hints := runPreEmitChecks(doc, view, nil, ctx); len(hints) != 0 {
-		t.Fatalf("model-authored covered table should pass pre-emit without forcing a rewrite: %+v", hints)
+	if hints := runPreEmitChecks(doc, view, nil, ctx); len(hints) > 0 {
+		hard, _ := splitPreEmitHintsByGate(hints)
+		if len(hard) != 0 {
+			t.Fatalf("prose-only support alignment may advise but must not force a rewrite: %+v", hard)
+		}
 	}
 }
 

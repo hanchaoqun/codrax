@@ -12066,3 +12066,31 @@ supplement，只禁止它们回写/删除模型答案。
 追加明确标记、只含 typed fact 的 system block；凡是删除、重排、改写模型可见内容，或补写会被后续
 gate 当成模型声明的 metadata，均按红线处理。减少“成文校验未通过”必须来自合同联合可满足性、final
 authority 单源和精确结构直接判定，不得来自系统代写答案。
+
+#### B54-K：system fact owner 补齐与 prose→hidden carrier 自证断路
+
+按 B54-J 的开放项继续冷读，结论如下：
+
+- `EVAL-B54-TABLEAUTHOR1` 可关闭：当前 `compileCitationBackedTableRows` 已是明确 no-op；旧的
+  cells/columns/text 编译实现不在 shipping path，后续只允许 renderer 对既有空列做显示压缩；
+- current-source anchor、aggregate negative proof、required uncertainty caveat 都是系统依据 typed
+  evidence/coverage 追加的事实边界，方向合规，但原 block 没有 `SystemGeneratedKind`，经过 snapshot /
+  patch recovery 后会被误认成模型声明，并进入 model-owned dedupe/contract 域；
+- `normalizePrincipalSupportMemberCarriers` 会扫描模型可见 text，命中 support member 后修改现有
+  `citation_ref/id` 或追加不渲染的 hidden item；后续 coverage gate 再读取这个自产 carrier。即使用户看
+  不到 hidden item，它仍决定 hard/soft contract 结果，属于 `METASELFCERT1` 的同构旁路，并违反“不以
+  模型输出原文扫描结果做硬门/铸权”。
+
+本批施工：
+
+1. 新增不可由模型提交的 `evidence_supplement` 与 `evidence_scope` owner；current-source、negative-proof
+   和 scope caveat 三类系统块均显式标记，snapshot sidecar 会保持 owner；
+2. principal-support hidden carrier normalizer 退出 shipping 并加入 AST 禁回接清单；模型已有精确
+   structured carrier 时 validator 直接识别，只有 prose mention 时保持 soft typed guidance，不扫描
+   prose 铸造通过条件，也不触发“成文校验未通过”；
+3. system fact 仍可作为独立补充发布，但不得删除/改写模型内容或伪装成模型 claim；owner 回归分别
+   覆盖源码锚点、负向证明和范围 caveat。
+
+状态：`EVAL-B54-TABLEAUTHOR1 = closed/already-no-op`，
+`EVAL-B54-SUPPORTAUTHOR1 = partial-implemented`（hidden member carrier 已断；system fact owner 已补；
+recovered diagram metadata 仍并入 `SCHEMAAUTHOR1` 继续审计）。

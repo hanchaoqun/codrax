@@ -2963,6 +2963,9 @@ func TestEmitAnswerDocumentV2_MaterializesRequiredCaveatWhenOnlyMissing(t *testi
 	if got := doc.Blocks[len(doc.Blocks)-1].FacetIDs; !slices.Contains(got, string(types.FacetUncertaintyBoundary)) {
 		t.Fatalf("materialized caveat should cover uncertainty boundary facet, got %+v", got)
 	}
+	if got := doc.Blocks[len(doc.Blocks)-1].SystemGeneratedKind; got != types.AnswerSystemGeneratedEvidenceScope {
+		t.Fatalf("materialized caveat owner=%q, want evidence_scope", got)
+	}
 	if got := doc.Blocks[len(doc.Blocks)-1].Text; strings.Contains(got, "Scope note") || strings.Contains(got, "This answer is limited") {
 		t.Fatalf("materialized zh caveat leaked English copy: %q", got)
 	}

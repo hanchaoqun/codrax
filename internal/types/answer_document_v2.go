@@ -314,6 +314,17 @@ const (
 	// absence conclusion.
 	AnswerSystemGeneratedNegativeSearchAuthority AnswerSystemGeneratedBlockKind = "negative_search_authority"
 
+	// AnswerSystemGeneratedEvidenceSupplement marks deterministic source,
+	// negative-proof, or other evidence rows appended from typed investigation
+	// facts. These blocks may disclose facts and provenance, but never become
+	// model-authored claim carriers or authorize rewriting model blocks.
+	AnswerSystemGeneratedEvidenceSupplement AnswerSystemGeneratedBlockKind = "evidence_supplement"
+
+	// AnswerSystemGeneratedEvidenceScope marks the deterministic uncertainty
+	// boundary derived from the typed evidence-coverage contract. It is kept
+	// separate from the model's caveats so ownership survives snapshot/recovery.
+	AnswerSystemGeneratedEvidenceScope AnswerSystemGeneratedBlockKind = "evidence_scope"
+
 	// AnswerSystemGeneratedRuntimeTrace marks blocks minted by the
 	// deterministic runtime-trace report assembler. The field carrying this
 	// value is json:"-", so a model can never self-assign the authority that

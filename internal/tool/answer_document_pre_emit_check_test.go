@@ -6060,6 +6060,9 @@ func TestNormalizeCurrentSourceCitationSupplement_MaterializesDroppedCitationPoo
 	if len(doc.Citations) < fixed {
 		t.Fatalf("citations not materialized with supplement rows: citations=%d rows=%d", len(doc.Citations), fixed)
 	}
+	if got := doc.Blocks[len(doc.Blocks)-1].SystemGeneratedKind; got != types.AnswerSystemGeneratedEvidenceSupplement {
+		t.Fatalf("current-source supplement owner=%q, want evidence_supplement", got)
+	}
 }
 
 func TestNormalizeCurrentSourceCitationSupplement_DoesNotAppendGenericAnchorAppendix(t *testing.T) {
@@ -6211,6 +6214,9 @@ func TestNormalizeAggregateNegativeProofSupplement_MaterializesRepoNegativeSearc
 	if len(doc.Citations) != 1 || doc.Citations[0].Scope != types.ScopeNegative ||
 		doc.Citations[0].NegativePattern != "legacy_config_key" {
 		t.Fatalf("negative citation not materialized: %+v", doc.Citations)
+	}
+	if got := doc.Blocks[len(doc.Blocks)-1].SystemGeneratedKind; got != types.AnswerSystemGeneratedEvidenceSupplement {
+		t.Fatalf("negative-proof supplement owner=%q, want evidence_supplement", got)
 	}
 	if hints := preCheckAbsenceScopeBound(doc); len(hints) != 0 {
 		t.Fatalf("materialized negative citation should satisfy absence scope bound: %+v", hints)
