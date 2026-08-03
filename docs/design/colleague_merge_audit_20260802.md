@@ -1250,7 +1250,7 @@ typed 图关系权限合同的三处分叉，不是 Java 或某个 Mermaid 模�
 3. R2-2/R2-3 来自同一个仅看 `-->>` 拼写的豁免：证据池恰有反向 call 时回复边被重新捕获；而一个没有
    镜像正向 invocation 的孤立 `-->>` 又能自称回复逃逸。
 
-### §9.2 M4-A 图表权限同源批（已实现，待本节提交）
+### §9.2 M4-A 图表权限同源批（已交付）
 
 - **R6-1**：归一化器只规范模型已经提交的 `edge_anchors`（节点别名、relation/claim 同步），彻底删除从
   Mermaid label 新增 anchor 的能力。标签仍可做展示和 soft guidance，不能成为 typed hard-gate 权限来源；
@@ -1265,13 +1265,13 @@ typed 图关系权限合同的三处分叉，不是 Java 或某个 Mermaid 模�
 新增四组回归臂：class participant/principal method alias 正向；已有反向 call evidence 的结构回复正向；
 孤立 `-->>` 反向；执行完整 normalization 后 label-shaped Guard 仍无权、必须报 `missing_call_anchor` 反向。
 
-状态：`R2-1=implemented`；`R6-1=implemented`；`R2-2=implemented`；`R2-3=implemented`。
+状态：`R2-1=closed`；`R6-1=closed`；`R2-2=closed`；`R2-3=closed`。
 
 下一批按 §8.5 进入 repomap：先验证并 bump extractor cache epoch，再修 Java `var`、C 参数作用域、
 Kotlin/Swift 声明类型边界与 Cangjie named argument，逐语言保留正反 fixture；不会把一种语言的字符串规则
 复制到其他语言。
 
-### §9.3 M4-B repomap receiver 权限与缓存代际批（已实现，待本节提交）
+### §9.3 M4-B repomap receiver 权限与缓存代际批（已交付）
 
 复核确认 R7-1、R7-2、R7-3、R7-4、R7-6 均成立。R7-1 的失效域需从“改了多少提取文件”换算成
 “多少持久化语言缓存会消费这些实现”：`b50f49233` 改动实际影响 Java、Python、JavaScript、TypeScript、
@@ -1294,11 +1294,10 @@ ArkTS、Cangjie、Kotlin、Ruby、Swift、Lua、Rust、C、C++ 共 **13 个** `e
 Kotlin/Swift initializer type 不冒充声明类型且显式参数仍能解析到定义；Cangjie named argument 不破坏参数
 类型；13 个缓存代际全部有下限 pin。
 
-状态：`R7-1=implemented`；`R7-2=implemented`；`R7-3=implemented`；`R7-4=implemented`；
-`R7-6=implemented`。R7-7/R7-8 保持低危独立项，待本批提交后用可执行反例复核，避免在高危批中夹带
-未经证实的行为改动。
+状态：`R7-1=closed`；`R7-2=closed`；`R7-3=closed`；`R7-4=closed`；
+`R7-6=closed`。R7-7/R7-8 已在 §9.7 通过独立可执行反例闭环。
 
-### §9.4 M4-C §7 裁定收尾（已实现，待本节提交）
+### §9.4 M4-C §7 裁定收尾（已交付）
 
 - **R1-1**：补双工件真实 multi-cluster pin：一个席位 `frame_causality=unproven`、另一个席位已证；两板均
   保持同一 `主根因(=已证链上单项最大可消除量)` 前缀，且“帧因果未证”只出现在消费该 authority 的席位，
@@ -1310,7 +1309,7 @@ Kotlin/Swift initializer type 不冒充声明类型且显式参数仍能解析�
 
 状态：`R1-1=closed`；`R1-2=closed`。
 
-### §9.5 M4-D write owner-anchor 双载体撤销（已实现，待本节提交）
+### §9.5 M4-D write owner-anchor 双载体撤销（已交付）
 
 M4-R3-1 判断准确。`refreshAppliedPlanOwnerAnchors` 原来只在 `run.ContextPacks` 把变更路径的旧 owner anchor
 标为 stale；`Mutable.WriteContextPack` 是防御性复制的另一份快照，并未同步。由于同 fingerprint item 合并时
@@ -1323,7 +1322,7 @@ anchor 前同时应用到 run 与 Mutable 两份载体。测试先制造两份�
 
 状态：`M4-R3-1=closed`。
 
-### §9.6 M4-E callable:line owner 归属（已实现，待本节提交）
+### §9.6 M4-E callable:line owner 归属（已交付）
 
 R6-2 判断准确。`preEmitCallableSurfaceOwnsCitationWithContext` 先尝试完整 callable 匹配，但失败后无条件把
 qualified callable 拆成 member，再只比较 member；因此同为 line 10 的 `A.create` 与 `B.create` 都能被
@@ -1336,7 +1335,7 @@ qualified callable 拆成 member，再只比较 member；因此同为 line 10 �
 
 状态：`R6-2=closed`。
 
-### §9.7 M4-F repomap 保守 caller 与 Lua sugar（已实现，待本节提交）
+### §9.7 M4-F repomap 保守 caller 与 Lua sugar（已交付）
 
 R7-7/R7-8 均由可执行反例确认：
 
@@ -1355,7 +1354,7 @@ ToolA；Lua 三种调用均输出纯 callee/receiver，argument 字节不得进�
 
 状态：`R7-7=closed`；`R7-8=closed`。
 
-### §9.8 M4-G Mermaid 消息边界与合同教学同步（已实现，待本节提交）
+### §9.8 M4-G Mermaid 消息边界与合同教学同步（已交付）
 
 - **R2-4**：sequence 解析原先先按 operator 优先表搜索整行，再递归处理 `to` 中的箭头；消息
   `A->>B: compare C-->>D` 会因消息里的 `-->>` 优先级更高而被改写成伪边。现在 sequence 专用解析只取
@@ -1372,7 +1371,7 @@ principal completeness 四条教学，不读取用户/模型原文做硬门。
 
 状态：`R2-4=closed`；`R2-5=closed`。
 
-### §9.9 M4-H：material 页 UTF-8 尾部验证线性化（已实现，待本节提交）
+### §9.9 M4-H：material 页 UTF-8 尾部验证线性化（已交付）
 
 复核确认 `M4-R3-2`。旧实现对 2 MiB 截断材料逐字节缩短并对整个剩余前缀重跑
 `utf8.Valid`；若非法字节位于正文而非截断尾部，会形成二次方扫描。现把候选裁剪严格限制在
@@ -1380,9 +1379,9 @@ UTF-8 单个编码单元最大可能缺失的 0..3 字节：任一候选完整�
 整份材料。这样不放宽正文合法性，也不替换或修补材料字节，最坏扫描量由 O(n²) 收敛为
 4×O(n)。2 MiB 正文早部非法、尾部仍合法的反例与三字节截断尾正例均已固定。
 
-状态：`M4-R3-2=confirmed / implemented / focused-pass`。
+状态：`M4-R3-2=closed`。
 
-### §9.10 M4-I：转换 perf sidecar 有限族保留（已实现，待本节提交）
+### §9.10 M4-I：转换 perf sidecar 有限族保留（已交付）
 
 复核确认 `R4-1`。standalone profiler 最多接纳 256 个块，每个 perf-eligible 块可能通过转换包的
 `numberedSidecarPath` 发布一份 raw `.perf.data`，并在 adapter 启用时发布对应 `.perftrace`；第一个无
@@ -1393,9 +1392,9 @@ UTF-8 单个编码单元最大可能缺失的 0..3 字节：任一候选完整�
 suffix/序号公式。关闭 perf adapter 时仍保留全部 raw 席，但不虚报不会生成的 `.perftrace`。首席、第二席、
 末席与上限外反例均已固定，诊断文件在创建前 fail-closed，不改变转换路由或工件内容。
 
-状态：`R4-1=confirmed / implemented / focused-pass`。
+状态：`R4-1=closed`。
 
-### §9.11 M4-J：aggregate member 三元槽位对齐（已实现，待本节提交）
+### §9.11 M4-J：aggregate member 三元槽位对齐（已交付）
 
 复核确认 `R6-3` 的错位风险，但修正其范围：`normalizeAggregateStringSlots` 同时处理
 `Members / SupportRefs / MemberNotes`，旧实现会分别删除每个数组中的空字符串；所以稀疏 support ref 会
@@ -1406,9 +1405,9 @@ suffix/序号公式。关闭 perf adapter 时仍保留全部 raw 席，但不虚
 回归分别固定“成员 A 无 ref/note、成员 B 有 ref/note”不得左移，以及空 member 连同其 orphan ref/note
 一起删除。该修复只消费 structured arrays，不扫描用户输入或模型答案原文。
 
-状态：`R6-3=confirmed / implemented / focused-pass`。
+状态：`R6-3=closed`。
 
-### §9.12 M4-K：eval primary 尾域显式边界与 renderer 双向 pin（已实现，待本节提交）
+### §9.12 M4-K：eval primary 尾域显式边界与 renderer 双向 pin（已交付）
 
 复核确认 `R8-1/R8-2`，并发现真实 recovery 发射面比摘要更明确：`scope_primary_stdout` 直接停止于
 citations，但 snippets 排在 citations 之后，因而仅在 citations 存在时被传递性排除；无 citation 的答案可由
@@ -1420,4 +1419,34 @@ snippet-only 符号误刷绿。runner 还监听“模型最后一轮原文”，
 检查 `eval/run.sh::scope_primary_stdout` 必须逐一消费；runner 若新增不存在的生产标题或 renderer 改标题却
 未同步，契约测试都会失败。该门仅属于 opt-in eval oracle，不进入产品路由、模型上下文或答案修改链。
 
-状态：`R8-1=confirmed / implemented`；`R8-2=confirmed / implemented`。
+状态：`R8-1=closed`；`R8-2=closed`。
+
+### §9.13 MERGE-AUDIT-4 收账（2026-08-03）
+
+§8 的确认项已全部按独立根因批交付并推送：
+
+| 批次 | 提交 | 关闭项 |
+|---|---|---|
+| M4-A | `ca56bdb65` | R2-1、R6-1、R2-2、R2-3 |
+| M4-B | `1f74c2e00` | R7-1、R7-2、R7-3、R7-4、R7-6 |
+| M4-C | `2fe108f2c` | R1-1、R1-2 |
+| M4-D | `0394678e0` | M4-R3-1 |
+| M4-E | `5923d3237` | R6-2 |
+| M4-F | `db77f8cbc` | R7-7、R7-8 |
+| M4-G | `f38501a08` | R2-4、R2-5 |
+| M4-H | `c66a7e284` | M4-R3-2 |
+| M4-I | `e433dafd5` | R4-1 |
+| M4-J | `6ff1a7bb0` | R6-3（并补正 MemberNotes 同根错位） |
+| M4-K | `156d3aa2f` | R8-1、R8-2 |
+
+施工回归还发现 B53 mixed runtime/source coherence 新消费者绕过 authority chokepoint；
+`45e44acc9` 已改接共享 request-only authority API 并同步 B53 文档。该项不是 §8 新 finding，但属于本轮
+组合回归发现的确定性红灯，未留到下一战役。
+
+最终验证基线 `main@156d3aa2f`：`make test`（`CGO_ENABLED=1 go test ./...`）全仓通过；其中
+`internal/hitraceconv` 108.420s、`internal/tool` 194.409s、`internal/tracequery` 86.633s、
+`internal/types` 30.040s，所有 repomap 语言包、read/write orchestrator、Trace 投影、Mermaid、renderer 与
+eval runner contract 均为绿。实现未扫描用户原始输入或模型输出做新硬门，未由系统替写模型结论，显式
+时间窗 Trace 因果投影与自动补齐链保持既有权限。
+
+收账状态：`MERGE-AUDIT-4=closed / all-confirmed-findings-delivered / full-repo-pass`。
