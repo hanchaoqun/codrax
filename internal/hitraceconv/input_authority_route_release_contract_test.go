@@ -57,6 +57,44 @@ func TestReleaseConversionOptionValidationDoesNotInspectInput(t *testing.T) {
 	}
 }
 
+func TestConversionPathReservationsCoverBoundedStandalonePerfFamilies(t *testing.T) {
+	dir := t.TempDir()
+	opts := Options{
+		InputPath:  filepath.Join(dir, "capture.sys"),
+		OutputPath: filepath.Join(dir, "capture.systrace"),
+	}
+	base := traceSidecarBase(opts.InputPath, opts.OutputPath)
+	got := make(map[string]string)
+	for _, reservation := range ConversionPathReservations(opts) {
+		got[reservation.Path] = reservation.Label
+	}
+	for _, ordinal := range []int{1, 2, maxProfilerStandaloneBlocks} {
+		for _, suffix := range []string{".perf.data", ".perftrace"} {
+			path := numberedSidecarPath(base, ordinal, suffix)
+			if got[path] == "" {
+				t.Fatalf("standalone publication family omitted ordinal=%d suffix=%s path=%s", ordinal, suffix, path)
+			}
+		}
+	}
+	for _, suffix := range []string{".perf.data", ".perftrace"} {
+		if path := numberedSidecarPath(base, maxProfilerStandaloneBlocks+1, suffix); got[path] != "" {
+			t.Fatalf("reservation escaped the authoritative standalone cap: %s", path)
+		}
+	}
+
+	disabled := Options{InputPath: opts.InputPath, OutputPath: opts.OutputPath, DisablePerfAdapter: true}
+	got = make(map[string]string)
+	for _, reservation := range ConversionPathReservations(disabled) {
+		got[reservation.Path] = reservation.Label
+	}
+	if got[numberedSidecarPath(base, maxProfilerStandaloneBlocks, ".perf.data")] == "" {
+		t.Fatal("raw sidecar family must remain reserved when perf normalization is disabled")
+	}
+	if got[numberedSidecarPath(base, 1, ".perftrace")] != "" {
+		t.Fatal("disabled perf normalization reserved an impossible perftrace output")
+	}
+}
+
 func TestReleaseConversionRouteProbeClassifierIsFixedAndContentOnly(t *testing.T) {
 	tests := []struct {
 		name string

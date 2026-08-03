@@ -415,8 +415,22 @@ func ConversionPathReservations(opts Options) []ConversionPathReservation {
 		{Label: "systrace output", Path: output},
 		{Label: "tracebundle output", Path: base + ".tracebundle.json"},
 	}
-	if !opts.DisablePerfAdapter {
-		out = append(out, ConversionPathReservation{Label: "perftrace output", Path: base + ".perftrace"})
+	// Standalone profiler discovery is content-dependent and happens after a
+	// diagnostic sideband is opened. Reserve the entire finite publication
+	// family up front: one perf-eligible artifact can be emitted for every
+	// admitted standalone block, and numberedSidecarPath is the single naming
+	// authority used by the actual publisher.
+	for ordinal := 1; ordinal <= maxProfilerStandaloneBlocks; ordinal++ {
+		out = append(out, ConversionPathReservation{
+			Label: fmt.Sprintf("raw perf.data sidecar output %d", ordinal),
+			Path:  numberedSidecarPath(base, ordinal, ".perf.data"),
+		})
+		if !opts.DisablePerfAdapter {
+			out = append(out, ConversionPathReservation{
+				Label: fmt.Sprintf("perftrace output %d", ordinal),
+				Path:  numberedSidecarPath(base, ordinal, ".perftrace"),
+			})
+		}
 	}
 	if db := retainedTraceDBOutputPath(opts, input, output); db != "" {
 		out = append(out,

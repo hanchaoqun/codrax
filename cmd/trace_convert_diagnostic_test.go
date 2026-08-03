@@ -285,6 +285,26 @@ func TestTraceConvertDiagnosticReportRejectsProspectiveSymlinkDirectoryAlias(t *
 	}
 }
 
+func TestTraceConvertDiagnosticReportRejectsNumberedPerfSidecarFamily(t *testing.T) {
+	dir := t.TempDir()
+	opts := hitraceconv.Options{
+		InputPath:  filepath.Join(dir, "capture.sys"),
+		OutputPath: filepath.Join(dir, "capture.systrace"),
+	}
+	if err := os.WriteFile(opts.InputPath, []byte("input"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, leaf := range []string{"capture.perf.data", "capture.perf_2.data", "capture.perf_256.data", "capture_2.perftrace"} {
+		path := filepath.Join(dir, leaf)
+		if _, err := openTraceConvertDiagnosticReport(path, opts); err == nil || !strings.Contains(err.Error(), "must not alias") {
+			t.Fatalf("diagnostic report claimed reserved standalone sidecar %s: %v", leaf, err)
+		}
+		if _, err := os.Lstat(path); !os.IsNotExist(err) {
+			t.Fatalf("sidecar alias rejection happened after report creation for %s: %v", leaf, err)
+		}
+	}
+}
+
 func TestTraceConvertDiagnosticFailureRetainsTypedInputCode(t *testing.T) {
 	conversionErr := &hitraceconv.ConversionInputError{
 		Code:  hitraceconv.ConversionInputCodeGenerationChanged,

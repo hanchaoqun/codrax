@@ -1381,3 +1381,16 @@ UTF-8 单个编码单元最大可能缺失的 0..3 字节：任一候选完整�
 4×O(n)。2 MiB 正文早部非法、尾部仍合法的反例与三字节截断尾正例均已固定。
 
 状态：`M4-R3-2=confirmed / implemented / focused-pass`。
+
+### §9.10 M4-I：转换 perf sidecar 有限族保留（已实现，待本节提交）
+
+复核确认 `R4-1`。standalone profiler 最多接纳 256 个块，每个 perf-eligible 块可能通过转换包的
+`numberedSidecarPath` 发布一份 raw `.perf.data`，并在 adapter 启用时发布对应 `.perftrace`；第一个无
+序号，后续为 `_2.._256`。旧的预路由清册只登记首个 `.perftrace`，因此 diagnostic sideband 可以提前
+占用 raw 或编号席，直至转换中途才因输出已存在而失败。
+
+现由转换包在内容探测前按同一命名函数和同一 256 上限发布完整有限清册；CLI 仍只消费该 API，不复制
+suffix/序号公式。关闭 perf adapter 时仍保留全部 raw 席，但不虚报不会生成的 `.perftrace`。首席、第二席、
+末席与上限外反例均已固定，诊断文件在创建前 fail-closed，不改变转换路由或工件内容。
+
+状态：`R4-1=confirmed / implemented / focused-pass`。
