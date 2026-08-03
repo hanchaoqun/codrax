@@ -1102,3 +1102,50 @@ guard-only 版本被拒，最终保留 `VisitService.schedule -> VisitRepository
 
 完整回归：`go test ./internal/tool ./internal/agent -count=1` 通过
 （加入发布接线 pin 后最终 tool 复跑 156.126s；agent 3.004s）。
+
+---
+
+## §38 B52 r12：全语言图闭环通过，edge-shaped principal 载体补齐（2026-08-02）
+
+`f50f21f85` 精确构建同 pair 严格并行 2/2 runner PASS：called-by 114s、Java 138s。
+
+人工结果：called-by PASS，仍只有两个 unique production caller；同一函数的多 callsite 只作行内详情，
+无第二 system carrier。Java PASS：最终 sequence diagram 完整保留五条 typed invocation，`-->>` 仅作
+reply，容量判断使用 `alt/else`，没有 self-call 或抽象 guard 取代真实 callee。说明 `B52j/B52k`
+production replay 已覆盖。
+
+r12 同时暴露 `B52l-PRINCIPAL-CITATION-CALL-COMPLETENESS`（P1）：模型 principal ordered-list
+中多行把 `label` 写成 `caller → callee`，而不是两个独立 exact code identities。`B52k` 正确地拒绝
+解析模型 label/text 作为 hard gate，因此只从少数 node-shaped items 建立完整性 universe；edge-shaped
+行可能绕过“模型已选择调用必须出现在图中”的闭包。
+
+通用修复：
+
+1. 继续只在 `QFCallChain + strict sequence/call_dag` 启用；Trace 根因、显式时间窗因果投影和自动补齐
+   不进入该合同；
+2. principal carrier 仍必须同时满足 `surface_role=principal`、`facet_id=principal_path_edge`、
+   `claim_form=call_edge` 且使用 structured items；
+3. 不解析 item label/text。改用 item 的 typed `citation_ref`，以 canonical file + exact call-site line
+   反查 citable `EvidenceItem{claim_form=call_edge}`，从其 Subject/Object/AnchorSymbol 取得方向；
+4. 同一 citation 命中多个不同调用方向时 fail-open，不猜测、不重画；同方向重复 evidence 去重；
+5. 已出现的图边允许 exact method labels，也允许 class participant + exact message operation 的唯一
+   typed 映射；回复边、声明、guard/import/observe 等 non-call relation 不被升级为调用；
+6. supporting citation 不扩大 principal 图；定义引用不生成 call edge。系统只校验模型自己选择的
+   principal typed call，不添加成员、不修改总结或结论；
+7. 测试直接绑定 `repomap/types.SupportedReadLanguages()`：14 种 executable languages（Go、Python、
+   JavaScript、TypeScript、Java、Kotlin、Rust、C、C++、Ruby、Swift、Lua、ArkTS、Cangjie）全覆盖；
+   Proto 作为第 15 种声明式读语言有明确反臂，禁止从 definition/declaration 伪造 invocation。未来新增
+   可执行语言而未补图语义 fixture 时测试直接失败。
+
+r12 另记录独立 advisory `B52m-RELATION-ROW-CITATION-ALIGNMENT`：Java h3 显示
+`VisitService.schedule → ClinicConfig.resolveMaxVisits`，却引用 line 18 的 `countOpenVisits`；pre-emit
+已经依据 typed role/evidence 精确指出应为 line 17，但 soft advisory 没有阻止发布。核心调用链与图仍
+正确，故该轮 human=PASS with caveat。该项不是图缺边；后续只允许修 citation metadata，不得由系统
+改写模型结论或用 label/原文关键词建立 hard gate。
+
+状态：`B52j=production-replay-covered`；`B52k=production-replay-covered`；
+`B52l=implemented / supported-language-registry-pinned / directed-pass / full-tests-pass / replay-pending`；
+`B52m=filed-advisory / implementation-pending`。
+
+完整回归：`go test ./internal/tool ./internal/agent -count=1` 通过
+（tool 161.590s；agent 2.725s）。

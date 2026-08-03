@@ -3919,8 +3919,6 @@ B18c 使用一条通用 typed 规则修复：
 
 状态：`implemented / full-tests-pass / cross-relation replay next`。
 
----
-
 ## B52 r9：ReqCallChain 实体轴归一与复合条件调用表达（2026-08-02）
 
 在 `820525016` 精确构建上继续严格并行 2 个：Java call-chain 147s、called-by 81s，
@@ -4014,6 +4012,42 @@ Trace causal family 不参与。
 
 完整回归：加入发布接线 pin 后 `internal/tool` 最终复跑 156.126s、`internal/agent` 3.004s，
 均以 `-count=1` 通过。
+
+---
+
+## B52 r12：全语言 principal call 引用载体闭包（2026-08-02）
+
+基线 `f50f21f85`，严格并行 2：
+
+- `qf_called_by_typed_relation_query`：runner/human PASS，114s；2 个 unique production callers，
+  多 callsite 只保留为同行详情，无重复系统清单；
+- `sr_java_call_chain`：runner/human PASS with advisory，138s；最终 sequence diagram 包含全部五条
+  grounded calls，reply/guard/branch 语义正确，`B52j/B52k` production replay 闭环。
+
+新 gap `B52l`：principal hop item 可以用 `caller → callee` 作展示 label。此前 `B52k` 只承认
+exact code-identity item labels，且按红线不能解析模型 label/text 来制造 hard authority，因此这类模型
+已选择调用可能绕过 diagram completeness。
+
+本批把闭包权限移到同一 item 的 typed `citation_ref`：只在 principal + `principal_path_edge` +
+`call_edge` carrier 中，以 citation file/exact line 唯一反查 citable typed call EvidenceItem；随后检查该
+调用是否由 strict diagram 的 typed call edge 表达。歧义 citation、non-call citation、supporting carrier
+全部 fail-open。系统不补画图、不改模型 prose/结论，且不读取 RawRequest、thinking 或答案原文字词。
+
+语言矩阵不再是手写声称：测试直接对照 `SupportedReadLanguages()`。Go、Python、JS、TS、Java、Kotlin、
+Rust、C、C++、Ruby、Swift、Lua、ArkTS、Cangjie 14 种 executable languages 必须有同一 fixture；
+Proto 明确走声明式反臂，不伪造 source call。未来语言注册表扩展会强制同步图语义测试。
+
+独立记录 `B52m`：Java 第 3 hop 的 display label 是 `schedule → resolveMaxVisits`，citation 却指向
+`countOpenVisits:18`。pre-emit 已从 typed evidence 正确发现并提示 line 17，但当前是 advisory。
+它不影响 r12 的调用链/图结论，后续应评估仅机械修复 citation metadata；不得硬解析模型文本或接管答案。
+
+验证：
+
+- 聚焦 diagram evidence + production wiring tests 通过；
+- `go test ./internal/tool ./internal/agent -count=1` 通过（161.590s / 2.725s）。
+
+状态：`B52l=implemented / full-tests-pass / replay next`；
+`B52m=filed-advisory / pending`。
 
 ### B52 r7：全语言调用图交接验收与模型表重复（2026-08-02）
 

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	rmtypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -488,6 +489,18 @@ func TestDiagramCallEdgeEvidenceMismatches_PrincipalPathCompletenessAcrossExecut
 		{"arkts", "VisitService.schedule", "VisitRepository.insert"},
 		{"cangjie", "clinic::VisitService::schedule", "clinic::VisitRepository::insert"},
 	}
+	covered := make(map[string]bool, len(tests))
+	for _, tc := range tests {
+		covered[tc.language] = true
+	}
+	for _, language := range rmtypes.SupportedReadLanguages() {
+		if language == rmtypes.LangProto {
+			continue // Proto is declarative and has no source invocation edge.
+		}
+		if !covered[language] {
+			t.Fatalf("supported executable language %q has no principal call-diagram completeness fixture", language)
+		}
+	}
 	for _, tc := range tests {
 		t.Run(tc.language, func(t *testing.T) {
 			doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
@@ -495,7 +508,12 @@ func TestDiagramCallEdgeEvidenceMismatches_PrincipalPathCompletenessAcrossExecut
 					ID: "path", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
 					FacetIDs:  []string{string(types.FacetPrincipalPathEdge)},
 					ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
-					Items:     []types.AnswerBlockItem{{Label: tc.caller}, {Label: tc.callee}},
+					// The visible item is intentionally an edge-shaped presentation,
+					// not an exact endpoint identity. Completeness must come from its
+					// typed citation_ref and never from parsing model-authored prose.
+					Items: []types.AnswerBlockItem{{
+						Label: tc.caller + " → " + tc.callee, CitationRef: 0,
+					}},
 				},
 				{
 					ID: "diagram", Kind: types.BlockDiagram,
@@ -504,13 +522,123 @@ func TestDiagramCallEdgeEvidenceMismatches_PrincipalPathCompletenessAcrossExecut
 						Body: "flowchart TD\n  A[\"" + tc.caller + "\"]\n  B[\"" + tc.callee + "\"]\n",
 					},
 				},
-			}}
+			}, Citations: []types.Citation{{File: "internal/example.go", Line: 10}}}
 			got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
 				[]types.EvidenceItem{diagramEvidenceTestCall(tc.caller, tc.callee)})
 			if len(got) != 1 || got[0].Issue != diagramCallEdgeIssuePrincipalMiss {
 				t.Fatalf("%s principal typed call must remain visible in the diagram: %+v", tc.language, got)
 			}
 		})
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_ProtoDeclarationIsNotInventedAsCall(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID: "path", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:  []string{string(types.FacetPrincipalPathEdge)},
+			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+			Items:     []types.AnswerBlockItem{{Label: "VisitService → VisitRequest", CitationRef: 0}},
+		},
+		{
+			ID: "diagram", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramCallDAG, Language: "mermaid", Body: "flowchart TD\n  S[VisitService]\n  R[VisitRequest]\n"},
+		},
+	}, Citations: []types.Citation{{File: "api/visit.proto", Line: 10}}}
+	declaration := diagramEvidenceTestDefinition("VisitService", "VisitRequest", "api/visit.proto", 10)
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
+		[]types.EvidenceItem{declaration}); len(got) != 0 {
+		t.Fatalf("the declarative Proto language must stay covered without inventing an executable call edge: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_PrincipalCitationCallAlreadyVisible(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID: "path", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:  []string{string(types.FacetPrincipalPathEdge)},
+			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+			Items: []types.AnswerBlockItem{{
+				Label: "VisitController.create → VisitService.schedule", CitationRef: 0,
+			}},
+		},
+		{
+			ID: "diagram", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{
+				Kind: types.DiagramSequence, Language: "mermaid",
+				Body: "sequenceDiagram\n  participant C as VisitController\n  participant S as VisitService\n  C->>S: schedule(petId)\n",
+			},
+			EdgeAnchors: []types.DiagramEdgeAnchor{{
+				FromNode: "C", ToNode: "S", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge,
+			}},
+		},
+	}, Citations: []types.Citation{{File: "internal/example.go", Line: 10}}}
+	evidence := diagramEvidenceTestCall("VisitController.create", "VisitService.schedule")
+	evidence.AnchorSymbol = "schedule"
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
+		[]types.EvidenceItem{evidence}); len(got) != 0 {
+		t.Fatalf("a class-level presentation with exact operation must cover the citation-selected call: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_AmbiguousPrincipalCitationFailsOpen(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID: "path", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:  []string{string(types.FacetPrincipalPathEdge)},
+			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+			Items:     []types.AnswerBlockItem{{Label: "selected call", CitationRef: 0}},
+		},
+		{
+			ID: "diagram", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramCallDAG, Language: "mermaid", Body: "flowchart TD\n  S[Service.handle]\n"},
+		},
+	}, Citations: []types.Citation{{File: "internal/example.go", Line: 10}}}
+	evidence := []types.EvidenceItem{
+		diagramEvidenceTestCall("Service.handle", "Repository.count"),
+		diagramEvidenceTestCall("Service.handle", "Repository.insert"),
+	}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, evidence); len(got) != 0 {
+		t.Fatalf("one citation resolving to distinct call directions must not let the system guess a required edge: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_PrincipalCitationToNonCallDoesNotForceEdge(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID: "path", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:  []string{string(types.FacetPrincipalPathEdge)},
+			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+			Items:     []types.AnswerBlockItem{{Label: "selected row", CitationRef: 0}},
+		},
+		{
+			ID: "diagram", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramCallDAG, Language: "mermaid", Body: "flowchart TD\n  S[Service.handle]\n"},
+		},
+	}, Citations: []types.Citation{{File: "internal/example.go", Line: 10}}}
+	evidence := diagramEvidenceTestDefinition("Service", "handle", "internal/example.go", 10)
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
+		[]types.EvidenceItem{evidence}); len(got) != 0 {
+		t.Fatalf("a definition citation must not be promoted to a call edge: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_SupportingCitationDoesNotExpandPrincipalDiagram(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID: "support", Kind: types.BlockOrderedList,
+			FacetIDs:  []string{string(types.FacetPrincipalPathEdge)},
+			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+			Items:     []types.AnswerBlockItem{{Label: "Background.refresh → Cache.load", CitationRef: 0}},
+		},
+		{
+			ID: "diagram", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramCallDAG, Language: "mermaid", Body: "flowchart TD\n  S[Service.handle]\n"},
+		},
+	}, Citations: []types.Citation{{File: "internal/example.go", Line: 10}}}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
+		[]types.EvidenceItem{diagramEvidenceTestCall("Background.refresh", "Cache.load")}); len(got) != 0 {
+		t.Fatalf("supporting citation-selected calls must not expand the principal diagram: %+v", got)
 	}
 }
 
@@ -689,7 +817,9 @@ func TestRunPreEmitChecks_PrincipalPathDiagramCompletenessIsWired(t *testing.T) 
 			ID: "path", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
 			FacetIDs:  []string{string(types.FacetPrincipalPathEdge)},
 			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
-			Items:     []types.AnswerBlockItem{{Label: "Service.handle"}, {Label: "Repository.insert"}},
+			Items: []types.AnswerBlockItem{{
+				Label: "Service.handle → Repository.insert", CitationRef: 0,
+			}},
 		},
 		{
 			ID: "diagram", Kind: types.BlockDiagram,
@@ -698,7 +828,7 @@ func TestRunPreEmitChecks_PrincipalPathDiagramCompletenessIsWired(t *testing.T) 
 				Body: "flowchart TD\n  S[Service.handle]\n  I[Repository.insert]\n",
 			},
 		},
-	}}
+	}, Citations: []types.Citation{{File: "internal/example.go", Line: 10}}}
 	mut := types.NewMutableState("principal path diagram completeness")
 	mut.AppendEvidence([]types.EvidenceItem{diagramEvidenceTestCall("Service.handle", "Repository.insert")})
 	hints := runPreEmitChecks(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, nil,

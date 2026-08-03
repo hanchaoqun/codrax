@@ -23,6 +23,12 @@ type DiagramCallEdgeEvidenceMismatch struct {
 	ToSymbol   string
 }
 
+type diagramVisibleCallEdge struct {
+	fromSymbol string
+	toSymbol   string
+	label      string
+}
+
 const (
 	diagramCallEdgeIssueMissingAnchor = "missing_call_anchor"
 	diagramCallEdgeIssueNoEvidence    = "call_edge_unproven"
@@ -40,6 +46,7 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 	}
 	var out []DiagramCallEdgeEvidenceMismatch
 	visibleCallSymbolPairs := make(map[string]bool)
+	var visibleCallEdges []diagramVisibleCallEdge
 	hasStrictCallDiagram := false
 	strictCallDiagramID := ""
 	for i := range doc.Blocks {
@@ -78,6 +85,11 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 					!hasTypedCallEvidence {
 					continue
 				}
+				visibleCallEdges = append(visibleCallEdges, diagramVisibleCallEdge{
+					fromSymbol: fromSymbol,
+					toSymbol:   toSymbol,
+					label:      edge.Label,
+				})
 				parsedEdgeKeys[key] = true
 				if !callAnchorKeys[key] {
 					out = append(out, DiagramCallEdgeEvidenceMismatch{
@@ -127,15 +139,41 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 		}
 	}
 	if hasStrictCallDiagram {
+		principalMissing := make(map[string]bool)
+		for _, required := range diagramPrincipalPathCitationCallEvidence(doc, evidence) {
+			if diagramVisibleEdgesContainSpecificCall(visibleCallEdges, evidence, required) {
+				continue
+			}
+			fromSymbol := strings.TrimSpace(required.Subject)
+			toSymbol := strings.TrimSpace(required.Object)
+			if toSymbol == "" {
+				toSymbol = strings.TrimSpace(required.AnchorSymbol)
+			}
+			key := diagramEvidenceEdgeKey(fromSymbol, toSymbol)
+			if key == "\x00" || principalMissing[key] {
+				continue
+			}
+			principalMissing[key] = true
+			out = append(out, DiagramCallEdgeEvidenceMismatch{
+				BlockID:    strictCallDiagramID,
+				Issue:      diagramCallEdgeIssuePrincipalMiss,
+				FromNode:   fromSymbol,
+				ToNode:     toSymbol,
+				FromSymbol: fromSymbol,
+				ToSymbol:   toSymbol,
+			})
+		}
 		principalSymbols := diagramPrincipalPathItemSymbols(doc)
 		for _, fromSymbol := range principalSymbols {
 			for _, toSymbol := range principalSymbols {
-				if fromSymbol == toSymbol || visibleCallSymbolPairs[diagramEvidenceEdgeKey(fromSymbol, toSymbol)] {
+				key := diagramEvidenceEdgeKey(fromSymbol, toSymbol)
+				if fromSymbol == toSymbol || visibleCallSymbolPairs[key] || principalMissing[key] {
 					continue
 				}
 				if !diagramCallEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol, "") {
 					continue
 				}
+				principalMissing[key] = true
 				out = append(out, DiagramCallEdgeEvidenceMismatch{
 					BlockID:    strictCallDiagramID,
 					Issue:      diagramCallEdgeIssuePrincipalMiss,
@@ -148,6 +186,101 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 		}
 	}
 	return out
+}
+
+// diagramPrincipalPathCitationCallEvidence resolves the citations selected by
+// model-owned principal path rows back to their citable typed call records.
+// This is the citation-carrier completeness lane: a row label may be an exact
+// node identity or a presentation such as `caller -> callee`, but neither the
+// label nor item prose is parsed to make a hard-gate decision. File + call-site
+// line are precise typed fields. If one citation names multiple distinct call
+// directions, the row is ambiguous and this lane deliberately declines to
+// guess.
+func diagramPrincipalPathCitationCallEvidence(doc *types.AnswerDocumentV2, evidence []types.EvidenceItem) []types.EvidenceItem {
+	if doc == nil {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var out []types.EvidenceItem
+	for i := range doc.Blocks {
+		block := &doc.Blocks[i]
+		if block.SurfaceRole != types.SurfacePrincipal || block.Kind == types.BlockDiagram ||
+			!types.AnswerBlockKindRendersStructuredItems(block.Kind) ||
+			!diagramBlockCarriesFacet(block, types.FacetPrincipalPathEdge) ||
+			!diagramBlockCarriesClaimForm(block, types.ClaimCallEdge) {
+			continue
+		}
+		for _, item := range block.Items {
+			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
+				continue
+			}
+			citation := doc.Citations[item.CitationRef]
+			matches := diagramCitationCallEvidenceMatches(citation, evidence)
+			if len(matches) != 1 {
+				continue
+			}
+			match := matches[0]
+			key := diagramTypedCallEvidenceKey(match)
+			if key == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, match)
+		}
+	}
+	return out
+}
+
+func diagramCitationCallEvidenceMatches(citation types.Citation, evidence []types.EvidenceItem) []types.EvidenceItem {
+	if strings.TrimSpace(citation.File) == "" || citation.Line <= 0 {
+		return nil
+	}
+	byDirection := make(map[string]types.EvidenceItem)
+	for _, ev := range evidence {
+		if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimCallEdge ||
+			ev.LineStart != citation.Line || !preEmitPathMatches(ev.Source, citation.File) {
+			continue
+		}
+		key := diagramTypedCallEvidenceKey(ev)
+		if key != "" {
+			byDirection[key] = ev
+		}
+	}
+	if len(byDirection) != 1 {
+		return nil
+	}
+	for _, ev := range byDirection {
+		return []types.EvidenceItem{ev}
+	}
+	return nil
+}
+
+func diagramTypedCallEvidenceKey(ev types.EvidenceItem) string {
+	fromSymbol := strings.TrimSpace(ev.Subject)
+	toSymbol := strings.TrimSpace(ev.Object)
+	if toSymbol == "" {
+		toSymbol = strings.TrimSpace(ev.AnchorSymbol)
+	}
+	if fromSymbol == "" || toSymbol == "" {
+		return ""
+	}
+	return diagramEvidenceEdgeKey(fromSymbol, toSymbol)
+}
+
+func diagramVisibleEdgesContainSpecificCall(edges []diagramVisibleCallEdge, evidence []types.EvidenceItem, required types.EvidenceItem) bool {
+	proof := make([]types.EvidenceItem, 0, len(evidence)+1)
+	proof = append(proof, required)
+	for _, ev := range evidence {
+		if types.ClaimFormOf(ev) == types.ClaimDefinitionFact {
+			proof = append(proof, ev)
+		}
+	}
+	for _, edge := range edges {
+		if diagramCallEdgeHasTypedEvidence(proof, edge.fromSymbol, edge.toSymbol, edge.label) {
+			return true
+		}
+	}
+	return false
 }
 
 // diagramPrincipalPathItemSymbols returns only model-selected, structured
