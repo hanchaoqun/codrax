@@ -3986,6 +3986,21 @@ family 不再需要第二处同步，900 行总界和 receipt 均保持。
 
 状态：`T2-1=implemented / full-package-pass`。
 
+### MERGE-AUDIT-3 M4：raw/DB scheduler 时间对齐软诊断（T1-1）
+
+风险确认，但 `db>0 ∧ raw>0 ∧ enriched=0` 不是精确信号，不能驱动事件抑制。修复只新增
+typed observation：统计 exact timestamp+CPU coordinate overlap；两侧非空且零交集时
+标记 `unproven_no_exact_timestamp_cpu_overlap` 并在 semantic-quality caveat 明示
+“不证明时钟域偏移、合法非重叠/过滤也可能产生、advisory only、未据此门控或改写事件”。
+exact key join、生命周期门和发布计数均不变。
+
+same-input accounting golden 首轮捕获非适用车道多发指标，传播条件已收窄到 typed
+observation 真正存在，固定输入收据恢复字节不变。最终
+`go test ./internal/hitraceconv -count=1` 通过(96.379s)。
+
+状态：`T1-1=implemented-soft-diagnostic / no-unsafe-hard-gate / full-package-pass`；
+跨时钟自动去重继续等待独立 typed calibration authority。
+
 ### B47：运行日志语义所有权 × write 跨语言检查权限（2026-08-02）
 
 严格并行 2 个跨模式 case：

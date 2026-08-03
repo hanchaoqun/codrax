@@ -37,6 +37,33 @@ func TestTraceDBRawSchedSwitchLiteJoinEnrichesUniqueBoundaryWithoutDuplicate(t *
 	}
 }
 
+func TestTraceDBRawSchedSwitchLiteJoinNoCoordinateOverlapIsAdvisoryOnly(t *testing.T) {
+	join := &traceDBRawSchedSwitchLiteJoin{
+		coverage: newTraceDBRawSchedSwitchLiteJoinCoverage(),
+		ready:    true,
+		dbReady:  true,
+	}
+	traceDBAddCoverageMetric(&join.coverage, "raw_records_key_admitted", 3)
+	traceDBAddCoverageMetric(&join.coverage, "raw_records_retained", 3)
+	traceDBAddCoverageMetric(&join.coverage, "db_boundaries_audited", 7)
+
+	coverage, err := join.finalize()
+	if err != nil || coverage.Error != "" {
+		t.Fatalf("lack of exact raw/DB coordinate overlap must remain advisory: coverage=%+v err=%v", coverage, err)
+	}
+	if coverage.Metadata["raw_db_time_alignment_observation"] !=
+		"unproven_no_exact_timestamp_cpu_overlap" {
+		t.Fatalf("missing typed time-alignment advisory: %+v", coverage)
+	}
+	if !strings.Contains(coverage.FieldSources["raw_db_time_alignment"], "advisory only") ||
+		!strings.Contains(coverage.FieldSources["raw_db_time_alignment"], "does not prove") {
+		t.Fatalf("time-alignment authority boundary is not explicit: %+v", coverage.FieldSources)
+	}
+	if coverage.Metadata["join_state"] != "complete_no_unique_match" || coverage.RowsEmitted != 0 {
+		t.Fatalf("advisory changed join/publication semantics: %+v", coverage)
+	}
+}
+
 func TestTraceDBRawSchedSwitchLiteJoinPublishesUniqueRawBoundaryFromSuppressedCPULane(t *testing.T) {
 	raw := traceDBRawSchedSwitchLiteRecord{
 		TimestampNS: 1200, CPU: 7, HeaderPID: 101, Flags: 1, PreemptCount: 3,

@@ -121,6 +121,48 @@ func TestTraceDBSemanticQualityCoverageAndCaveats(t *testing.T) {
 	}
 }
 
+func TestTraceDBSemanticQualityDisclosesUnprovenRawDBTimeAlignmentWithoutGating(t *testing.T) {
+	db := TraceDBCoverage{
+		Family: "scheduler", Table: "sched_slice", Role: "query_ready_export",
+		RowsEmitted: 12,
+	}
+	join := TraceDBCoverage{
+		Family: "source_rawtrace_scheduler_lite_join", Table: "__raw_vs_db_sched_switch__",
+		Role: "query_ready_enrichment",
+		Metrics: map[string]int64{
+			"raw_records_retained":                    5,
+			"raw_unmatched_published":                 5,
+			"db_boundaries_audited":                   12,
+			"raw_db_exact_coordinate_overlap_cohorts": 0,
+		},
+		Metadata: map[string]string{
+			"raw_db_time_alignment_observation": "unproven_no_exact_timestamp_cpu_overlap",
+		},
+	}
+	reconciliation := traceDBSchedulerPublicationReconciliationCoverage([]TraceDBCoverage{db, join})
+	quality := traceDBSemanticQualityCoverage([]TraceDBCoverage{db, join, reconciliation})
+	caveats := strings.Join(traceDBSemanticQualityCaveats([]TraceDBCoverage{quality}), "\n")
+
+	if quality.Metadata["scheduler_raw_db_time_alignment_observation"] !=
+		"unproven_no_exact_timestamp_cpu_overlap" {
+		t.Fatalf("typed scheduler alignment observation did not reach quality surface: %+v", quality)
+	}
+	for _, want := range []string{
+		"scheduler raw/DB time alignment is unproven",
+		"exact_timestamp_cpu_overlap=0",
+		"does not prove a clock-domain offset",
+		"advisory only",
+	} {
+		if !strings.Contains(caveats, want) {
+			t.Fatalf("alignment caveat missing %q:\n%s", want, caveats)
+		}
+	}
+	if reconciliation.Error != "" || quality.Error != "" ||
+		reconciliation.Metadata["reconciliation_state"] != "complete_exact_raw_record_closure" {
+		t.Fatalf("soft alignment observation became a conversion gate: reconciliation=%+v quality=%+v", reconciliation, quality)
+	}
+}
+
 func TestTraceDBSemanticQualityClosesCPUUnavailableRawReplacement(t *testing.T) {
 	quality := traceDBSemanticQualityCoverage([]TraceDBCoverage{
 		{

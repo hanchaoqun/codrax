@@ -68,6 +68,15 @@ func traceDBSemanticQualityCoverage(items []TraceDBCoverage) TraceDBCoverage {
 	copyMetric("scheduler_raw_typed_withheld",
 		traceDBSchedulerPublicationFamily, traceDBSchedulerPublicationTable,
 		"raw_unmatched_typed_withheld")
+	copyMetric("scheduler_raw_records_retained",
+		traceDBSchedulerPublicationFamily, traceDBSchedulerPublicationTable,
+		"raw_records_retained")
+	copyMetric("scheduler_raw_join_db_boundaries_audited",
+		traceDBSchedulerPublicationFamily, traceDBSchedulerPublicationTable,
+		"raw_join_db_boundaries_audited")
+	copyMetric("scheduler_raw_db_exact_coordinate_overlap_cohorts",
+		traceDBSchedulerPublicationFamily, traceDBSchedulerPublicationTable,
+		"raw_db_exact_coordinate_overlap_cohorts")
 	copyMetric("callstack_source_rows_suppressed_pre_pairing", "slice", "callstack", "source_rows_suppressed_pre_pairing")
 	copyMetric("callstack_async_source_rows_suppressed_post_pairing", "slice", "callstack", "async_source_rows_suppressed_post_pairing")
 	copyMetric("callstack_source_rows_official_async_shaped", "slice", "callstack",
@@ -107,6 +116,8 @@ func traceDBSemanticQualityCoverage(items []TraceDBCoverage) TraceDBCoverage {
 			item.Table == traceDBSchedulerPublicationTable {
 			quality.Metadata["scheduler_publication_reconciliation"] =
 				item.Metadata["reconciliation_state"]
+			quality.Metadata["scheduler_raw_db_time_alignment_observation"] =
+				item.Metadata["raw_db_time_alignment_observation"]
 		}
 		if item.Family == "slice" && item.Table == "callstack" &&
 			item.Metadata["official_viewer_typed_only_sync_reason_census"] == "complete" {
@@ -350,6 +361,14 @@ func traceDBSemanticQualityCaveats(coverage []TraceDBCoverage) []string {
 			quality.Metrics["scheduler_standard_events_published"],
 			quality.Metrics["scheduler_raw_typed_withheld"],
 			quality.Metrics["scheduler_db_source_rows_suppressed"]))
+	}
+	if quality.Metadata["scheduler_raw_db_time_alignment_observation"] ==
+		"unproven_no_exact_timestamp_cpu_overlap" {
+		caveats = append(caveats, fmt.Sprintf(
+			"trace_streamer scheduler raw/DB time alignment is unproven: raw_records=%d db_boundaries=%d exact_timestamp_cpu_overlap=%d; zero exact overlap does not prove a clock-domain offset because legitimate non-overlapping or filtered lanes can produce it; this observation is advisory only and did not suppress, duplicate or gate events",
+			quality.Metrics["scheduler_raw_records_retained"],
+			quality.Metrics["scheduler_raw_join_db_boundaries_audited"],
+			quality.Metrics["scheduler_raw_db_exact_coordinate_overlap_cohorts"]))
 	}
 	if summary := traceDBSemanticQualityMetricSummary(quality.Metrics, degradedKeys); summary != "" {
 		caveats = append(caveats, "trace_streamer semantic quality is degraded: "+summary+

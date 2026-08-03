@@ -22,11 +22,12 @@ func traceDBSchedulerPublicationReconciliationCoverage(
 		Table:  traceDBSchedulerPublicationTable,
 		Role:   "semantic_quality_summary",
 		FieldSources: map[string]string{
-			"db":       "scheduler/sched_slice strict complete-per-CPU publication coverage",
-			"raw":      "source_rawtrace_scheduler_lite_join exact enriched and lifecycle-proven raw-unmatched counters",
-			"total":    "final standard sched_switch events = DB boundaries published + raw unmatched published; raw enrichment changes fields but is not another event",
-			"withheld": "source join raw_unique_records_unmatched exact residual after key ambiguity, DB enrichment and raw-unmatched publication; raw_unmatched_withheld_db_coordinate_present is observational overlap with DB enrichment and is never counted again",
-			"effect":   "diagnostic and user-facing reconciliation only; never publishes, suppresses, deduplicates or repairs an event",
+			"db":             "scheduler/sched_slice strict complete-per-CPU publication coverage",
+			"raw":            "source_rawtrace_scheduler_lite_join exact enriched and lifecycle-proven raw-unmatched counters",
+			"total":          "final standard sched_switch events = DB boundaries published + raw unmatched published; raw enrichment changes fields but is not another event",
+			"withheld":       "source join raw_unique_records_unmatched exact residual after key ambiguity, DB enrichment and raw-unmatched publication; raw_unmatched_withheld_db_coordinate_present is observational overlap with DB enrichment and is never counted again",
+			"effect":         "diagnostic and user-facing reconciliation only; never publishes, suppresses, deduplicates or repairs an event",
+			"time_alignment": "source raw/DB exact timestamp+CPU overlap observation copied from the join; absence is advisory and is not proof of a clock-domain offset",
 		},
 		Metadata: map[string]string{
 			"reconciliation_state": "unavailable",
@@ -58,6 +59,13 @@ func traceDBSchedulerPublicationReconciliationCoverage(
 		&out, "raw_unmatched_published", rawPublished)
 	traceDBAddCoverageMetric(
 		&out, "raw_records_retained", rawRetained)
+	if alignment := join.Metadata["raw_db_time_alignment_observation"]; alignment != "" && alignment != "not_applicable_empty_admitted_lane" {
+		traceDBAddCoverageMetric(&out, "raw_join_db_boundaries_audited",
+			join.Metrics["db_boundaries_audited"])
+		traceDBAddCoverageMetric(&out, "raw_db_exact_coordinate_overlap_cohorts",
+			join.Metrics["raw_db_exact_coordinate_overlap_cohorts"])
+		out.Metadata["raw_db_time_alignment_observation"] = alignment
+	}
 	if int64(db.RowsEmitted) > math.MaxInt64-rawPublished {
 		out.Metadata["reconciliation_state"] = "failed_standard_total_overflow"
 		out.Error = "scheduler standard event total overflow"

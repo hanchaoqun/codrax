@@ -256,3 +256,33 @@ finding 准确。红测把现有生产键 `unknown_comm_witnesses` 放入一个�
 
 状态：`T2-1=implemented / full-package-pass`。下一项审计 T1-1 raw scheduler
 补发的时钟域前提，只允许增补软披露，不能把不充分矛盾信号升级为硬门。
+
+---
+
+## §13 T1-1 施工结果：raw/DB 时钟对齐只作 typed 软披露(2026-08-02)
+
+审计的风险方向准确，否证结论同样成立：DB 与 raw 都非空但没有 exact join，不足以证明
+时钟域偏移；它也可能来自合法的不重叠事件、过滤、DB lane 抑制或 identity/state/key
+不一致。因此本批没有新增去重/抑制 hard gate，也没有用时间近邻猜配事件。
+
+落地的是可观测性闭环：
+
+- raw join 在完成 DB boundary census 后统计 exact `timestamp_ns + CPU` 坐标交集，
+  与完整 key join 分开；
+- 两侧 admitted/audited 非空且交集为零时铸造
+  `raw_db_time_alignment_observation=unproven_no_exact_timestamp_cpu_overlap`；
+  有交集为 `observed_exact_timestamp_cpu_overlap`，空车道为 not-applicable；
+- typed observation、raw retained、DB audited、overlap cohort 通过 scheduler reconciliation
+  进入 semantic-quality；只在 unproven 臂发布 caveat；
+- caveat 明示零交集**不证明 clock-domain offset**、可能是合法非重叠/过滤，且本观察
+  `advisory only`，没有据此 suppress/duplicate/gate 事件；
+- 原 exact key join、coordinate 去重、lifecycle authority、`duplicate_events=0` 发布路径
+  均未改。
+
+回归固定无交集只披露不报错/不改变 `RowsEmitted`，以及 quality caveat 传播；完整包首次
+命中 same-input accounting golden，因为非适用 raw lane 也传播了一个新审计计数，随后将
+传播严格收窄到 observation 实际存在的车道，golden 恢复字节不变。最终
+`go test ./internal/hitraceconv -count=1` 通过(96.379s)。
+
+状态：`T1-1=implemented-soft-diagnostic / no-unsafe-hard-gate / full-package-pass`。
+真正自动消除跨时钟重复仍需要独立 typed clock calibration 证据；在该证据出现前不得猜配。

@@ -118,14 +118,15 @@ func newTraceDBRawSchedSwitchLiteJoinCoverage() TraceDBCoverage {
 		Table:  "__raw_vs_db_sched_switch__",
 		Role:   "query_ready_enrichment",
 		FieldSources: map[string]string{
-			"admission":     "one raw sched_switch_lite record and one audited DB sched_slice boundary must share one exact timestamp/CPU/canonical-public-PID/state/next-priority key",
-			"identity":      "raw payload prev/next PIDs must equal canonical DB public TIDs; common_pid is retained only as an independently counted event-envelope observation and never becomes switch identity, host/namespace mapping or comm authority",
-			"state":         "raw prev_state mapped through the closed TraceStreamer EndState table and compared exactly with sched_slice.end_state",
-			"priority":      "next priority must equal the next sched_slice priority; raw prev priority is the exact switch-out snapshot because sched_slice retains the earlier switch-in priority",
-			"next_info":     "full authoritative packed uint64 retained as a raw hex receipt; only the currently documented prefix through cgroup ID is rendered semantically",
-			"envelope":      "exact raw common_flags/common_preempt_count replace only the header defaults on the already-existing DB boundary row; common_pid is not rendered",
-			"deduplication": "raw or DB key multiplicity other than one is ineligible; an exact timestamp/CPU coordinate already emitted from audited DB sched_slice always wins and raw never emits a duplicate",
-			"raw_unmatched": "one unique raw timestamp/CPU record may publish only when no audited DB boundary is emitted there and both raw prev/next public TIDs resolve to one exact canonical thread/process generation at that point; exact idle zero is admitted only through canonical idle authority",
+			"admission":             "one raw sched_switch_lite record and one audited DB sched_slice boundary must share one exact timestamp/CPU/canonical-public-PID/state/next-priority key",
+			"identity":              "raw payload prev/next PIDs must equal canonical DB public TIDs; common_pid is retained only as an independently counted event-envelope observation and never becomes switch identity, host/namespace mapping or comm authority",
+			"state":                 "raw prev_state mapped through the closed TraceStreamer EndState table and compared exactly with sched_slice.end_state",
+			"priority":              "next priority must equal the next sched_slice priority; raw prev priority is the exact switch-out snapshot because sched_slice retains the earlier switch-in priority",
+			"next_info":             "full authoritative packed uint64 retained as a raw hex receipt; only the currently documented prefix through cgroup ID is rendered semantically",
+			"envelope":              "exact raw common_flags/common_preempt_count replace only the header defaults on the already-existing DB boundary row; common_pid is not rendered",
+			"deduplication":         "raw or DB key multiplicity other than one is ineligible; an exact timestamp/CPU coordinate already emitted from audited DB sched_slice always wins and raw never emits a duplicate",
+			"raw_unmatched":         "one unique raw timestamp/CPU record may publish only when no audited DB boundary is emitted there and both raw prev/next public TIDs resolve to one exact canonical thread/process generation at that point; exact idle zero is admitted only through canonical idle authority",
+			"raw_db_time_alignment": "exact timestamp+CPU coordinate overlap is an observational alignment witness; zero overlap with nonempty admitted raw and audited DB lanes is advisory only and does not prove a clock-domain offset or gate publication",
 		},
 		Metadata: map[string]string{
 			"join_state":              "unavailable",
@@ -266,6 +267,18 @@ func (join *traceDBRawSchedSwitchLiteJoin) auditDBBoundaries(
 	if counted != audit.ExpectedBoundaryRows {
 		return fmt.Errorf("scheduler-lite DB boundary census mismatch: counted=%d audited=%d",
 			counted, audit.ExpectedBoundaryRows)
+	}
+	for coordinate, rawCohort := range join.rawByCoordinate {
+		dbCount := join.dbEmittedByCoordinate[coordinate]
+		if dbCount == 0 {
+			continue
+		}
+		traceDBAddCoverageMetric(
+			&join.coverage, "raw_db_exact_coordinate_overlap_cohorts", 1)
+		traceDBAddCoverageMetric(
+			&join.coverage, "raw_db_exact_coordinate_overlap_raw_records", int64(len(rawCohort)))
+		traceDBAddCoverageMetric(
+			&join.coverage, "raw_db_exact_coordinate_overlap_db_boundaries", int64(dbCount))
 	}
 	for key, rawCohort := range join.rawByKey {
 		dbCount := join.dbByKey[key]
@@ -415,6 +428,21 @@ func (join *traceDBRawSchedSwitchLiteJoin) finalize() (TraceDBCoverage, error) {
 		join.coverage.Metadata["join_state"] = "withheld_db_scheduler_census_unavailable"
 		join.coverage.Skipped = "scheduler-lite switch join withheld: audited DB boundary census unavailable"
 		return join.coverage, nil
+	}
+	rawAdmitted := join.coverage.Metrics["raw_records_key_admitted"]
+	dbAudited := join.coverage.Metrics["db_boundaries_audited"]
+	exactCoordinateOverlap :=
+		join.coverage.Metrics["raw_db_exact_coordinate_overlap_cohorts"]
+	switch {
+	case rawAdmitted > 0 && dbAudited > 0 && exactCoordinateOverlap == 0:
+		join.coverage.Metadata["raw_db_time_alignment_observation"] =
+			"unproven_no_exact_timestamp_cpu_overlap"
+	case rawAdmitted > 0 && dbAudited > 0:
+		join.coverage.Metadata["raw_db_time_alignment_observation"] =
+			"observed_exact_timestamp_cpu_overlap"
+	default:
+		join.coverage.Metadata["raw_db_time_alignment_observation"] =
+			"not_applicable_empty_admitted_lane"
 	}
 	if join.coverage.Metadata["join_state"] == "complete_no_source_records" {
 		return join.coverage, nil
