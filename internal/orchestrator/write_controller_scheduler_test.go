@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -9057,6 +9058,15 @@ func TestRunWriteControllerWorkflow_ReplanProbePassRestoresAppliedPlanForVerify(
 			for i := range plan.Changes {
 				plan.Changes[i].Apply = &types.FileChangeApplyRecord{Status: "applied"}
 			}
+			// Model an older applied batch already retained by the controller.
+			// A later no-plan replan restores this exact plan object; its verify-only
+			// transitive closure must survive the scheduler's authority rebuild.
+			plan.CumulativeVerificationScope = &types.CumulativeVerificationScope{
+				SourcePlanIDs:      []string{"plan-older"},
+				TargetPaths:        []string{"tests/OlderRegressionTest.java"},
+				BehaviorContracts:  []types.WriteBehaviorContract{{ID: "contract-older"}},
+				VerificationProbes: []types.VerificationProbe{{ID: "probe-older"}},
+			}
 			mu.SetChangePlan(plan)
 			return &agent.StageOutput{}, nil
 		case types.StageVerify:
@@ -9067,6 +9077,15 @@ func TestRunWriteControllerWorkflow_ReplanProbePassRestoresAppliedPlanForVerify(
 			}
 			if plan.ID != "plan-1" {
 				t.Fatalf("verify should run against restored applied plan, got %q", plan.ID)
+			}
+			if verifyCalls == 2 {
+				got := plan.CumulativeVerificationScope
+				if got == nil || !reflect.DeepEqual(got.SourcePlanIDs, []string{"plan-older"}) ||
+					!reflect.DeepEqual(got.TargetPaths, []string{"tests/OlderRegressionTest.java"}) ||
+					!reflect.DeepEqual(behaviorContractIDs(got.BehaviorContracts), []string{"contract-older"}) ||
+					!reflect.DeepEqual(verificationProbeIDs(got.VerificationProbes), []string{"probe-older"}) {
+					t.Fatalf("restored verify lost cumulative verification closure: %+v", got)
+				}
 			}
 			if verifyCalls == 1 {
 				mu.SetChangeReport(&types.ChangeReport{

@@ -3919,6 +3919,30 @@ B18c 使用一条通用 typed 规则修复：
 
 状态：`implemented / full-tests-pass / cross-relation replay next`。
 
+---
+
+### MERGE-AUDIT-3 H3：恢复计划不得丢失累计验证闭包（T7-1）
+
+审计结论准确，且用完整控制器车道确定性复现：失败 verify 后 replan，planner 不生成
+新计划但 typed probe 证明现有 worktree 时，scheduler 恢复原计划对象；随后累计域重建
+先把该对象的 `CumulativeVerificationScope` 清空，又因它是 current plan 而跳过，导致
+restore cutoff 前仍生效的旧批次路径、行为合同和验证探针全部退出终验。
+
+通用修复只依赖 controller handoff 的精确信号：
+
+1. 仅当候选与 active plan 是同一 Go 对象(`candidate == plan`)时，在清空前保存旧累计域；
+2. 新 planner 对象即使复用 plan ID 也不可信，其累计域仍被丢弃后从 durable workflow
+   attempts 重建；
+3. 恢复种子只进入 verification scope，不进入 active apply paths，不改变风险/审批边界；
+4. 单元 pin 覆盖 restore cutoff 前传递闭包，workflow pin 覆盖
+   `apply -> failed verify -> no-plan replan/probe pass -> restored verify`，并断言旧路径、合同、
+   探针在第二次 verify 仍在。
+
+验证：`go test ./internal/orchestrator -count=1` 通过(10.479s)。
+
+状态：`implemented / full-package-pass`；MERGE-AUDIT-3 三项高危(T3-1/T3-2/T7-1)
+已全部闭环，转入当前代码基线复核与中危 ROI 排序。
+
 ### B47：运行日志语义所有权 × write 跨语言检查权限（2026-08-02）
 
 严格并行 2 个跨模式 case：

@@ -143,3 +143,28 @@ T1-2 越界时间戳有效 CPU 记录整丢不 fence(违其自documented合同);
   `go test ./internal/tool ./internal/skill -count=1` 通过(tool 175.833s，skill 0.508s)。
 
 状态：`implemented / relevant-full-tests-pass`。下一批按 §6 处理 T7-1。
+
+---
+
+## §9 T7-1 施工结果(2026-08-02)
+
+原 finding `covered`，并补上了确定性红绿见证。根因不是累计域本身的合并算法，
+而是 restore 车道把 `priorPlan` 的同一对象重新装回 active 后，authority rebuild 在读取
+其既有控制器快照前先清空字段；restore cutoff 前仍在 worktree 中的旧批次只能从这份
+传递闭包抵达终验，因此会静默漏验。
+
+修复采用精确对象身份，不放宽 planner 权限：
+
+- `candidate == plan` 是 scheduler 恢复既有计划对象的精确信号；仅该对象的既有
+  `CumulativeVerificationScope` 会在清空前复制并作为 rebuild 种子；
+- 只同 ID、但对象不同的新 planner 计划仍先清空累计域，不能伪造旧批次路径、行为合同或探针；
+- 恢复的累计域仍只供 verify/final proof 消费，不进入 active apply target，未扩大改动范围、
+  风险门或审批门；
+- 新增单元 pin 覆盖 restore cutoff 前的 source plan/path/contract/probe 闭包，以及完整
+  `replan -> no-plan probe pass -> restored verify` 车道；既有 no-change sentinel restore
+  与 planner-injected scope 负例同时通过。
+
+验证：`go test ./internal/orchestrator -count=1` 通过(10.479s)。
+
+状态：`implemented / full-package-pass`。下一步复核 §1 P0 与 T8-1 在审计基线之后是否已被
+后续提交覆盖，再按当前代码事实排中危批次。
