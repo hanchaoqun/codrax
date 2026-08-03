@@ -282,10 +282,14 @@ func pyExtractCalls(root *sitter.Node, src []byte, file string) []types.Relation
 			})
 		case "attribute":
 			if attr := fn.ChildByFieldName("attribute"); attr != nil {
+				receiver := ""
+				if object := fn.ChildByFieldName("object"); object != nil {
+					receiver = strings.TrimSpace(nodeText(object, src))
+				}
 				rels = append(rels, types.Relation{
 					Kind:       "call",
 					FromEP:     types.RelationEndpoint{File: file, Line: nodeLine(fn)},
-					ToEP:       types.RelationEndpoint{Name: nodeText(attr, src), File: file, Line: nodeLine(fn)},
+					ToEP:       types.RelationEndpoint{Name: nodeText(attr, src), Receiver: receiver, File: file, Line: nodeLine(fn)},
 					File:       file,
 					Line:       nodeLine(fn),
 					Confidence: types.ConfidenceAST,

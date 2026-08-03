@@ -57,7 +57,11 @@ func extractJS(root *sitter.Node, src []byte, file string, isTS bool) (pkg strin
 		}
 	}
 
-	rels = append(rels, jsExtractCalls(root, src, file)...)
+	var receiverTypes map[string]string
+	if isTS {
+		receiverTypes = jsUniqueReceiverTypeBindings(root, src)
+	}
+	rels = append(rels, jsExtractCalls(root, src, file, receiverTypes)...)
 
 	// Express + NestJS route -> handler post-pass (route_javascript.go).
 	// Runs after the top-level loop so it can gate on the per-file
@@ -393,7 +397,7 @@ func jsExtractEnum(node *sitter.Node, src []byte, file string) (types.Symbol, bo
 	}, true
 }
 
-func jsExtractCalls(root *sitter.Node, src []byte, file string) []types.Relation {
+func jsExtractCalls(root *sitter.Node, src []byte, file string, receiverTypes map[string]string) []types.Relation {
 	var rels []types.Relation
 	walkNamedChildren(root, true, func(node *sitter.Node) {
 		if node.Type() != "call_expression" {
@@ -417,10 +421,17 @@ func jsExtractCalls(root *sitter.Node, src []byte, file string) []types.Relation
 			})
 		case "member_expression":
 			if prop := fn.ChildByFieldName("property"); prop != nil {
+				receiver := ""
+				if object := fn.ChildByFieldName("object"); object != nil {
+					receiver = strings.TrimSpace(nodeText(object, src))
+				}
+				if binding := jsReceiverBinding(receiver); binding != "" && receiverTypes[binding] != "" {
+					receiver = receiverTypes[binding]
+				}
 				rels = append(rels, types.Relation{
 					Kind:       "call",
 					FromEP:     types.RelationEndpoint{File: file, Line: nodeLine(fn)},
-					ToEP:       types.RelationEndpoint{Name: nodeText(prop, src), File: file, Line: nodeLine(fn)},
+					ToEP:       types.RelationEndpoint{Name: nodeText(prop, src), Receiver: receiver, File: file, Line: nodeLine(fn)},
 					File:       file,
 					Line:       nodeLine(fn),
 					Confidence: types.ConfidenceAST,
@@ -431,4 +442,67 @@ func jsExtractCalls(root *sitter.Node, src []byte, file string) []types.Relation
 		}
 	})
 	return rels
+}
+
+func jsUniqueReceiverTypeBindings(root *sitter.Node, src []byte) map[string]string {
+	bindings := make(map[string]string)
+	conflicts := make(map[string]bool)
+	add := func(name, typeName string) {
+		name = strings.TrimSpace(name)
+		typeName = strings.TrimSpace(typeName)
+		if name == "" || typeName == "" || conflicts[name] {
+			return
+		}
+		if have := bindings[name]; have != "" && have != typeName {
+			delete(bindings, name)
+			conflicts[name] = true
+			return
+		}
+		bindings[name] = typeName
+	}
+	walkNamedChildren(root, true, func(node *sitter.Node) {
+		switch node.Type() {
+		case "required_parameter", "optional_parameter", "variable_declarator", "public_field_definition":
+			name := node.ChildByFieldName("pattern")
+			if name == nil {
+				name = node.ChildByFieldName("name")
+			}
+			typeNode := node.ChildByFieldName("type")
+			if name != nil && typeNode != nil {
+				add(nodeText(name, src), jsDeclaredTypeName(typeNode, src))
+			}
+		}
+	})
+	return bindings
+}
+
+func jsDeclaredTypeName(node *sitter.Node, src []byte) string {
+	if node == nil {
+		return ""
+	}
+	switch node.Type() {
+	case "type_identifier", "predefined_type":
+		return strings.TrimSpace(nodeText(node, src))
+	case "generic_type":
+		if name := node.ChildByFieldName("name"); name != nil {
+			return jsDeclaredTypeName(name, src)
+		}
+	}
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		if name := jsDeclaredTypeName(node.NamedChild(i), src); name != "" {
+			return name
+		}
+	}
+	return ""
+}
+
+func jsReceiverBinding(receiver string) string {
+	receiver = strings.TrimSpace(receiver)
+	if receiver == "" {
+		return ""
+	}
+	if idx := strings.LastIndex(receiver, "."); idx >= 0 {
+		receiver = receiver[idx+1:]
+	}
+	return strings.TrimSpace(receiver)
 }

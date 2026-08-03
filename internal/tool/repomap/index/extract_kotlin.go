@@ -53,6 +53,7 @@ func extractKotlin(root *sitter.Node, src []byte, file string) (pkg string, syms
 	routeSyms, routeRels := kotlinExtractRoutes(root, src, file)
 	syms = append(syms, routeSyms...)
 	rels = append(rels, routeRels...)
+	rels = append(rels, extractNavigationCalls(root, src, file, "kotlin_ast_navigation_call")...)
 	return
 }
 

@@ -58,7 +58,37 @@ func extractRuby(root *sitter.Node, src []byte, file string) (pkg string, syms [
 			}
 		}
 	}
+	rels = append(rels, rubyExtractCalls(root, src, file)...)
 	return
+}
+
+func rubyExtractCalls(root *sitter.Node, src []byte, file string) []types.Relation {
+	var rels []types.Relation
+	walkNamedChildren(root, true, func(node *sitter.Node) {
+		if node.Type() != "call" {
+			return
+		}
+		method := node.ChildByFieldName("method")
+		if method == nil {
+			return
+		}
+		receiver := ""
+		if recv := node.ChildByFieldName("receiver"); recv != nil {
+			receiver = strings.TrimSpace(nodeText(recv, src))
+		}
+		line := nodeLine(method)
+		rels = append(rels, types.Relation{
+			Kind:       "call",
+			FromEP:     types.RelationEndpoint{File: file, Line: line},
+			ToEP:       types.RelationEndpoint{Name: strings.TrimSpace(nodeText(method, src)), Receiver: receiver, File: file, Line: line},
+			File:       file,
+			Line:       line,
+			Confidence: types.ConfidenceAST,
+			Provenance: types.ProvenanceTreeSitter,
+			ResolvedBy: "ruby_ast_call",
+		})
+	})
+	return rels
 }
 
 func rubyDerivePackage(file string) string {

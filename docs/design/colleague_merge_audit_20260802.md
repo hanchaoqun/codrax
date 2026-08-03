@@ -691,3 +691,63 @@ contrary-bare-object 五个反臂；原 reverse、reply、class ambiguity 和 Tr
 
 状态：`T3-2=covered`；新增 `T3-2-ENDPOINT-IDENTITY=implemented / full-tool-test-pass /
 same-pair-replay pending`。
+
+---
+
+## §28 B52 r2 与全语言调用图层审计（2026-08-02）
+
+同 pair 在 `bf6114879` 上回放后，called-by 继续人工 PASS；`sr_java_call_chain` runner PASS
+但人工 FAIL，仍有 12 次 `call_edge_unproven`、5 次 patch，并最终泄漏 rejected draft/raw
+thinking。reply `-->>` 已完全退出拒绝面，故 T3-2 本体没有回退。
+
+### §28.1 为什么 B52a 仍是 partial
+
+r1 的 call Object 是裸 `schedule`，B52a 用唯一 citable definition 补成
+`VisitService.schedule`；r2 的真实调用证据则是 `service.schedule`、
+`config.resolveMaxVisits`、`repository.insert`。这不是裸 operation，旧补全臂正确地把它视为
+“已限定到另一个 owner 的相反证据”，所以模型即使画出源码真实的限定方法端点仍无法通过。
+
+若把 diagram matcher 放宽为“最后一段相同即可”，会把动态对象、重载和同名方法猜成任意类，
+违背精确信号硬门。根修必须上移到 typed relation：静态声明唯一时把 receiver expression
+解析为 receiver type，再由 Graph.ResolveCallTarget 得到定义端点；不能唯一解析时保留源码表达。
+
+### §28.2 15 语言能力矩阵与冷读结论
+
+| 语言 | 修复前调用图层 | 本批权限形 | 状态 |
+|---|---|---|---|
+| Go | call + 参数/receiver 类型 | 唯一类型 → 定义端点 | 既有 covered |
+| Python | attribute 被压成裸方法 | 保留动态 receiver expression，不猜类型 | fixed |
+| JavaScript | member 被压成裸方法 | 保留动态 receiver expression | fixed |
+| TypeScript | member 被压成裸方法 | 唯一类型注解 → 定义端点；否则源码 receiver | fixed |
+| Java | method invocation 无 receiver | field/param/local 唯一声明类型 → 定义端点；冲突保留源码 receiver | fixed |
+| Kotlin | 无普通 call relation | 新增 call；唯一参数/属性类型 → 定义端点 | fixed |
+| Rust | field/scoped call 丢 receiver | 参数/field 唯一类型 → 定义端点；associated type 原样保留 | fixed |
+| C | 裸函数调用在场 | 保持函数调用；field-expression 保留 receiver | fixed |
+| C++ | field/scoped call 丢 receiver，qualified_identifier 未覆盖 | 参数类型 → 定义端点；补 qualified_identifier | fixed |
+| Ruby | 无普通 call relation | 新增 call，保留动态 receiver | fixed |
+| Swift | 无普通 call relation | 新增 call；唯一参数/属性类型 → 定义端点 | fixed |
+| Lua | 只识别 require/import | 新增 function_call，保留 `.`/`:` receiver | fixed |
+| Proto | `rpc` 声明关系在场 | declarative RPC，不伪装成 executable call | N/A by design |
+| ArkTS | TS 主路径有裸 call；post-pass 自身无 call | Tier 1 继承 TypeScript 类型端点；TS parser 不可用/超时的 Tier 2 不猜造 call | fixed / fail-closed |
+| Cangjie | declaration parser 把函数体当 opaque | 同一 comment/string-aware token 流新增 call；唯一 `name: Type` → 定义端点 | fixed |
+
+矩阵由 `SupportedReadLanguages()` 全量 pin：新增语言若没有明确落入 semantic/source/function/
+declarative 之一，测试直接失败。Proto 的 declarative 身份有独立负 pin，禁止为凑齐矩阵伪造调用。
+
+### §28.3 通用实现与不变量
+
+1. `normalizeCallEvidenceDirection` 先消费同一 callsite 的 Graph.ResolveCallTarget；只有唯一解析成功
+   才发布 `Owner.Operation`，否则依次回退源码精确 target 与 relation target；
+2. 静态语言的名字→类型 census 全部采取“同文件同名声明必须一致”策略；冲突时删除类型权限，
+   保留源码 receiver，不做最近声明/频次猜测；
+3. 动态语言只补回被 extractor 丢掉的 receiver expression，不提升类型；
+4. 新增关系均由 AST 或 Cangjie comment/string-aware token parser 产生；ArkTS parser timeout 路径
+   不用 regex 关系参与 diagram hard gate；
+5. QFCallChain 之外的 Trace/root-cause family、显式时间窗因果投影与系统补齐完全不进入该合同；
+6. 不扫描 RawRequest、模型 prose/thinking 或 edge label 关键词，不把 noisy confidence 用作硬门。
+
+验证：`go test ./internal/tool/repomap/index -count=1` 通过（1.367s）；call-direction/
+diagram 定向工具测试通过（1.019s）；最终 `go test ./internal/tool -count=1` 全包通过（173.722s）。
+
+状态：`B52a=partial superseded`；`B52b-CROSS-LANGUAGE-CALL-IDENTITY=implemented /
+index-full-pass / tool-full-pass / exact-pair-replay pending`。

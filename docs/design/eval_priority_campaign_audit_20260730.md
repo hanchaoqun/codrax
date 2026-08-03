@@ -3919,6 +3919,31 @@ B18c 使用一条通用 typed 规则修复：
 
 状态：`implemented / full-tests-pass / cross-relation replay next`。
 
+#### B52 r2：Java 只是见证，调用图端点缺口覆盖全语言（2026-08-02）
+
+在 `bf6114879` 上严格并行回放同一对 case：called-by runner/human PASS（117s，零 reject）；
+Java call-chain runner PASS/human FAIL（220s，12 rejects/5 patches）。reply 边修复持续生效，失败
+全部收敛到 qualified call endpoint。
+
+进一步按 `SupportedReadLanguages()` 冷读 15 种语言，确认不是 Java 特例：Python/JS/TS/Rust/C++
+已有 call 却丢 receiver；Kotlin/Ruby/Swift/Lua/Cangjie 无普通 call；ArkTS 依赖 TS 主路径；Proto
+只有 declarative rpc。故 B52a“裸方法 + 唯一定义”的 matcher 补全只能算 partial。
+
+登记并施工 `EVAL-B52-CALLGRAPH-X1`：
+
+1. emit evidence 优先使用同一 call relation 的 Graph.ResolveCallTarget；
+2. Go/Java/TS/Kotlin/Rust/C++/Swift/Cangjie/ArkTS 在声明类型唯一时发布定义端点；
+3. Python/JS/Ruby/Lua 只保留动态 receiver expression，不猜类型；
+4. Kotlin/Ruby/Swift/Lua/Cangjie 补普通 call relation，C++ 补 qualified_identifier；
+5. Proto 固定为 declarative rpc N/A；ArkTS TS-parser 不可用/超时时 fail-closed，不用 regex call
+   为 diagram hard gate 造证据；
+6. 全语言清册由 SupportedReadLanguages 完整性测试 pin，不读取 request/model prose/thinking。
+
+索引包全测通过（1.367s），工具定向回归通过（1.019s），完整 `internal/tool` 回归通过
+（最终复跑 173.722s）；同 pair r3 待执行。
+
+状态：`implemented / index-full-pass / tool-full-pass / replay-pending`。
+
 ---
 
 ## EVAL-B52：MERGE-AUDIT call-chain authority 闭环回放（2026-08-02）

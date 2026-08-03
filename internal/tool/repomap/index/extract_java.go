@@ -50,7 +50,7 @@ func extractJava(root *sitter.Node, src []byte, file string) (pkg string, syms [
 		}
 	}
 
-	rels = append(rels, javaExtractCalls(root, src, file)...)
+	rels = append(rels, javaExtractCalls(root, src, file, javaUniqueReceiverTypeBindings(root, src))...)
 	// framework route → handler resolver (Spring @*Mapping annotations);
 	// gated on the @RestController / @Controller class annotation —
 	// no-op for files without an annotated controller class.
@@ -247,7 +247,7 @@ func javaHasModifier(node *sitter.Node, src []byte, modifier string) bool {
 	return false
 }
 
-func javaExtractCalls(root *sitter.Node, src []byte, file string) []types.Relation {
+func javaExtractCalls(root *sitter.Node, src []byte, file string, receiverTypes map[string]string) []types.Relation {
 	var rels []types.Relation
 	walkNamedChildren(root, true, func(node *sitter.Node) {
 		if node.Type() != "method_invocation" {
@@ -255,10 +255,14 @@ func javaExtractCalls(root *sitter.Node, src []byte, file string) []types.Relati
 		}
 		nameNode := node.ChildByFieldName("name")
 		if nameNode != nil {
+			receiver := javaInvocationReceiverExpression(node, src)
+			if binding := javaInvocationReceiverBinding(node, src); binding != "" && receiverTypes[binding] != "" {
+				receiver = receiverTypes[binding]
+			}
 			rels = append(rels, types.Relation{
 				Kind:       "call",
 				FromEP:     types.RelationEndpoint{File: file, Line: nodeLine(nameNode)},
-				ToEP:       types.RelationEndpoint{Name: nodeText(nameNode, src), File: file, Line: nodeLine(nameNode)},
+				ToEP:       types.RelationEndpoint{Name: nodeText(nameNode, src), Receiver: receiver, File: file, Line: nodeLine(nameNode)},
 				File:       file,
 				Line:       nodeLine(nameNode),
 				Confidence: types.ConfidenceAST,
@@ -268,4 +272,108 @@ func javaExtractCalls(root *sitter.Node, src []byte, file string) []types.Relati
 		}
 	})
 	return rels
+}
+
+// javaUniqueReceiverTypeBindings builds a conservative file-local receiver
+// type census from typed declaration nodes. A binding is published only when
+// every declaration of that identifier in the file names the same type. This
+// deliberately sacrifices some shadowed-variable coverage to avoid assigning
+// a method call to the wrong class without a full Java type checker.
+func javaUniqueReceiverTypeBindings(root *sitter.Node, src []byte) map[string]string {
+	bindings := make(map[string]string)
+	conflicts := make(map[string]bool)
+	add := func(name, typeName string) {
+		name = strings.TrimSpace(name)
+		typeName = strings.TrimSpace(typeName)
+		if name == "" || typeName == "" || conflicts[name] {
+			return
+		}
+		if have := bindings[name]; have != "" && have != typeName {
+			delete(bindings, name)
+			conflicts[name] = true
+			return
+		}
+		bindings[name] = typeName
+	}
+	walkNamedChildren(root, true, func(node *sitter.Node) {
+		switch node.Type() {
+		case "field_declaration", "local_variable_declaration":
+			typeName := javaDeclaredTypeName(node.ChildByFieldName("type"), src)
+			for i := 0; i < int(node.NamedChildCount()); i++ {
+				decl := node.NamedChild(i)
+				if decl.Type() != "variable_declarator" {
+					continue
+				}
+				if name := decl.ChildByFieldName("name"); name != nil {
+					add(nodeText(name, src), typeName)
+				}
+			}
+		case "formal_parameter", "spread_parameter", "catch_formal_parameter", "resource":
+			if name := node.ChildByFieldName("name"); name != nil {
+				add(nodeText(name, src), javaDeclaredTypeName(node.ChildByFieldName("type"), src))
+			}
+		case "enhanced_for_statement":
+			if name := node.ChildByFieldName("name"); name != nil {
+				add(nodeText(name, src), javaDeclaredTypeName(node.ChildByFieldName("type"), src))
+			}
+		}
+	})
+	return bindings
+}
+
+func javaDeclaredTypeName(node *sitter.Node, src []byte) string {
+	if node == nil {
+		return ""
+	}
+	switch node.Type() {
+	case "type_identifier":
+		return strings.TrimSpace(nodeText(node, src))
+	case "scoped_type_identifier":
+		if name := node.ChildByFieldName("name"); name != nil {
+			return javaDeclaredTypeName(name, src)
+		}
+	case "generic_type":
+		if base := node.ChildByFieldName("type"); base != nil {
+			return javaDeclaredTypeName(base, src)
+		}
+	case "array_type":
+		if elem := node.ChildByFieldName("element"); elem != nil {
+			return javaDeclaredTypeName(elem, src)
+		}
+	}
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		if typeName := javaDeclaredTypeName(node.NamedChild(i), src); typeName != "" {
+			return typeName
+		}
+	}
+	return ""
+}
+
+func javaInvocationReceiverBinding(node *sitter.Node, src []byte) string {
+	if node == nil {
+		return ""
+	}
+	object := node.ChildByFieldName("object")
+	if object == nil {
+		return ""
+	}
+	switch object.Type() {
+	case "identifier":
+		return strings.TrimSpace(nodeText(object, src))
+	case "field_access":
+		if field := object.ChildByFieldName("field"); field != nil && field.Type() == "identifier" {
+			return strings.TrimSpace(nodeText(field, src))
+		}
+	}
+	return ""
+}
+
+func javaInvocationReceiverExpression(node *sitter.Node, src []byte) string {
+	if node == nil {
+		return ""
+	}
+	if object := node.ChildByFieldName("object"); object != nil {
+		return strings.TrimSpace(nodeText(object, src))
+	}
+	return ""
 }

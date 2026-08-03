@@ -55,6 +55,7 @@ func extractSwift(root *sitter.Node, src []byte, file string) (pkg string, syms 
 			}
 		}
 	}
+	rels = append(rels, extractNavigationCalls(root, src, file, "swift_ast_navigation_call")...)
 	return
 }
 

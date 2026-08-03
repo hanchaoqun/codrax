@@ -25,6 +25,7 @@ import (
 func extractCangjie(src []byte, file string) (pkg string, syms []types.Symbol, imps []types.Import, rels []types.Relation, tier int) {
 	// Phase 1: tokeniser + recursive-descent parser (D5/M1 upgrade).
 	pkg, syms, imps, rels = parseCangjie(src, file)
+	rels = append(rels, cangjieExtractCalls(src, file)...)
 	if len(syms) > 0 || pkg != "" {
 		tier = 1
 		return
@@ -38,6 +39,7 @@ func extractCangjie(src []byte, file string) (pkg string, syms []types.Symbol, i
 	syms = scanCangjieDecls(cleaned, src, file, pkg)
 	imps = scanCangjieImports(cleaned, file)
 	rels = scanCangjieExtendRelations(cleaned, file)
+	rels = append(rels, cangjieExtractCalls(src, file)...)
 
 	if len(syms) > 0 || pkg != "" {
 		tier = 2
@@ -55,6 +57,116 @@ func extractCangjie(src []byte, file string) (pkg string, syms []types.Symbol, i
 	imps = salvageImps
 	tier = 2
 	return
+}
+
+// cangjieExtractCalls performs an expression-level pass over the same
+// comment/string-aware token stream used by the declaration parser. The
+// declaration parser intentionally treats bodies as opaque; without this
+// second pass Cangjie was the only statically typed executable language whose
+// repomap could never carry a source call edge. The pass emits only explicit
+// name(...) and receiver.name(...) token shapes and excludes declaration and
+// control heads. It does not infer receiver types.
+func cangjieExtractCalls(src []byte, file string) []types.Relation {
+	tokens := lexCangjie(src)
+	receiverTypes := cangjieUniqueReceiverTypeBindings(tokens)
+	var rels []types.Relation
+	for i := 0; i+1 < len(tokens); i++ {
+		nameTok := tokens[i]
+		if nameTok.Kind != cjTokIdent || tokens[i+1].Kind != cjTokLParen {
+			continue
+		}
+		name := strings.TrimSpace(nameTok.Text)
+		if name == "" || cangjieNonCallHead(name) || cangjieDeclarationCallHead(tokens, i) {
+			continue
+		}
+		receiver := ""
+		if i >= 2 && tokens[i-1].Kind == cjTokDot && cangjieReceiverToken(tokens[i-2]) {
+			start := i - 2
+			for start >= 2 && tokens[start-1].Kind == cjTokDot && cangjieReceiverToken(tokens[start-2]) {
+				start -= 2
+			}
+			var b strings.Builder
+			for j := start; j <= i-2; j++ {
+				b.WriteString(tokens[j].Text)
+			}
+			receiver = strings.TrimSpace(b.String())
+		}
+		if binding := cangjieReceiverBinding(receiver); binding != "" && receiverTypes[binding] != "" {
+			receiver = receiverTypes[binding]
+		}
+		rels = append(rels, types.Relation{
+			Kind:       "call",
+			FromEP:     types.RelationEndpoint{File: file, Line: nameTok.Line},
+			ToEP:       types.RelationEndpoint{Name: name, Receiver: receiver, File: file, Line: nameTok.Line},
+			File:       file,
+			Line:       nameTok.Line,
+			Confidence: types.ConfidenceAST,
+			Provenance: types.ProvenanceCangjieParser,
+			ResolvedBy: "cangjie_token_call",
+		})
+	}
+	return rels
+}
+
+func cangjieUniqueReceiverTypeBindings(tokens []cangjieToken) map[string]string {
+	bindings := make(map[string]string)
+	conflicts := make(map[string]bool)
+	for i := 0; i+2 < len(tokens); i++ {
+		if tokens[i].Kind != cjTokIdent || tokens[i+1].Kind != cjTokColon ||
+			(tokens[i+2].Kind != cjTokIdent && tokens[i+2].Kind != cjTokKeyword) {
+			continue
+		}
+		name := strings.TrimSpace(tokens[i].Text)
+		typeName := strings.TrimSpace(tokens[i+2].Text)
+		if name == "" || typeName == "" || conflicts[name] {
+			continue
+		}
+		if have := bindings[name]; have != "" && have != typeName {
+			delete(bindings, name)
+			conflicts[name] = true
+			continue
+		}
+		bindings[name] = typeName
+	}
+	return bindings
+}
+
+func cangjieReceiverBinding(receiver string) string {
+	receiver = strings.TrimSpace(receiver)
+	if idx := strings.LastIndex(receiver, "."); idx >= 0 {
+		receiver = receiver[idx+1:]
+	}
+	return strings.TrimSpace(receiver)
+}
+
+func cangjieReceiverToken(tok cangjieToken) bool {
+	return tok.Kind == cjTokIdent || tok.Kind == cjTokKeyword
+}
+
+func cangjieNonCallHead(name string) bool {
+	switch name {
+	case "if", "else", "for", "while", "match", "catch", "try", "synchronized",
+		"return", "throw", "spawn", "quote", "macro":
+		return true
+	default:
+		return false
+	}
+}
+
+func cangjieDeclarationCallHead(tokens []cangjieToken, nameIndex int) bool {
+	if nameIndex <= 0 {
+		return false
+	}
+	prev := tokens[nameIndex-1]
+	if prev.Kind != cjTokKeyword {
+		return false
+	}
+	switch prev.Text {
+	case "func", "class", "struct", "interface", "enum", "extend", "operator", "foreign":
+		return true
+	default:
+		return false
+	}
 }
 
 // stripCangjieCommentsAndStrings replaces comments and string

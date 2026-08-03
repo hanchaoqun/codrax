@@ -13,14 +13,14 @@ import (
 // in this vendored module uses these node-type names (verified via
 // tree dump):
 //
-//   function_statement     — both `function foo()` and `local function foo()`.
-//                            Distinguished by a `local` child node.
-//                            function_name child holds the dotted/colon
-//                            form (`M.foo` / `Class:method`); a bare
-//                            identifier child means "global function".
-//   variable_declaration   — `local x = require "mod"` / `M = {}`
-//   function_call          — `require "foo"` (when used as expression)
-//   module_return_statement / return_statement
+//	function_statement     — both `function foo()` and `local function foo()`.
+//	                         Distinguished by a `local` child node.
+//	                         function_name child holds the dotted/colon
+//	                         form (`M.foo` / `Class:method`); a bare
+//	                         identifier child means "global function".
+//	variable_declaration   — `local x = require "mod"` / `M = {}`
+//	function_call          — `require "foo"` (when used as expression)
+//	module_return_statement / return_statement
 //
 // We surface:
 //   - function_statement → Symbol(kind=function|method)
@@ -28,7 +28,48 @@ import (
 func extractLua(root *sitter.Node, src []byte, file string) (pkg string, syms []types.Symbol, imps []types.Import, rels []types.Relation) {
 	pkg = luaDerivePackage(file)
 	walkLua(root, src, file, &syms, &imps)
+	rels = append(rels, luaExtractCalls(root, src, file)...)
 	return
+}
+
+func luaExtractCalls(root *sitter.Node, src []byte, file string) []types.Relation {
+	var rels []types.Relation
+	walkNamedChildren(root, true, func(node *sitter.Node) {
+		if node.Type() != "function_call" {
+			return
+		}
+		target := strings.TrimSpace(nodeText(node, src))
+		if idx := strings.Index(target, "("); idx >= 0 {
+			target = strings.TrimSpace(target[:idx])
+		}
+		// Lua permits call sugar without parentheses (`require "mod"`,
+		// `printer "text"`). In that form nodeText contains the argument
+		// after the target; retain only the AST-anchored leading target.
+		if fields := strings.Fields(target); len(fields) > 0 {
+			target = fields[0]
+		}
+		name := target
+		receiver := ""
+		if idx := strings.LastIndexAny(target, ".:"); idx >= 0 {
+			receiver = strings.TrimSpace(target[:idx])
+			name = strings.TrimSpace(target[idx+1:])
+		}
+		if name == "" {
+			return
+		}
+		line := nodeLine(node)
+		rels = append(rels, types.Relation{
+			Kind:       "call",
+			FromEP:     types.RelationEndpoint{File: file, Line: line},
+			ToEP:       types.RelationEndpoint{Name: name, Receiver: receiver, File: file, Line: line},
+			File:       file,
+			Line:       line,
+			Confidence: types.ConfidenceAST,
+			Provenance: types.ProvenanceTreeSitter,
+			ResolvedBy: "lua_ast_function_call",
+		})
+	})
+	return rels
 }
 
 func luaDerivePackage(file string) string {

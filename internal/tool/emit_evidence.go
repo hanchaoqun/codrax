@@ -2496,10 +2496,22 @@ func normalizeCallEvidenceDirection(it *types.EvidenceItem, gc *ground.Context) 
 	candidates := emitPreferredCallTargetNames(it)
 	caller := enclosingCallableSymbolName(fi, it.LineStart)
 	callee := ""
-	if exact, ok := sourceLineCallTargetForCandidates(gc, source, it.LineStart, candidates); ok {
-		callee = exact
-	} else if rel, ok := findCallRelationAtLineForCandidates(fi, it.LineStart, candidates); ok {
-		callee = callRelationTargetName(gc.Graph, fi, rel)
+	// Prefer a graph-resolved semantic target (for example a Java field
+	// receiver `service.schedule` resolved to `VisitService.schedule`) over the
+	// byte-exact source expression. The source expression remains the fallback
+	// when the index cannot resolve a unique target; unresolved dynamic calls
+	// therefore keep their original bounded identity instead of being guessed.
+	if rel, ok := findCallRelationAtLineForCandidates(fi, it.LineStart, candidates); ok {
+		if target := gc.Graph.ResolveCallTarget(fi, *rel); target != nil {
+			callee = qualifiedEvidenceSymbolName(target)
+		}
+	}
+	if callee == "" {
+		if exact, ok := sourceLineCallTargetForCandidates(gc, source, it.LineStart, candidates); ok {
+			callee = exact
+		} else if rel, ok := findCallRelationAtLineForCandidates(fi, it.LineStart, candidates); ok {
+			callee = callRelationTargetName(gc.Graph, fi, rel)
+		}
 	}
 	if caller == "" || callee == "" {
 		return false

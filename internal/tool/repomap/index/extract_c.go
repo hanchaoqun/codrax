@@ -332,6 +332,9 @@ func cDeclaratorName(node *sitter.Node, src []byte) string {
 		if inner := node.ChildByFieldName("declarator"); inner != nil {
 			return cDeclaratorName(inner, src)
 		}
+		if node.NamedChildCount() > 0 {
+			return cDeclaratorName(node.NamedChild(0), src)
+		}
 	case "declaration":
 		for i := 0; i < int(node.NamedChildCount()); i++ {
 			if name := cDeclaratorName(node.NamedChild(i), src); name != "" {
@@ -344,6 +347,7 @@ func cDeclaratorName(node *sitter.Node, src []byte) string {
 
 func cExtractCalls(root *sitter.Node, src []byte, file string) []types.Relation {
 	var rels []types.Relation
+	receiverTypes := cUniqueReceiverTypeBindings(root, src)
 	walkNamedChildren(root, true, func(node *sitter.Node) {
 		if node.Type() != "call_expression" {
 			return
@@ -366,10 +370,17 @@ func cExtractCalls(root *sitter.Node, src []byte, file string) []types.Relation 
 			})
 		case "field_expression":
 			if field := fn.ChildByFieldName("field"); field != nil {
+				receiver := ""
+				if argument := fn.ChildByFieldName("argument"); argument != nil {
+					receiver = strings.TrimSpace(nodeText(argument, src))
+				}
+				if binding := cReceiverBinding(receiver); binding != "" && receiverTypes[binding] != "" {
+					receiver = receiverTypes[binding]
+				}
 				rels = append(rels, types.Relation{
 					Kind:       "call",
 					FromEP:     types.RelationEndpoint{File: file, Line: nodeLine(fn)},
-					ToEP:       types.RelationEndpoint{Name: nodeText(field, src), File: file, Line: nodeLine(fn)},
+					ToEP:       types.RelationEndpoint{Name: nodeText(field, src), Receiver: receiver, File: file, Line: nodeLine(fn)},
 					File:       file,
 					Line:       nodeLine(fn),
 					Confidence: types.ConfidenceAST,
@@ -377,12 +388,16 @@ func cExtractCalls(root *sitter.Node, src []byte, file string) []types.Relation 
 					ResolvedBy: "c_ast_field_call",
 				})
 			}
-		case "scoped_identifier":
+		case "scoped_identifier", "qualified_identifier":
 			if nameNode := fn.ChildByFieldName("name"); nameNode != nil {
+				receiver := ""
+				if scope := fn.ChildByFieldName("scope"); scope != nil {
+					receiver = strings.TrimSpace(nodeText(scope, src))
+				}
 				rels = append(rels, types.Relation{
 					Kind:       "call",
 					FromEP:     types.RelationEndpoint{File: file, Line: nodeLine(fn)},
-					ToEP:       types.RelationEndpoint{Name: nodeText(nameNode, src), File: file, Line: nodeLine(fn)},
+					ToEP:       types.RelationEndpoint{Name: nodeText(nameNode, src), Receiver: receiver, File: file, Line: nodeLine(fn)},
 					File:       file,
 					Line:       nodeLine(fn),
 					Confidence: types.ConfidenceAST,
@@ -393,4 +408,61 @@ func cExtractCalls(root *sitter.Node, src []byte, file string) []types.Relation 
 		}
 	})
 	return rels
+}
+
+func cUniqueReceiverTypeBindings(root *sitter.Node, src []byte) map[string]string {
+	bindings := make(map[string]string)
+	conflicts := make(map[string]bool)
+	add := func(name, typeName string) {
+		name = strings.TrimSpace(name)
+		typeName = strings.TrimSpace(typeName)
+		if name == "" || typeName == "" || conflicts[name] {
+			return
+		}
+		if have := bindings[name]; have != "" && have != typeName {
+			delete(bindings, name)
+			conflicts[name] = true
+			return
+		}
+		bindings[name] = typeName
+	}
+	walkNamedChildren(root, true, func(node *sitter.Node) {
+		if node.Type() != "parameter_declaration" {
+			return
+		}
+		declarator := node.ChildByFieldName("declarator")
+		typeNode := node.ChildByFieldName("type")
+		if declarator != nil {
+			typeName := cDeclaredTypeName(typeNode, src)
+			if typeName == "" {
+				typeName = cDeclaredTypeName(node, src)
+			}
+			add(cDeclaratorName(declarator, src), typeName)
+		}
+	})
+	return bindings
+}
+
+func cDeclaredTypeName(node *sitter.Node, src []byte) string {
+	if node == nil {
+		return ""
+	}
+	switch node.Type() {
+	case "type_identifier", "primitive_type":
+		return strings.TrimSpace(nodeText(node, src))
+	}
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		if name := cDeclaredTypeName(node.NamedChild(i), src); name != "" {
+			return name
+		}
+	}
+	return ""
+}
+
+func cReceiverBinding(receiver string) string {
+	receiver = strings.Trim(strings.TrimSpace(receiver), "*&()")
+	if idx := strings.LastIndexAny(receiver, ".>"); idx >= 0 {
+		receiver = receiver[idx+1:]
+	}
+	return strings.TrimSpace(receiver)
 }
