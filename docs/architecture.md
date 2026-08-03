@@ -2606,6 +2606,21 @@ codrax --tracediag <script.yaml> --trace <trace> \
 - **失败语义**：冲突 flag fail-loud；discovery/step 失败 → 非零退出码，独立步骤仍继续执行；`--out` 走 temp+rename，失败不碰旧报告。
 - **出货模板**：`examples/tracediag/`（collect_format_census / collect_open_gap_witness / collect_io_pairing_witness / collect_berlin_pairing_witness / collect_cap2 / collect_g12 / collect_d10 / collect_acceptance_snapshot）。回访命令与回传规则见 `docs/design/trace_analysis_open_gap_ledger_20260710.md`（统一采集与回访命令节）+ `docs/design/trace_witness_collection_playbook_20260710.md`。
 
+#### 13.7.1 `trace convert --diagnostic-report` — 单次转换有界诊断 sideband
+
+转换本身失败、客户又无法回传原始 trace 时，可让同一次 CLI 转换生成一份有界文本报告：
+
+```bash
+codrax trace convert --input capture.sys \
+  --output capture.systrace \
+  --diagnostic-report codrax-trace-diag.txt
+```
+
+- 报告在转换成功或失败时都写入，包含 build identity、实际 options、进度首尾、provider decision、artifact/coverage/caveat 与 typed error；它是诊断清册，不是原始 trace 的替代品。
+- 物理行数硬上限为 900，单行也有字节上限，满足客户回传不超过 1000 行的约束。
+- 报告文件使用 `O_EXCL`，已有文件绝不覆盖；路径在创建前必须与 input、systrace、tracebundle、perftrace、retained DB 及 `.ohos.ts` companion 的 route-neutral 保留路径全部不 alias。比较沿用转换发布的 canonical/SameFile 规则，包含 symlink parent 与 Windows 大小写等价。
+- `--diagnostic-report` 记录一次真实转换，不能与 `--trace-tools-status` / `--perf-tools-status` 这类 status-only 调用组合。客户只需回传该报告；若需零 LLM 的转换后定向取证，再对生成的 systrace 使用上节 `--tracediag`。
+
 ### 13.8 internal/dataquery — 账本组键血统四车道（ledger group-key lineage，EVALFIX-2D 类4）
 
 数据任务账本体系（`ContributionRecord` / `ReconcileGroup` / `EntityResolutionRecord` / `RowDecision`）有两个正交命名空间：schema 命名空间（字段名 + 各解码 alias）与数据值命名空间（输入行观测值）。runner 铸造的每条贡献的 GroupKey 恰属一条 typed 血统车道（`internal/dataquery/group_key_lineage.go`）：

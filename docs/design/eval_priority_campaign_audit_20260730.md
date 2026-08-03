@@ -4130,6 +4130,15 @@ canonical alias 判定，CLI 在创建 sideband 前消费，不再复制 sidecar
 `go test ./cmd ./internal/hitraceconv -count=1` 全包通过（7.022s / 92.890s）。状态：
 `implemented / full-package-pass`。
 
+#### 批 M15：T2-4 conversion diagnostic 文档契约（2026-08-02）
+
+CLI 已有有界 `--diagnostic-report`，但日常入口和 architecture trace diagnostics 只介绍转换后
+`--tracediag`。M15 在 `CLAUDE.md` 增加单命令，在 architecture §13.7.1 固定 success/failure、
+900 行帽、O_EXCL、不 alias 全部转换保留路径、status-only 冲突及与 tracediag 的能力边界。
+零生产代码改动。
+
+CLI flag/diagnostic 定向测试通过（1.320s）。状态：`docs-implemented / targeted-test-pass`。
+
 ### B47：运行日志语义所有权 × write 跨语言检查权限（2026-08-02）
 
 严格并行 2 个跨模式 case：

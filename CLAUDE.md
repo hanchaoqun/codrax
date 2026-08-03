@@ -31,6 +31,9 @@ kubectl logs pod/foo | ./codrax --repo . --request "analyse crash" --log -
 # Zero-LLM deterministic trace collection (--tracediag mode; pure read, bypasses the LLM pipeline entirely):
 ./codrax --tracediag examples/tracediag/collect_open_gap_witness.yaml --trace t.systrace --trace-window 10.0..10.2 --trace-tid 1234 --out report.txt
 
+# One-shot bounded conversion diagnostics (written on conversion success or failure; never overwrites):
+./codrax trace convert --input capture.sys --diagnostic-report codrax-trace-diag.txt
+
 # Write mode (CLI explicit opt-in; REPL auto route enters Auto Pilot; refused when write_enabled: false):
 ./codrax --mode=write --request "add X"
 ./codrax --mode=write --write-phase=plan --request "add X" --plan-out /tmp/p.json  # advanced plan-only

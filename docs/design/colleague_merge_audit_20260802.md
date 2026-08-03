@@ -573,3 +573,25 @@ output、显式 trace DB output 三个字符串比较；tracebundle、perftrace�
 （7.022s / 92.890s）。
 
 状态：`T2-3=confirmed / implemented / full-package-pass`。下一项审计 T2-4 文档契约。
+
+---
+
+## §24 T2-4 施工结果：把 conversion diagnostic 写入日常与架构入口（2026-08-02）
+
+finding 准确：CLI help 与测试已有 `--diagnostic-report`，但 `CLAUDE.md` 日常命令和
+`docs/architecture.md` trace diagnostics 章节只写了转换后的 `--tracediag`，没有告诉维护者或
+客户如何采集“转换本身失败”的一次性报告。
+
+本批零代码改动：
+
+- `CLAUDE.md` Build & Run 增加一条可复制命令；
+- architecture §13.7.1 说明 success/failure 均写、900 物理行硬帽、单行上限、typed 内容边界、
+  `O_EXCL` 不覆盖、六类 route-neutral 路径避让和 status-only 不可组合；
+- 明确 diagnostic-report 是转换诊断清册，不是原始 trace；转换成功后的定向取证仍使用
+  `--tracediag`，避免两个能力继续混称。
+
+验证：`go test ./cmd -run 'TestTraceConvertCLIContract|TestTraceConvertDiagnosticReport' -count=1`
+通过（1.320s）；文档命令与当前 Cobra 参数逐项冷读一致。
+
+状态：`T2-4=confirmed / docs-implemented / targeted-test-pass`。下一项复核 T2-2 capability
+清册自指 pin 的维护成本。
