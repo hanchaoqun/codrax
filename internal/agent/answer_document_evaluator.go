@@ -7332,6 +7332,7 @@ func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 		b.WriteString("- The current grounded call-chain lane is the principal source for ordered-list items and sequence-diagram edges. Observation entries can explain where the trace came from, but they do not add caller/callee hops unless the current grounded chain lane also contains that hop.\n")
 		b.WriteString("- You may use an entry's `Evidence note` to enrich that SAME hop's explanation. Do not turn nouns from the note into additional hops, targets, diagram nodes, or countable list members unless they also appear as their own lane entry.\n")
 		b.WriteString("- If a function, file, span, or prior-turn subject appears elsewhere in the prompt but not in the current grounded call-chain lane, treat it as background only for the principal path.\n\n")
+		b.WriteString(renderAnswerDocCallChainDiagramSemanticsGuide())
 	default:
 		b.WriteString("- Keep observed facts, current-code facts, and boundary disclosures in their own lanes.\n")
 		b.WriteString("- If a function, file, symbol, trace span, or prior-turn subject appears elsewhere in the prompt but not in a lane that allows the block kind you are writing, treat it as background only.\n\n")
@@ -7394,6 +7395,21 @@ func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// renderAnswerDocCallChainDiagramSemanticsGuide is soft authoring guidance for
+// the closed QFCallChain family. It helps the model preserve the operation and
+// control-flow semantics already present in typed support lanes without
+// deriving a hard decision from user/model prose or rewriting the answer.
+// These rules are language-neutral: syntax differs, but an invocation, a
+// guard, and a declarative relation remain distinct semantic edge classes.
+func renderAnswerDocCallChainDiagramSemanticsGuide() string {
+	return "### Cross-language call-diagram semantics\n\n" +
+		"- For an invocation edge, prefer function/method-qualified participants. The message after `:` should name the exact callee operation carried by the current grounded call-edge entry; if you show arguments, literals, selectors, or operators, copy only what the cited call site establishes. Do not substitute the caller operation or an illustrative payload.\n" +
+		"- A condition, capacity check, match arm, null guard, loop predicate, or other control decision that does not invoke a second symbol is not a call edge. In a sequence diagram render it as `Note`, `alt`/`else`, or `opt`; in a flow diagram render it as a branch. Do not manufacture a self-call to make the condition visible.\n" +
+		"- Preserve the source language's resolved identity: package/type/receiver qualification when known; exact receiver/member surface with an uncertainty disclosure when dynamic dispatch is unresolved. Never guess an owner merely to make the graph look uniform.\n" +
+		"- This guidance applies uniformly to Go, Java, Kotlin, JavaScript/TypeScript/ArkTS, C/C++, Rust, Python, Ruby, Swift, Lua, Cangjie, and every other supported executable language. Declarative imports, inheritance/implements edges, annotations, and Proto/RPC declarations use their typed relation class; they are not executable calls unless a separately grounded invocation proves that edge.\n" +
+		"These are presentation instructions, not conclusion authority: keep the model's explanation and judgment, and omit the diagram when it would add no useful structure.\n\n"
 }
 
 type answerDocPrincipalEnumerationRowCoverage struct {

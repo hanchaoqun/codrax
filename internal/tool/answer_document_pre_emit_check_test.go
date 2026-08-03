@@ -2167,6 +2167,110 @@ func TestNormalizeAggregateMemberSetCarriers_AnnotatesCompletePrimaryRelationLis
 	}
 }
 
+func TestNormalizeAggregateMemberSetCarriers_AnnotatesCompletePrincipalMarkdownTableWithoutDuplicatingRows(t *testing.T) {
+	mu := types.NewMutableState("list callers")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "appendTypedRelationKinds production callers",
+		Value:      "2",
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Members:    []string{"BuildTypedRelationQueryWithResolvedSources", "TypedRelationKindsForRequest"},
+		Provenance: types.TypedRelationPrincipalMemberSetAggregateProvenance,
+		SupportRefs: []string{
+			"BuildTypedRelationQueryWithResolvedSources @ internal/types/typed_relation_hint.go:294",
+			"TypedRelationKindsForRequest @ internal/types/typed_relation_hint.go:321",
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "en",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+				IsRelationalLookup:    true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:          "callers",
+		Kind:        types.BlockTable,
+		SurfaceRole: types.SurfacePrincipal,
+		FacetIDs:    []string{string(types.FacetEnumerationItem)},
+		ClaimUses: []types.RenderedClaimUse{{
+			ClaimForm: types.ClaimCallEdge,
+			FacetID:   string(types.FacetEnumerationItem),
+		}},
+		Text: strings.Join([]string{
+			"| caller | file |",
+			"|---|---|",
+			"| BuildTypedRelationQueryWithResolvedSources | internal/types/typed_relation_hint.go:294 |",
+			"| TypedRelationKindsForRequest | internal/types/typed_relation_hint.go:321 |",
+		}, "\n"),
+	}}}
+
+	before := len(doc.Blocks)
+	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 0 {
+		t.Fatalf("annotating a complete markdown carrier must not materialize duplicate rows, fixed=%d doc=%+v", fixed, doc.Blocks)
+	}
+	if len(doc.Blocks) != before {
+		t.Fatalf("complete markdown table must remain the only member carrier: before=%d after=%d doc=%+v", before, len(doc.Blocks), doc.Blocks)
+	}
+	if doc.Blocks[0].Title != "appendTypedRelationKinds production callers (2)" {
+		t.Fatalf("typed relation label should annotate the existing markdown carrier, got %+v", doc.Blocks[0])
+	}
+	if got := strings.Count(answerDocumentTestVisibleSurface(doc), "BuildTypedRelationQueryWithResolvedSources"); got != 1 {
+		t.Fatalf("model row must remain single-copy, got %d occurrences in %+v", got, doc.Blocks)
+	}
+}
+
+func TestNormalizeAggregateMemberSetCarriers_IncompletePrincipalMarkdownTableStillGetsMissingCarrier(t *testing.T) {
+	mu := types.NewMutableState("list callers")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "production callers",
+		Value:      "2",
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Members:    []string{"CallerA", "CallerB"},
+		Provenance: types.TypedRelationPrincipalMemberSetAggregateProvenance,
+		SupportRefs: []string{
+			"CallerA @ internal/a.go:11",
+			"CallerB @ internal/b.go:22",
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "en",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+				IsRelationalLookup:    true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:          "callers",
+		Kind:        types.BlockTable,
+		SurfaceRole: types.SurfacePrincipal,
+		FacetIDs:    []string{string(types.FacetEnumerationItem)},
+		Text: strings.Join([]string{
+			"| caller | file |",
+			"|---|---|",
+			"| CallerA | internal/a.go:11 |",
+		}, "\n"),
+	}}}
+
+	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 2 {
+		t.Fatalf("incomplete markdown table must not suppress the typed fallback carrier, fixed=%d doc=%+v", fixed, doc.Blocks)
+	}
+	if len(doc.Blocks) != 2 || len(doc.Blocks[1].Items) != 2 {
+		t.Fatalf("expected one complete typed fallback carrier, got %+v", doc.Blocks)
+	}
+}
+
 func TestNormalizeAggregateMemberSetCarriers_LocalizesEnglishSystemSupplement(t *testing.T) {
 	mu := types.NewMutableState("exhaustive aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

@@ -3103,7 +3103,7 @@ func normalizeAggregateMemberSetCarriers(doc *types.AnswerDocumentV2, ctx *types
 			covered {
 			if covered && relationLabelRefs[ref.Index] &&
 				!preEmitPrincipalStructuredBlockClaimsAggregateCategory(doc, fact) {
-				if blockIdx := preEmitPrimaryMemberCarrierIndex(doc, fact); blockIdx >= 0 {
+				if blockIdx := preEmitPrimaryMemberCarrierIndex(doc, fact, rows); blockIdx >= 0 {
 					annotateAggregateMemberSetCarrier(&doc.Blocks[blockIdx], fact, zh)
 					continue
 				}
@@ -3119,19 +3119,40 @@ func normalizeAggregateMemberSetCarriers(doc *types.AnswerDocumentV2, ctx *types
 	return fixed
 }
 
-// preEmitPrimaryMemberCarrierIndex returns one model-authored structured block
-// whose row keys cover the complete accepted member set. Restricting the match
-// to item labels is deliberate: a relation dimension that merely appears in a
-// detail/text column is not the primary enumeration axis and still needs its
+// preEmitPrimaryMemberCarrierIndex returns one model-authored primary block
+// whose rows cover the complete accepted member set. Structured carriers use
+// item labels as row keys. Markdown tables additionally need typed principal /
+// enumeration annotations and exact accepted display-row coverage; a relation
+// dimension that merely appears in an unrelated detail column still needs its
 // own carrier.
-func preEmitPrimaryMemberCarrierIndex(doc *types.AnswerDocumentV2, fact types.AnswerAggregateFact) int {
+func preEmitPrimaryMemberCarrierIndex(doc *types.AnswerDocumentV2, fact types.AnswerAggregateFact, rows []types.EnumerationDisplayRow) int {
 	if doc == nil || len(fact.Members) == 0 {
 		return -1
 	}
 	for blockIdx, block := range doc.Blocks {
 		if preEmitSystemEnumerationRowSupplementBlock(block) ||
-			!preEmitStructuredMemberSetBlockCanCarry(block) ||
-			len(block.Items) < len(fact.Members) {
+			!preEmitStructuredMemberSetBlockCanCarry(block) {
+			continue
+		}
+		// A model-authored markdown table is a first-class carrier even
+		// though its rows live in Text rather than Items. Recognise it only
+		// through the typed principal/enumeration annotations and exact
+		// accepted display-row coverage. This is a presentation choice after
+		// coverage has already been established, not a prose-derived gate:
+		// the table is annotated in place instead of gaining a second,
+		// system-authored list with the same members.
+		if block.Kind == types.BlockTable && strings.TrimSpace(block.Text) != "" {
+			if block.SurfaceRole != types.SurfacePrincipal ||
+				!principalEnumerationBlockHasEnumerationFacet(block) ||
+				len(rows) == 0 {
+				continue
+			}
+			if preEmitMarkdownTablePrimaryAxisCoversRows(block, rows) {
+				return blockIdx
+			}
+			continue
+		}
+		if len(block.Items) < len(fact.Members) {
 			continue
 		}
 		used := make([]bool, len(block.Items))
@@ -3158,6 +3179,39 @@ func preEmitPrimaryMemberCarrierIndex(doc *types.AnswerDocumentV2, fact types.An
 		}
 	}
 	return -1
+}
+
+func preEmitMarkdownTablePrimaryAxisCoversRows(block types.AnswerBlock, rows []types.EnumerationDisplayRow) bool {
+	if block.Kind != types.BlockTable || len(rows) == 0 {
+		return false
+	}
+	tableRows := principalEnumerationMarkdownTableRows(block.Text)
+	if len(tableRows) < len(rows) {
+		return false
+	}
+	used := make([]bool, len(tableRows))
+	for _, row := range rows {
+		match := -1
+		for rowIdx, cells := range tableRows {
+			if used[rowIdx] || len(cells) == 0 {
+				continue
+			}
+			// The first column is the row identity axis. A member that only
+			// appears in a detail/package column belongs to another relation
+			// dimension and must not borrow this table as its primary carrier.
+			if !principalEnumerationAnySurfaceMatchesRow([]string{cells[0]}, row) ||
+				!principalEnumerationMarkdownRowCoversRow(cells, row) {
+				continue
+			}
+			match = rowIdx
+			break
+		}
+		if match < 0 {
+			return false
+		}
+		used[match] = true
+	}
+	return true
 }
 
 func annotateAggregateMemberSetCarrier(block *types.AnswerBlock, fact types.AnswerAggregateFact, zh bool) {

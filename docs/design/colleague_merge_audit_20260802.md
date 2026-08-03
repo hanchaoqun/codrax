@@ -901,3 +901,48 @@ Mermaid 表达器或 Java receiver identity 回退，而是更上游的 evidence
 
 验证：typed family 正/反定向测试通过（2.612s）；`go test ./internal/agent -count=1`
 全包通过（3.445s）。
+
+---
+
+## §33 B52 r7：调用边交接闭环、Markdown 主载体重复与全语言图语义（2026-08-02）
+
+在 `759f1c859` 上严格并行回放同一对高优先级用例，runner 2/2 PASS：
+
+- Java call-chain 253s，explorer 已把四条 load-bearing direct invocation 全部作为 grounded typed
+  call edge 交给 finalizer，method-qualified sequence 成功出厂，因此
+  `B52f-CALL-EDGE-EVIDENCE-HANDOFF=covered`；
+- called-by 322s，direct production caller 仍精确为 2 个，主席位没有回退；但模型已经给出完整
+  两行 Markdown 表后，系统又追加同样两行的 ordered list，登记
+  `B52g-PRINCIPAL-MARKDOWN-CARRIER-DUPLICATION`（P1）。
+
+Java 答案仍有两类模型错误：消息标签把 caller/示例 payload 写成 callee 调用，以及把 stdout
+表述为落库；首稿还把纯 capacity guard 画成 invocation self-edge，导致 10 次 reject / 5 次 patch。
+这些错误不能通过扫描答案文字加硬门，也不能由系统改写模型结论。本批只增加 closed
+`QFCallChain` 的 soft authoring guidance：调用消息对应 typed callee operation；参数、literal、selector、
+operator 只能取自 cited callsite；纯 guard 用 `Note/alt/opt` 或 flow branch，不伪造 self-call；动态
+dispatch 不猜 owner。
+
+`B52g` 根因不是枚举缺失，而是载体选择只承认 `Items[].Label`，不承认已经通过 exact accepted-row
+coverage 的模型 Markdown table。因此关系 label 分支找不到 primary carrier，又创建第二个系统清单。
+通用修复：
+
+1. Markdown table 只有同时满足 `surface_role=principal`、typed enumeration facet、并逐行覆盖该 fact
+   的 accepted display rows，才能作为 primary carrier；
+2. 命中后只在原表补 typed relation title/facet/claim annotation，不追加新 block、不改表格正文和模型结论；
+3. 缺任一行、缺 typed 身份或跨 fact 只偶然提到成员时不命中，既有 missing-row/system carrier 继续生效；
+4. 判定源是 typed fact/display rows/block annotations；不读 RawRequest、模型 thinking，不把消息 label
+   文案变成新的 hard reject；
+5. 规则位于语言无关的 answer compiler。Go、Java、Kotlin、JavaScript/TypeScript/ArkTS、C/C++、
+   Rust、Python、Ruby、Swift、Lua、Cangjie 等 executable languages 共用；Proto/RPC、import、
+   inheritance/implements、annotation 保持其 declarative typed relation，不伪造成 call；
+6. QFRootCauseTrace、显式时间窗 Trace 因果投影和自动补齐不进入该 soft guide；枚举 carrier 修复只
+   消除重复，不删除 accepted rows。
+
+定向回归覆盖完整 Markdown 主表原位承载、缺行反臂、既有 structured principal list、Cangjie
+package/class 多维表“成员只在详情列出现”反臂，以及全语言 soft guide 的语言矩阵/非结论权限边界。
+
+完整回归：`go test ./internal/tool ./internal/agent -count=1` 通过
+（tool 161.350s；agent 2.999s）。
+
+状态：`B52f=covered`；`B52g=implemented / directed-pass / full-tests-pass /
+same-pair-replay pending`。

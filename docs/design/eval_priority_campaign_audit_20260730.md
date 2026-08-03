@@ -3919,6 +3919,34 @@ B18c 使用一条通用 typed 规则修复：
 
 状态：`implemented / full-tests-pass / cross-relation replay next`。
 
+### B52 r7：全语言调用图交接验收与模型表重复（2026-08-02）
+
+同 pair 在 `759f1c859` 上 runner 2/2 PASS。人工审计结论：
+
+1. Java 的四条 direct invocation 均已作为 grounded typed call edge 到达 finalizer，证明上一批
+   evidence handoff 通用修复有效；最终图仍把两个 message operation/literal 写错，且首稿把 guard
+   画成 self-call，这是模型消费/表达波动，不授权系统替换答案；
+2. called-by 的模型主表正确、完整、仅 2 行，系统随后重复追加 2 行 ordered list。登记
+   `B52g-PRINCIPAL-MARKDOWN-CARRIER-DUPLICATION`，它是确定性 presentation compiler gap；
+3. 施工采用 typed exact-row carrier 复用：完整 principal enumeration Markdown table 仅在首列身份轴
+   逐行覆盖时原位承载 relation label，缺行表或成员只在详情列出现时仍走独立补齐；不扫描请求/
+   答案 prose，不新增硬门；
+4. 同批增加语言中立的 `QFCallChain` soft diagram semantics：callee operation、guard/control edge、
+   dynamic owner 与 declarative relation 分账。矩阵覆盖 Go、Java、Kotlin、JS/TS/ArkTS、C/C++、
+   Rust、Python、Ruby、Swift、Lua、Cangjie 及其它 executable languages；Proto/RPC/import/
+   inheritance/annotation 不凭图形需要升级为 call；
+5. Trace root-cause、具体时间窗因果投影和系统补齐均不在该 guide 的 family gate 内。
+
+工件：
+
+- `eval/parallel_selected_summary_evalcampaign_b52_mergeaudit_callchain_r7_20260802.md`；
+- `eval/parallel_selected_summary_evalcampaign_b52_mergeaudit_callchain_r7_20260802_manual_audit.md`。
+
+完整回归：`internal/tool` 161.350s、`internal/agent` 2.999s，均通过。
+
+状态：`B52f=covered`；`B52g=implemented / directed-pass / full-tests-pass /
+same-pair-replay pending`。
+
 ---
 
 ### B52 r5：mixed relation 图已闭环，relation principal 仍有隐式兄弟竞争（2026-08-02）

@@ -2346,6 +2346,13 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersCallChainSupport
 	for _, want := range []string{
 		"## Typed Answer Support Lanes",
 		"### Current grounded call chain",
+		"### Cross-language call-diagram semantics",
+		"exact callee operation",
+		"Do not manufacture a self-call",
+		"JavaScript/TypeScript/ArkTS",
+		"Cangjie",
+		"Declarative imports, inheritance/implements edges, annotations, and Proto/RPC declarations",
+		"presentation instructions, not conclusion authority",
 		"Allowed block kinds: summary, ordered_list, diagram",
 		"`RequestModel`",
 		"internal/agent/analyzer.go:616",
@@ -2359,6 +2366,34 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersCallChainSupport
 	}
 	if strings.Contains(prompt, "## Resolved Step Sequence") {
 		t.Fatalf("call-chain support lanes should replace legacy step sequence prompt:\n%s", prompt)
+	}
+}
+
+func TestRenderAnswerDocCallChainDiagramSemanticsGuide_CoversAllExecutableLanguageFamiliesWithoutHardGate(t *testing.T) {
+	guide := renderAnswerDocCallChainDiagramSemanticsGuide()
+	for _, language := range []string{
+		"Go", "Java", "Kotlin", "JavaScript/TypeScript/ArkTS", "C/C++", "Rust",
+		"Python", "Ruby", "Swift", "Lua", "Cangjie",
+	} {
+		if !strings.Contains(guide, language) {
+			t.Fatalf("cross-language diagram guide missing %q:\n%s", language, guide)
+		}
+	}
+	for _, want := range []string{
+		"exact callee operation",
+		"`Note`, `alt`/`else`, or `opt`",
+		"dynamic dispatch is unresolved",
+		"not executable calls unless a separately grounded invocation proves that edge",
+		"not conclusion authority",
+	} {
+		if !strings.Contains(guide, want) {
+			t.Fatalf("cross-language diagram guide missing semantic boundary %q:\n%s", want, guide)
+		}
+	}
+	for _, forbidden := range []string{"user question contains", "answer text contains", "reject the answer"} {
+		if strings.Contains(strings.ToLower(guide), forbidden) {
+			t.Fatalf("soft diagram guide must not introduce raw-prose hard gates %q:\n%s", forbidden, guide)
+		}
 	}
 }
 
