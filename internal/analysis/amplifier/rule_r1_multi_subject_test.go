@@ -198,6 +198,31 @@ func TestR1_NoFire_RelationalCallChainWithOneExactEndpoint(t *testing.T) {
 	}
 }
 
+func TestR1_NoFire_CallChainWithOneExactEndpointWithoutRelationalFlag(t *testing.T) {
+	rm := makeRMWithEntities(
+		"EntryHandler",
+		"BusinessService",
+		"RecordStore",
+		"AuditSink",
+	)
+	rm.Intent = types.IntentTrace
+	rm.Scenario = types.ScenarioArchitectureExplain
+	rm.PredicateAxis = types.AxisCall
+	rm.AnalyzerHints.Kind = string(types.ReqCallChain)
+	rm.AnalyzerHints.ExactTargets = []string{"EntryHandler.create"}
+	rm.Predicates.IsRelationalLookup = false
+
+	got, obs := Amplify(rm)
+	if got.Predicates.IsCategoryEnumeration {
+		t.Errorf("R1 must NOT turn an ordered call-chain with one explicit endpoint into a category enumeration when relational lookup is false")
+	}
+	for _, ob := range obs {
+		if ob.Rule == "R1_multi_subject_predicate" {
+			t.Errorf("expected no R1 observation for call-chain narrative, got %+v", obs)
+		}
+	}
+}
+
 func TestR1_RelationalCallChainExplicitSetBoundaryStillAllowsEnumeration(t *testing.T) {
 	rm := makeRMWithEntities("EntryHandler", "BusinessService", "RecordStore")
 	rm.Intent = types.IntentTrace

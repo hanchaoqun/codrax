@@ -63,13 +63,14 @@ func distinctEntityCount(entities []string) int {
 //  4. NOT structural endpoint trace — a source→sink / call-chain
 //     question may legitimately carry endpoint(s) plus nearby context
 //     entities, but the principal answer is still one ordered trace,
-//     not a category enumeration. A relational call-chain may expose
-//     only one exact code target when the other endpoint is a semantic
+//     not a category enumeration. A call-chain may expose only one
+//     exact code target when the other endpoint is a semantic
 //     destination; that is still a path when no typed set boundary was
-//     requested. This guard reads only typed analyzer fields (Intent,
-//     PredicateAxis, AnalyzerHints.Kind, typed exact_targets,
-//     predicates) so it stays language-neutral and avoids raw-request
-//     keyword matching.
+//     requested, regardless of whether the analyzer also marks the
+//     path as a relational lookup. This guard reads only typed analyzer
+//     fields (Intent, PredicateAxis, AnalyzerHints.Kind, typed
+//     exact_targets, predicates) so it stays language-neutral and
+//     avoids raw-request keyword matching.
 //  5. NOT single-topic mechanism explanation — a "how/when does X
 //     behave" question often emits several code identifiers because
 //     they are participants in one mechanism. Those entities are
@@ -178,9 +179,9 @@ func isStructuralEndpointTraceQuestion(rm types.RequestModel) bool {
 	if targetCount == 0 {
 		return false
 	}
-	if rm.Predicates.IsRelationalLookup {
-		return rm.PredicateAxis == types.AxisCall &&
-			types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) == types.ReqCallChain
+	if rm.PredicateAxis == types.AxisCall &&
+		types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) == types.ReqCallChain {
+		return true
 	}
 	if targetCount < 2 {
 		return false

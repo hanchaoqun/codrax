@@ -4660,7 +4660,7 @@ persist choke point 之外，因此既有“非 system block wire 不变”测�
 | `EVAL-B51-SETAXIS1` | P1 | `is_relational_lookup` 单独把 narrative call chain 提升为 exact operation-site member set，探索模型的路径解释被硬化成 exhaustive roster | source-operation-site set 权限必须由 enumerate/category/per-member/completeness 等 typed set boundary 授予；relation-only call chain 继续使用 ordered path/support lane，不生成 hard enumeration rows | covered；B51-A |
 | `EVAL-B51-MUTLOOP1` | P1 | 两个 deterministic normalizer 对同一 principal block 一删一补，导致不可自愈 reject loop | 撤销 OWN1 后增加生产接线 pin：模型五行 wire 保持、无 principal-enum hard roster、同 payload 一次通过；任何系统 repair 不得制造后续 hard obligation | covered；B51-A |
 | `EVAL-B51-ORACLE1` | P1-eval | broad answer regex 虽已排除分隔线前的进度草稿，但仍让终态 citation footer 与降级 raw-model appendix 重复的符号满足断言；错误主结论仍 PASS | 新增 opt-in `primary_answer` oracle，只消费终态主答案体，按稳定 renderer 边界排除 citation/recovery/Trace supplements；不静默改变 200+ 历史 case，逐案显式迁移 | covered；B51-B r2 真实 replay 已由主答案六步路径满足 |
-| `EVAL-B51-AMPSET1` | P1 | analyzer 已明确 `trace/call_chain/call/relational/category=false/exact_target=1`，R1 仍仅凭多个参与实体放大为 category enumeration，进而强制探索交付 member_set 并将多轮集合并成 14 行重复清册 | R1 识别有 exact endpoint 的 typed relational call-chain 为有序路径；只有 enumerate/category/per-member/completeness/enumeration-boundary/buckets 才授予集合边界。不从请求或答案文本推断 | implemented；B51-C，待 r3 replay |
+| `EVAL-B51-AMPSET1` | P1 | analyzer 已明确 `trace/call_chain/call/category=false/exact_target=1`，R1 仍仅凭多个参与实体放大为 category enumeration，进而强制探索交付 member_set 并将多轮集合并成重复清册 | R1 识别有 exact endpoint 的 typed call-chain 为有序路径，不依赖波动的 relational 布尔；只有 enumerate/category/per-member/completeness/enumeration-boundary/buckets 才授予集合边界。不从请求或答案文本推断 | implemented；B51-C2，待 r4 replay |
 
 施工顺序冻结：B51-A 先撤销 call-chain 结论替换并收窄 relation-only set 权限；相关 types/tool 全包
 通过后独立提交推送。B51-B 再修 eval final-answer oracle。完成本节审计和 B51-A 交付后，才继续
@@ -4703,6 +4703,19 @@ kind=call_chain / exact_targets>=1`，且没有 per-member、completeness、decl
 多 bucket 时，它是一条有序路径，R1 不得仅凭参与实体数量创建 category 权限。
 反向 pin 保留显式 per-member 边界时的 enumeration 放大。判定只读 typed IR，不扫描用户原文、
 模型 thinking/summary/final，不按 Java/类名/case ID 适配。
+
+B51 r3 中 Java 降至 93s，explorer 4→1、read 18→5、finalizer reject 8→0，模型主答案给出
+正确四层路径和容量检查位置，不再有系统追加的 3/14 行重复清册。但冷读 prompt 发现
+同轮 analyzer 合法地把 `is_relational_lookup` 设为 false，R1 仍因 exact target 在
+`ExactResolutionTargets` 路径中不可用而放大 category；只是本轮 member_set 刚好与四个路径节点对齐，
+没有再显式破坏终稿。因此 C1 仍是对 relational 布尔的过拟合，C2 将稳定边界收敛为
+`trace+call_chain+call+exact_endpoint+no_set_boundary`，并新增 relational=true/false 双臂 pin。
+
+r3 的 data 异构对照另行失败：实际 `reconcile expected=17/actual=17/pass`，但源规则覆盖与
+decision/contribution 之间没有 `rule_id` 关联，终验 fail-closed。模型后续用 custom_transform 修账时又
+调用了受限环境未提供的 Python `type`，累计 10 data rounds/6 repair rounds 后失败。这与 B51
+调用链权限无关，登记 `EVAL-B51-DATAREF1/P1/open`：先复查既有 typed 规则关联修复动作与受限
+script builtin 合同，排在 MERGE-AUDIT-3 三个 high 之后，不用放宽 provenance 终验换取通过。
 
 - [x] B51-T1：严格并行 Java call-chain + data 恰好 2 case；
 - [x] B51-T2：人工读完 HTML、完整 stdout/log、analyzer payload、五个源文件、首稿与降级稿；
