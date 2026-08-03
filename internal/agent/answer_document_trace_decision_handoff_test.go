@@ -144,7 +144,8 @@ func TestTraceDecisionHandoffCarriesAcceptedModelRelationClaimsWithoutAuthoringC
 	got := renderAnswerDocTraceDecisionHandoffSet(set, runtimeTraceGuidanceView{}, claims)
 	for _, want := range []string{
 		"accepted_model_relation_claims: these declarations were authored by the investigation model",
-		"Preserve them on the model-authored answer block(s) via `relation_claims`",
+		"Preserve them on the model-authored answer block(s) via `blocks[i].relation_claims`",
+		"never document-level `$.relation_claims`",
 		"system will reject a mismatch but will not rewrite your prose",
 		"physical_relation=`unresolved`; addition=`forbidden`",
 	} {

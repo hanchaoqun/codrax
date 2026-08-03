@@ -788,6 +788,17 @@ func diagnosticFacetSubTopicsBypassResolverAsymmetry(rm types.RequestModel) bool
 }
 
 func subtopicResolverAsymmetryShouldBeAdvisory(rm types.RequestModel) bool {
+	// A mixed runtime-artifact/current-source question can legitimately split
+	// its sub-topics by evidence lane: runtime quantities, event labels and
+	// frame-budget concepts are not repository declarations, while the source
+	// mechanism sibling should resolve to real symbols. That mixed hit/miss
+	// pattern is expected, not proof of an analyzer hallucination. The
+	// artifact presence and required source lane are typed signals; no user or
+	// model prose is inspected. Keep R1.5 as telemetry/advice and let the
+	// downstream origin-specific evidence gates prove each lane.
+	if mixedRuntimeCurrentSourceQuestion(rm) {
+		return true
+	}
 	if historyOrDiagramSubTopicsBypassResolverAsymmetry(rm) {
 		return true
 	}
@@ -821,6 +832,14 @@ func subtopicResolverAsymmetryShouldBeAdvisory(rm types.RequestModel) bool {
 		}
 	}
 	return true
+}
+
+func mixedRuntimeCurrentSourceQuestion(rm types.RequestModel) bool {
+	if !rm.CurrentSourceLaneDecision().RequiresCurrentSource() {
+		return false
+	}
+	return rm.HasExternalOnlyRuntimeArtifact() ||
+		rm.HasRuntimeArtifactPathReference()
 }
 
 func historyOrDiagramSubTopicsBypassResolverAsymmetry(rm types.RequestModel) bool {

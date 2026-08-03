@@ -58,6 +58,26 @@ func TestEmitAnswerDocumentPatch_NoPrevRejects(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentPatch_RejectsTopLevelRelationClaimsWithExactCarrierPath(t *testing.T) {
+	bus := newPatchTestBusContext()
+	tool := &EmitAnswerDocumentPatch{}
+	res, err := tool.Execute(bus, json.RawMessage(`{
+		"unchanged_block_ids":["s1","list1"],
+		"relation_claims":[{"authority_id":"trace:test"}]
+	}`))
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("top-level patch relation_claims must not be silently quarantined: %+v", res)
+	}
+	for _, want := range []string{"replace_blocks[i].relation_claims", "add_blocks[i].relation_claims", "never at $.relation_claims"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("misplaced patch carrier error missing %q: %s", want, res.Summary)
+		}
+	}
+}
+
 func TestEmitAnswerDocumentPatch_EmptyRetryStatePrevRejects(t *testing.T) {
 	mut := types.NewMutableState("retry")
 	mut.SetRetryState(&types.RetryState{

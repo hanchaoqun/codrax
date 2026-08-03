@@ -11580,3 +11580,63 @@ agent 专项正臂固定 deterministic supplement 的 3.500ms aggregate backgrou
 - result dirs：`20260803-052614`；
 - 新 HTML：`.codrax/output/20260803-052859.277-29088.html`；
 - `go test ./internal/agent -run 'TestTraceDecisionHandoff' -count=1` 通过。
+
+### B53 r3：background 上下文闭环；关系载体与混合证据车道新 GAP（2026-08-03）
+
+在 `main@a14cadc8f` 下严格并行 2 个 case：
+
+- `trace_query_wakeup_causal_runnable`：runner/human PASS，193s；
+- `read_combo_trace_current_source_explanation`：runner PASS / human FAIL，314s。
+
+Trace 回放给 B53-B 提供了生产正证：finalizer 前的 `Trace Decision Inputs` 已有
+`contextual_noncausal_rows`，包含 adjacent `worker-200 sleep=0.200ms` 与 background
+`supply_pressure=3.500ms`；后者明确标为
+`aggregate_context_non_target_wall_clock / target_causal_authority=not_provided /
+cross_axis_addition=forbidden`。模型不再声称“无 CPU 压力证据”，但也没有被要求把背景行
+升级为目标根因。显式时间窗、唤醒链、8.300ms 优先级候选、实际占用/规则可消两轴、
+系统自动补采和 Trace 因果投影完整保留，故 `EVAL-B53-CTXBG1=covered`。
+
+同轮暴露两个通用系统 GAP：
+
+| ID | 优先级 | GAP | 泛化方案 | 状态 |
+|---|---:|---|---|---|
+| `EVAL-B53-RELCARRIER1` | P1 | `relation_claims` 是 block metadata，但 missing-claim 诊断只报字段名；模型两次放到 document root 后，unknown-field compat 又静默 quarantine，造成同一 closure reject 重复 3 次 | 对精确 JSON key `$.relation_claims` 不再静默丢弃，立即返回合法 carrier `blocks[i].relation_claims`；handoff、schema、validator 同词面。只拒绝结构化错位，不搬运 claim、不读 prose、不改结论 | implemented / full-related-tests-pass |
+| `EVAL-B53-MIXLANE1` | P1 | mixed runtime/source 问题的 runtime subtopic entities 被强制送进 repo symbol resolver；合法的 `86.111ms / frame budget` 因 sibling source symbol 可解析而触发 R1.5 hallucination hard reject | 当 typed runtime artifact 与 required current-source lane 同时存在时，将 resolver hit/miss asymmetry降为 advisory；各 lane 仍由 origin-specific evidence gate 验证。不扫描用户/模型原文 | implemented / full-related-tests-pass |
+
+混合读答案本身仍不能人工判绿：它把 `B|2000|H:RenderService:DoFrame` 的 name 内 `H:`
+误解为 flow-end action，并声称 B/E 端需同 name；真实语义是 action=`B`、完整 name=`H:...`，
+匿名 `E` 在同一 ftrace 线程栈闭合且不重复 name。系统 performance instruction 已明确提供正确
+规则，因此登记 `EVAL-B53-MARKERSEM1/P2-watch` 为一次模型推理错误；按“避免单 case/type
+过拟合”裁定，本批不新增答案关键词 gate、正文替换或专名规则。后续用 B/E、S/F、G/H
+不同 marker 形状回放，若跨模型重复，再考虑由 parser typed endpoint verdict 提供一个通用
+动作/name/闭合键事实卡。
+
+#### B53-C：relation claim 精确承载路径
+
+1. full emit 在 quarantine 前检测精确顶层 JSON key `relation_claims`，明确拒绝并指向
+   `blocks[i].relation_claims`；patch 路径对应指向
+   `replace_blocks[i].relation_claims / add_blocks[i].relation_claims`。
+2. missing closure claim 的 typed validator 同样附带 carrier path；Trace handoff 与 block schema
+   统一写明 relation claim 不是 document-level field。
+3. 不自动把顶层 claim 移到某个 block，因为多 block 场景下“哪个正文使用该关系”仍属于模型
+   所有权；系统只做精确结构校验，不替模型选择、撰写或修改结论。
+4. 回归固定 full/patch 两个顶层误放臂 fail-loud，并固定 missing claim repair 必须含正确路径。
+
+#### B53-D：mixed runtime/source resolver authority
+
+R1.5 的 repo-symbol hit/miss 本来只适合单一 current-source 实体宇宙；当
+`HasExternalOnlyRuntimeArtifact/typed artifact reference` 与
+`CurrentSourceLaneDecision=required` 同时成立时，mixed hit/miss 是预期形而非精确信号。
+本批只把这个组合降为 advisory telemetry，原始 subtopics 不改，repo symbol resolver 不放宽，
+后续 evidence plan、runtime artifact authority 与 current-source citation gate 均保持。定向测试固定
+`parseTraceMark` 可解析而 `86.111ms/frame budget` 不解析时 quality gate 仍通过并保留 advisory。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b53_trace_read_r3_20260803.md`；
+- `eval/parallel_selected_summary_evalcampaign_b53_trace_read_r3_20260803_manual_audit.md`；
+- result dirs：`20260803-053450`；
+- HTML：`.codrax/output/20260803-053801.905-32777.html`、
+  `.codrax/output/20260803-054002.063-32776.html`。
+- 完整 `go test ./internal/analysis/gate ./internal/agent ./internal/tool -count=1`
+  通过（gate 0.414s、agent 2.847s、tool 168.305s）。

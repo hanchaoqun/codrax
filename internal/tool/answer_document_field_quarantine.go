@@ -181,6 +181,24 @@ func quarantineUnknownAnswerDocumentFields(raw json.RawMessage, profile answerDo
 	return out, paths, true
 }
 
+// answerDocumentHasTopLevelField is used only for load-bearing block metadata
+// whose location cannot be quarantined safely. Unknown advisory metadata may be
+// dropped by the compatibility layer, but silently dropping a top-level
+// relation_claims field guarantees a later closure-authority failure and gives
+// the model no indication that the field was placed on the wrong carrier.
+// This is an exact JSON-key check; it never inspects answer prose.
+func answerDocumentHasTopLevelField(raw json.RawMessage, field string) bool {
+	if len(raw) == 0 || strings.TrimSpace(field) == "" {
+		return false
+	}
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &root); err != nil {
+		return false
+	}
+	_, ok := root[field]
+	return ok
+}
+
 func quarantineBlockArray(root map[string]json.RawMessage, field, path string, paths *[]string) bool {
 	return quarantineObjectArray(root, field, path, answerDocumentBlockAllowedFields, quarantineBlockObject, paths)
 }

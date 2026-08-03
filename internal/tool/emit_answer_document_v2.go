@@ -122,6 +122,18 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 			"top-level field %q is not accepted; the answer is expressed through blocks[] only — move any answer payload into the appropriate block kind",
 			violation)
 	}
+	// relation_claims is load-bearing typed metadata on the model-authored
+	// block that uses the relation. Do not let the general unknown-field
+	// quarantine silently discard a document-level misplacement: that turns a
+	// precise carrier error into repeated, apparently inexplicable closure
+	// failures. We reject only the exact structured key and leave all prose and
+	// conclusion ownership with the model.
+	if answerDocumentHasTopLevelField(raw, "relation_claims") {
+		persistRecoveredAnswerDraft(ctx, raw, recovery, nil)
+		return failEmit(toolName, now,
+			"top-level field %q is not accepted; place the exact typed claim object(s) under blocks[i].relation_claims on the model-authored block that uses the values (never at $.relation_claims)",
+			"relation_claims")
+	}
 
 	// Flat-mode tolerance. Some LLMs emit nested arrays as JSON
 	// strings ("[{...}]") instead of real arrays — typically a

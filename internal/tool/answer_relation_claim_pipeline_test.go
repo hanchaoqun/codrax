@@ -79,6 +79,9 @@ func TestAnswerDocumentRelationClaimsRemainModelOwnedAndCannotDrift(t *testing.T
 	if err != nil || res.Success || !strings.Contains(res.Summary, "missing required model-authored relation claim") {
 		t.Fatalf("missing final claims should be retryable rejection: res=%+v err=%v", res, err)
 	}
+	if !strings.Contains(res.Summary, "blocks[i].relation_claims") || !strings.Contains(res.Summary, "not top-level $.relation_claims") {
+		t.Fatalf("missing final claim rejection must identify the exact carrier path: %s", res.Summary)
+	}
 
 	valid := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
 		ID: "s", Kind: types.BlockSummary, Text: "model conclusion", RelationClaims: claims,

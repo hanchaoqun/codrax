@@ -86,6 +86,30 @@ func TestEmitAnswerDocumentV2_AcceptsValidV2(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentV2_RejectsTopLevelRelationClaimsWithExactCarrierPath(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	raw := json.RawMessage(`{
+		"blocks": [{"id":"b1","kind":"summary","text":"model conclusion"}],
+		"relation_claims": "[{\"authority_id\":\"trace:test\"}]"
+	}`)
+	res, err := tool.Execute(bus, raw)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("top-level relation_claims must not be silently quarantined: %+v", res)
+	}
+	for _, want := range []string{"blocks[i].relation_claims", "never at $.relation_claims"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("misplaced carrier error missing %q: %s", want, res.Summary)
+		}
+	}
+	if bus.Mutable.AnswerDocumentV2() != nil {
+		t.Fatal("misplaced load-bearing relation metadata must not persist a document")
+	}
+}
+
 func TestEmitAnswerDocumentV2_PrunesUnusedCitationPoolEntries(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}

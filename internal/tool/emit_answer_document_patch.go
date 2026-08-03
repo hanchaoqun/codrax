@@ -162,6 +162,11 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		return failEmit(t.Name(), now,
 			"emit_answer_document_patch: no previous emit found. The patch tool is only valid on retry paths after a successful emit_answer_document call. First dispatches must use emit_answer_document.")
 	}
+	if answerDocumentHasTopLevelField(params, "relation_claims") {
+		return failEmit(t.Name(), now,
+			"top-level field %q is not accepted; place the exact typed claim object(s) under replace_blocks[i].relation_claims or add_blocks[i].relation_claims on the model-authored block that uses the values (never at $.relation_claims)",
+			"relation_claims")
+	}
 
 	// Flat-mode tolerance for the streaming-bug pattern where an LLM
 	// stringifies an array field instead of emitting a real JSON

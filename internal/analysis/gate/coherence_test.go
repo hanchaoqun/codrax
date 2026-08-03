@@ -474,6 +474,44 @@ func TestSubtopicCoherence_R1_5_AllEntitiesUnresolved_Fails(t *testing.T) {
 	}
 }
 
+func TestSubtopicCoherence_R1_5_MixedRuntimeAndCurrentSourceIsAdvisory(t *testing.T) {
+	resolver := &fakeSymbolResolver{byEntity: map[string][]normalizer.SymbolHit{
+		"parseTraceMark": {{Canonical: "parseTraceMark", Domain: "tracequery"}},
+	}}
+	rm := types.RequestModel{
+		RawRequest: "请结合当前源码解释 trace span，并判断 86.111ms 是否超过 frame budget",
+		Predicates: types.SemanticPredicates{
+			IsCrossComponent: true,
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{"parseTraceMark", "86.111ms", "frame budget"},
+		},
+		CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+			IsCurrentSourceExplanationRequested: true,
+			SourceQuotes:                        []string{"结合当前源码解释"},
+			Confidence:                          0.95,
+		},
+		PerfTrace: &types.PerfBundle{
+			Frames: []types.PerfFrame{{DurationMs: 86.111, Janky: true}},
+		},
+		SubTopics: []types.SubTopic{
+			{Summary: "当前 span 解析实现", Entities: []string{"parseTraceMark"}},
+			{Summary: "运行时耗时与帧预算", Entities: []string{"86.111ms", "frame budget"}},
+		},
+	}
+	if !rm.CurrentSourceLaneDecision().RequiresCurrentSource() || !rm.HasExternalOnlyRuntimeArtifact() {
+		t.Fatalf("fixture must be a typed mixed runtime/current-source question: decision=%s external=%v",
+			rm.CurrentSourceLaneDecision(), rm.HasExternalOnlyRuntimeArtifact())
+	}
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver, "")
+	if !check.Passed {
+		t.Fatalf("mixed evidence-lane subtopics must not hard-fail repo-symbol asymmetry: %+v", check)
+	}
+	if !strings.Contains(check.Detail, "R1.5 entity_unresolvable (advisory)") {
+		t.Fatalf("mixed evidence-lane resolver asymmetry should remain visible as advisory telemetry: %q", check.Detail)
+	}
+}
+
 func TestSubtopicCoherence_R1_5_SourceInventoryFileAsymmetryIsAdvisory(t *testing.T) {
 	resolver := &fakeSymbolResolver{
 		byFile: map[string][]normalizer.SymbolHit{

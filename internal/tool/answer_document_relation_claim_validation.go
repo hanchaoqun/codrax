@@ -30,7 +30,7 @@ func validateModelAuthoredAnswerRelationClaims(ctx *types.BusContext, doc *types
 		ctx, types.ObservationExtractLedgerEvidenceLimit))
 	authorities := types.CompileTraceAnswerRelationAuthoritiesFromLedger(ledger)
 	if err := types.ValidateAnswerRelationClaims(submitted, authorities, true); err != nil {
-		return fmt.Errorf("model-authored answer relation_claims do not match typed trace authority: %w", err)
+		return fmt.Errorf("model-authored answer relation_claims do not match typed trace authority: %w; carrier path: copy each exact Trace Decision Inputs object to blocks[i].relation_claims on a model-authored block (not top-level $.relation_claims)", err)
 	}
 	if len(accepted) > 0 && !answerRelationClaimsContainAccepted(submitted, accepted) {
 		return fmt.Errorf("model-authored answer relation_claims must preserve every accepted investigation relation claim exactly and also include any closure-critical typed_relation_authority added by deterministic supplement; copy those Trace Decision Inputs onto the block(s), then revise your own prose if needed")
