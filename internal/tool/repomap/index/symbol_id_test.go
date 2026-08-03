@@ -1,8 +1,10 @@
 package index
 
 import (
-	"github.com/hanchaoqun/codrax/internal/tool/repomap/types"
+	"reflect"
 	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 )
 
 // TestMakeSymbolID locks the canonical string format so no consumer
@@ -174,6 +176,40 @@ func TestCallersOfIDReceiverAware(t *testing.T) {
 	}
 	if _, ok := g.MethodIndex[types.MethodKey{Pkg: "agent", Receiver: "ToolB", Name: "Execute"}]; !ok {
 		t.Error("MethodIndex missing ToolB.Execute")
+	}
+}
+
+func TestCallersOfIDConservativelyIncludesUnresolvedSourceReceiver(t *testing.T) {
+	files := []*types.FileInfo{
+		{
+			RelPath: "agent/tool_a.go", Language: types.LangGo, Package: "agent",
+			Symbols: []types.Symbol{{Name: "Execute", Kind: "method", Receiver: "ToolA", File: "agent/tool_a.go", Line: 10}},
+		},
+		{
+			RelPath: "agent/tool_b.go", Language: types.LangGo, Package: "agent",
+			Symbols: []types.Symbol{{Name: "Execute", Kind: "method", Receiver: "ToolB", File: "agent/tool_b.go", Line: 10}},
+		},
+		{
+			RelPath: "agent/dynamic.py", Language: types.LangPython, Package: "agent",
+			Relations: []types.Relation{{
+				Kind: "call", File: "agent/dynamic.py", Line: 20,
+				ToEP:       types.RelationEndpoint{Name: "Execute", Receiver: "tool", File: "agent/dynamic.py", Line: 20},
+				Confidence: types.ConfidenceAST, Provenance: types.ProvenanceTreeSitter, ResolvedBy: "python_ast_attribute_call",
+			}},
+		},
+		{
+			RelPath: "agent/typed.go", Language: types.LangGo, Package: "agent",
+			Relations: []types.Relation{{
+				Kind: "call", File: "agent/typed.go", Line: 20,
+				ToEP:       types.RelationEndpoint{Name: "Execute", Receiver: "ToolB", File: "agent/typed.go", Line: 20},
+				Confidence: types.ConfidenceAST, Provenance: types.ProvenanceTreeSitter, ResolvedBy: "go_ast_selector_call",
+			}},
+		},
+	}
+	g := BuildGraph("/tmp/repo", files)
+	idA := types.MakeSymbolID(types.LangGo, "agent", "ToolA", "Execute", 0)
+	if got := g.CallersOfID(idA); !reflect.DeepEqual(got, []string{"agent/dynamic.py"}) {
+		t.Fatalf("unresolved source receiver must stay conservative while a typed different receiver is excluded: %v", got)
 	}
 }
 

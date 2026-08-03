@@ -38,22 +38,7 @@ func luaExtractCalls(root *sitter.Node, src []byte, file string) []types.Relatio
 		if node.Type() != "function_call" {
 			return
 		}
-		target := strings.TrimSpace(nodeText(node, src))
-		if idx := strings.Index(target, "("); idx >= 0 {
-			target = strings.TrimSpace(target[:idx])
-		}
-		// Lua permits call sugar without parentheses (`require "mod"`,
-		// `printer "text"`). In that form nodeText contains the argument
-		// after the target; retain only the AST-anchored leading target.
-		if fields := strings.Fields(target); len(fields) > 0 {
-			target = fields[0]
-		}
-		name := target
-		receiver := ""
-		if idx := strings.LastIndexAny(target, ".:"); idx >= 0 {
-			receiver = strings.TrimSpace(target[:idx])
-			name = strings.TrimSpace(target[idx+1:])
-		}
+		name, receiver := luaCallTarget(node, src)
 		if name == "" {
 			return
 		}
@@ -70,6 +55,34 @@ func luaExtractCalls(root *sitter.Node, src []byte, file string) []types.Relatio
 		})
 	})
 	return rels
+}
+
+func luaCallTarget(node *sitter.Node, src []byte) (name, receiver string) {
+	if node == nil || node.Type() != "function_call" {
+		return "", ""
+	}
+	var parts []string
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		child := node.NamedChild(i)
+		switch child.Type() {
+		case "identifier":
+			if part := strings.TrimSpace(nodeText(child, src)); part != "" {
+				parts = append(parts, part)
+			}
+		case "string_argument", "string_argument_list", "arguments", "function_call_paren":
+			// Argument grammar begins here. Its identifiers are values, never
+			// part of the callee identity.
+			i = int(node.NamedChildCount())
+		}
+	}
+	if len(parts) == 0 {
+		return "", ""
+	}
+	name = parts[len(parts)-1]
+	if len(parts) > 1 {
+		receiver = strings.Join(parts[:len(parts)-1], ".")
+	}
+	return name, receiver
 }
 
 func luaDerivePackage(file string) string {

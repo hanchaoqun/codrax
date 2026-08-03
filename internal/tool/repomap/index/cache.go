@@ -237,7 +237,7 @@ var extractorVersions = map[string]int{
 	types.LangKotlin:     5, // navigation call edges and declared receiver identities
 	types.LangRuby:       4, // receiver-aware call identities
 	types.LangSwift:      4, // navigation call edges and declared receiver identities
-	types.LangLua:        4, // receiver-aware call identities
+	types.LangLua:        5, // AST-bounded no-whitespace call-sugar identities
 	types.LangProto:      2,
 	types.LangRust:       4, // receiver-aware call identities
 	types.LangC:          4, // call extraction update through extractCCpp

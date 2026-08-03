@@ -277,7 +277,16 @@ func (g *Graph) CallersOfID(id SymbolID) []string {
 				continue
 			}
 			if wantRecv != "" && gotRecv != "" && gotRecv != wantRecv {
-				continue
+				// A non-empty receiver may be either a declared type or the
+				// extractor-preserved source expression (`repo.load()`). Only a
+				// receiver that resolves to a concrete different symbol can exclude
+				// this caller. An unresolved source receiver retains the documented
+				// conservative-inclusion contract that previously used an empty
+				// receiver sentinel.
+				resolved := g.ResolveCallTarget(fi, rel)
+				if resolved != nil && resolved != target {
+					continue
+				}
 			}
 			if !seen[rel.File] {
 				seen[rel.File] = true

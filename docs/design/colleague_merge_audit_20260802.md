@@ -1335,3 +1335,22 @@ qualified callable 拆成 member，再只比较 member；因此同为 line 10 �
 `create:10` 明确保持 ambiguous。
 
 状态：`R6-2=closed`。
+
+### §9.7 M4-F repomap 保守 caller 与 Lua sugar（已实现，待本节提交）
+
+R7-7/R7-8 均由可执行反例确认：
+
+- **R7-7**：新提取器把动态调用的源 receiver（如 Python 的 `tool`）保存在非空 `ToEP.Receiver` 后，
+  `CallersOfID` 把所有非空不等值都当“已解析为另一类型”排除，破坏了其文档承诺的 unresolved conservative
+  include。修复不回退 receiver 信息，也不新增语言启发式：当 receiver 字面量与目标不等时调用现有
+  `ResolveCallTarget`；只有确实解析到另一 concrete symbol 才排除，解析不到的源表达式继续作为潜在 caller，
+  解析到当前 target 则保留；
+- **R7-8**：Lua 原实现读取整个 `function_call` 后按括号/空白截断，合法无空格糖 `printer"text"` 与
+  `repo:load"key"` 会把 argument 拼进 callee。修复直接消费 AST 的 identifier children，并在
+  `string_argument/arguments/function_call_paren` 参数 carrier 前停止；普通 `repo.save()` 与两种 sugar 共用
+  同一结构路径。Lua extractor version 再升一代（4→5），避免刚生成的旧 call identity 暖缓存残留。
+
+测试同时钉住：unresolved dynamic receiver 对多个同名方法保持保守候选，已解析 ToolB receiver 不会污染
+ToolA；Lua 三种调用均输出纯 callee/receiver，argument 字节不得进入 `ToEP.Name`。
+
+状态：`R7-7=closed`；`R7-8=closed`。

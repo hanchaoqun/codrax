@@ -3,6 +3,7 @@ package index
 import (
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	sitter "github.com/smacker/go-tree-sitter"
@@ -183,12 +184,27 @@ func TestCallReceiverExtractorCacheEpochFloors(t *testing.T) {
 		types.LangJava: 5, types.LangPython: 6,
 		types.LangJavaScript: 5, types.LangTypeScript: 5, types.LangArkTS: 5,
 		types.LangCangjie: 4, types.LangKotlin: 5, types.LangRuby: 4,
-		types.LangSwift: 4, types.LangLua: 4, types.LangRust: 4,
+		types.LangSwift: 4, types.LangLua: 5, types.LangRust: 4,
 		types.LangC: 4, types.LangCpp: 4,
 	}
 	for language, floor := range floors {
 		if got := extractorVersions[language]; got < floor {
 			t.Errorf("extractorVersions[%q]=%d, want >=%d after receiver/call semantic change", language, got, floor)
+		}
+	}
+}
+
+func TestLuaNoWhitespaceCallSugarKeepsASTCalleeIdentity(t *testing.T) {
+	source := "function run()\n  printer\"hello\"\n  repo:load\"key\"\n  repo.save()\nend\n"
+	src := []byte(source)
+	root := parseSourceFor(t, types.LangLua, source)
+	rels := luaExtractCalls(root, src, "service.lua")
+	requireCallReceiver(t, rels, "printer", "")
+	requireCallReceiver(t, rels, "load", "repo")
+	requireCallReceiver(t, rels, "save", "repo")
+	for _, rel := range rels {
+		if strings.ContainsAny(rel.ToEP.Name, `"'`) {
+			t.Fatalf("Lua argument bytes leaked into callee identity: %+v; tree=%s", rel, root.String())
 		}
 	}
 }
