@@ -188,6 +188,98 @@ func TestExactTypedRelationProjectionCanonicalizesRepeatedObservationsByCandidat
 	}
 }
 
+func TestExactTypedRelationProjectionDemotesOnlyImplicitCompetingSibling(t *testing.T) {
+	bus := relationProjectionDriftBus()
+	exact := relationProjectionDriftFact("LoopController", "prodA", "prodB")
+	implicitSibling := types.AnswerAggregateFact{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "upstream context",
+		Value:       "1",
+		Members:     []string{"Bootstrap"},
+		SupportRefs: []string{"internal/bootstrap.go:10"},
+	}
+
+	got := markExactTypedRelationPrincipalMemberSets(bus, []types.AnswerAggregateFact{exact, implicitSibling})
+	if len(got) != 2 || !types.AnswerAggregateFactHasTypedRelationPrincipalAuthority(got[0]) {
+		t.Fatalf("exact relation principal authority missing: %+v", got)
+	}
+	if got[1].Role != types.AnswerAggregateRoleSupportingCoverage ||
+		!strings.Contains(got[1].Provenance, types.TypedRelationImplicitSiblingAggregateDemotionProvenance) {
+		t.Fatalf("implicit competing member set must yield its default principal seat: %+v", got[1])
+	}
+}
+
+func TestExactTypedRelationProjectionPreservesExplicitSecondPrincipalAxis(t *testing.T) {
+	bus := relationProjectionDriftBus()
+	exact := relationProjectionDriftFact("LoopController", "prodA", "prodB")
+	explicitSibling := types.AnswerAggregateFact{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "explicit second requested axis",
+		Value:       "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"Bootstrap"},
+		SupportRefs: []string{"internal/bootstrap.go:10"},
+	}
+
+	got := markExactTypedRelationPrincipalMemberSets(bus, []types.AnswerAggregateFact{exact, explicitSibling})
+	if len(got) != 2 || got[1].Role != types.AnswerAggregateRolePrincipalAnswer ||
+		strings.Contains(got[1].Provenance, types.TypedRelationImplicitSiblingAggregateDemotionProvenance) {
+		t.Fatalf("an explicitly model-authored second principal axis must be preserved: %+v", got[1])
+	}
+}
+
+func TestExactTypedRelationProjectionDoesNotDemoteWithoutExactAuthority(t *testing.T) {
+	bus := relationProjectionDriftBus()
+	unrelatedA := types.AnswerAggregateFact{
+		Kind: types.AnswerAggregateMemberSet, Label: "first", Value: "1",
+		Members: []string{"Alpha"}, SupportRefs: []string{"internal/a.go:10"},
+	}
+	unrelatedB := types.AnswerAggregateFact{
+		Kind: types.AnswerAggregateMemberSet, Label: "second", Value: "1",
+		Members: []string{"Beta"}, SupportRefs: []string{"internal/b.go:20"},
+	}
+
+	got := markExactTypedRelationPrincipalMemberSets(bus, []types.AnswerAggregateFact{unrelatedA, unrelatedB})
+	if len(got) != 2 || got[0].Role != types.AnswerAggregateRoleUnknown || got[1].Role != types.AnswerAggregateRoleUnknown {
+		t.Fatalf("without exact typed authority implicit model sets must remain untouched: %+v", got)
+	}
+}
+
+func TestEmitInvestigationCompletePersistsExactPrincipalAndImplicitSupportingSibling(t *testing.T) {
+	bus := relationProjectionDriftBus()
+	exact := relationProjectionDriftFact("LoopController", "prodA", "prodB")
+	exact.Role = types.AnswerAggregateRoleUnknown
+	implicitSibling := types.AnswerAggregateFact{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "upstream context",
+		Value:       "1",
+		Members:     []string{"Bootstrap"},
+		SupportRefs: []string{"internal/bootstrap.go:10"},
+	}
+	raw, err := json.Marshal(map[string]any{
+		"reason":          "exact typed relation roster with contextual upstream coverage",
+		"confidence":      "high",
+		"result_kind":     "resolved",
+		"aggregate_facts": []types.AnswerAggregateFact{exact, implicitSibling},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := (&EmitInvestigationComplete{}).Execute(bus, raw)
+	if err != nil || !res.Success || bus.Mutable.InvestigationCompleteReason() == "" {
+		t.Fatalf("completion must reach the production acceptance path: res=%+v err=%v", res, err)
+	}
+	got := bus.Mutable.StableInvestigationAggregateFacts()
+	if len(got) != 2 || !types.AnswerAggregateFactHasTypedRelationPrincipalAuthority(got[0]) {
+		t.Fatalf("stable ledger lost exact typed principal authority: %+v", got)
+	}
+	if got[1].Role != types.AnswerAggregateRoleSupportingCoverage ||
+		!strings.Contains(got[1].Provenance, types.TypedRelationImplicitSiblingAggregateDemotionProvenance) {
+		t.Fatalf("stable ledger must retain the contextual sibling as supporting coverage: %+v", got[1])
+	}
+}
+
 func TestExactTypedRelationProjectionKeepsSameNameCandidatesFromDistinctFiles(t *testing.T) {
 	fact := types.AnswerAggregateFact{
 		Kind:  types.AnswerAggregateMemberSet,

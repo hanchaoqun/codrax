@@ -827,3 +827,41 @@ Java/ArkTS/Cangjie 分支。定向回归含 mixed guard 正臂、错端点 guard
 状态：`B52c=covered`；`B52d=implemented / directed-pass / full-tool-test-pass /
 orchestrator-diagram-pass /
 same-pair-replay pending`。
+
+---
+
+## §31 B52 r5：mixed call-DAG 闭环与精确关系主席位竞争（2026-08-02）
+
+在 `daf2c4268` 上严格并行 2 个回放，runner 均 PASS，且都为
+`finalizer reject=0 / patch=0`。Java 图完整发布三条 typed call edge 与一条 typed guard edge，
+证明 `B52d-MIXED-CALL-DAG-RELATION=covered`；答案对 hop 数、方法名和 println/落库的解释仍有
+错误，归为模型证据消费波动，系统不得替模型改写结论或按答案词面加硬门。
+
+called-by 的 direct caller 集仍精确为 2 项，但同一探索的第二次 completion 又携带一个“间接
+upstream” member-set，未显式填写 `role`。精确 direct 集已经获得
+`system:typed_relation_principal_member_set`，旧默认却让 omitted-role 兄弟集也取得 principal
+席位，导致 finalizer 和两种系统 carrier 重复发布间接成员，并把 direct relation 的回答边界扩大。
+登记 `B52e-TYPED-RELATION-PRINCIPAL-OWNERSHIP`（P1）。
+
+通用施工规则如下：
+
+1. 仅当某个 member-set 已通过 exact typed candidate 匹配并获得系统 principal provenance 时，
+   它拥有默认 relation principal axis；
+2. 同次 completion 中其它 role 未填写、且按旧默认会成为 principal 的 member-set 改为
+   `supporting_coverage`，保留其 members、refs、notes 和模型辅助分析；
+3. 模型显式填写 `role=principal_answer` 时字节级保留，系统不否决真正的多主席位判断；没有 exact
+   typed authority 时所有 omitted-role 集保持原状；
+4. 确权先于 relation source-scope 校验，防止辅助集在尚未分类前被误当第二主席位硬拒；
+5. 判定只读 typed candidate identity、aggregate role 与系统 provenance；不读取 RawRequest、label、
+   completion reason、模型正文/thinking，也不针对 called-by、Java 或具体函数拟合；
+6. 全部 relation kinds 和项目支持语言共用；Trace/root-cause family、显式时间窗因果投影及系统补齐
+   不进入该路径。
+
+回归覆盖 implicit sibling 降级、explicit second principal 保留、无 exact authority 不介入，并增加
+真实 `EmitInvestigationComplete.Execute -> StableInvestigationAggregateFacts` 接线 pin。
+
+验证：定向含生产 `Execute` 接线回归通过（1.289s）；`go test ./internal/types -count=1`
+通过（22.829s）；`go test ./internal/tool -count=1` 全包通过（167.698s）。
+
+状态：`B52d=covered`；`B52e=implemented / directed-pass / full-tool-test-pass /
+same-pair-replay pending`。

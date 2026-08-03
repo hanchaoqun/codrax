@@ -14,6 +14,13 @@ const (
 	// is never inferred from labels, request prose, closure prose, or answer
 	// text.
 	TypedRelationPrincipalMemberSetAggregateProvenance = "system:typed_relation_principal_member_set"
+	// TypedRelationImplicitSiblingAggregateDemotionProvenance marks an
+	// otherwise-implicit member_set that yielded its default principal seat
+	// after an exact typed-relation principal set was established. The model can
+	// keep a genuinely requested second principal axis by explicitly emitting
+	// role=principal_answer; the system never infers that intent from labels or
+	// prose.
+	TypedRelationImplicitSiblingAggregateDemotionProvenance = "demoted:implicit_sibling_of_typed_relation_principal_member_set"
 )
 
 // AnswerAggregateFactHasTypedRelationPrincipalAuthority reports whether the

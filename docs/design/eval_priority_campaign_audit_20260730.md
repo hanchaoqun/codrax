@@ -3919,6 +3919,28 @@ B18c 使用一条通用 typed 规则修复：
 
 状态：`implemented / full-tests-pass / cross-relation replay next`。
 
+---
+
+### B52 r5：mixed relation 图已闭环，relation principal 仍有隐式兄弟竞争（2026-08-02）
+
+`daf2c4268` 上固定 pair 严格并行 2：Java 与 called-by runner 均 PASS、零 finalizer
+reject/patch。Java mixed call-DAG 的三条 call 与一条 guard 正常出厂，故 B52d 已覆盖；正文残余
+方法名/跳数/持久化误述记为模型波动，不授权系统改写。
+
+called-by 的 2 项 direct roster 正确且已获得 exact typed relation principal provenance；另一份未标
+role 的间接 upstream member-set 却依旧按默认规则成为第二 principal，触发模型与系统 carrier 多次
+重复，并扩大 direct 查询边界。登记 `B52e-TYPED-RELATION-PRINCIPAL-OWNERSHIP`。
+
+本批把 exact typed roster 定为“默认 relation principal axis”的唯一所有者：只将其它 omitted-role
+兄弟集归为 `supporting_coverage`，显式 `principal_answer` 原样保留，无 exact authority 时不介入。
+确权提前到 source-scope 校验前；判断只消费 typed candidates、role 和 system provenance，跨 relation
+kind/跨全部语言复用，不扫描用户或模型文本，也不触碰 Trace 显式窗、因果投影和自动补齐。
+
+验证：定向含生产 `Execute` 接线回归通过（1.289s），`internal/types` 全包通过（22.829s），
+`internal/tool` 全包通过（167.698s）。
+
+状态：`B52d=covered`；`B52e=implemented / directed-pass / full-tool-test-pass / replay pending`。
+
 #### B52 r2：Java 只是见证，调用图端点缺口覆盖全语言（2026-08-02）
 
 在 `bf6114879` 上严格并行回放同一对 case：called-by runner/human PASS（117s，零 reject）；

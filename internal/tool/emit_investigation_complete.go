@@ -2082,6 +2082,11 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			Timestamp: time.Now(),
 		}, nil
 	}
+	// Establish exact typed-relation principal ownership before the scope
+	// validator reads aggregate roles. Otherwise an omitted-role contextual
+	// sibling can be mistaken for a second principal slate and rejected before
+	// the typed authority has a chance to classify it as supporting coverage.
+	aggregateFacts = markExactTypedRelationPrincipalMemberSets(ctx, aggregateFacts)
 	// B18b: when a broad source_inventory analysis shape converges on an exact
 	// typed relation roster, prevent an auxiliary/test implementation from
 	// entering the principal member_set. This is a hard structured reject:
@@ -2098,7 +2103,6 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			Timestamp: time.Now(),
 		}, nil
 	}
-	aggregateFacts = markExactTypedRelationPrincipalMemberSets(ctx, aggregateFacts)
 	aggregateFacts = sourceInventoryPrincipalRowSetLandingFacts(ctx, aggregateFacts)
 	// has_per_member_table completion obligation (2026-06-12
 	// sequence-table forensics): the analyzer-declared typed shape
@@ -5620,10 +5624,9 @@ func markExactTypedRelationPrincipalMemberSets(ctx *types.BusContext, facts []ty
 	// marker.
 	out := cloneCompletionAggregateFacts(facts)
 	for i := range out {
-		out[i].Provenance = strings.Trim(
-			strings.ReplaceAll(out[i].Provenance, types.TypedRelationPrincipalMemberSetAggregateProvenance, ""),
-			" ;,",
-		)
+		provenance := strings.ReplaceAll(out[i].Provenance, types.TypedRelationPrincipalMemberSetAggregateProvenance, "")
+		provenance = strings.ReplaceAll(provenance, types.TypedRelationImplicitSiblingAggregateDemotionProvenance, "")
+		out[i].Provenance = strings.Trim(provenance, " ;,")
 	}
 	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
 		return out
@@ -5652,6 +5655,28 @@ func markExactTypedRelationPrincipalMemberSets(ctx *types.BusContext, facts []ty
 		} else {
 			out[i].Provenance = strings.TrimSpace(out[i].Provenance) + "; " +
 				types.TypedRelationPrincipalMemberSetAggregateProvenance
+		}
+	}
+	// An exact typed relation set owns the default principal relation axis.
+	// Other model-emitted member sets are still valuable context, but an
+	// omitted role must not accidentally mint a second competing principal
+	// roster (and trigger multiple deterministic carrier compilers). Preserve
+	// explicit role=principal_answer byte-for-byte: that is the model's typed
+	// decision that the request genuinely has another principal axis.
+	for i := range out {
+		if indexes[i] ||
+			out[i].Kind != types.AnswerAggregateMemberSet ||
+			len(out[i].Members) == 0 ||
+			types.NormalizeAnswerAggregateRole(out[i].Role) != types.AnswerAggregateRoleUnknown ||
+			!types.AnswerAggregateFactRoleForRequest(out[i], &rm).IsPrincipal() {
+			continue
+		}
+		out[i].Role = types.AnswerAggregateRoleSupportingCoverage
+		if strings.TrimSpace(out[i].Provenance) == "" {
+			out[i].Provenance = types.TypedRelationImplicitSiblingAggregateDemotionProvenance
+		} else {
+			out[i].Provenance = strings.TrimSpace(out[i].Provenance) + "; " +
+				types.TypedRelationImplicitSiblingAggregateDemotionProvenance
 		}
 	}
 	return out
