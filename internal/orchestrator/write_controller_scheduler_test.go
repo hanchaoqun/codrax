@@ -8089,6 +8089,7 @@ func TestRefreshAppliedPlanOwnerAnchorsInvalidatesChangedPathBeforeCrossBatchReu
 		},
 	}
 	mu := types.NewMutableState("replace handler owner")
+	mu.SetWriteContextPack(&run.ContextPacks[0])
 	o := &Orchestrator{busCtx: &types.BusContext{
 		Mutable: mu, RepoRoot: worktreeRoot, MainRepoRoot: worktreeRoot,
 		WorktreePath: worktreeRoot, Mode: types.ModeApply,
@@ -8103,6 +8104,29 @@ func TestRefreshAppliedPlanOwnerAnchorsInvalidatesChangedPathBeforeCrossBatchReu
 	if run.ContextPacks[0].Items[1].Stale {
 		t.Fatalf("untouched-path owner anchor must remain reusable: %+v", run.ContextPacks[0].Items[1])
 	}
+	assertMutableOldOwnerStale := func(stage string) {
+		t.Helper()
+		pack := mu.WriteContextPack()
+		if pack == nil {
+			t.Fatalf("%s: mutable context pack missing", stage)
+		}
+		foundOld := false
+		for _, item := range pack.Items {
+			if item.LocalizationAnchor == nil || item.LocalizationAnchor.OwnerSymbol != "old_owner" {
+				continue
+			}
+			foundOld = true
+			if !item.Stale || item.StaleReason != "source_path_changed_after_owner_anchor" {
+				t.Fatalf("%s: mutable twin revived old owner authority: %+v", stage, item)
+			}
+		}
+		if !foundOld {
+			t.Fatalf("%s: mutable stale audit carrier disappeared: %+v", stage, pack.Items)
+		}
+	}
+	assertMutableOldOwnerStale("after refresh")
+	mu.MergeWriteContextPack(run.ContextPacks[0])
+	assertMutableOldOwnerStale("after run/mutable merge")
 	view := types.OwnerAnchorViewFromWriteContextPacks(run.ContextPacks, types.WriteConsumerPlanner, "", "", 0)
 	if len(view.Items) != 2 || !ownerAnchorViewHasOwnerSymbol(view, "new_owner") ||
 		!ownerAnchorViewHasOwnerSymbol(view, "helper_owner") || ownerAnchorViewHasOwnerSymbol(view, "old_owner") {

@@ -1961,23 +1961,44 @@ func (o *Orchestrator) refreshAppliedPlanOwnerAnchors(run *types.WriteWorkflowRu
 			stale[path] = struct{}{}
 		}
 		for packIndex := range run.ContextPacks {
-			pack := run.ContextPacks[packIndex]
-			for itemIndex := range pack.Items {
-				item := &pack.Items[itemIndex]
-				if item.LocalizationAnchor == nil {
-					continue
+			run.ContextPacks[packIndex], _ = invalidateChangedOwnerAnchors(run.ContextPacks[packIndex], stale)
+		}
+		// Mutable.WriteContextPack is a defensive sibling snapshot, not an alias
+		// of run.ContextPacks. Revoke the same exact path authority there before
+		// any later MergeWriteContextPack: stale merges by AND so leaving this
+		// twin live would resurrect the pre-apply owner anchor.
+		if o != nil && o.busCtx != nil && o.busCtx.Mutable != nil {
+			if mutablePack := o.busCtx.Mutable.WriteContextPack(); mutablePack != nil {
+				if updated, changed := invalidateChangedOwnerAnchors(*mutablePack, stale); changed {
+					o.busCtx.Mutable.SetWriteContextPack(&updated)
 				}
-				path := normalizeControllerPath(item.LocalizationAnchor.Path)
-				if _, changed := stale[path]; !changed {
-					continue
-				}
-				item.Stale = true
-				item.StaleReason = "source_path_changed_after_owner_anchor"
 			}
-			run.ContextPacks[packIndex] = types.NormalizeWriteContextPack(pack)
 		}
 	}
 	o.syncPlanEditOwnerAnchorsToRun(run, plan)
+}
+
+func invalidateChangedOwnerAnchors(pack types.WriteContextPack, changedPaths map[string]struct{}) (types.WriteContextPack, bool) {
+	changed := false
+	for itemIndex := range pack.Items {
+		item := &pack.Items[itemIndex]
+		if item.LocalizationAnchor == nil {
+			continue
+		}
+		path := normalizeControllerPath(item.LocalizationAnchor.Path)
+		if _, affected := changedPaths[path]; !affected {
+			continue
+		}
+		if !item.Stale || item.StaleReason != "source_path_changed_after_owner_anchor" {
+			item.Stale = true
+			item.StaleReason = "source_path_changed_after_owner_anchor"
+			changed = true
+		}
+	}
+	if !changed {
+		return pack, false
+	}
+	return types.NormalizeWriteContextPack(pack), true
 }
 
 func appliedPlanOwnerAnchorInvalidationPaths(plan *types.ChangePlan) []string {

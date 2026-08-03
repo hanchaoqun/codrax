@@ -1309,3 +1309,16 @@ Kotlin/Swift initializer type 不冒充声明类型且显式参数仍能解析�
 该批仅补结构 pin 与词源去重，不改变选举、值、排序、Trace 自动补齐或模型正文。
 
 状态：`R1-1=closed`；`R1-2=closed`。
+
+### §9.5 M4-D write owner-anchor 双载体撤销（已实现，待本节提交）
+
+M4-R3-1 判断准确。`refreshAppliedPlanOwnerAnchors` 原来只在 `run.ContextPacks` 把变更路径的旧 owner anchor
+标为 stale；`Mutable.WriteContextPack` 是防御性复制的另一份快照，并未同步。由于同 fingerprint item 合并时
+`Stale = existing.Stale && incoming.Stale`，任一未撤销孪生副本都会把旧 owner 权限恢复为可用。
+
+修复把“按 normalized changed path 标记 owner anchor stale”提成单一函数，并在重新从当前 worktree 铸造新
+anchor 前同时应用到 run 与 Mutable 两份载体。测试先制造两份旧 owner 副本，验证 refresh 后两侧均撤销，
+再执行一次真实 `MergeWriteContextPack`，确认旧 anchor 不会复活、未变更 helper anchor 仍可复用、新 owner
+成为唯一当前权限。
+
+状态：`M4-R3-1=closed`。
