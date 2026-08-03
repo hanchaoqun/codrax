@@ -188,6 +188,72 @@ func TestExactTypedRelationProjectionCanonicalizesRepeatedObservationsByCandidat
 	}
 }
 
+func TestExactTypedRelationProjectionCanonicalizesCallChainRequirementPredicateDrift(t *testing.T) {
+	mut := types.NewMutableState("typed call-chain predicate drift")
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:            string(types.ReqCallChain),
+				PrimaryEntities: []string{"appendTypedRelationKinds"},
+			},
+			// Deliberately preserve the real drift witness: the analyzer selected
+			// call_chain but left predicate_axis/relational_lookup unset.
+			PredicateAxis: types.AxisUnknown,
+			Predicates:    types.SemanticPredicates{},
+		}},
+		MultiGraph: typedRelationCandidateSourceFixture{
+			{
+				Relation: types.TypedRelationCalledBy, SourceName: "appendTypedRelationKinds",
+				Member:    types.TypedRelationMember{Name: "BuildTypedRelationQueryWithResolvedSources", File: "internal/types/typed_relation_hint.go", Line: 294},
+				Precision: types.TypedRelationPrecisionExactSymbolID,
+			},
+			{
+				Relation: types.TypedRelationCalledBy, SourceName: "appendTypedRelationKinds",
+				Member:    types.TypedRelationMember{Name: "TypedRelationKindsForRequest", File: "internal/types/typed_relation_hint.go", Line: 321},
+				Precision: types.TypedRelationPrecisionExactSymbolID,
+			},
+		},
+	}
+	fact := types.AnswerAggregateFact{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "appendTypedRelationKinds production callers",
+		Value: "3",
+		Members: []string{
+			"BuildTypedRelationQueryWithResolvedSources @ internal/types/typed_relation_hint.go:294",
+			"BuildTypedRelationQueryWithResolvedSources @ internal/types/typed_relation_hint.go:295",
+			"TypedRelationKindsForRequest @ internal/types/typed_relation_hint.go:321",
+		},
+		// This short array is one note per distinct function, not one note per
+		// observation. It must not be positionally projected after dedupe.
+		MemberNotes: []string{"first caller has two sites", "second caller has one site"},
+		SupportRefs: []string{
+			"internal/types/typed_relation_hint.go:294",
+			"internal/types/typed_relation_hint.go:295",
+			"internal/types/typed_relation_hint.go:321",
+		},
+	}
+
+	marked := markExactTypedRelationPrincipalMemberSets(bus, []types.AnswerAggregateFact{fact})
+	if len(marked) != 1 || !types.AnswerAggregateFactHasTypedRelationPrincipalAuthority(marked[0]) {
+		t.Fatalf("typed call-chain requirement must retain exact relation authority across predicate drift: %+v", marked)
+	}
+	got := marked[0]
+	if got.Value != "2" || len(got.Members) != 2 ||
+		!strings.Contains(got.Members[0], "BuildTypedRelationQueryWithResolvedSources") ||
+		!strings.Contains(got.Members[1], "TypedRelationKindsForRequest") {
+		t.Fatalf("callsite observations must collapse onto two unique caller identities: %+v", got)
+	}
+	if len(got.SupportRefs) != 2 || got.SupportRefs[0] != "internal/types/typed_relation_hint.go:294" ||
+		got.SupportRefs[1] != "internal/types/typed_relation_hint.go:321" {
+		t.Fatalf("canonical caller refs must retain the first exact site for each identity: %+v", got.SupportRefs)
+	}
+	if len(got.MemberNotes) != 0 {
+		t.Fatalf("non-positional member notes must not be misattached after identity projection: %+v", got.MemberNotes)
+	}
+}
+
 func TestExactTypedRelationProjectionDemotesOnlyImplicitCompetingSibling(t *testing.T) {
 	bus := relationProjectionDriftBus()
 	exact := relationProjectionDriftFact("LoopController", "prodA", "prodB")

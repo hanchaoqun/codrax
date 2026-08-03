@@ -1888,6 +1888,11 @@ func TestHasTypedRelationMemberSetShape_TypedOnly(t *testing.T) {
 	if !HasTypedRelationMemberSetShape(rm) {
 		t.Fatal("relational lookup predicate should mark principal member sets as relation membership")
 	}
+	rm.Predicates.IsRelationalLookup = false
+	rm.AnalyzerHints.Kind = string(ReqCallChain)
+	if !HasTypedRelationMemberSetShape(rm) {
+		t.Fatal("typed call-chain requirement should preserve relation member identity even when the analyzer predicate drifts")
+	}
 }
 
 func TestSourceInventoryProfileConflictsWithRelationFlow_TypedBoundary(t *testing.T) {

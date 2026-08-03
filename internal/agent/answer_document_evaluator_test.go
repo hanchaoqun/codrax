@@ -2349,6 +2349,8 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersCallChainSupport
 		"### Cross-language call-diagram semantics",
 		"exact callee operation",
 		"Do not manufacture a self-call",
+		"compound condition can still contain a real invocation",
+		"never replace the callee with an abstract guard node",
 		"JavaScript/TypeScript/ArkTS",
 		"Cangjie",
 		"Declarative imports, inheritance/implements edges, annotations, and Proto/RPC declarations",
@@ -2382,6 +2384,7 @@ func TestRenderAnswerDocCallChainDiagramSemanticsGuide_CoversAllExecutableLangua
 	for _, want := range []string{
 		"exact callee operation",
 		"`Note`, `alt`/`else`, or `opt`",
+		"compound condition can still contain a real invocation",
 		"dynamic dispatch is unresolved",
 		"not executable calls unless a separately grounded invocation proves that edge",
 		"not conclusion authority",

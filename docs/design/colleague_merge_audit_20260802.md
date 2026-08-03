@@ -986,3 +986,46 @@ Service:21，并产生一条无谓 detach caveat。
 
 状态：`B52g=implemented / no-regression-replay / production-trigger-pin-pass`；
 `B52h=implemented / directed-pass / full-tests-pass / replay pending`。
+
+---
+
+## §35 B52 r9：call-chain typed 形状漂移与复合 guard 图表达（2026-08-02）
+
+`820525016` 同 pair 并行 runner 2/2 PASS，但人工 0/2：
+
+- called-by 的 closure 与 typed relation projection 都明确是 2 个 unique caller functions；模型 aggregate
+  却把 3 个 callsite observations 当 members，最终重复列出同一函数；
+- Java 首稿把 condition 内真实的 `countOpenVisits` 调用替换成抽象 `CapacityCheck` 节点，又让该节点
+  “调用” post-guard insert；修补后直接删掉 `countOpenVisits` edge。最终图仍不完整。
+
+登记 `B52i-REQCALLCHAIN-RELATION-IDENTITY`（P1）。根因是两个 typed selector 漂移：
+`TypedRelationKindsForRequest` 已把 `AnalyzerHints.Kind=ReqCallChain` 映射到 exact called-by provider；但
+`HasTypedRelationMemberSetShape` 还额外要求 `PredicateAxis=call` 或
+`Predicates.IsRelationalLookup=true`。r9 analyzer 发出 `question_kind=call_chain`，却把后两者都留空，导致
+同一请求“可以查询 exact relation、却不能按 exact relation 归一 member-set”。
+
+通用施工：
+
+1. `HasTypedRelationMemberSetShape` 直接消费 closed `ReqCallChain`，与 relation kind selector 单源对齐；
+2. exact provider 仍必须存在，且 principal fact 每个 member 必须唯一匹配 exact member/source candidate；
+   因此这不是“所有 call-chain 都硬去重”；
+3. 重复 callsite observation 折到 unique candidate identity，首个 exact support ref 保留，证据池中的全部
+   callsites 不删除；同名不同文件、source/member 歧义继续 fail-open；
+4. 若 `member_notes` 数量不等于原 member 数，其位置轴未经类型证明；canonicalize 后清空这些 optional
+   advisory notes，防止把第一函数说明错贴到第二函数。member/support/evidence 主事实不受影响；
+5. 不读 RawRequest、fact label、reason、thinking 或 final prose，Go/Java/Kotlin/JS/TS/ArkTS/C/C++/
+   Rust/Python/Ruby/Swift/Lua/Cangjie 等全部 relation providers 共用。
+
+图表达继续走 soft guide，不增加 hard label gate：复合 guard 内若有 grounded invocation，保留真正
+caller→callee edge，再单独用 Note/branch 表示 comparison；禁止抽象 guard 取代 callee，也禁止 guard
+成为 post-guard operation 的 caller。系统不自动重画模型图、不接管结论。
+
+B52h 本轮没有出现 `callable:line` item labels，故是 no-trigger replay；跨语言 deterministic
+preserve/repair/source-path 反臂仍是其验收 authority。
+
+状态：`B52h=full-tests-pass / deterministic-pin-covered / replay-no-trigger`；
+`B52i=implemented / directed-pass / full-tests-pass / replay pending`；
+`compound-guard-soft-guide=implemented / directed-pass / full-tests-pass / replay pending`。
+
+完整回归：`go test ./internal/types ./internal/tool ./internal/agent -count=1` 分包通过
+（types 19.776s；tool 159.961s；agent 3.266s）。

@@ -133,6 +133,7 @@ func HasTypedRelationMemberSetShape(rm RequestModel) bool {
 	}
 	return rm.PredicateAxis == AxisImplement ||
 		rm.Predicates.IsRelationalLookup ||
+		NormalizeRequirementKind(rm.AnalyzerHints.Kind) == ReqCallChain ||
 		HasInterfaceTypedRelationDiagramShape(rm)
 }
 

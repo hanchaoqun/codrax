@@ -3919,6 +3919,48 @@ B18c 使用一条通用 typed 规则修复：
 
 状态：`implemented / full-tests-pass / cross-relation replay next`。
 
+---
+
+## B52 r9：ReqCallChain 实体轴归一与复合条件调用表达（2026-08-02）
+
+在 `820525016` 精确构建上继续严格并行 2 个：Java call-chain 147s、called-by 81s，
+runner 均 PASS，但人工审计均 FAIL。
+
+called-by 的 typed projection 与 closure 已证明只有两个 unique caller functions，aggregate fact
+却把同一函数的三个 callsite observations 当作三个 members。根因不是某个 Go 函数或行号，
+而是两个 typed 决策漂移：`TypedRelationKindsForRequest` 已让 closed
+`AnalyzerHints.Kind=ReqCallChain` 选择 exact relation provider；
+`HasTypedRelationMemberSetShape` 却仍要求 `PredicateAxis=call` 或
+`IsRelationalLookup=true`。当 analyzer 只铸出前者时，同一请求可取精确候选但不能按候选身份归一。
+
+登记 `B52i-REQCALLCHAIN-RELATION-IDENTITY`（P1），通用修复为：
+
+1. member-set shape 直接消费 closed `ReqCallChain`，与 relation provider 选择对齐；
+2. 仍要求 exact provider、principal fact 以及每个 member 到 candidate/source identity 的唯一匹配，
+   不是对所有 call-chain 文本做硬去重；
+3. 同一 candidate 的重复 observation 折成一个成员，首个 exact support ref 保留，全部原始
+   callsite evidence 仍留在 evidence lane；同名不同文件或身份歧义继续 fail-open；
+4. `member_notes` 只有与原 members 等长时才有位置身份；短数组在归一后清空，避免说明错贴，
+   不影响 typed members/support/evidence；
+5. 判定不读取 RawRequest、fact label/reason、thinking 或 final prose；Go、Java、Kotlin、
+   JavaScript/TypeScript/ArkTS、C/C++、Rust、Python、Ruby、Swift、Lua、Cangjie 等所有
+   executable relation lanes 共用。
+
+Java 图层还暴露一种跨语言表达缺口：`if (countOpenVisits(...) >= max)` 同时包含真实 invocation
+与 comparison。soft finalizer guide 现要求保留 caller→`countOpenVisits` 的 grounded call edge，
+再单独以 Note/branch 表示比较；抽象 guard 不能取代 callee，也不能成为 post-guard operation 的
+caller。该规则只提供证据与表达指导，不新增 label-text hard gate，不由系统重画模型图或接管结论。
+
+`B52h` 在本轮因模型使用 bare method labels 而未触发，跨语言 preserve/repair/source-path
+deterministic pins 仍是其验收 authority。
+
+状态：`B52h=deterministic-pin-covered / replay-no-trigger`；
+`B52i=implemented / directed-pass / full-tests-pass / replay-pending`；
+`compound-guard-soft-guide=implemented / directed-pass / full-tests-pass / replay-pending`。
+
+完整回归：`internal/types` 19.776s、`internal/tool` 159.961s、`internal/agent` 3.266s，
+均以 `-count=1` 通过。
+
 ### B52 r7：全语言调用图交接验收与模型表重复（2026-08-02）
 
 同 pair 在 `759f1c859` 上 runner 2/2 PASS。人工审计结论：

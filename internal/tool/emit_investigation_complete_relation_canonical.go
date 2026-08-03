@@ -53,8 +53,18 @@ func canonicalizeExactTypedRelationFactMembers(
 	if removed == 0 {
 		return fact, 0
 	}
+	notesPositional := len(fact.MemberNotes) == len(fact.Members)
 	fact.Members = relationFactStringsAtIndexes(fact.Members, keep)
-	fact.MemberNotes = relationFactStringsAtIndexes(fact.MemberNotes, keep)
+	if notesPositional {
+		fact.MemberNotes = relationFactStringsAtIndexes(fact.MemberNotes, keep)
+	} else {
+		// Member notes are optional, but a short note array has no typed
+		// positional identity. Once repeated observations are projected onto
+		// unique relation members, preserving those notes by index could attach
+		// one caller's explanation to another caller. Drop the ambiguous
+		// advisory notes; exact members, support refs, and evidence remain.
+		fact.MemberNotes = nil
+	}
 	fact.SupportRefs = relationFactStringsAtIndexes(fact.SupportRefs, keep)
 	fact.Value = strconv.Itoa(len(fact.Members))
 	return fact, removed
