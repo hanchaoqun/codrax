@@ -2,6 +2,7 @@ package logtriage
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -231,6 +232,41 @@ func TestGlobByBasename_SkipsVendorAndHidden(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v (vendor/node_modules/.hidden must be skipped)",
 			got, want)
+	}
+}
+
+func TestGlobByBasenameGitLaneMatchesWalkVisibility(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	dir := t.TempDir()
+	for _, rel := range []string{
+		"src/Util.java",
+		"vendor/example/Util.java",
+		"node_modules/example/Util.java",
+		".hidden/Util.java",
+	} {
+		path := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("//"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, args := range [][]string{{"init"}, {"add", "src/Util.java", "vendor/example/Util.java", "node_modules/example/Util.java", ".hidden/Util.java"}} {
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v failed: %v\n%s", args, err, out)
+		}
+	}
+
+	got, err := GlobByBasename(dir, "Util.java")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"src/Util.java"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("git lane got %v, want %v (must match walk visibility)", got, want)
 	}
 }
 

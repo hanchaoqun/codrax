@@ -4098,6 +4098,17 @@ M11 将该既有 typed census 接到 prompt 软上下文：发布
 以 5 artifact → 4 visible + 1 omitted 的生产链回归验收；
 `go test ./internal/agent -count=1` 全包通过（2.643s）。状态：`implemented / full-package-pass`。
 
+#### 批 M12：T6-3 bare 栈帧源码宇宙收敛（2026-08-02）
+
+确认 `GlobByBasenames` 的 git 快车道会纳入已跟踪的 vendor/node_modules/hidden 同名文件，
+而无 Git 的 walk 车道会排除它们；这会让同一 bare stack-frame basename 随环境改变解析结果。
+M12 在 resolver 内抽出单一 visibility predicate 给两条车道共同使用，仅约束歧义 basename
+发现；显式 repo-relative/absolute frame path 的验证保持不变。真实 git fixture 固定四类同名文件
+只返回 production 候选。
+
+`go test ./internal/analysis/logtriage -count=1` 全包通过（1.024s）。状态：
+`implemented / full-package-pass`。
+
 ### B47：运行日志语义所有权 × write 跨语言检查权限（2026-08-02）
 
 严格并行 2 个跨模式 case：

@@ -495,3 +495,31 @@ principal-value recap 没有消费该信号，于是它仍会把最多 4 行误�
 
 状态：`T3-4=confirmed / implemented / full-package-pass`。下一项按 ROI 审计 T6-3
 两条源码文件宇宙不一致。
+
+---
+
+## §21 T6-3 施工结果：bare 栈帧 basename 两车道同一文件宇宙（2026-08-02）
+
+finding 准确，范围可进一步收窄到 `analysis/logtriage.GlobByBasenames`：
+
+- 无 Git 时的 filesystem walk 会跳过 `vendor/`、`node_modules/` 和任意隐藏目录；
+- 8 月 1 日加入的 `git ls-files --cached --others --exclude-standard` 快车道只尊重 gitignore，
+  因而会接纳已跟踪的上述目录；
+- 对只有 basename 的 Java/ArkTS/Cangjie/Kotlin 等栈帧，两条车道会得到不同候选 roster，
+  vendor 同名文件可能进入排序并改变最终 resolved frame。
+
+修复在 bare-basename resolver 内建立单一目录可见性谓词，git 列表与 walk 都消费它：
+
+- `vendor`、`node_modules`、root 以下隐藏目录在两条车道一致排除；
+- 仅收敛歧义 basename 的候选宇宙；栈帧已经携带精确 repo-relative/absolute path 时仍由
+  `ResolveFrameFile` 验证，不把这一软发现策略扩成全局 deny；
+- 不依赖栈帧内容、语言或具体文件名，不引入用户/模型文本硬门。
+
+新增真实 git repo 回归：同时 track production、vendor、node_modules、hidden 四个同名文件，
+git 快车道必须与旧 walk 车道一致只返回 production 文件。
+
+验证：定向 git/walk parity 回归与 `go test ./internal/analysis/logtriage -count=1` 全包通过
+（1.024s）。
+
+状态：`T6-3=confirmed / implemented / full-package-pass`。下一项按 ROI 审计 T4-2
+perf-triage prompt 的内部机制行话泄漏。

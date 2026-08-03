@@ -325,6 +325,9 @@ func GlobByBasenames(repoRoot string, baseNames []string) (map[string][]string, 
 	}
 	if gitPaths, ok := gitSourcePaths(rootAbs); ok {
 		for _, rel := range gitPaths {
+			if frameBasenamePathExcluded(rel) {
+				continue
+			}
 			baseName := filepath.Base(filepath.FromSlash(rel))
 			if !wanted[baseName] || len(out[baseName]) >= maxHits {
 				continue
@@ -347,8 +350,7 @@ func GlobByBasenames(repoRoot string, baseNames []string) (map[string][]string, 
 		}
 		if info.IsDir() {
 			name := info.Name()
-			if name == ".git" || name == "node_modules" || name == "vendor" ||
-				(strings.HasPrefix(name, ".") && len(name) > 1 && path != rootAbs) {
+			if frameBasenameDirExcluded(name, path != rootAbs) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -366,6 +368,27 @@ func GlobByBasenames(repoRoot string, baseNames []string) (map[string][]string, 
 	})
 	normaliseBasenameIndex(out)
 	return out, err
+}
+
+// frameBasenameDirExcluded is the single visibility policy for the git and
+// filesystem lanes of bare stack-frame basename resolution. Explicit frame
+// paths still go through ResolveFrameFile; this policy only keeps dependency
+// and hidden trees from competing with repository source for an ambiguous
+// basename.
+func frameBasenameDirExcluded(name string, belowRoot bool) bool {
+	return name == "node_modules" || name == "vendor" ||
+		(belowRoot && strings.HasPrefix(name, ".") && len(name) > 1)
+}
+
+func frameBasenamePathExcluded(rel string) bool {
+	rel = filepath.ToSlash(strings.TrimSpace(rel))
+	parts := strings.Split(rel, "/")
+	for i := 0; i+1 < len(parts); i++ {
+		if frameBasenameDirExcluded(parts[i], true) {
+			return true
+		}
+	}
+	return false
 }
 
 // gitSourcePaths returns the checkout's source-visible universe. A bounded
