@@ -4660,7 +4660,7 @@ persist choke point 之外，因此既有“非 system block wire 不变”测�
 | `EVAL-B51-SETAXIS1` | P1 | `is_relational_lookup` 单独把 narrative call chain 提升为 exact operation-site member set，探索模型的路径解释被硬化成 exhaustive roster | source-operation-site set 权限必须由 enumerate/category/per-member/completeness 等 typed set boundary 授予；relation-only call chain 继续使用 ordered path/support lane，不生成 hard enumeration rows | covered；B51-A |
 | `EVAL-B51-MUTLOOP1` | P1 | 两个 deterministic normalizer 对同一 principal block 一删一补，导致不可自愈 reject loop | 撤销 OWN1 后增加生产接线 pin：模型五行 wire 保持、无 principal-enum hard roster、同 payload 一次通过；任何系统 repair 不得制造后续 hard obligation | covered；B51-A |
 | `EVAL-B51-ORACLE1` | P1-eval | broad answer regex 虽已排除分隔线前的进度草稿，但仍让终态 citation footer 与降级 raw-model appendix 重复的符号满足断言；错误主结论仍 PASS | 新增 opt-in `primary_answer` oracle，只消费终态主答案体，按稳定 renderer 边界排除 citation/recovery/Trace supplements；不静默改变 200+ 历史 case，逐案显式迁移 | covered；B51-B r2 真实 replay 已由主答案六步路径满足 |
-| `EVAL-B51-AMPSET1` | P1 | analyzer 已明确 `trace/call_chain/call/category=false/exact_target=1`，R1 仍仅凭多个参与实体放大为 category enumeration，进而强制探索交付 member_set 并将多轮集合并成重复清册 | R1 识别有 exact endpoint 的 typed call-chain 为有序路径，不依赖波动的 relational 布尔；只有 enumerate/category/per-member/completeness/enumeration-boundary/buckets 才授予集合边界。不从请求或答案文本推断 | implemented；B51-C2，待 r4 replay |
+| `EVAL-B51-AMPSET1` | P1 | analyzer 已明确 `trace/call_chain/call/category=false`，R1 仍仅凭多个参与实体放大为 category enumeration，进而强制探索交付 member_set 并将多轮集合并成重复清册 | R1 将 typed call-chain 始终视为有序路径，不依赖可选且波动的 exact-target/relational；真正的集合由 enumerate/category/kind=enumeration 承载。不从请求或答案文本推断 | implemented；B51-C3，待 r5 replay |
 
 施工顺序冻结：B51-A 先撤销 call-chain 结论替换并收窄 relation-only set 权限；相关 types/tool 全包
 通过后独立提交推送。B51-B 再修 eval final-answer oracle。完成本节审计和 B51-A 交付后，才继续
@@ -4716,6 +4716,18 @@ decision/contribution 之间没有 `rule_id` 关联，终验 fail-closed。模�
 调用了受限环境未提供的 Python `type`，累计 10 data rounds/6 repair rounds 后失败。这与 B51
 调用链权限无关，登记 `EVAL-B51-DATAREF1/P1/open`：先复查既有 typed 规则关联修复动作与受限
 script builtin 合同，排在 MERGE-AUDIT-3 三个 high 之后，不用放宽 provenance 终验换取通过。
+
+B51 r4 选用 Java call-chain + `called-by` 真关系集合做正反例，runner 2/2 PASS。
+`called-by` 人工 PASS：结果只列 2 个真实 production caller，无 reject，证明集合正臂未被压掉。
+Java 主答案的 5 步路径大体正确，但继续出现 2+5 行系统清册；冷读 analyzer 发现本轮
+`exact_targets` 合法缺席，使 C2 仍失效。这证明 `exact_target>=1` 也是不应支配家族的可选信号。
+旧看护 `TestR1_FiresOnTraceEnumerationWithoutEndpointTargets` 用 `kind=call_chain` 强制放大本身就过硬：
+call-chain 的多实体是有序 hops，非 category members。C3 将正例改为 typed `kind=enumeration`，
+并对 `trace+call_chain+call+category=false` 无条件跳过 R1。
+
+r4 Java 同时确定性复现 MERGE-AUDIT-3 `T3-2`：模型的 sequence diagram 经历 10 次
+pre-emit reject/5 次 patch，最终删除图才通过，耗时 370s。该 witness 与集合权限分属两条独立责任链，
+B51 只固化“不再产生主集合”；图边合同按用户指定在 MERGE-AUDIT-3 首批继续修复。
 
 - [x] B51-T1：严格并行 Java call-chain + data 恰好 2 case；
 - [x] B51-T2：人工读完 HTML、完整 stdout/log、analyzer payload、五个源文件、首稿与降级稿；

@@ -223,27 +223,20 @@ func TestR1_NoFire_CallChainWithOneExactEndpointWithoutRelationalFlag(t *testing
 	}
 }
 
-func TestR1_RelationalCallChainExplicitSetBoundaryStillAllowsEnumeration(t *testing.T) {
+func TestR1_NoFire_CallChainParticipantsWithoutExactEndpoints(t *testing.T) {
 	rm := makeRMWithEntities("EntryHandler", "BusinessService", "RecordStore")
 	rm.Intent = types.IntentTrace
 	rm.PredicateAxis = types.AxisCall
 	rm.AnalyzerHints.Kind = string(types.ReqCallChain)
-	rm.AnalyzerHints.ExactTargets = []string{"EntryHandler.create"}
-	rm.Predicates.IsRelationalLookup = true
-	rm.Predicates.HasPerMemberTable = true
 
 	got, obs := Amplify(rm)
-	if !got.Predicates.IsCategoryEnumeration {
-		t.Errorf("R1 should preserve multi-subject set inference when a typed per-member boundary is explicit")
+	if got.Predicates.IsCategoryEnumeration {
+		t.Errorf("R1 must NOT reinterpret ordered call-chain participants as an unordered category enumeration")
 	}
-	r1Count := 0
 	for _, ob := range obs {
 		if ob.Rule == "R1_multi_subject_predicate" {
-			r1Count++
+			t.Errorf("expected no R1 observation for endpoint-free typed call-chain, got %+v", obs)
 		}
-	}
-	if r1Count != 1 {
-		t.Fatalf("expected exactly 1 R1 observation, got %d (full obs: %+v)", r1Count, obs)
 	}
 }
 
@@ -353,8 +346,8 @@ func TestR1_SingleTopicMechanismExplanation_ObligationStillAllowsEnumeration(t *
 func TestR1_FiresOnTraceEnumerationWithoutEndpointTargets(t *testing.T) {
 	rm := makeRMWithEntities("StageAnalyze", "StageExplore", "StageExtract")
 	rm.Intent = types.IntentTrace
-	rm.PredicateAxis = types.AxisCall
-	rm.AnalyzerHints.Kind = string(types.ReqCallChain)
+	rm.PredicateAxis = types.AxisDefine
+	rm.AnalyzerHints.Kind = string(types.ReqEnumeration)
 
 	got, obs := Amplify(rm)
 	if !got.Predicates.IsCategoryEnumeration {

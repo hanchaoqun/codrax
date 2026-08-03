@@ -169,6 +169,17 @@ func isStructuralEndpointTraceQuestion(rm types.RequestModel) bool {
 		rm.Predicates.IsDiagnosticQuestion {
 		return false
 	}
+	// ReqCallChain + AxisCall is already the typed contract for one ordered
+	// path. Its participants are hops, not an unordered principal member set.
+	// ExactTargets and IsRelationalLookup are optional classifier details and
+	// may legitimately vary between otherwise equivalent analyzer outputs;
+	// neither may decide whether R1 changes the answer family. A true set query
+	// arrives as IntentEnumerate / IsCategoryEnumeration / ReqEnumeration and
+	// does not need R1 to reinterpret a call-chain contract.
+	if rm.PredicateAxis == types.AxisCall &&
+		types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) == types.ReqCallChain {
+		return true
+	}
 	if rm.Predicates.HasPerMemberTable ||
 		rm.CompletenessObligation.IsActive() ||
 		(rm.EnumerationBoundary != nil && rm.EnumerationBoundary.DeclaredCount > 0) ||
@@ -178,10 +189,6 @@ func isStructuralEndpointTraceQuestion(rm types.RequestModel) bool {
 	targetCount := len(structuralEndpointTraceTargets(rm))
 	if targetCount == 0 {
 		return false
-	}
-	if rm.PredicateAxis == types.AxisCall &&
-		types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) == types.ReqCallChain {
-		return true
 	}
 	if targetCount < 2 {
 		return false
