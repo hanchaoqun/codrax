@@ -165,6 +165,67 @@ func TestFinalRelationClaimsIncludeClosureAuthorityAddedByDeterministicSupplemen
 	}
 }
 
+func TestTargetStateRelationClaimSurvivesToleratedAnchorEndpointDrift(t *testing.T) {
+	ref := types.ObservationSourceRef{
+		Kind: types.ObservationSourceRuntimeArtifact, Path: "/tmp/customer.trace",
+		ArtifactID: "customer.trace", ArtifactKind: "trace",
+	}
+	anchorWindow := types.TraceNoteKeySelectedWindow + "=10.000000..10.015000"
+	accountWindow := types.TraceNoteKeySelectedWindow + "=10.000000..10.015020"
+	mu := types.NewMutableState("trace tolerated relation test")
+	mu.AppendDispatchToolResult(types.ToolResult{ToolName: "trace_query", Success: true, Observations: []types.ObservationRecord{
+		{
+			ID: "trace_query:rank#root", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard, SourceRef: ref,
+			ClaimKey: "root_cause_primary:target-7", Subject: "target-7", Predicate: "root_cause_primary",
+			Object: "running", Value: "1", Unit: "ms",
+			RichNotes: []string{"impact_ms=1.000", "cumulative_impact_ms=1.000", "rank=1", "tier=primary", "chain_relevance=on_chain", "causality=self_wall_clock", anchorWindow},
+		},
+		{
+			ID: "trace_query:states#target_window_states", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard, SourceRef: ref,
+			ClaimKey: "target_window_states:target-7", Subject: "target-7", Predicate: "target_window_states",
+			Object: "state_partition", Value: "15.020", Unit: "ms",
+			RichNotes: []string{
+				types.TraceNoteKeyRunning + "=1.000", types.TraceNoteKeyRunnable + "=2.000",
+				types.TraceNoteKeySleep + "=3.020", types.TraceNoteKeyDState + "=4.000",
+				types.TraceNoteKeyIOWait + "=5.000", types.TraceNoteKeyTotal + "=15.020", accountWindow,
+			},
+		},
+	}})
+	bus := &types.BusContext{Mutable: mu}
+
+	previewAuthorities := types.CompileTraceAnswerRelationAuthorities(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{{
+		TargetStateAccount: &types.TraceCausalProjectionTargetStateAccount{
+			Subject: "target-7", RunningMS: 1, RunnableMS: 2, SleepMS: 3.020,
+			DStateMS: 4, IOWaitMS: 5, TotalMS: 15.020,
+			WindowStartTs: 10, WindowEndTs: 10.015020,
+		},
+	}}})
+	if len(previewAuthorities) != 1 {
+		t.Fatalf("preview target-state authority=%+v", previewAuthorities)
+	}
+	preview := previewAuthorities[0]
+	claim := types.AnswerRelationClaim{
+		AuthorityID: preview.ID, MemberRefs: append([]string(nil), preview.MemberRefs...),
+		PhysicalRelation: preview.PhysicalRelation, Addition: preview.Addition,
+		SubtotalValue: preview.SubtotalValue, SubtotalUnit: preview.SubtotalUnit,
+	}
+	if got, err := validateCompletionRelationClaims(bus, []types.AnswerRelationClaim{claim}); err != nil || len(got) != 1 {
+		t.Fatalf("completion rejected a relation admitted within the shared window tolerance: got=%+v err=%v", got, err)
+	}
+	mu.SetInvestigationRelationClaims([]types.AnswerRelationClaim{claim})
+	mu.SetInvestigationComplete("model accepted the typed target-state partition")
+	mu.RetainInvestigationRelationClaims()
+	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "s", Kind: types.BlockSummary, Text: "model conclusion", RelationClaims: []types.AnswerRelationClaim{claim},
+	}}}
+	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
+	if err != nil || !res.Success {
+		t.Fatalf("final answer rejected the same accepted target-state relation: res=%+v err=%v", res, err)
+	}
+}
+
 func TestSameSourcePartitionAuthorityIDMatchesHeadAndLedger(t *testing.T) {
 	target := tracequery.ThreadRef{Comm: "target", PID: 17267}
 	thread := tracequery.ThreadRef{Comm: "CompThread_0", PID: 2955, TGID: 1864}

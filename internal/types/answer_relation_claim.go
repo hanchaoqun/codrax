@@ -228,7 +228,12 @@ func answerRelationSameSourcePartitionFingerprint(node TraceCausalProjectionNode
 // the renderer may merge d_state+io_wait into one human-facing D-state term,
 // but that display fold does not change the underlying arithmetic. Requiring
 // both the lane identity and the selected-window identity prevents a partial
-// or imbalanced state account from becoming closure authority.
+// or imbalanced state account from becoming closure authority. The account is
+// attached to a projection with the shared F-2 same-window tolerance, so this
+// authority must use that same endpoint rule. Its subtotal closes the
+// account's own typed window; requiring it to equal the anchor's byte-rendered
+// duration after tolerant admission would make preview and final validation
+// disagree for the same accepted account.
 func answerRelationTargetStatePartitionClosed(projection TraceCausalProjection, account *TraceCausalProjectionTargetStateAccount) bool {
 	if account == nil || strings.TrimSpace(account.Subject) == "" || account.TotalMS <= 0 ||
 		account.RunningMS < 0 || account.RunnableMS < 0 || account.SleepMS < 0 ||
@@ -250,7 +255,7 @@ func answerRelationTargetStatePartitionClosed(projection TraceCausalProjection, 
 		math.Abs(account.WindowEndTs-projection.WindowEndTs) > TraceCausalProjectionSameWindowToleranceS {
 		return false
 	}
-	windowMS := (projection.WindowEndTs - projection.WindowStartTs) * 1000
+	windowMS := (account.WindowEndTs - account.WindowStartTs) * 1000
 	return fmt.Sprintf("%.3f", account.TotalMS) == fmt.Sprintf("%.3f", windowMS)
 }
 

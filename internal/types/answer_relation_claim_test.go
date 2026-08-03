@@ -135,7 +135,30 @@ func TestTraceTargetStatePartitionRequiresExactClosedFiveLaneAccount(t *testing.
 	if exact := CompileTraceAnswerRelationAuthorities(TraceCausalProjectionSet{Projections: []TraceCausalProjection{windowed}}); len(exact) != 1 {
 		t.Fatalf("exact selected-window partition rejected: %+v", exact)
 	}
+	// The projection compiler admits a typed account whose endpoints are within
+	// the shared F-2 ±1ms same-window tolerance. The relation compiler must not
+	// then compare the account subtotal against the slightly different anchor
+	// duration and retire an authority that was valid in the compact preview.
+	// This is the production shape where an end sched_switch extends the account
+	// by 20µs beyond the originally requested anchor.
+	tolerated := windowed
+	copyAccount = *projection.TargetStateAccount
+	copyAccount.WindowStartTs, copyAccount.WindowEndTs = 10, 10.015020
+	copyAccount.TotalMS = 15.020
+	copyAccount.SleepMS = 3.020
+	tolerated.TargetStateAccount = &copyAccount
+	toleratedAuthority := CompileTraceAnswerRelationAuthorities(TraceCausalProjectionSet{Projections: []TraceCausalProjection{tolerated}})
+	if len(toleratedAuthority) != 1 {
+		t.Fatalf("same-window tolerated account must retain its closed-partition authority: %+v", toleratedAuthority)
+	}
+	preview := TraceCausalProjection{TargetStateAccount: &copyAccount}
+	previewAuthority := CompileTraceAnswerRelationAuthorities(TraceCausalProjectionSet{Projections: []TraceCausalProjection{preview}})
+	if len(previewAuthority) != 1 || previewAuthority[0].ID != toleratedAuthority[0].ID {
+		t.Fatalf("preview/final authority identity drifted: preview=%+v final=%+v", previewAuthority, toleratedAuthority)
+	}
 	copyAccount.WindowEndTs = 10.017
+	copyAccount.TotalMS = 17
+	copyAccount.SleepMS = 5
 	windowed.TargetStateAccount = &copyAccount
 	if drift := CompileTraceAnswerRelationAuthorities(TraceCausalProjectionSet{Projections: []TraceCausalProjection{windowed}}); len(drift) != 0 {
 		t.Fatalf("different-window target partition must fail closed: %+v", drift)

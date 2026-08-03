@@ -11467,3 +11467,64 @@ called-by 的重复是更上游的新问题，不能由显示层去重掩盖：
 完整 `internal/tool` 回归通过（最终复跑 161.534s）。
 
 状态：`implemented / full-tests-pass / cross-relation replay next`。
+## EVAL-B53：显式窗 Trace 关系权限跨阶段一致性 × C++ 写模式（2026-08-03）
+
+### B53 r1：写模式真实收敛；Trace 出现 typed authority 必带/必拒死锁
+
+在 `main@b1aa5e58f` 的同一二进制快照下严格并行 2 个 case：
+
+- `trace_query_wakeup_causal_runnable`：runner FAIL / human FAIL-system，539s；
+- `github_issue_fmt_tm_year_overflow_symptom`：runner PASS / human PASS，310s。
+
+C++ 写模式通过真实项目验证：首计划只把 `parts.year_offset + 1900` 提升到
+`int64_t`，随后仍窄化成 `int`，`make check` 精确打红；replan 改为保留宽整数并直接
+`std::to_string(static_cast<long long>(calendar_year))`。最终 applied tree 只改
+`include/tmfmt.hpp`，项目 runner 实际编译/执行，普通年份与 `INT_MAX → 2147485547`
+均通过；final `verified` 与累计 typed proof 一致。模型第一次修错、被真实测试拦截后自愈，
+属于写控制器应当容纳的正常推理过程，不登记 type-specific gate。
+
+Trace 的查询、自动补齐和模型前决策上下文本身已经提供：
+
+1. 用户显式窗 `1.000000..1.010000`；
+2. `worker-200 → app-100` 唤醒路径；
+3. 实际占用轴：目标 sleep 10.000ms、唤醒后 runnable 0.020ms；
+4. 现有规则可消除轴：`worker-200` pre-wakeup dependency 8.300ms；
+5. 精确 phase ceiling：候选标记不证明锁 holder/waiter，也不证明唤醒后 CFS 抢占 RT。
+
+因此根因排序、唤醒链、两类根因、可消除量与系统补采均未缺失。真正失败发生在 typed
+关系权限跨阶段：`target_window_states` 的账户窗为 `1.000000..1.010020`，投影 anchor 为
+`1.000000..1.010000`。账户接入器按全系统 F-2 ±1ms 同窗规则合法接入；探索期 compact
+preview 据此铸造并接受 `trace:target_state_partition:*`。成文期关系编译器却要求账户总量
+等于 anchor 字面时长，用 10.000ms 拒绝五状态自身闭合的 10.020ms，导致同一个 authority
+从最终 roster 消失。handoff 仍要求模型复制已接受声明，validator 又判该 ID 不存在：
+模型无论携带还是省略都必拒，最终 20 轮、40 次成文 reject 后降级，答案为空。
+
+新增台账：
+
+| ID | 优先级 | GAP | 泛化方案 | 状态 |
+|---|---:|---|---|---|
+| `EVAL-B53-RELWIN1` | P0 | 同一个 typed target-state account 在投影接入、探索 closure 与最终关系校验使用不同同窗/闭合规则，形成 authority 必带/必拒死锁 | 关系编译复用唯一 F-2 typed endpoint 容差；subtotal 对账户自身 typed window 闭合，不对容差接入后的 anchor 字面长度二次裁决；新增 preview→anchored-final authority ID/validation 一致性 pin。全程不读取 RawRequest、模型 thinking/final 或关键词 | implemented / full-related-tests-pass / replay-next |
+
+#### B53-A：target-state partition authority 同窗单源
+
+`answerRelationTargetStatePartitionClosed` 已改为：
+
+1. 投影 anchor 与账户窗仍必须在共享 `TraceCausalProjectionSameWindowToleranceS`
+   （±1ms）内，超过容差继续 fail-closed；
+2. 五状态之和仍须在 3 位发布精度精确等于 typed `TotalMS`；
+3. closure total 改为核对账户自身 `WindowStartTs..WindowEndTs`，不再核对容差内但字面略有
+   差异的 projection anchor；
+4. 20µs 端点差的生产形新增 preview/final authority ID 恒等 pin；2ms 真跨窗负臂继续拒绝。
+
+这是同一 typed 信号在三个消费面的语义统一，不放宽跨窗加法，不修改模型正文，不新增
+答案接管或题面/答案关键词 gate。显式时间窗的 Trace 因果投影、根因排序、唤醒链、窗内
+可消除量和系统自动补齐仍沿原路径运行；修复只保证它们交给模型的关系权限可以被最终
+validator 同样接受。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b53_trace_write_r1_20260803.md`；
+- `eval/parallel_selected_summary_evalcampaign_b53_trace_write_r1_20260803_manual_audit.md`；
+- result dirs：`20260803-050542`；
+- 完整 `go test ./internal/types ./internal/tool -count=1` 通过（20.180s / 168.763s）；
+  `internal/agent` Trace-decision relation handoff 专项与 `git diff --check` 通过。
