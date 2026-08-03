@@ -4016,6 +4016,21 @@ observation 真正存在，固定输入收据恢复字节不变。最终
 
 状态：`T6-2=confirmed-narrowed / implemented / full-package-pass`；下一项审计 T7-2。
 
+### MERGE-AUDIT-3 M6：meta-runner coverage 只认 typed declaration edge（T7-2）
+
+红测确定性复现：直接执行的测试脚本仅在 `SKIP` 与日志字符串中提到 changed path，旧
+`exactQuotedStringLiterals` 仍把它纳入 `DeclaredCoveragePaths`；成功 Make target 随后
+将其升级为 source-static changed-path coverage，且没有下游纠偏门。
+
+施工删除脚本正文的 arbitrary quoted-literal 推断。跨语言 meta-runner 的成员 roster 只由
+Make exact prerequisites 和 recipe exact existing file arguments铸造；普通同语言 runner
+不变。真实脚本访问若要扩展，必须提供 runtime access receipt 或可证明 data-flow 的 typed
+证据，不能用 API/关键词扫描替代。正例改用 prerequisite 明确声明成员，并固定多成员、
+部分成员、Python 与 Rust cross-language 执行边界。`go test ./internal/tool -count=1`
+通过(161.874s)。
+
+状态：`T7-2=confirmed / implemented / full-package-pass`；下一项 T7-3。
+
 ### B47：运行日志语义所有权 × write 跨语言检查权限（2026-08-02）
 
 严格并行 2 个跨模式 case：

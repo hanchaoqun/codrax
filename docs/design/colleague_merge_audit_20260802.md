@@ -67,7 +67,7 @@
 ## §4 存疑(PLAUSIBLE,1/2 否证席分歧)
 
 - **T6-2** `emit_analysis.go:1303`:三个新必填 profile 各带独立单因硬拒 + Execute 保持先败先返(~35 处)→ 每轮只暴露一个缺陷,疑似回到 EMITBURN-1(§29.173)修掉的逐轮烧重试形。复核结论：profile 内部缺字段已有聚合，但 scope/target/question 三份独立声明之间确实先败先返；已按依赖边界收窄修复，见 §14。
-- **T7-2** `test_surface.go:188`:meta-runner 声明覆盖 roster 第三臂把直调脚本里**被引号引用的任意在库路径字面量**(日志文案/skip 表)当覆盖权威——`SKIP=["src/util.py"]` 反而让 util.py 记为已测。分歧点:该臂是否另有交叉门拦截。
+- **T7-2** `test_surface.go:188`:meta-runner 声明覆盖 roster 第三臂把直调脚本里**被引号引用的任意在库路径字面量**(日志文案/skip 表)当覆盖权威——`SKIP=["src/util.py"]` 反而让 util.py 记为已测。复核确认后续没有纠偏门，成功 Make target 会把它升级为 static changed-path coverage；已修复，见 §15。
 
 ## §5 低危顾问(12 件,未进否证轮,修复时顺带)
 
@@ -313,3 +313,31 @@ finding 准确。红测把现有生产键 `unknown_comm_witnesses` 放入一个�
 
 状态：`T6-2=confirmed-narrowed / implemented / full-package-pass`。下一项按原排期审计
 `T7-2` meta-runner 对引用路径是否会误铸测试覆盖。
+
+---
+
+## §15 T7-2 施工结果：meta-runner coverage 只认声明边(2026-08-02)
+
+finding 完全准确。确定性红测使用一个成功的 `make check` 脚本，其中
+`SKIP=["pkg/widget.py"]` 和日志字符串都提及同一在库文件；旧 producer 把该文件放入
+`DeclaredCoveragePaths`，后续 exact candidate/target success 虽能证明 Make 命令成功，
+却无法证明该字符串是读取、断言或覆盖边，最终仍会把 changed path 签为 static covered。
+没有其它交叉门检查脚本是否真实消费该路径。
+
+最优安全边界是停止把任意语言脚本正文当声明语言：
+
+- coverage roster 只保留 Make target 的 exact existing prerequisites 与 recipe 中 exact
+  existing file arguments（包括被直接执行的测试脚本本身）；
+- 不再打开并扫描 `.py/.sh/.rb/.js/.go` 等脚本中的引号字符串，因而 skip list、日志、
+  fixture/example、dead branch 不再能铸 hard verification authority；
+- 脚本对源文件的真实动态访问将来只能由 runtime file-access receipt，或能够证明执行与
+  data flow 的语言级 typed 证据扩展；不能恢复成关键字/API/字符串启发式；
+- ordinary same-language project-runner coverage 不变；跨语言 Make check 仍可通过 explicit
+  prerequisite/recipe argument 获得 exact-member、source-static caliber，且不得扩到 sibling。
+
+回归覆盖 `SKIP`/日志负例、prerequisite 多成员正例、部分 roster fail-closed、Python Make
+和 Python 驱动 Rust check 的完整执行车道。`go test ./internal/tool -count=1` 全包通过
+(161.874s)。
+
+状态：`T7-2=confirmed / implemented / full-package-pass`。MERGE-AUDIT-3 两项 plausible
+均已定性并闭环；下一批按 ROI 审计 `T7-3` durable plan snapshot 缺失时的 bare continue。

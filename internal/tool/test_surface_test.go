@@ -115,7 +115,7 @@ func TestBuildTestSurface_TestWorkOutranksManifestPriority(t *testing.T) {
 
 func TestBuildTestSurface_MakeCarriesExactDeclaredCrossLanguageInputs(t *testing.T) {
 	root := t.TempDir()
-	writeSurfaceFile(t, root, "Makefile", "check:\n\tpython3 tests/check_iterators.py\n")
+	writeSurfaceFile(t, root, "Makefile", "check: src/types/list.rs src/types/tuple.rs tests/iterators.rs\n\tpython3 tests/check_iterators.py\n")
 	writeSurfaceFile(t, root, "tests/check_iterators.py", `
 from pathlib import Path
 root = Path(__file__).resolve().parents[1]
@@ -148,6 +148,27 @@ test_path.read_text()
 	if gotFamilies := makeCand.DeclaredExecutionLanguageFamilies; len(gotFamilies) != 1 ||
 		gotFamilies[0] != types.VerificationLanguagePython {
 		t.Fatalf("Make concrete execution family = %+v, want [python]", gotFamilies)
+	}
+}
+
+func TestBuildTestSurface_MakeDoesNotTreatQuotedScriptPathsAsCoverage(t *testing.T) {
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "Makefile", "check:\n\tpython3 tests/check_widget.py\n")
+	writeSurfaceFile(t, root, "tests/check_widget.py", `
+SKIP = ["pkg/widget.py"]
+print("pkg/widget.py")
+`)
+	writeSurfaceFile(t, root, "pkg/widget.py", "VALUE = 42\n")
+
+	makeCand := surfaceCandidate(t, BuildTestSurface(root, ""), "make")
+	for _, got := range makeCand.DeclaredCoveragePaths {
+		if got == "pkg/widget.py" {
+			t.Fatalf("a quoted script path is not a declared coverage edge: %+v", makeCand)
+		}
+	}
+	plan := &types.ChangePlan{TargetPaths: []string{"pkg/widget.py"}}
+	if got := declaredCoverageRunnerPlansFromChangePlan(root, types.TestSurface{Candidates: []types.TestSurfaceCandidate{makeCand}}, plan); len(got) != 0 {
+		t.Fatalf("quoted skip/log literals must not select or authorize a declared-coverage runner: %+v", got)
 	}
 }
 
@@ -682,7 +703,7 @@ func TestDefaultRunnerPlansFromTestSurface_CompatibleSignalBeatsSyntheticNativeP
 
 func TestDeclaredCoverageRunnerPlansFromChangePlan_PrefersExactCrossLanguageMakeRoster(t *testing.T) {
 	root := t.TempDir()
-	writeSurfaceFile(t, root, "Makefile", "check:\n\tpython3 tests/check_widget.py\n")
+	writeSurfaceFile(t, root, "Makefile", "check: pkg/widget.py\n\tpython3 tests/check_widget.py\n")
 	writeSurfaceFile(t, root, "tests/check_widget.py", `
 from pathlib import Path
 Path("pkg/widget.py").read_text()
@@ -703,7 +724,7 @@ Path("pkg/widget.py").read_text()
 
 func TestDeclaredCoverageRunnerPlansFromChangePlan_RequiresEveryChangedSource(t *testing.T) {
 	root := t.TempDir()
-	writeSurfaceFile(t, root, "Makefile", "check:\n\tpython3 tests/check_widget.py\n")
+	writeSurfaceFile(t, root, "Makefile", "check: pkg/widget.py\n\tpython3 tests/check_widget.py\n")
 	writeSurfaceFile(t, root, "tests/check_widget.py", `
 from pathlib import Path
 Path("pkg/widget.py").read_text()

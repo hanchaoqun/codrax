@@ -126,22 +126,23 @@ func testSurfaceCandidateForPlan(repoRoot string, plan runnerPlan) types.TestSur
 }
 
 const (
-	makeDeclaredCoverageMaxScriptBytes = 1 << 20
-	makeDeclaredCoverageMaxPaths       = 256
+	makeDeclaredCoverageMaxPaths = 256
 )
 
 // makeTargetDeclaredCoveragePaths computes a bounded, filesystem-verified
 // ownership roster for a conventional Make test target without executing or
 // interpreting arbitrary shell. It admits:
 //   - exact existing file prerequisites on the selected rule;
-//   - exact existing file arguments in that rule's recipe; and
-//   - exact existing repo-relative path literals in a directly invoked local
-//     test script.
+//   - exact existing file arguments in that rule's recipe (including the
+//     directly invoked local test script itself).
 //
-// Dynamic variables, generated paths, command substitutions and nested
-// runner discovery remain unresolved and therefore fail closed. This roster
-// is used only for the cross-language meta-runner lane; ordinary same-family
-// project-runner coverage is unchanged.
+// Script-body string literals are deliberately excluded. A quoted path may be
+// a skip list, log message, fixture example, or dead branch; its mere presence
+// is not a repository-declared coverage edge. Dynamic variables, generated
+// paths, command substitutions and nested runner discovery likewise remain
+// unresolved and therefore fail closed. This roster is used only for the
+// cross-language meta-runner lane; ordinary same-family project-runner
+// coverage is unchanged.
 func makeTargetDeclaredCoveragePaths(repoRoot, target string) []string {
 	makefilePath := firstExistingMakefile(repoRoot)
 	if makefilePath == "" || strings.TrimSpace(target) == "" {
@@ -154,7 +155,6 @@ func makeTargetDeclaredCoveragePaths(repoRoot, target string) []string {
 	lines := strings.Split(string(data), "\n")
 	inTarget := false
 	var paths []string
-	var scripts []string
 	for _, line := range lines {
 		if !inTarget {
 			if deps, ok := exactMakeTargetDependencies(line, target); ok {
@@ -167,11 +167,7 @@ func makeTargetDeclaredCoveragePaths(repoRoot, target string) []string {
 		}
 		if strings.HasPrefix(line, "\t") {
 			for _, token := range strings.Fields(strings.TrimSpace(line)) {
-				before := len(paths)
 				paths = appendExistingDeclaredCoveragePath(repoRoot, paths, token)
-				if len(paths) > before && declaredCoverageScriptPath(paths[len(paths)-1]) {
-					scripts = appendUniqueRepoPath(scripts, paths[len(paths)-1])
-				}
 			}
 			continue
 		}
@@ -179,21 +175,6 @@ func makeTargetDeclaredCoveragePaths(repoRoot, target string) []string {
 			continue
 		}
 		break
-	}
-	for _, script := range scripts {
-		scriptData, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(script)))
-		if err != nil || len(scriptData) > makeDeclaredCoverageMaxScriptBytes {
-			continue
-		}
-		for _, literal := range exactQuotedStringLiterals(string(scriptData)) {
-			paths = appendExistingDeclaredCoveragePath(repoRoot, paths, literal)
-			if len(paths) >= makeDeclaredCoverageMaxPaths {
-				break
-			}
-		}
-		if len(paths) >= makeDeclaredCoverageMaxPaths {
-			break
-		}
 	}
 	sort.Strings(paths)
 	if len(paths) > makeDeclaredCoverageMaxPaths {
@@ -342,43 +323,6 @@ func appendExistingDeclaredCoveragePath(repoRoot string, paths []string, raw str
 		return paths
 	}
 	return appendUniqueRepoPath(paths, clean)
-}
-
-func declaredCoverageScriptPath(path string) bool {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".py", ".sh", ".rb", ".js", ".mjs", ".cjs", ".go":
-		return true
-	default:
-		return false
-	}
-}
-
-func exactQuotedStringLiterals(source string) []string {
-	var out []string
-	for i := 0; i < len(source); i++ {
-		quote := source[i]
-		if quote != '\'' && quote != '"' {
-			continue
-		}
-		start := i + 1
-		i++
-		escaped := false
-		for ; i < len(source); i++ {
-			switch {
-			case escaped:
-				escaped = false
-			case source[i] == '\\':
-				escaped = true
-			case source[i] == quote:
-				out = append(out, source[start:i])
-				goto nextLiteral
-			case source[i] == '\n' || source[i] == '\r':
-				goto nextLiteral
-			}
-		}
-	nextLiteral:
-	}
-	return out
 }
 
 // testSurfaceCandidateKey is the executed-set key for escalation decisions:

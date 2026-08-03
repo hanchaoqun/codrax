@@ -44,7 +44,8 @@ type TestSurfaceCandidate struct {
 	// DeclaredCoveragePaths are exact repo-relative files read or named by the
 	// candidate's typed test entry. For Make this is a bounded static
 	// expansion of the selected target's direct file prerequisites and
-	// directly invoked local test scripts' exact existing path literals.
+	// exact existing recipe arguments. Script-body string literals are not
+	// declarations and are excluded.
 	// The roster has no authority by itself. A successful command matching the
 	// exact candidate and MakeTarget may use an exact member as bounded
 	// declared-project-check evidence; it never grants directory- or

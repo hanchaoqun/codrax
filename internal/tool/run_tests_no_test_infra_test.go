@@ -1319,7 +1319,7 @@ func TestRunTestsVerificationProbePassUsesDeclaredCrossLanguageMakeCoverageBefor
 	if err := os.WriteFile(filepath.Join(root, "tests", "check_widget.py"), []byte(check), 0o644); err != nil {
 		t.Fatalf("write check script: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "Makefile"), []byte("check:\n\tpython3 tests/check_widget.py\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "Makefile"), []byte("check: pkg/widget.py\n\tpython3 tests/check_widget.py\n"), 0o644); err != nil {
 		t.Fatalf("write Makefile: %v", err)
 	}
 
@@ -1393,7 +1393,7 @@ func TestRunTestsDeclaredPythonMakeTargetClosesChangedPathWithoutProbe(t *testin
 	if err := os.WriteFile(filepath.Join(root, "tests", "check_widget.py"), []byte(check), 0o644); err != nil {
 		t.Fatalf("write check script: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "Makefile"), []byte("check:\n\tpython3 tests/check_widget.py\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "Makefile"), []byte("check: pkg/widget.py\n\tpython3 tests/check_widget.py\n"), 0o644); err != nil {
 		t.Fatalf("write Makefile: %v", err)
 	}
 
@@ -2677,7 +2677,7 @@ func TestRunTestsTypedPolyglotMakeSurfaceCarriesExactCheckWithoutPretendingRustE
 	); err != nil {
 		t.Fatalf("write behavioral oracle: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "Makefile"), []byte("check:\n\tpython3 tests/check_source.py\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "Makefile"), []byte("check: src/types/list.rs\n\tpython3 tests/check_source.py\n"), 0o644); err != nil {
 		t.Fatalf("write Makefile: %v", err)
 	}
 	mu := types.NewMutableState("polyglot make verification")
