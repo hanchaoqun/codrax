@@ -2874,8 +2874,11 @@ func TestEmitAnswerDocumentV2_PromotesRecoveredDiagramWhenRequired(t *testing.T)
 	if len(doc.Blocks) != 2 || doc.Blocks[1].Kind != types.BlockDiagram || doc.Blocks[1].Diagram == nil {
 		t.Fatalf("diagram block not added: %+v", doc.Blocks)
 	}
-	if got := doc.Blocks[1].FacetIDs; len(got) != 1 || got[0] != "diagram_spine" {
-		t.Fatalf("required diagram facets not carried onto promoted block: %+v", got)
+	if got := doc.Blocks[1].FacetIDs; len(got) != 0 {
+		t.Fatalf("recovery must not stamp contract facets onto model diagram: %+v", got)
+	}
+	if got := doc.Blocks[1].SurfaceRole; got != "" {
+		t.Fatalf("recovery must not stamp a contract role onto model diagram: %q", got)
 	}
 }
 

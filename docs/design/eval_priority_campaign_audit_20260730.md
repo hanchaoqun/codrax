@@ -12094,3 +12094,20 @@ authority 单源和精确结构直接判定，不得来自系统代写答案。
 状态：`EVAL-B54-TABLEAUTHOR1 = closed/already-no-op`，
 `EVAL-B54-SUPPORTAUTHOR1 = partial-implemented`（hidden member carrier 已断；system fact owner 已补；
 recovered diagram metadata 仍并入 `SCHEMAAUTHOR1` 继续审计）。
+
+#### B54-L：recovery 只恢复模型内容，不继承合同声明
+
+`SCHEMAAUTHOR1` 第一项确认：malformed/text recovery 能从模型原始载荷找回完整 Mermaid body，这是
+必要的无损恢复；但 `promoteRecoveredDiagramBlocks` 随后读取 `RequiredBlocks`，把合同中的
+`FacetIDs/SurfaceRoleHint` 写到恢复块上。实际 diagram body 属于模型，facet/role 却由系统代选；后续
+facet/role gate 再消费这些字段，仍是 metadata self-cert，只是藏在 recovery 车道。
+
+本批保留 recovered diagram 的 ID、diagram kind/language/body 和显示位置，不丢图；删除从 contract
+向恢复块复制 facet/role 的逻辑。实际 diagram block 可以直接满足精确的 kind/shape 合同；缺失的
+facet/role 由 typed advisory/hard policy 提示模型，不由恢复器自签。回归锁定 diagram body 保留、
+FacetIDs/SurfaceRole 均为空。
+
+状态：`EVAL-B54-SUPPORTAUTHOR1 = implemented`；`EVAL-B54-SCHEMAAUTHOR1` 仍开放两项低一档风险：
+纯内部 block ID 容错和“diagram payload 明确存在时将 discriminator 归一为 diagram”。二者不写可见
+事实或结论，且前者不参与 claim authority、后者由 payload shape 精确蕴含；暂按 P1 继续异构回放，
+不与本轮红线可见/metadata 自证混为 P0。

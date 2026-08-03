@@ -1096,7 +1096,6 @@ func promoteRecoveredDiagramBlocks(doc *types.AnswerDocumentV2, view *types.Answ
 		logging.Warning("[answer_document] recovered diagram promotion skipped: document already at the %d-block cap", maxBlocksPerDoc)
 		return 0
 	}
-	req := firstRequiredBlockRequirement(view, types.BlockDiagram)
 	fixed := 0
 	for _, att := range report.Attachments {
 		if att.Kind != types.AnswerDisplayAttachmentDiagram {
@@ -1115,12 +1114,6 @@ func promoteRecoveredDiagramBlocks(doc *types.AnswerDocumentV2, view *types.Answ
 			Kind:    types.BlockDiagram,
 			Title:   strings.TrimSpace(att.Title),
 			Diagram: &types.AnswerDiagramBlock{Kind: inferRecoveredDiagramKind(body), Language: lang, Body: body},
-		}
-		if len(req.FacetIDs) > 0 {
-			block.FacetIDs = append([]string(nil), req.FacetIDs...)
-		}
-		if req.SurfaceRoleHint != "" {
-			block.SurfaceRole = req.SurfaceRoleHint
 		}
 		doc.Blocks = append(doc.Blocks, block)
 		fixed++
