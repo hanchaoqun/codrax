@@ -788,3 +788,42 @@ members，但 `support_refs` 忠实保留 3 个 call-site observations（同一 
 
 状态：`B52b=covered`；`B52c=implemented / directed-pass / full-tool-test-pass /
 same-pair-replay pending`。
+
+---
+
+## §30 B52 r4：成员轴闭环，mixed call-DAG 把控制流误判为调用（2026-08-02）
+
+`16e8c13b9` 同 pair 回放结果：called-by 106s、人工 PASS；Java 359s、人工 FAIL。
+
+called-by 的最终主清单只有 2 个 caller，引用分别为 line 294 与 line 321；同一 caller 的 line 295
+仍留在 evidence ledger，但不再占据第三个成员席，也没有系统追加 1 项清单。因此
+`B52c-MEMBER-OBS-AXIS=covered`。
+
+Java 此轮选择了比 r3 更丰富的 mixed call-DAG：三条真实方法调用边加一条
+`VisitService.schedule -> Reject` 条件拒绝边，并为后者精确声明
+`relation_kind=guard / claim_form=guard_condition`。最后一次草稿中三条 call edge 均已通过，唯一
+拒绝是系统仍要求 guard edge 携带 call anchor。连续 12 reject / 5 patch 后降级出厂并泄漏约
+21KB raw thinking。
+
+登记 `B52d-MIXED-CALL-DAG-RELATION`（P1）。根因是
+`DiagramCallEdgeEvidenceMismatches` 对 call-DAG body 使用“所有有向边都是 call”的旧默认，完全
+没有消费已经存在的 typed edge relation；这与 relation legality 层“typed relation 优先于 label”
+的架构相互矛盾。
+
+通用施工规则：
+
+1. 对 call-DAG 每条 parsed edge，先按精确 `(from_node,to_node)` 读取 typed edge-anchor relation；
+2. 存在 `call` relation 时仍必须通过 grounded typed call evidence；
+3. 仅存在 schema-valid 的非 call relation 时退出 call authority，由既有 relation legality 层验证
+   guard/import/precedence/observe/contain；不读边文案关键词；
+4. 无 typed relation、anchor 端点不匹配或 relation unknown 时保持旧 call fail-closed；
+5. sequence 的 `->>` invocation 不因 guard anchor 放宽，`-->>` reply 豁免保持；
+6. QFRootCauseTrace、显式时间窗因果投影和自动补齐继续完全隔离。
+
+实现位于语言无关的 AnswerDocument contract 层，故同一规则覆盖全部 15 种支持语言，不建立
+Java/ArkTS/Cangjie 分支。定向回归含 mixed guard 正臂、错端点 guard 反臂、sequence 反臂、
+原 missing-anchor 红线与真实 pre-emit 接线。
+
+状态：`B52c=covered`；`B52d=implemented / directed-pass / full-tool-test-pass /
+orchestrator-diagram-pass /
+same-pair-replay pending`。

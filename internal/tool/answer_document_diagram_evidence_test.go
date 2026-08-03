@@ -321,6 +321,126 @@ func TestDiagramCallEdgeEvidenceMismatches_CallDAGBodyEdgeCannotOmitTypedAnchor(
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_CallDAGAllowsTypedGuardEdges(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "mixed", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramCallDAG, Language: "mermaid", Body: strings.Join([]string{
+			"flowchart TD",
+			"  C[VisitController.create] --> S[VisitService.schedule]",
+			"  S -->|countOpenVisits >= max| X[throw IllegalStateException]",
+			"  S -->|pass| R[VisitRepository.insert]",
+			"  R --> A[AuditLog.record]",
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "C", ToNode: "S", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge},
+			{FromNode: "S", ToNode: "X", RelationKind: types.DiagramRelGuard, ClaimForm: types.ClaimGuardCondition},
+			{FromNode: "S", ToNode: "R", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge},
+			{FromNode: "R", ToNode: "A", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge},
+		},
+	}}}
+	evidence := []types.EvidenceItem{
+		diagramEvidenceTestCall("VisitController.create", "VisitService.schedule"),
+		diagramEvidenceTestCall("VisitService.schedule", "VisitRepository.insert"),
+		diagramEvidenceTestCall("VisitRepository.insert", "AuditLog.record"),
+	}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, evidence); len(got) != 0 {
+		t.Fatalf("a typed guard edge in a mixed call DAG must not be reclassified as a function call: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_CallDAGRespectsEveryTypedNonCallRelation(t *testing.T) {
+	for _, relation := range []types.DiagramRelationKind{
+		types.DiagramRelGuard,
+		types.DiagramRelImport,
+		types.DiagramRelPrecedence,
+		types.DiagramRelContain,
+		types.DiagramRelObserve,
+	} {
+		t.Run(string(relation), func(t *testing.T) {
+			doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+				ID: "typed-non-call", Kind: types.BlockDiagram,
+				Diagram: &types.AnswerDiagramBlock{
+					Kind: types.DiagramCallDAG, Language: "mermaid",
+					Body: "flowchart TD\n  A[Source] --> B[Target]\n",
+				},
+				EdgeAnchors: []types.DiagramEdgeAnchor{{
+					FromNode: "A", ToNode: "B", RelationKind: relation,
+					ClaimForm: types.ClaimFormForRelation(relation),
+				}},
+			}}}
+			if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, nil); len(got) != 0 {
+				t.Fatalf("typed %s edge must remain outside source-call authority: %+v", relation, got)
+			}
+		})
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_CallDAGUnanchoredControlEdgeStillFailsClosed(t *testing.T) {
+	doc := diagramEvidenceTestDoc("A", "B")
+	doc.Blocks[0].Diagram.Kind = types.DiagramCallDAG
+	doc.Blocks[0].Diagram.Body = "flowchart TD\n  A[Alpha.Run] --> G[Guard]\n"
+	doc.Blocks[0].EdgeAnchors = []types.DiagramEdgeAnchor{{
+		FromNode: "A", ToNode: "Other", RelationKind: types.DiagramRelGuard, ClaimForm: types.ClaimGuardCondition,
+	}}
+	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, nil)
+	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueMissingAnchor {
+		t.Fatalf("a non-matching guard anchor must not hide an unanchored DAG edge: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_SequenceInvocationCannotUseGuardAnchor(t *testing.T) {
+	doc := diagramEvidenceTestDoc("A", "B")
+	doc.Blocks[0].EdgeAnchors = []types.DiagramEdgeAnchor{{
+		FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelGuard, ClaimForm: types.ClaimGuardCondition,
+	}}
+	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, nil)
+	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueMissingAnchor {
+		t.Fatalf("a sequence invocation arrow must retain call authority even with a guard anchor: %+v", got)
+	}
+}
+
+func TestRunPreEmitChecks_MixedCallDAGGuardStaysOutsideCallAuthority(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "mixed", Kind: types.BlockDiagram,
+		ClaimUses: []types.RenderedClaimUse{
+			{ClaimForm: types.ClaimCallEdge},
+			{ClaimForm: types.ClaimGuardCondition},
+		},
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramCallDAG, Language: "mermaid", Body: strings.Join([]string{
+			"flowchart TD",
+			"  C[VisitController.create] --> S[VisitService.schedule]",
+			"  S -->|countOpenVisits >= max| X[throw IllegalStateException]",
+			"  S -->|pass| R[VisitRepository.insert]",
+			"  R --> A[AuditLog.record]",
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "C", ToNode: "S", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge},
+			{FromNode: "S", ToNode: "X", RelationKind: types.DiagramRelGuard, ClaimForm: types.ClaimGuardCondition},
+			{FromNode: "S", ToNode: "R", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge},
+			{FromNode: "R", ToNode: "A", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge},
+		},
+	}}}
+	evidence := []types.EvidenceItem{
+		diagramEvidenceTestCall("VisitController.create", "VisitService.schedule"),
+		diagramEvidenceTestCall("VisitService.schedule", "VisitRepository.insert"),
+		diagramEvidenceTestCall("VisitRepository.insert", "AuditLog.record"),
+		{
+			ID: "guard", Kind: types.EvidenceConditional, Scope: types.ScopeLine,
+			Source: "VisitService.java", LineStart: 18, AnchorKind: types.AnchorCondition,
+			AnchorSymbol: "countOpenVisits", Subject: "VisitService.schedule",
+			Condition: "countOpenVisits >= max", GroundingStatus: types.GroundingGrounded,
+		},
+	}
+	mut := types.NewMutableState("mixed call and guard DAG")
+	mut.AppendEvidence(evidence)
+	hints := runPreEmitChecks(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, nil, &types.BusContext{Mutable: mut})
+	for _, hint := range hints {
+		if hint.Kind == types.ViolDiagramCallEdgeUnproven {
+			t.Fatalf("the wired pre-emit call authority must accept the typed mixed DAG: %+v", hints)
+		}
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_DefinitionCannotAuthorizeDirection(t *testing.T) {
 	view := &types.AnswerSemanticView{Family: types.QFCallChain}
 	evidence := []types.EvidenceItem{{

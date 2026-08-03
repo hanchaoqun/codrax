@@ -49,13 +49,17 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 		strictBodyCoverage := block.Diagram.Kind == types.DiagramSequence || block.Diagram.Kind == types.DiagramCallDAG
 		if strictBodyCoverage {
 			callAnchorKeys := diagramCallAnchorKeySet(block.EdgeAnchors)
+			typedAnchorRelations := diagramTypedAnchorRelationSet(block.EdgeAnchors)
 			for _, edge := range parsedEdges {
 				// In a sequence diagram Mermaid's dashed -->> operator is a
 				// response/return lane, not a second source-code invocation in
 				// the reverse direction. It therefore needs no call anchor and
-				// cannot be used to satisfy one. Flow/call-DAG edges retain the
-				// existing all-edges call contract.
-				if !diagramParsedEdgeRequiresCallAuthority(block.Diagram.Kind, edge) {
+				// cannot be used to satisfy one. A call-DAG may also mix typed
+				// control/dependency edges with invocation edges. An exact
+				// non-call edge_anchor owns those edges; the separate relation
+				// legality validator checks that typed relation. Unanchored DAG
+				// edges retain the fail-closed call default.
+				if !diagramParsedEdgeRequiresCallAuthority(block.Diagram.Kind, edge, typedAnchorRelations) {
 					continue
 				}
 				key := diagramEvidenceEdgeKey(edge.From, edge.To)
@@ -111,8 +115,45 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 	return out
 }
 
-func diagramParsedEdgeRequiresCallAuthority(kind types.DiagramKind, edge mermaidcompat.Edge) bool {
-	return !(kind == types.DiagramSequence && strings.TrimSpace(edge.Operator) == "-->>")
+func diagramParsedEdgeRequiresCallAuthority(kind types.DiagramKind, edge mermaidcompat.Edge, typedRelations map[string]map[types.DiagramRelationKind]bool) bool {
+	if kind == types.DiagramSequence && strings.TrimSpace(edge.Operator) == "-->>" {
+		return false
+	}
+	if kind != types.DiagramCallDAG {
+		return true
+	}
+	relations := typedRelations[diagramEvidenceEdgeKey(edge.From, edge.To)]
+	if relations[types.DiagramRelCall] {
+		return true
+	}
+	// Only an explicit, schema-validated non-call relation can take a
+	// call-DAG edge out of the call-evidence contract. Labels and prose are
+	// intentionally ignored here; an absent/unknown relation stays fail-closed.
+	for relation := range relations {
+		if relation.IsValid() {
+			return false
+		}
+	}
+	return true
+}
+
+func diagramTypedAnchorRelationSet(anchors []types.DiagramEdgeAnchor) map[string]map[types.DiagramRelationKind]bool {
+	out := make(map[string]map[types.DiagramRelationKind]bool)
+	for _, anchor := range anchors {
+		relation := diagramAnchorRelation(anchor)
+		if !relation.IsValid() {
+			continue
+		}
+		key := diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode)
+		if key == "\x00" {
+			continue
+		}
+		if out[key] == nil {
+			out[key] = make(map[types.DiagramRelationKind]bool)
+		}
+		out[key][relation] = true
+	}
+	return out
 }
 
 func diagramCallAnchorKeySet(anchors []types.DiagramEdgeAnchor) map[string]bool {

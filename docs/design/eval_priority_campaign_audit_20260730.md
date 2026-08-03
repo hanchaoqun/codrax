@@ -4003,6 +4003,21 @@ line 321 错配给第一成员，并追加一份仅 1 项的“完整性补充�
 
 状态：`implemented / directed-pass / full-tool-test-pass / same-pair-replay pending`。
 
+#### B52 r4：member/observation 轴闭环，mixed call-DAG relation gap（2026-08-02）
+
+called-by 复放恢复为 2 个正确 caller、2 个正确主引用，无系统补充矛盾，
+`EVAL-B52-MEMBER-OBS-AXIS1=covered`。Java 用例的 endpoint evidence 同样正确，但这次模型画了
+调用与条件拒绝共存的 call-DAG；系统把显式 typed `guard_condition` 边重新当 call，造成
+12 reject、5 patch 和 raw thinking 降级出厂。
+
+登记并施工 `EVAL-B52-MIXED-DAG-REL1`：call-DAG 的 call-evidence hard gate 先消费精确 typed
+edge-anchor relation。call 继续强制同向 grounded call evidence；非 call relation 交还既有 relation
+legality 层；无 anchor/unknown/错端点仍按 call fail-closed，sequence invocation 不放宽。修点语言
+无关，覆盖全部支持语言，并继续隔离 Trace 因果投影。
+
+状态：`implemented / directed-pass / full-tool-test-pass / orchestrator-diagram-pass /
+same-pair-replay pending`。
+
 ---
 
 ### MERGE-AUDIT-3 H3：恢复计划不得丢失累计验证闭包（T7-1）
