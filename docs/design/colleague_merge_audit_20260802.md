@@ -372,3 +372,36 @@ run 可恢复。最终 `go test ./internal/orchestrator -count=1` 全包通过(1
 状态：`T7-3=confirmed / implemented / full-package-pass`。相邻的“plan 在场但 needs-replan
 report artifact 缺失”只损失失败细节、不丢原 mutation 域，当前仍为 best-effort；登记为
 `T7-4/P2` 待独立审计，不在本批未经证明扩大 hard gate。下一高 ROI 项审计 T5-3。
+
+---
+
+## §17 T5-3 施工结果：relation claims 同轮精确错误 census（2026-08-02）
+
+finding 准确。`ValidateAnswerRelationClaims` 对 claim 身份、关系、加法权限、成员集、subtotal、
+单位和 closure 清单全部采用首错即返。一条 claim 同时写错五个独立字段时，模型必须逐轮修复；
+其中 subtotal 缺失只返回泛化要求，没有同时展示实际缺失值与 typed 期望值。这与既有
+EMITBURN“一次给出所有可独立修复项”的纪律相反。
+
+修复保持 typed authority hard gate，不引入 prose 判断：
+
+- 按 payload 顺序、字段顺序稳定收集所有 independently actionable mismatch；每项包含 claim
+  索引、authority ID、实际值和 typed 期望值；
+- authority ID 缺失、重复或未知时只报告该身份错误并跳过依赖字段比较，避免对不存在的
+  authority 伪造 member/subtotal 级联；
+- 已识别 authority 的 physical relation、addition、member set、subtotal value/unit 可在同轮
+  并列报告；cross-ruler 的 subtotal 禁令也披露实际 value/unit；
+- required-for-closure 的缺席项在 claim census 后全部列出；已出现但字段错误的 authority 不再
+  额外伪报 missing；
+- 输出最多展示 12 项并明确 `... and N more`，总违规数始终在首部；schema 既有
+  `relation_claims.maxItems=16` 未放宽；
+- validator 仍只消费 model-authored structured claims 与 system-owned typed authorities，
+  不读取或改写用户问题、模型 reason/final prose，也不替模型生成关系结论。
+
+新增九违规单轮回归，固定普通 subtotal 与 cross-ruler 两类 got/want、未知 authority 和遗漏
+closure authority 同席发布。验证：
+
+- `go test ./internal/types -run 'TestValidateAnswerRelationClaims' -count=1`：通过（1.029s）；
+- `go test ./internal/types ./internal/tool -count=1`：通过（21.774s / 163.137s）。
+
+状态：`T5-3=confirmed / implemented / full-package-pass`。下一项按 ROI 审计 T6-4
+跨批 owner anchor 的陈腐权限。

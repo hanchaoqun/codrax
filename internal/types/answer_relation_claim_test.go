@@ -73,6 +73,44 @@ func TestValidateAnswerRelationClaimsPinsTwoRulerArithmeticWithoutProse(t *testi
 	}
 }
 
+func TestValidateAnswerRelationClaimsReportsIndependentViolationsInOneReject(t *testing.T) {
+	authorities := testTraceAnswerRelationAuthorities(t)
+	claims := claimsFromRequiredAuthorities(authorities)
+
+	claims[0].PhysicalRelation = AnswerPhysicalRelationOverlap
+	claims[0].Addition = AnswerRelationAdditionForbidden
+	claims[0].MemberRefs = []string{"not-a-member"}
+	claims[0].SubtotalValue = nil
+	claims[0].SubtotalUnit = "us"
+
+	claims[2].Addition = AnswerRelationAdditionAuthorized
+	crossSubtotal := 6.797
+	claims[2].SubtotalValue = &crossSubtotal
+	claims[2].SubtotalUnit = "ms"
+
+	claims = append(claims[:3], AnswerRelationClaim{AuthorityID: "trace:unknown"})
+	err := ValidateAnswerRelationClaims(claims, authorities, true)
+	if err == nil {
+		t.Fatal("multiple invalid claims unexpectedly accepted")
+	}
+	message := err.Error()
+	for _, want := range []string{
+		"failed with 9 violation(s)",
+		"physical_relation=\"overlap\"; typed authority requires \"unresolved\"",
+		"addition=\"forbidden\"; typed authority requires \"authorized_to_published_subtotal\"",
+		"member_refs=[not-a-member]; typed authority requires the exact member set [#4 #13]",
+		"subtotal_value=<absent>; typed published subtotal is 5.149000",
+		"subtotal_unit=\"us\"; typed authority requires \"ms\"",
+		"subtotal_value=6.797000 subtotal_unit=\"ms\"; typed cross-ruler authority requires subtotal_value=<absent> subtotal_unit=\"\"",
+		"authority_id=\"trace:unknown\" has no typed relation authority",
+		"missing required model-authored relation claim for authority_id=\"trace:target_state_partition:",
+	} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("aggregate reject missing %q:\n%s", want, message)
+		}
+	}
+}
+
 func TestTraceTargetStatePartitionRequiresExactClosedFiveLaneAccount(t *testing.T) {
 	projection := TraceCausalProjection{TargetStateAccount: &TraceCausalProjectionTargetStateAccount{
 		Subject: "target-7", RunningMS: 1, RunnableMS: 2, SleepMS: 3, DStateMS: 4, IOWaitMS: 5, TotalMS: 15,

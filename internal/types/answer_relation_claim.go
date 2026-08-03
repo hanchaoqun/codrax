@@ -334,66 +334,113 @@ func ValidateAnswerRelationClaims(claims []AnswerRelationClaim, authorities []An
 		byID[authority.ID] = authority
 	}
 	seen := make(map[string]bool, len(claims))
+	var violations []string
 	for index, raw := range claims {
 		claim := NormalizeAnswerRelationClaim(raw)
 		if claim.AuthorityID == "" {
-			return fmt.Errorf("relation_claims[%d].authority_id is required", index)
+			violations = append(violations, fmt.Sprintf("relation_claims[%d].authority_id is required", index))
+			continue
 		}
 		if seen[claim.AuthorityID] {
-			return fmt.Errorf("relation_claims[%d] duplicates authority_id=%q", index, claim.AuthorityID)
+			violations = append(violations, fmt.Sprintf("relation_claims[%d] duplicates authority_id=%q", index, claim.AuthorityID))
+			continue
 		}
 		seen[claim.AuthorityID] = true
 		authority, ok := byID[claim.AuthorityID]
 		if !ok {
-			return fmt.Errorf("relation_claims[%d].authority_id=%q has no typed relation authority in this investigation", index, claim.AuthorityID)
+			violations = append(violations, fmt.Sprintf("relation_claims[%d].authority_id=%q has no typed relation authority in this investigation", index, claim.AuthorityID))
+			continue
 		}
-		if err := validateAnswerRelationClaimAgainstAuthority(claim, authority); err != nil {
-			return fmt.Errorf("relation_claims[%d] authority_id=%q: %w", index, claim.AuthorityID, err)
+		for _, violation := range answerRelationClaimAuthorityViolations(claim, authority) {
+			violations = append(violations, fmt.Sprintf("relation_claims[%d] authority_id=%q: %s", index, claim.AuthorityID, violation))
 		}
 	}
 	if requireClosureAuthorities {
 		for _, authority := range authorities {
 			if authority.RequiredForClosure && !seen[authority.ID] {
-				return fmt.Errorf("missing required model-authored relation claim for authority_id=%q", authority.ID)
+				violations = append(violations, fmt.Sprintf("missing required model-authored relation claim for authority_id=%q", authority.ID))
 			}
 		}
+	}
+	if len(violations) > 0 {
+		return fmt.Errorf("relation_claims validation failed with %d violation(s); fix all listed fields in one re-emit: %s",
+			len(violations), formatAnswerRelationClaimViolations(violations))
 	}
 	return nil
 }
 
-func validateAnswerRelationClaimAgainstAuthority(claim AnswerRelationClaim, authority AnswerRelationAuthority) error {
+// answerRelationClaimAuthorityViolations reports every independently
+// actionable field mismatch for one claim. Identity failures are handled by
+// the caller and do not enter this function: comparing dependent fields
+// without an exact typed authority would manufacture cascade errors.
+func answerRelationClaimAuthorityViolations(claim AnswerRelationClaim, authority AnswerRelationAuthority) []string {
+	var violations []string
 	if claim.PhysicalRelation != authority.PhysicalRelation {
-		return fmt.Errorf("physical_relation=%q; typed authority requires %q", claim.PhysicalRelation, authority.PhysicalRelation)
+		violations = append(violations, fmt.Sprintf("physical_relation=%q; typed authority requires %q", claim.PhysicalRelation, authority.PhysicalRelation))
 	}
 	if claim.Addition != authority.Addition {
-		return fmt.Errorf("addition=%q; typed authority requires %q", claim.Addition, authority.Addition)
+		violations = append(violations, fmt.Sprintf("addition=%q; typed authority requires %q", claim.Addition, authority.Addition))
 	}
 	switch authority.Kind {
 	case AnswerRelationAuthorityCrossRulerBoundary:
 		if claim.SubtotalValue != nil || claim.SubtotalUnit != "" {
-			return fmt.Errorf("cross-ruler authority publishes no subtotal; omit subtotal_value and subtotal_unit")
+			violations = append(violations, fmt.Sprintf(
+				"subtotal_value=%s subtotal_unit=%q; typed cross-ruler authority requires subtotal_value=<absent> subtotal_unit=%q",
+				answerRelationOptionalFloat(claim.SubtotalValue), claim.SubtotalUnit, ""))
 		}
-		if len(claim.MemberRefs) < 2 || !answerRelationMembersKnown(claim.MemberRefs, append(append([]string(nil), authority.LeftMemberRefs...), authority.RightMemberRefs...)) {
-			return fmt.Errorf("member_refs must select known members from both ruler groups (left=%v right=%v)", authority.LeftMemberRefs, authority.RightMemberRefs)
-		}
-		if !answerRelationHasAny(claim.MemberRefs, authority.LeftMemberRefs) || !answerRelationHasAny(claim.MemberRefs, authority.RightMemberRefs) {
-			return fmt.Errorf("member_refs must include at least one member from each ruler group (left=%v right=%v)", authority.LeftMemberRefs, authority.RightMemberRefs)
+		known := append(append([]string(nil), authority.LeftMemberRefs...), authority.RightMemberRefs...)
+		if len(claim.MemberRefs) < 2 || !answerRelationMembersKnown(claim.MemberRefs, known) ||
+			!answerRelationHasAny(claim.MemberRefs, authority.LeftMemberRefs) || !answerRelationHasAny(claim.MemberRefs, authority.RightMemberRefs) {
+			violations = append(violations, fmt.Sprintf(
+				"member_refs=%v; typed authority requires known members including at least one from each ruler group (left=%v right=%v)",
+				claim.MemberRefs, authority.LeftMemberRefs, authority.RightMemberRefs))
 		}
 	default:
 		if !answerRelationSameSet(claim.MemberRefs, authority.MemberRefs) {
-			return fmt.Errorf("member_refs=%v; typed authority requires the exact member set %v", claim.MemberRefs, authority.MemberRefs)
+			violations = append(violations, fmt.Sprintf("member_refs=%v; typed authority requires the exact member set %v", claim.MemberRefs, authority.MemberRefs))
 		}
-		if authority.SubtotalValue == nil || claim.SubtotalValue == nil {
-			return fmt.Errorf("subtotal_value must reproduce the typed published subtotal")
-		}
-		if math.Abs(*claim.SubtotalValue-*authority.SubtotalValue) > 0.001 {
-			return fmt.Errorf("subtotal_value=%.6f; typed published subtotal is %.6f", *claim.SubtotalValue, *authority.SubtotalValue)
+		switch {
+		case authority.SubtotalValue == nil && claim.SubtotalValue != nil:
+			violations = append(violations, fmt.Sprintf("subtotal_value=%s; typed authority requires <absent>", answerRelationOptionalFloat(claim.SubtotalValue)))
+		case authority.SubtotalValue != nil && claim.SubtotalValue == nil:
+			violations = append(violations, fmt.Sprintf("subtotal_value=<absent>; typed published subtotal is %.6f", *authority.SubtotalValue))
+		case authority.SubtotalValue != nil && claim.SubtotalValue != nil && math.Abs(*claim.SubtotalValue-*authority.SubtotalValue) > 0.001:
+			violations = append(violations, fmt.Sprintf("subtotal_value=%.6f; typed published subtotal is %.6f", *claim.SubtotalValue, *authority.SubtotalValue))
 		}
 		if claim.SubtotalUnit != authority.SubtotalUnit {
-			return fmt.Errorf("subtotal_unit=%q; typed authority requires %q", claim.SubtotalUnit, authority.SubtotalUnit)
+			violations = append(violations, fmt.Sprintf("subtotal_unit=%q; typed authority requires %q", claim.SubtotalUnit, authority.SubtotalUnit))
 		}
 	}
-	return nil
+	return violations
+}
+
+func answerRelationOptionalFloat(value *float64) string {
+	if value == nil {
+		return "<absent>"
+	}
+	return fmt.Sprintf("%.6f", *value)
+}
+
+// formatAnswerRelationClaimViolations keeps retry guidance bounded even when
+// a caller bypasses the schema's maxItems constraint. The total count remains
+// visible so truncation can never masquerade as a complete census.
+func formatAnswerRelationClaimViolations(violations []string) string {
+	const maxListed = 12
+	shown := violations
+	if len(shown) > maxListed {
+		shown = shown[:maxListed]
+	}
+	var b strings.Builder
+	for i, violation := range shown {
+		if i > 0 {
+			b.WriteString("; ")
+		}
+		fmt.Fprintf(&b, "[%d] %s", i+1, violation)
+	}
+	if len(violations) > len(shown) {
+		fmt.Fprintf(&b, "; ... and %d more violation(s)", len(violations)-len(shown))
+	}
+	return b.String()
 }
 
 // NormalizeAnswerRelationClaim canonicalizes only structural metadata. It does

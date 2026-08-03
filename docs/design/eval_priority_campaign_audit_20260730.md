@@ -4048,6 +4048,17 @@ clear 后按完整原请求重开。run 保持 `in_progress` 以允许恢复，�
 状态：`T7-3=confirmed / implemented / full-package-pass`。相邻 report-artifact 缺失形登记
 `T7-4/P2` 待独立审计；下一项 T5-3。
 
+### MERGE-AUDIT-3 M8：relation claims 独立违规同轮 census（T5-3）
+
+审计确认 typed `relation_claims` 仍是逐字段首错即返；同一 payload 的关系、算术权限、成员、
+subtotal、单位和 closure 缺席会逐轮消耗重试。已在共享 validator 改为稳定顺序聚合：已知
+authority 的每个独立字段同时报告 got/want；缺失、重复、未知 authority 只报身份错误并跳过
+依赖字段，禁止伪级联；closure 缺席全量追加。错误显示 cap=12，首部保留总数并以 `+N` 披露
+截断。该门仍只比较 structured model claim 与 typed authority，不检查或改写任何答案 prose。
+
+九违规单轮 pin 及 `internal/types + internal/tool` 完整包通过（21.774s / 163.137s）。
+状态：`T5-3=confirmed / implemented / full-package-pass`；下一项 T6-4。
+
 ### B47：运行日志语义所有权 × write 跨语言检查权限（2026-08-02）
 
 严格并行 2 个跨模式 case：
