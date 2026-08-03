@@ -395,6 +395,8 @@ scope_primary_stdout() {
   scope_stdout "$out" | LC_ALL=C awk '
     /^## (Trace 因果投影|Trace Causal Projection)( — .*)?[[:space:]]*$/ { exit }
     $0 == "**引用**：" || $0 == "**Citations:**" { exit }
+    $0 == "**关键代码**：" || $0 == "**Key snippets:**" { exit }
+    $0 == "> **系统保留内容**" || $0 == "> **System-preserved content**" { exit }
     $0 == "**模型最后一轮原文：**" || $0 == "**Raw final model text:**" { exit }
     { print }
   '

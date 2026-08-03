@@ -1407,3 +1407,17 @@ suffix/序号公式。关闭 perf adapter 时仍保留全部 raw 席，但不虚
 一起删除。该修复只消费 structured arrays，不扫描用户输入或模型答案原文。
 
 状态：`R6-3=confirmed / implemented / focused-pass`。
+
+### §9.12 M4-K：eval primary 尾域显式边界与 renderer 双向 pin（已实现，待本节提交）
+
+复核确认 `R8-1/R8-2`，并发现真实 recovery 发射面比摘要更明确：`scope_primary_stdout` 直接停止于
+citations，但 snippets 排在 citations 之后，因而仅在 citations 存在时被传递性排除；无 citation 的答案可由
+snippet-only 符号误刷绿。runner 还监听“模型最后一轮原文”，而当前 renderer 的真实面板头是
+“系统保留内容 / System-preserved content”，无 citation 时 recovery 原文同样会泄入 primary 域。
+
+现为 citations、snippets、recovery panel 各自增加中英文精确边界；保留旧 recovery 字面量用于历史工件，
+但不再依赖它。新增无 citation 的 snippets+recovery 反例，并由 Go renderer 真实渲染中英文六个标题，反向
+检查 `eval/run.sh::scope_primary_stdout` 必须逐一消费；runner 若新增不存在的生产标题或 renderer 改标题却
+未同步，契约测试都会失败。该门仅属于 opt-in eval oracle，不进入产品路由、模型上下文或答案修改链。
+
+状态：`R8-1=confirmed / implemented`；`R8-2=confirmed / implemented`。

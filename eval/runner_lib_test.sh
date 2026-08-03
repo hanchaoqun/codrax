@@ -313,6 +313,32 @@ case "$(cat "$primary_fail_dir/run-1.verdict")" in
     ;;
 esac
 
+# Snippets and recovery panels are renderer-owned tail domains in their own
+# right. They must stay excluded even when no citation footer precedes them.
+cat >"$tmp/fake-codrax-primary-tail-domains" <<'SH'
+#!/usr/bin/env bash
+echo '━━━'
+echo 'primary-only-symbol is the conclusion'
+echo '**关键代码**：'
+echo 'snippet-only-symbol'
+echo '> **系统保留内容**'
+echo 'recovery-only-symbol'
+SH
+chmod +x "$tmp/fake-codrax-primary-tail-domains"
+cat >"$tmp/primary-tail-domains.case" <<'CASE'
+ID="primary_tail_domains"
+NAME="primary tail domains"
+QUESTION="primary tail scope test"
+MIN_OUTPUT_CHARS=1
+EXPECT_PRIMARY_CONTAINS="primary-only-symbol"
+EXPECT_PRIMARY_NOT_CONTAINS="snippet-only-symbol recovery-only-symbol"
+CASE
+CODRAX_BIN="$tmp/fake-codrax-primary-tail-domains" EVAL_RESULTS_ROOT="$tmp/primary-results" CODRAX_PROVIDER_ARGS_RAW="" \
+  eval/run.sh "$tmp/primary-tail-domains.case" 1 >/dev/null || fail "primary tail domains eval failed to run"
+primary_tail_dir="$(eval_latest_result_dir "$tmp/primary-results" primary_tail_domains 00000000-000000 || true)"
+[[ -n "$primary_tail_dir" ]] || fail "primary tail domains result dir missing"
+assert_eq "$(cat "$primary_tail_dir/run-1.verdict")" "PASS" "primary scope should independently exclude snippet and recovery tails"
+
 # EVAL-B1-E2: a Markdown table may carry a unit once in its column header.
 # The oracle composition keeps the header and every exact row mandatory while
 # avoiding a false failure merely because cells do not repeat the unit.
