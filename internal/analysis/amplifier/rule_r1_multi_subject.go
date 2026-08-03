@@ -61,12 +61,15 @@ func distinctEntityCount(entities []string) int {
 //     members), IntentConfigQuery / IntentReturnValue (scalar lanes),
 //     and IntentUnknown (LLM gave up — don't compound the guess).
 //  4. NOT structural endpoint trace — a source→sink / call-chain
-//     question may legitimately carry two exact targets plus nearby
-//     context entities, but the principal answer is still one ordered
-//     trace, not a category enumeration. This guard reads only typed
-//     analyzer fields (Intent, PredicateAxis, AnalyzerHints.Kind,
-//     typed exact_targets, predicates) so it stays
-//     language-neutral and avoids raw-request keyword matching.
+//     question may legitimately carry endpoint(s) plus nearby context
+//     entities, but the principal answer is still one ordered trace,
+//     not a category enumeration. A relational call-chain may expose
+//     only one exact code target when the other endpoint is a semantic
+//     destination; that is still a path when no typed set boundary was
+//     requested. This guard reads only typed analyzer fields (Intent,
+//     PredicateAxis, AnalyzerHints.Kind, typed exact_targets,
+//     predicates) so it stays language-neutral and avoids raw-request
+//     keyword matching.
 //  5. NOT single-topic mechanism explanation — a "how/when does X
 //     behave" question often emits several code identifiers because
 //     they are participants in one mechanism. Those entities are
@@ -159,14 +162,27 @@ func isStructuralEndpointTraceQuestion(rm types.RequestModel) bool {
 		return false
 	}
 	if rm.Predicates.IsScalarAnswer ||
-		rm.Predicates.IsRelationalLookup ||
 		rm.Predicates.IsCategoryEnumeration ||
 		rm.Predicates.IsCountQuestion ||
 		rm.Predicates.IsHistoryLookup ||
 		rm.Predicates.IsDiagnosticQuestion {
 		return false
 	}
-	if len(structuralEndpointTraceTargets(rm)) < 2 {
+	if rm.Predicates.HasPerMemberTable ||
+		rm.CompletenessObligation.IsActive() ||
+		(rm.EnumerationBoundary != nil && rm.EnumerationBoundary.DeclaredCount > 0) ||
+		len(rm.QuestionStructure().Buckets) >= 2 {
+		return false
+	}
+	targetCount := len(structuralEndpointTraceTargets(rm))
+	if targetCount == 0 {
+		return false
+	}
+	if rm.Predicates.IsRelationalLookup {
+		return rm.PredicateAxis == types.AxisCall &&
+			types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) == types.ReqCallChain
+	}
+	if targetCount < 2 {
 		return false
 	}
 	switch rm.PredicateAxis {

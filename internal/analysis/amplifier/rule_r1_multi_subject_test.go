@@ -165,6 +165,63 @@ func TestR1_NoFire_StructuralEndpointTrace(t *testing.T) {
 	}
 }
 
+func TestR1_NoFire_RelationalCallChainWithOneExactEndpoint(t *testing.T) {
+	rm := makeRMWithEntities(
+		"EntryHandler",
+		"BusinessService",
+		"RecordStore",
+		"AuditSink",
+		"BusinessService.checkLimit",
+		"RecordStore.insert",
+	)
+	rm.Intent = types.IntentTrace
+	rm.Scenario = types.ScenarioArchitectureExplain
+	rm.PredicateAxis = types.AxisCall
+	rm.AnalyzerHints.Kind = string(types.ReqCallChain)
+	rm.AnalyzerHints.ExactTargets = []string{"EntryHandler.create"}
+	rm.Predicates.IsRelationalLookup = true
+
+	got, obs := Amplify(rm)
+	if got.Predicates.IsCategoryEnumeration {
+		t.Errorf("R1 must NOT turn an ordered relational call-chain with one explicit endpoint into a category enumeration")
+	}
+	if types.RequiresSourceOperationSiteMemberSetHandoff(got) {
+		t.Errorf("narrative call-chain must not acquire a principal operation-site member_set obligation")
+	}
+	if types.HasAttributeBearingEnumeration(got) {
+		t.Errorf("narrative call-chain must not acquire attribute-bearing enumeration authority")
+	}
+	for _, ob := range obs {
+		if ob.Rule == "R1_multi_subject_predicate" {
+			t.Errorf("expected no R1 observation for relational call-chain narrative, got %+v", obs)
+		}
+	}
+}
+
+func TestR1_RelationalCallChainExplicitSetBoundaryStillAllowsEnumeration(t *testing.T) {
+	rm := makeRMWithEntities("EntryHandler", "BusinessService", "RecordStore")
+	rm.Intent = types.IntentTrace
+	rm.PredicateAxis = types.AxisCall
+	rm.AnalyzerHints.Kind = string(types.ReqCallChain)
+	rm.AnalyzerHints.ExactTargets = []string{"EntryHandler.create"}
+	rm.Predicates.IsRelationalLookup = true
+	rm.Predicates.HasPerMemberTable = true
+
+	got, obs := Amplify(rm)
+	if !got.Predicates.IsCategoryEnumeration {
+		t.Errorf("R1 should preserve multi-subject set inference when a typed per-member boundary is explicit")
+	}
+	r1Count := 0
+	for _, ob := range obs {
+		if ob.Rule == "R1_multi_subject_predicate" {
+			r1Count++
+		}
+	}
+	if r1Count != 1 {
+		t.Fatalf("expected exactly 1 R1 observation, got %d (full obs: %+v)", r1Count, obs)
+	}
+}
+
 func TestR1_NoFire_SingleTopicMechanismExplanation(t *testing.T) {
 	rm := makeRMWithEntities("emit_evidence", "anchor_kind", "EmitEvidence")
 	rm.Intent = types.IntentExplain

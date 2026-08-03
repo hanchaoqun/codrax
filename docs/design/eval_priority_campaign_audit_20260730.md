@@ -4659,7 +4659,8 @@ persist choke point 之外，因此既有“非 system block wire 不变”测�
 | `EVAL-B51-ENDROLE1` | P0 | `RequiredMechanismAnchors` 的 identity 集合被当成 source/sink role；“恰好两个”不构成端点权限 | reachability 必须等待独立 typed source/sink role carrier；在该 carrier 缺席时 fail-open，不从 visible anchors、顺序、owner/member 或 prose 猜端点 | covered；B51-A |
 | `EVAL-B51-SETAXIS1` | P1 | `is_relational_lookup` 单独把 narrative call chain 提升为 exact operation-site member set，探索模型的路径解释被硬化成 exhaustive roster | source-operation-site set 权限必须由 enumerate/category/per-member/completeness 等 typed set boundary 授予；relation-only call chain 继续使用 ordered path/support lane，不生成 hard enumeration rows | covered；B51-A |
 | `EVAL-B51-MUTLOOP1` | P1 | 两个 deterministic normalizer 对同一 principal block 一删一补，导致不可自愈 reject loop | 撤销 OWN1 后增加生产接线 pin：模型五行 wire 保持、无 principal-enum hard roster、同 payload 一次通过；任何系统 repair 不得制造后续 hard obligation | covered；B51-A |
-| `EVAL-B51-ORACLE1` | P1-eval | broad answer regex 虽已排除分隔线前的进度草稿，但仍让终态 citation footer 与降级 raw-model appendix 重复的符号满足断言；错误主结论仍 PASS | 新增 opt-in `primary_answer` oracle，只消费终态主答案体，按稳定 renderer 边界排除 citation/recovery/Trace supplements；不静默改变 200+ 历史 case，逐案显式迁移 | implemented；B51-B，待真实 replay |
+| `EVAL-B51-ORACLE1` | P1-eval | broad answer regex 虽已排除分隔线前的进度草稿，但仍让终态 citation footer 与降级 raw-model appendix 重复的符号满足断言；错误主结论仍 PASS | 新增 opt-in `primary_answer` oracle，只消费终态主答案体，按稳定 renderer 边界排除 citation/recovery/Trace supplements；不静默改变 200+ 历史 case，逐案显式迁移 | covered；B51-B r2 真实 replay 已由主答案六步路径满足 |
+| `EVAL-B51-AMPSET1` | P1 | analyzer 已明确 `trace/call_chain/call/relational/category=false/exact_target=1`，R1 仍仅凭多个参与实体放大为 category enumeration，进而强制探索交付 member_set 并将多轮集合并成 14 行重复清册 | R1 识别有 exact endpoint 的 typed relational call-chain 为有序路径；只有 enumerate/category/per-member/completeness/enumeration-boundary/buckets 才授予集合边界。不从请求或答案文本推断 | implemented；B51-C，待 r3 replay |
 
 施工顺序冻结：B51-A 先撤销 call-chain 结论替换并收窄 relation-only set 权限；相关 types/tool 全包
 通过后独立提交推送。B51-B 再修 eval final-answer oracle。完成本节审计和 B51-A 交付后，才继续
@@ -4688,12 +4689,28 @@ footer 和降级 `模型最后一轮原文` 又重复了 `VisitRepository.insert
 full/principal/write oracle 语义保持。`sr_java_call_chain` 已迁移到 primary regex，旧失败工件在该
 域只剩 Controller 与 Service，Repository/Audit 两项确定性缺席，因此会正确判 FAIL。
 
+B51 r2 使用已推送的 B51-A/B 严格并行回放 Java call-chain + data 单值。两个 runner
+均 PASS；data 人工 PASS，Java 人工 FAIL。正向收益是 Java 主答案保留了模型六步路径，
+没有再被系统换成两行“未证明”；primary oracle 也确实由主答案满足，不是引用/
+raw recovery 偷渡。但页面又出现系统附加的 3 行与 14 行“完整调用链操作节点”，
+并伴随 8 次 finalizer reject。这不是 B51-A 下游权限函数失效，而是其上游 R1 在
+amplifier 阶段将 analyzer 明确的 `category=false` 补成 true：`relational=true` 使旧结构链 guard
+直接退出，而 relation query 的 `ExactResolutionTargets` 又为 nil，最终 9 个 context entity 被
+错当成主集合信号。
+
+B51-C 在 amplifier 铸点根修：relational call-chain 同时具有 `intent=trace / axis=call /
+kind=call_chain / exact_targets>=1`，且没有 per-member、completeness、declared enumeration boundary 或
+多 bucket 时，它是一条有序路径，R1 不得仅凭参与实体数量创建 category 权限。
+反向 pin 保留显式 per-member 边界时的 enumeration 放大。判定只读 typed IR，不扫描用户原文、
+模型 thinking/summary/final，不按 Java/类名/case ID 适配。
+
 - [x] B51-T1：严格并行 Java call-chain + data 恰好 2 case；
 - [x] B51-T2：人工读完 HTML、完整 stdout/log、analyzer payload、五个源文件、首稿与降级稿；
 - [x] B51-T3：确认 data 上下文/答案正确，Java runner false green；
 - [x] B51-T4：定位 `8cfef5158` 的 endpoint-role 与结论替换责任链；
 - [x] B51-T5：实现 OWN1/ENDROLE1/SETAXIS1/MUTLOOP1，相关全包回归后提交推送；
-- [ ] B51-T6：primary final-product oracle 已实现并通过 runner contract；待提交推送后回放同一 Java case + 一个异构 case；
+- [x] B51-T6：primary final-product oracle 已实现并通过 runner contract；r2 真实回放证明 Java 由主答案本体满足；
+- [ ] B51-T6b：B51-C amplifier 集合权限根修提交推送后，再严格并行 2 case 确认重复清册与相关 reject 消失；
 - [ ] B51-T7：B51 收账后进入 MERGE-AUDIT-3 高 ROI 批。
 
 ### B42：生成物写模式 × 日志/源码机制对比审计（2026-08-02）
