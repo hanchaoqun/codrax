@@ -141,21 +141,20 @@ func TestHeadlineElim_WitnessBothArms(t *testing.T) {
 	cr4BannedWordingCheck(t, []string{armA, armB, armAEN, armBEN})
 }
 
-// TestHeadlineElim_AppendixIntegration — the findings ride the existing
-// system cross-check appendix channel (S3' attachment; information lane).
-func TestHeadlineElim_AppendixIntegration(t *testing.T) {
+// TestHeadlineElim_RetiredFromProduction — the offline diagnostic may
+// still compare prose with the board, but model-conclusion interpretation
+// cannot ride a system-authored shipping attachment (ARITHSUBJ1/OWN2).
+func TestHeadlineElim_RetiredFromProduction(t *testing.T) {
 	mut := psgTraceMutable(headlineElimWitnessRecords()...)
 	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mut, Language: "zh"}}
 	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, psgProseDoc(headlineElimWitnessProse))
 	out := &agent.StageOutput{FinalAnswer: "正文"}
 	o.attachSystemCrossCheckAppendix(out, "", nil)
-	atts := o.busCtx.Mutable.AnswerDisplayAttachments()
-	if len(atts) != 1 {
-		t.Fatalf("expected the appendix attachment, got %+v", atts)
-	}
-	for _, want := range []string{"正文核心/首要原因=", "供给折算缺口席"} {
-		if !strings.Contains(atts[0].Body, want) {
-			t.Fatalf("appendix body missing %q:\n%s", want, atts[0].Body)
+	for _, att := range o.busCtx.Mutable.AnswerDisplayAttachments() {
+		for _, banned := range []string{"正文核心/首要原因=", "供给折算缺口席", "正文未出现"} {
+			if strings.Contains(att.Body, banned) {
+				t.Fatalf("model-conclusion verdict %q leaked into shipping appendix:\n%s", banned, att.Body)
+			}
 		}
 	}
 }
@@ -317,7 +316,7 @@ func TestHeadlineElim_EntityNegationRedirect(t *testing.T) {
 	mut := psgTraceMutable(headlineElimWitnessRecords()...)
 	bus := psgBus(mut)
 	for name, prose := range map[string]string{
-		"zh 而非 反例": "核心丢帧原因是UI线程自身的确定性计算工作，而非优先级反转阻塞。",
+		"zh 而非 反例":  "核心丢帧原因是UI线程自身的确定性计算工作，而非优先级反转阻塞。",
 		"EN not 反例": "The core cause of the dropped frame is the UI thread's own deterministic computation work, not priority inversion blocking.",
 	} {
 		for _, f := range proseHeadlineElimFindings(psgProseDoc(prose), bus, mut) {
@@ -351,8 +350,8 @@ func TestHeadlineElim_MembershipAttributionLanes(t *testing.T) {
 	mut := psgTraceMutable(headlineElimWitnessRecords()...)
 	bus := psgBus(mut)
 	for name, prose := range map[string]string{
-		"zh 之一":      "优先级反转阻塞是本帧的主要原因之一。",
-		"EN one of":  "Priority inversion blocking is one of the primary causes of the dropped frame.",
+		"zh 之一":     "优先级反转阻塞是本帧的主要原因之一。",
+		"EN one of": "Priority inversion blocking is one of the primary causes of the dropped frame.",
 		"用户认为 归属":   "用户认为核心丢帧原因是优先级反转阻塞。",
 		"前置分析认为 归属": "前置分析认为根本原因是优先级反转阻塞。",
 	} {

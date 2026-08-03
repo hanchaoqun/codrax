@@ -166,6 +166,20 @@ func (f proseFactThreadFacts) richness() int {
 // proseFactJuxtapositionFindings is the appendix provider: typed fact lines
 // for prose-present entities + arithmetic verdicts on prose equations.
 func proseFactJuxtapositionFindings(doc *types.AnswerDocumentV2, bus *types.BusContext, mut *types.MutableState) []proseScalarBindingFinding {
+	return proseFactJuxtapositionFindingsMode(doc, bus, mut, true)
+}
+
+// proseTypedFactJuxtapositionFindings is the production appendix provider.
+// It may use exact entity/token presence only to select rows, then renders
+// values directly from the typed observation ledger. It never interprets a
+// model-authored equation, subtraction, subject binding, cause, or omission.
+// The broader provider above remains available to offline tests/audits but is
+// not an answer-shipping authority.
+func proseTypedFactJuxtapositionFindings(doc *types.AnswerDocumentV2, bus *types.BusContext, mut *types.MutableState) []proseScalarBindingFinding {
+	return proseFactJuxtapositionFindingsMode(doc, bus, mut, false)
+}
+
+func proseFactJuxtapositionFindingsMode(doc *types.AnswerDocumentV2, bus *types.BusContext, mut *types.MutableState, includeProseVerdicts bool) []proseScalarBindingFinding {
 	if doc == nil || bus == nil || mut == nil {
 		return nil
 	}
@@ -193,18 +207,16 @@ func proseFactJuxtapositionFindings(doc *types.AnswerDocumentV2, bus *types.BusC
 		out = append(out, f)
 	}
 
-	// ── arithmetic verdicts first (the only verdict wording, math-only) ──
-	for _, f := range proseFactEquationFindings(prose) {
-		add(f)
-	}
-
-	// ── PROSE-RC-4 臂② (§29.78): the implicit nested-re-subtraction form —
-	// the explicit arm needs a literal "=" and the witness carried none
-	// (remainder framed as a total containing the caller shares, 10.117
-	// minted by re-subtraction). Four precise signals, zero NL reading; see
-	// the arm's block comment below.
-	for _, f := range proseFactImplicitSubtractionFindings(prose, buildProseFactSubtractionInventory(ledger, bus, mut)) {
-		add(f)
+	if includeProseVerdicts {
+		// Offline diagnostic mode only. These arms parse model-authored prose,
+		// so even mathematically exact output cannot be published as system
+		// authority without a typed subject/expression carrier.
+		for _, f := range proseFactEquationFindings(prose) {
+			add(f)
+		}
+		for _, f := range proseFactImplicitSubtractionFindings(prose, buildProseFactSubtractionInventory(ledger, bus, mut)) {
+			add(f)
+		}
 	}
 
 	// ── engine typed degradation fact (target_cpu 退化) ──────────────────

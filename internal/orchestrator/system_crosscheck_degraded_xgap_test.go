@@ -1,10 +1,9 @@
 package orchestrator
 
-// XGAP-FIX ⑤ pins (§29.104.8, witness 20260715-202022.323-89609): the four
-// prose defenses (S3' cross-check appendix scans: PSG scalar
-// re-derivation / lexicon board / wall-clock conservation / fact
-// juxtaposition) must consume the degraded recovery-lane document instead
-// of structurally skipping on AnswerDocumentV2()==nil.
+// XGAP-FIX ⑤ pins (§29.104.8, witness 20260715-202022.323-89609): the typed
+// fact appendix must consume the degraded recovery-lane document instead of
+// structurally skipping on AnswerDocumentV2()==nil. Prose verdict providers
+// are intentionally absent from every shipping lane (ARITHSUBJ1).
 
 import (
 	"strings"
@@ -28,12 +27,15 @@ func TestCollectSystemCrossCheckFindings_ScansDegradedRecoveryDoc(t *testing.T) 
 	findings := o.collectSystemCrossCheckFindings()
 	var present bool
 	for _, f := range findings {
-		if strings.Contains(f, "状态时长之和") || strings.Contains(f, "超过该线程该维度已发布总量") {
+		if strings.Contains(f, "typed 事实:com.baidu.tieba-59566") {
 			present = true
+		}
+		if strings.Contains(f, "状态时长之和") || strings.Contains(f, "超过该线程该维度已发布总量") {
+			t.Fatalf("retired free-prose verdict leaked on degraded lane: %v", findings)
 		}
 	}
 	if !present {
-		t.Fatalf("degraded recovery draft must be scanned by the cross-check defenses, got %v", findings)
+		t.Fatalf("degraded recovery draft must select its typed facts, got %v", findings)
 	}
 }
 

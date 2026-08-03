@@ -81,10 +81,13 @@ func systemCrossCheckScalarFinding(lang string, labels []string) string {
 	return msg
 }
 
-// collectSystemCrossCheckFindings re-runs the deterministic prose scans
-// against the SHIPPED document (the one in MutableState — every accept,
-// restore and best-draft path writes the shipping doc back there) and
-// renders each finding user-readably.
+// collectSystemCrossCheckFindings publishes typed facts selected by entities
+// present in the SHIPPED document. It deliberately does not interpret model
+// prose into claims, subjects, omissions, or conclusions: a file/line/number
+// token is a noisy presence signal and may select a true typed fact for
+// display, but it cannot mint a user-visible system verdict about the model's
+// answer. This preserves model ownership of conclusions and the repository
+// red line "precise signals for hard authority, noisy signals for guidance".
 func (o *Orchestrator) collectSystemCrossCheckFindings() []string {
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
 		return nil
@@ -97,58 +100,19 @@ func (o *Orchestrator) collectSystemCrossCheckFindings() []string {
 	doc := mut.ShippedAnswerDocumentV2()
 	lang := o.busCtx.Language
 	var out []string
-	tokens, misbound := proseScalarResidualAppendixInputs(doc, o.busCtx, mut)
-	if len(tokens) > 0 {
-		out = append(out, systemCrossCheckScalarFinding(lang, tokens))
-	}
-	for i, f := range misbound {
-		if i >= systemCrossCheckFindingCap {
-			out = append(out, systemCrossCheckMoreLine(lang, len(misbound)-i))
-			break
-		}
-		out = append(out, f.userReadable(lang))
-	}
-	// EVAL-B30-OWN2: never characterize the model's conclusion or ordering
-	// by re-scanning its free-form prose at ship time. In particular, the
-	// retired lexicon/board residual lane could bind a later-mentioned
-	// context thread as "the body's primary cause" and publish a false
-	// system verdict. The fact-juxtaposition lane below continues to publish
-	// typed seats and measurements without deciding whether the prose is
-	// right or wrong; the reader/model owns that comparison.
-	// CR-3 件① P6 (2026-07-12): the wall-clock conservation arms — prose
-	// state durations vs the window and vs the published full-window state
-	// partition. Information lane only (§29.42.4 全批软纪律): disclosure
-	// here, never a violation, never a rewrite.
-	wall := proseWallClockConservationFindings(doc, o.busCtx, mut)
-	for i, f := range wall {
-		if i >= systemCrossCheckFindingCap {
-			out = append(out, systemCrossCheckMoreLine(lang, len(wall)-i))
-			break
-		}
-		out = append(out, f.userReadable(lang))
-	}
-	// CR-4 修复轮方向改造 (用户裁定 2026-07-12): fact juxtaposition — typed
-	// fact lines for prose-present entities plus the arithmetic-only
-	// equation verdicts (the retired claim-extraction arms' successor: the
-	// system never characterizes the prose; the reader juxtaposes).
-	// Information lane only.
-	factLines := proseFactJuxtapositionFindings(doc, o.busCtx, mut)
+	// EVAL-B30-OWN2 + EVAL-B54-ARITHSUBJ1: the old scalar residual,
+	// wall-clock conservation, headline/cause and direction-omission lanes
+	// all parsed free-form prose and could publish a false system assertion
+	// about its subject or meaning. They remain useful offline diagnostics,
+	// but are intentionally disconnected from every shipping exit. The
+	// production provider below excludes prose-equation and implicit-
+	// subtraction verdicts too; it emits only ledger-derived facts.
+	factLines := proseTypedFactJuxtapositionFindings(doc, o.busCtx, mut)
 	for i, f := range factLines {
 		if i >= systemCrossCheckFindingCap {
 			out = append(out, systemCrossCheckMoreLine(lang, len(factLines)-i))
 			break
 		}
-		out = append(out, f.userReadable(lang))
-	}
-	// HEADLINE-ELIM 件2+件3 (§29.104.14.1, 2026-07-16) + FREQDIR-1 件4
-	// (§29.149 修向④, 2026-07-19): the headline-cause vs board-#1,
-	// supply-claim vs supply-fold-deficit, and direction-omission
-	// (prose 修复方向 enumeration missing the board #1 direction word)
-	// juxtaposition arms. Information lane only (§29.104.13 纯披露: never a
-	// retry, never a body edit — the FREQDIR-1 件5 boundary records that
-	// direction completeness never gets a hard gate); at most one finding
-	// per arm by construction.
-	for _, f := range proseHeadlineElimFindings(doc, o.busCtx, mut) {
 		out = append(out, f.userReadable(lang))
 	}
 	return out

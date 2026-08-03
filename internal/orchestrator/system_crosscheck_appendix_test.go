@@ -49,12 +49,15 @@ func TestSoftProseLanesNeverRetry(t *testing.T) {
 	}
 }
 
-// TestSystemCrossCheckAppendixRendersFindings — S3' ②: an unlocatable
-// scalar on the shipped doc renders as ONE appendix attachment with the
-// humble lead-in. EVAL-B30-OWN2 retires free-prose vocabulary/conclusion
-// verdicts, so the snake_case token is deliberately not characterized.
+// TestSystemCrossCheckAppendixRendersTypedFacts — the shipping appendix
+// lists true typed facts for a prose-present entity. It does not interpret
+// unlocatable numerals or vocabulary into a system verdict.
 func TestSystemCrossCheckAppendixRendersFindings(t *testing.T) {
-	o, out := crossCheckHarness(t, "耗时 45.123ms,类型为 made_up_snake_token。")
+	mut := psgTraceMutable(p6TiebaAccount())
+	o := &Orchestrator{busCtx: psgBus(mut)}
+	doc := psgProseDoc("com.baidu.tieba-59566 耗时 45.123ms,类型为 made_up_snake_token。")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, doc)
+	out := &agent.StageOutput{FinalAnswer: "正文"}
 	o.attachSystemCrossCheckAppendix(out, "", nil)
 	atts := o.busCtx.Mutable.AnswerDisplayAttachments()
 	if len(atts) != 1 || atts[0].Title != "系统校验附注" {
@@ -63,15 +66,17 @@ func TestSystemCrossCheckAppendixRendersFindings(t *testing.T) {
 	body := atts[0].Body
 	for _, want := range []string{
 		"以下为系统对正文中出现的实体/数值的 typed 事实对照，供交叉核验；系统不判定正文正误。",
-		"45.123ms",
-		"未能在本报告证据面复算或定位",
+		"typed 事实:com.baidu.tieba-59566",
+		"窗内五态",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("appendix body missing %q:\n%s", want, body)
 		}
 	}
-	if strings.Contains(body, "made_up_snake_token") || strings.Contains(body, "未在本报告证据面出现") {
-		t.Fatalf("free-prose vocabulary must not receive a system verdict:\n%s", body)
+	for _, banned := range []string{"45.123ms", "made_up_snake_token", "未能在本报告证据面复算", "正文中线程"} {
+		if strings.Contains(body, banned) {
+			t.Fatalf("free prose must not receive a system verdict for %q:\n%s", banned, body)
+		}
 	}
 }
 
@@ -157,11 +162,38 @@ func TestModelConclusionProseScannerDisconnectedFromProduction(t *testing.T) {
 		for _, banned := range []string{
 			"runProseLexiconBoardCheck(" + "docV2",
 			"proseLexiconBoardResidualFindings(" + "doc",
+			"proseScalarResidualAppendixInputs(" + "doc",
+			"proseWallClockConservationFindings(" + "doc",
+			"proseHeadlineElimFindings(" + "doc",
+			"proseFactJuxtapositionFindings(" + "doc",
 		} {
 			if strings.Contains(text, banned) {
 				t.Fatalf("%s reconnects retired model-conclusion prose scan %q", file, banned)
 			}
 		}
+	}
+}
+
+// EVAL-B54-ARITHSUBJ1 production witness: free prose mentions two threads
+// and several state-shaped durations. The old nearest-token scanner bound
+// worker values to app-100 and published a false 28.300ms contradiction.
+// Shipping may list app-100's true typed account, but it may not publish any
+// prose-derived subject/value verdict.
+func TestSystemCrossCheckDoesNotBindFreeProseDurationsToTypedSubject(t *testing.T) {
+	mut := psgTraceMutable(p6AccountRecord("app-100", 0, 0, 10, 0, 0, 10, 10))
+	o := &Orchestrator{busCtx: psgBus(mut)}
+	doc := psgProseDoc("app-100 等待 10.000ms；worker-200 runnable 8.300ms 后运行 10.000ms。")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, doc)
+	lines := o.collectSystemCrossCheckFindings()
+	joined := strings.Join(lines, "\n")
+	for _, banned := range []string{"正文中线程", "状态时长之和", "28.300ms", "超过该线程"} {
+		if strings.Contains(joined, banned) {
+			t.Fatalf("shipping appendix minted a prose-derived verdict %q:\n%s", banned, joined)
+		}
+	}
+	if !strings.Contains(joined, "typed 事实:app-100") ||
+		!strings.Contains(joined, "running 0.000/runnable 0.000/sleep 10.000") {
+		t.Fatalf("the exact typed account should remain available without a prose verdict:\n%s", joined)
 	}
 }
 
@@ -198,10 +230,10 @@ func TestSystemCrossCheckAppendixWiredAtBothShipExits(t *testing.T) {
 	}
 }
 
-// TestSystemCrossCheckAppendixMisboundZHFace — the binding-mismatch family
-// renders its own zh user face on the appendix (per-item), never the
-// English detail sentence on the zh surface.
-func TestSystemCrossCheckAppendixMisboundZHFace(t *testing.T) {
+// TestSystemCrossCheckAppendixDoesNotPublishBindingMismatchVerdict —
+// ARITHSUBJ1 retires model-prose binding interpretations from production.
+// A noisy window/thread association must not create a system attachment.
+func TestSystemCrossCheckAppendixDoesNotPublishBindingMismatchVerdict(t *testing.T) {
 	mut := psgTraceMutable(psgTraceRecord("r1", "state_drilldown:x", "38.996"))
 	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mut, Language: "zh"}}
 	doc := psgBindingDoc(
@@ -210,22 +242,8 @@ func TestSystemCrossCheckAppendixMisboundZHFace(t *testing.T) {
 	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, doc)
 	out := &agent.StageOutput{FinalAnswer: "正文"}
 	o.attachSystemCrossCheckAppendix(out, "", nil)
-	atts := o.busCtx.Mutable.AnswerDisplayAttachments()
-	if len(atts) != 1 {
-		t.Fatalf("expected one appendix attachment, got %+v", atts)
-	}
-	body := atts[0].Body
-	if !strings.Contains(body, "在证据面发布于窗口") {
-		t.Fatalf("the zh face must speak the published-window fact in Chinese:\n%s", body)
-	}
-	// CR-4 修复轮方向改造: fact form only — no prose characterization.
-	for _, banned := range []string{"正文将", "正文称", "表述为"} {
-		if strings.Contains(body, banned) {
-			t.Fatalf("accusatory wording %q must not render:\n%s", banned, body)
-		}
-	}
-	if strings.Contains(body, "is published under window") {
-		t.Fatalf("the English detail sentence must not leak onto the zh face:\n%s", body)
+	if atts := o.busCtx.Mutable.AnswerDisplayAttachments(); len(atts) != 0 {
+		t.Fatalf("free-prose binding mismatch must not become system authority, got %+v", atts)
 	}
 }
 

@@ -226,11 +226,10 @@ func TestProseWallClockConservation_NonTraceRunsInert(t *testing.T) {
 	}
 }
 
-// TestProseWallClockConservation_NeverViolationNeverRetry — 全批软纪律
-// pin: the P6 lane feeds ONLY the appendix. The contract-check violation
-// set of a P6-violating document carries no new kind for it, and the
-// appendix renders the disclosure through collectSystemCrossCheckFindings.
-func TestProseWallClockConservation_NeverViolationNeverRetry(t *testing.T) {
+// TestProseWallClockConservation_RetiredFromProduction — ARITHSUBJ1: the
+// free-prose provider remains an offline diagnostic, but no shipping surface
+// may publish its inferred subject/value verdict or use it for a retry.
+func TestProseWallClockConservation_RetiredFromProduction(t *testing.T) {
 	mut := psgTraceMutable(p6TiebaAccount())
 	bus := psgBus(mut)
 	doc := psgProseDoc("com.baidu.tieba-59566 主线程实际运行仅 20.372ms，runnable 46.364ms。")
@@ -238,14 +237,10 @@ func TestProseWallClockConservation_NeverViolationNeverRetry(t *testing.T) {
 
 	o := &Orchestrator{busCtx: bus}
 	findings := o.collectSystemCrossCheckFindings()
-	var present bool
 	for _, f := range findings {
 		if strings.Contains(f, "状态时长之和") || strings.Contains(f, "超过该线程该维度已发布总量") {
-			present = true
+			t.Fatalf("free-prose conservation verdict leaked into production: %v", findings)
 		}
-	}
-	if !present {
-		t.Fatalf("P6 findings must ride the system cross-check appendix, got %v", findings)
 	}
 	// The PSG violation lane must not have gained a new raise from P6
 	// (the conservation claims are grounded numerals — the PSG membership

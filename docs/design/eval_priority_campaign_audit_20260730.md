@@ -11775,7 +11775,7 @@ call-chain，也没有影响 runtime Trace 独立关系 authority。
 
 | ID | 优先级 | GAP | 泛化方案 | 状态 |
 |---|---:|---|---|---|
-| `EVAL-B54-ARITHSUBJ1` | P1/red-line-near | 系统尾部 wall-clock 算术附注扫描模型自由文本，以邻近词/数字猜主体，把 worker-200 的 runnable 8.300ms 与其他上下文 10.000ms 绑定到 app-100，发布 28.300ms 假矛盾；同页 typed 行又正确显示 app running/runnable=0 | 用户可见的确定性主体-数值断言只消费结构化 item/typed carrier 的精确绑定；自由 prose 扫描不得铸造主体归属。无法精确绑定时静默，不把 noisy heuristic 包装成系统事实，不触发重试、不修改正文 | confirmed / next-code-batch |
+| `EVAL-B54-ARITHSUBJ1` | P1/red-line-near | 系统尾部 wall-clock 算术附注扫描模型自由文本，以邻近词/数字猜主体，把 worker-200 的 runnable 8.300ms 与其他上下文 10.000ms 绑定到 app-100，发布 28.300ms 假矛盾；同页 typed 行又正确显示 app running/runnable=0 | 用户可见的确定性主体-数值断言只消费结构化 item/typed carrier 的精确绑定；自由 prose 扫描不得铸造主体归属。无法精确绑定时静默，不把 noisy heuristic 包装成系统事实，不触发重试、不修改正文 | implemented / orchestrator-full-pass / commit-next |
 | `EVAL-B54-EVROLE1` | P1 | `EvidenceItem` 的文件/行/quote 真实，但 Explorer 自写 Summary 把字段定义 `MarkerPID=marker payload 内 PID` 升级为“B/E span 配对键”；closure 与 handoff 又把该 Summary 当成源码机制权威，最终答案据此出错。实际同步配对键是 artifact source + ftrace header TID，MarkerPID 是 payload owner/namespace process identity | 将“定义/声明存在”与“作为运行时 key/order/route 使用”分级；定义行只具 local-fact authority。机制角色必须由实际 consumer/control-use/call-site 或直接实现该角色的 cited line 支撑；无 typed 角色载体时只作软探索提示，不能在 handoff 中加冕为已证机制 | confirmed / design-before-code |
 | `EVAL-B54-MODELCAUSAL1` | watch/model | Trace 正文把已证 wakeup 时序进一步解释为“等待 I/O 完成”和“直接根因”，而 typed handoff 已明确 wakeup path 不证明 continuous blocking/holder | 不加原文关键词硬门、不由系统替写结论；继续异构用例观察。若重复出现，优先提升 typed relation semantics/上下文显著性，而非按该句拟合 | model-watch |
 
@@ -11788,6 +11788,32 @@ call-chain，也没有影响 runtime Trace 独立关系 authority。
 关系 carrier，所以本批可硬校验；“keyed_by/used_as”目前缺少同等 typed carrier，不能直接照搬 hard
 gate。下一批先核对现有 EvidenceItem/ClaimForm/consumer-use 数据面，选择可泛化的 typed 角色通道；
 在没有精确信号前只收窄 handoff 确权，不能扫描 `MarkerPID`、`pairing` 等词来拟合本例。
+
+#### B54-D：系统 prose verdict 发布面退役（`ARITHSUBJ1` 施工）
+
+对 `collectSystemCrossCheckFindings` 全部生产 consumer 反查后，确认 8.300ms 错绑不是单一词距 bug，
+而是同一架构问题的一个 witness：系统尾部仍有四组 provider 读取模型自由文本，再发布带“系统生成”
+权威外观的判断——scalar 无法复算/窗与线程绑定、wall-clock 主体算术、headline 主因/供给/漏修向、
+显式/隐式 prose 等式。它们不触发 retry，也不直接改正文，但仍会把 noisy 语义解析升级为系统结论，
+与“系统只给准确事实，模型负责判断”冲突。
+
+本批按数据来源而非中文词形统一切断：
+
+1. shipping appendix 不再消费 `proseScalarResidualAppendixInputs`、
+   `proseWallClockConservationFindings`、`proseHeadlineElimFindings`；
+2. `proseFactJuxtapositionFindings` 拆成 offline diagnostic 与 production typed-only 两个入口；生产入口
+   排除 prose equation/implicit subtraction verdict，只保留 observation ledger 直接生成的线程状态、
+   席位、调用点、CPU 频点和 typed degradation 事实；
+3. 自由文本中的精确实体 token 只可作为“选择展示哪条真实 typed fact”的噪声选择器，不能铸造
+   主体-数值、因果、遗漏或正确性判断；
+4. 两个 shipping exit 仍统一挂 appendix，Trace projection/补采和模型正文均不改；新增生产 witness
+   精确复现 app-100/worker-200/8.300ms 形，禁止 `28.300ms`、`状态时长之和`、`正文中线程`
+   等 inferred verdict 出厂，同时要求 app-100 的 typed `running=0/runnable=0/sleep=10` 仍可见；
+5. structural pin 禁止四个 free-prose verdict provider 重新接入 `system_crosscheck_appendix.go`。
+
+这不是放弃校验：结构化 `relation_claims`、typed diagram call edge、Trace authority、值守恒等精确
+合同继续 hard/typed 校验；只是没有 typed subject/expression carrier 的自然语言复算不再伪装成系统
+权威。`go test ./internal/orchestrator -count=1` 通过（12.286s），`git diff --check` 通过。
 
 证据：
 
