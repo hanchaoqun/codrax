@@ -1,6 +1,7 @@
 package repl
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +9,22 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/operation"
 )
+
+func TestTrimCommandOperationMaterialUTF8TailIsBoundedToOnePartialRune(t *testing.T) {
+	validPrefix := bytes.Repeat([]byte("a"), commandOperationMaterialMaxSourceBytes-4)
+	partial := append(append([]byte(nil), validPrefix...), 0xf0, 0x9f, 0x98)
+	got, ok := trimCommandOperationMaterialUTF8Tail(partial)
+	if !ok || !bytes.Equal(got, validPrefix) {
+		t.Fatalf("partial final rune was not trimmed exactly: ok=%t bytes=%d want=%d", ok, len(got), len(validPrefix))
+	}
+
+	invalidBody := append([]byte(nil), validPrefix...)
+	invalidBody[7] = 0xff
+	invalidBody = append(invalidBody, []byte("tail")...)
+	if got, ok := trimCommandOperationMaterialUTF8Tail(invalidBody); ok || got != nil {
+		t.Fatalf("malformed body escaped bounded tail validation: ok=%t bytes=%d", ok, len(got))
+	}
+}
 
 func TestCommandOperationMaterialPagesPublishContiguousCompleteReceipt(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "manual.html")

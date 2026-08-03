@@ -95,8 +95,10 @@ func commandOperationBuildMaterialPages(ref string) []commandOperationMaterialPa
 	sourceTruncated := len(data) > commandOperationMaterialMaxSourceBytes
 	if sourceTruncated {
 		data = data[:commandOperationMaterialMaxSourceBytes]
-		for len(data) > 0 && !utf8.Valid(data) {
-			data = data[:len(data)-1]
+		var valid bool
+		data, valid = trimCommandOperationMaterialUTF8Tail(data)
+		if !valid {
+			return nil
 		}
 	}
 	if len(data) == 0 || !utf8.Valid(data) {
@@ -156,6 +158,21 @@ func commandOperationBuildMaterialPages(ref string) []commandOperationMaterialPa
 		})
 	}
 	return pages
+}
+
+// trimCommandOperationMaterialUTF8Tail accepts only a UTF-8 prefix whose
+// invalidity can be explained by the byte ceiling cutting one final rune.
+// UTF-8 uses at most four bytes, so at most three suffix bytes can be partial;
+// bounding the candidates keeps validation O(n) even when an earlier byte is
+// malformed instead of repeatedly rescanning a multi-megabyte prefix.
+func trimCommandOperationMaterialUTF8Tail(data []byte) ([]byte, bool) {
+	for trimmed := 0; trimmed < utf8.UTFMax && trimmed <= len(data); trimmed++ {
+		candidate := data[:len(data)-trimmed]
+		if utf8.Valid(candidate) {
+			return candidate, true
+		}
+	}
+	return nil, false
 }
 
 func renderCommandOperationMaterialPages(pages []commandOperationMaterialPage) string {
