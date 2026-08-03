@@ -4059,6 +4059,18 @@ authority 的每个独立字段同时报告 got/want；缺失、重复、未知 
 九违规单轮 pin 及 `internal/types + internal/tool` 完整包通过（21.774s / 163.137s）。
 状态：`T5-3=confirmed / implemented / full-package-pass`；下一项 T6-4。
 
+### MERGE-AUDIT-3 M9：apply 后 owner anchor changed-path 撤权与重建（T6-4）
+
+确认跨批 owner 复用缺少陈腐臂：后批实际改写文件后，前批 line/symbol anchor 仍可满足 hard
+localization requirement。post-apply 现在从 typed PatchEffect old/new path、AppliedPaths 与 applied
+change records 建 changed-path 集，先把命中路径的 context anchor 标 stale，再从当前 worktree +
+actual diff hunk 重建 replacement。未改路径继续跨批复用；删除/改名/owner 消失则 requirement
+自然 reopen。OwnerAnchorView 额外拒绝 stale P0 anchor，普通 P0 constraint 行为不变。
+
+回归固定旧 owner 撤权、新 owner 重建和 untouched owner 保留；`internal/types +
+internal/orchestrator` 完整包通过（22.007s / 10.134s）。状态：
+`T6-4=confirmed / implemented / full-package-pass`；下一项 T1-2。
+
 ### B47：运行日志语义所有权 × write 跨语言检查权限（2026-08-02）
 
 严格并行 2 个跨模式 case：

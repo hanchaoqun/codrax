@@ -8031,6 +8031,101 @@ func TestSyncPlanEditOwnerAnchorsToRunPrefersWorktreeContent(t *testing.T) {
 	}
 }
 
+func TestRefreshAppliedPlanOwnerAnchorsInvalidatesChangedPathBeforeCrossBatchReuse(t *testing.T) {
+	worktreeRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(worktreeRoot, "pkg"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(worktree): %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(worktreeRoot, "pkg", "handler.py"), []byte(`def new_owner():
+    value = 2
+    return value
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile(worktree): %v", err)
+	}
+	oldRef := types.WriteExplorationEvidenceRef{
+		ID: "old-owner", Source: "pkg/handler.py", LineStart: 2,
+		OwnerSymbol: "old_owner", AnchorSymbol: "def",
+	}
+	helperRef := types.WriteExplorationEvidenceRef{
+		ID: "helper-owner", Source: "pkg/helper.py", LineStart: 4,
+		OwnerSymbol: "helper_owner", AnchorSymbol: "def",
+	}
+	run := types.WriteWorkflowRun{
+		RunID: "wf-owner-refresh", ActiveBatchID: "batch-2",
+		ContextPacks: []types.WriteContextPack{{
+			PackID: "batch-1-owner", BatchID: "batch-1", SourceStage: "explore",
+			Items: []types.WriteContextItem{{
+				Priority: types.WriteContextP0, Kind: "localization_anchor", SourceStage: "explore",
+				Consumers: []types.WriteContextConsumer{types.WriteConsumerPlanner}, EvidenceRef: &oldRef,
+				LocalizationAnchor: &types.SourceLocalizationAnchor{
+					Path: "pkg/handler.py", Role: types.SourcePathRoleProduction,
+					Kind: types.SourceLocalizationAnchorGroundedEvidence, Strength: types.SourceLocalizationAnchorOwner,
+					EvidenceRef: &oldRef, OwnerSymbol: "old_owner", AnchorSymbol: "def",
+				},
+			}, {
+				Priority: types.WriteContextP1, Kind: "localization_anchor", SourceStage: "explore",
+				Consumers: []types.WriteContextConsumer{types.WriteConsumerPlanner}, EvidenceRef: &helperRef,
+				LocalizationAnchor: &types.SourceLocalizationAnchor{
+					Path: "pkg/helper.py", Role: types.SourcePathRoleProduction,
+					Kind: types.SourceLocalizationAnchorGroundedEvidence, Strength: types.SourceLocalizationAnchorOwner,
+					EvidenceRef: &helperRef, OwnerSymbol: "helper_owner", AnchorSymbol: "def",
+				},
+			}},
+		}},
+	}
+	plan := &types.ChangePlan{
+		ID: "plan-new-owner", Summary: "replace handler owner", Status: types.PlanStatusApplied,
+		TargetPaths: []string{"pkg/handler.py"}, AppliedPaths: []string{"pkg/handler.py"},
+		Changes: []types.FileChange{{
+			Path: "pkg/handler.py", Kind: "modify",
+			Apply: &types.FileChangeApplyRecord{Status: "applied"},
+		}},
+		PatchEffect: &types.PatchEffectRecord{
+			RecordID: "patch-effect:plan-new-owner:slice-2:abc",
+			Files: []types.PatchEffectFile{{
+				Path:  "pkg/handler.py",
+				Hunks: []types.PatchEffectHunk{{NewStart: 1, NewLines: 3, AddedLineNumbers: []int{2}}},
+			}},
+		},
+	}
+	mu := types.NewMutableState("replace handler owner")
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable: mu, RepoRoot: worktreeRoot, MainRepoRoot: worktreeRoot,
+		WorktreePath: worktreeRoot, Mode: types.ModeApply,
+	}}
+
+	o.refreshAppliedPlanOwnerAnchors(&run, plan)
+
+	if !run.ContextPacks[0].Items[0].Stale ||
+		run.ContextPacks[0].Items[0].StaleReason != "source_path_changed_after_owner_anchor" {
+		t.Fatalf("pre-apply owner anchor was not invalidated: %+v", run.ContextPacks[0].Items[0])
+	}
+	if run.ContextPacks[0].Items[1].Stale {
+		t.Fatalf("untouched-path owner anchor must remain reusable: %+v", run.ContextPacks[0].Items[1])
+	}
+	view := types.OwnerAnchorViewFromWriteContextPacks(run.ContextPacks, types.WriteConsumerPlanner, "", "", 0)
+	if len(view.Items) != 2 || !ownerAnchorViewHasOwnerSymbol(view, "new_owner") ||
+		!ownerAnchorViewHasOwnerSymbol(view, "helper_owner") || ownerAnchorViewHasOwnerSymbol(view, "old_owner") {
+		t.Fatalf("current worktree owner should be the only reusable authority: %+v", view.Items)
+	}
+	requirements := types.LocalizationRequirementsFromWritePlanContext(
+		"batch-3", "", types.WriteConsumerPlanner, run.ContextPacks, plan, 0,
+	)
+	if requirements.OpenItems != 0 || len(requirements.Items) != 1 ||
+		len(requirements.Items[0].OwnerAnchors) != 1 || requirements.Items[0].OwnerAnchors[0].OwnerSymbol != "new_owner" {
+		t.Fatalf("later batch consumed stale owner localization: %+v", requirements)
+	}
+}
+
+func ownerAnchorViewHasOwnerSymbol(view types.OwnerAnchorView, symbol string) bool {
+	for _, item := range view.Items {
+		if item.OwnerSymbol == symbol {
+			return true
+		}
+	}
+	return false
+}
+
 func TestAttachPlanContextPackToWorkflowRunPersistsMissingPriorContext(t *testing.T) {
 	run := types.WriteWorkflowRun{
 		RunID:         "run-1",

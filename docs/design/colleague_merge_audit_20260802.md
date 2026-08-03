@@ -405,3 +405,36 @@ closure authority 同席发布。验证：
 
 状态：`T5-3=confirmed / implemented / full-package-pass`。下一项按 ROI 审计 T6-4
 跨批 owner anchor 的陈腐权限。
+
+---
+
+## §18 T6-4 施工结果：apply 后按 changed-path 刷新 owner authority（2026-08-02）
+
+finding 准确。近期为了让 cumulative review/repair/后续 slice 能复用同一路径的 durable owner
+anchor，`LocalizationRequirementsFromWritePlanContext` 有意取消 transient batch/slice 过滤；但
+apply 成功后没有生产代码设置 `WriteContextItem.Stale`。因此后批改写、改名或删除 owner
+边界后，前批 line/symbol anchor 仍能满足后续 localization hard authority。
+
+修复保留正确的跨批复用，只撤销被 mutation 精确触及的证据：
+
+- post-apply 在 actual patch review 已铸造 `PatchEffectRecord` 后，从 effect 的 old/new path、
+  `AppliedPaths` 和 `FileChange.Apply.Status=applied` 合成稳定 changed-path 集；不采用 plan prose、
+  goal 或路径猜测；
+- 先把这些路径上既有 typed localization anchor 标为
+  `stale=true / stale_reason=source_path_changed_after_owner_anchor`，再从当前 worktree 内容和
+  actual diff hunk 重建 replacement owner anchor；
+- 删除文件、无法再解析 owner 或边界已消失时没有 replacement，后续 requirement 自然 reopen，
+  不沿用旧 owner；owner 名相同也必须由当前 worktree 重新定位后才恢复权限；
+- 未改路径的跨批 owner anchor 保持可复用，避免退回“每批重复探索”；rename 的 old/new 两侧
+  都进入失效集；
+- `OwnerAnchorViewFromWriteContextPack` 显式拒绝 stale anchor，包括通常跨 scope 可见的 P0 item；
+  P0 普通约束的生命周期规则不变，防止高优先级包装绕过精确撤权。
+
+回归构造前批 P0 `old_owner`、未改 `helper_owner` 与后批实际 patch 后的 `new_owner`：旧锚陈腐且
+不再进入 authority view，新锚满足下一批 requirement，未改锚仍可见。验证：
+
+- 定向 owner refresh/view tests：通过（types 1.333s / orchestrator 0.845s）；
+- `go test ./internal/types ./internal/orchestrator -count=1`：通过（22.007s / 10.134s）。
+
+状态：`T6-4=confirmed / implemented / full-package-pass`。下一项按 ROI 审计 T1-2
+越界时间戳记录的 fence/保真边界。

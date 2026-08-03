@@ -58,6 +58,12 @@ func OwnerAnchorViewFromWriteContextPack(pack WriteContextPack, consumer WriteCo
 	view := pack.ViewForScope(consumer, 0, batchID, sliceID)
 	items := make([]OwnerAnchorViewItem, 0, len(view.Items))
 	for _, item := range view.Items {
+		// P0 context remains visible across scope changes for durable
+		// constraints, but Stale is an exact revocation of localization
+		// authority. Never promote a stale P0 anchor back into an owner view.
+		if item.Stale {
+			continue
+		}
 		if item.LocalizationAnchor != nil {
 			if out, ok := ownerAnchorViewItemFromAnchor(*item.LocalizationAnchor, item.Priority, item.SourceStage, item.SourceID, item.BatchID, item.SliceID); ok {
 				out.ID = ownerAnchorFirstNonEmpty(item.ID, out.ID)

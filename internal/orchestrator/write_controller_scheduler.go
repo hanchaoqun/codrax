@@ -1945,6 +1945,78 @@ func (o *Orchestrator) syncPlanEditOwnerAnchorsToRun(run *types.WriteWorkflowRun
 	}
 }
 
+// refreshAppliedPlanOwnerAnchors invalidates source-localization authority
+// minted against an older version of every actually changed path, then mints
+// replacement anchors from the current worktree content. Cross-batch owner
+// proof remains durable for untouched files; a rename, deletion, or owner
+// boundary change cannot keep using a pre-apply line/symbol as current proof.
+func (o *Orchestrator) refreshAppliedPlanOwnerAnchors(run *types.WriteWorkflowRun, plan *types.ChangePlan) {
+	if run == nil || plan == nil {
+		return
+	}
+	paths := appliedPlanOwnerAnchorInvalidationPaths(plan)
+	if len(paths) > 0 {
+		stale := make(map[string]struct{}, len(paths))
+		for _, path := range paths {
+			stale[path] = struct{}{}
+		}
+		for packIndex := range run.ContextPacks {
+			pack := run.ContextPacks[packIndex]
+			for itemIndex := range pack.Items {
+				item := &pack.Items[itemIndex]
+				if item.LocalizationAnchor == nil {
+					continue
+				}
+				path := normalizeControllerPath(item.LocalizationAnchor.Path)
+				if _, changed := stale[path]; !changed {
+					continue
+				}
+				item.Stale = true
+				item.StaleReason = "source_path_changed_after_owner_anchor"
+			}
+			run.ContextPacks[packIndex] = types.NormalizeWriteContextPack(pack)
+		}
+	}
+	o.syncPlanEditOwnerAnchorsToRun(run, plan)
+}
+
+func appliedPlanOwnerAnchorInvalidationPaths(plan *types.ChangePlan) []string {
+	if plan == nil {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	var out []string
+	add := func(raw string) {
+		path := normalizeControllerPath(raw)
+		if path == "" {
+			return
+		}
+		if _, ok := seen[path]; ok {
+			return
+		}
+		seen[path] = struct{}{}
+		out = append(out, path)
+	}
+	if plan.PatchEffect != nil {
+		for _, file := range plan.PatchEffect.Files {
+			add(file.Path)
+			add(file.OldPath)
+		}
+	}
+	for _, path := range plan.AppliedPaths {
+		add(path)
+	}
+	for _, change := range plan.Changes {
+		if change.Apply == nil || strings.TrimSpace(change.Apply.Status) != "applied" {
+			continue
+		}
+		add(change.Path)
+		add(change.NewPath)
+	}
+	sort.Strings(out)
+	return out
+}
+
 func buildPlanEditOwnerContextPack(repoRoot, batchID, sliceID string, plan *types.ChangePlan) types.WriteContextPack {
 	if plan == nil || strings.TrimSpace(repoRoot) == "" {
 		return types.WriteContextPack{}
@@ -2677,7 +2749,7 @@ func (o *Orchestrator) reviewActiveAppliedPatchScope(run *types.WriteWorkflowRun
 	activeSlice, _ := writeflow.ActiveRuntimeUnitApplySlice(plan, run)
 	o.attachActivePatchEffectRecord(plan, activeSlice)
 	if run != nil {
-		o.syncPlanEditOwnerAnchorsToRun(run, plan)
+		o.refreshAppliedPlanOwnerAnchors(run, plan)
 	}
 	conventionGraph := o.conventionGraphForPatchReview(run, plan)
 	review := writeflow.ReviewAppliedPatchSemantic(writeflow.SemanticPatchReviewInput{
