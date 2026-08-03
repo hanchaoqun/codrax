@@ -91,7 +91,7 @@ func ProjectObservationPromptRecords(records []ObservationRecord, rm *RequestMod
 	prioritized := PrioritizeObservationRecords(records, rm, contract, opts.Limit)
 	out := make([]ObservationPromptRecord, 0, len(prioritized))
 	for _, record := range prioritized {
-		summary := clampObservationPromptText(record.Summary, opts.SummaryMaxLen)
+		summary := observationPromptAuthoritativeSummary(record, opts.SummaryMaxLen)
 		value := clampObservationPromptText(record.Value, opts.ValueMaxLen)
 		out = append(out, ObservationPromptRecord{
 			ID:              strings.TrimSpace(record.ID),
@@ -113,6 +113,24 @@ func ProjectObservationPromptRecords(records []ObservationRecord, rm *RequestMod
 		})
 	}
 	return out
+}
+
+// observationPromptAuthoritativeSummary keeps EvidenceItem.Summary out of
+// prompt-facing ledgers. Evidence summaries are model-authored synthesis over
+// a separate typed anchor and therefore cannot become a second authority lane
+// merely because the EvidenceItem was normalized into an ObservationRecord.
+// The record still carries its typed claim, source/span and (when allowed by
+// the projection options) grounded excerpt; dedicated evidence support lanes
+// render the same item through EvidenceAuthoritativeSurfaceText.
+//
+// Other observation kinds keep Summary because it is their producer-owned
+// native payload (for example a VCS commit line or an external-document
+// observation), not a parallel interpretation of an EvidenceItem.
+func observationPromptAuthoritativeSummary(record ObservationRecord, maxLen int) string {
+	if strings.HasPrefix(strings.TrimSpace(record.ID), "evidence:") {
+		return ""
+	}
+	return clampObservationPromptText(record.Summary, maxLen)
 }
 
 func observationPromptClaim(raw, summary, value string) string {

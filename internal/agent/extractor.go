@@ -748,7 +748,9 @@ func renderExtractorAcceptedClosure(ctx *types.AgentContext, ta *types.TurnAArti
 		fmt.Fprintf(&b, "- result_kind: `%s`\n", resultKind)
 	}
 	if reason != "" {
-		if suppressUnstructuredClosureReasonForPrincipalMemberSets(ctx, aggregateFacts) {
+		if suppressUnstructuredClosureReasonForTypedMechanism(ctx) {
+			b.WriteString("- model-authored closure reason omitted because grounded current-source facts and typed flow carriers are authoritative for mechanism roles and relations; unstructured exploration synthesis cannot mint runtime identities, pairing keys, call edges, or ordered paths.\n")
+		} else if suppressUnstructuredClosureReasonForPrincipalMemberSets(ctx, aggregateFacts) {
 			reason = sanitizeAggregateExcludedCandidatesForPrompt(ctx, reason, aggregateFacts)
 			reason = sanitizeExtractorStageHandoffText(reason)
 			fmt.Fprintf(&b, "- model-authored closure set-level summary (advisory only; typed `aggregate_facts.member_set` rows/counts below remain the authoritative member carrier if any number or member identity conflicts): %s\n", truncateExtractorPromptText(reason, 700))

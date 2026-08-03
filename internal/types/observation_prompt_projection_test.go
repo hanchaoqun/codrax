@@ -82,6 +82,12 @@ func TestProjectObservationPromptRecords_MixedOriginRankingAndBudget(t *testing.
 	if got[0].Span != "line 42" || !strings.Contains(got[0].Source, "internal/scheduler.go") {
 		t.Fatalf("current-source projection lost source/span: %+v", got[0])
 	}
+	if got[0].Summary != "" {
+		t.Fatalf("model-authored EvidenceItem summary must not become prompt authority: %+v", got[0])
+	}
+	if got[1].Summary != "diff hunk shows scheduler hook was added" {
+		t.Fatalf("producer-owned VCS summary should remain available: %+v", got[1])
+	}
 }
 
 func TestProjectObservationPromptRecords_RuntimeQueryOutranksPreTriageBudget(t *testing.T) {

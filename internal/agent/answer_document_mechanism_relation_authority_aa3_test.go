@@ -92,3 +92,65 @@ func TestMechanismRelationAuthorityPublishesOnlyTypedEdgesAndFlowPathsAA3(t *tes
 		t.Fatalf("unsupported flow finding must not receive path authority:\n%s", got)
 	}
 }
+
+func TestTypedMechanismAuthoritySuppressesFalseClosureRoleSynthesisAA3(t *testing.T) {
+	const falseRole = "MarkerPID 为 B/E span 配对标识键"
+	item := types.EvidenceItem{
+		ID:                 "marker-pid-definition",
+		Kind:               types.EvidenceDirect,
+		Source:             "internal/hitraceconv/streamerdb_sync_span_authority.go",
+		LineStart:          113,
+		LineEnd:            116,
+		AnchorKind:         types.AnchorDefinition,
+		AnchorSymbol:       "MarkerPID",
+		Snippet:            "MarkerPID is the PID encoded inside tracing_mark_write; HeaderTGID remains the default and namespace PIDs are preserved.",
+		Summary:            falseRole,
+		GroundingStatus:    types.GroundingGrounded,
+		LoadBearingSummary: false,
+	}
+	mu := types.NewMutableState("explain the current conversion mechanism")
+	mu.SetInvestigationComplete(falseRole)
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		AcceptedClosureReason: falseRole,
+		EvidenceItems:         []types.EvidenceItem{item},
+	})
+	mu.AppendEvidence([]types.EvidenceItem{item})
+	ctx := &types.AgentContext{
+		Mutable:       mu,
+		EvidenceItems: []types.EvidenceItem{item},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentExplain,
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+			CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+				IsCurrentSourceExplanationRequested: true,
+				Modes: []types.CurrentSourceExplanationMode{
+					types.CurrentSourceExplanationExplainCurrentMechanism,
+				},
+				Confidence: 0.95,
+			},
+		}},
+	}
+
+	for name, got := range map[string]string{
+		"extractor": renderExtractorAcceptedClosure(ctx, nil),
+		"finalizer": (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil),
+	} {
+		if strings.Contains(got, falseRole) {
+			t.Fatalf("%s prompt promoted an untyped closure role over grounded source evidence:\n%s", name, got)
+		}
+		if !strings.Contains(got, "model-authored closure reason omitted") {
+			t.Fatalf("%s prompt did not disclose the typed mechanism authority boundary:\n%s", name, got)
+		}
+	}
+
+	authority := renderAnswerDocMechanismRelationAuthority(ctx)
+	for _, want := range []string{
+		"accepted_grounded_source_facts=1",
+		"ordered_path_authority=`unproven`",
+		"proves that local fact only",
+	} {
+		if !strings.Contains(authority, want) {
+			t.Fatalf("typed mechanism authority missing %q:\n%s", want, authority)
+		}
+	}
+}

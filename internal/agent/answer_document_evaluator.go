@@ -3718,6 +3718,8 @@ func renderAnswerDocAcceptedClosure(ctx *types.AgentContext) string {
 	if reason := strings.TrimSpace(plan.StableInvestigationReason); reason != "" {
 		if runtimeObservationOnlyForAnswerDoc(ctx) {
 			b.WriteString("- model-authored closure reason omitted from this authority section because the typed observed-artifact lane is authoritative for direct runtime facts. Any preserved runtime narrative appears only as advisory synthesis below, not as caller-side provenance or current-source proof.\n")
+		} else if suppressUnstructuredClosureReasonForTypedMechanism(ctx) {
+			b.WriteString("- model-authored closure reason omitted from this authority section because grounded current-source facts and typed flow carriers are authoritative for mechanism roles and relations. Unstructured exploration synthesis cannot upgrade a local definition, branch, assignment, or payload field into a runtime identity, pairing key, call edge, or ordered path.\n")
 		} else if suppressUnstructuredClosureReasonForPrincipalMemberSets(ctx, plan.StableAggregateFacts) {
 			reason = sanitizeAggregateExcludedCandidatesForPrompt(ctx, reason, plan.StableAggregateFacts)
 			fmt.Fprintf(&b, "- model-authored closure set-level summary (advisory only; typed `aggregate_facts.member_set` rows/counts below remain the authoritative member carrier if any number or member identity conflicts): %s\n", truncateAnswerDocPromptText(reason, 700))
@@ -3752,6 +3754,29 @@ func renderAnswerDocAcceptedClosure(ctx *types.AgentContext) string {
 	}
 	b.WriteString("- Rebuild the user-visible prose yourself inside `emit_answer_document`; do not invent facts beyond the closure/evidence boundary.\n\n")
 	return b.String()
+}
+
+// suppressUnstructuredClosureReasonForTypedMechanism keeps stage-local prose
+// from becoming a second mechanism authority after grounded source facts have
+// landed. The explorer is still free to synthesize a conclusion, and the
+// finalizer still owns the user-visible answer; this only prevents an
+// unstructured completion reason from overriding the typed evidence/flow
+// carriers while the answer is being composed.
+//
+// The predicate intentionally reads only the structured request profile and
+// typed evidence/flow fields. It does not inspect the user's prose, an
+// evidence Summary, or model-authored answer text.
+func suppressUnstructuredClosureReasonForTypedMechanism(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil ||
+		!answerDocMechanismRelationAuthorityApplies(ctx.AnalysisIR.RequestModel) {
+		return false
+	}
+	for _, item := range answerDocTypedEnrichmentEvidencePool(ctx, answerDocMaxEnrichmentCandidateFacts) {
+		if answerDocGroundedCurrentSourceMechanismFact(item) {
+			return true
+		}
+	}
+	return len(answerDocSupportedMechanismFlowPaths(ctx.FlowFindings)) > 0
 }
 
 func renderAnswerDocUnifiedIntentContract(ctx *types.AgentContext) string {

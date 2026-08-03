@@ -11849,6 +11849,38 @@ stamp 从 final ledger 编译，write verification ledger append-only。已经�
 typed authority 漏检（`DIAGCALL1`）与 noisy prose 权威化/可提升硬门（`ARITHSUBJ1`、
 `TIER2PROSE1`）。后续异构 read/write eval 继续否证，而不是宣称全系统绝无第二例。
 
+#### B54-F：Evidence 位置真实但角色虚构的双旁路收口（`EVROLE1` 施工）
+
+继续对 r2 mixed 例逐层回放后，确认错误不是 `MarkerPID` 的单点解析问题，而是同一条
+`EvidenceItem` 在跨阶段传播时存在两套不等价的 authority：
+
+1. typed 字段只证明 `Source/Line/AnchorKind/AnchorSymbol/Snippet`；本例源码仅说明
+   `MarkerPID` 是 `tracing_mark_write` payload 内 PID，默认仍来自 `HeaderTGID`，并保留
+   namespace PID；
+2. Explorer 自写 `Summary` 和 `StableInvestigationReason` 却把它提升为“B/E span 配对键”；
+3. Primary Evidence 与 `Current-Source Mechanism Relation Authority` 已正确使用 summary-free
+   typed 表面，明确 local definition 不证明 key/order/call/path；但 `Accepted Closure Status` 与
+   `Observation Ledger` 又把同一段自由文本重新注入 finalizer，形成旁路确权；
+4. 真正同步配对使用 artifact source + ftrace header TID。文件/行真实只能证明局部定义真实，
+   不能替代 consumer/control-use 证据。
+
+本批按 carrier 类型统一修复，不扫描 `MarkerPID`、`pairing`、用户原文或模型答案：
+
+- 对 typed mechanism/current-source 请求，只要已有 grounded current-source fact 或 supported typed
+  flow，extractor/finalizer 的 authority 区不再发射自由文本 closure reason；保留 result kind、absence、
+  boundary 和 typed aggregate carriers，模型仍从 typed 事实自行形成结论；
+- `ProjectObservationPromptRecords` 不再把任何 `evidence:*` 记录的 `EvidenceItem.Summary` 投影到
+  prompt-facing ledger。typed claim、source/span、grounded excerpt 和 dedicated support lane 保留；
+  VCS、external document、runtime tool 等以 Summary 为原生 producer payload 的非 evidence 记录不受影响；
+- mechanism relation authority 继续区分 local fact、explicit call edge 与 supported ordered flow；系统只
+  约束证据权级，不改写模型正文、不替模型选择结论；
+- exact witness 同时把伪角色放入 Evidence Summary 与 closure reason，要求 extractor/finalizer 全文均
+  不得看到该伪角色，同时要求 grounded fact count=1、ordered path=unproven 和 local-fact boundary 保留。
+
+状态更新：`EVAL-B54-EVROLE1 = implemented / full-related-tests-pass / production-replay-next`。
+验证：`go test ./internal/types ./internal/agent ./internal/orchestrator -count=1` 全绿
+（types 22.355s、agent 2.559s、orchestrator 8.669s）；`git diff --check` 通过。
+
 证据：
 
 - `eval/parallel_selected_summary_evalcampaign_b54_trace_mixed_r2_20260803.md`；
