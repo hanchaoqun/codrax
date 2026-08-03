@@ -4049,6 +4049,32 @@ Proto 明确走声明式反臂，不伪造 source call。未来语言注册表�
 状态：`B52l=implemented / full-tests-pass / replay next`；
 `B52m=filed-advisory / pending`。
 
+---
+
+## B52 r13：citation-selected missing calls 真实拒绝并恢复（2026-08-02）
+
+`73f15610c` 精确构建严格并行 2：called-by 91s、Java 103s，runner/human 2/2 PASS。
+
+Java 首稿漏画三条 principal typed calls。它们的 list label/carrier 不需要被解析；同一 items 的
+`citation_ref` 已唯一指向 typed callsite，新 B52l 合同发出三条 `principal_call_edge_missing`，模型
+一次 patch 后补齐全部五条 invocation。容量 guard 留在控制语义，不再冒充 caller。该轮 finalizer
+rejects=2（r12=4），说明真实触发同时没有增加修补震荡。
+
+called-by 再次只有两个 distinct production callers；多 callsite 没有重新膨胀实体轴。
+
+状态：`B52l=production-trigger-covered / closed`。语言矩阵与注册表联动：14 executable lanes 正向、
+Proto declaration 反向，ArkTS/Cangjie 均在同一规则中，无语言关键词分支。
+
+另有两个非图层 advisory：
+
+1. `B52m`：一个 item 同时叙述 callsite 与 callee 内部行为时，单 citation 无法同时证明两层；需 typed
+   per-claim/multi-citation carrier 或拆项指导，禁止解析 prose 硬改；
+2. `B52n`：aggregate 是 6 nodes，模型称“6跳”。缺 typed noun-axis 时不按自然语言关键词硬门，先记
+   模型措辞波动。
+
+补充全语言基础设施回归：`go test ./internal/tool/repomap/... ./internal/mermaidcompat ./internal/render -count=1`
+全部通过，覆盖权威语言注册、parser/extractor、relation/retrieve、Mermaid compatibility 与最终 renderer。
+
 ### B52 r7：全语言调用图交接验收与模型表重复（2026-08-02）
 
 同 pair 在 `759f1c859` 上 runner 2/2 PASS。人工审计结论：

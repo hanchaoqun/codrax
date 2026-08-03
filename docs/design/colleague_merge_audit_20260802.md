@@ -1149,3 +1149,37 @@ r12 另记录独立 advisory `B52m-RELATION-ROW-CITATION-ALIGNMENT`：Java h3 �
 
 完整回归：`go test ./internal/tool ./internal/agent -count=1` 通过
 （tool 161.590s；agent 2.725s）。
+
+---
+
+## §39 B52 r13：全语言 citation-call 闭包真实触发验收（2026-08-02）
+
+`73f15610c` 精确构建同 pair 严格并行 2/2 runner PASS：called-by 91s、Java 103s。
+
+人工结果：called-by PASS，两个 distinct production callers 与 typed roster 一致。Java PASS：首稿图遗漏
+`schedule -> countOpenVisits`、`schedule -> insert`、`insert -> AuditLog.record` 三条模型 principal
+列表已经选择、citation 已绑定的 typed calls；`B52l` 新门逐条发出 `principal_call_edge_missing` 并拒绝。
+模型一次 patch 后最终 flowchart 完整保留五条 invocation，容量 guard 不再充当 caller。finalizer rejects
+由 r12 的 4 降至 2，证明该修复不是只在 synthetic fixture 生效。
+
+语言覆盖裁定：仓库权威 `SupportedReadLanguages()` 当前 15 种。Go、Python、JavaScript、TypeScript、
+Java、Kotlin、Rust、C、C++、Ruby、Swift、Lua、ArkTS、Cangjie 共 14 种 executable lanes 必须通过同一
+principal citation-call fixture；Proto 走 declaration-no-call 反臂。图验证是语言无关 typed authority，
+而不是按 Java/ArkTS/Cangjie 关键词分别拟合。
+
+非图层残余分账：
+
+- `B52m` 仍开放且范围更清楚：一个 principal item 可能同时描述 caller→callee 与 callee 内部行为，
+  单一 `citation_ref` 只能证明其中一侧。最优方向是 typed per-claim/multi-citation carrier 或引导模型拆项；
+  不得解析模型 prose 后硬改引用或替换结论；
+- `B52n-NODE-EDGE-CARDINALITY-WORDING`（advisory）：typed aggregate 是 6 nodes，模型写“6跳”。
+  当前没有 typed noun-axis 字段，不能扫描中英文“跳/节点”词做 hard gate；保留为模型措辞波动；
+- `AuditLog.record` fixture 实际 `System.out.println`，答案沿用户“审计落库”措辞继续称落库。没有
+  typed sink-persistence 证据，系统不得自行改写结论；可由后续模型证据引导改善。
+
+状态：`B52l=production-trigger-covered / closed`；
+`all-supported-language-graph-matrix=covered`；
+`B52m=filed-advisory / carrier-design-pending`；`B52n=model-wording-advisory`。
+
+全语言基础设施回归：`go test ./internal/tool/repomap/... ./internal/mermaidcompat ./internal/render -count=1`
+全部通过（含 language registry、parser/extractor、relation/retrieve、Mermaid compatibility 与最终 renderer）。
