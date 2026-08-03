@@ -1554,43 +1554,17 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		}
 	}
 	runtimeArtifactScopeProfile, runtimeArtifactScopeErr, runtimeArtifactScopeWarnings := parseRuntimeArtifactScopeProfile(raw, runtimeArtifactCarrier, p.RuntimeArtifactScopeProfile)
-	if runtimeArtifactScopeErr != "" {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_analysis rejected: " + runtimeArtifactScopeErr,
-			Timestamp: time.Now(),
-		}, nil
-	}
-	for _, warning := range runtimeArtifactScopeWarnings {
-		logging.Warning("[emit_analysis] %s", warning)
-		val.Warnings = append(val.Warnings, warning)
-	}
 	runtimeTargets, runtimeTargetWarnings, runtimeTargetErr := parseRuntimeTargets(p.RuntimeTargets)
-	if runtimeTargetErr != "" {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_analysis rejected: " + runtimeTargetErr,
-			Timestamp: time.Now(),
-		}, nil
-	}
-	for _, warning := range runtimeTargetWarnings {
-		logging.Warning("[emit_analysis] %s", warning)
-		val.Warnings = append(val.Warnings, warning)
-	}
-	runtimeTargetProfile, runtimeTargetProfileErr, runtimeTargetProfileWarnings := parseRuntimeTargetProfile(raw, runtimeArtifactCarrier, p.RuntimeTargetProfile, runtimeTargets)
-	if runtimeTargetProfileErr != "" {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_analysis rejected: " + runtimeTargetProfileErr,
-			Timestamp: time.Now(),
-		}, nil
-	}
-	for _, warning := range runtimeTargetProfileWarnings {
-		logging.Warning("[emit_analysis] %s", warning)
-		val.Warnings = append(val.Warnings, warning)
+	var runtimeTargetProfile *types.RuntimeTargetProfile
+	var runtimeTargetProfileErr string
+	var runtimeTargetProfileWarnings []string
+	if runtimeTargetErr == "" {
+		// The declaration consumes the normalized target roster. Do not run
+		// this dependent semantic check when the roster itself is malformed:
+		// doing so would add a synthetic "missing target" error that cannot be
+		// acted on independently. The other runtime profiles remain independent
+		// and are still censused below.
+		runtimeTargetProfile, runtimeTargetProfileErr, runtimeTargetProfileWarnings = parseRuntimeTargetProfile(raw, runtimeArtifactCarrier, p.RuntimeTargetProfile, runtimeTargets)
 	}
 	runtimeQuestionProfile, runtimeQuestionProfileErr, runtimeQuestionProfileWarnings := parseRuntimeQuestionProfile(
 		raw,
@@ -1598,13 +1572,38 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		p.RuntimeQuestionProfile,
 		types.NormalizeRequirementKind(kind) == types.ReqCallChain || axis == types.AxisCall || predicates.IsRelationalLookup,
 	)
-	if runtimeQuestionProfileErr != "" {
+	// MERGE-AUDIT T6-2: these profiles are independent request-authority
+	// declarations. Returning after the first bad declaration made a single
+	// payload with several local defects consume one retry per profile. Census
+	// every independently actionable error in schema order. This is not a
+	// semantic cascade collector: the target declaration is deliberately
+	// skipped when its target roster failed, and cross-profile consistency
+	// remains below after all individual profiles are valid.
+	runtimeProfileErrors := trimNonEmptyStrings([]string{
+		runtimeArtifactScopeErr,
+		runtimeTargetErr,
+		runtimeTargetProfileErr,
+		runtimeQuestionProfileErr,
+	})
+	if len(runtimeProfileErrors) > 0 {
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
-			Summary:   "emit_analysis rejected: " + runtimeQuestionProfileErr,
+			Summary:   "emit_analysis rejected: runtime profile validation failed: " + strings.Join(runtimeProfileErrors, "; "),
 			Timestamp: time.Now(),
 		}, nil
+	}
+	for _, warning := range runtimeArtifactScopeWarnings {
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
+	for _, warning := range runtimeTargetWarnings {
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
+	for _, warning := range runtimeTargetProfileWarnings {
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
 	}
 	for _, warning := range runtimeQuestionProfileWarnings {
 		logging.Warning("[emit_analysis] %s", warning)

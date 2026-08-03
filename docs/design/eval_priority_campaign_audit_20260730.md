@@ -4001,6 +4001,21 @@ observation 真正存在，固定输入收据恢复字节不变。最终
 状态：`T1-1=implemented-soft-diagnostic / no-unsafe-hard-gate / full-package-pass`；
 跨时钟自动去重继续等待独立 typed calibration authority。
 
+### MERGE-AUDIT-3 M5：runtime profile 独立错误同轮 census（T6-2）
+
+逐面清点确认 finding 的收窄形：单个 profile 已能聚合自身缺字段，开放 gap 是
+`runtime_artifact_scope_profile / runtime_target_profile / runtime_question_profile`
+之间的先败先返。施工在共同解析点先构造三份 typed 声明，再按稳定 schema 顺序一次返回
+所有独立错误；`runtime_targets` 自身非法时跳过依赖它的 target-profile 语义检查，避免把
+上游 roster 失败级联成虚假的 missing-target 错误。soft warnings 仅在 census 通过后发布，
+后续跨字段 consistency gate 保持原位。
+
+该批不读取用户/模型 prose，不按 case 或 runtime type 分支，也不修改显式时间窗、Trace
+查询、因果投影、根因排序、唤醒链、窗内可消除量或自动补齐。两个回归分别固定同轮三错
+完整 roster 和依赖级联负例；`go test ./internal/tool -count=1` 通过(160.919s)。
+
+状态：`T6-2=confirmed-narrowed / implemented / full-package-pass`；下一项审计 T7-2。
+
 ### B47：运行日志语义所有权 × write 跨语言检查权限（2026-08-02）
 
 严格并行 2 个跨模式 case：

@@ -66,7 +66,7 @@
 
 ## §4 存疑(PLAUSIBLE,1/2 否证席分歧)
 
-- **T6-2** `emit_analysis.go:1303`:三个新必填 profile 各带独立单因硬拒 + Execute 保持先败先返(~35 处)→ 每轮只暴露一个缺陷,疑似回到 EMITBURN-1(§29.173)修掉的逐轮烧重试形。分歧点:部分拒答面有聚合;需逐面清点后定性。
+- **T6-2** `emit_analysis.go:1303`:三个新必填 profile 各带独立单因硬拒 + Execute 保持先败先返(~35 处)→ 每轮只暴露一个缺陷,疑似回到 EMITBURN-1(§29.173)修掉的逐轮烧重试形。复核结论：profile 内部缺字段已有聚合，但 scope/target/question 三份独立声明之间确实先败先返；已按依赖边界收窄修复，见 §14。
 - **T7-2** `test_surface.go:188`:meta-runner 声明覆盖 roster 第三臂把直调脚本里**被引号引用的任意在库路径字面量**(日志文案/skip 表)当覆盖权威——`SKIP=["src/util.py"]` 反而让 util.py 记为已测。分歧点:该臂是否另有交叉门拦截。
 
 ## §5 低危顾问(12 件,未进否证轮,修复时顺带)
@@ -286,3 +286,30 @@ finding 准确。红测把现有生产键 `unknown_comm_witnesses` 放入一个�
 
 状态：`T1-1=implemented-soft-diagnostic / no-unsafe-hard-gate / full-package-pass`。
 真正自动消除跨时钟重复仍需要独立 typed clock calibration 证据；在该证据出现前不得猜配。
+
+---
+
+## §14 T6-2 施工结果：独立 runtime profile 错误同轮 census(2026-08-02)
+
+审计结论部分准确，逐面复核后的精确边界是：每个 profile 解析器内部已经一次列出本对象
+缺失的全部 required fields；但 `runtime_artifact_scope_profile`、`runtime_target_profile`、
+`runtime_question_profile` 三份彼此独立的 typed request-authority 声明仍在 `Execute` 中
+依次先败先返，同一 payload 的三个局部缺陷会消耗三轮重试。不能由此推导为约 35 个检查
+都应该统一聚合：后续一致性门存在明确数据依赖，盲目收集会制造级联假错误。
+
+通用修复位于三份声明的共同解析点：
+
+- 三份 profile 先完成无副作用解析，再以 schema 顺序一次发布所有 independently actionable
+  错误；没有读取用户问题、模型解释/答案或 case/type 特例；
+- `runtime_targets` roster 若自身结构非法，仍与独立 scope/question 错误同轮报告，但跳过
+  消费该 roster 的 target-profile 语义检查，禁止伪造“named target 缺 target”的二次噪声；
+- 只有错误 census 为空才发布 soft normalization warnings；跨 profile 的 diagnosis consistency
+  仍在有效对象构造后单独校验，不被硬化或吞并；
+- profile 的 enum、verbatim quote、显式时间窗、target provenance、运行时问答宽度与后续
+  Trace 因果投影/自动补齐权限均未放宽。
+
+回归固定“三份空对象一次列全六个缺字段”和“坏 target roster + 坏 question 同轮报告、
+无 dependent missing-target 噪声”。`go test ./internal/tool -count=1` 全包通过(160.919s)。
+
+状态：`T6-2=confirmed-narrowed / implemented / full-package-pass`。下一项按原排期审计
+`T7-2` meta-runner 对引用路径是否会误铸测试覆盖。

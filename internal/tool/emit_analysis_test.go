@@ -137,6 +137,110 @@ func withRequiredAnswerRoleProfile(payload string) string {
 	return string(out)
 }
 
+func TestEmitAnalysis_RuntimeProfileValidationReportsIndependentErrorsTogether(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(withV4Required(`{
+		"intent": "explain",
+		"scenario": "generic",
+		"complexity": "moderate",
+		"keywords": ["runtime", "profile"],
+		"entities": ["trace"],
+		"question_kind": "mechanism"
+	}`)), &payload); err != nil {
+		t.Fatalf("decode fixture: %v", err)
+	}
+	// All three objects are valid JSON wire shapes, so strict decode succeeds;
+	// each independently lacks its own required typed declaration.
+	payload["runtime_artifact_scope_profile"] = map[string]any{}
+	payload["runtime_target_profile"] = map[string]any{}
+	payload["runtime_question_profile"] = map[string]any{}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("encode fixture: %v", err)
+	}
+
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{
+		Mutable: types.NewMutableState("explain the runtime profile"),
+	}, raw)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("invalid profiles should be rejected: %q", res.Summary)
+	}
+	wants := []string{
+		"runtime_artifact_scope_profile missing required field(s): requested_scope, confidence",
+		"runtime_target_profile missing required field(s): declaration, confidence",
+		"runtime_question_profile missing required field(s): scope, confidence",
+	}
+	last := -1
+	for _, want := range wants {
+		at := strings.Index(res.Summary, want)
+		if at < 0 {
+			t.Fatalf("summary should report %q in the same retry, got %q", want, res.Summary)
+		}
+		if at <= last {
+			t.Fatalf("profile errors should follow schema order, got %q", res.Summary)
+		}
+		last = at
+	}
+}
+
+func TestEmitAnalysis_RuntimeProfileValidationDoesNotReportDependentTargetCascade(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(withV4Required(`{
+		"intent": "explain",
+		"scenario": "generic",
+		"complexity": "moderate",
+		"keywords": ["runtime", "target"],
+		"entities": ["worker"],
+		"question_kind": "mechanism"
+	}`)), &payload); err != nil {
+		t.Fatalf("decode fixture: %v", err)
+	}
+	payload["runtime_targets"] = []any{map[string]any{
+		"kind":       "process",
+		"source":     "user_explicit",
+		"confidence": 0.9,
+	}}
+	payload["runtime_target_profile"] = map[string]any{
+		"declaration":  "named_target",
+		"source_quote": "worker",
+		"confidence":   0.9,
+	}
+	payload["runtime_question_profile"] = map[string]any{}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("encode fixture: %v", err)
+	}
+
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{
+		Mutable: types.NewMutableState("explain worker"),
+	}, raw)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	for _, want := range []string{
+		"runtime_targets[0] is structurally invalid",
+		"runtime_question_profile missing required field(s): scope, confidence",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("summary should contain independent error %q, got %q", want, res.Summary)
+		}
+	}
+	if strings.Contains(res.Summary, "named_target requires at least one structurally valid runtime_targets entry") {
+		t.Fatalf("malformed target roster must not create dependent missing-target noise: %q", res.Summary)
+	}
+}
+
 func testBoolPtr(v bool) *bool {
 	return &v
 }
