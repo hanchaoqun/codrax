@@ -941,9 +941,11 @@ const (
 	// assumption) in favour of the LLM's MissingRequestedRoles
 	// typed slot.
 	//
-	// All four are HARD-by-default: Severity=hard so the FixHint
-	// surfaces into the retry directive; bounded retry budget is
-	// the existing per-kind machinery (state.retryUsedForKind).
+	// EVAL-B54-TIER2PROSE1: all four are permanently soft while any
+	// decision arm counts/interprets model-authored block prose. They may
+	// guide investigation and remain visible in telemetry, but operator
+	// configuration cannot promote them to a hard retry. A future strict
+	// form requires a complete typed value/member/path/bucket carrier.
 
 	// ViolScalarCountUnsourced fires when the answer to a count /
 	// measurement question (IsCountQuestion=true) surfaces a

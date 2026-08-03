@@ -5840,18 +5840,16 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			}
 		}
 
-		// Phase 2.B Tier 2 ERM completeness hard gate (post-finalize,
+		// Phase 2.B Tier 2 ERM completeness guidance (post-finalize,
 		// answer-aware). Runs AFTER finalize composes the
 		// AnswerDocumentV2 + AFTER contract violations have been
 		// computed and root-cause-collapsed. The validators read
 		// AnswerDocumentV2 (typed blocks first, prose second,
 		// evidence pool fallback) to detect structural-coverage gaps
 		// the Tier 1 breadth heuristic missed. Failures append a
-		// typed Violation to the contract result; the existing
-		// retry / FallbackTarget / caveat machinery handles the
-		// rest (per-kind retry budget bounds the loop, exhausted
-		// budget routes to AppendUserCaveatsToAnswer for graceful
-		// degradation).
+		// typed Violation to the contract result. EVAL-B54-TIER2PROSE1:
+		// these kinds are permanently soft while any decision arm scans
+		// model prose, so they feed telemetry/guidance but never a retry.
 		//
 		// Why post-finalize (not pre-finalize like Phase 2 advisory
 		// was): the pre-finalize signal couldn't see the LLM's
@@ -5878,8 +5876,6 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 					AnswerDocumentV2: o.busCtx.Mutable.AnswerDocumentV2(),
 				}
 				if fail := agent.RunFamilyValidators(view.Family, input); fail != nil {
-					logging.Warning("[orchestrator] Tier 2 hard-gate %s/%s emits Violation: %s",
-						view.Family, fail.Dimension, fail.Reason)
 					o.busCtx.Mutable.SetTier2CompletenessHint(fail.FixHint)
 					// Append a typed Violation. The literal-Kind
 					// switch (rather than fail.ViolationKind) is
@@ -5941,16 +5937,21 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 					// violation so IsDerived / RootKind classifiers
 					// are consistent across the full set.
 					res.Violations = ComputeRootCauseClosure(res.Violations)
-					// The result is no longer "passed" if a Tier 2
-					// violation was added.
-					res.Passed = false
-					o.emit(render.Event{
-						Kind:       render.EventOrchestratorNotice,
-						Timestamp:  time.Now(),
-						Agent:      "orchestrator",
-						NoticeKind: render.NoticeRetry,
-						Reasoning:  softCompletenessGapMessage(o.busCtx.Language, fail),
-					})
+					if isStrictViolationForBus(v, o.busCtx) {
+						res.Passed = false
+						logging.Warning("[orchestrator] Tier 2 strict completeness %s/%s emits actionable Violation: %s",
+							view.Family, fail.Dimension, fail.Reason)
+						o.emit(render.Event{
+							Kind:       render.EventOrchestratorNotice,
+							Timestamp:  time.Now(),
+							Agent:      "orchestrator",
+							NoticeKind: render.NoticeRetry,
+							Reasoning:  softCompletenessGapMessage(o.busCtx.Language, fail),
+						})
+					} else {
+						logging.Debug("[orchestrator] Tier 2 soft completeness %s/%s recorded without retry: %s",
+							view.Family, fail.Dimension, fail.Reason)
+					}
 				}
 			}
 			if o.finishSchedulerLocalWork(stopLocal, "tier2_completeness", stepsUsed) {

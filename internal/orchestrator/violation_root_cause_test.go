@@ -274,6 +274,36 @@ func TestFilterFinalizerRetryRootViolations_StrictCannotPromoteNonPromotableKind
 	}
 }
 
+// EVAL-B54-TIER2PROSE1: the four answer-aware completeness validators still
+// contain model-prose fallback arms. They must remain guidance-only even when
+// an operator lists them under pipeline_contract_strict_kinds.
+func TestTier2ProseFallbackKindsCannotPromoteToFinalizerRetry(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	kinds := []types.ViolationKind{
+		types.ViolScalarCountUnsourced,
+		types.ViolPathDepthInsufficient,
+		types.ViolCardinalityShort,
+		types.ViolEntityParityImbalanced,
+	}
+	strictNames := make([]string, 0, len(kinds))
+	for _, kind := range kinds {
+		strictNames = append(strictNames, string(kind))
+		if types.IsViolKindPromotable(kind) {
+			t.Fatalf("prose-fallback completeness kind %q must not be promotable", kind)
+		}
+	}
+	SetSoftViolationKinds(nil, strictNames)
+	for _, kind := range kinds {
+		v := types.Violation{Kind: kind, Detail: "noisy model-prose completeness observation"}
+		if !isSoftViolationKind(kind) {
+			t.Fatalf("strict config promoted prose-fallback kind %q", kind)
+		}
+		if got := FilterFinalizerRetryRootViolations([]types.Violation{v}); len(got) != 0 {
+			t.Fatalf("prose-fallback kind %q reached retry roots: %+v", kind, got)
+		}
+	}
+}
+
 func TestFilterFinalizerRetryRootViolationsForBus_ClaimBindingSuppressesGenericStrictCoverage(t *testing.T) {
 	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
 	SetSoftViolationKinds(nil, []string{string(types.ViolFacetUncovered)})

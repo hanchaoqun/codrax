@@ -93,10 +93,6 @@ func TestCommercialGateKinds_DefaultToCaveat(t *testing.T) {
 		ViolInlineIdentifierHallucinated,
 		ViolLaneBlockKindMismatch,
 		ViolPrincipalSupportMemberOmitted,
-		ViolScalarCountUnsourced,
-		ViolPathDepthInsufficient,
-		ViolCardinalityShort,
-		ViolEntityParityImbalanced,
 	}
 	for _, kind := range kinds {
 		spec, ok := ViolKindSpecFor(kind)
@@ -113,6 +109,29 @@ func TestCommercialGateKinds_DefaultToCaveat(t *testing.T) {
 		strict := ViolationProfileFor(kind, true)
 		if !strict.RetryEligible {
 			t.Errorf("kind=%q strict-promote: RetryEligible=false want true", kind)
+		}
+	}
+}
+
+func TestTier2ProseFallbackKindsArePermanentlySoft(t *testing.T) {
+	for _, kind := range []ViolationKind{
+		ViolScalarCountUnsourced,
+		ViolPathDepthInsufficient,
+		ViolCardinalityShort,
+		ViolEntityParityImbalanced,
+	} {
+		spec, ok := ViolKindSpecFor(kind)
+		if !ok {
+			t.Fatalf("kind=%q: no registry spec", kind)
+		}
+		if !spec.SoftByDefault || spec.Promotable || spec.DefaultSeverity != SeveritySoft {
+			t.Fatalf("kind=%q must be permanently soft while it has prose fallback: %+v", kind, spec)
+		}
+		for _, strict := range []bool{false, true} {
+			profile := ViolationProfileFor(kind, strict)
+			if profile.Severity != SeveritySoft || profile.RetryEligible {
+				t.Fatalf("kind=%q strict=%v escaped guidance-only profile: %+v", kind, strict, profile)
+			}
 		}
 	}
 }

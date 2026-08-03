@@ -8,7 +8,7 @@ import (
 )
 
 // erm_completeness.go — Phase 2 (advisory) + Phase 2.B (post-finalize
-// answer-aware hard gate) of the commercial-grade remediation
+// answer-aware completeness guidance) of the commercial-grade remediation
 // (docs/design/commercial_grade_3_pattern_remediation.md).
 //
 // Two-tier ERM design:
@@ -18,8 +18,8 @@ import (
 //     signal that lets the explorer LLM decide it has read enough.
 //
 //   - Tier 2 (depth) — this file: per-question-family completeness
-//     validators that gate the finalize stage on hard structural
-//     coverage requirements. Each validator runs answer-aware AFTER
+//     validators that report structural-coverage guidance. Each validator
+//     runs answer-aware AFTER
 //     finalize composes the AnswerDocumentV2, reading typed blocks
 //     first (Tier 1 input precedence), prose fallback second, and
 //     evidence-pool tertiary.
@@ -32,12 +32,12 @@ import (
 //     reached normalizer.Normalize / compiler.Compile / hdp.Plan /
 //     binder.BindByRelevance.
 //
-// Phase 2.B (2026-05-09) replaced the original advisory wire-up with
-// post-finalize hard-gate enforcement: each validator now emits a
-// typed Violation (one of four ViolKinds — see violation_registry.go)
-// that flows through the existing retry / FallbackTarget / caveat
-// machinery. Bounded retry budget is the existing per-kind
-// `state.retryUsedForKind` machinery — no new bookkeeping.
+// Phase 2.B (2026-05-09) originally wired these as post-finalize gates.
+// EVAL-B54-TIER2PROSE1 (2026-08-03) corrected the authority boundary:
+// every dimension still has at least one fallback that counts or interprets
+// model-authored prose, so its violation kind is permanently soft and can
+// guide later exploration without causing a finalizer retry. A strict form
+// may return only after a complete typed carrier replaces every prose arm.
 //
 // Cross-project portability (2026-05-09 audit, after user feedback):
 //   - The original LayerDepthValidator was DROPPED — it hard-coded a
@@ -83,7 +83,7 @@ type CompletenessValidator interface {
 // field as read-only.
 //
 // Phase 2.B added AnswerDocumentV2 so validators can do answer-aware
-// validation (read the actual composed answer, not just the evidence
+// observation (read the actual composed answer, not just the evidence
 // pool). The 3-tier input precedence per validator:
 //
 //	Tier 1 (typed blocks): inspect AnswerDocumentV2.Blocks[] typed

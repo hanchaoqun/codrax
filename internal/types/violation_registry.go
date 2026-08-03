@@ -1131,8 +1131,8 @@ func init() {
 	// audit.
 
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolScalarCountUnsourced, DefaultSeverity: SeverityMedium, StrictSeverity: SeverityMedium, RepairPhase: RepairPhaseStructure,
-		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExplore,
+		Kind: ViolScalarCountUnsourced, DefaultSeverity: SeveritySoft, StrictSeverity: SeveritySoft, RepairPhase: RepairPhaseStructure,
+		SoftByDefault: true, Promotable: false, FallbackLocus: LocusExplore,
 		Layer: "tier2_completeness", CaveatFamilyID: CaveatFamilyTier2ScalarCount,
 		SchemaDescriptionFragment: "Count / measurement-scalar answers MUST surface a number derived from a deterministic counting tool (the answer cites at least one tool result whose summary contains the integer). Visual counting from read_file output is rejected as unreliable.",
 		// Fix path: explorer re-investigation with a counting tool
@@ -1143,16 +1143,16 @@ func init() {
 		FixableByAgents: []AgentName{AgentExplorer},
 	})
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolPathDepthInsufficient, DefaultSeverity: SeverityMedium, StrictSeverity: SeverityMedium, RepairPhase: RepairPhaseStructure,
-		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExplore,
+		Kind: ViolPathDepthInsufficient, DefaultSeverity: SeveritySoft, StrictSeverity: SeveritySoft, RepairPhase: RepairPhaseStructure,
+		SoftByDefault: true, Promotable: false, FallbackLocus: LocusExplore,
 		Layer: "tier2_completeness", CaveatFamilyID: CaveatFamilyTier2PathDepth,
 		SchemaDescriptionFragment: "Call-chain answers MUST cover entry + at least 3 intermediate steps + exit when the user named ≥2 chain endpoints. Stopping at the first 2-3 functions found produces a partial chain that misleads the reader.",
 		// Fix path: explorer reads more functions in the chain.
 		FixableByAgents: []AgentName{AgentExplorer},
 	})
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolCardinalityShort, DefaultSeverity: SeverityMedium, StrictSeverity: SeverityMedium, RepairPhase: RepairPhaseStructure,
-		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExtract,
+		Kind: ViolCardinalityShort, DefaultSeverity: SeveritySoft, StrictSeverity: SeveritySoft, RepairPhase: RepairPhaseStructure,
+		SoftByDefault: true, Promotable: false, FallbackLocus: LocusExtract,
 		Layer: "tier2_completeness", CaveatFamilyID: CaveatFamilyTier2Cardinality,
 		SchemaDescriptionFragment: "When the question carries an explicit declared count (EnumerationBoundary.DeclaredCount > 0), the answer's enumerated items MUST satisfy that count. Producing fewer items than declared without explicitly disclosing the gap is rejected.",
 		// Fix path: extractor first (re-emit slate from existing
@@ -1161,8 +1161,8 @@ func init() {
 		FixableByAgents: []AgentName{AgentExtractor, AgentExplorer},
 	})
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolEntityParityImbalanced, DefaultSeverity: SeverityMedium, StrictSeverity: SeverityMedium, RepairPhase: RepairPhaseStructure,
-		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExplore,
+		Kind: ViolEntityParityImbalanced, DefaultSeverity: SeveritySoft, StrictSeverity: SeveritySoft, RepairPhase: RepairPhaseStructure,
+		SoftByDefault: true, Promotable: false, FallbackLocus: LocusExplore,
 		Layer: "tier2_completeness", CaveatFamilyID: CaveatFamilyTier2EntityParity,
 		SchemaDescriptionFragment: "Comparison answers (≥2 named buckets) MUST sample evidence comparably across all buckets. Heavily skewed sampling — smallest bucket has fewer than half the evidence of the largest — produces a comparison whose weaker side reads as speculative.",
 		// Fix path: explorer re-investigates the under-sampled bucket(s).

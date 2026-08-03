@@ -11815,6 +11815,40 @@ gate。下一批先核对现有 EvidenceItem/ClaimForm/consumer-use 数据面，
 合同继续 hard/typed 校验；只是没有 typed subject/expression carrier 的自然语言复算不再伪装成系统
 权威。`go test ./internal/orchestrator -count=1` 通过（12.286s），`git diff --check` 通过。
 
+#### B54-E：Tier-2“soft 规则、hard 外观”与可提升硬门退役
+
+继续从所有 `NoticeRetry`/`FilterFinalizerRetryRootViolationsForBus` 生产点逆向审计，确认四个
+Tier-2 完备性维度存在同一红线邻近问题：
+
+- `scalar_count` 从 block prose 扫整数；
+- `cardinality` 从 markdown prose 数列表项；
+- `path_depth` 从 block/item prose 提取 identifier-shaped token；
+- `entity_parity` 从 block prose 计 bucket anchor 出现次数。
+
+它们在默认配置虽为 soft，但 registry 仍允许 operator strict-promote；调度器还无条件打印
+`Tier 2 hard-gate`、置 `res.Passed=false` 并发送 `NoticeRetry`，之后才在最终 root filter 中因 soft
+重新放行。结果不是 `RELSTALE1` 那种不可满足双合同，却会制造“校验失败/正在重试”的假象；一旦
+配置提升，noisy prose 信号会真实进入成文重试，违反用户明确裁定。
+
+新增 `EVAL-B54-TIER2PROSE1`（P1/red-line）并完成根修：
+
+1. 四种 Violation registry 统一设为 `SeveritySoft + SoftByDefault + Promotable=false`；即使
+   `pipeline_contract_strict_kinds` 明列也不能提升为 retry root；
+2. 调度器只在 `isStrictViolationForBus` 为真时才置失败、发 `NoticeRetry`；soft finding 仅写 debug
+   telemetry，不再伪称 `hard-gate`；
+3. validator 仍可作为探索完备性的软指导，不删除高 ROI 信息；恢复 strict 的前置条件冻结为：
+   count/member/path/bucket 每个判据均有完整 typed carrier，且不再读取模型 prose；
+4. pin 覆盖四 kind 的 registry、默认/strict profile、operator strict no-op 和 retry-root 空集。
+
+验证：`go test ./internal/types ./internal/agent ./internal/orchestrator -count=1` 全绿
+（types 24.251s、agent 2.735s、orchestrator 12.130s）。
+
+截至本节，同形“两个阶段各持一份 authority，旧值必带而 final roster 必拒”的第二实例仍未确认：
+aggregate 使用 typed merge/supersede，source inventory 在 final 前冻结同一快照，causal/coverage
+stamp 从 final ledger 编译，write verification ledger append-only。已经确认并处置的是两个近邻类：
+typed authority 漏检（`DIAGCALL1`）与 noisy prose 权威化/可提升硬门（`ARITHSUBJ1`、
+`TIER2PROSE1`）。后续异构 read/write eval 继续否证，而不是宣称全系统绝无第二例。
+
 证据：
 
 - `eval/parallel_selected_summary_evalcampaign_b54_trace_mixed_r2_20260803.md`；
