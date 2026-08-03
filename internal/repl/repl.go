@@ -4810,7 +4810,7 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 			logging.Info("[repl/operation] command plan lint failed plan_id=%s issues=%d summary=%q repair_rounds=%d command_rounds=%d",
 				currentPlan.ID, len(lint.Issues), oneLineClamp(lint.Summary(), 240), repairRounds, commandRounds)
 		} else {
-			if commandRounds >= commandOperationMaxCommandRounds {
+			if commandRounds >= commandOperationCommandRoundLimit(records) {
 				result = commandOperationBudgetResult(currentPlan, "command operation command-round budget exhausted before the user goal was fully satisfied")
 				currentPlan.Status = result.Status
 				r.operationHistory = append(r.operationHistory, currentPlan)
@@ -4929,16 +4929,9 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 			result = budget
 			r.renderCommandOperationRoundResult(currentPlan, result)
 		}
-		if commandOperationContinuationBudgetExhausted(currentPlan, result, records) {
-			budget := commandOperationBudgetResult(currentPlan, "command operation command-round budget exhausted before the user goal was fully satisfied")
-			r.appendCommandOperationResult(currentPlan, budget)
-			records = append(records, commandOperationResultRecord{Plan: currentPlan, Result: budget})
-			result = budget
-			r.renderCommandOperationRoundResult(currentPlan, result)
-		}
+		var materialEvaluation *operation.OperationEvaluation
 		if result.Status == operation.StatusExecuted &&
 			commandOperationShouldRunMaterialEvaluator(records) &&
-			commandRounds < commandOperationMaxCommandRounds &&
 			r.operationPlanner != nil {
 			if evaluator, ok := r.operationPlanner.(CommandOperationEvaluator); ok {
 				r.startOperationSynthesisSpinner()
@@ -4947,6 +4940,8 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 				if err != nil {
 					logging.Warning("[repl/operation] command operation evaluation failed: %v", err)
 				} else {
+					evalCopy := eval
+					materialEvaluation = &evalCopy
 					records = commandOperationAttachEvaluation(records, eval)
 					logging.Info("[repl/operation] command evaluation status=%s confidence=%q reason=%q materials=%d rounds=%d",
 						eval.Status, oneLineClamp(eval.Confidence, 40), oneLineClamp(eval.Reason, 180), len(eval.Materials), len(records))
@@ -4963,7 +4958,8 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 						r.recordTurn(display, request, msg, memory.KindPipeline)
 						return
 					}
-					if eval.Status == operation.EvalContinueCommand {
+					if eval.Status == operation.EvalContinueCommand &&
+						commandRounds < commandOperationCommandRoundLimit(records) {
 						if continuer, ok := r.operationPlanner.(CommandOperationContinuationPlanner); ok {
 							r.startOperationSynthesisSpinner()
 							snapshot := r.commandOperationCapabilitySnapshot()
@@ -5041,7 +5037,21 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 				}
 			}
 		}
-		if result.Status == operation.StatusExecuted && currentPlan.ContinueAfter && r.operationPlanner != nil && commandRounds < commandOperationMaxCommandRounds {
+		if commandOperationMaterialEvaluationNeedsBudget(result, materialEvaluation, records) {
+			budget := commandOperationBudgetResult(currentPlan, "command operation command-round budget exhausted before the user goal was fully satisfied")
+			r.appendCommandOperationResult(currentPlan, budget)
+			records = append(records, commandOperationResultRecord{Plan: currentPlan, Result: budget})
+			result = budget
+			r.renderCommandOperationRoundResult(currentPlan, result)
+		}
+		if commandOperationContinuationBudgetExhausted(currentPlan, result, records) {
+			budget := commandOperationBudgetResult(currentPlan, "command operation command-round budget exhausted before the user goal was fully satisfied")
+			r.appendCommandOperationResult(currentPlan, budget)
+			records = append(records, commandOperationResultRecord{Plan: currentPlan, Result: budget})
+			result = budget
+			r.renderCommandOperationRoundResult(currentPlan, result)
+		}
+		if result.Status == operation.StatusExecuted && currentPlan.ContinueAfter && r.operationPlanner != nil && commandRounds < commandOperationCommandRoundLimit(records) {
 			continuer, ok := r.operationPlanner.(CommandOperationContinuationPlanner)
 			if ok {
 				r.startOperationSynthesisSpinner()
@@ -5224,6 +5234,10 @@ func (r *REPL) emitOperationVisibleThoughts(thoughts []string) {
 const (
 	commandOperationMaxRepairRounds  = 3
 	commandOperationMaxCommandRounds = 5
+	// Material-backed low-risk investigation can earn one typed, bounded
+	// extension after the evaluator observes incomplete coverage at the base
+	// limit. Every added plan still passes the ordinary risk/approval policy.
+	commandOperationExtendedCommandRounds = 8
 )
 
 func commandOperationTerminalAfterReplan(plan operation.CommandOperationPlan, records []commandOperationResultRecord) bool {
@@ -5385,7 +5399,7 @@ func (r *REPL) maybeReplanCommandOperation(ctx context.Context, failedPlan opera
 }
 
 func (r *REPL) maybeContinueCommandOperation(ctx context.Context, plan operation.CommandOperationPlan, result operation.CommandOperationResult, request, display string, records []commandOperationResultRecord) bool {
-	if result.Status != operation.StatusExecuted || !plan.ContinueAfter || commandOperationExecutedRoundCount(records) >= commandOperationMaxCommandRounds || r.operationPlanner == nil {
+	if result.Status != operation.StatusExecuted || !plan.ContinueAfter || commandOperationExecutedRoundCount(records) >= commandOperationCommandRoundLimit(records) || r.operationPlanner == nil {
 		return false
 	}
 	continuer, ok := r.operationPlanner.(CommandOperationContinuationPlanner)
@@ -5673,7 +5687,7 @@ func commandOperationRepairBudgetExhausted(result operation.CommandOperationResu
 func commandOperationContinuationBudgetExhausted(plan operation.CommandOperationPlan, result operation.CommandOperationResult, records []commandOperationResultRecord) bool {
 	return result.Status == operation.StatusExecuted &&
 		plan.ContinueAfter &&
-		commandOperationExecutedRoundCount(records) >= commandOperationMaxCommandRounds
+		commandOperationExecutedRoundCount(records) >= commandOperationCommandRoundLimit(records)
 }
 
 func commandOperationExecutedRoundCount(records []commandOperationResultRecord) int {
@@ -5689,10 +5703,10 @@ func commandOperationExecutedRoundCount(records []commandOperationResultRecord) 
 func commandOperationBudgetResult(plan operation.CommandOperationPlan, reason string) operation.CommandOperationResult {
 	return operation.CommandOperationResult{
 		PlanID:        plan.ID,
-		Status:        operation.StatusFailed,
+		Status:        operation.StatusBudgetExhausted,
 		OutputPreview: reason,
 		StepResults: []operation.CommandStepResult{{
-			Status:        operation.StatusFailed,
+			Status:        operation.StatusBudgetExhausted,
 			OutputPreview: reason,
 			Error:         reason,
 			FailureClass:  "budget_exhausted",

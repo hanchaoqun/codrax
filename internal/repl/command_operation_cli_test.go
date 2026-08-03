@@ -16,6 +16,12 @@ type fakeCLICommandPlanner struct {
 	req operation.CommandOperationRequest
 }
 
+type adaptiveMaterialCLIPlanner struct {
+	evaluatorCalls    int
+	continuationCalls int
+	workDir           string
+}
+
 func (p fakeCLICommandPlanner) PlanCommandOperation(ctx context.Context, userLine, repoRoot string, policy TurnPolicy) (operation.CommandOperationRequest, error) {
 	return p.req, nil
 }
@@ -28,6 +34,52 @@ func (p fakeCLICommandPlanner) AnswerCommandOperationRecords(ctx context.Context
 	if len(records) == 0 {
 		return "no records", nil
 	}
+	return "final: " + strings.TrimSpace(records[len(records)-1].Result.OutputPreview), nil
+}
+
+func (p *adaptiveMaterialCLIPlanner) PlanCommandOperation(context.Context, string, string, TurnPolicy) (operation.CommandOperationRequest, error) {
+	return operation.CommandOperationRequest{}, nil
+}
+
+func (p *adaptiveMaterialCLIPlanner) EvaluateCommandOperation(_ context.Context, _ string, records []commandOperationResultRecord, _ string) (operation.OperationEvaluation, error) {
+	p.evaluatorCalls++
+	if p.evaluatorCalls > 1 {
+		return operation.OperationEvaluation{
+			Status:                 operation.EvalComplete,
+			Confidence:             "high",
+			MaterialCoverageStatus: operation.MaterialCoverageComplete,
+		}, nil
+	}
+	last := records[len(records)-1]
+	return operation.OperationEvaluation{
+		Status:                 operation.EvalContinueCommand,
+		Confidence:             "high",
+		MaterialCoverageStatus: operation.MaterialCoveragePartial,
+		Materials: []operation.OperationMaterial{{
+			Source: operation.MaterialSourceCommand,
+			Kind:   operation.MaterialKindPayloadRef,
+			Role:   operation.MaterialRoleSavedPayload,
+			Ref:    last.Result.PayloadRef,
+		}},
+	}, nil
+}
+
+func (p *adaptiveMaterialCLIPlanner) ContinueCommandOperation(context.Context, string, string, TurnPolicy, operation.CapabilitySnapshot, []commandOperationResultRecord) (CommandOperationContinuation, error) {
+	p.continuationCalls++
+	return CommandOperationContinuation{Request: operation.CommandOperationRequest{
+		Text:      "continue bounded material read",
+		WorkDir:   p.workDir,
+		RiskLevel: "low",
+		Steps: []operation.CommandStep{{
+			ID:        "extended-read",
+			Title:     "read one more bounded observation",
+			Program:   "pwd",
+			RiskLevel: "low",
+		}},
+	}}, nil
+}
+
+func (p *adaptiveMaterialCLIPlanner) AnswerCommandOperationRecords(_ context.Context, _ string, records []commandOperationResultRecord, _ string) (string, error) {
 	return "final: " + strings.TrimSpace(records[len(records)-1].Result.OutputPreview), nil
 }
 
@@ -85,6 +137,84 @@ func TestRunCommandOperationCLI_ExecutesAutoPlanAndReturnsFinalAnswer(t *testing
 	}
 	if out := progress.String(); !strings.Contains(out, "操作计划") || !strings.Contains(out, "cli-operation-ok") {
 		t.Fatalf("progress should include plan and execution result, got:\n%s", out)
+	}
+}
+
+func TestRunCommandOperationCLI_EvaluatesBaseLimitAndExtendsIncompleteMaterial(t *testing.T) {
+	t.Parallel()
+	workDir := t.TempDir()
+	policy := operation.DefaultCommandPolicy()
+	policy.DefaultWorkDir = workDir
+	planner := &adaptiveMaterialCLIPlanner{workDir: workDir}
+	initialRecords := make([]commandOperationResultRecord, 0, commandOperationMaxCommandRounds-1)
+	for i := 0; i < commandOperationMaxCommandRounds-1; i++ {
+		initialRecords = append(initialRecords, commandOperationResultRecord{
+			Plan:   operation.CommandOperationPlan{ID: "prior"},
+			Result: operation.CommandOperationResult{Status: operation.StatusExecuted},
+		})
+	}
+	initialPlan := operation.CommandOperationPlan{
+		ID:          "base-limit-material",
+		RequestText: "read the complete material",
+		Status:      operation.StatusReady,
+		RiskLevel:   "low",
+		WorkDir:     workDir,
+		Steps: []operation.CommandStep{{
+			ID:        "large-observation",
+			Title:     "emit a large bounded observation",
+			Program:   "seq",
+			Args:      []string{"1", "20000"},
+			RiskLevel: "low",
+		}},
+	}
+
+	answer, err := runCommandOperationCLIPlan(context.Background(), CommandOperationCLIConfig{
+		Planner:       planner,
+		Policy:        policy,
+		RepoRoot:      workDir,
+		RuntimeAnchor: t.TempDir(),
+		Language:      "zh",
+	}, initialPlan.RequestText, initialPlan, 0, initialRecords)
+	if err != nil {
+		t.Fatalf("runCommandOperationCLIPlan: %v", err)
+	}
+	if planner.evaluatorCalls != 1 || planner.continuationCalls != 1 {
+		t.Fatalf("base-limit material did not earn exactly one continuation: evaluator=%d continuation=%d", planner.evaluatorCalls, planner.continuationCalls)
+	}
+	if strings.Contains(answer, "预算上限") || !strings.Contains(answer, workDir) {
+		t.Fatalf("extended bounded command did not become the final observation:\n%s", answer)
+	}
+}
+
+func TestCommandOperationMaterialExtensionCapsAndPublishesTypedBudget(t *testing.T) {
+	t.Parallel()
+	records := make([]commandOperationResultRecord, 0, commandOperationExtendedCommandRounds)
+	for i := 0; i < commandOperationExtendedCommandRounds; i++ {
+		record := commandOperationResultRecord{
+			Plan: operation.CommandOperationPlan{ID: "material"},
+			Result: operation.CommandOperationResult{
+				Status:     operation.StatusExecuted,
+				PayloadRef: "/tmp/material-page.txt",
+			},
+		}
+		if i == commandOperationMaxCommandRounds-1 || i == commandOperationExtendedCommandRounds-1 {
+			record.Evaluation = &operation.OperationEvaluation{
+				Status:                 operation.EvalContinueCommand,
+				MaterialCoverageStatus: operation.MaterialCoveragePartial,
+			}
+		}
+		records = append(records, record)
+	}
+	if got := commandOperationCommandRoundLimit(records); got != commandOperationExtendedCommandRounds {
+		t.Fatalf("adaptive material round limit=%d", got)
+	}
+	last := records[len(records)-1]
+	if !commandOperationMaterialEvaluationNeedsBudget(last.Result, last.Evaluation, records) {
+		t.Fatal("incomplete material at the extended limit must become budget-exhausted")
+	}
+	budget := commandOperationBudgetResult(last.Plan, "limit reached")
+	if budget.Status != operation.StatusBudgetExhausted || budget.StepResults[0].Status != operation.StatusBudgetExhausted {
+		t.Fatalf("budget result lost typed status: %+v", budget)
 	}
 }
 

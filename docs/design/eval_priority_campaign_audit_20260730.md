@@ -4287,6 +4287,7 @@ write 全链人工审计：
 | `EVAL-B47-PATHID1` | P1 | planner、controller、slice、patch-effect 对仓库相对路径使用不同 lexical identity，合法补丁可被误判越界，依赖/rename 也可能漂移 | 在零 internal 依赖的 `canonpath` 建立 safe repo-relative identity；emit seam 先统一 path/new_path/depends_on，controller 与 patch-review 防御性消费同一 canonicalizer；绝对路径、UNC、盘符、parent traversal 保持 fail-closed | implemented/full-tests-pass；write replay next |
 | `EVAL-B47-FACETAUTH1` | P1 | typed relation authority 明确 `transition=unproven`，答案合同仍硬要求 path-edge facet，精确上下文与结构要求互相冲突 | required facets 在 prompt 前按 typed evidence authority 投影：无 edge 时要求 independent facts + uncertainty，有 edge 时保留 path；不读 RawRequest/answer prose，不拒绝或改写模型答案 | implemented/full-tests-pass；cross-log replay next |
 | `EVAL-B47-REPLANPROOF1b` | P1 | restore cutoff 后只携带直接 retained plan 的来源与路径，三轮以上交替修改时，更早仍应用路径可能从 verify-only 闭包消失 | 从 controller-stamped retained durable plan 递归继承 SourcePlanIDs/TargetPaths；当前 planner scope 仍清空重建，apply scope 保持当前计划 | implemented/full-tests-pass；write replay next |
+| `EVAL-B49-OPERMAX1` | P1 | 第 5 个 command 执行后 material evaluator 被 `< max` 短路，末轮材料可在无 complete/partial/budget typed 裁定时直接进入 finalizer | 末轮始终评估；typed incomplete material 可一次 5→8 有界扩展，仍未闭环则发布 `budget_exhausted`；所有追加 plan 保留风险/审批 | implemented/full-tests-pass；operation replay next |
 
 #### B47-PATHID1：安全仓库相对路径的单一身份
 
@@ -4378,6 +4379,50 @@ uncovered，最终因步骤预算耗尽 blocked，没有伪造 verified。第三
 
 完整回归通过：`types 18.612s / orchestrator 14.147s / tool 166.620s`。
 
+#### B49 r1：write capability 成功闭环；operation 末轮覆盖裁定旁路
+
+`main@73e93b2fa` 严格并行 2 个 write/operation case，runner 2/2 PASS；人工 1/2 PASS：
+
+- `patch_c_typo`：106s，runner/human PASS；
+- `operation_web_manual_summary`：141s，runner PASS / human FAIL。
+
+write 正例只修改 `main.c` 一行，真实 `make test` exit=0。ChangeReport 将唯一 path 标为
+`project_runner + target_behavior`，FinalReport 为 `proof=strong / completion=verified`，delivery 与
+source owner 均指向同一 plan。由此 `CAPCAL1` 成功路径首次 live covered；静态 token/source checker
+没有冒充行为证明。
+
+operation 的导航和双截断 context 精确：系统从首页取得 `user_guide.html`，原始 HTML 为
+248,161 bytes / 4,103 行。第 5 轮 Python 脚本明确只输出前 300 行，所得抽取工件 13,687 bytes，
+正文止于 §3.1；§3.2–§8 只有目录标题。最终答案却宣布“所有章节/完整提取”，runner 的
+手册+使用+URL regex 没有发现这个 false green。
+
+深层根因分两层：
+
+1. 新 GAP `OPERMAX1`：CLI 与 REPL 的 material evaluator 都带
+   `commandRounds < commandOperationMaxCommandRounds` 条件。第 5 个命令执行完成后不再评估，
+   `status=executed` 直接进入 finalizer；旧 `ContinueAfter` budget guard 又只覆盖 plan 自报
+   continue，无法覆盖 evaluator-owned material continuation。
+2. 既有 `HTMLBODY1`：shell 产生的新 payload 没有 upstream source hash/range/page/remaining，
+   即使增加轮数也不能机械证明多个抽取片段闭合原材料。
+
+`OPERMAX1` 本批按用户允许“预算不足可适当提升”的要求通用落地：
+
+1. material evaluator 在 base-limit 末轮也必须执行；不再允许最后一个 payload 绕过 typed 裁定；
+2. 只有系统记录存在 payload，evaluator 发出 `continue_command` 且 material coverage 为
+   `partial/not_evaluated` 时，授予一次固定 5→8 扩展；普通短查询、无材料命令、complete 或
+   not-applicable 不扩容；
+3. 扩展仅增加 command round capacity；后续每个 plan 仍经现有 deterministic risk/approval，
+   高风险、写入或不可证明命令不会因扩容自动执行；
+4. 扩展上限仍未完成时，结果现在使用真实 `StatusBudgetExhausted`，final prompt 和用户前缀明确
+   “部分结果/预算上限”，不再把 budget failure 填成 generic failed 或 executed；
+5. CLI 生产回归从已有 4 轮状态执行第 5 个大材料命令，确认 evaluator 被调用并只因 typed partial
+   获得第 6 个 bounded read；另固定第 8 轮仍 partial 时必须 budget-exhausted。REPL/CLI 共用同一
+   round-limit 与 budget helper。
+
+系统仍未读取用户/答案关键词，也没有删改 final prose 或系统替答；本批只修控制面 typed
+状态和容量。完整回归：`operation 0.790s / repl 32.723s`。`HTMLBODY1` 保持下一独立高 ROI 批：
+first-class bounded material reader + source-range coverage ledger。
+
 任务状态：
 
 - [x] B47-T7：SEMCAL1 实现、全量测试、独立推送，并以 read + operation 严格并行 2 个回放；
@@ -4394,8 +4439,11 @@ uncovered，最终因步骤预算耗尽 blocked，没有伪造 verified。第三
 - [x] B47-T8f：从干净 HEAD 严格并行下一对异构 case；PATHID1 live covered，成功 capability
   ledger 未到达；人工审计同时定位 REPLANPROOF1b；
 - [x] B47-T8g：完成 REPLANPROOF1b 全量回归；
-- [ ] B47-T8h：独立提交推送后选择新的可成功 write case，必须走到 capability ledger，另一个
-  case 切换 read/data/plan/operation 高优先维度，避免持续拟合同一日志。
+- [x] B47-T8h：独立提交推送后以成功 write + operation 严格并行 2 case；CAPCAL1 live covered，
+  operation 定位 OPERMAX1；
+- [x] B47-T8i：末轮 material evaluator、typed 自适应预算和真实 budget-exhausted 状态实现并全量回归；
+- [ ] B47-T8j：独立提交 OPERMAX1；随后施工 HTMLBODY1 first-class bounded reader，不以继续堆
+  shell 提示或全局无条件调大预算代替来源覆盖闭包。
 
 ### B42：生成物写模式 × 日志/源码机制对比审计（2026-08-02）
 
@@ -4925,7 +4973,7 @@ operation 的 href 修复也已生效：模型从首页 typed link inventory 精
 | ID | P | gap | 最优方案 | 状态 |
 |---|---:|---|---|---|
 | EVAL-B44-MATCOVER1 | P1 | evaluator 把完整 payload 已下载/保存当成全文内容已覆盖；即使所有 prompt excerpt 都是 truncated 或失败抽取，也能发布 complete | 新增 typed `material_coverage_status` 与 `coverage_material_refs`。当记录中存在截断 payload 且 evaluator 要 complete 时，只允许两条路：模型明确判定该材料与用户目标不相关（not_applicable），或引用本轮记录内、`source_truncated=false && excerpt_truncated=false` 的有界抽取。否则通过既有 structured-tool repair 要求继续/partial/budget，不替换结论 | covered/B45-r2 |
-| EVAL-B44-HTMLBODY1 | P1 | operation planner 对 HTML/长文本缺少可靠的结构化分页与来源覆盖载体；任意 shell 输出只形成新的 payload ref，没有 upstream source/range lineage，完整的 177KB 正文输出也只给下一轮 4000-rune 前缀 | 提供通用 bounded material read/extract primitive：记录 source ref/hash、representation、byte/rune range、page ordinal、complete/remaining，并用 coverage ledger 合并非重叠页；HTML/日志/手册/大命令输出共用，不能为某个 URL、CSS class 或章节写特例 | open/high-ROI；B45-r2 再现并升级 |
+| EVAL-B44-HTMLBODY1 | P1 | operation planner 对 HTML/长文本缺少可靠的结构化分页与来源覆盖载体；任意 shell 输出只形成新的 payload ref，没有 upstream source/range lineage，完整的 177KB 正文输出也只给下一轮 4000-rune 前缀 | 提供通用 bounded material read/extract primitive：记录 source ref/hash、representation、byte/rune range、page ordinal、complete/remaining，并用 coverage ledger 合并非重叠页；HTML/日志/手册/大命令输出共用，不能为某个 URL、CSS class 或章节写特例 | open/high-ROI；B49 再现，OPERMAX1 先解末轮旁路 |
 
 `MATCOVER1` 的边界设计：
 

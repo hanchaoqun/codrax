@@ -36,6 +36,43 @@ func commandOperationAttachEvaluation(records []commandOperationResultRecord, ev
 	return records
 }
 
+// commandOperationCommandRoundLimit grants one bounded extension only after
+// the material evaluator has inspected the base-limit observation and emitted
+// typed evidence that material-backed work must continue. Command approval is
+// still evaluated for every generated continuation plan, so this changes
+// investigation capacity without widening execution authority.
+func commandOperationCommandRoundLimit(records []commandOperationResultRecord) int {
+	executed := 0
+	for i := range records {
+		if records[i].Result.Status == operation.StatusExecuted {
+			executed++
+		}
+		if executed < commandOperationMaxCommandRounds || records[i].Evaluation == nil {
+			continue
+		}
+		eval := records[i].Evaluation
+		if eval.Status != operation.EvalContinueCommand ||
+			(eval.MaterialCoverageStatus != operation.MaterialCoveragePartial &&
+				eval.MaterialCoverageStatus != operation.MaterialCoverageNotEvaluated) {
+			continue
+		}
+		if commandOperationShouldRunMaterialEvaluator(records[:i+1]) {
+			return commandOperationExtendedCommandRounds
+		}
+	}
+	return commandOperationMaxCommandRounds
+}
+
+func commandOperationMaterialEvaluationNeedsBudget(result operation.CommandOperationResult, eval *operation.OperationEvaluation, records []commandOperationResultRecord) bool {
+	if result.Status != operation.StatusExecuted || !commandOperationShouldRunMaterialEvaluator(records) {
+		return false
+	}
+	if commandOperationExecutedRoundCount(records) < commandOperationCommandRoundLimit(records) {
+		return false
+	}
+	return eval == nil || eval.Status != operation.EvalComplete
+}
+
 func commandOperationEvaluationTerminalResult(plan operation.CommandOperationPlan, eval operation.OperationEvaluation) (operation.CommandOperationResult, bool) {
 	status := commandOperationStatusFromEvaluation(eval.Status)
 	if status == "" {

@@ -114,7 +114,7 @@ func runCommandOperationCLIPlan(ctx context.Context, cfg CommandOperationCLIConf
 			result = commandOperationResultFromPlanLint(currentPlan, lint)
 			logging.Info("[cli/operation] command plan lint failed plan_id=%s issues=%d summary=%q repair_rounds=%d command_rounds=%d",
 				currentPlan.ID, len(lint.Issues), oneLineClamp(lint.Summary(), 240), repairRounds, commandRounds)
-		} else if commandRounds >= commandOperationMaxCommandRounds {
+		} else if commandRounds >= commandOperationCommandRoundLimit(records) {
 			result = commandOperationBudgetResult(currentPlan, "command operation command-round budget exhausted before the user goal was fully satisfied")
 		} else {
 			commandRounds++
@@ -190,20 +190,16 @@ func runCommandOperationCLIPlan(ctx context.Context, cfg CommandOperationCLIConf
 			operationCLIProgress(cfg.Progress, commandOperationResultMarkdown(cfg.Language, currentPlan, budget))
 			return commandOperationFinalMessageCLI(ctx, cfg, request, records), nil
 		}
-		if commandOperationContinuationBudgetExhausted(currentPlan, result, records) {
-			budget := commandOperationBudgetResult(currentPlan, "command operation command-round budget exhausted before the user goal was fully satisfied")
-			records = append(records, commandOperationResultRecord{Plan: currentPlan, Result: budget})
-			operationCLIProgress(cfg.Progress, commandOperationResultMarkdown(cfg.Language, currentPlan, budget))
-			return commandOperationFinalMessageCLI(ctx, cfg, request, records), nil
-		}
+		var materialEvaluation *operation.OperationEvaluation
 		if result.Status == operation.StatusExecuted &&
-			commandOperationShouldRunMaterialEvaluator(records) &&
-			commandRounds < commandOperationMaxCommandRounds {
+			commandOperationShouldRunMaterialEvaluator(records) {
 			if evaluator, ok := cfg.Planner.(CommandOperationEvaluator); ok {
 				eval, err := evaluator.EvaluateCommandOperation(ctx, currentPlan.RequestText, records, cfg.Language)
 				if err != nil {
 					logging.Warning("[cli/operation] command operation evaluation failed: %v", err)
 				} else {
+					evalCopy := eval
+					materialEvaluation = &evalCopy
 					records = commandOperationAttachEvaluation(records, eval)
 					logging.Info("[cli/operation] command evaluation status=%s confidence=%q reason=%q materials=%d rounds=%d",
 						eval.Status, oneLineClamp(eval.Confidence, 40), oneLineClamp(eval.Reason, 180), len(eval.Materials), len(records))
@@ -226,7 +222,8 @@ func runCommandOperationCLIPlan(ctx context.Context, cfg CommandOperationCLIConf
 							oneLineClamp(eval.Confidence, 20), len(records))
 						return commandOperationFinalMessageCLI(ctx, cfg, request, records), nil
 					}
-					if eval.Status == operation.EvalContinueCommand {
+					if eval.Status == operation.EvalContinueCommand &&
+						commandRounds < commandOperationCommandRoundLimit(records) {
 						continuer, ok := cfg.Planner.(CommandOperationContinuationPlanner)
 						if ok {
 							snapshot := commandOperationCLICapabilitySnapshot(cfg)
@@ -268,7 +265,19 @@ func runCommandOperationCLIPlan(ctx context.Context, cfg CommandOperationCLIConf
 				}
 			}
 		}
-		if result.Status == operation.StatusExecuted && currentPlan.ContinueAfter && commandRounds < commandOperationMaxCommandRounds {
+		if commandOperationMaterialEvaluationNeedsBudget(result, materialEvaluation, records) {
+			budget := commandOperationBudgetResult(currentPlan, "command operation command-round budget exhausted before the user goal was fully satisfied")
+			records = append(records, commandOperationResultRecord{Plan: currentPlan, Result: budget})
+			operationCLIProgress(cfg.Progress, commandOperationResultMarkdown(cfg.Language, currentPlan, budget))
+			return commandOperationFinalMessageCLI(ctx, cfg, request, records), nil
+		}
+		if commandOperationContinuationBudgetExhausted(currentPlan, result, records) {
+			budget := commandOperationBudgetResult(currentPlan, "command operation command-round budget exhausted before the user goal was fully satisfied")
+			records = append(records, commandOperationResultRecord{Plan: currentPlan, Result: budget})
+			operationCLIProgress(cfg.Progress, commandOperationResultMarkdown(cfg.Language, currentPlan, budget))
+			return commandOperationFinalMessageCLI(ctx, cfg, request, records), nil
+		}
+		if result.Status == operation.StatusExecuted && currentPlan.ContinueAfter && commandRounds < commandOperationCommandRoundLimit(records) {
 			continuer, ok := cfg.Planner.(CommandOperationContinuationPlanner)
 			if ok {
 				snapshot := commandOperationCLICapabilitySnapshot(cfg)
