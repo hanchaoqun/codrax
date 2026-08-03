@@ -4071,6 +4071,17 @@ actual diff hunk 重建 replacement。未改路径继续跨批复用；删除/�
 internal/orchestrator` 完整包通过（22.007s / 10.134s）。状态：
 `T6-4=confirmed / implemented / full-package-pass`；下一项 T1-2。
 
+### MERGE-AUDIT-3 M10：越界 profiler timestamp fence 反证（T1-2）
+
+复核否证原 finding。`uint64 timestamp > MaxInt64` 超出 systrace signed-ns 输出域，发布时做
+截断/回绕/钳位都会伪造时间；现有 fixed ledger 已记录 read/emitted=0 与精确 typed reason。
+F2FS/Block 在 envelope 判决前解析 exact lane，拒绝分支 poison lane/family；MMC 关闭 family，
+普通 instant row 则没有 pair state 可 fence，不应升级 source-global 丢弃。
+
+新增 `MaxInt64+1` F2FS endpoint 夹在合法 begin/end 间的生产链 pin，确认 overflow 诊断在场且
+两条合法 endpoint 被 exact-lane withheld；`internal/hitraceconv` 全包通过（96.130s）。状态：
+`T1-2=disproved / no-production-change / regression-pinned`；下一项 T3-4。
+
 ### B47：运行日志语义所有权 × write 跨语言检查权限（2026-08-02）
 
 严格并行 2 个跨模式 case：

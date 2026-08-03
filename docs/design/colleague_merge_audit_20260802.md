@@ -438,3 +438,31 @@ apply 成功后没有生产代码设置 `WriteContextItem.Stale`。因此后批�
 
 状态：`T6-4=confirmed / implemented / full-package-pass`。下一项按 ROI 审计 T1-2
 越界时间戳记录的 fence/保真边界。
+
+---
+
+## §19 T1-2 复核结果：越界时间戳已有 typed 拒绝与配对 fence（2026-08-02）
+
+原 finding 经生产路径复核后不成立，不应修改 renderer 放宽时间域：
+
+- profiler envelope 的物理 timestamp 是 uint64，但 systrace sorter/renderer 的统一时间轴是
+  signed int64 ns；`timestamp > MaxInt64` 不能无损表示。截断、回绕、钳到 MaxInt64 或改写为 0
+  都会伪造排序/时长，正确行为是该 row 不发布；
+- 拒绝不是静默：fixed event diagnostic ledger 发布 `RowsRead=1 / RowsEmitted=0`、
+  `envelope_timestamp_out_of_range` occurrences/affected-frames 与有界 reason sample；因此“整丢且
+  无披露”不符合当前代码；
+- 对 F2FS/Block 配对事件，typed payload 与 exact lane 在 envelope 最终判决前解析；时间戳 hard
+  reject 分支调用 `pairDelta.poisonAdmission`，已知 key 关闭精确 lane，未知 key 关闭 family；MMC
+  采用 whole-family poison。其前后合法 endpoint 不会跨洞配对；
+- 普通 instant/core row 没有跨 row lifecycle 状态，不存在可关闭的 pair lane；把单个不可表示
+  timestamp 升级为 source-global fail-close 只会无依据删除同 frame 的其它合法 CPU 记录。既有
+  `SourceFailClosed=false` 正是隔离损坏行而非扩大证据损失；
+- 不能把 uint64 timestamp 输出为注释型伪事件：那既不恢复原事件，也会向通用查看器引入一个
+  不属于原 trace 的时间点。精确 coverage 是该类不可发布值的正确保真面。
+
+新增生产链回归把 `MaxInt64+1` 的合法 F2FS end payload 放在合法 begin/end 之间，固定 overflow
+row 精确诊断、exact-lane poison、两条合法 endpoint 全部 withheld、其它 family 不升级。
+`go test ./internal/hitraceconv -count=1` 全包通过（96.130s）。
+
+状态：`T1-2=disproved / no-production-change / regression-pinned`。下一项按 ROI 审计 T3-4
+权威目标状态卡的截断披露。

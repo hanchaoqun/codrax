@@ -3,6 +3,7 @@ package hitraceconv
 import (
 	"bytes"
 	"context"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -205,6 +206,38 @@ func TestStructuredF2FSFamilyProvenanceSurvivesAmbiguousAndMalformedEnvelopes(t 
 				t.Fatalf("malformed envelope lost F2FS capture barrier: accepted=%d withheld=%d opaque=%v poisoned=%v", local.stats.RowsAccepted, local.withheldPairRows(), local.opaque, local.poisoned)
 			}
 		})
+	}
+}
+
+func TestStructuredF2FSOutOfRangeTimestampCannotBridgeValidEndpoints(t *testing.T) {
+	cases := profilerAuxCasesByField()
+	sink, err := newTraceDBRowSink(t.TempDir(), 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.cleanup()
+	seq := 0
+	start := profilerF2FSTestStructuredMessage(4011, cases[4011].values, 1_000)
+	overflow := profilerF2FSTestStructuredMessage(4012, cases[4012].values, uint64(math.MaxInt64)+1)
+	done := profilerF2FSTestStructuredMessage(4012, cases[4012].values, 3_000)
+	for index, message := range [][]byte{start, overflow, done} {
+		rows, coverage, renderErr := renderProfilerFtraceStructuredRows(message, &seq, sink)
+		if renderErr != nil {
+			t.Fatalf("render message %d: %v", index, renderErr)
+		}
+		if index == 1 {
+			if rows != 0 || len(coverage) == 0 || coverage[0].RowsRead != 1 || coverage[0].RowsEmitted != 0 ||
+				coverage[0].FieldSources["degraded_envelope_timestamp_out_of_range_rows"] != "1" {
+				t.Fatalf("overflow timestamp lost typed rejection census: rows=%d coverage=%+v", rows, coverage)
+			}
+		}
+	}
+	if sink.poisoned[pairRenderF2FS] ||
+		len(profilerTestPoisonedLanes(sink)[pairRenderF2FS]) != 1 ||
+		sink.withheldPairRowsForKind(pairRenderF2FS) != 2 || sink.publishableRows() != 0 {
+		t.Fatalf("overflow timestamp bridged valid F2FS endpoints: accepted=%d withheld=%d publishable=%d family=%v lanes=%v",
+			sink.stats.RowsAccepted, sink.withheldPairRowsForKind(pairRenderF2FS), sink.publishableRows(),
+			sink.poisoned, profilerTestPoisonedLanes(sink))
 	}
 }
 
