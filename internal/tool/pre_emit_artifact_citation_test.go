@@ -504,7 +504,7 @@ func TestNormalizeRuntimeArtifactCitationRefs_TraceArtifactPathDropsCitationPool
 	}
 }
 
-func TestNormalizeRuntimeArtifactVisibleCitationSentinels_SanitizesOnlyTypedObservationOnly(t *testing.T) {
+func TestNormalizeRuntimeArtifactVisibleCitationSentinels_PreservesModelVisibleText(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.SetLogTriage(&types.LogBundle{
 		Errors: []types.LogError{{Type: "RuntimeError", Frames: []types.LogFrame{{Func: "init"}}}},
@@ -541,17 +541,14 @@ func TestNormalizeRuntimeArtifactVisibleCitationSentinels_SanitizesOnlyTypedObse
 	}}, Caveats: []string{"这些日志事实来自外部工件，citation_ref=-1。"}}
 
 	fixed := normalizeRuntimeArtifactVisibleCitationSentinels(doc, ctx)
-	if fixed == 0 {
-		t.Fatal("expected visible sentinel text to be sanitized")
+	if fixed != 0 {
+		t.Fatalf("system must not rewrite model-visible runtime text, fixed=%d", fixed)
 	}
 	rendered := doc.Blocks[0].Title + "\n" + doc.Blocks[0].Text + "\n" +
 		doc.Blocks[0].Items[0].Label + "\n" + doc.Blocks[0].Items[0].Text + "\n" +
 		doc.Blocks[0].Items[0].Cells[1] + "\n" + doc.Caveats[0]
-	if strings.Contains(rendered, "citation_ref") {
-		t.Fatalf("runtime artifact visible text should not expose citation_ref carrier:\n%s", rendered)
-	}
-	if !strings.Contains(rendered, "来自附件运行时材料，未绑定当前仓库源码引用") {
-		t.Fatalf("sanitized text should explain artifact provenance, got:\n%s", rendered)
+	if !strings.Contains(rendered, "citation_ref") {
+		t.Fatalf("model-visible text must be byte-preserved rather than system-sanitized:\n%s", rendered)
 	}
 }
 
@@ -576,7 +573,7 @@ func TestNormalizeRuntimeArtifactVisibleCitationSentinels_DoesNotTouchCurrentSou
 	}
 }
 
-func TestNormalizeRuntimeObservationOnlyDecisionBlocks_DropsSourceOptionalTraceStatusDecision(t *testing.T) {
+func TestNormalizeRuntimeObservationOnlyDecisionBlocks_PreservesModelDecision(t *testing.T) {
 	ctx := runtimeSourceOptionalTraceBusContextForTest()
 	doc := &types.AnswerDocumentV2{
 		Citations: []types.Citation{{File: "/tmp/.codrax/blob/session/attached_trace.txt", Line: 12}},
@@ -596,12 +593,12 @@ func TestNormalizeRuntimeObservationOnlyDecisionBlocks_DropsSourceOptionalTraceS
 	}
 
 	fixed := normalizeRuntimeObservationOnlyDecisionBlocks(doc, &types.AnswerSemanticView{}, ctx)
-	if fixed != 1 {
-		t.Fatalf("fixed=%d, want decision block removal; doc=%+v", fixed, doc)
+	if fixed != 0 {
+		t.Fatalf("system must not remove a model-authored decision block, fixed=%d doc=%+v", fixed, doc)
 	}
 	visible := answerDocumentTestVisibleSurface(doc)
-	if strings.Contains(visible, "not_enough_evidence") || strings.Contains(visible, "当前代码是否已修复") {
-		t.Fatalf("runtime trace answer should not keep source-status decision prose:\n%s", visible)
+	if !strings.Contains(visible, "not_enough_evidence") || !strings.Contains(visible, "当前代码是否已修复") {
+		t.Fatalf("model-authored decision prose was unexpectedly removed:\n%s", visible)
 	}
 	if !strings.Contains(visible, "CookieMonsterCl-59843") {
 		t.Fatalf("summary payload should be preserved:\n%s", visible)
@@ -673,7 +670,7 @@ func runtimeSourceOptionalTraceBusContextForTest() *types.BusContext {
 	}
 }
 
-func TestNormalizeExternalObservationVisibleCitationSentinels_SanitizesVCSOnlyAnswers(t *testing.T) {
+func TestNormalizeExternalObservationVisibleCitationSentinels_PreservesVCSAnswerText(t *testing.T) {
 	mut := types.NewMutableState("history")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
 		Kind:  types.AnswerAggregateNegativeObservation,
@@ -712,17 +709,14 @@ func TestNormalizeExternalObservationVisibleCitationSentinels_SanitizesVCSOnlyAn
 	}}, Caveats: []string{"版本历史观察 citation_ref=-1。"}}
 
 	fixed := normalizeExternalObservationVisibleCitationSentinels(doc, ctx)
-	if fixed == 0 {
-		t.Fatal("expected external-observation visible sentinel text to be sanitized")
+	if fixed != 0 {
+		t.Fatalf("system must not rewrite model-visible VCS text, fixed=%d", fixed)
 	}
 	rendered := doc.Blocks[0].Title + "\n" + doc.Blocks[0].Text + "\n" +
 		doc.Blocks[0].Items[0].Label + "\n" + doc.Blocks[0].Items[0].Text + "\n" +
 		doc.Blocks[0].Items[0].Cells[1] + "\n" + doc.Caveats[0]
-	if strings.Contains(rendered, "citation_ref") {
-		t.Fatalf("external observation visible text should not expose citation_ref carrier:\n%s", rendered)
-	}
-	if !strings.Contains(rendered, "来自外部观察结果，未绑定当前仓库源码引用") {
-		t.Fatalf("sanitized text should explain external provenance, got:\n%s", rendered)
+	if !strings.Contains(rendered, "citation_ref") {
+		t.Fatalf("model-visible VCS text must be preserved rather than sanitized:\n%s", rendered)
 	}
 }
 
@@ -824,7 +818,7 @@ func TestNormalizeExternalObservationVisibleCitationSentinels_PreciseCurrentSour
 	}
 }
 
-func TestNormalizeExternalObservationVisibleCitationSentinels_SanitizesCommandOnlyAnswers(t *testing.T) {
+func TestNormalizeExternalObservationVisibleCitationSentinels_PreservesCommandAnswerText(t *testing.T) {
 	mut := types.NewMutableState("count lines")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
 		Kind:  types.AnswerAggregateScalar,
@@ -854,12 +848,11 @@ func TestNormalizeExternalObservationVisibleCitationSentinels_SanitizesCommandOn
 		Text: "42 (citation_ref=-1)",
 	}}}
 
-	if fixed := normalizeExternalObservationVisibleCitationSentinels(doc, ctx); fixed == 0 {
-		t.Fatal("expected command-only external observation sentinel to be sanitized")
+	if fixed := normalizeExternalObservationVisibleCitationSentinels(doc, ctx); fixed != 0 {
+		t.Fatalf("system must not rewrite model-visible command text, fixed=%d", fixed)
 	}
-	if strings.Contains(doc.Blocks[0].Text, "citation_ref") ||
-		!strings.Contains(doc.Blocks[0].Text, "external observation, not a current-repository source citation") {
-		t.Fatalf("command-only text was not sanitized correctly: %q", doc.Blocks[0].Text)
+	if doc.Blocks[0].Text != "42 (citation_ref=-1)" {
+		t.Fatalf("command-only model text was unexpectedly rewritten: %q", doc.Blocks[0].Text)
 	}
 }
 

@@ -1566,7 +1566,7 @@ func TestEmitAnswerDocumentV2_LeavesMissingModelSurfaceTermAsAdvisory(t *testing
 	}
 }
 
-func TestEmitAnswerDocumentV2_MaterializesNonPathSurfaceTermsForPrincipalItem(t *testing.T) {
+func TestEmitAnswerDocumentV2_PreservesModelOwnedItemWhenSurfaceTermsAreMissing(t *testing.T) {
 	bus := newV2TestBusContext()
 	bus.Mutable.AppendEvidence([]types.EvidenceItem{{
 		ID:           "ev-index",
@@ -1609,20 +1609,17 @@ func TestEmitAnswerDocumentV2_MaterializesNonPathSurfaceTermsForPrincipalItem(t 
 		t.Fatalf("document not written: %+v", doc)
 	}
 	got := doc.Blocks[0].Items[0].Text
-	for _, want := range []string{"@Entry", "@Component"} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("required source-visible surface term %q was not materialized into %q", want, got)
-		}
+	if got != "minimal page entry" {
+		t.Fatalf("system must not append evidence terms to model-owned text, got %q", got)
 	}
-	if strings.Contains(got, "source labels") || strings.Contains(got, "surface_terms") {
-		t.Fatalf("materialized source-visible terms should not leak internal labels: %q", got)
-	}
-	if hints := preCheckModelSurfaceTerms(doc, bus); len(hints) != 0 {
-		t.Fatalf("materialized source labels should clear model surface-term hints, got %+v", hints)
+	if hints := preCheckModelSurfaceTerms(doc, bus); len(hints) == 0 ||
+		!strings.Contains(formatEmitFixHints(hints), "@Entry") ||
+		!strings.Contains(formatEmitFixHints(hints), "@Component") {
+		t.Fatalf("missing source labels must remain model-actionable advisory facts, got %+v", hints)
 	}
 }
 
-func TestEmitAnswerDocumentV2_MaterializesCitationDerivedDecoratorStack(t *testing.T) {
+func TestEmitAnswerDocumentV2_PreservesModelOwnedTextWithCitationDerivedDecoratorAdvisory(t *testing.T) {
 	repo := t.TempDir()
 	rel := "src/pages/Index.ets"
 	body := strings.Join([]string{
@@ -1675,11 +1672,12 @@ func TestEmitAnswerDocumentV2_MaterializesCitationDerivedDecoratorStack(t *testi
 		t.Fatalf("document not written: %+v", doc)
 	}
 	got := doc.Blocks[0].Items[0].Text
-	if !strings.Contains(got, "@Component") {
-		t.Fatalf("citation-derived attached decorator stack should materialize @Component, got %q", got)
+	if got != "页面入口组件，被 @Entry 装饰器标记。" {
+		t.Fatalf("system must not append a citation-derived decorator to model-owned text, got %q", got)
 	}
-	if hints := preCheckModelSurfaceTerms(doc, bus); len(hints) != 0 {
-		t.Fatalf("citation-derived decorator materialization should clear surface hints, got %+v", hints)
+	if hints := preCheckModelSurfaceTerms(doc, bus); len(hints) == 0 ||
+		!strings.Contains(formatEmitFixHints(hints), "@Component") {
+		t.Fatalf("citation-derived decorator must remain an advisory for the model, got %+v", hints)
 	}
 }
 
@@ -1736,15 +1734,20 @@ func TestEmitAnswerDocumentV2_CitationDerivedDecoratorStackDoesNotPullParentDeco
 		t.Fatalf("document not written: %+v", doc)
 	}
 	got := doc.Blocks[0].Items[0].Text
-	if !strings.Contains(got, "@Builder") {
-		t.Fatalf("citation-derived method decorator should materialize @Builder, got %q", got)
+	if got != "成员复用片段。" {
+		t.Fatalf("system must not append citation-derived method decorators to model text, got %q", got)
 	}
 	if strings.Contains(got, "@Component") {
 		t.Fatalf("inner method decorator stack must not inherit parent @Component, got %q", got)
 	}
+	if hints := preCheckModelSurfaceTerms(doc, bus); len(hints) == 0 ||
+		!strings.Contains(formatEmitFixHints(hints), "@Builder") ||
+		strings.Contains(formatEmitFixHints(hints), "@Component") {
+		t.Fatalf("advisory must contain only the attached method decorator, got %+v", hints)
+	}
 }
 
-func TestEmitAnswerDocumentV2_MaterializesSourceInventorySurfaceTermsForPrincipalItem(t *testing.T) {
+func TestEmitAnswerDocumentV2_PreservesModelOwnedItemWithSourceInventorySurfaceAdvisory(t *testing.T) {
 	bus := newV2TestBusContext()
 	bus.Mutable.SetSourceInventoryObservation(types.SourceInventoryObservation{
 		Active:       true,
@@ -1795,16 +1798,13 @@ func TestEmitAnswerDocumentV2_MaterializesSourceInventorySurfaceTermsForPrincipa
 		t.Fatalf("document not written: %+v", doc)
 	}
 	got := doc.Blocks[0].Items[0].Text
-	for _, want := range []string{"@Entry", "@Component"} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("source-inventory surface term %q was not materialized into %q", want, got)
-		}
+	if got != "minimal page entry" {
+		t.Fatalf("system must not append source-inventory terms to model-owned text, got %q", got)
 	}
-	if strings.Contains(got, "source labels") || strings.Contains(got, "surface_terms") {
-		t.Fatalf("materialized source-inventory terms should not leak internal labels: %q", got)
-	}
-	if hints := preCheckModelSurfaceTerms(doc, bus); len(hints) != 0 {
-		t.Fatalf("materialized source-inventory labels should clear model surface-term hints, got %+v", hints)
+	if hints := preCheckModelSurfaceTerms(doc, bus); len(hints) == 0 ||
+		!strings.Contains(formatEmitFixHints(hints), "@Entry") ||
+		!strings.Contains(formatEmitFixHints(hints), "@Component") {
+		t.Fatalf("source-inventory surface terms must remain advisory facts, got %+v", hints)
 	}
 }
 

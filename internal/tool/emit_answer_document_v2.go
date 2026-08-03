@@ -320,10 +320,6 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		}
 	}
 	if hints := preCheckModelSurfaceTerms(doc, ctx); len(hints) > 0 {
-		if fixed := materializeRequiredModelSurfaceTerms(doc, ctx); fixed > 0 {
-			logging.Warning("[emit_answer_document] materialized required model surface_terms into %d principal item(s)", fixed)
-			hints = preCheckModelSurfaceTerms(doc, ctx)
-		}
 		if len(hints) > 0 {
 			logSoftPreEmitAdvisory(toolName, "model-emitted surface_terms", hints)
 		}
@@ -716,25 +712,13 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		pctx.recordPreEmitRepair("normalizeInvisibleOutOfRangeCitationRefs", fixed)
 		logging.Warning("[%s] detached %d invisible out-of-range citation_ref carrier(s)", toolName, fixed)
 	}
-	if fixed := normalizeDiagramDefinitionLabelsByEvidence(doc, pctx); fixed > 0 {
-		pctx.recordPreEmitRepair("normalizeDiagramDefinitionLabelsByEvidence", fixed)
-		logging.Warning("[%s] repaired %d diagram definition label(s) by evidence-defined source", toolName, fixed)
-	}
 	if fixed := normalizeDiagramEdgeAnchorMetadata(doc); fixed > 0 {
 		pctx.recordPreEmitRepair("normalizeDiagramEdgeAnchorMetadata", fixed)
 		logging.Warning("[%s] normalized %d diagram edge anchor metadata value(s)", toolName, fixed)
 	}
-	if fixed := normalizeVisibleSourceLocationCarriers(doc, pctx); fixed > 0 {
-		pctx.recordPreEmitRepair("normalizeVisibleSourceLocationCarriers", fixed)
-		logging.Warning("[%s] repaired %d visible source-location carrier(s) by grounded evidence", toolName, fixed)
-	}
 	if fixed := normalizeItemCitationRefsByUniqueBacktickCitationQuote(doc); fixed > 0 {
 		pctx.recordPreEmitRepair("normalizeItemCitationRefsByUniqueBacktickCitationQuote", fixed)
 		logging.Warning("[%s] repaired %d item citation_ref value(s) by explicit code-surface citation quotes", toolName, fixed)
-	}
-	if fixed := normalizeQualifiedItemLabelsByUniqueEnclosingFunction(doc, view); fixed > 0 {
-		pctx.recordPreEmitRepair("normalizeQualifiedItemLabelsByUniqueEnclosingFunction", fixed)
-		logging.Warning("[%s] repaired %d qualified item label(s) by graph-derived enclosing function", toolName, fixed)
 	}
 	if fixed := normalizeItemCitationRefsByTypedCandidateRoleWithContext(doc, view, ctx, pctx); fixed > 0 {
 		pctx.recordPreEmitRepair("normalizeItemCitationRefsByTypedCandidateRoleWithContext", fixed)
@@ -820,10 +804,6 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		pctx.recordPreEmitRepair("normalizeViewCompatibleAnswerDocument", fixed)
 		logging.Warning("[%s] repaired %d view-compatible typed lane field(s)", toolName, fixed)
 	}
-	if fixed := normalizeRuntimeObservationOnlyDecisionBlocks(doc, view, ctx); fixed > 0 {
-		pctx.recordPreEmitRepair("normalizeRuntimeObservationOnlyDecisionBlocks", fixed)
-		logging.Warning("[%s] removed %d runtime-observation-only decision block(s)", toolName, fixed)
-	}
 	if fixed := normalizeObservedArtifactClaimUseCarriers(doc, ctx); fixed > 0 {
 		pctx.recordPreEmitRepair("normalizeObservedArtifactClaimUseCarriers", fixed)
 		logging.Warning("[%s] repaired %d observed-artifact claim_use carrier(s)", toolName, fixed)
@@ -862,14 +842,6 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 	}
 	if pctx != nil {
 		pctx.citationsDroppedPseudoObservation += citationsBeforePseudoCleanup - len(doc.Citations)
-	}
-	if fixed := normalizeRuntimeArtifactVisibleCitationSentinels(doc, ctx); fixed > 0 {
-		pctx.recordPreEmitRepair("normalizeRuntimeArtifactVisibleCitationSentinels", fixed)
-		logging.Warning("[%s] sanitized %d runtime-artifact visible citation sentinel(s)", toolName, fixed)
-	}
-	if fixed := normalizeExternalObservationVisibleCitationSentinels(doc, ctx); fixed > 0 {
-		pctx.recordPreEmitRepair("normalizeExternalObservationVisibleCitationSentinels", fixed)
-		logging.Warning("[%s] sanitized %d external-observation visible citation sentinel(s)", toolName, fixed)
 	}
 	// QCE GAP-B (2026-07-05): passes above can append fresh citation-pool
 	// entries (appendOrReusePreEmitCitation → bare file:line, no quote),

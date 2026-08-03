@@ -653,144 +653,19 @@ func markTypedMarkdownRowCitationsUsed(used map[int]bool, doc *types.AnswerDocum
 	}
 }
 
-// normalizeRuntimeArtifactVisibleCitationSentinels removes internal
-// citation-carrier vocabulary that a model copied into visible runtime-artifact
-// prose. The decision is typed: only observation-only attached log/trace
-// answers enter this path. Current-source and Codrax-internal answers keep their
-// literal text untouched.
-func normalizeRuntimeArtifactVisibleCitationSentinels(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
-	if doc == nil || !answerDocumentRuntimeArtifactWithoutRequiredCurrentSource(ctx) {
-		return 0
-	}
-	return normalizeVisibleCitationSentinels(doc, runtimeArtifactVisibleCitationBoundaryText(ctx))
+// These compatibility entrypoints intentionally do nothing. Older shipping
+// code scanned and rewrote model-visible prose (or removed decision blocks) in
+// an attempt to sanitize answer shape. Answer ownership now forbids that: the
+// system may adjust typed citation metadata or publish a separately marked
+// fact supplement, but it must not edit the model's visible wording.
+func normalizeRuntimeArtifactVisibleCitationSentinels(_ *types.AnswerDocumentV2, _ *types.BusContext) int {
+	return 0
 }
 
-// normalizeRuntimeObservationOnlyDecisionBlocks removes optional current-status
-// style decision carriers from observation-only runtime answers. The decision is
-// typed: it fires only when the answer surface plan says runtime artifact facts
-// are sufficient and current-source/status verdict lanes are inactive. This
-// keeps trace/log answers from rendering stale `still_present`/`fixed` verdict
-// prose as a principal conclusion while preserving the model's summary/list
-// payload.
-func normalizeRuntimeObservationOnlyDecisionBlocks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctx *types.BusContext) int {
-	if doc == nil || view == nil || !answerDocumentRuntimeArtifactWithoutRequiredCurrentSource(ctx) {
-		return 0
-	}
-	if view.CurrentStatusDiagnostic != nil && view.CurrentStatusDiagnostic.Required {
-		return 0
-	}
-	if view.ErrorGranularityProfile != nil && view.ErrorGranularityProfile.Active() {
-		return 0
-	}
-	if answerDocumentHasCurrentSourceCitationCarrier(doc) {
-		return 0
-	}
-	if !answerDocumentHasNonDecisionVisiblePayload(doc) {
-		return 0
-	}
-	removed := 0
-	blocks := doc.Blocks[:0]
-	for _, block := range doc.Blocks {
-		if block.Kind == types.BlockDecision {
-			removed++
-			continue
-		}
-		blocks = append(blocks, block)
-	}
-	doc.Blocks = blocks
-	return removed
+func normalizeRuntimeObservationOnlyDecisionBlocks(_ *types.AnswerDocumentV2, _ *types.AnswerSemanticView, _ *types.BusContext) int {
+	return 0
 }
 
-func answerDocumentHasNonDecisionVisiblePayload(doc *types.AnswerDocumentV2) bool {
-	if doc == nil {
-		return false
-	}
-	for _, block := range doc.Blocks {
-		if block.Kind == types.BlockDecision {
-			continue
-		}
-		if preEmitBlockHasVisiblePayload(block) {
-			return true
-		}
-	}
-	return false
-}
-
-func answerDocumentHasCurrentSourceCitationCarrier(doc *types.AnswerDocumentV2) bool {
-	if doc == nil {
-		return false
-	}
-	for _, cit := range doc.Citations {
-		if cit.Line <= 0 || strings.TrimSpace(cit.File) == "" {
-			continue
-		}
-		if !types.LooksLikeRuntimeArtifactPath(cit.File) {
-			return true
-		}
-	}
-	return false
-}
-
-func normalizeExternalObservationVisibleCitationSentinels(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
-	if doc == nil || answerDocumentRuntimeObservationOnly(ctx) || !answerDocumentExternalObservationOnly(ctx) {
-		return 0
-	}
-	return normalizeVisibleCitationSentinels(doc, externalObservationVisibleCitationBoundaryText(ctx))
-}
-
-func normalizeVisibleCitationSentinels(doc *types.AnswerDocumentV2, replacement string) int {
-	if doc == nil {
-		return 0
-	}
-	changed := 0
-	normalize := func(ptr *string) {
-		if ptr == nil || strings.TrimSpace(*ptr) == "" {
-			return
-		}
-		next := sanitizeRuntimeArtifactVisibleCitationSentinel(*ptr, replacement)
-		if next != *ptr {
-			*ptr = next
-			changed++
-		}
-	}
-	for i := range doc.Caveats {
-		normalize(&doc.Caveats[i])
-	}
-	for bi := range doc.Blocks {
-		block := &doc.Blocks[bi]
-		normalize(&block.Title)
-		normalize(&block.Text)
-		for ii := range block.Items {
-			item := &block.Items[ii]
-			normalize(&item.Label)
-			normalize(&item.Text)
-			for ci := range item.Cells {
-				normalize(&item.Cells[ci])
-			}
-		}
-	}
-	return changed
-}
-
-func sanitizeRuntimeArtifactVisibleCitationSentinel(s, replacement string) string {
-	if s == "" {
-		return s
-	}
-	out := runtimeCitationRefMarkedRe.ReplaceAllString(s, replacement)
-	out = runtimeCitationRefSentinelRe.ReplaceAllString(out, replacement)
-	return out
-}
-
-func runtimeArtifactVisibleCitationBoundaryText(ctx *types.BusContext) string {
-	if ctx != nil && strings.HasPrefix(strings.ToLower(strings.TrimSpace(ctx.Language)), "en") {
-		return "runtime-artifact observation, not a current-repository source citation"
-	}
-	return "来自附件运行时材料，未绑定当前仓库源码引用"
-}
-
-func externalObservationVisibleCitationBoundaryText(ctx *types.BusContext) string {
-	if ctx != nil && strings.HasPrefix(strings.ToLower(strings.TrimSpace(ctx.Language)), "en") {
-		return "external observation, not a current-repository source citation"
-	}
-	return "来自外部观察结果，未绑定当前仓库源码引用"
+func normalizeExternalObservationVisibleCitationSentinels(_ *types.AnswerDocumentV2, _ *types.BusContext) int {
+	return 0
 }

@@ -301,7 +301,7 @@ func TestAggregateMemberSetEvidenceMatchesAny_IgnoresOrdinarySummary(t *testing.
 	}
 }
 
-func TestMaterializeRequiredModelSurfaceTerms_MarkdownTableGetsVerifiedLabelColumn(t *testing.T) {
+func TestMaterializeRequiredModelSurfaceTerms_MarkdownTableRemainsModelOwned(t *testing.T) {
 	mut := types.NewMutableState("enumerate decorated declarations")
 	mut.AppendEvidence([]types.EvidenceItem{{
 		ID:              "ev-index",
@@ -349,17 +349,17 @@ func TestMaterializeRequiredModelSurfaceTerms_MarkdownTableGetsVerifiedLabelColu
 	if len(hints) == 0 {
 		t.Fatal("expected missing surface_terms advisory before materialization")
 	}
-	if fixed := materializeRequiredModelSurfaceTerms(doc, ctx); fixed != 1 {
-		t.Fatalf("fixed=%d, want 1; doc=%+v", fixed, doc.Blocks[0])
+	before := doc.Blocks[0].Text
+	if fixed := materializeRequiredModelSurfaceTerms(doc, ctx); fixed != 0 {
+		t.Fatalf("system must not patch a model markdown table, fixed=%d doc=%+v", fixed, doc.Blocks[0])
 	}
-	visible := doc.Blocks[0].Text
-	for _, want := range []string{"已验证标签", "@Entry", "@Component"} {
-		if !strings.Contains(visible, want) {
-			t.Fatalf("materialized markdown table missing %q:\n%s", want, visible)
-		}
+	if doc.Blocks[0].Text != before {
+		t.Fatalf("model markdown table changed:\nbefore=%s\nafter=%s", before, doc.Blocks[0].Text)
 	}
-	if hints := preCheckModelSurfaceTerms(doc, ctx); len(hints) != 0 {
-		t.Fatalf("surface_terms should be satisfied after materialization: %+v", hints)
+	if hints := preCheckModelSurfaceTerms(doc, ctx); len(hints) == 0 ||
+		!strings.Contains(formatEmitFixHints(hints), "@Entry") ||
+		!strings.Contains(formatEmitFixHints(hints), "@Component") {
+		t.Fatalf("missing terms must remain model-actionable advisory facts: %+v", hints)
 	}
 }
 
@@ -6061,91 +6061,6 @@ func TestNormalizeCurrentSourceCitationSupplement_MaterializesDroppedCitationPoo
 	}
 }
 
-func TestNormalizeVisibleSourceLocationCarriers_CanonicalizesUniqueEvidenceLocation(t *testing.T) {
-	mu := types.NewMutableState("结合当前源码说明 finalizer 超时")
-	mu.AppendEvidence([]types.EvidenceItem{{
-		Kind:            types.EvidenceMechanism,
-		AnchorKind:      types.AnchorDefinition,
-		AnchorSymbol:    "phase=llm_request",
-		Source:          "internal/agent/agent.go",
-		LineStart:       2170,
-		Scope:           types.ScopeLine,
-		GroundingStatus: types.GroundingGrounded,
-		Origin:          types.ClaimOriginCurrentRepo,
-	}})
-	ctx := &types.BusContext{Mutable: mu}
-	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
-		ID:   "caveat",
-		Kind: types.BlockCaveat,
-		Text: "内部/agent/agent.go:2170 打印 phase=llm_request 调试日志。",
-		Items: []types.AnswerBlockItem{{
-			ID:          "i1",
-			Text:        "同一锚点位于 内部/agent/agent.go:2170。",
-			CitationRef: types.CitationRefUnset,
-		}},
-	}}}
-
-	fixed := normalizeVisibleSourceLocationCarriers(doc, newPreEmitCheckContext(ctx))
-	if fixed < 2 {
-		t.Fatalf("expected visible source-location repairs, got %d doc=%+v", fixed, doc)
-	}
-	visible := answerDocumentVisibleText(doc)
-	if strings.Contains(visible, "内部/agent/agent.go:2170") {
-		t.Fatalf("non-canonical visible path was not repaired:\n%s", visible)
-	}
-	if !strings.Contains(visible, "internal/agent/agent.go:2170") {
-		t.Fatalf("canonical repo-relative path missing:\n%s", visible)
-	}
-	if len(doc.Citations) != 1 || doc.Citations[0].File != "internal/agent/agent.go" || doc.Citations[0].Line != 2170 {
-		t.Fatalf("citation pool not materialized from unique evidence: %+v", doc.Citations)
-	}
-	if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
-		t.Fatalf("item citation_ref=%d, want 0", got)
-	}
-}
-
-func TestNormalizeVisibleSourceLocationCarriers_LeavesAmbiguousBasenameLineUntouched(t *testing.T) {
-	mu := types.NewMutableState("说明两个同名文件")
-	mu.AppendEvidence([]types.EvidenceItem{
-		{
-			Kind:            types.EvidenceMechanism,
-			AnchorKind:      types.AnchorDefinition,
-			AnchorSymbol:    "A",
-			Source:          "internal/a/worker.go",
-			LineStart:       10,
-			Scope:           types.ScopeLine,
-			GroundingStatus: types.GroundingGrounded,
-			Origin:          types.ClaimOriginCurrentRepo,
-		},
-		{
-			Kind:            types.EvidenceMechanism,
-			AnchorKind:      types.AnchorDefinition,
-			AnchorSymbol:    "B",
-			Source:          "internal/b/worker.go",
-			LineStart:       10,
-			Scope:           types.ScopeLine,
-			GroundingStatus: types.GroundingGrounded,
-			Origin:          types.ClaimOriginCurrentRepo,
-		},
-	})
-	ctx := &types.BusContext{Mutable: mu}
-	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
-		ID:   "s1",
-		Kind: types.BlockSummary,
-		Text: "worker.go:10 是相关位置。",
-	}}}
-
-	if fixed := normalizeVisibleSourceLocationCarriers(doc, newPreEmitCheckContext(ctx)); fixed != 0 {
-		t.Fatalf("ambiguous basename+line must not be repaired, fixed=%d doc=%+v", fixed, doc)
-	}
-	if len(doc.Citations) != 0 {
-		t.Fatalf("ambiguous visible path must not synthesize citations: %+v", doc.Citations)
-	}
-	if visible := strings.TrimSpace(answerDocumentVisibleText(doc)); visible != "worker.go:10 是相关位置。" {
-		t.Fatalf("ambiguous visible path changed: %q", visible)
-	}
-}
-
 func TestNormalizeCurrentSourceCitationSupplement_DoesNotAppendGenericAnchorAppendix(t *testing.T) {
 	mu := types.NewMutableState("结合当前源码说明重试体验")
 	mu.AppendEvidence([]types.EvidenceItem{
@@ -7124,36 +7039,6 @@ func TestPreEmitUniqueCallableLineLabelCitationIndex_PreservesQualifiedOwner(t *
 	}
 	if got, ok := preEmitUniqueCallableLineLabelCitationIndex(doc, pctx, "create:10"); ok {
 		t.Fatalf("unqualified create:10 must remain ambiguous, got citation %d", got)
-	}
-}
-
-func TestNormalizeVisibleSourceLocationCarriers_RepairsMismatchedItemCitationByExactLocation(t *testing.T) {
-	mu := types.NewMutableState("解释 trace span 解析机制")
-	ctx := &types.BusContext{Mutable: mu}
-	doc := &types.AnswerDocumentV2{
-		Citations: []types.Citation{
-			{File: "internal/types/perf_bundle.go", Line: 145},
-			{File: "internal/types/perf_bundle.go", Line: 169},
-		},
-		Blocks: []types.AnswerBlock{{
-			ID:          "hops",
-			Kind:        types.BlockOrderedList,
-			SurfaceRole: types.SurfacePrincipal,
-			FacetIDs:    []string{string(types.FacetCurrentCodePath)},
-			Items: []types.AnswerBlockItem{{
-				ID:          "janky",
-				Label:       "PerfFrame.Janky 标记逻辑",
-				Text:        "`Janky` 字段（internal/types/perf_bundle.go:169）记录帧是否 jank。",
-				CitationRef: 0,
-			}},
-		}},
-	}
-
-	if fixed := normalizeVisibleSourceLocationCarriers(doc, newPreEmitCheckContext(ctx)); fixed == 0 {
-		t.Fatalf("fixed=%d, want at least one exact-location repair; item=%+v", fixed, doc.Blocks[0].Items[0])
-	}
-	if got := doc.Blocks[0].Items[0].CitationRef; got != 1 {
-		t.Fatalf("citation_ref=%d, want explicit file:line citation", got)
 	}
 }
 

@@ -51,7 +51,6 @@ import (
 	"fmt"
 	"path"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -62,8 +61,6 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
-
-var preEmitVisibleSourceLocationRe = regexp.MustCompile(`[\p{Han}A-Za-z0-9_.\-/\\]+?\.(?:go|ts|tsx|js|jsx|py|java|kt|kts|rs|rb|cpp|cc|cxx|c|h|hpp|hh|m|mm|swift|cj|ets|arkts|xml|json|yaml|yml|toml|md):[0-9]+`)
 
 const preEmitAttachedMetadataMaxLines = 12
 
@@ -2793,80 +2790,6 @@ func preEmitUniqueCitationIndex(citations []types.Citation, exclude int, matches
 		match = i
 	}
 	return match
-}
-
-func normalizeQualifiedItemLabelsByUniqueEnclosingFunction(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) int {
-	if doc == nil || len(doc.Citations) == 0 {
-		return 0
-	}
-	fixed := 0
-	for bi := range doc.Blocks {
-		block := &doc.Blocks[bi]
-		if !preEmitBlockRendersItemSurface(block.Kind) {
-			continue
-		}
-		if preEmitBlockUsesNonSymbolLabelSurface(*block, view) {
-			continue
-		}
-		for ii := range block.Items {
-			item := &block.Items[ii]
-			label := strings.TrimSpace(item.Label)
-			if label == "" || !preEmitLabelNeedsCitationAlignment(label) {
-				continue
-			}
-			_, member, ok := preEmitQualifiedCodeSurfaceParts(label)
-			if !ok {
-				continue
-			}
-			candidateIndex, candidateLabel, ok := preEmitUniqueEnclosingFunctionForMemberMention(doc.Citations, member, preEmitItemNonLabelSurface(*item))
-			if !ok || candidateLabel == "" {
-				continue
-			}
-			if strings.EqualFold(strings.TrimSpace(candidateLabel), label) && item.CitationRef == candidateIndex {
-				continue
-			}
-			item.Label = candidateLabel
-			item.CitationRef = candidateIndex
-			fixed++
-		}
-	}
-	return fixed
-}
-
-func preEmitUniqueEnclosingFunctionForMemberMention(citations []types.Citation, member, text string) (int, string, bool) {
-	memberKey := preEmitCodeIdentityKey(member)
-	if memberKey == "" || strings.TrimSpace(text) == "" {
-		return -1, "", false
-	}
-	type candidate struct {
-		index int
-		label string
-	}
-	var candidates []candidate
-	seen := make(map[string]bool)
-	for i, cit := range citations {
-		fn := preEmitNormalizeCallableSurface(cit.EnclosingFunction)
-		if fn == "" {
-			continue
-		}
-		_, fnMember, ok := preEmitQualifiedCodeSurfaceParts(fn)
-		if !ok || preEmitCodeIdentityKey(fnMember) != memberKey {
-			continue
-		}
-		if !preEmitCodeSurfaceAppearsVerbatim(fn, text) {
-			continue
-		}
-		key := strings.ToLower(fn)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		candidates = append(candidates, candidate{index: i, label: fn})
-	}
-	if len(candidates) != 1 {
-		return -1, "", false
-	}
-	return candidates[0].index, candidates[0].label, true
 }
 
 func preEmitUniqueCandidateCitationForItem(ctx *types.BusContext, label, text string) (types.Citation, bool) {
@@ -7687,49 +7610,6 @@ func preEmitBlockUsesNonSymbolLabelSurface(b types.AnswerBlock, view *types.Answ
 		containsBlockFacet(b, types.FacetConfigPrecedenceRole)
 }
 
-func normalizeVisibleSourceLocationCarriers(doc *types.AnswerDocumentV2, pctx *preEmitCheckContext) int {
-	if doc == nil || pctx == nil {
-		return 0
-	}
-	fixed := 0
-	rewriteField := func(value *string) []int {
-		if value == nil || strings.TrimSpace(*value) == "" {
-			return nil
-		}
-		rewritten, refs, count := normalizeVisibleSourceLocationString(*value, doc, pctx)
-		if count > 0 {
-			*value = rewritten
-			fixed += count
-		}
-		return refs
-	}
-	for bi := range doc.Blocks {
-		block := &doc.Blocks[bi]
-		rewriteField(&block.Title)
-		rewriteField(&block.Text)
-		if block.Diagram != nil && block.Diagram.Body != "" {
-			rewriteField(&block.Diagram.Body)
-		}
-		for ii := range block.Items {
-			item := &block.Items[ii]
-			var itemRefs []int
-			itemRefs = append(itemRefs, rewriteField(&item.Label)...)
-			itemRefs = append(itemRefs, rewriteField(&item.Text)...)
-			for ci := range item.Cells {
-				itemRefs = append(itemRefs, rewriteField(&item.Cells[ci])...)
-			}
-			if ref, ok := uniquePreEmitCitationRef(itemRefs); ok {
-				if item.CitationRef == ref {
-					continue
-				}
-				item.CitationRef = ref
-				fixed++
-			}
-		}
-	}
-	return fixed
-}
-
 func normalizeItemCitationRefsByUniqueBacktickCitationQuote(doc *types.AnswerDocumentV2) int {
 	if doc == nil || len(doc.Citations) == 0 {
 		return 0
@@ -7816,152 +7696,6 @@ func preEmitCitationQuoteMatchesAnyCodeSurface(cit types.Citation, surfaces []st
 		}
 	}
 	return false
-}
-
-func normalizeVisibleSourceLocationString(s string, doc *types.AnswerDocumentV2, pctx *preEmitCheckContext) (string, []int, int) {
-	matches := preEmitVisibleSourceLocationRe.FindAllStringIndex(s, -1)
-	if len(matches) == 0 {
-		return s, nil, 0
-	}
-	var b strings.Builder
-	last := 0
-	fixed := 0
-	var refs []int
-	for _, span := range matches {
-		raw := s[span[0]:span[1]]
-		file, line, ok := parsePreEmitLocation(raw)
-		if !ok {
-			continue
-		}
-		cit, ok := preEmitVisibleSourceLocationCitation(pctx, doc, file, line)
-		if !ok {
-			continue
-		}
-		ref := appendOrReusePreEmitCitation(doc, cit)
-		if ref >= 0 {
-			refs = append(refs, ref)
-		}
-		b.WriteString(s[last:span[0]])
-		b.WriteString(fmt.Sprintf("%s:%d", cit.File, cit.Line))
-		last = span[1]
-		fixed++
-	}
-	if fixed == 0 {
-		return s, nil, 0
-	}
-	b.WriteString(s[last:])
-	return b.String(), refs, fixed
-}
-
-func preEmitVisibleSourceLocationCitation(pctx *preEmitCheckContext, doc *types.AnswerDocumentV2, file string, line int) (types.Citation, bool) {
-	if pctx == nil || strings.TrimSpace(file) == "" || line <= 0 {
-		return types.Citation{}, false
-	}
-	cit := pctx.canonicalCitation(types.Citation{File: file, Line: line})
-	if cit.File != "" {
-		if _, ok := pctx.citedEvidenceItems(cit); ok {
-			return cit, true
-		}
-		if doc != nil {
-			for _, existing := range doc.Citations {
-				existing = pctx.canonicalCitation(existing)
-				if preEmitCitationSameLocation(existing, cit) {
-					return existing, true
-				}
-			}
-		}
-	}
-	if cit, ok := preEmitUniqueEvidenceCitationByBasenameLine(pctx, file, line); ok {
-		return cit, true
-	}
-	if cit, ok := preEmitUniqueDocumentCitationByBasenameLine(pctx, doc, file, line); ok {
-		return cit, true
-	}
-	return types.Citation{}, false
-}
-
-func preEmitUniqueEvidenceCitationByBasenameLine(pctx *preEmitCheckContext, file string, line int) (types.Citation, bool) {
-	base := preEmitLocationBase(file)
-	if pctx == nil || base == "" || line <= 0 {
-		return types.Citation{}, false
-	}
-	var out []types.Citation
-	seen := map[string]bool{}
-	for _, ev := range pctx.evidenceItems() {
-		if ev.GroundingStatus == types.GroundingUngrounded || strings.TrimSpace(ev.Source) == "" || ev.LineStart <= 0 {
-			continue
-		}
-		if !strings.EqualFold(preEmitLocationBase(ev.Source), base) {
-			continue
-		}
-		end := ev.LineEnd
-		if end <= 0 {
-			end = ev.LineStart
-		}
-		if line < ev.LineStart || line > end {
-			continue
-		}
-		cit := pctx.canonicalCitation(types.Citation{File: ev.Source, Line: line})
-		key := preEmitCitationLocationKey(cit)
-		if key == "" || seen[key] {
-			continue
-		}
-		seen[key] = true
-		out = append(out, cit)
-	}
-	if len(out) != 1 {
-		return types.Citation{}, false
-	}
-	return out[0], true
-}
-
-func preEmitUniqueDocumentCitationByBasenameLine(pctx *preEmitCheckContext, doc *types.AnswerDocumentV2, file string, line int) (types.Citation, bool) {
-	base := preEmitLocationBase(file)
-	if pctx == nil || doc == nil || base == "" || line <= 0 {
-		return types.Citation{}, false
-	}
-	var out []types.Citation
-	seen := map[string]bool{}
-	for _, cit := range doc.Citations {
-		cit = pctx.canonicalCitation(cit)
-		if cit.File == "" || cit.Line != line || !strings.EqualFold(preEmitLocationBase(cit.File), base) {
-			continue
-		}
-		key := preEmitCitationLocationKey(cit)
-		if key == "" || seen[key] {
-			continue
-		}
-		seen[key] = true
-		out = append(out, cit)
-	}
-	if len(out) != 1 {
-		return types.Citation{}, false
-	}
-	return out[0], true
-}
-
-func preEmitLocationBase(file string) string {
-	file = strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`))
-	if file == "" {
-		return ""
-	}
-	return path.Base(file)
-}
-
-func uniquePreEmitCitationRef(refs []int) (int, bool) {
-	seen := map[int]bool{}
-	out := -1
-	for _, ref := range refs {
-		if ref < 0 || seen[ref] {
-			continue
-		}
-		seen[ref] = true
-		if out >= 0 && out != ref {
-			return -1, false
-		}
-		out = ref
-	}
-	return out, out >= 0
 }
 
 func containsBlockFacet(b types.AnswerBlock, facet types.AnswerFacetKind) bool {
@@ -8842,46 +8576,10 @@ func preCheckModelSurfaceTerms(doc *types.AnswerDocumentV2, ctx *types.BusContex
 }
 
 func materializeRequiredModelSurfaceTerms(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
-	if doc == nil || ctx == nil {
-		return 0
-	}
-	evidence := modelSurfaceTermEvidenceForDocument(ctx, doc)
-	if len(evidence) == 0 {
-		return 0
-	}
-	fixed := 0
-	for bi := range doc.Blocks {
-		block := &doc.Blocks[bi]
-		if block.SurfaceRole != types.SurfacePrincipal {
-			continue
-		}
-		if block.Kind != types.BlockOrderedList && block.Kind != types.BlockBulletList && block.Kind != types.BlockTable {
-			continue
-		}
-		if block.Kind == types.BlockTable && strings.TrimSpace(block.Text) != "" {
-			fixed += materializeRequiredModelSurfaceTermsIntoMarkdownTable(block, doc, ctx, evidence)
-			continue
-		}
-		for ii := range block.Items {
-			item := &block.Items[ii]
-			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
-				continue
-			}
-			if block.Kind == types.BlockTable && len(item.Cells) == 0 && strings.TrimSpace(item.Text) == "" {
-				continue
-			}
-			cite := doc.Citations[item.CitationRef]
-			missing := missingSurfaceTermsForItem(*item, cite, evidence)
-			required := requiredVisibleSurfaceTermsForItem(missing)
-			if len(required) == 0 {
-				continue
-			}
-			if materializeSurfaceTermsIntoItem(item, required) {
-				fixed++
-			}
-		}
-	}
-	return fixed
+	// Compatibility no-op. Missing terms remain typed advisories from
+	// preCheckModelSurfaceTerms; inserting them into item text or a markdown
+	// table would edit the model's visible answer.
+	return 0
 }
 
 func removeSurfaceTermsVisibleInText(terms []string, text string) []string {

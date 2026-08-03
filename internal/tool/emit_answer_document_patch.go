@@ -294,10 +294,6 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 				}
 			}
 			if hints := preCheckModelSurfaceTerms(merged, ctx); len(hints) > 0 {
-				if fixed := materializeRequiredModelSurfaceTerms(merged, ctx); fixed > 0 {
-					logging.Warning("[emit_answer_document_patch] materialized required model surface_terms into %d principal item(s)", fixed)
-					hints = preCheckModelSurfaceTerms(merged, ctx)
-				}
 				if len(hints) > 0 {
 					logSoftPreEmitAdvisory(t.Name(), "model-emitted surface_terms", hints)
 				}

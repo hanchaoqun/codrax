@@ -11930,3 +11930,48 @@ repair path 没有 ownership 分层；“减少 retry”的局部目标把 typed
 answer normalizer 混审。
 
 验证：`go test ./internal/tool -count=1` 全绿（158.635s）；`git diff --check` 通过。
+
+#### B54-H：shipping 可见正文重写器统一断路（跨语言答案所有权）
+
+`ENDPOINTAUTHOR1` 之后继续枚举 full emit、patch emit、recovery 共用的 normalization pipeline，
+确认同一红线不是端点单例。以下旧路径会直接改写或删除模型的可见表达：
+
+| ID | 旧行为 | 最早引入点 | 判定 |
+|---|---|---|---|
+| `EVAL-B54-DIAGRAMAUTHOR1` | 按 Evidence definition 自动替换 Mermaid 节点 label、路径和行号 | `55f1f8229` | confirmed red-line |
+| `EVAL-B54-LABELAUTHOR1` | 把模型 item label 的 owner/method 改成 citation enclosing function | `db4bf9cba` | confirmed red-line |
+| `EVAL-B54-LOCATIONAUTHOR1` | 正则扫描 title/text/item/cell/diagram 后改写可见 `path:line` | `1b2538bb9` | confirmed red-line |
+| `EVAL-B54-SURFACETERMAUTHOR1` | 把 ArkTS decorator、Cangjie/其他语言声明词等 evidence surface term 拼入模型 item/table | `42efa7dce` | confirmed red-line |
+| `EVAL-B54-DECISIONAUTHOR1` | runtime-only 车道直接删除模型 `BlockDecision` | `6eb0b67fe` | confirmed red-line |
+| `EVAL-B54-SENTINELAUTHOR1` | 正则扫描模型正文并把 `citation_ref=-1` 等片段替换成系统文案 | `697301314` | confirmed red-line |
+
+这些实现大多源自合理的局部目标（修正 citation、避免内部字段泄漏、减少 final retry），但把
+“系统知道一条精确事实”错误推导成“系统有权改写模型怎样表达该事实”。结果与端点件同根：校验、
+repair、render 三层没有统一的 answer-owner 类型，局部 normalizer 被当成低成本 rewrite engine。
+
+本批按数据所有权统一施工，而非按 Java/ArkTS/Cangjie 或某个 eval 词形拟合：
+
+1. full emit、patch emit、recovery 共用链全部断开上述 visible mutator；diagram body、item label/text、
+   markdown table、runtime decision 和普通正文不再被这些路径修改；
+2. 精确 `surface_terms` 继续由 `preCheckModelSurfaceTerms` 给模型 typed soft advisory，不触发
+   “成文校验未通过”，也不拼进正文；源码 identity/call relation 继续走现有 typed prompt、citation
+   metadata 与 precise hard contract；
+3. `normalizeDiagramEdgeAnchorMetadata` 只保留 hidden typed metadata 对齐，并加 pin 证明 Mermaid body
+   字节不变；citation pool、行范围、quote 等非可见 provenance repair 保留；
+4. 新增 AST shipping tripwire，直接检查 `executeAnswerDocumentV2`、patch `Execute` 和共享
+   `normalizeAnswerDocumentForPreEmit` 不得调用七类可见 mutator。该测试扫描仓内 Go AST，不扫描用户
+   原文或模型答案内容；
+5. Trace runtime typed projection、显式时间窗自动补采和标记为 `SystemGeneratedKind=runtime_trace`
+   的系统 supplement 保持不变。系统可在独立、明确标识的 typed fact panel 中发布事实，但不能借此
+   删除或改写模型结论。
+
+验证矩阵包含 ArkTS attached decorator、source-inventory surface term、runtime trace decision、VCS/
+command-only 文本、Mermaid metadata 和 call-chain endpoint；全部改为“模型可见内容保持 + typed 信息
+仍在”的结构断言。`go test ./internal/tool -count=1` 全绿（159.821s）；`git diff --check` 通过。
+
+仍需下一批处理的确认项是 `EVAL-B54-ENUMAUTHOR1`：
+`normalizePrincipalEnumerationRowBlocks` 仍会在非 source-inventory 主车道改写 markdown/structured row、
+剪除 model item、合并 summary；其追加块已有 `SystemGeneratedKind`，但“独立系统 supplement”与
+“就地修改模型 block”混在同一函数。最优方案是只保留单独标记的 typed supplement，删除对模型
+block 的 in-place rewrite/prune；随后再审 `normalizeViewCompatibleAnswerDocument` 中所有删除型分支，
+区分无损 schema cleanup 与可见结论删除。
