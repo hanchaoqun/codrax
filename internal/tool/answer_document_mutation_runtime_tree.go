@@ -5640,7 +5640,7 @@ func runtimeTraceProjDetailPositionMerged(node types.TraceCausalProjectionNode, 
 		case "链路上下文", "邻近上下文", "背景上下文", "上下文":
 			return layer + "(不参与根因排序)"
 		case "主根因":
-			return "主根因(优先处理)"
+			return runtimeTraceProjCrownWords(true, false).DetailPosition
 		case "确定性优化点":
 			if runtimeTraceProjSemanticParticipatesInRootCauseRanking(node) {
 				return "确定性优化点(链上参与根因排序)"
@@ -5661,7 +5661,7 @@ func runtimeTraceProjDetailPositionMerged(node types.TraceCausalProjectionNode, 
 	case "chain context", "adjacent context", "background context", "context":
 		return layer + " (not ranked)"
 	case "primary":
-		return "primary (handle first)"
+		return runtimeTraceProjCrownWords(false, false).DetailPosition
 	case "deterministic optimization", "semantic":
 		if runtimeTraceProjSemanticParticipatesInRootCauseRanking(node) {
 			return layer + " (on-chain root-cause ranking participant)"

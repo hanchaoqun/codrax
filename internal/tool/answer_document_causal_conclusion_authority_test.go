@@ -165,6 +165,71 @@ func TestEarlierUnprovenProbeCannotDecrownLaterProvenSeat(t *testing.T) {
 	}
 }
 
+func TestMultiArtifactSeatsKeepFrameAuthorityAndCrownWordingIsolated(t *testing.T) {
+	makeResult := func(path string, start float64, pid int) tracequery.Result {
+		return tracequery.Result{
+			View: "root_cause_rank", SourcePath: path, TimeStart: start, TimeEnd: start + 0.020,
+			RootCauseRank: &tracequery.RootCauseRankResult{
+				Window: tracequery.TimeWindow{StartTs: start, EndTs: start + 0.020},
+				Items: []tracequery.RootCauseRankItem{{
+					Rank: 1, Tier: "primary", Type: "binder_wait",
+					Thread:   tracequery.ThreadRef{Comm: "worker", PID: pid},
+					ImpactMs: 8, CumulativeImpactMs: 8, EffectiveImpactMs: 7, RunnableMs: 7,
+					ChainRelevance: "on_chain", Causality: "on_wakeup_chain", Confidence: 0.9,
+				}},
+			},
+		}
+	}
+	unproven := makeResult("a.systrace", 10, 200)
+	proven := makeResult("b.systrace", 20, 300)
+	input := types.ObservationLedgerInput{ToolResults: []types.ToolResult{
+		{
+			ToolName: "trace_query", Success: true,
+			Observations: traceQueryTypedObservations(unproven, unproven.SourcePath, "payload-a", "raw-a", "", time.Unix(0, 0).UTC()),
+			TraceEvidenceAuthority: &types.TraceEvidenceAuthority{
+				View: "frame_root_cause_bundle", FrameEvidenceStatus: "absent",
+				TypedCausalRowCount: 1, CausalConclusion: "unproven",
+			},
+		},
+		{
+			ToolName: "trace_query", Success: true,
+			Observations: traceQueryTypedObservations(proven, proven.SourcePath, "payload-b", "raw-b", "", time.Unix(0, 0).UTC()),
+			TraceEvidenceAuthority: &types.TraceEvidenceAuthority{
+				View: "root_cause_rank", TypedCausalRowCount: 1, CausalConclusion: "bounded_by_typed_rows",
+			},
+		},
+	}}
+	ledger := types.CompileObservationLedger(input)
+	set := types.CompileTraceCausalProjectionSet(ledger)
+	if len(set.Projections) != 2 {
+		t.Fatalf("projection count=%d, want 2: %+v", len(set.Projections), set)
+	}
+	blocks := runtimeTraceCausalProjectionMultiCluster(
+		set, ledger, nil, "zh", runtimeTraceProjUserFocus{}, buildRuntimeTraceProjectionSeatAuthorityIndex(input),
+	)
+	leads := 0
+	unprovenLeads := 0
+	leadIDs := map[string]bool{
+		runtimeTraceCausalProjectionBlockIDBase + runtimeTraceCausalProjectionArtifactBlockIDInfix + "1": true,
+		runtimeTraceCausalProjectionBlockIDBase + runtimeTraceCausalProjectionArtifactBlockIDInfix + "2": true,
+	}
+	for _, block := range blocks {
+		if !leadIDs[block.ID] {
+			continue
+		}
+		if !strings.HasPrefix(block.Text, "**主根因(=已证链上单项最大可消除量):**") {
+			t.Fatalf("multi-board lead lost the single-source crown prefix: id=%s text=%s", block.ID, block.Text)
+		}
+		leads++
+		if strings.Contains(strings.SplitN(block.Text, "\n", 2)[0], "帧因果未证") {
+			unprovenLeads++
+		}
+	}
+	if leads != 2 || unprovenLeads != 1 {
+		t.Fatalf("multi-board authority leaked across seats: leads=%d unproven=%d blocks=%+v", leads, unprovenLeads, blocks)
+	}
+}
+
 func TestTypedSeatFrameCausalityEnglishQualifierKeepsDefinedCrown(t *testing.T) {
 	result := tracequery.Result{
 		View:       "root_cause_rank",

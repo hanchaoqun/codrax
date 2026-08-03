@@ -1297,3 +1297,15 @@ Kotlin/Swift initializer type 不冒充声明类型且显式参数仍能解析�
 状态：`R7-1=implemented`；`R7-2=implemented`；`R7-3=implemented`；`R7-4=implemented`；
 `R7-6=implemented`。R7-7/R7-8 保持低危独立项，待本批提交后用可执行反例复核，避免在高危批中夹带
 未经证实的行为改动。
+
+### §9.4 M4-C §7 裁定收尾（已实现，待本节提交）
+
+- **R1-1**：补双工件真实 multi-cluster pin：一个席位 `frame_causality=unproven`、另一个席位已证；两板均
+  保持同一 `主根因(=已证链上单项最大可消除量)` 前缀，且“帧因果未证”只出现在消费该 authority 的席位，
+  防止未来 nil-authority/会话 ANY 分支重新污染同页其他板；
+- **R1-2**：detail proven 臂不再手写中英文 `主根因(优先处理)` / `primary (handle first)`，统一读取
+  `runtimeTraceProjCrownWords(...).DetailPosition`；headline、legend、detail 与 comparison 的裁定词源继续集中。
+
+该批仅补结构 pin 与词源去重，不改变选举、值、排序、Trace 自动补齐或模型正文。
+
+状态：`R1-1=closed`；`R1-2=closed`。
