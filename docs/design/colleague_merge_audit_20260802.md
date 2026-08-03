@@ -1322,3 +1322,16 @@ anchor 前同时应用到 run 与 Mutable 两份载体。测试先制造两份�
 成为唯一当前权限。
 
 状态：`M4-R3-1=closed`。
+
+### §9.6 M4-E callable:line owner 归属（已实现，待本节提交）
+
+R6-2 判断准确。`preEmitCallableSurfaceOwnsCitationWithContext` 先尝试完整 callable 匹配，但失败后无条件把
+qualified callable 拆成 member，再只比较 member；因此同为 line 10 的 `A.create` 与 `B.create` 都能被
+`A.create:10` 接受。修复规定：qualified callable 的 owner 是显式精确信号，只能由前面的 typed evidence
+或完整 `Citation.EnclosingFunction` 匹配证明；完整匹配失败即 false，只有原本未限定 owner 的 `create:10`
+才可走 member fallback，并在多候选时保持歧义、不猜选。
+
+新增同 line、不同文件、不同 owner 的双 citation fixture：`A.create:10` 与 `B.create:10` 各自唯一归属，
+`create:10` 明确保持 ambiguous。
+
+状态：`R6-2=closed`。

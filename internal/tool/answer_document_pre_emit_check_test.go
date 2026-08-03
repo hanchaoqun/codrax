@@ -7109,6 +7109,24 @@ func TestPreEmitCallableLineLabelParts_CrossLanguageQualifiedCallables(t *testin
 	}
 }
 
+func TestPreEmitUniqueCallableLineLabelCitationIndex_PreservesQualifiedOwner(t *testing.T) {
+	ctx := &types.BusContext{Mutable: types.NewMutableState("qualified callable owner")}
+	doc := &types.AnswerDocumentV2{Citations: []types.Citation{
+		{File: "src/A.java", Line: 10, EnclosingFunction: "A.create"},
+		{File: "src/B.java", Line: 10, EnclosingFunction: "B.create"},
+	}}
+	pctx := newPreEmitCheckContext(ctx)
+	if got, ok := preEmitUniqueCallableLineLabelCitationIndex(doc, pctx, "A.create:10"); !ok || got != 0 {
+		t.Fatalf("A.create:10 resolved to (%d,%v), want the A-owned citation only", got, ok)
+	}
+	if got, ok := preEmitUniqueCallableLineLabelCitationIndex(doc, pctx, "B.create:10"); !ok || got != 1 {
+		t.Fatalf("B.create:10 resolved to (%d,%v), want the B-owned citation only", got, ok)
+	}
+	if got, ok := preEmitUniqueCallableLineLabelCitationIndex(doc, pctx, "create:10"); ok {
+		t.Fatalf("unqualified create:10 must remain ambiguous, got citation %d", got)
+	}
+}
+
 func TestNormalizeVisibleSourceLocationCarriers_RepairsMismatchedItemCitationByExactLocation(t *testing.T) {
 	mu := types.NewMutableState("解释 trace span 解析机制")
 	ctx := &types.BusContext{Mutable: mu}

@@ -2478,9 +2478,14 @@ func preEmitCallableSurfaceOwnsCitationWithContext(pctx *preEmitCheckContext, ca
 		return true
 	}
 	_, member, qualified := preEmitQualifiedCodeSurfaceParts(callable)
-	if !qualified {
-		member = callable
+	if qualified {
+		// A qualified callable explicitly selects its owner. The exact typed
+		// evidence/enclosing-function lanes above are the only authorities that
+		// may prove it; stripping the owner here would let A.create:N claim a
+		// same-line citation owned by B.create.
+		return false
 	}
+	member = callable
 	_, enclosingMember, enclosingQualified := preEmitQualifiedCodeSurfaceParts(cit.EnclosingFunction)
 	if !enclosingQualified {
 		enclosingMember = preEmitNormalizeCallableSurface(cit.EnclosingFunction)
