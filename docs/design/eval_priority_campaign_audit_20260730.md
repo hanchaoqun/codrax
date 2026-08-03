@@ -3991,6 +3991,30 @@ explorer/finalizer 模型证据措辞波动。没有精准 typed sink-semantics 
 完整回归：`internal/mermaidcompat` 0.759s、`internal/render` 2.011s、
 `internal/tool` 165.286s、`internal/agent` 3.010s，均以 `-count=1` 通过。
 
+---
+
+## B52 r11：principal_path_edge 图集合闭包（2026-08-02）
+
+`c32510694` 同 pair 并行 2/2 runner PASS：called-by 103s、Java 139s。人工 called-by PASS；
+Java FAIL，但 `B52j` 已成功拒绝 guard-only 假装 invocation 的形态。
+
+新 gap `B52k`：finalizer 的 principal path list 与 typed handoff 均含
+`VisitService.schedule -> VisitRepository.insert`，最终图却只画 `Check -> insert`。系统已有可视边
+soundness，却没有模型已选 principal typed-edge 的 completeness。
+
+修复不把 evidence pool 全部边强塞给模型：只取模型 structured principal_path_edge items 作为 endpoint
+universe，再要求 universe 内由 citable typed call evidence 证明的边出现在 strict call diagram；一端不在
+principal universe 的 supporting calls 不扩图。hard gate 不读任何 prose，不改变模型成员或结论，
+Trace causal family 不参与。
+
+14 个 executable language identity 形态与非 principal 反臂已定向通过。
+
+状态：`B52j=production-trigger-covered`；
+`B52k=implemented / directed-cross-language-pass / full-tests-pass / replay-pending`。
+
+完整回归：加入发布接线 pin 后 `internal/tool` 最终复跑 156.126s、`internal/agent` 3.004s，
+均以 `-count=1` 通过。
+
 ### B52 r7：全语言调用图交接验收与模型表重复（2026-08-02）
 
 同 pair 在 `759f1c859` 上 runner 2/2 PASS。人工审计结论：

@@ -26,6 +26,7 @@ type DiagramCallEdgeEvidenceMismatch struct {
 const (
 	diagramCallEdgeIssueMissingAnchor = "missing_call_anchor"
 	diagramCallEdgeIssueNoEvidence    = "call_edge_unproven"
+	diagramCallEdgeIssuePrincipalMiss = "principal_call_edge_missing"
 )
 
 // DiagramCallEdgeEvidenceMismatches cross-checks the directed call edges in a
@@ -38,6 +39,9 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 		return nil
 	}
 	var out []DiagramCallEdgeEvidenceMismatch
+	visibleCallSymbolPairs := make(map[string]bool)
+	hasStrictCallDiagram := false
+	strictCallDiagramID := ""
 	for i := range doc.Blocks {
 		block := &doc.Blocks[i]
 		if block.Kind != types.BlockDiagram || block.Diagram == nil {
@@ -48,6 +52,10 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 		parsedEdgeKeys := make(map[string]bool, len(parsedEdges))
 		strictBodyCoverage := block.Diagram.Kind == types.DiagramSequence || block.Diagram.Kind == types.DiagramCallDAG
 		if strictBodyCoverage {
+			hasStrictCallDiagram = true
+			if strictCallDiagramID == "" {
+				strictCallDiagramID = block.ID
+			}
 			callAnchorKeys := diagramCallAnchorKeySet(block.EdgeAnchors)
 			typedAnchorRelations := diagramTypedAnchorRelationSet(block.EdgeAnchors)
 			for _, edge := range parsedEdges {
@@ -82,6 +90,7 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 					})
 					continue
 				}
+				visibleCallSymbolPairs[diagramEvidenceEdgeKey(fromSymbol, toSymbol)] = true
 				if hasTypedCallEvidence {
 					continue
 				}
@@ -117,7 +126,90 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 			})
 		}
 	}
+	if hasStrictCallDiagram {
+		principalSymbols := diagramPrincipalPathItemSymbols(doc)
+		for _, fromSymbol := range principalSymbols {
+			for _, toSymbol := range principalSymbols {
+				if fromSymbol == toSymbol || visibleCallSymbolPairs[diagramEvidenceEdgeKey(fromSymbol, toSymbol)] {
+					continue
+				}
+				if !diagramCallEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol, "") {
+					continue
+				}
+				out = append(out, DiagramCallEdgeEvidenceMismatch{
+					BlockID:    strictCallDiagramID,
+					Issue:      diagramCallEdgeIssuePrincipalMiss,
+					FromNode:   fromSymbol,
+					ToNode:     toSymbol,
+					FromSymbol: fromSymbol,
+					ToSymbol:   toSymbol,
+				})
+			}
+		}
+	}
 	return out
+}
+
+// diagramPrincipalPathItemSymbols returns only model-selected, structured
+// principal hop identities. This is the narrow completeness boundary: a
+// citable call edge is required in the diagram only when BOTH endpoints were
+// already selected by the model into a principal_path_edge item carrier.
+// Summary/item prose and the raw request are deliberately ignored.
+func diagramPrincipalPathItemSymbols(doc *types.AnswerDocumentV2) []string {
+	if doc == nil {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var out []string
+	for i := range doc.Blocks {
+		block := &doc.Blocks[i]
+		if block.SurfaceRole != types.SurfacePrincipal || block.Kind == types.BlockDiagram ||
+			!types.AnswerBlockKindRendersStructuredItems(block.Kind) ||
+			!diagramBlockCarriesFacet(block, types.FacetPrincipalPathEdge) ||
+			!diagramBlockCarriesClaimForm(block, types.ClaimCallEdge) {
+			continue
+		}
+		for _, item := range block.Items {
+			symbol := strings.TrimSpace(item.Label)
+			key := strings.ToLower(symbol)
+			if symbol == "" || seen[key] || !types.IsCodeIdentitySurface(symbol) {
+				continue
+			}
+			seen[key] = true
+			out = append(out, symbol)
+		}
+	}
+	return out
+}
+
+func diagramBlockCarriesFacet(block *types.AnswerBlock, facet types.AnswerFacetKind) bool {
+	if block == nil {
+		return false
+	}
+	want := string(facet)
+	for _, got := range block.FacetIDs {
+		if strings.TrimSpace(got) == want {
+			return true
+		}
+	}
+	for _, use := range block.ClaimUses {
+		if strings.TrimSpace(use.FacetID) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func diagramBlockCarriesClaimForm(block *types.AnswerBlock, claim types.ClaimForm) bool {
+	if block == nil {
+		return false
+	}
+	for _, use := range block.ClaimUses {
+		if use.ClaimForm == claim {
+			return true
+		}
+	}
+	return false
 }
 
 func diagramParsedEdgeRequiresCallAuthority(kind types.DiagramKind, edge mermaidcompat.Edge, typedRelations map[string]map[types.DiagramRelationKind]bool) bool {

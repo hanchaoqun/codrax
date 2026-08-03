@@ -409,6 +409,111 @@ func TestDiagramCallEdgeEvidenceMismatches_CallDAGAllowsCallAndGuardForSameCompo
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_PrincipalPathCallMustAppearInDiagram(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID: "path", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:  []string{string(types.FacetPrincipalPathEdge)},
+			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+			Items:     []types.AnswerBlockItem{{Label: "Service.handle"}, {Label: "Repository.count"}, {Label: "Repository.insert"}},
+		},
+		{
+			ID: "diagram", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{
+				Kind: types.DiagramCallDAG, Language: "mermaid",
+				Body: "flowchart TD\n  S[Service.handle] --> C[Repository.count]\n  I[Repository.insert]\n",
+			},
+			EdgeAnchors: []types.DiagramEdgeAnchor{{
+				FromNode: "S", ToNode: "C", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge,
+			}},
+		},
+	}}
+	evidence := []types.EvidenceItem{
+		diagramEvidenceTestCall("Service.handle", "Repository.count"),
+		diagramEvidenceTestCall("Service.handle", "Repository.insert"),
+	}
+	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, evidence)
+	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssuePrincipalMiss ||
+		got[0].FromSymbol != "Service.handle" || got[0].ToSymbol != "Repository.insert" {
+		t.Fatalf("a typed call between model-selected principal hops must remain visible in the diagram: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_NonPrincipalTypedCallDoesNotExpandDiagram(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID: "path", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:  []string{string(types.FacetPrincipalPathEdge)},
+			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+			Items:     []types.AnswerBlockItem{{Label: "Service.handle"}, {Label: "Repository.count"}},
+		},
+		{
+			ID: "diagram", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{
+				Kind: types.DiagramCallDAG, Language: "mermaid",
+				Body: "flowchart TD\n  S[Service.handle] --> C[Repository.count]\n",
+			},
+			EdgeAnchors: []types.DiagramEdgeAnchor{{
+				FromNode: "S", ToNode: "C", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge,
+			}},
+		},
+	}}
+	evidence := []types.EvidenceItem{
+		diagramEvidenceTestCall("Service.handle", "Repository.count"),
+		diagramEvidenceTestCall("Service.handle", "Background.refresh"),
+	}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, evidence); len(got) != 0 {
+		t.Fatalf("supporting calls outside the model-selected principal path must not be forced into its diagram: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_PrincipalPathCompletenessAcrossExecutableLanguages(t *testing.T) {
+	tests := []struct {
+		language string
+		caller   string
+		callee   string
+	}{
+		{"go", "service.Handle", "repo.Insert"},
+		{"python", "service.handle", "repo.insert"},
+		{"javascript", "Service.handle", "Repository.insert"},
+		{"typescript", "Service.handle", "Repository.insert"},
+		{"java", "VisitService.schedule", "VisitRepository.insert"},
+		{"kotlin", "VisitService.schedule", "VisitRepository.insert"},
+		{"rust", "service::handle", "repo::insert"},
+		{"c", "service_handle", "repo_insert"},
+		{"cpp", "Service::handle", "Repository::insert"},
+		{"ruby", "Service::handle", "Repository::insert"},
+		{"swift", "Service.handle", "Repository.insert"},
+		{"lua", "service.handle", "repo.insert"},
+		{"arkts", "VisitService.schedule", "VisitRepository.insert"},
+		{"cangjie", "clinic::VisitService::schedule", "clinic::VisitRepository::insert"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.language, func(t *testing.T) {
+			doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+				{
+					ID: "path", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+					FacetIDs:  []string{string(types.FacetPrincipalPathEdge)},
+					ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+					Items:     []types.AnswerBlockItem{{Label: tc.caller}, {Label: tc.callee}},
+				},
+				{
+					ID: "diagram", Kind: types.BlockDiagram,
+					Diagram: &types.AnswerDiagramBlock{
+						Kind: types.DiagramCallDAG, Language: "mermaid",
+						Body: "flowchart TD\n  A[\"" + tc.caller + "\"]\n  B[\"" + tc.callee + "\"]\n",
+					},
+				},
+			}}
+			got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
+				[]types.EvidenceItem{diagramEvidenceTestCall(tc.caller, tc.callee)})
+			if len(got) != 1 || got[0].Issue != diagramCallEdgeIssuePrincipalMiss {
+				t.Fatalf("%s principal typed call must remain visible in the diagram: %+v", tc.language, got)
+			}
+		})
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_CallDAGRespectsEveryTypedNonCallRelation(t *testing.T) {
 	for _, relation := range []types.DiagramRelationKind{
 		types.DiagramRelGuard,
@@ -576,4 +681,38 @@ func TestRunPreEmitChecks_DiagramBodyEdgeWithoutAnchorIsWired(t *testing.T) {
 		}
 	}
 	t.Fatalf("pre-emit dispatch must hard-reject a body edge whose typed anchor was omitted: %+v", hints)
+}
+
+func TestRunPreEmitChecks_PrincipalPathDiagramCompletenessIsWired(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID: "path", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:  []string{string(types.FacetPrincipalPathEdge)},
+			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+			Items:     []types.AnswerBlockItem{{Label: "Service.handle"}, {Label: "Repository.insert"}},
+		},
+		{
+			ID: "diagram", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{
+				Kind: types.DiagramCallDAG, Language: "mermaid",
+				Body: "flowchart TD\n  S[Service.handle]\n  I[Repository.insert]\n",
+			},
+		},
+	}}
+	mut := types.NewMutableState("principal path diagram completeness")
+	mut.AppendEvidence([]types.EvidenceItem{diagramEvidenceTestCall("Service.handle", "Repository.insert")})
+	hints := runPreEmitChecks(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, nil,
+		&types.BusContext{Mutable: mut})
+	for _, hint := range hints {
+		if hint.Kind == types.ViolDiagramCallEdgeUnproven &&
+			strings.Contains(hint.ExpectedShape, diagramCallEdgeIssuePrincipalMiss) &&
+			strings.Contains(hint.ExpectedShape, "Service.handle") &&
+			strings.Contains(hint.ExpectedShape, "Repository.insert") {
+			hard, _ := splitPreEmitHintsByGate(hints)
+			if len(hard) == 1 && hard[0].Kind == types.ViolDiagramCallEdgeUnproven {
+				return
+			}
+		}
+	}
+	t.Fatalf("principal typed call omitted from diagram must be wired to the hard typed gate: %+v", hints)
 }

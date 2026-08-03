@@ -1068,3 +1068,37 @@ Ruby、Swift、Lua、ArkTS、Cangjie 的 executable callable surface；Proto 保
 
 完整回归：`go test ./internal/mermaidcompat ./internal/render ./internal/tool ./internal/agent -count=1`
 通过（0.759s / 2.011s / 165.286s / 3.010s）。
+
+---
+
+## §37 B52 r11：principal path 已选调用边的图完整性（2026-08-02）
+
+`c32510694` 精确构建同 pair 严格并行 2/2 runner PASS：called-by 103s、Java 139s。
+
+人工结果：called-by 再次 PASS，`B52i` 连续两轮 production replay 均稳定。Java 中 `B52j` 已触发：
+guard-only 版本被拒，最终保留 `VisitService.schedule -> VisitRepository.countOpenVisits` 的真实调用。
+
+但最终 call-DAG 把 typed evidence 与模型 principal list 都已选择的
+`VisitService.schedule -> VisitRepository.insert` 改画成 `capacity Check -> VisitRepository.insert`。
+现有合同只验证“每条可视 call edge 有证据”，不验证“模型已选择的 principal path typed calls 全部可视”，
+因此图仍可能用控制流节点替换实际 caller。
+
+登记 `B52k-PRINCIPAL-CALL-DIAGRAM-COMPLETENESS`（P1），通用修复：
+
+1. 仅在 QFCallChain 且存在 strict `sequence/call_dag` 时启用；
+2. principal endpoint universe 只来自模型自己发射的 structured items：block 必须
+   `surface_role=principal`、携带 `facet_id=principal_path_edge` 与 `claim_form=call_edge`；
+3. 仅当 universe 内两个 exact code identities 之间存在 citable typed call-edge evidence，才要求图中有
+   同向 parsed edge + `relation_kind=call`；这闭合的是模型已选集合内部一致性，不增加系统成员；
+4. 只有一端在 principal universe 的 supporting/background call 不扩张图；identity 不唯一时 fail-open；
+5. 不读取 item text、summary、RawRequest、thinking/final prose，不从语言关键词猜关系，不生成或重画图；
+6. Go、Python、JS/TS、Java/Kotlin、Rust、C/C++、Ruby、Swift、Lua、ArkTS、Cangjie 共用；Proto
+   declarative relation 与 QFRootCauseTrace/显式时间窗/自动补齐不进入本合同。
+
+定向测试覆盖 r11 缺边、非 principal supporting-call 反臂以及 14 个 executable language identities。
+
+状态：`B52j=production-trigger-covered`；
+`B52k=implemented / directed-cross-language-pass / full-tests-pass / replay-pending`。
+
+完整回归：`go test ./internal/tool ./internal/agent -count=1` 通过
+（加入发布接线 pin 后最终 tool 复跑 156.126s；agent 3.004s）。
