@@ -4285,7 +4285,7 @@ write 全链人工审计：
 | GAP | 优先级 | 泛化问题 | 最优方案 | 状态 |
 |---|---:|---|---|---|
 | `EVAL-B47-PATHID1` | P1 | planner、controller、slice、patch-effect 对仓库相对路径使用不同 lexical identity，合法补丁可被误判越界，依赖/rename 也可能漂移 | 在零 internal 依赖的 `canonpath` 建立 safe repo-relative identity；emit seam 先统一 path/new_path/depends_on，controller 与 patch-review 防御性消费同一 canonicalizer；绝对路径、UNC、盘符、parent traversal 保持 fail-closed | implemented/full-tests-pass；write replay next |
-| `EVAL-B47-FACETAUTH1` | P1 | typed relation authority 明确 `transition=unproven`，答案合同仍硬要求 path-edge facet，精确上下文与结构要求互相冲突 | required facets 在 prompt 前按 typed evidence authority 投影：无 edge 时要求 independent facts + uncertainty，有 edge 时保留 path；不读 RawRequest/answer prose，不拒绝或改写模型答案 | open/code-audit next |
+| `EVAL-B47-FACETAUTH1` | P1 | typed relation authority 明确 `transition=unproven`，答案合同仍硬要求 path-edge facet，精确上下文与结构要求互相冲突 | required facets 在 prompt 前按 typed evidence authority 投影：无 edge 时要求 independent facts + uncertainty，有 edge 时保留 path；不读 RawRequest/answer prose，不拒绝或改写模型答案 | implemented/full-tests-pass；cross-log replay next |
 
 #### B47-PATHID1：安全仓库相对路径的单一身份
 
@@ -4308,6 +4308,41 @@ effect 与 active slice 同一身份，以及 POSIX/Windows/UNC/parent traversal
 在 production 修改后通过：`canonpath 0.650s / writeflow 0.453s / tool 162.914s /
 orchestrator 12.131s`；新增定向测试四包全部通过。
 
+#### B47-FACETAUTH1：证据关系权限先于答案块形状
+
+冷读最终 prompt 证实冲突不是 facet validator 误拒绝，而是更早的 semantic-view 编译：
+
+- FacetCoverage 已因没有 `ClaimCallEdge` 候选而把 `principal_path_edge` 从 hard facet 降走；
+- `rootCauseTracePrincipalListRequirement` 却无条件要求 `ordered_list + principal_path_edge`，并把
+  rationale 固定为“principal cause chain / order matches causation”；
+- 后置 mechanism-relation instruction 同时说“无 grounded caller→callee edge，transition
+  unproven”。模型因而在同一 prompt 收到相互矛盾的硬结构与精确权限边界。
+
+本批采用前置 typed projection，而不是答案扫描/替换：
+
+1. 新增 `LogOperationalRelationAuthority` 单一解析：少于两事件为 `not_applicable`；任一 producer
+   发布 non-local transition authority 才是 `typed_transition_witness`；否则多事件只能得到
+   `observed_log_line_order_only`；
+2. prompt renderer 和 semantic-view compiler 共用该解析，不再分别复制“有没有 witness”的
+   判定；
+3. `root_cause_trace` 在 `observed_log_line_order_only` 时把 principal contract 从有序原因链改为
+   `bullet_list(current_code_path + uncertainty_boundary)`，只要求独立 grounded facts；summary
+   明确要求陈述各 lane 能证明什么以及 transition 未证，diagram 也不再要求 call edge；
+4. 单事件没有跨事件问题，保持既有 cause-chain shape；producer 有真实 transition witness 时也
+   保持；这两条避免“凡日志一律降级”；
+5. quote-anchored explicit time window 具有更高 typed authority，始终保留原 ordered causal
+   contract，因此 Trace 因果投影、根因排序、唤醒链、可消除量和系统自动补齐不受影响；
+6. 系统只改变交给模型的证据/结构合同，不读取用户原文或模型 prose，不拒绝结论词，不删除、
+   覆盖或代写最终答案。模型仍负责解释、总结与优化建议。
+
+上下文充分性结论：r4 已有足够信息做出“模型响应异常已观测、校验失败未观测、line 3→4
+transition 未证”的正确回答；缺口是合同自相矛盾，不是再塞更多源码。修复后若模型在清晰且一致
+的 typed contract 下仍越权，作为模型波动记录，不引入词面 hard gate。
+
+测试固定多事件 local-only、单事件、typed witness、显式 Trace 时间窗四臂，并固定 relation
+renderer 继续发布同一 authority。全相关回归通过：`types 19.914s / render 0.921s /
+agent 2.885s / tool 165.332s / orchestrator 13.663s`。
+
 任务状态：
 
 - [x] B47-T7：SEMCAL1 实现、全量测试、独立推送，并以 read + operation 严格并行 2 个回放；
@@ -4319,7 +4354,8 @@ orchestrator 12.131s`；新增定向测试四包全部通过。
 - [x] B47-T8c：从干净 HEAD 严格并行 2 个异构 case并完成人工审计；累计 scope 工件在场，
   但 PATHID1 于 verify 前阻断，CAPCAL1 仍待下一 write 回放；
 - [x] B47-T8d：实现 PATHID1、跨平台安全负例与 patch-review 生产 witness 回归，独立提交推送；
-- [ ] B47-T8e：审计并实现 FACETAUTH1；不得以 answer/request 关键词 hard gate，不得系统替答；
+- [x] B47-T8e：审计并实现 FACETAUTH1；证据权限与 answer block 单源投影，不以 answer/request
+  关键词 hard gate，不系统替答；完整相关回归通过后独立提交推送；
 - [ ] B47-T8f：从干净 HEAD 严格并行下一对异构 case；write 必须走到 capability ledger，另一个
   case 切换 read/data/plan/operation 高优先维度，避免持续拟合同一日志。
 

@@ -44,8 +44,8 @@ func compileRootCauseTrace(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSeman
 		view.CurrentStatusDiagnostic = ir.AnswerContract.CurrentStatusDiagnostic
 	}
 	view.RequiredBlocks = []BlockRequirement{
-		requireSummaryBlock(rootCauseTraceSummaryRationale(plan)),
-		rootCauseTracePrincipalListRequirement(plan),
+		requireSummaryBlock(rootCauseTraceSummaryRationale(ir, plan)),
+		rootCauseTracePrincipalListRequirement(ir, plan),
 	}
 	if view.CurrentStatusDiagnostic != nil && view.CurrentStatusDiagnostic.Required {
 		view.RequiredBlocks = append(view.RequiredBlocks, BlockRequirement{
@@ -111,6 +111,11 @@ func compileRootCauseTrace(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSeman
 		diagramRelations = []DiagramEdgeRelationContract{
 			{Kind: DiagramRelObserve, Min: 0, ClaimForm: ClaimExternalObservation},
 		}
+	} else if rootCauseCrossEventTransitionUnproven(ir) {
+		diagramEdgeFacets = nil
+		diagramRelations = []DiagramEdgeRelationContract{
+			{Kind: DiagramRelObserve, Min: 0, ClaimForm: ClaimExternalObservation},
+		}
 	}
 	view.DiagramPlan = diagramPlanFor(plan, DiagramSequence,
 		diagramNodeFacets,
@@ -128,7 +133,7 @@ func compileRootCauseTrace(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSeman
 	return view
 }
 
-func rootCauseTracePrincipalListRequirement(plan *AnswerSurfacePlan) BlockRequirement {
+func rootCauseTracePrincipalListRequirement(ir *AnalysisIR, plan *AnswerSurfacePlan) BlockRequirement {
 	if runtimeObservationOnly(plan) {
 		return BlockRequirement{
 			Kind:     BlockOrderedList,
@@ -146,6 +151,29 @@ func rootCauseTracePrincipalListRequirement(plan *AnswerSurfacePlan) BlockRequir
 				"These items come from the attached artifact and should stay in artifact provenance unless a current " +
 				"repo citation literally proves the same fact. Do not replace them with helper functions or " +
 				"resolver internals from the current repository.",
+			SurfaceRoleHint: SurfacePrincipal,
+		}
+	}
+	if rootCauseCrossEventTransitionUnproven(ir) {
+		return BlockRequirement{
+			Kind:     BlockBulletList,
+			MinCount: 1,
+			MaxCount: 0,
+			Required: true,
+			FacetIDs: []string{
+				string(FacetCurrentCodePath),
+				string(FacetUncertaintyBoundary),
+			},
+			AcceptableClaimForms: []ClaimForm{
+				ClaimDefinitionFact,
+				ClaimGuardCondition,
+				ClaimAssignmentFact,
+				ClaimReturnFact,
+				ClaimAbsenceFact,
+			},
+			Rationale: "List the independent grounded facts that distinguish the candidate explanations. " +
+				"Keep observed protocol events and current-source mechanism facts in their own authority lanes. " +
+				"The item order is presentation only: do not describe a cross-event cause chain or declare a root transition unless a typed transition witness or an exact runtime-to-source join proves it.",
 			SurfaceRoleHint: SurfacePrincipal,
 		}
 	}
@@ -167,12 +195,17 @@ func rootCauseTracePrincipalListRequirement(plan *AnswerSurfacePlan) BlockRequir
 	}
 }
 
-func rootCauseTraceSummaryRationale(plan *AnswerSurfacePlan) string {
+func rootCauseTraceSummaryRationale(ir *AnalysisIR, plan *AnswerSurfacePlan) string {
 	if runtimeObservationOnly(plan) {
 		return "Open with the attached runtime artifact's answer to the user's diagnostic question. " +
 			"Keep artifact facts separate from current-repo facts: name observed frames / error messages " +
 			"as observations, and state when the current checkout cannot corroborate them because the " +
 			"artifact has no repo intersection."
+	}
+	if rootCauseCrossEventTransitionUnproven(ir) {
+		return "Open with the strongest conclusion authorized by the decoded runtime events and current source. " +
+			"State which alternative each lane supports, and explicitly say that the cross-event transition remains unproven. " +
+			"Do not turn observed line order or nearby mechanism definitions into a root-cause chain."
 	}
 	if plan != nil && plan.SummarySurfaceMode == AnswerSummarySurfaceDriftBoundedRootCause {
 		return "Open with what the attached runtime artifact observed and the nearest grounded current-code path/mechanism available in the current checkout. " +
@@ -182,6 +215,22 @@ func rootCauseTraceSummaryRationale(plan *AnswerSurfacePlan) string {
 	}
 	return "Open with the core conclusion: state the failure mode and the load-bearing line " +
 		"where the cause originates. Keep it tight — the ordered cause chain below carries the hop-by-hop detail."
+}
+
+// rootCauseCrossEventTransitionUnproven resolves a contradiction between an
+// evidence authority and a generic root-cause answer shape. It reads only the
+// producer-decoded operational relation enum. An explicit runtime time window
+// keeps the full Trace causal-report contract authoritative, including causal
+// projection and automatic supplementation.
+func rootCauseCrossEventTransitionUnproven(ir *AnalysisIR) bool {
+	if ir == nil || ir.RequestModel.LogTriage == nil {
+		return false
+	}
+	if _, _, ok := ir.RequestModel.RuntimeArtifactScopeProfile.ExplicitTimeWindow(); ok {
+		return false
+	}
+	return ResolveLogOperationalRelationAuthority(ir.RequestModel.LogTriage.OperationalSemantics) ==
+		LogOperationalRelationObservedLineOrderOnly
 }
 
 func rootCauseTraceOrderedListRationale(plan *AnswerSurfacePlan) string {

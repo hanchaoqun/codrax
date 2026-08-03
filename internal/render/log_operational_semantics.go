@@ -189,7 +189,7 @@ func RenderLogOperationalSemanticsForPrompt(rows []types.LogOperationalSemantic)
 	b.WriteString("System-decoded operational protocol fields (authoritative for these exact fields):\n")
 	b.WriteString("Different counter_domain values are separate namespaces. Do not add, compare, or connect them without an explicit typed transition witness. A current-source constant whose domain is absent below is mechanism context only; this attached log does not prove that gate was traversed.\n")
 	b.WriteString("Lifecycle and value_kind are independent fields: lifecycle=retry describes this event's recoverable state; it does not turn value_kind=stage_ordinal into a retry, attempt, failure, budget, or exhaustion count.\n")
-	if len(rows) > 1 && !hasLogOperationalTransitionWitness(rows) {
+	if types.ResolveLogOperationalRelationAuthority(rows) == types.LogOperationalRelationObservedLineOrderOnly {
 		b.WriteString("relation_authority=observed_log_line_order_only cross_event_transition=unproven typed_transition_witness=absent. The rows prove that each event was observed in this order; adjacency does not prove that one event drove another, reset or advanced another counter, re-entered a stage, or returned the pipeline to its start. A causal transition claim requires a typed transition witness, or a current-source call path joined to the exact runtime event identity.\n")
 	}
 	for i, row := range rows {
@@ -214,14 +214,4 @@ func RenderLogOperationalSemanticsForPrompt(rows []types.LogOperationalSemantic)
 		fmt.Fprintf(&b, "  observed_protocol_line=%s\n", row.RawExcerpt)
 	}
 	return strings.TrimRight(b.String(), "\n")
-}
-
-func hasLogOperationalTransitionWitness(rows []types.LogOperationalSemantic) bool {
-	for _, row := range rows {
-		if strings.TrimSpace(row.TransitionAuthority) != "" &&
-			row.TransitionAuthority != types.LogOperationalTransitionEventLocalOnly {
-			return true
-		}
-	}
-	return false
 }
