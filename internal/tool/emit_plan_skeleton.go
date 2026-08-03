@@ -228,11 +228,11 @@ func (t *EmitPlanSkeleton) Execute(ctx *types.BusContext, params json.RawMessage
 		if len(c.DependsOn) > 0 {
 			deps = make([]string, 0, len(c.DependsOn))
 			for _, d := range c.DependsOn {
-				deps = append(deps, strings.TrimSpace(d))
+				deps = append(deps, canonicalPlanPathIdentity(d))
 			}
 		}
 		fcs = append(fcs, types.FileChange{
-			Path:      strings.TrimSpace(c.Path),
+			Path:      canonicalPlanPathIdentity(c.Path),
 			Kind:      strings.TrimSpace(c.Kind),
 			Rationale: strings.TrimSpace(c.Rationale),
 			DependsOn: deps,

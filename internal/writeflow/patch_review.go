@@ -2,11 +2,11 @@ package writeflow
 
 import (
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/canonpath"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -489,8 +489,7 @@ func normalizePatchReviewPaths(paths []string) []string {
 }
 
 func normalizePatchReviewPath(raw string) string {
-	path := filepath.ToSlash(strings.TrimSpace(raw))
-	path = strings.TrimPrefix(path, "./")
+	path := canonpath.CanonicalRepoRelative(strings.TrimSpace(raw), "")
 	if path == "." {
 		return ""
 	}

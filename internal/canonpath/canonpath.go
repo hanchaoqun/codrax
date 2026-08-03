@@ -62,6 +62,36 @@ func CanonicalRepoRelative(pathArg, repoRoot string) string {
 	return rel
 }
 
+// CanonicalRepoRelativeIdentity returns the single lexical identity used for
+// paths that are required to stay inside a repository. It deliberately does
+// not resolve against a repository root: callers use it before filesystem
+// access to compare plan, slice, patch-effect, and dependency identities.
+//
+// Redundant separators and current-directory segments are harmless spelling
+// differences and are folded. Absolute paths (including Windows volumes and
+// UNC paths) and any parent-directory segment are rejected rather than
+// cleaned into a different authorized path.
+func CanonicalRepoRelativeIdentity(pathArg string) (string, bool) {
+	raw := strings.TrimSpace(pathArg)
+	if raw == "" {
+		return "", false
+	}
+	slashed := strings.ReplaceAll(raw, "\\", "/")
+	if isAbsoluteRepoPath(slashed) {
+		return "", false
+	}
+	for _, segment := range strings.Split(slashed, "/") {
+		if segment == ".." {
+			return "", false
+		}
+	}
+	cleaned := cleanRepoPath(slashed)
+	if cleaned == "" || cleaned == "." || isAbsoluteRepoPath(cleaned) {
+		return "", false
+	}
+	return cleaned, true
+}
+
 func cleanRepoPath(p string) string {
 	if p == "" {
 		return ""

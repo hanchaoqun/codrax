@@ -46,10 +46,10 @@ func TestCanonicalRepoRelative(t *testing.T) {
 			path: "/mnt/e/other/x.go", repoRoot: "/mnt/d/repo", want: "/mnt/e/other/x.go",
 		},
 		{
-			name: "README at repo top-level",
-			path: "/mnt/d/temp/donghu/iSulad-master/README.md",
+			name:     "README at repo top-level",
+			path:     "/mnt/d/temp/donghu/iSulad-master/README.md",
 			repoRoot: "/mnt/d/temp/donghu/iSulad-master",
-			want: "README.md",
+			want:     "README.md",
 		},
 		// Windows-style backslash paths emitted by an LLM running on
 		// (or pretending to run on) Windows reach the canonicaliser
@@ -139,5 +139,32 @@ func TestCanonicalRepoRelative_RelativeRepoRoot(t *testing.T) {
 	got = CanonicalRepoRelative("README.md", ".")
 	if got != "README.md" {
 		t.Errorf("relative citation + `-repo .`: got %q, want %q", got, "README.md")
+	}
+}
+
+func TestCanonicalRepoRelativeIdentity(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+		ok   bool
+	}{
+		{name: "redundant separators", raw: "src/main//java/App.java", want: "src/main/java/App.java", ok: true},
+		{name: "dot segments", raw: "./src/./main.go", want: "src/main.go", ok: true},
+		{name: "backslash separators", raw: `src\\main\\App.java`, want: "src/main/App.java", ok: true},
+		{name: "parent segment", raw: "src/../outside.go", ok: false},
+		{name: "posix absolute", raw: "/tmp/outside.go", ok: false},
+		{name: "windows absolute", raw: `C:\\repo\\outside.go`, ok: false},
+		{name: "unc absolute", raw: `\\\\server\\share\\outside.go`, ok: false},
+		{name: "empty", raw: "  ", ok: false},
+		{name: "repo root", raw: ".", ok: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := CanonicalRepoRelativeIdentity(tt.raw)
+			if got != tt.want || ok != tt.ok {
+				t.Fatalf("CanonicalRepoRelativeIdentity(%q)=(%q,%t), want (%q,%t)", tt.raw, got, ok, tt.want, tt.ok)
+			}
+		})
 	}
 }

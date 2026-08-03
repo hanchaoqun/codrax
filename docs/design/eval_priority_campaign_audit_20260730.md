@@ -4241,6 +4241,73 @@ supersession。全相关回归：
 
 状态：`REPLANPROOF1 + CAPCAL1 implemented / full-tests-pass / clean write replay next`。
 
+#### B47 r4：关系权限与答案 facet 冲突；计划路径身份跨层漂移
+
+干净 `main@b667ccc7c` 严格并行 2 个异构 case：
+
+- `read_combo_log_current_code_boundary`：160s，runner PASS / human FAIL；
+- `github_issue_commons_lang_random_ascii_symptom`：313s，runner FAIL / human FAIL，workflow
+  在 verify 前 blocked。
+
+read/log 上下文逐层人工审计：
+
+1. `RELSEM1` 已真实到达 Log Triage、Explorer 与 Finalizer：
+   `relation_authority=observed_log_line_order_only`、
+   `cross_event_transition=unproven`、`typed_transition_witness=absent`；4/4 与 1/3 的
+   carrier/value/domain 也准确，说明 producer-owned 上下文的精度已经足够；
+2. Explorer 只读了 semantic decoder/message 定义，没有读到把 dispatch failure 连接到 renderer
+   rewrite 的 production caller→callee 边；final prompt 也明确“无 grounded edge”，因此正确回答
+   应把 runtime 跳转保持为未证，而不是补猜；
+3. 模型仍把附件 line order、decoder 定义和当前机制候选写成“failure chain / root cause / 驱动
+   retry/rewrite”。其中一部分是模型未服从清晰 typed fence；但系统合同同时硬要求
+   `principal_path_edge`，在 typed authority 明确没有 path edge 时仍要求一个 path-shaped facet，
+   对模型形成反向结构诱导；
+4. 最优方案不是扫描 answer 词面或删除模型结论，而是在 Finalizer 上下文构造前，用 typed
+   evidence authority 调和 required facet：无 grounded transition 时，把 path-edge 义务投影为
+   `independent_facts + transition_unproven` 的不确定性 facet；一旦有真实 typed edge，原调用链
+   facet 保持不变。残余越权若仍发生才归模型波动。
+
+write 全链人工审计：
+
+1. replan 的 source path 使用了
+   `src/main/java/org/apache//commons/lang3/RandomStringUtils.java`；Git apply、actual diff 与
+   patch-effect 合理地报告单斜杠规范路径；
+2. planner `changes[].path`、`target_paths`、active slice 与 patch-review 各有独立弱 normalizer，
+   scope gate 用原始字符串比较，因而把同一文件误报为
+   `patch_effect_path_outside_plan_scope`；
+3. 前一 plan 的 immutable JSON 与 controller-owned cumulative scope 均存在，证明
+   `REPLANPROOF1a` 生效；本轮在 verify 前被 PATH identity 误报阻断，尚不能验收 CAPCAL1；
+4. 这是 plan/dependency/slice/effect/verification 共用主键缺失的系统 GAP，不是 Java fixture 或
+   某个双斜杠的特例。
+
+新增项：
+
+| GAP | 优先级 | 泛化问题 | 最优方案 | 状态 |
+|---|---:|---|---|---|
+| `EVAL-B47-PATHID1` | P1 | planner、controller、slice、patch-effect 对仓库相对路径使用不同 lexical identity，合法补丁可被误判越界，依赖/rename 也可能漂移 | 在零 internal 依赖的 `canonpath` 建立 safe repo-relative identity；emit seam 先统一 path/new_path/depends_on，controller 与 patch-review 防御性消费同一 canonicalizer；绝对路径、UNC、盘符、parent traversal 保持 fail-closed | implemented/full-tests-pass；write replay next |
+| `EVAL-B47-FACETAUTH1` | P1 | typed relation authority 明确 `transition=unproven`，答案合同仍硬要求 path-edge facet，精确上下文与结构要求互相冲突 | required facets 在 prompt 前按 typed evidence authority 投影：无 edge 时要求 independent facts + uncertainty，有 edge 时保留 path；不读 RawRequest/answer prose，不拒绝或改写模型答案 | open/code-audit next |
+
+#### B47-PATHID1：安全仓库相对路径的单一身份
+
+本批实现：
+
+1. `internal/canonpath` 增加 `CanonicalRepoRelativeIdentity`：trim、跨平台 slash、重复分隔符与
+   `.` segment 归一；POSIX absolute、Windows volume、UNC、空/`.` 和任意 `..` segment 拒绝；
+2. single-shot `emit_change_plan` 与 split `emit_plan_skeleton` 的公共 canonical shape 在任何 graph
+   validator、TargetPaths、slice 或 cumulative scope 构造前，统一
+   `changes[].path / new_path / depends_on`；canonical alias duplicate 因而按同一文件拒绝；
+3. graph hard gate 新增 typed unsafe reason code，Windows 绝对路径在 Linux/macOS host 上也不能
+   借平台 `filepath.IsAbs` 差异混入 repo；路径安全没有因修复 alias 而放宽；
+4. controller 与 patch-review 改为消费同一中立 canonicalizer，actual diff 的单斜杠与 plan 的
+   重复斜杠不再产生 scope escape；真正的 outside-worktree/path event 仍保持 hard block；
+5. 没有读取用户原文、模型 thinking/summary/final、patch 代码内容或 case ID；未触碰 read/Trace
+   路由、显式时间窗因果投影、自动补采和系统自动补齐。
+
+回归覆盖：重复 slash、`.`、反斜杠、path/new_path/depends_on 一致化、alias duplicate、patch
+effect 与 active slice 同一身份，以及 POSIX/Windows/UNC/parent traversal 负例。相关完整包回归
+在 production 修改后通过：`canonpath 0.650s / writeflow 0.453s / tool 162.914s /
+orchestrator 12.131s`；新增定向测试四包全部通过。
+
 任务状态：
 
 - [x] B47-T7：SEMCAL1 实现、全量测试、独立推送，并以 read + operation 严格并行 2 个回放；
@@ -4249,8 +4316,12 @@ supersession。全相关回归：
   LOGCITE1 是否复现；
 - [x] B47-T8a：REPLANPROOF1a 累计作用域、不可变 plan 工件、多 plan proof artifact 独立实现并回归；
 - [x] B47-T8b：实现 CAPCAL1 与 failed→later-success typed supersession，完整相关回归；
-- [ ] B47-T8c：从干净 HEAD 严格并行 2 个异构 case；write 回放必须审累计 still-applied
-  paths/contracts 与 capability caliber，不以 `verified` 字样作 oracle。
+- [x] B47-T8c：从干净 HEAD 严格并行 2 个异构 case并完成人工审计；累计 scope 工件在场，
+  但 PATHID1 于 verify 前阻断，CAPCAL1 仍待下一 write 回放；
+- [x] B47-T8d：实现 PATHID1、跨平台安全负例与 patch-review 生产 witness 回归，独立提交推送；
+- [ ] B47-T8e：审计并实现 FACETAUTH1；不得以 answer/request 关键词 hard gate，不得系统替答；
+- [ ] B47-T8f：从干净 HEAD 严格并行下一对异构 case；write 必须走到 capability ledger，另一个
+  case 切换 read/data/plan/operation 高优先维度，避免持续拟合同一日志。
 
 ### B42：生成物写模式 × 日志/源码机制对比审计（2026-08-02）
 

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/canonpath"
 	"github.com/hanchaoqun/codrax/internal/tool/width"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/hanchaoqun/codrax/internal/writeflow"
@@ -40,21 +41,38 @@ func emitChangesToFileChanges(changes []emitChangePlanChange) []types.FileChange
 		if len(c.DependsOn) > 0 {
 			deps = make([]string, 0, len(c.DependsOn))
 			for _, d := range c.DependsOn {
-				deps = append(deps, strings.TrimSpace(d))
+				deps = append(deps, canonicalPlanPathIdentity(d))
 			}
 		}
 		out = append(out, types.FileChange{
-			Path:       strings.TrimSpace(c.Path),
+			Path:       canonicalPlanPathIdentity(c.Path),
 			Kind:       strings.TrimSpace(c.Kind),
 			NewContent: c.NewContent,
 			Patch:      c.Patch,
 			Edits:      append([]types.StructuredEdit(nil), c.Edits...),
-			NewPath:    strings.TrimSpace(c.NewPath),
+			NewPath:    canonicalOptionalPlanPathIdentity(c.NewPath),
 			Rationale:  strings.TrimSpace(c.Rationale),
 			DependsOn:  deps,
 		})
 	}
 	return out
+}
+
+func canonicalPlanPathIdentity(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if path, ok := canonpath.CanonicalRepoRelativeIdentity(trimmed); ok {
+		return path
+	}
+	// Preserve invalid spellings so the structural validator can reject them
+	// with a typed repair reason instead of turning them into an empty path.
+	return trimmed
+}
+
+func canonicalOptionalPlanPathIdentity(raw string) string {
+	if strings.TrimSpace(raw) == "" {
+		return ""
+	}
+	return canonicalPlanPathIdentity(raw)
 }
 
 // validatePlanGraphIntegrity bundles the four content-independent
@@ -82,6 +100,10 @@ func validatePlanGraphIntegrityWithRepair(toolName string, changes []types.FileC
 			rej := "one of the changes has an empty path"
 			return rej, planRepairPackFromReason(toolName, "change_path_empty", rej, []string{"$.changes[].path"}, nil)
 		}
+		if _, ok := canonpath.CanonicalRepoRelativeIdentity(path); !ok {
+			rej := fmt.Sprintf("change %q path must be a safe repo-relative path without parent traversal", path)
+			return rej, planRepairPackFromReason(toolName, "change_path_unsafe", rej, []string{"$.changes[].path"}, []string{path})
+		}
 		if !isLegalChangeKind(strings.TrimSpace(c.Kind)) {
 			rej := fmt.Sprintf("change %q has illegal kind %q (must be create|modify|delete|patch|rename)", path, c.Kind)
 			return rej, planRepairPackWithEnums(toolName, "change_kind_invalid", rej, []string{"$.changes[].kind"}, map[string][]string{
@@ -106,6 +128,10 @@ func validatePlanGraphIntegrityWithRepair(toolName string, changes []types.FileC
 			if newPath == "" {
 				rej := fmt.Sprintf("change %q has kind=rename but new_path is empty", path)
 				return rej, planRepairPackFromReason(toolName, "rename_new_path_empty", rej, []string{"$.changes[].new_path"}, []string{path})
+			}
+			if _, ok := canonpath.CanonicalRepoRelativeIdentity(newPath); !ok {
+				rej := fmt.Sprintf("change %q new_path %q must be a safe repo-relative path without parent traversal", path, newPath)
+				return rej, planRepairPackFromReason(toolName, "rename_new_path_unsafe", rej, []string{"$.changes[].new_path"}, []string{path, newPath})
 			}
 			if newPath == path {
 				rej := fmt.Sprintf("change %q has kind=rename with new_path equal to path; remove the rename or pick a different destination", path)
@@ -139,6 +165,10 @@ func validatePlanGraphIntegrityWithRepair(toolName string, changes []types.FileC
 			if dep == "" {
 				rej := fmt.Sprintf("change %q has an empty depends_on entry", path)
 				return rej, planRepairPackFromReason(toolName, "depends_on_empty", rej, []string{"$.changes[].depends_on"}, []string{path})
+			}
+			if _, ok := canonpath.CanonicalRepoRelativeIdentity(dep); !ok {
+				rej := fmt.Sprintf("change %q depends_on %q, which is not a safe repo-relative path", path, dep)
+				return rej, planRepairPackFromReason(toolName, "depends_on_path_unsafe", rej, []string{"$.changes[].depends_on"}, []string{path, dep})
 			}
 			if dep == path {
 				rej := fmt.Sprintf("change %q depends_on itself", path)

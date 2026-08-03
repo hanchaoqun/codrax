@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
+	"github.com/hanchaoqun/codrax/internal/canonpath"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/loopkernel"
@@ -3048,8 +3049,7 @@ func patchReviewConventionActiveSymbols(plan *types.ChangePlan) []string {
 }
 
 func normalizeControllerPath(raw string) string {
-	path := filepath.ToSlash(strings.TrimSpace(raw))
-	path = strings.TrimPrefix(path, "./")
+	path := canonpath.CanonicalRepoRelative(strings.TrimSpace(raw), "")
 	if path == "." {
 		return ""
 	}
