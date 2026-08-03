@@ -25,6 +25,9 @@ func TestShippingAnswerPathsDoNotCallVisibleModelContentMutators(t *testing.T) {
 		"normalizeRuntimeObservationOnlyDecisionBlocks":         true,
 		"normalizeRuntimeArtifactVisibleCitationSentinels":      true,
 		"normalizeExternalObservationVisibleCitationSentinels":  true,
+		"compileEnumerationDisplayTableRows":                    true,
+		"normalizeEnumerationDisplayRequestedFieldSurfaces":     true,
+		"normalizePrincipalEnumerationRowBlocks":                true,
 	}
 	for _, tc := range []struct {
 		file string

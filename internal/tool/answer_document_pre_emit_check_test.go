@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -2030,6 +2031,9 @@ func TestNormalizeAggregateMemberSetCarriers_MaterializesExhaustiveEnumerationRo
 	if block.Kind != types.BlockOrderedList || block.SurfaceRole != types.SurfacePrincipal || len(block.Items) != 3 {
 		t.Fatalf("unexpected materialized block: %+v", block)
 	}
+	if block.SystemGeneratedKind != types.AnswerSystemGeneratedPrincipalEnumerationRows {
+		t.Fatalf("typed member-set supplement lacks system ownership marker: %+v", block)
+	}
 	if block.Items[0].Label != "KindA" || block.Items[0].CitationRef < 0 || len(doc.Citations) != 3 {
 		t.Fatalf("items should preserve member labels and cite support_refs: block=%+v citations=%+v", block, doc.Citations)
 	}
@@ -2095,7 +2099,7 @@ func TestNormalizeAggregateMemberSetCarriers_PreservesRelationDimensionLabel(t *
 	}
 }
 
-func TestNormalizeAggregateMemberSetCarriers_AnnotatesCompletePrimaryRelationListWithoutDuplicatingRows(t *testing.T) {
+func TestNormalizeAggregateMemberSetCarriers_AppendsMarkedRelationLabelWithoutEditingPrimaryList(t *testing.T) {
 	mu := types.NewMutableState("list implementations")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
 		Kind:       types.AnswerAggregateMemberSet,
@@ -2145,29 +2149,30 @@ func TestNormalizeAggregateMemberSetCarriers_AnnotatesCompletePrimaryRelationLis
 		{File: "internal/beta.go", Line: 22},
 	}}
 
+	beforeTitle := doc.Blocks[0].Title
+	beforeItems := append([]types.AnswerBlockItem(nil), doc.Blocks[0].Items...)
 	before := len(doc.Blocks)
-	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 0 {
-		t.Fatalf("annotating an existing complete primary carrier must not count as materialized rows, fixed=%d", fixed)
+	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 2 {
+		t.Fatalf("expected two typed rows in a separate relation-label supplement, fixed=%d", fixed)
 	}
-	if len(doc.Blocks) != before {
-		t.Fatalf("complete structured member labels must not gain a duplicate carrier: before=%d after=%d doc=%+v", before, len(doc.Blocks), doc.Blocks)
+	if len(doc.Blocks) != before+1 {
+		t.Fatalf("expected one separate system carrier: before=%d after=%d doc=%+v", before, len(doc.Blocks), doc.Blocks)
 	}
-	if doc.Blocks[0].Title != "Controller implementations (2)" {
-		t.Fatalf("typed relation label should annotate the existing carrier, got %+v", doc.Blocks[0])
+	if doc.Blocks[0].Title != beforeTitle || !reflect.DeepEqual(doc.Blocks[0].Items, beforeItems) {
+		t.Fatalf("model primary list was edited: %+v", doc.Blocks[0])
 	}
-	if !principalEnumerationBlockHasEnumerationFacet(doc.Blocks[0]) {
-		t.Fatalf("annotated carrier must retain an explicit enumeration facet: %+v", doc.Blocks[0])
+	supplement := doc.Blocks[len(doc.Blocks)-1]
+	if supplement.SystemGeneratedKind != types.AnswerSystemGeneratedPrincipalEnumerationRows ||
+		supplement.Title != "Controller implementations (2)" {
+		t.Fatalf("relation-label supplement lacks system ownership or typed label: %+v", supplement)
 	}
 	visible := answerDocumentTestVisibleSurface(doc)
-	if got := strings.Count(visible, "alphaController"); got != 2 {
-		t.Fatalf("expected one list row plus one diagram node, got %d occurrences:\n%s", got, visible)
-	}
-	if strings.Contains(visible, "accepted structured investigation checklist") {
-		t.Fatalf("system relation supplement must not duplicate an already complete primary list:\n%s", visible)
+	if !strings.Contains(visible, "accepted structured investigation checklist") {
+		t.Fatalf("separate system relation supplement must disclose its source:\n%s", visible)
 	}
 }
 
-func TestNormalizeAggregateMemberSetCarriers_AnnotatesCompletePrincipalMarkdownTableWithoutDuplicatingRows(t *testing.T) {
+func TestNormalizeAggregateMemberSetCarriers_AppendsMarkedRelationLabelWithoutEditingMarkdownTable(t *testing.T) {
 	mu := types.NewMutableState("list callers")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
 		Kind:       types.AnswerAggregateMemberSet,
@@ -2210,18 +2215,23 @@ func TestNormalizeAggregateMemberSetCarriers_AnnotatesCompletePrincipalMarkdownT
 		}, "\n"),
 	}}}
 
+	beforeBlock := doc.Blocks[0]
 	before := len(doc.Blocks)
-	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 0 {
-		t.Fatalf("annotating a complete markdown carrier must not materialize duplicate rows, fixed=%d doc=%+v", fixed, doc.Blocks)
+	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 2 {
+		t.Fatalf("expected two typed rows in a separate relation-label supplement, fixed=%d doc=%+v", fixed, doc.Blocks)
 	}
-	if len(doc.Blocks) != before {
-		t.Fatalf("complete markdown table must remain the only member carrier: before=%d after=%d doc=%+v", before, len(doc.Blocks), doc.Blocks)
+	if len(doc.Blocks) != before+1 {
+		t.Fatalf("expected one separate system carrier: before=%d after=%d doc=%+v", before, len(doc.Blocks), doc.Blocks)
 	}
-	if doc.Blocks[0].Title != "appendTypedRelationKinds production callers (2)" {
-		t.Fatalf("typed relation label should annotate the existing markdown carrier, got %+v", doc.Blocks[0])
+	if doc.Blocks[0].Title != beforeBlock.Title || doc.Blocks[0].Text != beforeBlock.Text ||
+		!slices.Equal(doc.Blocks[0].FacetIDs, beforeBlock.FacetIDs) ||
+		!slices.Equal(doc.Blocks[0].ClaimUses, beforeBlock.ClaimUses) {
+		t.Fatalf("model markdown carrier was edited: before=%+v after=%+v", beforeBlock, doc.Blocks[0])
 	}
-	if got := strings.Count(answerDocumentTestVisibleSurface(doc), "BuildTypedRelationQueryWithResolvedSources"); got != 1 {
-		t.Fatalf("model row must remain single-copy, got %d occurrences in %+v", got, doc.Blocks)
+	supplement := doc.Blocks[len(doc.Blocks)-1]
+	if supplement.SystemGeneratedKind != types.AnswerSystemGeneratedPrincipalEnumerationRows ||
+		supplement.Title != "appendTypedRelationKinds production callers (2)" {
+		t.Fatalf("relation-label supplement lacks system ownership or typed label: %+v", supplement)
 	}
 }
 
@@ -2375,6 +2385,9 @@ func TestNormalizePrincipalSupportSurfaceTermSupplement_MaterializesMissingEvide
 
 	if fixed := normalizePrincipalSupportSurfaceTermSupplement(doc, plan, ctx); fixed != 1 {
 		t.Fatalf("fixed=%d, want 1; doc=%+v", fixed, doc.Blocks)
+	}
+	if got := doc.Blocks[len(doc.Blocks)-1].SystemGeneratedKind; got != types.AnswerSystemGeneratedPrincipalEnumerationFields {
+		t.Fatalf("surface-term supplement lacks system ownership marker: %q", got)
 	}
 	visible := preEmitVisibleAnswerSurface(doc)
 	for _, want := range []string{"@Component", "Index.ets", "系统按已验证证据补充可见标签"} {

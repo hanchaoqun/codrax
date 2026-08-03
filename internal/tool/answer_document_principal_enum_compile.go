@@ -116,6 +116,40 @@ func normalizePrincipalEnumerationRowBlocks(doc *types.AnswerDocumentV2, ctx *ty
 	return changed
 }
 
+// appendPrincipalEnumerationTypedSupplements is the shipping, answer-owner-safe
+// enumeration compiler. It may inspect structured coverage to avoid duplicate
+// facts, but it never edits, removes, annotates, or reorders a model-authored
+// block. Missing accepted rows are emitted only in a separately marked system
+// supplement built from the typed display set.
+func appendPrincipalEnumerationTypedSupplements(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
+	if doc == nil || ctx == nil || ctx.AnalysisIR == nil ||
+		answerDocumentRuntimeObservationOnly(ctx) ||
+		principalEnumerationSystemSupplementSuppressed(doc, ctx) {
+		return 0
+	}
+	plan := answerSurfacePlan(ctx)
+	if plan == nil {
+		return 0
+	}
+	sets := types.CompileEnumerationDisplaySets(&ctx.AnalysisIR.RequestModel, plan)
+	if len(sets) == 0 {
+		return 0
+	}
+	zh := principalEnumerationPrefersZH(ctx)
+	appended := 0
+	for _, set := range sets {
+		rows := principalEnumerationRenderableSupplementRows(principalEnumerationMissingRows(doc, set))
+		if len(rows) == 0 || len(doc.Blocks) >= maxBlocksPerDoc {
+			continue
+		}
+		doc.Blocks = append(doc.Blocks, buildPrincipalEnumerationRowsBlock(
+			doc, set, rows, zh, principalEnumerationSupplementMissing,
+		))
+		appended++
+	}
+	return appended
+}
+
 func sourceInventoryPrincipalAnswerIsModelOwned(ctx *types.BusContext) bool {
 	return ctx != nil && ctx.AnalysisIR != nil &&
 		types.SourceInventoryPrincipalNavigationActive(ctx.AnalysisIR.RequestModel)

@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -10,7 +11,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-func TestNormalizePrincipalEnumerationRowBlocks_AppendsOnlyMissingRowsForPartialMarkdownTable(t *testing.T) {
+func TestAppendPrincipalEnumerationTypedSupplements_AppendsOnlyMissingRowsWithoutEditingModelBlocks(t *testing.T) {
 	mu := types.NewMutableState("公开函数")
 	mu.AppendEvidence([]types.EvidenceItem{
 		enumEvidence("is_registered", "IsRegistered", "internal/analysis/criterion/grammar.go", 100, "IsRegistered 判断给定 Kind 是否在 registered 集合中。"),
@@ -69,14 +70,25 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsOnlyMissingRowsForPartial
 		},
 	}}
 
-	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
-		t.Fatal("expected deterministic principal enumeration normalization")
+	before, err := json.Marshal(doc.Blocks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fixed := appendPrincipalEnumerationTypedSupplements(doc, ctx); fixed != 1 {
+		t.Fatalf("appended=%d, want one separately marked supplement", fixed)
 	}
 	if len(doc.Blocks) != 3 {
 		t.Fatalf("normalizer should preserve the authored table and append missing typed rows: %+v", doc.Blocks)
 	}
 	if doc.Blocks[0].Text != "公开函数（func）共 3 个：Eval、EvalAll、SetExternalArtifactFloor。" {
 		t.Fatalf("model-authored summary should be preserved: %q", doc.Blocks[0].Text)
+	}
+	after, err := json.Marshal(doc.Blocks[:2])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatalf("append-only compiler edited model blocks:\nbefore=%s\nafter=%s", before, after)
 	}
 	table := doc.Blocks[1]
 	if table.Text == "" || table.Kind != types.BlockTable || len(table.Items) != 0 {
@@ -87,6 +99,9 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsOnlyMissingRowsForPartial
 		if !strings.Contains(joined, want) {
 			t.Fatalf("missing typed row supplement lost %q:\n%s", want, joined)
 		}
+	}
+	if got := doc.Blocks[2].SystemGeneratedKind; got != types.AnswerSystemGeneratedPrincipalEnumerationMissing {
+		t.Fatalf("supplement lacks system ownership marker: %q", got)
 	}
 }
 

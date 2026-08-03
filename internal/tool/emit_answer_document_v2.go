@@ -761,16 +761,9 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		logging.Warning("[%s] repaired %d out-of-range item citation_ref value(s) by evidence-surface corroboration", toolName, fixed)
 	}
 	if !sourceInventoryPrincipalAnswerIsModelOwned(ctx) {
-		if fixed := compileEnumerationDisplayTableRows(doc, ctx); fixed > 0 {
-			logging.Warning("[%s] compiled %d deterministic enumeration table row(s) from accepted principal evidence handoff", toolName, fixed)
-		}
-		if fixed := normalizeEnumerationDisplayRequestedFieldSurfaces(doc, ctx); fixed > 0 {
-			pctx.recordPreEmitRepair("normalizeEnumerationDisplayRequestedFieldSurfaces", fixed)
-			logging.Warning("[%s] materialized %d requested source-inventory field surface(s) from typed principal rows", toolName, fixed)
-		}
-		if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed > 0 {
-			pctx.recordPreEmitRepair("normalizePrincipalEnumerationRowBlocks", fixed)
-			logging.Warning("[%s] normalized %d principal enumeration block(s) from accepted evidence-rich row contract", toolName, fixed)
+		if fixed := appendPrincipalEnumerationTypedSupplements(doc, ctx); fixed > 0 {
+			pctx.recordPreEmitRepair("appendPrincipalEnumerationTypedSupplements", fixed)
+			logging.Warning("[%s] appended %d separately marked typed enumeration supplement block(s)", toolName, fixed)
 		}
 	}
 	if fixed := normalizeCurrentSourceCitationSupplement(doc, ctx, pctx); fixed > 0 {

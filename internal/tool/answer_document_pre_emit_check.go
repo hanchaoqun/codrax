@@ -3132,10 +3132,6 @@ func normalizeAggregateMemberSetCarriers(doc *types.AnswerDocumentV2, ctx *types
 			covered {
 			if covered && relationLabelRefs[ref.Index] &&
 				!preEmitPrincipalStructuredBlockClaimsAggregateCategory(doc, fact) {
-				if blockIdx := preEmitPrimaryMemberCarrierIndex(doc, fact, rows); blockIdx >= 0 {
-					annotateAggregateMemberSetCarrier(&doc.Blocks[blockIdx], fact, zh)
-					continue
-				}
 				fixed += appendAggregateMemberSetCarrier(doc, ctx, ref.Index, fact, rows, aggregateMemberSetLabelCarrierTitle(fact, zh), aggregateMemberSetLabelCarrierText(fact.Label, zh))
 			}
 			continue
@@ -3567,9 +3563,10 @@ func appendAggregateMemberSetCarrierBlock(doc *types.AnswerDocumentV2, factIdx i
 		title = "Principal member set"
 	}
 	doc.Blocks = append(doc.Blocks, types.AnswerBlock{
-		ID:    nextAggregateMemberSetBlockID(doc, factIdx, title),
-		Kind:  types.BlockOrderedList,
-		Title: title,
+		ID:                  nextAggregateMemberSetBlockID(doc, factIdx, title),
+		Kind:                types.BlockOrderedList,
+		Title:               title,
+		SystemGeneratedKind: types.AnswerSystemGeneratedPrincipalEnumerationRows,
 	})
 	return len(doc.Blocks) - 1
 }
@@ -4132,14 +4129,15 @@ func normalizePrincipalSupportSurfaceTermSupplement(doc *types.AnswerDocumentV2,
 	}
 	zh := principalEnumerationPrefersZH(ctx)
 	block := types.AnswerBlock{
-		ID:          nextPrincipalSupportSurfaceTermBlockID(doc),
-		Kind:        types.BlockTable,
-		Title:       principalSupportSurfaceTermTitle(zh, len(rows)),
-		Text:        principalSupportSurfaceTermText(zh),
-		SurfaceRole: types.SurfacePrincipal,
-		FacetIDs:    []string{string(types.FacetEnumerationItem)},
-		Columns:     principalSupportSurfaceTermColumns(zh),
-		Items:       make([]types.AnswerBlockItem, 0, len(rows)),
+		ID:                  nextPrincipalSupportSurfaceTermBlockID(doc),
+		Kind:                types.BlockTable,
+		Title:               principalSupportSurfaceTermTitle(zh, len(rows)),
+		Text:                principalSupportSurfaceTermText(zh),
+		SurfaceRole:         types.SurfacePrincipal,
+		SystemGeneratedKind: types.AnswerSystemGeneratedPrincipalEnumerationFields,
+		FacetIDs:            []string{string(types.FacetEnumerationItem)},
+		Columns:             principalSupportSurfaceTermColumns(zh),
+		Items:               make([]types.AnswerBlockItem, 0, len(rows)),
 	}
 	for i, row := range rows {
 		block.Items = append(block.Items, types.AnswerBlockItem{

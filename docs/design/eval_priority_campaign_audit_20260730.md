@@ -11973,5 +11973,37 @@ command-only 文本、Mermaid metadata 和 call-chain endpoint；全部改为“
 `normalizePrincipalEnumerationRowBlocks` 仍会在非 source-inventory 主车道改写 markdown/structured row、
 剪除 model item、合并 summary；其追加块已有 `SystemGeneratedKind`，但“独立系统 supplement”与
 “就地修改模型 block”混在同一函数。最优方案是只保留单独标记的 typed supplement，删除对模型
-block 的 in-place rewrite/prune；随后再审 `normalizeViewCompatibleAnswerDocument` 中所有删除型分支，
+ block 的 in-place rewrite/prune；随后再审 `normalizeViewCompatibleAnswerDocument` 中所有删除型分支，
 区分无损 schema cleanup 与可见结论删除。
+
+#### B54-I：enumeration compiler 拆成 append-only system fact lane
+
+`EVAL-B54-ENUMAUTHOR1` 冷读确认：shipping 原来依次调用
+`compileEnumerationDisplayTableRows`、`normalizeEnumerationDisplayRequestedFieldSurfaces`、
+`normalizePrincipalEnumerationRowBlocks`。三者会填充模型 table cells、清空 item text、追加列、修改
+summary/count、重写 markdown/structured row、剪除所谓 extraneous item，再在必要时追加系统表。
+`normalizeAggregateMemberSetCarriers` 还会给模型现有 list/table 就地补 title、`SurfaceRole`、facet 和
+claim-use。即使成员值来自 typed authority，这种混合仍让 presentation compiler 实际拥有了模型答案。
+
+本批完成 owner 分离：
+
+1. shipping pipeline 不再调用三个 in-place enumeration normalizer，统一改为
+   `appendPrincipalEnumerationTypedSupplements`；它只读取 typed display set 与结构化覆盖，缺成员时追加
+   `SystemGeneratedKind=principal_enumeration_missing` 的独立 block，不编辑、删除、重排任何既有 block；
+2. aggregate member-set 完整但缺 relation/category label 时，不再给模型 carrier 就地补 title/facet，
+   改为追加 `principal_enumeration_rows` 系统块；普通已覆盖 member set 不重复补；
+3. aggregate member-set 与 principal support surface-term 的所有新增块都显式设置不可由模型提交的
+   in-memory `SystemGeneratedKind`。系统块只携带 accepted typed member/value/source facts，不生成原因、
+   优先级、修复方向或模型结论；
+4. AST ownership tripwire 新增禁止 shipping 重连三个 legacy in-place compiler；partial markdown 回归把
+   原模型 blocks 做 JSON 字节对比，relation list/table 回归分别锁定 title/text/items/facet/claim-use
+   不变，并核验新增块 owner；
+5. source-inventory principal model-owned 车道、Trace runtime projection、显式时间窗与因果补采保持原
+   owner，不进入本编译器。
+
+这保留了完整枚举的 deterministic 价值，同时消除了“系统修改模型表格以通过完整性门”的自证环。
+验证：`go test ./internal/tool -count=1` 全绿（155.730s）；`git diff --check` 通过。
+
+`EVAL-B54-VIEWAUTHOR1` 继续开放：`normalizeViewCompatibleAnswerDocument` 中 metadata-only 分支与
+删除/合并可见 block 的分支仍混在一起。下一批只保留无损结构归一化；任何删除 model block 或清除
+会改变渲染结论的字段，必须改成 typed guidance/校验，不能静默修正文档。
