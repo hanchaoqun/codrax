@@ -3483,6 +3483,7 @@ type verifyCoverageConfidence struct {
 	CoveredSymbols       map[string]bool
 	CoveredContracts     map[string]bool
 	CoveredPaths         map[string]bool
+	TargetBehaviorPaths  map[string]bool
 	ProbeUnavailable     bool
 }
 
@@ -3539,10 +3540,11 @@ func verifyCoverageProjectionFromReport(report *types.ChangeReport, err error) (
 
 func verifyCoverageConfidenceFromReport(report *types.ChangeReport) verifyCoverageConfidence {
 	conf := verifyCoverageConfidence{
-		MissingContracts: map[string]bool{},
-		CoveredSymbols:   map[string]bool{},
-		CoveredContracts: map[string]bool{},
-		CoveredPaths:     map[string]bool{},
+		MissingContracts:    map[string]bool{},
+		CoveredSymbols:      map[string]bool{},
+		CoveredContracts:    map[string]bool{},
+		CoveredPaths:        map[string]bool{},
+		TargetBehaviorPaths: map[string]bool{},
 	}
 	if report == nil {
 		return conf
@@ -3558,6 +3560,14 @@ func verifyCoverageConfidenceFromReport(report *types.ChangeReport) verifyCovera
 			continue
 		}
 		conf.addCoveredPath(cmd.Suite)
+	}
+	for _, row := range report.ChangedPathCoverage {
+		if row.Status != types.ChangedPathVerificationCovered || row.Capability != types.VerificationCapabilityTargetBehavior {
+			continue
+		}
+		for _, alias := range verifyCoveragePathAliases(row.Path) {
+			conf.TargetBehaviorPaths[alias] = true
+		}
 	}
 	for _, rec := range report.VerificationConfidence {
 		status := strings.TrimSpace(rec.Status)
@@ -3639,6 +3649,9 @@ func impactCoverageForTarget(target types.ImpactVerificationTarget, projection v
 			}
 		}
 		if target.Kind == "behavior_contract" {
+			if !projection.Confidence.HasTargetBehavior(target.RelatedPath, target.Path) {
+				return impactCoverageUnverified
+			}
 			ref := strings.TrimSpace(target.ContractRef)
 			if ref == "" {
 				ref = strings.TrimSpace(target.EvidenceRef)
@@ -3682,6 +3695,9 @@ func patchReviewCoverageForFinding(finding types.PatchReviewFinding, projection 
 			}
 		case "behavior_contract_without_verify_coverage":
 			ref := strings.TrimSpace(finding.EvidenceRef)
+			if !projection.Confidence.HasTargetBehavior(finding.RelatedPath, finding.Path) {
+				return types.PatchReviewCoverageUnverified
+			}
 			if projection.Confidence.ProbeUnavailable && (ref == "" || !projection.Confidence.CoveredContracts[ref]) {
 				return types.PatchReviewCoverageUnverified
 			}
@@ -3719,6 +3735,22 @@ func (conf verifyCoverageConfidence) CoversPath(paths ...string) bool {
 		}
 	}
 	return false
+}
+
+func (conf verifyCoverageConfidence) HasTargetBehavior(paths ...string) bool {
+	bounded := false
+	for _, path := range paths {
+		if strings.TrimSpace(path) == "" {
+			continue
+		}
+		bounded = true
+		for _, alias := range verifyCoveragePathAliases(path) {
+			if conf.TargetBehaviorPaths[alias] {
+				return true
+			}
+		}
+	}
+	return !bounded && len(conf.TargetBehaviorPaths) > 0
 }
 
 func impactTargetNeedsScopedCoverage(target types.ImpactVerificationTarget) bool {

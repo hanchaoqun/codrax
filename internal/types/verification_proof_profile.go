@@ -47,6 +47,10 @@ type VerificationProofProfile struct {
 	ProjectRunnerCommands  int                             `json:"project_runner_commands,omitempty"`
 	ProbeCommands          int                             `json:"probe_commands,omitempty"`
 	SyntaxFallbackCommands int                             `json:"syntax_fallback_commands,omitempty"`
+	TargetBehaviorPaths    int                             `json:"target_behavior_paths,omitempty"`
+	TargetExecutionPaths   int                             `json:"target_execution_paths,omitempty"`
+	SourceStaticPaths      int                             `json:"source_static_paths,omitempty"`
+	SyntaxOnlyPaths        int                             `json:"syntax_only_paths,omitempty"`
 	ImpactTargetCount      int                             `json:"impact_target_count,omitempty"`
 	ImpactVerifiedCount    int                             `json:"impact_verified_count,omitempty"`
 	ImpactUnverifiedCount  int                             `json:"impact_unverified_count,omitempty"`
@@ -115,6 +119,7 @@ type VerificationProofLedgerItem struct {
 	Symbol       string                            `json:"symbol,omitempty"`
 	ContractRef  string                            `json:"contract_ref,omitempty"`
 	EvidenceRef  string                            `json:"evidence_ref,omitempty"`
+	Capability   VerificationCapability            `json:"capability,omitempty"`
 	Detail       string                            `json:"detail,omitempty"`
 }
 
@@ -146,6 +151,7 @@ func BuildVerificationProofProfile(plan *ChangePlan, report *ChangeReport) Verif
 	out.CommandCount = len(report.ExecutedCommands)
 	out.ProbeCount = len(report.VerificationConfidence)
 	out.RunnerEvidence = verificationProofRunnerEvidence(report)
+	verificationProofAddCapabilityCounts(&out, report)
 	for _, rec := range report.VerificationConfidence {
 		if code := strings.TrimSpace(rec.ReasonCode); code != "" {
 			out.ConfidenceReasonCodes = append(out.ConfidenceReasonCodes, code)
@@ -165,6 +171,9 @@ func BuildVerificationProofProfile(plan *ChangePlan, report *ChangeReport) Verif
 		}
 	}
 	if plan != nil {
+		if len(HardRequiredWriteBehaviorContractIDs(ChangePlanVerificationBehaviorContracts(plan))) > 0 && out.TargetBehaviorPaths == 0 {
+			addReason("target_behavior_verification_missing")
+		}
 		if plan.PatchReview != nil {
 			coverage := SummarizePatchReviewCoverage(*plan.PatchReview)
 			out.PatchReviewVerdict = coverage.Verdict
@@ -231,6 +240,47 @@ func BuildVerificationProofProfile(plan *ChangePlan, report *ChangeReport) Verif
 	return NormalizeVerificationProofProfile(out)
 }
 
+func verificationProofAddCapabilityCounts(profile *VerificationProofProfile, report *ChangeReport) {
+	if profile == nil || report == nil {
+		return
+	}
+	for _, row := range report.ChangedPathCoverage {
+		if row.Status != ChangedPathVerificationCovered {
+			continue
+		}
+		switch row.Capability {
+		case VerificationCapabilityTargetBehavior:
+			profile.TargetBehaviorPaths++
+		case VerificationCapabilityTargetExecution:
+			profile.TargetExecutionPaths++
+		case VerificationCapabilitySourceStatic:
+			profile.SourceStaticPaths++
+		case VerificationCapabilitySyntaxOnly:
+			profile.SyntaxOnlyPaths++
+		}
+	}
+}
+
+func verificationProofArtifactsHaveHardBehaviorContracts(artifacts []VerificationProofArtifact) bool {
+	for _, artifact := range artifacts {
+		if artifact.Plan != nil && len(HardRequiredWriteBehaviorContractIDs(ChangePlanVerificationBehaviorContracts(artifact.Plan))) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func removeVerificationProofReason(reasons []string, remove string) []string {
+	remove = strings.TrimSpace(remove)
+	out := reasons[:0]
+	for _, reason := range reasons {
+		if strings.TrimSpace(reason) != remove {
+			out = append(out, reason)
+		}
+	}
+	return out
+}
+
 // BuildCumulativeVerificationProofProfile projects the proof strength of a
 // coherent terminal workflow delivery chain. It keeps the primary report's
 // failed/unavailable authority conservative, but lets later/earlier typed
@@ -251,6 +301,10 @@ func BuildCumulativeVerificationProofProfile(primaryPlan *ChangePlan, primaryRep
 	out.ProjectRunnerCommands = 0
 	out.ProbeCommands = 0
 	out.SyntaxFallbackCommands = 0
+	out.TargetBehaviorPaths = 0
+	out.TargetExecutionPaths = 0
+	out.SourceStaticPaths = 0
+	out.SyntaxOnlyPaths = 0
 	out.RunnerEvidence = VerificationProofRunnerNone
 	var confidence []VerificationConfidenceRecord
 	var confidenceReasonCodes []string
@@ -266,6 +320,10 @@ func BuildCumulativeVerificationProofProfile(primaryPlan *ChangePlan, primaryRep
 		out.ProjectRunnerCommands += profile.ProjectRunnerCommands
 		out.ProbeCommands += profile.ProbeCommands
 		out.SyntaxFallbackCommands += profile.SyntaxFallbackCommands
+		out.TargetBehaviorPaths += profile.TargetBehaviorPaths
+		out.TargetExecutionPaths += profile.TargetExecutionPaths
+		out.SourceStaticPaths += profile.SourceStaticPaths
+		out.SyntaxOnlyPaths += profile.SyntaxOnlyPaths
 		out.RunnerEvidence = mergeVerificationProofRunnerEvidence(out.RunnerEvidence, profile.RunnerEvidence)
 		confidence = append(confidence, artifact.Report.VerificationConfidence...)
 		confidenceReasonCodes = append(confidenceReasonCodes, profile.ConfidenceReasonCodes...)
@@ -279,6 +337,11 @@ func BuildCumulativeVerificationProofProfile(primaryPlan *ChangePlan, primaryRep
 	out.Cumulative = true
 	out.ConfidenceReasonCodes = append(out.ConfidenceReasonCodes, confidenceReasonCodes...)
 	out.ReasonCodes = cumulativeVerificationProofReasonCodes(out.ReasonCodes, confidence)
+	if out.TargetBehaviorPaths > 0 {
+		out.ReasonCodes = removeVerificationProofReason(out.ReasonCodes, "target_behavior_verification_missing")
+	} else if verificationProofArtifactsHaveHardBehaviorContracts(unique) {
+		out.ReasonCodes = append(out.ReasonCodes, "target_behavior_verification_missing")
+	}
 	switch out.Status {
 	case VerificationProofFailed, VerificationProofUnavailable, VerificationProofUnknown:
 		// Preserve primary terminal authority for failed/unavailable/unknown.
@@ -314,10 +377,12 @@ func BuildVerificationProofLedger(primaryPlan *ChangePlan, primaryReport *Change
 	}
 	for _, artifact := range unique {
 		out.addVerificationReportLedgerItems(artifact.Report)
+		out.addChangedPathCoverageLedgerItems(artifact.Report)
 		out.addVerificationConfidenceLedgerItems(artifact.Report)
 		out.addPatchReviewLedgerItems(artifact.Plan)
 		out.addImpactLedgerItems(artifact.Plan)
 	}
+	out.resolveHistoricalVerificationFailures(primaryReport)
 	out.State = verificationProofLedgerStateFromProfile(profile)
 	return NormalizeVerificationProofLedger(out)
 }
@@ -450,7 +515,90 @@ func (ledger *VerificationProofLedger) addVerificationReportLedgerItems(report *
 			ReasonCode:   firstNonEmptyVerificationProof(unavailableReasonCode, cmd.ReasonCode, cmd.Outcome),
 			Path:         strings.TrimSpace(cmd.WorkingDir),
 			RelatedPath:  strings.TrimSpace(cmd.Suite),
+			EvidenceRef:  verificationProofCommandIdentity(cmd),
 			Detail:       strings.TrimSpace(cmd.Command),
+		})
+	}
+}
+
+// resolveHistoricalVerificationFailures keeps earlier failures visible while
+// preventing an exact terminal rerun of the same typed command from making
+// the final ledger falsely failed. Only a passed primary report can supersede
+// an earlier command, and identity excludes outcome/status so no prose match
+// or fuzzy command relation is involved.
+func (ledger *VerificationProofLedger) resolveHistoricalVerificationFailures(primary *ChangeReport) {
+	if ledger == nil || primary == nil || primary.NormalizeVerificationStatus() != VerificationStatusPassed {
+		return
+	}
+	primaryPlanID := strings.TrimSpace(primary.PlanID)
+	covered := map[string]bool{}
+	for _, cmd := range primary.ExecutedCommands {
+		if executedCommandFailed(cmd) || verificationProofCommandUnavailableReasonCode(cmd, verificationProofCommandClass(cmd)) != "" {
+			continue
+		}
+		if key := verificationProofCommandIdentity(cmd); key != "" {
+			covered[key] = true
+		}
+	}
+	if len(covered) == 0 {
+		return
+	}
+	supersededReports := map[string]bool{}
+	remainingFailures := map[string]bool{}
+	for i := range ledger.Capabilities {
+		item := &ledger.Capabilities[i]
+		if item.Kind != "executed_command" || item.Status != VerificationProofLedgerItemFailed ||
+			item.ReportPlanID == primaryPlanID {
+			continue
+		}
+		if covered[item.EvidenceRef] {
+			item.Status = VerificationProofLedgerItemAdvisory
+			item.ReasonCode = "superseded_by_terminal_exact_command_pass"
+			supersededReports[item.ReportPlanID] = true
+		} else {
+			remainingFailures[item.ReportPlanID] = true
+		}
+	}
+	for i := range ledger.Capabilities {
+		item := &ledger.Capabilities[i]
+		if item.Kind == "local_verification" && item.Status == VerificationProofLedgerItemFailed &&
+			supersededReports[item.ReportPlanID] && !remainingFailures[item.ReportPlanID] {
+			item.Status = VerificationProofLedgerItemAdvisory
+			item.ReasonCode = "superseded_by_terminal_exact_command_pass"
+		}
+	}
+}
+
+func verificationProofCommandIdentity(cmd ExecutedCommand) string {
+	return verificationProofLedgerStableID(
+		"command_identity",
+		cmd.Runner,
+		cmd.Framework,
+		cmd.WorkingDir,
+		cmd.Suite,
+		cmd.Command,
+	)
+}
+
+func (ledger *VerificationProofLedger) addChangedPathCoverageLedgerItems(report *ChangeReport) {
+	if ledger == nil || report == nil {
+		return
+	}
+	for _, row := range report.ChangedPathCoverage {
+		status := VerificationProofLedgerItemUnverified
+		if row.Status == ChangedPathVerificationCovered {
+			status = VerificationProofLedgerItemCovered
+		}
+		ledger.Capabilities = append(ledger.Capabilities, VerificationProofLedgerItem{
+			ID:           verificationProofLedgerStableID("changed_path_capability", report.PlanID, row.Path, string(row.Caliber), string(row.Capability)),
+			Kind:         "changed_path_verification",
+			Status:       status,
+			Source:       firstNonEmptyVerificationProof(row.Source, "changed_path_coverage"),
+			ReportPlanID: strings.TrimSpace(report.PlanID),
+			Category:     string(row.Caliber),
+			ReasonCode:   strings.TrimSpace(row.ReasonCode),
+			Path:         strings.TrimSpace(row.Path),
+			Capability:   normalizeVerificationCapability(row.Capability),
 		})
 	}
 }
@@ -625,6 +773,18 @@ func NormalizeVerificationProofProfile(in VerificationProofProfile) Verification
 	if in.SyntaxFallbackCommands < 0 {
 		in.SyntaxFallbackCommands = 0
 	}
+	if in.TargetBehaviorPaths < 0 {
+		in.TargetBehaviorPaths = 0
+	}
+	if in.TargetExecutionPaths < 0 {
+		in.TargetExecutionPaths = 0
+	}
+	if in.SourceStaticPaths < 0 {
+		in.SourceStaticPaths = 0
+	}
+	if in.SyntaxOnlyPaths < 0 {
+		in.SyntaxOnlyPaths = 0
+	}
 	if in.ContributingReports < 0 {
 		in.ContributingReports = 0
 	}
@@ -696,6 +856,7 @@ func normalizeVerificationProofLedgerItems(in []VerificationProofLedgerItem, lim
 		item.Symbol = strings.TrimSpace(item.Symbol)
 		item.ContractRef = strings.TrimSpace(item.ContractRef)
 		item.EvidenceRef = strings.TrimSpace(item.EvidenceRef)
+		item.Capability = normalizeVerificationCapability(item.Capability)
 		item.Detail = strings.TrimSpace(item.Detail)
 		item.Status = normalizeVerificationProofLedgerItemStatus(item.Status)
 		if item.Kind == "" {
@@ -763,6 +924,9 @@ func mergeVerificationProofLedgerItem(a, b VerificationProofLedgerItem) Verifica
 	if a.EvidenceRef == "" {
 		a.EvidenceRef = b.EvidenceRef
 	}
+	if verificationCapabilityRank(b.Capability) > verificationCapabilityRank(a.Capability) {
+		a.Capability = b.Capability
+	}
 	if a.Detail == "" {
 		a.Detail = b.Detail
 	}
@@ -780,6 +944,33 @@ func normalizeVerificationProofLedgerItemStatus(in VerificationProofLedgerItemSt
 		return in
 	default:
 		return VerificationProofLedgerItemUnknown
+	}
+}
+
+func normalizeVerificationCapability(in VerificationCapability) VerificationCapability {
+	switch in {
+	case VerificationCapabilitySyntaxOnly,
+		VerificationCapabilitySourceStatic,
+		VerificationCapabilityTargetExecution,
+		VerificationCapabilityTargetBehavior:
+		return in
+	default:
+		return VerificationCapabilityUnknown
+	}
+}
+
+func verificationCapabilityRank(in VerificationCapability) int {
+	switch normalizeVerificationCapability(in) {
+	case VerificationCapabilityTargetBehavior:
+		return 4
+	case VerificationCapabilityTargetExecution:
+		return 3
+	case VerificationCapabilitySourceStatic:
+		return 2
+	case VerificationCapabilitySyntaxOnly:
+		return 1
+	default:
+		return 0
 	}
 }
 
@@ -882,6 +1073,7 @@ func verificationProofLedgerItemKey(item VerificationProofLedgerItem) string {
 		item.Symbol,
 		item.ContractRef,
 		item.EvidenceRef,
+		string(item.Capability),
 	)
 }
 

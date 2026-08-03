@@ -6388,6 +6388,43 @@ func TestApplyVerifyCoverageToChangePlanPreservesMissingProbeSymbolGap(t *testin
 	}
 }
 
+func TestApplyVerifyCoverageToChangePlanRequiresTargetBehaviorForBehaviorContract(t *testing.T) {
+	newPlan := func() *types.ChangePlan {
+		return &types.ChangePlan{
+			ID: "plan-capability",
+			ImpactAnalysis: &types.ImpactAnalysisResult{VerificationTargets: []types.ImpactVerificationTarget{{
+				Kind: "behavior_contract", Path: "src/Widget.java", ContractRef: "widget-contract", CoverageStatus: "unverified",
+			}}},
+			PatchReview: &types.PatchReviewRecord{Findings: []types.PatchReviewFinding{{
+				Code: "behavior_contract_without_verify_coverage", Category: types.PatchReviewCategorySemanticCoverage,
+				Path: "src/Widget.java", EvidenceRef: "widget-contract", CoverageStatus: types.PatchReviewCoverageUnverified,
+			}}},
+		}
+	}
+	reportFor := func(capability types.VerificationCapability) *types.ChangeReport {
+		return &types.ChangeReport{
+			PlanID: "plan-capability", Passed: true, VerificationStatus: types.VerificationStatusPassed,
+			ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+				Path: "src/Widget.java", Status: types.ChangedPathVerificationCovered, Capability: capability,
+			}},
+		}
+	}
+
+	staticPlan := newPlan()
+	applyVerifyCoverageToChangePlan(staticPlan, reportFor(types.VerificationCapabilitySourceStatic), nil)
+	if staticPlan.ImpactAnalysis.VerificationTargets[0].CoverageStatus != "unverified" ||
+		staticPlan.PatchReview.Findings[0].CoverageStatus != types.PatchReviewCoverageUnverified {
+		t.Fatalf("source-static evidence promoted behavior contract: impact=%+v review=%+v", staticPlan.ImpactAnalysis, staticPlan.PatchReview)
+	}
+
+	behaviorPlan := newPlan()
+	applyVerifyCoverageToChangePlan(behaviorPlan, reportFor(types.VerificationCapabilityTargetBehavior), nil)
+	if behaviorPlan.ImpactAnalysis.VerificationTargets[0].CoverageStatus != "verified" ||
+		behaviorPlan.PatchReview.Findings[0].CoverageStatus != types.PatchReviewCoverageVerified {
+		t.Fatalf("target-behavior evidence did not verify behavior contract: impact=%+v review=%+v", behaviorPlan.ImpactAnalysis, behaviorPlan.PatchReview)
+	}
+}
+
 func TestApplyVerifyCoverageToChangePlanPreservesUnavailableProbeSymbolGap(t *testing.T) {
 	plan := coverageProjectionPlanForTest()
 	applyVerifyCoverageToChangePlan(plan, &types.ChangeReport{

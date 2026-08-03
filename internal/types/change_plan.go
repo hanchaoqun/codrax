@@ -1139,6 +1139,19 @@ const (
 	ChangedPathVerificationProbe                ChangedPathVerificationCaliber = "verification_probe"
 )
 
+// VerificationCapability states what a successful verification observation
+// can prove. It is derived from typed runner/probe identity, exact path scope
+// and contract binding; command text and model prose never participate.
+type VerificationCapability string
+
+const (
+	VerificationCapabilityUnknown         VerificationCapability = "unknown"
+	VerificationCapabilitySyntaxOnly      VerificationCapability = "syntax_only"
+	VerificationCapabilitySourceStatic    VerificationCapability = "source_static"
+	VerificationCapabilityTargetExecution VerificationCapability = "target_execution"
+	VerificationCapabilityTargetBehavior  VerificationCapability = "target_behavior"
+)
+
 // ChangedPathVerificationCoverage records the strongest typed successful
 // evidence for one recognized changed source path, or why no such evidence was
 // available. LanguageFamilies are path-derived audit labels; Status is decided
@@ -1148,6 +1161,7 @@ type ChangedPathVerificationCoverage struct {
 	LanguageFamilies []VerificationLanguageFamily   `json:"language_families,omitempty"`
 	Status           ChangedPathVerificationStatus  `json:"status"`
 	Caliber          ChangedPathVerificationCaliber `json:"caliber,omitempty"`
+	Capability       VerificationCapability         `json:"capability,omitempty"`
 	Runner           string                         `json:"runner,omitempty"`
 	Source           string                         `json:"source,omitempty"`
 	ReasonCode       string                         `json:"reason_code,omitempty"`

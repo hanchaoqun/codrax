@@ -26,7 +26,8 @@ func TestChangedPathCoverageAcceptsSameLanguageProjectRunner(t *testing.T) {
 	}
 	if len(report.ChangedPathCoverage) != 1 ||
 		report.ChangedPathCoverage[0].Status != types.ChangedPathVerificationCovered ||
-		report.ChangedPathCoverage[0].Caliber != types.ChangedPathVerificationProjectRunner {
+		report.ChangedPathCoverage[0].Caliber != types.ChangedPathVerificationProjectRunner ||
+		report.ChangedPathCoverage[0].Capability != types.VerificationCapabilityTargetBehavior {
 		t.Fatalf("project runner coverage missing: %+v", report.ChangedPathCoverage)
 	}
 	if got := report.ExecutedCommands[0].CoveredPaths; len(got) != 1 || got[0] != "src/main/java/example/Widget.java" {
@@ -227,7 +228,8 @@ func TestChangedPathCoverageAcceptsExactCrossLanguageDeclaredProjectCheck(t *tes
 
 	if !report.Passed || report.NormalizeVerificationStatus() != types.VerificationStatusPassed ||
 		report.ChangedPathCoverage[0].Status != types.ChangedPathVerificationCovered ||
-		report.ChangedPathCoverage[0].Caliber != types.ChangedPathVerificationDeclaredProjectCheck {
+		report.ChangedPathCoverage[0].Caliber != types.ChangedPathVerificationDeclaredProjectCheck ||
+		report.ChangedPathCoverage[0].Capability != types.VerificationCapabilitySourceStatic {
 		t.Fatalf("exact repository-declared target must cover its Rust member without pretending Python is Rust: %+v", report)
 	}
 }
@@ -361,7 +363,8 @@ func TestChangedPathCoverageAcceptsExactSameLanguageSourceCheck(t *testing.T) {
 	if !report.Passed || report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
 		t.Fatalf("exact same-language source check should cover path: %+v", report)
 	}
-	if report.ChangedPathCoverage[0].Caliber != types.ChangedPathVerificationSourceCheck {
+	if report.ChangedPathCoverage[0].Caliber != types.ChangedPathVerificationSourceCheck ||
+		report.ChangedPathCoverage[0].Capability != types.VerificationCapabilitySyntaxOnly {
 		t.Fatalf("source-check caliber missing: %+v", report.ChangedPathCoverage)
 	}
 }
@@ -407,8 +410,33 @@ func TestChangedPathCoverageAcceptsPathBoundSameLanguageProbe(t *testing.T) {
 
 	if !report.Passed ||
 		len(report.ChangedPathCoverage) != 1 ||
-		report.ChangedPathCoverage[0].Caliber != types.ChangedPathVerificationProbe {
+		report.ChangedPathCoverage[0].Caliber != types.ChangedPathVerificationProbe ||
+		report.ChangedPathCoverage[0].Capability != types.VerificationCapabilityTargetExecution {
 		t.Fatalf("path-bound same-language probe should cover path: %+v", report)
+	}
+}
+
+func TestChangedPathCoverageContractBoundProbeHasTargetBehaviorCapability(t *testing.T) {
+	ctx := changedPathCoverageTestContext([]string{"widget.py"})
+	plan := ctx.Mutable.ChangePlan()
+	plan.VerificationProbes = []types.VerificationProbe{{
+		ID:                "widget_value",
+		Language:          "python",
+		ChangedSymbolRefs: []string{"path:widget.py"},
+		ContractRefs:      []string{"widget-value-contract"},
+	}}
+	ctx.Mutable.SetChangePlan(plan)
+	report := &types.ChangeReport{Passed: true, TestResults: []types.TestResult{{
+		AssertionID: "widget_value",
+		Suite:       "verification_probe/python",
+		Passed:      true,
+	}}}
+
+	applyChangedPathVerificationCoverage(ctx, report)
+
+	if !report.Passed || len(report.ChangedPathCoverage) != 1 ||
+		report.ChangedPathCoverage[0].Capability != types.VerificationCapabilityTargetBehavior {
+		t.Fatalf("contract-bound same-language probe must carry target behavior capability: %+v", report)
 	}
 }
 

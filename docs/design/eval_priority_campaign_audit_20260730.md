@@ -4080,8 +4080,8 @@ write 全链人工审计：
 | GAP | 优先级 | 泛化问题 | 最优方案 | 状态 |
 |---|---:|---|---|---|
 | `EVAL-B47-SEMCAL1` | P1 | counter domain 精确但 value/unit 未铸造，stage ordinal 仍被升级成 retry count/exhaustion；system protocol principal row 又被 compact ledger 排掉 | protocol carrier 增加 value kind、分子/分母语义与 typed exclusions；compact principal selection 为 system protocol rows 保留 bounded seats，冲突 model rows 保持 advisory。无答案扫描/替换 | covered/live-replay |
-| `EVAL-B47-REPLANPROOF1` | P1 | repair plan 只验证自己的 target path/contract，前 plan 仍应用的测试/源码和行为义务从最终 proof closure 消失 | workflow verification input 取 cumulative still-applied path + contract closure；successful exact roster 可逐成员授权，失败历史保留但由后续成功证据 supersede，不能静默遗忘 | partial：累计作用域/不可变工件/多 plan proof 已实现；supersession 随 CAPCAL1 收口 |
-| `EVAL-B47-CAPCAL1` | P1 | Go/Python 源码 token scan 被计成“2 tests/strong”，虽无目标语言行为执行且无 contract coverage | 每个 command/probe 发布 typed verification capability/caliber；source-static 只授权结构/path/check，target behavior 必须由执行型、身份绑定且 contract-bound 证据授权；最终强度按能力而非 test_count | filed |
+| `EVAL-B47-REPLANPROOF1` | P1 | repair plan 只验证自己的 target path/contract，前 plan 仍应用的测试/源码和行为义务从最终 proof closure 消失 | workflow verification input 取 cumulative still-applied path + contract closure；successful exact roster 可逐成员授权，失败历史保留但由后续成功证据 supersede，不能静默遗忘 | implemented/full-tests-pass；replay next |
+| `EVAL-B47-CAPCAL1` | P1 | Go/Python 源码 token scan 被计成“2 tests/strong”，虽无目标语言行为执行且无 contract coverage | 每个 command/probe 发布 typed verification capability/caliber；source-static 只授权结构/path/check，target behavior 必须由执行型、身份绑定且 contract-bound 证据授权；最终强度按能力而非 test_count | implemented/full-tests-pass；replay next |
 
 上下文充分性结论：read 不是信息数量不足，而是 value semantics 少一层且 compact authority
 排序反转；write 不是 runner 没运行，而是最终 proof context 丢失跨 plan 目标与验证能力等级。
@@ -4201,6 +4201,46 @@ failed→later success 的 typed capability supersession 与 `target_behavior` �
 - 修正 fixture 后 `go test ./internal/orchestrator ./internal/types -count=1`：12.284s / 17.654s；
 - 定向 `internal/orchestrator + internal/types + internal/tool`：全部通过。
 
+#### B47-CAPCAL1：路径覆盖与行为证明分轴
+
+`ChangedPathCoverage=covered` 只回答“该精确路径是否进入一次成功检查”，不能回答“检查执行了
+目标实现的行为”。本批在既有 exact path/language/TestSurface 铸造点增加 typed capability，
+没有分析 command text、probe code、用户问题或模型答案：
+
+| 已有证据类型 | capability | 可授权范围 |
+|---|---|---|
+| 同语言 project runner + exact working-dir/path | `target_behavior` | 目标路径行为 |
+| 同语言 path-bound probe，无 contract refs | `target_execution` | 目标实现被有界执行，但不签具体行为合同 |
+| 同语言 path-bound probe + typed contract refs | `target_behavior` | 对绑定路径的行为合同 |
+| repository-declared 跨语言 exact check | `source_static` | 精确路径静态结构/check；不能升级目标语言行为 |
+| exact source/syntax fallback | `syntax_only` | 语法/可解析性；不能升级行为 |
+
+proof profile 新增四档 path count；存在 hard behavior contracts 而累计证据没有任何
+`target_behavior` 时，终态为 `weak` 并发布
+`target_behavior_verification_missing`，不再由 `test_count`、command 数或
+`project_runner` 标签签成 `strong`。proof ledger 同时逐路径输出 caliber + capability，模型/用户
+可以直接看到“路径已检查但只属静态能力”，无需猜测 runner 名称。
+
+impact/patch-review 投影也消费同一 typed capability：
+`behavior_contract` 和 `behavior_contract_without_verify_coverage` 只有对应路径具备
+`target_behavior` 才能从 unverified 提升 verified；`source_static` 与 `syntax_only` 继续可用于
+路径/结构证据，不会被一刀切成失败。
+
+历史失败采用窄而可审计的 supersession：只有 terminal primary report 已通过，并且其
+`runner + framework + working_dir + suite + command` typed identity 与旧失败完全相同，旧 command
+和其 local report 才从 failed 降为 advisory，reason=`superseded_by_terminal_exact_command_pass`。
+旧行仍保留；不同命令、无终态成功或仍有其它失败均不 supersede。没有模糊相似度或原文扫描。
+
+测试覆盖同语言 runner、跨语言 exact check、syntax、无合同 probe、合同绑定 probe、静态证据
+不得确权行为合同、target behavior 正例、proof ledger capability 与 terminal exact rerun
+supersession。全相关回归：
+
+- `go test ./internal/types -count=1`：19.180s；
+- `go test ./internal/orchestrator -count=1`：12.413s；
+- `go test ./internal/tool -count=1`：163.182s。
+
+状态：`REPLANPROOF1 + CAPCAL1 implemented / full-tests-pass / clean write replay next`。
+
 任务状态：
 
 - [x] B47-T7：SEMCAL1 实现、全量测试、独立推送，并以 read + operation 严格并行 2 个回放；
@@ -4208,7 +4248,8 @@ failed→later success 的 typed capability supersession 与 `target_behavior` �
 - [x] B47-T7b：RELSEM1 完整 tool 回归、提交推送；下一异构日志批验证关系 fence，并观察
   LOGCITE1 是否复现；
 - [x] B47-T8a：REPLANPROOF1a 累计作用域、不可变 plan 工件、多 plan proof artifact 独立实现并回归；
-- [ ] B47-T8b：实现 CAPCAL1 与 failed→later-success typed supersession，独立提交推送；write 回放必须审累计 still-applied
+- [x] B47-T8b：实现 CAPCAL1 与 failed→later-success typed supersession，完整相关回归；
+- [ ] B47-T8c：从干净 HEAD 严格并行 2 个异构 case；write 回放必须审累计 still-applied
   paths/contracts 与 capability caliber，不以 `verified` 字样作 oracle。
 
 ### B42：生成物写模式 × 日志/源码机制对比审计（2026-08-02）

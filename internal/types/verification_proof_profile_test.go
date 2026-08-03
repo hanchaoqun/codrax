@@ -51,6 +51,110 @@ func TestBuildVerificationProofProfileStrongProjectRunner(t *testing.T) {
 	}
 }
 
+func TestBuildVerificationProofProfileDoesNotPromoteSourceStaticToBehaviorProof(t *testing.T) {
+	plan := &ChangePlan{
+		ID: "plan-static-only",
+		BehaviorContracts: NormalizeWriteBehaviorContracts([]WriteBehaviorContract{{
+			ID:       "ascii-boundary",
+			Kind:     WriteBehaviorInvariant,
+			Polarity: WriteBehaviorPolarityExpected,
+			Subject:  "ascii boundary",
+			Operator: WriteBehaviorOpEquals,
+			Expected: "non-ASCII letters remain available",
+		}}, nil),
+	}
+	report := &ChangeReport{
+		PlanID:             plan.ID,
+		Passed:             true,
+		VerificationStatus: VerificationStatusPassed,
+		ExecutedCommands: []ExecutedCommand{{
+			Runner: "make", Suite: "check", Command: "make check", Outcome: "executed",
+		}},
+		ChangedPathCoverage: []ChangedPathVerificationCoverage{{
+			Path:       "src/RandomStringUtils.java",
+			Status:     ChangedPathVerificationCovered,
+			Caliber:    ChangedPathVerificationDeclaredProjectCheck,
+			Capability: VerificationCapabilitySourceStatic,
+		}},
+	}
+
+	got := BuildVerificationProofProfile(plan, report)
+	if got.Status != VerificationProofWeak || !verificationProofHasReason(got, "target_behavior_verification_missing") {
+		t.Fatalf("source-static check must not prove hard behavior contract: %+v", got)
+	}
+	if got.SourceStaticPaths != 1 || got.TargetBehaviorPaths != 0 {
+		t.Fatalf("capability counts wrong: %+v", got)
+	}
+	ledger := BuildVerificationProofLedger(plan, report, nil)
+	if ledger.State != VerificationProofLedgerLowConfidence {
+		t.Fatalf("ledger state=%q, want low_confidence: %+v", ledger.State, ledger)
+	}
+	found := false
+	for _, item := range ledger.Capabilities {
+		if item.Kind == "changed_path_verification" && item.Capability == VerificationCapabilitySourceStatic {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("ledger omitted source-static capability: %+v", ledger.Capabilities)
+	}
+}
+
+func TestBuildVerificationProofProfileAcceptsTypedTargetBehaviorCapability(t *testing.T) {
+	plan := &ChangePlan{
+		ID: "plan-behavior",
+		BehaviorContracts: NormalizeWriteBehaviorContracts([]WriteBehaviorContract{{
+			ID: "contract", Kind: WriteBehaviorInvariant, Polarity: WriteBehaviorPolarityExpected, Operator: WriteBehaviorOpEquals,
+			Subject: "value", Expected: "preserved",
+		}}, nil),
+	}
+	report := &ChangeReport{
+		PlanID: plan.ID, Passed: true, VerificationStatus: VerificationStatusPassed,
+		ExecutedCommands: []ExecutedCommand{{Runner: "java", Outcome: "executed"}},
+		ChangedPathCoverage: []ChangedPathVerificationCoverage{{
+			Path: "src/Widget.java", Status: ChangedPathVerificationCovered,
+			Caliber: ChangedPathVerificationProjectRunner, Capability: VerificationCapabilityTargetBehavior,
+		}},
+	}
+
+	got := BuildVerificationProofProfile(plan, report)
+	if got.Status != VerificationProofStrong || got.TargetBehaviorPaths != 1 ||
+		verificationProofHasReason(got, "target_behavior_verification_missing") {
+		t.Fatalf("typed target behavior should support strong proof: %+v", got)
+	}
+}
+
+func TestVerificationProofLedgerSupersedesHistoricalExactCommandFailure(t *testing.T) {
+	primary := &ChangeReport{
+		PlanID: "plan-new", Passed: true, VerificationStatus: VerificationStatusPassed,
+		ExecutedCommands: []ExecutedCommand{{
+			Runner: "make", WorkingDir: ".", Suite: "check", Command: "make check", Outcome: "executed", ExitCode: 0,
+		}},
+	}
+	historical := &ChangeReport{
+		PlanID: "plan-old", Passed: false, VerificationStatus: VerificationStatusFailed,
+		FailureKind: FailureKindTestsFailed,
+		ExecutedCommands: []ExecutedCommand{{
+			Runner: "make", WorkingDir: ".", Suite: "check", Command: "make check", Outcome: "executed", ExitCode: 1,
+		}},
+	}
+
+	ledger := BuildVerificationProofLedger(nil, primary, []VerificationProofArtifact{{Report: historical}})
+	if ledger.State == VerificationProofLedgerFailed || ledger.CapabilityFailedCount != 0 {
+		t.Fatalf("terminal exact rerun should supersede historical command failure: %+v", ledger)
+	}
+	foundAdvisory := false
+	for _, item := range ledger.Capabilities {
+		if item.ReportPlanID == "plan-old" && item.Status == VerificationProofLedgerItemAdvisory &&
+			item.ReasonCode == "superseded_by_terminal_exact_command_pass" {
+			foundAdvisory = true
+		}
+	}
+	if !foundAdvisory {
+		t.Fatalf("historical failure was not preserved as superseded advisory: %+v", ledger.Capabilities)
+	}
+}
+
 func TestBuildVerificationProofProfileWeakProbeOnly(t *testing.T) {
 	plan := &ChangePlan{
 		ID: "plan-weak",

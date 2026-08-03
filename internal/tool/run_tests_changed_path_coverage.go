@@ -12,9 +12,10 @@ import (
 const changedPathVerificationUncoveredReasonCode = "changed_path_verification_uncovered"
 
 type changedPathCoverageEvidence struct {
-	caliber types.ChangedPathVerificationCaliber
-	runner  string
-	source  string
+	caliber    types.ChangedPathVerificationCaliber
+	capability types.VerificationCapability
+	runner     string
+	source     string
 }
 
 // applyChangedPathVerificationCoverage closes the report-level authority gap
@@ -43,7 +44,7 @@ func applyChangedPathVerificationCoverage(ctx *types.BusContext, report *types.C
 		report.ExecutedCommands, targets, targetFamilies, report.TestSurface,
 	)
 	for path, probeEvidence := range changedPathCoverageFromPassedProbes(plan, report, targets, targetFamilies) {
-		if existing, ok := evidence[path]; !ok || changedPathCoverageCaliberRank(probeEvidence.caliber) > changedPathCoverageCaliberRank(existing.caliber) {
+		if existing, ok := evidence[path]; !ok || changedPathCoverageEvidenceRank(probeEvidence) > changedPathCoverageEvidenceRank(existing) {
 			evidence[path] = probeEvidence
 		}
 	}
@@ -58,6 +59,7 @@ func applyChangedPathVerificationCoverage(ctx *types.BusContext, report *types.C
 		if proof, ok := evidence[path]; ok {
 			row.Status = types.ChangedPathVerificationCovered
 			row.Caliber = proof.caliber
+			row.Capability = proof.capability
 			row.Runner = proof.runner
 			row.Source = proof.source
 		} else {
@@ -173,11 +175,14 @@ func changedPathCoverageFromCommands(
 	for _, cmd := range commands {
 		outcome := strings.TrimSpace(cmd.Outcome)
 		var caliber types.ChangedPathVerificationCaliber
+		var capability types.VerificationCapability
 		switch {
 		case outcome == "executed" && cmd.ExitCode == 0 && strings.TrimSpace(cmd.Runner) != "verification_probe":
 			caliber = types.ChangedPathVerificationProjectRunner
+			capability = types.VerificationCapabilityTargetBehavior
 		case (outcome == "syntax_check_fallback" || outcome == "syntax_preflight") && cmd.ExitCode == 0:
 			caliber = types.ChangedPathVerificationSourceCheck
+			capability = types.VerificationCapabilitySyntaxOnly
 		default:
 			continue
 		}
@@ -190,17 +195,20 @@ func changedPathCoverageFromCommands(
 				continue
 			}
 			pathCaliber := caliber
+			pathCapability := capability
 			if caliber == types.ChangedPathVerificationProjectRunner &&
 				!verificationLanguageFamiliesIntersect(targetFamilies[canonical], runnerFamilies) {
 				pathCaliber = types.ChangedPathVerificationDeclaredProjectCheck
+				pathCapability = types.VerificationCapabilitySourceStatic
 			}
 			next := changedPathCoverageEvidence{
-				caliber: pathCaliber,
-				runner:  strings.TrimSpace(cmd.Runner),
-				source:  strings.TrimSpace(cmd.Source),
+				caliber:    pathCaliber,
+				capability: pathCapability,
+				runner:     strings.TrimSpace(cmd.Runner),
+				source:     strings.TrimSpace(cmd.Source),
 			}
 			if existing, ok := out[canonical]; !ok ||
-				changedPathCoverageCaliberRank(next.caliber) > changedPathCoverageCaliberRank(existing.caliber) {
+				changedPathCoverageEvidenceRank(next) > changedPathCoverageEvidenceRank(existing) {
 				out[canonical] = next
 			}
 		}
@@ -279,11 +287,16 @@ func changedPathCoverageFromPassedProbes(
 		if !passedIDs[strings.TrimSpace(probe.ID)] {
 			continue
 		}
+		capability := types.VerificationCapabilityTargetExecution
+		if len(probe.ContractRefs) > 0 {
+			capability = types.VerificationCapabilityTargetBehavior
+		}
 		for _, path := range verificationProbeChangedTargetPaths(probe, targets, targetFamilies) {
 			out[path] = changedPathCoverageEvidence{
-				caliber: types.ChangedPathVerificationProbe,
-				runner:  "verification_probe",
-				source:  strings.TrimSpace(probe.ID),
+				caliber:    types.ChangedPathVerificationProbe,
+				capability: capability,
+				runner:     "verification_probe",
+				source:     strings.TrimSpace(probe.ID),
 			}
 		}
 	}
@@ -368,6 +381,21 @@ func changedPathCoverageCaliberRank(caliber types.ChangedPathVerificationCaliber
 	default:
 		return 0
 	}
+}
+
+func changedPathCoverageEvidenceRank(evidence changedPathCoverageEvidence) int {
+	capability := 0
+	switch evidence.capability {
+	case types.VerificationCapabilityTargetBehavior:
+		capability = 4
+	case types.VerificationCapabilityTargetExecution:
+		capability = 3
+	case types.VerificationCapabilitySourceStatic:
+		capability = 2
+	case types.VerificationCapabilitySyntaxOnly:
+		capability = 1
+	}
+	return capability*10 + changedPathCoverageCaliberRank(evidence.caliber)
 }
 
 func verificationLanguageFamiliesIntersect(a, b []types.VerificationLanguageFamily) bool {
