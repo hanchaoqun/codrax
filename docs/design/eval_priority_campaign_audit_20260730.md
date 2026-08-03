@@ -4660,7 +4660,7 @@ persist choke point 之外，因此既有“非 system block wire 不变”测�
 | `EVAL-B51-SETAXIS1` | P1 | `is_relational_lookup` 单独把 narrative call chain 提升为 exact operation-site member set，探索模型的路径解释被硬化成 exhaustive roster | source-operation-site set 权限必须由 enumerate/category/per-member/completeness 等 typed set boundary 授予；relation-only call chain 继续使用 ordered path/support lane，不生成 hard enumeration rows | covered；B51-A |
 | `EVAL-B51-MUTLOOP1` | P1 | 两个 deterministic normalizer 对同一 principal block 一删一补，导致不可自愈 reject loop | 撤销 OWN1 后增加生产接线 pin：模型五行 wire 保持、无 principal-enum hard roster、同 payload 一次通过；任何系统 repair 不得制造后续 hard obligation | covered；B51-A |
 | `EVAL-B51-ORACLE1` | P1-eval | broad answer regex 虽已排除分隔线前的进度草稿，但仍让终态 citation footer 与降级 raw-model appendix 重复的符号满足断言；错误主结论仍 PASS | 新增 opt-in `primary_answer` oracle，只消费终态主答案体，按稳定 renderer 边界排除 citation/recovery/Trace supplements；不静默改变 200+ 历史 case，逐案显式迁移 | covered；B51-B r2 真实 replay 已由主答案六步路径满足 |
-| `EVAL-B51-AMPSET1` | P1 | analyzer 已明确 `trace/call_chain/call/category=false`，R1 仍仅凭多个参与实体放大为 category enumeration，进而强制探索交付 member_set 并将多轮集合并成重复清册 | R1 将 typed call-chain 始终视为有序路径，不依赖可选且波动的 exact-target/relational；真正的集合由 enumerate/category/kind=enumeration 承载。不从请求或答案文本推断 | implemented；B51-C3，待 r5 replay |
+| `EVAL-B51-AMPSET1` | P1 | analyzer 已明确 `trace/call_chain/call/category=false`，R1 仍仅凭多个参与实体放大为 category enumeration，进而强制探索交付 member_set 并将多轮集合并成重复清册 | R1 将 typed call-chain 始终视为有序路径，不依赖可选且波动的 exact-target/relational；真正的集合由 enumerate/category/kind=enumeration 承载。不从请求或答案文本推断 | covered；B51-C3 r5 真实 replay |
 
 施工顺序冻结：B51-A 先撤销 call-chain 结论替换并收窄 relation-only set 权限；相关 types/tool 全包
 通过后独立提交推送。B51-B 再修 eval final-answer oracle。完成本节审计和 B51-A 交付后，才继续
@@ -4729,14 +4729,22 @@ r4 Java 同时确定性复现 MERGE-AUDIT-3 `T3-2`：模型的 sequence diagram 
 pre-emit reject/5 次 patch，最终删除图才通过，耗时 370s。该 witness 与集合权限分属两条独立责任链，
 B51 只固化“不再产生主集合”；图边合同按用户指定在 MERGE-AUDIT-3 首批继续修复。
 
+B51 r5 严格并行同一正反例，runner 2/2 PASS。冷读 Java explorer 完整 prompt 确认三个错误
+集合指令（Structured Aggregate / Source Operation Site / Attribute-bearing Enumeration）全部消失，
+终稿也没有 deterministic member roster；`called-by` 仍精确列出 2 个 production caller。
+因此 `EVAL-B51-OWN1/ENDROLE1/SETAXIS1/MUTLOOP1/ORACLE1/AMPSET1` 按系统权限目标全部收账。
+Java 人工仍 FAIL 的原因已完全转入独立 T3-2：26 次 reject/11 次 patch 后图仍未通过，
+降级稿移除了大部分条目引用；模型另有 `VISIT_CREATED/CREATE_VISIT` 与源码 `visit.insert`
+不一致的词面波动。这两项都不再授权系统重写调用链结论。
+
 - [x] B51-T1：严格并行 Java call-chain + data 恰好 2 case；
 - [x] B51-T2：人工读完 HTML、完整 stdout/log、analyzer payload、五个源文件、首稿与降级稿；
 - [x] B51-T3：确认 data 上下文/答案正确，Java runner false green；
 - [x] B51-T4：定位 `8cfef5158` 的 endpoint-role 与结论替换责任链；
 - [x] B51-T5：实现 OWN1/ENDROLE1/SETAXIS1/MUTLOOP1，相关全包回归后提交推送；
 - [x] B51-T6：primary final-product oracle 已实现并通过 runner contract；r2 真实回放证明 Java 由主答案本体满足；
-- [ ] B51-T6b：B51-C amplifier 集合权限根修提交推送后，再严格并行 2 case 确认重复清册与相关 reject 消失；
-- [ ] B51-T7：B51 收账后进入 MERGE-AUDIT-3 高 ROI 批。
+- [x] B51-T6b：C3 r5 确认 call-chain 三个错误集合 prompt 和 deterministic roster 消失，true relation enumeration 正臂保留；
+- [x] B51-T7：B51 系统权限目标收账；进入 MERGE-AUDIT-3 高 ROI 批，首先 T3-1/T3-2。
 
 ### B42：生成物写模式 × 日志/源码机制对比审计（2026-08-02）
 
