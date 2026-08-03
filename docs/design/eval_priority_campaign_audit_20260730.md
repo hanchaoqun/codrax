@@ -4746,6 +4746,37 @@ Java 人工仍 FAIL 的原因已完全转入独立 T3-2：26 次 reject/11 次 p
 - [x] B51-T6b：C3 r5 确认 call-chain 三个错误集合 prompt 和 deterministic roster 消失，true relation enumeration 正臂保留；
 - [x] B51-T7：B51 系统权限目标收账；进入 MERGE-AUDIT-3 高 ROI 批，首先 T3-1/T3-2。
 
+### MERGE-AUDIT-3 H1：T3-1/T3-3 席位级帧因果权限（2026-08-02）
+
+审计结论准确，且旧实现的影响面比头行更宽：会话级
+`runtimeTraceCoverageAuthority.causalUnproven` 同时控制头行、图例、明细、对比表和下一步提示，
+一次无关的探索空窗会把最终已证席位全页降级，并启用备案词族。
+
+本批按用户 §7 裁定完成根修：
+
+1. 构造 `runtimeTraceProjectionSeatAuthorityIndex`，按 observation ledger 编译器同一套
+   origin 合法性、fallback ID、first-ID-wins 规则，把每个 `trace_query` 的 typed frame
+   authority 绑定到它实际发布的 observation ID；不解析请求、tool summary、模型答案或 case 名。
+2. 投影模型完成最终选举后，仅查询当选 lead 的 `EvidenceID + MergedEvidenceIDs`。只有该席位
+   同一结果同时满足 `TypedCausalRowCount>0` 与 frame absent/unavailable 或 typed
+   frame-flow unproven，才铸造 `FrameCausalityUnproven` 限定。无精确 ID 关联则不猜。
+3. 会话级 `causalUnproven` 仍保留在覆盖边界，诚实披露“本轮曾有未证查询”；但它不再控制
+   席位选举、加冕、对比列名或下一步标题。由此保留信息而不让探索噪声越权。
+4. 加冕始终保持裁定形“主根因(=已证链上单项最大可消除量)”；席位级 frame authority
+   只追加“帧因果未证”。备案的“首要可消除候选”中英文生产发射点全部退役。
+5. 新建 `runtimeTraceProjCrownWords` 单一词源，统一头行、限定语、图例、因果位置、对比列名、
+   下一步称谓；T3-3 同页三面分叉随 T3-1 一并关闭。
+
+验收：
+
+- `TestEarlierUnprovenProbeCannotDecrownLaterProvenSeat` 固定“先 unproven、后 proven”的
+  会话反例，后者加冕字节与定义括注不变且不带无关帧限定；
+- 中英文 seat-level 正例固定“链已证 + 帧因果未证 = 保冠 + 限定”，并对退役词族作输出负 pin；
+- 模型原有 summary/list/timeline wire 保持不变，系统仅追加 sibling typed projection；
+- `go test ./internal/tool -count=1` 通过（187.077s）。
+
+状态：`implemented / full-tool-suite-pass / T3-2 next`。
+
 ### B42：生成物写模式 × 日志/源码机制对比审计（2026-08-02）
 
 本批按跨模式优先级严格并行：

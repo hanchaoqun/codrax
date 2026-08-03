@@ -112,3 +112,17 @@ T1-2 越界时间戳有效 CPU 记录整丢不 fence(违其自documented合同);
 3. **同页单源(T3-3 同批)**:头行/图例定义条/因果位置明细词三面出自同一词源函数;帧因果限定注出现时三面同步限定,禁手抄。
 4. **Pin 面**:(a) 先-unproven-后-proven 会话 → 加冕头行字节恒等(§7.1 虚拟例即判据,先红后绿);(b) 帧因果未证+链已证 → 裁定词形+限定注臂(zh/EN 双面);(c) 备案词族负 pin;(d) 同页词面一致性 pin(多板形)。
 5. **兼容注**:同事降级机制的诚实动机在 (b) 臂中保留——限定注继续披露"帧因果未证",只是不再冒称加冕定义失效、不再动用备案词。
+
+### §7.4 施工结果(2026-08-02)
+
+状态：`implemented / internal-tool-full-pass`。
+
+- T3-1 根因确认，修复采用 §7.3 裁定：会话级 ANY-sticky 只留在覆盖边界披露，不再驱动加冕词面；
+- 新的席位索引按 ledger 编译同构规则把 result authority 绑定到 observation ID，最终只消费当选
+  lead 的 `EvidenceID + MergedEvidenceIDs`；链已证且该席位 frame authority 未证时仅追加限定语；
+- `runtimeTraceProjCrownWords` 成为头行、图例、明细、对比列名和下一步称谓的单一词源，T3-3 同批关闭；
+- “首要可消除候选”中英文生产发射全部退役；模型原答案 block wire 保持，系统没有替答；
+- 新增先-unproven-后-proven、zh/EN 限定、退役词负 pin；`go test ./internal/tool -count=1`
+  通过(187.077s)。
+
+下一批：T3-2 sequence/call-dag 回复边与 alias 证据匹配合同。

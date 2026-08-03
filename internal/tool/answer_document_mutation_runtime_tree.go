@@ -686,12 +686,12 @@ type runtimeTraceProjAbsorbedChainPeer struct {
 
 type runtimeTraceProjTreeModel struct {
 	Target string
-	// CausalConclusionUnproven is copied from trace_query's typed evidence
-	// authority by the system projection assembler. It changes only the
-	// user-facing conclusion caliber: ranked/on-chain values remain available,
-	// but the elected row is named an eliminable candidate rather than a proven
-	// frame cause. No request or answer prose participates.
-	CausalConclusionUnproven bool
+	// FrameCausalityUnproven is derived from the exact trace_query typed
+	// observation(s) consumed by the finally elected seat. It adds a bounded
+	// frame-causality qualifier but never changes the election or the defined
+	// root-cause term, which claims only the proven on-chain eliminable amount.
+	// No session-wide OR, request text, or answer prose participates.
+	FrameCausalityUnproven bool
 	// RankBoardEffSumMS (冷读扩臂④ 板级警示, SMR-1 修复轮 2026-07-13): the
 	// Σ of the rank-seated rows' effective attributions when it EXCEEDS the
 	// analysis-window length (typed precise: only over-window mints the
@@ -867,6 +867,49 @@ type runtimeTraceProjTreeModel struct {
 	// already does); a nil set (hand-built test models) renders no dynamic
 	// legend entries.
 	Marks *runtimeTraceProjMarkSet
+}
+
+// runtimeTraceProjCrownWords is the single wording source for every system
+// face that names the elected causal-projection seat. The election term and
+// its definition never vary with frame authority; only the orthogonal typed
+// qualifier does. Keeping these bytes together prevents the headline, legend,
+// detail table and follow-up guidance from inventing divergent titles.
+type runtimeTraceProjCrownWordSet struct {
+	HeadlinePrefix    string
+	HeadlineQualifier string
+	DetailPosition    string
+	LegendQualifier   string
+	SubjectKind       string
+	ComparisonHeader  string
+}
+
+func runtimeTraceProjCrownWords(zh, frameCausalityUnproven bool) runtimeTraceProjCrownWordSet {
+	if zh {
+		out := runtimeTraceProjCrownWordSet{
+			HeadlinePrefix:   "**主根因(=已证链上单项最大可消除量):** ",
+			DetailPosition:   "主根因(优先处理)",
+			SubjectKind:      "主根因",
+			ComparisonHeader: "主根因(" + tracefence.SeatChannelChainZH + "#1)",
+		}
+		if frameCausalityUnproven {
+			out.HeadlineQualifier = "（帧因果未证）"
+			out.DetailPosition = "主根因(优先处理;帧因果未证)"
+			out.LegendQualifier = " 本席位的帧因果未证;该限定不改变已证链上可消除量及其席位排序。"
+		}
+		return out
+	}
+	out := runtimeTraceProjCrownWordSet{
+		HeadlinePrefix:   "**Primary root cause (= the largest single proven on-chain eliminable contribution):** ",
+		DetailPosition:   "primary (handle first)",
+		SubjectKind:      "primary root cause",
+		ComparisonHeader: "Primary root cause (" + tracefence.SeatChannelChainEN + " #1)",
+	}
+	if frameCausalityUnproven {
+		out.HeadlineQualifier = " (frame causality unproven)"
+		out.DetailPosition = "primary (handle first; frame causality unproven)"
+		out.LegendQualifier = " Frame causality is unproven for this seat; that qualifier does not change its proven on-chain eliminable amount or seat order."
+	}
+	return out
 }
 
 // --- NEW-7 dynamic tree legend (§7.6 对比场景客户回访 2026-07-04) --------------
@@ -2503,21 +2546,19 @@ func runtimeTraceProjLegendGroupLines(marks *runtimeTraceProjMarkSet, zh bool) [
 	return runtimeTraceProjLegendGroupLinesWithAuthority(marks, zh, false)
 }
 
-func runtimeTraceProjLegendGroupLinesWithAuthority(marks *runtimeTraceProjMarkSet, zh, causalUnproven bool) []string {
+func runtimeTraceProjLegendGroupLinesWithAuthority(marks *runtimeTraceProjMarkSet, zh, frameCausalityUnproven bool) []string {
 	catalog := runtimeTraceProjLegendCatalog()
-	if causalUnproven {
-		badges := tracefence.BadgeGlyphs()
-		badgeRange, badgeOne := "TOP5", "TOP1"
-		if len(badges) > 0 {
-			badgeRange = badges[0] + ".." + badges[len(badges)-1]
-			badgeOne = badges[0]
-		}
+	if frameCausalityUnproven {
+		words := runtimeTraceProjCrownWords(zh, true)
 		for i := range catalog {
 			if catalog[i].Mark != runtimeTraceProjMarkBadge {
 				continue
 			}
-			catalog[i].ZH = "- `" + badgeRange + "` = " + tracefence.SeatChannelChainZH + "候选前五(依有效归因),按板各发(每块查询板各自的 TOP5);佩章行行2不再复读 " + tracefence.SeatChannelChainZH + "#N 词(徽章即序数;未佩章而有序数的行保留词形);标题首要可消除候选由凭证强度与有效归因共同选出," + badgeOne + "为引擎发布的板内有效归因序,两者可能不同;该排序只安排修复验证,不证明具体帧卡顿或丢帧因果。"
-			catalog[i].EN = "- `" + badgeRange + "` = the top-5 " + tracefence.SeatChannelChainEN + " candidates (by effective attribution), issued per board (each query board its own TOP5); a badge-wearing row does not restate the " + tracefence.SeatChannelChainEN + " #N word on its identity line (the badge IS the ordinal; un-badged rows with an ordinal keep the word form); the leading eliminable candidate is elected from credential strength and effective attribution while " + badgeOne + " is the engine-published within-board effective-attribution order, so they may differ; this ordering prioritizes repair validation and does not prove causation for a specific stalled or dropped frame."
+			if zh {
+				catalog[i].ZH += words.LegendQualifier
+			} else {
+				catalog[i].EN += words.LegendQualifier
+			}
 			break
 		}
 	}
@@ -5534,7 +5575,7 @@ func runtimeTraceProjDetailPositionCell(row runtimeTraceProjTreeRow, leadKey str
 	return runtimeTraceProjDetailPositionCellWithAuthority(row, leadKey, zh, false)
 }
 
-func runtimeTraceProjDetailPositionCellWithAuthority(row runtimeTraceProjTreeRow, leadKey string, zh, causalUnproven bool) string {
+func runtimeTraceProjDetailPositionCellWithAuthority(row runtimeTraceProjTreeRow, leadKey string, zh, frameCausalityUnproven bool) string {
 	node := row.Node
 	// PTV8-RCR-B (UXA 域B #24 / B#3 verify 关注线程 family, 2026-07-08): the
 	// focused thread's own rows never fall to the 支撑 default arm (the block
@@ -5576,11 +5617,8 @@ func runtimeTraceProjDetailPositionCellWithAuthority(row runtimeTraceProjTreeRow
 		}
 		return runtimeTraceProjDetailPositionMerged(display, zh, row.FlatChain)
 	}
-	if causalUnproven && leadKey != "" && runtimeTraceCausalProjectionNodeKey(node) == leadKey {
-		if zh {
-			return "首要可消除候选(优先验证;帧因果未证)"
-		}
-		return "leading eliminable candidate (validate first; frame causation unproven)"
+	if frameCausalityUnproven && leadKey != "" && runtimeTraceCausalProjectionNodeKey(node) == leadKey {
+		return runtimeTraceProjCrownWords(zh, true).DetailPosition
 	}
 	return runtimeTraceProjDetailPositionMerged(node, zh, row.FlatChain)
 }
@@ -15020,7 +15058,7 @@ func runtimeTraceProjLeadText(projection types.TraceCausalProjection, model runt
 			// 远在证据索引导语,导语版保留).
 			"- 时长与排序均来自 trace 证据;行尾 [E#] 可在文末证据索引查到对应 trace 行号/时间区间,E#(+N) 表示另合并 N 条同类观测(与 N次 实例合并计数是两种口径,互不换算)。",
 		}
-		lines = append(lines, runtimeTraceProjLegendGroupLinesWithAuthority(model.Marks, true, model.CausalConclusionUnproven)...)
+		lines = append(lines, runtimeTraceProjLegendGroupLinesWithAuthority(model.Marks, true, model.FrameCausalityUnproven)...)
 		sections = append(sections, strings.Join(lines, "\n"))
 	} else {
 		headClause := "- Top-down = tracing upstream from the focused thread."
@@ -15032,7 +15070,7 @@ func runtimeTraceProjLeadText(projection types.TraceCausalProjection, model runt
 			headClause,
 			"- Durations and ranks come from trace evidence; a trailing [E#] resolves to trace line/time spans in the evidence index at the end, and E#(+N) means N more observations of the same kind were merged in (a different count from n=N instance merging; the two never convert).",
 		}
-		lines = append(lines, runtimeTraceProjLegendGroupLinesWithAuthority(model.Marks, false, model.CausalConclusionUnproven)...)
+		lines = append(lines, runtimeTraceProjLegendGroupLinesWithAuthority(model.Marks, false, model.FrameCausalityUnproven)...)
 		sections = append(sections, strings.Join(lines, "\n"))
 	}
 	if len(model.Background) == 0 {
@@ -15333,20 +15371,11 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 	// art (the #1-elected seat = the largest single PROVEN on-chain
 	// eliminable contribution under its stated caliber), an election over
 	// credentials + effective attribution, never a mechanism-level verdict.
-	// The full definition rides the legend entry; 「首要可消除项」 is the
-	// reserved rename should plan A ever be ruled. The no-crown (未定位)
-	// lanes keep the bare prefix — they elect nobody, nothing to define.
-	if model.CausalConclusionUnproven {
-		if zh {
-			b.WriteString("**首要可消除候选(不等于已证帧因果):** ")
-		} else {
-			b.WriteString("**Leading eliminable candidate (not proven frame causation):** ")
-		}
-	} else if zh {
-		b.WriteString("**主根因(=已证链上单项最大可消除量):** ")
-	} else {
-		b.WriteString("**Primary root cause (= the largest single proven on-chain eliminable contribution):** ")
-	}
+	// The no-crown (未定位) lanes keep the bare prefix — they elect nobody,
+	// nothing to define. Frame causality is an orthogonal, seat-level caliber
+	// and therefore appears as a qualifier without changing this term.
+	words := runtimeTraceProjCrownWords(zh, model.FrameCausalityUnproven)
+	b.WriteString(words.HeadlinePrefix)
 	b.WriteString(name)
 	if selfAccountParts != nil {
 		// Tier A (§29.30 constraint ②): the account decomposition IS the
@@ -15522,6 +15551,7 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 	if !onChainFallback {
 		b.WriteString(runtimeTraceProjHeadlineElimCaliberNote(projection, model, primary, zh))
 	}
+	b.WriteString(words.HeadlineQualifier)
 	b.WriteString("。")
 	if !zh {
 		return strings.TrimSuffix(b.String(), "。") + "."
@@ -18978,7 +19008,7 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 		// only; a node without the typed pair renders nothing.
 		add("进程", "process", runtimeTraceProjDetailProcessCell(node))
 		add("层级", "layer", runtimeTraceProjDetailLayerCell(row, zh, flat))
-		add("因果位置", "causal position", runtimeTraceProjDetailPositionCellWithAuthority(row, model.LeadKey, zh, model.CausalConclusionUnproven))
+		add("因果位置", "causal position", runtimeTraceProjDetailPositionCellWithAuthority(row, model.LeadKey, zh, model.FrameCausalityUnproven))
 		typeToken := runtimeTraceCausalProjectionRawTypeToken(node)
 		add("类型", "type", runtimeTraceCausalProjectionMarkdownSafe(typeToken))
 		// PTV8-RCR-B (UXA 域B #17, 2026-07-08). EVOLUTION RECORD: the
