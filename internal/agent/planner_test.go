@@ -1228,6 +1228,31 @@ func TestBuildVerifyFailureHandoffSection_EmptyWithoutHandoff(t *testing.T) {
 	}
 }
 
+func TestBuildVerifyFailureHandoffSection_DisclosesUnavailableReportEvidence(t *testing.T) {
+	mu := types.NewMutableState("resume with missing report")
+	mu.SetVerifyFailureHandoff(types.BuildVerifyFailureHandoffWithoutReport(
+		"plan-1", "batch-1", 2, "tests_failed",
+		"plan-1.attempt-2.diff", "plan-1.attempt-2.surface.json",
+		"durable_report_unavailable",
+	))
+	eval := &plannerEvaluator{}
+	section := eval.buildVerifyFailureHandoffSection(&types.AgentContext{Mutable: mu})
+	for _, want := range []string{
+		"## Latest verification failure (bounded durable evidence)",
+		"report_evidence_status: unavailable reason_code=durable_report_unavailable",
+		"report-backed commands, failing tests, build errors, diagnostics, confidence, runner output, and next-surface choice: not_evaluated",
+		"previous attempt patch: plan-1.attempt-2.diff",
+		"test surface artifact: plan-1.attempt-2.surface.json",
+	} {
+		if !strings.Contains(section, want) {
+			t.Fatalf("degraded section missing %q:\n%s", want, section)
+		}
+	}
+	if strings.Contains(section, "Latest verification failure (authoritative)") {
+		t.Fatalf("missing ChangeReport must not receive full authority wording:\n%s", section)
+	}
+}
+
 func toolSchemaNamesForTest(schemas []llm.ToolSchema) []string {
 	out := make([]string, 0, len(schemas))
 	for _, schema := range schemas {

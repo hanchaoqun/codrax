@@ -49,6 +49,10 @@ func TestBuildVerifyFailureHandoff_ProjectsTypedRows(t *testing.T) {
 	if h.PlanID != "plan-1" || h.BatchID != "batch-1" || h.Attempt != 2 {
 		t.Fatalf("identity fields wrong: %+v", h)
 	}
+	if h.ReportEvidenceStatus != VerifyFailureReportEvidenceAvailable ||
+		h.ReportEvidenceReasonCode != "typed_change_report_projected" {
+		t.Fatalf("full handoff must disclose report evidence authority: %+v", h)
+	}
 	if h.FailureReasonCode != "pytest_import_startup_error" {
 		t.Fatalf("failure reason code not projected: %+v", h)
 	}
@@ -82,6 +86,28 @@ func TestBuildVerifyFailureHandoff_ProjectsTypedRows(t *testing.T) {
 	}
 	if h.GeneratedAt.IsZero() {
 		t.Fatal("handoff must be timestamped")
+	}
+}
+
+func TestBuildVerifyFailureHandoffWithoutReport_PreservesOnlyAttemptAuthority(t *testing.T) {
+	h := BuildVerifyFailureHandoffWithoutReport(
+		" plan-1 ", " batch-1 ", 2, " tests_failed ",
+		" plan-1.attempt-2.diff ", " plan-1.attempt-2.surface.json ",
+		" durable_report_unavailable ",
+	)
+	if h.ReportEvidenceStatus != VerifyFailureReportEvidenceUnavailable ||
+		h.ReportEvidenceReasonCode != "durable_report_unavailable" {
+		t.Fatalf("degraded handoff authority wrong: %+v", h)
+	}
+	if h.PlanID != "plan-1" || h.BatchID != "batch-1" || h.Attempt != 2 ||
+		h.FailureReasonCode != "tests_failed" ||
+		h.DiffArtifactRef != "plan-1.attempt-2.diff" ||
+		h.SurfaceArtifactRef != "plan-1.attempt-2.surface.json" {
+		t.Fatalf("durable attempt identity was not preserved: %+v", h)
+	}
+	if h.FailureKind != "" || h.FailureSummary != "" || len(h.Executed) != 0 ||
+		len(h.Diagnostics) != 0 || len(h.FailingTests) != 0 || len(h.BuildErrors) != 0 {
+		t.Fatalf("report-backed detail must remain not evaluated: %+v", h)
 	}
 }
 

@@ -1972,13 +1972,27 @@ func (e *plannerEvaluator) buildVerifyFailureHandoffSection(ctx *types.AgentCont
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("## Latest verification failure (authoritative)\n\n")
+	if h.ReportEvidenceStatus == types.VerifyFailureReportEvidenceUnavailable {
+		b.WriteString("## Latest verification failure (bounded durable evidence)\n\n")
+	} else {
+		b.WriteString("## Latest verification failure (authoritative)\n\n")
+	}
 	b.WriteString("The previous apply of this batch failed verification. Produce a bounded repair plan that addresses these findings on the same target files — do not restart broad exploration.\n\n")
 	fmt.Fprintf(&b, "- plan: %s attempt: %d", h.PlanID, h.Attempt)
 	if h.FailureKind != "" {
 		fmt.Fprintf(&b, " failure_kind: %s", h.FailureKind)
 	}
 	b.WriteString("\n")
+	if h.ReportEvidenceStatus != "" {
+		fmt.Fprintf(&b, "- report_evidence_status: %s", h.ReportEvidenceStatus)
+		if h.ReportEvidenceReasonCode != "" {
+			fmt.Fprintf(&b, " reason_code=%s", h.ReportEvidenceReasonCode)
+		}
+		b.WriteString("\n")
+	}
+	if h.ReportEvidenceStatus == types.VerifyFailureReportEvidenceUnavailable {
+		b.WriteString("- report-backed commands, failing tests, build errors, diagnostics, confidence, runner output, and next-surface choice: not_evaluated; do not infer them from the attempt reason code\n")
+	}
 	for _, cmd := range h.Executed {
 		if strings.TrimSpace(cmd.Command) == "" {
 			continue

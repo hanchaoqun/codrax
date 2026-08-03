@@ -618,3 +618,34 @@ finding 的“自指 pin 不能证明行为”准确，但需收窄性质：86 �
 全包通过（6.452s）。状态：`T2-2=confirmed-as-authority-gap / implemented / full-package-pass`。
 下一项独立复核 `T7-4` 缺失
 needs-replan report artifact 的降级范围。
+
+---
+
+## §26 T7-4 施工结果：缺失 verify report 时保留有限 typed handoff（2026-08-02）
+
+独立审计后，原“只损失失败细节、best-effort 即可”的判断为 partial：durable plan 在场确实保住
+原 mutation/verification domain，因此不能照 T7-3 整体 fail-closed；但恢复态仍为
+`needs_replan`，旧代码在 report 文件缺失时不创建 `VerifyFailureHandoff`，planner 会同时失去
+失败 reason、attempt diff、test surface 入口以及“哪些详情未知”的边界。这是可见的修复证据
+静默退化。
+
+本批采用有限权限恢复，而不是扩大 hard gate：
+
+- failed ChangeReport 可读、`Passed=false` 且 Report.PlanID 与 active PlanID 完全相等时，继续
+  构造完整 report-projected handoff；新增 PlanID 合取，错报告不能为另一计划提供失败权限；
+- report ref 缺失、文件不可读、报告却为 passed 或 PlanID 不符时，从 durable attempt 只携带
+  plan/batch/attempt、typed reason、diff ref 与 surface ref；
+- carrier 标记 `report_evidence_status=unavailable` 与精确 reason code；planner 头部降为
+  `bounded durable evidence`，把 commands、failing tests、build errors、diagnostics、confidence、
+  runner output 和 next-surface 明确列为 `not_evaluated`，禁止从 reason code 猜造；
+- durable progress 写 `resume_verify_report_evidence_unavailable`。原 plan 域仍可恢复并重规划，
+  不因辅助 report 丢失把整个 workflow 变成不可恢复 blocker。
+
+回归覆盖完整 report、缺失 report 的真实 resume→replan→apply→verify 链，以及 durable plan
+缺失仍 fail-closed 的相邻红线。验证：定向 orchestrator 回归通过（1.481s）；
+`go test ./internal/types ./internal/agent ./internal/orchestrator -count=1` 全包通过
+（24.536s / 2.926s / 14.504s）。
+
+状态：`T7-4=confirmed / implemented / full-package-pass`。MERGE-AUDIT-3 中高危、两项 plausible
+及本轮逐项复核的中低危生产 gap 已闭环；继承 eval 债继续由统一 campaign 按 ROI 回放，不把
+低价值顾问项硬化为生产门。

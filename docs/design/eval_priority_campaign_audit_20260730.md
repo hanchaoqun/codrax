@@ -4046,7 +4046,7 @@ clear 后按完整原请求重开。run 保持 `in_progress` 以允许恢复，�
 `go test ./internal/orchestrator -count=1` 通过(11.136s)。
 
 状态：`T7-3=confirmed / implemented / full-package-pass`。相邻 report-artifact 缺失形登记
-`T7-4/P2` 待独立审计；下一项 T5-3。
+`T7-4/P2` 待独立审计（已由 M17 闭环）；下一项 T5-3。
 
 ### MERGE-AUDIT-3 M8：relation claims 独立违规同轮 census（T5-3）
 
@@ -4148,6 +4148,17 @@ coverage、DB coverage 和 typed error 列为本次转换的执行证据席。�
 
 没有改转换行为，也没有把 86 个名字扩成答案硬门。定向回归通过（1.250s），cmd 全包通过
 （6.452s）。状态：`implemented / full-package-pass`。
+
+#### 批 M17：T7-4 resumed verify evidence 有限权限恢复（2026-08-02）
+
+独立审计确认 durable plan 在场时 mutation scope 未丢，不应因 ChangeReport 缺失整体
+fail-closed；但旧恢复会让 needs-replan planner 的 failure handoff 彻底为空。M17 对完整报告
+新增 `Passed=false + exact PlanID` 合取；报告不可用/错身份时，仅从 typed attempt 恢复
+plan/batch/attempt、reason、diff/surface refs，并标记 report evidence unavailable。planner 把
+所有 report-backed 字段发布为 `not_evaluated`，不从 reason code 猜失败测试或命令。
+
+真实 resume→replan→apply→verify 回归和 types/agent/orchestrator 全包通过
+（24.536s / 2.926s / 14.504s）。状态：`implemented / full-package-pass`。
 
 ### B47：运行日志语义所有权 × write 跨语言检查权限（2026-08-02）
 

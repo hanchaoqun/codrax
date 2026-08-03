@@ -9751,8 +9751,10 @@ func (o *Orchestrator) hydrateResumedWorkflowState(run *types.WriteWorkflowRun, 
 			)
 		}
 	}
-	if o.busCtx.Mutable.VerifyFailureHandoff() == nil && st.Phase == writeflow.BatchPhaseNeedsReplan && st.ReportID != "" {
-		if report := o.loadDurableReportArtifact(st.ReportID); report != nil && !report.Passed {
+	if o.busCtx.Mutable.VerifyFailureHandoff() == nil && st.Phase == writeflow.BatchPhaseNeedsReplan {
+		reportEvidenceReason := "durable_report_ref_missing"
+		if report := o.loadDurableReportArtifact(st.ReportID); report != nil && !report.Passed &&
+			strings.TrimSpace(report.PlanID) == strings.TrimSpace(st.PlanID) {
 			diffRef := ""
 			if strings.HasSuffix(st.LatestVerifyArtifactRef, ".diff") {
 				diffRef = st.LatestVerifyArtifactRef
@@ -9761,7 +9763,34 @@ func (o *Orchestrator) hydrateResumedWorkflowState(run *types.WriteWorkflowRun, 
 				o.busCtx.Mutable.SetVerifyFailureHandoff(handoff)
 				logging.Info("[orchestrator] resume: rebuilt verify-failure context from %s", st.ReportID)
 			}
+			return nil
+		} else if report != nil {
+			switch {
+			case report.Passed:
+				reportEvidenceReason = "durable_report_not_failed"
+			case strings.TrimSpace(report.PlanID) != strings.TrimSpace(st.PlanID):
+				reportEvidenceReason = "durable_report_plan_mismatch"
+			}
+		} else if strings.TrimSpace(st.ReportID) != "" {
+			reportEvidenceReason = "durable_report_unavailable"
 		}
+		diffRef := ""
+		if strings.HasSuffix(st.LatestVerifyArtifactRef, ".diff") {
+			diffRef = st.LatestVerifyArtifactRef
+		}
+		handoff := types.BuildVerifyFailureHandoffWithoutReport(
+			st.PlanID,
+			active.ID,
+			st.FailedVerifyAttempts,
+			st.Cause,
+			diffRef,
+			st.LatestVerifySurfaceRef,
+			reportEvidenceReason,
+		)
+		o.busCtx.Mutable.SetVerifyFailureHandoff(o.resolveVerifyFailureHandoffArtifacts(handoff))
+		appendControllerProgress(run, active.ID, "resume_verify_report_evidence_unavailable",
+			"resumed failed verification with bounded durable attempt evidence; report-backed details are not evaluated (reason="+reportEvidenceReason+")")
+		logging.Warning("[orchestrator] resume: verify report evidence unavailable for %s (%s); using bounded durable attempt handoff", st.ReportID, reportEvidenceReason)
 	}
 	return nil
 }

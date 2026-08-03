@@ -15,6 +15,13 @@ const (
 	maxHandoffSignals      = 10
 )
 
+type VerifyFailureReportEvidenceStatus string
+
+const (
+	VerifyFailureReportEvidenceAvailable   VerifyFailureReportEvidenceStatus = "available"
+	VerifyFailureReportEvidenceUnavailable VerifyFailureReportEvidenceStatus = "unavailable"
+)
+
 // RepairSourceSnapshot is a bounded current-worktree source window attached
 // to a verify-failure replan. It is generated from typed failure/patch
 // geometry such as build-error lines or PatchEffect hunk lines, never from
@@ -41,6 +48,13 @@ type VerifyFailureHandoff struct {
 	BatchID string `json:"batch_id,omitempty"`
 	// Attempt is the 1-based failed post-apply verify ordinal for the batch.
 	Attempt int `json:"attempt,omitempty"`
+
+	// ReportEvidenceStatus distinguishes a full projection of the durable
+	// ChangeReport from a resume-time fallback built only from the typed
+	// workflow attempt. The fallback preserves exact plan/artifact refs but
+	// must not imply that report-backed failure details were observed.
+	ReportEvidenceStatus     VerifyFailureReportEvidenceStatus `json:"report_evidence_status,omitempty"`
+	ReportEvidenceReasonCode string                            `json:"report_evidence_reason_code,omitempty"`
 
 	FailureKind    FailureKind `json:"failure_kind,omitempty"`
 	FailureSummary string      `json:"failure_summary,omitempty"`
@@ -118,16 +132,18 @@ func BuildVerifyFailureHandoff(report *ChangeReport, batchID string, attempt int
 		return nil
 	}
 	h := &VerifyFailureHandoff{
-		PlanID:             strings.TrimSpace(report.PlanID),
-		BatchID:            strings.TrimSpace(batchID),
-		Attempt:            attempt,
-		FailureKind:        report.FailureKind,
-		FailureSummary:     strings.TrimSpace(report.FailureSummary),
-		FailureReasonCode:  strings.TrimSpace(report.FailureReasonCode),
-		BlobRef:            strings.TrimSpace(report.FailureSummaryBlobRef),
-		DiffArtifactRef:    strings.TrimSpace(diffArtifactRef),
-		SurfaceArtifactRef: strings.TrimSpace(surfaceArtifactRef),
-		GeneratedAt:        time.Now(),
+		PlanID:                   strings.TrimSpace(report.PlanID),
+		BatchID:                  strings.TrimSpace(batchID),
+		Attempt:                  attempt,
+		ReportEvidenceStatus:     VerifyFailureReportEvidenceAvailable,
+		ReportEvidenceReasonCode: "typed_change_report_projected",
+		FailureKind:              report.FailureKind,
+		FailureSummary:           strings.TrimSpace(report.FailureSummary),
+		FailureReasonCode:        strings.TrimSpace(report.FailureReasonCode),
+		BlobRef:                  strings.TrimSpace(report.FailureSummaryBlobRef),
+		DiffArtifactRef:          strings.TrimSpace(diffArtifactRef),
+		SurfaceArtifactRef:       strings.TrimSpace(surfaceArtifactRef),
+		GeneratedAt:              time.Now(),
 	}
 	if h.Attempt < 1 {
 		h.Attempt = 1
@@ -198,6 +214,32 @@ func BuildVerifyFailureHandoff(report *ChangeReport, batchID string, attempt int
 		}
 	}
 	return h
+}
+
+// BuildVerifyFailureHandoffWithoutReport preserves the exact durable attempt
+// identity and artifact refs when a resumed needs-replan workflow cannot load
+// its ChangeReport. It deliberately leaves all report-backed detail empty and
+// marks that evidence unavailable; callers must not infer tests, commands, or
+// diagnostics from the attempt reason code.
+func BuildVerifyFailureHandoffWithoutReport(
+	planID, batchID string,
+	attempt int,
+	failureReasonCode, diffArtifactRef, surfaceArtifactRef, reportEvidenceReasonCode string,
+) *VerifyFailureHandoff {
+	if attempt < 1 {
+		attempt = 1
+	}
+	return &VerifyFailureHandoff{
+		PlanID:                   strings.TrimSpace(planID),
+		BatchID:                  strings.TrimSpace(batchID),
+		Attempt:                  attempt,
+		ReportEvidenceStatus:     VerifyFailureReportEvidenceUnavailable,
+		ReportEvidenceReasonCode: strings.TrimSpace(reportEvidenceReasonCode),
+		FailureReasonCode:        strings.TrimSpace(failureReasonCode),
+		DiffArtifactRef:          strings.TrimSpace(diffArtifactRef),
+		SurfaceArtifactRef:       strings.TrimSpace(surfaceArtifactRef),
+		GeneratedAt:              time.Now(),
+	}
 }
 
 // ResolveVerifyFailureHandoffArtifactPaths annotates a handoff with concrete

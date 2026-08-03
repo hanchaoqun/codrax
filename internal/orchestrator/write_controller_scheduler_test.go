@@ -10839,6 +10839,135 @@ func TestRunWriteControllerWorkflow_ResumeHydratesRetryPlanAndHandoff(t *testing
 	}
 }
 
+func TestRunWriteControllerWorkflow_ResumeMissingReportUsesBoundedAttemptHandoff(t *testing.T) {
+	planDir := t.TempDir()
+	storedPlan := &types.ChangePlan{
+		ID:          "plan-resume-missing-report",
+		Status:      types.PlanStatusVerifyFailed,
+		Summary:     "resume without report",
+		TargetPaths: []string{"fix.go"},
+		Changes:     []types.FileChange{{Path: "fix.go", Kind: "modify", NewContent: "package main\n"}},
+	}
+	if err := types.WritePlanToFile(storedPlan, filepath.Join(planDir, "plan-resume-missing-report.json")); err != nil {
+		t.Fatalf("seed plan: %v", err)
+	}
+	active := &types.WriteWorkflowRun{
+		RunID: "wf-resume-missing-report", Identity: testWorkflowIdentity("resume missing report"),
+		Status: types.WriteWorkflowRunInProgress, ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID: "batch-1", Status: types.WriteWorkflowBatchReadyToPlan, PlanID: storedPlan.ID,
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "plan", Status: "complete", PlanID: storedPlan.ID},
+				{Kind: "apply", Status: "applied", PlanID: storedPlan.ID},
+				{
+					Kind: "verify", Status: "failed", ReasonCode: "tests_failed", PlanID: storedPlan.ID,
+					ReportID: "missing.report.json", ArtifactRef: "plan-resume-missing-report.attempt-1.diff",
+					SurfaceRef: "plan-resume-missing-report.attempt-1.surface.json",
+				},
+			},
+		}},
+	}
+	store := &fakeWorkflowRunStore{active: active}
+	mu := types.NewMutableState("resume missing report")
+	decisions := []writeflow.WriteWorkflowDecision{
+		{Action: writeflow.ActionApplyPlan, ReasonCode: "resume_apply"},
+		{Action: writeflow.ActionVerifyBatch, ReasonCode: "resume_verify"},
+		{Action: writeflow.ActionFinish, ReasonCode: "done"},
+		{Action: writeflow.ActionFinish, ReasonCode: "done"},
+	}
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: scriptedController(t, decisions, &controllerCalls),
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelTokenPtr.Store(NewCancelToken())
+	o.writeWorkflowRunStore = store
+	o.reportDir = planDir
+	o.SetWriteRetryBudget(3)
+	var handoffAtPlan *types.VerifyFailureHandoff
+	var handoffAtApply *types.VerifyFailureHandoff
+	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
+		switch stage {
+		case types.StagePlan:
+			handoffAtPlan = mu.VerifyFailureHandoff()
+			mu.SetChangePlan(&types.ChangePlan{
+				ID:          "plan-resume-missing-report-replan",
+				Status:      types.PlanStatusPending,
+				Summary:     "bounded repair",
+				TargetPaths: []string{"fix.go"},
+			})
+		case types.StageApply:
+			handoffAtApply = mu.VerifyFailureHandoff()
+		case types.StageVerify:
+			mu.SetChangeReport(&types.ChangeReport{PlanID: "plan-resume-missing-report-replan", Passed: true})
+		}
+		*stepsUsed++
+		return &agent.StageOutput{}, nil
+	}
+	steps := 0
+	if err := o.runWriteControllerWorkflow(&steps); err != nil {
+		t.Fatalf("resumed run with durable plan and bounded failure evidence should complete: %v", err)
+	}
+	for _, handoff := range []*types.VerifyFailureHandoff{handoffAtPlan, handoffAtApply} {
+		if handoff == nil || handoff.PlanID != storedPlan.ID ||
+			handoff.ReportEvidenceStatus != types.VerifyFailureReportEvidenceUnavailable ||
+			handoff.ReportEvidenceReasonCode != "durable_report_unavailable" ||
+			handoff.FailureReasonCode != "tests_failed" {
+			t.Fatalf("resume must preserve bounded attempt authority without inventing report rows: %+v", handoff)
+		}
+		if len(handoff.Executed) != 0 || len(handoff.FailingTests) != 0 || len(handoff.BuildErrors) != 0 {
+			t.Fatalf("missing report details must remain not evaluated: %+v", handoff)
+		}
+	}
+	if store.last == nil || !workflowProgressHasReason(store.last.ProgressLedger, "resume_verify_report_evidence_unavailable") {
+		t.Fatalf("durable ledger must disclose degraded report evidence: %+v", store.last)
+	}
+}
+
+func TestHydrateResumedWorkflowState_MismatchedReportCannotAuthorizeHandoff(t *testing.T) {
+	planDir := t.TempDir()
+	if err := types.WriteChangeReportToFile(&types.ChangeReport{
+		PlanID:         "another-plan",
+		Passed:         false,
+		FailureKind:    types.FailureKindTestsFailed,
+		FailureSummary: "must not cross plan identity",
+		TestResults:    []types.TestResult{{AssertionID: "ForeignFailure", Passed: false}},
+	}, filepath.Join(planDir, "claimed.report.json")); err != nil {
+		t.Fatalf("seed mismatched report: %v", err)
+	}
+	run := &types.WriteWorkflowRun{
+		RunID: "wf-report-mismatch", Status: types.WriteWorkflowRunInProgress, ActiveBatchID: "batch-1",
+		ProgressLedger: []types.WriteWorkflowProgress{{ReasonCode: "workflow_resumed"}},
+		Batches: []types.WriteWorkflowBatch{{
+			ID: "batch-1", Status: types.WriteWorkflowBatchReadyToPlan, PlanID: "expected-plan",
+			Attempts: []types.WriteWorkflowAttempt{{
+				Kind: "verify", Status: "failed", ReasonCode: "tests_failed", PlanID: "expected-plan",
+				ReportID: "claimed.report.json",
+			}},
+		}},
+	}
+	mu := types.NewMutableState("report identity mismatch")
+	mu.SetChangePlan(&types.ChangePlan{ID: "expected-plan"})
+	o := New(types.PipelineSettings{}, nil, nil, nil)
+	o.busCtx = &types.BusContext{Mutable: mu}
+	o.reportDir = planDir
+	if err := o.hydrateResumedWorkflowState(run, map[string]int{}); err != nil {
+		t.Fatalf("mismatched report should degrade without changing plan scope: %v", err)
+	}
+	handoff := mu.VerifyFailureHandoff()
+	if handoff == nil || handoff.ReportEvidenceStatus != types.VerifyFailureReportEvidenceUnavailable ||
+		handoff.ReportEvidenceReasonCode != "durable_report_plan_mismatch" {
+		t.Fatalf("mismatched report received failure authority: %+v", handoff)
+	}
+	if len(handoff.FailingTests) != 0 || handoff.FailureSummary != "" {
+		t.Fatalf("foreign report rows leaked across plan identity: %+v", handoff)
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "resume_verify_report_evidence_unavailable") {
+		t.Fatalf("degraded authority must be recorded: %+v", run.ProgressLedger)
+	}
+}
+
 // G1: rebuilt retry counts must keep the budget honest across resume.
 func TestRunWriteControllerWorkflow_ResumeKeepsRetryBudgetHonest(t *testing.T) {
 	planDir := t.TempDir()
