@@ -11750,3 +11750,49 @@ read/write/多语言异构 eval 否证矩阵。
 - `go test ./internal/tool -run 'TestDiagramCallEdgeEvidenceMismatches|TestRunPreEmitChecks_(GenericExplicitCallEdgeEvidenceAlignmentIsWired|DiagramCallEdgeEvidenceAlignmentIsWired|DiagramBodyEdgeWithoutAnchorIsWired|MixedCallDAGGuardStaysOutsideCallAuthority)' -count=1` 通过；
 - `go test ./internal/types ./internal/skill ./internal/analysis/hint ./internal/agent ./internal/tool ./internal/orchestrator -count=1` 全绿（types 22.110s、skill 1.941s、hint 1.397s、agent 3.055s、tool 169.879s、orchestrator 13.806s）；
 - `git diff --check` 通过；生产双例回放排在下一批，仍严格并行 2 个。
+
+#### B54-C：r2 生产复验与同类红线面继续审计（2026-08-03）
+
+在 `main@4dc46e393` 同一二进制快照下再次严格并行 2 个 case：
+
+- `trace_query_wakeup_causal_runnable`：runner PASS，195s，实际 final reject=1；
+- `read_combo_trace_current_source_explanation`：runner PASS，246s，actual final reject=0。
+
+`RELSTALE1` 已获得生产闭环证据。最终 handoff 只发射当前
+`trace:target_state_partition:aebff006a573b1a3`（10.000ms），旧 15ms authority 不再成为
+accepted obligation；唯一拒绝是首稿漏带当前 block-level `relation_claims`，提示给出的动作
+“把当前 authority 复制到 block carrier”可执行，第二稿即通过。旧日志一轮 reject 计两次的问题也已
+消失，runner 正确记为 1。显式用户窗、3 次 `trace_query`、目标状态、唤醒链、根因排序、
+8.300ms 规则可消除候选和 Trace 因果投影全部保留。
+
+`DIAGCALL1` 的生产软引导也生效：mixed 例 final prompt 明示
+`grounded_callsite_facts=0 / explicit_caller_callee_edges=0 /
+ordered_path_authority=unproven`，模型选择不画图、不声明 `relation_kind=call`，零成文拒绝；hard
+negative path 由跨 family pre/post wiring pin 覆盖。该结果证明修复没有把普通逻辑流程全部硬化为
+call-chain，也没有影响 runtime Trace 独立关系 authority。
+
+回放同时确认两个新系统 GAP：
+
+| ID | 优先级 | GAP | 泛化方案 | 状态 |
+|---|---:|---|---|---|
+| `EVAL-B54-ARITHSUBJ1` | P1/red-line-near | 系统尾部 wall-clock 算术附注扫描模型自由文本，以邻近词/数字猜主体，把 worker-200 的 runnable 8.300ms 与其他上下文 10.000ms 绑定到 app-100，发布 28.300ms 假矛盾；同页 typed 行又正确显示 app running/runnable=0 | 用户可见的确定性主体-数值断言只消费结构化 item/typed carrier 的精确绑定；自由 prose 扫描不得铸造主体归属。无法精确绑定时静默，不把 noisy heuristic 包装成系统事实，不触发重试、不修改正文 | confirmed / next-code-batch |
+| `EVAL-B54-EVROLE1` | P1 | `EvidenceItem` 的文件/行/quote 真实，但 Explorer 自写 Summary 把字段定义 `MarkerPID=marker payload 内 PID` 升级为“B/E span 配对键”；closure 与 handoff 又把该 Summary 当成源码机制权威，最终答案据此出错。实际同步配对键是 artifact source + ftrace header TID，MarkerPID 是 payload owner/namespace process identity | 将“定义/声明存在”与“作为运行时 key/order/route 使用”分级；定义行只具 local-fact authority。机制角色必须由实际 consumer/control-use/call-site 或直接实现该角色的 cited line 支撑；无 typed 角色载体时只作软探索提示，不能在 handoff 中加冕为已证机制 | confirmed / design-before-code |
+| `EVAL-B54-MODELCAUSAL1` | watch/model | Trace 正文把已证 wakeup 时序进一步解释为“等待 I/O 完成”和“直接根因”，而 typed handoff 已明确 wakeup path 不证明 continuous blocking/holder | 不加原文关键词硬门、不由系统替写结论；继续异构用例观察。若重复出现，优先提升 typed relation semantics/上下文显著性，而非按该句拟合 | model-watch |
+
+`ARITHSUBJ1` 不是普通展示瑕疵：该块标为“系统生成的确定性内容”，错误主体绑定会与真正 typed
+状态分区正面矛盾，反而降低证据可信度。现有实现虽不触发 retry，仍违反“噪声信号只作软引导”的
+精神：自由 prose 邻近启发式可以决定是否提示，却不能生成带具体线程名和数值的系统事实。因此优先
+切断不精确的用户可见发布臂，而不是继续增加中文代词/词距特例。
+
+`EVROLE1` 与 `DIAGCALL1` 有共同根：位置/符号真实不等于关系/运行时角色真实。call edge 已有 typed
+关系 carrier，所以本批可硬校验；“keyed_by/used_as”目前缺少同等 typed carrier，不能直接照搬 hard
+gate。下一批先核对现有 EvidenceItem/ClaimForm/consumer-use 数据面，选择可泛化的 typed 角色通道；
+在没有精确信号前只收窄 handoff 确权，不能扫描 `MarkerPID`、`pairing` 等词来拟合本例。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b54_trace_mixed_r2_20260803.md`；
+- `eval/parallel_selected_summary_evalcampaign_b54_trace_mixed_r2_20260803_manual_audit.md`；
+- result dirs：`eval/results/*-20260803-073808`；
+- HTML：`.codrax/output/20260803-074121.991-60419.html`、
+  `.codrax/output/20260803-074211.965-60418.html`。
