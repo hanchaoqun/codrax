@@ -1394,3 +1394,16 @@ suffix/序号公式。关闭 perf adapter 时仍保留全部 raw 席，但不虚
 末席与上限外反例均已固定，诊断文件在创建前 fail-closed，不改变转换路由或工件内容。
 
 状态：`R4-1=confirmed / implemented / focused-pass`。
+
+### §9.11 M4-J：aggregate member 三元槽位对齐（已实现，待本节提交）
+
+复核确认 `R6-3` 的错位风险，但修正其范围：`normalizeAggregateStringSlots` 同时处理
+`Members / SupportRefs / MemberNotes`，旧实现会分别删除每个数组中的空字符串；所以稀疏 support ref 会
+左移到错误成员，稀疏 note 也会发生同样问题，并非 MemberNotes 已有独立守卫。
+
+现恢复该函数真正的 slot 语义：在固定上限内保留中间空槽，只裁去无语义的尾部空槽；随后已有
+`normalizeAggregateMemberSetMemberSupportNoteSurfaces` 以成员为主键成组删除空 member tuple、去重并合并。
+回归分别固定“成员 A 无 ref/note、成员 B 有 ref/note”不得左移，以及空 member 连同其 orphan ref/note
+一起删除。该修复只消费 structured arrays，不扫描用户输入或模型答案原文。
+
+状态：`R6-3=confirmed / implemented / focused-pass`。

@@ -1729,6 +1729,59 @@ func TestNormalizeAnswerAggregateFacts_PreservesSameLabelDistinctSourceLocations
 	}
 }
 
+func TestNormalizeAnswerAggregateFacts_PreservesMemberSupportAndNoteSlots(t *testing.T) {
+	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:    AnswerAggregateMemberSet,
+		Label:   "callers",
+		Value:   "2",
+		Role:    AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"Alpha", "Beta"},
+		SupportRefs: []string{
+			"",
+			"Beta @ src/b.go:22",
+		},
+		MemberNotes: []string{
+			"",
+			"Beta owns the second path",
+		},
+	}})
+	if err != nil {
+		t.Fatalf("positionally sparse member metadata should normalize: %v", err)
+	}
+	if len(got) != 1 || len(got[0].Members) != 2 {
+		t.Fatalf("member set shape drifted: %+v", got)
+	}
+	if len(got[0].SupportRefs) != 2 || got[0].SupportRefs[0] != "" || got[0].SupportRefs[1] != "Beta @ src/b.go:22" {
+		t.Fatalf("support ref moved to a different member slot: %+v", got[0].SupportRefs)
+	}
+	if len(got[0].MemberNotes) != 2 || got[0].MemberNotes[0] != "" || got[0].MemberNotes[1] != "Beta owns the second path" {
+		t.Fatalf("member note moved to a different member slot: %+v", got[0].MemberNotes)
+	}
+}
+
+func TestNormalizeAnswerAggregateFacts_RemovesEmptyMemberAsAlignedTuple(t *testing.T) {
+	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:    AnswerAggregateMemberSet,
+		Label:   "callers",
+		Value:   "1",
+		Role:    AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"", "Beta"},
+		SupportRefs: []string{
+			"orphan @ src/orphan.go:1",
+			"Beta @ src/b.go:22",
+		},
+		MemberNotes: []string{"orphan note", "Beta note"},
+	}})
+	if err != nil {
+		t.Fatalf("empty member tuple should normalize: %v", err)
+	}
+	if len(got) != 1 || len(got[0].Members) != 1 || got[0].Members[0] != "Beta" ||
+		len(got[0].SupportRefs) != 1 || got[0].SupportRefs[0] != "Beta @ src/b.go:22" ||
+		len(got[0].MemberNotes) != 1 || got[0].MemberNotes[0] != "Beta note" {
+		t.Fatalf("empty member was not removed with its aligned metadata: %+v", got)
+	}
+}
+
 func TestNormalizeAnswerAggregateFacts_PreservesParenthesizedLocationAttributeRows(t *testing.T) {
 	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
 		Kind:  AnswerAggregateMemberSet,

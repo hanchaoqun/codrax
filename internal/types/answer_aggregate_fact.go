@@ -5609,21 +5609,15 @@ func normalizeAggregateStringSlots(in []string, limit int) []string {
 	if len(in) == 0 || limit <= 0 {
 		return nil
 	}
+	if len(in) > limit {
+		in = in[:limit]
+	}
 	out := make([]string, 0, len(in))
 	for _, raw := range in {
 		item := trimAggregateText(raw)
-		if item == "" {
-			continue
-		}
 		out = append(out, item)
-		if len(out) >= limit {
-			break
-		}
 	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
+	return trimTrailingEmptyAggregateStrings(out)
 }
 
 func trimTrailingEmptyAggregateStrings(in []string) []string {
