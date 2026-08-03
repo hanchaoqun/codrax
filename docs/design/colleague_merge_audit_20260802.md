@@ -865,3 +865,39 @@ upstream” member-set，未显式填写 `role`。精确 direct 集已经获得
 
 状态：`B52d=covered`；`B52e=implemented / directed-pass / full-tool-test-pass /
 same-pair-replay pending`。
+
+---
+
+## §32 B52 r6：主席位无回退，已读调用边未完成证据交接（2026-08-02）
+
+在 `fb3c2ffe5` 上严格并行 2 个回放：called-by 193s，runner/human PASS，最终只有 2 个 direct
+production caller，零系统重复清单或 upstream 扩界。该轮模型没有再次发出 omitted-role sibling，
+故 B52e 的真实答案只证明无回退；确定性触发由 production
+`EmitInvestigationComplete.Execute -> StableInvestigationAggregateFacts` pin 验收。
+
+Java 165s，runner PASS / human FAIL。模型读取全部 5 个答案文件，但没有为
+`VisitController.create -> VisitService.schedule` 发射 citable call-edge，`countOpenVisits` 关系也只以
+recovered/lead 形进入 finalizer。class-participant sequence 连续 4 次校验失败、2 次 patch 后被删除。
+现有 matcher 已有“同一 class participant 间多条 exact message operation”正反 pin，因此这不是
+Mermaid 表达器或 Java receiver identity 回退，而是更上游的 evidence handoff 缺席。登记
+`B52f-CALL-EDGE-EVIDENCE-HANDOFF`（P1）。
+
+本批采用 typed soft guidance，不放宽硬门也不自动猜造证据：
+
+1. 只在 closed `QFCallChain` family 注入指导，不扫描用户请求或模型输出；
+2. repo_map relation 仍是导航。只有源码行已经 read 验证后，才指导模型为每个 load-bearing direct
+   invocation 发独立的 grounded relationship row，携带 exact caller/callee、call anchor、operation、
+   source/line/snippet；
+3. 同一 class/actor 端点间多个 operation 必须逐边交付，definition、read coverage、路径 member-set、
+   closure prose 均不能替代方向证据；guard 与 call 分账；
+4. 动态/歧义 receiver 保留源码 surface 并披露边界，不猜 owner；Proto RPC 保持 declarative，禁止
+   为追求图形完整伪造成 executable call；
+5. 规则覆盖 Go、Python、JavaScript、TypeScript、Java、Kotlin、Rust、C/C++、Ruby、Swift、Lua、
+   ArkTS、Cangjie 等全部 executable source lanes；不要求必须画图，也不授权系统替模型下结论；
+6. Trace/root-cause、显式时间窗因果投影和自动补齐完全不进入本指导。
+
+状态：`B52e=implemented / production-pin-pass / r6-no-regression`；
+`B52f=implemented-soft-guidance / directed-pass / agent-full-pass / same-pair-replay pending`。
+
+验证：typed family 正/反定向测试通过（2.612s）；`go test ./internal/agent -count=1`
+全包通过（3.445s）。

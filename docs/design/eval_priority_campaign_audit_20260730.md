@@ -3941,6 +3941,27 @@ kind/跨全部语言复用，不扫描用户或模型文本，也不触碰 Trace
 
 状态：`B52d=covered`；`B52e=implemented / directed-pass / full-tool-test-pass / replay pending`。
 
+---
+
+### B52 r6：direct relation 干净，调用图仍受上游 evidence handoff 制约（2026-08-02）
+
+`fb3c2ffe5` 固定 pair 严格并行 2：called-by runner/human PASS，只有 2 个 direct caller，零系统
+重复/扩界；本轮未产生 omitted-role sibling，B52e 确定性验收仍由 production Execute pin 承担。
+
+Java runner PASS / human FAIL：5 个答案文件均已读，但入口 call-edge 未发射，另一条 call 仍是
+recovered lead；sequence 经 4 reject/2 patch 后删除。matcher 已能表达 class participant 间多 operation，
+所以登记跨语言 `B52f-CALL-EDGE-EVIDENCE-HANDOFF`，不再调整 Mermaid 宽容度。
+
+施工只对 typed `QFCallChain` 增加 soft explorer guidance：每个已读且 load-bearing 的直接调用各发
+grounded call-edge；定义/read coverage/member-set/closure 不能代替调用方向；动态 receiver 不猜 owner，
+Proto RPC 不伪装 executable call。规则覆盖全部 executable source languages，不要求图、不改模型结论，
+不触碰 Trace 显式窗/因果投影/自动补齐。
+
+状态：`B52e=r6-no-regression / production-pin-pass`；
+`B52f=implemented-soft-guidance / directed-pass / agent-full-pass / replay pending`。
+
+验证：typed family 正/反定向测试通过（2.612s），`internal/agent` 全包通过（3.445s）。
+
 #### B52 r2：Java 只是见证，调用图端点缺口覆盖全语言（2026-08-02）
 
 在 `bf6114879` 上严格并行回放同一对 case：called-by runner/human PASS（117s，零 reject）；

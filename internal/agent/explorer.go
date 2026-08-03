@@ -877,6 +877,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		if guide := schemaLevelScopeGuide(e); guide != "" {
 			b.WriteString(guide)
 		}
+		b.WriteString(renderExplorerCallChainEdgeEvidenceGuide(ctx))
 		b.WriteString("**User question:** " + e.userQuestion)
 		return joinExplorerInstructionSections(writeExplorationPrefix, b.String())
 	}
@@ -953,6 +954,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	b.WriteString("- grep with files_only=true to find WHICH FILES contain key terms (just filenames, not lines). Use `file_type` when the language is obvious; do not use --include so you discover all relevant file types\n")
 	b.WriteString("- list_files to understand directory structure\n\n")
 	b.WriteString(renderExplorerRepoMapNavigationPrimer(ctx))
+	b.WriteString(renderExplorerCallChainEdgeEvidenceGuide(ctx))
 	b.WriteString(renderExplorerToolBudgetPlan(ctx))
 	b.WriteString("Prefer the built-in repository tools above for discovery. Reserve `exec_command` for deterministic computations or checks that the structured tools cannot perform directly.\n\n")
 	b.WriteString("**Non-English questions:** When you use text search (`grep`), search with BOTH the original terms AND their English programming equivalents because most codebases use English identifiers. This bilingual grep guidance does not override the typed repo_map route above; for relation / call-flow shapes, start from the typed repo_map `query` terms when a structural map is the cheaper first hop.\n\n")
@@ -1876,6 +1878,25 @@ func renderExplorerRepoMapNavigationPrimer(ctx *types.AgentContext) string {
 	b.WriteString(renderExplorerRepoMapTypedFirstHop(ctx))
 	b.WriteString(renderRepoMapTypedNavigationPolicy(ctx))
 	return b.String()
+}
+
+// renderExplorerCallChainEdgeEvidenceGuide is soft, typed guidance for the
+// source-code call-chain family. It closes the handoff mismatch where the
+// explorer reads a complete path and writes a member_set, but omits one or
+// more direct invocation EvidenceItems; the finalizer then cannot safely draw
+// those edges. The selector is the closed question-family enum. No request,
+// closure, answer, label, or thinking prose is scanned.
+func renderExplorerCallChainEdgeEvidenceGuide(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.AnalysisIR == nil ||
+		types.ResolveQuestionFamily(ctx.AnalysisIR.RequestModel) != types.QFCallChain {
+		return ""
+	}
+	return "### Call-edge Evidence Handoff\n\n" +
+		"A repo_map call/relation row is navigation until the source line is read. When a read source span verifies a load-bearing direct invocation in the requested path, emit one grounded `emit_evidence` item for that invocation before closing: use `evidence_kind=relationship`, `predicate=calls`, the exact enclosing caller in `subject`, the exact callee surface in `object`, `anchor_kind=call`, the exact callee operation in `anchor_symbol`, `scope=line`, and the read `source` / `line_start` / `snippet`.\n" +
+		"- Preserve every distinct operation even when several messages share the same class/actor endpoints; for example, two calls from one service to one repository are two call-edge evidence rows.\n" +
+		"- A function definition, a read-coverage row, a path member_set, or closure prose does not prove caller-to-callee direction and must not substitute for the call-site row. Emit guards/conditions separately from calls.\n" +
+		"- Use owner-qualified endpoints only when the parser/read source resolves that identity. For dynamic or ambiguous receivers, preserve the exact source receiver/operation and disclose the boundary instead of guessing a class.\n" +
+		"This is a cross-language evidence handoff for Go, Java, Kotlin, JavaScript/TypeScript/ArkTS, C/C++, Rust, Python, Ruby, Swift, Lua, Cangjie, and other supported executable source languages. Proto RPC declarations remain declarative relations and must not be emitted as executable call evidence. The handoff does not require a diagram and does not authorize any answer conclusion.\n\n"
 }
 
 func renderExplorerSourceInventoryAdvisory(ctx *types.AgentContext) string {
@@ -3546,6 +3567,7 @@ func (e *explorerEvaluator) buildCapabilityFocusedStartInstruction(ctx *types.Ag
 		b.WriteString(strings.Join(display, "`, `"))
 		b.WriteString("`\n\n")
 	}
+	b.WriteString(renderExplorerCallChainEdgeEvidenceGuide(ctx))
 	b.WriteString("Evidence format:\n")
 	b.WriteString("- `[DIRECT] symbol line N: <what this authority file establishes>`\n")
 	b.WriteString("- `[CONDITIONAL] symbol line N: <what narrower helper subset or validator does>`\n")
@@ -3758,6 +3780,7 @@ func (e *explorerEvaluator) buildFocusedDepthStartInstruction(ctx *types.AgentCo
 			b.WriteString(preReadInjected)
 		}
 	}
+	b.WriteString(renderExplorerCallChainEdgeEvidenceGuide(ctx))
 	b.WriteString("Evidence format:\n")
 	b.WriteString("- `[DIRECT] functionName line N: <what this code establishes>`\n")
 	b.WriteString("- `[REGISTRATION] functionName line N: <what is registered, EXACT values>`\n")
@@ -3875,6 +3898,7 @@ func (e *explorerEvaluator) buildPrimaryEntityDepthStartInstruction(ctx *types.A
 			b.WriteString(preReadInjected)
 		}
 	}
+	b.WriteString(renderExplorerCallChainEdgeEvidenceGuide(ctx))
 	b.WriteString("Evidence format:\n")
 	b.WriteString("- `[DIRECT] functionName line N: <what this code establishes>`\n")
 	b.WriteString("- `[REGISTRATION] functionName line N: <what is registered, EXACT values>`\n")
@@ -3994,6 +4018,7 @@ func (e *explorerEvaluator) buildDeclarativeFocusedStartInstruction(ctx *types.A
 			b.WriteString(preReadInjected)
 		}
 	}
+	b.WriteString(renderExplorerCallChainEdgeEvidenceGuide(ctx))
 	b.WriteString("Evidence format:\n")
 	b.WriteString("- `[DIRECT] symbol line N: <what this declaration establishes>`\n")
 	b.WriteString("- `[REGISTRATION] symbol line N: <what is registered or bound, EXACT values>`\n")
@@ -4038,6 +4063,7 @@ func (e *explorerEvaluator) buildDeclarativeCandidateStartInstruction(ctx *types
 			b.WriteString(preReadInjected)
 		}
 	}
+	b.WriteString(renderExplorerCallChainEdgeEvidenceGuide(ctx))
 	b.WriteString("Evidence format:\n")
 	b.WriteString("- `[DIRECT] symbol line N: <what this declaration establishes>`\n")
 	b.WriteString("- `[REGISTRATION] symbol line N: <what is registered or bound, EXACT values>`\n")

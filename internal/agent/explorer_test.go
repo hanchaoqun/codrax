@@ -1069,6 +1069,9 @@ func TestBuildInitialInstructionCompletionHandoff(t *testing.T) {
 			t.Fatalf("completion handoff prompt missing %q:\n%s", want, prompt)
 		}
 	}
+	if strings.Contains(prompt, "Call-edge Evidence Handoff") {
+		t.Fatalf("ordinary architecture explanation must not receive call-chain-only evidence guidance:\n%s", prompt)
+	}
 }
 
 func TestBuildInitialInstruction_CallChainTypedRepoMapOutranksGenericGrep(t *testing.T) {
@@ -1099,6 +1102,12 @@ func TestBuildInitialInstruction_CallChainTypedRepoMapOutranksGenericGrep(t *tes
 		"Suggested exact `query` surfaces",
 		"When you use text search (`grep`)",
 		"does not override the typed repo_map route above",
+		"Call-edge Evidence Handoff",
+		"every distinct operation",
+		"does not authorize any answer conclusion",
+		"ArkTS",
+		"Cangjie",
+		"Proto RPC declarations remain declarative",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("call-chain prompt missing %q:\n%s", want, prompt)
