@@ -24,6 +24,37 @@ func TestNormalizeSequenceStops_RewritesBareStop(t *testing.T) {
 	}
 }
 
+func TestParseEdges_FlowchartPreservesColonQualifiedCallableLabels(t *testing.T) {
+	tests := []struct {
+		language string
+		caller   string
+		callee   string
+	}{
+		{"rust", "service::handle", "repo::count"},
+		{"cpp", "Service::handle", "Repository::count"},
+		{"ruby", "Service::handle", "Repository::count"},
+		{"cangjie", "clinic::VisitService::schedule", "clinic::VisitRepository::countOpenVisits"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.language, func(t *testing.T) {
+			body := "flowchart TD\n  A[\"" + tc.caller + "\"] --> B[\"" + tc.callee + "\"]\n"
+			edges := ParseEdges(body)
+			if len(edges) != 1 || edges[0].From != "A" || edges[0].To != "B" ||
+				edges[0].FromLabel != tc.caller || edges[0].ToLabel != tc.callee {
+				t.Fatalf("%s qualified call edge was truncated at colon: %+v", tc.language, edges)
+			}
+		})
+	}
+}
+
+func TestParseEdges_SequenceMessageColonStillParses(t *testing.T) {
+	body := "sequenceDiagram\n  participant A as service::handle\n  participant B as repo::count\n  A->>B: count(key: value)\n"
+	edges := ParseEdges(body)
+	if len(edges) != 1 || edges[0].From != "A" || edges[0].To != "B" || edges[0].Label != "count(key: value)" {
+		t.Fatalf("sequence target/message split regressed: %+v", edges)
+	}
+}
+
 func TestSourceRepairHash_UsesBeforeAndAfter(t *testing.T) {
 	a := sourceRepairHash("before", "after")
 	if a == "" {

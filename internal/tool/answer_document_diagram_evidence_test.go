@@ -348,6 +348,67 @@ func TestDiagramCallEdgeEvidenceMismatches_CallDAGAllowsTypedGuardEdges(t *testi
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_CallDAGTypedCallCannotHideBehindGuardAnchorAcrossLanguages(t *testing.T) {
+	tests := []struct {
+		language string
+		caller   string
+		callee   string
+	}{
+		{"go", "service.Handle", "repo.Count"},
+		{"python", "service.handle", "repo.count"},
+		{"javascript", "Service.handle", "Repository.count"},
+		{"typescript", "Service.handle", "Repository.count"},
+		{"java", "VisitService.schedule", "VisitRepository.countOpenVisits"},
+		{"kotlin", "VisitService.schedule", "VisitRepository.countOpenVisits"},
+		{"rust", "service::handle", "repo::count"},
+		{"c", "service_handle", "repo_count"},
+		{"cpp", "Service::handle", "Repository::count"},
+		{"ruby", "Service::handle", "Repository::count"},
+		{"swift", "Service.handle", "Repository.count"},
+		{"lua", "service.handle", "repo.count"},
+		{"arkts", "VisitService.schedule", "VisitRepository.countOpenVisits"},
+		{"cangjie", "clinic::VisitService::schedule", "clinic::VisitRepository::countOpenVisits"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.language, func(t *testing.T) {
+			doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+				ID: "compound-condition", Kind: types.BlockDiagram,
+				Diagram: &types.AnswerDiagramBlock{
+					Kind: types.DiagramCallDAG, Language: "mermaid",
+					Body: "flowchart TD\n  A[\"" + tc.caller + "\"] --> B[\"" + tc.callee + "\"]\n",
+				},
+				EdgeAnchors: []types.DiagramEdgeAnchor{{
+					FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelGuard,
+					ClaimForm: types.ClaimGuardCondition,
+				}},
+			}}}
+			got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
+				[]types.EvidenceItem{diagramEvidenceTestCall(tc.caller, tc.callee)})
+			if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueMissingAnchor {
+				t.Fatalf("%s exact invocation must retain a typed call anchor even inside a compound guard: %+v", tc.language, got)
+			}
+		})
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_CallDAGAllowsCallAndGuardForSameCompoundEdge(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "compound-condition", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramCallDAG, Language: "mermaid",
+			Body: "flowchart TD\n  S[VisitService.schedule] --> C[VisitRepository.countOpenVisits]\n",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "S", ToNode: "C", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge},
+			{FromNode: "S", ToNode: "C", RelationKind: types.DiagramRelGuard, ClaimForm: types.ClaimGuardCondition},
+		},
+	}}}
+	evidence := []types.EvidenceItem{diagramEvidenceTestCall("VisitService.schedule", "VisitRepository.countOpenVisits")}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, evidence); len(got) != 0 {
+		t.Fatalf("a compound edge may preserve both its exact invocation and guard context: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_CallDAGRespectsEveryTypedNonCallRelation(t *testing.T) {
 	for _, relation := range []types.DiagramRelationKind{
 		types.DiagramRelGuard,

@@ -1029,3 +1029,42 @@ preserve/repair/source-path 反臂仍是其验收 authority。
 
 完整回归：`go test ./internal/types ./internal/tool ./internal/agent -count=1` 分包通过
 （types 19.776s；tool 159.961s；agent 3.266s）。
+
+---
+
+## §36 B52 r10：`::` 图边消失与 non-call anchor 绕过调用权限（2026-08-02）
+
+`e23168999` 精确构建同 pair 严格并行 2/2 runner PASS：called-by 107s、Java 220s。
+
+人工结果：called-by PASS。最终 principal table 只有两个 unique caller functions；同一函数的两处
+callsite 保留为同一行详情，typed aggregate 已是 `value=2`、两 members、294/321 两 support refs，
+无重复 system carrier、无短 `member_notes` 错贴。`B52i` production trigger 闭环。
+
+Java 图恢复了真实 `VisitService.schedule -> VisitRepository.countOpenVisits` 调用，说明复合条件 soft
+guide 生效；但该可视 call-DAG edge 只携带 `relation_kind=guard`，没有 `call` anchor，仍被硬校验放行。
+进一步用跨语言矩阵构造反例时发现更深的共享解析 gap：`mermaidcompat.ParseEdges` 在整行第一个 `:`
+处分割 sequence message；Rust/C++/Ruby/Cangjie 的 `::` 限定名会让 flowchart 行在箭头前被截断，
+整条边不进入 typed 校验。
+
+登记 `B52j-COLON-CALLDAG-RELATION-AUTHORITY`（P1），通用修复：
+
+1. 先识别 Mermaid body family；只在 `sequenceDiagram` 中、且完成 arrow split 后，从 target 后分离
+   message colon；跳过 `::` namespace separator；flowchart 节点标签中的任意 colon 保持 byte-exact；
+2. QFCallChain + `call_dag` 中，如果同向端点已有 citable typed call-edge evidence，则可视边必须携带
+   `relation_kind=call`；一个 `guard/import/observe/...` anchor 不能隐藏该 exact call；
+3. 复合条件允许同一 pair 同时携带 call + guard，或更清晰地把 guard 画成独立 branch/Note；
+4. 真正的 guard-to-outcome、import、precedence、contain、observe 边在没有 same-endpoint call proof 时
+   继续合法，不被粗暴重分类；
+5. hard gate 只消费 QF family、diagram kind、schema-validated relation enum、parsed endpoints 与 citable
+   typed evidence；不扫描 RawRequest、edge label prose、thinking/final text，不由系统重画图或改结论；
+6. QFRootCauseTrace、显式时间窗 Trace 因果投影和自动补齐继续在该 source-call 合同之外。
+
+测试按仓库权威语言矩阵覆盖 Go、Python、JavaScript、TypeScript、Java、Kotlin、Rust、C、C++、
+Ruby、Swift、Lua、ArkTS、Cangjie 的 executable callable surface；Proto 保持 declarative relation，
+没有 typed call evidence 时不会被升级为调用。
+
+状态：`B52i=production-replay-covered`；
+`B52j=implemented / directed-cross-language-pass / full-tests-pass / replay-pending`。
+
+完整回归：`go test ./internal/mermaidcompat ./internal/render ./internal/tool ./internal/agent -count=1`
+通过（0.759s / 2.011s / 165.286s / 3.010s）。

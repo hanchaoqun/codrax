@@ -51,21 +51,26 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 			callAnchorKeys := diagramCallAnchorKeySet(block.EdgeAnchors)
 			typedAnchorRelations := diagramTypedAnchorRelationSet(block.EdgeAnchors)
 			for _, edge := range parsedEdges {
+				key := diagramEvidenceEdgeKey(edge.From, edge.To)
+				fromSymbol := diagramEvidenceEndpointSymbol(edge.From, labels)
+				toSymbol := diagramEvidenceEndpointSymbol(edge.To, labels)
+				hasTypedCallEvidence := diagramCallEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol, edge.Label)
 				// In a sequence diagram Mermaid's dashed -->> operator is a
 				// response/return lane, not a second source-code invocation in
 				// the reverse direction. It therefore needs no call anchor and
 				// cannot be used to satisfy one. A call-DAG may also mix typed
 				// control/dependency edges with invocation edges. An exact
 				// non-call edge_anchor owns those edges; the separate relation
-				// legality validator checks that typed relation. Unanchored DAG
-				// edges retain the fail-closed call default.
-				if !diagramParsedEdgeRequiresCallAuthority(block.Diagram.Kind, edge, typedAnchorRelations) {
+				// legality validator checks that typed relation. However, a
+				// non-call anchor cannot hide a SAME-ENDPOINT call already proved
+				// by typed evidence: in a call_dag that visible edge must retain
+				// relation_kind=call (it may carry an additional guard anchor).
+				// Unanchored DAG edges retain the fail-closed call default.
+				if !diagramParsedEdgeRequiresCallAuthority(block.Diagram.Kind, edge, typedAnchorRelations) &&
+					!hasTypedCallEvidence {
 					continue
 				}
-				key := diagramEvidenceEdgeKey(edge.From, edge.To)
 				parsedEdgeKeys[key] = true
-				fromSymbol := diagramEvidenceEndpointSymbol(edge.From, labels)
-				toSymbol := diagramEvidenceEndpointSymbol(edge.To, labels)
 				if !callAnchorKeys[key] {
 					out = append(out, DiagramCallEdgeEvidenceMismatch{
 						BlockID:    block.ID,
@@ -77,7 +82,7 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 					})
 					continue
 				}
-				if diagramCallEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol, edge.Label) {
+				if hasTypedCallEvidence {
 					continue
 				}
 				out = append(out, DiagramCallEdgeEvidenceMismatch{

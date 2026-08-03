@@ -30,22 +30,31 @@ const NodeShapeDecision = "decision"
 // shapes Codrax asks finalizers to emit, not the whole Mermaid grammar.
 func ParseEdges(body string) []Edge {
 	var edges []Edge
+	sequenceBody := false
+	for _, raw := range strings.Split(body, "\n") {
+		line := strings.ToLower(strings.TrimSpace(raw))
+		if line == "" || strings.HasPrefix(line, "%%") {
+			continue
+		}
+		sequenceBody = strings.HasPrefix(line, "sequencediagram")
+		break
+	}
 	for _, raw := range strings.Split(body, "\n") {
 		line := strings.TrimSpace(raw)
 		if line == "" || strings.HasPrefix(line, "%%") || strings.HasPrefix(line, "classDef") || strings.HasPrefix(line, "click") {
 			continue
 		}
-		var seqLabel string
-		if idx := strings.Index(line, ":"); idx > 0 {
-			seqLabel = strings.TrimSpace(line[idx+1:])
-			line = strings.TrimSpace(line[:idx])
-		}
 		from, to, label, operator, ok := SplitEdgeLine(line)
 		if !ok {
 			continue
 		}
-		if label == "" {
-			label = seqLabel
+		if sequenceBody {
+			if target, message, found := splitSequenceEdgeTargetMessage(to); found {
+				to = target
+				if label == "" {
+					label = message
+				}
+			}
 		}
 		var fromLabel, toLabel, fromShape, toShape string
 		from, fromLabel, fromShape = ParseNodeTokenWithShape(from)
@@ -65,6 +74,29 @@ func ParseEdges(body string) []Edge {
 		})
 	}
 	return edges
+}
+
+// splitSequenceEdgeTargetMessage separates the message delimiter in a
+// sequence edge target such as `Service: call(arg)`. It deliberately runs
+// only for sequenceDiagram bodies and ignores namespace separators (`::`).
+// Flowchart labels are never scanned for `:`: Rust/C++/Ruby/Cangjie callable
+// identities and ordinary `key: value` node labels must remain byte-exact.
+func splitSequenceEdgeTargetMessage(raw string) (target, message string, ok bool) {
+	for i := 0; i < len(raw); i++ {
+		if raw[i] != ':' {
+			continue
+		}
+		if (i > 0 && raw[i-1] == ':') || (i+1 < len(raw) && raw[i+1] == ':') {
+			continue
+		}
+		target = strings.TrimSpace(raw[:i])
+		message = strings.TrimSpace(raw[i+1:])
+		if target == "" || message == "" {
+			return raw, "", false
+		}
+		return target, message, true
+	}
+	return raw, "", false
 }
 
 // SplitEdgeLine attempts to split one Mermaid statement into (from, to)

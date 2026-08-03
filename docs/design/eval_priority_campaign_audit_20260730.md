@@ -3961,6 +3961,36 @@ deterministic pins 仍是其验收 authority。
 完整回归：`internal/types` 19.776s、`internal/tool` 159.961s、`internal/agent` 3.266s，
 均以 `-count=1` 通过。
 
+---
+
+## B52 r10：跨语言 colon-qualified 图边与 typed relation authority（2026-08-02）
+
+`e23168999` 精确构建严格并行 2 个：called-by 107s、Java call-chain 220s，runner 2/2 PASS；
+人工 called-by PASS、Java FAIL。
+
+called-by 已只发布两个 unique caller functions；重复 callsite 是同一函数行的详情，`B52i` 的
+typed ReqCallChain identity projection 在 production replay 生效。
+
+Java 图已保留 compound condition 中真实的 `countOpenVisits` invocation，但同一可视边只有 typed
+guard anchor，call-DAG 的 exact call 权限可被 non-call enum 绕过。跨语言定向测试又证明旧
+`ParseEdges` 会在整行首个 `:` 截断，导致 Rust/C++/Ruby/Cangjie `::` 节点标签让 edge 消失。
+
+`B52j` 根修位于共享 Mermaid parser + QFCallChain typed evidence gate：
+
+- sequence message 只在 sequence family、arrow target 后解析；flowchart colon labels 不再参与切割；
+- same-endpoint exact typed call proof 要求 `relation_kind=call`，即使另有 guard anchor；
+- 真 guard/outcome 与其它 typed non-call relations 保留；复合边可同时携带 call+guard；
+- 规则覆盖全部 executable language identities，不读取用户/模型原文，不作用于 Trace causal family。
+
+Java 回答还称 `AuditLog.record` 写入“只读日志”，而 fixture body 只证明 `System.out.println`；这记为
+explorer/finalizer 模型证据措辞波动。没有精准 typed sink-semantics 信号，系统不得据此硬改模型结论。
+
+状态：`B52i=production-replay-covered`；
+`B52j=implemented / directed-cross-language-pass / full-tests-pass / replay-pending`。
+
+完整回归：`internal/mermaidcompat` 0.759s、`internal/render` 2.011s、
+`internal/tool` 165.286s、`internal/agent` 3.010s，均以 `-count=1` 通过。
+
 ### B52 r7：全语言调用图交接验收与模型表重复（2026-08-02）
 
 同 pair 在 `759f1c859` 上 runner 2/2 PASS。人工审计结论：
