@@ -71,7 +71,7 @@
 
 ## §5 低危顾问(12 件,未进否证轮,修复时顺带)
 
-T1-2 越界时间戳有效 CPU 记录整丢不 fence(违其自documented合同);T2-2 86 项能力表自指 pin(行为回退不红);T2-3 alias 门只查 3/6 发布路径+路径等价弱分叉;T2-4 新诊断面在 CLAUDE.md/architecture.md 零文档(--tracediag 有而 --diagnostic-report 无);T3-4 目标状态卡 4 行静默截断无 +N 披露(自称权威 roster);T4-2 perf-triage prompt 泄漏 validator/downstream 管线机制词(行话门盲区);T5-3 relation_claims 每轮只报第一违规且缺字段值细节(EMITBURN 纪律反向);T6-3 git ls-files 车道与 walk 回退解析栈帧的文件宇宙不同(vendor/ 双解);T6-4 跨批 owner 锚无陈腐臂(后批 apply 改写文件后旧锚仍作证);T7-3 durable plan 快照缺失时 bare continue 静默收窄重建域;T9-2 转换账本冻结的 typed 保真边界(24,055 无 CPU 证明 sync span 等)是**防伪造承诺面**,后来者勿"修复";T9-4(正面)抽检 9 条账本声称全实。
+T1-2 越界时间戳有效 CPU 记录整丢不 fence(违其自documented合同);T2-2 86 项能力表自指 pin(行为回退不红);T2-3 alias 门只查 3/6 发布路径+路径等价弱分叉;T2-4 新诊断面在 CLAUDE.md/architecture.md 零文档(--tracediag 有而 --diagnostic-report 无);T3-4 目标状态卡 4 行静默截断无 +N 披露(自称权威 roster);T4-2 perf-triage prompt 泄漏 validator/downstream 管线机制词(行话门盲区);T5-3 relation_claims 每轮只报第一违规且缺字段值细节(EMITBURN 纪律反向);T6-3 git ls-files 车道与 walk 回退解析栈帧的文件宇宙不同(vendor/ 双解);T6-4 跨批 owner 锚无陈腐臂(后批 apply 改写文件后旧锚仍作证);T7-3 durable plan 快照缺失时 bare continue 静默收窄重建域(已修，见 §16);T9-2 转换账本冻结的 typed 保真边界(24,055 无 CPU 证明 sync span 等)是**防伪造承诺面**,后来者勿"修复";T9-4(正面)抽检 9 条账本声称全实。
 
 ## §6 处置建议(排期序,均未动码)
 
@@ -341,3 +341,34 @@ finding 完全准确。确定性红测使用一个成功的 `make check` 脚本�
 
 状态：`T7-2=confirmed / implemented / full-package-pass`。MERGE-AUDIT-3 两项 plausible
 均已定性并闭环；下一批按 ROI 审计 `T7-3` durable plan snapshot 缺失时的 bare continue。
+
+---
+
+## §16 T7-3 施工结果：缺失 plan snapshot 的恢复 fail-closed(2026-08-02)
+
+finding 准确。workflow run 的 durable envelope 只保存 `PlanID/PlanRef`、batch goal、attempt
+与 artifact refs；原 plan 的 target paths、具体 edits、behavior contracts、verification probes、
+approval record 只存在于 companion `<plan-id>.json`。恢复时找不到该文件，旧代码仅 warning，
+然后仍允许 controller 从 batch goal 重规划；goal 为空时最终还会退化成
+`continue active write workflow`。这些字段不足以无损重建原 mutation/verification domain，
+继续就是静默收窄而不是兼容降级。
+
+施工采用精确信号 fail-closed：
+
+- 仅在 typed `workflow_resumed` run 的 active batch 已记录非空 PlanID、Mutable 没有同 ID plan，
+  且 exact imported/report-dir plan artifact 载入失败时触发；长生命周期 Mutable 中的异 ID
+  stale plan 不能冒充 active plan；
+- 在任何 controller、planner、apply 或 verify dispatch 前返回明确 verdict，列出缺失 plan ID、
+  无法恢复的字段族以及两条恢复路径：补回 artifact 后重试，或 clear workflow 后用完整原始
+  change request 重开；不从 goal/progress prose 猜 scope；
+- durable progress 追加 `resume_plan_artifact_missing`，但 run 保持 `in_progress`，避免 artifact
+  补回后仍被 terminal status 拒绝；
+- 正常 durable-plan hydration、failed-verify handoff、retry budget、pending approval 与 repair-plan
+  deadline resume 正臂全部保留。
+
+端到端红测旧实现会实际进入 controller；修复后断言 controller calls=0、typed progress 在场、
+run 可恢复。最终 `go test ./internal/orchestrator -count=1` 全包通过(11.136s)。
+
+状态：`T7-3=confirmed / implemented / full-package-pass`。相邻的“plan 在场但 needs-replan
+report artifact 缺失”只损失失败细节、不丢原 mutation 域，当前仍为 best-effort；登记为
+`T7-4/P2` 待独立审计，不在本批未经证明扩大 hard gate。下一高 ROI 项审计 T5-3。

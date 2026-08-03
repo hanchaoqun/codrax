@@ -2727,6 +2727,13 @@ func TestRunWriteControllerWorkflow_DispatchWriteDeadlineAfterPlanBlocksRun(t *t
 }
 
 func TestRunWriteControllerWorkflow_DispatchWriteDeadlineAfterRepairPlanStaysResumable(t *testing.T) {
+	planDir := t.TempDir()
+	if err := types.WritePlanToFile(&types.ChangePlan{
+		ID: "plan-prev", Status: types.PlanStatusVerifyFailed,
+		Changes: []types.FileChange{{Path: "src/old.py", Kind: "modify", NewContent: "old = True\n"}},
+	}, filepath.Join(planDir, "plan-prev.json")); err != nil {
+		t.Fatalf("seed durable prior plan: %v", err)
+	}
 	active := &types.WriteWorkflowRun{
 		RunID:         "wf-repair-deadline",
 		Identity:      testWorkflowIdentity("deadline after repair plan"),
@@ -2777,6 +2784,7 @@ func TestRunWriteControllerWorkflow_DispatchWriteDeadlineAfterRepairPlanStaysRes
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
 	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
+	o.reportDir = planDir
 	applyCalls := 0
 	o.controllerWriteStageFn = func(stage types.PipelineStage, stepsUsed *int) (*agent.StageOutput, error) {
 		switch stage {
@@ -7571,6 +7579,13 @@ func TestRunWriteControllerWorkflow_ResumesActiveRun(t *testing.T) {
 }
 
 func TestRunWriteControllerWorkflow_ResumePendingApprovalPausesBeforeController(t *testing.T) {
+	planDir := t.TempDir()
+	if err := types.WritePlanToFile(&types.ChangePlan{
+		ID: "plan-needs-human", Status: types.PlanStatusPending,
+		Changes: []types.FileChange{{Path: "src/review.py", Kind: "modify", NewContent: "review = True\n"}},
+	}, filepath.Join(planDir, "plan-needs-human.json")); err != nil {
+		t.Fatalf("seed durable pending plan: %v", err)
+	}
 	store := &fakeWorkflowRunStore{active: &types.WriteWorkflowRun{
 		RunID: "wf-approval",
 		Goal:  "resume approval",
@@ -7599,6 +7614,7 @@ func TestRunWriteControllerWorkflow_ResumePendingApprovalPausesBeforeController(
 	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
 	o.cancelTokenPtr.Store(NewCancelToken())
 	o.writeWorkflowRunStore = store
+	o.reportDir = planDir
 	steps := 0
 	err := o.runWriteControllerWorkflow(&steps)
 	if err == nil || !strings.Contains(err.Error(), "write workflow pending approval for plan plan-needs-human") {
@@ -10585,6 +10601,53 @@ func TestLastPlanEmitRejectionView_PrefersTypedRepairPackMetadata(t *testing.T) 
 
 // G1: a resumed run must rebuild retry counts, the active plan, and the
 // verify-failure carrier from typed records + durable artifacts.
+func TestRunWriteControllerWorkflow_ResumeMissingDurablePlanFailsClosedBeforeController(t *testing.T) {
+	const objective = "resume missing durable plan"
+	active := &types.WriteWorkflowRun{
+		RunID: "wf-missing-plan", Identity: testWorkflowIdentity(objective),
+		Status: types.WriteWorkflowRunInProgress, ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID: "batch-1", Goal: "change both parser and verifier", Status: types.WriteWorkflowBatchPlanned,
+			PlanID: "plan-lost", PlanRef: "plan-lost",
+			Attempts: []types.WriteWorkflowAttempt{{
+				Kind: "plan", Status: "complete", PlanID: "plan-lost", ArtifactRef: "plan-lost",
+			}},
+		}},
+	}
+	store := &fakeWorkflowRunStore{active: active}
+	mu := types.NewMutableState(objective)
+	// A long-lived REPL may still carry another plan in Mutable. It must not
+	// satisfy hydration for the active batch's exact durable PlanID.
+	mu.SetChangePlan(&types.ChangePlan{ID: "stale-plan", Changes: []types.FileChange{{Path: "other.go", Kind: "modify", NewContent: "package other\n"}}})
+	controllerCalls := 0
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteController: func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error) {
+			controllerCalls++
+			return nil, errors.New("controller dispatched after missing durable plan")
+		},
+	})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, ar, sr, sar)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{}}
+	o.cancelTokenPtr.Store(NewCancelToken())
+	o.writeWorkflowRunStore = store
+	o.reportDir = t.TempDir() // deliberately contains no plan-lost.json
+
+	steps := 0
+	err := o.runWriteControllerWorkflow(&steps)
+	if err == nil || !strings.Contains(err.Error(), "durable plan artifact") || !strings.Contains(err.Error(), "plan-lost") {
+		t.Fatalf("missing durable plan should produce a precise fail-closed verdict, got %v", err)
+	}
+	if controllerCalls != 0 {
+		t.Fatalf("missing plan bytes must stop before controller/replan dispatch, calls=%d", controllerCalls)
+	}
+	if store.last == nil || !workflowProgressHasReason(store.last.ProgressLedger, "resume_plan_artifact_missing") {
+		t.Fatalf("durable run should record the recovery blocker: %+v", store.last)
+	}
+	if store.last.Status != types.WriteWorkflowRunInProgress {
+		t.Fatalf("artifact restoration must remain possible; run status=%s", store.last.Status)
+	}
+}
+
 func TestRunWriteControllerWorkflow_ResumeHydratesRetryPlanAndHandoff(t *testing.T) {
 	planDir := t.TempDir()
 	storedPlan := &types.ChangePlan{ID: "plan-resume", Status: types.PlanStatusVerifyFailed, Summary: "resume me",
@@ -10684,6 +10747,12 @@ func TestRunWriteControllerWorkflow_ResumeHydratesRetryPlanAndHandoff(t *testing
 // G1: rebuilt retry counts must keep the budget honest across resume.
 func TestRunWriteControllerWorkflow_ResumeKeepsRetryBudgetHonest(t *testing.T) {
 	planDir := t.TempDir()
+	if err := types.WritePlanToFile(&types.ChangePlan{
+		ID: "plan-b", Status: types.PlanStatusVerifyFailed, TargetPaths: []string{"fix.go"},
+		Changes: []types.FileChange{{Path: "fix.go", Kind: "modify", NewContent: "package main\n"}},
+	}, filepath.Join(planDir, "plan-b.json")); err != nil {
+		t.Fatalf("seed durable plan: %v", err)
+	}
 	active := &types.WriteWorkflowRun{
 		RunID: "wf-budget", Identity: testWorkflowIdentity("resume budget"),
 		Status: types.WriteWorkflowRunInProgress, ActiveBatchID: "batch-1",

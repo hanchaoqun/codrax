@@ -4031,6 +4031,23 @@ Make exact prerequisites 和 recipe exact existing file arguments铸造；普通
 
 状态：`T7-2=confirmed / implemented / full-package-pass`；下一项 T7-3。
 
+### MERGE-AUDIT-3 M7：resume 缺失 durable plan 时 fail-closed（T7-3）
+
+workflow envelope 只有 PlanID/ref、batch goal 与 attempts；target paths、edits、behavior
+contracts、verification probes、approval record 仍只在 companion plan JSON。旧恢复路径找不到
+JSON 时仅 warning，controller 可从 batch goal（最差为 `continue active write workflow`）重规划，
+形成不可见域收窄。
+
+现在只在 typed resumed active PlanID 没有同 ID live/durable plan 时，于所有 controller/planner/apply
+dispatch 前 fail-closed（异 ID stale Mutable plan 也不能冒充）；进度账写
+`resume_plan_artifact_missing`，用户面说明补回 artifact 或
+clear 后按完整原请求重开。run 保持 `in_progress` 以允许恢复，不从 goal/progress prose 猜计划。
+正常 plan hydration、handoff、retry budget、pending approval 和 deadline resume 均有正臂。
+`go test ./internal/orchestrator -count=1` 通过(11.136s)。
+
+状态：`T7-3=confirmed / implemented / full-package-pass`。相邻 report-artifact 缺失形登记
+`T7-4/P2` 待独立审计；下一项 T5-3。
+
 ### B47：运行日志语义所有权 × write 跨语言检查权限（2026-08-02）
 
 严格并行 2 个跨模式 case：

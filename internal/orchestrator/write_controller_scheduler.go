@@ -69,7 +69,12 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 	// active plan, and the verify-failure carrier from those records and the
 	// durable artifacts so a resumed run behaves like the run that paused —
 	// the retry budget cannot silently reset and replan keeps its evidence.
-	o.hydrateResumedWorkflowState(&run, verifyFailures)
+	if hydrateErr := o.hydrateResumedWorkflowState(&run, verifyFailures); hydrateErr != nil {
+		appendControllerProgress(&run, run.ActiveBatchID, "resume_plan_artifact_missing", hydrateErr.Error())
+		o.persistWriteWorkflowRun(&run)
+		o.busCtx.Mutable.SetResultPlain(hydrateErr.Error())
+		return hydrateErr
+	}
 	if msg := o.pendingApprovalResumeMessage(&run); msg != "" {
 		appendControllerProgress(&run, run.ActiveBatchID, "pending_approval_resume_paused", msg)
 		o.persistWriteWorkflowRun(&run)
@@ -9627,11 +9632,15 @@ func boundedPlanEmitRejectionSummary(summary string) string {
 // from attempt records, the plan from the durable plan artifact next to the
 // report directory (or the live mirror file), and the verify-failure carrier
 // from the persisted report via the same projection the live path uses.
-// Best-effort: a missing artifact degrades to the corresponding live-state
-// default and logs at warning.
-func (o *Orchestrator) hydrateResumedWorkflowState(run *types.WriteWorkflowRun, verifyFailures map[string]int) {
+// A missing verify-report artifact remains a best-effort handoff degradation.
+// A missing active plan artifact cannot degrade safely: the workflow envelope
+// carries only a plan id/ref, not the target paths, edits, behavior contracts,
+// probes, or approval record needed to reconstruct the same mutation domain.
+// That condition therefore fails closed before controller dispatch while the
+// run remains in_progress so restoring the artifact is still recoverable.
+func (o *Orchestrator) hydrateResumedWorkflowState(run *types.WriteWorkflowRun, verifyFailures map[string]int) error {
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || run == nil || len(run.Batches) == 0 {
-		return
+		return nil
 	}
 	resumed := false
 	for _, p := range run.ProgressLedger {
@@ -9641,7 +9650,7 @@ func (o *Orchestrator) hydrateResumedWorkflowState(run *types.WriteWorkflowRun, 
 		}
 	}
 	if !resumed {
-		return
+		return nil
 	}
 	var active *types.WriteWorkflowBatch
 	for i := range run.Batches {
@@ -9654,15 +9663,20 @@ func (o *Orchestrator) hydrateResumedWorkflowState(run *types.WriteWorkflowRun, 
 		}
 	}
 	if active == nil {
-		return
+		return nil
 	}
 	st := writeflow.DeriveBatchAttemptState(*active)
-	if o.busCtx.Mutable.ChangePlan() == nil && st.PlanID != "" {
+	currentPlan := o.busCtx.Mutable.ChangePlan()
+	if st.PlanID != "" && (currentPlan == nil || strings.TrimSpace(currentPlan.ID) != st.PlanID) {
 		if plan := o.loadDurablePlanArtifact(st.PlanID); plan != nil {
 			o.busCtx.Mutable.SetChangePlan(plan)
 			logging.Info("[orchestrator] resume: hydrated active plan %s from durable artifact", st.PlanID)
 		} else {
-			logging.Warning("[orchestrator] resume: active batch references plan %s but no durable plan artifact was found", st.PlanID)
+			logging.Warning("[orchestrator] resume: active batch references plan %s but no matching durable plan artifact was found", st.PlanID)
+			return fmt.Errorf(
+				"write workflow resume refused (fail closed): active batch %s references plan %s, but no matching durable plan artifact was found; the workflow ledger cannot reconstruct the original target paths, edits, behavior contracts, verification probes, or approval record from a bare continue request. Restore %s.json in the workflow report directory and retry, or clear this workflow and re-issue the complete original change request",
+				active.ID, st.PlanID, writeWorkflowArtifactFileStem(st.PlanID),
+			)
 		}
 	}
 	if o.busCtx.Mutable.VerifyFailureHandoff() == nil && st.Phase == writeflow.BatchPhaseNeedsReplan && st.ReportID != "" {
@@ -9677,6 +9691,7 @@ func (o *Orchestrator) hydrateResumedWorkflowState(run *types.WriteWorkflowRun, 
 			}
 		}
 	}
+	return nil
 }
 
 // loadDurablePlanArtifact resolves a plan id to its persisted JSON: first the
