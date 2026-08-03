@@ -4553,6 +4553,46 @@ emitted/total 与其权限含义，不能从用户/答案原文识别“全部�
   接线，再决定是否实施通用模型前 handoff；
 - [ ] B50-T6：从优先队列选择下一对异构 eval，继续严格并行 2 个并人工审计。
 
+#### B50a：合入审计 P0 复核与 EventSearchCoverage 权限闭合
+
+远端 `main@e479df784` 新增 `colleague_merge_audit_20260802.md` 后，本席先复跑而非直接采信：
+`go test ./internal/tracediag -count=1` 确定复现 schema pin 与柏林量级时间坐标两类红测，后续 eval
+不能在红基线上继续。冷读同时确认审计归因需要细化：四个 schema drift 不是都由
+`EventSearchCoverage` 引起；`Result` 是该字段，`WindowStats` 是 CPU frequency sample 与
+clock-set-rate 两个独立计数，`RootCauseRankItem/WakeupCausalImpact` 是共享 exact scheduler-segment
+inventory 的 `StateAccountKey`。
+
+本批逐字段裁定并修复：
+
+1. `EventSearchCoverage` 的九个字段不再进入低优先级 reflective detail；event-search 保证可见的
+   accounting header 现在一次发布 scope kind、scope/matched 时间包络、物理时间行报告状态、
+   scope complete、matched total、engine emitted 与 enumeration complete。所有秒坐标统一走
+   `formatSecondsToken`，不再出现 `6.7932221e+06` 或精度损失，也没有第二份冲突 ruler。
+2. indexed event-search 的 scope authority 改为从选中域独立计算，不受 event type/pattern/thread
+   filters 缩窄。line bounds 存在时保持既有引擎语义：line 优先、time 不参与过滤；scope 包络取
+   line 域实际事件的 min/max，不再冒用全索引 `FirstTs..LastTs`。time-only 与 windowed index 同样
+   返回实际选中域包络；artifact 全量查询保持原行为。
+3. indexed lane 的 `ScopeTimestampRows==0` 按既有合同不把 parsed events 冒充 raw physical-row
+   census；报告明确写 `zero_or_not_reported`，避免把不可区分零值伪装成实测 0。streaming lane 的
+   正数物理行 census 原样发布。
+4. 其余三个 pin 分别记录真实字段语义后重钉：frequency 两计数是互不替代的 scalar census；
+   `StateAccountKey` 是跨视图 exact identity。它们保留 generic scalar detail，不获得排序、因果或
+   完整性权限，也不建立重复显示面。
+
+回归新增柏林量级固定小数、coverage 单一必达面、line+time 冲突时 line 权限、选中域不逃逸全索引
+四类 witness。`go test ./internal/tracequery ./internal/tracediag -count=1` 全通过
+（tracequery 67.248s，tracediag 5.431s）；`go test ./... -count=1` 全仓通过。本批只修 trace query 的 event-search 范围账和零 LLM
+诊断报告；没有触及显式时间窗根因查询、Trace 因果投影、自动补采/补齐、模型 answer blocks 或
+写模式。
+
+任务状态：
+
+- [x] B50a-T1：复现并确认远端合入审计的 tracediag 双红；
+- [x] B50a-T2：逐字段完成 key-first 裁定，拒绝盲重钉；
+- [x] B50a-T3：修复 fixed-point coverage 与 T8-1 line-window scope 过界；
+- [x] B50a-T4：tracequery/tracediag 完整包回归；
+- [x] B50a-T5：全仓回归通过，独立提交推送绿色基线后回到 B50-T5。
+
 ### B42：生成物写模式 × 日志/源码机制对比审计（2026-08-02）
 
 本批按跨模式优先级严格并行：

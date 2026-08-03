@@ -272,7 +272,7 @@ steps:
 		t.Fatalf("Run(static compacted event_search): failed=%d err=%v\n%s", failed, err, buf.String())
 	}
 	report := buf.String()
-	headerRE := regexp.MustCompile(`匹配事件 (\d+) 行 \(matched=(\d+) emitted=(\d+) compacted=true caveat=report_event_search_compacted=true diagnostics=\d+/\d+ details=\d+/\d+\):`)
+	headerRE := regexp.MustCompile(`匹配事件 (\d+) 行 \(matched=(\d+) emitted=(\d+) compacted=true caveat=report_event_search_compacted=true diagnostics=\d+/\d+ details=\d+/\d+ coverage=\{[^}]+\}\):`)
 	header := headerRE.FindStringSubmatch(report)
 	if header == nil {
 		t.Fatalf("static match accounting is not priority-visible\n%s", report)

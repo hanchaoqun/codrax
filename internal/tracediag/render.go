@@ -350,6 +350,11 @@ func renderEventSearchBody(step *Step, res *tracequery.Result) stepBody {
 	detailResult.Caveats = nil
 	detailResult.Compactions = nil
 	detailResult.CPUFrequencyCensus = nil
+	// EventSearchCoverage is rendered once in the guaranteed-visible header
+	// below. Leaving it to the reflective detail tail both loses priority under
+	// a tight line cap and renders second-scale coordinates with %v/scientific
+	// notation.
+	detailResult.EventSearchCoverage = nil
 	var details []string
 	renderResultDetail(&detailResult, func(line string) { details = append(details, line) })
 	detailBudget := capLines - (len(meta) + len(shownDiagnostics) + 1 + emitted)
@@ -361,6 +366,9 @@ func renderEventSearchBody(step *Step, res *tracequery.Result) stepBody {
 	header := fmt.Sprintf("匹配事件 %d 行 (matched=%d emitted=%d compacted=%t caveat=%s diagnostics=%d/%d details=%d/%d",
 		emitted, matched, emitted, compacted, priorityCaveat,
 		len(shownDiagnostics), len(diagnostics), shownDetailCount, len(details))
+	if coverage := res.EventSearchCoverage; coverage != nil {
+		header += " coverage={" + renderEventSearchCoverageToken(coverage) + "}"
+	}
 	// If the protected raw-row floor leaves no independent advisory line, fold
 	// one compact typed receipt into the accounting header. This preserves the
 	// existing generated start/done endpoint floor while keeping the global
@@ -390,6 +398,30 @@ func renderEventSearchBody(step *Step, res *tracequery.Result) stepBody {
 			matched: matched, emitted: emitted, compacted: compacted,
 		},
 	}
+}
+
+func renderEventSearchCoverageToken(coverage *tracequery.EventSearchCoverage) string {
+	if coverage == nil {
+		return ""
+	}
+	scopeWindow := "none"
+	if coverage.ScopeTimeStart != 0 || coverage.ScopeTimeEnd != 0 || coverage.ScopeTimestampRows > 0 {
+		scopeWindow = formatSecondsToken(coverage.ScopeTimeStart) + ".." + formatSecondsToken(coverage.ScopeTimeEnd)
+	}
+	matchedWindow := "none"
+	if coverage.MatchedTotal > 0 {
+		matchedWindow = formatSecondsToken(coverage.MatchedTimeStart) + ".." + formatSecondsToken(coverage.MatchedTimeEnd)
+	}
+	scopeRows := strconv.Itoa(coverage.ScopeTimestampRows)
+	if coverage.ScopeTimestampRows == 0 {
+		// The indexed lane deliberately does not relabel parsed events as the
+		// physical timestamp-row census. Its zero value therefore means either
+		// measured zero or not reported; preserve that typed uncertainty.
+		scopeRows = "zero_or_not_reported"
+	}
+	return fmt.Sprintf("scope=%s scope_ts=%s scope_timestamp_rows=%s scope_complete=%t matched_ts=%s matched_total=%d engine_emitted=%d enumeration_complete=%t",
+		coverage.ScopeKind, scopeWindow, scopeRows, coverage.ScopeComplete,
+		matchedWindow, coverage.MatchedTotal, coverage.Emitted, coverage.EnumerationComplete)
 }
 
 func eventSearchMatchedRows(res *tracequery.Result) int {

@@ -888,14 +888,7 @@ func Run(idx *Index, q Query) Result {
 		if faceCanceled("event_search_accounting") {
 			break
 		}
-		scopeKind := EventSearchScopeArtifact
-		scopeTimeStart, scopeTimeEnd := idx.FirstTs, idx.LastTs
-		if idx.Windowed || explicitTimeStart || explicitTimeEnd || q.LineStart > 0 || q.LineEnd > 0 {
-			scopeKind = EventSearchScopeSelectedWindow
-			if q.TimeStart > 0 || q.TimeEnd > 0 {
-				scopeTimeStart, scopeTimeEnd = q.TimeStart, q.TimeEnd
-			}
-		}
+		scopeKind, scopeTimeStart, scopeTimeEnd := eventSearchScopeAccounting(idx, q, explicitTimeStart, explicitTimeEnd)
 		res.EventSearchCoverage = &EventSearchCoverage{
 			ScopeKind:           scopeKind,
 			ScopeTimeStart:      scopeTimeStart,
@@ -1004,6 +997,51 @@ func Run(idx *Index, q Query) Result {
 		}
 	}
 	return runCancelFinalize(&res, cancel)
+}
+
+// eventSearchScopeAccounting returns the physical timestamp envelope of the
+// selected scan domain, independently of event type/pattern/thread filters.
+// Line bounds own filtering when present (the same precedence as
+// eventInQueryBase); a simultaneous time range must not relabel a line-window
+// result. In particular, an indexed line query must not publish the full
+// index's FirstTs..LastTs envelope as its selected-window scope.
+func eventSearchScopeAccounting(idx *Index, q Query, explicitTimeStart, explicitTimeEnd bool) (string, float64, float64) {
+	if idx == nil {
+		return EventSearchScopeArtifact, 0, 0
+	}
+	lineBounded := q.LineStart > 0 || q.LineEnd > 0
+	timeBounded := !lineBounded && (explicitTimeStart || explicitTimeEnd)
+	if !idx.Windowed && !lineBounded && !timeBounded {
+		return EventSearchScopeArtifact, idx.FirstTs, idx.LastTs
+	}
+
+	start, end := 0.0, 0.0
+	seen := false
+	for _, event := range idx.Events {
+		if lineBounded {
+			if q.LineStart > 0 && event.Line < q.LineStart {
+				continue
+			}
+			if q.LineEnd > 0 && event.Line > q.LineEnd {
+				continue
+			}
+		} else if timeBounded {
+			if q.TimeStart > 0 && event.Ts < q.TimeStart {
+				continue
+			}
+			if q.TimeEnd > 0 && event.Ts > q.TimeEnd {
+				continue
+			}
+		}
+		if !seen || event.Ts < start {
+			start = event.Ts
+		}
+		if !seen || event.Ts > end {
+			end = event.Ts
+		}
+		seen = true
+	}
+	return EventSearchScopeSelectedWindow, start, end
 }
 
 // runCancelFinalize is Run's single exit chokepoint for the SUPP-CANCEL

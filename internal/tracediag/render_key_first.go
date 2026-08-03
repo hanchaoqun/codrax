@@ -813,7 +813,12 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// actionable bounded diagnostic list. They do not change tracediag's
 	// event priority, duplication, or truncation policy and remain visible
 	// through generic detail rendering; hash re-pinned after review.
-	reflect.TypeOf(tracequery.Result{}): "bf2eeb6d3d0dd972af8d208a76902a448665e6b67ab20c744ec53d73e37cf224",
+	// EVAL-P0-TDIAG-COVERAGE (2026-08-02): Result gained
+	// EventSearchCoverage. The event-search renderer now publishes every
+	// field exactly once in its guaranteed-visible accounting header; second
+	// coordinates use fixed-point rendering and the reflective detail copy is
+	// suppressed. Non-event results keep the nil field invisible.
+	reflect.TypeOf(tracequery.Result{}): "7ac039b25fffee37930ecb705d752687c43de96f9c4b9bf56a65d6e26736ad19",
 	// 修复轮二 件A (2026-07-13) schema review: WindowStats gained the
 	// per-lane cap-overflow disclosure quartet
 	// (DStateTopOverflowGroups/-Ms, IOWaitTopOverflowGroups/-Ms — scalar
@@ -847,7 +852,11 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// construction (WAKE-CENSUS-D 2A precedent) — comment-entry
 	// adjudication, hash unchanged (零重钉). Key-first adjudication: pure
 	// wire word, no lane/priority/dup semantics change.
-	reflect.TypeOf(tracequery.WindowStats{}):                "2b8831a2d60a240cd93fee91d1b2b61acce31ce63550a9c15c9af267ae080e66",
+	// B37 frequency-authority follow-up: CPUFrequencySampleRowCount and
+	// ClockSetRateEventCount are independent scalar censuses. They remain in
+	// generic detail (bulk arrays cannot displace scalars), with no duplicate
+	// key-first owner or priority/ranking semantics.
+	reflect.TypeOf(tracequery.WindowStats{}):                "9025fb9c4e0b62b4e514215ff351e864ee7a3b8d8b73eb33f7a5dceb916cc92c",
 	reflect.TypeOf(tracequery.TimelineResult{}):             "ec28f82b56a2e1b64cdfde5e0b6a4769886b32df15dc7a99250ec0da16dacc3a",
 	reflect.TypeOf(tracequery.TraceCounterQualitySummary{}): "e3bead6ff4a3c2e7f9d24487c5905f3594b219505afc106d95af9cfd9c552c2d",
 	// PERF raw quality disclosure: ParserCaveats is rendered once in the
@@ -1245,7 +1254,11 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// -fork credential riding the VS-1 quartet to the display faces). Scalar
 	// wording inputs beside PeriodicSource — generic detail rendering, no
 	// bulk lane, no dup channel, no priority override, no skipped fields.
-	reflect.TypeOf(tracequery.RootCauseRankItem{}): "d4ac3efa8917f7d15f6f0a399df38c348d58bc8b603cc04ce27e824d00aa2651",
+	// Cross-view state-account convergence: StateAccountKey is an opaque
+	// scalar identity used to join exact scheduler-segment inventories. It is
+	// visible once in generic row detail; it adds no bulk/duplicate lane and
+	// does not itself change rank or causal authority.
+	reflect.TypeOf(tracequery.RootCauseRankItem{}): "3bd7bacec7fe6ec7c920d37502e26ac00bedcca29b2924791cfe57381095e1ca",
 	// CR-1 P9 (§29.42 案1, 2026-07-12) schema review: ChainResult gained
 	// PacingIdles ([]PacingIdleSummary, arm-c frame-pacing idle segments).
 	// Key-first adjudication: a slice → structural bulk lane (same as
@@ -1315,7 +1328,9 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// Key-first adjudication: scalar disclosure tokens beside the existing
 	// VS-1 quartet; generic detail rendering is their sole tracediag face —
 	// no bulk lane, no dup channel, no priority override, no skipped fields.
-	reflect.TypeOf(tracequery.WakeupCausalImpact{}):    "1f8241af6cf91e7500393933aef04d1e95cf76dcb76d2f2f479adcbcf225ec05",
+	// StateAccountKey mirrors the exact root-rank scheduler account identity;
+	// same scalar-detail adjudication as RootCauseRankItem above.
+	reflect.TypeOf(tracequery.WakeupCausalImpact{}):    "80099ccf4d9991e13197eef080b29209bd485c61ea92ceaef50d9fe115b0814c",
 	reflect.TypeOf(tracequery.WakeupCausalAggregate{}): "8a216d586b360dd4661e85e12f6de1f68c5959b432c7af1fa1c08eadda1105df",
 	// CR-3 件⑥ F-10 (2026-07-12) schema review: SupplyFoldBasis gained
 	// ThermalCapWitnessed (bool, the cap's in-window limits/thermal event

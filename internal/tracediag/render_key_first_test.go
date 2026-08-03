@@ -216,6 +216,37 @@ func TestNonEventPrioritySchemaPins(t *testing.T) {
 	}
 }
 
+func TestRenderEventSearchCoverageIsKeyFirstAndFixedPoint(t *testing.T) {
+	step := &Step{View: "event_search", effMaxLines: 4}
+	res := &tracequery.Result{
+		View:      "event_search",
+		TimeStart: 6793224.900123,
+		TimeEnd:   6793225.100000,
+		EventSearchCoverage: &tracequery.EventSearchCoverage{
+			ScopeKind: tracequery.EventSearchScopeSelectedWindow, ScopeTimeStart: 6793222.031,
+			ScopeTimeEnd: 6793225.37, ScopeTimestampRows: 3, ScopeComplete: true,
+			MatchedTimeStart: 6793224.900123, MatchedTimeEnd: 6793225.1,
+			MatchedTotal: 2, Emitted: 2, EnumerationComplete: true,
+		},
+		Events: []tracequery.EventView{{Event: tracequery.Event{Line: 2, Ts: 6793224.900123, Type: tracequery.EventSchedSwitch}}},
+	}
+	body := renderStepBody(step, stepOutcome{result: res})
+	report := strings.Join(body.lines, "\n")
+	for _, want := range []string{
+		"coverage={scope=selected_window",
+		"scope_ts=6793222.031000..6793225.370000",
+		"matched_ts=6793224.900123..6793225.100000",
+		"matched_total=2 engine_emitted=2 enumeration_complete=true",
+	} {
+		if !strings.Contains(report, want) {
+			t.Fatalf("event-search coverage missing %q:\n%s", want, report)
+		}
+	}
+	if strings.Contains(report, "e+06") || strings.Contains(report, "e+0") || strings.Contains(report, "明细 event_search_coverage") {
+		t.Fatalf("coverage leaked scientific notation or duplicate detail:\n%s", report)
+	}
+}
+
 type reflectTypeName struct {
 	name string
 	typ  reflect.Type

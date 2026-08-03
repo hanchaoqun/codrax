@@ -1250,6 +1250,32 @@ func TestEventSearchCoverageSeparatesArtifactMatchedAndEmittedRanges(t *testing.
 	}
 }
 
+func TestIndexedEventSearchCoverageUsesLineWindowEnvelope(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "line_coverage.systrace")
+	if err := os.WriteFile(path, []byte(strings.Join([]string{
+		`edge-1 (1) [000] .... 1.000000: sched_wakeup: comm=edge pid=1 prio=20 target_cpu=000`,
+		`app-2 (2) [000] .... 2.000000: print: B|2|needle`,
+		`app-2 (2) [000] .... 3.000000: print: B|2|needle`,
+		`edge-3 (3) [000] .... 5.000000: sched_wakeup: comm=edge pid=3 prio=20 target_cpu=000`,
+	}, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	idx, err := BuildIndex(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Line bounds own filtering; the deliberately conflicting time range must
+	// neither replace the selected line envelope nor restore the artifact hull.
+	res := Run(idx, Query{View: "event_search", Pattern: "needle", LineStart: 2, LineEnd: 3, TimeStart: 100, TimeEnd: 200, Limit: 10})
+	coverage := res.EventSearchCoverage
+	if coverage == nil || coverage.ScopeKind != EventSearchScopeSelectedWindow || !coverage.ScopeComplete ||
+		coverage.ScopeTimeStart != 2 || coverage.ScopeTimeEnd != 3 ||
+		coverage.MatchedTimeStart != 2 || coverage.MatchedTimeEnd != 3 ||
+		coverage.MatchedTotal != 2 || coverage.Emitted != 2 || !coverage.EnumerationComplete {
+		t.Fatalf("line-window coverage escaped its selected domain: %+v", coverage)
+	}
+}
+
 func TestStreamEventSearchCompactedCaveatPreventsAbsenceInference(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "stream_search_compacted.systrace")
