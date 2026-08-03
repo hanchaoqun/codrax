@@ -4082,6 +4082,22 @@ F2FS/Block 在 envelope 判决前解析 exact lane，拒绝分支 poison lane/fa
 两条合法 endpoint 被 exact-lane withheld；`internal/hitraceconv` 全包通过（96.130s）。状态：
 `T1-2=disproved / no-production-change / regression-pinned`；下一项 T3-4。
 
+#### 批 M11：T3-4 主值状态 roster 截断 authority（2026-08-02）
+
+复核发现旧代码看似有“额外 N 行省略”提示，实际是死分支：projection compiler 已在上游把
+artifact partitions 限为 4，故 `states` 不可能超过 4。最终因果投影块消费了 typed
+`OmittedArtifactLabels`，模型成文前的 principal-value recap 却没有消费，构成同源权限面的
+完整性漂移。
+
+M11 将该既有 typed census 接到 prompt 软上下文：发布
+`principal_state_roster_coverage` 的可见账户数、额外被 cap 的 artifact partition 数、
+`capacity_truncated / complete=false`，并把被省略分区中的 state-account 数明确标为
+`not_evaluated`，不猜总量。该行不生成结论、不改模型 prose、不扩大或收窄因果投影权限，
+也不读取原始问题或模型答案。
+
+以 5 artifact → 4 visible + 1 omitted 的生产链回归验收；
+`go test ./internal/agent -count=1` 全包通过（2.643s）。状态：`implemented / full-package-pass`。
+
 ### B47：运行日志语义所有权 × write 跨语言检查权限（2026-08-02）
 
 严格并行 2 个跨模式 case：

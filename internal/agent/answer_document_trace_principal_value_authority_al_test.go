@@ -169,6 +169,59 @@ func TestRenderAnswerDocTracePrincipalValueAuthorityKeepsRequestedScopePrincipal
 	}
 }
 
+func TestRenderAnswerDocTracePrincipalValueAuthorityDisclosesPartitionCapAL(t *testing.T) {
+	const subject = "target-42"
+	var observations []types.ObservationRecord
+	for i := 1; i <= 5; i++ {
+		start := float64(i)
+		end := start + 0.010
+		window := fmt.Sprintf("selected_window=%.6f..%.6f", start, end)
+		ref := types.ObservationSourceRef{
+			Kind: types.ObservationSourceRuntimeArtifact,
+			Path: fmt.Sprintf("/tmp/trace-%d.systrace", i),
+		}
+		observations = append(observations,
+			types.ObservationRecord{
+				ID: fmt.Sprintf("root-%d", i), Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard,
+				SourceRef: ref, Predicate: "root_cause_primary",
+				ClaimKey: fmt.Sprintf("root_cause_primary:%s:%d", subject, i),
+				Subject:  subject, Object: "runnable", Value: "2.000", Unit: "ms",
+				RichNotes: []string{"rank=1", "tier=primary", "chain_relevance=on_chain", window},
+			},
+			types.ObservationRecord{
+				ID: fmt.Sprintf("state-%d", i), Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard,
+				SourceRef: ref, Predicate: "target_window_states",
+				ClaimKey: fmt.Sprintf("target_window_states:%s:%d", subject, i),
+				Subject:  subject, Object: "state_partition", Value: "10.000", Unit: "ms",
+				RichNotes: []string{
+					window, "running=5.000", "runnable=2.000", "sleep=3.000",
+					"d_state=0.000", "io_wait=0.000", "total=10.000",
+				},
+			},
+		)
+	}
+	ctx := tracePrincipalValueAuthorityTestContext(subject, 42, observations)
+
+	got := renderAnswerDocTracePrincipalValueAuthority(ctx)
+	if count := strings.Count(got, "- principal_state:"); count != 4 {
+		t.Fatalf("partition cap must keep four visible state accounts, got %d:\n%s", count, got)
+	}
+	for _, want := range []string{
+		"principal_state_roster_coverage:",
+		"visible_accounts=4",
+		"additional_artifact_partitions_omitted=1",
+		"status=`capacity_truncated`",
+		"complete=false",
+		"omitted_state_accounts=`not_evaluated`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("partition-cap disclosure missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestRenderAnswerDocTracePrincipalValueAuthorityKeepsTruncatedBlockingAsLowerBoundAL(t *testing.T) {
 	const subject = ".ugc.aweme.lite-17267"
 	record := types.ObservationRecord{

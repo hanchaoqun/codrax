@@ -41,7 +41,8 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 		waits = types.BuildTraceTargetWaitSummaryAuthorities(ledger, authorityRM)
 		blocking = types.BuildTraceBlockingWallClockAuthorities(ledger, authorityRM)
 	}
-	if len(states) == 0 && len(waits) == 0 && len(blocking) == 0 {
+	stateRosterTruncated := stateAllowed && len(projectionSet.OmittedArtifactLabels) > 0
+	if len(states) == 0 && len(waits) == 0 && len(blocking) == 0 && !stateRosterTruncated {
 		return ""
 	}
 
@@ -58,11 +59,14 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 		b.WriteString("- A numeric delta between authority rows is not relation evidence. Unless a separate explicit typed relation proves it, do not explain record/occurrence/partition differences as window-boundary effects, overlap, precision drift, or missing closure.\n\n")
 	}
 
-	for i, state := range states {
-		if i >= 4 {
-			fmt.Fprintf(&b, "- (%d additional target-state account(s) omitted from this compact recap)\n", len(states)-i)
-			break
-		}
+	if stateRosterTruncated {
+		fmt.Fprintf(&b,
+			"- principal_state_roster_coverage: visible_accounts=%d; additional_artifact_partitions_omitted=%d; status=`capacity_truncated`; complete=false; omitted_state_accounts=`not_evaluated`\n",
+			len(states),
+			len(projectionSet.OmittedArtifactLabels),
+		)
+	}
+	for _, state := range states {
 		fmt.Fprintf(&b,
 			"- principal_state: artifact=`%s`; target=`%s`; window=`%.6f..%.6f`; running=%.3fms; runnable=%.3fms; sleep=%.3fms; d_state=%.3fms; io_wait=%.3fms; accounted_total=%.3fms; window_ms=%.3fms; coverage_status=`%s`",
 			state.ArtifactLabel,

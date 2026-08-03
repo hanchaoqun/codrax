@@ -466,3 +466,32 @@ row 精确诊断、exact-lane poison、两条合法 endpoint 全部 withheld、�
 
 状态：`T1-2=disproved / no-production-change / regression-pinned`。下一项按 ROI 审计 T3-4
 权威目标状态卡的截断披露。
+
+---
+
+## §20 T3-4 复核与施工：把分区 cap 接到主值状态卡（2026-08-02）
+
+原 finding 的症状成立，但需要修正机制描述。主值卡内部确有一条
+`additional target-state account(s)` 分支；然而上游
+`CompileTraceCausalProjectionSet` 已先把 artifact partitions 截到 4 个，因此
+`len(states) > 4` 在生产构造上不可达。真正的 typed 截断信号已经存在于
+`TraceCausalProjectionSet.OmittedArtifactLabels`，因果投影答案块也会披露它，唯独模型成文前看到的
+principal-value recap 没有消费该信号，于是它仍会把最多 4 行误读为完整 roster。
+
+修复只补完整性元数据，不改变任何账户、选举或结论：
+
+- principal-value recap 直接消费 projection set 的 typed omitted-partition census；
+- 有截断时发布 `principal_state_roster_coverage`，明确
+  `visible_accounts`、`additional_artifact_partitions_omitted`、
+  `status=capacity_truncated`、`complete=false`；
+- 由于被 cap 的 partition 从未编译，不能猜其中一定有多少 state account，故明确
+  `omitted_state_accounts=not_evaluated`，不伪造“总状态账户数”；
+- 即使可见 state row 为 0，只要 typed cap 信号存在也保留 coverage 行；不扫描用户/模型文本，
+  不拒绝或改写答案，不触碰显式时间窗、因果投影和自动补齐。
+
+新增 5 个独立 trace artifact 的生产链回归，固定 4 个可见账户与 `+1` 分区截断披露。
+
+验证：定向生产链回归与 `go test ./internal/agent -count=1` 全包通过（2.643s）。
+
+状态：`T3-4=confirmed / implemented / full-package-pass`。下一项按 ROI 审计 T6-3
+两条源码文件宇宙不一致。
