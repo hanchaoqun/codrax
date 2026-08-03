@@ -192,6 +192,13 @@ EXPECT_PRINCIPAL_MATCHES_REGEX="foo"
 CASE
 assert_eq "$(eval_case_oracle_surface "$tmp/oracle-principal.case")" "principal_answer" "principal answer oracle surface classification"
 
+cat >"$tmp/oracle-primary.case" <<'CASE'
+ID="oracle_primary"
+QUESTION="primary oracle smoke"
+EXPECT_PRIMARY_MATCHES_REGEX="foo"
+CASE
+assert_eq "$(eval_case_oracle_surface "$tmp/oracle-primary.case")" "primary_answer" "primary answer oracle surface classification"
+
 cat >"$tmp/oracle-write-post-apply-regex.case" <<'CASE'
 ID="oracle_write_post_apply_regex"
 MODE="apply"
@@ -255,6 +262,54 @@ case "$(cat "$principal_fail_dir/run-1.verdict")" in
     ;;
   *)
     fail "footer-only witness must not satisfy principal oracle, got: $(cat "$principal_fail_dir/run-1.verdict")"
+    ;;
+esac
+
+# EVAL-B51-ORACLE1: terminal primary assertions must not be satisfied by
+# pre-separator progress, renderer-owned citations, or raw fallback reasoning.
+cat >"$tmp/fake-codrax-primary-scope" <<'SH'
+#!/usr/bin/env bash
+echo 'draft-only-symbol before terminal separator'
+echo '━━━'
+echo 'primary-hop-A is the terminal conclusion'
+echo '**引用**：'
+echo 'citation-only-symbol'
+echo '**模型最后一轮原文：**'
+echo 'raw-fallback-symbol'
+SH
+chmod +x "$tmp/fake-codrax-primary-scope"
+cat >"$tmp/primary-scope-pass.case" <<'CASE'
+ID="primary_scope_pass"
+NAME="primary scope pass"
+QUESTION="primary scope test"
+MIN_OUTPUT_CHARS=1
+EXPECT_CONTAINS="citation-only-symbol"
+EXPECT_PRIMARY_CONTAINS="primary-hop-A"
+EXPECT_PRIMARY_NOT_CONTAINS="draft-only-symbol citation-only-symbol raw-fallback-symbol"
+EXPECT_PRIMARY_MATCHES_REGEX="^primary-hop-A"
+CASE
+CODRAX_BIN="$tmp/fake-codrax-primary-scope" EVAL_RESULTS_ROOT="$tmp/primary-results" CODRAX_PROVIDER_ARGS_RAW="" \
+  eval/run.sh "$tmp/primary-scope-pass.case" 1 >/dev/null || fail "primary scope pass eval failed to run"
+primary_pass_dir="$(eval_latest_result_dir "$tmp/primary-results" primary_scope_pass 00000000-000000 || true)"
+[[ -n "$primary_pass_dir" ]] || fail "primary scope pass result dir missing"
+assert_eq "$(cat "$primary_pass_dir/run-1.verdict")" "PASS" "primary scope should exclude non-conclusion surfaces"
+
+cat >"$tmp/primary-scope-fail.case" <<'CASE'
+ID="primary_scope_fail"
+NAME="primary scope fail"
+QUESTION="primary scope test"
+MIN_OUTPUT_CHARS=1
+EXPECT_PRIMARY_MATCHES_REGEX="citation-only-symbol"
+CASE
+CODRAX_BIN="$tmp/fake-codrax-primary-scope" EVAL_RESULTS_ROOT="$tmp/primary-results" CODRAX_PROVIDER_ARGS_RAW="" \
+  eval/run.sh "$tmp/primary-scope-fail.case" 1 >/dev/null || fail "primary scope fail eval failed to run"
+primary_fail_dir="$(eval_latest_result_dir "$tmp/primary-results" primary_scope_fail 00000000-000000 || true)"
+[[ -n "$primary_fail_dir" ]] || fail "primary scope fail result dir missing"
+case "$(cat "$primary_fail_dir/run-1.verdict")" in
+  "FAIL no_primary_regex_match:citation-only-symbol")
+    ;;
+  *)
+    fail "citation-only witness must not satisfy primary oracle, got: $(cat "$primary_fail_dir/run-1.verdict")"
     ;;
 esac
 

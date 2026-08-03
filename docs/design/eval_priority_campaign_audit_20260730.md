@@ -4659,7 +4659,7 @@ persist choke point 之外，因此既有“非 system block wire 不变”测�
 | `EVAL-B51-ENDROLE1` | P0 | `RequiredMechanismAnchors` 的 identity 集合被当成 source/sink role；“恰好两个”不构成端点权限 | reachability 必须等待独立 typed source/sink role carrier；在该 carrier 缺席时 fail-open，不从 visible anchors、顺序、owner/member 或 prose 猜端点 | covered；B51-A |
 | `EVAL-B51-SETAXIS1` | P1 | `is_relational_lookup` 单独把 narrative call chain 提升为 exact operation-site member set，探索模型的路径解释被硬化成 exhaustive roster | source-operation-site set 权限必须由 enumerate/category/per-member/completeness 等 typed set boundary 授予；relation-only call chain 继续使用 ordered path/support lane，不生成 hard enumeration rows | covered；B51-A |
 | `EVAL-B51-MUTLOOP1` | P1 | 两个 deterministic normalizer 对同一 principal block 一删一补，导致不可自愈 reject loop | 撤销 OWN1 后增加生产接线 pin：模型五行 wire 保持、无 principal-enum hard roster、同 payload 一次通过；任何系统 repair 不得制造后续 hard obligation | covered；B51-A |
-| `EVAL-B51-ORACLE1` | P1-eval | runner 在整份 stdout 匹配中间“第一稿答案”，最终降级错误仍 PASS | answer oracle 只消费最终产品段/typed final artifact，进度草稿、thinking、reject 文本不得满足 EXPECT；先补 runner 正负 fixture，再迁移可能依赖全 stdout 的旧 case | filed-next |
+| `EVAL-B51-ORACLE1` | P1-eval | broad answer regex 虽已排除分隔线前的进度草稿，但仍让终态 citation footer 与降级 raw-model appendix 重复的符号满足断言；错误主结论仍 PASS | 新增 opt-in `primary_answer` oracle，只消费终态主答案体，按稳定 renderer 边界排除 citation/recovery/Trace supplements；不静默改变 200+ 历史 case，逐案显式迁移 | implemented；B51-B，待真实 replay |
 
 施工顺序冻结：B51-A 先撤销 call-chain 结论替换并收窄 relation-only set 权限；相关 types/tool 全包
 通过后独立提交推送。B51-B 再修 eval final-answer oracle。完成本节审计和 B51-A 交付后，才继续
@@ -4679,12 +4679,21 @@ per-member table 正臂均保留。未读取用户原文或模型输出词面，
 `go test ./internal/agent ./internal/orchestrator -count=1` 通过。B51-B 的终态答案 oracle 与回放仍为
 独立下一批，不能用本批单元测试代替真实 replay。
 
+B51-B 冷读纠正：`scope_stdout` 已从首个 `━━━` 后取值，所以“中间第一稿直接刷绿”不是精确
+机制；旧终态主答案只含 `VisitController/VisitController.create` 与容量说明，但 renderer citation
+footer 和降级 `模型最后一轮原文` 又重复了 `VisitRepository.insert/AuditLog.record`，宽域
+`EXPECT_MATCHES_REGEX` 因而误绿。新增 `EXPECT_PRIMARY_*` 四个 opt-in 通道：它们仍只审计最终产品，
+并在稳定的 `引用/Citations`、raw recovery、Trace projection 边界停止；不扫描用户问题或猜模型
+语义。runner 正/负 fixture 已证明进度、citation、raw fallback 均不能满足 primary oracle；原有
+full/principal/write oracle 语义保持。`sr_java_call_chain` 已迁移到 primary regex，旧失败工件在该
+域只剩 Controller 与 Service，Repository/Audit 两项确定性缺席，因此会正确判 FAIL。
+
 - [x] B51-T1：严格并行 Java call-chain + data 恰好 2 case；
 - [x] B51-T2：人工读完 HTML、完整 stdout/log、analyzer payload、五个源文件、首稿与降级稿；
 - [x] B51-T3：确认 data 上下文/答案正确，Java runner false green；
 - [x] B51-T4：定位 `8cfef5158` 的 endpoint-role 与结论替换责任链；
 - [x] B51-T5：实现 OWN1/ENDROLE1/SETAXIS1/MUTLOOP1，相关全包回归后提交推送；
-- [ ] B51-T6：修 eval final-product oracle 并回放同一 Java case + 一个异构 case；
+- [ ] B51-T6：primary final-product oracle 已实现并通过 runner contract；待提交推送后回放同一 Java case + 一个异构 case；
 - [ ] B51-T7：B51 收账后进入 MERGE-AUDIT-3 高 ROI 批。
 
 ### B42：生成物写模式 × 日志/源码机制对比审计（2026-08-02）

@@ -10,6 +10,9 @@
 # EXPECT_CONTAINS / EXPECT_NOT_CONTAINS substrings, and optionally
 # EXPECT_MATCHES_REGEX (ERE, ALL must match — useful for numeric
 # scalar answers like "at least 4 digits somewhere in the answer"),
+# EXPECT_PRIMARY_{CONTAINS,NOT_CONTAINS,MATCHES_REGEX,MATCHES_TEXT_REGEX}
+# optionally scopes assertions to the terminal primary answer body, excluding
+# renderer-owned citation/recovery appendices and Trace projection supplements.
 # EXPECT_SECTIONS (space-sep tokens, ALL must appear as literal
 # substrings — useful for comparison questions that require both
 # sides of "A vs B" to be mentioned), EXPECT_MATCHES_TEXT_REGEX
@@ -93,6 +96,10 @@ EXPECT_PRINCIPAL_CONTAINS="${EXPECT_PRINCIPAL_CONTAINS:-}"
 EXPECT_PRINCIPAL_NOT_CONTAINS="${EXPECT_PRINCIPAL_NOT_CONTAINS:-}"
 EXPECT_PRINCIPAL_MATCHES_REGEX="${EXPECT_PRINCIPAL_MATCHES_REGEX:-}"
 EXPECT_PRINCIPAL_MATCHES_TEXT_REGEX="${EXPECT_PRINCIPAL_MATCHES_TEXT_REGEX:-}"
+EXPECT_PRIMARY_CONTAINS="${EXPECT_PRIMARY_CONTAINS:-}"
+EXPECT_PRIMARY_NOT_CONTAINS="${EXPECT_PRIMARY_NOT_CONTAINS:-}"
+EXPECT_PRIMARY_MATCHES_REGEX="${EXPECT_PRIMARY_MATCHES_REGEX:-}"
+EXPECT_PRIMARY_MATCHES_TEXT_REGEX="${EXPECT_PRIMARY_MATCHES_TEXT_REGEX:-}"
 EXPECT_SECTIONS="${EXPECT_SECTIONS:-}"
 EXPECT_DIMENSIONS="${EXPECT_DIMENSIONS:-}"
 EXPECT_INVENTORY_ROWSETS="${EXPECT_INVENTORY_ROWSETS:-}"
@@ -373,6 +380,22 @@ scope_principal_stdout() {
   local out="$1"
   scope_stdout "$out" | LC_ALL=C awk '
     /^## (Trace 因果投影|Trace Causal Projection)( — .*)?[[:space:]]*$/ { exit }
+    { print }
+  '
+}
+
+# scope_primary_stdout <out-file> → prints only the terminal primary answer
+# body. Unlike scope_stdout, renderer-owned citations and degraded-recovery raw
+# model text cannot satisfy a correctness oracle merely by repeating symbols
+# that the conclusion omitted. Unlike a prose classifier, this consumes only
+# stable renderer section boundaries. It is opt-in so historical full-answer
+# cases keep their existing contract until deliberately migrated.
+scope_primary_stdout() {
+  local out="$1"
+  scope_stdout "$out" | LC_ALL=C awk '
+    /^## (Trace 因果投影|Trace Causal Projection)( — .*)?[[:space:]]*$/ { exit }
+    $0 == "**引用**：" || $0 == "**Citations:**" { exit }
+    $0 == "**模型最后一轮原文：**" || $0 == "**Raw final model text:**" { exit }
     { print }
   '
 }
@@ -985,6 +1008,60 @@ write_verdict() {
     fi
   fi
 
+  # EVAL-B51-ORACLE1: an opt-in terminal primary-body oracle. Source-symbols
+  # repeated only in citations, recovery diagnostics, or raw rejected model
+  # text cannot green-light an incorrect conclusion. This is an eval-only
+  # scope over stable renderer boundaries; it never influences product routing.
+  if [[ -n "$EXPECT_PRIMARY_CONTAINS$EXPECT_PRIMARY_NOT_CONTAINS$EXPECT_PRIMARY_MATCHES_REGEX$EXPECT_PRIMARY_MATCHES_TEXT_REGEX" ]]; then
+    if [[ -n "$MODE" && "$MODE" != "read" ]]; then
+      pass=0
+      reasons+=("primary_oracle_requires_read_mode")
+    else
+      if [[ -n "$EXPECT_PRIMARY_CONTAINS" ]]; then
+        for needle in $EXPECT_PRIMARY_CONTAINS; do
+          if ! eval_expect_token_present "$needle" "$primary_cleaned"; then
+            pass=0
+            reasons+=("missing_primary:$needle")
+          fi
+        done
+      fi
+      if [[ -n "$EXPECT_PRIMARY_NOT_CONTAINS" ]]; then
+        for needle in $EXPECT_PRIMARY_NOT_CONTAINS; do
+          if eval_expect_token_present "$needle" "$primary_cleaned"; then
+            pass=0
+            reasons+=("banned_primary:$needle")
+          fi
+        done
+      fi
+      if [[ -n "$EXPECT_PRIMARY_MATCHES_REGEX" ]]; then
+        local primary_old_ifs="$IFS"
+        IFS=$'\n'
+        for rx in $EXPECT_PRIMARY_MATCHES_REGEX; do
+          [[ -z "$rx" ]] && continue
+          if ! LC_ALL=C grep -aEq -- "$rx" <<<"$primary_cleaned"; then
+            pass=0
+            reasons+=("no_primary_regex_match:${rx}")
+          fi
+        done
+        IFS="$primary_old_ifs"
+      fi
+      if [[ -n "$EXPECT_PRIMARY_MATCHES_TEXT_REGEX" ]]; then
+        local primary_folded primary_old_ifs
+        primary_folded="$(LC_ALL=C tr '\n\r\t' '   ' <<<"$primary_cleaned")"
+        primary_old_ifs="$IFS"
+        IFS=$'\n'
+        for rx in $EXPECT_PRIMARY_MATCHES_TEXT_REGEX; do
+          [[ -z "$rx" ]] && continue
+          if ! LC_ALL=C grep -aEq -- "$rx" <<<"$primary_folded"; then
+            pass=0
+            reasons+=("no_primary_text_regex_match:${rx}")
+          fi
+        done
+        IFS="$primary_old_ifs"
+      fi
+    fi
+  fi
+
   # EXPECT_SECTIONS: space-separated literal tokens; ALL must appear.
   # Intended for comparison-shape questions where the answer must
   # symmetrically mention both sides (A AND B). Semantically identical
@@ -1254,6 +1331,7 @@ run_one() {
   # Verdict source bytes selection by MODE.
   local cleaned=""
   local principal_cleaned=""
+  local primary_cleaned=""
   local extra_reasons=()
   case "$MODE" in
     plan)
@@ -1360,6 +1438,7 @@ run_one() {
     *)
       cleaned="$(scope_stdout "$out")"
       principal_cleaned="$(scope_principal_stdout "$out")"
+      primary_cleaned="$(scope_primary_stdout "$out")"
       if (( rc != 0 )); then
         extra_reasons+=("read_exit:$rc")
       fi
