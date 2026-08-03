@@ -76,6 +76,7 @@ func BuildDiagramRelationContractDoc() string {
 	b.WriteString("Example: for the labelled edge `Auth -->|invoke| Worker` (relation `call`, expected claim_form `call_edge`), emit on the diagram block:\n\n")
 	b.WriteString("```json\nedge_anchors: [{from_node: \"Auth\", to_node: \"Worker\", relation_kind: \"call\", claim_form: \"call_edge\"}]\n```\n\n")
 	b.WriteString("`edge_anchors[]` is a separate top-level array — it NEVER lives inside a `claim_use` object.\n\n")
+	b.WriteString("For a `sequenceDiagram`, each invocation arrow (`caller->>callee: operation(...)`) needs its same-direction `relation_kind=call` anchor. A dashed reply arrow (`callee-->>caller: result`) is a response/return presentation edge, not a reverse source-code call: do NOT add a call anchor for that reply. Method-qualified participant labels are the clearest form. Short class/actor participants are also valid when the message begins with the exact callee operation and that owner+operation tuple resolves to one unique typed call edge; ambiguous class-only edges fail closed.\n\n")
 
 	b.WriteString("LEGACY ALTERNATIVE: when no `relation_kind` is declared, the validator infers the relation from edge label vocabulary (case-folded substring match). Use this only when label wording is the authoritative surface — typed declaration is preferred for any new content. Recognised keywords (kept for back-compat with label-only diagrams):\n\n")
 	b.WriteString(BuildDiagramEdgeLabelVocabularyDoc())

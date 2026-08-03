@@ -55,6 +55,78 @@ func TestDiagramCallEdgeEvidenceMismatches_DirectionUsesTypedEvidence(t *testing
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_SequenceReplyIsNotACallEdge(t *testing.T) {
+	doc := diagramEvidenceTestDoc("A", "B")
+	doc.Blocks[0].Diagram.Body += "  B-->>A: result\n"
+	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
+		[]types.EvidenceItem{diagramEvidenceTestCall("Alpha.Run", "Beta.Run")})
+	if len(got) != 0 {
+		t.Fatalf("a standard sequence reply must not require a reverse call edge: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_SequenceReplyCannotHideReverseCallAnchor(t *testing.T) {
+	doc := diagramEvidenceTestDoc("A", "B")
+	doc.Blocks[0].Diagram.Body += "  B-->>A: result\n"
+	doc.Blocks[0].EdgeAnchors = append(doc.Blocks[0].EdgeAnchors, types.DiagramEdgeAnchor{
+		FromNode: "B", ToNode: "A", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge,
+	})
+	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
+		[]types.EvidenceItem{diagramEvidenceTestCall("Alpha.Run", "Beta.Run")})
+	if len(got) != 1 || got[0].FromSymbol != "Beta.Run" || got[0].ToSymbol != "Alpha.Run" {
+		t.Fatalf("an explicit reverse call anchor must still prove its own direction: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_ClassParticipantsResolveUniqueTypedMethods(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "sequence", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+			"sequenceDiagram",
+			"  participant C as VisitController",
+			"  participant S as VisitService",
+			"  participant R as VisitRepository",
+			"  C->>S: schedule(petId, reason)",
+			"  S->>R: countOpenVisits(petId)",
+			"  S->>R: insert(petId, reason)",
+			"  R-->>S: insertedId",
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "C", ToNode: "S", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge},
+			{FromNode: "S", ToNode: "R", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge},
+		},
+	}}}
+	evidence := []types.EvidenceItem{
+		diagramEvidenceTestCall("VisitController.create", "VisitService.schedule"),
+		diagramEvidenceTestCall("VisitService.schedule", "VisitRepository.countOpenVisits"),
+		diagramEvidenceTestCall("VisitService.schedule", "VisitRepository.insert"),
+	}
+	evidence[0].AnchorSymbol = "schedule"
+	evidence[1].AnchorSymbol = "countOpenVisits"
+	evidence[2].AnchorSymbol = "insert"
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, evidence); len(got) != 0 {
+		t.Fatalf("class participants plus an exact message operation should resolve unique typed method edges: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_ClassParticipantsFailClosedWhenMethodIsAmbiguous(t *testing.T) {
+	doc := diagramEvidenceTestDoc("A", "B")
+	doc.Blocks[0].Diagram.Body = "sequenceDiagram\n" +
+		"  participant A as VisitService\n" +
+		"  participant B as VisitRepository\n" +
+		"  A->>B: invoke\n"
+	evidence := []types.EvidenceItem{
+		diagramEvidenceTestCall("VisitService.schedule", "VisitRepository.countOpenVisits"),
+		diagramEvidenceTestCall("VisitService.schedule", "VisitRepository.insert"),
+	}
+	evidence[0].AnchorSymbol = "countOpenVisits"
+	evidence[1].AnchorSymbol = "insert"
+	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, evidence)
+	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueNoEvidence {
+		t.Fatalf("class-only endpoints with no exact message operation must remain unproven: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_NodeDisplayMetadataDoesNotChangeIdentity(t *testing.T) {
 	doc := diagramEvidenceTestDoc("A", "B")
 	doc.Blocks[0].Diagram.Body = "flowchart TD\n" +

@@ -67,3 +67,17 @@ func TestBuildDiagramRelationKindList_NoInternalJargon(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildDiagramRelationContractDoc_DistinguishesSequenceReplies(t *testing.T) {
+	got := BuildDiagramRelationContractDoc()
+	for _, want := range []string{
+		"caller->>callee: operation(...)",
+		"callee-->>caller: result",
+		"not a reverse source-code call",
+		"one unique typed call edge",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("diagram relation contract missing sequence call/reply rule %q:\n%s", want, got)
+		}
+	}
+}

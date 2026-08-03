@@ -2970,9 +2970,9 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 	return []emitFixHint{{
 		Field:      "blocks[kind=diagram].edge_anchors[] AND diagram.body",
 		HardSignal: preEmitHardSignalTypedCallEdgeEvidence,
-		ExpectedShape: "every parsed edge in a typed sequence/call_dag call-chain diagram must have a same-direction structured relation_kind=call edge_anchor, and every structured call edge must preserve the exact direction of one citable typed call-edge EvidenceItem; endpoint labels may use only that same record's exact Subject plus exact Object or grounded callee AnchorSymbol; add missing anchors or remove/correct unsupported edges and their corresponding principal-list claims: " +
+		ExpectedShape: "every invocation edge in a typed sequence/call_dag call-chain diagram must have a same-direction structured relation_kind=call edge_anchor, and every structured call edge must preserve the exact direction of one citable typed call-edge EvidenceItem; a sequence -->> edge is a response/return and needs no reverse call anchor; method-qualified endpoint labels are exact, while class/actor participant labels require an exact message operation that resolves to one unique typed call edge; add missing anchors or remove/correct unsupported invocation edges and their corresponding principal-list claims: " +
 			strings.Join(parts, "; "),
-		Reason: "diagram body edges cannot bypass typed authority by omitting edge_anchors; a function definition proves that a symbol exists, but only a grounded call-site EvidenceItem with the same Subject -> Object pair can authorize caller-to-callee direction.",
+		Reason: "diagram invocation edges cannot bypass typed authority by omitting edge_anchors; a function definition proves that a symbol exists, but only a grounded call-site EvidenceItem can authorize caller-to-callee direction. Sequence responses preserve temporal readability without inventing a reverse source-code call.",
 	}}
 }
 

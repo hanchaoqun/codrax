@@ -615,6 +615,8 @@ func TestFinalizerSkill_TeachesTypedDiagramRelationAuthority(t *testing.T) {
 		"relation_kind?: <one of call|guard|import|precedence|contain|observe>",
 		"PREFERRED: set `relation_kind` directly",
 		"the authoritative semantic relation",
+		"dashed reply `callee-->>caller` is a response/return, not a reverse call",
+		"exact message operation resolves to one unique typed call edge",
 	} {
 		if !strings.Contains(blob, want) {
 			t.Fatalf("answer-document-skill missing typed diagram relation guidance %q:\n%s", want, blob)

@@ -4777,6 +4777,39 @@ Java 人工仍 FAIL 的原因已完全转入独立 T3-2：26 次 reject/11 次 p
 
 状态：`implemented / full-tool-suite-pass / T3-2 next`。
 
+### MERGE-AUDIT-3 H2：T3-2 sequence 回复边与 participant identity（2026-08-02）
+
+同事关于 `-->>` 的审计结论准确；B51 r4/r5 真回放还证明了第二个同根阻塞面：即使删掉
+reply，模型按教学使用 `participant C as VisitController` 等短 actor，typed call evidence
+却是 `VisitController.create -> VisitService.schedule` 方法级身份，旧校验只允许端点逐字相等，
+因此 5 条真实正向调用全部报 `call_edge_unproven`。仅豁免 reply 会假关账。
+
+本批的通用修复：
+
+1. 在 Mermaid parser 已发布的 `Edge.Operator` 上分类：仅 sequence 的 `-->>` 作为
+   response/return presentation edge，不要求反向 `relation_kind=call` anchor，也不进入反向
+   call evidence 门；`->>` invocation 与 call_dag 继续严格校验。
+2. reply 不能隐藏模型显式声明的反向 call anchor：若模型仍给 `callee -> caller` 添加
+   `relation_kind=call`，该 anchor 继续独立要求同向 typed call-site 证据。
+3. method-qualified participant 仍走原 exact lane；class/actor 短标签只允许一个结构化扩臂：
+   participant 必须逐字等于 typed Subject/Object 的 owner，message 首操作必须逐字等于同一
+   EvidenceItem 的 `AnchorSymbol`（缺席时取 typed Object terminal operation），且匹配的
+   `Subject + Object + operation` 候选恰好一个。空 label、`invoke` 泛词、错方法或多候选均
+   fail-closed；没有 prefix/token-overlap/用户原文或答案 prose 扫描。
+4. `BuildDiagramRelationContractDoc`、最终回答 skill 示例与 same-turn 修复提示同步说明
+   invocation/reply 区别和唯一别名规则，消除“prompt 教 -->>，硬门拒 -->>”的自冲突。
+
+测试覆盖 forward/reverse、reply 无 anchor、reply 伪装 reverse-call anchor、真实 Java
+class participant + 同 owner 多方法、无精确 operation 的歧义负例、短 callee
+`AnchorSymbol`、call_dag 严格性、Trace 因果图不进入本合同。
+
+全相关回归：
+
+- `go test ./internal/tool ./internal/skill -count=1` 通过
+  （tool 175.833s，skill 0.508s）。
+
+状态：`implemented / relevant-full-tests-pass / T7-1 next / same-pair replay after high-risk batches`。
+
 ### B42：生成物写模式 × 日志/源码机制对比审计（2026-08-02）
 
 本批按跨模式优先级严格并行：

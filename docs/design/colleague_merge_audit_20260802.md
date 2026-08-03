@@ -126,3 +126,20 @@ T1-2 越界时间戳有效 CPU 记录整丢不 fence(违其自documented合同);
   通过(187.077s)。
 
 下一批：T3-2 sequence/call-dag 回复边与 alias 证据匹配合同。
+
+---
+
+## §8 T3-2 施工结果(2026-08-02)
+
+原 finding `covered`，并由 B51 r4/r5 真回放扩出同批必要的 participant identity 半场：
+
+- sequence `-->>` 按 parser 的 typed operator 识别为 response/return presentation edge，
+  不再要求反向 call anchor；若模型显式声明反向 call anchor，该 anchor 仍须独立同向证据；
+- `->>` invocation 与 call_dag 的每条边继续 hard-check，未降低调用方向真实性；
+- 类/actor participant 到方法级 evidence 的兼容不是模糊匹配：owner 逐字相等 + message
+  operation 逐字等于 typed AnchorSymbol/Object terminal + 候选调用边唯一，歧义 fail-closed；
+- canonical diagram contract、skill 教学和 reject fix hint 已同步，不再一边教 reply 一边拒 reply；
+- 新增 reply 正/负、Java 多方法 disambiguation、ambiguous fail-close 等 pins；
+  `go test ./internal/tool ./internal/skill -count=1` 通过(tool 175.833s，skill 0.508s)。
+
+状态：`implemented / relevant-full-tests-pass`。下一批按 §6 处理 T7-1。

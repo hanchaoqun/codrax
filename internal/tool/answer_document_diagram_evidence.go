@@ -49,6 +49,14 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 		if strictBodyCoverage {
 			callAnchorKeys := diagramCallAnchorKeySet(block.EdgeAnchors)
 			for _, edge := range parsedEdges {
+				// In a sequence diagram Mermaid's dashed -->> operator is a
+				// response/return lane, not a second source-code invocation in
+				// the reverse direction. It therefore needs no call anchor and
+				// cannot be used to satisfy one. Flow/call-DAG edges retain the
+				// existing all-edges call contract.
+				if !diagramParsedEdgeRequiresCallAuthority(block.Diagram.Kind, edge) {
+					continue
+				}
 				key := diagramEvidenceEdgeKey(edge.From, edge.To)
 				parsedEdgeKeys[key] = true
 				fromSymbol := diagramEvidenceEndpointSymbol(edge.From, labels)
@@ -64,7 +72,7 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 					})
 					continue
 				}
-				if diagramCallEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol) {
+				if diagramCallEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol, edge.Label) {
 					continue
 				}
 				out = append(out, DiagramCallEdgeEvidenceMismatch{
@@ -86,7 +94,7 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 			}
 			fromSymbol := diagramEvidenceEndpointSymbol(anchor.FromNode, labels)
 			toSymbol := diagramEvidenceEndpointSymbol(anchor.ToNode, labels)
-			if diagramCallEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol) {
+			if diagramCallEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol, "") {
 				continue
 			}
 			out = append(out, DiagramCallEdgeEvidenceMismatch{
@@ -100,6 +108,10 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 		}
 	}
 	return out
+}
+
+func diagramParsedEdgeRequiresCallAuthority(kind types.DiagramKind, edge mermaidcompat.Edge) bool {
+	return !(kind == types.DiagramSequence && strings.TrimSpace(edge.Operator) == "-->>")
 }
 
 func diagramCallAnchorKeySet(anchors []types.DiagramEdgeAnchor) map[string]bool {
@@ -184,12 +196,13 @@ func diagramEvidenceLabelSymbol(label string) string {
 	return label
 }
 
-func diagramCallEdgeHasTypedEvidence(evidence []types.EvidenceItem, fromSymbol, toSymbol string) bool {
+func diagramCallEdgeHasTypedEvidence(evidence []types.EvidenceItem, fromSymbol, toSymbol, edgeLabel string) bool {
 	fromSymbol = strings.TrimSpace(fromSymbol)
 	toSymbol = strings.TrimSpace(toSymbol)
 	if fromSymbol == "" || toSymbol == "" {
 		return false
 	}
+	// Exact endpoint surfaces remain the strongest and cheapest lane.
 	for _, ev := range evidence {
 		if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimCallEdge {
 			continue
@@ -207,5 +220,94 @@ func diagramCallEdgeHasTypedEvidence(evidence []types.EvidenceItem, fromSymbol, 
 			return true
 		}
 	}
-	return false
+
+	// Sequence participants are commonly actor/class labels while the typed
+	// call evidence is method-qualified (VisitService vs
+	// VisitService.schedule). Resolve that presentation alias only when the
+	// structured message starts with the exact typed callee operation and the
+	// resulting call-edge identity is unique. This is not fuzzy prefix
+	// matching: both owners and the operation are exact typed projections; an
+	// absent/ambiguous message fails closed.
+	operation := diagramEvidenceCallLabelOperation(edgeLabel)
+	if operation == "" {
+		return false
+	}
+	candidates := make(map[string]bool)
+	for _, ev := range evidence {
+		if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimCallEdge {
+			continue
+		}
+		subject := strings.TrimSpace(ev.Subject)
+		object := strings.TrimSpace(ev.Object)
+		if !diagramEvidenceEndpointMatchesQualifiedOwner(fromSymbol, subject) ||
+			!diagramEvidenceEndpointMatchesQualifiedOwner(toSymbol, object) {
+			continue
+		}
+		anchor := strings.TrimSpace(ev.AnchorSymbol)
+		if anchor == "" {
+			anchor = diagramEvidenceQualifiedOperation(object)
+		}
+		if anchor == "" || operation != anchor {
+			continue
+		}
+		candidates[subject+"\x00"+object+"\x00"+anchor] = true
+	}
+	return len(candidates) == 1
+}
+
+func diagramEvidenceCallLabelOperation(label string) string {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return ""
+	}
+	if idx := strings.Index(label, "("); idx >= 0 {
+		label = strings.TrimSpace(label[:idx])
+	}
+	fields := strings.Fields(label)
+	if len(fields) != 1 {
+		return ""
+	}
+	return diagramEvidenceQualifiedOperation(strings.Trim(fields[0], "`"))
+}
+
+func diagramEvidenceEndpointMatchesQualifiedOwner(surface, qualified string) bool {
+	surface = strings.TrimSpace(surface)
+	qualified = strings.TrimSpace(qualified)
+	if surface == "" || qualified == "" {
+		return false
+	}
+	if surface == qualified {
+		return true
+	}
+	return surface == diagramEvidenceQualifiedOwner(qualified)
+}
+
+func diagramEvidenceQualifiedOwner(symbol string) string {
+	symbol, cut, width := diagramEvidenceQualifiedSplit(symbol)
+	if cut <= 0 || cut+width >= len(symbol) {
+		return ""
+	}
+	return strings.TrimSpace(symbol[:cut])
+}
+
+func diagramEvidenceQualifiedOperation(symbol string) string {
+	symbol, cut, width := diagramEvidenceQualifiedSplit(symbol)
+	if cut < 0 {
+		return symbol
+	}
+	if cut+width >= len(symbol) {
+		return ""
+	}
+	return strings.TrimSpace(symbol[cut+width:])
+}
+
+func diagramEvidenceQualifiedSplit(symbol string) (string, int, int) {
+	symbol = strings.TrimSpace(symbol)
+	cut, width := -1, 0
+	for _, separator := range []string{"::", ".", "#"} {
+		if idx := strings.LastIndex(symbol, separator); idx > cut {
+			cut, width = idx, len(separator)
+		}
+	}
+	return symbol, cut, width
 }
