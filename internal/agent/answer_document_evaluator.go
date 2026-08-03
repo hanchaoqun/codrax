@@ -5775,6 +5775,7 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 		acceptedFacts, callsiteFacts, len(edges), status)
 	b.WriteString("- A grounded definition, enum constant, classifier branch, return, or assignment proves that local fact only. Several true nodes do not by themselves prove call order, data flow, or a complete mechanism chain.\n")
 	b.WriteString("- Only the explicit caller -> callee edges and supported typed flow paths listed below carry ordering authority. Unlisted adjacency remains unproven. Describe other grounded nodes as independent mechanism facts; do not join them into a path merely because the answer contract asks for `principal_path_edge`.\n")
+	b.WriteString("- If you emit a sequence/call_dag and structured principal-path items select both endpoints of one listed grounded call, keep that same directed call visible with an explicit relation_kind=call edge anchor. Class/actor participants may abbreviate method-qualified endpoints only when the message carries the exact callee operation. Calls outside the selected principal path do not have to be drawn. Edge labels are presentation and never mint typed authority.\n")
 	if len(edges) == 0 {
 		b.WriteString("- No grounded caller -> callee edge is available. `principal_path_edge` may carry an uncertainty boundary or independent fact list, but it must not claim an ordered/complete current-source chain.\n")
 	} else {

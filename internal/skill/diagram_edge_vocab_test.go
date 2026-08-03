@@ -75,6 +75,10 @@ func TestBuildDiagramRelationContractDoc_DistinguishesSequenceReplies(t *testing
 		"callee-->>caller: result",
 		"not a reverse source-code call",
 		"one unique typed call edge",
+		"only when it mirrors an invocation already drawn",
+		"standalone `-->>` edge does not self-declare as a reply",
+		"edge label is presentation text and never mints typed authority",
+		"structured principal-path items select both endpoints",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("diagram relation contract missing sequence call/reply rule %q:\n%s", want, got)

@@ -55,6 +55,18 @@ func TestParseEdges_SequenceMessageColonStillParses(t *testing.T) {
 	}
 }
 
+func TestParseEdges_SequenceMessageArrowBytesStayInMessage(t *testing.T) {
+	body := "sequenceDiagram\n  participant A\n  participant B\n  A->>B: compare C-->>D then E->>F\n"
+	edges := ParseEdges(body)
+	if len(edges) != 1 {
+		t.Fatalf("edge count=%d, want 1: %+v", len(edges), edges)
+	}
+	if edges[0].From != "A" || edges[0].To != "B" || edges[0].Operator != "->>" ||
+		edges[0].Label != "compare C-->>D then E->>F" {
+		t.Fatalf("message arrow bytes replaced the actor edge: %+v", edges[0])
+	}
+}
+
 func TestSourceRepairHash_UsesBeforeAndAfter(t *testing.T) {
 	a := sourceRepairHash("before", "after")
 	if a == "" {

@@ -1354,3 +1354,20 @@ R7-7/R7-8 均由可执行反例确认：
 ToolA；Lua 三种调用均输出纯 callee/receiver，argument 字节不得进入 `ToEP.Name`。
 
 状态：`R7-7=closed`；`R7-8=closed`。
+
+### §9.8 M4-G Mermaid 消息边界与合同教学同步（已实现，待本节提交）
+
+- **R2-4**：sequence 解析原先先按 operator 优先表搜索整行，再递归处理 `to` 中的箭头；消息
+  `A->>B: compare C-->>D` 会因消息里的 `-->>` 优先级更高而被改写成伪边。现在 sequence 专用解析只取
+  源码顺序中第一个最长 arrow，剩余字节交给 target/message 分割，消息中的任意 Mermaid-looking arrow
+  保持普通消息文本；flowchart 的 chained-edge 兼容路径不变；
+- **R2-5**：把生产硬合同同步到三个 LLM 可见面：通用 relation contract、finalizer Tier-B edge rule、
+  current-source mechanism authority。明确 structural reply 必须镜像已画正向 invocation，孤立 `-->>` 不自证；
+  call_dag 的非调用边也必须由模型显式 typed anchor 声明，label 永不自铸权限；principal-path structured
+  items 已选择 grounded call 两端时，同向调用必须留在 sequence/call_dag，未选择的 supporting calls 不强制画。
+  legacy label vocabulary 仅是非严格图的显示关系兼容，不能创建 edge anchor 或满足调用权限。
+
+新增 sequence message 同时含 `-->>` 与 `->>` 的反例；prompt SST 钉住 mirror、standalone、no-auto-mint 与
+principal completeness 四条教学，不读取用户/模型原文做硬门。
+
+状态：`R2-4=closed`；`R2-5=closed`。

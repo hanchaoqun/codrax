@@ -44,7 +44,13 @@ func ParseEdges(body string) []Edge {
 		if line == "" || strings.HasPrefix(line, "%%") || strings.HasPrefix(line, "classDef") || strings.HasPrefix(line, "click") {
 			continue
 		}
-		from, to, label, operator, ok := SplitEdgeLine(line)
+		var from, to, label, operator string
+		var ok bool
+		if sequenceBody {
+			from, to, operator, ok = splitSequenceEdgeLine(line)
+		} else {
+			from, to, label, operator, ok = SplitEdgeLine(line)
+		}
 		if !ok {
 			continue
 		}
@@ -74,6 +80,32 @@ func ParseEdges(body string) []Edge {
 		})
 	}
 	return edges
+}
+
+// splitSequenceEdgeLine selects the first arrow in source order and leaves
+// the remainder opaque for splitSequenceEdgeTargetMessage. Message text may
+// legitimately contain Mermaid-looking arrow bytes; those are not a second
+// edge and must not replace the actor-to-actor invocation being parsed.
+func splitSequenceEdgeLine(line string) (from, to, operator string, ok bool) {
+	operators := []string{"-->>", "-.->", "-->", "==>", "->>", "---", "==", "->"}
+	idx := -1
+	for _, candidate := range operators {
+		at := strings.Index(line, candidate)
+		if at < 0 || (idx >= 0 && at > idx) || (at == idx && len(candidate) <= len(operator)) {
+			continue
+		}
+		idx = at
+		operator = candidate
+	}
+	if idx < 0 {
+		return "", "", "", false
+	}
+	from = strings.TrimSpace(line[:idx])
+	to = strings.TrimSpace(line[idx+len(operator):])
+	if from == "" || to == "" {
+		return "", "", "", false
+	}
+	return from, to, operator, true
 }
 
 // splitSequenceEdgeTargetMessage separates the message delimiter in a
