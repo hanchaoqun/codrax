@@ -595,3 +595,26 @@ finding 准确：CLI help 与测试已有 `--diagnostic-report`，但 `CLAUDE.md
 
 状态：`T2-4=confirmed / docs-implemented / targeted-test-pass`。下一项复核 T2-2 capability
 清册自指 pin 的维护成本。
+
+---
+
+## §25 T2-2 施工结果：能力声明与本次执行证据分权（2026-08-02）
+
+finding 的“自指 pin 不能证明行为”准确，但需收窄性质：86 项 capability 清册是构建产物的
+协议/词表声明，不是本次转换实际走过这些路径的证明；静态清册本身不是转换保真 bug，也不应
+为每个名字复制一套同源自证测试。
+
+本批保留清册用于版本和客户环境比对，同时紧邻发布 typed authority：
+
+- `scope=build_advertisement`，明确它只描述当前构建声明的能力词表；
+- `proves_observed_execution=false`，禁止把名字在场升级为本次执行成功；
+- 明列本次执行权限来自 provider decision、artifact、coverage、DB coverage 与 typed error 行；
+- `capability_count` 从清册长度派生，防止声明和权限附注独立漂移。
+
+这不改变转换、恢复、筛选或输出内容，也没有用能力名扫描用户/模型文本。测试验证 typed 权限
+边界和实际清册长度，但不再声称静态 pin 能替代各生产路径自己的行为回归。
+
+验证：capability authority 与 build identity 定向回归通过（1.250s），`go test ./cmd -count=1`
+全包通过（6.452s）。状态：`T2-2=confirmed-as-authority-gap / implemented / full-package-pass`。
+下一项独立复核 `T7-4` 缺失
+needs-replan report artifact 的降级范围。

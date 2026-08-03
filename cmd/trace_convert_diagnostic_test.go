@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -61,6 +62,50 @@ func TestTraceConvertDiagnosticReportHardLimitAndPhysicalLineSafety(t *testing.T
 	}
 	if strings.Contains(text, "normalize failed\nsecond physical line") {
 		t.Fatal("diagnostic value injected an unescaped physical line")
+	}
+	assertTraceConvertDiagnosticCapabilitiesAreBuildAdvertisement(t, text)
+}
+
+func assertTraceConvertDiagnosticCapabilitiesAreBuildAdvertisement(t *testing.T, report string) {
+	t.Helper()
+	const prefix = "diagnostic_capabilities_authority="
+	var encoded string
+	for _, line := range strings.Split(report, "\n") {
+		if strings.HasPrefix(line, prefix) {
+			encoded = strings.TrimPrefix(line, prefix)
+			break
+		}
+	}
+	if encoded == "" {
+		t.Fatal("diagnostic report omitted capability authority boundary")
+	}
+	var authority struct {
+		Scope                     string   `json:"scope"`
+		CapabilityCount           int      `json:"capability_count"`
+		ProvesObservedExecution   bool     `json:"proves_observed_execution"`
+		ObservedExecutionEvidence []string `json:"observed_execution_evidence"`
+	}
+	if err := json.Unmarshal([]byte(encoded), &authority); err != nil {
+		t.Fatalf("decode capability authority: %v", err)
+	}
+	if authority.Scope != "build_advertisement" || authority.ProvesObservedExecution {
+		t.Fatalf("capability list was promoted to execution proof: %+v", authority)
+	}
+	if authority.CapabilityCount != len(traceConvertDiagnosticCapabilities) {
+		t.Fatalf("capability authority count=%d want=%d",
+			authority.CapabilityCount, len(traceConvertDiagnosticCapabilities))
+	}
+	wantEvidence := []string{
+		"trace_provider_decision",
+		"perf_provider_decision",
+		"artifact",
+		"trace_coverage",
+		"trace_db_coverage",
+		"typed_error",
+	}
+	if !slices.Equal(authority.ObservedExecutionEvidence, wantEvidence) {
+		t.Fatalf("observed execution evidence=%v want=%v",
+			authority.ObservedExecutionEvidence, wantEvidence)
 	}
 }
 

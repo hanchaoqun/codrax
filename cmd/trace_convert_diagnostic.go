@@ -264,6 +264,19 @@ func traceConvertDiagnosticReportBody(
 	))
 	lines.Add(traceConvertDiagnosticJSONLine("build_identity", buildIdentity))
 	lines.Add(traceConvertDiagnosticJSONLine("diagnostic_capabilities", traceConvertDiagnosticCapabilities))
+	lines.Add(traceConvertDiagnosticJSONLine("diagnostic_capabilities_authority", map[string]any{
+		"scope":                     "build_advertisement",
+		"capability_count":          len(traceConvertDiagnosticCapabilities),
+		"proves_observed_execution": false,
+		"observed_execution_evidence": []string{
+			"trace_provider_decision",
+			"perf_provider_decision",
+			"artifact",
+			"trace_coverage",
+			"trace_db_coverage",
+			"typed_error",
+		},
+	}))
 	lines.Add(traceConvertDiagnosticJSONLine("options", map[string]any{
 		"input_path":           opts.InputPath,
 		"output_path":          opts.OutputPath,

@@ -4139,6 +4139,16 @@ CLI 已有有界 `--diagnostic-report`，但日常入口和 architecture trace d
 
 CLI flag/diagnostic 定向测试通过（1.320s）。状态：`docs-implemented / targeted-test-pass`。
 
+#### 批 M16：T2-2 diagnostic capability 权限分层（2026-08-02）
+
+确认 capability 清册是构建声明而非本次执行证明；静态清册测试无法证明 86 条生产路径均实际
+运行。M16 保留版本可比的能力词表，紧邻增加 typed authority：scope 固定为
+`build_advertisement`、`proves_observed_execution=false`，并把 provider decision、artifact、
+coverage、DB coverage 和 typed error 列为本次转换的执行证据席。数量从清册单源派生。
+
+没有改转换行为，也没有把 86 个名字扩成答案硬门。定向回归通过（1.250s），cmd 全包通过
+（6.452s）。状态：`implemented / full-package-pass`。
+
 ### B47：运行日志语义所有权 × write 跨语言检查权限（2026-08-02）
 
 严格并行 2 个跨模式 case：
