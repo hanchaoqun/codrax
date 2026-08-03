@@ -42,6 +42,15 @@ func (o *Orchestrator) stampCumulativeVerificationScope(plan *types.ChangePlan, 
 			continue
 		}
 		scope.SourcePlanIDs = append(scope.SourcePlanIDs, planID)
+		// A restored plan can itself be a controller-stamped replan over older
+		// still-applied bytes. Preserve that typed provenance and path closure;
+		// otherwise a later restore makes plans before the restore generation
+		// disappear from verification even though their bytes remain. This is
+		// verify-only metadata and never widens the active plan's apply scope.
+		if retained.CumulativeVerificationScope != nil {
+			scope.SourcePlanIDs = append(scope.SourcePlanIDs, retained.CumulativeVerificationScope.SourcePlanIDs...)
+			scope.TargetPaths = append(scope.TargetPaths, retained.CumulativeVerificationScope.TargetPaths...)
+		}
 		scope.TargetPaths = append(scope.TargetPaths, writeFinalReportPlanChangePaths(retained)...)
 		for _, contract := range types.ChangePlanVerificationBehaviorContracts(retained) {
 			id := strings.TrimSpace(contract.ID)

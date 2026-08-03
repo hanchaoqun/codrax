@@ -4286,6 +4286,7 @@ write 全链人工审计：
 |---|---:|---|---|---|
 | `EVAL-B47-PATHID1` | P1 | planner、controller、slice、patch-effect 对仓库相对路径使用不同 lexical identity，合法补丁可被误判越界，依赖/rename 也可能漂移 | 在零 internal 依赖的 `canonpath` 建立 safe repo-relative identity；emit seam 先统一 path/new_path/depends_on，controller 与 patch-review 防御性消费同一 canonicalizer；绝对路径、UNC、盘符、parent traversal 保持 fail-closed | implemented/full-tests-pass；write replay next |
 | `EVAL-B47-FACETAUTH1` | P1 | typed relation authority 明确 `transition=unproven`，答案合同仍硬要求 path-edge facet，精确上下文与结构要求互相冲突 | required facets 在 prompt 前按 typed evidence authority 投影：无 edge 时要求 independent facts + uncertainty，有 edge 时保留 path；不读 RawRequest/answer prose，不拒绝或改写模型答案 | implemented/full-tests-pass；cross-log replay next |
+| `EVAL-B47-REPLANPROOF1b` | P1 | restore cutoff 后只携带直接 retained plan 的来源与路径，三轮以上交替修改时，更早仍应用路径可能从 verify-only 闭包消失 | 从 controller-stamped retained durable plan 递归继承 SourcePlanIDs/TargetPaths；当前 planner scope 仍清空重建，apply scope 保持当前计划 | implemented/full-tests-pass；write replay next |
 
 #### B47-PATHID1：安全仓库相对路径的单一身份
 
@@ -4343,6 +4344,40 @@ transition 未证”的正确回答；缺口是合同自相矛盾，不是再塞
 renderer 继续发布同一 authority。全相关回归通过：`types 19.914s / render 0.921s /
 agent 2.885s / tool 165.332s / orchestrator 13.663s`。
 
+#### B48 r1：路径身份通过；成功证明未到达，发现验证闭包二阶丢失
+
+干净 `main@e70c70eac` 严格并行 2 个异构 write/plan case：
+
+- `patch_cpp_typo`：56s，runner PASS / human PASS；
+- `github_issue_commons_lang_random_ascii_symptom`：319s，runner FAIL / human FAIL。
+
+plan-only C++ case 的最终计划是精确单行 patch，且 fixture 仓库字节未改变。前两次计划分别因
+不支持的 bash probe 和 tab/space `old_text` 不匹配被 typed feedback 纠正；当前上下文足够，不登记
+产品 GAP。
+
+Java write case 中 PATHID1 已覆盖：三轮计划均无 path-scope 误报，均真实 apply 后执行
+`make check` 并诚实失败；Java probe 因本机无 `javac` 保持 unavailable，changed paths 保持
+uncovered，最终因步骤预算耗尽 blocked，没有伪造 verified。第三轮已经读取 checker，却把
+`0x3B1` 误判为匹配 `0x(?:4e00|370|400)`，属于模型对精确可见证据的理解波动；不为该数值、
+正则或 Java fixture 增加硬门。因为没有成功 proof，CAPCAL1 仍待另一个成功 write case 验收。
+
+上下文深审另外确认 `REPLANPROOF1b`：`writeFinalReportAppliedPlanIDs` 在 restore cutoff 后可以只返回
+最新 retained plan；该 plan 的 controller-owned cumulative scope 已证明更早计划仍在，但旧的
+`stampCumulativeVerificationScope` 只加入 retained plan 自身 ID 和直接路径，导致 provenance/path
+不像 contracts/probes 那样传递。最优修复是在同一 verify-only 铸造点继承 retained scope 的
+`SourcePlanIDs + TargetPaths`，再加入 retained plan 自身：
+
+1. 当前计划上的 planner-provided scope 继续先清空，不能注入权限；
+2. retained plan 来自 controller durable artifact/candidate，继承的是既有 typed authority；
+3. apply 仍只消费当前计划 `TargetPaths/active slice`，累计闭包只供 verify；
+4. 三代 restore 回归固定 A(test) → B(source, carries A) → restore B → C(follow-up)，C 必须验证
+   A+B 的路径/合同/探针且不得吸收 C 中伪造的 planner scope。
+
+本项不读取用户输入或模型答案，不修改结论，不影响 read/Trace 路由；显式时间窗的 Trace 因果投影、
+根因排序、唤醒链、可消除量及自动补齐不在这条写模式 verify-only 路径上。
+
+完整回归通过：`types 18.612s / orchestrator 14.147s / tool 166.620s`。
+
 任务状态：
 
 - [x] B47-T7：SEMCAL1 实现、全量测试、独立推送，并以 read + operation 严格并行 2 个回放；
@@ -4356,7 +4391,10 @@ agent 2.885s / tool 165.332s / orchestrator 13.663s`。
 - [x] B47-T8d：实现 PATHID1、跨平台安全负例与 patch-review 生产 witness 回归，独立提交推送；
 - [x] B47-T8e：审计并实现 FACETAUTH1；证据权限与 answer block 单源投影，不以 answer/request
   关键词 hard gate，不系统替答；完整相关回归通过后独立提交推送；
-- [ ] B47-T8f：从干净 HEAD 严格并行下一对异构 case；write 必须走到 capability ledger，另一个
+- [x] B47-T8f：从干净 HEAD 严格并行下一对异构 case；PATHID1 live covered，成功 capability
+  ledger 未到达；人工审计同时定位 REPLANPROOF1b；
+- [x] B47-T8g：完成 REPLANPROOF1b 全量回归；
+- [ ] B47-T8h：独立提交推送后选择新的可成功 write case，必须走到 capability ledger，另一个
   case 切换 read/data/plan/operation 高优先维度，避免持续拟合同一日志。
 
 ### B42：生成物写模式 × 日志/源码机制对比审计（2026-08-02）
