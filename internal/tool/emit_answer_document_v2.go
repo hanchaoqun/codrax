@@ -724,10 +724,6 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		pctx.recordPreEmitRepair("normalizeDiagramEdgeAnchorMetadata", fixed)
 		logging.Warning("[%s] normalized %d diagram edge anchor metadata value(s)", toolName, fixed)
 	}
-	if fixed := normalizeRequiredMechanismAnchorCarriersWithContext(doc, view, ctx, pctx); fixed > 0 {
-		pctx.recordPreEmitRepair("normalizeRequiredMechanismAnchorCarriersWithContext", fixed)
-		logging.Warning("[%s] repaired %d required mechanism anchor carrier(s)", toolName, fixed)
-	}
 	if fixed := normalizeVisibleSourceLocationCarriers(doc, pctx); fixed > 0 {
 		pctx.recordPreEmitRepair("normalizeVisibleSourceLocationCarriers", fixed)
 		logging.Warning("[%s] repaired %d visible source-location carrier(s) by grounded evidence", toolName, fixed)

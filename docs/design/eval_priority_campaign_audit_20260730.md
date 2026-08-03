@@ -11888,3 +11888,45 @@ typed authority 漏检（`DIAGCALL1`）与 noisy prose 权威化/可提升硬门
 - result dirs：`eval/results/*-20260803-073808`；
 - HTML：`.codrax/output/20260803-074121.991-60419.html`、
   `.codrax/output/20260803-074211.965-60418.html`。
+
+#### B54-G：可见端点 materializer 退役（答案所有权红线）
+
+继续沿“成文校验未通过”生产链反查，确认一条比互斥合同更直接的红线：
+`normalizeRequiredMechanismAnchorCarriersWithContext` 会在模型漏写 required anchor 时，向最终答案
+自动追加 `Key anchors/关键锚点` block、端点 item 和“typed 当前源码已/未精确解析该端点”的可见
+中英文正文；之后 `preCheckRequiredMechanismAnchorSet` / call-chain endpoint hard gate 又读取这段
+系统自产内容并签绿。这样形成了“系统代写 carrier -> 系统用自产 carrier 通过自己的校验”的自证环，
+减少了重试，却越过了“系统给事实和约束、模型负责成文与结论”的答案所有权边界。
+
+历史核对：端点 carrier 自动补写的早期形来自 2026-05 的 `20d917fe2d` / `8ef0e28b98`；
+`9745226b3`（2026-08-01）把它扩展到全部 `QFCallChain`，并新增 exact resolved/unresolved 可见
+披露，使该红线在当前 call-chain 主路径上稳定可触发。根因不是单个词面，而是 correctness gate 与
+repair path 没有 ownership 分层；“减少 retry”的局部目标把 typed request obligation 错当成了系统
+创作可见答案的授权。
+
+新增 `EVAL-B54-ENDPOINTAUTHOR1`（P0/red-line）并完成第一批根修：
+
+1. 从 pre-emit normalization pipeline 删除 required mechanism anchor 的可见 materializer，并删除
+   自动建块、自动 item、自动 citation 和 resolved/unresolved prose 全链；
+2. 保留 analyzer/final handoff 中的 typed `RequiredMechanismAnchors`、模型可执行的 skill prompt 要求，
+   以及只读 structured item carrier 的 precise hard gate。模型漏端点时可以据 typed hint 自行修订，
+   系统不再代写答案来消灭 retry；
+3. 新增所有权结构 pin：归一化前后可见 `AnswerDocumentV2` 字节等价；缺端点时
+   `ViolCallChainEndpointOmitted` typed hard hint 必须仍在，防止未来以“降校验”换取少重试；
+4. 不读取用户原文、模型 prose 或 Mermaid label 来铸造权限；不改 Trace runtime projection、显式
+   时间窗因果补采或系统拥有的 typed Trace supplement。
+
+同类面初筛显示仍有三类需要下一批逐项裁定，不能因本批通过就宣称全系统已无同类问题：
+
+- metadata/citation-only repair：只修 `citation_ref`、行范围、hidden edge metadata，原则上不拥有
+  结论，但仍需证明不会改变可见 claim identity；
+- visible identity rewrite：`normalizeQualifiedItemLabelsByUniqueEnclosingFunction`、
+  `normalizeDiagramDefinitionLabelsByEvidence` 等会修改模型可见 label/diagram body，属于高风险；
+- deterministic enumeration/member-set compilers：可能追加或改写可见 row/block。只有明确标成
+  system-owned typed fact panel、且不生成因果/优先级/修复结论时才可能合规；否则与本件同形。
+
+下一批按“是否改变可见正文/声明身份”而不是函数名或语言逐个分类；任何 D 类（修改/替换模型
+可见声明）先撤出 shipping path，再补 typed prompt/hint。Trace 因果投影保留独立 owner，不与源码
+answer normalizer 混审。
+
+验证：`go test ./internal/tool -count=1` 全绿（158.635s）；`git diff --check` 通过。

@@ -106,22 +106,6 @@ func TestAppendAggregateMemberSetCarrierBlock_SkipsAtCap(t *testing.T) {
 	}
 }
 
-func TestAppendRequiredMechanismAnchorBlock_SkipsAtCap(t *testing.T) {
-	below := atCapDoc()
-	below.Blocks = below.Blocks[:maxBlocksPerDoc-1]
-	if idx := appendRequiredMechanismAnchorBlock(below, &types.BusContext{}); idx < 0 {
-		t.Fatal("control broken: anchor block should append with headroom")
-	}
-
-	at := atCapDoc()
-	if idx := appendRequiredMechanismAnchorBlock(at, &types.BusContext{}); idx != -1 {
-		t.Fatalf("anchor block must return -1 at the cap, got %d", idx)
-	}
-	if len(at.Blocks) != maxBlocksPerDoc {
-		t.Fatalf("at-cap doc mutated: %d blocks", len(at.Blocks))
-	}
-}
-
 // TestPersistMergedAtCapWithExternalTrace_EndToEnd pins the proven
 // composition: a budget-sanctioned split (or any model emit) filling
 // the merged doc to exactly maxBlocksPerDoc, with an external perf
