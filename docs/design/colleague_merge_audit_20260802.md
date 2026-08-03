@@ -1183,3 +1183,51 @@ principal citation-call fixture；Proto 走 declaration-no-call 反臂。图验�
 
 全语言基础设施回归：`go test ./internal/tool/repomap/... ./internal/mermaidcompat ./internal/render -count=1`
 全部通过（含 language registry、parser/extractor、relation/retrieve、Mermaid compatibility 与最终 renderer）。
+
+---
+
+## §8 MERGE-AUDIT-4 增量审计(2026-08-03):45 笔新合入 = 修复响应波 + 跨语言调用链战役
+
+**范围**:73e93b2fa..HEAD 非本席合入 45 笔(08-02 19:23 → 08-03 03:52)。两簇:①对 MERGE-AUDIT-3 findings 的修复响应(~28 笔,提交名与 finding 一一对应);②全新跨语言调用链/调用图战役(~17 笔,含 repomap 12 语言提取器 +966 行、新 `extract_navigation_calls.go`、eval 跑批器改造)。**方法**:8 主题读者+逐条 2 席否证(34 agent,wf_be3f6487-29d)+全仓基线实测+高危亲验;只审计不修码。
+
+### §8.1 基线与修复合规总评(正面)
+
+- **main 复绿**:P0-1/P0-2 已修——四 struct 哈希重钉且**逐字段带渲染处置**(非盲重钉),科学计数法改 `strconv.Fo…` 定点单点;全仓套件零失败(本席实测)。
+- **30 项修复合规通过(fixed_ok)**:MERGE-AUDIT-3 的确认/存疑/低危项几乎全数被正确修复,其中亮点:T7-2 直接**删除**引号字面量臂(最干净形);T4-1 三硬门全部改测 normalize 后同源面;T5-2 源身份补 `source|name|canonicalfile` 文件轴;T6-2/T5-3 违规聚合一次报全;T1-1 按否证席要求落**软**披露(typed metadata,非硬门)。
+- **§7 T3-1 裁定合规**:五项中 ①席位级触发(`buildRuntimeTraceProjectionSeatAuthorityIndex` 按 unproven 结果证据键控,先探后证虚拟例 pin `TestEarlierUnprovenProbeCannotDecrownLaterProvenSeat` 在案)②词族退役(生产+负 pin)③前缀字节恒等+限定注并行④三面单源 全部落地;pins (a)(b)(c) 齐。**唯一缺口=R1-1**(见 §8.3)。
+- **红线自纠**:同事整体删除了其旧战役的 `normalizeCallChainReachabilityAuthority`(系统改写模型结论块=「系统不可代替 LLM 写用户面板答案」违规)——连同测试一并退役。
+- **eval 跑批器改动(a33febe7b)核验为提杆非降杆**:`EXPECT_PRIMARY_*` 严格 opt-in,仅 sr_java_call_chain 一例迁移,主体域断言更严;runner_lib_test 钉住新域切分。
+
+### §8.2 高危确认(5 件,均双席否证幸存)
+
+| # | 位置 | 问题 | 亲验/复现 |
+|---|---|---|---|
+| R2-1 | `answer_document_diagram_evidence.go:170` | **主对完备性车道绕过别名解析**(T3-2 同类第二例):`visibleCallSymbolPairs` 用裸小写标签键比对,而兄弟门走别名/定义解析——教学形 class participant(`participant C as VisitController`)标签与 principal 项标签形不同即硬拒 `principal_call_edge_missing`,拒的是图里**画着**的调用 | 否证席 go test -overlay **可执行复现** |
+| R6-1 | `answer_document_diagram_evidence.go:362` | **call_dag 非调用锚免检臂被归一化器自铸锚击穿**:pre-emit 先跑 `normalizeDiagramEdgeAnchorMetadata` 自动铸 Guard 锚,后跑免检判定——虚构调用边借系统自铸锚逃过 typed 调用证据契约(**硬门反向失效**:该门要防的恰是虚构边) | 静态(调用序逐点核) |
+| R7-1 | `repomap/index/cache.go:229` | **12 语言提取器输出语义变更零 `extractorVersions` bump**(cache.go 停在 07-09):暖缓存库 Kotlin/Swift/Ruby/Lua/Cangjie 零调用边、typed receiver 全缺,与新能力矩阵测试声称直接矛盾,静默陈腐 | **本席亲验**(git log 双向确认) |
+| R7-2 | `repomap/index/extract_java.go:329` | **Java `var` 被当声明类型绑定**:`var x = new Foo()` 铸 x→'var',调用面渲染 `var.run`,不同 receiver 折叠进同一伪身份(Java 10+ 遍地 var) | 否证席对 vendored 语法树实证 |
+| R7-3 | `repomap/index/extract_c.go`(census 应用面) | **C receiver census 只扫参数声明却全文件生效**:局部变量被改写成不相关身份 | 静态 |
+
+### §8.3 中危确认(7 件)
+
+- **R1-1** §7 裁定 pin (d) 只交付了单板形——多板(multi-cluster)一致性 pin 缺失;当前多板行为经核**构造上正确**(seatAuthority 正确穿线),但同文件已存在 nil-authority 兄弟构造器,未来改动无红可踩(正是 T3-3 病类)。**§7 收尾件,补 pin 即关**。
+- **R2-2** `diagram_evidence.go:84`:证据池存在反向 typed 调用时,豁免的 `-->>` 回边被"再捕获"回硬锚契约——已证反向调用反而使回复边被拒。
+- **R2-3** `diagram_evidence.go:349`:回边豁免**只键在箭头拼写**——未证正向调用画成 `-->>` 即零锚零证逃逸(与 R2-2 同臂不对称,一收一放都错)。
+- **M4-R3-1** `write_controller_scheduler.go:3476`:T6-4 半修——anchors 只在 run.ContextPacks 标 Stale,Mutable 侧孪生未标,同一 apply 事务内 AND-merge 把撤销冲掉。
+- **R6-2** `pre_emit_check.go:2488`:callable:line 引用归属回退臂剥掉 owner 限定词比对——`A.create:N` 可"拥有"`B.create:N` 的引用。
+- **R7-4** `extract_navigation_calls.go:97`:Kotlin/Swift 声明类型取全子树**第一个** type_identifier——注解/初始化器里的类型名可冒充声明类型。
+- **R7-6** `extract_cangjie.go:111`:`ident : ident` 三元组全当声明绑定——具名实参 `f(width: w)` 铸 width→w 伪绑定。
+
+### §8.4 低危顾问(10 件,修复时顺带)
+
+R1-2 proven 臂明细词仍在单源外手写;R2-4 sequence 消息切分序改动后消息体内箭头串污染边解析;R2-5 新主图完备硬契约零 prompt 教学(教学-硬门不同步的反向形);M4-R3-2 material 页尾部 UTF-8 trim 二次方(2MB 载荷 REPL ~10s);R4-1 T2-3 残留(raw perf.data sidecar 族+序号变体不在保留 census);R6-3 canonicalizer 修剪 SupportRefs 无位置性守卫(MemberNotes 有);R7-7 CallersOfID 保守包含契约被裸源表达式 receiver 反转;R7-8 Lua 无空格免括号糖铸垃圾 callee;R8-1 snippets 域只经引用传递排除;R8-2 primary 域边界字面量未与渲染器发射 pin 双向绑定。
+
+### §8.5 处置建议(未动码)
+
+1. **高危批一(图表门,R2-1/R6-1/R2-2/R2-3 同文件同批)**:完备性车道与边门同源别名解析;免检臂改结构判定(回边须镜像已画正向边)并排除自铸锚;两个不对称一并修。
+2. **高危批二(repomap,R7-1..R7-6/R7-7/R7-8)**:先 bump `extractorVersions`(止血陈腐缓存),再修各语言 census 谓词(var/参数域/子树第一类型/具名实参)。
+3. **§7 收尾**:R1-1 多板 pin + R1-2 单源归位,一小批。
+4. **write 半修**:M4-R3-1 Mutable 侧同步标记。
+5. 低危随批;R8-1/R8-2 在下一次 eval 战役排。
+
+**方法学**:修复响应波的"提交名↔finding 对应"极大降低了核验成本,30/42 项一次通过;新战役(repomap census 族)则重现了"新谓词族未过既有纪律(缓存版本/教学同步/别名同源)"的复发类——**修复批的工程纪律显著好于新功能批**,后续审计资源应向新功能面倾斜。
