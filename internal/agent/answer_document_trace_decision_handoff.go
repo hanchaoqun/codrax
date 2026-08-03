@@ -161,6 +161,27 @@ func renderAnswerDocTraceDecisionHandoffSet(set types.TraceCausalProjectionSet, 
 				b.WriteString("\n")
 			}
 		}
+		contextRows := traceDecisionNonCausalContextRows(projection, 6)
+		if len(contextRows) > 0 {
+			b.WriteString("- contextual_noncausal_rows (these typed rows may constrain absence claims, but they are not target-causal proof and are not additive to either decision axis):\n")
+			for _, row := range contextRows {
+				node := row.node
+				unit := strings.TrimSpace(node.Unit)
+				if unit == "" {
+					unit = "ms"
+				}
+				caliber := "context_observation"
+				if node.IsAggregateMetric() {
+					caliber = "aggregate_context_non_target_wall_clock"
+				}
+				fmt.Fprintf(&b, "  - lane=`%s`; subject=`%s`; kind=`%s`; value=%.3f; unit=`%s`; caliber=`%s`; target_causal_authority=`not_provided`; cross_axis_addition=`forbidden`; source_lane=`%s`",
+					row.lane, strings.TrimSpace(node.Subject), traceDecisionNodeKind(node), node.ImpactMS,
+					unit, caliber, traceDecisionNodeSourceLane(node))
+				traceDecisionWriteNodeIdentity(&b, node)
+				traceDecisionWriteNodeRelations(&b, node)
+				b.WriteString("\n")
+			}
+		}
 		b.WriteString("\n")
 	}
 	return b.String()
@@ -479,6 +500,54 @@ func traceDecisionEliminableSeats(projection types.TraceCausalProjection, limit 
 			return out[i].EffectiveImpactMS > out[j].EffectiveImpactMS
 		}
 		return traceDecisionNodeIdentity(out[i]) < traceDecisionNodeIdentity(out[j])
+	})
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+type traceDecisionContextRow struct {
+	lane string
+	node types.TraceCausalProjectionNode
+}
+
+// traceDecisionNonCausalContextRows carries the bounded adjacent/background
+// rows that the deterministic projection will publish after finalization. The
+// answer model needs these rows to avoid denying evidence that the system will
+// later display, while their typed lane keeps them below root-cause and
+// eliminable authority. No request or answer prose participates.
+func traceDecisionNonCausalContextRows(projection types.TraceCausalProjection, limit int) []traceDecisionContextRow {
+	pool := make([]traceDecisionContextRow, 0, len(projection.AdjacentCauses)+len(projection.BackgroundCauses))
+	for _, node := range projection.AdjacentCauses {
+		pool = append(pool, traceDecisionContextRow{lane: "adjacent", node: node})
+	}
+	for _, node := range projection.BackgroundCauses {
+		pool = append(pool, traceDecisionContextRow{lane: "background", node: node})
+	}
+	seen := map[string]bool{}
+	out := make([]traceDecisionContextRow, 0, len(pool))
+	for _, row := range pool {
+		node := row.node
+		if node.ImpactMS <= 0 || node.IsEvidenceBoundaryRow() ||
+			(node.WithinRequestedWindow != nil && !*node.WithinRequestedWindow) {
+			continue
+		}
+		key := row.lane + "\x00" + traceDecisionNodeIdentity(node)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, row)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].lane != out[j].lane {
+			return out[i].lane < out[j].lane
+		}
+		if out[i].node.ImpactMS != out[j].node.ImpactMS {
+			return out[i].node.ImpactMS > out[j].node.ImpactMS
+		}
+		return traceDecisionNodeIdentity(out[i].node) < traceDecisionNodeIdentity(out[j].node)
 	})
 	if limit > 0 && len(out) > limit {
 		out = out[:limit]

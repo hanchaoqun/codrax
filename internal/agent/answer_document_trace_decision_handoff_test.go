@@ -49,6 +49,11 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 				WithinRequestedWindow: &inside,
 			},
 		},
+		BackgroundCauses: []types.TraceCausalProjectionNode{{
+			EvidenceID: "scheduler-pressure", Subject: "scheduler-demand", Object: "supply_pressure",
+			ImpactMS: 3.5, Unit: "ms", SubjectKind: types.TraceCausalSubjectKindAggregateMetric,
+			SystemSupplement: true, WithinRequestedWindow: &inside,
+		}},
 		BusinessSpanMentions: []types.TraceCausalProjectionBusinessSpanMention{{
 			Subject: "worker-400", Name: "ParseCards", Count: 12,
 			TotalMS: 18.5, MaxMS: 3.2, StartLine: 50, EndLine: 90, Basis: "chain_member",
@@ -101,6 +106,9 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 		"rank=#2; subject=`target-100`; kind=`running`; effective_attribution=10.331ms; fix_direction=`frequency_thermal`",
 		"source_lane=`deterministic_system_supplement`",
 		"cross_row_additivity=`not_authorized_without_exact_pair_carrier`",
+		"contextual_noncausal_rows",
+		"lane=`background`; subject=`scheduler-demand`; kind=`supply_pressure`; value=3.500; unit=`ms`; caliber=`aggregate_context_non_target_wall_clock`",
+		"target_causal_authority=`not_provided`; cross_axis_addition=`forbidden`; source_lane=`deterministic_system_supplement`",
 		"relation_authority=`typed_pair_only`",
 		"physical relationship is unresolved",
 		"cross-row addition is not authorized",

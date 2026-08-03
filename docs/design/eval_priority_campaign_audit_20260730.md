@@ -11528,3 +11528,55 @@ validator 同样接受。
 - result dirs：`20260803-050542`；
 - 完整 `go test ./internal/types ./internal/tool -count=1` 通过（20.180s / 168.763s）；
   `internal/agent` Trace-decision relation handoff 专项与 `git diff --check` 通过。
+
+### B53 r2：空答案恢复；最终 background 席未进入模型前上下文（2026-08-03）
+
+修复 rebased 并推送为 `main@3ff195b90` 后，以同一两例、同一二进制快照严格并行回放：
+
+- `trace_query_wakeup_causal_runnable`：runner PASS，167s；核心答案恢复，人工仍判
+  FAIL-system；
+- `github_issue_fmt_tm_year_overflow_symptom`：runner PASS / human PASS，203s。
+
+`EVAL-B53-RELWIN1` 获得真实正证：最终 `Trace Decision Inputs` 发布当前
+`trace:target_state_partition:aebff006a573b1a3` 和 10.000ms subtotal；模型首轮漏带后收到
+精确 typed repair，第二轮携带并一次通过。模型完整 summary、时间线、优先级候选 caveat
+均保留，系统 Trace 投影在其后按既有 typed 路径追加，没有删除或替换模型结论。空答案从
+539s/40 次成文拒绝降为 167s/一次关系修形，故 `RELWIN1=covered`。
+
+人工审计仍发现一个独立上下文矛盾：模型摘要写“无 CPU 压力证据”，同页系统投影稍后却
+发布 `调度压力(需求积压)=3.500ms`（跨线程累计、非墙钟、background）。该行是最终
+projection 已持有的 typed `BackgroundCauses`，但模型前 `Trace Decision Inputs` 只投影
+axis A、axis B、target state、wakeup 和 evidence boundary；background/adjacent 行没有
+handoff。系统没有直接改写模型，但把模型未见过的材料追加到同页，导致模型无法避免与其
+冲突。修复不能扫描“无 CPU 压力”等答案词面，也不能隐藏系统行或把 background 升格为
+因果。
+
+新增台账：
+
+| ID | 优先级 | GAP | 泛化方案 | 状态 |
+|---|---:|---|---|---|
+| `EVAL-B53-CTXBG1` | P1 | 最终会发布的 typed adjacent/background 行缺席于模型前 decision handoff，模型可否认系统随后展示的证据 | 从同一 `TraceCausalProjectionSet` 有界投影 `contextual_noncausal_rows`；逐行携带 lane、typed kind/value/unit/caliber、source lane 与 `target_causal_authority=not_provided / cross_axis_addition=forbidden`。只作模型上下文，不创建 block、不改 prose、不参与硬门 | implemented / targeted-tests-pass / replay-next |
+
+#### B53-B：最终投影 context 行提前只读交接
+
+`renderAnswerDocTraceDecisionHandoffSet` 新增最多 6 行的非因果上下文面：
+
+1. 数据仅来自最终 projection 的 `AdjacentCauses` / `BackgroundCauses`，并复用
+   `WithinRequestedWindow`、evidence-boundary 排除和 evidence identity 去重；
+2. aggregate metric 明示 `aggregate_context_non_target_wall_clock`，普通行保持
+   `context_observation`，禁止模型把跨线程累计改写成目标墙钟；
+3. 每行固定 `target_causal_authority=not_provided` 和 `cross_axis_addition=forbidden`，
+   只约束“证据是否存在”的认知，不授予根因、可消除量或跨轴加法权限；
+4. 不读取 RawRequest、问题关键词、模型 thinking/final，也不新增 emit-time validator。
+
+agent 专项正臂固定 deterministic supplement 的 3.500ms aggregate background 行进入 handoff，
+同时仍不进入 axis A/B。Trace 显式窗口、因果投影 materializer、自动补采和模型结论所有权
+均未改。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b53_trace_write_r2_20260803.md`；
+- `eval/parallel_selected_summary_evalcampaign_b53_trace_write_r2_20260803_manual_audit.md`；
+- result dirs：`20260803-052614`；
+- 新 HTML：`.codrax/output/20260803-052859.277-29088.html`；
+- `go test ./internal/agent -run 'TestTraceDecisionHandoff' -count=1` 通过。
