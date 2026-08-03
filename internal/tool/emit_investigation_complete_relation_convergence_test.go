@@ -222,6 +222,98 @@ func TestExactTypedRelationProjectionKeepsSameNameCandidatesFromDistinctFiles(t 
 	}
 }
 
+func TestExactTypedRelationProjectionKeepsSameNameSourcesFromDistinctFiles(t *testing.T) {
+	fact := types.AnswerAggregateFact{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "dispatchers",
+		Value: "2",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"Dispatch @ internal/a/dispatcher.go:10",
+			"Dispatch @ internal/b/dispatcher.go:20",
+		},
+		SupportRefs: []string{
+			"Dispatch @ internal/a/dispatcher.go:10",
+			"Dispatch @ internal/b/dispatcher.go:20",
+		},
+	}
+	candidates := []types.TypedRelationCandidate{
+		{
+			Relation: types.TypedRelationCalledBy, SourceName: "Dispatch", SourceFile: "internal/a/dispatcher.go",
+			Member:    types.TypedRelationMember{Name: "HandleA", File: "internal/a/handler.go", Line: 11},
+			Precision: types.TypedRelationPrecisionExactSymbolID,
+		},
+		{
+			Relation: types.TypedRelationCalledBy, SourceName: "Dispatch", SourceFile: "internal/b/dispatcher.go",
+			Member:    types.TypedRelationMember{Name: "HandleB", File: "internal/b/handler.go", Line: 21},
+			Precision: types.TypedRelationPrecisionExactSymbolID,
+		},
+	}
+
+	got, removed := canonicalizeExactTypedRelationFactMembers(fact, candidates)
+	if removed != 0 || len(got.Members) != 2 {
+		t.Fatalf("same-name relation sources in distinct files are distinct typed identities: removed=%d fact=%+v", removed, got)
+	}
+}
+
+func TestExactTypedRelationProjectionCanonicalizesRepeatedSourceObservationsInSameFile(t *testing.T) {
+	fact := types.AnswerAggregateFact{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "dispatchers",
+		Value: "2",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"Dispatch @ internal/a/dispatcher.go:10",
+			"Dispatch @ internal/a/dispatcher.go:30",
+		},
+		SupportRefs: []string{
+			"Dispatch @ internal/a/dispatcher.go:10",
+			"Dispatch @ internal/a/dispatcher.go:30",
+		},
+	}
+	candidates := []types.TypedRelationCandidate{
+		{
+			Relation: types.TypedRelationCalledBy, SourceName: "Dispatch", SourceFile: "internal/a/dispatcher.go",
+			Member:    types.TypedRelationMember{Name: "HandleA", File: "internal/a/handler.go", Line: 11},
+			Precision: types.TypedRelationPrecisionExactSymbolID,
+		},
+	}
+
+	got, removed := canonicalizeExactTypedRelationFactMembers(fact, candidates)
+	if removed != 1 || got.Value != "1" || len(got.Members) != 1 || len(got.SupportRefs) != 1 {
+		t.Fatalf("same-file source observations must share one typed source identity: removed=%d fact=%+v", removed, got)
+	}
+}
+
+func TestExactTypedRelationProjectionFailsOpenWhenSourceFileAxisIsUnavailable(t *testing.T) {
+	fact := types.AnswerAggregateFact{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "dispatchers",
+		Value: "2",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"Dispatch @ internal/a/dispatcher.go:10",
+			"Dispatch @ internal/b/dispatcher.go:20",
+		},
+		SupportRefs: []string{
+			"Dispatch @ internal/a/dispatcher.go:10",
+			"Dispatch @ internal/b/dispatcher.go:20",
+		},
+	}
+	candidates := []types.TypedRelationCandidate{
+		{
+			Relation: types.TypedRelationCalledBy, SourceName: "Dispatch",
+			Member:    types.TypedRelationMember{Name: "Handle", File: "internal/handler.go", Line: 11},
+			Precision: types.TypedRelationPrecisionExactSymbolID,
+		},
+	}
+
+	got, removed := canonicalizeExactTypedRelationFactMembers(fact, candidates)
+	if removed != 0 || len(got.Members) != 2 {
+		t.Fatalf("source identity without a typed file axis must fail open: removed=%d fact=%+v", removed, got)
+	}
+}
+
 func TestExactTypedRelationProjectionFailsOpenOnSupportFileMismatch(t *testing.T) {
 	fact := types.AnswerAggregateFact{
 		Kind:  types.AnswerAggregateMemberSet,

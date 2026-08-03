@@ -26,7 +26,8 @@ func canonicalizeExactTypedRelationFactMembers(
 			memberIDs[key] = appendUniqueStrings(memberIDs[key], "member|"+key+"|"+file)
 		}
 		if key := aggregateMemberKey(candidate.SourceName); key != "" {
-			sourceIDs[key] = appendUniqueStrings(sourceIDs[key], "source|"+key)
+			file := canonicalRelationSourcePath(candidate.SourceFile)
+			sourceIDs[key] = appendUniqueStrings(sourceIDs[key], "source|"+key+"|"+file)
 		}
 	}
 	if len(memberIDs) == 0 || len(fact.Members) < 2 {
@@ -71,26 +72,32 @@ func relationAggregateMemberIdentities(
 		if key == "" {
 			continue
 		}
-		ids := memberIDs[key]
-		if supportFile != "" && len(ids) > 0 {
-			var matched []string
-			for _, id := range ids {
-				if strings.HasSuffix(id, "|"+supportFile) {
-					matched = append(matched, id)
-				}
-			}
-			// A structured row anchored in a different file is not the same
-			// typed candidate merely because its display name matches.
-			ids = matched
-		}
+		ids := relationAggregateIdentitiesInSupportFile(memberIDs[key], supportFile)
 		for _, id := range ids {
 			out = appendUniqueStrings(out, id)
 		}
-		for _, id := range sourceIDs[key] {
+		for _, id := range relationAggregateIdentitiesInSupportFile(sourceIDs[key], supportFile) {
 			out = appendUniqueStrings(out, id)
 		}
 	}
 	return out
+}
+
+func relationAggregateIdentitiesInSupportFile(ids []string, supportFile string) []string {
+	if supportFile == "" || len(ids) == 0 {
+		return ids
+	}
+	var matched []string
+	for _, id := range ids {
+		if strings.HasSuffix(id, "|"+supportFile) {
+			matched = append(matched, id)
+		}
+	}
+	// A structured row anchored in a different file is not the same typed
+	// member or relation source merely because its display name matches. A
+	// source candidate without a typed file axis also cannot authorize an
+	// anchored row; fail open instead of guessing and collapsing it.
+	return matched
 }
 
 func relationAggregateMemberSupportFile(fact types.AnswerAggregateFact, idx int) string {

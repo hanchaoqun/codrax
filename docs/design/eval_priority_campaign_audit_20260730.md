@@ -3943,6 +3943,23 @@ restore cutoff 前仍生效的旧批次路径、行为合同和验证探针全�
 状态：`implemented / full-package-pass`；MERGE-AUDIT-3 三项高危(T3-1/T3-2/T7-1)
 已全部闭环，转入当前代码基线复核与中危 ROI 排序。
 
+### MERGE-AUDIT-3 M1：基线校准与 relation source 文件身份（T5-2）
+
+基线校准先排除了历史项重复施工：审计时的 tracediag P0×2 和 T8-1 已由
+`a064e2d33` 覆盖，当前 `go test ./internal/tracediag -count=1` 通过(7.331s)；
+EventSearchCoverage 已显式 key-first、坐标固定小数，line-window scope 取实际选中域。
+
+T5-2 则仍开放且准确。红测证明同名异文件 relation source 会因旧身份只有名字而
+静默少一项。修复把 source 与 member 的 canonical identity 对齐为
+`normalized name + canonical file`；有 support file 时精确匹配，typed 文件轴缺失或
+身份歧义 fail-open，同名同文件重复 observation 才允许折叠。该规则覆盖所有 relation
+kind，不依赖 raw request、模型 prose、case ID 或具体 symbol。
+
+完整 `go test ./internal/tool -count=1` 通过(180.528s)，新增 source 三臂测试组复跑
+通过(2.805s)。
+
+状态：`P0-1/P0-2/T8-1=covered-by-a064e2d33；T5-2=implemented/full-package-pass`。
+
 ### B47：运行日志语义所有权 × write 跨语言检查权限（2026-08-02）
 
 严格并行 2 个跨模式 case：

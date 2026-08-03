@@ -168,3 +168,41 @@ T1-2 越界时间戳有效 CPU 记录整丢不 fence(违其自documented合同);
 
 状态：`implemented / full-package-pass`。下一步复核 §1 P0 与 T8-1 在审计基线之后是否已被
 后续提交覆盖，再按当前代码事实排中危批次。
+
+---
+
+## §10 审计基线校准 + T5-2 施工结果(2026-08-02)
+
+### §10.1 §1 P0×2 与 T8-1 已被后续批次覆盖
+
+审计结论在 `main=e479df784` 时准确，但当前主线已由 `a064e2d33` 覆盖，不再开放：
+
+- `EventSearchCoverage` 已由 event-search key-first header 独占渲染，反射明细副本清空；
+- 秒坐标统一固定小数格式，大时间戳不再泄漏科学计数法；
+- 四个 R2' schema pin 均有逐字段处置说明后重钉；
+- indexed line-window 的 scope envelope 从实际选中行域计算，不再冒用全索引
+  `FirstTs..LastTs`；line 边界继续按与过滤器一致的优先级压过 time 边界。
+
+复核：`go test ./internal/tracediag -count=1` 通过(7.331s)，现有
+`TestIndexedEventSearchCoverageUsesLineWindowEnvelope` 固定 T8-1。
+
+状态：`P0-1=covered / P0-2=covered / T8-1=covered-by-a064e2d33`。
+
+### §10.2 T5-2 关系源身份缺文件轴
+
+finding 准确，并由红测确定性复现：两个 `SourceName=Dispatch`、分别来自不同文件的
+typed relation source，在旧实现中都映射为 `source|dispatch`，第二个主成员被静默删除；
+`SourceFile` 缺失时，两个有不同 support file 的行也会仅凭名字被折叠。
+
+通用修复位于 exact typed relation identity 铸造点：
+
+1. relation source 与 member 一样使用 `normalized name + canonical file` 身份；
+2. 聚合行有结构化 support file 时，member/source 都必须逐字匹配该文件；
+3. typed source 缺文件轴、同名异文件或一行同时匹配多个身份时 fail-open，不猜测折叠；
+4. 同名同文件的重复 observation 仍折为一项，Members/MemberNotes/SupportRefs 同索引投影；
+5. 所有 relation kinds 共用，不扫描用户问题、模型答案或函数/文件特例。
+
+回归覆盖同名异文件保留、同文件重复折叠、缺文件轴 fail-open；完整
+`go test ./internal/tool -count=1` 通过(180.528s)，新增测试后相关组复跑通过(2.805s)。
+
+状态：`T5-2=implemented / full-package-pass`。下一中危优先审计 T4-1 硬门两侧表面同源性。
