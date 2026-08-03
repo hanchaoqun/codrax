@@ -3921,6 +3921,46 @@ B18c 使用一条通用 typed 规则修复：
 
 ---
 
+## EVAL-B52：MERGE-AUDIT call-chain authority 闭环回放（2026-08-02）
+
+### B52 r1：runner 2/2 PASS，人工 1 PASS / 1 FAIL
+
+严格并行 2 个用例：
+
+- `qf_called_by_typed_relation_query`：108s，finalizer reject=0，人工 PASS。2 个 production caller
+  清册与源码一致；第 295 行说明把 `TypedRelationKindsForResolvedSources` 写成 caller 自身，是不
+  改变清册的轻微模型表述错误。
+- `sr_java_call_chain`：300s，finalizer reject=12、patch=5，人工 FAIL。回复箭头 `-->>` 已不再
+  要求反向 call authority，证明 MERGE-AUDIT T3-2 主修点生效；但 6 轮结构成文全部失败，最后
+  降级发送 rejected document + raw thinking。答案还把 `System.out.println` 终端写成“审计落库”，
+  超过 fixture 的真实持久化权限。
+
+完整日志显示，剩余 reject 不是回复箭头，而是 typed endpoint 表达不闭合：call-site evidence
+精确给出 `caller + bare operation`，definition evidence 精确给出 `owner + operation`，图端点则
+合理使用 `owner.operation`。旧门只接受单条 call evidence 的字符串完全相等，无法消费两条
+同席 typed 事实。
+
+### B52a：唯一 typed definition 支持的限定端点投影
+
+通用修复保持调用方向门不变，在 exact call lane 后增加一个窄合取：
+
+1. `from` 必须与 citable call evidence 的 Subject 完全相等；
+2. `to` 必须可确定拆为 `Owner.Operation`；
+3. call Object 非空时必须完全等于短 `Operation`；只有 Object 为空时才允许 AnchorSymbol 完全
+   等于 `Operation`。其它短名或已限定到其它 owner 都直接拒绝；
+4. 必须恰有一个 citable definition identity，其 Subject/AnchorSymbol 分别完全等于
+   `Owner/Operation`；同一 source+line 的重复证据去重，多个定义位置视为 overload/歧义并拒绝；
+5. definition 只解析端点，不独立产生调用方向。回复、反向调用、class-only ambiguity、
+   RootCauseTrace/显式时间窗/系统补齐均保持原合同。
+
+这是 typed identity convergence，不读取用户或模型原文，不按 Java/fixture/type 做特例，也不
+为了让某张图过门而放宽模糊匹配。定向 6 个新正反臂通过（1.117s），`internal/tool` 全包通过
+（167.765s）；同对 replay 待本批提交推送后继续执行。
+
+状态：`EVAL-B52-ENDPOINT1=implemented / full-tool-pass / replay pending`。
+
+---
+
 ### MERGE-AUDIT-3 H3：恢复计划不得丢失累计验证闭包（T7-1）
 
 审计结论准确，且用完整控制器车道确定性复现：失败 verify 后 replan，planner 不生成

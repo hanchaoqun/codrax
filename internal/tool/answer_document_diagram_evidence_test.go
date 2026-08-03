@@ -22,6 +22,20 @@ func diagramEvidenceTestCall(subject, object string) types.EvidenceItem {
 	}
 }
 
+func diagramEvidenceTestDefinition(owner, operation, source string, line int) types.EvidenceItem {
+	return types.EvidenceItem{
+		ID:              "ev-def-" + owner + "-" + operation,
+		Kind:            types.EvidenceDirect,
+		Subject:         owner,
+		Source:          source,
+		LineStart:       line,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    operation,
+		Scope:           types.ScopeLine,
+		GroundingStatus: types.GroundingGrounded,
+	}
+}
+
 func diagramEvidenceTestDoc(from, to string) *types.AnswerDocumentV2 {
 	return &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID:   "sequence",
@@ -164,6 +178,110 @@ func TestDiagramCallEdgeEvidenceMismatches_ExactCalleeAnchorSymbolAuthorizesShor
 	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
 		[]types.EvidenceItem{evidence}); len(got) != 0 {
 		t.Fatalf("exact grounded callee AnchorSymbol is an authoritative display alias for Object: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_QualifiedCalleeResolvesFromUniqueTypedDefinition(t *testing.T) {
+	doc := diagramEvidenceTestDoc("A", "B")
+	doc.Blocks[0].Diagram.Body = "sequenceDiagram\n" +
+		"  participant A as VisitController.create\n" +
+		"  participant B as VisitService.schedule\n" +
+		"  A->>B: schedule(petId, reason)\n"
+	call := diagramEvidenceTestCall("VisitController.create", "schedule")
+	call.AnchorSymbol = "schedule"
+	evidence := []types.EvidenceItem{
+		call,
+		diagramEvidenceTestDefinition("VisitService", "schedule", "VisitService.java", 16),
+	}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, evidence); len(got) != 0 {
+		t.Fatalf("a short typed callee plus one exact citable owner definition should resolve the qualified endpoint: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_QualifiedCalleeWithoutDefinitionFailsClosed(t *testing.T) {
+	doc := diagramEvidenceTestDoc("A", "B")
+	doc.Blocks[0].Diagram.Body = "sequenceDiagram\n" +
+		"  participant A as VisitController.create\n" +
+		"  participant B as VisitService.schedule\n" +
+		"  A->>B: schedule(petId, reason)\n"
+	call := diagramEvidenceTestCall("VisitController.create", "schedule")
+	call.AnchorSymbol = "schedule"
+	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, []types.EvidenceItem{call})
+	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueNoEvidence {
+		t.Fatalf("a bare operation must not invent its qualified owner without definition evidence: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_QualifiedCalleeWrongOwnerFailsClosed(t *testing.T) {
+	doc := diagramEvidenceTestDoc("A", "B")
+	doc.Blocks[0].Diagram.Body = "sequenceDiagram\n" +
+		"  participant A as VisitController.create\n" +
+		"  participant B as VisitService.schedule\n" +
+		"  A->>B: schedule(petId, reason)\n"
+	call := diagramEvidenceTestCall("VisitController.create", "schedule")
+	call.AnchorSymbol = "schedule"
+	evidence := []types.EvidenceItem{
+		call,
+		diagramEvidenceTestDefinition("OtherService", "schedule", "OtherService.java", 16),
+	}
+	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, evidence)
+	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueNoEvidence {
+		t.Fatalf("a definition for a different owner must not authorize the endpoint: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_QualifiedCalleeOverloadFailsClosed(t *testing.T) {
+	doc := diagramEvidenceTestDoc("A", "B")
+	doc.Blocks[0].Diagram.Body = "sequenceDiagram\n" +
+		"  participant A as VisitController.create\n" +
+		"  participant B as VisitService.schedule\n" +
+		"  A->>B: schedule(petId, reason)\n"
+	call := diagramEvidenceTestCall("VisitController.create", "schedule")
+	call.AnchorSymbol = "schedule"
+	evidence := []types.EvidenceItem{
+		call,
+		diagramEvidenceTestDefinition("VisitService", "schedule", "VisitService.java", 16),
+		diagramEvidenceTestDefinition("VisitService", "schedule", "VisitService.java", 24),
+	}
+	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, evidence)
+	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueNoEvidence {
+		t.Fatalf("multiple distinct definitions of the same owner operation must remain ambiguous: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_QualifiedCalleeRejectsContraryQualifiedObject(t *testing.T) {
+	doc := diagramEvidenceTestDoc("A", "B")
+	doc.Blocks[0].Diagram.Body = "sequenceDiagram\n" +
+		"  participant A as VisitController.create\n" +
+		"  participant B as VisitService.schedule\n" +
+		"  A->>B: schedule(petId, reason)\n"
+	call := diagramEvidenceTestCall("VisitController.create", "OtherService.schedule")
+	call.AnchorSymbol = "schedule"
+	evidence := []types.EvidenceItem{
+		call,
+		diagramEvidenceTestDefinition("VisitService", "schedule", "VisitService.java", 16),
+	}
+	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, evidence)
+	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueNoEvidence {
+		t.Fatalf("a conflicting qualified Object must not be laundered through a short AnchorSymbol: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_QualifiedCalleeRejectsContraryBareObject(t *testing.T) {
+	doc := diagramEvidenceTestDoc("A", "B")
+	doc.Blocks[0].Diagram.Body = "sequenceDiagram\n" +
+		"  participant A as VisitController.create\n" +
+		"  participant B as VisitService.schedule\n" +
+		"  A->>B: schedule(petId, reason)\n"
+	call := diagramEvidenceTestCall("VisitController.create", "enqueue")
+	call.AnchorSymbol = "schedule"
+	evidence := []types.EvidenceItem{
+		call,
+		diagramEvidenceTestDefinition("VisitService", "schedule", "VisitService.java", 16),
+	}
+	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, evidence)
+	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueNoEvidence {
+		t.Fatalf("a conflicting bare Object must not be overridden by AnchorSymbol: %+v", got)
 	}
 }
 

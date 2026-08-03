@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
@@ -221,6 +222,17 @@ func diagramCallEdgeHasTypedEvidence(evidence []types.EvidenceItem, fromSymbol, 
 		}
 	}
 
+	// A grounded call site can carry the exact callee operation as a short
+	// symbol (Object=schedule / AnchorSymbol=schedule) while a diagram uses the
+	// definition-qualified endpoint VisitService.schedule. Accept that lossless
+	// presentation projection only when one citable typed definition uniquely
+	// binds the requested owner+operation. The call record still proves the
+	// direction; the definition record only resolves its short destination.
+	// Missing, conflicting, or overloaded definition identities fail closed.
+	if diagramCallEdgeHasUniqueDefinitionBackedCallee(evidence, fromSymbol, toSymbol) {
+		return true
+	}
+
 	// Sequence participants are commonly actor/class labels while the typed
 	// call evidence is method-qualified (VisitService vs
 	// VisitService.schedule). Resolve that presentation alias only when the
@@ -253,6 +265,47 @@ func diagramCallEdgeHasTypedEvidence(evidence []types.EvidenceItem, fromSymbol, 
 		candidates[subject+"\x00"+object+"\x00"+anchor] = true
 	}
 	return len(candidates) == 1
+}
+
+func diagramCallEdgeHasUniqueDefinitionBackedCallee(evidence []types.EvidenceItem, fromSymbol, toSymbol string) bool {
+	owner := diagramEvidenceQualifiedOwner(toSymbol)
+	operation := diagramEvidenceQualifiedOperation(toSymbol)
+	if owner == "" || operation == "" {
+		return false
+	}
+
+	hasDirectedCall := false
+	for _, ev := range evidence {
+		if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimCallEdge ||
+			strings.TrimSpace(ev.Subject) != fromSymbol {
+			continue
+		}
+		object := strings.TrimSpace(ev.Object)
+		anchor := strings.TrimSpace(ev.AnchorSymbol)
+		// A differently-qualified Object is contrary evidence, even when its
+		// short operation happens to match. Only a genuinely short typed
+		// surface can be completed by the definition lane.
+		if object != "" && object != operation {
+			continue
+		}
+		if object == operation || (object == "" && anchor == operation) {
+			hasDirectedCall = true
+			break
+		}
+	}
+	if !hasDirectedCall {
+		return false
+	}
+
+	definitions := make(map[string]bool)
+	for _, ev := range evidence {
+		if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimDefinitionFact ||
+			strings.TrimSpace(ev.Subject) != owner || strings.TrimSpace(ev.AnchorSymbol) != operation {
+			continue
+		}
+		definitions[strings.TrimSpace(ev.Source)+"\x00"+strconv.Itoa(ev.LineStart)+"\x00"+owner+"\x00"+operation] = true
+	}
+	return len(definitions) == 1
 }
 
 func diagramEvidenceCallLabelOperation(label string) string {

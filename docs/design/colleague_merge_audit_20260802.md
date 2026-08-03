@@ -649,3 +649,45 @@ needs-replan report artifact 的降级范围。
 状态：`T7-4=confirmed / implemented / full-package-pass`。MERGE-AUDIT-3 中高危、两项 plausible
 及本轮逐项复核的中低危生产 gap 已闭环；继承 eval 债继续由统一 campaign 按 ROI 回放，不把
 低价值顾问项硬化为生产门。
+
+---
+
+## §27 T3-2 闭环后回放：reply 已修，限定方法端点仍有 typed identity gap（2026-08-02）
+
+按统一 campaign 规则严格并行回放 `sr_java_call_chain` 与
+`qf_called_by_typed_relation_query`。runner 均 PASS，但人工审计分别为 FAIL/PASS：
+
+- called-by 在 108s 内一次成文、零 reject，2 个 production caller 清册正确；
+- Java call-chain 从旧基线 26 rejects/11 patches 改善到 12 rejects/5 patches，证明 T3-2 对
+  sequence reply `-->>` 的豁免已生效；但 6 轮成文仍全部被同一 edge authority 拒绝，300s 后
+  发出 previous rejected draft 与 19.6KB raw finalizer thinking，不能算交付成功。
+
+本轮完整核对 3459/2398 行日志、最终答案和 fixture 源码后，剩余机制收敛为另一条泛化 gap：
+
+1. citable call evidence 精确记录 caller，但 callee 仅为 call-site 可见短操作名，例如
+   `VisitController.create -> schedule`；
+2. 同一证据池另有 citable definition `VisitService + schedule`；
+3. 图为了表达每一跳使用 `VisitService.schedule`，旧 exact lane 不会把两条 typed 事实合成同一
+   展示端点；模型改用 class participant、限定 method participant 或 alias 都无法闭合；
+4. reply edge 已完全退出拒绝清册，故不是 T3-2 回退，也不涉及 Trace/root-cause diagram family。
+
+施工采用 pair-atomic typed convergence，而不是方法名模糊匹配：
+
+- 调用方向仍必须由一条 citable `ClaimCallEdge` 精确证明 caller；
+- 仅当目标是 `Owner.Operation`、call Object 非空时完全等于短 `Operation`（Object 为空时才由
+  完全相等的 AnchorSymbol 承载），且证据池中恰有
+  一个 citable `ClaimDefinitionFact(Subject=Owner, AnchorSymbol=Operation)` 定义身份时，允许把
+  短 callee 投影为限定图端点；
+- call Object 为其它短名/已限定到其它 owner、定义缺失、owner 不同或同 owner+operation 存在多个定义位置
+  时全部 fail-closed；definition 单独不能证明方向；
+- 不读取 edge message 的模糊 token，不扫描 request/final/thinking，不改变反向边、reply 语义、
+  `QFRootCauseTrace`、显式时间窗因果投影或自动补齐。
+
+回归固定 unique-definition 正臂，以及 missing/wrong-owner/overload/contrary-qualified-object/
+contrary-bare-object 五个反臂；原 reverse、reply、class ambiguity 和 Trace-family isolation pins 保留。
+
+验证：定向 6 个新正反臂通过（1.117s），`go test ./internal/tool -count=1` 全包通过
+（167.765s）。
+
+状态：`T3-2=covered`；新增 `T3-2-ENDPOINT-IDENTITY=implemented / full-tool-test-pass /
+same-pair-replay pending`。
