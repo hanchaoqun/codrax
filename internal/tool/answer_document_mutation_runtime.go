@@ -136,9 +136,6 @@ func persistMergedAnswerDocument(
 		return failEmit(toolName, now,
 			"mutation apply produced a nil document — internal error")
 	}
-	if canonicalizeSummaryLeadBlock(merged) {
-		logging.Info("[%s] canonicalized summary block to lead position before persist", toolName)
-	}
 	if view := types.BuildAnswerSemanticViewForBusContext(ctx); view != nil {
 		if fixed := normalizeViewCompatibleAnswerDocument(merged, view); fixed > 0 {
 			logging.Warning("[%s] repaired %d view-compatible typed lane field(s) before persist", toolName, fixed)
@@ -214,6 +211,9 @@ func persistMergedAnswerDocument(
 		return failEmit(toolName, now, "runtime trace supplementation violated model-answer ownership: %v", err)
 	}
 	normalizeAnswerDocumentRowsBeforePersist(toolName, ctx, merged)
+	if err := requireModelOwnedAnswerBlockWirePreserved(modelBlocksBeforeTrace, merged); err != nil {
+		return failEmit(toolName, now, "pre-persist typed supplements violated model-answer ownership: %v", err)
+	}
 	if stamped := stampReadOwnerAnchorsFromTurnA(ctx, merged); stamped > 0 {
 		logging.Info("[%s] stamped %d read owner anchor(s) from typed source localization", toolName, stamped)
 	}
@@ -236,8 +236,11 @@ func persistMergedAnswerDocument(
 	if err := requireModelOwnedAnswerBlockWirePreserved(modelBlocksBeforeHierarchy, merged); err != nil {
 		return failEmit(toolName, now, "runtime trace hierarchy violated model-answer ownership: %v", err)
 	}
-	if deduped := dedupeVisibleAnswerBlocks(merged); deduped > 0 {
-		logging.Warning("[%s] dropped %d duplicate visible answer block(s) before persist", toolName, deduped)
+	if deduped := dedupeSystemGeneratedAnswerBlocks(merged); deduped > 0 {
+		logging.Info("[%s] dropped %d duplicate system-generated answer block(s) before persist", toolName, deduped)
+	}
+	if err := requireModelOwnedAnswerBlockWirePreserved(modelBlocksBeforeTrace, merged); err != nil {
+		return failEmit(toolName, now, "pre-persist normalization violated model-answer ownership: %v", err)
 	}
 	// Full emits intentionally prune their unused citation pool before this
 	// shared path, while patch emits preserve inherited citation indexes.
@@ -354,35 +357,15 @@ func normalizeAnswerDocumentRowsBeforePersist(toolName string, ctx *types.BusCon
 		// principal answer after that validation boundary.
 		return
 	}
-	itemsBefore := answerDocumentStructuredItemCount(doc)
-	if fixed := compileEnumerationDisplayTableRows(doc, ctx); fixed > 0 {
-		logging.Warning("[%s] compiled %d deterministic enumeration table row(s) from accepted principal evidence handoff before persist", toolName, fixed)
-	}
-	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed > 0 {
-		logging.Warning("[%s] normalized %d principal enumeration block(s) from accepted evidence-rich row contract before persist", toolName, fixed)
+	if fixed := appendPrincipalEnumerationTypedSupplements(doc, ctx); fixed > 0 {
+		logging.Info("[%s] appended %d separately marked typed enumeration supplement block(s) before persist", toolName, fixed)
 	}
 	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed > 0 {
-		logging.Warning("[%s] materialized %d principal aggregate member row(s) from accepted exhaustive enumeration handoff before persist", toolName, fixed)
-	}
-	if itemsAfter := answerDocumentStructuredItemCount(doc); itemsAfter < itemsBefore {
-		if fixed := normalizeUnusedCitationPoolEntries(doc, ctx); fixed > 0 {
-			logging.Warning("[%s] pruned/remapped %d unused citation-pool slot(s) after pre-persist answer-row normalization", toolName, fixed)
-		}
+		logging.Info("[%s] appended %d separately marked aggregate member-set supplement block(s) before persist", toolName, fixed)
 	}
 }
 
-func answerDocumentStructuredItemCount(doc *types.AnswerDocumentV2) int {
-	if doc == nil {
-		return 0
-	}
-	count := 0
-	for _, block := range doc.Blocks {
-		count += len(block.Items)
-	}
-	return count
-}
-
-func dedupeVisibleAnswerBlocks(doc *types.AnswerDocumentV2) int {
+func dedupeSystemGeneratedAnswerBlocks(doc *types.AnswerDocumentV2) int {
 	if doc == nil || len(doc.Blocks) < 2 {
 		return 0
 	}
@@ -390,6 +373,15 @@ func dedupeVisibleAnswerBlocks(doc *types.AnswerDocumentV2) int {
 	seen := make(map[string]bool, len(doc.Blocks))
 	dropped := 0
 	for _, block := range doc.Blocks {
+		// Model-authored blocks are never coalesced, even when their rendered
+		// surfaces are byte-identical or semantically equivalent. A duplicate
+		// may be a model mistake, but deleting it would let the system alter the
+		// answer in order to satisfy its own max-count/completeness contracts.
+		// Only independently marked system supplements share a dedupe domain.
+		if strings.TrimSpace(string(block.SystemGeneratedKind)) == "" {
+			out = append(out, block)
+			continue
+		}
 		keys := visibleAnswerBlockDedupeKeys(block, doc.Citations)
 		if anyVisibleAnswerBlockDedupeKeySeen(seen, keys) {
 			dropped++
@@ -10308,42 +10300,6 @@ func appendAnswerDocumentRuntimeSurface(b *strings.Builder, s string) {
 		b.WriteByte('\n')
 	}
 	b.WriteString(s)
-}
-
-// canonicalizeSummaryLeadBlock moves the first renderable summary block in
-// front of the first renderable non-summary block. This is a deterministic
-// document-structure normalization, not a semantic repair: summary blocks are
-// the answer lead-in everywhere the V2 renderer uses them, while tables,
-// ordered lists, diagrams, and caveats remain in their relative order.
-//
-// Keeping this at the mutation chokepoint means full emits and patch emits get
-// the same behavior. Without this, the finalizer can spend a retry round fixing
-// only block order even when every row, citation, and claim_use is already
-// structurally valid.
-func canonicalizeSummaryLeadBlock(doc *types.AnswerDocumentV2) bool {
-	if doc == nil || len(doc.Blocks) < 2 {
-		return false
-	}
-	firstRenderable := -1
-	summaryAt := -1
-	for i, block := range doc.Blocks {
-		if !answerBlockHasRenderableSurface(block) {
-			continue
-		}
-		if firstRenderable < 0 {
-			firstRenderable = i
-		}
-		if block.Kind == types.BlockSummary && summaryAt < 0 {
-			summaryAt = i
-		}
-	}
-	if firstRenderable < 0 || summaryAt < 0 || summaryAt == firstRenderable {
-		return false
-	}
-	summary := doc.Blocks[summaryAt]
-	copy(doc.Blocks[firstRenderable+1:summaryAt+1], doc.Blocks[firstRenderable:summaryAt])
-	doc.Blocks[firstRenderable] = summary
-	return true
 }
 
 // maxBlocksPerDoc caps the number of blocks per doc. Conservative

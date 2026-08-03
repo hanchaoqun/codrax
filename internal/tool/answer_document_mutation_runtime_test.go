@@ -1951,7 +1951,7 @@ func TestApplyAndPersistMutation_DuplicateBlockIDRejected(t *testing.T) {
 	}
 }
 
-func TestApplyAndPersistMutation_DedupesExactVisibleDuplicateBlocks(t *testing.T) {
+func TestApplyAndPersistMutation_PreservesExactVisibleModelDuplicateBlocks(t *testing.T) {
 	bus := newBusForMutationTest()
 	doc := &types.AnswerDocumentV2{
 		DocumentModel: "v2",
@@ -1985,15 +1985,30 @@ func TestApplyAndPersistMutation_DedupesExactVisibleDuplicateBlocks(t *testing.T
 		t.Fatalf("expected duplicate visible block normalization to accept doc; got %q", res.Summary)
 	}
 	got := bus.Mutable.AnswerDocumentV2()
-	if got == nil || len(got.Blocks) != 1 {
-		t.Fatalf("expected exact visible duplicate block to be dropped, got %+v", got)
+	if got == nil || len(got.Blocks) != 2 {
+		t.Fatalf("model-authored duplicate blocks must be preserved, got %+v", got)
 	}
-	if got.Blocks[0].ID != "aggregate-member-set-subagent_agent_1" {
-		t.Fatalf("dedupe should keep first block for stable ordering, got %+v", got.Blocks)
+	if got.Blocks[0].ID != "aggregate-member-set-subagent_agent_1" || got.Blocks[1].ID != "aggregate-member-set-subagent_agent_1-2" {
+		t.Fatalf("model-authored duplicate order changed, got %+v", got.Blocks)
 	}
 }
 
-func TestApplyAndPersistMutation_DedupesSemanticEquivalentPrincipalBlocks(t *testing.T) {
+func TestDedupeSystemGeneratedAnswerBlocks_DedupesOnlySystemDomain(t *testing.T) {
+	modelA := types.AnswerBlock{ID: "model-a", Kind: types.BlockBulletList, Items: []types.AnswerBlockItem{{Label: "same"}}}
+	modelB := types.AnswerBlock{ID: "model-b", Kind: types.BlockBulletList, Items: []types.AnswerBlockItem{{Label: "same"}}}
+	systemA := types.AnswerBlock{ID: "system-a", Kind: types.BlockBulletList, Items: []types.AnswerBlockItem{{Label: "typed fact"}}, SystemGeneratedKind: types.AnswerSystemGeneratedRuntimeTrace}
+	systemB := types.AnswerBlock{ID: "system-b", Kind: types.BlockBulletList, Items: []types.AnswerBlockItem{{Label: "typed fact"}}, SystemGeneratedKind: types.AnswerSystemGeneratedRuntimeTrace}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{modelA, modelB, systemA, systemB}}
+
+	if dropped := dedupeSystemGeneratedAnswerBlocks(doc); dropped != 1 {
+		t.Fatalf("dropped=%d, want only one duplicate system block", dropped)
+	}
+	if len(doc.Blocks) != 3 || doc.Blocks[0].ID != "model-a" || doc.Blocks[1].ID != "model-b" || doc.Blocks[2].ID != "system-a" {
+		t.Fatalf("model domain or stable system order changed: %+v", doc.Blocks)
+	}
+}
+
+func TestApplyAndPersistMutation_PreservesSemanticEquivalentPrincipalBlocks(t *testing.T) {
 	bus := newBusForMutationTest()
 	doc := &types.AnswerDocumentV2{
 		DocumentModel: "v2",
@@ -2035,15 +2050,15 @@ func TestApplyAndPersistMutation_DedupesSemanticEquivalentPrincipalBlocks(t *tes
 		t.Fatalf("expected semantic duplicate block normalization to accept doc; got %q", res.Summary)
 	}
 	got := bus.Mutable.AnswerDocumentV2()
-	if got == nil || len(got.Blocks) != 1 {
-		t.Fatalf("expected semantic-equivalent principal block to be dropped, got %+v", got)
+	if got == nil || len(got.Blocks) != 2 {
+		t.Fatalf("semantic-equivalent model blocks must be preserved, got %+v", got)
 	}
-	if got.Blocks[0].ID != "aggregate-member-set-subagent_agent_1" {
-		t.Fatalf("dedupe should keep first block for stable ordering, got %+v", got.Blocks)
+	if got.Blocks[0].ID != "aggregate-member-set-subagent_agent_1" || got.Blocks[1].ID != "aggregate-member-set-subagent_agent_1_retry" {
+		t.Fatalf("semantic-equivalent model block order changed, got %+v", got.Blocks)
 	}
 }
 
-func TestApplyAndPersistMutation_DedupesSemanticEquivalentPrincipalBlocksFromPatch(t *testing.T) {
+func TestApplyAndPersistMutation_PreservesSemanticEquivalentPrincipalBlocksFromPatch(t *testing.T) {
 	bus := newBusForMutationTest()
 	initial := &types.AnswerDocumentV2{
 		DocumentModel: "v2",
@@ -2096,11 +2111,11 @@ func TestApplyAndPersistMutation_DedupesSemanticEquivalentPrincipalBlocksFromPat
 		t.Fatalf("expected semantic duplicate patch normalization to accept doc; got %q", res.Summary)
 	}
 	got := bus.Mutable.AnswerDocumentV2()
-	if got == nil || len(got.Blocks) != 2 {
-		t.Fatalf("expected summary + first principal block only, got %+v", got)
+	if got == nil || len(got.Blocks) != 3 {
+		t.Fatalf("patch-added model block must not be deduped, got %+v", got)
 	}
-	if got.Blocks[1].ID != "aggregate-member-set-subagent_agent_1" {
-		t.Fatalf("patch dedupe should keep original principal block, got %+v", got.Blocks)
+	if got.Blocks[1].ID != "aggregate-member-set-subagent_agent_1" || got.Blocks[2].ID != "aggregate-member-set-subagent_agent_1_retry" {
+		t.Fatalf("patch model block order changed, got %+v", got.Blocks)
 	}
 }
 
@@ -2187,7 +2202,7 @@ func TestApplyAndPersistMutation_DoesNotSemanticallyDedupeNonPrincipalBlocks(t *
 	}
 }
 
-func TestRememberRejectedAnswerDocumentDraft_DedupesSemanticEquivalentPrincipalBlocks(t *testing.T) {
+func TestRememberRejectedAnswerDocumentDraft_PreservesSemanticEquivalentPrincipalBlocks(t *testing.T) {
 	bus := newBusForMutationTest()
 	doc := &types.AnswerDocumentV2{
 		DocumentModel: "v2",
@@ -2218,11 +2233,11 @@ func TestRememberRejectedAnswerDocumentDraft_DedupesSemanticEquivalentPrincipalB
 
 	rememberRejectedAnswerDocumentDraft(bus, doc)
 	got := bus.Mutable.LastRejectedAnswerDocumentV2()
-	if got == nil || len(got.Blocks) != 1 {
-		t.Fatalf("expected rejected draft to share semantic duplicate normalization, got %+v", got)
+	if got == nil || len(got.Blocks) != 2 {
+		t.Fatalf("rejected draft must preserve every model block, got %+v", got)
 	}
-	if got.Blocks[0].ID != "aggregate-member-set-subagent_agent_1" {
-		t.Fatalf("rejected draft dedupe should keep first block, got %+v", got.Blocks)
+	if got.Blocks[0].ID != "aggregate-member-set-subagent_agent_1" || got.Blocks[1].ID != "aggregate-member-set-subagent_agent_1_retry" {
+		t.Fatalf("rejected draft model block order changed, got %+v", got.Blocks)
 	}
 }
 
@@ -2276,7 +2291,7 @@ func TestApplyAndPersistMutation_DiagramPayloadOnSectionNormalizesKind(t *testin
 	}
 }
 
-func TestApplyAndPersistMutation_CanonicalizesSummaryLeadBlock(t *testing.T) {
+func TestApplyAndPersistMutation_PreservesModelBlockOrder(t *testing.T) {
 	bus := newBusForMutationTest()
 	doc := &types.AnswerDocumentV2{
 		DocumentModel: "v2",
@@ -2303,8 +2318,8 @@ func TestApplyAndPersistMutation_CanonicalizesSummaryLeadBlock(t *testing.T) {
 	if got == nil || len(got.Blocks) != 3 {
 		t.Fatalf("merged doc not persisted; got %+v", got)
 	}
-	if got.Blocks[0].ID != "summary" || got.Blocks[1].ID != "items" || got.Blocks[2].ID != "caveat" {
-		t.Fatalf("summary should move to lead while preserving detail order, got block ids: %v",
+	if got.Blocks[0].ID != "items" || got.Blocks[1].ID != "caveat" || got.Blocks[2].ID != "summary" {
+		t.Fatalf("model-authored block order must remain unchanged, got block ids: %v",
 			[]string{got.Blocks[0].ID, got.Blocks[1].ID, got.Blocks[2].ID})
 	}
 }

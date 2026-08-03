@@ -697,12 +697,10 @@ func TestQCEDetachedCitationDisclosure_EnglishWording(t *testing.T) {
 }
 
 // Review finding 6 — the disclosure is materialized at the PERSIST
-// chokepoint, not at chain end: after the pre-emit chain the doc carries no
-// detach caveat yet; ApplyAndPersistMutation (which still runs the
-// pre-persist enumeration normalization + block dedupe) materializes it
-// from the final merged state. The specimen failure shape — retention
-// wording surviving a later content deletion — is structurally impossible
-// because no wording exists until the last content mutation has run.
+// chokepoint, not at chain end. The system may detach an unverifiable citation
+// carrier, but it must not delete the model-authored item to make a later
+// enumeration contract pass; the final caveat therefore reports retained
+// content with its invalid anchor removed.
 func TestQCEFullChain_DisclosureMaterializedAtPersistPoint(t *testing.T) {
 	ctx := qceSpecimenCtx()
 	doc := qceSpecimenDoc()
@@ -726,25 +724,25 @@ func TestQCEFullChain_DisclosureMaterializedAtPersistPoint(t *testing.T) {
 		t.Fatal("no persisted document")
 	}
 	pre := qceFindBlock(t, persisted, "pre_stages")
-	if pre == nil || len(pre.Items) != 3 {
-		t.Fatalf("typed-backed items must survive the full chain while the bogus row is pruned: %+v", pre)
+	if pre == nil || len(pre.Items) != 4 {
+		t.Fatalf("every model-authored item must survive the full chain: %+v", pre)
 	}
 	for i, wantRef := range []int{4, 5, 6} {
 		if got := pre.Items[i].CitationRef; got != wantRef {
 			t.Fatalf("full chain: typed-backed item %d must keep ref %d, got %d", i, wantRef, got)
 		}
 	}
-	var removalCaveat string
+	var retainedCaveat string
 	for _, caveat := range persisted.Caveats {
 		if strings.Contains(caveat, "条目内容保留") {
-			t.Fatalf("persisted disclosure claims retention for removed content: %q", caveat)
-		}
-		if strings.Contains(caveat, "一并移除") {
-			removalCaveat = caveat
+			retainedCaveat = caveat
 		}
 	}
-	if removalCaveat == "" {
-		t.Fatalf("detached-then-pruned item must be disclosed as removed at persist, caveats=%v", persisted.Caveats)
+	if retainedCaveat == "" {
+		t.Fatalf("detached model item must be disclosed as retained at persist, caveats=%v", persisted.Caveats)
+	}
+	if got := pre.Items[3].CitationRef; got >= 0 {
+		t.Fatalf("unverifiable model item citation must be detached, got citation_ref=%d", got)
 	}
 }
 

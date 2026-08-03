@@ -275,7 +275,6 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	// so the dry-run is safe.
 	if view := types.BuildAnswerSemanticViewForBusContext(ctx); view != nil {
 		if merged, applyErr := mutation.Apply(prev); applyErr == nil && merged != nil {
-			canonicalizeSummaryLeadBlock(merged)
 			preEmitCtx := newPreEmitCheckContext(ctx)
 			normalizeAnswerDocumentForPreEmit(t.Name(), merged, view, ctx, preEmitCtx)
 			if hints := runPreEmitChecksWithContext(merged, view, preEmitOracleFromCtx(ctx), preEmitCtx); len(hints) > 0 {

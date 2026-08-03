@@ -10238,23 +10238,17 @@ func preCheckPrincipalClaimUse(doc *types.AnswerDocumentV2, view *types.AnswerSe
 	return out
 }
 
-// normalizeViewCompatibleAnswerDocument applies deterministic compatibility
-// repairs that are fully implied by the typed AnswerSemanticView. The normalizer
-// is deliberately narrow: it may remove fields from inactive typed lanes, but it
-// must not infer semantic answer content from user prose or model prose.
+// normalizeViewCompatibleAnswerDocument intentionally does not mutate the
+// model-authored document. AnswerSemanticView is an input contract for typed
+// guidance and validation, not authority to merge, delete, reorder, or stamp
+// fields onto the model's answer so that the same contract later accepts it.
+// Keep the function as a compatibility chokepoint for callers and old recovery
+// payloads; incompatible fields must be reported by the validators instead.
 func normalizeViewCompatibleAnswerDocument(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) int {
 	if doc == nil || view == nil {
 		return 0
 	}
-	fixed := 0
-	fixed += normalizeInactiveTypedDecisionVerdictFields(doc, view)
-	fixed += normalizeExcessRequiredSummaryBlocks(doc, view)
-	fixed += normalizeImplicitDefinitionClaimUses(doc, view)
-	fixed += normalizeAutoRepairableRequiredFacetIDs(doc, view)
-	fixed += normalizeSuppressedExactResolutionAnswerSurface(doc, view)
-	fixed += normalizeAmbiguousMultiTargetAbsentExactResolution(doc, view)
-	fixed += normalizeAbsentExactResolutionScalarBlocks(doc, view)
-	return fixed
+	return 0
 }
 
 // normalizeSuppressedExactResolutionAnswerSurface removes legacy/recovery

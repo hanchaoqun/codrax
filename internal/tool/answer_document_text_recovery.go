@@ -338,7 +338,6 @@ func decodeRecoveredAnswerDocumentV2(raw json.RawMessage, mode string) (AnswerDo
 		logging.Warning("[emit_answer_document text-recovery] id duplicate(s) normalized via transactional tolerance: %s",
 			strings.Join(fields, ", "))
 	}
-	canonicalizeSummaryLeadBlock(doc)
 	if err := validateMergedV2Doc(doc); err != nil {
 		return AnswerDocumentTextRecovery{}, err
 	}
@@ -378,7 +377,6 @@ func visibleAnswerDocumentFromRaw(raw json.RawMessage, mode string) (AnswerDocum
 	if len(doc.Blocks) == 0 && len(attachments) == 0 {
 		return AnswerDocumentTextRecovery{}, false
 	}
-	canonicalizeSummaryLeadBlock(doc)
 	_ = validateRecoveredVisibleDoc(doc)
 	return AnswerDocumentTextRecovery{
 		Document:    doc,

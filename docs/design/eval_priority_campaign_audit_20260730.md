@@ -12007,3 +12007,62 @@ claim-use。即使成员值来自 typed authority，这种混合仍让 presentat
 `EVAL-B54-VIEWAUTHOR1` 继续开放：`normalizeViewCompatibleAnswerDocument` 中 metadata-only 分支与
 删除/合并可见 block 的分支仍混在一起。下一批只保留无损结构归一化；任何删除 model block 或清除
 会改变渲染结论的字段，必须改成 typed guidance/校验，不能静默修正文档。
+
+#### B54-J：persist/recovery 最后旁路与“合同自证”红线收口
+
+沿 full emit 已通过的 normalization 继续追到共享 persist 和 rejected-draft recovery，确认
+`VIEWAUTHOR1` 不是单个兼容函数问题，而是一组同根的合同自证路径：
+
+1. pre-emit 已切到 append-only enumeration supplement，但 persist 又重新调用旧
+   `compileEnumerationDisplayTableRows` / `normalizePrincipalEnumerationRowBlocks`，能绕过前置 AST pin，
+   就地修改或剪除模型行；
+2. `dedupeVisibleAnswerBlocks` 对所有 owner 生效，能以“语义等价”为由删除模型 block；失败草稿也先
+   经同一去重器，导致下一轮看到的并非模型真实失败载荷；
+3. full、patch、text recovery 和 persist 都会把 summary 移到首位；
+4. `normalizeViewCompatibleAnswerDocument` 会清空模型 verdict、合并 summary、删除 scalar、删除
+   `exact_resolution`，还会替模型补 `claim_use/facet_id`，随后同一合同读取这些系统自产字段签绿；
+5. `normalizeObservedArtifactClaimUseCarriers` / `normalizeCitationBackedPrincipalClaimUses` 同样会根据
+   合同允许集合替模型选择 claim form，属于非可见 metadata 上的同构自证；metadata 虽不直接显示，
+   却决定后续 hard gate，因此仍越过答案所有权。
+
+这解释了“为什么会出现互相冲突的校验合同”：历史优化以减少 retry 为局部目标，把三种 authority
+混在一份可变文档里——模型答案、系统事实补充、合同控制字段；同时探索期与 final authority 又各自
+独立累积、缺少 supersede/联合可满足性约束。于是旧合同可要求某个声明保留，final 合同又按新 roster
+拒绝它；normalizer 再通过删改答案或自铸标签让其中一侧局部变绿。每个单测只验证自己的 happy path，
+没有验证跨生命周期 interleaving 和 owner 不变式，因而长期未被发现。
+
+本批按 owner 而不是具体答案词形完成根修：
+
+- persist 只可追加带 `SystemGeneratedKind` 的 enumeration/member-set typed supplement；禁止重新连接旧
+  in-place compiler，并在 supplement 前后对 model-owned block wire 做精确等价校验；
+- 去重域收窄为 system-generated block 之间，模型提交的重复/相似 block 和原顺序均保留；rejected
+  draft 原样保存；
+- 删除所有 shipping summary reorder 调用和实现；full/patch/recovery/persist 不再替模型决定叙事顺序；
+- view compatibility 变为只读 chokepoint，不再清 verdict、合并/删除 block、删除 exact resolution 或
+  补写 claim/facet；缺失/冲突由 typed validator/prompt 指引模型自行修订；
+- observed-artifact/citation-backed claim-use 自动铸造退出 shipping；精确结构本身已足够证明的合同应由
+  validator 直接识别，不需要先写回模型 payload；
+- AST tripwire 扩到 persist、row-normalization、view compatibility 和 text recovery；明确禁止上述
+  mutator 重新接回。回归覆盖 full、patch、rejected draft、summary order、verdict/scalar/exact resolution、
+  claim/facet 和 system-only dedupe。
+
+状态：`EVAL-B54-VIEWAUTHOR1 = implemented / full-tool-pass`；新增并关闭
+`EVAL-B54-PERSISTAUTHOR1`、`EVAL-B54-DRAFTAUTHOR1`、`EVAL-B54-METASELFCERT1`。
+验证：`go test ./internal/tool -count=1` 全绿（157.181s）。Trace 的显式时间窗、模型探索结果和系统
+补采仍是两个事实来源；本批不修改 Trace query、causal projection 计算或 system-owned runtime trace
+supplement，只禁止它们回写/删除模型答案。
+
+尚不能宣称“全系统不存在类似问题”。静态枚举后保留三组后续审计项：
+
+- `EVAL-B54-TABLEAUTHOR1`（P0 待核）：`compileCitationBackedTableRows` 仍可能把 incomplete table carrier
+  编译为可见行；需判断是纯结构恢复还是替模型创作表内容，若是后者改为独立 system block；
+- `EVAL-B54-SUPPORTAUTHOR1`（P1 待核）：principal support member/surface supplement、required caveat
+  materializer 需逐个证明只追加有 owner 标记的事实块，且不能成为自身 gate 的唯一通过证据；
+- `EVAL-B54-SCHEMAAUTHOR1`（P1 待核）：block ID 去重、diagram kind 修正、reserved runtime ID 改名属于
+  schema 容错，不直接写结论，但仍会改变模型载荷；最优方向是 schema reject + 精确修复提示，或把
+  canonical form 限在不可见存储层，不能改变渲染/合同身份。
+
+后续判据冻结：任何系统 pass 只允许二选一——修改纯 provenance/不可见且不参与语义确权的字段，或
+追加明确标记、只含 typed fact 的 system block；凡是删除、重排、改写模型可见内容，或补写会被后续
+gate 当成模型声明的 metadata，均按红线处理。减少“成文校验未通过”必须来自合同联合可满足性、final
+authority 单源和精确结构直接判定，不得来自系统代写答案。

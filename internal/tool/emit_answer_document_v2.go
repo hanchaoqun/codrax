@@ -249,7 +249,6 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		logging.Warning("[emit_answer_document] id duplicate(s) normalized via transactional tolerance: %s",
 			strings.Join(fields, ", "))
 	}
-	canonicalizeSummaryLeadBlock(doc)
 	if answerDocumentRecoveryLostUnattachedBlocks(recovery) {
 		persistRecoveredAnswerDraft(ctx, raw, mergeAnswerDocumentRecoveryAttachments(recovery, doc), doc)
 		return failEmitWithRepair(toolName, now, answerDocumentLossyBlocksRecoveryRepair(recovery),
@@ -691,9 +690,6 @@ func rememberRejectedAnswerDocumentDraft(ctx *types.BusContext, doc *types.Answe
 	if ctx == nil || ctx.Mutable == nil || doc == nil || len(doc.Blocks) == 0 {
 		return
 	}
-	if deduped := dedupeVisibleAnswerBlocks(doc); deduped > 0 {
-		logging.Warning("[emit_answer_document] dropped %d duplicate visible block(s) before storing rejected draft", deduped)
-	}
 	ctx.Mutable.SetLastRejectedAnswerDocumentV2(doc)
 }
 
@@ -746,9 +742,8 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		// G6 (2026-06-12 sweep): a detached reference is a visible
 		// degradation, not a silent repair — disclose it as a caveat.
 		// QCE GAP-A (2026-07-05): the caveat is NOT appended here. Later
-		// passes — in this chain (prunePrincipalEnumerationExtraneousItems)
-		// AND in the persist chain (normalizeAnswerDocumentRowsBeforePersist,
-		// dedupeVisibleAnswerBlocks) — may still remove the detached item
+		// passes in this chain (prunePrincipalEnumerationExtraneousItems)
+		// may still remove the detached item
 		// entirely, so wording chosen at detach time ("条目内容保留") can be
 		// false by persist time. The typed detach records are ferried at the
 		// end of this function and materialized once by
@@ -796,14 +791,6 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed > 0 {
 		pctx.recordPreEmitRepair("normalizeViewCompatibleAnswerDocument", fixed)
 		logging.Warning("[%s] repaired %d view-compatible typed lane field(s)", toolName, fixed)
-	}
-	if fixed := normalizeObservedArtifactClaimUseCarriers(doc, ctx); fixed > 0 {
-		pctx.recordPreEmitRepair("normalizeObservedArtifactClaimUseCarriers", fixed)
-		logging.Warning("[%s] repaired %d observed-artifact claim_use carrier(s)", toolName, fixed)
-	}
-	if fixed := normalizeCitationBackedPrincipalClaimUses(doc, view, pctx); fixed > 0 {
-		pctx.recordPreEmitRepair("normalizeCitationBackedPrincipalClaimUses", fixed)
-		logging.Warning("[%s] repaired %d citation-backed principal claim_use carrier(s)", toolName, fixed)
 	}
 	if fixed := normalizeClaimUseEvidenceIDsByProjection(doc, ctx); fixed > 0 {
 		pctx.recordPreEmitRepair("normalizeClaimUseEvidenceIDsByProjection", fixed)
@@ -857,11 +844,9 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		}
 	}
 	// QCE GAP-A (2026-07-05): the detach disclosure is NOT materialized
-	// here. The persist chain (ApplyAndPersistMutation →
-	// normalizeAnswerDocumentRowsBeforePersist + dedupeVisibleAnswerBlocks)
-	// still mutates content after this chain returns, so wording chosen
-	// here could be false by persist time — the exact fork this batch
-	// removes. Ferry the typed records (replace semantics, set even when
+	// here. The persist chain can append separately marked typed supplements
+	// after this chain returns. Ferry the typed records (replace semantics,
+	// set even when
 	// empty so a rejected attempt can never leak stale records into a
 	// later persist) to the persist chokepoint, which materializes the
 	// caveat from each item's final presence in the merged document.

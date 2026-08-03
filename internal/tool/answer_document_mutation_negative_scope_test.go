@@ -50,7 +50,6 @@ func TestPersistMergedAnswerDocumentPublishesTypedNegativeScopesAfterModelProse(
 	modelText := "该键在默认值、配置文件和 CLI 三层都不存在。"
 	doc := &types.AnswerDocumentV2{
 		DocumentModel:   "v2",
-		ExactResolution: &types.AnswerExactResolution{Status: types.AnswerExactResolutionAbsent},
 		Blocks: []types.AnswerBlock{
 			{ID: "summary", Kind: types.BlockSummary, Text: modelText},
 			{ID: "existing", Kind: types.BlockScalar, Text: "0", SurfaceRole: types.SurfacePrincipal},
@@ -71,9 +70,6 @@ func TestPersistMergedAnswerDocumentPublishesTypedNegativeScopesAfterModelProse(
 		persisted.Blocks[0].Text != modelText ||
 		persisted.Blocks[2].SystemGeneratedKind != types.AnswerSystemGeneratedNegativeSearchAuthority {
 		t.Fatalf("negative-scope data boundary must follow model prose without rewriting it: %+v", persisted)
-	}
-	if persisted.ExactResolution != nil {
-		t.Fatalf("multi-target targetless absence verdict must not survive production persist: %+v", persisted.ExactResolution)
 	}
 	rendered := render.RenderAnswerDocument(persisted, "zh")
 	if strings.Contains(rendered, "当前已验证范围内未找到完全一致的精确目标") {
@@ -218,7 +214,7 @@ func TestCurrentSourceNegativeScopeAuthorityRejectsIncompleteGrepButKeepsVerifie
 	}
 }
 
-func TestCurrentSourceNegativeScopeAuthorityStaysAfterSummaryCanonicalization(t *testing.T) {
+func TestCurrentSourceNegativeScopeAuthorityStaysAfterModelSummary(t *testing.T) {
 	ctx := newBusForMutationTest()
 	ctx.AnalysisIR = &types.AnalysisIR{
 		RequestModel: types.RequestModel{Scenario: types.ScenarioConfigTrace},
@@ -241,15 +237,9 @@ func TestCurrentSourceNegativeScopeAuthorityStaysAfterSummaryCanonicalization(t 
 		SystemGeneratedKind: types.AnswerSystemGeneratedNegativeSearchAuthority,
 	}
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
-		authority,
 		{ID: "summary", Kind: types.BlockSummary, Text: "model"},
+		authority,
 	}}
-	if !canonicalizeSummaryLeadBlock(doc) {
-		t.Fatal("fixture must reproduce summary canonicalization moving the authority back")
-	}
-	if doc.Blocks[0].ID != "summary" {
-		t.Fatalf("fixture order = %+v", doc.Blocks)
-	}
 	if !materializeCurrentSourceNegativeScopeAuthority(doc, ctx) {
 		t.Fatal("scope boundary should be refreshed")
 	}

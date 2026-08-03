@@ -28,6 +28,16 @@ func TestShippingAnswerPathsDoNotCallVisibleModelContentMutators(t *testing.T) {
 		"compileEnumerationDisplayTableRows":                    true,
 		"normalizeEnumerationDisplayRequestedFieldSurfaces":     true,
 		"normalizePrincipalEnumerationRowBlocks":                true,
+		"canonicalizeSummaryLeadBlock":                          true,
+		"normalizeInactiveTypedDecisionVerdictFields":           true,
+		"normalizeExcessRequiredSummaryBlocks":                  true,
+		"normalizeImplicitDefinitionClaimUses":                  true,
+		"normalizeAutoRepairableRequiredFacetIDs":               true,
+		"normalizeSuppressedExactResolutionAnswerSurface":       true,
+		"normalizeAmbiguousMultiTargetAbsentExactResolution":    true,
+		"normalizeAbsentExactResolutionScalarBlocks":            true,
+		"normalizeObservedArtifactClaimUseCarriers":             true,
+		"normalizeCitationBackedPrincipalClaimUses":             true,
 	}
 	for _, tc := range []struct {
 		file string
@@ -36,6 +46,11 @@ func TestShippingAnswerPathsDoNotCallVisibleModelContentMutators(t *testing.T) {
 		{file: "emit_answer_document_v2.go", fn: "executeAnswerDocumentV2"},
 		{file: "emit_answer_document_v2.go", fn: "normalizeAnswerDocumentForPreEmit"},
 		{file: "emit_answer_document_patch.go", fn: "Execute"},
+		{file: "answer_document_mutation_runtime.go", fn: "persistMergedAnswerDocument"},
+		{file: "answer_document_mutation_runtime.go", fn: "normalizeAnswerDocumentRowsBeforePersist"},
+		{file: "answer_document_pre_emit_check.go", fn: "normalizeViewCompatibleAnswerDocument"},
+		{file: "answer_document_text_recovery.go", fn: "decodeRecoveredAnswerDocumentV2"},
+		{file: "answer_document_text_recovery.go", fn: "visibleAnswerDocumentFromRaw"},
 	} {
 		assertFunctionDoesNotCall(t, tc.file, tc.fn, banned)
 	}

@@ -5244,21 +5244,21 @@ func TestNormalizeViewCompatibleAnswerDocument_TypedDecisionCarrier(t *testing.T
 			ErrorGranularityVerdict: types.ErrorGranularityNotEnoughEvidence,
 		}},
 	}
-	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed != 1 {
-		t.Fatalf("expected one inactive typed-lane field to be normalized, got %d", fixed)
+	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed != 0 {
+		t.Fatalf("view compatibility must not rewrite model verdicts, got %d mutation(s)", fixed)
 	}
-	if got := doc.Blocks[0].ErrorGranularityVerdict; got != "" {
-		t.Fatalf("inactive error_granularity_verdict should be cleared, got %q", got)
+	if got := doc.Blocks[0].ErrorGranularityVerdict; got != types.ErrorGranularityNotEnoughEvidence {
+		t.Fatalf("model verdict was rewritten, got %q", got)
 	}
 	if len(doc.Blocks[0].ClaimUses) != 0 {
 		t.Fatalf("normalizer should not guess decision claim_uses, got %+v", doc.Blocks[0].ClaimUses)
 	}
-	if hints := runPreEmitChecks(doc, view, nil); len(hints) != 0 {
-		t.Fatalf("active typed decision carrier should avoid JSON repair hints, got %+v", hints)
+	if hints := preCheckInactiveTypedDecisionVerdicts(doc, view); len(hints) != 1 {
+		t.Fatalf("inactive typed verdict must be reported rather than erased, got %+v", hints)
 	}
 }
 
-func TestNormalizeViewCompatibleAnswerDocument_CoalescesExtraSummaryBlocks(t *testing.T) {
+func TestNormalizeViewCompatibleAnswerDocument_PreservesExtraSummaryBlocks(t *testing.T) {
 	view := &types.AnswerSemanticView{
 		RequiredBlocks: []types.BlockRequirement{{
 			Kind:     types.BlockSummary,
@@ -5287,25 +5287,18 @@ func TestNormalizeViewCompatibleAnswerDocument_CoalescesExtraSummaryBlocks(t *te
 			},
 		},
 	}
-	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed != 1 {
-		t.Fatalf("expected one excess summary block to be coalesced, got %d", fixed)
+	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed != 0 {
+		t.Fatalf("view compatibility must not coalesce model summaries, got %d", fixed)
 	}
-	if len(doc.Blocks) != 1 || doc.Blocks[0].ID != "s1" {
-		t.Fatalf("summary coalescing should keep first summary identity, got %+v", doc.Blocks)
+	if len(doc.Blocks) != 2 || doc.Blocks[0].ID != "s1" || doc.Blocks[1].ID != "s2" {
+		t.Fatalf("model summary blocks or order changed, got %+v", doc.Blocks)
 	}
-	if !strings.Contains(doc.Blocks[0].Text, "first lead") ||
-		!strings.Contains(doc.Blocks[0].Text, "second lead") {
-		t.Fatalf("summary text should preserve both blocks, got %q", doc.Blocks[0].Text)
-	}
-	if len(doc.Blocks[0].Items) != 2 || doc.Blocks[0].Items[1].CitationRef != 1 {
-		t.Fatalf("summary items/citations should be preserved, got %+v", doc.Blocks[0].Items)
-	}
-	if hints := preCheckRequiredBlocks(doc, view); len(hints) != 0 {
-		t.Fatalf("coalesced summary should satisfy max-count gate, got %+v", hints)
+	if hints := preCheckRequiredBlocks(doc, view); len(hints) != 1 {
+		t.Fatalf("excess summaries must be reported rather than merged, got %+v", hints)
 	}
 }
 
-func TestNormalizeViewCompatibleAnswerDocument_AddsImplicitDefinitionClaimUse(t *testing.T) {
+func TestNormalizeViewCompatibleAnswerDocument_DoesNotAddImplicitDefinitionClaimUse(t *testing.T) {
 	view := &types.AnswerSemanticView{
 		RequiredBlocks: []types.BlockRequirement{{
 			Kind:     types.BlockSection,
@@ -5327,19 +5320,19 @@ func TestNormalizeViewCompatibleAnswerDocument_AddsImplicitDefinitionClaimUse(t 
 			FacetIDs: []string{"component_relation"},
 		}},
 	}
-	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed != 1 {
-		t.Fatalf("expected one implicit claim_use repair, got %d", fixed)
+	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed != 0 {
+		t.Fatalf("view compatibility must not invent claim_use, got %d", fixed)
 	}
 	got := doc.Blocks[0].ClaimUses
-	if len(got) != 1 || got[0].ClaimForm != types.ClaimDefinitionFact || got[0].FacetID != "component_relation" {
-		t.Fatalf("implicit definition claim_use not attached safely: %+v", got)
+	if len(got) != 0 {
+		t.Fatalf("claim_use was system-authored: %+v", got)
 	}
-	if hints := preCheckPrincipalClaimUse(doc, view); len(hints) != 0 {
-		t.Fatalf("normalized principal block should not ask the model to retry: %+v", hints)
+	if hints := preCheckPrincipalClaimUse(doc, view); len(hints) != 1 {
+		t.Fatalf("missing claim_use must remain typed guidance, got %+v", hints)
 	}
 }
 
-func TestNormalizeViewCompatibleAnswerDocument_AddsAutoRepairableRequiredFacetID(t *testing.T) {
+func TestNormalizeViewCompatibleAnswerDocument_DoesNotAddAutoRepairableRequiredFacetID(t *testing.T) {
 	view := &types.AnswerSemanticView{
 		FacetCoverage: &types.FacetCoverageContract{
 			Required: []types.FacetRequirement{{
@@ -5357,18 +5350,18 @@ func TestNormalizeViewCompatibleAnswerDocument_AddsAutoRepairableRequiredFacetID
 			Text:        "The answer already cites internal/foo.go:12 and names the current code path.",
 		}},
 	}
-	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed != 1 {
-		t.Fatalf("expected one auto-repairable facet_id repair, got %d", fixed)
+	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed != 0 {
+		t.Fatalf("view compatibility must not stamp facet_id, got %d", fixed)
 	}
-	if got := doc.Blocks[0].FacetIDs; len(got) != 1 || got[0] != string(types.FacetCurrentCodePath) {
-		t.Fatalf("current_code_path facet not attached to visible principal block: %+v", got)
+	if got := doc.Blocks[0].FacetIDs; len(got) != 0 {
+		t.Fatalf("facet_id was system-authored: %+v", got)
 	}
-	if hints := preCheckFacetCoverage(doc, view); len(hints) != 0 {
-		t.Fatalf("auto-repaired facet should avoid a finalizer rewrite hint: %+v", hints)
+	if hints := preCheckFacetCoverage(doc, view); len(hints) != 1 {
+		t.Fatalf("missing facet must remain typed guidance, got %+v", hints)
 	}
 }
 
-func TestNormalizeViewCompatibleAnswerDocument_AddsEnumerationFacetToPrincipalItemCarrier(t *testing.T) {
+func TestNormalizeViewCompatibleAnswerDocument_DoesNotAddEnumerationFacetToPrincipalItemCarrier(t *testing.T) {
 	view := &types.AnswerSemanticView{
 		FacetCoverage: &types.FacetCoverageContract{
 			Required: []types.FacetRequirement{{
@@ -5392,18 +5385,18 @@ func TestNormalizeViewCompatibleAnswerDocument_AddsEnumerationFacetToPrincipalIt
 			},
 		}},
 	}
-	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed != 1 {
-		t.Fatalf("expected enumeration facet metadata repair, got %d", fixed)
+	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed != 0 {
+		t.Fatalf("view compatibility must not stamp enumeration facet, got %d", fixed)
 	}
-	if got := doc.Blocks[0].FacetIDs; len(got) != 1 || got[0] != string(types.FacetEnumerationItem) {
-		t.Fatalf("enumeration facet should attach to cited principal item carrier, got %+v", got)
+	if got := doc.Blocks[0].FacetIDs; len(got) != 0 {
+		t.Fatalf("enumeration facet was system-authored: %+v", got)
 	}
 	if hints := preCheckFacetCoverage(doc, view); len(hints) != 0 {
-		t.Fatalf("structural principal enumeration carrier should satisfy facet coverage, got %+v", hints)
+		t.Fatalf("precise structured enumeration rows should satisfy coverage without stamping model metadata, got %+v", hints)
 	}
 }
 
-func TestNormalizeViewCompatibleAnswerDocument_DropsScalarWhenExactResolutionAbsent(t *testing.T) {
+func TestNormalizeViewCompatibleAnswerDocument_PreservesScalarWhenExactResolutionAbsent(t *testing.T) {
 	view := &types.AnswerSemanticView{
 		ExactResolution: &types.ExactResolutionContract{
 			Targets: []string{"missing_key"},
@@ -5417,16 +5410,11 @@ func TestNormalizeViewCompatibleAnswerDocument_DropsScalarWhenExactResolutionAbs
 			{ID: "layers", Kind: types.BlockOrderedList, Items: []types.AnswerBlockItem{{ID: "l1", Label: "default", Text: "absent"}}},
 		},
 	}
-	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed != 1 {
-		t.Fatalf("expected scalar removal repair, got %d", fixed)
+	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed != 0 {
+		t.Fatalf("view compatibility must not delete scalar blocks, got %d", fixed)
 	}
-	for _, block := range doc.Blocks {
-		if block.Kind == types.BlockScalar {
-			t.Fatalf("absent exact-resolution doc must not retain scalar block: %+v", doc.Blocks)
-		}
-	}
-	if len(doc.Blocks) != 2 || doc.Blocks[0].ID != "summary" || doc.Blocks[1].ID != "layers" {
-		t.Fatalf("unexpected blocks after scalar removal: %+v", doc.Blocks)
+	if len(doc.Blocks) != 3 || doc.Blocks[1].Kind != types.BlockScalar {
+		t.Fatalf("model scalar block was deleted: %+v", doc.Blocks)
 	}
 }
 
@@ -5443,11 +5431,11 @@ func TestNormalizeViewCompatibleAnswerDocument_KeepsScalarWhenAbsentExactResolut
 			{ID: "existing", Kind: types.BlockScalar, Text: "42", SurfaceRole: types.SurfacePrincipal},
 		},
 	}
-	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed != 1 {
-		t.Fatalf("multi-target absent exact-resolution should drop only the ambiguous document verdict, got %d", fixed)
+	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed != 0 {
+		t.Fatalf("view compatibility must not erase multi-target verdict, got %d", fixed)
 	}
-	if doc.ExactResolution != nil {
-		t.Fatalf("targetless multi-target absence verdict must be suppressed, got %+v", doc.ExactResolution)
+	if doc.ExactResolution == nil {
+		t.Fatalf("model exact-resolution verdict was erased")
 	}
 	if len(doc.Blocks) != 2 || doc.Blocks[1].Kind != types.BlockScalar {
 		t.Fatalf("mixed-target scalar should be retained: %+v", doc.Blocks)
@@ -5493,7 +5481,7 @@ func TestNormalizeViewCompatibleAnswerDocument_KeepsScalarWhenExactResolutionMat
 	}
 }
 
-func TestNormalizeViewCompatibleAnswerDocument_DropsSuppressedExactResolutionMetadataOnly(t *testing.T) {
+func TestNormalizeViewCompatibleAnswerDocument_PreservesSuppressedExactResolutionForValidation(t *testing.T) {
 	view := &types.AnswerSemanticView{
 		ExactResolution:                      &types.ExactResolutionContract{Targets: []string{"max_visits"}},
 		SuppressExactResolutionAnswerSurface: true,
@@ -5502,11 +5490,11 @@ func TestNormalizeViewCompatibleAnswerDocument_DropsSuppressedExactResolutionMet
 		ExactResolution: &types.AnswerExactResolution{Status: types.AnswerExactResolutionExactMatch, Anchor: "max_visits"},
 		Blocks:          []types.AnswerBlock{{ID: "summary", Kind: types.BlockSummary, Text: "model-owned mechanism explanation"}},
 	}
-	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed != 1 {
-		t.Fatalf("suppressed legacy exact metadata should be removed once, got %d", fixed)
+	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed != 0 {
+		t.Fatalf("view compatibility must not erase exact metadata, got %d", fixed)
 	}
-	if doc.ExactResolution != nil {
-		t.Fatalf("suppressed exact metadata survived: %+v", doc.ExactResolution)
+	if doc.ExactResolution == nil {
+		t.Fatalf("model exact metadata was erased")
 	}
 	if len(doc.Blocks) != 1 || doc.Blocks[0].Text != "model-owned mechanism explanation" {
 		t.Fatalf("model-authored blocks must remain byte-stable: %+v", doc.Blocks)
