@@ -4611,6 +4611,82 @@ inventory 的 `StateAccountKey`。
 - [x] B50a-T4：tracequery/tracediag 完整包回归；
 - [x] B50a-T5：全仓回归通过，独立提交推送绿色基线后回到 B50-T5。
 
+### B51：Java 调用链 × data 单值结果；pre-emit 系统越权覆盖模型结论（2026-08-02）
+
+按未饱和维度从干净 `main@e2a745448` 严格并行 2 个 case：
+
+- `sr_java_call_chain`：139s，runner PASS / human FAIL；对应可见工件
+  `.codrax/output/20260802-193009.078-37048.html`；
+- `data_basic_sum_with_rules`：35s，runner/human PASS。
+
+data lane 在一个批次内消费 `rules.md + orders.csv`，typed 材料覆盖完整，结果为单行
+`17.0`，无 repair、无源码读取、无系统结论补写。该规则只是“逐行求 amount 之和”，因此
+`contributions/reconcile` 保持 optional 是准确合同，不登记产品 GAP。
+
+Java case 的 runner 绿是严重 false green。模型第一个结构化草稿已经给出五个可见成员和五个
+匹配 citation；随后系统 pre-emit 链连续发生三步破坏：
+
+1. analyzer 合法地只保留逐字来自请求的 `exact_target=VisitController.create`，并丢弃预扫描后
+   才知道的 `AuditLog.record/VisitService.schedule/...`。但
+   `CompileRequiredMechanismAnchors` 又从可见身份义务得到恰好两个 anchor：
+   `VisitController`、`VisitController.create`。这两个是 owner/type 与 member 身份，不是
+   source/sink 角色。
+2. `compileCallChainReachability` 仅凭“anchor 数量恰为 2”就把两者当 source/target。BFS 当然无法
+   从 class definition 到 method definition，于是 `normalizeCallChainReachabilityAuthority`
+   删除模型 summary，并把五项 principal ordered list 覆盖为两行“未证明可达”。日志中的五条
+   精确 call edge 实际已经证明
+   `VisitController.create -> VisitService.schedule -> VisitRepository.insert -> AuditLog.record`；
+   系统结论与自身 typed evidence 相反。
+3. 同一 pre-emit 链更早已经把模型探索期 `member_set(5)` 铸成 hard principal enumeration。
+   reachability normalizer 后置删除其中三行后，member-set hard check 又要求补回三行；模型每次
+   patch 都补齐，normalizer 每次再删，形成三次完全相同 reject，最终降级泄漏模型 thinking。
+
+这不是“模型没遵守系统”。是两个系统 authority 互相打架，并且系统直接替换模型结论。责任提交
+为 `8cfef5158 fix: compile typed call chain reachability`：该批把 visible-anchor identity 当 endpoint
+role，并明确在 unproven 时覆盖模型 summary/path。它落在 B26-OWN 当时仅保护 runtime-trace
+persist choke point 之外，因此既有“非 system block wire 不变”测试没有捕获跨 family 的同类复发。
+
+模型自身仍有两个独立质量问题：把 `countOpenVisits` 侧调用平铺成主路径第 3 跳，以及
+“条件为真拒绝、超限则放行”的自相矛盾。最终 prompt 已列出五条逐边 grounded edge 和 guard
+原式，信息精确且足够；这两项先记 model-variance，不增加用户/答案词面 gate。系统不得因为模型
+可能犯错而获得代写结论权限。
+
+新增台账：
+
+| ID | P | GAP | 泛化方案 | 状态 |
+|---|---:|---|---|---|
+| `EVAL-B51-OWN1` | P0 | pre-emit normalizer 删除模型 summary/path 并写入系统 reachability 结论，复发 B26 所禁止的系统替答 | 从 production normalization 链撤销结论替换；typed call-edge 图只进模型前 relation authority 与结构化 edge 校验。系统可拒绝无证 structured edge，但不得改写模型结论 | covered；B51-A |
+| `EVAL-B51-ENDROLE1` | P0 | `RequiredMechanismAnchors` 的 identity 集合被当成 source/sink role；“恰好两个”不构成端点权限 | reachability 必须等待独立 typed source/sink role carrier；在该 carrier 缺席时 fail-open，不从 visible anchors、顺序、owner/member 或 prose 猜端点 | covered；B51-A |
+| `EVAL-B51-SETAXIS1` | P1 | `is_relational_lookup` 单独把 narrative call chain 提升为 exact operation-site member set，探索模型的路径解释被硬化成 exhaustive roster | source-operation-site set 权限必须由 enumerate/category/per-member/completeness 等 typed set boundary 授予；relation-only call chain 继续使用 ordered path/support lane，不生成 hard enumeration rows | covered；B51-A |
+| `EVAL-B51-MUTLOOP1` | P1 | 两个 deterministic normalizer 对同一 principal block 一删一补，导致不可自愈 reject loop | 撤销 OWN1 后增加生产接线 pin：模型五行 wire 保持、无 principal-enum hard roster、同 payload 一次通过；任何系统 repair 不得制造后续 hard obligation | covered；B51-A |
+| `EVAL-B51-ORACLE1` | P1-eval | runner 在整份 stdout 匹配中间“第一稿答案”，最终降级错误仍 PASS | answer oracle 只消费最终产品段/typed final artifact，进度草稿、thinking、reject 文本不得满足 EXPECT；先补 runner 正负 fixture，再迁移可能依赖全 stdout 的旧 case | filed-next |
+
+施工顺序冻结：B51-A 先撤销 call-chain 结论替换并收窄 relation-only set 权限；相关 types/tool 全包
+通过后独立提交推送。B51-B 再修 eval final-answer oracle。完成本节审计和 B51-A 交付后，才继续
+`colleague_merge_audit_20260802.md` 的 T3-1/T3-2 与中危清单。显式时间窗 Trace 的因果投影、
+根因排序、唤醒链、窗内可消除量、双轴占用与自动补采不经过源码 QFCallChain pre-emit 路径，
+本批不得改动。
+
+B51-A 实现记录：删除 `8cfef5158` 引入的 call-chain reachability 结论重写器及其“覆盖模型答案”
+测试，production pre-emit 不再从 `RequiredMechanismAnchors` 猜 source/sink；新增接线 pin 保证两个
+identity anchor、五成员探索 ledger 同时存在时，模型 summary/path 字节保持且不会生成 missing-row
+或 relation-table 硬义务。聚合权限同时收窄：`is_relational_lookup` 不再单独构成 operation-site set
+boundary；无 enumerate/category/per-member/completeness 权限的 relation-only `member_set` 作为模型
+叙述上下文保留，但不进入 deterministic visible rows / hard principal roster。显式 enumerate 和
+per-member table 正臂均保留。未读取用户原文或模型输出词面，未改 Trace runtime family。
+
+验证：定向 types/tool pin 通过；`go test ./internal/types ./internal/tool -count=1`、
+`go test ./internal/agent ./internal/orchestrator -count=1` 通过。B51-B 的终态答案 oracle 与回放仍为
+独立下一批，不能用本批单元测试代替真实 replay。
+
+- [x] B51-T1：严格并行 Java call-chain + data 恰好 2 case；
+- [x] B51-T2：人工读完 HTML、完整 stdout/log、analyzer payload、五个源文件、首稿与降级稿；
+- [x] B51-T3：确认 data 上下文/答案正确，Java runner false green；
+- [x] B51-T4：定位 `8cfef5158` 的 endpoint-role 与结论替换责任链；
+- [x] B51-T5：实现 OWN1/ENDROLE1/SETAXIS1/MUTLOOP1，相关全包回归后提交推送；
+- [ ] B51-T6：修 eval final-product oracle 并回放同一 Java case + 一个异构 case；
+- [ ] B51-T7：B51 收账后进入 MERGE-AUDIT-3 高 ROI 批。
+
 ### B42：生成物写模式 × 日志/源码机制对比审计（2026-08-02）
 
 本批按跨模式优先级严格并行：

@@ -161,6 +161,41 @@ func TestCompileEnumerationDisplaySets_DiagnosticMechanismSupportOnly(t *testing
 	}
 }
 
+func TestCompileEnumerationDisplaySets_CallChainRelationNeedsExplicitSetBoundary(t *testing.T) {
+	memberFact := AnswerAggregateFact{
+		Kind:    AnswerAggregateMemberSet,
+		Label:   "observed call-chain nodes",
+		Value:   "3",
+		Role:    AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"Controller.create", "Service.run", "Repository.insert"},
+	}
+	narrative := RequestModel{
+		Intent:        IntentTrace,
+		PredicateAxis: AxisCall,
+		Predicates: SemanticPredicates{
+			IsRelationalLookup: true,
+		},
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqCallChain)},
+	}
+	plan := &AnswerSurfacePlan{StableAggregateFacts: []AnswerAggregateFact{memberFact}}
+
+	if ShouldCompileEnumerationDisplaySetsForRequest(narrative) {
+		t.Fatal("narrative call-chain aggregates are model exploration context, not deterministic principal enumeration authority")
+	}
+	if got := CompileEnumerationDisplaySets(&narrative, plan); len(got) != 0 {
+		t.Fatalf("narrative call-chain aggregate must not compile system-authored visible rows: %+v", got)
+	}
+	if got := PrincipalAggregateMemberSetFactRefsForRequest(plan.StableAggregateFacts, &narrative); len(got) != 0 {
+		t.Fatalf("narrative call-chain aggregate must not become a hard principal roster: %+v", got)
+	}
+
+	explicit := narrative
+	explicit.Intent = IntentEnumerate
+	if !ShouldCompileEnumerationDisplaySetsForRequest(explicit) {
+		t.Fatal("explicit relation enumeration must retain deterministic principal-row support")
+	}
+}
+
 func TestCompileEnumerationDisplaySets_SourceInventorySuppressesUnrequestedValues(t *testing.T) {
 	rm := &RequestModel{
 		Language: "zh",

@@ -2277,13 +2277,12 @@ func AggregateScalarIsNonScalarHistorySupport(rm *RequestModel, fact AnswerAggre
 }
 
 // AggregateMemberSetIsMechanismNarrativeSupport reports whether an exact
-// member_set is a structured outline for a single mechanism explanation rather
-// than a principal enumeration answer. Explorers often use member_set to keep
-// discovered branches (for example retry exits, guard paths, or state
-// transitions) precise for downstream prose. In this request shape the user did
-// not ask for a closed answer-member set, so the set must enrich the finalizer
-// context without creating Principal Enumeration Rows, deterministic补表, or
-// hard member-surface gates.
+// member_set is a structured outline for a narrative mechanism/relation answer
+// rather than a principal enumeration answer. Explorers often use member_set to
+// keep discovered branches, hops, or state transitions precise for downstream
+// prose. In this request shape the user did not ask for a closed answer-member
+// set, so the set must enrich the finalizer context without creating Principal
+// Enumeration Rows, deterministic补表, or hard member-surface gates.
 //
 // The predicate is intentionally typed-only: it consumes RequestModel traits and
 // aggregate kind/role, never raw user text, model prose, labels, or repository
@@ -2300,7 +2299,7 @@ func AggregateMemberSetIsMechanismNarrativeSupport(rm *RequestModel, fact Answer
 		RequiresRelationMemberSetHandoff(*rm) {
 		return false
 	}
-	return IsSingleTopicMechanismExplanation(*rm)
+	return IsSingleTopicMechanismExplanation(*rm) || rm.Predicates.IsRelationalLookup
 }
 
 // AggregateFactIsNarrativeHistorySupport reports whether a history aggregate

@@ -1390,6 +1390,30 @@ func TestRequiresSourceOperationSiteMemberSetHandoff_TypedBoundary(t *testing.T)
 		t.Fatal("ordinary mechanism narrative without a typed set boundary must not require member_set handoff")
 	}
 
+	callChainNarrative := RequestModel{
+		Intent:        IntentTrace,
+		PredicateAxis: AxisCall,
+		Predicates: SemanticPredicates{
+			IsRelationalLookup: true,
+		},
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqCallChain)},
+	}
+	if RequiresSourceOperationSiteMemberSetHandoff(callChainNarrative) {
+		t.Fatal("a narrative call-chain relation must not become an exhaustive operation-site set solely because it is relational")
+	}
+
+	callChainTable := callChainNarrative
+	callChainTable.Predicates.HasPerMemberTable = true
+	if !RequiresSourceOperationSiteMemberSetHandoff(callChainTable) {
+		t.Fatal("an explicit per-member call-site table remains a typed operation-site set boundary")
+	}
+
+	callChainEnumeration := callChainNarrative
+	callChainEnumeration.Intent = IntentEnumerate
+	if !RequiresSourceOperationSiteMemberSetHandoff(callChainEnumeration) {
+		t.Fatal("an explicit call-site enumeration remains a typed operation-site set boundary")
+	}
+
 	untypedSurface := cgroup
 	untypedSurface.SourceInventoryProfile = nil
 	untypedSurface.PredicateAxis = AxisUnknown

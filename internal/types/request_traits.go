@@ -424,7 +424,6 @@ func RequiresSourceOperationSiteMemberSetHandoff(rm RequestModel) bool {
 func sourceOperationSiteHasTypedSetBoundary(rm RequestModel) bool {
 	if rm.Intent == IntentEnumerate ||
 		rm.Predicates.IsCategoryEnumeration ||
-		rm.Predicates.IsRelationalLookup ||
 		rm.Predicates.HasPerMemberTable {
 		return true
 	}
