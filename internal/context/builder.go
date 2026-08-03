@@ -3623,9 +3623,7 @@ func firstNonEmptyAttachedTraceValue(values ...string) string {
 }
 
 func normalizeAttachedArtifactText(raw string) string {
-	raw = strings.ReplaceAll(raw, "\r\n", "\n")
-	raw = strings.ReplaceAll(raw, "\r", "\n")
-	return raw
+	return textfmt.NormalizeAttachedArtifactText(raw)
 }
 
 func renderAttachedArtifactLines(raw string, startLineNo int) string {

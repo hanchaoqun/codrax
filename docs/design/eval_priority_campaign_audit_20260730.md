@@ -3960,6 +3960,19 @@ kind，不依赖 raw request、模型 prose、case ID 或具体 symbol。
 
 状态：`P0-1/P0-2/T8-1=covered-by-a064e2d33；T5-2=implemented/full-package-pass`。
 
+### MERGE-AUDIT-3 M2：日志 verbatim 权威门同源（T4-1）
+
+红测确认 Windows CRLF 附件被 prompt/blob 规范化成 LF 后，模型忠实复制的多行
+message/evidence 会被读取原始附件的三类 hard gate 同时拒绝。修复把平台换行规范化
+提升为 `textfmt.NormalizeAttachedArtifactText` 单一源，模型可见表面和 error-message
+存在性、同 message 基数、observation evidence 校验共用；只折叠 CRLF/CR，不做任何
+模糊匹配或语义放宽，合成文本和超额基数继续 fail-closed。
+
+验证：`go test ./internal/textfmt ./internal/context ./internal/tool -count=1` 全绿
+(0.709s / 1.630s / 175.061s)。
+
+状态：`T4-1=implemented / relevant-full-tests-pass`。
+
 ### B47：运行日志语义所有权 × write 跨语言检查权限（2026-08-02）
 
 严格并行 2 个跨模式 case：

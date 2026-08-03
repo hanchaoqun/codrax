@@ -10,6 +10,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/analysis/logtriage"
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/textfmt"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -297,20 +298,24 @@ func (t *EmitLogTriage) Execute(ctx *types.BusContext, params json.RawMessage) (
 	// Return all precise provenance/cardinality violations together. The
 	// triager has a deliberately small retry budget; surfacing one issue at a
 	// time can spend that budget without ever producing a valid bundle.
+	// The prompt and attached-log blob normalize platform newlines before the
+	// model reads them. Compare against that exact shared surface so a faithful
+	// LF excerpt from a CRLF/CR attachment is not rejected as fabricated.
+	authoritySurface := textfmt.NormalizeAttachedArtifactText(ctx.AttachedLog)
 	var authorityViolations []string
-	if field, message, ok := firstUnobservedLogTriageErrorMessage(p.Errors, ctx.AttachedLog); ok {
+	if field, message, ok := firstUnobservedLogTriageErrorMessage(p.Errors, authoritySurface); ok {
 		authorityViolations = append(authorityViolations, fmt.Sprintf(
 			"%s must be copied verbatim from the attached log; unobserved message=%q. Omit message when the log has no explicit error text, and put bounded interpretation in observations[].summary",
 			field, message,
 		))
 	}
-	if message, emitted, observed, ok := firstOverclaimedLogTriageErrorMessage(p.Errors, ctx.AttachedLog); ok {
+	if message, emitted, observed, ok := firstOverclaimedLogTriageErrorMessage(p.Errors, authoritySurface); ok {
 		authorityViolations = append(authorityViolations, fmt.Sprintf(
 			"errors tree claims %d explicit error occurrences carrying verbatim message %q, but the attached log contains that message only %d time(s). A goroutine/thread block without its own explicit error header belongs in observations[] as kind=thread_snapshot, severity=info, diagnostic=false; it is not a peer error",
 			emitted, message, observed,
 		))
 	}
-	if field, evidence, ok := firstUnobservedLogTriageObservationEvidence(p.Observations, ctx.AttachedLog); ok {
+	if field, evidence, ok := firstUnobservedLogTriageObservationEvidence(p.Observations, authoritySurface); ok {
 		authorityViolations = append(authorityViolations, fmt.Sprintf(
 			"%s must be copied verbatim from the attached log; unobserved evidence=%q. Keep interpretation in observations[].summary, and omit evidence when no short exact excerpt exists",
 			field, evidence,

@@ -328,6 +328,40 @@ func TestEmitLogTriage_Execute_AcceptsRepeatedExplicitMessagesWhenObserved(t *te
 	}
 }
 
+func TestEmitLogTriage_Execute_VerbatimAuthorityUsesPromptNewlineSurface(t *testing.T) {
+	bus := &types.BusContext{
+		Mutable: types.NewMutableState("test"),
+		AttachedLog: "fatal: boom\r\ndetail: x\r\n" +
+			"fatal: boom\r\ndetail: x\r\n",
+	}
+	message := "fatal: boom\ndetail: x"
+	params, err := json.Marshal(emitLogTriageParams{
+		Meta: emitLogTriageMeta{Lang: "other", Signals: []string{"other"}},
+		Errors: []emitLogTriageError{
+			{Type: "request_error", Message: message},
+			{Type: "request_error", Message: message},
+		},
+		Observations: []emitLogTriageObservation{{
+			Kind:       string(types.LogObservationRuntimeEvent),
+			Summary:    "the explicit detail accompanied the error",
+			Evidence:   "fatal: boom\ndetail: x",
+			Diagnostic: true,
+			Confidence: 1,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := (&EmitLogTriage{}).Execute(bus, params)
+	if err != nil || !res.Success {
+		t.Fatalf("LF excerpts copied from the normalized prompt must match a CRLF attachment: result=%+v err=%v", res, err)
+	}
+	if bundle := bus.Mutable.LogTriage(); bundle == nil || len(bundle.Errors) != 2 || len(bundle.Observations) != 1 {
+		t.Fatalf("normalized verbatim facts were not published: %+v", bundle)
+	}
+}
+
 func TestEmitLogTriage_Execute_RejectsSynthesizedObservationEvidence(t *testing.T) {
 	bus := &types.BusContext{
 		Mutable:     types.NewMutableState("test"),

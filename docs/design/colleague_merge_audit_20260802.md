@@ -206,3 +206,29 @@ typed relation source，在旧实现中都映射为 `source|dispatch`，第二�
 `go test ./internal/tool -count=1` 通过(180.528s)，新增测试后相关组复跑通过(2.805s)。
 
 状态：`T5-2=implemented / full-package-pass`。下一中危优先审计 T4-1 硬门两侧表面同源性。
+
+---
+
+## §11 T4-1 施工结果：verbatim 门与模型可见表面同源(2026-08-02)
+
+finding 准确。附件进入 prompt 和 `attached_log.txt` 前会把 CRLF、裸 CR 规范化为 LF，
+但 `emit_log_triage` 的 error-message 存在性、相同 message 基数、observation evidence
+三类硬门都直接读取原始 `ctx.AttachedLog`。红测中模型从 prompt 忠实复制同一个 LF
+多行片段，旧实现同时报 unobserved、observed=0 和 evidence unobserved。
+
+修复不降低 verbatim 权威门：
+
+- newline 规范化提升为 `textfmt.NormalizeAttachedArtifactText` 单一实现，context 的
+  prompt/blob 渲染和 tool 的三类硬门共用；
+- 只统一平台换行编码，不 trim、不做大小写、空白、Unicode、模糊或语义归一；
+- 合成 message/evidence 仍被拒，重复 error cardinality 仍按规范化表面的精确子串计数；
+- `RawLogBytes` 继续记录原附件物理字节数，bug-class 等其它消费者未改；
+- 不扫描用户请求、模型 thinking/final answer，也不按语言或异常类型分支。
+
+新增 CRLF→LF 多行 error×2 + observation evidence 的完整 Execute 回归，以及共享
+normalizer 的 CRLF/CR/LF pin。验证：
+`go test ./internal/textfmt ./internal/context ./internal/tool -count=1` 全绿
+(0.709s / 1.630s / 175.061s)。
+
+状态：`T4-1=implemented / relevant-full-tests-pass`。下一项按 ROI 审计 T2-1
+诊断 sideband 保留键表分叉。
