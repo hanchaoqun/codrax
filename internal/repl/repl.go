@@ -4946,8 +4946,10 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 					materialEvaluation = &evalCopy
 					records = commandOperationAttachEvaluation(records, eval)
 					r.syncCommandOperationResultRecord(records[len(records)-1])
-					logging.Info("[repl/operation] command evaluation status=%s material_coverage_status=%s coverage_material_refs=%q confidence=%q reason=%q materials=%d rounds=%d",
+					coverageSourceRefs, coverageSourceIdentities, coverageSourceLocators := commandOperationCoverageSourceLogFields(records, eval.CoverageMaterialRefs)
+					logging.Info("[repl/operation] command evaluation status=%s material_coverage_status=%s coverage_material_refs=%q coverage_source_refs=%q coverage_source_identities=%q coverage_source_locators=%q confidence=%q reason=%q materials=%d rounds=%d",
 						eval.Status, eval.MaterialCoverageStatus, oneLineClamp(strings.Join(eval.CoverageMaterialRefs, " | "), 600),
+						oneLineClamp(coverageSourceRefs, 600), oneLineClamp(coverageSourceIdentities, 600), oneLineClamp(coverageSourceLocators, 900),
 						oneLineClamp(eval.Confidence, 40), oneLineClamp(eval.Reason, 180), len(eval.Materials), len(records))
 					if terminal, ok := commandOperationEvaluationTerminalResult(currentPlan, eval); ok {
 						r.appendCommandOperationResult(currentPlan, terminal)

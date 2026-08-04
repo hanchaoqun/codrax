@@ -43,6 +43,16 @@ type commandOperationMaterialPage struct {
 	Content            string
 }
 
+// commandOperationCoverageSource binds a model-selected coverage ref back to
+// the exact system-owned material and producer step that minted it. Coverage
+// answers "were all bytes/pages visible?"; this provenance answers the
+// independent question "which source did those bytes come from?".
+type commandOperationCoverageSource struct {
+	SourceRef      string
+	SourceIdentity string
+	Locator        string
+}
+
 func commandOperationAttachMaterialPages(records []commandOperationResultRecord) []commandOperationResultRecord {
 	if len(records) == 0 {
 		return records
@@ -284,4 +294,102 @@ func commandOperationMaterialSourceFullyCovered(records []commandOperationResult
 		}
 	}
 	return false
+}
+
+func commandOperationCoverageSources(records []commandOperationResultRecord, coverageRefs []string) []commandOperationCoverageSource {
+	wanted := make(map[string]bool, len(coverageRefs))
+	for _, ref := range coverageRefs {
+		if ref = strings.TrimSpace(ref); ref != "" {
+			wanted[ref] = true
+		}
+	}
+	if len(wanted) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var sources []commandOperationCoverageSource
+	for _, record := range records {
+		for _, page := range record.MaterialPages {
+			if !wanted[page.CoverageReceiptRef] && !wanted[page.Ref] && !wanted[page.SourceRef] {
+				continue
+			}
+			key := page.SourceRef + "\x00" + page.SourceIdentity
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			sources = append(sources, commandOperationCoverageSource{
+				SourceRef:      page.SourceRef,
+				SourceIdentity: page.SourceIdentity,
+				Locator:        commandOperationPayloadProducerLocator(record, page.SourceRef),
+			})
+		}
+		// A fully-visible bounded extraction can itself be a coverage ref and
+		// need not have material pages (for example a small non-text result).
+		for _, ref := range commandOperationResultPayloadRefs(record.Result) {
+			if !wanted[ref] || seen[ref+"\x00"] {
+				continue
+			}
+			seen[ref+"\x00"] = true
+			sources = append(sources, commandOperationCoverageSource{
+				SourceRef: ref,
+				Locator:   commandOperationPayloadProducerLocator(record, ref),
+			})
+		}
+	}
+	return sources
+}
+
+func commandOperationPayloadProducerLocator(record commandOperationResultRecord, sourceRef string) string {
+	stepID := ""
+	for _, result := range record.Result.StepResults {
+		if strings.TrimSpace(result.PayloadRef) == strings.TrimSpace(sourceRef) {
+			stepID = result.StepID
+			break
+		}
+	}
+	if stepID == "" && strings.TrimSpace(record.Result.PayloadRef) == strings.TrimSpace(sourceRef) && len(record.Plan.Steps) == 1 {
+		stepID = record.Plan.Steps[0].ID
+	}
+	for _, step := range record.Plan.Steps {
+		if step.ID != stepID {
+			continue
+		}
+		if shell := strings.TrimSpace(step.Shell); shell != "" {
+			return "shell:" + shell
+		}
+		argv := append([]string{strings.TrimSpace(step.Program)}, step.Args...)
+		cleaned := argv[:0]
+		for _, arg := range argv {
+			if arg = strings.TrimSpace(arg); arg != "" {
+				cleaned = append(cleaned, arg)
+			}
+		}
+		if len(cleaned) > 0 {
+			return "argv:" + strings.Join(cleaned, " ")
+		}
+	}
+	return ""
+}
+
+func commandOperationCoverageSourceLogFields(records []commandOperationResultRecord, coverageRefs []string) (refs, identities, locators string) {
+	for _, source := range commandOperationCoverageSources(records, coverageRefs) {
+		if source.SourceRef != "" {
+			refs = appendJoined(refs, source.SourceRef)
+		}
+		if source.SourceIdentity != "" {
+			identities = appendJoined(identities, source.SourceIdentity)
+		}
+		if source.Locator != "" {
+			locators = appendJoined(locators, source.Locator)
+		}
+	}
+	return refs, identities, locators
+}
+
+func appendJoined(existing, value string) string {
+	if existing == "" {
+		return value
+	}
+	return existing + " | " + value
 }

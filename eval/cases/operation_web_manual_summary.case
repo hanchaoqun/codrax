@@ -10,3 +10,4 @@ EXPECT_LOG_MATCHES_REGEX="\\[cmd/route\\] single-shot turn policy .*route=operat
 EXPECT_OPERATION_TERMINAL_STATUS="complete"
 EXPECT_OPERATION_MATERIAL_COVERAGE_STATUS="complete"
 EXPECT_OPERATION_COVERAGE_REF_REGEX='^material-coverage:v1:[0-9a-f]{64}:html_text$'
+EXPECT_OPERATION_COVERAGE_SOURCE_REGEX='(^|[ /])user_guide\.html([? #]|$)'

@@ -13717,3 +13717,25 @@ distribution 是否已经在首次 filter 前可达，再决定是否补 typed e
 - `eval/parallel_selected_summary_evalcampaign_b75_operationdata_r1_20260804.md`；
 - `eval/parallel_selected_summary_evalcampaign_b75_operationdata_r1_20260804_manual_audit.md`；
 - result dirs：`eval/results/*-20260804-053425`。
+
+### B75-B implementation（implemented/tests-pass/replay-next）
+
+operation coverage 现拆成相互独立且可审计的两条 typed 轴：
+
+1. 原有 `coverage_material_refs` 继续只回答所选 source 是否完整；
+2. 新增 system-owned receipt provenance，将每个被 evaluator 采用的 receipt 回溯到 material page 的 payload ref、
+   内容 identity，以及实际产生该 payload 的 command step/argv locator。只有记录中的 step result 与 plan step 精确对上
+   才发 locator，模型在 reason/答案里提到 URL 不能铸造该权威；
+3. CLI/REPL 最后一条 evaluation event 新增有界 `coverage_source_refs`、`coverage_source_identities`、
+   `coverage_source_locators`。它们只是观测面，不改变 evaluator status 或最终答案；
+4. eval 新增 opt-in `EXPECT_OPERATION_COVERAGE_SOURCE_REGEX`，只匹配最后一条 system-authored event 的 producer
+   locator。web-manual case 现要求 receipt 所属 producer 精确指向 `user_guide.html`：完整首页 receipt 会 fail，完整手册
+   receipt 才可通过；随机 payload 路径和内容 SHA 都不能替目标材料身份刷绿。
+
+看护同时钉住 receipt→payload→producer 正向映射、错误 `index.html` source 负臂、最后一轮 terminal 所有权，以及
+真正 partial/无 receipt 的既有降级车道。验证：定向 material-page tests、完整 `go test ./internal/repl -count=1`
+（约 25s）、shell syntax 与完整 `bash eval/runner_lib_test.sh` 全绿。状态：
+`EVAL-B75-OPGOALMAT1=observability+eval-contract implemented / product required-material IR still open`。
+
+这批没有把 `user_guide` 写入产品规则；该字面仅存在于 versioned eval case 的预期 source。产品 planner 是否需要通用
+`required_materials` typed carrier，将结合下一轮异构 operation evidence 再裁，不用请求/答案关键词做硬推断。

@@ -1827,12 +1827,13 @@ fi
 # EVAL-B73-OPEVAL1 / B74-OPREPAUTH1: the last typed operation evaluation,
 # rather than matching answer prose or an earlier round, owns the eval verdict.
 cat >"$tmp/operation-terminal.log" <<'LOG'
-2026-08-04T05:03:28.387 INFO [cli/operation] command evaluation status=complete material_coverage_status=complete coverage_material_refs="material-coverage:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:html_text" confidence="high" reason="complete" materials=1 rounds=2
-2026-08-04T05:03:38.697 INFO [cli/operation] command evaluation status=partial_answer_possible material_coverage_status=partial coverage_material_refs="" confidence="medium" reason="partial" materials=1 rounds=2
+2026-08-04T05:03:28.387 INFO [cli/operation] command evaluation status=complete material_coverage_status=complete coverage_material_refs="material-coverage:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:html_text" coverage_source_refs="/tmp/user-guide.html" coverage_source_identities="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:bytes:42" coverage_source_locators="argv:curl -L https://example.test/user_guide.html" confidence="high" reason="complete" materials=1 rounds=2
+2026-08-04T05:03:38.697 INFO [cli/operation] command evaluation status=partial_answer_possible material_coverage_status=partial coverage_material_refs="" coverage_source_refs="" coverage_source_identities="" coverage_source_locators="" confidence="medium" reason="partial" materials=1 rounds=2
 LOG
 EXPECT_OPERATION_TERMINAL_STATUS="complete"
 EXPECT_OPERATION_MATERIAL_COVERAGE_STATUS="complete"
 EXPECT_OPERATION_COVERAGE_REF_REGEX='^material-coverage:v1:[0-9a-f]{64}:html_text$'
+EXPECT_OPERATION_COVERAGE_SOURCE_REGEX='user_guide\.html'
 operation_reasons="$(eval_operation_terminal_reasons "$tmp/operation-terminal.log" "$tmp/operation-terminal.tsv")"
 for want in \
   "operation_terminal_status:partial_answer_possible:expected:complete" \
@@ -1848,11 +1849,17 @@ fi
 head -n 1 "$tmp/operation-terminal.log" >"$tmp/operation-complete.log"
 assert_eq "$(eval_operation_terminal_reasons "$tmp/operation-complete.log" "$tmp/operation-complete.tsv")" "" \
   "complete final operation terminal with receipt"
+sed 's#user_guide\.html#index.html#' "$tmp/operation-complete.log" >"$tmp/operation-wrong-source.log"
+if ! eval_operation_terminal_reasons "$tmp/operation-wrong-source.log" "$tmp/operation-wrong-source.tsv" | \
+  grep -qF "operation_coverage_source_missing:"; then
+  fail "complete coverage for the wrong source locator must not satisfy the goal-material oracle"
+fi
 cat >"$tmp/operation-terminal.case" <<'CASE'
 ID="operation_terminal_oracle"
 NAME="operation terminal oracle"
 QUESTION="operation terminal oracle"
 EXPECT_OPERATION_TERMINAL_STATUS="complete"
+EXPECT_OPERATION_COVERAGE_SOURCE_REGEX='user_guide\.html'
 CASE
 assert_eq "$(eval_case_oracle_surface "$tmp/operation-terminal.case")" "typed_operation_terminal" \
   "operation terminal case oracle surface"
@@ -1869,7 +1876,7 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 mkdir -p "$logdir"
-printf '%s\n' '2026-08-04T05:03:38.697 INFO [cli/operation] command evaluation status=partial_answer_possible material_coverage_status=partial coverage_material_refs="" confidence="medium" reason="partial" materials=1 rounds=2' >"$logdir/codrax-fake.log"
+printf '%s\n' '2026-08-04T05:03:38.697 INFO [cli/operation] command evaluation status=partial_answer_possible material_coverage_status=partial coverage_material_refs="" coverage_source_refs="" coverage_source_identities="" coverage_source_locators="" confidence="medium" reason="partial" materials=1 rounds=2' >"$logdir/codrax-fake.log"
 echo 'operation terminal oracle answer with enough content'
 SH
 chmod +x "$tmp/fake-codrax-operation-terminal"
@@ -1891,7 +1898,7 @@ fi
 if [[ ! -f "$operation_wire_dir/run-1.operation-terminal.tsv" ]]; then
   fail "run.sh typed operation terminal receipt missing"
 fi
-unset EXPECT_OPERATION_TERMINAL_STATUS EXPECT_OPERATION_MATERIAL_COVERAGE_STATUS EXPECT_OPERATION_COVERAGE_REF_REGEX
+unset EXPECT_OPERATION_TERMINAL_STATUS EXPECT_OPERATION_MATERIAL_COVERAGE_STATUS EXPECT_OPERATION_COVERAGE_REF_REGEX EXPECT_OPERATION_COVERAGE_SOURCE_REGEX
 
 # --- run.sh OUTDIR exclusivity (same-case same-second collision guard) -----
 # Two run.sh processes launched for the SAME case in the SAME second used to

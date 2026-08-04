@@ -120,3 +120,29 @@ func TestOperationFinalAnswerAcceptsSystemMaterialCoverageReceipt(t *testing.T) 
 		t.Fatalf("system must preserve model answer byte-for-byte, got %q", answer)
 	}
 }
+
+func TestCommandOperationCoverageSourcesBindReceiptToProducerLocator(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "manual.html")
+	if err := os.WriteFile(path, []byte("<!doctype html><html><body>manual</body></html>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	records := commandOperationAttachMaterialPages([]commandOperationResultRecord{{
+		Plan: operation.CommandOperationPlan{Steps: []operation.CommandStep{{
+			ID: "fetch", Program: "curl", Args: []string{"-L", "https://example.test/user_guide.html"},
+		}}},
+		Result: operation.CommandOperationResult{Status: operation.StatusExecuted, StepResults: []operation.CommandStepResult{{
+			StepID: "fetch", Status: operation.StatusExecuted, PayloadRef: path,
+		}}, PayloadRef: path},
+	}})
+	receipt := records[0].MaterialPages[0].CoverageReceiptRef
+	refs, identities, locators := commandOperationCoverageSourceLogFields(records, []string{receipt})
+	if refs != path {
+		t.Fatalf("source refs=%q want=%q", refs, path)
+	}
+	if !strings.HasPrefix(identities, "sha256:") {
+		t.Fatalf("source identity missing: %q", identities)
+	}
+	if locators != "argv:curl -L https://example.test/user_guide.html" {
+		t.Fatalf("producer locator=%q", locators)
+	}
+}

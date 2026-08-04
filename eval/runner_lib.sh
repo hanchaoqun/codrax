@@ -316,9 +316,10 @@ eval_operation_terminal_reasons() {
   local expected_status="${EXPECT_OPERATION_TERMINAL_STATUS:-}"
   local expected_coverage="${EXPECT_OPERATION_MATERIAL_COVERAGE_STATUS:-}"
   local expected_ref_regex="${EXPECT_OPERATION_COVERAGE_REF_REGEX:-}"
-  local line actual_status actual_coverage actual_refs
+  local expected_source_regex="${EXPECT_OPERATION_COVERAGE_SOURCE_REGEX:-}"
+  local line actual_status actual_coverage actual_refs actual_source_refs actual_source_identities actual_source_locators
 
-  if [[ -z "$expected_status$expected_coverage$expected_ref_regex" ]]; then
+  if [[ -z "$expected_status$expected_coverage$expected_ref_regex$expected_source_regex" ]]; then
     return 0
   fi
   if [[ -z "$expected_status" ]]; then
@@ -360,10 +361,16 @@ eval_operation_terminal_reasons() {
   if [[ "$actual_refs" == "$line" ]]; then
     actual_refs=""
   fi
+  actual_source_refs="$(LC_ALL=C sed -E 's/.* coverage_source_refs="([^"]*)".*/\1/' <<<"$line")"
+  [[ "$actual_source_refs" == "$line" ]] && actual_source_refs=""
+  actual_source_identities="$(LC_ALL=C sed -E 's/.* coverage_source_identities="([^"]*)".*/\1/' <<<"$line")"
+  [[ "$actual_source_identities" == "$line" ]] && actual_source_identities=""
+  actual_source_locators="$(LC_ALL=C sed -E 's/.* coverage_source_locators="([^"]*)".*/\1/' <<<"$line")"
+  [[ "$actual_source_locators" == "$line" ]] && actual_source_locators=""
 
   {
-    printf 'expected_status\tactual_status\texpected_material_coverage\tactual_material_coverage\tcoverage_material_refs\n'
-    printf '%s\t%s\t%s\t%s\t%s\n' "$expected_status" "$actual_status" "$expected_coverage" "$actual_coverage" "$actual_refs"
+	printf 'expected_status\tactual_status\texpected_material_coverage\tactual_material_coverage\tcoverage_material_refs\tcoverage_source_refs\tcoverage_source_identities\tcoverage_source_locators\n'
+	printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$expected_status" "$actual_status" "$expected_coverage" "$actual_coverage" "$actual_refs" "$actual_source_refs" "$actual_source_identities" "$actual_source_locators"
   } >"$receipt_file"
 
   if [[ "$actual_status" != "$expected_status" ]]; then
@@ -374,6 +381,9 @@ eval_operation_terminal_reasons() {
   fi
   if [[ -n "$expected_ref_regex" ]] && ! LC_ALL=C grep -aEq -- "$expected_ref_regex" <<<"$actual_refs"; then
     echo "operation_coverage_ref_missing:$(eval_reason_slug "$expected_ref_regex")"
+  fi
+  if [[ -n "$expected_source_regex" ]] && ! LC_ALL=C grep -aEq -- "$expected_source_regex" <<<"$actual_source_locators"; then
+    echo "operation_coverage_source_missing:$(eval_reason_slug "$expected_source_regex")"
   fi
 }
 
