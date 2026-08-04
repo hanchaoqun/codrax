@@ -13099,6 +13099,12 @@ operation-only 权限副轴。guard 正反 pin 与真实 REPL dispatch pin 证�
 desktop concrete surface 和 route=operation 对照臂仍走 operation。`go test ./internal/repl -count=1` 全绿（33.678s）。
 状态：`implemented / repl-full-pass / committed(ff15111d5)`。
 
+r5 又给出更强反证：classifier 把 `raw_route` 本身也铸成 operation，并同时发出 desktop；但
+`needs_repo=true + current_source=required + source=mixed` 仍完整保留。第二小修把这组三轴定义为不可丢失的
+current-source pipeline obligation：仅对无副作用 computer_operation 冲突，将 route/operation/desktop 一并降回 repo/investigate；
+没有该 obligation 的真实 desktop operation 继续走 operation。guard 与真实 dispatch pin 覆盖 exact r5 结构，
+`go test ./internal/repl -count=1` 全绿（33.060s）。状态补充：`route-axis-drift-closed / commit-next`。
+
 ### EVAL-B67-TRACEVALUE1（P1/implemented-soft）：最终上下文有正确主值，摘要仍选了附件跨度
 
 finalizer 的 typed handoff 已明确 `selected_window=2.000000..2.020000`、`target_state_symptom sleep=20.000ms`、

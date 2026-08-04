@@ -727,8 +727,8 @@ func TestApplyTurnPolicyGuards_OperationRoute(t *testing.T) {
 		t.Fatalf("current-source operation drift must normalize into the analysis pipeline: %+v", currentSourceOperationDrift)
 	}
 
-	concreteSurfaceStillOperates := ApplyTurnPolicyGuards(TurnPolicy{
-		Route:                     RouteHybrid,
+	operationRouteDrift := ApplyTurnPolicyGuards(TurnPolicy{
+		Route:                     RouteOperation,
 		NeedsRepoAccess:           true,
 		NeedsOperationAccess:      true,
 		Operation:                 "computer_operation",
@@ -739,10 +739,29 @@ func TestApplyTurnPolicyGuards_OperationRoute(t *testing.T) {
 		TargetSurface:             "desktop",
 		Confidence:                0.88,
 	}, false, false)
+	if operationRouteDrift.Route != RouteRepo ||
+		!operationRouteDrift.NeedsRepoAccess ||
+		operationRouteDrift.NeedsOperationAccess ||
+		operationRouteDrift.Operation != "investigate" ||
+		IsConcreteOperationPolicy(operationRouteDrift) {
+		t.Fatalf("required current-source obligation must survive route/desktop drift: %+v", operationRouteDrift)
+	}
+
+	concreteSurfaceStillOperates := ApplyTurnPolicyGuards(TurnPolicy{
+		Route:                RouteOperation,
+		NeedsRepoAccess:      false,
+		NeedsOperationAccess: true,
+		Operation:            "computer_operation",
+		OperationKind:        "computer_operation",
+		Source:               "current_message",
+		RiskLevel:            "low",
+		TargetSurface:        "desktop",
+		Confidence:           0.88,
+	}, false, false)
 	if concreteSurfaceStillOperates.Route != RouteOperation ||
 		!concreteSurfaceStillOperates.NeedsOperationAccess ||
 		!IsConcreteOperationPolicy(concreteSurfaceStillOperates) {
-		t.Fatalf("a concrete desktop target must retain operation authority: %+v", concreteSurfaceStillOperates)
+		t.Fatalf("a real desktop operation without current-source obligation must retain authority: %+v", concreteSurfaceStillOperates)
 	}
 
 	// A concrete operation kind remains authoritative when the required route
@@ -3250,7 +3269,7 @@ func TestTurnPolicyDispatch_HybridCarriesDirectiveIntoPipeline(t *testing.T) {
 func TestTurnPolicyDispatch_CurrentSourceOperationDriftUsesPipeline(t *testing.T) {
 	store := newPolicyStore(t)
 	classifier := &stubTurnPolicyClassifier{policy: TurnPolicy{
-		Route:                     RouteHybrid,
+		Route:                     RouteOperation,
 		NeedsRepoAccess:           true,
 		NeedsOperationAccess:      true,
 		Operation:                 "computer_operation",
@@ -3258,7 +3277,7 @@ func TestTurnPolicyDispatch_CurrentSourceOperationDriftUsesPipeline(t *testing.T
 		Source:                    "mixed",
 		CurrentSourceEvidenceMode: types.TurnRouteCurrentSourceEvidenceRequired,
 		RiskLevel:                 "low",
-		TargetSurface:             "unknown",
+		TargetSurface:             "desktop",
 		Confidence:                0.88,
 	}}
 	responder := &stubLocalResponder{localReply: "should-not-appear"}

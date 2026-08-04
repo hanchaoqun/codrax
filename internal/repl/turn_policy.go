@@ -1835,24 +1835,27 @@ func isAnalysisOnlyPolicy(p TurnPolicy) bool {
 	concordantPipelineInvestigation :=
 		(p.Route == RouteRepo || p.Route == RouteHybrid) &&
 			(p.NeedsRepoAccess || p.CurrentSourceEvidenceMode == types.TurnRouteCurrentSourceEvidenceRequired)
+	currentSourcePipelineObligation :=
+		(p.Route == RouteRepo || p.Route == RouteHybrid || p.Route == RouteOperation) &&
+			p.NeedsRepoAccess &&
+			p.CurrentSourceEvidenceMode == types.TurnRouteCurrentSourceEvidenceRequired &&
+			(strings.TrimSpace(p.Source) == "repo" || strings.TrimSpace(p.Source) == "mixed")
 	// A second production drift contradicted the required route axis itself:
 	// route=hybrid plus the required current-source/source axes, but both
 	// operation fields said computer_operation. The schema reserves a real
 	// computer operation for route=operation. When the remaining required axes
-	// all prove a current-source pipeline turn and there is no concrete target
-	// surface, tolerate that one enum drift. This is structural normalization;
-	// it does not inspect the request or model prose. A desktop/browser/external
-	// target remains concrete operation authority.
+	// all prove a required current-source pipeline turn, tolerate that one enum
+	// drift even when the operation-only target surface drifted with it. This is
+	// structural normalization; it does not inspect the request or model prose.
+	// A desktop/browser/external target without that current-source obligation
+	// remains concrete operation authority.
 	currentSourceOperationDrift :=
 		operation == "computer_operation" &&
-			concordantPipelineInvestigation &&
-			p.NeedsRepoAccess &&
-			p.CurrentSourceEvidenceMode == types.TurnRouteCurrentSourceEvidenceRequired &&
-			!targetSurfaceLooksOperation(p.TargetSurface)
+			currentSourcePipelineObligation
 	if operation != "investigate" && !currentSourceOperationDrift {
 		return false
 	}
-	if isOperationLikeOperation(p.OperationKind) && !concordantPipelineInvestigation {
+	if isOperationLikeOperation(p.OperationKind) && !concordantPipelineInvestigation && !currentSourceOperationDrift {
 		return false
 	}
 	if len(p.SideEffects) > 0 {
