@@ -8434,7 +8434,7 @@ func TestAnswerDocumentEvaluator_ParseOutput_TreatsMetricAnchorsAsCoveredRequest
 	}
 }
 
-func TestAnswerDocumentEvaluator_ParseOutput_AppendsRuntimeAggregateMetricCompactSupplement(t *testing.T) {
+func TestAnswerDocumentEvaluator_ParseOutput_DoesNotRepublishModelAggregateFactsAsSystemAuthority(t *testing.T) {
 	mu := types.NewMutableState("")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
 		{
@@ -8503,22 +8503,24 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsRuntimeAggregateMetricCompac
 		}},
 	}
 	e := &answerDocumentEvaluator{language: "zh"}
+	// The model-authored facts remain available to the finalizer. This fix
+	// removes only the later system-publication path; it does not erase model
+	// evidence or take over the model's conclusion.
+	aggregatePrompt := renderAnswerDocAggregateFacts(ctx)
+	if !strings.Contains(aggregatePrompt, "app-20 max_segment") ||
+		!strings.Contains(aggregatePrompt, "16552213 ns ≈ 16.55 ms ≈ 60.4 Hz") {
+		t.Fatalf("model aggregate facts were removed from finalizer context:\n%s", aggregatePrompt)
+	}
 	out, err := e.ParseOutput(ctx, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ParseOutput err: %v", err)
 	}
-	wantLine := "max_segment=0.5ms；p95_segment=0.5ms"
-	if !strings.Contains(out.FinalAnswer, "系统补充：结构化指标摘录") || !strings.Contains(out.FinalAnswer, wantLine) {
-		t.Fatalf("final answer missing compact runtime metric supplement %q:\n%s", wantLine, out.FinalAnswer)
+	if strings.Contains(out.FinalAnswer, "系统补充：结构化指标摘录") ||
+		strings.Contains(out.FinalAnswer, "max_segment=0.5ms；p95_segment=0.5ms") {
+		t.Fatalf("model-authored aggregate facts were republished as system authority:\n%s", out.FinalAnswer)
 	}
-	if strings.Contains(out.FinalAnswer, "dominant_state=runnablestate") {
-		t.Fatalf("state-valued metrics should not append unit suffix:\n%s", out.FinalAnswer)
-	}
-	if !strings.Contains(out.FinalAnswer, "refresh_rate=16552213 ns ≈ 16.55 ms ≈ 60.4 Hz") {
-		t.Fatalf("formatted scalar conversion expression was not preserved:\n%s", out.FinalAnswer)
-	}
-	if strings.Contains(out.FinalAnswer, "Hzns") {
-		t.Fatalf("formatted scalar conversion expression gained a duplicate unit:\n%s", out.FinalAnswer)
+	if !strings.Contains(out.FinalAnswer, "app-20 dominant_state=runnable") {
+		t.Fatalf("model-owned answer body was unexpectedly removed:\n%s", out.FinalAnswer)
 	}
 }
 

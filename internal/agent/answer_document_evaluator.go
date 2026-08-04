@@ -15018,12 +15018,13 @@ func renderRuntimeAggregateMetricCompactSupplement(ctx *types.AgentContext, doc 
 	}
 	zh := !strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en")
 	if zh {
-		// NG-4 (§13.4, 2026-07-25): this face ECHOES extract-stage aggregate
-		// facts filtered by dimension tokens — it performs no numeric
-		// re-verification, so the label must not claim one (摘录, not 核对).
+		// This surface is reserved for deterministic trace-query observation
+		// metadata (currently perf-quality caliber/caveats). Model-authored
+		// aggregate facts remain available to the finalizer but are never
+		// republished here as system authority.
 		return "---\n\n> **系统补充：结构化指标摘录**：" + strings.Join(parts, "；")
 	}
-	return "---\n\n> **System supplement: structured metric check**: " + strings.Join(parts, "; ")
+	return "---\n\n> **System supplement: structured metric excerpt**: " + strings.Join(parts, "; ")
 }
 
 func runtimeAggregateMetricCompactRows(ctx *types.AgentContext, doc *types.AnswerDocumentV2) []runtimeAggregateMetricCompactRow {
@@ -15037,32 +15038,13 @@ func runtimeAggregateMetricCompactRows(ctx *types.AgentContext, doc *types.Answe
 			requestedSet[token] = i
 		}
 	}
-	var rm *types.RequestModel
-	if ctx.AnalysisIR != nil {
-		rm = &ctx.AnalysisIR.RequestModel
-	}
 	seen := map[string]bool{}
 	var rows []runtimeAggregateMetricCompactRow
-	if len(requestedSet) > 0 {
-		for _, fact := range answerDocStableAggregateFacts(ctx) {
-			if fact.Kind != types.AnswerAggregateScalar {
-				continue
-			}
-			if !answerDocAggregateFactHasEvidenceOrigin(fact, rm, types.AnswerEvidenceOriginRuntimeArtifact) {
-				continue
-			}
-			key, order := runtimeAggregateMetricCompactKey(fact, requestedSet)
-			if key == "" || strings.TrimSpace(fact.Value) == "" || seen[key] {
-				continue
-			}
-			seen[key] = true
-			rows = append(rows, runtimeAggregateMetricCompactRow{
-				Order: order,
-				Key:   key,
-				Value: runtimeAggregateMetricCompactValue(fact),
-			})
-		}
-	}
+	// System-authored compact supplements must have deterministic typed
+	// provenance. Investigation aggregate facts are authored by the model and
+	// may be historical/repairable; selecting them by label-token overlap does
+	// not verify either their value or their window caliber. Keep those facts
+	// in the ledger/finalizer prompt, but never turn them into system output.
 	for _, row := range runtimeTracePerfQualityMetricRows(ctx, requestedSet) {
 		if row.Key == "" || row.Value == "" || seen[row.Key] {
 			continue
@@ -15176,51 +15158,6 @@ func requestedRuntimeMetricTokens(ctx *types.AgentContext) []string {
 		}
 	}
 	return out
-}
-
-func runtimeAggregateMetricCompactKey(fact types.AnswerAggregateFact, requested map[string]int) (string, int) {
-	bestOrder := len(requested) + 1
-	bestKey := ""
-	for _, token := range requestedDimensionIdentifierTokens(fact.Label) {
-		order, ok := requested[token]
-		if !ok {
-			continue
-		}
-		if order < bestOrder {
-			bestOrder = order
-			bestKey = token
-		}
-	}
-	return bestKey, bestOrder
-}
-
-func runtimeAggregateMetricCompactValue(fact types.AnswerAggregateFact) string {
-	value := strings.TrimSpace(fact.Value)
-	unit := strings.TrimSpace(fact.Unit)
-	if value == "" || unit == "" || strings.EqualFold(unit, "state") {
-		return value
-	}
-	if strings.HasSuffix(strings.ToLower(value), strings.ToLower(unit)) {
-		return value
-	}
-	// Unit is a separate suffix only when Value is the aggregate's bare
-	// scalar. Model-authored scalar facts may preserve an already formatted
-	// equivalence/conversion expression (for example ns → ms → Hz). Appending
-	// the source unit to that expression corrupts its terminal unit ("Hzns").
-	// ParseFloat is a precise structural test; no answer prose is inspected.
-	if _, err := strconv.ParseFloat(value, 64); err != nil {
-		return value
-	}
-	return value + unit
-}
-
-func answerDocAggregateFactHasEvidenceOrigin(fact types.AnswerAggregateFact, rm *types.RequestModel, want types.AnswerEvidenceOrigin) bool {
-	for _, origin := range types.AnswerAggregateFactEvidenceOrigins(fact, rm) {
-		if origin == want {
-			return true
-		}
-	}
-	return false
 }
 
 func normalizedRequestedDimensionText(s string) string {

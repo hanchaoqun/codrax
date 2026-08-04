@@ -12970,6 +12970,23 @@ requested dimension tokens × aggregate label tokens 选择并发布值。最稳
 供模型综合，不删除模型调查结论；系统只是不再把 historical/repairable 值再次伪装成自己的补充。该根修同时削弱
 `EVAL-B64-COUNTBIND1` 的发布级联，但 pre-emit scalar/member-set 归属误配仍单独保持 P2/open。
 
+### EVAL-B65-SCALARPUB1（P0/implemented）：系统 compact supplement 只消费 deterministic observation
+
+本批删除 `runtimeAggregateMetricCompactRows` 中对 `answerDocStableAggregateFacts` 的系统发布分支，而不是删除模型事实：
+
+1. investigation aggregate facts 仍完整保留在 mutable state、observation ledger 与
+   `renderAnswerDocAggregateFacts` finalizer context 中，模型继续拥有取舍、校正和结论权；
+2. 系统 compact supplement 不再使用 requested-dimension label token overlap 选择 model-authored scalar，也不再把
+   historical/repairable 值包装成系统摘录；相关 key/value/unit 拼接辅助器一并删除，避免以后从旁路复活；
+3. deterministic `trace_query` observation 中的 `perf_quality` 与 `perf_quality_caveats` 仍可发布，生产者、origin、typed note
+   三重约束和原有去重/排序均保留；中英文标题统一使用“摘录/excerpt”，不声称额外 numeric check；
+4. 正向 pin 先证明 model aggregate 仍进入 finalizer prompt、模型正文仍保留，再证明系统不追加这些值；对照 pin 继续要求
+   typed trace perf-quality 系统补充存在。因此这是 authority boundary 收窄，不是关闭 Trace 自动补齐。
+
+定向两臂与 `go test ./internal/agent -count=1` 全绿（2.591s）。状态：
+`EVAL-B65-SCALARPUB1 = implemented / agent-full-pass / commit-next / replay-next`。
+`EVAL-B64-COUNTBIND1` 的 pre-emit 归属误配仍为 P2/open；`EVAL-B65-TRACECAL2` 仍按模型波动观察，不新增答案文本硬门或系统改写。
+
 施工顺序冻结：`B65-A = ROUTEINV1`（路由权限独立批，提交推送）→ `B65-B = SCALARPUB1`（系统发布红线独立批，提交推送）→
 严格并行 2 例回放。两批均不修改 trace_query、显式时间窗、Trace 因果投影、系统自动补采、根因选举、模型正文或 write mode。
 
