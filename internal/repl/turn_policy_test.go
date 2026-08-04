@@ -699,6 +699,52 @@ func TestApplyTurnPolicyGuards_OperationRoute(t *testing.T) {
 		t.Fatalf("noisy investigation surface must stay in the analysis pipeline: %+v", noisyInvestigationSurface)
 	}
 
+	// Production witness #2: all current-source route/source axes identified a
+	// pipeline investigation, but both operation fields drifted to
+	// computer_operation. A non-concrete target cannot override those required
+	// axes; normalize the operation identity as well as its permission bits.
+	currentSourceOperationDrift := ApplyTurnPolicyGuards(TurnPolicy{
+		Route:                     RouteHybrid,
+		NeedsRepoAccess:           true,
+		NeedsOperationAccess:      true,
+		Operation:                 "computer_operation",
+		OperationKind:             "computer_operation",
+		Source:                    "mixed",
+		CurrentSourceEvidenceMode: types.TurnRouteCurrentSourceEvidenceRequired,
+		RiskLevel:                 "low",
+		TargetSurface:             "unknown",
+		Confidence:                0.88,
+	}, false, false)
+	if currentSourceOperationDrift.Route != RouteHybrid ||
+		!currentSourceOperationDrift.NeedsRepoAccess ||
+		currentSourceOperationDrift.NeedsOperationAccess ||
+		currentSourceOperationDrift.Operation != "investigate" ||
+		currentSourceOperationDrift.OperationKind != "" ||
+		currentSourceOperationDrift.TargetSurface != "" ||
+		currentSourceOperationDrift.RiskLevel != "none" ||
+		currentSourceOperationDrift.CurrentSourceEvidenceMode != types.TurnRouteCurrentSourceEvidenceRequired ||
+		IsConcreteOperationPolicy(currentSourceOperationDrift) {
+		t.Fatalf("current-source operation drift must normalize into the analysis pipeline: %+v", currentSourceOperationDrift)
+	}
+
+	concreteSurfaceStillOperates := ApplyTurnPolicyGuards(TurnPolicy{
+		Route:                     RouteHybrid,
+		NeedsRepoAccess:           true,
+		NeedsOperationAccess:      true,
+		Operation:                 "computer_operation",
+		OperationKind:             "computer_operation",
+		Source:                    "mixed",
+		CurrentSourceEvidenceMode: types.TurnRouteCurrentSourceEvidenceRequired,
+		RiskLevel:                 "low",
+		TargetSurface:             "desktop",
+		Confidence:                0.88,
+	}, false, false)
+	if concreteSurfaceStillOperates.Route != RouteOperation ||
+		!concreteSurfaceStillOperates.NeedsOperationAccess ||
+		!IsConcreteOperationPolicy(concreteSurfaceStillOperates) {
+		t.Fatalf("a concrete desktop target must retain operation authority: %+v", concreteSurfaceStillOperates)
+	}
+
 	// A concrete operation kind remains authoritative when the required route
 	// axis itself says operation. The optional-field tolerance above applies
 	// only to concordant repo/hybrid + investigate policies.
@@ -3198,6 +3244,41 @@ func TestTurnPolicyDispatch_HybridCarriesDirectiveIntoPipeline(t *testing.T) {
 	}
 	if len(adapter.calls) != 0 {
 		t.Fatalf("mixed source/external-observation pipeline route must not call operation planner/evaluator; calls=%d", len(adapter.calls))
+	}
+}
+
+func TestTurnPolicyDispatch_CurrentSourceOperationDriftUsesPipeline(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: TurnPolicy{
+		Route:                     RouteHybrid,
+		NeedsRepoAccess:           true,
+		NeedsOperationAccess:      true,
+		Operation:                 "computer_operation",
+		OperationKind:             "computer_operation",
+		Source:                    "mixed",
+		CurrentSourceEvidenceMode: types.TurnRouteCurrentSourceEvidenceRequired,
+		RiskLevel:                 "low",
+		TargetSurface:             "unknown",
+		Confidence:                0.88,
+	}}
+	responder := &stubLocalResponder{localReply: "should-not-appear"}
+	r, runner, _ := newTurnPolicyREPL(t, store, classifier, responder,
+		"measure a repository fact and explain its current-source implementation\n/exit\n")
+	adapter := &scriptedChatAdapter{}
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if len(runner.requests) != 1 {
+		t.Fatalf("current-source operation drift must dispatch the pipeline once, got %d", len(runner.requests))
+	}
+	if len(adapter.calls) != 0 {
+		t.Fatalf("current-source operation drift must not call operation planner; calls=%d", len(adapter.calls))
+	}
+	if len(responder.localCalls) != 0 {
+		t.Fatalf("current-source operation drift must not call local responder; calls=%d", len(responder.localCalls))
 	}
 }
 

@@ -1432,6 +1432,7 @@ func ApplyTurnPolicyGuards(p TurnPolicy, hasPriorAnswer, hasAttachment bool) Tur
 			p.NeedsRepoAccess = true
 		}
 		p.NeedsOperationAccess = false
+		p.Operation = "investigate"
 		// operation_kind/target_surface/risk are operation-only refinements.
 		// Once the required axes settle on analysis, clear the contradictory
 		// refinements so downstream telemetry and future guards cannot mistake
@@ -1823,9 +1824,7 @@ func targetSurfaceLooksOperation(raw string) bool {
 }
 
 func isAnalysisOnlyPolicy(p TurnPolicy) bool {
-	if strings.TrimSpace(p.Operation) != "investigate" {
-		return false
-	}
+	operation := strings.TrimSpace(p.Operation)
 	// Route and operation are required primary axes. operation_kind and
 	// target_surface are optional operation-only refinements. When the two
 	// primary axes concordantly identify a repo/hybrid investigation and a
@@ -1836,6 +1835,23 @@ func isAnalysisOnlyPolicy(p TurnPolicy) bool {
 	concordantPipelineInvestigation :=
 		(p.Route == RouteRepo || p.Route == RouteHybrid) &&
 			(p.NeedsRepoAccess || p.CurrentSourceEvidenceMode == types.TurnRouteCurrentSourceEvidenceRequired)
+	// A second production drift contradicted the required route axis itself:
+	// route=hybrid plus the required current-source/source axes, but both
+	// operation fields said computer_operation. The schema reserves a real
+	// computer operation for route=operation. When the remaining required axes
+	// all prove a current-source pipeline turn and there is no concrete target
+	// surface, tolerate that one enum drift. This is structural normalization;
+	// it does not inspect the request or model prose. A desktop/browser/external
+	// target remains concrete operation authority.
+	currentSourceOperationDrift :=
+		operation == "computer_operation" &&
+			concordantPipelineInvestigation &&
+			p.NeedsRepoAccess &&
+			p.CurrentSourceEvidenceMode == types.TurnRouteCurrentSourceEvidenceRequired &&
+			!targetSurfaceLooksOperation(p.TargetSurface)
+	if operation != "investigate" && !currentSourceOperationDrift {
+		return false
+	}
 	if isOperationLikeOperation(p.OperationKind) && !concordantPipelineInvestigation {
 		return false
 	}
