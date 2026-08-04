@@ -456,7 +456,13 @@ func augmentPerfBundleWithTimeSemantics(b *types.PerfBundle, ctx *types.BusConte
 		return
 	}
 	durationMs := (last - first) * 1000
-	summary := fmt.Sprintf("Trace timestamps are seconds; attached excerpt spans %.6fs..%.6fs = %s.", first, last, formatTraceDuration(durationMs))
+	// This observation establishes the timestamp unit and the physical
+	// attachment's outer extent only. It is deliberately NOT a selected query
+	// window or a target-thread state account: a trace_query caller may select a
+	// narrower window, and the final event can sit just beyond that window. Keep
+	// that caliber boundary visible in the typed observation so later models do
+	// not reuse the attachment extent as a thread sleep/runnable/running total.
+	summary := fmt.Sprintf("Trace timestamps are seconds; the whole attached excerpt spans %.6fs..%.6fs = %s. This is attachment-extent/unit provenance only, not a selected query-window duration or any target-thread state duration.", first, last, formatTraceDuration(durationMs))
 	obs := types.PerfObservation{
 		Authority:  types.PerfObservationAuthorityDeterministicValidator,
 		Kind:       "time_semantics",

@@ -49,6 +49,9 @@ func TestAnswerfaceSegmentVsWindowTotalDirection(t *testing.T) {
 		"never the thread's full-window total for that state",
 		"target_window_states partition",
 		"not from a segment row and not from your own reconstruction of segments",
+		"whole attached artifact",
+		"timestamp units and attachment extent only",
+		"never the selected query window or any target-thread state duration",
 	} {
 		if !strings.Contains(item.Body, want) {
 			t.Fatalf("segment-vs-total direction missing %q:\n%s", want, item.Body)

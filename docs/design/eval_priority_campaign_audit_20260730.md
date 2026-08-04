@@ -12806,3 +12806,78 @@ file basename（有代码/配置文件后缀），且其出现位置左侧恰为
 answer-document 成文路径均未改。
 
 状态：`EVAL-B63-PATHPROV1 = implemented / agent-full-pass / commit-next`。
+
+## 64. 2026-08-03 B64 r11：显式 Trace 窗口口径与 command_measurement 证据路径
+
+在 `main@f275387e5` 重建后严格并行 2 例：
+
+- `trace_query_wakeup_causal_io_chain`：runner PASS / human FAIL，237s，4 次 trace_query，finalizer reject=0；
+- `read_combo_command_current_source_explanation`：runner PASS / human FAIL，544s，Analyzer dispatch=2（首轮 provider
+  首字节 3m 超时），Explorer 20 轮，finalizer reject=2。
+
+### Trace 正面守护：能力没有被前批修复破坏
+
+Trace 用例保持用户显式窗 `2.000000..2.020000`，四次 trace_query 均在该窗和目标线程上完成。模型正确给出
+`threadpool-400 -> network-300 -> cookie-200 -> app-100` 的唤醒链，把链首
+`fscache_page_wait_on_page_bit` 对应 11.000ms iowait 排为 #1，并把 20.000/17.000/14.000/11.000ms 的真实关键路径
+占时与 11.000ms IO、3 个各 1.000ms runnable 的现规则可消量分轴呈现。`Trace 因果投影`、代表窗、证据索引和
+系统补采仍在模型结论之后；系统没有删除、替换或重写模型主结论。
+
+### EVAL-B64-TRACECAL1（P1/implemented）：整件附件跨度污染显式窗内目标状态
+
+机器 PASS 漏过了一个确定性口径冲突：perf-triage 的 `time_semantics` 只证明整件附件首尾
+`2.000000..2.020020 = 20.020ms` 和秒制时间单位；用户选择的 trace_query 窗是
+`2.000000..2.020000 = 20.000ms`，typed `target_window_states` 也明确 app-100 在该窗 sleep=20.000ms。模型却在
+investigation aggregate fact、摘要和链终点行把整件 20.020ms 写成“窗内纯睡眠”。系统附录随后给出了正确
+20.000ms，但没有阻止正文口径混用；这证明“附录正确”不能替代给模型的前置口径分层。
+
+本小批不扫描请求/思考/答案文字，不新增结论硬门，也不代写答案：
+
+1. deterministic `time_semantics` 仍保留首尾值与 DurationMs，但 summary 明确它是 whole-attachment
+   extent/unit provenance，不是 selected query window 或任何 target-thread state duration；
+2. Explorer 显式 Trace 起步合同补同一条口径优先级：窗内线程状态 aggregate 必须复制 trace_query
+   `target_window_states`，不能取 perf-triage 工件跨度；
+3. FIN-BIND 的 state-duration caliber separation 增加第三种 artifact-global caliber，和 segment/full-window 两种既有
+   口径统一教学；
+4. Finalizer 最后 typed recap 明确 `principal_state` 是窗内线程四态唯一主值，早期 narrative/model aggregate 若用了
+   attachment extent，只校正数值口径而保留模型诊断所有权。
+
+状态：`EVAL-B64-TRACECAL1 = implemented / tool+agent+skill-full-pass / commit-next`。显式时间窗、Trace 因果投影、自动补采、
+两类根因维度和模型答案所有权均未改变。
+
+### EVAL-B64-CMDPATH1（P0/open）：Analyzer 自铸不存在的 EmitAnalysis 数据通路
+
+Read 用例的数值 253 正确，命令实际递归统计 `internal/tool/**/*.go` 并排除 `*_test.go`。但机制答案错误：
+
+1. Analyzer 已获得预计算 task_map，其中首批 owner 正确指向 `internal/tool/builtin.go`、
+   `internal/types/context.go`、`internal/types/observation_ledger.go`；它仍调用 recursive list_files，把 29KB 文件名清单
+   推入分类上下文，首个 dispatch 随后首字节超时；
+2. 第二个 Analyzer 从清单里的 `emit_analysis.go` 自生
+   `command_measurement -> emit_analysis struct`，又把 `required_files/source_inventory_profile` 写成证据传输机制；这些
+   token 不在用户请求里，也没有 task_map relation authority；
+3. Explorer 沿错误 RequiredFiles 读了大量无关源码，虽找到 `ToolResult.CommandMeasurement` 和
+   `observationRecordForCommandMeasurement`，仍没有退回真实编译喉部；
+4. 真实路径是：`execCommandMeasurement` 从 exec_command 输出铸 typed carrier →
+   `ToolResult.CommandMeasurement` → `CompileObservationLedger` 的 `compileToolResultObservations` →
+   `observationRecordForCommandMeasurement` → finalizer 的 ledger/aggregate handoff。`EmitAnalysis` 更早把用户意图铸成
+   RequestModel；RequiredFiles/SourceInventoryProfile 只引导后续源码取证，不携带后来产生的 command measurement；
+5. Finalizer 首稿给三条概念/dataflow 边错误标 `call`，hard gate 一次列全 3 条。模型第一 patch 只修 2 条，第二次仍被
+   同一合同拒绝；第三轮靠删除 anchors/改一条虚线通过，但正文和其余概念箭头仍保留假数据流。说明 validator 守住了
+   typed call 语义，却无法靠“删 anchor”替模型补出缺失的正确证据路径。
+
+最优施工拆为下一独立批：
+
+1. 以存在 `ToolResult.CommandMeasurement` 为精确信号，给 Explorer/Finalizer 提供 typed evidence-path authority：明确
+   producer、carrier、single compile throat、record compiler 和 consumer，并明确 EmitAnalysis 是 pre-explore 导航 lane；
+2. Analyze 阶段 `list_files` 只允许浅层 location pass，禁止 recursive 全树清单进入分类上下文；schema 描述和 runtime
+   validator 共用同一规则，不依赖问题语言/文件类型/用户原文；
+3. 回归钉定 authority 仅在 typed carrier 存在时发射、零 raw request/model scan、正确路径含 CompileObservationLedger、
+   不含 measurement→EmitAnalysis；同时钉定 Analyze 浅清单、Explore 递归清单不受影响；
+4. `EVAL-B64-COUNTBIND1`（P2/open）：pre-emit soft advisory 把独立 scalar 253 错配成“8 个结构节点”member_set 的
+   visible_count。它未触发 reject/正文改写，本轮先登记，后续从 typed block/fact binding 修，禁止靠标签关键词拟合。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b64_traceread_r1_20260803.md`；
+- `eval/parallel_selected_summary_evalcampaign_b64_traceread_r1_20260803_manual_audit.md`；
+- result dirs：`eval/results/*-20260803-225431`。

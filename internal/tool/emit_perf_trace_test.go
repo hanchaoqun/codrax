@@ -188,6 +188,11 @@ func TestEmitPerfTrace_Execute_AddsHarmonyPrioritySemanticsObservation(t *testin
 	if bundle.Observations[1].Kind != "time_semantics" || !strings.Contains(bundle.Observations[1].Summary, "0.230ms") {
 		t.Fatalf("expected system time semantics observation before original observation: %+v", bundle.Observations[1])
 	}
+	for _, want := range []string{"whole attached excerpt", "attachment-extent/unit provenance only", "not a selected query-window duration", "not", "target-thread state duration"} {
+		if !strings.Contains(bundle.Observations[1].Summary, want) {
+			t.Fatalf("time semantics must preserve the artifact-vs-selected-window caliber boundary %q: %q", want, bundle.Observations[1].Summary)
+		}
+	}
 	if bundle.Observations[1].Authority != types.PerfObservationAuthorityDeterministicValidator {
 		t.Fatalf("time semantics should carry deterministic validator authority: %+v", bundle.Observations[1])
 	}

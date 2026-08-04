@@ -76,6 +76,9 @@ func TestRenderAnswerDocTracePrincipalValueAuthorityCarriesCompleteElevenRowWait
 		"目标等待墙钟合计 11.000ms",
 		"数值差本身不是关系证据",
 		"不得把 record/occurrence/partition 的差值解释成窗口边界",
+		"`principal_state` is the selected-window authority",
+		"whole attachment's first-to-last timestamp extent",
+		"must never replace a `principal_state` value",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("principal-value recap missing %q:\n%s", want, got)
