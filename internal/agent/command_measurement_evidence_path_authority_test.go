@@ -75,6 +75,44 @@ func TestCommandMeasurementEvidencePathAuthorityTypedCarrierAndProfileOnly(t *te
 	}
 }
 
+func TestCommandMeasurementEvidencePathAuthorityRouteBackedProfileOmission(t *testing.T) {
+	ctx := commandMeasurementEvidencePathTestContext(false)
+	ctx.AnalysisIR.RequestModel.Intent = types.IntentExplain
+	ctx.AnalysisIR.RequestModel.Scenario = types.ScenarioArchitectureExplain
+	ctx.AnalysisIR.RequestModel.Predicates.IsCountQuestion = true
+	ctx.AnalysisIR.RequestModel.Predicates.IsScalarAnswer = true
+	ctx.TurnRouteHint = types.TurnRouteHint{
+		Route:                     "hybrid",
+		Source:                    "mixed",
+		NeedsRepoAccess:           true,
+		CurrentSourceEvidenceMode: types.TurnRouteCurrentSourceEvidenceRequired,
+	}
+
+	if got := renderAnswerDocCommandMeasurementEvidencePathAuthority(ctx); !strings.Contains(got, "parallel observation and aggregate carriers") {
+		t.Fatalf("precise route obligation should preserve prompt-only authority when analyzer profile is omitted:\n%s", got)
+	}
+
+	optional := *ctx
+	optional.TurnRouteHint.CurrentSourceEvidenceMode = types.TurnRouteCurrentSourceEvidenceOptional
+	if got := renderAnswerDocCommandMeasurementEvidencePathAuthority(&optional); got != "" {
+		t.Fatalf("optional current-source route must not activate route-backed guidance:\n%s", got)
+	}
+
+	operation := *ctx
+	operation.TurnRouteHint.NeedsOperationAccess = true
+	operation.TurnRouteHint.ConcreteOperation = true
+	if got := renderAnswerDocCommandMeasurementEvidencePathAuthority(&operation); got != "" {
+		t.Fatalf("concrete operation route must not activate analysis guidance:\n%s", got)
+	}
+
+	nonCount := *ctx
+	nonCount.AnalysisIR = &types.AnalysisIR{RequestModel: ctx.AnalysisIR.RequestModel}
+	nonCount.AnalysisIR.RequestModel.Predicates.IsCountQuestion = false
+	if got := renderAnswerDocCommandMeasurementEvidencePathAuthority(&nonCount); got != "" {
+		t.Fatalf("incidental command measurement in a non-count request must not activate guidance:\n%s", got)
+	}
+}
+
 func TestExplorerCommandMeasurementEvidencePathSignalIsOneShotSoftGuidance(t *testing.T) {
 	ctx := commandMeasurementEvidencePathTestContext(true)
 	results := ctx.Mutable.TurnAArtifacts().ToolResults

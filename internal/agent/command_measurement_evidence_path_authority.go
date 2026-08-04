@@ -15,8 +15,7 @@ func commandMeasurementEvidencePathActive(ctx *types.AgentContext, results []typ
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return 0, false
 	}
-	profile := ctx.AnalysisIR.RequestModel.CurrentSourceExplanationProfile
-	if profile == nil || !profile.Active() {
+	if !commandMeasurementEvidencePathRequested(ctx) {
 		return 0, false
 	}
 	count := 0
@@ -26,6 +25,34 @@ func commandMeasurementEvidencePathActive(ctx *types.AgentContext, results []typ
 		}
 	}
 	return count, count > 0
+}
+
+// commandMeasurementEvidencePathRequested keeps the analyzer profile as the
+// primary soft carrier, while preserving a precise router obligation when the
+// analyzer omits that optional profile. The fallback joins schema fields only:
+// required mixed current-source routing, a scalar count obligation, and an
+// explain/mechanism answer shape. It never inspects the route rationale,
+// request/model prose, aggregate labels, or final answer text, and it activates
+// prompt guidance only (not evidence, completion, or answer gates).
+func commandMeasurementEvidencePathRequested(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if profile := rm.CurrentSourceExplanationProfile; profile != nil && profile.Active() {
+		return true
+	}
+	hint := ctx.TurnRouteHint
+	if types.NormalizeTurnRouteCurrentSourceEvidenceMode(string(hint.CurrentSourceEvidenceMode)) != types.TurnRouteCurrentSourceEvidenceRequired ||
+		!hint.NeedsRepoAccess || hint.NeedsOperationAccess || hint.ConcreteOperation ||
+		strings.TrimSpace(hint.Source) != "mixed" {
+		return false
+	}
+	if !rm.Predicates.IsCountQuestion || !rm.Predicates.IsScalarAnswer || rm.Intent != types.IntentExplain {
+		return false
+	}
+	return rm.Scenario == types.ScenarioArchitectureExplain ||
+		types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) == types.ReqMechanism
 }
 
 func renderCommandMeasurementEvidencePathAuthority(count int, lang string) string {

@@ -13294,3 +13294,39 @@ model-emitted `AnswerAggregateFact` 与 deterministic count reconcile 明确成�
 - `eval/parallel_selected_summary_evalcampaign_b69_traceread_r7_20260804.md`；
 - `eval/parallel_selected_summary_evalcampaign_b69_traceread_r7_20260804_manual_audit.md`；
 - result dirs：`eval/results/*-20260804-011337`。
+
+## 71. 2026-08-04 B70 r8：Analyzer 可选 profile 漏发使精确 route 义务在 prompt 面断链
+
+在 `main@e5c536da3` 构建后严格并行回放同两例，runner PASS 2/2；Trace 再次人工 PASS，Read 人工 FAIL：
+
+- trace 168s，trace_query=4、completion=2/1、finalizer reject=0；
+- read 179s，read=3、list=2、mid-loop injection=2、completion=1/0、finalizer reject=0。
+
+Trace 的 20.000ms selected-window 主值、11.000ms IO 主席、完整 wakeup chain、occupancy/eliminability 双轴、系统自动补齐与因果投影
+连续第二次生产回放正确；20.020ms 仍只作为 attachment extent 披露。一次 completion reject 来自模型主动提交了错误的 relation member
+roster，exact validator 给出 typed 五态 roster 后下一次闭环；optional omission 不会被拒，旧 format-only storm 未复发。
+
+### EVAL-B70-CMDPROFILE1（P0/implemented）：route 明确 required，Analyzer 漏 optional profile 后 guidance 不再不可达
+
+Read 的 turn policy 是 schema 完整的 `route=hybrid + source=mixed + needs_repo=true + current_source=required + operation=investigate`。
+但 Analyzer 本轮没有发 `CurrentSourceExplanationProfile`；`commandMeasurementEvidencePathActive` 原先把 active profile 作为唯一开关，
+因此 typed command measurement 已产生后，新增的 owner/parallel-carrier guidance 仍未进入 prompt。模型只读三个错误关注文件，最终把
+EmitAnalysis、EmitEvidence、EmitInvestigationComplete 说成 command measurement 的分类账/聚合链。
+
+本批用已有 typed route carrier 补软桥，不解析请求/理由/答案：
+
+1. active Analyzer profile 继续直接激活；
+2. profile 缺席时，仅当 route hint 明确 `required + needs_repo + source=mixed + non-operation`，RequestModel 同时是
+   `count + scalar + explain + mechanism/architecture`，并存在 producer-authored `ToolResult.CommandMeasurement`，才激活同一 prompt-only
+   authority；
+3. optional route、concrete operation、non-count incidental command 和无 typed carrier 的正反 pin 均保持不激活；
+4. 该桥只显示 source-owned guidance，不铸 evidence、不改 CurrentSourceLaneDecision、不触发 retry/answer scan。
+
+定向正反 pin 与 `go test ./internal/agent -count=1` 全绿（2.720s）。状态：
+`implemented-soft / typed-route-fallback / no-prose-scan / replay-next`。B70 并行载体内容在本样本中没有被消费，修桥复放前不能伪报已验收。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b70_traceread_r8_20260804.md`；
+- `eval/parallel_selected_summary_evalcampaign_b70_traceread_r8_20260804_manual_audit.md`；
+- result dirs：`eval/results/*-20260804-012117`。
