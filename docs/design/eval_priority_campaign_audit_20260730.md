@@ -12371,3 +12371,55 @@ Python 例改动仅触及 `relativedelta.py`：整数值 float 在构造期转 i
 - result dirs：`eval/results/*-20260803-195918`。
 
 本批不修改 Trace query、显式时间窗、Trace 因果投影、系统补采或答案发布所有权。
+
+## 58. 2026-08-03 B57 r5：调用链等价 typed 编码与显式窗 Trace 守护
+
+在 `main@8fdbf60c9` 重建并严格并行 2 例：
+
+- `qf_sequence_analyzer_gate`：runner PASS / human FAIL，315s，Explorer 9 轮、completion 1 次、finalizer
+  reject=2；
+- `trace_query_wakeup_causal_runnable`：runner PASS / human uncertain，142s，3 次 trace_query，finalizer
+  reject=0，runtime authority=`perf_triage+trace_query`。
+
+### EVAL-B58-CALLENC1（P0）：schema-valid 等价 predicate 编码不应改变安全合同
+
+r5 的 analyzer 与 r4 不同：仍为 `ReqCallChain + PredicateAxis=call`，文件路径过滤后仍恰好两个 symbol endpoint，
+但这次 `IsRelationalLookup=false / IsCrossComponent=true`。这是 `emit_analysis` 自一致检查明确接受的编码：
+`AxisCall`、relational boolean、或两个 named endpoints 任一均可证明 call-chain 关系形。B57 fallback 又额外要求
+relational boolean，造成 schema-valid 的同义 typed IR 获得不同安全检查。
+
+生产结果证明该差异有实质影响：模型读到 `buildAnalysisIR -> gate.RunWith`，又读到
+`gate.Run -> gate.RunWith` 的 wrapper 定义，却声称存在“外部调用者把 AnalysisIR 传入 gate.Run”，最终图把两个
+不连通段拼成一条链。该外部 caller 没有 typed call edge；真实有向图不存在 `buildAnalysisIR -> gate.Run` 路径。
+
+根修：two-endpoint fallback 不再要求冗余 `IsRelationalLookup`；只要求
+`ReqCallChain + AxisCall + exactly two non-path typed endpoint hints`。这是与 analyzer schema 相同的 typed
+disjunction，不是扩大到普通机制/架构问答。三个及以上 endpoint hint、非 AxisCall、非 ReqCallChain 仍不启用
+硬有向检查；显式 ExactTargets 仍最高优先。测试直接复刻 r5 编码（cross-component=true、relational=false）并
+证明 `RunWith` sibling 不能关闭 `Run`；三端点负臂保持 advisory。
+
+系统只要求模型补已证同向边或声明 `principal_span_waiver=no_directed_path`，不写外部 caller、不修改模型答案、
+不扫描 RawRequest/thinking/completion/final prose。状态：
+`EVAL-B58-CALLENC1 = implemented / full-tool-pass / replay-next`；验证
+`go test ./internal/tool -count=1` 全绿（168.795s）。
+
+### Trace 守护结论与模型观察项
+
+Trace 核心能力未受调用链源代码合同影响：
+
+- 用户窗保持 1.000000..1.010000，三次 query 均有 window/target filter；
+- worker-200→app-100 唤醒边、app-100 四态 10.000ms、worker 链累计 9.000ms、有效归因 8.300ms 分离；
+- 模型正文出现“主要时间占用 / 关键路径候选”和“窗内可消除量”双轴，明确两轴不可相加/替代；
+- `Trace 因果投影`、root-cause #1、代表窗、证据索引和成文前 root_cause_rank / critical_blocking_calls
+  系统补采完整；系统块只对照 typed 事实，没有替换模型主结论。
+
+新增 `EVAL-B58-TRACEWORD1/model-watch`：模型首段把工件跨度 10.020ms 写成目标阻塞时长，又说目标等待“完全由”
+8.300ms runnable 造成；同页 typed context 实际已清楚给出 selected window=10.000ms、chain cumulative=9.000ms、
+effective elimination=8.300ms，并说明主根因是量与凭证选举而非机理裁定。因精确信息足够且本轮零 reviewer /
+contract reject，先判模型措辞波动，后续更换窗长/链深复放；不得扫描“完全由”或具体数值正文做产品硬门。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b57_tracecall_r5_20260803.md`；
+- `eval/parallel_selected_summary_evalcampaign_b57_tracecall_r5_20260803_manual_audit.md`；
+- result dirs：`eval/results/*-20260803-201544`。

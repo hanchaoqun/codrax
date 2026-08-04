@@ -13009,10 +13009,14 @@ func completionExactCallChainEndpointShape(ctx *types.BusContext) bool {
 // completionDirectedCallChainEndpointShape selects the precise typed shapes
 // for which source-to-sink reachability is a hard completion fact. Explicit
 // ExactTargets remain authoritative. When an analyzer omits that optional
-// carrier, a relation may still be unambiguous: ReqCallChain + AxisCall + the
-// relational predicate and exactly two non-path typed endpoint hints. More
-// than two fallback symbols is ambiguous and stays advisory; no raw request,
-// model reasoning, completion reason, or final-answer prose is inspected.
+// carrier, a relation may still be unambiguous: ReqCallChain + AxisCall and
+// exactly two non-path typed endpoint hints. IsRelationalLookup is deliberately
+// not an additional requirement: emit_analysis accepts AxisCall or two named
+// endpoints as precise call-chain signals, so requiring the redundant boolean
+// here would make two schema-valid analyzer encodings receive different safety
+// checks. More than two fallback symbols is ambiguous and stays advisory; no
+// raw request, model reasoning, completion reason, or final-answer prose is
+// inspected.
 //
 // Keep this separate from completionExactCallChainEndpointShape: the latter
 // also promotes phase-1 file reads to blocking and must retain its stronger
@@ -13026,7 +13030,7 @@ func completionDirectedCallChainEndpointShape(ctx *types.BusContext) bool {
 	}
 	rm := ctx.AnalysisIR.RequestModel
 	if types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) != types.ReqCallChain ||
-		rm.PredicateAxis != types.AxisCall || !rm.Predicates.IsRelationalLookup {
+		rm.PredicateAxis != types.AxisCall {
 		return false
 	}
 	return len(types.CallChainRequestedEndpointHints(rm)) == 2

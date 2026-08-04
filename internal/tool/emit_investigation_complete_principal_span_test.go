@@ -74,7 +74,7 @@ func TestPreCompleteCallChain_TypedTwoEndpointFallbackStillRequiresDirection(t *
 	ctx := &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 		Intent:        types.IntentTrace,
 		PredicateAxis: types.AxisCall,
-		Predicates:    types.SemanticPredicates{IsRelationalLookup: true},
+		Predicates:    types.SemanticPredicates{IsCrossComponent: true},
 		AnalyzerHints: types.AnalyzerHints{
 			Kind:              string(types.ReqCallChain),
 			MentionedEntities: []string{"buildAnalysisIR", "gate.Run", "analyzer.go", "orchestrator.go"},
@@ -85,7 +85,7 @@ func TestPreCompleteCallChain_TypedTwoEndpointFallbackStillRequiresDirection(t *
 		t.Fatal("precondition: analyzer intentionally omitted ExactTargets")
 	}
 	if !completionDirectedCallChainEndpointShape(ctx) {
-		t.Fatal("two typed symbol endpoints should activate directed reachability without reading request prose")
+		t.Fatal("two typed symbol endpoints on AxisCall should activate directed reachability without a redundant relational flag or request prose")
 	}
 	got := preCompleteContractCheckWithEvidence(ctx, "", evidence)
 	if !strings.Contains(got, "not directionally proven") || !strings.Contains(got, "`buildAnalysisIR` -> `gate.Run`") {
