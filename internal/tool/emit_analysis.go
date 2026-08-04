@@ -467,7 +467,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"exact_targets": map[string]any{
 				"type":        "array",
-				"description": "Optional exact user-asked targets, copied verbatim from the current request text. Use when the request mentions neighboring context items but asks about one specific key/path/symbol/literal. Every item must be explicitly present in the current request text before later steps use it.",
+				"description": "Optional exact user-asked targets, copied verbatim from the current request text. Use when the request mentions neighboring context items but asks about one specific key/path/symbol/literal. For a source-code call_chain with more than two symbol-like entities, this field is required and must contain the caller/source and callee/sink (intermediate/context symbols stay in entities). Every item must be explicitly present in the current request text before later steps use it.",
 				"items":       map[string]string{"type": "string"},
 			},
 			"exact_context_terms": map[string]any{
@@ -1747,6 +1747,20 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		val.Warnings = append(val.Warnings, warning)
 	}
 	mentionedEntities := types.MentionedEntitiesFromRawRequest(raw, entities)
+	if issue := validateSourceCallChainEndpointDeclaration(
+		kind,
+		axis,
+		runtimeArtifactCarrier,
+		exactTargets,
+		mentionedEntities,
+	); issue != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + issue,
+			Timestamp: time.Now(),
+		}, nil
+	}
 	// Self-consistency: after typed, deterministic normalizers have
 	// absorbed safe drift, reject only contradictions that still need
 	// the LLM to reconcile its own classification.
@@ -2571,6 +2585,46 @@ func validateRuntimeArtifactCallChainConsistency(
 		return ""
 	}
 	return "question_kind=call_chain with one runtime target requires predicates.is_relational_lookup=true or at least two distinct runtime targets — predicate_axis=call only names the relationship axis and cannot by itself turn a target's state, duration, count, reason, or current status into a call chain; use question_kind=conditional/mechanism for that fact shape"
+}
+
+// validateSourceCallChainEndpointDeclaration prevents contextual symbols from
+// silently becoming source/sink endpoints later in exploration. Two non-path
+// entity hints are unambiguous and need no redundant exact_targets. When the
+// analyzer emits three or more symbol hints, however, their order cannot tell
+// us which pair the user asked to connect; require the model to identify at
+// least two verbatim exact targets at the analyzer boundary. Runtime artifact
+// call chains use RuntimeTargets and have their own consistency validator.
+// This function consumes only normalized typed fields, never request prose.
+func validateSourceCallChainEndpointDeclaration(
+	kind string,
+	axis types.PredicateAxis,
+	runtimeArtifactCarrier bool,
+	exactTargets, mentionedEntities []string,
+) string {
+	if runtimeArtifactCarrier ||
+		types.NormalizeRequirementKind(kind) != types.ReqCallChain ||
+		axis != types.AxisCall {
+		return ""
+	}
+	exactEndpoints := types.CallChainRequestedEndpointHints(types.RequestModel{
+		AnalyzerHints: types.AnalyzerHints{MentionedEntities: exactTargets},
+	})
+	if len(exactEndpoints) == 1 {
+		return "source-code question_kind=call_chain exact_targets contains only one symbol endpoint; provide both caller/source and callee/sink, or omit symbol exact_targets when the two endpoint entities are already unambiguous"
+	}
+	entityEndpoints := types.CallChainRequestedEndpointHints(types.RequestModel{
+		AnalyzerHints: types.AnalyzerHints{MentionedEntities: mentionedEntities},
+	})
+	if len(entityEndpoints) <= 2 {
+		return ""
+	}
+	if len(exactEndpoints) >= 2 {
+		return ""
+	}
+	return fmt.Sprintf(
+		"source-code question_kind=call_chain with predicate_axis=call has %d symbol-like entities but only %d exact endpoint target(s); set exact_targets to at least the caller/source and callee/sink copied verbatim from the current request, and keep intermediate/context symbols in entities — entity ordering is not endpoint authority",
+		len(entityEndpoints), len(exactEndpoints),
+	)
 }
 
 // runtimeArtifactDistinctTargetCount counts endpoint identities, not emitted
@@ -4574,7 +4628,7 @@ func validateExactTargets(raw string, in []string, requiredFiles []emitRequiredF
 		// surface vanished — then this lane branded the verbatim
 		// survivor invalid: a false diagnostic AND lost user intent.
 		// The direct raw check is the precise signal.
-		if lowerRaw != "" && strings.Contains(lowerRaw, strings.ToLower(strings.ReplaceAll(trimmed, `\`, `/`))) {
+		if lowerRaw != "" && types.RawRequestExplicitlyMentionsEntity(raw, trimmed) {
 			validated = append(validated, trimmed)
 			seen[key] = true
 			continue

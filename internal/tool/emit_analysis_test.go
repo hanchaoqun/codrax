@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -760,6 +761,72 @@ func TestValidateRuntimeArtifactCallChainConsistencyRequiresTypedRelationForOneT
 		append(target, types.RuntimeTarget{Kind: types.RuntimeTargetKindProcess, PID: 59566, Thread: "com.baidu.tieba"}),
 	); got == "" {
 		t.Fatal("two rows for the same positive pid must remain one focus identity, not source + sink")
+	}
+}
+
+func TestEmitAnalysis_SourceCallChainAmbiguousEntitiesRequireExactEndpointPair(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	objective := "请用 Mermaid 时序图展示 analyzer.go 里 buildAnalysisIR 到 gate.Run 的调用顺序"
+	base := `{
+		"intent": "trace",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["buildAnalysisIR", "gate.Run", "AnalysisIR", "call", "sequence"],
+		"entities": ["analyzer.go", "buildAnalysisIR", "gate.Run", "AnalysisIR"],
+		"question_kind": "call_chain",
+		"predicate_axis": "call"
+	}`
+	res, mu := runEmitAnalysisWithObjective(t, objective, base)
+	if !res.Success || mu.RequestModel() == nil {
+		t.Fatalf("nested derived identifier must not create endpoint ambiguity, got success=%t summary=%q", res.Success, res.Summary)
+	}
+	if got := mu.RequestModel().AnalyzerHints.MentionedEntities; slices.Contains(got, "AnalysisIR") {
+		t.Fatalf("nested AnalysisIR must not gain user-mentioned authority: %v", got)
+	}
+
+	objective = "请展示 buildAnalysisIR 到 gate.Run 的调用链；AnalysisIR 只是需要解释的中间类型"
+	res, mu = runEmitAnalysisWithObjective(t, objective, base)
+	if res.Success || !strings.Contains(res.Summary, "entity ordering is not endpoint authority") {
+		t.Fatalf("ambiguous call-chain entities must request exact endpoint identities, got success=%t summary=%q", res.Success, res.Summary)
+	}
+	if mu.RequestModel() != nil {
+		t.Fatalf("ambiguous endpoint analysis must not persist: %+v", mu.RequestModel())
+	}
+
+	withExact := strings.Replace(base,
+		`"question_kind": "call_chain",`,
+		`"question_kind": "call_chain", "exact_targets": ["buildAnalysisIR", "gate.Run"],`,
+		1,
+	)
+	res, mu = runEmitAnalysisWithObjective(t, objective, withExact)
+	if !res.Success || mu.RequestModel() == nil {
+		t.Fatalf("explicit source/sink pair should resolve contextual entity ambiguity, got success=%t summary=%q", res.Success, res.Summary)
+	}
+	if got := mu.RequestModel().AnalyzerHints.ExactTargets; !reflect.DeepEqual(got, []string{"buildAnalysisIR", "gate.Run"}) {
+		t.Fatalf("persisted exact endpoints=%v", got)
+	}
+
+	withOneExact := strings.Replace(base,
+		`"question_kind": "call_chain",`,
+		`"question_kind": "call_chain", "exact_targets": ["buildAnalysisIR"],`,
+		1,
+	)
+	res, mu = runEmitAnalysisWithObjective(t, objective, withOneExact)
+	if res.Success || !strings.Contains(res.Summary, "contains only one symbol endpoint") {
+		t.Fatalf("one exact endpoint must not suppress the typed endpoint pair, got success=%t summary=%q", res.Success, res.Summary)
+	}
+
+	twoEntity := strings.Replace(base,
+		`["analyzer.go", "buildAnalysisIR", "gate.Run", "AnalysisIR"]`,
+		`["analyzer.go", "buildAnalysisIR", "gate.Run"]`,
+		1,
+	)
+	res, mu = runEmitAnalysisWithObjective(t, objective, twoEntity)
+	if !res.Success || mu.RequestModel() == nil {
+		t.Fatalf("exactly two typed symbol entities remain an unambiguous no-retry lane, got success=%t summary=%q", res.Success, res.Summary)
 	}
 }
 

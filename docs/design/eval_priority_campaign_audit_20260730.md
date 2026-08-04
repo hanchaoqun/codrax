@@ -12423,3 +12423,64 @@ contract reject，先判模型措辞波动，后续更换窗长/链深复放；�
 - `eval/parallel_selected_summary_evalcampaign_b57_tracecall_r5_20260803.md`；
 - `eval/parallel_selected_summary_evalcampaign_b57_tracecall_r5_20260803_manual_audit.md`；
 - result dirs：`eval/results/*-20260803-201544`。
+
+## 59. 2026-08-03 B58 r6：端点实体词界权威与 Cangjie 清单守护
+
+在 `main@1c453d9ce` 重建后严格并行 2 例：
+
+- `qf_sequence_analyzer_gate`：runner PASS / human FAIL，240s，Explorer 9 轮、completion 4 次、finalizer
+  reject=1；
+- `cangjie_repomap_fixture`：runner/human PASS，95s，2 次 source-inventory lens、finalizer reject=1。
+
+### EVAL-B59-CALLBOUND1（P0）：标点抹平子串会给派生实体铸造用户端点权威
+
+r6 证明前两批的 directed-path 合同已经启用，但入口实体本身仍被污染。用户只点名
+`buildAnalysisIR -> gate.Run`；Analyzer 额外发出上下文类型 `AnalysisIR`。公共
+`MentionedEntitiesFromRawRequest` 旧实现同时做裸子串与“删除全部标点后的子串”，于是把
+`buildAnalysisIR` 内部的词尾 `AnalysisIR` 判为用户独立点名。后果不是单一回答措辞问题，而是一条跨阶段级联：
+
+1. typed endpoint hint 变成三个，two-endpoint 有向合同正确地拒绝猜测；
+2. principal-span 兄弟车道仍把实体顺序当端点身份，选中 `buildAnalysisIR -> AnalysisIR`，而非用户终点；
+3. Explorer 对该错误跨度连续三次 forced read，消耗 9 轮探索和 4 次 completion；
+4. 最终答案仍把唯一已证的 `gate.RunWith` 写成 `gate.Run` 的“实际/底层函数”。真实源码只有
+   `buildAnalysisIR -> gate.RunWith` 与反向 wrapper `gate.Run -> gate.RunWith`，不存在请求方向路径。
+
+本批按公共实体权威根修，而非拟合 `AnalysisIR`：
+
+1. `MentionedEntitiesFromRawRequest` 改用候选级、大小写无关的**完整词界**匹配；不再删除标点后做任意子串。
+   `AnalysisIR` 不能从 `buildAnalysisIR` 获权，`Run` 也不能从 `gate.Run` 或 sibling 中冒充独立点名；路径、
+   配置键、限定符号仍按其完整 surface 匹配；
+2. 该入口只检查 Analyzer schema 字段中逐个 typed candidate 是否出现在当前 request surface，属于既有
+   exact-target provenance sink；不枚举关键词、不分类用户原文，也不扫描 thinking/final prose；
+3. source-code `ReqCallChain + AxisCall` 在**真实独立** typed symbol 超过两个时，要求 Analyzer 用
+   `exact_targets` 成对声明 caller/source 与 callee/sink；上下文/中间实体继续留在 `entities`，实体数组顺序
+   永不取得端点权限；
+4. 调用链一旦使用 symbol `exact_targets`，只给一个端点也会在 Analyzer 边界被拒绝并要求成对或全部省略。
+   这是为了防止 `CallChainRequestedEndpointHints` 的 exact-first 规则用单点覆盖完整双端点；path-only exact
+   target 仍回退 typed entity lane；
+5. 实际 r6 形态（只在长标识符内嵌一个派生词尾）现在保持 two-endpoint **零重试**车道；只有用户真的同时
+   点名第三个上下文符号才请求一次精确 source/sink 声明，避免把端点猜测债推到探索/成文阶段。
+
+状态：`EVAL-B59-CALLBOUND1 = implemented / full-types-tool-pass / replay-next`。回归包含内嵌 identifier 负臂、
+独立第三实体歧义臂、双 exact 正臂、单 exact 拒绝臂；`go test ./internal/types -count=1` 全绿（22.986s），
+`go test ./internal/tool -count=1` 全绿（171.567s）。本批不改 Trace query、显式时间窗、Trace 因果投影、系统
+补采或答案发布所有权。
+
+### Cangjie 人工审计与 EVAL-B59-INVROW1（P1/open）
+
+Cangjie 清单答案正确：声明级 package 分别来自 `demo.bridge`、`demo.cart`、`demo.app`；完整列出
+`Cart@30` extend、`native_add@6` foreign func，以及 `Bridge@15`、`Cart@14`、`App@11` 三个 public class。
+这证明 source-inventory lens 对 Cangjie 的声明形与 package 载荷可支撑答案，不需要 Java 特判或正文接管。
+
+但一次成文拒绝暴露泛化观察项：同一文件同名 `Cart` 同时有 class 行与 extend 行，principal row coverage
+把模型标签 `Cart (extend 块)` 判成“typed principal row set 外”，要求删除/移出；patch 后同一条目又被接受。
+这说明 exhaustive inventory 的可见 item identity 可能仍主要依赖 label，尚未稳定携带
+`source + line + declaration-family/role` 复合身份。当前最终答案未丢条目，故不把它升级为正确性 P0；下一批应
+用重载函数、同名声明跨 package、class+extension 三种异构 fixture 否证后，再决定是否统一修复 row identity。
+禁止为 Cangjie 的 `extend` 字样增加答案关键词门。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b58_callcangjie_r6_20260803.md`；
+- `eval/parallel_selected_summary_evalcampaign_b58_callcangjie_r6_20260803_manual_audit.md`；
+- result dirs：`eval/results/*-20260803-202843`。

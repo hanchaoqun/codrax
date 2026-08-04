@@ -299,12 +299,6 @@ func MentionedEntitiesFromRawRequest(raw string, candidates []string) []string {
 	if raw == "" || len(candidates) == 0 {
 		return nil
 	}
-	lowerRaw := strings.ToLower(strings.ReplaceAll(raw, `\`, `/`))
-	normRawSymbol := normalizeExactResolutionToken("symbol", raw)
-	normRawPath := normalizeExactResolutionToken("path", raw)
-	if lowerRaw == "" && normRawSymbol == "" && normRawPath == "" {
-		return nil
-	}
 	seen := make(map[string]bool)
 	var out []string
 	for _, candidate := range candidates {
@@ -319,16 +313,53 @@ func MentionedEntitiesFromRawRequest(raw string, candidates []string) []string {
 		if key == "" || seen[key] {
 			continue
 		}
-		explicit := strings.Contains(lowerRaw, strings.ToLower(strings.ReplaceAll(candidate, `\`, `/`))) ||
-			strings.Contains(normRawSymbol, normalizeExactResolutionToken("symbol", candidate)) ||
-			strings.Contains(normRawPath, normalizeExactResolutionToken("path", candidate))
-		if !explicit {
+		if !RawRequestExplicitlyMentionsEntity(raw, candidate) {
 			continue
 		}
 		seen[key] = true
 		out = append(out, candidate)
 	}
 	return out
+}
+
+// RawRequestExplicitlyMentionsEntity validates one typed entity candidate
+// against the current request surface. It deliberately uses lexical token
+// boundaries instead of punctuation-stripped substring matching: a derived
+// candidate such as "AnalysisIR" must not become user authority merely because
+// the request contains the longer identifier "buildAnalysisIR". The candidate
+// comes from a schema-validated analyzer field; this is not a prose classifier.
+func RawRequestExplicitlyMentionsEntity(raw, candidate string) bool {
+	raw = strings.ToLower(strings.ReplaceAll(strings.TrimSpace(raw), `\`, `/`))
+	candidate = strings.ToLower(strings.ReplaceAll(
+		strings.TrimSpace(strings.Trim(candidate, "`\"' ")), `\`, `/`,
+	))
+	if raw == "" || candidate == "" {
+		return false
+	}
+	for start := 0; start <= len(raw)-len(candidate); {
+		rel := strings.Index(raw[start:], candidate)
+		if rel < 0 {
+			return false
+		}
+		pos := start + rel
+		if exactEntitySurfaceBoundary(raw, pos-1) &&
+			exactEntitySurfaceBoundary(raw, pos+len(candidate)) {
+			return true
+		}
+		start = pos + 1
+	}
+	return false
+}
+
+func exactEntitySurfaceBoundary(surface string, index int) bool {
+	if index < 0 || index >= len(surface) {
+		return true
+	}
+	b := surface[index]
+	return !((b >= 'a' && b <= 'z') ||
+		(b >= '0' && b <= '9') ||
+		b == '_' || b == '.' || b == ':' || b == '/' || b == '-' ||
+		b == '$' || b == '#' || b == '@')
 }
 
 func DerivedEntitiesFromMentioned(all, mentioned []string) []string {

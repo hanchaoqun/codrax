@@ -352,6 +352,18 @@ func TestMentionedAndDerivedEntitiesFromRawRequest(t *testing.T) {
 	}
 }
 
+func TestMentionedEntitiesFromRawRequest_RejectsNestedIdentifierAuthority(t *testing.T) {
+	raw := "请用 Mermaid 展示 analyzer.go 里 buildAnalysisIR 到 gate.Run 的调用顺序"
+	candidates := []string{"analyzer.go", "buildAnalysisIR", "gate.Run", "AnalysisIR", "Run"}
+	want := []string{"analyzer.go", "buildAnalysisIR", "gate.Run"}
+	if got := MentionedEntitiesFromRawRequest(raw, candidates); !reflect.DeepEqual(got, want) {
+		t.Fatalf("mentioned=%v, want exact lexical surfaces %v", got, want)
+	}
+	if RawRequestExplicitlyMentionsEntity("请检查 AnalysisIR。", "AnalysisIR") != true {
+		t.Fatal("standalone identifier should remain an explicit mention")
+	}
+}
+
 func TestExactResolutionPendingTargets_ConfigKey(t *testing.T) {
 	contract := &ExactResolutionContract{
 		TargetKind:   SubjectConfigKey,
