@@ -13131,3 +13131,51 @@ typed partition；附件总跨度、窗后 switch-in 和 pre-triage navigation h
 - `eval/parallel_selected_summary_evalcampaign_b66_traceread_r4_20260803.md`；
 - `eval/parallel_selected_summary_evalcampaign_b66_traceread_r4_20260803_manual_audit.md`；
 - result dirs：`eval/results/*-20260804-001754`。
+
+## 68. 2026-08-04 B67 r5：route 主轴漂移与 relation carrier 重试风暴
+
+在 `main@0f11651d1` 构建后仍严格并行 2 例。Read 29s 机器/人工 FAIL；Trace 在第 21 个 Explorer 轮次由人工
+fail-fast 中止（约 572s、context≈103k/51%），因为同一 completion 合同已经确定性重复 20 次。中止只停止浪费预算，完整日志与
+result dir 均保留。
+
+### EVAL-B68-ROUTEINV4（P0/implemented）：raw route=operation 也不能抹掉 required current-source obligation
+
+Read r5 的 typed 结构比 r4 更强烈冲突：`raw_route=operation + operation/operation_kind=computer_operation + desktop`，同时
+`needs_repo=true + current_source=required + source=mixed`。planner 没有执行源码分析，反而要求用户补充已在请求中明确给出的命令目标；
+pipeline dispatch 仍为 0。
+
+根修不判断请求词面：后三个字段组成不可丢失的 current-source pipeline obligation。仅当 computer_operation 无 concrete side effect、
+risk 为 none/low 时，这个 obligation 将矛盾的 route/operation/desktop 一并 fail-safe 到 repo/investigate；没有该 obligation 的真实
+desktop/browser/machine operation 保持 operation。exact r5 guard pin 与 REPL dispatch pin 全绿，`go test ./internal/repl -count=1`
+全绿（33.060s）。状态：`implemented / committed(dba723a30) / replay-after-B68-relation`。
+
+### EVAL-B68-RELTAIL1（P0/implemented）：misplaced typed relation 被漏恢复，format-only copy 又被硬要求
+
+Trace 本身的取证已经正确：4 次 exact-window trace_query 形成 20.000ms target partition、完整
+threadpool→network→cookie→app 链与 11.000ms fscache IO 主席。失败发生在闭环载体，不是 Trace 数值：
+
+1. provider 把 `aggregate_facts` 编成 JSON string，并把 sibling `relation_claims` 连在该 string 的数组尾部；
+2. `decodeAggregateFactsPayload` 已有通用 misplaced-tail 恢复，能恢复 reason/confidence/result_kind/absence justification，却没有消费同一个
+   map 里的 schema-known `relation_claims`；
+3. 模型前几轮提交了精确 authority，但解码后顶层 claims 永远为空；后续即使改 member roster，仍收到完全相同的“missing required”拒绝；
+4. Explorer completion 强制复制 every required authority，但 validator 不扫描 reason/prose，因此这个格式复制本身无法证明模型结论遵守
+   关系；finalizer 已经按更合理合同把 carrier 定义为 optional、仅对已提交 claim 做 exact validation。两阶段合同因此互相不一致。
+
+本批统一为架构正确形：
+
+- misplaced-tail decoder 现在从同一 typed sibling map 严格恢复 `relation_claims`；unknown field/错误结构仍 fail-loud；
+- investigation relation metadata 改为 optional，typed authority slate 仍进入 finalizer reasoning context；缺席不再制造格式重试；
+- 任何模型主动提交的 claim 仍按 authority id、完整 member roster、physical relation、addition 和 subtotal 精确校验，错误 claim 继续硬拒；
+- 不读取请求/答案/模型 reason，不改写结论，不降低 trace arithmetic authority。
+
+三条定向 pin 覆盖 optional omission、wrong submitted claim reject、string-tail exact recovery；`go test ./internal/tool -count=1` 全绿
+（168.432s）。状态：`implemented / tool-full-pass / commit-next / replay-next`。
+
+`EVAL-B67-TRACEVALUE1` 本轮因 Explorer 未闭环而没有进入 finalizer，不能拿该中止样本判断 soft guidance 效果，保持
+`implemented-soft / replay-next`，禁止伪报已验证。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b67_traceread_r5_20260804.md`；
+- `eval/parallel_selected_summary_evalcampaign_b67_traceread_r5_20260804_manual_audit.md`；
+- result dirs：`eval/results/*-20260804-003138`。

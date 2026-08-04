@@ -173,7 +173,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 			"relation_claims": {
 				"type": "array",
 				"maxItems": 16,
-				"description": "Model-authored typed value-relation declarations. When a trace_query result publishes required relation_authority objects, copy EVERY required object into this array before closing. Keep reason consistent with these claims. The framework validates only this structured payload against typed trace carriers; it does not scan or rewrite reason. Each entry is {authority_id, member_refs[], physical_relation, addition, optional subtotal_value/subtotal_unit}. A cross-ruler authority requires physical_relation=unresolved and addition=forbidden with no subtotal; a same-ruler authority requires the exact member roster and published subtotal.",
+				"description": "Optional model-authored typed value-relation declarations. Typed trace relation_authority objects are already carried into final synthesis; omitting this format-only copy does not block investigation closure. If you submit an entry, copy the exact authority object and keep reason consistent with it. The framework validates submitted structured payload only against typed trace carriers; it does not scan or rewrite reason. Each entry is {authority_id, member_refs[], physical_relation, addition, optional subtotal_value/subtotal_unit}. A cross-ruler authority requires physical_relation=unresolved and addition=forbidden with no subtotal; a same-ruler authority requires the exact member roster and published subtotal.",
 				"items": {
 					"type": "object",
 					"properties": {
@@ -314,6 +314,14 @@ func (p *emitInvestigationCompleteParams) loadFromRaw(raw emitInvestigationCompl
 		return err
 	}
 	misplaced = mergeMisplacedCompletionFields(misplaced, reasonMisplaced)
+	relationClaims := types.CloneAnswerRelationClaims(raw.RelationClaims)
+	if len(relationClaims) == 0 {
+		if recovered := misplaced["relation_claims"]; len(recovered) > 0 {
+			if err := decodeStrictJSONValue(recovered, &relationClaims); err != nil {
+				return fmt.Errorf("decode misplaced relation_claims: %w", err)
+			}
+		}
+	}
 	if raw.Reason == "" {
 		raw.Reason = decodeMisplacedStringField(misplaced, "reason")
 	}
@@ -332,7 +340,7 @@ func (p *emitInvestigationCompleteParams) loadFromRaw(raw emitInvestigationCompl
 		ResultKind:               raw.ResultKind,
 		AbsenceJustification:     raw.AbsenceJustification,
 		AggregateFacts:           facts,
-		RelationClaims:           types.CloneAnswerRelationClaims(raw.RelationClaims),
+		RelationClaims:           relationClaims,
 		EvidenceFloorWaiver:      raw.EvidenceFloorWaiver,
 		ClearEvidenceWaiver:      raw.ClearEvidenceWaiver,
 		PrincipalSpanWaiver:      raw.PrincipalSpanWaiver,

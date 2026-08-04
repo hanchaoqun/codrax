@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -49,10 +50,10 @@ func relationClaimPipelineFixture(t *testing.T) (*types.BusContext, []types.Answ
 	return bus, claims
 }
 
-func TestCompletionRelationClaimsRejectCrossRulerTotalAndAcceptTypedRoster(t *testing.T) {
+func TestCompletionRelationClaimsAreOptionalButRejectDriftAndAcceptTypedRoster(t *testing.T) {
 	bus, claims := relationClaimPipelineFixture(t)
-	if got, err := validateCompletionRelationClaims(bus, nil); err == nil || len(got) != 0 || !strings.Contains(err.Error(), "missing required") {
-		t.Fatalf("missing required claims should reject, got=%+v err=%v", got, err)
+	if got, err := validateCompletionRelationClaims(bus, nil); err != nil || len(got) != 0 {
+		t.Fatalf("omitted format-only claims should not block closure, got=%+v err=%v", got, err)
 	}
 	wrong := types.CloneAnswerRelationClaims(claims)
 	wrong[2].Addition = types.AnswerRelationAdditionAuthorized
@@ -65,6 +66,32 @@ func TestCompletionRelationClaimsRejectCrossRulerTotalAndAcceptTypedRoster(t *te
 	got, err := validateCompletionRelationClaims(bus, claims)
 	if err != nil || !types.AnswerRelationClaimsEqual(got, claims) {
 		t.Fatalf("valid relation claims rejected: got=%+v err=%v", got, err)
+	}
+}
+
+func TestCompletionRelationClaimsRecoverFromStringEncodedAggregateTail(t *testing.T) {
+	bus, claims := relationClaimPipelineFixture(t)
+	claimsJSON, err := json.Marshal(claims)
+	if err != nil {
+		t.Fatalf("marshal claims: %v", err)
+	}
+	params, err := json.Marshal(map[string]any{
+		"reason":      "typed trace relation handoff complete",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": `[{"kind":"scalar_value","label":"target duration","value":"20.000","unit":"ms"}], "relation_claims": ` +
+			string(claimsJSON),
+	})
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+	res, err := (&EmitInvestigationComplete{}).Execute(bus, params)
+	if err != nil || !res.Success {
+		t.Fatalf("misplaced typed relation claims should be recovered exactly: res=%+v err=%v", res, err)
+	}
+	got := bus.Mutable.StableInvestigationRelationClaims()
+	if !types.AnswerRelationClaimsEqual(got, claims) {
+		t.Fatalf("recovered relation claims mismatch: got=%+v want=%+v", got, claims)
 	}
 }
 
