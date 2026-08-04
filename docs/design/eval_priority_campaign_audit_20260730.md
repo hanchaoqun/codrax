@@ -14212,3 +14212,27 @@ source value 不再参与合取，形成静默错接。这个风险泛化到任�
 - `eval/results/data_multifile_reference_projection-20260804-073033`；
 - terminal `.codrax/data-audit/20260804-073603-259412-11745-terminal.json`；
 - final result `.codrax/data-audit/20260804-073550-414362-11745-result-r15.json`。
+
+### B81-C implementation（implemented/tests-pass/replay-next）：resolution 身份优先级收敛
+
+施工只修改 `apply_entity_resolutions` 内一处 typed choice 选举，不改变 planner 文本、模型 action 或业务字段：
+
+1. 显式 `base_key_fields` 继续拥有最高优先级；结构 key 命中即使用，结构 key 未命中时仍保留既有 source-value fallback，
+   不破坏明确 locator/join-key 合同；
+2. action 未显式声明 base key，且 resolution ledger 的 `source_field/source_value` 能在 base 字段中读取时，source-value
+   候选成为权威；零 accepted choice 直接记 unmatched，不再让隐式 `_source_index`/row number 抢权；
+3. 同一 source value 在多条源记录中产生完全相同 canonical id/label/status 时按结果身份合并，避免重复值被伪装成
+   ambiguity；若 canonical 结果不同则仍保留多 choice，由原有 ambiguous 车道 fail-closed；
+4. source-value 身份不可用时，既有 locator fallback 继续工作，兼容只携带 item locator、没有 source value 的 ledger。
+
+新增多材料 extract → normalize → apply 的完整回归，前置 labels 四行使 observations 的数字索引与 resolution locator 发生
+重叠：修复前稳定得到 `matched=6/unmatched=0` 并把 Gamma/unmapped 错接到 GroupA；修复后钉住
+`matched=5/unmatched=1`、Gamma→GroupC、unmapped→unmatched。另有对抗用例钉住显式 base key 与 source value 冲突时
+显式 key 必须获胜。
+
+验证：全部 `TestActionRunnerApplyEntityResolutions*` 与新增身份用例通过；
+`go test ./internal/dataquery ./internal/dataworkflow` 全绿；`internal/repl` 全包首次出现一次与本改动无关的
+cancel-listener 一次性告警时序失败，单测与整包立即复跑均绿。LOC ratchet 保持原上限，`action_runner.go=12324 < 12344`。
+
+状态更新：`EVAL-B81-DATARESID1=implemented/tests-pass/replay-next`。下一批仍严格并行 2 个：原多文件 witness + 一个
+异构 entity-resolution case，验收值 ledger、receipt、reconcile 与终稿，而不是只验 runner 标签。

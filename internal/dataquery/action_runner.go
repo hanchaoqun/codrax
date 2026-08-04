@@ -5255,14 +5255,25 @@ func (r ActionRunner) runApplyEntityResolutions(action DataAction) (DataArtifact
 				continue
 			}
 			key := baseRecordApplyResolutionKey(base, spec)
-			choices := filterAcceptedResolutionChoices(indexes[i][key], spec)
-			if len(choices) == 0 {
+			structuralChoices := filterAcceptedResolutionChoices(indexes[i][key], spec)
+			if len(structuralChoices) == 0 {
 				if locatorKey := implicitBaseRecordApplyResolutionLocatorKey(base); locatorKey != "" && locatorKey != key {
-					choices = filterAcceptedResolutionChoices(indexes[i][locatorKey], spec)
+					structuralChoices = filterAcceptedResolutionChoices(indexes[i][locatorKey], spec)
 				}
 			}
-			if len(choices) == 0 {
-				choices = filterAcceptedResolutionChoices(sourceValueResolutionChoicesForBase(base, sourceValueIndexes[i]), spec)
+			sourceValueChoices, sourceValueApplicable := sourceValueResolutionChoicesForBase(base, sourceValueIndexes[i])
+			sourceValueChoices = collapseEquivalentResolutionChoices(filterAcceptedResolutionChoices(sourceValueChoices, spec), spec)
+			choices := structuralChoices
+			if len(spec.BaseKeyFields) == 0 && sourceValueApplicable {
+				// With no explicit base-key contract, source_field/source_value is
+				// the stronger identity. An empty accepted set means unmatched;
+				// falling back to a coincidentally equal row number can silently
+				// attach another record's canonical value.
+				choices = sourceValueChoices
+			} else if len(choices) == 0 {
+				// Explicit structural keys retain precedence, while preserving the
+				// established source-value fallback when that declared key misses.
+				choices = sourceValueChoices
 			}
 			status := spec.UnmatchedStatusValue
 			if status == "" {
@@ -6158,17 +6169,19 @@ func resolutionSourceValueBaseFieldCandidates(record actionRecord) []string {
 	return cleanStringSlice(fields)
 }
 
-func sourceValueResolutionChoicesForBase(record actionRecord, index applyResolutionSourceValueIndex) []resolutionChoice {
+func sourceValueResolutionChoicesForBase(record actionRecord, index applyResolutionSourceValueIndex) ([]resolutionChoice, bool) {
 	if !index.Enabled {
-		return nil
+		return nil, false
 	}
 	var out []resolutionChoice
 	seen := map[string]bool{}
+	applicable := false
 	for _, field := range index.BaseFields {
 		value := normalizeApplyResolutionSourceValueKey(recordField(record.Fields, field))
 		if value == "" {
 			continue
 		}
+		applicable = true
 		for _, choice := range index.Choices[value] {
 			key := recordField(choice.rec.Fields, "item_id") + "\x00" + recordField(choice.rec.Fields, "source_value") + "\x00" + recordField(choice.rec.Fields, "canonical_id") + "\x00" + recordField(choice.rec.Fields, "canonical_label")
 			if seen[key] {
@@ -6177,6 +6190,27 @@ func sourceValueResolutionChoicesForBase(record actionRecord, index applyResolut
 			seen[key] = true
 			out = append(out, choice)
 		}
+	}
+	return out, applicable
+}
+
+func collapseEquivalentResolutionChoices(choices []resolutionChoice, spec applyResolutionSpec) []resolutionChoice {
+	if len(choices) < 2 {
+		return choices
+	}
+	out := make([]resolutionChoice, 0, len(choices))
+	seen := map[string]bool{}
+	for _, choice := range choices {
+		key := strings.Join([]string{
+			recordField(choice.rec.Fields, spec.CanonicalIDField),
+			applyResolutionTargetLabelValue(choice.rec, spec),
+			strings.ToLower(strings.TrimSpace(choice.status)),
+		}, "\x00")
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, choice)
 	}
 	return out
 }
