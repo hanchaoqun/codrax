@@ -13657,3 +13657,63 @@ caliber pins：cross-language/source-static probe 仍不能取得 target executi
 - `eval/parallel_selected_summary_evalcampaign_b74_writeoperation_r1_20260804.md`；
 - `eval/parallel_selected_summary_evalcampaign_b74_writeoperation_r1_20260804_manual_audit.md`；
 - result dirs：`eval/results/*-20260804-050207`。
+
+## 77. 2026-08-04 B75 r1：材料完整性未绑定目标身份；数据参考投影被自洽校验误签
+
+在 `main@52cc3eda7` 构建后严格并行两个异构案例：runner 表面 1/2 PASS，人工审计 0/2 PASS。
+
+- `operation_web_manual_summary`：54s，runner PASS / human FAIL；
+- `data_multifile_reference_projection`：423s，runner FAIL / human FAIL。
+
+### EVAL-B75-OPGOALMAT1（P0/confirmed）：complete receipt 只证明源完整，没有证明目标材料正确
+
+B74 的修复已生效：最终 command evaluation 是 `status=complete material_coverage_status=complete`，并引用合法
+`material-coverage:v1` receipt，compact repair 没有再把完整 ledger 降成 partial。但本轮模型只取得 Codrax 首页，
+首页又明确暴露 `user_guide.html` link target；用户要求的是站内“用户使用手册”，最终摘要却把完整首页当成完整目标材料。
+
+这不是 coverage receipt 语义错误，而是两个独立维度被错误合并：
+
+1. source coverage：选中的 source 是否完整；
+2. goal-material identity：选中的 source 是否满足 operation plan 要求的目标材料。
+
+现有 eval oracle 只要求 `complete + html_text receipt`，任何完整 HTML 都能刷绿。根修先补 system-owned records
+派生的 receipt→source ref/identity typed 观测面，并增加 opt-in `EXPECT_OPERATION_COVERAGE_SOURCE_REGEX`；case 可对
+versioned 目标材料身份作精确声明。产品侧继续审计 operation plan 是否已有结构化 required-material carrier；若没有，
+后续应在 planner IR 增加 typed goal-material obligation/selection receipt，而不是扫描用户原始输入或模型答案推断
+`user_guide`。完整入口页只能证明入口页完整，不能自动取得任务完成权威。
+
+### EVAL-B75-DATAREFPROJ1（P0/confirmed）：贡献集合代替参考集合，reconcile 循环自证
+
+case 的确定性目标是按 `targets.csv` 顺序输出 GroupA、GroupX、GroupC：活跃且已映射的贡献分别为 17、0、5。
+实际终稿为 `17,4,5`。终态仍记录 `status=complete reconcile=pass`，因为：
+
+1. contribution 聚合正确得到 GroupA=17、GroupB=4、GroupC=5；
+2. `reconcile_artifacts` 只比较 contribution groups，没有把 `targets.csv` 当输出域；
+3. `assemble_answer` 又按 contribution `group_key` 排序，因此保留了不在 targets 的 GroupB，遗漏 targets 中无贡献的
+   GroupX，也没有 zero fill；
+4. expected/actual 都从同一 contribution 产物派生，形成“输出自验输出”的循环权威，错误的 17,4,5 被签 pass。
+
+根修必须是通用 reference-complete projection：由 typed workflow contract 声明 reference artifact、key、order、缺席值
+策略与 extra-key 策略；贡献集合只提供 value。reconcile/assemble 发 system-owned projection receipt，至少包含
+`reference_total/emitted_total/missing_refs/extra_keys/order_preserved/zero_filled`。只有 reference coverage 完整且策略
+满足时才可签 complete；不能从规则 prose 或最终答案反推这些字段，也不能由系统代写模型结论。
+
+### EVAL-B75-DATALOOP1（P1/confirmed）：schema 非进展动作重复消耗轮次
+
+该 data run 共 15 rounds、3 repairs、6 action failures。早期 normalize 丢失 `active` 后，planner 多次执行
+entity-resolution，但 output schema 没有补回 filter 所需字段。系统已有 action kind、输入 lineage、output fields 与
+unresolved required fields，可以构造 typed progress signature；同签名重复且 required-field 集不收缩时，应向 planner
+发精确的 non-progress 诊断并要求换用保留/连接基础字段的变换。不得按 action 名、请求关键词或模型 prose 写单题门。
+
+另有较低优先级观察项：模型曾假定 status=`matched`，实际枚举是 `resolved/unmatched`；先审计 action schema/value
+distribution 是否已经在首次 filter 前可达，再决定是否补 typed enum context，避免为本 fixture 固化状态值。
+
+施工顺序冻结：`B75-A evidence/docs` → `B75-B receipt→source identity + eval source oracle` →
+`B75-C typed reference projection authority` → `B75-D schema-progress loop`。每批独立提交推送。后续回放仍严格并行
+恰好两个异构 case；显式时间窗 Trace 因果投影、自动补齐、读写路由与模型结论所有权不在本批改动范围。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b75_operationdata_r1_20260804.md`；
+- `eval/parallel_selected_summary_evalcampaign_b75_operationdata_r1_20260804_manual_audit.md`；
+- result dirs：`eval/results/*-20260804-053425`。
