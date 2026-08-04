@@ -6256,7 +6256,13 @@ func (e *explorerEvaluator) tracePathEndpointCoveredByEvidence(endpoint string) 
 		default:
 			continue
 		}
-		for _, surface := range []string{item.AnchorSymbol, item.OwnerSymbol, item.Subject, item.Object} {
+		// A bounded source call-chain terminal is reached only by a typed
+		// same-direction call edge. A definition or nearby/prefix sibling proves
+		// identity, not directed reachability.
+		if types.ClaimFormOf(item) != types.ClaimCallEdge {
+			continue
+		}
+		for _, surface := range []string{item.Object, item.AnchorSymbol} {
 			if traceEndpointEvidenceSurfaceCompatible(item, surface, endpoint) {
 				return true
 			}
@@ -6274,9 +6280,15 @@ func (e *explorerEvaluator) tracePathEndpointCoveredBySupportPlan(endpoint strin
 		return false
 	}
 	for _, lane := range support.Lanes {
+		if lane.Kind != types.SupportLaneCurrentCodePath {
+			continue
+		}
 		for _, entry := range lane.Entries {
-			if traceEndpointSurfaceCompatible(entry.Text, endpoint) ||
-				traceEndpointSurfaceCompatible(entry.Location, endpoint) {
+			if entry.ClaimForm != types.ClaimCallEdge {
+				continue
+			}
+			if traceEndpointSurfaceCompatible(entry.Object, endpoint) ||
+				traceEndpointSurfaceCompatible(entry.AnchorSymbol, endpoint) {
 				return true
 			}
 		}
@@ -6335,7 +6347,7 @@ func traceEndpointEvidenceSurfaceCompatible(item types.EvidenceItem, surface, en
 	if candTail == "" || endName == "" {
 		return false
 	}
-	if candTail != endName && !strings.HasPrefix(candTail, endName) {
+	if candTail != endName {
 		return false
 	}
 	return traceEndpointSourceCarriesQualifier(item.Source, endQual)
@@ -6363,7 +6375,7 @@ func traceEndpointSurfaceCompatible(candidate, endpoint string) bool {
 	if candidate == "" || endpoint == "" {
 		return false
 	}
-	if strings.Contains(strings.ToLower(candidate), strings.ToLower(endpoint)) {
+	if strings.EqualFold(candidate, endpoint) || types.AnswerCodeSurfaceAppearsInText(candidate, endpoint) {
 		return true
 	}
 	endQual, endName, qualified := traceEndpointQualifiedParts(endpoint)

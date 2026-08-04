@@ -9222,7 +9222,7 @@ func TestObserveMidLoop_CompletionReadyWaitsForCallChainTerminalEndpoint(t *test
 	}
 }
 
-func TestObserveMidLoop_CompletionReadyAllowsImplementationAdjacentTerminalEndpoint(t *testing.T) {
+func TestObserveMidLoop_CompletionReadyRejectsPrefixSiblingTerminalEndpoint(t *testing.T) {
 	eval := boundedTraceEndpointEval()
 	eval.heuristics = types.ExploreHeuristics{MidLoopMinIteration: 2}
 	eval.structuredEvidence = []types.EvidenceItem{{
@@ -9243,11 +9243,11 @@ func TestObserveMidLoop_CompletionReadyAllowsImplementationAdjacentTerminalEndpo
 	}
 
 	readiness := eval.completionReadiness(results, -1, false, false)
-	if !readiness.HasEnough {
-		t.Fatalf("implementation-adjacent terminal endpoint should satisfy typed readiness, got %+v", readiness)
+	if readiness.HasEnough {
+		t.Fatalf("prefix sibling terminal endpoint must not satisfy typed readiness, got %+v", readiness)
 	}
-	if len(readiness.TraceEndpointMissing) != 0 {
-		t.Fatalf("terminal endpoint should be covered, missing=%v", readiness.TraceEndpointMissing)
+	if len(readiness.TraceEndpointMissing) != 1 || readiness.TraceEndpointMissing[0] != "Sink.Done" {
+		t.Fatalf("exact terminal endpoint must remain missing, got=%v", readiness.TraceEndpointMissing)
 	}
 
 	sig := eval.postCompletionReadySignal(LoopObservation{
@@ -9256,11 +9256,8 @@ func TestObserveMidLoop_CompletionReadyAllowsImplementationAdjacentTerminalEndpo
 		LastToolResult: &results[len(results)-1],
 		AllToolResults: results,
 	})
-	if !sig.HintRequested {
-		t.Fatalf("completion-ready hint should fire once the terminal endpoint is materialized, got %+v", sig)
-	}
-	if sig.HintKey != "explorer.mid-loop.completion-ready" {
-		t.Fatalf("HintKey = %q, want explorer.mid-loop.completion-ready", sig.HintKey)
+	if sig.HintRequested && sig.HintKey == "explorer.mid-loop.completion-ready" {
+		t.Fatalf("completion-ready hint must not fire for a prefix sibling, got %+v", sig)
 	}
 }
 
@@ -9272,8 +9269,8 @@ func TestTraceEndpointEvidenceSurfaceCompatible_QualifiedEndpointUsesSourceQuali
 	if !traceEndpointEvidenceSurfaceCompatible(item, item.AnchorSymbol, "gate.Run") {
 		t.Fatal("qualified endpoint should match unqualified symbol when the source path carries the qualifier")
 	}
-	if !traceEndpointEvidenceSurfaceCompatible(item, "RunWith", "gate.Run") {
-		t.Fatal("implementation-adjacent symbol should match when the source path carries the qualifier")
+	if traceEndpointEvidenceSurfaceCompatible(item, "RunWith", "gate.Run") {
+		t.Fatal("prefix sibling must not match the exact qualified endpoint")
 	}
 	if traceEndpointEvidenceSurfaceCompatible(item, item.AnchorSymbol, "other.Run") {
 		t.Fatal("source qualifier must prevent unrelated qualified endpoint matches")

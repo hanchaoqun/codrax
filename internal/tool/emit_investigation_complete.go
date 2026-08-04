@@ -208,12 +208,12 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 			},
 			"principal_span_waiver": {
 				"type": "object",
-				"description": "OPTIONAL. The typed escape lane for the principal source→sink span gate. Set this when YOU have read the source and confirmed there is NO separately-citable user code between the source endpoint and the sink endpoint — for example: source and sink are on the same dispatch / trampoline statement; the lines between contain only plumbing (nil guards, accessor pass-through, logger setup); the intermediate crosses an FFI / JNI / cgo / native-language bridge; the compiler inlined the intermediate call; the dispatch is virtual / interface / closure / reflection so no static call edge exists; the chain continues through an external library / SDK whose intermediates are not in this repo. A waiver is honored only when both reason and rationale are valid; incomplete or invalid waiver payloads are ignored and normal span gates still apply. Every accepted or ignored fire is logged so a reviewer can spot misuse. Do NOT set this to escape ordinary investigation work — only when reading the source has shown there genuinely is no intermediate fact to cite.",
+				"description": "OPTIONAL. The typed escape lane for the principal source→sink span/reachability gates. Set this only after YOU read the source and establish one finite boundary: no separately-citable intermediate user code, a runtime/external bridge, or no directed static path between the exact endpoints (in which case preserve the nearest proven path and endpoint boundary instead of inventing an edge). A waiver is honored only when both reason and rationale are valid; incomplete or invalid payloads are ignored and normal gates still apply. Every accepted or ignored fire is logged for review.",
 				"properties": {
 					"reason": {
 						"type": "string",
-						"enum": ["endpoints_directly_adjacent", "no_intermediate_user_code", "platform_bridge_intermediates", "inlined_call", "runtime_dispatched_call", "external_module_continuation"],
-						"description": "endpoints_directly_adjacent = source and sink are on the same statement / line (one-liner dispatch / wrapper / trampoline). no_intermediate_user_code = lines between source and sink contain only plumbing (nil checks, accessor pass-through, defer setup) with no separately-citable user logic. platform_bridge_intermediates = intermediate frames are an FFI / JNI / cgo / cross-language bridge whose hop is in the runtime, not in repo source. inlined_call = compiler / JIT inlined the intermediate so there is no separate frame at the source line. runtime_dispatched_call = dispatch resolved at runtime (interface table, virtual call, closure invocation, reflection) — no static call edge exists between source and sink. external_module_continuation = chain crosses into an external library / SDK whose intermediate frames are not in this repo."
+						"enum": ["endpoints_directly_adjacent", "no_intermediate_user_code", "platform_bridge_intermediates", "inlined_call", "runtime_dispatched_call", "external_module_continuation", "no_directed_path"],
+						"description": "endpoints_directly_adjacent = source and sink are on one dispatch/wrapper statement. no_intermediate_user_code = only plumbing lies between them. platform_bridge_intermediates = the hop is an FFI/JNI/cgo/cross-language runtime bridge. inlined_call = compiler/JIT inlining removes a separate frame. runtime_dispatched_call = interface/virtual/closure/reflection dispatch has no static edge. external_module_continuation = intermediates live outside this repo. no_directed_path = both exact endpoints were inspected but accepted typed call edges do not reach the sink from the source; report the nearest proven path and any reverse/parallel edge separately."
 					},
 					"rationale": {
 						"type": "string",
@@ -2726,6 +2726,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	reason = normalizeLogSourceDriftCompletionReason(ctx, reason)
 	ctx.Mutable.SetInvestigationAggregateFacts(effectiveAggregateFacts)
 	ctx.Mutable.SetInvestigationRelationClaims(relationClaims)
+	appendPrincipalSpanWaiverCompletionNote(ctx)
 	ctx.Mutable.SetInvestigationComplete(reason)
 	ctx.Mutable.SetInvestigationResultKind(resultKind)
 	ctx.Mutable.RetainInvestigationAggregateFacts()
@@ -2812,6 +2813,32 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		Success:   true,
 		Timestamp: time.Now(),
 	}, nil
+}
+
+func appendPrincipalSpanWaiverCompletionNote(ctx *types.BusContext) {
+	if ctx == nil || ctx.Mutable == nil {
+		return
+	}
+	waiver := ctx.Mutable.PrincipalSpanWaiver()
+	if waiver == nil || !waiver.IsActive() || waiver.Reason != types.PrincipalSpanWaiverNoDirectedPath {
+		return
+	}
+	startHint, endHint := "source endpoint", "sink endpoint"
+	if ctx.AnalysisIR != nil {
+		endpoints := types.CallChainRequestedEndpointHints(ctx.AnalysisIR.RequestModel)
+		if len(endpoints) >= 2 {
+			startHint = endpoints[0]
+			endHint = endpoints[len(endpoints)-1]
+		}
+	}
+	ctx.Mutable.AppendCompletionGateNote(fmt.Sprintf(
+		"model-declared typed call-chain boundary: principal_span_waiver=no_directed_path for `%s` -> `%s` (%s). The accepted call-edge graph did not establish that direction; keep the nearest proven path and any reverse/parallel relationship separate, and do not turn endpoint definitions into a call edge.",
+		startHint, endHint, strings.TrimSpace(waiver.Rationale)))
+	ctx.Mutable.EvidenceClosure().AppendCompletionCaveat(types.CompletionCaveat{
+		Lane:       types.DowngradeLaneContractChain,
+		ReasonCode: "call_chain_no_directed_path",
+		Reason:     "the model declared a typed no_directed_path boundary after source inspection",
+	})
 }
 
 func sourceInventoryResolvedCompletionDowngradeForFacts(
@@ -3484,6 +3511,11 @@ func preCompleteContractCheckWithPreflight(ctx *types.BusContext, justification 
 	if callChainAggregateMemberSetCompletesPrincipalBoundary(ctx, aggregateFacts, evidence) {
 		logging.Info("[emit_investigation_complete] call-chain closure gates satisfied by principal aggregate member_set")
 	} else {
+		if justification == "" {
+			if downgrade := callChainExactEndpointReachabilityDowngradeWithEvidence(ctx, closure, evidence); downgrade != "" {
+				return downgrade
+			}
+		}
 		if downgrade := callChainPrincipalSpanDowngradeWithEvidence(ctx, closure, evidence); downgrade != "" {
 			return downgrade
 		}
@@ -12135,6 +12167,248 @@ func callChainPrincipalSpanDowngrade(ctx *types.BusContext, closure *types.Evide
 		evidence = ctx.Mutable.EmittedEvidence()
 	}
 	return callChainPrincipalSpanDowngradeWithEvidence(ctx, closure, evidence)
+}
+
+type callChainTypedEdge struct {
+	from string
+	to   string
+}
+
+type callChainDirectedPathStatus struct {
+	StartResolved bool
+	EndResolved   bool
+	Path          []string
+}
+
+// callChainExactEndpointReachabilityDowngradeWithEvidence keeps endpoint
+// identity separate from directed call authority. Definitions, read-window
+// hits, and prefix siblings such as RunWith/Run can orient investigation, but
+// only accepted ClaimCallEdge rows can establish source -> sink reachability.
+// The graph is language-neutral: subjects/objects may use '.', '::', or '#'.
+// Runtime Trace causal projections never enter this source-code contract.
+func callChainExactEndpointReachabilityDowngradeWithEvidence(ctx *types.BusContext, closure *types.EvidenceClosure, evidence []types.EvidenceItem) string {
+	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil || closure == nil ||
+		!completionExactCallChainEndpointShape(ctx) {
+		return ""
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) != types.ReqCallChain || types.IsProjectOrientationQuestion(rm) {
+		return ""
+	}
+	endpoints := types.CallChainRequestedEndpointHints(rm)
+	if len(endpoints) < 2 {
+		return ""
+	}
+	startHint := endpoints[0]
+	endHint := endpoints[len(endpoints)-1]
+	status, edgeCount := callChainDirectedPathStatusForEvidence(evidence, startHint, endHint)
+	waiver := ctx.Mutable.PrincipalSpanWaiver()
+	if len(status.Path) > 0 {
+		if waiver != nil && waiver.IsActive() && waiver.Reason == types.PrincipalSpanWaiverNoDirectedPath {
+			return EmitInvestigationCompleteDowngradePrefix + " — principal_span_waiver=no_directed_path contradicts the accepted typed call graph.\n\n" +
+				"A same-direction typed call path now reaches the requested sink. Set clear_principal_span_waiver=true and retry; keep the path model-authored from the accepted call-edge rows."
+		}
+		return ""
+	}
+	if waiver != nil && waiver.IsActive() {
+		return ""
+	}
+	closure.AddRepair(types.RepairDirective{
+		Kind:      types.RepairEmitEvidence,
+		Keywords:  []string{startHint, endHint},
+		Rationale: "exact source-to-sink call-chain completion lacks a directed path in accepted typed call-edge evidence; emit the missing same-direction edge(s), or declare the typed no_directed_path boundary after source inspection",
+		Origin:    "pre_complete.call_chain_exact_endpoint_reachability",
+		Stage:     string(types.StageExplore),
+	})
+	resolution := "both endpoint identities are absent from the accepted call-edge graph"
+	switch {
+	case status.StartResolved && status.EndResolved:
+		resolution = "both endpoints occur in the typed call-edge graph, but the sink is not reachable from the source"
+	case status.StartResolved:
+		resolution = "the source occurs in the typed call-edge graph, but the exact sink has no call-edge node"
+	case status.EndResolved:
+		resolution = "the exact sink occurs in the typed call-edge graph, but the source has no call-edge node"
+	}
+	return fmt.Sprintf("%s — exact call-chain endpoint is not directionally proven.\n\nThe accepted source-code graph contains %d typed call edge(s); %s for `%s` -> `%s`. A symbol definition, a nearby helper, or a prefix sibling such as RunWith for Run cannot prove that direction. Emit grounded same-direction call-edge evidence if the path exists. If source inspection establishes that no such directed path exists, retry with principal_span_waiver.reason=no_directed_path and a concrete rationale, then present the nearest proven path and the endpoint boundary separately instead of inventing an edge.",
+		EmitInvestigationCompleteDowngradePrefix, edgeCount, resolution, startHint, endHint)
+}
+
+func callChainDirectedPathStatusForEvidence(evidence []types.EvidenceItem, startHint, endHint string) (callChainDirectedPathStatus, int) {
+	edges := callChainTypedSourceEdges(evidence)
+	if len(edges) == 0 {
+		return callChainDirectedPathStatus{}, 0
+	}
+	canonical := newCallChainGraphCanonicalizer(edges)
+	adjacency := make(map[string][]string)
+	nodes := make(map[string]string)
+	for _, edge := range edges {
+		from := canonical.key(edge.from)
+		to := canonical.key(edge.to)
+		if from == "" || to == "" {
+			continue
+		}
+		adjacency[from] = append(adjacency[from], to)
+		if nodes[from] == "" {
+			nodes[from] = edge.from
+		}
+		if nodes[to] == "" {
+			nodes[to] = edge.to
+		}
+	}
+	starts := canonical.resolveEndpoint(startHint, nodes)
+	ends := canonical.resolveEndpoint(endHint, nodes)
+	status := callChainDirectedPathStatus{StartResolved: len(starts) > 0, EndResolved: len(ends) > 0}
+	if !status.StartResolved || !status.EndResolved {
+		return status, len(edges)
+	}
+	endSet := make(map[string]bool, len(ends))
+	for _, end := range ends {
+		endSet[end] = true
+	}
+	queue := append([]string(nil), starts...)
+	seen := make(map[string]bool, len(queue))
+	parent := make(map[string]string)
+	for _, start := range starts {
+		seen[start] = true
+	}
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		if endSet[current] {
+			var reversed []string
+			for node := current; node != ""; node = parent[node] {
+				reversed = append(reversed, nodes[node])
+			}
+			for i, j := 0, len(reversed)-1; i < j; i, j = i+1, j-1 {
+				reversed[i], reversed[j] = reversed[j], reversed[i]
+			}
+			status.Path = reversed
+			return status, len(edges)
+		}
+		for _, next := range adjacency[current] {
+			if seen[next] {
+				continue
+			}
+			seen[next] = true
+			parent[next] = current
+			queue = append(queue, next)
+		}
+	}
+	return status, len(edges)
+}
+
+func callChainTypedSourceEdges(evidence []types.EvidenceItem) []callChainTypedEdge {
+	var out []callChainTypedEdge
+	seen := make(map[string]bool)
+	for _, item := range evidence {
+		if !item.IsCitable() || types.ClaimFormOf(item) != types.ClaimCallEdge ||
+			types.RuntimeArtifactPathKind(item.Source) != "" || !types.HasCodeOrConfigPathSuffix(strings.ToLower(item.Source)) {
+			continue
+		}
+		from := strings.TrimSpace(item.Subject)
+		to := strings.TrimSpace(item.Object)
+		if to == "" {
+			to = strings.TrimSpace(item.AnchorSymbol)
+		}
+		if from == "" || to == "" {
+			continue
+		}
+		key := strings.ToLower(from) + "\x00" + strings.ToLower(to)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, callChainTypedEdge{from: from, to: to})
+	}
+	return out
+}
+
+type callChainGraphCanonicalizer struct {
+	qualifiedByTail map[string]map[string]bool
+}
+
+func newCallChainGraphCanonicalizer(edges []callChainTypedEdge) callChainGraphCanonicalizer {
+	c := callChainGraphCanonicalizer{qualifiedByTail: make(map[string]map[string]bool)}
+	for _, edge := range edges {
+		for _, raw := range []string{edge.from, edge.to} {
+			identity := callChainGraphIdentity(raw)
+			if diagramEvidenceQualifiedOwner(identity) == "" {
+				continue
+			}
+			tail := strings.ToLower(diagramEvidenceQualifiedOperation(identity))
+			if tail == "" {
+				continue
+			}
+			if c.qualifiedByTail[tail] == nil {
+				c.qualifiedByTail[tail] = make(map[string]bool)
+			}
+			c.qualifiedByTail[tail][strings.ToLower(identity)] = true
+		}
+	}
+	return c
+}
+
+func (c callChainGraphCanonicalizer) key(raw string) string {
+	identity := callChainGraphIdentity(raw)
+	if identity == "" {
+		return ""
+	}
+	if diagramEvidenceQualifiedOwner(identity) != "" {
+		return strings.ToLower(identity)
+	}
+	tail := strings.ToLower(diagramEvidenceQualifiedOperation(identity))
+	qualified := c.qualifiedByTail[tail]
+	if len(qualified) == 1 {
+		for candidate := range qualified {
+			return candidate
+		}
+	}
+	return strings.ToLower(identity)
+}
+
+func (c callChainGraphCanonicalizer) resolveEndpoint(endpoint string, nodes map[string]string) []string {
+	want := strings.ToLower(callChainGraphIdentity(endpoint))
+	if want == "" {
+		return nil
+	}
+	if _, ok := nodes[want]; ok {
+		return []string{want}
+	}
+	// An unqualified class/actor endpoint may stand for its typed methods;
+	// keep every exact owner match. This is the class-participant presentation
+	// lane used across Java/Kotlin/C#/ArkTS/Cangjie without fuzzy substrings.
+	if diagramEvidenceQualifiedOwner(want) == "" {
+		var owners []string
+		for key := range nodes {
+			owner := strings.ToLower(diagramEvidenceQualifiedOwner(key))
+			if owner == want || strings.ToLower(types.NormalizedSurfaceSymbolTail(owner)) == want {
+				owners = append(owners, key)
+			}
+		}
+		if len(owners) > 0 {
+			sort.Strings(owners)
+			return owners
+		}
+	}
+	tail := strings.ToLower(diagramEvidenceQualifiedOperation(want))
+	var matches []string
+	for key := range nodes {
+		if strings.ToLower(diagramEvidenceQualifiedOperation(key)) == tail {
+			matches = append(matches, key)
+		}
+	}
+	if len(matches) == 1 {
+		return matches
+	}
+	return nil
+}
+
+func callChainGraphIdentity(raw string) string {
+	raw = strings.Trim(strings.TrimSpace(raw), "`'\"")
+	raw = strings.TrimSuffix(raw, "()")
+	raw = strings.ReplaceAll(raw, "::", ".")
+	raw = strings.ReplaceAll(raw, "#", ".")
+	return strings.TrimSpace(raw)
 }
 
 func callChainPrincipalSpanDowngradeWithEvidence(ctx *types.BusContext, closure *types.EvidenceClosure, evidence []types.EvidenceItem) string {

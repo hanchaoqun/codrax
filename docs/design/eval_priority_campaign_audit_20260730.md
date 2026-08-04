@@ -12175,3 +12175,55 @@ pretriage navigation candidate。
 - result dirs：`eval/results/*-20260803-181328`；
 - 定向验证：`internal/context` board、`internal/types` census、`internal/agent` handoff、
   `internal/tool` relation pipeline 均通过。
+
+### B55 r2：调用链终点有向权威与写模式补证引用（read/write 各一例）
+
+在 `main@2fd40538c` 固定二进制并行回放：
+
+- `qf_sequence_analyzer_gate`：runner PASS / human FAIL，183s，investigation 3/1，final reject=2；
+- `github_issue_commons_lang_random_ascii_symptom`：runner FAIL，393s，最终
+  `write_final_verdict=unverified:verification_incomplete`。
+
+读例确认 `EVAL-B55-CALLSINK1`（P0/red-line）：源码只有
+`buildAnalysisIR -> gate.RunWith`；`gate.Run` 自身再调用 `RunWith`，方向与用户请求终点相反。旧链路有三层
+同根误判：Explorer 的 terminal coverage 接受任意定义/支持条目；endpoint matcher 以 contains/prefix
+把 `RunWith` 当 `Run`；pre-complete 只检查同文件端点跨度，不验证 typed call-edge 的 source→sink 有向
+可达。于是探索 completion reason 错误宣称完整链；最终图表硬门正确删除 `RunWith -> Run`，但 summary 和
+ordered item 仍保留同一错误结论，runner 的 answer_regex 未发现。
+
+本批按关系图权威而非该 Go 符号特判施工：
+
+1. bounded source call-chain 的 terminal readiness 只接受指向终点的 grounded `ClaimCallEdge`；定义、
+   Owner、read-window 命中只作导航/身份证据，不能铸造 reachability；
+2. shared endpoint compatibility 删除 contains/prefix sibling，短名/限定名只允许完整 token 或 exact tail；
+   `RunWith` 不再覆盖 `Run`；
+3. pre-complete 从所有 accepted source-code call-edge 构造语言无关有向图，支持 `. / :: / #` identity
+   presentation，且只在 typed `ExactTargets + PredicateAxis=call + ReqCallChain` 上启用；runtime artifact
+   source 和 `QFRootCauseTrace`/显式时间窗 Trace 因果投影不进入该合同；
+4. 有向图无路时不逼模型造边：新增模型声明的 typed
+   `principal_span_waiver.reason=no_directed_path`。首次 completion 精确提示补 call edge 或声明边界；模型
+   声明后系统只携带 reason/rationale 与 caveat 给成文模型，禁止把定义改成 call edge，不代写最终结论；
+   若 typed graph 后来出现路径而旧 `no_directed_path` 仍在，则精确拒绝并要求 clear；
+5. 15 种 `SupportedReadLanguages`（Go/Python/JS/TS/Java/Kotlin/Rust/C/C++/Ruby/Swift/Lua/Proto/
+   ArkTS/Cangjie）共用一张 directed-path 参数化测试；另有 `RunWith != Run`、反向 wrapper、模型边界携带
+   与 runtime 排除 pin。
+
+状态：`EVAL-B55-CALLSINK1 = implemented / full-types-agent-tool-pass`。这不是答案关键词门：判据只读取 analyzer
+typed shape、accepted EvidenceItem 的 ClaimForm/Subject/Object/Source 和模型显式 typed waiver；不扫描用户
+原文、thinking、completion reason 或最终正文。
+
+写例确认 `EVAL-B55-VERIFYREF1`（P1，开放）：功能 patch 已应用，replan 后 `make check` 和 Python
+source probe 通过，但 Maven 不在环境且 Java 未编译/运行，最终 fail-closed 是正确行为。系统浪费来自
+proof-followup 计划遗漏 `contract_refs/changed_symbol_refs`，直到末端 `changed_path_verification_uncovered`
+才再次发现；同时 Python 正则读取 Java 只能拥有 `source_static`，不可升级为 Java behavior/target execution。
+下一批在 typed verify-failure handoff 的计划边界要求精确 refs，并保持跨语言能力上限；不从 probe code、
+用户原文或模型说明推断目标，不用系统自动补写签名 metadata。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b55_readwrite_r2_20260803.md`；
+- `eval/parallel_selected_summary_evalcampaign_b55_readwrite_r2_20260803_manual_audit.md`；
+- result dirs：`eval/results/*-20260803-183504`。
+
+验证：`go test ./internal/types ./internal/agent ./internal/tool -count=1` 全绿（tool 170.133s）；
+`git diff --check` 通过。

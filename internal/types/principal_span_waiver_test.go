@@ -25,6 +25,7 @@ func TestPrincipalSpanWaiverReasonValues_IsCanonical(t *testing.T) {
 		PrincipalSpanWaiverInlinedCall,
 		PrincipalSpanWaiverRuntimeDispatchedCall,
 		PrincipalSpanWaiverExternalModuleContinuation,
+		PrincipalSpanWaiverNoDirectedPath,
 	}
 	got := PrincipalSpanWaiverReasonValues()
 	if len(got) != len(expected) {

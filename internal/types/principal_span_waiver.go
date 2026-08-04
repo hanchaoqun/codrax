@@ -23,7 +23,7 @@ package types
 import "strings"
 
 // PrincipalSpanWaiverReason enumerates the typed reasons a model may
-// declare to escape the principal-span coverage gate. Six reasons,
+// declare to escape the principal-span coverage gate. Seven reasons,
 // each backed by a concrete cross-language scenario. Add new values
 // only when a fundamentally different scenario emerges so the enum
 // stays a precise signal rather than a wildcard.
@@ -73,6 +73,15 @@ const (
 	// calls an SDK entry, the SDK reenters user code via a callback)
 	// but the intermediate hops live outside the repo.
 	PrincipalSpanWaiverExternalModuleContinuation PrincipalSpanWaiverReason = "external_module_continuation"
+
+	// PrincipalSpanWaiverNoDirectedPath declares that source inspection
+	// established an honest endpoint boundary rather than a positive static
+	// call path: both requested endpoints exist, but the accepted typed call
+	// edges do not reach the sink from the source (for example the sink is a
+	// wrapper that calls the reachable sibling in the opposite direction).
+	// This keeps the negative/nearest-path conclusion model-owned without
+	// forcing the model to invent a call edge merely to close investigation.
+	PrincipalSpanWaiverNoDirectedPath PrincipalSpanWaiverReason = "no_directed_path"
 )
 
 // validPrincipalSpanWaiverReasons enumerates every accepted value so
@@ -85,6 +94,7 @@ var validPrincipalSpanWaiverReasons = []PrincipalSpanWaiverReason{
 	PrincipalSpanWaiverInlinedCall,
 	PrincipalSpanWaiverRuntimeDispatchedCall,
 	PrincipalSpanWaiverExternalModuleContinuation,
+	PrincipalSpanWaiverNoDirectedPath,
 }
 
 // PrincipalSpanWaiverReasonValues returns the enum in declaration

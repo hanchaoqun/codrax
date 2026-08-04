@@ -9,11 +9,93 @@
 package tool
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+func TestCallChainDirectedPathStatus_AllExecutableLanguageSurfaces(t *testing.T) {
+	tests := []struct {
+		name   string
+		source string
+		start  string
+		middle string
+		end    string
+	}{
+		{"go", "main.go", "app.Start", "svc.Step", "gate.Run"},
+		{"java", "Main.java", "Controller.start", "Service.step", "Gate.run"},
+		{"kotlin", "Main.kt", "Controller.start", "Service.step", "Gate.run"},
+		{"c", "main.c", "app_start", "service_step", "gate_run"},
+		{"cpp", "main.cc", "App::Start", "Service::Step", "Gate::Run"},
+		{"rust", "main.rs", "app::start", "service::step", "gate::run"},
+		{"python", "main.py", "App.start", "Service.step", "Gate.run"},
+		{"javascript", "main.js", "App.start", "Service.step", "Gate.run"},
+		{"typescript", "main.ts", "App.start", "Service.step", "Gate.run"},
+		{"ruby", "main.rb", "App.start", "Service.step", "Gate.run"},
+		{"swift", "Main.swift", "App.start", "Service.step", "Gate.run"},
+		{"lua", "main.lua", "App.start", "Service.step", "Gate.run"},
+		{"proto", "main.proto", "App.Start", "Service.Step", "Gate.Run"},
+		{"arkts", "main.ets", "App.start", "Service.step", "Gate.run"},
+		{"cangjie", "main.cj", "App.start", "Service.step", "Gate.run"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			evidence := []types.EvidenceItem{
+				{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: tt.start, Predicate: "calls", Object: tt.middle, AnchorSymbol: tt.middle, Source: tt.source, LineStart: 10, GroundingStatus: types.GroundingGrounded},
+				{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: tt.middle, Predicate: "calls", Object: tt.end, AnchorSymbol: tt.end, Source: tt.source, LineStart: 20, GroundingStatus: types.GroundingGrounded},
+			}
+			status, edges := callChainDirectedPathStatusForEvidence(evidence, tt.start, tt.end)
+			if edges != 2 || !status.StartResolved || !status.EndResolved || len(status.Path) != 3 {
+				t.Fatalf("status=%+v edges=%d, want resolved 3-node directed path", status, edges)
+			}
+		})
+	}
+}
+
+func TestCallChainDirectedPathStatus_DefinitionAndPrefixSiblingDoNotReachExactSink(t *testing.T) {
+	evidence := []types.EvidenceItem{
+		{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "buildAnalysisIR", Predicate: "calls", Object: "gate.RunWith", AnchorSymbol: "gate.RunWith", Source: "internal/agent/analyzer.go", LineStart: 2666, GroundingStatus: types.GroundingGrounded},
+		{Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, Subject: "gate.Run", AnchorSymbol: "Run", Source: "internal/analysis/gate/gate.go", LineStart: 134, GroundingStatus: types.GroundingGrounded},
+	}
+	status, edges := callChainDirectedPathStatusForEvidence(evidence, "buildAnalysisIR", "gate.Run")
+	if edges != 1 || !status.StartResolved || status.EndResolved || len(status.Path) != 0 {
+		t.Fatalf("status=%+v edges=%d, definition/prefix sibling must not mint exact sink reachability", status, edges)
+	}
+}
+
+func TestEmitInvestigationComplete_NoDirectedPathWaiverCarriesModelOwnedBoundary(t *testing.T) {
+	mut := types.NewMutableState("trace buildAnalysisIR to gate.Run")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "buildAnalysisIR", Predicate: "calls", Object: "gate.RunWith", AnchorSymbol: "gate.RunWith", Source: "internal/agent/analyzer.go", LineStart: 2666, GroundingStatus: types.GroundingGrounded},
+		{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "gate.Run", Predicate: "calls", Object: "gate.RunWith", AnchorSymbol: "gate.RunWith", Source: "internal/analysis/gate/gate.go", LineStart: 135, GroundingStatus: types.GroundingGrounded},
+	})
+	bus := &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Intent:        types.IntentTrace,
+			PredicateAxis: types.AxisCall,
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain), ExactTargets: []string{"buildAnalysisIR", "gate.Run"}, MentionedEntities: []string{"buildAnalysisIR", "gate.Run"}},
+		},
+	}}
+	params := json.RawMessage(`{"reason":"the exact sink is a reverse wrapper around the reachable sibling","confidence":"high","result_kind":"resolved","principal_span_waiver":{"reason":"no_directed_path","rationale":"gate.Run calls gate.RunWith, while buildAnalysisIR reaches only gate.RunWith"}}`)
+	res, err := (&EmitInvestigationComplete{}).Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+	if !res.Success || !mut.IsInvestigationComplete() {
+		t.Fatalf("typed no_directed_path boundary should close model-owned investigation: %+v", res)
+	}
+	for _, want := range []string{"principal_span_waiver=no_directed_path", "do not turn endpoint definitions into a call edge"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("summary missing %q: %s", want, res.Summary)
+		}
+	}
+	caveats := mut.EvidenceClosure().CompletionCaveats()
+	if len(caveats) == 0 || caveats[len(caveats)-1].ReasonCode != "call_chain_no_directed_path" {
+		t.Fatalf("typed completion caveat missing: %+v", caveats)
+	}
+}
 
 func TestEmitInvestigationComplete_PrincipalSpanWaiver_IgnoresInvalidReason(t *testing.T) {
 	mut := types.NewMutableState("trace foo to bar")

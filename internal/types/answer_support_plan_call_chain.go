@@ -428,9 +428,7 @@ func callChainEndpointCompatible(candidate, endpoint string) bool {
 	if candidate == "" || endpoint == "" {
 		return false
 	}
-	cLower := strings.ToLower(candidate)
-	eLower := strings.ToLower(endpoint)
-	if strings.Contains(cLower, eLower) {
+	if strings.EqualFold(candidate, endpoint) || AnswerCodeSurfaceAppearsInText(candidate, endpoint) {
 		return true
 	}
 	cTail := normalizedSurfaceSymbolTail(candidate)
@@ -438,14 +436,13 @@ func callChainEndpointCompatible(candidate, endpoint string) bool {
 	if cTail == "" || eTail == "" {
 		return false
 	}
-	return cTail == eTail ||
-		strings.HasPrefix(cTail, eTail) ||
-		strings.HasPrefix(eTail, cTail)
+	return cTail == eTail
 }
 
 // CallChainEndpointCompatible reports whether a symbol/location surface can
 // stand for a requested call-chain endpoint. It is intentionally broad enough to
-// handle qualified names from multiple languages, but it never inspects user
+// handle exact qualified/short names from multiple languages, but it never
+// accepts prefix siblings (for example RunWith for Run) and never inspects user
 // prose; callers pass typed endpoint and evidence surfaces.
 func CallChainEndpointCompatible(candidate, endpoint string) bool {
 	return callChainEndpointCompatible(candidate, endpoint)
