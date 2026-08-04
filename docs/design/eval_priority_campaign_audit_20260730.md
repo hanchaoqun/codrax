@@ -13041,6 +13041,24 @@ root/rank 的 2.021 窗控制，系统发布 principal_state=21.000ms（含窗�
 用户窗 complete；无 explicit window 的既有行为保持。随后 exact-window root_cause_rank 会同时重铸 projection anchor 与 target-state
 account，critical 仍按缺失补齐，最多两 view 的预算不变。
 
+### EVAL-B66-TRACEWIN1（P0/implemented）：family completeness 绑定 exact requested window
+
+本批在 `RunTraceQuerySystemSupplement` 的既有 typed family detector 前增加 requested-scope 过滤：
+
+1. 只有 `RuntimeArtifactScopeProfile.ExplicitTimeWindow()` 成立时才收窄；无 explicit window 的 full-artifact、selector、derived-window
+   与 legacy 行为继续调用原 detector，未扩大 hard scope；
+2. 候选 record 必须来自 deterministic runtime query；以 `SourceRef.PayloadRef`、其次 RawRef、最后 producer-owned `ID` 的 `#` 前缀
+   作为同次结果 identity。该结果任一 record 的严格 `selected_window` 与用户窗在共享 tolerance 内相等后，同结果的全部 family rows
+   才进入 presence census；不解析 summary、label、请求或回答文字，也不拿事件自身 Span envelope 猜 query window；
+3. wider/narrower model query 继续完整留在 ledger 供模型探索，但不能抑制 exact-window root/rank/chain/state/census/critical 补采。
+   exact `root_cause_rank` 作为后发布 deterministic result 重铸 projection anchor，exact target-state account 随之成功 attach；
+4. 两条 end-to-end pin：wrong-window 的 rank+critical 已把六类 family 全铸齐，仍必须 exact-window 两 view 补跑，且最终 projection 与
+   target-state 窗必须等于用户窗；model 本身已在 exact window 铸齐六类时保持 `families_present` 零执行 no-op。
+
+定向两臂通过；`go test ./internal/tool -count=1` 全绿（169.481s）。状态：
+`EVAL-B66-TRACEWIN1 = implemented / tool-full-pass / commit-next / replay-next`。本批未约束模型探索窗、未改变 trace 引擎数值、根因排序、
+因果投影算法或模型正文；只修复系统自动补齐的 completeness 作用域。
+
 证据：
 
 - `eval/parallel_selected_summary_evalcampaign_b65_traceread_r3_20260803.md`；

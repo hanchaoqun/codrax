@@ -212,7 +212,11 @@ func TestTraceSupplementExplicitUserWindowOverridesModelQueryWindow(t *testing.T
 		SourceQuote:    "3.0..3.08",
 		Confidence:     1,
 	}
-	suppCoreModelCall(t, ctx, `{"view":"window_stats","pid":200,"time_start":3.0,"time_end":3.035}`)
+	// Both local probes cover only the first D wait yet collectively mint
+	// every core family. Predicate presence alone must not let this
+	// complete-but-wrong-window result set impersonate the user window.
+	suppCoreModelCall(t, ctx, `{"view":"root_cause_rank","pid":200,"time_start":3.0,"time_end":3.035}`)
+	suppCoreModelCall(t, ctx, `{"view":"critical_blocking_calls","pid":200,"time_start":3.0,"time_end":3.035}`)
 	out := RunTraceQuerySystemSupplement(ctx)
 	if len(out.Executed) != 2 ||
 		out.Executed[0] != "root_cause_rank" ||
@@ -226,6 +230,40 @@ func TestTraceSupplementExplicitUserWindowOverridesModelQueryWindow(t *testing.T
 		meta.WindowEnd != end ||
 		meta.WindowlessFallback {
 		t.Fatalf("explicit user window must outrank model query window: %+v", meta)
+	}
+	ledger := suppCoreLedger(ctx)
+	set := types.CompileTraceCausalProjectionSet(ledger)
+	if len(set.Projections) != 1 {
+		t.Fatalf("expected one artifact projection, got %+v", set)
+	}
+	projection := set.Projections[0]
+	if projection.WindowStartTs != start || projection.WindowEndTs != end {
+		t.Fatalf("exact-window supplement must own the final projection anchor: %+v", projection)
+	}
+	if projection.TargetStateAccount == nil ||
+		projection.TargetStateAccount.WindowStartTs != start ||
+		projection.TargetStateAccount.WindowEndTs != end {
+		t.Fatalf("exact-window target-state account must attach to the final projection: %+v", projection.TargetStateAccount)
+	}
+}
+
+func TestTraceSupplementExplicitUserWindowKeepsExactFamilyNoOp(t *testing.T) {
+	ctx := suppCoreContext(t)
+	suppG4NarrowDStateShape(ctx)
+	start, end := 3.0, 3.2
+	ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile = &types.RuntimeArtifactScopeProfile{
+		RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
+		TimeStart:      &start,
+		TimeEnd:        &end,
+		SourceQuote:    "3.0..3.2",
+		Confidence:     1,
+	}
+	suppCoreModelCall(t, ctx, `{"view":"root_cause_rank","pid":200,"time_start":3.0,"time_end":3.2}`)
+	suppCoreModelCall(t, ctx, `{"view":"critical_blocking_calls","pid":200,"time_start":3.0,"time_end":3.2}`)
+	beforeFamilies := traceSupplementFamiliesForRequestedScope(suppCoreLedger(ctx), ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile)
+	out := RunTraceQuerySystemSupplement(ctx)
+	if len(out.Executed) != 0 || out.SkipReason != types.TraceSupplementReasonFamiliesPresent {
+		t.Fatalf("exact-window complete families must remain a zero-execution no-op: out=%+v families=%+v", out, beforeFamilies)
 	}
 }
 

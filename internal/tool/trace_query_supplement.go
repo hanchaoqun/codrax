@@ -41,6 +41,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -169,6 +170,71 @@ func traceSupplementFamilies(ledger types.ObservationLedger) traceSupplementFami
 		}
 	}
 	return f
+}
+
+// traceSupplementFamiliesForRequestedScope answers a stricter question than
+// traceSupplementFamilies when the analyzer has validated an explicit user
+// window: which core families are present for THAT window? A complete family
+// set from a wider/narrower model probe remains useful exploration evidence,
+// but cannot suppress the deterministic requested-window supplement.
+//
+// selected_window is carried on several records from one trace_query result,
+// not necessarily every family row. We therefore elect matching results by a
+// producer-owned result identity (payload/raw ref, then the typed ID prefix)
+// and count every row from the elected result. No request/model prose, label
+// similarity, or timestamp-envelope inference participates.
+func traceSupplementFamiliesForRequestedScope(
+	ledger types.ObservationLedger,
+	scope *types.RuntimeArtifactScopeProfile,
+) traceSupplementFamilyPresence {
+	if scope == nil {
+		return traceSupplementFamilies(ledger)
+	}
+	start, end, explicit := scope.ExplicitTimeWindow()
+	if !explicit {
+		return traceSupplementFamilies(ledger)
+	}
+	exactResults := map[string]bool{}
+	exactRecords := map[int]bool{}
+	for i, record := range ledger.Records {
+		if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
+			!types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
+			continue
+		}
+		recordStart, recordEnd, ok := types.TraceCausalProjectionSelectedWindowNote(record.RichNotes)
+		if !ok ||
+			math.Abs(recordStart-start) > types.TraceCausalProjectionSameWindowToleranceS ||
+			math.Abs(recordEnd-end) > types.TraceCausalProjectionSameWindowToleranceS {
+			continue
+		}
+		if key := traceSupplementResultIdentity(record); key != "" {
+			exactResults[key] = true
+		} else {
+			exactRecords[i] = true
+		}
+	}
+	filtered := types.ObservationLedger{AnchorUserEntities: ledger.AnchorUserEntities}
+	for i, record := range ledger.Records {
+		key := traceSupplementResultIdentity(record)
+		if exactRecords[i] || (key != "" && exactResults[key]) {
+			filtered.Records = append(filtered.Records, record)
+		}
+	}
+	return traceSupplementFamilies(filtered)
+}
+
+func traceSupplementResultIdentity(record types.ObservationRecord) string {
+	if value := strings.TrimSpace(record.SourceRef.PayloadRef); value != "" {
+		return "payload:" + value
+	}
+	if value := strings.TrimSpace(record.SourceRef.RawRef); value != "" {
+		return "raw:" + value
+	}
+	id := strings.TrimSpace(record.ID)
+	if at := strings.IndexByte(id, '#'); at > 0 {
+		return "id:" + id[:at]
+	}
+	return ""
 }
 
 // traceSupplementViews maps missing families to the minimal engine view set.
@@ -1153,7 +1219,8 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 	// consumes (single value source for presence/absence).
 	input := types.ObservationLedgerInputFromBusContext(ctx, types.ObservationExtractLedgerEvidenceLimit)
 	preLedger := types.CompileObservationLedger(input)
-	families := traceSupplementFamilies(preLedger)
+	requestedArtifactScope := traceSupplementRequestedArtifactScope(ctx)
+	families := traceSupplementFamiliesForRequestedScope(preLedger, requestedArtifactScope)
 	frameFamily := traceSupplementVsyncFamilyHit(ctx)
 	views := traceSupplementViewsForRequest(ctx, families, frameFamily, traceSupplementFrameEvidencePresent(input))
 	// SA-F2 批4 C-lite trigger gate (修复轮 件2 扩形, 2026-07-14): vsync/frame
@@ -1187,7 +1254,6 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 	}
 	callWindows := ctx.Mutable.TraceQueryCallWindows()
 	window, ok := traceSupplementDeriveWindow(callWindows)
-	requestedArtifactScope := traceSupplementRequestedArtifactScope(ctx)
 	requestedFullArtifact := requestedArtifactScope.FullArtifact() && traceSupplementNarrowDStateQuestion(ctx)
 	if start, end, explicit := requestedArtifactScope.ExplicitTimeWindow(); explicit {
 		window = types.TraceQueryCallWindow{
