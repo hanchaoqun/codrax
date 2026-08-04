@@ -169,6 +169,7 @@ type explorerEvaluator struct {
 	midLoopNoEmitEndpointSent               bool // one-shot: bounded trace backlog could not be narrowed because the terminal endpoint is not covered yet
 	midLoopExecRedirectSent                 bool // one-shot: redirected shell-style browsing back to built-in grep/read_file before recording the current backlog window
 	midLoopExplanationAnchorSent            bool // one-shot: multi-topic explanation still lacks one grounded anchor per sub-topic
+	midLoopCommandMeasurementPathSent       bool // one-shot: typed command measurement needs its post-explore carrier/compile path, not the analyzer lane
 	midLoopCompletionReadySent              bool // one-shot: generic "you already have enough grounded evidence; close now" hint already pushed this dispatch
 	midLoopCandidateUniverseSent            bool // one-shot: exact candidate universe is not yet covered/excluded by a structured member_set
 	midLoopCompletionReadyEscalated         bool // one-shot: stronger close-now escalation after the completion-ready hint was ignored
@@ -629,6 +630,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.midLoopNoEmitEndpointSent = false
 		e.midLoopExecRedirectSent = false
 		e.midLoopExplanationAnchorSent = false
+		e.midLoopCommandMeasurementPathSent = false
 		e.midLoopCompletionReadySent = false
 		e.midLoopCandidateUniverseSent = false
 		e.midLoopCompletionReadyEscalated = false
@@ -782,6 +784,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.midLoopNoEmitEndpointSent = false
 	e.midLoopExecRedirectSent = false
 	e.midLoopExplanationAnchorSent = false
+	e.midLoopCommandMeasurementPathSent = false
 	e.midLoopCompletionReadySent = false
 	e.midLoopCandidateUniverseSent = false
 	e.midLoopCompletionReadyEscalated = false
@@ -11050,6 +11053,9 @@ func (e *explorerEvaluator) observeMidLoopWithContext(ctx *types.AgentContext, o
 		return sig
 	}
 	if sig := e.postRestrictedToolSurfaceSignal(obs); sig.HintRequested {
+		return sig
+	}
+	if sig := e.postCommandMeasurementEvidencePathSignal(ctx, obs); sig.HintRequested {
 		return sig
 	}
 	if sig := e.postExternalObservationSufficiencySignal(obs); sig.HintRequested {

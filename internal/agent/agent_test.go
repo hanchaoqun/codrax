@@ -953,6 +953,36 @@ func TestValidateAnalyzerPrescanToolCall(t *testing.T) {
 		}
 	})
 
+	t.Run("analyze stage rejects recursive list_files", func(t *testing.T) {
+		ctx := &types.AgentContext{Stage: types.StageAnalyze}
+		tc := llm.ToolCall{
+			Name:   "list_files",
+			Params: json.RawMessage(`{"path":"internal","recursive":true}`),
+		}
+		result := validateAnalyzerPrescanToolCall(ctx, tc)
+		if result == nil || result.Success {
+			t.Fatalf("expected recursive list_files rejection, got %+v", result)
+		}
+		if result.Repair == nil || result.Repair.Code != analyzerListFilesShallowRequiredCode {
+			t.Fatalf("repair = %+v, want code %q", result.Repair, analyzerListFilesShallowRequiredCode)
+		}
+		if !strings.Contains(result.Summary, analyzerListFilesShallowOnlyRule) {
+			t.Fatalf("rejection must use the shared schema/runtime rule:\n%s", result.Summary)
+		}
+	})
+
+	t.Run("analyze stage accepts shallow list_files", func(t *testing.T) {
+		ctx := &types.AgentContext{Stage: types.StageAnalyze}
+		for _, params := range []json.RawMessage{
+			json.RawMessage(`{"path":"internal"}`),
+			json.RawMessage(`{"path":"internal","recursive":false}`),
+		} {
+			if got := validateAnalyzerPrescanToolCall(ctx, llm.ToolCall{Name: "list_files", Params: params}); got != nil {
+				t.Fatalf("shallow list_files should pass, got %+v", got)
+			}
+		}
+	})
+
 	t.Run("non-analyze stage has no files_only constraint", func(t *testing.T) {
 		// The explorer is the full-power consumer of grep and routinely
 		// calls it without files_only to get line-level matches.
@@ -965,6 +995,14 @@ func TestValidateAnalyzerPrescanToolCall(t *testing.T) {
 			if got := validateAnalyzerPrescanToolCall(ctx, tc); got != nil {
 				t.Errorf("stage=%s: grep without files_only should be allowed, got violation", stage)
 			}
+		}
+	})
+
+	t.Run("explore stage retains recursive list_files", func(t *testing.T) {
+		ctx := &types.AgentContext{Stage: types.StageExplore}
+		tc := llm.ToolCall{Name: "list_files", Params: json.RawMessage(`{"path":"internal","recursive":true}`)}
+		if got := validateAnalyzerPrescanToolCall(ctx, tc); got != nil {
+			t.Fatalf("explore recursive list_files must remain available, got %+v", got)
 		}
 	})
 

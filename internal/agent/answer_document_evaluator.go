@@ -578,6 +578,11 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}) {
 		return b.String()
 	}
+	if !trace.appendSection(&b, "command_measurement_evidence_path", func() string {
+		return renderAnswerDocCommandMeasurementEvidencePathAuthority(ctx)
+	}) {
+		return b.String()
+	}
 	if !trace.appendSection(&b, "perf_threshold_provenance", func() string {
 		return renderAnswerDocPerfThresholdProvenanceAuthority(ctx)
 	}) {

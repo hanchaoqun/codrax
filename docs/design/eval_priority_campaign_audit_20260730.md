@@ -12842,7 +12842,7 @@ investigation aggregate fact、摘要和链终点行把整件 20.020ms 写成“
 4. Finalizer 最后 typed recap 明确 `principal_state` 是窗内线程四态唯一主值，早期 narrative/model aggregate 若用了
    attachment extent，只校正数值口径而保留模型诊断所有权。
 
-状态：`EVAL-B64-TRACECAL1 = implemented / tool+agent+skill-full-pass / commit-next`。显式时间窗、Trace 因果投影、自动补采、
+状态：`EVAL-B64-TRACECAL1 = implemented / tool+agent+skill-full-pass / committed(ec95280d0)`。显式时间窗、Trace 因果投影、自动补采、
 两类根因维度和模型答案所有权均未改变。
 
 ### EVAL-B64-CMDPATH1（P0/open）：Analyzer 自铸不存在的 EmitAnalysis 数据通路
@@ -12881,3 +12881,30 @@ Read 用例的数值 253 正确，命令实际递归统计 `internal/tool/**/*.g
 - `eval/parallel_selected_summary_evalcampaign_b64_traceread_r1_20260803.md`；
 - `eval/parallel_selected_summary_evalcampaign_b64_traceread_r1_20260803_manual_audit.md`；
 - result dirs：`eval/results/*-20260803-225431`。
+
+### EVAL-B64-CMDPATH1（P0/implemented）：typed carrier 触发真实编译路径指导，分类期全树清单退场
+
+本批按上一节冻结方案完成两条同根施工，均不读取用户原文或模型输出做控制判断：
+
+1. 新增 `commandMeasurementEvidencePathActive`，只在 analyzer 已铸造的 typed
+   `CurrentSourceExplanationProfile.Active()` 与成功工具结果携带 `ToolResult.CommandMeasurement` 同时成立时启用；普通纯计数
+   问题、只有 profile 没有 carrier、或只有 carrier 没有 current-source explanation lane 均不注入内部机制说明；
+2. Explorer 在命令测量实际出现后的 mid-loop 读取同一个 typed carrier，发射一次性 soft guidance，明确
+   `execCommandMeasurement -> ToolResult.CommandMeasurement -> ObservationLedgerInputFromAgentContext ->
+   CompileObservationLedger/compileToolResultObservations -> observationRecordForCommandMeasurement` 的真实数据路径；提示不终止
+   exploration、不签证据充分、不替模型写结论，并要求相邻调用关系继续由实际已读源码证明；
+3. Answer-document finalizer 在 observation ledger 后消费同一个 carrier 集合，给模型同源路径与 lane boundary：
+   `EmitAnalysis/RequiredFiles/SourceInventoryProfile` 是 exploration 前的分类/导航约束，不承载之后才生成的 command
+   measurement。图边区分 carrier/compile/consume 与 call，避免删 anchor 后仍保留伪数据流；
+4. Analyze 阶段 `list_files` 新增 `recursive=false` 精确门，schema 描述和 runtime reject 共用
+   `analyzerListFilesShallowOnlyRule`；浅层 location pass 仍可用，Explore/Extract/Finalize 的递归枚举完全不受影响。门只检查
+   `StageAnalyze + tool name + recursive boolean`，不依赖语言、路径 token、问题类型、用户措辞或模型答案；
+5. 回归 pin 覆盖 typed profile/carrier 合取、缺任一臂不发射、Explorer one-shot soft hint、finalizer 结论所有权声明、Analyze
+   recursive reject/shallow accept、Explore recursive accept，以及 analyze/explore schema 描述分离。`go test ./internal/agent
+   -count=1` 全绿（3.177s）。
+
+状态：`EVAL-B64-CMDPATH1 = implemented / agent-full-pass / commit-next / replay-next`。本批没有修改 Trace query、显式时间窗、
+Trace 因果投影、系统自动补采、根因选举或答案发布/改写路径。
+
+`EVAL-B64-COUNTBIND1` 仍保持 `P2/open`：它需要从 typed block/fact identity 修复 scalar 与 member-set 的归属绑定，不能把本批
+evidence-path 提示扩大成标签匹配或答案硬门。

@@ -1652,6 +1652,36 @@ func TestBuildToolSchemas_AnalyzeStageGrepSchemaCarriesFilesOnlyRule(t *testing.
 	}
 }
 
+func TestBuildToolSchemas_AnalyzeStageListFilesSchemaCarriesShallowRule(t *testing.T) {
+	reg := toolpkg.NewRegistry()
+	toolpkg.RegisterDefaults(reg)
+	sk := &skill.Config{
+		Name:            "analysis-contract",
+		ToolSuggestions: []string{"list_files"},
+	}
+	base := NewBaseAgent(types.AgentAnalyzer, &Dependencies{Tools: reg}, nil)
+
+	description := func(schemas []llm.ToolSchema) string {
+		for _, schema := range schemas {
+			if schema.Name == "list_files" {
+				return schema.Description
+			}
+		}
+		t.Fatalf("list_files schema missing: %+v", schemaNames(schemas))
+		return ""
+	}
+
+	analyze := description(base.buildToolSchemas(sk, &types.AgentContext{Stage: types.StageAnalyze}))
+	if !strings.Contains(analyze, analyzerListFilesShallowOnlyRule) {
+		t.Fatalf("analyze-stage list_files schema must carry shared shallow rule:\n%s", analyze)
+	}
+
+	explore := description(base.buildToolSchemas(sk, &types.AgentContext{Stage: types.StageExplore}))
+	if strings.Contains(explore, analyzerListFilesShallowOnlyRule) {
+		t.Fatalf("explore-stage list_files schema must retain recursive discovery:\n%s", explore)
+	}
+}
+
 // TestRenderToolHistoryAnchorCheckpoint pins the A1 explore-checkpoint
 // reminder: analyzer-verified anchors with no consumption proof render as
 // one advisory line ("if relevant … if unrelated, ignore"), and disappear

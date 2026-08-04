@@ -3753,6 +3753,9 @@ func (b *BaseAgent) buildToolSchemas(sk *skill.Config, ctx *types.AgentContext) 
 			if _, ok := t.(*tool.GrepTool); ok && ctx != nil && ctx.Stage == types.StageAnalyze {
 				desc += " NOTE: " + analyzerGrepFilesOnlyRule
 			}
+			if _, ok := t.(*tool.ListFiles); ok && ctx != nil && ctx.Stage == types.StageAnalyze {
+				desc += " NOTE: " + analyzerListFilesShallowOnlyRule
+			}
 			if _, ok := t.(*tool.RunTests); ok && writePlannerDryRunOnly(ctx) {
 				params = writePlannerRunTestsParameters(params)
 				desc += " While preparing a write plan this tool is available only with dry_run=true and a typed verification_probe object."
@@ -5376,6 +5379,9 @@ func analyzerPrescanResultHasSameBatchSignal(result types.ToolResult) bool {
 //     return a ToolResult with Success=false and a descriptive
 //     Summary so the LLM sees the error in the next iteration's
 //     message stream and can retry correctly.
+//   - `list_files` MUST be called with `recursive=false`. Recursive
+//     repository enumeration is evidence gathering and can flood the
+//     classifier context; exploration retains the full recursive surface.
 //   - `repo_map(view="source_inventory")` is allowed as a bounded
 //     navigation pass for member-inventory classification. Runtime
 //     artifact turns are the exception: analyzer must not introduce a
@@ -5430,6 +5436,21 @@ func validateAnalyzerPrescanToolCall(ctx *types.AgentContext, tc llm.ToolCall) *
 					ctx.Mutable.PrescanRoundCount(), limit))
 		}
 	}
+	if tc.Name == "list_files" {
+		// Defensive: malformed params still flow to the real tool so its
+		// schema decoder remains the canonical parameter-error source.
+		var p struct {
+			Recursive bool `json:"recursive"`
+		}
+		if err := json.Unmarshal(tc.Params, &p); err != nil {
+			return nil
+		}
+		if !p.Recursive {
+			return nil
+		}
+		return rejectAnalyzerPrescanTool(ctx, tc, analyzerListFilesShallowRequiredCode,
+			analyzerListFilesShallowOnlyRule+" Retry with recursive=false, narrow the path, or call emit_analysis with the fields you have.")
+	}
 	if tc.Name != "grep" {
 		return nil
 	}
@@ -5458,11 +5479,17 @@ func validateAnalyzerPrescanToolCall(ctx *types.AgentContext, tc llm.ToolCall) *
 // it from a burned rejection round.
 const analyzerGrepFilesOnlyRule = "grep in this classification step must use files_only=true; line-level matches are evidence-gathering input, not classification input."
 
+// analyzerListFilesShallowOnlyRule is the list_files twin of the grep rule.
+// It is shared byte-for-byte by the analyze-stage schema and runtime reject;
+// the explore-stage schema and execution path remain fully recursive.
+const analyzerListFilesShallowOnlyRule = "list_files in this classification step must use recursive=false; recursive repository enumeration is evidence-gathering input, not classification input."
+
 const (
 	analyzerToolNotAllowedCode                      = "analyzer_tool_not_allowed"
 	analyzerPrescanTerminalEmitModeCode             = "analyzer_terminal_emit_mode"
 	analyzerPrescanBudgetReachedCode                = "analyzer_prescan_budget_reached"
 	analyzerGrepFilesOnlyRequiredCode               = "analyzer_grep_files_only_required"
+	analyzerListFilesShallowRequiredCode            = "analyzer_list_files_shallow_required"
 	analyzerSourceInventoryAnalyzeBoundaryCode      = "analyzer_source_inventory_analyze_boundary"
 	analyzerRuntimeSourceInventoryPrescanCode       = "analyzer_runtime_source_inventory_prescan"
 	analyzerExternalObservationFirstEmitOnlyCode    = "analyzer_external_observation_first_emit_only"
