@@ -66,6 +66,43 @@ func TestRecentRelationNoProgressCountStopsAtProgressSignatureChange(t *testing.
 	}
 }
 
+func TestRecentRelationNoProgressIgnoresCumulativeArtifactAndRowGrowth(t *testing.T) {
+	events := []ProgressEvent{
+		{
+			ResultPresent:  true,
+			ArtifactCount:  6,
+			ArtifactRows:   35,
+			ArtifactFields: []string{"active", "canonical_label", "value"},
+			Actions:        []dataquery.DataAction{{Kind: dataquery.DataActionApplyResolutions}},
+		},
+		{
+			ResultPresent:  true,
+			ArtifactCount:  9,
+			ArtifactRows:   48,
+			ArtifactFields: []string{"active", "canonical_label", "value"},
+			Actions:        []dataquery.DataAction{{Kind: dataquery.DataActionApplyResolutions}},
+		},
+		{
+			ResultPresent:  true,
+			ArtifactCount:  10,
+			ArtifactRows:   61,
+			ArtifactFields: []string{"active", "canonical_label", "value"},
+			Actions:        []dataquery.DataAction{{Kind: dataquery.DataActionApplyResolutions}},
+		},
+	}
+	count, kinds := RecentRelationNoProgressCount(events)
+	if count != 3 || len(kinds) != 1 || kinds[0] != string(dataquery.DataActionApplyResolutions) {
+		t.Fatalf("count=%d kinds=%v, want all schema-identical relation rounds counted despite cumulative row/artifact growth", count, kinds)
+	}
+	window := BuildProgressWindow(events, 3)
+	if window.RepeatedSignatureCount != 3 {
+		t.Fatalf("window=%+v, cumulative counters must not reset schema/ledger convergence signature", window)
+	}
+	if window.LatestDelta.ArtifactCountDelta != 1 || window.LatestDelta.ArtifactRowsDelta != 13 {
+		t.Fatalf("delta=%+v, cumulative counters must remain observable", window.LatestDelta)
+	}
+}
+
 func TestBuildProgressWindowProjectsGenericDeltas(t *testing.T) {
 	events := []ProgressEvent{{
 		Round:         1,

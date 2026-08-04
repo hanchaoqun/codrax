@@ -287,10 +287,14 @@ func RecentRelationNoProgressCount(events []ProgressEvent) (int, []string) {
 func ProgressSignature(event ProgressEvent) string {
 	fields := cleanStrings(event.ArtifactFields)
 	sort.Strings(fields)
-	return fmt.Sprintf("stage=%s artifacts=%d rows=%d fields=%s rule=%d decisions=%d entities=%d contrib=%d reconcile=%t answer=%t",
+	// ArtifactCount and ArtifactRows are cumulative observability counters,
+	// not convergence authority. Re-running the same relation transform over
+	// another alias always increments them and previously made a stalled
+	// workflow look productive forever. Field/ledger/stage changes are the
+	// typed capability deltas that can actually unlock a later DAG stage;
+	// counts remain available on ProgressDelta for diagnostics.
+	return fmt.Sprintf("stage=%s fields=%s rule=%d decisions=%d entities=%d contrib=%d reconcile=%t answer=%t",
 		strings.TrimSpace(event.Stage),
-		event.ArtifactCount,
-		event.ArtifactRows,
 		strings.Join(fields, ","),
 		event.RuleCoverageRecords,
 		event.DecisionRecords,

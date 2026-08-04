@@ -13767,3 +13767,28 @@ plan admission：模型曾在一个因跨 compute→reconcile DAG rank 而被拒
 revision 三臂、validator proposal witness，以及完整 `go test ./internal/dataquery ./internal/repl -count=1` 全绿。
 状态：`EVAL-B75-DATAREFPROJ1=implemented/replay-next`。该批没有系统代写模型结论；系统执行的是模型 typed contract
 已声明的数据投影，并把构造事实作为 receipt 披露。
+
+### B75-D implementation（implemented/tests-pass/replay-next）
+
+现有系统已经有 relation-no-progress typed guard，但 B75 的五次连续 `apply_entity_resolutions` 没有触发。根因不是
+action kind 漏枚举：`apply_entity_resolutions` 本就在 relation materialization 集合中；而是 `ProgressSignature` 把累计
+`ArtifactCount/ArtifactRows` 当成收敛进展。每生成一个同 schema 的新 alias，这两个数必然增长，签名就变化，连续
+stall 计数永远清零。客户 run 中正是 artifact 9→10→11→12→13，而贡献数始终 0、reconcile 始终缺席。
+
+根修保持已有 typed gate 和阈值，只纠正信号口径：
+
+1. convergence signature 只由 stage、累积 field capability set、rule/decision/entity/contribution ledger 数、reconcile 与
+   answer presence 构成；
+2. artifact/row 累计数仍保留在 `ProgressFrame/ProgressDelta` 供模型和审计观察，但不再取得“已向下一 DAG stage
+   推进”的硬门权限；
+3. field set 或任一 ledger/stage 真变化仍立即重置 stall，允许合法 derive/enrich/join 链继续；只有 schema/ledger
+   签名相同达到既有阈值，后续 relation action 才被精确拒绝，并继续开放 derive/extract/filter/qualify/compute/reconcile；
+4. 新看护复现 artifact 6→9→10、rows 35→48→61 但 fields 恒定的三轮，要求 stall count=3，同时断言累计 delta
+   仍可见。既有“新增 canonical_id 即真实 schema progress”正臂继续通过。
+
+`resolved/unmatched` 枚举并非载体缺失：artifact access 已携带 bounded `field_samples`，continuation prompt 也明确要求
+先读 samples；模型本轮先猜 `matched` 后在 zero-match typed diagnostics 中恢复。当前按 adoption/model 波动观察，不为
+该枚举增加产品常量或词面硬门。
+
+验证：完整 `go test ./internal/dataworkflow ./internal/repl -count=1` 全绿。状态：
+`EVAL-B75-DATALOOP1=implemented/replay-next`；`EVAL-B75-DATASTATUS1=typed-context-covered/adoption-watch`。
