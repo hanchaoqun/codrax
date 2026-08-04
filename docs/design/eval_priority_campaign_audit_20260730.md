@@ -14316,3 +14316,30 @@ dataworkflow 看护验证 derived base 正臂与 unrelated base 负臂。定向 
 状态更新：`EVAL-B82-DATALINROLE1=implemented/tests-pass/replay-next`。production 回放仍采用严格并行 2 个：原 join witness
 观察合法 apply 是否不再被 parent 角色反写阻断，并配一个 read/write/operation 高优先级 case，避免 data 战役长期挤占其他
 模式覆盖。
+
+## 85. 2026-08-04 B83 r9：lineage role production 闭环；write 全链路无回归
+
+在 `main@4a87c0aef` 构建后严格并行 data witness 与 write end-to-end，runner/human 均 2/2 PASS：
+
+- `data_join_entity_reconcile`：388s，最终 `30`；2 条 Alpha contribution、reconcile pass；10 data rounds、2 repairs、
+  7 prior errors；
+- `patch_go_typo`：147s，单行 `retrun→return` patch，apply 成功、1 个测试通过、workflow verified，主仓未改。
+
+与 B82 同一 data case 对比，错误的两次 `apply_resolution_lineage_contract` 已完全消失，data rounds 从 13 降到 10；合法
+source descendant 能直接携带 canonical field 进入 filter/contribution。值、contribution count 与 reconcile 继续正确，说明
+不是绕过 guard 换来的假绿。`EVAL-B82-DATALINROLE1=production-proven`。
+
+剩余 7 个 prior errors 分别是空 action input、跨 dependency rank、rule/material stage 提前消费、allowed-next-action 越阶；
+它们归属于既有 `EVAL-B77-DAGCTX1`，本轮没有新的 value/authority 错误。后续应以 planner 的 typed current-rank context 与
+deferred readiness 为统一根修，不为 join case 新增 action 序列特判。
+
+write 席人工核对 plan、patch、apply report 与测试结果一致：只有 `main.go` 第 25 行变化，验收三项完整，隔离 worktree 保留。
+这也验证本轮 dataquery/dataworkflow 变更没有侵入 read/write scheduler 红线。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b83_lineage_write_r9_20260804.md`；
+- `eval/parallel_selected_summary_evalcampaign_b83_lineage_write_r9_20260804_manual_audit.md`；
+- `eval/results/data_join_entity_reconcile-20260804-080751`；
+- `eval/results/patch_go_typo-20260804-080751`；
+- terminal `.codrax/data-audit/20260804-081413-676815-30860-terminal.json`。
