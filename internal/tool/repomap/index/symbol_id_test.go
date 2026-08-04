@@ -213,6 +213,35 @@ func TestCallersOfIDConservativelyIncludesUnresolvedSourceReceiver(t *testing.T)
 	}
 }
 
+func TestBareFunctionFallbackCannotExcludeUnresolvedMethodCaller(t *testing.T) {
+	files := []*types.FileInfo{
+		{
+			RelPath: "agent/targets.go", Language: types.LangGo, Package: "agent",
+			Symbols: []types.Symbol{
+				{Name: "Execute", Kind: "method", Receiver: "ToolA", File: "agent/targets.go", Line: 10},
+				{Name: "Execute", Kind: "function", File: "agent/targets.go", Line: 20},
+			},
+		},
+		{
+			RelPath: "agent/dynamic.py", Language: types.LangPython, Package: "agent",
+			Relations: []types.Relation{{
+				Kind: "call", File: "agent/dynamic.py", Line: 7,
+				ToEP:       types.RelationEndpoint{Name: "Execute", Receiver: "tool", File: "agent/dynamic.py", Line: 7},
+				Confidence: types.ConfidenceAST, Provenance: types.ProvenanceTreeSitter, ResolvedBy: "python_ast_attribute_call",
+			}},
+		},
+	}
+	g := BuildGraph("/tmp/repo", files)
+	caller := files[1]
+	if got := g.ResolveCallTarget(caller, caller.Relations[0]); got != nil {
+		t.Fatalf("non-empty unresolved receiver must not fall back to bare function, got %+v", got)
+	}
+	id := types.MakeSymbolID(types.LangGo, "agent", "ToolA", "Execute", 0)
+	if got := g.CallersOfID(id); !reflect.DeepEqual(got, []string{"agent/dynamic.py"}) {
+		t.Fatalf("bare fallback must not gain exclusion authority over potential method caller: %v", got)
+	}
+}
+
 // TestResolveCallTargetFallbacks verifies the multi-step resolution
 // order in resolveCallTarget: same-package receiver match, bare
 // function fallback, cross-package receiver scan.

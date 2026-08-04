@@ -285,7 +285,16 @@ func javaUniqueReceiverTypeBindings(root *sitter.Node, src []byte) map[string]st
 	add := func(name, typeName string) {
 		name = strings.TrimSpace(name)
 		typeName = strings.TrimSpace(typeName)
-		if name == "" || typeName == "" || conflicts[name] {
+		if name == "" || conflicts[name] {
+			return
+		}
+		// A declaration whose type is unavailable (most notably Java `var`)
+		// still shadows every same-named declaration in this conservative
+		// file census. Silently skipping it would let an unrelated explicit
+		// declaration lend its type identity to the inferred local.
+		if typeName == "" {
+			delete(bindings, name)
+			conflicts[name] = true
 			return
 		}
 		if have := bindings[name]; have != "" && have != typeName {

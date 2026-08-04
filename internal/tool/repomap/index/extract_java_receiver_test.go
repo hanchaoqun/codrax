@@ -116,3 +116,26 @@ class Caller {
 		t.Fatalf("missing var receiver calls: %+v; relations=%+v", want, rels)
 	}
 }
+
+func TestJavaVarDeclarationShadowsFileWideExplicitTypeAuthority(t *testing.T) {
+	src := []byte(`class Worker { void run() {} }
+class Other { void run() {} }
+class Caller {
+  Worker repo;
+  void explicit() { repo.run(); }
+  void inferred() {
+    var repo = new Other();
+    repo.run();
+  }
+}`)
+	root := parseJava(t, src)
+	if got := javaUniqueReceiverTypeBindings(root, src)["repo"]; got != "" {
+		t.Fatalf("inferred declaration must revoke file-wide receiver authority, got repo=%q", got)
+	}
+	_, _, _, rels := extractJava(root, src, "Caller.java")
+	for _, rel := range rels {
+		if rel.ToEP.Name == "run" && rel.ToEP.Receiver != "repo" {
+			t.Fatalf("shadowed receiver must remain source identity, got %+v", rel)
+		}
+	}
+}

@@ -306,12 +306,12 @@ func (g *Graph) CallersOfID(id SymbolID) []string {
 // Resolution order:
 //  1. If ToEP.Receiver matches a type/receiver in fi.Package via
 //     MethodIndex, use it.
-//  2. Else if ToEP.Receiver is empty and fi.Package has a bare
-//     function with this name, use it.
-//  3. Else try every package for (pkg, ToEP.Receiver, name) — this
+//  2. Else try every package for (pkg, ToEP.Receiver, name) — this
 //     catches cross-package method calls where the receiver was
 //     scope-resolved to a type that lives in another package.
-//  4. Give up; caller falls back to name-only accounting.
+//  3. Give up; caller falls back to name-only accounting. A non-empty,
+//     unresolved receiver must never resolve to a same-named bare function:
+//     that weak fallback has no authority to exclude a potential method caller.
 //
 // Exported (was resolveCallTarget) so retrieve.RankGraph in a
 // different package can call it.
@@ -331,12 +331,6 @@ func (g *Graph) ResolveCallTarget(fi *FileInfo, rel Relation) *Symbol {
 	// Same-package receiver match.
 	if s, ok := g.MethodIndex[MethodKey{Pkg: pkg, Receiver: recv, Name: name}]; ok {
 		return s
-	}
-	// Same-package bare function fallback.
-	if recv != "" {
-		if s, ok := g.MethodIndex[MethodKey{Pkg: pkg, Receiver: "", Name: name}]; ok {
-			return s
-		}
 	}
 	// Cross-package: a method with this (receiver, name) defined in
 	// any package. Resolved through a memoized (receiver, name) index

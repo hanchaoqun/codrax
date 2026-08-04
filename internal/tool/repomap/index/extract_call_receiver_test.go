@@ -164,6 +164,52 @@ func TestNavigationReceiverCensusIgnoresInitializerTypes(t *testing.T) {
 	}
 }
 
+func TestNavigationReceiverBindingsStayInsideLexicalScope(t *testing.T) {
+	tests := []struct {
+		name     string
+		language string
+		file     string
+		source   string
+		want     map[int]string
+	}{
+		{
+			name: "kotlin", language: types.LangKotlin, file: "Service.kt",
+			source: "class Worker { fun run() {} }\nclass Other { fun run() {} }\nfun typed(repo: Worker) { repo.run() }\nfun inferred() { val repo = Other(); repo.run() }\n",
+			want:   map[int]string{3: "Worker", 4: "repo"},
+		},
+		{
+			name: "swift", language: types.LangSwift, file: "Service.swift",
+			source: "class Worker { func run() {} }\nclass Other { func run() {} }\nfunc typed(repo: Worker) { repo.run() }\nfunc inferred() { let repo = Other(); repo.run() }\n",
+			want:   map[int]string{3: "Worker", 4: "repo"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			src := []byte(tc.source)
+			root := parseSourceFor(t, tc.language, tc.source)
+			rels := extractNavigationCalls(root, src, tc.file, tc.name+"_ast_navigation_call")
+			want := make(map[int]string, len(tc.want))
+			for line, receiver := range tc.want {
+				want[line] = receiver
+			}
+			for _, rel := range rels {
+				if rel.Kind != "call" || rel.ToEP.Name != "run" {
+					continue
+				}
+				if receiver, ok := want[rel.Line]; ok {
+					if rel.ToEP.Receiver != receiver {
+						t.Fatalf("line %d receiver=%q, want %q: %+v", rel.Line, rel.ToEP.Receiver, receiver, rel)
+					}
+					delete(want, rel.Line)
+				}
+			}
+			if len(want) != 0 {
+				t.Fatalf("missing scoped navigation calls: %+v; relations=%+v", want, rels)
+			}
+		})
+	}
+}
+
 func TestCangjieNamedArgumentDoesNotCorruptParameterBinding(t *testing.T) {
 	src := []byte(`package demo
 class Width { func load(): Unit {} }
@@ -181,10 +227,10 @@ func TestCallReceiverExtractorCacheEpochFloors(t *testing.T) {
 	// extractor lanes. Every affected persisted language domain must reject
 	// pre-change warm caches, including languages sharing one implementation.
 	floors := map[string]int{
-		types.LangJava: 5, types.LangPython: 6,
+		types.LangJava: 6, types.LangPython: 6,
 		types.LangJavaScript: 5, types.LangTypeScript: 5, types.LangArkTS: 5,
-		types.LangCangjie: 4, types.LangKotlin: 5, types.LangRuby: 4,
-		types.LangSwift: 4, types.LangLua: 5, types.LangRust: 4,
+		types.LangCangjie: 4, types.LangKotlin: 6, types.LangRuby: 4,
+		types.LangSwift: 5, types.LangLua: 5, types.LangRust: 4,
 		types.LangC: 4, types.LangCpp: 4,
 	}
 	for language, floor := range floors {

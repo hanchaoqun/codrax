@@ -1707,3 +1707,50 @@ case 的期望措辞。显式时间窗 Trace 因果投影、自动补齐和模�
 
 状态：`S4-3=closed`；`S4-4=closed`；`OM-5=closed`；`M5-D=closed`。下一批按冻结顺序进入
 `S2-1/S2-2/S2-3` repomap 中危补修。
+
+### §10.12 M5-E1：receiver 作用域权限与 bare fallback 排除权（已交付）
+
+#### S2-1：Java 推断声明是“遮蔽事实”，不是“无事发生”
+
+复核确认 `javaDeclaredTypeName(var)==""` 后，旧 `add` 会静默跳过该声明；文件内另一个显式同名声明仍可把
+类型借给 `var` 局部变量。现保持“不从 initializer 猜类型”的精确信号边界，但把已出现的推断声明记为
+冲突/遮蔽：删除同名 file-census authority，并令该冲突 sticky。因而 `var repo = new Other()` 不会铸造
+`Other`，也不会借用另一作用域的 `Worker repo`；调用保持源码 receiver `repo`。Java extractor epoch 5→6，
+旧暖缓存强制失效。
+
+#### S2-2：Kotlin/Swift 从文件 census 收窄到最近词法作用域
+
+确认旧 `navigationUniqueReceiverTypeBindings` 把参数、类参数、属性全部压成一张文件 map。典型反例是
+`typed(repo: Worker)` 与另一函数的 `val/let repo = Other()`：无类型局部被静默跳过，后者的调用被改写为
+`Worker.run`。现预编译 `(scope identity, binding) -> authority` 索引，调用从最近 function/lambda/closure/init
+向外逐层查 class/object/protocol/root：
+
+- 最近作用域显式唯一类型才可晋升 receiver；
+- 最近作用域存在 inferred/untyped 或冲突声明时，明确阻断外层同名 authority，但保留源码 receiver；
+- 参数不跨函数，局部不污染兄弟函数；函数内未遮蔽时仍可读取外层 class property；
+- 索引构造 O(declarations)，每个调用只沿 AST ancestor 链查询，未退化为 calls×declarations 全扫描。
+
+Kotlin epoch 5→6、Swift epoch 4→5。正反 fixture 同时钉住显式参数仍解析到定义端点、另一函数的 inferred
+同名局部保持源码身份，以及 initializer type 不得冒充声明类型。
+
+#### S2-3：bare function 不得获得 method caller 的排除权
+
+审计结论准确，且代码与注释直接相反：`ResolveCallTarget` 注释规定 receiver 为空才匹配 bare function，旧实现却
+在 receiver **非空**时 fallback 到同包同名 bare function。`CallersOfID` 随后把这个弱匹配当“已解析到另一个
+symbol”，排除本应保守保留的 method caller。现删除该逆向 fallback：空 receiver 原本就由第一步 exact
+`MethodKey{Receiver:""}` 解析；非空 receiver 只能由 exact/cross-package receiver key 解析，失败即保持
+unresolved/name-level，不能取得排除权。回归构造同包 `ToolA.Execute` + bare `Execute` + `tool.Execute()`，
+确认调用不被 bare symbol 抢占，且仍进入 `ToolA.Execute` 的保守 caller roster。
+
+完整验证：`go test ./internal/tool/repomap/... -count=1` 全绿（8 个包）。本批不读取请求/模型/答案 prose，
+不改变 read/write 路由、显式时间窗 Trace 因果投影、系统补齐或模型结论所有权。
+
+状态：`S2-1=closed`；`S2-2=closed`；`S2-3=closed`；`M5-E1=closed`。
+
+#### 同类扩域审计（新登记 S2-4）
+
+按“所有受支持语言”继续扫 receiver 权限面后，Go 与 C/C++ 已按函数域绑定；Python/JavaScript/Ruby/Lua只保留
+源码动态 receiver，不铸声明类型；Java 以本批 sticky conflict 保守 fail-open。另确认 TypeScript/ArkTS、Rust、
+Cangjie 仍各有独立 file-wide typed census，存在同类跨函数授权风险，不能因 S2-2 只点名 Kotlin/Swift 就宣称
+全语言闭环。登记 `S2-4=P1`，下一独立批把三种解析族统一到 lexical-scope authority，并逐域 bump cache epoch；
+不把某一语言的 AST/token 规则复制给其他语言。

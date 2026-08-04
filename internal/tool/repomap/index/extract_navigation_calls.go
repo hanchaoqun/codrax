@@ -17,7 +17,7 @@ import (
 // bounded to their source identity.
 func extractNavigationCalls(root *sitter.Node, src []byte, file, resolvedBy string) []types.Relation {
 	var rels []types.Relation
-	receiverTypes := navigationUniqueReceiverTypeBindings(root, src)
+	receiverDeclarations := navigationReceiverDeclarations(root, src)
 	walkNamedChildren(root, true, func(node *sitter.Node) {
 		if node.Type() != "call_expression" || node.NamedChildCount() == 0 {
 			return
@@ -27,8 +27,10 @@ func extractNavigationCalls(root *sitter.Node, src []byte, file, resolvedBy stri
 		if name == "" {
 			return
 		}
-		if binding := navigationReceiverBinding(receiver); binding != "" && receiverTypes[binding] != "" {
-			receiver = receiverTypes[binding]
+		if binding := navigationReceiverBinding(receiver); binding != "" {
+			if receiverType, declared := navigationReceiverTypeAt(node, binding, receiverDeclarations); declared && receiverType != "" {
+				receiver = receiverType
+			}
 		}
 		line := nodeLine(fn)
 		rels = append(rels, types.Relation{
@@ -45,31 +47,101 @@ func extractNavigationCalls(root *sitter.Node, src []byte, file, resolvedBy stri
 	return rels
 }
 
-func navigationUniqueReceiverTypeBindings(root *sitter.Node, src []byte) map[string]string {
-	bindings := make(map[string]string)
-	conflicts := make(map[string]bool)
-	add := func(name, typeName string) {
-		name = strings.TrimSpace(name)
-		typeName = strings.TrimSpace(typeName)
-		if name == "" || typeName == "" || conflicts[name] {
-			return
-		}
-		if have := bindings[name]; have != "" && have != typeName {
-			delete(bindings, name)
-			conflicts[name] = true
-			return
-		}
-		bindings[name] = typeName
-	}
+type navigationScopeKey struct {
+	nodeType  string
+	startByte uint32
+	endByte   uint32
+}
+
+type navigationReceiverAuthority struct {
+	typeName   string
+	conflicted bool
+}
+
+type navigationReceiverAuthorities map[navigationScopeKey]map[string]navigationReceiverAuthority
+
+func navigationReceiverDeclarations(root *sitter.Node, src []byte) navigationReceiverAuthorities {
+	declarations := make(navigationReceiverAuthorities)
 	walkNamedChildren(root, true, func(node *sitter.Node) {
 		switch node.Type() {
 		case "parameter", "class_parameter", "property_declaration":
 			name := navigationBindingName(node, src)
 			typeName := navigationDeclaredTypeName(node, src)
-			add(name, typeName)
+			if name == "" {
+				return
+			}
+			scope := navigationScopeIdentity(navigationBindingScope(node, root))
+			name = strings.TrimSpace(name)
+			typeName = strings.TrimSpace(typeName)
+			byName := declarations[scope]
+			if byName == nil {
+				byName = make(map[string]navigationReceiverAuthority)
+				declarations[scope] = byName
+			}
+			authority, exists := byName[name]
+			if authority.conflicted {
+				return
+			}
+			if typeName == "" || (exists && authority.typeName != typeName) {
+				byName[name] = navigationReceiverAuthority{conflicted: true}
+				return
+			}
+			byName[name] = navigationReceiverAuthority{typeName: typeName}
 		}
 	})
-	return bindings
+	return declarations
+}
+
+func navigationReceiverTypeAt(node *sitter.Node, binding string, declarations navigationReceiverAuthorities) (string, bool) {
+	binding = strings.TrimSpace(binding)
+	if node == nil || binding == "" {
+		return "", false
+	}
+	for current := node; current != nil; current = current.Parent() {
+		if !navigationScopeBoundary(current) && current.Parent() != nil {
+			continue
+		}
+		key := navigationScopeIdentity(current)
+		if authority, declared := declarations[key][binding]; declared {
+			// An untyped/inferred or conflicting declaration is authoritative
+			// shadowing evidence, but it cannot mint a concrete identity.
+			if authority.conflicted {
+				return "", true
+			}
+			return authority.typeName, true
+		}
+	}
+	return "", false
+}
+
+func navigationBindingScope(node, root *sitter.Node) *sitter.Node {
+	for current := node.Parent(); current != nil; current = current.Parent() {
+		if navigationScopeBoundary(current) {
+			return current
+		}
+	}
+	return root
+}
+
+func navigationScopeBoundary(node *sitter.Node) bool {
+	if node == nil {
+		return false
+	}
+	switch node.Type() {
+	case "function_declaration", "anonymous_function", "lambda_literal", "closure_expression",
+		"init_declaration", "deinit_declaration", "getter", "setter",
+		"class_declaration", "object_declaration", "companion_object", "protocol_declaration":
+		return true
+	default:
+		return false
+	}
+}
+
+func navigationScopeIdentity(node *sitter.Node) navigationScopeKey {
+	if node == nil {
+		return navigationScopeKey{}
+	}
+	return navigationScopeKey{nodeType: node.Type(), startByte: node.StartByte(), endByte: node.EndByte()}
 }
 
 func navigationBindingName(node *sitter.Node, src []byte) string {

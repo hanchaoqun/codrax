@@ -228,15 +228,15 @@ const cacheFileInfosChunkSize = 1024
 // latency is a real bottleneck.
 var extractorVersions = map[string]int{
 	types.LangGo:         6, // HYG-2 G18 rune-safe sig cut (was 5: batch-2 gorilla/mux routes)
-	types.LangJava:       5, // receiver-aware call identities (was 4: HYG-2 rune-safe signatures)
+	types.LangJava:       6, // inferred declarations shadow stale explicit receiver identities
 	types.LangPython:     6, // receiver-aware call identities (was 5: HYG-2 rune-safe signatures)
 	types.LangJavaScript: 5, // receiver-aware call identities (was 4: HYG-2 rune-safe signatures)
 	types.LangTypeScript: 5, // receiver-aware call identities via extractJS
 	types.LangArkTS:      5, // receiver-aware call identities via extractJS
 	types.LangCangjie:    4, // token-level call edges and declared receiver identities
-	types.LangKotlin:     5, // navigation call edges and declared receiver identities
+	types.LangKotlin:     6, // navigation receiver identities are lexical-scope bounded
 	types.LangRuby:       4, // receiver-aware call identities
-	types.LangSwift:      4, // navigation call edges and declared receiver identities
+	types.LangSwift:      5, // navigation receiver identities are lexical-scope bounded
 	types.LangLua:        5, // AST-bounded no-whitespace call-sugar identities
 	types.LangProto:      2,
 	types.LangRust:       4, // receiver-aware call identities
