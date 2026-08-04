@@ -166,6 +166,26 @@ func TestActionRunnerMappingCandidateProducesCandidateArtifactOnly(t *testing.T)
 	}
 }
 
+func TestActionRunnerMappingCandidateRejectsUnconsumedRoleFilter(t *testing.T) {
+	_, err := (ActionRunner{}).Run(context.Background(), TaskPlan{
+		Status: "ready",
+		Actions: []DataAction{{
+			ID:   "candidates",
+			Kind: DataActionMappingCandidate,
+			Params: map[string]string{
+				"source_filters": `[{"field":"active","op":"eq","value":true}]`,
+			},
+		}},
+	})
+	if err == nil {
+		t.Fatal("Run succeeded, want mapping_candidate role filter rejected instead of ignored")
+	}
+	var paramErr DataActionParamError
+	if !errors.As(err, &paramErr) || paramErr.Param != "source_filters" {
+		t.Fatalf("err=%T %v paramErr=%+v, want typed unsupported-parameter violation", err, err, paramErr)
+	}
+}
+
 func TestActionRunnerMappingCandidateMissingFieldsAreTyped(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "items.csv"), []byte("id,name\n1,Alpha\n"), 0o644); err != nil {
@@ -755,6 +775,47 @@ func TestActionRunnerJoinFieldCountParamIsTyped(t *testing.T) {
 		violation.Param != "left_fields/right_fields" ||
 		!strings.Contains(violation.ActualSnippet, "left_fields=2") {
 		t.Fatalf("violation=%+v, want typed join param violation", violation)
+	}
+}
+
+func TestActionRunnerJoinRecordsRejectsUnconsumedParam(t *testing.T) {
+	_, err := (ActionRunner{}).Run(context.Background(), TaskPlan{
+		Status: "ready",
+		Actions: []DataAction{{
+			ID:   "join",
+			Kind: DataActionJoinRecords,
+			Params: map[string]string{
+				"join_on": "id",
+			},
+		}},
+	})
+	if err == nil {
+		t.Fatal("Run succeeded, want unsupported join_records parameter rejected")
+	}
+	var paramErr DataActionParamError
+	if !errors.As(err, &paramErr) || paramErr.Param != "join_on" {
+		t.Fatalf("err=%T %v paramErr=%+v, want typed unsupported-parameter violation", err, err, paramErr)
+	}
+}
+
+func TestActionRunnerJoinRecordsRejectsConflictingFieldAliases(t *testing.T) {
+	_, err := (ActionRunner{}).Run(context.Background(), TaskPlan{
+		Status: "ready",
+		Actions: []DataAction{{
+			ID:   "join",
+			Kind: DataActionJoinRecords,
+			Params: map[string]string{
+				"left_fields": "[\"id\"]",
+				"join_fields": "[\"name\"]",
+			},
+		}},
+	})
+	if err == nil {
+		t.Fatal("Run succeeded, want conflicting join_records field aliases rejected")
+	}
+	var paramErr DataActionParamError
+	if !errors.As(err, &paramErr) || !strings.Contains(paramErr.Param, "left_fields") || !strings.Contains(paramErr.Param, "join_fields") {
+		t.Fatalf("err=%T %v paramErr=%+v, want typed alias conflict", err, err, paramErr)
 	}
 }
 

@@ -13981,3 +13981,24 @@ import sandbox 与 action admission 继续硬守。不得扫描模型 script 字
 - `eval/parallel_selected_summary_evalcampaign_b78_selection_r4_20260804.md`；
 - `eval/parallel_selected_summary_evalcampaign_b78_selection_r4_20260804_manual_audit.md`；
 - result dirs：`eval/results/*-20260804-063817`。
+
+### B76-C2 implementation（implemented/tests-pass）：mapping-candidate 与 join 多角色合同
+
+多输入 action 第一批覆盖 `mapping_candidate` 与 `join_records`：
+
+1. `mapping_candidate` 的 source/reference path、source/reference field selectors、canonical id/label、match mode 与 limits
+   按实际 executor 读集列入合同。source/reference field selector 的多键合并语义保持原样，不被错误压成单值 alias；
+2. mapping candidate 当前并不执行 source/reference filters，因此这类参数现在明确 typed reject，不再发一个看似筛选、
+   实际对全表生成 candidates 的成功产物。需要先用 `filter_records` 物化角色输入，或改用真实支持双侧 filters 的
+   `normalize_entities`；
+3. `join_records` 把 left/right paths、left/right field aliases、shared join fields、join type、prefix/collision 与 limits
+   归一到 executor 真实读取形。共享 `join_fields` 只在 left selector group 铸造，right 未声明时继续沿用 left fields；
+   显式 right fields 仍可与 shared left fields 不同；
+4. 同一侧多个 field aliases 值不一致时 fail-closed，未知 `join_on` 等键拒绝，避免“planner 以为按 X join、runner
+   实际按另一键 join”的静默语义漂移。
+
+看护覆盖 mapping 正常 candidate artifact、mapping ignored-role-filter 负臂、join unknown/conflict 负臂，以及全部既有
+join alias/左右字段/推断/left-join/zero-match 正臂。完整
+`go test ./internal/dataquery ./internal/dataworkflow ./internal/repl -count=1` 全绿。状态：
+`EVAL-B76-DATAPARAM1=mapping-candidate+join covered`；B76-C3 继续 normalize/apply/enrich，三者的 source/base 与
+reference/resolution filters 必须保持角色隔离。

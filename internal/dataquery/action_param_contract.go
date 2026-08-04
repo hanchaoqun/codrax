@@ -52,6 +52,53 @@ var dataActionParamContracts = map[DataActionKind]dataActionParamContract{
 			{Canonical: "fields", Aliases: []string{"fields_json", "field", "target_fields"}},
 		},
 	},
+	DataActionMappingCandidate: {
+		Allowed: actionParamSet(
+			"source_path", "reference_path",
+			"source_field", "name_field", "value_field", "source_fields", "name_fields", "value_fields",
+			"reference_field", "reference_fields", "reference_name_field", "reference_name_fields",
+			"mapping_source_field", "mapping_source_fields", "lookup_field", "lookup_fields",
+			"reference_fields_json", "reference_name_fields_json",
+			"canonical_id_field", "canonical_label_field", "match_mode",
+			"max_records", "max_output_records", "max_candidates_per_source",
+		),
+		AliasGroups: []dataActionParamAliasGroup{
+			{Canonical: "source_path", Aliases: []string{"base_path", "record_path"}},
+			{Canonical: "reference_path", Aliases: []string{"mapping_path", "lookup_path"}},
+			{Canonical: "canonical_id_field", Aliases: []string{"id_field", "reference_value_field", "lookup_value_field"}},
+			{Canonical: "canonical_label_field", Aliases: []string{"label_field"}},
+			{Canonical: "match_mode", Aliases: []string{"mode"}},
+		},
+	},
+	DataActionJoinRecords: {
+		Allowed: actionParamSet(
+			"left_path", "right_path", "left_fields", "right_fields",
+			"join_type", "left_prefix", "right_prefix", "collision", "max_records", "max_output_records",
+		),
+		AliasGroups: []dataActionParamAliasGroup{
+			{Canonical: "left_path", Aliases: []string{"left"}},
+			{Canonical: "right_path", Aliases: []string{"right"}},
+			{
+				Canonical: "left_fields",
+				Aliases: []string{
+					"left_fields_json", "left_key_fields", "left_key_fields_json",
+					"base_fields", "base_fields_json", "base_key_fields", "base_key_fields_json",
+					"left_keys", "left_keys_json", "left_key",
+					"join_fields", "join_fields_json", "join_key",
+				},
+			},
+			{
+				Canonical: "right_fields",
+				Aliases: []string{
+					"right_fields_json", "right_key_fields", "right_key_fields_json",
+					"lookup_fields", "lookup_fields_json", "lookup_key_fields", "lookup_key_fields_json",
+					"reference_fields", "reference_fields_json", "reference_key_fields", "reference_key_fields_json",
+					"right_keys", "right_keys_json", "right_key",
+				},
+			},
+			{Canonical: "join_type", Aliases: []string{"type"}},
+		},
+	},
 	DataActionQualifyRecords: {
 		Allowed: actionParamSet(
 			"input_path",
