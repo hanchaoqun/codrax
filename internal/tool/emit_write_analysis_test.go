@@ -157,6 +157,62 @@ func TestEmitWriteAnalysis_PreservesRenderedTextPlacementContract(t *testing.T) 
 	}
 }
 
+func TestEmitWriteAnalysis_PreservesStateTransitionContract(t *testing.T) {
+	tool := &EmitWriteAnalysis{}
+	bus := newTestBusForWriteAnalysis()
+	params := json.RawMessage(`{
+		"raw_request": "preserve a shared cursor after cross-direction exhaustion",
+		"task": {"kind": "bugfix", "scope": "package", "summary": "fix shared cursor exhaustion"},
+		"risk": {"affects_public_api": false, "changes_persistence": false, "changes_build_system": false, "overall": "medium"},
+		"behavior_contracts": [{
+			"id": "shared-cursor-sequence", "kind": "invariant", "polarity": "expected",
+			"subject": "bidirectional cursor", "operator": "satisfies", "expected": "cross-direction exhaustion",
+			"transition": {"steps": [
+				{"phase": "setup", "operation": "advance from front", "evidence_ref": "src/cursor.rs:20"},
+				{"phase": "action", "operation": "skip past remaining from back"},
+				{"phase": "observation", "expected": "returns None"},
+				{"phase": "postcondition", "expected": "both directions return None"}
+			]}
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected Success=true, got: %s", res.Summary)
+	}
+	contracts := bus.Mutable.WriteAnalysisIR().Request.BehaviorContracts
+	if len(contracts) != 1 || contracts[0].Transition == nil || len(contracts[0].Transition.Steps) != 4 {
+		t.Fatalf("transition contract not stored: %+v", contracts)
+	}
+	if contracts[0].Transition.Steps[0].Phase != types.WriteBehaviorTransitionSetup ||
+		contracts[0].Transition.Steps[3].Phase != types.WriteBehaviorTransitionPostcondition {
+		t.Fatalf("transition phase order drifted: %+v", contracts[0].Transition.Steps)
+	}
+}
+
+func TestEmitWriteAnalysis_RejectsUnsupportedTransitionPhase(t *testing.T) {
+	tool := &EmitWriteAnalysis{}
+	bus := newTestBusForWriteAnalysis()
+	params := json.RawMessage(`{
+		"raw_request": "bad transition phase",
+		"task": {"kind": "bugfix", "scope": "micro", "summary": "bad transition phase"},
+		"risk": {"affects_public_api": false, "changes_persistence": false, "changes_build_system": false, "overall": "low"},
+		"behavior_contracts": [{
+			"id": "bad-transition", "kind": "invariant", "operator": "satisfies", "expected": "ordered behavior",
+			"transition": {"steps": [{"phase": "cleanup", "operation": "close"}]}
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Success || !strings.Contains(res.Summary, "transition.steps[0].phase") {
+		t.Fatalf("expected transition phase rejection, got success=%v summary=%q", res.Success, res.Summary)
+	}
+}
+
 func TestEmitWriteAnalysis_RejectsUnsupportedPlacementEnums(t *testing.T) {
 	tool := &EmitWriteAnalysis{}
 	bus := newTestBusForWriteAnalysis()

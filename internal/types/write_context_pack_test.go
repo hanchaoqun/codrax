@@ -161,6 +161,42 @@ func TestWriteContextPackFromWriteAnalysisIR_SatisfiesContractIsSoft(t *testing.
 	}
 }
 
+func TestWriteContextPackFromWriteAnalysisIR_RendersOrderedTransition(t *testing.T) {
+	ir := &WriteAnalysisIR{Request: WriteRequestModel{
+		Task: WriteTask{Summary: "preserve shared cursor boundary"},
+		BehaviorContracts: []WriteBehaviorContract{{
+			ID:       "cursor-sequence",
+			Kind:     WriteBehaviorInvariant,
+			Polarity: WriteBehaviorPolarityExpected,
+			Operator: WriteBehaviorOpSatisfies,
+			Subject:  "shared cursor",
+			Expected: "cross-operation exhaustion",
+			Transition: &WriteBehaviorTransition{Steps: []WriteBehaviorTransitionStep{
+				{Phase: WriteBehaviorTransitionSetup, Operation: "advance front", EvidenceRef: "src/cursor.rs:20"},
+				{Phase: WriteBehaviorTransitionAction, Operation: "skip past remaining from back"},
+				{Phase: WriteBehaviorTransitionObservation, Expected: "returns None"},
+				{Phase: WriteBehaviorTransitionPostcondition, Expected: "both directions exhausted"},
+			}},
+			Required: true,
+			Source:   "write_analyzer",
+		}},
+	}}
+	view := WriteContextPackFromWriteAnalysisIR(ir).View(WriteConsumerPlanner, 10)
+	for _, want := range []string{
+		"contract_id=cursor-sequence ordinal=1 phase=setup operation=advance front evidence_ref=src/cursor.rs:20",
+		"contract_id=cursor-sequence ordinal=2 phase=action operation=skip past remaining from back",
+		"contract_id=cursor-sequence ordinal=3 phase=observation expected=returns None",
+		"contract_id=cursor-sequence ordinal=4 phase=postcondition expected=both directions exhausted",
+	} {
+		if !writeContextViewContains(view, "behavior_transition_step", want) {
+			t.Fatalf("transition field %q missing from planner view: %+v", want, view.Items)
+		}
+	}
+	if !writeContextViewContains(view, "behavior_contract", "transition_phases=setup>action>observation>postcondition") {
+		t.Fatalf("transition summary missing from parent contract: %+v", view.Items)
+	}
+}
+
 func TestWriteContextPackFromWriteAnalysisIR_ExactContractIsP0(t *testing.T) {
 	ir := &WriteAnalysisIR{
 		Request: WriteRequestModel{

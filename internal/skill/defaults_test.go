@@ -148,6 +148,52 @@ func TestWriteAnalysisSkillCalibratesMutationRiskWithoutWeakeningApproval(t *tes
 	}
 }
 
+func TestWriteSkillsCarryStateTransitionsWithoutProseHardGate(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	analysis, err := r.Get("write-analysis-skill")
+	if err != nil {
+		t.Fatalf("Get(write-analysis-skill): %v", err)
+	}
+	planner, err := r.Get("change-plan-skill")
+	if err != nil {
+		t.Fatalf("Get(change-plan-skill): %v", err)
+	}
+	analysisText := allWorkflowBodies(analysis) + "\n" + analysis.OutputFormat
+	for _, want := range []string{
+		"STATE-TRANSITION CONTRACTS",
+		"behavior_contracts[].transition.steps[]",
+		"setup, action, observation, and postcondition",
+		"non-initial-state sequence",
+		"cross-operation sequence",
+		"soft context for planning and verification",
+	} {
+		if !strings.Contains(analysisText, want) {
+			t.Fatalf("write-analysis state-transition guidance missing %q:\n%s", want, analysisText)
+		}
+	}
+	plannerText := allWorkflowBodies(planner)
+	for _, want := range []string{
+		"STATEFUL VERIFICATION",
+		"transition.steps[]",
+		"execute those steps in order",
+		"Do not replace the sequence with source-token checks",
+		"non-initial state",
+		"only executed probe/project-runner results own verification authority",
+	} {
+		if !strings.Contains(plannerText, want) {
+			t.Fatalf("planner state-transition guidance missing %q:\n%s", want, plannerText)
+		}
+	}
+	for _, text := range []string{strings.ToLower(analysisText), strings.ToLower(plannerText)} {
+		for _, banned := range []string{"if the user says", "summary contains", "rationale contains", "parse prose"} {
+			if strings.Contains(text, banned) {
+				t.Fatalf("state-transition guidance contains prose-routing smell %q", banned)
+			}
+		}
+	}
+}
+
 // TestExploreSkillR6_NoInternalGateJargon — 2026-05-10 audit. The
 // EVIDENCE_FLOOR_WAIVER skill prompt described the waiver's effect
 // using internal pipeline gate names ("forced-read and citation-

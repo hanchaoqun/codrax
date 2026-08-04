@@ -2,6 +2,41 @@ package types
 
 import "testing"
 
+func TestNormalizeWriteBehaviorContracts_PreservesOrderedTransition(t *testing.T) {
+	got := NormalizeWriteBehaviorContracts([]WriteBehaviorContract{{
+		ID:       "shared-cursor-exhaustion",
+		Kind:     WriteBehaviorInvariant,
+		Polarity: WriteBehaviorPolarityExpected,
+		Operator: WriteBehaviorOpSatisfies,
+		Subject:  "bidirectional cursor",
+		Expected: "past-end transition exhausts the shared cursor",
+		Transition: &WriteBehaviorTransition{Steps: []WriteBehaviorTransitionStep{
+			{Phase: WriteBehaviorTransitionPhase(" SETUP "), Operation: " consume from front ", EvidenceRef: " test:front "},
+			{Phase: WriteBehaviorTransitionPhase(" ACTION "), Operation: " skip from back ", Expected: " None "},
+			{Phase: WriteBehaviorTransitionPhase(" OBSERVATION "), Expected: " no consumed member is returned "},
+			{Phase: WriteBehaviorTransitionPhase(" POSTCONDITION "), Operation: " read both directions ", Expected: " both return None "},
+		}},
+		Required: true,
+		Source:   "write_analyzer",
+	}}, nil)
+	if len(got) != 1 || got[0].Transition == nil {
+		t.Fatalf("ordered transition missing: %+v", got)
+	}
+	steps := got[0].Transition.Steps
+	if len(steps) != 4 {
+		t.Fatalf("transition steps len = %d, want 4: %+v", len(steps), steps)
+	}
+	if steps[0].Phase != WriteBehaviorTransitionSetup || steps[0].Operation != "consume from front" || steps[0].EvidenceRef != "test:front" {
+		t.Fatalf("setup step normalized incorrectly: %+v", steps[0])
+	}
+	if steps[3].Phase != WriteBehaviorTransitionPostcondition || steps[3].Expected != "both return None" {
+		t.Fatalf("postcondition step normalized incorrectly: %+v", steps[3])
+	}
+	if IsHardRequiredWriteBehaviorContract(got[0]) {
+		t.Fatalf("operator=satisfies transition must remain soft guidance: %+v", got[0])
+	}
+}
+
 func TestNormalizeWriteBehaviorContracts_PreservesNotRaisesAndPolarity(t *testing.T) {
 	got := NormalizeWriteBehaviorContracts([]WriteBehaviorContract{{
 		ID:       "no-crash",

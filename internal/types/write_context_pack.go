@@ -281,6 +281,19 @@ func WriteContextPackFromWriteAnalysisIR(ir *WriteAnalysisIR) WriteContextPack {
 		item.SourceID = contract.ID
 		item.ID = writeContextStableID("behavior_contract", contract.ID, string(contract.Kind), contract.Subject, contract.Expected)
 		pack.Items = append(pack.Items, item)
+		if contract.Transition != nil {
+			for i, step := range contract.Transition.Steps {
+				stepText := renderWriteBehaviorTransitionStepContext(contract.ID, i, step)
+				if stepText == "" {
+					continue
+				}
+				stepItem := writeContextItem("behavior_transition_step", WriteContextP1, stepText, "write_analysis",
+					WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier)
+				stepItem.SourceID = contract.ID
+				stepItem.ID = writeContextStableID("behavior_transition_step", contract.ID, strconv.Itoa(i+1), string(step.Phase), step.Operation, step.Expected)
+				pack.Items = append(pack.Items, stepItem)
+			}
+		}
 	}
 	for _, manifest := range ir.RepoFacts.Manifests {
 		pack.Items = append(pack.Items, writeContextItem("manifest", WriteContextP2, manifest, "write_analysis",
@@ -2439,6 +2452,14 @@ func renderWriteBehaviorContractContext(c WriteBehaviorContract) string {
 	if c.Expected != "" {
 		parts = append(parts, "expected="+c.Expected)
 	}
+	if c.Transition != nil && len(c.Transition.Steps) > 0 {
+		phases := make([]string, 0, len(c.Transition.Steps))
+		for _, step := range c.Transition.Steps {
+			phases = append(phases, string(step.Phase))
+		}
+		parts = append(parts, fmt.Sprintf("transition_steps=%d", len(c.Transition.Steps)))
+		parts = append(parts, "transition_phases="+strings.Join(phases, ">"))
+	}
 	if c.Placement != nil {
 		if c.Placement.Surface != "" {
 			parts = append(parts, "placement_surface="+string(c.Placement.Surface))
@@ -2485,6 +2506,24 @@ func renderWriteBehaviorContractContext(c WriteBehaviorContract) string {
 	}
 	if c.EvidenceRef != "" {
 		parts = append(parts, "evidence_ref="+c.EvidenceRef)
+	}
+	return trimWriteContextText(strings.Join(parts, " "))
+}
+
+func renderWriteBehaviorTransitionStepContext(contractID string, index int, step WriteBehaviorTransitionStep) string {
+	parts := []string{
+		"contract_id=" + compactWriteContextValue(contractID, 48),
+		fmt.Sprintf("ordinal=%d", index+1),
+		"phase=" + string(step.Phase),
+	}
+	if step.Operation != "" {
+		parts = append(parts, "operation="+compactWriteContextValue(step.Operation, 72))
+	}
+	if step.Expected != "" {
+		parts = append(parts, "expected="+compactWriteContextValue(step.Expected, 88))
+	}
+	if step.EvidenceRef != "" {
+		parts = append(parts, "evidence_ref="+compactWriteContextValue(step.EvidenceRef, 64))
 	}
 	return trimWriteContextText(strings.Join(parts, " "))
 }

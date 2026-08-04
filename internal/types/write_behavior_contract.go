@@ -16,12 +16,42 @@ type WriteBehaviorContract struct {
 	Subject     string                      `json:"subject,omitempty"`
 	Operator    WriteBehaviorOperator       `json:"operator,omitempty"`
 	Expected    string                      `json:"expected,omitempty"`
+	Transition  *WriteBehaviorTransition    `json:"transition,omitempty"`
 	Placement   *WriteRenderedTextPlacement `json:"placement,omitempty"`
 	Comparator  *WriteBehaviorComparator    `json:"comparator,omitempty"`
 	EvidenceRef string                      `json:"evidence_ref,omitempty"`
 	Required    bool                        `json:"required,omitempty"`
 	Source      string                      `json:"source,omitempty"`
 }
+
+// WriteBehaviorTransition carries an ordered state/protocol witness without
+// asking downstream code to recover ordering from model prose. It is optional
+// and advisory: validators preserve the typed phases and probes may bind the
+// parent contract ID, but only an executed probe/project runner can establish
+// that the changed production code satisfies the sequence.
+type WriteBehaviorTransition struct {
+	Steps []WriteBehaviorTransitionStep `json:"steps,omitempty"`
+}
+
+// WriteBehaviorTransitionStep is one ordered part of a stateful behavior.
+// Operation names the call/event/state mutation; Expected is the observable
+// result or state after that step. Keeping both fields allows setup/action
+// steps and observation/postcondition steps to share one compact carrier.
+type WriteBehaviorTransitionStep struct {
+	Phase       WriteBehaviorTransitionPhase `json:"phase"`
+	Operation   string                       `json:"operation,omitempty"`
+	Expected    string                       `json:"expected,omitempty"`
+	EvidenceRef string                       `json:"evidence_ref,omitempty"`
+}
+
+type WriteBehaviorTransitionPhase string
+
+const (
+	WriteBehaviorTransitionSetup         WriteBehaviorTransitionPhase = "setup"
+	WriteBehaviorTransitionAction        WriteBehaviorTransitionPhase = "action"
+	WriteBehaviorTransitionObservation   WriteBehaviorTransitionPhase = "observation"
+	WriteBehaviorTransitionPostcondition WriteBehaviorTransitionPhase = "postcondition"
+)
 
 // WriteRenderedTextPlacement describes a line-local rendered-output placement
 // obligation. It is a typed contract surface shared by Python reprs, JS CLI
@@ -159,6 +189,16 @@ func IsKnownWriteBehaviorComparatorRelation(v string) bool {
 	}
 }
 
+func IsKnownWriteBehaviorTransitionPhase(v string) bool {
+	switch WriteBehaviorTransitionPhase(v) {
+	case WriteBehaviorTransitionSetup, WriteBehaviorTransitionAction,
+		WriteBehaviorTransitionObservation, WriteBehaviorTransitionPostcondition:
+		return true
+	default:
+		return false
+	}
+}
+
 func IsKnownWriteRenderedTextSurface(v string) bool {
 	switch WriteRenderedTextSurface(v) {
 	case WriteRenderedTextSurfaceRepr,
@@ -220,6 +260,7 @@ func NormalizeWriteBehaviorContracts(in []WriteBehaviorContract, expectedOutcome
 		}
 		c.Subject = strings.TrimSpace(c.Subject)
 		c.Expected = strings.TrimSpace(c.Expected)
+		c.Transition = NormalizeWriteBehaviorTransition(c.Transition)
 		c.Placement = NormalizeWriteRenderedTextPlacement(c.Placement, c.Expected)
 		if c.Expected == "" && c.Placement != nil {
 			c.Expected = c.Placement.Expected
@@ -230,7 +271,7 @@ func NormalizeWriteBehaviorContracts(in []WriteBehaviorContract, expectedOutcome
 		if c.Source == "" {
 			c.Source = "write_analyzer"
 		}
-		if c.Expected == "" && c.Subject == "" && c.Placement == nil {
+		if c.Expected == "" && c.Subject == "" && c.Transition == nil && c.Placement == nil {
 			continue
 		}
 		if _, ok := seen[c.ID]; ok {
@@ -270,6 +311,38 @@ func NormalizeWriteBehaviorContracts(in []WriteBehaviorContract, expectedOutcome
 		out = out[:maxContracts]
 	}
 	return out
+}
+
+// NormalizeWriteBehaviorTransition preserves only schema-known ordered steps.
+// It does not infer a sequence from Expected/Subject text and therefore cannot
+// turn noisy prose into a hard control signal.
+func NormalizeWriteBehaviorTransition(in *WriteBehaviorTransition) *WriteBehaviorTransition {
+	if in == nil {
+		return nil
+	}
+	const maxTransitionSteps = 8
+	steps := make([]WriteBehaviorTransitionStep, 0, min(len(in.Steps), maxTransitionSteps))
+	for _, raw := range in.Steps {
+		step := raw
+		step.Phase = WriteBehaviorTransitionPhase(strings.ToLower(strings.TrimSpace(string(step.Phase))))
+		if !IsKnownWriteBehaviorTransitionPhase(string(step.Phase)) {
+			continue
+		}
+		step.Operation = strings.TrimSpace(step.Operation)
+		step.Expected = strings.TrimSpace(step.Expected)
+		step.EvidenceRef = strings.TrimSpace(step.EvidenceRef)
+		if step.Operation == "" && step.Expected == "" {
+			continue
+		}
+		steps = append(steps, step)
+		if len(steps) == maxTransitionSteps {
+			break
+		}
+	}
+	if len(steps) == 0 {
+		return nil
+	}
+	return &WriteBehaviorTransition{Steps: steps}
 }
 
 func NormalizeWriteRenderedTextPlacement(in *WriteRenderedTextPlacement, fallbackExpected string) *WriteRenderedTextPlacement {

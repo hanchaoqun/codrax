@@ -299,6 +299,14 @@ func validateWriteBehaviorContractEnums(contracts []types.WriteBehaviorContract)
 				return fmt.Sprintf("emit_write_analysis rejected: behavior_contracts[%d].placement.relation=%q is unsupported; use one of after_anchor, before_anchor, suffix_before_delimiter, prefix_after_delimiter, between_anchor_and_delimiter, same_line_contains, line_local_not_contains", i, c.Placement.Relation)
 			}
 		}
+		if c.Transition != nil {
+			for j, step := range c.Transition.Steps {
+				phase := strings.ToLower(strings.TrimSpace(string(step.Phase)))
+				if !types.IsKnownWriteBehaviorTransitionPhase(phase) {
+					return fmt.Sprintf("emit_write_analysis rejected: behavior_contracts[%d].transition.steps[%d].phase=%q is unsupported; use one of setup, action, observation, postcondition", i, j, step.Phase)
+				}
+			}
+		}
 		polarity := strings.ToLower(strings.TrimSpace(string(c.Polarity)))
 		if polarity != "" && !types.IsKnownWriteBehaviorPolarity(polarity) {
 			return fmt.Sprintf("emit_write_analysis rejected: behavior_contracts[%d].polarity=%q is unsupported; use expected, forbidden, or observed", i, c.Polarity)
@@ -402,6 +410,38 @@ func buildEmitWriteAnalysisSchema() map[string]any {
 						"expected": map[string]any{
 							"type":        "string",
 							"description": "Exact observable value for exact operators, or concise soft behavior text for operator=satisfies. Text under operator=satisfies is not a hard exact-value target.",
+						},
+						"transition": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"steps": map[string]any{
+									"type":     "array",
+									"maxItems": 8,
+									"items": map[string]any{
+										"type":     "object",
+										"required": []string{"phase"},
+										"properties": map[string]any{
+											"phase": map[string]any{
+												"type": "string",
+												"enum": []string{"setup", "action", "observation", "postcondition"},
+											},
+											"operation": map[string]any{
+												"type":        "string",
+												"description": "Call, event, input, or state mutation performed at this ordered step.",
+											},
+											"expected": map[string]any{
+												"type":        "string",
+												"description": "Observable result or state after this step. Keep inferred state-machine expectations under operator=satisfies unless exact grounding exists.",
+											},
+											"evidence_ref": map[string]any{
+												"type":        "string",
+												"description": "Optional request, issue, test, or file:line evidence supporting this step.",
+											},
+										},
+									},
+								},
+							},
+							"description": "Optional ordered state/protocol witness. Use when repository evidence shows shared mutable state or a lifecycle where setup, action, observation, and postcondition order matters. This is a soft planning carrier, not proof by itself.",
 						},
 						"placement": map[string]any{
 							"type": "object",

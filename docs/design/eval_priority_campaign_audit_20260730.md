@@ -13442,6 +13442,24 @@ runner 缺失时 fail-closed 是正确的，但不能用另一语言的 source-s
 施工顺序冻结：`B72-A evidence/docs` → `B72-B typed transition carrier + analyzer/planner soft guidance + structural pins` →
 严格并行同一个 stateful write witness 与另一个非 write 防回归 witness。语言 probe matrix 拆独立批次，避免与状态合同混成大改。
 
+#### B72-B implementation（implemented/full-related-tests-pass）
+
+通用 state-transition carrier 已落地：
+
+1. `WriteBehaviorContract` 新增可选 `transition.steps[]`，每步只接受 typed
+   `setup|action|observation|postcondition` phase，并携带 operation、expected、evidence_ref；最多 8 步、有序保存；
+2. normalizer 只处理 schema 字段，不从 Subject/Expected、请求或模型 prose 推断序列；未知 phase 在 emit-time fail-loud；
+3. 父 behavior-contract context 只发步数与 phase 顺序；每一步另发同 `contract_id` 的 P1
+   `behavior_transition_step`。首次测试发现原 240 字符 item 上限会截掉后半序列后，采用分步 carrier，而没有扩大全局预算；
+4. write analyzer 被软提示：共享可变状态/有序协议需要 non-initial-state sequence，多个操作共享同一边界时需要 cross-operation sequence；
+5. planner 被软提示按 transition 顺序执行 changed production code，禁止用 source-token check 或全新初始对象替代状态序列；
+6. transition 不进入 risk/approval/plan hard gate，不取得 verification authority；只有真实 executed probe/project runner 能签行为通过。
+
+结构、严格解码、prompt 与生产消费 pin 均在。验证：`go test ./internal/types ./internal/skill -count=1`（30.887s/1.131s）、
+`go test ./internal/tool -count=1`（165.727s）、`go test ./internal/agent ./internal/orchestrator -count=1`
+（3.050s/14.510s）全绿。状态：`EVAL-B72-STATETRANS1=implemented-soft/replay-next`；
+`EVAL-B72-LANGPROBE1` 保持独立 open matrix，未用本批 carrier 冒充 Rust/ArkTS/Cangjie 等语言的执行能力。
+
 证据：
 
 - `eval/parallel_selected_summary_evalcampaign_b72_writeoperation_r1_20260804.md`；
