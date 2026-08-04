@@ -11,6 +11,7 @@ package tool
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +19,39 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/mattn/go-runewidth"
 )
+
+func TestRuntimeTraceReservedIDCollisionRenameChangesOnlyInternalID(t *testing.T) {
+	before := types.AnswerBlock{
+		ID:          "runtime_trace_facts",
+		Kind:        types.BlockBulletList,
+		Title:       "model title",
+		Text:        "model conclusion remains model-owned",
+		SurfaceRole: types.SurfacePrincipal,
+		FacetIDs:    []string{"current_code_path"},
+		ClaimUses: []types.RenderedClaimUse{{
+			FacetID:   "current_code_path",
+			ClaimForm: types.ClaimDefinitionFact,
+		}},
+		Items: []types.AnswerBlockItem{{ID: "i1", Label: "fact", Text: "detail", CitationRef: 0}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{before}}
+	visibleBefore := types.AnswerBlockVisibleSurface(before)
+
+	if renamed := normalizeRuntimeTraceReservedBlockIDCollisions(doc); renamed != 1 {
+		t.Fatalf("renamed=%d, want 1", renamed)
+	}
+	after := doc.Blocks[0]
+	if after.ID != "model_runtime_trace_facts" {
+		t.Fatalf("internal id=%q, want deterministic model namespace", after.ID)
+	}
+	if got := types.AnswerBlockVisibleSurface(after); got != visibleBefore {
+		t.Fatalf("reserved-id canonicalization changed visible model content:\nbefore=%q\nafter=%q", visibleBefore, got)
+	}
+	after.ID = before.ID
+	if !reflect.DeepEqual(after, before) {
+		t.Fatalf("reserved-id canonicalization changed semantic metadata:\nbefore=%+v\nafter=%+v", before, after)
+	}
+}
 
 func traceSemanticSpanObservation(id, host, class, spanName, value string, lineStart, lineEnd int) types.ObservationRecord {
 	return types.ObservationRecord{

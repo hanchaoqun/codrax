@@ -2261,7 +2261,7 @@ func TestApplyAndPersistMutation_DiagramWithNilPayloadRejected(t *testing.T) {
 	}
 }
 
-func TestApplyAndPersistMutation_DiagramPayloadOnSectionNormalizesKind(t *testing.T) {
+func TestApplyAndPersistMutation_DiagramPayloadOnSectionRejectedWithoutRewrite(t *testing.T) {
 	bus := newBusForMutationTest()
 	doc := &types.AnswerDocumentV2{
 		DocumentModel: "v2",
@@ -2276,18 +2276,14 @@ func TestApplyAndPersistMutation_DiagramPayloadOnSectionNormalizesKind(t *testin
 	}
 	mutation := types.NewReplaceAllMutation(doc)
 	res, _ := ApplyAndPersistMutation(bus, "test_emit", mutation, nil, time.Now())
-	if !res.Success {
-		t.Fatalf("expected diagram discriminator repair to succeed; got %q", res.Summary)
+	if res.Success {
+		t.Fatalf("shared persist must reject stale typed discriminator instead of rewriting model metadata")
 	}
-	got := bus.Mutable.AnswerDocumentV2()
-	if got == nil || len(got.Blocks) != 1 {
-		t.Fatalf("persisted doc missing: %+v", got)
+	if !strings.Contains(res.Summary, "kind=diagram") {
+		t.Fatalf("rejection must give a precise discriminator repair, got %q", res.Summary)
 	}
-	if got.Blocks[0].Kind != types.BlockDiagram {
-		t.Fatalf("persisted kind = %q, want diagram", got.Blocks[0].Kind)
-	}
-	if got.Blocks[0].Diagram == nil || !strings.Contains(got.Blocks[0].Diagram.Body, "A --> B") {
-		t.Fatalf("diagram payload should be preserved, got %+v", got.Blocks[0].Diagram)
+	if got := bus.Mutable.AnswerDocumentV2(); got != nil {
+		t.Fatalf("invalid typed document must not be persisted: %+v", got)
 	}
 }
 

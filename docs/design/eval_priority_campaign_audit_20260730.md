@@ -12111,3 +12111,23 @@ FacetIDs/SurfaceRole 均为空。
 纯内部 block ID 容错和“diagram payload 明确存在时将 discriminator 归一为 diagram”。二者不写可见
 事实或结论，且前者不参与 claim authority、后者由 payload shape 精确蕴含；暂按 P1 继续异构回放，
 不与本轮红线可见/metadata 自证混为 P0。
+
+#### B54-M：schema-owner 两项最终裁定与 persist 兜底删除
+
+针对用户追问，`SCHEMAAUTHOR1` 两项已逐条完成，不再只记观察：
+
+1. **block ID 容错**分成三种精确信号：缺失 ID 只生成不可见 patch handle；ID list 按集合语义 trim/
+   去重；完全相同 typed block 且 ID 相同只视为 transport stutter。它们均不读取用户原文或模型 prose
+   语义，不改变 title/text/items/diagram/facet/claim/role。非完全相同的重复 ID 保留并由 shared
+   validation 精确拒绝。runtime reserved-ID 碰撞仅把 unmarked model block 移到 `model_` 内部命名空间，
+   不授予 system owner；新增结构 pin 把 ID 恢复后要求整个 block `reflect.DeepEqual`，并要求 visible
+   surface 字节恒等。该类属于安全 schema canonicalization，不是答案改写或合同自证；
+2. **diagram discriminator**只保留 raw emit decoder 的无歧义 canonicalization：模型实际提交了非空
+   typed `diagram` object 时，`kind=diagram` 是 payload shape 的精确蕴含，且 body/title/metadata 不变。
+   shared persist 原先还有第二个 `normalizeMergedDiagramPayloadKinds` 兜底，能让 patch/internal typed
+   document 绕过正常 decoder/validation；本批删除该调用和实现。现在 typed persist 的 stale kind 会以
+   精确 `kind=diagram` 修复信息拒绝，不静默改 metadata；raw decoder 的 shape canonicalization继续由
+   既有正/负 pin 约束（不会从普通 text 或 Mermaid 关键词推导 diagram）。
+
+状态：`EVAL-B54-SCHEMAAUTHOR1 = implemented/closed`。至此 B54 当前已确认的答案所有权红线均完成代码
+收口；后续进入两例一批的异构生产 eval，若只出现模型措辞波动则记 watch，不新增原文关键词 gate。

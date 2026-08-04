@@ -39,6 +39,7 @@ func TestShippingAnswerPathsDoNotCallVisibleModelContentMutators(t *testing.T) {
 		"normalizeObservedArtifactClaimUseCarriers":             true,
 		"normalizeCitationBackedPrincipalClaimUses":             true,
 		"normalizePrincipalSupportMemberCarriers":               true,
+		"normalizeMergedDiagramPayloadKinds":                    true,
 	}
 	for _, tc := range []struct {
 		file string
