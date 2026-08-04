@@ -335,10 +335,162 @@ func validatePlanFullContentWithRepair(ctx *types.BusContext, toolName, summary 
 	if rej := validateVerificationProbeContractRefs(ctx, verificationProbes); rej != "" {
 		return rej, planRepairPackFromReason(toolName, "verification_probe_contract_refs_failed", rej, []string{"$.verification_probes[].contract_refs", "$.changes[].verification_probes[].contract_refs"}, nil)
 	}
+	if rej := validateVerifyFailureProofFollowupProbeRefs(ctx, verificationProbes); rej != "" {
+		return rej, planRepairPackFromReason(toolName, "verification_probe_proof_followup_refs_failed", rej, []string{"$.verification_probes[].contract_refs", "$.verification_probes[].changed_symbol_refs", "$.verification_probes[].language"}, nil)
+	}
 	if rej := validateVerificationProbeCoupling(ctx, changes, verificationProbes); rej != "" {
 		return rej, planRepairPackFromReason(toolName, "verification_probe_coupling_failed", rej, []string{"$.verification_probes[].code", "$.verification_probes[].changed_symbol_refs"}, nil)
 	}
 	return "", nil
+}
+
+// validateVerifyFailureProofFollowupProbeRefs closes proof metadata before an
+// expensive apply/verify replay. It activates only from the precise typed
+// changed_path_verification_uncovered handoff. For source families with an
+// inline executor, the model must bind a probe to every uncovered path and to
+// at least one required behavior contract using explicit schema fields. Other
+// source families stay on their project-runner/test-surface lane. Driver code,
+// user prose, plan summary, and probe code are never scanned to infer those
+// signatures. A cross-language probe cannot acquire target-execution/behavior
+// authority merely because it reads source.
+func validateVerifyFailureProofFollowupProbeRefs(ctx *types.BusContext, probes []types.VerificationProbe) string {
+	paths := verifyFailureUncoveredChangedPathRefs(ctx)
+	if len(paths) == 0 {
+		return ""
+	}
+	requiredContracts := verifyFailureRequiredBehaviorContractIDs(ctx)
+	for _, path := range paths {
+		pathRef := "path:" + path
+		targetFamilies := sourceVerificationLanguageFamilies(types.VerificationLanguageFamiliesFromPath(path))
+		// A proof-followup hard gate must remain satisfiable. Inline probes have
+		// executors for only a subset of the source-language matrix; other
+		// languages obtain target-execution authority from their project runner
+		// and test surface. Their optional cross-language source probes remain
+		// source_static evidence and are deliberately not promoted here.
+		if !verificationProbeRuntimeSupportsTargetFamilies(targetFamilies) {
+			continue
+		}
+		var exactRefProbes []types.VerificationProbe
+		for _, probe := range probes {
+			if verificationProbeHasExactStringRef(probe.ChangedSymbolRefs, pathRef) {
+				exactRefProbes = append(exactRefProbes, probe)
+			}
+		}
+		if len(exactRefProbes) == 0 {
+			return fmt.Sprintf("typed verify-failure handoff reports %s for %q; the proof-followup plan must include a verification_probe with changed_symbol_refs=[%q] instead of relying on probe code, summary text, or inferred targets", changedPathVerificationUncoveredReasonCode, path, pathRef)
+		}
+		var targetLanguageProbes []types.VerificationProbe
+		for _, probe := range exactRefProbes {
+			probeFamilies := sourceVerificationLanguageFamilies(
+				types.VerificationLanguageFamiliesFromVerificationProbeSuite("verification_probe/" + strings.TrimSpace(probe.Language)),
+			)
+			if verificationLanguageFamiliesIntersect(targetFamilies, probeFamilies) {
+				targetLanguageProbes = append(targetLanguageProbes, probe)
+			}
+		}
+		if len(targetLanguageProbes) == 0 {
+			return fmt.Sprintf("verification_probe for uncovered target %q declares the exact path ref but its language does not match target families %v; a cross-language/static source check cannot sign target execution or behavior, so add a target-language probe with changed_symbol_refs=[%q]", path, targetFamilies, pathRef)
+		}
+		if len(requiredContracts) == 0 {
+			continue
+		}
+		bound := false
+		for _, probe := range targetLanguageProbes {
+			for _, ref := range probe.ContractRefs {
+				if _, ok := requiredContracts[strings.TrimSpace(ref)]; ok {
+					bound = true
+					break
+				}
+			}
+			if bound {
+				break
+			}
+		}
+		if !bound {
+			return fmt.Sprintf("target-language verification_probe for uncovered target %q must bind at least one required behavior contract in contract_refs; accepted required contract ids are %s", path, formatStringSet(requiredContracts))
+		}
+	}
+	return ""
+}
+
+func verificationProbeRuntimeSupportsTargetFamilies(targetFamilies []types.VerificationLanguageFamily) bool {
+	for _, spec := range verificationProbeRuntimeSpecs {
+		probeFamilies := sourceVerificationLanguageFamilies(
+			types.VerificationLanguageFamiliesFromVerificationProbeSuite("verification_probe/" + spec.Language),
+		)
+		if verificationLanguageFamiliesIntersect(targetFamilies, probeFamilies) {
+			return true
+		}
+	}
+	return false
+}
+
+func verifyFailureUncoveredChangedPathRefs(ctx *types.BusContext) []string {
+	if ctx == nil || ctx.Mutable == nil {
+		return nil
+	}
+	handoff := ctx.Mutable.VerifyFailureHandoff()
+	if handoff == nil {
+		return nil
+	}
+	active := strings.TrimSpace(handoff.FailureReasonCode) == changedPathVerificationUncoveredReasonCode
+	seen := make(map[string]bool)
+	var out []string
+	for _, record := range handoff.Confidence {
+		if strings.TrimSpace(record.ReasonCode) != changedPathVerificationUncoveredReasonCode {
+			continue
+		}
+		active = true
+		for _, ref := range record.ChangedSymbolRefs {
+			ref = strings.TrimSpace(ref)
+			if !strings.HasPrefix(ref, "path:") {
+				continue
+			}
+			path := cleanRepoRelPath(strings.TrimPrefix(ref, "path:"))
+			key := strings.ToLower(path)
+			if path == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, path)
+		}
+	}
+	if !active {
+		return nil
+	}
+	sort.Strings(out)
+	return out
+}
+
+func verifyFailureRequiredBehaviorContractIDs(ctx *types.BusContext) map[string]struct{} {
+	out := make(map[string]struct{})
+	add := func(contracts []types.WriteBehaviorContract) {
+		for _, contract := range probeCoverageContractRefs(contracts) {
+			if id := strings.TrimSpace(contract.ID); id != "" {
+				out[id] = struct{}{}
+			}
+		}
+	}
+	if ctx == nil || ctx.Mutable == nil {
+		return out
+	}
+	if plan := ctx.Mutable.ChangePlan(); plan != nil {
+		add(plan.BehaviorContracts)
+	}
+	if ir := ctx.Mutable.WriteAnalysisIR(); ir != nil {
+		add(ir.Request.BehaviorContracts)
+	}
+	return out
+}
+
+func verificationProbeHasExactStringRef(refs []string, want string) bool {
+	want = strings.TrimSpace(want)
+	for _, ref := range refs {
+		if strings.EqualFold(strings.TrimSpace(ref), want) {
+			return true
+		}
+	}
+	return false
 }
 
 func validatePlanPathStateWithRepair(ctx *types.BusContext, toolName string, changes []types.FileChange) (string, *types.PlanRepairPack) {

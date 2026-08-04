@@ -12212,12 +12212,27 @@ ordered item 仍保留同一错误结论，runner 的 answer_regex 未发现。
 typed shape、accepted EvidenceItem 的 ClaimForm/Subject/Object/Source 和模型显式 typed waiver；不扫描用户
 原文、thinking、completion reason 或最终正文。
 
-写例确认 `EVAL-B55-VERIFYREF1`（P1，开放）：功能 patch 已应用，replan 后 `make check` 和 Python
+写例确认 `EVAL-B55-VERIFYREF1`（P1）：功能 patch 已应用，replan 后 `make check` 和 Python
 source probe 通过，但 Maven 不在环境且 Java 未编译/运行，最终 fail-closed 是正确行为。系统浪费来自
 proof-followup 计划遗漏 `contract_refs/changed_symbol_refs`，直到末端 `changed_path_verification_uncovered`
 才再次发现；同时 Python 正则读取 Java 只能拥有 `source_static`，不可升级为 Java behavior/target execution。
-下一批在 typed verify-failure handoff 的计划边界要求精确 refs，并保持跨语言能力上限；不从 probe code、
-用户原文或模型说明推断目标，不用系统自动补写签名 metadata。
+本批随后完成施工：只在 typed verify-failure handoff 的 reason/Confidence 明确为
+`changed_path_verification_uncovered` 时，提取其中 exact `path:` refs，并在计划正式进入 apply/verify 前要求：
+
+1. 对系统存在 inline probe executor 的未覆盖路径，至少有一个 probe 显式携带完全相同的
+   `changed_symbol_refs=path:...`；
+2. 仅当系统确有该目标语言的 inline probe executor（当前 Python/JavaScript/Ruby/Java/Go）时，probe
+   language family 必须与目标文件 language family 相交；Python 等跨语言 source regex 即使读取 exact Java
+   路径也不能取得 target execution/behavior authority；
+3. 若已有 required behavior contracts，目标语言 probe 必须显式绑定至少一个有效 `contract_refs`；
+4. 缺字段返回 `PlanRepairPack.reason_code=verification_probe_proof_followup_refs_failed`，在计划轮直接修复，
+   不再走完昂贵 apply/verify 后重复同一失败。
+
+判据不从 probe code、用户原文、summary 或模型说明推断目标，也不由系统自动补写签名 metadata；普通计划、
+无 typed handoff、其它 failure reason 均不触发。C/C++、Rust、Kotlin、TypeScript、ArkTS、Cangjie 等当前没有
+inline executor 的语言不继承不可满足的“目标语言 probe 必带”合同，其 target execution/behavior 仍由项目原生
+runner 与 test surface 证明；跨语言 probe 只保留 `source_static` 辅助等级。状态：
+`EVAL-B55-VERIFYREF1 = implemented / full-tool-pass`。
 
 证据：
 
@@ -12225,5 +12240,6 @@ proof-followup 计划遗漏 `contract_refs/changed_symbol_refs`，直到末端 `
 - `eval/parallel_selected_summary_evalcampaign_b55_readwrite_r2_20260803_manual_audit.md`；
 - result dirs：`eval/results/*-20260803-183504`。
 
-验证：`go test ./internal/types ./internal/agent ./internal/tool -count=1` 全绿（tool 170.133s）；
+验证：CALLSINK 批 `go test ./internal/types ./internal/agent ./internal/tool -count=1` 全绿
+（tool 170.133s）；VERIFYREF 批 `go test ./internal/tool -count=1` 全绿（166.083s）；
 `git diff --check` 通过。
