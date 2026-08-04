@@ -1942,3 +1942,22 @@ Cangjie 同时再次见证 `EVAL-B59-INVROW1`：两个 `Cart` 分别是 class@14
 principal-member checker 却产生 4 advisories，系统追加“部分证据较弱/补充钻取未执行”的失真不确定性。该问题应从
 `source + line + declaration family/role` typed composite identity 修，不得从 `Cart`/`extend` 等模型答案词面或语言
 关键词硬门。状态：`EVAL-B59-INVROW1=confirmed-repeat/root-audit-next`。
+
+### §10.19 B85-C：inventory row identity + localization authority（已交付，待生产回放）
+
+冷读纠正了 §10.18 的单根因表述。四条 advisory 由两层共同造成：aggregate principal member 先按
+`source + label` 把 `Cart@14/@30` 合并为一个席位；随后 checker 又只认 `items[].citation_ref`，不认模型已写出的
+markdown table `block.Text + exact file:line + citation pool`。而“补充钻取未执行”来自独立的 pre-finalize localizer：
+source-inventory 单源 authority 已是 `mechanical_landing_ready/complete`，通用导航计划仍把未跑 `relation_map` 当 floor debt。
+
+根修已完成：
+
+- aggregate row 按 `source + line + label` 保留复合身份；definition evidence 的 equivalent-anchor 合并语义不变；
+- principal markdown 覆盖由只读 matcher 以“成员 + 同块精确位置 + 同位置 citation”判定，前缀行号和 label-only 均失败；
+- 禁止的 `normalizePrincipalSupportMemberCarriers` 没有接回 shipping path，模型答案与 citation_ref 均不被系统改写；
+- generic localizer debt 仅在现有 typed authority 明确可机械落地且无 inventory followup 时抑制；需要 summary/source text、
+  不完整/截断/分页清单仍保留 follow-up。
+
+ownership tripwire、定向正负臂及 `internal/types`、`internal/tool`、`internal/orchestrator` 三包全量全绿。
+状态：`EVAL-B59-INVROW1=implemented/tests-pass/replay-next`。下一步严格并行两个异构 eval，验证 advisory=0、无虚假
+termination caveat，同时人工核对主清单与引用逐席完整。

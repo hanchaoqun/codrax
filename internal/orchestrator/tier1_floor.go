@@ -212,6 +212,18 @@ func readLocalizerFollowupForTier1(busCtx *types.BusContext, ir *types.AnalysisI
 		return nil
 	}
 	review := types.SourceLocalizationReviewFromTurnAArtifacts(turnA)
+	// A complete mechanical source-inventory landing is itself the precise
+	// localization authority for a declaration inventory. Generic navigation
+	// planning may still suggest relation_map, but that route cannot improve the
+	// already-complete row universe and must not create a false degraded-floor
+	// caveat. Incomplete inventories and non-mechanical answers remain on the
+	// existing localizer path.
+	inventoryAuthority := sourceInventoryAnswerAuthorityViewForReadScheduler(
+		busCtx, ir, busCtx.Mutable.SourceInventoryObservation())
+	if inventoryAuthority.CanEnterMechanicalLanding && !inventoryAuthority.NeedsFollowup {
+		logging.Info("[orchestrator] pre-finalize read localizer follow-up suppressed: reason=source_inventory_mechanical_landing_complete")
+		return nil
+	}
 	if readPrincipalMemberSetLocalizationComplete(busCtx, ir, turnA) {
 		logging.Info("[orchestrator] pre-finalize read localizer follow-up suppressed: reason=principal_member_set_localization_complete")
 		return nil

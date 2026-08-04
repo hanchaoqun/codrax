@@ -1214,6 +1214,82 @@ func TestCheckTier1Floor_ReadLocalizerFollowupCoveredDoesNotBlock(t *testing.T) 
 	}
 }
 
+func TestReadLocalizerFollowupForTier1_CompleteMechanicalSourceInventoryDoesNotInheritRelationDebt(t *testing.T) {
+	observation := types.SourceInventoryObservation{
+		Active:     true,
+		Complete:   true,
+		Scopes:     []string{"."},
+		Lens:       []string{"members", "attributes", "count"},
+		Provenance: []string{types.SourceInventoryProvenanceRepoLensToolQuery},
+		SourceClasses: []types.SourceInventorySourceClassCount{{
+			Role: types.SourcePathRoleProduction, Count: 1, Complete: true,
+		}},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role: types.AnswerCandidateRoleType, Complete: true, Count: 2, Total: 2,
+			Members: []types.SourceInventoryObservationMember{
+				{Name: "Cart", Role: types.AnswerCandidateRoleType, File: "cart/Cart.cj", Line: 14, Language: "cangjie"},
+				{Name: "Cart", Role: types.AnswerCandidateRoleType, File: "cart/Cart.cj", Line: 30, Language: "cangjie"},
+			},
+		}},
+	}
+	rm := types.RequestModel{
+		Intent:     types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+		AnalyzerHints: types.AnalyzerHints{
+			Kind: string(types.ReqEnumeration),
+		},
+		CompletenessObligation: &types.CompletenessObligation{Required: true, SourceQuote: "all declarations"},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+			RequestedFields: []types.SourceInventoryRequestedField{
+				types.SourceInventoryFieldName,
+				types.SourceInventoryFieldLocation,
+				types.SourceInventoryFieldPackage,
+			},
+			SourceQuotes: []string{"public class", "extend"},
+			Confidence:   0.95,
+		},
+		SourceScopeProfile: &types.SourceScopeProfile{RequestedScope: types.SourceScopeAll},
+	}
+	ir := &types.AnalysisIR{RequestModel: rm}
+	turnA := types.TurnAArtifacts{ToolResults: []types.ToolResult{{
+		ToolName: "repo_map",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:        "repo_map:inventory#navigation:source_inventory",
+			Producer:  "repo_map",
+			Predicate: types.RepoMapNavigationObservationPredicate,
+			Object:    string(types.RepoMapNavigationRouteSourceInventory),
+		}},
+	}}}
+	mu := types.NewMutableState("enumerate Cangjie declarations")
+	mu.SetSourceInventoryObservation(observation)
+	mu.SetTurnAArtifacts(turnA)
+	busCtx := &types.BusContext{Mutable: mu, AnalysisIR: ir}
+
+	authority := sourceInventoryAnswerAuthorityViewForReadScheduler(busCtx, ir, observation)
+	if !authority.CanEnterMechanicalLanding || authority.NeedsFollowup {
+		t.Fatalf("test setup needs complete mechanical landing authority: %+v", authority)
+	}
+	if got := readLocalizerFollowupForTier1(busCtx, ir); got != nil {
+		t.Fatalf("complete declaration inventory must not inherit generic relation/navigation debt: %+v", got)
+	}
+
+	// Requiring source prose exceeds mechanical row authority and must keep the
+	// ordinary localizer contract; the suppression is not a blanket inventory waiver.
+	ir.RequestModel.SourceInventoryProfile.RequestedFields = append(
+		ir.RequestModel.SourceInventoryProfile.RequestedFields,
+		types.SourceInventoryFieldSummary,
+	)
+	if authority := sourceInventoryAnswerAuthorityViewForReadScheduler(busCtx, ir, observation); authority.CanEnterMechanicalLanding {
+		t.Fatalf("summary-bearing inventory must not be mechanical-landing ready: %+v", authority)
+	}
+	if got := readLocalizerFollowupForTier1(busCtx, ir); got == nil {
+		t.Fatal("summary-bearing inventory should retain generic localization follow-up")
+	}
+}
+
 func tier1TraceQueryRuntimeToolResult() types.ToolResult {
 	return types.ToolResult{
 		ToolName: "trace_query",

@@ -14429,3 +14429,37 @@ class+extension 等一类问题。系统披露只能来自真实未覆盖席，�
 
 状态：`EVAL-B84-OPSTRUCT1=closed`；`EVAL-B59-INVROW1=confirmed-repeat/root-audit-next`。显式时间窗 Trace 因果投影、
 自动补齐、模型正文与结论所有权均未改变。
+
+## 88. 2026-08-04 B85-C：复合清单行身份与机械定位 authority 根修
+
+对 B85 日志和代码冷读后，原先归为一个“label identity”问题的两条披露实际来自两个独立 typed 消费面：
+
+1. `PrincipalSupportMemberObligations` 把 `aggregate_fact:member_set` 与普通 definition evidence 共用
+   `source + label` 去重。`Cart@14` 与 `Cart@30` 因此先合成一个带两个 equivalent anchors 的席位，五个真实行变成四个
+   obligations；
+2. `MissingPrincipalSupportMembers` 只索引 `items[] -> citation_ref`，不承认模型在 `block.Text` 中写出的 markdown 表格行。
+   B85 的五行和五个 citation 都精确存在，但没有隐藏 sidecar，因此四个合并后的席位仍全部被误报缺失；
+3. finalize 前的 read-localizer 是另一条链：完整 `source_inventory` 已给出
+   `CanEnterMechanicalLanding=true / NeedsFollowup=false`，通用导航策略仍要求 `relation_map`，从而铸造虚假的
+   `followup_coverage` termination caveat。
+
+施工采用 identity/authority 单源，没有重接已经退役的答案 mutator：
+
+- aggregate principal row 的去重键改为 `source + exact line + label`；普通 definition fact 仍保留同文件同符号的
+  declaration/body equivalent-anchor 合并，避免破坏多语言既有证据等价；
+- 只读覆盖索引新增 markdown principal carrier：必须在同一模型主块中同时出现成员与精确 typed `file:line`，且
+  citation pool 中已有同位置 citation，才认定该席覆盖。label-only、citation-only、`line 14` 对 `line 140` 的前缀匹配
+  均不能获权；
+- 没有调用 `normalizePrincipalSupportMemberCarriers`，不新增 hidden item、不改 citation_ref、不改任何可见模型文字；
+  `TestShippingAnswerPathsDoNotCallVisibleModelContentMutators` 保持绿色；
+- read-localizer 仅在既有 source-inventory answer authority 明确
+  `CanEnterMechanicalLanding && !NeedsFollowup` 时忽略通用 relation/navigation debt。请求 summary/source prose 时该 authority
+  为 false，原定位合同继续生效；不完整、分页未完、预算截断清单也不受豁免。
+
+看护覆盖同文件同名 class+extension 两席、完整 markdown 表格正臂、删除一席位置的负臂、line-prefix 负臂、机械清单
+relation debt 抑制与 summary-bearing inventory 不抑制。完整
+`go test ./internal/types ./internal/tool ./internal/orchestrator -count=1` 全绿（tool 164.284s）。
+
+状态：`EVAL-B59-INVROW1=implemented/tests-pass/replay-next`；B85 两条虚假系统披露均已有根修，下一批严格并行
+`cangjie_repomap_fixture` 与一个异构 source/read case 做 production 验证。显式时间窗 Trace 因果投影、自动补齐、
+read/write/operation/data 路由与模型结论所有权均未改变。

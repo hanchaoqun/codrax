@@ -89,6 +89,70 @@ func TestPrincipalSupportMemberObligations_StripsAggregateCitationQualifier(t *t
 	}
 }
 
+func TestPrincipalSupportMemberObligations_PreservesSameLabelAggregateRowsByExactLocation(t *testing.T) {
+	plan := &AnswerSupportPlan{
+		Family:                  QFEnumeration,
+		PrincipalMemberCoverage: PrincipalMemberCoveragePolicyRequired,
+		Lanes: []AnswerSupportLane{{
+			Kind: SupportLanePrincipalEvidence,
+			Entries: []AnswerSupportEntry{
+				{
+					EvidenceID:    "aggregate_fact:member_set:0:0",
+					Location:      "cart/Cart.cj:14",
+					Source:        "cart/Cart.cj",
+					LineStart:     14,
+					ClaimForm:     ClaimDefinitionFact,
+					Subject:       "Cart",
+					SurfaceTerms:  []string{"Cart"},
+					MemberSurface: PrincipalMemberSurfaceSymbolLike,
+				},
+				{
+					EvidenceID:    "aggregate_fact:member_set:0:1",
+					Location:      "cart/Cart.cj:30",
+					Source:        "cart/Cart.cj",
+					LineStart:     30,
+					ClaimForm:     ClaimDefinitionFact,
+					Subject:       "Cart",
+					SurfaceTerms:  []string{"Cart"},
+					MemberSurface: PrincipalMemberSurfaceSymbolLike,
+				},
+			},
+		}},
+	}
+
+	obligations := PrincipalSupportMemberObligations(plan)
+	if len(obligations) != 2 {
+		t.Fatalf("same-label aggregate rows at distinct declarations = %+v, want two obligations", obligations)
+	}
+	if answerTextMentionsExactSupportLocation("Cart at cart/Cart.cj:140", obligations[0]) {
+		t.Fatal("line 14 identity must not match line 140 by string prefix")
+	}
+	doc := &AnswerDocumentV2{
+		Citations: []Citation{
+			{File: "cart/Cart.cj", Line: 14},
+			{File: "cart/Cart.cj", Line: 30},
+		},
+		Blocks: []AnswerBlock{{
+			ID:          "inventory",
+			Kind:        BlockTable,
+			SurfaceRole: SurfacePrincipal,
+			FacetIDs:    []string{string(FacetEnumerationItem)},
+			Text: "| family | name | location |\n|---|---|---|\n" +
+				"| public class | Cart | cart/Cart.cj:14 |\n" +
+				"| extend | Cart | cart/Cart.cj:30 |",
+		}},
+	}
+	if missing := MissingPrincipalSupportMembers(doc, plan); len(missing) != 0 {
+		t.Fatalf("exact model-authored markdown rows plus citations should cover both identities: %+v", missing)
+	}
+
+	doc.Blocks[0].Text = "| family | name | location |\n|---|---|---|\n| public class | Cart | cart/Cart.cj:14 |"
+	missing := MissingPrincipalSupportMembers(doc, plan)
+	if len(missing) != 1 || missing[0].LineStart != 30 {
+		t.Fatalf("label-only mention must not borrow another same-name row's citation: %+v", missing)
+	}
+}
+
 func TestMissingPrincipalSupportMembers_AcceptsPrincipalSectionItems(t *testing.T) {
 	plan := &AnswerSupportPlan{
 		Family: QFEnumeration,

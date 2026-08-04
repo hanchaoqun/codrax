@@ -307,9 +307,19 @@ func principalSupportMemberDedupKey(ob AnswerSupportMemberObligation) string {
 	if form == "" {
 		form = string(ClaimUnknown)
 	}
+	// Aggregate member rows are already a typed closed-set identity. Two
+	// declarations may deliberately share the same visible symbol in one file
+	// (overloads, class+extension, declarations in different scopes). Preserve
+	// their exact source row instead of merging them through the definition-fact
+	// convenience rule below. Definition facts keep their nearby-anchor
+	// coalescing because declaration/body anchors for one definition are emitted
+	// as equivalent evidence by several language extractors.
+	if strings.HasPrefix(strings.TrimSpace(ob.EvidenceID), "aggregate_fact:member_set:") &&
+		strings.TrimSpace(ob.Source) != "" && ob.LineStart > 0 && label != "" {
+		return "aggregate_member_anchor\x00" + normalizeAnswerSupportPath(ob.Source) + "\x00" + strconv.Itoa(ob.LineStart) + "\x00" + label
+	}
 	if strings.TrimSpace(ob.Source) != "" && ob.LineStart > 0 && label != "" &&
-		(strings.HasPrefix(strings.TrimSpace(ob.EvidenceID), "aggregate_fact:member_set:") ||
-			ob.ClaimForm == ClaimDefinitionFact) {
+		ob.ClaimForm == ClaimDefinitionFact {
 		return "member_anchor\x00" + normalizeAnswerSupportPath(ob.Source) + "\x00" + label
 	}
 	if ob.ClaimForm == ClaimDefinitionFact && strings.TrimSpace(ob.Source) != "" && label != "" {
@@ -542,6 +552,8 @@ type answerSupportDocumentIndex struct {
 	principalByFile     map[string][]answerSupportIndexedItem
 	caveatsByLocation   map[string][]answerSupportIndexedItem
 	caveatsByFile       map[string][]answerSupportIndexedItem
+	principalText       []string
+	citations           []Citation
 }
 
 type answerSupportIndexedItem struct {
@@ -560,11 +572,15 @@ func newAnswerSupportDocumentIndex(doc *AnswerDocumentV2) *answerSupportDocument
 	if doc == nil {
 		return index
 	}
+	index.citations = append([]Citation(nil), doc.Citations...)
 	for _, block := range doc.Blocks {
 		principal := answerBlockCanCarryPrincipalMember(block)
 		caveat := block.Kind == BlockCaveat
 		if !principal && !caveat {
 			continue
+		}
+		if principal && strings.TrimSpace(block.Text) != "" {
+			index.principalText = append(index.principalText, AnswerBlockVisibleSurface(block))
 		}
 		for _, item := range block.Items {
 			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
@@ -685,6 +701,9 @@ func (index *answerSupportDocumentIndex) coversSupportMember(ob AnswerSupportMem
 	if index == nil {
 		return false
 	}
+	if index.principalTextCoversSupportMember(ob) {
+		return true
+	}
 	for _, entry := range index.principalCandidates(ob) {
 		if !citationCoversSupportMember(entry.citation, ob) {
 			continue
@@ -697,6 +716,50 @@ func (index *answerSupportDocumentIndex) coversSupportMember(ob AnswerSupportMem
 	}
 	if index.caveatsSupportMember(ob) {
 		return true
+	}
+	return false
+}
+
+// principalTextCoversSupportMember recognizes a model-authored markdown
+// list/table row without manufacturing an items[] sidecar. Coverage requires
+// three independently precise surfaces: the visible member label, its exact
+// typed file:line in the same principal block, and a matching citation already
+// supplied by the model. A label-only mention or an unbound citation pool is
+// insufficient, which keeps same-name overloads/declarations distinct.
+func (index *answerSupportDocumentIndex) principalTextCoversSupportMember(ob AnswerSupportMemberObligation) bool {
+	if index == nil || len(index.principalText) == 0 || len(index.citations) == 0 {
+		return false
+	}
+	hasCitation := false
+	for _, citation := range index.citations {
+		if citationCoversSupportMember(citation, ob) {
+			hasCitation = true
+			break
+		}
+	}
+	if !hasCitation {
+		return false
+	}
+	for _, surface := range index.principalText {
+		if !answerTextMentionsSupportMember(surface, ob) ||
+			!answerTextMentionsExactSupportLocation(surface, ob) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func answerTextMentionsExactSupportLocation(surface string, ob AnswerSupportMemberObligation) bool {
+	surface = strings.ReplaceAll(strings.TrimSpace(surface), `\`, "/")
+	if surface == "" {
+		return false
+	}
+	for _, location := range supportMemberCoverageLocations(ob) {
+		location = strings.ReplaceAll(strings.TrimSpace(location), `\`, "/")
+		if location != "" && supportMemberDisplaySurfaceAppears(location, surface) {
+			return true
+		}
 	}
 	return false
 }
