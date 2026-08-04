@@ -2232,6 +2232,110 @@ func TestActionRunnerQualifyRecordsAutoBlocksResolutionStatus(t *testing.T) {
 	}
 }
 
+func TestActionRunnerQualifyRecordsConsumesRoleFilterAliases(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "items.csv"), []byte("id,active,canonical_id,amount\nr1,true,A,10\nr2,true,A,7\nr3,false,A,3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	filters := `[{"field":"active","op":"eq","value":"true"},{"field":"canonical_id","op":"not_empty"}]`
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status: "ready",
+		Actions: []DataAction{{
+			ID:             "qualify",
+			Kind:           DataActionQualifyRecords,
+			InputPaths:     []string{"items.csv"},
+			OutputArtifact: "eligible_items",
+			Params: map[string]string{
+				"source_filters":      filters,
+				"source_filters_json": filters,
+				"item_id_field":       "id",
+				"output_mode":         "filter",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run qualify_records with source filter aliases: %v", err)
+	}
+	if len(res.Artifacts) != 1 || res.Artifacts[0].RowCount != 2 {
+		t.Fatalf("Artifacts=%+v, want only the two active rows", res.Artifacts)
+	}
+	if len(res.Rows) != 3 || res.Rows[2].Decision != "exclude" {
+		t.Fatalf("Rows=%+v, want inactive row excluded", res.Rows)
+	}
+}
+
+func TestActionRunnerQualifyRecordsRejectsUnconsumedParam(t *testing.T) {
+	_, err := (ActionRunner{}).Run(context.Background(), TaskPlan{
+		Status: "ready",
+		Actions: []DataAction{{
+			ID:   "qualify",
+			Kind: DataActionQualifyRecords,
+			Params: map[string]string{
+				"source_filter": `[{"field":"active","op":"eq","value":true}]`,
+			},
+		}},
+	})
+	if err == nil {
+		t.Fatal("Run succeeded, want unsupported qualify_records parameter rejected")
+	}
+	var paramErr DataActionParamError
+	if !errors.As(err, &paramErr) {
+		t.Fatalf("err=%T %v, want DataActionParamError", err, err)
+	}
+	if paramErr.Param != "source_filter" || !strings.Contains(err.Error(), "silently ignoring") {
+		t.Fatalf("paramErr=%+v err=%v, want typed unsupported-parameter guidance", paramErr, err)
+	}
+}
+
+func TestActionRunnerQualifyRecordsRejectsConflictingFilterAliases(t *testing.T) {
+	_, err := (ActionRunner{}).Run(context.Background(), TaskPlan{
+		Status: "ready",
+		Actions: []DataAction{{
+			ID:   "qualify",
+			Kind: DataActionQualifyRecords,
+			Params: map[string]string{
+				"filters_json":   `[{"field":"active","op":"eq","value":true}]`,
+				"source_filters": `[{"field":"active","op":"eq","value":false}]`,
+			},
+		}},
+	})
+	if err == nil {
+		t.Fatal("Run succeeded, want conflicting qualify_records filter aliases rejected")
+	}
+	var paramErr DataActionParamError
+	if !errors.As(err, &paramErr) || !strings.Contains(paramErr.Param, "filters_json") || !strings.Contains(paramErr.Param, "source_filters") {
+		t.Fatalf("err=%T %v paramErr=%+v, want typed alias conflict", err, err, paramErr)
+	}
+}
+
+func TestActionRunnerQualifyRecordsKeepsRejectFilterSemantics(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "items.csv"), []byte("id,active\nr1,true\nr2,true\nr3,false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status: "ready",
+		Actions: []DataAction{{
+			ID:             "qualify",
+			Kind:           DataActionQualifyRecords,
+			InputPaths:     []string{"items.csv"},
+			OutputArtifact: "eligible_items",
+			Params: map[string]string{
+				"filters_json":  `[{"field":"active","op":"eq","value":true}]`,
+				"block_filters": `[{"field":"id","op":"eq","value":"r2"}]`,
+				"item_id_field": "id",
+				"output_mode":   "filter",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run qualify_records with reject alias: %v", err)
+	}
+	if len(res.Artifacts) != 1 || res.Artifacts[0].RowCount != 1 || len(res.Rows) != 3 {
+		t.Fatalf("Artifacts=%+v Rows=%+v, want only r1 included", res.Artifacts, res.Rows)
+	}
+}
+
 func TestActionRunnerGroupRecordsThenExtractsCrossLineFields(t *testing.T) {
 	root := t.TempDir()
 	input := strings.Join([]string{

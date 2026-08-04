@@ -13860,3 +13860,25 @@ scaffold/候选 ranking 只优先兼容 node class，并保留现有 admission g
 - `eval/parallel_selected_summary_evalcampaign_b76_operationdata_r2_20260804.md`；
 - `eval/parallel_selected_summary_evalcampaign_b76_operationdata_r2_20260804_manual_audit.md`；
 - result dirs：`eval/results/*-20260804-060620`。
+
+### B76-B implementation（implemented/tests-pass/replay-next）
+
+新增 action-kind-aware parameter-consumption contract，并在 `ActionRunner` 的统一 dispatcher、action kind 归一化之后、
+任何 executor 运行之前接线。第一批完整覆盖 `qualify_records` family：
+
+1. canonical include filter 为 `filters_json`；`filters` 以及 source/base/record 的普通与 `_json` 形均是显式备案 alias。
+   B76 原样的 `source_filters + source_filters_json` 现在只归一一次并实际参与每行资格判定，inactive 行不再静默通过；
+2. reject/exclude/block filter 是独立 canonical group，不会与 include filter 混合。既有 block-filter 行为由正向回归钉住；
+3. 同一 alias group 的多个非空值只有在 JSON 语义等价时才接受；不同值 typed fail，禁止 executor 猜优先级；
+4. 归一后任何未列入该 action allowed set 的参数都以 `DataActionParamError/action_param_violation` fail-closed，并返回
+   unknown/allowed key 清单。该信号完全来自 action kind 与 param map，不读取 question、rule prose 或 final answer；
+5. 公共 registry/helper 位于独立 `action_param_contract.go`，后续 action family 复用同一 admission-to-execution 边界。
+   原有 `compute_contributions` 严格 validator 暂不改写，避免其定制 member/count repair guidance 回归；B76-C 再逐族迁移；
+6. 同批把 `actionParamKeys` concern 从 12.3k 行 god-file 拆出，`action_runner.go` LOC ratchet 从 12353 下调至
+   12344，没有为接线抬高预算。
+
+看护覆盖：role-filter alias 正臂、未知参数负臂、canonical/alias 冲突负臂、reject-filter 不回归，以及既有 qualify→
+contribution、自动 status block、compute phantom-param 合同。验证：定向测试与完整
+`go test ./internal/dataquery ./internal/dataworkflow ./internal/repl -count=1` 全绿。状态：
+`EVAL-B76-DATAPARAM1=qualify-family implemented/replay-next`；其他 action family 的参数消费清册仍为
+`B76-C=open`，未以本批局部覆盖冒充全仓闭环。

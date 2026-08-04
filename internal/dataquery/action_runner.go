@@ -411,18 +411,6 @@ func actionParamActualSnippet(actual any) string {
 	}
 }
 
-func actionParamKeys(params map[string]string) []string {
-	keys := make([]string, 0, len(params))
-	for key := range params {
-		key = strings.TrimSpace(key)
-		if key != "" {
-			keys = append(keys, key)
-		}
-	}
-	sort.Strings(keys)
-	return keys
-}
-
 type DataActionLimitError struct {
 	ActionKind DataActionKind `json:"action_kind,omitempty"`
 	Param      string         `json:"param,omitempty"`
@@ -674,6 +662,10 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 		action.Kind = normalizeDataActionKind(action.Kind)
 		if strings.TrimSpace(action.ID) == "" {
 			action.ID = fmt.Sprintf("action_%d", i+1)
+		}
+		action, err = applyDataActionParamContract(action)
+		if err != nil {
+			return failAction(action, err)
 		}
 		switch action.Kind {
 		case DataActionMaterialInventory:
