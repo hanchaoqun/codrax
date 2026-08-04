@@ -12908,3 +12908,56 @@ Trace 因果投影、系统自动补采、根因选举或答案发布/改写路�
 
 `EVAL-B64-COUNTBIND1` 仍保持 `P2/open`：它需要从 typed block/fact identity 修复 scalar 与 member-set 的归属绑定，不能把本批
 evidence-path 提示扩大成标签匹配或答案硬门。
+
+## 65. 2026-08-03 B64 r2：调查型 operation 越权与未验证 scalar 的系统再发布
+
+在 `main@c852fd933` 构建后严格并行回放同两例；runner 仍为 PASS 2/2，人工审计为 FAIL 2/2：
+
+- `trace_query_wakeup_causal_io_chain`：188s，Analyzer 1、Explorer 1、trace_query 3、finalizer reject=0；
+- `read_combo_command_current_source_explanation`：130s，但 pipeline dispatch=0，落入独立 operation lane。
+
+### Trace 守护与残余边界
+
+Trace 的显式窗 `2.000000..2.020000`、3 次 bounded trace_query、
+`threadpool-400 -> network-300 -> cookie-200 -> app-100` 唤醒链、#1
+`fscache_page_wait_on_page_bit` IO 等待 11.000ms、真实占时/规则可消双轴、因果投影和系统自动补采均正常。finalizer 上下文已经
+同时给出 deterministic `principal_state sleep=20.000ms/window_ms=20.000ms`，并明确 whole-attachment
+`2.000000..2.020020=20.020ms` 不得替代 selected-window state；模型仍在摘要和第 4 步把 20.020ms 写成“窗口内总阻塞/完整
+周期”，而其表格及投影正确使用 20.000ms。该正文冲突先记为 `EVAL-B65-TRACECAL2 = P2/model-variance-observe`：禁止扫描
+答案原文硬改，也不让系统替模型重写结论；继续异构回放确认是否稳定复现。
+
+确定性的新红线问题是系统随后自动追加：`系统补充：结构化指标摘录：app=20.020ms`。来源不是 deterministic query，而是
+Explorer 自写的 `aggregate_facts[0]`：label=`app-100总阻塞时长`、value=`20.020ms`、typed
+window=`2.000000..2.020020`，ledger 已诚实标为 `historical/repairable`；发布器
+`runtimeAggregateMetricCompactRows` 却通过 requested-dimension token 与 model-authored label 的词元交集再次选中它并作为系统内容
+发布。这既违背“精确信号才可系统发布”，也与同页 hard `target_window_states=20.000ms` 冲突。
+
+### EVAL-B65-ROUTEINV1（P0/open）：`operation=investigate` 被嘈声 target surface 抢成电脑操作
+
+Read r2 的 classifier 原始结构为：`raw_route=hybrid`、`operation=investigate`、`source=mixed`、
+`needs_repo_access=true`、`current_source_evidence_mode=required`，同时漂出 `needs_operation_access=true` 和
+`target_surface=desktop`。`ApplyTurnPolicyGuards` 的 `isAnalysisOnlyPolicy` 本应把 investigate 送回 repo，但当前又要求 target surface
+为空/unknown；desktop 令它返回 false，随后 `concreteOperationSignal` 把 desktop 当具体操作，最终整条 source-evidence pipeline
+被绕过。该冲突与 schema 明文“operation=investigate 是 analysis pipeline；source implementation analysis 不是 operation”相反。
+
+最优方案只读 typed schema 字段：当 `operation=investigate`、source 属于 repo/mixed/artifact/external_tool、无 concrete side
+effects、operation_kind 不是具体 operation，且 needs_repo 或 current_source=required 时，调查身份优先，target_surface 的嘈声值不能
+铸造 operation 权限；规范化为 repo、needs_repo=true、needs_operation=false，并保留 current-source obligation。真实
+computer_operation/artifact_generation/browser/document 等具体 kind、明确 side effect 与非 investigate operation 不受影响。
+
+### EVAL-B65-SCALARPUB1（P0/open）：系统发布未验证 model aggregate
+
+`renderRuntimeAggregateMetricCompactSupplement` 的 model aggregate 分支注释已经承认“不做 numeric re-verification”，却仍使用
+requested dimension tokens × aggregate label tokens 选择并发布值。最稳妥的泛化根修不是给 app/20.020 写特例，而是禁止该**系统发布
+面**消费 model-authored aggregate facts；保留 deterministic trace/perf quality observation rows。模型 aggregate 仍留在 ledger/prompt
+供模型综合，不删除模型调查结论；系统只是不再把 historical/repairable 值再次伪装成自己的补充。该根修同时削弱
+`EVAL-B64-COUNTBIND1` 的发布级联，但 pre-emit scalar/member-set 归属误配仍单独保持 P2/open。
+
+施工顺序冻结：`B65-A = ROUTEINV1`（路由权限独立批，提交推送）→ `B65-B = SCALARPUB1`（系统发布红线独立批，提交推送）→
+严格并行 2 例回放。两批均不修改 trace_query、显式时间窗、Trace 因果投影、系统自动补采、根因选举、模型正文或 write mode。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b64_traceread_r2_20260803.md`；
+- `eval/parallel_selected_summary_evalcampaign_b64_traceread_r2_20260803_manual_audit.md`；
+- result dirs：`eval/results/*-20260803-233053`。
