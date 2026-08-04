@@ -13549,3 +13549,65 @@ checkout 动态执行 `find internal/tool -type f -name '*.go' ! -name '*_test.g
 下一批仍遵守 B71 冻结：不重复 Trace/Read 对，严格并行恰好两个异构高优先级 case（write + operation），人工
 审计模型是否消费 state-transition typed context、operation 是否取得真实 material coverage receipt，以及过程中的
 成文/补证重试。显式时间窗 Trace 因果投影与自动补齐完全不在本批 diff 中。
+
+## 76. 2026-08-04 B74 r1：operation 压缩修复丢 typed 权威；write 看护正则制造伪失败
+
+在 `main@5c68e8ebb` 构建后严格并行两个异构案例：runner 表面 1/2 PASS，人工审计 0/2 PASS。
+
+- `operation_web_manual_summary`：163s，runner PASS / human FAIL；
+- `github_issue_pyo3_iter_nth_overflow_symptom`：900s，TIMEOUT / human FAIL。
+
+### EVAL-B74-OPREPAUTH1（P0/open）：compact repair 把完整 ledger 压成单一 preview false
+
+operation 本轮正确抓取首页并沿 typed link 获取 `user_guide.html`。第二轮系统材料账本已证明：20 个连续 page、
+`visible_runes=118802`、`source_truncated=false`、`pages_truncated=false`，并铸造 system-owned coverage receipt。
+第一版 evaluator 也判断 complete，但误把 source payload path 写入 `coverage_material_refs`，没有选择 receipt；确定性
+validator 因 source excerpt 的单条 prompt preview 不完整而正确拒绝。
+
+随后 compact tool-param repair 只携带 `material_ref=<source> fully_visible=false`，没有携带同一 records 中已存在的
+coverage ledger 或 receipt。修复模型据此把状态降为 `partial_answer_possible`。最终答案一面写“状态：部分结果”，
+另一面又写“已提取用户手册全文（20 页，约 12 万字符）”，是 typed terminal 与已有材料权威发生冲突。
+
+根修边界冻结：
+
+1. compact repair context 必须携带 records 中 system-owned material coverage authority，明确 source/identity、截断位、
+   complete receipt；不能从单条 output preview 的 `fully_visible` 反推整份材料覆盖；
+2. 真正没有 receipt、source/page 确实截断的 raw payload 继续只能 partial/budget-exhausted；
+3. 仍由模型按精确 typed context 重发 tool params，系统不把 complete 直接代写进模型答案；
+4. CLI/REPL 的 typed evaluation log 同时披露 final material coverage status/ref，便于 eval 消费最后一条权威状态。
+
+### EVAL-B73-OPEVAL1（P0/confirmed）：lexical oracle 对 typed terminal 失明
+
+case 仍只校验答案和日志中若干词面，故上述 partial terminal 与自相矛盾答案仍被签为 PASS。施工升级为 P0 eval-quality：
+新增 opt-in typed operation oracle，读取最后一条 command/provider evaluation 事件的 terminal status、material coverage
+status 与系统 receipt，而不是扫描最终答案的“完成/部分”。中间一轮 complete 不能覆盖最后一轮 partial，避免同一
+日志中的历史状态刷绿。
+
+### EVAL-B74-WRITEORACLE1（P0/open）：eval 自带 DOTALL 正则跨测试函数铸造错误语义
+
+write analyzer 第三次没有消费 `transition.steps[]`，日志明确 `phases=single/0`。第一计划因此写出矛盾测试：
+`nth_back(usize::MAX)` 已越过全部剩余元素并收缩共享区间后，却期望正向 `next()` 仍返回全部元素。产品 verifier
+没有签绿并触发 replan，这一方向正确。
+
+但失败消息本身来自 fixture `tests/check_iterators.py` 的另一处伪判：
+`nth_back(0).*?next().*None` 使用 DOTALL 扫描整个测试文件，把合法的“先逐个返回所有剩余 Some、最终自然 None”
+也判成“`nth_back(0)` 立即耗尽”。这正是嘈声文本/源码形状取得行为硬门权限，且直接制造 replan 与 900s timeout。
+
+处置原则：
+
+1. fixture 的正则必须至少限定单一 test/function body，不得跨声明；更优是删除该否定词形门，改用原生语言执行
+   non-initial-state/cross-direction probe；
+2. 在 Rust runtime 不可用时继续 `unverified`，不得让 Python source-static checker取得 Rust 行为通过权限；
+3. 不把请求或模型输出关键词升级为“必须有 transition”的产品硬门；`EVAL-B72-STATETRANS1` 继续以跨协议复放观察
+   adoption，若多个异构协议都漏发，再由 analyzer 自己铸造的 typed statefulness 驱动软提醒；
+4. replan 的 3.5 分钟首字节等待是模型/预算波动，只有移除伪失败后仍跨异构复现才另立调度 GAP。
+
+施工批次：`B74-A evidence/docs` → `B74-B operation repair authority + typed eval terminal oracle` →
+`B74-C write fixture oracle 降噪/运行时权限分层`。每批独立提交推送；修复后继续严格并行恰好两个异构案例。
+显式时间窗 Trace 因果投影、系统自动补齐、read/write 路由与模型结论所有权均不在这些硬门之外发生变化。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b74_writeoperation_r1_20260804.md`；
+- `eval/parallel_selected_summary_evalcampaign_b74_writeoperation_r1_20260804_manual_audit.md`；
+- result dirs：`eval/results/*-20260804-050207`。
