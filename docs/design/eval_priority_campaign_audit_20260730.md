@@ -14073,3 +14073,67 @@ contribution ledger 或答案字节。
 优先；live workflow state 还钉住错误答案必须呈现 `grounding_mismatch`、不得签 `complete`。完整
 `go test ./internal/dataquery ./internal/dataworkflow ./internal/repl -count=1` 全绿。状态更新为
 `EVAL-B79-DATAREFROLE1=implemented/replay-next`。
+
+## 82. 2026-08-04 B80 r6：reference lineage gate 生效但无法被执行器解除；普通聚合不回归
+
+在 `main@dc08c89d8` 构建后严格并行主 witness 与无完整 reference obligation 的普通聚合：
+
+- `data_basic_sum_with_rules`：43s，runner/human PASS，最终 `44`；
+- `data_multifile_reference_projection`：598s，runner/human FAIL，terminal status=failed，未发布错误答案。
+
+普通聚合的 rows/rules/contributions/reconcile/终稿一致，证明 B79 的 input-alias authority 没有误扩到无 reference 声明的
+任务。主案也证明 B79 核心修复真实接线：终态明确为 `output_reference_grounding_mismatch`，reference candidate 精确回溯到
+`targets.csv#records#canonical_label`，错答案不再像 B79 那样签 complete。但端到端仍未闭环：15 data rounds、6 repair、
+8 failed actions 后诚实失败。
+
+### EVAL-B80-DATAREFEXEC1（P0/confirmed）：hard authority 与 executor activation 合同矛盾
+
+grounding authority 的既有裁定是：显式 complete-reference output contract，或 `assemble_answer` 的 typed
+`reference_path + reference_key_field`，任一都足以建立完整参考域。B79 修复只补齐前者遗漏时的 input-alias lineage；本轮
+四个 repair action 已逐字携带：
+
+```text
+projection=values
+reference_path=targets.csv#records
+reference_key_field=canonical_label
+```
+
+但 `completeAssembleAnswerGroups` 仍只读取 `action.params.complete_reference` 或 output contract 的 bool。repair 省略这个
+冗余 bool 后，执行器不进入 reference projection；它把 seed 中三条 business groups 与旧 `final_answer/projection` 组一起
+按 values 发射，得到 `17,4,5,<旧 key_values 答案>`。旧 answer-scope group 随即与新混合答案不等，触发
+`answer_reconcile_mismatch`。模型随后四次发出语义相同且 path/key 正确的 repair，全部被同一矛盾合同拒绝。
+
+这不是模型波动：同一 typed pair 在 hard gate 侧“足以确权”，在 executor 侧“权限不足”，构成确定性的不可满足合同，
+正是“成文校验未通过”重试轰炸的一类根因。根修必须让执行器与 declared-reference resolver 同源：仅 action 显式同时
+携带非空 path+key 时，activation 可等价补足 complete-reference；output contract 只有 path/key、没有 bool 时仍不自动升级，
+保持现有“不完整 contract 不投影”负臂。
+
+### EVAL-B80-DATAREFSCOPE1（P0/confirmed）：action input reference 被全历史 artifact 最大集抢权
+
+首次 `step8_assemble_answer` 已声明 `complete_reference=true`、`reference_key_field=canonical_label`，且 typed
+`input_paths=[reconcile_result, targets.csv#records]`。执行器却把这些 input paths 与所有历史 artifacts 合并进一个 fallback
+池，`referenceCandidateForAssemble` 再按最大 key count 选优，最终选择 `all_records` 的 4-key universe，而非 action 明确
+携带的 targets 3-key universe。artifact receipt 亲证：`reference_path=all_records/reference_total=4`。
+
+根修应建立两级 scope，不按名字或业务词义：先只在 `action.InputPaths` 内解析 typed key field；若得到唯一 candidate 就
+立即使用，不得让未声明历史 artifact 抢权；仅 input scope 完全无 candidate 时，才允许既有 artifacts fallback。输入 scope
+内部仍沿用现有结构候选规则，多个候选的处理不可增加领域常量。
+
+两项同批看护：
+
+1. action explicit path+key、无 bool，必须投影并替换 stale final-answer group；
+2. contract path+key、bool=false、action 无显式 pair，保持 present-groups 旧语义；
+3. input targets 3 keys + unrelated artifact 4 keys，targets scope 必须胜出；
+4. input 无 candidate 时，历史 artifact fallback 仍工作；
+5. projection receipt 的 path/count/zero-fill/drop-extra 与最终 answer 同源。
+
+状态：`EVAL-B79-DATAREFROLE1=implemented/guard-proven`；
+`EVAL-B80-DATAREFEXEC1=confirmed/implementation-next`；
+`EVAL-B80-DATAREFSCOPE1=confirmed/implementation-next`。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b80_dataref_r6_20260804.md`；
+- `eval/parallel_selected_summary_evalcampaign_b80_dataref_r6_20260804_manual_audit.md`；
+- `eval/results/data_multifile_reference_projection-20260804-070345`；
+- terminal `.codrax/data-audit/20260804-071335-851931-99810-terminal.json`。
