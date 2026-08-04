@@ -24,6 +24,34 @@ type dataActionParamContract struct {
 }
 
 var dataActionParamContracts = map[DataActionKind]dataActionParamContract{
+	DataActionFilterRecords: {
+		Allowed: actionParamSet(
+			"input_path",
+			"filters_json", "filter_field", "filter_op", "filter_value", "filter_equals", "filter_not_equals",
+			"rule_refs", "item_id_field", "reason", "max_records", "max_output_records",
+		),
+		AliasGroups: []dataActionParamAliasGroup{
+			{Canonical: "input_path", Aliases: []string{"record_path", "base_path"}},
+			{
+				Canonical: "filters_json",
+				Aliases: []string{
+					"filters",
+					"source_filters", "source_filters_json",
+					"base_filters", "base_filters_json",
+					"record_filters", "record_filters_json",
+				},
+			},
+		},
+	},
+	DataActionValueDistribution: {
+		Allowed: actionParamSet(
+			"input_path", "fields", "top_n", "max_fields", "max_records",
+		),
+		AliasGroups: []dataActionParamAliasGroup{
+			{Canonical: "input_path", Aliases: []string{"record_path", "base_path"}},
+			{Canonical: "fields", Aliases: []string{"fields_json", "field", "target_fields"}},
+		},
+	},
 	DataActionQualifyRecords: {
 		Allowed: actionParamSet(
 			"input_path",

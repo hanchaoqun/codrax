@@ -13928,3 +13928,22 @@ parameter-consumption registry 清册，再以更多 data 异构回放判断候�
 - `eval/parallel_selected_summary_evalcampaign_b77_dataparam_r3_20260804.md`；
 - `eval/parallel_selected_summary_evalcampaign_b77_dataparam_r3_20260804_manual_audit.md`；
 - result dirs：`eval/results/*-20260804-062518`。
+
+### B76-C1 implementation（implemented/tests-pass）：selection/diagnostic family 扩族
+
+parameter-consumption registry 第二批覆盖 `filter_records` 与 `value_distribution`；加上已闭环的
+`qualify_records` 和原有严格 `compute_contributions`，最易直接改变入选集合/聚合值的四个 action family 已不再允许
+未知参数静默成功。
+
+1. `filter_records` 的 source/base/record filters 作为显式 include-filter aliases 归一到 `filters_json`；canonical/alias
+   冲突 fail-closed，`filter_field/op/value` shorthand、rule refs、item id、reason 与 record/output limits 保持可用；
+2. `value_distribution` 的 input/record/base path 与 fields/fields_json/field/target_fields 进入明确 alias groups；未知的
+   `top_values` 等键不会再被当作成功配置，需改用 canonical `top_n`；
+3. 两者继续走 dispatcher 上同一 typed contract 边界，不在各 executor 内复制第二套判断；
+4. 新看护覆盖 filter role alias 的真实行级消费、filter unknown/conflict 两个负臂、distribution unknown 负臂；既有
+   malformed filter、decision ledger、数值/字段合同与 distribution 正臂全部继续通过。
+
+验证：定向 selection-family 测试与完整
+`go test ./internal/dataquery ./internal/dataworkflow ./internal/repl -count=1` 全绿。状态：
+`EVAL-B76-DATAPARAM1=selection+aggregation high-risk families covered`；B76-C2 将审计多输入、多角色的
+mapping/normalize/apply/enrich/join families，必须先按实际读取集建合同，不能把 source/reference aliases 错合并。

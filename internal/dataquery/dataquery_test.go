@@ -100,6 +100,26 @@ func TestActionRunnerValueDistribution(t *testing.T) {
 	}
 }
 
+func TestActionRunnerValueDistributionRejectsUnconsumedParam(t *testing.T) {
+	_, err := (ActionRunner{}).Run(context.Background(), TaskPlan{
+		Status: "ready",
+		Actions: []DataAction{{
+			ID:   "dist",
+			Kind: DataActionValueDistribution,
+			Params: map[string]string{
+				"top_values": "20",
+			},
+		}},
+	})
+	if err == nil {
+		t.Fatal("Run succeeded, want unsupported value_distribution parameter rejected")
+	}
+	var paramErr DataActionParamError
+	if !errors.As(err, &paramErr) || paramErr.Param != "top_values" {
+		t.Fatalf("err=%T %v paramErr=%+v, want typed unsupported-parameter violation", err, err, paramErr)
+	}
+}
+
 func TestActionRunnerMappingCandidateProducesCandidateArtifactOnly(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "items.csv"), []byte("id,raw_label\n1,Alpha\n2,Beta\n3,Gamma\n"), 0o644); err != nil {
@@ -310,6 +330,74 @@ func TestActionRunnerFilterParamShapeIsTyped(t *testing.T) {
 		violation.Param != "filters_json" ||
 		!strings.Contains(violation.ExpectedShape, "field") {
 		t.Fatalf("violation=%+v, want typed action param violation", violation)
+	}
+}
+
+func TestActionRunnerFilterRecordsConsumesRoleFilterAliases(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "items.csv"), []byte("id,active,amount\nr1,true,10\nr2,false,3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:           "ready",
+		CoverageContract: CoverageContract{DecisionRecordsRequired: true},
+		Actions: []DataAction{{
+			ID:             "filter_active",
+			Kind:           DataActionFilterRecords,
+			InputPaths:     []string{"items.csv"},
+			OutputArtifact: "active_items",
+			Params: map[string]string{
+				"record_filters": `[{"field":"active","op":"eq","value":true}]`,
+				"item_id_field":  "id",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run filter_records with record filter alias: %v", err)
+	}
+	if len(res.Artifacts) != 1 || res.Artifacts[0].RowCount != 1 || len(res.Rows) != 2 || res.Rows[1].Decision != "exclude" {
+		t.Fatalf("Artifacts=%+v Rows=%+v, want only active row included", res.Artifacts, res.Rows)
+	}
+}
+
+func TestActionRunnerFilterRecordsRejectsUnconsumedParam(t *testing.T) {
+	_, err := (ActionRunner{}).Run(context.Background(), TaskPlan{
+		Status: "ready",
+		Actions: []DataAction{{
+			ID:   "filter",
+			Kind: DataActionFilterRecords,
+			Params: map[string]string{
+				"where": `[{"field":"active","op":"eq","value":true}]`,
+			},
+		}},
+	})
+	if err == nil {
+		t.Fatal("Run succeeded, want unsupported filter_records parameter rejected")
+	}
+	var paramErr DataActionParamError
+	if !errors.As(err, &paramErr) || paramErr.Param != "where" {
+		t.Fatalf("err=%T %v paramErr=%+v, want typed unsupported-parameter violation", err, err, paramErr)
+	}
+}
+
+func TestActionRunnerFilterRecordsRejectsConflictingRoleAliases(t *testing.T) {
+	_, err := (ActionRunner{}).Run(context.Background(), TaskPlan{
+		Status: "ready",
+		Actions: []DataAction{{
+			ID:   "filter",
+			Kind: DataActionFilterRecords,
+			Params: map[string]string{
+				"filters_json": `[{"field":"active","op":"eq","value":true}]`,
+				"base_filters": `[{"field":"active","op":"eq","value":false}]`,
+			},
+		}},
+	})
+	if err == nil {
+		t.Fatal("Run succeeded, want conflicting filter_records aliases rejected")
+	}
+	var paramErr DataActionParamError
+	if !errors.As(err, &paramErr) || !strings.Contains(paramErr.Param, "filters_json") || !strings.Contains(paramErr.Param, "base_filters") {
+		t.Fatalf("err=%T %v paramErr=%+v, want typed alias conflict", err, err, paramErr)
 	}
 }
 
