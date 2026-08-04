@@ -14002,3 +14002,56 @@ join alias/左右字段/推断/left-join/zero-match 正臂。完整
 `go test ./internal/dataquery ./internal/dataworkflow ./internal/repl -count=1` 全绿。状态：
 `EVAL-B76-DATAPARAM1=mapping-candidate+join covered`；B76-C3 继续 normalize/apply/enrich，三者的 source/base 与
 reference/resolution filters 必须保持角色隔离。
+
+## 81. 2026-08-04 B79 r5：多角色参数合同无回归；source-derived reference alias 丢失输出权威
+
+在 `main@81b72a5ac` 构建后严格并行两个多角色 data case：
+
+- `data_join_entity_reconcile`：127s，runner PASS / human PASS，最终 `30`；
+- `data_multifile_reference_projection`：159s，runner FAIL / human FAIL，最终 `17,4,5`，应为 `17,0,5`。
+
+异构 join 案完整得到两条 Alpha 贡献 20+10、reconcile pass 和严格单值终稿；新增 mapping/join 参数合同未产生
+unknown/conflict 误报。主案的 filter、join、贡献聚合也都正确：GroupA=17、GroupB=4、GroupC=5。故本轮不是
+B76-C2 回归，错误只发生在最终输出 reference authority。
+
+### EVAL-B79-DATAREFROLE1（P0/confirmed）：typed assemble 输入别名未解析回 source reference
+
+最终 `assemble_answer` action 已携带三项精确结构信号：
+
+1. `input_paths=[reconciled_contributions, targets]`；
+2. `reference_key_field=canonical_label`；
+3. 输出是 strict `plain_single_line` values projection。
+
+但它省略了 `complete_reference=true/reference_path=targets.csv`。系统不能、也不应读取模型 think、action purpose、
+validation rule 或用户原文来猜这层意图；现有代码本来已把“assemble input + reference key field”定义为与显式
+reference_path 同等级的 typed declaration。生产漏洞在该声明的别名解析：
+
+- `dataTaskAssembleActionReferenceProjectionGap` 直接让 runner 从 action input alias 取 candidate；`targets` 能读出三条
+  key，却仍以 workflow-generated alias 身份返回；
+- 随后 `dataTaskReferencePathIsWorkflowMaterial(candidate.Path)` 只接受源材料路径，拒绝 alias `targets`；
+- 兄弟硬校验 `dataTaskResolveDeclaredOutputReferenceSet` 已有“generated alias → 唯一 source material lineage → 重新读源
+  bytes”的能力，但只消费显式 `params.reference_path`，不消费 assemble 的 typed input paths；
+- 因此 grounding guard fail-open，普通 reconcile-group projection合法发出 `17,4,5`，内部 answer↔reconcile 自洽却未与
+  targets reference set 对账。终态错误显示 `status=complete`、`reference_complete=true`，进一步掩盖缺失权威。
+
+这是一类“source-derived data artifact role 丢失”问题，不是 targets 文件名拟合。根修冻结为：
+
+1. 统一 declared-reference resolver：显式 `reference_path` 保持最高优先级；没有显式 path、但 assemble action 携带
+   typed reference key field 时，才从 action input paths 逐个走既有 source-lineage credential；
+2. 只有恰好一个可解析 source universe，或多个候选的 key sequence 完全一致时才建立 hard authority；候选冲突、无唯一
+   source lineage 均 fail-open，不按文件名、purpose、字段词义或行数猜选；
+3. grounding guard 只拒绝错误投影并给模型 typed repair proposal；系统不改贡献、不代写最终数值、不扫描 question/final
+   prose；
+4. 看护必须复现 `targets` alias 正臂、两个不同 reference universe 歧义负臂、generated-only alias 负臂、显式
+   reference_path 优先臂，以及正确 `17,0,5` 放行臂。
+
+状态：`EVAL-B79-DATAREFROLE1=confirmed/implementation-next`。`EVAL-B77-DAGCTX1` 继续为 P1；本轮主案 1 个、
+join 案 2 个失败边，仍说明未来 rank 规划有成本，但没有高于当前错误终稿 P0。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b79_multirole_r5_20260804.md`；
+- `eval/parallel_selected_summary_evalcampaign_b79_multirole_r5_20260804_manual_audit.md`；
+- result dirs：`eval/results/*-20260804-064620`；
+- 终态：`.codrax/data-audit/20260804-064854-752222-88658-terminal.json` 与
+  `.codrax/data-audit/20260804-064824-430818-88657-terminal.json`。
