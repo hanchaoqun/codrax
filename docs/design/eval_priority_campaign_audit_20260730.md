@@ -12942,8 +12942,25 @@ Read r2 的 classifier 原始结构为：`raw_route=hybrid`、`operation=investi
 
 最优方案只读 typed schema 字段：当 `operation=investigate`、source 属于 repo/mixed/artifact/external_tool、无 concrete side
 effects、operation_kind 不是具体 operation，且 needs_repo 或 current_source=required 时，调查身份优先，target_surface 的嘈声值不能
-铸造 operation 权限；规范化为 repo、needs_repo=true、needs_operation=false，并保留 current-source obligation。真实
+铸造 operation 权限；保持在 repo/hybrid 分析管线、needs_repo=true、needs_operation=false，并保留 current-source obligation。真实
 computer_operation/artifact_generation/browser/document 等具体 kind、明确 side effect 与非 investigate operation 不受影响。
+
+### EVAL-B65-ROUTEINV1（P0/implemented）：typed 调查身份不再被显示面噪声夺权
+
+本批把上述路由权限冲突按 schema 层级修复，没有读取请求或模型回答文本：
+
+1. `isAnalysisOnlyPolicy` 仍要求精确 `operation=investigate`、repo/mixed/artifact/external_tool source、无 side effect、无具体
+   operation kind，且 risk 只允许 none/low；仅当 `needs_repo_access=true` 或
+   `current_source_evidence_mode=required` 已证明当前源码调查义务时，容忍 classifier 同时漂出的非空 target surface；
+2. local/repo/hybrid → operation 的提升门现在显式排除同一个 analysis-only typed policy，避免先清掉 operation boolean、又被
+   `target_surface=desktop` 二次提升；该修复只改变权限路由，不改变分析器、Explorer 或 finalizer 的答案合同；
+3. 生产 witness pin 完整复刻 r2 结构：route=hybrid、investigate、source=mixed、needs_repo=true、needs_operation=true、
+   current_source=required、target_surface=desktop，守住 hybrid 分析管线并清除 operation access；对照 pin 把
+   operation_kind=computer_operation 的其余相同结构保留在 operation lane，证明显示面容忍没有吞掉真实电脑操作。
+
+`go test ./internal/repl -run 'TestApplyTurnPolicyGuards_OperationRoute' -count=1` 与
+`go test ./internal/repl -count=1` 全绿。状态：`EVAL-B65-ROUTEINV1 = implemented / repl-full-pass / commit-next / replay-after-B65-B`。
+Trace query、显式窗口、因果投影、系统自动补采、write/data route 和模型结论成文均未修改。
 
 ### EVAL-B65-SCALARPUB1（P0/open）：系统发布未验证 model aggregate
 

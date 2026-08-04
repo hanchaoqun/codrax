@@ -672,6 +672,50 @@ func TestApplyTurnPolicyGuards_OperationRoute(t *testing.T) {
 		t.Fatalf("RiskLevel=%q, want default low", got.RiskLevel)
 	}
 
+	// Production witness: a current-source investigation was emitted as a
+	// hybrid turn with a stray desktop target surface. The precise typed
+	// investigation/current-source fields must win; a display surface alone
+	// cannot mint operation permission or bypass the analysis pipeline.
+	noisyInvestigationSurface := ApplyTurnPolicyGuards(TurnPolicy{
+		Route:                     RouteHybrid,
+		NeedsRepoAccess:           true,
+		NeedsOperationAccess:      true,
+		Operation:                 "investigate",
+		OperationKind:             "",
+		Source:                    "mixed",
+		CurrentSourceEvidenceMode: types.TurnRouteCurrentSourceEvidenceRequired,
+		RiskLevel:                 "low",
+		TargetSurface:             "desktop",
+		Confidence:                0.9,
+	}, false, false)
+	if noisyInvestigationSurface.Route != RouteHybrid ||
+		!noisyInvestigationSurface.NeedsRepoAccess ||
+		noisyInvestigationSurface.NeedsOperationAccess ||
+		noisyInvestigationSurface.CurrentSourceEvidenceMode != types.TurnRouteCurrentSourceEvidenceRequired ||
+		IsConcreteOperationPolicy(noisyInvestigationSurface) {
+		t.Fatalf("noisy investigation surface must stay in the analysis pipeline: %+v", noisyInvestigationSurface)
+	}
+
+	// A concrete operation kind remains authoritative even when the other
+	// classifier fields resemble the witness above.
+	concreteDesktopOperation := ApplyTurnPolicyGuards(TurnPolicy{
+		Route:                     RouteOperation,
+		NeedsRepoAccess:           true,
+		NeedsOperationAccess:      true,
+		Operation:                 "investigate",
+		OperationKind:             "computer_operation",
+		Source:                    "mixed",
+		CurrentSourceEvidenceMode: types.TurnRouteCurrentSourceEvidenceRequired,
+		RiskLevel:                 "low",
+		TargetSurface:             "desktop",
+		Confidence:                0.9,
+	}, false, false)
+	if concreteDesktopOperation.Route != RouteOperation ||
+		!concreteDesktopOperation.NeedsOperationAccess ||
+		!IsConcreteOperationPolicy(concreteDesktopOperation) {
+		t.Fatalf("concrete desktop operation kind must remain operation-authorized: %+v", concreteDesktopOperation)
+	}
+
 	low := ApplyTurnPolicyGuards(TurnPolicy{
 		Route:      RouteOperation,
 		Operation:  "browser_operation",

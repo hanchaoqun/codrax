@@ -1431,7 +1431,8 @@ func ApplyTurnPolicyGuards(p TurnPolicy, hasPriorAnswer, hasAttachment bool) Tur
 	// needed. Trust the typed operation signal rather than sending the turn
 	// to local chat or source analysis. This is structural, not prose-based:
 	// it only consumes schema fields emitted by the classifier.
-	if p.Route != RouteOperation && p.Route != RouteData && p.Route != RouteWrite && hasOperationSignal(p) {
+	if p.Route != RouteOperation && p.Route != RouteData && p.Route != RouteWrite &&
+		hasOperationSignal(p) && !isAnalysisOnlyPolicy(p) {
 		p.Route = RouteOperation
 		p.NeedsOperationAccess = true
 	}
@@ -1815,10 +1816,21 @@ func isAnalysisOnlyPolicy(p TurnPolicy) bool {
 	if len(p.SideEffects) > 0 {
 		return false
 	}
+	// `operation=investigate` is the classifier's precise identity for an
+	// analysis-pipeline turn. A target surface is not operation authority by
+	// itself: production classifiers can emit a noisy UI surface (for example
+	// `desktop`) while also saying that current repository evidence is
+	// required. Let that surface coexist only when the typed policy already
+	// proves a repository/current-source investigation. Concrete operation
+	// kinds and side effects were rejected above, so real browser/computer/
+	// artifact operations remain outside this branch.
 	switch strings.TrimSpace(p.TargetSurface) {
 	case "", "unknown":
 	default:
-		return false
+		if !p.NeedsRepoAccess &&
+			p.CurrentSourceEvidenceMode != types.TurnRouteCurrentSourceEvidenceRequired {
+			return false
+		}
 	}
 	switch strings.TrimSpace(p.RiskLevel) {
 	case "", "none", "low":
