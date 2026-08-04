@@ -1843,6 +1843,36 @@ func TestDataTaskWorkflowPreservesPriorCompleteReferenceContractAheadOfBroadFall
 	}
 }
 
+func TestDataTaskDurableOutputContractSurvivesRejectedActionPlanRepair(t *testing.T) {
+	plain := dataquery.OutputContract{
+		Format:             dataquery.OutputCSVLine,
+		ExplanationAllowed: false,
+		Delimiter:          ",",
+	}
+	reference := plain
+	reference.CompleteReference = true
+	reference.ReferencePath = "targets.csv"
+	reference.ReferenceKeyField = "canonical_label"
+
+	// The first plan may later fail action admission (for example because it
+	// crosses compute→reconcile ranks), but its independently typed output
+	// contract remains valid workflow authority.
+	_, durable := dataTaskCarryDurableOutputContract(dataquery.TaskPlan{OutputContract: reference}, dataquery.OutputContract{})
+	repaired, durable := dataTaskCarryDurableOutputContract(dataquery.TaskPlan{OutputContract: plain}, durable)
+	if !repaired.OutputContract.CompleteReference || repaired.OutputContract.ReferencePath != "targets.csv" || repaired.OutputContract.ReferenceKeyField != "canonical_label" {
+		t.Fatalf("repair weakened durable reference contract: %+v", repaired.OutputContract)
+	}
+
+	// An equally-specific later declaration is an explicit correction, not
+	// an omission, and therefore replaces the prior locator deterministically.
+	corrected := reference
+	corrected.ReferencePath = "corrected-targets.csv"
+	revised, _ := dataTaskCarryDurableOutputContract(dataquery.TaskPlan{OutputContract: corrected}, durable)
+	if revised.OutputContract.ReferencePath != "corrected-targets.csv" {
+		t.Fatalf("equally-specific contract revision did not win: %+v", revised.OutputContract)
+	}
+}
+
 func TestDataTaskWorkflowDoesNotReprojectStructurallyCompleteAnswer(t *testing.T) {
 	current := dataquery.TaskPlan{
 		OutputContract: dataquery.OutputContract{

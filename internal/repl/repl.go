@@ -1742,8 +1742,12 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		}
 		r.emitDataTaskWorkflowEvent(event, dataTaskWorkflowEventRenderOptions{IncludeBatch: true, IncludeNext: true, IncludeActions: true, IncludeFailure: true, IncludeAudit: true})
 	}
+	durableOutputContract := dataTaskWorkflowOutputContract(records, plan)
 	protectPlan := func(p dataquery.TaskPlan) dataquery.TaskPlan {
-		return prepareDataTaskWorkflowPlanForExecution(r.repoRoot, line, candidates, records, p)
+		p, durableOutputContract = dataTaskCarryDurableOutputContract(p, durableOutputContract)
+		p = prepareDataTaskWorkflowPlanForExecution(r.repoRoot, line, candidates, records, p)
+		p, durableOutputContract = dataTaskCarryDurableOutputContract(p, durableOutputContract)
+		return p
 	}
 	discardDeferredPlan := func(round int, reason string) {
 		deferredPlan := workflowRuntime.DeferredPlan()

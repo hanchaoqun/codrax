@@ -250,6 +250,30 @@ func TestValidatorProposalRequiresLiveValidatorCorroboration(t *testing.T) {
 	}
 }
 
+func TestDataTaskDurableOutputContractIsWiredToCLIAndREPLPlanProtection(t *testing.T) {
+	for _, path := range []string{"data_task_cli.go", "repl.go"} {
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
+		calls := 0
+		ast.Inspect(file, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			ident, ok := call.Fun.(*ast.Ident)
+			if ok && ident.Name == "dataTaskCarryDurableOutputContract" {
+				calls++
+			}
+			return true
+		})
+		if calls != 2 {
+			t.Fatalf("%s durable output contract calls=%d, want exactly 2 around plan preparation", path, calls)
+		}
+	}
+}
+
 // TestValidatorProposalInertWithoutCompleteParamsKeepsTypedError is pin ④:
 // planner degradation WITHOUT a validator assemble_answer hint keeps today's
 // honest typed failure — same error family, no synthesized plan, no answer.

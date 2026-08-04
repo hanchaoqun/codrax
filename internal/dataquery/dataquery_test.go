@@ -10430,6 +10430,18 @@ func TestActionRunnerAssembleAnswerReferenceProjectionDropsNonReferenceGroups(t 
 		fields["reference_key_count"] != "3" {
 		t.Fatalf("Assemble fields=%+v, want reference projection metadata", fields)
 	}
+	for key, want := range map[string]string{
+		"reference_total":          "3",
+		"emitted_total":            "3",
+		"zero_filled_count":        "1",
+		"dropped_extra_count":      "1",
+		"unfilled_reference_count": "0",
+		"order_preserved":          "true",
+	} {
+		if fields[key] != want {
+			t.Fatalf("Assemble fields[%q]=%q, want %q; all=%+v", key, fields[key], want, fields)
+		}
+	}
 }
 
 func TestActionRunnerAssembleAnswerHonorsExplicitReferencePathBeforeFallbackInputs(t *testing.T) {

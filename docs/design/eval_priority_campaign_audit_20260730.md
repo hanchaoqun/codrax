@@ -13739,3 +13739,31 @@ operation coverage 现拆成相互独立且可审计的两条 typed 轴：
 
 这批没有把 `user_guide` 写入产品规则；该字面仅存在于 versioned eval case 的预期 source。产品 planner 是否需要通用
 `required_materials` typed carrier，将结合下一轮异构 operation evidence 再裁，不用请求/答案关键词做硬推断。
+
+### B75-C implementation（implemented/tests-pass/replay-next）
+
+冷读纠正了最初“投影执行器缺能力”的猜测：`assemble_answer` 已能按完整 reference set 顺序投影、为无贡献 key
+补 0、丢弃 reference 外 contribution group；`17,4,5` 负例和 `17,0,5` 正例也已有单测。生产失效点在 adaptive
+plan admission：模型曾在一个因跨 compute→reconcile DAG rank 而被拒的计划里正确声明
+`complete_reference=true/reference_path=targets.csv/reference_key_field=canonical_label`，但下一轮 repair 只修动作，
+省略了 reference 字段。旧运行时把动作拒绝和输出合同拒绝绑定，导致该 typed obligation 被静默降回普通
+`plain_single_line`，最终 assemble 合法地按 present groups 输出 17,4,5。
+
+根修将 output obligation 与 action batch 生命周期解耦：
+
+1. CLI/REPL 各自维护 durable structured output contract；每个 schema-valid candidate 在 action preflight 前后都经过同一
+   specificity merge。动作跨 rank 被拒不再抹掉 complete-reference 合同；
+2. repair 只是省略字段时，较强合同继续生效；后来若发出同等 specificity 的完整新合同，则视为显式修订并由新合同
+   胜出，避免把早期错误 locator 永久 sticky；
+3. 不从 question、rules prose、final answer 或数字形状推断 reference。权威只来自 planner 已铸造的 typed
+   `OutputContract`；reference path 仍须通过既有 workflow-material credential 和 grounding guard；
+4. `assemble_answer` 的 system-owned artifact 新增 projection receipt：`reference_total`、`emitted_total`、
+   `zero_filled_count`、`dropped_extra_count`、`unfilled_reference_count`、`order_preserved`，与既有
+   `reference_projected/path/key_field/key_count` 同源构造。reference-order 投影的例子现在明确发
+   `3/3/1/1/0/true`，不会再只凭 answer 自验 answer；
+5. 结构 pin 钉住 CLI 与 REPL 的 plan protection 各有 pre/post 两个 durable merge 调用，防 helper 存在但生产接线被删。
+
+验证：reference zero-fill/drop-extra/explicit-path/旧 projection group 定向测试、rejected-plan→broad-repair→explicit
+revision 三臂、validator proposal witness，以及完整 `go test ./internal/dataquery ./internal/repl -count=1` 全绿。
+状态：`EVAL-B75-DATAREFPROJ1=implemented/replay-next`。该批没有系统代写模型结论；系统执行的是模型 typed contract
+已声明的数据投影，并把构造事实作为 receipt 披露。

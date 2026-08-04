@@ -4734,6 +4734,19 @@ func dataTaskWorkflowOutputContract(records []dataTaskWorkflowRecord, current da
 	return firstNonEmptyOutputContract(values...)
 }
 
+// dataTaskCarryDurableOutputContract keeps the strongest structured output
+// obligation across adaptive plan attempts. Action admission and output
+// semantics are independent axes: rejecting a candidate because it crosses
+// DAG ranks must not erase a valid complete-reference declaration carried by
+// that candidate. A later equally-specific contract remains an explicit
+// revision and wins because the new candidate is scored first; merely
+// omitting fields in a repair cannot silently weaken the obligation.
+func dataTaskCarryDurableOutputContract(candidate dataquery.TaskPlan, durable dataquery.OutputContract) (dataquery.TaskPlan, dataquery.OutputContract) {
+	contract := dataworkflow.BestOutputContract(candidate.OutputContract, durable)
+	candidate.OutputContract = contract
+	return candidate, contract
+}
+
 func dataTaskPlanIsCoverageOnly(plan dataquery.TaskPlan) bool {
 	if strings.TrimSpace(plan.Script) != "" || len(plan.Actions) == 0 {
 		return false

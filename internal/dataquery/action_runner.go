@@ -579,11 +579,15 @@ func dataActionRoleSelectionError(action DataAction, role string, inputs []strin
 }
 
 type assembleReferenceProjection struct {
-	Projected bool
-	Path      string
-	Field     string
-	KeyCount  int
-	Metric    string
+	Projected         bool
+	Path              string
+	Field             string
+	KeyCount          int
+	Metric            string
+	EmittedCount      int
+	ZeroFilledCount   int
+	DroppedExtraCount int
+	OrderPreserved    bool
 }
 
 func (e DataActionError) Error() string {
@@ -8775,6 +8779,12 @@ func (r ActionRunner) runAssembleAnswerFromReconcileGroups(action DataAction, re
 	if referenceProjected {
 		fields["reference_projected"] = "true"
 		fields["reference_key_count"] = fmt.Sprintf("%d", projectionInfo.KeyCount)
+		fields["reference_total"] = fmt.Sprintf("%d", projectionInfo.KeyCount)
+		fields["emitted_total"] = fmt.Sprintf("%d", projectionInfo.EmittedCount)
+		fields["zero_filled_count"] = fmt.Sprintf("%d", projectionInfo.ZeroFilledCount)
+		fields["dropped_extra_count"] = fmt.Sprintf("%d", projectionInfo.DroppedExtraCount)
+		fields["unfilled_reference_count"] = "0"
+		fields["order_preserved"] = strconv.FormatBool(projectionInfo.OrderPreserved)
 		if strings.TrimSpace(projectionInfo.Path) != "" {
 			fields["reference_path"] = projectionInfo.Path
 		}
@@ -8829,6 +8839,12 @@ func (r ActionRunner) completeAssembleAnswerGroups(action DataAction, contract O
 		return groups, assembleReferenceProjection{}
 	}
 	keys := candidate.Keys
+	referenceKeys := make(map[string]bool, len(keys))
+	for _, key := range keys {
+		if key = strings.TrimSpace(key); key != "" {
+			referenceKeys[key] = true
+		}
+	}
 	existing := make(map[string]ReconcileGroup, len(groups))
 	for _, group := range groups {
 		if strings.TrimSpace(group.Metric.String()) == metric || strings.TrimSpace(group.Metric.String()) == "" {
@@ -8840,6 +8856,7 @@ func (r ActionRunner) completeAssembleAnswerGroups(action DataAction, contract O
 		}
 	}
 	out := make([]ReconcileGroup, 0, len(keys))
+	zeroFilled := 0
 	for _, key := range keys {
 		if key == "" {
 			continue
@@ -8848,6 +8865,7 @@ func (r ActionRunner) completeAssembleAnswerGroups(action DataAction, contract O
 			out = append(out, group)
 			continue
 		}
+		zeroFilled++
 		out = append(out, ReconcileGroup{
 			GroupKey:   LooseText(key),
 			Metric:     LooseText(metric),
@@ -8859,12 +8877,22 @@ func (r ActionRunner) completeAssembleAnswerGroups(action DataAction, contract O
 	if len(out) == 0 {
 		return groups, assembleReferenceProjection{}
 	}
+	droppedExtra := 0
+	for key := range existing {
+		if !referenceKeys[key] {
+			droppedExtra++
+		}
+	}
 	return out, assembleReferenceProjection{
-		Projected: true,
-		Path:      candidate.Path,
-		Field:     candidate.Field,
-		KeyCount:  candidate.KeyCount,
-		Metric:    metric,
+		Projected:         true,
+		Path:              candidate.Path,
+		Field:             candidate.Field,
+		KeyCount:          candidate.KeyCount,
+		Metric:            metric,
+		EmittedCount:      len(out),
+		ZeroFilledCount:   zeroFilled,
+		DroppedExtraCount: droppedExtra,
+		OrderPreserved:    true,
 	}
 }
 

@@ -176,8 +176,12 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			plan = normalized
 		}
 	}
+	durableOutputContract := dataTaskWorkflowOutputContract(records, plan)
 	protectPlan := func(p dataquery.TaskPlan) dataquery.TaskPlan {
-		return prepareDataTaskWorkflowPlanForExecution(repoRoot, request, candidates, records, p)
+		p, durableOutputContract = dataTaskCarryDurableOutputContract(p, durableOutputContract)
+		p = prepareDataTaskWorkflowPlanForExecution(repoRoot, request, candidates, records, p)
+		p, durableOutputContract = dataTaskCarryDurableOutputContract(p, durableOutputContract)
+		return p
 	}
 	discardDeferredPlan := func(round int, reason string) {
 		deferredPlan := workflowRuntime.DeferredPlan()
