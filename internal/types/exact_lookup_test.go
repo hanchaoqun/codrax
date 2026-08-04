@@ -364,6 +364,24 @@ func TestMentionedEntitiesFromRawRequest_RejectsNestedIdentifierAuthority(t *tes
 	}
 }
 
+func TestRawRequestExplicitlyMentionsEntity_AllowsTypedFileBasenameAtPathBoundary(t *testing.T) {
+	raw := "列出 internal/types/evidence.go 中的公开字符串枚举类型"
+	if !RawRequestExplicitlyMentionsEntity(raw, "evidence.go") {
+		t.Fatal("typed file basename should be explicit at the final component of a verbatim path")
+	}
+	if !RawRequestExplicitlyMentionsEntity(raw, "internal/types/evidence.go") {
+		t.Fatal("full verbatim path should remain explicit")
+	}
+	for _, candidate := range []string{"types/evidence.go", "evidence", "types"} {
+		if RawRequestExplicitlyMentionsEntity(raw, candidate) {
+			t.Fatalf("partial path/symbol %q must not gain explicit provenance", candidate)
+		}
+	}
+	if RawRequestExplicitlyMentionsEntity("读取 internal/types/evidence.go.bak", "evidence.go") {
+		t.Fatal("basename must not match a longer suffix")
+	}
+}
+
 func TestExactResolutionPendingTargets_ConfigKey(t *testing.T) {
 	contract := &ExactResolutionContract{
 		TargetKind:   SubjectConfigKey,

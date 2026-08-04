@@ -12785,3 +12785,24 @@ adjacency waiver 越权签绿。后续 finalizer 又把 `gate.Run -> RunWith` �
 - `eval/parallel_selected_summary_evalcampaign_b62_callwrite_r10_20260803.md`；
 - `eval/parallel_selected_summary_evalcampaign_b62_callwrite_r10_20260803_manual_audit.md`；
 - result dirs：`eval/results/*-20260803-215948`。
+
+### EVAL-B63-PATHPROV1（P0/implemented）：main 单测红，文件 basename 的 exact provenance 被符号边界修复误伤
+
+`EVAL-B63-NOPATHFINAL1` 全包回归暴露 `internal/agent` 当前 main 的确定性红项：
+`TestAnalyzerMentionedEntityCandidatesRequiredFileNeedsVerbatimRequestProvenance`。测试输入明确包含
+`internal/types/evidence.go`，typed analyzer lanes 同时给出 `PrimaryEntities=[evidence.go]` 与高置信
+`RequiredFileHints=[internal/types/evidence.go]`；应保留 basename 与完整路径两个不同身份，但当前只留下完整路径。
+
+根因不是候选编译器丢值，而是前一批为防止 `AnalysisIR` 从 `buildAnalysisIR`、`Run` 从 `gate.Run` 获得伪用户权限，
+把 `. / : #` 全部视为一般 symbol 的非边界。该规则对符号正确，却把“完整路径最后一个 component 中的 typed 文件
+basename”也误判为嵌套标识符。修复只扩一条 path-specific lexical arm：candidate 必须是无 `/`/`\\` 的 typed
+file basename（有代码/配置文件后缀），且其出现位置左侧恰为 `/`、右侧仍满足完整边界；部分子路径、无后缀 token、
+更长后缀如 `evidence.go.bak` 均不获得权限。一般 symbol 的严格边界保持不变，`Run` 仍不能从 `gate.Run` 派生。
+
+这是对既有 schema-typed candidate 的 exact identity 验证，不是关键词表、意图分类或答案原文扫描。新增 types 正负 pin，
+`go test ./internal/types -run 'Test(RawRequestExplicitlyMentionsEntity_AllowsTypedFileBasenameAtPathBoundary|MentionedEntitiesFromRawRequest_RejectsNestedIdentifierAuthority)' -count=1`
+、`go test ./internal/types -count=1` 与 `go test ./internal/agent -count=1` 全绿（定向 0.928s、types 全量
+22.794s、agent 全量 2.641s）。Trace query、显式窗口、因果投影、系统补采和
+answer-document 成文路径均未改。
+
+状态：`EVAL-B63-PATHPROV1 = implemented / agent-full-pass / commit-next`。

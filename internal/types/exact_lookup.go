@@ -342,7 +342,20 @@ func RawRequestExplicitlyMentionsEntity(raw, candidate string) bool {
 			return false
 		}
 		pos := start + rel
-		if exactEntitySurfaceBoundary(raw, pos-1) &&
+		leftBoundary := exactEntitySurfaceBoundary(raw, pos-1)
+		// A typed file basename is explicitly present when it is the final
+		// component of a verbatim repo-relative path. Keep this path-specific
+		// arm separate from general symbol matching: Run must not become a user
+		// endpoint merely because the request names gate.Run, while analyzer.go
+		// legitimately remains both the named file and the basename of
+		// internal/agent/analyzer.go. The right boundary still rejects suffixes
+		// such as evidence.go.bak.
+		if !leftBoundary && looksLikeExactPathToken(candidate) &&
+			!strings.Contains(candidate, "/") && !strings.Contains(candidate, `\`) &&
+			pos > 0 && raw[pos-1] == '/' {
+			leftBoundary = true
+		}
+		if leftBoundary &&
 			exactEntitySurfaceBoundary(raw, pos+len(candidate)) {
 			return true
 		}
