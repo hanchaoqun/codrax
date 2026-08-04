@@ -13249,3 +13249,42 @@ types 正反 pin 覆盖 text-overlap 不铸权、support-ref 与 scalar obligati
 - `eval/parallel_selected_summary_evalcampaign_b68_traceread_r6_20260804.md`；
 - `eval/parallel_selected_summary_evalcampaign_b68_traceread_r6_20260804_manual_audit.md`；
 - result dirs：`eval/results/*-20260804-005428`。
+
+## 70. 2026-08-04 B69 r7：Trace 主值权限闭环，command measurement 并行载体边界仍缺
+
+在 `main@70cb3be4d` 构建后严格并行回放同两例，runner PASS 2/2；Trace 人工 PASS，Read 人工 FAIL：
+
+- trace 139s，trace_query=2、completion=1/0、finalizer reject=0；
+- read 208s，read=13、repo_map=1、list=2、mid-loop injection=12、finalizer reject=0。
+
+### EVAL-B69-RUNTIMEBIND1（P0/closed-by-replay）
+
+Trace 终稿摘要、caveat、target-state partition、因果投影与系统 typed 对照全部使用 20.000ms；20.020ms 只在时间单位说明中作为
+whole-attachment extent 出现，并明确“不是 selected-window duration 或 target-thread state duration”。模型 aggregate 的 scalar/member-set
+仍完整进入 finalizer，但 role 均为 supporting；系统没有删除、扫描或改写模型正文。11.000ms fscache IO 主席、
+threadpool→network→cookie→app 唤醒链、真实占时/现规则可消双轴、显式窗自动补齐与 Trace 因果投影全部保持。因此删除 noisy
+runtime text-overlap 硬铸权已由生产回放验收，条目关闭。
+
+### EVAL-B69-CMDPATH1（P1/partial）：所有权/方向已正，observation 与 aggregate 被误画成串行转换
+
+Read 已不再把 `observationRecordForCommandMeasurement` 反向说成 adapter，也不再把 ledger compiler 错引到
+`emit_investigation_complete.go`；最终明确 closure control 不参与数据流。253 的 current checkout count 与全部 owner file/call edge 正确。
+但仍有两个同根残余：
+
+1. Mermaid 与正文新增 `observationRecordForCommandMeasurement → AnswerAggregateFact`。实际 record 进入 compiled
+   `ObservationLedger`/answer context；`AnswerAggregateFact` 是 Explorer 在 completion 中独立发出的 model structured handoff，若为 count，
+   `reconcileCompletionAggregateFactsWithDeterministicCount` 可用 typed ToolResult measurement 校准。两者是并行载体，不是 record builder
+   的下一条调用/转换边；
+2. producer 分支把 history 条件下的 `Origin=VCSMetadata, History=true` 与普通确定性 count 的
+   `Origin=CommandMeasurement, History=false` 混成同一个返回形，还把 payload rendering 说成负责写 ToolResult field；实际 payload 与
+   ToolResult assignment 是 sibling consumers。
+
+下一小批仍只更新 prompt-only typed authority：明确两条并行载体及 count reconcile 的单向校准关系；明确 history/generic 两个 producer
+分支和 payload/ToolResult sibling assignment。它不要求某句答案字面出现，不扫描请求/答案/模型 prose，不触发 retry，不替模型下结论。
+随后严格并行同两例复放；Trace 作为防回归 witness，Read 验证机制。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b69_traceread_r7_20260804.md`；
+- `eval/parallel_selected_summary_evalcampaign_b69_traceread_r7_20260804_manual_audit.md`；
+- result dirs：`eval/results/*-20260804-011337`。
