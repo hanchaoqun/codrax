@@ -428,15 +428,10 @@ func callChainEndpointCompatible(candidate, endpoint string) bool {
 	if candidate == "" || endpoint == "" {
 		return false
 	}
-	if strings.EqualFold(candidate, endpoint) || AnswerCodeSurfaceAppearsInText(candidate, endpoint) {
+	if AnswerCodeIdentitySurfacesCompatible(candidate, endpoint) || AnswerCodeSurfaceAppearsInText(candidate, endpoint) {
 		return true
 	}
-	cTail := normalizedSurfaceSymbolTail(candidate)
-	eTail := normalizedSurfaceSymbolTail(endpoint)
-	if cTail == "" || eTail == "" {
-		return false
-	}
-	return cTail == eTail
+	return false
 }
 
 // CallChainEndpointCompatible reports whether a symbol/location surface can

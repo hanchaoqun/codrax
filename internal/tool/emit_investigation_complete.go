@@ -13705,22 +13705,7 @@ func callChainCodeTermMatches(candidate, endpoint string) bool {
 	if candidate == "" || endpoint == "" {
 		return false
 	}
-	c := strings.ToLower(candidate)
-	e := strings.ToLower(endpoint)
-	if c == e {
-		return true
-	}
-	if len(e) >= 4 && strings.Contains(c, e) {
-		return true
-	}
-	if len(c) >= 4 && strings.Contains(e, c) {
-		return true
-	}
-	tail := callChainEndpointTail(e)
-	if len(tail) >= 4 && strings.Contains(c, tail) {
-		return true
-	}
-	return false
+	return types.AnswerCodeIdentitySurfacesCompatible(candidate, endpoint)
 }
 
 func callChainEndpointTail(s string) string {

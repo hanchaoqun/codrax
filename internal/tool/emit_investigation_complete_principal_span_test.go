@@ -20,6 +20,24 @@ func orderedCallChainEndpoints(source, sink string) *types.CallChainEndpointProf
 	return &types.CallChainEndpointProfile{Source: source, Sink: sink}
 }
 
+func TestCallChainCodeTermMatchesUsesTypedQualifiedBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		candidate string
+		endpoint  string
+		want      bool
+	}{
+		{candidate: "pkg::Gate::Run", endpoint: "pkg.Gate.Run", want: true},
+		{candidate: "Run", endpoint: "pkg::Gate::Run", want: true},
+		{candidate: "other::Gate::Run", endpoint: "pkg.Gate.Run", want: false},
+		{candidate: "pkg::Gate::RunWith", endpoint: "pkg.Gate.Run", want: false},
+		{candidate: "prefixpkg::Gate::Runsuffix", endpoint: "pkg.Gate.Run", want: false},
+	} {
+		if got := callChainCodeTermMatches(tc.candidate, tc.endpoint); got != tc.want {
+			t.Errorf("callChainCodeTermMatches(%q,%q)=%t want %t", tc.candidate, tc.endpoint, got, tc.want)
+		}
+	}
+}
+
 func TestCallChainDirectedPathStatus_AllExecutableLanguageSurfaces(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -774,11 +792,11 @@ func TestPreCompleteCallChain_PrincipalAggregateMemberSetCannotBypassDirectedEnd
 	evidence := []types.EvidenceItem{
 		{ID: "start", Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, AnchorSymbol: "buildAnalysisIR", Subject: "buildAnalysisIR", Source: "internal/agent/analyzer.go", LineStart: 100, GroundingStatus: types.GroundingGrounded},
 		{ID: "mid", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, AnchorSymbol: "normalizer.Normalize", Subject: "buildAnalysisIR", Object: "normalizer.Normalize", Source: "internal/agent/analyzer.go", LineStart: 160, GroundingStatus: types.GroundingGrounded},
-		{ID: "gate", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, AnchorSymbol: "gate.RunWith", Subject: "buildAnalysisIR", Object: "gate.RunWith", Source: "internal/agent/analyzer.go", LineStart: 300, GroundingStatus: types.GroundingGrounded},
+		{ID: "gate", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, AnchorSymbol: "gate.RunWith", Subject: "prepareGate", Object: "gate.RunWith", Source: "internal/agent/analyzer.go", LineStart: 300, GroundingStatus: types.GroundingGrounded},
 		{ID: "reverse", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, AnchorSymbol: "gate.RunWith", Subject: "gate.Run", Object: "gate.RunWith", Source: "internal/analysis/gate/gate.go", LineStart: 135, GroundingStatus: types.GroundingGrounded},
 	}
 	makeCtx := func() *types.BusContext {
-		mut := types.NewMutableState("trace buildAnalysisIR to gate.Run")
+		mut := types.NewMutableState("trace buildAnalysisIR to gate.RunWith")
 		mut.AppendEvidence(evidence)
 		mut.AppendDispatchToolResult(types.ToolResult{
 			ToolName: "read_file",
@@ -794,14 +812,14 @@ func TestPreCompleteCallChain_PrincipalAggregateMemberSetCannotBypassDirectedEnd
 			Mutable: mut,
 			AnalysisIR: &types.AnalysisIR{
 				RequestModel: types.RequestModel{
-					RawRequest:               "trace buildAnalysisIR to gate.Run",
+					RawRequest:               "trace buildAnalysisIR to gate.RunWith",
 					Intent:                   types.IntentTrace,
 					PredicateAxis:            types.AxisCall,
-					CallChainEndpointProfile: orderedCallChainEndpoints("buildAnalysisIR", "gate.Run"),
+					CallChainEndpointProfile: orderedCallChainEndpoints("buildAnalysisIR", "gate.RunWith"),
 					AnalyzerHints: types.AnalyzerHints{
 						Kind:              string(types.ReqCallChain),
-						ExactTargets:      []string{"buildAnalysisIR", "gate.Run"},
-						MentionedEntities: []string{"buildAnalysisIR", "gate.Run"},
+						ExactTargets:      []string{"buildAnalysisIR", "gate.RunWith"},
+						MentionedEntities: []string{"buildAnalysisIR", "gate.RunWith"},
 					},
 				},
 			},

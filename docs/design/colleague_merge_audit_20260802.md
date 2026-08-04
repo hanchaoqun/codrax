@@ -1823,3 +1823,68 @@ C/C++ `Other repo` 均可能被外层 `Worker repo` 参数改写。现三域统�
 Trace 因果投影、自动补齐、read/write 路由或模型结论所有权。
 
 状态：`S2-5=closed`；`S2-6=closed`；receiver authority 全语言安全面 closed；`M5-E3=closed`。
+
+### §10.15 M5-E4：端点 token 边界、eval 双向边界 pin 与低危清账（已交付）
+
+#### M5-S5-4：跨语言分隔符等价不能退化为双向子串
+
+复核确认旧 `callChainCodeTermMatches` 同时使用 `Contains(candidate, endpoint)` 与反向 `Contains`，并再对
+tail 做一次子串匹配。它虽然偶然兼容 `Foo.run / Foo::run`，却也会把 `Other::run` 当成 `Foo.run`，以及把
+`runWith` 当成 `run`；prefix sibling 或不同 owner 因而可以获得端点/跨度权限。
+
+现由 `AnswerCodeIdentitySurfacesCompatible` 提供唯一 identity 代数：
+
+- `. / :: / # / -> / / / \\` 只被归一成结构化 segment 分隔符，不做扁平字符串删除；
+- short identity 可以对应 qualified identity 的最后一段，两个 qualified identity 则必须逐段完全一致；
+- 每段必须是合法 code identity，空段、prose、空白与 path/location 拼接均不取得身份权限；
+- `callChainEndpointCompatible` 与 evidence endpoint matcher 复用同一函数，删除各自的 tail/substring 旁路。
+
+回归覆盖 Java/Kotlin/Swift/Go/C/C++/Rust/ArkTS/Cangjie 常见限定拼写等价、short↔qualified 正臂，以及
+owner mismatch、prefix/suffix sibling、普通 prose 负臂。完整回归同时发现一个旧测试用 `gate.RunWith` 冒充
+请求端点 `gate.Run` 才能构造 principal span；fixture 已改为 exact `gate.RunWith`，并用断开的 caller 保持原本
+“member_set 不得铸造有向可达性”的测试目的。生产门没有为测试放宽。
+
+状态：`M5-S5-4=closed`。
+
+#### M5-F2：M4-K 的反向 runner 契约确实缺席
+
+审计结论准确。旧 `TestEvalPrimaryAnswerTailBoundariesMatchRendererEmissions` 只遍历六个 production 标题，证明
+“renderer 发出的标题都被 runner 消费”；若 `scope_primary_stdout` 额外加入一个生产端不存在的精确标题，测试
+仍会通过，所以 §9.12 的“runner 新增不存在标题也会失败”属于过度声称。
+
+现测试反向解析 `scope_primary_stdout` 的全部 `$0 == <exact literal>`，并与 production-owned closed set 比较：
+六个 renderer citations/snippets/recovery 标题，加上 agent evaluator 仍发射的中英文 legacy raw-final 标题。
+多一项、少一项、重复一项均失败。Trace projection 使用独立 regex 边界与既有 projection contract，不被误塞进
+literal 集。至此 renderer→runner 与 runner→production 两个方向都有结构 pin，eval oracle 仍只在 opt-in eval
+生效，不进入产品路由、模型上下文或答案修改链。
+
+状态：`M5-F2=closed`；§9.12 的双向声明现与代码一致。
+
+#### S6-2：当前 main 已由后续负控覆盖，无需再改路由
+
+该 finding 对 `dba723a30` 时点成立，但当前主线已有两类独立正反 pin：真实 typed desktop operation（含
+`operation_kind=desktop`）继续 `route=operation`；只有声明 current-source obligation 却携带泛化 computer-
+operation 漂移的请求才降级为 repository pipeline。另有 dispatch 级回归固定历史生产漂移。因此不能再按旧
+时点描述改路由，否则会误伤真实桌面目标操作。
+
+状态：`S6-2=closed-by-current-main / tests-confirmed / no-code-change`。
+
+#### M5-F3：B54..B71 继承债按当前主线重新盘点
+
+“残留 10 项”是审计时点统计，不能在后续多批已交付后原样沿用。逐节对照当前账本，B54 的答案所有权项已
+全部 closed；B55..B70 的确定性 code gaps 均已有 implemented/closed 记录，剩余多数是 replay-next 或模型波动
+观察，不应伪装成待编码任务。当前仍明确 open 的泛化项只有：
+
+1. `EVAL-B71-CASESCOPE1`（P1/eval-quality）：case 未声明 recursion/scope，动态主值缺 typed oracle；下一批最高
+   ROI，先修 eval 载体，不进入产品答案硬门；
+2. `EVAL-B64-COUNTBIND1`（P2）：pre-emit advisory 中 scalar 与 member_set 的 block/fact identity 归属仍可能
+   错配；需要 typed identity 绑定，不能靠数值或答案词面相似；
+3. `EVAL-B59-INVROW1`（P1/watch）与 `EVAL-B60-CLOSURECHURN1`（P1/watch）：现有单语言/单关系 witness 不足，
+   先用异构回放确认可泛化根因；不得为了降低单 case reject 数放松 typed call/inventory authority。
+
+施工顺序冻结：先 `B71-CASESCOPE1` 的 eval 基础设施，再严格并行 2 个异构 case 回放；若日志证明
+COUNTBIND1 或 INVROW1/CLOSURECHURN1 跨 case 复现，再按 typed carrier 根因独立立批。显式时间窗 Trace 因果
+投影、自动补齐、read/write 路由和模型结论所有权不因本清账改变。
+
+状态：`M5-F3=re-audited / 4 explicit opens / replay debt separated from code debt`；`MERGE-AUDIT-5` 已确认
+code finding 至此全部闭环，下一阶段转入 eval-quality 与异构回放。

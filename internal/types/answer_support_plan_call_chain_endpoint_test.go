@@ -60,3 +60,22 @@ func TestNormalizeCallChainEndpointProfileUsesRequestMentionedTypedSet(t *testin
 		t.Fatalf("non-request endpoint must be dropped: profile=%+v reason=%q", got, reason)
 	}
 }
+
+func TestCallChainEndpointCompatibleUsesQualifiedIdentitySegments(t *testing.T) {
+	for _, tc := range []struct {
+		candidate string
+		endpoint  string
+		want      bool
+	}{
+		{candidate: "Foo::run", endpoint: "Foo.run", want: true},
+		{candidate: "Foo#run", endpoint: "Foo.run", want: true},
+		{candidate: "run", endpoint: "Foo::run", want: true},
+		{candidate: "Other::run", endpoint: "Foo.run", want: false},
+		{candidate: "Foo.runWith", endpoint: "Foo.run", want: false},
+		{candidate: "goroutine", endpoint: "go", want: false},
+	} {
+		if got := CallChainEndpointCompatible(tc.candidate, tc.endpoint); got != tc.want {
+			t.Errorf("CallChainEndpointCompatible(%q,%q)=%t want %t", tc.candidate, tc.endpoint, got, tc.want)
+		}
+	}
+}

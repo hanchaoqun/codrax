@@ -151,6 +151,20 @@ func TestAnswerCodeSurfaceAppearsInTextUsesIdentityBoundaries(t *testing.T) {
 	}
 }
 
+func TestAnswerCodeIdentitySurfacesCompatibleDoesNotCollapseQualifiedOwners(t *testing.T) {
+	if !AnswerCodeIdentitySurfacesCompatible("pkg::Gate::Run", "pkg.Gate.Run") {
+		t.Fatal("language-native qualified separators should normalize by segment")
+	}
+	if !AnswerCodeIdentitySurfacesCompatible("Run", "pkg::Gate::Run") {
+		t.Fatal("an exact short symbol may stand for a qualified final segment")
+	}
+	for _, candidate := range []string{"other::Gate::Run", "pkg::Other::Run", "pkg::Gate::RunWith"} {
+		if AnswerCodeIdentitySurfacesCompatible(candidate, "pkg::Gate::Run") {
+			t.Fatalf("qualified/prefix mismatch must stay distinct: %q", candidate)
+		}
+	}
+}
+
 func TestAnswerSourceLocationLabelMatchesCitation(t *testing.T) {
 	if !AnswerSourceLocationLabelMatchesCitation("internal/agent/analyzer.go:1903", Citation{
 		File: "internal/agent/analyzer.go",

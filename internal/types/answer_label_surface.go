@@ -256,6 +256,60 @@ func AnswerCodeSurfaceAppearsInText(text string, surface string) bool {
 	return false
 }
 
+// AnswerCodeIdentitySurfacesCompatible compares two already-typed code
+// identity surfaces without substring guessing. Qualified spellings may use
+// the language-native separators `.`, `::`, `#`, `->`, or `/`; a short symbol
+// may stand for a qualified surface's final segment, but two qualified
+// surfaces must agree on their complete segment sequence. This keeps
+// `Foo::run` equivalent to `Foo.run` while rejecting `Other.run` and
+// prefix siblings such as `runWith`.
+func AnswerCodeIdentitySurfacesCompatible(left, right string) bool {
+	leftSegments := answerCodeIdentitySegments(left)
+	rightSegments := answerCodeIdentitySegments(right)
+	if len(leftSegments) == 0 || len(rightSegments) == 0 {
+		return false
+	}
+	if len(leftSegments) == len(rightSegments) {
+		for i := range leftSegments {
+			if leftSegments[i] != rightSegments[i] {
+				return false
+			}
+		}
+		return true
+	}
+	if len(leftSegments) == 1 {
+		return leftSegments[0] == rightSegments[len(rightSegments)-1]
+	}
+	if len(rightSegments) == 1 {
+		return rightSegments[0] == leftSegments[len(leftSegments)-1]
+	}
+	return false
+}
+
+func answerCodeIdentitySegments(raw string) []string {
+	raw = strings.Trim(strings.TrimSpace(raw), "`'\"")
+	raw = strings.TrimSuffix(raw, "()")
+	if raw == "" || strings.ContainsAny(raw, "\n\r\t ") {
+		return nil
+	}
+	raw = strings.NewReplacer(
+		"::", ".",
+		"->", ".",
+		"#", ".",
+		"/", ".",
+		`\`, ".",
+	).Replace(raw)
+	var out []string
+	for _, segment := range strings.Split(raw, ".") {
+		segment = strings.ToLower(strings.Trim(strings.TrimSpace(segment), "*&( )"))
+		if segment == "" || !IsCodeIdentitySurface(segment) {
+			return nil
+		}
+		out = append(out, segment)
+	}
+	return out
+}
+
 func answerCodeSurfaceBoundaryOK(text string, start int, end int) bool {
 	if start > 0 {
 		r, _ := utf8.DecodeLastRuneInString(text[:start])
