@@ -14055,3 +14055,21 @@ join 案 2 个失败边，仍说明未来 rank 规划有成本，但没有高于
 - result dirs：`eval/results/*-20260804-064620`；
 - 终态：`.codrax/data-audit/20260804-064854-752222-88658-terminal.json` 与
   `.codrax/data-audit/20260804-064824-430818-88657-terminal.json`。
+
+### EVAL-B79-DATAREFROLE1 implementation（implemented/tests-pass/replay-next）
+
+根修复用 `dataTaskResolveDeclaredOutputReferenceSet` 的单一 source-lineage 权威链，并把 assemble action 的声明优先级
+明确为：`output_contract.complete_reference + reference_path` → action 显式 `reference_path` → 仅在前两者缺席时，
+`reference_key_field + input_paths`。最后一臂不把 input alias 直接当 source material，而是逐一要求它能回溯到唯一真实源
+材料并重读其 key bytes。
+
+候选合取规则保持保守：无 source lineage 的 generated-only alias 不取得权威；两个 input alias 解析到不同 key sequence
+时不按名字、重叠率、行数或字段词义排序，整臂 fail-open；显式 path 与 input alias 冲突时显式 path 胜出。由此 B79 的
+`targets` 精确回溯到 `targets.csv#canonical_label`，错误 `17,4,5` 进入既有
+`output_reference_grounding_mismatch` 并重新开放 model-owned `assemble_answer`，正确 `17,0,5` 放行。系统仍不改变
+contribution ledger 或答案字节。
+
+新增四组看护覆盖 source-derived input alias 红/绿双臂、不同 source universe 歧义、generated-only alias、显式 path
+优先；live workflow state 还钉住错误答案必须呈现 `grounding_mismatch`、不得签 `complete`。完整
+`go test ./internal/dataquery ./internal/dataworkflow ./internal/repl -count=1` 全绿。状态更新为
+`EVAL-B79-DATAREFROLE1=implemented/replay-next`。

@@ -5960,22 +5960,35 @@ func dataTaskResolveDeclaredOutputReferenceSet(repoRoot string, records []dataTa
 				continue
 			}
 			fields := dataTaskAssembleActionDeclaredReferenceFields(action, contract)
-			paths := cleanDataTaskStrings([]string{action.Params["reference_path"], action.Params["reference_paths"]})
-			if len(fields) == 0 || len(paths) == 0 {
+			if len(fields) == 0 {
 				continue
 			}
-			var candidates []dataquery.ReferenceKeyCandidate
-			for _, path := range paths {
-				if candidate, ok := dataTaskDeclaredReferenceCandidateForPath(repoRoot, records, current, result, runner, path, fields, groupKeys); ok {
-					candidates = append(candidates, candidate)
-				}
+			// An explicit reference_path is the strongest action-local role
+			// declaration. Only when it is absent may typed input paths carry
+			// that role. Each input alias still has to resolve through the same
+			// source-material lineage credential; generated-only inputs produce
+			// no candidate, while multiple different source universes remain
+			// ambiguous instead of being ranked heuristically.
+			paths := cleanDataTaskStrings([]string{action.Params["reference_path"], action.Params["reference_paths"]})
+			if len(paths) == 0 {
+				paths = cleanDataTaskStrings(action.InputPaths)
 			}
-			if candidate, ok := dataTaskConsensusReferenceCandidate(candidates); ok {
+			if candidate, ok := dataTaskDeclaredReferenceCandidateForPaths(repoRoot, records, current, result, runner, paths, fields, groupKeys); ok {
 				return candidate, true
 			}
 		}
 	}
 	return dataquery.ReferenceKeyCandidate{}, false
+}
+
+func dataTaskDeclaredReferenceCandidateForPaths(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, runner dataquery.ActionRunner, paths, fields, groupKeys []string) (dataquery.ReferenceKeyCandidate, bool) {
+	var candidates []dataquery.ReferenceKeyCandidate
+	for _, path := range cleanDataTaskStrings(paths) {
+		if candidate, ok := dataTaskDeclaredReferenceCandidateForPath(repoRoot, records, current, result, runner, path, fields, groupKeys); ok {
+			candidates = append(candidates, candidate)
+		}
+	}
+	return dataTaskConsensusReferenceCandidate(candidates)
 }
 
 func dataTaskDeclaredReferenceCandidateForPath(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, runner dataquery.ActionRunner, path string, fields, groupKeys []string) (dataquery.ReferenceKeyCandidate, bool) {

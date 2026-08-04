@@ -213,6 +213,147 @@ func TestReferenceGroundingTypedGeneratedAliasUsesSourceLineage(t *testing.T) {
 	}
 }
 
+// The assemble action may carry the reference relation as a typed input alias
+// plus reference_key_field while omitting a redundant reference_path. This is
+// still a precise declaration, but only when the alias resolves to one source
+// material universe. B79 reproduced the lost-authority shape with
+// input_paths=[reconciled_contributions, targets]: the old gap path could read
+// targets, then rejected the returned generated alias before following its
+// targets.csv lineage, so the internally-consistent 17,4,5 escaped.
+func TestReferenceGroundingTypedInputAliasUsesSourceLineage(t *testing.T) {
+	root := referenceGroundingFixtureRepo(t)
+	prior := dataquery.Result{Artifacts: []dataquery.DataArtifact{{
+		ID:          "targets",
+		Kind:        string(dataquery.DataActionExtractRecords),
+		SourcePaths: []string{"targets.csv"},
+		Fields:      map[string]string{"artifact_aliases": "targets,targets.json"},
+	}}}
+	records := []dataTaskWorkflowRecord{{Plan: dataquery.TaskPlan{CoverageContract: referenceGroundingContract()}, Result: &prior}}
+	current := dataquery.TaskPlan{
+		CoverageContract: referenceGroundingContract(),
+		Actions: []dataquery.DataAction{{
+			ID:         "project_targets",
+			Kind:       dataquery.DataActionAssembleAnswer,
+			InputPaths: []string{"reconciled_contributions", "targets"},
+			Params: map[string]string{
+				"reference_key_field": "canonical_label",
+				"projection":          "values",
+			},
+		}},
+	}
+	result := referenceGroundingResult("17,4,5", map[string]string{"GroupA": "17", "GroupB": "4", "GroupC": "5"})
+	result.OutputContract = dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false}
+	result.Reconcile = &dataquery.ReconcileReport{
+		Status:         dataquery.LooseText("pass"),
+		ExpectedAnswer: dataquery.LooseText("17,4,5"),
+		ActualAnswer:   dataquery.LooseText("17,4,5"),
+		Groups: []dataquery.ReconcileGroup{
+			{GroupKey: dataquery.LooseText("GroupA"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("17"), Actual: dataquery.LooseText("17")},
+			{GroupKey: dataquery.LooseText("GroupB"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("4"), Actual: dataquery.LooseText("4")},
+			{GroupKey: dataquery.LooseText("GroupC"), Metric: dataquery.LooseText("total_value"), Expected: dataquery.LooseText("5"), Actual: dataquery.LooseText("5")},
+		},
+	}
+
+	report, candidate, applicable := dataTaskOutputReferenceGroundingReport(root, records, current, result)
+	if !applicable || !report.Violated() || candidate.Path != "targets.csv" || candidate.Field != "canonical_label" {
+		t.Fatalf("report=%+v candidate=%+v applicable=%v, want typed input alias resolved to targets.csv and the GroupX slot rejected", report, candidate, applicable)
+	}
+	if guard := dataTaskOutputReferenceGroundingGuardResult(root, records, current, result); guard.Empty() {
+		t.Fatal("typed input alias with unique source lineage must retain output-reference authority")
+	}
+	liveRecords := append(append([]dataTaskWorkflowRecord(nil), records...), dataTaskWorkflowRecord{Plan: current, Result: &result})
+	state := dataTaskWorkflowState(root, liveRecords, current)
+	if state.OutputProjectionGraph.Status != dataworkflow.OutputProjectionStatusGroundingMismatch ||
+		state.NextStage != dataworkflow.StageEmitOutputContractAnswer || state.Decision.Status == "complete" {
+		t.Fatalf("state=%+v, typed input alias mismatch must reopen model-owned answer projection", state)
+	}
+
+	result.Answer = "17,0,5"
+	result.Reconcile.ExpectedAnswer = dataquery.LooseText("17,0,5")
+	result.Reconcile.ActualAnswer = dataquery.LooseText("17,0,5")
+	if guard := dataTaskOutputReferenceGroundingGuardResult(root, records, current, result); !guard.Empty() {
+		t.Fatalf("grounded truth through typed input alias must pass: %s", guard.ErrorText())
+	}
+}
+
+// Two input aliases leading to different source key universes are not a
+// declaration. The runtime must not rank them by names, row counts, or overlap
+// and turn a noisy choice into a hard gate.
+func TestReferenceGroundingTypedInputAliasesFailOpenOnAmbiguousSourceUniverses(t *testing.T) {
+	root := referenceGroundingFixtureRepo(t)
+	if err := os.WriteFile(filepath.Join(root, "other_targets.csv"), []byte("target_id,canonical_label\nO1,GroupA\nO2,GroupZ\nO3,GroupC\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	prior := dataquery.Result{Artifacts: []dataquery.DataArtifact{
+		{ID: "targets", Kind: string(dataquery.DataActionExtractRecords), SourcePaths: []string{"targets.csv"}},
+		{ID: "other_targets", Kind: string(dataquery.DataActionExtractRecords), SourcePaths: []string{"other_targets.csv"}},
+	}}
+	records := []dataTaskWorkflowRecord{{Plan: dataquery.TaskPlan{CoverageContract: referenceGroundingContract()}, Result: &prior}}
+	current := dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+		ID:         "project_ambiguous",
+		Kind:       dataquery.DataActionAssembleAnswer,
+		InputPaths: []string{"targets", "other_targets"},
+		Params:     map[string]string{"reference_key_field": "canonical_label"},
+	}}}
+	result := referenceGroundingResult("17,4,5", map[string]string{"GroupA": "17", "GroupB": "4", "GroupC": "5"})
+	result.OutputContract = dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false}
+
+	if _, _, applicable := dataTaskOutputReferenceGroundingReport(root, records, current, result); applicable {
+		t.Fatal("different source universes behind typed input aliases must remain ambiguous and fail open")
+	}
+}
+
+func TestReferenceGroundingTypedInputAliasRequiresSourceLineage(t *testing.T) {
+	root := referenceGroundingFixtureRepo(t)
+	prior := dataquery.Result{Artifacts: []dataquery.DataArtifact{{
+		ID:     "generated_targets",
+		Kind:   string(dataquery.DataActionComputeContribs),
+		Fields: map[string]string{"artifact_aliases": "generated_targets,generated_targets.json"},
+	}}}
+	records := []dataTaskWorkflowRecord{{Result: &prior}}
+	current := dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+		ID:         "project_generated",
+		Kind:       dataquery.DataActionAssembleAnswer,
+		InputPaths: []string{"generated_targets"},
+		Params:     map[string]string{"reference_key_field": "canonical_label"},
+	}}}
+	result := referenceGroundingResult("17,4,5", map[string]string{"GroupA": "17", "GroupB": "4", "GroupC": "5"})
+	result.OutputContract = dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false}
+
+	if _, _, applicable := dataTaskOutputReferenceGroundingReport(root, records, current, result); applicable {
+		t.Fatal("generated-only input alias must not mint an output reference universe")
+	}
+}
+
+func TestReferenceGroundingExplicitPathPrecedesConflictingInputAlias(t *testing.T) {
+	root := referenceGroundingFixtureRepo(t)
+	if err := os.WriteFile(filepath.Join(root, "other_targets.csv"), []byte("target_id,canonical_label\nO1,GroupA\nO2,GroupZ\nO3,GroupC\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	prior := dataquery.Result{Artifacts: []dataquery.DataArtifact{{
+		ID:          "other_targets",
+		Kind:        string(dataquery.DataActionExtractRecords),
+		SourcePaths: []string{"other_targets.csv"},
+	}}}
+	records := []dataTaskWorkflowRecord{{Result: &prior}}
+	current := dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+		ID:         "project_explicit",
+		Kind:       dataquery.DataActionAssembleAnswer,
+		InputPaths: []string{"other_targets"},
+		Params: map[string]string{
+			"reference_path":      "targets.csv",
+			"reference_key_field": "canonical_label",
+		},
+	}}}
+	result := referenceGroundingResult("17,4,5", map[string]string{"GroupA": "17", "GroupB": "4", "GroupC": "5"})
+	result.OutputContract = dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false}
+
+	report, candidate, applicable := dataTaskOutputReferenceGroundingReport(root, records, current, result)
+	if !applicable || !report.Violated() || candidate.Path != "targets.csv" || candidate.Field != "canonical_label" {
+		t.Fatalf("report=%+v candidate=%+v applicable=%v, want explicit targets.csv authority ahead of conflicting input alias", report, candidate, applicable)
+	}
+}
+
 // TestReferenceGroundingGuardAcceptsGroundedTruth: the correct "17,0,5"
 // passes both arms and the guard stays quiet — the gate releases the truth,
 // it never edits values.
