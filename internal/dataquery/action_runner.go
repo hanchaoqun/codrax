@@ -1578,7 +1578,7 @@ func (r ActionRunner) runNormalizeEntities(action DataAction, requireNonEmpty bo
 			return DataArtifact{}, nil, err
 		}
 	}
-	sourceRecordPaths, referencePaths, evidencePaths := entityResolutionLineageRoles(action, consumed, records)
+	sourceRecordPaths, referencePaths, evidencePaths := entityResolutionLineageRoles(action, consumed, records, children)
 	if len(records) == 0 {
 		id := firstNonEmptyString(strings.TrimSpace(action.OutputArtifact), strings.TrimSpace(action.ID), "entity_resolutions")
 		artifact := DataArtifact{
@@ -1667,34 +1667,6 @@ func entityResolutionArtifactFields(action DataAction, count int) map[string]str
 		fields["canonical_label_field"] = value
 	}
 	return fields
-}
-
-func entityResolutionLineageRoles(action DataAction, consumed []string, records []EntityResolutionRecord) ([]string, []string, []string) {
-	source := firstNonEmptyString(action.Params["source_path"], action.Params["source"], action.Params["base_path"])
-	reference := firstNonEmptyString(action.Params["reference_path"], action.Params["lookup_path"], action.Params["mapping_path"])
-	inputs := cleanStringList(action.InputPaths)
-	if strings.TrimSpace(source) == "" && len(inputs) > 0 {
-		source = inputs[0]
-	}
-	if strings.TrimSpace(reference) == "" && len(inputs) > 1 {
-		reference = inputs[1]
-	}
-	sourceRecordPaths := normalizeMaterialPaths(cleanStringList([]string{source}))
-	referencePaths := normalizeMaterialPaths(cleanStringList([]string{reference}))
-	var evidence []string
-	for _, rec := range records {
-		evidence = append(evidence, rec.EvidenceRefs...)
-	}
-	consumedSet := map[string]bool{}
-	for _, path := range append(sourceRecordPaths, referencePaths...) {
-		consumedSet[normalizeMaterialPath(path)] = true
-	}
-	for _, path := range normalizeMaterialPaths(consumed) {
-		if !consumedSet[normalizeMaterialPath(path)] {
-			evidence = append(evidence, path)
-		}
-	}
-	return sourceRecordPaths, referencePaths, cleanStringList(evidence)
 }
 
 func parseExplicitEntityResolutionRecords(raw string) ([]EntityResolutionRecord, error) {

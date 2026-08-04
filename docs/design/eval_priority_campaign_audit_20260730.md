@@ -14294,3 +14294,25 @@ hard gate 读取了错误 typed authority，不应通过放宽 lineage compatibi
 - `eval/results/data_join_entity_reconcile-20260804-075237`；
 - terminals `.codrax/data-audit/20260804-075620-593018-23468-terminal.json`、
   `.codrax/data-audit/20260804-075903-367269-23467-terminal.json`。
+
+### B82-C implementation（implemented/tests-pass/replay-next）：parent lineage 消费 executor 实际角色
+
+本批没有放宽 `apply_resolution_lineage_contract`，而是修正它读取的上游 authority：
+
+1. `normalize_entities` parent 的 `SourceRecordPaths/ReferencePaths` 现在优先汇总本次 executor 已铸造的
+   `entity_resolution/source` 与 `entity_resolution/reference` typed children；字段合同触发 role swap 后，parent 与 child
+   必然同源；
+2. generic structured normalization 的 `entity_resolution_source` child 同样可提供 source lineage；explicit inline
+   resolution 没有 role child 时，才回退 action 显式 source/reference params，再回退 input order；
+3. evidence paths 继续由 resolution records 与非 source/reference consumed material 构造，未丢失第三方证据；
+4. lineage guard、alias matching、transitive lineage 图均未降级：source 的 derive descendant 通过，真正 unrelated base 仍
+   发 `apply_resolution_lineage_contract`。
+
+既有 reference-first input 测试由“只看映射结果与 swap note”扩展为 parent/所有 resolution child 的 role parity；新增
+dataworkflow 看护验证 derived base 正臂与 unrelated base 负臂。定向 normalize/apply/guard 全族及完整
+`go test ./internal/dataquery ./internal/dataworkflow ./internal/repl -count=1` 全绿；核心 LOC ratchet 保持，
+`action_runner.go=12296 < 12344`。
+
+状态更新：`EVAL-B82-DATALINROLE1=implemented/tests-pass/replay-next`。production 回放仍采用严格并行 2 个：原 join witness
+观察合法 apply 是否不再被 parent 角色反写阻断，并配一个 read/write/operation 高优先级 case，避免 data 战役长期挤占其他
+模式覆盖。

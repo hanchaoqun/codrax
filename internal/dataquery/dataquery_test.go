@@ -7883,6 +7883,21 @@ func TestActionRunnerNormalizeEntitiesInfersReferenceFirstInputOrder(t *testing.
 	if got := res.Artifacts[0].Children[0].Fields["role_inference"]; !strings.Contains(got, "swapped_source_reference_by_field_contract") {
 		t.Fatalf("role_inference=%q, want structural swap note", got)
 	}
+	artifact := res.Artifacts[0]
+	if !stringSliceContainsFold(artifact.SourceRecordPaths, "records.csv") || stringSliceContainsFold(artifact.SourceRecordPaths, "canonical.csv") {
+		t.Fatalf("SourceRecordPaths=%v, want actual swapped source records.csv only", artifact.SourceRecordPaths)
+	}
+	if !stringSliceContainsFold(artifact.ReferencePaths, "canonical.csv") || stringSliceContainsFold(artifact.ReferencePaths, "records.csv") {
+		t.Fatalf("ReferencePaths=%v, want actual swapped reference canonical.csv only", artifact.ReferencePaths)
+	}
+	for _, child := range artifact.Children {
+		if child.Kind != "entity_resolution" {
+			continue
+		}
+		if !stringSliceContainsFold(child.SourceRecordPaths, "records.csv") || !stringSliceContainsFold(child.ReferencePaths, "canonical.csv") {
+			t.Fatalf("resolution child %s lineage source=%v reference=%v, want parent/child role parity", child.ID, child.SourceRecordPaths, child.ReferencePaths)
+		}
+	}
 }
 
 func TestActionRunnerNormalizeEntitiesExplicitSourcePathUsesNonSourceReferenceInput(t *testing.T) {

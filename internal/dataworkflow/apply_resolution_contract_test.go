@@ -84,3 +84,54 @@ func TestApplyResolutionContractGuardUsesSourceRecordLineage(t *testing.T) {
 		t.Fatalf("guard=%#v, want source_record_paths lineage mismatch", guard)
 	}
 }
+
+func TestApplyResolutionContractGuardAcceptsDerivedBaseFromResolutionSource(t *testing.T) {
+	projections := ArtifactSchemaProjectionsWithTransitiveLineage([]ArtifactSchemaProjection{
+		{
+			ID:          "items_records",
+			NodeClass:   ArtifactNodeClassRecord,
+			Aliases:     []string{"items_records"},
+			SourcePaths: []string{"items.csv"},
+			JSONShape:   "array(len=3)",
+			Fields:      []string{"raw_name", "qty", "unit_price"},
+		},
+		{
+			ID:          "items_with_amount",
+			NodeClass:   ArtifactNodeClassRecord,
+			Aliases:     []string{"items_with_amount"},
+			SourcePaths: []string{"items_records"},
+			JSONShape:   "array(len=3)",
+			Fields:      []string{"raw_name", "line_amount"},
+		},
+		{
+			ID:                "name_resolutions",
+			NodeClass:         ArtifactNodeClassArtifact,
+			Aliases:           []string{"name_resolutions"},
+			SourcePaths:       []string{"items_records", "canonical_records"},
+			SourceRecordPaths: []string{"items_records"},
+			ReferencePaths:    []string{"canonical_records"},
+			JSONShape:         "array(len=3)",
+			Fields:            []string{"item_id", "source_value", "canonical_id", "status"},
+		},
+	})
+	action := dataquery.DataAction{
+		ID:         "apply_names",
+		Kind:       dataquery.DataActionApplyResolutions,
+		InputPaths: []string{"items_with_amount", "name_resolutions"},
+		Params: map[string]string{
+			"base_path":       "items_with_amount",
+			"resolution_path": "name_resolutions",
+			"target_id_field": "canonical_name",
+		},
+	}
+	if guard := ApplyResolutionContractGuardResult(ApplyResolutionContractGuardInput{Action: action, SchemaProjections: projections}); !guard.Empty() {
+		t.Fatalf("guard=%#v, derived base shares the resolution source lineage and must pass", guard)
+	}
+
+	projections[1].SourcePaths = []string{"other_records"}
+	projections = ArtifactSchemaProjectionsWithTransitiveLineage(projections)
+	guard := ApplyResolutionContractGuardResult(ApplyResolutionContractGuardInput{Action: action, SchemaProjections: projections})
+	if guard.Code != "apply_resolution_lineage_contract" {
+		t.Fatalf("guard=%#v, unrelated derived base must remain rejected", guard)
+	}
+}
