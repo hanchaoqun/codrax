@@ -13330,3 +13330,64 @@ EmitAnalysis、EmitEvidence、EmitInvestigationComplete 说成 command measureme
 - `eval/parallel_selected_summary_evalcampaign_b70_traceread_r8_20260804.md`；
 - `eval/parallel_selected_summary_evalcampaign_b70_traceread_r8_20260804_manual_audit.md`；
 - result dirs：`eval/results/*-20260804-012117`。
+
+## 72. 2026-08-04 B71 r9：route fallback 验收闭环，数值残余降为模型波动，eval 递归范围缺合同
+
+在 `main@0e3f0d45a` 构建后严格并行复放同两例，runner PASS 2/2，人工 FAIL 2/2：
+
+- trace 167s，trace_query=4、completion=2/1、finalizer reject=0；
+- read 260s，read=3、repo_map=1、list=2、mid-loop injection=3、completion=1/0、finalizer reject=0。
+
+### EVAL-B70-CMDPROFILE1（P0/closed-by-replay）：typed route fallback 已进入生产 prompt
+
+Analyzer 本轮仍没有依赖 active `CurrentSourceExplanationProfile`，但 exact typed route/carrier fallback 已使 Explorer 和 finalizer 收到
+`Command Measurement Evidence Path`。最终答案主链正确落到
+`ToolResult.CommandMeasurement -> observationRecordForCommandMeasurement -> compiled ObservationLedger`，并明确：
+
+- `AnswerAggregateFact` 是 completion 的独立 model structured handoff；
+- deterministic count reconcile 只做从 measurement 到 aggregate 的单向交叉校准；
+- `EmitInvestigationComplete` 是不相交的 Explorer closure control，不生产 observation record。
+
+因此 profile 缺席导致 guidance 不可达的系统 GAP 已由真实回放关闭。该修复只读取 typed route、RequestModel 和 producer carrier，
+未扫描请求/答案 prose，未增加硬拒或系统代写。
+
+### EVAL-B69-CMDPATH1（system gap closed / residual model variance）
+
+主路径和并行载体边界均已正确进入上下文并被答案主体采用。局部段落仍把 ordinary deterministic measurement 错说成
+`Origin=VCSMetadata, History=true`，而 prompt 已明确普通分支为
+`Origin=CommandMeasurement, History=false`、history 分支才是 VCSMetadata。该残余已不具备“系统未提供足够信息”的证据，按模型波动
+保留，不新增句子扫描、completion 硬门或答案 normalizer。
+
+### EVAL-B67-TRACEVALUE1（system gap closed / alternating model variance）
+
+Trace 的 exact-window deterministic authority、系统投影、finalizer context 均为 20.000ms；20.020ms aggregate 已被 typed authority
+规则降为 `supporting_coverage`，且 provenance 明确。模型本轮仍在摘要选择 20.020ms；但 B69/B70 在相同合同下连续正确选择
+20.000ms，形成“同精确上下文下交替正确/错误”的波动证据。按用户裁定，不为获得单一答案继续硬化：
+
+- 不扫描用户输入或模型/答案原文；
+- 不增加 final answer retry；
+- 不让系统删改或替代模型结论；
+- 不为 app、20.020ms 或单个 type 写特例。
+
+显式时间窗、自动补齐、20.000ms target partition、11.000ms IO 主席、完整 wakeup chain、真实占时/现规则可消双轴与因果投影均保持。
+
+### EVAL-B71-CASESCOPE1（P1/eval-quality open）：范围未声明，动态主值无 oracle
+
+Read 本轮选择 `find internal/tool -maxdepth 1 ... | wc -l` 得 168，并在答案中披露“仅直属文件”边界；当前 checkout 递归计数为
+253。case 请求只写“internal/tool 下”，没有声明递归还是仅直属，历史注释却按递归口径记录旧数值；runner 的
+`answer_regex` 也不校验动态 count。于是 runner PASS 不能区分两种统计口径，人工审计又只能依赖隐藏意图。
+
+泛化修向属于 eval 基础设施而非产品答案硬门：
+
+1. case 题面显式声明“递归统计”或“仅直属目录”；
+2. count oracle 在同一 checkout 动态计算 expected typed scalar，并携带 command/scope provenance；
+3. 禁止固化当前 253，避免仓库增长后 oracle 陈腐；
+4. 产品侧保留边界披露，不根据 case 名或请求关键词硬改命令。
+
+下一批不再重复同一 Trace/Read 对，切换到恰好两个异构高优先级案例，优先覆盖 write mode 与另一条非 Trace 数据/操作车道。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b71_traceread_r9_20260804.md`；
+- `eval/parallel_selected_summary_evalcampaign_b71_traceread_r9_20260804_manual_audit.md`；
+- result dirs：`eval/results/*-20260804-012909`。
