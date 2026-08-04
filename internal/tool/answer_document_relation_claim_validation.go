@@ -7,10 +7,12 @@ import (
 )
 
 // validateModelAuthoredAnswerRelationClaims keeps the model in charge of the
-// conclusion while ensuring its structured value relations do not drift from
-// the accepted investigation handoff. Only typed block metadata and typed
-// trace authorities are read; visible block text is never inspected or
-// rewritten.
+// conclusion while ensuring any structured value relations it chooses to
+// publish do not drift from typed trace authority. The investigation model has
+// already acknowledged closure-critical relations before Finalize; requiring
+// the finalizer to copy the same hidden metadata again adds no visible-answer
+// proof and creates a format-only retry. Only submitted typed block metadata
+// is checked here; visible block text is never inspected or rewritten.
 func validateModelAuthoredAnswerRelationClaims(ctx *types.BusContext, doc *types.AnswerDocumentV2) error {
 	if ctx == nil || ctx.Mutable == nil || doc == nil {
 		return nil
@@ -22,42 +24,14 @@ func validateModelAuthoredAnswerRelationClaims(ctx *types.BusContext, doc *types
 		}
 		submitted = append(submitted, block.RelationClaims...)
 	}
-	accepted := ctx.Mutable.StableInvestigationRelationClaims()
-	if len(submitted) == 0 && len(accepted) == 0 {
+	if len(submitted) == 0 {
 		return nil
 	}
 	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(
 		ctx, types.ObservationExtractLedgerEvidenceLimit))
 	authorities := types.CompileTraceAnswerRelationAuthoritiesFromLedger(ledger)
-	// Investigation claims are a model-owned snapshot of the authority slate
-	// that existed when Explore closed. A deterministic supplement can replace
-	// that slate before Finalize. Only the exact intersection remains a final
-	// obligation; requiring a superseded claim while also rejecting its stale
-	// authority ID would make the hard contract unsatisfiable.
-	accepted, _ = types.PartitionAnswerRelationClaimsByCurrentAuthorities(accepted, authorities)
-	if err := types.ValidateAnswerRelationClaims(submitted, authorities, true); err != nil {
-		return fmt.Errorf("model-authored answer relation_claims do not match typed trace authority: %w; carrier path: copy each exact Trace Decision Inputs object to blocks[i].relation_claims on a model-authored block (not top-level $.relation_claims)", err)
-	}
-	if len(accepted) > 0 && !answerRelationClaimsContainAccepted(submitted, accepted) {
-		return fmt.Errorf("model-authored answer relation_claims must preserve every accepted investigation relation claim exactly and also include any closure-critical typed_relation_authority added by deterministic supplement; copy those Trace Decision Inputs onto the block(s), then revise your own prose if needed")
+	if err := types.ValidateAnswerRelationClaims(submitted, authorities, false); err != nil {
+		return fmt.Errorf("model-authored answer relation_claims do not match typed trace authority: %w; carrier path: keep each submitted claim on blocks[i].relation_claims (not top-level $.relation_claims), or omit optional relation_claims metadata", err)
 	}
 	return nil
-}
-
-func answerRelationClaimsContainAccepted(submitted, accepted []types.AnswerRelationClaim) bool {
-	byID := make(map[string]types.AnswerRelationClaim, len(submitted))
-	for _, claim := range submitted {
-		normalized := types.NormalizeAnswerRelationClaim(claim)
-		byID[normalized.AuthorityID] = normalized
-	}
-	selected := make([]types.AnswerRelationClaim, 0, len(accepted))
-	for _, claim := range accepted {
-		normalized := types.NormalizeAnswerRelationClaim(claim)
-		matched, ok := byID[normalized.AuthorityID]
-		if !ok {
-			return false
-		}
-		selected = append(selected, matched)
-	}
-	return types.AnswerRelationClaimsEqual(selected, accepted)
 }

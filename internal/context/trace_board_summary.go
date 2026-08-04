@@ -72,6 +72,7 @@ func formatTraceRootCauseBoardFromLedger(ledger types.ObservationLedger) string 
 		return ""
 	}
 	var chain, adjacent []traceBoardRow
+	seenRows := map[string]bool{}
 	for _, record := range ledger.Records {
 		if record.Producer != "trace_query" || !strings.Contains(record.ID, "#root_cause_rank:") {
 			continue
@@ -113,11 +114,25 @@ func formatTraceRootCauseBoardFromLedger(ledger types.ObservationLedger) string 
 		switch notes[types.TraceNoteKeyChainRelevance] {
 		case "adjacent":
 			row.channel = "adjacent"
-			adjacent = append(adjacent, row)
 		default:
 			// Seated rows default to the chain channel (the engine only
 			// allocates ordinals on the chain and adjacent channels).
 			row.channel = "chain"
+		}
+		// Exploration and deterministic supplementation can publish the exact
+		// same final board seat under different result IDs. Result identity is
+		// provenance, not a second ranking seat. Collapse only a byte-exact
+		// typed seat signature; any value/caliber/window disagreement remains
+		// visible for fail-loud auditing.
+		rowKey := traceBoardRowIdentity(row)
+		if seenRows[rowKey] {
+			continue
+		}
+		seenRows[rowKey] = true
+		switch row.channel {
+		case "adjacent":
+			adjacent = append(adjacent, row)
+		default:
 			chain = append(chain, row)
 		}
 	}
@@ -184,6 +199,14 @@ func formatTraceRootCauseBoardFromLedger(ledger types.ObservationLedger) string 
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func traceBoardRowIdentity(row traceBoardRow) string {
+	return strings.Join([]string{
+		strconv.Itoa(row.rank), row.channel, row.subject, row.typeToken, row.tier,
+		row.effectiveMS, row.caliber, strconv.FormatFloat(row.confidence, 'f', -1, 64),
+		row.tgid, row.representativeWindow, row.fixDirection,
+	}, "\x00")
 }
 
 // traceBoardEffectiveValue picks the row's published magnitude with its

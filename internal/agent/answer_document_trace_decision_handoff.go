@@ -210,7 +210,7 @@ func traceDecisionWriteRelationClaimHandoff(b *strings.Builder, set types.TraceC
 		b.WriteString(".\n")
 	}
 	if requiredCount > 0 {
-		b.WriteString("- final_relation_claim_obligation: copy every typed_relation_authority above into `blocks[i].relation_claims` on your own answer block that uses those values; never place it at document-level `$.relation_claims`. Keep your visible relation explanation consistent. This also applies to an authority added by deterministic supplement after investigation closure; deterministic checks compare only the structured metadata and do not rewrite prose.\n")
+		b.WriteString("- final_relation_claim_carrier: the typed_relation_authority rows above are precise decision inputs, not a format-only copy obligation. Keep your visible relation explanation consistent. If you choose to publish structured relation metadata, place only the exact authority object on `blocks[i].relation_claims`, never at document-level `$.relation_claims`; submitted metadata is validated, but omitting this optional carrier does not trigger a retry. Deterministic checks never rewrite prose.\n")
 	}
 	if len(acceptedClaims) == 0 || len(acceptedClaims[0]) == 0 {
 		return
@@ -222,7 +222,7 @@ func traceDecisionWriteRelationClaimHandoff(b *strings.Builder, set types.TraceC
 	if len(currentClaims) == 0 {
 		return
 	}
-	b.WriteString("- accepted_model_relation_claims: these declarations were authored by the investigation model and accepted against the typed authorities. Preserve them on the model-authored answer block(s) via `blocks[i].relation_claims`, never document-level `$.relation_claims`; keep your visible conclusion consistent. The system will reject a mismatch but will not rewrite your prose.\n")
+	b.WriteString("- accepted_model_relation_claims: these declarations were authored by the investigation model and already accepted against the typed authorities. Use them as decision context and keep your visible conclusion consistent; you do not need to duplicate them in the final document. If you choose to publish `blocks[i].relation_claims`, submitted metadata must remain exact. The system will reject an invalid submitted claim but will not rewrite your prose.\n")
 	for _, raw := range currentClaims {
 		claim := types.NormalizeAnswerRelationClaim(raw)
 		fmt.Fprintf(b, "  - authority_id=`%s`; member_refs=`%s`; physical_relation=`%s`; addition=`%s`",

@@ -12131,3 +12131,47 @@ FacetIDs/SurfaceRole 均为空。
 
 状态：`EVAL-B54-SCHEMAAUTHOR1 = implemented/closed`。至此 B54 当前已确认的答案所有权红线均完成代码
 收口；后续进入两例一批的异构生产 eval，若只出现模型措辞波动则记 watch，不新增原文关键词 gate。
+
+## EVAL-B55：Trace/混合读回放与重复格式合同收口（2026-08-03）
+
+### B55 r1：两例 PASS，但 typed 上下文存在重复义务与重复行
+
+在 `main@6c815a4f9` 重建二进制后，以 `PARALLEL=2` 同时回放：
+
+- `trace_query_wakeup_causal_runnable`：runner PASS，130s，actual final reject=1；
+- `read_combo_trace_current_source_explanation`：runner/human PASS，180s，actual final reject=0。
+
+Trace 核心能力没有回退：显式 1.000–1.010s 用户窗、3 次窗口化/目标过滤查询、
+worker-200→app-100 唤醒链、#1 优先级反转候选 8.300ms、目标 10.000ms 状态分区、实际占时与
+现规则可消两轴、Trace 因果投影和成文前确定性补采均完整。混合读例也不再把 `MarkerPID` 字段定义
+升级为同步 B/E 配对键；最终答案使用匿名 E/同 ftrace 线程栈闭合，并把 `heavy-compute` 明确限制为
+pretriage navigation candidate。
+
+本轮确认两个同根的模型前上下文/格式合同 GAP：
+
+| ID | 级别 | 机制 | 泛化处置 | 状态 |
+|---|---:|---|---|---|
+| `EVAL-B55-RELCOPY1` | P1/red-line | Explorer 已在 `emit_investigation_complete.relation_claims` 提交并通过同一 10.000ms closed-partition authority；Finalizer 又被硬要求把隐藏 metadata 机械复制到 block。首稿可见结论和值均正确，却稳定触发一次“成文校验未通过”。该 hard gate 不检查 prose，也不增加可见结论证明，且与 B26 冻结的“Trace Decision Inputs 只作 prompt，不作 hard gate”冲突 | 保留 Explore closure 的精确 relation 校验；Finalizer 的 relation carrier 改为 optional。未提交不重试；一旦模型主动提交，仍以最终 typed authority 精确验证 unknown ID、成员、关系、加法与 subtotal。handoff/schema 同词面说明“决策输入不是复制义务”。不读取/改写模型 prose，不自动搬运 claim | implemented / targeted-tests-pass / replay-next |
+| `EVAL-B55-CTXDEDUP1` | P1/context | exploration 与 deterministic supplement 对同一窗发布同一 seat/census，但 final prompt 的 root-cause board 以 record ID 当席位，#1 重复两次；target wakeup census 以 query-result scope 分组，同一 roster 重复三次。72K final prompt 因而放大同一事实并制造虚假多源权重 | board 按完整 typed 席签名去重；target census 按 target/window/complete/total/split/有序 pair/timestamp 精确去重，明确排除 provenance scope/record ID。任何值、口径、窗或 roster 差异都保留为独立 authority，禁止相似度合并 | implemented / targeted-tests-pass / replay-next |
+
+人工审计另记两个模型观察项，不升级成系统硬门：
+
+- `EVAL-B55-PRIOWORD1/model-watch`：正文同一节先写 41–159=RT，随后把 idle/1、idle/2 的
+  prio=120 称为 system；同页 typed facts 明确为 `prio=120/ohos_rt`，finalizer 输入也只有正确归一化
+  三行，因此属于一次模型内部措辞矛盾。禁止扫描“prio=120/system”等答案词面做硬拒；后续换线程名、
+  优先级值和语言再回放，若重复，优先提升通用 typed enum carrier/显著度；
+- `EVAL-B55-MARKERWORD1/model-watch`：混合读例个别“H: 名称前缀属于平台”和“同进程重叠可能歧义”
+  句子宽于本次源码引用，但核心 parser 机制与证据边界正确；继续用 B/E、S/F、G/H 异构 marker 观察，
+  不按 `H:RenderService` 专名拟合。
+
+代码不变量：本批不改 trace_query、根因排序、唤醒链、窗选举、因果投影、系统自动补采或
+`SystemGeneratedKind=runtime_trace` 发布；不扫描用户原始输入、模型 thinking/summary/final prose；系统
+不删除、重排、替换模型 block。精确去重只作用于模型前 typed handoff，且冲突形保持可见。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b55_ownerauth_r1_20260803.md`；
+- `eval/parallel_selected_summary_evalcampaign_b55_ownerauth_r1_20260803_manual_audit.md`；
+- result dirs：`eval/results/*-20260803-181328`；
+- 定向验证：`internal/context` board、`internal/types` census、`internal/agent` handoff、
+  `internal/tool` relation pipeline 均通过。

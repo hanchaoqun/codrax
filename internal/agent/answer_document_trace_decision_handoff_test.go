@@ -88,8 +88,9 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 		"typed_relation_authority: authority_id=`trace:self_runnable_two_ruler:",
 		"typed_relation_authority: authority_id=`trace:target_state_partition:",
 		"member_refs=`running,runnable,sleep,d_state,io_wait`; physical_relation=`mutually_exclusive`; addition=`authorized_to_published_subtotal`",
-		"final_relation_claim_obligation:",
-		"authority added by deterministic supplement after investigation closure",
+		"final_relation_claim_carrier:",
+		"not a format-only copy obligation",
+		"omitting this optional carrier does not trigger a retry",
 		"elected_wakeup_path=`ThreadPool-300 -> Network-200 -> Cookie-150 -> target-100`",
 		"wakeup_path_semantics:",
 		"does not prove that B synchronously blocked waiting for A",
@@ -144,9 +145,9 @@ func TestTraceDecisionHandoffCarriesAcceptedModelRelationClaimsWithoutAuthoringC
 	got := renderAnswerDocTraceDecisionHandoffSet(set, runtimeTraceGuidanceView{}, claims)
 	for _, want := range []string{
 		"accepted_model_relation_claims: these declarations were authored by the investigation model",
-		"Preserve them on the model-authored answer block(s) via `blocks[i].relation_claims`",
-		"never document-level `$.relation_claims`",
-		"system will reject a mismatch but will not rewrite your prose",
+		"already accepted against the typed authorities",
+		"you do not need to duplicate them in the final document",
+		"invalid submitted claim but will not rewrite your prose",
 		"physical_relation=`unresolved`; addition=`forbidden`",
 	} {
 		if !strings.Contains(got, want) {

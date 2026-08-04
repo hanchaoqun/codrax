@@ -68,7 +68,7 @@ func TestCompletionRelationClaimsRejectCrossRulerTotalAndAcceptTypedRoster(t *te
 	}
 }
 
-func TestAnswerDocumentRelationClaimsRemainModelOwnedAndCannotDrift(t *testing.T) {
+func TestAnswerDocumentRelationClaimsAreOptionalButSubmittedClaimsCannotDrift(t *testing.T) {
 	bus, claims := relationClaimPipelineFixture(t)
 	bus.Mutable.SetInvestigationRelationClaims(claims)
 	bus.Mutable.SetInvestigationComplete("model accepted the typed ruler boundaries")
@@ -76,11 +76,19 @@ func TestAnswerDocumentRelationClaimsRemainModelOwnedAndCannotDrift(t *testing.T
 
 	missing := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{ID: "s", Kind: types.BlockSummary, Text: "model conclusion"}}}
 	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(missing), nil, time.Now())
-	if err != nil || res.Success || !strings.Contains(res.Summary, "missing required model-authored relation claim") {
-		t.Fatalf("missing final claims should be retryable rejection: res=%+v err=%v", res, err)
+	if err != nil || !res.Success {
+		t.Fatalf("already-accepted investigation claims must not create a finalizer copy retry: res=%+v err=%v", res, err)
 	}
-	if !strings.Contains(res.Summary, "blocks[i].relation_claims") || !strings.Contains(res.Summary, "not top-level $.relation_claims") {
-		t.Fatalf("missing final claim rejection must identify the exact carrier path: %s", res.Summary)
+
+	wrong := types.CloneAnswerRelationClaims(claims)
+	wrong[0].Addition = types.AnswerRelationAdditionForbidden
+	invalid := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "s", Kind: types.BlockSummary, Text: "model conclusion", RelationClaims: wrong,
+	}}}
+	res, err = ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(invalid), nil, time.Now())
+	if err != nil || res.Success || !strings.Contains(res.Summary, "do not match typed trace authority") ||
+		!strings.Contains(res.Summary, "omit optional relation_claims metadata") {
+		t.Fatalf("invalid submitted final claim should remain a precise rejection: res=%+v err=%v", res, err)
 	}
 
 	valid := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
@@ -116,7 +124,7 @@ func TestFinalRelationClaimsDoNotRequireAcceptedSnapshotSupersededByCurrentAutho
 	}
 }
 
-func TestFinalRelationClaimsIncludeClosureAuthorityAddedByDeterministicSupplement(t *testing.T) {
+func TestFinalRelationClaimsValidateOptionalAuthorityAddedByDeterministicSupplement(t *testing.T) {
 	bus, accepted := relationClaimPipelineFixture(t)
 	bus.Mutable.SetInvestigationRelationClaims(accepted)
 	bus.Mutable.SetInvestigationComplete("model accepted the explorer authorities")
@@ -159,8 +167,8 @@ func TestFinalRelationClaimsIncludeClosureAuthorityAddedByDeterministicSupplemen
 		ID: "s", Kind: types.BlockSummary, Text: "model conclusion", RelationClaims: accepted,
 	}}}
 	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(missingSupplement), nil, time.Now())
-	if err != nil || res.Success || !strings.Contains(res.Summary, "trace:target_state_partition:") {
-		t.Fatalf("post-Explorer closure authority must require a model-authored final claim: res=%+v err=%v", res, err)
+	if err != nil || !res.Success {
+		t.Fatalf("post-Explorer authority should remain decision context without a copy-only retry: res=%+v err=%v", res, err)
 	}
 
 	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(bus, types.ObservationExtractLedgerEvidenceLimit))

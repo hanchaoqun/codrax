@@ -116,6 +116,7 @@ func BuildTraceTargetWakeupCensusAuthorities(ledger ObservationLedger) []TraceTa
 	}
 
 	out := make([]TraceTargetWakeupCensusAuthority, 0, len(order))
+	seenAuthorities := map[string]bool{}
 	for _, key := range order {
 		g := groups[key]
 		sort.SliceStable(g.authority.Pairs, func(i, j int) bool {
@@ -136,9 +137,39 @@ func BuildTraceTargetWakeupCensusAuthorities(ledger ObservationLedger) []TraceTa
 			g.authority.OtherExitCount += pair.OtherExitCount
 		}
 		g.authority.SplitAvailable = allSplit
+		identity := traceTargetWakeupCensusAuthorityIdentity(g.authority)
+		if seenAuthorities[identity] {
+			continue
+		}
+		seenAuthorities[identity] = true
 		out = append(out, g.authority)
 	}
 	return out
+}
+
+// traceTargetWakeupCensusAuthorityIdentity excludes query-result scope and
+// source record IDs deliberately: repeated exploration/supplement queries can
+// prove one identical target/window census. Only the exact typed roster,
+// totals, split and timestamps collapse; any semantic disagreement remains a
+// separate authority instead of being guessed away.
+func traceTargetWakeupCensusAuthorityIdentity(authority TraceTargetWakeupCensusAuthority) string {
+	var b strings.Builder
+	fmtFields := []string{
+		authority.Target, authority.Window, strconv.FormatBool(authority.Complete),
+		strconv.Itoa(authority.TotalCount), strconv.Itoa(authority.SleepExitCount),
+		strconv.Itoa(authority.DExitCount), strconv.Itoa(authority.OtherExitCount),
+		strconv.FormatBool(authority.SplitAvailable),
+	}
+	b.WriteString(strings.Join(fmtFields, "\x00"))
+	for _, pair := range authority.Pairs {
+		b.WriteByte('\x01')
+		b.WriteString(strings.Join([]string{
+			pair.Waker, strconv.Itoa(pair.Count), strconv.Itoa(pair.SleepExitCount),
+			strconv.Itoa(pair.DExitCount), strconv.Itoa(pair.OtherExitCount),
+			strconv.FormatBool(pair.SplitAvailable), pair.FirstTimestamp, pair.LastTimestamp,
+		}, "\x00"))
+	}
+	return b.String()
 }
 
 func traceWakeupCensusRecordScope(id string) string {

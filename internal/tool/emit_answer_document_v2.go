@@ -122,8 +122,8 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 			"top-level field %q is not accepted; the answer is expressed through blocks[] only — move any answer payload into the appropriate block kind",
 			violation)
 	}
-	// relation_claims is load-bearing typed metadata on the model-authored
-	// block that uses the relation. Do not let the general unknown-field
+	// relation_claims is optional typed metadata on the model-authored block
+	// that declares the relation. Do not let the general unknown-field
 	// quarantine silently discard a document-level misplacement: that turns a
 	// precise carrier error into repeated, apparently inexplicable closure
 	// failures. We reject only the exact structured key and leave all prose and

@@ -52,6 +52,35 @@ func TestBuildTraceTargetWakeupCensusAuthoritiesCarriesCompleteTargetInventoryAn
 	}
 }
 
+func TestBuildTraceTargetWakeupCensusAuthoritiesCollapsesExactCrossQueryRoster(t *testing.T) {
+	row := func(scope, count string) ObservationRecord {
+		return ObservationRecord{
+			ID: scope + "#wakeup_edge_census:1", Producer: "trace_query",
+			Predicate: "wakeup_edge_census", Subject: "worker-200", Object: "app-100", Value: count,
+			RichNotes: []string{
+				TraceNoteKeyWakeupEdgeCensusTargetWakee + "=true",
+				TraceNoteKeyWakeupEdgeCensusSleepExit + "=" + count,
+				TraceNoteKeyWakeupEdgeCensusFirstTs + "=1.010000",
+				TraceNoteKeyWakeupEdgeCensusLastTs + "=1.010000",
+				TraceNoteKeySelectedWindow + "=1.000000..1.010000",
+			},
+		}
+	}
+	ledger := ObservationLedger{Records: []ObservationRecord{
+		row("trace_query:explore", "1"), row("trace_query:supplement", "1"),
+	}}
+	got := BuildTraceTargetWakeupCensusAuthorities(ledger)
+	if len(got) != 1 {
+		t.Fatalf("identical cross-query target census should compile once: %+v", got)
+	}
+
+	ledger.Records = append(ledger.Records, row("trace_query:conflict", "2"))
+	got = BuildTraceTargetWakeupCensusAuthorities(ledger)
+	if len(got) != 2 {
+		t.Fatalf("different typed census totals must remain separate: %+v", got)
+	}
+}
+
 func TestBuildTraceTargetWakeupCensusAuthoritiesFailsClosedOnExitPartitionConflict(t *testing.T) {
 	ledger := ObservationLedger{Records: []ObservationRecord{{
 		ID:        "trace_query:fixture#wakeup_edge_census:1",

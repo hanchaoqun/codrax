@@ -79,6 +79,27 @@ func TestTraceRootCauseBoardSummaryAuthoritativeOrder(t *testing.T) {
 	}
 }
 
+func TestTraceRootCauseBoardSummaryCollapsesExactCrossQuerySeat(t *testing.T) {
+	ledger := traceBoardTestLedger()
+	duplicate := ledger.Records[0]
+	duplicate.ID = "trace_query:supplement#root_cause_rank:1"
+	ledger.Records = append(ledger.Records, duplicate)
+	summary := formatTraceRootCauseBoardFromLedger(ledger)
+	if got := strings.Count(summary, "CompThread_0-2955 · d_state_or_io_wait"); got != 1 {
+		t.Fatalf("one exact seat published by two query results must render once, got %d:\n%s", got, summary)
+	}
+
+	conflict := duplicate
+	conflict.ID = "trace_query:conflict#root_cause_rank:1"
+	conflict.RichNotes = append([]string(nil), conflict.RichNotes...)
+	conflict.RichNotes[3] = "effective_impact_ms=36.758"
+	ledger.Records = append(ledger.Records, conflict)
+	summary = formatTraceRootCauseBoardFromLedger(ledger)
+	if got := strings.Count(summary, "CompThread_0-2955 · d_state_or_io_wait"); got != 2 {
+		t.Fatalf("typed value disagreement must remain visible, got %d:\n%s", got, summary)
+	}
+}
+
 // TestTraceRootCauseBoardSummaryPreambleCaliberAware — DISPHYG-3 件4
 // (FREQDIR-1 冷读 P3-1, 2026-07-20): the no-sum parenthetical defers to each
 // row's own published caliber word instead of blanket-claiming every row a
