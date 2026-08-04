@@ -40,6 +40,7 @@ type inlineVerificationProbeStatus struct {
 }
 
 const verificationProbeExceptionOutsideChangedLinesReasonCode = "verification_probe_exception_outside_changed_lines"
+const verificationProbeLanguageTargetMismatchReasonCode = "verification_probe_language_target_mismatch"
 
 var pythonTracebackFrameRE = regexp.MustCompile(`^\s*File "([^"]+)", line ([0-9]+), in .*$`)
 var pythonModuleNotFoundRE = regexp.MustCompile(`(?m)ModuleNotFoundError:\s+No module named ['"]([^'"]+)['"]`)
@@ -224,7 +225,10 @@ func runPlanVerificationProbes(ctx *types.BusContext, source string) (*verificat
 		diags    []types.VerificationDiagnostic
 	)
 	for _, probe := range probes {
-		res := runSingleVerificationProbe(ctx, probe, source)
+		res, mismatch := verificationProbeLanguageTargetMismatchResult(ctx, plan, probe, source)
+		if !mismatch {
+			res = runSingleVerificationProbe(ctx, probe, source)
+		}
 		results = append(results, res.Report.TestResults...)
 		diags = append(diags, res.Report.VerificationDiagnostics...)
 		if strings.TrimSpace(res.Output) != "" {
@@ -294,6 +298,116 @@ func runPlanVerificationProbes(ctx *types.BusContext, source string) (*verificat
 		Report:   report,
 		Output:   renderVerificationProbeOutput(probes, outputs),
 		Commands: commands,
+	}, true
+}
+
+// verificationProbeLanguageTargetMismatchResult keeps an inline probe from
+// executing under a runtime that cannot exercise the exact changed source
+// path it claims. The decision uses only schema-typed language, exact path:
+// refs and extension-derived source families. Bare symbols remain ambiguous
+// and are deliberately left to the ordinary executor/coverage rules.
+//
+// This is a non-authoritative probe-authoring diagnostic, not evidence that
+// changed production failed. run_tests may therefore continue to an
+// independently discovered typed project test surface.
+func verificationProbeLanguageTargetMismatchResult(
+	ctx *types.BusContext,
+	plan *types.ChangePlan,
+	probe types.VerificationProbe,
+	source string,
+) (verificationProbeRunResult, bool) {
+	if ctx == nil || plan == nil {
+		return verificationProbeRunResult{}, false
+	}
+	probeFamilies := sourceVerificationLanguageFamilies(
+		types.VerificationLanguageFamiliesFromVerificationProbeSuite("verification_probe/" + strings.TrimSpace(probe.Language)),
+	)
+	if len(probeFamilies) == 0 {
+		return verificationProbeRunResult{}, false
+	}
+	targets, targetFamilies := recognizedChangedSourcePaths(
+		types.ChangePlanVerificationTargetPaths(plan, ctx.Mutable.WriteWorkflowRun()),
+	)
+	if len(targets) == 0 {
+		return verificationProbeRunResult{}, false
+	}
+	targetSet := repoPathKeySet(targets)
+	var matchedExact []string
+	for _, ref := range probe.ChangedSymbolRefs {
+		ref = strings.TrimSpace(ref)
+		if !strings.HasPrefix(ref, "path:") {
+			continue
+		}
+		path := cleanRepoRelPath(strings.TrimPrefix(ref, "path:"))
+		canonical, ok := targetSet[strings.ToLower(path)]
+		if !ok {
+			continue
+		}
+		matchedExact = appendUniqueRepoPath(matchedExact, canonical)
+		if verificationLanguageFamiliesIntersect(targetFamilies[canonical], probeFamilies) {
+			return verificationProbeRunResult{}, false
+		}
+	}
+	if len(matchedExact) == 0 {
+		return verificationProbeRunResult{}, false
+	}
+
+	id := strings.TrimSpace(probe.ID)
+	if id == "" {
+		id = "probe"
+	}
+	lang, ok := normalizeVerificationProbeLanguage(probe.Language)
+	if !ok {
+		lang = strings.ToLower(strings.TrimSpace(probe.Language))
+	}
+	if lang == "" {
+		lang = defaultVerificationProbeLanguage
+	}
+	workingDir := filepath.ToSlash(filepath.Clean(strings.TrimSpace(probe.WorkingDir)))
+	if workingDir == "" {
+		workingDir = "."
+	}
+	detail := fmt.Sprintf(
+		"verification probe %q declares language %q but its exact changed path refs %s have incompatible source language families; the probe was not executed and cannot sign target behavior",
+		id, lang, strings.Join(matchedExact, ", "),
+	)
+	command := types.ExecutedCommand{
+		Runner:     "verification_probe",
+		Framework:  lang,
+		WorkingDir: workingDir,
+		Source:     source,
+		Outcome:    "probe_config_error",
+		ReasonCode: verificationProbeLanguageTargetMismatchReasonCode,
+	}
+	diagnostic := types.VerificationDiagnostic{
+		Source:     source,
+		Category:   "probe_authoring",
+		Severity:   "warning",
+		ReasonCode: verificationProbeLanguageTargetMismatchReasonCode,
+		Runner:     command.Runner,
+		Framework:  lang,
+		WorkingDir: workingDir,
+		Outcome:    command.Outcome,
+		Detail:     detail,
+	}
+	return verificationProbeRunResult{
+		Report: &types.ChangeReport{
+			TestResults: []types.TestResult{{
+				Kind:          types.TestResultKindUnit,
+				AssertionID:   id,
+				Suite:         "verification_probe/" + lang,
+				Passed:        false,
+				FailureDetail: detail,
+			}},
+			Passed:                  false,
+			FailureKind:             types.FailureKindParserError,
+			FailureReasonCode:       verificationProbeLanguageTargetMismatchReasonCode,
+			FailureSummary:          detail,
+			ExecutedCommands:        []types.ExecutedCommand{command},
+			VerificationDiagnostics: []types.VerificationDiagnostic{diagnostic},
+		},
+		Output:   detail,
+		Commands: []types.ExecutedCommand{command},
 	}, true
 }
 

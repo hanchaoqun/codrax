@@ -2854,6 +2854,76 @@ func TestRunTestsTypedPolyglotMakeSurfaceCarriesExactCheckWithoutPretendingRustE
 	}
 }
 
+func TestRunTestsCrossLanguageExactPathProbeDoesNotPreemptTypedProjectSurface(t *testing.T) {
+	if _, err := exec.LookPath("make"); err != nil {
+		t.Skip("make not on PATH; skip")
+	}
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "src", "types"), 0o755); err != nil {
+		t.Fatalf("mkdir source tree: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src", "types", "list.rs"), []byte("pub fn fixed() {}\n"), 0o644); err != nil {
+		t.Fatalf("write Rust source: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "tests"), 0o755); err != nil {
+		t.Fatalf("mkdir tests: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(root, "tests", "check_source.py"),
+		[]byte("from pathlib import Path\nassert Path('src/types/list.rs').read_text()\n"),
+		0o644,
+	); err != nil {
+		t.Fatalf("write repository check: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "Makefile"), []byte("check: src/types/list.rs\n\tpython3 tests/check_source.py\n"), 0o644); err != nil {
+		t.Fatalf("write Makefile: %v", err)
+	}
+
+	mu := types.NewMutableState("cross-language probe continuation")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-cross-language-probe",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"src/types/list.rs"},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:                "wrong_runtime",
+			Language:          "go",
+			Code:              "package main\nfunc main() { doesNotCompile() }\n",
+			ChangedSymbolRefs: []string{"path:src/types/list.rs"},
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	report := mu.ChangeReport()
+	if !result.Success || report == nil || !report.Passed {
+		t.Fatalf("incompatible probe must not preempt the typed project surface: result=%+v report=%+v", result, report)
+	}
+	if !verificationDiagnosticsContain(report.VerificationDiagnostics, "probe_authoring", verificationProbeLanguageTargetMismatchReasonCode) {
+		t.Fatalf("language/target mismatch diagnostic missing: %+v", report.VerificationDiagnostics)
+	}
+	var sawSkippedProbe, sawMake bool
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Runner == "verification_probe" && cmd.ReasonCode == verificationProbeLanguageTargetMismatchReasonCode {
+			sawSkippedProbe = cmd.Command == "" && cmd.Outcome == "probe_config_error"
+		}
+		if cmd.Runner == "make" && cmd.Outcome == "executed" && cmd.ExitCode == 0 {
+			sawMake = true
+		}
+	}
+	if !sawSkippedProbe || !sawMake {
+		t.Fatalf("expected an unexecuted typed probe diagnostic followed by make: %+v", report.ExecutedCommands)
+	}
+}
+
 func TestPythonVerificationProbeTracebackAttributionUsesPatchEffectAddedLines(t *testing.T) {
 	root := t.TempDir()
 	mu := types.NewMutableState("probe attribution")

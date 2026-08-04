@@ -1682,27 +1682,45 @@ func verificationProbeFailureAllowsProjectSuiteContinuation(report *types.Change
 	if failed == 0 || len(report.VerificationDiagnostics) < failed {
 		return false
 	}
-	seenNonAuthoritative := false
+	return verificationProbeDiagnosticsAreNonAuthoritative(report)
+}
+
+func verificationProbeUnavailableAllowsProjectSuiteContinuation(report *types.ChangeReport, surface types.TestSurface, plans []runnerPlan) bool {
+	if report == nil || report.Passed || len(plans) == 0 {
+		return false
+	}
+	cand := selectedSurfaceCandidate(surface)
+	if cand == nil || !cand.HasTestSignal {
+		return false
+	}
+	if report.FailureKind == types.FailureKindRunnerMissing {
+		return true
+	}
+	return report.NormalizeVerificationStatus() == types.VerificationStatusUnavailable &&
+		verificationProbeDiagnosticsAreNonAuthoritative(report)
+}
+
+func verificationProbeDiagnosticsAreNonAuthoritative(report *types.ChangeReport) bool {
+	if report == nil {
+		return false
+	}
+	failed := countFailed(report.TestResults)
+	if failed == 0 || len(report.VerificationDiagnostics) < failed {
+		return false
+	}
+	seen := false
 	for _, diag := range report.VerificationDiagnostics {
 		if strings.EqualFold(strings.TrimSpace(diag.Severity), "error") {
 			return false
 		}
 		switch strings.TrimSpace(diag.Category) {
 		case "probe_authoring", "probe_import_or_environment", "probe_unavailable":
-			seenNonAuthoritative = true
+			seen = true
 		default:
 			return false
 		}
 	}
-	return seenNonAuthoritative
-}
-
-func verificationProbeUnavailableAllowsProjectSuiteContinuation(report *types.ChangeReport, surface types.TestSurface, plans []runnerPlan) bool {
-	if report == nil || report.Passed || report.FailureKind != types.FailureKindRunnerMissing || len(plans) == 0 {
-		return false
-	}
-	cand := selectedSurfaceCandidate(surface)
-	return cand != nil && cand.HasTestSignal
+	return seen
 }
 
 func verificationProbeMissingRequiredContractRefs(plan *types.ChangePlan) []string {

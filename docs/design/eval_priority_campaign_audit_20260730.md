@@ -13465,3 +13465,59 @@ runner 缺失时 fail-closed 是正确的，但不能用另一语言的 source-s
 - `eval/parallel_selected_summary_evalcampaign_b72_writeoperation_r1_20260804.md`；
 - `eval/parallel_selected_summary_evalcampaign_b72_writeoperation_r1_20260804_manual_audit.md`；
 - result dirs：`eval/results/*-20260804-013927`。
+
+## 74. 2026-08-04 B73 r2：状态迁移载体未被模型消费；跨语言 probe 抢占真实测试面
+
+在 `main@27b1632b1` 构建后，严格并行复放 B72 的 write + operation 两例：runner 1/2 PASS；人工审计 0/2 PASS。
+
+- operation 128s，runner PASS / human FAIL；
+- write 328s，runner FAIL / human FAIL，终态 `unverified:parser_error`。
+
+### EVAL-B72-STATETRANS1（implemented-soft / production-not-consumed / watch）
+
+新增的 `transition.steps[]` schema、分步 context carrier 与 STATEFUL VERIFICATION prompt 都在生产上下文，但本轮 write analyzer 两次发射仍只有
+平面 `satisfies` 合同，没有 transition。planner 因而只补了 fresh-initial-state 的 `nth/nth_back` 测试。最终实现仍以
+`n < current_length` 判定 `nth_back`，没有把已经前移的 `index` 纳入剩余区间：三元素先 `next()`、再 `nth_back(2)` 仍可返回已消费成员。
+
+这证明载体“可表达”但尚未得到本样本的模型消费，不证明 schema 或执行器断线；同一模型在两个复放均未铸 transition，记为生产 adoption
+观察项。按裁定不把 shared-state 从请求/答案关键词推断成硬门，不要求所有写计划强制发 transition，也不让系统生成测试或替代模型实现。
+后续用异构状态协议样本继续观察；若多语言、多协议重复漏发，再考虑由 analyzer 自己发出的 typed stateful enum 驱动软提醒，而不是基于 prose
+扫描增加成文重试。
+
+### EVAL-B73-PROBELANG1（P0/implemented）：inline probe 的 typed runtime 与 exact target language 冲突
+
+计划发出 `language=go` 的 probe，却同时精确绑定 `path:src/types/list.rs`。旧执行路径不检查这两个 typed 轴的相容性，直接把 Go test
+overlay 挂到 Rust fixture；`NewPyListIterator` 未定义后产出 `verification_probe_go_compile_error`，并以 parser_error 抢先结束。
+日志同时显示 `make@.` 仍是未尝试候选，终稿却把 probe authoring error 描述成“代码改动构建失败”，既浪费真实测试面，也给 controller
+错误的 code-failure 语境。
+
+根修不增加 plan hard reject，避免再制造“成文校验未通过”重试：
+
+1. verify preflight 只读取 `verification_probe.language`、显式 `path:` ref、extension-derived source family 与累计 target paths；
+2. exact ref 全部与 probe runtime 不相容时不执行 probe，发 typed
+   `probe_authoring / verification_probe_language_target_mismatch` warning；裸 symbol 因歧义不猜；
+3. authoring/import/unavailable 类 warning 不能抢占独立发现的 typed project surface，真实 runner 继续执行；
+4. 不相容 probe 不取得 target execution/behavior coverage，项目 runner 仍按既有 changed-path caliber 决定能否签绿。
+
+production test 构造 Rust target + Go probe + repository-declared Make check，钉住“probe 未执行、诊断在账、Make 随后成功”；原 polyglot
+Make authority 与 probe confidence pins 同批通过。验证：定向 `go test ./internal/tool -run ... -count=1`（1.260s），完整
+`go test ./internal/tool -count=1`（168.742s）。状态：`implemented / typed-only / no-plan-retry / no-prose-scan`。
+
+### EVAL-B73-OPEVAL1（P1/eval-quality open）：部分完成答案被 lexical oracle 签成 PASS
+
+operation 本轮只抓到首页 artifact（14606 bytes，内容停在 CSS），没有消费 B72 曾成功使用的 `html_link_targets`，猜测 `/docs`、`/doc`
+并在五轮后输出“部分完成”；没有 `user_guide.html` 材料、20 页正文或 complete coverage receipt。相同系统合同的 B72 已完整抓取
+248161 bytes/20 页，故本轮 retrieval miss 先按模型波动保留，不为 URL 或 grep 词形写产品硬门。
+
+确定性 GAP 在 eval：case 仅用 answer/log regex，正文同时出现“用户手册、使用、codrax.net”即可 runner PASS，无法区分 partial 与 complete。
+泛化修向是 case 可声明 typed operation terminal/coverage obligation，由 runner 读取 operation status、material kind、coverage receipt 与目标材料
+身份；禁止通过扫描最终答案里的“完成/部分完成”决定。该基础设施项留待独立批次，不与 verification probe 根修混改。
+
+上下文审计结论：write prompt 已提供 state-transition 能力但模型未采用；verify 上下文把 probe parser error 错投影为 production build failure，
+本批已根修其 typed 路由。operation 首页材料的 typed href 本轮未被模型消费，但 B72 对照证明载体可达，暂不升级为产品确定性 GAP。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b73_writeoperation_r2_20260804.md`；
+- `eval/parallel_selected_summary_evalcampaign_b73_writeoperation_r2_20260804_manual_audit.md`；
+- result dirs：`eval/results/*-20260804-020722`。
