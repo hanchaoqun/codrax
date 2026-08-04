@@ -12243,3 +12243,48 @@ runner 与 test surface 证明；跨语言 probe 只保留 `source_static` 辅�
 验证：CALLSINK 批 `go test ./internal/types ./internal/agent ./internal/tool -count=1` 全绿
 （tool 170.133s）；VERIFYREF 批 `go test ./internal/tool -count=1` 全绿（166.083s）；
 `git diff --check` 通过。
+
+## 56. 2026-08-03 B55 r3 双例复放：member_set 有向权威旁路（CALLMEM1）
+
+在 `main@248a206a4` 固定二进制并行复放（严格 parallel=2）：
+
+- `qf_sequence_analyzer_gate`：runner PASS / human FAIL，385s，Explorer 13 轮，finalizer reject=6；
+- `github_issue_commons_lang_random_ascii_symptom`：runner FAIL / human uncertain，535s，最终
+  `unverified:verification_incomplete`。
+
+读例暴露 `EVAL-B56-CALLMEM1`（P0/red-line）：CALLSINK1 的 typed directed-path 校验实现本身正确，但生产
+接线放在 `callChainAggregateMemberSetCompletesPrincipalBoundary(...) == false` 的分支中。Explorer 发出一个
+逐项有 support_refs 的 principal `member_set` 后，旧分支把“成员清单完整”同时当成“跨度闭包完整”和“有向
+终点已证”，直接跳过 exact reachability。因此现有证据 `buildAnalysisIR -> gate.RunWith` 加反向 wrapper
+`gate.Run -> gate.RunWith` 仍被接受为到 `gate.Run` 的链。Finalizer 的 call-edge 门正确连续拒绝错误终点，
+但六轮耗尽后 `answer_document_retry_state_recovered` 发布了未通过结构化校验的旧草稿；eval regex 又把它判成
+PASS，形成 runner false green。
+
+最优修复保持两个合同正交：
+
+1. exact endpoint directed reachability 先于任何 aggregate shortcut；它只读 typed
+   `ExactTargets + PredicateAxis=call + ReqCallChain` 与 grounded source-code `ClaimCallEdge` 图；
+2. principal member_set 仍可关闭“内部跨度是否已枚举”的重复补采，但只能在有向可达已经成立、或模型显式
+   声明 typed `principal_span_waiver=no_directed_path` 后生效；
+3. 新 pin 证明：完整且逐项引用的 `member_set` 不能把 `RunWith`/`Run` sibling 与反向 wrapper 铸造成路径；
+   另一个正臂证明真实 source→middle→sink 图存在时 member_set 仍能跳过冗余 span expansion。
+
+本修复不读取用户原文、模型 reason/thinking 或最终答案，不影响 runtime Trace、显式时间窗 Trace 因果投影、
+系统补齐或答案所有权。状态：`EVAL-B56-CALLMEM1 = implemented / targeted-tests-pass`。
+
+同时立案 `EVAL-B56-EVALGREEN1`（P1/open）：eval runner 在日志明确
+`answer_document_retry_state_recovered`、结构化检查被跳过时仍只靠 answer regex 判 PASS。应在独立小批把 typed
+degraded-finalize 状态接入 eval verdict；不能通过放松调用边证据门解决。
+
+写例不立 verifier bug：第二计划的 patch 命中 fixture 静态 oracle，`make check` 通过；但 `javac`/Maven
+不可用，Make/Python checker 仅有 `source_static` 权限，不能签 Java target execution/behavior。最终 unverified
+诚实且应保留；不得为 eval 变绿提升静态检查权限。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b55_readwrite_r3_20260803.md`；
+- `eval/parallel_selected_summary_evalcampaign_b55_readwrite_r3_20260803_manual_audit.md`；
+- result dirs：`eval/results/*-20260803-192814`。
+
+验证：`go test ./internal/tool -count=1` 全绿（169.749s）；`git diff --check` 通过。状态更新为
+`EVAL-B56-CALLMEM1 = implemented / full-tool-pass`。

@@ -3508,14 +3508,19 @@ func preCompleteContractCheckWithPreflight(ctx *types.BusContext, justification 
 		b.WriteString("Read the scanned files (if any) and/or verify the suspicious anchors, then re-call emit_investigation_complete. Marking complete now will drop every chain anchored in them.")
 		return b.String()
 	}
+	// Endpoint reachability and interior-span completeness are independent
+	// contracts. A principal member_set can close the latter, but a roster has
+	// no edge direction and must never bypass the former. Keep this check ahead
+	// of the member_set shortcut so RunWith/Run siblings, reverse wrappers, and
+	// unordered node lists cannot mint source -> sink authority.
+	if justification == "" {
+		if downgrade := callChainExactEndpointReachabilityDowngradeWithEvidence(ctx, closure, evidence); downgrade != "" {
+			return downgrade
+		}
+	}
 	if callChainAggregateMemberSetCompletesPrincipalBoundary(ctx, aggregateFacts, evidence) {
 		logging.Info("[emit_investigation_complete] call-chain closure gates satisfied by principal aggregate member_set")
 	} else {
-		if justification == "" {
-			if downgrade := callChainExactEndpointReachabilityDowngradeWithEvidence(ctx, closure, evidence); downgrade != "" {
-				return downgrade
-			}
-		}
 		if downgrade := callChainPrincipalSpanDowngradeWithEvidence(ctx, closure, evidence); downgrade != "" {
 			return downgrade
 		}

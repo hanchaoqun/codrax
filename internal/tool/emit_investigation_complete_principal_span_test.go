@@ -660,11 +660,12 @@ func TestCallChainQualifiedIntermediateDowngrade_DenseCoverageKeepsCandidatesAdv
 	}
 }
 
-func TestPreCompleteCallChain_PrincipalAggregateMemberSetSkipsSpanExpansion(t *testing.T) {
+func TestPreCompleteCallChain_PrincipalAggregateMemberSetCannotBypassDirectedEndpointProof(t *testing.T) {
 	evidence := []types.EvidenceItem{
-		{ID: "start", Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, AnchorSymbol: "buildAnalysisIR", Subject: "buildAnalysisIR", Source: "internal/agent/analyzer.go", LineStart: 100},
-		{ID: "mid", Kind: types.EvidenceDirect, AnchorKind: types.AnchorCall, AnchorSymbol: "normalizer.Normalize", Subject: "buildAnalysisIR", Object: "normalizer.Normalize", Source: "internal/agent/analyzer.go", LineStart: 160},
-		{ID: "gate", Kind: types.EvidenceDirect, AnchorKind: types.AnchorCall, AnchorSymbol: "gate.RunWith", Subject: "buildAnalysisIR", Object: "gate.RunWith", Source: "internal/agent/analyzer.go", LineStart: 300},
+		{ID: "start", Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, AnchorSymbol: "buildAnalysisIR", Subject: "buildAnalysisIR", Source: "internal/agent/analyzer.go", LineStart: 100, GroundingStatus: types.GroundingGrounded},
+		{ID: "mid", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, AnchorSymbol: "normalizer.Normalize", Subject: "buildAnalysisIR", Object: "normalizer.Normalize", Source: "internal/agent/analyzer.go", LineStart: 160, GroundingStatus: types.GroundingGrounded},
+		{ID: "gate", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, AnchorSymbol: "gate.RunWith", Subject: "buildAnalysisIR", Object: "gate.RunWith", Source: "internal/agent/analyzer.go", LineStart: 300, GroundingStatus: types.GroundingGrounded},
+		{ID: "reverse", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, AnchorSymbol: "gate.RunWith", Subject: "gate.Run", Object: "gate.RunWith", Source: "internal/analysis/gate/gate.go", LineStart: 135, GroundingStatus: types.GroundingGrounded},
 	}
 	makeCtx := func() *types.BusContext {
 		mut := types.NewMutableState("trace buildAnalysisIR to gate.Run")
@@ -683,10 +684,12 @@ func TestPreCompleteCallChain_PrincipalAggregateMemberSetSkipsSpanExpansion(t *t
 			Mutable: mut,
 			AnalysisIR: &types.AnalysisIR{
 				RequestModel: types.RequestModel{
-					RawRequest: "trace buildAnalysisIR to gate.Run",
-					Intent:     types.IntentTrace,
+					RawRequest:    "trace buildAnalysisIR to gate.Run",
+					Intent:        types.IntentTrace,
+					PredicateAxis: types.AxisCall,
 					AnalyzerHints: types.AnalyzerHints{
 						Kind:              string(types.ReqCallChain),
+						ExactTargets:      []string{"buildAnalysisIR", "gate.Run"},
 						MentionedEntities: []string{"buildAnalysisIR", "gate.Run"},
 					},
 				},
@@ -694,8 +697,8 @@ func TestPreCompleteCallChain_PrincipalAggregateMemberSetSkipsSpanExpansion(t *t
 		}
 	}
 
-	if got := preCompleteContractCheckWithEvidence(makeCtx(), "", evidence); !strings.Contains(got, "call-chain principal span") {
-		t.Fatalf("precondition: span gate should fire without aggregate member_set, got:\n%s", got)
+	if got := preCompleteContractCheckWithEvidence(makeCtx(), "", evidence); !strings.Contains(got, "not directionally proven") {
+		t.Fatalf("precondition: exact directed endpoint gate should fire, got:\n%s", got)
 	}
 
 	aggregateFacts := []types.AnswerAggregateFact{{
@@ -722,7 +725,45 @@ func TestPreCompleteCallChain_PrincipalAggregateMemberSetSkipsSpanExpansion(t *t
 		span, spanOK := callChainPrincipalSpanContextForEvidence(evidence, startHint, endHint)
 		t.Fatalf("helper should accept principal member_set; spanOK=%v spanSupport=%v span=%+v unusable=%v support_refs=%v", spanOK, aggregateMemberSetHasSupportInsideCallChainSpan(aggregateFacts[0], span), span, unusable, aggregateFacts[0].SupportRefs)
 	}
-	if got := preCompleteContractCheckWithEvidence(skipCtx, "", evidence, aggregateFacts); got != "" {
-		t.Fatalf("principal aggregate member_set should define the model-owned call-chain boundary, got:\n%s", got)
+	if got := preCompleteContractCheckWithEvidence(skipCtx, "", evidence, aggregateFacts); !strings.Contains(got, "not directionally proven") {
+		t.Fatalf("principal aggregate member_set must not mint source-to-sink direction, got:\n%s", got)
+	}
+}
+
+func TestPreCompleteCallChain_PrincipalAggregateMemberSetSkipsOnlySpanAfterDirectedProof(t *testing.T) {
+	evidence := []types.EvidenceItem{
+		{ID: "mid", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, AnchorSymbol: "normalizer.Normalize", Subject: "buildAnalysisIR", Object: "normalizer.Normalize", Source: "internal/agent/analyzer.go", LineStart: 160, GroundingStatus: types.GroundingGrounded},
+		{ID: "helper", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, AnchorSymbol: "prepareGate", Subject: "normalizer.Normalize", Object: "prepareGate", Source: "internal/agent/analyzer.go", LineStart: 280, GroundingStatus: types.GroundingGrounded},
+		{ID: "gate", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, AnchorSymbol: "gate.Run", Subject: "prepareGate", Object: "gate.Run", Source: "internal/agent/analyzer.go", LineStart: 300, GroundingStatus: types.GroundingGrounded},
+	}
+	mut := types.NewMutableState("trace buildAnalysisIR to gate.Run")
+	mut.AppendEvidence(evidence)
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  "[internal/agent/analyzer.go: showing lines 160-300 of 320 total]",
+	})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentTrace,
+			PredicateAxis: types.AxisCall,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:              string(types.ReqCallChain),
+				ExactTargets:      []string{"buildAnalysisIR", "gate.Run"},
+				MentionedEntities: []string{"buildAnalysisIR", "gate.Run"},
+			},
+		}},
+	}
+	facts := []types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "principal call chain",
+		Value:       "3",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"normalizer.Normalize", "prepareGate", "gate.Run"},
+		SupportRefs: []string{"internal/agent/analyzer.go:160", "internal/agent/analyzer.go:280", "internal/agent/analyzer.go:300"},
+	}}
+	if got := preCompleteContractCheckWithEvidence(ctx, "", evidence, facts); got != "" {
+		t.Fatalf("directed endpoint proof plus grounded member_set should close only the interior-span contract, got:\n%s", got)
 	}
 }
