@@ -13283,6 +13283,12 @@ Read 已不再把 `observationRecordForCommandMeasurement` 反向说成 adapter�
 分支和 payload/ToolResult sibling assignment。它不要求某句答案字面出现，不扫描请求/答案/模型 prose，不触发 retry，不替模型下结论。
 随后严格并行同两例复放；Trace 作为防回归 witness，Read 验证机制。
 
+实现已落地：handoff 将 history-count 与 ordinary deterministic-integer 分支拆为互斥 typed 返回形；将 payload renderer 与
+`ToolResult.CommandMeasurement` 标为 sibling consumers；将 observation record 的终点固定为 compiled ledger/answer context；把
+model-emitted `AnswerAggregateFact` 与 deterministic count reconcile 明确成另一条并行载体及单向校准，负向禁止 record→aggregate
+调用边。production prompt pin 与 `go test ./internal/agent -count=1` 全绿（3.248s）。状态：
+`implemented-soft / parallel-carrier-boundary / no-answer-gate / replay-next`。
+
 证据：
 
 - `eval/parallel_selected_summary_evalcampaign_b69_traceread_r7_20260804.md`；
