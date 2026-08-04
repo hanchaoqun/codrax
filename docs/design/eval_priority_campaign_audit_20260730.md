@@ -12738,7 +12738,7 @@ fail-open，以及 Go/Java/Kotlin/Rust/Swift/JS/TS/ArkTS/Cangjie/C/C++ 等 brace
 状态：`EVAL-B63-REPLANPASS1 = implemented / full-tool-pass / replay-next`。本批不修改 Trace query、显式
 时间窗、Trace 因果投影、系统补采、read-mode finalizer 或模型答案发布所有权。
 
-### EVAL-B63-NOPATHFINAL1（P0/open）：无向端点已 typed 冻结，成文与系统清单仍重建伪链
+### EVAL-B63-NOPATHFINAL1（P0/implemented）：错误 waiver 越权放行，成文与系统清单重建伪链
 
 QF r10 的源码事实与 r7/r8 一致：
 
@@ -12746,19 +12746,39 @@ QF r10 的源码事实与 r7/r8 一致：
 - `gate.Run -> RunWith @ gate.go:135`；
 - 因而不存在用户请求方向 `buildAnalysisIR -> gate.Run`。
 
-Explorer 最终已经接受 `principal_span_waiver=no_directed_path`，finalizer 首稿却画出
-`gate.RunWith -> gate.Run`。call-edge hard gate 正确拒绝这条图边，patch 也删除了它；但 patch 的 unchanged summary
-仍声称 “RunWith 内部调用 Run”，系统追加的两个 enumeration/principal roster 区块也继续把 `gate.Run` 放进
-“buildAnalysisIR 到 gate.Run 的调用链”。因此 runner 的 answer regex 签绿，人工必须判 FAIL。
+深读日志后需要纠正上一版判断：Explorer **没有**提交 `no_directed_path`，而是错误提交
+`principal_span_waiver=endpoints_directly_adjacent`，其 rationale 证明的是 `buildAnalysisIR -> gate.RunWith`，并非用户请求的
+`buildAnalysisIR -> gate.Run`。完成门当时只要看到“任意 active waiver”就绕过 exact endpoint 的无向路径检查，导致错误
+adjacency waiver 越权签绿。后续 finalizer 又把 `gate.Run -> RunWith` 反写为 `RunWith -> gate.Run`；call-edge hard gate
+正确拒绝该图边，patch 也删除了它，但 unchanged summary 仍保留错误方向，系统追加的 enumeration/principal roster 区块
+继续把 `gate.Run` 放进“buildAnalysisIR 到 gate.Run 的调用链”。因此 runner 的 answer regex 签绿，人工必须判 FAIL。
 
-这不是再加答案关键词扫描门的理由。下一批应统一收窄 typed 投影：把 accepted
-`no_directed_path` 的 source endpoint、requested sink、nearest reachable endpoint、reverse-only sibling edge 分别
-作为 finalizer context 和系统 enumeration 的结构字段；reachable member roster 只能消费 source→nearest 的有向
-成员集，请求但不可达的 sink 只能出现在 boundary/disposition 行，不能被 roster 标成链成员。模型正文继续由模型
-负责，系统只提供精确上下文和可满足的结构合同，不删除或代写结论。另需增加 system-supplement 接线 pin，避免只
-修 prompt 而自动追加区块继续伪造连接。
+本批按 typed source-code authority 根修，未扫描用户原文或答案原文：
 
-状态：`EVAL-B63-NOPATHFINAL1 = confirmed / P0 / next-batch`。
+1. exact endpoint reachability gate 只允许 `principal_span_waiver=no_directed_path` 放行“无同向路径”；其余六种 span
+   waiver 仅在同向 source→sink 路径已经存在时处理“是否有独立可引用中间代码”，不能用 reachable sibling 冒充 sink；
+2. `AnswerSemanticView.CallChainEndpointBoundary` 新增有限 typed disposition，只由 `QFCallChain`、active
+   `no_directed_path` 和 analyzer typed endpoint hints 铸造 `source_endpoint / requested_sink`；free-form rationale 只留作
+   审计轨迹，不能进入 prompt authority；waiver set/clear 同步 bump answer-surface revision，cached view 每次重新叠加
+   当前 boundary，避免 stale；
+3. finalizer 新增 `Typed Call-Chain Endpoint Boundary` 上下文：模型保留 nearest proven directed path，将 reverse/parallel
+   call 按真实方向另列，并把 exact requested sink 放在 boundary/caveat/structured item 中；summary、roster、diagram 必须
+   共用该 disposition。系统不代写结论；
+4. 对 `QFCallChain + no_directed_path` 这一精确交集，两个系统成文器
+   `appendPrincipalEnumerationTypedSupplements` 与 `normalizeAggregateMemberSetCarriers` 都不再把 endpoint definitions 或
+   member-set label 铸成“可达链清单”。缺失结构行继续由 pre-emit 合同要求模型补齐，sink 仍必须可见，但其语义位置由
+   模型按 typed boundary 成文；普通 call-chain、enumeration 与 Trace 专用投影/自动补采完全不变；
+5. Explorer skill 的 canonical waiver 教学从六种修正为七种，明确 `(a)-(f)` 不具备 missing-path 权限，`(g)
+   no_directed_path` 才是 endpoint boundary，减少模型在矛盾合同上反复试错。
+
+定向 pin 覆盖：错误 adjacency waiver 不能绕过 missing path、正确 no-directed-path 可闭环、boundary 仅从 typed signal
+铸造、cached view 的 set/clear 刷新、finalizer prompt 不泄漏 rationale、两个系统补齐器不再发布 reachable roster。
+`go test ./internal/types ./internal/skill -count=1` 全绿（22.260s/1.100s），`go test ./internal/tool
+-count=1` 全绿（159.686s）；`internal/agent` 新增定向 pin 通过，但该包全量仍有一条与本批无关且单独可复现的 main
+基线红项：`TestAnalyzerMentionedEntityCandidatesRequiredFileNeedsVerbatimRequestProvenance` 仍要求 basename 与完整路径
+同时保留，而当前实现只返回完整路径。该残余另立下一小批，不用修改本批 call-chain 语义来掩盖。
+
+状态：`EVAL-B63-NOPATHFINAL1 = implemented / types+skill+tool-full-pass / agent-targeted-pass / replay-next`。
 
 证据：
 

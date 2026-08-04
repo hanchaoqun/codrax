@@ -139,6 +139,34 @@ func TestEmitInvestigationComplete_NoDirectedPathWaiverCarriesModelOwnedBoundary
 	}
 }
 
+func TestEmitInvestigationComplete_NonBoundaryWaiverCannotBypassMissingDirectedPath(t *testing.T) {
+	mut := types.NewMutableState("trace buildAnalysisIR to gate.Run")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "buildAnalysisIR", Predicate: "calls", Object: "gate.RunWith", AnchorSymbol: "gate.RunWith", Source: "internal/agent/analyzer.go", LineStart: 2666, GroundingStatus: types.GroundingGrounded},
+		{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "gate.Run", Predicate: "calls", Object: "gate.RunWith", AnchorSymbol: "gate.RunWith", Source: "internal/analysis/gate/gate.go", LineStart: 135, GroundingStatus: types.GroundingGrounded},
+	})
+	bus := &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Intent:        types.IntentTrace,
+			PredicateAxis: types.AxisCall,
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain), ExactTargets: []string{"buildAnalysisIR", "gate.Run"}, MentionedEntities: []string{"buildAnalysisIR", "gate.Run"}},
+		},
+	}}
+	params := json.RawMessage(`{"reason":"the reachable sibling is adjacent","confidence":"high","result_kind":"resolved","principal_span_waiver":{"reason":"endpoints_directly_adjacent","rationale":"buildAnalysisIR directly invokes gate.RunWith on one statement"}}`)
+	res, err := (&EmitInvestigationComplete{}).Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+	if !res.Success || mut.IsInvestigationComplete() {
+		t.Fatalf("adjacency to a sibling must not close the missing exact endpoint path: %+v", res)
+	}
+	for _, want := range []string{"principal_span_waiver=endpoints_directly_adjacent cannot waive", "`gate.Run` from `buildAnalysisIR`", "principal_span_waiver.reason=no_directed_path", "reachable sibling"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("rejection missing %q: %s", want, res.Summary)
+		}
+	}
+}
+
 func TestEmitInvestigationComplete_PrincipalSpanWaiver_IgnoresInvalidReason(t *testing.T) {
 	mut := types.NewMutableState("trace foo to bar")
 	params := `{
@@ -199,7 +227,7 @@ func TestEmitInvestigationComplete_PrincipalSpanWaiver_IgnoresMissingReason(t *t
 	}
 }
 
-func TestEmitInvestigationComplete_PrincipalSpanWaiver_AcceptsAllSixReasons(t *testing.T) {
+func TestEmitInvestigationComplete_PrincipalSpanWaiver_AcceptsAllReasons(t *testing.T) {
 	for _, reason := range types.PrincipalSpanWaiverReasonValues() {
 		t.Run(string(reason), func(t *testing.T) {
 			mut := types.NewMutableState("trace foo to bar")

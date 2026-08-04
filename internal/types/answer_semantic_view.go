@@ -99,6 +99,15 @@ type AnswerSemanticView struct {
 	// anchors. Validators consume only those structured carriers.
 	RequiredMechanismAnchors []AnswerRequiredAnchor
 
+	// CallChainEndpointBoundary is present only after the explorer has
+	// explicitly closed a source-code call-chain investigation with the typed
+	// no_directed_path disposition. It keeps endpoint identity separate from
+	// reachability: SourceEndpoint and RequestedSink remain exact user-requested
+	// anchors, while the disposition says the sink is a boundary rather than a
+	// member of a proven source-to-sink path. The compiler never derives this
+	// from request prose, answer prose, or a free-form waiver rationale.
+	CallChainEndpointBoundary *CallChainEndpointBoundary
+
 	// ErrorGranularityProfile requires a principal decision block to carry a
 	// canonical failure-scope verdict enum. This is intentionally separate from
 	// decision prose so validators and evals do not depend on language-specific
@@ -133,6 +142,34 @@ type AnswerSemanticView struct {
 	// based on FacetCoverageContract.Optional + question structure.
 	// Read by RichnessTelemetryOracle (B4 / Phase 5 already shipped).
 	RichnessCandidates []RichnessCandidate
+}
+
+// CallChainEndpointDisposition is the finite, typed conclusion that may alter
+// how a requested source/sink pair is presented. Keep this enum deliberately
+// narrow: positive reachability remains carried by accepted call-edge evidence
+// and does not need a second semantic-view declaration.
+type CallChainEndpointDisposition string
+
+const (
+	CallChainEndpointNoDirectedPath CallChainEndpointDisposition = "no_directed_path"
+)
+
+// CallChainEndpointBoundary preserves exact endpoint identity when accepted
+// source inspection found no directed path between the requested endpoints.
+// It is context for model synthesis, not a system-authored answer conclusion.
+type CallChainEndpointBoundary struct {
+	Disposition    CallChainEndpointDisposition
+	SourceEndpoint string
+	RequestedSink  string
+}
+
+// Active reports whether the boundary is complete enough for prompt and
+// system-supplement consumers. Partial/unknown values fail closed to no effect.
+func (b *CallChainEndpointBoundary) Active() bool {
+	return b != nil &&
+		b.Disposition == CallChainEndpointNoDirectedPath &&
+		b.SourceEndpoint != "" &&
+		b.RequestedSink != ""
 }
 
 // ActiveUncertaintyRules returns only disclosure rules whose typed trigger is

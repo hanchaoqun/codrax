@@ -5975,10 +5975,12 @@ func (m *MutableState) SetPrincipalSpanWaiver(w *PrincipalSpanWaiver) {
 	defer m.mu.Unlock()
 	if w == nil {
 		m.principalSpanWaiver = nil
+		m.bumpAnswerSurfaceRevisionLocked()
 		return
 	}
 	clone := *w
 	m.principalSpanWaiver = &clone
+	m.bumpAnswerSurfaceRevisionLocked()
 }
 
 // PrincipalSpanWaiver returns the model-declared escape, or nil when
@@ -6006,6 +6008,7 @@ func (m *MutableState) ClearPrincipalSpanWaiver() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.principalSpanWaiver = nil
+	m.bumpAnswerSurfaceRevisionLocked()
 }
 
 // StableInvestigationCompleteReason returns the best available

@@ -832,6 +832,42 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRequiredMechanis
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersTypedCallChainEndpointBoundary(t *testing.T) {
+	mut := types.NewMutableState("typed no-directed-path boundary")
+	mut.SetPrincipalSpanWaiver(&types.PrincipalSpanWaiver{
+		Reason:    types.PrincipalSpanWaiverNoDirectedPath,
+		Rationale: "buildAnalysisIR reaches gate.RunWith while gate.Run calls RunWith",
+	})
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentTrace,
+			PredicateAxis: types.AxisCall,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         string(types.ReqCallChain),
+				ExactTargets: []string{"buildAnalysisIR", "gate.Run"},
+			},
+		}},
+	}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Typed Call-Chain Endpoint Boundary",
+		"disposition=`no_directed_path`",
+		"source_endpoint=`buildAnalysisIR`",
+		"requested_sink=`gate.Run`",
+		"not a reachable-chain member declaration",
+		"reverse or parallel typed calls",
+		"model owns the conclusion",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("typed endpoint-boundary prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "buildAnalysisIR reaches gate.RunWith while gate.Run calls RunWith") {
+		t.Fatalf("free-form waiver rationale must remain audit-only, not prompt authority:\n%s", prompt)
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersErrorGranularityContract(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{

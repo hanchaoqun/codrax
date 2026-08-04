@@ -54,6 +54,69 @@ func TestBuildAnswerSemanticView_NilInputReturnsNil(t *testing.T) {
 	}
 }
 
+func TestCompileCallChainEndpointBoundary_UsesTypedNoDirectedPathOnly(t *testing.T) {
+	rm := RequestModel{
+		Intent:        IntentTrace,
+		PredicateAxis: AxisCall,
+		AnalyzerHints: AnalyzerHints{
+			Kind:         string(ReqCallChain),
+			ExactTargets: []string{"buildAnalysisIR", "gate.Run"},
+		},
+	}
+	waiver := &PrincipalSpanWaiver{
+		Reason:    PrincipalSpanWaiverNoDirectedPath,
+		Rationale: "typed call edges stop at gate.RunWith and gate.Run points the other way",
+	}
+	got := CompileCallChainEndpointBoundary(rm, waiver)
+	if got == nil || !got.Active() {
+		t.Fatalf("typed no-directed-path waiver should compile a boundary: %+v", got)
+	}
+	if got.Disposition != CallChainEndpointNoDirectedPath ||
+		got.SourceEndpoint != "buildAnalysisIR" || got.RequestedSink != "gate.Run" {
+		t.Fatalf("unexpected boundary: %+v", got)
+	}
+
+	adjacent := *waiver
+	adjacent.Reason = PrincipalSpanWaiverEndpointsDirectlyAdjacent
+	if got := CompileCallChainEndpointBoundary(rm, &adjacent); got != nil {
+		t.Fatalf("an adjacency/span waiver must not become a missing-path boundary: %+v", got)
+	}
+	withoutEndpoints := rm
+	withoutEndpoints.AnalyzerHints.ExactTargets = []string{"buildAnalysisIR"}
+	if got := CompileCallChainEndpointBoundary(withoutEndpoints, waiver); got != nil {
+		t.Fatalf("a single endpoint cannot compile a source/sink boundary: %+v", got)
+	}
+}
+
+func TestBuildAnswerSemanticViewForAgentContext_RefreshesTypedCallChainBoundary(t *testing.T) {
+	mut := NewMutableState("call chain endpoint boundary")
+	ir := &AnalysisIR{RequestModel: RequestModel{
+		Intent:        IntentTrace,
+		PredicateAxis: AxisCall,
+		AnalyzerHints: AnalyzerHints{
+			Kind:         string(ReqCallChain),
+			ExactTargets: []string{"Source.run", "Sink.run"},
+		},
+	}}
+	ctx := &AgentContext{AnalysisIR: ir, Mutable: mut}
+	if got := BuildAnswerSemanticViewForAgentContext(ctx); got == nil || got.CallChainEndpointBoundary != nil {
+		t.Fatalf("boundary must be absent before the typed waiver: %+v", got)
+	}
+	mut.SetPrincipalSpanWaiver(&PrincipalSpanWaiver{
+		Reason:    PrincipalSpanWaiverNoDirectedPath,
+		Rationale: "source inspection found no same-direction path",
+	})
+	got := BuildAnswerSemanticViewForAgentContext(ctx)
+	if got == nil || got.CallChainEndpointBoundary == nil ||
+		got.CallChainEndpointBoundary.RequestedSink != "Sink.run" {
+		t.Fatalf("cached semantic view did not refresh the mutable typed boundary: %+v", got)
+	}
+	mut.ClearPrincipalSpanWaiver()
+	if got := BuildAnswerSemanticViewForAgentContext(ctx); got == nil || got.CallChainEndpointBoundary != nil {
+		t.Fatalf("cleared waiver must retract the semantic boundary: %+v", got)
+	}
+}
+
 // AnswerShape constants retired in PR5 of the AnswerShape
 // terminal-retirement migration. The
 // "EveryShapeProducesNonNilView" loop test that lived here is

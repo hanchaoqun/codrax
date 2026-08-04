@@ -12215,8 +12215,12 @@ func callChainExactEndpointReachabilityDowngradeWithEvidence(ctx *types.BusConte
 		}
 		return ""
 	}
-	if waiver != nil && waiver.IsActive() {
+	if waiver != nil && waiver.IsActive() && waiver.Reason == types.PrincipalSpanWaiverNoDirectedPath {
 		return ""
+	}
+	if waiver != nil && waiver.IsActive() {
+		return fmt.Sprintf("%s — principal_span_waiver=%s cannot waive a missing directed endpoint path.\n\nThe accepted typed call-edge graph does not reach `%s` from `%s`. This waiver reason applies only after a source-to-sink path exists and the remaining question is whether separately-citable intermediate user code is available. Emit the missing same-direction call edge(s), or retry with principal_span_waiver.reason=no_directed_path and a concrete boundary rationale. Do not use endpoint adjacency to substitute a reachable sibling for the requested sink.",
+			EmitInvestigationCompleteDowngradePrefix, waiver.Reason, endHint, startHint)
 	}
 	closure.AddRepair(types.RepairDirective{
 		Kind:      types.RepairEmitEvidence,

@@ -3113,6 +3113,10 @@ func normalizeAggregateMemberSetCarriers(doc *types.AnswerDocumentV2, ctx *types
 	if answerDocumentRuntimeObservationOnly(ctx) {
 		return 0
 	}
+	if types.CompileCallChainEndpointBoundary(
+		ctx.AnalysisIR.RequestModel, ctx.Mutable.PrincipalSpanWaiver()) != nil {
+		return 0
+	}
 	refs := preEmitPrincipalAggregateMemberSetFactRefs(ctx, preEmitStableAggregateFacts(ctx))
 	if len(refs) == 0 {
 		return 0

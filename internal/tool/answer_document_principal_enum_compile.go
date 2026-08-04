@@ -1107,6 +1107,16 @@ func principalEnumerationSystemSupplementSuppressed(doc *types.AnswerDocumentV2,
 	if principalEnumerationNarrativeHistorySupplementSuppressed(ctx.AnalysisIR.RequestModel) {
 		return true
 	}
+	// A no-directed-path call-chain boundary requires the model to keep the
+	// requested sink visible as a boundary while authoring the reachable roster
+	// from proven call edges. A deterministic enumeration supplement cannot know
+	// that semantic placement and would turn endpoint definitions/member_set
+	// labels into a fabricated reachable chain. Leave this narrow shape entirely
+	// model-owned; ordinary call chains and all Trace supplements are unchanged.
+	if ctx.Mutable != nil && types.CompileCallChainEndpointBoundary(
+		ctx.AnalysisIR.RequestModel, ctx.Mutable.PrincipalSpanWaiver()) != nil {
+		return true
+	}
 	if doc.ExactResolution == nil {
 		return false
 	}

@@ -268,6 +268,10 @@ func cloneAnswerSemanticView(in *AnswerSemanticView) *AnswerSemanticView {
 	out.OptionalBlocks = cloneBlockRequirements(in.OptionalBlocks)
 	out.RequiredCandidateRoles = append([]AnswerCandidateRole(nil), in.RequiredCandidateRoles...)
 	out.RequiredMechanismAnchors = append([]AnswerRequiredAnchor(nil), in.RequiredMechanismAnchors...)
+	if in.CallChainEndpointBoundary != nil {
+		boundary := *in.CallChainEndpointBoundary
+		out.CallChainEndpointBoundary = &boundary
+	}
 	out.MissingRequestedRoles = append([]AnswerMissingRequestedRole(nil), in.MissingRequestedRoles...)
 	out.UncertaintyRules = append([]UncertaintyRule(nil), in.UncertaintyRules...)
 	out.RichnessCandidates = append([]RichnessCandidate(nil), in.RichnessCandidates...)

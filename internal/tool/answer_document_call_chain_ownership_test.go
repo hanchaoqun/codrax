@@ -82,3 +82,63 @@ func TestNormalizeAnswerDocumentForPreEmit_CallChainConclusionRemainsModelOwned(
 		t.Fatalf("relation-only call-chain exploration member_set must not become a hard relation-table obligation: %+v", hints)
 	}
 }
+
+func TestNormalizeAnswerDocumentRowsBeforePersist_NoDirectedPathDoesNotAuthorReachableRoster(t *testing.T) {
+	mu := types.NewMutableState("typed no-directed-path system supplement boundary")
+	mu.SetPrincipalSpanWaiver(&types.PrincipalSpanWaiver{
+		Reason:    types.PrincipalSpanWaiverNoDirectedPath,
+		Rationale: "buildAnalysisIR reaches gate.RunWith while gate.Run calls RunWith",
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{resolvedNoPathAggregateFactForTest()})
+	mu.SetInvestigationComplete("no directed path accepted")
+	ctx := &types.BusContext{
+		Language: "zh",
+		Mutable:  mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentTrace,
+			PredicateAxis: types.AxisCall,
+			Language:      "zh",
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         string(types.ReqCallChain),
+				ExactTargets: []string{"buildAnalysisIR", "gate.Run"},
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, Text: "模型将自行归纳端点边界。"},
+	}}
+	want, err := json.Marshal(doc.Blocks)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	normalizeAnswerDocumentRowsBeforePersist("emit_answer_document", ctx, doc)
+	got, err := json.Marshal(doc.Blocks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(want) {
+		t.Fatalf("system must not cast requested-but-unreachable sink as a reachable roster member:\n got=%s\nwant=%s", got, want)
+	}
+	if fixed := appendPrincipalEnumerationTypedSupplements(doc, ctx); fixed != 0 {
+		t.Fatalf("principal enumeration supplement must be suppressed for typed no-directed-path, fixed=%d", fixed)
+	}
+	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 0 {
+		t.Fatalf("aggregate member-set supplement must be suppressed for typed no-directed-path, fixed=%d", fixed)
+	}
+}
+
+func resolvedNoPathAggregateFactForTest() types.AnswerAggregateFact {
+	return types.AnswerAggregateFact{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "buildAnalysisIR to gate.Run call chain",
+		Value:   "3",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"buildAnalysisIR", "gate.RunWith", "gate.Run"},
+		SupportRefs: []string{
+			"internal/agent/analyzer.go:1822",
+			"internal/agent/analyzer.go:2666",
+			"internal/analysis/gate/gate.go:134",
+		},
+	}
+}

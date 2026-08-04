@@ -303,11 +303,13 @@ func BuildAnswerSemanticViewForAgentContext(ac *AgentContext) *AnswerSemanticVie
 		return nil
 	}
 	if cached := ac.cachedAnswerSemanticView(); cached != nil {
+		applyCallChainEndpointBoundary(cached, ac.AnalysisIR, principalSpanWaiverFromMutable(ac.Mutable))
 		return cached
 	}
 	plan := BuildAnswerSurfacePlanForAgentContext(ac)
 	view := BuildAnswerSemanticView(ac.AnalysisIR, plan)
 	ac.storeAnswerSemanticView(view)
+	applyCallChainEndpointBoundary(view, ac.AnalysisIR, principalSpanWaiverFromMutable(ac.Mutable))
 	emitSemanticViewTrace("agent", view, ac.AnalysisIR, plan)
 	return cloneAnswerSemanticView(view)
 }
@@ -321,11 +323,54 @@ func BuildAnswerSemanticViewForBusContext(bus *BusContext) *AnswerSemanticView {
 		return nil
 	}
 	if cached := bus.cachedAnswerSemanticView(); cached != nil {
+		applyCallChainEndpointBoundary(cached, bus.AnalysisIR, principalSpanWaiverFromMutable(bus.Mutable))
 		return cached
 	}
 	plan := BuildAnswerSurfacePlanForBusContext(bus)
 	view := BuildAnswerSemanticView(bus.AnalysisIR, plan)
 	bus.storeAnswerSemanticView(view)
+	applyCallChainEndpointBoundary(view, bus.AnalysisIR, principalSpanWaiverFromMutable(bus.Mutable))
 	emitSemanticViewTrace("bus", view, bus.AnalysisIR, plan)
 	return cloneAnswerSemanticView(view)
+}
+
+func principalSpanWaiverFromMutable(mutable *MutableState) *PrincipalSpanWaiver {
+	if mutable == nil {
+		return nil
+	}
+	return mutable.PrincipalSpanWaiver()
+}
+
+// CompileCallChainEndpointBoundary turns the model-declared typed waiver into
+// a semantic endpoint disposition. Endpoint names come only from the analyzer's
+// typed exact/entity lanes; the rationale remains an audit trail and cannot
+// become presentation authority.
+func CompileCallChainEndpointBoundary(rm RequestModel, waiver *PrincipalSpanWaiver) *CallChainEndpointBoundary {
+	if ResolveQuestionFamily(rm) != QFCallChain || waiver == nil || !waiver.IsActive() ||
+		waiver.Reason != PrincipalSpanWaiverNoDirectedPath {
+		return nil
+	}
+	endpoints := CallChainRequestedEndpointHints(rm)
+	if len(endpoints) < 2 {
+		return nil
+	}
+	boundary := &CallChainEndpointBoundary{
+		Disposition:    CallChainEndpointNoDirectedPath,
+		SourceEndpoint: endpoints[0],
+		RequestedSink:  endpoints[len(endpoints)-1],
+	}
+	if !boundary.Active() {
+		return nil
+	}
+	return boundary
+}
+
+func applyCallChainEndpointBoundary(view *AnswerSemanticView, ir *AnalysisIR, waiver *PrincipalSpanWaiver) {
+	if view == nil {
+		return
+	}
+	view.CallChainEndpointBoundary = nil
+	if ir != nil {
+		view.CallChainEndpointBoundary = CompileCallChainEndpointBoundary(ir.RequestModel, waiver)
+	}
 }

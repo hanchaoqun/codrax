@@ -456,6 +456,11 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}) {
 		return b.String()
 	}
+	if !trace.appendSection(&b, "call_chain_endpoint_boundary", func() string {
+		return renderAnswerDocCallChainEndpointBoundary(view)
+	}) {
+		return b.String()
+	}
 	// 2026-05-17 T1 architectural fix: render the per-dispatch
 	// visible-anchor whitelist immediately after the required
 	// mechanism anchors so the model sees "must surface" + "may
@@ -2762,6 +2767,24 @@ func renderAnswerDocRequiredMechanismAnchors(view *types.AnswerSemanticView) str
 	b.WriteString("- Satisfy this with `blocks[].items[].label`, a section/table block `title`, or typed diagram `edge_anchors` endpoints.\n")
 	b.WriteString("- If the main explanation is prose-only, add a compact ordered_list or table of key anchors; each item label should be the exact anchor and carry the relevant `citation_ref` when available.\n")
 	b.WriteString("- Do not rely on prose-only mentions. The validator compares the typed anchor list above with structured AnswerDocument fields.\n\n")
+	return b.String()
+}
+
+func renderAnswerDocCallChainEndpointBoundary(view *types.AnswerSemanticView) string {
+	if view == nil || view.CallChainEndpointBoundary == nil || !view.CallChainEndpointBoundary.Active() {
+		return ""
+	}
+	boundary := view.CallChainEndpointBoundary
+	var b strings.Builder
+	b.WriteString("## Typed Call-Chain Endpoint Boundary\n\n")
+	fmt.Fprintf(&b, "- disposition=`%s`\n", boundary.Disposition)
+	fmt.Fprintf(&b, "- source_endpoint=`%s`\n", boundary.SourceEndpoint)
+	fmt.Fprintf(&b, "- requested_sink=`%s`\n\n", boundary.RequestedSink)
+	b.WriteString("The accepted investigation did not prove a directed source-to-sink call path. This is an endpoint boundary, not a reachable-chain member declaration.\n\n")
+	b.WriteString("- Keep the nearest proven directed path from typed call-edge/support rows. Do not extend it to the requested sink through definition proximity, source order, or a prefix sibling.\n")
+	b.WriteString("- Keep reverse or parallel typed calls as separate relationships in their real direction; never flip one to close the requested path.\n")
+	b.WriteString("- Preserve the exact requested sink in a structured boundary/caveat/list item so the user's endpoint remains visible, but do not describe it as called by the reachable frontier.\n")
+	b.WriteString("- The summary, principal member roster, and diagram must share this disposition. The model owns the conclusion; this typed context supplies the evidence boundary only.\n\n")
 	return b.String()
 }
 
