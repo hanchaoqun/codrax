@@ -144,6 +144,10 @@ PLAN_EXPECT_REGEX="${PLAN_EXPECT_REGEX:-}"
 POST_APPLY_FILE="${POST_APPLY_FILE:-}"
 COMMANDLESS_APPLY="${COMMANDLESS_APPLY:-}"
 ALLOW_UNVERIFIED_APPLY="${ALLOW_UNVERIFIED_APPLY:-}"
+# Read evals are expected to reach the validated answer carrier. Cases whose
+# explicit subject is the degraded fallback lane may opt out, but ordinary
+# answer regexes must not turn SkipAnswerChecks=true into a false green.
+ALLOW_DEGRADED_READ_ANSWER="${ALLOW_DEGRADED_READ_ANSWER:-}"
 # Multi-repo eval (2026-05-08): when MULTIREPO=<seed-name> is set, the
 # runner copies eval/fixtures/<seed-name>/ to a scratch parent dir and
 # `git init`-s each immediate child sub-repo (no .git/ checked into the
@@ -769,6 +773,7 @@ write_metrics() {
     echo "parallel_sibling_skips=$(count_pattern 'skipping non-winning parallel explore sibling' "$log")"
     echo "mixed_origin_autocomplete_blocks=$(count_pattern 'accepted investigation closure cannot auto-complete mixed-origin explore window' "$log")"
     echo "finalizer_rejects=$(eval_count_finalizer_rejects "$log")"
+    echo "degraded_read_answer_check_skips=$(eval_count_degraded_read_answer_check_skips "$log")"
     echo "wall_seconds=$(cat "$OUTDIR/run-$i.wall" 2>/dev/null || echo 0)"
     echo "pipeline_dispatches=$(count_pattern 'DEBUG \[diag [^]]+\] DISPATCH stage=' "$log")"
     echo "completion_lane_fired=$(eval_count_completion_lane_fired "$log")"
@@ -1446,6 +1451,13 @@ run_one() {
       fi
       if LC_ALL=C grep -aqF '(no result)' <<<"$cleaned"; then
         extra_reasons+=("no_result")
+      fi
+      if [[ "$ALLOW_DEGRADED_READ_ANSWER" != "1" ]]; then
+        local degraded_check_skips
+        degraded_check_skips="$(eval_count_degraded_read_answer_check_skips "$log")"
+        if [[ "$degraded_check_skips" -gt 0 ]]; then
+          extra_reasons+=("degraded_answer_checks_skipped:$degraded_check_skips")
+        fi
       fi
       if [[ -n "$DATA_FIXTURE" ]]; then
         local terminal_path terminal_status

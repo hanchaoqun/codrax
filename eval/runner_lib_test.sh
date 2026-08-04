@@ -573,6 +573,7 @@ esac
 
 cat >"$tmp/finalizer-control.log" <<'LOG'
 2026-05-24T00:00:00.000 DEBUG [diag finalizer] iter=0 ASSISTANT content: source mentions finalizer_rejects=7 and 成文校验未通过 but this is answer text
+2026-05-24T00:00:00.000 DEBUG [diag finalizer] iter=0 ASSISTANT content: quoted WARN [orchestrator] finalizer returned degraded answer; skipping structured answer checks reason=answer_document_retry_state_recovered
 2026-05-24T00:00:00.001 DEBUG [diag explorer] iter=0 ASSISTANT content: ⟳ 4/4 答案待完善，正在重写 is quoted customer text
 2026-05-24T00:00:00.002 DEBUG [diag finalizer] iter=0 ASSISTANT content: quoted full line 2026-05-24T00:00:00.010 DEBUG [diag finalizer] iter=0 phase=toolresult TOOLRESULT emit_answer_document ok=false len=12:
 2026-05-24T00:00:00.010 DEBUG [diag finalizer] iter=0 phase=toolresult TOOLRESULT emit_answer_document ok=false len=12:
@@ -605,8 +606,55 @@ cat >"$tmp/finalizer-control.log" <<'LOG'
 2026-05-24T00:00:00.080 INFO [semantic_quality_reviewer] emitted 1 concern(s)
 2026-05-24T00:00:00.090 INFO [self_consistency_reviewer] V2 emitted 1 contradiction(s)
 2026-05-24T00:00:00.100 DEBUG [orchestrator] violation kind=self_contradiction detail=x
+2026-05-24T00:00:00.110 WARN [orchestrator] finalizer returned degraded answer; skipping structured answer checks reason=answer_document_retry_state_recovered
 LOG
 assert_eq "$(eval_count_finalizer_rejects "$tmp/finalizer-control.log")" "1" "finalizer reject mirror dedupe count"
+assert_eq "$(eval_count_degraded_read_answer_check_skips "$tmp/finalizer-control.log")" "1" "degraded answer check-skip count excludes quoted model prose"
+
+cat >"$tmp/fake-codrax-degraded-read" <<'SH'
+#!/usr/bin/env bash
+logdir=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --log-dir)
+      logdir="${2:-}"
+      shift 2
+      ;;
+    --log-dir=*)
+      logdir="${1#*=}"
+      shift
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+if [[ -n "$logdir" ]]; then
+  mkdir -p "$logdir"
+  echo '2026-05-24T00:00:00.110 WARN [orchestrator] finalizer returned degraded answer; skipping structured answer checks reason=answer_document_retry_state_recovered' >"$logdir/codrax-fake.log"
+fi
+echo '━━━'
+echo 'answer contains expected-symbol but did not pass structured checks'
+SH
+chmod +x "$tmp/fake-codrax-degraded-read"
+cat >"$tmp/degraded-read.case" <<'CASE'
+ID="degraded_read"
+NAME="degraded read verdict"
+QUESTION="degraded read test"
+MIN_OUTPUT_CHARS=1
+EXPECT_CONTAINS="expected-symbol"
+CASE
+CODRAX_BIN="$tmp/fake-codrax-degraded-read" EVAL_RESULTS_ROOT="$tmp/degraded-results" CODRAX_PROVIDER_ARGS_RAW="" \
+  eval/run.sh "$tmp/degraded-read.case" 1 >/dev/null || fail "degraded read eval failed to run"
+degraded_read_dir="$(eval_latest_result_dir "$tmp/degraded-results" degraded_read 00000000-000000 || true)"
+[[ -n "$degraded_read_dir" ]] || fail "degraded read result dir missing"
+assert_eq "$(cat "$degraded_read_dir/run-1.verdict")" "FAIL degraded_answer_checks_skipped:1" "degraded read must not pass through answer regex"
+
+ALLOW_DEGRADED_READ_ANSWER=1 CODRAX_BIN="$tmp/fake-codrax-degraded-read" EVAL_RESULTS_ROOT="$tmp/degraded-optout-results" CODRAX_PROVIDER_ARGS_RAW="" \
+  eval/run.sh "$tmp/degraded-read.case" 1 >/dev/null || fail "degraded read opt-out eval failed to run"
+degraded_optout_dir="$(eval_latest_result_dir "$tmp/degraded-optout-results" degraded_read 00000000-000000 || true)"
+[[ -n "$degraded_optout_dir" ]] || fail "degraded read opt-out result dir missing"
+assert_eq "$(cat "$degraded_optout_dir/run-1.verdict")" "PASS" "explicit degraded-lane case may opt out"
 
 cat >"$tmp/finalizer-reject-asymmetric.log" <<'LOG'
 2026-05-24T00:00:00.010 DEBUG [diag finalizer] iter=0 phase=toolresult TOOLRESULT emit_answer_document ok=false len=12:

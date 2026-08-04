@@ -12288,3 +12288,27 @@ degraded-finalize 状态接入 eval verdict；不能通过放松调用边证据�
 
 验证：`go test ./internal/tool -count=1` 全绿（169.749s）；`git diff --check` 通过。状态更新为
 `EVAL-B56-CALLMEM1 = implemented / full-tool-pass`。
+
+### B56-S：降级答案不可被普通答案 oracle 误签绿
+
+`EVAL-B56-EVALGREEN1` 已在独立 eval-infra 小批关闭。runner 现在从每轮专属日志目录聚合后的控制面日志读取
+唯一精确信号：orchestrator 以 WARN 发布“finalizer returned degraded answer; skipping structured answer checks”时，
+普通 read case 追加 `degraded_answer_checks_skipped:N` 失败原因。答案正文即使包含预期 symbol、通过
+`EXPECT_CONTAINS`/regex，也不能掩盖该轮没有完成结构化校验的事实。
+
+边界与防过拟合约束：
+
+1. 计数器要求完整时间戳、WARN level、`[orchestrator]` owner 和固定控制面事件前缀；用户输入、模型
+   thinking/final、引用文字中即使逐字复述 reason 也不会命中；
+2. 这只是 eval verdict，不改变产品 finalizer、答案文本、Trace query/投影/补采，也不放松任何现有合同；
+3. 专门验证 degraded recovery 本身的 case 可显式设置 `ALLOW_DEGRADED_READ_ANSWER=1`，避免把故障车道的
+   针对性测试变成不可满足合同；默认值仍为 fail-closed；
+4. metrics 新增 `degraded_read_answer_check_skips`，后续两例回放可区分“答案内容错误”与“结构化校验已被
+   跳过”，不再由弱 regex 制造 false green。
+
+回归包含两个关键反例：模型 DEBUG prose 逐字引用事件时计数仍为 0；真实 orchestrator WARN 与相同
+答案 oracle 并存时 verdict 必为 `FAIL degraded_answer_checks_skipped:1`。显式 opt-out case 必为 PASS。
+
+状态：`EVAL-B56-EVALGREEN1 = implemented / runner-contracts-pass`。验证：
+`bash -n eval/run.sh eval/runner_lib.sh eval/runner_lib_test.sh` 与 `bash eval/runner_lib_test.sh` 全绿；旧 r3
+生产 witness 的控制面精确计数为 1，证明新 verdict 能阻止该次历史 false green，而不会回读模型原文。

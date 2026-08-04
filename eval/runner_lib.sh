@@ -210,6 +210,17 @@ eval_metric_budget_reasons() {
   done
 }
 
+# eval_count_degraded_read_answer_check_skips <log-file>
+#
+# Counts the orchestrator's stable control-plane event for a read answer that
+# shipped with SkipAnswerChecks=true. The prefix is deliberately anchored to
+# the orchestrator WARN record: model/user prose that quotes the same reason
+# token cannot affect an eval verdict.
+eval_count_degraded_read_answer_check_skips() {
+  local file="$1"
+  eval_count_pattern '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[^[:space:]]+[[:space:]]+WARN \[orchestrator\] finalizer returned degraded answer; skipping structured answer checks reason=[^[:space:]]+' "$file"
+}
+
 eval_case_oracle_surface() {
   local file="$1"
   local surfaces=""
