@@ -46,7 +46,7 @@ class Caller {
 	}
 }
 
-func TestJavaCallsKeepSourceReceiverWhenFileWideTypeBindingConflicts(t *testing.T) {
+func TestJavaSameNameFieldsResolveInsideTheirOwningClasses(t *testing.T) {
 	src := []byte(`class Alpha { void run() {} }
 class Beta { void run() {} }
 class One {
@@ -59,18 +59,20 @@ class Two {
 }`)
 	root := parseJava(t, src)
 	_, _, _, rels := extractJava(root, src, "Ambiguous.java")
-	seen := 0
+	want := map[int]string{5: "Alpha", 9: "Beta"}
 	for _, rel := range rels {
 		if rel.ToEP.Name != "run" {
 			continue
 		}
-		seen++
-		if rel.ToEP.Receiver != "worker" {
-			t.Fatalf("file-wide conflicting type must preserve source receiver worker, got receiver=%q: %+v", rel.ToEP.Receiver, rel)
+		if receiver, ok := want[rel.Line]; ok {
+			if rel.ToEP.Receiver != receiver {
+				t.Fatalf("line %d receiver=%q, want owning class type %q: %+v", rel.Line, rel.ToEP.Receiver, receiver, rel)
+			}
+			delete(want, rel.Line)
 		}
 	}
-	if seen != 2 {
-		t.Fatalf("run call relation count=%d, want 2", seen)
+	if len(want) != 0 {
+		t.Fatalf("missing class-scoped calls: %+v; relations=%+v", want, rels)
 	}
 }
 
@@ -81,10 +83,16 @@ class Holder {
   void run() { values.size(); }
 }`)
 	root := parseJava(t, src)
-	bindings := javaUniqueReceiverTypeBindings(root, src)
-	if got := bindings["values"]; got != "List" {
-		t.Fatalf("generic binding type=%q, want container List", got)
+	_, _, _, rels := extractJava(root, src, "Holder.java")
+	for _, rel := range rels {
+		if rel.ToEP.Name == "size" {
+			if rel.ToEP.Receiver != "List" {
+				t.Fatalf("generic binding receiver=%q, want container List: %+v", rel.ToEP.Receiver, rel)
+			}
+			return
+		}
 	}
+	t.Fatalf("missing values.size call: %+v", rels)
 }
 
 func TestJavaVarDoesNotMintDeclaredReceiverType(t *testing.T) {
@@ -129,13 +137,20 @@ class Caller {
   }
 }`)
 	root := parseJava(t, src)
-	if got := javaUniqueReceiverTypeBindings(root, src)["repo"]; got != "" {
-		t.Fatalf("inferred declaration must revoke file-wide receiver authority, got repo=%q", got)
-	}
 	_, _, _, rels := extractJava(root, src, "Caller.java")
+	want := map[int]string{5: "Worker", 8: "repo"}
 	for _, rel := range rels {
-		if rel.ToEP.Name == "run" && rel.ToEP.Receiver != "repo" {
-			t.Fatalf("shadowed receiver must remain source identity, got %+v", rel)
+		if rel.ToEP.Name != "run" {
+			continue
 		}
+		if receiver, ok := want[rel.Line]; ok {
+			if rel.ToEP.Receiver != receiver {
+				t.Fatalf("line %d receiver=%q, want %q: %+v", rel.Line, rel.ToEP.Receiver, receiver, rel)
+			}
+			delete(want, rel.Line)
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing Java scope calls: %+v; relations=%+v", want, rels)
 	}
 }

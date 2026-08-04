@@ -50,7 +50,7 @@ func extractJava(root *sitter.Node, src []byte, file string) (pkg string, syms [
 		}
 	}
 
-	rels = append(rels, javaExtractCalls(root, src, file, javaUniqueReceiverTypeBindings(root, src))...)
+	rels = append(rels, javaExtractCalls(root, src, file, javaReceiverDeclarations(root, src))...)
 	// framework route → handler resolver (Spring @*Mapping annotations);
 	// gated on the @RestController / @Controller class annotation —
 	// no-op for files without an annotated controller class.
@@ -247,7 +247,7 @@ func javaHasModifier(node *sitter.Node, src []byte, modifier string) bool {
 	return false
 }
 
-func javaExtractCalls(root *sitter.Node, src []byte, file string, receiverTypes map[string]string) []types.Relation {
+func javaExtractCalls(root *sitter.Node, src []byte, file string, receiverDeclarations lexicalReceiverAuthorities) []types.Relation {
 	var rels []types.Relation
 	walkNamedChildren(root, true, func(node *sitter.Node) {
 		if node.Type() != "method_invocation" {
@@ -256,8 +256,10 @@ func javaExtractCalls(root *sitter.Node, src []byte, file string, receiverTypes 
 		nameNode := node.ChildByFieldName("name")
 		if nameNode != nil {
 			receiver := javaInvocationReceiverExpression(node, src)
-			if binding := javaInvocationReceiverBinding(node, src); binding != "" && receiverTypes[binding] != "" {
-				receiver = receiverTypes[binding]
+			if binding := javaInvocationReceiverBinding(node, src); binding != "" {
+				if receiverType, declared := lexicalReceiverTypeAt(node, binding, receiverDeclarations, javaReceiverScopeBoundary); declared && receiverType != "" {
+					receiver = receiverType
+				}
 			}
 			rels = append(rels, types.Relation{
 				Kind:       "call",
@@ -274,60 +276,55 @@ func javaExtractCalls(root *sitter.Node, src []byte, file string, receiverTypes 
 	return rels
 }
 
-// javaUniqueReceiverTypeBindings builds a conservative file-local receiver
-// type census from typed declaration nodes. A binding is published only when
-// every declaration of that identifier in the file names the same type. This
-// deliberately sacrifices some shadowed-variable coverage to avoid assigning
-// a method call to the wrong class without a full Java type checker.
-func javaUniqueReceiverTypeBindings(root *sitter.Node, src []byte) map[string]string {
-	bindings := make(map[string]string)
-	conflicts := make(map[string]bool)
-	add := func(name, typeName string) {
-		name = strings.TrimSpace(name)
-		typeName = strings.TrimSpace(typeName)
-		if name == "" || conflicts[name] {
-			return
-		}
-		// A declaration whose type is unavailable (most notably Java `var`)
-		// still shadows every same-named declaration in this conservative
-		// file census. Silently skipping it would let an unrelated explicit
-		// declaration lend its type identity to the inferred local.
-		if typeName == "" {
-			delete(bindings, name)
-			conflicts[name] = true
-			return
-		}
-		if have := bindings[name]; have != "" && have != typeName {
-			delete(bindings, name)
-			conflicts[name] = true
-			return
-		}
-		bindings[name] = typeName
-	}
+// javaReceiverDeclarations keeps declaration identity in its lexical owner.
+// Fields are class-wide; parameters are callable-wide; locals become active
+// at their declaration byte. Java `var` is exact shadowing evidence but never
+// a concrete type identity.
+func javaReceiverDeclarations(root *sitter.Node, src []byte) lexicalReceiverAuthorities {
+	authorities := make(lexicalReceiverAuthorities)
 	walkNamedChildren(root, true, func(node *sitter.Node) {
 		switch node.Type() {
 		case "field_declaration", "local_variable_declaration":
 			typeName := javaDeclaredTypeName(node.ChildByFieldName("type"), src)
+			scope := lexicalReceiverBindingScope(node, root, javaReceiverScopeBoundary)
+			scopeWide := node.Type() == "field_declaration"
 			for i := 0; i < int(node.NamedChildCount()); i++ {
 				decl := node.NamedChild(i)
 				if decl.Type() != "variable_declarator" {
 					continue
 				}
 				if name := decl.ChildByFieldName("name"); name != nil {
-					add(nodeText(name, src), typeName)
+					addScopedReceiverAuthority(authorities, scope, node, nodeText(name, src), typeName, scopeWide)
 				}
 			}
 		case "formal_parameter", "spread_parameter", "catch_formal_parameter", "resource":
 			if name := node.ChildByFieldName("name"); name != nil {
-				add(nodeText(name, src), javaDeclaredTypeName(node.ChildByFieldName("type"), src))
+				scope := lexicalReceiverBindingScope(node, root, javaReceiverScopeBoundary)
+				scopeWide := node.Type() != "resource"
+				addScopedReceiverAuthority(authorities, scope, node, nodeText(name, src), javaDeclaredTypeName(node.ChildByFieldName("type"), src), scopeWide)
 			}
 		case "enhanced_for_statement":
 			if name := node.ChildByFieldName("name"); name != nil {
-				add(nodeText(name, src), javaDeclaredTypeName(node.ChildByFieldName("type"), src))
+				scope := lexicalReceiverBindingScope(node, root, javaReceiverScopeBoundary)
+				addScopedReceiverAuthority(authorities, scope, node, nodeText(name, src), javaDeclaredTypeName(node.ChildByFieldName("type"), src), true)
 			}
 		}
 	})
-	return bindings
+	return authorities
+}
+
+func javaReceiverScopeBoundary(node *sitter.Node) bool {
+	if node == nil {
+		return false
+	}
+	switch node.Type() {
+	case "block", "method_declaration", "constructor_declaration", "lambda_expression",
+		"catch_clause", "enhanced_for_statement", "try_statement",
+		"class_declaration", "interface_declaration", "enum_declaration", "annotation_type_declaration":
+		return true
+	default:
+		return false
+	}
 }
 
 func javaDeclaredTypeName(node *sitter.Node, src []byte) string {

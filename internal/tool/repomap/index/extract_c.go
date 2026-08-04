@@ -347,6 +347,7 @@ func cDeclaratorName(node *sitter.Node, src []byte) string {
 
 func cExtractCalls(root *sitter.Node, src []byte, file string) []types.Relation {
 	var rels []types.Relation
+	receiverDeclarations := cReceiverDeclarations(root, src)
 	walkNamedChildren(root, true, func(node *sitter.Node) {
 		if node.Type() != "call_expression" {
 			return
@@ -374,7 +375,7 @@ func cExtractCalls(root *sitter.Node, src []byte, file string) []types.Relation 
 					receiver = strings.TrimSpace(nodeText(argument, src))
 				}
 				if binding := cReceiverBinding(receiver); binding != "" {
-					if receiverType := cEnclosingFunctionReceiverType(node, src, binding); receiverType != "" {
+					if receiverType, declared := lexicalReceiverTypeAt(node, binding, receiverDeclarations, cReceiverScopeBoundary); declared && receiverType != "" {
 						receiver = receiverType
 					}
 				}
@@ -411,55 +412,52 @@ func cExtractCalls(root *sitter.Node, src []byte, file string) []types.Relation 
 	return rels
 }
 
-// cEnclosingFunctionReceiverType limits parameter-derived identities to the
-// function that owns the call. C/C++ routinely reuse short parameter/local
-// names across functions; a file-wide census can therefore rewrite an
-// unrelated local receiver to another function's parameter type.
-func cEnclosingFunctionReceiverType(node *sitter.Node, src []byte, binding string) string {
-	for current := node; current != nil; current = current.Parent() {
-		if current.Type() != "function_definition" {
-			continue
-		}
-		declarator := current.ChildByFieldName("declarator")
-		if declarator == nil {
-			return ""
-		}
-		return cUniqueReceiverTypeBindings(declarator, src)[binding]
-	}
-	return ""
-}
-
-func cUniqueReceiverTypeBindings(root *sitter.Node, src []byte) map[string]string {
-	bindings := make(map[string]string)
-	conflicts := make(map[string]bool)
-	add := func(name, typeName string) {
-		name = strings.TrimSpace(name)
-		typeName = strings.TrimSpace(typeName)
-		if name == "" || typeName == "" || conflicts[name] {
-			return
-		}
-		if have := bindings[name]; have != "" && have != typeName {
-			delete(bindings, name)
-			conflicts[name] = true
-			return
-		}
-		bindings[name] = typeName
-	}
+func cReceiverDeclarations(root *sitter.Node, src []byte) lexicalReceiverAuthorities {
+	authorities := make(lexicalReceiverAuthorities)
 	walkNamedChildren(root, true, func(node *sitter.Node) {
-		if node.Type() != "parameter_declaration" {
-			return
-		}
-		declarator := node.ChildByFieldName("declarator")
-		typeNode := node.ChildByFieldName("type")
-		if declarator != nil {
-			typeName := cDeclaredTypeName(typeNode, src)
+		switch node.Type() {
+		case "parameter_declaration", "optional_parameter_declaration":
+			declarator := node.ChildByFieldName("declarator")
+			if declarator != nil {
+				typeName := cDeclaredTypeName(node.ChildByFieldName("type"), src)
+				if typeName == "" {
+					typeName = cDeclaredTypeName(node, src)
+				}
+				scope := lexicalReceiverBindingScope(node, root, cReceiverScopeBoundary)
+				addScopedReceiverAuthority(authorities, scope, node, cDeclaratorName(declarator, src), typeName, true)
+			}
+		case "declaration":
+			scope := lexicalReceiverBindingScope(node, root, cReceiverScopeBoundary)
+			// Only block-local declarations can shadow a parameter. File/class
+			// declarations have no proven object-to-field binding for a call.
+			if scope == nil || scope.Type() != "compound_statement" {
+				return
+			}
+			typeName := cDeclaredTypeName(node.ChildByFieldName("type"), src)
 			if typeName == "" {
 				typeName = cDeclaredTypeName(node, src)
 			}
-			add(cDeclaratorName(declarator, src), typeName)
+			for i := 0; i < int(node.NamedChildCount()); i++ {
+				if name := cDeclaratorName(node.NamedChild(i), src); name != "" {
+					addScopedReceiverAuthority(authorities, scope, node, name, typeName, false)
+				}
+			}
 		}
 	})
-	return bindings
+	return authorities
+}
+
+func cReceiverScopeBoundary(node *sitter.Node) bool {
+	if node == nil {
+		return false
+	}
+	switch node.Type() {
+	case "compound_statement", "for_statement", "if_statement", "switch_statement", "while_statement",
+		"do_statement", "try_statement", "catch_clause", "function_definition", "lambda_expression":
+		return true
+	default:
+		return false
+	}
 }
 
 func cDeclaredTypeName(node *sitter.Node, src []byte) string {

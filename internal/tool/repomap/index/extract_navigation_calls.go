@@ -58,7 +58,7 @@ func navigationReceiverDeclarations(root *sitter.Node, src []byte) lexicalReceiv
 				return
 			}
 			scope := lexicalReceiverBindingScope(node, root, navigationScopeBoundary)
-			addScopedReceiverAuthority(declarations, scope, name, typeName)
+			addScopedReceiverAuthority(declarations, scope, node, name, typeName, navigationScopeWideDeclaration(node, scope))
 		}
 	})
 	return declarations
@@ -69,9 +69,25 @@ func navigationScopeBoundary(node *sitter.Node) bool {
 		return false
 	}
 	switch node.Type() {
-	case "function_declaration", "anonymous_function", "lambda_literal", "closure_expression",
+	case "function_body", "statements", "block", "code_block",
+		"function_declaration", "anonymous_function", "lambda_literal", "closure_expression",
 		"init_declaration", "deinit_declaration", "getter", "setter",
 		"class_declaration", "object_declaration", "companion_object", "protocol_declaration":
+		return true
+	default:
+		return false
+	}
+}
+
+func navigationScopeWideDeclaration(node, scope *sitter.Node) bool {
+	if node == nil || node.Type() != "property_declaration" {
+		return true
+	}
+	if scope == nil || scope.Parent() == nil {
+		return true
+	}
+	switch scope.Type() {
+	case "class_declaration", "object_declaration", "companion_object", "protocol_declaration":
 		return true
 	default:
 		return false

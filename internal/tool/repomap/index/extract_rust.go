@@ -395,7 +395,7 @@ func rustReceiverDeclarations(root *sitter.Node, src []byte) lexicalReceiverAuth
 			}
 			if name != nil {
 				scope := lexicalReceiverBindingScope(node, root, rustReceiverScopeBoundary)
-				addScopedReceiverAuthority(declarations, scope, nodeText(name, src), rustDeclaredTypeName(node.ChildByFieldName("type"), src))
+				addScopedReceiverAuthority(declarations, scope, node, nodeText(name, src), rustDeclaredTypeName(node.ChildByFieldName("type"), src), node.Type() == "parameter")
 			}
 		}
 	})
@@ -407,7 +407,7 @@ func rustReceiverScopeBoundary(node *sitter.Node) bool {
 		return false
 	}
 	switch node.Type() {
-	case "function_item", "closure_expression":
+	case "block", "function_item", "closure_expression":
 		return true
 	default:
 		return false

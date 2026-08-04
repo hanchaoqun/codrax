@@ -114,8 +114,9 @@ type goRouteBinding struct {
 
 // goExtractRoutes is the gin + chi route resolver entry point, hooked
 // at the end of extractGo. Walks each top-level function/method body
-// with its own binding map (goLocalScope binds only params/receivers
-// to types, so prefix tracking needs its own value-binding map).
+// with its own route-value binding map. Receiver type authorities and
+// route-prefix values are separate domains, so prefix composition remains
+// owned by this pass.
 func goExtractRoutes(root *sitter.Node, src []byte, file string, imps []types.Import) ([]types.Symbol, []types.Relation) {
 	st := goRouteImportState(imps)
 	if !st.gin && !st.chi && !st.mux {

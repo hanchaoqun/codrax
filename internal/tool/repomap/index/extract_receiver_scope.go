@@ -21,7 +21,13 @@ type lexicalReceiverAuthority struct {
 	conflicted bool
 }
 
-type lexicalReceiverAuthorities map[lexicalReceiverScopeKey]map[string]lexicalReceiverAuthority
+type lexicalReceiverDeclaration struct {
+	authority lexicalReceiverAuthority
+	startByte uint32
+	scopeWide bool
+}
+
+type lexicalReceiverAuthorities map[lexicalReceiverScopeKey]map[string][]lexicalReceiverDeclaration
 
 func addLexicalReceiverAuthority(byName map[string]lexicalReceiverAuthority, name, typeName string) {
 	name = strings.TrimSpace(name)
@@ -40,14 +46,27 @@ func addLexicalReceiverAuthority(byName map[string]lexicalReceiverAuthority, nam
 	byName[name] = lexicalReceiverAuthority{typeName: typeName}
 }
 
-func addScopedReceiverAuthority(authorities lexicalReceiverAuthorities, scope *sitter.Node, name, typeName string) {
+func addScopedReceiverAuthority(authorities lexicalReceiverAuthorities, scope, declaration *sitter.Node, name, typeName string, scopeWide bool) {
+	name = strings.TrimSpace(name)
+	typeName = strings.TrimSpace(typeName)
+	if name == "" {
+		return
+	}
 	key := lexicalReceiverScopeIdentity(scope)
 	byName := authorities[key]
 	if byName == nil {
-		byName = make(map[string]lexicalReceiverAuthority)
+		byName = make(map[string][]lexicalReceiverDeclaration)
 		authorities[key] = byName
 	}
-	addLexicalReceiverAuthority(byName, name, typeName)
+	startByte := uint32(0)
+	if declaration != nil {
+		startByte = declaration.StartByte()
+	}
+	byName[name] = append(byName[name], lexicalReceiverDeclaration{
+		authority: lexicalReceiverAuthority{typeName: typeName, conflicted: typeName == ""},
+		startByte: startByte,
+		scopeWide: scopeWide,
+	})
 }
 
 func lexicalReceiverTypeAt(node *sitter.Node, binding string, authorities lexicalReceiverAuthorities, isBoundary func(*sitter.Node) bool) (string, bool) {
@@ -59,11 +78,37 @@ func lexicalReceiverTypeAt(node *sitter.Node, binding string, authorities lexica
 		if !isBoundary(current) && current.Parent() != nil {
 			continue
 		}
-		if authority, declared := authorities[lexicalReceiverScopeIdentity(current)][binding]; declared {
-			if authority.conflicted {
+		declarations := authorities[lexicalReceiverScopeIdentity(current)][binding]
+		latestStart := uint32(0)
+		var active []lexicalReceiverAuthority
+		for _, declaration := range declarations {
+			if !declaration.scopeWide && declaration.startByte > node.StartByte() {
+				continue
+			}
+			start := declaration.startByte
+			if declaration.scopeWide {
+				start = 0
+			}
+			if len(active) == 0 || start > latestStart {
+				latestStart = start
+				active = active[:0]
+			}
+			if start == latestStart {
+				active = append(active, declaration.authority)
+			}
+		}
+		if len(active) != 0 {
+			typeName := ""
+			for _, authority := range active {
+				if authority.conflicted || (typeName != "" && typeName != authority.typeName) {
+					return "", true
+				}
+				typeName = authority.typeName
+			}
+			if typeName == "" {
 				return "", true
 			}
-			return authority.typeName, true
+			return typeName, true
 		}
 	}
 	return "", false

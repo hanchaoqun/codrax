@@ -457,7 +457,8 @@ func jsReceiverDeclarations(root *sitter.Node, src []byte) lexicalReceiverAuthor
 			}
 			if name != nil {
 				scope := lexicalReceiverBindingScope(node, root, jsReceiverScopeBoundary)
-				addScopedReceiverAuthority(declarations, scope, nodeText(name, src), jsDeclaredTypeName(node.ChildByFieldName("type"), src))
+				scopeWide := node.Type() != "variable_declarator"
+				addScopedReceiverAuthority(declarations, scope, node, nodeText(name, src), jsDeclaredTypeName(node.ChildByFieldName("type"), src), scopeWide)
 			}
 		}
 	})
@@ -469,7 +470,7 @@ func jsReceiverScopeBoundary(node *sitter.Node) bool {
 		return false
 	}
 	switch node.Type() {
-	case "function_declaration", "generator_function_declaration", "function_expression", "generator_function",
+	case "statement_block", "function_declaration", "generator_function_declaration", "function_expression", "generator_function",
 		"arrow_function", "method_definition", "class_declaration", "class":
 		return true
 	default:

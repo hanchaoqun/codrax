@@ -472,83 +472,82 @@ func goExtractEmbeddings(typeDecl *sitter.Node, src []byte, file string) []types
 }
 
 // goExtractCalls walks the file tree looking for call_expression
-// nodes. It builds a function-scoped local scope — receiver name
-// plus parameter names, each bound to their declared type — so
+// nodes. It builds lexical receiver authorities — receiver/parameter
+// names plus local declarations in their owning block — so
 // that when a selector_expression call's receiver text matches a
 // local binding, the Phase 1 receiver-aware resolver in
 // `computeCallAmbiguity` (and P1.2b's rewritten CallersOf) can
 // attribute the call to a specific type instead of guessing from
 // the bare method name.
 //
-// Walking strategy: iterate top-level function_declaration and
-// method_declaration nodes, derive their local scope, then walk
-// each function's body for call sites using that scope. Calls at
-// package scope (init blocks, top-level var initializers) use an
-// empty scope and contribute only unqualified receivers.
+// Inferred locals are shadowing evidence but never mint a type. This
+// prevents an inner `repo := ...` from borrowing an outer parameter's
+// declared type while preserving exact parameter and explicit-local types.
 func goExtractCalls(root *sitter.Node, src []byte, file string) []types.Relation {
 	var rels []types.Relation
-	for i := 0; i < int(root.NamedChildCount()); i++ {
-		top := root.NamedChild(i)
-		switch top.Type() {
-		case "function_declaration", "method_declaration":
-			scope := goLocalScope(top, src)
-			body := top.ChildByFieldName("body")
-			if body == nil {
-				continue
-			}
-			goWalkCalls(body, src, file, scope, &rels)
-		default:
-			// Top-level var/const initializers can contain calls too.
-			goWalkCalls(top, src, file, nil, &rels)
+	authorities := goReceiverDeclarations(root, src)
+	walkNamedChildren(root, true, func(node *sitter.Node) {
+		if node.Type() == "call_expression" {
+			goEmitCall(node, src, file, authorities, &rels)
 		}
-	}
+	})
 	return rels
 }
 
-// goLocalScope binds every parameter and (for methods) the receiver
-// to its declared type for a single function. Returns a map keyed
-// by identifier name; values are the cleaned type names with
-// pointer/slice/array prefixes stripped. A nil map is returned for
-// functions that take no params and have no receiver.
-func goLocalScope(fnNode *sitter.Node, src []byte) map[string]string {
-	scope := make(map[string]string)
-	// Receiver for methods: field "receiver" → parameter_list →
-	// parameter_declaration whose names bind to the receiver type.
-	if recv := fnNode.ChildByFieldName("receiver"); recv != nil {
-		for j := 0; j < int(recv.NamedChildCount()); j++ {
-			pd := recv.NamedChild(j)
-			if pd.Type() != "parameter_declaration" {
-				continue
+func goReceiverDeclarations(root *sitter.Node, src []byte) lexicalReceiverAuthorities {
+	authorities := make(lexicalReceiverAuthorities)
+	walkNamedChildren(root, true, func(node *sitter.Node) {
+		switch node.Type() {
+		case "parameter_declaration", "variadic_parameter_declaration":
+			scope := lexicalReceiverBindingScope(node, root, goReceiverScopeBoundary)
+			typeName := goCleanTypeName(node.ChildByFieldName("type"), src)
+			for i := 0; i < int(node.NamedChildCount()); i++ {
+				child := node.NamedChild(i)
+				if child.Type() == "identifier" {
+					addScopedReceiverAuthority(authorities, scope, node, nodeText(child, src), typeName, true)
+				}
 			}
-			typeName := goCleanTypeName(pd.ChildByFieldName("type"), src)
-			for k := 0; k < int(pd.NamedChildCount()); k++ {
-				ch := pd.NamedChild(k)
-				if ch.Type() == "identifier" {
-					scope[nodeText(ch, src)] = typeName
+		case "short_var_declaration", "range_clause":
+			if left := node.ChildByFieldName("left"); left != nil {
+				goAddReceiverNames(authorities, lexicalReceiverBindingScope(node, root, goReceiverScopeBoundary), node, left, src, "")
+			}
+		case "var_spec":
+			scope := lexicalReceiverBindingScope(node, root, goReceiverScopeBoundary)
+			typeName := goCleanTypeName(node.ChildByFieldName("type"), src)
+			for i := 0; i < int(node.NamedChildCount()); i++ {
+				child := node.NamedChild(i)
+				if child.Type() == "identifier" {
+					addScopedReceiverAuthority(authorities, scope, node, nodeText(child, src), typeName, false)
 				}
 			}
 		}
+	})
+	return authorities
+}
+
+func goAddReceiverNames(authorities lexicalReceiverAuthorities, scope, declaration, node *sitter.Node, src []byte, typeName string) {
+	if node == nil {
+		return
 	}
-	// Parameters: field "parameters" → parameter_list → parameter_declaration.
-	if params := fnNode.ChildByFieldName("parameters"); params != nil {
-		for j := 0; j < int(params.NamedChildCount()); j++ {
-			pd := params.NamedChild(j)
-			if pd.Type() != "parameter_declaration" && pd.Type() != "variadic_parameter_declaration" {
-				continue
-			}
-			typeName := goCleanTypeName(pd.ChildByFieldName("type"), src)
-			for k := 0; k < int(pd.NamedChildCount()); k++ {
-				ch := pd.NamedChild(k)
-				if ch.Type() == "identifier" {
-					scope[nodeText(ch, src)] = typeName
-				}
-			}
-		}
+	if node.Type() == "identifier" {
+		addScopedReceiverAuthority(authorities, scope, declaration, nodeText(node, src), typeName, false)
+		return
 	}
-	if len(scope) == 0 {
-		return nil
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		goAddReceiverNames(authorities, scope, declaration, node.NamedChild(i), src, typeName)
 	}
-	return scope
+}
+
+func goReceiverScopeBoundary(node *sitter.Node) bool {
+	if node == nil {
+		return false
+	}
+	switch node.Type() {
+	case "block", "function_declaration", "method_declaration", "func_literal":
+		return true
+	default:
+		return false
+	}
 }
 
 // goCleanTypeName strips pointer / slice / array / ellipsis prefixes
@@ -602,20 +601,7 @@ func goCleanTypeName(n *sitter.Node, src []byte) string {
 	return t
 }
 
-// goWalkCalls recursively visits `node`, emitting a types.Relation for
-// every call_expression. Uses the provided local scope to resolve
-// receiver text to a declared type when possible.
-func goWalkCalls(node *sitter.Node, src []byte, file string, scope map[string]string, out *[]types.Relation) {
-	if node.Type() == "call_expression" {
-		goEmitCall(node, src, file, scope, out)
-		// Do NOT return: arguments may contain nested calls.
-	}
-	for i := 0; i < int(node.NamedChildCount()); i++ {
-		goWalkCalls(node.NamedChild(i), src, file, scope, out)
-	}
-}
-
-func goEmitCall(node *sitter.Node, src []byte, file string, scope map[string]string, out *[]types.Relation) {
+func goEmitCall(node *sitter.Node, src []byte, file string, authorities lexicalReceiverAuthorities, out *[]types.Relation) {
 	fn := node.ChildByFieldName("function")
 	if fn == nil {
 		return
@@ -653,9 +639,9 @@ func goEmitCall(node *sitter.Node, src []byte, file string, scope map[string]str
 		// scope, rewrite it to the declared type. This turns
 		// `g.CallersOf()` inside `func (g *types.Graph) M()` into a
 		// receiver of "types.Graph" rather than "g".
-		if scope != nil && !strings.Contains(receiver, ".") {
-			if t, ok := scope[receiver]; ok && t != "" {
-				receiver = t
+		if !strings.Contains(receiver, ".") {
+			if receiverType, declared := lexicalReceiverTypeAt(node, receiver, authorities, goReceiverScopeBoundary); declared && receiverType != "" {
+				receiver = receiverType
 			}
 		}
 		*out = append(*out, types.Relation{

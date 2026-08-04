@@ -1777,3 +1777,49 @@ Cangjie 仍各有独立 file-wide typed census，存在同类跨函数授权风�
 必须保持源码 `repo`。完整 `go test ./internal/tool/repomap/... -count=1` 八包全绿；cache floor pin 同步提升。
 
 状态：`S2-4=closed`；`M5-E2=closed`。`S2-5`（Go/C/C++ 内层 block shadow）仍为下一独立批，未收账。
+
+### §10.14 M5-E3：全静态语言 nested scope + declaration-order 闭环（已交付）
+
+#### S2-5：函数域不是词法域
+
+继续否证 §10.12 的“Go/C/C++ 已按函数域”后，确认参数绑定仍会越过内层 block：Go `repo := ...`、
+C/C++ `Other repo` 均可能被外层 `Worker repo` 参数改写。现三域统一消费 shared lexical authority，但语言
+声明规则仍独立：
+
+- Go parameter/receiver 为 callable-wide；short declaration/range/var_spec 归属最近 block，inferred local
+  只遮蔽、不猜 initializer 类型；
+- C/C++ parameter 为 function-wide；block-local declaration 读取自身 declarator/type，归属 compound/for/
+  if/switch/while/try/catch 最近边界；显式 `Other *repo` 可精确提升为 `Other`，不再退化为源码短名；
+- epoch：Go 6→7，C 4→5，C++ 4→5。
+
+#### S2-6：预编译 scope map 还必须尊重声明起点
+
+冷读 shared carrier 又发现同一 block 合法 shadow 的时间轴风险：Rust 允许先调用参数 `repo`，再
+`let repo: Other`；若只按 scope 聚合，声明前的调用也会被后声明改写。现 authority 条目原生携带
+`declaration.StartByte + scopeWide`：参数/field/class parameter 从 scope 起点生效；local 只在 declaration
+之后生效；同一位置的多声明冲突 fail-closed；查找先选最近 scope，再选该 scope 内已生效的最近声明。
+
+该根修同步覆盖并以真实语法 pin 验证：
+
+- Rust 同一 block 遮蔽前 `Worker`、遮蔽后 `Other`；
+- TypeScript/ArkTS class field + nested statement block；
+- Kotlin class parameter + nested lambda；Swift class property + nested closure；
+- Go、C、C++ 外层参数 + 内层 block；
+- Java 从旧 file-wide sticky conflict 升级到 field/class、parameter/callable、local/block 与 declaration-order
+  权限：两个 class 的同名 field 可分别解析 Alpha/Beta，`var` 只遮蔽其局部作用域且仍不从 initializer 猜类型。
+
+因此 §10.12 的 Java “全文件冲突后保守降级”只是 E1 止血形，现已被精确 scope 形取代。相关新输出再次 bump
+持久化代际：Java 6→7、TypeScript/ArkTS 6→7、Kotlin 6→7、Swift 5→6、Rust 5→6。
+
+#### 全语言权限矩阵收账
+
+- 具备 typed receiver promotion：Go、Java、TypeScript/ArkTS、Kotlin、Swift、Rust、C/C++、Cangjie，均已
+  绑定语言原生 lexical scope；
+- Python、JavaScript、Ruby、Lua 为动态源码 receiver 车道，不从声明猜类型，不存在 typed census 越域；
+- Proto 仅 declarative RPC relation，不存在 executable receiver；
+- 所有 `SupportedReadLanguages()` 均在 call capability matrix，cache floor 覆盖每个持久化语言域。
+
+完整验证：`go test ./internal/tool/repomap/... -count=1` 八包全绿。没有请求/答案关键词 hard gate，没有改变
+Trace 因果投影、自动补齐、read/write 路由或模型结论所有权。
+
+状态：`S2-5=closed`；`S2-6=closed`；receiver authority 全语言安全面 closed；`M5-E3=closed`。

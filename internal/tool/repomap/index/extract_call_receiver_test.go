@@ -114,7 +114,7 @@ void local_call(void) { Other *worker; worker->run(); }
 `)
 	root := parseSourceFor(t, types.LangC, string(src))
 	_, _, _, rels := extractCCpp(root, src, "service.c", types.LangC)
-	want := map[int]string{3: "Worker", 4: "worker"}
+	want := map[int]string{3: "Worker", 4: "Other"}
 	for _, rel := range rels {
 		if rel.Kind != "call" || rel.ToEP.Name != "run" {
 			continue
@@ -283,6 +283,156 @@ func TestStaticReceiverBindingsStayInsideLanguageLexicalScopes(t *testing.T) {
 	}
 }
 
+func TestGoAndCCppReceiverBindingsHonorInnerBlockShadowing(t *testing.T) {
+	tests := []struct {
+		name      string
+		language  string
+		file      string
+		source    string
+		operation string
+		extract   func([]byte, string) []types.Relation
+		want      map[int]string
+	}{
+		{
+			name: "go", language: types.LangGo, file: "service.go", operation: "Run",
+			source: "package demo\ntype Worker struct{}\ntype Other struct{}\nfunc invoke(repo *Worker) {\n  repo.Run()\n  {\n    repo := &Other{}\n    repo.Run()\n  }\n}\n",
+			extract: func(src []byte, file string) []types.Relation {
+				root := parseSourceFor(t, types.LangGo, string(src))
+				_, _, _, rels := extractGo(root, src, file)
+				return rels
+			},
+			want: map[int]string{5: "Worker", 8: "repo"},
+		},
+		{
+			name: "c", language: types.LangC, file: "service.c", operation: "run",
+			source: "typedef struct Worker { void (*run)(void); } Worker;\ntypedef struct Other { void (*run)(void); } Other;\nvoid invoke(Worker *repo) {\n  repo->run();\n  {\n    Other *repo;\n    repo->run();\n  }\n}\n",
+			extract: func(src []byte, file string) []types.Relation {
+				root := parseSourceFor(t, types.LangC, string(src))
+				_, _, _, rels := extractCCpp(root, src, file, types.LangC)
+				return rels
+			},
+			want: map[int]string{4: "Worker", 7: "Other"},
+		},
+		{
+			name: "cpp", language: types.LangCpp, file: "service.cpp", operation: "run",
+			source: "class Worker { public: void run() {} };\nclass Other { public: void run() {} };\nvoid invoke(Worker &repo) {\n  repo.run();\n  {\n    Other repo;\n    repo.run();\n  }\n}\n",
+			extract: func(src []byte, file string) []types.Relation {
+				root := parseSourceFor(t, types.LangCpp, string(src))
+				_, _, _, rels := extractCCpp(root, src, file, types.LangCpp)
+				return rels
+			},
+			want: map[int]string{4: "Worker", 7: "Other"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rels := tc.extract([]byte(tc.source), tc.file)
+			want := make(map[int]string, len(tc.want))
+			for line, receiver := range tc.want {
+				want[line] = receiver
+			}
+			for _, rel := range rels {
+				if rel.Kind != "call" || rel.ToEP.Name != tc.operation {
+					continue
+				}
+				if receiver, ok := want[rel.Line]; ok {
+					if rel.ToEP.Receiver != receiver {
+						t.Fatalf("line %d receiver=%q, want %q: %+v", rel.Line, rel.ToEP.Receiver, receiver, rel)
+					}
+					delete(want, rel.Line)
+				}
+			}
+			if len(want) != 0 {
+				t.Fatalf("missing block-scoped %s calls: %+v; relations=%+v", tc.language, want, rels)
+			}
+		})
+	}
+}
+
+func TestLexicalReceiverAuthorityIsScopeAndDeclarationOrderAware(t *testing.T) {
+	t.Run("rust same-block shadow starts at declaration", func(t *testing.T) {
+		source := "struct Worker {}\nstruct Other {}\nfn invoke(repo: &Worker) {\n  repo.run();\n  let repo: Other = Other {};\n  repo.run();\n}\n"
+		src := []byte(source)
+		root := parseSourceFor(t, types.LangRust, source)
+		_, _, _, rels := extractRust(root, src, "service.rs")
+		want := map[int]string{4: "Worker", 6: "Other"}
+		for _, rel := range rels {
+			if rel.Kind == "call" && rel.ToEP.Name == "run" {
+				if receiver, ok := want[rel.Line]; ok {
+					if rel.ToEP.Receiver != receiver {
+						t.Fatalf("line %d receiver=%q, want %q: %+v", rel.Line, rel.ToEP.Receiver, receiver, rel)
+					}
+					delete(want, rel.Line)
+				}
+			}
+		}
+		if len(want) != 0 {
+			t.Fatalf("missing order-aware Rust calls: %+v; relations=%+v", want, rels)
+		}
+	})
+
+	tests := []struct {
+		name     string
+		language string
+		file     string
+		source   string
+		extract  func([]byte, string) []types.Relation
+		want     map[int]string
+	}{
+		{
+			name: "typescript statement block", language: types.LangTypeScript, file: "service.ts",
+			source: "class Worker { run() {} }\nclass Other { run() {} }\nclass Caller {\n  repo: Worker;\n  invoke() {\n    this.repo.run();\n    { const repo: Other = new Other(); repo.run(); }\n    this.repo.run();\n  }\n}\n",
+			extract: func(src []byte, file string) []types.Relation {
+				root := parseSourceFor(t, types.LangTypeScript, string(src))
+				_, _, _, rels := extractJS(root, src, file, true)
+				return rels
+			},
+			want: map[int]string{6: "Worker", 7: "Other", 8: "Worker"},
+		},
+		{
+			name: "kotlin lambda", language: types.LangKotlin, file: "Service.kt",
+			source: "class Worker { fun run() {} }\nclass Other { fun run() {} }\nclass Caller(val repo: Worker) {\n  fun invoke() {\n    repo.run()\n    val f = { val repo: Other = Other(); repo.run() }\n    repo.run()\n  }\n}\n",
+			extract: func(src []byte, file string) []types.Relation {
+				root := parseSourceFor(t, types.LangKotlin, string(src))
+				return extractNavigationCalls(root, src, file, "kotlin_ast_navigation_call")
+			},
+			want: map[int]string{5: "Worker", 6: "Other", 7: "Worker"},
+		},
+		{
+			name: "swift closure", language: types.LangSwift, file: "Service.swift",
+			source: "class Worker { func run() {} }\nclass Other { func run() {} }\nclass Caller {\n  let repo: Worker\n  func invoke() {\n    self.repo.run()\n    let f = { let repo: Other = Other(); repo.run() }\n    self.repo.run()\n  }\n}\n",
+			extract: func(src []byte, file string) []types.Relation {
+				root := parseSourceFor(t, types.LangSwift, string(src))
+				return extractNavigationCalls(root, src, file, "swift_ast_navigation_call")
+			},
+			want: map[int]string{6: "Worker", 7: "Other", 8: "Worker"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rels := tc.extract([]byte(tc.source), tc.file)
+			want := make(map[int]string, len(tc.want))
+			for line, receiver := range tc.want {
+				want[line] = receiver
+			}
+			for _, rel := range rels {
+				if rel.Kind != "call" || rel.ToEP.Name != "run" {
+					continue
+				}
+				if receiver, ok := want[rel.Line]; ok {
+					if rel.ToEP.Receiver != receiver {
+						t.Fatalf("line %d receiver=%q, want %q: %+v", rel.Line, rel.ToEP.Receiver, receiver, rel)
+					}
+					delete(want, rel.Line)
+				}
+			}
+			if len(want) != 0 {
+				t.Fatalf("missing nested-scope %s calls: %+v; relations=%+v", tc.language, want, rels)
+			}
+		})
+	}
+}
+
 func TestCangjieNamedArgumentDoesNotCorruptParameterBinding(t *testing.T) {
 	src := []byte(`package demo
 class Width { func load(): Unit {} }
@@ -300,11 +450,11 @@ func TestCallReceiverExtractorCacheEpochFloors(t *testing.T) {
 	// extractor lanes. Every affected persisted language domain must reject
 	// pre-change warm caches, including languages sharing one implementation.
 	floors := map[string]int{
-		types.LangJava: 6, types.LangPython: 6,
-		types.LangJavaScript: 5, types.LangTypeScript: 6, types.LangArkTS: 6,
-		types.LangCangjie: 5, types.LangKotlin: 6, types.LangRuby: 4,
-		types.LangSwift: 5, types.LangLua: 5, types.LangRust: 5,
-		types.LangC: 4, types.LangCpp: 4,
+		types.LangJava: 7, types.LangPython: 6,
+		types.LangJavaScript: 5, types.LangTypeScript: 7, types.LangArkTS: 7,
+		types.LangCangjie: 5, types.LangKotlin: 7, types.LangRuby: 4,
+		types.LangSwift: 6, types.LangLua: 5, types.LangRust: 6,
+		types.LangGo: 7, types.LangC: 5, types.LangCpp: 5,
 	}
 	for language, floor := range floors {
 		if got := extractorVersions[language]; got < floor {

@@ -227,21 +227,21 @@ const cacheFileInfosChunkSize = 1024
 // would be cheaper but adds complexity we don't need until scan
 // latency is a real bottleneck.
 var extractorVersions = map[string]int{
-	types.LangGo:         6, // HYG-2 G18 rune-safe sig cut (was 5: batch-2 gorilla/mux routes)
-	types.LangJava:       6, // inferred declarations shadow stale explicit receiver identities
+	types.LangGo:         7, // local block shadowing bounds receiver identity
+	types.LangJava:       7, // nested block and declaration-order receiver authority
 	types.LangPython:     6, // receiver-aware call identities (was 5: HYG-2 rune-safe signatures)
 	types.LangJavaScript: 5, // receiver-aware call identities (was 4: HYG-2 rune-safe signatures)
-	types.LangTypeScript: 6, // typed receiver identities are lexical-scope bounded
-	types.LangArkTS:      6, // typed receiver identities are lexical-scope bounded via extractJS
+	types.LangTypeScript: 7, // nested block and declaration-order receiver authority
+	types.LangArkTS:      7, // nested block and declaration-order receiver authority via extractJS
 	types.LangCangjie:    5, // token receiver identities are brace-scope bounded
-	types.LangKotlin:     6, // navigation receiver identities are lexical-scope bounded
+	types.LangKotlin:     7, // nested lambda/block receiver authority
 	types.LangRuby:       4, // receiver-aware call identities
-	types.LangSwift:      5, // navigation receiver identities are lexical-scope bounded
+	types.LangSwift:      6, // nested closure/block receiver authority
 	types.LangLua:        5, // AST-bounded no-whitespace call-sugar identities
 	types.LangProto:      2,
-	types.LangRust:       5, // typed receiver identities are lexical-scope bounded
-	types.LangC:          4, // call extraction update through extractCCpp
-	types.LangCpp:        4, // receiver-aware call identities through extractCCpp
+	types.LangRust:       6, // block and declaration-order receiver authority
+	types.LangC:          5, // block-local declarations shadow parameter receiver identity
+	types.LangCpp:        5, // block-local declarations shadow parameter receiver identity
 }
 
 type cacheFileInfosManifest struct {
