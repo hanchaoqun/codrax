@@ -769,6 +769,10 @@ func TestRunTestsPassingReplanProbeGuidesNoChangeSentinel(t *testing.T) {
 			t.Fatalf("passing probe guidance missing %q: %s", want, result.Summary)
 		}
 	}
+	probes := mu.PlanStageProbeReports()
+	if len(probes) != 1 || probes[0].PlanID != "plan-applied" {
+		t.Fatalf("planner probe must be stamped with the active plan ID: %+v", probes)
+	}
 }
 
 func TestRunTestsRejectsSuiteWithEmbeddedCLIFlags(t *testing.T) {

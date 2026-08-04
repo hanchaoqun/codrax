@@ -1539,3 +1539,32 @@ model-authored summary 是独立 evidence carriers；兼容计数可单向核对
 
 后续施工冻结：`M5-A=S3-1+S3-2` → `M5-B=S1-1+S5-3+S1-2` → `M5-C=S5-1 typed ordered endpoints` →
 `M5-D=S4-3 裁定实现+S4-4 tripwire` → repomap 中危批。每批独立提交推送；相关 GAP 清完后再恢复严格并行 2 个异构 eval。
+
+### §10.8 M5-A：语言感知定界 lexer + planner probe 代次权限（已交付）
+
+#### M5-S3-1：Rust apostrophe 不再被通用 quote 分支误铸
+
+确认高危反例，修复放在 source lexer 的 typed extension 分支，而不是用户请求、计划 rationale、patch prose 或模型答案的关键词 escape：
+
+- `.rs` 遇到 apostrophe 时先识别 Rust lifetime / label token（`'a`、`'static`、`'_`、`'outer:`）；
+- token 后紧跟 closing apostrophe 时保持 character literal（`'a'`、`'\''`、`b'a'`）语义，继续交给原 quote scanner；
+- identifier 消费支持 Unicode letter/digit/mark，避免只对示例 `'a` 做单字节拟合；
+- Rust raw string、nested comment、普通/byte char 与真正 opening/closing delimiter 的既有顺序不变。
+
+新增真实 `validateNewSourceDelimiterImbalance` 正反 pin：带 lifetime 的合法 Rust edit 必须通过，同一源码追加额外 `}` 仍必须拒绝；另钉 lifetime、loop label、普通 char、escaped apostrophe 共存。审计摘要所称 Kotlin/Swift“同病”需收窄：两者的 interpolation 当前位于被整体跳过的 string carrier 内，表现为保守 fail-open，不会复现 Rust 的合法源码 hard reject；新增 Kotlin `${...}` 与 Swift `\(...)` 合法形 pin，后续若要检查 interpolation 内部失衡，应作为独立 lexer 能力演进，不能借本案放宽/猜解析。
+
+状态：`M5-S3-1=closed`（确定性 false reject 已消除；Kotlin/Swift interpolation 深层解析为独立 fail-open 能力项）。
+
+#### M5-S3-2：冻结权绑定 active PlanID 与 verify-failure generation
+
+确认旧 `latestPlannerProbeReport` 只按 `Channel=planner_probe` 取全 Run 最后一条，陈腐环境探测可获得后续 replan 冻结权。现统一资格为：
+
+1. report `PlanID` 必须等于 `VerifyFailureHandoff.PlanID`，且 active prior plan 若有 ID 也必须同一；
+2. timestamped handoff 只接受 `GeneratedAt >= handoff.GeneratedAt` 的 report，未打时间戳的旧 report 对新 handoff 无权限；
+3. `installRunTestsReport` 在 planner probe 未带 PlanID 时从 active `ChangePlan.ID` 自动盖 typed stamp；
+4. qualification 返回 exact `ProbePlanID + ProbeGeneratedAt`，多文件 protected-path coverage 必须消费同一 report，禁止资格函数与路径函数各自再选一次“latest”；
+5. 双零 timestamp 仅保留 durable legacy carrier 兼容，生产 timestamped handoff 不会降格到此臂。
+
+回归覆盖 failure 前通过的 probe、错误 PlanID probe 均不得冻结；同 plan 且 failure 后的新 probe 才可授权；新的 failing probe 仍会重开 mutation lane；真实 `run_tests(dry_run=true, verification_probe=...)` 自动带 active plan ID。完整相关包验证：`internal/tool` 167.053s、`internal/writeflow` 0.344s、`internal/types` 20.526s，全绿。
+
+状态：`M5-S3-2=closed`。本批没有读取用户/模型 prose，没有改变 read mode、Trace 时间窗因果投影、自动补齐或模型结论所有权。

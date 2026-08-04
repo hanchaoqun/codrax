@@ -2498,6 +2498,11 @@ func installRunTestsReport(ctx *types.BusContext, report *types.ChangeReport, dr
 	}
 	if dryRunProbe {
 		report.Channel = types.ChangeReportChannelPlannerProbe
+		if strings.TrimSpace(report.PlanID) == "" {
+			if plan := ctx.Mutable.ChangePlan(); plan != nil {
+				report.PlanID = strings.TrimSpace(plan.ID)
+			}
+		}
 		ctx.Mutable.AppendPlanStageProbeReport(report)
 		return
 	}

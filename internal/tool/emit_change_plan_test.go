@@ -1765,6 +1765,7 @@ func TestEmitChangePlan_ReplanOldTextMismatchWithPassedProbePointsToTypedProbeSe
 		Attempt: 1,
 	})
 	ctx.Mutable.AppendPlanStageProbeReport(&types.ChangeReport{
+		PlanID:             "plan-applied",
 		Channel:            types.ChangeReportChannelPlannerProbe,
 		Passed:             true,
 		VerificationStatus: types.VerificationStatusPassed,

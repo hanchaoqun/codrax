@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/canonpath"
 	"github.com/hanchaoqun/codrax/internal/tool/width"
@@ -381,7 +383,7 @@ func validatePassingProbeReplanAppliedPathMutation(ctx *types.BusContext, change
 	if len(applied) == 0 {
 		return "", nil
 	}
-	protected := passingProbeProtectedAppliedPathSet(ctx.Mutable.PlanStageProbeReports(), applied)
+	protected := passingProbeProtectedAppliedPathSet(ctx.Mutable.PlanStageProbeReports(), applied, qualification)
 	if len(protected) == 0 {
 		return "", nil
 	}
@@ -436,7 +438,7 @@ func appliedChangePlanPathSet(plan *types.ChangePlan) map[string]struct{} {
 // unambiguous replan target. With multiple applied paths, only exact typed
 // ChangedPathCoverage=covered rows from the latest planner report are
 // protected; absent/ambiguous coverage fails open.
-func passingProbeProtectedAppliedPathSet(reports []*types.ChangeReport, applied map[string]struct{}) map[string]struct{} {
+func passingProbeProtectedAppliedPathSet(reports []*types.ChangeReport, applied map[string]struct{}, qualification writeflow.NoChangeReplanQualification) map[string]struct{} {
 	out := map[string]struct{}{}
 	if len(applied) == 1 {
 		for path := range applied {
@@ -446,7 +448,10 @@ func passingProbeProtectedAppliedPathSet(reports []*types.ChangeReport, applied 
 	}
 	var latest *types.ChangeReport
 	for i := len(reports) - 1; i >= 0; i-- {
-		if reports[i] != nil && reports[i].Channel == types.ChangeReportChannelPlannerProbe {
+		if reports[i] != nil &&
+			reports[i].Channel == types.ChangeReportChannelPlannerProbe &&
+			strings.TrimSpace(reports[i].PlanID) == qualification.ProbePlanID &&
+			reports[i].GeneratedAt.Equal(qualification.ProbeGeneratedAt) {
 			latest = reports[i]
 			break
 		}
@@ -1266,6 +1271,12 @@ func scanSourceDelimiters(source, ext string) sourceDelimiterScan {
 			i, line = end, newLine
 			continue
 		}
+		if ext == ".rs" && c == '\'' {
+			if end, matched := skipRustLifetimeOrLabel(source, i); matched {
+				i = end
+				continue
+			}
+		}
 		if c == '\'' || c == '"' || c == '`' {
 			end, newLine, ok := skipQuotedSource(source, i, line, c, false)
 			if !ok {
@@ -1304,6 +1315,38 @@ func scanSourceDelimiters(source, ext string) sourceDelimiterScan {
 		return sourceDelimiterScan{Certain: true, Balanced: false, Detail: fmt.Sprintf("unclosed %q from line %d", string(top.value), top.line)}
 	}
 	return sourceDelimiterScan{Certain: true, Balanced: true}
+}
+
+// skipRustLifetimeOrLabel recognizes Rust lifetime and loop-label tokens
+// before the language-neutral quote scanner runs. Rust keeps apostrophes in
+// both lifetimes (`'a`, `'static`) and character literals (`'a'`); the latter
+// deliberately falls through to skipQuotedSource. The decision is based only
+// on the typed file extension and lexical token boundaries.
+func skipRustLifetimeOrLabel(source string, start int) (int, bool) {
+	if start < 0 || start >= len(source) || source[start] != '\'' || start+1 >= len(source) {
+		return start, false
+	}
+	i := start + 1
+	r, size := utf8.DecodeRuneInString(source[i:])
+	if r == utf8.RuneError && size == 1 {
+		return start, false
+	}
+	if r != '_' && !unicode.IsLetter(r) {
+		return start, false
+	}
+	i += size
+	for i < len(source) {
+		r, size = utf8.DecodeRuneInString(source[i:])
+		if r != '_' && !unicode.IsLetter(r) && !unicode.IsDigit(r) && !unicode.IsMark(r) {
+			break
+		}
+		i += size
+	}
+	// A closing apostrophe makes this a character literal, not a lifetime.
+	if i < len(source) && source[i] == '\'' {
+		return start, false
+	}
+	return i, true
 }
 
 func matchingOpeningDelimiter(close byte) byte {

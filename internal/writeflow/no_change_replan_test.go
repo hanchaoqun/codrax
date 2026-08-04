@@ -2,9 +2,50 @@ package writeflow
 
 import (
 	"testing"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+func TestQualifyNoChangeReplanSentinelRequiresCurrentPlanAndFailureGeneration(t *testing.T) {
+	handoffAt := time.Now()
+	base := NoChangeReplanQualificationInput{
+		VerifyFailureHandoff: &types.VerifyFailureHandoff{
+			PlanID:      "plan-current",
+			FailureKind: types.FailureKindTestsFailed,
+			GeneratedAt: handoffAt,
+		},
+		PriorPlan:          &types.ChangePlan{ID: "plan-current", AppliedCommitSHA: "abc123"},
+		RequireAppliedWork: true,
+	}
+	passingReport := func(planID string, generatedAt time.Time) *types.ChangeReport {
+		return &types.ChangeReport{
+			PlanID:             planID,
+			Channel:            types.ChangeReportChannelPlannerProbe,
+			VerificationStatus: types.VerificationStatusPassed,
+			Passed:             true,
+			GeneratedAt:        generatedAt,
+			TestResults: []types.TestResult{{
+				AssertionID: "probe",
+				Kind:        types.TestResultKindUnit,
+				Passed:      true,
+			}},
+		}
+	}
+	base.PlannerProbeReports = []*types.ChangeReport{
+		passingReport("plan-current", handoffAt.Add(-time.Millisecond)),
+		passingReport("plan-older", handoffAt.Add(time.Millisecond)),
+	}
+	if q := QualifyNoChangeReplanSentinel(base); q.Allowed || q.ReasonCode != "planner_probe_missing" {
+		t.Fatalf("stale/wrong-plan probes must not qualify: %+v", q)
+	}
+	currentAt := handoffAt.Add(2 * time.Millisecond)
+	base.PlannerProbeReports = append(base.PlannerProbeReports, passingReport("plan-current", currentAt))
+	q := QualifyNoChangeReplanSentinel(base)
+	if !q.Allowed || q.ProbePlanID != "plan-current" || !q.ProbeGeneratedAt.Equal(currentAt) {
+		t.Fatalf("current post-failure probe must qualify exactly: %+v", q)
+	}
+}
 
 func TestQualifyNoChangeReplanSentinelAllowsPassedPlannerProbeForTestFailure(t *testing.T) {
 	q := QualifyNoChangeReplanSentinel(NoChangeReplanQualificationInput{

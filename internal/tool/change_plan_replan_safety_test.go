@@ -5,12 +5,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 func passingProbeAppliedReplanContext(t *testing.T) *types.BusContext {
 	t.Helper()
+	handoffAt := time.Now().Add(-time.Second)
 	ctx := newTestBusCtx()
 	ctx.Mode = types.ModeApply
 	ctx.PipelineStage = types.StagePlan
@@ -31,12 +33,14 @@ func passingProbeAppliedReplanContext(t *testing.T) *types.BusContext {
 		BatchID:     "batch-1",
 		Attempt:     1,
 		FailureKind: types.FailureKindTestsFailed,
+		GeneratedAt: handoffAt,
 	})
 	ctx.Mutable.AppendPlanStageProbeReport(&types.ChangeReport{
 		PlanID:             "plan-applied",
 		Channel:            types.ChangeReportChannelPlannerProbe,
 		Passed:             true,
 		VerificationStatus: types.VerificationStatusPassed,
+		GeneratedAt:        handoffAt.Add(time.Millisecond),
 		TestResults: []types.TestResult{{
 			AssertionID: "search-client-contract",
 			Kind:        types.TestResultKindUnit,
@@ -128,6 +132,7 @@ func TestPassingProbeReplanLatestFailingProbeReopensAppliedPath(t *testing.T) {
 		Channel:            types.ChangeReportChannelPlannerProbe,
 		Passed:             false,
 		VerificationStatus: types.VerificationStatusFailed,
+		GeneratedAt:        time.Now(),
 		FailureKind:        types.FailureKindTestsFailed,
 		TestResults: []types.TestResult{{
 			AssertionID: "distinct-remaining-contract",
@@ -137,6 +142,25 @@ func TestPassingProbeReplanLatestFailingProbeReopensAppliedPath(t *testing.T) {
 	})
 	if rej, _ := validatePassingProbeReplanAppliedPathMutation(ctx, []types.FileChange{{Path: "src/client.ts", Kind: "patch"}}); rej != "" {
 		t.Fatalf("latest failing typed probe must re-open the applied path: %s", rej)
+	}
+}
+
+func TestPassingProbeReplanIgnoresProbeFromBeforeVerifyFailureGeneration(t *testing.T) {
+	ctx := passingProbeAppliedReplanContext(t)
+	handoff := ctx.Mutable.VerifyFailureHandoff()
+	reports := ctx.Mutable.PlanStageProbeReports()
+	reports[len(reports)-1].GeneratedAt = handoff.GeneratedAt.Add(-time.Millisecond)
+	if rej, _ := validatePassingProbeReplanAppliedPathMutation(ctx, []types.FileChange{{Path: "src/client.ts", Kind: "patch"}}); rej != "" {
+		t.Fatalf("a pre-failure probe must not freeze the new replan generation: %s", rej)
+	}
+}
+
+func TestPassingProbeReplanIgnoresProbeForDifferentPlan(t *testing.T) {
+	ctx := passingProbeAppliedReplanContext(t)
+	reports := ctx.Mutable.PlanStageProbeReports()
+	reports[len(reports)-1].PlanID = "plan-older"
+	if rej, _ := validatePassingProbeReplanAppliedPathMutation(ctx, []types.FileChange{{Path: "src/client.ts", Kind: "patch"}}); rej != "" {
+		t.Fatalf("a probe for a different plan must not freeze the active replan: %s", rej)
 	}
 }
 
@@ -214,6 +238,49 @@ func TestSourceDelimiterFallbackIgnoresLiteralsCommentsAndRegex(t *testing.T) {
 	scan := scanSourceDelimiters(original, ".ts")
 	if !scan.Certain || !scan.Balanced {
 		t.Fatalf("valid literals/comments/regex should remain balanced: %+v", scan)
+	}
+}
+
+func TestSourceDelimiterFallbackDistinguishesRustLifetimesLabelsAndChars(t *testing.T) {
+	source := "fn parse<'a>(input: &'a str) -> &'a str {\n" +
+		"  'outer: loop { let c = 'a'; let quote = '\\''; break 'outer; }\n" +
+		"  input\n" +
+		"}\n"
+	scan := scanSourceDelimiters(source, ".rs")
+	if !scan.Certain || !scan.Balanced {
+		t.Fatalf("valid Rust lifetimes, labels, and char literals must remain balanced: %+v", scan)
+	}
+}
+
+func TestSourceDelimiterFallbackKeepsKotlinAndSwiftInterpolationConservative(t *testing.T) {
+	fixtures := map[string]string{
+		".kt":    "fun render(name: String): String { return \"value=${format(name)}\" }\n",
+		".swift": "func render(_ name: String) -> String { return \"value=\\(format(name))\" }\n",
+	}
+	for ext, source := range fixtures {
+		scan := scanSourceDelimiters(source, ext)
+		if !scan.Certain || !scan.Balanced {
+			t.Fatalf("valid %s interpolation must not be rejected: %+v", ext, scan)
+		}
+	}
+}
+
+func TestNewSourceDelimiterImbalanceAcceptsValidRustLifetimeEditButStillRejectsExtraBrace(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "lib.rs")
+	original := "fn parse<'a>(input: &'a str) -> &'a str { input }\n"
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	ctx := newTestBusCtx()
+	ctx.RepoRoot = root
+	valid := "fn parse<'a>(input: &'a str) -> &'a str {\n  let c = 'a';\n  input\n}\n"
+	if rej, _ := validateNewSourceDelimiterImbalance(ctx, []types.FileChange{{Path: "lib.rs", Kind: "modify", NewContent: valid}}); rej != "" {
+		t.Fatalf("valid Rust lifetime edit must not be rejected: %s", rej)
+	}
+	invalid := valid + "}\n"
+	if rej, _ := validateNewSourceDelimiterImbalance(ctx, []types.FileChange{{Path: "lib.rs", Kind: "modify", NewContent: invalid}}); rej == "" {
+		t.Fatal("a real extra Rust brace must remain rejected")
 	}
 }
 

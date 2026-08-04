@@ -2,6 +2,7 @@ package writeflow
 
 import (
 	"strings"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -15,6 +16,10 @@ type NoChangeReplanQualification struct {
 	ReasonCode  string
 	Detail      string
 	ProbePlanID string
+	// ProbeGeneratedAt identifies the exact qualifying report. Consumers that
+	// derive secondary gates (such as protected-path coverage) must not select
+	// a different, stale report with the same PlanID.
+	ProbeGeneratedAt time.Time
 }
 
 type NoChangeReplanQualificationInput struct {
@@ -38,7 +43,7 @@ func QualifyNoChangeReplanSentinel(in NoChangeReplanQualificationInput) NoChange
 	if reason := VerifyFailureRequiresReplacementPatch(handoff); reason != "" {
 		return noChangeReplanDenied(reason, "the previous verify failure is a typed patch-review hard failure and requires a replacement patch, not a no-change probe sentinel")
 	}
-	report := latestPlannerProbeReport(in.PlannerProbeReports)
+	report := latestPlannerProbeReport(in.PlannerProbeReports, handoff, in.PriorPlan)
 	if report == nil {
 		return noChangeReplanDenied("planner_probe_missing", "no typed planner probe report is available")
 	}
@@ -53,10 +58,11 @@ func QualifyNoChangeReplanSentinel(in NoChangeReplanQualificationInput) NoChange
 		return noChangeReplanDenied(weak, "the latest typed planner probe passed but carries warning-level coverage or confidence gaps")
 	}
 	return NoChangeReplanQualification{
-		Allowed:     true,
-		ReasonCode:  "planner_probe_passed_existing_worktree",
-		Detail:      "latest typed planner probe passed against an already-applied worktree",
-		ProbePlanID: strings.TrimSpace(report.PlanID),
+		Allowed:          true,
+		ReasonCode:       "planner_probe_passed_existing_worktree",
+		Detail:           "latest typed planner probe passed against an already-applied worktree",
+		ProbePlanID:      strings.TrimSpace(report.PlanID),
+		ProbeGeneratedAt: report.GeneratedAt,
 	}
 }
 
@@ -181,10 +187,27 @@ func noChangeReplanDenied(code, detail string) NoChangeReplanQualification {
 	}
 }
 
-func latestPlannerProbeReport(reports []*types.ChangeReport) *types.ChangeReport {
+func latestPlannerProbeReport(reports []*types.ChangeReport, handoff *types.VerifyFailureHandoff, priorPlan *types.ChangePlan) *types.ChangeReport {
+	if handoff == nil {
+		return nil
+	}
+	planID := strings.TrimSpace(handoff.PlanID)
+	if priorPlan != nil && strings.TrimSpace(priorPlan.ID) != "" && strings.TrimSpace(priorPlan.ID) != planID {
+		return nil
+	}
 	for i := len(reports) - 1; i >= 0; i-- {
 		report := reports[i]
 		if report == nil || report.Channel != types.ChangeReportChannelPlannerProbe {
+			continue
+		}
+		if strings.TrimSpace(report.PlanID) != planID {
+			continue
+		}
+		// Production reports and handoffs are timestamped. A report from before
+		// this verify-failure generation cannot resolve or freeze its replan.
+		// Both-zero remains compatible with durable legacy fixtures; a timestamped
+		// handoff never grants authority to an unstamped report.
+		if !handoff.GeneratedAt.IsZero() && (report.GeneratedAt.IsZero() || report.GeneratedAt.Before(handoff.GeneratedAt)) {
 			continue
 		}
 		return report
