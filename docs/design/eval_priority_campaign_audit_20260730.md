@@ -14236,3 +14236,61 @@ cancel-listener 一次性告警时序失败，单测与整包立即复跑均绿�
 
 状态更新：`EVAL-B81-DATARESID1=implemented/tests-pass/replay-next`。下一批仍严格并行 2 个：原多文件 witness + 一个
 异构 entity-resolution case，验收值 ledger、receipt、reconcile 与终稿，而不是只验 runner 标签。
+
+## 84. 2026-08-04 B82 r8：entity identity production 闭环；角色交换后的 parent lineage 反写
+
+在 `main@ebbc26bc1` 构建后严格并行原 P0 witness 与异构 entity/join case，runner/human 均 2/2 PASS：
+
+- `data_multifile_reference_projection`：232s，`17,0,5`；contributions 精确恢复为 4 条：GroupA=10+7、GroupB=4、
+  GroupC=5，reconcile 与三键 reference projection 同源；13 rounds、2 repairs、5 prior errors；
+- `data_join_entity_reconcile`：396s，`30`；Alpha 两条 contribution、reconcile pass；13 rounds、2 repairs、8 prior
+  errors。
+
+因此 `EVAL-B81-DATARESID1=production-proven`。主 witness 未再出现 Gamma/unmapped 错接，且显式 reference 终稿闭环。
+异构案最终正确，但过程揭示另一个确定性 hard-contract 错误。
+
+### EVAL-B82-DATALINROLE1（P0/confirmed）：自动 role swap 已生效，parent lineage 却按原输入顺序反写
+
+`normalize_entities` 收到反序的 `input_paths=[canonical_records, items_records]` 后，字段合同正确触发 role swap；其 typed
+children 亲证实际角色：
+
+```text
+items_records#entity_source          source_record_paths=[items_records]
+canonical_records#entity_reference  reference_paths=[canonical_records]
+```
+
+三条 resolution 的 item_id 也都是 `items_records#N:raw_name`，canonical 值来自 canonical_records。但 parent
+`name_resolutions` 最终却写成：
+
+```text
+source_record_paths=[canonical_records]
+reference_paths=[items_records]
+```
+
+随后 `apply_resolution_lineage_contract` 读取错误 parent authority，两次硬拒把该 ledger 应用到真正 source
+`items_records` 及其合法派生 `items_with_amount`，错误消息逐字声称 resolution source lineage 是 canonical_records。模型被迫
+改走 join，额外经历 mapping_candidate 无进展、deferred 丢弃与参数 repair，才在 396s 后完成。
+
+代码根因位于 `runNormalizeEntities` 的 parent lineage 铸造：reference-mode executor 已在字段推断后交换实际 roles 并写入
+typed child，但 `entityResolutionLineageRoles` 又从原 action params/input 顺序独立推断第二次，覆盖了执行事实。这是精确
+hard gate 读取了错误 typed authority，不应通过放宽 lineage compatibility 掩盖。
+
+根修冻结为：
+
+1. parent `SourceRecordPaths/ReferencePaths` 优先从本次 executor 产出的 typed source/reference child 单源汇总；
+2. 只有 children 没有明确角色（例如 explicit inline resolutions）时，才回退 action 显式 source/reference params，再回退
+   input order；
+3. transitive descendant（derive/filter 等）继续由现有 artifact lineage 图证明兼容，不新增相似度、字段名或文件名猜选；
+4. 看护需覆盖反序输入触发 swap 后 parent/child 角色一致、原 source 与 derive descendant 均通过 guard、真正无关 base 仍
+   被现有 hard guard 拒绝。
+
+状态：`EVAL-B81-DATARESID1=production-proven`；`EVAL-B82-DATALINROLE1=confirmed/implementation-next`。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b82_dataresid_r8_20260804.md`；
+- `eval/parallel_selected_summary_evalcampaign_b82_dataresid_r8_20260804_manual_audit.md`；
+- `eval/results/data_multifile_reference_projection-20260804-075237`；
+- `eval/results/data_join_entity_reconcile-20260804-075237`；
+- terminals `.codrax/data-audit/20260804-075620-593018-23468-terminal.json`、
+  `.codrax/data-audit/20260804-075903-367269-23467-terminal.json`。
