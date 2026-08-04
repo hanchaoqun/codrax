@@ -49,6 +49,7 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 		return nil
 	}
 	strictSourceCallChain := view.Family == types.QFCallChain
+	requiredAnchors := view.RequiredMechanismAnchors
 	var out []DiagramCallEdgeEvidenceMismatch
 	var visibleCallEdges []diagramVisibleCallEdge
 	hasStrictCallDiagram := false
@@ -79,7 +80,7 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 				key := diagramEvidenceEdgeKey(edge.From, edge.To)
 				fromSymbol := diagramEvidenceEndpointSymbol(edge.From, labels)
 				toSymbol := diagramEvidenceEndpointSymbol(edge.To, labels)
-				hasTypedCallEvidence := diagramCallEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol, edge.Label)
+				hasTypedCallEvidence := diagramCallEdgeHasTypedEvidence(evidence, requiredAnchors, fromSymbol, toSymbol, edge.Label)
 				// In a sequence diagram Mermaid's dashed -->> operator is a
 				// response/return lane, not a second source-code invocation in
 				// the reverse direction. It therefore needs no call anchor and
@@ -137,7 +138,7 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 			}
 			fromSymbol := diagramEvidenceEndpointSymbol(anchor.FromNode, labels)
 			toSymbol := diagramEvidenceEndpointSymbol(anchor.ToNode, labels)
-			if diagramCallEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol, "") {
+			if diagramCallEdgeHasTypedEvidence(evidence, requiredAnchors, fromSymbol, toSymbol, "") {
 				continue
 			}
 			out = append(out, DiagramCallEdgeEvidenceMismatch{
@@ -153,7 +154,7 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 	if strictSourceCallChain && hasStrictCallDiagram {
 		principalMissing := make(map[string]bool)
 		for _, required := range diagramPrincipalPathCitationCallEvidence(doc, evidence) {
-			if diagramVisibleEdgesContainSpecificCall(visibleCallEdges, evidence, required) {
+			if diagramVisibleEdgesContainSpecificCall(visibleCallEdges, evidence, requiredAnchors, required) {
 				continue
 			}
 			fromSymbol := strings.TrimSpace(required.Subject)
@@ -182,13 +183,13 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 				if fromSymbol == toSymbol || principalMissing[key] {
 					continue
 				}
-				requiredCalls := diagramCallEvidenceForEndpoints(evidence, fromSymbol, toSymbol)
+				requiredCalls := diagramCallEvidenceForEndpoints(evidence, requiredAnchors, fromSymbol, toSymbol)
 				if len(requiredCalls) == 0 {
 					continue
 				}
 				visible := false
 				for _, required := range requiredCalls {
-					if diagramVisibleEdgesContainSpecificCall(visibleCallEdges, evidence, required) {
+					if diagramVisibleEdgesContainSpecificCall(visibleCallEdges, evidence, requiredAnchors, required) {
 						visible = true
 						break
 					}
@@ -216,7 +217,7 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 // records (rather than comparing raw labels) lets class/actor presentations be
 // checked through diagramVisibleEdgesContainSpecificCall without inventing a
 // second alias policy.
-func diagramCallEvidenceForEndpoints(evidence []types.EvidenceItem, fromSymbol, toSymbol string) []types.EvidenceItem {
+func diagramCallEvidenceForEndpoints(evidence []types.EvidenceItem, requiredAnchors []types.AnswerRequiredAnchor, fromSymbol, toSymbol string) []types.EvidenceItem {
 	definitions := make([]types.EvidenceItem, 0, len(evidence))
 	for _, ev := range evidence {
 		if types.ClaimFormOf(ev) == types.ClaimDefinitionFact {
@@ -231,7 +232,7 @@ func diagramCallEvidenceForEndpoints(evidence []types.EvidenceItem, fromSymbol, 
 		proof := make([]types.EvidenceItem, 0, len(definitions)+1)
 		proof = append(proof, ev)
 		proof = append(proof, definitions...)
-		if diagramCallEdgeHasTypedEvidence(proof, fromSymbol, toSymbol, "") {
+		if diagramCallEdgeHasTypedEvidence(proof, requiredAnchors, fromSymbol, toSymbol, "") {
 			out = append(out, ev)
 		}
 	}
@@ -317,7 +318,7 @@ func diagramTypedCallEvidenceKey(ev types.EvidenceItem) string {
 	return diagramEvidenceEdgeKey(fromSymbol, toSymbol)
 }
 
-func diagramVisibleEdgesContainSpecificCall(edges []diagramVisibleCallEdge, evidence []types.EvidenceItem, required types.EvidenceItem) bool {
+func diagramVisibleEdgesContainSpecificCall(edges []diagramVisibleCallEdge, evidence []types.EvidenceItem, requiredAnchors []types.AnswerRequiredAnchor, required types.EvidenceItem) bool {
 	proof := make([]types.EvidenceItem, 0, len(evidence)+1)
 	proof = append(proof, required)
 	for _, ev := range evidence {
@@ -326,7 +327,7 @@ func diagramVisibleEdgesContainSpecificCall(edges []diagramVisibleCallEdge, evid
 		}
 	}
 	for _, edge := range edges {
-		if diagramCallEdgeHasTypedEvidence(proof, edge.fromSymbol, edge.toSymbol, edge.label) {
+		if diagramCallEdgeHasTypedEvidence(proof, requiredAnchors, edge.fromSymbol, edge.toSymbol, edge.label) {
 			return true
 		}
 	}
@@ -547,7 +548,7 @@ func diagramEvidenceLabelSymbol(label string) string {
 	return label
 }
 
-func diagramCallEdgeHasTypedEvidence(evidence []types.EvidenceItem, fromSymbol, toSymbol, edgeLabel string) bool {
+func diagramCallEdgeHasTypedEvidence(evidence []types.EvidenceItem, requiredAnchors []types.AnswerRequiredAnchor, fromSymbol, toSymbol, edgeLabel string) bool {
 	fromSymbol = strings.TrimSpace(fromSymbol)
 	toSymbol = strings.TrimSpace(toSymbol)
 	if fromSymbol == "" || toSymbol == "" {
@@ -570,6 +571,20 @@ func diagramCallEdgeHasTypedEvidence(evidence []types.EvidenceItem, fromSymbol, 
 		if strings.TrimSpace(ev.Object) == toSymbol || strings.TrimSpace(ev.AnchorSymbol) == toSymbol {
 			return true
 		}
+	}
+
+	// A same-language call site can be normalized to short in-file names
+	// (`Run -> RunWith`) while the answer uses the exact user endpoint owner
+	// (`gate.Run -> gate.RunWith`). Preserve that qualified presentation only
+	// when three typed authorities agree: the caller is an exact required
+	// mechanism anchor, the callee's qualified surface occurs verbatim in a
+	// citable call record, and exactly one citable call-site location carries
+	// the corresponding short caller -> short callee direction. This closes an
+	// encoder mismatch without guessing from paths, Mermaid prose, or user text.
+	if diagramCallEdgeHasRequiredQualifiedCaller(
+		evidence, requiredAnchors, fromSymbol, toSymbol,
+	) {
+		return true
 	}
 
 	// A grounded call site can carry the exact callee operation as a short
@@ -615,6 +630,68 @@ func diagramCallEdgeHasTypedEvidence(evidence []types.EvidenceItem, fromSymbol, 
 		candidates[subject+"\x00"+object+"\x00"+anchor] = true
 	}
 	return len(candidates) == 1
+}
+
+func diagramCallEdgeHasRequiredQualifiedCaller(
+	evidence []types.EvidenceItem,
+	requiredAnchors []types.AnswerRequiredAnchor,
+	fromSymbol, toSymbol string,
+) bool {
+	fromOwner := diagramEvidenceQualifiedOwner(fromSymbol)
+	fromOperation := diagramEvidenceQualifiedOperation(fromSymbol)
+	toOperation := diagramEvidenceQualifiedOperation(toSymbol)
+	if fromOwner == "" || fromOperation == "" || toOperation == "" ||
+		!diagramRequiredMechanismAnchorContainsExactSymbol(requiredAnchors, fromSymbol) ||
+		!diagramEvidenceContainsExactCallEndpoint(evidence, toSymbol) {
+		return false
+	}
+
+	locations := make(map[string]bool)
+	for _, ev := range evidence {
+		if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimCallEdge ||
+			strings.TrimSpace(ev.Subject) != fromOperation {
+			continue
+		}
+		object := strings.TrimSpace(ev.Object)
+		anchor := strings.TrimSpace(ev.AnchorSymbol)
+		if object != toOperation && anchor != toOperation {
+			continue
+		}
+		key := strings.TrimSpace(ev.Source) + "\x00" + strconv.Itoa(ev.LineStart) + "\x00" + fromOperation + "\x00" + toOperation
+		locations[key] = true
+	}
+	return len(locations) == 1
+}
+
+func diagramRequiredMechanismAnchorContainsExactSymbol(required []types.AnswerRequiredAnchor, symbol string) bool {
+	symbol = strings.TrimSpace(symbol)
+	if symbol == "" {
+		return false
+	}
+	for _, anchor := range required {
+		if anchor.Kind == types.ContractTermSymbol && strings.TrimSpace(anchor.Text) == symbol {
+			return true
+		}
+	}
+	return false
+}
+
+func diagramEvidenceContainsExactCallEndpoint(evidence []types.EvidenceItem, symbol string) bool {
+	symbol = strings.TrimSpace(symbol)
+	if symbol == "" {
+		return false
+	}
+	for _, ev := range evidence {
+		if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimCallEdge {
+			continue
+		}
+		if strings.TrimSpace(ev.Subject) == symbol ||
+			strings.TrimSpace(ev.Object) == symbol ||
+			strings.TrimSpace(ev.AnchorSymbol) == symbol {
+			return true
+		}
+	}
+	return false
 }
 
 func diagramCallEdgeHasUniqueDefinitionBackedCallee(evidence []types.EvidenceItem, fromSymbol, toSymbol string) bool {

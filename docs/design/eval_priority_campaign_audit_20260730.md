@@ -12484,3 +12484,77 @@ Cangjie 清单答案正确：声明级 package 分别来自 `demo.bridge`、`dem
 - `eval/parallel_selected_summary_evalcampaign_b58_callcangjie_r6_20260803.md`；
 - `eval/parallel_selected_summary_evalcampaign_b58_callcangjie_r6_20260803_manual_audit.md`；
 - result dirs：`eval/results/*-20260803-202843`。
+
+## 60. 2026-08-03 B59 r7：调用边短名/限定名同源权威与 ArkTS 清单守护
+
+在 `main@b2b2e47d1` 重建后严格并行 2 例：
+
+- `qf_sequence_analyzer_gate`：runner/human FAIL，418s，Explorer 27 轮/4 dispatch，completion 7 次，
+  finalizer reject=6，runner 失败原因为 `degraded_answer_checks_skipped:1`；
+- `arkts_repomap`：runner/human PASS，126s，4 个 `@Entry` 与 2 个 `@Builder` typed row 全部命中，finalizer
+  reject=0。
+
+### B59 replay：CALLBOUND1 生效，但暴露下一层编码不等价
+
+词界修复已生效：Analyzer 虽仍把派生上下文 `AnalysisIR` 留在宽泛 `Entities/PrimaryEntities` 供导航，但它不再
+从 `buildAnalysisIR` 的词尾取得 `MentionedEntities`/端点权限；directed-path 合同按真实双端点
+`buildAnalysisIR -> gate.Run` 启用。Explorer 最终正确接受模型声明的 typed
+`principal_span_waiver=no_directed_path`，并把结论冻结为：
+
+- 最近已证请求方向止于 `buildAnalysisIR -> gate.RunWith`（analyzer.go:2666）；
+- `gate.Run -> RunWith`（gate.go:135）是另一个真实、**反向** wrapper 关系；
+- 禁止把 `gate.Run` 定义或 `RunWith` sibling 铸成 `buildAnalysisIR -> gate.Run` 的静态路径。
+
+因此 r7 不再是 Explorer 猜错终点；runner 的 degraded 闸也正确阻止弱 answer regex 把失败答案签绿。
+
+### EVAL-B60-DIAGQUAL1（P0/red-line）：同一 typed call edge 在短名与限定名编码间被连续拒绝
+
+成文输入已经同时携带：
+
+- citable call edge：`Run -> RunWith @ internal/analysis/gate/gate.go:135`；
+- typed 用户端点：`gate.Run`（`RequiredMechanismAnchors`）；
+- citable 限定 callee：`buildAnalysisIR -> gate.RunWith @ analyzer.go:2666`；
+- 模型图：`participant Run as gate.Run`、`participant RunWith as gate.RunWith`，边方向仍为
+  `Run -> RunWith`。
+
+旧 diagram evidence resolver 只实现了“短 callee + 唯一定义 -> 限定 callee”的桥，caller 必须字节相等。
+于是同一真实边在 Explorer 图中是 `Run -> RunWith`，在 Finalizer 图中是
+`gate.Run -> gate.RunWith` 时被判 `call_edge_unproven`；principal completeness 又依据模型已选的 `gate.Run`
+与 `gate.RunWith` 要求这条真实边必须可见。模型删除边会收到 `principal_call_edge_missing`，加回边又收到
+`call_edge_unproven`，连续 6 次后降级出厂。从模型视角这是不可满足合同；从代码根因看并非两个语义规则冲突，
+而是**同一精确事实的两种 typed 编码缺少同源等价桥**。
+
+本批按语言无关 identity authority 修复：限定 caller 只在以下三项同时成立时可投影到短 call edge：
+
+1. 限定 caller 字节等于 `AnswerSemanticView.RequiredMechanismAnchors` 中的 typed symbol（用户端点权限）；
+2. 限定 callee 字节已出现在另一条 citable typed call record 的 Subject/Object/AnchorSymbol 中（不是图标签自证）；
+3. 短 caller→callee 在 accepted evidence 中只有一个 `source + line + direction` call-site；同一短名出现在多个
+   位置时继续 fail-closed。
+
+该桥不读取 raw request、Mermaid message prose、thinking/final 或路径推断，不接受 prefix/sibling，不从定义生成
+调用边；它只让已有 call edge 的 caller/callee presentation 与 typed endpoint owner 对齐。反例钉住：去掉
+required caller authority 必须拒绝；增加第二个同短名 call-site 必须拒绝。所有 Go/Python/Java/ArkTS/Cangjie
+等源码调用图共用此 resolver，不含语言特判。
+
+状态：`EVAL-B60-DIAGQUAL1 = implemented / full-tool-pass / replay-next`；验证
+`go test ./internal/tool -count=1` 全绿（175.352s）。本批不进入 `QFRootCauseTrace`，不改 Trace 时间窗、
+因果投影、系统补采或系统生成块，也不修改/替换模型正文。
+
+### ArkTS 守护与剩余 churn 观察
+
+ArkTS 最终答案完整且准确：`Index`、`ParentComponent`、`StyledPage`、`ListPage` 四个
+`@Entry + @Component` struct，以及 `defaultHeader`、`GlobalCard` 两个 `@Builder` 函数，文件/行号均与 typed
+rowset 一致；`EntryAbility` 因无 `@Entry` 被正确排除。零成文拒绝，未复现 Cangjie class+extend 同名复合身份
+问题，因此 `EVAL-B59-INVROW1` 保持 open，等待重载/跨 package 同名异构 fixture，不能凭单一 Cangjie 形硬修。
+
+另登记 `EVAL-B60-CLOSURECHURN1`（P1/open）：调用链 Explorer 在正确识别无向路径前，先经历 member_set
+`value=7/members=8` 一次硬拒绝；修正为 8 后，虽然提交了 8 条 positional support refs，decorated member
+`analyzerEvaluator.ParseOutput (caller)` 仍触发一次 DOWNGRADED 和已读跨度补读。下一批需核对“positional
+support refs 可接受”的提示与归一化后的实际判据是否同源；若不一致则属于另一个可满足性 gap，不能靠禁止模型
+写括注来拟合。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b59_callarkts_r7_20260803.md`；
+- `eval/parallel_selected_summary_evalcampaign_b59_callarkts_r7_20260803_manual_audit.md`；
+- result dirs：`eval/results/*-20260803-204831`。

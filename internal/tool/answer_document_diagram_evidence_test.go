@@ -204,6 +204,50 @@ func TestDiagramCallEdgeEvidenceMismatches_ExactCalleeAnchorSymbolAuthorizesShor
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_RequiredQualifiedCallerBridgesUniqueShortCall(t *testing.T) {
+	doc := diagramEvidenceTestDoc("A", "B")
+	doc.Blocks[0].Diagram.Body = "sequenceDiagram\n" +
+		"  participant A as gate.Run\n" +
+		"  participant B as gate.RunWith\n" +
+		"  A->>B: calls RunWith\n"
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{
+		ID: "hops", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+		FacetIDs: []string{string(types.FacetPrincipalPathEdge)},
+		ClaimUses: []types.RenderedClaimUse{{
+			ClaimForm: types.ClaimCallEdge, FacetID: string(types.FacetPrincipalPathEdge),
+		}},
+		Items: []types.AnswerBlockItem{{ID: "h1", Label: "gate.Run"}, {ID: "h2", Label: "gate.RunWith"}},
+	})
+	shortCall := diagramEvidenceTestCall("Run", "RunWith")
+	shortCall.Source = "internal/analysis/gate/gate.go"
+	shortCall.LineStart = 135
+	qualifiedCallee := diagramEvidenceTestCall("buildAnalysisIR", "gate.RunWith")
+	qualifiedCallee.Source = "internal/agent/analyzer.go"
+	qualifiedCallee.LineStart = 2666
+	view := &types.AnswerSemanticView{
+		Family: types.QFCallChain,
+		RequiredMechanismAnchors: []types.AnswerRequiredAnchor{{
+			Text: "gate.Run", Kind: types.ContractTermSymbol,
+		}},
+	}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{shortCall, qualifiedCallee}); len(got) != 0 {
+		t.Fatalf("typed required caller plus unique short call and exact callee should preserve qualification: %+v", got)
+	}
+
+	view.RequiredMechanismAnchors = nil
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{shortCall, qualifiedCallee}); len(got) != 1 || got[0].Issue != diagramCallEdgeIssueNoEvidence {
+		t.Fatalf("model-authored qualification must fail without typed caller authority: %+v", got)
+	}
+
+	view.RequiredMechanismAnchors = []types.AnswerRequiredAnchor{{Text: "gate.Run", Kind: types.ContractTermSymbol}}
+	ambiguous := shortCall
+	ambiguous.Source = "other/gate.go"
+	ambiguous.LineStart = 42
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{shortCall, ambiguous, qualifiedCallee}); len(got) != 1 || got[0].Issue != diagramCallEdgeIssueNoEvidence {
+		t.Fatalf("multiple short call-site locations must remain ambiguous: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_QualifiedCalleeResolvesFromUniqueTypedDefinition(t *testing.T) {
 	doc := diagramEvidenceTestDoc("A", "B")
 	doc.Blocks[0].Diagram.Body = "sequenceDiagram\n" +
