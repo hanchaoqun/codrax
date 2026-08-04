@@ -49,18 +49,19 @@ type EmitAnalysis struct {
 }
 
 type emitAnalysisParams struct {
-	Intent            string                  `json:"intent"`
-	Scenario          string                  `json:"scenario"`
-	Complexity        string                  `json:"complexity"`
-	Keywords          []string                `json:"keywords"`
-	Entities          []string                `json:"entities"`
-	QuestionKind      string                  `json:"question_kind"`
-	Language          string                  `json:"language,omitempty"`
-	SubTopics         []emitAnalysisSubTopic  `json:"sub_topics,omitempty"`
-	AnswerSubject     *emitAnswerSubjectParam `json:"answer_subject,omitempty"`
-	ExactTargets      []string                `json:"exact_targets,omitempty"`
-	ExactContextTerms []string                `json:"exact_context_terms,omitempty"`
-	ExactContextRoles []string                `json:"exact_context_roles,omitempty"`
+	Intent             string                          `json:"intent"`
+	Scenario           string                          `json:"scenario"`
+	Complexity         string                          `json:"complexity"`
+	Keywords           []string                        `json:"keywords"`
+	Entities           []string                        `json:"entities"`
+	QuestionKind       string                          `json:"question_kind"`
+	Language           string                          `json:"language,omitempty"`
+	SubTopics          []emitAnalysisSubTopic          `json:"sub_topics,omitempty"`
+	AnswerSubject      *emitAnswerSubjectParam         `json:"answer_subject,omitempty"`
+	ExactTargets       []string                        `json:"exact_targets,omitempty"`
+	ExactContextTerms  []string                        `json:"exact_context_terms,omitempty"`
+	ExactContextRoles  []string                        `json:"exact_context_roles,omitempty"`
+	CallChainEndpoints *types.CallChainEndpointProfile `json:"call_chain_endpoints"`
 
 	// Schema v4 — confidence + alternatives + LLM semantic predicates +
 	// LLM-emitted predicate axis. These replace the historical prose-cue
@@ -469,6 +470,16 @@ func buildEmitAnalysisSchema() {
 				"type":        "array",
 				"description": "Optional exact user-asked targets, copied verbatim from the current request text. Use when the request mentions neighboring context items but asks about one specific key/path/symbol/literal. For a source-code call_chain with more than two symbol-like entities, this field is required and must contain the caller/source and callee/sink (intermediate/context symbols stay in entities). Every item must be explicitly present in the current request text before later steps use it.",
 				"items":       map[string]string{"type": "string"},
+			},
+			"call_chain_endpoints": map[string]any{
+				"type":        "object",
+				"description": "Ordered source-code call-chain endpoints. For question_kind=call_chain with predicate_axis=call, set source to the caller/start endpoint and sink to the callee/destination endpoint exactly as named by the current request. This is the ONLY field whose endpoint order is directional; entities and exact_targets remain unordered identity sets. For all other shapes emit source=\"\" and sink=\"\".",
+				"properties": map[string]any{
+					"source": map[string]string{"type": "string", "description": "Caller/start endpoint copied from a current-request entity; empty when not applicable."},
+					"sink":   map[string]string{"type": "string", "description": "Callee/destination endpoint copied from a current-request entity; empty when not applicable."},
+				},
+				"required":             []string{"source", "sink"},
+				"additionalProperties": false,
 			},
 			"exact_context_terms": map[string]any{
 				"type":        "array",
@@ -885,7 +896,7 @@ func buildEmitAnalysisSchema() {
 			"intent", "scenario", "complexity", "keywords", "entities", "question_kind",
 			"intent_confidence", "complexity_confidence", "kind_confidence",
 			"predicates", "diagnostic_profile", "answer_role_profile", "error_granularity_profile",
-			"runtime_artifact_scope_profile", "runtime_target_profile", "runtime_question_profile", "history_selection_profile",
+			"runtime_artifact_scope_profile", "runtime_target_profile", "runtime_question_profile", "history_selection_profile", "call_chain_endpoints",
 		},
 	}
 
@@ -1206,6 +1217,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		"diagram_hint",
 		"enumeration_boundary",
 		"completeness_obligation",
+		"call_chain_endpoints",
 	)
 	var compatWarnings []string
 	if repaired, warnings, ok := repairEmitAnalysisIrrelevantFilePathObjects(params); ok {
@@ -1747,6 +1759,19 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		val.Warnings = append(val.Warnings, warning)
 	}
 	mentionedEntities := types.MentionedEntitiesFromRawRequest(raw, entities)
+	callChainEndpointProfile, callChainEndpointWarning := types.NormalizeCallChainEndpointProfile(
+		p.CallChainEndpoints,
+		append(append([]string(nil), exactTargets...), mentionedEntities...),
+	)
+	if types.NormalizeRequirementKind(kind) != types.ReqCallChain || axis != types.AxisCall || runtimeArtifactCarrier {
+		if callChainEndpointProfile != nil {
+			callChainEndpointWarning = "dropped call_chain_endpoints outside a source-code call_chain with predicate_axis=call"
+		}
+		callChainEndpointProfile = nil
+	}
+	if callChainEndpointWarning != "" {
+		val.Warnings = append(val.Warnings, callChainEndpointWarning)
+	}
 	if issue := validateSourceCallChainEndpointDeclaration(
 		kind,
 		axis,
@@ -1851,6 +1876,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		SourceScopeProfile:              sourceScopeProfile,
 		AnswerVisibilityProfile:         answerVisibilityProfile,
 		SourceInventoryProfile:          sourceInventoryProfile,
+		CallChainEndpointProfile:        callChainEndpointProfile,
 		ChangeImpactProfile:             changeImpactProfile,
 		FieldValueProfile:               fieldValueProfile,
 		RuntimeArtifactValueProfile:     runtimeArtifactValueProfile,

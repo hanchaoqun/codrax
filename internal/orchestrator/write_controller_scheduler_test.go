@@ -9387,10 +9387,15 @@ func TestRunWriteControllerWorkflow_ReplanProbePassRestoresAppliedPlanForVerify(
 				})
 				return &agent.StageOutput{}, nil
 			}
+			handoff := mu.VerifyFailureHandoff()
+			if handoff == nil || handoff.PlanID != "plan-1" || handoff.GeneratedAt.IsZero() {
+				t.Fatalf("replan probe must follow a typed verify-failure handoff: %+v", handoff)
+			}
 			mu.AppendPlanStageProbeReport(&types.ChangeReport{
-				PlanID:  "plan-1",
-				Channel: types.ChangeReportChannelPlannerProbe,
-				Passed:  true,
+				PlanID:      "plan-1",
+				Channel:     types.ChangeReportChannelPlannerProbe,
+				Passed:      true,
+				GeneratedAt: handoff.GeneratedAt.Add(time.Nanosecond),
 				TestResults: []types.TestResult{{
 					AssertionID: "make-test",
 					Kind:        types.TestResultKindUnit,

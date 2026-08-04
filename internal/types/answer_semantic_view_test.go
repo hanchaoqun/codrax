@@ -56,8 +56,9 @@ func TestBuildAnswerSemanticView_NilInputReturnsNil(t *testing.T) {
 
 func TestCompileCallChainEndpointBoundary_UsesTypedNoDirectedPathOnly(t *testing.T) {
 	rm := RequestModel{
-		Intent:        IntentTrace,
-		PredicateAxis: AxisCall,
+		Intent:                   IntentTrace,
+		PredicateAxis:            AxisCall,
+		CallChainEndpointProfile: &CallChainEndpointProfile{Source: "buildAnalysisIR", Sink: "gate.Run"},
 		AnalyzerHints: AnalyzerHints{
 			Kind:         string(ReqCallChain),
 			ExactTargets: []string{"buildAnalysisIR", "gate.Run"},
@@ -82,7 +83,7 @@ func TestCompileCallChainEndpointBoundary_UsesTypedNoDirectedPathOnly(t *testing
 		t.Fatalf("an adjacency/span waiver must not become a missing-path boundary: %+v", got)
 	}
 	withoutEndpoints := rm
-	withoutEndpoints.AnalyzerHints.ExactTargets = []string{"buildAnalysisIR"}
+	withoutEndpoints.CallChainEndpointProfile = nil
 	if got := CompileCallChainEndpointBoundary(withoutEndpoints, waiver); got != nil {
 		t.Fatalf("a single endpoint cannot compile a source/sink boundary: %+v", got)
 	}
@@ -91,8 +92,9 @@ func TestCompileCallChainEndpointBoundary_UsesTypedNoDirectedPathOnly(t *testing
 func TestBuildAnswerSemanticViewForAgentContext_RefreshesTypedCallChainBoundary(t *testing.T) {
 	mut := NewMutableState("call chain endpoint boundary")
 	ir := &AnalysisIR{RequestModel: RequestModel{
-		Intent:        IntentTrace,
-		PredicateAxis: AxisCall,
+		Intent:                   IntentTrace,
+		PredicateAxis:            AxisCall,
+		CallChainEndpointProfile: &CallChainEndpointProfile{Source: "Source.run", Sink: "Sink.run"},
 		AnalyzerHints: AnalyzerHints{
 			Kind:         string(ReqCallChain),
 			ExactTargets: []string{"Source.run", "Sink.run"},

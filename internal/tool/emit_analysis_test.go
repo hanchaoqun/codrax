@@ -798,7 +798,7 @@ func TestEmitAnalysis_SourceCallChainAmbiguousEntitiesRequireExactEndpointPair(t
 
 	withExact := strings.Replace(base,
 		`"question_kind": "call_chain",`,
-		`"question_kind": "call_chain", "exact_targets": ["buildAnalysisIR", "gate.Run"],`,
+		`"question_kind": "call_chain", "exact_targets": ["buildAnalysisIR", "gate.Run"], "call_chain_endpoints": {"source":"buildAnalysisIR", "sink":"gate.Run"},`,
 		1,
 	)
 	res, mu = runEmitAnalysisWithObjective(t, objective, withExact)
@@ -807,6 +807,38 @@ func TestEmitAnalysis_SourceCallChainAmbiguousEntitiesRequireExactEndpointPair(t
 	}
 	if got := mu.RequestModel().AnalyzerHints.ExactTargets; !reflect.DeepEqual(got, []string{"buildAnalysisIR", "gate.Run"}) {
 		t.Fatalf("persisted exact endpoints=%v", got)
+	}
+	if source, sink, ok := types.CallChainOrderedEndpointHints(*mu.RequestModel()); !ok || source != "buildAnalysisIR" || sink != "gate.Run" {
+		t.Fatalf("persisted ordered endpoints=%q,%q,%t", source, sink, ok)
+	}
+
+	reversed := strings.Replace(withExact,
+		`{"source":"buildAnalysisIR", "sink":"gate.Run"}`,
+		`{"source":"gate.Run", "sink":"buildAnalysisIR"}`,
+		1,
+	)
+	res, mu = runEmitAnalysisWithObjective(t, objective, reversed)
+	if !res.Success || mu.RequestModel() == nil {
+		t.Fatalf("a reverse model-authored direction over the same request identities is valid, got success=%t summary=%q", res.Success, res.Summary)
+	}
+	if source, sink, ok := types.CallChainOrderedEndpointHints(*mu.RequestModel()); !ok || source != "gate.Run" || sink != "buildAnalysisIR" {
+		t.Fatalf("entity/exact-target order must not rewrite typed direction: %q,%q,%t", source, sink, ok)
+	}
+
+	invented := strings.Replace(withExact,
+		`{"source":"buildAnalysisIR", "sink":"gate.Run"}`,
+		`{"source":"buildAnalysisIR", "sink":"Invented.run"}`,
+		1,
+	)
+	res, mu = runEmitAnalysisWithObjective(t, objective, invented)
+	if !res.Success || mu.RequestModel() == nil {
+		t.Fatalf("invalid optional direction carrier must stand down without rejecting the analysis: success=%t summary=%q", res.Success, res.Summary)
+	}
+	if _, _, ok := types.CallChainOrderedEndpointHints(*mu.RequestModel()); ok {
+		t.Fatalf("non-request sink must not survive normalization: %+v", mu.RequestModel().CallChainEndpointProfile)
+	}
+	if !strings.Contains(res.Summary, "source and sink must both come from request-mentioned typed entities") {
+		t.Fatalf("dropped direction carrier must remain auditable: %s", res.Summary)
 	}
 
 	withOneExact := strings.Replace(base,

@@ -1607,3 +1607,47 @@ finalizer Diagram Contract 同步教学：async/lost/activation 都是 visible s
 完整验证：`internal/tool` 168.231s、`internal/agent` 2.654s、`internal/mermaidcompat` 1.312s、`internal/render` 1.659s，全绿。
 
 状态：`M5-S1-2=closed`。`M5-B=closed`；没有系统改写模型答案或新增 prose hard gate。
+
+### §10.10 M5-C：调用链方向权威与歧义候选语义（已交付）
+
+#### M5-S5-1：实体集合不再铸造 source → sink
+
+复核确认高危 finding。`ExactTargets / MentionedEntities / PrimaryEntities / Entities` 的合同只定义身份、
+来源与优先级，从未定义数组顺序是调用方向；旧消费者却在定向可达、principal span、no-directed-path
+边界和 completion note 多处取 `first → last`，所以模型仅仅先提到被调端就会把已证正向图硬判为反向不可达。
+
+本批把方向从身份集合中结构性拆出：
+
+- `RequestModel.CallChainEndpointProfile{source,sink}` 是唯一有序方向载体；`emit_analysis` schema 明确
+  `entities / exact_targets` 均为无序集合，非 source-code call-chain 发空值；
+- 载体只接受已通过 request-proven typed identity lane 的两个不同代码符号，不能由路径、模型推理文本、
+  用户关键词扫描或答案原文补造；无效 optional 载体被审计性丢弃，方向硬门停用而非重试轰炸；
+- reachability、principal-span 窗、no-directed-path typed boundary、completion caveat 四个方向消费者全部改读
+  同一 API；载体缺席时不得回退到实体提及序。身份展示/软导航仍可消费无序集合，但不能获得方向否决权；
+- `AnalysisIRVersion` 升至 `v19`，让缺少新载体的暖缓存失效，避免旧 IR 在新方向合同下静默复用；
+- 正反 pin 固定：同一 identities/exact-targets 即使顺序不变，model-authored `source/sink` 反转也必须原样保留；
+  非 request-proven sink 不得落盘；仅有两个 entity 也不得启动方向 hard gate。
+
+该载体只服务 source-code `ReqCallChain + AxisCall`。Runtime Trace 的唤醒链、显式时间窗因果投影、系统补齐
+与帧因果权限仍走既有 typed Trace 车道，不进入本合同，也没有系统替写模型结论。
+
+状态：`M5-S5-1=closed`。
+
+#### M5-S5-2 / M5-S3-4：歧义不是缺席，候选全集覆盖才可证明
+
+旧 `resolveEndpoint` 遇到两个以上 qualified tail 匹配直接返回 nil，把“短名有多个候选”错误渲染为“端点
+不在图中”；即使每个候选都有同向 typed path 也必拒。现 resolver 返回 `{candidates, ambiguous}`，诊断分离
+`resolved / ambiguous / absent`：
+
+- 唯一 qualified 匹配维持原路径；class/actor owner 聚合维持多语言 participant 语义；
+- start 有歧义时，每个 start candidate 至少参与一条到某个 end candidate 的同向 typed path；end 有歧义时，
+  每个 end candidate 至少被某个 start candidate 同向到达；两侧同时歧义时两项覆盖条件同时成立才通过；
+- 只覆盖部分候选时保持 fail-closed，但披露为“已解析且有未覆盖歧义候选”，不再谎报端点缺席；
+- 候选覆盖完全由 accepted citable `ClaimCallEdge` 图计算，definition、近邻、prefix sibling、label 或 prose
+  都不能铸边。
+
+测试覆盖 15 种当前 executable language surface、短名双侧全覆盖与部分覆盖、先提 sink 的反向顺序、
+no-directed-path 系统补充抑制、principal span/proactive repair 和 semantic-view boundary。完整
+`internal/tool` 回归 159.148s；定向 `internal/types` 21.933s，全绿。
+
+状态：`M5-S5-2=closed`；`M5-S3-4=closed`；`M5-C=closed`。

@@ -841,8 +841,9 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersTypedCallChainEn
 	ctx := &types.AgentContext{
 		Mutable: mut,
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
-			Intent:        types.IntentTrace,
-			PredicateAxis: types.AxisCall,
+			Intent:                   types.IntentTrace,
+			PredicateAxis:            types.AxisCall,
+			CallChainEndpointProfile: &types.CallChainEndpointProfile{Source: "buildAnalysisIR", Sink: "gate.Run"},
 			AnalyzerHints: types.AnalyzerHints{
 				Kind:         string(types.ReqCallChain),
 				ExactTargets: []string{"buildAnalysisIR", "gate.Run"},

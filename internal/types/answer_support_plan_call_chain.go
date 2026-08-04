@@ -463,6 +463,14 @@ func callChainRequestedEndpointHints(rm RequestModel) []string {
 		seen[key] = true
 		out = append(out, raw)
 	}
+	// The ordered profile is also the strongest identity pair. Its order is
+	// preserved here for presentation, while directional hard gates call
+	// CallChainOrderedEndpointHints explicitly.
+	if source, sink, ok := CallChainOrderedEndpointHints(rm); ok {
+		add(source)
+		add(sink)
+		return out
+	}
 	// ExactTargets is the analyzer's strongest endpoint identity carrier.
 	// Prefer it when present so contextual MentionedEntities cannot displace a
 	// model-declared source or sink. Path-like exact targets are discarded by

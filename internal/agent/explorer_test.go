@@ -7402,9 +7402,15 @@ func TestObserveMidLoop_EmitInvestigationCompleteDowngradeKeepsLoopAlive(t *test
 			},
 		})
 		eval := &explorerEvaluator{
-			phase:      1,
-			mutable:    mut,
-			analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{RawRequest: "trace foo to bar", Intent: types.IntentTrace, AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain), MentionedEntities: []string{"foo", "bar"}}}},
+			phase:   1,
+			mutable: mut,
+			analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+				RawRequest:               "trace foo to bar",
+				Intent:                   types.IntentTrace,
+				PredicateAxis:            types.AxisCall,
+				CallChainEndpointProfile: &types.CallChainEndpointProfile{Source: "foo", Sink: "bar"},
+				AnalyzerHints:            types.AnalyzerHints{Kind: string(types.ReqCallChain), MentionedEntities: []string{"foo", "bar"}},
+			}},
 		}
 		results := []types.ToolResult{{
 			ToolName: "emit_evidence",

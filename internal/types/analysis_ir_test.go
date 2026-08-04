@@ -186,13 +186,13 @@ func TestRequestModel_DoesNotExposeLegacyTopLevelEntities(t *testing.T) {
 }
 
 func TestAnalysisIR_VersionConstant(t *testing.T) {
-	// v18 adds history_selection_profile so an ordered VCS request cannot
-	// silently change its principal row after the tool returns.
-	if AnalysisIRVersion != "v18" {
+	// v19 adds an explicit ordered source/sink carrier so entity-list mention
+	// order can never become call-direction authority.
+	if AnalysisIRVersion != "v19" {
 		t.Fatalf("unexpected AnalysisIRVersion: %q", AnalysisIRVersion)
 	}
 	ir := AnalysisIR{Version: AnalysisIRVersion}
-	if ir.Version != "v18" {
+	if ir.Version != "v19" {
 		t.Fatalf("version not propagated: %q", ir.Version)
 	}
 }

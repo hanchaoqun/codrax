@@ -7,10 +7,11 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// A call-chain semantic view currently carries symbol identities, not typed
-// source/sink roles. Pre-emit normalization therefore must not reinterpret two
-// visible anchors as endpoints and replace the model's conclusion. Individual
-// structured edges remain subject to the ordinary typed evidence validators.
+// A call-chain semantic view may carry typed source/sink roles, but those roles
+// only authorize direction checks and endpoint-boundary context. Pre-emit
+// normalization still must not replace the model's conclusion or path.
+// Individual structured edges remain subject to the ordinary typed evidence
+// validators.
 func TestNormalizeAnswerDocumentForPreEmit_CallChainConclusionRemainsModelOwned(t *testing.T) {
 	mu := types.NewMutableState("narrative call-chain model ownership")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
@@ -31,9 +32,10 @@ func TestNormalizeAnswerDocumentForPreEmit_CallChainConclusionRemainsModelOwned(
 		Language: "zh",
 		Mutable:  mu,
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
-			Intent:        types.IntentTrace,
-			PredicateAxis: types.AxisCall,
-			Language:      "zh",
+			Intent:                   types.IntentTrace,
+			PredicateAxis:            types.AxisCall,
+			Language:                 "zh",
+			CallChainEndpointProfile: &types.CallChainEndpointProfile{Source: "VisitController.create", Sink: "AuditLog.record"},
 			Predicates: types.SemanticPredicates{
 				IsRelationalLookup: true,
 			},
@@ -73,7 +75,7 @@ func TestNormalizeAnswerDocumentForPreEmit_CallChainConclusionRemainsModelOwned(
 		t.Fatalf("marshal result: %v", err)
 	}
 	if string(got) != string(want) {
-		t.Fatalf("pre-emit must preserve model-authored call-chain conclusion and path when no typed endpoint-role carrier exists:\n got=%s\nwant=%s", got, want)
+		t.Fatalf("typed endpoint roles must not authorize replacing the model-authored call-chain conclusion or path:\n got=%s\nwant=%s", got, want)
 	}
 	if hints := preCheckAggregateMemberSetCoverage(doc, ctx); len(hints) != 0 {
 		t.Fatalf("relation-only call-chain exploration member_set must not become a hard missing-row obligation: %+v", hints)
@@ -95,9 +97,10 @@ func TestNormalizeAnswerDocumentRowsBeforePersist_NoDirectedPathDoesNotAuthorRea
 		Language: "zh",
 		Mutable:  mu,
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
-			Intent:        types.IntentTrace,
-			PredicateAxis: types.AxisCall,
-			Language:      "zh",
+			Intent:                   types.IntentTrace,
+			PredicateAxis:            types.AxisCall,
+			Language:                 "zh",
+			CallChainEndpointProfile: &types.CallChainEndpointProfile{Source: "buildAnalysisIR", Sink: "gate.Run"},
 			AnalyzerHints: types.AnalyzerHints{
 				Kind:         string(types.ReqCallChain),
 				ExactTargets: []string{"buildAnalysisIR", "gate.Run"},

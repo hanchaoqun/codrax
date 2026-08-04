@@ -2660,7 +2660,9 @@ func TestEmitInvestigationComplete_CallChainRejectsLatePrincipalSpanGap(t *testi
 	bus := &types.BusContext{
 		Mutable: mut,
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
-			Intent: types.IntentTrace,
+			Intent:                   types.IntentTrace,
+			PredicateAxis:            types.AxisCall,
+			CallChainEndpointProfile: &types.CallChainEndpointProfile{Source: "buildAnalysisIR", Sink: "gate.RunWith"},
 			AnalyzerHints: types.AnalyzerHints{
 				Kind:              "call_chain",
 				MentionedEntities: []string{"buildAnalysisIR", "gate.Run", "analyzer.go"},
@@ -2719,7 +2721,9 @@ func TestEmitInvestigationComplete_CallChainAlreadyReadGapAsksForEvidenceMateria
 	bus := &types.BusContext{
 		Mutable: mut,
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
-			Intent: types.IntentTrace,
+			Intent:                   types.IntentTrace,
+			PredicateAxis:            types.AxisCall,
+			CallChainEndpointProfile: &types.CallChainEndpointProfile{Source: "buildAnalysisIR", Sink: "gate.RunWith"},
 			AnalyzerHints: types.AnalyzerHints{
 				Kind:              "call_chain",
 				MentionedEntities: []string{"buildAnalysisIR", "gate.Run"},
@@ -2769,7 +2773,9 @@ func TestEmitInvestigationComplete_CallChainAcceptsLatePrincipalEvidence(t *test
 	bus := &types.BusContext{
 		Mutable: mut,
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
-			Intent: types.IntentTrace,
+			Intent:                   types.IntentTrace,
+			PredicateAxis:            types.AxisCall,
+			CallChainEndpointProfile: &types.CallChainEndpointProfile{Source: "buildAnalysisIR", Sink: "gate.RunWith"},
 			AnalyzerHints: types.AnalyzerHints{
 				Kind:              "call_chain",
 				MentionedEntities: []string{"buildAnalysisIR", "gate.Run", "analyzer.go"},
@@ -3124,7 +3130,9 @@ func TestEmitInvestigationComplete_CallChainRejectsLargeTailGapAfterLateEvidence
 	bus := &types.BusContext{
 		Mutable: mut,
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
-			Intent: types.IntentTrace,
+			Intent:                   types.IntentTrace,
+			PredicateAxis:            types.AxisCall,
+			CallChainEndpointProfile: &types.CallChainEndpointProfile{Source: "buildAnalysisIR", Sink: "gate.RunWith"},
 			AnalyzerHints: types.AnalyzerHints{
 				Kind:              "call_chain",
 				MentionedEntities: []string{"buildAnalysisIR", "gate.Run"},

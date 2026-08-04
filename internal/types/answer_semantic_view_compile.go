@@ -342,22 +342,22 @@ func principalSpanWaiverFromMutable(mutable *MutableState) *PrincipalSpanWaiver 
 }
 
 // CompileCallChainEndpointBoundary turns the model-declared typed waiver into
-// a semantic endpoint disposition. Endpoint names come only from the analyzer's
-// typed exact/entity lanes; the rationale remains an audit trail and cannot
-// become presentation authority.
+// a semantic endpoint disposition. Endpoint direction comes only from the
+// analyzer's dedicated typed source/sink profile; the rationale remains an
+// audit trail and cannot become presentation authority.
 func CompileCallChainEndpointBoundary(rm RequestModel, waiver *PrincipalSpanWaiver) *CallChainEndpointBoundary {
 	if ResolveQuestionFamily(rm) != QFCallChain || waiver == nil || !waiver.IsActive() ||
 		waiver.Reason != PrincipalSpanWaiverNoDirectedPath {
 		return nil
 	}
-	endpoints := CallChainRequestedEndpointHints(rm)
-	if len(endpoints) < 2 {
+	source, sink, ok := CallChainOrderedEndpointHints(rm)
+	if !ok {
 		return nil
 	}
 	boundary := &CallChainEndpointBoundary{
 		Disposition:    CallChainEndpointNoDirectedPath,
-		SourceEndpoint: endpoints[0],
-		RequestedSink:  endpoints[len(endpoints)-1],
+		SourceEndpoint: source,
+		RequestedSink:  sink,
 	}
 	if !boundary.Active() {
 		return nil

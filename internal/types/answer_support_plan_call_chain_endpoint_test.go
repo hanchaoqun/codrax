@@ -26,3 +26,37 @@ func TestCallChainRequestedEndpointHints_PathOnlyExactTargetsFallBackToTypedEnti
 		t.Fatalf("endpoint hints=%v, want typed entity fallback %v", got, want)
 	}
 }
+
+func TestCallChainOrderedEndpointProfileOwnsDirectionAndIdentityPriority(t *testing.T) {
+	rm := RequestModel{
+		CallChainEndpointProfile: &CallChainEndpointProfile{Source: "Source.run", Sink: "Sink.run"},
+		PredicateAxis:            AxisCall,
+		AnalyzerHints: AnalyzerHints{
+			Kind:         string(ReqCallChain),
+			ExactTargets: []string{"Sink.run", "Source.run", "Context.helper"},
+		},
+	}
+	if source, sink, ok := CallChainOrderedEndpointHints(rm); !ok || source != "Source.run" || sink != "Sink.run" {
+		t.Fatalf("ordered endpoints=%q,%q,%t", source, sink, ok)
+	}
+	want := []string{"Source.run", "Sink.run"}
+	if got := CallChainRequestedEndpointHints(rm); !reflect.DeepEqual(got, want) {
+		t.Fatalf("identity hints=%v want ordered profile pair %v", got, want)
+	}
+}
+
+func TestNormalizeCallChainEndpointProfileUsesRequestMentionedTypedSet(t *testing.T) {
+	profile, reason := NormalizeCallChainEndpointProfile(
+		&CallChainEndpointProfile{Source: "Sink.run", Sink: "Source.run"},
+		[]string{"Source.run", "Sink.run"},
+	)
+	if reason != "" || profile == nil || profile.Source != "Sink.run" || profile.Sink != "Source.run" {
+		t.Fatalf("normalization must preserve model-authored direction: profile=%+v reason=%q", profile, reason)
+	}
+	if got, reason := NormalizeCallChainEndpointProfile(
+		&CallChainEndpointProfile{Source: "Source.run", Sink: "Invented.run"},
+		[]string{"Source.run", "Sink.run"},
+	); got != nil || reason == "" {
+		t.Fatalf("non-request endpoint must be dropped: profile=%+v reason=%q", got, reason)
+	}
+}

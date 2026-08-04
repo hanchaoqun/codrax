@@ -16,6 +16,10 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+func orderedCallChainEndpoints(source, sink string) *types.CallChainEndpointProfile {
+	return &types.CallChainEndpointProfile{Source: source, Sink: sink}
+}
+
 func TestCallChainDirectedPathStatus_AllExecutableLanguageSurfaces(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -65,7 +69,27 @@ func TestCallChainDirectedPathStatus_DefinitionAndPrefixSiblingDoNotReachExactSi
 	}
 }
 
-func TestPreCompleteCallChain_TypedTwoEndpointFallbackStillRequiresDirection(t *testing.T) {
+func TestCallChainDirectedPathStatus_AmbiguousShortEndpointsRequireEveryCandidateCovered(t *testing.T) {
+	covered := []types.EvidenceItem{
+		{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "A.Start", Predicate: "calls", Object: "A.Run", Source: "a.go", LineStart: 10, GroundingStatus: types.GroundingGrounded},
+		{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "B.Start", Predicate: "calls", Object: "B.Run", Source: "b.go", LineStart: 10, GroundingStatus: types.GroundingGrounded},
+	}
+	status, _ := callChainDirectedPathStatusForEvidence(covered, "Start", "Run")
+	if !status.StartResolved || !status.EndResolved || !status.StartAmbiguous || !status.EndAmbiguous || len(status.Path) == 0 {
+		t.Fatalf("all ambiguous candidates are covered by typed paths: %+v", status)
+	}
+	partial := append([]types.EvidenceItem(nil), covered[:1]...)
+	partial = append(partial,
+		types.EvidenceItem{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "B.Start", Predicate: "calls", Object: "Dead.end", Source: "b.go", LineStart: 10, GroundingStatus: types.GroundingGrounded},
+		types.EvidenceItem{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "Other.start", Predicate: "calls", Object: "B.Run", Source: "b.go", LineStart: 20, GroundingStatus: types.GroundingGrounded},
+	)
+	status, _ = callChainDirectedPathStatusForEvidence(partial, "Start", "Run")
+	if !status.StartResolved || !status.EndResolved || !status.StartAmbiguous || !status.EndAmbiguous || len(status.Path) != 0 {
+		t.Fatalf("partially covered ambiguity must be represented, not called absent or proven: %+v", status)
+	}
+}
+
+func TestPreCompleteCallChain_UnorderedEntityPairCannotCreateDirection(t *testing.T) {
 	evidence := []types.EvidenceItem{
 		{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "buildAnalysisIR", Predicate: "calls", Object: "gate.RunWith", AnchorSymbol: "gate.RunWith", Source: "internal/agent/analyzer.go", LineStart: 2666, GroundingStatus: types.GroundingGrounded},
 	}
@@ -84,12 +108,20 @@ func TestPreCompleteCallChain_TypedTwoEndpointFallbackStillRequiresDirection(t *
 	if completionExactCallChainEndpointShape(ctx) {
 		t.Fatal("precondition: analyzer intentionally omitted ExactTargets")
 	}
-	if !completionDirectedCallChainEndpointShape(ctx) {
-		t.Fatal("two typed symbol endpoints on AxisCall should activate directed reachability without a redundant relational flag or request prose")
+	if completionDirectedCallChainEndpointShape(ctx) {
+		t.Fatal("two entity identities remain unordered and must not activate a directed hard gate")
 	}
 	got := preCompleteContractCheckWithEvidence(ctx, "", evidence)
+	if strings.Contains(got, "not directionally proven") {
+		t.Fatalf("unordered entity mention order must not drive reachability, got:\n%s", got)
+	}
+	ctx.AnalysisIR.RequestModel.CallChainEndpointProfile = orderedCallChainEndpoints("buildAnalysisIR", "gate.Run")
+	if !completionDirectedCallChainEndpointShape(ctx) {
+		t.Fatal("typed ordered source/sink profile should activate directed reachability")
+	}
+	got = preCompleteContractCheckWithEvidence(ctx, "", evidence)
 	if !strings.Contains(got, "not directionally proven") || !strings.Contains(got, "`buildAnalysisIR` -> `gate.Run`") {
-		t.Fatalf("prefix sibling must not close inferred two-endpoint relation, got:\n%s", got)
+		t.Fatalf("typed ordered endpoint profile must retain exact direction, got:\n%s", got)
 	}
 }
 
@@ -115,9 +147,10 @@ func TestEmitInvestigationComplete_NoDirectedPathWaiverCarriesModelOwnedBoundary
 	})
 	bus := &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{
 		RequestModel: types.RequestModel{
-			Intent:        types.IntentTrace,
-			PredicateAxis: types.AxisCall,
-			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain), ExactTargets: []string{"buildAnalysisIR", "gate.Run"}, MentionedEntities: []string{"buildAnalysisIR", "gate.Run"}},
+			Intent:                   types.IntentTrace,
+			PredicateAxis:            types.AxisCall,
+			CallChainEndpointProfile: orderedCallChainEndpoints("buildAnalysisIR", "gate.Run"),
+			AnalyzerHints:            types.AnalyzerHints{Kind: string(types.ReqCallChain), ExactTargets: []string{"buildAnalysisIR", "gate.Run"}, MentionedEntities: []string{"buildAnalysisIR", "gate.Run"}},
 		},
 	}}
 	params := json.RawMessage(`{"reason":"the exact sink is a reverse wrapper around the reachable sibling","confidence":"high","result_kind":"resolved","principal_span_waiver":{"reason":"no_directed_path","rationale":"gate.Run calls gate.RunWith, while buildAnalysisIR reaches only gate.RunWith"}}`)
@@ -147,9 +180,10 @@ func TestEmitInvestigationComplete_NonBoundaryWaiverCannotBypassMissingDirectedP
 	})
 	bus := &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{
 		RequestModel: types.RequestModel{
-			Intent:        types.IntentTrace,
-			PredicateAxis: types.AxisCall,
-			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain), ExactTargets: []string{"buildAnalysisIR", "gate.Run"}, MentionedEntities: []string{"buildAnalysisIR", "gate.Run"}},
+			Intent:                   types.IntentTrace,
+			PredicateAxis:            types.AxisCall,
+			CallChainEndpointProfile: orderedCallChainEndpoints("buildAnalysisIR", "gate.Run"),
+			AnalyzerHints:            types.AnalyzerHints{Kind: string(types.ReqCallChain), ExactTargets: []string{"buildAnalysisIR", "gate.Run"}, MentionedEntities: []string{"buildAnalysisIR", "gate.Run"}},
 		},
 	}}
 	params := json.RawMessage(`{"reason":"the reachable sibling is adjacent","confidence":"high","result_kind":"resolved","principal_span_waiver":{"reason":"endpoints_directly_adjacent","rationale":"buildAnalysisIR directly invokes gate.RunWith on one statement"}}`)
@@ -330,8 +364,9 @@ func TestPrincipalSpanWaiver_BypassesGate(t *testing.T) {
 			Mutable: mut,
 			AnalysisIR: &types.AnalysisIR{
 				RequestModel: types.RequestModel{
-					RawRequest: "trace foo to bar",
-					Intent:     types.IntentTrace,
+					RawRequest:               "trace foo to bar",
+					Intent:                   types.IntentTrace,
+					CallChainEndpointProfile: orderedCallChainEndpoints("foo", "bar"),
 					AnalyzerHints: types.AnalyzerHints{
 						MentionedEntities: []string{"foo", "bar"},
 					},
@@ -418,8 +453,9 @@ func TestQueueProactiveCallChainClosureRepairs_QueuesPrincipalSpanBeforeCompleti
 		Mutable: mut,
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
-				RawRequest: "trace foo to bar",
-				Intent:     types.IntentTrace,
+				RawRequest:               "trace foo to bar",
+				Intent:                   types.IntentTrace,
+				CallChainEndpointProfile: orderedCallChainEndpoints("foo", "bar"),
 				AnalyzerHints: types.AnalyzerHints{
 					Kind:              string(types.ReqCallChain),
 					MentionedEntities: []string{"foo", "bar"},
@@ -460,8 +496,9 @@ func TestQueueProactiveCallChainClosureRepairs_AlreadyReadSpanQueuesEmitEvidence
 		Mutable: mut,
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
-				RawRequest: "trace foo to bar",
-				Intent:     types.IntentTrace,
+				RawRequest:               "trace foo to bar",
+				Intent:                   types.IntentTrace,
+				CallChainEndpointProfile: orderedCallChainEndpoints("foo", "bar"),
 				AnalyzerHints: types.AnalyzerHints{
 					Kind:              string(types.ReqCallChain),
 					MentionedEntities: []string{"foo", "bar"},
@@ -585,8 +622,9 @@ func TestCallChainQualifiedIntermediateDowngrade_RequiresTypedHandoffForReadQual
 		Mutable: mut,
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
-				RawRequest: "trace buildAnalysisIR to gate.Run",
-				Intent:     types.IntentTrace,
+				RawRequest:               "trace buildAnalysisIR to gate.Run",
+				Intent:                   types.IntentTrace,
+				CallChainEndpointProfile: orderedCallChainEndpoints("buildAnalysisIR", "gate.RunWith"),
 				AnalyzerHints: types.AnalyzerHints{
 					MentionedEntities: []string{"buildAnalysisIR", "gate.RunWith"},
 				},
@@ -651,8 +689,9 @@ func TestCallChainQualifiedIntermediateDowngrade_PassesWhenCandidatesAreTyped(t 
 		Mutable: mut,
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
-				RawRequest: "trace buildAnalysisIR to gate.Run",
-				Intent:     types.IntentTrace,
+				RawRequest:               "trace buildAnalysisIR to gate.Run",
+				Intent:                   types.IntentTrace,
+				CallChainEndpointProfile: orderedCallChainEndpoints("buildAnalysisIR", "gate.RunWith"),
 				AnalyzerHints: types.AnalyzerHints{
 					MentionedEntities: []string{"buildAnalysisIR", "gate.RunWith"},
 				},
@@ -690,8 +729,9 @@ func TestCallChainQualifiedIntermediateDowngrade_DenseCoverageKeepsCandidatesAdv
 		Mutable: mut,
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
-				RawRequest: "trace buildAnalysisIR to gate.Run",
-				Intent:     types.IntentTrace,
+				RawRequest:               "trace buildAnalysisIR to gate.Run",
+				Intent:                   types.IntentTrace,
+				CallChainEndpointProfile: orderedCallChainEndpoints("buildAnalysisIR", "gate.RunWith"),
 				AnalyzerHints: types.AnalyzerHints{
 					MentionedEntities: []string{"buildAnalysisIR", "gate.RunWith"},
 				},
@@ -754,9 +794,10 @@ func TestPreCompleteCallChain_PrincipalAggregateMemberSetCannotBypassDirectedEnd
 			Mutable: mut,
 			AnalysisIR: &types.AnalysisIR{
 				RequestModel: types.RequestModel{
-					RawRequest:    "trace buildAnalysisIR to gate.Run",
-					Intent:        types.IntentTrace,
-					PredicateAxis: types.AxisCall,
+					RawRequest:               "trace buildAnalysisIR to gate.Run",
+					Intent:                   types.IntentTrace,
+					PredicateAxis:            types.AxisCall,
+					CallChainEndpointProfile: orderedCallChainEndpoints("buildAnalysisIR", "gate.Run"),
 					AnalyzerHints: types.AnalyzerHints{
 						Kind:              string(types.ReqCallChain),
 						ExactTargets:      []string{"buildAnalysisIR", "gate.Run"},
@@ -816,8 +857,9 @@ func TestPreCompleteCallChain_PrincipalAggregateMemberSetSkipsOnlySpanAfterDirec
 	ctx := &types.BusContext{
 		Mutable: mut,
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
-			Intent:        types.IntentTrace,
-			PredicateAxis: types.AxisCall,
+			Intent:                   types.IntentTrace,
+			PredicateAxis:            types.AxisCall,
+			CallChainEndpointProfile: orderedCallChainEndpoints("buildAnalysisIR", "gate.Run"),
 			AnalyzerHints: types.AnalyzerHints{
 				Kind:              string(types.ReqCallChain),
 				ExactTargets:      []string{"buildAnalysisIR", "gate.Run"},

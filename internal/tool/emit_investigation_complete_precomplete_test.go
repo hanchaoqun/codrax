@@ -8646,7 +8646,9 @@ func TestApplyMultiPathAnchorChecks_CallChainUnrelatedSymbolDemandIsAdvisory(t *
 		RepoRoot: repoRoot,
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
-				Intent: types.IntentTrace,
+				Intent:                   types.IntentTrace,
+				PredicateAxis:            types.AxisCall,
+				CallChainEndpointProfile: &types.CallChainEndpointProfile{Source: "buildAnalysisIR", Sink: "gate.Run"},
 				AnalyzerHints: types.AnalyzerHints{
 					Kind:              string(types.ReqCallChain),
 					MentionedEntities: []string{"buildAnalysisIR", "gate.Run"},

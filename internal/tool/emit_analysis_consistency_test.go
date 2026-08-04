@@ -80,6 +80,7 @@ func TestEmitAnalysisSchemaMatchesContract(t *testing.T) {
 		"runtime_target_profile":         true,
 		"runtime_question_profile":       true,
 		"history_selection_profile":      true,
+		"call_chain_endpoints":           true,
 	}
 	gotRequired := make(map[string]bool, len(parsed.Required))
 	for _, r := range parsed.Required {
@@ -88,6 +89,41 @@ func TestEmitAnalysisSchemaMatchesContract(t *testing.T) {
 	if !reflect.DeepEqual(gotRequired, wantRequired) {
 		t.Errorf("emit_analysis required-field set drift:\n  schema:   %v\n  expected: %v",
 			parsed.Required, wantRequired)
+	}
+}
+
+func TestEmitAnalysisSchemaDeclaresCallChainEndpointDirectionAsSingleSource(t *testing.T) {
+	var parsed struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal((&EmitAnalysis{}).Parameters(), &parsed); err != nil {
+		t.Fatalf("emit_analysis schema is not valid JSON: %v", err)
+	}
+	raw, ok := parsed.Properties["call_chain_endpoints"]
+	if !ok {
+		t.Fatal("emit_analysis schema is missing call_chain_endpoints")
+	}
+	var prop struct {
+		Description string                     `json:"description"`
+		Properties  map[string]json.RawMessage `json:"properties"`
+		Required    []string                   `json:"required"`
+	}
+	if err := json.Unmarshal(raw, &prop); err != nil {
+		t.Fatalf("call_chain_endpoints schema is invalid: %v", err)
+	}
+	if !slices.Equal(prop.Required, []string{"source", "sink"}) {
+		t.Fatalf("call_chain_endpoints.required=%v", prop.Required)
+	}
+	if _, ok := prop.Properties["source"]; !ok {
+		t.Fatal("call_chain_endpoints is missing source")
+	}
+	if _, ok := prop.Properties["sink"]; !ok {
+		t.Fatal("call_chain_endpoints is missing sink")
+	}
+	for _, want := range []string{"ONLY field", "entities", "exact_targets", "unordered"} {
+		if !strings.Contains(prop.Description, want) {
+			t.Fatalf("call_chain_endpoints description must pin %q: %s", want, prop.Description)
+		}
 	}
 }
 

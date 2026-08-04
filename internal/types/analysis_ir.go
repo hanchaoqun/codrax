@@ -40,7 +40,7 @@ type AnalysisIR struct {
 // AnalysisIRVersion is the current schema version string. Bump on any
 // breaking change to the wire format so downstream consumers can refuse
 // to parse IRs they do not understand.
-const AnalysisIRVersion = "v18"
+const AnalysisIRVersion = "v19"
 
 // ── RequestModel ────────────────────────────────────────────────────────
 
@@ -135,6 +135,11 @@ type RequestModel struct {
 	// should constrain membership. Downstream hard decisions consume only this
 	// profile plus repo-map/AST facts, not raw request text or model prose.
 	SourceInventoryProfile *SourceInventoryProfile `json:"source_inventory_profile,omitempty"`
+
+	// CallChainEndpointProfile is the sole ordered source->sink request
+	// carrier. Analyzer entity/exact-target arrays remain identity sets and
+	// must never be interpreted as directional by downstream hard gates.
+	CallChainEndpointProfile *CallChainEndpointProfile `json:"call_chain_endpoint_profile,omitempty"`
 
 	// ChangeImpactProfile is the analyzer LLM's typed lane for
 	// migration / affected-site questions: "which files/sites would

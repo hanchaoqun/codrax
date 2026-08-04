@@ -2833,10 +2833,9 @@ func appendPrincipalSpanWaiverCompletionNote(ctx *types.BusContext) {
 	}
 	startHint, endHint := "source endpoint", "sink endpoint"
 	if ctx.AnalysisIR != nil {
-		endpoints := types.CallChainRequestedEndpointHints(ctx.AnalysisIR.RequestModel)
-		if len(endpoints) >= 2 {
-			startHint = endpoints[0]
-			endHint = endpoints[len(endpoints)-1]
+		if source, sink, ok := types.CallChainOrderedEndpointHints(ctx.AnalysisIR.RequestModel); ok {
+			startHint = source
+			endHint = sink
 		}
 	}
 	ctx.Mutable.AppendCompletionGateNote(fmt.Sprintf(
@@ -12188,9 +12187,11 @@ type callChainTypedEdge struct {
 }
 
 type callChainDirectedPathStatus struct {
-	StartResolved bool
-	EndResolved   bool
-	Path          []string
+	StartResolved  bool
+	EndResolved    bool
+	StartAmbiguous bool
+	EndAmbiguous   bool
+	Path           []string
 }
 
 // callChainExactEndpointReachabilityDowngradeWithEvidence keeps endpoint
@@ -12208,12 +12209,10 @@ func callChainExactEndpointReachabilityDowngradeWithEvidence(ctx *types.BusConte
 	if types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) != types.ReqCallChain || types.IsProjectOrientationQuestion(rm) {
 		return ""
 	}
-	endpoints := types.CallChainRequestedEndpointHints(rm)
-	if len(endpoints) < 2 {
+	startHint, endHint, ok := types.CallChainOrderedEndpointHints(rm)
+	if !ok {
 		return ""
 	}
-	startHint := endpoints[0]
-	endHint := endpoints[len(endpoints)-1]
 	status, edgeCount := callChainDirectedPathStatusForEvidence(evidence, startHint, endHint)
 	waiver := ctx.Mutable.PrincipalSpanWaiver()
 	if len(status.Path) > 0 {
@@ -12239,6 +12238,8 @@ func callChainExactEndpointReachabilityDowngradeWithEvidence(ctx *types.BusConte
 	})
 	resolution := "both endpoint identities are absent from the accepted call-edge graph"
 	switch {
+	case status.StartAmbiguous || status.EndAmbiguous:
+		resolution = "one or both short endpoint identities resolve to multiple qualified graph nodes, and not every candidate participates in a same-direction source-to-sink path"
 	case status.StartResolved && status.EndResolved:
 		resolution = "both endpoints occur in the typed call-edge graph, but the sink is not reachable from the source"
 	case status.StartResolved:
@@ -12274,24 +12275,46 @@ func callChainDirectedPathStatusForEvidence(evidence []types.EvidenceItem, start
 	}
 	starts := canonical.resolveEndpoint(startHint, nodes)
 	ends := canonical.resolveEndpoint(endHint, nodes)
-	status := callChainDirectedPathStatus{StartResolved: len(starts) > 0, EndResolved: len(ends) > 0}
+	status := callChainDirectedPathStatus{
+		StartResolved:  len(starts.candidates) > 0,
+		EndResolved:    len(ends.candidates) > 0,
+		StartAmbiguous: starts.ambiguous,
+		EndAmbiguous:   ends.ambiguous,
+	}
 	if !status.StartResolved || !status.EndResolved {
 		return status, len(edges)
 	}
-	endSet := make(map[string]bool, len(ends))
-	for _, end := range ends {
-		endSet[end] = true
+	startCovered := make(map[string]bool, len(starts.candidates))
+	endCovered := make(map[string]bool, len(ends.candidates))
+	for _, start := range starts.candidates {
+		for _, end := range ends.candidates {
+			path := callChainDirectedPathBetween(adjacency, nodes, start, end)
+			if len(path) == 0 {
+				continue
+			}
+			startCovered[start] = true
+			endCovered[end] = true
+			if len(status.Path) == 0 {
+				status.Path = path
+			}
+		}
 	}
-	queue := append([]string(nil), starts...)
-	seen := make(map[string]bool, len(queue))
+	if (starts.ambiguous && len(startCovered) != len(starts.candidates)) ||
+		(ends.ambiguous && len(endCovered) != len(ends.candidates)) ||
+		len(status.Path) == 0 {
+		status.Path = nil
+	}
+	return status, len(edges)
+}
+
+func callChainDirectedPathBetween(adjacency map[string][]string, nodes map[string]string, start, end string) []string {
+	queue := []string{start}
+	seen := map[string]bool{start: true}
 	parent := make(map[string]string)
-	for _, start := range starts {
-		seen[start] = true
-	}
 	for len(queue) > 0 {
 		current := queue[0]
 		queue = queue[1:]
-		if endSet[current] {
+		if current == end {
 			var reversed []string
 			for node := current; node != ""; node = parent[node] {
 				reversed = append(reversed, nodes[node])
@@ -12299,8 +12322,7 @@ func callChainDirectedPathStatusForEvidence(evidence []types.EvidenceItem, start
 			for i, j := 0, len(reversed)-1; i < j; i, j = i+1, j-1 {
 				reversed[i], reversed[j] = reversed[j], reversed[i]
 			}
-			status.Path = reversed
-			return status, len(edges)
+			return reversed
 		}
 		for _, next := range adjacency[current] {
 			if seen[next] {
@@ -12311,7 +12333,7 @@ func callChainDirectedPathStatusForEvidence(evidence []types.EvidenceItem, start
 			queue = append(queue, next)
 		}
 	}
-	return status, len(edges)
+	return nil
 }
 
 func callChainTypedSourceEdges(evidence []types.EvidenceItem) []callChainTypedEdge {
@@ -12342,6 +12364,11 @@ func callChainTypedSourceEdges(evidence []types.EvidenceItem) []callChainTypedEd
 
 type callChainGraphCanonicalizer struct {
 	qualifiedByTail map[string]map[string]bool
+}
+
+type callChainEndpointResolution struct {
+	candidates []string
+	ambiguous  bool
 }
 
 func newCallChainGraphCanonicalizer(edges []callChainTypedEdge) callChainGraphCanonicalizer {
@@ -12383,13 +12410,13 @@ func (c callChainGraphCanonicalizer) key(raw string) string {
 	return strings.ToLower(identity)
 }
 
-func (c callChainGraphCanonicalizer) resolveEndpoint(endpoint string, nodes map[string]string) []string {
+func (c callChainGraphCanonicalizer) resolveEndpoint(endpoint string, nodes map[string]string) callChainEndpointResolution {
 	want := strings.ToLower(callChainGraphIdentity(endpoint))
 	if want == "" {
-		return nil
+		return callChainEndpointResolution{}
 	}
 	if _, ok := nodes[want]; ok {
-		return []string{want}
+		return callChainEndpointResolution{candidates: []string{want}}
 	}
 	// An unqualified class/actor endpoint may stand for its typed methods;
 	// keep every exact owner match. This is the class-participant presentation
@@ -12404,7 +12431,7 @@ func (c callChainGraphCanonicalizer) resolveEndpoint(endpoint string, nodes map[
 		}
 		if len(owners) > 0 {
 			sort.Strings(owners)
-			return owners
+			return callChainEndpointResolution{candidates: owners}
 		}
 	}
 	tail := strings.ToLower(diagramEvidenceQualifiedOperation(want))
@@ -12415,9 +12442,10 @@ func (c callChainGraphCanonicalizer) resolveEndpoint(endpoint string, nodes map[
 		}
 	}
 	if len(matches) == 1 {
-		return matches
+		return callChainEndpointResolution{candidates: matches}
 	}
-	return nil
+	sort.Strings(matches)
+	return callChainEndpointResolution{candidates: matches, ambiguous: len(matches) > 1}
 }
 
 func callChainGraphIdentity(raw string) string {
@@ -13020,15 +13048,11 @@ func completionExactCallChainEndpointShape(ctx *types.BusContext) bool {
 
 // completionDirectedCallChainEndpointShape selects the precise typed shapes
 // for which source-to-sink reachability is a hard completion fact. Explicit
-// ExactTargets remain authoritative. When an analyzer omits that optional
-// carrier, a relation may still be unambiguous: ReqCallChain + AxisCall and
-// exactly two non-path typed endpoint hints. IsRelationalLookup is deliberately
-// not an additional requirement: emit_analysis accepts AxisCall or two named
-// endpoints as precise call-chain signals, so requiring the redundant boolean
-// here would make two schema-valid analyzer encodings receive different safety
-// checks. More than two fallback symbols is ambiguous and stays advisory; no
-// raw request, model reasoning, completion reason, or final-answer prose is
-// inspected.
+// Only CallChainEndpointProfile is directional authority. ExactTargets and
+// entity lanes remain unordered identity sets even when they contain exactly
+// two values; using their mention order would turn a schema-valid answer into
+// a false reverse-path hard rejection. No raw request, model reasoning,
+// completion reason, or final-answer prose is inspected.
 //
 // Keep this separate from completionExactCallChainEndpointShape: the latter
 // also promotes phase-1 file reads to blocking and must retain its stronger
@@ -13037,15 +13061,8 @@ func completionDirectedCallChainEndpointShape(ctx *types.BusContext) bool {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
-	if completionExactCallChainEndpointShape(ctx) {
-		return true
-	}
-	rm := ctx.AnalysisIR.RequestModel
-	if types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) != types.ReqCallChain ||
-		rm.PredicateAxis != types.AxisCall {
-		return false
-	}
-	return len(types.CallChainRequestedEndpointHints(rm)) == 2
+	_, _, ok := types.CallChainOrderedEndpointHints(ctx.AnalysisIR.RequestModel)
+	return ok
 }
 
 // pendingReadIsPhase1Family reports whether a pending read came from the
@@ -13459,30 +13476,7 @@ func callChainQualifiedCallCandidatesFromLine(line string) []string {
 }
 
 func callChainPrincipalEndpointHints(rm types.RequestModel) (string, string, bool) {
-	for _, list := range [][]string{
-		rm.AnalyzerHints.MentionedEntities,
-		rm.AnalyzerHints.PrimaryEntities,
-		rm.AnalyzerHints.Entities,
-	} {
-		var filtered []string
-		seen := map[string]bool{}
-		for _, raw := range list {
-			hint := strings.TrimSpace(raw)
-			if hint == "" || !types.IsCodeIdentitySurface(hint) || callChainEndpointHintLooksLikePath(hint) {
-				continue
-			}
-			key := strings.ToLower(hint)
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			filtered = append(filtered, hint)
-		}
-		if len(filtered) >= 2 {
-			return filtered[0], filtered[len(filtered)-1], true
-		}
-	}
-	return "", "", false
+	return types.CallChainOrderedEndpointHints(rm)
 }
 
 func callChainEndpointHintLooksLikePath(raw string) bool {
