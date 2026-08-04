@@ -617,6 +617,42 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 					Timestamp:  time.Now(),
 				}, nil
 			case types.VerificationStatusUnavailable:
+				if !verificationProbeUnavailableAllowsProjectSuiteContinuation(probe.Report, surface, plans) {
+					report := probe.Report
+					payload := runTestsCombinedOutput(combinedOutputs)
+					_, ref := StoreBlob(ctx, t.Name()+"-verification-probes", payload)
+					installRunTestsReport(ctx, finishReport(report), dryRunProbe)
+					return types.ToolResult{
+						ToolName:   t.Name(),
+						Success:    false,
+						Summary:    renderVerificationProbePrimarySummary(report, surface),
+						RawRef:     ref,
+						Refinement: runTestsRefinement(p, nil, ctx.RepoRoot, "", len(payload)),
+						Timestamp:  time.Now(),
+					}, nil
+				}
+				// An unavailable bounded probe is diagnostic evidence about that
+				// probe lane, not a verdict on an independently discovered project
+				// suite. Mark it consumed so the no-test preflight below cannot
+				// reinsert the unavailable report as the sole project result, and
+				// suppress the duplicate no-tests probe. The typed diagnostics and
+				// command row were already carried above; the project surface now
+				// gets an honest chance to execute or escalate to another candidate.
+				preSuiteProbeConsumed = true
+				preSuiteProbeNonAuthoritative = true
+				for _, plan := range plans {
+					cmdPreview, _ := buildRunCommandForPlan(plan, plan.Suite, ctx.MainRepoRoot)
+					executedCmds = append(executedCmds, types.ExecutedCommand{
+						Runner:     plan.Runner,
+						Framework:  plan.Framework,
+						WorkingDir: runnerPlanRel(ctx.RepoRoot, plan),
+						Suite:      strings.TrimSpace(plan.Suite),
+						Command:    cmdPreview,
+						Source:     verificationProbeContinuationSourceProbeSuiteContinued,
+						Outcome:    "suite_continued",
+						ReasonCode: "probe_unavailable",
+					})
+				}
 				logging.Warning("[run_tests] pre-suite verification_probe unavailable; continuing to typed project test surface")
 			}
 		}
@@ -1656,6 +1692,14 @@ func verificationProbeFailureAllowsProjectSuiteContinuation(report *types.Change
 		}
 	}
 	return seenNonAuthoritative
+}
+
+func verificationProbeUnavailableAllowsProjectSuiteContinuation(report *types.ChangeReport, surface types.TestSurface, plans []runnerPlan) bool {
+	if report == nil || report.Passed || report.FailureKind != types.FailureKindRunnerMissing || len(plans) == 0 {
+		return false
+	}
+	cand := selectedSurfaceCandidate(surface)
+	return cand != nil && cand.HasTestSignal
 }
 
 func verificationProbeMissingRequiredContractRefs(plan *types.ChangePlan) []string {

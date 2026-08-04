@@ -12558,3 +12558,57 @@ support refs 可接受”的提示与归一化后的实际判据是否同源；�
 - `eval/parallel_selected_summary_evalcampaign_b59_callarkts_r7_20260803.md`；
 - `eval/parallel_selected_summary_evalcampaign_b59_callarkts_r7_20260803_manual_audit.md`；
 - result dirs：`eval/results/*-20260803-204831`。
+
+## 61. 2026-08-03 B60 r8：调用图复验与跨验证通道不可用回退
+
+在 `main@05fd3a39a` 重建后严格并行 2 例：
+
+- `qf_sequence_analyzer_gate`：runner/human PASS，206s，Explorer 16 轮，finalizer reject=2；
+- `github_issue_memoclaw_text_search_multirepo_ts`：runner/human FAIL，288s，补丁正确，最终
+  `unverified:runner_missing`。
+
+### B60 replay：限定 caller 桥生效，剩余两次拒绝可满足
+
+最终答案保持了两个不相连的源码事实：`buildAnalysisIR` 在同一函数体内按顺序调用各阶段并止于
+`gate.RunWith`；裸 `gate.Run` 没有该方向调用点。第一次成文拒绝纠正了模型把这些并列直接调用误画为
+“中间函数逐个互调”，第二次要求列表保留用户点名的精确 `gate.Run` 锚并披露 sibling 边界。第三轮通过，图中
+只剩 `buildAnalysisIR -> callee` 的已证方向边。因此 `EVAL-B60-DIAGQUAL1` 关闭；本轮没有再次出现“边必须保留
+同时又无法证明”的不可满足合同。
+
+两次拒绝仍有成本，但都对应模型首稿的真实结构错误/精确锚点遗漏，且 validator 给出的修复动作可执行；不能为了
+把 reject 计数降到零而放松 typed call-edge 证据。`EVAL-B60-CLOSURECHURN1` 继续保持 P1/open，等待异构
+member-set fixture 复验。
+
+### EVAL-B61-PROBEFALLBACK1（P0）：不可用预探针遮蔽独立项目测试
+
+TypeScript 写例的实际补丁只修改 `src/client.ts`，正确完成 `POST /v1/search + JSON body`。测试面同时发现
+`node@.` 与带 `check` 目标的 `make@.`，报告的 selected surface 也是 `make check`。但 plan 自带的 JavaScript
+verification probe 依赖 Node/ts-node；当前环境没有 Node，探针返回 typed `runner_missing`。`run_tests` 虽记录
+“继续 typed project test surface”，进入首选 Node plan 的 no-test preflight 后却把这份 unavailable probe 再次
+插入 `projectReports` 并 `continue`，所以既没有形成 `synthetic_no_tests -> make` 升级，也从未执行仓库已有的
+`make check`。最终把“一个可选验证通道不可用”误报成“本地验证整体不可用”。
+
+本批按验证通道权威而非语言特判修复：
+
+1. 仅当 probe 的 typed `FailureKind=runner_missing` 且 test surface 确有独立 `HasTestSignal=true` 候选时，
+   unavailable probe 才只保留 command/diagnostic warning，并标记为 non-authoritative + consumed；parser/authoring、
+   assertion、timeout/OOM 等其它失败不进入该回退；
+2. 继续走既有 typed test-surface 状态机：首选 runner 无测试时保留 syntax/no-tests fallback，再升级到尚未执行且
+   `HasTestSignal=true` 的项目候选；
+3. 独立项目 suite 的真实结果进入最终聚合，changed-path authority 仍独立判定它是否足以覆盖改动；若所有通道
+   均不可用，仍按原规则 fail-closed 为 unverified；真实 probe assertion failure 仍立即失败，不允许项目 suite
+   覆盖；
+4. 回归用“源文件语言首选 runner 无测试且 probe runner 缺失 + 独立 Make 项目检查”复刻状态机，代码和判据
+   不含 TypeScript、端点、文件名或用户/答案文字特判，可覆盖其他语言与 runner 组合。
+
+状态：`EVAL-B61-PROBEFALLBACK1 = implemented / full-tool-pass / replay-next`。验证：6 个关键分支定向
+回归全绿（含 runner-missing 正臂与 4 个 parser/authoring 负臂），`go test ./internal/tool -count=1` 全绿
+（171.805s）。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b60_callwrite_r8_20260803.md`；
+- `eval/parallel_selected_summary_evalcampaign_b60_callwrite_r8_20260803_manual_audit.md`；
+- result dirs：`eval/results/*-20260803-211048`。
+
+本批不修改 Trace query、显式时间窗、Trace 因果投影、系统补采、答案成文合同或模型答案所有权。

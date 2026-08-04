@@ -2656,6 +2656,84 @@ func TestRunTestsVerificationProbeMissingChildExecutableFallsThroughToTypedSurfa
 	}
 }
 
+func TestRunTestsUnavailablePreferredProbeEscalatesToIndependentTypedSurface(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
+		t.Fatalf("mkdir src: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "tests"), 0o755); err != nil {
+		t.Fatalf("mkdir tests: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src", "client.ts"), []byte("export const value = 42;\n"), 0o644); err != nil {
+		t.Fatalf("write TypeScript source: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "tests", "check_client.py"), []byte("print('checked')\n"), 0o644); err != nil {
+		t.Fatalf("write project check: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte("{\"name\":\"probe-fallback\",\"private\":true,\"scripts\":{\"test\":\"python3 tests/check_client.py\"}}\n"), 0o644); err != nil {
+		t.Fatalf("write package.json: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "Makefile"), []byte("check: tests/check_client.py\n\tpython3 tests/check_client.py\n"), 0o644); err != nil {
+		t.Fatalf("write Makefile: %v", err)
+	}
+
+	// Keep the JavaScript probe runner unavailable while providing an
+	// independently executable project runner. This reproduces the typed
+	// queue shape without depending on the host's Node installation.
+	fakeBin := t.TempDir()
+	fakeMake := filepath.Join(fakeBin, "make")
+	if err := os.WriteFile(fakeMake, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write fake make: %v", err)
+	}
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+"/bin")
+
+	mu := types.NewMutableState("unavailable preferred probe fallback")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-unavailable-probe-fallback",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"src/client.ts"},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:                "client_behavior",
+			Language:          "javascript",
+			Code:              "process.exit(0);\n",
+			ChangedSymbolRefs: []string{"src/client"},
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	report := mu.ChangeReport()
+	if report == nil {
+		t.Fatalf("run_tests did not install a project report: result=%+v", result)
+	}
+	var sawUnavailableProbe, sawPreferredFallback, sawMakePass bool
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Runner == "verification_probe" && cmd.Outcome == "runner_missing" {
+			sawUnavailableProbe = true
+		}
+		if cmd.Runner == "node" && (cmd.Outcome == "synthetic_no_tests" || cmd.Outcome == "syntax_check_fallback") {
+			sawPreferredFallback = true
+		}
+		if cmd.Runner == "make" && cmd.Outcome == "executed" && cmd.ExitCode == 0 {
+			sawMakePass = true
+		}
+	}
+	if !sawUnavailableProbe || !sawPreferredFallback || !sawMakePass {
+		t.Fatalf("expected unavailable probe, typed preferred-runner fallback, and passing make: %+v", report.ExecutedCommands)
+	}
+	if report.FailureKind == types.FailureKindRunnerMissing || report.FailureReasonCode == "verification_probe_runner_missing" {
+		t.Fatalf("unavailable advisory probe must not replace the project verdict: %+v", report)
+	}
+}
+
 func TestRunTestsTypedPolyglotMakeSurfaceCarriesExactCheckWithoutPretendingRustExecution(t *testing.T) {
 	if _, err := exec.LookPath("make"); err != nil {
 		t.Skip("make not on PATH; skip")
