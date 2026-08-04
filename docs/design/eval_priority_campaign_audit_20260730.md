@@ -14137,3 +14137,26 @@ reference_key_field=canonical_label
 - `eval/parallel_selected_summary_evalcampaign_b80_dataref_r6_20260804_manual_audit.md`；
 - `eval/results/data_multifile_reference_projection-20260804-070345`；
 - terminal `.codrax/data-audit/20260804-071335-851931-99810-terminal.json`。
+
+### B80-C implementation（implemented/tests-pass/replay-next）：reference authority 与执行域同源
+
+本批在 `assemble_answer` 执行边界消除了两份互相矛盾的完整参考域合同，没有增加题型、文件名或答案文本特判：
+
+1. action 自身显式同时声明非空 `reference_path + reference_key_field` 时，与 hard grounding authority 使用相同的 typed
+   充分条件，可启动 complete-reference projection；模型无需再补一个语义冗余的 `complete_reference=true`；
+2. 只有 output contract 中存在 path/key、但 contract bool=false 且 action 未显式声明这对字段时，仍保持不启动，防止
+   输出合同的残缺字段被执行器自行升级；
+3. reference candidate 优先级冻结为“action 显式 path → action typed input scope → 历史 artifact fallback”。typed input
+   scope 已得到 candidate 时，未被该 action 消费的更大历史全集不能按 key count 抢权；
+4. input scope 内多个 candidate 的 key sequence 不一致时 fail-closed：整次 reference projection 不发 receipt，也不得再
+   回退历史 artifact 猜选；只有 input scope 完全没有可读 candidate 时，既有历史回退才继续可用；
+5. projection 成功后继续替换旧 `final_answer/projection` reconcile group，最终 answer、reference path/count、zero-fill 与
+   drop-extra receipt 来自同一次确定性投影，避免修复轮把旧终稿当第四个业务值重新拼入。
+
+新增看护覆盖：显式 pair 无 bool 的 `17,0,5` 正臂、targets 三键压过未声明 all-records 四键、无 input candidate 的历史
+回退、两个不同 input universe 的歧义负臂；既有“不完整 output contract 不启动”负臂与 LOC ratchet 同时保持。验证：
+定向看护及完整 `go test ./internal/dataquery ./internal/dataworkflow ./internal/repl -count=1` 全绿。
+
+状态更新：`EVAL-B80-DATAREFEXEC1=implemented/tests-pass/replay-next`；
+`EVAL-B80-DATAREFSCOPE1=implemented/tests-pass/replay-next`。下一批以同一 witness + 普通非 reference 聚合严格并行 2 个进行
+production 回放，验收 repair 轮数不再被不可满足合同烧尽、正确 `17,0,5` 可由模型 action 正常生成且普通聚合无回归。

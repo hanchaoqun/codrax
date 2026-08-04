@@ -5,6 +5,110 @@ import (
 	"strings"
 )
 
+func assembleExplicitReferencePaths(action DataAction, contract OutputContract) []string {
+	return cleanStringList(parseActionStringListParam(firstNonEmptyString(
+		action.Params["reference_paths"],
+		action.Params["reference_path"],
+		contract.ReferencePath,
+	)))
+}
+
+func assembleActionDeclaresReferencePair(action DataAction) bool {
+	if len(assembleExplicitReferencePaths(action, OutputContract{})) == 0 {
+		return false
+	}
+	return strings.TrimSpace(firstNonEmptyString(
+		action.Params["reference_key_field"],
+		action.Params["key_field"],
+		action.Params["group_key_field"],
+		action.Params["group_key"],
+	)) != ""
+}
+
+func assembleArtifactReferenceFallbackPaths(artifacts []DataArtifact) []string {
+	var paths []string
+	for _, artifact := range artifacts {
+		if strings.TrimSpace(artifact.ID) != "" {
+			paths = append(paths, artifact.ID)
+		}
+		paths = append(paths, artifact.SourcePaths...)
+	}
+	return cleanStringList(paths)
+}
+
+func (r ActionRunner) referenceCandidateForAssembleInputScope(paths []string, keyField string) (ReferenceKeyCandidate, bool, bool) {
+	keyField = strings.TrimSpace(keyField)
+	if keyField == "" {
+		return ReferenceKeyCandidate{}, false, false
+	}
+	var candidate ReferenceKeyCandidate
+	found := false
+	for _, path := range cleanStringList(paths) {
+		next, ok := r.referenceCandidateForAssemblePath(path, keyField)
+		if !ok {
+			continue
+		}
+		if !found {
+			candidate = next
+			found = true
+			continue
+		}
+		if !stringSlicesEqual(candidate.Keys, next.Keys) {
+			return ReferenceKeyCandidate{}, false, true
+		}
+	}
+	return candidate, found, false
+}
+
+func (r ActionRunner) referenceCandidateForAssemble(paths []string, keyField string) (ReferenceKeyCandidate, bool) {
+	keyField = strings.TrimSpace(keyField)
+	if keyField == "" {
+		return ReferenceKeyCandidate{}, false
+	}
+	var best ReferenceKeyCandidate
+	bestSet := false
+	for _, path := range cleanStringList(paths) {
+		candidate, ok := r.referenceCandidateForAssemblePath(path, keyField)
+		if !ok {
+			continue
+		}
+		if !bestSet || candidate.KeyCount > best.KeyCount {
+			best = candidate
+			bestSet = true
+		}
+	}
+	if !bestSet {
+		return ReferenceKeyCandidate{}, false
+	}
+	return best, true
+}
+
+func (r ActionRunner) referenceCandidateForAssemblePath(path, keyField string) (ReferenceKeyCandidate, bool) {
+	records, headers, _, _, err := r.readActionRecords(path, 100000)
+	if err != nil || !actionRecordFieldExistsInRecords(headers, records, keyField) {
+		return ReferenceKeyCandidate{}, false
+	}
+	var keys []string
+	seen := map[string]bool{}
+	for _, record := range records {
+		key := strings.TrimSpace(recordField(record.Fields, keyField))
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		keys = append(keys, key)
+	}
+	if len(keys) == 0 {
+		return ReferenceKeyCandidate{}, false
+	}
+	return ReferenceKeyCandidate{
+		Path:     path,
+		Field:    keyField,
+		KeyCount: len(keys),
+		Keys:     keys,
+	}, true
+}
+
 // assemble_answer projection entry point and answer-level helpers.
 // Split out of action_runner.go under the DQA LOC ratchet; the
 // answer-repair lane rungs and their decision table live in

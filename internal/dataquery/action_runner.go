@@ -8806,7 +8806,8 @@ func assembleAnswerConsumedPaths(action DataAction, contract OutputContract, pro
 }
 
 func (r ActionRunner) completeAssembleAnswerGroups(action DataAction, contract OutputContract, artifacts []DataArtifact, groups []ReconcileGroup, contributions []ContributionRecord) ([]ReconcileGroup, assembleReferenceProjection) {
-	if !parseBoolActionParam(firstNonEmptyString(action.Params["complete_reference"], strconv.FormatBool(contract.CompleteReference))) {
+	completeReference := parseBoolActionParam(firstNonEmptyString(action.Params["complete_reference"], strconv.FormatBool(contract.CompleteReference)))
+	if !completeReference && !assembleActionDeclaresReferencePair(action) {
 		return groups, assembleReferenceProjection{}
 	}
 	if ReconcileGroupsPreferListProjection(groups, contributions) {
@@ -8825,7 +8826,14 @@ func (r ActionRunner) completeAssembleAnswerGroups(action DataAction, contract O
 	metric := firstNonEmptyString(strings.TrimSpace(action.Params["metric"]), singleReconcileMetric(groups), "value")
 	candidate, ok := r.referenceCandidateForAssemble(assembleExplicitReferencePaths(action, contract), keyField)
 	if !ok {
-		candidate, ok = r.referenceCandidateForAssemble(assembleReferenceFallbackPaths(action, artifacts), keyField)
+		var ambiguous bool
+		candidate, ok, ambiguous = r.referenceCandidateForAssembleInputScope(action.InputPaths, keyField)
+		if ambiguous {
+			return groups, assembleReferenceProjection{}
+		}
+	}
+	if !ok {
+		candidate, ok = r.referenceCandidateForAssemble(assembleArtifactReferenceFallbackPaths(artifacts), keyField)
 	}
 	if !ok || len(candidate.Keys) == 0 {
 		return groups, assembleReferenceProjection{}
@@ -8886,68 +8894,6 @@ func (r ActionRunner) completeAssembleAnswerGroups(action DataAction, contract O
 		DroppedExtraCount: droppedExtra,
 		OrderPreserved:    true,
 	}
-}
-
-func assembleExplicitReferencePaths(action DataAction, contract OutputContract) []string {
-	return cleanStringList(parseActionStringListParam(firstNonEmptyString(
-		action.Params["reference_paths"],
-		action.Params["reference_path"],
-		contract.ReferencePath,
-	)))
-}
-
-func assembleReferenceFallbackPaths(action DataAction, artifacts []DataArtifact) []string {
-	var paths []string
-	paths = append(paths, action.InputPaths...)
-	for _, artifact := range artifacts {
-		if strings.TrimSpace(artifact.ID) != "" {
-			paths = append(paths, artifact.ID)
-		}
-		paths = append(paths, artifact.SourcePaths...)
-	}
-	return cleanStringList(paths)
-}
-
-func (r ActionRunner) referenceCandidateForAssemble(paths []string, keyField string) (ReferenceKeyCandidate, bool) {
-	keyField = strings.TrimSpace(keyField)
-	if keyField == "" {
-		return ReferenceKeyCandidate{}, false
-	}
-	var best ReferenceKeyCandidate
-	bestSet := false
-	for _, path := range cleanStringList(paths) {
-		records, headers, _, _, err := r.readActionRecords(path, 100000)
-		if err != nil || !actionRecordFieldExistsInRecords(headers, records, keyField) {
-			continue
-		}
-		var keys []string
-		seen := map[string]bool{}
-		for _, record := range records {
-			key := strings.TrimSpace(recordField(record.Fields, keyField))
-			if key == "" || seen[key] {
-				continue
-			}
-			seen[key] = true
-			keys = append(keys, key)
-		}
-		if len(keys) == 0 {
-			continue
-		}
-		candidate := ReferenceKeyCandidate{
-			Path:     path,
-			Field:    keyField,
-			KeyCount: len(keys),
-			Keys:     keys,
-		}
-		if !bestSet || candidate.KeyCount > best.KeyCount {
-			best = candidate
-			bestSet = true
-		}
-	}
-	if !bestSet {
-		return ReferenceKeyCandidate{}, false
-	}
-	return best, true
 }
 
 func withoutFinalAnswerProjectionGroups(groups []ReconcileGroup) []ReconcileGroup {
