@@ -1888,3 +1888,17 @@ COUNTBIND1 或 INVROW1/CLOSURECHURN1 跨 case 复现，再按 typed carrier 根�
 
 状态：`M5-F3=re-audited / 4 explicit opens / replay debt separated from code debt`；`MERGE-AUDIT-5` 已确认
 code finding 至此全部闭环，下一阶段转入 eval-quality 与异构回放。
+
+### §10.16 继承债首批：B71 动态 scalar/scope eval authority（已交付）
+
+按 §10.15 排序先处理 `EVAL-B71-CASESCOPE1`。新增能力完全位于 `eval/run.sh + runner_lib.sh`：case 以 typed
+ID 声明动态计算 command、data-scope provenance、被校验 answer surface 与 `{{VALUE}}` binding regex；runner
+在每轮实际 checkout（含 fixture/data/multirepo scratch）执行命令，要求单一 uint，并写独立 TSV receipt。动态值
+缺席/陈腐、command 失败、scope/binding 不完整均只令 eval fail，不进入产品路由、prompt、成文 retry 或答案修改。
+
+原 read combo case 现在明示 recursive scope，并从 checkout 动态统计 `internal/tool` 全子目录非测试 Go 文件；
+不再把当前仓固定数值写入 case。正值、陈腐值、receipt provenance 与真实 `run.sh` 接线均有 shell contract pin。
+详细设计与状态见 `eval_priority_campaign_audit_20260730.md` §75。
+
+状态：`EVAL-B71-CASESCOPE1=implemented/eval-only/runner-contracts-pass`；下一步严格并行两个异构高优先级
+case（write + operation），不重复上一轮 Trace/Read 对。

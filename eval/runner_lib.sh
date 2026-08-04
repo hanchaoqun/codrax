@@ -156,6 +156,92 @@ eval_is_uint() {
   esac
 }
 
+# eval_dynamic_scalar_reasons <answer> <principal> <primary> <repo-root>
+#                             <receipt-path> <mode>
+#
+# Eval-only typed oracle for values that must be recomputed from the exact
+# checkout under test. A case declares EXPECT_DYNAMIC_SCALARS plus, per ID:
+#
+#   EXPECT_DYNAMIC_SCALAR_COMMAND_<ID>       command that prints one uint
+#   EXPECT_DYNAMIC_SCALAR_DATA_SCOPE_<ID>    human/audit scope provenance
+#   EXPECT_DYNAMIC_SCALAR_SURFACE_<ID>       primary[_text]|principal[_text]|
+#                                             answer[_text] (primary)
+#   EXPECT_DYNAMIC_SCALAR_BINDING_REGEX_<ID> ERE containing {{VALUE}}
+#
+# The command is trusted versioned eval input (case files are already sourced
+# shell), never product/model input. Its result is written to an audit receipt
+# and only influences the opt-in eval verdict; it does not enter Codrax
+# routing, prompts, answer validation, or answer mutation.
+eval_dynamic_scalar_reasons() {
+  local answer="$1" principal="$2" primary="$3" repo_root="$4"
+  local receipt="$5" mode="$6"
+  local scalar scalar_key command_var command data_scope_var data_scope
+  local surface_var surface binding_var binding output rc value checked regex
+  : >"$receipt"
+  [[ -n "${EXPECT_DYNAMIC_SCALARS:-}" ]] || return 0
+  if [[ -n "$mode" && "$mode" != "read" ]]; then
+    printf 'dynamic_scalar_oracle_requires_read_mode\n'
+    return 0
+  fi
+  if [[ -z "$repo_root" || ! -d "$repo_root" ]]; then
+    printf 'dynamic_scalar_repo_root_missing\n'
+    return 0
+  fi
+  for scalar in $EXPECT_DYNAMIC_SCALARS; do
+    scalar_key="$(eval_env_key "$scalar")"
+    command_var="EXPECT_DYNAMIC_SCALAR_COMMAND_${scalar_key}"
+    command="${!command_var:-}"
+    data_scope_var="EXPECT_DYNAMIC_SCALAR_DATA_SCOPE_${scalar_key}"
+    data_scope="${!data_scope_var:-}"
+    surface_var="EXPECT_DYNAMIC_SCALAR_SURFACE_${scalar_key}"
+    surface="${!surface_var:-primary}"
+    binding_var="EXPECT_DYNAMIC_SCALAR_BINDING_REGEX_${scalar_key}"
+    binding="${!binding_var:-}"
+    if [[ -z "$command" ]]; then
+      printf 'dynamic_scalar_command_missing:%s\n' "$scalar"
+      continue
+    fi
+    if [[ -z "$data_scope" ]]; then
+      printf 'dynamic_scalar_data_scope_missing:%s\n' "$scalar"
+      continue
+    fi
+    if [[ -z "$binding" || "$binding" != *'{{VALUE}}'* ]]; then
+      printf 'dynamic_scalar_binding_invalid:%s\n' "$scalar"
+      continue
+    fi
+    case "$surface" in
+      answer) checked="$answer" ;;
+      answer_text) checked="$(LC_ALL=C tr '\n\r\t' '   ' <<<"$answer")" ;;
+      principal) checked="$principal" ;;
+      principal_text) checked="$(LC_ALL=C tr '\n\r\t' '   ' <<<"$principal")" ;;
+      primary) checked="$primary" ;;
+      primary_text) checked="$(LC_ALL=C tr '\n\r\t' '   ' <<<"$primary")" ;;
+      *)
+        printf 'dynamic_scalar_surface_invalid:%s:%s\n' "$scalar" "$surface"
+        continue
+        ;;
+    esac
+    output="$(cd "$repo_root" && /bin/bash -c "$command" 2>/dev/null)"
+    rc=$?
+    value="$(eval_trim "$output")"
+    if [[ $rc -ne 0 ]]; then
+      printf 'dynamic_scalar_command_failed:%s:%s\n' "$scalar" "$rc"
+      continue
+    fi
+    if ! eval_is_uint "$value" || [[ "$output" == *$'\n'* ]]; then
+      printf 'dynamic_scalar_output_invalid:%s\n' "$scalar"
+      continue
+    fi
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$scalar" "$value" "$surface" "$data_scope" "$repo_root" \
+      "$(printf '%s' "$command" | tr '\t\r\n' '   ')" >>"$receipt"
+    regex="${binding//'{{VALUE}}'/$value}"
+    if ! LC_ALL=C grep -aEq -- "$regex" <<<"$checked"; then
+      printf 'dynamic_scalar_binding_missing:%s:%s\n' "$scalar" "$value"
+    fi
+  done
+}
+
 eval_metric_int_field() {
   local file="$1"
   local key="$2"

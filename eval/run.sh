@@ -22,6 +22,9 @@
 # MATCHES_REGEX,MATCHES_TEXT_REGEX} over the model-authored answer before
 # deterministic trace projection supplements, EXPECT_INVENTORY_ROWSETS plus
 # typed row/count declarations
+# EXPECT_DYNAMIC_SCALARS plus per-ID command/data-scope/surface/binding fields
+# recompute checkout-dependent scalar expectations and bind them to the chosen
+# answer surface without hard-coding a repository count,
 # for category-level inventory correctness, and EXPECT_LOG_MATCHES_REGEX /
 # EXPECT_LOG_NOT_MATCHES_REGEX (newline-separated ERE patterns over
 # the control-plane log, useful for hidden subsystem-execution guards).
@@ -103,6 +106,7 @@ EXPECT_PRIMARY_MATCHES_TEXT_REGEX="${EXPECT_PRIMARY_MATCHES_TEXT_REGEX:-}"
 EXPECT_SECTIONS="${EXPECT_SECTIONS:-}"
 EXPECT_DIMENSIONS="${EXPECT_DIMENSIONS:-}"
 EXPECT_INVENTORY_ROWSETS="${EXPECT_INVENTORY_ROWSETS:-}"
+EXPECT_DYNAMIC_SCALARS="${EXPECT_DYNAMIC_SCALARS:-}"
 # Runtime-artifact eval cases may attach either inline text or a file path:
 # LOG=<inline panic> / LOG_FILE=<path> exercise --log-text / --log, while
 # HTRACE=<inline trace> / HTRACE_FILE=<path> exercise --htrace-text / --htrace.
@@ -1161,6 +1165,7 @@ run_one() {
 
   local rc=0
   local scratch=""
+  local oracle_repo_root="$ROOT"
   local apply_scratch=""
   local plan=""
   local plan_written=0
@@ -1248,6 +1253,7 @@ run_one() {
           echo "run $i: FAIL data_setup_fail" >&2
           return
         fi
+        oracle_repo_root="$scratch"
         run_read_step "$i" "$out" "$logdir" "$scratch"
         rc=$?
       elif [[ -n "$MULTIREPO" ]]; then
@@ -1257,6 +1263,7 @@ run_one() {
           echo "run $i: FAIL multirepo_setup_fail" >&2
           return
         fi
+        oracle_repo_root="$scratch"
         # The multirepo-basic fixture has three sub-repos and most
         # mr_* eval cases assume every one is active. Phase 0
         # (2026-05-08) lowered the default cap from 3 → 2 for
@@ -1287,6 +1294,7 @@ run_one() {
           echo "run $i: FAIL setup_fail" >&2
           return
         fi
+        oracle_repo_root="$scratch"
         run_read_step "$i" "$out" "$logdir" "$scratch"
         rc=$?
       else
@@ -1504,6 +1512,20 @@ run_one() {
   # Apply exit code must be 0 for verdict to pass.
   if [[ "$MODE" == "apply" && $rc -ne 0 ]]; then
     extra_reasons+=("apply_exit:$rc")
+  fi
+
+  # EVAL-B71-CASESCOPE1: recompute declared scalars from the exact checkout
+  # and bind them to an explicit answer surface. The receipt preserves command
+  # and data-scope provenance; no value or case identity enters product code.
+  if [[ -n "$EXPECT_DYNAMIC_SCALARS" ]]; then
+    local dynamic_scalar_reason
+    while IFS= read -r dynamic_scalar_reason; do
+      [[ -z "$dynamic_scalar_reason" ]] && continue
+      extra_reasons+=("$dynamic_scalar_reason")
+    done < <(
+      eval_dynamic_scalar_reasons "$cleaned" "$principal_cleaned" "$primary_cleaned" \
+        "$oracle_repo_root" "$OUTDIR/run-$i.dynamic-scalars.tsv" "$MODE"
+    )
   fi
 
   local metrics_file="$OUTDIR/run-$i.metrics.txt"

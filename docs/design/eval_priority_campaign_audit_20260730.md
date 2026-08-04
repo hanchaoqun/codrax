@@ -13521,3 +13521,31 @@ operation 本轮只抓到首页 artifact（14606 bytes，内容停在 CSS），�
 - `eval/parallel_selected_summary_evalcampaign_b73_writeoperation_r2_20260804.md`；
 - `eval/parallel_selected_summary_evalcampaign_b73_writeoperation_r2_20260804_manual_audit.md`；
 - result dirs：`eval/results/*-20260804-020722`。
+
+## 75. 2026-08-04 B74-A：动态 scalar/scope eval authority（B71-CASESCOPE1 施工）
+
+复核确认 B71 的确定性 GAP 完全位于 eval：产品已诚实披露“仅直属文件”，但 case 自身没有声明递归口径，
+runner 也没有 checkout-dependent 主值，导致 lexical regex 可以把 168 与递归真值同时签绿。修复不进入 Codrax
+产品链，新增 opt-in case carrier：
+
+1. `EXPECT_DYNAMIC_SCALARS` 声明有名字的 scalar；每个 ID 必须同时提供 command、data scope、answer
+   surface 与带 `{{VALUE}}` 的 binding regex；
+2. runner 在该 run 实际使用的 checkout 根执行 versioned case command，输出必须是唯一非负整数；fixture/data/
+   multirepo 均绑定自己的 scratch，而不是误读 Codrax 根；
+3. surface 显式选择 `primary|principal|answer`，可选 `_text` 只做换行折叠；默认 primary，防 citation、raw
+   recovery 或 Trace supplement 替主体答案刷绿；
+4. 每轮生成 `run-N.dynamic-scalars.tsv`，保存 ID、动态值、surface、data-scope、checkout root 与 command；
+   command 失败、非整数、多行、scope/binding 缺席或动态值未绑定均 fail-loud；
+5. 该命令来自已被 shell source 的可信 versioned case，不读取用户/模型输入，也不向产品 prompt 回灌；其结果
+   只影响 eval verdict。
+
+`read_combo_command_current_source_explanation` 题面现明确“递归、包含全部子目录、非仅直属”；oracle 用同一
+checkout 动态执行 `find internal/tool -type f -name '*.go' ! -name '*_test.go'` 计数，不固化 253。绑定要求动态值
+与 `internal/tool/非测试/Go 文件/递归` 范围词在 primary answer 同一近邻，旧 168 直属口径不能再 PASS。
+
+看护覆盖动态值正臂、陈腐值负臂、command/data-scope/checkout receipt，以及 `run.sh` 接线负例；shell syntax
+与 runner 全合同通过后独立提交。状态：`EVAL-B71-CASESCOPE1=implemented/eval-only/tests-pass/replay-later`。
+
+下一批仍遵守 B71 冻结：不重复 Trace/Read 对，严格并行恰好两个异构高优先级 case（write + operation），人工
+审计模型是否消费 state-transition typed context、operation 是否取得真实 material coverage receipt，以及过程中的
+成文/补证重试。显式时间窗 Trace 因果投影与自动补齐完全不在本批 diff 中。

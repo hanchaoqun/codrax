@@ -5,8 +5,13 @@
 # to explain how command measurements are represented downstream.
 ID="read_combo_command_current_source_explanation"
 NAME="read combo — command measurement plus current source explanation profile"
-QUESTION="请用命令统计 internal/tool 下非测试 Go 文件数量，再结合当前源码解释命令测量结果如何作为 command_measurement 证据进入答案链路；请说明统计值、当前源码依据和边界。"
+QUESTION="请递归统计 internal/tool 整个目录树中的非测试 Go 文件数量（包含所有子目录，不是仅直属文件），再结合当前源码解释命令测量结果如何作为 command_measurement 证据进入答案链路；请说明统计值、递归口径、当前源码依据和边界。"
 EXPECT_NOT_CONTAINS="**值：**"
+EXPECT_DYNAMIC_SCALARS="tool_non_test_go_recursive"
+EXPECT_DYNAMIC_SCALAR_COMMAND_TOOL_NON_TEST_GO_RECURSIVE="find internal/tool -type f -name '*.go' ! -name '*_test.go' -print | LC_ALL=C wc -l | tr -d '[:space:]'"
+EXPECT_DYNAMIC_SCALAR_DATA_SCOPE_TOOL_NON_TEST_GO_RECURSIVE="repo_checkout:internal/tool;recursion=recursive;include=*.go;exclude=*_test.go"
+EXPECT_DYNAMIC_SCALAR_SURFACE_TOOL_NON_TEST_GO_RECURSIVE="primary_text"
+EXPECT_DYNAMIC_SCALAR_BINDING_REGEX_TOOL_NON_TEST_GO_RECURSIVE="((internal/tool|非测试|Go 文件|递归)[^0-9]{0,160}(^|[^0-9]){{VALUE}}([^0-9]|$))|((^|[^0-9]){{VALUE}}([^0-9]|$)[^0-9]{0,160}(internal/tool|非测试|Go 文件|递归))"
 # 2026-05-30 false-negative repair: line 1 demanded the statistic
 # vocabulary and the current-source vocabulary co-occur on ONE physical
 # line (grep is line-based, `.` never crosses newlines). A verified-

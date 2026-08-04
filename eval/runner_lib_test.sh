@@ -1767,6 +1767,63 @@ if eval_expect_token_present '8330' 'period 18330us'; then
   fail "pure-digit value must not bite inside a longer number"
 fi
 
+# EVAL-B71-CASESCOPE1: checkout-dependent scalar values must be recomputed
+# from a declared command, bound to the requested answer surface, and leave a
+# provenance receipt. A stale hard-coded value must not green-light the case.
+mkdir -p "$tmp/dynamic-repo/nested"
+touch "$tmp/dynamic-repo/a.go" "$tmp/dynamic-repo/nested/b.go" "$tmp/dynamic-repo/nested/c_test.go"
+EXPECT_DYNAMIC_SCALARS="go_recursive"
+EXPECT_DYNAMIC_SCALAR_COMMAND_GO_RECURSIVE="find . -type f -name '*.go' ! -name '*_test.go' -print | LC_ALL=C wc -l | tr -d '[:space:]'"
+EXPECT_DYNAMIC_SCALAR_DATA_SCOPE_GO_RECURSIVE="repo_checkout:.;recursion=recursive;include=*.go;exclude=*_test.go"
+EXPECT_DYNAMIC_SCALAR_SURFACE_GO_RECURSIVE="primary_text"
+EXPECT_DYNAMIC_SCALAR_BINDING_REGEX_GO_RECURSIVE='files[^0-9]{0,20}(^|[^0-9]){{VALUE}}([^0-9]|$)'
+dynamic_reasons="$(eval_dynamic_scalar_reasons \
+  'unused full answer' 'unused principal' $'recursive files\n2' \
+  "$tmp/dynamic-repo" "$tmp/dynamic-pass.tsv" "")"
+assert_eq "$dynamic_reasons" "" "dynamic scalar matching checkout value"
+if ! grep -q $'go_recursive\t2\tprimary_text\trepo_checkout:.;recursion=recursive' "$tmp/dynamic-pass.tsv"; then
+  fail "dynamic scalar receipt lost value/surface/data-scope provenance"
+fi
+if ! grep -q "find . -type f" "$tmp/dynamic-pass.tsv"; then
+  fail "dynamic scalar receipt lost command provenance"
+fi
+dynamic_reasons="$(eval_dynamic_scalar_reasons \
+  'unused full answer' 'unused principal' $'recursive files\n1' \
+  "$tmp/dynamic-repo" "$tmp/dynamic-stale.tsv" "")"
+assert_eq "$dynamic_reasons" "dynamic_scalar_binding_missing:go_recursive:2" \
+  "stale hard-coded scalar must fail"
+unset EXPECT_DYNAMIC_SCALARS EXPECT_DYNAMIC_SCALAR_COMMAND_GO_RECURSIVE
+unset EXPECT_DYNAMIC_SCALAR_DATA_SCOPE_GO_RECURSIVE EXPECT_DYNAMIC_SCALAR_SURFACE_GO_RECURSIVE
+unset EXPECT_DYNAMIC_SCALAR_BINDING_REGEX_GO_RECURSIVE
+
+cat >"$tmp/fake-codrax-dynamic-scalar" <<'SH'
+#!/usr/bin/env bash
+echo '━━━'
+echo 'recursive files: 1'
+SH
+chmod +x "$tmp/fake-codrax-dynamic-scalar"
+cat >"$tmp/dynamic-scalar.case" <<'CASE'
+ID="dynamic_scalar_wire"
+NAME="dynamic scalar wire"
+QUESTION="dynamic scalar test"
+MIN_OUTPUT_CHARS=1
+EXPECT_DYNAMIC_SCALARS="current"
+EXPECT_DYNAMIC_SCALAR_COMMAND_CURRENT="printf 2"
+EXPECT_DYNAMIC_SCALAR_DATA_SCOPE_CURRENT="repo_checkout:.;synthetic=true"
+EXPECT_DYNAMIC_SCALAR_SURFACE_CURRENT="primary_text"
+EXPECT_DYNAMIC_SCALAR_BINDING_REGEX_CURRENT='files[^0-9]{0,20}(^|[^0-9]){{VALUE}}([^0-9]|$)'
+CASE
+CODRAX_BIN="$tmp/fake-codrax-dynamic-scalar" EVAL_RESULTS_ROOT="$tmp/dynamic-results" CODRAX_PROVIDER_ARGS_RAW="" \
+  eval/run.sh "$tmp/dynamic-scalar.case" 1 >/dev/null || fail "dynamic scalar wire eval failed to run"
+dynamic_wire_dir="$(eval_latest_result_dir "$tmp/dynamic-results" dynamic_scalar_wire 00000000-000000 || true)"
+[[ -n "$dynamic_wire_dir" ]] || fail "dynamic scalar wire result dir missing"
+assert_eq "$(cat "$dynamic_wire_dir/run-1.verdict")" \
+  "FAIL dynamic_scalar_binding_missing:current:2" \
+  "run.sh must consume dynamic scalar verdict reasons"
+if ! grep -q $'current\t2\tprimary_text\trepo_checkout:.;synthetic=true' "$dynamic_wire_dir/run-1.dynamic-scalars.tsv"; then
+  fail "run.sh dynamic scalar receipt missing"
+fi
+
 # --- run.sh OUTDIR exclusivity (same-case same-second collision guard) -----
 # Two run.sh processes launched for the SAME case in the SAME second used to
 # share ID-TS and race each other's run files (witnessed 2026-07-14: parallel
