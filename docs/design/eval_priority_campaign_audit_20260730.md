@@ -13391,3 +13391,59 @@ Read 本轮选择 `find internal/tool -maxdepth 1 ... | wc -l` 得 168，并在�
 - `eval/parallel_selected_summary_evalcampaign_b71_traceread_r9_20260804.md`；
 - `eval/parallel_selected_summary_evalcampaign_b71_traceread_r9_20260804_manual_audit.md`；
 - result dirs：`eval/results/*-20260804-012909`。
+
+## 73. 2026-08-04 B72 r1：write 状态序列合同缺席，operation 完整材料车道稳定
+
+在 `main@b4d38cdb3` 构建后严格并行两个异构案例：
+
+- `operation_web_manual_summary`：84s，runner/human PASS；
+- `github_issue_pyo3_iter_nth_overflow_symptom`：436s，runner/human FAIL，终态
+  `unverified:verification_incomplete`。
+
+### EVAL-B72-OPMAT1（covered）：大材料完成裁定有真实 receipt
+
+operation 首轮抓取首页后，evaluator 根据 typed href inventory 继续获取 `user_guide.html`，没有把首页的完整下载误当用户手册完整覆盖。
+第二轮正文 248161 bytes、118802 visible runes，被 20 个连续 material pages 覆盖；
+`source_truncated=false`、`pages_truncated=false` 且存在 coverage receipt。最终答案概括全部 8 章，命令与手册内容一致。旧的首页签绿、任意 shell
+截断、budget 到顶假完整均未复发。
+
+### EVAL-B72-WRITELEDGER1（covered）：replan 没有清空累计验证域
+
+第一计划新增 `tests/iterators.rs` 并改两个 Rust implementation；初次 Python probe 精确拒绝
+`checked_sub(n + 1)` 的 overflow。第二计划只继续修两个 implementation。最终 changed-path coverage 仍同时列出第一计划的测试文件和第二计划的
+两个源文件，证明 earlier applied bytes、cumulative scope 与 verification ledger 跨 replan 保留。环境没有 cargo/rustc，Python/static
+checker 与 `make check` 的成功没有被提升为 Rust 行为权限，三个 Rust path 全部 unavailable，终态诚实 unverified。T7-1 类“重签空账”未复现。
+
+### EVAL-B72-STATETRANS1（P1/open）：平面行为合同无法支撑共享状态的有序反例
+
+人工审计发现最终补丁仍有语义错误：双端迭代器有效剩余区间为 `[index,current_length)`，但 `nth_back` 仅判断
+`n >= current_length`。三元素场景先 `next()` 令 `index=1`，再 `nth_back(2)`，本应因跳过剩余 2 个而耗尽；当前实现计算
+`target_index=0`，返回已经从前端消费的元素。
+
+现有 typed 上下文为何没托住：write analyzer 生成的 contracts 主要是 `checked_add`、`checked_sub`、赋值等 code-shape，以及初始态
+`nth(10)->next()`/`nth_back(10)->next_back()`；planner 指令只要求 boundary-like 正负例，没有载体明确：
+
+1. setup：先执行一次改变共享 cursor 的操作；
+2. action：从另一方向执行边界跳过；
+3. observation：当前调用返回 None；
+4. postcondition：两个方向后续都不能再次产出已消费成员。
+
+这覆盖迭代器、parser/session、连接生命周期、事务状态机、双端队列、分页 cursor 等一类有序协议问题。最优方案不是增加
+PyO3/nth_back 字符串规则，而是为 `WriteBehaviorContract` 增加可选 typed transition sequence，供 analyzer 明确
+setup/action/observation/postcondition；planner 以该序列设计 non-initial-state 与 cross-operation probes。它是 prompt/typed context 能力，
+不扫描请求或答案 prose、不直接硬拒计划、不替模型写实现。
+
+### EVAL-B72-LANGPROBE1（P1/open matrix）：支持语言与 bounded probe runtime 不对称
+
+当前 inline verification probe 仅支持 Python、JavaScript、Ruby、Java、Go；Rust、C、C++、ArkTS、Cangjie 等项目必须依赖本地 project runner。
+runner 缺失时 fail-closed 是正确的，但不能用另一语言的 source-static checker获得行为权限。后续按语言能力矩阵补原生 bounded probe/overlay，
+每种语言必须证明探针真实导入或执行 changed production code；在 runtime 不可用前保持 unverified，禁止为让 eval 变绿而提升静态检查。
+
+施工顺序冻结：`B72-A evidence/docs` → `B72-B typed transition carrier + analyzer/planner soft guidance + structural pins` →
+严格并行同一个 stateful write witness 与另一个非 write 防回归 witness。语言 probe matrix 拆独立批次，避免与状态合同混成大改。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b72_writeoperation_r1_20260804.md`；
+- `eval/parallel_selected_summary_evalcampaign_b72_writeoperation_r1_20260804_manual_audit.md`；
+- result dirs：`eval/results/*-20260804-013927`。
