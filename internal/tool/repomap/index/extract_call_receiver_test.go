@@ -210,6 +210,79 @@ func TestNavigationReceiverBindingsStayInsideLexicalScope(t *testing.T) {
 	}
 }
 
+func TestStaticReceiverBindingsStayInsideLanguageLexicalScopes(t *testing.T) {
+	tests := []struct {
+		name     string
+		language string
+		file     string
+		source   string
+		extract  func([]byte, string) []types.Relation
+		want     map[int]string
+	}{
+		{
+			name: "typescript", language: types.LangTypeScript, file: "service.ts",
+			source: "class Worker { run() {} }\nclass Other { run() {} }\nfunction typed(repo: Worker) { repo.run(); }\nfunction inferred() { const repo = new Other(); repo.run(); }\n",
+			extract: func(src []byte, file string) []types.Relation {
+				root := parseSourceFor(t, types.LangTypeScript, string(src))
+				_, _, _, rels := extractJS(root, src, file, true)
+				return rels
+			},
+			want: map[int]string{3: "Worker", 4: "repo"},
+		},
+		{
+			name: "arkts", language: types.LangArkTS, file: "service.ets",
+			source: "class Worker { run() {} }\nclass Other { run() {} }\nfunction typed(repo: Worker) { repo.run(); }\nfunction inferred() { const repo = new Other(); repo.run(); }\n",
+			extract: func(src []byte, file string) []types.Relation {
+				_, _, _, rels, _ := extractArkTS(src, file)
+				return rels
+			},
+			want: map[int]string{3: "Worker", 4: "repo"},
+		},
+		{
+			name: "rust", language: types.LangRust, file: "service.rs",
+			source: "struct Worker {}\nstruct Other {}\nfn typed(repo: &Worker) { repo.run(); }\nfn inferred() { let repo = Other {}; repo.run(); }\n",
+			extract: func(src []byte, file string) []types.Relation {
+				root := parseSourceFor(t, types.LangRust, string(src))
+				_, _, _, rels := extractRust(root, src, file)
+				return rels
+			},
+			want: map[int]string{3: "Worker", 4: "repo"},
+		},
+		{
+			name: "cangjie", language: types.LangCangjie, file: "service.cj",
+			source: "package demo\nclass Worker {}\nclass Other {}\nfunc typed(repo: Worker): Unit { repo.run() }\nfunc inferred(): Unit { let repo = Other(); repo.run() }\n",
+			extract: func(src []byte, file string) []types.Relation {
+				_, _, _, rels, _ := extractCangjie(src, file)
+				return rels
+			},
+			want: map[int]string{4: "Worker", 5: "repo"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rels := tc.extract([]byte(tc.source), tc.file)
+			want := make(map[int]string, len(tc.want))
+			for line, receiver := range tc.want {
+				want[line] = receiver
+			}
+			for _, rel := range rels {
+				if rel.Kind != "call" || rel.ToEP.Name != "run" {
+					continue
+				}
+				if receiver, ok := want[rel.Line]; ok {
+					if rel.ToEP.Receiver != receiver {
+						t.Fatalf("line %d receiver=%q, want %q: %+v", rel.Line, rel.ToEP.Receiver, receiver, rel)
+					}
+					delete(want, rel.Line)
+				}
+			}
+			if len(want) != 0 {
+				t.Fatalf("missing scoped %s calls: %+v; relations=%+v", tc.language, want, rels)
+			}
+		})
+	}
+}
+
 func TestCangjieNamedArgumentDoesNotCorruptParameterBinding(t *testing.T) {
 	src := []byte(`package demo
 class Width { func load(): Unit {} }
@@ -228,9 +301,9 @@ func TestCallReceiverExtractorCacheEpochFloors(t *testing.T) {
 	// pre-change warm caches, including languages sharing one implementation.
 	floors := map[string]int{
 		types.LangJava: 6, types.LangPython: 6,
-		types.LangJavaScript: 5, types.LangTypeScript: 5, types.LangArkTS: 5,
-		types.LangCangjie: 4, types.LangKotlin: 6, types.LangRuby: 4,
-		types.LangSwift: 5, types.LangLua: 5, types.LangRust: 4,
+		types.LangJavaScript: 5, types.LangTypeScript: 6, types.LangArkTS: 6,
+		types.LangCangjie: 5, types.LangKotlin: 6, types.LangRuby: 4,
+		types.LangSwift: 5, types.LangLua: 5, types.LangRust: 5,
 		types.LangC: 4, types.LangCpp: 4,
 	}
 	for language, floor := range floors {

@@ -68,9 +68,32 @@ func extractCangjie(src []byte, file string) (pkg string, syms []types.Symbol, i
 // control heads. It does not infer receiver types.
 func cangjieExtractCalls(src []byte, file string) []types.Relation {
 	tokens := lexCangjie(src)
-	receiverTypes := cangjieUniqueReceiverTypeBindings(tokens)
+	parameterAuthorities := cangjieParameterReceiverAuthorities(tokens)
+	scopes := []cangjieReceiverScope{{parent: -1, authorities: make(map[string]lexicalReceiverAuthority)}}
 	var rels []types.Relation
 	for i := 0; i+1 < len(tokens); i++ {
+		switch tokens[i].Kind {
+		case cjTokLBrace:
+			authorities := make(map[string]lexicalReceiverAuthority)
+			for name, authority := range parameterAuthorities[i] {
+				authorities[name] = authority
+			}
+			scopes = append(scopes, cangjieReceiverScope{parent: len(scopes) - 1, authorities: authorities})
+			continue
+		case cjTokRBrace:
+			if len(scopes) > 1 {
+				scopes = scopes[:len(scopes)-1]
+			}
+			continue
+		}
+		if cangjieLocalReceiverDeclarationAt(tokens, i) {
+			typeName := ""
+			if i+2 < len(tokens) && tokens[i+1].Kind == cjTokColon &&
+				(tokens[i+2].Kind == cjTokIdent || tokens[i+2].Kind == cjTokKeyword) {
+				typeName = tokens[i+2].Text
+			}
+			addLexicalReceiverAuthority(scopes[len(scopes)-1].authorities, tokens[i].Text, typeName)
+		}
 		nameTok := tokens[i]
 		if nameTok.Kind != cjTokIdent || tokens[i+1].Kind != cjTokLParen {
 			continue
@@ -91,8 +114,10 @@ func cangjieExtractCalls(src []byte, file string) []types.Relation {
 			}
 			receiver = strings.TrimSpace(b.String())
 		}
-		if binding := cangjieReceiverBinding(receiver); binding != "" && receiverTypes[binding] != "" {
-			receiver = receiverTypes[binding]
+		if binding := cangjieReceiverBinding(receiver); binding != "" {
+			if receiverType, declared := cangjieReceiverTypeAt(scopes, binding); declared && receiverType != "" {
+				receiver = receiverType
+			}
 		}
 		rels = append(rels, types.Relation{
 			Kind:       "call",
@@ -108,28 +133,96 @@ func cangjieExtractCalls(src []byte, file string) []types.Relation {
 	return rels
 }
 
-func cangjieUniqueReceiverTypeBindings(tokens []cangjieToken) map[string]string {
-	bindings := make(map[string]string)
-	conflicts := make(map[string]bool)
+type cangjieReceiverScope struct {
+	parent      int
+	authorities map[string]lexicalReceiverAuthority
+}
+
+func cangjieParameterReceiverAuthorities(tokens []cangjieToken) map[int]map[string]lexicalReceiverAuthority {
+	byBody := make(map[int]map[string]lexicalReceiverAuthority)
 	for i := 0; i+2 < len(tokens); i++ {
 		if tokens[i].Kind != cjTokIdent || tokens[i+1].Kind != cjTokColon ||
 			(tokens[i+2].Kind != cjTokIdent && tokens[i+2].Kind != cjTokKeyword) ||
-			!cangjieBindingDeclarationAt(tokens, i) {
+			!cangjieBindingDeclarationAt(tokens, i) || cangjieLocalReceiverDeclarationAt(tokens, i) {
 			continue
 		}
-		name := strings.TrimSpace(tokens[i].Text)
-		typeName := strings.TrimSpace(tokens[i+2].Text)
-		if name == "" || typeName == "" || conflicts[name] {
+		body := cangjieDeclarationBodyBrace(tokens, i)
+		if body < 0 {
 			continue
 		}
-		if have := bindings[name]; have != "" && have != typeName {
-			delete(bindings, name)
-			conflicts[name] = true
-			continue
+		if byBody[body] == nil {
+			byBody[body] = make(map[string]lexicalReceiverAuthority)
 		}
-		bindings[name] = typeName
+		addLexicalReceiverAuthority(byBody[body], tokens[i].Text, tokens[i+2].Text)
 	}
-	return bindings
+	return byBody
+}
+
+func cangjieReceiverTypeAt(scopes []cangjieReceiverScope, binding string) (string, bool) {
+	for scope := len(scopes) - 1; scope >= 0; scope = scopes[scope].parent {
+		if authority, declared := scopes[scope].authorities[binding]; declared {
+			if authority.conflicted {
+				return "", true
+			}
+			return authority.typeName, true
+		}
+	}
+	return "", false
+}
+
+func cangjieLocalReceiverDeclarationAt(tokens []cangjieToken, nameIndex int) bool {
+	if nameIndex <= 0 || nameIndex >= len(tokens) || tokens[nameIndex].Kind != cjTokIdent {
+		return false
+	}
+	prev := tokens[nameIndex-1]
+	return prev.Kind == cjTokKeyword && (prev.Text == "let" || prev.Text == "var" || prev.Text == "const")
+}
+
+func cangjieDeclarationBodyBrace(tokens []cangjieToken, nameIndex int) int {
+	depth := 0
+	open := -1
+	for i := nameIndex - 1; i >= 0; i-- {
+		switch tokens[i].Kind {
+		case cjTokRParen:
+			depth++
+		case cjTokLParen:
+			if depth == 0 {
+				open = i
+				i = -1
+				continue
+			}
+			depth--
+		}
+	}
+	if open < 0 {
+		return -1
+	}
+	depth = 0
+	close := -1
+	for i := open; i < len(tokens); i++ {
+		switch tokens[i].Kind {
+		case cjTokLParen:
+			depth++
+		case cjTokRParen:
+			depth--
+			if depth == 0 {
+				close = i
+				i = len(tokens)
+			}
+		}
+	}
+	if close < 0 {
+		return -1
+	}
+	for i := close + 1; i < len(tokens); i++ {
+		switch tokens[i].Kind {
+		case cjTokLBrace:
+			return i
+		case cjTokSemicolon, cjTokEq:
+			return -1
+		}
+	}
+	return -1
 }
 
 func cangjieBindingDeclarationAt(tokens []cangjieToken, nameIndex int) bool {

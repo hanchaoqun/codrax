@@ -57,11 +57,7 @@ func extractJS(root *sitter.Node, src []byte, file string, isTS bool) (pkg strin
 		}
 	}
 
-	var receiverTypes map[string]string
-	if isTS {
-		receiverTypes = jsUniqueReceiverTypeBindings(root, src)
-	}
-	rels = append(rels, jsExtractCalls(root, src, file, receiverTypes)...)
+	rels = append(rels, jsExtractCalls(root, src, file, isTS)...)
 
 	// Express + NestJS route -> handler post-pass (route_javascript.go).
 	// Runs after the top-level loop so it can gate on the per-file
@@ -397,8 +393,12 @@ func jsExtractEnum(node *sitter.Node, src []byte, file string) (types.Symbol, bo
 	}, true
 }
 
-func jsExtractCalls(root *sitter.Node, src []byte, file string, receiverTypes map[string]string) []types.Relation {
+func jsExtractCalls(root *sitter.Node, src []byte, file string, typed bool) []types.Relation {
 	var rels []types.Relation
+	var receiverDeclarations lexicalReceiverAuthorities
+	if typed {
+		receiverDeclarations = jsReceiverDeclarations(root, src)
+	}
 	walkNamedChildren(root, true, func(node *sitter.Node) {
 		if node.Type() != "call_expression" {
 			return
@@ -425,8 +425,10 @@ func jsExtractCalls(root *sitter.Node, src []byte, file string, receiverTypes ma
 				if object := fn.ChildByFieldName("object"); object != nil {
 					receiver = strings.TrimSpace(nodeText(object, src))
 				}
-				if binding := jsReceiverBinding(receiver); binding != "" && receiverTypes[binding] != "" {
-					receiver = receiverTypes[binding]
+				if binding := jsReceiverBinding(receiver); binding != "" && receiverDeclarations != nil {
+					if receiverType, declared := lexicalReceiverTypeAt(node, binding, receiverDeclarations, jsReceiverScopeBoundary); declared && receiverType != "" {
+						receiver = receiverType
+					}
 				}
 				rels = append(rels, types.Relation{
 					Kind:       "call",
@@ -444,22 +446,8 @@ func jsExtractCalls(root *sitter.Node, src []byte, file string, receiverTypes ma
 	return rels
 }
 
-func jsUniqueReceiverTypeBindings(root *sitter.Node, src []byte) map[string]string {
-	bindings := make(map[string]string)
-	conflicts := make(map[string]bool)
-	add := func(name, typeName string) {
-		name = strings.TrimSpace(name)
-		typeName = strings.TrimSpace(typeName)
-		if name == "" || typeName == "" || conflicts[name] {
-			return
-		}
-		if have := bindings[name]; have != "" && have != typeName {
-			delete(bindings, name)
-			conflicts[name] = true
-			return
-		}
-		bindings[name] = typeName
-	}
+func jsReceiverDeclarations(root *sitter.Node, src []byte) lexicalReceiverAuthorities {
+	declarations := make(lexicalReceiverAuthorities)
 	walkNamedChildren(root, true, func(node *sitter.Node) {
 		switch node.Type() {
 		case "required_parameter", "optional_parameter", "variable_declarator", "public_field_definition":
@@ -467,13 +455,26 @@ func jsUniqueReceiverTypeBindings(root *sitter.Node, src []byte) map[string]stri
 			if name == nil {
 				name = node.ChildByFieldName("name")
 			}
-			typeNode := node.ChildByFieldName("type")
-			if name != nil && typeNode != nil {
-				add(nodeText(name, src), jsDeclaredTypeName(typeNode, src))
+			if name != nil {
+				scope := lexicalReceiverBindingScope(node, root, jsReceiverScopeBoundary)
+				addScopedReceiverAuthority(declarations, scope, nodeText(name, src), jsDeclaredTypeName(node.ChildByFieldName("type"), src))
 			}
 		}
 	})
-	return bindings
+	return declarations
+}
+
+func jsReceiverScopeBoundary(node *sitter.Node) bool {
+	if node == nil {
+		return false
+	}
+	switch node.Type() {
+	case "function_declaration", "generator_function_declaration", "function_expression", "generator_function",
+		"arrow_function", "method_definition", "class_declaration", "class":
+		return true
+	default:
+		return false
+	}
 }
 
 func jsDeclaredTypeName(node *sitter.Node, src []byte) string {

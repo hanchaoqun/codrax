@@ -231,15 +231,15 @@ var extractorVersions = map[string]int{
 	types.LangJava:       6, // inferred declarations shadow stale explicit receiver identities
 	types.LangPython:     6, // receiver-aware call identities (was 5: HYG-2 rune-safe signatures)
 	types.LangJavaScript: 5, // receiver-aware call identities (was 4: HYG-2 rune-safe signatures)
-	types.LangTypeScript: 5, // receiver-aware call identities via extractJS
-	types.LangArkTS:      5, // receiver-aware call identities via extractJS
-	types.LangCangjie:    4, // token-level call edges and declared receiver identities
+	types.LangTypeScript: 6, // typed receiver identities are lexical-scope bounded
+	types.LangArkTS:      6, // typed receiver identities are lexical-scope bounded via extractJS
+	types.LangCangjie:    5, // token receiver identities are brace-scope bounded
 	types.LangKotlin:     6, // navigation receiver identities are lexical-scope bounded
 	types.LangRuby:       4, // receiver-aware call identities
 	types.LangSwift:      5, // navigation receiver identities are lexical-scope bounded
 	types.LangLua:        5, // AST-bounded no-whitespace call-sugar identities
 	types.LangProto:      2,
-	types.LangRust:       4, // receiver-aware call identities
+	types.LangRust:       5, // typed receiver identities are lexical-scope bounded
 	types.LangC:          4, // call extraction update through extractCCpp
 	types.LangCpp:        4, // receiver-aware call identities through extractCCpp
 }

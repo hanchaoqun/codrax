@@ -319,7 +319,7 @@ func rustIsPublic(node *sitter.Node, src []byte) bool {
 
 func rustExtractCalls(root *sitter.Node, src []byte, file string) []types.Relation {
 	var rels []types.Relation
-	receiverTypes := rustUniqueReceiverTypeBindings(root, src)
+	receiverDeclarations := rustReceiverDeclarations(root, src)
 	walkNamedChildren(root, true, func(node *sitter.Node) {
 		if node.Type() != "call_expression" {
 			return
@@ -346,8 +346,10 @@ func rustExtractCalls(root *sitter.Node, src []byte, file string) []types.Relati
 				if value := fn.ChildByFieldName("value"); value != nil {
 					receiver = strings.TrimSpace(nodeText(value, src))
 				}
-				if binding := rustReceiverBinding(receiver); binding != "" && receiverTypes[binding] != "" {
-					receiver = receiverTypes[binding]
+				if binding := rustReceiverBinding(receiver); binding != "" {
+					if receiverType, declared := lexicalReceiverTypeAt(node, binding, receiverDeclarations, rustReceiverScopeBoundary); declared && receiverType != "" {
+						receiver = receiverType
+					}
 				}
 				rels = append(rels, types.Relation{
 					Kind:       "call",
@@ -382,35 +384,34 @@ func rustExtractCalls(root *sitter.Node, src []byte, file string) []types.Relati
 	return rels
 }
 
-func rustUniqueReceiverTypeBindings(root *sitter.Node, src []byte) map[string]string {
-	bindings := make(map[string]string)
-	conflicts := make(map[string]bool)
-	add := func(name, typeName string) {
-		name = strings.TrimSpace(name)
-		typeName = strings.TrimSpace(typeName)
-		if name == "" || typeName == "" || conflicts[name] {
-			return
-		}
-		if have := bindings[name]; have != "" && have != typeName {
-			delete(bindings, name)
-			conflicts[name] = true
-			return
-		}
-		bindings[name] = typeName
-	}
+func rustReceiverDeclarations(root *sitter.Node, src []byte) lexicalReceiverAuthorities {
+	declarations := make(lexicalReceiverAuthorities)
 	walkNamedChildren(root, true, func(node *sitter.Node) {
 		switch node.Type() {
-		case "parameter", "let_declaration", "field_declaration":
+		case "parameter", "let_declaration":
 			name := node.ChildByFieldName("pattern")
 			if name == nil {
 				name = node.ChildByFieldName("name")
 			}
 			if name != nil {
-				add(nodeText(name, src), rustDeclaredTypeName(node.ChildByFieldName("type"), src))
+				scope := lexicalReceiverBindingScope(node, root, rustReceiverScopeBoundary)
+				addScopedReceiverAuthority(declarations, scope, nodeText(name, src), rustDeclaredTypeName(node.ChildByFieldName("type"), src))
 			}
 		}
 	})
-	return bindings
+	return declarations
+}
+
+func rustReceiverScopeBoundary(node *sitter.Node) bool {
+	if node == nil {
+		return false
+	}
+	switch node.Type() {
+	case "function_item", "closure_expression":
+		return true
+	default:
+		return false
+	}
 }
 
 func rustDeclaredTypeName(node *sitter.Node, src []byte) string {

@@ -1749,8 +1749,31 @@ unresolved/name-level，不能取得排除权。回归构造同包 `ToolA.Execut
 
 #### 同类扩域审计（新登记 S2-4）
 
-按“所有受支持语言”继续扫 receiver 权限面后，Go 与 C/C++ 已按函数域绑定；Python/JavaScript/Ruby/Lua只保留
-源码动态 receiver，不铸声明类型；Java 以本批 sticky conflict 保守 fail-open。另确认 TypeScript/ArkTS、Rust、
+按“所有受支持语言”继续扫 receiver 权限面后，Go 与 C/C++ 已按函数域绑定但尚不识别内层 block 遮蔽；
+Python/JavaScript/Ruby/Lua 只保留源码动态 receiver，不铸声明类型；Java 以本批 sticky conflict 保守 fail-open。
+另确认 TypeScript/ArkTS、Rust、
 Cangjie 仍各有独立 file-wide typed census，存在同类跨函数授权风险，不能因 S2-2 只点名 Kotlin/Swift 就宣称
 全语言闭环。登记 `S2-4=P1`，下一独立批把三种解析族统一到 lexical-scope authority，并逐域 bump cache epoch；
-不把某一语言的 AST/token 规则复制给其他语言。
+不把某一语言的 AST/token 规则复制给其他语言。Go/C/C++ block 遮蔽另登记 `S2-5=P1`，不得用“已按函数域”
+错误收账。
+
+### §10.13 M5-E2：TS/ArkTS、Rust、Cangjie 词法 receiver 权限（已交付）
+
+#### 共用权限代数，不共用语言语法
+
+新增语言无关的 `lexicalReceiverAuthorities`，只负责 `(scope,binding)` 索引、最近作用域查找、unknown shadow
+和同作用域冲突语义；哪些 AST/token 是声明、哪些节点/brace 是作用域仍由各语言 extractor 自己决定。这样统一
+修复“文件 census 获得跨函数权限”这一类问题，同时避免把 TypeScript AST 规则硬套给 Rust/Cangjie。
+
+- **TypeScript/ArkTS**：参数、变量、field 归属最近 function/arrow/method/class；无类型局部在本作用域阻断
+  外层同名类型，兄弟函数互不污染。共享 `extractJS`，但两个持久化域分别 bump：TypeScript 5→6、ArkTS 5→6；
+- **Rust**：parameter/let 只归属最近 `function_item/closure_expression`。`field_declaration` 不再跨 struct/impl
+  凭同名获得全文件授权；缺少精确 struct↔impl/field 证明时 `self.repo` 保持源码 receiver。Rust epoch 4→5；
+- **Cangjie**：token lane 建 brace parent stack。函数/class 参数只装入其 declaration body brace；let/var/const
+  装入当前 brace，未标注类型仍作为 shadow；调用从当前 brace 向 parent 查 authority。named argument 继续无权，
+  跨函数同名参数/局部不再串线。Cangjie epoch 4→5。
+
+四语言同构 fixture 均含 `typed(repo: Worker)` 与兄弟函数 inferred `repo`：第一条必须提升为 `Worker`，第二条
+必须保持源码 `repo`。完整 `go test ./internal/tool/repomap/... -count=1` 八包全绿；cache floor pin 同步提升。
+
+状态：`S2-4=closed`；`M5-E2=closed`。`S2-5`（Go/C/C++ 内层 block shadow）仍为下一独立批，未收账。
