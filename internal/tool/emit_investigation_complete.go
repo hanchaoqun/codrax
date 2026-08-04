@@ -12193,7 +12193,7 @@ type callChainDirectedPathStatus struct {
 // Runtime Trace causal projections never enter this source-code contract.
 func callChainExactEndpointReachabilityDowngradeWithEvidence(ctx *types.BusContext, closure *types.EvidenceClosure, evidence []types.EvidenceItem) string {
 	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil || closure == nil ||
-		!completionExactCallChainEndpointShape(ctx) {
+		!completionDirectedCallChainEndpointShape(ctx) {
 		return ""
 	}
 	rm := ctx.AnalysisIR.RequestModel
@@ -13004,6 +13004,32 @@ func completionExactCallChainEndpointShape(ctx *types.BusContext) bool {
 	}
 	rm := ctx.AnalysisIR.RequestModel
 	return len(rm.AnalyzerHints.ExactTargets) > 0 && rm.PredicateAxis == types.AxisCall
+}
+
+// completionDirectedCallChainEndpointShape selects the precise typed shapes
+// for which source-to-sink reachability is a hard completion fact. Explicit
+// ExactTargets remain authoritative. When an analyzer omits that optional
+// carrier, a relation may still be unambiguous: ReqCallChain + AxisCall + the
+// relational predicate and exactly two non-path typed endpoint hints. More
+// than two fallback symbols is ambiguous and stays advisory; no raw request,
+// model reasoning, completion reason, or final-answer prose is inspected.
+//
+// Keep this separate from completionExactCallChainEndpointShape: the latter
+// also promotes phase-1 file reads to blocking and must retain its stronger
+// explicit-target requirement.
+func completionDirectedCallChainEndpointShape(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	if completionExactCallChainEndpointShape(ctx) {
+		return true
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) != types.ReqCallChain ||
+		rm.PredicateAxis != types.AxisCall || !rm.Predicates.IsRelationalLookup {
+		return false
+	}
+	return len(types.CallChainRequestedEndpointHints(rm)) == 2
 }
 
 // pendingReadIsPhase1Family reports whether a pending read came from the

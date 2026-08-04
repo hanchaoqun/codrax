@@ -65,6 +65,48 @@ func TestCallChainDirectedPathStatus_DefinitionAndPrefixSiblingDoNotReachExactSi
 	}
 }
 
+func TestPreCompleteCallChain_TypedTwoEndpointFallbackStillRequiresDirection(t *testing.T) {
+	evidence := []types.EvidenceItem{
+		{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "buildAnalysisIR", Predicate: "calls", Object: "gate.RunWith", AnchorSymbol: "gate.RunWith", Source: "internal/agent/analyzer.go", LineStart: 2666, GroundingStatus: types.GroundingGrounded},
+	}
+	mut := types.NewMutableState("opaque request bytes are not consulted")
+	mut.AppendEvidence(evidence)
+	ctx := &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:        types.IntentTrace,
+		PredicateAxis: types.AxisCall,
+		Predicates:    types.SemanticPredicates{IsRelationalLookup: true},
+		AnalyzerHints: types.AnalyzerHints{
+			Kind:              string(types.ReqCallChain),
+			MentionedEntities: []string{"buildAnalysisIR", "gate.Run", "analyzer.go", "orchestrator.go"},
+		},
+	}}}
+
+	if completionExactCallChainEndpointShape(ctx) {
+		t.Fatal("precondition: analyzer intentionally omitted ExactTargets")
+	}
+	if !completionDirectedCallChainEndpointShape(ctx) {
+		t.Fatal("two typed symbol endpoints should activate directed reachability without reading request prose")
+	}
+	got := preCompleteContractCheckWithEvidence(ctx, "", evidence)
+	if !strings.Contains(got, "not directionally proven") || !strings.Contains(got, "`buildAnalysisIR` -> `gate.Run`") {
+		t.Fatalf("prefix sibling must not close inferred two-endpoint relation, got:\n%s", got)
+	}
+}
+
+func TestCompletionDirectedCallChainEndpointShape_AmbiguousFallbackStaysAdvisory(t *testing.T) {
+	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		PredicateAxis: types.AxisCall,
+		Predicates:    types.SemanticPredicates{IsRelationalLookup: true},
+		AnalyzerHints: types.AnalyzerHints{
+			Kind:              string(types.ReqCallChain),
+			MentionedEntities: []string{"source.Start", "possible.Middle", "sink.Run"},
+		},
+	}}}
+	if completionDirectedCallChainEndpointShape(ctx) {
+		t.Fatal("three fallback symbols do not establish an unambiguous source/sink pair")
+	}
+}
+
 func TestEmitInvestigationComplete_NoDirectedPathWaiverCarriesModelOwnedBoundary(t *testing.T) {
 	mut := types.NewMutableState("trace buildAnalysisIR to gate.Run")
 	mut.AppendEvidence([]types.EvidenceItem{

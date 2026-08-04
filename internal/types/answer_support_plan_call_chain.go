@@ -463,8 +463,18 @@ func callChainRequestedEndpointHints(rm RequestModel) []string {
 		seen[key] = true
 		out = append(out, raw)
 	}
-	for _, entity := range rm.AnalyzerHints.MentionedEntities {
+	// ExactTargets is the analyzer's strongest endpoint identity carrier.
+	// Prefer it when present so contextual MentionedEntities cannot displace a
+	// model-declared source or sink. Path-like exact targets are discarded by
+	// add; if no symbol target remains, fall back to the progressively broader
+	// typed entity lanes below.
+	for _, entity := range rm.AnalyzerHints.ExactTargets {
 		add(entity)
+	}
+	if len(out) == 0 {
+		for _, entity := range rm.AnalyzerHints.MentionedEntities {
+			add(entity)
+		}
 	}
 	if len(out) == 0 {
 		for _, entity := range rm.AnalyzerHints.PrimaryEntities {

@@ -12312,3 +12312,62 @@ degraded-finalize 状态接入 eval verdict；不能通过放松调用边证据�
 状态：`EVAL-B56-EVALGREEN1 = implemented / runner-contracts-pass`。验证：
 `bash -n eval/run.sh eval/runner_lib.sh eval/runner_lib_test.sh` 与 `bash eval/runner_lib_test.sh` 全绿；旧 r3
 生产 witness 的控制面精确计数为 1，证明新 verdict 能阻止该次历史 false green，而不会回读模型原文。
+
+## 57. 2026-08-03 B56 r4：typed 双端点 fallback 与真实 Python 写闭环
+
+在 `main@67f9cdc45` 重建二进制后严格并行 2 例：
+
+- `qf_sequence_analyzer_gate`：runner PASS / human FAIL，285s，Explorer 8 轮、completion 3 次、finalizer
+  reject=4，`degraded_read_answer_check_skips=0`；
+- `github_issue_dateutil_relativedelta_float_symptom`：runner/human PASS，232s，写模式最终
+  `verified:all_batches_verified`。
+
+### EVAL-B57-CALLTYPED1（P0）：可选 ExactTargets 缺席会关闭有向终点合同
+
+r4 证明 CALLSINK1/CALLMEM1 仍有第三条生产旁路。Analyzer 已发出精确 typed 形态：
+`ReqCallChain + PredicateAxis=call + IsRelationalLookup=true`，`MentionedEntities` 去掉两个 `.go` 路径后恰好是
+`buildAnalysisIR` 与 `gate.Run`；但本轮模型漏填了可选 `ExactTargets`。旧
+`completionExactCallChainEndpointShape` 以 `len(ExactTargets)>0` 作为整个有向图检查的前置条件，因此跳过
+已经正确实现的 directed-path oracle。Explorer 最后一次不带 member_set 的 completion 被接受；答案继续把
+唯一已证边 `buildAnalysisIR -> gate.RunWith` 叙述为到达 `gate.Run`。四次 finalizer reject 只修复图中每条
+call edge 的锚点形态，没有纠正终点身份。
+
+本批按 typed endpoint authority 根修：
+
+1. `CallChainRequestedEndpointHints` 改为优先消费 `AnalyzerHints.ExactTargets`；只在 exact lane 过滤后没有
+   任何符号时，才按 `MentionedEntities -> PrimaryEntities -> Entities` 回退。上下文实体不能覆盖明确端点；
+2. 有向 reachability 新增独立 shape：显式 `ExactTargets` 仍直接启用；缺席时，只有
+   `ReqCallChain + AxisCall + relational=true` 且 typed、非路径端点**恰好两个**才启用。三个及以上 fallback
+   符号仍视为端点歧义，不硬判；
+3. reachability shape 与 phase-1 forced-read shape 分离。后者继续要求显式 ExactTargets，避免 fallback
+   实体把所有导航候选文件升级为阻塞读取；
+4. prefix sibling、definition、member_set 和 completion reason 均不能铸造方向。无路径时仍由模型选择：
+   补同向 `ClaimCallEdge`，或声明 typed `principal_span_waiver=no_directed_path` 并自行写出边界；系统不替写
+   最终结论。
+
+判据不读取 RawRequest、thinking、completion reason、final prose 或关键词；只消费 analyzer enum/boolean、
+typed entity carriers 与 accepted `ClaimCallEdge`。参数化语言图仍由已有 Go/Python/JS/TS/Java/Kotlin/Rust/
+C/C++/Ruby/Swift/Lua/Proto/ArkTS/Cangjie 套件覆盖；新增生产同形 pin 证明漏 ExactTargets 时
+`RunWith != Run`，并钉住三 fallback 符号不启用硬门。
+
+状态：`EVAL-B57-CALLTYPED1 = implemented / full-types-tool-pass / replay-next`。验证：
+`go test ./internal/types -count=1` 全绿（22.525s），`go test ./internal/tool -count=1` 全绿（167.380s）。
+
+### 写模式人工审计
+
+Python 例改动仅触及 `relativedelta.py`：整数值 float 在构造期转 int，非整数 float 抛 ValueError；未修改
+测试。verification probe 实际运行，随后 `python3 -m unittest discover -v` 真实执行并通过 4 个仓库测试，
+合计 5 个 test result；changed path 权威为 `project_runner/target_behavior`，最终 verified 可信。
+
+观察项 `EVAL-B57-PROBEDUP1/model-watch`：初始 probe 未带 contract_ref，报告记录
+`verification_probe_missing_plan_contract_ref` 后继续真实 suite；suite 随后完整覆盖四项 outcome，因此不构成
+权限或正确性 gap。它可能造成一次重复 suite/约 40ms 开销，先在不同语言与 replan 形继续观察；不得为了这
+一个 fixture 给所有首计划新增不可满足硬合同。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b56_readwrite_r4_20260803.md`；
+- `eval/parallel_selected_summary_evalcampaign_b56_readwrite_r4_20260803_manual_audit.md`；
+- result dirs：`eval/results/*-20260803-195918`。
+
+本批不修改 Trace query、显式时间窗、Trace 因果投影、系统补采或答案发布所有权。
