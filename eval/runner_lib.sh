@@ -648,6 +648,9 @@ eval_inventory_visible_row_count() {
     /^[[:space:]]*[-*+][[:space:]]+/ {
       count++
     }
+    /^[[:space:]]*[0-9]+[.)][[:space:]]+/ {
+      count++
+    }
     END {
       if (count == 0) {
         exit 1
@@ -655,6 +658,36 @@ eval_inventory_visible_row_count() {
       print count
     }
   ' <<<"$section_text"
+}
+
+# eval_inventory_marker_rows <text> <marker> — selects only visible inventory
+# presentation rows that carry both a case-declared group marker and an exact
+# source location. This is the format-neutral fallback when a correct answer
+# groups rows inline instead of emitting a dedicated markdown heading. The
+# caller supplies the terminal primary answer, so renderer citations and
+# deterministic supplements cannot manufacture membership.
+eval_inventory_marker_rows() {
+  local text="$1"
+  local marker="$2"
+  awk -v marker="$marker" '
+    BEGIN { found = 0; marker_lower = tolower(marker) }
+    {
+      if ($0 == "**引用**：" || $0 == "**Citations:**" ||
+          $0 == "**关键代码**：" || $0 == "**Key snippets:**") {
+        exit
+      }
+      lower = tolower($0)
+      presentation = ($0 ~ /^[[:space:]]*\|/ ||
+                      $0 ~ /^[[:space:]]*[-*+][[:space:]]+/ ||
+                      $0 ~ /^[[:space:]]*[0-9]+[.)][[:space:]]+/)
+      location = ($0 ~ /[^[:space:]|()`]+\.[[:alnum:]_+-]+:[0-9]+/)
+      if (presentation && location && index(lower, marker_lower) > 0) {
+        print
+        found = 1
+      }
+    }
+    END { if (!found) exit 1 }
+  ' <<<"$text"
 }
 
 eval_inventory_row_visible() {
@@ -687,7 +720,7 @@ eval_inventory_rowset_reasons() {
   [[ -n "$rowsets" ]] || return 0
 
   local rowset rowset_key rows_var rows count_var expected_count
-  local banned_var banned_rows scope_var row_scope section_var section_label rowset_text rowset_scoped old_ifs row matched total reason_row visible_count
+  local banned_var banned_rows scope_var row_scope section_var section_label marker_var row_marker rowset_text rowset_scoped marker_scoped old_ifs row matched total reason_row visible_count
   for rowset in $rowsets; do
     rowset_key="$(eval_env_key "$rowset")"
     rows_var="EXPECT_INVENTORY_ROWS_${rowset_key}"
@@ -698,11 +731,20 @@ eval_inventory_rowset_reasons() {
     row_scope="${!scope_var:-document}"
     section_var="EXPECT_INVENTORY_SECTION_LABEL_${rowset_key}"
     section_label="${!section_var:-}"
+    marker_var="EXPECT_INVENTORY_ROW_MARKER_${rowset_key}"
+    row_marker="${!marker_var:-}"
     rowset_scoped=0
+    marker_scoped=0
     if rowset_text="$(eval_inventory_rowset_section_text "$cleaned" "$rowset" "$section_label")"; then
       rowset_scoped=1
-    elif [[ -n "$section_label" ]]; then
+    elif [[ -n "$row_marker" ]] && rowset_text="$(eval_inventory_marker_rows "$cleaned" "$row_marker")"; then
+      rowset_scoped=1
+      marker_scoped=1
+    elif [[ -n "$section_label" && -z "$row_marker" ]]; then
       printf 'missing_inventory_section:%s:%s\n' "$rowset" "$(eval_reason_slug "$section_label")"
+      continue
+    elif [[ -n "$section_label$row_marker" ]]; then
+      printf 'missing_inventory_group:%s:%s\n' "$rowset" "$(eval_reason_slug "${row_marker:-$section_label}")"
       continue
     else
       rowset_text="$cleaned"
@@ -735,7 +777,11 @@ eval_inventory_rowset_reasons() {
     else
       visible_count=""
       if [[ "$rowset_scoped" -eq 1 ]]; then
-        visible_count="$(eval_inventory_visible_row_count "$rowset_text" || true)"
+        if [[ "$marker_scoped" -eq 1 ]]; then
+          visible_count="$(LC_ALL=C awk 'NF { count++ } END { if (count > 0) print count }' <<<"$rowset_text")"
+        else
+          visible_count="$(eval_inventory_visible_row_count "$rowset_text" || true)"
+        fi
       fi
       if [[ -n "$visible_count" ]] && [[ "$visible_count" -ne "$expected_count" ]]; then
         printf 'inventory_count_mismatch:%s:got%s:want%s\n' "$rowset" "$visible_count" "$expected_count"

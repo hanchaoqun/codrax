@@ -1991,6 +1991,20 @@ markdown section；runner 只在该 section 内计数，且声明 section 缺失
 未声明显式 section 的既有 case 保持兼容。ArkTS 旧输出现稳定报
 `inventory_count_mismatch:entry_page:got5:want4`，对应的 extra-row、missing-section 与 `run.sh` wiring pin 全绿。
 
-状态：`EVAL-B86-EVALROW1=implemented/runner-contracts-pass/replay-next`；下一批严格并行 ArkTS exact marker inventory
-与 Cangjie base+specific family inventory，回放后再收 `EVAL-B86-SURFFAM1`。显式时间窗 Trace 因果投影、自动补齐与
-模型结论所有权均未改变。
+状态：该 section-only 第一形已由 §10.22 收窄，固定标题不再是内容正确性的必要条件。显式时间窗 Trace 因果投影、
+自动补齐与模型结论所有权均未改变。
+
+### §10.22 B87 production：construct family closed；eval 格式过硬纠正
+
+严格并行 ArkTS/Cangjie 后，两个产品答案均人工正确：ArkTS 从旧 20 行扩域与错误 `EntryAbility` 收敛为精确 4+2；
+Cangjie 的五个 base+specific family rows、package、位置与 citation 无回归。两席均零 finalizer reject/advisory，故
+`EVAL-B86-SURFFAM1=production-proven/closed`。
+
+ArkTS 的记录 verdict 为 FAIL 仅因 §10.21 第一形要求固定 section 标题，而正确答案使用无标题有序列表。这是 eval
+格式门过硬。已新增 case-owned `EXPECT_INVENTORY_ROW_MARKER_<ROWSET>` 等价载体：section 存在时按 section 计数；否则
+只统计 terminal primary answer 内同时携带 marker 和精确 source location 的 markdown 清单行。renderer citations、
+deterministic supplement 与普通 prose 均不能满足行身份；extra row 仍由 exact count 拒绝。
+
+旧五行错答离线回放保持 `got5:want4`，本轮正确 4+2 答案离线回放 PASS；真实 runner wiring 与正负 contract pins 全绿。
+状态：`EVAL-B86-EVALROW1=implemented/runner-contracts-pass/artifact-replay-pass`。该修复仅影响 eval 判定，不新增 shipping
+prose gate，不触碰 Trace 因果投影、自动补齐或模型答案所有权。

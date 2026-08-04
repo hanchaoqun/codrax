@@ -14526,6 +14526,30 @@ ArkTS case 已分别绑定 `@Entry` 页面入口和 `@Builder` 复用片段两�
 确定性判为 `inventory_count_mismatch:entry_page:got5:want4`；section 缺失、嵌套标题 extra-row 与真实 `run.sh`
 接线均有 contract pin，`runner_lib_test.sh` 与 shell syntax check 全绿。
 
-状态：`EVAL-B86-EVALROW1=implemented/runner-contracts-pass/replay-next`。下一步严格并行原 ArkTS witness 与 Cangjie
-非 decorator 清单，既验证产品 construct-family 根修，也验证 eval 不再假绿。该批没有触碰 Trace 显式时间窗、因果投影、
-自动补齐、read/write/operation/data 路由或模型结论所有权。
+状态：该第一形已由下一节收窄；“固定 section 标题是唯一合法载体”不再作为最终合同。该批没有触碰 Trace 显式时间窗、
+因果投影、自动补齐、read/write/operation/data 路由或模型结论所有权。
+
+## 91. 2026-08-04 B87 r13：产品根修回放通过；eval 标题格式门收窄
+
+在 `main@e4b65b14e` 构建后严格并行 ArkTS 与 Cangjie 两个 source-inventory case：
+
+- ArkTS 主答案人工 PASS：精确列出 4 个 `@Entry` 与 2 个 `@Builder`，每席 path:line 正确；无 `EntryAbility`、无旧 20 行
+  coarse-role 扩域、零 finalizer reject/advisory；
+- Cangjie runner/human PASS：1 个 extend、1 个 foreign func、3 个 public class，两个 `Cart` 仍按 family+line 区分，
+  package 与五条 citation 完整，零旧虚假 caveat。
+
+这证明 `EVAL-B86-SURFFAM1=production-proven/closed`，同时暴露 §90 第一形的新 false negative：ArkTS 正确答案采用两段
+有序列表而没有固定类别标题，section-only oracle 因而报两个 `missing_inventory_section`。内容正确性不应要求模型复刻
+某个标题措辞。
+
+最终 eval 合同保持 case-owned typed authority，但允许两种等价可见载体：
+
+1. 存在显式 section 时继续按 heading level 精确统计其中行；
+2. section 缺席而 case 声明 `EXPECT_INVENTORY_ROW_MARKER_<ROWSET>` 时，仅在 terminal primary answer 中选择同时满足
+   “markdown 清单行 + case marker + 精确 source path:line”的行；引用区、系统补充、普通叙述均不能获权；
+3. 两种载体都缺席才发射 `missing_inventory_group`；marker 载体同样执行 exact count，额外行不能漏过；
+4. 旧 B86 错答仍稳定得到 `got5:want4`，本轮正确无标题答案离线重放为 PASS。
+
+新增 section/marker 正反臂、编号列表计数、引用重复不获权、missing-group 与真实 `run.sh` primary-surface 接线 pin。
+状态：`EVAL-B86-EVALROW1=implemented/runner-contracts-pass/artifact-replay-pass`；记录的本轮 runner FAIL 是旧 snapshot
+oracle 的假阴性，人工答案与新 oracle 均 PASS。下一批转入新的异构高优先级 eval，不再要求固定答案标题。

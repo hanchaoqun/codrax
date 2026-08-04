@@ -798,7 +798,14 @@ inventory_nested_extra=$'### @Entry pages\n\nRequested entries:\n\n**@Entry tabl
 assert_eq "$(eval_inventory_rowset_reasons "$inventory_nested_extra")" "inventory_count_mismatch:entry_page:got3:want2" "explicit inventory section label must count unexpected rows through nested bold headings"
 EXPECT_INVENTORY_SECTION_LABEL_ENTRY_PAGE="missing section"
 assert_eq "$(eval_inventory_rowset_reasons "$inventory_nested_extra")" "missing_inventory_section:entry_page:missing_section" "declared inventory section label must fail loudly when absent"
-unset EXPECT_INVENTORY_ROWSETS EXPECT_INVENTORY_ROW_SCOPE_ENTRY_PAGE EXPECT_INVENTORY_SECTION_LABEL_ENTRY_PAGE EXPECT_INVENTORY_ROWS_ENTRY_PAGE EXPECT_INVENTORY_COUNT_ENTRY_PAGE
+EXPECT_INVENTORY_ROW_MARKER_ENTRY_PAGE="@Entry"
+inventory_inline_exact=$'仓库中有两个入口。\n\n1. **Index** — @Entry 页面，位于 `src/Index.ets:5`\n2. **Parent** — @Entry 页面，位于 `src/Parent.ets:9`\n\n**引用**：\n\n- `src/Index.ets:5` — @Entry\n- `src/Parent.ets:9` — @Entry'
+assert_eq "$(eval_inventory_rowset_reasons "$inventory_inline_exact")" "" "typed inventory marker accepts heading-free ordered rows without double-counting citations"
+inventory_inline_extra=$'仓库中有三个入口。\n\n1. **Index** — @Entry 页面，位于 `src/Index.ets:5`\n2. **Parent** — @Entry 页面，位于 `src/Parent.ets:9`\n3. **Ability** — @Entry 页面，位于 `src/Ability.ets:12`'
+assert_eq "$(eval_inventory_rowset_reasons "$inventory_inline_extra")" "inventory_count_mismatch:entry_page:got3:want2" "typed inventory marker rejects an extra heading-free inventory row"
+EXPECT_INVENTORY_ROW_MARKER_ENTRY_PAGE="@Missing"
+assert_eq "$(eval_inventory_rowset_reasons "$inventory_inline_exact")" "missing_inventory_group:entry_page:@Missing" "declared inventory group fails loudly when neither section nor typed marker rows exist"
+unset EXPECT_INVENTORY_ROWSETS EXPECT_INVENTORY_ROW_SCOPE_ENTRY_PAGE EXPECT_INVENTORY_SECTION_LABEL_ENTRY_PAGE EXPECT_INVENTORY_ROW_MARKER_ENTRY_PAGE EXPECT_INVENTORY_ROWS_ENTRY_PAGE EXPECT_INVENTORY_COUNT_ENTRY_PAGE
 
 cat >"$tmp/fake-codrax-inventory-rowset" <<'SH'
 #!/usr/bin/env bash
@@ -831,6 +838,35 @@ case "$(cat "$inventory_rowset_dir/run-1.verdict")" in
     fail "inventory rowset verdict should report missing typed row, got: $(cat "$inventory_rowset_dir/run-1.verdict")"
     ;;
 esac
+
+cat >"$tmp/fake-codrax-inventory-marker" <<'SH'
+#!/usr/bin/env bash
+echo 'thinking stream'
+echo '━━━'
+echo '1. **Index** — @Entry page at `src/Index.ets:5`'
+echo '2. **Parent** — @Entry page at `src/Parent.ets:9`'
+echo ''
+echo '**引用**：'
+echo '- `src/Index.ets:5` — @Entry'
+echo '- `src/Parent.ets:9` — @Entry'
+SH
+chmod +x "$tmp/fake-codrax-inventory-marker"
+cat >"$tmp/inventory-marker.case" <<'CASE'
+ID="inventory_marker"
+NAME="inventory marker"
+QUESTION="inventory marker test"
+MIN_OUTPUT_CHARS=1
+EXPECT_INVENTORY_ROWSETS="entry_page"
+EXPECT_INVENTORY_SECTION_LABEL_ENTRY_PAGE="@Entry pages"
+EXPECT_INVENTORY_ROW_MARKER_ENTRY_PAGE="@Entry"
+EXPECT_INVENTORY_ROW_SCOPE_ENTRY_PAGE="document"
+EXPECT_INVENTORY_ROWS_ENTRY_PAGE=$'Index|Index.ets\nParent|Parent.ets'
+EXPECT_INVENTORY_COUNT_ENTRY_PAGE=2
+CASE
+CODRAX_BIN="$tmp/fake-codrax-inventory-marker" EVAL_RESULTS_ROOT="$tmp/inventory-results" CODRAX_PROVIDER_ARGS_RAW="" eval/run.sh "$tmp/inventory-marker.case" 1 >/dev/null || fail "inventory marker eval failed to run"
+inventory_marker_dir="$(eval_latest_result_dir "$tmp/inventory-results" inventory_marker 00000000-000000 || true)"
+[[ -n "$inventory_marker_dir" ]] || fail "inventory marker result dir missing"
+assert_eq "$(cat "$inventory_marker_dir/run-1.verdict")" "PASS" "run.sh inventory marker wiring must accept heading-free primary rows and ignore renderer citations"
 
 cat >"$tmp/finalizer-content-only.log" <<'LOG'
 2026-05-24T00:00:00.000 DEBUG [diag finalizer] iter=0 ASSISTANT content: the source code contains TOOLRESULT emit_answer_document ok=false and finalizer_rewrites strings

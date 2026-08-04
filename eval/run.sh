@@ -23,7 +23,8 @@
 # deterministic trace projection supplements, EXPECT_INVENTORY_ROWSETS plus
 # typed row/count declarations; optional per-rowset
 # EXPECT_INVENTORY_SECTION_LABEL_<ROWSET> binds exact-count checks to an
-# explicitly named visible section instead of guessing a label from prose
+# explicitly named visible section; optional EXPECT_INVENTORY_ROW_MARKER_<ROWSET>
+# provides a format-neutral fallback for inline inventory lists
 # EXPECT_DYNAMIC_SCALARS plus per-ID command/data-scope/surface/binding fields
 # recompute checkout-dependent scalar expectations and bind them to the chosen
 # answer surface without hard-coding a repository count,
@@ -1146,14 +1147,15 @@ write_verdict() {
   # category row/count mismatches without turning production routing into
   # keyword or model-prose logic. A case may declare
   # EXPECT_INVENTORY_SECTION_LABEL_<ROWSET> to bind exact extra-row counting to
-  # one visible markdown section; a missing declared section fails loudly.
+  # one visible markdown section, plus EXPECT_INVENTORY_ROW_MARKER_<ROWSET> for
+  # structurally visible location-bearing rows when the answer uses no heading.
   if [[ -n "$EXPECT_INVENTORY_ROWSETS" ]]; then
     local inventory_reason
     while IFS= read -r inventory_reason; do
       [[ -z "$inventory_reason" ]] && continue
       pass=0
       reasons+=("$inventory_reason")
-    done < <(eval_inventory_rowset_reasons "$cleaned")
+    done < <(eval_inventory_rowset_reasons "${primary_cleaned:-$cleaned}")
   fi
 
   if [[ $pass -eq 1 ]]; then
