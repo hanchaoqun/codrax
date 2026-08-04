@@ -14385,3 +14385,47 @@ operation planner 发出的 `steps` 是一段 stringified command-object array�
 下一批提交推送后仍严格并行 2 个：operation 原 witness 验证 malformed container 不再执行，并配一个非 operation
 高优先级 case，避免只对单一 web/manual 场景拟合。`EVAL-B64-COUNTBIND1`、`EVAL-B59-INVROW1`、
 `EVAL-B60-CLOSURECHURN1` 继续按 §10.15 的 typed-identity/异构复现门槛排队。
+
+## 87. 2026-08-04 B85 r11：operation 结构边界生产闭环；Cangjie 复合行身份再次见证
+
+### 87.1 严格并行结果
+
+在已推送 `main@e014c06f4` 上严格并行恰好两个异构 case：
+
+- `operation_web_manual_summary`：runner/human PASS，80s；
+- `cangjie_repomap_fixture`：runner/human 主答案 PASS，53s，零 finalizer reject。
+
+operation 先完整获取首页，从系统提取的 typed href 选择 `./user_guide.html`，再完整获取目标手册。terminal 同时携带：
+
+- `material_coverage_status=complete`；
+- 20 个 material pages、118,802 visible runes，source/pages 均未截断；
+- 248,161-byte source identity；
+- `user_guide.html` source locator；
+- SHA-256 绑定的 coverage receipt。
+
+因此不是“任意完整网页”伪装成目标完成。旧 malformed serialized steps 没有进入 shell，也没有触发 local-write replan/
+manual approval，`EVAL-B84-OPSTRUCT1=production-proven/closed`。
+
+### 87.2 `EVAL-B59-INVROW1`（P1/confirmed-repeat）：主清单正确但系统追加虚假不确定性
+
+Cangjie 主表精确列出 `native_add@Bridge.cj:6`、`Bridge@15`、`Cart class@14`、`Cart extend@30`、`App@11`，
+每行的 declaration family、package、file:line 均与 typed source-inventory row 一致，五条引用也完整发射。
+
+但 `principal_support_member_coverage` 仍产生 4 条 soft advisory；系统随后追加“部分项证据支持稍弱”和“补充定位/
+钻取步骤未执行”。这两句与 `complete=true + 5 rows + 5 citations` 不一致。根因方向与 B59 一致：两个 `Cart`
+拥有相同 visible label，但以 `source + line + declaration family` 才能区分；label-only 匹配无法证明两席分别覆盖，
+系统把身份表达不足误投影成证据不足。
+
+本轮不为 Cangjie/`Cart` 增加关键词规则，也不删除 soft checker。下一独立批应先冷读确认 principal row matcher 是否已
+携带 citation location/role；若没有，以 typed composite identity 统一修复 inventory、重载函数、同名跨 package、
+class+extension 等一类问题。系统披露只能来自真实未覆盖席，不能用 label ambiguity 铸造不确定性。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b85_operationcangjie_r11_20260804.md`；
+- `eval/parallel_selected_summary_evalcampaign_b85_operationcangjie_r11_20260804_manual_audit.md`；
+- `eval/results/operation_web_manual_summary-20260804-083407`；
+- `eval/results/cangjie_repomap_fixture-20260804-083407`。
+
+状态：`EVAL-B84-OPSTRUCT1=closed`；`EVAL-B59-INVROW1=confirmed-repeat/root-audit-next`。显式时间窗 Trace 因果投影、
+自动补齐、模型正文与结论所有权均未改变。

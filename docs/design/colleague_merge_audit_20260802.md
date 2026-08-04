@@ -1929,3 +1929,16 @@ shell test expression 均有正向 pin，直达 executor 负控证明命令未�
 状态：`MERGE-AUDIT-5-original-findings=independently-verified-closed`；
 `EVAL-B84-OPSTRUCT1=implemented/tests-pass/replay-next`。没有新增请求/答案 prose hard gate，没有系统答案代写，
 显式时间窗 Trace 因果投影与自动补齐权限不变。
+
+### §10.18 B85 production replay：operation closed；inventory composite row identity 继续开放
+
+`main@e014c06f4` 上严格并行 operation 原 witness 与 Cangjie source-inventory。两席 runner/human 主答案均 PASS：
+
+- operation 80s 内完成首页→typed `user_guide.html` 两轮读取；terminal 把 complete receipt、20 pages、118,802
+  visible runes、248,161-byte source identity 与目标 locator 绑定，`EVAL-B84-OPSTRUCT1=production-proven/closed`；
+- Cangjie 53s、零 finalizer reject，五个 principal rows 的 family/package/file:line 与五条引用均准确。
+
+Cangjie 同时再次见证 `EVAL-B59-INVROW1`：两个 `Cart` 分别是 class@14 与 extend@30，主表已区分，soft
+principal-member checker 却产生 4 advisories，系统追加“部分证据较弱/补充钻取未执行”的失真不确定性。该问题应从
+`source + line + declaration family/role` typed composite identity 修，不得从 `Cart`/`extend` 等模型答案词面或语言
+关键词硬门。状态：`EVAL-B59-INVROW1=confirmed-repeat/root-audit-next`。
