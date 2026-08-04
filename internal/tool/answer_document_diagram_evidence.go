@@ -50,20 +50,22 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 	}
 	strictSourceCallChain := view.Family == types.QFCallChain
 	requiredAnchors := view.RequiredMechanismAnchors
+	documentLabels := diagramEvidenceDocumentNodeLabels(doc)
+	documentEdges := diagramEvidenceDocumentEdges(doc)
 	var out []DiagramCallEdgeEvidenceMismatch
 	var visibleCallEdges []diagramVisibleCallEdge
 	hasStrictCallDiagram := false
 	strictCallDiagramID := ""
 	for i := range doc.Blocks {
 		block := &doc.Blocks[i]
-		labels := map[string]string(nil)
+		labels := documentLabels
 		strictBodyCoverage := false
 		if block.Kind == types.BlockDiagram && block.Diagram != nil {
 			labels = diagramEvidenceNodeLabels(block.Diagram.Body)
 			strictBodyCoverage = strictSourceCallChain &&
 				(block.Diagram.Kind == types.DiagramSequence || block.Diagram.Kind == types.DiagramCallDAG)
 		}
-		var parsedEdges []mermaidcompat.Edge
+		parsedEdges := documentEdges
 		if block.Diagram != nil {
 			parsedEdges = mermaidcompat.ParseEdges(block.Diagram.Body)
 		}
@@ -138,7 +140,7 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 			}
 			fromSymbol := diagramEvidenceEndpointSymbol(anchor.FromNode, labels)
 			toSymbol := diagramEvidenceEndpointSymbol(anchor.ToNode, labels)
-			if diagramCallEdgeHasTypedEvidence(evidence, requiredAnchors, fromSymbol, toSymbol, "") {
+			if diagramCallAnchorHasTypedEvidence(evidence, requiredAnchors, fromSymbol, toSymbol, anchor, parsedEdges) {
 				continue
 			}
 			out = append(out, DiagramCallEdgeEvidenceMismatch{
@@ -427,13 +429,13 @@ func diagramSequenceStructuralReplyKeySet(kind types.DiagramKind, edges []mermai
 	}
 	forward := make(map[string]bool)
 	for _, edge := range edges {
-		if strings.TrimSpace(edge.Operator) == "-->>" {
+		if mermaidcompat.SequenceArrowBase(edge.Operator) == "-->>" {
 			continue
 		}
 		forward[diagramEvidenceEdgeKey(edge.From, edge.To)] = true
 	}
 	for _, edge := range edges {
-		if strings.TrimSpace(edge.Operator) != "-->>" {
+		if mermaidcompat.SequenceArrowBase(edge.Operator) != "-->>" {
 			continue
 		}
 		key := diagramEvidenceEdgeKey(edge.From, edge.To)
@@ -492,19 +494,77 @@ func diagramEvidenceEdgeKey(from, to string) string {
 }
 
 func diagramEvidenceNodeLabels(body string) map[string]string {
-	out := make(map[string]string)
+	candidates := make(map[string]map[string]bool)
 	for _, line := range strings.Split(body, "\n") {
 		for _, decl := range mermaidcompat.SequenceParticipantDeclarations(line) {
-			diagramEvidenceAddNodeLabel(out, decl)
+			diagramEvidenceAddNodeLabelCandidate(candidates, decl)
 		}
 		for _, decl := range mermaidcompat.NodeDeclarationsAll(line) {
-			diagramEvidenceAddNodeLabel(out, decl)
+			diagramEvidenceAddNodeLabelCandidate(candidates, decl)
+		}
+	}
+	out := make(map[string]string)
+	for key, labels := range candidates {
+		if len(labels) != 1 {
+			continue
+		}
+		for label := range labels {
+			out[key] = label
 		}
 	}
 	return out
 }
 
-func diagramEvidenceAddNodeLabel(dst map[string]string, decl mermaidcompat.NodeDecl) {
+// diagramEvidenceDocumentNodeLabels supplies a unique document-level label
+// registry for edge anchors carried by sibling structured blocks. Local
+// diagram blocks still use their own labels. Reused node IDs with conflicting
+// labels are omitted so a cross-block carrier cannot guess an identity.
+func diagramEvidenceDocumentNodeLabels(doc *types.AnswerDocumentV2) map[string]string {
+	candidates := make(map[string]map[string]bool)
+	if doc == nil {
+		return nil
+	}
+	for i := range doc.Blocks {
+		block := &doc.Blocks[i]
+		if block.Diagram == nil {
+			continue
+		}
+		for _, line := range strings.Split(block.Diagram.Body, "\n") {
+			for _, decl := range mermaidcompat.SequenceParticipantDeclarations(line) {
+				diagramEvidenceAddNodeLabelCandidate(candidates, decl)
+			}
+			for _, decl := range mermaidcompat.NodeDeclarationsAll(line) {
+				diagramEvidenceAddNodeLabelCandidate(candidates, decl)
+			}
+		}
+	}
+	out := make(map[string]string)
+	for key, labels := range candidates {
+		if len(labels) != 1 {
+			continue
+		}
+		for label := range labels {
+			out[key] = label
+		}
+	}
+	return out
+}
+
+func diagramEvidenceDocumentEdges(doc *types.AnswerDocumentV2) []mermaidcompat.Edge {
+	if doc == nil {
+		return nil
+	}
+	var out []mermaidcompat.Edge
+	for i := range doc.Blocks {
+		if doc.Blocks[i].Diagram == nil {
+			continue
+		}
+		out = append(out, mermaidcompat.ParseEdges(doc.Blocks[i].Diagram.Body)...)
+	}
+	return out
+}
+
+func diagramEvidenceAddNodeLabelCandidate(dst map[string]map[string]bool, decl mermaidcompat.NodeDecl) {
 	ident := strings.TrimSpace(decl.Ident)
 	if ident == "" {
 		return
@@ -513,7 +573,11 @@ func diagramEvidenceAddNodeLabel(dst map[string]string, decl mermaidcompat.NodeD
 	if label == "" {
 		label = ident
 	}
-	dst[strings.ToLower(ident)] = label
+	key := strings.ToLower(ident)
+	if dst[key] == nil {
+		dst[key] = make(map[string]bool)
+	}
+	dst[key][label] = true
 }
 
 func diagramEvidenceEndpointSymbol(node string, labels map[string]string) string {
@@ -576,10 +640,10 @@ func diagramCallEdgeHasTypedEvidence(evidence []types.EvidenceItem, requiredAnch
 	// A same-language call site can be normalized to short in-file names
 	// (`Run -> RunWith`) while the answer uses the exact user endpoint owner
 	// (`gate.Run -> gate.RunWith`). Preserve that qualified presentation only
-	// when three typed authorities agree: the caller is an exact required
-	// mechanism anchor, the callee's qualified surface occurs verbatim in a
-	// citable call record, and exactly one citable call-site location carries
-	// the corresponding short caller -> short callee direction. This closes an
+	// when four typed authorities agree: the caller is an exact required
+	// mechanism anchor, one citable definition binds its owner+operation, the
+	// short call site is in that same typed source file, and the callee's
+	// qualified surface occurs verbatim in a citable call record. This closes an
 	// encoder mismatch without guessing from paths, Mermaid prose, or user text.
 	if diagramCallEdgeHasRequiredQualifiedCaller(
 		evidence, requiredAnchors, fromSymbol, toSymbol,
@@ -632,6 +696,39 @@ func diagramCallEdgeHasTypedEvidence(evidence []types.EvidenceItem, requiredAnch
 	return len(candidates) == 1
 }
 
+// diagramCallAnchorHasTypedEvidence routes explicit edge anchors through the
+// same message-operation resolver as parsed diagram edges. The anchor's node
+// direction remains the authority; a body label is only a precise alias
+// discriminator. Multiple distinct labels that each resolve remain ambiguous.
+func diagramCallAnchorHasTypedEvidence(
+	evidence []types.EvidenceItem,
+	requiredAnchors []types.AnswerRequiredAnchor,
+	fromSymbol, toSymbol string,
+	anchor types.DiagramEdgeAnchor,
+	parsedEdges []mermaidcompat.Edge,
+) bool {
+	if diagramCallEdgeHasTypedEvidence(evidence, requiredAnchors, fromSymbol, toSymbol, "") {
+		return true
+	}
+	wantKey := diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode)
+	labels := make(map[string]bool)
+	for _, edge := range parsedEdges {
+		if diagramEvidenceEdgeKey(edge.From, edge.To) != wantKey {
+			continue
+		}
+		if label := strings.TrimSpace(edge.Label); label != "" {
+			labels[label] = true
+		}
+	}
+	if len(labels) != 1 {
+		return false
+	}
+	for label := range labels {
+		return diagramCallEdgeHasTypedEvidence(evidence, requiredAnchors, fromSymbol, toSymbol, label)
+	}
+	return false
+}
+
 func diagramCallEdgeHasRequiredQualifiedCaller(
 	evidence []types.EvidenceItem,
 	requiredAnchors []types.AnswerRequiredAnchor,
@@ -640,8 +737,10 @@ func diagramCallEdgeHasRequiredQualifiedCaller(
 	fromOwner := diagramEvidenceQualifiedOwner(fromSymbol)
 	fromOperation := diagramEvidenceQualifiedOperation(fromSymbol)
 	toOperation := diagramEvidenceQualifiedOperation(toSymbol)
+	callerDefinitionSource, _, callerDefinitionOK := diagramEvidenceUniqueDefinitionLocation(evidence, fromOwner, fromOperation)
 	if fromOwner == "" || fromOperation == "" || toOperation == "" ||
 		!diagramRequiredMechanismAnchorContainsExactSymbol(requiredAnchors, fromSymbol) ||
+		!callerDefinitionOK ||
 		!diagramEvidenceContainsExactCallEndpoint(evidence, toSymbol) {
 		return false
 	}
@@ -649,7 +748,8 @@ func diagramCallEdgeHasRequiredQualifiedCaller(
 	locations := make(map[string]bool)
 	for _, ev := range evidence {
 		if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimCallEdge ||
-			strings.TrimSpace(ev.Subject) != fromOperation {
+			strings.TrimSpace(ev.Subject) != fromOperation ||
+			strings.TrimSpace(ev.Source) != callerDefinitionSource {
 			continue
 		}
 		object := strings.TrimSpace(ev.Object)
@@ -724,15 +824,34 @@ func diagramCallEdgeHasUniqueDefinitionBackedCallee(evidence []types.EvidenceIte
 		return false
 	}
 
-	definitions := make(map[string]bool)
+	return diagramEvidenceHasUniqueDefinition(evidence, owner, operation)
+}
+
+func diagramEvidenceHasUniqueDefinition(evidence []types.EvidenceItem, owner, operation string) bool {
+	_, _, ok := diagramEvidenceUniqueDefinitionLocation(evidence, owner, operation)
+	return ok
+}
+
+func diagramEvidenceUniqueDefinitionLocation(evidence []types.EvidenceItem, owner, operation string) (string, int, bool) {
+	type definitionLocation struct {
+		source string
+		line   int
+	}
+	definitions := make(map[definitionLocation]bool)
 	for _, ev := range evidence {
 		if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimDefinitionFact ||
 			strings.TrimSpace(ev.Subject) != owner || strings.TrimSpace(ev.AnchorSymbol) != operation {
 			continue
 		}
-		definitions[strings.TrimSpace(ev.Source)+"\x00"+strconv.Itoa(ev.LineStart)+"\x00"+owner+"\x00"+operation] = true
+		definitions[definitionLocation{source: strings.TrimSpace(ev.Source), line: ev.LineStart}] = true
 	}
-	return len(definitions) == 1
+	if len(definitions) != 1 {
+		return "", 0, false
+	}
+	for location := range definitions {
+		return location.source, location.line, location.source != "" && location.line > 0
+	}
+	return "", 0, false
 }
 
 func diagramEvidenceCallLabelOperation(label string) string {

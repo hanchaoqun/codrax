@@ -2,6 +2,14 @@ package mermaidcompat
 
 import "strings"
 
+var sequenceArrowOperators = []string{
+	"-->>+", "-->>-", "->>+", "->>-",
+	"--)+", "--)-", "-)+", "-)-",
+	"--x+", "--x-", "-x+", "-x-",
+	"-->+", "-->-", "->+", "->-",
+	"-->>", "->>", "-->", "->", "--x", "-x", "--)", "-)",
+}
+
 // Edge is the (from, to[, label]) tuple extracted from one Mermaid edge
 // declaration. The fields are syntax-level surfaces; semantic relation
 // inference lives outside this package.
@@ -87,16 +95,7 @@ func ParseEdges(body string) []Edge {
 // legitimately contain Mermaid-looking arrow bytes; those are not a second
 // edge and must not replace the actor-to-actor invocation being parsed.
 func splitSequenceEdgeLine(line string) (from, to, operator string, ok bool) {
-	operators := []string{"-->>", "-.->", "-->", "==>", "->>", "---", "==", "->"}
-	idx := -1
-	for _, candidate := range operators {
-		at := strings.Index(line, candidate)
-		if at < 0 || (idx >= 0 && at > idx) || (at == idx && len(candidate) <= len(operator)) {
-			continue
-		}
-		idx = at
-		operator = candidate
-	}
+	idx, operator := FindSequenceArrow(line)
 	if idx < 0 {
 		return "", "", "", false
 	}
@@ -106,6 +105,35 @@ func splitSequenceEdgeLine(line string) (from, to, operator string, ok bool) {
 		return "", "", "", false
 	}
 	return from, to, operator, true
+}
+
+// FindSequenceArrow is the single Mermaid sequence-operator table shared by
+// semantic parsing and terminal rendering. It selects the first operator in
+// source order and the longest operator at that byte position, so activation
+// suffixes are not mistaken for participant bytes.
+func FindSequenceArrow(line string) (int, string) {
+	idx := -1
+	operator := ""
+	for _, candidate := range sequenceArrowOperators {
+		at := strings.Index(line, candidate)
+		if at < 0 || (idx >= 0 && at > idx) || (at == idx && len(candidate) <= len(operator)) {
+			continue
+		}
+		idx = at
+		operator = candidate
+	}
+	return idx, operator
+}
+
+// SequenceArrowBase removes the activation/deactivation suffix while keeping
+// the structural arrow kind. Evidence consumers use this when reply semantics
+// depend on `-->>`, while renderers retain the full operator.
+func SequenceArrowBase(operator string) string {
+	operator = strings.TrimSpace(operator)
+	if len(operator) > 1 && (operator[len(operator)-1] == '+' || operator[len(operator)-1] == '-') {
+		return operator[:len(operator)-1]
+	}
+	return operator
 }
 
 // splitSequenceEdgeTargetMessage separates the message delimiter in a

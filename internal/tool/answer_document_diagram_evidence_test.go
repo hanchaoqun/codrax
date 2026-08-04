@@ -224,27 +224,42 @@ func TestDiagramCallEdgeEvidenceMismatches_RequiredQualifiedCallerBridgesUniqueS
 	qualifiedCallee := diagramEvidenceTestCall("buildAnalysisIR", "gate.RunWith")
 	qualifiedCallee.Source = "internal/agent/analyzer.go"
 	qualifiedCallee.LineStart = 2666
+	callerDefinition := diagramEvidenceTestDefinition("gate", "Run", "internal/analysis/gate/gate.go", 100)
 	view := &types.AnswerSemanticView{
 		Family: types.QFCallChain,
 		RequiredMechanismAnchors: []types.AnswerRequiredAnchor{{
 			Text: "gate.Run", Kind: types.ContractTermSymbol,
 		}},
 	}
-	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{shortCall, qualifiedCallee}); len(got) != 0 {
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{shortCall, qualifiedCallee}); len(got) != 1 || got[0].Issue != diagramCallEdgeIssueNoEvidence {
+		t.Fatalf("a request anchor without citable caller-owner binding must not mint qualification: %+v", got)
+	}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{shortCall, qualifiedCallee, callerDefinition}); len(got) != 0 {
 		t.Fatalf("typed required caller plus unique short call and exact callee should preserve qualification: %+v", got)
+	}
+	wrongOwnerFileCall := shortCall
+	wrongOwnerFileCall.Source = "other/gate.go"
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{wrongOwnerFileCall, qualifiedCallee, callerDefinition}); len(got) != 1 || got[0].Issue != diagramCallEdgeIssueNoEvidence {
+		t.Fatalf("a short call from outside the caller definition file must not inherit its owner: %+v", got)
 	}
 
 	view.RequiredMechanismAnchors = nil
-	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{shortCall, qualifiedCallee}); len(got) != 1 || got[0].Issue != diagramCallEdgeIssueNoEvidence {
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{shortCall, qualifiedCallee, callerDefinition}); len(got) != 1 || got[0].Issue != diagramCallEdgeIssueNoEvidence {
 		t.Fatalf("model-authored qualification must fail without typed caller authority: %+v", got)
 	}
 
 	view.RequiredMechanismAnchors = []types.AnswerRequiredAnchor{{Text: "gate.Run", Kind: types.ContractTermSymbol}}
 	ambiguous := shortCall
-	ambiguous.Source = "other/gate.go"
 	ambiguous.LineStart = 42
-	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{shortCall, ambiguous, qualifiedCallee}); len(got) != 1 || got[0].Issue != diagramCallEdgeIssueNoEvidence {
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{shortCall, ambiguous, qualifiedCallee, callerDefinition}); len(got) != 1 || got[0].Issue != diagramCallEdgeIssueNoEvidence {
 		t.Fatalf("multiple short call-site locations must remain ambiguous: %+v", got)
+	}
+
+	ambiguousDefinition := callerDefinition
+	ambiguousDefinition.Source = "other/gate.go"
+	ambiguousDefinition.LineStart = 20
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{shortCall, qualifiedCallee, callerDefinition, ambiguousDefinition}); len(got) != 1 || got[0].Issue != diagramCallEdgeIssueNoEvidence {
+		t.Fatalf("multiple caller-owner definitions must remain ambiguous: %+v", got)
 	}
 }
 
@@ -896,6 +911,65 @@ func TestDiagramCallEdgeEvidenceMismatches_ExplicitCallAuthorityIsFamilyIndepend
 				t.Fatalf("exact typed call must pass in family %s: %+v", family, got)
 			}
 		})
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_ClassParticipantAliasIsFamilyIndependent(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "sequence", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+			"sequenceDiagram",
+			"  participant C as VisitController",
+			"  participant S as VisitService",
+			"  C->>S: schedule(petId)",
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "C", ToNode: "S", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge,
+		}},
+	}}}
+	call := diagramEvidenceTestCall("VisitController.create", "VisitService.schedule")
+	call.AnchorSymbol = "schedule"
+	for _, family := range []types.QuestionFamily{types.QFCallChain, types.QFGeneric, types.QFArchitecture, types.QFRoleLookup} {
+		t.Run(string(family), func(t *testing.T) {
+			if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: family}, []types.EvidenceItem{call}); len(got) != 0 {
+				t.Fatalf("same typed graph/evidence must not drift by family %s: %+v", family, got)
+			}
+		})
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_SiblingCarrierUsesUniqueDocumentDiagramIdentity(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID: "sequence", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: "sequenceDiagram\n  participant C as VisitController\n  participant S as VisitService\n  C->>S: schedule(petId)\n"},
+		},
+		{
+			ID: "edge-carrier", Kind: types.BlockOrderedList,
+			EdgeAnchors: []types.DiagramEdgeAnchor{{
+				FromNode: "C", ToNode: "S", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge,
+			}},
+		},
+	}}
+	call := diagramEvidenceTestCall("VisitController.create", "VisitService.schedule")
+	call.AnchorSymbol = "schedule"
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFGeneric}, []types.EvidenceItem{call}); len(got) != 0 {
+		t.Fatalf("sibling anchor must consume the unique document-level node/operation registry: %+v", got)
+	}
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{
+		ID: "conflict", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: "sequenceDiagram\n  participant C as OtherController\n"},
+	})
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFGeneric}, []types.EvidenceItem{call}); len(got) != 1 || got[0].Issue != diagramCallEdgeIssueNoEvidence {
+		t.Fatalf("conflicting document-level node identities must fail closed: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_ActivatedReplyKeepsStructuralRole(t *testing.T) {
+	doc := diagramEvidenceTestDoc("A", "B")
+	doc.Blocks[0].Diagram.Body = "sequenceDiagram\n  participant A as Alpha.Run\n  participant B as Beta.Run\n  A->>+B: invoke\n  B-->>-A: result\n"
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, []types.EvidenceItem{diagramEvidenceTestCall("Alpha.Run", "Beta.Run")}); len(got) != 0 {
+		t.Fatalf("activation suffix must not turn a paired dashed reply into a reverse call: %+v", got)
 	}
 }
 

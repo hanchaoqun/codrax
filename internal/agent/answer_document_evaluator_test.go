@@ -3472,6 +3472,8 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDiagramContractA
 		"Required kind: call_dag",
 		"Preferred kinds: call_dag",
 		"Avoid invented enumeration labels like `Level 1`, `Round 2`, or `Step 3`",
+		"async `-)` / `--)`, and lost-message `-x` / `--x`",
+		"not decoration or an escape from edge evidence",
 		"Do not synthesize bare line-number aliases such as `L877`, `Line 42`",
 		"## Diagram Seeds",
 		"### Grounded Labeling",

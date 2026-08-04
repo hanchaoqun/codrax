@@ -1984,12 +1984,7 @@ func NormalizeFlowchartSubgraphTitles(body string) string {
 }
 
 func sequenceMessageLineLike(line string) bool {
-	arrowAt := -1
-	for _, op := range []string{"-->>", "->>", "-->", "->", "--x", "-x", "--)", "-)"} {
-		if idx := strings.Index(line, op); idx >= 0 && (arrowAt < 0 || idx < arrowAt) {
-			arrowAt = idx
-		}
-	}
+	arrowAt, _ := FindSequenceArrow(line)
 	if arrowAt <= 0 {
 		return false
 	}

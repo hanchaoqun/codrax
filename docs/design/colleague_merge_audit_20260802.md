@@ -1568,3 +1568,42 @@ model-authored summary 是独立 evidence carriers；兼容计数可单向核对
 回归覆盖 failure 前通过的 probe、错误 PlanID probe 均不得冻结；同 plan 且 failure 后的新 probe 才可授权；新的 failing probe 仍会重开 mutation lane；真实 `run_tests(dry_run=true, verification_probe=...)` 自动带 active plan ID。完整相关包验证：`internal/tool` 167.053s、`internal/writeflow` 0.344s、`internal/types` 20.526s，全绿。
 
 状态：`M5-S3-2=closed`。本批没有读取用户/模型 prose，没有改变 read mode、Trace 时间窗因果投影、自动补齐或模型结论所有权。
+
+### §10.9 M5-B：图表 alias、owner 绑定与 sequence 运算符同源（已交付）
+
+#### M5-S1-1：全部非 Trace 家族复用同一 operation resolver
+
+确认扩域后的家族不对称。修复没有收回“显式 `relation_kind=call` 必须有 typed call evidence”的精确信号硬门，而是让 anchor 车道复用 parsed-edge 车道已有的严格解析：
+
+- 为当前 diagram 建立 local node/edge registry；为 sibling structured carrier 建立 document-level registry；
+- node ID 只有在可见 label 唯一时才投影，跨图或同图冲突时删除别名、fail-closed；
+- call anchor 先走 exact typed endpoint，只有 exact lane 不成立时才读取同方向 body edge 的唯一 structured message operation；
+- 同一 node pair 出现多个不同 message label 时不猜选；body label 只作 discriminator，不自铸 call 权限；
+- `QFRootCauseTrace` 继续在独立 runtime relation authority，显式时间窗 Trace 因果投影与自动补齐不进入 source-call 合同。
+
+回归固定同一 class-participant graph + 同一 evidence pool 在 call_chain / generic / architecture / role_lookup 四家族结论一致；edge anchor 位于 sibling block 时可消费唯一 diagram identity；新增冲突 label 后必须拒绝。
+
+状态：`M5-S1-1=closed`。
+
+#### M5-S5-3：qualified caller 不再由异源短名拼接
+
+确认旧 fallback 的 required mechanism anchor 只证明“请求选择了 `gate.Run`”，不能证明某条 `Run -> RunWith` 的短名 call site 就属于 `gate`。现把该窄 fallback 收紧为四个 typed 事实合取：
+
+1. `gate.Run` 是 exact required mechanism anchor；
+2. citable definition 唯一绑定 owner=`gate`、operation=`Run`；
+3. short caller call site 与该 definition 的 `Source` 文件相同，且 call direction/operation 唯一；
+4. qualified callee surface 在 citable call evidence 中精确出现。
+
+缺 caller definition、definition 多义、短 call 来自其他文件、同文件多 call location 任一成立均 fail-closed。没有从路径名推 owner，没有扫描 Mermaid prose、请求原文或答案文本。
+
+状态：`M5-S5-3=closed`。
+
+#### M5-S1-2：parser / renderer / teaching 共用 sequence operator 合同
+
+原 semantic parser 只识别 `->>/-->>` 等窄表，renderer 却另有完整表，导致 `-)/--)/-x/--x` 与 `+/-` activation suffix 可显示但对 evidence gate 不可见。现由 `mermaidcompat.FindSequenceArrow` 发布唯一 source-order/longest-match 表，semantic `ParseEdges`、normalizer 与 terminal renderer 全部复用；`SequenceArrowBase` 只为结构 reply 判定剥离 activation suffix，Edge 仍保存完整 operator。
+
+finalizer Diagram Contract 同步教学：async/lost/activation 都是 visible structured edge，必须有同方向 typed relation/evidence，不能当装饰或逃逸；仅与已证 forward invocation 成对的 reverse `-->>`（含 activation suffix）保留 response 语义。24 种 operator 正表逐值 pin，另有 activated invocation + reply 的 authority 回归。
+
+完整验证：`internal/tool` 168.231s、`internal/agent` 2.654s、`internal/mermaidcompat` 1.312s、`internal/render` 1.659s，全绿。
+
+状态：`M5-S1-2=closed`。`M5-B=closed`；没有系统改写模型答案或新增 prose hard gate。

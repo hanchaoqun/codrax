@@ -561,26 +561,7 @@ func parseSequenceEdgeLine(line string) (from, arrow, to, msg string, ok bool) {
 }
 
 func findSequenceArrow(line string) (int, string) {
-	arrows := []string{
-		"-->>+", "-->>-", "->>+", "->>-",
-		"--)+", "--)-", "-)+", "-)-",
-		"--x+", "--x-", "-x+", "-x-",
-		"-->+", "-->-", "->+", "->-",
-		"-->>", "->>", "-->", "->", "--x", "-x", "--)", "-)",
-	}
-	best := -1
-	bestArrow := ""
-	for _, arrow := range arrows {
-		idx := strings.Index(line, arrow)
-		if idx < 0 {
-			continue
-		}
-		if best < 0 || idx < best || (idx == best && len(arrow) > len(bestArrow)) {
-			best = idx
-			bestArrow = arrow
-		}
-	}
-	return best, bestArrow
+	return mermaidcompat.FindSequenceArrow(line)
 }
 
 func splitSequenceTargetAndMessage(rest string) (target, msg string, ok bool) {

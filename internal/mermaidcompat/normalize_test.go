@@ -67,6 +67,29 @@ func TestParseEdges_SequenceMessageArrowBytesStayInMessage(t *testing.T) {
 	}
 }
 
+func TestParseEdges_SequenceOperatorMatrixMatchesSharedRendererTable(t *testing.T) {
+	operators := []string{
+		"-->>+", "-->>-", "->>+", "->>-",
+		"--)+", "--)-", "-)+", "-)-",
+		"--x+", "--x-", "-x+", "-x-",
+		"-->+", "-->-", "->+", "->-",
+		"-->>", "->>", "-->", "->", "--x", "-x", "--)", "-)",
+	}
+	for _, operator := range operators {
+		t.Run(strings.NewReplacer(">", "gt", "-", "dash", "+", "plus", ")", "paren").Replace(operator), func(t *testing.T) {
+			line := "A" + operator + "B: message"
+			at, shared := FindSequenceArrow(line)
+			if at != 1 || shared != operator {
+				t.Fatalf("shared arrow lookup=%d,%q want 1,%q", at, shared, operator)
+			}
+			edges := ParseEdges("sequenceDiagram\n  " + line + "\n")
+			if len(edges) != 1 || edges[0].From != "A" || edges[0].To != "B" || edges[0].Operator != operator || edges[0].Label != "message" {
+				t.Fatalf("operator %q not preserved by semantic parser: %+v", operator, edges)
+			}
+		})
+	}
+}
+
 func TestSourceRepairHash_UsesBeforeAndAfter(t *testing.T) {
 	a := sourceRepairHash("before", "after")
 	if a == "" {
