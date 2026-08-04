@@ -5260,6 +5260,18 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 	if len(principalRefs) == 0 {
 		return nil
 	}
+	forceHard := preEmitAggregateMemberSetCoverageHardGate(ctxOpt...)
+	// Source-inventory principal rows have a typed, row-shaped contract. The
+	// finalizer prompt tells the model to render those rows as items/cells, and
+	// the deterministic post-emit reviewer consumes the same carrier. Do not
+	// let free-form block text satisfy this hard gate: doing so makes pre-emit
+	// accept a document that the next typed reviewer must reject, and turns a
+	// presentation-carrier gap into a misleading "weak evidence" caveat.
+	//
+	// This branch reads only RequestModel + aggregate facts + structured answer
+	// item identity fields. Narrative/advisory member sets retain the legacy
+	// soft visible-surface behavior below.
+	structuredPrincipalCarrierRequired := forceHard && sourceInventoryPrincipalAnswerIsModelOwned(ctx)
 	surface := preEmitVisibleAnswerSurface(doc)
 	if strings.TrimSpace(surface) == "" {
 		return nil
@@ -5279,11 +5291,16 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 			if len(candidates) == 0 {
 				continue
 			}
-			present := preEmitAggregateMemberAppearsInDocument(member, doc, surface) ||
-				preEmitAggregateMemberAppearsInDocumentWithCategory(fact, member, doc) ||
-				preEmitAggregateMemberIndexedSupportRefAppearsInDocument(fact, memberIdx, member, doc) ||
-				preEmitAggregateMemberIndexedSourceInventorySurfaceAppearsInDocument(ctx, fact, memberIdx, doc) ||
-				preEmitAggregateMemberIndexedSupportSurfaceAppearsInDocument(fact, memberIdx, member, doc)
+			present := false
+			if structuredPrincipalCarrierRequired {
+				present = preEmitAggregateMemberAppearsInStructuredPrincipalIdentity(fact, member, doc)
+			} else {
+				present = preEmitAggregateMemberAppearsInDocument(member, doc, surface) ||
+					preEmitAggregateMemberAppearsInDocumentWithCategory(fact, member, doc) ||
+					preEmitAggregateMemberIndexedSupportRefAppearsInDocument(fact, memberIdx, member, doc) ||
+					preEmitAggregateMemberIndexedSourceInventorySurfaceAppearsInDocument(ctx, fact, memberIdx, doc) ||
+					preEmitAggregateMemberIndexedSupportSurfaceAppearsInDocument(fact, memberIdx, member, doc)
+			}
 			if !present {
 				key := strings.ToLower(candidates[0])
 				if seen[key] {
@@ -5348,16 +5365,73 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 			parts = append(parts, fmt.Sprintf("plus %d member(s) already present (✓) — keep them unchanged", presentTotal))
 		}
 	}
+	field := "blocks[].items[].label/text/cells OR blocks[].text"
+	expectedPrefix := "include every model-emitted principal member_set member in the visible answer. "
+	if structuredPrincipalCarrierRequired {
+		field = "blocks[].items[].label/cells"
+		expectedPrefix = "render every typed source-inventory principal member as one structured item label/table row; free-form blocks[].text does not satisfy this identity contract. "
+	}
 	return []emitFixHint{{
-		Field: "blocks[].items[].label/text/cells OR blocks[].text",
-		ExpectedShape: "include every model-emitted principal member_set member in the visible answer. " +
+		Field: field,
+		ExpectedShape: expectedPrefix +
 			"ADD each ✗ MISSING row verbatim (copy the member string character-for-character as a new item/row); " +
 			"do NOT replace, reword, or renumber the ✓ present rows — presence is judged by verbatim match, so editing a present row breaks it. " +
 			"Obligation roster: " + strings.Join(parts, "; "),
 		Reason:               "the investigation handed off this complete principal member set as structured data; finalization must preserve those model-authored members even when the request family was routed as architecture, scalar, relation, or generic prose.",
-		ForceHard:            preEmitAggregateMemberSetCoverageHardGate(ctxOpt...),
+		ForceHard:            forceHard,
 		SameCauseFingerprint: preEmitMemberSetMissingFingerprint(roster),
 	}}
+}
+
+// preEmitAggregateMemberAppearsInStructuredPrincipalIdentity checks only the
+// identity-bearing fields of model-authored principal rows. Item explanatory
+// text and block prose are deliberately excluded: they are not schema-stable
+// member identities and must not drive a hard source-inventory gate.
+func preEmitAggregateMemberAppearsInStructuredPrincipalIdentity(fact types.AnswerAggregateFact, member string, doc *types.AnswerDocumentV2) bool {
+	if doc == nil {
+		return false
+	}
+	blocks := make([]types.AnswerBlock, 0, len(doc.Blocks))
+	for _, block := range doc.Blocks {
+		if block.SurfaceRole != types.SurfacePrincipal ||
+			!types.AnswerBlockKindRendersStructuredItems(block.Kind) ||
+			len(block.Items) == 0 {
+			continue
+		}
+		blocks = append(blocks, block)
+	}
+	if len(blocks) == 0 {
+		return false
+	}
+
+	// Prefer the block carrying the aggregate's typed label when one exists.
+	// This prevents an identically named type/function/constant in a sibling
+	// category from borrowing the other category's row. A single-set answer or
+	// a table without a category title falls back to all principal row blocks.
+	var labelled []types.AnswerBlock
+	if label := strings.TrimSpace(fact.Label); label != "" {
+		for _, block := range blocks {
+			if preEmitAggregateLabelAppearsInSurface(label, block.Title+"\n"+block.ID) ||
+				preEmitAggregateDisplayPartAppears(label, block.Title+"\n"+block.ID) {
+				labelled = append(labelled, block)
+			}
+		}
+	}
+	if len(labelled) > 0 {
+		blocks = labelled
+	}
+	for _, block := range blocks {
+		for _, item := range block.Items {
+			identity := strings.TrimSpace(item.Label)
+			if len(item.Cells) > 0 {
+				identity = strings.TrimSpace(identity + "\n" + strings.Join(item.Cells, "\n"))
+			}
+			if identity != "" && preEmitAggregateMemberAppearsInText(member, identity) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // preCheckSourceInventoryExtraneousPrincipalItems is the non-mutating twin of

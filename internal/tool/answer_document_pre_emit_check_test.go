@@ -1459,6 +1459,93 @@ func TestPreCheckAggregateMemberSetCoverage_ScalarCountTreatsMembersAsSupportOnl
 	}
 }
 
+func TestPreCheckAggregateMemberSetCoverage_SourceInventoryHardGateRequiresStructuredRows(t *testing.T) {
+	mu := types.NewMutableState("source inventory structured carrier")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "Kind constants",
+		Value: "3",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"KindA", "KindB", "KindC",
+		},
+		SupportRefs: []string{
+			"KindA: pkg/kind.go:10",
+			"KindB: pkg/kind.go:11",
+			"KindC: pkg/kind.go:12",
+		},
+	}})
+	mu.SetInvestigationComplete("typed inventory accepted")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleConstant},
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+				},
+				Confidence: 0.95,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:          "kind-constants",
+		Kind:        types.BlockSection,
+		Title:       "Kind constants",
+		SurfaceRole: types.SurfacePrincipal,
+		Text:        "KindA, KindB, KindC are all listed here in free-form prose.",
+	}}}
+
+	hints := preCheckAggregateMemberSetCoverage(doc, ctx)
+	if len(hints) != 1 || !hints[0].ForceHard {
+		t.Fatalf("free-form prose must not satisfy the typed source-inventory hard gate: %+v", hints)
+	}
+	if hints[0].Field != "blocks[].items[].label/cells" ||
+		!strings.Contains(hints[0].ExpectedShape, "free-form blocks[].text does not satisfy") {
+		t.Fatalf("repair must name the structured carrier contract, got %+v", hints[0])
+	}
+
+	doc.Blocks[0].Items = []types.AnswerBlockItem{
+		{ID: "a", Label: "KindA"},
+		{ID: "b", Cells: []string{"KindB", "pkg/kind.go:11"}},
+		{ID: "c", Label: "KindC", Text: "explanation remains model-owned"},
+	}
+	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("structured labels/cells should satisfy the same typed contract: %+v", got)
+	}
+}
+
+func TestPreCheckAggregateMemberSetCoverage_NarrativeSoftLaneMayUseVisibleText(t *testing.T) {
+	mu := types.NewMutableState("narrative member set")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "supporting mechanisms",
+		Value:   "2",
+		Members: []string{"Cache", "Index"},
+	}})
+	mu.SetInvestigationComplete("narrative support accepted")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "The mechanism uses Cache and Index together.",
+	}}}
+	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("non-inventory narrative soft lane should retain visible-text compatibility: %+v", got)
+	}
+}
+
 func TestPreCheckAggregateMemberSetCoverage_SourceInventorySurfaceAliasCoversExactRow(t *testing.T) {
 	const path = "internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj"
 	mu := types.NewMutableState("source inventory row surface alias")
@@ -3108,9 +3195,18 @@ func TestPreCheckAggregateMemberSetCoverage_UsesProjectedSourceInventoryRowSet(t
 		t.Fatalf("hint should be hard and reference projected source-inventory row-set, got %+v", hints[0])
 	}
 
-	doc.Blocks[0].Text = "当前 source inventory 包含 Run 和 Serve。"
+	doc.Blocks[0] = types.AnswerBlock{
+		ID:          "source-inventory-principal-rows",
+		Kind:        types.BlockTable,
+		Title:       "source inventory principal rows",
+		SurfaceRole: types.SurfacePrincipal,
+		Items: []types.AnswerBlockItem{
+			{ID: "run", Cells: []string{"Run", "thirdparty/cangjie/run.cj:7"}},
+			{ID: "serve", Cells: []string{"Serve", "src/serve.cj:12"}},
+		},
+	}
 	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) != 0 {
-		t.Fatalf("complete visible row-set should satisfy projected coverage, got %+v", got)
+		t.Fatalf("complete structured row-set should satisfy projected coverage, got %+v", got)
 	}
 }
 
@@ -4205,12 +4301,18 @@ func TestPreCheckAggregateMemberSetCoverage_AcceptsCategoryAndSymbolSplitTable(t
 	}
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{
-			ID:   "construct_table",
-			Kind: types.BlockTable,
-			Text: "| 类别 | 符号名 | 文件路径 | 包路径 |\n" +
-				"|---|---|---|---|\n" +
-				"| extend 块 | String | " + extendFile + ":6 | demo.stringext |\n" +
-				"| foreign func 声明 | native_add | " + ffiFile + ":6 | demo.ffi |\n",
+			ID:          "construct_table",
+			Kind:        types.BlockTable,
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{{
+				ID:    "extend-string",
+				Label: "extend String",
+				Cells: []string{"extend 块", "String", extendFile + ":6", "demo.stringext"},
+			}, {
+				ID:    "native-add",
+				Label: "foreign func native_add(a: Int64, b: Int64): Int64",
+				Cells: []string{"foreign func 声明", "native_add", ffiFile + ":6", "demo.ffi"},
+			}},
 		}},
 	}
 

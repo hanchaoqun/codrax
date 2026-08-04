@@ -2023,3 +2023,16 @@ prose gate，不触碰 Trace 因果投影、自动补齐或模型答案所有权
 `EVAL-B88-COUNTORACLE1=implemented/eval-only/artifact-replay-pass`。另保留两个 P1：完整 typed row set 被系统追加泛化弱证据
 caveat（`EVAL-B88-SUPPCAVEAT1`），以及调用链 518s/36 Explorer 轮的 task-window/closure churn。后续只从 typed
 carrier/display authority 与 task provenance 根修，不扫描或改写模型 prose，不影响 Trace 显式窗、因果投影和自动补齐。
+
+### §10.24 B88：source-inventory 前后 carrier 合同统一
+
+复核 `EVAL-B88-SUPPCAVEAT1` 后确认是红线级合同冲突：Finalizer 教学与 deterministic reviewer 都要求 typed
+`items[].label/cells`，pre-emit hard gate 却允许自由 `blocks[].text` 满足同一 principal member set。结果是前门通过、后门报
+`principal_items=0/missing=30`，并向用户投影为错误的“证据较弱”caveat。
+
+现已把 typed source-inventory 主清单硬门统一到结构化 item identity；自由正文不再确权，类别 block 防跨桶借位；非 inventory
+narrative soft lane 保持兼容。系统不补写/删除/重排模型答案，缺行时仅把 typed obligation roster 交回模型自修。定向正负 pin
+与 `internal/tool` 全量全绿。状态：`EVAL-B88-SUPPCAVEAT1=implemented/full-tool-pass/replay-next`。
+
+两处旧 pin 固定了 summary/Markdown table text 冒充 typed rows 的旧行为，已改为相同用户可见内容的真实 structured rows；
+这是合同重签，不是降低验证。未触碰 Trace query、时间窗、因果投影、自动补齐或模型结论权。

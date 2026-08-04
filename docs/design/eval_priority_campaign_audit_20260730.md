@@ -14608,3 +14608,30 @@ exported function、Kind const-block 成员数，分别绑定 terminal primary a
    provenance 冷读，不为本 case 的函数名或固定图形写优化。
 
 本批没有触碰 Trace query、显式时间窗、因果投影、自动补采、根因双轴或模型正文所有权。
+
+### 92.5 `EVAL-B88-SUPPCAVEAT1` 根因更正与闭环：同一 typed 清单的前后校验合同冲突
+
+继续冷读后确认，问题不能只靠“压掉泛化 caveat”处理。Finalizer prompt 已明确要求把 `Principal Enumeration Rows`
+渲染为真实 `ordered_list` / `bullet_list` / `table` 的 `items[]`，deterministic exhaustive reviewer 也只消费 typed
+item identity；但 pre-emit member-set hard gate 同时允许 `blocks[].text` 通过。于是 B88 的 38 行自由 section 文本先被硬门接受，
+后置 reviewer 又得到 `principal_items=0/missing=30`，最终把“结构化载体缺失”错误投影为“枚举证据较弱”，并触发部分 owner
+anchor 补表。这是同一声明在相邻阶段使用不同权威载体的合同矛盾，不是证据本身不完整。
+
+根修已统一为：
+
+1. typed source-inventory 主清单的 hard gate 只读取 `RequestModel`、accepted aggregate member rows，以及模型发出的
+   `items[].label/cells`；自由 `blocks[].text`、item 说明文本、diagram/prose 不再给成员身份确权；
+2. 类别标题存在时，成员只在同类别结构化 block 中获权，避免同名 type/function/constant 跨桶借位；单集合或无标题表仍可
+   使用其结构化 rows；
+3. 普通 explanation/narrative 的 soft member-set 车道保持旧的 visible-text 兼容，不把本修复扩成全局格式硬门；
+4. 系统不生成、删除或改写模型成员行。缺少结构化 rows 时，pre-emit 直接把完整 typed obligation roster 交回模型自修；修好后
+   后置 deterministic reviewer、citation gate 与 read-audit supplement 读取同一 carrier，不再事后发布错误弱证据 caveat。
+
+新增“自由正文拒绝 / 结构化 label+cells 接受 / narrative soft lane 不回归”正负 pin；两处旧测试中把 summary/Markdown
+table text 当结构化行的矛盾断言已改为同等可见内容的真实 typed rows。定向测试与完整
+`go test ./internal/tool -count=1`（158.214s）全绿。状态：
+`EVAL-B88-SUPPCAVEAT1=implemented/full-tool-pass/replay-next`。
+
+该批没有扫描用户原始输入或模型自由正文作硬门；没有系统代写答案；没有触碰 Trace 显式时间窗、因果投影、自动补齐或根因双轴。
+下一批处理 B88 暴露的 source-inventory 目标 scope 被扩成无关仓库 scopes、导致 16 轮 completion churn 的 typed scope
+provenance 问题。
