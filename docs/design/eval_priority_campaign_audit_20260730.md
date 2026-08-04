@@ -13947,3 +13947,37 @@ parameter-consumption registry 第二批覆盖 `filter_records` 与 `value_distr
 `go test ./internal/dataquery ./internal/dataworkflow ./internal/repl -count=1` 全绿。状态：
 `EVAL-B76-DATAPARAM1=selection+aggregation high-risk families covered`；B76-C2 将审计多输入、多角色的
 mapping/normalize/apply/enrich/join families，必须先按实际读取集建合同，不能把 source/reference aliases 错合并。
+
+## 80. 2026-08-04 B78 r4：selection contract 异构格式回放通过；helper API 形态仍含糊
+
+在 `main@cf32d6048` 构建后严格并行 text 与 JSONL 两个 data case，runner/human 均 2/2 PASS：
+
+- `data_text_filter_count`：33s，1 round、0 repair、0 failure，严格输出 `2`；
+- `data_jsonl_filter_count`：96s，最终 `2`，decisions=6、rules=2、contributions=2、reconcile=pass。
+
+JSONL 案的 typed `filter_records` 正确筛出 service=api 且 level=error 的两行，随后 compute/reconcile/assemble 的值与
+终稿一致；新增 filter/value-distribution 参数合同没有产生 unknown/conflict 误报。selection family 的生产回放闭环。
+
+### EVAL-B78-DATAHELPER1（P1/confirmed）：注入函数被误解成可 import 模块
+
+JSONL 首轮 custom script 失败于：
+
+```text
+ImportError: data task import is blocked: jsonl_rows
+```
+
+`jsonl_rows` 是 runner 注入的 callable helper，不是 Python module；import sandbox 正确 fail-closed，不应为通过 eval
+开放任意 import。gap 在 model-facing script API：helper 名清单没有足够明确地表达“已在 env 中、直接调用、不得
+import”，使模型按模块习惯猜测。后续又因 rule coverage/material stage 尚未完成而提前发 custom action，进一步印证
+B77-DAGCTX1 的 current-rank 上下文问题。
+
+根修方向：由 runner 实际注册表生成 typed `script_api`（name、kind=callable、arity/参数形、direct_call=true、
+importable=false），和当前 `custom_transform_disabled`/allowed actions 同源注入 planner；这只做精确上下文与软指导，
+import sandbox 与 action admission 继续硬守。不得扫描模型 script 字符串特判 `jsonl_rows`，也不得为单一格式自动改写
+模型代码。先随 B77-DAGCTX1 继续跨格式观察，再按出现频率排期。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b78_selection_r4_20260804.md`；
+- `eval/parallel_selected_summary_evalcampaign_b78_selection_r4_20260804_manual_audit.md`；
+- result dirs：`eval/results/*-20260804-063817`。
