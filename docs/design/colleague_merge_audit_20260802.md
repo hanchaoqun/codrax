@@ -1902,3 +1902,30 @@ ID 声明动态计算 command、data-scope provenance、被校验 answer surface
 
 状态：`EVAL-B71-CASESCOPE1=implemented/eval-only/runner-contracts-pass`；下一步严格并行两个异构高优先级
 case（write + operation），不重复上一轮 Trace/Read 对。
+
+### §10.17 MERGE-AUDIT-5 当前主线独立复核 + B84 operation 边界补件（已交付）
+
+更新并确认 `main@aa62cb906` 与 `origin/main` 零分叉后，对 §10 原五个高危及相邻所有权/跨语言面做生产实现与
+定向测试复核：
+
+- S6-1 通用 prompt 仅保留 typed evidence authority 边界，不再发射 Codrax 仓内部路径/函数；
+- M5-S3-1 Rust lifetime/label/char 与额外 brace 正反 pin 通过；M5-S3-2 active PlanID + verify-failure generation 正反 pin 通过；
+- M5-S1-1 class participant/sibling carrier 的 family-independent alias 权限、M5-S5-3 owner 绑定与 sequence operator 单源 pin 通过；
+- M5-S5-1 typed ordered endpoint 是唯一方向权限；S4-3 中性 typed 并置与 wrapper AST 所有权 tripwire 通过；
+- Java、TS/ArkTS、Kotlin、Swift、Rust、Go、C/C++、Cangjie 的 lexical receiver/shadow/declaration-order 矩阵 pin 通过。
+
+定向并行包测试覆盖 `internal/tool`、`agent`、`writeflow`、`types`、`orchestrator`、`mermaidcompat` 与
+`tool/repomap/...`，全部绿色；§10 的 12 个 confirmed code finding 可独立确认 closed，而非只按账面收账。
+
+随后按 §10.16 严格并行 write + operation。write 全链路通过；operation 暴露新确定性补件
+`EVAL-B84-OPSTRUCT1`：stringified `steps` 内部存在非法 nested JSON escape 时，旧 flexible decoder 把整个
+command-object array 降格为 shell，lint/executor 又因 `json.Valid=false` 漏检，最终执行结构化文本。
+
+本批以 schema-owned structural signal 根修，而非 case/URL/答案关键词：解析层对 malformed command-step container
+触发 compact typed repair；operation lint/executor 共用同一识别函数并 fail-closed。合法 serialized steps、普通 shell、
+shell test expression 均有正向 pin，直达 executor 负控证明命令未运行。`go test ./internal/operation ./internal/repl -count=1`
+全绿。
+
+状态：`MERGE-AUDIT-5-original-findings=independently-verified-closed`；
+`EVAL-B84-OPSTRUCT1=implemented/tests-pass/replay-next`。没有新增请求/答案 prose hard gate，没有系统答案代写，
+显式时间窗 Trace 因果投影与自动补齐权限不变。

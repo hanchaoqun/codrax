@@ -88,6 +88,31 @@ func TestCommandExecutorRejectsNoInputShellFilter(t *testing.T) {
 	}
 }
 
+func TestCommandExecutorRejectsMalformedSerializedCommandPayload(t *testing.T) {
+	executor := CommandExecutor{Policy: DefaultCommandPolicy(), OutputDir: t.TempDir()}
+	result := executor.Execute(context.Background(), CommandOperationPlan{
+		ID:           "op-malformed-structured-command",
+		Status:       StatusReady,
+		ApprovalMode: ApprovalAutoLowRisk,
+		WorkDir:      ".",
+		Steps: []CommandStep{{
+			ID:    "step-1",
+			Shell: `[{"id":"1","program":"grep","args":["doc\|manual"]}]`,
+		}},
+	})
+
+	if result.Status != StatusFailed || len(result.StepResults) != 1 {
+		t.Fatalf("malformed structured command was not rejected: %+v", result)
+	}
+	step := result.StepResults[0]
+	if step.FailureClass != "invalid_plan" || !strings.Contains(step.Error, "structured JSON") {
+		t.Fatalf("typed rejection lost structured-payload reason: %+v", step)
+	}
+	if !strings.Contains(step.OutputPreview, "command was not run") {
+		t.Fatalf("malformed structured payload reached command execution: %+v", step)
+	}
+}
+
 func TestCommandExecutorStopsOnFailure(t *testing.T) {
 	executor := CommandExecutor{Policy: DefaultCommandPolicy(), OutputDir: t.TempDir()}
 	plan := CommandOperationPlan{

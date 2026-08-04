@@ -69,6 +69,11 @@ func TestLintCommandOperationPlanRejectsInvalidCommandShapes(t *testing.T) {
 			code: PlanLintStructuredJSONCmd,
 		},
 		{
+			name: "shell contains malformed serialized command array",
+			plan: CommandOperationPlan{Status: StatusReady, Steps: []CommandStep{{ID: "s1", Shell: `[{"id":"1","program":"grep","args":["doc\|manual"]}]`}}},
+			code: PlanLintStructuredJSONCmd,
+		},
+		{
 			name: "program contains structured json object",
 			plan: CommandOperationPlan{Status: StatusReady, Steps: []CommandStep{{ID: "s1", Program: `{"program":"grep","args":["pattern","file.txt"]}`}}},
 			code: PlanLintStructuredJSONCmd,
@@ -102,6 +107,9 @@ func TestLintCommandOperationPlanAllowsExplicitInputs(t *testing.T) {
 		}, {
 			ID:    "cat-file",
 			Shell: "cat /tmp/config.txt",
+		}, {
+			ID:    "shell-test-expression",
+			Shell: "[ -f /tmp/config.txt ] && printf 'present\\n'",
 		}},
 	}
 	if lint := LintCommandOperationPlan(plan); !lint.OK() {

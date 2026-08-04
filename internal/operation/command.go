@@ -267,7 +267,12 @@ func LintCommandOperationPlan(plan CommandOperationPlan) CommandPlanLintResult {
 	return out
 }
 
-func structuredCommandField(value string) bool {
+// LooksLikeStructuredCommandPayload reports whether a program/shell surface is
+// carrying a serialized object or array instead of an executable command.  It
+// deliberately recognizes malformed command-step JSON as well: an invalid
+// escape inside a model-authored nested payload must not turn the whole payload
+// into an executable shell string.
+func LooksLikeStructuredCommandPayload(value string) bool {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return false
@@ -276,7 +281,7 @@ func structuredCommandField(value string) bool {
 		return false
 	}
 	if !json.Valid([]byte(value)) {
-		return false
+		return malformedCommandStepContainerSurface(value)
 	}
 	var decoded any
 	if err := json.Unmarshal([]byte(value), &decoded); err != nil {
@@ -288,6 +293,22 @@ func structuredCommandField(value string) bool {
 	default:
 		return false
 	}
+}
+
+func structuredCommandField(value string) bool {
+	return LooksLikeStructuredCommandPayload(value)
+}
+
+func malformedCommandStepContainerSurface(value string) bool {
+	if !strings.HasPrefix(value, "{") && !strings.HasPrefix(value, "[{") {
+		return false
+	}
+	for _, field := range []string{`"program"`, `"args"`, `"shell"`} {
+		if strings.Contains(value, field) {
+			return true
+		}
+	}
+	return false
 }
 
 // BuildCommandOperationPlan applies deterministic policy to a typed command

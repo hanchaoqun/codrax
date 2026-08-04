@@ -1662,6 +1662,9 @@ func (s *flexibleCommandPlanSteps) UnmarshalJSON(raw []byte) error {
 				return nil
 			}
 		}
+		if operation.LooksLikeStructuredCommandPayload(text) {
+			return fmt.Errorf("serialized command steps are malformed; emit typed step objects instead of executing the container as shell")
+		}
 		*s = []commandPlanStepDraft{{
 			ID:        "step-1",
 			Title:     "command",

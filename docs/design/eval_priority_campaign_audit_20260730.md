@@ -14343,3 +14343,45 @@ write 席人工核对 plan、patch、apply report 与测试结果一致：只有
 - `eval/results/data_join_entity_reconcile-20260804-080751`；
 - `eval/results/patch_go_typo-20260804-080751`；
 - terminal `.codrax/data-audit/20260804-081413-676815-30860-terminal.json`。
+
+## 86. 2026-08-04 B84 r10：MERGE-AUDIT-5 复核后 write/operation 双席；结构化步骤不得降格为 shell
+
+### 86.1 严格并行结果与人工结论
+
+在 `main@aa62cb906` 构建后严格并行恰好两个异构 case：
+
+- `patch_go_typo`：runner PASS / human PASS，124s；单行 patch、apply report、隔离 worktree diff 与 Go 验证一致，最终 typed 状态 `verified`；
+- `operation_web_manual_summary`：runner FAIL / human FAIL，38s；失败原因为 `operation_terminal_event_missing`，但深因发生在任何手册材料读取之前。
+
+write 席没有 answer-contract/finalizer reject，也没有系统改写答案。Analyzer 首次把 `is_role_locate_lookup=true`
+与非 scalar 合用后自行纠正一次，属于单一 schema 约束反馈，不是“同一声明既必带又必拒”的矛盾成文合同，未登记新 gap。
+
+### 86.2 `EVAL-B84-OPSTRUCT1`（P1/confirmed）：nested command-step 数据被当 shell 执行
+
+operation planner 发出的 `steps` 是一段 stringified command-object array；其中 regex 参数含 nested JSON 非法转义
+`doc\|manual`。旧链发生两次权限泄漏：
+
+1. `flexibleCommandPlanSteps.UnmarshalJSON` 无法解码 nested array 后，把整个 container 兼容降格为单条 `Shell`；
+2. `structuredCommandField` 只有 `json.Valid` 才识别结构化 command，因此同一非法转义让 lint/executor 也放行；
+3. shell 实际收到 `[{"id":...}]`，以 `command not found` 失败。后续 replan 改为写本地 HTML，策略正确要求人工审批，eval 因而没有 terminal event。
+
+这是 typed planner carrier 的结构边界问题，不应通过手册 URL、命令名或答案文本特判。最优根修已落地：
+
+- 解析层识别“JSON object/array 形 + command step 精确字段”的 malformed container，触发既有 compact structured repair，禁止 fallback shell；
+- operation lint/executor 共用同一结构识别函数，形成执行前第二道 fail-closed；
+- 合法 stringified typed steps、普通 bare shell 与 `[ -f ... ]` shell test expression 均保留正向 pin；
+- malformed witness 必须在执行前转成 typed repair，executor 直达负控必须留下 `invalid_plan / command was not run`。
+
+定向与完整验证：`go test ./internal/operation ./internal/repl -count=1` 全绿。修复不读取用户输入或模型答案 prose，
+不改变 read/write 路由、显式时间窗 Trace 因果投影、自动补齐或模型结论所有权。
+
+状态：`EVAL-B84-OPSTRUCT1=implemented/tests-pass/replay-next`。证据见：
+
+- `eval/parallel_selected_summary_evalcampaign_b84_writeoperation_r10_20260804.md`；
+- `eval/parallel_selected_summary_evalcampaign_b84_writeoperation_r10_20260804_manual_audit.md`；
+- `eval/results/operation_web_manual_summary-20260804-082011`；
+- `eval/results/patch_go_typo-20260804-082011`。
+
+下一批提交推送后仍严格并行 2 个：operation 原 witness 验证 malformed container 不再执行，并配一个非 operation
+高优先级 case，避免只对单一 web/manual 场景拟合。`EVAL-B64-COUNTBIND1`、`EVAL-B59-INVROW1`、
+`EVAL-B60-CLOSURECHURN1` 继续按 §10.15 的 typed-identity/异构复现门槛排队。

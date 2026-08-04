@@ -147,6 +147,37 @@ func TestCommandOperationPlannerCompatJSONFlexibleSteps(t *testing.T) {
 	}
 }
 
+func TestCommandOperationPlannerRepairsMalformedSerializedStepsBeforeExecution(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"steps":"[{\"id\":\"links\",\"program\":\"grep\",\"args\":[\"doc\\|manual\",\"index.html\"]}]"}`),
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"steps":[{"id":"links","program":"grep","args":["-E","doc|manual","index.html"],"risk_level":"low","side_effects":[]}]}`),
+		},
+	}
+	planner := NewCommandOperationPlanner(adapter)
+	req, err := planner.PlanCommandOperation(context.Background(), "读取手册链接", "/repo", TurnPolicy{
+		Operation:     "computer_operation",
+		OperationKind: "computer_operation",
+		RiskLevel:     "low",
+	})
+	if err != nil {
+		t.Fatalf("PlanCommandOperation: %v", err)
+	}
+	if len(adapter.calls) != 2 {
+		t.Fatalf("planner calls=%d, want initial decode plus compact repair", len(adapter.calls))
+	}
+	if len(req.Steps) != 1 || req.Steps[0].Program != "grep" || req.Steps[0].Shell != "" {
+		t.Fatalf("repaired typed step=%+v", req.Steps)
+	}
+	if got := strings.Join(req.Steps[0].Args, " "); got != "-E doc|manual index.html" {
+		t.Fatalf("repaired args=%q", got)
+	}
+	repairPrompt := lastUserMessage(adapter.calls[1].messages)
+	if !strings.Contains(repairPrompt, "serialized command steps are malformed") {
+		t.Fatalf("compact repair prompt lost typed parse failure:\n%s", repairPrompt)
+	}
+}
+
 func TestCommandOperationPlannerCompatJSONSchemaKeyAliases(t *testing.T) {
 	parsed, err := unmarshalCommandOperationPlan([]byte(`{
 		"status":"ready",
