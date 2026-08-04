@@ -44,14 +44,15 @@ func sourceInventoryRequestedSurfaceFamiliesByRole(
 		}
 		note := sourceInventoryCompactNote(sym.Doc)
 		terms := append(sourceInventorySurfaceTermsFromGraphNote(note), sourceInventoryConstructSurfaceTerms(sym)...)
-		family := types.SourceInventorySurfaceFamilyKey(terms)
-		if family == "" || !sourceInventorySurfaceFamilyRequested(quotes, family) {
-			continue
+		for _, family := range types.SourceInventorySurfaceFamilyKeys(terms) {
+			if !sourceInventorySurfaceFamilyRequested(quotes, family) {
+				continue
+			}
+			if out[role] == nil {
+				out[role] = map[string]bool{}
+			}
+			out[role][family] = true
 		}
-		if out[role] == nil {
-			out[role] = map[string]bool{}
-		}
-		out[role][family] = true
 	}
 	return out
 }

@@ -26,6 +26,10 @@ func sourceInventoryQueryFilterForRole(base sourceInventoryQueryFilter, families
 
 func sourceInventorySymbolMatchesSurfaceFamily(sym *repotypes.Symbol, note string, families map[string]bool) bool {
 	terms := append(sourceInventorySurfaceTermsFromGraphNote(note), sourceInventoryConstructSurfaceTerms(sym)...)
-	family := types.SourceInventorySurfaceFamilyKey(terms)
-	return family != "" && families[family]
+	for _, family := range types.SourceInventorySurfaceFamilyKeys(terms) {
+		if families[family] {
+			return true
+		}
+	}
+	return false
 }

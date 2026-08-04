@@ -2703,8 +2703,12 @@ func sourceInventoryCandidateMatchesQuery(candidate sourceInventoryCandidate, fi
 		return false
 	}
 	if filter.HasSurfaceFamilies() {
-		family := types.SourceInventorySurfaceFamilyKey(candidate.surfaceTerms)
-		return family != "" && filter.SurfaceFamilies[family]
+		for _, family := range types.SourceInventorySurfaceFamilyKeys(candidate.surfaceTerms) {
+			if filter.SurfaceFamilies[family] {
+				return true
+			}
+		}
+		return false
 	}
 	parts := []string{
 		candidate.member,

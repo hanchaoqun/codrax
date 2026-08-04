@@ -92,6 +92,57 @@ func TestSourceInventoryRequestedSurfaceFamilies_UsesParserSyntaxFormIdentity(t 
 	}
 }
 
+func TestSourceInventoryRequestedSurfaceFamilies_UsesIndependentParserMarkersAcrossRoles(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{{
+		RelPath:  "fixtures/pages.ets",
+		Language: "arkts",
+		Symbols: []repotypes.Symbol{
+			{Name: "Page", Kind: "component", File: "fixtures/pages.ets", Line: 4, Exported: true, Doc: "@Component @Page"},
+			{Name: "Ability", Kind: "class", File: "fixtures/pages.ets", Line: 20, Exported: true},
+		},
+	}, {
+		RelPath:  "fixtures/fragments.ets",
+		Language: "arkts",
+		Symbols: []repotypes.Symbol{
+			{Name: "Reusable", Kind: "builder", File: "fixtures/fragments.ets", Line: 8, Exported: true, Doc: "@Reusable"},
+			{Name: "Plain", Kind: "function", File: "fixtures/fragments.ets", Line: 16, Exported: true},
+		},
+	}})
+	profile := &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles: []types.AnswerCandidateRole{
+			types.AnswerCandidateRoleFunction,
+			types.AnswerCandidateRoleType,
+		},
+		SourceQuotes: []string{"@Page entries", "@Reusable fragments"},
+	}
+	requested := sourceInventoryRequestedSurfaceFamiliesByRole(nil, newSourceInventoryGraphSymbolIndex(graph), []string{"."}, profile)
+	if got := requested[types.AnswerCandidateRoleType]; !reflect.DeepEqual(got, map[string]bool{"@page": true}) {
+		t.Fatalf("type marker families = %#v, want only @page", got)
+	}
+	if got := requested[types.AnswerCandidateRoleFunction]; !reflect.DeepEqual(got, map[string]bool{"@reusable": true}) {
+		t.Fatalf("function marker families = %#v, want only @reusable", got)
+	}
+	sets := sourceInventoryCandidateSets(
+		nil,
+		graph,
+		nil,
+		[]string{"."},
+		profile,
+		nil,
+		false,
+		false,
+		"",
+		sourceInventoryInactiveExecBudget(),
+	)
+	if got := candidateMemberNames(sets[types.AnswerCandidateRoleType].candidates); !reflect.DeepEqual(got, []string{"Page"}) {
+		t.Fatalf("exact type marker request leaked undecorated type: %#v", got)
+	}
+	if got := candidateMemberNames(sets[types.AnswerCandidateRoleFunction].candidates); !reflect.DeepEqual(got, []string{"Reusable"}) {
+		t.Fatalf("exact function marker request leaked plain function: %#v", got)
+	}
+}
+
 func candidateMemberNames(candidates []sourceInventoryCandidate) []string {
 	out := make([]string, 0, len(candidates))
 	for _, candidate := range candidates {

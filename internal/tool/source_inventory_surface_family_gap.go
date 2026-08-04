@@ -54,21 +54,26 @@ func sourceInventorySurfaceFamilyGroups(rows []types.SourceInventoryRow) []sourc
 		if sourceInventoryDuplicateRowLocationKey(member) == "" {
 			continue
 		}
-		family := types.SourceInventorySurfaceTermKey(row.SurfaceFamily)
-		if family == "" {
-			family = types.SourceInventorySurfaceFamilyKey(member.SurfaceTerms)
+		families := types.SourceInventorySurfaceFamilyKeys(member.SurfaceTerms)
+		if family := types.SourceInventorySurfaceTermKey(row.SurfaceFamily); family != "" {
+			families = append([]string{family}, families...)
 		}
-		if family == "" {
-			continue
+		seenFamily := map[string]bool{}
+		for _, family := range families {
+			family = types.SourceInventorySurfaceTermKey(family)
+			if family == "" || seenFamily[family] {
+				continue
+			}
+			seenFamily[family] = true
+			key := string(row.Role) + "\x00" + family
+			group := groups[key]
+			if group == nil {
+				group = &sourceInventorySurfaceFamilyGroup{family: family, role: row.Role}
+				groups[key] = group
+				order = append(order, key)
+			}
+			group.members = append(group.members, member)
 		}
-		key := string(row.Role) + "\x00" + family
-		group := groups[key]
-		if group == nil {
-			group = &sourceInventorySurfaceFamilyGroup{family: family, role: row.Role}
-			groups[key] = group
-			order = append(order, key)
-		}
-		group.members = append(group.members, member)
 	}
 	out := make([]sourceInventorySurfaceFamilyGroup, 0, len(order))
 	for _, key := range order {

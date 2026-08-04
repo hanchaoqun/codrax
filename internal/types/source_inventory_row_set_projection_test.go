@@ -374,6 +374,75 @@ func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_FiltersMixedLanguag
 	}
 }
 
+func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_ExactMarkerFamilyDoesNotForceCoarseRoleUniverse(t *testing.T) {
+	rm := sourceInventoryProjectionRequestModel(nil)
+	rm.SourceInventoryProfile.TargetRoles = []AnswerCandidateRole{AnswerCandidateRoleFunction, AnswerCandidateRoleMethod}
+	rm.SourceInventoryProfile.SourceQuotes = []string{"@Page entry", "@Reusable fragment"}
+	obs := SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Scopes:   []string{"src"},
+		Sets: []SourceInventoryObservationSet{{
+			Role:     AnswerCandidateRoleFunction,
+			Complete: true,
+			Members: []SourceInventoryObservationMember{
+				{Name: "fragmentA", Role: AnswerCandidateRoleFunction, File: "src/fragments.ets", Line: 8, Language: "arkts", SurfaceTerms: []string{"@Reusable"}, CoverageState: SourceInventoryCoverageObserved},
+				{Name: "fragmentB", Role: AnswerCandidateRoleFunction, File: "src/fragments.ets", Line: 20, Language: "arkts", SurfaceTerms: []string{"@Reusable"}, CoverageState: SourceInventoryCoverageObserved},
+				{Name: "plainHelper", Role: AnswerCandidateRoleFunction, File: "src/helpers.ets", Line: 5, Language: "arkts", CoverageState: SourceInventoryCoverageObserved},
+			},
+		}, {
+			Role:     AnswerCandidateRoleMethod,
+			Complete: true,
+			Members: []SourceInventoryObservationMember{
+				{Name: "onStart", Role: AnswerCandidateRoleMethod, File: "src/lifecycle.ets", Line: 30, Language: "arkts", CoverageState: SourceInventoryCoverageObserved},
+			},
+		}, {
+			Role:     AnswerCandidateRoleType,
+			Complete: true,
+			Members: []SourceInventoryObservationMember{
+				{Name: "PageA", Role: AnswerCandidateRoleType, File: "src/pages.ets", Line: 4, Language: "arkts", SurfaceTerms: []string{"@Page", "@Component"}, CoverageState: SourceInventoryCoverageObserved},
+			},
+		}},
+	}
+	facts := []AnswerAggregateFact{{
+		Kind:       AnswerAggregateMemberSet,
+		Label:      "@Page entries",
+		Value:      "1",
+		Role:       AnswerAggregateRolePrincipalAnswer,
+		Provenance: "explorer",
+		Members:    []string{"PageA"},
+		SupportRefs: []string{
+			"PageA: src/pages.ets:4",
+		},
+	}, {
+		Kind:       AnswerAggregateMemberSet,
+		Label:      "@Reusable fragments",
+		Value:      "2",
+		Role:       AnswerAggregateRolePrincipalAnswer,
+		Provenance: "explorer",
+		Members:    []string{"fragmentA", "fragmentB"},
+		SupportRefs: []string{
+			"fragmentA: src/fragments.ets:8",
+			"fragmentB: src/fragments.ets:20",
+		},
+	}}
+
+	got := ProjectSourceInventoryPrincipalRowSetAggregateFacts(facts, obs, rm)
+	if len(got) != 2 {
+		t.Fatalf("complete exact family facts should remain authoritative without a coarse-role synthetic set: %+v", got)
+	}
+	for _, fact := range got {
+		if fact.Provenance == SourceInventoryPrincipalRowSetAggregateProvenance {
+			t.Fatalf("coarse function/method universe must not be synthesized over exact marker families: %+v", got)
+		}
+		for _, forbidden := range []string{"plainHelper", "onStart"} {
+			if stringSliceContains(fact.Members, forbidden) {
+				t.Fatalf("unrequested same-role member %q leaked into principal facts: %+v", forbidden, got)
+			}
+		}
+	}
+}
+
 func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_MixedRoleUniverseDoesNotForceAuxiliaryRows(t *testing.T) {
 	scope := SourceScopeAll
 	rm := sourceInventoryProjectionRequestModel(&scope)

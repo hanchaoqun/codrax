@@ -21,7 +21,14 @@ func sourceInventoryFilterMixedPrincipalRowSetToExistingRows(rowSet SourceInvent
 			filtered = append(filtered, row)
 			continue
 		}
-		if family, ok := sourceInventoryProjectionSurfaceFamilyForRow(row); ok && selectedFamilies[family] {
+		familySelected := false
+		for _, family := range sourceInventoryProjectionSurfaceFamiliesForRow(row) {
+			if selectedFamilies[family] {
+				familySelected = true
+				break
+			}
+		}
+		if familySelected {
 			filtered = append(filtered, row)
 			continue
 		}

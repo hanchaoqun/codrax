@@ -14463,3 +14463,49 @@ relation debt 抑制与 summary-bearing inventory 不抑制。完整
 状态：`EVAL-B59-INVROW1=implemented/tests-pass/replay-next`；B85 两条虚假系统披露均已有根修，下一批严格并行
 `cangjie_repomap_fixture` 与一个异构 source/read case 做 production 验证。显式时间窗 Trace 因果投影、自动补齐、
 read/write/operation/data 路由与模型结论所有权均未改变。
+
+## 89. 2026-08-04 B86 r12：Cangjie 闭环；typed construct family 被 coarse role 扩域
+
+### 89.1 严格并行与人工审计
+
+在 `main@b3aab5673` 构建后严格并行恰好两个 source/read case：
+
+- `cangjie_repomap_fixture`：runner/human PASS，64s；五个复合 declaration rows、package、精确 file:line 与五条
+  citation 全部一致，`principal_support_member_coverage=0`，两条旧虚假 caveat 均消失；
+- `arkts_repomap`：runner PASS / human FAIL，142s；发生一次 finalizer reject，最终答案被扩成额外 20 个
+  function/method rows，并把没有 decorator 的 `EntryAbility` 错列为 `@Entry`。
+
+因此 `EVAL-B59-INVROW1=production-proven/closed`。ArkTS 的 runner PASS 同时是 eval 假绿：case 明示
+`entry_page count=4`，但内部 rowset ID 没有对应可见标题时，旧 oracle 只确认四个期望行都出现，不检查同组多出的第五行。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b86_inventory_r12_20260804.md`；
+- `eval/parallel_selected_summary_evalcampaign_b86_inventory_r12_20260804_manual_audit.md`；
+- `eval/results/cangjie_repomap_fixture-20260804-090056`；
+- `eval/results/arkts_repomap-20260804-090056`。
+
+### 89.2 `EVAL-B86-SURFFAM1`（P1）：独立 marker family 的 typed 交集丢失
+
+日志证明解析器并未丢证据：四个页面 row 带 `@Entry/@Component`，两个片段 row 带 `@Builder`，无 decorator 的
+`EntryAbility` 没有 surface note。旧 `SourceInventorySurfaceFamilyKey` 只在 `base + base symbol` 二元 term 形上铸造
+family；单一 `@Builder` 和并列 `@Entry/@Component` 都返回空。随后 analyzer 的 coarse carrier
+`function/method` 被当成完整 requested universe，系统合成 20 行 principal set 并硬拒模型首稿。
+
+根修是语言无关的 typed construct-family 代数：
+
+1. 一个 parser row 可携带多个独立 family；base+specific 仍折叠成 base，独立 marker 保留各自带 sigil 的身份；
+2. graph candidate filter、observation row filter、complete lens、closure、surface gap 与 requested-universe view 共用该
+   multi-family 载体；任一 requested family 命中即可进入主集合；
+3. exact family 一旦可从 analyzer-validated `source_quotes` 与 parser `SurfaceTerms` 相交得到，就覆盖 noisy query token；
+   coarse role 只作 carrier，不能把同角色无 marker 的 helper/lifecycle 扩成主答案；
+4. 无精确 family 的普通函数/类型 inventory 保持原 complete-role 语义；Cangjie `public class/extend/foreign func` 的
+   base+specific family 行为不变。
+
+新增 marker 多 family、同角色无关成员负臂、跨 role family、projection 不扩域与真实 repo_map narrow-scope 回归；
+`internal/types`、全部 SourceInventory tool tests 与 `internal/tool/repomap/...` 全绿，LOC convergence ratchet 未放宽旧文件。
+
+状态：`EVAL-B86-SURFFAM1=implemented/tests-pass/replay-next`；
+`EVAL-B86-EVALROW1=confirmed/eval-fix-next`。下一批先修 eval-only 的显式 section-anchor 合同，再严格并行原 ArkTS
+witness 与一个非 decorator source-inventory case。产品修复不读取原始用户输入或模型答案，不修改模型可见正文，且不触及
+Trace 因果投影、自动补齐、write/operation/data 路由。

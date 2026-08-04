@@ -24,8 +24,7 @@ func sourceInventoryFilterRowsToRequestedSurfaceFamilies(rm RequestModel, princi
 			filtered = append(filtered, row)
 			continue
 		}
-		family, ok := sourceInventoryProjectionSurfaceFamilyForRow(row)
-		if ok && byRole[family.family] {
+		if sourceInventoryRowMatchesRequestedSurfaceFamilies(row, byRole) {
 			filtered = append(filtered, row)
 			continue
 		}
@@ -47,21 +46,34 @@ func sourceInventoryRequestedSurfaceFamiliesByRole(quotes []string, rows []Sourc
 		return out
 	}
 	for _, row := range rows {
-		family, ok := sourceInventoryProjectionSurfaceFamilyForRow(row)
-		if !ok || family.family == "" || row.Role == "" || row.Role == AnswerCandidateRoleUnknown {
+		if row.Role == "" || row.Role == AnswerCandidateRoleUnknown {
 			continue
 		}
-		if !sourceInventorySurfaceFamilyRequestedByQuotes(family.family, quoteKeys) {
-			continue
+		for _, family := range sourceInventoryRowSurfaceFamilies(row) {
+			if !sourceInventorySurfaceFamilyRequestedByQuotes(family, quoteKeys) {
+				continue
+			}
+			byRole := out[row.Role]
+			if byRole == nil {
+				byRole = map[string]bool{}
+				out[row.Role] = byRole
+			}
+			byRole[family] = true
 		}
-		byRole := out[row.Role]
-		if byRole == nil {
-			byRole = map[string]bool{}
-			out[row.Role] = byRole
-		}
-		byRole[family.family] = true
 	}
 	return out
+}
+
+func sourceInventoryRowMatchesRequestedSurfaceFamilies(row SourceInventoryRow, requested map[string]bool) bool {
+	if len(requested) == 0 {
+		return false
+	}
+	for _, family := range sourceInventoryRowSurfaceFamilies(row) {
+		if requested[family] {
+			return true
+		}
+	}
+	return false
 }
 
 func sourceInventorySurfaceFamilyRequestedByQuotes(family string, quoteKeys []string) bool {

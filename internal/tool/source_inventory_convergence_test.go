@@ -134,6 +134,7 @@ var sourceInventoryFileLOCCeiling = map[string]int{
 	"../types/source_inventory_requested_surface_role.go":            20,
 	"../types/source_inventory_requested_surface_text.go":            25,
 	"../types/source_inventory_requested_universe_view.go":           241,
+	"../types/source_inventory_row_surface_families.go":              39,
 	"../types/source_inventory_row_set_projection_boundary.go":       50,
 	"../types/source_inventory_row_set_projection_complete_lens.go":  180,
 	"../types/source_inventory_row_set_projection_attributes.go":     67,
@@ -147,6 +148,7 @@ var sourceInventoryFileLOCCeiling = map[string]int{
 	"../types/source_inventory_row_set_projection.go":                351,
 	"../types/source_inventory_scope.go":                             119,
 	"../types/source_inventory_shape.go":                             30,
+	"../types/source_inventory_surface_family_keys.go":               78,
 }
 
 const sourceInventoryNewFileLOCCeiling = 1500

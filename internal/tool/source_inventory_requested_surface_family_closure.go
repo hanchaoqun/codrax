@@ -53,15 +53,23 @@ func sourceInventoryRequestedSurfaceFamilyClosureProven(
 	// gap only needs groups of size >=2, while requested-universe closure must
 	// also prove a requested family whose exact universe contains one member.
 	for _, row := range rowSet.PrincipalRows {
-		family := types.SourceInventorySurfaceTermKey(row.SurfaceFamily)
-		if family == "" {
-			family = types.SourceInventorySurfaceFamilyKey(row.Member.SurfaceTerms)
+		families := types.SourceInventorySurfaceFamilyKeys(row.Member.SurfaceTerms)
+		if family := types.SourceInventorySurfaceTermKey(row.SurfaceFamily); family != "" {
+			families = append([]string{family}, families...)
 		}
-		key := sourceInventoryRequestedSurfaceFamily{role: row.Role, family: family}
-		if family == "" || sourceInventoryRequestedSurfaceFamilyMembersContain(groups[key], row.Member) {
-			continue
+		seenFamily := map[string]bool{}
+		for _, family := range families {
+			family = types.SourceInventorySurfaceTermKey(family)
+			if family == "" || seenFamily[family] {
+				continue
+			}
+			seenFamily[family] = true
+			key := sourceInventoryRequestedSurfaceFamily{role: row.Role, family: family}
+			if sourceInventoryRequestedSurfaceFamilyMembersContain(groups[key], row.Member) {
+				continue
+			}
+			groups[key] = append(groups[key], row.Member)
 		}
-		groups[key] = append(groups[key], row.Member)
 	}
 
 	included, excluded, _ := sourceInventoryDuplicateAggregateCoverage(facts, &ctx.AnalysisIR.RequestModel)

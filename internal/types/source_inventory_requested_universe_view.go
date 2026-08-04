@@ -180,12 +180,12 @@ func sourceInventoryRequestedUniverseSurfaceFamilies(rows []SourceInventoryRow) 
 	seen := map[string]bool{}
 	var out []string
 	for _, row := range rows {
-		family := sourceInventoryRowSurfaceFamily(row)
-		if family == "" || seen[family] {
-			continue
+		for _, family := range sourceInventoryRowSurfaceFamilies(row) {
+			if !seen[family] {
+				seen[family] = true
+				out = append(out, family)
+			}
 		}
-		seen[family] = true
-		out = append(out, family)
 	}
 	sort.Strings(out)
 	return out

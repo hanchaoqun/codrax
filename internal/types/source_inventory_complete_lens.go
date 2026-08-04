@@ -169,7 +169,7 @@ func sourceInventoryCompleteLensAddMember(_ AnswerCandidateRole, member SourceIn
 	addCodePathClass(member.File)
 	addCodePathClass(member.SupportRef)
 	addCodePathClass(member.Key)
-	if family := SourceInventorySurfaceFamilyKey(member.SurfaceTerms); family != "" {
+	for _, family := range SourceInventorySurfaceFamilyKeys(member.SurfaceTerms) {
 		surfaceFamilies[family] = true
 	}
 }

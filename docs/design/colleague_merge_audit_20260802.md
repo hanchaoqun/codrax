@@ -1961,3 +1961,22 @@ source-inventory 单源 authority 已是 `mechanical_landing_ready/complete`，�
 ownership tripwire、定向正负臂及 `internal/types`、`internal/tool`、`internal/orchestrator` 三包全量全绿。
 状态：`EVAL-B59-INVROW1=implemented/tests-pass/replay-next`。下一步严格并行两个异构 eval，验证 advisory=0、无虚假
 termination caveat，同时人工核对主清单与引用逐席完整。
+
+### §10.20 B86 production：复合行 identity closed；construct family 扩域根修（已交付，待回放）
+
+严格并行 Cangjie/ArkTS 两个 source-inventory case 后，B85-C 在 Cangjie production witness 上完整生效：五个复合行与
+五条 citation 逐席一致，coverage advisory 与虚假 localizer caveat 均为零，`EVAL-B59-INVROW1=closed`。
+
+ArkTS 暴露的新 P1 与 MERGE-AUDIT-5 的“精确信号作硬门”原则同根：parser typed row 已给出四组 `@Entry` 与两组
+`@Builder` surface，但旧 family 铸造不接受单 marker/并列 marker，coarse `function/method` role 因而被误当成 requested
+universe，系统强迫答案追加 20 个无关成员。现已将 family 从单值升级为 row-local 多值：parser marker 各自保留身份，
+base+specific 仍折叠；candidate query、principal projection、complete lens、closure/gap 统一消费 exact family 交集。
+无 marker 的 helper/lifecycle 不再因同 role 获权，普通无 family inventory 不受影响。
+
+同时确认一个 eval-only 假绿：`entry_page` rowset ID 未绑定可见 `@Entry` section 时，count=4 退化为“命中四个期望行”，
+没有拒绝额外 `EntryAbility`。已登记 `EVAL-B86-EVALROW1`，下一小批通过 case 显式 typed section anchor 修复，不把
+`@Entry` 或其它答案关键词写进 runner。
+
+验证：`internal/types` 全量、SourceInventory tool 族、`internal/tool/repomap/...` 全绿；convergence 旧文件 ceiling 均未
+提高。状态：`EVAL-B86-SURFFAM1=implemented/tests-pass/replay-next`；`EVAL-B86-EVALROW1=eval-fix-next`。Trace 显式窗、
+因果投影、自动补齐与模型结论所有权均未改变。

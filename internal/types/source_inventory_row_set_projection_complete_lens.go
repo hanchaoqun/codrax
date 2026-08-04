@@ -40,8 +40,7 @@ func sourceInventoryRequestedSurfaceFamilyBackedByCompleteLens(observation Sourc
 	}
 	seenRequestedRow := false
 	for _, row := range principal {
-		family, ok := sourceInventoryProjectionSurfaceFamilyForRow(row)
-		if !ok || !requested[row.Role][family.family] {
+		if !sourceInventoryRowMatchesRequestedSurfaceFamilies(row, requested[row.Role]) {
 			continue
 		}
 		seenRequestedRow = true

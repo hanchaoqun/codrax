@@ -1271,8 +1271,9 @@ func TestRepoMapSourceInventoryNarrowAuxiliaryScopeProjectsCorpus(t *testing.T) 
 	repo := t.TempDir()
 	for rel, body := range map[string]string{
 		"internal/app/main.go": "package app\nfunc Run() {}\n",
-		"internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets": "@Entry\n@Component\nstruct Index {\n  build() {\n    Text('hi')\n  }\n}\n",
-		"internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets":       "@Builder\nfunction GlobalCard() {\n  Text('card')\n}\nfunction PlainHelper() {}\n",
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets":   "@Entry\n@Component\nstruct Index {\n  build() {\n    Text('hi')\n  }\n}\n",
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets":         "@Builder\nfunction GlobalCard() {\n  Text('card')\n}\nfunction PlainHelper() {}\n",
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources/06_entry_ability_stage_model.ets": "export default class EntryAbility {\n  onCreate() {}\n}\n",
 	} {
 		p := filepath.Join(repo, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -1320,7 +1321,7 @@ func TestRepoMapSourceInventoryNarrowAuxiliaryScopeProjectsCorpus(t *testing.T) 
 	for _, want := range []string{
 		"repo_lens:auxiliary_projection",
 		"source_classes:",
-		"thirdparty:2",
+		"thirdparty:3",
 		"`Index`",
 		"note: surface=@Component @Entry",
 		"`GlobalCard`",
@@ -1332,6 +1333,9 @@ func TestRepoMapSourceInventoryNarrowAuxiliaryScopeProjectsCorpus(t *testing.T) 
 	}
 	if strings.Contains(res.Summary, "PlainHelper") {
 		t.Fatalf("narrow auxiliary projection leaked unrelated helper:\n%s", res.Summary)
+	}
+	if strings.Contains(res.Summary, "EntryAbility") || strings.Contains(res.Summary, "onCreate") {
+		t.Fatalf("exact decorator request leaked undecorated type or lifecycle method:\n%s", res.Summary)
 	}
 }
 

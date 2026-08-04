@@ -1,6 +1,9 @@
 package types
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestBuildSourceInventoryPrincipalRowSet_RepoWideKeepsAuxiliaryPrincipal(t *testing.T) {
 	observation := SourceInventoryObservation{
@@ -238,6 +241,58 @@ func TestBuildSourceInventoryPrincipalRowSet_SurfaceFamilyFilterRequiresExactTyp
 	})
 	if view.PrincipalTotal != 2 || view.SupportTotal != 0 {
 		t.Fatalf("unmatched typed quote must not become a hard source-family filter: %+v", view)
+	}
+}
+
+func TestBuildSourceInventoryPrincipalRowSet_FiltersIndependentTypedMarkerFamilies(t *testing.T) {
+	observation := SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Scopes:   []string{"src"},
+		Sets: []SourceInventoryObservationSet{{
+			Role:     AnswerCandidateRoleFunction,
+			Complete: true,
+			Members: []SourceInventoryObservationMember{
+				{Name: "selected", Role: AnswerCandidateRoleFunction, File: "src/selected.ets", Line: 8, Language: "arkts", SurfaceTerms: []string{"@Reusable"}},
+				{Name: "plain", Role: AnswerCandidateRoleFunction, File: "src/plain.ets", Line: 12, Language: "arkts"},
+			},
+		}, {
+			Role:     AnswerCandidateRoleMethod,
+			Complete: true,
+			Members: []SourceInventoryObservationMember{
+				{Name: "lifecycle", Role: AnswerCandidateRoleMethod, File: "src/lifecycle.ets", Line: 20, Language: "arkts"},
+			},
+		}},
+	}
+	rm := RequestModel{SourceInventoryProfile: &SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction, AnswerCandidateRoleMethod},
+		SourceQuotes:      []string{"@Reusable fragments"},
+	}}
+
+	view := BuildSourceInventoryPrincipalRowSet(SourceInventoryPrincipalRowSetInput{
+		Observation:    observation,
+		RequestModel:   rm,
+		MaxSupportRows: 10,
+	})
+	if view.PrincipalTotal != 1 || len(view.PrincipalRows) != 1 || view.PrincipalRows[0].Member.Name != "selected" {
+		t.Fatalf("exact typed marker family should not widen to the complete role universe: %+v", view)
+	}
+	if view.SupportTotal != 2 {
+		t.Fatalf("non-requested same-role rows should remain typed support/audit context: %+v", view)
+	}
+}
+
+func TestSourceInventorySurfaceFamilyKeys_PreservesIndependentTypedMarkers(t *testing.T) {
+	got := SourceInventorySurfaceFamilyKeys([]string{"@Component", "@Entry"})
+	if strings.Join(got, ",") != "@component,@entry" {
+		t.Fatalf("independent parser markers must remain separate families, got %#v", got)
+	}
+	if got := SourceInventorySurfaceFamilyKeys([]string{"public class", "public class Widget"}); strings.Join(got, ",") != "public class" {
+		t.Fatalf("base+specific terms should still collapse to one construct family, got %#v", got)
+	}
+	if got := SourceInventorySurfaceFamilyKeys([]string{"@Reusable(Card)"}); strings.Join(got, ",") != "@reusable" {
+		t.Fatalf("parameterized parser marker should retain its base family identity, got %#v", got)
 	}
 }
 
