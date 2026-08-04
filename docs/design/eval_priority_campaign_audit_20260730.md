@@ -13212,6 +13212,11 @@ closure type 后，仍可把两个同轮出现的机制拼成虚假桥。最优�
 清单：producer edge、context adapter edge、ledger compiler edge、carrier edge分别标注真实 owner file；另列 closure control 为
 disjoint path，并要求若未读 owner source 不把 hint 当调用证据。它仍是软指导，不扫描用户/模型/答案原文，不触发硬重试，也不替模型写答案。
 
+实现已落地：中英文 handoff 现在逐边给出 `builtin.go` producer、`observation_ledger_context.go` adapter、
+`observation_ledger.go` compile/carrier 的源码所有权与正向调用关系，并把 `emit_investigation_complete.go` 明确列为不相交的 Explorer
+stop/ParseOutput 控制路径；同时负向声明它不调用 ledger compiler、不生成 command-measurement record。三条 prompt/one-shot pin 与
+`go test ./internal/agent -count=1` 全绿（2.618s）。状态：`implemented-soft / no-answer-gate / replay-next`。
+
 ### EVAL-B69-RUNTIMEBIND1（P0/open）：无 typed 窗/指标身份的 model scalar 可压过 deterministic 主值
 
 Trace 的确定性面没有回归：系统 exact-window projection、target-state authority 和补采结果均为 20.000ms。但 Explorer 在

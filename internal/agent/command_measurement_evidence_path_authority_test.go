@@ -47,6 +47,10 @@ func TestCommandMeasurementEvidencePathAuthorityTypedCarrierAndProfileOnly(t *te
 		"CompileObservationLedger",
 		"compileToolResultObservations",
 		"observationRecordForCommandMeasurement",
+		"internal/types/observation_ledger_context.go",
+		"internal/types/observation_ledger.go",
+		"disjoint Explorer-closure control path",
+		"does not call `compileToolResultObservations`",
 		"do not transport a command measurement produced later",
 	} {
 		if !strings.Contains(prompt, want) {
