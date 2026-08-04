@@ -681,7 +681,7 @@ func TestApplyTurnPolicyGuards_OperationRoute(t *testing.T) {
 		NeedsRepoAccess:           true,
 		NeedsOperationAccess:      true,
 		Operation:                 "investigate",
-		OperationKind:             "",
+		OperationKind:             "computer_operation",
 		Source:                    "mixed",
 		CurrentSourceEvidenceMode: types.TurnRouteCurrentSourceEvidenceRequired,
 		RiskLevel:                 "low",
@@ -691,13 +691,17 @@ func TestApplyTurnPolicyGuards_OperationRoute(t *testing.T) {
 	if noisyInvestigationSurface.Route != RouteHybrid ||
 		!noisyInvestigationSurface.NeedsRepoAccess ||
 		noisyInvestigationSurface.NeedsOperationAccess ||
+		noisyInvestigationSurface.OperationKind != "" ||
+		noisyInvestigationSurface.TargetSurface != "" ||
+		noisyInvestigationSurface.RiskLevel != "none" ||
 		noisyInvestigationSurface.CurrentSourceEvidenceMode != types.TurnRouteCurrentSourceEvidenceRequired ||
 		IsConcreteOperationPolicy(noisyInvestigationSurface) {
 		t.Fatalf("noisy investigation surface must stay in the analysis pipeline: %+v", noisyInvestigationSurface)
 	}
 
-	// A concrete operation kind remains authoritative even when the other
-	// classifier fields resemble the witness above.
+	// A concrete operation kind remains authoritative when the required route
+	// axis itself says operation. The optional-field tolerance above applies
+	// only to concordant repo/hybrid + investigate policies.
 	concreteDesktopOperation := ApplyTurnPolicyGuards(TurnPolicy{
 		Route:                     RouteOperation,
 		NeedsRepoAccess:           true,

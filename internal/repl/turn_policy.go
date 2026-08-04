@@ -343,7 +343,7 @@ var turnPolicyTool = llm.ToolSchema{
     "operation_kind": {
       "type": "string",
       "enum": ["", "computer_operation", "artifact_generation", "presentation_generation", "document_generation", "spreadsheet_generation", "browser_operation", "external_skill_workflow"],
-      "description": "Optional precise operation kind. Leave empty for non-operation routes. For route=operation, choose the closest concrete capability. Use external_skill_workflow only when there is also a concrete operation target surface, side effect, artifact workflow, browser/desktop workflow, or provider-controlled execution. Do not use it for read-only MCP/resource/log/trace evidence lookup; those are external observations handled by route=repo."
+      "description": "Optional precise operation kind. Leave empty for non-operation routes. For route=operation, choose the closest concrete capability. Use external_skill_workflow only when there is also a concrete operation target surface, side effect, artifact workflow, browser/desktop workflow, or provider-controlled execution. Do not use it for read-only MCP/resource/log/trace evidence lookup or for read-only commands used as evidence-gathering tools inside a current-source investigation; those are handled by the route=repo/hybrid analysis pipeline."
     },
     "source": {
       "type": "string",
@@ -550,6 +550,14 @@ source/code evidence is needed is inconsistent with optional.
 needs_operation_access is true iff route=operation. Do not set it for
 ordinary source, log, trace, MCP, connector, or attached-artifact
 external-observation investigation.
+
+Read-only commands used to measure, locate, or verify evidence INSIDE a
+current-source investigation are analysis-pipeline tools, not the objective of
+a computer operation. For that shape use route=repo/hybrid,
+operation=investigate, needs_repo_access=true, needs_operation_access=false,
+and leave operation_kind/target_surface empty. Use route=operation only when
+operating or querying the current machine/environment/filesystem/UI is itself
+the requested objective rather than a source-analysis evidence step.
 
 needs_data_access is true iff route=data. Do not set it for source-code,
 runtime log/trace, MCP/connector observation, or command-operation tasks.
@@ -1418,12 +1426,20 @@ func ApplyTurnPolicyGuards(p TurnPolicy, hasPriorAnswer, hasAttachment bool) Tur
 	// the analysis pipeline is still the right lane for log/trace/MCP/
 	// connector evidence. Prefer the typed operation/source/side-effect tuple
 	// over a lone route enum or boolean.
-	if isAnalysisOnlyPolicy(p) && (p.Route == RouteOperation || p.NeedsOperationAccess) {
+	if isAnalysisOnlyPolicy(p) {
 		if p.Route == RouteOperation {
 			p.Route = RouteRepo
 			p.NeedsRepoAccess = true
 		}
 		p.NeedsOperationAccess = false
+		// operation_kind/target_surface/risk are operation-only refinements.
+		// Once the required axes settle on analysis, clear the contradictory
+		// refinements so downstream telemetry and future guards cannot mistake
+		// them for retained permission.
+		p.OperationKind = ""
+		p.TargetSurface = ""
+		p.RiskLevel = "none"
+		p.RequiresConfirmation = false
 	}
 
 	// Self-contradiction on the operation axis: the route says local/repo,
@@ -1810,7 +1826,17 @@ func isAnalysisOnlyPolicy(p TurnPolicy) bool {
 	if strings.TrimSpace(p.Operation) != "investigate" {
 		return false
 	}
-	if isOperationLikeOperation(p.OperationKind) {
+	// Route and operation are required primary axes. operation_kind and
+	// target_surface are optional operation-only refinements. When the two
+	// primary axes concordantly identify a repo/hybrid investigation and a
+	// current-source obligation is present, a stray optional operation field
+	// cannot reverse the route. This covers read-only command measurements used
+	// as source evidence without classifying real machine/desktop operations by
+	// request prose.
+	concordantPipelineInvestigation :=
+		(p.Route == RouteRepo || p.Route == RouteHybrid) &&
+			(p.NeedsRepoAccess || p.CurrentSourceEvidenceMode == types.TurnRouteCurrentSourceEvidenceRequired)
+	if isOperationLikeOperation(p.OperationKind) && !concordantPipelineInvestigation {
 		return false
 	}
 	if len(p.SideEffects) > 0 {
@@ -1827,7 +1853,7 @@ func isAnalysisOnlyPolicy(p TurnPolicy) bool {
 	switch strings.TrimSpace(p.TargetSurface) {
 	case "", "unknown":
 	default:
-		if !p.NeedsRepoAccess &&
+		if !concordantPipelineInvestigation && !p.NeedsRepoAccess &&
 			p.CurrentSourceEvidenceMode != types.TurnRouteCurrentSourceEvidenceRequired {
 			return false
 		}

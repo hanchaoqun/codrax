@@ -12995,3 +12995,54 @@ requested dimension tokens × aggregate label tokens 选择并发布值。最稳
 - `eval/parallel_selected_summary_evalcampaign_b64_traceread_r2_20260803.md`；
 - `eval/parallel_selected_summary_evalcampaign_b64_traceread_r2_20260803_manual_audit.md`；
 - result dirs：`eval/results/*-20260803-233053`。
+
+## 66. 2026-08-03 B65 r3：可选 operation 副轴夺权与显式 Trace 窗的跨窗 family 假满足
+
+在 `main@d8fffd7a3` 构建后严格并行同两例，runner PASS 2/2、人工 FAIL 2/2：
+
+- read 130s，但仍为 pipeline dispatch=0；
+- trace 140s，Analyzer/Explorer/finalizer 各 1，模型 trace_query=2，系统补采 1，finalizer reject=0。
+
+### B65-A 首修的反证与 EVAL-B66-ROUTEINV2（P0/implemented）
+
+r2 的 `operation_kind` 为空，首修只证明 noisy target surface 不应铸电脑操作权限；r3 classifier 发出更完整的矛盾结构：required
+主轴 `raw_route=hybrid + operation=investigate + source=mixed + current_source=required`，同时 optional operation-only 副轴漂出
+`operation_kind=computer_operation + target_surface=desktop`。schema 明确 operation_kind 对非 operation 路由必须为空，但首修把具体 kind
+视为绝对优先，仍将 turn 送进 command-operation lane。该 lane 首个未正确 shell quoting 的 find 失败，replan 后统计 253 并 broad grep
+全仓 52 命中；最终答案把测试、枚举和答案显示点拼成错误 dataflow，仍漏掉
+`ObservationLedgerInputFromAgentContext -> CompileObservationLedger/compileToolResultObservations ->
+observationRecordForCommandMeasurement`，B64 typed guidance 因四阶段管线没运行而不可达。
+
+根修按 schema 字段层级而非问题文字：
+
+1. required `route=repo/hybrid + operation=investigate` 与 needs_repo/current_source obligation 一致时，optional
+   operation_kind/target_surface 不能反向铸 operation 权限；无 side effect、允许 source/risk 等既有精确条件仍必须同时成立；
+2. guard 清空矛盾的 operation-only refinements、needs_operation 与 confirmation；真实
+   `route=operation + operation=computer_operation`，以及 side-effect-bearing artifact/browser/desktop operation 均不受影响；
+3. classifier schema/prompt 增加软语义：只读命令若只是当前源码调查的测量/定位/验证工具，属于分析管线取证步骤；只有机器、环境、
+   文件系统或 UI 操作本身是用户目标时才属于 computer operation。没有用户/模型原文扫描或命令关键词硬门；
+4. 生产 witness pin 把 optional operation_kind=computer_operation 纳入 r3 全结构；route=operation 对照臂保持具体电脑操作权限。
+
+`go test ./internal/repl -run 'TestApplyTurnPolicyGuards_OperationRoute' -count=1` 与 `go test ./internal/repl -count=1` 全绿。
+状态：`EVAL-B66-ROUTEINV2 = implemented / repl-full-pass / commit-next / replay-after-trace-window-batch`。
+
+### EVAL-B66-TRACEWIN1（P0/open）：跨窗 query 的 family presence 抑制了用户窗确定性补采
+
+Trace 模型正文这轮正确使用 20.000ms sleep、#1 threadpool-400 fscache iowait 11.000ms、完整
+threadpool→network→cookie→app 唤醒链、真实占时/现规则可消双轴和下一步；B65-B 删除的 model aggregate 系统摘录没有复发。
+但 Explorer 两个 model query 都使用 2.000..2.021，而 analyzer 已铸 quote-anchored explicit user window
+2.000..2.020。系统补采正确把执行参数改回 2.000..2.020，却因全 ledger 的 family detector 只看 predicate presence、不看同一结果的
+typed selected_window，误以为 wider root/rank/chain/state families 已齐，只补 critical view。后果是 projection anchor 仍由 wider
+root/rank 的 2.021 窗控制，系统发布 principal_state=21.000ms（含窗外 running 0.980ms），与用户窗和系统补采 meta 矛盾。
+
+最优方案：family completeness 必须相对于 quote-anchored explicit window 判断。用 deterministic query result identity（payload/raw ref，
+否则 typed record-id prefix）把同次结果分组，仅当该结果有严格解析的 selected_window 与 explicit window 在共享 tolerance 内相等时，
+其 rank/chain/window-state/census/critical family 才可抑制该用户窗的补采。wider/narrower query 仍留在 ledger 作为 exploration，不能伪装
+用户窗 complete；无 explicit window 的既有行为保持。随后 exact-window root_cause_rank 会同时重铸 projection anchor 与 target-state
+account，critical 仍按缺失补齐，最多两 view 的预算不变。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b65_traceread_r3_20260803.md`；
+- `eval/parallel_selected_summary_evalcampaign_b65_traceread_r3_20260803_manual_audit.md`；
+- result dirs：`eval/results/*-20260803-234734`。
