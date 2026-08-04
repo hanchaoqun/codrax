@@ -1450,3 +1450,49 @@ eval runner contract 均为绿。实现未扫描用户原始输入或模型输�
 时间窗 Trace 因果投影与自动补齐链保持既有权限。
 
 收账状态：`MERGE-AUDIT-4=closed / all-confirmed-findings-delivered / full-repo-pass`。
+
+---
+
+## §10 MERGE-AUDIT-5 增量审计(2026-08-04):62 笔 = §9 交付核验 + 所有权 sweep + 调用链方向 + trace/current-source 波
+
+**范围**:6a1998d9e..HEAD 非本席合入 62 笔(08-03 06:41 → 08-04 01:37)。**方法**:7 主题读者+逐条 2 席否证(37 agent,wf_74480175-eae,含 go test overlay 可执行复现)+全仓基线实测+高危亲验;只审计不修码。产出:12 确认(5 高)+7 低+3 项被否证席驳回(未入账);**55 项核验通过**。
+
+### §10.1 基线与 §9 交付核验总评(正面)
+
+- **main 绿**(本席实测零失败,与 MERGE-AUDIT-4 前的红基线对照,合入纪律已恢复)。
+- **§9 delivery ledger 22 项 closed 声称经三个主题独立核验全部属实**——R2-1 完备车道与边门同源化、R6-1 自铸锚整块删除(结构性修而非调序补丁)、R2-2/R2-3 回边豁免改结构判定(镜像已画正向实线边)、R7-1 十三语言域全部 bump、R7-2/R7-3/R7-4/R7-6/R7-7/R7-8 逐语言谓词修、R1-1 多板 pin(`TestMultiArtifactSeatsKeepFrameAuthorityAndCrownWordingIsolated`)、M4-R3-1 双载体撤销、R8-1/R8-2 eval 域边界显式化,零虚账。
+- S6 波多项**提杆**:散量权威去子串臂改 typed 同源、系统 metric 复发布通路删除、完成门关系确认收敛为软(retry storm 修)。
+- 3 项 reader 指控被否证席驳回(S4-1/S4-2/M5-S3-3),对抗复核有效。
+
+### §10.2 高危确认(4 件)
+
+| # | 位置 | 问题 | 复现 |
+|---|---|---|---|
+| M5-S1-1 | `answer_document_diagram_evidence.go:141` | **调用锚车道扩域到全家族但没带别名解析**(T3-2/R2-1 类**第三例**):4dc46e393 把图表调用证据门从 QFCallChain 扩到所有非 RootCauseTrace 家族,但严格 body 车道(带 message-operation 别名解析)仍只在 QFCallChain 开——非调用链家族只跑锚环且 edgeLabel 恒空,教学形 class participant 与 sibling-carrier 节点 ID 双双硬拒;同一证据池同一图在 QFCallChain 过、在 QFGeneric 拒 | 否证席 **go test overlay 可执行复现**(双席) |
+| M5-S3-1 =M5-F1(双镜头汇合) | `change_plan_validate.go:1269` | **新定界符失衡硬门误 lex Rust 生命周期**:通用分支把每个 `'` 当字符串开符,`fn parse<'a>(input: &'a str)` 被"确定性"判失衡→合法计划硬拒 `planned_source_delimiter_imbalance`,无 typed escape 车道(违「硬门必配 typed escape」§1.6);Kotlin/Swift 插值同病 | 否证席可执行复现 |
+| M5-S3-2 | `change_plan_validate.go:375` | **过针探测冻结门未绑 post-apply**:planStageProbeReports 全 Run 追加、latestPlannerProbeReport 取最后一条无 PlanID/代次绑定——round-1 规划期环境探测通过 ≠ apply 后仍健康,verify 真失败后正确的 replan 修复被硬拒 | 静态(载体逐点核) |
+| M5-S5-1 | `emit_investigation_complete.go:12215` | **定向可达门从实体表顺序铸调用方向**:endpoints[0]→endpoints[len-1] 当 source→sink,但 ExactTargets/MentionedEntities 是 LLM 提及序,无任何 schema/validator 约定顺序编码方向——"main 如何到达 handleRequest?"若模型先提 handleRequest 即要求反向路径,已证正向路径被判不可达 | 静态 |
+| S6-1 | `command_measurement_evidence_path_authority.go:58-76` | **codrax 自身内部架构文本被硬编码进通用 prompt**:`internal/tool/builtin.go` 的 `execCommandMeasurement`/`CompileObservationLedger` 等内部函数/文件路径逐字注入 explorer 中环提示与 finalizer 首指令,按通用 typed 触发对**任意客户仓**生效——双红线(LLM prompt 禁内部管线信息 + 错仓架构污染:模型解释客户仓时会引用 codrax 内部件) | **本席亲验**(66/67/75/76 行逐字) |
+
+### §10.3 中危确认(6 件)
+
+- **S4-3** `system_crosscheck_appendix.go:110`(裁定敏感):所有权 sweep(72146af38)一并退役了**用户既裁的 appendix 软披露臂**——CR-3 件① P6 墙钟守恒(2026-07-12 裁「只披露,永不 violation/rewrite」)、HEADLINE-ELIM、FREQDIR-1、散量残差等——方向(去 gate 化)对,但这些是裁定的**软披露**目的地,非 gate;错误算术/漏方向词现在全仓零披露。**建议按既裁恢复为 typed-fact 车道内的软行,或提请改裁。**
+- **S2-1** `extract_java.go:334`:var 修复让空 typeName 静默跳过而不记冲突——var 遮蔽同名带类型声明时跨作用域错捕获(修复自身的新缺陷)。
+- **S2-2** `extract_navigation_calls.go:20`:R7-3(census 全文件误用)只修了 C——**Kotlin/Swift 同类同批未修**(同批不同语言不同纪律)。
+- **S2-3** `graph.go:286`:R7-7 残留——bare-function 回退解析获得排除权威。
+- **M5-S5-2** `emit_investigation_complete.go:12417`:短名端点歧义(≥2 qualified 匹配)时 resolveEndpoint 返 nil→硬报"端点不在图中",尽管已证路径存在(歧义≠缺席)。
+- **M5-S5-3** `diagram_evidence.go:635`:新 qualified-caller 接受臂三个条件都不验 caller owner 的证据绑定(接受面无证据锚,与整批"绑证据"方向相反)。
+
+### §10.4 低危顾问(7 件)
+
+M5-S1-2 sequence 分割器闭集运算符(`--)`/`-x` 异步形不可见,门/教学双盲);M5-S3-4 歧义尾端点全候选可达仍硬 unresolve;S4-4 模型所有权 AST tripwire 只扫直调(一层包装即绕);M5-S5-4 token 边界匹配吞跨分隔符拼写等价;S6-2 dba723a30 退役了同波刚立的桌面目标操作负 pin;M5-F2 M4-K"双向 pin"声称过度(runner 侧方向未钉);M5-F3 同事 B54..B71 账本新自报残留 10 项(继承债清单,详见其账本"状态:"行)。
+
+### §10.5 处置建议(未动码)
+
+1. **高危批一(写模式门,同文件)**:M5-S3-1 定界符 lexer 按语言族修(或加 typed escape 车道)+ M5-S3-2 探测报告绑 PlanID/apply 代次——两件都是新硬门无 escape 的 §1.6 违例。
+2. **高危批二(图表门三修)**:M5-S1-1 扩域必须连别名解析一起扩(或收回扩域);M5-S5-3 接受臂补证据绑定;M5-S1-2 运算符集镜像 parse 表。
+3. **高危批三**:S6-1 整段内部架构文本改为运行时从 typed 车道派生或删除(错仓污染即刻止血);M5-S5-1 方向从 typed 关系边派生,禁从实体序推断。
+4. **裁定请求(S4-3)**:既裁软披露臂恢复 vs 改裁,提请用户。
+5. S2-1/S2-2/S2-3 repomap 补修批;中低危随批。
+
+**方法学**:①同事修复合规率连续两轮 100%(22/22、30/30 核验通过)且**零虚账**——"提交名↔finding 对应+交付账本"协议已稳定;②新缺陷持续集中于**新硬门/新扩域**(T3-2 类第三例、§1.6 无 escape 两例、方向铸造一例)——建议同事侧把「新硬门四查」(教学同步/同源别名/typed escape/精确信号)纳入其提交前清单;③否证席驳回 3 项虚指控+两处 overlay 可执行复现,对抗层持续产出判别力。
