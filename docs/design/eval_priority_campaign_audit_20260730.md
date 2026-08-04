@@ -13792,3 +13792,71 @@ stall 计数永远清零。客户 run 中正是 artifact 9→10→11→12→13�
 
 验证：完整 `go test ./internal/dataworkflow ./internal/repl -count=1` 全绿。状态：
 `EVAL-B75-DATALOOP1=implemented/replay-next`；`EVAL-B75-DATASTATUS1=typed-context-covered/adoption-watch`。
+
+## 78. 2026-08-04 B76 r2：来源身份闭环；typed action 参数可被静默忽略
+
+在 `main@d8a66d01a` 构建后严格并行两个异构案例：runner 1/2 PASS，人工审计同为 1/2 PASS。
+
+- `operation_web_manual_summary`：132s，runner PASS / human PASS；
+- `data_multifile_reference_projection`：286s，runner FAIL / human FAIL，实际 `20,0,5`。
+
+### EVAL-B76-OPGOALMAT1（closed）：完整 receipt 已绑定真实目标材料
+
+operation 本轮先完整读取首页，但模型依据材料本身识别首页仅是入口，随后执行
+`curl ... http://codrax.net/user_guide.html`。最终 system-authored evaluation event 同时给出：
+
+1. `status=complete material_coverage_status=complete`；
+2. `material-coverage:v1:c94c…:html_text`；
+3. source identity `sha256:c94c…:bytes:248161`；
+4. producer locator 精确指向 `user_guide.html`，而不是首页；
+5. 最终答案实际消费手册内容，覆盖安装配置、读/写模式、CLI/REPL、Trace 与排错等主要使用面。
+
+因此 B75-B 的 receipt→payload→producer 权威链与 opt-in eval oracle 均由生产回放证明。该机制没有把具体 URL
+写入产品硬门，也没有替模型判断材料相关性；系统只披露所消费材料的 typed provenance。
+
+### EVAL-B76-DATAPARAM1（P0/confirmed）：已声明参数通过 admission，但执行器未消费
+
+B75-C/D 同样由本轮证明有效：原始 repair 省略 reference 字段后，durable output contract 仍保留；首次 assemble
+被完整参考域校验拒绝，deterministic fallback 最终按 `targets.csv` 顺序发射三项并为 GroupX 补 0。round 数也由
+B75 的 15 降至 9，累计 artifact/row 不再伪装 schema progress。
+
+剩余错误发生在 reference 投影之前。模型为 `qualify_records` 发出结构化参数：
+
+```text
+source_filters=[active eq true, canonical_id not_empty]
+source_filters_json=<同值>
+```
+
+plan admission 接受该 action；但 `runQualifyRecords` 只调用读取 `filters` 的 `parseContributionFilters`，从未读取
+`source_filters`。于是六条 joined rows 全部签 include，inactive r3 的 GroupA=3 被计入，贡献变成 GroupA=20、
+GroupB=4、GroupC=5；后续 reference projection 正确丢 GroupB、补 GroupX，忠实输出错误上游值 `20,0,5`。
+
+这不是单个值或 fixture 拟合，而是 typed action 合同红线：一个参数键既能通过结构化 admission，又不被任何执行路径
+消费，系统却静默成功。当前只有 `compute_contributions` 有明确 allowed-param validator（本轮也正确拒绝了无效
+`aggregation=sum`）；其他 action family 缺统一的“参数已消费或明确拒绝”契约。
+
+根修冻结为两层：
+
+1. action-kind-aware canonical alias：对同一语义角色的已备案别名，在进入 executor 前归一到该 action 的 canonical
+   param；例如 `qualify_records` 的 source/base/record include filters 归一到 `filters`。只能使用显式 typed alias table，
+   不根据 rule prose、question 或 final answer 猜测；
+2. parameter-consumption contract：每个 typed action 发布 canonical allowed keys/aliases；归一后仍有未知键必须 typed
+   fail，并列出 action kind、unknown keys 与 allowed keys。不得继续静默 no-op，也不得为未知键猜造语义。
+
+施工拆为 `B76-A evidence/docs` → `B76-B shared parameter contract + qualify filter aliases` →
+`B76-C 按 action family 扩展并以现有 planner/scaffold 全量反查`。第一批需至少看护：alias 正臂、unknown-param 负臂、
+canonical+alias 冲突 fail-closed、原有 reject filters 不回归，以及 compute 既有严格合同不被旁路。
+
+### EVAL-B76-DATAINPUT1（P1/confirmed）：planner 两次把 workflow ledger 当 record input
+
+planner 两次为 `qualify_records` 选择 `workflow_rule_coverage`，artifact schema guard 正确识别其
+`node_class=workflow_ledger/json_shape=object` 并拒绝，随后模型改用 `joined_observations` 恢复。这说明安全门有效，但
+record-consuming action 的候选输入仍把控制/审计 ledger 暴露在高位，制造两轮可避免 repair。后续应让 typed action
+scaffold/候选 ranking 只优先兼容 node class，并保留现有 admission guard 作为最终防线；不能按 artifact 名字或当前 case
+关键词硬排除。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b76_operationdata_r2_20260804.md`；
+- `eval/parallel_selected_summary_evalcampaign_b76_operationdata_r2_20260804_manual_audit.md`；
+- result dirs：`eval/results/*-20260804-060620`。
