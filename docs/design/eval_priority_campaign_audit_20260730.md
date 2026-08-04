@@ -13179,3 +13179,58 @@ threadpool→network→cookie→app 链与 11.000ms fscache IO 主席。失败�
 - `eval/parallel_selected_summary_evalcampaign_b67_traceread_r5_20260804.md`；
 - `eval/parallel_selected_summary_evalcampaign_b67_traceread_r5_20260804_manual_audit.md`；
 - result dirs：`eval/results/*-20260804-003138`。
+
+## 69. 2026-08-04 B68 r6：relation 风暴闭环，读链路所有权与 Trace 未绑定主值暴露
+
+在 `main@808e6c465` 构建后严格并行回放同两例；runner PASS 2/2，人工 FAIL 2/2：
+
+- read 122s，Analyzer/Explorer/finalizer 各 1，read=4、list=2、finalizer reject=0；
+- trace 228s，Analyzer/Explorer/finalizer 各 1，trace_query=5、investigation completion=1/0、finalizer reject=0。
+
+### EVAL-B68-RELTAIL1（P0/closed-by-replay）：relation carrier 不再制造完成重试风暴
+
+Trace 在单次 `emit_investigation_complete` 中提交 exact typed relation claim 并直接闭环；r5 的 20 次同合同拒绝、22 轮 Explorer 与
+fail-fast 中止均未复发。exact-window 自动补齐、20.000ms target-state partition、11.000ms fscache IO 主席、
+threadpool-400→network-300→cookie-200→app-100 唤醒链和因果投影全部保留。因此 B68 的 misplaced-tail typed 恢复与 optional
+relation metadata 合同已由真实回放验收，不是只靠单测签绿。
+
+### EVAL-B69-CMDPATH1（P1/open）：正确路径提示缺少源文件所有权边，模型把 closure 状态拼进 ledger 数据链
+
+Read 的 route/current-source 修复真实生效，四阶段管线执行，确定性 command measurement 值 253 正确进入答案。但机制正文存在三处
+同根错误：
+
+1. 把 `observationRecordForCommandMeasurement` 说成调用 `ObservationLedgerInputFromAgentContext`，实际方向是后者组装
+   `ObservationLedgerInput`，`CompileObservationLedger` 再调用 `compileToolResultObservations`，由 carrier compiler 调用
+   `observationRecordForCommandMeasurement`；
+2. 把 `compileToolResultObservations` 错引到 `internal/tool/emit_investigation_complete.go`，实际定义和调用均在
+   `internal/types/observation_ledger.go`；
+3. 把 observation compile 链继续接到 `MutableState.InvestigationComplete/HasEnoughFacts`。后两者属于独立的 Explorer 闭环控制：
+   `EmitInvestigationComplete` 写 stop flag，ParseOutput 读取它，不生产 command-measurement observation record。
+
+现有 typed handoff 给了正确的函数序列，也要求“实际已读源码证明相邻调用”，但没有给出 file-owned edge；Explorer 只读提示渲染器与
+closure type 后，仍可把两个同轮出现的机制拼成虚假桥。最优修复是把同一 prompt-only authority 升级为精确的 typed edge/boundary
+清单：producer edge、context adapter edge、ledger compiler edge、carrier edge分别标注真实 owner file；另列 closure control 为
+disjoint path，并要求若未读 owner source 不把 hint 当调用证据。它仍是软指导，不扫描用户/模型/答案原文，不触发硬重试，也不替模型写答案。
+
+### EVAL-B69-RUNTIMEBIND1（P0/open）：无 typed 窗/指标身份的 model scalar 可压过 deterministic 主值
+
+Trace 的确定性面没有回归：系统 exact-window projection、target-state authority 和补采结果均为 20.000ms。但 Explorer 在
+`aggregate_facts` 发出 `kind=scalar_value, value=20.020ms, role=principal_answer`，没有 dimensions、support_refs、artifact/window/metric
+绑定。`AggregateFactIsRuntimeObservationAdvisory` 目前把 runtime scalar 只要“看起来是直接 runtime observation”就留在 principal；
+finalizer 的通用 aggregate 合同又要求 principal scalar 必须原样保留。于是 prompt 同时出现 20.020ms principal model scalar 与
+20.000ms deterministic selected-window partition，模型摘要和 caveat 选择前者，因果投影仍是后者。
+
+这不是给 app/20.020 写特例，也不授权系统改写模型答案。泛化的 authority 修复应只读取 typed 结构：当 runtime 分析存在显式用户窗且
+deterministic trace observation 已铸 selected-window principal scalar 时，缺少 artifact/window/metric/support 绑定的 model-authored scalar
+不能成为 principal numeric authority，降为 supporting context 并披露 provenance；有精确 typed binding 的 model scalar、非 runtime
+count/scalar、成员集、模型原因与最终结论均不受影响。系统只收窄“谁能成为精确主值”的权限，不自行选择诊断结论。
+
+施工顺序冻结：`B69-A = evidence commit` → `B69-B = CMDPATH1 prompt-only typed edge/boundary` →
+`B69-C = RUNTIMEBIND1 typed authority demotion` → 同两例严格并行 2 个复放。两批均禁止请求/答案/模型原文关键词硬门，禁止系统答案改写；
+不改变 trace_query、显式时间窗、因果投影、自动补齐、根因排序或 write mode。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b68_traceread_r6_20260804.md`；
+- `eval/parallel_selected_summary_evalcampaign_b68_traceread_r6_20260804_manual_audit.md`；
+- result dirs：`eval/results/*-20260804-005428`。
