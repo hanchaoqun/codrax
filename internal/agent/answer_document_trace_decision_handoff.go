@@ -91,6 +91,7 @@ func renderAnswerDocTraceDecisionHandoffSet(set types.TraceCausalProjectionSet, 
 			fmt.Fprintf(&b, "- target_state_symptom: subject=`%s`; running=%.3fms; runnable=%.3fms; sleep=%.3fms; d_state=%.3fms; io_wait=%.3fms; total=%.3fms; partition_relation=`mutually_exclusive_and_additive_to_total`; partition_addition_authority=`these_five_members_only`. This describes what the target experienced, not the upstream cause or recoverable amount.\n",
 				account.Subject, account.RunningMS, account.RunnableMS, account.SleepMS,
 				account.DStateMS, account.IOWaitMS, account.TotalMS)
+			b.WriteString("- selected_window_value_authority: when describing the target's state or duration inside `selected_window`, copy the typed `target_state_symptom` values above. Whole-attachment extent, a switch-in after the selected-window end, and pre-triage navigation hypotheses are different calibers and must not replace this selected-window value. This is reasoning guidance only; you still own the conclusion and wording.\n")
 		}
 		traceDecisionWriteSelfRunnableTwoRulerFacts(&b, projection.SelfRunnableTwoRulerAccountings)
 		if len(projection.WakeupPath) > 0 {

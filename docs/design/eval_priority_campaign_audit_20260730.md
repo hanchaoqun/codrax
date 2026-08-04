@@ -13080,7 +13080,7 @@ Trace 的 exact-window family 修复真实生效：即使探索记录不能证�
 `threadpool-400 -> network-300 -> cookie-200 -> app-100` 唤醒链、11.000ms fscache IO 主席，以及“真实关键路径占时 / 现规则
 可消量”双轴均保留。B65 删除的 model aggregate 系统摘录也没有复发。
 
-### EVAL-B67-ROUTEINV3（P0/open）：required route/current-source 四轴仍会被主 operation 轴夺权
+### EVAL-B67-ROUTEINV3（P0/implemented）：required route/current-source 四轴不再被主 operation 轴夺权
 
 r4 不再只是 optional `operation_kind/target_surface` 漂移。classifier 原始结构为：`raw_route=hybrid`、
 `needs_repo_access=true`、`current_source_evidence_mode=required`、`source=mixed`，但同时把主 `operation`、optional
@@ -13091,10 +13091,15 @@ r4 不再只是 optional `operation_kind/target_surface` 漂移。classifier 原
 needs_repo=true + source=repo/mixed` 是当前源码证据调查的四个 concordant typed 轴。最优 guard 应在无 concrete side effect、
 target surface 为空/unknown/repo/source、risk 仅 none/low 时，以该四轴收敛到 analysis pipeline，并把矛盾的
 computer_operation 主/副轴归一为 investigate；真实 `route=operation`、机器/桌面目标、artifact/browser 生成和 side-effect-bearing
-操作保持不变。判定只读取 schema enum/boolean，不扫描用户或模型原文。必须同时补 guard 单测和真实 dispatch pin，证明 pipeline
-实际运行且 operation planner 零调用。
+操作保持不变。判定只读取 schema enum/boolean，不扫描用户或模型原文。
 
-### EVAL-B67-TRACEVALUE1（P1/open-soft）：最终上下文有正确主值，摘要仍选了附件跨度
+实现已按该边界落地：`isAnalysisOnlyPolicy` 只为 `repo/hybrid + needs_repo + current_source=required + source=repo/mixed +
+non-concrete target` 容忍主 operation 的单一 computer_operation 漂移；analysis guard 同时把主 operation 归一为 investigate，并清除
+operation-only 权限副轴。guard 正反 pin 与真实 REPL dispatch pin 证明 pipeline 恰执行一次、operation planner/local responder 均零调用；
+desktop concrete surface 和 route=operation 对照臂仍走 operation。`go test ./internal/repl -count=1` 全绿（33.678s）。
+状态：`implemented / repl-full-pass / committed(ff15111d5)`。
+
+### EVAL-B67-TRACEVALUE1（P1/implemented-soft）：最终上下文有正确主值，摘要仍选了附件跨度
 
 finalizer 的 typed handoff 已明确 `selected_window=2.000000..2.020000`、`target_state_symptom sleep=20.000ms`、
 `principal_state sleep=20.000ms`；早期 perf-triage 也明确 whole-attachment 20.020ms 只是 extent/unit provenance。模型调查完成记录已经
@@ -13103,7 +13108,13 @@ finalizer 的 typed handoff 已明确 `selected_window=2.000000..2.020000`、`ta
 该残余不授权系统删除、替换或改写模型正文，也不授权对答案/请求做关键词或数值扫描硬门。先实施 prompt-only 的 typed 口径
 显著性增强：在每个 projection 的 selected_window 与 target_state_symptom 邻位明确——凡描述所选窗内目标状态，必须复制该
 typed partition；附件总跨度、窗后 switch-in 和 pre-triage navigation hypothesis 不得替代。它不产生 AnswerBlock、不检查模型原文、
-不触发 retry，模型仍拥有诊断和建议。继续异构回放；若仍仅偶发一行而 typed 主体正确，按模型波动留档，不升级为系统接管。
+不触发 retry，模型仍拥有诊断和建议。
+
+实现只修改 `renderAnswerDocTraceDecisionHandoffSet` 的 prompt-only handoff；新增
+`selected_window_value_authority` 紧邻 typed partition，明确三种异口径不得替代 selected-window 值，并再次声明结论/措辞归模型所有。
+既有 pin 证明 handoff 发射；`go test ./internal/agent -count=1` 全绿（2.628s）。状态：
+`implemented-soft / no-answer-gate / no-system-rewrite / replay-next`。若后续仍仅偶发一行而 typed 主体正确，按模型波动留档，不升级为
+系统接管。
 
 施工顺序冻结：`B67-A = ROUTEINV3`（路由权限 + dispatch pin，独立提交推送）→ `B67-B = TRACEVALUE1`
 （prompt-only typed 口径显著性，独立提交推送）→ 严格并行 2 例回放。两批不改变 trace_query 数值/排序/因果投影/自动补采，
