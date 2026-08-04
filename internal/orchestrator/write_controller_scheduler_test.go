@@ -5071,6 +5071,116 @@ func TestNormalizeControllerTypedStateDecisionSemanticPatchReviewAppendsFollowup
 	}
 }
 
+func TestNormalizeControllerTypedStateDecisionStableUnavailableProbeDoesNotRepeatProofBatch(t *testing.T) {
+	mu := types.NewMutableState("stable unavailable verification probe")
+	plan := &types.ChangePlan{
+		ID:          "plan-stable-probe",
+		Status:      types.PlanStatusUnverified,
+		TargetPaths: []string{"pkg/axis.ts"},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:                "verify-axis",
+			Language:          "javascript",
+			Code:              "process.exit(0)",
+			ContractRefs:      []string{"axis-contract"},
+			ChangedSymbolRefs: []string{"Axis.convert"},
+		}},
+		PatchReview: &types.PatchReviewRecord{
+			Findings: []types.PatchReviewFinding{{
+				Code:           "behavior_contract_without_verify_coverage",
+				Severity:       types.PatchReviewSeverityWarning,
+				Category:       types.PatchReviewCategorySemanticCoverage,
+				ImpactKind:     "behavior_contract",
+				CoverageStatus: types.PatchReviewCoverageUnavailable,
+				EvidenceRef:    "axis-contract",
+			}, {
+				Code:           "changed_symbol_without_probe_coverage",
+				Severity:       types.PatchReviewSeverityWarning,
+				Category:       types.PatchReviewCategorySemanticCoverage,
+				ImpactKind:     "changed_symbol",
+				SubjectSymbol:  "Axis.convert",
+				CoverageStatus: types.PatchReviewCoverageUnavailable,
+				EvidenceRef:    "Axis.convert",
+			}},
+		},
+	}
+	report := &types.ChangeReport{
+		PlanID:             plan.ID,
+		Channel:            types.ChangeReportChannelPostApplyVerify,
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		TestResults: []types.TestResult{{
+			Kind:        types.TestResultKindUnit,
+			AssertionID: "make-check",
+			Passed:      true,
+		}},
+		VerificationConfidence: []types.VerificationConfidenceRecord{{
+			Source:     "pre_suite_verification_probe",
+			Category:   "probe_execution",
+			Status:     "unavailable",
+			Severity:   "warning",
+			ReasonCode: "verification_probe_runner_missing",
+		}},
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner:     "verification_probe",
+			Source:     "pre_suite_verification_probe",
+			Outcome:    "runner_missing",
+			ReasonCode: "verification_probe_runner_missing",
+		}, {
+			Runner:   "make",
+			Source:   "test_surface_default",
+			Outcome:  "executed",
+			ExitCode: 0,
+		}},
+	}
+	mu.SetChangePlan(plan)
+	mu.SetChangeReport(report)
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-stable-probe",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:     "batch-1",
+			Status: types.WriteWorkflowBatchComplete,
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "apply", Status: "applied", PlanID: plan.ID},
+				{Kind: "verify", Status: "passed", ReasonCode: "tests_passed", PlanID: plan.ID},
+			},
+		}},
+	}
+
+	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action:            writeflow.ActionFinish,
+		ReasonCode:        "done",
+		FinishDisposition: writeflow.FinishDispositionAcceptUnverified,
+	}, run)
+
+	if got.Action != writeflow.ActionFinish {
+		t.Fatalf("unchanged missing-runner probe should not create an identical proof batch, got %+v", got)
+	}
+	if workflowProgressHasReason(run.ProgressLedger, "verification_proof_followup_requested") {
+		t.Fatalf("stable unavailable probe unexpectedly requested proof follow-up: %+v", run.ProgressLedger)
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "verification_proof_followup_suppressed_stable_unavailable") {
+		t.Fatalf("typed no-progress suppression was not recorded: %+v", run.ProgressLedger)
+	}
+
+	// A prior applied plan means cumulative proof may cover source outside the
+	// current probe. The narrow no-progress rule must fail open in that case.
+	run.Batches[0].Attempts = append([]types.WriteWorkflowAttempt{{
+		Kind: "apply", Status: "applied", PlanID: "plan-earlier",
+	}}, run.Batches[0].Attempts...)
+	run.ProgressLedger = nil
+	got = o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action:            writeflow.ActionFinish,
+		ReasonCode:        "done",
+		FinishDisposition: writeflow.FinishDispositionAcceptUnverified,
+	}, run)
+	if got.Action != writeflow.ActionAppendBatch || got.Batch == nil || got.Batch.Purpose != "verification_proof_followup" {
+		t.Fatalf("multi-plan cumulative proof follow-up was suppressed: %+v", got)
+	}
+}
+
 func TestNormalizeControllerTypedStateDecisionVerifiedButUndercoveredAppendsImpactRepair(t *testing.T) {
 	mu := types.NewMutableState("verified but undercovered")
 	plan := coverageProjectionPlanForTest()
@@ -6621,6 +6731,112 @@ func TestAppendCumulativePatchReviewFollowupCoversSourcePatchAfterTestOnlyPlan(t
 	if writeContextViewContains(view, "patch_effect", "build/generated.c") ||
 		writeContextViewContains(view, "patch_review_finding", "build/generated.c") {
 		t.Fatalf("cumulative review should ignore unowned verify-generated artifacts: %+v", view.Items)
+	}
+}
+
+func TestAppendCumulativePatchReviewFollowupSuppressesIdenticalMissingRunnerProbe(t *testing.T) {
+	mainRoot := filepath.Join(t.TempDir(), "main")
+	if err := os.MkdirAll(filepath.Join(mainRoot, "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGitForWorkflowRestoreTest(t, mainRoot, "init", "-q")
+	runGitForWorkflowRestoreTest(t, mainRoot, "config", "user.email", "test@local")
+	runGitForWorkflowRestoreTest(t, mainRoot, "config", "user.name", "test")
+	if err := os.WriteFile(filepath.Join(mainRoot, "pkg", "axis.ts"), []byte("export const VALUE = 1;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitForWorkflowRestoreTest(t, mainRoot, "add", ".")
+	runGitForWorkflowRestoreTest(t, mainRoot, "commit", "-q", "-m", "seed")
+
+	sess, err := worktree.Create(filepath.Join(t.TempDir(), "wt"), mainRoot, "stable-probe-cumulative-test")
+	if err != nil {
+		t.Fatalf("worktree.Create: %v", err)
+	}
+	t.Cleanup(func() { _ = sess.Discard() })
+	if err := os.WriteFile(filepath.Join(sess.Path(), "pkg", "axis.ts"), []byte("export const VALUE = 2;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	patchSHA, err := worktree.CommitChanges(sess.Path(), "axis fix")
+	if err != nil {
+		t.Fatalf("CommitChanges: %v", err)
+	}
+
+	plan := &types.ChangePlan{
+		ID:           "plan-stable-cumulative",
+		Status:       types.PlanStatusApplied,
+		TargetPaths:  []string{"pkg/axis.ts"},
+		AppliedPaths: []string{"pkg/axis.ts"},
+		Changes: []types.FileChange{{
+			Path:  "pkg/axis.ts",
+			Kind:  "patch",
+			Apply: &types.FileChangeApplyRecord{Status: "applied"},
+		}},
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID:       "axis-contract",
+			Kind:     "observable",
+			Polarity: "expected",
+			Operator: "satisfies",
+			Expected: "axis runtime value changes",
+			Required: true,
+		}},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:                "verify-axis",
+			Language:          "javascript",
+			Code:              "process.exit(0)",
+			ContractRefs:      []string{"axis-contract"},
+			ChangedSymbolRefs: []string{"VALUE"},
+		}},
+	}
+	planDir := t.TempDir()
+	if err := types.WritePlanToFile(plan, filepath.Join(planDir, writeWorkflowArtifactFileStem(plan.ID)+".json")); err != nil {
+		t.Fatalf("persist plan: %v", err)
+	}
+	report := &types.ChangeReport{
+		PlanID:             plan.ID,
+		Channel:            types.ChangeReportChannelPostApplyVerify,
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		TestResults: []types.TestResult{{
+			Kind: types.TestResultKindUnit, AssertionID: "make-check", Passed: true,
+		}},
+		VerificationConfidence: []types.VerificationConfidenceRecord{{
+			Source: "pre_suite_verification_probe", Category: "probe_execution", Status: "unavailable",
+			Severity: "warning", ReasonCode: "verification_probe_runner_missing",
+		}},
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner: "verification_probe", Source: "pre_suite_verification_probe",
+			Outcome: "runner_missing", ReasonCode: "verification_probe_runner_missing",
+		}, {
+			Runner: "make", Source: "test_surface_default", Outcome: "executed", ExitCode: 0,
+		}},
+	}
+	mu := types.NewMutableState("stable unavailable cumulative probe")
+	mu.SetChangePlan(plan)
+	mu.SetChangeReport(report)
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable: mu, Mode: types.ModeApply, RepoRoot: sess.Path(), MainRepoRoot: mainRoot, WorktreePath: sess.Path(),
+	}, reportDir: planDir}
+	run := &types.WriteWorkflowRun{
+		RunID: "wf-stable-cumulative", Status: types.WriteWorkflowRunInProgress, ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID: "batch-1", Status: types.WriteWorkflowBatchComplete,
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "apply", Status: "applied", PlanID: plan.ID, ArtifactRef: patchSHA},
+				{Kind: "verify", Status: "passed", ReasonCode: "tests_passed", PlanID: plan.ID},
+			},
+		}},
+	}
+
+	if o.appendCumulativePatchReviewFollowupIfNeeded(run, report, writeflow.VerifyAttemptOutcome{
+		Kind: writeflow.VerifyOutcomeReportPassed, ReasonCode: "tests_passed",
+	}) {
+		t.Fatalf("cumulative path appended an identical missing-runner proof batch: %+v", run)
+	}
+	if run.ActiveBatchID != "batch-1" {
+		t.Fatalf("cumulative suppression moved active batch: %+v", run)
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "verification_proof_followup_suppressed_stable_unavailable") {
+		t.Fatalf("cumulative suppression wiring was not recorded: %+v", run.ProgressLedger)
 	}
 }
 

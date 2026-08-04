@@ -12612,3 +12612,69 @@ verification probe 依赖 Node/ts-node；当前环境没有 Node，探针返回 
 - result dirs：`eval/results/*-20260803-211048`。
 
 本批不修改 Trace query、显式时间窗、Trace 因果投影、系统补采、答案成文合同或模型答案所有权。
+
+## 62. 2026-08-03 B61 r9：Trace 因果双轴守护与无进展补证重试
+
+在 `main@5687128b8` 重建后严格并行 2 例：
+
+- `trace_query_wakeup_causal_runnable`：runner/human PASS，151s，3 次 trace_query，finalizer reject=0；
+- `github_issue_memoclaw_text_search_multirepo_ts`：runner/human FAIL，235s，补丁正确，最终
+  `unverified:patch_review_semantic_uncovered:behavior_contract_without_verify_coverage`。
+
+### Trace 守护：显式窗、自动补采、因果投影与两类根因维度均保留
+
+Trace 例保留用户显式窗 `1.000000..1.010000`，三次 query 均带 window 与 pid/thread 目标过滤。模型正文先总结
+目标线程 10.000ms 的四态占用，再给出 `net-300 -> worker-200 -> app-100` 唤醒链和 worker 优先级反转候选；
+链累计 9.000ms、有效可消除 8.300ms 分开呈现。“主要时间占用 / 关键路径候选”用于探索真实耗时与新优化方向，
+“窗内可消除量”用于已建模的反转/供给规则，正文明确二者不可相加或互相替代。
+
+`Trace 因果投影`、代表窗、root-cause #1 与证据索引仍由模型探索结果和系统 typed 补齐共同构造，位置在模型结论
+之后；没有删除、替换或重写模型主结论。本批新增代码完全位于 write workflow，不进入 trace query、时间窗、投影、
+补采或 answer mutation 路径。
+
+### B61 replay：独立项目测试恢复，但行为权威仍诚实 fail-closed
+
+TypeScript 写例证明 `EVAL-B61-PROBEFALLBACK1` 已生效。计划中的 JavaScript 行为探针因本机缺少 Node 返回 typed
+`runner_missing` 后，`run_tests` 没有再把单通道不可用误作整体不可用，而是继续：
+
+1. 对计划命中的 `src/client.ts` 做 node syntax fallback；
+2. 从 typed test surface 升级到独立 `make@.` 候选；
+3. 实际执行 `make check`，仓内 `check_search_client.py` 通过；
+4. 保留 probe command、confidence warning 与 changed-path `source_check/syntax_only` caliber。
+
+补丁只修改 `src/client.ts`，正确实现 `POST /v1/search + JSON body`。最终没有升级成“已验证”也是正确边界：仓内
+静态检查可以证明源码形态和回归断言，但不能伪装成该 JavaScript 客户端的运行时 HTTP 行为证据；现有
+`RequiresTargetBehaviorForBehaviorContract` pin 正确守住该红线，不应为了 eval PASS 放松。
+
+### EVAL-B62-PROOFRETRY1（P1）：稳定不可用探针被 verify-only 补证批原样重跑
+
+r9 的确定性无进展序列为：首轮 `run_tests` 在 21:44:03 记录
+`verification_probe_runner_missing`，随后 syntax fallback 与 `make check` 通过；控制器在 21:44:14 把模型正确的
+`finish/accept_unverified` 归一化为 `verification_proof_followup`；verify-only 批在 21:44:28 对同一 plan、同一 probe、
+同一未改 worktree 再次运行，得到完全相同的 runner_missing 与 make pass，最后仍因相同 proof ledger 缺口
+unverified。第二轮没有可能凭现有 typed 状态增加证据，却额外消耗一次控制器、一次 verifier 和完整测试面。
+
+根修不扫描用户原文、模型思考、答案或错误摘要，只在以下精确合取成立时抑制**即时**重复补证：
+
+1. report 属于当前 plan 的 `post_apply_verify`，整体项目验证 passed；
+2. 工作流只有一个已应用 plan，排除跨批累计 actual-diff 复验；
+3. 当前 plan 只有一个 verification probe；
+4. confidence 与 executed-command 两条 typed 记录同时精确为
+   `pre_suite_verification_probe/probe_execution/unavailable/verification_probe_runner_missing` 与
+   `verification_probe/runner_missing/verification_probe_runner_missing`；
+5. 所有待补项目仅为该 probe 明确绑定的 behavior-contract / changed-symbol proof；任何 dependent、test-surface、
+   placement、未绑定 proof 或其它失败类型均 fail-open，继续原补证路径。
+
+同一判据同时接入控制器 decision normalization 与 cumulative actual-diff 两个补证入口；抑制时记录 typed
+`verification_proof_followup_suppressed_stable_unavailable`，然后沿既有 `accept_unverified` 完成，不把不可用改写成
+已验证。回归覆盖正常 proof follow-up 保留、单 plan/sole probe 正臂、增加第二个 applied plan 的 fail-open 臂，
+以及 cumulative 入口接线 pin。
+
+状态：`EVAL-B62-PROOFRETRY1 = implemented / full-orchestrator-pass / replay-next`。定向接线回归与
+`go test ./internal/orchestrator -count=1` 全绿（12.234s）。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b61_writetrace_r9_20260803.md`；
+- `eval/parallel_selected_summary_evalcampaign_b61_writetrace_r9_20260803_manual_audit.md`；
+- result dirs：`eval/results/*-20260803-214048`。

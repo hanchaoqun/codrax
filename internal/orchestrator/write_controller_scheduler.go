@@ -2819,6 +2819,14 @@ func (o *Orchestrator) appendCumulativePatchReviewFollowupIfNeeded(run *types.Wr
 	if len(items) == 0 {
 		return false
 	}
+	// The cumulative review plan has a synthetic ID. Use the active persisted
+	// plan for exact probe/report provenance; the helper independently requires
+	// a single applied plan, so multi-plan cumulative coverage still fails open.
+	probeAuthorityPlan := o.busCtx.Mutable.ChangePlan()
+	if proofFollowupWouldRepeatStableUnavailableProbe(run, probeAuthorityPlan, report, items) {
+		appendStableUnavailableProofFollowupSuppressed(run, run.ActiveBatchID)
+		return false
+	}
 	if len(items) > 4 {
 		items = items[:4]
 	}
@@ -6260,7 +6268,11 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 			FinishDisposition: writeflow.FinishDispositionAcceptUnverified,
 		})
 	}
-	repairBatch := impactObligationRepairFollowupBatch(run, batchID, plan, o.busCtx.Mutable.ChangeReport())
+	report := o.busCtx.Mutable.ChangeReport()
+	repairBatch, proofFollowupSuppressed := impactObligationRepairFollowupDecision(run, batchID, plan, report)
+	if proofFollowupSuppressed {
+		appendStableUnavailableProofFollowupSuppressed(run, batchID)
+	}
 	if activeBatchCompletedWithNonFailedVerifierVerdict(run) &&
 		!activeBatchHasVerifyFailureHandoff(o.busCtx.Mutable, batchID) &&
 		repairBatch != nil &&
@@ -7819,12 +7831,20 @@ func proofFollowupChangedSymbolRefsFromCriteria(criteria []string) []string {
 }
 
 func impactObligationRepairFollowupBatch(run *types.WriteWorkflowRun, activeBatchID string, plan *types.ChangePlan, report *types.ChangeReport) *writeflow.WriteBatchPlan {
+	batch, _ := impactObligationRepairFollowupDecision(run, activeBatchID, plan, report)
+	return batch
+}
+
+func impactObligationRepairFollowupDecision(run *types.WriteWorkflowRun, activeBatchID string, plan *types.ChangePlan, report *types.ChangeReport) (*writeflow.WriteBatchPlan, bool) {
 	items := selectImpactRepairQueueItems(plan, report, 0)
 	items = filterPassedVerifyGraphTelemetryItems(run, activeBatchID, items)
 	items = filterPassedVerifyAdvisoryProofTelemetryItems(report, items)
 	items = filterPendingImpactRepairQueueItems(run, items)
 	if len(items) == 0 {
-		return nil
+		return nil, false
+	}
+	if proofFollowupWouldRepeatStableUnavailableProbe(run, plan, report, items) {
+		return nil, true
 	}
 	if len(items) > 4 {
 		items = items[:4]
@@ -7843,7 +7863,120 @@ func impactObligationRepairFollowupBatch(run *types.WriteWorkflowRun, activeBatc
 		ExpectedPaths:        expectedPaths,
 		SuccessCriteria:      criteria,
 	}
-	return &batch
+	return &batch, false
+}
+
+// proofFollowupWouldRepeatStableUnavailableProbe identifies the narrow case
+// where a verify-only proof batch would immediately execute the same sole
+// behavior probe in the same unchanged worktree after its runner was already
+// reported missing. The gate is deliberately typed and fail-open: it requires
+// one applied plan, one plan probe, matching post-apply report provenance, the
+// exact runner-missing confidence+command pair, and proof-only obligations
+// bound to that probe. Multi-plan cumulative review, unbound obligations, and
+// every other unavailable/failure reason retain the normal follow-up path.
+func proofFollowupWouldRepeatStableUnavailableProbe(run *types.WriteWorkflowRun, plan *types.ChangePlan, report *types.ChangeReport, items []impactRepairQueueItem) bool {
+	if run == nil || plan == nil || report == nil || len(items) == 0 || len(plan.VerificationProbes) != 1 {
+		return false
+	}
+	planID := strings.TrimSpace(plan.ID)
+	if planID == "" || strings.TrimSpace(report.PlanID) != planID ||
+		report.Channel != types.ChangeReportChannelPostApplyVerify ||
+		!report.Passed || report.NormalizeVerificationStatus() != types.VerificationStatusPassed ||
+		!workflowHasSingleAppliedPlanAttempt(run, planID) ||
+		!reportHasTypedUnavailableProbeRunnerMissing(report) {
+		return false
+	}
+
+	probe := plan.VerificationProbes[0]
+	contractRefs := make(map[string]bool, len(probe.ContractRefs))
+	for _, ref := range probe.ContractRefs {
+		if ref = strings.TrimSpace(ref); ref != "" {
+			contractRefs[ref] = true
+		}
+	}
+	symbolRefs := make(map[string]bool, len(probe.ChangedSymbolRefs))
+	for _, ref := range probe.ChangedSymbolRefs {
+		if ref = strings.TrimSpace(ref); ref != "" {
+			symbolRefs[ref] = true
+		}
+	}
+	for _, raw := range items {
+		item := normalizeImpactRepairQueueItem(raw)
+		if !impactRepairQueueItemFromVerificationProof(item) {
+			return false
+		}
+		switch item.Kind {
+		case "behavior_contract":
+			ref := firstNonEmptyController(item.ContractRef, item.EvidenceRef)
+			if !contractRefs[ref] {
+				return false
+			}
+		case "changed_symbol":
+			ref := firstNonEmptyController(item.Symbol, item.EvidenceRef)
+			if !symbolRefs[ref] {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func workflowHasSingleAppliedPlanAttempt(run *types.WriteWorkflowRun, planID string) bool {
+	if run == nil || strings.TrimSpace(planID) == "" {
+		return false
+	}
+	count := 0
+	matched := false
+	for _, batch := range run.Batches {
+		for _, attempt := range batch.Attempts {
+			if strings.TrimSpace(attempt.Kind) != "apply" || strings.TrimSpace(attempt.Status) != "applied" {
+				continue
+			}
+			count++
+			if strings.TrimSpace(attempt.PlanID) == strings.TrimSpace(planID) {
+				matched = true
+			}
+		}
+	}
+	return count == 1 && matched
+}
+
+func reportHasTypedUnavailableProbeRunnerMissing(report *types.ChangeReport) bool {
+	if report == nil {
+		return false
+	}
+	confidenceMatched := false
+	for _, rec := range report.VerificationConfidence {
+		if strings.TrimSpace(rec.Source) == "pre_suite_verification_probe" &&
+			strings.TrimSpace(rec.Category) == "probe_execution" &&
+			strings.TrimSpace(rec.Status) == "unavailable" &&
+			strings.TrimSpace(rec.ReasonCode) == "verification_probe_runner_missing" {
+			confidenceMatched = true
+			break
+		}
+	}
+	if !confidenceMatched {
+		return false
+	}
+	for _, cmd := range report.ExecutedCommands {
+		if strings.TrimSpace(cmd.Runner) == "verification_probe" &&
+			strings.TrimSpace(cmd.Source) == "pre_suite_verification_probe" &&
+			strings.TrimSpace(cmd.Outcome) == "runner_missing" &&
+			strings.TrimSpace(cmd.ReasonCode) == "verification_probe_runner_missing" {
+			return true
+		}
+	}
+	return false
+}
+
+func appendStableUnavailableProofFollowupSuppressed(run *types.WriteWorkflowRun, batchID string) {
+	if run == nil || workflowProgressReasonCount(run, "", "verification_proof_followup_suppressed_stable_unavailable") > 0 {
+		return
+	}
+	appendControllerProgress(run, batchID, "verification_proof_followup_suppressed_stable_unavailable",
+		"verify-only proof follow-up suppressed because its sole typed probe already reported runner_missing in the unchanged single-plan worktree")
 }
 
 func selectImpactRepairQueueItems(plan *types.ChangePlan, report *types.ChangeReport, limit int) []impactRepairQueueItem {
