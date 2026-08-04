@@ -13064,3 +13064,53 @@ account，critical 仍按缺失补齐，最多两 view 的预算不变。
 - `eval/parallel_selected_summary_evalcampaign_b65_traceread_r3_20260803.md`；
 - `eval/parallel_selected_summary_evalcampaign_b65_traceread_r3_20260803_manual_audit.md`；
 - result dirs：`eval/results/*-20260803-234734`。
+
+## 67. 2026-08-04 B66 r4：主 operation 轴漂移与 selected-window 主值显著性
+
+在 `main@e22eb427f` 构建后严格并行回放同两例；runner PASS 2/2，但人工仍为 FAIL 2/2：
+
+- read 86s，pipeline dispatch=0，command operation 连续失败 3 轮；
+- trace 208s，Analyzer/Explorer/finalizer 各 1，模型 trace_query=2，系统 exact-window 补采 2，finalizer reject=0。
+
+### B66 确定性守护结论：显式窗补采已经闭环
+
+Trace 的 exact-window family 修复真实生效：即使探索记录不能证明用户窗 family complete，系统仍在
+`2.000000..2.020000` 补跑 root/rank 与 critical；最终 projection anchor、target-state partition、证据索引和系统核对块都固定为
+20.000ms，窗外 2.020000..2.020020 的 switch-in 不再进入 principal state。`Trace 因果投影`、系统自动补采、
+`threadpool-400 -> network-300 -> cookie-200 -> app-100` 唤醒链、11.000ms fscache IO 主席，以及“真实关键路径占时 / 现规则
+可消量”双轴均保留。B65 删除的 model aggregate 系统摘录也没有复发。
+
+### EVAL-B67-ROUTEINV3（P0/open）：required route/current-source 四轴仍会被主 operation 轴夺权
+
+r4 不再只是 optional `operation_kind/target_surface` 漂移。classifier 原始结构为：`raw_route=hybrid`、
+`needs_repo_access=true`、`current_source_evidence_mode=required`、`source=mixed`，但同时把主 `operation`、optional
+`operation_kind` 都铸成 `computer_operation`，并设 `needs_operation_access=true`。现有 `isAnalysisOnlyPolicy` 第一行要求
+`operation=investigate`，因此 B66 的副轴容错不可达，后续 operation signal 把 hybrid 改成 operation。
+
+这不是给某条中文命令写特例。schema 已规定真正电脑操作必须 `route=operation`；`route=repo/hybrid + current_source=required +
+needs_repo=true + source=repo/mixed` 是当前源码证据调查的四个 concordant typed 轴。最优 guard 应在无 concrete side effect、
+target surface 为空/unknown/repo/source、risk 仅 none/low 时，以该四轴收敛到 analysis pipeline，并把矛盾的
+computer_operation 主/副轴归一为 investigate；真实 `route=operation`、机器/桌面目标、artifact/browser 生成和 side-effect-bearing
+操作保持不变。判定只读取 schema enum/boolean，不扫描用户或模型原文。必须同时补 guard 单测和真实 dispatch pin，证明 pipeline
+实际运行且 operation planner 零调用。
+
+### EVAL-B67-TRACEVALUE1（P1/open-soft）：最终上下文有正确主值，摘要仍选了附件跨度
+
+finalizer 的 typed handoff 已明确 `selected_window=2.000000..2.020000`、`target_state_symptom sleep=20.000ms`、
+`principal_state sleep=20.000ms`；早期 perf-triage 也明确 whole-attachment 20.020ms 只是 extent/unit provenance。模型调查完成记录已经
+纠正为 20.000ms，但最终摘要首句仍写“进入 S 态睡眠 20.020ms”，而同页主要占用、因果投影和系统事实均为 20.000ms。
+
+该残余不授权系统删除、替换或改写模型正文，也不授权对答案/请求做关键词或数值扫描硬门。先实施 prompt-only 的 typed 口径
+显著性增强：在每个 projection 的 selected_window 与 target_state_symptom 邻位明确——凡描述所选窗内目标状态，必须复制该
+typed partition；附件总跨度、窗后 switch-in 和 pre-triage navigation hypothesis 不得替代。它不产生 AnswerBlock、不检查模型原文、
+不触发 retry，模型仍拥有诊断和建议。继续异构回放；若仍仅偶发一行而 typed 主体正确，按模型波动留档，不升级为系统接管。
+
+施工顺序冻结：`B67-A = ROUTEINV3`（路由权限 + dispatch pin，独立提交推送）→ `B67-B = TRACEVALUE1`
+（prompt-only typed 口径显著性，独立提交推送）→ 严格并行 2 例回放。两批不改变 trace_query 数值/排序/因果投影/自动补采，
+不修改答案正文，不触碰 write/data 路由。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b66_traceread_r4_20260803.md`；
+- `eval/parallel_selected_summary_evalcampaign_b66_traceread_r4_20260803_manual_audit.md`；
+- result dirs：`eval/results/*-20260804-001754`。
