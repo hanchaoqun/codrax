@@ -1464,7 +1464,7 @@ eval runner contract 均为绿。实现未扫描用户原始输入或模型输�
 - S6 波多项**提杆**:散量权威去子串臂改 typed 同源、系统 metric 复发布通路删除、完成门关系确认收敛为软(retry storm 修)。
 - 3 项 reader 指控被否证席驳回(S4-1/S4-2/M5-S3-3),对抗复核有效。
 
-### §10.2 高危确认(4 件)
+### §10.2 高危确认(5 件)
 
 | # | 位置 | 问题 | 复现 |
 |---|---|---|---|
@@ -1511,3 +1511,31 @@ M5-S1-2 sequence 分割器闭集运算符(`--)`/`-x` 异步形不可见,门/教�
 **选择器精度分级**:数值 token 与 typed 行 3 位小数精确匹配≈精确信号,放心触发;算式形状扫描=嘈声,只可决定并置与否,永不进发射文本。
 
 **施工 pin 面**(留给修复批):①appendix 评判词负 pin(禁「误/错/缺/遗漏/不符」指向模型答案的裁断词族;固定中性框架词 `对账参考:`/`同尺并置:`);②每条并置行必须引用 ledger typed 行并带 [E#](拒渲绝不造数);③P6 场景 e2e 先红后绿(模型 prose 带错算式 → appendix 必出对账行);④所有权 tripwire 维持不动(appendix 永不改模型块),并注意 S4-4(tripwire 只扫直调)在同批加固。
+
+### §10.7 主线复核与首批止血（2026-08-04）
+
+更新到 `main@e4588c9c5` 后对 §10 五个高危逐项冷读。结论均成立，但应按独立权限面拆批：
+
+| finding | 主线复核 | 处置 |
+|---|---|---|
+| S6-1 | confirmed。通用 route/profile + command-measurement carrier 即可触发；中英文 prompt 逐字包含 Codrax 自身文件、函数和内部 carrier，客户仓无需含这些符号 | 首批独立止血，已实现 |
+| M5-S3-1 | confirmed。`.rs` 通用 lexer 把两个 lifetime apostrophe 之间的内容当 quoted literal，吞掉 opening `(` 后把后续 `)` 判为 definite imbalance；矩阵测试只有“额外 `}` 必拒”，没有合法 lifetime/label/char 反例 | 下一写模式门批，按 extension-aware lexical rule 修，不用请求/计划 prose escape |
+| M5-S3-2 | confirmed。`VerifyFailureHandoff` 已带 PlanID/Attempt/GeneratedAt，planner probe report 也有 PlanID/GeneratedAt；但资格函数只取全 Run 最后一条 Channel=planner_probe，不绑定 handoff generation | 与 S3-1 同批，使用 typed PlanID + post-handoff timestamp/attempt 边界 |
+| M5-S1-1 | confirmed。strict parsed-edge 车道把 Mermaid edge label 交给 alias/operation resolver；通用 edge_anchor 车道同一节点对固定传空 label，扩域后形成家族不对称 | 图表批统一从同一 parsed edge/typed anchor resolver 取 identity，禁止再复制一套别名判定 |
+| M5-S5-1 | confirmed。`CallChainRequestedEndpointHints` 的合同只有 identity lane 优先级与去重，没有 source/sink 顺序语义；hard reachability 却直接取 first→last | 单独演进 typed ordered endpoint carrier；载体缺席时不得从实体提及序铸方向 |
+
+#### S6-1 delivery（closed / prompt-only / no customer-repo internals）
+
+`renderCommandMeasurementEvidencePathAuthority` 保留它真正有权提供的通用软信息：当前存在 deterministic command measurement；该测量与
+model-authored summary 是独立 evidence carriers；兼容计数可单向核对，但载体并置不证明客户仓 call/data-flow/ownership edge。机制结论必须从本轮
+实际读取并引用的客户仓源码推导，证据不足则保留边界或继续读源码。
+
+中英文发射面已删除 `internal/tool/builtin.go`、`execCommandMeasurement`、`ToolResult.CommandMeasurement`、
+`CompileObservationLedger`、`observationRecordForCommandMeasurement`、`emit_investigation_complete.go` 等全部 Codrax 仓专属名。
+没有改激活 typed 条件、没有请求/模型/答案关键词扫描、没有 completion/answer hard gate，也没有系统答案改写。正向 pin 固定 evidence-authority
+边界，负向 pin 固定上述内部名不得再进入通用客户仓 prompt；Explorer one-shot hint 与 finalizer prompt 两个真实消费面同时覆盖。
+
+验证：定向 agent tests 1.127s；`go test ./internal/agent -count=1` 2.949s，全绿。状态：`S6-1=closed`。
+
+后续施工冻结：`M5-A=S3-1+S3-2` → `M5-B=S1-1+S5-3+S1-2` → `M5-C=S5-1 typed ordered endpoints` →
+`M5-D=S4-3 裁定实现+S4-4 tripwire` → repomap 中危批。每批独立提交推送；相关 GAP 清完后再恢复严格并行 2 个异构 eval。

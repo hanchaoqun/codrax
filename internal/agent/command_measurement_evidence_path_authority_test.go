@@ -42,25 +42,30 @@ func TestCommandMeasurementEvidencePathAuthorityTypedCarrierAndProfileOnly(t *te
 	ctx := commandMeasurementEvidencePathTestContext(true)
 	prompt := renderAnswerDocCommandMeasurementEvidencePathAuthority(ctx)
 	for _, want := range []string{
+		"independent evidence carriers",
+		"does not prove a call edge",
+		"source actually read and cited from the current repository",
+		"outside the customer-repository evidence boundary",
+		"does not choose the model's mechanism conclusion",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("typed current-source measurement guidance missing %q:\n%s", want, prompt)
+		}
+	}
+	for _, forbidden := range []string{
+		"internal/tool/builtin.go",
+		"execCommandMeasurement",
 		"ToolResult.CommandMeasurement",
 		"ObservationLedgerInputFromAgentContext",
 		"CompileObservationLedger",
 		"compileToolResultObservations",
 		"observationRecordForCommandMeasurement",
-		"internal/types/observation_ledger_context.go",
-		"internal/types/observation_ledger.go",
-		"sibling consumers",
-		"Origin=VCSMetadata, History=true",
-		"Origin=CommandMeasurement, History=false",
-		"separate model-structured handoff",
-		"not a record→aggregate call chain",
 		"reconcileCompletionAggregateFactsWithDeterministicCount",
-		"disjoint Explorer-closure control path",
-		"does not call `compileToolResultObservations`",
-		"do not transport a command measurement produced later",
+		"emit_investigation_complete.go",
+		"EmitAnalysis",
 	} {
-		if !strings.Contains(prompt, want) {
-			t.Fatalf("typed evidence-path authority missing %q:\n%s", want, prompt)
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("generic customer-repository prompt leaked Codrax internal %q:\n%s", forbidden, prompt)
 		}
 	}
 
@@ -88,7 +93,7 @@ func TestCommandMeasurementEvidencePathAuthorityRouteBackedProfileOmission(t *te
 		CurrentSourceEvidenceMode: types.TurnRouteCurrentSourceEvidenceRequired,
 	}
 
-	if got := renderAnswerDocCommandMeasurementEvidencePathAuthority(ctx); !strings.Contains(got, "parallel observation and aggregate carriers") {
+	if got := renderAnswerDocCommandMeasurementEvidencePathAuthority(ctx); !strings.Contains(got, "independent evidence carriers") {
 		t.Fatalf("precise route obligation should preserve prompt-only authority when analyzer profile is omitted:\n%s", got)
 	}
 
@@ -121,8 +126,8 @@ func TestExplorerCommandMeasurementEvidencePathSignalIsOneShotSoftGuidance(t *te
 	if !signal.HintRequested || !signal.Progress || signal.StopRequested {
 		t.Fatalf("expected a non-terminal soft hint, got %+v", signal)
 	}
-	if !strings.Contains(signal.Hint, "CompileObservationLedger") || !strings.Contains(signal.Hint, "Do not draw `command measurement → EmitAnalysis`") {
-		t.Fatalf("explorer hint lacks real path/boundary guidance:\n%s", signal.Hint)
+	if !strings.Contains(signal.Hint, "customer-repository evidence boundary") || !strings.Contains(signal.Hint, "use call only where typed call evidence supports it") {
+		t.Fatalf("explorer hint lacks repository evidence-boundary guidance:\n%s", signal.Hint)
 	}
 	if again := e.postCommandMeasurementEvidencePathSignal(ctx, LoopObservation{AllToolResults: results}); again.HintRequested {
 		t.Fatalf("typed evidence-path hint must be one-shot, got %+v", again)
@@ -133,10 +138,10 @@ func TestAnswerDocumentPromptIncludesCommandMeasurementEvidencePathWithoutConclu
 	ctx := commandMeasurementEvidencePathTestContext(true)
 	ctx.Stage = types.StageFinalize
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
-	if !strings.Contains(prompt, "## Command Measurement Evidence Path") {
+	if !strings.Contains(prompt, "## Current-source measurement context") {
 		t.Fatalf("finalizer prompt missing typed evidence-path authority:\n%s", prompt)
 	}
-	if !strings.Contains(prompt, "not a system-authored conclusion") {
+	if !strings.Contains(prompt, "does not choose the model's mechanism conclusion") {
 		t.Fatalf("authority must preserve model conclusion ownership:\n%s", prompt)
 	}
 }
