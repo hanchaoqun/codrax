@@ -2741,11 +2741,14 @@ func AnswerAggregateFactRoleForRequest(fact AnswerAggregateFact, rm *RequestMode
 
 // AggregateFactIsRuntimeObservationAdvisory reports whether a model-authored
 // runtime/log/trace aggregate is useful context but not direct proof of caller
-// ownership, upstream data construction, or root-cause provenance. External
-// artifacts can directly prove observed error classes, frames, spans, timing,
-// and literal log content; broader "behavior outcome" conclusions need either
-// explicit support refs or current-source evidence before they can become the
-// principal answer lane.
+// ownership, upstream data construction, root-cause provenance, or an exact
+// numeric observation. External artifacts can directly prove error classes,
+// frames, spans, timing, and literal content through their typed observation
+// rows. A model-authored aggregate needs explicit support refs, a scalar/count
+// answer obligation, or current-source evidence before it can become the
+// principal answer lane. This predicate deliberately does not match aggregate
+// label/value prose against artifact prose: noisy text overlap cannot mint
+// numeric authority.
 func AggregateFactIsRuntimeObservationAdvisory(rm *RequestModel, fact AnswerAggregateFact) bool {
 	if rm == nil || !rm.HasExternalOnlyRuntimeArtifact() {
 		return false
@@ -2757,9 +2760,6 @@ func AggregateFactIsRuntimeObservationAdvisory(rm *RequestModel, fact AnswerAggr
 	case AnswerAggregateBehaviorOutcome, AnswerAggregateErrorGranularity:
 		return true
 	case AnswerAggregateScalar:
-		if aggregateScalarRestatesDirectRuntimeObservation(rm, fact) {
-			return false
-		}
 		return !rm.Predicates.IsScalarAnswer && !rm.Predicates.IsCountQuestion
 	case AnswerAggregateTotalCount,
 		AnswerAggregateUniqueCount,
@@ -2800,85 +2800,6 @@ func runtimeRequestRequiresPrincipalMemberSet(rm *RequestModel) bool {
 		return true
 	}
 	return rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active()
-}
-
-func aggregateScalarRestatesDirectRuntimeObservation(rm *RequestModel, fact AnswerAggregateFact) bool {
-	if rm == nil || fact.Kind != AnswerAggregateScalar {
-		return false
-	}
-	factText := normalizeRuntimeObservationFactText(firstNonEmptyString(fact.Value, fact.Label))
-	if factText == "" {
-		return false
-	}
-	if rm.LogTriage != nil && logBundleDirectObservationContains(rm.LogTriage, factText) {
-		return true
-	}
-	if rm.PerfTrace != nil && perfBundleDirectObservationContains(rm.PerfTrace, factText) {
-		return true
-	}
-	return false
-}
-
-func logBundleDirectObservationContains(bundle *LogBundle, factText string) bool {
-	if bundle == nil || factText == "" {
-		return false
-	}
-	var walk func(LogError) bool
-	walk = func(err LogError) bool {
-		if runtimeObservationTextMatches(factText, err.Type) ||
-			runtimeObservationTextMatches(factText, err.Message) {
-			return true
-		}
-		for _, frame := range err.Frames {
-			if runtimeObservationTextMatches(factText, frame.Func) ||
-				runtimeObservationTextMatches(factText, frame.File) {
-				return true
-			}
-		}
-		return err.Cause != nil && walk(*err.Cause)
-	}
-	for _, err := range bundle.Errors {
-		if walk(err) {
-			return true
-		}
-	}
-	for _, obs := range bundle.Observations {
-		if !obs.Diagnostic {
-			continue
-		}
-		if runtimeObservationTextMatches(factText, obs.Subject) ||
-			runtimeObservationTextMatches(factText, obs.Summary) ||
-			runtimeObservationTextMatches(factText, obs.Evidence) {
-			return true
-		}
-	}
-	return false
-}
-
-func perfBundleDirectObservationContains(bundle *PerfBundle, factText string) bool {
-	if bundle == nil || factText == "" {
-		return false
-	}
-	for _, obs := range bundle.Observations {
-		if runtimeObservationTextMatches(factText, obs.Subject) ||
-			runtimeObservationTextMatches(factText, obs.Summary) ||
-			runtimeObservationTextMatches(factText, obs.Evidence) {
-			return true
-		}
-	}
-	return false
-}
-
-func runtimeObservationTextMatches(factText, direct string) bool {
-	direct = normalizeRuntimeObservationFactText(direct)
-	if direct == "" {
-		return false
-	}
-	return strings.Contains(factText, direct) || strings.Contains(direct, factText)
-}
-
-func normalizeRuntimeObservationFactText(s string) string {
-	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(s)), " "))
 }
 
 // AggregateMemberSetIsScalarCountSupport reports whether a model-emitted

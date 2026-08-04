@@ -150,11 +150,12 @@ func TestCompileAnswerClaimBindingsFromAggregateFacts_RuntimeArtifactDoesNotBeco
 		LogTriage: &LogBundle{Errors: []LogError{{Type: "panic"}}},
 	}
 	facts := []AnswerAggregateFact{{
-		Kind:       AnswerAggregateScalar,
-		Label:      "observed panic",
-		Value:      "panic",
-		Role:       AnswerAggregateRolePrincipalAnswer,
-		Dimensions: []AnswerAggregateDimension{{Name: "origin", Value: "runtime_artifact"}},
+		Kind:        AnswerAggregateScalar,
+		Label:       "observed panic",
+		Value:       "panic",
+		Role:        AnswerAggregateRolePrincipalAnswer,
+		Dimensions:  []AnswerAggregateDimension{{Name: "origin", Value: "runtime_artifact"}},
+		SupportRefs: []string{"attached-log:12"},
 	}}
 
 	got := CompileAnswerClaimBindingsFromAggregateFacts(facts, &rm, nil)

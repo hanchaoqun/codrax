@@ -74,6 +74,37 @@ func TestRenderStructuredAggregateFactsDemotesConflictingParallelCounts(t *testi
 	}
 }
 
+func TestRenderStructuredAggregateFactsRuntimeScalarTextOverlapStaysSupporting(t *testing.T) {
+	facts := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateScalar,
+		Label: "target sleep duration",
+		Value: "20.020ms",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Unit:  "ms",
+	}}
+	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:   types.IntentRootCause,
+		Scenario: types.ScenarioPerformanceBottleneck,
+		Predicates: types.SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		PerfTrace: &types.PerfBundle{Observations: []types.PerfObservation{{
+			Authority: types.PerfObservationAuthorityPreTriageModelExtraction,
+			Kind:      "state_duration",
+			Summary:   "target sleep duration 20.020ms",
+		}}},
+	}}}
+
+	got := renderStructuredAggregateFactsForContext(ctx, facts)
+	if !strings.Contains(got, "label=target sleep duration") || !strings.Contains(got, "value=`20.020ms`") {
+		t.Fatalf("model runtime scalar should remain visible as reasoning context:\n%s", got)
+	}
+	if !strings.Contains(got, "role=`supporting_coverage`") ||
+		!strings.Contains(got, "demoted:runtime_observation_advisory_aggregate") {
+		t.Fatalf("artifact-text overlap must not mint principal numeric authority:\n%s", got)
+	}
+}
+
 func TestRenderStructuredAggregateFactsShowsUnifiedEvidenceOrigin(t *testing.T) {
 	facts := []types.AnswerAggregateFact{{
 		Kind:       types.AnswerAggregateScalar,

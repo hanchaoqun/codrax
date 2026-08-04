@@ -13230,6 +13230,16 @@ deterministic trace observation 已铸 selected-window principal scalar 时，�
 不能成为 principal numeric authority，降为 supporting context 并披露 provenance；有精确 typed binding 的 model scalar、非 runtime
 count/scalar、成员集、模型原因与最终结论均不受影响。系统只收窄“谁能成为精确主值”的权限，不自行选择诊断结论。
 
+冷读后将根修进一步泛化：旧 `aggregateScalarRestatesDirectRuntimeObservation` 会把 model aggregate 的 label/value 与 log/perf 摘要做
+substring overlap，并用该 noisy text match 绕过 runtime advisory demotion，这本身违反“精确信号才可作硬门”。本批删除整条文本匹配
+铸权路径。external-only runtime 的 model scalar 仅在有 explicit support refs、typed scalar/count answer obligation 或 current-source
+authority 时保留 principal；否则保留值但降为 supporting，并带
+`demoted:runtime_observation_advisory_aggregate`。这覆盖所有 log/trace/perf runtime scalar，不依赖 app、20.020、指标名或用户/模型原文。
+types 正反 pin 覆盖 text-overlap 不铸权、support-ref 与 scalar obligation 保权；agent production render pin 证明值仍进入模型上下文但不再
+以 principal 发布。`go test ./internal/types -count=1`（18.303s）、`go test ./internal/agent -count=1`（3.035s）与
+`go test ./internal/tool -count=1`（171.973s）全绿。状态：
+`implemented / removes-noisy-hard-gate / no-answer-rewrite / full-pass / replay-next`。
+
 施工顺序冻结：`B69-A = evidence commit` → `B69-B = CMDPATH1 prompt-only typed edge/boundary` →
 `B69-C = RUNTIMEBIND1 typed authority demotion` → 同两例严格并行 2 个复放。两批均禁止请求/答案/模型原文关键词硬门，禁止系统答案改写；
 不改变 trace_query、显式时间窗、因果投影、自动补齐、根因排序或 write mode。

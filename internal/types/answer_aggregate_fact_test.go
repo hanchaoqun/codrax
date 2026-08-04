@@ -3209,6 +3209,50 @@ func TestNormalizeAggregateFactRolesForRequest_DemotesRuntimeDiagnosticMemberSet
 	}
 }
 
+func TestNormalizeAggregateFactRolesForRequest_RuntimeTextOverlapCannotMintScalarAuthority(t *testing.T) {
+	fact := AnswerAggregateFact{
+		Kind:  AnswerAggregateScalar,
+		Label: "target sleep duration",
+		Value: "20.020ms",
+		Role:  AnswerAggregateRolePrincipalAnswer,
+		Unit:  "ms",
+	}
+	rm := RequestModel{
+		Intent:   IntentRootCause,
+		Scenario: ScenarioPerformanceBottleneck,
+		Predicates: SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		PerfTrace: &PerfBundle{Observations: []PerfObservation{{
+			Authority: PerfObservationAuthorityPreTriageModelExtraction,
+			Kind:      "state_duration",
+			Subject:   "target sleep duration",
+			Summary:   "target sleep duration 20.020ms",
+			Evidence:  "20.020ms",
+		}}},
+	}
+
+	got := NormalizeAggregateFactRolesForRequest([]AnswerAggregateFact{fact}, &rm)
+	if got[0].Role != AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("model scalar must not gain principal authority from artifact-text overlap, got %+v", got[0])
+	}
+	if !strings.Contains(got[0].Provenance, "demoted:runtime_observation_advisory_aggregate") {
+		t.Fatalf("runtime scalar demotion provenance missing: %+v", got[0])
+	}
+
+	withSupport := fact
+	withSupport.SupportRefs = []string{"attached-trace:14@trace_seconds"}
+	if role := AnswerAggregateFactRoleForRequest(withSupport, &rm); role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("explicitly supported runtime scalar should keep its declared role, got %q", role)
+	}
+
+	scalarRM := rm
+	scalarRM.Predicates.IsScalarAnswer = true
+	if role := AnswerAggregateFactRoleForRequest(fact, &scalarRM); role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("typed scalar-answer obligation should keep the scalar principal, got %q", role)
+	}
+}
+
 func TestNormalizeAggregateFactRolesForRequest_RepoWideSourceInventoryPromotesNonEmptyCoverageOverEmptySubset(t *testing.T) {
 	rm := RequestModel{
 		Intent: IntentEnumerate,
