@@ -402,6 +402,52 @@ func TestCommandOperationEvaluatorRepairsInvalidToolParams(t *testing.T) {
 	}
 }
 
+func TestCommandOperationEvaluatorCompactRepairCarriesCompleteCoverageAuthority(t *testing.T) {
+	dir := t.TempDir()
+	manualRef := filepath.Join(dir, "manual.html")
+	if err := os.WriteFile(manualRef, []byte("<!doctype html><html><body>"+strings.Repeat("manual section ", 800)+"</body></html>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	records := commandOperationAttachMaterialPages([]commandOperationResultRecord{{
+		Plan: operation.CommandOperationPlan{ID: "op-complete-manual"},
+		Result: operation.CommandOperationResult{PlanID: "op-complete-manual", Status: operation.StatusExecuted, StepResults: []operation.CommandStepResult{{
+			StepID: "download", Status: operation.StatusExecuted, PayloadRef: manualRef,
+		}}},
+	}})
+	if len(records[0].MaterialPages) == 0 || records[0].MaterialPages[0].CoverageReceiptRef == "" {
+		t.Fatalf("records=%+v, want system-owned complete material receipt", records)
+	}
+	receipt := records[0].MaterialPages[0].CoverageReceiptRef
+	adapter := &scriptedChatAdapter{responses: []llm.Response{
+		operationEvaluationResp("not-json"),
+		operationEvaluationResp(fmt.Sprintf(`{"status":"complete","reason":"all normalized pages are visible","confidence":"high","material_coverage_status":"complete","coverage_material_refs":[%q]}`, receipt)),
+	}}
+	evaluator := NewCommandOperationPlanner(adapter).(CommandOperationEvaluator)
+	eval, err := evaluator.EvaluateCommandOperation(context.Background(), "总结完整手册", records, "zh")
+	if err != nil {
+		t.Fatalf("EvaluateCommandOperation: %v", err)
+	}
+	if eval.Status != operation.EvalComplete || eval.MaterialCoverageStatus != operation.MaterialCoverageComplete || len(eval.CoverageMaterialRefs) != 1 || eval.CoverageMaterialRefs[0] != receipt {
+		t.Fatalf("eval=%+v, want repaired complete verdict backed by receipt", eval)
+	}
+	if len(adapter.calls) != 2 {
+		t.Fatalf("Chat calls=%d, want initial + compact repair", len(adapter.calls))
+	}
+	repairPrompt := lastUserMessage(adapter.calls[1].messages)
+	for _, want := range []string{
+		"material_coverage_authority",
+		"coverage_status=complete",
+		"source_truncated=false",
+		"pages_truncated=false",
+		"coverage_receipt_ref=" + receipt,
+		"fully_visible=false",
+	} {
+		if !strings.Contains(repairPrompt, want) {
+			t.Fatalf("repair prompt missing %q:\n%s", want, repairPrompt)
+		}
+	}
+}
+
 func TestCommandOperationEvaluatorRepairsCompleteVerdictOverTruncatedMaterial(t *testing.T) {
 	dir := t.TempDir()
 	longRef := filepath.Join(dir, "long-manual.html")

@@ -202,8 +202,9 @@ func runCommandOperationCLIPlan(ctx context.Context, cfg CommandOperationCLIConf
 					evalCopy := eval
 					materialEvaluation = &evalCopy
 					records = commandOperationAttachEvaluation(records, eval)
-					logging.Info("[cli/operation] command evaluation status=%s confidence=%q reason=%q materials=%d rounds=%d",
-						eval.Status, oneLineClamp(eval.Confidence, 40), oneLineClamp(eval.Reason, 180), len(eval.Materials), len(records))
+					logging.Info("[cli/operation] command evaluation status=%s material_coverage_status=%s coverage_material_refs=%q confidence=%q reason=%q materials=%d rounds=%d",
+						eval.Status, eval.MaterialCoverageStatus, oneLineClamp(strings.Join(eval.CoverageMaterialRefs, " | "), 600),
+						oneLineClamp(eval.Confidence, 40), oneLineClamp(eval.Reason, 180), len(eval.Materials), len(records))
 					if terminal, ok := commandOperationEvaluationTerminalResult(currentPlan, eval); ok {
 						records = append(records, commandOperationResultRecord{Plan: currentPlan, Result: terminal})
 						operationCLIProgress(cfg.Progress, commandOperationResultMarkdown(cfg.Language, currentPlan, terminal))

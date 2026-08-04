@@ -307,6 +307,76 @@ eval_count_degraded_read_answer_check_skips() {
   eval_count_pattern '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[^[:space:]]+[[:space:]]+WARN \[orchestrator\] finalizer returned degraded answer; skipping structured answer checks reason=[^[:space:]]+' "$file"
 }
 
+# EVAL-B73-OPEVAL1 / B74-OPREPAUTH1: inspect the last system-authored typed
+# operation evaluation event. Intermediate rounds cannot green-light a later
+# partial terminal, and answer prose never participates in this oracle.
+eval_operation_terminal_reasons() {
+  local file="$1"
+  local receipt_file="$2"
+  local expected_status="${EXPECT_OPERATION_TERMINAL_STATUS:-}"
+  local expected_coverage="${EXPECT_OPERATION_MATERIAL_COVERAGE_STATUS:-}"
+  local expected_ref_regex="${EXPECT_OPERATION_COVERAGE_REF_REGEX:-}"
+  local line actual_status actual_coverage actual_refs
+
+  if [[ -z "$expected_status$expected_coverage$expected_ref_regex" ]]; then
+    return 0
+  fi
+  if [[ -z "$expected_status" ]]; then
+    echo "operation_terminal_expected_status_missing"
+    return 0
+  fi
+  case "$expected_status" in
+    complete|blocked|budget_exhausted|partial_answer_possible|needs_approval|needs_clarification|continue_command|continue_provider) ;;
+    *)
+      echo "operation_terminal_expected_status_invalid:$(eval_reason_slug "$expected_status")"
+      return 0
+      ;;
+  esac
+  if [[ -n "$expected_coverage" ]]; then
+    case "$expected_coverage" in
+      complete|partial|not_applicable|not_evaluated) ;;
+      *)
+        echo "operation_material_coverage_expected_status_invalid:$(eval_reason_slug "$expected_coverage")"
+        return 0
+        ;;
+    esac
+  fi
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo "operation_terminal_log_missing"
+    return 0
+  fi
+
+  line="$(LC_ALL=C grep -aE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[^[:space:]]+[[:space:]]+INFO \[(cli|repl)/operation\] command evaluation status=' "$file" | tail -n 1 || true)"
+  if [[ -z "$line" ]]; then
+    echo "operation_terminal_event_missing"
+    return 0
+  fi
+  actual_status="$(LC_ALL=C sed -E 's/.* command evaluation status=([^[:space:]]+).*/\1/' <<<"$line")"
+  actual_coverage="$(LC_ALL=C sed -E 's/.* material_coverage_status=([^[:space:]]+).*/\1/' <<<"$line")"
+  if [[ "$actual_coverage" == "$line" ]]; then
+    actual_coverage=""
+  fi
+  actual_refs="$(LC_ALL=C sed -E 's/.* coverage_material_refs="([^"]*)".*/\1/' <<<"$line")"
+  if [[ "$actual_refs" == "$line" ]]; then
+    actual_refs=""
+  fi
+
+  {
+    printf 'expected_status\tactual_status\texpected_material_coverage\tactual_material_coverage\tcoverage_material_refs\n'
+    printf '%s\t%s\t%s\t%s\t%s\n' "$expected_status" "$actual_status" "$expected_coverage" "$actual_coverage" "$actual_refs"
+  } >"$receipt_file"
+
+  if [[ "$actual_status" != "$expected_status" ]]; then
+    echo "operation_terminal_status:$actual_status:expected:$expected_status"
+  fi
+  if [[ -n "$expected_coverage" && "$actual_coverage" != "$expected_coverage" ]]; then
+    echo "operation_material_coverage_status:${actual_coverage:-missing}:expected:$expected_coverage"
+  fi
+  if [[ -n "$expected_ref_regex" ]] && ! LC_ALL=C grep -aEq -- "$expected_ref_regex" <<<"$actual_refs"; then
+    echo "operation_coverage_ref_missing:$(eval_reason_slug "$expected_ref_regex")"
+  fi
+}
+
 eval_case_oracle_surface() {
   local file="$1"
   local surfaces=""
@@ -333,6 +403,9 @@ eval_case_oracle_surface() {
   fi
   if LC_ALL=C grep -aEq '^[[:space:]]*EXPECT_LOG_MATCHES_REGEX=' "$file"; then
     eval_case_oracle_surface_add "log_regex"
+  fi
+  if LC_ALL=C grep -aEq '^[[:space:]]*EXPECT_OPERATION_TERMINAL_STATUS=' "$file"; then
+    eval_case_oracle_surface_add "typed_operation_terminal"
   fi
   if LC_ALL=C grep -aEq '^[[:space:]]*(HTRACE|HTRACE_FILE)=' "$file"; then
     eval_case_oracle_surface_add "trace_attachment"

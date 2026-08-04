@@ -7,3 +7,6 @@ EXPECT_MATCHES_REGEX="((用户)?使用手册|用户手册|使用指南|manual|gu
 EXPECT_LOG_MATCHES_REGEX="\\[cmd/route\\] single-shot turn policy .*route=operation
 \\[cli/operation\\] command plan generated
 \\[cli/operation\\] command step result"
+EXPECT_OPERATION_TERMINAL_STATUS="complete"
+EXPECT_OPERATION_MATERIAL_COVERAGE_STATUS="complete"
+EXPECT_OPERATION_COVERAGE_REF_REGEX='^material-coverage:v1:[0-9a-f]{64}:html_text$'

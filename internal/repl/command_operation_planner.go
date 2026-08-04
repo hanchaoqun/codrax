@@ -1116,6 +1116,10 @@ func operationCommandRecordsRepairContext(userLine, lang string, records []comma
 		}
 		b.WriteString("\n")
 	}
+	if rendered := renderCommandOperationMaterialCoverageForRepair(records); rendered != "" {
+		b.WriteString(rendered)
+		b.WriteString("\n")
+	}
 	return strings.TrimRight(b.String(), "\n")
 }
 

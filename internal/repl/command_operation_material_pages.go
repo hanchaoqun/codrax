@@ -198,6 +198,46 @@ func renderCommandOperationMaterialPages(pages []commandOperationMaterialPage) s
 	return strings.TrimRight(b.String(), "\n")
 }
 
+// renderCommandOperationMaterialCoverageForRepair keeps compact structured-tool
+// repair on the same system-owned coverage authority as the full evaluator
+// prompt. A source payload can have a truncated single-message preview while
+// its normalized material pages cover the complete source; the receipt, not
+// that preview flag, is the authority for this distinction.
+func renderCommandOperationMaterialCoverageForRepair(records []commandOperationResultRecord) string {
+	const maxSources = 16
+	var b strings.Builder
+	seen := make(map[string]bool)
+	emitted := 0
+	omitted := 0
+	for _, record := range records {
+		for _, page := range record.MaterialPages {
+			key := page.SourceIdentity + "\x00" + page.Representation
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			if emitted >= maxSources {
+				omitted++
+				continue
+			}
+			receipt := strings.TrimSpace(page.CoverageReceiptRef)
+			coverageStatus := "partial"
+			if receipt != "" && !page.SourceTruncated && !page.PagesTruncated {
+				coverageStatus = "complete"
+			} else {
+				receipt = "unavailable"
+			}
+			fmt.Fprintf(&b, "material_coverage_authority source_ref=%q source_identity=%q representation=%s source_truncated=%t pages_truncated=%t coverage_status=%s coverage_receipt_ref=%s\n",
+				page.SourceRef, page.SourceIdentity, page.Representation, page.SourceTruncated, page.PagesTruncated, coverageStatus, receipt)
+			emitted++
+		}
+	}
+	if omitted > 0 {
+		fmt.Fprintf(&b, "material_coverage_authority omitted_sources=%d\n", omitted)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
 func commandOperationMaterialCoverageAuthority(records []commandOperationResultRecord, extraResults ...operation.CommandOperationResult) (available, complete, incomplete map[string]bool) {
 	available = make(map[string]bool)
 	complete = make(map[string]bool)

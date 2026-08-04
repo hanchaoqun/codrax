@@ -25,6 +25,8 @@
 # EXPECT_DYNAMIC_SCALARS plus per-ID command/data-scope/surface/binding fields
 # recompute checkout-dependent scalar expectations and bind them to the chosen
 # answer surface without hard-coding a repository count,
+# EXPECT_OPERATION_TERMINAL_STATUS plus optional material coverage/ref fields
+# validate the last system-authored operation evaluation event,
 # for category-level inventory correctness, and EXPECT_LOG_MATCHES_REGEX /
 # EXPECT_LOG_NOT_MATCHES_REGEX (newline-separated ERE patterns over
 # the control-plane log, useful for hidden subsystem-execution guards).
@@ -107,6 +109,9 @@ EXPECT_SECTIONS="${EXPECT_SECTIONS:-}"
 EXPECT_DIMENSIONS="${EXPECT_DIMENSIONS:-}"
 EXPECT_INVENTORY_ROWSETS="${EXPECT_INVENTORY_ROWSETS:-}"
 EXPECT_DYNAMIC_SCALARS="${EXPECT_DYNAMIC_SCALARS:-}"
+EXPECT_OPERATION_TERMINAL_STATUS="${EXPECT_OPERATION_TERMINAL_STATUS:-}"
+EXPECT_OPERATION_MATERIAL_COVERAGE_STATUS="${EXPECT_OPERATION_MATERIAL_COVERAGE_STATUS:-}"
+EXPECT_OPERATION_COVERAGE_REF_REGEX="${EXPECT_OPERATION_COVERAGE_REF_REGEX:-}"
 # Runtime-artifact eval cases may attach either inline text or a file path:
 # LOG=<inline panic> / LOG_FILE=<path> exercise --log-text / --log, while
 # HTRACE=<inline trace> / HTRACE_FILE=<path> exercise --htrace-text / --htrace.
@@ -1525,6 +1530,16 @@ run_one() {
     done < <(
       eval_dynamic_scalar_reasons "$cleaned" "$principal_cleaned" "$primary_cleaned" \
         "$oracle_repo_root" "$OUTDIR/run-$i.dynamic-scalars.tsv" "$MODE"
+    )
+  fi
+
+  if [[ -n "$EXPECT_OPERATION_TERMINAL_STATUS$EXPECT_OPERATION_MATERIAL_COVERAGE_STATUS$EXPECT_OPERATION_COVERAGE_REF_REGEX" ]]; then
+    local operation_terminal_reason
+    while IFS= read -r operation_terminal_reason; do
+      [[ -z "$operation_terminal_reason" ]] && continue
+      extra_reasons+=("$operation_terminal_reason")
+    done < <(
+      eval_operation_terminal_reasons "$log" "$OUTDIR/run-$i.operation-terminal.tsv"
     )
   fi
 

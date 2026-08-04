@@ -1824,6 +1824,75 @@ if ! grep -q $'current\t2\tprimary_text\trepo_checkout:.;synthetic=true' "$dynam
   fail "run.sh dynamic scalar receipt missing"
 fi
 
+# EVAL-B73-OPEVAL1 / B74-OPREPAUTH1: the last typed operation evaluation,
+# rather than matching answer prose or an earlier round, owns the eval verdict.
+cat >"$tmp/operation-terminal.log" <<'LOG'
+2026-08-04T05:03:28.387 INFO [cli/operation] command evaluation status=complete material_coverage_status=complete coverage_material_refs="material-coverage:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:html_text" confidence="high" reason="complete" materials=1 rounds=2
+2026-08-04T05:03:38.697 INFO [cli/operation] command evaluation status=partial_answer_possible material_coverage_status=partial coverage_material_refs="" confidence="medium" reason="partial" materials=1 rounds=2
+LOG
+EXPECT_OPERATION_TERMINAL_STATUS="complete"
+EXPECT_OPERATION_MATERIAL_COVERAGE_STATUS="complete"
+EXPECT_OPERATION_COVERAGE_REF_REGEX='^material-coverage:v1:[0-9a-f]{64}:html_text$'
+operation_reasons="$(eval_operation_terminal_reasons "$tmp/operation-terminal.log" "$tmp/operation-terminal.tsv")"
+for want in \
+  "operation_terminal_status:partial_answer_possible:expected:complete" \
+  "operation_material_coverage_status:partial:expected:complete" \
+  "operation_coverage_ref_missing:"; do
+  if ! grep -qF "$want" <<<"$operation_reasons"; then
+    fail "last typed operation terminal did not report $want: $operation_reasons"
+  fi
+done
+if ! grep -q $'complete\tpartial_answer_possible\tcomplete\tpartial\t' "$tmp/operation-terminal.tsv"; then
+  fail "typed operation terminal receipt lost expected/actual authority"
+fi
+head -n 1 "$tmp/operation-terminal.log" >"$tmp/operation-complete.log"
+assert_eq "$(eval_operation_terminal_reasons "$tmp/operation-complete.log" "$tmp/operation-complete.tsv")" "" \
+  "complete final operation terminal with receipt"
+cat >"$tmp/operation-terminal.case" <<'CASE'
+ID="operation_terminal_oracle"
+NAME="operation terminal oracle"
+QUESTION="operation terminal oracle"
+EXPECT_OPERATION_TERMINAL_STATUS="complete"
+CASE
+assert_eq "$(eval_case_oracle_surface "$tmp/operation-terminal.case")" "typed_operation_terminal" \
+  "operation terminal case oracle surface"
+
+cat >"$tmp/fake-codrax-operation-terminal" <<'SH'
+#!/usr/bin/env bash
+logdir=""
+while [[ $# -gt 0 ]]; do
+  if [[ "$1" == "--log-dir" && $# -gt 1 ]]; then
+    logdir="$2"
+    shift 2
+    continue
+  fi
+  shift
+done
+mkdir -p "$logdir"
+printf '%s\n' '2026-08-04T05:03:38.697 INFO [cli/operation] command evaluation status=partial_answer_possible material_coverage_status=partial coverage_material_refs="" confidence="medium" reason="partial" materials=1 rounds=2' >"$logdir/codrax-fake.log"
+echo 'operation terminal oracle answer with enough content'
+SH
+chmod +x "$tmp/fake-codrax-operation-terminal"
+cat >"$tmp/operation-terminal-wire.case" <<'CASE'
+ID="operation_terminal_wire"
+NAME="operation terminal wire"
+QUESTION="operation terminal wire"
+EXPECT_CONTAINS="oracle"
+EXPECT_OPERATION_TERMINAL_STATUS="complete"
+EXPECT_OPERATION_MATERIAL_COVERAGE_STATUS="complete"
+CASE
+CODRAX_BIN="$tmp/fake-codrax-operation-terminal" EVAL_RESULTS_ROOT="$tmp/operation-terminal-results" CODRAX_PROVIDER_ARGS_RAW="" \
+  eval/run.sh "$tmp/operation-terminal-wire.case" 1 >/dev/null || fail "operation terminal wire eval failed to run"
+operation_wire_dir="$(eval_latest_result_dir "$tmp/operation-terminal-results" operation_terminal_wire 00000000-000000 || true)"
+[[ -n "$operation_wire_dir" ]] || fail "operation terminal wire result dir missing"
+if ! grep -qF "operation_terminal_status:partial_answer_possible:expected:complete" "$operation_wire_dir/run-1.verdict"; then
+  fail "run.sh did not consume typed operation terminal verdict reasons"
+fi
+if [[ ! -f "$operation_wire_dir/run-1.operation-terminal.tsv" ]]; then
+  fail "run.sh typed operation terminal receipt missing"
+fi
+unset EXPECT_OPERATION_TERMINAL_STATUS EXPECT_OPERATION_MATERIAL_COVERAGE_STATUS EXPECT_OPERATION_COVERAGE_REF_REGEX
+
 # --- run.sh OUTDIR exclusivity (same-case same-second collision guard) -----
 # Two run.sh processes launched for the SAME case in the SAME second used to
 # share ID-TS and race each other's run files (witnessed 2026-07-14: parallel

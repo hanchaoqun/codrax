@@ -13606,6 +13606,29 @@ write analyzer 第三次没有消费 `transition.steps[]`，日志明确 `phases
 `B74-C write fixture oracle 降噪/运行时权限分层`。每批独立提交推送；修复后继续严格并行恰好两个异构案例。
 显式时间窗 Trace 因果投影、系统自动补齐、read/write 路由与模型结论所有权均不在这些硬门之外发生变化。
 
+#### B74-B implementation（implemented/tests-pass/replay-next）
+
+operation repair 与 eval oracle 已按同一 typed authority 闭环：
+
+1. compact repair 新增有界 `material_coverage_authority`，从 command records 的 system-owned pages 顺序派生；
+   每个 source/representation 只发一行，包含 source identity、source/pages 截断位、`complete|partial` 与合法
+   coverage receipt。单条 payload preview 的 `fully_visible=false` 继续披露，但不再覆盖整源 receipt；
+2. complete 只在 receipt 存在且 source/pages 均未截断时发射；无 receipt 或任一截断仍明确 `partial`。新正臂
+   证明 malformed evaluator params 经 compact repair 后可选择真实 receipt 并保持 complete，既有真截断负臂继续
+   降级 partial；
+3. CLI/REPL 的 system-authored evaluation event 现同时记录 `status`、`material_coverage_status` 与有界
+   `coverage_material_refs`。这是观测面，不改模型 tool params 或最终答案；
+4. eval case 新增 opt-in typed terminal/coverage/ref 合同。runner 只解析最后一条精确
+   `[cli|repl/operation] command evaluation` INFO 事件，生成 `run-N.operation-terminal.tsv`；历史 complete 后最终
+   partial 必须失败，模型/答案中出现“完整”不参与 verdict；
+5. `operation_web_manual_summary` 现在要求 final `complete + complete + material-coverage:v1:<sha256>:html_text`，
+   当前 B74 的伪 PASS 在新 oracle 下会被确定性拒绝。
+
+验证：compact repair 四个正反定向用例、完整 `go test ./internal/repl -count=1`（33.847s）、shell syntax 与
+`bash eval/runner_lib_test.sh` 全绿。状态：`EVAL-B74-OPREPAUTH1=implemented/replay-next`；
+`EVAL-B73-OPEVAL1=implemented/eval-only/replay-next`。本批没有通过系统代写 complete，模型仍拥有最终判断；
+系统只保证修复轮拿到与首轮相同的精确 coverage 权威。
+
 证据：
 
 - `eval/parallel_selected_summary_evalcampaign_b74_writeoperation_r1_20260804.md`；
