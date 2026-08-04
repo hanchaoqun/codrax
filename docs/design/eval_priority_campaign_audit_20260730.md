@@ -14509,3 +14509,23 @@ family；单一 `@Builder` 和并列 `@Entry/@Component` 都返回空。随后 a
 `EVAL-B86-EVALROW1=confirmed/eval-fix-next`。下一批先修 eval-only 的显式 section-anchor 合同，再严格并行原 ArkTS
 witness 与一个非 decorator source-inventory case。产品修复不读取原始用户输入或模型答案，不修改模型可见正文，且不触及
 Trace 因果投影、自动补齐、write/operation/data 路由。
+
+## 90. 2026-08-04 B86-E：清单精确计数绑定显式 section authority
+
+`EVAL-B86-EVALROW1` 已按 eval-only 形根修。旧 runner 在内部 rowset ID 无法猜中可见标题时静默退回全文，并把
+`expected_count` 解释成“期望行命中数”；因此四个正确 `@Entry` 行与一个错误 `EntryAbility` 同时出现仍会假绿。
+
+新合同由 case 显式声明 `EXPECT_INVENTORY_SECTION_LABEL_<ROWSET>`：
+
+1. exact count 只统计该可见 markdown section 内的表格行；不再从内部 ID 或答案语义猜标题；
+2. 声明的 section 不存在时发射 `missing_inventory_section`，禁止静默回退全文；
+3. section scope 按 markdown heading level 终止，H3 下的 bold 子标题仍属于 H3，避免嵌套展示把计数截成零；
+4. 未声明显式 label 的既有 case 保持原兼容路径，产品 runtime、prompt、成文校验与答案正文均不改变。
+
+ArkTS case 已分别绑定 `@Entry` 页面入口和 `@Builder` 复用片段两个可见 section。旧 B86 输出已被新 runner
+确定性判为 `inventory_count_mismatch:entry_page:got5:want4`；section 缺失、嵌套标题 extra-row 与真实 `run.sh`
+接线均有 contract pin，`runner_lib_test.sh` 与 shell syntax check 全绿。
+
+状态：`EVAL-B86-EVALROW1=implemented/runner-contracts-pass/replay-next`。下一步严格并行原 ArkTS witness 与 Cangjie
+非 decorator 清单，既验证产品 construct-family 根修，也验证 eval 不再假绿。该批没有触碰 Trace 显式时间窗、因果投影、
+自动补齐、read/write/operation/data 路由或模型结论所有权。

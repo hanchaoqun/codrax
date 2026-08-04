@@ -789,6 +789,17 @@ inventory_exact_bold_table=$'**extend 块**\n\n| symbol | path | package |\n|---
 assert_eq "$(eval_inventory_rowset_reasons "$inventory_exact_bold_table")" "" "inventory exact count accepts the actual rows under a bold section heading"
 unset EXPECT_INVENTORY_ROWSETS EXPECT_INVENTORY_ROW_SCOPE_EXTEND EXPECT_INVENTORY_ROWS_EXTEND EXPECT_INVENTORY_COUNT_EXTEND
 
+EXPECT_INVENTORY_ROWSETS="entry_page"
+EXPECT_INVENTORY_ROW_SCOPE_ENTRY_PAGE="document"
+EXPECT_INVENTORY_SECTION_LABEL_ENTRY_PAGE="@Entry pages"
+EXPECT_INVENTORY_ROWS_ENTRY_PAGE=$'Index|Index.ets\nParent|Parent.ets'
+EXPECT_INVENTORY_COUNT_ENTRY_PAGE=2
+inventory_nested_extra=$'### @Entry pages\n\nRequested entries:\n\n**@Entry table**\n\n| symbol | path |\n|---|---|\n| Index | Index.ets:5 |\n| Parent | Parent.ets:9 |\n| Undecorated | Ability.ets:12 |\n\n### @Builder fragments\n\n| symbol | path |\n|---|---|\n| Card | Card.ets:3 |'
+assert_eq "$(eval_inventory_rowset_reasons "$inventory_nested_extra")" "inventory_count_mismatch:entry_page:got3:want2" "explicit inventory section label must count unexpected rows through nested bold headings"
+EXPECT_INVENTORY_SECTION_LABEL_ENTRY_PAGE="missing section"
+assert_eq "$(eval_inventory_rowset_reasons "$inventory_nested_extra")" "missing_inventory_section:entry_page:missing_section" "declared inventory section label must fail loudly when absent"
+unset EXPECT_INVENTORY_ROWSETS EXPECT_INVENTORY_ROW_SCOPE_ENTRY_PAGE EXPECT_INVENTORY_SECTION_LABEL_ENTRY_PAGE EXPECT_INVENTORY_ROWS_ENTRY_PAGE EXPECT_INVENTORY_COUNT_ENTRY_PAGE
+
 cat >"$tmp/fake-codrax-inventory-rowset" <<'SH'
 #!/usr/bin/env bash
 echo 'thinking stream'

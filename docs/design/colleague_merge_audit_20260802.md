@@ -1980,3 +1980,17 @@ base+specific 仍折叠；candidate query、principal projection、complete lens
 验证：`internal/types` 全量、SourceInventory tool 族、`internal/tool/repomap/...` 全绿；convergence 旧文件 ceiling 均未
 提高。状态：`EVAL-B86-SURFFAM1=implemented/tests-pass/replay-next`；`EVAL-B86-EVALROW1=eval-fix-next`。Trace 显式窗、
 因果投影、自动补齐与模型结论所有权均未改变。
+
+### §10.21 B86-E：inventory section 精确计数 oracle（已交付，待回放）
+
+`EVAL-B86-EVALROW1` 已以 case-owned typed section label 修复：声明 exact row count 的 rowset 可显式绑定一个可见
+markdown section；runner 只在该 section 内计数，且声明 section 缺失时 fail-loud，不再静默退回全文。section
+边界按 heading level 计算，因此 H3 下的 bold 表格标题不会提前截断。
+
+该能力完全位于 eval case/runner，不读取产品原始请求或模型答案来决定 shipping gate，也不改产品 prompt、答案或权限。
+未声明显式 section 的既有 case 保持兼容。ArkTS 旧输出现稳定报
+`inventory_count_mismatch:entry_page:got5:want4`，对应的 extra-row、missing-section 与 `run.sh` wiring pin 全绿。
+
+状态：`EVAL-B86-EVALROW1=implemented/runner-contracts-pass/replay-next`；下一批严格并行 ArkTS exact marker inventory
+与 Cangjie base+specific family inventory，回放后再收 `EVAL-B86-SURFFAM1`。显式时间窗 Trace 因果投影、自动补齐与
+模型结论所有权均未改变。

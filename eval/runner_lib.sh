@@ -576,19 +576,43 @@ eval_inventory_rowset_label_regex() {
 eval_inventory_rowset_section_text() {
   local cleaned="$1"
   local rowset="$2"
-  local label_regex
+  local explicit_label="${3:-}"
+  local label_regex match_mode
   label_regex="$(eval_inventory_rowset_label_regex "$rowset")"
-  awk -v label="$label_regex" '
-    BEGIN { in_section = 0; found = 0 }
-    /^[[:space:]]*#{1,6}[[:space:]]+/ || /^[[:space:]]*(>[[:space:]]*)?\*\*[^*]+\*\*[：:]?[[:space:]]*$/ {
-      if (in_section) {
+  match_mode="regex"
+  if [[ -n "$explicit_label" ]]; then
+    match_mode="literal"
+    label_regex="$explicit_label"
+  fi
+  awk -v label="$label_regex" -v match_mode="$match_mode" '
+    function heading_level(line, trimmed, marks) {
+      trimmed = line
+      sub(/^[[:space:]]*/, "", trimmed)
+      if (trimmed ~ /^#{1,6}[[:space:]]+/) {
+        marks = trimmed
+        sub(/[[:space:]].*$/, "", marks)
+        return length(marks)
+      }
+      if (trimmed ~ /^(>[[:space:]]*)?\*\*[^*]+\*\*[：:]?[[:space:]]*$/) {
+        return 7
+      }
+      return 0
+    }
+    BEGIN { in_section = 0; found = 0; selected_level = 0 }
+    {
+      level = heading_level($0)
+      if (in_section && level > 0 && (level <= selected_level || selected_level == 7)) {
         exit
       }
-      lower = tolower($0)
-      label_lower = tolower(label)
-      if (lower ~ label_lower) {
+      if (!in_section && level > 0) {
+        lower = tolower($0)
+        label_lower = tolower(label)
+        matches = (match_mode == "literal" ? index(lower, label_lower) > 0 : lower ~ label_lower)
+      }
+      if (!in_section && level > 0 && matches) {
         in_section = 1
         found = 1
+        selected_level = level
         print
         next
       }
@@ -663,7 +687,7 @@ eval_inventory_rowset_reasons() {
   [[ -n "$rowsets" ]] || return 0
 
   local rowset rowset_key rows_var rows count_var expected_count
-  local banned_var banned_rows scope_var row_scope rowset_text rowset_scoped old_ifs row matched total reason_row visible_count
+  local banned_var banned_rows scope_var row_scope section_var section_label rowset_text rowset_scoped old_ifs row matched total reason_row visible_count
   for rowset in $rowsets; do
     rowset_key="$(eval_env_key "$rowset")"
     rows_var="EXPECT_INVENTORY_ROWS_${rowset_key}"
@@ -672,9 +696,14 @@ eval_inventory_rowset_reasons() {
     expected_count="${!count_var:-}"
     scope_var="EXPECT_INVENTORY_ROW_SCOPE_${rowset_key}"
     row_scope="${!scope_var:-document}"
+    section_var="EXPECT_INVENTORY_SECTION_LABEL_${rowset_key}"
+    section_label="${!section_var:-}"
     rowset_scoped=0
-    if rowset_text="$(eval_inventory_rowset_section_text "$cleaned" "$rowset")"; then
+    if rowset_text="$(eval_inventory_rowset_section_text "$cleaned" "$rowset" "$section_label")"; then
       rowset_scoped=1
+    elif [[ -n "$section_label" ]]; then
+      printf 'missing_inventory_section:%s:%s\n' "$rowset" "$(eval_reason_slug "$section_label")"
+      continue
     else
       rowset_text="$cleaned"
     fi

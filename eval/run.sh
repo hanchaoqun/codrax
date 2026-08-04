@@ -21,7 +21,9 @@
 # lines), optional EXPECT_PRINCIPAL_{CONTAINS,NOT_CONTAINS,
 # MATCHES_REGEX,MATCHES_TEXT_REGEX} over the model-authored answer before
 # deterministic trace projection supplements, EXPECT_INVENTORY_ROWSETS plus
-# typed row/count declarations
+# typed row/count declarations; optional per-rowset
+# EXPECT_INVENTORY_SECTION_LABEL_<ROWSET> binds exact-count checks to an
+# explicitly named visible section instead of guessing a label from prose
 # EXPECT_DYNAMIC_SCALARS plus per-ID command/data-scope/surface/binding fields
 # recompute checkout-dependent scalar expectations and bind them to the chosen
 # answer surface without hard-coding a repository count,
@@ -1142,7 +1144,9 @@ write_verdict() {
   # EXPECT_INVENTORY_ROWS_<ROWSET>, where every row is a pipe-separated set of
   # literal tokens that must co-occur in the checked output. This catches
   # category row/count mismatches without turning production routing into
-  # keyword or model-prose logic.
+  # keyword or model-prose logic. A case may declare
+  # EXPECT_INVENTORY_SECTION_LABEL_<ROWSET> to bind exact extra-row counting to
+  # one visible markdown section; a missing declared section fails loudly.
   if [[ -n "$EXPECT_INVENTORY_ROWSETS" ]]; then
     local inventory_reason
     while IFS= read -r inventory_reason; do
