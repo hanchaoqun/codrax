@@ -1371,6 +1371,7 @@ func runtimeTraceCausalProjectionClusterForAuthority(projection types.TraceCausa
 	// already carry it.
 	evidence.flatChain = len(runtimeTraceCausalProjectionCleanPath(projection.WakeupPath)) < 2
 	model := buildRuntimeTraceProjTreeModel(projection, evidence, zh)
+	runtimeTraceProjStampTargetStateEvidence(projection, &model, evidence, zh)
 	model.FrameCausalityUnproven = runtimeTraceProjectionLeadFrameCausalityUnproven(projection, model, authority)
 	// PTV8-LAD L7 (§24.14 补2): the single-artifact lane is the caller's own
 	// id-prefix fact — the D-4 tree-head deviation line renders only here (the

@@ -413,6 +413,15 @@ type TraceCausalProjectionTargetStateAccount struct {
 	WindowStartTs  float64 `json:"window_start_ts,omitempty"`
 	WindowEndTs    float64 `json:"window_end_ts,omitempty"`
 	EvidenceID     string  `json:"evidence_id,omitempty"`
+	// SupportRefs / LineStart / LineEnd close the account's evidence loop.
+	// target_window_states is a projection-level side channel rather than a
+	// causal node, but its published four-state values still need the same
+	// persistent-artifact E# locator as every other system-authored trace
+	// value. These fields are copied verbatim from the selected observation;
+	// absence never fabricates a locator or an evidence ordinal.
+	SupportRefs []string `json:"support_refs,omitempty"`
+	LineStart   int      `json:"line_start,omitempty"`
+	LineEnd     int      `json:"line_end,omitempty"`
 }
 
 // TraceCausalProjectionQueryWindow is one distinct query-window endpoint pair
@@ -3130,6 +3139,9 @@ func traceCausalProjectionTargetStateCandidateFromRecord(record ObservationRecor
 		WindowStartTs:          ws,
 		WindowEndTs:            we,
 		EvidenceID:             record.ID,
+		SupportRefs:            cloneStringSlice(record.SupportRefs),
+		LineStart:              record.Span.LineStart,
+		LineEnd:                record.Span.LineEnd,
 	}
 	if account.TotalMS <= 0 {
 		return traceCausalProjectionTargetStateCandidate{}, false

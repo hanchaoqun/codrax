@@ -1651,3 +1651,59 @@ no-directed-path 系统补充抑制、principal span/proactive repair 和 semant
 `internal/tool` 回归 159.148s；定向 `internal/types` 21.933s，全绿。
 
 状态：`M5-S5-2=closed`；`M5-S3-4=closed`；`M5-C=closed`。
+
+### §10.11 M5-D：S4-3 中性 typed 并置 + S4-4 所有权可达性看护（已交付）
+
+#### S4-3：披露职能恢复，但系统不评判模型结论
+
+按 §10.6 裁定，旧 `proseWallClockConservationFindings` / `proseHeadlineElimFindings` 等评判器继续退出
+production。发布面新增的不是“模型错了”判词，也不改正文，而是 display attachment 中三类中性行：
+
+- `对账参考:`：模型 prose 出现 typed 三位小数或算式形状时，只并置目标线程已闭合的全窗状态分区；
+- `同尺并置:`：出现 headline 形时，只并置最终投影同一选举板的根因排序 #1 席位及有效归因；
+- `同尺并置:`：出现修向枚举形且该 typed 修向尚未被点名时，只并置 #1 席修向与该席有效归因。
+
+prose 扫描在这里仅是“是否显示哪条真值”的软选择器：它不提供 subject、数值、关系、修向或结论，不进
+violation/retry/hard gate，不引用用户请求原文，也不会把扫描到的模型词句带进发射文本。中英文发射均固定为
+中性框架；回归负 pin 禁止 `错误/不符/遗漏/正文将/正文称` 以及 `wrong/error/missing/omitted/model says`
+等评判词进入这三类行。appendix 仍是 `AnswerDisplayAttachment`，模型块 JSON 在收集前后字节不变。
+
+#### OM-5 同批闭环：四态账进入投影原生 E# 索引
+
+§10.6 要求每条并置行必须带真实 `[E#]`，冷读发现四态账只有 `EvidenceID`、没有持久 locator，正是历史
+开放项 OM-5。若在 appendix 自编编号会制造悬空引用，因此本批先根修证据通道：
+
+- `TraceCausalProjectionTargetStateAccount` 从被选中的 `target_window_states` 观测原样携带
+  `SupportRefs/LineStart/LineEnd`；
+- 仅当既有“目标一致 + 同窗 + 显示精度 Σ==窗”准入成立且 locator 非空时，账户才在普通 causal node
+  编号完成后加入该投影的同一 `runtimeTraceCausalProjectionEvidenceIndex`；
+- 四态首行显示自己的 `[E#]`，证据索引出现同号 `predicate=target_window_states` 条目；locator 缺席则
+  整个 tag/并置行静默，绝不降格为 `trace_query` 虚定位；
+- 多工件每节仍独立从 E1 编号，appendix 同时带工件 basename 消歧；只有 shipped document 已实际存在
+  runtime Trace projection system block 时才导出并置 row，避免指向未发布/被块预算裁掉的证据区。
+
+`RuntimeTraceReconciliationRows` 在 tool 层复用与页面完全相同的 projection compile、tree model、rank board
+和 evidence index，向 orchestrator 只暴露 typed carrier。榜首/修向也必须通过 `evidence.has(node)`，任何看不见
+的席位都不能因 appendix 调用而新铸 E#。信息契约把 Account `EvidenceID` 从 `known_gap` 翻为 `displayed`，
+OM-5 从开放 registry 删除（开放项 13→12）。
+
+#### S4-4：从“搜两个文件直调”升级为 production root 可达性
+
+旧看护只在 `contract_check.go/system_crosscheck_appendix.go` 搜禁止函数的直接调用，加一层 wrapper 即可绕过。
+本批做两层结构修正：
+
+1. production typed-fact provider 与 offline prose-verdict provider 物理拆函数；不再用
+   `includeProseVerdicts=false` 运行同一大函数。生产调用图中不存在一个“运行时 false 才安全”的隐蔽分支；
+2. 测试用 Go AST 建全 package 函数调用图，从 `runContractCheck`、`collectSystemCrossCheckFindings`、
+   `attachSystemCrossCheckAppendix` 三个生产根做传递闭包，任意层到达退役 conclusion provider 即失败。
+   synthetic mutation fixture 明确钉住 `root → neutralWrapper → proseHeadlineElimFindings` 必须被捕获。
+
+这保持“精确信号才可硬门”：AST 看护约束的是系统自己的静态所有权拓扑，不扫描用户输入、模型答案或具体
+case 的期望措辞。显式时间窗 Trace 因果投影、自动补齐和模型结论权限均未改变。
+
+验证：`go test ./internal/types ./internal/tool ./internal/orchestrator -count=1` 全绿，其中
+`internal/types` 19.702s、`internal/tool` 160.569s、`internal/orchestrator` 11.982s；另有 OM-5
+正反索引 pin、三类中性行 zh/en pin、错误算式 e2e、无 visible projection 拒悬空、wrapper mutation pin。
+
+状态：`S4-3=closed`；`S4-4=closed`；`OM-5=closed`；`M5-D=closed`。下一批按冻结顺序进入
+`S2-1/S2-2/S2-3` repomap 中危补修。

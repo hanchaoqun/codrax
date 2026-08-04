@@ -166,7 +166,32 @@ func (f proseFactThreadFacts) richness() int {
 // proseFactJuxtapositionFindings is the appendix provider: typed fact lines
 // for prose-present entities + arithmetic verdicts on prose equations.
 func proseFactJuxtapositionFindings(doc *types.AnswerDocumentV2, bus *types.BusContext, mut *types.MutableState) []proseScalarBindingFinding {
-	return proseFactJuxtapositionFindingsMode(doc, bus, mut, true)
+	out := proseTypedFactJuxtapositionFindingsImpl(doc, bus, mut)
+	// Offline diagnostic extension only. Production does not reach this
+	// function (pinned by the ownership call-graph test), so prose-derived
+	// arithmetic interpretations cannot escape through a false boolean branch.
+	prose := collectModelProseUnits(doc)
+	seen := map[string]bool{}
+	for _, finding := range out {
+		seen[finding.entryZH] = true
+	}
+	add := func(f proseScalarBindingFinding) {
+		if f.entryZH == "" || seen[f.entryZH] {
+			return
+		}
+		seen[f.entryZH] = true
+		out = append(out, f)
+	}
+	for _, f := range proseFactEquationFindings(prose) {
+		add(f)
+	}
+	if bus != nil && mut != nil {
+		ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(bus, types.ObservationExtractLedgerEvidenceLimit))
+		for _, f := range proseFactImplicitSubtractionFindings(prose, buildProseFactSubtractionInventory(ledger, bus, mut)) {
+			add(f)
+		}
+	}
+	return out
 }
 
 // proseTypedFactJuxtapositionFindings is the production appendix provider.
@@ -176,10 +201,14 @@ func proseFactJuxtapositionFindings(doc *types.AnswerDocumentV2, bus *types.BusC
 // The broader provider above remains available to offline tests/audits but is
 // not an answer-shipping authority.
 func proseTypedFactJuxtapositionFindings(doc *types.AnswerDocumentV2, bus *types.BusContext, mut *types.MutableState) []proseScalarBindingFinding {
-	return proseFactJuxtapositionFindingsMode(doc, bus, mut, false)
+	return proseTypedFactJuxtapositionFindingsImpl(doc, bus, mut)
 }
 
-func proseFactJuxtapositionFindingsMode(doc *types.AnswerDocumentV2, bus *types.BusContext, mut *types.MutableState, includeProseVerdicts bool) []proseScalarBindingFinding {
+// proseTypedFactJuxtapositionFindingsImpl is the production-safe provider.
+// It contains no prose-verdict branch and no call to an offline conclusion
+// scanner; that structural separation is what makes wrapper reachability
+// auditable.
+func proseTypedFactJuxtapositionFindingsImpl(doc *types.AnswerDocumentV2, bus *types.BusContext, mut *types.MutableState) []proseScalarBindingFinding {
 	if doc == nil || bus == nil || mut == nil {
 		return nil
 	}
@@ -205,18 +234,6 @@ func proseFactJuxtapositionFindingsMode(doc *types.AnswerDocumentV2, bus *types.
 		}
 		seen[f.entryZH] = true
 		out = append(out, f)
-	}
-
-	if includeProseVerdicts {
-		// Offline diagnostic mode only. These arms parse model-authored prose,
-		// so even mathematically exact output cannot be published as system
-		// authority without a typed subject/expression carrier.
-		for _, f := range proseFactEquationFindings(prose) {
-			add(f)
-		}
-		for _, f := range proseFactImplicitSubtractionFindings(prose, buildProseFactSubtractionInventory(ledger, bus, mut)) {
-			add(f)
-		}
 	}
 
 	// ── engine typed degradation fact (target_cpu 退化) ──────────────────

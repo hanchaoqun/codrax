@@ -22,7 +22,7 @@ package tool
 //   exempt         — adjudicated word-face exemption; Ref names a W-# row of
 //                    the exemption registry (no scan arm — the ruling, not
 //                    the code, is the authority).
-//   known_gap      — "typed 有据但显示无踪" (the 13 OM findings); arm: the
+//   known_gap      — "typed 有据但显示无踪" (the currently open OM findings); arm: the
 //                    token must NOT appear in the display authority sources —
 //                    when a fix batch wires the face, this census REDDENS
 //                    until the row flips to displayed (悄悄修而不销账 and
@@ -93,7 +93,7 @@ var infoContractExemptions = map[string]infoContractExemption{
 	"W-7":  {"depth 挂靠硬门输入;被拒行有词面结果(链上─/父节点未确认/深度未解析);拒绝理由本身无词面", "回访/冷读再现 B2/B4 类拒因追问 → 升 IC-A(明细一行披露拒因)"},
 	"W-8":  {"折叠强制展开选择器;效果结构性可见(行不折叠),无需词面", "无(裁定终局)"},
 	"W-9":  {"值不印为 U10 裁定方向;语义经口径词代言,ideal+deficit 在拆解行可见", "回访出现频点覆盖比例数值需求 → 升 IC-A"},
-	"W-10": {"Σ==窗硬门自算使显示冗余;字段作 wire 对账载体保留", "随 OM-5(IC-E 批)一并评估是否入 audit 面"},
+	"W-10": {"Σ==窗硬门自算使显示冗余;字段作 wire 对账载体保留", "四态 E# 审计面已闭环;总量字段继续作 wire 对账载体"},
 	"W-11": {"数值语义全走 ImpactMS 族口径车道;三要素行文法取代源观测散文(系统不代写/proof-lane 同源);Summary 是 LLM 面载体", "无(裁定终局)"},
 	"W-12": {"端点经 actual_window note 有显示消费(runtime.go 窗标)", "收窄已折 IC-A 顺手项(§29.40):⚠实际 行明细补实际段端点,IC-A 合入时翻 displayed"},
 	"W-13": {"coverage 视图+ledger notes 消费;投影面以 MergedQueryWindows 代位", "非合并聚合行逐次发生窗出现独立需求再议"},
@@ -116,7 +116,7 @@ var infoContractNonFieldExemptionSites = map[string]string{
 	"W-21": "legend surface: the five §24.3 form specs without GeneratedLegend semantics (T3 promise census)",
 }
 
-// --- §29.40 known-gap registry (13 OM,修复批翻状态用) -------------------------
+// --- §29.40 open-gap registry (resolved OM entries leave this map) ------------
 type infoContractKnownGap struct {
 	Summary   string
 	HostBatch string
@@ -127,7 +127,6 @@ var infoContractKnownGaps = map[string]infoContractKnownGap{
 	"OM-2":  {"锁行排队等待者数 BlockingWaiters 零消费(N 定修理方向)", "IC-L(可提前搭 v5 P2c)"},
 	"OM-3":  {"下钻边 E#/来历语义零消费(行动指令回证据链断开)", "IC-E(边观测入册通道)"},
 	"OM-4":  {"span 三层身份词(kind/category/subcategory)零消费", "v5 P2c"},
-	"OM-5":  {"四态账 EvidenceID 铸而不读(发布值不能回指自身证据,违 §29.29 审计闭环)", "IC-E(v5 F10 条款增补)"},
 	"OM-6":  {"fold peer TypeWord 写后不读(aabccb6f 删唯一读者;§29.40 裁决=A 臂保留字段)", "v5 P2c(「链上并入」行词面臂)"},
 	"OM-7":  {"DrillStatus 投影头部强制披露半场七面全零(RCX① 裁定明文未兑现)", "IC-A"},
 	"OM-8":  {"PriorityInversionLockDominated 并存披露注记缺失(§29.40.1:并存事实披露,非降级替换)", "IC-A"},
@@ -493,7 +492,10 @@ var targetStateAccountContract = map[string]fieldDisposition{
 	"TailOpenState":  {Status: "displayed", Ref: "含未覆盖段折入从句(车道选择)", NoScan: true},
 	"WindowStartTs":  {Status: "internal_gate", Ref: "F-2 容差锚窗门", NoScan: true},
 	"WindowEndTs":    {Status: "internal_gate", Ref: "F-2 容差锚窗门", NoScan: true},
-	"EvidenceID":     {Status: "known_gap", Ref: "OM-5", NoScan: true},
+	"EvidenceID":     {Status: "displayed", Ref: "四态账 E# + 证据索引", NoScan: true},
+	"SupportRefs":    {Status: "displayed", Ref: "四态账 E# 持久工件定位", NoScan: true},
+	"LineStart":      {Status: "displayed", Ref: "四态账 E# 行定位回退", NoScan: true},
+	"LineEnd":        {Status: "displayed", Ref: "四态账 E# 行定位回退", NoScan: true},
 }
 
 var queryWindowContract = map[string]fieldDisposition{
@@ -930,8 +932,9 @@ var infoContractRankStatuses = map[string]bool{
 }
 
 // TestInfoContractFieldCensus — T1 registration/ghost/reference arms over all
-// contract tables, plus the exemption/known-gap registry completeness checks
-// (known_gap 引用集恰=13 OM; 豁免表零幽灵).
+// contract tables, plus the exemption/open-gap registry completeness checks
+// (open-gap references and registry are exact mirrors; resolved entries leave
+// both surfaces; 豁免表零幽灵).
 func TestInfoContractFieldCensus(t *testing.T) {
 	usedW, usedOM := map[string]bool{}, map[string]bool{}
 	infoContractCheckRegistration(t, "Node", reflect.TypeOf(types.TraceCausalProjectionNode{}), nodeFieldContract, infoContractT1Statuses, usedW, usedOM)
@@ -941,8 +944,8 @@ func TestInfoContractFieldCensus(t *testing.T) {
 	infoContractCheckRegistration(t, "RankFoldPeer", reflect.TypeOf(runtimeTraceProjRankFoldPeer{}), rankFoldPeerContract, infoContractT1Statuses, usedW, usedOM)
 	infoContractCheckRegistration(t, "RankItem", reflect.TypeOf(tracequery.RootCauseRankItem{}), rankItemContract, infoContractRankStatuses, usedW, usedOM)
 
-	// The known-gap reference set must be EXACTLY the 13 OM findings (§29.40
-	// acceptance: T1 known_gap 列表恰=13 OM). OM-11 has no wire FIELD (its
+	// The known-gap reference set must exactly mirror the still-open OM
+	// findings. OM-11 has no wire FIELD (its
 	// carriers are the peer_state_*/wait_object/peer_chain_* notes), so its
 	// reference comes from the REAL types-side ledger surface — the
 	// infoContractNoteKeyLedger block of the note-key census — read
@@ -966,8 +969,8 @@ func TestInfoContractFieldCensus(t *testing.T) {
 			t.Errorf("契约行引用了未登记的 %s", om)
 		}
 	}
-	if len(infoContractKnownGaps) != 13 {
-		t.Errorf("known_gap 登记数 %d ≠ 13(§29.40 恰 13 OM)", len(infoContractKnownGaps))
+	if len(infoContractKnownGaps) != 12 {
+		t.Errorf("known_gap 登记数 %d ≠ 当前开放的 12 项(已关闭 OM-5)", len(infoContractKnownGaps))
 	}
 	// Exemption ghost check (field rows + non-field attachment sites).
 	for w := range infoContractNonFieldExemptionSites {

@@ -686,6 +686,12 @@ type runtimeTraceProjAbsorbedChainPeer struct {
 
 type runtimeTraceProjTreeModel struct {
 	Target string
+	// TargetStateEvidenceTag is the E# allocated from the selected
+	// target_window_states account's own persistent trace locator. It is
+	// stamped only after the normal causal-node model walk has allocated its
+	// ordinals, so the account joins (rather than forks) the section's single
+	// evidence index. Empty means the carrier had no publishable locator.
+	TargetStateEvidenceTag string
 	// FrameCausalityUnproven is derived from the exact trace_query typed
 	// observation(s) consumed by the finally elected seat. It adds a bounded
 	// frame-causality qualifier but never changes the election or the defined
@@ -8619,6 +8625,43 @@ func runtimeTraceProjEvidenceTag(node types.TraceCausalProjectionNode, evidence 
 	return id
 }
 
+// runtimeTraceProjStampTargetStateEvidence closes OM-5: the selected
+// target_window_states account is a projection side channel, but its
+// published four-state partition is still an external-artifact fact and must
+// be reachable through the same E# roster as causal nodes. The account joins
+// the index only when the ordinary four-state admission gate succeeds and its
+// carrier has a persistent locator. No locator means no tag and no invented
+// evidence entry.
+func runtimeTraceProjStampTargetStateEvidence(
+	projection types.TraceCausalProjection,
+	model *runtimeTraceProjTreeModel,
+	evidence *runtimeTraceCausalProjectionEvidenceIndex,
+	zh bool,
+) {
+	if model == nil || evidence == nil {
+		return
+	}
+	account := runtimeTraceProjFourStateAccountProvable(projection, *model)
+	if account == nil || strings.TrimSpace(account.EvidenceID) == "" {
+		return
+	}
+	node := types.TraceCausalProjectionNode{
+		EvidenceID:  strings.TrimSpace(account.EvidenceID),
+		Subject:     strings.TrimSpace(account.Subject),
+		Predicate:   "target_window_states",
+		Object:      "state_partition",
+		SupportRefs: append([]string(nil), account.SupportRefs...),
+		LineStart:   account.LineStart,
+		LineEnd:     account.LineEnd,
+		StartTs:     account.WindowStartTs,
+		EndTs:       account.WindowEndTs,
+	}
+	if runtimeTraceCausalProjectionEvidenceRef(node) == "" {
+		return
+	}
+	model.TargetStateEvidenceTag = runtimeTraceProjEvidenceTag(node, evidence, zh)
+}
+
 // --- user-focus comparison (R2) -------------------------------------------------
 
 // runtimeTraceProjUserFocus carries the typed analyzer entity context the
@@ -16389,15 +16432,19 @@ func runtimeTraceProjFourStateAccountLines(projection types.TraceCausalProjectio
 	runnableFoldClause := runtimeTraceProjFourStateBoundaryFoldClause(account, account.RunnableMS, zh, "runnable")
 	sleepFoldClause := runtimeTraceProjFourStateBoundaryFoldClause(account, account.SleepMS, zh, "sleep")
 	dFoldClause := runtimeTraceProjFourStateBoundaryFoldClause(account, dState, zh, "d_state", "io_wait")
+	evidenceSuffix := ""
+	if tag := strings.TrimSpace(model.TargetStateEvidenceTag); tag != "" {
+		evidenceSuffix = " [" + tag + "]"
+	}
 	var lines []string
 	if zh {
-		lines = append(lines, fmt.Sprintf("- 关注线程全窗四态: running %.3fms(%.0f%%%s) + runnable %.3fms(%.0f%%%s) + sleep %.3fms(%.0f%%%s%s) + D-state %.3fms(%.0f%%%s%s) = %.3fms(四态合计=分析窗)。",
+		lines = append(lines, fmt.Sprintf("- 关注线程全窗四态: running %.3fms(%.0f%%%s) + runnable %.3fms(%.0f%%%s) + sleep %.3fms(%.0f%%%s%s) + D-state %.3fms(%.0f%%%s%s) = %.3fms(四态合计=分析窗)%s。",
 			account.RunningMS, pct(account.RunningMS), runningFoldClause, account.RunnableMS, pct(account.RunnableMS), runnableFoldClause,
-			account.SleepMS, pct(account.SleepMS), sleepIOClause, sleepFoldClause, dState, pct(dState), dIOClause, dFoldClause, sum))
+			account.SleepMS, pct(account.SleepMS), sleepIOClause, sleepFoldClause, dState, pct(dState), dIOClause, dFoldClause, sum, evidenceSuffix))
 	} else {
-		lines = append(lines, fmt.Sprintf("- Focused-thread full-window states: running %.3fms (%.0f%%%s) + runnable %.3fms (%.0f%%%s) + sleep %.3fms (%.0f%%%s%s) + D-state %.3fms (%.0f%%%s%s) = %.3fms (four-state total = analysis window).",
+		lines = append(lines, fmt.Sprintf("- Focused-thread full-window states: running %.3fms (%.0f%%%s) + runnable %.3fms (%.0f%%%s) + sleep %.3fms (%.0f%%%s%s) + D-state %.3fms (%.0f%%%s%s) = %.3fms (four-state total = analysis window)%s.",
 			account.RunningMS, pct(account.RunningMS), runningFoldClause, account.RunnableMS, pct(account.RunnableMS), runnableFoldClause,
-			account.SleepMS, pct(account.SleepMS), sleepIOClause, sleepFoldClause, dState, pct(dState), dIOClause, dFoldClause, sum))
+			account.SleepMS, pct(account.SleepMS), sleepIOClause, sleepFoldClause, dState, pct(dState), dIOClause, dFoldClause, sum, evidenceSuffix))
 	}
 	if line := runtimeTraceProjFourStateRunningLine(account, model, zh); line != "" {
 		lines = append(lines, line)

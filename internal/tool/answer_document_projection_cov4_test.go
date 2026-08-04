@@ -143,6 +143,29 @@ func TestCov4FourStateAccountRendersRunningDominantFrame(t *testing.T) {
 	}
 }
 
+func TestCov4AccountEvidenceIDClosesThroughSharedIndex(t *testing.T) {
+	projection := cov4RunningDominantProjection()
+	projection.TargetStateAccount.SupportRefs = []string{"sample.systrace:31-32"}
+	projection.TargetStateAccount.LineStart = 31
+	projection.TargetStateAccount.LineEnd = 32
+	cluster := runtimeTraceCausalProjectionCluster(projection, "zh", runtimeTraceProjUserFocus{})
+	lead := projectionClusterBlock(cluster, runtimeTraceCausalProjectionBlockIDBase)
+	evidence := projectionClusterBlock(cluster, runtimeTraceCausalProjectionBlockIDBase+"_evidence")
+	if lead == nil || evidence == nil {
+		t.Fatalf("fixture must render lead and evidence blocks: %+v", cluster)
+	}
+	var accountTag string
+	for _, item := range evidence.Items {
+		if strings.Contains(item.Text, "predicate=target_window_states") {
+			accountTag = item.Label
+			break
+		}
+	}
+	if accountTag == "" || !strings.Contains(lead.Text, "(四态合计=分析窗) ["+accountTag+"]") {
+		t.Fatalf("four-state account must point to its own indexed evidence row: tag=%q\nlead=%s\nevidence=%+v", accountTag, lead.Text, evidence.Items)
+	}
+}
+
 // --- A: Σ四态==窗口恒等式 (不平衡拒渲不造数) -----------------------------------
 
 func TestCov4FourStateAccountRefusesImbalance(t *testing.T) {

@@ -100,6 +100,17 @@ func (o *Orchestrator) collectSystemCrossCheckFindings() []string {
 	doc := mut.ShippedAnswerDocumentV2()
 	lang := o.busCtx.Language
 	var out []string
+	// S4-3: noisy prose shapes may select a neutral typed reconciliation row,
+	// but never supply its subject/value/relation or a verdict. These rows lead
+	// the appendix so the bounded cap cannot hide the highest-value typed
+	// comparison behind generic entity facts.
+	reconciliation := proseSelectedTypedReconciliationFindings(doc, o.busCtx)
+	for _, f := range reconciliation {
+		if len(out) >= systemCrossCheckFindingCap {
+			break
+		}
+		out = append(out, f.userReadable(lang))
+	}
 	// EVAL-B30-OWN2 + EVAL-B54-ARITHSUBJ1: the old scalar residual,
 	// wall-clock conservation, headline/cause and direction-omission lanes
 	// all parsed free-form prose and could publish a false system assertion
@@ -109,7 +120,7 @@ func (o *Orchestrator) collectSystemCrossCheckFindings() []string {
 	// subtraction verdicts too; it emits only ledger-derived facts.
 	factLines := proseTypedFactJuxtapositionFindings(doc, o.busCtx, mut)
 	for i, f := range factLines {
-		if i >= systemCrossCheckFindingCap {
+		if len(out) >= systemCrossCheckFindingCap {
 			out = append(out, systemCrossCheckMoreLine(lang, len(factLines)-i))
 			break
 		}
