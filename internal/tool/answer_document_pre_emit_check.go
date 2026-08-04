@@ -8515,7 +8515,7 @@ func preEmitCodeSurfaceAppearsVerbatim(label, text string) bool {
 	if label == "" || text == "" || !types.IsCodeIdentitySurface(label) {
 		return false
 	}
-	return strings.Contains(text, label)
+	return types.CodeSurfaceAppearsAsToken(label, text)
 }
 
 func preEmitCodeSurfaceMatches(a, b string) bool {
@@ -8526,13 +8526,6 @@ func preEmitCodeSurfaceMatches(a, b string) bool {
 	}
 	if strings.EqualFold(a, b) {
 		return true
-	}
-	if types.IsCodeIdentitySurface(a) && types.IsCodeIdentitySurface(b) {
-		aFold := strings.ToLower(strings.TrimSpace(a))
-		bFold := strings.ToLower(strings.TrimSpace(b))
-		if strings.Contains(aFold, bFold) || strings.Contains(bFold, aFold) {
-			return true
-		}
 	}
 	aTail := types.NormalizedSurfaceSymbolTail(a)
 	bTail := types.NormalizedSurfaceSymbolTail(b)

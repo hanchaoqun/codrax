@@ -2008,3 +2008,18 @@ deterministic supplement 与普通 prose 均不能满足行身份；extra row �
 旧五行错答离线回放保持 `got5:want4`，本轮正确 4+2 答案离线回放 PASS；真实 runner wiring 与正负 contract pins 全绿。
 状态：`EVAL-B86-EVALROW1=implemented/runner-contracts-pass/artifact-replay-pass`。该修复仅影响 eval 判定，不新增 shipping
 prose gate，不触碰 Trace 因果投影、自动补齐或模型答案所有权。
+
+### §10.23 B88：call endpoint prefix authority 根修 + count oracle 重签
+
+严格并行调用链/多集合计数后，runner 2/2 PASS 但人工 0/2。最高风险项是结构化 citation identity：
+`label=gate.Run` 可借用仅证明 `buildAnalysisIR -> gate.RunWith` 的 citation，因为公共 code-surface matcher 使用 substring。
+图边 gate 已拒绝伪方向，item gate 却放行，最终答案把真实 `Run -> RunWith` 反写为 `RunWith` 包装/等价 `Run`。
+
+现已把 snippet occurrence 收紧为完整 code token，把 endpoint 对齐收紧为 exact 或 exact symbol tail；prefix sibling 不再获权，
+短名/限定名合法桥保留。定向 pin 与 `internal/tool` 全量全绿。状态：
+`EVAL-B88-PFXCIT1=implemented/full-tool-pass/replay-next`。
+
+计数 case 的旧 `2[4-6]` oracle 被 `grammar.go:26` 行号满足，已改为 checkout 动态计算并按类别绑定 3/5/30；
+`EVAL-B88-COUNTORACLE1=implemented/eval-only/artifact-replay-pass`。另保留两个 P1：完整 typed row set 被系统追加泛化弱证据
+caveat（`EVAL-B88-SUPPCAVEAT1`），以及调用链 518s/36 Explorer 轮的 task-window/closure churn。后续只从 typed
+carrier/display authority 与 task provenance 根修，不扫描或改写模型 prose，不影响 Trace 显式窗、因果投影和自动补齐。

@@ -905,6 +905,52 @@ func TestPreCheckItemCitationAlignment_RejectsAdjacentCallCitationDrift(t *testi
 	}
 }
 
+func TestPreCheckItemCitationAlignment_RejectsPrefixSiblingCallCitation(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "endpoint-boundary",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "requested-sink",
+				Label:       "gate.Run",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{{File: "internal/agent/analyzer.go", Line: 2666}},
+	}
+	mut := types.NewMutableState("prefix sibling call citation")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{{
+		Kind:            types.EvidenceRelationship,
+		Source:          "internal/agent/analyzer.go",
+		LineStart:       2666,
+		AnchorKind:      types.AnchorCall,
+		AnchorSymbol:    "gate.RunWith",
+		Subject:         "buildAnalysisIR",
+		Object:          "gate.RunWith",
+		Snippet:         "ir.QualityGate = gate.RunWith(ir, gate.GlobalThresholds(), mode, gateOpts)",
+		GroundingStatus: types.GroundingGrounded,
+	}}})
+	ctx := &types.BusContext{Mutable: mut}
+
+	hints := preCheckItemCitationAlignment(doc, nil, ctx)
+	if len(hints) != 1 {
+		t.Fatalf("prefix sibling gate.RunWith must not prove exact gate.Run label, got %v", hints)
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "label=\"gate.Run\"") ||
+		!strings.Contains(hints[0].ExpectedShape, "current_citation=internal/agent/analyzer.go:2666") {
+		t.Fatalf("prefix-sibling rejection should identify the exact label and invalid citation, got %+v", hints[0])
+	}
+
+	doc.Blocks[0].Items[0].Label = "gate.RunWith"
+	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) != 0 {
+		t.Fatalf("exact qualified endpoint should keep the cited call edge, got %v", hints)
+	}
+	doc.Blocks[0].Items[0].Label = "RunWith"
+	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) != 0 {
+		t.Fatalf("exact unqualified tail should resolve to the qualified endpoint, got %v", hints)
+	}
+}
+
 func TestPreCheckItemCitationAlignment_DoesNotPresentCurrentCitationAsTarget(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

@@ -14553,3 +14553,58 @@ ArkTS case 已分别绑定 `@Entry` 页面入口和 `@Builder` 复用片段两�
 新增 section/marker 正反臂、编号列表计数、引用重复不获权、missing-group 与真实 `run.sh` primary-surface 接线 pin。
 状态：`EVAL-B86-EVALROW1=implemented/runner-contracts-pass/artifact-replay-pass`；记录的本轮 runner FAIL 是旧 snapshot
 oracle 的假阴性，人工答案与新 oracle 均 PASS。下一批转入新的异构高优先级 eval，不再要求固定答案标题。
+
+## 92. 2026-08-04 B88 r14：typed identity 绑定双例审计与首批根修
+
+### 92.1 严格并行与人工判定
+
+在 `main@51942da53` 上严格并行两个 read case：
+
+- `qf_sequence_analyzer_gate`：runner PASS / human FAIL，518s；Explorer 36 轮/4 dispatch、14 reads、8 次 completion、
+  2 次 completion reject，Finalizer 4 次 reject；
+- `qf_multi_member_set_count_caveat`：runner PASS / human FAIL，285s；3/5/30 的集合与成员本身正确，但存在一条错误职责说明，
+  且旧 oracle 假绿。
+
+调用链图最终只画已证方向边，但正文和结构化 `gate.Run` item 仍把 `gate.RunWith` 说成 `gate.Run` 的包装/语义等价入口。
+真实源码是 `gate.Run -> RunWith`，而 `buildAnalysisIR -> RunWith`；不存在请求方向的 `buildAnalysisIR -> gate.Run`。
+数量例正确列出 3 个类型、5 个公开函数、30 个 Kind 常量，但把 `type Kind string` 描述成 int alias；该额外说明没有
+typed underlying-type 支撑，先按模型错误记录，不新增 prose hard gate。
+
+### 92.2 `EVAL-B88-PFXCIT1`（P0/red-line）：prefix sibling 借走精确 citation authority
+
+结构化 item 为 `label=gate.Run, claim_form=call_edge, citation=analyzer.go:2666`，被 pre-emit 接受；该行唯一事实是
+`buildAnalysisIR -> gate.RunWith`。根因是两个自称 code-surface exact/verbatim 的公共 matcher 使用 `strings.Contains`，
+使 `gate.Run`/`Run` 从 `gate.RunWith` 获权。Mermaid typed edge gate 正确拒绝了同一伪边，但 item/citation gate 反向放行，
+最终形成“图正确、正文错误、引用看似有效”的同页矛盾。
+
+根修只消费 structured item label、citation 和 accepted EvidenceItem：
+
+1. snippet 中的 code identity 改用共享 `CodeSurfaceAppearsAsToken` 完整边界；
+2. endpoint identity 只接受大小写无关 exact 或 qualified/unqualified exact tail，不再接受任意互为子串；
+3. `gate.Run -> gate.RunWith`、`Build -> BuildWith`、`foo -> foobar` 等 prefix sibling 均 fail-closed；
+4. `RunWith` 与 `gate.RunWith` 的合法短名/限定名同源仍通过，所有语言共用，不含 Go/本题特判。
+
+定向正负 pin 与完整 `go test ./internal/tool -count=1` 全绿（158.384s）。状态：
+`EVAL-B88-PFXCIT1=implemented/full-tool-pass/replay-next`。
+
+### 92.3 `EVAL-B88-COUNTORACLE1`（P1/eval）：源码行号可冒充集合数量
+
+旧 Kind count regex 允许 24–26，并在本轮被类型行 `grammar.go:26` 满足；因此 runner PASS 没有证明“Kind 常量=30”与
+Kind bucket 绑定。case 已改为 checkout-derived 三个独立 scalar：awk 从生产 `grammar.go/eval.go` 计算 exported type、
+exported function、Kind const-block 成员数，分别绑定 terminal primary answer 的“类别 + 共 N 个”近邻。源码行号、列表序号、
+引用区或系统 supplement 均不能满足；每轮生成 data-scope receipt。当前答案离线重放为 3/5/30 PASS。
+
+状态：`EVAL-B88-COUNTORACLE1=implemented/eval-only/artifact-replay-pass`。
+
+### 92.4 剩余任务排序
+
+1. `EVAL-B88-SUPPCAVEAT1`（P1）：typed principal row sets 已 complete，模型以 `section.text` 枚举完整 38 行，
+   deterministic review 只看 `items[]` 得到 `principal_items=0`，随后系统追加三个函数 owner 表与泛化“证据较弱”caveat。
+   下一批应按 answer ownership/display relevance 处理：缺结构化 carrier 保留日志/状态审计，不能自动投影成“事实证据弱”；
+   不得扫描自由 prose 来反向确权，也不得系统重写模型表。
+2. `EVAL-B60-CLOSURECHURN1`（P1）：本轮再次确认高耗时，但没有发现“positional support 必带又必拒”的合同矛盾；第一次
+   support-ref retry 是 members=11、refs=12 的真实不一致，第二次 no-directed-path retry正确。剩余成本集中在 Analyzer 宽实体
+   生成无关 DAG window、accepted completion 后仍多 dispatch，以及 Finalizer participant identity 反复修改。先做 typed task/window
+   provenance 冷读，不为本 case 的函数名或固定图形写优化。
+
+本批没有触碰 Trace query、显式时间窗、因果投影、自动补采、根因双轴或模型正文所有权。
