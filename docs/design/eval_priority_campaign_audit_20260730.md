@@ -14160,3 +14160,55 @@ reference_key_field=canonical_label
 状态更新：`EVAL-B80-DATAREFEXEC1=implemented/tests-pass/replay-next`；
 `EVAL-B80-DATAREFSCOPE1=implemented/tests-pass/replay-next`。下一批以同一 witness + 普通非 reference 聚合严格并行 2 个进行
 production 回放，验收 repair 轮数不再被不可满足合同烧尽、正确 `17,0,5` 可由模型 action 正常生成且普通聚合无回归。
+
+## 83. 2026-08-04 B81 r7：reference executor 已通；entity resolution 的隐式行号错接静默污染值
+
+在 `main@43bfbe5e5` 构建后严格并行 B80 witness 与普通非 reference 聚合：
+
+- `data_basic_sum_with_rules`：32s，runner/human PASS，严格终稿 `44`；
+- `data_multifile_reference_projection`：341s，runner/human FAIL，错误发布 `33,0,0`，应为 `17,0,5`；15 data rounds、
+  5 repairs、8 prior errors。
+
+B80 两项修复已接入 production：targets 显式 path/key 能启动完整三键投影，后续 values repair 也能替换 keyed 终稿；普通
+聚合没有被误升级。失败根因已经上移到 projection 之前，且不是 contribution 重放累积：终态只有 5 条独立 contribution，
+但其中两条的实体身份在 `apply_entity_resolutions` 阶段已经被错误改写。
+
+### EVAL-B81-DATARESID1（P0/confirmed）：source-value 身份被碰巧相等的隐式 locator 抢权
+
+源材料真值为：active `A-one=10`、`A-two=7`、`Beta=4`、`Gamma alt=5`、`unmapped=11`；reference ledger 正确记录
+`Gamma alt→GroupC`，并把 `unmapped` 标成 unresolved。可是 apply 产物逐字显示：
+
+```text
+r5 / Gamma alt / 5  -> canonical_id=A-one / canonical_label=GroupA / resolved
+r6 / unmapped / 11  -> canonical_id=A-two / canonical_label=GroupA / resolved
+```
+
+因此 GroupA 被算成 `10+7+5+11=33`，GroupC 丢失；artifact receipt 还错误声称 `matched=6/unmatched=0`。随后 reconcile
+只复算污染后的 contribution，自洽地签 pass，最终 reference projection 也只能诚实输出污染后的 `33,0,0`。
+
+代码机制是双身份索引顺序错误：`apply_entity_resolutions` 已从 resolution ledger 构建
+`source_value + source_field` 精确索引，但执行时先尝试 locator/行号索引，只有行号无匹配才回退 source value。多材料抽取、
+child alias、过滤或重物化后，局部/全局数字索引可能与另一条 resolution 的 locator 数字碰巧相同；一旦命中，真实
+source value 不再参与合取，形成静默错接。这个风险泛化到任何多源 flatten、filter、join 后的 resolution apply，不是本案
+标签名拟合。
+
+根修冻结为：
+
+1. action 显式声明 `base_key_fields` 时维持最高优先级，不改变明确结构合同；
+2. 未显式声明 base key、且 ledger 同时提供 source value/source field、base 也存在对应字段时，以 source-value 身份为
+   authority；唯一等价 canonical choice 才可应用；
+3. source value 在 base 可读但 ledger 没有 accepted match 时必须保持 unmatched，不得退回隐式行号猜配；多个不等价
+   canonical choices 保持 ambiguous；只有 source-value 身份本身不可用时才允许既有 locator fallback；
+4. 看护构造前置多材料行导致数字空间重叠，钉住 Gamma 正确解析、unmapped 保持 unmatched、matched/unmatched receipt，
+   并保留显式 locator contract 的既有正臂。
+
+状态：`EVAL-B80-DATAREFEXEC1=production-proven`；`EVAL-B80-DATAREFSCOPE1=production-proven`；
+`EVAL-B81-DATARESID1=confirmed/implementation-next`。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b81_dataref_r7_20260804.md`；
+- `eval/parallel_selected_summary_evalcampaign_b81_dataref_r7_20260804_manual_audit.md`；
+- `eval/results/data_multifile_reference_projection-20260804-073033`；
+- terminal `.codrax/data-audit/20260804-073603-259412-11745-terminal.json`；
+- final result `.codrax/data-audit/20260804-073550-414362-11745-result-r15.json`。
