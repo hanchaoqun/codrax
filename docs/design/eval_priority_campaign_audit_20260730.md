@@ -13629,6 +13629,29 @@ operation repair 与 eval oracle 已按同一 typed authority 闭环：
 `EVAL-B73-OPEVAL1=implemented/eval-only/replay-next`。本批没有通过系统代写 complete，模型仍拥有最终判断；
 系统只保证修复轮拿到与首轮相同的精确 coverage 权威。
 
+#### B74-C implementation（implemented/eval-oracle-only/tests-pass）
+
+全量扫描 `eval/fixtures/**/*.py` 的 DOTALL/跨行正则后，确认三套 GitHub issue 静态 checker 中有两处声明所有权
+没有绑定：
+
+1. PyO3 checker 的旧负门直接在整个 test file 上执行
+   `nth_back(0).*?next().*None`。现先以 brace-balanced function body 分区，再只读取 action 后第一个同方向
+   `assert_eq!` observation；合法的 `Some...Some...最终 None`、兄弟 test 的 None 均不再误判，立即 None 仍拒绝；
+2. napi-rs checker 用“最后一个 backtick return 到文件末尾”当 `renderNativeBinding` 模板，另一个函数可取得
+   错误 authority。现先精确提取具名 function body，再在该 body 内解析模板；decoy function 无法签绿；
+3. chrono checker 的源码判断已先进入具名 function body；其唯一 test 跨行 pattern 又由同一 statement 的
+   `[^\n;]*` 约束，不存在本次跨声明伤口，保持不动。
+
+两套修改后的 checker 都增加自包含 scope self-test，并接入各自 Make `check`。同时重跑产品现有 verifier
+caliber pins：cross-language/source-static probe 仍不能取得 target execution/behavior，且不能抢占独立项目 runner。
+因此本批只纠正 eval oracle 的声明作用域，不提升 Python checker 对 Rust/TS 的行为权限；Rust runtime 缺席时仍
+必须 unverified。
+
+验证：两个 checker `--self-test` 全绿；
+`go test ./internal/tool -run 'TestVerificationConfidenceRejectsCrossLanguageProbeContractClaim|TestRunTestsCrossLanguageExactPathProbeDoesNotPreemptTypedProjectSurface|TestChangedPathCoverageContractBoundProbeHasTargetBehaviorCapability' -count=1`
+全绿（1.380s）。状态：`EVAL-B74-WRITEORACLE1=closed`；`EVAL-B72-LANGPROBE1` 仍是能力矩阵 open，未伪收账；
+`EVAL-B72-STATETRANS1` 继续异构 adoption watch，未增加请求/答案关键词硬门。
+
 证据：
 
 - `eval/parallel_selected_summary_evalcampaign_b74_writeoperation_r1_20260804.md`；

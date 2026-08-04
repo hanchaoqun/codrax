@@ -4,10 +4,6 @@ from pathlib import Path
 import re
 import sys
 
-root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parents[1]
-source_path = root / "cli/src/api/templates/js-binding.ts"
-tests_path = root / "tests/js-binding.test.ts"
-
 
 def strip_comments(text: str) -> str:
     text = re.sub(r"//[^\n]*", "", text)
@@ -15,11 +11,58 @@ def strip_comments(text: str) -> str:
     return text
 
 
+def extract_function_body(text: str, name: str) -> str:
+    match = re.search(
+        rf"\bfunction\s+{re.escape(name)}\s*\([^)]*\)\s*(?::[^\{{]+)?\{{",
+        text,
+        flags=re.S,
+    )
+    if not match:
+        return ""
+    start = match.end() - 1
+    depth = 0
+    for index in range(start, len(text)):
+        char = text[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start + 1:index]
+    return ""
+
+
+def run_oracle_self_test() -> None:
+    source = """
+    export function renderNativeBinding(name: string): string {
+      return `REAL-${name}`
+    }
+    function decoy(): string {
+      return `DECOY`
+    }
+    """
+    body = extract_function_body(source, "renderNativeBinding")
+    if "REAL-" not in body or "DECOY" in body:
+        raise AssertionError("template authority crossed the named function boundary")
+
+
+if sys.argv[1:] == ["--self-test"]:
+    run_oracle_self_test()
+    print("napi-rs checker function-scope self-test passed")
+    sys.exit(0)
+
+
+root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parents[1]
+source_path = root / "cli/src/api/templates/js-binding.ts"
+tests_path = root / "tests/js-binding.test.ts"
+
+
 source = strip_comments(source_path.read_text())
 tests = strip_comments(tests_path.read_text() if tests_path.exists() else "")
 errors = []
 
-template_match = re.search(r"\breturn\s*`(?P<body>.*)`\s*}\s*$", source, flags=re.S)
+render_function_body = extract_function_body(source, "renderNativeBinding")
+template_match = re.search(r"\breturn\s*`(?P<body>.*)`\s*$", render_function_body, flags=re.S)
 if template_match:
     rendered_loader = template_match.group("body")
 else:
