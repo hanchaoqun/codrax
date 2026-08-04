@@ -276,6 +276,9 @@ func validatePlanFullContentWithRepair(ctx *types.BusContext, toolName, summary 
 	if rej, pack := validatePlanPathStateWithRepair(ctx, toolName, changes); rej != "" {
 		return rej, pack
 	}
+	if rej, paths := validatePassingProbeReplanAppliedPathMutation(ctx, changes); rej != "" {
+		return rej, planRepairPackFromReason(toolName, "replan_passing_probe_applied_path_mutation", rej, []string{"$.changes", "$.verification_probes"}, paths)
+	}
 	if rej, pack := validateFullModifyCompletenessWithRepair(ctx, toolName, changes); rej != "" {
 		return rej, pack
 	}
@@ -290,6 +293,9 @@ func validatePlanFullContentWithRepair(ctx *types.BusContext, toolName, summary 
 	}
 	if rej := validatePlanPatchDuplicateInsertions(changes); rej != "" {
 		return rej, planRepairPackFromReason(toolName, "patch_duplicate_insertions", rej, []string{"$.changes[].patch", "$.changes[].edits"}, nil)
+	}
+	if rej, paths := validateNewSourceDelimiterImbalance(ctx, changes); rej != "" {
+		return rej, planRepairPackFromReason(toolName, "planned_source_delimiter_imbalance", rej, []string{"$.changes[].new_content", "$.changes[].patch", "$.changes[].edits"}, paths)
 	}
 	if GitAvailable() && ctx != nil && strings.TrimSpace(ctx.RepoRoot) != "" {
 		for _, c := range changes {
@@ -342,6 +348,140 @@ func validatePlanFullContentWithRepair(ctx *types.BusContext, toolName, summary 
 		return rej, planRepairPackFromReason(toolName, "verification_probe_coupling_failed", rej, []string{"$.verification_probes[].code", "$.verification_probes[].changed_symbol_refs"}, nil)
 	}
 	return "", nil
+}
+
+// qualifyNoChangeReplanForCurrentState is the shared typed seam used by the
+// planner tool result and by plan validation. It deliberately requires an
+// actually applied prior plan: a passing exploratory probe in an ordinary plan
+// must not acquire authority to suppress a real edit.
+func qualifyNoChangeReplanForCurrentState(ctx *types.BusContext) writeflow.NoChangeReplanQualification {
+	if ctx == nil || ctx.Mutable == nil || !ctx.Mode.IsWrite() || ctx.PipelineStage != types.StagePlan {
+		return writeflow.NoChangeReplanQualification{ReasonCode: "write_replan_state_missing"}
+	}
+	return writeflow.QualifyNoChangeReplanSentinel(writeflow.NoChangeReplanQualificationInput{
+		VerifyFailureHandoff: ctx.Mutable.VerifyFailureHandoff(),
+		PriorPlan:            ctx.Mutable.ChangePlan(),
+		PlannerProbeReports:  ctx.Mutable.PlanStageProbeReports(),
+		RequireAppliedWork:   true,
+	})
+}
+
+// validatePassingProbeReplanAppliedPathMutation closes a stale-replan safety
+// hole. Once a typed planner probe passes against an already-applied worktree,
+// the planner may emit the existing no_change_required sentinel or change a
+// different path, but it may not blindly rewrite a path from that applied plan.
+// A newer failing typed probe removes this gate through the shared qualifier.
+// No user prose, plan prose, patch text, or model answer text participates.
+func validatePassingProbeReplanAppliedPathMutation(ctx *types.BusContext, changes []types.FileChange) (string, []string) {
+	qualification := qualifyNoChangeReplanForCurrentState(ctx)
+	if !qualification.Allowed || len(changes) == 0 || ctx == nil || ctx.Mutable == nil {
+		return "", nil
+	}
+	applied := appliedChangePlanPathSet(ctx.Mutable.ChangePlan())
+	if len(applied) == 0 {
+		return "", nil
+	}
+	protected := passingProbeProtectedAppliedPathSet(ctx.Mutable.PlanStageProbeReports(), applied)
+	if len(protected) == 0 {
+		return "", nil
+	}
+	var overlaps []string
+	for _, change := range changes {
+		path := canonicalPlanPathIdentity(change.Path)
+		if _, ok := protected[path]; ok {
+			overlaps = append(overlaps, path)
+		}
+		newPath := canonicalOptionalPlanPathIdentity(change.NewPath)
+		if newPath != "" {
+			if _, ok := protected[newPath]; ok {
+				overlaps = append(overlaps, newPath)
+			}
+		}
+	}
+	overlaps = sortedUniqueNonEmpty(overlaps)
+	if len(overlaps) == 0 {
+		return "", nil
+	}
+	return fmt.Sprintf(
+		"typed verify-failure replan state reports that the latest bounded planner probe passed against the already-applied worktree; refusing a second mutation of applied path(s) %s. Emit changes: [] to record status=%s. If a distinct defect still requires changing one of these paths, first run a newer typed planner probe that demonstrates that remaining failure; a failing latest probe re-opens the mutation lane.",
+		strings.Join(overlaps, ", "), types.PlanStatusNoChangeRequired), overlaps
+}
+
+func appliedChangePlanPathSet(plan *types.ChangePlan) map[string]struct{} {
+	out := map[string]struct{}{}
+	if plan == nil {
+		return out
+	}
+	for _, raw := range plan.AppliedPaths {
+		if path := canonicalPlanPathIdentity(raw); path != "" {
+			out[path] = struct{}{}
+		}
+	}
+	for _, change := range plan.Changes {
+		if change.Apply == nil || strings.TrimSpace(change.Apply.Status) != "applied" {
+			continue
+		}
+		if path := canonicalPlanPathIdentity(change.Path); path != "" {
+			out[path] = struct{}{}
+		}
+		if path := canonicalOptionalPlanPathIdentity(change.NewPath); path != "" {
+			out[path] = struct{}{}
+		}
+	}
+	return out
+}
+
+// passingProbeProtectedAppliedPathSet prevents a single narrow probe from
+// freezing every file in a multi-file prior plan. A sole applied path is the
+// unambiguous replan target. With multiple applied paths, only exact typed
+// ChangedPathCoverage=covered rows from the latest planner report are
+// protected; absent/ambiguous coverage fails open.
+func passingProbeProtectedAppliedPathSet(reports []*types.ChangeReport, applied map[string]struct{}) map[string]struct{} {
+	out := map[string]struct{}{}
+	if len(applied) == 1 {
+		for path := range applied {
+			out[path] = struct{}{}
+		}
+		return out
+	}
+	var latest *types.ChangeReport
+	for i := len(reports) - 1; i >= 0; i-- {
+		if reports[i] != nil && reports[i].Channel == types.ChangeReportChannelPlannerProbe {
+			latest = reports[i]
+			break
+		}
+	}
+	if latest == nil {
+		return out
+	}
+	for _, coverage := range latest.ChangedPathCoverage {
+		if coverage.Status != types.ChangedPathVerificationCovered {
+			continue
+		}
+		path := canonicalPlanPathIdentity(coverage.Path)
+		if _, ok := applied[path]; ok {
+			out[path] = struct{}{}
+		}
+	}
+	return out
+}
+
+func sortedUniqueNonEmpty(values []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // validateVerifyFailureProofFollowupProbeRefs closes proof metadata before an
@@ -1006,6 +1146,370 @@ func pythonAddedLineNumbers(original, planned string) map[int]bool {
 		added[i+1] = true
 	}
 	return added
+}
+
+var sourceDelimiterValidationExtensions = map[string]struct{}{
+	".c": {}, ".cc": {}, ".cpp": {}, ".cxx": {}, ".h": {}, ".hh": {}, ".hpp": {}, ".hxx": {},
+	".m": {}, ".mm": {}, ".cu": {}, ".cuh": {},
+	".go": {}, ".java": {}, ".kt": {}, ".kts": {}, ".rs": {}, ".swift": {},
+	".js": {}, ".jsx": {}, ".mjs": {}, ".cjs": {}, ".ts": {}, ".tsx": {}, ".ets": {},
+	".cj": {}, ".cs": {}, ".php": {}, ".scala": {}, ".dart": {},
+}
+
+type sourceDelimiterScan struct {
+	Certain  bool
+	Balanced bool
+	Detail   string
+}
+
+type sourceDelimiterFrame struct {
+	value byte
+	line  int
+}
+
+// validateNewSourceDelimiterImbalance is a compiler-unavailable structural
+// fallback for brace-family source languages. It rejects only a NEW, definite
+// imbalance: the current file and planned file must both be lexically
+// decidable by the scanner, and the current file must already be balanced.
+// Unknown string/comment/regex forms fail open. This preserves legacy source
+// and keeps a lightweight lexical approximation from becoming a noisy gate.
+func validateNewSourceDelimiterImbalance(ctx *types.BusContext, changes []types.FileChange) (string, []string) {
+	if ctx == nil || strings.TrimSpace(ctx.RepoRoot) == "" {
+		return "", nil
+	}
+	for _, change := range changes {
+		path := filepath.ToSlash(strings.TrimSpace(change.Path))
+		if path == "" || strings.TrimSpace(change.Kind) == "create" || strings.TrimSpace(change.Kind) == "delete" || strings.TrimSpace(change.Kind) == "rename" {
+			continue
+		}
+		if _, ok := sourceDelimiterValidationExtensions[strings.ToLower(filepath.Ext(path))]; !ok {
+			continue
+		}
+		original, ok := readOriginalPythonContent(ctx.RepoRoot, change)
+		if !ok {
+			continue
+		}
+		originalScan := scanSourceDelimiters(original, strings.ToLower(filepath.Ext(path)))
+		if !originalScan.Certain || !originalScan.Balanced {
+			continue
+		}
+		planned, ok, rej := plannedPythonContent(ctx.RepoRoot, change)
+		if rej != "" {
+			return rej, []string{path}
+		}
+		if !ok {
+			continue
+		}
+		plannedScan := scanSourceDelimiters(planned, strings.ToLower(filepath.Ext(path)))
+		if !plannedScan.Certain || plannedScan.Balanced {
+			continue
+		}
+		return fmt.Sprintf(
+			"change %q introduces a definite source delimiter imbalance while the current file is balanced: %s. Repair the planned content before apply; compiler/linter verification remains authoritative for all other syntax.",
+			path, plannedScan.Detail), []string{path}
+	}
+	return "", nil
+}
+
+func scanSourceDelimiters(source, ext string) sourceDelimiterScan {
+	stack := make([]sourceDelimiterFrame, 0, 32)
+	line := 1
+	for i := 0; i < len(source); {
+		c := source[i]
+		if c == '\n' {
+			line++
+			i++
+			continue
+		}
+		if c == '/' && i+1 < len(source) && source[i+1] == '/' {
+			i += 2
+			for i < len(source) && source[i] != '\n' {
+				i++
+			}
+			continue
+		}
+		if c == '/' && i+1 < len(source) && source[i+1] == '*' {
+			end, newLine, ok := skipNestedBlockComment(source, i, line)
+			if !ok {
+				return sourceDelimiterScan{Certain: false}
+			}
+			i, line = end, newLine
+			continue
+		}
+		if end, newLine, matched := skipRustRawString(source, i, line); matched {
+			if end < 0 {
+				return sourceDelimiterScan{Certain: false}
+			}
+			i, line = end, newLine
+			continue
+		}
+		if end, newLine, matched := skipCppRawString(source, i, line); matched {
+			if end < 0 {
+				return sourceDelimiterScan{Certain: false}
+			}
+			i, line = end, newLine
+			continue
+		}
+		if (c == '@' || c == '$') && i+1 < len(source) && source[i+1] == '"' {
+			end, newLine, ok := skipQuotedSource(source, i+1, line, '"', c == '@')
+			if !ok {
+				return sourceDelimiterScan{Certain: false}
+			}
+			i, line = end, newLine
+			continue
+		}
+		if (c == '\'' || c == '"') && i+2 < len(source) && source[i+1] == c && source[i+2] == c {
+			end, newLine, ok := skipTripleQuotedSource(source, i, line, c)
+			if !ok {
+				return sourceDelimiterScan{Certain: false}
+			}
+			i, line = end, newLine
+			continue
+		}
+		if c == '\'' || c == '"' || c == '`' {
+			end, newLine, ok := skipQuotedSource(source, i, line, c, false)
+			if !ok {
+				return sourceDelimiterScan{Certain: false}
+			}
+			i, line = end, newLine
+			continue
+		}
+		if c == '/' && javascriptLikeExtension(ext) {
+			if end, newLine, status := skipPossibleJavaScriptRegex(source, i, line); status != 0 {
+				if status < 0 {
+					return sourceDelimiterScan{Certain: false}
+				}
+				i, line = end, newLine
+				continue
+			}
+		}
+		switch c {
+		case '{', '(', '[':
+			stack = append(stack, sourceDelimiterFrame{value: c, line: line})
+		case '}', ')', ']':
+			want := matchingOpeningDelimiter(c)
+			if len(stack) == 0 {
+				return sourceDelimiterScan{Certain: true, Balanced: false, Detail: fmt.Sprintf("unexpected %q at line %d", string(c), line)}
+			}
+			top := stack[len(stack)-1]
+			if top.value != want {
+				return sourceDelimiterScan{Certain: true, Balanced: false, Detail: fmt.Sprintf("%q at line %d closes %q opened at line %d", string(c), line, string(top.value), top.line)}
+			}
+			stack = stack[:len(stack)-1]
+		}
+		i++
+	}
+	if len(stack) > 0 {
+		top := stack[len(stack)-1]
+		return sourceDelimiterScan{Certain: true, Balanced: false, Detail: fmt.Sprintf("unclosed %q from line %d", string(top.value), top.line)}
+	}
+	return sourceDelimiterScan{Certain: true, Balanced: true}
+}
+
+func matchingOpeningDelimiter(close byte) byte {
+	switch close {
+	case '}':
+		return '{'
+	case ')':
+		return '('
+	default:
+		return '['
+	}
+}
+
+func javascriptLikeExtension(ext string) bool {
+	switch ext {
+	case ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".ets":
+		return true
+	default:
+		return false
+	}
+}
+
+func skipNestedBlockComment(source string, start, line int) (int, int, bool) {
+	depth := 1
+	for i := start + 2; i < len(source); {
+		if source[i] == '\n' {
+			line++
+			i++
+			continue
+		}
+		if i+1 < len(source) && source[i] == '/' && source[i+1] == '*' {
+			depth++
+			i += 2
+			continue
+		}
+		if i+1 < len(source) && source[i] == '*' && source[i+1] == '/' {
+			depth--
+			i += 2
+			if depth == 0 {
+				return i, line, true
+			}
+			continue
+		}
+		i++
+	}
+	return len(source), line, false
+}
+
+func skipQuotedSource(source string, start, line int, quote byte, doubledQuote bool) (int, int, bool) {
+	for i := start + 1; i < len(source); i++ {
+		if source[i] == '\n' {
+			line++
+			if quote != '`' && !doubledQuote {
+				return i, line, false
+			}
+			continue
+		}
+		if doubledQuote && source[i] == quote && i+1 < len(source) && source[i+1] == quote {
+			i++
+			continue
+		}
+		if !doubledQuote && source[i] == '\\' && i+1 < len(source) {
+			i++
+			continue
+		}
+		if source[i] == quote {
+			return i + 1, line, true
+		}
+	}
+	return len(source), line, false
+}
+
+func skipTripleQuotedSource(source string, start, line int, quote byte) (int, int, bool) {
+	for i := start + 3; i < len(source); i++ {
+		if source[i] == '\n' {
+			line++
+		}
+		if i+2 < len(source) && source[i] == quote && source[i+1] == quote && source[i+2] == quote {
+			return i + 3, line, true
+		}
+	}
+	return len(source), line, false
+}
+
+func skipRustRawString(source string, start, line int) (int, int, bool) {
+	if start >= len(source) || source[start] != 'r' {
+		return 0, line, false
+	}
+	i := start + 1
+	for i < len(source) && source[i] == '#' {
+		i++
+	}
+	if i >= len(source) || source[i] != '"' {
+		return 0, line, false
+	}
+	hashes := i - start - 1
+	for i++; i < len(source); i++ {
+		if source[i] == '\n' {
+			line++
+		}
+		if source[i] != '"' || i+hashes >= len(source) {
+			continue
+		}
+		ok := true
+		for j := 0; j < hashes; j++ {
+			if source[i+1+j] != '#' {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			return i + 1 + hashes, line, true
+		}
+	}
+	return -1, line, true
+}
+
+func skipCppRawString(source string, start, line int) (int, int, bool) {
+	if start+2 >= len(source) || source[start] != 'R' || source[start+1] != '"' {
+		return 0, line, false
+	}
+	open := strings.IndexByte(source[start+2:], '(')
+	if open < 0 || open > 16 {
+		return -1, line, true
+	}
+	open += start + 2
+	delim := source[start+2 : open]
+	closing := ")" + delim + "\""
+	rel := strings.Index(source[open+1:], closing)
+	if rel < 0 {
+		return -1, line, true
+	}
+	end := open + 1 + rel + len(closing)
+	line += strings.Count(source[start:end], "\n")
+	return end, line, true
+}
+
+// skipPossibleJavaScriptRegex returns status 1 for a confidently recognized
+// regex literal, 0 for division/operator slash, and -1 for an ambiguous slash
+// containing structural delimiters. Ambiguity makes the outer hard gate fail
+// open, as required by the precise-signal policy.
+func skipPossibleJavaScriptRegex(source string, start, line int) (int, int, int) {
+	prev := previousNonSpaceByte(source, start)
+	if prev != 0 && !strings.ContainsRune("=(:,[!&|?{};", rune(prev)) && !previousWordAllowsJavaScriptRegex(source, start) {
+		return 0, line, 0
+	}
+	inClass := false
+	escaped := false
+	containsDelimiter := false
+	for i := start + 1; i < len(source) && source[i] != '\n'; i++ {
+		c := source[i]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if c == '\\' {
+			escaped = true
+			continue
+		}
+		if c == '[' {
+			inClass = true
+			continue
+		}
+		if c == ']' {
+			inClass = false
+			continue
+		}
+		if strings.ContainsRune("{}()", rune(c)) {
+			containsDelimiter = true
+		}
+		if c == '/' && !inClass {
+			for i++; i < len(source) && ((source[i] >= 'a' && source[i] <= 'z') || (source[i] >= 'A' && source[i] <= 'Z')); i++ {
+			}
+			return i, line, 1
+		}
+	}
+	if containsDelimiter {
+		return 0, line, -1
+	}
+	return 0, line, 0
+}
+
+func previousNonSpaceByte(source string, before int) byte {
+	for i := before - 1; i >= 0; i-- {
+		if source[i] != ' ' && source[i] != '\t' && source[i] != '\r' && source[i] != '\n' {
+			return source[i]
+		}
+	}
+	return 0
+}
+
+func previousWordAllowsJavaScriptRegex(source string, before int) bool {
+	i := before - 1
+	for i >= 0 && (source[i] == ' ' || source[i] == '\t' || source[i] == '\r' || source[i] == '\n') {
+		i--
+	}
+	end := i + 1
+	for i >= 0 && ((source[i] >= 'a' && source[i] <= 'z') || (source[i] >= 'A' && source[i] <= 'Z') || source[i] == '_') {
+		i--
+	}
+	switch source[i+1 : end] {
+	case "return", "throw", "case", "delete", "typeof", "void", "yield", "await":
+		return true
+	default:
+		return false
+	}
 }
 
 type pythonTerminalBlock struct {

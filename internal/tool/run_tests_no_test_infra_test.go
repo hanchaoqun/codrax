@@ -721,6 +721,56 @@ func TestRunTestsDryRunVerificationProbe_PassingOutputIsInline(t *testing.T) {
 	}
 }
 
+func TestRunTestsPassingReplanProbeGuidesNoChangeSentinel(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	root := t.TempDir()
+	mu := types.NewMutableState("passing replan probe guidance")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:           "plan-applied",
+		Status:       types.PlanStatusVerifyFailed,
+		AppliedPaths: []string{"widget.py"},
+		Changes: []types.FileChange{{
+			Path:  "widget.py",
+			Kind:  "patch",
+			Apply: &types.FileChangeApplyRecord{Status: "applied"},
+		}},
+	})
+	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
+		PlanID:      "plan-applied",
+		BatchID:     "batch-1",
+		Attempt:     1,
+		FailureKind: types.FailureKindTestsFailed,
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StagePlan,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"dry_run": true,
+		"verification_probe": map[string]any{
+			"id":       "current_worktree_contract",
+			"language": "python",
+			"code":     "assert True\n",
+		},
+	}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("passing replan probe should succeed: %+v", result)
+	}
+	for _, want := range []string{"Typed replan disposition", "changes: []", types.PlanStatusNoChangeRequired, "do not re-edit paths from the applied plan"} {
+		if !strings.Contains(result.Summary, want) {
+			t.Fatalf("passing probe guidance missing %q: %s", want, result.Summary)
+		}
+	}
+}
+
 func TestRunTestsRejectsSuiteWithEmbeddedCLIFlags(t *testing.T) {
 	mu := types.NewMutableState("suite flag rejection")
 	ctx := &types.BusContext{Mutable: mu}

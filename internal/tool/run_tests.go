@@ -430,6 +430,9 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			if excerpt := verificationProbeInlineOutputExcerpt(probe.Output); excerpt != "" {
 				summary += "\nProbe output:\n" + excerpt
 			}
+			if qualification := qualifyNoChangeReplanForCurrentState(ctx); qualification.Allowed {
+				summary += "\nTyped replan disposition: this probe passed against the already-applied worktree. Emit changes: [] to record status=" + types.PlanStatusNoChangeRequired + "; do not re-edit paths from the applied plan unless a newer typed probe demonstrates a distinct remaining failure on that path."
+			}
 		}
 		return types.ToolResult{
 			ToolName:   t.Name(),

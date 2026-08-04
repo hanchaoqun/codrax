@@ -12678,3 +12678,90 @@ unverified。第二轮没有可能凭现有 typed 状态增加证据，却额外
 - `eval/parallel_selected_summary_evalcampaign_b61_writetrace_r9_20260803.md`；
 - `eval/parallel_selected_summary_evalcampaign_b61_writetrace_r9_20260803_manual_audit.md`；
 - result dirs：`eval/results/*-20260803-214048`。
+
+## 63. 2026-08-03 B62 r10：通过探针后的同路径重改安全闸与无向端点成文债
+
+在 `main@4e7ddf3df` 重建后严格并行 2 例：
+
+- `qf_sequence_analyzer_gate`：runner PASS / human FAIL，369s，Explorer 16 轮、investigation 7/2、
+  finalizer reject=1；
+- `github_issue_memoclaw_text_search_multirepo_ts`：runner/human FAIL，378s，最终
+  `unverified:verification_incomplete`，且第二个 plan 把原本正确的 TypeScript 文件改坏。
+
+### B62 replay：稳定不可用的原样补证抑制没有误伤本轮新证据
+
+r10 的写例不是 `EVAL-B62-PROOFRETRY1` 已修的“同一 runner_missing 探针原样重跑”。首个 plan 的 Python
+probe 因错误相对路径在 assertion 前失败；replan planner 随后读取当前已应用文件，并运行一个新的 typed probe，
+该 probe 在 22:03:32 对当前 worktree 成功。这是新信息，控制器允许 replan 是正确的；真正的安全洞出现在成功
+probe 之后仍允许对已应用同路径继续盲改。因此上一批 precise conjunction 保持不变，没有为追求 PASS 扩成宽泛
+“失败后不再补证”门。
+
+### EVAL-B63-REPLANPASS1（P0/write-safety）：最新 typed probe 已通过，协议仍接受已应用同路径二次破坏
+
+确定性复现链：
+
+1. 首个 plan 正确把 `src/client.ts::textSearch` 改为 `POST /v1/search + JSON body`；
+2. planner 自带 Python probe 从 worktree root 调用 `../tests/check_search_client.py`，路径不存在，verify 以
+   `tests_failed` 进入 replan；这是 probe authoring/path 问题，不是源码断言失败；
+3. replan planner 重新读取 `src/client.ts`、测试和 API 参考，明确识别当前代码已经正确，并运行新的 bounded
+   typed probe；该 probe 对当前 worktree 全部通过；
+4. 仓内已有 `changes: [] / status=no_change_required` sentinel，但同一轮 tool result 没有明确给出 disposition，
+   shared plan validator 也没有阻止新的非空同路径 change；
+5. 模型先发 stale raw patch、再发被 micro scope 拒绝的 whole-file modify，最终用无 `old_text` 的行区间 replace
+   只替换到原方法第一个闭括号；现有后缀 `return res.json(); }` 被保留，形成重复 return 和两个多余 `}`；
+6. 当前环境没有 Node/tsc，第二个 Python source-scan probe 虽通过，却没有 typed changed-symbol / behavior-contract
+   authority；验证诚实停在 incomplete，但损坏字节已经成为第二个 applied plan。
+
+本批按 typed workflow protocol 根修：
+
+1. 新增共享 `qualifyNoChangeReplanForCurrentState`，只消费 `VerifyFailureHandoff`、当前 prior plan、
+   `PlanStageProbeReports` 和 `RequireAppliedWork=true`；不扫描 request、plan summary、probe code、thinking 或答案；
+2. 当 shared qualifier 判定“最新 bounded planner probe 已对已应用 worktree 全通过”时，shared full-content
+   validator 拒绝新 plan 对 prior plan **唯一已应用路径**的二次 mutation；多文件 prior plan 只保护 latest
+   planner report 以 `ChangedPathCoverage=covered` 精确绑定的 applied path，未绑定路径 fail-open，避免一个窄 probe
+   冻结整个 plan。typed reason 为
+   `replan_passing_probe_applied_path_mutation`，并要求发既有 `changes: [] / no_change_required`；
+3. 只封闭同路径：不同路径仍可用于独立测试/配套修复；如果确有同路径剩余缺陷，planner 先运行一个更新的
+   failing typed probe，latest-report 规则会重新开放修改；没有 typed applied work 时也 fail-open；
+4. `run_tests` 在同轮刚写入 passing planner-probe report 后立即用同一 qualifier 给软指引，避免模型先撞三种
+   payload 拒绝；hard validator 与 tool guidance 共用一个判据，禁止再造矛盾合同；
+5. 作为 compiler-unavailable 的第二道独立安全网，shared full-content seam 对 brace-family 源码比较 current 与
+   planned bytes 的词法定界符栈。只有 current 可判定且平衡、planned 可判定且新失衡时硬拒绝；字符串、转义、
+   triple/raw string、嵌套注释、JS regex 走词法跳过，任何未知/歧义形 fail-open。编译器/linter 仍是更强权威，
+   legacy 本来不平衡的文件不被该兜底接管。
+
+回归覆盖：同路径拒绝、不同路径放行、latest failing probe 重开、无 applied work 不触发、shared
+full-content 接线 reason pin、r10 重复 return/多余 brace 形、字面量/注释/regex 负臂、legacy/lexical-unknown
+fail-open，以及 Go/Java/Kotlin/Rust/Swift/JS/TS/ArkTS/Cangjie/C/C++ 等 brace-family 扩展矩阵。`go test
+./internal/tool -count=1` 全绿（158.832s）。
+
+状态：`EVAL-B63-REPLANPASS1 = implemented / full-tool-pass / replay-next`。本批不修改 Trace query、显式
+时间窗、Trace 因果投影、系统补采、read-mode finalizer 或模型答案发布所有权。
+
+### EVAL-B63-NOPATHFINAL1（P0/open）：无向端点已 typed 冻结，成文与系统清单仍重建伪链
+
+QF r10 的源码事实与 r7/r8 一致：
+
+- `buildAnalysisIR -> gate.RunWith @ analyzer.go:2666`；
+- `gate.Run -> RunWith @ gate.go:135`；
+- 因而不存在用户请求方向 `buildAnalysisIR -> gate.Run`。
+
+Explorer 最终已经接受 `principal_span_waiver=no_directed_path`，finalizer 首稿却画出
+`gate.RunWith -> gate.Run`。call-edge hard gate 正确拒绝这条图边，patch 也删除了它；但 patch 的 unchanged summary
+仍声称 “RunWith 内部调用 Run”，系统追加的两个 enumeration/principal roster 区块也继续把 `gate.Run` 放进
+“buildAnalysisIR 到 gate.Run 的调用链”。因此 runner 的 answer regex 签绿，人工必须判 FAIL。
+
+这不是再加答案关键词扫描门的理由。下一批应统一收窄 typed 投影：把 accepted
+`no_directed_path` 的 source endpoint、requested sink、nearest reachable endpoint、reverse-only sibling edge 分别
+作为 finalizer context 和系统 enumeration 的结构字段；reachable member roster 只能消费 source→nearest 的有向
+成员集，请求但不可达的 sink 只能出现在 boundary/disposition 行，不能被 roster 标成链成员。模型正文继续由模型
+负责，系统只提供精确上下文和可满足的结构合同，不删除或代写结论。另需增加 system-supplement 接线 pin，避免只
+修 prompt 而自动追加区块继续伪造连接。
+
+状态：`EVAL-B63-NOPATHFINAL1 = confirmed / P0 / next-batch`。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b62_callwrite_r10_20260803.md`；
+- `eval/parallel_selected_summary_evalcampaign_b62_callwrite_r10_20260803_manual_audit.md`；
+- result dirs：`eval/results/*-20260803-215948`。
