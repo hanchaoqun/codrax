@@ -13882,3 +13882,49 @@ contribution、自动 status block、compute phantom-param 合同。验证：定
 `go test ./internal/dataquery ./internal/dataworkflow ./internal/repl -count=1` 全绿。状态：
 `EVAL-B76-DATAPARAM1=qualify-family implemented/replay-next`；其他 action family 的参数消费清册仍为
 `B76-C=open`，未以本批局部覆盖冒充全仓闭环。
+
+## 79. 2026-08-04 B77 r3：资格参数根修回放闭环；DAG rank 上下文仍制造失败边
+
+在 `main@b91dd9c3e` 构建后严格并行两个异构 data 案例，runner 2/2 PASS，人工审计 2/2 PASS：
+
+- `data_multifile_reference_projection`：297s，最终 `17,0,5`；
+- `data_join_entity_reconcile`：175s，最终 `30`。
+
+### EVAL-B77-DATAPARAM1（closed for qualify family）：静默 filter no-op 已转为真实消费
+
+主案的资格决策不再包含 inactive r3：决策/贡献链最终为 rules=9、decisions=9、contributions=4、reconcile=pass，
+GroupA 恢复 10+7=17。reference-complete projection 随后按 targets 顺序发射 GroupA、GroupX、GroupC，补零并丢弃
+reference 外 GroupB，终稿精确为 `17,0,5`。全程没有 unknown-param 或 alias-conflict 误报。
+
+异构案完整经过 derive-rules→normalize-entities→join/derive/filter→compute→reconcile→assemble，最终两条 Alpha
+贡献 20+10、实体归一 3 条、决策 5 条、输出 `30`。这证明 dispatcher 上的 contract 没有越界套到其他 action family，
+也没有读取业务名、规则文本或答案数字硬化结论。
+
+### EVAL-B77-DAGCTX1（P1/confirmed）：typed stage 存在，但 planner 仍频繁构造未来 rank
+
+两案都完成正确，却同为 9 rounds/2 repairs；主案记录 5 个失败边，归一案记录 3 个。唯一错误集合显示为通用 DAG
+规划问题，而非计算值问题：
+
+1. 在 typed action 可用时仍生成无 script 的 `custom_transform`；
+2. `join_records` 明确最多两个输入，候选却携带三个 input paths；
+3. current `next_stage` 仍在 material/rule/entity/decision rank 时，同一 batch 提前加入 compute、reconcile 或 final action；
+4. resolution ledger 的 source lineage 与待 apply base lineage 不兼容；
+5. 主案首次 assemble 仍省略 complete-reference，但既有 grounding validator 确定性拒绝并由 repair 恢复。
+
+现有 hard guards 都正确 fail-closed，不应放松；问题是 model-facing typed scaffold 没有把“本轮可发的 action kind、每种 kind
+的输入基数/兼容 node class、当前 rank 的 terminal boundary”压缩成足够靠近 emit schema 的结构化候选，导致模型先发一个
+大计划再由 guard 拆。根修应从已有 `workflow_state_json.allowed_next_actions` 与 action schema registry 派生 bounded
+`action_candidates`，每项携带 `min/max_inputs`、compatible node classes 和 `same_rank_only=true`；作为精确上下文与软引导，
+最终 admission guard 继续保留。不得扫描 question/final prose，也不得自动替模型选择业务 action 或改答案。
+
+优先级保持 P1：本轮答案与审计 ledger 均正确，且错误集合跨两个异构案但仍可能包含模型波动。先完成 P0 的 B76-C
+parameter-consumption registry 清册，再以更多 data 异构回放判断候选 scaffold 的真实 ROI；若连续出现则施工。
+
+`EVAL-B76-DATAINPUT1` 本轮未再出现 workflow ledger 被当 record input，但没有代码修复，状态降为
+`adoption-watch`，不得据单轮波动收账。
+
+证据：
+
+- `eval/parallel_selected_summary_evalcampaign_b77_dataparam_r3_20260804.md`；
+- `eval/parallel_selected_summary_evalcampaign_b77_dataparam_r3_20260804_manual_audit.md`；
+- result dirs：`eval/results/*-20260804-062518`。
