@@ -16978,3 +16978,47 @@ hard-gate 权限，不放松 call-edge 证据门，也不让系统选择最终 c
 
 状态：`EVAL-B122-EXECGRAPH1-C1b=implemented/full-types-tool-pass`；
 `EVAL-B122-EXECGRAPH1-C3=replay-after-C1b`。
+
+### 123.13 B126 r44：后续精确读取未刷新 typed 关系，JSON 计划靠失败学习合同
+
+在 `main@8c7236b49` 冻结构建后，严格并行恰好两个异构 case：
+
+- `sr_py_registry_dispatch`：190s，runner PASS / human FAIL，context 20%，Explorer midloop=9，Finalizer reject=2；
+- `data_json_strict_ids`：71s，runner PASS / human PASS，最终工件字节形为 `{"ids":["u1","u3"]}`。
+
+Python 回放证明 B125 两项权限修复生效：未命名 sink 已转 discover，Required Blocks 不再硬要 diagram，耗时由
+469s 降至 190s，reject 由 5 降至 2。但最终答案仍把实际
+`TimestampMixin -> ValidationMixin -> BasePlugin` 的运行 MRO 反写，并用无关的 `runner.py:21` 支撑
+`plugin.handle`。这次不能归为纯模型波动：Explorer 后续已经完整读取 decorated `JsonPlugin`，而交给 Finalizer 的
+deterministic relation capsule 只有较早已读 line 9 的 `CsvPlugin -> ValidationMixin`，缺 line 18 的全部 JsonPlugin
+继承关系。
+
+代码根因是 `getConcreteValuesCached` 的权限生命周期错误：`repomap_structural_relation` 正确要求 relation 的精确行
+已进入 `EvidenceClosure`，但 concrete-values 结果在早期构造后无条件缓存到本次 Execute 结束。文件级 `ReadSet` 早已
+包含 `pipeline/plugins.py`，后来 `read_file` 扩大行范围不会刷新缓存，于是新获得的 typed 权威静默失效。这一机制
+影响统一 graph consumer，可能跨 Python、Java、ArkTS/TypeScript、Cangjie、Rust、C/C++、Go 等所有产生结构 relation
+的语言，并非 Python/MRO 特判。
+
+本批 `EVAL-B126-RELREADSTALE1` 根修：
+
+1. concrete-values 缓存绑定规范化文件集合与 `EvidenceClosure.ReadRangesSnapshot()` 的精确范围键；
+2. 后续读取扩大任一行范围时重新运行 read-gated deterministic producers；范围不变时继续复用，避免退化为每次重建；
+3. 不改变 relation 的 AST/parser provenance、exact-line、typed endpoint 等准入门，不以 rank/confidence 噪声放宽权限；
+4. 回归先只读 line 1..10，确认只见 CsvPlugin；再把同文件扩大到 line 23，确认同一个 evaluator 刷新并交付
+   `JsonPlugin -> TimestampMixin`。该测试直接锁住“文件已在 readSet、只有行范围变化”的真实失效形。
+
+Data/JSON 答案本身正确且严格，无 fence、无解释 prose、无畸形 JSON；但过程日志暴露两个被 runner 摘要漏掉的修复轮：
+初始计划未消费 required `instructions.md`，第一次 repair 又生成了无 `script` 的 `custom_transform`。这说明系统让模型
+通过错误反馈串行学习两个本可由初始 typed 合同一次说明的执行不变量，增加心智与延迟。记为
+`EVAL-B126-DATAJSONPLAN1=confirmed/P1-next`；最优方向是让初始 plan schema/教学同时表达 required material 消费闭包与
+action-kind 条件字段，而不是放宽执行校验或扫描模型文本兜底。
+
+可选 diagram 仍造成两次 Finalizer reject 后被模型删除；由于当前已是软建议且最终可恢复，暂按教学压缩/模型波动观察，
+不新增图形关键词硬门。显式时间窗 Trace、因果投影、系统自动补齐、两维根因和可消除量未改动。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b126_authority_replay_r44_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b126_authority_replay_r44_20260805_manual_audit.md`。
+
+状态：`EVAL-B126-RELREADSTALE1=implemented/targeted+full-agent-pass`；
+`EVAL-B126-DATAJSONPLAN1=confirmed/P1-next`；
+`EVAL-B122-EXECGRAPH1-C3=observe-after-authority-fixes`。

@@ -117,18 +117,19 @@ type explorerEvaluator struct {
 	// multi-path symbol-anchored skip (applyMultiPathAnchorChecks
 	// → multipath.EvaluateAnchor) — both stages must agree on what
 	// an orientation question is.
-	isOrientationQuery         bool
-	phase0ExtraRound           bool // whether we already gave one extra Phase 0 round for quality gate
-	hasPrescanRepoMap          bool // keywordSearch (run at BuildInitialInstruction) produced a ranked file list via repo_map; the Phase 0 quality gate treats this as satisfying the structural-discovery half of its requirement, so the LLM isn't penalized for not re-running repo_map at iter=0
-	structuredEvidence         []types.EvidenceItem
-	flowFindings               []types.FlowFindingDigest
-	ermRequirements            []EvidenceRequirement // evidence requirement model
-	cachedConcreteValues       *concreteValuesResult // T1.1: built once per Execute, reused by gate + synthesis
-	midLoopLastResultsLen      int                   // #34: allResults length at prev observeMidLoop call (used to infer current batch size)
-	midLoopSerialStreak        int                   // #34: consecutive iters observed as single-call rounds
-	midLoopParallelInjected    bool                  // #34: parallel-batching hint already pushed this dispatch
-	midLoopSymbolRefInjected   bool                  // T3b: cross-file-symbol-reference hint already pushed this dispatch
-	midLoopPostPrimaryInjected bool                  // one-shot: immediate "keep using tools after the first anchor read" hint already pushed this dispatch
+	isOrientationQuery              bool
+	phase0ExtraRound                bool // whether we already gave one extra Phase 0 round for quality gate
+	hasPrescanRepoMap               bool // keywordSearch (run at BuildInitialInstruction) produced a ranked file list via repo_map; the Phase 0 quality gate treats this as satisfying the structural-discovery half of its requirement, so the LLM isn't penalized for not re-running repo_map at iter=0
+	structuredEvidence              []types.EvidenceItem
+	flowFindings                    []types.FlowFindingDigest
+	ermRequirements                 []EvidenceRequirement // evidence requirement model
+	cachedConcreteValues            *concreteValuesResult // T1.1: reused while its exact read-coverage key is unchanged
+	cachedConcreteValuesCoverageKey string                // file + line-range authority used by read-gated deterministic producers
+	midLoopLastResultsLen           int                   // #34: allResults length at prev observeMidLoop call (used to infer current batch size)
+	midLoopSerialStreak             int                   // #34: consecutive iters observed as single-call rounds
+	midLoopParallelInjected         bool                  // #34: parallel-batching hint already pushed this dispatch
+	midLoopSymbolRefInjected        bool                  // T3b: cross-file-symbol-reference hint already pushed this dispatch
+	midLoopPostPrimaryInjected      bool                  // one-shot: immediate "keep using tools after the first anchor read" hint already pushed this dispatch
 	// midLoopBudgetExhaustedSent (2026-05-10 Fix B) tracks the
 	// per-tool one-shot budget-exhausted nudge. The 2026-05-10 sweep
 	// digest forensic on s5b iter=2 exposed the waste: a 6-call
@@ -752,6 +753,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.structuredEvidence = nil
 	e.flowFindings = nil
 	e.cachedConcreteValues = nil
+	e.cachedConcreteValuesCoverageKey = ""
 	e.primaryEntitiesRegistrationShape = false
 	e.requiredFileHints = nil
 	e.irrelevantFilesSet = nil
@@ -13873,11 +13875,14 @@ type chainAnchorInfo struct {
 	Origin    string // "concrete_values_tracer", "bridge_literal", "hierarchy"
 }
 
-// getConcreteValuesCached builds concrete values once per Execute and
-// caches the result for reuse by both the dataflow-skip gate (T1.1) and
-// the SynthesisPrompt section. Subsequent calls return the cached value
-// regardless of readSet drift; this is safe because both call sites run
-// near the end of the loop with effectively the same toolResults.
+// getConcreteValuesCached reuses concrete values only while the exact typed
+// read coverage is unchanged. Most concrete-value producers depend only on
+// the repo graph, but declared-type relations are deliberately read-gated at
+// the relation line. A later read_file can therefore authorize additional
+// inheritance/embedding rows even when the same file was already present in
+// the coarse file-level ReadSet. Caching across that range change freezes a
+// stale authority snapshot and withholds precisely the rows the later read
+// established.
 //
 // closure (CGEC) is optional. When non-nil the cached unfiltered
 // result is run through applyChainPromotion: chains anchored outside
@@ -13901,17 +13906,52 @@ func (e *explorerEvaluator) getConcreteValuesCached(ctx context.Context, repoRoo
 	if ctx == nil {
 		ctx = context.TODO()
 	}
-	if e.cachedConcreteValues == nil {
+	coverageKey := concreteValuesReadCoverageKey(readSet, closure)
+	if e.cachedConcreteValues == nil || e.cachedConcreteValuesCoverageKey != coverageKey {
 		r := e.buildConcreteValuesSection(ctx, repoRoot, readSet, closure)
 		if ctx.Err() != nil {
 			return r
 		}
 		e.cachedConcreteValues = &r
+		e.cachedConcreteValuesCoverageKey = coverageKey
 	}
 	if closure == nil {
 		return *e.cachedConcreteValues
 	}
 	return applyChainPromotion(*e.cachedConcreteValues, readSet, closure, repoRoot, e.answerSubject.Confidence, e.pendingSubRepos)
+}
+
+func concreteValuesReadCoverageKey(readSet map[string]bool, closure *types.EvidenceClosure) string {
+	files := make([]string, 0, len(readSet))
+	for file, read := range readSet {
+		if read {
+			files = append(files, canonicalExplorerPath(file))
+		}
+	}
+	sort.Strings(files)
+	var b strings.Builder
+	for _, file := range files {
+		b.WriteString(file)
+		b.WriteByte('\n')
+	}
+	if closure == nil {
+		return b.String()
+	}
+	ranges := closure.ReadRangesSnapshot()
+	rangeFiles := make([]string, 0, len(ranges))
+	for file := range ranges {
+		rangeFiles = append(rangeFiles, file)
+	}
+	sort.Strings(rangeFiles)
+	for _, file := range rangeFiles {
+		b.WriteString(file)
+		b.WriteByte(':')
+		for _, lineRange := range ranges[file] {
+			fmt.Fprintf(&b, "%d-%d,", lineRange.Start, lineRange.End)
+		}
+		b.WriteByte('\n')
+	}
+	return b.String()
 }
 
 // applyChainPromotion is the CGEC chain-promotion enforcer. Given an

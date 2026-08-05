@@ -93,6 +93,44 @@ func TestBuildRuntimeTargetStructuralRelations_RequiresExactReadLine(t *testing.
 	}
 }
 
+func TestGetConcreteValuesCached_RebuildsWhenExactReadCoverageExpands(t *testing.T) {
+	file := &repotypes.FileInfo{
+		RelPath:  "pipeline/plugins.py",
+		Language: repotypes.LangPython,
+		Relations: []repotypes.Relation{
+			{Kind: "inheritance", FromEP: repotypes.RelationEndpoint{Name: "CsvPlugin"}, ToEP: repotypes.RelationEndpoint{Name: "ValidationMixin"}, File: "pipeline/plugins.py", Line: 9, Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "python_base_class"},
+			{Kind: "inheritance", FromEP: repotypes.RelationEndpoint{Name: "JsonPlugin"}, ToEP: repotypes.RelationEndpoint{Name: "TimestampMixin"}, File: "pipeline/plugins.py", Line: 18, Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "python_base_class"},
+		},
+	}
+	repoRoot := t.TempDir()
+	graph := repomap.BuildGraph(repoRoot, []*repotypes.FileInfo{file})
+	eval := runtimeTargetRelationEvaluator(graph)
+	closure := types.NewEvidenceClosure("")
+	readSet := map[string]bool{"pipeline/plugins.py": true}
+	closure.SetReadSet(readSet)
+	closure.AddReadRanges(map[string][]types.LineRange{"pipeline/plugins.py": {{Start: 1, End: 10}}})
+
+	first := eval.getConcreteValuesCached(context.Background(), repoRoot, readSet, closure)
+	if len(first.evidence) != 1 || first.evidence[0].Subject != "CsvPlugin" {
+		t.Fatalf("initial partial coverage should expose only CsvPlugin: %+v", first.evidence)
+	}
+
+	closure.AddReadRanges(map[string][]types.LineRange{"pipeline/plugins.py": {{Start: 11, End: 23}}})
+	second := eval.getConcreteValuesCached(context.Background(), repoRoot, readSet, closure)
+	if len(second.evidence) != 2 {
+		t.Fatalf("expanded exact coverage must invalidate stale relation cache: %+v", second.evidence)
+	}
+	foundJSON := false
+	for _, item := range second.evidence {
+		if item.Subject == "JsonPlugin" && item.Object == "TimestampMixin" {
+			foundJSON = true
+		}
+	}
+	if !foundJSON {
+		t.Fatalf("newly read JsonPlugin relation missing after cache rebuild: %+v", second.evidence)
+	}
+}
+
 func TestBuildRuntimeTargetStructuralRelations_InactiveForUnrelatedQuestion(t *testing.T) {
 	graph := repomap.BuildGraph(t.TempDir(), []*repotypes.FileInfo{{
 		RelPath:   "x.go",
