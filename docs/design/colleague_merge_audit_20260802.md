@@ -2315,3 +2315,20 @@ B97-B 已交付：selected graph 的执行 `scope` 与 repo-root `QueryPathScope
 精确路径边界把执行坐标转为 `.`/suffix，再由既有 rebase 把 typed provenance 恢复到 workspace 根；root、已相对值、前缀碰撞和未获 analyzer
 provenance 的范围均不变。生产同形证明 observation 与 complete lens 都保留 exact requested path，prescan 可继续铸 request-bound authority。
 完整 repomap/types/agent/orchestrator/tool 全绿（2.198s/19.794s/3.019s/14.221s/171.294s）。状态：`implemented/full-pass/replay-next`。
+
+### §10.35 B98 production：B97 修复生效，确认两个新 P0 与一个 P1
+
+`main@7fd42889d` 严格并行两个 read case 后，sequence runner PASS/human FAIL（231s），inventory runner/human FAIL（572s，4 次成文拒绝并降级）。
+详细工件、日志证据和方案见 eval campaign §102。
+
+- B97-B requested path coordinate 已闭环：bounded inventory 不再扩散为 repo-wide debt，15 次 lens 降为 6 次，并正确获得 3/5/30 production roster；
+- B97-A endpoint existence admission 已生效：未读 `gate.Run` 时 completion 被拒，读取并发射 exact definition 后才接受 no-path；但 wrapper
+  `gate.Run -> RunWith` 未作为 call edge 发射，最终答案仍写反方向，故新增 P1 `EVAL-B98-ENDPOINTTOPOLOGY1`；
+- 新 P0 `EVAL-B98-SCOPEAGGREGATE1`：test-only model aggregate 与 production canonical row keys 不相交，现投影把它当独立 principal family 保留，
+  导致 typed hard gate 强迫生产公开 API 答案加入 51 个测试函数；
+- 新 P0 `EVAL-B98-REPAIRSHAPE1`：成员覆盖硬门需要 principal surface + enumeration facet + member identity + row-local citation，但修复提示只披露
+  label/cell，且 roster 的集合 `label` 容易被误读为 item label；模型四轮无法构造满足合同的载体。
+
+优先顺序为范围外 aggregate typed 降级 → 让硬门完整披露自身 schema recipe → endpoint-local topology typed debt。所有判定仅消费 request profile、
+source class、support refs、call edges/read coverage 等 typed carrier，不扫描 request/think/final prose，不让系统代写结论，不触碰 RootCauseTrace、
+显式时间窗、双轴根因、因果投影或自动补齐。

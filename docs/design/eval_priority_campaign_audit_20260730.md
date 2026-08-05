@@ -15410,3 +15410,66 @@ RequiredFiles、模型 rationale 不能自行铸边界。生产同形、嵌套/�
 repo-wide policy 定向 pin 通过；完整 `internal/tool/repomap`（2.198s）、`internal/types`（19.794s）、`internal/agent`（3.019s）、
 `internal/orchestrator`（14.221s）、`internal/tool`（171.294s）全绿。状态：
 `EVAL-B97-REQUESTBOUNDARY1=implemented/full-pass/replay-next`。
+
+## 102. 2026-08-05 B98 r24：请求边界闭环；范围外 aggregate 与修复载体合同成为新 P0
+
+### 102.1 严格双并发与人工结论
+
+在 `main@7fd42889d` 构建并冻结二进制后，严格并行恰好两个 read case：
+
+- `qf_sequence_analyzer_gate`：runner PASS / human FAIL，231s，13 个 Explorer 轮、6 次 read、3 次 completion、2 次 Finalizer reject，最大 context 25%；
+- `qf_multi_member_set_count_caveat`：runner FAIL / human FAIL，572s，12 个 Explorer 轮、6 次 source lens、4 次 Finalizer reject，最大 context 35%，最终走 degraded answer。
+
+工件见 `eval/parallel_selected_summary_evalcampaign_b98_b97_replay_r24_20260805.md` 及对应 manual audit。runner 对 sequence 仍只核验名称/图形，未核验
+wrapper 方向，故 PASS 是假绿。本轮没有运行 Trace；以下方案不得改变 RootCauseTrace、显式时间窗、双轴根因、因果投影、自动补齐或模型结论所有权。
+
+### 102.2 B97 生产验收
+
+`EVAL-B97-REQUESTBOUNDARY1` 获得 production close：Analyzer 虽仍提交 `path=scope=internal/analysis/criterion`，tool 已把 execution scope 规范为
+selected-root 的 `.`，同时保留 repo-root `QueryPathScopes=internal/analysis/criterion`。Explorer 不再被强制转向全仓，6 次 bounded lens 就取得
+3 types、5 production functions、30 Kind constants，并读取唯一 const block。旧 15-lens/root-debt 扩散未复发。
+
+`EVAL-B97-CALLENDPOINTPROOF1` 获得 admission 正证：第一次 completion 因 exact `gate.Run` 未证被拒，Explorer 随后读取
+`internal/analysis/gate/gate.go` 并发射 definition，两端存在后 `no_directed_path` 才获准关闭。它仍未闭环最终正确性：已读源码明确是
+`gate.Run -> RunWith`，但 Explorer 没把该 wrapper call 发成 `ClaimCallEdge`，finalizer capsule 因而只有 source-side frontier；答案把方向写成
+`RunWith -> gate.Run`，并把 `buildAnalysisIR` 的同层直调步骤误称为相互调用的线性链。
+
+### 102.3 `EVAL-B98-SCOPEAGGREGATE1`（P0）：范围外模型集合绕过 principal row projection
+
+请求的 typed path boundary 与默认 production principal scope 都已成立。canonical source-inventory row set 正确只有 38 行；但 Explorer 额外发射
+`function 公开符号（测试代码）` 51 行并标为 `principal_answer`。`ProjectSourceInventoryPrincipalRowSetAggregateFacts` 只降级与 canonical row key 有
+交集但不完整的集合；这个 test-only 集合与 production keys 完全不相交，因而被当作“另一个 principal family”保留。Finalizer 第一稿明确只列
+5 个 production function，系统却把 51 个测试函数加入硬 obligation，直接违反 typed principal scope。
+
+根修必须只消费 `SourceInventoryPrincipalRowSet.PrincipalScope`、每个 aggregate 的 row-local `support_refs` 与共享 source-class classifier：当一个
+model-emitted principal member set 的全部可定位成员都确定落在当前 principal scope 外，且没有任何 in-scope 成员时，将其降为
+`supporting_coverage`；混合、缺位置、unknown class、显式 all/test/auxiliary scope一律 fail-closed，不得从 label、request 或答案词面判断。实现应覆盖
+Go `_test.go`、Java/Kotlin test roots、Rust tests、ArkTS/Cangjie fixture/corpus 等共享 source-class taxonomy，而非按语言特判。
+
+### 102.4 `EVAL-B98-REPAIRSHAPE1`（P0）：硬修复提示遗漏自身的结构前提
+
+第一次成文已把 38 个正确成员放入 section items，但这些 section 没有 `surface_role=principal`；硬覆盖计算因此正确判为未覆盖。拒绝提示却只说
+“放到 `items[].label/cells`”，roster 又用 `label=<set label>, member=<member>` 展示上下文，没有明确：
+
+1. 承载 block 必须是 `surface_role=principal`；
+2. block 必须携带 enumeration facet/claim use；
+3. item label 或 table cell 才承载逐字 member identity；
+4. `label=` 在 roster 中是集合标签，不是要求复制到每个 item 的 label；
+5. 每行必须引用 compatible row-local citation。
+
+模型第二轮其实把 member 放进 item label，但仍漏 principal surface；第三、四轮被模糊提示误导，把集合 label 复制进每一项，连续四次失败后降级。
+最小根修是让 hard gate 从自身 typed obligation 生成一份无歧义的 schema recipe，并加生产同形 pin：首轮缺 principal surface 后，提示必须完整列出
+上述五项；按提示构造一次即通过。提示是 soft repair context，不能改变成员事实，也不能扫描模型原文。
+
+### 102.5 `EVAL-B98-ENDPOINTTOPOLOGY1`（P1）：端点存在已证，但端点局部真实边没有进入胶囊
+
+existence proof 允许 definition 证明叶端点存在，这是正确的；但本案 exact sink 的 definition body 本身就是 wrapper call。Explorer 已读取该行域，
+却只发射 definition，未发射 `gate.Run -> RunWith`。系统不能从 definition 或 waiver rationale 猜造 call edge，也不能扫描答案纠错，因此 finalizer 对
+wrapper 方向缺少 typed authority。
+
+后续最优方案是新增 endpoint-inspection 的 typed completion debt：当 no-path 端点仅由 definition 证明时，要求端点局部拓扑被显式处置为有限枚举
+（至少一条 grounded outgoing/incoming boundary edge，或 typed `no_local_call_edge_observed` 且有精确 read coverage）。真实边仍只能来自
+`ClaimCallEdge`；系统不根据源码文本自行生成结论。先做多语言 wrapper/isolated leaf/overload/virtual dispatch 异构 pin，再决定是否升级 P0。
+
+施工顺序冻结为 B98-A `SCOPEAGGREGATE1` → B98-B `REPAIRSHAPE1` → B98-C `ENDPOINTTOPOLOGY1`。前两批为确定性 P0，各自独立测试、文档、提交、
+推送；B98-C 先以 typed soft guidance/债务与异构测试落地，不得新增依赖答案词面的 hard gate。三批均保持模型答案所有权与 Trace 权限隔离。
