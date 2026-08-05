@@ -35,6 +35,7 @@ func compileEnumeration(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemantic
 		ClaimAssignmentFact,
 		ClaimReturnFact,
 		ClaimImportEdge,
+		ClaimRegistrationEdge,
 		ClaimLiteralValueFact,
 		ClaimCallEdge,
 		// INODE (§28.6 ⑫, 2026-07-09): enumeration answers grounded in

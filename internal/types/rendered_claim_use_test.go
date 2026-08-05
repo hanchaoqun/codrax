@@ -122,6 +122,7 @@ func TestDiagramEdgeAnchor_HasTypedRelation(t *testing.T) {
 		{"typed precedence", &DiagramEdgeAnchor{RelationKind: DiagramRelPrecedence}, true},
 		{"typed contain", &DiagramEdgeAnchor{RelationKind: DiagramRelContain}, true},
 		{"typed observe", &DiagramEdgeAnchor{RelationKind: DiagramRelObserve}, true},
+		{"typed register", &DiagramEdgeAnchor{RelationKind: DiagramRelRegister}, true},
 		// Bogus relation kind → IsValid()=false → not typed.
 		{"bogus relation kind", &DiagramEdgeAnchor{RelationKind: DiagramRelationKind("foo")}, false},
 	}

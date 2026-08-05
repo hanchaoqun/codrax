@@ -54,20 +54,20 @@ func TestPreCheckRuntimeTraceModelPrincipalFloorProtectsModelConclusionOwnership
 		t.Fatalf("one required model principal block must satisfy the ownership floor: %+v", got)
 	}
 
-	nonTrace := *ctx
+	nonTrace := ctx.ShallowClone()
 	nonTrace.ToolResults = []types.ToolResult{{ToolName: "read_file", Success: true}}
-	if got := preCheckRuntimeTraceModelPrincipalFloor(caveatOnly, view, newPreEmitCheckContext(&nonTrace)); len(got) != 0 {
+	if got := preCheckRuntimeTraceModelPrincipalFloor(caveatOnly, view, newPreEmitCheckContext(nonTrace)); len(got) != 0 {
 		t.Fatalf("non-trace answer must retain the ordinary advisory block policy: %+v", got)
 	}
 
-	bounded := *ctx
+	bounded := ctx.ShallowClone()
 	bounded.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
 		Intent: types.IntentRootCause,
 		RuntimeQuestionProfile: &types.RuntimeQuestionProfile{
 			Scope: types.RuntimeQuestionScopeBoundedFactSet,
 		},
 	}}
-	if got := preCheckRuntimeTraceModelPrincipalFloor(caveatOnly, view, newPreEmitCheckContext(&bounded)); len(got) != 0 {
+	if got := preCheckRuntimeTraceModelPrincipalFloor(caveatOnly, view, newPreEmitCheckContext(bounded)); len(got) != 0 {
 		t.Fatalf("bounded trace fact request must not be widened by the full-report ownership floor: %+v", got)
 	}
 }

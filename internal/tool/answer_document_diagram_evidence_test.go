@@ -1065,6 +1065,37 @@ func TestDiagramCallEdgeEvidenceMismatches_CallDAGRespectsEveryTypedNonCallRelat
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_RegistrationRequiresExactTypedEvidence(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "binding", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramCallDAG, Language: "mermaid",
+			Body: "flowchart TD\n  M[_fastlex] --> W[py.tokenize_bytes]\n",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "M", ToNode: "W", RelationKind: types.DiagramRelRegister,
+			ClaimForm: types.ClaimRegistrationEdge,
+		}},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFCallChain}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, nil); len(got) != 1 || got[0].Issue != diagramRegistrationEdgeIssueNoEvidence {
+		t.Fatalf("unproved registration must fail closed: %+v", got)
+	}
+	evidence := []types.EvidenceItem{{
+		Kind: types.EvidenceRegistration, Subject: "_fastlex", Object: "py.tokenize_bytes",
+		Source: "src/lib.rs", LineStart: 47, AnchorKind: types.AnchorDefinition,
+		Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+	}}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) != 0 {
+		t.Fatalf("exact typed registration must authorize only the registration edge: %+v", got)
+	}
+	reversed := evidence[0]
+	reversed.Subject, reversed.Object = reversed.Object, reversed.Subject
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{reversed}); len(got) != 1 {
+		t.Fatalf("reverse registration must not authorize the edge: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_CallDAGUnanchoredControlEdgeStillFailsClosed(t *testing.T) {
 	doc := diagramEvidenceTestDoc("A", "B")
 	doc.Blocks[0].Diagram.Kind = types.DiagramCallDAG

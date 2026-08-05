@@ -26,6 +26,7 @@ func TestClaimFormForRelation_AllKinds(t *testing.T) {
 		{DiagramRelImport, ClaimImportEdge},
 		{DiagramRelPrecedence, ClaimPrecedenceRole},
 		{DiagramRelObserve, ClaimExternalObservation},
+		{DiagramRelRegister, ClaimRegistrationEdge},
 		{DiagramRelContain, ClaimUnknown}, // containment is block-level, not edge
 		{DiagramRelUnknown, ClaimUnknown},
 	}
@@ -46,6 +47,7 @@ func TestRelationForClaimForm_AllKinds(t *testing.T) {
 		{ClaimImportEdge, DiagramRelImport},
 		{ClaimPrecedenceRole, DiagramRelPrecedence},
 		{ClaimExternalObservation, DiagramRelObserve},
+		{ClaimRegistrationEdge, DiagramRelRegister},
 		{ClaimDefinitionFact, DiagramRelUnknown},
 		{ClaimTextReferenceFact, DiagramRelUnknown},
 		{ClaimUnknown, DiagramRelUnknown},
@@ -57,7 +59,8 @@ func TestRelationForClaimForm_AllKinds(t *testing.T) {
 	}
 }
 
-// 6 relations × 5 label forms (verbatim/keyword-with-context/uppercase/empty/no-match).
+// Legacy label-inferred relations × 5 label forms. Registration is deliberately
+// excluded because it is typed-only and label text cannot mint its authority.
 // Verifies the typed dictionary is the only signal — no fuzzy or
 // repo-specific matching leaks in.
 func TestInferRelationFromLabel_RelationGrid(t *testing.T) {
@@ -121,6 +124,12 @@ func TestInferRelationFromLabel_RelationGrid(t *testing.T) {
 					suite.rk, f.name, f.label, got, f.want)
 			}
 		}
+	}
+}
+
+func TestInferRelationFromLabel_DoesNotMintTypedRegistration(t *testing.T) {
+	if got := InferRelationFromLabel("register native wrapper"); got != DiagramRelUnknown {
+		t.Fatalf("registration labels must remain presentation-only, got %q", got)
 	}
 }
 

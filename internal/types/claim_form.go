@@ -1,5 +1,7 @@
 package types
 
+import "strings"
+
 // claim_form.go — Phase 0 of the Semantic Surface Contract rollout
 // (docs/design/semantic_surface_contract_phases.md §0).
 //
@@ -126,6 +128,12 @@ const (
 	// "package P calls Q at runtime" — that's ClaimCallEdge.
 	ClaimImportEdge ClaimForm = "import_edge"
 
+	// ClaimRegistrationEdge: a typed EvidenceRegistration record names both
+	// the registrar/binding surface and the registered target. Supports
+	// plugin/route/FFI/JNI/native-module/export binding edges without
+	// pretending that registration is a source-level invocation.
+	ClaimRegistrationEdge ClaimForm = "registration_edge"
+
 	// ClaimLiteralValueFact: evidence cites a source-code literal value.
 	// Supports "this exact tool name / route / config key / protocol value
 	// appears at this source line" without pretending the literal is a
@@ -151,6 +159,7 @@ var allClaimForms = []ClaimForm{
 	ClaimPrecedenceRole,
 	ClaimExternalObservation,
 	ClaimImportEdge,
+	ClaimRegistrationEdge,
 	ClaimLiteralValueFact,
 	ClaimTextReferenceFact,
 }
@@ -206,7 +215,7 @@ func (k ClaimLabelSurfaceKind) IsValid() bool {
 // falls through to ClaimLabelSurfaceUnknown.
 func (c ClaimForm) LabelSurfaceKind() ClaimLabelSurfaceKind {
 	switch c {
-	case ClaimDefinitionFact, ClaimCallEdge, ClaimGuardCondition,
+	case ClaimDefinitionFact, ClaimCallEdge, ClaimRegistrationEdge, ClaimGuardCondition,
 		ClaimAssignmentFact, ClaimReturnFact, ClaimAbsenceFact:
 		return ClaimLabelSurfaceSymbolLike
 	case ClaimImportEdge, ClaimLiteralValueFact, ClaimPrecedenceRole,
@@ -289,6 +298,13 @@ func ClaimFormOf(item EvidenceItem) ClaimForm {
 	if item.DiagramRole != EvidenceDiagramRoleUnknown &&
 		item.DiagramRole != EvidenceDiagramRoleDefault {
 		return ClaimPrecedenceRole
+	}
+
+	// A registration becomes an edge only when both typed endpoints are
+	// present. Sparse legacy registration rows remain definition/anchor facts;
+	// free-form summaries never mint a directed relation.
+	if item.Kind == EvidenceRegistration && strings.TrimSpace(item.Subject) != "" && strings.TrimSpace(item.Object) != "" {
+		return ClaimRegistrationEdge
 	}
 
 	// Priority 4: AnchorKind dispatch.

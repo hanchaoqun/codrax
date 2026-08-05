@@ -1612,6 +1612,7 @@ var answerDocClaimFormLabels = map[types.ClaimForm]string{
 	types.ClaimReturnFact:          "return-value citation",
 	types.ClaimCallEdge:            "call-edge citation",
 	types.ClaimImportEdge:          "import / dependency-edge citation",
+	types.ClaimRegistrationEdge:    "registration / binding-edge citation",
 	types.ClaimLiteralValueFact:    "source literal-value citation",
 	types.ClaimGuardCondition:      "guard / branch-condition citation",
 	types.ClaimPrecedenceRole:      "precedence-role citation",

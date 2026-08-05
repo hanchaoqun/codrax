@@ -285,7 +285,7 @@ func flowDiagramSupported(findings []FlowFindingDigest) bool {
 }
 
 func architectureDiagramSupported(evidence []EvidenceItem) bool {
-	return len(EvidenceDiagramNodes(evidence, 2)) >= 2 || len(evidenceDiagramEdges(evidence, 1, ClaimCallEdge, ClaimImportEdge)) > 0
+	return len(EvidenceDiagramNodes(evidence, 2)) >= 2 || len(evidenceDiagramEdges(evidence, 1, ClaimCallEdge, ClaimImportEdge, ClaimRegistrationEdge)) > 0
 }
 
 func evidenceCallDiagramSupported(evidence []EvidenceItem) bool {

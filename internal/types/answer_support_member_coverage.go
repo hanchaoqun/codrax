@@ -227,7 +227,7 @@ func principalSupportEntryRequiresMemberCoverage(entry AnswerSupportEntry) bool 
 	switch entry.ClaimForm {
 	case ClaimDefinitionFact, ClaimCallEdge, ClaimGuardCondition,
 		ClaimAssignmentFact, ClaimReturnFact, ClaimPrecedenceRole,
-		ClaimExternalObservation, ClaimImportEdge:
+		ClaimExternalObservation, ClaimImportEdge, ClaimRegistrationEdge:
 		return true
 	case ClaimUnknown:
 		if supportEntryIsAggregateMemberSet(entry) {

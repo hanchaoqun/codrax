@@ -16558,3 +16558,40 @@ PyO3、文件路径或函数名，而是恢复语言解析器已经拥有的词�
 下一小批 B122-B 处理 binding/export/registration 的 typed 非调用关系表达：注册边必须保持
 注册关系，不能为了画连续调用图伪造成 call；同时审计所有支持语言的关系 carrier 与图层
 能力，继续保持 call-edge hard authority 和模型结论所有权。
+
+### 122.3 B122-B：typed registration edge（已施工）
+
+跨语言审计确认：已有 `EvidenceRegistration` 与 relation provider 能表达 registry、route、
+plugin、FFI/JNI/native-module 等绑定，但 `ClaimFormOf` 只按 anchor 把它降成
+`definition_fact`，diagram relation enum 又只有 call/import/guard/contain/observe/precedence。
+结果是同一注册事实无法成为可校验的图边；模型只能写 `Note over`、删除边，或错误把绑定画成
+source-level call。该 GAP 位于共享语义层，不属于 Java、Rust、ArkTS、Cangjie 或任一框架特例。
+
+通用修复：
+
+1. 新增 `ClaimRegistrationEdge`。只有 `EvidenceRegistration` 同时携带非空 typed
+   `Subject + Object` 时才投影成注册边；稀疏旧行继续按 anchor 保持 definition/事实，
+   summary/label/prose 不能铸造方向；
+2. 新增 `DiagramRelRegister`，与 `ClaimRegistrationEdge` 双向单源映射；schema、skill、
+   diagram surface plan、architecture capability 与 member/citation role 同步登记；
+3. `register` 明确为 typed-only：没有加入 `InferRelationFromLabel` 的字符串词典，模型写
+   “register/绑定/导出”标签不会获得任何 hard authority；必须显式提交
+   `relation_kind=register`；
+4. 显式 registration edge 必须由一条 citable、同方向、exact Subject/Object 的 grounded
+   registration evidence 支持；缺证、反向或稀疏端点均 fail-closed。call edge 继续只认
+   grounded call-site，注册边不能掩盖或替代真实调用边；
+5. sequence 的未证跨运行时边界仍使用 `Note over`；在 call-DAG/architecture 中可用
+   `register` 表达准确绑定，再分别保留边界两侧已证调用。系统只提供关系事实与校验，
+   不生成图、不改写正文、不替模型下结论。
+
+语言矩阵结论：关系 schema/evidence/diagram 验证完全与语言无关，覆盖项目全部 read language；
+各语言 parser 只负责提供自己的 declaration/call identity。Rust inline-module 缺口由 B122-A
+补齐；Go/Java/Kotlin/JS/TS/ArkTS/Python/C/C++/Cangjie/Swift/Ruby/Lua 的既有 class/module/
+receiver callable carrier 保持原实现，Proto 仍是 declarative、不会伪装 executable call。
+
+回归：`internal/types`、`internal/skill`、`internal/agent`、`internal/orchestrator` 全量通过；
+新增 registration 完整/稀疏投影、typed-only label 负臂、同向/反向/缺证图边和 schema
+指导 pin。另修复 B121 测试中被 `go vet -copylocks` tripwire 发现的两个 BusContext 值拷贝，
+统一改用 `ShallowClone`；生产代码不变。
+
+状态：`EVAL-B107-ENDPOINTAMBIG1=implemented/B122-A+B/full-related-pass/replay-next`。

@@ -8,8 +8,10 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// DiagramCallEdgeEvidenceMismatch identifies one structured call edge whose
-// direction is not backed by any citable typed call-edge EvidenceItem.
+// DiagramCallEdgeEvidenceMismatch identifies one structured source relation
+// whose direction is not backed by the matching citable typed EvidenceItem.
+// The historical name is retained for the public validator call site; issues
+// distinguish invocation from registration/binding failures.
 //
 // This authority deliberately consumes only typed answer/evidence fields and
 // Mermaid syntax. It never scans the raw request, model prose, edge-message
@@ -34,6 +36,7 @@ const (
 	diagramCallEdgeIssueMissingAnchor        = "missing_call_anchor"
 	diagramCallEdgeIssueNoEvidence           = "call_edge_unproven"
 	diagramCallEdgeIssuePrincipalMiss        = "principal_call_edge_missing"
+	diagramRegistrationEdgeIssueNoEvidence   = "registration_edge_unproven"
 )
 
 // DiagramCallEdgeEvidenceMismatches cross-checks model-authored typed call
@@ -142,7 +145,20 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 			}
 		}
 		for _, anchor := range block.EdgeAnchors {
-			if diagramAnchorRelation(anchor) != types.DiagramRelCall {
+			relation := diagramAnchorRelation(anchor)
+			if relation == types.DiagramRelRegister {
+				fromSymbol := diagramEvidenceEndpointSymbol(anchor.FromNode, labels)
+				toSymbol := diagramEvidenceEndpointSymbol(anchor.ToNode, labels)
+				if !diagramRegistrationEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol) {
+					out = append(out, DiagramCallEdgeEvidenceMismatch{
+						BlockID: block.ID, Issue: diagramRegistrationEdgeIssueNoEvidence,
+						FromNode: strings.TrimSpace(anchor.FromNode), ToNode: strings.TrimSpace(anchor.ToNode),
+						FromSymbol: fromSymbol, ToSymbol: toSymbol,
+					})
+				}
+				continue
+			}
+			if relation != types.DiagramRelCall {
 				continue
 			}
 			if strictBodyCoverage && parsedEdgeKeys[diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode)] {
@@ -222,6 +238,23 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 		}
 	}
 	return out
+}
+
+func diagramRegistrationEdgeHasTypedEvidence(evidence []types.EvidenceItem, fromSymbol, toSymbol string) bool {
+	fromSymbol = strings.TrimSpace(fromSymbol)
+	toSymbol = strings.TrimSpace(toSymbol)
+	if fromSymbol == "" || toSymbol == "" {
+		return false
+	}
+	for _, ev := range evidence {
+		if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimRegistrationEdge {
+			continue
+		}
+		if strings.TrimSpace(ev.Subject) == fromSymbol && strings.TrimSpace(ev.Object) == toSymbol {
+			return true
+		}
+	}
+	return false
 }
 
 // diagramCallEvidenceForEndpoints resolves a model-selected principal pair to

@@ -806,7 +806,7 @@ func init() {
 		Kind: ViolDiagramEdgeUnsupported, DefaultSeverity: SeverityMedium, RepairPhase: RepairPhaseConsistency,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyDiagramFidelity,
-		SchemaDescriptionFragment: "Every diagram edge that carries a labelled relation MUST have a matching entry in the diagram block's edge_anchors[] with a typed relation_kind (call/guard/import/precedence/contain/observe) and from_node/to_node names that appear verbatim in the diagram body.",
+		SchemaDescriptionFragment: "Every diagram edge that carries a typed relation MUST have a matching entry in the diagram block's edge_anchors[] with a relation_kind (call/guard/import/precedence/contain/observe/register) and from_node/to_node names that appear verbatim in the diagram body.",
 		// "Edge unsupported" is the structural lack of an
 		// edge_anchor. When LLM "fixes" by adding an anchor whose
 		// label/relation pair drifts, label_mismatch /

@@ -1168,7 +1168,7 @@ type evidenceDiagramEdge struct {
 // model prose or user text. Relation-shaped anchors become graph edges;
 // otherwise definition anchors become a simple component spine.
 func RenderEvidenceArchitectureDiagramFence(items []EvidenceItem) string {
-	if fence := renderEvidenceRelationDiagramFence(items, ClaimCallEdge, ClaimImportEdge); fence != "" {
+	if fence := renderEvidenceRelationDiagramFence(items, ClaimCallEdge, ClaimImportEdge, ClaimRegistrationEdge); fence != "" {
 		return fence
 	}
 	return RenderLinearDiagramFence(EvidenceDiagramNodes(items, 8), 8)
@@ -1335,6 +1335,8 @@ func evidenceDiagramRelationLabel(form ClaimForm, item EvidenceItem) string {
 		rel = "calls"
 	case ClaimImportEdge:
 		rel = "imports"
+	case ClaimRegistrationEdge:
+		rel = "registers"
 	default:
 		rel = "relates"
 	}

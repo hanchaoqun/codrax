@@ -91,6 +91,11 @@ const (
 	// frame, metric, or trace span attached to a node). Maps to
 	// ClaimExternalObservation.
 	DiagramRelObserve DiagramRelationKind = "observe"
+
+	// DiagramRelRegister denotes a registration/binding/export surface. It is
+	// typed-only: unlike legacy label vocabulary, rendered words do not mint
+	// this relation. Maps to ClaimRegistrationEdge.
+	DiagramRelRegister DiagramRelationKind = "register"
 )
 
 // allDiagramRelationKinds is the canonical iteration order for tests
@@ -103,6 +108,7 @@ var allDiagramRelationKinds = []DiagramRelationKind{
 	DiagramRelPrecedence,
 	DiagramRelContain,
 	DiagramRelObserve,
+	DiagramRelRegister,
 }
 
 // AllDiagramRelationKinds returns the canonical iteration order.
@@ -140,6 +146,8 @@ func ClaimFormForRelation(rk DiagramRelationKind) ClaimForm {
 		return ClaimPrecedenceRole
 	case DiagramRelObserve:
 		return ClaimExternalObservation
+	case DiagramRelRegister:
+		return ClaimRegistrationEdge
 	}
 	return ClaimUnknown
 }
@@ -160,6 +168,8 @@ func RelationForClaimForm(cf ClaimForm) DiagramRelationKind {
 		return DiagramRelPrecedence
 	case ClaimExternalObservation:
 		return DiagramRelObserve
+	case ClaimRegistrationEdge:
+		return DiagramRelRegister
 	}
 	return DiagramRelUnknown
 }

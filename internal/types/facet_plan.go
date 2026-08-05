@@ -1116,9 +1116,9 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 			{Kind: FacetBranchGuard, Required: FacetSoftRequired,
 				AcceptableForms: []ClaimForm{ClaimGuardCondition}},
 			{Kind: FacetCurrentCodePath, Required: FacetSoftRequired,
-				AcceptableForms: []ClaimForm{ClaimDefinitionFact}},
+				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimRegistrationEdge}},
 			{Kind: FacetDiagramSpine, Required: FacetSoftRequired,
-				AcceptableForms: []ClaimForm{ClaimCallEdge, ClaimGuardCondition}},
+				AcceptableForms: []ClaimForm{ClaimCallEdge, ClaimGuardCondition, ClaimRegistrationEdge}},
 		}, common...)
 	case QFEnumeration:
 		forms := []ClaimForm{
@@ -1126,6 +1126,7 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 			ClaimAssignmentFact,
 			ClaimReturnFact,
 			ClaimImportEdge,
+			ClaimRegistrationEdge,
 			ClaimLiteralValueFact,
 		}
 		if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {
@@ -1147,9 +1148,9 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 			{Kind: FacetCurrentCodePath, Required: FacetHardRequired,
 				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimCallEdge}},
 			{Kind: FacetComponentRelation, Required: FacetSoftRequired,
-				AcceptableForms: []ClaimForm{ClaimImportEdge, ClaimCallEdge}},
+				AcceptableForms: []ClaimForm{ClaimImportEdge, ClaimCallEdge, ClaimRegistrationEdge}},
 			{Kind: FacetDiagramSpine, Required: FacetSoftRequired,
-				AcceptableForms: []ClaimForm{ClaimCallEdge, ClaimImportEdge}},
+				AcceptableForms: []ClaimForm{ClaimCallEdge, ClaimImportEdge, ClaimRegistrationEdge}},
 			uncertaintyBoundaryFacet(FacetOptional),
 		}, common...)
 	case QFComparison:
@@ -1176,7 +1177,7 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 			{Kind: FacetCurrentCodePath, Required: FacetSoftRequired,
 				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimCallEdge,
 					ClaimGuardCondition, ClaimAssignmentFact, ClaimReturnFact,
-					ClaimImportEdge}},
+					ClaimImportEdge, ClaimRegistrationEdge}},
 			{Kind: FacetNearestMechanism, Required: FacetSoftRequired,
 				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimCallEdge,
 					ClaimGuardCondition, ClaimAssignmentFact, ClaimReturnFact}},
@@ -1239,7 +1240,7 @@ func commonFacets(view QuestionStructureView) []FacetRequirement {
 			Required: FacetHardRequired,
 			AcceptableForms: []ClaimForm{
 				ClaimDefinitionFact, ClaimAssignmentFact, ClaimReturnFact,
-				ClaimImportEdge, ClaimCallEdge,
+				ClaimImportEdge, ClaimCallEdge, ClaimRegistrationEdge,
 			},
 		})
 	}
