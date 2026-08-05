@@ -13628,6 +13628,134 @@ type concreteValuesResult struct {
 	chainAnchors []chainAnchorInfo
 }
 
+const runtimeTargetStructuralRelationLimit = 24
+
+// buildRuntimeTargetStructuralRelations promotes parser-authored declared-type
+// relations into the same typed evidence handoff as concrete values. It is
+// deliberately narrow:
+//   - activation comes from the analyzer's typed call-chain endpoint profile
+//     (exact or discover) or the typed implementation predicate axis;
+//   - only AST-grade tree-sitter / Cangjie-parser relations are eligible;
+//   - the exact relation line must already be in EvidenceClosure/ReadSet;
+//   - endpoints must be present in the relation itself.
+//
+// Confidence is copied for soft ranking/display only. It is never compared to
+// a threshold here: confidence is a noisy signal and therefore cannot decide
+// whether an evidence row exists. Regex salvage stays out because its precise
+// provenance enum is not one of the two AST-grade producers.
+func (e *explorerEvaluator) buildRuntimeTargetStructuralRelations(
+	graph *repomap.Graph,
+	filesToScan map[string]bool,
+	readSet map[string]bool,
+	closure *types.EvidenceClosure,
+) concreteValuesResult {
+	if e == nil || graph == nil || !e.runtimeTargetStructuralRelationsActive() {
+		return concreteValuesResult{}
+	}
+	type row struct {
+		item       types.EvidenceItem
+		resolvedBy string
+	}
+	rows := make([]row, 0)
+	seen := make(map[string]struct{})
+	for file := range filesToScan {
+		fi, ok := graph.FileIndex[file]
+		if !ok || fi == nil {
+			continue
+		}
+		for _, rel := range fi.Relations {
+			if rel.Kind != "inheritance" && rel.Kind != "embedding" {
+				continue
+			}
+			if rel.Provenance != repotypes.ProvenanceTreeSitter && rel.Provenance != repotypes.ProvenanceCangjieParser {
+				continue
+			}
+			subject := strings.TrimSpace(rel.FromEP.Name)
+			object := strings.TrimSpace(rel.ToEP.Name)
+			resolvedBy := strings.TrimSpace(rel.ResolvedBy)
+			source := canonicalExplorerPath(rel.File)
+			if source == "" {
+				source = canonicalExplorerPath(fi.RelPath)
+			}
+			if subject == "" || object == "" || resolvedBy == "" || source == "" || rel.Line <= 0 {
+				continue
+			}
+			if closure != nil {
+				if !closure.HasReadLine(source, rel.Line) {
+					continue
+				}
+			} else if !readSetContains(readSet, source) {
+				continue
+			}
+			key := fmt.Sprintf("%s:%d:%s:%s:%s:%s", source, rel.Line, rel.Kind, subject, object, resolvedBy)
+			if _, duplicate := seen[key]; duplicate {
+				continue
+			}
+			seen[key] = struct{}{}
+			item := types.EvidenceItem{
+				Kind:         types.EvidenceRelationship,
+				Subject:      subject,
+				Predicate:    rel.Kind,
+				Object:       object,
+				Source:       source,
+				LineStart:    rel.Line,
+				LineEnd:      rel.Line,
+				Confidence:   rel.Confidence,
+				Producer:     "repomap_structural_relation",
+				Summary:      fmt.Sprintf("declared type relation: `%s` --%s--> `%s` (extractor=%s)", subject, rel.Kind, object, resolvedBy),
+				Scope:        types.ScopeLine,
+				AnchorKind:   types.AnchorDefinition,
+				AnchorSymbol: subject,
+			}
+			item.ID = types.StableEvidenceID(item)
+			rows = append(rows, row{item: item, resolvedBy: resolvedBy})
+		}
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].item.Source != rows[j].item.Source {
+			return rows[i].item.Source < rows[j].item.Source
+		}
+		if rows[i].item.LineStart != rows[j].item.LineStart {
+			return rows[i].item.LineStart < rows[j].item.LineStart
+		}
+		if rows[i].item.Subject != rows[j].item.Subject {
+			return rows[i].item.Subject < rows[j].item.Subject
+		}
+		return rows[i].item.Object < rows[j].item.Object
+	})
+	if len(rows) > runtimeTargetStructuralRelationLimit {
+		rows = rows[:runtimeTargetStructuralRelationLimit]
+	}
+	if len(rows) == 0 {
+		return concreteValuesResult{}
+	}
+	result := concreteValuesResult{evidence: make([]types.EvidenceItem, 0, len(rows))}
+	var b strings.Builder
+	b.WriteString("## Typed Declared-Type Relations (AST/parser grounded)\n\n")
+	b.WriteString("These rows are declaration relationships, not invocation edges. Use them with separate grounded call and registration/binding facts when resolving a runtime target; do not draw a direct call from an inheritance or embedding row alone.\n\n")
+	b.WriteString("| Evidence | File:Line | Kind | Declaring type | Related type | Extractor |\n")
+	b.WriteString("|----------|-----------|------|----------------|--------------|-----------|\n")
+	for _, entry := range rows {
+		item := entry.item
+		result.evidence = append(result.evidence, item)
+		fmt.Fprintf(&b, "| `%s` | `%s:%d` | `%s` | `%s` | `%s` | `%s` |\n",
+			item.ID, item.Source, item.LineStart, item.Predicate, item.Subject, item.Object, entry.resolvedBy)
+	}
+	b.WriteString("\n")
+	result.markdown = b.String()
+	return result
+}
+
+func (e *explorerEvaluator) runtimeTargetStructuralRelationsActive() bool {
+	if e == nil {
+		return false
+	}
+	if e.predicateAxis == types.AxisImplement {
+		return true
+	}
+	return e.analysisIR != nil && e.analysisIR.RequestModel.CallChainEndpointProfile.Active()
+}
+
 const (
 	concreteValueEvidenceExportSimpleLimit                = 80
 	concreteValueEvidenceExportDefaultLimit               = 128
@@ -14182,6 +14310,15 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 	filesToScan := e.activeFrontierFileSet(readSet, notesJoined)
 	filesToScan = e.filterConcreteValueScanFiles(filesToScan)
 	focusSymbols := e.concreteValueFocusSymbols(graph, filesToScan)
+	// Runtime-target discovery needs declared type relationships even when
+	// the scanned files contain no extractable literal/concrete values. The
+	// old producer built hierarchy prose only after the concrete-value
+	// relevance gate, so a perfectly parsed `class X(A, B)` / `impl T for X`
+	// / embedded Go type vanished from the Turn-A handoff whenever there was
+	// no nearby return/binding literal. Keep this as a separate typed lane:
+	// inheritance/embedding is not a source-level call and cannot satisfy a
+	// directed-call gate by itself.
+	structuralRelations := e.buildRuntimeTargetStructuralRelations(graph, filesToScan, readSet, closure)
 
 	// Cache file contents to avoid re-opening the same file for each symbol.
 	fileLines := make(map[string][]string)
@@ -14524,7 +14661,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 		}
 	}
 	if len(allValues) == 0 {
-		return concreteValuesResult{}
+		return structuralRelations
 	}
 
 	// Pre-filter: strip prose-like values at the source so they
@@ -14681,7 +14818,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 	logging.Debug("[explorer] concrete values: %d relevant after multi-pass tracing", len(relevant))
 
 	if len(relevant) == 0 {
-		return concreteValuesResult{}
+		return structuralRelations
 	}
 
 	// Sort by usefulness: bindings first (they anchor chains), then
@@ -14767,6 +14904,9 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 	}
 
 	var b strings.Builder
+	if structuralRelations.markdown != "" {
+		b.WriteString(structuralRelations.markdown)
+	}
 	b.WriteString("## Concrete Values (programmatically extracted from source code)\n\n")
 	b.WriteString("These are EXACT values from source code — ground truth, not summaries. " +
 		"Rows whose Fact column starts with `calls →` surface cross-component " +
@@ -15170,7 +15310,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 	// These flow to StageOutput → BusContext → finalizer, independent
 	// of whether synthesis succeeds. The downstream rankEvidenceByRelevance
 	// + formatEvidenceItems(limit=18) handles its own selection.
-	var cvEvidence []types.EvidenceItem
+	cvEvidence := append([]types.EvidenceItem(nil), structuralRelations.evidence...)
 	for i, v := range allRelevantForEvidence {
 		if i%1024 == 0 && ctx.Err() != nil {
 			return concreteValuesResult{}

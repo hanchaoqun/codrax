@@ -16798,3 +16798,39 @@ grounded compound execution path（static call + binding/dispatch + inherited ow
 状态：`EVAL-B122-JSONTEACH1=partially-implemented/D1-schema-single-source+fixed-example-retired+malformed-visible-salvage/full-related-pass`；
 后续继续审计其它 emit schema/skill parity 与真实回放，不能据此宣称所有 provider JSON 波动已消除。
 `EVAL-B122-EXECGRAPH1` 下一批继续 C2 typed compound evidence。
+
+### 123.8 B123-C2：跨语言 declared-type 关系进入 typed compound evidence
+
+r41 中 `JsonPlugin(TimestampMixin, ValidationMixin, BasePlugin)` 并非解析器缺失。代码复核确认 Python、Java、
+JavaScript/TypeScript/ArkTS、Kotlin、Rust、C++、Ruby、Swift、Go、Cangjie 的适用 extractor 已能生成
+`inheritance` / `embedding` relation；Lua/Proto 等没有对应语言构造时不应伪造关系。真正的断点在 Explorer
+handoff：旧实现只有在同一轮还提取到 concrete value 时，才在内部 Markdown 构造 hierarchy chain；
+`len(allValues)==0` 或 `len(relevant)==0` 会提前返回，结构关系从未成为 Finalizer 可引用 evidence。
+
+本小批完成通用修复：
+
+1. 新增 `repomap_structural_relation` deterministic producer。激活只读 Analyzer 的 typed
+   `call_chain_endpoints`（exact/discover）或 `predicate_axis=implement`，不扫描用户请求、模型输出或答案 prose；
+2. 只接纳 provenance 为 `tree_sitter` / `cangjie_parser`、自身携带 subject/object/resolved_by、且 exact
+   relation line 已被 EvidenceClosure 覆盖的 `inheritance|embedding` 行。regex fallback 明确不进入 typed/citable
+   车道；confidence 仅复制供软排序，绝不作 hard threshold；
+3. 结构 relation 与 concrete-value 生命周期解耦：即使一个 literal/value 都没提取到，已读 AST relation
+   仍进入 Turn-A evidence。每行保留 source:line、原始 relation kind、两端点、extractor provenance 与稳定 ID；
+4. Discover-sink Finalizer 新增有界 relation capsule，将 `static_call`、`registration_or_binding`、
+   `value_or_factory_flow`、`declared_type_relation` 四族 typed facts 并置。只有 `static_call` 被说明为源码调用边；
+   return/assignment、注册与继承关系不得被系统熔成虚构直连；
+5. capsule 不选择运行终点、不替模型写结论。模型仍需综合“静态调用前缀 + 注册绑定 + factory/return +
+   inherited owner”判断最终 class/handler，并在运行 class 与方法 definition owner 不同时分别披露和引用。
+
+语言策略是“同一 graph relation 消费器覆盖所有现有及未来 extractor”，而不是为 Java/Python 分别写关键词表。
+未来语言只要按 repomap 的前向兼容关系合同产出 AST/parser-grade `inheritance|embedding`，即可自动进入该车道；
+没有这种结构语义的语言不承受额外 prompt。显式时间窗 Trace 的因果投影、补齐、根因排序、唤醒链和可消除量
+路径均未改动。
+
+新增回归锁定：无 concrete value 仍输出 Python 多继承三行；regex salvage 不升级；Cangjie partial-read 只允许
+已读行；无关请求不增加 prompt；Finalizer 四族并置且不得生成 `run_pipeline -> JsonPlugin`、
+`resolve -> JsonPlugin` 或 `JsonPlugin -> TimestampMixin` 的伪调用链。
+
+状态：`EVAL-B122-EXECGRAPH1=partially-implemented/C1-discover+C2-cross-language-typed-relations/full-related-pass`；
+剩余 C3 是在真实复放后判断是否需要为 typed-complete dynamic dispatch 增加独立 completion disposition，不能用
+model rationale 自证或宽放 static directed-path gate。

@@ -935,6 +935,48 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersCallChainTargetD
 	}
 }
 
+func TestAnswerDocumentEvaluator_TargetDiscoveryRendersTypedRelationFamiliesWithoutSyntheticCall(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentTrace,
+			PredicateAxis: types.AxisCall,
+			CallChainEndpointProfile: &types.CallChainEndpointProfile{
+				Source: "run_pipeline", SinkMode: types.CallChainSinkResolutionDiscover,
+			},
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+		}},
+		EvidenceItems: []types.EvidenceItem{
+			{ID: "E-call", Kind: types.EvidenceRelationship, Subject: "run_pipeline", Predicate: "calls", Object: "resolve", Source: "pipeline/runner.py", LineStart: 15, Scope: types.ScopeLine, AnchorKind: types.AnchorCall},
+			{ID: "E-bind", Kind: types.EvidenceRegistration, Subject: `REGISTRY["json"]`, Predicate: "binds", Object: "JsonPlugin", Source: "pipeline/plugins.py", LineStart: 7, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition},
+			{ID: "E-inherit", Kind: types.EvidenceRelationship, Subject: "JsonPlugin", Predicate: "inheritance", Object: "TimestampMixin", Source: "pipeline/plugins.py", LineStart: 8, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, Producer: "repomap_structural_relation"},
+			{ID: "E-return", Kind: types.EvidenceConcrete, Subject: "resolve", Predicate: "returns", Object: "cls()", Source: "pipeline/registry.py", LineStart: 19, Scope: types.ScopeLine, AnchorKind: types.AnchorReturn, Producer: "concrete_values"},
+		},
+	}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"### Typed relation capsule (bounded, no synthetic edges)",
+		"family=`registration_or_binding` relation=`binds` subject=`REGISTRY[\"json\"]` object=`JsonPlugin` [E-bind] @ pipeline/plugins.py:7",
+		"family=`declared_type_relation` relation=`inheritance` subject=`JsonPlugin` object=`TimestampMixin` [E-inherit] @ pipeline/plugins.py:8",
+		"family=`value_or_factory_flow` relation=`returns` subject=`resolve` object=`cls()` [E-return] @ pipeline/registry.py:19",
+		"family=`static_call` relation=`calls` subject=`run_pipeline` object=`resolve` [E-call] @ pipeline/runner.py:15",
+		"only `family=static_call` is a source-level invocation edge",
+		"neither alone proves that the registry selected that type at runtime",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("target-discovery relation capsule missing %q:\n%s", want, prompt)
+		}
+	}
+	for _, forbidden := range []string{
+		"run_pipeline` -> `JsonPlugin",
+		"resolve` -> `JsonPlugin",
+		"JsonPlugin` -> `TimestampMixin",
+	} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("typed non-call relations must not be fused into a synthetic call path %q:\n%s", forbidden, prompt)
+		}
+	}
+}
+
 func TestRenderAnswerDocCallChainEndpointBoundary_DefinitionOnlyDoesNotClaimLeaf(t *testing.T) {
 	view := &types.AnswerSemanticView{CallChainEndpointBoundary: &types.CallChainEndpointBoundary{
 		Disposition:    types.CallChainEndpointNoDirectedPath,

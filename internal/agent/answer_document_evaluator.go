@@ -2813,6 +2813,105 @@ func renderAnswerDocCallChainTargetDiscovery(ctx *types.AgentContext) string {
 	b.WriteString("- Select the reached implementation/class/handler yourself from grounded call, registration/binding, dispatch, and inheritance/implementation evidence. A pre-scan candidate, nearby definition, or same-name method is not enough.\n")
 	b.WriteString("- Keep relation kinds honest: registration/binding is not a source-level call. When dispatch is dynamic, show the grounded static prefix and the typed binding/dispatch boundary separately; do not invent a direct invocation merely to make one continuous arrow.\n")
 	b.WriteString("- Distinguish the selected runtime class from the class or mixin that owns an inherited method definition. State both when they differ, with their own grounded citations. The model owns the final destination conclusion; this section only preserves the evidence boundary.\n")
+	if capsule := renderAnswerDocRuntimeTargetRelationCapsule(ctx); capsule != "" {
+		b.WriteString("\n")
+		b.WriteString(capsule)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+const answerDocRuntimeTargetRelationCapsuleLimit = 18
+
+// renderAnswerDocRuntimeTargetRelationCapsule places the three relation
+// families needed for dynamic target discovery next to each other without
+// collapsing them into a synthetic call path. Every row comes from a citable
+// typed EvidenceItem; no model prose, investigation notes, or request keyword
+// scan participates. The grouping is explanatory only — the model still owns
+// target selection and the final conclusion.
+func renderAnswerDocRuntimeTargetRelationCapsule(ctx *types.AgentContext) string {
+	pool := answerDocTypedEnrichmentEvidencePool(ctx, 128)
+	if len(pool) == 0 {
+		return ""
+	}
+	type capsuleRow struct {
+		family string
+		item   types.EvidenceItem
+	}
+	registrations := make([]capsuleRow, 0)
+	structural := make([]capsuleRow, 0)
+	valueFlows := make([]capsuleRow, 0)
+	calls := make([]capsuleRow, 0)
+	seen := make(map[string]struct{})
+	for _, item := range pool {
+		if !item.IsCitable() || strings.TrimSpace(item.Subject) == "" || strings.TrimSpace(item.Object) == "" {
+			continue
+		}
+		id := answerDocEvidenceIdentity(item)
+		if _, duplicate := seen[id]; duplicate {
+			continue
+		}
+		row := capsuleRow{item: item}
+		switch {
+		case types.ClaimFormOf(item) == types.ClaimRegistrationEdge:
+			row.family = "registration_or_binding"
+			registrations = append(registrations, row)
+		case item.Producer == "repomap_structural_relation" &&
+			(item.Predicate == "inheritance" || item.Predicate == "embedding"):
+			row.family = "declared_type_relation"
+			structural = append(structural, row)
+		case (item.Producer == "concrete_values" || item.Producer == "bridge_literal") &&
+			(types.ClaimFormOf(item) == types.ClaimReturnFact || types.ClaimFormOf(item) == types.ClaimAssignmentFact):
+			row.family = "value_or_factory_flow"
+			valueFlows = append(valueFlows, row)
+		case types.ClaimFormOf(item) == types.ClaimCallEdge:
+			row.family = "static_call"
+			calls = append(calls, row)
+		default:
+			continue
+		}
+		seen[id] = struct{}{}
+	}
+	ordered := make([]capsuleRow, 0, answerDocRuntimeTargetRelationCapsuleLimit)
+	appendBounded := func(rows []capsuleRow, familyCap int) {
+		for i, row := range rows {
+			if i >= familyCap || len(ordered) >= answerDocRuntimeTargetRelationCapsuleLimit {
+				return
+			}
+			ordered = append(ordered, row)
+		}
+	}
+	// Registration and type-declaration facts are normally much rarer than
+	// call edges and are essential at the dynamic-dispatch boundary. Give
+	// each a bounded protected slice, then use the remaining budget for the
+	// already-ranked static prefix.
+	appendBounded(registrations, 6)
+	appendBounded(structural, 8)
+	appendBounded(valueFlows, 6)
+	appendBounded(calls, answerDocRuntimeTargetRelationCapsuleLimit)
+	if len(ordered) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("### Typed relation capsule (bounded, no synthetic edges)\n\n")
+	for _, row := range ordered {
+		item := row.item
+		predicate := answerDocCallChainInline(item.Predicate)
+		if predicate == "" {
+			predicate = row.family
+		}
+		location := answerDocCallChainInline(item.DisplayLocation(true))
+		if location == "" {
+			location = "location-unavailable"
+		}
+		fmt.Fprintf(&b, "- family=`%s` relation=`%s` subject=`%s` object=`%s` [%s] @ %s\n",
+			row.family,
+			predicate,
+			answerDocCallChainInline(item.Subject),
+			answerDocCallChainInline(item.Object),
+			answerDocCallChainInline(answerDocEvidenceIdentity(item)),
+			location)
+	}
+	b.WriteString("\n- These rows can be composed in the explanation, but only `family=static_call` is a source-level invocation edge. A value/factory row proves only its typed return or assignment, and a declared-type row proves only the inherited/implemented owner relationship; neither alone proves that the registry selected that type at runtime.\n")
 	return strings.TrimRight(b.String(), "\n")
 }
 
