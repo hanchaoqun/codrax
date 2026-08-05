@@ -15691,3 +15691,60 @@ identity 时，提示精确列出 block ID 与 visible-row count，要求用 `re
 
 `iota` 与缺显式 per-role count 暂按模型波动观察；若另一 inventory family 复现，再评估 typed compact per-role census，不得以原文关键词 gate 修复。B99
 patch-citation drift 仍未形成同形 witness，保持 replay-pending。上述两项均不进入 RootCauseTrace、显式时间窗、双轴根因、因果投影或自动补齐。
+
+## 107. 2026-08-05 B103 r29：写模式安全拒绝生效；跨语言 eval checker 的边界与声明权威补齐
+
+### 107.1 严格双并发与人工结论
+
+在 `main@cc9ed4f2c` 构建冻结后，以 `PARALLEL=2` 严格并行恰好两个异构 case：
+
+- `data_json_strict_ids`：runner PASS / human PASS，155s；
+- `github_issue_pyo3_iter_nth_overflow_symptom`：runner FAIL / human fail-safe，350s，终态
+  `unverified:verification_incomplete`。
+
+工件见 `eval/parallel_selected_summary_evalcampaign_b103_writedata_r29_20260805.md` 及 manual audit。本轮未运行 Trace；本批不进入
+RootCauseTrace、显式时间窗、双轴根因、因果投影或自动补齐，也没有扫描用户/模型/答案 prose 作产品 hard gate。
+
+### 107.2 数据链路：typed repair 正确收敛，未形成确定性产品 GAP
+
+严格 JSON 最终值为 `{"ids":["u1","u3"]}`，材料、规则、决策、贡献、reconcile 与 final projection 均闭合。三次 repair 分别处理
+材料 DAG 顺序、冲突 filter aliases 与 `compute_contributions` 的 unsupported `include`。planner prompt 已提供 action scaffold、canonical
+`filters` 数组形和 `operation=set + value_field` 指南；模型后续均消费 typed failure 精确修正。当前证据更符合模型参数波动，不能据此增加请求/答案词面门或
+让系统替模型生成业务计划，保留异构 data replay 观察。
+
+### 107.3 写链路：产品 fail-closed 正确，补丁与旧 eval oracle 都不正确
+
+第一计划的 `checked_sub(n + 1)` 被仓库 checker 正确打红，replan 后模型改成
+`(current_length.saturating_sub(1)).checked_sub(n)`。该形避开 `usize::MAX + 1`，却在空 iterator 上把 `0 - 1` 饱和回 0；
+`nth_back(0)` 随后可能满足 guard 并访问 `items[0]`。旧 checker 只检查 `checked_sub`、禁 `n+1` 与 past-end assignment，因此把这份仍错误的补丁签绿。
+
+Codrax 产品没有跟随该假绿：本机无 `cargo/rustc`，成功的 Python Make check 只声明了 checker 文件，没有精确声明三个 Rust changed paths；
+changed-path gate 因而全部铸为 `uncovered` 并终止 `unverified`。这证明 `changed_path_verification_uncovered` 与
+`accept_unverified=false` 正常守住交付，runner 红灯不是代码执行器误判。Analyzer 首次发射的无 grounded 精确 contract 也被正确拒绝一次；第二次改用
+soft `satisfies` 后通过。`transition.steps` 仍未发射，因只有同一状态协议的重复 witness，`EVAL-B72-STATETRANS1` 继续 adoption watch，不升级请求 prose hard gate。
+
+### 107.4 `EVAL-B103-METADECL1`（eval authority/implemented）：versioned meta-check 缺 exact input declaration
+
+横向扫描全部 17 套 fixture Makefile 后，确认 10 套 Python/meta checker 的 `check:` 没有 prerequisites。既有产品
+`declared_project_check` 只接受“exact candidate + exact target + concrete driver + exit=0 + exact bounded roster member”；因此 checker 即使真实读取 Rust、Java、
+JavaScript、TypeScript 或 Python 源文件，也只能证明驱动脚本运行，不能取得被检查文件的 source-static authority。
+
+本批没有放宽产品权限，而是在 versioned fixture 中按 checker 实际本地输入补 Make prerequisites，覆盖 Rust、Java、JavaScript、TypeScript、Python 与多仓 SDK；
+另 5 套 conventional `check` 是 native C/C++ recipe，已直接列出编译输入，保持原状；其余 2 套 Makefile 不属于该 meta-check 车道。`make -n check` 对 10 套全部通过，产品既有
+`TestRunTestsTypedPolyglotMakeSurfaceCarriesExactCheckWithoutPretendingRustExecution` 与 exact cross-language coverage pin 通过。
+该方案不从 script body 猜路径，也不让 driver language 获得目录级权限；只有仓库显式声明的 exact member 可获得窄
+`declared_project_check/source_static` caliber。
+
+### 107.5 `EVAL-B103-EMPTYBOUND1`（eval oracle/implemented）：饱和算术掩盖空集合下溢
+
+PyO3 fixture checker 新增 function-scoped 空边界审计：拒绝本轮实际产出的 lossy
+`saturating_sub(1).checked_sub(n)` 形，并要求 list/tuple 各自有同一 test body 内的 empty `nth_back(0) -> None` 回归。checker self-test 同时覆盖：
+
+1. lossy 饱和形必须拒绝；
+2. lossless chained checked subtraction 不被误拒；
+3. empty setup 不得被旧“跨方向立即耗尽”负门误判；
+4. 一个 iterator family 的空边界测试不能替另一个 family 授权。
+
+这是 eval-specific oracle 加固，不进入 Codrax 的规划、实现或成文 hard gate。fixture baseline 继续按设计失败，oracle `--self-test` 通过；下次回放只有模型先修复
+空边界、再由 exact declared checker 通过时，才可能获得窄 source-static 验证。原生 Rust runtime 缺席仍会在报告中如实披露，不能由该静态 caliber 伪装成 native
+target execution/behavior。

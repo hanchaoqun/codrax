@@ -75,10 +75,50 @@ def first_asserted_option_after(body: str, action: str, observation: str) -> str
 
 
 def claims_immediate_cross_direction_exhaustion(test_code: str, action: str, observation: str) -> bool:
-    return any(
-        first_asserted_option_after(body, action, observation) == "None"
-        for body in extract_function_bodies(test_code)
+    for body in extract_function_bodies(test_code):
+        action_match = re.search(
+            rf"\b([A-Za-z_][A-Za-z0-9_]*)\s*\.\s*{re.escape(action)}\s*\(\s*0\s*\)",
+            body,
+        )
+        if not action_match:
+            continue
+        receiver = action_match.group(1)
+        empty_setup = re.search(
+            rf"\blet\s+(?:mut\s+)?{re.escape(receiver)}\s*=\s*[A-Za-z_][A-Za-z0-9_]*(?:::\s*<[^>]+>)?\s*::\s*new\s*\(\s*vec!\s*\[\s*\]\s*\)",
+            body,
+        )
+        if empty_setup:
+            continue
+        if first_asserted_option_after(body, action, observation) == "None":
+            return True
+    return False
+
+
+def collapses_empty_reverse_boundary(body: str) -> bool:
+    """Detect the lossy `0.saturating_sub(1)` target-index construction."""
+    return bool(
+        re.search(
+            r"(?:current_length|self\.length)\s*\.\s*saturating_sub\s*\(\s*1\s*\)\s*\)?\s*\.\s*checked_sub\s*\(\s*n\s*\)",
+            body,
+            flags=re.S,
+        )
     )
+
+
+def has_empty_reverse_boundary_test(test_code: str, iterator_type: str) -> bool:
+    """Require construction and the empty nth_back observation in one test body."""
+    for body in extract_function_bodies(test_code):
+        if not re.search(
+            rf"\b{re.escape(iterator_type)}\s*(?:::\s*<[^>]+>)?\s*::\s*new\s*\(\s*vec!\s*\[\s*\]\s*\)",
+            body,
+        ):
+            continue
+        if re.search(
+            r"assert_eq!\s*\([^;\n]*nth_back\s*\(\s*0\s*\)[^;\n]*None",
+            body,
+        ):
+            return True
+    return False
 
 
 def run_oracle_self_test() -> None:
@@ -101,6 +141,26 @@ def run_oracle_self_test() -> None:
         raise AssertionError("eventual or cross-function exhaustion must not be treated as immediate")
     if not claims_immediate_cross_direction_exhaustion(invalid, "nth_back", "next"):
         raise AssertionError("immediate cross-direction exhaustion claim must be rejected")
+    if not collapses_empty_reverse_boundary(
+        "match (current_length.saturating_sub(1)).checked_sub(n) { _ => None }"
+    ):
+        raise AssertionError("lossy empty reverse-boundary arithmetic must be rejected")
+    if collapses_empty_reverse_boundary(
+        "current_length.checked_sub(n).and_then(|remaining| remaining.checked_sub(1))"
+    ):
+        raise AssertionError("lossless checked subtraction chain must remain accepted")
+    empty_boundary_test = """
+    fn empty_boundary() {
+        let mut iter = PyListIterator::new(vec![]);
+        assert_eq!(iter.nth_back(0), None);
+    }
+    """
+    if not has_empty_reverse_boundary_test(empty_boundary_test, "PyListIterator"):
+        raise AssertionError("same-function empty reverse-boundary test must be recognized")
+    if has_empty_reverse_boundary_test(empty_boundary_test, "PyTupleIterator"):
+        raise AssertionError("an empty-boundary test for another iterator must not authorize this one")
+    if claims_immediate_cross_direction_exhaustion(empty_boundary_test, "nth_back", "next"):
+        raise AssertionError("an already-empty iterator must not be treated as cross-direction exhaustion")
 
 
 if sys.argv[1:] == ["--self-test"]:
@@ -141,6 +201,8 @@ for source_path in source_paths:
             errors.append(f"{label}: nth_back must not compute n + 1 before checked_sub; n can be usize::MAX")
         if re.search(r"current_length\s*-\s*n\s*-\s*1", nth_back_body):
             errors.append(f"{label}: nth_back must not use raw current_length - n - 1 subtraction")
+        if collapses_empty_reverse_boundary(nth_back_body):
+            errors.append(f"{label}: nth_back must preserve empty-boundary underflow; saturating_sub(1) can address items[0] on an empty iterator")
         if not re.search(r"self\.length\s*=\s*self\.index", nth_back_body):
             errors.append(f"{label}: nth_back must exhaust the reverse iterator after a past-end skip")
 
@@ -157,6 +219,10 @@ if claims_immediate_cross_direction_exhaustion(tests, "nth_back", "next"):
     errors.append("regression tests must not claim nth_back(0) exhausts remaining forward elements")
 if claims_immediate_cross_direction_exhaustion(tests, "nth", "next_back"):
     errors.append("regression tests must not claim nth(0) exhausts remaining reverse elements")
+if not has_empty_reverse_boundary_test(tests, "PyListIterator"):
+    errors.append("regression tests must cover PyListIterator nth_back(0) on an empty iterator")
+if not has_empty_reverse_boundary_test(tests, "PyTupleIterator"):
+    errors.append("regression tests must cover PyTupleIterator nth_back(0) on an empty iterator")
 
 if errors:
     for error in errors:

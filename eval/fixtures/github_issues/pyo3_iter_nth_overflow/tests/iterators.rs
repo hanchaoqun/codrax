@@ -14,3 +14,17 @@ fn tuple_nth_back_past_end_exhausts_iterator() {
     assert_eq!(iter.nth_back(10), None);
     assert_eq!(iter.next_back(), None);
 }
+
+#[test]
+fn list_nth_back_empty_stays_empty() {
+    let mut iter = PyListIterator::<i32>::new(vec![]);
+    assert_eq!(iter.nth_back(0), None);
+    assert_eq!(iter.next(), None);
+}
+
+#[test]
+fn tuple_nth_back_empty_stays_empty() {
+    let mut iter = PyTupleIterator::<i32>::new(vec![]);
+    assert_eq!(iter.nth_back(0), None);
+    assert_eq!(iter.next(), None);
+}
