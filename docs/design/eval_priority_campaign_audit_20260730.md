@@ -16955,3 +16955,26 @@ Trace 投影、补齐、根因排序、唤醒链、两维根因和可消除量�
 状态：`EVAL-B125-DIAGRAMAUTH1=implemented/full-tool-agent-types-skill-pass`；
 `EVAL-B122-EXECGRAPH1-C3=confirmed/P1-next`；
 `EVAL-B124-TRACECOGNITION1=confirmed/context-compression-next`。
+
+### 123.12 B125-B：未命名终点不得成为 exact directed-path 权威
+
+对 r43 继续冷读后，需要把 §123.11 的 proximate cause 再收窄：四族 dynamic evidence 的 Finalizer capsule 已在场，
+本次 13 轮 Explorer 失控首先是 C1 normalization 没有兑现原设计。Analyzer 明知用户问“最终哪个类”，仍发出
+`sink_mode=exact, sink=JsonPlugin`；`NormalizeCallChainEndpointProfile` 发现 `JsonPlugin` 不在 request-mentioned
+identity 集后只给 warning，却继续保留 exact profile。于是该 pre-scan 候选成为 source→sink hard gate，模型被迫把
+注册、factory 与继承关系伪造成静态 call edge。
+
+本批修复 exact/discover 的权限边界：
+
+1. exact mode 只有 source 与 sink 都具有当前请求的 exact identity provenance 时才保留；
+2. source 已命名而 sink 未命名时，确定性清空 sink 并转为 discover mode。原候选只留在审计 warning，不能进入
+   `CallChainOrderedEndpointHints`、directed reachability gate 或 principal-span gate；
+3. source 也没有当前请求 identity provenance 时，整个 directional profile 撤权，不能由 Analyzer 同时预铸起终点；
+4. 原显式双端点、反向但用户确实如此声明的 exact 车道保持不变；“最终调到哪个 Rust 实现”一类语义终点统一走
+   discover，而不是把 pre-scan 找到的函数变成用户指定 sink。
+
+这里复用既有 exact entity provenance 载体，不新增请求关键词扫描，不读取模型 reasoning/final prose。修复只撤销错误
+hard-gate 权限，不放松 call-edge 证据门，也不让系统选择最终 class/handler。显式时间窗 Trace 与因果投影不受影响。
+
+状态：`EVAL-B122-EXECGRAPH1-C1b=implemented/full-types-tool-pass`；
+`EVAL-B122-EXECGRAPH1-C3=replay-after-C1b`。

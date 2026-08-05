@@ -45,7 +45,7 @@ func TestCallChainOrderedEndpointProfileOwnsDirectionAndIdentityPriority(t *test
 	}
 }
 
-func TestNormalizeCallChainEndpointProfilePreservesOrderedDiscoveredEndpointWithWarning(t *testing.T) {
+func TestNormalizeCallChainEndpointProfileDemotesAnalyzerDiscoveredSink(t *testing.T) {
 	profile, reason := NormalizeCallChainEndpointProfile(
 		&CallChainEndpointProfile{Source: "Sink.run", Sink: "Source.run"},
 		[]string{"Source.run", "Sink.run"},
@@ -56,14 +56,20 @@ func TestNormalizeCallChainEndpointProfilePreservesOrderedDiscoveredEndpointWith
 	if got, reason := NormalizeCallChainEndpointProfile(
 		&CallChainEndpointProfile{Source: "Source.run", Sink: "Resolved.run"},
 		[]string{"Source.run", "Sink.run"},
-	); got == nil || got.Source != "Source.run" || got.Sink != "Resolved.run" || reason == "" {
-		t.Fatalf("source-discovered endpoint must remain ordered but soft-warned: profile=%+v reason=%q", got, reason)
+	); got == nil || !got.DiscoverSinkActive() || got.Source != "Source.run" || got.Sink != "" || reason == "" {
+		t.Fatalf("source-discovered endpoint must demote to discover mode: profile=%+v reason=%q", got, reason)
 	}
 	if got, reason := NormalizeCallChainEndpointProfile(
 		&CallChainEndpointProfile{Source: "Source.run", Sink: "Rust implementation"},
 		[]string{"Source.run"},
 	); got != nil || reason == "" {
 		t.Fatalf("free-form semantic role is not a code endpoint: profile=%+v reason=%q", got, reason)
+	}
+	if got, reason := NormalizeCallChainEndpointProfile(
+		&CallChainEndpointProfile{Source: "Resolved.entry", Sink: "Resolved.run"},
+		[]string{"Source.run"},
+	); got != nil || reason == "" {
+		t.Fatalf("analyzer-resolved source and sink must not mint exact direction: profile=%+v reason=%q", got, reason)
 	}
 }
 

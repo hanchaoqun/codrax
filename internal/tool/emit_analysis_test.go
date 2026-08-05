@@ -847,8 +847,8 @@ func TestEmitAnalysis_SourceCallChainAmbiguousEntitiesRequireExactEndpointPair(t
 	if !res.Success || mu.RequestModel() == nil {
 		t.Fatalf("ordered source-discovered endpoint should remain an evidence-gated investigation target, got success=%t summary=%q", res.Success, res.Summary)
 	}
-	if source, sink, ok := types.CallChainOrderedEndpointHints(*mu.RequestModel()); !ok || source != "buildAnalysisIR" || sink != "Resolved.run" {
-		t.Fatalf("discovered endpoint order was lost: %q,%q,%t", source, sink, ok)
+	if profile := mu.RequestModel().CallChainEndpointProfile; profile == nil || !profile.DiscoverSinkActive() || profile.Source != "buildAnalysisIR" || profile.Sink != "" {
+		t.Fatalf("analyzer-discovered sink was not demoted to discover mode: %+v", profile)
 	}
 
 	withOneExact := strings.Replace(withEndpoints,
@@ -901,7 +901,7 @@ func TestEmitAnalysis_SourceCallChainMayDiscoverRequestedRuntimeDestination(t *t
 	}
 }
 
-func TestEmitAnalysis_SourceCallChainSemanticSinkMayResolveToConcreteSymbol(t *testing.T) {
+func TestEmitAnalysis_SourceCallChainSemanticSinkCandidateCannotBecomeExactAuthority(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
 	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
@@ -921,11 +921,12 @@ func TestEmitAnalysis_SourceCallChainSemanticSinkMayResolveToConcreteSymbol(t *t
 	if !res.Success || mu.RequestModel() == nil {
 		t.Fatalf("semantic sink resolved by current-checkout pre-scan must stay a call chain: success=%t summary=%q", res.Success, res.Summary)
 	}
-	if source, sink, ok := types.CallChainOrderedEndpointHints(*mu.RequestModel()); !ok || source != "FastTokenizer.tokenize" || sink != "tokenize_bytes" {
-		t.Fatalf("resolved semantic endpoint order=%q,%q,%t", source, sink, ok)
+	profile := mu.RequestModel().CallChainEndpointProfile
+	if profile == nil || !profile.DiscoverSinkActive() || profile.Source != "FastTokenizer.tokenize" || profile.Sink != "" {
+		t.Fatalf("resolved semantic endpoint must remain a discover candidate, got %+v", profile)
 	}
-	if !strings.Contains(res.Summary, "require grounded endpoint/path evidence") {
-		t.Fatalf("resolved endpoint must retain a non-authoritative provenance warning: %q", res.Summary)
+	if !strings.Contains(res.Summary, "demoted to discover mode") {
+		t.Fatalf("resolved endpoint demotion must remain auditable: %q", res.Summary)
 	}
 }
 

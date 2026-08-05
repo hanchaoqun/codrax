@@ -51,12 +51,12 @@ func (p *CallChainEndpointProfile) DiscoverSinkActive() bool {
 }
 
 // NormalizeCallChainEndpointProfile validates the ordered carrier's structural
-// shape. Request mention is retained only as a soft provenance warning: one
-// end of a directional request may be described by role/language/layer (for
-// example "the Rust implementation") and resolved to a concrete symbol during
-// typed pre-scan. Rejecting that concrete symbol here forces the analyzer to
-// misclassify a real call chain as a generic mechanism. Final source/sink and
-// path claims remain fail-closed on grounded evidence downstream.
+// shape and separates a user-named exact destination from a destination that
+// classification merely preselected. Exact source-to-sink reachability is a
+// hard contract, so both endpoint identities must have current-request
+// provenance. When the source is named but the sink is not, preserve the
+// useful source and deterministically demote to discover mode; investigation
+// evidence, not the analyzer candidate, must select the runtime destination.
 func NormalizeCallChainEndpointProfile(in *CallChainEndpointProfile, requestMentioned []string) (*CallChainEndpointProfile, string) {
 	if in == nil || (strings.TrimSpace(in.Source) == "" && strings.TrimSpace(in.Sink) == "") {
 		return nil, ""
@@ -88,8 +88,16 @@ func NormalizeCallChainEndpointProfile(in *CallChainEndpointProfile, requestMent
 			allowed[strings.ToLower(value)] = true
 		}
 	}
-	if !allowed[strings.ToLower(profile.Source)] || !allowed[strings.ToLower(profile.Sink)] {
-		return profile, "call_chain_endpoints includes a concrete endpoint resolved beyond request-mentioned identities; preserve the ordered investigation target, but require grounded endpoint/path evidence before any answer claim"
+	sourceMentioned := allowed[strings.ToLower(profile.Source)]
+	sinkMentioned := allowed[strings.ToLower(profile.Sink)]
+	if sourceMentioned && !sinkMentioned {
+		candidate := profile.Sink
+		profile.Sink = ""
+		profile.SinkMode = CallChainSinkResolutionDiscover
+		return profile, "call_chain_endpoints exact sink " + candidate + " was not a current-request identity; demoted to discover mode so grounded exploration selects the destination"
+	}
+	if !sourceMentioned || !sinkMentioned {
+		return nil, "call_chain_endpoints exact mode requires both source and sink to be current-request identities; analyzer-resolved candidates cannot become directional hard-gate authority"
 	}
 	return profile, ""
 }
