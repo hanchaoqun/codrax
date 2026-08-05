@@ -5185,6 +5185,16 @@ func dataTaskActionRunnerSeed(records []dataTaskWorkflowRecord) dataquery.Result
 			continue
 		}
 		result := *rec.Result
+		if dataTaskPlanReplacesContributionGeneration(rec.Plan) {
+			// The replacement action is a durable typed generation boundary.
+			// Its result was built from the prior seed and therefore already
+			// carries every still-live non-contribution row; reset the old
+			// contribution/reconcile/answer generation before accepting it.
+			out.Rows = nil
+			out.Contributions = nil
+			out.Reconcile = nil
+			out.Answer = ""
+		}
 		addConsumed(result.ConsumedPaths)
 		for _, artifact := range result.Artifacts {
 			addArtifact(artifact)
@@ -5214,6 +5224,16 @@ func dataTaskActionRunnerSeed(records []dataTaskWorkflowRecord) dataquery.Result
 		}
 	}
 	return dataquery.NormalizeResult(out)
+}
+
+func dataTaskPlanReplacesContributionGeneration(plan dataquery.TaskPlan) bool {
+	for _, action := range plan.Actions {
+		if normalizeDataActionKindForWorkflow(action.Kind) == dataquery.DataActionComputeContribs &&
+			parseBoolDataTaskString(action.Params["replace_contributions"]) {
+			return true
+		}
+	}
+	return false
 }
 
 // dataTaskSeedArtifactRounds maps each seeded artifact ID to the
@@ -5848,9 +5868,10 @@ func dataTaskOutputReferenceProjectionGap(repoRoot string, records []dataTaskWor
 //
 // on typed carriers only (reference records, contributions ledger, strict
 // list answer; totals/comparison shared with the reconcile validator). A
-// violation fails the completion gate into the existing repair face with
-// per-slot mismatch detail and an assemble_answer hint (admissible at the
-// emit stage); an unrepairable violation ends in an honest failed terminal.
+// A per-slot/cardinality violation fails into assemble_answer. A zero-domain
+// intersection instead opens the typed domain-alignment lane (inspect or
+// replace contributions, reconcile, then project; or correct a mistaken typed
+// reference declaration). An unrepairable violation ends in an honest failed terminal.
 // Workflows with no resolvable reference set are untouched (fail-open).
 func dataTaskOutputReferenceGroundingGuardResult(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) dataworkflow.GuardResult {
 	report, candidate, applicable := dataTaskOutputReferenceGroundingReport(repoRoot, records, current, result)
@@ -5861,17 +5882,31 @@ func dataTaskOutputReferenceGroundingGuardResult(repoRoot string, records []data
 		return dataworkflow.GuardResult{}
 	}
 	detail := dataquery.DescribeReferenceGroundingMismatches(report)
+	actionKind := dataquery.DataActionAssembleAnswer
+	repairability := dataworkflow.RepairNeedsTypedAction
+	hints := []string{string(dataquery.DataActionAssembleAnswer)}
 	message := fmt.Sprintf("validate data workflow completion: data output grounding failed: the final answer must project the reference set %s#%s (%d key(s), in reference order): %s. Re-run assemble_answer with complete_reference=true, reference_path=%q, and reference_key_field=%q to emit one total per reference key in reference order — 0 for keys with no contribution records — without changing contribution records.",
 		candidate.Path, candidate.Field, report.ReferenceKeyCount, detail, candidate.Path, candidate.Field)
+	if report.LedgerDomainMismatch {
+		actionKind = dataquery.DataActionComputeContribs
+		repairability = dataworkflow.RepairNeedsRecompute
+		hints = []string{
+			string(dataquery.DataActionComputeContribs),
+			string(dataquery.DataActionReconcile),
+			string(dataquery.DataActionAssembleAnswer),
+		}
+		message = fmt.Sprintf("validate data workflow completion: data output grounding failed because contribution group keys and reference keys share no typed domain for %s#%s (%d key(s)): %s. Inspect the typed source artifacts and reference field; if the declared reference field is authoritative, recompute source-row contributions in that key domain with replace_contributions=true, then run reconcile_artifacts and assemble_answer. If the contribution domain is authoritative, correct the typed reference_key_field before reconciliation/projection. Do not only reassemble the unchanged mismatched ledgers.",
+			candidate.Path, candidate.Field, report.ReferenceKeyCount, detail)
+	}
 	violation := dataworkflow.NewActionInputViolation(
 		"output_reference_grounding_mismatch",
 		"error",
-		dataworkflow.RepairNeedsTypedAction,
-		dataquery.DataAction{ID: "ground_output_reference_projection", Kind: dataquery.DataActionAssembleAnswer},
+		repairability,
+		dataquery.DataAction{ID: "ground_output_reference_projection", Kind: actionKind},
 		strings.TrimSpace(candidate.Path),
 		nil,
 		message,
-		[]string{string(dataquery.DataActionAssembleAnswer)},
+		hints,
 	)
 	// The complete assemble_answer repair parameters ride TYPED violation
 	// fields, never only the prose message (E2PROP-1, §29.150⑥):
@@ -5879,7 +5914,11 @@ func dataTaskOutputReferenceGroundingGuardResult(repoRoot string, records []data
 	// complete_reference is implied by the violation code itself. The
 	// validator-hint proposal lane consumes exactly these typed carriers.
 	violation.Field = strings.TrimSpace(candidate.Field)
-	return dataworkflow.NewGuardResult("output_reference_grounding_mismatch", "error", dataworkflow.RepairNeedsTypedAction, message, violation)
+	if report.LedgerDomainMismatch {
+		violation.Operation = "align_reference_domain"
+		violation.Param = "replace_contributions=true"
+	}
+	return dataworkflow.NewGuardResult("output_reference_grounding_mismatch", "error", repairability, message, violation)
 }
 
 // dataTaskInvalidGeneratedReferenceAuthorityGuardResult rejects an explicit

@@ -60,6 +60,49 @@ func TestBuildOutputProjectionGraphReportsReferenceGroundingMismatch(t *testing.
 	}
 }
 
+func TestBuildOutputProjectionGraphRoutesLedgerDomainMismatchToAlignmentRepair(t *testing.T) {
+	graph := BuildOutputProjectionGraph(OutputProjectionGraphInput{
+		Output:                        dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false},
+		AnswerPresent:                 true,
+		ReferenceKeyCount:             3,
+		AnswerItemCount:               3,
+		ReferenceGroundingMismatch:    true,
+		ReferenceLedgerDomainMismatch: true,
+	})
+	if graph.Status != OutputProjectionStatusGroundingMismatch || !graph.ReferenceLedgerDomainMismatch {
+		t.Fatalf("graph=%+v, want typed ledger-domain mismatch", graph)
+	}
+	wantActions := map[string]bool{
+		string(dataquery.DataActionComputeContribs): true,
+		string(dataquery.DataActionReconcile):       true,
+		string(dataquery.DataActionAssembleAnswer):  true,
+	}
+	for _, action := range graph.ProducesActions {
+		delete(wantActions, action)
+	}
+	if len(wantActions) != 0 {
+		t.Fatalf("graph actions=%v, missing repair sequence %v", graph.ProducesActions, wantActions)
+	}
+	completeFacts := StageFacts{MaterialCoverageSufficient: true, HasAnswer: true}
+	if got := NextStageWithOutputProjection(completeFacts, graph); got != StageRepairReferenceDomain {
+		t.Fatalf("stage=%q, want domain-alignment repair", got)
+	}
+	allowed := ActionKindsFromContracts(AllowedNextActionContractsForStageFacts(completeFacts, StageRepairReferenceDomain))
+	for action := range map[string]bool{
+		string(dataquery.DataActionComputeContribs): true,
+		string(dataquery.DataActionReconcile):       true,
+		string(dataquery.DataActionAssembleAnswer):  true,
+	} {
+		found := false
+		for _, got := range allowed {
+			found = found || got == action
+		}
+		if !found {
+			t.Fatalf("allowed=%v, missing %s", allowed, action)
+		}
+	}
+}
+
 func TestBuildOutputProjectionGraphKeepsDeclaredCardinalityGapAuthority(t *testing.T) {
 	graph := BuildOutputProjectionGraph(OutputProjectionGraphInput{
 		AnswerPresent:                true,
@@ -97,6 +140,9 @@ func TestNextStageWithOutputProjectionReopensOnlyTerminalProjection(t *testing.T
 	}
 	if got := NextStageWithOutputProjection(completeFacts, OutputProjectionGraph{Status: OutputProjectionStatusGroundingMismatch}); got != StageEmitOutputContractAnswer {
 		t.Fatalf("stage=%q, grounding mismatch must reopen the model-owned output stage", got)
+	}
+	if got := NextStageWithOutputProjection(completeFacts, OutputProjectionGraph{Status: OutputProjectionStatusGroundingMismatch, ReferenceLedgerDomainMismatch: true}); got != StageRepairReferenceDomain {
+		t.Fatalf("stage=%q, ledger-domain mismatch must reopen domain alignment", got)
 	}
 	pendingFacts := StageFacts{MaterialCoverageSufficient: true, ContributionLedgerRequired: true}
 	if got := NextStageWithOutputProjection(pendingFacts, OutputProjectionGraph{Status: OutputProjectionStatusIncompleteReference}); got != StagePrepareContributionInputs {

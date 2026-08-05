@@ -881,9 +881,22 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 				defaultRuleRefs = ruleCoverageIDs(ruleCoverage)
 			}
 			requireNonEmpty := plan.CoverageContract.ContributionLedgerRequired
+			replaceContributions, err := contributionReplacementRequested(action)
+			if err != nil {
+				return failAction(action, err)
+			}
 			artifact, records, paths, err := r.runComputeContributions(action, defaultRuleRefs, requireNonEmpty)
 			if err != nil {
 				return failAction(action, err)
+			}
+			if replaceContributions {
+				rows = removeContributionDerivedRowDecisions(rows, contributions)
+				contributions = nil
+				reconcile = nil
+				if artifact.Fields == nil {
+					artifact.Fields = map[string]string{}
+				}
+				artifact.Fields["contribution_generation"] = "replace"
 			}
 			artifact, err = r.materializeActionArtifact(artifactDir, action, artifact, contributionActionArtifactPayload(artifact, records))
 			if err != nil {

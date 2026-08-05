@@ -50,6 +50,10 @@ func BuildOutputProjectionGraph(input OutputProjectionGraphInput) OutputProjecti
 	reason := OutputProjectionReasonSatisfied
 	var missing []string
 	switch {
+	case input.ReferenceLedgerDomainMismatch:
+		status = OutputProjectionStatusGroundingMismatch
+		reason = OutputProjectionReasonGroundingMismatch
+		missing = append(missing, "reference_domain_alignment", "reconciled_reference_projection")
 	case input.ReferenceGroundingMismatch && !input.ReferenceCardinalityMismatch:
 		status = OutputProjectionStatusGroundingMismatch
 		reason = OutputProjectionReasonGroundingMismatch
@@ -71,6 +75,14 @@ func BuildOutputProjectionGraph(input OutputProjectionGraphInput) OutputProjecti
 		reason = OutputProjectionReasonNoAnswer
 		missing = append(missing, "answer")
 	}
+	produces := []string{string(dataquery.DataActionAssembleAnswer)}
+	if input.ReferenceLedgerDomainMismatch {
+		produces = []string{
+			string(dataquery.DataActionComputeContribs),
+			string(dataquery.DataActionReconcile),
+			string(dataquery.DataActionAssembleAnswer),
+		}
+	}
 	return OutputProjectionGraph{
 		Required:                      required,
 		StrictContract:                strict,
@@ -88,7 +100,7 @@ func BuildOutputProjectionGraph(input OutputProjectionGraphInput) OutputProjecti
 		ReferenceMismatchCount:        input.ReferenceMismatchCount,
 		Status:                        status,
 		ReasonCode:                    reason,
-		ProducesActions:               cleanStrings([]string{string(dataquery.DataActionAssembleAnswer)}),
+		ProducesActions:               cleanStrings(produces),
 		MissingPrerequisites:          cleanStrings(missing),
 	}
 }
@@ -99,6 +111,12 @@ func BuildOutputProjectionGraph(input OutputProjectionGraphInput) OutputProjecti
 // lane after those facts would report complete.
 func NextStageWithOutputProjection(facts StageFacts, graph OutputProjectionGraph) string {
 	stage := NextStage(facts)
+	if graph.ReferenceLedgerDomainMismatch {
+		switch stage {
+		case StageComputeContributions, StageReconcileArtifacts, StageEmitOutputContractAnswer, StageComplete:
+			return StageRepairReferenceDomain
+		}
+	}
 	if stage == StageComplete && graph.Status != "" && graph.Status != OutputProjectionStatusSatisfied {
 		return StageEmitOutputContractAnswer
 	}

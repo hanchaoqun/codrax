@@ -10360,6 +10360,83 @@ func TestActionRunnerComputeContributionsProducesDecisionRows(t *testing.T) {
 	}
 }
 
+func TestActionRunnerComputeContributionsReplaceStartsNewTypedGeneration(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "records.csv"), []byte("canonical_label,value\nGroupA,10\nGroupC,5\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	stale := ContributionRecord{
+		ItemID: "old", Source: "old.csv", SourceLocator: "row 1", GroupKey: "T1",
+		Metric: "total", Value: "17", Operation: "add", Role: "target",
+	}
+	seed := Result{
+		Answer:        "17,0,5",
+		Contributions: []ContributionRecord{stale},
+		Rows:          rowDecisionsFromContributions([]ContributionRecord{stale}),
+		Reconcile:     &ReconcileReport{Status: "pass", Groups: []ReconcileGroup{{GroupKey: "T1", Actual: "17"}}},
+	}
+	plan := TaskPlan{
+		ContinueAfter: true,
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		Actions: []DataAction{{
+			ID: "replace-contributions", Kind: DataActionComputeContribs,
+			InputPaths: []string{"records.csv"}, OutputArtifact: "contributions.json",
+			Params: map[string]string{
+				"group_key_field":       "canonical_label",
+				"value_field":           "value",
+				"metric":                "total",
+				"operation":             "add",
+				"replace_contributions": "true",
+			},
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: root, Seed: seed}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run replacement: %v", err)
+	}
+	if len(res.Contributions) != 2 {
+		t.Fatalf("Contributions=%+v, want only the two replacement records", res.Contributions)
+	}
+	for _, contribution := range res.Contributions {
+		if contribution.GroupKey.String() == "T1" {
+			t.Fatalf("stale contribution survived replacement: %+v", res.Contributions)
+		}
+	}
+	if res.Reconcile != nil {
+		t.Fatalf("Reconcile=%+v, stale reconcile must not cross a contribution generation boundary", res.Reconcile)
+	}
+	for _, row := range res.Rows {
+		if row.NormalizedFields["group_key"] == "T1" {
+			t.Fatalf("stale contribution-derived row survived replacement: %+v", res.Rows)
+		}
+	}
+	foundMarker := false
+	for _, artifact := range res.Artifacts {
+		if artifact.Fields["contribution_generation"] == "replace" {
+			foundMarker = true
+		}
+	}
+	if !foundMarker {
+		t.Fatalf("Artifacts=%+v, want typed replacement generation marker", res.Artifacts)
+	}
+}
+
+func TestActionRunnerComputeContributionsRejectsInvalidReplaceGenerationFlag(t *testing.T) {
+	plan := TaskPlan{Actions: []DataAction{{
+		ID: "bad-replace", Kind: DataActionComputeContribs,
+		InputPaths: []string{"records.csv"},
+		Params:     map[string]string{"replace_contributions": "sometimes"},
+	}}}
+	_, err := (ActionRunner{}).Run(context.Background(), plan)
+	var paramErr DataActionParamError
+	if !errors.As(err, &paramErr) || paramErr.Param != "replace_contributions" {
+		t.Fatalf("err=%T %v, want typed replace_contributions parameter error", err, err)
+	}
+}
+
 func TestActionRunnerComputeContributionsTreatsGroupKeyParamAsFieldWhenItMatchesInput(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "records.csv"), []byte("query,amount\nQ002,7\nQ001,10\n"), 0600); err != nil {

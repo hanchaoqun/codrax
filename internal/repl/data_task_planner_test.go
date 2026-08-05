@@ -2623,8 +2623,30 @@ func TestDataTaskWorkflowCompletionGateHonorsDeclaredReferenceFieldAndReportsDom
 	if plan, ok := dataTaskRequiredLedgerCompletionPlanWithRepo(root, nil, current, result, guard); ok {
 		t.Fatalf("same-count field mismatch must remain model-owned, deterministic plan=%+v", plan)
 	}
-	if len(guard.Violations) != 1 || guard.Violations[0].Field != "target_id" || !strings.Contains(guard.ErrorText(), "recomputed grouped by the reference key domain") {
+	if guard.Repairability != dataworkflow.RepairNeedsRecompute ||
+		len(guard.Violations) != 1 ||
+		guard.Violations[0].Field != "target_id" ||
+		guard.Violations[0].ActionKind != string(dataquery.DataActionComputeContribs) ||
+		guard.Violations[0].Param != "replace_contributions=true" ||
+		!strings.Contains(guard.ErrorText(), "replace_contributions=true") {
 		t.Fatalf("guard=%+v, want declared target_id preserved with a ledger-domain mismatch", guard)
+	}
+	if strings.Contains(guard.ErrorText(), "without changing contribution records") {
+		t.Fatalf("guard=%q, domain mismatch must not forbid the recompute it requires", guard.ErrorText())
+	}
+	live := []dataTaskWorkflowRecord{{Plan: current, Result: &result}}
+	state := dataTaskWorkflowState(root, live, current)
+	if state.NextStage != dataworkflow.StageRepairReferenceDomain {
+		t.Fatalf("state.NextStage=%q, want reference-domain alignment", state.NextStage)
+	}
+	for _, want := range []string{
+		string(dataquery.DataActionComputeContribs),
+		string(dataquery.DataActionReconcile),
+		string(dataquery.DataActionAssembleAnswer),
+	} {
+		if !slices.Contains(state.AllowedNextActions, want) {
+			t.Fatalf("allowed=%v, domain uncertainty must retain typed %s escape", state.AllowedNextActions, want)
+		}
 	}
 }
 
@@ -11005,6 +11027,53 @@ func TestDataTaskActionRunnerSeedAccumulatesArtifactsAcrossRecords(t *testing.T)
 	}
 	if len(seed.RuleCoverage) != 1 {
 		t.Fatalf("RuleCoverage=%+v, want prior rule coverage", seed.RuleCoverage)
+	}
+}
+
+func TestDataTaskActionRunnerSeedHonorsContributionReplacementGeneration(t *testing.T) {
+	oldContribution := dataquery.ContributionRecord{
+		ItemID: "old", Source: "old.csv", SourceLocator: "row 1", GroupKey: "T1",
+		Metric: "total", Value: "17", Operation: "add", Role: "target",
+	}
+	newContribution := dataquery.ContributionRecord{
+		ItemID: "new", Source: "observations.csv", SourceLocator: "row 2", GroupKey: "GroupA",
+		Metric: "total", Value: "17", Operation: "add", Role: "target",
+	}
+	records := []dataTaskWorkflowRecord{
+		{
+			Result: &dataquery.Result{
+				Answer:        "17,0,5",
+				Contributions: []dataquery.ContributionRecord{oldContribution},
+				Rows: []dataquery.RowDecision{{
+					RowID: "old", Source: "old.csv", SourceLocator: "row 1", Decision: "include",
+					NormalizedFields: map[string]string{"group_key": "T1"},
+				}},
+				Reconcile: &dataquery.ReconcileReport{Status: "pass", Groups: []dataquery.ReconcileGroup{{GroupKey: "T1", Actual: "17"}}},
+			},
+		},
+		{
+			Plan: dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+				ID: "replace", Kind: dataquery.DataActionComputeContribs,
+				Params: map[string]string{"replace_contributions": "true"},
+			}}},
+			Result: &dataquery.Result{
+				Contributions: []dataquery.ContributionRecord{newContribution},
+				Rows: []dataquery.RowDecision{{
+					RowID: "new", Source: "observations.csv", SourceLocator: "row 2", Decision: "include",
+					NormalizedFields: map[string]string{"group_key": "GroupA"},
+				}},
+			},
+		},
+	}
+	seed := dataTaskActionRunnerSeed(records)
+	if len(seed.Contributions) != 1 || seed.Contributions[0].GroupKey.String() != "GroupA" {
+		t.Fatalf("Contributions=%+v, want only replacement generation", seed.Contributions)
+	}
+	if len(seed.Rows) != 1 || seed.Rows[0].RowID != "new" {
+		t.Fatalf("Rows=%+v, want replacement result's cumulative row view", seed.Rows)
+	}
+	if seed.Reconcile != nil || seed.Answer != "" {
+		t.Fatalf("seed reconcile/answer=%+v/%q, stale output generation must retire", seed.Reconcile, seed.Answer)
 	}
 }
 

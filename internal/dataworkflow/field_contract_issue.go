@@ -43,8 +43,18 @@ func DiscoverFieldContractIssues(input FieldContractIssueInput) []FieldContractI
 	if limit <= 0 || len(input.Records) == 0 || len(input.ArtifactAccess) == 0 {
 		return nil
 	}
+	// Derived field diagnostics belong to the live typed-progress suffix.
+	// Keep the latest successful record itself in scope because a successful
+	// extract can carry a zero-match artifact that is the current issue; only
+	// failures and diagnostics strictly older than that boundary retire.
+	start := 0
+	for i, rec := range input.Records {
+		if workflowRecordHasSuccessfulProgress(rec) {
+			start = i
+		}
+	}
 	var out []FieldContractIssue
-	for i := len(input.Records) - 1; i >= 0 && len(out) < limit; i-- {
+	for i := len(input.Records) - 1; i >= start && len(out) < limit; i-- {
 		rec := input.Records[i]
 		for _, issue := range fieldContractIssuesFromRecord(i+1, rec, input.ArtifactAccess, input.AllowedNextActions) {
 			out = append(out, issue)

@@ -16021,3 +16021,51 @@ B110 冻结方案：
 - `EVAL-B107-ENDPOINTAMBIG1=design-required/deferred`：当前只有同尾名多 definition，缺少无歧义 typed endpoint authority，不能据此硬选。
 
 本批未修改 Trace、显式时间窗、因果投影、自动补齐或双轴根因；没有读取用户/模型/最终答案原文作 hard gate。
+
+## 113. 2026-08-05 B110：数据引用域对齐车道、贡献代次与陈腐诊断闭环
+
+### 113.1 冷读修正：零域交集不能硬判只有贡献侧错误
+
+`reference_ledger_domain_mismatch` 是精确结构信号：reference keys 与 numeric contribution group keys 零交集。它足以拒绝直接发布或只做
+assemble，却不能单独判定“贡献键错”还是“typed reference_key_field 声明错”。因此最终方案没有把系统硬化为自动重算某一侧，而是新增
+`repair_reference_domain_alignment` stage：
+
+- output projection graph 同时公布 `compute_contributions`、`reconcile_artifacts`、`assemble_answer` 三类 producer；
+- allowed-action contract 取 contribution preparation/recompute、reconcile、projection 的受控并集；
+- guard 的主 repair action 为 compute，且明确允许先检查并纠正 typed reference declaration；普通 cardinality/slot mismatch 仍保持 assemble-only；
+- 不生成最终值、不替模型选择哪一侧权威，模型仍基于 artifact schema、reference contract 与业务规则决定对齐方向。
+
+这样既消除了“诊断要求重算、动作面却禁止重算”的矛盾，也没有把一个只能证明不一致的信号越权升级为单边结论。
+
+### 113.2 可追溯贡献代次：`replace_contributions=true`
+
+当模型根据 typed 域错配与材料证据选择重算贡献时，普通 append/dedupe 会让 T-id 旧行与 canonical-label 新行并存。B110 为
+`compute_contributions` 增加严格布尔参数 `replace_contributions`：
+
+1. action 成功后才切换代次；失败不会销毁旧审计证据；
+2. 清除当前 seed 的旧 contribution ledger、旧 reconcile 和精确由旧贡献派生的 decision rows，保留独立资格判断行；
+3. 新 contribution artifact 标记 `contribution_generation=replace`；
+4. 跨 workflow round 的 seed 读取 durable plan action 参数作为代次边界，清除更早贡献/对账/答案代次，再接受该 result 的累计非贡献事实；
+5. 普通 compute 默认仍为 additive，非法布尔值 fail-closed，避免静默忽略修复意图。
+
+该机制按贡献账本这一类状态工作，不绑定 targets.csv、canonical_label、T1 或某个 case。
+
+### 113.3 `EVAL-B108-DATASTALE1`：派生字段诊断按 typed 成功边界退休
+
+`DiscoverFieldContractIssues` 原先逆序扫描全历史，早期失败在后续成功后仍持续进入 planner context。现在与 guard/execution violation 的生命周期原则一致，
+但采用“最新成功记录 inclusive”边界：成功记录之前的失败退休；成功记录自身若携带 zero-match artifact，仍作为当前问题保留。没有从错误文本判断“是否修好”。
+
+### 113.4 验证与状态
+
+- B108 同形 pin：reference=`canonical_label`、贡献=`T1/T2/T3`、答案虽为 `17,0,5`，仍进入域对齐 stage，且不再出现“without changing contribution records”；
+- 反向域错配 pin：reference=`target_id`、贡献=`GroupA/B/C` 同样保留双向 typed escape，证明没有拟合字段名；
+- 普通 GroupX 槽位错值继续 assemble-only；
+- replacement 本轮与跨轮代次、旧 reconcile/derived-row 清除、非法参数负臂通过；
+- 陈腐 failure 退休与 latest-success zero-match 保留双臂通过；
+- `go test ./internal/dataworkflow ./internal/dataquery ./internal/repl -count=1`：PASS（dataquery LOC ratchet 通过，新 concern 已拆到 sibling file）。
+
+状态：`EVAL-B108-DATAREF1=implemented/full-relevant-pass/replay-next`；
+`EVAL-B108-DATASTALE1=implemented/full-relevant-pass/replay-next`；
+`EVAL-B108-WRITEPROOF1=implemented/full-relevant-pass/replay-next`。
+
+本批没有改 Trace 路径，也没有扫描用户请求、模型过程或最终答案原文作 hard gate；系统只公开 typed 不一致、合法修复动作和账本代次，结论仍由模型给出。

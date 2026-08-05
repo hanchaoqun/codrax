@@ -15,6 +15,7 @@ const (
 	StageComputeContributions      = "compute_contributions"
 	StageReconcileArtifacts        = "reconcile_artifacts"
 	StageEmitOutputContractAnswer  = "emit_output_contract_answer"
+	StageRepairReferenceDomain     = "repair_reference_domain_alignment"
 	StageComplete                  = "complete"
 )
 
@@ -718,6 +719,19 @@ func AllowedNextActionContracts(stage string) []ActionContract {
 			contract(dataquery.DataActionAssembleAnswer, "prior reconcile report is required", "project reconcile groups into the strict user-facing output contract without changing business decisions or numeric values", "final answer matching output_contract"),
 			contract(dataquery.DataActionCustomTransform, "small projection over reconcile/contribution artifacts only", "assemble the strict user-facing output format without changing business decisions or numeric values", "final answer matching output_contract"),
 		}
+	case StageRepairReferenceDomain:
+		// A zero intersection between the contribution group domain and the
+		// declared reference key domain does not, by itself, prove which side
+		// is wrong. Publish both typed escape lanes: inspect/recompute the
+		// contribution generation, or correct/re-project a mistaken reference
+		// declaration. The normal admission gates still constrain every action.
+		var out []ActionContract
+		for _, repairStage := range []string{StageComputeContributions, StageReconcileArtifacts, StageEmitOutputContractAnswer} {
+			for _, repair := range AllowedNextActionContracts(repairStage) {
+				out = appendUniqueActionContract(out, repair)
+			}
+		}
+		return out
 	default:
 		return nil
 	}

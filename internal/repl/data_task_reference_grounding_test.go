@@ -163,6 +163,54 @@ func TestReferenceGroundingGuardRedOnUsurpedSlotShape(t *testing.T) {
 	}
 }
 
+func TestReferenceGroundingLedgerDomainMismatchOpensTypedAlignmentRepair(t *testing.T) {
+	root := referenceGroundingFixtureRepo(t)
+	records := referenceGroundingRecords()
+	current := dataquery.TaskPlan{CoverageContract: referenceGroundingContract()}
+	result := referenceGroundingResult("17,0,5", nil)
+	for i, group := range []string{"T1", "T1", "T2", "T3"} {
+		value := []string{"10", "7", "0", "5"}[i]
+		result.Contributions = append(result.Contributions, dataquery.ContributionRecord{
+			ItemID: dataquery.LooseText(fmt.Sprintf("row-%d", i+1)), Source: "observations.csv",
+			SourceLocator: dataquery.LooseText(fmt.Sprintf("row %d", i+1)), GroupKey: dataquery.LooseText(group),
+			Metric: "total_value", Value: dataquery.LooseText(value), Operation: "add", Role: "target",
+		})
+	}
+	result.Reconcile = &dataquery.ReconcileReport{Status: "pass", Groups: []dataquery.ReconcileGroup{
+		{GroupKey: "T1", Metric: "total_value", Actual: "17"},
+		{GroupKey: "T2", Metric: "total_value", Actual: "0"},
+		{GroupKey: "T3", Metric: "total_value", Actual: "5"},
+	}}
+
+	guard := dataTaskOutputReferenceGroundingGuardResult(root, records, current, result)
+	if guard.Empty() || guard.Repairability != dataworkflow.RepairNeedsRecompute || len(guard.Violations) != 1 {
+		t.Fatalf("guard=%+v, want typed domain-alignment repair", guard)
+	}
+	violation := guard.Violations[0]
+	if violation.ActionKind != string(dataquery.DataActionComputeContribs) ||
+		violation.Field != "canonical_label" ||
+		violation.Param != "replace_contributions=true" {
+		t.Fatalf("violation=%+v, want canonical reference domain plus replacement action", violation)
+	}
+	if strings.Contains(guard.ErrorText(), "without changing contribution records") {
+		t.Fatalf("guard=%q, domain mismatch must not forbid contribution repair", guard.ErrorText())
+	}
+	live := append(append([]dataTaskWorkflowRecord(nil), records...), dataTaskWorkflowRecord{Plan: current, Result: &result})
+	state := dataTaskWorkflowState(root, live, current)
+	if state.NextStage != dataworkflow.StageRepairReferenceDomain {
+		t.Fatalf("state=%+v, want reference-domain alignment stage", state)
+	}
+	for _, want := range []string{
+		string(dataquery.DataActionComputeContribs),
+		string(dataquery.DataActionReconcile),
+		string(dataquery.DataActionAssembleAnswer),
+	} {
+		if !slices.Contains(state.AllowedNextActions, want) {
+			t.Fatalf("allowed=%v, missing %s", state.AllowedNextActions, want)
+		}
+	}
+}
+
 // The live eval uses a generated key-list alias (target_list) as the typed
 // assemble_answer reference_path. The alias itself has no authority, but its
 // single source lineage points back to targets.csv; grounding must re-read

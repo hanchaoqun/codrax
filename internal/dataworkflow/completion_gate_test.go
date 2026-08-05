@@ -170,3 +170,35 @@ func TestCompletionGateGuardResultReportsReferenceGap(t *testing.T) {
 		t.Fatalf("violations=%+v, want reference path/field carried", guard.Violations)
 	}
 }
+
+func TestCompletionGateGuardResultRoutesLedgerDomainMismatchToRecomputeWithoutContradictoryAssembleOnlyHint(t *testing.T) {
+	guard := CompletionGateGuardResult(CompletionGateGuardInput{
+		OutputGraph: OutputProjectionGraph{
+			Status:                        OutputProjectionStatusGroundingMismatch,
+			AnswerItemCount:               3,
+			ReferenceKeyCount:             3,
+			ReferenceGroundingMismatch:    true,
+			ReferenceLedgerDomainMismatch: true,
+			ProducesActions: []string{
+				string(dataquery.DataActionComputeContribs),
+				string(dataquery.DataActionReconcile),
+				string(dataquery.DataActionAssembleAnswer),
+			},
+		},
+	})
+	if guard.Empty() || guard.Repairability != RepairNeedsRecompute || len(guard.Violations) != 1 {
+		t.Fatalf("guard=%+v, want typed recompute repair", guard)
+	}
+	violation := guard.Violations[0]
+	if violation.ActionKind != string(dataquery.DataActionComputeContribs) {
+		t.Fatalf("violation=%+v, want compute_contributions primary action", violation)
+	}
+	for _, want := range []string{"replace_contributions=true", "reconcile_artifacts", "assemble_answer"} {
+		if !strings.Contains(guard.ErrorText(), want) {
+			t.Fatalf("guard=%q, want %q", guard.ErrorText(), want)
+		}
+	}
+	if strings.Contains(guard.ErrorText(), "without changing contribution records") {
+		t.Fatalf("guard=%q, domain mismatch must not publish the old contradictory instruction", guard.ErrorText())
+	}
+}

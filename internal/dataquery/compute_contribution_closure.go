@@ -35,6 +35,7 @@ var computeContributionAllowedParams = map[string]bool{
 	"metric":                    true,
 	"operation":                 true,
 	"reason":                    true,
+	"replace_contributions":     true,
 	"role":                      true,
 	"rule_refs":                 true,
 	"scope":                     true,

@@ -172,14 +172,20 @@ func validationErrorWorkflowViolations(err error) []WorkflowViolation {
 func outputProjectionGuardResult(graph OutputProjectionGraph, gap ReferenceProjectionGap) GuardResult {
 	code := "output_projection_" + strings.TrimSpace(graph.Status)
 	message := outputProjectionCompletionMessage(graph, gap)
+	actionKind := dataquery.DataActionAssembleAnswer
+	repairability := RepairNeedsTypedAction
+	if graph.ReferenceLedgerDomainMismatch {
+		actionKind = dataquery.DataActionComputeContribs
+		repairability = RepairNeedsRecompute
+	}
 	action := dataquery.DataAction{
 		ID:   "complete_output_projection",
-		Kind: dataquery.DataActionAssembleAnswer,
+		Kind: actionKind,
 	}
 	violation := NewActionInputViolation(
 		code,
 		"error",
-		RepairNeedsTypedAction,
+		repairability,
 		action,
 		strings.TrimSpace(gap.Candidate.Path),
 		nil,
@@ -190,12 +196,16 @@ func outputProjectionGuardResult(graph OutputProjectionGraph, gap ReferenceProje
 		violation.InputAlias = strings.TrimSpace(gap.Candidate.Path)
 		violation.MissingFields = cleanStrings([]string{gap.Candidate.Field})
 	}
-	return NewGuardResult(code, "error", RepairNeedsTypedAction, message, violation)
+	return NewGuardResult(code, "error", repairability, message, violation)
 }
 
 func outputProjectionCompletionMessage(graph OutputProjectionGraph, gap ReferenceProjectionGap) string {
 	switch graph.Status {
 	case OutputProjectionStatusGroundingMismatch:
+		if graph.ReferenceLedgerDomainMismatch {
+			return fmt.Sprintf("validate data workflow completion: contribution group keys and reference keys have no shared typed domain: %d answer item(s), %d reference key(s), cardinality_mismatch=%t, slot_mismatches=%d. Inspect the typed reference field and contribution inputs, then either recompute the source-row contribution ledger with replace_contributions=true in the intended reference-key domain or correct the typed reference declaration; reconcile_artifacts and assemble_answer must run after the domains align",
+				graph.AnswerItemCount, graph.ReferenceKeyCount, graph.ReferenceCardinalityMismatch, graph.ReferenceMismatchCount)
+		}
 		return fmt.Sprintf("validate data workflow completion: data output reference grounding is inconsistent: %d answer item(s), %d reference key(s), cardinality_mismatch=%t, ledger_domain_mismatch=%t, slot_mismatches=%d; run assemble_answer from the typed reference and contribution ledgers",
 			graph.AnswerItemCount, graph.ReferenceKeyCount, graph.ReferenceCardinalityMismatch, graph.ReferenceLedgerDomainMismatch, graph.ReferenceMismatchCount)
 	case OutputProjectionStatusIncompleteReference:
