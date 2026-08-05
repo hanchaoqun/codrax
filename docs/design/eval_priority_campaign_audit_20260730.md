@@ -15608,3 +15608,41 @@ sequence Analyzer 发射 `question_kind=call_chain + predicate_axis=call`，却�
 `EVAL-B100-ENDPOINTADMISSION1=implemented/full-tool-pass/replay-next`。
 
 两项都不改变 RootCauseTrace、显式时间窗、双轴根因、因果投影、自动补齐或模型结论所有权。
+
+## 105. 2026-08-05 B101 r27：B100 双项获生产正证；completion→finalizer typed evidence 交接断层
+
+### 105.1 严格双并发与人工结论
+
+在 `main@bc4101f61` 以 `PARALLEL=2` 严格并行恰好两个 read case：
+
+- `qf_sequence_analyzer_gate`：runner FAIL / human FAIL，227s，11 个 Explorer midloop、4 次 completion 尝试、2 次 Finalizer reject，最大 context 31%；
+- `qf_multi_member_set_count_caveat`：runner PASS / human PASS，236s，4 次 source lens、1 次 Finalizer reject，最大 context 25%。
+
+工件见 `eval/parallel_selected_summary_evalcampaign_b101_b100_replay_r27_20260805.md` 及 manual audit。本轮未运行 Trace；以下改动不进入
+RootCauseTrace、显式时间窗、双轴根因、因果投影或自动补齐。
+
+### 105.2 B100 生产验收
+
+`EVAL-B100-ENDPOINTADMISSION1` 已关闭：Analyzer 首次接受的 emission 携带 request-validated 的有序端点
+`buildAnalysisIR -> gate.Run`，无序 entity/exact-target 未获方向权限。`EVAL-B100-VISIBLECARRIER1` 已关闭：inventory 第一稿 authored Markdown
+表格未显示 item-only 成员时被正确拒绝一次，模型随后把 3 types、5 functions、30 constants 全部作为可见行并逐行引用；旧的隐藏 sidecar 假绿未复发。
+`EVAL-B99-PATCHCITATIONDRIFT1` 本轮没有形成相同 stable-ID 插行/继承引用位移形，继续 replay-pending。
+
+### 105.3 `EVAL-B101-BOUNDARYHANDOFF1`（P0）：相邻阶段消费了不同 evidence authority
+
+Explorer 已发射并 grounding：`buildAnalysisIR -> gate.RunWith`、wrapper 真方向 `gate.Run -> RunWith`、exact `gate.Run` definition；completion 据此接受
+`principal_span_waiver=no_directed_path`。但 Finalizer 的 endpoint boundary 重建只读取 mutable Turn-A/emitted buffer，没有读取已经交接到
+`AgentContext.EvidenceItems` 的 accepted evidence；compaction/reset 后它错误输出 `requested_sink_existence_proof=unproven`。同一调查由此同时出现“端点已证并允许
+no-path”和“端点未证”的 typed 合同冲突。模型最终在正文写成 `RunWith -> Run`，图门虽删掉无证箭头，却无权替换模型 prose。
+
+根修是统一 typed carrier，不增加答案 hard gate：AgentContext 与 BusContext 的 semantic-view 构造都把 handoff `EvidenceItems` 传给同一个
+endpoint analyzer，再与当前 mutable evidence lane 求并集；既有 grounding、current-source、identity/edge 去重和“definition 只证存在、不铸 call edge”规则保持不变。
+系统仍只向模型提供准确 evidence capsule，不代写结论，也不扫描用户或模型原文。
+
+### 105.4 施工与验证
+
+新增 pin 覆盖 AgentContext/BusContext 两条交接路径，以及真实 Finalizer prompt：handoff 中只有 exact definition 时必须呈现
+`requested_sink_existence_proof=definition_only`、`incident_call_evidence=not_emitted`，不得退化为 `unproven` 或伪造边。完整
+`internal/types`（22.439s）、`internal/agent`（4.072s）、`internal/tool`（169.392s）通过；BusContext parity 增补后定向 suite 复绿。
+
+状态：`EVAL-B101-BOUNDARYHANDOFF1=implemented/full-pass/replay-next`。

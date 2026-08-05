@@ -936,6 +936,43 @@ func TestRenderAnswerDocCallChainEndpointBoundary_DefinitionOnlyDoesNotClaimLeaf
 	}
 }
 
+func TestAnswerDocumentEvaluator_CallChainBoundaryUsesExplorerHandoffDefinition(t *testing.T) {
+	mut := types.NewMutableState("typed no-directed-path handoff boundary")
+	mut.SetPrincipalSpanWaiver(&types.PrincipalSpanWaiver{
+		Reason:    types.PrincipalSpanWaiverNoDirectedPath,
+		Rationale: "audit-only rationale",
+	})
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentTrace, PredicateAxis: types.AxisCall,
+			CallChainEndpointProfile: &types.CallChainEndpointProfile{Source: "buildAnalysisIR", Sink: "gate.Run"},
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         string(types.ReqCallChain),
+				ExactTargets: []string{"buildAnalysisIR", "gate.Run"},
+			},
+		}},
+		EvidenceItems: []types.EvidenceItem{
+			{ID: "E1", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "buildAnalysisIR", Object: "gate.RunWith", Source: "internal/agent/analyzer.go", LineStart: 2666, GroundingStatus: types.GroundingGrounded},
+			{ID: "D1", Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, Subject: "gate.Run", AnchorSymbol: "Run", Source: "internal/analysis/gate/gate.go", LineStart: 134, GroundingStatus: types.GroundingGrounded},
+		},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"requested_sink_existence_proof=`definition_only`",
+		"requested_sink_incident_call_evidence=`not_emitted`",
+		"Do not extend it to the requested sink",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("finalizer prompt lost explorer handoff authority %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "requested_sink_existence_proof=`unproven`") {
+		t.Fatalf("finalizer prompt must not regress accepted endpoint existence to unproven:\n%s", prompt)
+	}
+}
+
 func TestRenderAnswerDocCallChainEndpointBoundary_DirectedEvidenceDisclosesStateConflict(t *testing.T) {
 	view := &types.AnswerSemanticView{CallChainEndpointBoundary: &types.CallChainEndpointBoundary{
 		Disposition:    types.CallChainEndpointNoDirectedPath,

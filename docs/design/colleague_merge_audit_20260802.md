@@ -2381,3 +2381,19 @@ replace-citation 均不动。两项都只修上下文/证据元数据，不修�
 两项已交付：renderer/validator 共享 concrete block visibility，隐藏 sidecar 仅能给 Markdown 第一列已显示成员补引用；源码非 scalar call-chain 在 Analyzer 边界必须有 request-validated ordered profile，无序 entity/exact-target 永不提供方向。category/code-token/support-ref/multi-target 旁路同步收口；runtime artifact 与 scalar/role-locate 兼容车道隔离。
 
 实现不扫描 request/model/final prose 作 hard gate，不系统代写成员或结论，不改变 RootCauseTrace、显式时间窗、双轴根因、因果投影或自动补齐。完整 `internal/tool` 170.868s 通过；状态均为 `implemented/full-tool-pass/replay-next`。
+
+### §10.38 B101 production：B100 双项关闭；finalizer evidence handoff 权威断层已修
+
+`main@bc4101f61` 严格并行两个 read case，inventory runner/human PASS，sequence runner/human FAIL；详细工件与裁定见 eval campaign §105。
+
+- B100 visible-carrier 已关闭：authored Markdown 表中缺失的成员不能再由隐藏 sidecar 冒充可见，模型一次 repair 后完整显示 3/5/30 roster；
+- B100 endpoint admission 已关闭：Analyzer 首次接受 emission 已携 ordered request-validated endpoints；
+- 新 P0 `EVAL-B101-BOUNDARYHANDOFF1`：completion 读取 Explorer accepted evidence 后允许 typed no-path，Finalizer semantic boundary 却只读 mutable
+  临时 buffer；交接/compaction 后 exact sink definition 消失，导致同轮 `endpoint proven` 与 `endpoint_unresolved` 自相矛盾，模型把 wrapper 方向写反。
+
+已统一 AgentContext/BusContext 的 endpoint evidence pool：handoff `EvidenceItems` 与 mutable evidence lanes 共同进入同一 shared analyzer，保留 existing
+grounding、current-source、identity/edge 去重及 definition/call-edge 权限分离。该修复只恢复 typed 上下文连续性，不扫描答案、不作 prose hard gate、不代写模型结论，
+也不进入 RootCauseTrace、显式时间窗、双轴根因、因果投影或自动补齐。
+
+完整 types/agent/tool 通过（22.439s/4.072s/169.392s），AgentContext、BusContext 与 Finalizer prompt 三面 pin 已落地。状态：
+`EVAL-B101-BOUNDARYHANDOFF1=implemented/full-pass/replay-next`；B99 patch citation drift 仍因缺少同形生产 witness 保持 replay-pending。

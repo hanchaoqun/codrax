@@ -128,6 +128,53 @@ func TestBuildAnswerSemanticViewForAgentContext_RefreshesTypedCallChainBoundary(
 	}
 }
 
+func TestBuildAnswerSemanticViewForAgentContext_EndpointBoundaryUsesFinalizerHandoffEvidence(t *testing.T) {
+	mut := NewMutableState("call chain finalizer handoff")
+	mut.SetPrincipalSpanWaiver(&PrincipalSpanWaiver{
+		Reason:    PrincipalSpanWaiverNoDirectedPath,
+		Rationale: "source inspection found no same-direction path",
+	})
+	ir := &AnalysisIR{RequestModel: RequestModel{
+		Intent: IntentTrace, PredicateAxis: AxisCall,
+		CallChainEndpointProfile: &CallChainEndpointProfile{Source: "buildAnalysisIR", Sink: "gate.Run"},
+		AnalyzerHints: AnalyzerHints{
+			Kind:         string(ReqCallChain),
+			ExactTargets: []string{"buildAnalysisIR", "gate.Run"},
+		},
+	}}
+	ctx := &AgentContext{
+		AnalysisIR: ir,
+		Mutable:    mut,
+		EvidenceItems: []EvidenceItem{
+			{ID: "E1", Kind: EvidenceRelationship, AnchorKind: AnchorCall, Subject: "buildAnalysisIR", Object: "gate.RunWith", Source: "internal/agent/analyzer.go", LineStart: 2666, GroundingStatus: GroundingGrounded},
+			{ID: "D1", Kind: EvidenceDirect, AnchorKind: AnchorDefinition, Subject: "gate.Run", AnchorSymbol: "Run", Source: "internal/analysis/gate/gate.go", LineStart: 134, GroundingStatus: GroundingGrounded},
+		},
+	}
+
+	got := BuildAnswerSemanticViewForAgentContext(ctx)
+	if got == nil || got.CallChainEndpointBoundary == nil || got.CallChainEndpointBoundary.EvidenceCapsule == nil {
+		t.Fatalf("finalizer handoff did not produce endpoint evidence capsule: %+v", got)
+	}
+	capsule := got.CallChainEndpointBoundary.EvidenceCapsule
+	if capsule.SourceProof != CallChainEndpointExistenceCallEdge || capsule.RequestedSinkProof != CallChainEndpointExistenceDefinitionOnly {
+		t.Fatalf("finalizer handoff proof drifted from completion authority: %+v", capsule)
+	}
+
+	bus := &BusContext{
+		AnalysisIR:    ir,
+		Mutable:       mut,
+		EvidenceItems: ctx.EvidenceItems,
+	}
+	got = BuildAnswerSemanticViewForBusContext(bus)
+	if got == nil || got.CallChainEndpointBoundary == nil || got.CallChainEndpointBoundary.EvidenceCapsule == nil {
+		t.Fatalf("bus handoff did not produce endpoint evidence capsule: %+v", got)
+	}
+	capsule = got.CallChainEndpointBoundary.EvidenceCapsule
+	if capsule.SourceProof != CallChainEndpointExistenceCallEdge || capsule.RequestedSinkProof != CallChainEndpointExistenceDefinitionOnly {
+		t.Fatalf("bus handoff proof drifted from completion authority: %+v", capsule)
+	}
+}
+
 // AnswerShape constants retired in PR5 of the AnswerShape
 // terminal-retirement migration. The
 // "EveryShapeProducesNonNilView" loop test that lived here is

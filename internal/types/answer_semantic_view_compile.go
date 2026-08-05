@@ -303,13 +303,13 @@ func BuildAnswerSemanticViewForAgentContext(ac *AgentContext) *AnswerSemanticVie
 		return nil
 	}
 	if cached := ac.cachedAnswerSemanticView(); cached != nil {
-		applyCallChainEndpointBoundary(cached, ac.AnalysisIR, ac.Mutable)
+		applyCallChainEndpointBoundary(cached, ac.AnalysisIR, ac.Mutable, ac.EvidenceItems)
 		return cached
 	}
 	plan := BuildAnswerSurfacePlanForAgentContext(ac)
 	view := BuildAnswerSemanticView(ac.AnalysisIR, plan)
 	ac.storeAnswerSemanticView(view)
-	applyCallChainEndpointBoundary(view, ac.AnalysisIR, ac.Mutable)
+	applyCallChainEndpointBoundary(view, ac.AnalysisIR, ac.Mutable, ac.EvidenceItems)
 	emitSemanticViewTrace("agent", view, ac.AnalysisIR, plan)
 	return cloneAnswerSemanticView(view)
 }
@@ -323,13 +323,13 @@ func BuildAnswerSemanticViewForBusContext(bus *BusContext) *AnswerSemanticView {
 		return nil
 	}
 	if cached := bus.cachedAnswerSemanticView(); cached != nil {
-		applyCallChainEndpointBoundary(cached, bus.AnalysisIR, bus.Mutable)
+		applyCallChainEndpointBoundary(cached, bus.AnalysisIR, bus.Mutable, bus.EvidenceItems)
 		return cached
 	}
 	plan := BuildAnswerSurfacePlanForBusContext(bus)
 	view := BuildAnswerSemanticView(bus.AnalysisIR, plan)
 	bus.storeAnswerSemanticView(view)
-	applyCallChainEndpointBoundary(view, bus.AnalysisIR, bus.Mutable)
+	applyCallChainEndpointBoundary(view, bus.AnalysisIR, bus.Mutable, bus.EvidenceItems)
 	emitSemanticViewTrace("bus", view, bus.AnalysisIR, plan)
 	return cloneAnswerSemanticView(view)
 }
@@ -420,14 +420,21 @@ func boundCallChainEndpointEvidencePath(in []CallChainEvidenceEdge, limit int) (
 	return out, len(in) - len(out)
 }
 
-func applyCallChainEndpointBoundary(view *AnswerSemanticView, ir *AnalysisIR, mutable *MutableState) {
+func applyCallChainEndpointBoundary(view *AnswerSemanticView, ir *AnalysisIR, mutable *MutableState, handoffEvidence []EvidenceItem) {
 	if view == nil {
 		return
 	}
 	view.CallChainEndpointBoundary = nil
 	if ir != nil {
 		waiver := principalSpanWaiverFromMutable(mutable)
-		var evidence []EvidenceItem
+		// Finalization receives the explorer's accepted evidence through the
+		// stage handoff on AgentContext/BusContext. Mutable.EmittedEvidence is
+		// an exploration-time buffer and may already have been compacted or
+		// reset by ParseOutput; TurnA is an earlier snapshot. Use all three
+		// typed carriers so completion admission and finalizer context evaluate
+		// the same evidence authority. Graph/existence analyzers deduplicate
+		// identities and direction-preserving edges themselves.
+		evidence := append([]EvidenceItem(nil), handoffEvidence...)
 		if mutable != nil {
 			if turnA := mutable.TurnAArtifacts(); turnA != nil {
 				evidence = append(evidence, turnA.EvidenceItems...)
