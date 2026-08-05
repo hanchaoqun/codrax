@@ -2076,3 +2076,20 @@ identity join，并以唯一 OwnerSymbol/source location/required endpoint 消�
 `EVAL-B89-CALLEDGEQUAL1=implemented/full-tool-pass/replay-next`。
 
 本轮未触碰 RootCauseTrace runtime relation authority、显式时间窗因果投影、自动补齐或模型结论所有权。
+
+### §10.27 B90 production：限定边合同复验通过；typed 上下文仍有两处污染
+
+严格并行两个 read case 后，`EVAL-B89-CALLEDGEQUAL1` 的 production 结论是“实现成立”：错误反向边被拒、缺失 principal
+边被拒、最终 `gate.Run -> gate.RunWith` 限定形通过，旧不可满足合同没有复发。不能把这两次真实事实修正记成 validator 嘈声。
+
+但 runner PASS 的调用链答案人工仍判 FAIL：typed graph 与最终图均表明 `buildAnalysisIR -> gate.RunWith` 和
+`gate.Run -> gate.RunWith` 是汇入同一 callee 的并列关系，正文却宣称前者间接到达后者。根因是 no-directed-path boundary
+已经铸造，模型先前自报的“完整调用链” aggregate/summary 仍以 principal 形进入 Finalizer，形成冲突上下文。登记
+`EVAL-B90-CALLBOUNDCTX1=P0/confirmed`，只能从 typed aggregate authority/上下文单源修复，禁止扫描或系统改写模型正文。
+
+计数 case 再次证明 §10.26 的可选 quote 补洞不稳：同一真实 analyzer 本轮未把目录保存在 quote/entity，carrier 未铸成，
+10 次 lens 后仍漏掉当前第 5 个 production 导出函数。登记 `EVAL-B88-SCOPEPROV1-R2=P1/confirmed`：使用 analyzer-stage
+成功 scope × 当前请求 lexical exact path identity 铸造边界；这是完整 canonical path 的 token-boundary 比较，不是关键词/语义
+扫描。wrong-stage/root/unmentioned 均继续拒绝。`EVAL-B90-INVENTORYFRESH1` 随 scoped complete roster 一并验收。
+
+两案均未改变 Trace 显式窗、因果投影、自动补齐和模型结论所有权。

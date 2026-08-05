@@ -14718,3 +14718,44 @@ JavaScript、TypeScript、Java、Kotlin、Rust、C、C++、Ruby、Swift、Lua、
 
 状态：`EVAL-B89-CALLEDGEQUAL1=implemented/full-tool-pass/replay-next`。该修复只消费 structured document 与 typed evidence，
 不解析用户/模型 prose，不放松无证 call edge；QFRootCauseTrace 已显式排除，因此 Trace 时间窗因果投影及自动补齐不受影响。
+
+## 94. 2026-08-04 B90 r16：限定调用边生产正证；目录边界二次失效与无路径上下文污染
+
+### 94.1 严格并行与人工审计
+
+在 `main@e801d130f512` 构建后严格并行恰好两个 read case：
+
+- `qf_sequence_analyzer_gate`：runner PASS / human FAIL，497s，27 次 read、39 个 Explorer 轮、2 次 Finalizer reject；
+- `qf_multi_member_set_count_caveat`：runner/human FAIL，329s，10 次 source_inventory lens；答案给出 type=3、Kind
+  constant=30，但 production function 只列 4 个，漏掉 checkout 中第 5 个导出函数 `SetExternalArtifactFloor`。
+
+工件见 `eval/parallel_selected_summary_evalcampaign_b90_contract_replay_r16_20260804.md` 及对应 manual audit。
+
+### 94.2 `EVAL-B89-CALLEDGEQUAL1` 生产结论：身份合同已闭，事实方向仍需模型自修
+
+第一稿把 wrapper 方向画成 `gate.RunWith -> gate.Run`，被 typed edge gate 正确拒绝；第二稿删除该边，又被 principal
+completeness 正确要求保留真实的 `gate.Run -> gate.RunWith`；第三稿使用限定 participant 后通过。这证明新 owner-context resolver
+已经在真实 Finalizer 三面同时生效，旧“正确限定边永远过不了”的合同冲突不再存在。两次拒绝是对两个不同事实错误的有效看护，
+不能为了减少重试而放宽。
+
+但最终 prose 仍声称 `buildAnalysisIR` 通过 `RunWith`“间接到达”`gate.Run`，而最终 Mermaid 明确是两条并列边：
+`buildAnalysisIR -> gate.RunWith` 与 `gate.Run -> gate.RunWith`，不存在 source→requested sink 的有向路径。系统其实已经追加
+`principal_span_waiver=no_directed_path`，却同时保留模型早先自报的“完整调用链” principal member_set 和带错误方向的 evidence
+summary/answer-chain，给 Finalizer 提供了互相冲突的上下文。新 P0 `EVAL-B90-CALLBOUNDCTX1` 冻结为：当 typed directed graph
+判定 no-path 时，不允许“完整路径”类模型 aggregate 获 principal authority；Finalizer 的关系事实以 typed
+subject/predicate/object + boundary 为准，模型 summary 只能是 advisory。不能扫描或改写最终 prose，结论仍由模型生成。
+
+### 94.3 `EVAL-B88-SCOPEPROV1-R2`：模型字段波动不能承担目录身份
+
+§93.2 依赖真实 analyzer 把目录写入 `SourceScopeProfile.SourceQuotes`，但 B90 的同一请求只写入“列出公开符号”，目录既未进入
+该字段也未进入 `MentionedEntities`。因此 producer 再次没有铸成 requested-path carrier，completion repair 四次扩到 `cmd`、
+fixture、`internal/skill` 等五个无关目录；最终模型从混合 production/test census 手工推断 roster，漏掉当前新增的第 5 个公开函数。
+
+最优补洞不能继续赌某个可选 analyzer 文本字段。精确信号应是三者合取：active source inventory、带
+`repo_lens:stage:analyze + repo_lens:tool_query` 的成功 observation scope、该 canonical path 在当前请求中具有 lexical exact
+path identity。这里复用共享 token-boundary matcher，只比较 typed scope 的完整路径字面量，不做关键词/语义/最终答案扫描；
+explore scope、根目录、越界路径、请求中不存在的 analyzer 猜测仍 fail-closed。随后 scoped requested-universe rowset 必须直接给出
+complete production roster，避免模型再从全仓数量倒推成员。状态：`R2=confirmed/next`，`INVENTORYFRESH1=confirmed/dependent`。
+
+本批没有触碰 Trace query、显式时间窗、因果投影、自动补齐或根因双轴；两个新根修都约束 typed context authority，系统不得
+替写模型结论。
