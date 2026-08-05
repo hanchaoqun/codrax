@@ -5083,6 +5083,18 @@ func selectDataTaskTerminalAnswer(records []dataTaskWorkflowRecord, current data
 // validated candidate exists the pre-existing selection semantics are
 // unchanged.
 func selectDataTaskTerminalAnswerWithRepo(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result, contract dataquery.CoverageContract, output dataquery.OutputContract) dataTaskTerminalAnswerSelection {
+	// A direct candidate normally represents records[len(records)-1]. Do
+	// not let that fast path bypass the same typed answer-face contest that
+	// protects fallback candidates: an evaluator may attach repair_node to
+	// the answer-producing record itself. A contest on an older record is
+	// cleared by the newer answer record (the repair output), exactly like
+	// the fallback/index lane below.
+	directContested := false
+	if len(records) > 0 {
+		if evalIdx, _, contesting := latestDataTaskAnswerContestingEvaluation(records); contesting && evalIdx >= len(records)-1 {
+			directContested = true
+		}
+	}
 	directCandidate := dataworkflow.ResultIsFinalAnswerCandidate(current, result, contract, output, dataTaskWorkflowLedgerSatisfactionFacts(records, result))
 	directReport, _, directApplicable := dataTaskOutputReferenceGroundingReport(repoRoot, records, current, result)
 	directGrounded := directApplicable && !directReport.Violated()
@@ -5093,7 +5105,7 @@ func selectDataTaskTerminalAnswerWithRepo(repoRoot string, records []dataTaskWor
 	// previous guard-empty short-circuit let a poisoned-ledger candidate
 	// (grounding silenced, guard empty) usurp a validated "17,0,5".
 	if directCandidate && directGrounded {
-		return dataTaskTerminalAnswerSelection{Plan: current, Result: result}
+		return dataTaskTerminalAnswerSelection{Plan: current, Result: result, Contested: directContested}
 	}
 	if idx, ok := latestDataTaskGroundedAnswerCandidateIndex(repoRoot, records, contract, output); ok {
 		sel := dataTaskTerminalAnswerSelection{
@@ -5115,7 +5127,7 @@ func selectDataTaskTerminalAnswerWithRepo(repoRoot string, records []dataTaskWor
 		return sel
 	}
 	if directCandidate {
-		return dataTaskTerminalAnswerSelection{Plan: current, Result: result}
+		return dataTaskTerminalAnswerSelection{Plan: current, Result: result, Contested: directContested}
 	}
 	idx, ok := latestDataTaskFinalAnswerCandidateIndex(records, contract, output)
 	if !ok {

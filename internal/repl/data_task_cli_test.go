@@ -119,6 +119,22 @@ func TestFinalDataTaskAnswerForCLIRefusesContestedFallbackAnswer(t *testing.T) {
 		t.Fatalf("err=%v, want the contest consult failure", err)
 	}
 
+	// The same contest attached to the answer-producing record must not
+	// escape through the direct-candidate fast path. The customer replay
+	// that motivated this pin had a structurally valid JSON answer, but the
+	// evaluator precisely contested its assemble_answer source on that same
+	// record after the repair budget was exhausted.
+	contestedDirect := answer
+	contestedDirect.Evaluation = dlrContestingEvaluation()
+	records = []dataTaskWorkflowRecord{contestedDirect}
+	published, err = finalDataTaskAnswerForCLI("", records, contestedDirect.Plan, *contestedDirect.Result, "en")
+	if err == nil {
+		t.Fatalf("answer=%q, want contested direct publication refused", published)
+	}
+	if !strings.Contains(err.Error(), "actively contests") {
+		t.Fatalf("err=%v, want direct candidate to consume the shared contest authority", err)
+	}
+
 	// Post-contest repair output publishes: the answer record follows
 	// the contesting evaluation, so it is the repair result, not the
 	// contested answer.

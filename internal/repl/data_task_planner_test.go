@@ -105,9 +105,32 @@ func TestDataTaskPlannerCompatJSON(t *testing.T) {
 		"continue_after=true",
 		"Contribution population and final reference projection are separate DAG stages",
 		"let assemble_answer apply the complete reference only to the final output projection",
+		"Ledger and output-shape decision (choose the one shape the task actually needs)",
+		"Never use operation=count when the answer must contain the member values",
+		"Selecting, filtering, copying, or preserving IDs already present in one material is not entity resolution",
+		"do not add an extra JSON-string layer around native params",
 	} {
 		if !strings.Contains(system, want) {
 			t.Fatalf("data planner system prompt missing %q:\n%s", want, system)
+		}
+	}
+}
+
+func TestDataTaskLedgerShapeTeachingSharedByInitialAndContinuationPrompts(t *testing.T) {
+	for name, prompt := range map[string]string{
+		"initial":      dataTaskPlannerSystemPrompt,
+		"continuation": dataTaskContinuationPromptWithRuntimeView("compute", "/repo", TurnPolicy{Route: RouteData}, nil, dataTaskWorkflowRuntimeView{}),
+	} {
+		for _, want := range []string{
+			"Direct bounded transform:",
+			"Member/list output:",
+			"Scalar count/total output:",
+			"operation=include|set",
+			"arbitrary payload in input_paths does not turn that payload into the projection source",
+		} {
+			if !strings.Contains(prompt, want) {
+				t.Fatalf("%s prompt missing shared ledger/output teaching %q", name, want)
+			}
 		}
 	}
 }

@@ -17658,3 +17658,55 @@ plan-only 未 apply。过程确认 `EVAL-B138-WRITECONTRACTMIND1`（P1）：writ
 状态：`EVAL-B30-ACCOUNT2=production-replay-closed`；`EVAL-B138-WRITECONTRACTMIND1=implemented/full-related-pass`；
 `EVAL-B138-PRETRIAGENOISE1=P2/model-variance-contained`；Trace 显式窗、因果投影、自动补齐、两维根因、排序、唤醒链与窗内可消除量
 =`production-replay-pass`；write plan 隔离边界=`pass`。
+
+### 123.27 B139 r57：严格 JSON 值列表被重投影成计数；answer-face contest 的 direct 快路 fail-open
+
+在 `main@cdf30fd59` 冻结构建后，严格并行恰好两个异构模式 case：
+
+- `data_json_strict_ids`：355s，runner FAIL / human FAIL，11 个 data round、6 次 repair、8 条 prior error；
+- `operation_system_inventory`：37s，runner PASS / human PASS，4 条只读命令一次完成。
+
+Operation 席请求的系统版本、CPU 核数、内存与 GPU 均有实际命令支持：macOS 26.5.2/25F84、
+18/18/18 total/physical/logical cores、137438953472 bytes=128GiB、M5 Max GPU 40 cores/Metal 4。答案额外把
+CPU 型号也写成 Apple M5 Max；本轮只执行了 CPU 核数 sysctl，型号来自同机 GPU/SoC 名称的推断，而非独立 CPU-model
+观察。请求主体仍正确，记 `EVAL-B139-OPCPUMODEL1=P2/model-embellishment-observe`，不为未请求字段新增硬门。
+
+Data 席不是模型没有算出答案。第一个 `custom_transform` 已生成 typed `emitted_payload`：
+`{"ids":["u1","u3"]}`。失败由三段系统/模型级联造成：
+
+1. 初始 plan 为简单单材料筛选额外开启 rule、decision、entity、contribution、reconcile 全套 obligation；后续状态机被迫
+   执行 11 个 rank。仅仅读取、筛选并保留同一材料里的 ID 不构成 source-to-canonical entity resolution。
+2. 输出目标是成员列表，planner 却用 `compute_contributions(operation=count, group_key_field=active)`；reconcile 因而诚实得到
+   `true/count=2`，`assemble_answer(json_object,value_field=actual)` 再诚实投影为 `{"true":"2"}`。旧教学分别讲过
+   include/count/entity/assemble，但没有先给互斥的“direct / member-list / scalar”选择，长清单增加了组合错误概率。
+3. evaluator 最终精确发出 `repair_node`，并带 `action_id=project_final_json`、`action_kind=assemble_answer`、
+   `repair_locus=final_json_answer/answer field projection source`。然而 `selectDataTaskTerminalAnswerWithRepo` 的 direct candidate
+   两个提前返回臂没有读取与 fallback 共用的 sticky contest 权威；修复预算已在前序合同摩擦中耗尽后，系统仍发布被 evaluator
+   否决的 `{"true":"2"}`。这是 `EVAL-B139-DIRECTCONTEST1=P0`，不是模型波动。
+
+本批根修分为权限与心智两层：
+
+- direct 与 fallback 候选现在共用 `latestDataTaskAnswerContestingEvaluation`。contest 与当前 answer-producing record 同席时，
+  terminal publication fail-loud；contest 在更早 record、当前记录是更新的 answer-bearing repair output 时仍可发布。判据只读
+  evaluator typed status/action kind/locus 和 record index，不扫描用户输入、模型 reasoning、答案 JSON 或最终 prose。
+- 初始与 continuation planner 共用一份 `dataTaskLedgerShapeTeaching` 互斥决策表：direct bounded transform 不平白增加 ledger；
+  member/list 使用 include/set + member value field；scalar 才使用 count/add/subtract；现成 ID 的筛选/复制不等于实体归一；
+  structured params 使用原生 array/object，不套第二层 JSON string。
+- 新决策表没有继续叠加到既有长 continuation 手册。重复的 mapping/normalization/join/reference/artifact 说明收敛到
+  `allowed_next_action_contracts + action_scaffold + artifact_graph + DAG rank`，62KB prompt compaction tripwire 保持原阈值并通过。
+- `assemble_answer` 的运行语义未放宽：任意 payload 出现在 `input_paths` 不会绕过 reconcile 取得答案权限；错投影仍由模型通过
+  typed `repair_node` 指定修复，系统不自行选择 payload、不代写用户答案。
+
+JSON 降级能力复核：B123-D1 的无损结构修复、block 可见恢复、最后有界 `visible_string_salvage` 与显式模型降级披露仍在；
+本案输入/输出 JSON 都是合法 JSON，属于 typed 语义选源错误，不能错误归入 malformed salvage，也不能靠提取 `ids/u1/u3`
+关键词修补。
+
+回归：`go test ./internal/repl -count=1` PASS（31.104s）；新增 direct-current-record contest、初始/续规划共享决策表、
+成员列表禁止 count、原生 params 教学与既有 62KB 上下文上限 pins。下一步提交本修复后用干净 revision 恰好并行重放
+`data_json_strict_ids + sr_cpp_sink_impls`，避免只对一个数据 fixture 自证。
+
+状态：`EVAL-B139-DIRECTCONTEST1=implemented/full-repl-pass/awaiting-real-replay`；
+`EVAL-B139-DATASHAPE1=implemented/shared-teaching+prompt-compaction/full-repl-pass/awaiting-real-replay`；
+`EVAL-B139-OPCPUMODEL1=P2/model-embellishment-observe`；
+`EVAL-B122-JSONTEACH1=partially-implemented/D1+B139-shape-table/replay-next`；Trace 显式窗、因果投影、自动补齐、两维根因、
+排序、唤醒链与窗内可消除量=`untouched`。
