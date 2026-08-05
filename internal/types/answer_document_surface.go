@@ -22,6 +22,22 @@ func AnswerBlockVisibleSurface(block AnswerBlock) string {
 	var b strings.Builder
 	appendAnswerVisibleSurface(&b, block.Title)
 	appendAnswerVisibleSurface(&b, block.Text)
+	if block.Kind == BlockTable && !AnswerBlockRendersStructuredItems(block) {
+		// The table renderer treats a complete Markdown table as canonical and
+		// returns before rendering structured Items. Preserve only Markdown
+		// item carriers when block.Text itself was not the table; all other
+		// Items are citation sidecars, not visible answer text.
+		if !AnswerTextLooksLikeMarkdownTable(block.Text) {
+			for _, item := range block.Items {
+				for _, candidate := range []string{item.Label, item.Text} {
+					if AnswerTextLooksLikeMarkdownTable(candidate) {
+						appendAnswerVisibleSurface(&b, candidate)
+					}
+				}
+			}
+		}
+		return strings.TrimSpace(b.String())
+	}
 	for _, col := range block.Columns {
 		appendAnswerVisibleSurface(&b, col)
 	}

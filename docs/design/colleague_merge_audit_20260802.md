@@ -2368,3 +2368,16 @@ replace-citation 均不动。两项都只修上下文/证据元数据，不修�
 完整 `internal/tool`（166.474s）通过；eval oracle 已补范围机制与代表 edge citation 绑定，防止同类 runner 假绿。状态：
 `EVAL-B99-INVENTORYCONTEXTHYGIENE1=implemented/full-tool-pass/replay-next`；
 `EVAL-B99-PATCHCITATIONDRIFT1=implemented/full-tool-pass/replay-next`。
+
+### §10.37 B100 production：B99 context hygiene 关闭；确认 visible-carrier 与 endpoint-admission 双 P0
+
+`main@fc2d9faa5` 严格并行两个 read case，runner/human 均 FAIL；详细证据见 eval campaign §104 与 B100 manual audit。
+
+- B99 inventory context hygiene 获 production close：Analyzer、Explorer、evidence、aggregate 与 final answer 均无未验证 `iota`；
+- B99 patch citation drift 本轮因上游端点 authority 缺失，没有形成同类插行形，保持 replay-pending；
+- 新 `EVAL-B100-VISIBLECARRIER1`：authored Markdown table 使 renderer 隐藏 `items[]`，coverage 却把 30 个 citation sidecar 当作可见常量行，最终只报数量、不列名称；
+- 新 `EVAL-B100-ENDPOINTADMISSION1`：schema-required `call_chain_endpoints` 缺失仍被 Go 零值解码接受，后续所有有序端点合同正确 stand-down，Finalizer 在 prose 中反向猜 wrapper，图门四次修补仍不能纠正模型结论。
+
+两项已交付：renderer/validator 共享 concrete block visibility，隐藏 sidecar 仅能给 Markdown 第一列已显示成员补引用；源码非 scalar call-chain 在 Analyzer 边界必须有 request-validated ordered profile，无序 entity/exact-target 永不提供方向。category/code-token/support-ref/multi-target 旁路同步收口；runtime artifact 与 scalar/role-locate 兼容车道隔离。
+
+实现不扫描 request/model/final prose 作 hard gate，不系统代写成员或结论，不改变 RootCauseTrace、显式时间窗、双轴根因、因果投影或自动补齐。完整 `internal/tool` 170.868s 通过；状态均为 `implemented/full-tool-pass/replay-next`。

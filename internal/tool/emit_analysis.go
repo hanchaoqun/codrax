@@ -1777,6 +1777,8 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		kind,
 		axis,
 		runtimeArtifactCarrier,
+		predicates,
+		callChainEndpointProfile,
 		exactTargets,
 		mentionedEntities,
 	); issue != "" {
@@ -2671,24 +2673,32 @@ func validateRuntimeArtifactCallChainConsistency(
 	return "question_kind=call_chain with one runtime target requires predicates.is_relational_lookup=true or at least two distinct runtime targets — predicate_axis=call only names the relationship axis and cannot by itself turn a target's state, duration, count, reason, or current status into a call chain; use question_kind=conditional/mechanism for that fact shape"
 }
 
-// validateSourceCallChainEndpointDeclaration prevents contextual symbols from
-// silently becoming source/sink endpoints later in exploration. Two non-path
-// entity hints are unambiguous and need no redundant exact_targets. When the
-// analyzer emits three or more symbol hints, however, their order cannot tell
-// us which pair the user asked to connect; require the model to identify at
-// least two verbatim exact targets at the analyzer boundary. Runtime artifact
-// call chains use RuntimeTargets and have their own consistency validator.
-// This function consumes only normalized typed fields, never request prose.
+// validateSourceCallChainEndpointDeclaration prevents unordered identity sets
+// from silently becoming directional source/sink authority later in
+// exploration. Every non-scalar source-code call chain must carry the ordered,
+// request-validated endpoint profile. When three or more symbol hints are in
+// scope, exact_targets must additionally identify the endpoint pair and keep
+// intermediate/context symbols out of the principal target set. Runtime
+// artifact call chains use RuntimeTargets and have their own consistency
+// validator. This function consumes only normalized typed fields, never
+// request or model prose.
 func validateSourceCallChainEndpointDeclaration(
 	kind string,
 	axis types.PredicateAxis,
 	runtimeArtifactCarrier bool,
+	predicates types.SemanticPredicates,
+	profile *types.CallChainEndpointProfile,
 	exactTargets, mentionedEntities []string,
 ) string {
 	if runtimeArtifactCarrier ||
 		types.NormalizeRequirementKind(kind) != types.ReqCallChain ||
-		axis != types.AxisCall {
+		axis != types.AxisCall ||
+		predicates.IsRoleLocateLookup ||
+		predicates.IsScalarAnswer {
 		return ""
+	}
+	if !profile.Active() {
+		return "source-code question_kind=call_chain with predicate_axis=call requires call_chain_endpoints.source and call_chain_endpoints.sink copied from request-mentioned typed entities; entities and exact_targets are unordered identity sets and cannot supply call direction"
 	}
 	exactEndpoints := types.CallChainRequestedEndpointHints(types.RequestModel{
 		AnalyzerHints: types.AnalyzerHints{MentionedEntities: exactTargets},

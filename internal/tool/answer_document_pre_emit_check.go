@@ -5462,6 +5462,11 @@ func preEmitAggregateMemberAppearsInStructuredPrincipalIdentity(fact types.Answe
 		blocks = labelled
 	}
 	for _, block := range blocks {
+		memberVisibleOnMarkdownPrimaryAxis := types.AnswerBlockRendersStructuredItems(block) ||
+			preEmitMarkdownTablePrimaryAxisContainsAggregateMember(block, member)
+		if !memberVisibleOnMarkdownPrimaryAxis {
+			continue
+		}
 		for _, item := range block.Items {
 			identity := strings.TrimSpace(item.Label)
 			if len(item.Cells) > 0 {
@@ -6380,20 +6385,37 @@ func preEmitStructuredMemberSetBlockCanCarry(block types.AnswerBlock) bool {
 }
 
 func preEmitStructuredBlockCoversAggregateMember(block types.AnswerBlock, member string) bool {
-	for _, item := range block.Items {
-		itemSurface := types.AnswerBlockItemVisibleSurface(item)
-		if itemSurface == "" {
-			continue
-		}
-		if preEmitAggregateMemberAppearsInText(member, itemSurface) {
-			return true
+	if types.AnswerBlockRendersStructuredItems(block) {
+		for _, item := range block.Items {
+			itemSurface := types.AnswerBlockItemVisibleSurface(item)
+			if itemSurface == "" {
+				continue
+			}
+			if preEmitAggregateMemberAppearsInText(member, itemSurface) {
+				return true
+			}
 		}
 	}
-	if block.Kind == types.BlockTable && strings.TrimSpace(block.Text) != "" &&
-		preEmitAggregateMemberAppearsInText(member, block.Text) {
+	if preEmitMarkdownTablePrimaryAxisContainsAggregateMember(block, member) {
 		return true
 	}
 	return preEmitMultiTargetRelationCoveredByStructuredBlock(member, block)
+}
+
+// preEmitMarkdownTablePrimaryAxisContainsAggregateMember recognizes a member
+// only on the renderer-visible row identity axis. Hidden Items may carry
+// citation refs for those rows, but they cannot introduce a row that the
+// authored Markdown table does not display.
+func preEmitMarkdownTablePrimaryAxisContainsAggregateMember(block types.AnswerBlock, member string) bool {
+	if block.Kind != types.BlockTable || !types.AnswerTextLooksLikeMarkdownTable(block.Text) {
+		return false
+	}
+	for _, cells := range principalEnumerationMarkdownTableRows(block.Text) {
+		if len(cells) > 0 && preEmitAggregateMemberAppearsInText(member, cells[0]) {
+			return true
+		}
+	}
+	return false
 }
 
 func preEmitAggregateMemberAppearsInText(member string, surface string) bool {
@@ -6465,9 +6487,11 @@ func preEmitAggregateMemberAppearsInDocumentWithCategory(fact types.AnswerAggreg
 		if preEmitAggregateMemberAppearsInCategorySurface(fact.Label, member, block.Title+"\n"+block.Text) {
 			return true
 		}
-		for _, item := range block.Items {
-			if preEmitAggregateMemberAppearsInCategorySurface(fact.Label, member, types.AnswerBlockItemVisibleSurface(item)) {
-				return true
+		if types.AnswerBlockRendersStructuredItems(block) {
+			for _, item := range block.Items {
+				if preEmitAggregateMemberAppearsInCategorySurface(fact.Label, member, types.AnswerBlockItemVisibleSurface(item)) {
+					return true
+				}
 			}
 		}
 		if block.Diagram != nil && preEmitAggregateMemberAppearsInCategorySurface(fact.Label, member, block.Diagram.Body) {
@@ -6544,7 +6568,11 @@ func preEmitAggregateMemberIndexedSupportRefAppearsInDocument(fact types.AnswerA
 		return false
 	}
 	for _, block := range doc.Blocks {
+		itemsVisible := types.AnswerBlockRendersStructuredItems(block)
 		for _, item := range block.Items {
+			if !itemsVisible && !preEmitMarkdownTablePrimaryAxisContainsAggregateMember(block, member) {
+				continue
+			}
 			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
 				continue
 			}
@@ -6579,11 +6607,19 @@ func preEmitAggregateMemberIndexedSourceInventorySurfaceAppearsInDocument(ctx *t
 		return false
 	}
 	fileCandidates := preEmitAggregateSupportRefFileCandidates(loc.File)
+	visibleMember := refMember
+	if strings.TrimSpace(visibleMember) == "" && memberIdx < len(fact.Members) {
+		visibleMember = fact.Members[memberIdx]
+	}
 	for _, block := range doc.Blocks {
 		if preEmitSourceInventoryTermsAndLocationAppearInSurface(block.Title+"\n"+block.Text, terms, fileCandidates) {
 			return true
 		}
+		itemsVisible := types.AnswerBlockRendersStructuredItems(block)
 		for _, item := range block.Items {
+			if !itemsVisible && !preEmitMarkdownTablePrimaryAxisContainsAggregateMember(block, visibleMember) {
+				continue
+			}
 			itemSurface := types.AnswerBlockItemVisibleSurface(item)
 			if strings.TrimSpace(itemSurface) == "" {
 				continue
@@ -6702,9 +6738,11 @@ func preEmitAggregateMemberIndexedSupportSurfaceAppearsInDocument(fact types.Ans
 		if preEmitSupportRefMemberAndFileAppearInSameSurface(block.Title+"\n"+block.Text, memberCandidates, fileCandidates) {
 			return true
 		}
-		for _, item := range block.Items {
-			if preEmitSupportRefMemberAndFileAppearInSameSurface(types.AnswerBlockItemVisibleSurface(item), memberCandidates, fileCandidates) {
-				return true
+		if types.AnswerBlockRendersStructuredItems(block) || preEmitMarkdownTablePrimaryAxisContainsAggregateMember(block, member) {
+			for _, item := range block.Items {
+				if preEmitSupportRefMemberAndFileAppearInSameSurface(types.AnswerBlockItemVisibleSurface(item), memberCandidates, fileCandidates) {
+					return true
+				}
 			}
 		}
 		if block.Diagram != nil && preEmitSupportRefMemberAndFileAppearInSameSurface(block.Diagram.Body, memberCandidates, fileCandidates) {
@@ -6770,9 +6808,11 @@ func preEmitAggregateMemberCodeTokenProjectionAppearsInDocument(member string, d
 		if preEmitAggregateMemberCodeTokenProjectionAppearsInText(member, block.Title+"\n"+block.Text) {
 			return true
 		}
-		for _, item := range block.Items {
-			if preEmitAggregateMemberCodeTokenProjectionAppearsInText(member, types.AnswerBlockItemVisibleSurface(item)) {
-				return true
+		if types.AnswerBlockRendersStructuredItems(block) {
+			for _, item := range block.Items {
+				if preEmitAggregateMemberCodeTokenProjectionAppearsInText(member, types.AnswerBlockItemVisibleSurface(item)) {
+					return true
+				}
 			}
 		}
 		if block.Diagram != nil && preEmitAggregateMemberCodeTokenProjectionAppearsInText(member, block.Diagram.Body) {
@@ -6947,6 +6987,9 @@ func preEmitMultiTargetRelationCoveredByStructuredBlock(member string, block typ
 	left, targets, ok := preEmitAggregateMemberMultiTargetRelationParts(member)
 	if !ok {
 		return false
+	}
+	if !types.AnswerBlockRendersStructuredItems(block) {
+		return preEmitMultiTargetRelationAppearsInText(member, types.AnswerBlockVisibleSurface(block))
 	}
 	for _, target := range targets {
 		covered := false

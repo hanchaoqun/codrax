@@ -780,15 +780,28 @@ func TestEmitAnalysis_SourceCallChainAmbiguousEntitiesRequireExactEndpointPair(t
 		"predicate_axis": "call"
 	}`
 	res, mu := runEmitAnalysisWithObjective(t, objective, base)
+	if res.Success || !strings.Contains(res.Summary, "requires call_chain_endpoints.source") {
+		t.Fatalf("unordered entities must not become directional authority, got success=%t summary=%q", res.Success, res.Summary)
+	}
+	if mu.RequestModel() != nil {
+		t.Fatalf("missing ordered endpoint analysis must not persist: %+v", mu.RequestModel())
+	}
+
+	withEndpoints := strings.Replace(base,
+		`"question_kind": "call_chain",`,
+		`"question_kind": "call_chain", "call_chain_endpoints": {"source":"buildAnalysisIR", "sink":"gate.Run"},`,
+		1,
+	)
+	res, mu = runEmitAnalysisWithObjective(t, objective, withEndpoints)
 	if !res.Success || mu.RequestModel() == nil {
-		t.Fatalf("nested derived identifier must not create endpoint ambiguity, got success=%t summary=%q", res.Success, res.Summary)
+		t.Fatalf("ordered endpoints should admit the two-endpoint lane, got success=%t summary=%q", res.Success, res.Summary)
 	}
 	if got := mu.RequestModel().AnalyzerHints.MentionedEntities; slices.Contains(got, "AnalysisIR") {
 		t.Fatalf("nested AnalysisIR must not gain user-mentioned authority: %v", got)
 	}
 
 	objective = "请展示 buildAnalysisIR 到 gate.Run 的调用链；AnalysisIR 只是需要解释的中间类型"
-	res, mu = runEmitAnalysisWithObjective(t, objective, base)
+	res, mu = runEmitAnalysisWithObjective(t, objective, withEndpoints)
 	if res.Success || !strings.Contains(res.Summary, "entity ordering is not endpoint authority") {
 		t.Fatalf("ambiguous call-chain entities must request exact endpoint identities, got success=%t summary=%q", res.Success, res.Summary)
 	}
@@ -831,17 +844,14 @@ func TestEmitAnalysis_SourceCallChainAmbiguousEntitiesRequireExactEndpointPair(t
 		1,
 	)
 	res, mu = runEmitAnalysisWithObjective(t, objective, invented)
-	if !res.Success || mu.RequestModel() == nil {
-		t.Fatalf("invalid optional direction carrier must stand down without rejecting the analysis: success=%t summary=%q", res.Success, res.Summary)
+	if res.Success || !strings.Contains(res.Summary, "requires call_chain_endpoints.source") {
+		t.Fatalf("invalid direction carrier must trigger analyzer repair, got success=%t summary=%q", res.Success, res.Summary)
 	}
-	if _, _, ok := types.CallChainOrderedEndpointHints(*mu.RequestModel()); ok {
-		t.Fatalf("non-request sink must not survive normalization: %+v", mu.RequestModel().CallChainEndpointProfile)
-	}
-	if !strings.Contains(res.Summary, "source and sink must both come from request-mentioned typed entities") {
-		t.Fatalf("dropped direction carrier must remain auditable: %s", res.Summary)
+	if mu.RequestModel() != nil {
+		t.Fatalf("invalid endpoint analysis must not persist: %+v", mu.RequestModel())
 	}
 
-	withOneExact := strings.Replace(base,
+	withOneExact := strings.Replace(withEndpoints,
 		`"question_kind": "call_chain",`,
 		`"question_kind": "call_chain", "exact_targets": ["buildAnalysisIR"],`,
 		1,
@@ -851,14 +861,14 @@ func TestEmitAnalysis_SourceCallChainAmbiguousEntitiesRequireExactEndpointPair(t
 		t.Fatalf("one exact endpoint must not suppress the typed endpoint pair, got success=%t summary=%q", res.Success, res.Summary)
 	}
 
-	twoEntity := strings.Replace(base,
+	twoEntity := strings.Replace(withEndpoints,
 		`["analyzer.go", "buildAnalysisIR", "gate.Run", "AnalysisIR"]`,
 		`["analyzer.go", "buildAnalysisIR", "gate.Run"]`,
 		1,
 	)
 	res, mu = runEmitAnalysisWithObjective(t, objective, twoEntity)
 	if !res.Success || mu.RequestModel() == nil {
-		t.Fatalf("exactly two typed symbol entities remain an unambiguous no-retry lane, got success=%t summary=%q", res.Success, res.Summary)
+		t.Fatalf("exactly two typed symbol entities with ordered endpoints should succeed, got success=%t summary=%q", res.Success, res.Summary)
 	}
 }
 
@@ -2438,7 +2448,7 @@ func TestEmitAnalysis_ConfigTraceProductionTextHitDoesNotMarkTargetUnverified(t 
 }
 
 func TestEmitAnalysis_Execute_PersistsDiagramHint(t *testing.T) {
-	mu := types.NewMutableState("trace the dispatch path")
+	mu := types.NewMutableState("trace Dispatch to Handler path")
 	payload := `{
 		"intent": "trace",
 		"scenario": "architecture_explain",
@@ -2446,7 +2456,9 @@ func TestEmitAnalysis_Execute_PersistsDiagramHint(t *testing.T) {
 		"keywords": ["dispatch", "handler"],
 		"entities": ["Dispatch", "Handler"],
 		"question_kind": "call_chain",
+		"exact_targets": ["Dispatch", "Handler"],
 		"predicate_axis": "call",
+		"call_chain_endpoints": {"source":"Dispatch", "sink":"Handler"},
 		"diagram_hint": {"kind": "call_dag"}
 	}`
 
@@ -7954,10 +7966,12 @@ func TestEmitAnalysis_Execute_DropsSourceInventoryForRelationFlow(t *testing.T) 
 		"keywords": ["io_uring", "send", "recv", "call chain"],
 		"entities": ["IORING_OP_SEND", "IORING_OP_RECV", "io_uring", "socket"],
 		"question_kind": "call_chain",
+		"exact_targets": ["io_uring", "socket"],
 		"intent_confidence": 0.94,
 		"complexity_confidence": 0.86,
 		"kind_confidence": 0.92,
 		"predicate_axis": "call",
+		"call_chain_endpoints": {"source":"io_uring", "sink":"socket"},
 		"diagram_hint": {"kind": "call_dag"},
 		"predicates": {
 			"is_scalar_answer": false,

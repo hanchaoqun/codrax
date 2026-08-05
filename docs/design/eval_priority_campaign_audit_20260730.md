@@ -15569,3 +15569,42 @@ keywords；`EVAL-B99-PATCHCITATIONDRIFT1` 覆盖多插行位移、same-position 
 定向测试通过；完整 `internal/tool`（166.474s）通过。状态：
 `EVAL-B99-INVENTORYCONTEXTHYGIENE1=implemented/full-tool-pass/replay-next`，
 `EVAL-B99-PATCHCITATIONDRIFT1=implemented/full-tool-pass/replay-next`。
+
+## 104. 2026-08-05 B100 r26：B99 上下文修复获证；可见载体与端点准入断线成为新 P0
+
+### 104.1 严格双并发与人工结论
+
+在 `main@fc2d9faa5` 构建冻结后，以 `PARALLEL=2` 严格并行恰好两个 read case：
+
+- `qf_sequence_analyzer_gate`：runner FAIL / human FAIL，228s，8 个 Explorer midloop、5 次 read、4 次 Finalizer reject/patch，最大 context 30%；
+- `qf_multi_member_set_count_caveat`：runner FAIL / human FAIL，241s，3 次 source lens、1 次 Finalizer reject/patch，最大 context 19%。
+
+工件见 `eval/parallel_selected_summary_evalcampaign_b100_b99_replay_r26_20260805.md` 及 manual audit。B99 上下文卫生获得生产正证：inventory 全链路不再出现未验证 `iota`。B99 patch 引用位移本轮未形成相同 stable-ID 插行形，继续保持 replay-pending，不能虚假收账。
+
+### 104.2 `EVAL-B100-VISIBLECARRIER1`（P0）：隐藏 citation sidecar 冒充可见枚举行
+
+inventory 的 typed 事实正确闭合为 3 types、5 functions、30 constants，模型第一稿也知道常量总数。但常量块只写了数量/const-block 说明，没有列出 30 个名称；与此同时它把 30 个名称放进 `table.items[]` 作为 citation sidecar。渲染器遇到 `table.text` 中的完整 Markdown 表后立即返回，不渲染 `items[]`；成员覆盖门却仍把这些隐藏 item 当作可见行，导致“验证通过、用户看不到”的确定性合同漂移。
+
+根修不是禁止 sidecar，而是让 renderer/validator 共享 concrete block visibility：
+
+1. 无 authored Markdown 的 structured table/list/section 继续由 items 作为可见行；
+2. authored Markdown table 为 canonical carrier 时，隐藏 items 只能给表格第一列已经可见的同一成员补 citation；
+3. 隐藏 item 不能新增表格不存在的 member identity；category、code-token、support-ref 与 multi-target 备用车道都消费同一可见性边界。
+
+实现不读取答案关键词作分类，只解析 typed block kind 与 Markdown 表结构；不改写模型内容或补造常量名称。
+
+### 104.3 `EVAL-B100-ENDPOINTADMISSION1`（P0）：call-chain schema 必填未形成 runtime 准入
+
+sequence Analyzer 发射 `question_kind=call_chain + predicate_axis=call`，却完全漏掉 schema 声明为 required 的 `call_chain_endpoints`。Go strict decode 对缺失对象仍给零值，运行时没有拒绝；下游又正确禁止从无序 `entities/exact_targets` 猜方向，于是 endpoint reachability、no-path boundary、typed capsule 全部不激活。Explorer 交付 13 个无序成员，Finalizer 在 prose 中猜成错误的 `gate.RunWith -> gate.Run`。图门四轮删掉了伪箭头，却无权替换模型 prose，最终仍错。
+
+根修在 Analyzer admission：非 runtime、非 scalar/role-locate 兼容车道的源码 `call_chain/call` 必须携带 active、request-validated 的 ordered profile；缺失、同端点、非源码 identity 或未获 request-mentioned authority 都在探索前要求模型重发。多上下文 symbol 仍额外要求 exact target pair。方向只来自 profile，entity/exact-target 顺序永不获权。
+
+### 104.4 施工与验证
+
+两项已实现。`AnswerBlockRendersStructuredItems` 与 `AnswerTextLooksLikeMarkdownTable` 成为 renderer/validator 的共享结构判定；生产同形测试覆盖“2 个隐藏 item + 0 个可见 member row 必须拒绝”和“第一列可见同名 row + citation sidecar 必须通过”。源码 call-chain admission 新增 missing/invalid endpoint 红测、先 profile 后多实体 pair 校验、两端正臂和既有 runtime/scalar 隔离；Analyzer skill 同步明确 entity set 无方向权限。
+
+定向测试通过；完整 `internal/tool`（170.868s）通过。状态：
+`EVAL-B100-VISIBLECARRIER1=implemented/full-tool-pass/replay-next`，
+`EVAL-B100-ENDPOINTADMISSION1=implemented/full-tool-pass/replay-next`。
+
+两项都不改变 RootCauseTrace、显式时间窗、双轴根因、因果投影、自动补齐或模型结论所有权。

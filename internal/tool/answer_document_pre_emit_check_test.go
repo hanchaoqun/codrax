@@ -4164,6 +4164,37 @@ func TestPreCheckRelationMemberSetAnswerShape_AcceptsMarkdownTableTextRows(t *te
 	}
 }
 
+func TestPreCheckAggregateMemberSetCoverage_MarkdownTableHiddenItemsCannotInventRows(t *testing.T) {
+	mu := types.NewMutableState("inventory every declaration kind")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "declaration kinds",
+		Value:   "2",
+		Members: []string{"KindAlpha", "KindBeta"},
+	}})
+	mu.SetInvestigationComplete("member set collected")
+	ctx := &types.BusContext{Mutable: mu}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "inventory",
+		Kind: types.BlockTable,
+		Text: "| Category | Count |\n|---|---|\n| Types | 2 |",
+		Items: []types.AnswerBlockItem{
+			{Label: "KindAlpha", CitationRef: 0},
+			{Label: "KindBeta", CitationRef: 1},
+		},
+	}}}
+
+	hints := preCheckAggregateMemberSetCoverage(doc, ctx)
+	if len(hints) == 0 {
+		t.Fatal("renderer-hidden citation sidecars must not satisfy visible member enumeration")
+	}
+
+	doc.Blocks[0].Text = "| Member | Category |\n|---|---|\n| KindAlpha | type |\n| KindBeta | type |"
+	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("visible primary-axis rows with hidden citation sidecars should satisfy coverage, got %+v", got)
+	}
+}
+
 func TestPreCheckAggregateMemberSetCoverage_AcceptsRelationDisplayVariants(t *testing.T) {
 	mu := types.NewMutableState("entry function aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
