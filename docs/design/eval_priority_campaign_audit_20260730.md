@@ -17303,3 +17303,46 @@ JSON 教学复核：两案均未发生 malformed answer carrier；operation 的�
 `EVAL-B131-PROBEESCAPE1=implemented/full-tool-skill-pass`；
 `EVAL-B131-EVALTEACHFIT1=implemented/full-skill-pass`；
 Trace 显式窗、因果投影、自动补齐、两维根因、根因排序、唤醒链与可消除量=`untouched`。
+
+### 123.20 B132 r50：Cangjie package 权限闭合；data DAG 批次边界教学含糊
+
+在 `main@bf9d3627b` 冻结构建后，严格并行恰好两个异构 case：
+
+- `cangjie_repomap_fixture`：77s，runner PASS / human PASS，context 19%，Finalizer reject=0；
+- `data_join_entity_reconcile`：163s，runner PASS / human PASS，data rounds=8，repair rounds=0。
+
+Cangjie 的完整枚举由 parser-backed typed `source_inventory` 闭合：`extend Cart`、`foreign func native_add`、public class
+`Bridge/Cart/App` 共 5/5；每行 package 分别为 `demo.cart/demo.bridge/demo.app`，权限来自 `.cj` 的 package declaration，
+不是目录推断。模型不需要 read_file 就只陈述机械成员、位置和 row-local package，没有借类型清单推断行为，也没有图表要求，
+因此本案不暴露图层表达 gap。该结果同时说明 Cangjie 的 package 红线在真实隔离 fixture 上保持。
+
+残余 `EVAL-B132-QUOTEFOOT1`：Finalizer schema/教学明确 citation quote 可选、拿不准可以留空；本案 5 个空 quote 经 current
+source exact-line enrichment 后，健康答案仍显示“系统降级披露：引用摘录回填 ×5”。它不改正文/结论，且已在 §B36 作为 P3
+watch 裁定；但现在从 config 扩散到 Cangjie inventory，跨类型复现成立。最优后续不是关闭 citation grounding，而是区分
+“合法缺省 quote 的 exact metadata enrichment”和“纠正模型非空错误 quote”：前者应为 plumbing/normal enrichment，后者才是
+answer-semantics rewrite。该重裁会触及 EVALFIX-2E 已钉名册，本批先落账，不在 data 高 ROI 小批里顺手推翻既裁。
+
+Data 最终严格输出 `30`，完整消费 `instructions.md/canonical.csv/items.csv`；typed ledger 有 5 条 decision、1 条 rule
+coverage、2 条 Alpha contribution，reconcile expected/actual 均为 30。没有 malformed JSON、tool-param repair 或答案后处理。
+但是两个模型候选都把同一 `actions[]` 当成可串行 DAG：先 `extract -> normalize -> compute`，后
+`join -> qualify -> derive -> compute`。结构门正确拒绝同批消费尚未物化的 sibling output，deterministic fallback 也正确按依赖
+rank 拆开并保住 suffix；但 Planner 教学同时写“stepwise DAG convergence / later action consumes earlier output”，没有限定
+“later”必须是已执行的 later batch，直接诱发两次 candidate failed、8 批和 163s。
+
+`EVAL-B132-DATARANK1` 的通用修复只收敛 data planner 软教学，不放宽依赖、字段或 reconcile 门：每个 `actions[]` 是一个
+dependency-ready DAG rank；同 rank 可并行消费已经物化的共同输入，但禁止消费 sibling 本批新产物；发 ready producer rank
+并设 `continue_after=true`，待 artifact graph 暴露真实 fields 后再发 dependent rank。说明同时明确这不是“一批只能一个
+action”，避免把独立提取任务串行化。现有 deterministic split/queue 继续作为安全网和审计轨迹。
+
+JSON 教学审计：本轮 data tool calls 全部合法，没有 carrier repair；问题是 DAG 时序语义，不是 JSON 字段形。修复复用既有
+actions/output_artifact/continue_after 字段，没有新增示例 JSON、关键词门或第二份 schema。Cangjie 最终 AnswerDocument 也一次
+合法发射。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b132_cangjie_data_r50_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b132_cangjie_data_r50_20260805_manual_audit.md`。
+
+回归：`go test ./internal/repl -count=1` PASS（31.472s）；依赖拆批硬门与 deterministic fallback 原测试保持。
+
+状态：`EVAL-B132-DATARANK1=implemented/full-repl-pass`；
+`EVAL-B132-QUOTEFOOT1=confirmed-cross-type/P3-design-review`；
+Cangjie parser/package=`production-replay-pass`；Trace 显式窗及全部 causal 能力=`untouched`。

@@ -2753,6 +2753,22 @@ func TestDataTaskPlannerSystemPromptTeachesPreboundHelpersWithoutDuplicateInvent
 	}
 }
 
+func TestDataTaskPlannerSystemPromptTeachesOneDependencyReadyRankPerBatch(t *testing.T) {
+	for _, want := range []string{
+		"Each actions[] batch contains one dependency-ready DAG rank",
+		"must not consume an action id or output_artifact produced by a sibling in the same array",
+		"independent actions over already-materialized inputs may remain in the same rank",
+		"after their producing batch executes",
+	} {
+		if !strings.Contains(dataTaskPlannerSystemPrompt, want) {
+			t.Fatalf("planner system prompt missing dependency-rank boundary %q", want)
+		}
+	}
+	if strings.Contains(dataTaskPlannerSystemPrompt, "A later action can list an earlier action id or output_artifact") {
+		t.Fatal("planner system prompt must not imply that an unmaterialized same-batch sibling output is readable")
+	}
+}
+
 func TestDataTaskActionsToPlanPreservesStructuredParams(t *testing.T) {
 	actions := dataTaskActionsToPlan([]dataTaskActionDraft{{
 		ID:   "derive",
