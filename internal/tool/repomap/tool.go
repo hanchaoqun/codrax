@@ -340,6 +340,10 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 			Timestamp: time.Now(),
 		}, nil
 	}
+	var sourceInventoryCoordinateAdvisories []string
+	if p.View == "source_inventory" {
+		sourceInventoryCoordinateAdvisories = normalizeRepoMapSourceInventoryScopesForSelectedPath(&p, allowedRoot, repoRoot)
+	}
 	if p.View == "source_inventory" {
 		if query, source := repoMapSourceInventoryDefaultQuery(ctx, p.Query); query != p.Query {
 			p.Query = query
@@ -435,6 +439,7 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 		output = prependRepoMapSourceInventoryFitAdvisory(ctx, p.Query, output)
 		output = prependRepoMapParameterAdvisory(output, narrowingAdvisories)
 		output = prependRepoMapBudgetGuardAdvisory(output, budgetAdvisories)
+		output = prependRepoMapSourceInventoryCoordinateAdvisory(output, sourceInventoryCoordinateAdvisories)
 		output = prependRepoMapParameterAdvisory(output, paramAdvisories)
 		output = appendRepoMapBudgetHint(graph, p.View, p.TopN, output)
 		output = prependRepoMapIndexStatusBanner(graph, output)

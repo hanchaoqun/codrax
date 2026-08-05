@@ -15392,3 +15392,21 @@ completion 现在先保留“若同向路径已证则 no-path waiver 自相矛�
 生产同形测试证明只有 `buildAnalysisIR -> gate.RunWith` 时不能关闭；补入 grounded `gate.Run` definition 后才保留 typed escape。另覆盖
 definition 不铸路径、RunWith/Run sibling、recovered/runtime、短名歧义与 15 种可执行语言表面。完整 `internal/types`（23.964s）和
 `internal/tool`（168.462s）通过。状态：`EVAL-B97-CALLENDPOINTPROOF1=implemented/full-pass/replay-after-B97-B`。
+
+### 101.7 B97-B 施工：selected execution scope 与 repo-root query identity 分轴
+
+`EVAL-B97-REQUESTBOUNDARY1` 已实现。生产同形红测确认 `path=src/alpha + scope=src/alpha` 在 selected subgraph 上先形成错误的
+`src/alpha/src/alpha` query coordinate；后续 no-row/required-files 路由可能把执行 scope 改回 `.`，但原请求坐标已经不可逆丢失。这解释了
+B97 日志中“4-file scoped projection + rendered scopes=. + 无 SourceInventoryRequestedPathScopes”同时出现，并纠正了只看最终 `.` 的表层判断。
+
+repo_map 现在在 graph load 前做单一 concern 的精确坐标归一化：以当前 active repository/sub-repo root 计算 selected path；仅当 `scope/scopes`
+等于该 selected repo-relative path或以其完整 `/` 边界为前缀时，转成 selected-root 相对 `.`/suffix。执行 lens 因而扫描一次正确局部宇宙；既有
+`repoMapSourceInventoryQueryPathScopes` 再把它回基为 workspace repo-root identity，写入 observation 与每条 complete lens。工具披露发生过的
+坐标修复，但该 prose 不参与 authority。
+
+根 `path=.`、已相对 scope、`src/alpha`/`src/alphabet` 前缀碰撞、路径外值均不变；多仓先以 active sub-repo root 归一，再由既有 rebase 保留
+workspace 前缀。requested-path hard authority 仍需 analyzer-stage tool-query provenance 与当前请求 exact path identity join；Explorer scope、
+RequiredFiles、模型 rationale 不能自行铸边界。生产同形、嵌套/碰撞/root 负臂、durable observation/complete-lens coordinate 与 prescan merge/
+repo-wide policy 定向 pin 通过；完整 `internal/tool/repomap`（2.198s）、`internal/types`（19.794s）、`internal/agent`（3.019s）、
+`internal/orchestrator`（14.221s）、`internal/tool`（171.294s）全绿。状态：
+`EVAL-B97-REQUESTBOUNDARY1=implemented/full-pass/replay-next`。

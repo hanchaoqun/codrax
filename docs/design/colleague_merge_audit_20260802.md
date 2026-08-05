@@ -2310,3 +2310,8 @@ B97-A 已交付：`no_directed_path` 不再仅凭 enum+rationale 越过 exact si
 current-source call node 或精确 definition 证明；definition 不进入 reachability，prefix sibling、歧义短名、recovered/runtime 均无权。
 缺端点时发布定向定位/读取/发证据 repair，两端已证后仍由模型拥有 no-path 结论。15 种语言 identity 矩阵、生产同形与负臂通过，完整
 `internal/types`（23.964s）、`internal/tool`（168.462s）全绿。状态：`implemented/full-pass/replay-after-B97-B`。
+
+B97-B 已交付：selected graph 的执行 `scope` 与 repo-root `QueryPathScopes` 已分轴。`path=<scope>` 并冗余重复同一 repo-root scope 时，工具只用
+精确路径边界把执行坐标转为 `.`/suffix，再由既有 rebase 把 typed provenance 恢复到 workspace 根；root、已相对值、前缀碰撞和未获 analyzer
+provenance 的范围均不变。生产同形证明 observation 与 complete lens 都保留 exact requested path，prescan 可继续铸 request-bound authority。
+完整 repomap/types/agent/orchestrator/tool 全绿（2.198s/19.794s/3.019s/14.221s/171.294s）。状态：`implemented/full-pass/replay-next`。

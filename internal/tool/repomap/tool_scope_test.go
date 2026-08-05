@@ -2146,6 +2146,64 @@ func RunBeta() {}
 	}
 }
 
+func TestRepoMapSourceInventoryRedundantRepoPathScopeKeepsQueryCoordinate(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, "src", "alpha"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "src", "alpha", "alpha.go"), []byte("package alpha\n\nfunc RunAlpha() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{
+		RepoRoot: repo, Mutable: types.NewMutableState("opaque request bytes are not consulted"),
+		PipelineStage: types.StageAnalyze, ActiveAgent: types.AgentAnalyzer,
+	}
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{
+		"path":"src/alpha","view":"source_inventory","scope":"src/alpha",
+		"roles":["function"],"include_counts":true
+	}`))
+	if err != nil || !res.Success || res.SourceInventory == nil {
+		t.Fatalf("repo_map source_inventory failed: res=%+v err=%v", res, err)
+	}
+	obs := *res.SourceInventory
+	if len(obs.QueryPathScopes) != 1 || obs.QueryPathScopes[0] != "src/alpha" {
+		t.Fatalf("redundant repo-root path/scope lost exact query coordinate: %+v", obs.QueryPathScopes)
+	}
+	if len(obs.Scopes) != 1 || obs.Scopes[0] != "." || len(obs.Sets) != 1 || obs.Sets[0].Count != 1 {
+		t.Fatalf("selected-root execution coordinate should be one complete local lens: %+v", obs)
+	}
+	if !strings.Contains(res.Summary, "scope: `src/alpha` -> `.`") || !strings.Contains(res.Summary, "`RunAlpha`") {
+		t.Fatalf("tool should disclose the deterministic coordinate repair and retain the member row:\n%s", res.Summary)
+	}
+	for _, lens := range obs.CompleteLenses {
+		if lens.Role == types.AnswerCandidateRoleFunction && len(lens.QueryPathScopes) == 1 && lens.QueryPathScopes[0] == "src/alpha" {
+			return
+		}
+	}
+	t.Fatalf("complete lens lost exact query coordinate: %+v", obs.CompleteLenses)
+}
+
+func TestNormalizeRepoMapSourceInventoryScopesForSelectedPath_PathArithmeticOnly(t *testing.T) {
+	repo := t.TempDir()
+	selected := filepath.Join(repo, "repo-a", "src", "alpha")
+	p := repoMapParams{
+		Path: "src/alpha", View: "source_inventory", Scope: "src/alpha/nested",
+		Scopes: []string{"src/alpha", "src/alphabet", "nested"},
+	}
+	got := normalizeRepoMapSourceInventoryScopesForSelectedPath(&p, filepath.Join(repo, "repo-a"), selected)
+	if p.Scope != "nested" || strings.Join(p.Scopes, "|") != ".|src/alphabet|nested" {
+		t.Fatalf("selected-path scope normalization drifted: %+v", p)
+	}
+	if len(got) != 2 || !strings.Contains(strings.Join(got, "|"), "scope: `src/alpha/nested` -> `nested`") {
+		t.Fatalf("coordinate advisories = %+v", got)
+	}
+
+	root := repoMapParams{Path: ".", View: "source_inventory", Scope: "src/alpha"}
+	if got := normalizeRepoMapSourceInventoryScopesForSelectedPath(&root, repo, repo); len(got) != 0 || root.Scope != "src/alpha" {
+		t.Fatalf("root-selected lens must preserve repository-relative scope: p=%+v advisories=%+v", root, got)
+	}
+}
+
 func TestResolveRepoMapRootScopedAllowsChildren(t *testing.T) {
 	repo := t.TempDir()
 
