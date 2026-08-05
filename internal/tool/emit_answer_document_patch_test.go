@@ -468,6 +468,22 @@ func TestEmitAnswerDocumentPatch_NormalizesRemoveThenAddSameExistingBlockToRepla
 	}
 }
 
+func TestEmitAnswerDocumentPatch_RemoveAlreadyAbsentBlockIsIdempotent(t *testing.T) {
+	bus := newPatchTestBusContext()
+	tool := &EmitAnswerDocumentPatch{}
+	res, err := tool.Execute(bus, json.RawMessage(`{"remove_block_ids":["diagram-already-removed"]}`))
+	if err != nil {
+		t.Fatalf("Execute err: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("already-satisfied removal should not consume another retry: %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 {
+		t.Fatalf("idempotent removal must preserve the current document: %+v", doc)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_NormalizesWhitespaceAndIdenticalDuplicateOps(t *testing.T) {
 	bus := newPatchTestBusContext()
 	tool := &EmitAnswerDocumentPatch{}

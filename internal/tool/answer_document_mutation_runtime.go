@@ -358,6 +358,24 @@ func answerDocumentMutationExplicitlyRemovesDiagram(mutation types.AnswerDocumen
 	return false
 }
 
+// preserveExplicitDiagramRemovalIntent applies the presentation-only part of
+// a structurally valid patch as soon as its typed removal postcondition is
+// known. A later answer-contract rejection may cause the next retry to use a
+// base in which the diagram is already absent; without this step, an attachment
+// recovered from an older rejected draft can outlive the model's explicit
+// removal and reappear beside the eventual answer. Only model-authored diagram
+// attachments are removed. No answer prose is inspected and system-authored
+// appendices retain their independent authority.
+func preserveExplicitDiagramRemovalIntent(ctx *types.BusContext, mutation types.AnswerDocumentMutation, prev *types.AnswerDocumentV2) bool {
+	if ctx == nil || ctx.Mutable == nil || !answerDocumentMutationExplicitlyRemovesDiagram(mutation, prev) {
+		return false
+	}
+	ctx.Mutable.SetAnswerDisplayAttachments(filterExplicitlyRemovedModelDiagramAttachments(
+		ctx.Mutable.AnswerDisplayAttachments(),
+	))
+	return true
+}
+
 func filterExplicitlyRemovedModelDiagramAttachments(in []types.AnswerDisplayAttachment) []types.AnswerDisplayAttachment {
 	if len(in) == 0 {
 		return nil

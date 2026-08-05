@@ -63,9 +63,11 @@ import (
 //   - AddBlocks: full block payloads APPENDED at tail. id MUST NOT
 //     already exist in prev. id MUST NOT also appear in
 //     ReplaceBlocks (2) or RemoveBlockIDs (3).
-//   - RemoveBlockIDs: block ids dropped from new doc. id MUST exist
-//     in prev. id MUST NOT also appear in ReplaceBlocks (1) or
-//     AddBlocks (3).
+//   - RemoveBlockIDs: block ids that MUST be absent from the new doc.
+//     Removing an id already absent from prev is an idempotent no-op;
+//     this lets a retry repeat an already-satisfied removal without
+//     learning the rejected-draft base's incidental shape. id MUST NOT
+//     also appear in ReplaceBlocks (1) or AddBlocks (3).
 //   - Citations: ReplaceCitations and AppendCitations are mutually
 //     exclusive (5); use Replace for holistic re-pick, Append for
 //     additive (e.g. negative-pattern citation without rewriting
@@ -181,8 +183,9 @@ func (p *AnswerDocumentV2Patch) IsEmpty() bool {
 // AnswerDocumentV2 with the patch applied. prev MUST be non-nil
 // (R16 patch path REQUIRES a prev emit — first dispatches use
 // emit_answer_document, not emit_answer_document_patch). Returns
-// (nil, error) on any validation failure (unknown ids, dup ids,
-// conflicting ops, etc.).
+// (nil, error) on any validation failure (unknown unchanged/replace ids,
+// dup ids, conflicting ops, etc.). Unknown remove ids are intentionally
+// accepted as idempotent no-ops.
 //
 // CONTRACT VALIDATION CHOKEPOINT (Phase 2-B2 audit, 2026-05-04):
 // This function only enforces structural validity (block id
@@ -316,7 +319,7 @@ func ApplyAnswerDocumentV2Patch(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch
 
 // validatePatchStructure rejects malformed patches before Apply
 // touches the doc. Catches:
-//   - unknown ids in UnchangedBlockIDs / RemoveBlockIDs / ReplaceBlocks
+//   - unknown ids in UnchangedBlockIDs / ReplaceBlocks
 //   - dup ids within a single op (e.g. two Replace entries for
 //     same id, two Add entries for same id, Add id colliding with
 //     prev id)
@@ -338,14 +341,14 @@ func validatePatchStructure(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch) er
 		}
 	}
 
-	// RemoveBlockIDs must each name an existing prev block.
+	// RemoveBlockIDs are idempotent postconditions: the requested id must
+	// be absent after apply. An id already absent from prev is therefore a
+	// valid no-op. Empty ids, duplicates, and cross-op contradictions remain
+	// malformed and are rejected below.
 	removeSet := make(map[string]bool, len(p.RemoveBlockIDs))
 	for _, id := range p.RemoveBlockIDs {
 		if id == "" {
 			return fmt.Errorf("patch: remove_block_ids contains empty id")
-		}
-		if !prevIDs[id] {
-			return fmt.Errorf("patch: remove_block_ids[%q] not present in previous emit", id)
 		}
 		if removeSet[id] {
 			return fmt.Errorf("patch: remove_block_ids[%q] duplicated", id)

@@ -1956,6 +1956,29 @@ func TestAnswerDocumentMutationExplicitlyRemovesDiagram_IsTypedAndSpecific(t *te
 	}
 }
 
+func TestPreserveExplicitDiagramRemovalIntent_SurvivesLaterPatchRejection(t *testing.T) {
+	prev := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{ID: "text", Kind: types.BlockSection, Text: "x"},
+		{ID: "diagram", Kind: types.BlockDiagram, Diagram: &types.AnswerDiagramBlock{Body: "flowchart TD\n A-->B"}},
+	}}
+	bus := &types.BusContext{Mutable: types.NewMutableState("")}
+	bus.Mutable.SetAnswerDisplayAttachments([]types.AnswerDisplayAttachment{
+		{Kind: types.AnswerDisplayAttachmentDiagram, Body: "flowchart TD\n Old-->Wrong", Source: "emit_answer_document.rejected_payload"},
+		{Kind: types.AnswerDisplayAttachmentDiagram, Body: "flowchart TD\n System-->Fact", Source: types.AnswerDisplayAttachmentSourceSystemCrossCheck},
+	})
+	mutation := types.NewPartialMutation(&types.AnswerDocumentV2Patch{RemoveBlockIDs: []string{"diagram"}})
+	if _, err := mutation.Apply(prev); err != nil {
+		t.Fatalf("fixture patch must be structurally valid before preserving its intent: %v", err)
+	}
+	if !preserveExplicitDiagramRemovalIntent(bus, mutation, prev) {
+		t.Fatal("typed diagram removal intent was not recognized")
+	}
+	got := bus.Mutable.AnswerDisplayAttachments()
+	if len(got) != 1 || !got[0].SystemAuthored() {
+		t.Fatalf("model diagram must stay removed across a later unrelated rejection; system attachment must survive: %+v", got)
+	}
+}
+
 func TestFilterAcceptedAnswerDisplayAttachments_AcceptedDiagramDropsRejectedModelDiagram(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID:   "accepted-diagram",

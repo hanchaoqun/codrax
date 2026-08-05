@@ -17098,3 +17098,48 @@ Explorer 的 discover-sink 提示同时明确：registration、lookup assignment
 `EVAL-B127-RELROSTERCAP1=implemented/targeted-pass`；
 `EVAL-B127-CALLFAMILY1=implemented/targeted-pass`；
 `EVAL-B127-REGENDPOINT1=implemented/targeted-pass`；下一步 r46 双 case 回放。
+
+### 123.16 B128 r46：补丁删除非幂等与结构关系受易变 frontier 截断
+
+在 `main@feed6ac83` 冻结构建后，严格并行恰好两个异构 case：
+
+- `data_json_strict_ids`：54s，runner PASS / human PASS，最终字节严格为
+  `{"ids":["u1","u3"]}`；
+- `sr_py_registry_dispatch`：212s，runner PASS / human FAIL，context 20%，Explorer midloop=7，
+  Finalizer reject=5。
+
+Data 侧证明预绑定 helper 教学已生效：没有再把 `read_text/json_load/emit_result` 当可导入模块。初始计划仍漏调度
+typed required `instructions.md`，运行时精确闭包门拒绝后一次修复成功。当前 schema、紧凑发射合同与执行门已经同源，
+没有新的系统矛盾；本轮按模型波动留作 telemetry，不用文件名/用户文本再加硬门。
+
+Python 侧 runner 的浅 oracle 仍然 PASS，但人审确认答案把方法解析反写：`JsonPlugin` 的声明顺序是
+`TimestampMixin, ValidationMixin, BasePlugin`，运行时首先命中 `TimestampMixin.handle`，随后两个 mixin 才通过
+`super()` 依次委托；答案却称 handle 最终由 `BasePlugin` 提供。日志给出两个确定性通用 gap：
+
+1. `EVAL-B128-PATCHREMOVE1`：模型已经在一次 rejected patch 里删除可选 diagram，下一轮基于“图已不存在”的草稿再次
+   发出同一 `remove_block_ids`，系统却要求 remove 目标必须仍存在，白耗一轮；随后旧 rejected-draft diagram attachment
+   又在成功的无图答案旁复活。删除的正确语义是“结果中不存在”的幂等后置条件，而不是一次性命令；
+2. `EVAL-B128-RELFRONTIER1`：parser、精确行读取与缓存范围刷新都正常，但 `buildRuntimeTargetStructuralRelations` 仍只扫描
+   volatile `activeFrontierFileSet`。`pipeline/plugins.py` 后续读取到 line 18 时已经退出 active frontier，因此三个
+   `JsonPlugin` base relation 从未进入 Finalizer capsule。该问题会统一影响多继承、implements、embedding、trait/base
+   roster 等所有语言，不是 Python 特例；同一声明内又按 object 字母排序，进一步破坏具有语义的源码声明顺序。
+
+本小批先关闭 `EVAL-B128-PATCHREMOVE1`：
+
+- `remove_block_ids` 改为 typed absence postcondition；目标已不存在时成功 no-op。unknown unchanged/replace、重复 id 与跨 op
+  冲突仍严格拒绝；
+- 一个结构可应用的补丁明确删除 typed diagram 时，立即清除旧的模型恢复图附件；即使随后因另一答案合同被拒，删除意图
+  也不会丢。系统附件保留，后续模型若重新发出新图仍按普通合同处理；
+- tool description、JSON schema、canonical mutation contract 与两层测试同步，减少模型为草稿偶然形状维护状态的心智。
+
+实现只读取 patch operation、previous typed block kind 与 attachment provenance，不扫描用户输入、thinking/final prose，
+不放宽 diagram call-edge 证据门，也不替模型生成或删除答案结论。Trace 显式窗、因果投影、自动补齐、两维根因与可消除量
+均未改动。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b128_relation_replay_r46_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b128_relation_replay_r46_20260805_manual_audit.md`。
+
+状态：`EVAL-B128-PATCHREMOVE1=implemented/full-types-tool-pass`；
+`EVAL-B128-RELFRONTIER1=confirmed/P1-next`；
+`EVAL-B128-CALLABLEARG1=design-needed/non-call-typed-relation`（`plugin.handle` 作为 callable argument 不是静态直接调用，
+不得伪铸 call edge；待结构关系保真后按 typed 非调用关系统一设计）。

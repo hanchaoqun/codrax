@@ -52,11 +52,11 @@ func (t *EmitAnswerDocumentPatch) Description() string {
 		"- `unchanged_block_ids`: ids of blocks from the previous emit to copy over byte-identical. Use this to assert preservation of every typed annotation/display field (columns, claim_uses, edge_anchors, relation_claims, facet_ids, surface_role, items[].cells, items[].candidate_role) on blocks you do NOT need to edit.\n" +
 		"- `replace_blocks`: full block payloads that replace the previous emit's block with the same id. Each entry must carry a non-empty id that exists in the previous emit. Block payload shape matches the canonical block contract — see below.\n" +
 		"- `add_blocks`: new block payloads to append. Each id must NOT already exist in the previous emit. Block payload shape matches the canonical block contract — see below.\n" +
-		"- `remove_block_ids`: ids of previous-emit blocks to drop.\n" +
+		"- `remove_block_ids`: ids that must be absent from the resulting document. Repeating an already-satisfied removal is an idempotent no-op.\n" +
 		"- `replace_citations`: when present, REPLACES the citation pool entirely. Otherwise the previous citations are inherited. Prefer `append_citations` for additive citation repairs. If you accidentally replace the pool while preserving previous citation-bearing blocks, the tool will keep the previous pool, append genuinely new citations, and remap citation_ref values inside your replace/add blocks.\n" +
 		"- `append_citations`: when present and `replace_citations` is absent, appended to the inherited pool.\n" +
 		"- `replace_exact_resolution` / `replace_missing_requested_roles` / `replace_caveats` / `replace_snippets`: when present, replace the corresponding document-level field.\n\n" +
-		"Validation: every id named in `unchanged_block_ids` / `replace_blocks` / `remove_block_ids` MUST exist in the previous emit; every `add_blocks` id MUST NOT. Cross-op conflicts (Replace + Remove same id, etc.) are rejected. Block kind is validated against the canonical block-kind enum. The merged document is stored as if you had called `emit_answer_document` with the full payload.\n\n" +
+		"Validation: every id named in `unchanged_block_ids` / `replace_blocks` MUST exist in the previous emit; `remove_block_ids` is idempotent and may name an already-absent block; every `add_blocks` id MUST NOT exist. Cross-op conflicts (Replace + Remove same id, etc.) are rejected. Block kind is validated against the canonical block-kind enum. The merged document is stored as if you had called `emit_answer_document` with the full payload.\n\n" +
 		"Empty patches are rejected — every retry MUST declare some change (set `unchanged_block_ids` to assert preservation if no edits are needed).\n\n" +
 		"BLOCK CONTRACT (same shape replace_blocks / add_blocks payloads must follow as a full emit):\n\n" +
 		BuildAnswerDocumentSemanticContractDescription()
@@ -84,7 +84,7 @@ func (t *EmitAnswerDocumentPatch) Parameters() json.RawMessage {
     "remove_block_ids": {
       "type": "array",
       "items": {"type": "string"},
-      "description": "Block ids to drop from the previous emit."
+      "description": "Block ids that must be absent from the resulting document. An id already absent from the previous emit is an idempotent no-op."
     },
     "replace_citations": {
       "type": "array",
@@ -275,6 +275,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	// merged-doc invariants (id uniqueness / diagram payload /
 	// max blocks) live in ApplyAndPersistMutation.
 	mutation := types.NewPartialMutation(patch)
+	dropExplicitlyRemovedModelDiagrams := false
 
 	// P1 (2026-05-10) — emit-time pre-validation chokepoint, mirror
 	// of the full-emit path. Run on the merged doc shape that the
@@ -282,8 +283,9 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	// hand off to ApplyAndPersistMutation which re-runs Apply
 	// internally. Apply is pure (no side effects on the doc clone)
 	// so the dry-run is safe.
-	if view := types.BuildAnswerSemanticViewForBusContext(ctx); view != nil {
-		if merged, applyErr := mutation.Apply(prev); applyErr == nil && merged != nil {
+	if merged, applyErr := mutation.Apply(prev); applyErr == nil && merged != nil {
+		dropExplicitlyRemovedModelDiagrams = preserveExplicitDiagramRemovalIntent(ctx, mutation, prev)
+		if view := types.BuildAnswerSemanticViewForBusContext(ctx); view != nil {
 			preEmitCtx := newPreEmitCheckContext(ctx)
 			normalizeAnswerDocumentForPreEmit(t.Name(), merged, view, ctx, preEmitCtx)
 			if hints := runPreEmitChecksWithContext(merged, view, preEmitOracleFromCtx(ctx), preEmitCtx); len(hints) > 0 {
@@ -313,7 +315,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 				mutation.Summary(),
 				merged,
 				now,
-				answerDocumentMutationExplicitlyRemovesDiagram(mutation, prev),
+				dropExplicitlyRemovedModelDiagrams,
 			)
 		}
 	}

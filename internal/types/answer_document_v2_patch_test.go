@@ -1,6 +1,7 @@
 package types
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -321,12 +322,13 @@ func TestApplyPatch_ReplaceMissingRequestedRoles(t *testing.T) {
 
 // ── Validation rejection tests ───────────────────────────────
 
-// TestApplyPatch_RejectsUnknownBlockID covers the unknown-id guard.
+// TestApplyPatch_RejectsUnknownBlockID covers the unknown-id guard on
+// operations that require an existing source block. Remove is tested
+// separately because it is an idempotent absence postcondition.
 func TestApplyPatch_RejectsUnknownBlockID(t *testing.T) {
 	prev := samplePrevDoc()
 	cases := []*AnswerDocumentV2Patch{
 		{UnchangedBlockIDs: []string{"phantom"}},
-		{RemoveBlockIDs: []string{"phantom"}},
 		{ReplaceBlocks: []AnswerBlock{{ID: "phantom", Kind: BlockSummary}}},
 	}
 	for i, p := range cases {
@@ -335,6 +337,19 @@ func TestApplyPatch_RejectsUnknownBlockID(t *testing.T) {
 		} else if !strings.Contains(err.Error(), "phantom") {
 			t.Errorf("case %d: error must name phantom; got %q", i, err)
 		}
+	}
+}
+
+func TestApplyPatch_RemoveAlreadyAbsentBlockIsIdempotent(t *testing.T) {
+	prev := samplePrevDoc()
+	got, err := ApplyAnswerDocumentV2Patch(prev, &AnswerDocumentV2Patch{
+		RemoveBlockIDs: []string{"already-removed-diagram"},
+	})
+	if err != nil {
+		t.Fatalf("idempotent remove must not require the rejected-draft base to retain the block: %v", err)
+	}
+	if !reflect.DeepEqual(got.Blocks, prev.Blocks) {
+		t.Fatalf("removing an already-absent block must leave existing blocks unchanged: got=%+v want=%+v", got.Blocks, prev.Blocks)
 	}
 }
 
