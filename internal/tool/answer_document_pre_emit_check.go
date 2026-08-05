@@ -6100,6 +6100,15 @@ func preEmitAggregateScopedCountClaims(doc *types.AnswerDocumentV2, fact types.A
 	if expected == 0 {
 		return nil
 	}
+	// Once a structured principal carrier already covers the complete member
+	// set, individual member mentions no longer identify an aggregate-count
+	// claim. Their nearby numbers commonly describe member-local facts (for
+	// example a two-level inheritance chain, one file, or three retries).
+	// Keep checking statements that explicitly name the aggregate label, but
+	// do not turn those local details into noisy cardinality advice.
+	if preEmitStructuredMemberBlockCoversFact(doc, fact) {
+		memberBindingMin = 0
+	}
 	var out []preEmitAggregateCountClaim
 	for _, block := range doc.Blocks {
 		if preEmitSystemMissingMemberSupplementBlock(block) {

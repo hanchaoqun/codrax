@@ -6,7 +6,7 @@
 ID="sr_cpp_sink_impls"
 NAME="cpp sink — hierarchy members and relationship"
 FIXTURE="eval/fixtures/cpp-sink-hierarchy"
-QUESTION="Sink 的具体实现类有哪些？RotatingSink 和 Sink 之间是什么继承关系？"
+QUESTION="Sink 的具体实现类有哪些？请给出每个实现类的定义文件，并说明 RotatingSink 和 Sink 之间的继承关系。"
 EXPECT_CONTAINS="ConsoleSink FileSink RotatingSink"
 EXPECT_MATCHES_REGEX="(RotatingSink).*(FileSink)
 (ConsoleSink).*(Sink|console_sink)|(Sink|console_sink).*(ConsoleSink)

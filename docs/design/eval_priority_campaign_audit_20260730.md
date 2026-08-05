@@ -17710,3 +17710,45 @@ JSON 降级能力复核：B123-D1 的无损结构修复、block 可见恢复、�
 `EVAL-B139-OPCPUMODEL1=P2/model-embellishment-observe`；
 `EVAL-B122-JSONTEACH1=partially-implemented/D1+B139-shape-table/replay-next`；Trace 显式窗、因果投影、自动补齐、两维根因、
 排序、唤醒链与窗内可消除量=`untouched`。
+
+### 123.28 B140 r58：严格 JSON 快速闭环；C++ 失败是超出请求边界的 eval oracle
+
+在 `main@a5c4e28d8` 干净构建后，严格并行恰好两个异构 case：
+
+- `data_json_strict_ids`：43s，runner PASS / human PASS，1 个 data batch、1 次精确修复；
+- `sr_cpp_sink_impls`：118s，runner FAIL / human PASS，context 20%，Analyzer 2 轮、Explorer 4 轮、Finalizer reject=0。
+
+Data 回放确认 `EVAL-B139-DATASHAPE1` 与 `EVAL-B139-DIRECTCONTEST1` 的产线效果：一个 `custom_transform` 同时消费
+`instructions.md` 和 `users.json`，直接生成 `{"ids":["u1","u3"]}`；终态没有 rule、decision、entity、contribution、reconcile
+或 assemble 排位，没有 evaluator contest，发布字节为合法 JSON only。与 r57 的 355s/11 轮/错误 `{"true":"2"}` 相比，
+本轮为 43s/1 轮/正确结果。首个 plan 忘记把 `instructions.md` 列入 action 消费面，被 deterministic
+required-material gate 同向精确修复一次；这不是教学/运行合同矛盾，当前按可恢复的模型 carrier 波动观察。
+
+C++ 正文完整且正确：三个具体类 `ConsoleSink` / `FileSink` / `RotatingSink` 均在主表中，三条定义引用齐全，
+并明确保留 `Sink -> FileSink -> RotatingSink` 二级继承，没有把间接实现压平成直接继承。runner 唯一失败是
+`EXPECT_INVENTORY_ROWS` 要求“成员名+文件名”同时出现在 principal row，而原问题只请求实现类与继承关系，并未要求文件列。
+这是 `EVAL-B140-CPPORACLE1=eval-contract-gap`，不应迫使产品给每份类枚举强加未请求列。case 问题现已显式增加“给出定义文件”，
+使以后的 row oracle 与用户边界同域，没有改产品结论、补丁特定语言路径或降级完备性门。
+
+同一 C++ 回放暴露 `EVAL-B140-COUNTSCOPE1=P1`：三成员 structured table 已经完整覆盖 typed member set，但软性 cardinality
+扫描仍因单个成员名绑定表格/摘要局部片段，把“二层继承”中的 2 当成“实现类数量=2”。这目前只产生错误 advisory、
+不拒答，但会污染模型修复心智和运行日志。通用根修只依赖 typed aggregate fact 与 structured member carrier：一旦完整结构化成员表已覆盖该 fact，
+停止用“任一成员名+附近数字”绑定集合 cardinality；显式点名 aggregate label 的“该集合有 2 项”仍会与 typed 3 做一致性校验。
+这没有扫描用户原始输入，也没有用关键词更改结论；它只是用结构化完备证据收窄一个既有软扫描的作用域。
+
+JSON/上下文审计：Data 和 C++ 最终 carrier 均为合法 JSON，没有触发 malformed repair 或 visible-string salvage。Data 的一次修复来自
+typed material scheduling；C++ 没有 Finalizer reject。B123-D1 的“无损修复 -> block 可见恢复 -> 最后有界字符串救援+明确模型降级披露”保持，
+本批没有系统代写模型结论。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b140_data_cpp_replay_r58_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b140_data_cpp_replay_r58_20260805_manual_audit.md`。
+
+回归：`go test ./internal/tool -run
+'TestPreCheckAggregateCardinalityConsistency_(StructuredRosterIgnoresMemberLocalCounts|RejectsScopedCountMismatch)' -count=1` PASS；
+`go test ./internal/tool -count=1` PASS（161.033s）。
+
+状态：`EVAL-B139-DIRECTCONTEST1=production-replay-closed`；`EVAL-B139-DATASHAPE1=production-replay-closed`；
+`EVAL-B140-CPPORACLE1=fixed/eval-question-now-requests-file-axis`；
+`EVAL-B140-COUNTSCOPE1=implemented/full-tool-pass`；
+`EVAL-B122-JSONTEACH1=D1+B139-shape-table/production-replay-pass`；Trace 显式窗、因果投影、自动补齐、两维根因、排序、唤醒链与窗内可消除量
+=`untouched`。

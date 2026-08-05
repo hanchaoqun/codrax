@@ -3979,6 +3979,49 @@ func TestPreCheckAggregateCardinalityConsistency_RejectsScopedCountMismatch(t *t
 	}
 }
 
+func TestPreCheckAggregateCardinalityConsistency_StructuredRosterIgnoresMemberLocalCounts(t *testing.T) {
+	mu := types.NewMutableState("member local counts beside complete roster")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "Sink concrete implementations",
+		Value: "3",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"ConsoleSink",
+			"FileSink",
+			"RotatingSink",
+		},
+	}})
+	mu.SetInvestigationComplete("structured member set accepted")
+	ctx := &types.BusContext{Mutable: mu}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "RotatingSink reaches Sink through a two-level inheritance chain.",
+	}, {
+		ID:   "implementations",
+		Kind: types.BlockTable,
+		Text: "| class | base | detail |\n|---|---|---|\n| ConsoleSink | Sink | one stream |\n| FileSink | Sink | one file |\n| RotatingSink | FileSink | two levels to Sink |",
+		Items: []types.AnswerBlockItem{
+			{Label: "ConsoleSink"},
+			{Label: "FileSink"},
+			{Label: "RotatingSink"},
+		},
+	}}}
+
+	if got := preCheckAggregateCardinalityConsistency(doc, ctx); len(got) != 0 {
+		t.Fatalf("member-local numbers beside a complete structured roster are not aggregate counts, got %+v", got)
+	}
+
+	// Explicit aggregate-label claims remain checked even when the roster is
+	// structurally complete.
+	doc.Blocks[0].Text = "Sink concrete implementations has 2 entries."
+	hints := preCheckAggregateCardinalityConsistency(doc, ctx)
+	if len(hints) != 1 || !strings.Contains(hints[0].ExpectedShape, "visible_count=2") {
+		t.Fatalf("explicit aggregate-label mismatch must remain visible, got %+v", hints)
+	}
+}
+
 func TestPreCheckAggregateCardinalityConsistency_IgnoresSystemMissingMemberSupplementCounts(t *testing.T) {
 	mu := types.NewMutableState("diff plus current source")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
