@@ -1696,6 +1696,18 @@ func BuildAnswerSurfacePlan(
 			plan.SourceInventoryObservation,
 			ir.RequestModel,
 		)
+		if boundary := CompileCallChainEndpointBoundary(ir.RequestModel, mutable.PrincipalSpanWaiver()); boundary != nil {
+			// The exact endpoint disposition is typed; a model-authored member
+			// roster has no edge direction and therefore cannot remain answer
+			// authority for a no-path conclusion. Keep the raw handoff in
+			// MutableState for audit, but compile finalization from the boundary
+			// and grounded relationship triples only.
+			plan.StableInvestigationReason = ""
+			plan.StableAggregateFacts = projectCallChainBoundaryAnswerAuthority(
+				plan.StableAggregateFacts,
+				boundary,
+			)
+		}
 		if logBundle == nil {
 			logBundle = mutable.LogTriage()
 		}

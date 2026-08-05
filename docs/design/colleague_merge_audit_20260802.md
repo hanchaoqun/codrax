@@ -2087,6 +2087,11 @@ identity join，并以唯一 OwnerSymbol/source location/required endpoint 消�
 已经铸造，模型先前自报的“完整调用链” aggregate/summary 仍以 principal 形进入 Finalizer，形成冲突上下文。登记
 `EVAL-B90-CALLBOUNDCTX1=P0/confirmed`，只能从 typed aggregate authority/上下文单源修复，禁止扫描或系统改写模型正文。
 
+现已实现答案权威投影：raw accepted closure/aggregate 仍保存在 Mutable/TurnA 审计态；typed no-path 激活时，Finalizer plan 不再
+消费无方向 member_set、当前/旧窗口 closure prose，成功 tool result 只发布 exact endpoint boundary。grounded call triples 仍在，
+模型继续拥有最终结论。`internal/types`、`internal/agent`、`internal/tool` 全量全绿。状态：
+`EVAL-B90-CALLBOUNDCTX1=implemented/full-pass/replay-next`。
+
 计数 case 再次证明 §10.26 的可选 quote 补洞不稳：同一真实 analyzer 本轮未把目录保存在 quote/entity，carrier 未铸成，
 10 次 lens 后仍漏掉当前第 5 个 production 导出函数。登记 `EVAL-B88-SCOPEPROV1-R2=P1/confirmed`：使用 analyzer-stage
 成功 scope × 当前请求 lexical exact path identity 铸造边界；这是完整 canonical path 的 token-boundary 比较，不是关键词/语义

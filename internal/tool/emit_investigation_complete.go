@@ -2790,7 +2790,22 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	if drained := ctx.Mutable.EvidenceClosure().ClearRepairs(); drained > 0 {
 		logging.Info("[emit_investigation_complete] cleared %d stale repair directive(s) after accepted completion", drained)
 	}
-	summary := fmt.Sprintf("Investigation marked complete (confidence=%s, result_kind=%s): %s", conf, resultKind, reason)
+	visibleReason := reason
+	if waiver := ctx.Mutable.PrincipalSpanWaiver(); waiver != nil && waiver.IsActive() &&
+		waiver.Reason == types.PrincipalSpanWaiverNoDirectedPath {
+		startHint, endHint := "source endpoint", "sink endpoint"
+		if ctx.AnalysisIR != nil {
+			if source, sink, ok := types.CallChainOrderedEndpointHints(ctx.AnalysisIR.RequestModel); ok {
+				startHint, endHint = source, sink
+			}
+		}
+		visibleReason = fmt.Sprintf(
+			"typed call-chain endpoint boundary accepted: no directed path from `%s` to `%s`; keep nearest proven and reverse/parallel call edges separate",
+			startHint,
+			endHint,
+		)
+	}
+	summary := fmt.Sprintf("Investigation marked complete (confidence=%s, result_kind=%s): %s", conf, resultKind, visibleReason)
 	if justification != "" {
 		ctx.Mutable.SetAbsenceJustification(justification)
 		summary += fmt.Sprintf(" | absence_justification: %s", justification)

@@ -171,7 +171,8 @@ func TestEmitInvestigationComplete_NoDirectedPathWaiverCarriesModelOwnedBoundary
 			AnalyzerHints:            types.AnalyzerHints{Kind: string(types.ReqCallChain), ExactTargets: []string{"buildAnalysisIR", "gate.Run"}, MentionedEntities: []string{"buildAnalysisIR", "gate.Run"}},
 		},
 	}}
-	params := json.RawMessage(`{"reason":"the exact sink is a reverse wrapper around the reachable sibling","confidence":"high","result_kind":"resolved","principal_span_waiver":{"reason":"no_directed_path","rationale":"gate.Run calls gate.RunWith, while buildAnalysisIR reaches only gate.RunWith"}}`)
+	const stalePathReason = "STALE_PATH_REASON_buildAnalysisIR_reaches_gate_Run"
+	params := json.RawMessage(`{"reason":"` + stalePathReason + `","confidence":"high","result_kind":"resolved","principal_span_waiver":{"reason":"no_directed_path","rationale":"gate.Run calls gate.RunWith, while buildAnalysisIR reaches only gate.RunWith"}}`)
 	res, err := (&EmitInvestigationComplete{}).Execute(bus, params)
 	if err != nil {
 		t.Fatalf("Execute error: %v", err)
@@ -183,6 +184,12 @@ func TestEmitInvestigationComplete_NoDirectedPathWaiverCarriesModelOwnedBoundary
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("summary missing %q: %s", want, res.Summary)
 		}
+	}
+	if strings.Contains(res.Summary, stalePathReason) {
+		t.Fatalf("tool handoff must not replay a model-authored path claim beside the typed no-path boundary: %s", res.Summary)
+	}
+	if got := mut.StableInvestigationCompleteReason(); got != stalePathReason {
+		t.Fatalf("raw model closure reason must remain available for audit/resume, got %q", got)
 	}
 	caveats := mut.EvidenceClosure().CompletionCaveats()
 	if len(caveats) == 0 || caveats[len(caveats)-1].ReasonCode != "call_chain_no_directed_path" {

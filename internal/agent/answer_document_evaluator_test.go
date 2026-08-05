@@ -838,6 +838,27 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersTypedCallChainEn
 		Reason:    types.PrincipalSpanWaiverNoDirectedPath,
 		Rationale: "buildAnalysisIR reaches gate.RunWith while gate.Run calls RunWith",
 	})
+	const stalePathClaim = "STALE_PATH_CLAIM_buildAnalysisIR_reaches_gate_Run"
+	mut.SetInvestigationComplete(stalePathClaim)
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   stalePathClaim,
+		Value:   "2",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"buildAnalysisIR", "gate.Run"},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{
+		InvestigationNotes:    []string{"Previous accepted closure reason (preserved advisory, not a citation): " + stalePathClaim},
+		AcceptedClosureReason: stalePathClaim,
+		AcceptedAggregateFacts: []types.AnswerAggregateFact{{
+			Kind:    types.AnswerAggregateMemberSet,
+			Label:   stalePathClaim,
+			Value:   "2",
+			Role:    types.AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"buildAnalysisIR", "gate.Run"},
+		}},
+	})
 	ctx := &types.AgentContext{
 		Mutable: mut,
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
@@ -866,6 +887,12 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersTypedCallChainEn
 	}
 	if strings.Contains(prompt, "buildAnalysisIR reaches gate.RunWith while gate.Run calls RunWith") {
 		t.Fatalf("free-form waiver rationale must remain audit-only, not prompt authority:\n%s", prompt)
+	}
+	if strings.Contains(prompt, stalePathClaim) {
+		t.Fatalf("no-directed-path finalizer context must omit contradictory model path rosters/reasons while retaining them in audit state:\n%s", prompt)
+	}
+	if got := mut.StableInvestigationAggregateFacts(); len(got) != 1 || got[0].Label != stalePathClaim {
+		t.Fatalf("answer-authority projection must not delete accepted audit aggregates: %+v", got)
 	}
 }
 

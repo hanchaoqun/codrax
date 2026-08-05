@@ -5444,6 +5444,15 @@ func renderAnswerDocInvestigationNarrativeHandoff(ctx *types.AgentContext) strin
 	if ctx == nil || ctx.Mutable == nil {
 		return ""
 	}
+	if ctx.AnalysisIR != nil && types.CompileCallChainEndpointBoundary(
+		ctx.AnalysisIR.RequestModel, ctx.Mutable.PrincipalSpanWaiver()) != nil {
+		// Prior/superseded closure notes are unstructured model synthesis.
+		// Once the model declares a typed no-directed-path boundary, replaying
+		// those notes beside the exact endpoint disposition can reintroduce a
+		// fabricated path. The notes remain in TurnAArtifacts for audit; the
+		// finalizer receives grounded call triples and the typed boundary.
+		return ""
+	}
 	ta := ctx.Mutable.TurnAArtifacts()
 	var raw []string
 	if ta != nil {

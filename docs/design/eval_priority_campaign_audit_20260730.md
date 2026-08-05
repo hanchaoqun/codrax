@@ -14745,6 +14745,16 @@ summary/answer-chain，给 Finalizer 提供了互相冲突的上下文。新 P0 
 判定 no-path 时，不允许“完整路径”类模型 aggregate 获 principal authority；Finalizer 的关系事实以 typed
 subject/predicate/object + boundary 为准，模型 summary 只能是 advisory。不能扫描或改写最终 prose，结论仍由模型生成。
 
+已施工为审计态与答案权威态分离：`MutableState` 继续原样保留模型 accepted reason/member_set，供日志、resume 与事后审计；
+`BuildAnswerSurfacePlan` 在 typed `no_directed_path` disposition 下清除答案视图中的无方向 member_set 与 closure reason，旧窗口
+preserved investigation notes 也不再注入 Finalizer。`emit_investigation_complete` 的成功 tool summary 同样只回显 exact endpoint
+boundary，不回放与其冲突的自由 reason。grounded call-edge `Subject/Predicate/Object`、source:line 与 endpoint boundary 继续完整提供，
+最终总结、图和优化说明仍由模型编写。新增 pin 证明 stale path reason/roster 不出现在 prompt、但 raw audit state 字节保留；普通
+call chain、其他问题家族及 Trace RootCauseTrace 均不命中该 projection。
+
+`internal/types`（19.936s）、`internal/agent`（2.753s）、完整 `internal/tool`（169.559s）全绿。状态：
+`EVAL-B90-CALLBOUNDCTX1=implemented/full-pass/replay-next`。
+
 ### 94.3 `EVAL-B88-SCOPEPROV1-R2`：模型字段波动不能承担目录身份
 
 §93.2 依赖真实 analyzer 把目录写入 `SourceScopeProfile.SourceQuotes`，但 B90 的同一请求只写入“列出公开符号”，目录既未进入
