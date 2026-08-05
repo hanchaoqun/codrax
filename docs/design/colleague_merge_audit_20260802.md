@@ -2203,3 +2203,21 @@ anchor 与 principal completeness 不再各自抖动。无 owner/错 owner/跨 o
 fail-closed；实现不扫描 request/model/final prose，不按语言或案例特判，RootCauseTrace 仍
 在该 source-call 合同之外。完整 `internal/tool` 174.463s 通过。状态：
 `implemented/full-tool-pass/replay-next`。
+
+### §10.31 B94 production：两项 B93 根修生效，另确认 complete-lens parity 与 code-mark identity 断线
+
+`main@3907d9995` 严格并行两个 read case，runner/human 均 FAIL。详细工件与人工判断见 eval campaign §98。
+
+- `SCOPELINEAGE1` 生产生效：bounded inventory 从 B93 的 16 lens/28 Explorer/405s/42% context 降至
+  5 lens/8 Explorer/205s/23%，无关全仓债务扩散消失；
+- `WAIVERWIRE1` 生产生效：top-level `no_directed_path` 当轮被接受并发布 exact boundary；
+- 新 P0 `EVAL-B94-LENSPARITY1`：typed complete lens 已有 30/30 constant rows，模型 24 行 member_set 仍被 completion/Finalizer
+  接受。requested-path lineage 尚未接到 principal row projection；
+- 新 P0 `EVAL-B94-DIAGRAMCODEMARK1`：Mermaid participant 的合法 inline-code label 未做 presentation normalization，反引号进入
+  endpoint identity，13 条 grounded 真边被成批误拒，7 次成文 reject 后无答案；
+- 新 P1 `EVAL-B94-CALLFANOUT1`：no-path boundary 闭合后仍有 4 dispatch/34 Explorer/19 midloop 的同端点重复调查，先按
+  task-node/generation 收窄根因，不做关键词 hard skip。
+
+施工冻结为 B94-A 请求绑定 complete-lens row parity、B94-B Mermaid exact code-wrapper normalization，之后恰好双例回放。
+两案只消费 typed lens/parser/diagram carrier，不改写模型结论，不放宽 call evidence，不触碰 RootCauseTrace、显式时间窗因果投影或
+自动补齐。

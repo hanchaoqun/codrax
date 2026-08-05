@@ -15023,3 +15023,70 @@ caller 必须来自 request anchor。无 owner、错 owner、跨 owner 限定 ta
 family、B93 principal 同形及全语言 owner 铸造矩阵已通过定向测试。状态：
 `EVAL-B93-CALLIDENT2=implemented/full-tool-pass/replay-next`。完整 `internal/tool`
 174.463s 通过。
+
+## 98. 2026-08-04 B94 r20：scope lineage 生产生效；complete-lens 成员等值与 Mermaid code 展示仍断线
+
+### 98.1 严格并行与人工结论
+
+在 `main@3907d9995` 构建后启动严格并行恰好两个 read case。外层批跑器因交互转向提前退出，但其两个既有 worker 保持运行且没有
+启动第三例；两个 worker 均自然完成，结果由各自 `run-1.verdict/metrics/logs` 人工回填：
+
+- `qf_multi_member_set_count_caveat`：runner/human FAIL，205s，5 次 source lens、8 个 Explorer 轮、1 次 Finalizer reject；
+- `qf_sequence_analyzer_gate`：runner/human FAIL，613s，17 次 read、34 个 Explorer 轮、7 次 Finalizer reject，最终无可用答案。
+
+工件见 `eval/parallel_selected_summary_evalcampaign_b94_b93_replay_r20_20260804.md` 及对应 manual audit。本轮没有运行 Trace，不能据此
+改变 RootCauseTrace、显式时间窗、因果投影或自动补齐的权限与行为。
+
+### 98.2 B93 修复的生产验收
+
+`EVAL-B93-SCOPELINEAGE1` 明确生效：inventory 相对 B93 从 16 次 lens、28 个 Explorer 轮、405s、42% context 降至
+5 次 lens、8 轮、205s、23%，旧 root truncation 不再驱动 `cmd/fixture/thirdparty/internal/skill` 扩散。
+
+`EVAL-B93-WAIVERWIRE1` 也获得正证：sequence 第一调查段提交的 top-level
+`principal_span_waiver.reason=no_directed_path` 当轮即被接受，completion summary 发布 exact
+`buildAnalysisIR -> gate.Run` 不可达边界；没有复发“解码器丢 waiver、后门又要求同一字段”的不可满足合同。
+
+`EVAL-B93-CALLIDENT2` 的限定 owner 正臂未获得最终答案级生产验收：模型没有稳定画出
+`gate.Run -> gate.RunWith` 的真实并列边，且更早被本轮 code-mark identity 缺口挡住，状态维持
+`implemented/full-tool-pass/replay-after-B94-B`，不能虚报 production close。
+
+### 98.3 `EVAL-B94-LENSPARITY1`（P0）：请求绑定 complete lens 没有获得成员等值权
+
+inventory 的 typed tool result 已同时披露 `constant complete=true count=30` 与
+`role constant count=30 len(members)=30 complete=true`，成员包含 runner 动态 oracle 检出的
+`KindExternalArtifactDecoded`。模型因分页 `cursor=19` 与首屏重叠，先把 24+11 误算成 35，又手工扣除 6 项，最终只发布 24 个
+Kind 常量。completion 接受该 member_set，Finalizer 只因首稿未用 structured item label 拒绝一次；补成同样 24 行后即通过。
+
+根因是 `sourceInventoryCanProjectCompletePrincipalRowSet` 仍从**全局合并后的 role set**判断 complete。早期 broad/incomplete
+同角色 set 会让 principal projection 整体 disabled；B93 新增的请求路径 complete-lens lineage 只接到了 follow-up debt 清理，尚未接到
+principal row projection。于是“请求窗已经 complete”可停止探索，却不能把同一窗内 30 个 typed rows 变成模型必须逐项消费的精确清单。
+
+最优方案冻结为请求绑定的 exact parity，而不是系统改写答案：仅当同一 executable tool-query complete lens 同时满足
+`QueryPathScopes × principal role × source class/language/surface family × count=total`，并且 observation 中受该 lens 约束的唯一 typed
+rows 数与 count 相等，才允许该 lens 驱动 principal rowset projection。模型 member_set 与 typed row keys 必须等值；缺项、额外项、
+错 role/路径、分页不全或仅 analyze-stage provenance 都 fail-closed，并把 missing/excess typed roster 交回模型修复。系统不生成结论，
+只提供机械清单权威；repo-wide、relation member_set 与 support-only 车道保持原语义。
+
+### 98.4 `EVAL-B94-DIAGRAMCODEMARK1`（P0）：合法 inline-code 展示污染 typed endpoint identity
+
+sequence evidence pool 在 Finalizer 前已有 13 条 `grounded` direct call edges，另有 grounded
+`buildAnalysisIR -> gate.RunWith`；模型使用合法 Mermaid 展示形
+``participant buildIR as "`buildAnalysisIR`"``。`diagramEvidenceLabelSymbol` 只去除 `<br/>`/位置后缀，不去除**完整包裹单一 code
+identity** 的 Markdown backticks，resolver 因而拿 `` `buildAnalysisIR` `` 与 typed `buildAnalysisIR` 比较，所有真实边一起变成
+`call_edge_unproven/principal_call_edge_missing`。模型连续改 alias、full ID、edge anchors、删除 anchors 均无法满足，7 次成文拒绝后
+退化且无可用答案。
+
+根修必须位于 Mermaid declaration 的 presentation normalization：只对解析后的 label 第一行，在它恰好由一对 backtick 完整包裹且
+内部通过 code-identity 语法校验时剥离展示标记；非完整包裹、含 prose/多个 token、反引号失衡均原样保留并 fail-closed。visible body、
+explicit edge anchor、principal completeness 与 duplicate identity 必须共享同一归一化结果。不得模糊匹配、不得从模型正文猜 symbol、
+不得放宽方向或 recovered/ungrounded 权限；应覆盖 `.`, `::`, `#` 及全部语言的自由/限定 identity。
+
+### 98.5 `EVAL-B94-CALLFANOUT1`（P1，确认症状、待根因收窄）
+
+同一 sequence 在 typed no-path boundary 已接受后仍发生 4 次 Explorer dispatch、34 个 Explorer 轮、19 次 midloop、11 次 completion
+提交（5 次拒绝），多次重复读取相同行段并重建同一 endpoint roster。这不是 code-mark 导致的 Finalizer 七拒本身。当前只冻结症状：
+后续须按 `PlanID/task-node/evidence-closure generation` 区分必要的交叉验证与陈腐 sibling 重探，确认是否缺少“同 endpoint boundary 已闭合”
+的共享 typed credential。未完成异构否证前不得增加 hard skip，更不得扫描 request/think/final prose 关键词短路调查。
+
+施工顺序冻结：B94-A `LENSPARITY1`；B94-B `DIAGRAMCODEMARK1`；每批独立测试、提交、推送；随后仍以恰好两个用例回放两项修复，
+并采集 `CALLFANOUT1` 的 node/generation 证据。两批均显式排除 Trace runtime authority、显式时间窗因果投影、自动补齐和系统答案 mutation。
