@@ -20,3 +20,11 @@ This scaffold is for human review. The runner records typed metrics and declared
 - For inventory cases, prefer typed_inventory_rowset or row/origin evidence over broad answer_contains or dimension_substring oracles.
 - For runtime/log/trace cases, interpret trace_query absence together with runtime_authority; pre-stage log_triage/perf_triage can be authoritative.
 - Record prompt/tool noise, repeated completion/form repair, unavailable tool attempts, context pressure, and any answer supplement that changes the main conclusion.
+
+## Implementation follow-up
+
+- B96-A `CLASSPARTITION1`：完整 observation 已能铸造 production/test class-local complete lenses，同时保留 combined all-source lens。
+- B96-B `ANSWERPREEMITPERF1`：pre-emit immutable typed 派生改为单 context 惰性缓存，128-item 微基准约 6.4×。
+- B96-C `ENDPOINTFOCUS1`：completion 与 finalizer 共用一套 grounded call-edge graph；typed no-path finalizer context 现携带真实方向的
+  source/reverse/parallel/disjoint 小胶囊，由模型综合结论，系统不代写答案。
+- 三批完成后严格并行重放本表两例；不得以本轮 read eval 结果改变 RootCauseTrace、显式时间窗因果投影或自动补齐权限面。

@@ -4819,11 +4819,12 @@ func TestExplorer_FilterToolSchemas_SourceInventoryMechanicalLandingWaitsForUnco
 	ctx.AnalysisIR.EvidencePlan.RequiredFiles = []string{"src/run.py", "src/serve.py", "src/missing.py"}
 	obs := types.SourceInventoryObservationFromMutable(ctx.Mutable)
 	obs.CompleteLenses = append(obs.CompleteLenses, types.SourceInventoryCompleteLens{
-		Role:       types.AnswerCandidateRoleFunction,
-		Scopes:     []string{"src/empty.py"},
-		Count:      0,
-		Total:      0,
-		Provenance: []string{"repo_lens:tool_query"},
+		Role:          types.AnswerCandidateRoleFunction,
+		Scopes:        []string{"src/empty.py"},
+		SourceClasses: []types.SourcePathRole{types.SourcePathRoleProduction},
+		Count:         0,
+		Total:         0,
+		Provenance:    []string{"repo_lens:tool_query"},
 	})
 	ctx.Mutable.SetSourceInventoryObservation(obs)
 	schemas := []llm.ToolSchema{
@@ -4849,11 +4850,12 @@ func TestExplorer_FilterToolSchemas_SourceInventoryMechanicalLandingWaitsForUnco
 	}
 
 	obs.CompleteLenses = append(obs.CompleteLenses, types.SourceInventoryCompleteLens{
-		Role:       types.AnswerCandidateRoleFunction,
-		Scopes:     []string{"src/missing.py"},
-		Count:      0,
-		Total:      0,
-		Provenance: []string{"repo_lens:tool_query"},
+		Role:          types.AnswerCandidateRoleFunction,
+		Scopes:        []string{"src/missing.py"},
+		SourceClasses: []types.SourcePathRole{types.SourcePathRoleProduction},
+		Count:         0,
+		Total:         0,
+		Provenance:    []string{"repo_lens:tool_query"},
 	})
 	ctx.Mutable.SetSourceInventoryObservation(obs)
 	got = eval.FilterToolSchemas(ctx, schemas)

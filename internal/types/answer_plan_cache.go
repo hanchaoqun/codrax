@@ -270,6 +270,14 @@ func cloneAnswerSemanticView(in *AnswerSemanticView) *AnswerSemanticView {
 	out.RequiredMechanismAnchors = append([]AnswerRequiredAnchor(nil), in.RequiredMechanismAnchors...)
 	if in.CallChainEndpointBoundary != nil {
 		boundary := *in.CallChainEndpointBoundary
+		if in.CallChainEndpointBoundary.EvidenceCapsule != nil {
+			capsule := *in.CallChainEndpointBoundary.EvidenceCapsule
+			capsule.SourcePath = append([]CallChainEvidenceEdge(nil), capsule.SourcePath...)
+			capsule.SinkPath = append([]CallChainEvidenceEdge(nil), capsule.SinkPath...)
+			capsule.SourceFrontier = append([]CallChainEvidenceEdge(nil), capsule.SourceFrontier...)
+			capsule.RequestedBoundary = append([]CallChainEvidenceEdge(nil), capsule.RequestedBoundary...)
+			boundary.EvidenceCapsule = &capsule
+		}
 		out.CallChainEndpointBoundary = &boundary
 	}
 	out.MissingRequestedRoles = append([]AnswerMissingRequestedRole(nil), in.MissingRequestedRoles...)

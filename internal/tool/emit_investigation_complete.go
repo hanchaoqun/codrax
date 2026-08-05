@@ -12258,11 +12258,6 @@ func callChainPrincipalSpanDowngrade(ctx *types.BusContext, closure *types.Evide
 	return callChainPrincipalSpanDowngradeWithEvidence(ctx, closure, evidence)
 }
 
-type callChainTypedEdge struct {
-	from string
-	to   string
-}
-
 type callChainDirectedPathStatus struct {
 	StartResolved  bool
 	EndResolved    bool
@@ -12329,208 +12324,18 @@ func callChainExactEndpointReachabilityDowngradeWithEvidence(ctx *types.BusConte
 }
 
 func callChainDirectedPathStatusForEvidence(evidence []types.EvidenceItem, startHint, endHint string) (callChainDirectedPathStatus, int) {
-	edges := callChainTypedSourceEdges(evidence)
-	if len(edges) == 0 {
-		return callChainDirectedPathStatus{}, 0
-	}
-	canonical := newCallChainGraphCanonicalizer(edges)
-	adjacency := make(map[string][]string)
-	nodes := make(map[string]string)
-	for _, edge := range edges {
-		from := canonical.key(edge.from)
-		to := canonical.key(edge.to)
-		if from == "" || to == "" {
-			continue
-		}
-		adjacency[from] = append(adjacency[from], to)
-		if nodes[from] == "" {
-			nodes[from] = edge.from
-		}
-		if nodes[to] == "" {
-			nodes[to] = edge.to
-		}
-	}
-	starts := canonical.resolveEndpoint(startHint, nodes)
-	ends := canonical.resolveEndpoint(endHint, nodes)
+	analysis := types.AnalyzeCallChainEvidenceGraph(evidence, startHint, endHint)
 	status := callChainDirectedPathStatus{
-		StartResolved:  len(starts.candidates) > 0,
-		EndResolved:    len(ends.candidates) > 0,
-		StartAmbiguous: starts.ambiguous,
-		EndAmbiguous:   ends.ambiguous,
+		StartResolved: analysis.StartResolved, EndResolved: analysis.EndResolved,
+		StartAmbiguous: analysis.StartAmbiguous, EndAmbiguous: analysis.EndAmbiguous,
 	}
-	if !status.StartResolved || !status.EndResolved {
-		return status, len(edges)
-	}
-	startCovered := make(map[string]bool, len(starts.candidates))
-	endCovered := make(map[string]bool, len(ends.candidates))
-	for _, start := range starts.candidates {
-		for _, end := range ends.candidates {
-			path := callChainDirectedPathBetween(adjacency, nodes, start, end)
-			if len(path) == 0 {
-				continue
-			}
-			startCovered[start] = true
-			endCovered[end] = true
-			if len(status.Path) == 0 {
-				status.Path = path
-			}
+	if len(analysis.DirectedPath) > 0 {
+		status.Path = []string{analysis.DirectedPath[0].From}
+		for _, edge := range analysis.DirectedPath {
+			status.Path = append(status.Path, edge.To)
 		}
 	}
-	if (starts.ambiguous && len(startCovered) != len(starts.candidates)) ||
-		(ends.ambiguous && len(endCovered) != len(ends.candidates)) ||
-		len(status.Path) == 0 {
-		status.Path = nil
-	}
-	return status, len(edges)
-}
-
-func callChainDirectedPathBetween(adjacency map[string][]string, nodes map[string]string, start, end string) []string {
-	queue := []string{start}
-	seen := map[string]bool{start: true}
-	parent := make(map[string]string)
-	for len(queue) > 0 {
-		current := queue[0]
-		queue = queue[1:]
-		if current == end {
-			var reversed []string
-			for node := current; node != ""; node = parent[node] {
-				reversed = append(reversed, nodes[node])
-			}
-			for i, j := 0, len(reversed)-1; i < j; i, j = i+1, j-1 {
-				reversed[i], reversed[j] = reversed[j], reversed[i]
-			}
-			return reversed
-		}
-		for _, next := range adjacency[current] {
-			if seen[next] {
-				continue
-			}
-			seen[next] = true
-			parent[next] = current
-			queue = append(queue, next)
-		}
-	}
-	return nil
-}
-
-func callChainTypedSourceEdges(evidence []types.EvidenceItem) []callChainTypedEdge {
-	var out []callChainTypedEdge
-	seen := make(map[string]bool)
-	for _, item := range evidence {
-		if !item.IsCitable() || types.ClaimFormOf(item) != types.ClaimCallEdge ||
-			types.RuntimeArtifactPathKind(item.Source) != "" || !types.HasCodeOrConfigPathSuffix(strings.ToLower(item.Source)) {
-			continue
-		}
-		from := strings.TrimSpace(item.Subject)
-		to := strings.TrimSpace(item.Object)
-		if to == "" {
-			to = strings.TrimSpace(item.AnchorSymbol)
-		}
-		if from == "" || to == "" {
-			continue
-		}
-		key := strings.ToLower(from) + "\x00" + strings.ToLower(to)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		out = append(out, callChainTypedEdge{from: from, to: to})
-	}
-	return out
-}
-
-type callChainGraphCanonicalizer struct {
-	qualifiedByTail map[string]map[string]bool
-}
-
-type callChainEndpointResolution struct {
-	candidates []string
-	ambiguous  bool
-}
-
-func newCallChainGraphCanonicalizer(edges []callChainTypedEdge) callChainGraphCanonicalizer {
-	c := callChainGraphCanonicalizer{qualifiedByTail: make(map[string]map[string]bool)}
-	for _, edge := range edges {
-		for _, raw := range []string{edge.from, edge.to} {
-			identity := callChainGraphIdentity(raw)
-			if diagramEvidenceQualifiedOwner(identity) == "" {
-				continue
-			}
-			tail := strings.ToLower(diagramEvidenceQualifiedOperation(identity))
-			if tail == "" {
-				continue
-			}
-			if c.qualifiedByTail[tail] == nil {
-				c.qualifiedByTail[tail] = make(map[string]bool)
-			}
-			c.qualifiedByTail[tail][strings.ToLower(identity)] = true
-		}
-	}
-	return c
-}
-
-func (c callChainGraphCanonicalizer) key(raw string) string {
-	identity := callChainGraphIdentity(raw)
-	if identity == "" {
-		return ""
-	}
-	if diagramEvidenceQualifiedOwner(identity) != "" {
-		return strings.ToLower(identity)
-	}
-	tail := strings.ToLower(diagramEvidenceQualifiedOperation(identity))
-	qualified := c.qualifiedByTail[tail]
-	if len(qualified) == 1 {
-		for candidate := range qualified {
-			return candidate
-		}
-	}
-	return strings.ToLower(identity)
-}
-
-func (c callChainGraphCanonicalizer) resolveEndpoint(endpoint string, nodes map[string]string) callChainEndpointResolution {
-	want := strings.ToLower(callChainGraphIdentity(endpoint))
-	if want == "" {
-		return callChainEndpointResolution{}
-	}
-	if _, ok := nodes[want]; ok {
-		return callChainEndpointResolution{candidates: []string{want}}
-	}
-	// An unqualified class/actor endpoint may stand for its typed methods;
-	// keep every exact owner match. This is the class-participant presentation
-	// lane used across Java/Kotlin/C#/ArkTS/Cangjie without fuzzy substrings.
-	if diagramEvidenceQualifiedOwner(want) == "" {
-		var owners []string
-		for key := range nodes {
-			owner := strings.ToLower(diagramEvidenceQualifiedOwner(key))
-			if owner == want || strings.ToLower(types.NormalizedSurfaceSymbolTail(owner)) == want {
-				owners = append(owners, key)
-			}
-		}
-		if len(owners) > 0 {
-			sort.Strings(owners)
-			return callChainEndpointResolution{candidates: owners}
-		}
-	}
-	tail := strings.ToLower(diagramEvidenceQualifiedOperation(want))
-	var matches []string
-	for key := range nodes {
-		if strings.ToLower(diagramEvidenceQualifiedOperation(key)) == tail {
-			matches = append(matches, key)
-		}
-	}
-	if len(matches) == 1 {
-		return callChainEndpointResolution{candidates: matches}
-	}
-	sort.Strings(matches)
-	return callChainEndpointResolution{candidates: matches, ambiguous: len(matches) > 1}
-}
-
-func callChainGraphIdentity(raw string) string {
-	raw = strings.Trim(strings.TrimSpace(raw), "`'\"")
-	raw = strings.TrimSuffix(raw, "()")
-	raw = strings.ReplaceAll(raw, "::", ".")
-	raw = strings.ReplaceAll(raw, "#", ".")
-	return strings.TrimSpace(raw)
+	return status, analysis.EdgeCount
 }
 
 func callChainPrincipalSpanDowngradeWithEvidence(ctx *types.BusContext, closure *types.EvidenceClosure, evidence []types.EvidenceItem) string {

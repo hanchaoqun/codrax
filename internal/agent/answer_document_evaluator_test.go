@@ -851,6 +851,10 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersTypedCallChainEn
 	mut.SetTurnAArtifacts(types.TurnAArtifacts{
 		InvestigationNotes:    []string{"Previous accepted closure reason (preserved advisory, not a citation): " + stalePathClaim},
 		AcceptedClosureReason: stalePathClaim,
+		EvidenceItems: []types.EvidenceItem{
+			{ID: "E-call-source", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "buildAnalysisIR", Object: "gate.RunWith", AnchorSymbol: "gate.RunWith", Source: "internal/agent/analyzer.go", LineStart: 2666, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
+			{ID: "E-call-sink", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "gate.Run", Object: "RunWith", AnchorSymbol: "RunWith", Source: "internal/analysis/gate/gate.go", LineStart: 134, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
+		},
 		AcceptedAggregateFacts: []types.AnswerAggregateFact{{
 			Kind:    types.AnswerAggregateMemberSet,
 			Label:   stalePathClaim,
@@ -877,6 +881,11 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersTypedCallChainEn
 		"disposition=`no_directed_path`",
 		"source_endpoint=`buildAnalysisIR`",
 		"requested_sink=`gate.Run`",
+		"evidence_status=`parallel_convergence`",
+		"grounded_call_edge_count=`2`",
+		"shared_frontier=`gate.RunWith`",
+		"source_path: `buildAnalysisIR` -> `gate.RunWith` [E-call-source] @ internal/agent/analyzer.go:2666",
+		"requested_sink_path: `gate.Run` -> `RunWith` [E-call-sink] @ internal/analysis/gate/gate.go:134",
 		"not a reachable-chain member declaration",
 		"reverse or parallel typed calls",
 		"model owns the conclusion",
@@ -893,6 +902,28 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersTypedCallChainEn
 	}
 	if got := mut.StableInvestigationAggregateFacts(); len(got) != 1 || got[0].Label != stalePathClaim {
 		t.Fatalf("answer-authority projection must not delete accepted audit aggregates: %+v", got)
+	}
+}
+
+func TestRenderAnswerDocCallChainEndpointBoundary_DirectedEvidenceDisclosesStateConflict(t *testing.T) {
+	view := &types.AnswerSemanticView{CallChainEndpointBoundary: &types.CallChainEndpointBoundary{
+		Disposition:    types.CallChainEndpointNoDirectedPath,
+		SourceEndpoint: "Source.run",
+		RequestedSink:  "Sink.run",
+		EvidenceCapsule: &types.CallChainEndpointEvidenceCapsule{
+			Status:     types.CallChainEndpointEvidenceDirectedPathPresent,
+			EdgeCount:  1,
+			SourcePath: []types.CallChainEvidenceEdge{{From: "Source.run", To: "Sink.run", EvidenceID: "E1", Source: "main.go", LineStart: 9}},
+		},
+	}}
+	got := renderAnswerDocCallChainEndpointBoundary(view)
+	for _, want := range []string{"evidence_status=`directed_path_present`", "conflicts with the retained no-directed-path boundary", "model owns the conclusion"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("conflicting typed carriers must be disclosed with model ownership (%q):\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "accepted investigation did not prove") {
+		t.Fatalf("renderer must not state a no-path fact beside a grounded directed path:\n%s", got)
 	}
 }
 

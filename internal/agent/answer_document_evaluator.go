@@ -2783,14 +2783,66 @@ func renderAnswerDocCallChainEndpointBoundary(view *types.AnswerSemanticView) st
 	var b strings.Builder
 	b.WriteString("## Typed Call-Chain Endpoint Boundary\n\n")
 	fmt.Fprintf(&b, "- disposition=`%s`\n", boundary.Disposition)
-	fmt.Fprintf(&b, "- source_endpoint=`%s`\n", boundary.SourceEndpoint)
-	fmt.Fprintf(&b, "- requested_sink=`%s`\n\n", boundary.RequestedSink)
+	fmt.Fprintf(&b, "- source_endpoint=`%s`\n", answerDocCallChainInline(boundary.SourceEndpoint))
+	fmt.Fprintf(&b, "- requested_sink=`%s`\n", answerDocCallChainInline(boundary.RequestedSink))
+	if capsule := boundary.EvidenceCapsule; capsule != nil {
+		fmt.Fprintf(&b, "- evidence_status=`%s`\n", capsule.Status)
+		fmt.Fprintf(&b, "- grounded_call_edge_count=`%d`\n", capsule.EdgeCount)
+		if capsule.SharedFrontier != "" {
+			fmt.Fprintf(&b, "- shared_frontier=`%s`\n", answerDocCallChainInline(capsule.SharedFrontier))
+		}
+		b.WriteString("\n### Grounded endpoint evidence capsule\n\n")
+		renderAnswerDocCallChainEvidencePath(&b, "source_path", capsule.SourcePath)
+		if capsule.SourcePathOmitted > 0 {
+			fmt.Fprintf(&b, "- source_path_omitted_edges=`%d` (middle edges omitted from this bounded prompt capsule)\n", capsule.SourcePathOmitted)
+		}
+		renderAnswerDocCallChainEvidencePath(&b, "requested_sink_path", capsule.SinkPath)
+		if capsule.SinkPathOmitted > 0 {
+			fmt.Fprintf(&b, "- requested_sink_path_omitted_edges=`%d` (middle edges omitted from this bounded prompt capsule)\n", capsule.SinkPathOmitted)
+		}
+		renderAnswerDocCallChainEvidencePath(&b, "source_frontier", capsule.SourceFrontier)
+		renderAnswerDocCallChainEvidencePath(&b, "requested_sink_boundary", capsule.RequestedBoundary)
+		if len(capsule.SourcePath)+len(capsule.SinkPath)+len(capsule.SourceFrontier)+len(capsule.RequestedBoundary) == 0 {
+			b.WriteString("- No bounded grounded call-edge row is available for this endpoint boundary.\n")
+		}
+	}
+	b.WriteString("\n")
+	if boundary.EvidenceCapsule != nil && boundary.EvidenceCapsule.Status == types.CallChainEndpointEvidenceDirectedPathPresent {
+		b.WriteString("The current grounded call-edge capsule contains a directed source-to-sink path and therefore conflicts with the retained no-directed-path boundary. Treat this as typed evidence-state inconsistency: synthesize from the cited path, do not present the stale boundary as established, and do not invent a replacement relation.\n\n")
+		b.WriteString("- The model owns the conclusion; the system is only disclosing the conflicting typed carriers.\n\n")
+		return b.String()
+	}
 	b.WriteString("The accepted investigation did not prove a directed source-to-sink call path. This is an endpoint boundary, not a reachable-chain member declaration.\n\n")
-	b.WriteString("- Keep the nearest proven directed path from typed call-edge/support rows. Do not extend it to the requested sink through definition proximity, source order, or a prefix sibling.\n")
+	b.WriteString("- Treat the capsule rows as grounded facts, not system-authored answer prose. Use them to synthesize the explanation and conclusion yourself.\n")
+	b.WriteString("- Keep the nearest proven directed path from the typed call-edge rows above. Do not extend it to the requested sink through definition proximity, source order, or a prefix sibling.\n")
 	b.WriteString("- Keep reverse or parallel typed calls as separate relationships in their real direction; never flip one to close the requested path.\n")
 	b.WriteString("- Preserve the exact requested sink in a structured boundary/caveat/list item so the user's endpoint remains visible, but do not describe it as called by the reachable frontier.\n")
 	b.WriteString("- The summary, principal member roster, and diagram must share this disposition. The model owns the conclusion; this typed context supplies the evidence boundary only.\n\n")
 	return b.String()
+}
+
+func renderAnswerDocCallChainEvidencePath(b *strings.Builder, label string, edges []types.CallChainEvidenceEdge) {
+	for _, edge := range edges {
+		from := answerDocCallChainInline(edge.From)
+		to := answerDocCallChainInline(edge.To)
+		location := answerDocCallChainInline(edge.Source)
+		if edge.LineStart > 0 {
+			location = fmt.Sprintf("%s:%d", location, edge.LineStart)
+			if edge.LineEnd > edge.LineStart {
+				location += fmt.Sprintf("-%d", edge.LineEnd)
+			}
+		}
+		identity := answerDocCallChainInline(edge.EvidenceID)
+		if identity == "" {
+			identity = "typed-call-edge"
+		}
+		fmt.Fprintf(b, "- %s: `%s` -> `%s` [%s] @ %s\n", label, from, to, identity, location)
+	}
+}
+
+func answerDocCallChainInline(raw string) string {
+	raw = strings.ReplaceAll(raw, "`", "'")
+	return strings.Join(strings.Fields(raw), " ")
 }
 
 func renderAnswerDocErrorGranularityContract(view *types.AnswerSemanticView) string {

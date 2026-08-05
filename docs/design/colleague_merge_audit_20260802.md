@@ -2283,3 +2283,9 @@ B96-B 已交付：单次 `preEmitCheckContext` 惰性复用 immutable surface pl
 sample 命中的 item×citation 热路不再重复全图 exclusion census。缓存不跨 patch/turn/tool call，文档 mutation 与所有 hard checks 仍逐项执行。
 128-item 基准约 9.3ms→1.45ms、6.64MB→0.73MB、136k→23.2k alloc；完整 `internal/tool`（168.932s）通过。状态：
 `EVAL-B96-ANSWERPREEMITPERF1=implemented/full-pass/replay-after-B96-C`。
+
+B96-C 已交付：completion 私有调用图判定上移为共享 `types.AnalyzeCallChainEvidenceGraph`，完成门继续消费完全相同的 citable current-source
+`ClaimCallEdge` reachability；finalizer 在 typed `no_directed_path` 边界下额外收到 bounded evidence capsule，能看到正向、反向、并行汇合或分离
+frontier 的真实边、EID 与 source:line。该胶囊只提供证据，不代写/替换模型结论，不增加成文 hard gate，不读用户或模型 prose；definition、recovered、
+runtime artifact 与歧义短名均不能越权铸边。Java/C/C++/Rust/ArkTS/Cangjie 等共享 `.`/`::`/`#` 语义，`QFRootCauseTrace` 负 pin 隔离。
+完整 `internal/types`、`internal/agent`、`internal/tool` 通过；状态：`EVAL-B95-ENDPOINTFOCUS1=implemented/full-pass/replay-next`。

@@ -158,9 +158,39 @@ const (
 // source inspection found no directed path between the requested endpoints.
 // It is context for model synthesis, not a system-authored answer conclusion.
 type CallChainEndpointBoundary struct {
-	Disposition    CallChainEndpointDisposition
-	SourceEndpoint string
-	RequestedSink  string
+	Disposition     CallChainEndpointDisposition
+	SourceEndpoint  string
+	RequestedSink   string
+	EvidenceCapsule *CallChainEndpointEvidenceCapsule
+}
+
+// CallChainEndpointEvidenceStatus describes only the grounded graph shape
+// around a typed no-directed-path boundary. It does not decide answer prose.
+type CallChainEndpointEvidenceStatus string
+
+const (
+	CallChainEndpointEvidenceNoEdges             CallChainEndpointEvidenceStatus = "no_grounded_call_edges"
+	CallChainEndpointEvidenceEndpointUnresolved  CallChainEndpointEvidenceStatus = "endpoint_unresolved"
+	CallChainEndpointEvidenceEndpointAmbiguous   CallChainEndpointEvidenceStatus = "endpoint_ambiguous"
+	CallChainEndpointEvidenceDirectedPathPresent CallChainEndpointEvidenceStatus = "directed_path_present"
+	CallChainEndpointEvidenceReversePath         CallChainEndpointEvidenceStatus = "reverse_path"
+	CallChainEndpointEvidenceParallelConvergence CallChainEndpointEvidenceStatus = "parallel_convergence"
+	CallChainEndpointEvidenceDisjointFrontiers   CallChainEndpointEvidenceStatus = "disjoint_frontiers"
+)
+
+// CallChainEndpointEvidenceCapsule is a bounded, typed context carrier for the
+// finalizer. It preserves real call direction and citations; the model remains
+// solely responsible for explaining what those facts mean.
+type CallChainEndpointEvidenceCapsule struct {
+	Status            CallChainEndpointEvidenceStatus
+	EdgeCount         int
+	SharedFrontier    string
+	SourcePath        []CallChainEvidenceEdge
+	SourcePathOmitted int
+	SinkPath          []CallChainEvidenceEdge
+	SinkPathOmitted   int
+	SourceFrontier    []CallChainEvidenceEdge
+	RequestedBoundary []CallChainEvidenceEdge
 }
 
 // Active reports whether the boundary is complete enough for prompt and

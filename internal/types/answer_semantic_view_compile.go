@@ -303,13 +303,13 @@ func BuildAnswerSemanticViewForAgentContext(ac *AgentContext) *AnswerSemanticVie
 		return nil
 	}
 	if cached := ac.cachedAnswerSemanticView(); cached != nil {
-		applyCallChainEndpointBoundary(cached, ac.AnalysisIR, principalSpanWaiverFromMutable(ac.Mutable))
+		applyCallChainEndpointBoundary(cached, ac.AnalysisIR, ac.Mutable)
 		return cached
 	}
 	plan := BuildAnswerSurfacePlanForAgentContext(ac)
 	view := BuildAnswerSemanticView(ac.AnalysisIR, plan)
 	ac.storeAnswerSemanticView(view)
-	applyCallChainEndpointBoundary(view, ac.AnalysisIR, principalSpanWaiverFromMutable(ac.Mutable))
+	applyCallChainEndpointBoundary(view, ac.AnalysisIR, ac.Mutable)
 	emitSemanticViewTrace("agent", view, ac.AnalysisIR, plan)
 	return cloneAnswerSemanticView(view)
 }
@@ -323,13 +323,13 @@ func BuildAnswerSemanticViewForBusContext(bus *BusContext) *AnswerSemanticView {
 		return nil
 	}
 	if cached := bus.cachedAnswerSemanticView(); cached != nil {
-		applyCallChainEndpointBoundary(cached, bus.AnalysisIR, principalSpanWaiverFromMutable(bus.Mutable))
+		applyCallChainEndpointBoundary(cached, bus.AnalysisIR, bus.Mutable)
 		return cached
 	}
 	plan := BuildAnswerSurfacePlanForBusContext(bus)
 	view := BuildAnswerSemanticView(bus.AnalysisIR, plan)
 	bus.storeAnswerSemanticView(view)
-	applyCallChainEndpointBoundary(view, bus.AnalysisIR, principalSpanWaiverFromMutable(bus.Mutable))
+	applyCallChainEndpointBoundary(view, bus.AnalysisIR, bus.Mutable)
 	emitSemanticViewTrace("bus", view, bus.AnalysisIR, plan)
 	return cloneAnswerSemanticView(view)
 }
@@ -365,12 +365,73 @@ func CompileCallChainEndpointBoundary(rm RequestModel, waiver *PrincipalSpanWaiv
 	return boundary
 }
 
-func applyCallChainEndpointBoundary(view *AnswerSemanticView, ir *AnalysisIR, waiver *PrincipalSpanWaiver) {
+// CompileCallChainEndpointBoundaryWithEvidence enriches an accepted endpoint
+// boundary with bounded grounded graph facts. This is a soft context carrier;
+// the accepted waiver remains the only trigger and the model owns synthesis.
+func CompileCallChainEndpointBoundaryWithEvidence(rm RequestModel, waiver *PrincipalSpanWaiver, evidence []EvidenceItem) *CallChainEndpointBoundary {
+	boundary := CompileCallChainEndpointBoundary(rm, waiver)
+	if boundary == nil {
+		return nil
+	}
+	analysis := AnalyzeCallChainEvidenceGraph(evidence, boundary.SourceEndpoint, boundary.RequestedSink)
+	capsule := &CallChainEndpointEvidenceCapsule{
+		EdgeCount: analysis.EdgeCount, SharedFrontier: analysis.SharedFrontier,
+		SourcePath: analysis.SourcePath, SinkPath: analysis.SinkPath,
+		SourceFrontier: analysis.SourceFrontier, RequestedBoundary: analysis.RequestedBoundary,
+	}
+	switch {
+	case analysis.EdgeCount == 0:
+		capsule.Status = CallChainEndpointEvidenceNoEdges
+	case len(analysis.DirectedPath) > 0:
+		capsule.Status = CallChainEndpointEvidenceDirectedPathPresent
+		capsule.SourcePath = analysis.DirectedPath
+	case len(analysis.ReversePath) > 0:
+		capsule.Status = CallChainEndpointEvidenceReversePath
+		capsule.SinkPath = analysis.ReversePath
+	case analysis.StartAmbiguous || analysis.EndAmbiguous:
+		capsule.Status = CallChainEndpointEvidenceEndpointAmbiguous
+	case !analysis.StartResolved || !analysis.EndResolved:
+		capsule.Status = CallChainEndpointEvidenceEndpointUnresolved
+	case analysis.SharedFrontier != "":
+		capsule.Status = CallChainEndpointEvidenceParallelConvergence
+	default:
+		capsule.Status = CallChainEndpointEvidenceDisjointFrontiers
+	}
+	capsule.SourcePath, capsule.SourcePathOmitted = boundCallChainEndpointEvidencePath(capsule.SourcePath, 8)
+	capsule.SinkPath, capsule.SinkPathOmitted = boundCallChainEndpointEvidencePath(capsule.SinkPath, 8)
+	boundary.EvidenceCapsule = capsule
+	return boundary
+}
+
+func boundCallChainEndpointEvidencePath(in []CallChainEvidenceEdge, limit int) ([]CallChainEvidenceEdge, int) {
+	if len(in) == 0 || limit <= 0 {
+		return nil, len(in)
+	}
+	if len(in) <= limit {
+		return append([]CallChainEvidenceEdge(nil), in...), 0
+	}
+	left := limit / 2
+	right := limit - left
+	out := make([]CallChainEvidenceEdge, 0, limit)
+	out = append(out, in[:left]...)
+	out = append(out, in[len(in)-right:]...)
+	return out, len(in) - len(out)
+}
+
+func applyCallChainEndpointBoundary(view *AnswerSemanticView, ir *AnalysisIR, mutable *MutableState) {
 	if view == nil {
 		return
 	}
 	view.CallChainEndpointBoundary = nil
 	if ir != nil {
-		view.CallChainEndpointBoundary = CompileCallChainEndpointBoundary(ir.RequestModel, waiver)
+		waiver := principalSpanWaiverFromMutable(mutable)
+		var evidence []EvidenceItem
+		if mutable != nil {
+			if turnA := mutable.TurnAArtifacts(); turnA != nil {
+				evidence = append(evidence, turnA.EvidenceItems...)
+			}
+			evidence = append(evidence, mutable.EmittedEvidence()...)
+		}
+		view.CallChainEndpointBoundary = CompileCallChainEndpointBoundaryWithEvidence(ir.RequestModel, waiver, evidence)
 	}
 }

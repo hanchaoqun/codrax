@@ -87,6 +87,15 @@ func TestCompileCallChainEndpointBoundary_UsesTypedNoDirectedPathOnly(t *testing
 	if got := CompileCallChainEndpointBoundary(withoutEndpoints, waiver); got != nil {
 		t.Fatalf("a single endpoint cannot compile a source/sink boundary: %+v", got)
 	}
+	rootCauseTrace := rm
+	rootCauseTrace.Intent = IntentRootCause
+	rootCauseTrace.Scenario = ScenarioRootCause
+	if ResolveQuestionFamily(rootCauseTrace) != QFRootCauseTrace {
+		t.Fatalf("test fixture must resolve to RootCauseTrace, got %s", ResolveQuestionFamily(rootCauseTrace))
+	}
+	if got := CompileCallChainEndpointBoundary(rootCauseTrace, waiver); got != nil {
+		t.Fatalf("source-call endpoint capsule must not enter RootCauseTrace authority: %+v", got)
+	}
 }
 
 func TestBuildAnswerSemanticViewForAgentContext_RefreshesTypedCallChainBoundary(t *testing.T) {

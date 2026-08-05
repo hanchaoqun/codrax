@@ -15297,3 +15297,28 @@ facts/refs 与旧直算结果逐字段对比，128 次 item citation + principal
 Apple M5 Max 微基准（128 items，3 次）：cached 约 1.45ms、0.73MB、23.2k alloc；旧 uncached 对照约 9.3ms、6.64MB、136k alloc，
 约 6.4× wall-time 改善、89% bytes 与 83% allocations 降低。完整 `internal/tool`（168.932s）通过。状态：
 `EVAL-B96-ANSWERPREEMITPERF1=implemented/full-pass/replay-after-B96-C`。
+
+### 100.8 B96-C 施工：请求端点边界携带共享 typed 调用图证据胶囊
+
+`EVAL-B95-ENDPOINTFOCUS1` 已实现。此前 completion hard gate 内部能精确判定 source→sink directed path，但 finalizer 只收到
+`no_directed_path/source/sink` 三个字段与原则性提示，拿不到已经 grounded 的 `buildAnalysisIR -> gate.RunWith`、
+`gate.Run -> RunWith` 两条真实边；模型只能从大 fan-out support pool 再推一次，因而把并行汇合写成“关系待确认”。
+
+本批把既有语言无关调用图上移为 `internal/types` 单一实现：只接收 citable、current-source、code/config path 的
+`ClaimCallEdge`；definition/recovered/runtime artifact/自由 prose/source order/prefix sibling 均不能铸边。`.`、`::`、`#` 与唯一短名解析沿用同一
+canonicalizer；歧义端点继续要求 coverage 闭合，否则 fail-closed。原 completion reachability 门已删除私有图实现并委托该共享 engine，防止调查门与
+成文上下文产生第二套方向语义。
+
+仅当 `QFCallChain + typed no_directed_path waiver + ordered endpoint profile` 已成立时，semantic view 才附加 bounded capsule。状态枚举覆盖
+`no_grounded_call_edges / endpoint_unresolved / endpoint_ambiguous / directed_path_present / reverse_path / parallel_convergence /
+disjoint_frontiers`；载荷只含真实方向 edge、evidence ID、source:line、shared frontier 及最多 3 条边界边。finalizer prompt 逐行展示这些 typed
+事实并明确“模型自行综合与下结论”；系统不生成结论、不改写 AnswerDocument、不新增 answer hard gate，也不扫描 request/think/final prose。
+
+生产同形 pin 证明并行形输出 `buildAnalysisIR -> gate.RunWith` 与 `gate.Run -> RunWith`，不翻转第二条边；reverse/disjoint/ambiguous/runtime-exclusion、
+缓存深拷贝、多语言 completion parity 均覆盖。另加 `QFRootCauseTrace` 负 pin：即使带同名 endpoints/waiver 也不得进入该源码调用链胶囊，因此显式
+时间窗、Trace 双轴根因、因果投影与自动补齐权限面不变。整包回归中发现一个旧 agent fixture 手工构造 zero complete lens 时漏了必需的 typed
+`SourceClasses`，按既有生产 schema 补齐 fixture；未放宽 lens key 或 landing authority。
+
+验证：定向 graph/capsule/renderer/RootCauseTrace-isolation pin 均绿；最新完整 `internal/types`（24.419s）、`internal/agent`（3.623s）、
+`internal/context`（0.711s）、`internal/orchestrator`（12.771s）通过，完整 `internal/tool`（172.057s）与最终相关定向集（0.914s）通过。
+状态：`EVAL-B95-ENDPOINTFOCUS1=implemented/full-pass/replay-next`。
