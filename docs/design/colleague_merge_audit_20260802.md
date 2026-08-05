@@ -2232,3 +2232,17 @@ B94-B 已交付：Mermaid declaration 的共享 presentation normalizer 仅移�
 多 token 与嵌套包装不做猜测。sequence/call-DAG body、sibling anchor、principal completeness、duplicate identity 共用该结果；14 种
 可执行语言及自由/`.`/`::`/`#` 形全绿，反向边与无证据边仍拒绝，RootCauseTrace 入口隔离不变。完整 `internal/tool`
 161.197s 通过。状态：`EVAL-B94-DIAGRAMCODEMARK1=implemented/full-pass/replay-next`。
+
+### §10.32 B95 production：B94 correctness gate 生效，但前置归一化与 DAG closure 仍不可恢复
+
+`main@a58ee0d06` 严格双例回放得到 sequence runner PASS/human FAIL（496s）与 inventory TIMEOUT（1500s）。B94-A 已阻止 24/30
+错 roster 静默通过，B94-B 旧 code-mark 批量误拒未复发；但确认两个 P0：
+
+- `EVAL-B95-PRENORMPARITY1`：模型已携带 30 个 Kind 名称却保留 value=24，aggregate Normalize 在 request-bound typed projection 前
+  先拒绝，精确 roster 无法提供安全机械校准，最终形成 10 次 completion reject；
+- `EVAL-B95-DAGCLOSURE1`：首节点已闭合的 bounded inventory/no-path endpoint credential 不跨 sibling DAG node 复用，后节点重新挂回
+  root debt；inventory 扩至 34 lens/65 Explorer/9 prune，sequence 也重复读取同一 endpoint 区域。
+
+另记 P1 `EVAL-B95-ENDPOINTFOCUS1`：巨大同层 call roster 淹没 typed endpoint boundary，最终答案写“gate.Run 若存在”并遗漏已证
+`gate.Run -> RunWith` 包装边。优先顺序为安全 pre-normalize parity → durable DAG closure receipt → 异构回放后再裁 endpoint capsule；
+三案均禁止 request/model/final prose 关键词 hard gate，禁止系统代写结论，Trace 权限面保持隔离。

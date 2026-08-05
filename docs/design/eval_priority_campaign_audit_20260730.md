@@ -15114,3 +15114,57 @@ edge anchor、principal completeness 与 duplicate participant identity 共用�
 C/C++、Ruby、Swift、Lua、Cangjie，以及自由函数、`.`、`::`、`#` 形全部通过。反向 call 仍被拒、malformed/prose wrapper 不获权、
 duplicate identity 仍优先诊断，`QFRootCauseTrace` 入口隔离 pin 保持。完整 `internal/tool`（161.197s）通过。状态：
 `EVAL-B94-DIAGRAMCODEMARK1=implemented/full-pass/replay-next`。
+
+## 99. 2026-08-04 B95 r21：B94 双例回放，正确性门生效但 pre-normalize 与跨节点 closure 仍断线
+
+### 99.1 严格双并发与人工结论
+
+在 `main@a58ee0d06` 构建并快照后，严格并行恰好两个 read case：
+
+- `qf_sequence_analyzer_gate`：runner PASS / human FAIL，496s，3 个 Explorer dispatch、27 轮、16 次 read、2 次 Finalizer reject；
+- `qf_multi_member_set_count_caveat`：TIMEOUT / human FAIL，1500s，4 个 Explorer dispatch、65 轮、34 次 source lens、21 次 completion
+  （10 次 reject）、9 次 tool-history prune，最大 context 56%。
+
+工件见 `eval/parallel_selected_summary_evalcampaign_b95_b94_replay_r21_20260804.md` 及 manual audit。本轮仍未运行 Trace；不得据此改变
+RootCauseTrace、显式时间窗、因果投影、自动补齐或模型结论所有权。
+
+### 99.2 B94 验收状态
+
+`LENSPARITY1` 获得**部分生产正证**：模型提交 30 个 Kind member、却沿用 `value=24` 时不再静默出厂，completion 精确拒绝；但它尚未
+闭环，见 PRENORMPARITY1。`DIAGRAMCODEMARK1` 的旧症状（合法 code-mark 令 grounded 真边批量变 unproven）未复发；本轮模型最终稿未用
+inline-code participant，故状态仍为 `implemented/full-pass/production-positive-witness-pending`，不虚报 production close。
+
+### 99.3 `EVAL-B95-PRENORMPARITY1`（P0）：typed exact roster 位于 aggregate Normalize 之后
+
+首个 inventory completion 的 Kind fact 实际已有全部 30 个 typed 名称，但模型把旧分页计数 24 留在 `value`。当前执行顺序先调用
+`NormalizeAnswerAggregateFacts` 做 `value == len(members)`，失败即返回；B94-A 的 request-bound principal row projection 位于其后，
+因此永远没有机会用同一 authoritative roster 完成机械校准/等值交接。模型随后在 24→29→30 之间手工修补，并把 private/helper 函数
+带入 principal set。
+
+根修只能前移**精确信号限定的机械校准**：仅当 requested-path executable complete lenses 已对全部 principal roles 闭合，且当前
+source-inventory principal fact 与该 authoritative row universe 有 typed overlap、后续必进入同一 row projection 时，才把该 fact 的
+count canonicalize 为其结构化 `members[]` 长度并披露 repair note；随后既有 projection 仍用 typed exact roster 替换/约束 principal
+universe。无 exact lens、错路径/角色/语言/源码类别、relation set、repo-wide 或无 overlap 继续原样拒绝。禁止对任意模型 member_set
+普遍“数数组长度后改结论”。状态：`confirmed/P0/next-code-batch`。
+
+### 99.4 `EVAL-B95-DAGCLOSURE1`（P0，吸收 CALLFANOUT1）：请求绑定 closure 未跨 sibling node 继承
+
+sequence 的 `n0_probe` 已接受 `principal_span_waiver=no_directed_path` 并发布 exact boundary，调度器仍进入预建 `n2_validate`，携带
+248 条 evidence 后重新读取、重发同一批 endpoint 边；inventory 首节点的 bounded complete lens 生效，后续 sibling node 却重新发出
+`path="."` repair，并把 `cmd/fixtures/embedprobe/internal/skill` 等旧 root debt 接回请求，最终 34 次 lens 超时。
+
+最优方案不是取消 validate 或按关键词 hard skip，而是给 DAG closure 增加 `request_universe_id × node_generation × typed credential kind`
+的 durable receipt：后续 sibling 可验证 receipt 后直接消费已闭合 roster/endpoint boundary；validate node仍可检查新的 ordering/grounding
+目标，但不得重新打开同一 universe 的 navigation debt。scope/role/source-class 改变或证据反证必须生成新 generation 并重新探索。
+状态：`confirmed/P0/after-PRENORMPARITY1`。
+
+### 99.5 `EVAL-B95-ENDPOINTFOCUS1`（P1）：终点边界被同层 call roster 淹没
+
+sequence 最终答案知道实际终点是 `gate.RunWith`，却写“`gate.Run` 若存在”，遗漏源码已证 `gate.Run -> RunWith` 包装边，并把约 30 个
+`buildAnalysisIR` 同层直接调用当作一条主链。typed no-path boundary 本身正确，问题是最终上下文没有把 requested endpoints、nearest
+proven edge、reverse/parallel edge 做成一个高优先级小型 typed capsule，反而让多次 sibling 重探的巨大 aggregate roster占据主面。
+先通过 DAGCLOSURE1 去重；若异构回放仍复现，再为 finalizer 增加 typed endpoint-boundary capsule/soft guidance。不得扫描答案原文、不得
+由系统替写“无路径”结论。状态：`confirmed/P1/after-DAGCLOSURE1`。
+
+施工顺序冻结：B95-A PRENORMPARITY1；B95-B DAGCLOSURE1；每批独立测试、文档、提交、推送；之后再严格双例回放，并决定
+ENDPOINTFOCUS1 是否仍需施工。
