@@ -14953,3 +14953,47 @@ alias。随后原有 same-direction call evidence gate 原样执行，不接受 
 或任一语言。相同 class/actor 展示标签若由不同 message operation 精确消歧则继续合法；未参与 call 的重复展示声明也不硬拒。
 RootCauseTrace/显式时间窗因果投影仍在入口处完全隔离。diagram 定向矩阵与 `internal/tool` 全量通过（172.707s），状态：
 `implemented/full-pass/replay-next`。
+
+## 97. 2026-08-04 B93 r19：B92 生产复验、bounded scope 血缘污染与 waiver 兼容解码缺席
+
+### 97.1 严格并行与人工审计
+
+在 `main@0d4cf7329907` 构建后，严格并行恰好两个 read case：
+
+- `qf_multi_member_set_count_caveat`：runner/human PASS，405s，16 次 source_inventory、28 个 Explorer 轮、12 次 midloop 注入、5 次 context prune；
+- `qf_sequence_analyzer_gate`：runner/human FAIL，542s，13 次 read、22 个 Explorer 轮、6 次 Finalizer reject，最终进入 degraded answer。
+
+工件见 `eval/parallel_selected_summary_evalcampaign_b93_b92_replay_r19_20260804.md` 及对应 manual audit。本轮没有运行 Trace，不能据此改变显式时间窗、因果投影或自动补齐的任何裁定。
+
+### 97.2 B92-A 生产通过，但确认 `EVAL-B93-SCOPELINEAGE1`（P0）
+
+inventory 最终答案与 checkout 一致：type=3，production function=5，Kind constant=30，Kind const block=1。B92-A 对复合角色、隐式 selector 与 production/test universe 的修复生产生效。
+
+但系统在第 7 个 Explorer 轮已经拿到 `internal/analysis/criterion` 的完整目标 roster，随后仍把此前 repo-wide、budget-truncated observation 的缺页/source-class debt强制附着到有界答案。调度器要求继续访问 `cmd`、两个 fixture、`internal/hitraceconv/testdata/embedprobe`、`internal/skill`，继而又切到 ArkTS/Cangjie thirdparty corpus；模型在日志中明确指出这些 scope 与用户目标无关，仍无法关闭。最终虽然答对，却消耗 16 次 lens、28 个 Explorer 轮、84,833 estimated context tokens 与 405s。
+
+根因类不是“模型不肯停止”，而是 durable observation 采用全局 role 合并，`Scopes/SourceClasses/Page/Execution` 与每个具体 lens identity 没有同源绑定；较早 broad lens 的 incomplete 位与后来 bounded complete lens 被压成一份复合状态。completion/follow-up 再从复合状态推导债务，导致窄窗完成不能支配同角色的旧广域导航债。最优方案冻结为：
+
+1. completion authority 必须先选取与 typed requested path、roles、source class/surface family 相符的 lens lineage，再判断 complete/page/execution；
+2. bounded complete lens 只能关闭同一 requested universe，不得清除真实 repo-wide 请求的广域债；反之，旧 repo-wide incomplete lens 也不得污染明确的 bounded request；
+3. follow-up query 必须继承被选 lens 的 identity，cursor 只能在同 identity 延续；scope 变化清 cursor；
+4. 全部判定读取 engine-minted query/complete-lens carrier，不扫描用户/模型/答案 prose，不由系统替写结论。
+
+状态：`EVAL-B93-SCOPELINEAGE1=confirmed/P0/next-code-batch`。
+
+### 97.3 `EVAL-B93-WAIVERWIRE1`（P0）：兼容解码只恢复 aggregate，丢失同尾 typed waiver
+
+sequence 的源码事实已经查清：`buildAnalysisIR -> gate.RunWith @ analyzer.go:2666` 与 `gate.Run -> RunWith @ gate.go:135` 是两条汇入同一 callee 的并列边；`buildAnalysisIR -> gate.Run` 不存在。completion gate 第一次拒绝并指导使用 `principal_span_waiver.reason=no_directed_path` 是正确的。
+
+模型随后三次都提交了正确 reason/rationale，但生产 tool call 把 `principal_span_waiver` 放在字符串化 `aggregate_facts` 数组后的对象尾部。系统已有 `decodeAggregateFactsPayload` 会解析该尾部，并已恢复 `relation_claims` 以及部分 completion 字段；`loadFromRaw` 却没有从同一个 parsed `misplaced` map 恢复 `principal_span_waiver`、`evidence_floor_waiver` 与对应 clear flags。因此成员集被成功消费，waiver 同载荷静默丢失，系统再次返回“请提交 no_directed_path”，形成无法由模型理解的合同自矛盾。
+
+最优修复不是放宽 directed-path gate，也不是扫描自由文本。应在同一 strict typed recovery helper 中恢复所有 schema-owned sibling fields，执行与 top-level 完全相同的 enum/rationale/互斥校验；top-level 值始终优先，尾部仅在 top-level 缺席时兼容恢复，未知字段继续拒绝/忽略按既有策略。新增 e2e pin 必须使用本次真实的 stringified aggregate tail 形，证明 no-path boundary 一次闭合，错误 enum、空 rationale、clear+new 冲突仍 fail-closed。
+
+降级答案人工判 FAIL：正文用“随后”把两条并列边写成连续路径，与 typed graph 相反。状态：`EVAL-B93-WAIVERWIRE1=confirmed/P0/next-code-batch`。
+
+### 97.4 `EVAL-B93-CALLIDENT2`（P1）：typed call owner 展示身份仍不对称
+
+本轮 B92-B `duplicate_participant_identity` 未触发，因为稿件没有两个 active alias 精确指向同一 citable endpoint；因此 B92-B 仍是单测/全包验证通过，生产正证待后续异构回放。
+
+Finalizer 的六次拒绝还暴露一项独立身份不对称：`ParseOutput` call 在 grounding 前被规范成 `analyzerEvaluator.ParseOutput`，而 package-level `gate.Run -> RunWith` 仍以短 `Subject=Run/Object=RunWith` 进入 evidence。用户、definition 与 participant 的自然展示却是 `gate.Run/gate.RunWith`。现有 qualified-caller resolver 要求两端同时限定 owner，故“限定 caller + 裸 callee”的 parser-grounded call 无法稳定绑定，模型在 `Run`、`GR`、`gate_Run`、`gate.Run` 间反复试错。
+
+后续只能补 typed owner/presentation identity：由 parser-owned call site、enclosing callable、package/module/receiver 与唯一 source:line 铸造可展示限定身份，sequence body、edge anchor 与 principal completeness 共享同一 resolver；多 owner、重载、多位置、contrary object 均 fail-closed。不得按语言或本 case 符号特判。状态：`EVAL-B93-CALLIDENT2=confirmed/P1/after-P0`。

@@ -2175,3 +2175,15 @@ participant 出现时缺少先验 identity 诊断，误导模型继续改方向/
 两个参与 call 的 alias 触发；class/actor + 不同 operation、unused declaration 保持可用。sequence/call_dag、自由函数及多语言限定符
 均有正负 pin；RootCauseTrace 不进入此合同。diagram 定向矩阵与 `internal/tool` 全量通过（172.707s），状态：
 `EVAL-B92-DIAGIDENT1=implemented/full-pass/replay-next`。
+
+### §10.30 B93 production：bounded inventory 答对但作用域债扩散；no-path waiver 接线存在可执行矛盾
+
+`main@0d4cf7329907` 严格并行两个 read case 后，inventory runner/human PASS，sequence runner/human FAIL。详细证据与人工审计见 eval campaign §97。
+
+- `EVAL-B92-INVENTORYSELECT1` 已获 production 正证：目标包 3/5/30 roster 与 const-block 依据均正确；
+- 新 P0 `EVAL-B93-SCOPELINEAGE1`：bounded complete lens 与先前 repo-wide incomplete lens 被合并成无 identity 的复合 observation，completion 把全仓缺页/source-class debt嫁接到目标包，造成 16 次 lens、28 个 Explorer 轮；
+- 新 P0 `EVAL-B93-WAIVERWIRE1`：模型三次将 `principal_span_waiver=no_directed_path` 放入 stringified aggregate tail；兼容解码器恢复 aggregate 与部分 sibling，却不恢复 waiver，随后 gate 又要求相同 waiver，形成确定性不可满足重试；
+- 新 P1 `EVAL-B93-CALLIDENT2`：parser-grounded package call 的短 Subject/Object 与限定 participant 展示身份不对称，Finalizer 在六次重试中持续抖动；
+- `EVAL-B92-DIAGIDENT1` 本轮未形成两个 active duplicate aliases，故没有生产触发证据，保持 implemented/full-pass/replay-next。
+
+优先级冻结为先修 WAIVERWIRE1（小而确定、直接消除自矛盾），再修 SCOPELINEAGE1（最高时长/context ROI），最后统一 CALLIDENT2。所有方案只消费 schema/engine/parser typed carrier，不扫描用户或模型原文作 hard gate，不放宽调用事实，不触碰 RootCauseTrace、显式时间窗因果投影、自动补齐或模型结论所有权。
