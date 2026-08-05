@@ -374,8 +374,10 @@ func CompileCallChainEndpointBoundaryWithEvidence(rm RequestModel, waiver *Princ
 		return nil
 	}
 	analysis := AnalyzeCallChainEvidenceGraph(evidence, boundary.SourceEndpoint, boundary.RequestedSink)
+	existence := AnalyzeCallChainEndpointExistence(evidence, boundary.SourceEndpoint, boundary.RequestedSink)
 	capsule := &CallChainEndpointEvidenceCapsule{
 		EdgeCount: analysis.EdgeCount, SharedFrontier: analysis.SharedFrontier,
+		SourceProof: existence.StartProof, RequestedSinkProof: existence.EndProof,
 		SourcePath: analysis.SourcePath, SinkPath: analysis.SinkPath,
 		SourceFrontier: analysis.SourceFrontier, RequestedBoundary: analysis.RequestedBoundary,
 	}

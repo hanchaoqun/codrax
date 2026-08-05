@@ -883,6 +883,8 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersTypedCallChainEn
 		"requested_sink=`gate.Run`",
 		"evidence_status=`parallel_convergence`",
 		"grounded_call_edge_count=`2`",
+		"source_endpoint_existence_proof=`call_edge`",
+		"requested_sink_existence_proof=`call_edge`",
 		"shared_frontier=`gate.RunWith`",
 		"source_path: `buildAnalysisIR` -> `gate.RunWith` [E-call-source] @ internal/agent/analyzer.go:2666",
 		"requested_sink_path: `gate.Run` -> `RunWith` [E-call-sink] @ internal/analysis/gate/gate.go:134",
@@ -902,6 +904,35 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersTypedCallChainEn
 	}
 	if got := mut.StableInvestigationAggregateFacts(); len(got) != 1 || got[0].Label != stalePathClaim {
 		t.Fatalf("answer-authority projection must not delete accepted audit aggregates: %+v", got)
+	}
+}
+
+func TestRenderAnswerDocCallChainEndpointBoundary_DefinitionOnlyDoesNotClaimLeaf(t *testing.T) {
+	view := &types.AnswerSemanticView{CallChainEndpointBoundary: &types.CallChainEndpointBoundary{
+		Disposition:    types.CallChainEndpointNoDirectedPath,
+		SourceEndpoint: "buildAnalysisIR",
+		RequestedSink:  "gate.Run",
+		EvidenceCapsule: &types.CallChainEndpointEvidenceCapsule{
+			Status:             types.CallChainEndpointEvidenceEndpointUnresolved,
+			EdgeCount:          1,
+			SourceProof:        types.CallChainEndpointExistenceCallEdge,
+			RequestedSinkProof: types.CallChainEndpointExistenceDefinitionOnly,
+			SourceFrontier:     []types.CallChainEvidenceEdge{{From: "buildAnalysisIR", To: "gate.RunWith", EvidenceID: "E1", Source: "analyzer.go", LineStart: 10}},
+		},
+	}}
+	got := renderAnswerDocCallChainEndpointBoundary(view)
+	for _, want := range []string{
+		"requested_sink_existence_proof=`definition_only`",
+		"requested_sink_incident_call_evidence=`not_emitted`",
+		"does not prove the endpoint is a leaf",
+		"Keep that local topology unproven",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("definition-only topology boundary missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "`gate.Run` ->") || strings.Contains(got, "-> `gate.Run`") {
+		t.Fatalf("definition-only proof must not fabricate an incident edge:\n%s", got)
 	}
 }
 

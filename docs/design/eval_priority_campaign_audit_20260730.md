@@ -15485,7 +15485,7 @@ scope 接受时，才将该集合降为 `supporting_coverage`；canonical 系统
 统一处理。混合内外范围、缺少 row-local location、歧义/unknown class 与显式 all scope 均 fail-closed。生产同形测试证明 5 个 production
 function 继续作为唯一 principal obligation，完全 disjoint 的 test/fixture 集合不再强迫进入公开 API 答案。新增 concern 为 132 LOC，并登记
 140 LOC 独立 ceiling；旧 projection 文件回落为 343 LOC，未抬高 351 ceiling。完整 `internal/types`（23.721s）与 `internal/tool`
-（171.359s）通过。状态：`EVAL-B98-SCOPEAGGREGATE1=implemented/full-pass/replay-after-B98-B-C`。
+（171.359s）通过。状态：`EVAL-B98-SCOPEAGGREGATE1=implemented/full-pass/replay-next`。
 
 ### 102.7 B98-B 施工：hard repair 完整披露自身 structured-row schema
 
@@ -15498,4 +15498,20 @@ support/citation 时，item citation_ref 必须引用同一 member 的 compatibl
 生产同形 pin 从“一切 items/facet/claim-use/citation 均正确、唯独 section 缺 principal surface”起步，确认真实 `runPreEmitChecks` dispatcher
 以 `ViolExhaustiveMemberSetCoverageDrift` 携带完整 recipe；仅补该 typed surface 字段后，同一 coverage gate 一次通过。系统没有新增 normalizer，
 没有修改模型文档、事实或结论，也不解析这段提示反向作 gate。定向 repair/soft-lane 回归与完整 `internal/tool`（169.629s）通过。状态：
-`EVAL-B98-REPAIRSHAPE1=implemented/full-pass/replay-after-B98-C`。
+`EVAL-B98-REPAIRSHAPE1=implemented/full-pass/replay-next`。
+
+### 102.8 B98-C 施工：端点存在证明与局部拓扑证据分轴
+
+`EVAL-B98-ENDPOINTTOPOLOGY1` 已按 P1 soft-debt 方案实现，没有新增 completion/answer hard gate。共享 endpoint existence analysis 现在保留
+`unproven / ambiguous / definition_only / call_edge / definition_and_call_edge` 五种 proof；definition 仍只能证明 exact endpoint 存在，只有真实
+citable current-source `ClaimCallEdge` 才表明该端点已有 incident topology evidence，且两者都不能单独铸造请求方向的 source→sink path。
+
+Explorer 的 QFCallChain typed 软指南补充 endpoint-local 处置：读到 exact endpoint definition 并评估 no-path 时，发射 bounded read evidence 中
+实际验证的相关 incident call，即使它证明 reverse/parallel/disjoint；若没有可证 call edge，则保持 definition-only，不铸造“无调用”。Finalizer
+胶囊同时披露两个 endpoint 的 existence proof；`definition_only` 另标 `incident_call_evidence=not_emitted`，明确它既不等于 leaf，也不证明无 caller/callee，
+由模型结合真实 edge 自行下结论。系统不从 definition body、waiver rationale、request/final prose 推断边或修改答案。
+
+异构 pin 覆盖 15 种语言 definition-only identity、definition+edge 合并、短名歧义、recovered/runtime 排除、parallel 与 B98 同形 endpoint-unresolved
+胶囊、finalizer 无伪边、RootCauseTrace/显式时间窗隔离。完整 `internal/types`（18.809s）、`internal/agent`（2.689s）、
+`internal/orchestrator`（11.330s）与 `internal/tool`（170.313s）通过。状态：
+`EVAL-B98-ENDPOINTTOPOLOGY1=implemented-soft-guidance/full-pass/replay-next`。

@@ -182,15 +182,17 @@ const (
 // finalizer. It preserves real call direction and citations; the model remains
 // solely responsible for explaining what those facts mean.
 type CallChainEndpointEvidenceCapsule struct {
-	Status            CallChainEndpointEvidenceStatus
-	EdgeCount         int
-	SharedFrontier    string
-	SourcePath        []CallChainEvidenceEdge
-	SourcePathOmitted int
-	SinkPath          []CallChainEvidenceEdge
-	SinkPathOmitted   int
-	SourceFrontier    []CallChainEvidenceEdge
-	RequestedBoundary []CallChainEvidenceEdge
+	Status             CallChainEndpointEvidenceStatus
+	EdgeCount          int
+	SourceProof        CallChainEndpointExistenceProof
+	RequestedSinkProof CallChainEndpointExistenceProof
+	SharedFrontier     string
+	SourcePath         []CallChainEvidenceEdge
+	SourcePathOmitted  int
+	SinkPath           []CallChainEvidenceEdge
+	SinkPathOmitted    int
+	SourceFrontier     []CallChainEvidenceEdge
+	RequestedBoundary  []CallChainEvidenceEdge
 }
 
 // Active reports whether the boundary is complete enough for prompt and

@@ -78,10 +78,32 @@ func TestCompileCallChainEndpointBoundaryWithEvidence_ClassifiesCapsule(t *testi
 	if got == nil || got.EvidenceCapsule == nil || got.EvidenceCapsule.Status != CallChainEndpointEvidenceParallelConvergence {
 		t.Fatalf("typed boundary did not carry parallel evidence: %+v", got)
 	}
+	if got.EvidenceCapsule.SourceProof != CallChainEndpointExistenceCallEdge || got.EvidenceCapsule.RequestedSinkProof != CallChainEndpointExistenceCallEdge {
+		t.Fatalf("parallel endpoint proof kinds should expose incident call evidence: %+v", got.EvidenceCapsule)
+	}
 	clone := cloneAnswerSemanticView(&AnswerSemanticView{CallChainEndpointBoundary: got})
 	clone.CallChainEndpointBoundary.EvidenceCapsule.SourcePath[0].From = "mutated"
 	if got.EvidenceCapsule.SourcePath[0].From == "mutated" {
 		t.Fatal("semantic-view cache clone aliases evidence capsule paths")
+	}
+}
+
+func TestCompileCallChainEndpointBoundaryWithEvidence_DisclosesDefinitionOnlyTopologyDebt(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentTrace, PredicateAxis: AxisCall,
+		CallChainEndpointProfile: &CallChainEndpointProfile{Source: "buildAnalysisIR", Sink: "gate.Run"},
+		AnalyzerHints:            AnalyzerHints{Kind: string(ReqCallChain), ExactTargets: []string{"buildAnalysisIR", "gate.Run"}},
+	}
+	waiver := &PrincipalSpanWaiver{Reason: PrincipalSpanWaiverNoDirectedPath, Rationale: "typed boundary"}
+	got := CompileCallChainEndpointBoundaryWithEvidence(rm, waiver, []EvidenceItem{
+		groundedCallEdge("E1", "analyzer.go", 10, "buildAnalysisIR", "gate.RunWith"),
+		{ID: "D1", Kind: EvidenceDirect, AnchorKind: AnchorDefinition, Subject: "gate.Run", AnchorSymbol: "Run", Source: "gate.go", LineStart: 134, Scope: ScopeLine, GroundingStatus: GroundingGrounded},
+	})
+	if got == nil || got.EvidenceCapsule == nil || got.EvidenceCapsule.Status != CallChainEndpointEvidenceEndpointUnresolved {
+		t.Fatalf("definition must not mint a graph node/path: %+v", got)
+	}
+	if got.EvidenceCapsule.SourceProof != CallChainEndpointExistenceCallEdge || got.EvidenceCapsule.RequestedSinkProof != CallChainEndpointExistenceDefinitionOnly {
+		t.Fatalf("capsule lost the exact definition-only debt: %+v", got.EvidenceCapsule)
 	}
 }
 

@@ -12458,3 +12458,33 @@ func TestTokenizeQuestionCJKAware_BoundaryRules(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderExplorerCallChainEdgeEvidenceGuide_CoversEndpointLocalTopologyWithoutTraceLeak(t *testing.T) {
+	callChain := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:                   types.IntentTrace,
+		PredicateAxis:            types.AxisCall,
+		CallChainEndpointProfile: &types.CallChainEndpointProfile{Source: "Analyzer.build", Sink: "Gate.run"},
+		AnalyzerHints:            types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+	}}}
+	got := renderExplorerCallChainEdgeEvidenceGuide(callChain)
+	for _, want := range []string{
+		"exact requested endpoint definition",
+		"incoming or outgoing direct invocation actually verified",
+		"reverse, parallel, or disjoint relationship",
+		"leave the endpoint definition-only",
+		"do not invent a no-call fact",
+		"Go, Java, Kotlin, JavaScript/TypeScript/ArkTS, C/C++, Rust, Python, Ruby, Swift, Lua, Cangjie",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("cross-language endpoint-local soft guide missing %q:\n%s", want, got)
+		}
+	}
+
+	rootCauseTrace := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:   types.IntentRootCause,
+		Scenario: types.ScenarioRootCause,
+	}}}
+	if got := renderExplorerCallChainEdgeEvidenceGuide(rootCauseTrace); got != "" {
+		t.Fatalf("RootCauseTrace/explicit-window causal analysis must not receive source-call endpoint guidance: %q", got)
+	}
+}

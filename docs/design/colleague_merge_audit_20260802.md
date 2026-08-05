@@ -2337,10 +2337,16 @@ B98-A 已交付：模型发射的 disjoint principal member set 只有在 active
 全部已知且全部位于 typed `PrincipalScope` 外时，才降为 supporting coverage。混合、缺位置、歧义、unknown 与 all scope 均 fail-closed；不读取
 label/request/answer prose，不按语言或符号名特判。Go test 与 Cangjie fixture 生产同形、负矩阵、独立 140-LOC ceiling 及完整 `internal/types`
 （23.721s）、`internal/tool`（171.359s）全绿；旧 projection ceiling 未抬高。状态：
-`EVAL-B98-SCOPEAGGREGATE1=implemented/full-pass/replay-after-B98-B-C`。
+`EVAL-B98-SCOPEAGGREGATE1=implemented/full-pass/replay-next`。
 
 B98-B 已交付：source-inventory member coverage 的 hard 判定未变，拒绝提示在 bounded roster 前完整列出 principal carrying block、enumeration
 facet/claim-use、item label/cell identity、`set_label` 仅作集合键、row-local citation_ref 五项 schema。生产同形证明 section 只漏
 `surface_role=principal` 时，真实 pre-emit dispatcher 携带该 recipe，按提示补一个 typed 字段即可通过；系统不自动改写文档或模型结论，提示
 prose 也不参与 gate。完整 `internal/tool`（169.629s）通过。状态：
-`EVAL-B98-REPAIRSHAPE1=implemented/full-pass/replay-after-B98-C`。
+`EVAL-B98-REPAIRSHAPE1=implemented/full-pass/replay-next`。
+
+B98-C 已交付 P1 soft-debt 形：endpoint existence proof 分为 unproven/ambiguous/definition-only/call-edge/definition+edge，finalizer typed capsule
+明确 `definition_only` 只证存在、incident call evidence 尚未发射，不能据此声称 leaf/无调用或翻转方向；QFCallChain Explorer 软指南要求把 bounded
+read 中真实 endpoint-local reverse/parallel/disjoint edge 一并发射。无新 hard gate、无 definition/prose 推边、无系统答案代写；15 种语言、
+definition+edge、歧义与 runtime/recovered 负臂及 RootCauseTrace 隔离通过。完整 types/agent/orchestrator/tool 全绿
+（18.809s/2.689s/11.330s/170.313s）。状态：`EVAL-B98-ENDPOINTTOPOLOGY1=implemented-soft-guidance/full-pass/replay-next`。
