@@ -1031,6 +1031,66 @@ func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_ProductionScopeExcl
 	}
 }
 
+func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_MixedUniverseSupersetDoesNotPromoteTestRows(t *testing.T) {
+	rm := sourceInventoryProjectionRequestModel(nil)
+	rm.SourceInventoryProfile.TargetRoles = []AnswerCandidateRole{
+		AnswerCandidateRoleType,
+		AnswerCandidateRoleFunction,
+		AnswerCandidateRoleConstant,
+	}
+	rm.AnalyzerHints.SourceInventoryRequestedPathScopes = []string{"pkg"}
+	obs := SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Scopes:   []string{"."},
+		Sets: []SourceInventoryObservationSet{
+			{
+				Role: AnswerCandidateRoleType, Complete: true,
+				Members: []SourceInventoryObservationMember{
+					{Name: "Kind", Role: AnswerCandidateRoleType, SourceClass: SourcePathRoleProduction, File: "pkg/grammar.go", Line: 10, Language: "go", SurfaceTerms: []string{"public type"}},
+					{Name: "UnrelatedType", Role: AnswerCandidateRoleType, SourceClass: SourcePathRoleProduction, File: "pkg/type_internal.go", Line: 4, Language: "go", SurfaceTerms: []string{"internal type"}},
+				},
+			},
+			{
+				Role: AnswerCandidateRoleFunction, Complete: true,
+				Members: []SourceInventoryObservationMember{
+					{Name: "Eval", Role: AnswerCandidateRoleFunction, SourceClass: SourcePathRoleProduction, File: "pkg/eval.go", Line: 15, Language: "go", SurfaceTerms: []string{"public function"}},
+					{Name: "TestEval", Role: AnswerCandidateRoleFunction, SourceClass: SourcePathRoleTest, File: "pkg/eval_test.go", Line: 20, Language: "go", SurfaceTerms: []string{"public function"}},
+					{Name: "helper", Role: AnswerCandidateRoleFunction, SourceClass: SourcePathRoleProduction, File: "pkg/helper.go", Line: 8, Language: "go", SurfaceTerms: []string{"internal function"}},
+				},
+			},
+			{
+				Role: AnswerCandidateRoleConstant, Complete: true,
+				Members: []SourceInventoryObservationMember{
+					{Name: "KindReady", Role: AnswerCandidateRoleConstant, SourceClass: SourcePathRoleProduction, File: "pkg/grammar.go", Line: 12, Language: "go", SurfaceTerms: []string{"Kind constant"}},
+					{Name: "OtherConstant", Role: AnswerCandidateRoleConstant, SourceClass: SourcePathRoleProduction, File: "pkg/other_constants.go", Line: 3, Language: "go", SurfaceTerms: []string{"other constant"}},
+				},
+			},
+		},
+	}
+	facts := []AnswerAggregateFact{
+		{Kind: AnswerAggregateMemberSet, Label: "types", Value: "1", Role: AnswerAggregateRolePrincipalAnswer, Provenance: "explorer", Members: []string{"Kind"}, SupportRefs: []string{"Kind @ pkg/grammar.go:10"}},
+		{Kind: AnswerAggregateMemberSet, Label: "functions", Value: "2", Role: AnswerAggregateRolePrincipalAnswer, Provenance: "explorer", Members: []string{"Eval", "TestEval"}, SupportRefs: []string{"Eval @ pkg/eval.go:15", "TestEval @ pkg/eval_test.go:20"}},
+		{Kind: AnswerAggregateMemberSet, Label: "constants", Value: "1", Role: AnswerAggregateRolePrincipalAnswer, Provenance: "explorer", Members: []string{"KindReady"}, SupportRefs: []string{"KindReady @ pkg/grammar.go:12"}},
+	}
+	got := ProjectSourceInventoryPrincipalRowSetAggregateFacts(facts, obs, rm)
+	refs := PrincipalAggregateMemberSetFactRefsForRequest(got, &rm)
+	if len(refs) != 1 || refs[0].Fact.Provenance != SourceInventoryPrincipalRowSetAggregateProvenance {
+		t.Fatalf("typed production row-set must shadow mixed production/test supersets: %+v", got)
+	}
+	if members := strings.Join(refs[0].Fact.Members, ","); members != "KindReady,Eval,Kind" {
+		t.Fatalf("principal production members=%q, want KindReady,Eval,Kind", members)
+	}
+	for _, fact := range got {
+		if fact.Provenance == SourceInventoryPrincipalRowSetAggregateProvenance {
+			continue
+		}
+		if fact.Role == AnswerAggregateRolePrincipalAnswer {
+			t.Fatalf("model superset remained a principal hard obligation: %+v", fact)
+		}
+	}
+}
+
 func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_ArchitectureNarrativeKeepsInventoryAdvisory(t *testing.T) {
 	rm := RequestModel{
 		Intent:      IntentExplain,

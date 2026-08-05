@@ -65,7 +65,7 @@ func sourceInventoryPrincipalRefRowKeys(refs []AnswerAggregateFactRef) map[strin
 	return out
 }
 
-func sourceInventoryPrincipalFactsCoverRows(refs []AnswerAggregateFactRef, want map[string]bool) bool {
+func sourceInventoryPrincipalFactsExactlyCoverRows(refs []AnswerAggregateFactRef, want map[string]bool) bool {
 	if len(refs) == 0 || len(want) == 0 {
 		return false
 	}
@@ -75,12 +75,14 @@ func sourceInventoryPrincipalFactsCoverRows(refs []AnswerAggregateFactRef, want 
 			continue
 		}
 		for key := range sourceInventoryAggregateFactRowKeys(ref.Fact) {
-			if want[key] {
-				covered[key] = true
-			}
+			covered[key] = true
 		}
 	}
-	if len(covered) < len(want) {
+	// Coverage alone is insufficient: a model member_set may contain every
+	// requested production row and also append test/generated rows. Treating
+	// that superset as equivalent makes those out-of-universe rows hard answer
+	// obligations. Equality is the precise typed contract here.
+	if len(covered) != len(want) {
 		return false
 	}
 	for key := range want {

@@ -1200,6 +1200,13 @@ func renderSourceInventoryObservationMember(member types.SourceInventoryObservat
 	if member.Language != "" {
 		parts = append(parts, "language="+member.Language)
 	}
+	class := member.SourceClass
+	if class == "" || class == types.SourcePathRoleUnknown {
+		class = types.ClassifySourcePathRole(member.File)
+	}
+	if class != "" && class != types.SourcePathRoleUnknown {
+		parts = append(parts, "source_class="+string(class))
+	}
 	if member.SupportRef != "" {
 		parts = append(parts, "support_ref=`"+member.SupportRef+"`")
 	}

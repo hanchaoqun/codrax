@@ -14865,3 +14865,18 @@ recovered 修复线索伪装为同权 accepted 证据。Explorer 将 read covera
 DAG 窗口消费累计 read set；新 run 仍由原 reset 点清空。定向看护及 `internal/types`（21.679s）、`internal/agent`（4.224s）、
 完整 `internal/tool`（172.255s）、`internal/orchestrator`（14.231s）全绿。状态：
 `CALLGROUNDORDER1 + RANGECLOSURE1=implemented/full-pass/replay-after-C`。
+
+B91-C 已施工。复核生产 prompt 后纠正 §95.3 的一处表述：系统在最终投影前已经能从路径把 5 个 production function
+识别出来，真正的合同缺口是“覆盖”只做子集判断。模型 member_set 的 56 行包含全部 5 个 production 行时，旧逻辑即认为它
+覆盖 typed universe，却没有拒绝额外 51 个 test 行，于是混合集合继续成为硬义务。
+
+根修包含两层。第一，repo index 在 advisory → observation → principal rowset 的每一行携带 engine-derived
+`source_class=production|test|fixture|generated|...`，模型上下文也逐行显示；旧持久 observation 字段缺席时只从该行 canonical
+path 做兼容推导，不读取用户请求、模型正文或最终答案。第二，已受 typed scope/source-class/surface-family 约束的主集合采用同一
+规范 row key 的**精确集合等值**，不再用“系统行是模型集合子集”确权；模型 superset 会降为 advisory，由系统 typed rowset
+提供硬事实，Finalizer 仍自行组织结论。明确 repo-wide / auxiliary 请求的全集语义保持不变。
+
+实现按 LOC convergence 约束把 advisory-to-observation 转换拆到独立 concern 文件，没有抬高既有大文件 ceiling。新增生产 lens
+source-class 贯通、旧 observation fallback、5 production + 1 test superset 负臂，以及混合 scope/明确 auxiliary 兼容看护。
+状态：`EVAL-B91-SOURCECLASS1=implemented/tests-pass/replay-next`。本批没有修改 Trace query、显式时间窗、因果投影、自动补齐或
+答案 mutation；source class 是 typed repository fact，不是系统替模型作结论。

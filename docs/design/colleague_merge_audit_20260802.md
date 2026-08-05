@@ -2136,3 +2136,13 @@ B91-B 已交付：parser-backed call direction/anchor 规范化前置到首次 g
 recovered 行展示成统一 accepted 权威。Explorer read set/ranges/totals 改为同一 run 内单调累计，消除后续 DAG 窗口覆盖早期读取。
 `internal/types`、`internal/agent`、`internal/tool`、`internal/orchestrator` 全量全绿。状态：
 `CALLGROUNDORDER1 + RANGECLOSURE1=implemented/full-pass`。
+
+B91-C 已交付：生产证据表明 typed row projection 已选出 5 个 production functions，超时的直接机制是旧等价判定只要求
+`wanted ⊆ model`，使包含 51 个 test entry 的 56 行 model superset 仍获 principal authority。现由 index 为每个 inventory
+candidate/attribute/observation row 铸造并贯通 `SourceClass`，模型查看的每行也显示该 typed lane；旧持久行仅按 canonical file
+path 兼容回填。受 scope/source-class/family 约束的 principal fact 比较改为规范 row-key 集合严格等值，out-of-universe extras
+不能再变成硬发布义务；默认 repo-wide 与显式 auxiliary universe 不变。
+
+新增生产 lens、legacy fallback、混合 production/test superset、mixed-role 与 explicit-universe 正负 pin，并按 convergence
+要求把转换逻辑拆出独立 concern，既有大文件 ceiling 未提高。状态：`EVAL-B91-SOURCECLASS1=implemented/tests-pass/replay-next`；
+待 B91 两例严格并行回放验证 lens/retry/时长收敛。未扫描用户/模型 prose，未触碰 Trace 因果投影和模型结论所有权。

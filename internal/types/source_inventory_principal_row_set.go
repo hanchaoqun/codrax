@@ -181,7 +181,7 @@ func sourceInventoryRowFromMember(
 		role = setRole
 		member.Role = role
 	}
-	class := ClassifySourcePathRole(member.File)
+	class := sourceInventoryObservationPathClass(member.SourceClass, member.File)
 	language := strings.ToLower(strings.TrimSpace(member.Language))
 	row := SourceInventoryRow{
 		SourceClass:   class,

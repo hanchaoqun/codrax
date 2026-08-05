@@ -33,17 +33,22 @@ type SourceInventoryAdvisorySet struct {
 
 // SourceInventoryAdvisoryCandidate is one graph-backed candidate row.
 type SourceInventoryAdvisoryCandidate struct {
-	Member       string                             `json:"member,omitempty"`
-	Key          string                             `json:"key,omitempty"`
-	SupportRef   string                             `json:"support_ref,omitempty"`
-	Note         string                             `json:"note,omitempty"`
-	SurfaceTerms []string                           `json:"surface_terms,omitempty"`
-	Role         AnswerCandidateRole                `json:"role,omitempty"`
-	Exported     bool                               `json:"exported,omitempty"`
-	File         string                             `json:"file,omitempty"`
-	Line         int                                `json:"line,omitempty"`
-	Language     string                             `json:"language,omitempty"`
-	Attributes   []SourceInventoryAdvisoryAttribute `json:"attributes,omitempty"`
+	Member       string              `json:"member,omitempty"`
+	Key          string              `json:"key,omitempty"`
+	SupportRef   string              `json:"support_ref,omitempty"`
+	Note         string              `json:"note,omitempty"`
+	SurfaceTerms []string            `json:"surface_terms,omitempty"`
+	Role         AnswerCandidateRole `json:"role,omitempty"`
+	// SourceClass is minted by the repository index from the candidate's
+	// canonical path. It lets later row-set projection distinguish production,
+	// test, fixture, generated, and other source lanes without reinterpreting
+	// rendered output or model prose.
+	SourceClass SourcePathRole                     `json:"source_class,omitempty"`
+	Exported    bool                               `json:"exported,omitempty"`
+	File        string                             `json:"file,omitempty"`
+	Line        int                                `json:"line,omitempty"`
+	Language    string                             `json:"language,omitempty"`
+	Attributes  []SourceInventoryAdvisoryAttribute `json:"attributes,omitempty"`
 }
 
 // SourceInventoryAdvisoryAttribute is graph-backed context attached to a
@@ -58,6 +63,7 @@ type SourceInventoryAdvisoryAttribute struct {
 	Note         string              `json:"note,omitempty"`
 	SurfaceTerms []string            `json:"surface_terms,omitempty"`
 	Role         AnswerCandidateRole `json:"role,omitempty"`
+	SourceClass  SourcePathRole      `json:"source_class,omitempty"`
 	Exported     bool                `json:"exported,omitempty"`
 	File         string              `json:"file,omitempty"`
 	Line         int                 `json:"line,omitempty"`

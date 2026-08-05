@@ -1282,6 +1282,9 @@ func repoMapSourceInventoryBroadNavigationObservation(graph *Graph, query ctypes
 		}
 		seenByRole[role][key] = true
 		member.Role = role
+		if member.SourceClass == "" || member.SourceClass == ctypes.SourcePathRoleUnknown {
+			member.SourceClass = ctypes.ClassifySourcePathRole(member.File)
+		}
 		member.Provenance = []string{"repo_lens:broad_navigation_guard"}
 		member.CoverageState = ctypes.SourceInventoryCoverageNeedsRead
 		setByRole[role].Members = append(setByRole[role].Members, member)

@@ -38,7 +38,7 @@ func ProjectSourceInventoryPrincipalRowSetAggregateFacts(facts []AnswerAggregate
 	if len(rowKeys) == 0 {
 		return out
 	}
-	if constrainedToExistingRows && sourceInventoryPrincipalFactsCoverRows(refs, rowKeys) {
+	if constrainedToExistingRows && sourceInventoryPrincipalFactsExactlyCoverRows(refs, rowKeys) {
 		return out
 	}
 	if sourceInventoryPrincipalFactUniverseComplete(refs, rowKeys) {

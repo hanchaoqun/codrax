@@ -117,6 +117,7 @@ var sourceInventoryFileLOCCeiling = map[string]int{
 	"../types/source_inventory_complete_lens_scope.go":               35,
 	"../types/source_inventory_complete_lens_surface_family.go":      50,
 	"../types/source_inventory_observation.go":                       268, // DELIBERATE raise (LENSBURN-FIX 病B): LensExecutedEmpty field + shape accessor.
+	"../types/source_inventory_observation_conversion.go":            112, // B91-C: isolated advisory-to-observation conversion and row source-class propagation.
 	"../types/source_inventory_observation_zero.go":                  25,
 	"../types/source_inventory_observation_class_normalize.go":       70,
 	"../types/source_inventory_observation_classes.go":               81,

@@ -356,6 +356,7 @@ func sourceInventoryObservationMemberFromListFilesPath(ctx *types.BusContext, re
 		SupportRef:    rel,
 		Provenance:    []string{"tool:list_files:direct"},
 		Role:          role,
+		SourceClass:   types.ClassifySourcePathRole(rel),
 		File:          rel,
 		CoverageState: types.SourceInventoryCoverageObserved,
 	}
@@ -1445,6 +1446,7 @@ func buildSourceInventoryAdvisoryWithQuery(ctx *types.BusContext, facts []types.
 					Note:         sourceInventoryCandidateNote(attr),
 					SurfaceTerms: sourceInventoryCandidateSurfaceTerms(attr),
 					Role:         attr.role,
+					SourceClass:  types.ClassifySourcePathRole(attr.file),
 					Exported:     attr.exported,
 					File:         attr.file,
 					Line:         attr.line,
@@ -1458,6 +1460,7 @@ func buildSourceInventoryAdvisoryWithQuery(ctx *types.BusContext, facts []types.
 				Note:         sourceInventoryCandidateNote(candidate),
 				SurfaceTerms: sourceInventoryCandidateSurfaceTerms(candidate),
 				Role:         candidate.role,
+				SourceClass:  types.ClassifySourcePathRole(candidate.file),
 				Exported:     candidate.exported,
 				File:         candidate.file,
 				Line:         candidate.line,

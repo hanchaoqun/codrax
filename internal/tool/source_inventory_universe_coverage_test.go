@@ -590,6 +590,9 @@ func TestPublishSourceInventoryObservationFromLens_PreservesGraphSurfaceTerms(t 
 		t.Fatalf("expected one graph-backed source-inventory member: %+v", obs)
 	}
 	member := obs.Sets[0].Members[0]
+	if member.SourceClass != types.SourcePathRoleProduction {
+		t.Fatalf("graph-backed row source class=%q, want production: %+v", member.SourceClass, member)
+	}
 	if strings.Join(member.SurfaceTerms, ",") != "@Entry,@Component" {
 		t.Fatalf("graph surface terms were not preserved: %+v", member)
 	}
@@ -597,6 +600,40 @@ func TestPublishSourceInventoryObservationFromLens_PreservesGraphSurfaceTerms(t 
 	if !stored.IsActive() || len(stored.Sets) != 1 || len(stored.Sets[0].Members) != 1 ||
 		strings.Join(stored.Sets[0].Members[0].SurfaceTerms, ",") != "@Entry,@Component" {
 		t.Fatalf("stored observation lost graph surface terms: %+v", stored)
+	}
+}
+
+func TestSourceInventoryObservationRowsCarryEngineSourceClass(t *testing.T) {
+	advisory := types.SourceInventoryAdvisory{
+		Active: true,
+		Sets: []types.SourceInventoryAdvisorySet{{
+			Role: types.AnswerCandidateRoleFunction,
+			Candidates: []types.SourceInventoryAdvisoryCandidate{
+				{Member: "Run", Role: types.AnswerCandidateRoleFunction, SourceClass: types.SourcePathRoleProduction, File: "pkg/run.go", Line: 7, Language: "go"},
+				{Member: "TestRun", Role: types.AnswerCandidateRoleFunction, SourceClass: types.SourcePathRoleTest, File: "pkg/run_test.go", Line: 11, Language: "go"},
+			},
+		}},
+	}
+	obs := types.SourceInventoryObservationFromAdvisory(advisory)
+	if len(obs.Sets) != 1 || len(obs.Sets[0].Members) != 2 {
+		t.Fatalf("observation rows missing: %+v", obs)
+	}
+	if obs.Sets[0].Members[0].SourceClass != types.SourcePathRoleProduction ||
+		obs.Sets[0].Members[1].SourceClass != types.SourcePathRoleTest {
+		t.Fatalf("engine source classes were not preserved: %+v", obs.Sets[0].Members)
+	}
+	rendered := renderSourceInventoryObservationMember(obs.Sets[0].Members[1], false)
+	if !strings.Contains(rendered, "source_class=test") {
+		t.Fatalf("row source class missing from model-facing inventory view: %s", rendered)
+	}
+
+	// Backward-compatible persisted rows without the new field still derive
+	// the same typed class from their canonical path.
+	legacy := renderSourceInventoryObservationMember(types.SourceInventoryObservationMember{
+		Name: "TestLegacy", File: "pkg/legacy_test.go", Line: 9, Language: "go",
+	}, false)
+	if !strings.Contains(legacy, "source_class=test") {
+		t.Fatalf("legacy row source class fallback missing: %s", legacy)
 	}
 }
 
