@@ -67,10 +67,13 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 		}
 	}
 	blk := types.AnswerBlock{
-		ID:             raw.ID,
-		Kind:           kind,
-		Title:          raw.Title,
-		Text:           raw.Text,
+		ID:    raw.ID,
+		Kind:  kind,
+		Title: raw.Title,
+		Text:  raw.Text,
+		SourceInventoryFamily: types.SourceInventorySurfaceTermKey(
+			raw.SourceInventoryFamily,
+		),
 		Columns:        normalizeTableStringSlice(raw.Columns),
 		ClaimUses:      raw.ClaimUses,
 		EdgeAnchors:    raw.EdgeAnchors,
@@ -370,7 +373,8 @@ func nativeDisplayOnlyBlockFragmentText(raw emitAnswerBlockV2) (string, bool) {
 		strings.TrimSpace(raw.Caveat) != "" ||
 		strings.TrimSpace(raw.ErrorGranularityVerdict) != "" ||
 		strings.TrimSpace(raw.CurrentStatusVerdict) != "" ||
-		strings.TrimSpace(raw.ScopeDisclosure) != "" {
+		strings.TrimSpace(raw.ScopeDisclosure) != "" ||
+		strings.TrimSpace(raw.SourceInventoryFamily) != "" {
 		return "", false
 	}
 	text := strings.TrimSpace(raw.Text)

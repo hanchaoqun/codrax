@@ -55,3 +55,15 @@ func TestAnswerDocumentRelationClaimsAreDeepCloned(t *testing.T) {
 		t.Fatalf("returned relation claims alias mutable state: %+v", again)
 	}
 }
+
+func TestAnswerDocumentSourceInventoryFamilySurvivesMutableRoundTrip(t *testing.T) {
+	doc := &AnswerDocumentV2{DocumentModel: "v2", Blocks: []AnswerBlock{{
+		ID: "classes", Kind: BlockTable, SourceInventoryFamily: "public class",
+	}}}
+	mu := NewMutableState("answer family clone")
+	mu.SetAnswerDocumentV2WithMutation(MutationReplaceAll, doc)
+	got := mu.AnswerDocumentV2()
+	if got == nil || len(got.Blocks) != 1 || got.Blocks[0].SourceInventoryFamily != "public class" {
+		t.Fatalf("source-inventory family was dropped by mutable-state clone: %+v", got)
+	}
+}

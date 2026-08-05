@@ -6180,6 +6180,56 @@ func TestPreCheckInactiveScopeDisclosure_DeferredToSystemCaveat(t *testing.T) {
 	}
 }
 
+func TestPreEmitSourceInventoryHardRowsForBlock_UsesTypedFamilyNotTitle(t *testing.T) {
+	set := types.EnumerationDisplaySet{
+		ID:    "source-inventory",
+		Label: "source inventory principal rows",
+		Rows: []types.EnumerationDisplayRow{
+			{
+				RowID:        "public-cart",
+				SetLabel:     "source inventory principal rows",
+				Member:       "Cart",
+				Location:     "cart/Cart.cj:14",
+				SurfaceTerms: []string{"public class", "public class Cart"},
+			},
+			{
+				RowID:        "extend-cart",
+				SetLabel:     "source inventory principal rows",
+				Member:       "Cart",
+				Location:     "cart/Cart.cj:30",
+				SurfaceTerms: []string{"extend", "extend Cart"},
+			},
+		},
+	}
+
+	// Presentation prose is not a partition carrier: a public-class-looking
+	// title without the typed field remains checked against the global roster.
+	rows, strict, _, invalid := preEmitSourceInventoryHardRowsForBlock(types.AnswerBlock{
+		Title: "public class 声明",
+	}, []types.EnumerationDisplaySet{set})
+	if invalid || !strict || len(rows) != 2 {
+		t.Fatalf("title must not narrow hard-gate rows: rows=%+v strict=%t invalid=%t", rows, strict, invalid)
+	}
+
+	rows, strict, allowed, invalid := preEmitSourceInventoryHardRowsForBlock(types.AnswerBlock{
+		Title:                 "任意展示标题",
+		SourceInventoryFamily: "public class",
+	}, []types.EnumerationDisplaySet{set})
+	if invalid || !strict || len(rows) != 1 || rows[0].RowID != "public-cart" {
+		t.Fatalf("typed family should select only its exact rows: rows=%+v strict=%t invalid=%t", rows, strict, invalid)
+	}
+	if strings.Join(allowed, ",") != "extend,public class" {
+		t.Fatalf("allowed typed families=%v", allowed)
+	}
+
+	rows, strict, allowed, invalid = preEmitSourceInventoryHardRowsForBlock(types.AnswerBlock{
+		SourceInventoryFamily: "invented family",
+	}, []types.EnumerationDisplaySet{set})
+	if !invalid || strict || len(rows) != 0 || len(allowed) != 2 {
+		t.Fatalf("invented typed family must fail closed with the exact roster: rows=%+v strict=%t allowed=%v invalid=%t", rows, strict, allowed, invalid)
+	}
+}
+
 // TestFormatEmitFixHints_RedlineAudit — pin the rejection envelope
 // prose for R6 (no internal vocab leak) + R4 (generic) + LLM-facing
 // purity (no third natural language).

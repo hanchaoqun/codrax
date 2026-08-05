@@ -510,11 +510,12 @@ func TestNormalizeEmitAnswerBlock_NormalizesFlowchartNodeLabel(t *testing.T) {
 // until the new field is wired into NormalizeEmitAnswerBlock.
 func TestNormalizeEmitAnswerBlock_AllFieldsPropagate(t *testing.T) {
 	in := emitAnswerBlockV2{
-		ID:      "b1",
-		Kind:    string(types.BlockDiagram),
-		Title:   "Title",
-		Text:    "body text",
-		Columns: []string{"维度", "结论"},
+		ID:                    "b1",
+		Kind:                  string(types.BlockDiagram),
+		Title:                 "Title",
+		Text:                  "body text",
+		SourceInventoryFamily: "public class",
+		Columns:               []string{"维度", "结论"},
 		Items: []emitAnswerBlockItemV2{
 			{ID: "i1", Label: "L", Text: "T", Cells: []string{"C1", "C2"}, CandidateRole: string(types.AnswerCandidateRoleFunction), CitationRef: flexIntPtr(3)},
 		},
@@ -582,6 +583,9 @@ func TestNormalizeEmitAnswerBlock_AllFieldsPropagate(t *testing.T) {
 		},
 		"ScopeDisclosure": func() bool {
 			return scopeGot.ScopeDisclosure == types.ScopeDisclosureInactiveScopeNamed
+		},
+		"SourceInventoryFamily": func() bool {
+			return got.SourceInventoryFamily == "public class"
 		},
 	}
 	for name, check := range checks {

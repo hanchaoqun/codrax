@@ -24,6 +24,6 @@ This scaffold is for human review. The runner records typed metrics and declared
 ## Cross-case findings
 
 - `EVAL-B142-TABLEROWSHAPE1` (P1, implemented): the JSON/schema/checklist wording described `columns[]`, `label`, `text`, and `cells[]` differently enough that a syntactically valid but visually incomplete row could pass. Full emit and patch now share a pure structural row-width check. It reads no user/model prose and fills no missing answer value.
-- `EVAL-B142-CJFAMILYCARRY1` (P1, next batch): source inventory already owns an exact row-local family, but aggregate projection/finalizer handoff loses it and later reconstructs scope from a model-authored block title. Preserve exact typed partitions and row family; retire title prose as a hard-gate input.
+- `EVAL-B142-CJFAMILYCARRY1` (P1, implemented after this frozen replay): source inventory already owned an exact row-local family, but aggregate projection/finalizer handoff lost it and later reconstructed scope from a model-authored block title. Exact typed partitions and row family are now preserved; shipping hard validation uses only the optional typed family carrier or the global roster, never title prose.
 - `EVAL-B142-ARKTSORACLE1` (eval-only, fixed): `EXPECT_CONTAINS` asked for `@Component` even though the user contract asks for `@Builder`.
 - JSON carriers in both finalizer runs were parseable. The defects were carrier semantics and typed-context loss, so malformed JSON salvage is intentionally not used as a substitute.

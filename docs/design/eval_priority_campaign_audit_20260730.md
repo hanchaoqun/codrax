@@ -17819,15 +17819,30 @@ Finalizer handoff 没显示每行既有的 `SurfaceFamily/SurfaceTerms`；随后
 分区；Finalizer 显式携带 row-local `surface_family`；硬校验不得再以模型标题 prose 作为 scope 权威，而改用可选 exact typed partition
 carrier（缺失则只做全局 roster 校验）。方案按 source-inventory family 泛化，不能出现 Cangjie/Cart 特判。
 
+该独立批现已实现：多个带 member-specific support 的 principal facts 的 union 与 typed row set 精确相等时，保留原分区而不再合成 generic
+全集；`SourceInventoryRow.SurfaceFamily` 与 `EnumerationDisplayRow.SurfaceTerms` 都投影为 Finalizer 可见的
+`surface_family`。新增可选 block carrier `source_inventory_family` 已贯通 canonical JSON schema、full/patch 共用 normalizer、malformed
+visible-block recovery、Mutable 深拷贝和 fused diagram 分拆；模型只需在“一个 block 明确承载一个 family”时复制一次 exact key，混合/全局块省略。
+
+生产 hard gate 不再调用 title-derived scoped set。省略 typed carrier 时，只能针对系统 typed global roster 做闭集校验；提供 carrier 时，才按
+row-local `SurfaceTerms` 的 exact family 缩窄，未知 key 以 allowed typed roster 精确拒绝。block title/id/text、item prose、用户问题、语言与路径
+都不能参与该判定。既有非生产 legacy presentation normalizer 仍保留标题美化兼容，但不在 shipping emit/persist 路径，且不再为 pre-emit
+拒答提供信号。
+
+治理 tripwire 在首次全测时按设计报红：新增第四个 `ForceHard` 生产点尚未登记固定清单。该点复用已裁定的
+`ViolExhaustiveMemberSetCoverageDrift + complete_principal_member_set` policy row，且输入是 exact typed family 与 closed row roster；审计 pin
+现显式列出四个允许的生产点，未绕过 hard-policy registry。
+
 两案 JSON 均可解析，没有 malformed salvage。B123-D1 的无损修复与有界降级披露没有被滥用来掩盖语义载体或上下文丢失。
 
 工件：`eval/parallel_selected_summary_evalcampaign_b142_harmony_r60_20260805.md`、
 `eval/parallel_selected_summary_evalcampaign_b142_harmony_r60_20260805_manual_audit.md`。
 
-回归：`go test ./internal/tool ./internal/agent ./internal/types ./internal/render -count=1` PASS
-（162.847s / 4.013s / 19.511s / 1.885s）。
+回归：ArkTS 批 `go test ./internal/tool ./internal/agent ./internal/types ./internal/render -count=1` PASS
+（162.847s / 4.013s / 19.511s / 1.885s）；Cangjie 批同命令 PASS
+（160.715s / 3.075s / 20.852s / 1.113s）。
 
 状态：`EVAL-B142-TABLEROWSHAPE1=implemented/full-related-pass/awaiting-replay`；
-`EVAL-B142-ARKTSORACLE1=fixed/eval-only`；`EVAL-B142-CJFAMILYCARRY1=confirmed/planned-next-batch`；
+`EVAL-B142-ARKTSORACLE1=fixed/eval-only`；`EVAL-B142-CJFAMILYCARRY1=implemented/full-related-pass/awaiting-replay`；
 `EVAL-B122-JSONTEACH1=D1+B139-shape-table+B142-table-row-contract`；Trace 显式窗、因果投影、自动补齐、两维根因、排序、唤醒链与
 窗内可消除量=`untouched`。

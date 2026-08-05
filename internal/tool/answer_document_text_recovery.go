@@ -628,10 +628,13 @@ func visibleAnswerBlockFromRaw(raw json.RawMessage, idx int) (types.AnswerBlock,
 		kind = types.BlockDiagram
 	}
 	blk := types.AnswerBlock{
-		ID:       id,
-		Kind:     kind,
-		Title:    block.Title,
-		Text:     block.Text,
+		ID:    id,
+		Kind:  kind,
+		Title: block.Title,
+		Text:  block.Text,
+		SourceInventoryFamily: types.SourceInventorySurfaceTermKey(
+			block.SourceInventoryFamily,
+		),
 		Columns:  normalizeTableStringSlice(block.Columns),
 		FacetIDs: block.FacetIDs,
 	}

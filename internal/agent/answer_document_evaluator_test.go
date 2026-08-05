@@ -615,6 +615,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersPrincipalRowAttr
 				File:          "src/cart/cart.cj",
 				Line:          30,
 				Language:      "cangjie",
+				SurfaceTerms:  []string{"extend", "extend Cart"},
 				CoverageState: types.SourceInventoryCoverageObserved,
 				Attributes: []types.SourceInventoryObservationAttribute{{
 					Name:          "demo.cart",
@@ -650,6 +651,8 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersPrincipalRowAttr
 	for _, want := range []string{
 		"## Principal Enumeration Rows",
 		"member=`extend Cart`",
+		"surface_family=`extend`",
+		"source_inventory_family",
 		"attributes=[`package:demo.cart`]",
 		"do not infer them from paths",
 	} {

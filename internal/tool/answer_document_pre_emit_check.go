@@ -5482,8 +5482,9 @@ func preEmitStructuredPrincipalMemberRepairRecipe() string {
 			"(2) keep the contract's enumeration metadata: facet_ids includes %q and claim_uses contains a contract-allowed claim_form; "+
 			"(3) copy each roster member exactly into items[].label (or one items[].cells entry); item.text and blocks[].text do not carry member identity; "+
 			"(4) roster set_label is only the aggregate/category key for the block title/id — never copy set_label into item.label in place of member; "+
-			"(5) when the handoff provides row-local support/citation, set that item's citation_ref to the same member's compatible citation and never borrow another row's citation; "+
-			"(6) ADD means add item rows inside the chosen carrier, not necessarily add_blocks; repair an existing carrier in place when it already renders the roster. ",
+			"(5) when rows expose one exact surface_family and this block is deliberately family-specific, copy it to blocks[].source_inventory_family; omit that field for a global/mixed-family block and never infer it from title/prose; "+
+			"(6) when the handoff provides row-local support/citation, set that item's citation_ref to the same member's compatible citation and never borrow another row's citation; "+
+			"(7) ADD means add item rows inside the chosen carrier, not necessarily add_blocks; repair an existing carrier in place when it already renders the roster. ",
 		types.SurfacePrincipal,
 		types.FacetEnumerationItem,
 	)
@@ -5572,7 +5573,17 @@ func preCheckSourceInventoryExtraneousPrincipalItems(doc *types.AnswerDocumentV2
 			preEmitSystemEnumerationRowSupplementBlock(block) {
 			continue
 		}
-		rows, strict := principalEnumerationPruneRowsForBlockAtWithMode(doc, blockIdx, sets)
+		rows, strict, allowedFamilies, invalidFamily := preEmitSourceInventoryHardRowsForBlock(block, sets)
+		if invalidFamily {
+			hints = append(hints, emitFixHint{
+				Field: fmt.Sprintf("blocks[%d].source_inventory_family", blockIdx),
+				ExpectedShape: "copy one exact typed surface_family value from Principal Enumeration Rows, or omit source_inventory_family for a global/mixed-family block; allowed values: " +
+					strings.Join(allowedFamilies, ", "),
+				Reason:    "source_inventory_family is a structured partition key; block titles and prose are presentation only and cannot repair or replace it.",
+				ForceHard: true,
+			})
+			continue
+		}
 		if !strict || len(rows) == 0 {
 			continue
 		}
@@ -5600,6 +5611,66 @@ func preCheckSourceInventoryExtraneousPrincipalItems(doc *types.AnswerDocumentV2
 		})
 	}
 	return hints
+}
+
+// preEmitSourceInventoryHardRowsForBlock is the only family-partition input
+// used by the shipping extraneous-row hard gate. A block may either carry an
+// exact source_inventory_family copied from typed row-local SurfaceTerms, or
+// omit it and be checked only against the global synthetic source-inventory
+// roster. Block title/id/text and item prose never select a family.
+func preEmitSourceInventoryHardRowsForBlock(
+	block types.AnswerBlock,
+	sets []types.EnumerationDisplaySet,
+) (rows []types.EnumerationDisplayRow, strict bool, allowedFamilies []string, invalidFamily bool) {
+	wantFamily := types.SourceInventorySurfaceTermKey(block.SourceInventoryFamily)
+	allowed := map[string]bool{}
+	seenRows := map[string]bool{}
+	appendRow := func(row types.EnumerationDisplayRow) {
+		key := principalEnumerationRowIdentityKey(row)
+		if key == "" || seenRows[key] {
+			return
+		}
+		seenRows[key] = true
+		rows = append(rows, row)
+	}
+	for _, set := range sets {
+		for _, row := range set.Rows {
+			families := types.SourceInventorySurfaceFamilyKeys(row.SurfaceTerms)
+			for _, family := range families {
+				family = types.SourceInventorySurfaceTermKey(family)
+				if family == "" {
+					continue
+				}
+				allowed[family] = true
+				if wantFamily != "" && family == wantFamily {
+					appendRow(row)
+				}
+			}
+		}
+	}
+	for family := range allowed {
+		allowedFamilies = append(allowedFamilies, family)
+	}
+	sort.Strings(allowedFamilies)
+	if wantFamily != "" {
+		if len(rows) == 0 {
+			return nil, false, allowedFamilies, true
+		}
+		return rows, true, allowedFamilies, false
+	}
+
+	// With no explicit family carrier, keep the hard check global. Only the
+	// synthetic typed roster is entitled to define that global universe; model
+	// aggregate labels and model block titles do not acquire scope authority.
+	for _, set := range sets {
+		if !principalEnumerationSetIsSourceInventoryPrincipalRows(set) {
+			continue
+		}
+		for _, row := range set.Rows {
+			appendRow(row)
+		}
+	}
+	return rows, len(rows) > 0, allowedFamilies, false
 }
 
 // preEmitMemberSetObligationRosterCap bounds the ✓/✗ obligation roster in

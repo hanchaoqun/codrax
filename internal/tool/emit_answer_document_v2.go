@@ -73,6 +73,7 @@ type emitAnswerBlockV2 struct {
 	ErrorGranularityVerdict string                      `json:"error_granularity_verdict,omitempty"`
 	CurrentStatusVerdict    string                      `json:"current_status_verdict,omitempty"`
 	ScopeDisclosure         string                      `json:"scope_disclosure,omitempty"`
+	SourceInventoryFamily   string                      `json:"source_inventory_family,omitempty"`
 	Columns                 []string                    `json:"columns,omitempty"`
 	Items                   []emitAnswerBlockItemV2     `json:"items,omitempty"`
 	Diagram                 *emitAnswerDiagramV2        `json:"diagram,omitempty"`

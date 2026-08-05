@@ -5362,6 +5362,9 @@ func renderAnswerDocSourceInventoryRows(b *strings.Builder, rows []types.SourceI
 		if lang := strings.TrimSpace(row.Language); lang != "" {
 			fmt.Fprintf(b, ", language=%s", lang)
 		}
+		if family := strings.TrimSpace(row.SurfaceFamily); family != "" {
+			fmt.Fprintf(b, ", surface_family=`%s`", family)
+		}
 		if file := strings.TrimSpace(member.File); file != "" {
 			if member.Line > 0 {
 				fmt.Fprintf(b, ", location=`%s:%d`", file, member.Line)
@@ -6597,6 +6600,7 @@ func renderAnswerDocPrincipalEnumerationRows(ctx *types.AgentContext, plan *type
 	b.WriteString("- Preserve every `member` as the principal row identity. Use `display_label`, `location`, and `citation_key` to build clear table cells; use `note` to keep the answer explanatory instead of a dry symbol dump.\n")
 	b.WriteString("- When any row has a non-empty `note`, render that note on the same row as a concise description/说明 column or equivalent item text. Do not collapse per-row notes only into a summary paragraph.\n")
 	b.WriteString("- When a row has non-empty `attributes`, preserve those typed dimensions on that same row as table columns or equivalent item text; do not infer them from paths.\n")
+	b.WriteString("- When rows expose `surface_family`, use that exact row-local key for grouping. A principal block intentionally carrying exactly one family should copy it to block `source_inventory_family`; omit the field for a global/mixed-family block. Never infer family from a block title, path, language, or neighboring row.\n")
 	b.WriteString("- Render these rows as the actual principal `ordered_list`, `bullet_list`, or `table` blocks for the answer. Do not mention the row set only inside prose sections and rely on system-side fallback carriers; that creates duplicate user-visible lists.\n")
 	b.WriteString("- A row without `citation_key` is a legitimate non-file aggregate member; do not invent a `repo:0` citation for it.\n\n")
 	if guidance := renderAnswerDocSourceInventoryRowGuidance(ctx); guidance != "" {
@@ -6621,6 +6625,9 @@ func renderAnswerDocPrincipalEnumerationRows(ctx *types.AgentContext, plan *type
 			}
 			if category := strings.TrimSpace(row.Category); category != "" {
 				fmt.Fprintf(&b, ", category=%s", category)
+			}
+			if family := types.SourceInventorySurfaceFamilyKey(row.SurfaceTerms); family != "" {
+				fmt.Fprintf(&b, ", surface_family=`%s`", family)
 			}
 			if location := strings.TrimSpace(row.Location); location != "" {
 				fmt.Fprintf(&b, ", location=`%s`", location)

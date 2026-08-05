@@ -68,6 +68,44 @@ func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_PreservesEqualCompl
 	}
 }
 
+func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_PreservesExactPartitionUnion(t *testing.T) {
+	rm := sourceInventoryProjectionRequestModel(nil)
+	obs := sourceInventoryProjectionObservation(
+		SourceInventoryObservationMember{Name: "Alpha", Role: AnswerCandidateRoleFunction, File: "src/a.go", Line: 10, Language: "go", SurfaceTerms: []string{"family a", "family a Alpha"}},
+		SourceInventoryObservationMember{Name: "Beta", Role: AnswerCandidateRoleFunction, File: "src/b.go", Line: 20, Language: "go", SurfaceTerms: []string{"family a", "family a Beta"}},
+		SourceInventoryObservationMember{Name: "Gamma", Role: AnswerCandidateRoleFunction, File: "src/c.go", Line: 30, Language: "go", SurfaceTerms: []string{"family b", "family b Gamma"}},
+		SourceInventoryObservationMember{Name: "Delta", Role: AnswerCandidateRoleFunction, File: "src/d.go", Line: 40, Language: "go", SurfaceTerms: []string{"family c", "family c Delta"}},
+	)
+	facts := []AnswerAggregateFact{
+		{
+			Kind: AnswerAggregateMemberSet, Label: "family a", Value: "2",
+			Role: AnswerAggregateRolePrincipalAnswer, Provenance: "explorer",
+			Members:     []string{"Alpha", "Beta"},
+			SupportRefs: []string{"Alpha @ src/a.go:10", "Beta @ src/b.go:20"},
+		},
+		{
+			Kind: AnswerAggregateMemberSet, Label: "family b", Value: "1",
+			Role: AnswerAggregateRolePrincipalAnswer, Provenance: "explorer",
+			Members: []string{"Gamma"}, SupportRefs: []string{"Gamma @ src/c.go:30"},
+		},
+		{
+			Kind: AnswerAggregateMemberSet, Label: "family c", Value: "1",
+			Role: AnswerAggregateRolePrincipalAnswer, Provenance: "explorer",
+			Members: []string{"Delta"}, SupportRefs: []string{"Delta @ src/d.go:40"},
+		},
+	}
+
+	got := ProjectSourceInventoryPrincipalRowSetAggregateFacts(facts, obs, rm)
+	if len(got) != len(facts) {
+		t.Fatalf("an exact supported union must preserve its typed/model partitions: got %+v", got)
+	}
+	for i, fact := range got {
+		if fact.Provenance != "explorer" || fact.Role != AnswerAggregateRolePrincipalAnswer {
+			t.Fatalf("partition %d was flattened or demoted: %+v", i, fact)
+		}
+	}
+}
+
 func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_PreservesModelMembersWithInlineLocationsAndAttributes(t *testing.T) {
 	rm := sourceInventoryProjectionRequestModel(nil)
 	obs := sourceInventoryProjectionObservation(

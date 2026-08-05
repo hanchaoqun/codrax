@@ -24,6 +24,7 @@ func fullyFusedBlock() emitAnswerBlockV2 {
 		ErrorGranularityVerdict: "",
 		CurrentStatusVerdict:    "",
 		ScopeDisclosure:         "",
+		SourceInventoryFamily:   "pipeline stage",
 		Columns:                 []string{"stage", "输入", "输出", "载体"},
 		Items: []emitAnswerBlockItemV2{
 			{ID: "r1", Label: "StageAnalyze", Cells: []string{"请求", "AnalysisIR", "MutableState"}},

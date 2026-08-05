@@ -225,6 +225,13 @@ type AnswerBlock struct {
 	// scope keywords.
 	ScopeDisclosure ScopeDisclosureKind `json:"scope_disclosure,omitempty"`
 
+	// SourceInventoryFamily is an optional exact typed partition key for a
+	// principal source-inventory block. The finalizer copies it from the
+	// row-local source_inventory family handoff when a block intentionally
+	// carries only one construct family. Validators must never infer this key
+	// from Title, Text, item prose, or the user's wording.
+	SourceInventoryFamily string `json:"source_inventory_family,omitempty"`
+
 	// Columns is the optional header row for structured table blocks.
 	// It is never required: table blocks may still carry a complete
 	// model-authored markdown table in Text. When Text is empty, either put

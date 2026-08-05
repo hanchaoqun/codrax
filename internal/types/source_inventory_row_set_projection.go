@@ -31,7 +31,7 @@ func ProjectSourceInventoryPrincipalRowSetAggregateFacts(facts []AnswerAggregate
 	}
 	refs := PrincipalAggregateMemberSetFactRefsForRequest(out, &rm)
 	rowSet = sourceInventoryFilterPrincipalRowSetToExistingPrincipalFamilies(rowSet, refs)
-	rowSet, constrainedToExistingRows := sourceInventoryFilterMixedPrincipalRowSetToExistingRows(rowSet, refs)
+	rowSet, _ = sourceInventoryFilterMixedPrincipalRowSetToExistingRows(rowSet, refs)
 	if !rowSet.Active || rowSet.PrincipalTotal == 0 {
 		return out
 	}
@@ -39,7 +39,13 @@ func ProjectSourceInventoryPrincipalRowSetAggregateFacts(facts []AnswerAggregate
 	if len(rowKeys) == 0 {
 		return out
 	}
-	if constrainedToExistingRows && sourceInventoryPrincipalFactsExactlyCoverRows(refs, rowKeys) {
+	// Several independently labelled model facts may partition one typed row
+	// universe (for example one fact per declaration family). When their union
+	// exactly equals the typed row set and every contributing fact has support,
+	// preserve those partitions. Flattening them into one synthetic fact throws
+	// away a correct grouping decision and forces the finalizer to reconstruct
+	// it from presentation prose.
+	if sourceInventoryPrincipalFactsExactlyCoverRows(refs, rowKeys) {
 		return out
 	}
 	if sourceInventoryPrincipalFactUniverseComplete(refs, rowKeys) {
