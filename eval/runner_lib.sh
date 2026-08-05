@@ -307,6 +307,32 @@ eval_count_degraded_read_answer_check_skips() {
   eval_count_pattern '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[^[:space:]]+[[:space:]]+WARN \[orchestrator\] finalizer returned degraded answer; skipping structured answer checks reason=[^[:space:]]+' "$file"
 }
 
+# eval_pipe_list_any_matches <regex> <pipe-delimited-values>
+#
+# Operation terminal events serialize typed repeated fields with the exact
+# separator " | ".  Match each member independently so an anchored regex for
+# one receipt/locator does not become an accidental whole-list regex.  This is
+# an eval-side typed-field decoder; answer/user prose never reaches it.
+eval_pipe_list_any_matches() {
+  local pattern="$1"
+  local remaining="$2"
+  local member
+
+  while true; do
+    if [[ "$remaining" == *" | "* ]]; then
+      member="${remaining%%" | "*}"
+      remaining="${remaining#*" | "}"
+    else
+      member="$remaining"
+      remaining=""
+    fi
+    if LC_ALL=C grep -aEq -- "$pattern" <<<"$member"; then
+      return 0
+    fi
+    [[ -n "$remaining" ]] || return 1
+  done
+}
+
 # EVAL-B73-OPEVAL1 / B74-OPREPAUTH1: inspect the last system-authored typed
 # operation evaluation event. Intermediate rounds cannot green-light a later
 # partial terminal, and answer prose never participates in this oracle.
@@ -379,10 +405,10 @@ eval_operation_terminal_reasons() {
   if [[ -n "$expected_coverage" && "$actual_coverage" != "$expected_coverage" ]]; then
     echo "operation_material_coverage_status:${actual_coverage:-missing}:expected:$expected_coverage"
   fi
-  if [[ -n "$expected_ref_regex" ]] && ! LC_ALL=C grep -aEq -- "$expected_ref_regex" <<<"$actual_refs"; then
+  if [[ -n "$expected_ref_regex" ]] && ! eval_pipe_list_any_matches "$expected_ref_regex" "$actual_refs"; then
     echo "operation_coverage_ref_missing:$(eval_reason_slug "$expected_ref_regex")"
   fi
-  if [[ -n "$expected_source_regex" ]] && ! LC_ALL=C grep -aEq -- "$expected_source_regex" <<<"$actual_source_locators"; then
+  if [[ -n "$expected_source_regex" ]] && ! eval_pipe_list_any_matches "$expected_source_regex" "$actual_source_locators"; then
     echo "operation_coverage_source_missing:$(eval_reason_slug "$expected_source_regex")"
   fi
 }

@@ -2245,7 +2245,9 @@ func commandOperationLaterCommandText(records []commandOperationResultRecord, st
 func operationFinalReportWithRecordStatus(lang, answer string, records []commandOperationResultRecord) string {
 	status, rounds := commandOperationTerminalState(records)
 	answer = operationFinalReportWithStatus(lang, answer, status, rounds)
-	if status != operation.StatusExecuted || !commandOperationHasUncoveredMaterialRef(records) {
+	if status != operation.StatusExecuted ||
+		!commandOperationHasUncoveredMaterialRef(records) ||
+		commandOperationTaskCoverageAuthorizesCompletion(records) {
 		return answer
 	}
 	prefix := operationFinalMaterialCoveragePrefix(lang, rounds)
@@ -2253,6 +2255,41 @@ func operationFinalReportWithRecordStatus(lang, answer string, records []command
 		return prefix
 	}
 	return prefix + "\n\n" + strings.TrimSpace(answer)
+}
+
+// commandOperationTaskCoverageAuthorizesCompletion keeps the user-visible
+// status on the same task-scoped typed authority as the terminal evaluator.
+// A command round may fetch auxiliary material that the evaluator does not
+// select for the user goal; that historical payload remains in the audit
+// ledger, but it must not downgrade an otherwise validated complete verdict.
+// The model still owns which materials answer the goal.  The system checks
+// only the evaluator's typed status and that every selected receipt is backed
+// by the recorded material authority.
+func commandOperationTaskCoverageAuthorizesCompletion(records []commandOperationResultRecord) bool {
+	var latest *operation.OperationEvaluation
+	for i := len(records) - 1; i >= 0; i-- {
+		if records[i].Evaluation != nil {
+			latest = records[i].Evaluation
+			break
+		}
+	}
+	if latest == nil || latest.Status != operation.EvalComplete {
+		return false
+	}
+	if latest.MaterialCoverageStatus == operation.MaterialCoverageNotApplicable {
+		return true
+	}
+	if latest.MaterialCoverageStatus != operation.MaterialCoverageComplete || len(latest.CoverageMaterialRefs) == 0 {
+		return false
+	}
+	available, complete, _ := commandOperationMaterialCoverageAuthority(records)
+	for _, ref := range latest.CoverageMaterialRefs {
+		ref = strings.TrimSpace(ref)
+		if ref == "" || !available[ref] || !complete[ref] {
+			return false
+		}
+	}
+	return true
 }
 
 func operationFinalMaterialCoveragePrefix(lang string, rounds int) string {

@@ -15748,3 +15748,50 @@ PyO3 fixture checker 新增 function-scoped 空边界审计：拒绝本轮实际
 这是 eval-specific oracle 加固，不进入 Codrax 的规划、实现或成文 hard gate。fixture baseline 继续按设计失败，oracle `--self-test` 通过；下次回放只有模型先修复
 空边界、再由 exact declared checker 通过时，才可能获得窄 source-static 验证。原生 Rust runtime 缺席仍会在报告中如实披露，不能由该静态 caliber 伪装成 native
 target execution/behavior。
+
+## 108. 2026-08-05 B104 r30：Trace 双轴正证与 operation 任务级覆盖权威归位
+
+### 108.1 严格双并发与人工结论
+
+在 `main@dc3560304` 构建冻结后，以 `PARALLEL=2` 严格并行恰好两个异构 case：
+
+- `trace_query_donghu_real_frame_multicausal`：runner PASS / human FAIL，161s；
+- `operation_web_manual_summary`：runner FAIL / human FAIL，101s。
+
+工件见 `eval/parallel_selected_summary_evalcampaign_b104_traceoperation_r30_20260805.md` 及 manual audit。前者验证了显式时间窗、自动补齐、
+Trace 因果投影以及“实际占时/关键路径候选”和“现规则可消除量”双轴仍同时存在；本批没有改变任何 Trace 查询、选举或投影代码。
+
+### 108.2 Trace 人工失败属于模型未消费精确信号，暂不增加产品硬门
+
+最终上下文已明确提供两条 typed 约束：每块 root-cause board 的 `cross_row_additivity=forbidden`，以及
+`lower_priority_dependency`/`priority_inversion_candidate` 不证明低优先级线程已经阻塞高优先级线程。最终答案仍把窄查询窗的
+16.617ms 席位与包含它的宽查询窗 23.994ms 席位相加成“超过 40ms”，并写出“实际阻塞了主线程的唤醒路径”。这两句均越过已有证据上限，
+因此人工判 FAIL；但同页 caveat、系统投影和双轴表仍正确，context 占用 42%，不存在预算裁剪或事实缺失。
+
+当前只有一个模型波动 witness。按“精确信号才作硬门”和“模型拥有结论”红线，不扫描用户/模型/答案 prose，不让系统替换结论，也不为该句增加
+type-specific normalizer；保留异构 Trace replay。若后续跨模型/跨 trace 复现，再优先研究结构化 claim relation 的 soft 引导或模型侧校准，而不是文本硬门。
+
+### 108.3 `EVAL-B104-OPLIST1`（eval authority/implemented）：多值 typed 字段被单值 anchored regex 假拒
+
+operation terminal 日志以精确分隔符 ` | ` 序列化多个 `coverage_material_refs`/`coverage_source_locators`。旧 runner 把整条拼接值交给
+单值 anchored regex，因而三个合法 receipt 必然无法匹配 `^material-coverage:v1:<hash>:html_text$`。修复在 eval 侧逐 member 解码并执行
+any-match；last-event authority、缺失 ref 负臂和错误 source 负臂保持不变。该改动只读取系统 typed 日志字段，不触碰用户或答案原文。
+
+### 108.4 `EVAL-B104-OPTASKCOV1`（operation/product/implemented）：全历史辅助材料覆盖任务级终验
+
+本轮最终 typed evaluator 已发布 `status=complete`、`material_coverage_status=complete`，并绑定三个经系统 material authority 验证的 receipt；
+但 `operationFinalReportWithRecordStatus` 仍只要发现任一历史 payload 未在后续命令出现，就向模型答案前强插“材料覆盖未完全验证”。本例额外抓取的
+Trace 专页没有被最终任务级 receipt 集选中，于是可见状态与 typed 终验/模型正文冲突。
+
+修复后，最新任务级 evaluator 的 `complete + complete`（每个选中 ref 均在 recorded available/complete authority 中）或显式
+`complete + not_applicable` 可以抑制这个全历史降级前缀；未评估、partial、缺 ref、未知 ref 或非 complete evaluator 仍保留旧警告。
+未选中的辅助 payload 继续留在审计 ledger，不获得任务证据权，也不被静默删除。系统只校验 typed receipt，不决定哪些材料回答用户目标，模型正文保持字节不动。
+
+### 108.5 验证与状态
+
+- `bash eval/runner_lib_test.sh`：PASS（含多 receipt 中间成员命中与缺失成员负臂）；
+- operation final status focused tests：PASS（任务级 complete + 未消费辅助 payload 不再矛盾；partial 仍警告）；
+- `go test ./internal/repl -count=1`：PASS（33.966s）；
+- `EVAL-B104-OPLIST1=implemented/full-package-pass`；
+- `EVAL-B104-OPTASKCOV1=implemented/full-package-pass`；
+- `EVAL-B104-TRACECLAIM1=model-fluctuation/replay-watch`。

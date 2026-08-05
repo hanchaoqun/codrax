@@ -313,3 +313,62 @@ func TestOperationFinalAnswerNoMaterialWarningWhenLaterStepConsumesRef(t *testin
 		t.Fatalf("consumed payload ref should not surface material coverage caveat:\n%s", answer)
 	}
 }
+
+func TestOperationFinalAnswerUsesTaskScopedCompleteCoverageOverAuxiliaryPayload(t *testing.T) {
+	t.Parallel()
+	covered := filepath.Join(t.TempDir(), "manual.html")
+	if err := os.WriteFile(covered, []byte("<html><body>complete manual</body></html>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	records := commandOperationAttachMaterialPages([]commandOperationResultRecord{{
+		Plan: operation.CommandOperationPlan{ID: "op-manual", Status: operation.StatusExecuted},
+		Result: operation.CommandOperationResult{
+			PlanID:     "op-manual",
+			Status:     operation.StatusExecuted,
+			PayloadRef: covered,
+		},
+	}})
+	if len(records[0].MaterialPages) == 0 || records[0].MaterialPages[0].CoverageReceiptRef == "" {
+		t.Fatal("fixture did not produce complete material coverage receipt")
+	}
+	receipt := records[0].MaterialPages[0].CoverageReceiptRef
+	records = append(records, commandOperationResultRecord{
+		Plan: operation.CommandOperationPlan{ID: "op-aux", Status: operation.StatusExecuted},
+		Result: operation.CommandOperationResult{
+			PlanID:     "op-aux",
+			Status:     operation.StatusExecuted,
+			PayloadRef: "/tmp/unconsumed-auxiliary.html",
+		},
+		Evaluation: &operation.OperationEvaluation{
+			Status:                 operation.EvalComplete,
+			MaterialCoverageStatus: operation.MaterialCoverageComplete,
+			CoverageMaterialRefs:   []string{receipt},
+		},
+	})
+
+	answer := operationFinalReportWithRecordStatus("zh", "模型结论", records)
+	if answer != "模型结论" {
+		t.Fatalf("validated task coverage must preserve the model answer without a global-history downgrade: %q", answer)
+	}
+}
+
+func TestOperationFinalAnswerRetainsWarningWithoutCompleteTaskCoverage(t *testing.T) {
+	t.Parallel()
+	records := []commandOperationResultRecord{{
+		Plan: operation.CommandOperationPlan{ID: "op-aux", Status: operation.StatusExecuted},
+		Result: operation.CommandOperationResult{
+			PlanID:     "op-aux",
+			Status:     operation.StatusExecuted,
+			PayloadRef: "/tmp/unconsumed-required.html",
+		},
+		Evaluation: &operation.OperationEvaluation{
+			Status:                 operation.EvalContinueCommand,
+			MaterialCoverageStatus: operation.MaterialCoveragePartial,
+		},
+	}}
+
+	answer := operationFinalReportWithRecordStatus("zh", "模型结论", records)
+	if !strings.Contains(answer, "材料覆盖未完全验证") {
+		t.Fatalf("partial task coverage must retain the material warning: %q", answer)
+	}
+}

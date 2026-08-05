@@ -1890,6 +1890,24 @@ for want in \
     fail "last typed operation terminal did not report $want: $operation_reasons"
   fi
 done
+
+cat >"$tmp/operation-terminal-multi.log" <<'LOG'
+2026-08-04T05:04:28.387 INFO [cli/operation] command evaluation status=complete material_coverage_status=complete coverage_material_refs="material-coverage:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:html_text | material-coverage:v1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:html_text" coverage_source_refs="/tmp/home.html | /tmp/user-guide.html" coverage_source_identities="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:bytes:42 | sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:bytes:84" coverage_source_locators="argv:curl https://example.test/home.html | argv:curl https://example.test/user_guide.html" confidence="high" reason="complete" materials=2 rounds=2
+LOG
+EXPECT_OPERATION_TERMINAL_STATUS="complete"
+EXPECT_OPERATION_MATERIAL_COVERAGE_STATUS="complete"
+EXPECT_OPERATION_COVERAGE_REF_REGEX='^material-coverage:v1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:html_text$'
+EXPECT_OPERATION_COVERAGE_SOURCE_REGEX='^argv:curl https://example\.test/user_guide\.html$'
+operation_multi_reasons="$(eval_operation_terminal_reasons "$tmp/operation-terminal-multi.log" "$tmp/operation-terminal-multi.tsv")"
+assert_eq "$operation_multi_reasons" "" "typed operation list members must be matched independently"
+
+EXPECT_OPERATION_COVERAGE_REF_REGEX='^material-coverage:v1:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc:html_text$'
+operation_multi_missing="$(eval_operation_terminal_reasons "$tmp/operation-terminal-multi.log" "$tmp/operation-terminal-multi-missing.tsv")"
+if ! grep -q '^operation_coverage_ref_missing:' <<<"$operation_multi_missing"; then
+  fail "typed operation member matching must retain the missing-ref negative arm: $operation_multi_missing"
+fi
+EXPECT_OPERATION_COVERAGE_REF_REGEX='^material-coverage:v1:[0-9a-f]{64}:html_text$'
+EXPECT_OPERATION_COVERAGE_SOURCE_REGEX='user_guide\.html'
 if ! grep -q $'complete\tpartial_answer_possible\tcomplete\tpartial\t' "$tmp/operation-terminal.tsv"; then
   fail "typed operation terminal receipt lost expected/actual authority"
 fi
