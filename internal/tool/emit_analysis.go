@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -1952,6 +1953,10 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
+	if warning := normalizeSourceInventoryKeywordsFromProfile(&rm); warning != "" {
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
 	if conflict := validateAuxiliaryPrincipalExclusionConflict(rm); conflict != "" {
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -2067,6 +2072,59 @@ func normalizeSourceInventorySubTopicsFromProfile(rm *types.RequestModel) string
 	}
 	rm.SubTopics = topics
 	return "source_inventory sub_topics normalized from source_quotes so prescan-only language/source guesses remain advisory"
+}
+
+// normalizeSourceInventoryKeywordsFromProfile keeps the mechanical inventory
+// lane from carrying prescan guesses into exploration/finalization as if they
+// were verified source syntax. For this lane, validated source_quotes plus the
+// closed typed roles/fields are sufficient retrieval vocabulary; free-form
+// model keywords can otherwise introduce a language, declaration mechanism, or
+// scope qualifier that never appeared in either the request or repository.
+//
+// This is prompt/context hygiene only. It does not reject an analysis, inspect
+// final-answer prose, or drive any answer-side hard gate.
+func normalizeSourceInventoryKeywordsFromProfile(rm *types.RequestModel) string {
+	if rm == nil ||
+		rm.SourceInventoryProfile == nil ||
+		!types.SourceInventoryPrincipalNavigationActive(*rm) ||
+		!rm.SourceInventoryProfile.MechanicalRowsOnly() {
+		return ""
+	}
+	var keywords []string
+	keywords = append(keywords, rm.SourceInventoryProfile.SourceQuotes...)
+	for _, role := range rm.SourceInventoryProfile.TargetRoles {
+		keywords = append(keywords, string(role))
+	}
+	for _, field := range rm.SourceInventoryProfile.RequestedFields {
+		keywords = append(keywords, string(field))
+	}
+	keywords = stableDistinctTrimmedStrings(keywords)
+	if len(keywords) == 0 || reflect.DeepEqual(rm.AnalyzerHints.Keywords, keywords) {
+		return ""
+	}
+	rm.AnalyzerHints.Keywords = keywords
+	return "source_inventory keywords normalized from validated source_quotes and typed roles/fields so prescan-only syntax/language guesses do not enter later prompts"
+}
+
+func stableDistinctTrimmedStrings(in []string) []string {
+	out := make([]string, 0, len(in))
+	seen := map[string]bool{}
+	for _, raw := range in {
+		value := strings.TrimSpace(raw)
+		if value == "" {
+			continue
+		}
+		key := strings.ToLower(value)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, value)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func sourceInventorySubTopicsEqual(a, b []types.SubTopic) bool {

@@ -15515,3 +15515,57 @@ Explorer 的 QFCallChain typed 软指南补充 endpoint-local 处置：读到 ex
 胶囊、finalizer 无伪边、RootCauseTrace/显式时间窗隔离。完整 `internal/types`（18.809s）、`internal/agent`（2.689s）、
 `internal/orchestrator`（11.330s）与 `internal/tool`（170.313s）通过。状态：
 `EVAL-B98-ENDPOINTTOPOLOGY1=implemented-soft-guidance/full-pass/replay-next`。
+
+## 103. 2026-08-05 B99 r25：B98 三项生效；未验证关键词与 patch 引用位移造成两次 runner 假绿
+
+### 103.1 严格双并发与人工结论
+
+在 `main@d6a3cae04` 构建并冻结二进制后，按 `PARALLEL=2` 严格并行恰好两个 read case：
+
+- `qf_multi_member_set_count_caveat`：runner PASS / human FAIL，221s，8 个 Explorer 轮、3 次 source-inventory lens、1 次 Finalizer reject，最大 context 23%；
+- `qf_sequence_analyzer_gate`：runner PASS / human FAIL，284s，22 个 Explorer 轮、7 次 read、1 次 completion reject、1 次 Finalizer reject，最大 context 27%。
+
+工件见 `eval/parallel_selected_summary_evalcampaign_b99_b98_replay_r25_20260805.md` 及对应 manual audit。两次 runner PASS 都是假绿：inventory
+oracle 只钉 3/5/30 与成员名，未核范围说明；sequence oracle 只钉名称/图形，未核 item→citation 的实际绑定。本轮仍未运行 Trace，以下修复不进入
+RootCauseTrace、显式时间窗、双轴根因、因果投影或自动补齐。
+
+### 103.2 B98 生产验收
+
+`EVAL-B98-SCOPEAGGREGATE1` 获得 production close：canonical production roster 为 3 types、5 functions、30 constants，test-only principal
+集合没有再次进入答案义务。`EVAL-B98-REPAIRSHAPE1` 获得 production close：首稿虽仍漏 principal enumeration carrier，但五步 recipe 让模型用一次
+patch 完整补齐 38 行，旧四次连续拒绝和 degraded answer 未复发。
+
+`EVAL-B98-ENDPOINTTOPOLOGY1` 获得 production 正证：Explorer 在读取 exact `gate.Run` definition 后额外发射真实
+`gate.Run -> RunWith` edge；finalizer 正确区分 `buildAnalysisIR -> gate.RunWith` 与 `gate.Run -> RunWith` 两条并行汇合边，并由模型自行给出
+“不存在 buildAnalysisIR→gate.Run 有向路径”的结论。系统没有代写结论。该项维持 soft-guidance 设计，不据单次回放升级为 hard gate。
+
+### 103.3 `EVAL-B99-INVENTORYCONTEXTHYGIENE1`：analyzer 猜测绕过 subtopic 清洗进入证据链
+
+inventory 的成员、数量、位置均正确，但答案把源码中没有 `iota` 的普通 `const` block 称为 `iota block`。日志证明污染发生在任何源码验证之前：
+analyzer 自由生成的 `keywords` 含 `iota块`，而用户原文仅说 `Kind const block`。现有 source-inventory hygiene 已把带同类猜测的 `sub_topics`
+重建为 validated source quotes，却保留 keywords；Explorer 随后从该上下文把 `iota` 写入 30 条 evidence summary、member_set label/note 和 closure
+reason，最终形成看似 grounded 的错误机制词。
+
+根修不扫描答案或用关键词作 hard gate：当且仅当 typed source-inventory profile 处于 mechanical-row 主车道时，AnalyzerHints keywords 由已经过
+verbatim 校验的 `SourceInventoryProfile.SourceQuotes`、闭合 target roles 与 requested fields 重建。自由模型关键词不再进入后续 prompt；关系流、
+Trace、普通解释和非机械 inventory 保持原样。它只是上下文卫生，不拒绝请求、不制造事实、不修改模型答案。
+
+### 103.4 `EVAL-B99-PATCHCITATIONDRIFT1`：稳定条目把 citation pool 索引误当行序
+
+sequence 首稿的 topology 与 17 条 edge citation 均正确；因 endpoint item 缺失及一个 Mermaid alias 写错触发一次 patch。模型在原列表前/中插入
+两个 definition row 后，把所有既有 `citation_ref` 按新行序整体平移。`citation_ref` 实际索引 document citation pool，不是 row index；现有
+normalizer 只通过唯一 label/candidate 修回 3 条，仍有 14 条 edge item 引用相邻源码行而通过。结论正确但证据绑定错误，属于高危呈现/权威 gap。
+
+根修只在 patch replacement 上读取精确结构：citation pool 必须 inherited；block/item 均有唯一稳定 ID；item 除 citation_ref 外逐字段完全相同；
+新 ref 必须精确等于旧 ref 加该 item 的实际 row-position delta。四条件同时成立才恢复旧 ref。新条目保持模型引用，same-position 显式改引不动，
+replace-citations 车道不动。实现不解析 label/text 语义、不选择新证据、不改变模型结论。
+
+### 103.5 施工与验证
+
+两项已施工。`EVAL-B99-INVENTORYCONTEXTHYGIENE1` 的异构 construct-role 测试证明 source quotes/typed roles/fields 保留，未验证语言/语法猜测被移出
+keywords；`EVAL-B99-PATCHCITATIONDRIFT1` 覆盖多插行位移、same-position intentional edit 负臂和真实 `EmitAnswerDocumentPatch.Execute`
+生产接线。eval oracle 同步补强：inventory 禁止当前源码不成立的 `iota`；sequence 要求两个代表边的 visible line 与实际 inline citation line 一致。
+
+定向测试通过；完整 `internal/tool`（166.474s）通过。状态：
+`EVAL-B99-INVENTORYCONTEXTHYGIENE1=implemented/full-tool-pass/replay-next`，
+`EVAL-B99-PATCHCITATIONDRIFT1=implemented/full-tool-pass/replay-next`。

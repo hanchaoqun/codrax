@@ -831,6 +831,104 @@ func TestEmitAnswerDocumentPatch_MergesAppendCitationsBeforePreservedPoolNormali
 	}
 }
 
+func TestPreservePatchReplacementStableItemCitationRefsRepairsRowOrdinalDrift(t *testing.T) {
+	prev := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "a.go", Line: 10},
+			{File: "a.go", Line: 20},
+			{File: "a.go", Line: 30},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:   "chain",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{
+				{ID: "h1", Label: "A -> B", Text: "first edge", CitationRef: 0},
+				{ID: "h2", Label: "A -> C", Text: "second edge", CitationRef: 1},
+				{ID: "h3", Label: "C -> D", Text: "third edge", CitationRef: 2},
+			},
+		}},
+	}
+	patch := &types.AnswerDocumentV2Patch{
+		AppendCitations: []types.Citation{
+			{File: "a.go", Line: 1},
+			{File: "a.go", Line: 40},
+		},
+		ReplaceBlocks: []types.AnswerBlock{{
+			ID:   "chain",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{
+				{ID: "source", Label: "A", Text: "definition", CitationRef: 3},
+				{ID: "h1", Label: "A -> B", Text: "first edge", CitationRef: 1},
+				{ID: "h2", Label: "A -> C", Text: "second edge", CitationRef: 2},
+				{ID: "sink", Label: "D", Text: "definition", CitationRef: 4},
+				{ID: "h3", Label: "C -> D", Text: "third edge", CitationRef: 4},
+			},
+		}},
+	}
+	changed, fields := preservePatchReplacementStableItemCitationRefs(prev, patch)
+	if !changed || len(fields) != 3 {
+		t.Fatalf("row-ordinal citation drift should repair all stable rows, changed=%v fields=%v", changed, fields)
+	}
+	got := patch.ReplaceBlocks[0].Items
+	if got[1].CitationRef != 0 || got[2].CitationRef != 1 || got[4].CitationRef != 2 {
+		t.Fatalf("stable item citation refs were not restored: %+v", got)
+	}
+	if got[0].CitationRef != 3 || got[3].CitationRef != 4 {
+		t.Fatalf("new item citation refs must stay model-owned: %+v", got)
+	}
+}
+
+func TestPreservePatchReplacementStableItemCitationRefsDoesNotOverrideIntentionalCitationEdit(t *testing.T) {
+	prev := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "a.go", Line: 10}, {File: "a.go", Line: 20}},
+		Blocks: []types.AnswerBlock{{
+			ID:    "list",
+			Kind:  types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{ID: "i1", Label: "A", Text: "same", CitationRef: 0}},
+		}},
+	}
+	patch := &types.AnswerDocumentV2Patch{ReplaceBlocks: []types.AnswerBlock{{
+		ID:    "list",
+		Kind:  types.BlockOrderedList,
+		Items: []types.AnswerBlockItem{{ID: "i1", Label: "A", Text: "same", CitationRef: 1}},
+	}}}
+	changed, fields := preservePatchReplacementStableItemCitationRefs(prev, patch)
+	if changed || len(fields) != 0 || patch.ReplaceBlocks[0].Items[0].CitationRef != 1 {
+		t.Fatalf("same-position explicit citation edit must remain model-owned: changed=%v fields=%v patch=%+v", changed, fields, patch)
+	}
+}
+
+func TestEmitAnswerDocumentPatchProductionPreservesStableItemCitationAcrossInsertedRow(t *testing.T) {
+	bus := newPatchTestBusContext()
+	params := json.RawMessage(`{
+		"unchanged_block_ids": ["s1"],
+		"replace_blocks": [{
+			"id": "list1",
+			"kind": "ordered_list",
+			"claim_uses": [{"claim_form":"call_edge"}],
+			"items": [
+				{"id":"new-definition","label":"New","text":"new endpoint","citation_ref":1},
+				{"id":"i1","label":"A","citation_ref":1}
+			]
+		}],
+		"append_citations": [{"file":"new.go","line":20}]
+	}`)
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, params)
+	if err != nil || !res.Success {
+		t.Fatalf("production patch route rejected inserted-row repair: result=%+v err=%v", res, err)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 || len(doc.Blocks[1].Items) != 2 {
+		t.Fatalf("production patch route lost merged block/items: %+v", doc)
+	}
+	if got := doc.Blocks[1].Items[1].CitationRef; got != 0 {
+		t.Fatalf("stable item citation_ref drift survived production patch route: got=%d doc=%+v", got, doc)
+	}
+	if got := doc.Blocks[1].Items[0].CitationRef; got != 1 {
+		t.Fatalf("new item citation_ref should stay on appended citation: got=%d doc=%+v", got, doc)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_NormalizesCitationRefsBeforePoolRangeGate(t *testing.T) {
 	bus := &types.BusContext{
 		Mutable: types.NewMutableState("页面分配时序图"),

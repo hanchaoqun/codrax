@@ -6319,7 +6319,7 @@ func TestEmitAnalysis_Execute_RejectsAuxiliaryPrincipalExclusionConflict(t *test
 		"intent": "enumerate",
 		"scenario": "generic",
 		"complexity": "complex",
-		"keywords": ["extend", "foreign func", "public class"],
+		"keywords": ["extend", "foreign func", "public class", "ArkTS", "iota"],
 		"entities": ["extend", "foreign func", "public class"],
 		"question_kind": "enumeration",
 		"intent_confidence": 0.95,
@@ -8081,6 +8081,17 @@ func TestEmitAnalysis_Execute_NormalizesSourceInventoryConstructRoleAliases(t *t
 	for _, topic := range rm.SubTopics {
 		if strings.Contains(topic.Summary, "ArkTS") {
 			t.Fatalf("prescan-only language guesses must not survive source_inventory subtopic normalization: %+v", rm.SubTopics)
+		}
+	}
+	joinedKeywords := strings.Join(rm.AnalyzerHints.Keywords, "\n")
+	for _, guessed := range []string{"ArkTS", "iota"} {
+		if strings.Contains(joinedKeywords, guessed) {
+			t.Fatalf("prescan-only syntax/language guess %q must not survive source_inventory keyword normalization: %+v", guessed, rm.AnalyzerHints.Keywords)
+		}
+	}
+	for _, want := range []string{"extend 块", "foreign func 声明", "public class", "type", "function", "name", "location", "package"} {
+		if !strings.Contains(joinedKeywords, want) {
+			t.Fatalf("source_inventory keyword normalization lost typed/validated vocabulary %q: %+v", want, rm.AnalyzerHints.Keywords)
 		}
 	}
 }

@@ -2350,3 +2350,21 @@ B98-C 已交付 P1 soft-debt 形：endpoint existence proof 分为 unproven/ambi
 read 中真实 endpoint-local reverse/parallel/disjoint edge 一并发射。无新 hard gate、无 definition/prose 推边、无系统答案代写；15 种语言、
 definition+edge、歧义与 runtime/recovered 负臂及 RootCauseTrace 隔离通过。完整 types/agent/orchestrator/tool 全绿
 （18.809s/2.689s/11.330s/170.313s）。状态：`EVAL-B98-ENDPOINTTOPOLOGY1=implemented-soft-guidance/full-pass/replay-next`。
+
+### §10.36 B99 production：B98 三项获得正证，新增上下文污染与 patch 引用漂移
+
+`main@d6a3cae04` 严格并行两个 read case 均 runner PASS、人工 FAIL；详细证据见 eval campaign §103 与 B99 manual audit。
+
+- B98-A 关闭：production 3/5/30 roster 未再混入 test-only aggregate；
+- B98-B 关闭：完整五步 repair recipe 将旧四次失败/降级收敛为一次 reject、一次 patch 成功；
+- B98-C 获 production 正证：Explorer 发射 `gate.Run -> RunWith`，模型最终正确说明它与 `buildAnalysisIR -> gate.RunWith` 是并行汇合，系统未代写结论；
+- 新 `EVAL-B99-INVENTORYCONTEXTHYGIENE1`：source-inventory subtopic 已清洗，但自由 analyzer keywords 仍携未验证 `iota` 猜测，后续被重复写入 evidence/aggregate/final；
+- 新 `EVAL-B99-PATCHCITATIONDRIFT1`：patch 插入 endpoint row 后把 inherited citation pool index 当行序平移，14 条旧 edge item 错引仍通过。
+
+B99 两项已交付。机械 source-inventory keywords 现在只由 validated source quotes + typed roles/fields 构造；不扫描答案、不参与 hard gate。
+patch 引用修复只接受稳定 block/item ID、除引用外完全相同、inherited pool、ref 差值等于真实 row delta 的精确合取形；新条目、显式同位改引和
+replace-citation 均不动。两项都只修上下文/证据元数据，不修改模型结论，不进入 RootCauseTrace、显式时间窗、双轴根因、因果投影或自动补齐。
+
+完整 `internal/tool`（166.474s）通过；eval oracle 已补范围机制与代表 edge citation 绑定，防止同类 runner 假绿。状态：
+`EVAL-B99-INVENTORYCONTEXTHYGIENE1=implemented/full-tool-pass/replay-next`；
+`EVAL-B99-PATCHCITATIONDRIFT1=implemented/full-tool-pass/replay-next`。

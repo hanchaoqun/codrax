@@ -16,7 +16,7 @@ EXPECT_CONTAINS="Eval EvalAll RegisteredKinds KindExternalArtifactDecoded"
 EXPECT_MATCHES_REGEX="(类型.*(^|[^0-9])3([^0-9]|$)|(^|[^0-9])3([^0-9]|$).*类型)
 (函数.*(^|[^0-9])5([^0-9]|$)|(^|[^0-9])5([^0-9]|$).*函数)
 (Kind|常量|constant)"
-EXPECT_NOT_CONTAINS="defaultExternalArtifactFloor private approximately roughly"
+EXPECT_NOT_CONTAINS="defaultExternalArtifactFloor private approximately roughly iota"
 EXPECT_DYNAMIC_SCALARS="exported_types exported_functions kind_constants"
 EXPECT_DYNAMIC_SCALAR_COMMAND_EXPORTED_TYPES="awk '/^type [A-Z][A-Za-z0-9_]*/ { n++ } END { print n+0 }' internal/analysis/criterion/grammar.go internal/analysis/criterion/eval.go"
 EXPECT_DYNAMIC_SCALAR_DATA_SCOPE_EXPORTED_TYPES="repo_checkout:internal/analysis/criterion/{grammar.go,eval.go};production=true;declaration=exported_type"

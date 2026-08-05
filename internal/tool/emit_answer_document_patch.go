@@ -251,6 +251,10 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		logging.Warning("[emit_answer_document_patch] citation op(s) normalized via preserved-pool tolerance: %s",
 			strings.Join(fields, ", "))
 	}
+	if changed, fields := preservePatchReplacementStableItemCitationRefs(prev, patch); changed {
+		logging.Warning("[emit_answer_document_patch] preserved stable item citation_ref value(s) across row insertion/removal: %s",
+			strings.Join(fields, ", "))
+	}
 	if changed, fields := preservePatchReplacementTableTails(prev, patch); changed {
 		logging.Warning("[emit_answer_document_patch] preserved visible table-tail prose from previous block(s): %s",
 			strings.Join(fields, ", "))
@@ -302,6 +306,93 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	}
 
 	return ApplyAndPersistMutation(ctx, t.Name(), mutation, prev, now)
+}
+
+// preservePatchReplacementStableItemCitationRefs repairs a precise patch-only
+// failure mode: a model replaces a list/table block, inserts or removes rows,
+// and shifts citation_ref by the row-position delta even though the citation
+// pool is inherited and the stable item itself is byte-identical. citation_ref
+// indexes the document citation pool, never the item row, so that shift silently
+// binds an unchanged claim to a neighbouring source line.
+//
+// The repair intentionally requires all of the following:
+//   - the citation pool is inherited (replace_citations is absent),
+//   - previous and replacement blocks share a stable non-empty block id,
+//   - previous and replacement items share a unique stable non-empty item id,
+//   - every item field except citation_ref is exactly equal, and
+//   - the new ref equals old ref plus that item's actual row-position delta.
+//
+// It does not inspect user/model prose, infer symbol identity, or choose a new
+// citation. Intentional citation edits that are not the exact row-delta pattern
+// remain model-owned and continue through the normal typed citation checks.
+func preservePatchReplacementStableItemCitationRefs(prev *types.AnswerDocumentV2, patch *types.AnswerDocumentV2Patch) (bool, []string) {
+	if prev == nil || patch == nil || patch.ReplaceCitations != nil || len(prev.Citations) == 0 || len(patch.ReplaceBlocks) == 0 {
+		return false, nil
+	}
+	prevBlocks := make(map[string]types.AnswerBlock, len(prev.Blocks))
+	duplicateBlocks := map[string]bool{}
+	for _, block := range prev.Blocks {
+		id := strings.TrimSpace(block.ID)
+		if id == "" {
+			continue
+		}
+		if _, exists := prevBlocks[id]; exists {
+			duplicateBlocks[id] = true
+			continue
+		}
+		prevBlocks[id] = block
+	}
+
+	var fields []string
+	for bi := range patch.ReplaceBlocks {
+		replacement := &patch.ReplaceBlocks[bi]
+		blockID := strings.TrimSpace(replacement.ID)
+		previous, ok := prevBlocks[blockID]
+		if !ok || duplicateBlocks[blockID] || len(previous.Items) == 0 || len(replacement.Items) == 0 {
+			continue
+		}
+		prevItems := make(map[string]struct {
+			index int
+			item  types.AnswerBlockItem
+		}, len(previous.Items))
+		duplicateItems := map[string]bool{}
+		for ii, item := range previous.Items {
+			id := strings.TrimSpace(item.ID)
+			if id == "" {
+				continue
+			}
+			if _, exists := prevItems[id]; exists {
+				duplicateItems[id] = true
+				continue
+			}
+			prevItems[id] = struct {
+				index int
+				item  types.AnswerBlockItem
+			}{index: ii, item: item}
+		}
+		for ii := range replacement.Items {
+			item := &replacement.Items[ii]
+			id := strings.TrimSpace(item.ID)
+			old, exists := prevItems[id]
+			if id == "" || !exists || duplicateItems[id] || old.item.CitationRef < 0 || old.item.CitationRef >= len(prev.Citations) {
+				continue
+			}
+			oldComparable := old.item
+			newComparable := *item
+			oldComparable.CitationRef = 0
+			newComparable.CitationRef = 0
+			if !reflect.DeepEqual(oldComparable, newComparable) {
+				continue
+			}
+			rowDelta := ii - old.index
+			if rowDelta == 0 || item.CitationRef != old.item.CitationRef+rowDelta {
+				continue
+			}
+			item.CitationRef = old.item.CitationRef
+			fields = append(fields, fmt.Sprintf("replace_blocks[%q].items[%q]→%d", blockID, id, old.item.CitationRef))
+		}
+	}
+	return len(fields) > 0, fields
 }
 
 func normalizeAnswerDocumentPatchIDSurface(patch *types.AnswerDocumentV2Patch) (bool, []string) {
