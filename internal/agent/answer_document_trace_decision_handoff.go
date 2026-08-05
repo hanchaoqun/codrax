@@ -19,6 +19,13 @@ func renderAnswerDocTraceDecisionHandoff(ctx *types.AgentContext) string {
 	if ctx == nil {
 		return ""
 	}
+	authority := answerDocRuntimeTraceGuidanceView(ctx)
+	// A generic runtime/log observation ledger can compile an empty projection
+	// partition. Only an actual typed trace source may activate this trace-only
+	// synthesis handoff; raw request or artifact prose never participates.
+	if !authority.RuntimeTrace {
+		return ""
+	}
 	set := types.CompileTraceCausalProjectionSet(answerDocObservationLedger(ctx))
 	var requestModel *types.RequestModel
 	if ctx.AnalysisIR != nil {
@@ -35,7 +42,7 @@ func renderAnswerDocTraceDecisionHandoff(ctx *types.AgentContext) string {
 	if ctx.Mutable != nil {
 		claims = ctx.Mutable.StableInvestigationRelationClaims()
 	}
-	return renderAnswerDocTraceDecisionHandoffSet(set, answerDocRuntimeTraceGuidanceView(ctx), claims)
+	return renderAnswerDocTraceDecisionHandoffSet(set, authority, claims)
 }
 
 func renderAnswerDocTraceDecisionHandoffSet(set types.TraceCausalProjectionSet, authority runtimeTraceGuidanceView, acceptedClaims ...[]types.AnswerRelationClaim) string {

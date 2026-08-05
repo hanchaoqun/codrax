@@ -16118,3 +16118,70 @@ B112 将 action capability registry 作为单一 action-kind authority，并在�
 - `EVAL-B111-ACTIONKIND1=implemented/full-relevant-pass/replay-next`。
 
 本批没有改 Trace 查询、显式时间窗、因果投影、自动补齐或双轴根因；没有按单个 action 名硬编码修复，也没有扫描用户请求、模型过程或最终答案原文作 hard gate。
+
+## 115. 2026-08-05 B113/B114 r36：Trace 决策尾界、runtime 引用合同与调用末端行为
+
+### 115.1 严格双并发与人工结论
+
+在 `main@bb4f676df` 构建冻结后，以 `PARALLEL=2` 严格并行恰好两个异构 case：
+
+- `trace_query_donghu_real_frame_multicausal`：runner PASS，208s；human FAIL；
+- `sr_java_call_chain`：runner PASS，138s；human FAIL。
+
+工件见 `eval/parallel_selected_summary_evalcampaign_b113_tracejava_replay_r36_20260805.md` 及 manual audit。两案 runner 都只覆盖声明式 oracle，
+没有捕获最终语义越证，故不能拿 2/2 PASS 代替人工正确性。
+
+Java 的调用边、容量守卫、五条 invocation anchor 与 class-participant Mermaid 均正确，证明 B107 diagram operation 修复已进入生产路径；一次成文拒绝是
+初稿漏 `edge_anchors` 后局部 patch 成功，不是合同矛盾。但源码 `AuditLog.record` 只有 `System.out.println`，答案仍写“写入磁盘/审计日志表”。
+`EVAL-B107-JAVACLAIM1` 因第二次复现从 model-fluctuation watch 升为 confirmed context-salience gap。
+
+Trace 的显式时间窗、状态五分账、根因席位、唤醒链、实际占用轴、既有规则可消除轴、覆盖边界和自动补齐完整存在；系统投影也正确保留
+`frame_causality=unproven`，没有替写模型正文。但模型仍宣称“直接根因”，跨不同 ThreadPool row 组合 D-state/IO 数值，并把有向唤醒路径升级成
+“双向强耦合”。这是 B104 同类第二个生产 witness，不能继续归为单次模型波动。
+
+### 115.2 `EVAL-B113-TRACEDEC1`（P1，B114 已施工）：正确 typed 限界被后置通用提示稀释
+
+Finalizer 已有 245KB 上下文与完整 `Trace Decision Inputs`，包含 `causal_conclusion=unproven`、`frame_evidence_status=absent`、
+双轴、row-local breakdown、typed-pair-only relation、禁止无授权跨行相加与 wakeup path 语义。问题不在数据不足，而在这段之后仍追加主值、Checklist、
+multi-topic 等结构提示，模型在真正发射前看到的最后边界不再是因果/关系 caliber。
+
+B114 在动态上下文尾部追加小型 `Final Trace Decision Boundary (Typed Facts; Model-Owned Conclusion)`：
+
+1. 只从最终 typed projection 与 evidence authority 读取 causal/frame ceiling 和两轴可用性；
+2. 明确实际占用、现有规则可消除量、已证 frame causality 是三个不同 caliber，不能互相替代，也不据并存声称物理独立；
+3. row-local breakdown 不跨 row，只有 exact typed relation/fold carrier 才能授权成员关系与加法；
+4. wakeup/temporal/candidate/caller-symbol 不自动铸造同步阻塞、锁 owner、post-wakeup preemption 或物理耦合；
+5. 明确模型拥有诊断、排序、优化方向和措辞。该段不创建 AnswerBlock、不读/拒绝/修改答案 prose。
+
+显式窗口、系统补齐和因果投影继续复用同一 `RuntimeTraceReportMaterializationAllowed` authority；bounded fact request 仍不被扩大为完整因果综合。
+
+### 115.3 `EVAL-B113-RUNTIMECITE1` / `TRACELOG1`（P1，B114 已施工）：同 prompt 引用冲突与日志串入 Trace 合同
+
+runtime grounding disposition 已明确 artifact observation 不需要 current-repo citation，但 multi-topic 尾句无条件要求每节 citation，形成同一上下文的直接矛盾。
+现改为：runtime-only 每节保留附件 provenance；只有独立 typed current-source anchor 直接支持该节时才加 repo citation。普通 source-backed multi-topic 保持原合同。
+
+同时确认纯日志 ledger 也会编出空 projection partition，旧 `renderAnswerDocTraceDecisionHandoff` 因只看 projection 数量而给日志任务注入 Trace 决策合同。
+B114 增加 typed runtime-trace source 准入；不扫描 artifact 名、用户原文或日志正文。日志与 Trace 的上下文职责重新隔离。
+
+### 115.4 `EVAL-B107-JAVACLAIM1`（P1，B114 已施工待回放）：末端名称推断覆盖已读实现
+
+系统已经给出 `AuditLog.java:5-6` definition/mechanism 证据，但最终模型只引用 caller line 并把 endpoint 名称扩写成数据库/磁盘行为。B114 对所有语言的
+QFCallChain 在 prompt 尾部追加同一证据边界：call site 仅证明 caller→callee；callee body、side effect、storage medium、sync/completion semantics 必须
+由独立 grounded endpoint implementation 支持并在需要时引用。若无 body proof，只能说链到达/调用 endpoint。
+
+这是 soft evidence calibration，不按 Java、AuditLog、println、数据库等词做特例，也不以答案正文扫描 hard-reject 模型。
+
+### 115.5 其余发现、验证与状态
+
+- `EVAL-B113-DIAGRAMOP1=production-pass/closed`；
+- `EVAL-B113-TRACEDEC1=implemented/full-agent-pass/replay-next`；
+- `EVAL-B113-RUNTIMECITE1=implemented/full-agent-pass`；
+- `EVAL-B113-TRACELOG1=implemented/full-agent-pass`；
+- `EVAL-B107-JAVACLAIM1=implemented-soft-boundary/replay-next`；
+- `EVAL-B113-TRACEALIASROW1=confirmed/P1-next`：同一物理 span 仍可能以 original/attached alias 出现在明细两次；
+- `EVAL-B113-ANASYM1=confirmed-one-witness/P1-watch`：relation_map 已证 method symbol 与 analyzer subtopic census 的解析面不同源。
+
+结构回归覆盖：Trace 尾界晚于通用 Checklist、bounded fact 不扩域、call-chain 尾界语言无关、runtime-only multi-topic 不要求伪 repo citation、纯日志不发
+Trace 决策段；`go test ./internal/agent -count=1` PASS。
+
+本批没有修改 Trace 查询、root rank、唤醒链、窗内可消除量、因果投影、系统补齐或最终答案持久化；系统仍只给模型精确事实与软引导，不接管模型结论。

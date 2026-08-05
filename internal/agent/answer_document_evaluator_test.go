@@ -5352,6 +5352,51 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRuntimeGrounding
 	}
 }
 
+func TestAnswerDocumentEvaluator_RuntimeOnlyMultiTopicDoesNotDemandRepoCitations(t *testing.T) {
+	mut := types.NewMutableState("runtime artifact only")
+	mut.SetLogTriage(&types.LogBundle{Errors: []types.LogError{{Type: "RuntimeError", Frames: []types.LogFrame{{Func: "synthetic_frame"}}}}})
+	mut.SetEvidenceFloorWaiver(&types.EvidenceFloorWaiver{
+		Reason: types.EvidenceFloorWaiverNoRepoIntersection, Rationale: "different deployed build",
+	})
+	mut.RetainEvidenceFloorWaiver(true)
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario:  types.ScenarioGeneric,
+				Intent:    types.IntentExplain,
+				LogTriage: mut.LogTriage(),
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
+					Confidence:        0.9,
+				},
+				SubTopics: []types.SubTopic{{Summary: "runtime symptom"}, {Summary: "runtime cause boundary"}},
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+	}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Answer Structure (multi-topic)",
+		"preserve the attached-artifact provenance in each section",
+		"do not invent current-repo citations",
+		"only when a separate typed current-source anchor directly supports that section",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("runtime-only multi-topic citation boundary missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "\nProvide citations for each section.\n") {
+		t.Fatalf("runtime-only multi-topic prompt retained contradictory repo citation demand:\n%s", prompt)
+	}
+	for _, forbidden := range []string{"## Trace Decision Inputs", "## Final Trace Decision Boundary"} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("log-only multi-topic prompt leaked trace-only contract %q:\n%s", forbidden, prompt)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_PreciseRuntimeSourceDoesNotRenderObservationOnly(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.SetLogTriage(&types.LogBundle{

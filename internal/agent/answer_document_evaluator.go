@@ -827,7 +827,11 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 			for i, st := range ctx.AnalysisIR.RequestModel.SubTopics {
 				fmt.Fprintf(&b, "%d. %s\n", i+1, st.Summary)
 			}
-			b.WriteString("\nProvide citations for each section.\n\n")
+			if runtimeObservationOnlyForAnswerDoc(ctx) {
+				b.WriteString("\nFor runtime-artifact sections, preserve the attached-artifact provenance in each section; do not invent current-repo citations. Add a current-repo citation only when a separate typed current-source anchor directly supports that section.\n\n")
+			} else {
+				b.WriteString("\nProvide citations for each section.\n\n")
+			}
 
 			// Anchor skeleton: only the typed generic multi-topic shape may
 			// materialize a visible per-topic code-anchor block. History/VCS and
@@ -857,6 +861,22 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 		}) {
 			return b.String()
 		}
+	}
+
+	// The large dynamic prompt contains evidence, schema help, and presentation
+	// structure after the first decision handoff. Re-state only the final typed
+	// decision boundary at the tail so later generic guidance cannot become more
+	// salient than the evidence caliber. These are soft, typed-input prompts:
+	// neither helper inspects model prose nor creates/replaces answer blocks.
+	if !trace.appendSection(&b, "call_chain_final_evidence_boundary", func() string {
+		return renderAnswerDocCallChainFinalEvidenceBoundary(view)
+	}) {
+		return b.String()
+	}
+	if !trace.appendSection(&b, "runtime_trace_final_decision_boundary", func() string {
+		return renderAnswerDocTraceFinalDecisionBoundary(ctx)
+	}) {
+		return b.String()
 	}
 
 	return b.String()
