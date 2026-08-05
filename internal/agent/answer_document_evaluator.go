@@ -1252,8 +1252,16 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 					)
 				}
 			case types.BlockSection:
+				claimUse := "When the Required Answer Blocks entry lists allowed `claim_form` values, copy one of those exact values into block-level `claim_uses[]`; do not substitute a generic source-code claim form."
+				if len(br.AcceptableClaimForms) > 0 {
+					forms := make([]string, 0, len(br.AcceptableClaimForms))
+					for _, form := range br.AcceptableClaimForms {
+						forms = append(forms, string(form))
+					}
+					claimUse = fmt.Sprintf("Attach block-level `claim_uses[]` using one of these exact allowed forms: %s.", renderQuotedList(forms))
+				}
 				items = append(items,
-					"Emit one `section` block per layer / component / topic, each with a grounded `title` and prose `text`. When the user-section contract lists allowed `claim_form` values for this block, attach block-level `claim_uses=[{claim_form=definition_fact}]` (plural array). Section blocks have no built-in citation field — if the section needs a citation, restructure to put the cited fact in a child scalar/list block where citation_ref lives natively.",
+					"Emit one `section` block per layer / component / topic, each with a grounded `title` and prose `text`. "+claimUse+" Section blocks have no built-in citation field — if the section needs a citation, restructure to put the cited fact in a child scalar/list block where citation_ref lives natively.",
 				)
 			case types.BlockTable:
 				items = append(items,
@@ -3054,10 +3062,23 @@ func renderQuotedList(values []string) string {
 
 func renderAnswerDocFacetCoverage(ctx *types.AgentContext) string {
 	plan := answerSurfacePlan(ctx)
-	if plan == nil || plan.FacetCoverage == nil {
+	if plan == nil {
 		return ""
 	}
+	// The semantic view applies typed family/runtime overrides after the
+	// surface plan is compiled (for example demoting current_code_path when a
+	// trace-only answer has no current-source lane). Rendering the original
+	// plan here made the prompt teach a HARD facet that the block contract and
+	// validator had already withdrawn. Read the same post-override carrier as
+	// the validator so JSON teaching and execution cannot diverge.
+	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
 	fc := plan.FacetCoverage
+	if view != nil && view.FacetCoverage != nil {
+		fc = view.FacetCoverage
+	}
+	if fc == nil {
+		return ""
+	}
 	if len(fc.Required) == 0 && len(fc.Optional) == 0 {
 		return ""
 	}
@@ -3067,7 +3088,6 @@ func renderAnswerDocFacetCoverage(ctx *types.AgentContext) string {
 	// the block where it should live. Reads view.RequiredBlocks /
 	// OptionalBlocks (already in the prompt above) without
 	// duplicating typed values.
-	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
 	facetToBlocks := map[types.AnswerFacetKind][]types.AnswerBlockKind{}
 	if view != nil {
 		collect := func(blocks []types.BlockRequirement) {
@@ -7578,9 +7598,9 @@ func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 	var b strings.Builder
 	b.WriteString("## Typed Answer Support Lanes\n\n")
 	if supportPlanAllowsBlockKind(plan, string(types.BlockDecision)) {
-		b.WriteString("- Build the principal `summary` block, principal `ordered_list` items, and any typed `decision` verdict only from the lanes below.\n")
+		b.WriteString("- Build the principal answer blocks and any typed `decision` verdict only from the lanes below; use only block kinds each lane explicitly allows.\n")
 	} else {
-		b.WriteString("- Build the principal `summary` block and principal `ordered_list` items only from the lanes below.\n")
+		b.WriteString("- Build the principal answer blocks only from the lanes below; use only block kinds each lane explicitly allows.\n")
 	}
 	b.WriteString("- Treat each lane's `Allowed block kinds` as a hard surface boundary. If a lane does not list `ordered_list`, do not turn its entries into principal hop items. If a lane does not list `diagram`, do not turn its entries into diagram edges or nodes.\n\n")
 	b.WriteString("- In principal blocks, put inline backticks around code / file / config surfaces only when that exact surface is visible in a lane entry, a lane `typed_surface` / `surface_terms` value, a structured aggregate fact value/dimension, an exact target, or the cited source line. Names that appear only in `Evidence note`, retry diagnostics, raw tool output, search hints, or nearby context are background: use plain prose for them or omit them.\n")

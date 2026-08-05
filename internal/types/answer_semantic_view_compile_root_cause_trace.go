@@ -135,6 +135,34 @@ func compileRootCauseTrace(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSeman
 
 func rootCauseTracePrincipalListRequirement(ir *AnalysisIR, plan *AnswerSurfacePlan) BlockRequirement {
 	if runtimeObservationOnly(plan) {
+		// A runtime-only causal diagnosis is not a stack trace or a source-code
+		// call chain. Its natural principal carrier is often a set of titled
+		// diagnostic layers (direct wait/wakeup, on-chain causes, resource
+		// background, representative windows). Requiring ordered_list here made
+		// the JSON teaching contradict the accepted section-shaped answer and
+		// forced trace-only facts through current-code hop language. The typed
+		// RuntimeQuestionProfile decides this branch; request/answer prose is not
+		// inspected. Keep lists/tables/bullets as equivalent honest carriers.
+		if ir != nil && ir.RequestModel.RuntimeQuestionProfile != nil &&
+			ir.RequestModel.RuntimeQuestionProfile.Scope == RuntimeQuestionScopeCausalDiagnosis {
+			return BlockRequirement{
+				Kind:             BlockSection,
+				AlternativeKinds: []AnswerBlockKind{BlockOrderedList, BlockTable, BlockBulletList},
+				MinCount:         1,
+				MaxCount:         0,
+				Required:         true,
+				FacetIDs: []string{
+					string(FacetObservedArtifactFact),
+				},
+				AcceptableClaimForms: []ClaimForm{
+					ClaimExternalObservation,
+				},
+				Rationale: "Present the principal runtime diagnosis in the clearest grounded carrier: " +
+					"titled sections for diagnostic layers, a table for comparable rows, or a list for an ordered observation path. " +
+					"Keep every claim in attached-artifact provenance and do not invent current-source hops or citations.",
+				SurfaceRoleHint: SurfacePrincipal,
+			}
+		}
 		return BlockRequirement{
 			Kind:     BlockOrderedList,
 			MinCount: 1,

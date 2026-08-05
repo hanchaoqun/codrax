@@ -16834,3 +16834,52 @@ handoff：旧实现只有在同一轮还提取到 concrete value 时，才在内
 状态：`EVAL-B122-EXECGRAPH1=partially-implemented/C1-discover+C2-cross-language-typed-relations/full-related-pass`；
 剩余 C3 是在真实复放后判断是否需要为 typed-complete dynamic dispatch 增加独立 completion disposition，不能用
 model rationale 自证或宽放 static directed-path gate。
+
+### 123.9 B124 r42：模型正文在场，但 Trace JSON 教学与执行合同不同源
+
+在 `main@97c11a993` 冻结构建后，严格并行恰好两个 case：
+
+- `sr_py_registry_dispatch`：134s，runner PASS / human PASS，context 20%，finalizer reject=2；
+- `trace_query_donghu_real_frame_multicausal`：163s，runner PASS / human FAIL，context 39%，finalizer reject=0。
+
+Python 答案已正确区分运行时 `JsonPlugin`、`resolve` 返回的实例与
+`TimestampMixin -> ValidationMixin -> BasePlugin` 定义 owner 链。两次拒绝只发生在可选 Mermaid 图把动态绑定画成
+静态 `run_pipeline -> JsonPlugin.handle` 后；模型最终删图，正文仍完整。这证明 C1/C2 已显著缓解原 288s/16 轮
+失控，但真实回放也发现 Python extractor 的通用断点：`decorated_definition` 调用 `pyExtractClass` 时丢弃返回的
+relations，因此带 decorator 的 class 不论单继承、多继承，都会缺 declared-type 图层。capsule 同时纳入与分派端点
+无关的 `content_type` return 行，仍有认知噪声。
+
+Trace 回放证明 B121 模型所有权红线保持：模型 principal 正文在首部，系统因果投影与自动补齐只是事实附录；JSON
+合法、无 salvage、无系统替换。但模型在同一答案内越过 typed ceiling：把 `causal_conclusion=unproven` 写成确定帧因，
+把 34/36 次主导唤醒写成全部，把 wakeup/runnable 写成直接阻塞，并对明确禁止相加的同方向席和不同 IO 口径自行
+求和，还扩写无 typed row 支持的时间窗。尾部已有紧凑 `Final Trace Decision Boundary`，继续添加同义警告不会根修。
+
+更关键的系统矛盾已亲验：root-cause runtime-only dispatch 的 block compiler 已用 artifact observation 车道，Facet
+renderer 却从未应用 override 的原始 `AnswerSurfacePlan.FacetCoverage` 发射 `current_code_path=HARD`；同一 prompt 又说明
+“current checkout/source evidence is not required”。此外，通用异常栈模板硬要求 `ordered_list`，模型按客户要求写分层
+sections 后，validator 又把缺 list 仅记 advisory。JSON schema、Required Blocks、Facet、Support Lane、Submission
+Checklist 因而不是同一份 compiled contract，属于红线级系统自相矛盾，不是模型波动。
+
+本批 `EVAL-B124-CONTRACTSST1` / `EVAL-B124-TRACEBLOCK1` 根修：
+
+1. Required Answer Facets 改读 validator 同源的 post-override `AnswerSemanticView.FacetCoverage`；runtime-only 下
+   `current_code_path` 只保留 optional enrichment，不再发射 HARD/MUST declare；
+2. typed `runtime_question_profile.scope=causal_diagnosis` 且 runtime-only 时，principal carrier 改为
+   `section|ordered_list|table|bullet_list` 等价集合，首选 section 表达诊断分层；异常 stack 等非该 scope 继续保留
+   ordered list；
+3. observed-artifact support lane 同步允许 section/table，Support Lane 总则不再预设所有 principal 都是 ordered list；
+4. Submission Checklist 的 section `claim_uses` 从该 block requirement 的 `AcceptableClaimForms` 生成。Trace-only
+   section 因而只教 `external_observation`，不再手抄 `definition_fact` 与当前源码合同冲突。
+
+所有判定只读 typed runtime scope、grounding disposition、compiled view 与 claim-form enum；不扫描用户原文、模型思考、
+模型答案或最终 prose。显式窗 Trace 查询、因果投影、系统补齐、根因排序、唤醒链、两维根因与可消除量均未修改；
+系统仍不选择原因、不改写模型结论。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b124_jsonexec_r42_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b124_jsonexec_r42_20260805_manual_audit.md`。
+
+状态：`EVAL-B124-CONTRACTSST1=implemented/full-types-agent-pass`；
+`EVAL-B124-TRACEBLOCK1=implemented/full-types-agent-pass`；
+`EVAL-B124-PYDECREL1=confirmed/P1-next`；`EVAL-B124-CAPSULEFOCUS1=confirmed/P1-next`；
+`EVAL-B124-TRACECOGNITION1=confirmed/P1-after-context-audit`；
+`EVAL-B124-JSONTEACH2=partially-implemented/compiled-view-single-source-next-replay`。

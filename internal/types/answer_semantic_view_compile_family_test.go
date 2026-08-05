@@ -155,6 +155,41 @@ func TestCompileRootCauseTrace_ExternalOnlyPrincipalListUsesObservedArtifact(t *
 	}
 }
 
+func TestCompileRootCauseTrace_RuntimeOnlyCausalDiagnosisAcceptsLayeredCarriers(t *testing.T) {
+	ir := &AnalysisIR{RequestModel: RequestModel{
+		Intent:                 IntentRootCause,
+		LogTriage:              &LogBundle{Errors: []LogError{{Type: "trace observation"}}},
+		RuntimeQuestionProfile: &RuntimeQuestionProfile{Scope: RuntimeQuestionScopeCausalDiagnosis},
+	}}
+	plan := &AnswerSurfacePlan{
+		RuntimeGroundingDisposition: SystemRuntimeGroundingDisposition(ir.RequestModel.LogTriage, nil),
+		CurrentSourceEvidenceOrigin: false,
+	}
+	view := BuildAnswerSemanticView(ir, plan)
+	var principal *BlockRequirement
+	for i := range view.RequiredBlocks {
+		if view.RequiredBlocks[i].Kind == BlockSection {
+			principal = &view.RequiredBlocks[i]
+			break
+		}
+	}
+	if principal == nil {
+		t.Fatalf("runtime-only causal diagnosis must use a layered principal carrier: %+v", view.RequiredBlocks)
+	}
+	for _, kind := range []AnswerBlockKind{BlockSection, BlockOrderedList, BlockTable, BlockBulletList} {
+		if !principal.AcceptsKind(kind) {
+			t.Fatalf("runtime causal diagnosis carrier must accept %q: %+v", kind, principal)
+		}
+	}
+	if containsString(principal.FacetIDs, string(FacetCurrentCodePath)) {
+		t.Fatalf("runtime-only diagnosis must not inherit current-code facets: %+v", principal)
+	}
+	if !containsString(principal.FacetIDs, string(FacetObservedArtifactFact)) ||
+		!containsClaimForm(principal.AcceptableClaimForms, ClaimExternalObservation) {
+		t.Fatalf("runtime-only diagnosis must stay in observed-artifact authority: %+v", principal)
+	}
+}
+
 func TestCompileRootCauseTrace_CurrentStatusDiagnosticRequiresDecisionBlock(t *testing.T) {
 	ir := irForRootCauseTrace()
 	ir.AnswerContract.CurrentStatusDiagnostic = &CurrentStatusDiagnosticContract{

@@ -20,7 +20,7 @@ import (
 func compileObservedArtifactSupportLane(rm RequestModel, plan *AnswerSurfacePlan) AnswerSupportLane {
 	allowedBlocks := []string{"summary", "caveat"}
 	if runtimeObservationOnly(plan) {
-		allowedBlocks = []string{"summary", "ordered_list", "bullet_list", "caveat"}
+		allowedBlocks = []string{"summary", "section", "ordered_list", "bullet_list", "table", "caveat"}
 		if diagramPreferredByEvidence(plan) {
 			allowedBlocks = append(allowedBlocks, "diagram")
 		}
@@ -44,7 +44,7 @@ func compileObservedArtifactSupportLane(rm RequestModel, plan *AnswerSurfacePlan
 			"the artifact observation or current-source proof.",
 	}
 	if runtimeObservationOnly(plan) {
-		lane.Guidance += " For an external-only runtime artifact with no current-repo intersection, this lane is allowed to carry the principal answer list itself: each item should be an observed frame / event / span from the artifact with artifact provenance rather than a current-repo citation. Do not substitute current-repo analysis helpers, resolver functions, or nearby implementation details for the artifact facts the user asked about."
+		lane.Guidance += " For an external-only runtime artifact with no current-repo intersection, this lane is allowed to carry the principal answer itself as grounded sections, a table, or a list. Keep every row/item/section in artifact provenance rather than adding current-repo citations. Do not substitute current-repo analysis helpers, resolver functions, or nearby implementation details for the artifact facts the user asked about."
 		if externalObservationSeedsContainKind(plan.ExternalObservationSeeds, "error_chain") {
 			lane.Guidance += " When an entry says `runtime cause chain`, preserve its direction: the upstream/caused-by error happened first and the top-level error is the wrapper or re-raise."
 		}

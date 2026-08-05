@@ -161,10 +161,10 @@ func TestBuildAnswerSupportPlan_ExternalOnlyObservedArtifactCanBePrincipalList(t
 	if observed == nil {
 		t.Fatal("expected observed artifact lane")
 	}
-	if got, want := strings.Join(observed.AllowedBlocks, ","), "summary,ordered_list,bullet_list,caveat"; got != want {
+	if got, want := strings.Join(observed.AllowedBlocks, ","), "summary,section,ordered_list,bullet_list,table,caveat"; got != want {
 		t.Fatalf("external-only observed lane allowed blocks = %q, want %q", got, want)
 	}
-	if !strings.Contains(observed.Guidance, "principal answer list") ||
+	if !strings.Contains(observed.Guidance, "principal answer itself as grounded sections, a table, or a list") ||
 		!strings.Contains(observed.Guidance, "Do not substitute current-repo analysis helpers") {
 		t.Fatalf("external-only observed guidance should forbid helper substitution, got: %q", observed.Guidance)
 	}

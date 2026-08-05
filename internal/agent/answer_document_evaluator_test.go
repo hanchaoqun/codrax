@@ -6074,6 +6074,50 @@ func TestAnswerDocumentEvaluator_RuntimeObservationOnlySuppressesRepoEnrichment(
 	}
 }
 
+func TestAnswerDocumentEvaluator_RuntimeCausalDiagnosisUsesPostOverrideFacetAndLayeredCarrier(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.SetLogTriage(&types.LogBundle{Errors: []types.LogError{{Type: "trace observation"}}})
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:                 types.IntentRootCause,
+			Scenario:               types.ScenarioRootCause,
+			LogTriage:              mut.LogTriage(),
+			DiagnosticProfile:      types.DiagnosticIntentProfile{IsDiagnostic: true},
+			RuntimeQuestionProfile: &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeCausalDiagnosis},
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+				ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
+				SourceQuotes:      []string{"trace only"},
+				Confidence:        1,
+			},
+		}},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"**section/ordered_list/table/bullet_list** (1+)",
+		"Present the principal runtime diagnosis in the clearest grounded carrier",
+		"Allowed block kinds: summary, section, ordered_list, bullet_list, table, caveat",
+		"Build the principal answer blocks only from the lanes below",
+		"exact allowed forms: [\"external_observation\"]",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("runtime causal JSON teaching missing %q:\n%s", want, prompt)
+		}
+	}
+	for _, forbidden := range []string{
+		"**Must declare (emit-time rejection if any are missing from every block's `facet_ids` and `claim_uses[].facet_id`):** `\"current_code_path\"`",
+		"**HARD**: Current code path",
+		"Emit the principal `ordered_list` block with `items[]` of ordered logical hops",
+		"claim_uses=[{claim_form=definition_fact}]",
+	} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("runtime-only causal JSON teaching retained contradictory source/hop obligation %q:\n%s", forbidden, prompt)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_LogSourceDriftHonorsRuntimeDisposition(t *testing.T) {
 	plan := &types.AnswerSurfacePlan{
 		RuntimeGroundingDisposition: &types.RuntimeGroundingDisposition{
