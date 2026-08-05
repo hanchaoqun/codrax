@@ -22,9 +22,13 @@ func (p *CallChainEndpointProfile) Active() bool {
 		!callChainEndpointHintLooksLikePath(source) && !callChainEndpointHintLooksLikePath(sink)
 }
 
-// NormalizeCallChainEndpointProfile validates the ordered carrier only against
-// analyzer fields whose request provenance was already checked. It never reads
-// RawRequest or infers direction from candidate order.
+// NormalizeCallChainEndpointProfile validates the ordered carrier's structural
+// shape. Request mention is retained only as a soft provenance warning: one
+// end of a directional request may be described by role/language/layer (for
+// example "the Rust implementation") and resolved to a concrete symbol during
+// typed pre-scan. Rejecting that concrete symbol here forces the analyzer to
+// misclassify a real call chain as a generic mechanism. Final source/sink and
+// path claims remain fail-closed on grounded evidence downstream.
 func NormalizeCallChainEndpointProfile(in *CallChainEndpointProfile, requestMentioned []string) (*CallChainEndpointProfile, string) {
 	if in == nil || (strings.TrimSpace(in.Source) == "" && strings.TrimSpace(in.Sink) == "") {
 		return nil, ""
@@ -43,7 +47,7 @@ func NormalizeCallChainEndpointProfile(in *CallChainEndpointProfile, requestMent
 		}
 	}
 	if !allowed[strings.ToLower(profile.Source)] || !allowed[strings.ToLower(profile.Sink)] {
-		return nil, "call_chain_endpoints source and sink must both come from request-mentioned typed entities"
+		return profile, "call_chain_endpoints includes a concrete endpoint resolved beyond request-mentioned identities; preserve the ordered investigation target, but require grounded endpoint/path evidence before any answer claim"
 	}
 	return profile, ""
 }

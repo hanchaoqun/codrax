@@ -838,17 +838,17 @@ func TestEmitAnalysis_SourceCallChainAmbiguousEntitiesRequireExactEndpointPair(t
 		t.Fatalf("entity/exact-target order must not rewrite typed direction: %q,%q,%t", source, sink, ok)
 	}
 
-	invented := strings.Replace(withExact,
+	discovered := strings.Replace(withExact,
 		`{"source":"buildAnalysisIR", "sink":"gate.Run"}`,
-		`{"source":"buildAnalysisIR", "sink":"Invented.run"}`,
+		`{"source":"buildAnalysisIR", "sink":"Resolved.run"}`,
 		1,
 	)
-	res, mu = runEmitAnalysisWithObjective(t, objective, invented)
-	if res.Success || !strings.Contains(res.Summary, "requires call_chain_endpoints.source") {
-		t.Fatalf("invalid direction carrier must trigger analyzer repair, got success=%t summary=%q", res.Success, res.Summary)
+	res, mu = runEmitAnalysisWithObjective(t, objective, discovered)
+	if !res.Success || mu.RequestModel() == nil {
+		t.Fatalf("ordered source-discovered endpoint should remain an evidence-gated investigation target, got success=%t summary=%q", res.Success, res.Summary)
 	}
-	if mu.RequestModel() != nil {
-		t.Fatalf("invalid endpoint analysis must not persist: %+v", mu.RequestModel())
+	if source, sink, ok := types.CallChainOrderedEndpointHints(*mu.RequestModel()); !ok || source != "buildAnalysisIR" || sink != "Resolved.run" {
+		t.Fatalf("discovered endpoint order was lost: %q,%q,%t", source, sink, ok)
 	}
 
 	withOneExact := strings.Replace(withEndpoints,
@@ -869,6 +869,34 @@ func TestEmitAnalysis_SourceCallChainAmbiguousEntitiesRequireExactEndpointPair(t
 	res, mu = runEmitAnalysisWithObjective(t, objective, twoEntity)
 	if !res.Success || mu.RequestModel() == nil {
 		t.Fatalf("exactly two typed symbol entities with ordered endpoints should succeed, got success=%t summary=%q", res.Success, res.Summary)
+	}
+}
+
+func TestEmitAnalysis_SourceCallChainSemanticSinkMayResolveToConcreteSymbol(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	objective := "FastTokenizer.tokenize 最终怎么调到 Rust 实现？请给出完整跨语言调用链"
+	payload := `{
+		"intent": "trace",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["FastTokenizer.tokenize", "Rust", "tokenize_bytes", "call"],
+		"entities": ["FastTokenizer.tokenize", "tokenize_bytes"],
+		"question_kind": "call_chain",
+		"predicate_axis": "call",
+		"call_chain_endpoints": {"source":"FastTokenizer.tokenize", "sink":"tokenize_bytes"}
+	}`
+	res, mu := runEmitAnalysisWithObjective(t, objective, payload)
+	if !res.Success || mu.RequestModel() == nil {
+		t.Fatalf("semantic sink resolved by current-checkout pre-scan must stay a call chain: success=%t summary=%q", res.Success, res.Summary)
+	}
+	if source, sink, ok := types.CallChainOrderedEndpointHints(*mu.RequestModel()); !ok || source != "FastTokenizer.tokenize" || sink != "tokenize_bytes" {
+		t.Fatalf("resolved semantic endpoint order=%q,%q,%t", source, sink, ok)
+	}
+	if !strings.Contains(res.Summary, "require grounded endpoint/path evidence") {
+		t.Fatalf("resolved endpoint must retain a non-authoritative provenance warning: %q", res.Summary)
 	}
 }
 

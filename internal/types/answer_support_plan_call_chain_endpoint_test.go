@@ -45,7 +45,7 @@ func TestCallChainOrderedEndpointProfileOwnsDirectionAndIdentityPriority(t *test
 	}
 }
 
-func TestNormalizeCallChainEndpointProfileUsesRequestMentionedTypedSet(t *testing.T) {
+func TestNormalizeCallChainEndpointProfilePreservesOrderedDiscoveredEndpointWithWarning(t *testing.T) {
 	profile, reason := NormalizeCallChainEndpointProfile(
 		&CallChainEndpointProfile{Source: "Sink.run", Sink: "Source.run"},
 		[]string{"Source.run", "Sink.run"},
@@ -54,10 +54,16 @@ func TestNormalizeCallChainEndpointProfileUsesRequestMentionedTypedSet(t *testin
 		t.Fatalf("normalization must preserve model-authored direction: profile=%+v reason=%q", profile, reason)
 	}
 	if got, reason := NormalizeCallChainEndpointProfile(
-		&CallChainEndpointProfile{Source: "Source.run", Sink: "Invented.run"},
+		&CallChainEndpointProfile{Source: "Source.run", Sink: "Resolved.run"},
 		[]string{"Source.run", "Sink.run"},
+	); got == nil || got.Source != "Source.run" || got.Sink != "Resolved.run" || reason == "" {
+		t.Fatalf("source-discovered endpoint must remain ordered but soft-warned: profile=%+v reason=%q", got, reason)
+	}
+	if got, reason := NormalizeCallChainEndpointProfile(
+		&CallChainEndpointProfile{Source: "Source.run", Sink: "Rust implementation"},
+		[]string{"Source.run"},
 	); got != nil || reason == "" {
-		t.Fatalf("non-request endpoint must be dropped: profile=%+v reason=%q", got, reason)
+		t.Fatalf("free-form semantic role is not a code endpoint: profile=%+v reason=%q", got, reason)
 	}
 }
 

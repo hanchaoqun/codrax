@@ -474,10 +474,10 @@ func buildEmitAnalysisSchema() {
 			},
 			"call_chain_endpoints": map[string]any{
 				"type":        "object",
-				"description": "Ordered source-code call-chain endpoints. For question_kind=call_chain with predicate_axis=call, set source to the caller/start endpoint and sink to the callee/destination endpoint exactly as named by the current request. This is the ONLY field whose endpoint order is directional; entities and exact_targets remain unordered identity sets. For all other shapes emit source=\"\" and sink=\"\".",
+				"description": "Ordered source-code call-chain endpoints. For question_kind=call_chain with predicate_axis=call, set source to the caller/start endpoint and sink to the callee/destination endpoint. Prefer exact current-request identities; when the request names an endpoint by semantic role/language/layer (for example a Rust implementation) and typed pre-scan resolves one concrete symbol, use that concrete symbol rather than downgrading the question to mechanism. A discovered endpoint remains an investigation target only: later grounded call/definition evidence must prove it before the answer may claim a path. This is the ONLY field whose endpoint order is directional; entities and exact_targets remain unordered identity sets. For all other shapes emit source=\"\" and sink=\"\".",
 				"properties": map[string]any{
-					"source": map[string]string{"type": "string", "description": "Caller/start endpoint copied from a current-request entity; empty when not applicable."},
-					"sink":   map[string]string{"type": "string", "description": "Callee/destination endpoint copied from a current-request entity; empty when not applicable."},
+					"source": map[string]string{"type": "string", "description": "Caller/start endpoint copied from a current-request identity or concretely resolved from its semantic endpoint role; empty when not applicable."},
+					"sink":   map[string]string{"type": "string", "description": "Callee/destination endpoint copied from a current-request identity or concretely resolved from its semantic endpoint role; empty when not applicable."},
 				},
 				"required":             []string{"source", "sink"},
 				"additionalProperties": false,
@@ -2676,7 +2676,7 @@ func validateRuntimeArtifactCallChainConsistency(
 // validateSourceCallChainEndpointDeclaration prevents unordered identity sets
 // from silently becoming directional source/sink authority later in
 // exploration. Every non-scalar source-code call chain must carry the ordered,
-// request-validated endpoint profile. When three or more symbol hints are in
+// structurally valid endpoint profile. When three or more request symbol hints are in
 // scope, exact_targets must additionally identify the endpoint pair and keep
 // intermediate/context symbols out of the principal target set. Runtime
 // artifact call chains use RuntimeTargets and have their own consistency
@@ -2698,7 +2698,7 @@ func validateSourceCallChainEndpointDeclaration(
 		return ""
 	}
 	if !profile.Active() {
-		return "source-code question_kind=call_chain with predicate_axis=call requires call_chain_endpoints.source and call_chain_endpoints.sink copied from request-mentioned typed entities; entities and exact_targets are unordered identity sets and cannot supply call direction"
+		return "source-code question_kind=call_chain with predicate_axis=call requires call_chain_endpoints.source and call_chain_endpoints.sink as an explicit ordered pair; entities and exact_targets are unordered identity sets and cannot supply call direction"
 	}
 	exactEndpoints := types.CallChainRequestedEndpointHints(types.RequestModel{
 		AnalyzerHints: types.AnalyzerHints{MentionedEntities: exactTargets},

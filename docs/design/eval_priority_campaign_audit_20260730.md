@@ -15795,3 +15795,52 @@ Trace 专页没有被最终任务级 receipt 集选中，于是可见状态与 t
 - `EVAL-B104-OPLIST1=implemented/full-package-pass`；
 - `EVAL-B104-OPTASKCOV1=implemented/full-package-pass`；
 - `EVAL-B104-TRACECLAIM1=model-fluctuation/replay-watch`。
+
+## 109. 2026-08-05 B105 r31：operation 覆盖修复获正证；语义端点与源码端点的准入合同统一
+
+### 109.1 严格双并发与人工结论
+
+在 `main@ccef37f60` 构建冻结后，以 `PARALLEL=2` 严格并行恰好两个异构 case：
+
+- `operation_web_manual_summary`：runner PASS / human PASS，135s；
+- `mr_poly_binding_chain`：runner PASS / human FAIL，230s，5 个 Explorer midloop、3 次 Finalizer reject/patch，最大 context 21%。
+
+工件见 `eval/parallel_selected_summary_evalcampaign_b105_operationpoly_r31_20260805.md` 及 manual audit。本轮未运行 Trace；以下改动不进入
+RootCauseTrace、显式时间窗、双轴根因、因果投影或自动补齐，也不扫描用户/模型/答案 prose 作答案 hard gate。
+
+### 109.2 B104 operation 修复获得生产正证
+
+operation 最终 typed event 为 `status=complete + material_coverage_status=complete`，并绑定三个已记录的 receipt/source member；可见答案不再被全历史未消费辅助
+payload 强插“材料覆盖未完全验证”。B104 的 task-level authority 与多值 runner 解码均关闭。模型在完整材料已到位后仍多做一次失败 regex 和 `ls/head`，但只有单 witness，
+现有 prompt 已提供完整覆盖语义，暂按效率/模型波动观察，不增加命令或用户文本硬门。
+
+### 109.3 `EVAL-B105-ENDPOINTDISC1`（P0）：语义端点被 request-verbatim 准入门迫使降级
+
+跨语言题明确要求 `FastTokenizer.tokenize -> Rust 实现` 的完整调用链。Analyzer 通过当前 checkout 的 typed pre-scan 已解析出具体 sink
+`tokenize_bytes`，先后两次正确尝试 `question_kind=call_chain`；旧归一化器却要求 source/sink 都逐字出现在用户输入，把 discovered sink 当成无权端点硬拒。
+模型最终降级为 `mechanism`，导致仅在 QFCallChain 激活的全语言 call-edge evidence guide 未进入 Explorer 上下文。Explorer 虽读到
+`core-rs/src/lib.rs:42` 的 wrapper→core 与 `:13` 的 core→`best_merge`，却没有发射同向 typed call rows；图门正确拒绝无证箭头，最终图只剩
+Python→FFI，并错误注明 Rust 内部“无法从源码逐行追踪”。正文/列表较完整不能弥补图层与源码相矛盾，人工判 FAIL。
+
+### 109.4 通用修复：方向意图、调查端点、事实证明三层分权
+
+根修没有放松 diagram/call-edge hard gate，而是统一 Analyzer 的互相冲突合同：
+
+1. 当前请求决定 `source -> sink` 的语义方向；`call_chain_endpoints` 仍是唯一有序载体，无序 entity/exact-target 不获方向权；
+2. 当请求用语言、层级或角色描述一端（如“Rust 实现”）时，current-checkout typed pre-scan 可把它具体化为结构合法的代码 identity，作为调查目标保留；不再用原始请求逐字成员关系作硬拒；
+3. 未逐字出现的 concrete endpoint 产生 soft provenance warning，不能证明符号存在、可达或任一调用边；所有最终 endpoint/path claim 仍必须由 grounded definition/call evidence fail-closed；
+4. free-form 角色文本不能直接成为 code endpoint；源码路径、空端、同端点和非 code identity 仍在结构层拒绝；
+5. current-question primacy 仍禁止历史/记忆抬升，只为“当前请求语义角色 → 当前 checkout 具体符号”增加窄例外，消除同一 prompt 中“必须调用链”与“所有字段逐字来自请求”的矛盾。
+
+该方案适用于 Go、Java/Kotlin、JavaScript/TypeScript/ArkTS、C/C++、Rust、Python、Ruby、Swift、Lua、Cangjie 等既有通用 call-edge guide，
+没有按 pyo3、`tokenize_bytes` 或某一语言硬编码，也不修改模型最终答案。
+
+### 109.5 验证与状态
+
+- 新增语义 sink `Rust 实现 -> tokenize_bytes` 的 production-shaped Analyzer admission pin；
+- 新增 endpoint 结构负臂、discovered endpoint soft-warning、current-question primacy 窄例外 pin；
+- 既有全语言 Explorer call-edge guide 测试通过；
+- `go test ./internal/types ./internal/skill ./internal/agent ./internal/tool -count=1`：PASS（`internal/tool` 161.223s）。
+
+状态：`EVAL-B105-ENDPOINTDISC1=implemented/full-relevant-pass/replay-next`；
+`EVAL-B104-OPLIST1=closed/production-replay`；`EVAL-B104-OPTASKCOV1=closed/production-replay`。

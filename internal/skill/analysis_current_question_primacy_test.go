@@ -82,6 +82,20 @@ func TestAnalysisSkill_CurrentQuestionPrimacyRulePresent(t *testing.T) {
 	}
 }
 
+func TestAnalysisSkill_CurrentQuestionPrimacyAllowsOnlyEvidenceGatedCallEndpointConcretization(t *testing.T) {
+	out := currentQuestionPrimacyBlock(t)
+	for _, want := range []string{
+		"current-checkout typed pre-scan",
+		"call_chain_endpoints",
+		"only selects an investigation target",
+		"NEVER proves",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("call endpoint concretization boundary missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestAnalysisSkill_GoalNamesSemanticPredicatesAndConfidence(t *testing.T) {
 	cfg := BuildAnalysisSkill()
 	if cfg == nil {
