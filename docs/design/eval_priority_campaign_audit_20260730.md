@@ -14776,3 +14776,58 @@ canonical 非根 scope 交给共享 `RawRequestExplicitlyMentionsEntity` lexical
 
 本批没有触碰 Trace query、显式时间窗、因果投影、自动补齐或根因双轴；两个新根修都约束 typed context authority，系统不得
 替写模型结论。
+
+## 95. 2026-08-04 B91 r17：repo-root 范围坐标丢失、来源类别污染与调用边接线复发
+
+### 95.1 严格并行与人工审计
+
+在 `main@0a7e7838e5ba` 构建后严格并行恰好两个 read case：
+
+- `qf_sequence_analyzer_gate`：runner/human FAIL，563s，19 次 read、33 个 Explorer 轮、6 次 Finalizer reject；
+- `qf_multi_member_set_count_caveat`：TIMEOUT/human FAIL，1201s，16 次 source_inventory lens、26 个 Explorer 轮、2 次
+  Finalizer reject。
+
+工件见 `eval/parallel_selected_summary_evalcampaign_b91_contract_replay_r17_20260804.md` 及对应 manual audit。本批未运行 Trace，
+不会据此改变 Trace 能力裁定。
+
+### 95.2 `EVAL-B91-SCOPECOORD1`（P0）：执行坐标覆盖了请求范围身份
+
+R2 的 exact request-path matcher 本身工作，但 production `repo_map` 在 `path=internal/analysis/criterion` 的 selected-sub-repo
+车道上，会把同路径 `scope` 归一为 `.`。`SourceInventoryObservation` 只保存归一化后的 operational `Scopes=[.]`，producer
+因此再无 repo-root path 可与当前请求精确合取。结果 completion 把全仓 `candidate_budget_truncated` 当作目标包债务，16 次 lens
+扩散到 `cmd`、fixture、`internal/skill`、thirdparty corpus 等无关目录。
+
+最优根修是分离两种坐标：保留现有 operational scopes 供 lens 执行，另由 repo_map engine 铸造 repo-root
+`QueryPathScopes`，在 selected-sub-repo 归一化前后按可信选中根重基。它是工具查询 provenance，不是 request authority；producer
+仍须同时满足 analyzer-stage 成功 observation、exact current-request canonical path token、非 root/wrong-stage 拒绝。禁止从
+模型 entity/quote、用户关键词或最终答案文本猜范围。
+
+### 95.3 `EVAL-B91-SOURCECLASS1`（P0）：production/test 语义未进入 typed rowset
+
+本轮目标包 inventory 返回 type=3、function=56、constant=30；其中 function=56 实际由 5 个 production 导出函数与 51 个
+`_test.go` 测试入口组成。Finalizer 首稿正确选择 5 个 production 函数，预发射合同却把 56 行全部当 principal roster，强制追加
+测试函数；一次 89 行 patch 的校验从 19:08:45 到 19:14:39，最终整例超时。这不是模型少列，而是系统没有给模型/合同提供
+“来源类别”这一精确信息。
+
+根修须在 parser/index 侧为 inventory row 携带 production/test/generated/fixture 等 typed source class，并让 analyzer/contract
+显式选择 source-class universe。Answer gate 只执行 typed 选择，不读取“公开”“生产”等用户原文关键词，更不能扫描模型答案删行。
+未选择类别时要保持现有全集语义；已选择 production 时测试入口既不进入 principal member_set，也不产生全仓修复债务。
+
+### 95.4 `EVAL-B91-CALLEDGEWIRE1`（P0）：正确限定边仍在生产接线被拒
+
+本轮前几稿的 `gate.RunWith -> gate.Run`、九条 `gate.RunWith -> gate.RunWith` 伪自环和未配对 reverse arrow 均应拒绝，不能为
+减少重试而放宽。独立问题是正确 `gate.Run -> gate.RunWith` 也三次被标 `call_edge_unproven`。Finalizer handoff 已打印 exact
+production evidence：`owner=gate.Run anchor=RunWith @ internal/analysis/gate/gate.go:135`；因此缺口位于 required diagram endpoint、
+anchor 或 resolver 的 canonical identity 接线，而非 owner stamp 缺失。修复必须保留 unique source:line、same owner、exact
+qualified caller 和 callee 约束，只统一结构化身份，不加 case-specific 名称豁免。
+
+### 95.5 `EVAL-B91-WAIVERRATIONALE1`（P1）：typed boundary 后仍有自由解释侧漏
+
+§94.2 已使 no-path success summary 以 exact endpoint boundary 开头，但 `appendPrincipalSpanWaiverCompletionNote` 仍把模型自由
+`waiver.Rationale` 追加在括号内。本轮该 rationale 错称 `gate.RunWith` 位于 `buildAnalysisIR` 外，虽未重新获得 typed path
+authority，仍污染工具历史。最小正确形是 rationale 保留在 Mutable 审计态，发布摘要只含 disposition/source/sink；模型继续基于
+typed triples 自己得出结论。
+
+任务顺序冻结：B91-A `SCOPECOORD1 + WAIVERRATIONALE1`；B91-B `CALLEDGEWIRE1`；B91-C `SOURCECLASS1`（先载体与
+默认兼容，再接 analyzer typed selection）；每批独立测试、提交、推送后再进行恰好两个用例回放。所有批次显式排除
+QFRootCauseTrace、Trace 窗口投影、自动补齐和系统代写结论。

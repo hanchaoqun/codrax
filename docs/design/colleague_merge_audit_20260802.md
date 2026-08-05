@@ -2102,3 +2102,22 @@ R2 已实现：共享 exact-entity boundary matcher 只核对 typed observation 
 保持。状态：`EVAL-B88-SCOPEPROV1-R2=implemented/full-tool-pass/replay-next`。
 
 两案均未改变 Trace 显式窗、因果投影、自动补齐和模型结论所有权。
+
+### §10.28 B91 production：scope 坐标丢失、test 污染与限定边接线复发
+
+`main@0a7e7838e5ba` 严格并行两个 read case 均失败：sequence 563s/6 次 Finalizer reject；bounded inventory 1201s 超时/
+16 次 lens。详细工件与人工结论见 eval campaign §95。
+
+新增三项高危与一项中危：
+
+1. `EVAL-B91-SCOPECOORD1=P0/confirmed`：selected-sub-repo 把 operational scope 归一成 `.`，observation 未保留 repo-root
+   query coordinate，故 exact request-path carrier 无法铸造并把全仓截断债误套到目标包；
+2. `EVAL-B91-SOURCECLASS1=P0/confirmed`：typed inventory 没有 production/test source class，5 个生产函数与 51 个测试入口
+   合成 function=56，Finalizer 被硬合同强制发布测试符号并超时；
+3. `EVAL-B91-CALLEDGEWIRE1=P0/confirmed`：handoff 已有 `owner=gate.Run anchor=RunWith @ gate.go:135` 的 production
+   evidence，正确 `gate.Run -> gate.RunWith` 仍被 diagram gate 拒；反向边与伪自环的拒绝仍属正确；
+4. `EVAL-B91-WAIVERRATIONALE1=P1/confirmed`：no-path typed success summary 后仍拼接模型自由 rationale，审计态与答案态
+   隔离不完整。
+
+施工按 B91-A/B/C 三批冻结。范围载体来自工具 query provenance，来源类别来自 parser/index；禁止以用户、模型或答案原文关键词
+作 hard gate。Trace 显式时间窗、因果投影、自动补齐与模型结论所有权不变。
