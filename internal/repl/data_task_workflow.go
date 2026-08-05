@@ -1002,6 +1002,9 @@ func normalizeDataTaskPlanShape(plan dataquery.TaskPlan) (dataquery.TaskPlan, []
 	if len(plan.Actions) > 0 && strings.TrimSpace(plan.Script) != "" && !dataTaskScriptHasResultEmitter(plan.Script) {
 		plan.Script = ""
 		reasons = append(reasons, "removed non-emitting top-level script from an actions[] plan")
+		if normalizeDataTaskMixedCarrierRemainderAsIntermediate(&plan) {
+			reasons = append(reasons, "marked the remaining non-terminal action batch continue_after=true after removing its conflicting top-level script")
+		}
 	}
 	if len(plan.Actions) == 0 && strings.TrimSpace(plan.Script) != "" {
 		if dataTaskPlanCanWrapTopLevelScriptAsCustomAction(plan) {
@@ -1044,6 +1047,9 @@ func normalizeDataTaskPlanShape(plan dataquery.TaskPlan) (dataquery.TaskPlan, []
 	if len(plan.Actions) > 0 && strings.TrimSpace(plan.Script) != "" {
 		plan.Script = ""
 		reasons = append(reasons, "removed stray top-level script from an actions[] plan; actions[] is the executable DAG contract")
+		if normalizeDataTaskMixedCarrierRemainderAsIntermediate(&plan) {
+			reasons = append(reasons, "marked the remaining non-terminal action batch continue_after=true after removing its conflicting top-level script")
+		}
 		if normalized, ok := normalizeDataTaskOversizedActionBatch(plan); ok {
 			plan = normalized
 			reasons = append(reasons, "trimmed oversized actions[] plan to the next executable batch")
@@ -1055,6 +1061,17 @@ func normalizeDataTaskPlanShape(plan dataquery.TaskPlan) (dataquery.TaskPlan, []
 		reasons = append(reasons, "trimmed oversized actions[] plan to the next executable batch")
 	}
 	return plan, reasons
+}
+
+func normalizeDataTaskMixedCarrierRemainderAsIntermediate(plan *dataquery.TaskPlan) bool {
+	if plan == nil || len(plan.Actions) == 0 || plan.ContinueAfter || dataworkflow.PlanMayProduceFinalAnswer(*plan, dataquery.Result{}) {
+		return false
+	}
+	plan.ContinueAfter = true
+	if strings.TrimSpace(plan.NextBatch) == "" {
+		plan.NextBatch = "continue from the typed action artifacts toward validation and final output projection"
+	}
+	return true
 }
 
 func normalizeDataTaskCompleteStatusWithExecutablePayload(plan *dataquery.TaskPlan) bool {

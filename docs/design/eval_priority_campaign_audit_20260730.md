@@ -17022,3 +17022,35 @@ action-kind 条件字段，而不是放宽执行校验或扫描模型文本兜�
 状态：`EVAL-B126-RELREADSTALE1=implemented/targeted+full-agent-pass`；
 `EVAL-B126-DATAJSONPLAN1=confirmed/P1-next`；
 `EVAL-B122-EXECGRAPH1-C3=observe-after-authority-fixes`。
+
+### 123.14 B126-B：Data/JSON 计划 schema、教学与运行合同单源
+
+对 r44 Data 日志继续追到原始 plan 后，`EVAL-B126-DATAJSONPLAN1` 不只是模型漏看提示，而是三处系统合同分叉：
+
+1. `optional_materials[].required` 在 model schema 中允许 true，draft parser 也把它铸成 blocking；同一个节点因而可以同时
+   表示“可选”和“必需”。内部 workflow 确实需要在 bounded batch 之间暂存 deferred required material，但该内部状态
+   不应由模型在 optional lane 直接铸造；
+2. tool schema 同时允许 `actions[]` 与 plan-level `script`。教学说二选一，运行时 `normalizeDataTaskPlanShape` 又删除
+   actions plan 上的顶层 script。r44 初始计划正是 `extract_fields + top-level script`，脚本被正确删除后，剩余
+   non-terminal action 仍保留 `continue_after=false`，导致半成品走向终局覆盖校验；
+3. `custom_transform` 的 action-level `script` 只在执行前 guard 才必需，schema 的 action item 只 required `kind`。
+   repair 模型因此能合法发出无 script 的 custom action，再消耗一次失败反馈学习实际合同。
+
+本批按同一结构事实收口，而非针对 `instructions.md/users.json` 拟合：
+
+- action item schema 用 `kind=custom_transform` conditional 要求非空 `actions[].script`，其余 typed kind 禁止 script；
+- plan-level script 明确只属于 script-only plan；actions 非空时必须 empty/omitted。prompt 尾部用四行紧凑
+  `current_plan_emission_contract` 重述同一合同，避免模型在 40KB+ action manual 中寻找关键执行形；
+- optional material schema 固定 `required=false`，draft conversion 忽略 model-authored optional required 位。workflow
+  自己构造的 deferred-required internal state 保留，不破坏多批覆盖闭包；
+- 初始 planner 直接看到既有 deterministic material floor 产出的
+  `typed_initial_required_runner_paths`。这是把系统已经执行的 exact candidate-path obligation 回显为 typed 清单，
+  不新增用户/模型/答案关键词扫描，也不从文件名猜业务角色；
+- 若模型仍混发 actions + top-level script，系统继续保守删除冲突脚本；但如果剩余 actions 不具备 typed final-output
+  能力，则确定性置 `continue_after=true` 并生成结构性 next-batch 说明。系统不迁移脚本、不猜模型计算意图、不生成答案；
+  后续由普通 evaluator/continuation 基于真实 artifact 决定下一批。
+
+回归覆盖 schema conditional、顶层/动作载体排他教学、optional 不能铸 blocking、typed 初始必需路径回显，以及混合载体
+删脚本后不能冒充终局。`go test ./internal/repl -count=1` PASS（31.235s）。
+
+状态：`EVAL-B126-DATAJSONPLAN1=implemented/full-repl-pass/replay-next`。

@@ -268,7 +268,7 @@ var dataTaskPlanTool = llm.ToolSchema{
               "usage_mode": {"type":"string", "enum":["script_consumed","text_evidence_consumed","planner_distilled","reference_only"]},
               "text_evidence_path": {"type":"string"},
               "distilled_notes": {"type":"array", "items":{"type":"string"}},
-              "required": {"type":"boolean"}
+              "required": {"type":"boolean", "const":false, "description":"Optional materials are never blocking in a model-authored plan. Use required_materials for a blocking obligation; the workflow may internally defer a required material between bounded batches without exposing that internal state here."}
             }
           },
           "description": "Relevant but non-blocking materials."
@@ -311,7 +311,7 @@ var dataTaskPlanTool = llm.ToolSchema{
           "purpose": {"type":"string"},
           "input_paths": {"type":"array", "items":{"type":"string"}},
           "output_artifact": {"type":"string"},
-          "script": {"type":"string"},
+          "script": {"type":"string", "description":"Required and non-empty only when kind=custom_transform; forbidden for every typed action kind. The script belongs on this action, never in the plan-level script field."},
           "params": {
             "type":"object",
             "additionalProperties": true,
@@ -319,13 +319,20 @@ var dataTaskPlanTool = llm.ToolSchema{
           },
           "success_criteria": {"type":"array", "items":{"type":"string"}}
         },
-        "required": ["kind"]
+        "required": ["kind"],
+        "allOf": [
+          {
+            "if": {"properties":{"kind":{"const":"custom_transform"}}, "required":["kind"]},
+            "then": {"required":["script"], "properties":{"script":{"type":"string", "minLength":1}}},
+            "else": {"properties":{"script":{"type":"string", "maxLength":0}}}
+          }
+        ]
       },
       "description": "Optional adaptive Data DAG action batch. Prefer actions for multi-step data work. material_inventory discovers objective candidate metadata; inspect_material profiles specific files; extract_records converts selected CSV/TSV/JSON/JSONL/text materials into bounded generic record samples; derive_rules turns task rules/constraints into typed generic rule records; derive_fields materializes generic derived fields such as parsed numbers, lower/upper/trimmed strings, maps, constants, substrings, or case_when conditional values on one existing record artifact while preserving all rows; extract_fields materializes structured fields from one or more same-schema text/record artifacts using one declared regex/parse spec set and can keep only matched rows; group_records groups one existing record artifact by declared key fields and concatenates text/value fields into one grouped record before extraction, join, filtering, or contribution work; expand_records turns one multi-value field on one existing record artifact into multiple records; filter_records selects rows from one existing record artifact using field filters and produces a smaller reusable record artifact; value_distribution inspects distinct/top values and empty counts for selected fields on one existing record artifact before choosing filters, joins, mappings, or contribution params; qualify_records executes model-declared record eligibility conditions over one existing record artifact, emits include/exclude decision rows, and materializes eligible or annotated rows before contribution calculation; mapping_candidate emits source/reference candidate match rows, ambiguity counts, and evidence without deciding final canonical mappings; normalize_entities emits typed source-to-canonical mappings and can resolve a source record set against a reference record set using source_field/source_fields, reference_name_fields/reference_fields, canonical_id_field, canonical_label_field, and match_mode; apply_entity_resolutions applies existing entity_resolution artifacts back onto base records by source locator/key fields, preserves base rows by default, and materializes canonical id/label/status fields; enrich_records applies mapping/reference records to a base record set and materializes added canonical/derived fields for later joins; join_records creates reusable joined records from exactly two structured inputs using one or more key fields; compute_contributions reads declared local inputs and creates generic contribution records from field/filter params; reconcile_artifacts deterministically reconciles accumulated contributions; assemble_answer projects existing reconcile groups into the final output_contract without changing computed values; custom_transform is the bounded fallback script over declared action input_paths. Each action must be atomic and produce one reusable artifact/result. Do not put one giant end-to-end script in a single custom_transform. A batch may contain at most one scripted custom_transform; split multiple transforms into separate batches or express them as typed actions over reusable artifacts."
     },
     "script": {
       "type": "string",
-      "description": "Python calculation body executed by a bounded local data helper. Prefer csv_rows(path), tsv_rows(path), json_load(path), json_records(path), jsonl_rows(path), read_text(path), parse_money(value), Decimal, re, and ledger helpers add_decision(...), add_rule_coverage(...), add_contribution(...), add_resolution(...), emit_result(...). json_records(path) reads array/object/wrapper JSON as a record list and is usually safest for generated action artifacts. You may import only common data standard libraries such as csv/json/decimal/re/math/statistics/collections/datetime/itertools/functools/operator/string/textwrap/base64/hashlib/unicodedata/fractions/calendar, and open(path) only reads declared input files. print(...) is allowed only for small debug output; the final answer must still be emitted. Do not access os/sys/pathlib/shutil, run shell commands, use network/process libraries, dynamic eval/exec, or write files. If the user task truly requires side effects, block this data plan so the operation pipeline can handle risk/approval instead of hiding those actions inside the data script. The script must call emit_result(answer, output_contract=...) or emit({\"answer\": string, \"output_contract\": object, \"audit_summary\": string, \"rows\": [...], \"rule_coverage\": [...], \"contributions\": [...], \"entity_resolutions\": [...], \"reconcile\": {...}}). emit_result accepts scalar, JSON object, or JSON array answers; a dict containing canonical result fields is treated as a full result envelope, while an ordinary dict/list is serialized as the final answer. Include only the ledger fields required by coverage_contract for this task."
+      "description": "Plan-level Python calculation body for script-only plans. It must be empty/omitted whenever actions[] is non-empty; custom_transform code belongs in actions[].script. Prefer csv_rows(path), tsv_rows(path), json_load(path), json_records(path), jsonl_rows(path), read_text(path), parse_money(value), Decimal, re, and ledger helpers add_decision(...), add_rule_coverage(...), add_contribution(...), add_resolution(...), emit_result(...). json_records(path) reads array/object/wrapper JSON as a record list and is usually safest for generated action artifacts. You may import only common data standard libraries such as csv/json/decimal/re/math/statistics/collections/datetime/itertools/functools/operator/string/textwrap/base64/hashlib/unicodedata/fractions/calendar, and open(path) only reads declared input files. print(...) is allowed only for small debug output; the final answer must still be emitted. Do not access os/sys/pathlib/shutil, run shell commands, use network/process libraries, dynamic eval/exec, or write files. If the user task truly requires side effects, block this data plan so the operation pipeline can handle risk/approval instead of hiding those actions inside the data script. The script must call emit_result(answer, output_contract=...) or emit({\"answer\": string, \"output_contract\": object, \"audit_summary\": string, \"rows\": [...], \"rule_coverage\": [...], \"contributions\": [...], \"entity_resolutions\": [...], \"reconcile\": {...}}). emit_result accepts scalar, JSON object, or JSON array answers; a dict containing canonical result fields is treated as a full result envelope, while an ordinary dict/list is serialized as the final answer. Include only the ledger fields required by coverage_contract for this task."
     },
     "goal": {
       "type": "string",
@@ -929,7 +936,29 @@ func dataTaskPlannerPrompt(userLine, repoRoot string, policy TurnPolicy, candida
 		policy.Route, policy.DataTaskKind, policy.Operation, policy.Source, policy.Confidence)
 	b.WriteString("## candidate_data_files\n")
 	appendCandidateDataFiles(&b, candidates)
+	appendDataTaskPlanEmissionContract(&b, dataTaskUserMentionedCandidateMaterials(userLine, candidates))
 	return strings.TrimSpace(b.String())
+}
+
+func appendDataTaskPlanEmissionContract(b *strings.Builder, requiredMaterials []dataquery.CoverageMaterial) {
+	if b == nil {
+		return
+	}
+	b.WriteString("\n## current_plan_emission_contract\n")
+	b.WriteString("- Choose exactly one executable carrier: either actions[] with an empty plan-level script, or one plan-level script with actions[] empty.\n")
+	b.WriteString("- Every custom_transform action must carry its own non-empty action.script and emit a result; typed action kinds must not carry script.\n")
+	b.WriteString("- A terminal batch (continue_after=false) must schedule every blocking required runner path. A bounded intermediate batch may defer work only with continue_after=true and a concrete next_batch.\n")
+	b.WriteString("- Listing a path in input_paths is not consumption. Put each blocking path on the action that reads it, or use a typed derive_rules/material action before dependent calculation.\n")
+	if len(requiredMaterials) == 0 {
+		return
+	}
+	contract := dataquery.CoverageContract{RequiredMaterials: append([]dataquery.CoverageMaterial(nil), requiredMaterials...)}
+	paths := contract.RequiredRunnerInputPaths()
+	if len(paths) == 0 {
+		return
+	}
+	raw, _ := json.Marshal(paths)
+	fmt.Fprintf(b, "- typed_initial_required_runner_paths=%s; these are existing workflow obligations, not optional suggestions.\n", raw)
 }
 
 func dataTaskRepairPrompt(userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, previous dataquery.TaskPlan, executionError string) string {
@@ -991,6 +1020,7 @@ func dataTaskRepairPromptWithRuntimeView(userLine, repoRoot string, policy TurnP
 	b.WriteString("- If the repair requires side effects such as network/process/file write/install/delete, return status=blocked instead of embedding those actions in the script; the operation pipeline owns risk and approval.\n\n")
 	b.WriteString("## candidate_data_files\n")
 	appendCandidateDataFiles(&b, candidates)
+	appendDataTaskPlanEmissionContract(&b, nil)
 	return strings.TrimSpace(b.String())
 }
 
@@ -1208,6 +1238,7 @@ func dataTaskContinuationPromptWithRuntimeView(userLine, repoRoot string, policy
 	b.WriteString("- Side effects belong to the operation lane; return blocked if they are required.\n\n")
 	b.WriteString("## candidate_data_files\n")
 	appendCompactCandidateDataFiles(&b, candidates)
+	appendDataTaskPlanEmissionContract(&b, nil)
 	return strings.TrimSpace(b.String())
 }
 
@@ -1702,7 +1733,14 @@ func dataTaskCoverageMaterialsToPlan(in []dataTaskCoverageMaterialDraft, forceRe
 			UsageMode:        dataquery.CoverageMaterialUseMode(strings.TrimSpace(string(m.UsageMode))),
 			TextEvidencePath: strings.TrimSpace(string(m.TextEvidencePath)),
 			DistilledNotes:   cleanPolicyStringList([]string(m.DistilledNotes)),
-			Required:         forceRequired || bool(m.Required),
+			// OptionalMaterials is a model-facing advisory lane. Accepting
+			// optional_materials[].required=true creates a contradictory
+			// "optional but blocking" contract and makes the workflow discover
+			// the real obligation only after execution. Internal workflow
+			// scoping can still carry a deferred required material in the
+			// optional slice because it constructs CoverageMaterial directly;
+			// model-authored drafts cannot mint that internal state.
+			Required: forceRequired,
 		})
 	}
 	return out

@@ -719,6 +719,9 @@ emit_result(str(len(rows)), output_contract={"format":"plain_single_line","expla
 	if !strings.Contains(strings.Join(notes, "\n"), "removed stray top-level script") {
 		t.Fatalf("notes=%v, want stray script removal", notes)
 	}
+	if !got.ContinueAfter || strings.TrimSpace(got.NextBatch) == "" {
+		t.Fatalf("mixed-carrier remainder must be an explicit intermediate batch: %+v", got)
+	}
 }
 
 func TestNormalizeDataTaskPlanShapeForPolicyAddsLedgersOnlyForComplexAggregation(t *testing.T) {
@@ -2680,6 +2683,60 @@ func TestDataTaskPlannerCompatJSONActions(t *testing.T) {
 	for _, want := range []string{"actions", "material_inventory", "inspect_material", "extract_records", "derive_rules", "derive_fields", "extract_fields", "group_records", "expand_records", "filter_records", "value_distribution", "normalize_entities", "enrich_records", "join_records", "compute_contributions", "reconcile_artifacts", "assemble_answer", "custom_transform", "adaptive action workflow", "An action is atomic", "Contribution population and final reference projection are separate DAG stages"} {
 		if !strings.Contains(system, want) {
 			t.Fatalf("data planner system prompt missing %q:\n%s", want, system)
+		}
+	}
+}
+
+func TestDataTaskPlanSchemaTeachesOneExecutableCarrierAndCustomScriptCondition(t *testing.T) {
+	var schema map[string]any
+	if err := json.Unmarshal(dataTaskPlanTool.Parameters, &schema); err != nil {
+		t.Fatalf("plan schema JSON: %v", err)
+	}
+	properties, _ := schema["properties"].(map[string]any)
+	actions, _ := properties["actions"].(map[string]any)
+	items, _ := actions["items"].(map[string]any)
+	allOf, _ := items["allOf"].([]any)
+	if len(allOf) != 1 {
+		t.Fatalf("actions item conditional=%+v, want one kind-conditioned script contract", allOf)
+	}
+	conditional, _ := allOf[0].(map[string]any)
+	thenBranch, _ := conditional["then"].(map[string]any)
+	required, _ := thenBranch["required"].([]any)
+	if len(required) != 1 || required[0] != "script" {
+		t.Fatalf("custom_transform then.required=%+v, want script", required)
+	}
+	script, _ := properties["script"].(map[string]any)
+	if description, _ := script["description"].(string); !strings.Contains(description, "empty/omitted whenever actions[] is non-empty") {
+		t.Fatalf("plan script description does not teach exclusive carrier: %q", description)
+	}
+}
+
+func TestDataTaskOptionalMaterialDraftCannotMintBlockingRequirement(t *testing.T) {
+	materials := dataTaskCoverageMaterialsToPlan([]dataTaskCoverageMaterialDraft{{
+		ID:       "rules",
+		Path:     "rules.md",
+		Required: true,
+	}}, false)
+	if len(materials) != 1 || materials[0].Required {
+		t.Fatalf("optional model material must remain non-blocking: %+v", materials)
+	}
+}
+
+func TestDataTaskPlannerPromptCarriesTypedInitialRequiredPaths(t *testing.T) {
+	prompt := dataTaskPlannerPrompt(
+		"process users.json according to instructions.md",
+		"/repo",
+		TurnPolicy{Route: RouteData, DataTaskKind: "structured_file_transform"},
+		[]dataquery.CandidateFile{{Path: "instructions.md", Kind: "text"}, {Path: "users.json", Kind: "json"}},
+	)
+	for _, want := range []string{
+		"## current_plan_emission_contract",
+		`typed_initial_required_runner_paths=["instructions.md","users.json"]`,
+		"exactly one executable carrier",
+		"Every custom_transform action must carry its own non-empty action.script",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("planner prompt missing %q:\n%s", want, prompt)
 		}
 	}
 }
