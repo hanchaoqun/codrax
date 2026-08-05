@@ -12946,23 +12946,20 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	}
 	// CGEC: pass the per-Run EvidenceClosure so the chain promotion
 	// enforcer can demote chains anchored outside ReadSet and queue
-	// the missing files as PendingReads on the closure. Update the
-	// closure's ReadSet snapshot first so any other CGEC consumer
-	// (pre-complete check, stall detector) sees the latest view.
-	// SetFileTotalLines propagates per-file totals from the read_file
-	// banner so HasFullyRead / CoverageRatio have a real denominator.
+	// the missing files as PendingReads on the closure. Read coverage is
+	// a monotonic run-level fact: later DAG windows add to it and the
+	// fresh-run reset owns removal. File totals from read_file banners give
+	// HasFullyRead / CoverageRatio a real denominator.
 	var cvClosure *types.EvidenceClosure
 	if ctx.Mutable != nil {
 		cvClosure = ctx.Mutable.EvidenceClosure()
-		cvClosure.IngestEvidenceReducerInput(types.EvidenceReducerInput{
-			Class:                 types.EvidenceReducerInputStageCoverageSnapshot,
-			ReadSet:               cvReadSet,
-			ReadRanges:            cvReadRanges,
-			FileTotalLines:        cvTotals,
-			ReplaceReadSet:        true,
-			ReplaceReadRanges:     true,
-			ReplaceFileTotalLines: true,
-		}, e.repoRoot)
+		ingestExplorerReadCoverage(cvClosure, e.repoRoot, cvReadSet, cvReadRanges, cvTotals)
+		// A DAG read run consists of several fresh Explorer dispatches. The
+		// local toolResults slice contains only the current dispatch, while
+		// EvidenceClosure owns the run-wide read truth. Feed the cumulative
+		// set to ranking/completion and Turn-A instead of making a later
+		// reconcile-only window erase earlier source reads.
+		cvReadSet = explorerClosureReadSet(cvClosure)
 	}
 	// CGEC B1a: Phase 0 broaden attempts exhausted with 0 file
 	// matches → emit RepairExpandSearch so the next retry's prompt
@@ -13385,6 +13382,41 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	}
 
 	return out, nil
+}
+
+func ingestExplorerReadCoverage(
+	closure *types.EvidenceClosure,
+	repoRoot string,
+	readSet map[string]bool,
+	readRanges map[string][]types.LineRange,
+	fileTotals map[string]int,
+) {
+	if closure == nil {
+		return
+	}
+	closure.IngestEvidenceReducerInput(types.EvidenceReducerInput{
+		Class:          types.EvidenceReducerInputReadCoverageDelta,
+		ReadSet:        readSet,
+		ReadRanges:     readRanges,
+		FileTotalLines: fileTotals,
+	}, repoRoot)
+}
+
+func explorerClosureReadSet(closure *types.EvidenceClosure) map[string]bool {
+	if closure == nil {
+		return nil
+	}
+	files := closure.CanonicalReadFiles()
+	if len(files) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(files))
+	for _, file := range files {
+		if file = strings.TrimSpace(file); file != "" {
+			out[file] = true
+		}
+	}
+	return out
 }
 
 func shouldSeedTurnAStrictEvidenceFromRanked(ctx *types.AgentContext, questionKind string) bool {

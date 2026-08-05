@@ -120,7 +120,10 @@ func renderTypedToolHandoffCarrierLine(carrier types.ToolHandoffCarrier, options
 		}
 	}
 	if len(carrier.AcceptedEvidence) > 0 {
-		parts = append(parts, fmt.Sprintf("accepted_evidence=%d", len(carrier.AcceptedEvidence)))
+		parts = append(parts, fmt.Sprintf("evidence_refs=%d", len(carrier.AcceptedEvidence)))
+		if counts := handoffEvidenceGroundingCounts(carrier.AcceptedEvidence); counts != "" {
+			parts = append(parts, "evidence_grounding="+quoteHandoffValue(counts))
+		}
 	}
 	if len(carrier.ObservationRefs) > 0 {
 		parts = append(parts, fmt.Sprintf("observation_refs=%d", len(carrier.ObservationRefs)))
@@ -176,9 +179,52 @@ func renderTypedToolHandoffEvidenceRefs(refs []types.AcceptedEvidenceRef, limit 
 		if ref.SourcePathRole != "" {
 			fmt.Fprintf(&b, " role=%s", quoteHandoffValue(string(ref.SourcePathRole)))
 		}
+		status := strings.TrimSpace(string(ref.GroundingStatus))
+		if status == "" {
+			status = "unspecified"
+		}
+		fmt.Fprintf(&b, " grounding=%s", quoteHandoffValue(status))
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+func handoffEvidenceGroundingCounts(refs []types.AcceptedEvidenceRef) string {
+	if len(refs) == 0 {
+		return ""
+	}
+	counts := map[string]int{}
+	for _, ref := range refs {
+		status := strings.TrimSpace(string(ref.GroundingStatus))
+		if status == "" {
+			status = "unspecified"
+		}
+		counts[status]++
+	}
+	order := []string{
+		string(types.GroundingGrounded),
+		string(types.GroundingRecovered),
+		string(types.GroundingUngrounded),
+		"unspecified",
+	}
+	parts := make([]string, 0, len(counts))
+	for _, status := range order {
+		if count := counts[status]; count > 0 {
+			parts = append(parts, fmt.Sprintf("%s:%d", status, count))
+			delete(counts, status)
+		}
+	}
+	if len(counts) > 0 {
+		rest := make([]string, 0, len(counts))
+		for status := range counts {
+			rest = append(rest, status)
+		}
+		sort.Strings(rest)
+		for _, status := range rest {
+			parts = append(parts, fmt.Sprintf("%s:%d", status, counts[status]))
+		}
+	}
+	return strings.Join(parts, ",")
 }
 
 func renderTypedToolHandoffObservationRefs(refs []types.ToolObservationRef, limit int, details map[string]types.ObservationPromptRecord) string {

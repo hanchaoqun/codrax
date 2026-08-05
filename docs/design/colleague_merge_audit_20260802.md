@@ -2130,3 +2130,9 @@ B91-A 已交付：新增 engine-derived repo-root `QueryPathScopes`，与 operat
 analyzer-stage 成功 provenance × 完整 canonical path current-request exact identity。no-path 自由 rationale 只留 Mutable 审计态，
 不再进入 completion note/tool summary。LOC ratchet 未提高；`internal/types`、`internal/tool/repomap`、完整 `internal/tool` 全绿。
 状态：`SCOPECOORD1 + WAIVERRATIONALE1=implemented/full-pass`。
+
+B91-B 已交付：parser-backed call direction/anchor 规范化前置到首次 grounding，caller-shaped 锚在已读 same-line relation 上直接
+落为 grounded；diagram resolver 保持 fail-closed。Finalizer handoff 显式携带每条 evidence ref 的 grounding 权限和汇总，不再把
+recovered 行展示成统一 accepted 权威。Explorer read set/ranges/totals 改为同一 run 内单调累计，消除后续 DAG 窗口覆盖早期读取。
+`internal/types`、`internal/agent`、`internal/tool`、`internal/orchestrator` 全量全绿。状态：
+`CALLGROUNDORDER1 + RANGECLOSURE1=implemented/full-pass`。

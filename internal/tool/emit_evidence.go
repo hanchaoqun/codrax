@@ -711,6 +711,16 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 	surfaceAlignmentRejected := make(map[int]bool)
 	groundingStart := time.Now()
 	for i := range built {
+		// Call evidence has two identities: the enclosing caller and the
+		// invoked callee. The wire model occasionally puts the caller in
+		// anchor_symbol even though AnchorCall defines that field as the
+		// callee. Canonicalise from the exact parser relation + enclosing
+		// callable BEFORE grounding so the first verdict checks the same
+		// caller/callee tuple consumed by diagram and relation gates. The old
+		// post-grounding order could turn a line-text-visible call into
+		// recovered(nearest_call), then stamp the corrected owner/object while
+		// leaving the weaker verdict behind.
+		normalizeCallEvidenceDirection(&built[i], gc)
 		// Per-scope dispatch: ScopeLine routes to the existing tier
 		// cascade; schema-level scopes (File / Crossfile / Negative)
 		// route to their own grounders.
@@ -737,7 +747,6 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 				r.Note = built[i].GroundingNote
 			}
 		}
-		normalizeCallEvidenceDirection(&built[i], gc)
 		if stampEvidenceOwnerSymbol(&built[i], gc) {
 			r.Status = built[i].GroundingStatus
 			r.Tier = built[i].GroundingTier
@@ -2525,6 +2534,16 @@ func normalizeCallEvidenceDirection(it *types.EvidenceItem, gc *ground.Context) 
 		it.Object = callee
 		changed = true
 	}
+	// AnchorCall's explicit anchor is the callee identity. This is not a
+	// guess from prose: callee came from the exact parser relation at the
+	// cited source:line, falling back to the already-read line expression
+	// only when the graph could not resolve the receiver. Keeping the
+	// canonical callee in AnchorSymbol lets the immediately-following
+	// GroundItem validate the same typed edge downstream gates consume.
+	if strings.TrimSpace(it.AnchorSymbol) != callee {
+		it.AnchorSymbol = callee
+		changed = true
+	}
 	if changed {
 		logging.Debug("[emit_evidence] normalized call direction at %s:%d -> %s %s %s",
 			it.Source, it.LineStart, it.Subject, it.Predicate, it.Object)
@@ -2735,8 +2754,12 @@ func emitPreferredCallTargetNames(it *types.EvidenceItem) []string {
 		seen[s] = true
 		out = append(out, s)
 	}
-	add(it.AnchorSymbol)
+	// Object is the wire contract's callee lane. Prefer it over a malformed
+	// caller-shaped anchor, then fall back to the explicit anchor and subject
+	// so inverted legacy rows can still be repaired by an exact same-line
+	// parser relation.
 	add(it.Object)
+	add(it.AnchorSymbol)
 	add(it.Subject)
 	return out
 }

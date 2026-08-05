@@ -4026,6 +4026,43 @@ func TestEmitEvidence_CallOwnerSymbolKeepsParserQualifiedPackageIdentity(t *test
 	}
 }
 
+func TestEmitEvidence_CallCallerAnchorCanonicalizesBeforeGrounding(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "internal/analysis/gate/gate.go", 135,
+		"return RunWith(ir, th, ModeRead, Options{})",
+	)
+	ctx.Mutable.SetSearchGraph(&repomap.Graph{FileIndex: map[string]*repomap.FileInfo{
+		"internal/analysis/gate/gate.go": {
+			RelPath: "internal/analysis/gate/gate.go", Language: "go", Package: "gate",
+			Symbols:   []repomap.Symbol{{Name: "Run", Kind: "function", Line: 132, EndLine: 136}},
+			Relations: []repomap.Relation{{Kind: "call", Line: 135, ToEP: repomap.RelationEndpoint{Name: "RunWith"}}},
+		},
+	}})
+	// This is the production near-miss: the relationship object names the
+	// callee, but anchor_symbol incorrectly repeats the enclosing caller.
+	params := json.RawMessage(`{"items":[{"kind":"relationship","subject":"Run","predicate":"calls","object":"RunWith","source":"internal/analysis/gate/gate.go","line_start":135,"summary":"Run calls RunWith","anchor_kind":"call","anchor_symbol":"Run","snippet":"return RunWith(ir, th, ModeRead, Options{})"}]}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil || !res.Success {
+		t.Fatalf("caller-shaped call anchor should canonicalize, err=%v summary=%s", err, res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("evidence count=%d, want 1: %+v", len(got), got)
+	}
+	if got[0].Subject != "Run" || got[0].Object != "RunWith" ||
+		got[0].OwnerSymbol != "gate.Run" || got[0].AnchorSymbol != "RunWith" {
+		t.Fatalf("canonical call identity=%+v", got[0])
+	}
+	if got[0].GroundingStatus != types.GroundingGrounded || got[0].GroundingTier != types.TierLineText {
+		t.Fatalf("canonical call must be grounded on the already-read line, got status=%q tier=%q note=%q",
+			got[0].GroundingStatus, got[0].GroundingTier, got[0].GroundingNote)
+	}
+	if strings.Contains(res.Summary, "→ recovered") {
+		t.Fatalf("pre-ground canonicalization must not leak a recovered verdict: %s", res.Summary)
+	}
+}
+
 func TestQualifiedEvidenceSymbolNameInFile_CoversExecutablePackageQualifierFamilies(t *testing.T) {
 	symbol := &repomap.Symbol{Name: "run", Kind: "function"}
 	tests := []struct {

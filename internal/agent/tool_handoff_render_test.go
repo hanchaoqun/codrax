@@ -45,12 +45,13 @@ func TestRenderTypedToolHandoffCarriersRendersTypedFieldsOnly(t *testing.T) {
 			},
 		},
 		AcceptedEvidence: []types.AcceptedEvidenceRef{{
-			ID:             "ev-1",
-			Source:         "internal/app/main.py",
-			LineStart:      12,
-			OwnerSymbol:    "main",
-			AnchorSymbol:   "run",
-			SourcePathRole: types.SourcePathRoleProduction,
+			ID:              "ev-1",
+			Source:          "internal/app/main.py",
+			LineStart:       12,
+			OwnerSymbol:     "main",
+			AnchorSymbol:    "run",
+			SourcePathRole:  types.SourcePathRoleProduction,
+			GroundingStatus: types.GroundingRecovered,
 		}},
 	}})
 	for _, want := range []string{
@@ -67,8 +68,11 @@ func TestRenderTypedToolHandoffCarriersRendersTypedFieldsOnly(t *testing.T) {
 		"excluded_roots=`.codrax,node_modules`",
 		"top_source_classes=`production`",
 		"narrow_params=`scope(1: internal/agent)`",
+		"evidence_refs=1",
+		"evidence_grounding=`recovered:1`",
 		"evidence=`ev-1` @ `internal/app/main.py:12`",
 		"owner=`main`",
+		"grounding=`recovered`",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("rendered handoff missing %q:\n%s", want, out)
@@ -76,6 +80,31 @@ func TestRenderTypedToolHandoffCarriersRendersTypedFieldsOnly(t *testing.T) {
 	}
 	if strings.Contains(out, "rewrite the whole answer") || strings.Contains(out, "run repo_map") {
 		t.Fatalf("renderer leaked repair hint prose:\n%s", out)
+	}
+}
+
+func TestRenderTypedToolHandoffCarriersSeparatesGroundedAndRecoveredAuthority(t *testing.T) {
+	out := renderTypedToolHandoffCarriers("### Typed handoff", []types.ToolHandoffCarrier{{
+		Version:    types.ToolHandoffCarrierVersion,
+		ToolName:   "emit_evidence",
+		ReasonCode: "accepted_evidence_handoff",
+		AcceptedEvidence: []types.AcceptedEvidenceRef{
+			{ID: "grounded", Source: "a.go", LineStart: 10, GroundingStatus: types.GroundingGrounded},
+			{ID: "repair", Source: "b.go", LineStart: 20, GroundingStatus: types.GroundingRecovered},
+		},
+	}})
+	for _, want := range []string{
+		"evidence_refs=2",
+		"evidence_grounding=`grounded:1,recovered:1`",
+		"evidence=`grounded` @ `a.go:10` role=`production` grounding=`grounded`",
+		"evidence=`repair` @ `b.go:20` role=`production` grounding=`recovered`",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("typed grounding authority missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "accepted_evidence=2") {
+		t.Fatalf("bounded prompt must not present mixed grounding rows as uniformly accepted authority:\n%s", out)
 	}
 }
 

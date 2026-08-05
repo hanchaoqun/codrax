@@ -14857,3 +14857,11 @@ QFRootCauseTrace、Trace 窗口投影、自动补齐和系统代写结论。
 
 B91-A 验证：定向 pin、`internal/types`（20.590s）、`internal/tool/repomap`（2.438s）、完整 `internal/tool`（169.765s）全绿。
 状态：`SCOPECOORD1 + WAIVERRATIONALE1=implemented/full-pass/replay-after-B/C`。
+
+B91-B 已施工：`emit_evidence` 在首次 grounding 前，以 exact source:line parser relation 与 enclosing callable 统一
+caller/callee/`AnchorSymbol`；caller 误填锚的生产形现在直接得到 `grounded/line_text`，没有放宽 diagram resolver。
+Typed handoff 的展示字段改为 `evidence_refs`，同时输出汇总和逐行 `grounding=grounded|recovered|ungrounded|unspecified`，避免
+recovered 修复线索伪装为同权 accepted 证据。Explorer 将 read coverage 作为同一 run 内的 delta 单调并入 EvidenceClosure，后续
+DAG 窗口消费累计 read set；新 run 仍由原 reset 点清空。定向看护及 `internal/types`（21.679s）、`internal/agent`（4.224s）、
+完整 `internal/tool`（172.255s）、`internal/orchestrator`（14.231s）全绿。状态：
+`CALLGROUNDORDER1 + RANGECLOSURE1=implemented/full-pass/replay-after-C`。
