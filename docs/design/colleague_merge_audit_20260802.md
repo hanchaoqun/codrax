@@ -2221,3 +2221,9 @@ fail-closed；实现不扫描 request/model/final prose，不按语言或案例�
 施工冻结为 B94-A 请求绑定 complete-lens row parity、B94-B Mermaid exact code-wrapper normalization，之后恰好双例回放。
 两案只消费 typed lens/parser/diagram carrier，不改写模型结论，不放宽 call evidence，不触碰 RootCauseTrace、显式时间窗因果投影或
 自动补齐。
+
+B94-A 已交付：请求绑定 complete lens 只有在 requested path、全部 principal roles、可执行 tool-query provenance、源码类别、语言、
+surface family、`count=total` 与 typed row count 全部精确闭合时，才可驱动 principal row projection，旧 broad incomplete 状态不再
+压掉同窗 30/30 roster 的机械等值校验。八类错 lineage 继续 fail-closed，completion landing M4 pin 与完整 `internal/types`
+（21.943s）、`internal/tool`（162.979s）均绿；relation/repo-wide/Trace 权限面未改。状态：
+`EVAL-B94-LENSPARITY1=implemented/full-pass/replay-after-B94-B`。

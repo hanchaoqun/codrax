@@ -33,7 +33,7 @@ func sourceInventoryCanProjectCompletePrincipalRowSet(observation SourceInventor
 	if seenPrincipalRows && allPrincipalSetsComplete {
 		return true
 	}
-	return sourceInventoryRequestedSurfaceFamilyBackedByCompleteLens(observation, rm, roles)
+	return sourceInventoryRequestBoundCompleteLensRowsCoverRoles(observation, rm, roles) || sourceInventoryRequestedSurfaceFamilyBackedByCompleteLens(observation, rm, roles)
 }
 
 func sourceInventoryObservationSetEffectiveRole(set SourceInventoryObservationSet) AnswerCandidateRole {

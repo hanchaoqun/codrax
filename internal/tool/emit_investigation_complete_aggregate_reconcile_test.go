@@ -922,6 +922,84 @@ func TestExhaustiveEnumerationMemberSetUsableAcceptsExactSystemSourceInventoryRo
 	}
 }
 
+func TestSourceInventoryPrincipalRowSetLandingFacts_RequestBoundCompleteLensOverridesMergedIncompleteRole(t *testing.T) {
+	ctx := sourceInventoryTestContext("", nil, "pkg", &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles: []types.AnswerCandidateRole{
+			types.AnswerCandidateRoleFunction,
+			types.AnswerCandidateRoleConstant,
+		},
+		RequestedFields: []types.SourceInventoryRequestedField{
+			types.SourceInventoryFieldName,
+			types.SourceInventoryFieldLocation,
+		},
+		Confidence: 0.95,
+	})
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.SourceInventoryRequestedPathScopes = []string{"pkg"}
+	ctx.AnalysisIR.RequestModel.CompletenessObligation = &types.CompletenessObligation{Required: true, SourceQuote: "all requested members"}
+	provenance := []string{types.SourceInventoryProvenanceRepoLensToolQuery, types.SourceInventoryProvenanceStageExplore}
+	ctx.Mutable.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:          true,
+		Complete:        false,
+		Scopes:          []string{"."},
+		QueryPathScopes: []string{"pkg"},
+		CompleteLenses: []types.SourceInventoryCompleteLens{
+			{
+				Role: types.AnswerCandidateRoleFunction, Scopes: []string{"."}, QueryPathScopes: []string{"pkg"},
+				Languages: []string{"go"}, SourceClasses: []types.SourcePathRole{types.SourcePathRoleProduction},
+				Count: 2, Total: 2, Provenance: provenance,
+			},
+			{
+				Role: types.AnswerCandidateRoleConstant, Scopes: []string{"."}, QueryPathScopes: []string{"pkg"},
+				Languages: []string{"go"}, SourceClasses: []types.SourcePathRole{types.SourcePathRoleProduction},
+				Count: 3, Total: 3, Provenance: provenance,
+			},
+		},
+		Sets: []types.SourceInventoryObservationSet{
+			{
+				Role: types.AnswerCandidateRoleFunction, Complete: false, Total: 3,
+				Members: []types.SourceInventoryObservationMember{
+					{Name: "Eval", Role: types.AnswerCandidateRoleFunction, SourceClass: types.SourcePathRoleProduction, File: "pkg/eval.go", Line: 10, Language: "go", CoverageState: types.SourceInventoryCoverageObserved},
+					{Name: "EvalAll", Role: types.AnswerCandidateRoleFunction, SourceClass: types.SourcePathRoleProduction, File: "pkg/eval.go", Line: 20, Language: "go", CoverageState: types.SourceInventoryCoverageObserved},
+					{Name: "TestEval", Role: types.AnswerCandidateRoleFunction, SourceClass: types.SourcePathRoleTest, File: "pkg/eval_test.go", Line: 10, Language: "go", CoverageState: types.SourceInventoryCoverageObserved},
+				},
+			},
+			{
+				Role: types.AnswerCandidateRoleConstant, Complete: true, Total: 3,
+				Members: []types.SourceInventoryObservationMember{
+					{Name: "KindA", Role: types.AnswerCandidateRoleConstant, SourceClass: types.SourcePathRoleProduction, File: "pkg/grammar.go", Line: 30, Language: "go", CoverageState: types.SourceInventoryCoverageObserved},
+					{Name: "KindB", Role: types.AnswerCandidateRoleConstant, SourceClass: types.SourcePathRoleProduction, File: "pkg/grammar.go", Line: 31, Language: "go", CoverageState: types.SourceInventoryCoverageObserved},
+					{Name: "KindC", Role: types.AnswerCandidateRoleConstant, SourceClass: types.SourcePathRoleProduction, File: "pkg/grammar.go", Line: 32, Language: "go", CoverageState: types.SourceInventoryCoverageObserved},
+				},
+			},
+		},
+	})
+	partial := []types.AnswerAggregateFact{
+		{
+			Kind: types.AnswerAggregateMemberSet, Label: "functions", Value: "2", Role: types.AnswerAggregateRolePrincipalAnswer, Provenance: "explorer",
+			Members: []string{"Eval", "EvalAll"}, SupportRefs: []string{"Eval @ pkg/eval.go:10", "EvalAll @ pkg/eval.go:20"},
+		},
+		{
+			Kind: types.AnswerAggregateMemberSet, Label: "constants", Value: "2", Role: types.AnswerAggregateRolePrincipalAnswer, Provenance: "explorer",
+			Members: []string{"KindA", "KindB"}, SupportRefs: []string{"KindA @ pkg/grammar.go:30", "KindB @ pkg/grammar.go:31"},
+		},
+	}
+
+	landed := sourceInventoryPrincipalRowSetLandingFacts(ctx, partial)
+	refs := types.PrincipalAggregateMemberSetFactRefsForRequest(landed, &ctx.AnalysisIR.RequestModel)
+	if len(refs) != 1 || refs[0].Fact.Provenance != types.SourceInventoryPrincipalRowSetAggregateProvenance {
+		t.Fatalf("completion landing must expose one typed request-bound principal roster: %+v", landed)
+	}
+	for _, want := range []string{"Eval", "EvalAll", "KindA", "KindB", "KindC"} {
+		if !containsString(refs[0].Fact.Members, want) {
+			t.Fatalf("typed landing roster omitted %q: %+v", want, refs[0].Fact.Members)
+		}
+	}
+	if containsString(refs[0].Fact.Members, "TestEval") {
+		t.Fatalf("typed landing roster leaked test row: %+v", refs[0].Fact.Members)
+	}
+}
+
 func TestReconcileCompletionAggregateFactsWithSourceInventory_DoesNotRewriteGraphBackedPublicFunctions(t *testing.T) {
 	graph := testGraphWithFiles([]*repotypes.FileInfo{{
 		RelPath:  "internal/analysis/criterion/eval.go",

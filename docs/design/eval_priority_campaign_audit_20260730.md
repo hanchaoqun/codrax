@@ -15090,3 +15090,15 @@ explicit edge anchor、principal completeness 与 duplicate identity 必须共�
 
 施工顺序冻结：B94-A `LENSPARITY1`；B94-B `DIAGRAMCODEMARK1`；每批独立测试、提交、推送；随后仍以恰好两个用例回放两项修复，
 并采集 `CALLFANOUT1` 的 node/generation 证据。两批均显式排除 Trace runtime authority、显式时间窗因果投影、自动补齐和系统答案 mutation。
+
+### 98.6 B94-A 施工：请求绑定 complete lens 获得精确成员等值权
+
+`EVAL-B94-LENSPARITY1` 已实现并完成全包验证。principal row projection 现在优先检查**每个请求 principal role**是否存在一条
+同源 executable tool-query complete lens；只有 `QueryPathScopes × role × source class × language × surface family × count=total`
+全部覆盖、且该角色的 typed principal rows 数与 lens count 精确相等时，才允许请求绑定 lens 越过旧 broad observation 留下的 merged
+incomplete 状态。缺路径、analyze-only、partial count、行数不等、错角色/语言/源码类别/surface family 均 fail-closed。
+
+该授权只把已有 typed rows 交给既有 member-set parity gate，不制造答案行、不替模型下结论；relation member set、无明确 requested path、
+repo-wide 请求及 support-only 车道保持原合同。生产同形 types pin、completion landing 接线 pin、八类 lineage 负矩阵与 LOC convergence 均通过；
+完整 `internal/types`（21.943s）和 `internal/tool`（162.979s）通过。状态：
+`EVAL-B94-LENSPARITY1=implemented/full-pass/replay-after-B94-B`。

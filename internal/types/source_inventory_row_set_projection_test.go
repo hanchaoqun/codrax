@@ -1091,6 +1091,140 @@ func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_MixedUniverseSupers
 	}
 }
 
+func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_RequestBoundCompleteLensesOverrideMergedIncompleteRoleState(t *testing.T) {
+	rm := sourceInventoryProjectionRequestModel(nil)
+	rm.SourceInventoryProfile.TargetRoles = []AnswerCandidateRole{
+		AnswerCandidateRoleFunction,
+		AnswerCandidateRoleConstant,
+	}
+	rm.AnalyzerHints.SourceInventoryRequestedPathScopes = []string{"pkg"}
+	provenance := []string{
+		SourceInventoryProvenanceRepoLensToolQuery,
+		SourceInventoryProvenanceStageExplore,
+	}
+	obs := SourceInventoryObservation{
+		Active:          true,
+		Complete:        false,
+		Scopes:          []string{"."},
+		QueryPathScopes: []string{"pkg"},
+		CompleteLenses: []SourceInventoryCompleteLens{
+			{
+				Role: AnswerCandidateRoleFunction, Scopes: []string{"."}, QueryPathScopes: []string{"pkg"},
+				Languages: []string{"go"}, SourceClasses: []SourcePathRole{SourcePathRoleProduction},
+				Count: 2, Total: 2, Provenance: provenance,
+			},
+			{
+				Role: AnswerCandidateRoleConstant, Scopes: []string{"."}, QueryPathScopes: []string{"pkg"},
+				Languages: []string{"go"}, SourceClasses: []SourcePathRole{SourcePathRoleProduction},
+				Count: 3, Total: 3, Provenance: provenance,
+			},
+		},
+		Sets: []SourceInventoryObservationSet{
+			{
+				Role: AnswerCandidateRoleFunction, Complete: false, Total: 3,
+				Members: []SourceInventoryObservationMember{
+					{Name: "Eval", Role: AnswerCandidateRoleFunction, SourceClass: SourcePathRoleProduction, File: "pkg/eval.go", Line: 10, Language: "go", CoverageState: SourceInventoryCoverageObserved},
+					{Name: "EvalAll", Role: AnswerCandidateRoleFunction, SourceClass: SourcePathRoleProduction, File: "pkg/eval.go", Line: 20, Language: "go", CoverageState: SourceInventoryCoverageObserved},
+					{Name: "TestEval", Role: AnswerCandidateRoleFunction, SourceClass: SourcePathRoleTest, File: "pkg/eval_test.go", Line: 10, Language: "go", CoverageState: SourceInventoryCoverageObserved},
+				},
+			},
+			{
+				Role: AnswerCandidateRoleConstant, Complete: true, Total: 3,
+				Members: []SourceInventoryObservationMember{
+					{Name: "KindA", Role: AnswerCandidateRoleConstant, SourceClass: SourcePathRoleProduction, File: "pkg/grammar.go", Line: 30, Language: "go", CoverageState: SourceInventoryCoverageObserved},
+					{Name: "KindB", Role: AnswerCandidateRoleConstant, SourceClass: SourcePathRoleProduction, File: "pkg/grammar.go", Line: 31, Language: "go", CoverageState: SourceInventoryCoverageObserved},
+					{Name: "KindC", Role: AnswerCandidateRoleConstant, SourceClass: SourcePathRoleProduction, File: "pkg/grammar.go", Line: 32, Language: "go", CoverageState: SourceInventoryCoverageObserved},
+				},
+			},
+		},
+	}
+	facts := []AnswerAggregateFact{
+		{
+			Kind: AnswerAggregateMemberSet, Label: "functions", Value: "2", Role: AnswerAggregateRolePrincipalAnswer, Provenance: "explorer",
+			Members: []string{"Eval", "EvalAll"}, SupportRefs: []string{"Eval @ pkg/eval.go:10", "EvalAll @ pkg/eval.go:20"},
+		},
+		{
+			Kind: AnswerAggregateMemberSet, Label: "constants", Value: "2", Role: AnswerAggregateRolePrincipalAnswer, Provenance: "explorer",
+			Members: []string{"KindA", "KindB"}, SupportRefs: []string{"KindA @ pkg/grammar.go:30", "KindB @ pkg/grammar.go:31"},
+		},
+	}
+
+	got := ProjectSourceInventoryPrincipalRowSetAggregateFacts(facts, obs, rm)
+	refs := PrincipalAggregateMemberSetFactRefsForRequest(got, &rm)
+	if len(refs) != 1 || refs[0].Fact.Provenance != SourceInventoryPrincipalRowSetAggregateProvenance {
+		t.Fatalf("request-bound complete lenses must replace the partial model roster despite stale merged incompleteness: %+v", got)
+	}
+	if len(refs[0].Fact.Members) != 5 || stringSliceContains(refs[0].Fact.Members, "TestEval") {
+		t.Fatalf("typed request-bound roster must contain five production rows and no test row: %+v", refs[0].Fact.Members)
+	}
+	for _, want := range []string{"KindA", "KindB", "KindC", "Eval", "EvalAll"} {
+		if !stringSliceContains(refs[0].Fact.Members, want) {
+			t.Fatalf("typed request-bound roster omitted %q: %+v", want, refs[0].Fact.Members)
+		}
+	}
+}
+
+func TestSourceInventoryRequestBoundCompleteLensRowsCoverRoles_RejectsInexactLineage(t *testing.T) {
+	rm := sourceInventoryProjectionRequestModel(nil)
+	rm.AnalyzerHints.SourceInventoryRequestedPathScopes = []string{"pkg"}
+	obs := SourceInventoryObservation{
+		Active: true,
+		CompleteLenses: []SourceInventoryCompleteLens{{
+			Role: AnswerCandidateRoleFunction, Scopes: []string{"."}, QueryPathScopes: []string{"pkg"},
+			Languages: []string{"go"}, SourceClasses: []SourcePathRole{SourcePathRoleProduction},
+			Count: 1, Total: 1,
+			Provenance: []string{SourceInventoryProvenanceRepoLensToolQuery, SourceInventoryProvenanceStageExplore},
+		}},
+		Sets: []SourceInventoryObservationSet{{
+			Role: AnswerCandidateRoleFunction, Complete: false, Total: 9,
+			Members: []SourceInventoryObservationMember{{
+				Name: "Eval", Role: AnswerCandidateRoleFunction, SourceClass: SourcePathRoleProduction,
+				File: "pkg/eval.go", Line: 10, Language: "go", CoverageState: SourceInventoryCoverageObserved,
+			}},
+		}},
+	}
+	if !sourceInventoryRequestBoundCompleteLensRowsCoverRoles(obs, rm, []AnswerCandidateRole{AnswerCandidateRoleFunction}) {
+		t.Fatal("exact executable request-bound lens should cover its one typed production row")
+	}
+
+	tests := map[string]func(*SourceInventoryObservation){
+		"wrong request path": func(in *SourceInventoryObservation) {
+			in.CompleteLenses[0].QueryPathScopes = []string{"other"}
+		},
+		"analyze only": func(in *SourceInventoryObservation) {
+			in.CompleteLenses[0].Provenance = []string{SourceInventoryProvenanceRepoLensToolQuery, SourceInventoryProvenanceStageAnalyze}
+		},
+		"partial count": func(in *SourceInventoryObservation) {
+			in.CompleteLenses[0].Total = 2
+		},
+		"row count mismatch": func(in *SourceInventoryObservation) {
+			in.CompleteLenses[0].Count = 2
+			in.CompleteLenses[0].Total = 2
+		},
+		"wrong role": func(in *SourceInventoryObservation) {
+			in.CompleteLenses[0].Role = AnswerCandidateRoleConstant
+		},
+		"wrong source class": func(in *SourceInventoryObservation) {
+			in.CompleteLenses[0].SourceClasses = []SourcePathRole{SourcePathRoleTest}
+		},
+		"wrong language": func(in *SourceInventoryObservation) {
+			in.CompleteLenses[0].Languages = []string{"arkts"}
+		},
+		"unmatched surface family": func(in *SourceInventoryObservation) {
+			in.CompleteLenses[0].SurfaceFamilies = []string{"public class"}
+		},
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			in := CloneSourceInventoryObservation(obs)
+			mutate(&in)
+			if sourceInventoryRequestBoundCompleteLensRowsCoverRoles(in, rm, []AnswerCandidateRole{AnswerCandidateRoleFunction}) {
+				t.Fatalf("inexact lineage %q must remain fail-closed: %+v", name, in.CompleteLenses[0])
+			}
+		})
+	}
+}
+
 func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_ArchitectureNarrativeKeepsInventoryAdvisory(t *testing.T) {
 	rm := RequestModel{
 		Intent:      IntentExplain,
