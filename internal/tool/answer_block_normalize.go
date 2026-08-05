@@ -133,6 +133,9 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 			})
 		}
 	}
+	if err := validateEmitAnswerStructuredTableRows(blk, fieldPath); err != nil {
+		return types.AnswerBlock{}, err
+	}
 	if raw.Diagram != nil {
 		if blk.Kind != types.BlockDiagram {
 			// A non-empty typed diagram sibling is a precise schema signal:
@@ -157,6 +160,57 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 		return types.AnswerBlock{}, fmt.Errorf("%s: kind=diagram requires the sibling `diagram` object {kind: <flow|sequence|architecture|call_dag>, language: \"mermaid\", body: <raw mermaid source>}. If the diagram body is currently in the block-level `text` field, move it into `diagram.body` and set diagram.kind to the SEMANTIC family the contract names (NOT the Mermaid keyword)", fieldPath)
 	}
 	return blk, nil
+}
+
+// validateEmitAnswerStructuredTableRows keeps the JSON teaching and the
+// renderer's two supported structured-table conventions aligned.  A row may
+// either put every visible value in cells[] (no label), or use label as its
+// first visible value and put the remaining values in cells[] / text.  In the
+// latter form columns[] may include the label header or omit it (the renderer
+// then adds a neutral Item/项目 header).  What is never meaningful is declaring
+// several columns while emitting only one visible value: the renderer has no
+// model-authored value for the missing dimensions and used to compact those
+// headers away silently.
+//
+// This is a pure carrier-shape check.  It reads no user text, block title,
+// header vocabulary, item prose, or answer semantics, and it never fills a
+// model-authored cell.
+func validateEmitAnswerStructuredTableRows(block types.AnswerBlock, fieldPath string) error {
+	if block.Kind != types.BlockTable ||
+		types.AnswerTextLooksLikeMarkdownTable(block.Text) ||
+		len(block.Columns) == 0 || len(block.Items) == 0 {
+		return nil
+	}
+	for idx, item := range block.Items {
+		labelPresent := strings.TrimSpace(item.Label) != ""
+		cells := normalizeTableStringSlice(item.Cells)
+		if text := strings.TrimSpace(item.Text); text != "" && !tableRowCellsContain(cells, text) {
+			cells = append(cells, text)
+		}
+		if !labelPresent && len(cells) == 0 {
+			continue
+		}
+		valid := len(cells) == len(block.Columns)
+		if labelPresent {
+			valid = valid || len(cells)+1 == len(block.Columns)
+		}
+		if valid {
+			continue
+		}
+		return fmt.Errorf("%s.items[%d]: structured table row has %d remaining visible value(s) for %d column header(s); use either cells[] with one value per column and no label, or label as the first visible value plus cells[]/text for every remaining column (columns[] may omit only the synthetic label header)",
+			fieldPath, idx, len(cells), len(block.Columns))
+	}
+	return nil
+}
+
+func tableRowCellsContain(cells []string, text string) bool {
+	text = strings.TrimSpace(text)
+	for _, cell := range cells {
+		if strings.TrimSpace(cell) == text {
+			return true
+		}
+	}
+	return false
 }
 
 // citationRefFromWire converts the optional wire citation_ref pointer

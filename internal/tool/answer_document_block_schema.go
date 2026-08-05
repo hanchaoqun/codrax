@@ -58,7 +58,7 @@ func BuildAnswerDocumentSemanticContractDescription() string {
 		"ordered_list / bullet_list (items[] each with id, optional label, text, optional top-level citation_ref), " +
 		"scalar (block.text carries the literal; optional one-element items=[{citation_ref:N}] anchors the cite), " +
 		"decision (block.text carries verdict + rationale; same one-element items pattern for the cite), " +
-		"table (complete markdown table inside text, OR optional columns[] + items[].cells[] structured rows, OR label/text rows when two columns are enough), " +
+		"table (complete markdown table inside text, OR structured rows: either columns[] + items[].cells[] with label omitted and one cell per column, or label as the first visible value plus cells[]/text for every remaining column; columns[] may omit only the synthetic label header; use label/text without columns only for the legacy two-column fallback), " +
 		"diagram (diagram{kind, language, body}), caveat (text only). " +
 		"\n\n" +
 		"Each block has an `id` (any non-empty string the LLM picks; load-bearing — your retry hints reference it back to you) and `kind` " +

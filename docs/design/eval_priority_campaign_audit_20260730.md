@@ -17789,3 +17789,45 @@ JSON/上下文审计：Data planner 各轮最终 carrier 可解码；write Analy
 状态：`EVAL-B139-DATASHAPE1=production-replay-closed/simple+audited-scalar`；
 `EVAL-B141-DATADAGVAR1=P2/model-variance-contained`；`EVAL-B141-WRITEPROBEVAR1=P2/model-variance-contained`；
 write worktree/apply/verify=`production-pass`；Trace 显式窗、因果投影、自动补齐、两维根因、排序、唤醒链与窗内可消除量=`untouched`。
+
+### 123.30 B142 r60：ArkTS 表格载体合同闭环；Cangjie 暴露 typed family 丢失与标题硬门
+
+在 `main@a77bf8cf2` 干净构建后，严格并行恰好两个 Harmony 多语言 case：
+
+- `cangjie_repomap`：141s，runner FAIL / human FAIL，typed extend 行缺 `Cart.cj:30`；
+- `arkts_repomap`：168s，runner FAIL / human FAIL，四个 `@Entry` 和两个 `@Builder` 名称正确，但用户要求的文件维度未成文。
+
+ArkTS 的 repo inventory、源码读取和引用证据并未丢失。模型在 `kind=table` 上声明
+`columns=["文件路径","函数名"]`，每行却只发 `label=<函数名>`，没有 `cells`/`text`。旧 schema 把
+`columns+cells` 与 `label/text` 讲成几种并列低摩擦选择，renderer 再把全空列静默压缩，最终形成“函数名落在文件路径列、文件路径整列消失”的
+可读但错误答案。这是 `EVAL-B142-TABLEROWSHAPE1=P1`，不能归为模型随机波动。
+
+通用根修把 full emit 与 patch 汇入同一个纯 carrier-shape 校验：完整 Markdown table 不变；结构化表只支持两种明确约定——
+`label` 为空时每个 `columns` 必有一个 `cells` 值；或 `label` 是第一可见值、`cells/text` 提供其余值，此时 `columns` 只能包含
+label header 或省略这一个 header。声明多列却缺值会在归一化入口一次精确拒绝，系统不猜列义、不补模型值，也不读取用户问题、块标题、
+header 词或答案 prose。canonical schema、语义合同、类型注释和 Finalizer checklist 已改为同一约定，减少靠重试学习合同的心智负担。
+
+该 case 另有独立 eval 假 oracle：问题要求 `@Entry + @Builder`，`EXPECT_CONTAINS` 却要求 `@Entry + @Component`。现已只修 oracle，
+没有为了让用例绿而给产品答案强塞未请求的 `@Component`。
+
+Cangjie 深审确认解析器与 typed inventory 是正确的：Explorer 已得到 `extend String@6`、`extend Cart@30`、两个
+`foreign native_add` 和八个 public-class 行。失败发生在后段：三个正确 family aggregate 被合成一个 12 行 generic principal set；
+Finalizer handoff 没显示每行既有的 `SurfaceFamily/SurfaceTerms`；随后 pre-emit 又从模型 block title 反推 family，错误拒绝 public-class
+块里的 `Cart@30` 并给出“remove or move”提示。模型看见全局 roster 确有该行却在合同压力下删除它，导致 extend 从 2 变 1。
+
+这冻结为 `EVAL-B142-CJFAMILYCARRY1=P1`，下一独立批按三层根修：已有 principal facts 的 union 精确覆盖 typed row set 时保留模型/typed
+分区；Finalizer 显式携带 row-local `surface_family`；硬校验不得再以模型标题 prose 作为 scope 权威，而改用可选 exact typed partition
+carrier（缺失则只做全局 roster 校验）。方案按 source-inventory family 泛化，不能出现 Cangjie/Cart 特判。
+
+两案 JSON 均可解析，没有 malformed salvage。B123-D1 的无损修复与有界降级披露没有被滥用来掩盖语义载体或上下文丢失。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b142_harmony_r60_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b142_harmony_r60_20260805_manual_audit.md`。
+
+回归：`go test ./internal/tool ./internal/agent ./internal/types ./internal/render -count=1` PASS
+（162.847s / 4.013s / 19.511s / 1.885s）。
+
+状态：`EVAL-B142-TABLEROWSHAPE1=implemented/full-related-pass/awaiting-replay`；
+`EVAL-B142-ARKTSORACLE1=fixed/eval-only`；`EVAL-B142-CJFAMILYCARRY1=confirmed/planned-next-batch`；
+`EVAL-B122-JSONTEACH1=D1+B139-shape-table+B142-table-row-contract`；Trace 显式窗、因果投影、自动补齐、两维根因、排序、唤醒链与
+窗内可消除量=`untouched`。

@@ -1265,7 +1265,7 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 				)
 			case types.BlockTable:
 				items = append(items,
-					"Emit the principal `table` block as one canonical visible table. If you already authored a markdown table, put that complete table in block `text` and do not convert it. If you want a lower-friction structured multi-column table, use optional `columns[]` plus one `items[].cells[]` array per row. Use `items[].label`/`text` only when a two-column fallback is genuinely enough. If `text` already contains the markdown table, any `items[]` are citation/row-support carriers and MUST NOT be a second user-visible table. Each visible row must correspond to a grounded entity, with citations[] entries for every cited file:line.",
+					"Emit the principal `table` block as one canonical visible table. If you already authored a markdown table, put that complete table in block `text` and do not convert it. For a structured multi-column table, choose one row shape and keep it for every row: (A) omit `items[].label` and put one `cells[]` value per `columns[]` header; or (B) use `label` as the first visible value and put every remaining value in `cells[]`/`text` (then `columns[]` may include that first header or omit only it for a neutral Item/项目 header). Do not declare headers whose row values are absent. Use label/text without columns only when a two-column fallback is genuinely enough. If `text` already contains the markdown table, any `items[]` are citation/row-support carriers and MUST NOT be a second user-visible table. Each visible row must correspond to a grounded entity, with citations[] entries for every cited file:line.",
 				)
 			case types.BlockSummary:
 				items = append(items,

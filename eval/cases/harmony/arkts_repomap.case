@@ -16,7 +16,7 @@
 ID="arkts_repomap"
 NAME="repomap ArkTS @Entry @Component struct + @Builder enumeration"
 QUESTION="仓库里有哪些 @Entry 标记的 ArkTS 页面入口，以及哪些 @Builder 复用片段？分别列出文件路径和函数名。"
-EXPECT_CONTAINS="@Entry @Component"
+EXPECT_CONTAINS="@Entry @Builder"
 EXPECT_SECTIONS="01_entry_component_minimal.ets"
 EXPECT_INVENTORY_ROWSETS="entry_page builder_fragment"
 EXPECT_INVENTORY_ROW_SCOPE_ENTRY_PAGE="document"

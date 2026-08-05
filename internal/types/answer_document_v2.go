@@ -227,10 +227,11 @@ type AnswerBlock struct {
 
 	// Columns is the optional header row for structured table blocks.
 	// It is never required: table blocks may still carry a complete
-	// model-authored markdown table in Text. When Text is empty,
-	// Columns + Items[].Cells gives the renderer a low-friction
-	// multi-column carrier; Items[].Label/Text remains the legacy
-	// two-column fallback.
+	// model-authored markdown table in Text. When Text is empty, either put
+	// every visible value in Items[].Cells (and leave Label empty), or use
+	// Label as the first visible value and Cells/Text for the remaining
+	// values. In the latter form Columns may include the label header or omit
+	// only that header, in which case the renderer adds a neutral one.
 	Columns []string `json:"columns,omitempty"`
 
 	// Items is the collection for OrderedList / BulletList / Table.
@@ -519,11 +520,11 @@ type AnswerBlockItem struct {
 	// content). Markdown-flavoured.
 	Text string `json:"text,omitempty"`
 
-	// Cells is the optional multi-column table row payload. It is
-	// rendered only for table blocks whose block.Text is empty; it
-	// lets the model emit one array per row instead of hand-building
-	// markdown table syntax. Label remains available as a row key /
-	// first column, and Text remains a compatibility detail field.
+	// Cells is the optional multi-column table row payload. It is rendered
+	// only for table blocks whose block.Text is empty. With an empty Label,
+	// emit one cell per Columns entry. With a non-empty Label, Label is the
+	// first visible value and Cells/Text carry the remaining values; Columns
+	// may include or omit only the corresponding label header.
 	Cells []string `json:"cells,omitempty"`
 
 	// CandidateRole is an optional typed category or scalar/literal role for

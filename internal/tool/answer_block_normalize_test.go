@@ -112,6 +112,53 @@ func TestNormalizeEmitAnswerBlock_HappyPathFullProjection(t *testing.T) {
 	}
 }
 
+func TestNormalizeEmitAnswerBlock_RejectsDeclaredMultiColumnRowWithoutValues(t *testing.T) {
+	_, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+		ID:      "entries",
+		Kind:    string(types.BlockTable),
+		Columns: []string{"文件路径", "函数名"},
+		Items: []emitAnswerBlockItemV2{{
+			ID:    "index",
+			Label: "Index",
+		}},
+	}, "blocks[2]")
+	if err == nil {
+		t.Fatal("a two-column row with only one visible value must be rejected")
+	}
+	for _, want := range []string{"blocks[2].items[0]", "2 column header", "label as the first visible value"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error missing %q: %v", want, err)
+		}
+	}
+}
+
+func TestNormalizeEmitAnswerBlock_AcceptsBothStructuredTableRowConventions(t *testing.T) {
+	for _, raw := range []emitAnswerBlockV2{
+		{
+			ID:      "cell-only",
+			Kind:    string(types.BlockTable),
+			Columns: []string{"文件路径", "函数名"},
+			Items:   []emitAnswerBlockItemV2{{ID: "index", Cells: []string{"src/Index.ets", "Index"}}},
+		},
+		{
+			ID:      "label-first",
+			Kind:    string(types.BlockTable),
+			Columns: []string{"函数名", "文件路径"},
+			Items:   []emitAnswerBlockItemV2{{ID: "index", Label: "Index", Cells: []string{"src/Index.ets"}}},
+		},
+		{
+			ID:      "synthetic-label-header",
+			Kind:    string(types.BlockTable),
+			Columns: []string{"文件路径"},
+			Items:   []emitAnswerBlockItemV2{{ID: "index", Label: "Index", Cells: []string{"src/Index.ets"}}},
+		},
+	} {
+		if _, err := NormalizeEmitAnswerBlock(raw, "blocks[0]"); err != nil {
+			t.Fatalf("valid structured convention rejected for %s: %v", raw.ID, err)
+		}
+	}
+}
+
 // G2 regression lock — pre-G2 the patch path's
 // convertEmitBlocksToTyped silently dropped EdgeAnchors. Single-source
 // normalizer fixes this. Lock it here so it cannot regress.
