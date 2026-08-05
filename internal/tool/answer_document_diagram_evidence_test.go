@@ -234,6 +234,16 @@ func TestDiagramCallEdgeEvidenceMismatches_RequiredQualifiedCallerBridgesUniqueS
 	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{shortCall, qualifiedCallee}); len(got) != 1 || got[0].Issue != diagramCallEdgeIssueNoEvidence {
 		t.Fatalf("a request anchor without citable caller-owner binding must not mint qualification: %+v", got)
 	}
+	ownerBoundCall := shortCall
+	ownerBoundCall.OwnerSymbol = "gate.Run"
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{ownerBoundCall}); len(got) != 0 {
+		t.Fatalf("a grounded exact OwnerSymbol should bind an unqualified same-owner call without a duplicate definition row: %+v", got)
+	}
+	wrongOwnerCall := ownerBoundCall
+	wrongOwnerCall.OwnerSymbol = "other.Run"
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{wrongOwnerCall}); len(got) != 1 || got[0].Issue != diagramCallEdgeIssueNoEvidence {
+		t.Fatalf("a differently qualified OwnerSymbol must fail closed: %+v", got)
+	}
 	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{shortCall, qualifiedCallee, callerDefinition}); len(got) != 0 {
 		t.Fatalf("typed required caller plus unique short call and exact callee should preserve qualification: %+v", got)
 	}
@@ -260,6 +270,37 @@ func TestDiagramCallEdgeEvidenceMismatches_RequiredQualifiedCallerBridgesUniqueS
 	ambiguousDefinition.LineStart = 20
 	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{shortCall, qualifiedCallee, callerDefinition, ambiguousDefinition}); len(got) != 1 || got[0].Issue != diagramCallEdgeIssueNoEvidence {
 		t.Fatalf("multiple caller-owner definitions must remain ambiguous: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_GroundedOwnerBindingSupportsClosedQualifierForms(t *testing.T) {
+	tests := []struct {
+		name, caller, callee string
+	}{
+		{"dot", "gate.Run", "gate.RunWith"},
+		{"colon", "clinic::Gate::run", "clinic::Gate::runWith"},
+		{"hash", "Gate#run", "Gate#runWith"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := diagramEvidenceTestDoc("A", "B")
+			doc.Blocks[0].Diagram.Body = "sequenceDiagram\n" +
+				"  participant A as " + tc.caller + "\n" +
+				"  participant B as " + tc.callee + "\n" +
+				"  A->>B: invoke\n"
+			call := diagramEvidenceTestCall(diagramEvidenceQualifiedOperation(tc.caller), diagramEvidenceQualifiedOperation(tc.callee))
+			call.AnchorSymbol = diagramEvidenceQualifiedOperation(tc.callee)
+			call.OwnerSymbol = tc.caller
+			view := &types.AnswerSemanticView{
+				Family: types.QFCallChain,
+				RequiredMechanismAnchors: []types.AnswerRequiredAnchor{{
+					Text: tc.caller, Kind: types.ContractTermSymbol,
+				}},
+			}
+			if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{call}); len(got) != 0 {
+				t.Fatalf("grounded owner-bound %s edge should pass all consumers: %+v", tc.name, got)
+			}
+		})
 	}
 }
 

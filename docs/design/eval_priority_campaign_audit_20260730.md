@@ -14705,5 +14705,16 @@ required endpoint / owner binding 完成限定展示；存在多 owner、重载�
 edge anchor 与 principal completeness 必须调用同一个 resolver，不能各保留一份别名策略。测试矩阵覆盖 Go、Java/Kotlin、
 TS/ArkTS、C/C++、Rust、Cangjie 等全部可执行语言的 `.`/`::`/`#`/裸符号形，不按语言关键词分支。
 
-状态：`EVAL-B89-CALLEDGEQUAL1=confirmed/P0/implementation-next`。该修复只消费 structured document 与 typed evidence，
+施工确认不需要放宽到 path/短名猜测。`emit_evidence` grounding 本来就会从 repomap 的 enclosing callable 铸造模型不可写的
+`OwnerSymbol`，但 package-level callable 只保留短名。本批仅对 call-site owner stamp 保留 parser-owned package/module/receiver
+限定身份；普通 condition/return/assignment 的既有短 owner 语义不变。图边 resolver 现有 definition 绑定臂继续保留，新增的
+等价臂必须同时满足：exact required caller、同 owner 的限定两端、call record 上 exact qualified OwnerSymbol、唯一 source:line、
+callee 为同 owner 的裸 operation；wrong owner、缺 owner、contrary object、多 call-site 继续 fail-closed。parsed body、anchor 与
+principal completeness 原本已汇入同一 resolver，因而三面同时闭合。
+
+看护覆盖生产 `gate.Run -> gate.RunWith` 形、无 owner/错误 owner/多位置负臂、`.`/`::`/`#` 三种限定身份，并对 Go、Python、
+JavaScript、TypeScript、Java、Kotlin、Rust、C、C++、Ruby、Swift、Lua、ArkTS、Cangjie 的 package/module owner stamp 逐语言
+固定预期。定向 diagram/evidence 套件与完整 `go test ./internal/tool -count=1`（167.735s）全绿。
+
+状态：`EVAL-B89-CALLEDGEQUAL1=implemented/full-tool-pass/replay-next`。该修复只消费 structured document 与 typed evidence，
 不解析用户/模型 prose，不放松无证 call edge；QFRootCauseTrace 已显式排除，因此 Trace 时间窗因果投影及自动补齐不受影响。

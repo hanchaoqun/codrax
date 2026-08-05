@@ -4002,6 +4002,60 @@ func TestEmitEvidence_NormalizesCallDirectionToCallerCallee(t *testing.T) {
 	}
 }
 
+func TestEmitEvidence_CallOwnerSymbolKeepsParserQualifiedPackageIdentity(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "internal/analysis/gate/gate.go", 135,
+		"return RunWith(ir, th, ModeRead, Options{})",
+	)
+	ctx.Mutable.SetSearchGraph(&repomap.Graph{FileIndex: map[string]*repomap.FileInfo{
+		"internal/analysis/gate/gate.go": {
+			RelPath: "internal/analysis/gate/gate.go", Language: "go", Package: "gate",
+			Symbols:   []repomap.Symbol{{Name: "Run", Kind: "function", Line: 132, EndLine: 136}},
+			Relations: []repomap.Relation{{Kind: "call", Line: 135, ToEP: repomap.RelationEndpoint{Name: "RunWith"}}},
+		},
+	}})
+	params := json.RawMessage(`{"items":[{"kind":"relationship","subject":"Run","predicate":"calls","object":"RunWith","source":"internal/analysis/gate/gate.go","line_start":135,"summary":"Run calls RunWith","anchor_kind":"call","anchor_symbol":"RunWith","snippet":"return RunWith(ir, th, ModeRead, Options{})"}]}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil || !res.Success {
+		t.Fatalf("call evidence should ground, err=%v summary=%s", err, res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 || got[0].Subject != "Run" || got[0].OwnerSymbol != "gate.Run" || got[0].AnchorSymbol != "RunWith" {
+		t.Fatalf("call identity = %+v, want short presentation plus parser-qualified owner", got)
+	}
+}
+
+func TestQualifiedEvidenceSymbolNameInFile_CoversExecutablePackageQualifierFamilies(t *testing.T) {
+	symbol := &repomap.Symbol{Name: "run", Kind: "function"}
+	tests := []struct {
+		language, pkg, want string
+	}{
+		{"go", "gate", "gate.run"},
+		{"python", "gate", "gate.run"},
+		{"javascript", "gate", "gate.run"},
+		{"typescript", "gate", "gate.run"},
+		{"java", "gate", "gate.run"},
+		{"kotlin", "gate", "gate.run"},
+		{"rust", "gate", "gate::run"},
+		{"c", "gate", "gate.run"},
+		{"cpp", "gate", "gate::run"},
+		{"ruby", "gate", "gate.run"},
+		{"swift", "gate", "gate.run"},
+		{"lua", "gate", "gate.run"},
+		{"arkts", "gate", "gate.run"},
+		{"cangjie", "clinic", "clinic::run"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.language, func(t *testing.T) {
+			fi := &repomap.FileInfo{Language: tc.language, Package: tc.pkg}
+			if got := qualifiedEvidenceSymbolNameInFile(fi, symbol); got != tc.want {
+				t.Fatalf("qualified owner = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestEmitEvidence_NormalizeCallDirection_DoesNotFallbackToWrongSameLineCall(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

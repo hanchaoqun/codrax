@@ -640,11 +640,13 @@ func diagramCallEdgeHasTypedEvidence(evidence []types.EvidenceItem, requiredAnch
 	// A same-language call site can be normalized to short in-file names
 	// (`Run -> RunWith`) while the answer uses the exact user endpoint owner
 	// (`gate.Run -> gate.RunWith`). Preserve that qualified presentation only
-	// when four typed authorities agree: the caller is an exact required
-	// mechanism anchor, one citable definition binds its owner+operation, the
-	// short call site is in that same typed source file, and the callee's
-	// qualified surface occurs verbatim in a citable call record. This closes an
-	// encoder mismatch without guessing from paths, Mermaid prose, or user text.
+	// when the caller is an exact required mechanism anchor and one of two
+	// parser-owned bindings is unique: either a citable definition binds the
+	// owner/operation and source file while the qualified callee is already
+	// citable, or the call record itself carries the exact grounded OwnerSymbol
+	// and targets an unqualified operation inside that same owner. This closes
+	// an encoder mismatch without guessing from paths, Mermaid prose, or user
+	// text.
 	if diagramCallEdgeHasRequiredQualifiedCaller(
 		evidence, requiredAnchors, fromSymbol, toSymbol,
 	) {
@@ -736,25 +738,42 @@ func diagramCallEdgeHasRequiredQualifiedCaller(
 ) bool {
 	fromOwner := diagramEvidenceQualifiedOwner(fromSymbol)
 	fromOperation := diagramEvidenceQualifiedOperation(fromSymbol)
+	toOwner := diagramEvidenceQualifiedOwner(toSymbol)
 	toOperation := diagramEvidenceQualifiedOperation(toSymbol)
 	callerDefinitionSource, _, callerDefinitionOK := diagramEvidenceUniqueDefinitionLocation(evidence, fromOwner, fromOperation)
-	if fromOwner == "" || fromOperation == "" || toOperation == "" ||
-		!diagramRequiredMechanismAnchorContainsExactSymbol(requiredAnchors, fromSymbol) ||
-		!callerDefinitionOK ||
-		!diagramEvidenceContainsExactCallEndpoint(evidence, toSymbol) {
+	if fromOwner == "" || fromOperation == "" || toOwner == "" || toOperation == "" ||
+		!diagramRequiredMechanismAnchorContainsExactSymbol(requiredAnchors, fromSymbol) {
+		return false
+	}
+	definitionBound := callerDefinitionOK && diagramEvidenceContainsExactCallEndpoint(evidence, toSymbol)
+	ownerContextBound := fromOwner == toOwner
+	if !definitionBound && !ownerContextBound {
 		return false
 	}
 
 	locations := make(map[string]bool)
 	for _, ev := range evidence {
 		if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimCallEdge ||
-			strings.TrimSpace(ev.Subject) != fromOperation ||
-			strings.TrimSpace(ev.Source) != callerDefinitionSource {
+			strings.TrimSpace(ev.Subject) != fromOperation {
+			continue
+		}
+		if definitionBound {
+			if strings.TrimSpace(ev.Source) != callerDefinitionSource {
+				continue
+			}
+		} else if strings.TrimSpace(ev.OwnerSymbol) != fromSymbol {
+			// OwnerSymbol is stamped from the parsed enclosing callable after
+			// grounding. An exact qualified owner on the call record is therefore
+			// a definition-equivalent binding; a short/model-authored owner cannot
+			// qualify the endpoint by itself.
 			continue
 		}
 		object := strings.TrimSpace(ev.Object)
 		anchor := strings.TrimSpace(ev.AnchorSymbol)
-		if object != toOperation && anchor != toOperation {
+		if object != "" && object != toOperation && object != toSymbol {
+			continue
+		}
+		if object != toOperation && object != toSymbol && anchor != toOperation {
 			continue
 		}
 		key := strings.TrimSpace(ev.Source) + "\x00" + strconv.Itoa(ev.LineStart) + "\x00" + fromOperation + "\x00" + toOperation

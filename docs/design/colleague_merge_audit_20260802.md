@@ -2069,4 +2069,10 @@ analyzer-stage lens 的精确交集；不扫描 RawRequest，探索 scope/ration
 identity join，并以唯一 OwnerSymbol/source location/required endpoint 消歧；任何多位置、重载、异 owner 均 fail-closed。
 不得通过模型输出关键词、语言名或本 case 函数名放行。
 
+现已交付：call-site `OwnerSymbol` 保留 repomap enclosing callable 的 parser-owned package/module/receiver 限定身份；resolver
+只有在 exact required caller、same-owner qualified endpoints、exact grounded OwnerSymbol、唯一 source:line 与裸 callee operation
+同时成立时，才把短调用投影为限定展示。既有 unique-definition 臂未放宽；无 owner、异 owner、contrary object、多位置均拒绝。
+`.`/`::`/`#` 与 14 个可执行语言 owner-stamp fixtures、完整 `internal/tool`（167.735s）全绿。状态：
+`EVAL-B89-CALLEDGEQUAL1=implemented/full-tool-pass/replay-next`。
+
 本轮未触碰 RootCauseTrace runtime relation authority、显式时间窗因果投影、自动补齐或模型结论所有权。

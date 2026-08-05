@@ -2883,6 +2883,16 @@ func normalizeCallExpressionTarget(raw string) string {
 
 func stampEvidenceOwnerSymbol(it *types.EvidenceItem, gc *ground.Context) bool {
 	owner := enclosingEvidenceCallableOwner(it, gc)
+	// Call-site ownership is consumed later as a typed endpoint-identity
+	// binding. Preserve the parser's package/receiver-qualified callable when
+	// available; unlike Subject, OwnerSymbol is system-stamped after grounding
+	// and cannot be supplied by the model. Other line-local evidence keeps the
+	// historical short owner because it is used for intra-file mismatch checks.
+	if it != nil && it.AnchorKind == types.AnchorCall {
+		if qualified := enclosingEvidenceQualifiedCallableOwner(it, gc); qualified != "" {
+			owner = qualified
+		}
+	}
 	if owner == "" || strings.TrimSpace(it.OwnerSymbol) == owner {
 		return false
 	}
@@ -3343,6 +3353,18 @@ func enclosingEvidenceCallableOwner(it *types.EvidenceItem, gc *ground.Context) 
 	return enclosingCallableSymbolName(fi, it.LineStart)
 }
 
+func enclosingEvidenceQualifiedCallableOwner(it *types.EvidenceItem, gc *ground.Context) string {
+	if it == nil || gc == nil || gc.Graph == nil || it.Source == "" || it.LineStart <= 0 || it.AnchorKind != types.AnchorCall {
+		return ""
+	}
+	source := ground.CanonicalContextPath(gc, it.Source)
+	fi, ok := gc.Graph.FileIndex[source]
+	if !ok || fi == nil {
+		return ""
+	}
+	return qualifiedEvidenceSymbolNameInFile(fi, enclosingCallableSymbol(fi, it.LineStart))
+}
+
 func conflictingLineLocalCallableClaim(it types.EvidenceItem, fi *repomap.FileInfo, owner string) string {
 	if fi == nil {
 		return ""
@@ -3484,8 +3506,12 @@ func findCallRelationAtLineForCandidates(fi *repomap.FileInfo, line int, candida
 }
 
 func enclosingCallableSymbolName(fi *repomap.FileInfo, line int) string {
+	return qualifiedEvidenceSymbolName(enclosingCallableSymbol(fi, line))
+}
+
+func enclosingCallableSymbol(fi *repomap.FileInfo, line int) *repomap.Symbol {
 	if fi == nil || line <= 0 {
-		return ""
+		return nil
 	}
 	var best *repomap.Symbol
 	bestPriority := math.MaxInt
@@ -3513,7 +3539,29 @@ func enclosingCallableSymbolName(fi *repomap.FileInfo, line int) string {
 			bestSpan = span
 		}
 	}
-	return qualifiedEvidenceSymbolName(best)
+	return best
+}
+
+// qualifiedEvidenceSymbolNameInFile preserves receiver/parent qualification
+// first, then adds the parser-owned package/module for top-level callables.
+// This is identity metadata, not a display rewrite. Separator choice follows
+// the typed source language; downstream endpoint comparison accepts the same
+// closed '.', '::', and '#' forms used by the diagram contract.
+func qualifiedEvidenceSymbolNameInFile(fi *repomap.FileInfo, sym *repomap.Symbol) string {
+	name := qualifiedEvidenceSymbolName(sym)
+	if fi == nil || sym == nil || name == "" || strings.TrimSpace(sym.Receiver) != "" || strings.TrimSpace(sym.Parent) != "" {
+		return name
+	}
+	pkg := strings.TrimSpace(fi.Package)
+	if pkg == "" {
+		return name
+	}
+	separator := "."
+	switch strings.ToLower(strings.TrimSpace(fi.Language)) {
+	case "cangjie", "rust", "cpp", "c++":
+		separator = "::"
+	}
+	return strings.TrimRight(pkg, ".:") + separator + name
 }
 
 func callRelationTargetName(graph *repomap.Graph, fi *repomap.FileInfo, rel *repomap.Relation) string {
