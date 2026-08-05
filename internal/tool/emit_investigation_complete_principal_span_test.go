@@ -204,6 +204,45 @@ func TestEmitInvestigationComplete_NoDirectedPathWaiverCarriesModelOwnedBoundary
 	}
 }
 
+func TestEmitInvestigationComplete_NoDirectedPathWaiverRequiresExactEndpointExistence(t *testing.T) {
+	mut := types.NewMutableState("opaque request bytes are not consulted")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "buildAnalysisIR", Object: "gate.RunWith", Source: "internal/agent/analyzer.go", LineStart: 2666, GroundingStatus: types.GroundingGrounded},
+	})
+	bus := &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentTrace, PredicateAxis: types.AxisCall,
+		CallChainEndpointProfile: orderedCallChainEndpoints("buildAnalysisIR", "gate.Run"),
+		AnalyzerHints:            types.AnalyzerHints{Kind: string(types.ReqCallChain), ExactTargets: []string{"buildAnalysisIR", "gate.Run"}},
+	}}}
+	params := json.RawMessage(`{"reason":"source inspection found no path","confidence":"high","result_kind":"resolved","principal_span_waiver":{"reason":"no_directed_path","rationale":"the collected graph reaches only gate.RunWith"}}`)
+	res, err := (&EmitInvestigationComplete{}).Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+	if !res.Success || mut.IsInvestigationComplete() {
+		t.Fatalf("missing exact sink proof must keep investigation open: %+v", res)
+	}
+	for _, want := range []string{"lacks exact endpoint existence proof", "`gate.Run`", "prefix sibling"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("downgrade missing %q: %s", want, res.Summary)
+		}
+	}
+	repairs := mut.EvidenceClosure().ActiveRepairs()
+	if len(repairs) == 0 || repairs[len(repairs)-1].Origin != "pre_complete.call_chain_no_path_endpoint_existence" {
+		t.Fatalf("typed endpoint repair missing: %+v", repairs)
+	}
+
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition,
+		Subject: "gate.Run", AnchorSymbol: "Run", Source: "internal/analysis/gate/gate.go",
+		LineStart: 134, GroundingStatus: types.GroundingGrounded,
+	}})
+	res, err = (&EmitInvestigationComplete{}).Execute(bus, params)
+	if err != nil || !res.Success || !mut.IsInvestigationComplete() {
+		t.Fatalf("both exact endpoints proven with no directed path should retain model-owned typed escape: res=%+v err=%v", res, err)
+	}
+}
+
 func TestEmitInvestigationComplete_NonBoundaryWaiverCannotBypassMissingDirectedPath(t *testing.T) {
 	mut := types.NewMutableState("trace buildAnalysisIR to gate.Run")
 	mut.AppendEvidence([]types.EvidenceItem{

@@ -12295,6 +12295,26 @@ func callChainExactEndpointReachabilityDowngradeWithEvidence(ctx *types.BusConte
 		return ""
 	}
 	if waiver != nil && waiver.IsActive() && waiver.Reason == types.PrincipalSpanWaiverNoDirectedPath {
+		existence := types.AnalyzeCallChainEndpointExistence(evidence, startHint, endHint)
+		if !existence.StartProven || !existence.EndProven || existence.StartAmbiguous || existence.EndAmbiguous {
+			var missing []string
+			if !existence.StartProven || existence.StartAmbiguous {
+				missing = append(missing, startHint)
+			}
+			if !existence.EndProven || existence.EndAmbiguous {
+				missing = append(missing, endHint)
+			}
+			closure.AddRepair(types.RepairDirective{
+				Kind:      types.RepairEmitEvidence,
+				Keywords:  append([]string(nil), missing...),
+				Tools:     []string{"repo_map", "grep", "read_file", "emit_evidence"},
+				Rationale: "no_directed_path requires citable current-source existence proof for both exact requested endpoints; locate and read each unresolved endpoint, then emit its grounded definition or real call edge before retrying",
+				Origin:    "pre_complete.call_chain_no_path_endpoint_existence",
+				Stage:     string(types.StageExplore),
+			})
+			return fmt.Sprintf("%s — principal_span_waiver=no_directed_path lacks exact endpoint existence proof.\n\nUnresolved or ambiguous endpoint(s): `%s`. Before declaring a no-path boundary, locate and read each exact endpoint and emit a grounded current-source definition or real call edge. A prefix sibling such as RunWith for Run, recovered anchor, runtime artifact, or waiver rationale cannot prove endpoint existence.",
+				EmitInvestigationCompleteDowngradePrefix, strings.Join(missing, "`, `"))
+		}
 		return ""
 	}
 	if waiver != nil && waiver.IsActive() {

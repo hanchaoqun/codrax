@@ -2305,3 +2305,8 @@ runtime artifact 与歧义短名均不能越权铸边。Java/C/C++/Rust/ArkTS/Ca
 
 修复顺序冻结为 endpoint existence admission → analyzer request-bound query coordinate；均只消费 typed evidence/provenance，不扫描模型/答案原文，
 不系统代写结论，不影响 RootCauseTrace、显式时间窗因果投影与自动补齐。
+
+B97-A 已交付：`no_directed_path` 不再仅凭 enum+rationale 越过 exact sink 未查缺口。新的 typed existence analysis 要求两个请求端点各自由 citable
+current-source call node 或精确 definition 证明；definition 不进入 reachability，prefix sibling、歧义短名、recovered/runtime 均无权。
+缺端点时发布定向定位/读取/发证据 repair，两端已证后仍由模型拥有 no-path 结论。15 种语言 identity 矩阵、生产同形与负臂通过，完整
+`internal/types`（23.964s）、`internal/tool`（168.462s）全绿。状态：`implemented/full-pass/replay-after-B97-B`。

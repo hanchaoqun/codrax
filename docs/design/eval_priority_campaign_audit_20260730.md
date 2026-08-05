@@ -15377,3 +15377,18 @@ tool-query provenance 与当前请求精确 path identity 的 typed join 才能�
 `EVAL-B97-DIAGRAMALIAS1` 只列 P1 观察：sequence 的短 operation alias/qualified callee 导致 4 次 Finalizer reject，但最终能自修复；需异构复现后
 再扩共享 resolver，不能据单例硬化。所有批次均禁止以 request/think/final prose 关键词作 hard gate，禁止系统改写模型结论，显式时间窗 Trace
 因果投影与自动补齐保持负回归隔离。
+
+### 101.6 B97-A 施工：no-path waiver 先证明两端存在
+
+`EVAL-B97-CALLENDPOINTPROOF1` 已实现。共享 types 层新增与 reachability 正交的 endpoint-existence analysis：只消费 citable
+current-source code/config 的 `ClaimCallEdge` 与 `ClaimDefinitionFact`；call edge 可同时证明其真实两端参与源码图，definition 只证明精确叶端点存在，
+永远不能铸造边或路径。限定名只接受完整 identity，自由/短名只有唯一 tail 时才解析；`.`、`::`、`#` 统一，prefix sibling、歧义短名、
+recovered、runtime artifact 与 prose 全部 fail-closed。
+
+completion 现在先保留“若同向路径已证则 no-path waiver 自相矛盾”的既有门；在确实无路径且模型声明 `no_directed_path` 时，再要求 source/sink
+均通过 existence proof。缺端点会返回精确 endpoint roster，并铸 typed repair，开放 `repo_map/grep/read_file/emit_evidence` 让模型定位、阅读和发证据；
+不会从 waiver rationale 或答案猜文件。两端已证后仍由模型决定是否声明 no-path，系统只把真实边交给 finalizer，不生成结论。
+
+生产同形测试证明只有 `buildAnalysisIR -> gate.RunWith` 时不能关闭；补入 grounded `gate.Run` definition 后才保留 typed escape。另覆盖
+definition 不铸路径、RunWith/Run sibling、recovered/runtime、短名歧义与 15 种可执行语言表面。完整 `internal/types`（23.964s）和
+`internal/tool`（168.462s）通过。状态：`EVAL-B97-CALLENDPOINTPROOF1=implemented/full-pass/replay-after-B97-B`。
