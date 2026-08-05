@@ -13699,7 +13699,10 @@ type readOwnerAnchorSupplementRow struct {
 	LineStart    int
 	LineEnd      int
 	Strength     types.SourceLocalizationAnchorStrength
+	Rank         int
 }
+
+const readOwnerAnchorSupplementMaxRows = 8
 
 func renderReadOwnerAnchorSupplement(ctx *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {
 	rows := readOwnerAnchorSupplementRows(ctx, doc)
@@ -13947,8 +13950,13 @@ func readOwnerAnchorSupplementRows(_ *types.AgentContext, doc *types.AnswerDocum
 	if doc == nil || len(doc.ReadOwnerAnchors) == 0 {
 		return nil
 	}
-	view := types.NormalizeOwnerAnchorView(types.OwnerAnchorView{Items: doc.ReadOwnerAnchors}, 8)
-	seen := map[string]bool{}
+	// The final-answer supplement is a path-localization safety net, not a
+	// second semantic inventory. Keep one strongest, most precise typed anchor
+	// per uncited source path. Without this projection, several nested owners
+	// and evidence revisions from one read can consume the entire visible cap
+	// and drown the model-authored answer while adding no new file location.
+	view := types.NormalizeOwnerAnchorView(types.OwnerAnchorView{Items: doc.ReadOwnerAnchors}, 0)
+	pathIndex := map[string]int{}
 	var rows []readOwnerAnchorSupplementRow
 	for _, item := range view.Items {
 		if item.Path == "" || types.SourcePathRoleIsAuxiliary(item.Role) || item.Kind == types.SourceLocalizationAnchorScope {
@@ -13964,6 +13972,7 @@ func readOwnerAnchorSupplementRows(_ *types.AgentContext, doc *types.AnswerDocum
 			OwnerSymbol:  strings.TrimSpace(item.OwnerSymbol),
 			AnchorSymbol: strings.TrimSpace(item.AnchorSymbol),
 			Strength:     item.Strength,
+			Rank:         item.Rank,
 		}
 		if row.OwnerSymbol == "" {
 			row.OwnerSymbol = strings.TrimSpace(item.Subject)
@@ -13979,14 +13988,54 @@ func readOwnerAnchorSupplementRows(_ *types.AgentContext, doc *types.AnswerDocum
 				row.AnchorSymbol = strings.TrimSpace(item.EvidenceRef.AnchorSymbol)
 			}
 		}
-		key := strings.Join([]string{row.Path, row.OwnerSymbol, row.AnchorSymbol, row.EvidenceID}, "\x00")
-		if row.Path == "" || seen[key] {
+		pathKey := answerDocSourceFileKey(row.Path)
+		if pathKey == "" {
 			continue
 		}
-		seen[key] = true
+		if idx, ok := pathIndex[pathKey]; ok {
+			if readOwnerAnchorSupplementRowBetter(row, rows[idx]) {
+				rows[idx] = row
+			}
+			continue
+		}
+		if len(rows) >= readOwnerAnchorSupplementMaxRows {
+			continue
+		}
+		pathIndex[pathKey] = len(rows)
 		rows = append(rows, row)
 	}
 	return rows
+}
+
+func readOwnerAnchorSupplementRowBetter(candidate, current readOwnerAnchorSupplementRow) bool {
+	if candidate.Rank != current.Rank {
+		return candidate.Rank < current.Rank
+	}
+	candidateLocated := candidate.LineStart > 0
+	currentLocated := current.LineStart > 0
+	if candidateLocated != currentLocated {
+		return candidateLocated
+	}
+	if candidateLocated {
+		candidateSpan := max(0, candidate.LineEnd-candidate.LineStart)
+		currentSpan := max(0, current.LineEnd-current.LineStart)
+		if candidateSpan != currentSpan {
+			return candidateSpan < currentSpan
+		}
+		if candidate.LineStart != current.LineStart {
+			return candidate.LineStart < current.LineStart
+		}
+	}
+	if (candidate.EvidenceID != "") != (current.EvidenceID != "") {
+		return candidate.EvidenceID != ""
+	}
+	if (candidate.OwnerSymbol != "") != (current.OwnerSymbol != "") {
+		return candidate.OwnerSymbol != ""
+	}
+	if (candidate.AnchorSymbol != "") != (current.AnchorSymbol != "") {
+		return candidate.AnchorSymbol != ""
+	}
+	return false
 }
 
 func readOwnerAnchorSupplementSymbol(row readOwnerAnchorSupplementRow) string {

@@ -17560,3 +17560,47 @@ projection 组全绿；Analyzer implement/field-value 教学 pin 全绿。完整
 `EVAL-B136-FIELDUNKNOWN1=implemented/targeted-pass/awaiting-replay`；
 `EVAL-B136-JAVAORACLE1=eval-only-P2`；`EVAL-B135-RUSTRELLOC1=P3-observe`；
 Trace 显式窗、因果投影、自动补齐、两个根因维度、排序、唤醒链和窗内可消除量=`untouched`。
+
+### 123.25 B137 r55：实现枚举与关系配对回放闭环；定位补充按文件收敛
+
+在 `main@6918c8be1` 冻结构建后，严格并行恰好两个同能力轴、不同语言/关系形 case：
+
+- `sr_rust_trait_impls`：78s，runner PASS / human PASS，context 19%，Explorer unavailable=0，Finalizer reject=0；
+- `sr_java_handler_impls`：104s，runner PASS / human PASS，context 20%，Analyzer 1 轮，Finalizer reject=0。
+
+Rust 回放确认三条生产修复同时生效：Analyzer 发出 `predicate_axis=implement`，typed relation 的 principal 集合只保留
+`LiteralMatcher` 与 `RegexLikeMatcher`，trait 声明不再混入实现者清单；`summary` 语义通道继续允许读取选择逻辑；最终引用落在
+`impl Matcher for` 的 17/33 行，并正确给出 `--fixed` 与默认分支。上一轮的错误三成员 roster、源码读取截断和 declaration-line
+引用均不再出现。因此 `EVAL-B135-RELROSTER1`、`EVAL-B136-IMPLREL1`、`EVAL-B135-RUSTRELLOC1` 一并回放闭环。
+
+Java 回放确认 `EVAL-B136-RELPAIR1` 与 `EVAL-B136-FIELDUNKNOWN1`：Analyzer 不再为未知路径值误发
+`field_value_profile`；模型首份最终答案自然给出三条 `实现类 → /route → 源文件`，structured member-set 中同向 pair 被精确 typed
+candidate 接受，Finalizer 零拒绝，系统也没有再追加重复 registration roster。Explorer 第一次 completion 忘记逐成员
+`support_refs`，随后一次合法 JSON 修复即闭合；这是可恢复的模型 carrier omission，当前没有系统相反教学、运行合同冲突或结果丢失，
+暂按模型波动观察，不为它新增 prose 扫描或宽放硬门。`EVAL-B136-JAVAORACLE1` 本次也自然通过，但生产合同仍按用户真实请求边界，
+没有强制所有枚举行增加未请求列。
+
+JSON/上下文审计：两案 Analyzer、Explorer、Finalizer carrier 都可解析，未触发 malformed salvage；Java 的一次 completion 修复是结构字段
+缺失，不是 JSON 语法错误。`emit_analysis` 的 implement、unknown field-value 教学与运行 schema 已同向；没有靠失败学习互相矛盾的
+字段合同。B123-D1 的“projected schema 单源 + 无损修复优先 + 最后有界 visible-string salvage + 明确降级披露”保持生效，本轮没有
+观察到新的固定 JSON 示例污染或系统替换模型答案。
+
+本轮另确认 `EVAL-B137-OWNERSUPNOISE1`（P1）：Rust 正文提到但未引用 `src/main.rs`，答案关键定位补充因此应当保留；旧渲染却把同一
+文件的 8 个 nested/revision owner 锚全部倾倒。Java 对 `Handler.java` 同样追加两条。这些行没有改写模型结论，但把“一个未引用文件的
+定位兜底”膨胀成第二份内部 owner 清单，增加用户和模型心智负担。
+
+根修只消费 typed `ReadOwnerAnchors`，不读用户请求、模型 prose 或答案关键词：先按既有 rank 保留 owner/support 权限，再对每个未引用
+源码路径只选一个具有最精确 line span 的最强锚；最多展示 8 个不同文件。它仍会为正文明确提到但缺 citation 的路径补一条定位事实，
+不会删除模型正文、铸造语义结论或把系统块升级为路由/因果权威。新增回归锁定同一路径 broad+nested+exact 三锚只显示 exact 一行、
+不同文件不被误合并；既有 answer-critical、resolved suppression 与 observed-only 车道保持。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b137_rust_java_replay_r55_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b137_rust_java_replay_r55_20260805_manual_audit.md`。
+
+回归：`go test ./internal/agent -count=1` PASS（2.478s）。
+
+状态：`EVAL-B135-INVSEMDEPTH1=production-replay-closed`；`EVAL-B135-RELROSTER1=production-replay-closed`；
+`EVAL-B136-IMPLREL1=production-replay-closed`；`EVAL-B136-RELPAIR1=production-replay-closed`；
+`EVAL-B136-FIELDUNKNOWN1=production-replay-closed`；`EVAL-B137-OWNERSUPNOISE1=implemented/full-agent-pass`；
+`EVAL-B136-JAVAORACLE1=eval-only-P2/production-natural-pass`；Trace 显式时间窗、因果投影、自动补齐、两维根因、根因排序、唤醒链与
+窗内可消除量=`untouched`。

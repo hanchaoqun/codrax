@@ -8096,6 +8096,55 @@ func TestRenderReadOwnerAnchorSupplement_RendersOwnerRows(t *testing.T) {
 	}
 }
 
+func TestRenderReadOwnerAnchorSupplement_ProjectsOnePreciseRowPerPath(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		ReadOwnerAnchors: []types.OwnerAnchorViewItem{{
+			Path:        "pkg/main.go",
+			Kind:        types.SourceLocalizationAnchorGroundedEvidence,
+			Strength:    types.SourceLocalizationAnchorOwner,
+			OwnerSymbol: "broadOwner",
+			EvidenceRef: &types.WriteExplorationEvidenceRef{
+				ID: "ev-broad", Source: "pkg/main.go", LineStart: 10, LineEnd: 80,
+			},
+		}, {
+			Path:         "pkg/main.go",
+			Kind:         types.SourceLocalizationAnchorGroundedEvidence,
+			Strength:     types.SourceLocalizationAnchorOwner,
+			OwnerSymbol:  "exactOwner",
+			AnchorSymbol: "exactCall",
+			EvidenceRef: &types.WriteExplorationEvidenceRef{
+				ID: "ev-exact", Source: "pkg/main.go", LineStart: 42,
+			},
+		}, {
+			Path:         "pkg/other.go",
+			Kind:         types.SourceLocalizationAnchorGroundedEvidence,
+			Strength:     types.SourceLocalizationAnchorOwner,
+			OwnerSymbol:  "otherOwner",
+			AnchorSymbol: "otherCall",
+			EvidenceRef: &types.WriteExplorationEvidenceRef{
+				ID: "ev-other", Source: "pkg/other.go", LineStart: 7,
+			},
+		}},
+	}
+	got := renderReadOwnerAnchorSupplement(nil, doc, "zh")
+	if count := strings.Count(got, "| `pkg/main.go` |"); count != 1 {
+		t.Fatalf("supplement must render one localization row per path, got %d:\n%s", count, got)
+	}
+	for _, want := range []string{
+		"`exactOwner` / `exactCall`",
+		"`pkg/main.go:42` (`ev-exact`)",
+		"`pkg/other.go:7` (`ev-other`)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("supplement missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "ev-broad") {
+		t.Fatalf("broader same-path anchor must not leak into final supplement:\n%s", got)
+	}
+}
+
 func TestAnswerDocumentEvaluator_ParseOutput_DoesNotAppendReadOwnerAnchorSupplementForObservedOnly(t *testing.T) {
 	mu := types.NewMutableState("")
 	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
