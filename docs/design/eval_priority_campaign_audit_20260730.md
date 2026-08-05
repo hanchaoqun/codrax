@@ -17193,6 +17193,11 @@ Trace 侧正面边界全部守住：明确窗、自动补采、两维根因、�
 `eval/parallel_selected_summary_evalcampaign_b129_trace_relation_replay_r47_20260805_manual_audit.md`。
 
 状态：`EVAL-B129-RELREVISION1=implemented/full-agent-types-pass`；
-`EVAL-B129-NONADDITIVE1=confirmed/P1-next`；
+`EVAL-B129-NONADDITIVE1=implemented/full-skill-pass`；
 `EVAL-B128-RELFRONTIER1=implemented/r47-producer-reached-merge`；
 显式窗 Trace causal projection/auto-supplement=`preserved`。
+
+`EVAL-B129-NONADDITIVE1` 的施工只替换既有 soft skill 原子句，不增加合同数量：不同方向只有在 exact typed
+additive/joint-counterfactual carrier 在场时才可发布保证合计；普通 non-additive 的唯一含义是 joint benefit 未证，不能推出
+重叠、依赖或“一项修好另一项自然消失”。只有 `cross_direction_overlaps` 可授权共享物理时间陈述，且严格以发布 overlap
+值为上限。测试同时负钉旧歧义句。该规则没有 `OnViolation`，不扫描或修改模型答案。

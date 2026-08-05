@@ -73,9 +73,10 @@ func TestAnswerfaceTypedWordFaceConsumption(t *testing.T) {
 	}
 	for _, want := range []string{
 		"`fix_direction`",
-		"benefits across DIFFERENT directions never add up",
+		"do not sum seats into a guaranteed combined gain unless an exact typed additive or joint-counterfactual carrier authorizes it",
+		"does NOT prove that the seats overlap, that one depends on another, or that fixing one makes another disappear",
 		"`cross_direction_overlaps`",
-		"never present the two benefits as stackable",
+		"never present that shared part as stackable",
 		"`member_roster` / `member_wall_ms` / `member_count`",
 		"`chain_credential_segments`",
 		"`chain_credential_envelope_level`",
@@ -85,6 +86,9 @@ func TestAnswerfaceTypedWordFaceConsumption(t *testing.T) {
 		if !strings.Contains(item.Body, want) {
 			t.Fatalf("word-face rule missing %q:\n%s", want, item.Body)
 		}
+	}
+	if strings.Contains(item.Body, "benefits across DIFFERENT directions never add up") {
+		t.Fatalf("ambiguous non-additivity teaching can invite an unsupported dependency counterfactual:\n%s", item.Body)
 	}
 }
 
