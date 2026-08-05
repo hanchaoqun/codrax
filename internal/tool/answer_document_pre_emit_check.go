@@ -2987,6 +2987,22 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 	if len(mismatches) == 0 {
 		return nil
 	}
+	if mismatches[0].Issue == diagramCallEdgeIssueDuplicateParticipant {
+		parts := make([]string, 0, len(mismatches))
+		for _, mismatch := range mismatches {
+			parts = append(parts, fmt.Sprintf(
+				"block=%q identity=%s aliases=%s,%s",
+				mismatch.BlockID, mismatch.FromSymbol, mismatch.FromNode, mismatch.ToNode,
+			))
+		}
+		return []emitFixHint{{
+			Field:      "blocks[kind=diagram].diagram.body AND blocks[].edge_anchors[]",
+			HardSignal: preEmitHardSignalTypedCallEdgeEvidence,
+			ExpectedShape: "declare each exact typed call endpoint under one Mermaid alias; reuse that one alias on every body edge, and set edge_anchors[].from_node/to_node to the verbatim alias IDs used by the body. Remove the duplicate participant declaration rather than renaming the typed endpoint: " +
+				strings.Join(parts, "; "),
+			Reason: "multiple aliases for one exact typed call endpoint make body-edge identity ambiguous and can disguise valid calls as missing anchors. Owner/class presentation participants remain legal when exact message operations distinguish their typed call edges.",
+		}}
+	}
 	parts := make([]string, 0, len(mismatches))
 	for _, mismatch := range mismatches {
 		parts = append(parts, fmt.Sprintf(

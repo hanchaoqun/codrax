@@ -14920,6 +14920,11 @@ typed `duplicate_participant_identity` 一次性要求复用一个 alias；只�
 展示相同 class/actor carrier 但 message operations 不同，继续走既有 operation resolver，不可盲合并。本轮另有一次 Finalizer
 首字节约 3 分钟等待，归类 provider 波动，不立产品 gap。
 
+代码与生产 payload 冷读补正：重复 identity 不是所有 `missing_call_anchor` 的唯一原因。schema 已明确要求 edge anchor 使用 diagram body
+中的 verbatim node ID，而生产稿多次用 canonical symbol（如 `buildAnalysisIR -> gate.RunWith`）去锚 body alias（`IR -> RW`），该拒绝
+本身正确。真实缺口是系统没有先指出同一个精确 typed endpoint `gate.RunWith` 同时声明为 `RW`/`RW2`，导致模型在 canonical symbol、
+alias 和虚构 `RunWith2` 之间反复切换。修复不得把 canonical symbol 静默改写成 alias，也不得放宽现有 verbatim-ID 合同。
+
 施工顺序：B92-A `INVENTORYSELECT1`（P0，先修并回放 inventory）；B92-B `DIAGIDENT1`（P1，精确错误与全语言/全图族结构 pin）；
 之后继续两个异构 case。两批均不触碰 Trace RootCauseTrace、显式时间窗因果投影、自动补齐或系统答案 mutation。
 
@@ -14936,3 +14941,15 @@ type 的 principal 语义保持。回归覆盖 3 type / 5 production function / 
 quote/entity surface-family 两臂、快照车道和 LOC convergence。状态：`implemented/targeted-pass/full-suite-running`；B92-B 后按严格两并发
 回放验收。`internal/types`、`internal/agent`、`internal/tool/repomap` 与 `internal/tool` 全量通过（tool 167.338s），状态更新为
 `implemented/full-pass/replay-next`。没有读取原始请求或答案文本作硬门，也没有修改 Trace、系统补齐或 Finalizer 的结论所有权。
+
+### 96.5 B92-B 施工：typed endpoint 的 participant identity 先验诊断
+
+`EVAL-B92-DIAGIDENT1` 已实现定向修复。call-evidence 校验先从 parsed Mermaid declarations 建立 node-id → visible identity 表，只对
+**精确等于 citable typed call Subject/Object** 且有两个不同 alias 实际参与 call edge 的 endpoint 发射
+`duplicate_participant_identity`。诊断一次性要求：删除重复声明、复用一个 alias、body 所有边与 `edge_anchors` 都使用同一 verbatim
+alias。随后原有 same-direction call evidence gate 原样执行，不接受 canonical symbol 替代 body alias，也不由系统改写模型图。
+
+该判定适用于 sequence/call_dag 和所有非 runtime-trace question families；endpoint 形式覆盖自由函数、`.`、`::`、`#`，不绑定 Java
+或任一语言。相同 class/actor 展示标签若由不同 message operation 精确消歧则继续合法；未参与 call 的重复展示声明也不硬拒。
+RootCauseTrace/显式时间窗因果投影仍在入口处完全隔离。diagram 定向矩阵与 `internal/tool` 全量通过（172.707s），状态：
+`implemented/full-pass/replay-next`。

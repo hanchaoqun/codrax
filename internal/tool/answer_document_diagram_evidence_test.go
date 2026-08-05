@@ -955,6 +955,102 @@ func TestDiagramCallEdgeEvidenceMismatches_ExplicitCallAuthorityIsFamilyIndepend
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_DuplicateTypedParticipantIdentityIsDiagnosedFirst(t *testing.T) {
+	for _, endpoint := range []string{"gate.RunWith", "gate::RunWith", "Gate#runWith", "run_with"} {
+		for _, family := range []types.QuestionFamily{types.QFCallChain, types.QFGeneric, types.QFArchitecture} {
+			t.Run(string(family)+"/"+endpoint, func(t *testing.T) {
+				doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+					ID: "sequence", Kind: types.BlockDiagram,
+					Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+						"sequenceDiagram",
+						"  participant A as Caller.one",
+						"  participant B as Caller.two",
+						"  participant R as " + endpoint,
+						"  participant R2 as " + endpoint,
+						"  A->>R: invoke",
+						"  B->>R2: invoke",
+					}, "\n")},
+					EdgeAnchors: []types.DiagramEdgeAnchor{
+						{FromNode: "A", ToNode: "R", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge},
+						{FromNode: "B", ToNode: "R2", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge},
+					},
+				}}}
+				got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: family},
+					[]types.EvidenceItem{
+						diagramEvidenceTestCall("Caller.one", endpoint),
+						diagramEvidenceTestCall("Caller.two", endpoint),
+					})
+				if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueDuplicateParticipant ||
+					got[0].FromNode != "R" || got[0].ToNode != "R2" || got[0].FromSymbol != endpoint {
+					t.Fatalf("duplicate typed endpoint diagnosis=%+v", got)
+				}
+			})
+		}
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_DuplicateClassCarriersRemainOperationResolved(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "sequence", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+			"sequenceDiagram",
+			"  participant C as VisitController",
+			"  participant S1 as VisitService",
+			"  participant S2 as VisitService",
+			"  C->>S1: schedule(petId)",
+			"  C->>S2: cancel(petId)",
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "C", ToNode: "S1", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge},
+			{FromNode: "C", ToNode: "S2", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge},
+		},
+	}}}
+	schedule := diagramEvidenceTestCall("VisitController.create", "VisitService.schedule")
+	schedule.AnchorSymbol = "schedule"
+	cancel := diagramEvidenceTestCall("VisitController.create", "VisitService.cancel")
+	cancel.AnchorSymbol = "cancel"
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
+		[]types.EvidenceItem{schedule, cancel}); len(got) != 0 {
+		t.Fatalf("class carriers with exact operation discriminators must remain legal: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_UnusedDuplicateDeclarationDoesNotCreateIdentityGate(t *testing.T) {
+	doc := diagramEvidenceTestDoc("A", "B")
+	doc.Blocks[0].Diagram.Body = strings.Replace(
+		doc.Blocks[0].Diagram.Body,
+		"  A->>B: invoke\n",
+		"  participant B2 as Beta.Run\n  A->>B: invoke\n",
+		1,
+	)
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
+		[]types.EvidenceItem{diagramEvidenceTestCall("Alpha.Run", "Beta.Run")}); len(got) != 0 {
+		t.Fatalf("an unused presentation declaration cannot make a grounded edge ambiguous: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_CallDAGDuplicateTypedNodeIdentity(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "dag", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramCallDAG, Language: "mermaid", Body: strings.Join([]string{
+			"flowchart TD",
+			"  A[Caller.run] --> R[gate.RunWith]",
+			"  G[gate.Run] --> R2[gate.RunWith]",
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "A", ToNode: "R", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge},
+			{FromNode: "G", ToNode: "R2", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge},
+		},
+	}}}
+	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, []types.EvidenceItem{
+		diagramEvidenceTestCall("Caller.run", "gate.RunWith"),
+		diagramEvidenceTestCall("gate.Run", "gate.RunWith"),
+	})
+	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueDuplicateParticipant || got[0].BlockID != "dag" {
+		t.Fatalf("call-DAG duplicate typed identity diagnosis=%+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_ClassParticipantAliasIsFamilyIndependent(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "sequence", Kind: types.BlockDiagram,
@@ -1109,6 +1205,41 @@ func TestRunPreEmitChecks_DiagramBodyEdgeWithoutAnchorIsWired(t *testing.T) {
 		}
 	}
 	t.Fatalf("pre-emit dispatch must hard-reject a body edge whose typed anchor was omitted: %+v", hints)
+}
+
+func TestRunPreEmitChecks_DuplicateParticipantIdentityGivesSingleExecutableRepair(t *testing.T) {
+	doc := diagramEvidenceTestDoc("A", "B")
+	doc.Blocks[0].Diagram.Body = strings.Replace(
+		doc.Blocks[0].Diagram.Body,
+		"  A->>B: invoke\n",
+		"  participant B2 as Beta.Run\n  A->>B: invoke\n  A->>B2: invoke\n",
+		1,
+	)
+	doc.Blocks[0].EdgeAnchors = append(doc.Blocks[0].EdgeAnchors, types.DiagramEdgeAnchor{
+		FromNode: "A", ToNode: "B2", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge,
+	})
+	mut := types.NewMutableState("duplicate participant identity")
+	mut.AppendEvidence([]types.EvidenceItem{diagramEvidenceTestCall("Alpha.Run", "Beta.Run")})
+	hints := runPreEmitChecks(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, nil, &types.BusContext{Mutable: mut})
+	var matches []emitFixHint
+	for _, hint := range hints {
+		if hint.Kind == types.ViolDiagramCallEdgeUnproven {
+			matches = append(matches, hint)
+		}
+	}
+	if len(matches) != 1 || !strings.Contains(matches[0].ExpectedShape, diagramCallEdgeIssueDuplicateParticipant) &&
+		!strings.Contains(matches[0].ExpectedShape, "identity=Beta.Run aliases=B,B2") {
+		t.Fatalf("duplicate participant must produce one precise repair: %+v", hints)
+	}
+	for _, want := range []string{"reuse that one alias", "verbatim alias IDs", "Remove the duplicate participant declaration"} {
+		if !strings.Contains(matches[0].ExpectedShape, want) {
+			t.Fatalf("duplicate repair missing %q: %+v", want, matches[0])
+		}
+	}
+	hard, _ := splitPreEmitHintsByGate(matches)
+	if len(hard) != 1 {
+		t.Fatalf("typed duplicate identity diagnosis must remain a single hard repair: %+v", matches)
+	}
 }
 
 func TestRunPreEmitChecks_PrincipalPathDiagramCompletenessIsWired(t *testing.T) {

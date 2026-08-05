@@ -2167,3 +2167,11 @@ B92-A 已施工：category enumeration 的 repo_map 默认查询与 advisory sna
 3/5/2 production roster、test 排除、显式 query、ArkTS surface、snapshot 与 convergence pins。状态：
 `EVAL-B92-INVENTORYSELECT1=implemented/full-pass/replay-next`；`internal/types`、`internal/agent`、`internal/tool/repomap`、
 `internal/tool` 全量通过（tool 167.338s），不涉及 Trace 或系统答案代写。
+
+B92-B 冷读补正并施工：生产稿用 canonical symbol 锚 diagram alias，本就违反 schema 的 verbatim node-ID 合同；不能把全部
+`missing_call_anchor` 归因于重复 alias。确认的新缺口是同一 citable typed endpoint `gate.RunWith` 以 `RW/RW2` 两个实际 call
+participant 出现时缺少先验 identity 诊断，误导模型继续改方向/造 `RunWith2`。现先发射精确
+`duplicate_participant_identity`，要求复用一个 alias 且 body/anchors 同 ID，然后继续原 evidence gate。仅 exact typed call endpoint +
+两个参与 call 的 alias 触发；class/actor + 不同 operation、unused declaration 保持可用。sequence/call_dag、自由函数及多语言限定符
+均有正负 pin；RootCauseTrace 不进入此合同。diagram 定向矩阵与 `internal/tool` 全量通过（172.707s），状态：
+`EVAL-B92-DIAGIDENT1=implemented/full-pass/replay-next`。

@@ -30,9 +30,10 @@ type diagramVisibleCallEdge struct {
 }
 
 const (
-	diagramCallEdgeIssueMissingAnchor = "missing_call_anchor"
-	diagramCallEdgeIssueNoEvidence    = "call_edge_unproven"
-	diagramCallEdgeIssuePrincipalMiss = "principal_call_edge_missing"
+	diagramCallEdgeIssueDuplicateParticipant = "duplicate_participant_identity"
+	diagramCallEdgeIssueMissingAnchor        = "missing_call_anchor"
+	diagramCallEdgeIssueNoEvidence           = "call_edge_unproven"
+	diagramCallEdgeIssuePrincipalMiss        = "principal_call_edge_missing"
 )
 
 // DiagramCallEdgeEvidenceMismatches cross-checks model-authored typed call
@@ -49,6 +50,15 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 		return nil
 	}
 	strictSourceCallChain := view.Family == types.QFCallChain
+	// Identity ambiguity is diagnosed before edge authority. Otherwise the
+	// same typed endpoint declared under multiple aliases can turn every valid
+	// edge into a misleading missing-anchor report and send the model through
+	// endpoint/direction rewrites. This check consumes parsed declarations and
+	// exact typed call endpoints only; class/actor presentation labels that are
+	// not exact call endpoints remain available to the message-operation lane.
+	if duplicates := diagramDuplicateTypedParticipantIdentities(doc, evidence, strictSourceCallChain); len(duplicates) > 0 {
+		return duplicates
+	}
 	requiredAnchors := view.RequiredMechanismAnchors
 	documentLabels := diagramEvidenceDocumentNodeLabels(doc)
 	documentEdges := diagramEvidenceDocumentEdges(doc)
