@@ -275,10 +275,15 @@ func persistMergedAnswerDocumentWithAttachmentPolicy(
 	if fixed := normalizeOutOfBoundsCurrentSourceCitations(merged, ctx); fixed > 0 {
 		logging.Warning("[%s] removed or detached %d out-of-bounds current-source citation carrier(s) before persist", toolName, fixed)
 	}
-	if answerDocumentHasQuotelessCurrentSourceCitation(merged, ctx) {
+	// Full emits already normalize every submitted quote before entering this
+	// shared path. A patch can append a NON-EMPTY but stale/wrong quote after
+	// that pass, so quoteless-only gating lets a false source excerpt ship.
+	// Re-verify every patch citation against the current source; the normalizer
+	// is bounded, source-scoped, and no-ops on already exact quotes.
+	if kind == types.MutationPartial || answerDocumentHasQuotelessCurrentSourceCitation(merged, ctx) {
 		if fixed := normalizeCurrentSourceCitationQuotes(merged, ctx); fixed > 0 {
 			recordCitationQuoteRewriteDegradation(ctx, fixed)
-			logging.Warning("[%s] backfilled %d quoteless citation quote(s) from current source before persist", toolName, fixed)
+			logging.Warning("[%s] verified/repaired %d citation quote(s) from current source before persist", toolName, fixed)
 		}
 	}
 	// XGAP-FIX ⑤ (§29.104.8): runtime-artifact citation quote check —

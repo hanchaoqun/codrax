@@ -6478,6 +6478,11 @@ const (
 	// empty-blocks breaker and snapshot-recovery hint key on this exact
 	// code (precise signal — never matched from hint prose).
 	ToolRepairCodeAnswerDocBlocksRequired = "answer_doc_blocks_required"
+	// ToolRepairCodeAnswerDocStructuralCarrierCorruption marks a payload whose
+	// JSON parses, but whose property-name surface contains JSON delimiters.
+	// That shape proves a block/object boundary was serialized into a key; it
+	// must not be treated as harmless forward-compatible metadata.
+	ToolRepairCodeAnswerDocStructuralCarrierCorruption = "answer_doc_structural_carrier_corruption"
 
 	// ToolRepairMetaMemberSetMissingFingerprint is the ToolRepair.Metadata
 	// key carrying the member-set coverage reject's missing-obligation

@@ -167,6 +167,11 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 			"top-level field %q is not accepted; place the exact typed claim object(s) under replace_blocks[i].relation_claims or add_blocks[i].relation_claims on the model-authored block that uses the values (never at $.relation_claims)",
 			"relation_claims")
 	}
+	if paths := answerDocumentStructuralCarrierCorruptionPaths(params); len(paths) > 0 {
+		return failEmitWithRepair(t.Name(), now, answerDocumentStructuralCarrierCorruptionRepair(paths),
+			"answer_document patch carrier contains serialized JSON boundary text in field name(s): %s; retry the patch without dropping any requested block",
+			strings.Join(paths, ", "))
+	}
 
 	// Flat-mode tolerance for the streaming-bug pattern where an LLM
 	// stringifies an array field instead of emitting a real JSON

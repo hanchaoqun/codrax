@@ -16595,3 +16595,109 @@ receiver callable carrier 保持原实现，Proto 仍是 declarative、不会伪
 统一改用 `ShallowClone`；生产代码不变。
 
 状态：`EVAL-B107-ENDPOINTAMBIG1=implemented/B122-A+B/full-related-pass/replay-next`。
+
+## 123. 2026-08-05 模型答案消失事件与 B122 r41 读写异构审计
+
+### 123.1 `EVAL-B122-ANSWERCARRIER1`（P0）：合法 JSON 外壳掩盖结构融合，系统补齐误签完整答案
+
+客户指出 `20260805-085448.711-42828.html` 没有模型回答。该工件生成于
+`main@607e851b8`，早于 B121 `76b476153`。原始 `emit_answer_document` 参数只有一个
+`kind=caveat` 块；该对象还带有两个字段名：
+
+- `"}, {"claim_uses`
+- `"}, {"facet_ids`
+
+这两个名字把原本的 JSON 对象边界序列化进 property name。外层 JSON 语法有效，旧
+unknown-field quarantine 因而把它当普通向前兼容 metadata 删除；剩余 caveat 被接受，随后
+Trace materializer 补出因果投影、主要占用、指标、建议和证据附录。用户最终看到 800 余行
+系统事实，却没有模型的诊断、总结与优化判断。
+
+B121 已守住 Trace 特定的最终底线：有 full-report authority 和 required principal contract 时，
+没有模型 principal block 不允许物化系统整稿。但这次复盘确认还有通用根：JSON 语法有效不等于
+answer carrier 完整，结构污染字段不能进入普通 metadata quarantine。
+
+最优处置采用三档恢复，而不是“全拒”或“尽量猜”二选一：
+
+1. 唯一、无损的 delimiter/control-char/string-array 修复继续自动执行；
+2. 可独立解码的模型 block/text/diagram 进入 typed recovery draft，先触发重试；
+3. 块边界或字段归属不唯一时不铸正式结论；重试耗尽后只在 degraded lane 显式披露
+   “模型结构化成文失败”，保留已恢复模型文本，并标记未经过完整结构校验；系统 Trace 补齐可作
+   事实附录，但不能替代模型主回答。
+
+本批新增精确信号：只扫描 JSON property name，若其中含对象 delimiter/quote（如 `{`、`}`、
+`"`），发出 typed repair `answer_doc_structural_carrier_corruption`；不扫描用户请求、block text、
+item text、diagram body 或最终 prose。普通 unknown metadata 仍按原兼容策略隔离。完整 emit 在拒绝前
+保存可恢复 visible text，patch 拒绝则保持上一版已验文档。
+
+### 123.2 r41 严格双并发结果：runner 1/2 PASS，人工 0/2 PASS
+
+在 `main@5cdbf499f` 构建冻结后，以 `PARALLEL=2` 并行恰好两个异构 case：
+
+- `sr_py_registry_dispatch`：288s，runner PASS / human FAIL；16 轮 explorer、2 次 finalizer reject；
+- `github_issue_tokenizers_newline_run_multirepo_py`：1155s，runner FAIL / human FAIL，写工作流停在
+  `verify_failed` 后的 replan，最终被 case timeout 取消。
+
+工件见 `eval/parallel_selected_summary_evalcampaign_b122_readwrite_r41_20260805.md` 及 manual audit。
+
+读用例证明 B122-B 的 `registration_edge` 已进入 Finalizer typed context，但 Explorer 的 endpoint
+合同仍是纯 static-call 形：`run_pipeline -> resolve -> runtime registry binding -> plugin.handle` 被要求
+闭成 `run_pipeline -> JsonPlugin.handle` 静态有向路径。`runtime_dispatched_call` waiver 的类型说明允许
+动态分派，完成门却规定任何 active waiver 都不能豁免缺失 directed path，形成同一 typed 合同的
+生产矛盾。模型遂反复伪造 endpoint，最后把 `TimestampMixin.handle` 的定义行签成
+`JsonPlugin.handle`。答案虽命中 runner 字符串，却还存在三项事实错：
+
+- `@register("json")` 实际执行 `REGISTRY[name] = cls`，并非与 `content_type="application/json"` 绑定；
+- `resolve` 返回 `cls()` 实例，不是类引用；
+- `JsonPlugin` 的实际 handle 来自 MRO 首席 `TimestampMixin.handle`，不能把定义 owner 改名为
+  `JsonPlugin.handle`。
+
+写用例则暴露验证上下文权威污染。model-authored probe 用 merge `(104,101,400)`（字节 `he`）测试
+输入 `#el`，却断言输出应为 `[35,400,108]`。这个 comparator 无用户请求、既有测试或 grounded
+behavior contract 支持，系统仍把整条失败标成 “Latest verification failure (authoritative)” 注入
+replan。Planner 已识别期望不合常理，却只能围绕被加冕的伪 oracle 推理，最终 60K context、1155s
+超时。首次 patch 还把长度 1 的单换行折叠，说明 boundary probe 只有正例、缺少“不满足 run 条件”
+的负臂。
+
+### 123.3 新 GAP 与冻结批次
+
+1. `EVAL-B122-ANSWERCARRIER1`（P0，本批施工）：结构污染 key 不再静默 quarantine；可恢复文本保留，
+   不完整 carrier 重试/降级披露，不能靠系统补齐签绿。
+2. `EVAL-B122-PATCHQUOTE1`（P0，本批施工）：partial mutation 的非空 citation quote 也必须与当前源码
+   file:line 重核；旧门只在 quote 为空时运行，导致错误摘录绕过。full emit 既有首轮校验保持不变。
+3. `EVAL-B122-EXECGRAPH1`（P1，下一批）：建立 typed compound execution graph，区分 static call、
+   registration/binding、runtime dispatch 与 inherited method owner；`runtime_dispatched_call` 只能在精确
+   endpoints、grounded binding/dispatch witness 成立时豁免静态 path，rationale 不能自证。另为“最终由谁处理”
+   提供 discover-sink endpoint mode，不能让 Analyzer 预铸错误 exact sink。
+4. `EVAL-B122-PROBEAUTH1`（P0/P1，下一批）：verification failure 拆为 observed execution result 与
+   expected comparator provenance。来自请求、既有测试、grounded contract 的 comparator 才能驱动代码
+   replan；model-only comparator 失败应先重建 probe，不能升格为业务需求。
+5. `EVAL-B122-PROBEPOLARITY1`（P1，与上项同批）：行为新增/边界变化的 probe 至少覆盖正例与保持旧行为的
+   负例；单换行、无 `(10,10)` 规则等不满足触发条件的输入不能被新逻辑吞并。
+6. `EVAL-B122-JSONTEACH1`（P1，协议批）：当前 Finalizer 同时收到 tool schema、Workflow 长清单和重复的
+   semantic contract；“native array / claim_uses / citation_ref”多处重复，虽未发现本案由相互矛盾的 JSON
+   指令直接触发，但心智负担过高。后续应以 projected JSON schema 为单一字段权威，skill 只保留任务流程、
+   证据边界和一个最小 envelope，删除重复字段手册；用 schema/prompt parity test 防漂移。
+7. `EVAL-B122-METRICDOWNGRADE1`（P2）：四次 completion call 中的 DOWNGRADED 路径未计入
+   `investigation_complete_rejects`，runner 的 churn 面低报。
+
+施工顺序冻结为：B123-A（carrier + patch citation）→ B123-B（probe provenance/polarity）→
+B123-C（compound execution graph/discover sink/owner identity）→ B123-D（JSON 教学去重与 parity）。每批
+独立提交推送；随后切换下一对 read/write/operation/data/Trace 异构 case。
+
+### 123.4 B123-A 施工不变量
+
+- 只用 JSON key、mutation kind、source file:line 与 typed contract 作硬判据；
+- 不扫描用户原文、模型思考、模型答案正文或最终渲染文本；
+- 不修改 Trace 显式窗、因果投影、根因排序、唤醒链、窗内可消除量和自动补齐；
+- 系统可恢复/展示模型内容与精确事实，但不补写模型诊断或替模型选择根因；
+- 普通 schema-unknown metadata 继续兼容；只有结构 delimiter 进入字段名才 fail-loud；
+- patch citation 重核使用 bounded current-source reader，runtime artifact、negative search、敏感配置、
+  越界和超大文件沿用既有隔离策略。
+
+回归：新增客户原形 full emit、patch 结构污染、patch 非空错误 quote 三个正反 pin；
+`go test ./internal/tool -count=1` PASS（171.018s）。
+
+状态：`EVAL-B122-ANSWERCARRIER1=implemented/full-tool-pass/replay-next`；
+`EVAL-B122-PATCHQUOTE1=implemented/full-tool-pass/replay-next`；
+`EVAL-B122-EXECGRAPH1=confirmed/P1`；`EVAL-B122-PROBEAUTH1=confirmed/P0-next`；
+`EVAL-B122-PROBEPOLARITY1=confirmed/P1-next`；`EVAL-B122-JSONTEACH1=confirmed/P1`。

@@ -2,6 +2,8 @@ package tool
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -163,6 +165,60 @@ func TestEmitAnswerDocumentPatch_QuarantinesUnknownSchemaMetadata(t *testing.T) 
 	doc := bus.Mutable.AnswerDocumentV2()
 	if doc == nil || len(doc.Blocks) != 3 || doc.Blocks[2].ID != "scope_note" {
 		t.Fatalf("merged document missing quarantined add block: %+v", doc)
+	}
+}
+
+func TestEmitAnswerDocumentPatch_RejectsStructurallyContaminatedFieldName(t *testing.T) {
+	bus := newPatchTestBusContext()
+	before := bus.Mutable.AnswerDocumentV2()
+	tool := &EmitAnswerDocumentPatch{}
+	res, err := tool.Execute(bus, json.RawMessage(`{
+		"unchanged_block_ids": ["s1", "list1"],
+		"add_blocks": [{
+			"id":"c1", "kind":"caveat", "text":"recoverable",
+			"\"}, {\"claim_uses": [{"claim_form":"external_observation"}]
+		}]
+	}`))
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if res.Success || res.Repair == nil || res.Repair.Code != types.ToolRepairCodeAnswerDocStructuralCarrierCorruption {
+		t.Fatalf("structurally contaminated patch should request an exact retry: %+v", res)
+	}
+	after := bus.Mutable.AnswerDocumentV2()
+	if after == nil || before == nil || len(after.Blocks) != len(before.Blocks) {
+		t.Fatalf("rejected patch must leave previous accepted document intact: before=%+v after=%+v", before, after)
+	}
+}
+
+func TestEmitAnswerDocumentPatch_VerifiesNonEmptyAppendedCitationQuote(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "source.go"), []byte("package sample\nfunc exact() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bus := newPatchTestBusContext()
+	bus.RepoRoot = repo
+	tool := &EmitAnswerDocumentPatch{}
+	res, err := tool.Execute(bus, json.RawMessage(`{
+		"unchanged_block_ids": ["list1"],
+		"replace_blocks": [{
+			"id":"s1", "kind":"summary", "text":"fixed lead",
+			"items":[{"id":"lead-cite", "citation_ref":1}]
+		}],
+		"append_citations": [{"file":"source.go", "line":2, "quote":"func wrong() {}"}]
+	}`))
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("patch with repairable non-empty quote should succeed: %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Citations) != 2 {
+		t.Fatalf("unexpected merged citation pool: %+v", doc)
+	}
+	if got := doc.Citations[1].Quote; got != "func exact() {}" {
+		t.Fatalf("patch citation retained stale model quote: %q", got)
 	}
 }
 

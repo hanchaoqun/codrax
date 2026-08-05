@@ -1439,6 +1439,41 @@ func TestEmitAnswerDocumentV2_QuarantinesUnknownSchemaMetadata(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentV2_RejectsStructurallyContaminatedFieldNameAndPreservesVisibleText(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	// Customer witness 20260805-085448: the JSON envelope is valid, but an
+	// object boundary was serialized into two property names. Silently
+	// quarantining those keys accepted only this caveat and let deterministic
+	// Trace supplements masquerade as the missing model answer.
+	payload := json.RawMessage(`{
+		"blocks": [{
+			"\"}, {\"claim_uses": [{"claim_form":"external_observation","facet_id":"observed_artifact_fact"}],
+			"\"}, {\"facet_ids": ["uncertainty_boundary"],
+			"id":"cav1", "kind":"caveat", "surface_role":"principal",
+			"text":"模型仍可恢复的边界说明"
+		}],
+		"citations": []
+	}`)
+	res, err := tool.Execute(bus, payload)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("structurally contaminated carrier must not publish a partial answer: %+v", res)
+	}
+	if res.Repair == nil || res.Repair.Code != types.ToolRepairCodeAnswerDocStructuralCarrierCorruption {
+		t.Fatalf("expected typed carrier-corruption repair, got %+v", res.Repair)
+	}
+	if doc := bus.Mutable.AnswerDocumentV2(); doc != nil {
+		t.Fatalf("partial model answer must not reach the validated carrier: %+v", doc)
+	}
+	attachments := bus.Mutable.AnswerDisplayAttachments()
+	if len(attachments) == 0 || !strings.Contains(attachments[0].Body, "模型仍可恢复的边界说明") {
+		t.Fatalf("rejected payload should preserve independently recoverable model text for degraded delivery: %+v", attachments)
+	}
+}
+
 func TestEmitAnswerDocumentV2_RepairsSingleUnknownItemTextAlias(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}

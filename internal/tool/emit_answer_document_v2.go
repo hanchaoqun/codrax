@@ -134,6 +134,15 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 			"top-level field %q is not accepted; place the exact typed claim object(s) under blocks[i].relation_claims on the model-authored block that uses the values (never at $.relation_claims)",
 			"relation_claims")
 	}
+	if paths := answerDocumentStructuralCarrierCorruptionPaths(raw); len(paths) > 0 {
+		// Run before compatibility normalizers: an orphan-annotation pass can
+		// otherwise absorb the surviving value and erase the delimiter-bearing
+		// key that proves model-authored block loss.
+		persistRecoveredAnswerDraft(ctx, raw, recovery, nil)
+		return failEmitWithRepair(toolName, now, answerDocumentStructuralCarrierCorruptionRepair(paths),
+			"answer_document carrier contains serialized JSON boundary text in field name(s): %s; the surviving fields are only a partial model answer",
+			strings.Join(paths, ", "))
+	}
 
 	// Flat-mode tolerance. Some LLMs emit nested arrays as JSON
 	// strings ("[{...}]") instead of real arrays — typically a
