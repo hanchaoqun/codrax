@@ -617,9 +617,24 @@ func diagramEvidenceLabelSymbol(label string) string {
 	}
 	label = strings.TrimSpace(label[:cut])
 	if symbol, _, ok := types.ParseAnswerSupportRefMemberLocation(label); ok && strings.TrimSpace(symbol) != "" {
-		return strings.TrimSpace(symbol)
+		label = strings.TrimSpace(symbol)
 	}
-	return label
+	return diagramEvidenceExactInlineCodeIdentity(label)
+}
+
+// diagramEvidenceExactInlineCodeIdentity removes one Markdown presentation
+// wrapper only when the complete label is exactly one cross-language code
+// identity. Malformed wrappers, prose, multiple tokens, and nested backticks
+// stay byte-visible to the existing fail-closed evidence resolver.
+func diagramEvidenceExactInlineCodeIdentity(label string) string {
+	if len(label) < 3 || label[0] != '`' || label[len(label)-1] != '`' || strings.Count(label, "`") != 2 {
+		return label
+	}
+	identity := label[1 : len(label)-1]
+	if identity != strings.TrimSpace(identity) || !types.AnswerCodeIdentitySurfacesCompatible(identity, identity) {
+		return label
+	}
+	return identity
 }
 
 func diagramCallEdgeHasTypedEvidence(evidence []types.EvidenceItem, requiredAnchors []types.AnswerRequiredAnchor, fromSymbol, toSymbol, edgeLabel string) bool {

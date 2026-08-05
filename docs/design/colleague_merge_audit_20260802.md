@@ -2227,3 +2227,8 @@ surface family、`count=total` 与 typed row count 全部精确闭合时，才�
 压掉同窗 30/30 roster 的机械等值校验。八类错 lineage 继续 fail-closed，completion landing M4 pin 与完整 `internal/types`
 （21.943s）、`internal/tool`（162.979s）均绿；relation/repo-wide/Trace 权限面未改。状态：
 `EVAL-B94-LENSPARITY1=implemented/full-pass/replay-after-B94-B`。
+
+B94-B 已交付：Mermaid declaration 的共享 presentation normalizer 仅移除完整包裹单一合法 code identity 的一对反引号；失衡、prose、
+多 token 与嵌套包装不做猜测。sequence/call-DAG body、sibling anchor、principal completeness、duplicate identity 共用该结果；14 种
+可执行语言及自由/`.`/`::`/`#` 形全绿，反向边与无证据边仍拒绝，RootCauseTrace 入口隔离不变。完整 `internal/tool`
+161.197s 通过。状态：`EVAL-B94-DIAGRAMCODEMARK1=implemented/full-pass/replay-next`。

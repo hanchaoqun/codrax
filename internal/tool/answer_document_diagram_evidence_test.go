@@ -177,6 +177,121 @@ func TestDiagramCallEdgeEvidenceMismatches_NodeDisplayMetadataDoesNotChangeIdent
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_InlineCodeParticipantLabelsAcrossExecutableLanguages(t *testing.T) {
+	tests := []struct {
+		language string
+		caller   string
+		callee   string
+	}{
+		{"go", "service.Handle", "repo.Insert"},
+		{"python", "service.handle", "repo.insert"},
+		{"javascript", "Service.handle", "Repository.insert"},
+		{"typescript", "Service.handle", "Repository.insert"},
+		{"java", "VisitService.schedule", "VisitRepository.insert"},
+		{"kotlin", "VisitService.schedule", "VisitRepository.insert"},
+		{"rust", "service::handle", "repo::insert"},
+		{"c", "service_handle", "repo_insert"},
+		{"cpp", "Service::handle", "Repository::insert"},
+		{"ruby", "Service::handle", "Repository::insert"},
+		{"swift", "Service.handle", "Repository.insert"},
+		{"lua", "service.handle", "repo.insert"},
+		{"arkts", "VisitService.schedule", "VisitRepository.insert"},
+		{"cangjie", "clinic::VisitService::schedule", "clinic::VisitRepository::insert"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.language, func(t *testing.T) {
+			doc := diagramEvidenceTestDoc("A", "B")
+			doc.Blocks[0].Diagram.Body = "sequenceDiagram\n" +
+				"  participant A as \"`" + tc.caller + "`\"\n" +
+				"  participant B as \"`" + tc.callee + "`\"\n" +
+				"  A->>B: invoke\n"
+			doc.Blocks = append(doc.Blocks, types.AnswerBlock{
+				ID: "path", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+				FacetIDs:  []string{string(types.FacetPrincipalPathEdge)},
+				ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+				Items:     []types.AnswerBlockItem{{Label: tc.caller}, {Label: tc.callee}},
+			})
+			if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
+				[]types.EvidenceItem{diagramEvidenceTestCall(tc.caller, tc.callee)}); len(got) != 0 {
+				t.Fatalf("%s exact inline-code labels must preserve typed endpoint identity: %+v", tc.language, got)
+			}
+			if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFGeneric},
+				[]types.EvidenceItem{diagramEvidenceTestCall(tc.caller, tc.callee)}); len(got) != 0 {
+				t.Fatalf("%s sibling explicit anchors must share inline-code identity normalization: %+v", tc.language, got)
+			}
+		})
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_CallDAGInlineCodeLabelsShareNormalizer(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "dag", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramCallDAG, Language: "mermaid", Body: "flowchart TD\n" +
+			"  A[\"`Owner.run`\"] --> B[\"`Target.go`\"]\n"},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge,
+		}},
+	}}}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
+		[]types.EvidenceItem{diagramEvidenceTestCall("Owner.run", "Target.go")}); len(got) != 0 {
+		t.Fatalf("call-DAG declarations must share exact inline-code identity normalization: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_InlineCodeLabelsRemainDirectional(t *testing.T) {
+	doc := diagramEvidenceTestDoc("B", "A")
+	doc.Blocks[0].Diagram.Body = "sequenceDiagram\n" +
+		"  participant A as \"`Alpha.Run`\"\n" +
+		"  participant B as \"`Beta.Run`\"\n" +
+		"  B->>A: invoke\n"
+	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
+		[]types.EvidenceItem{diagramEvidenceTestCall("Alpha.Run", "Beta.Run")})
+	if len(got) != 1 || got[0].FromSymbol != "Beta.Run" || got[0].ToSymbol != "Alpha.Run" {
+		t.Fatalf("presentation normalization must not authorize the reverse call direction: %+v", got)
+	}
+}
+
+func TestDiagramEvidenceLabelSymbol_OnlyStripsExactInlineCodeIdentityWrapper(t *testing.T) {
+	for _, identity := range []string{"free_function", "Owner.method", "ns::Type::run", "Type#run"} {
+		if got := diagramEvidenceLabelSymbol("`" + identity + "`"); got != identity {
+			t.Fatalf("exact wrapper for %q normalized to %q", identity, got)
+		}
+	}
+	for _, malformed := range []string{
+		"`Alpha.Run", "Alpha.Run`", "`Alpha.Run` suffix", "`Alpha Run`", "``Alpha.Run``", "`Alpha.Run` `Beta.Run`",
+	} {
+		if got := diagramEvidenceLabelSymbol(malformed); got != malformed {
+			t.Fatalf("malformed/prose wrapper %q must remain fail-closed, got %q", malformed, got)
+		}
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_InlineCodeDuplicateIdentityIsStillDiagnosed(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "sequence", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+			"sequenceDiagram",
+			"  participant A as Caller.one",
+			"  participant B as Caller.two",
+			"  participant R as \"`gate.RunWith`\"",
+			"  participant R2 as \"`gate.RunWith`\"",
+			"  A->>R: invoke",
+			"  B->>R2: invoke",
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "A", ToNode: "R", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge},
+			{FromNode: "B", ToNode: "R2", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge},
+		},
+	}}}
+	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, []types.EvidenceItem{
+		diagramEvidenceTestCall("Caller.one", "gate.RunWith"),
+		diagramEvidenceTestCall("Caller.two", "gate.RunWith"),
+	})
+	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueDuplicateParticipant || got[0].FromSymbol != "gate.RunWith" {
+		t.Fatalf("duplicate identity lane must consume the same normalized inline-code label: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_SameLineSupportRefDoesNotChangeIdentity(t *testing.T) {
 	doc := diagramEvidenceTestDoc("A", "B")
 	doc.Blocks[0].Diagram.Body = "sequenceDiagram\n" +
@@ -1021,7 +1136,9 @@ func TestDiagramCallEdgeEvidenceMismatches_AbsentEvidenceCannotAuthorizeDirectio
 
 func TestDiagramCallEdgeEvidenceMismatches_DoesNotGateTraceProjectionFamily(t *testing.T) {
 	view := &types.AnswerSemanticView{Family: types.QFRootCauseTrace}
-	got := DiagramCallEdgeEvidenceMismatches(diagramEvidenceTestDoc("B", "A"), view,
+	doc := diagramEvidenceTestDoc("B", "A")
+	doc.Blocks[0].Diagram.Body = "sequenceDiagram\n  participant A as \"`Alpha.Run`\"\n  participant B as \"`Beta.Run`\"\n  B->>A: invoke\n"
+	got := DiagramCallEdgeEvidenceMismatches(doc, view,
 		[]types.EvidenceItem{diagramEvidenceTestCall("Alpha.Run", "Beta.Run")})
 	if len(got) != 0 {
 		t.Fatalf("runtime/root-cause trace diagrams must stay outside source call-edge authority: %+v", got)

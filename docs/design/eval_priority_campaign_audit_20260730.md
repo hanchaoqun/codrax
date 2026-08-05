@@ -15102,3 +15102,15 @@ incomplete 状态。缺路径、analyze-only、partial count、行数不等、�
 repo-wide 请求及 support-only 车道保持原合同。生产同形 types pin、completion landing 接线 pin、八类 lineage 负矩阵与 LOC convergence 均通过；
 完整 `internal/types`（21.943s）和 `internal/tool`（162.979s）通过。状态：
 `EVAL-B94-LENSPARITY1=implemented/full-pass/replay-after-B94-B`。
+
+### 98.7 B94-B 施工：Mermaid inline-code 仅作为精确 endpoint 展示包装
+
+`EVAL-B94-DIAGRAMCODEMARK1` 已实现并完成全包验证。共享 `diagramEvidenceLabelSymbol` 在既有首行与 location suffix 投影之后，
+只剥离“首尾各一个反引号、全串只有这一对、内部无首尾空白且按跨语言 code identity segments 自洽”的展示包装；失衡反引号、多个
+token、prose、嵌套/多对 backtick 原样留给既有 evidence resolver fail-closed。该归一化由 sequence/call-DAG visible body、explicit
+edge anchor、principal completeness 与 duplicate participant identity 共用，没有新增第二套 alias 规则。
+
+红测先稳定复现 14 种可执行语言的合法真边全部被 `` `identity` `` 污染；修复后 Go、Python、JS/TS/ArkTS、Java/Kotlin、Rust、
+C/C++、Ruby、Swift、Lua、Cangjie，以及自由函数、`.`、`::`、`#` 形全部通过。反向 call 仍被拒、malformed/prose wrapper 不获权、
+duplicate identity 仍优先诊断，`QFRootCauseTrace` 入口隔离 pin 保持。完整 `internal/tool`（161.197s）通过。状态：
+`EVAL-B94-DIAGRAMCODEMARK1=implemented/full-pass/replay-next`。
