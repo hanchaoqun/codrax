@@ -150,6 +150,10 @@ func TestRun2FixCTraceAnswerSkeleton(t *testing.T) {
 		"organize a trace root-cause answer in four moves",
 		// ① quantified conclusion first.
 		"① Open with ONE quantified conclusion",
+		"strongest relationship permitted by typed causal authority",
+		"`causal_conclusion=unproven` or `frame_evidence_status=absent`",
+		"selected-window bottleneck / strongest chain candidate",
+		"not permission to call it the proven dropped-frame cause",
 		"one or two short sentences, nothing in front of them",
 		// ② own-account split (designed-in wait vs the real bottleneck).
 		"② Then split the target's own account",

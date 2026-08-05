@@ -17201,3 +17201,61 @@ Trace 侧正面边界全部守住：明确窗、自动补采、两维根因、�
 additive/joint-counterfactual carrier 在场时才可发布保证合计；普通 non-additive 的唯一含义是 joint benefit 未证，不能推出
 重叠、依赖或“一项修好另一项自然消失”。只有 `cross_direction_overlaps` 可授权共享物理时间陈述，且严格以发布 overlap
 值为上限。测试同时负钉旧歧义句。该规则没有 `OnViolation`，不扫描或修改模型答案。
+
+### 123.18 B130 r48：链上排序标题与帧因果权限冲突；系统成员补充非幂等
+
+在 `main@6c7f904e0` 冻结构建后，严格并行恰好两个 case：
+
+- `sr_py_mro_order`：87s，runner PASS / human FAIL，context 19%，Finalizer reject=0；
+- `trace_query_frame_semantic_span_optimization`：157s，runner PASS / human FAIL，context 27%，Trace query=2，
+  Finalizer reject=0。
+
+MRO 主问题已经由代码与 typed aggregate 正确回答：`JsonPlugin -> TimestampMixin -> ValidationMixin -> BasePlugin`，
+`TimestampMixin` 先写时间戳再经 `super()` 进入 `ValidationMixin`，说明 same-line sibling relation、frontier、缓存和
+revision merge 的生产链已闭合。模型附带把每次重写 `time.time()` 称为“幂等写入”，属于有精确源码仍发生的一次语义波动，
+本轮不为该词增加答案扫描或硬门。
+
+但最终可见面稳定出现两张同名「清单完整性补充（2）」：第一张补 `JsonPlugin/BasePlugin`，持久化前第二次编译又补
+`TimestampMixin/ValidationMixin`。根因不是关系丢失，而是 `appendPrincipalEnumerationTypedSupplements` 在 full emit 与
+persist 前各运行一次；中间 typed carrier 归一化让两次 `missingRows` 成为互补集合，旧实现每次都 append 新块。
+`EVAL-B130-ENUMSUPIDEMP1` 采用 system-only 幂等根修：同一 typed set ID 的 missing-member supplement 在第二次调用时
+按 set/source order 合并已有与新增行，保留首块 ID、删除同 set 的后续系统重复块；model-owned block 的 JSON 字节不变。
+不通过本地化标题或答案文字识别所有权，只认 `SystemGeneratedKind` 与 deterministic set ID。
+
+Trace 正面能力全部守住：显式 `5.000..5.007` 窗、自动补采、四态、唤醒链、两维根因、根因排序、窗内可消除量与系统
+因果投影均存在；上一轮“修 #1 后 #2 自然消失”的反事实已经消失。残余仍有两类越权：模型同时写出
+`causal_conclusion=unproven` / `frame_evidence_status=absent` 与“帧渲染被延迟的根本原因”；又把没有 pair relation 的两个
+修复方向称为“相互独立”。`Final Trace Decision Boundary` 与 relation authority 已经提供精确边界，证明不能靠继续追加
+同义警告解决。冷读确认通用 `TRACE SEMANTIC SPAN ROOT CAUSES` 仍教“排名最高就命名 root cause”，`TRACE ANSWER
+SKELETON` 又无条件要求开篇写 causal chain；它们与 typed authority ceiling 同时出现，构成软教学层面的认知冲突。
+
+`EVAL-B130-TRACEAUTHCOGNITION1` 的本批修复只收敛这两条既有 soft teaching：
+
+1. 链上 `root_cause_rank` 冠军继续保留既裁的“所选窗口链上可消除榜冠军”资格，不降权、不摘冠；
+2. 明确该标题本身不证明某一帧/deadline 因果；typed frame causality 已证时才在开篇写帧因果链；
+3. 当 `causal_conclusion=unproven` 或 `frame_evidence_status=absent` 时，开篇改写为“所选窗口瓶颈/最强链候选 + 缺失的
+   frame-causality link”，结论仍由模型组织；
+4. 不新增 `OnViolation`、答案关键词扫描、重试门、normalizer 或系统替写。既有 relation handoff 继续说明无 typed pair
+   carrier 时物理关系 unresolved；本轮模型仍写“相互独立”按波动观察，不用硬门追词。
+
+JSON 教学审计同步复核：B123-D1 已删除 answer-document 固定跨场景 JSON examples，并让字段权威回到本轮 projected
+schema；畸形 carrier 依次走无损结构修复、block 级可见恢复、最后有界 visible-string salvage，降级面明确披露模型 JSON
+问题与可能缺段/失序。r48 两案均一次发出合法 JSON，无 carrier repair。当前继续保留
+`EVAL-B122-JSONTEACH1=partially-implemented/real-replay-parity-watch`，不再增加第二份字段手册。
+
+完整 `internal/tool` 回归还否证了 §123.17 一处过宽实现：将完整 `StableEvidenceID` 放进 revision key 虽保住 sibling
+relation，却让普通 evidence 从 call-shaped anchor 修正为 definition-shaped anchor 时因 normalized `Kind` 改变而无法合并，
+同一源码行静默留下旧、新两条。`EVAL-B130-RELREVISION2` 收窄为只对 `EvidenceRelationship` 加入
+`(subject,predicate,object,condition)` sibling tuple；普通 evidence 继续使用 source/line/durable-token amendment key，relation
+自身的 anchor、summary、origin/authority enrichment 也仍可修订。这样不信任 caller ID，又不把 mutable metadata 当语义身份。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b130_mro_trace_replay_r48_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b130_mro_trace_replay_r48_20260805_manual_audit.md`。
+
+完整回归：`go test ./internal/types ./internal/skill -count=1` PASS；
+`go test ./internal/tool -count=1` PASS（163.853s）。
+
+状态：`EVAL-B130-ENUMSUPIDEMP1=implemented/full-tool-pass`；
+`EVAL-B130-TRACEAUTHCOGNITION1=implemented/full-skill-pass`；
+`EVAL-B130-RELREVISION2=implemented/full-types-tool-pass`；
+`EVAL-B129-RELREVISION1=production-replay-closed`；显式窗 Trace causal projection/auto-supplement=`preserved`。

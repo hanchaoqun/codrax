@@ -194,7 +194,10 @@ func TestEvidenceRevisionKey_DistinguishesCompoundRelationEndpoints(t *testing.T
 
 	amended := base
 	amended.AnchorKind = AnchorCall
+	amended.Summary = "richer relation metadata amendment"
+	amended.Origin = ClaimOriginCurrentRepo
+	amended.Authority = AuthorityFactual
 	if got, want := EvidenceRevisionKey(base), EvidenceRevisionKey(amended); got != want {
-		t.Fatalf("anchor-only amendment must retain one revision key:\n got %q\nwant %q", got, want)
+		t.Fatalf("relation metadata/authority amendment must retain one revision key:\n got %q\nwant %q", got, want)
 	}
 }

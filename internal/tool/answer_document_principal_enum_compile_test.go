@@ -105,6 +105,70 @@ func TestAppendPrincipalEnumerationTypedSupplements_AppendsOnlyMissingRowsWithou
 	}
 }
 
+func TestAppendOrMergePrincipalEnumerationMissingSupplement_CoalescesComplementaryPasses(t *testing.T) {
+	set := types.EnumerationDisplaySet{
+		ID:    "jsonplugin-mro",
+		Label: "JsonPlugin MRO chain",
+		Rows: []types.EnumerationDisplayRow{
+			{Member: "JsonPlugin", DisplayLabel: "JsonPlugin", Note: "entry"},
+			{Member: "TimestampMixin", DisplayLabel: "TimestampMixin", Note: "timestamp"},
+			{Member: "ValidationMixin", DisplayLabel: "ValidationMixin", Note: "validate"},
+			{Member: "BasePlugin", DisplayLabel: "BasePlugin", Note: "terminal"},
+		},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "model-summary",
+		Kind: types.BlockSummary,
+		Text: "model-owned MRO explanation",
+	}}}
+	modelBefore, err := json.Marshal(doc.Blocks[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !appendOrMergePrincipalEnumerationMissingSupplement(doc, set, set.Rows[:2], false) {
+		t.Fatal("first supplement append was unexpectedly refused")
+	}
+	if !appendOrMergePrincipalEnumerationMissingSupplement(doc, set, set.Rows[2:], false) {
+		t.Fatal("second complementary pass was unexpectedly refused")
+	}
+	if len(doc.Blocks) != 2 {
+		t.Fatalf("complementary passes must leave one system supplement, blocks=%d: %+v", len(doc.Blocks), doc.Blocks)
+	}
+	supplement := doc.Blocks[1]
+	if supplement.SystemGeneratedKind != types.AnswerSystemGeneratedPrincipalEnumerationMissing {
+		t.Fatalf("merged supplement lost typed ownership: %+v", supplement)
+	}
+	if len(supplement.Items) != 4 {
+		t.Fatalf("merged supplement rows=%d, want 4: %+v", len(supplement.Items), supplement.Items)
+	}
+	for i, row := range set.Rows {
+		if got := supplement.Items[i].Label; got != row.DisplayLabel {
+			t.Fatalf("row %d order/identity=%q, want %q", i, got, row.DisplayLabel)
+		}
+	}
+	modelAfter, err := json.Marshal(doc.Blocks[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(modelAfter) != string(modelBefore) {
+		t.Fatalf("system supplement merge changed model block:\nbefore=%s\nafter=%s", modelBefore, modelAfter)
+	}
+	if !appendOrMergePrincipalEnumerationMissingSupplement(doc, set, set.Rows[:1], false) || len(doc.Blocks) != 2 {
+		t.Fatalf("repeat pass must update in place without duplicating blocks: %+v", doc.Blocks)
+	}
+}
+
+func TestPrincipalEnumerationSupplementBaseID_DistinguishesSanitizedSetIDCollisions(t *testing.T) {
+	left := principalEnumerationSupplementBaseID("owner-a")
+	right := principalEnumerationSupplementBaseID("owner_a")
+	if sanitizeEnumerationBlockID("owner-a") != sanitizeEnumerationBlockID("owner_a") {
+		t.Fatal("test fixture no longer exercises a sanitized set-id collision")
+	}
+	if left == right {
+		t.Fatalf("exact typed set ids collapsed onto one supplement id: %q", left)
+	}
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_ConfigMappingPreservesModelCarrier(t *testing.T) {
 	mu := types.NewMutableState("config precedence")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

@@ -988,19 +988,27 @@ func EvidenceRevisionKey(item EvidenceItem) string {
 	if token == "" {
 		return ""
 	}
+	semanticSiblingKey := ""
+	if item.Kind == EvidenceRelationship {
+		// Relationship rows can legitimately share one declaration line and
+		// subject token (multiple inheritance / implements / embedding /
+		// fan-out). Distinguish only their typed relation tuple. Do not use the
+		// full StableEvidenceID here: Kind can be reclassified when anchor
+		// metadata is corrected, and authority/origin/summary enrichment is a
+		// valid amendment of the same concrete row.
+		semanticSiblingKey = strings.Join([]string{
+			strings.TrimSpace(item.Subject),
+			strings.TrimSpace(item.Predicate),
+			strings.TrimSpace(item.Object),
+			strings.TrimSpace(item.Condition),
+		}, "\x1e")
+	}
 	return strings.Join([]string{
 		string(scope),
 		canonicalEvidenceIdentityPath(item.Source),
 		fmt.Sprintf("%d:%d", item.LineStart, end),
 		token,
-		// A revision may amend mutable anchoring metadata, never the
-		// semantic claim itself. Without this semantic fingerprint,
-		// multiple relations emitted from one declaration line (multiple
-		// inheritance/implements/embedding/fan-out) share source, line,
-		// and subject token and are silently mistaken for successive
-		// revisions of one row. Recompute from semantic fields rather than
-		// trusting a caller-provided ID.
-		StableEvidenceID(item),
+		semanticSiblingKey,
 	}, "\x1f")
 }
 

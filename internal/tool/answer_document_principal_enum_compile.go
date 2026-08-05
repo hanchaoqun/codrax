@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -139,15 +140,129 @@ func appendPrincipalEnumerationTypedSupplements(doc *types.AnswerDocumentV2, ctx
 	appended := 0
 	for _, set := range sets {
 		rows := principalEnumerationRenderableSupplementRows(principalEnumerationMissingRows(doc, set))
-		if len(rows) == 0 || len(doc.Blocks) >= maxBlocksPerDoc {
+		if len(rows) == 0 {
 			continue
+		}
+		if appendOrMergePrincipalEnumerationMissingSupplement(doc, set, rows, zh) {
+			appended++
+		}
+	}
+	return appended
+}
+
+// appendOrMergePrincipalEnumerationMissingSupplement makes the append-only
+// shipping compiler idempotent across its pre-emit and pre-persist calls. The
+// two passes can legitimately see complementary "missing" subsets after other
+// typed normalizers add carriers. They must still publish one system-owned
+// supplement for the same display set, not two same-title half tables.
+//
+// Only blocks already marked as system-generated missing-member supplements
+// and carrying this exact typed set ID are rewritten. Model-authored blocks
+// are never inspected for ownership by title/prose and are never changed.
+func appendOrMergePrincipalEnumerationMissingSupplement(
+	doc *types.AnswerDocumentV2,
+	set types.EnumerationDisplaySet,
+	rows []types.EnumerationDisplayRow,
+	zh bool,
+) bool {
+	if doc == nil || len(rows) == 0 {
+		return false
+	}
+	baseID := principalEnumerationSupplementBaseID(set.ID)
+	var matching []int
+	for i, block := range doc.Blocks {
+		if block.SystemGeneratedKind != types.AnswerSystemGeneratedPrincipalEnumerationMissing ||
+			!principalEnumerationSupplementIDMatchesSet(block.ID, baseID) {
+			continue
+		}
+		matching = append(matching, i)
+	}
+	if len(matching) == 0 {
+		if len(doc.Blocks) >= maxBlocksPerDoc {
+			return false
 		}
 		doc.Blocks = append(doc.Blocks, buildPrincipalEnumerationRowsBlock(
 			doc, set, rows, zh, principalEnumerationSupplementMissing,
 		))
-		appended++
+		return true
 	}
-	return appended
+
+	// Restore source/set order instead of preserving whichever pass happened
+	// to see a row first. Row identity is evaluated by the same structured
+	// coverage predicate used by the enumeration compiler.
+	mergedRows := make([]types.EnumerationDisplayRow, 0, len(set.Rows))
+	for _, candidate := range set.Rows {
+		include := false
+		for _, row := range rows {
+			if principalEnumerationDisplayRowsEquivalent(candidate, row) {
+				include = true
+				break
+			}
+		}
+		if !include {
+			for _, idx := range matching {
+				if principalEnumerationBlockCoversRow(doc.Blocks[idx], doc, candidate) {
+					include = true
+					break
+				}
+			}
+		}
+		if include {
+			mergedRows = append(mergedRows, candidate)
+		}
+	}
+	if len(mergedRows) == 0 {
+		mergedRows = append(mergedRows, rows...)
+	}
+	replacement := buildPrincipalEnumerationRowsBlock(
+		doc, set, mergedRows, zh, principalEnumerationSupplementMissing,
+	)
+	replacement.ID = doc.Blocks[matching[0]].ID
+	doc.Blocks[matching[0]] = replacement
+	if len(matching) == 1 {
+		return true
+	}
+	drop := make(map[int]bool, len(matching)-1)
+	for _, idx := range matching[1:] {
+		drop[idx] = true
+	}
+	out := doc.Blocks[:0]
+	for i, block := range doc.Blocks {
+		if !drop[i] {
+			out = append(out, block)
+		}
+	}
+	doc.Blocks = out
+	return true
+}
+
+func principalEnumerationSupplementIDMatchesSet(id, base string) bool {
+	id = strings.TrimSpace(id)
+	base = strings.TrimSpace(base)
+	if id == "" || base == "" {
+		return false
+	}
+	if id == base {
+		return true
+	}
+	suffix := strings.TrimPrefix(id, base+"_")
+	if suffix == id || suffix == "" {
+		return false
+	}
+	_, err := strconv.Atoi(suffix)
+	return err == nil
+}
+
+func principalEnumerationSupplementBaseID(setID string) string {
+	setID = strings.TrimSpace(setID)
+	sum := sha256.Sum256([]byte(setID))
+	return fmt.Sprintf("principal_enum_%s_%x", sanitizeEnumerationBlockID(setID), sum[:4])
+}
+
+func principalEnumerationDisplayRowsEquivalent(a, b types.EnumerationDisplayRow) bool {
+	aKey := principalEnumerationPrimaryRowKey(a)
+	bKey := principalEnumerationPrimaryRowKey(b)
+	return aKey != "" && aKey == bKey
 }
 
 func sourceInventoryPrincipalAnswerIsModelOwned(ctx *types.BusContext) bool {
@@ -2247,7 +2362,7 @@ func buildPrincipalEnumerationRowsBlock(doc *types.AnswerDocumentV2, set types.E
 	}
 	shape := principalEnumerationTableShapeForSet(blockSet, nil)
 	block := types.AnswerBlock{
-		ID:                  uniqueAnswerBlockID(doc, "principal_enum_"+sanitizeEnumerationBlockID(set.ID)),
+		ID:                  uniqueAnswerBlockID(doc, principalEnumerationSupplementBaseID(set.ID)),
 		Kind:                types.BlockTable,
 		Title:               principalEnumerationRowsBlockTitle(set, rows, zh, mode),
 		SurfaceRole:         types.SurfacePrincipal,
