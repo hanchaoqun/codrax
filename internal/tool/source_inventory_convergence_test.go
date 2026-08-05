@@ -63,6 +63,7 @@ var sourceInventoryFileLOCCeiling = map[string]int{
 	"source_inventory_lens_marker.go":                           40,
 	"source_inventory_lens_stage_provenance.go":                 30,
 	"source_inventory_lens_observation.go":                      18,
+	"source_inventory_lens_observation_adapter.go":              10,
 	"source_inventory_context_attributes.go":                    150,
 	"source_inventory_construct_surface.go":                     70,
 	"source_inventory_duplicate_location_gap.go":                200,
@@ -116,6 +117,7 @@ var sourceInventoryFileLOCCeiling = map[string]int{
 	"../types/source_inventory_followup_universe_scope.go":           25,
 	"../types/source_inventory_followup_zero_lens.go":                97,
 	"../types/source_inventory_complete_lens.go":                     231,
+	"../types/source_inventory_complete_lens_lineage.go":             28,
 	"../types/source_inventory_complete_lens_scope.go":               35,
 	"../types/source_inventory_complete_lens_surface_family.go":      50,
 	"../types/source_inventory_observation.go":                       268, // DELIBERATE raise (LENSBURN-FIX 病B): LensExecutedEmpty field + shape accessor.
@@ -127,12 +129,14 @@ var sourceInventoryFileLOCCeiling = map[string]int{
 	"../types/source_inventory_observation_identity.go":              40,
 	"../types/source_inventory_observation_merge.go":                 200,
 	"../types/source_inventory_observation_normalize.go":             34, // DELIBERATE raise (LENSBURN-FIX 病B): normalize preserves the executed-empty carrier.
+	"../types/source_inventory_observation_complete_lens.go":         12,
 	"../types/source_inventory_observation_page.go":                  48, // DELIBERATE raise (LENSBURN-FIX 病B + fix round): defensive LensExecutedEmpty OR arm (unreachable in the present mint topology — the carrier only travels the early credential arms) plus its honest comment.
 	"../types/source_inventory_profile.go":                           229,
 	"../types/source_inventory_profile_normalize.go":                 95,
 	"../types/source_inventory_profile_roles.go":                     70,
 	"../types/source_inventory_prompt_boundary.go":                   10,
 	"../types/source_inventory_requested_path_scope.go":              120, // B88 analyzer-prescan/request provenance join plus shared bounded row/follow-up helpers.
+	"../types/source_inventory_requested_path_complete_lens.go":      50,
 	"../types/source_inventory_requested_field.go":                   60,
 	"../types/source_inventory_principal_row_set.go":                 304,
 	"../types/source_inventory_requested_surface_family.go":          100,

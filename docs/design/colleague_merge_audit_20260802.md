@@ -2189,3 +2189,10 @@ participant 出现时缺少先验 identity 诊断，误导模型继续改方向/
 优先级冻结为先修 WAIVERWIRE1（小而确定、直接消除自矛盾），再修 SCOPELINEAGE1（最高时长/context ROI），最后统一 CALLIDENT2。所有方案只消费 schema/engine/parser typed carrier，不扫描用户或模型原文作 hard gate，不放宽调用事实，不触碰 RootCauseTrace、显式时间窗因果投影、自动补齐或模型结论所有权。
 
 WAIVERWIRE1 已交付：兼容解码的 schema sibling 集合补齐两个 typed waiver family 与 clear flag；top-level family 优先，尾部互斥/非法值仍走原 validator。生产同形、顶层优先、clear+new 冲突、unknown nested field 与既有 no-path 正臂均有 pin，完整 `internal/tool` 172.639s 通过。状态：`implemented/full-tool-pass/replay-after-scope-batch`。
+
+SCOPELINEAGE1 已交付：complete lens 新增仓库根 `query_path_scopes`，selected-subrepo 的回基
+坐标同时写入返回值与 durable carrier；合并归一化不再从全局 union 二次铸造 complete
+lens。两条 follow-up authority 共享同一 typed 闭合谓词：requested path × 全部 principal
+roles × executable tool provenance × `count=total` 全满足才消除旧 root debt；路径错位、
+analyze-only、缺角色、partial count 与 repo-wide 请求均 fail-closed。完整 `internal/tool`
+161.762s 通过，既有 LOC ceiling 未抬高。状态：`implemented/full-tool-pass/replay-next`。

@@ -29,6 +29,6 @@ func normalizeSourceInventoryObservation(in SourceInventoryObservation) SourceIn
 			in.Sets[i].Total = in.Sets[i].Count
 		}
 	}
-	in.CompleteLenses = mergeSourceInventoryCompleteLenses(in.CompleteLenses, sourceInventoryCompleteLensesFromObservation(in))
+	in.CompleteLenses = normalizeSourceInventoryObservationCompleteLenses(in)
 	return in
 }

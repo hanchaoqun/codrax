@@ -2786,6 +2786,38 @@ func TestSourceInventoryRequestedUniverseFollowupDebt_RequestPathOutranksPrescan
 	}
 }
 
+func TestSourceInventoryRequestedUniverseFollowupDebt_RequestPathCompleteLensStopsRootClassExpansion(t *testing.T) {
+	ctx := sourceInventoryRequestedUniverseTestContext(nil, []types.SourceInventorySourceClassCount{
+		{Role: types.SourcePathRoleProduction, Count: 10, Languages: []types.SourceInventoryLanguageCount{{Language: "go", Count: 10}}},
+		{Role: types.SourcePathRoleThirdParty, Count: 100, Languages: []types.SourceInventoryLanguageCount{{Language: "go", Count: 100}}},
+	})
+	ctx.AnalysisIR.RequestModel.SourceInventoryProfile = &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+	}
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.SourceInventoryRequestedPathScopes = []string{"internal/analysis/criterion"}
+	observation := types.SourceInventoryObservationFromMutable(ctx.Mutable)
+	observation.CompleteLenses = []types.SourceInventoryCompleteLens{{
+		Role:            types.AnswerCandidateRoleFunction,
+		Scopes:          []string{"."},
+		QueryPathScopes: []string{"internal/analysis/criterion"},
+		Languages:       []string{"go"},
+		Count:           5,
+		Total:           5,
+		Provenance: []string{
+			types.SourceInventoryProvenanceRepoLensToolQuery,
+			types.SourceInventoryProvenanceStageExplore,
+		},
+	}}
+
+	debt := sourceInventoryRequestedUniverseFollowupDebt(
+		ctx, observation, ctx.AnalysisIR.RequestModel, nil,
+	)
+	if debt.IsActive() {
+		t.Fatalf("complete request-path lens must not expand into unrelated repo source classes: %+v", debt)
+	}
+}
+
 func sourceInventoryExactRequiredFileObservation() types.SourceInventoryObservation {
 	members := []types.SourceInventoryObservationMember{
 		sourceInventoryRequestedUniverseMemberWithLanguage("EvidenceKind", types.AnswerCandidateRoleType, "internal/types/evidence.go", 13, "go"),

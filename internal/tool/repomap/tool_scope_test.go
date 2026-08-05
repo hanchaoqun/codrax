@@ -2131,6 +2131,19 @@ func RunBeta() {}
 	if !obs.IsActive() || len(obs.Sets) != 1 || obs.Sets[0].Count != 1 {
 		t.Fatalf("path-default scoped observation should have one alpha function: %+v", obs)
 	}
+	if len(obs.QueryPathScopes) != 1 || obs.QueryPathScopes[0] != "src/alpha" {
+		t.Fatalf("durable observation lost repository-root query coordinates: %+v", obs.QueryPathScopes)
+	}
+	foundCompleteCoordinate := false
+	for _, lens := range obs.CompleteLenses {
+		if lens.Role == types.AnswerCandidateRoleFunction && len(lens.QueryPathScopes) == 1 && lens.QueryPathScopes[0] == "src/alpha" {
+			foundCompleteCoordinate = true
+			break
+		}
+	}
+	if !foundCompleteCoordinate {
+		t.Fatalf("durable complete lens lost repository-root query coordinates: %+v", obs.CompleteLenses)
+	}
 }
 
 func TestResolveRepoMapRootScopedAllowsChildren(t *testing.T) {

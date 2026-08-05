@@ -14980,6 +14980,18 @@ inventory 最终答案与 checkout 一致：type=3，production function=5，Kin
 
 状态：`EVAL-B93-SCOPELINEAGE1=confirmed/P0/next-code-batch`。
 
+SCOPELINEAGE1 已施工。`SourceInventoryCompleteLens` 现在随每次查询保存仓库根坐标
+`query_path_scopes`；`repo_map` 在 selected-subrepo 坐标回基后把同一 observation 与
+complete lens 重新写入 durable carrier，不再只有可见返回值携带该坐标。归一化器只在
+尚无 lineage 时从单次 observation 铸 complete lens，禁止从已合并的
+`Scopes/Sets/Provenance` 联集制造不存在的“联合完整查询”。follow-up/authority 仅在
+requested path 的每个主角色均有 `tool_query + explore/pre-explore` 执行凭证、路径覆盖且
+`count=total` 时消除旧 root budget debt；路径不同、analyze-only、缺角色、部分计数均继续
+精确补采，没有 request path 的真实 repo-wide 请求保持原债。系统仍不从 navigation
+凭证生成答案行，精确成员覆盖门与模型结论所有权不变。正负/持久接线/无伪联合 lens pin
+及完整 `internal/tool`（161.762s）全绿；LOC ratchet 初次正确拒绝增长后通过职责拆文件复绿，
+未抬高既有 ceiling。状态：`EVAL-B93-SCOPELINEAGE1=implemented/full-tool-pass/replay-next`。
+
 ### 97.3 `EVAL-B93-WAIVERWIRE1`（P0）：兼容解码只恢复 aggregate，丢失同尾 typed waiver
 
 sequence 的源码事实已经查清：`buildAnalysisIR -> gate.RunWith @ analyzer.go:2666` 与 `gate.Run -> RunWith @ gate.go:135` 是两条汇入同一 callee 的并列边；`buildAnalysisIR -> gate.Run` 不存在。completion gate 第一次拒绝并指导使用 `principal_span_waiver.reason=no_directed_path` 是正确的。

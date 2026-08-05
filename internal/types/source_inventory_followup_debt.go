@@ -52,6 +52,9 @@ func DeriveSourceInventoryFollowupDebtWithRequiredFiles(observation SourceInvent
 	if len(roles) == 0 {
 		return SourceInventoryFollowupDebt{}
 	}
+	if SourceInventoryRequestedPathCompleteLensesCoverRoles(observation, rm, roles) {
+		return SourceInventoryFollowupDebt{}
+	}
 	if debt := sourceInventoryRequestedPathFollowupDebt(rm, roles); debt.IsActive() {
 		return debt
 	}

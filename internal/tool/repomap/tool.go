@@ -421,7 +421,16 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 		// request authority unless the analyzer-stage producer also matches it
 		// exactly against the current request.
 		observation.QueryPathScopes = repoMapSourceInventoryQueryPathScopes(ctx, repoRoot, lensQuery)
+		for i := range observation.CompleteLenses {
+			observation.CompleteLenses[i].QueryPathScopes = append(
+				[]string(nil), observation.QueryPathScopes...)
+		}
 		observation = ctypes.CloneSourceInventoryObservation(observation)
+		// PublishSourceInventoryObservationFromLens persisted before the selected
+		// graph's operational coordinates were rebased to the repository root.
+		// Persist again after rebasing so downstream completion consumes the same
+		// query identity returned to the caller.
+		tool.PersistSourceInventoryLensObservation(ctx, observation)
 		output := tool.RenderSourceInventoryObservationView(observation, lensQuery)
 		output = prependRepoMapSourceInventoryFitAdvisory(ctx, p.Query, output)
 		output = prependRepoMapParameterAdvisory(output, narrowingAdvisories)

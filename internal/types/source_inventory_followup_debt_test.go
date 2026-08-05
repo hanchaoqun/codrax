@@ -91,6 +91,85 @@ func TestDeriveSourceInventoryFollowupDebt_RoleBindingSupportOnlyNoops(t *testin
 	}
 }
 
+func TestDeriveSourceInventoryFollowupDebt_RequestPathCompleteLensStopsMergedRootDebt(t *testing.T) {
+	rm := RequestModel{
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles: []AnswerCandidateRole{
+				AnswerCandidateRoleType,
+				AnswerCandidateRoleFunction,
+			},
+		},
+		AnalyzerHints: AnalyzerHints{
+			SourceInventoryRequestedPathScopes: []string{"internal/types"},
+		},
+	}
+	obs := SourceInventoryObservation{
+		Active:     true,
+		Complete:   false,
+		Scopes:     []string{".", "internal/types"},
+		Provenance: []string{"repo_lens:candidate_budget_truncated"},
+		Page: &SourceInventoryObservationPage{
+			Total: 200, Emitted: 24, NextCursor: "24", Complete: false,
+		},
+		Execution: &SourceInventoryExecutionState{Budgeted: true, CandidateBudgetTruncated: true},
+		Sets: []SourceInventoryObservationSet{
+			{Role: AnswerCandidateRoleType, Members: []SourceInventoryObservationMember{{Name: "Kind", Role: AnswerCandidateRoleType, File: "internal/types/kind.go", Language: "go"}}},
+			{Role: AnswerCandidateRoleFunction, Members: []SourceInventoryObservationMember{{Name: "Run", Role: AnswerCandidateRoleFunction, File: "internal/types/run.go", Language: "go"}}},
+		},
+		CompleteLenses: []SourceInventoryCompleteLens{
+			{
+				Role: AnswerCandidateRoleType, Scopes: []string{"."}, QueryPathScopes: []string{"internal/types"},
+				Languages: []string{"go"}, Count: 1, Total: 1,
+				Provenance: []string{SourceInventoryProvenanceRepoLensToolQuery, SourceInventoryProvenanceStageExplore},
+			},
+			{
+				Role: AnswerCandidateRoleFunction, Scopes: []string{"."}, QueryPathScopes: []string{"internal/types"},
+				Languages: []string{"go"}, Count: 1, Total: 1,
+				Provenance: []string{SourceInventoryProvenanceRepoLensToolQuery, SourceInventoryProvenanceStageExplore},
+			},
+		},
+	}
+
+	if debt := DeriveSourceInventoryFollowupDebt(obs, rm); debt.IsActive() {
+		t.Fatalf("request-bound complete executable lenses must not inherit stale repo-root debt: %+v", debt)
+	}
+
+	for name, mutate := range map[string]func(*SourceInventoryObservation){
+		"different path": func(in *SourceInventoryObservation) {
+			for i := range in.CompleteLenses {
+				in.CompleteLenses[i].QueryPathScopes = []string{"internal/tool"}
+			}
+		},
+		"analyzer only": func(in *SourceInventoryObservation) {
+			for i := range in.CompleteLenses {
+				in.CompleteLenses[i].Provenance = []string{SourceInventoryProvenanceRepoLensToolQuery, SourceInventoryProvenanceStageAnalyze}
+			}
+		},
+		"missing role": func(in *SourceInventoryObservation) {
+			in.CompleteLenses = in.CompleteLenses[:1]
+		},
+		"partial count": func(in *SourceInventoryObservation) {
+			in.CompleteLenses[1].Total = 2
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := CloneSourceInventoryObservation(obs)
+			mutate(&candidate)
+			debt := DeriveSourceInventoryFollowupDebt(candidate, rm)
+			if !debt.IsActive() || debt.ReasonCode != SourceInventoryFollowupDebtRequestedPathBoundary {
+				t.Fatalf("incomplete request-bound proof must retain exact path follow-up debt: %+v", debt)
+			}
+		})
+	}
+
+	repoWide := rm
+	repoWide.AnalyzerHints.SourceInventoryRequestedPathScopes = nil
+	if debt := DeriveSourceInventoryFollowupDebt(obs, repoWide); !debt.IsActive() {
+		t.Fatalf("bounded complete lenses must not erase genuine repo-wide debt: %+v", debt)
+	}
+}
+
 func TestDeriveSourceInventoryFollowupDebt_FileRowsDoNotCoverPrincipalMemberRoles(t *testing.T) {
 	obs := SourceInventoryObservation{
 		Active:       true,

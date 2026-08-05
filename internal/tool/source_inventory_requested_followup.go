@@ -11,6 +11,13 @@ func sourceInventoryRequestedUniverseFollowupDebt(ctx *types.BusContext, observa
 	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
 		return types.SourceInventoryFollowupDebt{}
 	}
+	roles := rm.SourceInventoryProfile.PrincipalTargetRoles()
+	if len(roles) == 0 {
+		roles = append([]types.AnswerCandidateRole(nil), rm.SourceInventoryProfile.TargetRoles...)
+	}
+	if types.SourceInventoryRequestedPathCompleteLensesCoverRoles(observation, rm, roles) {
+		return types.SourceInventoryFollowupDebt{}
+	}
 	if debt := sourceInventoryRequestedBoundaryFollowupDebt(ctx, rm); debt.IsActive() {
 		return debt
 	}
@@ -18,7 +25,6 @@ func sourceInventoryRequestedUniverseFollowupDebt(ctx *types.BusContext, observa
 	if len(covered.languages) == 0 {
 		return types.SourceInventoryFollowupDebt{}
 	}
-	roles := rm.SourceInventoryProfile.PrincipalTargetRoles()
 	var missingClasses []types.SourcePathRole
 	var scopes []string
 	for _, class := range observation.SourceClasses {

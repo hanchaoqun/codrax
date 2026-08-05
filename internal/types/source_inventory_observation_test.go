@@ -374,6 +374,46 @@ func TestSourceInventoryObservation_MergePreservesScopedCompleteLensProof(t *tes
 	}
 }
 
+func TestSourceInventoryObservation_MergeDoesNotMintCompleteLensFromUnionedScopes(t *testing.T) {
+	prior := SourceInventoryObservation{
+		Active:     true,
+		Complete:   false,
+		Scopes:     []string{"."},
+		Provenance: []string{"repo_lens:tool_query", "repo_lens:candidate_budget_truncated"},
+		Execution:  &SourceInventoryExecutionState{Budgeted: true, CandidateBudgetTruncated: true},
+		Sets: []SourceInventoryObservationSet{{
+			Role: AnswerCandidateRolePackage, Complete: false, Total: 200,
+			Members: []SourceInventoryObservationMember{{Name: "cmd", Role: AnswerCandidateRolePackage, File: "cmd", Language: "go"}},
+		}},
+	}
+	current := SourceInventoryObservation{
+		Active:          true,
+		Complete:        true,
+		Scopes:          []string{"."},
+		QueryPathScopes: []string{"internal/types"},
+		Provenance:      []string{SourceInventoryProvenanceRepoLensToolQuery, SourceInventoryProvenanceStageExplore},
+		Sets: []SourceInventoryObservationSet{{
+			Role: AnswerCandidateRoleFunction, Complete: true, Total: 1,
+			Members: []SourceInventoryObservationMember{{Name: "Run", Role: AnswerCandidateRoleFunction, File: "internal/types/run.go", Language: "go"}},
+		}},
+	}
+
+	merged := MergeSourceInventoryObservation(prior, current)
+	functionLenses := 0
+	for _, lens := range merged.CompleteLenses {
+		if lens.Role != AnswerCandidateRoleFunction {
+			continue
+		}
+		functionLenses++
+		if len(lens.QueryPathScopes) != 1 || lens.QueryPathScopes[0] != "internal/types" {
+			t.Fatalf("merged observation minted a function lens from unioned/global scope: %+v", lens)
+		}
+	}
+	if functionLenses != 1 {
+		t.Fatalf("want exactly the incoming per-query function lens, got %+v", merged.CompleteLenses)
+	}
+}
+
 func TestSourceInventoryObservation_ClassUniverseCanBeActiveWithoutMemberRows(t *testing.T) {
 	classOnly := SourceInventoryObservation{
 		Active:       true,

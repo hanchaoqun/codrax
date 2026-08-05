@@ -11,30 +11,19 @@ import (
 // completion gates can trust a scoped complete lens without confusing it with
 // stale repo-wide debt for the same role.
 type SourceInventoryCompleteLens struct {
-	Role            AnswerCandidateRole `json:"role,omitempty"`
-	Scopes          []string            `json:"scopes,omitempty"`
-	Languages       []string            `json:"languages,omitempty"`
-	SourceClasses   []SourcePathRole    `json:"source_classes,omitempty"`
-	SurfaceFamilies []string            `json:"surface_families,omitempty"`
-	Count           int                 `json:"count,omitempty"`
-	Total           int                 `json:"total,omitempty"`
-	Provenance      []string            `json:"provenance,omitempty"`
-}
-
-func cloneSourceInventoryCompleteLenses(in []SourceInventoryCompleteLens) []SourceInventoryCompleteLens {
-	if in == nil {
-		return nil
-	}
-	out := make([]SourceInventoryCompleteLens, len(in))
-	for i, lens := range in {
-		out[i] = lens
-		out[i].Scopes = append([]string(nil), lens.Scopes...)
-		out[i].Languages = append([]string(nil), lens.Languages...)
-		out[i].SourceClasses = append([]SourcePathRole(nil), lens.SourceClasses...)
-		out[i].SurfaceFamilies = append([]string(nil), lens.SurfaceFamilies...)
-		out[i].Provenance = append([]string(nil), lens.Provenance...)
-	}
-	return out
+	Role   AnswerCandidateRole `json:"role,omitempty"`
+	Scopes []string            `json:"scopes,omitempty"`
+	// QueryPathScopes preserves the repository-root coordinate of Scopes.
+	// Scopes is operational and can be "." inside a selected sub-repository;
+	// completion authorities need this second coordinate to prove which
+	// request boundary the complete lens actually covered.
+	QueryPathScopes []string         `json:"query_path_scopes,omitempty"`
+	Languages       []string         `json:"languages,omitempty"`
+	SourceClasses   []SourcePathRole `json:"source_classes,omitempty"`
+	SurfaceFamilies []string         `json:"surface_families,omitempty"`
+	Count           int              `json:"count,omitempty"`
+	Total           int              `json:"total,omitempty"`
+	Provenance      []string         `json:"provenance,omitempty"`
 }
 
 func mergeSourceInventoryCompleteLenses(existing []SourceInventoryCompleteLens, groups ...[]SourceInventoryCompleteLens) []SourceInventoryCompleteLens {
@@ -84,6 +73,7 @@ func normalizeSourceInventoryCompleteLens(in SourceInventoryCompleteLens) Source
 		in.Role = AnswerCandidateRoleUnknown
 	}
 	in.Scopes = sourceInventoryNormalizeScopes(in.Scopes)
+	in.QueryPathScopes = normalizeSourceInventoryCompleteLensQueryPathScopes(in.QueryPathScopes)
 	in.Languages = normalizeSourceInventoryCompleteLensLanguages(in.Languages)
 	in.SourceClasses = normalizeSourceInventoryCompleteLensClasses(in.SourceClasses)
 	in.SurfaceFamilies = normalizeSourceInventoryCompleteLensSurfaceFamilies(in.SurfaceFamilies)
@@ -108,11 +98,12 @@ func sourceInventoryCompleteLensesFromObservation(observation SourceInventoryObs
 			continue
 		}
 		lens := SourceInventoryCompleteLens{
-			Role:       role,
-			Scopes:     append([]string(nil), observation.Scopes...),
-			Count:      len(set.Members),
-			Total:      set.Total,
-			Provenance: append([]string(nil), observation.Provenance...),
+			Role:            role,
+			Scopes:          append([]string(nil), observation.Scopes...),
+			QueryPathScopes: append([]string(nil), observation.QueryPathScopes...),
+			Count:           len(set.Members),
+			Total:           set.Total,
+			Provenance:      append([]string(nil), observation.Provenance...),
 		}
 		sourceInventoryCompleteLensPopulateSurface(&lens, observation.Scopes, set.Members)
 		out = append(out, lens)
@@ -181,6 +172,7 @@ func sourceInventoryCompleteLensKey(lens SourceInventoryCompleteLens) string {
 	}
 	return string(lens.Role) + "\x00" +
 		strings.Join(lens.Scopes, "\x1f") + "\x00" +
+		strings.Join(lens.QueryPathScopes, "\x1f") + "\x00" +
 		strings.Join(lens.Languages, "\x1f") + "\x00" +
 		sourceInventoryCompleteLensClassKey(lens.SourceClasses) + "\x00" +
 		strings.Join(lens.SurfaceFamilies, "\x1f")
