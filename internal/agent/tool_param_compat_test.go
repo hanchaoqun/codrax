@@ -554,6 +554,29 @@ func TestNormalizeToolCallParams_NormalizesEmitAnalysisDiagramHintShapes(t *test
 	}
 }
 
+func TestNormalizeEmitAnalysisDiagramHintCompat_PreservesRequiredAuthority(t *testing.T) {
+	raw := json.RawMessage(`{"kind":"call-dag","required":true}`)
+	patched, ok := normalizeEmitAnalysisDiagramHintCompat(raw)
+	if !ok {
+		t.Fatal("malformed kind alias should be normalized")
+	}
+	var got struct {
+		Kind     string `json:"kind"`
+		Required *bool  `json:"required"`
+	}
+	if err := json.Unmarshal(patched, &got); err != nil {
+		t.Fatalf("normalized diagram hint is invalid JSON: %v", err)
+	}
+	if got.Kind != "call_dag" || got.Required == nil || !*got.Required {
+		t.Fatalf("normalization lost kind/required authority: %s", patched)
+	}
+
+	valid := json.RawMessage(`{"kind":"flow","required":true}`)
+	if patched, ok := normalizeEmitAnalysisDiagramHintCompat(valid); ok {
+		t.Fatalf("already-valid object must not be rewritten: %s", patched)
+	}
+}
+
 func TestDiagramKindFromStringRejectsConflictingKinds(t *testing.T) {
 	if _, ok := diagramKindFromString("sequence or call_dag"); ok {
 		t.Fatal("conflicting diagram kinds must not be normalized by taking the first match")

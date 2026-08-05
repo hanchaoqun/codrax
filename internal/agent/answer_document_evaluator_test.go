@@ -7830,6 +7830,35 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsVerifiedStageBindingSuppleme
 	}
 }
 
+func TestAnswerDocumentEvaluator_ParseOutput_DoesNotDuplicateFullyCitedStageBindings(t *testing.T) {
+	repo := t.TempDir()
+	writeStageBindingFixture(t, repo)
+	mu := types.NewMutableState("")
+	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "模型已经逐项解释并引用四个 read-mode 主 stage。",
+		}},
+		Citations: []types.Citation{
+			{File: "internal/types/stage_binding.go", Line: 13},
+			{File: "internal/types/stage_binding.go", Line: 14},
+			{File: "internal/types/stage_binding.go", Line: 15},
+			{File: "internal/types/stage_binding.go", Line: 16},
+		},
+	})
+	ctx := &types.AgentContext{RepoRoot: repo, Mutable: mu}
+	out, err := (&answerDocumentEvaluator{language: "zh"}).ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	if strings.Contains(out.FinalAnswer, "系统补充：阶段绑定核对") {
+		t.Fatalf("fully cited canonical rows must not trigger a duplicate system answer:\n%s", out.FinalAnswer)
+	}
+}
+
 func TestAnswerDocumentEvaluator_ParseOutput_DoesNotAppendStageBindingForAmbientEvidenceOnly(t *testing.T) {
 	repo := t.TempDir()
 	writeStageBindingFixture(t, repo)

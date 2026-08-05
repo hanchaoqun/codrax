@@ -15548,6 +15548,13 @@ func renderVerifiedStageBindingSupplement(ctx *types.AgentContext, doc *types.An
 	if len(rows) == 0 {
 		return ""
 	}
+	// The supplement is a loss-recovery surface, not a second answer. When the
+	// model already cites every canonical binding row, exact file:line coverage
+	// proves that the authority set survived finalization. Do not inspect prose
+	// or inject a duplicate system-authored explanation in that case.
+	if answerDocumentCitesEveryVerifiedStageBindingRow(doc, rows) {
+		return ""
+	}
 	zh := !strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en")
 	var b strings.Builder
 	if zh {
@@ -15566,6 +15573,26 @@ func renderVerifiedStageBindingSupplement(ctx *types.AgentContext, doc *types.An
 			row.StageIdent, row.StageValue, verifiedStageBindingDetailCell(row, zh), row.AgentIdent, row.AgentValue, row.Skill, row.File, row.Line)
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func answerDocumentCitesEveryVerifiedStageBindingRow(doc *types.AnswerDocumentV2, rows []verifiedStageBindingRow) bool {
+	if doc == nil || len(rows) == 0 {
+		return false
+	}
+	cited := make(map[string]bool, len(doc.Citations))
+	for _, cit := range doc.Citations {
+		file := normalizedStageBindingSourcePath(cit.File)
+		if file == "" || cit.Line <= 0 {
+			continue
+		}
+		cited[fmt.Sprintf("%s:%d", file, cit.Line)] = true
+	}
+	for _, row := range rows {
+		if !cited[fmt.Sprintf("%s:%d", normalizedStageBindingSourcePath(row.File), row.Line)] {
+			return false
+		}
+	}
+	return true
 }
 
 func verifiedReadModeStageBindingRows(ctx *types.AgentContext, doc *types.AnswerDocumentV2) []verifiedStageBindingRow {

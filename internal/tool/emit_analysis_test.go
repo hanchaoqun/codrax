@@ -2517,7 +2517,7 @@ func TestEmitAnalysis_Execute_PersistsDiagramHint(t *testing.T) {
 		"exact_targets": ["Dispatch", "Handler"],
 		"predicate_axis": "call",
 		"call_chain_endpoints": {"source":"Dispatch", "sink":"Handler"},
-		"diagram_hint": {"kind": "call_dag"}
+		"diagram_hint": {"kind": "call_dag", "required": false}
 	}`
 
 	tool := &EmitAnalysis{}
@@ -2540,6 +2540,30 @@ func TestEmitAnalysis_Execute_PersistsDiagramHint(t *testing.T) {
 	}
 	if !strings.Contains(res.Summary, "diagram_hint=call_dag") {
 		t.Fatalf("summary missing diagram hint echo: %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_Execute_RejectsDiagramHintWithoutRequiredAuthority(t *testing.T) {
+	mu := types.NewMutableState("draw the current pipeline")
+	payload := `{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["pipeline", "diagram"],
+		"entities": ["pipeline"],
+		"question_kind": "mechanism",
+		"diagram_hint": {"kind": "flow"}
+	}`
+
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Success || !strings.Contains(res.Summary, "diagram_hint.required is missing") {
+		t.Fatalf("missing authority bit must fail loudly instead of silently making the diagram optional: %+v", res)
+	}
+	if rm := mu.RequestModel(); rm != nil {
+		t.Fatalf("rejected analysis must not persist a request model: %+v", rm)
 	}
 }
 
@@ -8030,7 +8054,7 @@ func TestEmitAnalysis_Execute_DropsSourceInventoryForRelationFlow(t *testing.T) 
 		"kind_confidence": 0.92,
 		"predicate_axis": "call",
 		"call_chain_endpoints": {"source":"io_uring", "sink":"socket"},
-		"diagram_hint": {"kind": "call_dag"},
+		"diagram_hint": {"kind": "call_dag", "required": true},
 		"predicates": {
 			"is_scalar_answer": false,
 			"is_role_locate_lookup": false,
@@ -9394,7 +9418,7 @@ func TestEmitAnalysis_Execute_AllowsHistoryTraceDiagramWhenNonScalar(t *testing.
 		"intent_confidence": 0.91,
 		"complexity_confidence": 0.80,
 		"kind_confidence": 0.93,
-		"diagram_hint": {"kind": "flow"},
+		"diagram_hint": {"kind": "flow", "required": true},
 		"predicates": {
 			"is_scalar_answer": false,
 			"is_role_locate_lookup": false,

@@ -378,7 +378,7 @@ type emitAnswerSubjectParam struct {
 // compiler still derives the final contract from stronger signals.
 type emitDiagramHintParam struct {
 	Kind     string `json:"kind"`
-	Required bool   `json:"required"`
+	Required *bool  `json:"required"`
 }
 
 type emitEnumerationBoundaryParam struct {
@@ -5367,7 +5367,10 @@ func parseDiagramHint(p *emitDiagramHintParam) (*types.DiagramHint, string) {
 			p.Kind,
 		)
 	}
-	return &types.DiagramHint{Kind: kind, Required: p.Required}, ""
+	if p.Required == nil {
+		return nil, "diagram_hint.required is missing — set it true only when the CURRENT request or typed Presentation Directive explicitly requires a visual; otherwise set it false"
+	}
+	return &types.DiagramHint{Kind: kind, Required: *p.Required}, ""
 }
 
 func scalarCountBoundaryIsScopeOnly(predicates types.SemanticPredicates) bool {

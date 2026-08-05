@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -4072,8 +4073,16 @@ func normalizeEmitAnalysisDiagramHintCompat(raw json.RawMessage) (json.RawMessag
 		}
 		if kindRaw, ok := obj["kind"]; ok {
 			if kind, ok := diagramKindFromRaw(kindRaw); ok {
-				patched, err := json.Marshal(map[string]string{"kind": string(kind)})
-				return patched, err == nil && string(patched) != string(trimmed)
+				normalizedKind, err := json.Marshal(string(kind))
+				if err != nil || bytes.Equal(bytesTrimSpace(kindRaw), normalizedKind) {
+					return nil, false
+				}
+				// Normalize only the malformed kind field. In particular, keep
+				// the independent `required` authority bit; dropping it silently
+				// turns an explicit visual request into optional guidance.
+				obj["kind"] = normalizedKind
+				patched, err := json.Marshal(obj)
+				return patched, err == nil
 			}
 		}
 		return nil, false

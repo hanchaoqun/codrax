@@ -17394,3 +17394,57 @@ JSON 审计：ArkTS 两次 carrier 均可解析；第一次是结构 row sidecar
 状态：`EVAL-B133-INVLABEL1=implemented/runner-contract-pass/r51-output-rechecked`；
 `EVAL-B133-PATCHFULL1=implemented/full-tool-agent-pass`；
 `EVAL-B132-QUOTEFOOT1=confirmed-cross-type/P3-design-review`；Trace 显式窗、因果投影、自动补齐与两维根因=`untouched`。
+
+### 123.22 B134 r52：显式图要求的 required authority 被兼容层吞掉；完备绑定仍重复系统作答
+
+在 `main@950c07fe7` 冻结构建后，严格并行恰好两个 case：
+
+- `arkts_repomap`：155s，runner PASS / human PASS，context 20%，Finalizer reject=0；
+- `qf_diagram_pipeline`：137s，runner PASS / human PASS，context 29%，Finalizer reject=0。
+
+ArkTS 真实重放关闭 `EVAL-B133-INVLABEL1`：答案使用 `@Entry 标记的页面入口`（仍不同于旧 case 完整标题）时，typed marker
+section 正确定位，4 个 `@Entry` 与 2 个 `@Builder` 的成员、路径、行号全部通过；本轮模型直接发 ordered-list items，零 patch，
+不再出现“列 2/3/4”。Explorer 只读两个 corpus 文件以确认源码细节，没有 r51 的不可用 read_file。可见面仍有三类非阻断噪声：
+3 行 system surface-term supplement、合法空 quote 的回填披露 ×4，以及泛化的“表述不一致/建议未执行”caveat；前两项分别属于
+既有精确事实补充和 `EVAL-B132-QUOTEFOOT1`，后一项来自模型确有“一处说只读 2 项、另一处证据显示读了 3 项”的轻微不一致，
+本批不扫描正文或硬改结论。另记 context P2：Finalizer 的 source-inventory observation lane 仍携带一批非 principal 的 cmd
+候选，虽然 authoritative principal row set 正确收敛为 6，仍增加模型心智，后续在异构 inventory 回放中继续判定是否跨案稳定。
+
+显式 Mermaid 席最终答案本身正确：图为 `analyze -> explore -> extract -> finalize`，四段职责、Agent 与源码引用准确。但是日志
+证明系统合同没有真正守住展示要求：Analyzer 原始 emit 的 `diagram_hint` 只有 `kind=flow`；tool-param 兼容层把 shape 归一成对象，
+`required` 零值静默落为 false。Finalizer semantic view 因此显示 `has_diagram=false`，Required Blocks 中图退成 0..1 optional，且
+模型发射 `diagram.kind=architecture`；只是 Mermaid body 碰巧仍是用户要的 flowchart，runner 才 PASS。换一个模型波动就会完全
+漏图。这是 typed authority 丢失，不是答案措辞问题。
+
+`EVAL-B134-DIAGREQ1` 的通用根修：
+
+1. `emit_analysis.diagram_hint.required` wire field 改为可区分“缺失”和 false 的 pointer；kind 在场而 authority bit 缺失时精确
+   fail-loud，要求模型在 true/false 间明确选择，禁止零值把显式展示降格；
+2. diagram-hint compatibility normalizer 只改 malformed `kind` 字段并保留对象内所有其他字段，尤其不得重建对象时丢掉
+   `required=true`；string/array 旧形可以恢复 kind，但仍必须回到 schema 补齐 authority；
+3. 回归锁定 malformed `call-dag` 对象规范化后 required=true 不变、合法对象零改写、required 缺失不持久化 RequestModel，
+   以及 optional=false / explicit=true 两臂。整个修复只读 analyzer typed JSON，不扫描用户或最终答案原文。
+
+图表席同时出现一张完整重复的“系统补充：阶段绑定核对”：模型已经用四个 section 解释职责，并在 citations[] 逐一携带
+`stage_binding.go` 的 4 条 canonical binding 行，系统仍因“任一 stage binding citation 在场”追加四行表。它没有篡改结论，
+但把系统恢复面变成第二份答案，增加篇幅并削弱模型主叙事。
+
+`EVAL-B134-STAGESUPDUP1` 以精确信号收窄：先从当前 repo 的 canonical stage binding 解析四条行号；若模型文档 citations[] 已
+逐条覆盖相同 file:line，说明 authority set 没有在成文压缩中丢失，supplement 返回空；少任一条时旧恢复路径保持。判定不读取
+模型 prose，不要求特定标题/关键词，也不系统评价或改写模型结论。
+
+JSON 审计：diagram Finalizer 把 `blocks[]` 发成 JSON-encoded string，flat-mode tolerance 无损恢复；edge_anchors 还多发了
+不属于该对象的 claim_form，系统只规范化 metadata，正文、节点和边不变。这两项说明既有 malformed/near-miss JSON 恢复链
+有效，无需让用户丢失整份答案；本轮未进入字符串 salvage。后续继续观察相同 schema 偏差是否跨模型稳定，再决定是否进一步
+缩短 edge-anchor 教学，避免把一次波动固化成新合同。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b134_arkts_diagram_r52_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b134_arkts_diagram_r52_20260805_manual_audit.md`。
+
+完整回归：`go test ./internal/tool ./internal/agent -count=1` PASS（tool 161.924s，agent 3.418s）。
+
+状态：`EVAL-B133-INVLABEL1=production-replay-closed`；
+`EVAL-B133-PATCHFULL1=no-retry-replay-pass`；
+`EVAL-B134-DIAGREQ1=implemented/full-tool-agent-pass/awaiting-real-replay`；
+`EVAL-B134-STAGESUPDUP1=implemented/full-agent-pass`；
+`EVAL-B134-INVENTORYCTX1=P2-observe`；Trace 显式窗、因果投影、自动补齐与两维根因=`untouched`。
