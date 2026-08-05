@@ -1780,6 +1780,16 @@ func TestEmitEvidence_ParametersUsesOnlyCanonicalSchema(t *testing.T) {
 			t.Fatalf("typed absence field %q is missing", field)
 		}
 	}
+	itemSchema := schema["properties"].(map[string]any)["items"].(map[string]any)["items"].(map[string]any)
+	allOf, ok := itemSchema["allOf"].([]any)
+	if !ok || len(allOf) != 1 {
+		t.Fatalf("relation endpoint conditional missing from canonical schema: %+v", itemSchema["allOf"])
+	}
+	branch := allOf[0].(map[string]any)
+	thenRequired := branch["then"].(map[string]any)["required"].([]any)
+	if !reflect.DeepEqual(thenRequired, []any{"subject", "object"}) {
+		t.Fatalf("relation endpoint conditional requires %v, want subject+object", thenRequired)
+	}
 }
 
 func TestEmitEvidenceToolDescription_NoSalienceInternalLeakage(t *testing.T) {

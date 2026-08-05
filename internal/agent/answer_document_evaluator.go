@@ -2851,7 +2851,15 @@ func renderAnswerDocRuntimeTargetRelationCapsule(ctx *types.AgentContext) string
 	valueFlowCandidates := make([]capsuleRow, 0)
 	calls := make([]capsuleRow, 0)
 	seen := make(map[string]struct{})
-	for _, item := range pool {
+	for _, original := range pool {
+		item := original
+		// Registration evidence has an exact typed anchor symbol in older
+		// sparse emits even when the optional subject field was omitted. Use
+		// that typed carrier for capsule display only; never parse the summary
+		// and never mutate the accepted evidence row.
+		if item.Kind == types.EvidenceRegistration && strings.TrimSpace(item.Subject) == "" && strings.TrimSpace(item.Object) != "" {
+			item.Subject = strings.TrimSpace(item.AnchorSymbol)
+		}
 		if !item.IsCitable() || strings.TrimSpace(item.Subject) == "" || strings.TrimSpace(item.Object) == "" {
 			continue
 		}

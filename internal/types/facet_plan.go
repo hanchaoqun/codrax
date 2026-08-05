@@ -788,6 +788,17 @@ func ResolveQuestionFamily(rm RequestModel, sinks ...RichnessTelemetrySink) Ques
 		return QFArchitecture
 	}
 
+	// Rule 6.5: an explain-intent source investigation can still ask for an
+	// ordered call chain. The normalized endpoint profile and ReqCallChain are
+	// precise typed carriers; letting the broad single-topic mechanism rule
+	// below absorb this shape drops call-edge and dynamic-dispatch evidence
+	// guidance. Architecture narratives and multi-bucket/obligation surfaces
+	// retain their earlier precedence, while runtime root-cause and explicit
+	// Trace windows were already resolved by Rules 1-2.
+	if !hasObligation && (kind == ReqCallChain || rm.CallChainEndpointProfile.Active()) {
+		return QFCallChain
+	}
+
 	// Rule 7: single-topic mechanism explanations. These are lighter
 	// than architecture decompositions and must not be stolen by the
 	// function-like role-lookup gate below: multiple identifiers are

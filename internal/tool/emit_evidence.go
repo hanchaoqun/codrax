@@ -307,6 +307,23 @@ func buildEmitEvidenceParametersSchema() json.RawMessage {
 				"description": "Batch of evidence items extracted from one or more files. Send the full batch in one call — do not invoke the tool per item.",
 				"items": map[string]any{
 					"type": "object",
+					// Relation-shaped facts are unusable when either endpoint is
+					// hidden only in summary prose. Mirror the runtime contract in
+					// the provider-visible schema so the model receives one JSON
+					// lesson instead of succeeding at decode and losing the row at
+					// capsule/diagram construction time. The runtime remains
+					// compatible with older sparse persisted rows.
+					"allOf": []any{
+						map[string]any{
+							"if": map[string]any{
+								"properties": map[string]any{
+									"evidence_kind": map[string]any{"enum": []string{"relationship", "registration"}},
+								},
+								"required": []string{"evidence_kind"},
+							},
+							"then": map[string]any{"required": []string{"subject", "object"}},
+						},
+					},
 					"properties": map[string]any{
 						"scope": map[string]any{
 							"type":        "string",

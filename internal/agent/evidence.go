@@ -741,7 +741,15 @@ func rankEvidenceByRelevanceWithSubject(question string, items []types.EvidenceI
 	// Subject (definition-style emits where the defined symbol IS the
 	// subject), the effective key degenerates to (source, subject) and
 	// the original anti-monopoly cap still holds.
-	type dedupKey struct{ source, subject, anchor string }
+	// A relationship roster may legitimately contain many outgoing edges from
+	// one declaration on one source line (multiple inheritance/implements,
+	// embedding, fan-out). Those rows share source, subject, and often the
+	// declaration anchor, so the ordinary anti-monopoly key used to retain at
+	// most two and silently erase the rest before Turn A handoff. Keep the typed
+	// relation endpoint in this diversity key. This changes ranking retention
+	// only; it does not make a relation a call edge or grant it completion
+	// authority.
+	type dedupKey struct{ source, subject, anchor, relationEndpoint string }
 	counts := make(map[dedupKey]int)
 	result := make([]types.EvidenceItem, 0, len(items))
 	for _, si := range scored_items {
@@ -749,7 +757,11 @@ func rankEvidenceByRelevanceWithSubject(question string, items []types.EvidenceI
 			result = append(result, si.item)
 			continue
 		}
-		key := dedupKey{si.item.Source, si.item.Subject, si.item.AnchorSymbol}
+		relationEndpoint := ""
+		if si.item.Kind == types.EvidenceRelationship {
+			relationEndpoint = strings.TrimSpace(si.item.Predicate) + "\x1f" + strings.TrimSpace(si.item.Object)
+		}
+		key := dedupKey{si.item.Source, si.item.Subject, si.item.AnchorSymbol, relationEndpoint}
 		if counts[key] >= 2 {
 			continue
 		}

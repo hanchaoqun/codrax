@@ -1284,6 +1284,19 @@ func TestRankEvidenceByRelevance_SalienceExemptsDiversityCap(t *testing.T) {
 	}
 }
 
+func TestRankEvidenceByRelevance_PreservesDistinctRelationshipEndpoints(t *testing.T) {
+	items := []types.EvidenceItem{
+		{Kind: types.EvidenceRelationship, Producer: "repomap_structural_relation", Subject: "JsonPlugin", Predicate: "inheritance", Object: "TimestampMixin", Source: "pipeline/plugins.py", LineStart: 18, AnchorKind: types.AnchorDefinition, AnchorSymbol: "JsonPlugin"},
+		{Kind: types.EvidenceRelationship, Producer: "repomap_structural_relation", Subject: "JsonPlugin", Predicate: "inheritance", Object: "ValidationMixin", Source: "pipeline/plugins.py", LineStart: 18, AnchorKind: types.AnchorDefinition, AnchorSymbol: "JsonPlugin"},
+		{Kind: types.EvidenceRelationship, Producer: "repomap_structural_relation", Subject: "JsonPlugin", Predicate: "inheritance", Object: "BasePlugin", Source: "pipeline/plugins.py", LineStart: 18, AnchorKind: types.AnchorDefinition, AnchorSymbol: "JsonPlugin"},
+	}
+
+	ranked := rankEvidenceByRelevanceWithSubject("JsonPlugin hierarchy", items, map[string]bool{"pipeline/plugins.py": true}, types.AnswerSubject{}, nil, types.AxisImplement)
+	if len(ranked) != 3 {
+		t.Fatalf("distinct typed relation endpoints must survive diversity ranking: %+v", ranked)
+	}
+}
+
 func TestEvidenceSortRankIgnoresSalience(t *testing.T) {
 	base := types.EvidenceItem{Producer: "explorer.emit_evidence"}
 	loadBearing := base

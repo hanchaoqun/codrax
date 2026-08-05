@@ -211,6 +211,22 @@ func TestResolveQuestionFamily_TraceFunctionSubjectStillGoesToCallChain(t *testi
 	}
 }
 
+func TestResolveQuestionFamily_ExplainWithTypedDiscoverEndpointUsesCallChain(t *testing.T) {
+	rm := RequestModel{
+		Intent:        IntentExplain,
+		Scenario:      ScenarioGeneric,
+		PredicateAxis: AxisCall,
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqCallChain)},
+		CallChainEndpointProfile: &CallChainEndpointProfile{
+			Source:   "run_pipeline",
+			SinkMode: CallChainSinkResolutionDiscover,
+		},
+	}
+	if got := ResolveQuestionFamily(rm); got != QFCallChain {
+		t.Fatalf("typed explain/discover call chain got %q, want call_chain", got)
+	}
+}
+
 func TestResolveQuestionFamily_ConfigPrecedence(t *testing.T) {
 	cases := []struct {
 		name string

@@ -12481,6 +12481,26 @@ func TestRenderExplorerCallChainEdgeEvidenceGuide_CoversEndpointLocalTopologyWit
 			t.Fatalf("cross-language endpoint-local soft guide missing %q:\n%s", want, got)
 		}
 	}
+	discover := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:        types.IntentExplain,
+		PredicateAxis: types.AxisCall,
+		CallChainEndpointProfile: &types.CallChainEndpointProfile{
+			Source: "run_pipeline", SinkMode: types.CallChainSinkResolutionDiscover,
+		},
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+	}}}
+	discoverGuide := renderExplorerCallChainEdgeEvidenceGuide(discover)
+	for _, want := range []string{
+		"Dynamic destination discovery needs separate typed facts",
+		"`evidence_kind=registration` with both exact `subject` and `object`",
+		"`anchor_kind=assignment`",
+		"`anchor_kind=return`",
+		"is not a call",
+	} {
+		if !strings.Contains(discoverGuide, want) {
+			t.Fatalf("discover-sink evidence guide missing %q:\n%s", want, discoverGuide)
+		}
+	}
 
 	rootCauseTrace := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 		Intent:   types.IntentRootCause,

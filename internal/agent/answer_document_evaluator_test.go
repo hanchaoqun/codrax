@@ -949,6 +949,7 @@ func TestAnswerDocumentEvaluator_TargetDiscoveryRendersTypedRelationFamiliesWith
 		EvidenceItems: []types.EvidenceItem{
 			{ID: "E-call", Kind: types.EvidenceRelationship, Subject: "run_pipeline", Predicate: "calls", Object: "resolve", Source: "pipeline/runner.py", LineStart: 15, Scope: types.ScopeLine, AnchorKind: types.AnchorCall},
 			{ID: "E-bind", Kind: types.EvidenceRegistration, Subject: `REGISTRY["json"]`, Predicate: "binds", Object: "JsonPlugin", Source: "pipeline/plugins.py", LineStart: 7, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition},
+			{ID: "E-bind-sparse", Kind: types.EvidenceRegistration, Predicate: "binds", Object: "YamlPlugin", Source: "pipeline/plugins.py", LineStart: 9, Scope: types.ScopeLine, AnchorKind: types.AnchorStringLiteral, AnchorSymbol: "yaml"},
 			{ID: "E-inherit", Kind: types.EvidenceRelationship, Subject: "JsonPlugin", Predicate: "inheritance", Object: "TimestampMixin", Source: "pipeline/plugins.py", LineStart: 8, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, Producer: "repomap_structural_relation"},
 			{ID: "E-return", Kind: types.EvidenceConcrete, Subject: "resolve", Predicate: "returns", Object: "cls()", Source: "pipeline/registry.py", LineStart: 19, Scope: types.ScopeLine, AnchorKind: types.AnchorReturn, Producer: "concrete_values"},
 			{ID: "E-noise", Kind: types.EvidenceConcrete, Subject: "CsvPlugin.content_type", Predicate: "returns", Object: `"text/csv"`, Source: "pipeline/plugins.py", LineStart: 14, Scope: types.ScopeLine, AnchorKind: types.AnchorReturn, Producer: "concrete_values"},
@@ -958,6 +959,7 @@ func TestAnswerDocumentEvaluator_TargetDiscoveryRendersTypedRelationFamiliesWith
 	for _, want := range []string{
 		"### Typed relation capsule (bounded, no synthetic edges)",
 		"family=`registration_or_binding` relation=`binds` subject=`REGISTRY[\"json\"]` object=`JsonPlugin` [E-bind] @ pipeline/plugins.py:7",
+		"family=`registration_or_binding` relation=`binds` subject=`yaml` object=`YamlPlugin` [E-bind-sparse] @ pipeline/plugins.py:9",
 		"family=`declared_type_relation` relation=`inheritance` subject=`JsonPlugin` object=`TimestampMixin` [E-inherit] @ pipeline/plugins.py:8",
 		"family=`value_or_factory_flow` relation=`returns` subject=`resolve` object=`cls()` [E-return] @ pipeline/registry.py:19",
 		"family=`static_call` relation=`calls` subject=`run_pipeline` object=`resolve` [E-call] @ pipeline/runner.py:15",

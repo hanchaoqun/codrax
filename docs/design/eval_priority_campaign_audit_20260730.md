@@ -17054,3 +17054,47 @@ action-kind 条件字段，而不是放宽执行校验或扫描模型文本兜�
 删脚本后不能冒充终局。`go test ./internal/repl -count=1` PASS（31.235s）。
 
 状态：`EVAL-B126-DATAJSONPLAN1=implemented/full-repl-pass/replay-next`。
+
+### 123.15 B127 r45：预绑定 helper 教学与复合调用关系的三处结构丢失
+
+在 `main@8458179c7` 冻结构建后，严格并行恰好两个异构 case：
+
+- `data_json_strict_ids`：50s，runner PASS / human PASS，最终字节严格为
+  `{"ids":["u1","u3"]}`；
+- `sr_py_registry_dispatch`：98s，runner PASS / human FAIL，context 20%，Explorer midloop=4，
+  Finalizer reject=0。
+
+Data 回放证明 B126 的 required-material 与 executable-carrier 合同已经生效，但仍有一次本可避免的执行修复：模型写出
+`from read_text import read_text`。运行器正确拒绝该导入；`read_text/json_load/emit_result` 等实际是 sandbox 预绑定全局，
+不是可导入模块。根因是 schema 只列了 helper 与允许的 stdlib import，却没有在同一原子句明确两者互斥。
+`EVAL-B127-PREBOUNDHELPER1` 的修复保持 import 安全门不变，只在 tool schema 与 planner system prompt 说明“helper
+直接调用、不得 import/from-import/redefine”；continuation 不重复整份 helper 清单，62KB compaction tripwire 保持通过。
+
+Python 最终类与 MRO 已正确，但链路只剩两个 citation，`resolve` 错复用入口 citation，`plugin.handle` 无引用。深审排除
+parser/缓存问题：production `ParseFiles` 在带 module docstring、decorator 和三重基类的真实源码形上完整产出
+`JsonPlugin -> TimestampMixin/ValidationMixin/BasePlugin`。真正的三处通用 gap 是：
+
+1. `EVAL-B127-RELROSTERCAP1`：证据排名按 `(source,subject,anchor)` 最多保留两条，同一声明的多继承、implements、
+   embedding 或 fan-out relation 因而在 Turn A 前被静默裁掉。本批只对 typed relationship 把
+   `(predicate,object)` 纳入 diversity key；它仅保留不同端点，不把 relation 升格为 call 权威；
+2. `EVAL-B127-CALLFAMILY1`：`intent=explain + question_kind=call_chain + normalized endpoint profile` 被单主题
+   mechanism 规则吸收到 `QFGeneric`，调用边和 dynamic-dispatch 教学没有送达。新增 typed Rule 6.5，在 architecture
+   narrative 之后、generic 之前路由该形；bucket/obligation、runtime root-cause、显式时间窗 Trace 都已由前序规则裁定，
+   不受影响；
+3. `EVAL-B127-REGENDPOINT1`：教学要求 registration/relationship 同时带 subject/object，JSON schema 却只 required
+   `scope/evidence_kind`。模型可“合法”把 registry key 只放在 `anchor_symbol`，随后该行因无完整端点退出 typed capsule。
+   本批给 provider-visible schema 增加精确 kind conditional；运行时仍兼容历史稀疏行，并仅在 capsule 展示副本上用 typed
+   `anchor_symbol` 回填 registration subject，不读取 summary prose、不修改证据池。
+
+Explorer 的 discover-sink 提示同时明确：registration、lookup assignment、factory return、inheritance 是不同 typed
+关系；lookup 不是 call，不能为了拼连续路径而改标。系统仍只提供结构事实与边界，不选择最终实现、不替写模型结论。
+以上实现没有扫描用户请求、模型 thinking 或 final answer 原文做硬门，也没有改变 Trace 因果投影、自动补齐、根因排序、
+唤醒链、两维根因和窗内可消除量。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b127_contract_replay_r45_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b127_contract_replay_r45_20260805_manual_audit.md`。
+
+状态：`EVAL-B127-PREBOUNDHELPER1=implemented/full-repl-pass`；
+`EVAL-B127-RELROSTERCAP1=implemented/targeted-pass`；
+`EVAL-B127-CALLFAMILY1=implemented/targeted-pass`；
+`EVAL-B127-REGENDPOINT1=implemented/targeted-pass`；下一步 r46 双 case 回放。
