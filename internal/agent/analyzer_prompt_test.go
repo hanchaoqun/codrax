@@ -940,6 +940,9 @@ func TestAnalysisSkill_SourceInventoryCoversConstructInventoryWithoutHardRouting
 		"asks why, when, or how each member is selected, invoked, configured, or behaves",
 		"keeps bounded source-text verification open after mechanical membership is complete",
 		"Omit `summary` for a name/location-only inventory",
+		"implementer/subclass/conformer/override enumeration sets BOTH",
+		"`predicate_axis=implement`",
+		"not one of its implementation members",
 		"Registry/catalog/binding/default-registration member-set questions are relation/role-binding answers",
 		"`predicate_axis=register`",
 		"`answer_role_profile`",
@@ -957,6 +960,22 @@ func TestAnalysisSkill_SourceInventoryCoversConstructInventoryWithoutHardRouting
 	} {
 		if strings.Contains(rendered, forbidden) {
 			t.Fatalf("analysis skill must not encode keyword-specific routing text %q:\n%s", forbidden, rendered)
+		}
+	}
+}
+
+func TestAnalysisSkill_FieldValueRequiresRequestLiteralAndKeepsUnknownPerMemberValuesOut(t *testing.T) {
+	sk := skill.BuildAnalysisSkill()
+	rendered := strings.Join(append([]string{sk.OutputFormat}, sk.Workflow...), "\n")
+	for _, want := range []string{
+		"exact literal value already present in that request",
+		"asking which/what value, route, condition, or attribute belongs to each member",
+		"omit field_value_profile",
+		"source_inventory `summary`",
+		"later source verification",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("analysis skill must keep unknown per-member values out of field_value_profile; missing %q in:\n%s", want, rendered)
 		}
 	}
 }

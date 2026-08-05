@@ -2842,6 +2842,70 @@ func TestRelationMemberSetCoverageGaps_UsesEvidenceDrivenRegistrationCarrier(t *
 	}
 }
 
+func TestRelationMemberSetCoverageGaps_AcceptsExactDirectedRelationPair(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceRegistration,
+		Subject:         "EchoHandler",
+		Object:          "/echo",
+		Source:          "src/EchoHandler.java",
+		LineStart:       7,
+		AnchorKind:      types.AnchorAssignment,
+		AnchorSymbol:    "EchoHandler",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+		Scope:           types.ScopeLine,
+		Salience:        types.SalienceExhaustListed,
+	}})
+	bus := &types.BusContext{
+		Mutable: mut,
+		MultiGraph: typedRelationCandidateSourceFixture{{
+			Relation:   types.TypedRelationRegisters,
+			SourceName: "EchoHandler",
+			Member: types.TypedRelationMember{
+				Name: "/echo", File: "src/EchoHandler.java", Line: 7,
+			},
+			Precision: types.TypedRelationPrecisionExactSymbolID,
+		}},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentEnumerate,
+			PredicateAxis: types.AxisRegister,
+			Predicates: types.SemanticPredicates{
+				IsRelationalLookup:    true,
+				IsCategoryEnumeration: true,
+			},
+			AnalyzerHints: types.AnalyzerHints{
+				PrimaryEntities: []string{"EchoHandler"},
+				Entities:        []string{"EchoHandler"},
+			},
+		}},
+	}
+	fact := types.AnswerAggregateFact{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "handler routes",
+		Value:       "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"EchoHandler → /echo"},
+		SupportRefs: []string{"EchoHandler @ src/EchoHandler.java:7"},
+	}
+	if gaps := relationMemberSetCoverageGaps(bus, []types.AnswerAggregateFact{fact}); len(gaps) != 0 {
+		t.Fatalf("exact directed relation pair must satisfy typed coverage: %+v", gaps)
+	}
+	marked := markExactTypedRelationPrincipalMemberSets(bus, []types.AnswerAggregateFact{fact})
+	if len(marked) != 1 || !types.AnswerAggregateFactHasTypedRelationPrincipalAuthority(marked[0]) {
+		t.Fatalf("exact directed relation pair must receive typed principal authority: %+v", marked)
+	}
+
+	fact.Members = []string{"/echo → EchoHandler"}
+	if gaps := relationMemberSetCoverageGaps(bus, []types.AnswerAggregateFact{fact}); len(gaps) != 1 {
+		t.Fatalf("reversed relation pair must fail closed, got %+v", gaps)
+	}
+	marked = markExactTypedRelationPrincipalMemberSets(bus, []types.AnswerAggregateFact{fact})
+	if len(marked) != 1 || types.AnswerAggregateFactHasTypedRelationPrincipalAuthority(marked[0]) {
+		t.Fatalf("reversed relation pair must not receive typed principal authority: %+v", marked)
+	}
+}
+
 func TestRelationMemberSetCoverageGaps_DoesNotForceSupportingRegistrationEvidence(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.AppendEvidence([]types.EvidenceItem{{

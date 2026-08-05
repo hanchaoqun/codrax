@@ -5556,12 +5556,12 @@ func relationMemberSetCoverageGaps(ctx *types.BusContext, facts []types.AnswerAg
 	if len(evidenceKeys) == 0 {
 		return nil
 	}
-	included, excluded := relationPrincipalMemberSetKeys(ctx, facts)
 	var gaps []relationCoverageGap
 	for _, item := range expected {
 		memberKey := aggregateMemberKey(item.Member.Name)
 		candidateKey := relationCandidateEvidenceKey(item)
-		if memberKey == "" || candidateKey == "" || !evidenceKeys[candidateKey] || included[memberKey] || excluded[memberKey] {
+		pairIncluded, pairExcluded := relationPrincipalMemberSetCandidateCoverage(facts, &rm, item)
+		if memberKey == "" || candidateKey == "" || !evidenceKeys[candidateKey] || pairIncluded || pairExcluded {
 			continue
 		}
 		gaps = append(gaps, relationCoverageGap{
@@ -5573,6 +5573,83 @@ func relationMemberSetCoverageGaps(ctx *types.BusContext, facts []types.AnswerAg
 		})
 	}
 	return gaps
+}
+
+// relationPrincipalMemberSetCandidateCoverage recognizes a model-authored
+// structured relation row such as "Handler -> /route" as coverage for that
+// exact directed typed candidate. The member_set field is already a typed
+// structured carrier; this helper never scans request, closure, or answer
+// prose. Direction and both endpoint identities must match, so an unrelated or
+// reversed pair cannot satisfy the gate.
+func relationPrincipalMemberSetCandidateCoverage(
+	facts []types.AnswerAggregateFact,
+	rm *types.RequestModel,
+	candidate types.TypedRelationCandidate,
+) (included bool, excluded bool) {
+	for _, fact := range facts {
+		if !types.AnswerAggregateFactCarriesCompleteMemberSet(fact) ||
+			!types.AnswerAggregateFactRoleForRequest(fact, rm).IsPrincipal() {
+			continue
+		}
+		for _, raw := range fact.Members {
+			if relationAggregateMemberMatchesCandidate(raw, candidate) {
+				included = true
+			}
+		}
+		for _, raw := range fact.Excluded {
+			if relationAggregateMemberMatchesCandidate(raw, candidate) {
+				excluded = true
+			}
+		}
+	}
+	return included, excluded
+}
+
+func relationAggregateMemberMatchesCandidate(raw string, candidate types.TypedRelationCandidate) bool {
+	memberKey := aggregateMemberKey(candidate.Member.Name)
+	if memberKey == "" {
+		return false
+	}
+	if left, right, ok := relationAggregateMemberDirectedPair(raw); ok {
+		sourceKey := aggregateMemberKey(candidate.SourceName)
+		return sourceKey != "" &&
+			aggregateMemberKey(left) == sourceKey &&
+			aggregateMemberKey(right) == memberKey
+	}
+	// Preserve the established plain-member lane for implementers, callers,
+	// imports, and other relations whose target is already clear in the typed
+	// request.
+	for _, display := range aggregateMemberDisplayCandidates(raw) {
+		if aggregateMemberKey(display) == memberKey {
+			return true
+		}
+	}
+	return false
+}
+
+func relationAggregateMemberDirectedPair(raw string) (left string, right string, ok bool) {
+	if left, right, ok = types.AnswerAggregateMemberRelationParts(raw); ok {
+		return left, right, true
+	}
+	// The generic aggregate display parser intentionally rejects slash-bearing
+	// atoms so paths are not mistaken for compact relations. Here both sides
+	// are compared against an already-typed candidate, so an explicit arrow can
+	// safely carry route/file-like endpoints without broadening that parser.
+	raw = strings.TrimSpace(raw)
+	if strings.ContainsAny(raw, "\n\r") {
+		return "", "", false
+	}
+	for _, sep := range []string{"→", "->", "=>"} {
+		if strings.Count(raw, sep) != 1 {
+			continue
+		}
+		parts := strings.SplitN(raw, sep, 2)
+		left, right = strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+		if left != "" && right != "" {
+			return left, right, true
+		}
+	}
+	return "", "", false
 }
 
 func relationCandidatesForRequest(ctx *types.BusContext, rm types.RequestModel) []types.TypedRelationCandidate {
@@ -5706,6 +5783,23 @@ func exactTypedRelationPrincipalFactIndexes(
 		allRecognized := true
 		for _, raw := range fact.Members {
 			recognized := false
+			_, _, structuredPair := relationAggregateMemberDirectedPair(raw)
+			for _, candidate := range candidates {
+				if !relationAggregateMemberMatchesCandidate(raw, candidate) {
+					continue
+				}
+				if key := relationCandidateEvidenceKey(candidate); key != "" {
+					matchedMembers[key] = true
+				}
+				recognized = true
+			}
+			if structuredPair {
+				if !recognized {
+					allRecognized = false
+					break
+				}
+				continue
+			}
 			for _, display := range aggregateMemberDisplayCandidates(raw) {
 				key := aggregateMemberKey(display)
 				if key == "" {
@@ -6056,36 +6150,6 @@ func relationCandidateGroundingFiles(candidate types.TypedRelationCandidate) []s
 		add(candidate.Member.File)
 	}
 	return out
-}
-
-func relationPrincipalMemberSetKeys(ctx *types.BusContext, facts []types.AnswerAggregateFact) (map[string]bool, map[string]bool) {
-	included := map[string]bool{}
-	excluded := map[string]bool{}
-	var rm *types.RequestModel
-	if ctx != nil && ctx.AnalysisIR != nil {
-		rm = &ctx.AnalysisIR.RequestModel
-	}
-	for _, fact := range facts {
-		if !types.AnswerAggregateFactCarriesCompleteMemberSet(fact) ||
-			!types.AnswerAggregateFactRoleForRequest(fact, rm).IsPrincipal() {
-			continue
-		}
-		for _, member := range fact.Members {
-			for _, candidate := range aggregateMemberDisplayCandidates(member) {
-				if key := aggregateMemberKey(candidate); key != "" {
-					included[key] = true
-				}
-			}
-		}
-		for _, member := range fact.Excluded {
-			for _, candidate := range aggregateMemberDisplayCandidates(member) {
-				if key := aggregateMemberKey(candidate); key != "" {
-					excluded[key] = true
-				}
-			}
-		}
-	}
-	return included, excluded
 }
 
 func relationSourceInRequestedScope(source string, rm types.RequestModel) bool {

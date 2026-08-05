@@ -17497,3 +17497,66 @@ PASS；完整相关包回归在本批提交前执行。
 状态：`EVAL-B134-DIAGREQ1=production-replay-closed`；`EVAL-B134-STAGESUPDUP1=production-replay-closed`；
 `EVAL-B135-INVSEMDEPTH1=implemented/targeted-pass/awaiting-real-replay`；
 `EVAL-B135-RELROSTER1=P1-observe`；`EVAL-B135-RUSTRELLOC1=P2-observe`；Trace 全部 causal 能力=`untouched`。
+
+### 123.24 B136 r54：语义读取真实恢复；relation source/target 配对合同自相冲突
+
+在 `main@81a92081d` 冻结构建后，严格并行恰好两个同能力轴、不同语言/证据形 case：
+
+- `sr_rust_trait_impls`：83s，runner PASS / human FAIL，context 19%，Explorer unavailable=0，Finalizer reject=1；
+- `sr_java_handler_impls`：135s，runner FAIL / human PASS，context 20%，Analyzer 4 轮，Explorer completion 4 次，Finalizer reject=0。
+
+Rust 真实回放证明 `EVAL-B135-INVSEMDEPTH1` 生效：Analyzer 发出 `requested_fields=[name,location,summary]`，source inventory
+成员齐全后仍保留 bounded `read_file`；Explorer 读取 `src/matcher.rs` 后正确提取 `LiteralMatcher=--fixed`、
+`RegexLikeMatcher=default`，runner 从上一轮漏 `fixed` 转为 PASS。实现位置仍落在 struct declaration 行，但源码语义与条件已可取证，
+因此 `EVAL-B135-RUSTRELLOC1` 降为 P3 citation-quality observe。
+
+同一回放把 `EVAL-B135-RELROSTER1` 从观察升级为确认：Analyzer 虽识别 category enumeration，却把
+`is_relational_lookup=false`、`predicate_axis` 留空；系统于是让粗 type inventory 拥有 principal authority，把 trait 定义
+`Matcher` 与两个实现一起铸成 3 项硬 roster。模型首轮只列两个真正实现被拒，第二轮被迫把 `Matcher` 本身放入 principal 清单。
+答案开头仍正确说“两个实现”，但系统制造的第三项与用户集合边界冲突，human FAIL。这不是 Rust 特例；interface/trait/protocol/
+abstract/override 的实现者枚举均需要同一个 typed relation 形。
+
+`EVAL-B136-IMPLREL1` 只校准 Analyzer JSON 教学：implementer/subclass/conformer/override 枚举必须同时铸
+`is_relational_lookup=true`、`is_category_enumeration=true` 与 `predicate_axis=implement`；声明本身是 relation source，不是实现成员。
+既有 exact typed-relation authority 随后会让 broader source inventory 降为 audit/support，不新增下游关键词判定或语言表。
+
+Java 正文事实正确：`EchoHandler→/echo`、`StatsHandler→/stats`、`UpperHandler→/upper` 与职责均有源码证据；runner FAIL 的唯一
+原因是 case oracle 要求每个可见表行同时带 `*.java`，而用户问题只要求实现类与负责路径，文件只出现在末尾 citations。
+这次按 runner FAIL / human PASS 记账，不为该 case 强迫生产答案增加未请求列。`EVAL-B136-JAVAORACLE1` 作为 eval-only P2：后续应让
+问题显式要求实现文件，或把 typed row oracle 调整到用户真实答案边界；当前不通过生产硬门拟合 runner。
+
+Java 仍暴露更高 ROI 的生产合同冲突。Explorer 第一次发 `EchoHandler @ /echo` 后，relation 完成门要求精确有向关系；第二次已按
+工具自身教学发 `EchoHandler → /echo`，但 coverage 代码只把 candidate 的 target `/echo` 当平面 member key，通用 aggregate
+display parser 又为避免把路径误认关系而拒绝 slash-bearing endpoint，导致正确 structured pair 继续被拒。第三次、第四次模型照
+reject 文案加入 `registers` 前缀仍失败，最终靠 no-progress convergence 强制关闭；由于 exact typed authority 从未铸成，系统随后
+把同一注册清单以“完整性补充”和第二个列表重复追加。这里不是证据不足，而是同一合同一侧教学 pair、另一侧只认 target 的红线冲突。
+
+`EVAL-B136-RELPAIR1` 的通用根修保持 fail-closed：只在 model-authored `aggregate_facts.member_set` 结构字段内解析显式
+`→/->/=>`；同时精确比对 typed candidate 的 source、target 与方向。两端一致才同时满足 coverage 并获得 typed principal
+authority；反向 pair、单端碰巧同名、任意 prose 均不能通过。slash-bearing route/path 仅在“已有 typed candidate + 显式箭头”
+局部解析，不放宽全局 aggregate relation parser。plain-member implementer/caller/import 等既有通道保持。这样 Java 的第二次
+`EchoHandler → /echo` 即可闭合，source inventory 不再竞争，也无需系统重复补表。
+
+JSON 教学另有一处稳定负担：Java Analyzer 把“每个实现负责哪个路径”误发为 `field_value_profile`，先缺 target、再缺 exact
+literal，连续两次精确 schema 拒绝后才删除。`EVAL-B136-FIELDUNKNOWN1` 明确 field_value 只适用于当前请求已经给出 exact literal；
+询问“每个成员的哪个值/路径/条件/属性”没有输入 literal，应省略该 profile，走 source inventory `summary` 或其他 typed
+per-member answer dimension 后在 Explore 取证。仍是软 JSON 教学，运行时 exact-literal gate 不降级。
+
+JSON/成文审计：两案最终 tool carrier 均合法，无 malformed JSON/salvage。Rust 的一次成文拒绝由错误 system roster 导致，
+Java 的主要重试来自 Analyzer 误用 field_value 和 Explorer relation pair 合同冲突；两者均不是模型自由措辞质量问题。
+本批没有系统代写结论，也不扫描用户输入或模型/答案原文作硬门。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b136_rust_java_r54_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b136_rust_java_r54_20260805_manual_audit.md`。
+
+定向回归：relation pair 正向同时通过 coverage/authority、反向同时 fail-closed；既有 registration carrier 与 exact relation
+projection 组全绿；Analyzer implement/field-value 教学 pin 全绿。完整回归
+`go test ./internal/tool ./internal/agent ./internal/skill ./internal/types -count=1` PASS
+（tool 164.199s，agent 4.834s，skill 0.797s，types 20.386s）。
+
+状态：`EVAL-B135-INVSEMDEPTH1=production-replay-closed`；`EVAL-B135-RELROSTER1=confirmed/rooted-by-IMPLREL1`；
+`EVAL-B136-IMPLREL1=implemented/targeted-pass/awaiting-replay`；
+`EVAL-B136-RELPAIR1=implemented/targeted-pass/awaiting-replay`；
+`EVAL-B136-FIELDUNKNOWN1=implemented/targeted-pass/awaiting-replay`；
+`EVAL-B136-JAVAORACLE1=eval-only-P2`；`EVAL-B135-RUSTRELLOC1=P3-observe`；
+Trace 显式窗、因果投影、自动补齐、两个根因维度、排序、唤醒链和窗内可消除量=`untouched`。
