@@ -206,6 +206,14 @@ type AnchorUserEntity struct {
 
 type ObservationLedger struct {
 	Records []ObservationRecord `json:"records,omitempty"`
+	// RuntimeArtifactScopeProfile carries the analyzer's validated current-user
+	// artifact scope into trace projection compilation. In particular, an
+	// explicit time window remains distinct from model-selected drilldown
+	// windows: projection anchors and wakeup-path elections may prefer the
+	// requested window only when a deterministic trace_query record proves the
+	// exact same endpoints. The profile is never reconstructed from raw request
+	// or model prose.
+	RuntimeArtifactScopeProfile *RuntimeArtifactScopeProfile `json:"runtime_artifact_scope_profile,omitempty"`
 	// AnchorUserEntities is the typed user-entity context for the trace causal
 	// projection's B1 anchor election (§10-B1 归因 + §12.3 裁定3, 2026-07-06;
 	// 二轮复核 F1a/F2/F3), populated by CompileObservationLedger from the typed
@@ -561,9 +569,26 @@ func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
 	out = reconcileRuntimeObservationProducerPrecedence(out)
 	out = dedupeObservationRecords(out)
 	return ObservationLedger{
-		Records:            out,
-		AnchorUserEntities: observationLedgerAnchorEntities(input.RequestModel),
+		Records:                     out,
+		RuntimeArtifactScopeProfile: observationLedgerRuntimeArtifactScopeProfile(input.RequestModel),
+		AnchorUserEntities:          observationLedgerAnchorEntities(input.RequestModel),
 	}
+}
+
+func observationLedgerRuntimeArtifactScopeProfile(rm *RequestModel) *RuntimeArtifactScopeProfile {
+	if rm == nil || rm.RuntimeArtifactScopeProfile == nil {
+		return nil
+	}
+	profile := *rm.RuntimeArtifactScopeProfile
+	if rm.RuntimeArtifactScopeProfile.TimeStart != nil {
+		start := *rm.RuntimeArtifactScopeProfile.TimeStart
+		profile.TimeStart = &start
+	}
+	if rm.RuntimeArtifactScopeProfile.TimeEnd != nil {
+		end := *rm.RuntimeArtifactScopeProfile.TimeEnd
+		profile.TimeEnd = &end
+	}
+	return &profile
 }
 
 // observationLedgerAnchorEntities projects the typed request-model target

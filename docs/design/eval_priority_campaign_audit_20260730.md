@@ -16379,3 +16379,68 @@ effective attribution 与 row identity；同方向其余席位不作为 subtotal
 
 B119 是 prompt-only typed context 改进：未修改 trace_query、根因排序、唤醒链、窗内可消除量、因果投影、显式窗准入或系统补齐；不扫描问题/思考/答案文本，
 不拒绝、不删除、不改写模型结论。
+
+## 120. 2026-08-05 B119 r39 / B120：显式用户窗权威与跨窗决策隔离
+
+### 120.1 严格双并发结果：runner 2/2 PASS，人工 0/2 PASS
+
+在 `main@82153e3d1` 构建冻结后，以 `PARALLEL=2` 严格并行恰好两个 case：
+
+- `trace_query_donghu_real_frame_multicausal`：196s，5 次 trace_query，finalizer reject=0，runner PASS / human FAIL；
+- `mr_poly_binding_chain`：150s，finalizer reject=3，runner PASS / human FAIL。
+
+工件见 `eval/parallel_selected_summary_evalcampaign_b119_tracepoly_replay_r39_20260805.md` 及 manual audit。
+
+多语言案确认 B117/B118 已生产闭环：完整成员清单不再重复；模型使用 typed `remove_block_ids` 删除可选图后，rejected diagram 没有被系统附件恢复。人工失败仍在
+跨语言/FFI endpoint identity：答案把 PyO3 wrapper 与 Rust core 合并成一个节点，遗漏 wrapper 调用 `super::tokenize_bytes` 的落点与独立引用；这是
+`EVAL-B107-ENDPOINTAMBIG1` 的第三个 witness，不应通过放宽 diagram edge hard gate 修复。
+
+Trace 案确认 B119 的同方向防加法有效：模型不再把 10.433/7.386/6.673ms 相加为 24.5ms，而是保留独立行并取单席 leader。直接 blocker 权限也已明确
+发布为 `not_provided_by_projection`。但答案仍把 pre-wakeup dependency 描述成目标线程“唤醒后无法获得 CPU”，说明长上下文中的相位权威仍需在最终紧凑席携带。
+
+### 120.2 `EVAL-B119-REQWIN1`（P0，B120 已施工）：已补齐的用户全窗不能被模型子窗夺权
+
+日志证明自动补齐并未缺席：系统在 explore→extract 边界正确补跑 `frame_root_cause_bundle`，窗口精确为用户指定的
+`34579.472865..34579.587805`（114.94ms），并产生完整全窗 root-rank、wakeup-chain 与 target-state account。错误发生在投影编译：
+
+1. 较早的模型 50ms 查询产生 `frame_target_resolution(window_source=query_window)`；旧 anchor 规则让任意 frame anchor 绝对压过之后的 root-rank fallback；
+2. projection 因而把 50ms 当“用户原始窗”，只挂接 50ms target state；全窗补齐行虽进入 root-cause 桶，却拿不到主窗分母；
+3. wakeup path 的实体选举只按 subject/depth/发布序，不读取 typed 用户窗；同目标的 50ms path 继续成为主干；
+4. 最终答案于是同页混用 114.94ms 标题、50ms sleep=34.307ms 和全窗 effective seats，甚至声称“50ms 子窗口全窗覆盖完整”。
+
+B120 把 analyzer 已验证的 `RuntimeArtifactScopeProfile` 作为独立 typed 值带入 `ObservationLedger`，并在两个位置统一执行“精确匹配才提权”：
+
+- 主窗 anchor：`explicit_time_window` 仅在 deterministic trace causal anchor family 存在相同 endpoints 时优先；请求意图本身不能虚构 coverage；
+- wakeup-path election：若存在与用户窗精确同端点的 path candidate，先收窄到该窗，再沿原实体/深度/发布序规则选举；若不存在，旧有 bounded 证据原样保留；
+- target state 随主窗用既有 same-window admission 自动挂接全窗 account，无第二套状态计算。
+
+这不是禁用子窗。50ms micro-probe 仍完整保留在 observation ledger、query-window 清册和证据索引中，只是不再冒充用户请求主窗。
+
+### 120.3 `EVAL-B119-MULTIWINLEDGER1`（P1，B120 已施工）：高显著决策席不能跨 query window 混池
+
+B119 的 compact leader 从所有 rank boards 按 ordinal 取同方向首席；在 r39 中它把 50ms `io_dependency rank#1=2.202ms` 选作方向 leader，而同一投影已有
+114.94ms 全窗 `rank#3=10.433ms`。rank ordinal 只在各自 board 内有意义，跨窗比较 ordinal 本身没有合同。
+
+B120 在高显著 Trace Decision Inputs 与最终 compact ledger 共用的节点选择层增加 typed window-caliber 隔离：
+
+- projection 有精确主窗、候选池中也存在 exact-window row 时，只让 exact-window rows 进入 actual occupancy、existing-rule eliminable、evidence boundary 与
+  adjacent/background 决策摘要；
+- 不存在 exact-window row 时保持原 bounded evidence，绝不因缺失而清空答案；
+- compact leader 额外携带 row 自身 `query_window` 与 `window_role`；上游链席携带
+  `impact_phase=pre_wakeup_dependency` 和 `post_wakeup_delay_authority=not_provided_by_this_seat`，避免最后一屏丢失相位限定；
+- 其他窗口的行仍在完整投影/索引，系统不删除证据、不替模型选择最终结论。
+
+### 120.4 回归、不变量与后续
+
+- 新正例：显式 100ms 用户窗 + 较早 50ms frame probe + 后续全窗 causal board，主窗/target-state/wakeup path 均选全窗；
+- 新反例：只有请求端点、没有 exact-window causal carrier 时，不虚构全窗 coverage，继续保留已测 50ms bounded account；
+- ledger 对 scope profile 深复制，后续 request-model 变更不能回写投影权威；
+- compact leader 在同方向跨窗 rank 冲突时选主窗 row，并携带 query-window/phase authority；
+- `go test ./internal/types ./internal/agent -count=1`：PASS；`go test ./internal/tool -count=1`：PASS（159.532s）。
+
+状态：`EVAL-B119-REQWIN1=implemented/full-types-agent-pass`；
+`EVAL-B119-MULTIWINLEDGER1=implemented/full-types-agent-pass`；
+`EVAL-B107-ENDPOINTAMBIG1=confirmed-third-witness/P1-next`。
+
+B120 不扫描用户原文或模型/答案 prose，不增加答案 hard reject，不修改 trace_query 的根因公式、可消除量或系统补齐算法，也不生成/替换模型结论。它只把已有 typed 用户窗、
+query window 与 chain depth 放回正确的权威层级，保留显式窗因果投影和钻取能力。

@@ -380,6 +380,7 @@ func traceDecisionEvidenceBoundaries(projection types.TraceCausalProjection, lim
 		seen[key] = true
 		out = append(out, node)
 	}
+	out = traceDecisionPreferProjectionWindowNodes(projection, out)
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].StartTs != out[j].StartTs {
 			return out[i].StartTs < out[j].StartTs
@@ -474,6 +475,7 @@ func traceDecisionActualOccupancyCandidates(projection types.TraceCausalProjecti
 		seen[key] = true
 		out = append(out, node)
 	}
+	out = traceDecisionPreferProjectionWindowNodes(projection, out)
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].ImpactMS != out[j].ImpactMS {
 			return out[i].ImpactMS > out[j].ImpactMS
@@ -507,6 +509,7 @@ func traceDecisionEliminableSeats(projection types.TraceCausalProjection, limit 
 		seen[key] = true
 		out = append(out, node)
 	}
+	out = traceDecisionPreferProjectionWindowNodes(projection, out)
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Rank != out[j].Rank {
 			return out[i].Rank < out[j].Rank
@@ -520,6 +523,52 @@ func traceDecisionEliminableSeats(projection types.TraceCausalProjection, limit 
 		out = out[:limit]
 	}
 	return out
+}
+
+// traceDecisionPreferProjectionWindowNodes prevents a local drilldown board
+// from competing as the principal decision board when the projection also
+// carries rows measured over its exact requested/elected window. Other-window
+// rows remain losslessly available in the observation ledger and projection
+// appendix; this high-salience decision handoff simply keeps one caliber.
+// Absence of an exact-window row preserves the previous bounded evidence.
+func traceDecisionPreferProjectionWindowNodes(projection types.TraceCausalProjection, nodes []types.TraceCausalProjectionNode) []types.TraceCausalProjectionNode {
+	if len(nodes) == 0 || !types.TraceCausalProjectionWindowPresent(projection.WindowStartTs, projection.WindowEndTs) {
+		return nodes
+	}
+	matching := make([]types.TraceCausalProjectionNode, 0, len(nodes))
+	for _, node := range nodes {
+		start, end, ok := traceDecisionNodeQueryWindow(node)
+		if !ok || !traceDecisionSameWindow(start, end, projection.WindowStartTs, projection.WindowEndTs) {
+			continue
+		}
+		matching = append(matching, node)
+	}
+	if len(matching) == 0 {
+		return nodes
+	}
+	return matching
+}
+
+func traceDecisionNodeQueryWindow(node types.TraceCausalProjectionNode) (float64, float64, bool) {
+	if types.TraceCausalProjectionWindowPresent(node.RankQueryWindowStartTs, node.RankQueryWindowEndTs) {
+		return node.RankQueryWindowStartTs, node.RankQueryWindowEndTs, true
+	}
+	if types.TraceCausalProjectionWindowPresent(node.QueryWindowStartTs, node.QueryWindowEndTs) {
+		return node.QueryWindowStartTs, node.QueryWindowEndTs, true
+	}
+	return 0, 0, false
+}
+
+func traceDecisionSameWindow(aStart, aEnd, bStart, bEnd float64) bool {
+	return absFloat(aStart-bStart) <= types.TraceCausalProjectionSameWindowToleranceS &&
+		absFloat(aEnd-bEnd) <= types.TraceCausalProjectionSameWindowToleranceS
+}
+
+func absFloat(value float64) float64 {
+	if value < 0 {
+		return -value
+	}
+	return value
 }
 
 type traceDecisionContextRow struct {
@@ -554,6 +603,18 @@ func traceDecisionNonCausalContextRows(projection types.TraceCausalProjection, l
 		}
 		seen[key] = true
 		out = append(out, row)
+	}
+	if types.TraceCausalProjectionWindowPresent(projection.WindowStartTs, projection.WindowEndTs) {
+		matching := make([]traceDecisionContextRow, 0, len(out))
+		for _, row := range out {
+			start, end, ok := traceDecisionNodeQueryWindow(row.node)
+			if ok && traceDecisionSameWindow(start, end, projection.WindowStartTs, projection.WindowEndTs) {
+				matching = append(matching, row)
+			}
+		}
+		if len(matching) > 0 {
+			out = matching
+		}
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].lane != out[j].lane {

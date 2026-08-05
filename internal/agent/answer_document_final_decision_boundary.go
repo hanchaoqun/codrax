@@ -108,9 +108,20 @@ func renderTraceFinalCompactAuthorityLedger(set types.TraceCausalProjectionSet) 
 		}
 		fmt.Fprintf(&b, "- compact_authority artifact=`%s`: fix_direction_summary_authority=`single_published_leader_only`; direction_subtotal_authority=`not_provided_without_exact_fold`. Do not sum same-direction seats merely because their labels share a direction.\n", label)
 		for _, node := range leaders {
-			fmt.Fprintf(&b, "  - fix_direction=`%s`; leader_rank=#%d; leader_subject=`%s`; leader_effective_attribution=%.3fms; row_identity=`%s`\n",
+			fmt.Fprintf(&b, "  - fix_direction=`%s`; leader_rank=#%d; leader_subject=`%s`; leader_effective_attribution=%.3fms; row_identity=`%s`",
 				strings.TrimSpace(node.FixDirection), node.Rank, strings.TrimSpace(node.Subject),
 				node.EffectiveImpactMS, traceDecisionNodeIdentity(node))
+			if start, end, ok := traceDecisionNodeQueryWindow(node); ok {
+				role := "supporting_query_window"
+				if traceDecisionSameWindow(start, end, projection.WindowStartTs, projection.WindowEndTs) {
+					role = "requested_or_elected_window"
+				}
+				fmt.Fprintf(&b, "; query_window=`%.6f..%.6f`; window_role=`%s`", start, end, role)
+			}
+			if traceDecisionNodePhase(node) == "pre_wakeup_dependency" {
+				b.WriteString("; impact_phase=`pre_wakeup_dependency`; post_wakeup_delay_authority=`not_provided_by_this_seat`")
+			}
+			b.WriteString("\n")
 		}
 	}
 	return b.String()

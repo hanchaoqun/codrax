@@ -1775,11 +1775,12 @@ func (n TraceCausalProjectionNode) IsEvidenceBoundaryRow() bool {
 
 func CompileTraceCausalProjection(ledger ObservationLedger) TraceCausalProjection {
 	return traceCausalProjectionFromObservationRecords(ledger.Records,
-		traceCausalProjectionAnchorEntitiesFromLedger(ledger.AnchorUserEntities))
+		traceCausalProjectionAnchorEntitiesFromLedger(ledger.AnchorUserEntities),
+		ledger.RuntimeArtifactScopeProfile)
 }
 
 func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) TraceCausalProjection {
-	return traceCausalProjectionFromObservationRecords(records, nil)
+	return traceCausalProjectionFromObservationRecords(records, nil, nil)
 }
 
 // TraceCausalProjectionFromObservationRecordsForUserEntities is the 裁定3
@@ -1797,10 +1798,10 @@ func TraceCausalProjectionFromObservationRecordsForUserEntities(records []Observ
 	for _, value := range userEntities {
 		entities = append(entities, traceCausalProjectionAnchorEntity{value: value, typedLane: true})
 	}
-	return traceCausalProjectionFromObservationRecords(records, entities)
+	return traceCausalProjectionFromObservationRecords(records, entities, nil)
 }
 
-func traceCausalProjectionFromObservationRecords(records []ObservationRecord, userEntities []traceCausalProjectionAnchorEntity) TraceCausalProjection {
+func traceCausalProjectionFromObservationRecords(records []ObservationRecord, userEntities []traceCausalProjectionAnchorEntity, requestedScope *RuntimeArtifactScopeProfile) TraceCausalProjection {
 	if len(records) == 0 {
 		return TraceCausalProjection{}
 	}
@@ -2153,6 +2154,7 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 	// user entity (F1b) rank first (they carry the canonical thread label),
 	// then the caller user entities in their own priority order.
 	anchorEntities := traceCausalProjectionOrderedAnchorEntities(frameTargetEntities, userEntities)
+	wakeupPathCandidates = traceCausalProjectionPreferRequestedWindowWakeupPaths(wakeupPathCandidates, requestedScope)
 	wakeupPath, wakeupPathUserElected, wakeupPathElected, wakeupPathRootDepth := traceCausalProjectionSelectWakeupPath(
 		wakeupPathCandidates, anchorEntities)
 	if wakeupPath == nil {
@@ -2300,7 +2302,7 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 		node := out.PrimaryRootCauses[0]
 		out.PrimaryRootCause = &node
 	}
-	if anchorStart, anchorEnd, ok := traceCausalProjectionAnchorWindow(records); ok {
+	if anchorStart, anchorEnd, ok := traceCausalProjectionAnchorWindow(records, requestedScope); ok {
 		out.WindowStartTs, out.WindowEndTs = anchorStart, anchorEnd
 		traceCausalProjectionMarkWithinWindow(out.PrimaryRootCauses, anchorStart, anchorEnd)
 		traceCausalProjectionMarkWithinWindow(out.RankedSeats, anchorStart, anchorEnd)
@@ -3342,7 +3344,32 @@ func traceCausalProjectionAttachSleepDrilldownTarget(node *TraceCausalProjection
 // render is byte-identical. Returns ok=false when no anchor of either lane
 // exists, so callers leave WithinRequestedWindow nil and the renderer falls
 // back to the relative bar scale rather than fabricating a window.
-func traceCausalProjectionAnchorWindow(records []ObservationRecord) (float64, float64, bool) {
+func traceCausalProjectionAnchorWindow(records []ObservationRecord, requestedScope *RuntimeArtifactScopeProfile) (float64, float64, bool) {
+	// The current user's validated explicit window outranks any model-selected
+	// interior frame/drilldown window, but only after a deterministic causal
+	// anchor family proves the exact same endpoints. Request intent alone never
+	// manufactures trace coverage or a denominator.
+	if requestedStart, requestedEnd, requested := requestedScope.ExplicitTimeWindow(); requested {
+		for _, record := range records {
+			if !traceCausalProjectionTraceQueryRecord(record) {
+				continue
+			}
+			match := false
+			if strings.TrimSpace(record.Predicate) == "frame_target_resolution" {
+				source := strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyWindowSource))
+				if source == "query_window" || source == "explicit_query_union_previous_frame_end_to_current_frame_end" {
+					start, end, ok := traceCausalProjectionWindow(record.RichNotes)
+					match = ok && traceCausalProjectionSameWindow(start, end, requestedStart, requestedEnd)
+				}
+			} else if traceCausalProjectionSelectedWindowAnchorFamily(record) {
+				start, end, ok := traceCausalProjectionSelectedWindowNote(record.RichNotes)
+				match = ok && traceCausalProjectionSameWindow(start, end, requestedStart, requestedEnd)
+			}
+			if match {
+				return requestedStart, requestedEnd, true
+			}
+		}
+	}
 	var start, end float64
 	var ok bool
 	for _, record := range records {
@@ -3395,6 +3422,36 @@ func traceCausalProjectionAnchorWindow(records []ObservationRecord) (float64, fl
 		}
 	}
 	return start, end, ok
+}
+
+func traceCausalProjectionSameWindow(aStart, aEnd, bStart, bEnd float64) bool {
+	return TraceCausalProjectionWindowPresent(aStart, aEnd) &&
+		TraceCausalProjectionWindowPresent(bStart, bEnd) &&
+		math.Abs(aStart-bStart) <= traceCausalProjectionFullWindowSameWindowToleranceS &&
+		math.Abs(aEnd-bEnd) <= traceCausalProjectionFullWindowSameWindowToleranceS
+}
+
+// traceCausalProjectionPreferRequestedWindowWakeupPaths keeps drilldown paths
+// available in the ledger but prevents one from taking the projection trunk
+// away from a validated user window when an exact-window path exists. It is a
+// typed endpoint filter only; entity/path ranking remains unchanged inside the
+// surviving pool, and absence of an exact-window candidate preserves legacy
+// election byte-for-byte.
+func traceCausalProjectionPreferRequestedWindowWakeupPaths(candidates []traceCausalProjectionWakeupPathCandidate, requestedScope *RuntimeArtifactScopeProfile) []traceCausalProjectionWakeupPathCandidate {
+	start, end, ok := requestedScope.ExplicitTimeWindow()
+	if !ok || len(candidates) == 0 {
+		return candidates
+	}
+	matching := make([]traceCausalProjectionWakeupPathCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		if traceCausalProjectionSameWindow(candidate.windowStart, candidate.windowEnd, start, end) {
+			matching = append(matching, candidate)
+		}
+	}
+	if len(matching) == 0 {
+		return candidates
+	}
+	return matching
 }
 
 // traceCausalProjectionSelectedWindowAnchorFamily reports whether a record

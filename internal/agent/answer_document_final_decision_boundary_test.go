@@ -135,6 +135,42 @@ func TestTraceFinalCompactAuthorityLedgerSeparatesWakeupFromTypedBlockingAndDire
 	}
 }
 
+func TestTraceFinalDecisionLedgerPrefersRequestedWindowBoardAndCarriesPreWakeupPhase(t *testing.T) {
+	projection := types.TraceCausalProjection{
+		ArtifactLabel: "customer.systrace",
+		WindowStartTs: 10,
+		WindowEndTs:   10.1,
+		RankedSeats: []types.TraceCausalProjectionNode{
+			{
+				EvidenceID: "micro-io", Subject: "micro-worker", Rank: 1,
+				EffectiveImpactMS: 2.202, FixDirection: "io_dependency",
+				RankQueryWindowStartTs: 10.02, RankQueryWindowEndTs: 10.07,
+			},
+			{
+				EvidenceID: "full-io", Subject: "full-worker", Rank: 3,
+				EffectiveImpactMS: 10.433, FixDirection: "io_dependency", ChainDepth: 2,
+				RankQueryWindowStartTs: 10, RankQueryWindowEndTs: 10.1,
+			},
+		},
+	}
+	got := renderTraceFinalCompactAuthorityLedger(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}})
+	for _, want := range []string{
+		"leader_subject=`full-worker`",
+		"leader_effective_attribution=10.433ms",
+		"query_window=`10.000000..10.100000`",
+		"window_role=`requested_or_elected_window`",
+		"impact_phase=`pre_wakeup_dependency`",
+		"post_wakeup_delay_authority=`not_provided_by_this_seat`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("requested-window compact leader missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "micro-worker") || strings.Contains(got, "2.202") {
+		t.Fatalf("interior drilldown seat displaced requested-window direction authority:\n%s", got)
+	}
+}
+
 func TestTraceFinalTargetBlockingRelationsRespectsHolderSubjectRole(t *testing.T) {
 	target := "ui-100"
 	projection := types.TraceCausalProjection{OnChainCauses: []types.TraceCausalProjectionNode{
