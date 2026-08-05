@@ -15966,3 +15966,58 @@ grounded evidence，因此是单次模型越证波动。按红线不增加答案
 - `EVAL-B107-JAVACLAIM1=model-fluctuation/replay-watch`。
 
 本轮未运行 Trace，且没有改 Trace 查询、显式时间窗、系统自动补齐、因果投影或双轴根因代码。
+
+## 112. 2026-08-05 B108/B109 r34：写证明桥接与数据引用域修复合同审计
+
+### 112.1 严格双并发与人工结论
+
+在 `main@1b8b0dd6d` 构建冻结后，以 `PARALLEL=2` 严格并行恰好两个异构 case：
+
+- `github_issue_memoclaw_text_search_multirepo_ts`（write）：runner FAIL，205s；补丁与 `make check` 人工 PASS，但交付被判
+  `unverified:proof_weak`；
+- `data_multifile_reference_projection`（data）：runner/human FAIL，411s；曾多次得到期望 `17,0,5`，但贡献账本与对账域错误，18 轮后失败。
+
+工件见 `eval/parallel_selected_summary_evalcampaign_b108_writedata_r34_20260805.md` 及 manual audit。本轮跨 write/data 暴露的是 typed
+阶段衔接问题，不是增加答案关键词或为单一 fixture 改 oracle 可以解决的问题。
+
+### 112.2 `EVAL-B108-WRITEPROOF1`（P0，B109 已施工）：弱证明没有进入补采队列
+
+write 补丁正确完成 POST 路由、JSON body、limit 与可选 namespace，且静态项目检查通过。系统也正确把该检查标为 `source_static`，没有冒充运行时行为证明。
+但 `BuildVerificationProofProfile` 会据“硬行为合同存在且 `TargetBehaviorPaths=0`”给出 `target_behavior_verification_missing`，
+`BuildVerificationProofLedger` 却只消费 report、changed-path、confidence、patch-review 与 impact 行；若后几类没有另行产生合同义务，修复队列为空，控制器直接
+`accept_unverified`。同一个 typed 缺口在评级层可见、调度层消失。
+
+B109 的通用修复从 normalized plan/cumulative contract set 铸造缺失的 `behavior_contract` ledger obligation，并保留三条边界：
+
+1. 仅硬 required 合同进入义务，soft/advisory 合同不制造追补；
+2. `source_static` 继续不能满足行为证明；
+3. coherent cumulative chain 已有 typed `target_behavior` capability 时不制造泛化缺口，精确 contract-ref probe 仍可经既有 resolver 关闭单项义务。
+
+新增 profile→ledger pin 与 controller wiring pin，证明 source-static-only 场景会生成 verify-only
+`verification_proof_followup`，携带合同 ref 与源码范围，而真实 target-behavior coverage 不残留缺口。系统只安排证据补采，不改补丁、不替模型宣称行为成立。
+
+### 112.3 `EVAL-B108-DATAREF1`（P0，B110 待施工）：诊断要求重算，动作合同却禁止重算
+
+data workflow 的贡献账本为 `T1=10,T1=7,T2=0,T3=5`：它在贡献阶段提前进入 target domain，丢掉源 GroupB=4，并把目标缺席槽 T2=0
+伪造成源贡献。正确链应先保留 GroupA=10/7、GroupB=4、GroupC=5，再 reconciliation 得到 17/4/5，最后按目标 GroupA/GroupX/GroupC
+投影为 17/0/5。现有 reference-grounding validator 正确铸造 `reference_ledger_domain_mismatch=true`，但 output graph 永远只发
+`assemble_answer`，guard 同时提示“必须重算贡献”和“不要更改贡献记录”。这是 typed action contract 自相矛盾的红线 gap。
+
+B110 冻结方案：
+
+1. 将 ledger-domain mismatch 与普通 slot/cardinality mismatch 分车道；前者重开 `compute_contributions`，后者仍只需 assemble；
+2. domain mismatch 发 typed `compute_contributions -> reconcile_artifacts -> assemble_answer` repair sequence；
+3. compute 支持精确参数 `replace_contributions=true`，并在 durable action 记录上形成 contribution generation boundary；跨轮 seed 遇到该边界清除旧贡献，避免新旧域并存；
+4. 由 latest typed successful-progress boundary 退休更早的 derived field-contract issue，保留边界本身及之后的新 issue；
+5. completion gate、REPL guard、allowed-action contract 与 planner guidance 同源，不扫描用户或模型 prose。
+
+在矛盾合同消除前不以提升 18-round 预算掩盖问题。
+
+### 112.4 状态与不变量
+
+- `EVAL-B108-WRITEPROOF1=implemented/full-relevant-pass`（`go test ./internal/types ./internal/orchestrator -count=1`）；
+- `EVAL-B108-DATAREF1=confirmed/design-frozen/B110-next`；
+- `EVAL-B108-DATASTALE1=confirmed/B110-same-root`；
+- `EVAL-B107-ENDPOINTAMBIG1=design-required/deferred`：当前只有同尾名多 definition，缺少无歧义 typed endpoint authority，不能据此硬选。
+
+本批未修改 Trace、显式时间窗、因果投影、自动补齐或双轴根因；没有读取用户/模型/最终答案原文作 hard gate。

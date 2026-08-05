@@ -6544,6 +6544,61 @@ func TestApplyVerifyCoverageToChangePlanRequiresTargetBehaviorForBehaviorContrac
 	}
 }
 
+func TestImpactObligationRepairFollowupSchedulesHardContractAfterSourceStaticOnlyCheck(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID:          "plan-static-contract",
+		TargetPaths: []string{"src/client.ts"},
+		BehaviorContracts: types.NormalizeWriteBehaviorContracts([]types.WriteBehaviorContract{{
+			ID:       "post-search-request",
+			Kind:     types.WriteBehaviorInvariant,
+			Polarity: types.WriteBehaviorPolarityExpected,
+			Subject:  "search request",
+			Operator: types.WriteBehaviorOpEquals,
+			Expected: "POST /v1/search with JSON body",
+		}}, nil),
+	}
+	report := &types.ChangeReport{
+		PlanID:             plan.ID,
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		TestResults: []types.TestResult{{
+			Kind:        types.TestResultKindUnit,
+			AssertionID: "make-check",
+			Passed:      true,
+		}},
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner: "make", Suite: "check", Command: "make check", Outcome: "executed",
+		}},
+		ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+			Path:       "src/client.ts",
+			Status:     types.ChangedPathVerificationCovered,
+			Caliber:    types.ChangedPathVerificationDeclaredProjectCheck,
+			Capability: types.VerificationCapabilitySourceStatic,
+		}},
+	}
+
+	batch, suppressed := impactObligationRepairFollowupDecision(nil, "batch-1", plan, report)
+	if suppressed || batch == nil {
+		t.Fatalf("source-static-only hard contract should schedule proof follow-up: batch=%+v suppressed=%v", batch, suppressed)
+	}
+	if batch.Purpose != "verification_proof_followup" ||
+		batch.ExecutionMode != types.WriteWorkflowBatchExecutionVerifyOnly ||
+		!containsString(batch.ExpectedPaths, "src/client.ts") {
+		t.Fatalf("unexpected proof follow-up batch: %+v", batch)
+	}
+	criteria := strings.Join(batch.SuccessCriteria, "\n")
+	for _, want := range []string{
+		"kind=behavior_contract",
+		"contract_ref=post-search-request",
+		"target_behavior_verification_missing",
+		"source=verification_proof_ledger",
+	} {
+		if !strings.Contains(criteria, want) {
+			t.Fatalf("proof criteria missing %q:\n%s", want, criteria)
+		}
+	}
+}
+
 func TestApplyVerifyCoverageToChangePlanPreservesUnavailableProbeSymbolGap(t *testing.T) {
 	plan := coverageProjectionPlanForTest()
 	applyVerifyCoverageToChangePlan(plan, &types.ChangeReport{

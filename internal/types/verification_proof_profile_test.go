@@ -98,6 +98,19 @@ func TestBuildVerificationProofProfileDoesNotPromoteSourceStaticToBehaviorProof(
 	if !found {
 		t.Fatalf("ledger omitted source-static capability: %+v", ledger.Capabilities)
 	}
+	foundMissingContract := false
+	for _, item := range ledger.Obligations {
+		if item.Kind == "behavior_contract" &&
+			item.Status == VerificationProofLedgerItemMissing &&
+			item.ContractRef == "ascii-boundary" &&
+			item.ReasonCode == "target_behavior_verification_missing" &&
+			item.Source == "change_plan_behavior_contract" {
+			foundMissingContract = true
+		}
+	}
+	if !foundMissingContract {
+		t.Fatalf("ledger omitted schedulable hard behavior-contract obligation: %+v", ledger.Obligations)
+	}
 }
 
 func TestBuildVerificationProofProfileAcceptsTypedTargetBehaviorCapability(t *testing.T) {
@@ -121,6 +134,12 @@ func TestBuildVerificationProofProfileAcceptsTypedTargetBehaviorCapability(t *te
 	if got.Status != VerificationProofStrong || got.TargetBehaviorPaths != 1 ||
 		verificationProofHasReason(got, "target_behavior_verification_missing") {
 		t.Fatalf("typed target behavior should support strong proof: %+v", got)
+	}
+	ledger := BuildVerificationProofLedger(plan, report, nil)
+	for _, item := range ledger.Obligations {
+		if item.Source == "change_plan_behavior_contract" && item.Status == VerificationProofLedgerItemMissing {
+			t.Fatalf("typed target behavior must not leave a generic contract gap: %+v", ledger.Obligations)
+		}
 	}
 }
 

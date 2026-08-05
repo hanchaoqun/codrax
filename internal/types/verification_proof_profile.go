@@ -382,6 +382,18 @@ func BuildVerificationProofLedger(primaryPlan *ChangePlan, primaryReport *Change
 		out.addPatchReviewLedgerItems(artifact.Plan)
 		out.addImpactLedgerItems(artifact.Plan)
 	}
+	// A hard behavior contract is itself a verification obligation. The
+	// profile has always kept source-static checks below target-behavior
+	// authority, but without a corresponding ledger row the controller had
+	// nothing typed to schedule for a proof-only follow-up. Keep the existing
+	// cumulative capability policy: any target-behavior path in the coherent
+	// delivery chain satisfies this generic bridge, while exact contract-ref
+	// probe rows continue to resolve individual missing obligations below.
+	if profile.TargetBehaviorPaths == 0 {
+		for _, artifact := range unique {
+			out.addRequiredBehaviorContractLedgerItems(artifact.Plan)
+		}
+	}
 	out.resolveHistoricalVerificationFailures(primaryReport)
 	out.State = verificationProofLedgerStateFromProfile(profile)
 	return NormalizeVerificationProofLedger(out)
@@ -678,6 +690,32 @@ func (ledger *VerificationProofLedger) addVerificationConfidenceLedgerItems(repo
 		default:
 			add(base)
 		}
+	}
+}
+
+func (ledger *VerificationProofLedger) addRequiredBehaviorContractLedgerItems(plan *ChangePlan) {
+	if ledger == nil || plan == nil {
+		return
+	}
+	ids := HardRequiredWriteBehaviorContractIDs(ChangePlanVerificationBehaviorContracts(plan))
+	ordered := make([]string, 0, len(ids))
+	for id := range ids {
+		if id = strings.TrimSpace(id); id != "" {
+			ordered = append(ordered, id)
+		}
+	}
+	sort.Strings(ordered)
+	for _, id := range ordered {
+		ledger.Obligations = append(ledger.Obligations, VerificationProofLedgerItem{
+			ID:          verificationProofLedgerStableID("required_behavior_contract", plan.ID, id),
+			Kind:        "behavior_contract",
+			Status:      VerificationProofLedgerItemMissing,
+			Source:      "change_plan_behavior_contract",
+			PlanID:      strings.TrimSpace(plan.ID),
+			ReasonCode:  "target_behavior_verification_missing",
+			ContractRef: id,
+			Detail:      "hard behavior contract has no typed target-behavior verification capability",
+		})
 	}
 }
 
