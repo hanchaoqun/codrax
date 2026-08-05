@@ -17752,3 +17752,40 @@ typed material scheduling；C++ 没有 Finalizer reject。B123-D1 的“无损�
 `EVAL-B140-COUNTSCOPE1=implemented/full-tool-pass`；
 `EVAL-B122-JSONTEACH1=D1+B139-shape-table/production-replay-pass`；Trace 显式窗、因果投影、自动补齐、两维根因、排序、唤醒链与窗内可消除量
 =`untouched`。
+
+### 123.29 B141 r59：数据审计标量与 C 完整写车道均通过
+
+在 `main@45fc1d096` 干净构建后，严格并行恰好两个异构模式 case：
+
+- `data_join_entity_reconcile`：207s，runner PASS / human PASS，9 个 data round、1 repair、2 failed action；
+- `patch_c_typo`：115s，runner PASS / human PASS，完整 plan -> apply -> verify，context 19%。
+
+Data 席用来否证 B139 的“direct bounded transform”教学是否会误伤明确要求审计 ledger 的标量任务。最终发布字节仅为 `30`，
+但内部仍保留 rule coverage=1、decisions=8、entity resolutions=6、Alpha 两条 contribution（20+10）和 reconcile=pass。
+因此共享互斥表没有把“最终只输出数字”错读为“计算过程不需要审计”，`EVAL-B139-DATASHAPE1` 在简单成员值与复杂审计标量
+两种形态都通过。
+
+Data 过程有两个 P2 效率观察：模型一次把 `diagnostic_child` 别名 `source_records#entity_resolutions` 当成 record input，
+又一次在 `prepare_contribution_inputs` 阶段提前携带 `compute_contributions`。两次均被 artifact schema / allowed-next-stage typed gate
+在执行前精确拒绝，后续改用 record-shaped join 并按 DAG rank 分批。这与初始/续规划“只消费 artifact_graph 显式字段、不跨 rank”教学同向，
+没有相反合同；当前记 `EVAL-B141-DATADAGVAR1=P2/model-variance-contained`，不因两个特定别名新增硬编码。
+
+C 席真实修改只有 `main.c` 的 `retrun buf; -> return buf;`，且只发生在隔离 worktree。`run_tests` 按 typed test surface 选择
+`make test`，实际编译并运行两种参数，1/1 PASS；不是空验证或仅看 diff 签绿。write Analyzer 第一个
+`emit_write_analysis` 工具参数在 `task` 字段处被 provider 截断，运行时记录 malformed JSON evidence 并在下一轮完整重发；有用信息没有丢失。
+这正是既有 B123-D1 的“能结构修复/重试则先修复，不能时才有界降级且明确披露”路径；本次没有用 salvage 替代一个本可成功的 typed tool call。
+
+Planner 首稿仍发 `verification_probes.language=shell`，但 prompt 已经明文“C/C++/Rust/Cangjie/ArkTS 必须省略 probe，原生命令放
+acceptance_tests”，tool schema 枚举也只允许 python/javascript/ruby/java/go。typed enum reject 与教学同向，模型下一轮删除后成功；
+记 `EVAL-B141-WRITEPROBEVAR1=P2/model-variance-contained`，尚不证明系统自相矛盾。若后续在多模型/多语言稳定复现，最优方向是把现有长段收敛成按 typed target
+language 选择的两路表，不是对 shell 字样做 prose hard gate。
+
+JSON/上下文审计：Data planner 各轮最终 carrier 可解码；write Analyzer 一次 malformed carrier 自恢复，后续 Plan JSON 完整。系统未替代模型计算、
+未修改模型结论，未扫描用户输入/最终答案关键词作硬门。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b141_data_write_r59_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b141_data_write_r59_20260805_manual_audit.md`。
+
+状态：`EVAL-B139-DATASHAPE1=production-replay-closed/simple+audited-scalar`；
+`EVAL-B141-DATADAGVAR1=P2/model-variance-contained`；`EVAL-B141-WRITEPROBEVAR1=P2/model-variance-contained`；
+write worktree/apply/verify=`production-pass`；Trace 显式窗、因果投影、自动补齐、两维根因、排序、唤醒链与窗内可消除量=`untouched`。
