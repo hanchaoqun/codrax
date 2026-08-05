@@ -20,8 +20,13 @@ func sourceInventoryCandidateSets(ctx *types.BusContext, graph *repotypes.Graph,
 		return symbolIndex
 	}
 	requestedSurfaceFamilies := sourceInventoryRequestedSurfaceFamiliesByRole(ctx, getSymbolIndex(), scopes, profile)
+	// An explicit tool query remains the selector for roles that do not carry a
+	// parser surface family (for example a route named in the same query as an
+	// ArkTS decorator). The family-only closed filter applies only to the typed
+	// implicit lane, where no explicit query exists.
+	requireSurfaceFamilies := len(requestedSurfaceFamilies) > 0 && !queryFilter.Active()
 	for _, role := range profile.PrincipalTargetRoles() {
-		roleQueryFilter := sourceInventoryQueryFilterForRole(queryFilter, requestedSurfaceFamilies[role])
+		roleQueryFilter := sourceInventoryQueryFilterForRole(queryFilter, requestedSurfaceFamilies[role], requireSurfaceFamilies)
 		switch {
 		case role == types.AnswerCandidateRoleFile:
 			var attributeIndex *sourceInventoryGraphSymbolIndex
@@ -41,9 +46,7 @@ func sourceInventoryCandidateSets(ctx *types.BusContext, graph *repotypes.Graph,
 				attributeIndex = getSymbolIndex()
 			}
 			out[role] = sourceInventoryPackageCandidates(ctx, view, attributeIndex, scopeFilter, profile, attributeRoles, explicitAttributeRoles, roleQueryFilter, budget)
-		case role == types.AnswerCandidateRoleType &&
-			profile.TypeUnderlying == types.SourceInventoryTypeUnderlyingString &&
-			profile.RequiresConstSet:
+		case role == types.AnswerCandidateRoleType && profile.IsStringEnumTypeInventory():
 			out[role] = sourceInventoryGoStringEnumCandidates(ctx, graph, scopes, profile, budget)
 		default:
 			out[role] = sourceInventoryGraphCandidates(ctx, graph, view, getSymbolIndex(), scopeFilter, scopes, profile, role, roleQueryFilter, budget)

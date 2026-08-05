@@ -1808,6 +1808,23 @@ func TestPublishSourceInventoryAdvisoryFromToolObservation_FirstActivationReturn
 	}
 }
 
+func TestSourceInventoryAdvisorySnapshotCategoryDoesNotUseProfileQuotesAsMemberQuery(t *testing.T) {
+	ctx := sourceInventoryTestContext("", nil, "src", &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		SourceQuotes:      []string{"category context and sampled names"},
+		Confidence:        0.95,
+	})
+	ctx.AnalysisIR.RequestModel.Predicates.IsCategoryEnumeration = true
+	if got := sourceInventoryAdvisorySnapshotQuery(ctx); got != "" {
+		t.Fatalf("category snapshot query=%q, want empty complete-universe selector", got)
+	}
+	ctx.AnalysisIR.RequestModel.Predicates.IsCategoryEnumeration = false
+	if got := sourceInventoryAdvisorySnapshotQuery(ctx); got != "category context and sampled names" {
+		t.Fatalf("non-category snapshot query=%q, want historical profile query", got)
+	}
+}
+
 func TestPublishSourceInventoryAdvisoryFromToolObservation_RendersPackageAsScopeCarrier(t *testing.T) {
 	graph := testGraphWithFiles([]*repotypes.FileInfo{{
 		RelPath:  "src/alpha/a.py",

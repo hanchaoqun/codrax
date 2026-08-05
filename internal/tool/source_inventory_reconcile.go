@@ -62,9 +62,10 @@ type sourceInventoryGraphSymbolIndex struct {
 }
 
 type sourceInventoryQueryFilter struct {
-	Tokens          []string
-	Languages       map[string]bool
-	SurfaceFamilies map[string]bool
+	Tokens                 []string
+	Languages              map[string]bool
+	SurfaceFamilies        map[string]bool
+	RequireSurfaceFamilies bool
 }
 
 type sourceInventoryScopeFilter struct {
@@ -240,30 +241,6 @@ func publishSourceInventoryAdvisorySnapshot(ctx *types.BusContext, provenance st
 	}
 	ctx.Mutable.SetSourceInventoryAdvisory(advisory)
 	return true
-}
-
-func sourceInventoryAdvisorySnapshotQuery(ctx *types.BusContext) string {
-	if ctx == nil || ctx.AnalysisIR == nil {
-		return ""
-	}
-	if profile := ctx.AnalysisIR.RequestModel.SourceInventoryProfile; profile != nil && profile.Active() {
-		if query := strings.Join(trimStringSlice(profile.SourceQuotes), " "); strings.TrimSpace(query) != "" {
-			return query
-		}
-		if profile.Confidence > 0 && profile.Confidence < 0.70 {
-			return sourceInventoryAdvisoryQueryFromRequest(ctx)
-		}
-		return ""
-	}
-	return sourceInventoryAdvisoryQueryFromRequest(ctx)
-}
-
-func sourceInventoryAdvisoryQueryFromRequest(ctx *types.BusContext) string {
-	if ctx == nil || ctx.AnalysisIR == nil {
-		return ""
-	}
-	policy := types.CompileRepoMapNavigationPolicy(ctx.AnalysisIR.RequestModel, &ctx.AnalysisIR.AnswerContract, ctx.ExploreLanePlan)
-	return strings.Join(policy.QueryTerms, " ")
 }
 
 func sourceInventoryObservationFromListFilesToolResult(ctx *types.BusContext, result types.ToolResult) types.SourceInventoryObservation {
@@ -1396,9 +1373,9 @@ func buildSourceInventoryAdvisoryWithQuery(ctx *types.BusContext, facts []types.
 	}
 	candidateBudget := sourceInventoryExecBudgetForLens(ctx, query, forceAdvisoryOnly, graph)
 	execView := newSourceInventoryExecutionViewWithBudget(graph, scopes, candidateBudget)
-	if queryProfile, changed := sourceInventoryProfileWithQueryMatchedRoles(ctx, graph, scopes, profile, query.Query); changed {
+	if queryProfile, provenanceRole := sourceInventoryProfileWithQueryMatchedRoles(ctx, graph, scopes, profile, query.Query); provenanceRole != "" {
 		profile = queryProfile
-		provenance = sourceInventoryAdvisoryAppendProvenance(provenance, "repo_lens:query_roles")
+		provenance = sourceInventoryAdvisoryAppendProvenance(provenance, provenanceRole)
 	}
 	if includeAttributes && forceAdvisoryOnly && sourceInventoryShouldDeferAttributesForBroadToolLensView(execView) {
 		includeAttributes = false
@@ -1562,13 +1539,22 @@ func sourceInventoryExplicitPackageProfile(ctx *types.BusContext, profile *types
 	return false
 }
 
-func sourceInventoryProfileWithQueryMatchedRoles(ctx *types.BusContext, graph *repotypes.Graph, scopes []string, profile *types.SourceInventoryProfile, rawQuery string) (*types.SourceInventoryProfile, bool) {
-	if profile == nil || !profile.Active() || graph == nil || strings.TrimSpace(rawQuery) == "" {
-		return profile, false
+func sourceInventoryProfileWithQueryMatchedRoles(ctx *types.BusContext, graph *repotypes.Graph, scopes []string, profile *types.SourceInventoryProfile, rawQuery string) (*types.SourceInventoryProfile, string) {
+	if profile == nil || !profile.Active() || graph == nil {
+		return profile, ""
 	}
 	filter := sourceInventoryBuildQueryFilter(rawQuery)
+	surfaceSelectors := []string(nil)
+	provenance := "repo_lens:query_roles"
 	if !filter.Active() {
-		return profile, false
+		if ctx == nil || ctx.AnalysisIR == nil || !ctx.AnalysisIR.RequestModel.Predicates.IsCategoryEnumeration {
+			return profile, ""
+		}
+		surfaceSelectors = sourceInventoryProfileSurfaceSelectors(ctx, profile)
+		if len(surfaceSelectors) == 0 {
+			return profile, ""
+		}
+		provenance = "repo_lens:surface_family_roles"
 	}
 	seen := map[types.AnswerCandidateRole]bool{}
 	var merged []types.AnswerCandidateRole
@@ -1581,14 +1567,20 @@ func sourceInventoryProfileWithQueryMatchedRoles(ctx *types.BusContext, graph *r
 	}
 	index := newSourceInventoryGraphSymbolIndex(graph)
 	if index == nil {
-		return profile, false
+		return profile, ""
 	}
 	scopeFilter := newSourceInventoryScopeFilter(ctx)
 	for _, sym := range index.all {
 		if sym == nil ||
 			!sourceInventoryFileInScopes(sym.File, scopes) ||
-			!scopeFilter.SourceInRequestedScope(sym.File) ||
-			!sourceInventorySymbolMatchesQuery(sym, graph, filter) {
+			!scopeFilter.SourceInRequestedScope(sym.File) {
+			continue
+		}
+		matched := sourceInventorySymbolMatchesQuery(sym, graph, filter)
+		if len(surfaceSelectors) > 0 {
+			matched = sourceInventorySymbolMatchesRequestedSurfaceSelectors(sym, graph, surfaceSelectors)
+		}
+		if !matched {
 			continue
 		}
 		role, ok := aggregateAnswerCandidateRoleForSymbol(sym)
@@ -1599,7 +1591,7 @@ func sourceInventoryProfileWithQueryMatchedRoles(ctx *types.BusContext, graph *r
 		merged = append(merged, role)
 	}
 	if len(merged) == len(profile.TargetRoles) {
-		return profile, false
+		return profile, ""
 	}
 	clone := *profile
 	clone.TargetRoles = merged
@@ -1608,7 +1600,7 @@ func sourceInventoryProfileWithQueryMatchedRoles(ctx *types.BusContext, graph *r
 	if clone.Confidence <= 0 || clone.Confidence > 0.75 {
 		clone.Confidence = 0.75
 	}
-	return &clone, true
+	return &clone, provenance
 }
 
 func sourceInventoryLensQueryScopes(ctx *types.BusContext, graph *repotypes.Graph, query types.SourceInventoryLensQuery) []string {
@@ -1843,8 +1835,15 @@ func sourceInventoryCanUseQueryRootScope(ctx *types.BusContext, rawQuery string)
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
-	if !types.IsTypedSourceEnumerationShape(ctx.AnalysisIR.RequestModel) {
+	rm := ctx.AnalysisIR.RequestModel
+	if !types.IsTypedSourceEnumerationShape(rm) {
 		return false
+	}
+	// A typed category inventory is itself sufficient authority for an
+	// advisory repo-root lens when no narrower scope was resolved. It must not
+	// need a noisy quote/entity token query merely to obtain a navigation scope.
+	if rm.Predicates.IsCategoryEnumeration && rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() {
+		return true
 	}
 	return sourceInventoryBuildQueryFilter(rawQuery).Active()
 }
@@ -2010,18 +2009,14 @@ func sourceInventoryMayRewriteMemberSet(profile *types.SourceInventoryProfile, r
 	// per package" into "all functions in scope". That violates the model/user
 	// intent boundary, so those candidates stay as support unless the model
 	// itself emits them.
-	return role == types.AnswerCandidateRoleType &&
-		profile.TypeUnderlying == types.SourceInventoryTypeUnderlyingString &&
-		profile.RequiresConstSet
+	return role == types.AnswerCandidateRoleType && profile.IsStringEnumTypeInventory()
 }
 
 func sourceInventoryShouldReplaceMemberSet(profile *types.SourceInventoryProfile, role types.AnswerCandidateRole) bool {
 	if profile == nil {
 		return false
 	}
-	if role == types.AnswerCandidateRoleType &&
-		profile.TypeUnderlying == types.SourceInventoryTypeUnderlyingString &&
-		profile.RequiresConstSet {
+	if role == types.AnswerCandidateRoleType && profile.IsStringEnumTypeInventory() {
 		return true
 	}
 	return false

@@ -6,18 +6,19 @@ import (
 )
 
 func (f sourceInventoryQueryFilter) Active() bool {
-	return len(f.Tokens) > 0 || len(f.Languages) > 0 || len(f.SurfaceFamilies) > 0
+	return len(f.Tokens) > 0 || len(f.Languages) > 0 || f.RequireSurfaceFamilies || len(f.SurfaceFamilies) > 0
 }
 
 func (f sourceInventoryQueryFilter) HasSurfaceFamilies() bool {
-	return len(f.SurfaceFamilies) > 0
+	return f.RequireSurfaceFamilies || len(f.SurfaceFamilies) > 0
 }
 
-func sourceInventoryQueryFilterForRole(base sourceInventoryQueryFilter, families map[string]bool) sourceInventoryQueryFilter {
-	if len(families) == 0 {
+func sourceInventoryQueryFilterForRole(base sourceInventoryQueryFilter, families map[string]bool, requireSurfaceFamilies bool) sourceInventoryQueryFilter {
+	if !requireSurfaceFamilies {
 		return base
 	}
 	base.SurfaceFamilies = families
+	base.RequireSurfaceFamilies = true
 	// Parser-provided families are more precise than broad tokens such as
 	// "func". Typed language selection remains active.
 	base.Tokens = nil

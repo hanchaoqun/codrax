@@ -33,6 +33,7 @@ import (
 // explicit ceiling below so it cannot inherit broad default slack unnoticed.
 var sourceInventoryFileLOCCeiling = map[string]int{
 	"source_inventory_absence_repo_truth.go":                    30,
+	"source_inventory_advisory_snapshot_query.go":               45,
 	"source_inventory_answer_preemit_authority.go":              165,
 	"source_inventory_answer_preemit_reason.go":                 70,
 	"source_inventory_candidate_select.go":                      130,
@@ -73,6 +74,7 @@ var sourceInventoryFileLOCCeiling = map[string]int{
 	"source_inventory_source_class_matrix.go":                   130,
 	"source_inventory_source_class_render.go":                   120,
 	"source_inventory_surface_terms.go":                         110,
+	"source_inventory_surface_selector_match.go":                50,
 	"source_inventory_tracked_files.go":                         64,
 	"source_inventory_universe_support_refs.go":                 60,
 	"source_inventory_universe_role_boundary.go":                40,

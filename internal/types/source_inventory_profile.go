@@ -63,6 +63,35 @@ func (p *SourceInventoryProfile) RequiresRole(role AnswerCandidateRole) bool {
 	return false
 }
 
+// IsConstQualifiedTypeInventory reports whether the underlying/const-set
+// facets can safely interpret constants as qualifiers of a type inventory.
+// The facets are profile-wide in the current schema, so they must not collapse
+// an independent function/method/file category in a compound inventory.
+func (p *SourceInventoryProfile) IsConstQualifiedTypeInventory() bool {
+	if !p.Active() || p.TypeUnderlying == SourceInventoryTypeUnderlyingUnknown || !p.RequiresConstSet {
+		return false
+	}
+	hasType := false
+	for _, role := range p.TargetRoles {
+		switch role {
+		case AnswerCandidateRoleType:
+			hasType = true
+		case AnswerCandidateRoleConstant, AnswerCandidateRoleUnknown:
+			// A constant role is the historical qualifier carrier for the
+			// requested enum-like type, not an independent answer category.
+		default:
+			return false
+		}
+	}
+	return hasType
+}
+
+func (p *SourceInventoryProfile) IsStringEnumTypeInventory() bool {
+	return p != nil &&
+		p.TypeUnderlying == SourceInventoryTypeUnderlyingString &&
+		p.IsConstQualifiedTypeInventory()
+}
+
 // PrincipalTargetRoles returns the roles that should become user-visible
 // principal members. Some structural facets name additional roles only as a
 // qualification rule. For example, a Go "type X string with const set"
@@ -72,9 +101,7 @@ func (p *SourceInventoryProfile) PrincipalTargetRoles() []AnswerCandidateRole {
 	if !p.Active() {
 		return nil
 	}
-	if p.RequiresConstSet &&
-		p.TypeUnderlying != SourceInventoryTypeUnderlyingUnknown &&
-		p.RequiresRole(AnswerCandidateRoleType) {
+	if p.IsConstQualifiedTypeInventory() {
 		return []AnswerCandidateRole{AnswerCandidateRoleType}
 	}
 	out := make([]AnswerCandidateRole, 0, len(p.TargetRoles))

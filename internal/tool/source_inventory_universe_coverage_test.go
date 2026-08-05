@@ -229,6 +229,7 @@ func TestSourceInventoryExactSurfaceFamilyFiltersBeforeCandidateBudget(t *testin
 	}
 	filter := sourceInventoryBuildQueryFilter("foreign func public class")
 	filter.SurfaceFamilies = map[string]bool{"public class": true}
+	filter.RequireSurfaceFamilies = true
 	filter.Tokens = nil
 	set := sourceInventoryGraphCandidates(
 		nil,

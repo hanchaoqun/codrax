@@ -14922,3 +14922,17 @@ typed `duplicate_participant_identity` 一次性要求复用一个 alias；只�
 
 施工顺序：B92-A `INVENTORYSELECT1`（P0，先修并回放 inventory）；B92-B `DIAGIDENT1`（P1，精确错误与全语言/全图族结构 pin）；
 之后继续两个异构 case。两批均不触碰 Trace RootCauseTrace、显式时间窗因果投影、自动补齐或系统答案 mutation。
+
+### 96.4 B92-A 施工：类别全集与构造表面选择器分权
+
+`EVAL-B92-INVENTORYSELECT1` 已实现。repo_map 与后台 advisory snapshot 两条同源车道在 typed
+`IsCategoryEnumeration=true` 时都不再把 `SourceQuotes` 或 analyzer prescan entities 自动铸成 symbol token query；模型显式传入的
+tool `query` 仍按原合同过滤。profile quote/entity 仅能在与 parser graph 发布的 `SurfaceTerms` 精确相交后参与构造族筛选，因此
+ArkTS decorator、Cangjie extend/foreign 以及其他语言新增 parser surface family 继续自然接入，不靠语言关键词特判。
+
+新增 `IsConstQualifiedTypeInventory` 统一判定 profile-wide facet 的适用范围：raw roles 只能是 type、constant（qualifier）和 unknown；
+出现 function/method/file 等独立类别即禁止折叠。string enum 生成器在此基础上再要求 string underlying；历史 numeric const-qualified
+type 的 principal 语义保持。回归覆盖 3 type / 5 production function / 2 constant + 1 test 的复合枚举、显式 query 正臂、ArkTS
+quote/entity surface-family 两臂、快照车道和 LOC convergence。状态：`implemented/targeted-pass/full-suite-running`；B92-B 后按严格两并发
+回放验收。`internal/types`、`internal/agent`、`internal/tool/repomap` 与 `internal/tool` 全量通过（tool 167.338s），状态更新为
+`implemented/full-pass/replay-next`。没有读取原始请求或答案文本作硬门，也没有修改 Trace、系统补齐或 Finalizer 的结论所有权。

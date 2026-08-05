@@ -2160,3 +2160,10 @@ universe 生效。全部判定只消费 typed profile，不读 request/final pro
 duplicate-identity 修复再做 edge gate，不能放宽 evidence authority。
 
 详细数据与人工判断见 eval campaign §96。Trace 显式窗、因果投影、自动补齐和模型结论所有权均未改变。
+
+B92-A 已施工：category enumeration 的 repo_map 默认查询与 advisory snapshot 查询统一不再消费 quote/entity 作为隐式 member token；
+显式 tool query 保持。typed quote/entity 只能与 parser-owned `SurfaceTerms` 相交后扩展/筛选构造族，覆盖语言由 parser 能力矩阵自然
+决定。enum facet 新增 raw-role 适用域判定，compound roles 不再被误折叠，numeric const-qualified type 兼容语义保留。新增复合
+3/5/2 production roster、test 排除、显式 query、ArkTS surface、snapshot 与 convergence pins。状态：
+`EVAL-B92-INVENTORYSELECT1=implemented/full-pass/replay-next`；`internal/types`、`internal/agent`、`internal/tool/repomap`、
+`internal/tool` 全量通过（tool 167.338s），不涉及 Trace 或系统答案代写。

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 
@@ -1561,7 +1562,7 @@ func TestRepoMapSourceInventoryBroadNavigationLensIsBoundedBeforeReconcile(t *te
 	}
 }
 
-func TestRepoMapSourceInventoryUsesProfileQuotesForRootAuxiliaryProjection(t *testing.T) {
+func TestRepoMapSourceInventoryUsesProfileSurfaceFamiliesForRootAuxiliaryProjection(t *testing.T) {
 	repo := t.TempDir()
 	for rel, body := range map[string]string{
 		"internal/app/main.go": "package app\nfunc Run() {}\n",
@@ -1620,7 +1621,6 @@ func TestRepoMapSourceInventoryUsesProfileQuotesForRootAuxiliaryProjection(t *te
 		t.Fatalf("repo_map source_inventory should succeed: %+v", res)
 	}
 	for _, want := range []string{
-		"query: unset -> source_inventory_profile.source_quotes",
 		"repo_lens:auxiliary_projection",
 		"source_classes:",
 		"thirdparty:2",
@@ -1633,12 +1633,15 @@ func TestRepoMapSourceInventoryUsesProfileQuotesForRootAuxiliaryProjection(t *te
 			t.Fatalf("profile-quote source_inventory missing %q:\n%s", want, res.Summary)
 		}
 	}
+	if strings.Contains(res.Summary, "query: unset ->") {
+		t.Fatalf("category inventory must not turn profile prose into an implicit token selector:\n%s", res.Summary)
+	}
 	if strings.Contains(res.Summary, "PlainHelper") {
 		t.Fatalf("profile-quote source_inventory leaked unrelated helper:\n%s", res.Summary)
 	}
 }
 
-func TestRepoMapSourceInventoryDefaultQueryIncludesTypedEntities(t *testing.T) {
+func TestRepoMapSourceInventoryUsesTypedEntitySurfaceFamiliesWithoutTokenQuery(t *testing.T) {
 	repo := t.TempDir()
 	for rel, body := range map[string]string{
 		"internal/app/main.go": "package app\nfunc Run() {}\n",
@@ -1696,7 +1699,6 @@ func TestRepoMapSourceInventoryDefaultQueryIncludesTypedEntities(t *testing.T) {
 		t.Fatalf("repo_map source_inventory should succeed: %+v", res)
 	}
 	for _, want := range []string{
-		"query: unset -> source_inventory_profile.source_quotes+analyzer_hints.entities",
 		"`Index`",
 		"note: surface=@Component @Entry",
 		"`GlobalCard`",
@@ -1706,8 +1708,158 @@ func TestRepoMapSourceInventoryDefaultQueryIncludesTypedEntities(t *testing.T) {
 			t.Fatalf("typed-entity default query source_inventory missing %q:\n%s", want, res.Summary)
 		}
 	}
+	if strings.Contains(res.Summary, "query: unset ->") {
+		t.Fatalf("typed marker entities should intersect parser surface families, not become a token query:\n%s", res.Summary)
+	}
 	if strings.Contains(res.Summary, "PlainHelper") {
 		t.Fatalf("typed-entity default query leaked unrelated helper:\n%s", res.Summary)
+	}
+}
+
+func TestRepoMapSourceInventoryCompoundCategoryIgnoresImplicitPrescanSelector(t *testing.T) {
+	repo := t.TempDir()
+	files := map[string]string{
+		"pkg/grammar.go": `package criterion
+type Kind string
+type Env struct{}
+type Result struct{}
+const (
+	KindA Kind = "a"
+	KindB Kind = "b"
+)
+func IsRegistered(Kind) bool { return true }
+func RegisteredKinds() []Kind { return nil }
+`,
+		"pkg/eval.go": `package criterion
+func Eval() {}
+func EvalAll() {}
+func SetExternalArtifactFloor() {}
+`,
+		"pkg/eval_test.go": `package criterion
+func TestEval() {}
+`,
+	}
+	for rel, body := range files {
+		path := filepath.Join(repo, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx := &types.BusContext{
+		RepoRoot: repo,
+		Mutable:  types.NewMutableState("compound category inventory"),
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			AnalyzerHints: types.AnalyzerHints{Entities: []string{
+				"Kind", "KindA", "KindB",
+			}},
+			Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+			AnswerVisibilityProfile: &types.AnswerVisibilityProfile{
+				SymbolVisibility: types.AnswerSymbolVisibilityPublicExported,
+			},
+			AnswerExclusionPolicy: &types.AnswerExclusionPolicy{
+				IsExclusionRequested:   true,
+				ExcludedCandidateRoles: []types.AnswerCandidateRole{types.AnswerCandidateRoleTest},
+				SourceQuotes:           []string{"typed test exclusion"},
+			},
+			SourceScopeProfile: &types.SourceScopeProfile{
+				RequestedScope: types.SourceScopeProduction,
+				Confidence:     0.95,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles: []types.AnswerCandidateRole{
+					types.AnswerCandidateRoleType,
+					types.AnswerCandidateRoleFunction,
+					types.AnswerCandidateRoleConstant,
+				},
+				TypeUnderlying:   types.SourceInventoryTypeUnderlyingString,
+				RequiresConstSet: true,
+				SourceQuotes:     []string{"typed category labels"},
+				Confidence:       0.95,
+			},
+		}},
+	}
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{
+		"path": ".",
+		"view": "source_inventory",
+		"scope": "pkg",
+		"roles": ["type", "function", "constant"],
+		"include_counts": true,
+		"include_attributes": false
+	}`))
+	if err != nil || !res.Success || res.SourceInventory == nil {
+		t.Fatalf("compound source inventory failed: err=%v result=%+v", err, res)
+	}
+	if strings.Contains(res.Summary, "query: unset ->") {
+		t.Fatalf("category context became an implicit token selector:\n%s", res.Summary)
+	}
+	got := map[types.AnswerCandidateRole][]string{}
+	for _, set := range res.SourceInventory.Sets {
+		for _, member := range set.Members {
+			got[set.Role] = append(got[set.Role], member.Name)
+			if member.SourceClass != types.SourcePathRoleProduction {
+				t.Fatalf("auxiliary row crossed typed exclusion: %+v", member)
+			}
+		}
+	}
+	for role, want := range map[types.AnswerCandidateRole][]string{
+		types.AnswerCandidateRoleType:     {"Env", "Kind", "Result"},
+		types.AnswerCandidateRoleFunction: {"Eval", "EvalAll", "IsRegistered", "RegisteredKinds", "SetExternalArtifactFloor"},
+		types.AnswerCandidateRoleConstant: {"KindA", "KindB"},
+	} {
+		sort.Strings(got[role])
+		sort.Strings(want)
+		if strings.Join(got[role], ",") != strings.Join(want, ",") {
+			t.Fatalf("role %s members=%+v, want %+v; observation=%+v", role, got[role], want, res.SourceInventory)
+		}
+	}
+}
+
+func TestRepoMapSourceInventoryCategoryPreservesExplicitToolQuery(t *testing.T) {
+	repo := t.TempDir()
+	path := filepath.Join(repo, "pkg", "eval.go")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("package pkg\nfunc Eval() {}\nfunc EvalAll() {}\nfunc IsRegistered() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{
+		RepoRoot: repo,
+		Mutable:  types.NewMutableState("explicit category selector"),
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:     types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+				SourceQuotes:      []string{"all public functions"},
+				Confidence:        0.95,
+			},
+		}},
+	}
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{
+		"path": ".",
+		"view": "source_inventory",
+		"scope": "pkg",
+		"roles": ["function"],
+		"query": "Eval",
+		"include_counts": true
+	}`))
+	if err != nil || !res.Success {
+		t.Fatalf("explicit category query failed: err=%v result=%+v", err, res)
+	}
+	for _, want := range []string{"`Eval`", "`EvalAll`"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("explicit query lost %q:\n%s", want, res.Summary)
+		}
+	}
+	if strings.Contains(res.Summary, "`IsRegistered`") {
+		t.Fatalf("explicit tool query stopped filtering category inventory:\n%s", res.Summary)
 	}
 }
 

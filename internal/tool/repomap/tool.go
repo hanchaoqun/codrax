@@ -1569,6 +1569,16 @@ func repoMapSourceInventoryDefaultQuery(ctx *ctypes.BusContext, raw string) (str
 	if profile == nil || !profile.Active() {
 		return raw, ""
 	}
+	// A category inventory asks for the complete typed role/scope universe.
+	// SourceQuotes and analyzer entities describe category/surface context, but
+	// they are not a closed member selector. Parser-owned surface-family joins
+	// still narrow exact constructs later in sourceInventoryCandidateSets, and
+	// an explicit tool query remains authoritative through the early return
+	// above. This prevents a prescan sample from silently filtering an exhaustive
+	// inventory down to only the sampled names.
+	if ctx.AnalysisIR.RequestModel.Predicates.IsCategoryEnumeration {
+		return raw, ""
+	}
 	parts := make([]string, 0, len(profile.SourceQuotes))
 	seen := map[string]bool{}
 	usedQuotes := false

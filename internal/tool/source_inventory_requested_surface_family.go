@@ -22,10 +22,17 @@ func sourceInventoryRequestedSurfaceFamiliesByRole(
 	profile *types.SourceInventoryProfile,
 ) map[types.AnswerCandidateRole]map[string]bool {
 	out := map[types.AnswerCandidateRole]map[string]bool{}
-	if profile == nil || !profile.Active() || index == nil || len(profile.SourceQuotes) == 0 {
+	if profile == nil || !profile.Active() || index == nil {
 		return out
 	}
-	quotes := sourceInventoryNormalizedSurfaceQuotes(profile.SourceQuotes)
+	// Analyzer entities participate only after exact intersection with
+	// parser-owned SurfaceTerms below. They never become free token filters, so
+	// prescan symbol samples cannot shrink a complete category inventory while
+	// typed markers such as decorators/annotations remain selectable.
+	quotes := sourceInventoryProfileSurfaceSelectors(ctx, profile)
+	if len(quotes) == 0 {
+		return out
+	}
 	scopeFilter := newSourceInventoryScopeFilter(ctx)
 	var visibility *types.AnswerVisibilityProfile
 	if ctx != nil && ctx.AnalysisIR != nil {

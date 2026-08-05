@@ -56,6 +56,49 @@ func TestSourceInventoryProfile_PrincipalTargetRolesTreatsConstSetAsQualifier(t 
 	}
 }
 
+func TestSourceInventoryProfile_CompoundRolesDoNotCollapseUnderEnumFacet(t *testing.T) {
+	profile := &SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles: []AnswerCandidateRole{
+			AnswerCandidateRoleType,
+			AnswerCandidateRoleFunction,
+			AnswerCandidateRoleConstant,
+		},
+		TypeUnderlying:   SourceInventoryTypeUnderlyingString,
+		RequiresConstSet: true,
+		Confidence:       0.95,
+	}
+	if profile.IsStringEnumTypeInventory() {
+		t.Fatal("compound category inventory must not acquire enum-only authority")
+	}
+	got := profile.PrincipalTargetRoles()
+	want := []AnswerCandidateRole{AnswerCandidateRoleType, AnswerCandidateRoleFunction, AnswerCandidateRoleConstant}
+	if len(got) != len(want) {
+		t.Fatalf("compound principal roles=%+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("compound principal roles=%+v, want %+v", got, want)
+		}
+	}
+}
+
+func TestSourceInventoryProfile_NumericConstQualifiedTypeKeepsHistoricalPrincipalRole(t *testing.T) {
+	profile := &SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles: []AnswerCandidateRole{
+			AnswerCandidateRoleType,
+			AnswerCandidateRoleConstant,
+		},
+		TypeUnderlying:   SourceInventoryTypeUnderlyingNumber,
+		RequiresConstSet: true,
+	}
+	got := profile.PrincipalTargetRoles()
+	if len(got) != 1 || got[0] != AnswerCandidateRoleType {
+		t.Fatalf("numeric const-qualified principal roles=%+v, want [type]", got)
+	}
+}
+
 func TestSourceInventoryProfile_NormalizesPackageDisplayRoleDrift(t *testing.T) {
 	profile := &SourceInventoryProfile{
 		IsSourceInventory: true,
