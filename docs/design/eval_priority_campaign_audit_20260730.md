@@ -17139,7 +17139,22 @@ Python 侧 runner 的浅 oracle 仍然 PASS，但人审确认答案把方法解�
 工件：`eval/parallel_selected_summary_evalcampaign_b128_relation_replay_r46_20260805.md`、
 `eval/parallel_selected_summary_evalcampaign_b128_relation_replay_r46_20260805_manual_audit.md`。
 
+第二小批关闭 `EVAL-B128-RELFRONTIER1`，采用跨语言的关系权限分层：
+
+- broad concrete-value 扫描继续受 active frontier 限制，避免重新扫描所有已读文件；parser relation 则从 typed readSet
+  构造独立、规范化、去噪的候选文件集，再逐行经过 `EvidenceClosure.HasReadLine`，所以 focus 切换不再撤销已经获得的精确
+  关系权限，也不会把未读 graph 行送给模型；
+- relation 文件先排序，单文件 relation 沿 parser/source insertion order 构造；新增 system-only
+  `relation_ordinal`，定义为同 `(source,line,kind,subject)` 声明中的一基序号。Finalizer typed capsule 按该序号恢复
+  base/implements/trait/embedding roster，而不受 relevance rank 的偶然重排；
+- 回归先明确制造 `plugins.py` 已精确读取、但因另一个 exact anchor 已退出 active frontier 的真实形，再证明三个 relation
+  全部交付且顺序恒为 `TimestampMixin, ValidationMixin, BasePlugin`。既有 Cangjie exact-line、inactive-question 与缓存范围
+  扩展测试继续约束跨语言权限边界。
+
+这只提供“声明了哪些关系、声明顺序是什么”的 parser 事实；Python MRO、C++ base lookup、trait dispatch 等最终语义仍由模型
+结合语言规则与其它 typed evidence 推理。系统不把 inheritance 变成 call，不替模型选择 runtime target。
+
 状态：`EVAL-B128-PATCHREMOVE1=implemented/full-types-tool-pass`；
-`EVAL-B128-RELFRONTIER1=confirmed/P1-next`；
+`EVAL-B128-RELFRONTIER1=implemented/full-agent-types-pass`；
 `EVAL-B128-CALLABLEARG1=design-needed/non-call-typed-relation`（`plugin.handle` 作为 callable argument 不是静态直接调用，
 不得伪铸 call edge；待结构关系保真后按 typed 非调用关系统一设计）。

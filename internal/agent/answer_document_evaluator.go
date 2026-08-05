@@ -2923,6 +2923,28 @@ func renderAnswerDocRuntimeTargetRelationCapsule(ctx *types.AgentContext) string
 		}
 		valueFlows = append(valueFlows, row)
 	}
+	// A relevance rank may reorder otherwise-equal evidence rows. Restore the
+	// parser-authored declaration order for base/implements/embedding rosters;
+	// this is typed source structure, not a model conclusion or prose heuristic.
+	sort.SliceStable(structural, func(i, j int) bool {
+		a, z := structural[i].item, structural[j].item
+		if a.Source != z.Source {
+			return a.Source < z.Source
+		}
+		if a.LineStart != z.LineStart {
+			return a.LineStart < z.LineStart
+		}
+		if a.Subject != z.Subject {
+			return a.Subject < z.Subject
+		}
+		if a.Predicate != z.Predicate {
+			return a.Predicate < z.Predicate
+		}
+		if a.RelationOrdinal > 0 && z.RelationOrdinal > 0 && a.RelationOrdinal != z.RelationOrdinal {
+			return a.RelationOrdinal < z.RelationOrdinal
+		}
+		return false
+	})
 	ordered := make([]capsuleRow, 0, answerDocRuntimeTargetRelationCapsuleLimit)
 	appendBounded := func(rows []capsuleRow, familyCap int) {
 		for i, row := range rows {
@@ -2955,13 +2977,17 @@ func renderAnswerDocRuntimeTargetRelationCapsule(ctx *types.AgentContext) string
 		if location == "" {
 			location = "location-unavailable"
 		}
-		fmt.Fprintf(&b, "- family=`%s` relation=`%s` subject=`%s` object=`%s` [%s] @ %s\n",
+		fmt.Fprintf(&b, "- family=`%s` relation=`%s` subject=`%s` object=`%s` [%s] @ %s",
 			row.family,
 			predicate,
 			answerDocCallChainInline(item.Subject),
 			answerDocCallChainInline(item.Object),
 			answerDocCallChainInline(answerDocEvidenceIdentity(item)),
 			location)
+		if row.family == "declared_type_relation" && item.RelationOrdinal > 0 {
+			fmt.Fprintf(&b, " declared_order=`%d`", item.RelationOrdinal)
+		}
+		b.WriteString("\n")
 	}
 	b.WriteString("\n- These rows can be composed in the explanation, but only `family=static_call` is a source-level invocation edge. A value/factory row proves only its typed return or assignment, and a declared-type row proves only the inherited/implemented owner relationship; neither alone proves that the registry selected that type at runtime.\n")
 	return strings.TrimRight(b.String(), "\n")

@@ -43,13 +43,18 @@ func TestBuildConcreteValuesSection_StandaloneStructuralRelationsReachHandoff(t 
 	if len(got.evidence) != 3 {
 		t.Fatalf("standalone AST relations must survive the no-concrete-value path: got %d items: %+v", len(got.evidence), got.evidence)
 	}
-	for _, item := range got.evidence {
+	wantOrder := []string{"TimestampMixin", "ValidationMixin", "BasePlugin"}
+	for i, item := range got.evidence {
 		if item.Producer != "repomap_structural_relation" || item.Kind != types.EvidenceRelationship ||
 			item.Predicate != "inheritance" || item.Subject != "JsonPlugin" || !item.IsCitable() {
 			t.Fatalf("unexpected structural relation evidence: %+v", item)
 		}
 		if item.Object == "Guess" {
 			t.Fatalf("regex salvage must not become typed structural evidence: %+v", item)
+		}
+		if item.Object != wantOrder[i] || item.RelationOrdinal != i+1 {
+			t.Fatalf("declared relation order was not preserved: index=%d got=%s ordinal=%d want=%s ordinal=%d; all=%+v",
+				i, item.Object, item.RelationOrdinal, wantOrder[i], i+1, got.evidence)
 		}
 	}
 	for _, want := range []string{
@@ -66,6 +71,43 @@ func TestBuildConcreteValuesSection_StandaloneStructuralRelationsReachHandoff(t 
 	}
 	if strings.Contains(got.markdown, "Noise") || strings.Contains(got.markdown, "Guess") {
 		t.Fatalf("regex relation leaked into structural markdown:\n%s", got.markdown)
+	}
+}
+
+func TestBuildConcreteValuesSection_ExactReadRelationsSurviveActiveFrontierChange(t *testing.T) {
+	file := &repotypes.FileInfo{
+		RelPath:  "pipeline/plugins.py",
+		Language: repotypes.LangPython,
+		Relations: []repotypes.Relation{
+			{Kind: "inheritance", FromEP: repotypes.RelationEndpoint{Name: "JsonPlugin"}, ToEP: repotypes.RelationEndpoint{Name: "TimestampMixin"}, File: "pipeline/plugins.py", Line: 18, Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "python_base_class"},
+			{Kind: "inheritance", FromEP: repotypes.RelationEndpoint{Name: "JsonPlugin"}, ToEP: repotypes.RelationEndpoint{Name: "ValidationMixin"}, File: "pipeline/plugins.py", Line: 18, Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "python_base_class"},
+			{Kind: "inheritance", FromEP: repotypes.RelationEndpoint{Name: "JsonPlugin"}, ToEP: repotypes.RelationEndpoint{Name: "BasePlugin"}, File: "pipeline/plugins.py", Line: 18, Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "python_base_class"},
+		},
+	}
+	repoRoot := t.TempDir()
+	graph := repomap.BuildGraph(repoRoot, []*repotypes.FileInfo{file})
+	eval := runtimeTargetRelationEvaluator(graph)
+	// Simulate a later exploration focus in a different directory. Broad
+	// concrete-value scanning may legitimately leave plugins.py behind, but
+	// its already-read declaration line remains authoritative.
+	eval.exactAnchorFiles = []string{"other/anchor.py"}
+	readSet := map[string]bool{"pipeline/plugins.py": true}
+	closure := types.NewEvidenceClosure("")
+	closure.SetReadSet(readSet)
+	closure.AddReadRanges(map[string][]types.LineRange{"pipeline/plugins.py": {{Start: 18, End: 18}}})
+	frontier := eval.activeFrontierFileSet(readSet, "")
+	if frontier["pipeline/plugins.py"] {
+		t.Fatalf("fixture must reproduce the volatile-frontier exclusion: %+v", frontier)
+	}
+
+	got := eval.buildConcreteValuesSection(context.Background(), repoRoot, readSet, closure)
+	if len(got.evidence) != 3 {
+		t.Fatalf("all exactly-read structural relations must survive frontier changes: %+v", got.evidence)
+	}
+	for i, want := range []string{"TimestampMixin", "ValidationMixin", "BasePlugin"} {
+		if got.evidence[i].Object != want || got.evidence[i].RelationOrdinal != i+1 {
+			t.Fatalf("source declaration order lost after frontier change: %+v", got.evidence)
+		}
 	}
 }
 

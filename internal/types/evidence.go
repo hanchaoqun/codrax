@@ -564,6 +564,12 @@ type EvidenceItem struct {
 	DerivedFrom []string     `json:"derived_from,omitempty"`
 	Confidence  float64      `json:"confidence,omitempty"`
 	Producer    string       `json:"producer,omitempty"`
+	// RelationOrdinal is a system-authored, one-based declaration order for
+	// parser-grounded relations that share one source declaration
+	// (source/line/kind/subject). It preserves semantically relevant base,
+	// implements, trait, and embedding order across evidence ranking. The
+	// model-facing emit_evidence schema does not expose this field.
+	RelationOrdinal int `json:"relation_ordinal,omitempty"`
 
 	// Role fields: the system-validated usage lanes for exact-target
 	// and config-trace questions. Populated from optional emit_evidence

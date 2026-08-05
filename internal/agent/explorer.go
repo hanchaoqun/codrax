@@ -13635,6 +13635,31 @@ type concreteValuesResult struct {
 
 const runtimeTargetStructuralRelationLimit = 24
 
+// runtimeTargetStructuralRelationFiles separates exact read authority from
+// the volatile concrete-value frontier. filesToScan is intentionally narrowed
+// as exploration focus moves, which is appropriate for broad literal scans;
+// it must not revoke parser relations from a file whose exact declaration line
+// was already read. The union also retains canonical aliases used by graph
+// indexes, while every emitted row still passes the exact read-line gate.
+func runtimeTargetStructuralRelationFiles(filesToScan, readSet map[string]bool) map[string]bool {
+	out := make(map[string]bool, len(filesToScan)+len(readSet))
+	for file, read := range readSet {
+		if !read {
+			continue
+		}
+		if file = canonicalExplorerPath(file); file != "" && !isNoisePath(file) {
+			out[file] = true
+		}
+	}
+	for file := range filesToScan {
+		file = canonicalExplorerPath(file)
+		if file != "" && !isNoisePath(file) && readSetContains(readSet, file) {
+			out[file] = true
+		}
+	}
+	return out
+}
+
 // buildRuntimeTargetStructuralRelations promotes parser-authored declared-type
 // relations into the same typed evidence handoff as concrete values. It is
 // deliberately narrow:
@@ -13663,11 +13688,17 @@ func (e *explorerEvaluator) buildRuntimeTargetStructuralRelations(
 	}
 	rows := make([]row, 0)
 	seen := make(map[string]struct{})
+	files := make([]string, 0, len(filesToScan))
 	for file := range filesToScan {
+		files = append(files, file)
+	}
+	sort.Strings(files)
+	for _, file := range files {
 		fi, ok := graph.FileIndex[file]
 		if !ok || fi == nil {
 			continue
 		}
+		declarationOrdinals := make(map[string]int)
 		for _, rel := range fi.Relations {
 			if rel.Kind != "inheritance" && rel.Kind != "embedding" {
 				continue
@@ -13697,20 +13728,24 @@ func (e *explorerEvaluator) buildRuntimeTargetStructuralRelations(
 				continue
 			}
 			seen[key] = struct{}{}
+			declarationKey := fmt.Sprintf("%s:%d:%s:%s", source, rel.Line, rel.Kind, subject)
+			declarationOrdinals[declarationKey]++
+			relationOrdinal := declarationOrdinals[declarationKey]
 			item := types.EvidenceItem{
-				Kind:         types.EvidenceRelationship,
-				Subject:      subject,
-				Predicate:    rel.Kind,
-				Object:       object,
-				Source:       source,
-				LineStart:    rel.Line,
-				LineEnd:      rel.Line,
-				Confidence:   rel.Confidence,
-				Producer:     "repomap_structural_relation",
-				Summary:      fmt.Sprintf("declared type relation: `%s` --%s--> `%s` (extractor=%s)", subject, rel.Kind, object, resolvedBy),
-				Scope:        types.ScopeLine,
-				AnchorKind:   types.AnchorDefinition,
-				AnchorSymbol: subject,
+				Kind:            types.EvidenceRelationship,
+				Subject:         subject,
+				Predicate:       rel.Kind,
+				Object:          object,
+				Source:          source,
+				LineStart:       rel.Line,
+				LineEnd:         rel.Line,
+				Confidence:      rel.Confidence,
+				Producer:        "repomap_structural_relation",
+				RelationOrdinal: relationOrdinal,
+				Summary:         fmt.Sprintf("declared type relation: `%s` --%s--> `%s` (declared_order=%d, extractor=%s)", subject, rel.Kind, object, relationOrdinal, resolvedBy),
+				Scope:           types.ScopeLine,
+				AnchorKind:      types.AnchorDefinition,
+				AnchorSymbol:    subject,
 			}
 			item.ID = types.StableEvidenceID(item)
 			rows = append(rows, row{item: item, resolvedBy: resolvedBy})
@@ -13725,6 +13760,12 @@ func (e *explorerEvaluator) buildRuntimeTargetStructuralRelations(
 		}
 		if rows[i].item.Subject != rows[j].item.Subject {
 			return rows[i].item.Subject < rows[j].item.Subject
+		}
+		if rows[i].item.Predicate != rows[j].item.Predicate {
+			return rows[i].item.Predicate < rows[j].item.Predicate
+		}
+		if rows[i].item.RelationOrdinal != rows[j].item.RelationOrdinal {
+			return rows[i].item.RelationOrdinal < rows[j].item.RelationOrdinal
 		}
 		return rows[i].item.Object < rows[j].item.Object
 	})
@@ -14361,7 +14402,8 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 	// no nearby return/binding literal. Keep this as a separate typed lane:
 	// inheritance/embedding is not a source-level call and cannot satisfy a
 	// directed-call gate by itself.
-	structuralRelations := e.buildRuntimeTargetStructuralRelations(graph, filesToScan, readSet, closure)
+	structuralRelationFiles := runtimeTargetStructuralRelationFiles(filesToScan, readSet)
+	structuralRelations := e.buildRuntimeTargetStructuralRelations(graph, structuralRelationFiles, readSet, closure)
 
 	// Cache file contents to avoid re-opening the same file for each symbol.
 	fileLines := make(map[string][]string)
