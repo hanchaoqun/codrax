@@ -287,18 +287,54 @@ func TestRepoMapSourceInventoryRejectsBroadRootFileRoleWithAttributesBeforeIndex
 		t.Fatalf("broad root file role with attributes should be rejected before index work: %+v", res)
 	}
 	if res.Repair == nil || res.Refinement == nil ||
-		res.Refinement.PreferredNextTool != "list_files" ||
-		!containsString(res.Refinement.RequiredFields, "include") ||
-		!containsString(res.Refinement.RequiredFields, "file_type") {
-		t.Fatalf("broad file-role refusal should publish typed path-discovery refinement: repair=%+v refinement=%+v", res.Repair, res.Refinement)
+		res.Refinement.PreferredNextTool != "repo_map" ||
+		res.Refinement.PreferredParams["roles"] != "function" ||
+		!containsString(res.Refinement.RequiredFields, "view") ||
+		!containsString(res.Refinement.RequiredFields, "roles") {
+		t.Fatalf("broad file-role refusal should reuse the exact semantic attribute role: repair=%+v refinement=%+v", res.Repair, res.Refinement)
 	}
-	for _, want := range []string{"roles=[\"file\"]", "path-discovery request", "list_files", "file_type"} {
+	for _, want := range []string{"roles=[\"file\"]", "path-discovery request", "already-typed semantic roles", "function", "do not infer repository absence"} {
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("source_inventory broad file-role refusal missing %q:\n%s", want, res.Summary)
 		}
 	}
 	if ctx.Mutable.SearchGraph() != nil {
 		t.Fatalf("broad root file-role refusal must not build or attach a search graph")
+	}
+}
+
+func TestRepoMapSourceInventoryFileRoleUsesTypedRequestRoleBeforeUnavailablePathDiscovery(t *testing.T) {
+	repo := t.TempDir()
+	mut := types.NewMutableState("typed semantic inventory")
+	mut.SetRequestModel(types.RequestModel{SourceInventoryProfile: &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+	}})
+	ctx := &types.BusContext{RepoRoot: repo, Mutable: mut}
+
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{
+		"path": ".",
+		"view": "source_inventory",
+		"scope": ".",
+		"roles": ["file"]
+	}`))
+	if err != nil {
+		t.Fatalf("repo_map source_inventory returned error: %v", err)
+	}
+	if res.Success || res.Refinement == nil {
+		t.Fatalf("file role should reject with typed semantic refinement: %+v", res)
+	}
+	if res.Refinement.PreferredNextTool != "repo_map" ||
+		res.Refinement.ReasonCode != "source_inventory_file_role_use_typed_semantic_roles" ||
+		res.Refinement.PreferredParams["roles"] != "type" ||
+		res.Refinement.PreferredParams["view"] != "source_inventory" {
+		t.Fatalf("typed request role should drive same-tool repair: %+v", res.Refinement)
+	}
+	if res.Repair == nil || res.Repair.Metadata["preferred_semantic_roles"] != "type" {
+		t.Fatalf("typed repair metadata missing request role: %+v", res.Repair)
+	}
+	if !strings.Contains(res.Summary, "not infer repository absence") {
+		t.Fatalf("refusal must not teach absence from a shape error:\n%s", res.Summary)
 	}
 }
 

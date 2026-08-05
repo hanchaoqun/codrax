@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -1801,6 +1803,66 @@ func TestEmitEvidenceToolDescription_NoSalienceInternalLeakage(t *testing.T) {
 	}
 	if !strings.Contains(desc, "salience") || !strings.Contains(desc, "load_bearing") || !strings.Contains(desc, "exhaust_listed") {
 		t.Fatalf("description should teach salience values:\n%s", desc)
+	}
+}
+
+func TestEmitEvidenceToolDescription_PinsJSONCarrierAndSupportRefOwnership(t *testing.T) {
+	desc := (&EmitEvidence{}).Description()
+	for _, want := range []string{
+		"`items` is one native JSON array",
+		"never a quoted/escaped JSON string",
+		"`support_refs` belongs to aggregate_facts on emit_investigation_complete",
+		"is not an emit_evidence item field",
+	} {
+		if !strings.Contains(desc, want) {
+			t.Fatalf("description missing JSON ownership lesson %q:\n%s", want, desc)
+		}
+	}
+}
+
+func TestEmitEvidenceRepairsOnlyRedundantItemSupportRefs(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "x.go"), []byte("package p\nfunc F() {}\nfunc G() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := newEmitCtx()
+	ctx.RepoRoot = repo
+	res, err := (&EmitEvidence{}).Execute(ctx, json.RawMessage(`{
+		"items":[{
+			"scope":"line",
+			"evidence_kind":"direct",
+			"anchor_kind":"definition",
+			"anchor_symbol":"F",
+			"source":"x.go",
+			"line_start":2,
+			"support_refs":["F: x.go:2"]
+		}]
+	}`))
+	if err != nil || !res.Success {
+		t.Fatalf("redundant same-row support_refs should be repaired: err=%v result=%+v", err, res)
+	}
+	if !strings.Contains(res.Summary, "accepted 1 item") {
+		t.Fatalf("expected accepted evidence after lossless repair: %s", res.Summary)
+	}
+
+	ctx = newEmitCtx()
+	ctx.RepoRoot = repo
+	res, err = (&EmitEvidence{}).Execute(ctx, json.RawMessage(`{
+		"items":[{
+			"scope":"line",
+			"evidence_kind":"direct",
+			"anchor_kind":"definition",
+			"anchor_symbol":"F",
+			"source":"x.go",
+			"line_start":2,
+			"support_refs":["G: x.go:3"]
+		}]
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Success || !strings.Contains(res.Summary, `unknown field "support_refs"`) {
+		t.Fatalf("non-redundant support_refs must remain fail-loud: %+v", res)
 	}
 }
 

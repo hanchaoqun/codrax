@@ -68,6 +68,8 @@ func TestRenderAnalyzerOverviewPrescanCaution_FlagsAuxiliaryOnlyAndUnresolved(t 
 	got := renderAnalyzerOverviewPrescanCaution(graph, "`explore_mid_loop_hint_budget` and `missing_exact_token`")
 	for _, want := range []string{
 		"Identifier Pre-scan Cautions",
+		"never repository-wide absence evidence",
+		"MUST NOT be restated as confirmed absence",
 		"Do not let auxiliary-only hits in docs / tests / examples upgrade a token into production proof",
 		"Do not promote nearby files or symbols from these cautions into new `exact_targets`",
 		"explore_mid_loop_hint_budget",

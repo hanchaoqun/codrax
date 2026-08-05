@@ -220,6 +220,7 @@ func (t *EmitEvidence) Name() string { return "emit_evidence" }
 
 func (t *EmitEvidence) Description() string {
 	return "Emit one or more structured evidence items as the result of reading a source file. " +
+		"JSON carrier boundary: `items` is one native JSON array, never a quoted/escaped JSON string. Each items[i] uses only this tool's item fields; `support_refs` belongs to aggregate_facts on emit_investigation_complete and is not an emit_evidence item field. " +
 		"Call this AFTER you have read a file during investigation, with one item per " +
 		"fact you want the synthesis layer to see. The batched 'items' array preserves the " +
 		"existing 'one tool call per file' write pattern; do not call this tool once per item. " +
@@ -304,7 +305,7 @@ func buildEmitEvidenceParametersSchema() json.RawMessage {
 		"properties": map[string]any{
 			"items": map[string]any{
 				"type":        "array",
-				"description": "Batch of evidence items extracted from one or more files. Send the full batch in one call — do not invoke the tool per item.",
+				"description": "Batch of evidence items extracted from one or more files. This must be one native JSON array, never a quoted/escaped JSON string. Send the full batch in one call — do not invoke the tool per item. Every item uses only the item properties declared below; support_refs is not an item property and belongs to aggregate_facts on emit_investigation_complete.",
 				"items": map[string]any{
 					"type": "object",
 					// Relation-shaped facts are unusable when either endpoint is
@@ -977,6 +978,9 @@ func repairEmitEvidenceKnownCompatFields(raw json.RawMessage) (json.RawMessage, 
 			delete(items[i], "field")
 			paths = append(paths, fmt.Sprintf("items[%d].field", i))
 		}
+		if repairEmitEvidenceRedundantSupportRefs(items[i]) {
+			paths = append(paths, fmt.Sprintf("items[%d].support_refs(redundant source:line)", i))
+		}
 		paths = append(paths, repairEmitEvidenceItemConstraintSidecars(items[i], i)...)
 	}
 	if len(items) == 1 {
@@ -1011,6 +1015,42 @@ func repairEmitEvidenceKnownCompatFields(raw json.RawMessage) (json.RawMessage, 
 		return raw, nil, false
 	}
 	return patched, paths, true
+}
+
+// repairEmitEvidenceRedundantSupportRefs absorbs one recurring cross-tool
+// carrier mix-up only when it is provably lossless. emit_evidence already
+// carries one exact source:line per item; an item-local support_refs array that
+// contains only labels ending in that same source:line adds no fact or
+// association. Removing that invalid duplicate lets strict decode continue.
+// A ref to any other location remains untouched and therefore fails loud as an
+// unknown field — it may carry a relationship that belongs in a later
+// aggregate_facts member_set and must not be guessed away here.
+func repairEmitEvidenceRedundantSupportRefs(item map[string]json.RawMessage) bool {
+	rawRefs, ok := item["support_refs"]
+	if !ok {
+		return false
+	}
+	var refs []string
+	if err := json.Unmarshal(rawRefs, &refs); err != nil || len(refs) == 0 {
+		return false
+	}
+	var source string
+	if err := json.Unmarshal(item["source"], &source); err != nil || strings.TrimSpace(source) == "" {
+		return false
+	}
+	var line FlexInt
+	if err := json.Unmarshal(item["line_start"], &line); err != nil || line.Int() <= 0 {
+		return false
+	}
+	want := strings.TrimSpace(source) + ":" + strconv.Itoa(line.Int())
+	for _, ref := range refs {
+		ref = strings.TrimSpace(strings.Trim(ref, "`"))
+		if ref != want && !strings.HasSuffix(ref, " "+want) {
+			return false
+		}
+	}
+	delete(item, "support_refs")
+	return true
 }
 
 func repairEmitEvidenceItemConstraintSidecars(item map[string]json.RawMessage, index int) []string {

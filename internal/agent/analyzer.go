@@ -953,6 +953,7 @@ func renderAnalyzerOverviewPrescanCaution(graph *repomap.Graph, objective string
 	var b strings.Builder
 	b.WriteString("## Identifier Pre-scan Cautions\n\n")
 	b.WriteString("Some identifier-shaped mentions from the request are not yet backed by a production repo anchor. Treat them as search leads, not as proof, until `grep` / `read_file` finds a non-auxiliary repo definition.\n")
+	b.WriteString("- This bounded overview is never repository-wide absence evidence: an auxiliary-only or unresolved token MUST NOT be restated as confirmed absence of a file family, language, declaration, or member set. Emit the typed request shape and let the evidence stage run the bounded inventory/search.\n")
 	b.WriteString("- Do not let auxiliary-only hits in docs / tests / examples upgrade a token into production proof, a positive exact match, or a substitute answer.\n")
 	b.WriteString("- Keep user-mentioned exact targets as unverified leads until a non-auxiliary file grounds them; if that grounding never appears, prefer an honest not-found / absence path over nearby replacements.\n")
 	b.WriteString("- Do not promote nearby files or symbols from these cautions into new `exact_targets` unless the user also named them explicitly.\n")

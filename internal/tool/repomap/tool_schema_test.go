@@ -251,7 +251,7 @@ func TestSourceInventoryRoleEnumSingleSourced(t *testing.T) {
 			}
 		}
 	}
-	refusal, ok := repoMapSourceInventoryParamPreflight(repoMapParams{
+	refusal, ok := repoMapSourceInventoryParamPreflight(nil, repoMapParams{
 		View:  "source_inventory",
 		Roles: []types.AnswerCandidateRole{types.AnswerCandidateRoleFile},
 	})

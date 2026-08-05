@@ -235,13 +235,13 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 		return repoMapUnknownViewRejection(t.Name(), p.View), nil
 	}
 	if p.View == "source_inventory" {
-		if summary, ok := repoMapSourceInventoryParamPreflight(p); !ok {
+		if summary, ok := repoMapSourceInventoryParamPreflight(ctx, p); !ok {
 			return ctypes.ToolResult{
 				ToolName:   t.Name(),
 				Success:    false,
 				Summary:    summary,
-				Repair:     repoMapSourceInventoryFileRoleRepair(p),
-				Refinement: repoMapSourceInventoryFileRoleRefinement(p),
+				Repair:     repoMapSourceInventoryFileRoleRepair(ctx, p),
+				Refinement: repoMapSourceInventoryFileRoleRefinement(ctx, p),
 				Timestamp:  time.Now(),
 			}, nil
 		}
@@ -1004,35 +1004,101 @@ func repoMapViewSupported(view string) bool {
 	return false
 }
 
-func repoMapSourceInventoryParamPreflight(p repoMapParams) (string, bool) {
+func repoMapSourceInventoryParamPreflight(ctx *ctypes.BusContext, p repoMapParams) (string, bool) {
 	if len(p.Roles) != 1 || p.Roles[0] != ctypes.AnswerCandidateRoleFile {
 		return "", true
 	}
 	if len(p.AttributeRoles) > 0 && !repoMapSourceInventoryBroadRootScope(p) {
 		return "", true
 	}
+	if roles := repoMapSourceInventoryPreferredSemanticRoles(ctx, p); len(roles) > 0 {
+		return "repo_map refused: source_inventory with roles=[\"file\"] as the only primary role is a path-discovery request, not a semantic source-inventory lens. Re-issue source_inventory with the already-typed semantic roles [\"" + strings.Join(sourceInventoryRoleNames(roles), "\",\"") + "\"] and keep requested file/location data as row fields; do not infer repository absence from this refusal. Use list_files only for a later file-path/file-family discovery dispatch when that tool is available.", false
+	}
 	return "repo_map refused: source_inventory with roles=[\"file\"] as the only primary role is a path-discovery request, not a semantic source-inventory lens. Use `list_files` with recursive=true plus include/file_type filters for file-path or file-family discovery; use source_inventory with semantic roles such as " + sourceInventoryLensSemanticRoleProse() + " when you need a member/count checklist.", false
 }
 
-func repoMapSourceInventoryFileRoleRepair(p repoMapParams) *ctypes.ToolRepair {
+func repoMapSourceInventoryPreferredSemanticRoles(ctx *ctypes.BusContext, p repoMapParams) []ctypes.AnswerCandidateRole {
+	seen := map[ctypes.AnswerCandidateRole]bool{}
+	var roles []ctypes.AnswerCandidateRole
+	appendRoles := func(candidates []ctypes.AnswerCandidateRole) {
+		for _, role := range candidates {
+			if role == ctypes.AnswerCandidateRoleUnknown || role == ctypes.AnswerCandidateRoleFile || seen[role] {
+				continue
+			}
+			seen[role] = true
+			roles = append(roles, role)
+		}
+	}
+	appendRoles(p.AttributeRoles)
+	if ctx != nil && ctx.Mutable != nil {
+		if rm := ctx.Mutable.RequestModel(); rm != nil && rm.SourceInventoryProfile != nil {
+			appendRoles(rm.SourceInventoryProfile.PrincipalTargetRoles())
+		}
+	}
+	return roles
+}
+
+func sourceInventoryRoleNames(roles []ctypes.AnswerCandidateRole) []string {
+	out := make([]string, 0, len(roles))
+	for _, role := range roles {
+		out = append(out, string(role))
+	}
+	return out
+}
+
+func repoMapSourceInventoryFileRoleRepair(ctx *ctypes.BusContext, p repoMapParams) *ctypes.ToolRepair {
+	roles := repoMapSourceInventoryPreferredSemanticRoles(ctx, p)
+	preferredNextTool := "list_files"
+	hint := "source_inventory roles=[\"file\"] is file-path discovery; use list_files for path families, or source_inventory with semantic member roles for declaration/member inventories."
+	metadata := map[string]string{
+		"view":                    string(p.View),
+		"preferred_next_tool":     preferredNextTool,
+		"preferred_semantic_view": "source_inventory",
+	}
+	if len(roles) > 0 {
+		preferredNextTool = "repo_map"
+		metadata["preferred_next_tool"] = preferredNextTool
+		metadata["preferred_semantic_roles"] = strings.Join(sourceInventoryRoleNames(roles), ",")
+		hint = "Keep view=source_inventory and re-issue the call with the already-typed semantic roles [\"" + strings.Join(sourceInventoryRoleNames(roles), "\",\"") + "\"]; requested file/location values are row fields, not roles=[\"file\"]. This refusal is not evidence of repository absence."
+	}
 	return &ctypes.ToolRepair{
 		Code: "repo_map_source_inventory_file_role_path_discovery",
-		Hint: "source_inventory roles=[\"file\"] is file-path discovery; use list_files for path families, or source_inventory with semantic member roles for declaration/member inventories.",
+		Hint: hint,
 		Fields: []string{
 			"roles",
 			"attribute_roles",
 			"scope",
 			"scopes",
 		},
-		Metadata: map[string]string{
-			"view":                    string(p.View),
-			"preferred_next_tool":     "list_files",
-			"preferred_semantic_view": "source_inventory",
-		},
+		Metadata: metadata,
 	}
 }
 
-func repoMapSourceInventoryFileRoleRefinement(p repoMapParams) *ctypes.ToolRefinementHint {
+func repoMapSourceInventoryFileRoleRefinement(ctx *ctypes.BusContext, p repoMapParams) *ctypes.ToolRefinementHint {
+	if roles := repoMapSourceInventoryPreferredSemanticRoles(ctx, p); len(roles) > 0 {
+		params := map[string]string{
+			"path":               firstNonEmptyRepoMapPath(p.Path, "."),
+			"view":               "source_inventory",
+			"roles":              strings.Join(sourceInventoryRoleNames(roles), ","),
+			"include_attributes": "false",
+		}
+		if scope := strings.TrimSpace(p.Scope); scope != "" {
+			params["scope"] = scope
+		}
+		refinement := ctypes.NormalizeToolRefinementHint(ctypes.ToolRefinementHint{
+			ReasonCode:        "source_inventory_file_role_use_typed_semantic_roles",
+			PreferredNextTool: "repo_map",
+			PreferredParams:   params,
+			RequiredFields: []string{
+				"view",
+				"roles",
+			},
+		})
+		if refinement.Empty() {
+			return nil
+		}
+		return &refinement
+	}
 	params := map[string]string{
 		"path":      firstNonEmptyRepoMapPath(p.Path, "."),
 		"recursive": "true",

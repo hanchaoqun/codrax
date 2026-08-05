@@ -17846,3 +17846,45 @@ row-local `SurfaceTerms` 的 exact family 缩窄，未知 key 以 allowed typed 
 `EVAL-B142-ARKTSORACLE1=fixed/eval-only`；`EVAL-B142-CJFAMILYCARRY1=implemented/full-related-pass/awaiting-replay`；
 `EVAL-B122-JSONTEACH1=D1+B139-shape-table+B142-table-row-contract`；Trace 显式窗、因果投影、自动补齐、两维根因、排序、唤醒链与
 窗内可消除量=`untouched`。
+
+### 123.31 B143 r61：Harmony 产线回放闭环；typed lens 修复提示与 JSON 字段所有权收敛
+
+在 `main@8e85cc8dc` 干净构建后，严格并行恰好两个 Harmony case：
+
+- `cangjie_repomap`：99s，runner PASS / human PASS，Finalizer 1 轮、0 reject；
+- `arkts_repomap`：139s，runner PASS / human PASS，最终答案正确，但 Explorer 11 轮、completion 4/2、一次畸形 string carrier 与一次
+  item-local unknown field reject。
+
+Cangjie 结果完整保留 2 个 extend、2 个 foreign func 和 8 个 public class；`Cart @ Cart.cj:30` 已回到 extend 表，三类的文件与 package
+维度均在。因此 `EVAL-B142-CJFAMILYCARRY1` 已经由真实产线回放关闭。ArkTS 结果完整保留 4 个 `@Entry`、2 个 `@Builder`，结构化表中的函数、
+文件、行号列都可见，`EVAL-B142-TABLEROWSHAPE1` 同样关闭。两案均一次成文、零成文校验重试；系统没有改写模型结论，只追加既有引用摘录
+回填披露。
+
+过程审计发现 `EVAL-B143-SILENSREFINE1=P1`，属于真实系统自相矛盾：Analyzer 对
+`repo_map(source_inventory, roles=[file], attribute_roles=[function])` 的拒绝提示要求改用 `list_files recursive=true`，但 Analyzer runtime 同轮
+确定性禁止递归 list_files；Explorer 的 scheduler-owned 初始工具面也没有 list_files。模型进一步把 overview 中的“no exact production hit”
+误作全仓 absence，连续提交两个没有观测权威的 `negative_observation`。最终 typed completion gate 迫使它回到正确的 `roles=[function]` lens，
+所以答案幸存，但浪费约 6 个 Explorer 轮次。
+
+根修不读取请求/模型/答案 prose。`repo_map` file-role preflight 现在优先消费 exact `attribute_roles` 和 Mutable 中 typed
+`SourceInventoryProfile.PrincipalTargetRoles()`：存在语义角色时，Repair/Refinement 直接给出同工具 `view=source_inventory + roles=<typed>`；
+requested file/location 仍是 row field，不再误教为 primary role。只有没有 typed 语义角色的真正文件族发现才保留 list_files 建议。Analyzer
+overview caution 同时补上通用软边界：auxiliary/unresolved 只是导航，永远不能被复述成语言、文件族、声明或成员集的全仓 absence。
+
+JSON 审计冻结 `EVAL-B143-EVIDJSONMIND1=P1-efficiency`。第一次 `emit_evidence.items` 是内部语法已经损坏的 JSON string，自动抽词拼对象会
+改变/丢失关系，必须继续 fail-loud；第二次是合法 native array，但每个 invalid `support_refs` 只重复该 item 已有的 `source:line_start`。
+工具 description 与 schema 现于入口一次声明 `items` 必须是 native array、`support_refs` 只属于 completion 的 aggregate facts。运行时增加严格
+无损臂：仅当 item-local support_refs 的每一项都精确指回同一 typed source:line 时删除冗余字段并继续 strict decode；任何跨行、额外关联、
+空值或不可解码形仍保留并 hard reject。该修复不从任意畸形字符串提取“有用词”，不推断模型意图，也不代写 evidence/答案。
+
+定向回归 PASS；完整相关包回归 `go test ./internal/tool/repomap ./internal/agent ./internal/tool -count=1` PASS
+（2.340s / 3.088s / 162.942s）。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b143_harmony_replay_r61_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b143_harmony_replay_r61_20260805_manual_audit.md`。
+
+状态：`EVAL-B142-TABLEROWSHAPE1=production-replay-closed`；`EVAL-B142-CJFAMILYCARRY1=production-replay-closed`；
+`EVAL-B143-SILENSREFINE1=implemented/full-related-pass/awaiting-replay`；
+`EVAL-B143-EVIDJSONMIND1=implemented/full-related-pass/awaiting-replay`；
+`EVAL-B122-JSONTEACH1=D1+B139-shape-table+B142-table-row-contract+B143-field-ownership`；Trace 显式时间窗、因果投影、自动补齐、两维根因、
+排序、唤醒链与窗内可消除量=`untouched`。
