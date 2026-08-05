@@ -138,6 +138,36 @@ func TestAllowedNextActionGuardResultUsesTypedViolation(t *testing.T) {
 	}
 }
 
+func TestSupportedActionKindGuardResultRejectsUnknownTypedEnum(t *testing.T) {
+	action := dataquery.DataAction{ID: "read_first", Kind: dataquery.DataActionKind("read_instructions")}
+	guard := SupportedActionKindGuardResult(SupportedActionKindGuardInput{
+		Action:             action,
+		ActionIndex:        0,
+		AllowedNextActions: []string{string(dataquery.DataActionInspectMaterial), string(dataquery.DataActionExtractRecords)},
+	})
+	if guard.Code != "unsupported_action_kind" || len(guard.Violations) != 1 {
+		t.Fatalf("guard=%+v, want typed unsupported_action_kind", guard)
+	}
+	v := guard.Violations[0]
+	if v.ActionID != "read_first" || v.ActionKind != "read_instructions" {
+		t.Fatalf("violation=%+v, want exact rejected action identity", v)
+	}
+	if got := strings.Join(v.RepairActionHints, ","); got != "inspect_material,extract_records" {
+		t.Fatalf("repair hints=%q, want current typed allowed actions", got)
+	}
+}
+
+func TestSupportedActionKindGuardResultAllowsKnownAndLegacyEmptyCustomKind(t *testing.T) {
+	for _, action := range []dataquery.DataAction{
+		{ID: "derive", Kind: dataquery.DataActionDeriveFields},
+		{ID: "legacy_custom", Script: "emit_result('ok')"},
+	} {
+		if guard := SupportedActionKindGuardResult(SupportedActionKindGuardInput{Action: action}); !guard.Empty() {
+			t.Fatalf("action=%+v guard=%+v, want supported", action, guard)
+		}
+	}
+}
+
 func TestStageProgressGuardResultUsesTypedViolationForRankCrossing(t *testing.T) {
 	state := WorkflowStateView{
 		MaterialCoverageSufficient: true,

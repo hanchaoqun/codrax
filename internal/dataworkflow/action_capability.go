@@ -1,6 +1,7 @@
 package dataworkflow
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/dataquery"
@@ -145,6 +146,18 @@ func NormalizeActionKind(kind dataquery.DataActionKind) dataquery.DataActionKind
 func Capability(kind dataquery.DataActionKind) (ActionCapability, bool) {
 	capability, ok := actionCapabilities[NormalizeActionKind(kind)]
 	return capability, ok
+}
+
+// SupportedActionKinds returns the schema vocabulary accepted by the typed
+// data-action runner. Keep this derived from actionCapabilities so admission,
+// repair guidance, and execution cannot grow separate action-kind lists.
+func SupportedActionKinds() []string {
+	kinds := make([]string, 0, len(actionCapabilities))
+	for kind := range actionCapabilities {
+		kinds = append(kinds, string(kind))
+	}
+	sort.Strings(kinds)
+	return kinds
 }
 
 func DependencyRank(kind dataquery.DataActionKind) int {

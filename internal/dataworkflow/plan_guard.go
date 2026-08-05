@@ -62,6 +62,12 @@ type AllowedNextActionGuardInput struct {
 	RecordMaterialization       bool
 }
 
+type SupportedActionKindGuardInput struct {
+	Action             dataquery.DataAction
+	ActionIndex        int
+	AllowedNextActions []string
+}
+
 type StageProgressGuardInput struct {
 	State                             WorkflowStateView
 	HasScriptedCustomTransform        bool
@@ -314,6 +320,37 @@ func allowedNextActionGuard(code, message string, action dataquery.DataAction, a
 		Reason:            message,
 	})
 	return NewGuardResult(code, "error", RepairNeedsTypedAction, message, violation)
+}
+
+// SupportedActionKindGuardResult is the first per-action admission check.
+// Action.Kind is schema-validated typed input, so it is safe to hard-reject an
+// unknown enum here. Doing this before shape, dependency, field, or stage
+// checks prevents a later symptom on another action from hiding the actual
+// unsupported operation and consuming a doomed execution round.
+func SupportedActionKindGuardResult(input SupportedActionKindGuardInput) GuardResult {
+	action := input.Action
+	kind := NormalizeActionKind(action.Kind)
+	if _, ok := Capability(kind); ok {
+		return GuardResult{}
+	}
+	hints := cleanStrings(input.AllowedNextActions)
+	if len(hints) == 0 {
+		hints = SupportedActionKinds()
+	}
+	message := fmt.Sprintf("data planning incomplete: action %d (%s) declares unsupported typed action kind %q. Emit an action from the current workflow allowed set [%s]; unsupported action kinds are rejected before dependency, field, shape, and execution checks.",
+		guardActionNumber(input.ActionIndex),
+		guardActionLabel(action),
+		strings.TrimSpace(string(action.Kind)),
+		strings.Join(hints, ", "))
+	violation := NewGenericViolation(GenericViolationInput{
+		Code:              "unsupported_action_kind",
+		Severity:          "error",
+		Repairability:     RepairNeedsTypedAction,
+		Action:            action,
+		RepairActionHints: hints,
+		Reason:            message,
+	})
+	return NewGuardResult("unsupported_action_kind", "error", RepairNeedsTypedAction, message, violation)
 }
 
 func StageProgressGuardResult(input StageProgressGuardInput) GuardResult {

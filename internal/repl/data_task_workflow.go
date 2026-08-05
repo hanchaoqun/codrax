@@ -657,6 +657,20 @@ func dataTaskActionStagingGuardResult(repoRoot string, plan dataquery.TaskPlan) 
 }
 
 func dataTaskWorkflowActionStagingGuardResult(repoRoot string, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataworkflow.GuardResult {
+	// Validate the typed enum before every batch, dependency, field, shape, or
+	// stage guard. An unsupported action can never execute; letting downstream
+	// checks win only hides the actionable defect and burns a repair round.
+	for i, action := range plan.Actions {
+		if _, ok := dataworkflow.Capability(action.Kind); ok {
+			continue
+		}
+		state := dataTaskWorkflowState(repoRoot, records, plan)
+		return dataworkflow.SupportedActionKindGuardResult(dataworkflow.SupportedActionKindGuardInput{
+			Action:             action,
+			ActionIndex:        i,
+			AllowedNextActions: state.AllowedNextActions,
+		})
+	}
 	if guard := dataTaskActionBatchShapeGuardResult(records, plan, dataworkflow.ActionBatchShapeChecks{
 		TopLevelScript: true,
 		ActionCount:    true,

@@ -16069,3 +16069,52 @@ assemble，却不能单独判定“贡献键错”还是“typed reference_key_f
 `EVAL-B108-WRITEPROOF1=implemented/full-relevant-pass/replay-next`。
 
 本批没有改 Trace 路径，也没有扫描用户请求、模型过程或最终答案原文作 hard gate；系统只公开 typed 不一致、合法修复动作和账本代次，结论仍由模型给出。
+
+## 114. 2026-08-05 B111/B112 r35：write/data 回放复绿与未知动作入口合同
+
+### 114.1 严格双并发与人工结论
+
+在 `main@87e944613` 构建冻结后，以 `PARALLEL=2` 严格并行恰好两个异构 case：
+
+- `github_issue_memoclaw_text_search_multirepo_ts`（write）：runner/human PASS，179s；
+- `data_multifile_reference_projection`（data）：runner/human PASS，220s，9 个 data round、2 个 repair round。
+
+工件见 `eval/parallel_selected_summary_evalcampaign_b111_writedata_replay_r35_20260805.md` 及 manual audit。write 补丁正确改为
+`POST /v1/search`、JSON body、limit 与可选 namespace，保持无关 API/测试不变，`make check` 通过，交付判定为 verified。
+
+但该次 planner 把四个 outcome 都发为 soft `operator=satisfies`、`source=expected_outcome_fallback`，没有形成 hard behavior contract，故 B109 的
+source-static→target-behavior 补采桥没有在生产回放中触发。本次只能证明写任务整体复绿，B109 仍由 profile→ledger 与 controller wiring 的结构 pin 保证；不能为了触发它而
+扫描请求/模型 prose 并硬升格合同。该现象先作为 contract-strength 异构 replay watch。
+
+### 114.2 数据账本已恢复，普通输出修复与引用域修复保持分车道
+
+最终 contribution ledger 保留源域：`GroupA=10/7, GroupB=4, GroupC=5`；reconcile 为 `17/4/5`；按目标 reference 投影后的最终答案为
+`17/0/5`。本轮一开始已使用正确源域，因此 B110 的 `replace_contributions=true` 代次臂没有生产触发，仍由结构测试保证。
+
+本轮出现的是另一类普通输出错：模型先把三项用分号拼成一个字符串，typed cardinality/grounding 检查拒绝后只重跑 `assemble_answer` 并成功。这是正向证明：普通
+slot/cardinality mismatch 没有被错误扩大为贡献重算，和 reference-domain mismatch 保持独立。
+
+模型中间思考曾杜撰错误 fixture 数字及 `GroupY`，但这些内容没有进入 contribution/reconcile/final typed artifacts。系统账本成功隔离了模型波动；不据此新增答案原文
+scanner、normalizer 或系统代写结论。
+
+### 114.3 `EVAL-B111-ACTIONKIND1`（P1，B112 已施工）：未知 typed action 没有在入口被拒绝
+
+首个数据计划同时包含未知 `read_instructions` 与缺 input 的 `derive_fields`。旧 staging 先执行 batch/stage/dependency/shape 检查，报告了后者；下一轮模型只保留
+`read_instructions` 后 staging 又放行，直到 runner 才以 unsupported kind 失败。未知 action 不可能成功执行，晚拒绝且被次生错误遮蔽白烧了一轮。
+
+B112 将 action capability registry 作为单一 action-kind authority，并在所有 batch、stage、dependency、field、shape 与 execution 检查之前逐项 admission：
+
+1. `Action.Kind` 是 schema typed enum，未知值可安全 hard-reject，不读取用户或模型自然语言；
+2. violation 保留精确 action ID/kind/idempotency，并优先给出当前 `workflow_state.allowed_next_actions`；若当前集合为空才从同一 capability registry 派生完整支持列表；
+3. 空 kind 的既有 legacy custom-transform 兼容形与所有已注册 typed action 保持不变；
+4. 新 pin 证明第一项未知 action 会先于第二项缺输入错误被报告，且不会进入执行器。
+
+### 114.4 验证、状态与不变量
+
+- `go test ./internal/dataworkflow ./internal/repl -count=1`：PASS；
+- `EVAL-B108-WRITEPROOF1=implemented/structural-pin/production-arm-replay-watch`；
+- `EVAL-B108-DATAREF1=implemented/human-pass`；
+- `EVAL-B108-DATASTALE1=implemented/human-pass`；
+- `EVAL-B111-ACTIONKIND1=implemented/full-relevant-pass/replay-next`。
+
+本批没有改 Trace 查询、显式时间窗、因果投影、自动补齐或双轴根因；没有按单个 action 名硬编码修复，也没有扫描用户请求、模型过程或最终答案原文作 hard gate。

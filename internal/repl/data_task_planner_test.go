@@ -5140,6 +5140,27 @@ func TestDataTaskWorkflowStagingGuardRejectsEmptyExtractRecordsAction(t *testing
 	}
 }
 
+func TestDataTaskWorkflowStagingGuardRejectsUnsupportedKindBeforeLaterShapeFailure(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		Actions: []dataquery.DataAction{
+			{ID: "read_first", Kind: dataquery.DataActionKind("read_instructions")},
+			{ID: "derive_without_input", Kind: dataquery.DataActionDeriveFields},
+		},
+	}
+	guard := dataTaskWorkflowStagingGuardResult("", nil, plan)
+	if guard.Code != "unsupported_action_kind" || len(guard.Violations) != 1 {
+		t.Fatalf("guard=%+v, want first unsupported action kind", guard)
+	}
+	v := guard.Violations[0]
+	if v.ActionID != "read_first" || v.ActionKind != "read_instructions" {
+		t.Fatalf("violation=%+v, want exact unsupported action identity", v)
+	}
+	if strings.Contains(guard.ErrorText(), "requires input_paths") || strings.Contains(guard.ErrorText(), "derive_without_input") {
+		t.Fatalf("error=%q, later action shape must not mask unsupported kind", guard.ErrorText())
+	}
+}
+
 func TestDataTaskWorkflowStagingGuardRejectsDeriveFieldsWithoutSpec(t *testing.T) {
 	plan := dataquery.TaskPlan{
 		Status: "ready",
