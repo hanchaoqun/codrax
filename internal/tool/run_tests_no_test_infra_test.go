@@ -4272,6 +4272,58 @@ func TestRunTestsPreSuiteProbeAuthoringFailureContinuesGoSuite(t *testing.T) {
 	}
 }
 
+func TestRunTestsPreSuiteModelComparatorFailureContinuesGoSuite(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go not on PATH; skip")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/probeoracle\n\ngo 1.22\n"), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package probeoracle\n\nfunc Value() int { return 2 }\n"), 0o644); err != nil {
+		t.Fatalf("write main.go: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "main_test.go"), []byte("package probeoracle\n\nimport \"testing\"\n\nfunc TestValue(t *testing.T) { if Value() != 2 { t.Fatal(\"bad value\") } }\n"), 0o644); err != nil {
+		t.Fatalf("write main_test.go: %v", err)
+	}
+	mu := types.NewMutableState("model probe comparator")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-model-probe-comparator",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"main.go"},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:         "wrong_expected_value",
+			Language:   "go",
+			Code:       "package probeoracle\n\nimport \"testing\"\n\nfunc TestWrongExpectedValue(t *testing.T) { if Value() != 3 { t.Fatalf(\"want 3 got %d\", Value()) } }\n",
+			WorkingDir: ".",
+		}},
+	})
+	ctx := &types.BusContext{Mutable: mu, Mode: types.ModeApply, PipelineStage: types.StageVerify, RepoRoot: root, MainRepoRoot: root}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{"runner": "go"}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("independent project suite must decide after model comparator failure: %+v", result)
+	}
+	report := mu.ChangeReport()
+	if report == nil || report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
+		t.Fatalf("project suite should pass: %+v", report)
+	}
+	if !changeReportHasVerificationDiagnostic(report, "probe_comparator_authority", "model_authored_probe_comparator_unverified") {
+		t.Fatalf("model comparator authority diagnostic must survive suite continuation: %+v", report.VerificationDiagnostics)
+	}
+	foundContinuation := false
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Source == verificationProbeContinuationSourceProbeSuiteContinued && cmd.ReasonCode == "probe_non_authoritative" {
+			foundContinuation = true
+		}
+	}
+	if !foundContinuation {
+		t.Fatalf("missing typed suite continuation evidence: %+v", report.ExecutedCommands)
+	}
+}
+
 func TestRunGoCompileFallback_PassWhenPackageCompilesWithoutTests(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go not on PATH; skip")

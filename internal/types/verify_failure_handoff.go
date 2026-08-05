@@ -22,6 +22,18 @@ const (
 	VerifyFailureReportEvidenceUnavailable VerifyFailureReportEvidenceStatus = "unavailable"
 )
 
+// VerifyFailureAuthority describes what a failed verification report can
+// prove about production code. A model-authored inline probe gives an exact
+// execution observation, but its expected comparator is not independently
+// authoritative merely because the process exited non-zero.
+type VerifyFailureAuthority string
+
+const (
+	VerifyFailureAuthorityProjectVerification   VerifyFailureAuthority = "project_verification"
+	VerifyFailureAuthorityModelProbeObservation VerifyFailureAuthority = "model_probe_observation"
+	VerifyFailureAuthorityUnavailable           VerifyFailureAuthority = "unavailable"
+)
+
 // RepairSourceSnapshot is a bounded current-worktree source window attached
 // to a verify-failure replan. It is generated from typed failure/patch
 // geometry such as build-error lines or PatchEffect hunk lines, never from
@@ -55,6 +67,14 @@ type VerifyFailureHandoff struct {
 	// must not imply that report-backed failure details were observed.
 	ReportEvidenceStatus     VerifyFailureReportEvidenceStatus `json:"report_evidence_status,omitempty"`
 	ReportEvidenceReasonCode string                            `json:"report_evidence_reason_code,omitempty"`
+
+	// FailureAuthority separates an observed process/test outcome from the
+	// authority of the comparator that declared it wrong. Project tests and
+	// build failures can authorize source repair; a failure confined to
+	// verification_probe/* rows first authorizes checking or replacing that
+	// model-authored probe against typed contracts or existing tests.
+	FailureAuthority           VerifyFailureAuthority `json:"failure_authority,omitempty"`
+	FailureAuthorityReasonCode string                 `json:"failure_authority_reason_code,omitempty"`
 
 	FailureKind    FailureKind `json:"failure_kind,omitempty"`
 	FailureSummary string      `json:"failure_summary,omitempty"`
@@ -137,6 +157,7 @@ func BuildVerifyFailureHandoff(report *ChangeReport, batchID string, attempt int
 		Attempt:                  attempt,
 		ReportEvidenceStatus:     VerifyFailureReportEvidenceAvailable,
 		ReportEvidenceReasonCode: "typed_change_report_projected",
+		FailureAuthority:         verifyFailureAuthorityFromReport(report),
 		FailureKind:              report.FailureKind,
 		FailureSummary:           strings.TrimSpace(report.FailureSummary),
 		FailureReasonCode:        strings.TrimSpace(report.FailureReasonCode),
@@ -144,6 +165,16 @@ func BuildVerifyFailureHandoff(report *ChangeReport, batchID string, attempt int
 		DiffArtifactRef:          strings.TrimSpace(diffArtifactRef),
 		SurfaceArtifactRef:       strings.TrimSpace(surfaceArtifactRef),
 		GeneratedAt:              time.Now(),
+	}
+	switch h.FailureAuthority {
+	case VerifyFailureAuthorityModelProbeObservation:
+		if report.FailureKind == FailureKindTestsFailed {
+			h.FailureAuthorityReasonCode = "model_authored_probe_comparator_unverified"
+		} else {
+			h.FailureAuthorityReasonCode = "model_authored_probe_production_verdict_unproven"
+		}
+	default:
+		h.FailureAuthorityReasonCode = "project_verification_failure"
 	}
 	if h.Attempt < 1 {
 		h.Attempt = 1
@@ -216,6 +247,27 @@ func BuildVerifyFailureHandoff(report *ChangeReport, batchID string, attempt int
 	return h
 }
 
+func verifyFailureAuthorityFromReport(report *ChangeReport) VerifyFailureAuthority {
+	if report == nil {
+		return VerifyFailureAuthorityUnavailable
+	}
+	failedRows := 0
+	for _, result := range report.TestResults {
+		if result.Passed {
+			continue
+		}
+		failedRows++
+		if result.Kind == TestResultKindBuildError ||
+			!strings.HasPrefix(strings.TrimSpace(result.Suite), "verification_probe/") {
+			return VerifyFailureAuthorityProjectVerification
+		}
+	}
+	if failedRows > 0 {
+		return VerifyFailureAuthorityModelProbeObservation
+	}
+	return VerifyFailureAuthorityProjectVerification
+}
+
 // BuildVerifyFailureHandoffWithoutReport preserves the exact durable attempt
 // identity and artifact refs when a resumed needs-replan workflow cannot load
 // its ChangeReport. It deliberately leaves all report-backed detail empty and
@@ -230,15 +282,17 @@ func BuildVerifyFailureHandoffWithoutReport(
 		attempt = 1
 	}
 	return &VerifyFailureHandoff{
-		PlanID:                   strings.TrimSpace(planID),
-		BatchID:                  strings.TrimSpace(batchID),
-		Attempt:                  attempt,
-		ReportEvidenceStatus:     VerifyFailureReportEvidenceUnavailable,
-		ReportEvidenceReasonCode: strings.TrimSpace(reportEvidenceReasonCode),
-		FailureReasonCode:        strings.TrimSpace(failureReasonCode),
-		DiffArtifactRef:          strings.TrimSpace(diffArtifactRef),
-		SurfaceArtifactRef:       strings.TrimSpace(surfaceArtifactRef),
-		GeneratedAt:              time.Now(),
+		PlanID:                     strings.TrimSpace(planID),
+		BatchID:                    strings.TrimSpace(batchID),
+		Attempt:                    attempt,
+		ReportEvidenceStatus:       VerifyFailureReportEvidenceUnavailable,
+		ReportEvidenceReasonCode:   strings.TrimSpace(reportEvidenceReasonCode),
+		FailureAuthority:           VerifyFailureAuthorityUnavailable,
+		FailureAuthorityReasonCode: "change_report_unavailable",
+		FailureReasonCode:          strings.TrimSpace(failureReasonCode),
+		DiffArtifactRef:            strings.TrimSpace(diffArtifactRef),
+		SurfaceArtifactRef:         strings.TrimSpace(surfaceArtifactRef),
+		GeneratedAt:                time.Now(),
 	}
 }
 

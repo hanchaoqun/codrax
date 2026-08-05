@@ -1714,7 +1714,7 @@ func verificationProbeDiagnosticsAreNonAuthoritative(report *types.ChangeReport)
 			return false
 		}
 		switch strings.TrimSpace(diag.Category) {
-		case "probe_authoring", "probe_import_or_environment", "probe_unavailable":
+		case "probe_authoring", "probe_import_or_environment", "probe_unavailable", "probe_comparator_authority":
 			seen = true
 		default:
 			return false

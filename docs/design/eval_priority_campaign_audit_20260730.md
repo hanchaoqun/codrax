@@ -16701,3 +16701,35 @@ B123-C（compound execution graph/discover sink/owner identity）→ B123-D（JS
 `EVAL-B122-PATCHQUOTE1=implemented/full-tool-pass/replay-next`；
 `EVAL-B122-EXECGRAPH1=confirmed/P1`；`EVAL-B122-PROBEAUTH1=confirmed/P0-next`；
 `EVAL-B122-PROBEPOLARITY1=confirmed/P1-next`；`EVAL-B122-JSONTEACH1=confirmed/P1`。
+
+### 123.5 B123-B：verification observation 与 comparator authority 分离
+
+`EVAL-B122-PROBEAUTH1` 已按 typed provenance 完成根修：
+
+1. `VerifyFailureHandoff` 新增 `failure_authority` 与 reason code。失败行来自独立项目测试或 build 时为
+   `project_verification`；全部失败行仅来自 `verification_probe/<language>` 时为
+   `model_probe_observation`；ChangeReport 缺席时为 `unavailable`。判定只读 typed TestResult kind/suite，
+   不解析 probe code、用户请求、模型思考或错误输出 prose。
+2. inline probe 断言/`expected_stdout` 失败仍保留精确进程结果、exit code 与 failure detail，但追加
+   `probe_comparator_authority/model_authored_probe_comparator_unverified` 诊断。存在独立 runnable project
+   suite 时不得由该 comparator 提前截断，必须继续执行项目测试；项目测试通过可签整体通过，同时保留
+   comparator 诊断供审计。
+3. 没有项目 suite 时仍保持 verify failed，绝不把未经证明的 probe 失败改成成功；但 replan 首屏改为
+   “model-authored comparator unverified”，要求先对照 typed behavior contract 或既有测试核验 comparator。
+   不受支持时只替换 probe/走 already-applied no-change proof，不能据此直接修改生产源码。
+4. 独立项目测试/build 失败继续保留原 `authoritative` 车道；报告缺席继续保留 bounded durable evidence，
+   三种权威不会互相冒充。
+
+`EVAL-B122-PROBEPOLARITY1` 采用软设计约束而非不精确 hard gate：planner skill 明确 run-length、cardinality、
+threshold 等边界规则应同时覆盖触发样例与邻近不触发样例（如 singleton / just-below-boundary）。系统不能从
+任意 probe code 或用户/模型 prose 猜测“是否已经覆盖正负例”，因此不新增关键词扫描或文本 hard reject；
+后续生产回放继续审计遗漏率。
+
+新增回归覆盖：错误的 Go model comparator + 真实 Go suite 通过时必须继续并由项目 suite 签绿；probe-only
+handoff 必须降为 observation；项目测试失败保持 project authority；缺报告保持 unavailable。
+`go test ./internal/types ./internal/agent ./internal/tool ./internal/skill -count=1` PASS
+（tool 164.062s，types 20.100s）。
+
+状态：`EVAL-B122-PROBEAUTH1=implemented/full-related-pass`；
+`EVAL-B122-PROBEPOLARITY1=implemented-soft-guidance/full-related-pass/replay-next`；
+`EVAL-B122-EXECGRAPH1=confirmed/P1-next`；`EVAL-B122-JSONTEACH1=confirmed/P1-after-execgraph`。

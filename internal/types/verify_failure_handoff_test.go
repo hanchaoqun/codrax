@@ -53,6 +53,10 @@ func TestBuildVerifyFailureHandoff_ProjectsTypedRows(t *testing.T) {
 		h.ReportEvidenceReasonCode != "typed_change_report_projected" {
 		t.Fatalf("full handoff must disclose report evidence authority: %+v", h)
 	}
+	if h.FailureAuthority != VerifyFailureAuthorityProjectVerification ||
+		h.FailureAuthorityReasonCode != "project_verification_failure" {
+		t.Fatalf("project failure authority wrong: %+v", h)
+	}
 	if h.FailureReasonCode != "pytest_import_startup_error" {
 		t.Fatalf("failure reason code not projected: %+v", h)
 	}
@@ -89,6 +93,28 @@ func TestBuildVerifyFailureHandoff_ProjectsTypedRows(t *testing.T) {
 	}
 }
 
+func TestBuildVerifyFailureHandoff_BoundsModelAuthoredProbeComparator(t *testing.T) {
+	report := &ChangeReport{
+		PlanID:      "plan-probe",
+		Passed:      false,
+		FailureKind: FailureKindTestsFailed,
+		TestResults: []TestResult{{
+			AssertionID:   "model-boundary",
+			Suite:         "verification_probe/python",
+			Passed:        false,
+			FailureDetail: "assertion failed",
+		}},
+	}
+	h := BuildVerifyFailureHandoff(report, "batch", 1, "", "")
+	if h == nil {
+		t.Fatal("failed probe report must build handoff")
+	}
+	if h.FailureAuthority != VerifyFailureAuthorityModelProbeObservation ||
+		h.FailureAuthorityReasonCode != "model_authored_probe_comparator_unverified" {
+		t.Fatalf("probe-only failure must not gain project verdict authority: %+v", h)
+	}
+}
+
 func TestBuildVerifyFailureHandoffWithoutReport_PreservesOnlyAttemptAuthority(t *testing.T) {
 	h := BuildVerifyFailureHandoffWithoutReport(
 		" plan-1 ", " batch-1 ", 2, " tests_failed ",
@@ -98,6 +124,10 @@ func TestBuildVerifyFailureHandoffWithoutReport_PreservesOnlyAttemptAuthority(t 
 	if h.ReportEvidenceStatus != VerifyFailureReportEvidenceUnavailable ||
 		h.ReportEvidenceReasonCode != "durable_report_unavailable" {
 		t.Fatalf("degraded handoff authority wrong: %+v", h)
+	}
+	if h.FailureAuthority != VerifyFailureAuthorityUnavailable ||
+		h.FailureAuthorityReasonCode != "change_report_unavailable" {
+		t.Fatalf("missing report authority wrong: %+v", h)
 	}
 	if h.PlanID != "plan-1" || h.BatchID != "batch-1" || h.Attempt != 2 ||
 		h.FailureReasonCode != "tests_failed" ||

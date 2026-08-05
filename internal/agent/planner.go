@@ -1974,10 +1974,16 @@ func (e *plannerEvaluator) buildVerifyFailureHandoffSection(ctx *types.AgentCont
 	var b strings.Builder
 	if h.ReportEvidenceStatus == types.VerifyFailureReportEvidenceUnavailable {
 		b.WriteString("## Latest verification failure (bounded durable evidence)\n\n")
+	} else if h.FailureAuthority == types.VerifyFailureAuthorityModelProbeObservation {
+		b.WriteString("## Latest verification observation (model probe; production verdict unproven)\n\n")
 	} else {
 		b.WriteString("## Latest verification failure (authoritative)\n\n")
 	}
-	b.WriteString("The previous apply of this batch failed verification. Produce a bounded repair plan that addresses these findings on the same target files — do not restart broad exploration.\n\n")
+	if h.FailureAuthority == types.VerifyFailureAuthorityModelProbeObservation {
+		b.WriteString("The model-authored probe outcome below was observed, but a probe-only failure is not by itself authority that production code is wrong. For an assertion or expected-output mismatch, check its comparator against typed behavior contracts or existing project tests first. If unsupported, replace the probe on the already-applied worktree instead of changing production source; if corroborated, produce a bounded repair plan. Do not restart broad exploration.\n\n")
+	} else {
+		b.WriteString("The previous apply of this batch failed verification. Produce a bounded repair plan that addresses these findings on the same target files — do not restart broad exploration.\n\n")
+	}
 	fmt.Fprintf(&b, "- plan: %s attempt: %d", h.PlanID, h.Attempt)
 	if h.FailureKind != "" {
 		fmt.Fprintf(&b, " failure_kind: %s", h.FailureKind)
@@ -1987,6 +1993,13 @@ func (e *plannerEvaluator) buildVerifyFailureHandoffSection(ctx *types.AgentCont
 		fmt.Fprintf(&b, "- report_evidence_status: %s", h.ReportEvidenceStatus)
 		if h.ReportEvidenceReasonCode != "" {
 			fmt.Fprintf(&b, " reason_code=%s", h.ReportEvidenceReasonCode)
+		}
+		b.WriteString("\n")
+	}
+	if h.FailureAuthority != "" {
+		fmt.Fprintf(&b, "- failure_authority: %s", h.FailureAuthority)
+		if h.FailureAuthorityReasonCode != "" {
+			fmt.Fprintf(&b, " reason_code=%s", h.FailureAuthorityReasonCode)
 		}
 		b.WriteString("\n")
 	}

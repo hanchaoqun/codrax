@@ -1253,6 +1253,35 @@ func TestBuildVerifyFailureHandoffSection_DisclosesUnavailableReportEvidence(t *
 	}
 }
 
+func TestBuildVerifyFailureHandoffSection_BoundsModelProbeComparatorAuthority(t *testing.T) {
+	mu := types.NewMutableState("probe comparator")
+	mu.SetVerifyFailureHandoff(types.BuildVerifyFailureHandoff(&types.ChangeReport{
+		PlanID:      "plan-probe",
+		Passed:      false,
+		FailureKind: types.FailureKindTestsFailed,
+		TestResults: []types.TestResult{{
+			AssertionID:   "boundary",
+			Suite:         "verification_probe/python",
+			Passed:        false,
+			FailureDetail: "AssertionError",
+		}},
+	}, "batch", 1, "", ""))
+	section := (&plannerEvaluator{}).buildVerifyFailureHandoffSection(&types.AgentContext{Mutable: mu})
+	for _, want := range []string{
+		"## Latest verification observation (model probe; production verdict unproven)",
+		"failure_authority: model_probe_observation reason_code=model_authored_probe_comparator_unverified",
+		"check its comparator against typed behavior contracts or existing project tests first",
+		"replace the probe on the already-applied worktree instead of changing production source",
+	} {
+		if !strings.Contains(section, want) {
+			t.Fatalf("bounded probe section missing %q:\n%s", want, section)
+		}
+	}
+	if strings.Contains(section, "Latest verification failure (authoritative)") {
+		t.Fatalf("model probe comparator must not receive project-failure authority:\n%s", section)
+	}
+}
+
 func toolSchemaNamesForTest(schemas []llm.ToolSchema) []string {
 	out := make([]string, 0, len(schemas))
 	for _, schema := range schemas {

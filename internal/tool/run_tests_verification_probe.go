@@ -272,6 +272,9 @@ func runPlanVerificationProbes(ctx *types.BusContext, source string) (*verificat
 			}
 		}
 	}
+	if !passed && failureKind == types.FailureKindTestsFailed {
+		diags = append(diags, modelProbeComparatorDiagnostics(results, source)...)
+	}
 	summary := ""
 	if !passed {
 		summary = strings.TrimSpace(strings.Join(outputs, "\n\n"))
@@ -299,6 +302,26 @@ func runPlanVerificationProbes(ctx *types.BusContext, source string) (*verificat
 		Output:   renderVerificationProbeOutput(probes, outputs),
 		Commands: commands,
 	}, true
+}
+
+func modelProbeComparatorDiagnostics(results []types.TestResult, source string) []types.VerificationDiagnostic {
+	var out []types.VerificationDiagnostic
+	for _, result := range results {
+		if result.Passed || !strings.HasPrefix(strings.TrimSpace(result.Suite), "verification_probe/") {
+			continue
+		}
+		out = append(out, types.VerificationDiagnostic{
+			Source:     strings.TrimSpace(source),
+			Category:   "probe_comparator_authority",
+			Severity:   "warning",
+			ReasonCode: "model_authored_probe_comparator_unverified",
+			Runner:     "verification_probe",
+			Framework:  strings.TrimPrefix(strings.TrimSpace(result.Suite), "verification_probe/"),
+			Outcome:    "observed_failure",
+			Detail:     "probe execution failure was observed; its model-authored expected comparator requires typed-contract or existing-test corroboration before it can prove a production defect",
+		})
+	}
+	return out
 }
 
 // verificationProbeLanguageTargetMismatchResult keeps an inline probe from
