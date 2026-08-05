@@ -146,6 +146,29 @@ func TestDiagramCallEdgeEvidenceMismatches_ClassParticipantsResolveUniqueTypedMe
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_ClassParticipantsResolveGroundingQualifiedAnchor(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "sequence", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+			"sequenceDiagram",
+			"  participant C as VisitController",
+			"  participant S as VisitService",
+			"  C->>S: schedule(petId, reason)",
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "C", ToNode: "S", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge,
+		}},
+	}}}
+	call := diagramEvidenceTestCall("VisitController.create", "VisitService.schedule")
+	call.OwnerSymbol = "VisitController.create"
+	// This is the production shape after normalizeCallEvidenceDirection: the
+	// call anchor carries the resolved callee, not only its short operation.
+	call.AnchorSymbol = "VisitService.schedule"
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, []types.EvidenceItem{call}); len(got) != 0 {
+		t.Fatalf("class participants must consume the exact operation of a grounding-qualified anchor: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_ClassParticipantsFailClosedWhenMethodIsAmbiguous(t *testing.T) {
 	doc := diagramEvidenceTestDoc("A", "B")
 	doc.Blocks[0].Diagram.Body = "sequenceDiagram\n" +

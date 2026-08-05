@@ -15900,3 +15900,69 @@ Rust core 与 PyO3 wrapper 的角色，并把 `super::tokenize_bytes` 写成递�
 `EVAL-B106-TSCHAIN1=runner-false-green/model-replay-watch`。
 
 本轮未运行 Trace，且未改 Trace 查询、显式时间窗、系统自动补齐、因果投影或双轴根因代码；不得用本批结果改变这些既有能力。
+
+## 111. 2026-08-05 B107 r33：调用载体回放改善；生产限定 anchor 与类参与者图门发生精确合同冲突
+
+### 111.1 严格双并发与人工结论
+
+在 `main@eba6ed68d` 构建冻结后，以 `PARALLEL=2` 严格并行恰好两个语言/身份形态不同的 read case：
+
+- `mr_poly_binding_chain`：runner PASS / human PASS（事实层），191s，3 次 Finalizer reject/patch，最大 context 21%；
+- `sr_java_call_chain`：runner PASS / human FAIL，411s，7 次 Finalizer reject/patch，最大 context 30%。
+
+工件见 `eval/parallel_selected_summary_evalcampaign_b107_calledge_replay_r33_20260805.md` 及 manual audit。polyglot 不再出现 19 轮调用边补发、错误 no-path
+waiver、降级答案或 Rust wrapper/core 角色反转；最终正文正确区分 Python facade、`_fastlex`、PyO3 wrapper、Rust core 与纯 Python fallback，并用
+`Note over` 表示未由 source-level call row 证明的 binding 过渡。该案首批调用行本身已带 subject/predicate，故只能作为 B106 整体过程改善及非稀疏臂正证；sparse
+自动补齐仍由 production-shaped test 保证，不能把单次耗时下降直接归功给某一提交。
+
+### 111.2 `EVAL-B107-DIAGRAMOP1`（P0）：同一 typed call 的两个精确投影互相否定
+
+Java Explorer 已发射并由 grounding 精确规范化五条调用：
+
+1. `VisitController.create -> VisitService.schedule`；
+2. `VisitService.schedule -> ClinicConfig.resolveMaxVisits`；
+3. `VisitService.schedule -> VisitRepository.countOpenVisits`；
+4. `VisitService.schedule -> VisitRepository.insert`；
+5. `VisitRepository.insert -> AuditLog.record`。
+
+第一稿 sequence 没有 `edge_anchors`，硬门拒绝正确。第二稿补齐五个 typed anchor，并以类 participant + exact message operation 表达；这正是 prompt 与已有测试声明的
+合法形，硬门却把五条全部报 `call_edge_unproven`。根因是 production grounding 会把 `AnchorCall` 规范为限定 callee（例如
+`AnchorSymbol=VisitService.schedule`），而类参与者 resolver 取得消息操作 `schedule` 后仍与完整 AnchorSymbol 字节比较。上下文展示层消费限定形，校验层只接受短形，构成
+“同一精确事实同时被要求、被拒绝”的红线合同冲突。
+
+模型随后围绕别名、participant 与 edge anchor 做无效重写，并三次把 patch array 串行化成字符串；第 7 次删除结构化图后才完成，系统又以“保留内容”附回最初模型图。
+若第二稿被正确接受，后续六次 churn 不会发生。因此主因不是提高预算或弱化图门，而是统一 typed identity 投影。
+
+### 111.3 通用修复与不变量
+
+类/actor lane 现在从同一 grounded qualified `AnchorSymbol` 取精确 operation 尾部，与 sequence message operation 比较；caller/callee owner
+兼容、同向 citable call row 和候选唯一性仍是前置条件。该变化：
+
+- 不从用户请求、模型 prose、答案正文或自由文本 label 猜调用；
+- 不接受 owner 不同但尾名相同的调用；
+- 不放宽无消息、消息歧义、反向边、无 citable row 或重复 endpoint；
+- 对 Go、Java/Kotlin、JS/TS/ArkTS、C/C++、Rust、Python、Ruby、Swift、Lua、Cangjie 等统一生效；
+- 不修改模型答案，也不改变 runtime/Trace diagram authority。
+
+新增 production-shaped pin：`OwnerSymbol=VisitController.create`、`Object/AnchorSymbol=VisitService.schedule`、类 participant
+`VisitController -> VisitService`、消息 `schedule(...)` 必须通过；既有歧义、反向、跨语言矩阵负/正臂继续通过。
+
+### 111.4 回放中另两项裁定
+
+`EVAL-B107-ENDPOINTAMBIG1`（P1，next）：polyglot 的最终事实正确，但 typed handoff 只有 Python native/fallback 两条 call row；已经读到的 Rust line 42
+wrapper→core 调用未发射。Analyzer 把语义终点“Rust 实现”具体化为裸 `tokenize_bytes`，同名 wrapper/core 使完成门可能在第一同尾节点提前结束。
+下一批应从 endpoint 的 typed definition/owner identity 与调用图唯一解析入手，不能硬编码 PyO3、文件路径或函数名，也不能让系统替模型补结论。
+
+`EVAL-B107-JAVACLAIM1`（watch）：Java 最终正文声称 `AuditLog.record` 写数据库，但源码只执行 `System.out.println`；最终上下文已有明确 stdout
+grounded evidence，因此是单次模型越证波动。按红线不增加答案关键词 scanner、normalizer 或系统替写；保留异构 replay，若跨模型复现再研究结构化 claim→citation soft calibration。
+
+### 111.5 验证与状态
+
+- `TestDiagramCallEdgeEvidenceMismatches_ClassParticipantsResolveGroundingQualifiedAnchor`：新增并通过；
+- class participant 唯一/歧义、duplicate carrier、direction 与全语言 inline identity focused 回归全部通过；
+- `go test ./internal/tool -count=1`：PASS（158.969s）；
+- `EVAL-B107-DIAGRAMOP1=implemented/full-package-pass/replay-next`；
+- `EVAL-B107-ENDPOINTAMBIG1=confirmed/next-batch`；
+- `EVAL-B107-JAVACLAIM1=model-fluctuation/replay-watch`。
+
+本轮未运行 Trace，且没有改 Trace 查询、显式时间窗、系统自动补齐、因果投影或双轴根因代码。

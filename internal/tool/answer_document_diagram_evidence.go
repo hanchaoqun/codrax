@@ -715,7 +715,14 @@ func diagramCallEdgeHasTypedEvidence(evidence []types.EvidenceItem, requiredAnch
 		if anchor == "" {
 			anchor = diagramEvidenceQualifiedOperation(object)
 		}
-		if anchor == "" || operation != anchor {
+		// Grounding canonicalizes AnchorCall to the resolved callee surface, so
+		// production evidence commonly carries `VisitService.schedule` here
+		// while a sequence message carries the exact operation `schedule(...)`.
+		// Compare the lossless operation projection of that SAME typed anchor;
+		// owner compatibility above still prevents a same-tail symbol in another
+		// class/package from authorizing the edge.
+		anchorOperation := diagramEvidenceQualifiedOperation(anchor)
+		if anchorOperation == "" || operation != anchorOperation {
 			continue
 		}
 		candidates[subject+"\x00"+object+"\x00"+anchor] = true
