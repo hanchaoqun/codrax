@@ -16911,3 +16911,47 @@ r42 真实工件纠正了 §123.8 的一项过早判断：Python 普通 `class_d
 状态：`EVAL-B124-PYDECREL1=implemented/cache-bumped/full-index-agent-types-pass`；
 `EVAL-B124-CAPSULEFOCUS1=implemented/typed-connectivity/full-index-agent-types-pass`；
 `EVAL-B122-EXECGRAPH1=implemented/C1+C2+decorated-producer/full-replay-next`。
+
+### 123.11 B125 r43：图形建议越权为硬合同，dynamic dispatch 完成门仍错用静态路径
+
+在 `main@2a7048c89` 冻结构建后，严格并行恰好两个 case：
+
+- `sr_py_registry_dispatch`：469s，runner PASS / human FAIL，context 24%，Explorer midloop=13，Finalizer reject=5；
+- `trace_query_donghu_real_frame_multicausal`：200s，runner PASS / human FAIL，context 40%，Finalizer reject=0。
+
+Trace 侧证明 B124 合同单源修复已经生效：runtime-only principal carrier 明确允许
+`section|ordered_list|table|bullet_list`，不再出现 current-source HARD facet；模型一次发出合法 JSON，系统没有替换
+principal 正文，显式时间窗查询、因果投影与自动补齐均在。但人审仍发现模型越过紧凑 typed ceiling：把
+`causal_conclusion=unproven` / `frame_evidence_status=absent` 写成确定帧因，把 wakeup/dependency 关系写成阻塞链，
+把 34/36 主导写成事实上的全部，并跨 row/fix-direction 合并被明确禁止相加的口径。该问题继续记为
+`EVAL-B124-TRACECOGNITION1`；最优方向是压缩、分层和去重模型上下文，而不是系统接管结论或扫描模型 prose 做硬门。
+
+Python 回放暴露两个确定性系统 gap：
+
+1. Analyzer 在普通 prose 调用链上错误发出 `diagram_hint.kind=call_dag`；旧 compiler 只看 hint 是否存在，就铸成
+   `explicit_diagram_request`，把可选展示建议升级为“exactly 1 diagram”硬合同。分析教学同一段又同时说“普通题应省略”
+   和“otherwise infer semantic family”，增加了 JSON 决策歧义；
+2. discover sink 已有 static call、registration/binding、factory/value 与 declared-type 四族 typed facts，但 Explorer
+   completion 仍只承认 source→sink 静态 directed-call path。模型因此反复伪造 `resolve -> JsonPlugin`、
+   `run_pipeline -> JsonPlugin.handle` 等调用边，最终 Runner 虽 PASS，答案仍用无关 `runner.py:21` 证明 handle，且所谓
+   完整图只剩 `run_pipeline -> resolve`。这是 C3 的真实 production witness，不再是观察项。
+
+本小批先完成 `EVAL-B125-DIAGRAMAUTH1`：
+
+- `DiagramHint` 拆成 `kind` 与 schema-required `required`。`kind` 只选视觉家族；只有 typed `required=true` 才表示
+  当前请求或 typed Presentation Directive 明确要求图，才可生成硬图表合同；
+- `required=false` 的 hint 只进入 `PreferredKinds`，不会出现在 Required Answer Blocks。兼容层恢复的旧 string/array
+  hint 默认 false，安全降为可选；
+- JSON schema、wire param、parser、analysis skill 与 compiler 共用同一权限语义。教学删除“普通题也推断图”的冲突，
+  明确 registration/binding/return/inheritance/containment/method-owner 不得因 visual hint 变成 call arrow；
+- 回归从 IR 构建贯穿到 SemanticView，锁定 advisory hint 不产生 required diagram，同时保留显式图请求的原硬合同。
+
+判据只消费 schema-validated boolean 与 enum，不扫描用户请求、模型思考或答案 prose；call-edge 图证据门不放宽。
+Trace 投影、补齐、根因排序、唤醒链、两维根因和可消除量未改动。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b125_contract_replay_r43_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b125_contract_replay_r43_20260805_manual_audit.md`。
+
+状态：`EVAL-B125-DIAGRAMAUTH1=implemented/full-tool-agent-types-skill-pass`；
+`EVAL-B122-EXECGRAPH1-C3=confirmed/P1-next`；
+`EVAL-B124-TRACECOGNITION1=confirmed/context-compression-next`。

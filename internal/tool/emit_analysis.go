@@ -377,7 +377,8 @@ type emitAnswerSubjectParam struct {
 // family that best matches the question, while the deterministic
 // compiler still derives the final contract from stronger signals.
 type emitDiagramHintParam struct {
-	Kind string `json:"kind"`
+	Kind     string `json:"kind"`
+	Required bool   `json:"required"`
 }
 
 type emitEnumerationBoundaryParam struct {
@@ -837,11 +838,12 @@ func buildEmitAnalysisSchema() {
 			},
 			"diagram_hint": map[string]any{
 				"type":        "object",
-				"description": "Optional. Emit only when the CURRENT request explicitly asks for a diagram / visual / drawing, or when the answer would be structurally incomplete without a visual. An explicitly requested visual modality is authoritative: sequence/timeline/interaction view -> sequence even when the topic is a call chain; call graph/DAG/fan-out view -> call_dag. Do not replace an explicit sequence request with call_dag merely because predicate_axis=call. Omit for ordinary call-chain, architecture, log, or trace questions where prose/list/table blocks answer the user directly.",
+				"description": "Optional visual-family hint. `required` is the authority boundary: set it true ONLY when the CURRENT request or typed Presentation Directive explicitly requires a diagram / visual / drawing; otherwise set it false, and the hint remains optional guidance. An explicitly requested visual modality is authoritative: sequence/timeline/interaction view -> sequence even when the topic is a call chain; call graph/DAG/fan-out view -> call_dag. Do not replace an explicit sequence request with call_dag merely because predicate_axis=call. Omit this object for ordinary code, call-chain, architecture, log, or trace questions when prose/list/table blocks answer the user directly.",
 				"properties": map[string]any{
-					"kind": stringProp{Type: "string", Enum: skill.AnalysisDiagramKindValues()},
+					"kind":     stringProp{Type: "string", Enum: skill.AnalysisDiagramKindValues()},
+					"required": map[string]any{"type": "boolean", "description": "Hard presentation authority. True only for an explicit current-turn visual request; false for an optional structural aid."},
 				},
-				"required": []string{"kind"},
+				"required": []string{"kind", "required"},
 			},
 			"enumeration_boundary": map[string]any{
 				"type":        "object",
@@ -5365,7 +5367,7 @@ func parseDiagramHint(p *emitDiagramHintParam) (*types.DiagramHint, string) {
 			p.Kind,
 		)
 	}
-	return &types.DiagramHint{Kind: kind}, ""
+	return &types.DiagramHint{Kind: kind, Required: p.Required}, ""
 }
 
 func scalarCountBoundaryIsScopeOnly(predicates types.SemanticPredicates) bool {

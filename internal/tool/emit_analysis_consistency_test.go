@@ -230,8 +230,9 @@ func TestEmitAnalysisSchemaIncludesDiagramHintEnum(t *testing.T) {
 		Type        string `json:"type"`
 		Description string `json:"description"`
 		Properties  map[string]struct {
-			Type string   `json:"type"`
-			Enum []string `json:"enum"`
+			Type        string   `json:"type"`
+			Enum        []string `json:"enum"`
+			Description string   `json:"description"`
 		} `json:"properties"`
 		Required []string `json:"required"`
 	}
@@ -256,8 +257,15 @@ func TestEmitAnalysisSchemaIncludesDiagramHintEnum(t *testing.T) {
 	if !reflect.DeepEqual(kindProp.Enum, skill.AnalysisDiagramKindValues()) {
 		t.Fatalf("diagram_hint.kind enum drift:\n  schema:   %v\n  contract: %v", kindProp.Enum, skill.AnalysisDiagramKindValues())
 	}
-	if len(prop.Required) != 1 || prop.Required[0] != "kind" {
-		t.Fatalf("diagram_hint required = %v, want [kind]", prop.Required)
+	requiredProp, ok := prop.Properties["required"]
+	if !ok || requiredProp.Type != "boolean" {
+		t.Fatalf("diagram_hint.required missing boolean property: %+v", prop.Properties)
+	}
+	if !strings.Contains(requiredProp.Description, "explicit current-turn visual request") {
+		t.Fatalf("diagram_hint.required description lacks authority boundary: %q", requiredProp.Description)
+	}
+	if !reflect.DeepEqual(prop.Required, []string{"kind", "required"}) {
+		t.Fatalf("diagram_hint required = %v, want [kind required]", prop.Required)
 	}
 }
 

@@ -1543,10 +1543,14 @@ func (s DiagramScope) IsValid() bool {
 }
 
 // DiagramHint is the analyzer LLM's optional pre-contract suggestion.
-// The compiler consumes it as one signal among several stronger
-// structural signals when deriving the final DiagramContract.
+// Kind selects a useful visual family. Required is a separate typed
+// authority bit: it is true only when the current request (or its typed
+// presentation directive) explicitly requires a visual. Keeping these
+// axes separate prevents an advisory family suggestion from becoming a
+// hard answer-shape obligation.
 type DiagramHint struct {
-	Kind DiagramKind `json:"kind"`
+	Kind     DiagramKind `json:"kind"`
+	Required bool        `json:"required"`
 }
 
 // DiagramContract is the finalizer-facing presentation contract for

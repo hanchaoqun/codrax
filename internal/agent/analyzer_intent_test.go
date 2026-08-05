@@ -1680,7 +1680,7 @@ func TestBuildAnalysisIR_DiagramContractPropagates(t *testing.T) {
 			Entities: []string{"Dispatch", "Handler"},
 			Kind:     "call_chain",
 		},
-		DiagramHint: &types.DiagramHint{Kind: types.DiagramCallDAG},
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramCallDAG, Required: true},
 	})
 	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mut}
 
@@ -1702,6 +1702,45 @@ func TestBuildAnalysisIR_DiagramContractPropagates(t *testing.T) {
 	}
 	if ir.AnswerContract.Diagram.RequiredKind != types.DiagramCallDAG {
 		t.Fatalf("Diagram.RequiredKind = %q, want call_dag", ir.AnswerContract.Diagram.RequiredKind)
+	}
+}
+
+func TestBuildAnalysisIR_AdvisoryDiagramHintDoesNotBecomeHardContract(t *testing.T) {
+	mut := types.NewMutableState("explain how request dispatch reaches the handler")
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest:    "explain how request dispatch reaches the handler",
+		Intent:        types.IntentTrace,
+		Scenario:      types.ScenarioArchitectureExplain,
+		Complexity:    types.ComplexityModerate,
+		PredicateAxis: types.AxisCall,
+		AnalyzerHints: types.AnalyzerHints{
+			Keywords: []string{"dispatch", "handler"},
+			Entities: []string{"Dispatch", "Handler"},
+			Kind:     "call_chain",
+		},
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramCallDAG, Required: false},
+	})
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mut}
+
+	ir, err := buildAnalysisIR(ctx)
+	if err != nil {
+		t.Fatalf("buildAnalysisIR: %v", err)
+	}
+	if ir.AnswerContract.Diagram == nil {
+		t.Fatal("AnswerContract.Diagram = nil, want optional preference")
+	}
+	if ir.AnswerContract.Diagram.Required || ir.AnswerContract.Diagram.Minimum != 0 {
+		t.Fatalf("advisory diagram hint became hard contract: %+v", ir.AnswerContract.Diagram)
+	}
+	if len(ir.AnswerContract.Diagram.PreferredKinds) == 0 || ir.AnswerContract.Diagram.PreferredKinds[0] != types.DiagramCallDAG {
+		t.Fatalf("Diagram.PreferredKinds = %v, want first call_dag", ir.AnswerContract.Diagram.PreferredKinds)
+	}
+	plan := types.BuildAnswerSurfacePlan(ir, mut, nil, nil, nil, nil)
+	view := types.BuildAnswerSemanticView(ir, plan)
+	for _, req := range view.RequiredBlocks {
+		if req.Kind == types.BlockDiagram {
+			t.Fatalf("advisory diagram hint produced required diagram block: %+v", view.RequiredBlocks)
+		}
 	}
 }
 
@@ -2063,11 +2102,20 @@ func TestReconcileDiagramContract(t *testing.T) {
 		{
 			name: "explicit diagram hint is the only hard diagram request",
 			rm: types.RequestModel{
-				DiagramHint: &types.DiagramHint{Kind: types.DiagramSequence},
+				DiagramHint: &types.DiagramHint{Kind: types.DiagramSequence, Required: true},
 			},
 			wantKind:     types.DiagramSequence,
 			wantScope:    types.DiagramScopeOverall,
 			wantRequired: true,
+		},
+		{
+			name: "advisory diagram hint remains optional",
+			rm: types.RequestModel{
+				DiagramHint: &types.DiagramHint{Kind: types.DiagramCallDAG, Required: false},
+			},
+			wantKind:     types.DiagramCallDAG,
+			wantScope:    types.DiagramScopeOverall,
+			wantRequired: false,
 		},
 		{
 			name: "plain scalar without structural cues stays nil",

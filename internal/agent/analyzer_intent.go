@@ -502,7 +502,11 @@ func reconcileDiagramContract(rm types.RequestModel, bundle *types.LogBundle) *t
 	}
 
 	if rm.DiagramHint != nil && rm.DiagramHint.Kind != types.DiagramNone {
-		require("explicit_diagram_request", rm.DiagramHint.Kind)
+		if rm.DiagramHint.Required {
+			require("explicit_diagram_request", rm.DiagramHint.Kind)
+		} else {
+			prefer("analyzer_visual_family_hint", rm.DiagramHint.Kind)
+		}
 	}
 	if rm.Intent == types.IntentTrace {
 		prefer("trace_intent", types.DiagramCallDAG, types.DiagramSequence)

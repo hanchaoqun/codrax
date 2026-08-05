@@ -179,11 +179,12 @@ func TestAnalysisSkill_PresentationDirectiveRequiresDiagramHint(t *testing.T) {
 	out := analysisSkillPrompt(t)
 	for _, want := range []string{
 		"Presentation Directive",
-		"MUST emit `diagram_hint`",
-		"diagram_hint is optional for ordinary prose questions, but REQUIRED",
+		"emit it with `required=true`",
+		"optional structural hint MUST use `required=false`",
 		"typed Presentation Directive explicitly asks for a diagram",
 		"Explicit presentation modality outranks topic inference",
 		"MUST use `sequence` even when predicate_axis=call",
+		"Never use a visual hint to turn binding, registration, return, inheritance, containment, or method-owner relations into call arrows",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("analysis prompt must pin diagram_hint from typed presentation directive; missing %q", want)
