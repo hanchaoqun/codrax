@@ -14990,6 +14990,8 @@ sequence 的源码事实已经查清：`buildAnalysisIR -> gate.RunWith @ analyz
 
 降级答案人工判 FAIL：正文用“随后”把两条并列边写成连续路径，与 typed graph 相反。状态：`EVAL-B93-WAIVERWIRE1=confirmed/P0/next-code-batch`。
 
+WAIVERWIRE1 已施工：string-wrapped aggregate tail 的统一恢复面现在覆盖 `principal_span_waiver`、`evidence_floor_waiver` 及两者 clear flag，而非只恢复 aggregate/relation。顶层声明对整个 waiver family 保持优先；仅当顶层 family 缺席时才消费尾部；尾部 clear+new 仍进入既有互斥拒绝，非法 enum、空 rationale 与未知嵌套字段不获权。生产同形 e2e pin 证明 `no_directed_path` 一次闭合并发布 typed endpoint boundary，系统不再要求重复提交已在场字段。定向矩阵与完整 `internal/tool`（172.639s）全绿。状态：`EVAL-B93-WAIVERWIRE1=implemented/full-tool-pass/replay-after-scope-batch`。
+
 ### 97.4 `EVAL-B93-CALLIDENT2`（P1）：typed call owner 展示身份仍不对称
 
 本轮 B92-B `duplicate_participant_identity` 未触发，因为稿件没有两个 active alias 精确指向同一 citable endpoint；因此 B92-B 仍是单测/全包验证通过，生产正证待后续异构回放。

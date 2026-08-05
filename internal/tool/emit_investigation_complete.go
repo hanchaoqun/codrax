@@ -314,6 +314,9 @@ func (p *emitInvestigationCompleteParams) loadFromRaw(raw emitInvestigationCompl
 		return err
 	}
 	misplaced = mergeMisplacedCompletionFields(misplaced, reasonMisplaced)
+	if err := recoverMisplacedCompletionWaiverFields(&raw, misplaced); err != nil {
+		return err
+	}
 	relationClaims := types.CloneAnswerRelationClaims(raw.RelationClaims)
 	if len(relationClaims) == 0 {
 		if recovered := misplaced["relation_claims"]; len(recovered) > 0 {
@@ -347,6 +350,57 @@ func (p *emitInvestigationCompleteParams) loadFromRaw(raw emitInvestigationCompl
 		ClearPrincipalSpanWaiver: raw.ClearPrincipalSpanWaiver,
 	}
 	return nil
+}
+
+// recoverMisplacedCompletionWaiverFields completes the same compatibility
+// lane used for string-wrapped aggregate_facts sibling tails. Some providers
+// serialize the array and following schema-owned fields into one string. The
+// leading array decoder already separates that tail; leaving typed waivers
+// behind while recovering aggregate facts makes the completion gate ask for a
+// waiver that was present in the very payload it consumed.
+//
+// A top-level member wins for its whole waiver family. When neither top-level
+// member is present, recover both the declaration and clear flag so the normal
+// mutual-exclusion and enum/rationale checks below remain the single authority.
+func recoverMisplacedCompletionWaiverFields(raw *emitInvestigationCompleteRawParams, fields map[string]json.RawMessage) error {
+	if raw == nil || len(fields) == 0 {
+		return nil
+	}
+	if raw.EvidenceFloorWaiver == nil && !raw.ClearEvidenceWaiver {
+		waiver, clear, err := decodeMisplacedCompletionWaiverFamily(fields, "evidence_floor_waiver", "clear_evidence_floor_waiver")
+		if err != nil {
+			return err
+		}
+		raw.EvidenceFloorWaiver = waiver
+		raw.ClearEvidenceWaiver = clear
+	}
+	if raw.PrincipalSpanWaiver == nil && !raw.ClearPrincipalSpanWaiver {
+		waiver, clear, err := decodeMisplacedCompletionWaiverFamily(fields, "principal_span_waiver", "clear_principal_span_waiver")
+		if err != nil {
+			return err
+		}
+		raw.PrincipalSpanWaiver = waiver
+		raw.ClearPrincipalSpanWaiver = clear
+	}
+	return nil
+}
+
+func decodeMisplacedCompletionWaiverFamily(fields map[string]json.RawMessage, waiverKey, clearKey string) (*emitInvestigationCompleteWaiverPayload, bool, error) {
+	var waiver *emitInvestigationCompleteWaiverPayload
+	if encoded := fields[waiverKey]; len(encoded) > 0 {
+		var decoded emitInvestigationCompleteWaiverPayload
+		if err := decodeStrictJSONValue(encoded, &decoded); err != nil {
+			return nil, false, fmt.Errorf("decode misplaced %s: %w", waiverKey, err)
+		}
+		waiver = &decoded
+	}
+	clear := false
+	if encoded := fields[clearKey]; len(encoded) > 0 {
+		if err := decodeStrictJSONValue(encoded, &clear); err != nil {
+			return nil, false, fmt.Errorf("decode misplaced %s: %w", clearKey, err)
+		}
+	}
+	return waiver, clear, nil
 }
 
 func decodeAggregateFactsPayload(raw json.RawMessage) ([]types.AnswerAggregateFact, map[string]json.RawMessage, error) {

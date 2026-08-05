@@ -2187,3 +2187,5 @@ participant 出现时缺少先验 identity 诊断，误导模型继续改方向/
 - `EVAL-B92-DIAGIDENT1` 本轮未形成两个 active duplicate aliases，故没有生产触发证据，保持 implemented/full-pass/replay-next。
 
 优先级冻结为先修 WAIVERWIRE1（小而确定、直接消除自矛盾），再修 SCOPELINEAGE1（最高时长/context ROI），最后统一 CALLIDENT2。所有方案只消费 schema/engine/parser typed carrier，不扫描用户或模型原文作 hard gate，不放宽调用事实，不触碰 RootCauseTrace、显式时间窗因果投影、自动补齐或模型结论所有权。
+
+WAIVERWIRE1 已交付：兼容解码的 schema sibling 集合补齐两个 typed waiver family 与 clear flag；top-level family 优先，尾部互斥/非法值仍走原 validator。生产同形、顶层优先、clear+new 冲突、unknown nested field 与既有 no-path 正臂均有 pin，完整 `internal/tool` 172.639s 通过。状态：`implemented/full-tool-pass/replay-after-scope-batch`。
