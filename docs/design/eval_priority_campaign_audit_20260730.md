@@ -14802,6 +14802,11 @@ R2 的 exact request-path matcher 本身工作，但 production `repo_map` 在 `
 仍须同时满足 analyzer-stage 成功 observation、exact current-request canonical path token、非 root/wrong-stage 拒绝。禁止从
 模型 entity/quote、用户关键词或最终答案文本猜范围。
 
+B91-A 已施工：`SourceInventoryObservation` 新增独立 `QueryPathScopes`，repo_map 在最终 narrowing 后把 operational scope 按
+可信 session repo root 重基；clone/merge/empty-lens 保留该载体。prescan producer 优先消费此坐标，并继续要求 analyzer stage、
+成功 tool query provenance 与当前请求中的完整 canonical path token；旧 observation 仅作兼容 fallback。selected-root `.`、嵌套
+scope、根仓 scope、越界 root 和请求碰撞均有 pin。LOC ceiling 未抬高。
+
 ### 95.3 `EVAL-B91-SOURCECLASS1`（P0）：production/test 语义未进入 typed rowset
 
 本轮目标包 inventory 返回 type=3、function=56、constant=30；其中 function=56 实际由 5 个 production 导出函数与 51 个
@@ -14828,6 +14833,12 @@ qualified caller 和 callee 约束，只统一结构化身份，不加 case-spec
 authority，仍污染工具历史。最小正确形是 rationale 保留在 Mutable 审计态，发布摘要只含 disposition/source/sink；模型继续基于
 typed triples 自己得出结论。
 
+B91-A 同批已删除发布 gate note 中的自由 `waiver.Rationale`；`PrincipalSpanWaiver` 审计对象仍保留原 rationale 字节。看护以唯一
+错误 token 证明 tool summary 不泄漏、Mutable audit state 仍可复核。
+
 任务顺序冻结：B91-A `SCOPECOORD1 + WAIVERRATIONALE1`；B91-B `CALLEDGEWIRE1`；B91-C `SOURCECLASS1`（先载体与
 默认兼容，再接 analyzer typed selection）；每批独立测试、提交、推送后再进行恰好两个用例回放。所有批次显式排除
 QFRootCauseTrace、Trace 窗口投影、自动补齐和系统代写结论。
+
+B91-A 验证：定向 pin、`internal/types`（20.590s）、`internal/tool/repomap`（2.438s）、完整 `internal/tool`（169.765s）全绿。
+状态：`SCOPECOORD1 + WAIVERRATIONALE1=implemented/full-pass/replay-after-B/C`。

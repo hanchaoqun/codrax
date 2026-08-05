@@ -87,7 +87,13 @@ func mergeSourceInventoryAnalyzerPrescanRequestedPathScopes(rm *types.RequestMod
 	// identity, not a keyword/prose classifier: inferred scopes, prefix/suffix
 	// collisions, exploration cursors, and root navigation remain unable to
 	// mint a hard requested-path boundary.
-	for _, rawScope := range observation.Scopes {
+	queryScopes := observation.QueryPathScopes
+	if len(queryScopes) == 0 {
+		// Backward-compatible producer fallback for observations created before
+		// repo_map gained a distinct repository-root query coordinate.
+		queryScopes = observation.Scopes
+	}
+	for _, rawScope := range queryScopes {
 		scope := types.NormalizeSourceInventoryRequestedPathScope(rawScope)
 		if scope != "" && types.RawRequestExplicitlyMentionsEntity(raw, scope) {
 			mentioned[scope] = true
@@ -98,7 +104,7 @@ func mergeSourceInventoryAnalyzerPrescanRequestedPathScopes(rm *types.RequestMod
 	}
 	seen := map[string]bool{}
 	var scopes []string
-	for _, raw := range observation.Scopes {
+	for _, raw := range queryScopes {
 		scope := types.NormalizeSourceInventoryRequestedPathScope(raw)
 		if scope == "" || !mentioned[scope] || seen[scope] {
 			continue

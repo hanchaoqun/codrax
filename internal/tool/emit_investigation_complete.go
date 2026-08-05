@@ -2854,8 +2854,8 @@ func appendPrincipalSpanWaiverCompletionNote(ctx *types.BusContext) {
 		}
 	}
 	ctx.Mutable.AppendCompletionGateNote(fmt.Sprintf(
-		"model-declared typed call-chain boundary: principal_span_waiver=no_directed_path for `%s` -> `%s` (%s). The accepted call-edge graph did not establish that direction; keep the nearest proven path and any reverse/parallel relationship separate, and do not turn endpoint definitions into a call edge.",
-		startHint, endHint, strings.TrimSpace(waiver.Rationale)))
+		"model-declared typed call-chain boundary: principal_span_waiver=no_directed_path for `%s` -> `%s`. The accepted call-edge graph did not establish that direction; keep the nearest proven path and any reverse/parallel relationship separate, and do not turn endpoint definitions into a call edge.",
+		startHint, endHint))
 	ctx.Mutable.EvidenceClosure().AppendCompletionCaveat(types.CompletionCaveat{
 		Lane:       types.DowngradeLaneContractChain,
 		ReasonCode: "call_chain_no_directed_path",

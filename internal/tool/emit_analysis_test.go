@@ -7320,6 +7320,42 @@ func TestMergeSourceInventoryAnalyzerPrescanRequestedPathScopes_AcceptsExactRequ
 	}
 }
 
+func TestMergeSourceInventoryAnalyzerPrescanRequestedPathScopes_UsesRepoRootQueryCoordinate(t *testing.T) {
+	rm := types.RequestModel{SourceInventoryProfile: &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+	}}
+	observation := types.SourceInventoryObservation{
+		Active:          true,
+		Scopes:          []string{"."},
+		QueryPathScopes: []string{"internal/analysis/criterion"},
+		Provenance: []string{
+			types.SourceInventoryProvenanceRepoLensToolQuery,
+			types.SourceInventoryProvenanceStageAnalyze,
+		},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:    types.AnswerCandidateRoleType,
+			Members: []types.SourceInventoryObservationMember{{Name: "Kind"}},
+		}},
+	}
+	if !mergeSourceInventoryAnalyzerPrescanRequestedPathScopes(
+		&rm,
+		observation,
+		"internal/analysis/criterion 请列出公开符号",
+	) {
+		t.Fatal("repo-root query coordinate should survive selected-sub-repo operational scope normalization")
+	}
+	if got := rm.AnalyzerHints.SourceInventoryRequestedPathScopes; len(got) != 1 || got[0] != "internal/analysis/criterion" {
+		t.Fatalf("requested path scopes = %#v", got)
+	}
+
+	wrongRequest := rm
+	wrongRequest.AnalyzerHints.SourceInventoryRequestedPathScopes = nil
+	if mergeSourceInventoryAnalyzerPrescanRequestedPathScopes(&wrongRequest, observation, "internal/types 请列出公开符号") {
+		t.Fatalf("query provenance without exact current-request identity must remain unauthorized: %#v", wrongRequest.AnalyzerHints.SourceInventoryRequestedPathScopes)
+	}
+}
+
 func TestEmitAnalysis_PersistsRequestBoundAnalyzerPrescanPathScope(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

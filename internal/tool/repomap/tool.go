@@ -413,6 +413,15 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 			observation, lensQuery, guardAdvisories = repoMapSourceInventoryMaybeNarrowNoRows(ctx, graph, observation, lensQuery)
 			narrowingAdvisories = append(narrowingAdvisories, guardAdvisories...)
 		}
+		// Lens scopes are deliberately relative to the graph selected for this
+		// call. In a selected sub-repository the queried root is therefore ".",
+		// which is correct for execution but loses the repository-root identity
+		// needed by later request-bound inventory authority. Preserve that second
+		// coordinate explicitly; it remains query provenance and does not become
+		// request authority unless the analyzer-stage producer also matches it
+		// exactly against the current request.
+		observation.QueryPathScopes = repoMapSourceInventoryQueryPathScopes(ctx, repoRoot, lensQuery)
+		observation = ctypes.CloneSourceInventoryObservation(observation)
 		output := tool.RenderSourceInventoryObservationView(observation, lensQuery)
 		output = prependRepoMapSourceInventoryFitAdvisory(ctx, p.Query, output)
 		output = prependRepoMapParameterAdvisory(output, narrowingAdvisories)
@@ -789,6 +798,46 @@ func sourceInventoryDefaultScopeForRepoMapPath(requestedPath, resolvedRoot strin
 		return ""
 	}
 	return strings.Trim(strings.TrimSpace(requested), "/")
+}
+
+func repoMapSourceInventoryQueryPathScopes(ctx *ctypes.BusContext, resolvedRoot string, query ctypes.SourceInventoryLensQuery) []string {
+	if ctx == nil || strings.TrimSpace(ctx.RepoRoot) == "" || strings.TrimSpace(resolvedRoot) == "" {
+		return nil
+	}
+	rootRel, ok := repoMapRelPathWithinRoot(ctx.RepoRoot, resolvedRoot)
+	if !ok {
+		return nil
+	}
+	operational := repoMapSourceInventoryObservationScopes(query)
+	out := make([]string, 0, len(operational))
+	seen := make(map[string]bool, len(operational))
+	for _, rawScope := range operational {
+		scope := strings.Trim(strings.ReplaceAll(strings.TrimSpace(rawScope), `\`, `/`), "/")
+		if scope == "" {
+			scope = "."
+		}
+		var repoScope string
+		switch {
+		case rootRel == "." && scope == ".":
+			repoScope = "."
+		case rootRel == ".":
+			repoScope = scope
+		case scope == ".":
+			repoScope = rootRel
+		default:
+			repoScope = strings.Trim(rootRel, "/") + "/" + scope
+		}
+		repoScope = strings.Trim(strings.ReplaceAll(repoScope, `\`, `/`), "/")
+		if repoScope == "" {
+			repoScope = "."
+		}
+		if seen[repoScope] {
+			continue
+		}
+		seen[repoScope] = true
+		out = append(out, repoScope)
+	}
+	return out
 }
 
 func repoMapRelPathWithinRoot(root, target string) (string, bool) {

@@ -2,6 +2,7 @@ package repomap
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -144,6 +145,31 @@ func TestRepoMapLensParamsNoAdvisoryWhenAlreadyRelative(t *testing.T) {
 		strings.Join(params.Scopes, "|") != "pkg" ||
 		strings.Join(params.Sources, "|") != "internal/app.go|Service" {
 		t.Fatalf("already-relative params should remain unchanged: %+v", params)
+	}
+}
+
+func TestRepoMapSourceInventoryQueryPathScopesRebaseOperationalCoordinates(t *testing.T) {
+	repoRoot := t.TempDir()
+	selectedRoot := filepath.Join(repoRoot, "internal", "analysis", "criterion")
+	ctx := &types.BusContext{RepoRoot: repoRoot}
+
+	got := repoMapSourceInventoryQueryPathScopes(ctx, selectedRoot, types.SourceInventoryLensQuery{
+		Scopes: []string{".", "nested", "nested"},
+	})
+	if joined := strings.Join(got, "|"); joined != "internal/analysis/criterion|internal/analysis/criterion/nested" {
+		t.Fatalf("selected-root query coordinates = %q", joined)
+	}
+
+	got = repoMapSourceInventoryQueryPathScopes(ctx, repoRoot, types.SourceInventoryLensQuery{
+		Scopes: []string{"internal/types"},
+	})
+	if joined := strings.Join(got, "|"); joined != "internal/types" {
+		t.Fatalf("repository-root query coordinates = %q", joined)
+	}
+
+	outside := filepath.Join(filepath.Dir(repoRoot), "outside")
+	if got := repoMapSourceInventoryQueryPathScopes(ctx, outside, types.SourceInventoryLensQuery{Scopes: []string{"."}}); len(got) != 0 {
+		t.Fatalf("outside root must not mint query coordinates: %#v", got)
 	}
 }
 

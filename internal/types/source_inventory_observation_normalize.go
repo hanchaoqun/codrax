@@ -11,12 +11,13 @@ func normalizeSourceInventoryObservation(in SourceInventoryObservation) SourceIn
 			// (Active + execution state + provenance/scopes) with no row-level
 			// fields to normalize.
 			return SourceInventoryObservation{
-				Active:     true,
-				Complete:   in.Complete,
-				Scopes:     in.Scopes,
-				Provenance: in.Provenance,
-				Lens:       in.Lens,
-				Execution:  in.Execution,
+				Active:          true,
+				Complete:        in.Complete,
+				Scopes:          in.Scopes,
+				QueryPathScopes: in.QueryPathScopes,
+				Provenance:      in.Provenance,
+				Lens:            in.Lens,
+				Execution:       in.Execution,
 			}
 		}
 		return SourceInventoryObservation{}

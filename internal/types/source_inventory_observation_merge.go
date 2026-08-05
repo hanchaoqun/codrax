@@ -3,6 +3,7 @@ package types
 func CloneSourceInventoryObservation(in SourceInventoryObservation) SourceInventoryObservation {
 	out := in
 	out.Scopes = append([]string(nil), in.Scopes...)
+	out.QueryPathScopes = append([]string(nil), in.QueryPathScopes...)
 	out.Provenance = append([]string(nil), in.Provenance...)
 	out.Lens = append([]string(nil), in.Lens...)
 	out.SourceClasses = cloneSourceInventorySourceClassCounts(in.SourceClasses)
@@ -35,6 +36,7 @@ func MergeSourceInventoryObservation(prior, current SourceInventoryObservation) 
 	merged.AdvisoryOnly = prior.AdvisoryOnly && current.AdvisoryOnly
 	merged.Complete = prior.Complete && current.Complete
 	merged.Scopes = mergeSourceInventoryAdvisoryStrings(merged.Scopes, current.Scopes)
+	merged.QueryPathScopes = mergeSourceInventoryAdvisoryStrings(merged.QueryPathScopes, current.QueryPathScopes)
 	merged.Provenance = mergeSourceInventoryAdvisoryStrings(merged.Provenance, current.Provenance)
 	merged.Lens = mergeSourceInventoryAdvisoryStrings(merged.Lens, current.Lens)
 	merged.SourceClasses = mergeSourceInventorySourceClassCounts(merged.SourceClasses, current.SourceClasses)

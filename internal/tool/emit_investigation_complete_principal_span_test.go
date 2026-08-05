@@ -172,7 +172,8 @@ func TestEmitInvestigationComplete_NoDirectedPathWaiverCarriesModelOwnedBoundary
 		},
 	}}
 	const stalePathReason = "STALE_PATH_REASON_buildAnalysisIR_reaches_gate_Run"
-	params := json.RawMessage(`{"reason":"` + stalePathReason + `","confidence":"high","result_kind":"resolved","principal_span_waiver":{"reason":"no_directed_path","rationale":"gate.Run calls gate.RunWith, while buildAnalysisIR reaches only gate.RunWith"}}`)
+	const auditOnlyRationale = "AUDIT_ONLY_RATIONALE_gate_RunWith_is_outside_buildAnalysisIR"
+	params := json.RawMessage(`{"reason":"` + stalePathReason + `","confidence":"high","result_kind":"resolved","principal_span_waiver":{"reason":"no_directed_path","rationale":"` + auditOnlyRationale + `"}}`)
 	res, err := (&EmitInvestigationComplete{}).Execute(bus, params)
 	if err != nil {
 		t.Fatalf("Execute error: %v", err)
@@ -188,8 +189,14 @@ func TestEmitInvestigationComplete_NoDirectedPathWaiverCarriesModelOwnedBoundary
 	if strings.Contains(res.Summary, stalePathReason) {
 		t.Fatalf("tool handoff must not replay a model-authored path claim beside the typed no-path boundary: %s", res.Summary)
 	}
+	if strings.Contains(res.Summary, auditOnlyRationale) {
+		t.Fatalf("model-authored waiver rationale must remain audit-only: %s", res.Summary)
+	}
 	if got := mut.StableInvestigationCompleteReason(); got != stalePathReason {
 		t.Fatalf("raw model closure reason must remain available for audit/resume, got %q", got)
+	}
+	if got := mut.PrincipalSpanWaiver(); got == nil || got.Rationale != auditOnlyRationale {
+		t.Fatalf("raw waiver rationale must remain available in audit state, got %+v", got)
 	}
 	caveats := mut.EvidenceClosure().CompletionCaveats()
 	if len(caveats) == 0 || caveats[len(caveats)-1].ReasonCode != "call_chain_no_directed_path" {

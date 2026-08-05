@@ -2121,3 +2121,8 @@ R2 已实现：共享 exact-entity boundary matcher 只核对 typed observation 
 
 施工按 B91-A/B/C 三批冻结。范围载体来自工具 query provenance，来源类别来自 parser/index；禁止以用户、模型或答案原文关键词
 作 hard gate。Trace 显式时间窗、因果投影、自动补齐与模型结论所有权不变。
+
+B91-A 已交付：新增 engine-derived repo-root `QueryPathScopes`，与 operational sub-repo `Scopes` 分轴；request authority 仍需
+analyzer-stage 成功 provenance × 完整 canonical path current-request exact identity。no-path 自由 rationale 只留 Mutable 审计态，
+不再进入 completion note/tool summary。LOC ratchet 未提高；`internal/types`、`internal/tool/repomap`、完整 `internal/tool` 全绿。
+状态：`SCOPECOORD1 + WAIVERRATIONALE1=implemented/full-pass`。
