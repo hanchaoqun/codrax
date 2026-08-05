@@ -171,6 +171,36 @@ func TestTraceFinalDecisionLedgerPrefersRequestedWindowBoardAndCarriesPreWakeupP
 	}
 }
 
+func TestTraceFinalDecisionLedgerDirectionLeaderPrefersPublishedOnChainMaximumOverAdjacentRank(t *testing.T) {
+	chain := types.TraceCausalProjectionNode{
+		EvidenceID: "full-chain-io", Subject: "chain-worker", Rank: 3,
+		EffectiveImpactMS: 10.433, FixDirection: "io_dependency", ChainRelevance: "on_chain",
+		RankQueryWindowStartTs: 10, RankQueryWindowEndTs: 10.1,
+	}
+	adjacent := types.TraceCausalProjectionNode{
+		EvidenceID: "adjacent-io", Subject: "adjacent-worker", Rank: 1,
+		EffectiveImpactMS: 0.171, FixDirection: "io_dependency", ChainRelevance: "adjacent",
+		RankQueryWindowStartTs: 10, RankQueryWindowEndTs: 10.1,
+	}
+	projection := types.TraceCausalProjection{
+		ArtifactLabel: "customer.systrace", WindowStartTs: 10, WindowEndTs: 10.1,
+		RankedSeats:    []types.TraceCausalProjectionNode{adjacent, chain},
+		OnChainCauses:  []types.TraceCausalProjectionNode{chain},
+		AdjacentCauses: []types.TraceCausalProjectionNode{adjacent},
+	}
+	got := renderTraceFinalCompactAuthorityLedger(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}})
+	for _, want := range []string{
+		"leader_rank=#3", "leader_subject=`chain-worker`", "leader_effective_attribution=10.433ms",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("published on-chain direction maximum missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "adjacent-worker") || strings.Contains(got, "0.171") {
+		t.Fatalf("adjacent local rank displaced the published on-chain direction leader:\n%s", got)
+	}
+}
+
 func TestTraceFinalTargetBlockingRelationsRespectsHolderSubjectRole(t *testing.T) {
 	target := "ui-100"
 	projection := types.TraceCausalProjection{OnChainCauses: []types.TraceCausalProjectionNode{

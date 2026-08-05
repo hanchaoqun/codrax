@@ -25,6 +25,53 @@ func TestRunPreEmitChecks_NilSafe(t *testing.T) {
 	}
 }
 
+func TestPreCheckRuntimeTraceModelPrincipalFloorProtectsModelConclusionOwnership(t *testing.T) {
+	view := &types.AnswerSemanticView{RequiredBlocks: []types.BlockRequirement{
+		{Kind: types.BlockSummary, MinCount: 1, MaxCount: 1, Required: true, SurfaceRoleHint: types.SurfacePrincipal},
+		{Kind: types.BlockOrderedList, MinCount: 1, Required: true, SurfaceRoleHint: types.SurfacePrincipal},
+	}}
+	ctx := &types.BusContext{
+		AnalysisIR:  &types.AnalysisIR{RequestModel: types.RequestModel{Intent: types.IntentRootCause}},
+		ToolResults: []types.ToolResult{{ToolName: "trace_query", Success: true}},
+	}
+	caveatOnly := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "boundary", Kind: types.BlockCaveat, SurfaceRole: types.SurfacePrincipal, Text: "typed uncertainty boundary",
+	}}}
+	hints := preCheckRuntimeTraceModelPrincipalFloor(caveatOnly, view, newPreEmitCheckContext(ctx))
+	if len(hints) != 1 || !hints[0].ForceHard ||
+		hints[0].HardSignal != preEmitHardSignalRuntimeTraceModelPrincipal {
+		t.Fatalf("caveat-only trace answer must retain a same-turn model-owned principal repair: %+v", hints)
+	}
+	hard, advisory := splitPreEmitHintsByGate(tagPreEmitHints(types.ViolBlockCoverageMissing, hints))
+	if len(hard) != 1 || len(advisory) != 0 {
+		t.Fatalf("typed ownership floor must route hard without prose inspection: hard=%+v advisory=%+v", hard, advisory)
+	}
+
+	withSummary := &types.AnswerDocumentV2{Blocks: append(caveatOnly.Blocks, types.AnswerBlock{
+		ID: "model-summary", Kind: types.BlockSummary, SurfaceRole: types.SurfacePrincipal, Text: "model-owned conclusion",
+	})}
+	if got := preCheckRuntimeTraceModelPrincipalFloor(withSummary, view, newPreEmitCheckContext(ctx)); len(got) != 0 {
+		t.Fatalf("one required model principal block must satisfy the ownership floor: %+v", got)
+	}
+
+	nonTrace := *ctx
+	nonTrace.ToolResults = []types.ToolResult{{ToolName: "read_file", Success: true}}
+	if got := preCheckRuntimeTraceModelPrincipalFloor(caveatOnly, view, newPreEmitCheckContext(&nonTrace)); len(got) != 0 {
+		t.Fatalf("non-trace answer must retain the ordinary advisory block policy: %+v", got)
+	}
+
+	bounded := *ctx
+	bounded.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentRootCause,
+		RuntimeQuestionProfile: &types.RuntimeQuestionProfile{
+			Scope: types.RuntimeQuestionScopeBoundedFactSet,
+		},
+	}}
+	if got := preCheckRuntimeTraceModelPrincipalFloor(caveatOnly, view, newPreEmitCheckContext(&bounded)); len(got) != 0 {
+		t.Fatalf("bounded trace fact request must not be widened by the full-report ownership floor: %+v", got)
+	}
+}
+
 func TestPreCheckTargetWaitOccurrenceConsistencyIsAdvisoryOnly(t *testing.T) {
 	count := 3
 	observation := types.ObservationRecord{

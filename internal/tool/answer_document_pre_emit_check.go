@@ -380,6 +380,7 @@ const (
 	preEmitHardSignalTypedRequiredBlockKind     preEmitSameTurnHardSignal = "typed_required_block_kind"
 	preEmitHardSignalTypedCallEdgeEvidence      preEmitSameTurnHardSignal = "typed_call_edge_evidence"
 	preEmitHardSignalTypedCallChainEndpoints    preEmitSameTurnHardSignal = "typed_call_chain_endpoints"
+	preEmitHardSignalRuntimeTraceModelPrincipal preEmitSameTurnHardSignal = "runtime_trace_model_principal"
 )
 
 type preEmitSameTurnHardPolicyRow struct {
@@ -393,6 +394,7 @@ func preEmitSameTurnHardPolicyRows() []preEmitSameTurnHardPolicyRow {
 		{Kind: types.ViolBlockCoverageMissing, Signal: preEmitHardSignalTypedRequiredBlockKind},
 		{Kind: types.ViolDiagramCallEdgeUnproven, Signal: preEmitHardSignalTypedCallEdgeEvidence},
 		{Kind: types.ViolCallChainEndpointOmitted, Signal: preEmitHardSignalTypedCallChainEndpoints},
+		{Kind: types.ViolBlockCoverageMissing, Signal: preEmitHardSignalRuntimeTraceModelPrincipal},
 	}
 }
 
@@ -440,6 +442,7 @@ func preEmitSubgateRouteTable() []preEmitSubgateRouteRow {
 		{Subgate: "artifact_observed_frame_citations", ViolationKind: types.ViolCitation},
 		// 1. Required block kind + count compliance.
 		{Subgate: "required_blocks", ViolationKind: types.ViolBlockCoverageMissing, HardLane: preEmitHardSignalTypedRequiredBlockKind},
+		{Subgate: "runtime_trace_model_principal_floor", ViolationKind: types.ViolBlockCoverageMissing, HardLane: preEmitHardSignalRuntimeTraceModelPrincipal},
 		{Subgate: "summary_lead_block", ViolationKind: types.ViolFamilyMismatch},
 		// 2. Principal-block claim/verdict presence.
 		{Subgate: "principal_claim_use", ViolationKind: types.ViolPrincipalClaimUseMissing},
@@ -659,6 +662,9 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 
 	// 1. Required block kind + count compliance.
 	if h := preCheckRequiredBlocks(doc, view); len(h) > 0 {
+		hints = appendPreEmitHints(hints, types.ViolBlockCoverageMissing, h)
+	}
+	if h := preCheckRuntimeTraceModelPrincipalFloor(doc, view, pctx); len(h) > 0 {
 		hints = appendPreEmitHints(hints, types.ViolBlockCoverageMissing, h)
 	}
 	if h := preCheckSummaryLeadBlock(doc, view); len(h) > 0 {
@@ -10390,6 +10396,67 @@ func preCheckRequiredBlocks(doc *types.AnswerDocumentV2, view *types.AnswerSeman
 		}
 	}
 	return out
+}
+
+// preCheckRuntimeTraceModelPrincipalFloor protects answer ownership at the
+// exact point before deterministic trace report materializers run. A full
+// trace report may add measured tables, projections, and evidence appendices,
+// but it must not become the whole visible answer merely because malformed
+// model JSON was quarantined down to a caveat/diagram-only document.
+//
+// The gate is intentionally narrow and structural: a successful typed
+// trace_query result, full-report shape authority, and the semantic view's
+// required principal block kinds are the only inputs. It never reads request,
+// reasoning, block text, or rendered answer prose. Meeting any one required
+// principal block requirement is enough for this ownership floor; the normal
+// advisory required-block checks continue to describe the complete shape.
+func preCheckRuntimeTraceModelPrincipalFloor(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, pctx *preEmitCheckContext) []emitFixHint {
+	if doc == nil || view == nil || pctx == nil || pctx.ctx == nil ||
+		!runtimeTraceFullReportMaterializationAllowed(pctx.ctx) ||
+		!preEmitHasSuccessfulTraceQuery(pctx.ctx) {
+		return nil
+	}
+	principalRequirements := make([]types.BlockRequirement, 0, len(view.RequiredBlocks))
+	for _, req := range view.RequiredBlocks {
+		if req.Required && req.MinCount > 0 && req.SurfaceRoleHint == types.SurfacePrincipal {
+			principalRequirements = append(principalRequirements, req)
+		}
+	}
+	if len(principalRequirements) == 0 {
+		return nil
+	}
+	for _, req := range principalRequirements {
+		if types.CountAnswerBlocksForRequirement(doc.Blocks, req) > 0 {
+			return nil
+		}
+	}
+	kinds := make([]types.AnswerBlockKind, 0, len(principalRequirements))
+	for _, req := range principalRequirements {
+		kinds = append(kinds, req.AcceptedKinds()...)
+	}
+	return []emitFixHint{{
+		Field:              "blocks[]",
+		ExpectedBlockKinds: kinds,
+		ExpectedShape:      "preserve at least one model-authored principal answer block required by the current answer contract before deterministic trace facts are supplemented",
+		Reason:             "The trace report may supplement measured facts, but the diagnosis, prioritization, and conclusion must remain in a model-authored principal block; a caveat or diagram alone is not the answer.",
+		ForceHard:          true,
+		HardSignal:         preEmitHardSignalRuntimeTraceModelPrincipal,
+	}}
+}
+
+func preEmitHasSuccessfulTraceQuery(ctx *types.BusContext) bool {
+	if ctx == nil {
+		return false
+	}
+	input := types.ObservationLedgerInputFromBusContext(ctx, types.ObservationExtractLedgerEvidenceLimit)
+	for _, results := range [][]types.ToolResult{input.ToolResults, input.SystemTraceSupplementResults} {
+		for _, result := range results {
+			if result.Success && strings.EqualFold(strings.TrimSpace(result.ToolName), "trace_query") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // preCheckPrincipalClaimUse mirrors validatePrincipalClaimUse's

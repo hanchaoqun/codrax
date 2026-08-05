@@ -16495,3 +16495,27 @@ B120 已隔离跨窗 row，但 compact ledger 在同一 114.940ms 窗内仍按 r
 `EVAL-B107-ENDPOINTAMBIG1=confirmed-fourth-witness/P1-after-B121`。
 
 本轮审计没有改 Trace 计算、显式时间窗、自动补齐、因果投影或答案正文；没有用自然语言关键词作 hard gate。runner PASS 仍不能替代人工语义与所有权审计。
+
+### 121.5 B121 施工结果
+
+`EVAL-B120-TRACEOWN1` 已按所有权边界完成：
+
+- 新增第五个显式 same-turn hard policy 席 `runtime_trace_model_principal`，并通过 route table、policy ratchet 与 ForceHard producer-count tripwire 正式登记；
+- 只有成功的 typed `trace_query`、full-report materialization authority、以及 semantic view 的 required principal requirement 三者同时成立时才检查；
+- 在 system materializer 运行前，模型文档必须至少命中一个 required principal block kind；仅 caveat/diagram 即使标了 principal 也不能替代模型答案；
+- 正常 required-block 完整性仍是原 advisory 策略，本门只守“至少一块模型主答案”的最低所有权，不把所有结构缺项重新硬化；
+- 非 Trace 与 bounded fact-set 反向测试保持旧行为，判据不读取任何 block text、用户原文、思考或最终 prose。
+
+`EVAL-B120-DIRLEADER1` 同批完成：
+
+- compact ledger 先用 `PrimaryRootCauses + OnChainCauses` 的 evidence identity 建正式链上席集合；同方向有链上席时，adjacent/background ordinal 无权夺主席；
+- 同一方向主席按 `EffectiveImpactMS DESC`，再以 rank 与 deterministic identity 稳定打破平局；方向输出也按主席值降序；
+- 没有链上 roster 的 legacy/synthetic 投影保留全席 fallback；方向 subtotal 仍未授权，任何行都没有被相加。
+
+回归：定向测试 PASS；`go test ./internal/agent ./internal/tool -count=1` PASS（tool 160.029s）。
+
+状态：`EVAL-B120-TRACEOWN1=implemented/full-tool-pass/replay-next`；
+`EVAL-B120-DIRLEADER1=implemented/full-agent-tool-pass/replay-next`；
+`EVAL-B107-ENDPOINTAMBIG1=confirmed-fourth-witness/B122-next`。
+
+B121 没有改 trace_query、根因排序公式、唤醒链、窗内可消除量、显式时间窗或自动补齐，也没有生成、删除或重写模型结论；它只阻止系统补齐在模型主答案缺席时成为替代答案，并让最后一屏 typed 上下文与正式投影共用同一主席语义。

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -187,18 +188,68 @@ func traceFinalTargetBlockingRelations(projection types.TraceCausalProjection, t
 
 func traceFinalFixDirectionLeaders(projection types.TraceCausalProjection, limit int) []types.TraceCausalProjectionNode {
 	seats := traceDecisionEliminableSeats(projection, 0)
-	seen := map[string]bool{}
-	out := make([]types.TraceCausalProjectionNode, 0, len(seats))
+	onChain := traceFinalOnChainSeatIdentities(projection)
+	leaders := map[string]types.TraceCausalProjectionNode{}
 	for _, node := range seats {
 		direction := strings.TrimSpace(node.FixDirection)
-		if direction == "" || seen[direction] {
+		if direction == "" {
 			continue
 		}
-		seen[direction] = true
+		current, ok := leaders[direction]
+		if !ok || traceFinalDirectionSeatBefore(node, current, onChain) {
+			leaders[direction] = node
+		}
+	}
+	out := make([]types.TraceCausalProjectionNode, 0, len(leaders))
+	for _, node := range leaders {
 		out = append(out, node)
-		if limit > 0 && len(out) >= limit {
-			break
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].EffectiveImpactMS != out[j].EffectiveImpactMS {
+			return out[i].EffectiveImpactMS > out[j].EffectiveImpactMS
+		}
+		if out[i].Rank != out[j].Rank {
+			return out[i].Rank < out[j].Rank
+		}
+		return traceDecisionNodeIdentity(out[i]) < traceDecisionNodeIdentity(out[j])
+	})
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+// traceFinalOnChainSeatIdentities mirrors the published eliminable board's
+// authority boundary. Rank ordinals are local to a query board/channel, so an
+// adjacent rank #1 cannot displace an on-chain rank #3 merely because its
+// ordinal is smaller. Evidence identity is the join key; absence of an
+// on-chain roster preserves the legacy all-seat fallback.
+func traceFinalOnChainSeatIdentities(projection types.TraceCausalProjection) map[string]bool {
+	out := map[string]bool{}
+	if projection.PrimaryRootCause != nil {
+		out[traceDecisionNodeIdentity(*projection.PrimaryRootCause)] = true
+	}
+	for _, nodes := range [][]types.TraceCausalProjectionNode{projection.PrimaryRootCauses, projection.OnChainCauses} {
+		for _, node := range nodes {
+			out[traceDecisionNodeIdentity(node)] = true
 		}
 	}
 	return out
+}
+
+func traceFinalDirectionSeatBefore(candidate, current types.TraceCausalProjectionNode, onChain map[string]bool) bool {
+	if len(onChain) > 0 {
+		candidateOnChain := onChain[traceDecisionNodeIdentity(candidate)]
+		currentOnChain := onChain[traceDecisionNodeIdentity(current)]
+		if candidateOnChain != currentOnChain {
+			return candidateOnChain
+		}
+	}
+	if candidate.EffectiveImpactMS != current.EffectiveImpactMS {
+		return candidate.EffectiveImpactMS > current.EffectiveImpactMS
+	}
+	if candidate.Rank != current.Rank {
+		return candidate.Rank < current.Rank
+	}
+	return traceDecisionNodeIdentity(candidate) < traceDecisionNodeIdentity(current)
 }

@@ -13,7 +13,8 @@
 //   - the table's kind set equals the kinds actually passed to
 //     appendPreEmitHints/tagPreEmitHints in the checker body
 //     (go/parser scan — self-updating, no manual sync);
-//   - exactly two typed member-set ForceHard producer sites exist in the checker file.
+//   - exactly three explicit ForceHard producer sites exist in the checker file:
+//     two typed member-set comparisons and one typed runtime-trace model-ownership floor.
 //
 // Ping-pong guard: the advisory rows pin the settled post-D1-G95
 // state (D1-F7w hardened citation carriers, D1-G95 reverted them).
@@ -123,6 +124,19 @@ func TestPreEmitSubgateRouteTableRoutesMatchGateSplit(t *testing.T) {
 			if !preEmitHintHardByDefault(typed) {
 				t.Errorf("subgate %q typed call-chain endpoint hint must route hard", row.Subgate)
 			}
+		case preEmitHardSignalRuntimeTraceModelPrincipal:
+			if !policyRows[preEmitSameTurnHardPolicyRow{Kind: row.ViolationKind, Signal: row.HardLane}] {
+				t.Errorf("subgate %q hard lane %q has no policy row", row.Subgate, row.HardLane)
+			}
+			typed := plain
+			typed.ForceHard = true
+			typed.HardSignal = preEmitHardSignalRuntimeTraceModelPrincipal
+			if !preEmitHintHardByDefault(typed) {
+				t.Errorf("subgate %q typed runtime-trace model-principal hint must route hard", row.Subgate)
+			}
+			if preEmitHintHardByDefault(plain) {
+				t.Errorf("subgate %q without the explicit ownership signal must stay advisory", row.Subgate)
+			}
 		default:
 			t.Errorf("subgate %q declares unknown hard lane %q", row.Subgate, row.HardLane)
 		}
@@ -163,10 +177,10 @@ func TestPreEmitSubgateRouteTableMatchesCheckerBody(t *testing.T) {
 	}
 }
 
-// Exactly TWO ForceHard producer sites may exist in the checker file: missing
-// and extraneous rows against the complete typed principal member set. Both
-// are closed-set comparisons over structured item rows; neither reads model
-// prose. Free-prose target-wait consistency remains advisory because
+// Exactly THREE ForceHard producer sites may exist in the checker file: missing
+// and extraneous rows against the complete typed principal member set, plus
+// the runtime-trace model-principal ownership floor. All are closed-set
+// comparisons over structured carriers; none reads model prose. Free-prose target-wait consistency remains advisory because
 // interval/duration ownership is not typed in rendered text. Every future hard
 // producer still needs a preEmitSameTurnHardPolicyRows ruling. The call-edge
 // lane is hard by registered typed kind and therefore does not add a ForceHard
@@ -194,8 +208,8 @@ func TestPreEmitForceHardProducerSitesPinned(t *testing.T) {
 		}
 		return true
 	})
-	if producers != 2 {
-		t.Fatalf("expected exactly 2 typed member-set ForceHard producer sites in %s, found %d — new hard producers must go through a preEmitSameTurnHardPolicyRows ruling", preEmitCheckerSourceFile, producers)
+	if producers != 3 {
+		t.Fatalf("expected exactly 3 explicit typed ForceHard producer sites in %s, found %d — new hard producers must go through a preEmitSameTurnHardPolicyRows ruling", preEmitCheckerSourceFile, producers)
 	}
 }
 
