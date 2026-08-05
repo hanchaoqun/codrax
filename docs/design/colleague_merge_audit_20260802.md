@@ -2092,4 +2092,8 @@ identity join，并以唯一 OwnerSymbol/source location/required endpoint 消�
 成功 scope × 当前请求 lexical exact path identity 铸造边界；这是完整 canonical path 的 token-boundary 比较，不是关键词/语义
 扫描。wrong-stage/root/unmentioned 均继续拒绝。`EVAL-B90-INVENTORYFRESH1` 随 scoped complete roster 一并验收。
 
+R2 已实现：共享 exact-entity boundary matcher 只核对 typed observation scope 的完整路径 token；可选 analyzer entity/quote 缺席
+不再丢边界，前后缀碰撞、explore/root/unmentioned 仍 fail-closed。`internal/types` 与 `internal/tool` 全量全绿，LOC ratchet
+保持。状态：`EVAL-B88-SCOPEPROV1-R2=implemented/full-tool-pass/replay-next`。
+
 两案均未改变 Trace 显式窗、因果投影、自动补齐和模型结论所有权。

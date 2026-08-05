@@ -7211,7 +7211,7 @@ func TestMergeSourceInventoryAnalyzerPrescanRequestedPathScopes_RequiresMentione
 			Members: []types.SourceInventoryObservationMember{{Name: "Kind", File: "internal/analysis/criterion/grammar.go"}},
 		}},
 	}
-	if !mergeSourceInventoryAnalyzerPrescanRequestedPathScopes(&rm, observation) {
+	if !mergeSourceInventoryAnalyzerPrescanRequestedPathScopes(&rm, observation, "internal/analysis/criterion 请列出公开类型") {
 		t.Fatal("matching current-request entity plus analyzer-stage lens should mint requested path scope")
 	}
 	if got := rm.AnalyzerHints.SourceInventoryRequestedPathScopes; len(got) != 1 || got[0] != "internal/analysis/criterion" {
@@ -7221,7 +7221,7 @@ func TestMergeSourceInventoryAnalyzerPrescanRequestedPathScopes_RequiresMentione
 	unmatched := rm
 	unmatched.AnalyzerHints.SourceInventoryRequestedPathScopes = nil
 	unmatched.AnalyzerHints.MentionedEntities = []string{"internal/types"}
-	if mergeSourceInventoryAnalyzerPrescanRequestedPathScopes(&unmatched, observation) {
+	if mergeSourceInventoryAnalyzerPrescanRequestedPathScopes(&unmatched, observation, "internal/types 请列出公开类型") {
 		t.Fatalf("unmatched exploration scope must not become request authority: %#v", unmatched.AnalyzerHints.SourceInventoryRequestedPathScopes)
 	}
 
@@ -7231,7 +7231,7 @@ func TestMergeSourceInventoryAnalyzerPrescanRequestedPathScopes_RequiresMentione
 		types.SourceInventoryProvenanceRepoLensToolQuery,
 		types.SourceInventoryProvenanceStageExplore,
 	}
-	if mergeSourceInventoryAnalyzerPrescanRequestedPathScopes(&wrongStage, observation) {
+	if mergeSourceInventoryAnalyzerPrescanRequestedPathScopes(&wrongStage, observation, "internal/analysis/criterion 请列出公开类型") {
 		t.Fatalf("exploration cursor must not become request authority: %#v", wrongStage.AnalyzerHints.SourceInventoryRequestedPathScopes)
 	}
 
@@ -7243,7 +7243,7 @@ func TestMergeSourceInventoryAnalyzerPrescanRequestedPathScopes_RequiresMentione
 		types.SourceInventoryProvenanceRepoLensToolQuery,
 		types.SourceInventoryProvenanceStageAnalyze,
 	}
-	if mergeSourceInventoryAnalyzerPrescanRequestedPathScopes(&root, observation) {
+	if mergeSourceInventoryAnalyzerPrescanRequestedPathScopes(&root, observation, ". 请列出公开类型") {
 		t.Fatalf("root navigation must remain repo-wide, got %#v", root.AnalyzerHints.SourceInventoryRequestedPathScopes)
 	}
 }
@@ -7267,7 +7267,7 @@ func TestMergeSourceInventoryAnalyzerPrescanRequestedPathScopes_AcceptsVerifiedS
 			types.SourceInventoryProvenanceStageAnalyze,
 		},
 	}
-	if !mergeSourceInventoryAnalyzerPrescanRequestedPathScopes(&rm, observation) {
+	if !mergeSourceInventoryAnalyzerPrescanRequestedPathScopes(&rm, observation, "列出 internal/analysis/criterion 的公开类型") {
 		t.Fatal("verified source-scope quote plus matching analyzer lens should mint requested path scope")
 	}
 	if got := rm.AnalyzerHints.SourceInventoryRequestedPathScopes; len(got) != 1 || got[0] != "internal/analysis/criterion" {
@@ -7276,8 +7276,47 @@ func TestMergeSourceInventoryAnalyzerPrescanRequestedPathScopes_AcceptsVerifiedS
 
 	rm.AnalyzerHints.SourceInventoryRequestedPathScopes = nil
 	rm.SourceScopeProfile.SourceQuotes = []string{"internal/types"}
-	if mergeSourceInventoryAnalyzerPrescanRequestedPathScopes(&rm, observation) {
+	if mergeSourceInventoryAnalyzerPrescanRequestedPathScopes(&rm, observation, "列出 internal/types 的公开类型") {
 		t.Fatalf("unmatched source-scope quote must not authorize analyzer lens: %#v", rm.AnalyzerHints.SourceInventoryRequestedPathScopes)
+	}
+}
+
+func TestMergeSourceInventoryAnalyzerPrescanRequestedPathScopes_AcceptsExactRequestPathWithoutOptionalAnalyzerCarrier(t *testing.T) {
+	rm := types.RequestModel{
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+		},
+	}
+	observation := types.SourceInventoryObservation{
+		Active: true,
+		Scopes: []string{"internal/analysis/criterion"},
+		Provenance: []string{
+			types.SourceInventoryProvenanceRepoLensToolQuery,
+			types.SourceInventoryProvenanceStageAnalyze,
+		},
+	}
+	if !mergeSourceInventoryAnalyzerPrescanRequestedPathScopes(
+		&rm,
+		observation,
+		"internal/analysis/criterion 请列出公开符号",
+	) {
+		t.Fatal("exact request path plus matching analyzer-stage lens should mint requested path scope")
+	}
+	if got := rm.AnalyzerHints.SourceInventoryRequestedPathScopes; len(got) != 1 || got[0] != "internal/analysis/criterion" {
+		t.Fatalf("requested path scopes = %#v", got)
+	}
+
+	for _, raw := range []string{
+		"internal/analysis/criterion_extra 请列出公开符号",
+		"prefixinternal/analysis/criterion 请列出公开符号",
+		"internal/analysis/criterion.go 请列出公开符号",
+	} {
+		clone := rm
+		clone.AnalyzerHints.SourceInventoryRequestedPathScopes = nil
+		if mergeSourceInventoryAnalyzerPrescanRequestedPathScopes(&clone, observation, raw) {
+			t.Fatalf("path collision %q must not mint requested path scope: %#v", raw, clone.AnalyzerHints.SourceInventoryRequestedPathScopes)
+		}
 	}
 }
 
@@ -7316,7 +7355,7 @@ func TestEmitAnalysis_PersistsRequestBoundAnalyzerPrescanPathScope(t *testing.T)
 		"scenario": "generic",
 		"complexity": "moderate",
 		"keywords": ["criterion", "type", "function"],
-		"entities": ["internal/analysis/criterion"],
+		"entities": ["Kind", "Eval"],
 		"question_kind": "enumeration",
 		"intent_confidence": 0.95,
 		"complexity_confidence": 0.90,

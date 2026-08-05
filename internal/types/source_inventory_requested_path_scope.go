@@ -10,8 +10,8 @@ const SourceInventoryRowReasonOutsideRequestedPathScope = "outside_requested_pat
 
 // SourceInventoryRequestedPathScopes returns the engine-minted, request-bound
 // repository path boundary for a source-inventory request. The producer has
-// already joined analyzer-stage tool scope with MentionedEntities provenance;
-// consumers deliberately do not reconstruct it from RawRequest or free prose.
+// already joined analyzer-stage tool scope with exact request path identity (or
+// an equivalent carrier); consumers do not reconstruct it from free-form prose.
 func SourceInventoryRequestedPathScopes(rm RequestModel) []string {
 	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
 		return nil

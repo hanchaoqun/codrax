@@ -14757,5 +14757,12 @@ path identity。这里复用共享 token-boundary matcher，只比较 typed scop
 explore scope、根目录、越界路径、请求中不存在的 analyzer 猜测仍 fail-closed。随后 scoped requested-universe rowset 必须直接给出
 complete production roster，避免模型再从全仓数量倒推成员。状态：`R2=confirmed/next`，`INVENTORYFRESH1=confirmed/dependent`。
 
+R2 已施工：producer 仍以 analyzer-stage `repo_lens:tool_query` 为前提，在 entity/verified quote 之外，逐个将 observation 的
+canonical 非根 scope 交给共享 `RawRequestExplicitlyMentionsEntity` lexical boundary matcher；只有完整路径 token 精确在场才获权。
+集成看护特意令 analyzer entities/quotes 均不含目录，仍能从真实请求与 prescan scope 铸成边界；`criterion_extra`、路径前缀粘连、
+伪 `.go` 后缀、错误阶段与错误 quote 全部拒绝。没有 source-inventory 角色/关键词触发器，也不读取 finalizer 文本。
+`internal/types`（22.297s）和完整 `internal/tool`（165.784s）全绿；LOC ratchet 未提高。状态：
+`EVAL-B88-SCOPEPROV1-R2=implemented/full-tool-pass/replay-next`。`INVENTORYFRESH1` 仍须生产回放验证 scoped complete roster。
+
 本批没有触碰 Trace query、显式时间窗、因果投影、自动补齐或根因双轴；两个新根修都约束 typed context authority，系统不得
 替写模型结论。

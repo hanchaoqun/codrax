@@ -37,7 +37,7 @@ func enrichSourceInventoryProfileFromAnalyzerPrescan(ctx *types.BusContext, rm *
 		}
 	}
 	profile := rm.SourceInventoryProfile
-	changedScopes := mergeSourceInventoryAnalyzerPrescanRequestedPathScopes(rm, observation)
+	changedScopes := mergeSourceInventoryAnalyzerPrescanRequestedPathScopes(rm, observation, raw)
 	changedQuotes := mergeSourceInventoryProfileQuotes(profile, sourceInventoryAnalyzerPrescanQuotes(raw, *rm, observation))
 	if changedQuotes || changedScopes {
 		if profile.Confidence < 0.55 {
@@ -51,7 +51,7 @@ func enrichSourceInventoryProfileFromAnalyzerPrescan(ctx *types.BusContext, rm *
 	return ""
 }
 
-func mergeSourceInventoryAnalyzerPrescanRequestedPathScopes(rm *types.RequestModel, observation types.SourceInventoryObservation) bool {
+func mergeSourceInventoryAnalyzerPrescanRequestedPathScopes(rm *types.RequestModel, observation types.SourceInventoryObservation, raw string) bool {
 	if rm == nil || rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
 		return false
 	}
@@ -77,6 +77,20 @@ func mergeSourceInventoryAnalyzerPrescanRequestedPathScopes(rm *types.RequestMod
 			if scope := types.NormalizeSourceInventoryRequestedPathScope(raw); scope != "" {
 				mentioned[scope] = true
 			}
+		}
+	}
+	// Analyzer fields are optional projections and may preserve an explicit
+	// directory as an entity, a source quote, or neither. The analyzer-stage
+	// lens itself still carries the canonical scope it actually queried. Admit
+	// that scope only when the complete typed path is lexically present in the
+	// current request with identifier/path token boundaries. This is exact path
+	// identity, not a keyword/prose classifier: inferred scopes, prefix/suffix
+	// collisions, exploration cursors, and root navigation remain unable to
+	// mint a hard requested-path boundary.
+	for _, rawScope := range observation.Scopes {
+		scope := types.NormalizeSourceInventoryRequestedPathScope(rawScope)
+		if scope != "" && types.RawRequestExplicitlyMentionsEntity(raw, scope) {
+			mentioned[scope] = true
 		}
 	}
 	if len(mentioned) == 0 {
