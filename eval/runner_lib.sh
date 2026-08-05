@@ -763,6 +763,12 @@ eval_inventory_rowset_reasons() {
     marker_scoped=0
     if rowset_text="$(eval_inventory_rowset_section_text "$cleaned" "$rowset" "$section_label")"; then
       rowset_scoped=1
+    # A case-declared row marker is the stable group discriminator; the full
+    # section label is presentation copy and may be shortened/localized by a
+    # correct answer. Prefer a marker-bearing section before falling back to
+    # inline marker rows so sibling inventories cannot satisfy each other.
+    elif [[ -n "$row_marker" ]] && rowset_text="$(eval_inventory_rowset_section_text "$cleaned" "$rowset" "$row_marker")"; then
+      rowset_scoped=1
     elif [[ -n "$row_marker" ]] && rowset_text="$(eval_inventory_marker_rows "$cleaned" "$row_marker")"; then
       rowset_scoped=1
       marker_scoped=1

@@ -17346,3 +17346,51 @@ actions/output_artifact/continue_after 字段，没有新增示例 JSON、关键
 状态：`EVAL-B132-DATARANK1=implemented/full-repl-pass`；
 `EVAL-B132-QUOTEFOOT1=confirmed-cross-type/P3-design-review`；
 Cangjie parser/package=`production-replay-pass`；Trace 显式窗及全部 causal 能力=`untouched`。
+
+### 123.21 B133 r51：ArkTS typed 清单被展示标题误杀；patch 全替换教学导致表头退化
+
+在 `main@d36085847` 冻结构建后，严格并行恰好两个异构 case：
+
+- `arkts_repomap`：115s，runner FAIL / human PASS，context 21%，Finalizer reject=1；
+- `hilog_mixed_arkts_cangjie`：285s，runner PASS / human PASS，context 18%，log triage 一次精确证据修复，Analyzer
+  首字节超时后重试成功。
+
+ArkTS 生产答案事实完整：typed `source_inventory` 与最终表均列出 4 个 `@Entry` 页面
+`Index/ParentComponent/StyledPage/ListPage` 和 2 个 `@Builder` 片段 `defaultHeader/GlobalCard`，文件、行号逐项一致。
+runner 唯一失败原因为 case 把完整可见标题 `@Entry 标记的 ArkTS 页面入口` 当成 group identity，而模型用了语义等价的
+`@Entry 页面入口`。这把本地化/措辞自由度误升为集合正确性硬门，属于过硬看护，不是 ArkTS extractor 或答案缺失。
+
+`EVAL-B133-INVLABEL1` 的通用修复保留严格集合门但拆开身份与展示：完整 section label 仍是首选定位；找不到时，先用
+case-declared 稳定 marker（本案 `@Entry` / `@Builder`）定位一个结构化 heading section，再在该 section 内核对逐行 tokens 和
+exact count；只有无 heading 时才退到 marker+source-location 的 inline rows。这样标题可缩写/本地化，而 sibling section
+不能串桶、缺成员和多成员仍硬失败。实际 r51 输出经新判定零 reason，单测同时锁定“标题不同但 2/2 通过”和“同 section 多一
+行仍 count mismatch”。这是 eval-only 的结构清单判定，不进入生产路由、模型答案或 Trace 门。
+
+同一席还暴露 JSON/patch 教学负担：首次 AnswerDocument 已有两张列名完整的 Markdown 表，但 typed roster 合同要求补
+`items[].citation_ref` sidecar；模型把 `replace_blocks` 误解为字段合并，省略原 `text`，重新发了没有 `columns[]` 的
+`cells[]` 表，事实仍 6/6，但渲染表头退化成“列 2/列 3/列 4”。`replace_blocks` 实际是整块替换，系统既有总则虽要求其他字段
+不变，具体清单 repair 却没有把该语义和 Markdown-table sidecar 操作放进同一短指令，增加了模型心智。
+
+`EVAL-B133-PATCHFULL1` 不改变工具语义、不代写答案、不增加关键词门：在 patch tool 描述、provider-visible JSON schema、
+retry hard rule 与 source-inventory 精确 repair hint 四个现有权威面统一写明“replace 是 FULL block replacement”；只补 sidecar
+时复制既有 `title/text/columns` 与 typed annotations，保留完整 Markdown 表及其作者表头，再新增 `items[]`。这属于 JSON
+协议教学收敛；畸形 JSON 的既有无损结构修复、可见 block 恢复和有界字符串 salvage 路径不变。
+
+混合 ArkTS/Cangjie 日志答案正确：仓颉 `demo.bridge.ohSum:18` 是 `index=5,size=3` 的触发帧，`checkout:42` 是调用传播；
+ArkTS `NativeBridge.invokeOhSum:33:11` 是包装暴露边界，`HomePage.computeTotal:54:7` 是上层调用。答案明确这些是外部运行时
+快照且当前仓无交集。log triage 首次 evidence 不是日志 verbatim 后由精确合同修复；Analyzer 的一次 3 分钟首字节超时属于
+provider/model latency，不增加重试合同或 case 特判。该附件是 log 而非 trace，不应出现 Trace 因果投影。
+
+JSON 审计：ArkTS 两次 carrier 均可解析；第一次是结构 row sidecar 缺失，第二次是合法但展示退化，不是 malformed JSON。
+混合日志的最终 AnswerDocument 一次成功。跨类型 `EVAL-B132-QUOTEFOOT1` 再现为 ArkTS `引用摘录回填 ×6`，继续维持 P3
+设计复核，不在本批推翻 EVALFIX-2E。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b133_arkts_mixedlog_r51_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b133_arkts_mixedlog_r51_20260805_manual_audit.md`。
+
+回归：`bash eval/runner_lib_test.sh` PASS；`go test ./internal/tool ./internal/agent -count=1` PASS
+（tool 166.082s，agent 3.230s）。
+
+状态：`EVAL-B133-INVLABEL1=implemented/runner-contract-pass/r51-output-rechecked`；
+`EVAL-B133-PATCHFULL1=implemented/full-tool-agent-pass`；
+`EVAL-B132-QUOTEFOOT1=confirmed-cross-type/P3-design-review`；Trace 显式窗、因果投影、自动补齐与两维根因=`untouched`。

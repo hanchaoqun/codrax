@@ -799,6 +799,10 @@ assert_eq "$(eval_inventory_rowset_reasons "$inventory_nested_extra")" "inventor
 EXPECT_INVENTORY_SECTION_LABEL_ENTRY_PAGE="missing section"
 assert_eq "$(eval_inventory_rowset_reasons "$inventory_nested_extra")" "missing_inventory_section:entry_page:missing_section" "declared inventory section label must fail loudly when absent"
 EXPECT_INVENTORY_ROW_MARKER_ENTRY_PAGE="@Entry"
+inventory_marker_heading=$'### @Entry 页面入口\n\n| symbol | path |\n|---|---|\n| Index | Index.ets:5 |\n| Parent | Parent.ets:9 |\n\n### @Builder 复用片段\n\n| symbol | path |\n|---|---|\n| Card | Card.ets:3 |'
+assert_eq "$(eval_inventory_rowset_reasons "$inventory_marker_heading")" "" "typed inventory marker scopes a semantically identical heading without requiring exact presentation copy"
+inventory_marker_heading_extra=$'### @Entry 页面入口\n\n| symbol | path |\n|---|---|\n| Index | Index.ets:5 |\n| Parent | Parent.ets:9 |\n| Ability | Ability.ets:12 |\n\n### @Builder 复用片段\n\n| symbol | path |\n|---|---|\n| Card | Card.ets:3 |'
+assert_eq "$(eval_inventory_rowset_reasons "$inventory_marker_heading_extra")" "inventory_count_mismatch:entry_page:got3:want2" "typed marker heading still rejects an unexpected member inside the group"
 inventory_inline_exact=$'仓库中有两个入口。\n\n1. **Index** — @Entry 页面，位于 `src/Index.ets:5`\n2. **Parent** — @Entry 页面，位于 `src/Parent.ets:9`\n\n**引用**：\n\n- `src/Index.ets:5` — @Entry\n- `src/Parent.ets:9` — @Entry'
 assert_eq "$(eval_inventory_rowset_reasons "$inventory_inline_exact")" "" "typed inventory marker accepts heading-free ordered rows without double-counting citations"
 inventory_inline_extra=$'仓库中有三个入口。\n\n1. **Index** — @Entry 页面，位于 `src/Index.ets:5`\n2. **Parent** — @Entry 页面，位于 `src/Parent.ets:9`\n3. **Ability** — @Entry 页面，位于 `src/Ability.ets:12`'

@@ -5468,7 +5468,7 @@ func preEmitStructuredPrincipalMarkdownRepairTargets(doc *types.AnswerDocumentV2
 		parts = append(parts, fmt.Sprintf("%q (%d visible obligation row(s))", target.id, target.visible))
 	}
 	return "Existing authored Markdown table carrier(s) already render obligation identities on their visible first-column axis: " +
-		strings.Join(parts, ", ") + ". On a patch retry, use replace_blocks for those existing block ids and attach matching items[] citation sidecars to the same rows; do not use add_blocks to create a second copy of that roster. "
+		strings.Join(parts, ", ") + ". On a patch retry, use replace_blocks for those existing block ids and attach matching items[] citation sidecars to the same rows; do not use add_blocks to create a second copy of that roster. A replace_blocks entry is the FULL replacement, not a field merge: copy the previous title/text/columns and every unrelated field byte-for-byte, then add the sidecar items. In particular, keep the complete Markdown table in text; do not convert it into cells[] or discard its authored headers. "
 }
 
 // preEmitStructuredPrincipalMemberRepairRecipe describes every schema field

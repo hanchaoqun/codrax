@@ -22,9 +22,9 @@
 # MATCHES_REGEX,MATCHES_TEXT_REGEX} over the model-authored answer before
 # deterministic trace projection supplements, EXPECT_INVENTORY_ROWSETS plus
 # typed row/count declarations; optional per-rowset
-# EXPECT_INVENTORY_SECTION_LABEL_<ROWSET> binds exact-count checks to an
-# explicitly named visible section; optional EXPECT_INVENTORY_ROW_MARKER_<ROWSET>
-# provides a format-neutral fallback for inline inventory lists
+# EXPECT_INVENTORY_SECTION_LABEL_<ROWSET> names the preferred visible section;
+# optional EXPECT_INVENTORY_ROW_MARKER_<ROWSET> is the stable group
+# discriminator and scopes either a marker-bearing section or inline rows
 # EXPECT_DYNAMIC_SCALARS plus per-ID command/data-scope/surface/binding fields
 # recompute checkout-dependent scalar expectations and bind them to the chosen
 # answer surface without hard-coding a repository count,
@@ -1146,9 +1146,10 @@ write_verdict() {
   # literal tokens that must co-occur in the checked output. This catches
   # category row/count mismatches without turning production routing into
   # keyword or model-prose logic. A case may declare
-  # EXPECT_INVENTORY_SECTION_LABEL_<ROWSET> to bind exact extra-row counting to
-  # one visible markdown section, plus EXPECT_INVENTORY_ROW_MARKER_<ROWSET> for
-  # structurally visible location-bearing rows when the answer uses no heading.
+  # EXPECT_INVENTORY_SECTION_LABEL_<ROWSET> as the preferred visible section,
+  # plus EXPECT_INVENTORY_ROW_MARKER_<ROWSET> as the stable group discriminator.
+  # A correct marker-bearing heading may use different presentation wording;
+  # heading-free answers fall back to structurally visible location rows.
   if [[ -n "$EXPECT_INVENTORY_ROWSETS" ]]; then
     local inventory_reason
     while IFS= read -r inventory_reason; do
