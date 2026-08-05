@@ -108,7 +108,15 @@ func callChainEvidenceEdges(evidence []EvidenceItem) []CallChainEvidenceEdge {
 			!HasCodeOrConfigPathSuffix(strings.ToLower(item.Source)) {
 			continue
 		}
-		from := strings.TrimSpace(item.Subject)
+		// OwnerSymbol is parser-stamped after grounding and preserves the
+		// receiver/package/module identity of the enclosing callable. Prefer it
+		// over the model-authored short Subject so class methods and same-named
+		// wrapper/core functions remain distinct graph nodes. Subject stays the
+		// compatibility fallback for older or externally constructed evidence.
+		from := strings.TrimSpace(item.OwnerSymbol)
+		if from == "" {
+			from = strings.TrimSpace(item.Subject)
+		}
 		to := strings.TrimSpace(item.Object)
 		if to == "" {
 			to = strings.TrimSpace(item.AnchorSymbol)

@@ -2514,6 +2514,8 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersCallChainSupport
 		"### Cross-language call-diagram semantics",
 		"exact callee operation",
 		"Do not manufacture a self-call",
+		"FFI, JNI, PyO3",
+		"show an unproved binding transition as a `Note over`",
 		"compound condition can still contain a real invocation",
 		"never replace the callee with an abstract guard node",
 		"JavaScript/TypeScript/ArkTS",

@@ -12468,6 +12468,8 @@ func TestRenderExplorerCallChainEdgeEvidenceGuide_CoversEndpointLocalTopologyWit
 	}}}
 	got := renderExplorerCallChainEdgeEvidenceGuide(callChain)
 	for _, want := range []string{
+		"grounded `anchor_kind=call` relationship is normalized",
+		"do not re-emit it merely to guess an owner",
 		"exact requested endpoint definition",
 		"incoming or outgoing direct invocation actually verified",
 		"reverse, parallel, or disjoint relationship",

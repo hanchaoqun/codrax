@@ -2494,7 +2494,13 @@ func normalizeCallEvidenceDirection(it *types.EvidenceItem, gc *ground.Context) 
 	if it == nil || gc == nil || gc.Graph == nil || it.AnchorKind != types.AnchorCall {
 		return false
 	}
-	if !callLikePredicates[strings.ToLower(strings.TrimSpace(it.Predicate))] {
+	predicate := strings.ToLower(strings.TrimSpace(it.Predicate))
+	// The decoder uses the evidence kind as a compatibility placeholder when a
+	// sparse row omits predicate. Treat that sentinel like an absent predicate;
+	// an explicit non-call predicate still stays outside this normalizer.
+	stampMissingCallPredicate := (predicate == "" || predicate == string(types.EvidenceRelationship)) &&
+		it.Kind == types.EvidenceRelationship
+	if !stampMissingCallPredicate && !callLikePredicates[predicate] {
 		return false
 	}
 	source := ground.CanonicalContextPath(gc, it.Source)
@@ -2526,6 +2532,14 @@ func normalizeCallEvidenceDirection(it *types.EvidenceItem, gc *ground.Context) 
 		return false
 	}
 	changed := false
+	if stampMissingCallPredicate {
+		// AnchorCall is already grounded against the exact parser/read-line
+		// relation below. A sparse relationship row therefore has enough typed
+		// authority to carry the canonical predicate; leaving it blank discards
+		// an otherwise exact caller -> callee edge from downstream graphs.
+		it.Predicate = "calls"
+		changed = true
+	}
 	if strings.TrimSpace(it.Subject) != caller {
 		it.Subject = caller
 		changed = true
@@ -3799,6 +3813,19 @@ func emitEvidenceNoopDuplicate(existing, incoming types.EvidenceItem) bool {
 	if existing.AnchorKind != incoming.AnchorKind ||
 		strings.TrimSpace(existing.AnchorSymbol) != strings.TrimSpace(incoming.AnchorSymbol) ||
 		strings.TrimSpace(existing.OwnerSymbol) != strings.TrimSpace(incoming.OwnerSymbol) {
+		return false
+	}
+	// The typed claim carrier is mutable correction metadata too. In
+	// particular, subject/predicate/object may be added after a completion gate
+	// reports that a grounded call anchor lacks an explicit directed edge. Do
+	// not classify that correction as an exact duplicate merely because it
+	// points at the same source line and callee token.
+	if existing.Kind != incoming.Kind || existing.Scope != incoming.Scope ||
+		strings.TrimSpace(existing.Subject) != strings.TrimSpace(incoming.Subject) ||
+		strings.TrimSpace(existing.Predicate) != strings.TrimSpace(incoming.Predicate) ||
+		strings.TrimSpace(existing.Object) != strings.TrimSpace(incoming.Object) ||
+		strings.TrimSpace(existing.Condition) != strings.TrimSpace(incoming.Condition) ||
+		strings.TrimSpace(existing.Snippet) != strings.TrimSpace(incoming.Snippet) {
 		return false
 	}
 	if emitEvidenceGroundingRank(incoming.GroundingStatus) > emitEvidenceGroundingRank(existing.GroundingStatus) {

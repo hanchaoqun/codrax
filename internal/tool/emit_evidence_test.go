@@ -4026,6 +4026,56 @@ func TestEmitEvidence_CallOwnerSymbolKeepsParserQualifiedPackageIdentity(t *test
 	}
 }
 
+func TestEmitEvidence_SparseGroundedCallStampsQualifiedCallerAndPredicate(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "bindings-py/fastlex/tokenizer.py", 21,
+		"return _fastlex.tokenize_bytes(list(data), self._merges)",
+	)
+	ctx.Mutable.SetSearchGraph(&repomap.Graph{FileIndex: map[string]*repomap.FileInfo{
+		"bindings-py/fastlex/tokenizer.py": {
+			RelPath: "bindings-py/fastlex/tokenizer.py", Language: "python", Package: "fastlex",
+			Symbols: []repomap.Symbol{
+				{Name: "FastTokenizer", Kind: "class", Line: 9, EndLine: 37},
+				{Name: "tokenize", Kind: "method", Parent: "FastTokenizer", Line: 18, EndLine: 22},
+			},
+			Relations: []repomap.Relation{{
+				Kind: "call", Line: 21,
+				ToEP: repomap.RelationEndpoint{Name: "tokenize_bytes", Receiver: "_fastlex"},
+			}},
+		},
+	}})
+	params := json.RawMessage(`{"items":[{"kind":"relationship","object":"tokenize_bytes","source":"bindings-py/fastlex/tokenizer.py","line_start":21,"summary":"native call","anchor_kind":"call","anchor_symbol":"tokenize_bytes","snippet":"return _fastlex.tokenize_bytes(list(data), self._merges)"}]}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil || !res.Success {
+		t.Fatalf("sparse exact call should normalize, err=%v summary=%s", err, res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("evidence count=%d want 1: %+v", len(got), got)
+	}
+	if got[0].Subject != "FastTokenizer.tokenize" || got[0].Predicate != "calls" ||
+		got[0].Object != "_fastlex.tokenize_bytes" || got[0].OwnerSymbol != "FastTokenizer.tokenize" {
+		t.Fatalf("sparse call lost qualified typed direction: %+v", got[0])
+	}
+}
+
+func TestEmitEvidenceNoopDuplicate_DirectedCarrierCorrectionIsAmendment(t *testing.T) {
+	existing := types.EvidenceItem{
+		ID: "old", Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+		Source: "tokenizer.py", LineStart: 21, LineEnd: 21,
+		AnchorKind: types.AnchorCall, AnchorSymbol: "tokenize_bytes",
+		Object: "tokenize_bytes", GroundingStatus: types.GroundingGrounded,
+	}
+	incoming := existing
+	incoming.ID = "new"
+	incoming.Subject = "FastTokenizer.tokenize"
+	incoming.Predicate = "calls"
+	if emitEvidenceNoopDuplicate(existing, incoming) {
+		t.Fatal("adding the typed caller/predicate must be an amendment, not an exact duplicate")
+	}
+}
+
 func TestEmitEvidence_CallCallerAnchorCanonicalizesBeforeGrounding(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

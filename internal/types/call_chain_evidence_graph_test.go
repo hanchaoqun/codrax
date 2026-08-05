@@ -50,6 +50,30 @@ func TestAnalyzeCallChainEvidenceGraph_ReverseAndDisjointShapes(t *testing.T) {
 	}
 }
 
+func TestAnalyzeCallChainEvidenceGraph_PrefersQualifiedParserOwner(t *testing.T) {
+	python := groundedCallEdge("E1", "tokenizer.py", 21, "tokenize", "_fastlex.tokenize_bytes")
+	python.OwnerSymbol = "FastTokenizer.tokenize"
+	rust := groundedCallEdge("E2", "lib.rs", 42, "tokenize_bytes", "core::tokenize_bytes")
+	rust.OwnerSymbol = "py::tokenize_bytes"
+
+	pythonPath := AnalyzeCallChainEvidenceGraph(
+		[]EvidenceItem{python, rust},
+		"FastTokenizer.tokenize",
+		"_fastlex.tokenize_bytes",
+	)
+	if len(pythonPath.DirectedPath) != 1 || pythonPath.DirectedPath[0].From != "FastTokenizer.tokenize" {
+		t.Fatalf("class-qualified parser owner must bind the source endpoint: %+v", pythonPath)
+	}
+	rustPath := AnalyzeCallChainEvidenceGraph(
+		[]EvidenceItem{python, rust},
+		"py::tokenize_bytes",
+		"core::tokenize_bytes",
+	)
+	if len(rustPath.DirectedPath) != 1 || rustPath.DirectedPath[0].From != "py::tokenize_bytes" || rustPath.DirectedPath[0].To != "core::tokenize_bytes" {
+		t.Fatalf("same-tail wrapper/core functions must remain distinct qualified nodes: %+v", rustPath)
+	}
+}
+
 func TestAnalyzeCallChainEvidenceGraph_AmbiguousAndNonSourceRowsFailClosed(t *testing.T) {
 	evidence := []EvidenceItem{
 		groundedCallEdge("E1", "a.cj", 10, "A#Start", "A#Run"),

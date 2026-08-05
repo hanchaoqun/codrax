@@ -15844,3 +15844,59 @@ Python→FFI，并错误注明 Rust 内部“无法从源码逐行追踪”。�
 
 状态：`EVAL-B105-ENDPOINTDISC1=implemented/full-relevant-pass/replay-next`；
 `EVAL-B104-OPLIST1=closed/production-replay`；`EVAL-B104-OPTASKCOV1=closed/production-replay`。
+
+## 110. 2026-08-05 B106 r32：端点准入获正证；调用边载体在稀疏发射、纠正合并和同名 owner 三处断裂
+
+### 110.1 严格双并发与人工结论
+
+在 `main@0b2d13fc3` 构建冻结后，以 `PARALLEL=2` 严格并行恰好两个异构 read case：
+
+- `mr_poly_binding_chain`：runner FAIL / human FAIL，481s，19 个 Explorer iteration、6 次 Finalizer reject、5 次 patch，最大 context 23%；
+- `sr_ts_workspace_chain`：runner PASS / human FAIL，141s，最大 context 20%。
+
+工件见 `eval/parallel_selected_summary_evalcampaign_b106_endpointpoly_replay_r32_20260805.md` 及 manual audit。B105 的端点准入修复获得生产正证：
+polyglot case 保持 `question_kind=call_chain`，语义 sink `Rust 实现` 具体化为 `tokenize_bytes` 后仅产生 soft provenance warning，全语言 call-edge guide 也已进入
+Explorer 上下文。失败已下移到调用证据的有向载体层，而不是端点 admission。
+
+TS runner 的字符串 oracle 是假绿：答案正确解释 alias 与重试参数，却把不含完整 call-site hop 的四行称为“完整调用链”，遗漏
+`ApiClient.fetchUser -> HttpTransport.send -> dispatchOnce/fetch` 的精确末端，且为两级调用复用了同一个 CLI cite。Analyzer 第一次 call-chain 发射缺 endpoint pair 后由模型降级
+为 mechanism；这里只有一个 replay witness。不能从无序 entity 猜方向，也不增加用户/答案原文扫描 hard gate，先在调用载体修复后继续异构回放。
+
+### 110.2 `EVAL-B106-CALLEDGEID1`（P0）：同一精确调用事实没有跨过三段载体合同
+
+polyglot Explorer 已读取三个精确调用点，但首批 relationship 行只给出 `anchor_kind=call + object`，省略 subject/predicate。wire decoder 用
+`predicate=relationship` 兼容占位；旧 `normalizeCallEvidenceDirection` 仅识别空 predicate 或显式 call-like predicate，因此没有从 parser/read-line 关系补齐调用方。
+运行上下文最终出现自相矛盾的 `grounded_callsite_facts=3; explicit_caller_callee_edges=0`。
+
+模型根据完成门提示，随后在同一 source/line 重发正确 `subject/predicate/object`；但 duplicate 判定只比较 anchor/grounding 等外围字段，忽略 claim carrier，纠正项被当
+exact duplicate 丢弃。完成器在连续低增量后接受了与源码相反的 `no_directed_path` waiver。Finalizer 的调用图 hard gate 连续六次正确拒绝无证 guard/FFI/call 箭头，最终降级稿却反转
+Rust core 与 PyO3 wrapper 的角色，并把 `super::tokenize_bytes` 写成递归。hard gate 不应放宽；上游 typed edge 才是根因。
+
+即使 subject 能进入 evidence，旧图构造也只消费模型短名。Rust wrapper 与 core 都叫 `tokenize_bytes` 时会折叠为自环，而 grounding 后系统已在
+`OwnerSymbol` 保存 `py::tokenize_bytes` / module-qualified caller。稀疏铸造、纠正合并、图节点身份是同一个“精确调用事实的有向载体连续性”问题。
+
+### 110.3 通用修复：精确信号补齐载体，不替模型写答案
+
+1. 仅对 `EvidenceRelationship + AnchorCall` 且 predicate 为空或 decoder 占位 `relationship` 的行，在现有 parser graph/read-line 能解析唯一调用关系时补齐
+   `predicate=calls`、限定 caller、callee 与 call anchor；显式非 call predicate、动态歧义和无解析行保持 fail-closed。
+2. duplicate/amendment 判定把 kind/scope 与 subject/predicate/object/condition/snippet 作为同一 claim carrier；同一 source/line/token 的纠正不再被外围键吞掉，
+   仍由既有 `MergeEvidenceItemByStableID` 完整度/grounding 规则决定是否替换。
+3. call graph 优先使用系统 grounding 后铸造的 `OwnerSymbol` 作为 caller identity，旧证据无 owner 时才回退模型 `Subject`；同名 wrapper/core、类方法和包函数不再折叠。
+4. 给 Finalizer 的只是 soft diagram guidance：FFI/JNI/PyO3/native/generated binding 未被精确 call row 证明时，sequence 用 `Note over` 表示边界，
+   两侧独立已证调用仍保留；不得为好看制造箭头。所有语言共用同一规则，无语言/type 特判。
+
+以上不扫描用户请求、模型输出或最终答案 prose 作 hard gate，不生成结论、不修改模型正文，也不放松调用图证据门。
+
+### 110.4 验证与状态
+
+- 新增 sparse grounded call 对 Python 类方法限定 owner、callee surface 与 `calls` predicate 的 production-shaped pin；
+- 新增同 source/line directed-carrier correction 必须进入 amendment 的负回归；
+- 新增 Rust/Python 同名 caller 通过 system-stamped owner 保持图节点分离的 graph pin；
+- 新增全语言 binding boundary `Note over` soft-guide pin；
+- focused 测试通过；`go test ./internal/types ./internal/agent ./internal/tool -count=1` 全部通过（`internal/tool` 160.842s）。
+
+状态：`EVAL-B105-ENDPOINTDISC1=closed/production-admission-replay`；
+`EVAL-B106-CALLEDGEID1=implemented/full-relevant-pass/replay-next`；
+`EVAL-B106-TSCHAIN1=runner-false-green/model-replay-watch`。
+
+本轮未运行 Trace，且未改 Trace 查询、显式时间窗、系统自动补齐、因果投影或双轴根因代码；不得用本批结果改变这些既有能力。
