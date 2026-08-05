@@ -2443,6 +2443,12 @@ func TestBuildAnswerDocumentSemanticContractDescription_SharedBetweenTools(t *te
 	if !strings.Contains(body, "claim_form values") {
 		t.Errorf("body missing claim_form enum guidance")
 	}
+	if strings.Contains(body, "WORKED EXAMPLES") || strings.Contains(body, "MemberA") {
+		t.Fatalf("fixed cross-scenario JSON examples must not compete with the dispatch-projected schema:\n%s", body)
+	}
+	if !strings.Contains(body, "projected for THIS dispatch") || !strings.Contains(body, "Required Answer Blocks") {
+		t.Fatalf("shared contract must point the model at the dispatch-scoped JSON recipe:\n%s", body)
+	}
 	full := (&EmitAnswerDocument{}).Description()
 	patch := (&EmitAnswerDocumentPatch{}).Description()
 	if !strings.Contains(full, body) {

@@ -320,7 +320,7 @@ func buildEmitEvidenceParametersSchema() json.RawMessage {
 						},
 						"subject": map[string]any{
 							"type":        "string",
-							"description": "Primary semantic symbol the item is about (function name, type, key). For call-like predicates with anchor_kind='call', subject MUST be the caller / containing function at that line.",
+							"description": "Primary semantic symbol the item is about (function name, type, key). For call-like predicates with anchor_kind='call', subject MUST be the caller / containing function at that line. For evidence_kind='registration', subject is the exact registry slot/key/binding source and object is the exact bound target; populate both fields.",
 						},
 						"predicate": map[string]any{
 							"type":        "string",
@@ -328,7 +328,7 @@ func buildEmitEvidenceParametersSchema() json.RawMessage {
 						},
 						"object": map[string]any{
 							"type":        "string",
-							"description": "Secondary symbol or value. Required for relationship; optional otherwise. For call-like predicates with anchor_kind='call', object MUST be the callee symbol on that line.",
+							"description": "Secondary symbol or value. Required for relationship and registration. For call-like predicates with anchor_kind='call', object MUST be the callee symbol on that line. For evidence_kind='registration', object is the exact class/function/handler/value bound by subject; do not leave either endpoint only in summary prose.",
 						},
 						"source": map[string]any{
 							"type":        "string",
@@ -473,49 +473,11 @@ func emitEvidenceNegativeScopeNames() []string {
 }
 
 func (t *EmitEvidence) Parameters() json.RawMessage {
-	if schema := emitEvidenceParametersSchema(); len(schema) > 0 {
-		return schema
-	}
-	// Build the enum lists as JSON so they stay in lockstep with the
-	// canonical types.LLMEmittableEvidenceKinds / AllAnchorKinds lists
-	// — hand-editing the schema literal is how the 6-vs-11 drift bug
-	// was born.
-	evidenceKindEnumJSON, _ := json.Marshal(emitEvidenceAllowedKindNames())
-	contextRoleEnumJSON, _ := json.Marshal(emitEvidenceContextRoleNames())
-	diagramRoleEnumJSON, _ := json.Marshal(emitEvidenceDiagramRoleNames())
-	anchorEnumJSON, _ := json.Marshal(emitAnchorKindNames())
-	schema := fmt.Sprintf(`{
-  "type": "object",
-  "properties": {
-    "items": {
-      "type": "array",
-      "description": "Batch of evidence items extracted from one or more files. Send the full batch in one call — do not invoke the tool per item.",
-      "items": {
-        "type": "object",
-        "properties": {
-          "kind":          {"type": "string", "enum": %s, "description": "Evidence shape. direct = literal fact at file:line. conditional = behaviour gated by an IF clause. registration = something registered/bound with EXACT values. mechanism = how a process works step by step. relationship = link between two symbols (use subject + object). NOTE: for absence claims (searched and found nothing) do NOT emit via this tool — every kind requires a concrete file:line anchor, which is unsatisfiable for 'not found'. Use emit_investigation_complete.absence_justification for whole-answer absence, or simply omit the item for per-fact absence."},
-          "subject":       {"type": "string", "description": "Primary semantic symbol the item is about (function name, type, key). For call-like predicates with anchor_kind='call', subject MUST be the caller / containing function at that line."},
-          "predicate":     {"type": "string", "description": "Lowercase verb tying subject to object. PREFER these canonical verbs so the deterministic relation-diagram renderer picks the edge up — anything outside this list is rendered as unstructured prose: calls, invokes, dispatches, delegates to, binds, binds ONLY, registers, wires, provides, returns, yields, constructs, instantiates, defines, implements, extends, embeds, maps, config, decorates. Optional; defaults to the lower-cased kind."},
-          "object":        {"type": "string", "description": "Secondary symbol or value. Required for relationship; optional otherwise. For call-like predicates with anchor_kind='call', object MUST be the callee symbol on that line."},
-          "source":        {"type": "string", "description": "Repository-relative file path the fact comes from. Required."},
-          "line_start":    {"type": "integer", "description": "Exact gutter line number from read_file — NEVER estimated. The grounder uses this to verify the claim; wrong numbers are flagged as ungrounded or auto-recovered."},
-          "line_end":      {"type": "integer", "description": "Last line of the cited range. Defaults to line_start when omitted."},
-          "condition":     {"type": "string", "description": "For conditional items: the exact IF clause that triggers the behaviour."},
-          "summary":       {"type": "string", "description": "Free-text rationale describing the fact. Keep concise; do not paraphrase numbers or string literals. For exhaustive list members, explain the member's role from already-read code (signature, RHS value, registry mapping, caller/callee relation, or visible comment); do not use summary only for ordinal/category wording such as 'Nth item'."},
-          "context_role_hint": {"type": "string", "enum": %s, "description": "OPTIONAL recommendation for exact-target questions. defining = direct defining proof, absence_support = grounded evidence that helps justify why the exact target is absent but does NOT define it, related_context = grounded nearby context but not the exact target itself, illustrative_only = documentation/prompt-support prose or a comment-only anchored line that should NOT be treated as defining proof. Test, fixture, example, third-party, vendor, and generated source paths are not automatically illustrative; the tool validates the anchored line and may downgrade the hint."},
-          "diagram_role_hint": {"type": "string", "enum": %s, "description": "OPTIONAL recommendation for config-precedence traces. default = code defaults, config = repo/user config-file layer (YAML/JSON/TOML/INI/etc.), runtime = code/runtime binding layer, override = CLI/high-precedence override layer. The tool validates and may ignore inconsistent hints."},
-          "surface_terms": {"type": "array", "items": {"type": "string"}, "description": "OPTIONAL exact source/log/trace strings that should remain visible in the final answer as aliases or labels, including labels from leading documentation/header comments attached to the cited anchor. Every accepted term must appear verbatim in the already-read source window; ungrounded optional terms are dropped with a summary note."},
-          "anchor_kind":   {"type": "string", "enum": %s, "description": "REQUIRED. What line_start points at: 'definition' = symbol declaration, 'call' = function/method call site, 'condition' = if/when/switch/case/guard line, 'return' = return or yield, 'assignment' = := or = assignment/write, 'initializer' = field/property/member inside a struct/object/named-argument/designated/config literal, 'import' = import/use/require statement, 'string_literal' = source-code string/char/template literal value itself, 'text_reference' = visible source/config/doc/comment text itself. string_literal/text_reference cannot prove a definition/call/assignment."},
-          "anchor_symbol": {"type": "string", "description": "REQUIRED. The identifier the grounder should find on line_start. For a call like 'x.Execute()' the anchor_symbol is 'Execute'. For a type decl 'type Orchestrator struct' the anchor_symbol is 'Orchestrator'. For an import the anchor_symbol is the package path or local alias. For condition / return / assignment / initializer lines, use a visible token on that line, not a descriptive label; if no durable symbol exists, provide exact snippet and structured condition/value fields."},
-          "snippet":       {"type": "string", "description": "Optional. 1-2 lines of actual code from the cited location. Enables snippet_fuzzy recovery when line_start is off by ±15 lines — recommended for conditional / mechanism / registration items."}
-        },
-        "required": ["kind", "source", "line_start", "anchor_kind", "anchor_symbol"]
-      }
-    }
-  },
-  "required": ["items"]
-}`, string(evidenceKindEnumJSON), string(contextRoleEnumJSON), string(diagramRoleEnumJSON), string(anchorEnumJSON))
-	return json.RawMessage(schema)
+	// One schema producer only.  The former handwritten fallback still taught
+	// the retired `kind` field and contradicted the typed negative-scope lane.
+	// json.Marshal over this closed map cannot fail; keeping a second schema for
+	// an impossible failure path merely creates prompt/runtime drift.
+	return emitEvidenceParametersSchema()
 }
 
 func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (result types.ToolResult, err error) {

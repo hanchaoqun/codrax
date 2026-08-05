@@ -246,7 +246,232 @@ func recoverAnswerDocumentV2FromRawCandidate(raw json.RawMessage) (AnswerDocumen
 			}
 		}
 	}
+	// Last-resort, display-only salvage.  A provider can return a malformed
+	// JSON envelope whose individual visible string values are still intact.
+	// Keep only schema-owned user-visible fields; never mine ids, claim forms,
+	// citations, or arbitrary prose for control signals.  The result stays on
+	// the typed degraded lane and is explicitly disclosed as incomplete.
+	if text, diagnostics, ok := recoverMalformedAnswerDocumentVisibleStrings(string(raw)); ok {
+		return AnswerDocumentTextRecovery{
+			Document: &types.AnswerDocumentV2{
+				DocumentModel: "v2",
+				Blocks: []types.AnswerBlock{{
+					ID:   "recovered-visible-model-text",
+					Kind: types.BlockSection,
+					Text: text,
+				}},
+			},
+			Mode:        "content_json_visible_string_salvage",
+			Lossless:    false,
+			Diagnostics: diagnostics,
+		}, true
+	}
 	return AnswerDocumentTextRecovery{}, false
+}
+
+type malformedAnswerVisibleFragment struct {
+	field string
+	value string
+}
+
+const (
+	maxMalformedAnswerVisibleFragments = 96
+	maxMalformedAnswerVisibleRunes     = 200000
+)
+
+// recoverMalformedAnswerDocumentVisibleStrings extracts only values carried
+// by visible answer fields after all structural JSON recovery has failed.
+// This is intentionally a display salvage, not a parser and not a validator:
+// it cannot create citations, typed claims, conclusions, or a successful tool
+// emit.  Exact schema keys are the only selectors, so answer/user keywords
+// never affect the lane.
+func recoverMalformedAnswerDocumentVisibleStrings(raw string) (string, []string, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || !textContainsAnswerDocumentBlocksMarker(raw) {
+		return "", nil, false
+	}
+	fragments := scanMalformedAnswerVisibleFragments(raw)
+	mode := "plain_keys"
+	if len(fragments) == 0 && strings.Contains(raw, `\"blocks\"`) {
+		// Some providers stringify the whole tool argument and then truncate it.
+		// A fully valid quoted carrier was handled by the structural lanes above;
+		// this bounded replacement is only a final attempt to expose intact text.
+		fragments = scanMalformedAnswerVisibleFragments(strings.ReplaceAll(raw, `\"`, `"`))
+		mode = "escaped_keys"
+	}
+	if len(fragments) == 0 {
+		return "", nil, false
+	}
+	var b strings.Builder
+	seen := map[string]bool{}
+	shownRunes := 0
+	truncated := false
+	for _, fragment := range fragments {
+		value := strings.TrimSpace(fragment.value)
+		if value == "" || seen[value] || types.IsPlaceholderLikeModelDraft(value) {
+			continue
+		}
+		seen[value] = true
+		remaining := maxMalformedAnswerVisibleRunes - shownRunes
+		if remaining <= 0 {
+			truncated = true
+			break
+		}
+		runes := []rune(value)
+		if len(runes) > remaining {
+			value = string(runes[:remaining])
+			truncated = true
+		}
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		switch fragment.field {
+		case "title":
+			b.WriteString("### ")
+			b.WriteString(value)
+		case "label":
+			b.WriteString("- **")
+			b.WriteString(value)
+			b.WriteString("**")
+		case "cells", "columns", "caveats":
+			b.WriteString("- ")
+			b.WriteString(value)
+		default:
+			b.WriteString(value)
+		}
+		shownRunes += len([]rune(value))
+		if truncated {
+			break
+		}
+	}
+	text := strings.TrimSpace(b.String())
+	if text == "" {
+		return "", nil, false
+	}
+	diagnostics := []string{
+		"malformed answer_document JSON could not be structurally recovered",
+		fmt.Sprintf("visible string salvage mode=%s fragments=%d", mode, len(fragments)),
+	}
+	if truncated {
+		diagnostics = append(diagnostics, fmt.Sprintf("visible string salvage bounded at %d runes", maxMalformedAnswerVisibleRunes))
+	}
+	return text, diagnostics, true
+}
+
+func scanMalformedAnswerVisibleFragments(raw string) []malformedAnswerVisibleFragment {
+	visibleScalar := map[string]bool{"title": true, "text": true, "label": true}
+	visibleArrays := map[string]bool{"cells": true, "columns": true, "caveats": true}
+	out := make([]malformedAnswerVisibleFragment, 0, 12)
+	for i := 0; i < len(raw) && len(out) < maxMalformedAnswerVisibleFragments; {
+		if raw[i] != '"' {
+			i++
+			continue
+		}
+		key, keyEnd, ok := scanLooseJSONString(raw, i)
+		if !ok {
+			i++
+			continue
+		}
+		pos := skipJSONSpace(raw, keyEnd)
+		if pos >= len(raw) || raw[pos] != ':' {
+			i = keyEnd
+			continue
+		}
+		pos = skipJSONSpace(raw, pos+1)
+		if visibleScalar[key] && pos < len(raw) && raw[pos] == '"' {
+			value, end, valueOK := scanLooseJSONString(raw, pos)
+			if valueOK {
+				out = append(out, malformedAnswerVisibleFragment{field: key, value: value})
+				i = end
+				continue
+			}
+		}
+		if visibleArrays[key] && pos < len(raw) && raw[pos] == '[' {
+			values, end := scanLooseJSONStringArray(raw, pos, maxMalformedAnswerVisibleFragments-len(out))
+			for _, value := range values {
+				out = append(out, malformedAnswerVisibleFragment{field: key, value: value})
+			}
+			if end > pos {
+				i = end
+				continue
+			}
+		}
+		// Skip an ordinary quoted value so strings inside visible prose cannot
+		// impersonate schema keys.  Broken values advance one byte and remain
+		// recoverable by later real key/value pairs.
+		if pos < len(raw) && raw[pos] == '"' {
+			if _, end, valueOK := scanLooseJSONString(raw, pos); valueOK {
+				i = end
+				continue
+			}
+		}
+		i = keyEnd
+	}
+	return out
+}
+
+func scanLooseJSONString(raw string, start int) (string, int, bool) {
+	if start < 0 || start >= len(raw) || raw[start] != '"' {
+		return "", start, false
+	}
+	escaped := false
+	for i := start + 1; i < len(raw); i++ {
+		if escaped {
+			escaped = false
+			continue
+		}
+		switch raw[i] {
+		case '\\':
+			escaped = true
+		case '"':
+			quoted := raw[start : i+1]
+			var value string
+			if err := json.Unmarshal([]byte(quoted), &value); err != nil {
+				return "", i + 1, false
+			}
+			return value, i + 1, true
+		}
+	}
+	return "", len(raw), false
+}
+
+func scanLooseJSONStringArray(raw string, start, limit int) ([]string, int) {
+	if start < 0 || start >= len(raw) || raw[start] != '[' || limit <= 0 {
+		return nil, start
+	}
+	var out []string
+	for i := start + 1; i < len(raw) && len(out) < limit; {
+		i = skipJSONSpace(raw, i)
+		if i >= len(raw) {
+			return out, i
+		}
+		if raw[i] == ']' {
+			return out, i + 1
+		}
+		if raw[i] != '"' {
+			i++
+			continue
+		}
+		value, end, ok := scanLooseJSONString(raw, i)
+		if !ok {
+			return out, end
+		}
+		out = append(out, value)
+		i = end
+	}
+	return out, len(raw)
+}
+
+func skipJSONSpace(raw string, i int) int {
+	for i < len(raw) {
+		switch raw[i] {
+		case ' ', '\t', '\r', '\n':
+			i++
+		default:
+			return i
+		}
+	}
+	return i
 }
 
 func nestedAnswerDocumentPayloads(raw json.RawMessage) []json.RawMessage {

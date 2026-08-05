@@ -46,7 +46,8 @@ import (
 //     scalar / decision item-level anchor convention)
 //  5. exact_resolution / caveats / snippets document-level fields
 //  6. V1 carrier retirement reminder
-//  7. Five worked examples (one per principal-block family)
+//  7. Dispatch-scoped schema reminder (fixed cross-scenario examples are
+//     deliberately absent because projected schemas may reject their kinds)
 //
 // LLM-facing prose only — no internal Go terminology (R4 invariant).
 // Maintenance: edits to block-level invariants live here so both
@@ -78,60 +79,8 @@ func BuildAnswerDocumentSemanticContractDescription() string {
 		"Citations live in a shared `citations` pool; per-item `citation_ref` is a zero-based index into it. Omit the field when no current-repo cite backs the item. This is an internal carrier only: do not mention `citation_ref` or `citations[]` in visible answer prose. `claim_use` / `claim_uses` never carry `citation_ref`. " +
 		"`exact_resolution`, `missing_requested_roles[]`, `caveats[]`, `snippets[]` are document-level optional fields. Use `missing_requested_roles[]` only when the question explicitly asked for named config-precedence layers and one or more of those requested layers has NO grounded binding for the exact target. Each entry is `{role: default|config|runtime|override, label?: <user-facing bucket name>}`; the renderer materialises the explicit missing-layer prose from this typed field, so do not hide missing requested layers behind vague placeholders like `N/A`. " +
 		"\n\n" +
-		"Top-level fields shape / steps / symbols / value / boolean / summary are NOT accepted at runtime — the entire answer payload lives inside blocks[] only." +
-		"\n\n" +
-		"WORKED EXAMPLES (minimal happy-path emits — each shows one principal-block family):\n" +
-		"\n" +
-		"1) Summary-only explanation (single principal `summary` block):\n" +
-		"```json\n" +
-		"{\"blocks\":[\n" +
-		"  {\"id\":\"s1\",\"kind\":\"summary\",\"text\":\"<multi-paragraph answer body>\",\"surface_role\":\"principal\",\"claim_uses\":[{\"claim_form\":\"definition_fact\"}],\"items\":[{\"id\":\"c0\",\"citation_ref\":0}]}\n" +
-		"],\"citations\":[{\"file\":\"foo/bar.go\",\"line\":42}]}\n" +
-		"```\n" +
-		"\n" +
-		"2) Hop-chain (`ordered_list` block over mechanism steps):\n" +
-		"```json\n" +
-		"{\"blocks\":[\n" +
-		"  {\"id\":\"s1\",\"kind\":\"summary\",\"text\":\"<lead-in framing the chain>\"},\n" +
-		"  {\"id\":\"hops\",\"kind\":\"ordered_list\",\"surface_role\":\"principal\",\n" +
-		"   \"claim_uses\":[{\"claim_form\":\"call_edge\"}],\n" +
-		"   \"items\":[\n" +
-		"    {\"id\":\"h1\",\"label\":\"Stage A\",\"text\":\"<what stage A does>\",\"citation_ref\":0},\n" +
-		"    {\"id\":\"h2\",\"label\":\"Stage B\",\"text\":\"<what stage B does>\",\"citation_ref\":1}\n" +
-		"   ]}\n" +
-		"],\"citations\":[{\"file\":\"a.go\",\"line\":10},{\"file\":\"b.go\",\"line\":20}]}\n" +
-		"```\n" +
-		"\n" +
-		"3) Enumeration slate (`ordered_list` block over enumeration members):\n" +
-		"```json\n" +
-		"{\"blocks\":[\n" +
-		"  {\"id\":\"s1\",\"kind\":\"summary\",\"text\":\"<frames what the list enumerates>\"},\n" +
-		"  {\"id\":\"slate\",\"kind\":\"ordered_list\",\"surface_role\":\"principal\",\n" +
-		"   \"claim_uses\":[{\"claim_form\":\"definition_fact\"}],\n" +
-		"   \"items\":[\n" +
-		"    {\"id\":\"m1\",\"label\":\"MemberA\",\"text\":\"<role / why it belongs>\",\"citation_ref\":0},\n" +
-		"    {\"id\":\"m2\",\"label\":\"MemberB\",\"text\":\"<role / why it belongs>\",\"citation_ref\":1}\n" +
-		"   ]}\n" +
-		"],\"citations\":[{\"file\":\"x.go\",\"line\":1},{\"file\":\"y.go\",\"line\":1}]}\n" +
-		"```\n" +
-		"\n" +
-		"4) Single-literal scalar (`scalar` block — literal in block.text, citation via one-element items[]):\n" +
-		"```json\n" +
-		"{\"blocks\":[\n" +
-		"  {\"id\":\"v1\",\"kind\":\"scalar\",\"text\":\"42\",\"surface_role\":\"principal\",\n" +
-		"   \"items\":[{\"id\":\"vcite\",\"citation_ref\":0}],\n" +
-		"   \"claim_uses\":[{\"claim_form\":\"definition_fact\"}]}\n" +
-		"],\"citations\":[{\"file\":\"const.go\",\"line\":7}]}\n" +
-		"```\n" +
-		"\n" +
-		"5) Architecture diagram (`diagram` block with semantic family `architecture`):\n" +
-		"```json\n" +
-		"{\"blocks\":[\n" +
-		"  {\"id\":\"s1\",\"kind\":\"summary\",\"text\":\"<overall architecture lead-in>\",\"surface_role\":\"principal\",\"claim_uses\":[{\"claim_form\":\"definition_fact\"}],\"items\":[{\"id\":\"c0\",\"citation_ref\":0}]},\n" +
-		"  {\"id\":\"d1\",\"kind\":\"diagram\",\n" +
-		"   \"diagram\":{\"kind\":\"architecture\",\"language\":\"mermaid\",\"body\":\"flowchart TD\\n    A[\\\"<grounded node A>\\\"] --> B[\\\"<grounded node B>\\\"]\"}}\n" +
-		"],\"citations\":[{\"file\":\"main.go\",\"line\":1}]}\n" +
-		"```" +
+		"Top-level fields shape / steps / symbols / value / boolean / summary are NOT accepted at runtime — the entire answer payload lives inside blocks[] only. " +
+		"Do not copy a generic cross-scenario JSON example: the tool schema is projected for THIS dispatch and the user section's Required Answer Blocks list is the exact recipe. Emit only the block kinds and conditional fields those two surfaces expose." +
 		buildPreEmitConstraintsSection()
 }
 

@@ -12786,11 +12786,18 @@ func answerDisplayAttachmentDedupeKey(att types.AnswerDisplayAttachment) string 
 }
 
 func recoveredAnswerDocumentCaveat(lang string, rec tool.AnswerDocumentTextRecovery) string {
+	visibleStringSalvage := strings.Contains(rec.Mode, "visible_string_salvage")
 	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en") {
+		if visibleStringSalvage {
+			return "The model returned malformed answer JSON that could not be structurally repaired. The system extracted only recognizable user-visible string fields; final structure validation did not run, so content may be incomplete or out of order."
+		}
 		if rec.Lossless {
 			return "Recovered this answer from answer_document JSON that the model wrote as text instead of executing as a tool call; full emit-time validation did not run."
 		}
 		return "Recovered the visible answer blocks from answer_document JSON that the model wrote as text instead of executing as a tool call; some non-visible schema annotations may have been ignored."
+	}
+	if visibleStringSalvage {
+		return "模型返回了无法完整修复的畸形 answer_document JSON；系统仅提取其中可辨认的用户可见字符串。最终结构校验未运行，内容可能缺段或失序。"
 	}
 	if rec.Lossless {
 		return "已从模型写在文本中的 answer_document JSON 恢复本答案；模型未执行工具调用，因此未运行完整的 emit 阶段校验。"

@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -1754,6 +1755,30 @@ func TestEmitEvidence_SalienceSchemaSyncedWithGo(t *testing.T) {
 	got := schema.Properties.Items.Items.Properties["salience"].Enum
 	if !reflect.DeepEqual(got, types.EvidenceSalienceStrings()) {
 		t.Fatalf("schema salience enum = %v, want %v", got, types.EvidenceSalienceStrings())
+	}
+}
+
+func TestEmitEvidence_ParametersUsesOnlyCanonicalSchema(t *testing.T) {
+	got := (&EmitEvidence{}).Parameters()
+	want := emitEvidenceParametersSchema()
+	if !bytes.Equal(got, want) {
+		t.Fatal("Parameters must return the canonical generated schema byte-for-byte")
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(got, &schema); err != nil {
+		t.Fatalf("canonical schema is invalid JSON: %v", err)
+	}
+	props := schema["properties"].(map[string]any)["items"].(map[string]any)["items"].(map[string]any)["properties"].(map[string]any)
+	if _, stale := props["kind"]; stale {
+		t.Fatal("retired legacy kind field leaked into the LLM-facing schema")
+	}
+	if _, ok := props["evidence_kind"]; !ok {
+		t.Fatal("canonical evidence_kind field is missing")
+	}
+	for _, field := range []string{"negative_query", "negative_scope"} {
+		if _, ok := props[field]; !ok {
+			t.Fatalf("typed absence field %q is missing", field)
+		}
 	}
 }
 

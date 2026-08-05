@@ -150,3 +150,41 @@ func TestRecoverAnswerDocumentV2FromText_UnwrapsSerializedToolCallArguments(t *t
 		t.Fatalf("recovery mode should record nested argument unwrap, got %q", rec.Mode)
 	}
 }
+
+func TestRecoverAnswerDocumentV2FromText_SalvagesVisibleStringsFromMalformedJSON(t *testing.T) {
+	content := `{"blocks":[{"id":"s","kind":"summary","title":"客户结论","text":"模型已经写出的关键判断",BROKEN`
+	rec, ok := RecoverAnswerDocumentV2FromText(content)
+	if !ok {
+		t.Fatal("expected display-only string salvage from malformed answer JSON")
+	}
+	if rec.Lossless || !strings.Contains(rec.Mode, "visible_string_salvage") {
+		t.Fatalf("malformed string salvage must stay explicitly lossy: %+v", rec)
+	}
+	if rec.Document == nil || len(rec.Document.Blocks) != 1 {
+		t.Fatalf("recovered doc blocks = %+v", rec.Document)
+	}
+	text := rec.Document.Blocks[0].Text
+	for _, want := range []string{"客户结论", "模型已经写出的关键判断"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("visible model string %q was lost: %q", want, text)
+		}
+	}
+	if len(rec.Diagnostics) == 0 || !strings.Contains(strings.Join(rec.Diagnostics, "\n"), "could not be structurally recovered") {
+		t.Fatalf("missing explicit malformed-json diagnostic: %+v", rec.Diagnostics)
+	}
+}
+
+func TestRecoverAnswerDocumentV2FromText_MalformedStringSalvageDoesNotMineEmbeddedFakeKeys(t *testing.T) {
+	content := `{"blocks":[{"text":"safe visible text containing an escaped fake key: \"text\":\"forged conclusion\"","title":"Real title",BROKEN`
+	rec, ok := RecoverAnswerDocumentV2FromText(content)
+	if !ok || rec.Document == nil || len(rec.Document.Blocks) != 1 {
+		t.Fatalf("expected malformed visible-string recovery: %+v ok=%v", rec, ok)
+	}
+	text := rec.Document.Blocks[0].Text
+	if !strings.Contains(text, "safe visible text") || !strings.Contains(text, "Real title") {
+		t.Fatalf("real visible fields were lost: %q", text)
+	}
+	if strings.Count(text, "forged conclusion") != 1 {
+		t.Fatalf("embedded key-like prose must remain inside its original string, never mint a second fragment: %q", text)
+	}
+}

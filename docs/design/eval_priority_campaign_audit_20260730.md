@@ -16762,3 +16762,39 @@ Finalizer discovery context，以及 exact 旧车道。`types/tool/agent` 全包
 
 状态：`EVAL-B122-EXECGRAPH1=partially-implemented/C1-discover-mode-full-related-pass`；下一小批 C2 为
 grounded compound execution path（static call + binding/dispatch + inherited owner），不把非调用关系铸成 call。
+
+### 123.7 B123-D1：畸形 JSON 降级保文与教学单源（插队闭环）
+
+客户对 `20260805-085448.711-42828.html` 的处置裁定为：能安全修复则修复；无法修复时尽量保留模型已经写出的
+有用字符串，并明确披露模型输出问题导致降级。代码复核还发现两类系统自造心智负担：
+
+1. `emit_evidence.Parameters()` 在 canonical map schema 后保留一份理论上不可达的手写 fallback；fallback 仍教
+   旧字段 `kind`，并声称 absence 不能由该工具表达，与当前 `evidence_kind + scope=negative` 合同相反；
+2. answer-document tool description 固定携带五套跨场景 JSON 示例，而实际 schema 会按本轮
+   `AnswerSemanticView` 裁掉无关 block kind 并增加 per-kind conditional。模型同时看到“本轮只允许 A”与
+   “通用例子请发 B/C”，会增加畸形载体、错误 kind 和无效字段重试。
+
+本批根修：
+
+- `emit_evidence` 删除第二份 schema，`Parameters()` 字节级只返回 canonical generated schema；registration
+  的 `subject/object` 教学补齐为精确 registry slot/binding source → bound class/function/handler/value，避免
+  端点只留在 summary prose；
+- 删除 answer-document 的固定跨场景 worked examples。字段权威只来自本轮 projected schema；内容形状只来自
+  Required Answer Blocks 和适用 workflow 规则。skill 同步说明 provider 看不到 conditional 时的唯一退路，
+  不再让通用示例与精确 schema 竞争；
+- 结构修复层维持原顺序：严格解码、trailing comma/control char/string-array 等无损修复、block 级可见恢复均
+  先行；这些都失败后才进入 `visible_string_salvage`；
+- 最后一档只扫描 answer schema 的可见字段名 `title/text/label/cells/columns/caveats`，有界提取原模型字符串。
+  不扫描用户请求、答案关键词或结论词，不读取 `id/claim_form/citation`，不铸 typed 证据/引用/结论；字符串内
+  看似 `"text":...` 的内容会随原字符串整体跳过，不能伪装第二个字段；
+- 降级稿明确显示“模型返回畸形 JSON、仅提取可辨认字符串、未运行最终结构校验、内容可能缺段或失序”，保持
+  `AnswerDegraded=true` 与 `SkipAnswerChecks=true`。系统 Trace 事实补齐不因此获得替代模型诊断的权限。
+
+回归覆盖不可闭合 JSON 的中英文可见字符串恢复、嵌入伪 key 不二次铸值、降级披露、schema 字节单源、旧
+`kind` 负 pin、negative typed fields 正 pin、固定示例退役与本轮 schema 指引。
+`go test ./internal/agent ./internal/tool ./internal/skill ./internal/types -count=1` PASS
+（tool 164.746s，types 19.708s）。
+
+状态：`EVAL-B122-JSONTEACH1=partially-implemented/D1-schema-single-source+fixed-example-retired+malformed-visible-salvage/full-related-pass`；
+后续继续审计其它 emit schema/skill parity 与真实回放，不能据此宣称所有 provider JSON 波动已消除。
+`EVAL-B122-EXECGRAPH1` 下一批继续 C2 typed compound evidence。

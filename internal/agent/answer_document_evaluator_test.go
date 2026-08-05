@@ -12,6 +12,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/skill"
+	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -10779,5 +10780,21 @@ func TestPTV5TraceQueryObservationLocationDropsToolCallID(t *testing.T) {
 	text := traceQueryObservationSupplementText(record, true)
 	if strings.Contains(text, "call-abc123") {
 		t.Fatalf("the tool-call id must stay off the panel: %s", text)
+	}
+}
+
+func TestRecoveredAnswerDocumentCaveat_DisclosesMalformedVisibleStringSalvage(t *testing.T) {
+	rec := tool.AnswerDocumentTextRecovery{Mode: "content_json_visible_string_salvage"}
+	zh := recoveredAnswerDocumentCaveat("zh", rec)
+	for _, want := range []string{"模型返回", "畸形", "仅提取", "可能缺段或失序"} {
+		if !strings.Contains(zh, want) {
+			t.Fatalf("zh malformed-json disclosure missing %q: %s", want, zh)
+		}
+	}
+	en := recoveredAnswerDocumentCaveat("en", rec)
+	for _, want := range []string{"model returned malformed", "extracted only", "incomplete or out of order"} {
+		if !strings.Contains(strings.ToLower(en), want) {
+			t.Fatalf("en malformed-json disclosure missing %q: %s", want, en)
+		}
 	}
 }
