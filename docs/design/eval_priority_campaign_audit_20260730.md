@@ -14662,3 +14662,48 @@ completion scopes、follow-up debt、aggregate requested-universe 与 principal 
 `EVAL-B88-SCOPEPROV1=implemented/types+tool-full-pass/replay-next`（`internal/types` 18.730s，`internal/tool` 166.728s）。
 
 该批不改变模型结论或正文，不扫描模型输出确权，也不触碰 Trace 显式时间窗、因果投影、自动补齐与根因双轴。
+
+## 93. 2026-08-04 B89 r15：目录范围生产载体补洞；调用边限定身份合同冲突
+
+### 93.1 严格并行与人工审计
+
+在 `main@570a5ec4ef` 构建后严格并行恰好两个 read case：
+
+- `qf_multi_member_set_count_caveat`：runner PASS / human 主答案 PASS，667s；最终 3 个类型、5 个公开函数、30 个 Kind
+  常量及逐行引用全部正确，但 Explorer 34 轮/2 dispatch、16 次 source_inventory、11 次 completion；
+- `qf_sequence_analyzer_gate`：runner/human FAIL，256s；Finalizer 连续 6 次同类 reject 后降级出厂，正文仍把
+  `gate.Run -> RunWith` 的 wrapper 方向反写。
+
+工件见 `eval/parallel_selected_summary_evalcampaign_b89_scope_replay_r15_20260804.md`、对应 manual audit 与两个
+`eval/results/*-20260804-175958` 目录。
+
+### 93.2 `EVAL-B88-SCOPEPROV1-R1`（P1）：真实 analyzer 用 verified scope quote 保存目录
+
+§92.6 的载体在构造单测中成立，但生产 analyzer 的 entity projector 把完整目录投影成 basename/文件实体；真实目录仍完整
+保存在已经通过当前请求 verbatim 校验的 `SourceScopeProfile.SourceQuotes`。旧 producer 只与
+`MentionedEntities` 相交，因而没有铸成 `SourceInventoryRequestedPathScopes`。后续 completion 再次把请求扩成 `cmd`、fixture、
+`internal/skill` 等五个无关 scope；模型已经给出正确 bounded roster，系统仍反复要求全仓分页。
+
+补洞仍不读取 `RawRequest`：producer 的 request-side 候选改为“typed MentionedEntities **或** 已通过 emit-analysis
+verbatim 校验的 SourceScopeProfile.SourceQuotes”，再与 analyzer-stage successful repo-lens scope 精确相交。rationale、
+explore-stage scope、不匹配 quote、根目录与越界路径仍不能获权。新增 verified-quote 正臂与 unmatched 负臂，定向测试通过。
+
+状态：`EVAL-B88-SCOPEPROV1-R1=implemented/full-tool-pass/replay-next`（`internal/tool` 167.514s）。下一次同 case 回放必须把
+repair scopes 固定在 `internal/analysis/criterion`，并显著降低 16 次 source lens / 667s；答案正确并不能掩盖本轮过程失败。
+
+### 93.3 `EVAL-B89-CALLEDGEQUAL1`（P0/red-line）：同一 typed call 被限定形拒绝、裸形强制
+
+调用证据明确为 `Run -> RunWith @ internal/analysis/gate/gate.go:135`。模型用 participant label
+`gate.Run` / `gate.RunWith` 表达同一关系时，body evidence lane 报 `call_edge_unproven`；同轮 principal completeness lane
+又报 `principal_call_edge_missing edge=Run -> RunWith`。因此一条边在限定展示形被拒，同时以裸形被强制，模型无法通过
+等价重画解决，六次重试后降级。
+
+该问题与先前 class participant alias 类同但不是单语言特例：现有 resolver 只有“exact qualified”或“短调用 + 唯一 definition
+owner”两臂；生产证据携带精确 `OwnerSymbol=Run` 与唯一 call-site，却没有独立 definition row。最优方案冻结为共享 typed endpoint
+identity join：优先 exact；其次使用 citable call 的 `Subject/Object/AnchorSymbol/OwnerSymbol` 与唯一 source location，再由已验证的
+required endpoint / owner binding 完成限定展示；存在多 owner、重载、多位置或 contrary qualified object 时 fail-closed。sequence body、
+edge anchor 与 principal completeness 必须调用同一个 resolver，不能各保留一份别名策略。测试矩阵覆盖 Go、Java/Kotlin、
+TS/ArkTS、C/C++、Rust、Cangjie 等全部可执行语言的 `.`/`::`/`#`/裸符号形，不按语言关键词分支。
+
+状态：`EVAL-B89-CALLEDGEQUAL1=confirmed/P0/implementation-next`。该修复只消费 structured document 与 typed evidence，
+不解析用户/模型 prose，不放松无证 call edge；QFRootCauseTrace 已显式排除，因此 Trace 时间窗因果投影及自动补齐不受影响。

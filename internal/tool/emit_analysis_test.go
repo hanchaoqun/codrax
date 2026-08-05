@@ -7248,6 +7248,39 @@ func TestMergeSourceInventoryAnalyzerPrescanRequestedPathScopes_RequiresMentione
 	}
 }
 
+func TestMergeSourceInventoryAnalyzerPrescanRequestedPathScopes_AcceptsVerifiedSourceScopeQuote(t *testing.T) {
+	rm := types.RequestModel{
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+		},
+		SourceScopeProfile: &types.SourceScopeProfile{
+			RequestedScope: types.SourceScopeProduction,
+			SourceQuotes:   []string{"internal/analysis/criterion"},
+		},
+	}
+	observation := types.SourceInventoryObservation{
+		Active: true,
+		Scopes: []string{"internal/analysis/criterion"},
+		Provenance: []string{
+			types.SourceInventoryProvenanceRepoLensToolQuery,
+			types.SourceInventoryProvenanceStageAnalyze,
+		},
+	}
+	if !mergeSourceInventoryAnalyzerPrescanRequestedPathScopes(&rm, observation) {
+		t.Fatal("verified source-scope quote plus matching analyzer lens should mint requested path scope")
+	}
+	if got := rm.AnalyzerHints.SourceInventoryRequestedPathScopes; len(got) != 1 || got[0] != "internal/analysis/criterion" {
+		t.Fatalf("requested path scopes = %#v", got)
+	}
+
+	rm.AnalyzerHints.SourceInventoryRequestedPathScopes = nil
+	rm.SourceScopeProfile.SourceQuotes = []string{"internal/types"}
+	if mergeSourceInventoryAnalyzerPrescanRequestedPathScopes(&rm, observation) {
+		t.Fatalf("unmatched source-scope quote must not authorize analyzer lens: %#v", rm.AnalyzerHints.SourceInventoryRequestedPathScopes)
+	}
+}
+
 func TestEmitAnalysis_PersistsRequestBoundAnalyzerPrescanPathScope(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

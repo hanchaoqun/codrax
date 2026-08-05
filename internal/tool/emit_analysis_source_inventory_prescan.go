@@ -65,6 +65,20 @@ func mergeSourceInventoryAnalyzerPrescanRequestedPathScopes(rm *types.RequestMod
 			mentioned[scope] = true
 		}
 	}
+	// A directory may be preserved by the analyzer as a verified source-scope
+	// quote instead of an entity (for example when the entity projector keeps
+	// only the directory basename). SourceQuotes have already passed the
+	// current-request verbatim validator before this prescan merge runs, so they
+	// are the same precise request provenance as MentionedEntities. Consuming
+	// that typed field here avoids rescanning RawRequest while keeping inferred
+	// rationale and later exploration scopes unable to mint a hard boundary.
+	if rm.SourceScopeProfile != nil {
+		for _, raw := range rm.SourceScopeProfile.SourceQuotes {
+			if scope := types.NormalizeSourceInventoryRequestedPathScope(raw); scope != "" {
+				mentioned[scope] = true
+			}
+		}
+	}
 	if len(mentioned) == 0 {
 		return false
 	}

@@ -2053,3 +2053,20 @@ repo_lens tool scope”的 canonical 精确交集。它与 production/test/docs/
 不匹配、根 scope、补查范围及 sibling row 污染。状态：
 `EVAL-B88-SCOPEPROV1=implemented/types+tool-full-pass/replay-next`（`internal/types` 18.730s，`internal/tool` 166.728s）。
 没有 raw request/final prose 关键词硬门，没有系统代写答案；Trace 显式窗、因果投影与自动补齐权限不变。
+
+### §10.26 B89 production：scope carrier 真实形补洞；call endpoint 第四例合同冲突
+
+严格并行调用链与多集合计数后，计数主答案 3/5/30 人工正确，但耗时 667s、16 次 source lens、11 次 completion。
+§10.25 的 producer 只接受 `MentionedEntities`；真实 analyzer 将完整目录保存在已通过 verbatim 校验的
+`SourceScopeProfile.SourceQuotes`，entity lane 只留下 basename/文件，故请求路径 carrier 未铸成。已把 verified typed quote 纳入
+analyzer-stage lens 的精确交集；不扫描 RawRequest，探索 scope/rationale 仍无权。`internal/tool` 全量 167.514s 通过。状态：
+`EVAL-B88-SCOPEPROV1-R1=implemented/full-tool-pass/replay-next`。
+
+调用链 case 则稳定复现新的 P0：同一 `Run -> RunWith` typed call 在限定 participant
+`gate.Run -> gate.RunWith` 形被 body gate 拒绝，同时被 principal completeness 以裸形强制，连续六次成文 reject 后降级。
+这证明先前 family/class alias 修复尚未统一“短 owner context → 限定 endpoint”的共享 resolver。
+`EVAL-B89-CALLEDGEQUAL1` 已冻结为下一施工批：sequence body、sibling anchor、principal citation 三面共用 exact-first 的 typed
+identity join，并以唯一 OwnerSymbol/source location/required endpoint 消歧；任何多位置、重载、异 owner 均 fail-closed。
+不得通过模型输出关键词、语言名或本 case 函数名放行。
+
+本轮未触碰 RootCauseTrace runtime relation authority、显式时间窗因果投影、自动补齐或模型结论所有权。
