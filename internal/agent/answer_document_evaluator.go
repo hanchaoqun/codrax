@@ -2821,6 +2821,7 @@ func renderAnswerDocCallChainTargetDiscovery(ctx *types.AgentContext) string {
 	b.WriteString("- Select the reached implementation/class/handler yourself from grounded call, registration/binding, dispatch, and inheritance/implementation evidence. A pre-scan candidate, nearby definition, or same-name method is not enough.\n")
 	b.WriteString("- Keep relation kinds honest: registration/binding is not a source-level call. When dispatch is dynamic, show the grounded static prefix and the typed binding/dispatch boundary separately; do not invent a direct invocation merely to make one continuous arrow.\n")
 	b.WriteString("- Distinguish the selected runtime class from the class or mixin that owns an inherited method definition. State both when they differ, with their own grounded citations. The model owns the final destination conclusion; this section only preserves the evidence boundary.\n")
+	b.WriteString("- A diagram is optional unless the Required Answer Blocks section explicitly requires one. If the dynamic boundary cannot be drawn without turning a binding, return, inheritance, or method-owner relation into a call arrow, omit the diagram and use a grounded ordered list, table, or prose section instead.\n")
 	if capsule := renderAnswerDocRuntimeTargetRelationCapsule(ctx); capsule != "" {
 		b.WriteString("\n")
 		b.WriteString(capsule)
@@ -2847,7 +2848,7 @@ func renderAnswerDocRuntimeTargetRelationCapsule(ctx *types.AgentContext) string
 	}
 	registrations := make([]capsuleRow, 0)
 	structural := make([]capsuleRow, 0)
-	valueFlows := make([]capsuleRow, 0)
+	valueFlowCandidates := make([]capsuleRow, 0)
 	calls := make([]capsuleRow, 0)
 	seen := make(map[string]struct{})
 	for _, item := range pool {
@@ -2870,7 +2871,7 @@ func renderAnswerDocRuntimeTargetRelationCapsule(ctx *types.AgentContext) string
 		case (item.Producer == "concrete_values" || item.Producer == "bridge_literal") &&
 			(types.ClaimFormOf(item) == types.ClaimReturnFact || types.ClaimFormOf(item) == types.ClaimAssignmentFact):
 			row.family = "value_or_factory_flow"
-			valueFlows = append(valueFlows, row)
+			valueFlowCandidates = append(valueFlowCandidates, row)
 		case types.ClaimFormOf(item) == types.ClaimCallEdge:
 			row.family = "static_call"
 			calls = append(calls, row)
@@ -2878,6 +2879,41 @@ func renderAnswerDocRuntimeTargetRelationCapsule(ctx *types.AgentContext) string
 			continue
 		}
 		seen[id] = struct{}{}
+	}
+	// Concrete-value extraction is intentionally broad; unrelated method
+	// returns from a candidate file must not consume the tiny dynamic-target
+	// capsule budget. Keep a value/factory row only when one of its typed
+	// endpoints is exactly connected to a static call or registration endpoint
+	// (or the analyzer-declared source endpoint). This is graph connectivity,
+	// not request/model prose similarity, and it does not create a new edge.
+	connectedEndpointTails := make(map[string]struct{})
+	addConnectedEndpoint := func(raw string) {
+		tail := strings.ToLower(types.NormalizedSurfaceSymbolTail(strings.TrimSpace(raw)))
+		if tail != "" {
+			connectedEndpointTails[tail] = struct{}{}
+		}
+	}
+	if ctx != nil && ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.CallChainEndpointProfile != nil {
+		addConnectedEndpoint(ctx.AnalysisIR.RequestModel.CallChainEndpointProfile.Source)
+	}
+	for _, row := range calls {
+		addConnectedEndpoint(row.item.Subject)
+		addConnectedEndpoint(row.item.Object)
+	}
+	for _, row := range registrations {
+		addConnectedEndpoint(row.item.Subject)
+		addConnectedEndpoint(row.item.Object)
+	}
+	valueFlows := make([]capsuleRow, 0, len(valueFlowCandidates))
+	for _, row := range valueFlowCandidates {
+		subjectTail := strings.ToLower(types.NormalizedSurfaceSymbolTail(strings.TrimSpace(row.item.Subject)))
+		objectTail := strings.ToLower(types.NormalizedSurfaceSymbolTail(strings.TrimSpace(row.item.Object)))
+		_, subjectConnected := connectedEndpointTails[subjectTail]
+		_, objectConnected := connectedEndpointTails[objectTail]
+		if !subjectConnected && !objectConnected {
+			continue
+		}
+		valueFlows = append(valueFlows, row)
 	}
 	ordered := make([]capsuleRow, 0, answerDocRuntimeTargetRelationCapsuleLimit)
 	appendBounded := func(rows []capsuleRow, familyCap int) {

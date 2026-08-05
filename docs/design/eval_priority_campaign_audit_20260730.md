@@ -16883,3 +16883,31 @@ Checklist 因而不是同一份 compiled contract，属于红线级系统自相�
 `EVAL-B124-PYDECREL1=confirmed/P1-next`；`EVAL-B124-CAPSULEFOCUS1=confirmed/P1-next`；
 `EVAL-B124-TRACECOGNITION1=confirmed/P1-after-context-audit`；
 `EVAL-B124-JSONTEACH2=partially-implemented/compiled-view-single-source-next-replay`。
+
+### 123.10 B124-B：decorated class 关系保真与 dynamic capsule 降噪
+
+r42 真实工件纠正了 §123.8 的一项过早判断：Python 普通 `class_definition` 会生成 AST inheritance relation，
+但 `@decorator` 包裹后的 `decorated_definition` 分支只接收 `pyExtractClass` 返回的 symbols/methods，明确丢弃第三个
+返回值 relations。§123.8 的 Python 多继承测试使用手工构造 `FileInfo.Relations`，只证明下游 consumer 正确，未覆盖
+生产 extractor；真实 `@register("json") class JsonPlugin(...)` 因此只剩另一个普通 class 的
+`BasePlugin -> abc.ABC` 行。
+
+本批按 extractor 合同根修而非拟合 registry fixture：
+
+1. `pyExtractDecorated` 同时返回 symbols 与 relations；top-level decorated class 把所有 `pyExtractClass` 产出的
+   继承边上送，decorated method 仍只消费 method symbols；新增三基类完整保真 pin；
+2. Python `extractorVersions` 6→7，确保暖缓存不会继续返回缺关系的旧 `FileInfo`；全语言版本矩阵同步重钉；
+3. discover-target capsule 对 broad concrete value 行增加 typed graph-connectivity 选择：value/factory 的 subject 或
+   object 必须与 static-call、registration/binding 或 analyzer-declared source endpoint 的规范化 symbol tail 精确相等。
+   `resolve returns cls()` 可保留，`CsvPlugin.content_type returns "text/csv"` 等邻近但不连通行不再抢预算；
+4. target-discovery 软教学明确：非用户硬要求的图为 optional；若必须把 binding/return/inheritance/method-owner
+   伪装为 call 才能连成箭头，就删除图，改用 grounded list/table/section。现有 call-edge hard gate不放宽。
+
+连接筛选只消费 typed evidence endpoints 与 analyzer endpoint profile，不扫描请求/模型/答案 prose；它只决定 prompt
+可见性，不创造关系、不选终点、不改写答案。Cangjie、ArkTS、Java、Rust、Go 等语言继续通过统一
+`repomap_structural_relation` consumer 进入同一图层；本批修的是 Python decorated wrapper 丢 producer 输出的特有
+实现断点，而非新增 Python 专属答案规则。
+
+状态：`EVAL-B124-PYDECREL1=implemented/cache-bumped/full-index-agent-types-pass`；
+`EVAL-B124-CAPSULEFOCUS1=implemented/typed-connectivity/full-index-agent-types-pass`；
+`EVAL-B122-EXECGRAPH1=implemented/C1+C2+decorated-producer/full-replay-next`。

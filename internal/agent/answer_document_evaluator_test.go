@@ -925,6 +925,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersCallChainTargetD
 		"registration/binding is not a source-level call",
 		"runtime class from the class or mixin that owns an inherited method definition",
 		"model owns the final destination conclusion",
+		"If the dynamic boundary cannot be drawn without turning a binding, return, inheritance, or method-owner relation into a call arrow, omit the diagram",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("target-discovery prompt missing %q:\n%s", want, prompt)
@@ -950,6 +951,7 @@ func TestAnswerDocumentEvaluator_TargetDiscoveryRendersTypedRelationFamiliesWith
 			{ID: "E-bind", Kind: types.EvidenceRegistration, Subject: `REGISTRY["json"]`, Predicate: "binds", Object: "JsonPlugin", Source: "pipeline/plugins.py", LineStart: 7, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition},
 			{ID: "E-inherit", Kind: types.EvidenceRelationship, Subject: "JsonPlugin", Predicate: "inheritance", Object: "TimestampMixin", Source: "pipeline/plugins.py", LineStart: 8, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, Producer: "repomap_structural_relation"},
 			{ID: "E-return", Kind: types.EvidenceConcrete, Subject: "resolve", Predicate: "returns", Object: "cls()", Source: "pipeline/registry.py", LineStart: 19, Scope: types.ScopeLine, AnchorKind: types.AnchorReturn, Producer: "concrete_values"},
+			{ID: "E-noise", Kind: types.EvidenceConcrete, Subject: "CsvPlugin.content_type", Predicate: "returns", Object: `"text/csv"`, Source: "pipeline/plugins.py", LineStart: 14, Scope: types.ScopeLine, AnchorKind: types.AnchorReturn, Producer: "concrete_values"},
 		},
 	}
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
@@ -973,6 +975,12 @@ func TestAnswerDocumentEvaluator_TargetDiscoveryRendersTypedRelationFamiliesWith
 	} {
 		if strings.Contains(prompt, forbidden) {
 			t.Fatalf("typed non-call relations must not be fused into a synthetic call path %q:\n%s", forbidden, prompt)
+		}
+	}
+	capsule := renderAnswerDocRuntimeTargetRelationCapsule(ctx)
+	for _, noise := range []string{"CsvPlugin.content_type", "text/csv"} {
+		if strings.Contains(capsule, noise) {
+			t.Fatalf("unconnected value fact consumed runtime-target capsule budget %q:\n%s", noise, capsule)
 		}
 	}
 }

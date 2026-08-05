@@ -509,7 +509,7 @@ func TestCallReceiverExtractorCacheEpochFloors(t *testing.T) {
 	// extractor lanes. Every affected persisted language domain must reject
 	// pre-change warm caches, including languages sharing one implementation.
 	floors := map[string]int{
-		types.LangJava: 7, types.LangPython: 6,
+		types.LangJava: 7, types.LangPython: 7,
 		types.LangJavaScript: 5, types.LangTypeScript: 7, types.LangArkTS: 7,
 		types.LangCangjie: 5, types.LangKotlin: 7, types.LangRuby: 4,
 		types.LangSwift: 6, types.LangLua: 5, types.LangRust: 6,

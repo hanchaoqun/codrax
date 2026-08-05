@@ -25,7 +25,9 @@ func extractPython(root *sitter.Node, src []byte, file string) (pkg string, syms
 				syms = append(syms, s)
 			}
 		case "decorated_definition":
-			syms = append(syms, pyExtractDecorated(ch, src, file, "")...)
+			decoratedSyms, decoratedRels := pyExtractDecorated(ch, src, file, "")
+			syms = append(syms, decoratedSyms...)
+			rels = append(rels, decoratedRels...)
 		case "class_definition":
 			cls, methods, classRels := pyExtractClass(ch, src, file)
 			syms = append(syms, cls...)
@@ -132,8 +134,7 @@ func pyExtractFunc(node *sitter.Node, src []byte, file, parent string) (types.Sy
 	}, true
 }
 
-func pyExtractDecorated(node *sitter.Node, src []byte, file, parent string) []types.Symbol {
-	var syms []types.Symbol
+func pyExtractDecorated(node *sitter.Node, src []byte, file, parent string) (syms []types.Symbol, rels []types.Relation) {
 	// decorated_definition wraps function_definition or class_definition
 	for i := 0; i < int(node.NamedChildCount()); i++ {
 		ch := node.NamedChild(i)
@@ -143,12 +144,13 @@ func pyExtractDecorated(node *sitter.Node, src []byte, file, parent string) []ty
 				syms = append(syms, s)
 			}
 		case "class_definition":
-			cls, methods, _ := pyExtractClass(ch, src, file)
+			cls, methods, classRels := pyExtractClass(ch, src, file)
 			syms = append(syms, cls...)
 			syms = append(syms, methods...)
+			rels = append(rels, classRels...)
 		}
 	}
-	return syms
+	return syms, rels
 }
 
 func pyExtractClass(node *sitter.Node, src []byte, file string) (cls []types.Symbol, methods []types.Symbol, rels []types.Relation) {
@@ -197,7 +199,8 @@ func pyExtractClass(node *sitter.Node, src []byte, file string) (cls []types.Sym
 					methods = append(methods, s)
 				}
 			case "decorated_definition":
-				methods = append(methods, pyExtractDecorated(ch, src, file, name)...)
+				decoratedMethods, _ := pyExtractDecorated(ch, src, file, name)
+				methods = append(methods, decoratedMethods...)
 			case "expression_statement":
 				if s, ok := pyExtractClassField(ch, src, file, name); ok {
 					methods = append(methods, s)
