@@ -16444,3 +16444,54 @@ B120 在高显著 Trace Decision Inputs 与最终 compact ledger 共用的节点
 
 B120 不扫描用户原文或模型/答案 prose，不增加答案 hard reject，不修改 trace_query 的根因公式、可消除量或系统补齐算法，也不生成/替换模型结论。它只把已有 typed 用户窗、
 query window 与 chain depth 放回正确的权威层级，保留显式窗因果投影和钻取能力。
+
+## 121. 2026-08-05 B120 r40：生产正证与模型答案所有权红线
+
+### 121.1 严格双并发与人工结论
+
+在 `main@607e851b8` 构建冻结后，以 `PARALLEL=2` 严格并行恰好两个 case：
+
+- `trace_query_donghu_real_frame_multicausal`：246s，4 次 trace_query，runner PASS / human FAIL；
+- `mr_poly_binding_chain`：296s，finalizer reject/patch=3/3，runner PASS / human FAIL。
+
+工件见 `eval/parallel_selected_summary_evalcampaign_b120_tracepoly_replay_r40_20260805.md` 及 manual audit。B120 获得完整生产正证：Trace 投影锚、目标状态账、
+wakeup path、主要占用和可消除席均使用用户指定的 `34579.472865..34579.587805` / `114.940ms` 窗；早期 50ms micro-probe 只保留为钻取证据，
+不再夺取主窗。模型也不再把链席解释成唤醒后的 CPU 延迟，最终 projection 保留 `pre_wakeup_dependency` 语义。
+
+多语言案继续证明 B117/B118 已关闭清单复制与 rejected diagram 复活；人工失败仍来自跨语言端点/绑定身份。答案比 r39 更接近源码，但仍虚构
+`self._tokenize_fast`，PyO3 wrapper 行缺独立引用，并把 `lib.rs:10` 核心定义与 `:40` wrapper 描述成“两处定义协作”。Analyzer 为 endpoint 反复 5 轮，
+Explorer 为同名 wrapper/core 的关系闭合耗费 19 轮，`EVAL-B107-ENDPOINTAMBIG1` 已是第四个生产 witness。
+
+### 121.2 `EVAL-B120-TRACEOWN1`（P0，confirmed）：模型只剩 caveat 时系统报告替代了模型结论
+
+Trace 成文的原始 tool payload 发生结构畸形；unknown-field quarantine 删除错误字段后，模型文档只剩一个 principal caveat。`preCheckRequiredBlocks`
+准确报告缺 summary 与 ordered_list，但这两项在当前 registry 中仅是 soft advisory，调用仍被接受。随后 deterministic runtime materializer 增加 table、projection、
+metrics、next-step、evidence appendix 等整套系统块，最终用户看到约 92KB 报告，却没有一块模型拥有的 summary/diagnosis/priority conclusion。
+
+这不是“系统补齐丰富信息”的普通形，而是系统补齐在模型主答案缺席时成为整份答案，违反“typed facts/guidance 归系统、结论归模型”的所有权红线。最优修复冻结为：
+
+1. 只在 typed `runtimeTraceFullReportMaterializationAllowed=true` 且 semantic view 存在 required principal block obligation 时启用；
+2. 在任何 system materializer 运行前，要求模型文档至少有一块命中 required principal requirement；caveat、diagram、system block 均不能代替；
+3. 缺席时同轮 hard-repair，要求模型补发自己的 summary/list/decision，系统不得从 trace 数值自动生成结论来顶位；
+4. 判据只读 AnswerDocument 的 block kind/surface role、typed required-block contract 与 runtime report authority，不扫描用户问题、模型思考或答案正文；
+5. bounded fact-set、非 Trace、已有模型主块以及正常系统事实补齐均保持原行为。
+
+### 121.3 `EVAL-B120-DIRLEADER1`（P1，confirmed）：同窗不同通道 rank 不能决定修向主席
+
+B120 已隔离跨窗 row，但 compact ledger 在同一 114.940ms 窗内仍按 rank ordinal 先到先得：`io_dependency` 选中邻近 board 的 `rank#1=0.171ms`，
+而正式可消除板同方向发布的链上最大席是 `rank#3=10.433ms`。rank 只在各自 board/channel 内有意义，不能跨通道比较；这与 r39 的跨窗 rank 误用同属
+“局部 ordinal 越域”。最优修复是按完整投影的正式链上可消除席、同方向 `EffectiveImpactMS` 最大值选 compact leader，并以 deterministic identity 稳定打破平局；
+方向间仍不求和、不铸 subtotal，邻近/背景席保持上下文而不抢主席。
+
+### 121.4 排期与不变量
+
+1. B121-A：先修 `TRACEOWN1`，阻止系统报告在模型主答案缺席时冒充完整回答；
+2. B121-B：修 `DIRLEADER1`，让 compact context 与正式可消除板共享同一方向主席语义；
+3. B122：处理全语言/FFI binding、export、registration 与 call 的 typed identity，不放宽 call-edge hard authority；
+4. 随后切换下一组 read/write 异构 case，恰好并发 2 个，避免继续只在 Trace/单一 fixture 上拟合。
+
+状态：`EVAL-B119-REQWIN1=production-covered`；`EVAL-B119-MULTIWINLEDGER1=production-covered`；
+`EVAL-B120-TRACEOWN1=confirmed/P0-next`；`EVAL-B120-DIRLEADER1=confirmed/P1-same-batch`；
+`EVAL-B107-ENDPOINTAMBIG1=confirmed-fourth-witness/P1-after-B121`。
+
+本轮审计没有改 Trace 计算、显式时间窗、自动补齐、因果投影或答案正文；没有用自然语言关键词作 hard gate。runner PASS 仍不能替代人工语义与所有权审计。
