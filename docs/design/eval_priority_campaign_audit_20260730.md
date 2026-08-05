@@ -14880,3 +14880,45 @@ path 做兼容推导，不读取用户请求、模型正文或最终答案。第
 source-class 贯通、旧 observation fallback、5 production + 1 test superset 负臂，以及混合 scope/明确 auxiliary 兼容看护。
 状态：`EVAL-B91-SOURCECLASS1=implemented/tests-pass/replay-next`。本批没有修改 Trace query、显式时间窗、因果投影、自动补齐或
 答案 mutation；source class 是 typed repository fact，不是系统替模型作结论。
+
+## 96. 2026-08-04 B92 r18：B91 来源隔离生效；隐式 selector 与复合 facet 仍破坏完整枚举
+
+### 96.1 严格并行与人工结论
+
+在 `main@b77e6fa9c768` 构建后严格并行恰好两个 read case，单例预算因 B91 的 1201s 边界提高到 1500s：
+
+- `qf_multi_member_set_count_caveat`：runner/human FAIL，415s，5 次 source lens、1 次 Finalizer reject；
+- `qf_sequence_analyzer_gate`：runner/human FAIL，681s，14 次 read、30 个 Explorer 轮、6 次 Finalizer reject。
+
+工件见 `eval/parallel_selected_summary_evalcampaign_b92_contract_replay_r18_20260804.md` 及对应 manual audit。B91-C 的第一层生产
+验收成立：最终 function hard roster 不再含 51 个 `_test.go` 入口，逐行 source class 与 superset demotion 已生效；但完整 roster
+仍未建立，不能将该项关闭。
+
+### 96.2 `EVAL-B92-INVENTORYSELECT1`（P0）：完整 category inventory 被隐式 token query 收窄
+
+本轮 analyzer typed profile 同时请求 `type,function,constant`，但误置了 enum-only facets
+`type_underlying=string + requires_const_set=true`。现有 `PrincipalTargetRoles` 只要看到这两个 facet 就无条件折叠成 type，未验证
+role universe 是否仍含独立 function/constant 主类别。与此同时，模型未传 `query` 的五次 source lens 被系统自动补成整段
+`source_quotes + analyzer_hints.entities`；这些载体包含类别说明与 prescan 样本，不是闭合 selector，最终在 163 个已索引符号上
+返回零 member rows。模型只能手读两份文件并发布 3/2/30，漏掉 production `IsRegistered`、`RegisteredKinds`、
+`SetExternalArtifactFloor`，真实口径为 3/5/30。
+
+最优根修冻结为 typed selection authority 分层：显式 tool `query` 继续是 selector；parser surface-family 与 typed roles/scopes 继续是
+精确 selector；`IsCategoryEnumeration=true` 时不得把 profile quote/entity 自动拼成 token query，因为它们是分类/导航提示而非成员
+闭集。enum-only facets 只有在 raw role universe 仅含 type（以及作为 qualifier 的 constant）时才可折叠；一旦还含 function/method
+等独立角色，就保留全部 principal roles，并走普通 parser inventory。该判定只读 enum/boolean/list 等 typed 字段，不扫描请求或
+答案 prose。必须保留 @Entry/@Builder、Cangjie extend/foreign、Java/Kotlin/C/C++ 等 parser surface-family 精确过滤正臂。
+
+### 96.3 `EVAL-B92-DIAGIDENT1`（P1）：同一 participant 的重复 alias 产生误导性全边拒绝
+
+sequence 前几稿包含反向/虚构边，硬门拒绝正确。后期稿已只保留两条 source-proven edge，却为同一 `gate.RunWith` 声明
+`RW`、`RW2` 两个 participant alias；validator 将连到这两个节点的真实边都报成 `missing_call_anchor`，没有披露真正的重复 identity，
+模型继续改 endpoint/方向并耗尽 6 次。降级稿最终仍把两条汇入同一 callee 的边叙述成串行路径，人工 FAIL。
+
+后续方案不是放宽 call gate，也不是扫描模型散文：在 parsed Mermaid participant 表上先检查“同 canonical label 多 alias”，以
+typed `duplicate_participant_identity` 一次性要求复用一个 alias；只有 identity 唯一后再跑现有 edge authority。若不同 aliases 仅
+展示相同 class/actor carrier 但 message operations 不同，继续走既有 operation resolver，不可盲合并。本轮另有一次 Finalizer
+首字节约 3 分钟等待，归类 provider 波动，不立产品 gap。
+
+施工顺序：B92-A `INVENTORYSELECT1`（P0，先修并回放 inventory）；B92-B `DIAGIDENT1`（P1，精确错误与全语言/全图族结构 pin）；
+之后继续两个异构 case。两批均不触碰 Trace RootCauseTrace、显式时间窗因果投影、自动补齐或系统答案 mutation。

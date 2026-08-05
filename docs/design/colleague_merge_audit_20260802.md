@@ -2146,3 +2146,17 @@ path 兼容回填。受 scope/source-class/family 约束的 principal fact 比�
 新增生产 lens、legacy fallback、混合 production/test superset、mixed-role 与 explicit-universe 正负 pin，并按 convergence
 要求把转换逻辑拆出独立 concern，既有大文件 ceiling 未提高。状态：`EVAL-B91-SOURCECLASS1=implemented/tests-pass/replay-next`；
 待 B91 两例严格并行回放验证 lens/retry/时长收敛。未扫描用户/模型 prose，未触碰 Trace 因果投影和模型结论所有权。
+
+### §10.29 B92 production：source class 隔离成立，完整枚举仍被隐式 selector 清空
+
+`main@b77e6fa9c768` 严格并行两例均人工 FAIL。B91-C 已证明能把 `_test.go` rows 从 production principal roster 隔离，旧
+56-function 强制发布未复发；但 inventory profile 的 compound role universe 被 enum-only facet 无条件折叠，且 source lens 将
+空 query 自动补成分类 quote + analyzer prescan entities，5 次均返回零 rows，最终仅列 2/5 production functions。
+
+新增 `EVAL-B92-INVENTORYSELECT1=P0/confirmed`：完整 category enumeration 的隐式 quote/entity token query 必须退役，显式 tool
+query、typed roles/scopes 与 parser-owned surface family 保留；enum string+const facet 只可在 type(+support constant) 单一 role
+universe 生效。全部判定只消费 typed profile，不读 request/final prose。sequence 另确认
+`EVAL-B92-DIAGIDENT1=P1/confirmed`：同 canonical participant 的重复 alias 让正确 call anchors 被误报 missing，应先发射精确
+duplicate-identity 修复再做 edge gate，不能放宽 evidence authority。
+
+详细数据与人工判断见 eval campaign §96。Trace 显式窗、因果投影、自动补齐和模型结论所有权均未改变。
