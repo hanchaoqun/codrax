@@ -16185,3 +16185,55 @@ QFCallChain 在 prompt 尾部追加同一证据边界：call site 仅证明 call
 Trace 决策段；`go test ./internal/agent -count=1` PASS。
 
 本批没有修改 Trace 查询、root rank、唤醒链、窗内可消除量、因果投影、系统补齐或最终答案持久化；系统仍只给模型精确事实与软引导，不接管模型结论。
+
+## 116. 2026-08-05 B115/B116 r37：探索聚合权威越级与 typed Trace 单一事实面
+
+### 116.1 严格双并发与人工结论
+
+在 `main@ffb007885` 构建冻结后，以 `PARALLEL=2` 严格并行恰好两个异构 case：
+
+- `trace_query_donghu_real_frame_multicausal`：runner PASS，193s，5 次 trace_query，finalizer reject=0；human FAIL；
+- `mr_poly_binding_chain`：runner PASS，361s，finalizer reject/patch=9/9；human FAIL。
+
+工件见 `eval/parallel_selected_summary_evalcampaign_b115_tracepoly_replay_r37_20260805.md` 及 manual audit。Trace 的显式窗、自动补齐、因果投影和
+“实际耗时占用 / 现有规则可消除量”双轴完整存在，B114 尾界也确实位于 prompt 最后；失败不是这些能力消失，而是错误综合在更早阶段已被包装成结构化事实。
+
+跨语言案的源调用与 fallback 大体正确，但 9 次 diagram 拒绝后才删除可选图；同一成员集机械补充在被拒 draft 上累计，最终仍显示两份六行清单。该案同时把
+`EVAL-B107-ENDPOINTAMBIG1` 从一处观察升级为第二个生产 witness：owner-qualified method 与裸 operation 的 typed identity 没有统一，源码明确的
+`FastTokenizer.tokenize -> tokenize_bytes` 被 validator 报成 missing/unproven。
+
+### 116.2 `EVAL-B115-TRACEAGGAUTH1`（P1，B116 已施工）：模型探索综合不能与 deterministic trace 行共享事实权威
+
+Explorer 的 completion payload 把以下内容放进 `aggregate_facts`：四跳 wakeup path 被称为直接因果链，根因排行里把不同成员/口径的 D-state 与 io_wait
+相加为 17.819ms。虽然这些 aggregate 已被降为 supporting/soft/historical，`Structured Aggregate Facts` 仍逐字展示它们；Finalizer 随后把它们当作事实复用，
+压过正确的 typed relation/addition boundary。
+
+B116 在 `AnswerSurfacePlan` 的 runtime-trace authority 编译点加入单一投影规则：
+
+1. 仅当 ledger 有 deterministic runtime query、可编出非空 Trace projection，且 `RuntimeTraceReportMaterializationAllowed` 允许完整报告时生效；
+2. model-authored aggregate 若 typed origin 只有 `runtime_artifact` / `system_inference`，不进入最终事实 handoff、claim binding、成员硬合同或 pre-emit 完整性面；
+3. 原始 aggregate 仍留在 Mutable/TurnAArtifacts，供审计复盘，不删除历史；
+4. 混合 trace+source 场景中带独立 current-source 或其他非 runtime origin 的事实继续保留；
+5. bounded fact-set 查询不扩成完整投影，也不受该投影规则影响。
+
+该方案不解析 aggregate label/member/reason 或最终答案文字，不判断“17.819”是否正确，也不替模型生成结论；它只阻止未绑定 typed trace 凭证的模型综合冒充
+系统事实。Finalizer 仍从 trace_query 投影、系统补齐和关系权限自行给出诊断与建议。
+
+### 116.3 剩余任务排序
+
+1. `EVAL-B115-ENUMACCUM1`（P1）：拒绝 draft 的系统成员补充必须幂等，且结构化模型清单已覆盖 accepted member set 时不得再发同集补充；
+2. `EVAL-B115-DIAGRAMCHURN1`（P1）：相同 optional-diagram violation 无进展重复时，给模型 typed 终止/移除建议并允许重发，避免 9 轮 patch-first；
+3. `EVAL-B107-ENDPOINTAMBIG1`（P1）：统一 owner-qualified endpoint / bare operation / participant message identity，覆盖所有语言和 FFI 边界；
+4. `EVAL-B113-TRACEALIASROW1`（P1）：继续核查同一物理 span 的 attachment/original alias 行归并，未以本轮现象误关账。
+
+### 116.4 验证、状态与不变量
+
+- 新 pin：完整 typed Trace report 隐去 runtime-only model aggregate，但原始 Mutable 审计记录仍在；
+- 反向 pin：bounded fact-set 保留 aggregate；无 deterministic trace row 的日志/runtime 场景保留 aggregate；混合 current-source 事实保留；
+- `go test ./internal/types ./internal/agent -count=1`：PASS；
+- `EVAL-B115-TRACEAGGAUTH1=implemented/full-relevant-pass/replay-next`；
+- `EVAL-B115-ENUMACCUM1=confirmed/B117-next`；`EVAL-B115-DIAGRAMCHURN1=confirmed/B117-or-B118`；
+- `EVAL-B107-ENDPOINTAMBIG1=confirmed-second-witness/P1`。
+
+本批未改 trace_query 计算、显式时间窗、根因排序、唤醒链、窗内可消除量、因果投影或自动补齐；没有扫描用户请求、模型过程或最终答案原文作 hard gate，也没有
+删除或重写模型答案。改动只收窄模型探索综合在最终事实合同中的权威级别。

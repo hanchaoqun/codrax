@@ -90,3 +90,56 @@ func TestFinalTraceDecisionBoundaryFollowsGenericGuidanceAndKeepsModelOwnership(
 		t.Fatalf("bounded fact request was widened into trace synthesis:\n%s", bounded)
 	}
 }
+
+func TestTypedTraceProjectionDoesNotReplayUnboundExplorerAggregateAsFact(t *testing.T) {
+	ctx := answerDocCausalCeilingTestContext(true)
+	ctx.Mutable.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateGroupedCount,
+		Label: "explorer-composed-root-ranking",
+		Value: "4",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Dimensions: []types.AnswerAggregateDimension{{
+			Name: "origin", Value: "runtime_artifact",
+		}},
+		Members: []string{"model-derived subtotal"},
+	}})
+	ctx.Mutable.RetainInvestigationAggregateFacts()
+	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
+		ToolName: "trace_query",
+		Success:  true,
+		TraceEvidenceAuthority: &types.TraceEvidenceAuthority{
+			View: "frame_root_cause_bundle", FrameEvidenceStatus: "absent", CausalConclusion: "unproven",
+		},
+		Observations: []types.ObservationRecord{{
+			ID:              "typed-seat",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRolePrincipalAnswer,
+			GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef: types.ObservationSourceRef{
+				Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "customer.systrace", ArtifactKind: "trace",
+			},
+			Span:      types.ObservationSpan{StartTs: 10, EndTs: 10.020, LineStart: 1, LineEnd: 2},
+			ClaimKey:  "root_cause_primary:worker-200",
+			Predicate: "root_cause_primary",
+			Subject:   "worker-200",
+			Object:    "runnable",
+			Value:     "7.000",
+			Unit:      "ms",
+			RichNotes: []string{"rank=1", "tier=primary", "chain_relevance=on_chain", "impact_ms=7.000", "effective_impact_ms=6.000", "fix_direction=scheduling_priority", "selected_window=10.000000..10.020000"},
+		}},
+	}}})
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !strings.Contains(prompt, "## Final Trace Decision Boundary") {
+		t.Fatalf("typed trace decision authority disappeared:\n%s", prompt)
+	}
+	for _, forbidden := range []string{"explorer-composed-root-ranking", "model-derived subtotal", "aggregate_facts[0]#runtime_artifact"} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("unbound explorer aggregate leaked into factual finalizer handoff via %q:\n%s", forbidden, prompt)
+		}
+	}
+	if got := ctx.Mutable.StableInvestigationAggregateFacts(); len(got) != 1 {
+		t.Fatalf("raw model aggregate must remain available for audit, got %+v", got)
+	}
+}

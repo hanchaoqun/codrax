@@ -1982,6 +1982,7 @@ func applyRuntimeTraceSourceOptionalSurfacePlan(plan *AnswerSurfacePlan, ir *Ana
 	}
 	if observationLedgerHasTraceQueryRuntimeObservation(ledger) {
 		plan.ExternalObservationSeeds = filterPreTriagePerfExternalObservationSeeds(plan.ExternalObservationSeeds)
+		projectTypedTraceAnswerAuthority(plan, &ir.RequestModel, ledger)
 	}
 	authority := BuildRuntimeSourceAnswerAuthoritySnapshot(RuntimeSourceAnswerAuthorityInput{
 		RequestModel:      &ir.RequestModel,
@@ -2044,6 +2045,53 @@ func applyRuntimeTraceSourceOptionalSurfacePlan(plan *AnswerSurfacePlan, ir *Ana
 			plan.RuntimeGroundingDisposition = sourceOptionalRuntimeArtifactDisposition(ir.RequestModel, attachedRuntimeArtifact, ledger)
 		}
 	}
+}
+
+// projectTypedTraceAnswerAuthority keeps a deterministic trace report from
+// replaying the explorer's model-authored aggregate restatement as a second
+// factual authority beside trace_query. The raw completion payload remains in
+// MutableState / TurnAArtifacts for audit; only the final answer-surface plan is
+// narrowed. This is the same authority-boundary pattern used by the typed
+// no-directed-path projection above.
+//
+// The decision is entirely structural: a publication-grade typed trace
+// projection plus typed evidence origins. It never inspects the user request,
+// completion reason, aggregate labels/members, or final answer prose. Mixed
+// trace+source investigations retain facts that carry a non-runtime origin, so
+// exact current-source or external-document findings are not lost.
+func projectTypedTraceAnswerAuthority(plan *AnswerSurfacePlan, rm *RequestModel, ledger ObservationLedger) {
+	if plan == nil || rm == nil || !ledger.HasDeterministicRuntimeQueryObservation() {
+		return
+	}
+	set := CompileTraceCausalProjectionSet(ledger)
+	if len(set.Projections) == 0 || !RuntimeTraceReportMaterializationAllowed(rm, set) {
+		return
+	}
+	kept := make([]AnswerAggregateFact, 0, len(plan.StableAggregateFacts))
+	for _, fact := range plan.StableAggregateFacts {
+		origins := AnswerAggregateFactEvidenceOrigins(fact, rm)
+		if modelAggregateIsTraceRestatementOnly(origins) {
+			continue
+		}
+		kept = append(kept, fact)
+	}
+	plan.StableAggregateFacts = kept
+}
+
+func modelAggregateIsTraceRestatementOnly(origins []AnswerEvidenceOrigin) bool {
+	if len(origins) == 0 {
+		return true
+	}
+	for _, origin := range origins {
+		switch origin {
+		case AnswerEvidenceOriginRuntimeArtifact, AnswerEvidenceOriginSystemInference:
+			// A model-authored restatement of the attached trace remains
+			// provisional once exact trace_query rows exist.
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func runtimeSourceAuthorityAppliesToSurfacePlan(authority RuntimeSourceAnswerAuthoritySnapshot) bool {
