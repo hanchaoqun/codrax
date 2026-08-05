@@ -5393,7 +5393,8 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 	expectedPrefix := "include every model-emitted principal member_set member in the visible answer. "
 	if structuredPrincipalCarrierRequired {
 		field = "blocks[].surface_role/facet_ids/claim_uses + blocks[].items[].label/cells/citation_ref"
-		expectedPrefix = preEmitStructuredPrincipalMemberRepairRecipe()
+		expectedPrefix = preEmitStructuredPrincipalMemberRepairRecipe() +
+			preEmitStructuredPrincipalMarkdownRepairTargets(doc, roster)
 	}
 	return []emitFixHint{{
 		Field: field,
@@ -5407,6 +5408,53 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 	}}
 }
 
+// preEmitStructuredPrincipalMarkdownRepairTargets turns an already-visible
+// authored Markdown table into an exact patch target when its structured
+// citation sidecars are the only missing part of the source-inventory row
+// contract. The table classifier and first-column identity matcher are the
+// same precise structural signals used by the coverage gate; no request or
+// answer prose classifier participates. This is repair guidance only: the
+// model still chooses and emits the replacement block.
+func preEmitStructuredPrincipalMarkdownRepairTargets(doc *types.AnswerDocumentV2, roster []preEmitMemberSetRosterEntry) string {
+	if doc == nil || len(roster) == 0 {
+		return ""
+	}
+	type target struct {
+		id      string
+		visible int
+	}
+	var targets []target
+	for _, block := range doc.Blocks {
+		id := strings.TrimSpace(block.ID)
+		if id == "" || block.Kind != types.BlockTable || block.SurfaceRole != types.SurfacePrincipal ||
+			!principalEnumerationBlockHasEnumerationFacet(block) ||
+			!types.AnswerTextLooksLikeMarkdownTable(block.Text) {
+			continue
+		}
+		visible := 0
+		for _, row := range roster {
+			if row.present || strings.TrimSpace(row.member) == "" {
+				continue
+			}
+			if preEmitMarkdownTablePrimaryAxisContainsAggregateMember(block, row.member) {
+				visible++
+			}
+		}
+		if visible > 0 {
+			targets = append(targets, target{id: id, visible: visible})
+		}
+	}
+	if len(targets) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(targets))
+	for _, target := range targets {
+		parts = append(parts, fmt.Sprintf("%q (%d visible obligation row(s))", target.id, target.visible))
+	}
+	return "Existing authored Markdown table carrier(s) already render obligation identities on their visible first-column axis: " +
+		strings.Join(parts, ", ") + ". On a patch retry, use replace_blocks for those existing block ids and attach matching items[] citation sidecars to the same rows; do not use add_blocks to create a second copy of that roster. "
+}
+
 // preEmitStructuredPrincipalMemberRepairRecipe describes every schema field
 // that participates in the source-inventory row contract before the bounded
 // obligation roster. It is repair context only: the validator continues to
@@ -5418,7 +5466,8 @@ func preEmitStructuredPrincipalMemberRepairRecipe() string {
 			"(2) keep the contract's enumeration metadata: facet_ids includes %q and claim_uses contains a contract-allowed claim_form; "+
 			"(3) copy each roster member exactly into items[].label (or one items[].cells entry); item.text and blocks[].text do not carry member identity; "+
 			"(4) roster set_label is only the aggregate/category key for the block title/id — never copy set_label into item.label in place of member; "+
-			"(5) when the handoff provides row-local support/citation, set that item's citation_ref to the same member's compatible citation and never borrow another row's citation. ",
+			"(5) when the handoff provides row-local support/citation, set that item's citation_ref to the same member's compatible citation and never borrow another row's citation; "+
+			"(6) ADD means add item rows inside the chosen carrier, not necessarily add_blocks; repair an existing carrier in place when it already renders the roster. ",
 		types.SurfacePrincipal,
 		types.FacetEnumerationItem,
 	)

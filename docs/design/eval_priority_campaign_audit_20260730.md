@@ -15646,3 +15646,48 @@ endpoint analyzer，再与当前 mutable evidence lane 求并集；既有 ground
 `internal/types`（22.439s）、`internal/agent`（4.072s）、`internal/tool`（169.392s）通过；BusContext parity 增补后定向 suite 复绿。
 
 状态：`EVAL-B101-BOUNDARYHANDOFF1=implemented/full-pass/replay-next`。
+
+## 106. 2026-08-05 B102 r28：B101 交接修复关闭；图状态命名与 patch 原位目标成为通用收敛项
+
+### 106.1 严格双并发与人工结论
+
+在 `main@30967b332` 以 `PARALLEL=2` 严格并行恰好两个 read case，runner 均 FAIL、人工均 FAIL：
+
+- `qf_sequence_analyzer_gate`：272s，6 个 Explorer midloop、4 次 completion 尝试、3 次 Finalizer reject，最大 context 29%；
+- `qf_multi_member_set_count_caveat`：227s，3 次 source lens、2 次 Finalizer reject、1 次工具不可用提示，最大 context 22%。
+
+工件见 `eval/parallel_selected_summary_evalcampaign_b102_b101_replay_r28_20260805.md` 及 manual audit。本轮仍未运行 Trace。
+
+### 106.2 B101 生产验收与剩余模型波动
+
+`EVAL-B101-BOUNDARYHANDOFF1` 已关闭：Finalizer 从 Explorer handoff 正确获得 exact `gate.Run` definition，输出
+`requested_sink_existence_proof=definition_only`，旧 `unproven` 回退消失。sequence 模型在答案开头正确说明 `gate.Run -> RunWith`，末尾 caveat 却又写成
+`RunWith -> Run`；diagram hard gate 删除了无证箭头，但没有改写模型 prose，符合答案所有权红线。由于同一答案内部先正确后错误、typed 边界已准确，本项作为模型波动保留异构回放，
+不得新增答案关键词/方向句式 hard gate。
+
+inventory 的 production 3 types、5 functions、30 constants 与 38 条 row-local citations 均正确，但答案重复输出一份 Markdown 表和一份 ordered list，
+遗漏显式 `function=5` 分类头，并虚构源码不存在的 `iota` 机制。`iota` 首次出现在 Explorer completion，而非 AnalyzerHints；B101 未复现。暂不按单次模型波动做词面门。
+
+### 106.3 `EVAL-B102-GRAPHSTATUS1`（P1）：graph resolution 与 endpoint existence 标签混轴
+
+胶囊同时给出 `evidence_status=endpoint_unresolved` 和 `requested_sink_existence_proof=definition_only`。语义上前者只描述 exact endpoint 未成为 grounded
+call-edge graph 节点，后者证明符号定义存在；通用 `evidence_status` 命名却容易被理解为全部证据未解析。渲染键已收窄为 `call_graph_status`，并显式说明 graph status 与两端
+`*_existence_proof` 分轴。底层 enum、图分析、waiver、hard gate 与模型结论均未改变。
+
+### 106.4 `EVAL-B102-PATCHTARGET1`（P1）：拒绝 patch 累积出重复 principal carrier
+
+inventory 第二稿已用 authored Markdown table 显示全部 38 个 identity，但缺逐行 structured citation sidecar，coverage 正确拒绝。通用 repair 只说
+“ADD missing rows”，没有点名既有表；模型下一轮用 `add_blocks` 新建完整 ordered list，被拒绝表仍作为 patch base 保留，最终两份 roster 同时发射。
+
+根修只改善 typed repair context：复用 gate 的 concrete Markdown table classifier、principal/enumeration annotations 与第一列 identity matcher；当既有表已经显示 obligation
+identity 时，提示精确列出 block ID 与 visible-row count，要求用 `replace_blocks` 原位补 `items[]` citation sidecar，并禁止 `add_blocks` 复制同一 roster。
+系统不自动删除/改写任何 model block，不按答案关键词决定行为。
+
+### 106.5 施工、验证与留项
+
+定向 agent/tool 测试通过；完整 `internal/agent`（2.480s）、`internal/tool`（161.239s）通过。状态：
+`EVAL-B102-GRAPHSTATUS1=implemented/full-pass/replay-next`，
+`EVAL-B102-PATCHTARGET1=implemented/full-pass/replay-next`。
+
+`iota` 与缺显式 per-role count 暂按模型波动观察；若另一 inventory family 复现，再评估 typed compact per-role census，不得以原文关键词 gate 修复。B99
+patch-citation drift 仍未形成同形 witness，保持 replay-pending。上述两项均不进入 RootCauseTrace、显式时间窗、双轴根因、因果投影或自动补齐。

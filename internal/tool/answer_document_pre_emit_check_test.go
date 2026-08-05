@@ -3293,6 +3293,26 @@ func TestPreCheckAggregateMemberSetCoverage_UsesProjectedSourceInventoryRowSet(t
 	}
 
 	doc.Blocks[0] = types.AnswerBlock{
+		ID:          "inventory-table",
+		Kind:        types.BlockTable,
+		Title:       "source inventory principal rows",
+		SurfaceRole: types.SurfacePrincipal,
+		FacetIDs:    []string{string(types.FacetEnumerationItem)},
+		ClaimUses: []types.RenderedClaimUse{{
+			FacetID:   string(types.FacetEnumerationItem),
+			ClaimForm: types.ClaimDefinitionFact,
+		}},
+		Text: "| Member | Location |\n|---|---|\n| Run | thirdparty/cangjie/run.cj:7 |\n| Serve | src/serve.cj:12 |",
+	}
+	hints = preCheckAggregateMemberSetCoverage(doc, ctx)
+	if len(hints) != 1 ||
+		!strings.Contains(hints[0].ExpectedShape, `"inventory-table" (2 visible obligation row(s))`) ||
+		!strings.Contains(hints[0].ExpectedShape, "use replace_blocks") ||
+		!strings.Contains(hints[0].ExpectedShape, "do not use add_blocks") {
+		t.Fatalf("authored Markdown repair should target its existing block instead of duplicating the roster, got %+v", hints)
+	}
+
+	doc.Blocks[0] = types.AnswerBlock{
 		ID:          "source-inventory-principal-rows",
 		Kind:        types.BlockTable,
 		Title:       "source inventory principal rows",

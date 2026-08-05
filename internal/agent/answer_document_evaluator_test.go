@@ -881,7 +881,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersTypedCallChainEn
 		"disposition=`no_directed_path`",
 		"source_endpoint=`buildAnalysisIR`",
 		"requested_sink=`gate.Run`",
-		"evidence_status=`parallel_convergence`",
+		"call_graph_status=`parallel_convergence`",
 		"grounded_call_edge_count=`2`",
 		"source_endpoint_existence_proof=`call_edge`",
 		"requested_sink_existence_proof=`call_edge`",
@@ -960,8 +960,10 @@ func TestAnswerDocumentEvaluator_CallChainBoundaryUsesExplorerHandoffDefinition(
 
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
+		"call_graph_status=`endpoint_unresolved`",
 		"requested_sink_existence_proof=`definition_only`",
 		"requested_sink_incident_call_evidence=`not_emitted`",
+		"describes only resolution inside the grounded call-edge graph",
 		"Do not extend it to the requested sink",
 	} {
 		if !strings.Contains(prompt, want) {
@@ -985,7 +987,7 @@ func TestRenderAnswerDocCallChainEndpointBoundary_DirectedEvidenceDisclosesState
 		},
 	}}
 	got := renderAnswerDocCallChainEndpointBoundary(view)
-	for _, want := range []string{"evidence_status=`directed_path_present`", "conflicts with the retained no-directed-path boundary", "model owns the conclusion"} {
+	for _, want := range []string{"call_graph_status=`directed_path_present`", "conflicts with the retained no-directed-path boundary", "model owns the conclusion"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("conflicting typed carriers must be disclosed with model ownership (%q):\n%s", want, got)
 		}

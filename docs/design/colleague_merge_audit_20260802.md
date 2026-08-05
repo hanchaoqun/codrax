@@ -2397,3 +2397,19 @@ grounding、current-source、identity/edge 去重及 definition/call-edge 权限
 
 完整 types/agent/tool 通过（22.439s/4.072s/169.392s），AgentContext、BusContext 与 Finalizer prompt 三面 pin 已落地。状态：
 `EVAL-B101-BOUNDARYHANDOFF1=implemented/full-pass/replay-next`；B99 patch citation drift 仍因缺少同形生产 witness 保持 replay-pending。
+
+### §10.39 B102 production：handoff 权威关闭；repair 目标与 graph 状态词面分轴
+
+`main@30967b332` 严格并行两个 read case 均 runner/human FAIL；详细工件、人工审计与模型波动裁定见 eval campaign §106。
+
+- B101 endpoint handoff 已关闭：Finalizer 收到 `definition_only`，不再把已证 endpoint 回退成 `unproven`；
+- sequence 剩余错误是模型在同一答案开头写对 `Run -> RunWith`、末尾写反，diagram gate 删除无证边但不改写正文；不据单次波动新增 prose hard gate；
+- inventory 的 38 条 production row/citation authority 正确，但两次 patch 把被拒绝 Markdown 表与新 ordered list 累积成重复 roster；模型另有一次未复现的 `iota` 幻觉和分类计数漏显。
+
+已交付两个 P1 通用修复：`EVAL-B102-GRAPHSTATUS1` 将 prompt 的 `evidence_status` 收窄为 `call_graph_status`，明确它只描述 call-edge graph，
+与 endpoint existence proof 分轴；`EVAL-B102-PATCHTARGET1` 在 authored Markdown 表已可见地承载 obligation identity 时，使用同一结构判定点名既有 block ID，要求
+`replace_blocks` 原位补 citation sidecar，禁止 `add_blocks` 复制 roster。
+
+两项都只改善模型上下文/repair 指引，不修改模型答案、事实或结论，不扫描 request/final prose 作 hard gate，不触碰 RootCauseTrace、显式时间窗、双轴根因、
+因果投影或自动补齐。完整 agent/tool 通过（2.480s/161.239s）。状态均为 `implemented/full-pass/replay-next`；`iota`、per-role count 与 B99 citation drift
+按 §106 留项继续异构回放。

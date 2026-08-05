@@ -2786,7 +2786,7 @@ func renderAnswerDocCallChainEndpointBoundary(view *types.AnswerSemanticView) st
 	fmt.Fprintf(&b, "- source_endpoint=`%s`\n", answerDocCallChainInline(boundary.SourceEndpoint))
 	fmt.Fprintf(&b, "- requested_sink=`%s`\n", answerDocCallChainInline(boundary.RequestedSink))
 	if capsule := boundary.EvidenceCapsule; capsule != nil {
-		fmt.Fprintf(&b, "- evidence_status=`%s`\n", capsule.Status)
+		fmt.Fprintf(&b, "- call_graph_status=`%s`\n", capsule.Status)
 		fmt.Fprintf(&b, "- grounded_call_edge_count=`%d`\n", capsule.EdgeCount)
 		if capsule.SourceProof != "" {
 			fmt.Fprintf(&b, "- source_endpoint_existence_proof=`%s`\n", capsule.SourceProof)
@@ -2817,6 +2817,7 @@ func renderAnswerDocCallChainEndpointBoundary(view *types.AnswerSemanticView) st
 		if len(capsule.SourcePath)+len(capsule.SinkPath)+len(capsule.SourceFrontier)+len(capsule.RequestedBoundary) == 0 {
 			b.WriteString("- No bounded grounded call-edge row is available for this endpoint boundary.\n")
 		}
+		b.WriteString("- `call_graph_status` describes only resolution inside the grounded call-edge graph; endpoint existence is reported separately by the two `*_existence_proof` fields and is not contradicted by a definition-only endpoint being absent from that graph.\n")
 	}
 	b.WriteString("\n")
 	if boundary.EvidenceCapsule != nil && boundary.EvidenceCapsule.Status == types.CallChainEndpointEvidenceDirectedPathPresent {
