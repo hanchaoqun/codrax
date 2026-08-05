@@ -67,6 +67,23 @@ func TestNormalizeCallChainEndpointProfilePreservesOrderedDiscoveredEndpointWith
 	}
 }
 
+func TestCallChainEndpointProfileDiscoverSinkKeepsCandidateOutOfDirectionAuthority(t *testing.T) {
+	profile, reason := NormalizeCallChainEndpointProfile(
+		&CallChainEndpointProfile{Source: "run_pipeline", Sink: "JsonPlugin.handle", SinkMode: CallChainSinkResolutionDiscover},
+		[]string{"run_pipeline"},
+	)
+	if profile == nil || !profile.DiscoverSinkActive() || profile.Sink != "" || reason == "" {
+		t.Fatalf("discover normalization must discard preselected candidate with an audit warning: profile=%+v reason=%q", profile, reason)
+	}
+	rm := RequestModel{CallChainEndpointProfile: profile}
+	if source, sink, ok := CallChainOrderedEndpointHints(rm); ok || source != "" || sink != "" {
+		t.Fatalf("discover profile must not mint an exact ordered pair: %q %q %t", source, sink, ok)
+	}
+	if got := CallChainRequestedEndpointHints(rm); !reflect.DeepEqual(got, []string{"run_pipeline"}) {
+		t.Fatalf("discover presentation hints=%v, want source only", got)
+	}
+}
+
 func TestCallChainEndpointCompatibleUsesQualifiedIdentitySegments(t *testing.T) {
 	for _, tc := range []struct {
 		candidate string

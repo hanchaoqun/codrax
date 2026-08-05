@@ -2,24 +2,52 @@ package types
 
 import "strings"
 
+type CallChainSinkResolutionMode string
+
+const (
+	CallChainSinkResolutionExact    CallChainSinkResolutionMode = "exact"
+	CallChainSinkResolutionDiscover CallChainSinkResolutionMode = "discover"
+)
+
+func CallChainSinkResolutionModeValues() []string {
+	return []string{string(CallChainSinkResolutionExact), string(CallChainSinkResolutionDiscover)}
+}
+
 // CallChainEndpointProfile is the analyzer-authored ordered endpoint carrier
 // for source-code call-chain requests. Identity lists such as ExactTargets and
 // MentionedEntities remain unordered sets; only this profile may drive a
 // source->sink hard gate.
 type CallChainEndpointProfile struct {
-	Source string `json:"source"`
-	Sink   string `json:"sink"`
+	Source   string                      `json:"source"`
+	Sink     string                      `json:"sink"`
+	SinkMode CallChainSinkResolutionMode `json:"sink_mode,omitempty"`
 }
 
 func (p *CallChainEndpointProfile) Active() bool {
+	return p.ExactActive() || p.DiscoverSinkActive()
+}
+
+func (p *CallChainEndpointProfile) ExactActive() bool {
 	if p == nil {
 		return false
 	}
 	source := strings.TrimSpace(p.Source)
 	sink := strings.TrimSpace(p.Sink)
-	return source != "" && sink != "" && !strings.EqualFold(source, sink) &&
+	mode := p.SinkMode
+	if mode == "" {
+		mode = CallChainSinkResolutionExact
+	}
+	return mode == CallChainSinkResolutionExact && source != "" && sink != "" && !strings.EqualFold(source, sink) &&
 		IsCodeIdentitySurface(source) && IsCodeIdentitySurface(sink) &&
 		!callChainEndpointHintLooksLikePath(source) && !callChainEndpointHintLooksLikePath(sink)
+}
+
+func (p *CallChainEndpointProfile) DiscoverSinkActive() bool {
+	if p == nil || p.SinkMode != CallChainSinkResolutionDiscover || strings.TrimSpace(p.Sink) != "" {
+		return false
+	}
+	source := strings.TrimSpace(p.Source)
+	return source != "" && IsCodeIdentitySurface(source) && !callChainEndpointHintLooksLikePath(source)
 }
 
 // NormalizeCallChainEndpointProfile validates the ordered carrier's structural
@@ -34,11 +62,25 @@ func NormalizeCallChainEndpointProfile(in *CallChainEndpointProfile, requestMent
 		return nil, ""
 	}
 	profile := &CallChainEndpointProfile{
-		Source: strings.TrimSpace(in.Source),
-		Sink:   strings.TrimSpace(in.Sink),
+		Source:   strings.TrimSpace(in.Source),
+		Sink:     strings.TrimSpace(in.Sink),
+		SinkMode: in.SinkMode,
+	}
+	if profile.SinkMode == "" {
+		profile.SinkMode = CallChainSinkResolutionExact
+	}
+	if profile.SinkMode == CallChainSinkResolutionDiscover && profile.Sink != "" {
+		profile.Sink = ""
+		if !profile.DiscoverSinkActive() {
+			return nil, "call_chain_endpoints discover mode requires one valid source-code source identity"
+		}
+		return profile, "call_chain_endpoints discover mode discarded a preselected sink; grounded exploration must identify the runtime destination"
 	}
 	if !profile.Active() {
-		return nil, "call_chain_endpoints requires two distinct source-code symbol identities"
+		return nil, "call_chain_endpoints requires either exact mode with two distinct source-code identities or discover mode with one source and an empty sink"
+	}
+	if profile.DiscoverSinkActive() {
+		return profile, ""
 	}
 	allowed := make(map[string]bool, len(requestMentioned))
 	for _, raw := range requestMentioned {
@@ -56,7 +98,7 @@ func NormalizeCallChainEndpointProfile(in *CallChainEndpointProfile, requestMent
 // is authoritative. Absence is intentional: consumers must stand down rather
 // than falling back to entity mention order.
 func CallChainOrderedEndpointHints(rm RequestModel) (string, string, bool) {
-	if !rm.CallChainEndpointProfile.Active() {
+	if !rm.CallChainEndpointProfile.ExactActive() {
 		return "", "", false
 	}
 	return strings.TrimSpace(rm.CallChainEndpointProfile.Source), strings.TrimSpace(rm.CallChainEndpointProfile.Sink), true

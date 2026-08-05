@@ -461,6 +461,11 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}) {
 		return b.String()
 	}
+	if !trace.appendSection(&b, "call_chain_target_discovery", func() string {
+		return renderAnswerDocCallChainTargetDiscovery(ctx)
+	}) {
+		return b.String()
+	}
 	// 2026-05-17 T1 architectural fix: render the per-dispatch
 	// visible-anchor whitelist immediately after the required
 	// mechanism anchors so the model sees "must surface" + "may
@@ -2794,6 +2799,21 @@ func renderAnswerDocRequiredMechanismAnchors(view *types.AnswerSemanticView) str
 	b.WriteString("- If the main explanation is prose-only, add a compact ordered_list or table of key anchors; each item label should be the exact anchor and carry the relevant `citation_ref` when available.\n")
 	b.WriteString("- Do not rely on prose-only mentions. The validator compares the typed anchor list above with structured AnswerDocument fields.\n\n")
 	return b.String()
+}
+
+func renderAnswerDocCallChainTargetDiscovery(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.AnalysisIR == nil || !ctx.AnalysisIR.RequestModel.CallChainEndpointProfile.DiscoverSinkActive() {
+		return ""
+	}
+	profile := ctx.AnalysisIR.RequestModel.CallChainEndpointProfile
+	var b strings.Builder
+	b.WriteString("## Call-chain runtime target discovery\n\n")
+	fmt.Fprintf(&b, "- grounded source endpoint: `%s`\n", strings.TrimSpace(profile.Source))
+	b.WriteString("- destination mode: `discover`; no preselected sink has answer authority\n")
+	b.WriteString("- Select the reached implementation/class/handler yourself from grounded call, registration/binding, dispatch, and inheritance/implementation evidence. A pre-scan candidate, nearby definition, or same-name method is not enough.\n")
+	b.WriteString("- Keep relation kinds honest: registration/binding is not a source-level call. When dispatch is dynamic, show the grounded static prefix and the typed binding/dispatch boundary separately; do not invent a direct invocation merely to make one continuous arrow.\n")
+	b.WriteString("- Distinguish the selected runtime class from the class or mixin that owns an inherited method definition. State both when they differ, with their own grounded citations. The model owns the final destination conclusion; this section only preserves the evidence boundary.\n")
+	return strings.TrimRight(b.String(), "\n")
 }
 
 func renderAnswerDocCallChainEndpointBoundary(view *types.AnswerSemanticView) string {

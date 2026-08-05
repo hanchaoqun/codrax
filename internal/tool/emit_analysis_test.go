@@ -872,6 +872,35 @@ func TestEmitAnalysis_SourceCallChainAmbiguousEntitiesRequireExactEndpointPair(t
 	}
 }
 
+func TestEmitAnalysis_SourceCallChainMayDiscoverRequestedRuntimeDestination(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	objective := "处理 kind=json 的输入时，最终由哪个类处理？从 run_pipeline 到这个类的解析链路是什么？"
+	payload := `{
+		"intent":"trace",
+		"scenario":"architecture_explain",
+		"complexity":"complex",
+		"keywords":["run_pipeline","kind=json","resolve","registry","handler"],
+		"entities":["run_pipeline","kind=json"],
+		"question_kind":"call_chain",
+		"predicate_axis":"call",
+		"call_chain_endpoints":{"source":"run_pipeline","sink":"","sink_mode":"discover"}
+	}`
+	res, mu := runEmitAnalysisWithObjective(t, objective, payload)
+	if !res.Success || mu.RequestModel() == nil {
+		t.Fatalf("discover destination must remain a valid directional investigation: success=%t summary=%q", res.Success, res.Summary)
+	}
+	profile := mu.RequestModel().CallChainEndpointProfile
+	if !profile.DiscoverSinkActive() || profile.Sink != "" {
+		t.Fatalf("persisted discovery profile wrong: %+v", profile)
+	}
+	if source, sink, ok := types.CallChainOrderedEndpointHints(*mu.RequestModel()); ok || source != "" || sink != "" {
+		t.Fatalf("discover profile must not become an exact hard-gate pair: %q %q %t", source, sink, ok)
+	}
+}
+
 func TestEmitAnalysis_SourceCallChainSemanticSinkMayResolveToConcreteSymbol(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

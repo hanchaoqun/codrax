@@ -16733,3 +16733,32 @@ handoff 必须降为 observation；项目测试失败保持 project authority；
 状态：`EVAL-B122-PROBEAUTH1=implemented/full-related-pass`；
 `EVAL-B122-PROBEPOLARITY1=implemented-soft-guidance/full-related-pass/replay-next`；
 `EVAL-B122-EXECGRAPH1=confirmed/P1-next`；`EVAL-B122-JSONTEACH1=confirmed/P1-after-execgraph`。
+
+### 123.6 B123-C1：未知运行终点不得由 Analyzer 预铸
+
+r41 的问题不是只有 dynamic edge 缺表达。用户问的是“最终由哪个类处理”，终点类本身就是待调查答案，
+Analyzer 却把一次 pre-scan 看到的 `JsonPlugin.handle` 写进 exact source/sink 合同。后续所有 completion hard gate
+因而要求 Explorer 证明一个尚未调查、且把运行类与继承方法 owner 混成一体的预制终点。
+
+本小批新增 `call_chain_endpoints.sink_mode=exact|discover`：
+
+1. 当前请求已经命名 source 与 destination 时用 `exact`，原 source→sink directed-path hard gate、
+   no-directed-path typed boundary 及图边权限保持不变；
+2. 当前请求要求系统找出最终 implementation/class/handler 时用 `discover`，只保留明确 source，sink 必须为空；
+   pre-scan 候选即使被模型错误填入也会确定性清空并留下 warning，不能成为答案或 hard-gate 权威；
+3. `CallChainOrderedEndpointHints` 对 discover 返回 unavailable，禁止 entity/mention order 退化成方向；support lane
+   只优先 source，候选必须来自后续 grounded evidence；
+4. Finalizer 新增 typed target-discovery boundary：要求模型从 call、registration/binding、dispatch、
+   inheritance/implementation 事实选择终点；registration 不得伪装 call；运行时选中的 class 与继承方法的
+   definition owner 不同则分别披露。系统不选择终点、不生成结论。
+
+JSON 教学与 schema 同批对齐：`sink_mode` 同时进入 `required` 和 `properties`，classification skill 明确
+exact/discover 分界，并保留“pre-scan only selects investigation target / NEVER proves”既有红线。判据不扫描
+用户原文或模型答案，全部消费 schema-validated mode 与 endpoint fields。
+
+回归覆盖 discover 中错误预填 sink 自动撤权、discover 不生成 ordered pair、emit_analysis 接受未知终点、
+Finalizer discovery context，以及 exact 旧车道。`types/tool/agent` 全包 PASS（tool 165.317s，types 19.861s）；
+`skill` 修正 parity pin 后全包 PASS（0.565s）。
+
+状态：`EVAL-B122-EXECGRAPH1=partially-implemented/C1-discover-mode-full-related-pass`；下一小批 C2 为
+grounded compound execution path（static call + binding/dispatch + inherited owner），不把非调用关系铸成 call。

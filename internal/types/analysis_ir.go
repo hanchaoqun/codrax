@@ -137,8 +137,10 @@ type RequestModel struct {
 	SourceInventoryProfile *SourceInventoryProfile `json:"source_inventory_profile,omitempty"`
 
 	// CallChainEndpointProfile is the sole ordered source->sink request
-	// carrier. Analyzer entity/exact-target arrays remain identity sets and
-	// must never be interpreted as directional by downstream hard gates.
+	// carrier. Its discover mode preserves an explicit source while leaving a
+	// user-requested runtime destination unselected until grounded exploration.
+	// Analyzer entity/exact-target arrays remain identity sets and must never be
+	// interpreted as directional by downstream hard gates.
 	CallChainEndpointProfile *CallChainEndpointProfile `json:"call_chain_endpoint_profile,omitempty"`
 
 	// ChangeImpactProfile is the analyzer LLM's typed lane for

@@ -907,6 +907,33 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersTypedCallChainEn
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersCallChainTargetDiscoveryBoundary(t *testing.T) {
+	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:        types.IntentTrace,
+		PredicateAxis: types.AxisCall,
+		CallChainEndpointProfile: &types.CallChainEndpointProfile{
+			Source: "run_pipeline", SinkMode: types.CallChainSinkResolutionDiscover,
+		},
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+	}}}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Call-chain runtime target discovery",
+		"grounded source endpoint: `run_pipeline`",
+		"destination mode: `discover`",
+		"registration/binding is not a source-level call",
+		"runtime class from the class or mixin that owns an inherited method definition",
+		"model owns the final destination conclusion",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("target-discovery prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "## Typed Call-Chain Endpoint Boundary") {
+		t.Fatalf("discover mode must not fabricate an exact no-directed-path endpoint boundary:\n%s", prompt)
+	}
+}
+
 func TestRenderAnswerDocCallChainEndpointBoundary_DefinitionOnlyDoesNotClaimLeaf(t *testing.T) {
 	view := &types.AnswerSemanticView{CallChainEndpointBoundary: &types.CallChainEndpointBoundary{
 		Disposition:    types.CallChainEndpointNoDirectedPath,

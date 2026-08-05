@@ -466,6 +466,10 @@ func callChainRequestedEndpointHints(rm RequestModel) []string {
 		add(sink)
 		return out
 	}
+	if rm.CallChainEndpointProfile.DiscoverSinkActive() {
+		add(rm.CallChainEndpointProfile.Source)
+		return out
+	}
 	// ExactTargets is the analyzer's strongest endpoint identity carrier.
 	// Prefer it when present so contextual MentionedEntities cannot displace a
 	// model-declared source or sink. Path-like exact targets are discarded by
