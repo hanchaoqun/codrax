@@ -7,7 +7,7 @@ func SourceInventoryRequiresRepoWideLens(rm RequestModel) bool {
 	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
 		return false
 	}
-	if SourceInventoryHasExactRequestedFileBoundary(rm) {
+	if len(SourceInventoryRequestedPathScopes(rm)) > 0 || SourceInventoryHasExactRequestedFileBoundary(rm) {
 		return false
 	}
 	if rm.SourceScopeProfile == nil {

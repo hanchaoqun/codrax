@@ -2722,6 +2722,32 @@ func TestSourceInventoryRequestedUniverseFollowupDebt_PrioritizesExactRequiredFi
 	}
 }
 
+func TestSourceInventoryRequestedUniverseFollowupDebt_RequestPathOutranksPrescanFiles(t *testing.T) {
+	ctx := sourceInventoryRequestedUniverseTestContext(nil, []types.SourceInventorySourceClassCount{{
+		Role: types.SourcePathRoleProduction, Count: 10,
+		Languages: []types.SourceInventoryLanguageCount{{Language: "go", Count: 10}},
+	}})
+	ctx.AnalysisIR.RequestModel.SourceInventoryProfile = &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+	}
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.SourceInventoryRequestedPathScopes = []string{"internal/analysis/criterion"}
+	ctx.AnalysisIR.EvidencePlan.RequiredFiles = []string{
+		"internal/analysis/criterion/grammar.go",
+		"internal/analysis/criterion/eval.go",
+	}
+	debt := sourceInventoryRequestedUniverseFollowupDebt(
+		ctx,
+		types.SourceInventoryObservationFromMutable(ctx.Mutable),
+		ctx.AnalysisIR.RequestModel,
+		nil,
+	)
+	if !debt.IsActive() || debt.ReasonCode != types.SourceInventoryFollowupDebtRequestedPathBoundary ||
+		len(debt.Query.Scopes) != 1 || debt.Query.Scopes[0] != "internal/analysis/criterion" {
+		t.Fatalf("request directory must outrank prescan-derived file samples: %+v", debt)
+	}
+}
+
 func sourceInventoryExactRequiredFileObservation() types.SourceInventoryObservation {
 	members := []types.SourceInventoryObservationMember{
 		sourceInventoryRequestedUniverseMemberWithLanguage("EvidenceKind", types.AnswerCandidateRoleType, "internal/types/evidence.go", 13, "go"),

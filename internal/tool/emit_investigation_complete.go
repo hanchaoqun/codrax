@@ -6471,6 +6471,11 @@ func sourceInventoryResolvedCompletionRequiresRepoWideAuthority(ctx *types.BusCo
 }
 
 func sourceInventoryResolvedCompletionRepairScopes(ctx *types.BusContext, observation types.SourceInventoryObservation) []string {
+	if ctx != nil && ctx.AnalysisIR != nil {
+		if scopes := types.SourceInventoryRequestedPathScopes(ctx.AnalysisIR.RequestModel); len(scopes) > 0 {
+			return scopes
+		}
+	}
 	if sourceInventoryResolvedCompletionRequiresRepoWideAuthority(ctx, observation) {
 		return []string{"."}
 	}

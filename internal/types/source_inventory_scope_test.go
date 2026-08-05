@@ -126,6 +126,29 @@ func TestSourceInventoryRequiresRepoWideLens_TypedScopeOnly(t *testing.T) {
 	}
 }
 
+func TestSourceInventoryRequiresRepoWideLens_RequestBoundPathScope(t *testing.T) {
+	rm := RequestModel{
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},
+		},
+		AnalyzerHints: AnalyzerHints{
+			SourceInventoryRequestedPathScopes: []string{"internal/analysis/criterion"},
+		},
+	}
+	if SourceInventoryRequiresRepoWideLens(rm) {
+		t.Fatal("request-bound path scope must not be expanded to repo-wide")
+	}
+	if got := SourceInventoryRequestedPathScopes(rm); len(got) != 1 || got[0] != "internal/analysis/criterion" {
+		t.Fatalf("requested path scopes = %#v", got)
+	}
+
+	rm.AnalyzerHints.SourceInventoryRequestedPathScopes = []string{".", "../outside"}
+	if !SourceInventoryRequiresRepoWideLens(rm) {
+		t.Fatal("invalid/root path carriers must not narrow repo-wide authority")
+	}
+}
+
 func TestSourceInventoryRequiresRepoWideLens_ExactRequestedFileBoundaryWinsOverClass(t *testing.T) {
 	rm := RequestModel{
 		SourceInventoryProfile: &SourceInventoryProfile{

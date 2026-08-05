@@ -167,6 +167,35 @@ func TestBuildSourceInventoryPrincipalRowSet_FamilyBalancedBeforeLimit(t *testin
 	}
 }
 
+func TestBuildSourceInventoryPrincipalRowSet_RequestBoundPathAuditsSiblingRows(t *testing.T) {
+	observation := SourceInventoryObservation{
+		Active: true,
+		Scopes: []string{"internal/analysis/criterion", "internal/tool"},
+		Sets: []SourceInventoryObservationSet{{
+			Role: AnswerCandidateRoleFunction,
+			Members: []SourceInventoryObservationMember{
+				{Name: "Eval", Role: AnswerCandidateRoleFunction, File: "internal/analysis/criterion/eval.go", Line: 10},
+				{Name: "Execute", Role: AnswerCandidateRoleFunction, File: "internal/tool/emit_analysis.go", Line: 10},
+			},
+		}},
+	}
+	rm := RequestModel{
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},
+		},
+		AnalyzerHints: AnalyzerHints{SourceInventoryRequestedPathScopes: []string{"internal/analysis/criterion"}},
+	}
+	view := BuildSourceInventoryPrincipalRowSet(SourceInventoryPrincipalRowSetInput{Observation: observation, RequestModel: rm})
+	if view.RepoWidePrincipal || view.PrincipalTotal != 1 || view.PrincipalRows[0].Member.Name != "Eval" {
+		t.Fatalf("principal rows = %+v", view)
+	}
+	if view.AuditTotal != 1 || view.AuditRows[0].Member.Name != "Execute" ||
+		view.AuditRows[0].ReasonCode != SourceInventoryRowReasonOutsideRequestedPathScope {
+		t.Fatalf("audit rows = %+v", view.AuditRows)
+	}
+}
+
 func TestBuildSourceInventoryPrincipalRowSet_FiltersToRequestedSurfaceFamily(t *testing.T) {
 	observation := SourceInventoryObservation{
 		Active:   true,

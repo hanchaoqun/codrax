@@ -2036,3 +2036,20 @@ narrative soft lane 保持兼容。系统不补写/删除/重排模型答案，�
 
 两处旧 pin 固定了 summary/Markdown table text 冒充 typed rows 的旧行为，已改为相同用户可见内容的真实 structured rows；
 这是合同重签，不是降低验证。未触碰 Trace query、时间窗、因果投影、自动补齐或模型结论权。
+
+### §10.25 B88：source-inventory 请求路径 provenance 闭环（已施工）
+
+`EVAL-B88-SCOPEPROV1` 已确认：analyzer 对用户明确目录执行了正确的 typed source_inventory prescan，但 IR 只有源码类别
+scope，没有目录边界 carrier；RequiredFiles 又只接受请求中精确文件，导致合法目录请求在后续被退化成 repo-wide。
+合并后的 observation 于是把探索 cursor 和全仓 source-class samples 当成主范围，产生无关补查与 16 轮 completion churn。
+
+现新增系统铸造的 `SourceInventoryRequestedPathScopes`：仅接受“当前请求 verbatim MentionedEntity × analyzer-stage 成功
+repo_lens tool scope”的 canonical 精确交集。它与 production/test/docs/auxiliary 的 `SourceScopeProfile` 正交；explore scope、
+`.`、不匹配或越界路径均 fail-closed。repo-wide 判定、completion、follow-up、aggregate universe 和 principal row lanes
+统一消费该 carrier，边界外行只进 audit，截断恢复只在原请求目录内继续。
+当 EvidencePlan 同时含 prescan 文件样本时，请求目录边界优先，避免导航样本反向缩窄用户声明的完整目录范围。
+
+实现按 convergence ratchet 拆入独立 path-boundary concern，未抬高旧大文件 LOC ceiling。定向 pin 已覆盖持久化、错误阶段、
+不匹配、根 scope、补查范围及 sibling row 污染。状态：
+`EVAL-B88-SCOPEPROV1=implemented/types+tool-full-pass/replay-next`（`internal/types` 18.730s，`internal/tool` 166.728s）。
+没有 raw request/final prose 关键词硬门，没有系统代写答案；Trace 显式窗、因果投影与自动补齐权限不变。

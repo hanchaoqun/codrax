@@ -7191,6 +7191,146 @@ func TestEnrichSourceInventoryProfileFromAnalyzerPrescan_PreservesNonEmptyRation
 	}
 }
 
+func TestMergeSourceInventoryAnalyzerPrescanRequestedPathScopes_RequiresMentionedAnalyzerScope(t *testing.T) {
+	rm := types.RequestModel{
+		AnalyzerHints: types.AnalyzerHints{MentionedEntities: []string{"internal/analysis/criterion"}},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+		},
+	}
+	observation := types.SourceInventoryObservation{
+		Active: true,
+		Scopes: []string{"internal/analysis/criterion"},
+		Provenance: []string{
+			types.SourceInventoryProvenanceRepoLensToolQuery,
+			types.SourceInventoryProvenanceStageAnalyze,
+		},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:    types.AnswerCandidateRoleType,
+			Members: []types.SourceInventoryObservationMember{{Name: "Kind", File: "internal/analysis/criterion/grammar.go"}},
+		}},
+	}
+	if !mergeSourceInventoryAnalyzerPrescanRequestedPathScopes(&rm, observation) {
+		t.Fatal("matching current-request entity plus analyzer-stage lens should mint requested path scope")
+	}
+	if got := rm.AnalyzerHints.SourceInventoryRequestedPathScopes; len(got) != 1 || got[0] != "internal/analysis/criterion" {
+		t.Fatalf("requested path scopes = %#v", got)
+	}
+
+	unmatched := rm
+	unmatched.AnalyzerHints.SourceInventoryRequestedPathScopes = nil
+	unmatched.AnalyzerHints.MentionedEntities = []string{"internal/types"}
+	if mergeSourceInventoryAnalyzerPrescanRequestedPathScopes(&unmatched, observation) {
+		t.Fatalf("unmatched exploration scope must not become request authority: %#v", unmatched.AnalyzerHints.SourceInventoryRequestedPathScopes)
+	}
+
+	wrongStage := rm
+	wrongStage.AnalyzerHints.SourceInventoryRequestedPathScopes = nil
+	observation.Provenance = []string{
+		types.SourceInventoryProvenanceRepoLensToolQuery,
+		types.SourceInventoryProvenanceStageExplore,
+	}
+	if mergeSourceInventoryAnalyzerPrescanRequestedPathScopes(&wrongStage, observation) {
+		t.Fatalf("exploration cursor must not become request authority: %#v", wrongStage.AnalyzerHints.SourceInventoryRequestedPathScopes)
+	}
+
+	root := rm
+	root.AnalyzerHints.SourceInventoryRequestedPathScopes = nil
+	root.AnalyzerHints.MentionedEntities = []string{"."}
+	observation.Scopes = []string{"."}
+	observation.Provenance = []string{
+		types.SourceInventoryProvenanceRepoLensToolQuery,
+		types.SourceInventoryProvenanceStageAnalyze,
+	}
+	if mergeSourceInventoryAnalyzerPrescanRequestedPathScopes(&root, observation) {
+		t.Fatalf("root navigation must remain repo-wide, got %#v", root.AnalyzerHints.SourceInventoryRequestedPathScopes)
+	}
+}
+
+func TestEmitAnalysis_PersistsRequestBoundAnalyzerPrescanPathScope(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	raw := "internal/analysis/criterion 请列出公开类型和函数"
+	mu := types.NewMutableState(raw)
+	prescan := types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     false,
+		Scopes:       []string{"internal/analysis/criterion"},
+		Provenance: []string{
+			types.SourceInventoryProvenanceRepoLensToolQuery,
+			types.SourceInventoryProvenanceStageAnalyze,
+		},
+		Execution: &types.SourceInventoryExecutionState{Budgeted: true, CandidateBudgetTruncated: true},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role: types.AnswerCandidateRoleFunction,
+			Members: []types.SourceInventoryObservationMember{{
+				Name: "Eval", Role: types.AnswerCandidateRoleFunction, File: "internal/analysis/criterion/eval.go",
+			}},
+		}, {
+			Role: types.AnswerCandidateRoleType,
+			Members: []types.SourceInventoryObservationMember{{
+				Name: "Kind", Role: types.AnswerCandidateRoleType, File: "internal/analysis/criterion/grammar.go",
+			}},
+		}},
+	}
+	mu.AppendDispatchToolResult(types.ToolResult{ToolName: "repo_map", Success: true, SourceInventory: &prescan})
+	payload := withRequiredAnswerRoleProfile(`{
+		"intent": "enumerate",
+		"scenario": "generic",
+		"complexity": "moderate",
+		"keywords": ["criterion", "type", "function"],
+		"entities": ["internal/analysis/criterion"],
+		"question_kind": "enumeration",
+		"intent_confidence": 0.95,
+		"complexity_confidence": 0.90,
+		"kind_confidence": 0.95,
+		"predicate_axis": "define",
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": true,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false,
+			"has_per_member_table": true
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		},
+		"source_inventory_profile": {
+			"is_source_inventory": true,
+			"target_roles": ["type", "function"],
+			"requested_fields": ["name", "location", "count"],
+			"source_quotes": ["公开类型和函数"],
+			"confidence": 0.95
+		}
+	}`)
+	result, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if err != nil || !result.Success {
+		t.Fatalf("emit_analysis failed: err=%v result=%+v", err, result)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("request model missing")
+	}
+	if got := types.SourceInventoryRequestedPathScopes(*rm); len(got) != 1 || got[0] != "internal/analysis/criterion" {
+		t.Fatalf("persisted requested path scopes = %#v", got)
+	}
+	if types.SourceInventoryRequiresRepoWideLens(*rm) {
+		t.Fatal("persisted analyzer-prescan path boundary must prevent repo-wide expansion")
+	}
+}
+
 func TestEmitAnalysis_ProjectsPrescanFilesForSourceInventoryCoverage(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

@@ -25,7 +25,7 @@ func sourceInventoryRequestedSurfaceFamilyBackedByCompleteLens(observation Sourc
 	var principal []SourceInventoryRow
 	for _, set := range observation.Sets {
 		for _, member := range set.Members {
-			row := sourceInventoryRowFromMember(member, set.Role, roleSet, scope)
+			row := sourceInventoryRowFromMemberWithinRequestedPathScopes(member, set.Role, roleSet, scope, rm)
 			if row.Lane == SourceInventoryRowLanePrincipal {
 				principal = append(principal, row)
 			}

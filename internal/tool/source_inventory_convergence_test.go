@@ -49,6 +49,7 @@ var sourceInventoryFileLOCCeiling = map[string]int{
 	"source_inventory_requested_family_boundary.go":             120,
 	"source_inventory_requested_family_evidence.go":             90,
 	"source_inventory_requested_followup.go":                    160, // DELIBERATE raise (B37): typed requested_file_boundary route outranks unrelated class samples.
+	"source_inventory_requested_boundary_followup.go":           50,  // B88 typed requested path/file boundaries share one bounded follow-up route.
 	"source_inventory_requested_universe.go":                    215, // DELIBERATE raise (B37): accepted requested-file closure records exact-universe parity.
 	"source_inventory_requested_file_closure.go":                314, // B37 extracted exact requested-file closure concern; keep it out of reconcile.go.
 	"source_inventory_requested_zero_lens.go":                   77,
@@ -128,6 +129,7 @@ var sourceInventoryFileLOCCeiling = map[string]int{
 	"../types/source_inventory_profile_normalize.go":                 95,
 	"../types/source_inventory_profile_roles.go":                     70,
 	"../types/source_inventory_prompt_boundary.go":                   10,
+	"../types/source_inventory_requested_path_scope.go":              120, // B88 analyzer-prescan/request provenance join plus shared bounded row/follow-up helpers.
 	"../types/source_inventory_requested_field.go":                   60,
 	"../types/source_inventory_principal_row_set.go":                 304,
 	"../types/source_inventory_requested_surface_family.go":          100,

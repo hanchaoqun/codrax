@@ -101,6 +101,42 @@ func TestSourceInventoryCompletionAuthority_RepoWideStillBlocksAcceptedPartial(t
 	}
 }
 
+func TestSourceInventoryCompletionAuthority_RequestBoundPathScopeStaysBounded(t *testing.T) {
+	obs := sourceInventoryCompletionAuthorityTestLens(SourceInventoryObservation{
+		Active:   true,
+		Complete: false,
+		Scopes:   []string{".", "internal/tool"},
+		Execution: &SourceInventoryExecutionState{
+			Budgeted:                 true,
+			CandidateBudgetTruncated: true,
+		},
+		Sets: []SourceInventoryObservationSet{{
+			Role:    AnswerCandidateRoleFunction,
+			Members: []SourceInventoryObservationMember{{Name: "Eval", File: "internal/analysis/criterion/eval.go"}},
+		}},
+	})
+	rm := RequestModel{
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},
+		},
+		AnalyzerHints: AnalyzerHints{SourceInventoryRequestedPathScopes: []string{"internal/analysis/criterion"}},
+	}
+	authority := BuildSourceInventoryCompletionAuthority(obs, rm, false)
+	if authority.RepoWideRequired {
+		t.Fatal("request-bound path scope must not require repo-wide completion")
+	}
+	if len(authority.Scopes) != 1 || authority.Scopes[0] != "internal/analysis/criterion" {
+		t.Fatalf("completion scopes = %#v", authority.Scopes)
+	}
+	if !authority.FollowupDebt.IsActive() || authority.FollowupDebt.ReasonCode != SourceInventoryFollowupDebtRequestedPathBoundary {
+		t.Fatalf("follow-up debt = %+v", authority.FollowupDebt)
+	}
+	if got := authority.FollowupDebt.Query.Scopes; len(got) != 1 || got[0] != "internal/analysis/criterion" {
+		t.Fatalf("follow-up scopes = %#v", got)
+	}
+}
+
 func TestSourceInventoryCompletionAuthority_RequestedUniverseCanCloseRepoWideDebt(t *testing.T) {
 	obs := sourceInventoryCompletionAuthorityTestLens(SourceInventoryObservation{
 		Active:   true,

@@ -3,9 +3,10 @@ package types
 import "strings"
 
 const (
-	SourceInventoryFollowupDebtMissingSourceClass = "missing_source_class_family"
-	SourceInventoryFollowupDebtPagination         = "pagination_debt"
-	SourceInventoryFollowupDebtRequestedFiles     = "requested_file_boundary"
+	SourceInventoryFollowupDebtMissingSourceClass    = "missing_source_class_family"
+	SourceInventoryFollowupDebtPagination            = "pagination_debt"
+	SourceInventoryFollowupDebtRequestedFiles        = "requested_file_boundary"
+	SourceInventoryFollowupDebtRequestedPathBoundary = "requested_path_boundary"
 
 	sourceInventoryFollowupMaxScopes = 8
 )
@@ -50,6 +51,9 @@ func DeriveSourceInventoryFollowupDebtWithRequiredFiles(observation SourceInvent
 	roles := sourceInventoryFollowupPrincipalRoles(observation, rm)
 	if len(roles) == 0 {
 		return SourceInventoryFollowupDebt{}
+	}
+	if debt := sourceInventoryRequestedPathFollowupDebt(rm, roles); debt.IsActive() {
+		return debt
 	}
 	covered := sourceInventoryObservedPathRolesForRoles(observation, roles)
 	targetLanguages := sourceInventoryFollowupTargetLanguages(observation, rm, requiredFiles, roles)

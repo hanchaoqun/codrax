@@ -99,7 +99,7 @@ func BuildSourceInventoryPrincipalRowSet(input SourceInventoryPrincipalRowSetInp
 	var principal, support, audit []SourceInventoryRow
 	for _, set := range observation.Sets {
 		for _, member := range set.Members {
-			row := sourceInventoryRowFromMember(member, set.Role, roleSet, scope)
+			row := sourceInventoryRowFromMemberWithinRequestedPathScopes(member, set.Role, roleSet, scope, input.RequestModel)
 			switch row.Lane {
 			case SourceInventoryRowLanePrincipal:
 				principal = append(principal, row)

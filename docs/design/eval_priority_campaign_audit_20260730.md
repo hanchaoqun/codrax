@@ -14635,3 +14635,30 @@ table text 当结构化行的矛盾断言已改为同等可见内容的真实 ty
 该批没有扫描用户原始输入或模型自由正文作硬门；没有系统代写答案；没有触碰 Trace 显式时间窗、因果投影、自动补齐或根因双轴。
 下一批处理 B88 暴露的 source-inventory 目标 scope 被扩成无关仓库 scopes、导致 16 轮 completion churn 的 typed scope
 provenance 问题。
+
+### 92.6 `EVAL-B88-SCOPEPROV1`：请求目录边界在 analyzer prescan 后丢失（已施工）
+
+B88 数量例的用户范围是 `internal/analysis/criterion`，analyzer 也实际执行了带
+`scopes=[internal/analysis/criterion]` 的 source_inventory prescan；但 `SourceInventoryProfile` 只保存角色/字段，
+`SourceScopeProfile` 只表达 production/test/docs/auxiliary 类别，两者都不能承载目录边界。模型给出的两个文件提示又因“请求
+写的是目录而非逐个文件”被正确拒绝。最终 durable observation 把后续探索的 `.`、`internal/tool`、fixture 等 scope 合并进来，
+completion authority 误判为 repo-wide，并按全仓 source-class samples 生成无关补查，导致 16 轮 convergence churn 和
+`principal_scope=all` 的错误披露。
+
+根修没有复用类别 scope，也没有回扫用户/答案 prose，而是增加独立的
+`AnalyzerHints.SourceInventoryRequestedPathScopes` typed carrier。它只在以下精确合取成立时由系统铸造：
+
+1. 当前请求是 active source inventory；
+2. 成功的 repo_map observation 同时带 `repo_lens:tool_query` 与 `repo_lens:stage:analyze`；
+3. observation 的 canonical 非根 scope 与 `MentionedEntities` 中已由当前请求 verbatim 验证的路径实体精确相同。
+
+探索阶段 cursor、根 scope `.`、不匹配路径、绝对/越界/虚拟路径均不能获权。该边界现由同一 helper 贯通 repo-wide 判定、
+completion scopes、follow-up debt、aggregate requested-universe 与 principal row projection；边界外的后续探索行进入 audit lane，
+不再污染主清单。缺页/截断仍会补查，但只能在请求目录内，不能再按全仓 source-class sample 扩域。
+请求目录边界还显式高于 prescan 投影出的文件样本：目录是用户授权范围，样本文件只是导航结果，后者不能把前者偷偷收窄。
+
+新增 analyzer 发射持久化、wrong-stage/unmatched/root 负臂、completion/follow-up scope、sibling-row audit 正负 pin；LOC ratchet
+要求把边界/行投影/follow-up 构造拆到独立 concern 文件，旧 convergence cluster ceiling 未提高。状态：
+`EVAL-B88-SCOPEPROV1=implemented/types+tool-full-pass/replay-next`（`internal/types` 18.730s，`internal/tool` 166.728s）。
+
+该批不改变模型结论或正文，不扫描模型输出确权，也不触碰 Trace 显式时间窗、因果投影、自动补齐与根因双轴。

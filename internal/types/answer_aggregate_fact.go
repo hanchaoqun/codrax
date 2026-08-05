@@ -3149,6 +3149,13 @@ func aggregateRequestedSourceInventoryScopes(rm *RequestModel) []string {
 	if rm == nil {
 		return nil
 	}
+	if scopes := SourceInventoryRequestedPathScopes(*rm); len(scopes) > 0 {
+		out := make([]string, len(scopes))
+		for i, scope := range scopes {
+			out[i] = strings.ToLower(scope)
+		}
+		return out
+	}
 	seen := map[string]bool{}
 	var out []string
 	add := func(raw string) {

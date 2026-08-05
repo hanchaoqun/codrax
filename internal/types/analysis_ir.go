@@ -898,6 +898,18 @@ type AnalyzerHints struct {
 	// RawRequest. These may come from analyzer expansion, deterministic
 	// log/perf augmentation, or sub-topic merge.
 	DerivedEntities []string `json:"derived_entities,omitempty"`
+	// SourceInventoryRequestedPathScopes is the deterministic path-boundary
+	// lane for a source-inventory request. emit_analysis may populate it only
+	// when a successful analyzer-stage source_inventory tool query used the
+	// same canonical non-root scope that MentionedEntities already proves was
+	// copied from the current request. It is therefore narrower than the
+	// model's general Entities/search-hint lanes and must never be synthesized
+	// from rationale, answer prose, or later exploration cursors.
+	//
+	// This is orthogonal to SourceScopeProfile: that profile selects source
+	// classes (production/test/docs/auxiliary), while this field selects a
+	// repository path boundary (for example internal/analysis/criterion).
+	SourceInventoryRequestedPathScopes []string `json:"source_inventory_requested_path_scopes,omitempty"`
 	// ExactTargets is the analyzer's optional shortlist of exact
 	// user-asked targets (config keys / file paths / symbols / literals).
 	// The system validates every item against RawRequest provenance

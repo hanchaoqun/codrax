@@ -37,8 +37,9 @@ func enrichSourceInventoryProfileFromAnalyzerPrescan(ctx *types.BusContext, rm *
 		}
 	}
 	profile := rm.SourceInventoryProfile
+	changedScopes := mergeSourceInventoryAnalyzerPrescanRequestedPathScopes(rm, observation)
 	changedQuotes := mergeSourceInventoryProfileQuotes(profile, sourceInventoryAnalyzerPrescanQuotes(raw, *rm, observation))
-	if changedQuotes {
+	if changedQuotes || changedScopes {
 		if profile.Confidence < 0.55 {
 			profile.Confidence = 0.55
 		}
@@ -48,6 +49,41 @@ func enrichSourceInventoryProfileFromAnalyzerPrescan(ctx *types.BusContext, rm *
 		return "source_inventory_profile enriched from typed analyzer source-inventory prescan"
 	}
 	return ""
+}
+
+func mergeSourceInventoryAnalyzerPrescanRequestedPathScopes(rm *types.RequestModel, observation types.SourceInventoryObservation) bool {
+	if rm == nil || rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		return false
+	}
+	if !sourceInventoryObservationProvenanceContains(observation, types.SourceInventoryProvenanceStageAnalyze) ||
+		!sourceInventoryObservationProvenanceContains(observation, types.SourceInventoryProvenanceRepoLensToolQuery) {
+		return false
+	}
+	mentioned := map[string]bool{}
+	for _, raw := range rm.AnalyzerHints.MentionedEntities {
+		if scope := types.NormalizeSourceInventoryRequestedPathScope(raw); scope != "" {
+			mentioned[scope] = true
+		}
+	}
+	if len(mentioned) == 0 {
+		return false
+	}
+	seen := map[string]bool{}
+	var scopes []string
+	for _, raw := range observation.Scopes {
+		scope := types.NormalizeSourceInventoryRequestedPathScope(raw)
+		if scope == "" || !mentioned[scope] || seen[scope] {
+			continue
+		}
+		seen[scope] = true
+		scopes = append(scopes, scope)
+	}
+	if len(scopes) == 0 {
+		return false
+	}
+	before := strings.Join(rm.AnalyzerHints.SourceInventoryRequestedPathScopes, "\x00")
+	rm.AnalyzerHints.SourceInventoryRequestedPathScopes = scopes
+	return before != strings.Join(scopes, "\x00")
 }
 
 func sourceInventoryAnalyzerPrescanObservation(ctx *types.BusContext) (types.SourceInventoryObservation, bool) {

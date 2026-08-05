@@ -75,6 +75,9 @@ func BuildSourceInventoryCompletionAuthorityWithOptions(observation SourceInvent
 	repoWideRequired := SourceInventoryRequiresRepoWideLens(rm)
 	roles := sourceInventoryCompletionRoles(observation, rm)
 	scopes := sourceInventoryFollowupScopes(observation.Scopes)
+	if requestedScopes := SourceInventoryRequestedPathScopes(rm); len(requestedScopes) > 0 {
+		scopes = requestedScopes
+	}
 	if repoWideRequired && sourceInventoryCompletionObservationIncomplete(observation) {
 		scopes = []string{"."}
 	}
