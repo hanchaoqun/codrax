@@ -15486,3 +15486,16 @@ scope 接受时，才将该集合降为 `supporting_coverage`；canonical 系统
 function 继续作为唯一 principal obligation，完全 disjoint 的 test/fixture 集合不再强迫进入公开 API 答案。新增 concern 为 132 LOC，并登记
 140 LOC 独立 ceiling；旧 projection 文件回落为 343 LOC，未抬高 351 ceiling。完整 `internal/types`（23.721s）与 `internal/tool`
 （171.359s）通过。状态：`EVAL-B98-SCOPEAGGREGATE1=implemented/full-pass/replay-after-B98-B-C`。
+
+### 102.7 B98-B 施工：hard repair 完整披露自身 structured-row schema
+
+`EVAL-B98-REPAIRSHAPE1` 已实现。source-inventory principal member coverage 的判定与 hard/soft 权限不变；改动仅发生在拒绝后的模型 repair context。
+提示现在把完整 recipe 放在可能被 roster cap/日志截断的成员清单之前：承载块须为可渲染 items 的 section/list/table 且
+`surface_role="principal"`；保留合同要求的 `enumeration_item` facet 与合法 claim-use；逐字 member 必须进入 item label/table cell，item/block
+prose 不承担 identity；成员清单中的 aggregate 分类字段改名为 `set_label`，并明确它只用于 block title/id、不能替代 member；有 row-local
+support/citation 时，item citation_ref 必须引用同一 member 的 compatible citation，不能借相邻行。
+
+生产同形 pin 从“一切 items/facet/claim-use/citation 均正确、唯独 section 缺 principal surface”起步，确认真实 `runPreEmitChecks` dispatcher
+以 `ViolExhaustiveMemberSetCoverageDrift` 携带完整 recipe；仅补该 typed surface 字段后，同一 coverage gate 一次通过。系统没有新增 normalizer，
+没有修改模型文档、事实或结论，也不解析这段提示反向作 gate。定向 repair/soft-lane 回归与完整 `internal/tool`（169.629s）通过。状态：
+`EVAL-B98-REPAIRSHAPE1=implemented/full-pass/replay-after-B98-C`。

@@ -2338,3 +2338,9 @@ B98-A 已交付：模型发射的 disjoint principal member set 只有在 active
 label/request/answer prose，不按语言或符号名特判。Go test 与 Cangjie fixture 生产同形、负矩阵、独立 140-LOC ceiling 及完整 `internal/types`
 （23.721s）、`internal/tool`（171.359s）全绿；旧 projection ceiling 未抬高。状态：
 `EVAL-B98-SCOPEAGGREGATE1=implemented/full-pass/replay-after-B98-B-C`。
+
+B98-B 已交付：source-inventory member coverage 的 hard 判定未变，拒绝提示在 bounded roster 前完整列出 principal carrying block、enumeration
+facet/claim-use、item label/cell identity、`set_label` 仅作集合键、row-local citation_ref 五项 schema。生产同形证明 section 只漏
+`surface_role=principal` 时，真实 pre-emit dispatcher 携带该 recipe，按提示补一个 typed 字段即可通过；系统不自动改写文档或模型结论，提示
+prose 也不参与 gate。完整 `internal/tool`（169.629s）通过。状态：
+`EVAL-B98-REPAIRSHAPE1=implemented/full-pass/replay-after-B98-C`。

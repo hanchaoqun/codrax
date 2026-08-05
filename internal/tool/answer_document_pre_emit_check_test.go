@@ -1384,16 +1384,16 @@ func TestPreCheckAggregateMemberSetCoverage_RequiresVisibleModelAuthoredMembers(
 	if len(hints) != 1 {
 		t.Fatalf("missing member_set value should produce one hint, got %+v", hints)
 	}
-	if !strings.Contains(hints[0].ExpectedShape, `[✗ MISSING] label="public enum types" member="QuestionFamily"`) {
+	if !strings.Contains(hints[0].ExpectedShape, `[✗ MISSING] set_label="public enum types" member="QuestionFamily"`) {
 		t.Fatalf("hint should name the omitted model-authored member as missing, got %+v", hints[0])
 	}
 	// XGAP-FIX ② semantics: present members now appear in the hint too —
 	// as ✓ roster rows, never as missing. The presence judgment itself
 	// (visible display prefix satisfies the entry) is unchanged.
-	if strings.Contains(hints[0].ExpectedShape, `[✗ MISSING] label="public enum types" member="Scenario`) {
+	if strings.Contains(hints[0].ExpectedShape, `[✗ MISSING] set_label="public enum types" member="Scenario`) {
 		t.Fatalf("visible display prefix should satisfy member entry, got %+v", hints[0])
 	}
-	if !strings.Contains(hints[0].ExpectedShape, `[✓ present] label="public enum types" member="Scenario`) {
+	if !strings.Contains(hints[0].ExpectedShape, `[✓ present] set_label="public enum types" member="Scenario`) {
 		t.Fatalf("hint should mark the visible member as present (full obligation roster), got %+v", hints[0])
 	}
 	if !strings.Contains(hints[0].ExpectedShape, "do NOT replace") {
@@ -1506,8 +1506,14 @@ func TestPreCheckAggregateMemberSetCoverage_SourceInventoryHardGateRequiresStruc
 	if len(hints) != 1 || !hints[0].ForceHard {
 		t.Fatalf("free-form prose must not satisfy the typed source-inventory hard gate: %+v", hints)
 	}
-	if hints[0].Field != "blocks[].items[].label/cells" ||
-		!strings.Contains(hints[0].ExpectedShape, "free-form blocks[].text does not satisfy") {
+	if hints[0].Field != "blocks[].surface_role/facet_ids/claim_uses + blocks[].items[].label/cells/citation_ref" ||
+		!strings.Contains(hints[0].ExpectedShape, `surface_role="principal"`) ||
+		!strings.Contains(hints[0].ExpectedShape, `facet_ids includes "enumeration_item"`) ||
+		!strings.Contains(hints[0].ExpectedShape, "claim_uses contains a contract-allowed claim_form") ||
+		!strings.Contains(hints[0].ExpectedShape, "item.text and blocks[].text do not carry member identity") ||
+		!strings.Contains(hints[0].ExpectedShape, "roster set_label is only the aggregate/category key") ||
+		!strings.Contains(hints[0].ExpectedShape, "citation_ref to the same member's compatible citation") ||
+		!strings.Contains(hints[0].ExpectedShape, `[✗ MISSING] set_label="Kind constants" member="KindA"`) {
 		t.Fatalf("repair must name the structured carrier contract, got %+v", hints[0])
 	}
 
@@ -1518,6 +1524,97 @@ func TestPreCheckAggregateMemberSetCoverage_SourceInventoryHardGateRequiresStruc
 	}
 	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) != 0 {
 		t.Fatalf("structured labels/cells should satisfy the same typed contract: %+v", got)
+	}
+}
+
+func TestPreCheckAggregateMemberSetCoverage_SourceInventoryRepairRecipeNamesPrincipalCarrier(t *testing.T) {
+	mu := types.NewMutableState("source inventory principal carrier repair")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "opaque category",
+		Value:       "2",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"Alpha", "Beta"},
+		SupportRefs: []string{"Alpha: pkg/api.go:10", "Beta: pkg/api.go:20"},
+	}})
+	mu.SetInvestigationComplete("typed inventory accepted")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+				},
+				Confidence: 0.95,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:       "functions",
+			Kind:     types.BlockSection,
+			Title:    "opaque category",
+			FacetIDs: []string{string(types.FacetEnumerationItem)},
+			ClaimUses: []types.RenderedClaimUse{{
+				ClaimForm: types.ClaimDefinitionFact,
+			}},
+			Items: []types.AnswerBlockItem{
+				{ID: "a", Label: "Alpha", CitationRef: 0},
+				{ID: "b", Label: "Beta", CitationRef: 1},
+			},
+		}},
+		Citations: []types.Citation{
+			{File: "pkg/api.go", Line: 10, Quote: "func Alpha"},
+			{File: "pkg/api.go", Line: 20, Quote: "func Beta"},
+		},
+	}
+
+	hints := preCheckAggregateMemberSetCoverage(doc, ctx)
+	if len(hints) != 1 || !hints[0].ForceHard {
+		t.Fatalf("missing principal surface must produce one actionable hard hint: %+v", hints)
+	}
+	for _, want := range []string{
+		`surface_role="principal"`,
+		`facet_ids includes "enumeration_item"`,
+		"claim_uses contains a contract-allowed claim_form",
+		"items[].label (or one items[].cells entry)",
+		"set_label is only the aggregate/category key",
+		"citation_ref to the same member's compatible citation",
+		`[✗ MISSING] set_label="opaque category" member="Alpha"`,
+	} {
+		if !strings.Contains(hints[0].ExpectedShape, want) {
+			t.Fatalf("repair recipe omitted %q: %+v", want, hints[0])
+		}
+	}
+	if strings.Contains(hints[0].ExpectedShape, `[✗ MISSING] label=`) {
+		t.Fatalf("aggregate label must not masquerade as item label: %+v", hints[0])
+	}
+	wired := runPreEmitChecks(doc, &types.AnswerSemanticView{}, nil, ctx)
+	wiredRecipe := false
+	for _, hint := range wired {
+		if hint.Kind == types.ViolExhaustiveMemberSetCoverageDrift &&
+			strings.Contains(hint.ExpectedShape, `surface_role="principal"`) &&
+			strings.Contains(hint.ExpectedShape, `set_label="opaque category" member="Alpha"`) {
+			wiredRecipe = true
+			break
+		}
+	}
+	if !wiredRecipe {
+		t.Fatalf("production pre-emit dispatcher dropped the actionable recipe: %+v", wired)
+	}
+
+	// Apply the only missing typed field from the recipe. Existing facets,
+	// claim-use, member identities, and row-local citations stay untouched.
+	doc.Blocks[0].SurfaceRole = types.SurfacePrincipal
+	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("one recipe-guided repair should satisfy the same gate: %+v", got)
 	}
 }
 

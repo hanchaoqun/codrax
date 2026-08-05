@@ -5359,7 +5359,7 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 				mark = "✓ present"
 			}
 			if m.label != "" {
-				parts = append(parts, fmt.Sprintf("[%s] label=%q member=%q", mark, m.label, m.member))
+				parts = append(parts, fmt.Sprintf("[%s] set_label=%q member=%q", mark, m.label, m.member))
 			} else {
 				parts = append(parts, fmt.Sprintf("[%s] member=%q", mark, m.member))
 			}
@@ -5376,7 +5376,7 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 			}
 			if len(parts) < preEmitMemberSetObligationRosterCap {
 				if m.label != "" {
-					parts = append(parts, fmt.Sprintf("[✗ MISSING] label=%q member=%q", m.label, m.member))
+					parts = append(parts, fmt.Sprintf("[✗ MISSING] set_label=%q member=%q", m.label, m.member))
 				} else {
 					parts = append(parts, fmt.Sprintf("[✗ MISSING] member=%q", m.member))
 				}
@@ -5392,8 +5392,8 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 	field := "blocks[].items[].label/text/cells OR blocks[].text"
 	expectedPrefix := "include every model-emitted principal member_set member in the visible answer. "
 	if structuredPrincipalCarrierRequired {
-		field = "blocks[].items[].label/cells"
-		expectedPrefix = "render every typed source-inventory principal member as one structured item label/table row; free-form blocks[].text does not satisfy this identity contract. "
+		field = "blocks[].surface_role/facet_ids/claim_uses + blocks[].items[].label/cells/citation_ref"
+		expectedPrefix = preEmitStructuredPrincipalMemberRepairRecipe()
 	}
 	return []emitFixHint{{
 		Field: field,
@@ -5405,6 +5405,23 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 		ForceHard:            forceHard,
 		SameCauseFingerprint: preEmitMemberSetMissingFingerprint(roster),
 	}}
+}
+
+// preEmitStructuredPrincipalMemberRepairRecipe describes every schema field
+// that participates in the source-inventory row contract before the bounded
+// obligation roster. It is repair context only: the validator continues to
+// decide coverage from typed document fields and never parses this prose.
+func preEmitStructuredPrincipalMemberRepairRecipe() string {
+	return fmt.Sprintf(
+		"apply this exact structured source-inventory row recipe: "+
+			"(1) use a section/ordered_list/bullet_list/table carrying block with surface_role=%q; "+
+			"(2) keep the contract's enumeration metadata: facet_ids includes %q and claim_uses contains a contract-allowed claim_form; "+
+			"(3) copy each roster member exactly into items[].label (or one items[].cells entry); item.text and blocks[].text do not carry member identity; "+
+			"(4) roster set_label is only the aggregate/category key for the block title/id — never copy set_label into item.label in place of member; "+
+			"(5) when the handoff provides row-local support/citation, set that item's citation_ref to the same member's compatible citation and never borrow another row's citation. ",
+		types.SurfacePrincipal,
+		types.FacetEnumerationItem,
+	)
 }
 
 // preEmitAggregateMemberAppearsInStructuredPrincipalIdentity checks only the
