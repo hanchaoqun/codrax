@@ -304,6 +304,98 @@ func TestDiagramCallEdgeEvidenceMismatches_GroundedOwnerBindingSupportsClosedQua
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_GroundedOwnerBindingSupportsUnqualifiedCalleeAcrossFamilies(t *testing.T) {
+	tests := []struct {
+		name, caller, callee string
+	}{
+		{"dot", "gate.Run", "RunWith"},
+		{"colon", "clinic::Gate::run", "runWith"},
+		{"hash", "Gate#run", "runWith"},
+	}
+	for _, family := range []types.QuestionFamily{types.QFCallChain, types.QFGeneric, types.QFArchitecture} {
+		for _, tc := range tests {
+			t.Run(string(family)+"/"+tc.name, func(t *testing.T) {
+				doc := diagramEvidenceTestDoc("A", "B")
+				doc.Blocks[0].Diagram.Body = "sequenceDiagram\n" +
+					"  participant A as " + tc.caller + "\n" +
+					"  participant B as " + tc.callee + "\n" +
+					"  A->>B: invoke\n"
+				call := diagramEvidenceTestCall(diagramEvidenceQualifiedOperation(tc.caller), tc.callee)
+				call.AnchorSymbol = tc.callee
+				call.OwnerSymbol = tc.caller
+				if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: family}, []types.EvidenceItem{call}); len(got) != 0 {
+					t.Fatalf("parser-owned %s caller plus exact short callee should pass %s: %+v", tc.name, family, got)
+				}
+			})
+		}
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_GroundedOwnerShortCalleeFailsClosedOnIdentityConflict(t *testing.T) {
+	doc := diagramEvidenceTestDoc("A", "B")
+	doc.Blocks[0].Diagram.Body = "sequenceDiagram\n" +
+		"  participant A as gate.Run\n" +
+		"  participant B as RunWith\n" +
+		"  A->>B: invoke\n"
+	base := diagramEvidenceTestCall("Run", "RunWith")
+	base.AnchorSymbol = "RunWith"
+	base.OwnerSymbol = "gate.Run"
+	for name, mutate := range map[string]func(*types.EvidenceItem, *types.AnswerDocumentV2, *[]types.EvidenceItem){
+		"missing owner": func(call *types.EvidenceItem, _ *types.AnswerDocumentV2, _ *[]types.EvidenceItem) {
+			call.OwnerSymbol = ""
+		},
+		"wrong owner": func(call *types.EvidenceItem, _ *types.AnswerDocumentV2, _ *[]types.EvidenceItem) {
+			call.OwnerSymbol = "other.Run"
+		},
+		"different qualified target": func(_ *types.EvidenceItem, candidate *types.AnswerDocumentV2, _ *[]types.EvidenceItem) {
+			candidate.Blocks[0].Diagram.Body = strings.ReplaceAll(candidate.Blocks[0].Diagram.Body, "participant B as RunWith", "participant B as other.RunWith")
+		},
+		"ambiguous call sites": func(call *types.EvidenceItem, _ *types.AnswerDocumentV2, evidence *[]types.EvidenceItem) {
+			other := *call
+			other.LineStart++
+			*evidence = append(*evidence, other)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := *doc
+			candidate.Blocks = append([]types.AnswerBlock(nil), doc.Blocks...)
+			candidate.Blocks[0] = doc.Blocks[0]
+			body := *doc.Blocks[0].Diagram
+			candidate.Blocks[0].Diagram = &body
+			call := base
+			evidence := []types.EvidenceItem{call}
+			mutate(&call, &candidate, &evidence)
+			evidence[0] = call
+			got := DiagramCallEdgeEvidenceMismatches(&candidate, &types.AnswerSemanticView{Family: types.QFCallChain}, evidence)
+			if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueNoEvidence {
+				t.Fatalf("conflicting parser-owned identity must fail closed: %+v", got)
+			}
+		})
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_GroundedOwnerShortCalleeSatisfiesPrincipalCompleteness(t *testing.T) {
+	doc := diagramEvidenceTestDoc("A", "B")
+	doc.Blocks[0].Diagram.Body = "sequenceDiagram\n" +
+		"  participant A as gate.Run\n" +
+		"  participant B as RunWith\n" +
+		"  A->>B: invoke\n"
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{
+		ID: "principal", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+		FacetIDs: []string{string(types.FacetPrincipalPathEdge)},
+		ClaimUses: []types.RenderedClaimUse{{
+			ClaimForm: types.ClaimCallEdge, FacetID: string(types.FacetPrincipalPathEdge),
+		}},
+		Items: []types.AnswerBlockItem{{ID: "caller", Label: "Run"}, {ID: "callee", Label: "RunWith"}},
+	})
+	call := diagramEvidenceTestCall("Run", "RunWith")
+	call.AnchorSymbol = "RunWith"
+	call.OwnerSymbol = "gate.Run"
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, []types.EvidenceItem{call}); len(got) != 0 {
+		t.Fatalf("one parser-owned edge must satisfy both visible and principal call identity: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_QualifiedCalleeResolvesFromUniqueTypedDefinition(t *testing.T) {
 	doc := diagramEvidenceTestDoc("A", "B")
 	doc.Blocks[0].Diagram.Body = "sequenceDiagram\n" +

@@ -751,12 +751,17 @@ func diagramCallEdgeHasRequiredQualifiedCaller(
 	toOwner := diagramEvidenceQualifiedOwner(toSymbol)
 	toOperation := diagramEvidenceQualifiedOperation(toSymbol)
 	callerDefinitionSource, _, callerDefinitionOK := diagramEvidenceUniqueDefinitionLocation(evidence, fromOwner, fromOperation)
-	if fromOwner == "" || fromOperation == "" || toOwner == "" || toOperation == "" ||
-		!diagramRequiredMechanismAnchorContainsExactSymbol(requiredAnchors, fromSymbol) {
+	if fromOwner == "" || fromOperation == "" || toOperation == "" {
 		return false
 	}
-	definitionBound := callerDefinitionOK && diagramEvidenceContainsExactCallEndpoint(evidence, toSymbol)
-	ownerContextBound := fromOwner == toOwner
+	definitionBound := toOwner != "" && callerDefinitionOK &&
+		diagramRequiredMechanismAnchorContainsExactSymbol(requiredAnchors, fromSymbol) &&
+		diagramEvidenceContainsExactCallEndpoint(evidence, toSymbol)
+	// A system-stamped OwnerSymbol can also bind the natural presentation
+	// `package.Caller -> Callee`: the caller owner is exact parser metadata and
+	// the callee remains the exact Object/AnchorSymbol on that same call-site
+	// row. A differently-qualified target still needs definition-backed proof.
+	ownerContextBound := toOwner == "" || fromOwner == toOwner
 	if !definitionBound && !ownerContextBound {
 		return false
 	}
@@ -767,11 +772,12 @@ func diagramCallEdgeHasRequiredQualifiedCaller(
 			strings.TrimSpace(ev.Subject) != fromOperation {
 			continue
 		}
+		ownerBound := strings.TrimSpace(ev.OwnerSymbol) == fromSymbol
 		if definitionBound {
 			if strings.TrimSpace(ev.Source) != callerDefinitionSource {
 				continue
 			}
-		} else if strings.TrimSpace(ev.OwnerSymbol) != fromSymbol {
+		} else if !ownerBound {
 			// OwnerSymbol is stamped from the parsed enclosing callable after
 			// grounding. An exact qualified owner on the call record is therefore
 			// a definition-equivalent binding; a short/model-authored owner cannot

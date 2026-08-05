@@ -15011,3 +15011,15 @@ WAIVERWIRE1 已施工：string-wrapped aggregate tail 的统一恢复面现在�
 Finalizer 的六次拒绝还暴露一项独立身份不对称：`ParseOutput` call 在 grounding 前被规范成 `analyzerEvaluator.ParseOutput`，而 package-level `gate.Run -> RunWith` 仍以短 `Subject=Run/Object=RunWith` 进入 evidence。用户、definition 与 participant 的自然展示却是 `gate.Run/gate.RunWith`。现有 qualified-caller resolver 要求两端同时限定 owner，故“限定 caller + 裸 callee”的 parser-grounded call 无法稳定绑定，模型在 `Run`、`GR`、`gate_Run`、`gate.Run` 间反复试错。
 
 后续只能补 typed owner/presentation identity：由 parser-owned call site、enclosing callable、package/module/receiver 与唯一 source:line 铸造可展示限定身份，sequence body、edge anchor 与 principal completeness 共享同一 resolver；多 owner、重载、多位置、contrary object 均 fail-closed。不得按语言或本 case 符号特判。状态：`EVAL-B93-CALLIDENT2=confirmed/P1/after-P0`。
+
+CALLIDENT2 已施工。冷读确认上游已在 call evidence grounding 后用 parser graph 铸造
+`OwnerSymbol`，并覆盖 Go、Java/Kotlin、JS/TS/ArkTS、C/C++、Rust、Python、Ruby、Swift、
+Lua 与 Cangjie 的 package/module/receiver 分隔形；缺口在共享 diagram resolver：它只接受
+`gate.Run -> gate.RunWith`，却拒绝同一 typed row 的自然展示 `gate.Run -> RunWith`。
+resolver 现允许“限定 caller = system-stamped OwnerSymbol，短 callee = 同行精确
+Object/AnchorSymbol”，并供 visible body、edge anchor 与 principal completeness 共用；不再要求
+caller 必须来自 request anchor。无 owner、错 owner、跨 owner 限定 target、多个 source:line
+仍 fail-closed，跨 owner 解析继续要求唯一 definition-backed proof。三种限定符、三类 question
+family、B93 principal 同形及全语言 owner 铸造矩阵已通过定向测试。状态：
+`EVAL-B93-CALLIDENT2=implemented/full-tool-pass/replay-next`。完整 `internal/tool`
+174.463s 通过。

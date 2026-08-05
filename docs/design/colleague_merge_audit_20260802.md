@@ -2196,3 +2196,10 @@ lens。两条 follow-up authority 共享同一 typed 闭合谓词：requested pa
 roles × executable tool provenance × `count=total` 全满足才消除旧 root debt；路径错位、
 analyze-only、缺角色、partial count 与 repo-wide 请求均 fail-closed。完整 `internal/tool`
 161.762s 通过，既有 LOC ceiling 未抬高。状态：`implemented/full-tool-pass/replay-next`。
+
+CALLIDENT2 已落地定向修复：共享 call diagram resolver 现在消费 grounding 后的 parser-owned
+`OwnerSymbol`，允许限定 caller 与同行短 callee 的无损 presentation 对齐，visible edge、
+anchor 与 principal completeness 不再各自抖动。无 owner/错 owner/跨 owner/多位置负臂保持
+fail-closed；实现不扫描 request/model/final prose，不按语言或案例特判，RootCauseTrace 仍
+在该 source-call 合同之外。完整 `internal/tool` 174.463s 通过。状态：
+`implemented/full-tool-pass/replay-next`。
