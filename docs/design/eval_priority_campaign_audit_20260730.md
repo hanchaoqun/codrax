@@ -15322,3 +15322,58 @@ disjoint_frontiers`；载荷只含真实方向 edge、evidence ID、source:line�
 验证：定向 graph/capsule/renderer/RootCauseTrace-isolation pin 均绿；最新完整 `internal/types`（24.419s）、`internal/agent`（3.623s）、
 `internal/context`（0.711s）、`internal/orchestrator`（12.771s）通过，完整 `internal/tool`（172.057s）与最终相关定向集（0.914s）通过。
 状态：`EVAL-B95-ENDPOINTFOCUS1=implemented/full-pass/replay-next`。
+
+## 101. 2026-08-05 B97 r23：B96 证据面生效；no-path admission 与 analyzer scope 坐标暴露新 P0
+
+### 101.1 严格双并发与人工结论
+
+在 `main@f4f0751fd` 构建并冻结二进制后，严格并行恰好两个 read case。runner 均 PASS，但人工均 FAIL：
+
+- `qf_sequence_analyzer_gate`：236s，1 个 Explorer dispatch、11 轮、4 次 read、2 次 completion、4 次 Finalizer reject，最大 context 23%；
+- `qf_multi_member_set_count_caveat`：558s，1 个 Explorer dispatch、24 轮、15 次 source-inventory lens、7 次 completion、8 次 prune，最大 context 44%。
+
+工件见 `eval/parallel_selected_summary_evalcampaign_b97_b96_replay_r23_20260805.md` 与对应 manual audit。两案的 runner oracle 都出现
+假绿：sequence 只钉名称/图形，不核实精确关系；inventory 的 production function=5 被“5 个生产函数”旁文命中，但主席又发布 function=56。
+本轮没有运行 Trace，因此不得改变 RootCauseTrace、显式时间窗、因果投影、自动补齐或模型结论所有权。
+
+### 101.2 B96 生产验收
+
+`EVAL-B96-CLASSPARTITION1` 获得部分生产正证：目标包 complete lens 已将 function 分为 production 5 与 test 51；Explorer 首批 38 条
+grounded evidence 只包含 3 types、5 production functions、30 Kind constants。最终错误 56 来自后续 root debt/模型重新扩域，不是分区 lens
+本身失效。`EVAL-B96-ANSWERPREEMITPERF1` 获得 production 正证：相同 89-item 量级不再卡在成文前单核重算，Finalizer 单轮完成；总时长仍由
+Explorer 的 15 次无关 lens 主导。
+
+`EVAL-B95-ENDPOINTFOCUS1` 的 B96-C capsule 也在生产生效：finalizer 收到 `evidence_status=endpoint_unresolved`、14 条 grounded call edge 以及
+`buildAnalysisIR -> gate.RunWith` 的精确 EID/source:line frontier。它没有越权写结论。但输入调查没有读取/发出已存在的
+`gate.Run -> RunWith` wrapper，故 capsule 正确反映了一个错误接受的调查边界；根因转移到 admission。
+
+### 101.3 `EVAL-B97-CALLENDPOINTPROOF1`（P0）：未查看 sink 也能声明 no-path
+
+completion 的 prompt 已明确规定 `no_directed_path` 只用于“both requested endpoints exist”，并禁止把未查看的证据当 waiver；实现却在
+call-edge graph 无 path 后，只要模型提交该 enum+rationale 就立即放行。该次只有 source 在 call graph 中，exact sink 无 node，且
+`internal/analysis/gate/gate.go` 未读；模型仍成功关闭调查并误称 `gate.Run` 可能不存在。源码实际有 `gate.Run` definition，且其 body
+精确调用 `RunWith`。
+
+根修是把 no-path admission 绑定到 exact endpoint existence proof：source/sink 各自必须由 citable current-source typed evidence 唯一解析；
+参与 call graph 的节点可由 call edge 证明，叶端点可由 exact `ClaimDefinitionFact` 证明。缺一端时返回定向 read/evidence repair；歧义、prefix sibling、
+recovered/runtime/prose 均不得获权。两端已证但无 directed path 时继续接受 typed waiver，并把真实 reverse/parallel frontier 交给模型自行下结论。
+不得从 waiver rationale、用户原文或最终答案扫描存在性。
+
+### 101.4 `EVAL-B97-REQUESTBOUNDARY1`（P0）：selected-root operational scope 覆盖请求坐标
+
+Analyzer 首轮使用 `repo_map(path=internal/analysis/criterion, scope=internal/analysis/criterion)`；tool 选择 4-file subgraph，但 observation 对模型与
+prescan merge 只留下 operational `scopes=.`，`AnalyzerHints.SourceInventoryRequestedPathScopes` 因而为空。Explorer hard gate 将任务误判为
+repo-wide，先拒绝两次 scoped call，再强制全仓 lens。之后请求包的 89-row complete lens 虽全闭合，旧 root candidate-budget debt 仍要求
+`cmd/fixtures/thirdparty/internal/skill` 等无关跟进，造成 15 lens、24 轮与错误扩域。
+
+最优方案是在 repo_map parameter normalization 中把 selected graph 的执行坐标与 repo-root query identity 分离：`path=<scope>` 与冗余同值
+`scope=<scope>` 规范为一个 repo-root scope；不得因 selected-root 的 `.` 丢失，也不得拼成 `<scope>/<scope>`。只有 analyzer-stage
+tool-query provenance 与当前请求精确 path identity 的 typed join 才能铸 requested boundary；任意 Explorer 推断 scope、RequiredFiles、模糊
+目录词仍不能缩窄 hard universe。
+
+### 101.5 排期与不变量
+
+施工冻结为 B97-A `CALLENDPOINTPROOF1` → B97-B `REQUESTBOUNDARY1`，每批独立验证、文档、提交、推送，再严格并行相同两例。
+`EVAL-B97-DIAGRAMALIAS1` 只列 P1 观察：sequence 的短 operation alias/qualified callee 导致 4 次 Finalizer reject，但最终能自修复；需异构复现后
+再扩共享 resolver，不能据单例硬化。所有批次均禁止以 request/think/final prose 关键词作 hard gate，禁止系统改写模型结论，显式时间窗 Trace
+因果投影与自动补齐保持负回归隔离。

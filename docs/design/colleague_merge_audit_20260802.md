@@ -2289,3 +2289,19 @@ B96-C 已交付：completion 私有调用图判定上移为共享 `types.Analyze
 frontier 的真实边、EID 与 source:line。该胶囊只提供证据，不代写/替换模型结论，不增加成文 hard gate，不读用户或模型 prose；definition、recovered、
 runtime artifact 与歧义短名均不能越权铸边。Java/C/C++/Rust/ArkTS/Cangjie 等共享 `.`/`::`/`#` 语义，`QFRootCauseTrace` 负 pin 隔离。
 完整 `internal/types`、`internal/agent`、`internal/tool` 通过；状态：`EVAL-B95-ENDPOINTFOCUS1=implemented/full-pass/replay-next`。
+
+### §10.34 B97 production：B96 authority 生效，暴露 no-path admission 与请求坐标断线
+
+`main@f4f0751fd` 严格并行两个 read case，runner 均 PASS、人工均 FAIL。sequence 236s/11 Explorer/4 Finalizer reject；inventory
+558s/24 Explorer/15 lens/8 prune。详细工件与裁定见 eval campaign §101。
+
+- B96-C endpoint capsule 已按设计输出 `endpoint_unresolved` 和 `buildAnalysisIR -> gate.RunWith` 的精确 typed frontier；但 completion 在未读取
+  `gate.go`、exact sink 无任何存在性证据时仍接受 `no_directed_path`。新 P0 `EVAL-B97-CALLENDPOINTPROOF1` 要求 waiver admission 先由
+  citable current-source call/definition typed evidence证明两端精确存在；缺证据必须定向补读，不能把“没查”铸成“无路”。
+- B96-A 分区 lens 已正确选出 production 5/test 51，B96-B 也消除了成文热路；但 analyzer selected-subgraph prescan 丢失 repo-root
+  `QueryPathScopes`，未铸 request-bound path。Explorer 被迫先做全仓 lens，旧 root debt 污染后续 89-row complete scope。新 P0
+  `EVAL-B97-REQUESTBOUNDARY1` 在 tool parameter/query 坐标层统一 `path=<scope>` 与冗余同值 `scope=<scope>`，保留 analyzer-stage 精确 provenance。
+- P1 `EVAL-B97-DIAGRAMALIAS1` 暂列观察：短 operation alias 与 qualified endpoint 造成成文重试，但本轮可自修复，需跨语言异构证据后再动共享 resolver。
+
+修复顺序冻结为 endpoint existence admission → analyzer request-bound query coordinate；均只消费 typed evidence/provenance，不扫描模型/答案原文，
+不系统代写结论，不影响 RootCauseTrace、显式时间窗因果投影与自动补齐。
