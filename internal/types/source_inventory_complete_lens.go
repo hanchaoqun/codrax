@@ -107,6 +107,7 @@ func sourceInventoryCompleteLensesFromObservation(observation SourceInventoryObs
 		}
 		sourceInventoryCompleteLensPopulateSurface(&lens, observation.Scopes, set.Members)
 		out = append(out, lens)
+		out = append(out, sourceInventoryCompleteLensClassPartitions(lens, set.Members)...)
 	}
 	return mergeSourceInventoryCompleteLenses(nil, out)
 }

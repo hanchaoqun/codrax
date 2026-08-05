@@ -414,6 +414,66 @@ func TestSourceInventoryObservation_MergeDoesNotMintCompleteLensFromUnionedScope
 	}
 }
 
+func TestSourceInventoryObservation_CompleteLensPartitionsMixedSourceClasses(t *testing.T) {
+	obs := CloneSourceInventoryObservation(SourceInventoryObservation{
+		Active:          true,
+		Complete:        true,
+		Scopes:          []string{"."},
+		QueryPathScopes: []string{"pkg"},
+		Provenance: []string{
+			SourceInventoryProvenanceRepoLensToolQuery,
+			SourceInventoryProvenanceStageExplore,
+		},
+		Sets: []SourceInventoryObservationSet{{
+			Role: AnswerCandidateRoleFunction, Complete: true, Total: 3,
+			Members: []SourceInventoryObservationMember{
+				{Name: "Eval", Role: AnswerCandidateRoleFunction, SourceClass: SourcePathRoleProduction, File: "pkg/eval.go", Language: "go", SurfaceTerms: []string{"public function"}},
+				{Name: "EvalAll", Role: AnswerCandidateRoleFunction, File: "pkg/eval.go", Language: "go", SurfaceTerms: []string{"public function"}},
+				{Name: "TestEval", Role: AnswerCandidateRoleFunction, File: "pkg/eval_test.go", Language: "go", SurfaceTerms: []string{"public function"}},
+			},
+		}},
+	})
+	counts := map[string]int{}
+	for _, lens := range obs.CompleteLenses {
+		if lens.Role != AnswerCandidateRoleFunction {
+			continue
+		}
+		counts[sourceInventoryCompleteLensClassKey(lens.SourceClasses)] = lens.Count
+		if lens.Count != lens.Total {
+			t.Fatalf("partition lens must remain complete: %+v", lens)
+		}
+	}
+	if got := counts[sourceInventoryCompleteLensClassKey([]SourcePathRole{SourcePathRoleProduction, SourcePathRoleTest})]; got != 3 {
+		t.Fatalf("combined production+test lens count=%d, want 3; lenses=%+v", got, obs.CompleteLenses)
+	}
+	if got := counts[string(SourcePathRoleProduction)]; got != 2 {
+		t.Fatalf("production partition count=%d, want 2; lenses=%+v", got, obs.CompleteLenses)
+	}
+	if got := counts[string(SourcePathRoleTest)]; got != 1 {
+		t.Fatalf("test partition count=%d, want 1; lenses=%+v", got, obs.CompleteLenses)
+	}
+}
+
+func TestSourceInventoryObservation_CompleteLensPartitionFailsClosedOnUnknownClass(t *testing.T) {
+	obs := CloneSourceInventoryObservation(SourceInventoryObservation{
+		Active: true, Complete: true, Scopes: []string{"."}, QueryPathScopes: []string{"pkg"},
+		Provenance: []string{SourceInventoryProvenanceRepoLensToolQuery, SourceInventoryProvenanceStageExplore},
+		Sets: []SourceInventoryObservationSet{{
+			Role: AnswerCandidateRoleFunction, Complete: true, Total: 2,
+			Members: []SourceInventoryObservationMember{
+				{Name: "Eval", Role: AnswerCandidateRoleFunction, File: "pkg/eval.go", Language: "go"},
+				{Name: "Detached", Role: AnswerCandidateRoleFunction, Language: "go"},
+			},
+		}},
+	})
+	if len(obs.CompleteLenses) != 1 {
+		t.Fatalf("an unclassified row must suppress all class partitions, got %+v", obs.CompleteLenses)
+	}
+	if obs.CompleteLenses[0].Count != 2 {
+		t.Fatalf("combined complete lens must remain available: %+v", obs.CompleteLenses[0])
+	}
+}
+
 func TestSourceInventoryObservation_ClassUniverseCanBeActiveWithoutMemberRows(t *testing.T) {
 	classOnly := SourceInventoryObservation{
 		Active:       true,

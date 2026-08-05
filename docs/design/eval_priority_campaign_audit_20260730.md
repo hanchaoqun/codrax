@@ -15269,3 +15269,17 @@ edge、directed-path grounding status 与精确 evidence refs。它只排序和�
 施工顺序冻结：B96-A `CLASSPARTITION1` → B96-B `ANSWERPREEMITPERF1` → B96-C `ENDPOINTFOCUS1`；每批独立测试、文档、提交、推送，
 随后严格并行同两例验收。三批均不得触碰 Trace 显式窗、双轴根因、因果投影与自动补齐权限面，不扫描 request/think/final prose作 hard gate，
 不允许系统代写模型结论。
+
+### 100.6 B96-A 施工：complete observation 铸造 source-class 精确子 lens
+
+`EVAL-B96-CLASSPARTITION1` 已实现。每个原始 complete role set 继续保留 combined lens；当且仅当全部成员都能由 persisted
+`SourceClass` 或共享 `ClassifySourcePathRole(file)` 得到确定类别时，同步铸造 class-local lens。子 lens 的 count/total 来自该类别真实成员，
+language/surface-family 也只从同类别成员计算；scope 不参与类别回填，避免 `pkg` 目录把 `pkg/*_test.go` 的 test partition 污染成 production。
+
+任何成员仍为 unknown 时整组不铸子 lens，partial set、分页未闭合或 merged union 也没有入口；combined lens 仍在，因此显式 all-source 请求
+保持原能力。production/test/all 三臂生产同形测试分别得到 2/1/3 行；legacy 缺字段但有路径的行可安全分类，缺字段且无路径继续 fail-closed。
+现有 request-bound row parity 直接消费这些 lens，系统不制造成员、不修改模型答案。
+
+验证：定向 source-class/unknown/partial/all-scope tests 通过；完整 `internal/types`（22.813s）与 `internal/tool`（166.054s）通过。
+LOC convergence 首次精确拒绝新职责文件缺 ceiling，补充 49 行显式 ratchet 后复绿，未抬高旧 ceiling。状态：
+`EVAL-B96-CLASSPARTITION1=implemented/full-pass/replay-after-B96-B-C`。

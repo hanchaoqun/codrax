@@ -2273,3 +2273,8 @@ view 合同不变。生命周期 e2e、边界正负 pin 与完整 `internal/type
 高 ROI 顺序冻结为：先由完整 observation 铸 `role × source_class` complete-lens 分区；再把 immutable typed surface/exclusion/aggregate 派生缓存在
 单次 pre-emit context；最后提供 request-bound endpoint typed capsule。均不扫描用户/模型/答案 prose 作 hard gate、不系统代写结论、不改变
 RootCauseTrace、显式时间窗、因果投影或自动补齐。
+
+B96-A 已交付：一次 complete role observation 现在保留 combined lens，同时在全部行 source class 可由 typed 字段/规范路径确定时铸造
+`role × source_class` 子 lens；production/test/all 请求分别消费自身 5/51/56 宇宙。unknown-class、partial/page/merged-union 不获分区权限，
+scope 路径也不能把 test 子 lens 污染成 production。完整 `internal/types`（22.813s）、`internal/tool`（166.054s）及 49-LOC 新文件收敛
+ratchet 均绿。状态：`EVAL-B96-CLASSPARTITION1=implemented/full-pass/replay-after-B96-B-C`。

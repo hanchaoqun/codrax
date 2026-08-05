@@ -1225,6 +1225,58 @@ func TestSourceInventoryRequestBoundCompleteLensRowsCoverRoles_RejectsInexactLin
 	}
 }
 
+func TestSourceInventoryRequestBoundCompleteLensRowsCoverRoles_SelectsSourceClassPartition(t *testing.T) {
+	rm := sourceInventoryProjectionRequestModel(nil)
+	rm.AnalyzerHints.SourceInventoryRequestedPathScopes = []string{"pkg"}
+	base := SourceInventoryObservation{
+		Active: true, Complete: true, Scopes: []string{"."}, QueryPathScopes: []string{"pkg"},
+		Provenance: []string{SourceInventoryProvenanceRepoLensToolQuery, SourceInventoryProvenanceStageExplore},
+		Sets: []SourceInventoryObservationSet{{
+			Role: AnswerCandidateRoleFunction, Complete: true, Total: 3,
+			Members: []SourceInventoryObservationMember{
+				{Name: "Eval", Role: AnswerCandidateRoleFunction, SourceClass: SourcePathRoleProduction, File: "pkg/eval.go", Line: 10, Language: "go", CoverageState: SourceInventoryCoverageObserved},
+				{Name: "EvalAll", Role: AnswerCandidateRoleFunction, SourceClass: SourcePathRoleProduction, File: "pkg/eval.go", Line: 20, Language: "go", CoverageState: SourceInventoryCoverageObserved},
+				{Name: "TestEval", Role: AnswerCandidateRoleFunction, SourceClass: SourcePathRoleTest, File: "pkg/eval_test.go", Line: 10, Language: "go", CoverageState: SourceInventoryCoverageObserved},
+			},
+		}},
+	}
+	production, ok := SourceInventoryRequestBoundPrincipalRowSetAggregateFact(base, rm)
+	if !ok || len(production.Members) != 2 || stringSliceContains(production.Members, "TestEval") {
+		t.Fatalf("default production request must consume the production partition: ok=%t fact=%+v", ok, production)
+	}
+
+	testRM := rm
+	testRM.SourceScopeProfile = &SourceScopeProfile{RequestedScope: SourceScopeTest}
+	testOnly, ok := SourceInventoryRequestBoundPrincipalRowSetAggregateFact(base, testRM)
+	if !ok || len(testOnly.Members) != 1 || testOnly.Members[0] != "TestEval" {
+		t.Fatalf("explicit test request must consume the test partition: ok=%t fact=%+v", ok, testOnly)
+	}
+
+	allRM := rm
+	allRM.SourceScopeProfile = &SourceScopeProfile{RequestedScope: SourceScopeAll, IncludeAuxiliaryAsPrincipal: true}
+	all, ok := SourceInventoryRequestBoundPrincipalRowSetAggregateFact(base, allRM)
+	if !ok || len(all.Members) != 3 {
+		t.Fatalf("explicit all-source request must retain the combined lens: ok=%t fact=%+v", ok, all)
+	}
+}
+
+func TestSourceInventoryObservation_PartialSetDoesNotMintClassPartitions(t *testing.T) {
+	obs := CloneSourceInventoryObservation(SourceInventoryObservation{
+		Active: true, Complete: false, Scopes: []string{"."}, QueryPathScopes: []string{"pkg"},
+		Provenance: []string{SourceInventoryProvenanceRepoLensToolQuery, SourceInventoryProvenanceStageExplore},
+		Sets: []SourceInventoryObservationSet{{
+			Role: AnswerCandidateRoleFunction, Complete: false, Total: 3,
+			Members: []SourceInventoryObservationMember{
+				{Name: "Eval", Role: AnswerCandidateRoleFunction, SourceClass: SourcePathRoleProduction, File: "pkg/eval.go", Language: "go"},
+				{Name: "TestEval", Role: AnswerCandidateRoleFunction, SourceClass: SourcePathRoleTest, File: "pkg/eval_test.go", Language: "go"},
+			},
+		}},
+	})
+	if len(obs.CompleteLenses) != 0 {
+		t.Fatalf("partial role set must not mint combined or class-partition complete lenses: %+v", obs.CompleteLenses)
+	}
+}
+
 func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_ArchitectureNarrativeKeepsInventoryAdvisory(t *testing.T) {
 	rm := RequestModel{
 		Intent:      IntentExplain,

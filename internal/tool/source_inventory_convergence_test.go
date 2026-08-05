@@ -118,6 +118,7 @@ var sourceInventoryFileLOCCeiling = map[string]int{
 	"../types/source_inventory_followup_universe_scope.go":           25,
 	"../types/source_inventory_followup_zero_lens.go":                97,
 	"../types/source_inventory_complete_lens.go":                     231,
+	"../types/source_inventory_complete_lens_partition.go":           49,
 	"../types/source_inventory_complete_lens_lineage.go":             28,
 	"../types/source_inventory_complete_lens_scope.go":               35,
 	"../types/source_inventory_complete_lens_surface_family.go":      50,
