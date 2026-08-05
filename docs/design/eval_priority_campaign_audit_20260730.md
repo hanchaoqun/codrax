@@ -15199,3 +15199,73 @@ pre-complete gates 的 typed closure。精确未读、混合来源缺失、结�
 仍由既有 auto-complete 路径关闭，Explorer 仅 dispatch 一次；另有 types 边界 pin 证明 rebind 在活跃探索期仍为 principal guidance、在
 accepted closure 后不阻断。完整 `internal/types`（24.285s）与 `internal/orchestrator`（13.182s）全绿。状态：
 `EVAL-B95-DAGCLOSURE1=implemented/full-pass/replay-next`。B95-A/B 均未触碰 RootCauseTrace、显式时间窗、因果投影、自动补齐或模型结论所有权。
+
+## 100. 2026-08-04 B96 r22：accepted closure 生产闭环；库存 source-class 权威与成文派生缓存成为新主瓶颈
+
+### 100.1 严格双并发与人工结论
+
+在 `main@80d936fec` 重新构建后，严格并行恰好两个 read case：
+
+- `qf_sequence_analyzer_gate`：runner PASS / human FAIL，239s，1 个 Explorer dispatch、13 轮、4 次 read、3 次 Finalizer reject；
+- `qf_multi_member_set_count_caveat`：runner FAIL / human FAIL，953s，1 个 Explorer dispatch、32 轮、23 次 source lens、8 次 completion、
+  2 次 Finalizer reject、9 次 tool-history prune，最大 context 46%。
+
+工件见 `eval/parallel_selected_summary_evalcampaign_b96_b95_replay_r22_20260804.md` 及对应 manual audit。本轮没有运行 Trace，不能据此改变
+RootCauseTrace、显式时间窗、因果投影、自动补齐或模型结论所有权。
+
+### 100.2 B95-B 获得 production close；B95-A 仅在同 source-class 宇宙内成立
+
+sequence 相对 B95 从 3 个 Explorer dispatch、27 轮、16 次 read、496s 降到 1/13/4/239s；accepted completion 之后的
+`RepairRebindSubject(origin=chain_ranker,best=0.00)` 不再重开 sibling DAG，且精确 unread/origin/handoff/view 合同没有被跳过。
+`EVAL-B95-DAGCLOSURE1=closed-by-production-replay`。
+
+inventory 也只有 1 个 Explorer dispatch，说明同一 accepted-closure 修复没有对库存类退化；但 B95-A 的机械 count 校准没有拿到授权。
+原因不是 pre-normalize 接线再次断裂，而是其输入权威本身没有区分 production/test 子宇宙，见下一节。因此
+`EVAL-B95-PRENORMPARITY1=implemented/production-blocked-by-class-partition`，不能虚报闭环。
+
+### 100.3 `EVAL-B96-CLASSPARTITION1`（P0）：complete lens 把混合 source class 总数绑定给 production 主席
+
+目标包的完整 function observation 有 56 行：5 个 production function 与 51 个 `_test.go` test function。现有
+`SourceInventoryCompleteLens` 每个 role 只有一条 `Count/Total`，同时把所有出现过的 `SourceClasses` 放入集合，因此 function lens 为
+`count=total=56, classes=[production,test]`。默认 source-inventory 主席范围按既有请求合同是 production，principal typed rows 正确筛成 5 行；
+但 exact authority 又要求 `lens.Count == len(principal rows)`，于是 56 != 5 后 fail-closed。系统随后把 broad/incomplete debt接回同一调查，
+模型最终把 51 个测试函数也列为公开生产 function，动态 oracle 正确以 `exported_functions=5` 判 FAIL。
+
+根修是由 engine 从一次完整 observation 铸造 `role × source_class` 的分区 complete lenses：保留 combined lens 供显式 all-source 请求使用，同时按
+每个 typed row 的 canonical source class 生成 class-local `count=total`、language/surface/provenance 相同的精确子 lens。只有原 observation
+本身 complete、查询坐标和 executable provenance 完整时才能派生；partial/page-truncated/merged union 不得伪造分区完整性。旧行缺
+`SourceClass` 时只允许使用现有 canonical path classifier，不从用户、模型或答案 prose 猜。默认 production 请求选 5 行 lens；显式 test/all
+仍分别选择 51/56。状态：`confirmed/P0/next-code-batch`。
+
+### 100.4 `EVAL-B96-ANSWERPREEMITPERF1`（P0）：同一 typed 派生在 item×citation 热路上重复全图计算
+
+inventory 第三版文档包含 89 个 structured items。成文前 normalize 在“按唯一 label/citation 修复 citation_ref”阶段长时间单核 100%，进程
+物理内存约 1.1GiB、峰值约 1.5GiB；3 秒只读 sample 显示主调用链反复进入：
+
+`normalizeItemCitationRefsByUniqueLabelCitationWithContext -> preEmitCitationSupportsAggregateItemWithContext ->`
+`preEmitPrincipalAggregateMemberSetFactRefs -> preEmitStableAggregateFacts -> answerSurfacePlan ->`
+`normalizeAggregateFactsForTypedExclusion -> answerDocumentExcludedCandidateNames -> 全 graph SymbolDefs census`。
+
+这里每个 item/citation 都重新构建同一 `AnswerSurfacePlan`、稳定 aggregate facts、principal refs 与 exclusion candidate 集。它不是一次正常的
+大列表线性成本，而是 document-size × facts × graph-size 的重复派生；最终单例 953s，掩盖了前面探索改进。
+
+最优方案是在单次 `preEmitCheckContext` 内缓存 immutable typed 派生：surface plan、normalized stable facts、principal/relation refs、effective
+excluded roles/candidates 与 source-inventory authority。缓存生命周期严格限定一次 emit/patch 校验，文档 mutation 不改变这些 BusContext
+输入；跨 turn/patch 不共享，避免陈腐。所有 hard gate 仍消费相同 typed 值，不删校验、不放宽 citation/成员等值合同。增加构造计数/benchmark
+证明大 roster 的全图 census 为 O(1) 次、结果与未缓存路径字节等值。状态：`confirmed/P0/after-CLASSPARTITION1`。
+
+### 100.5 `EVAL-B95-ENDPOINTFOCUS1`（P1）异构复现后升级施工
+
+sequence 已拿到 typed `principal_span_waiver=no_directed_path`，答案也知道实际 direct sink 是 `gate.RunWith`；但最终仍写
+“`gate.Run` 与 `gate.RunWith` 的关系需要进一步确认”。源码/evidence 已证 `gate.Run -> RunWith` wrapper，同时已证
+`buildAnalysisIR -> gate.RunWith`；大量 `buildAnalysisIR` sibling direct calls 却占据主席列表并被叙述成一条链。B95-B 去掉重复调查后症状仍在，
+故不能再归因于单纯 context fan-out。
+
+后续为 finalizer 构造小型 request-bound typed endpoint capsule：请求 source/sink、nearest proven source-side edge、sink wrapper/reverse/parallel
+edge、directed-path grounding status 与精确 evidence refs。它只排序和压缩已有 parser/grounding 事实并给模型 soft guidance，不生成“有/无路径”
+结论、不改写答案、不按 endpoint 名或自然语言关键词硬门；缺证据、多 wrapper、多定义均显式 typed unknown/fail-closed。
+状态：`confirmed/P1/after-P0-performance`。
+
+施工顺序冻结：B96-A `CLASSPARTITION1` → B96-B `ANSWERPREEMITPERF1` → B96-C `ENDPOINTFOCUS1`；每批独立测试、文档、提交、推送，
+随后严格并行同两例验收。三批均不得触碰 Trace 显式窗、双轴根因、因果投影与自动补齐权限面，不扫描 request/think/final prose作 hard gate，
+不允许系统代写模型结论。

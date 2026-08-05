@@ -2257,3 +2257,19 @@ B95-B 冷读修正：跨 sibling completion/waiver/lens carrier 并未丢失，�
 dispatch evidence/validate。现保留其探索期 principal guidance，仅在 accepted-closure 专用边界禁止它重开 DAG；精确 read/origin/handoff/
 view 合同不变。生命周期 e2e、边界正负 pin 与完整 `internal/types`（24.285s）、`internal/orchestrator`（13.182s）全绿。状态：
 `EVAL-B95-DAGCLOSURE1=implemented/full-pass/replay-next`；不涉及 Trace 或系统答案代写。
+
+### §10.33 B96 production：closure 修复获证；source-class 完整性与 pre-emit 重算成为 P0
+
+`main@80d936fec` 严格并行两个 read case 后，sequence runner PASS/human FAIL（239s），inventory runner/human FAIL（953s）。
+
+- B95-B 已获 production close：sequence 从 3 dispatch/27 Explorer/16 reads 降至 1/13/4；inventory 同样仅一次 Explorer dispatch；
+- 新 P0 `EVAL-B96-CLASSPARTITION1`：完整 function lens 把 5 个 production 与 51 个 test 行合成 count=56，而默认主席 typed rows 为
+  production 5 行；exact parity 因 56!=5 fail-closed，模型最终错误发布全部 56 个 function；
+- 新 P0 `EVAL-B96-ANSWERPREEMITPERF1`：89-item 文档的 item/citation 校验反复重建 surface plan、stable facts、typed exclusion candidate
+  census 与 principal refs；sample 证明全 graph 扫描位于内层热路，单例 953s、物理内存约 1.1GiB；
+- P1 `EVAL-B95-ENDPOINTFOCUS1` 在去掉 sibling 重探后仍复现：typed wrapper 边已在 evidence，但 final context 没有请求端点边界胶囊，答案仍称
+  `gate.Run -> RunWith` 关系待确认并把 sibling fan-out 当主链。
+
+高 ROI 顺序冻结为：先由完整 observation 铸 `role × source_class` complete-lens 分区；再把 immutable typed surface/exclusion/aggregate 派生缓存在
+单次 pre-emit context；最后提供 request-bound endpoint typed capsule。均不扫描用户/模型/答案 prose 作 hard gate、不系统代写结论、不改变
+RootCauseTrace、显式时间窗、因果投影或自动补齐。
