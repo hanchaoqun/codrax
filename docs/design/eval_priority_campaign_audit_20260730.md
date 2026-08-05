@@ -16336,3 +16336,46 @@ B118 将恢复过滤补上 mutation-aware typed 边界：
 - `EVAL-B107-ENDPOINTAMBIG1=confirmed/P1-after-trace-ledger`。
 
 B118 未改 Trace 查询、显式时间窗、因果投影或系统补齐；没有降低 diagram call-edge hard gate，没有扫描自然语言作 hard gate，也没有系统代写模型答案。
+
+## 119. 2026-08-05 B119：Trace 尾部 typed 决策账本
+
+### 119.1 目标直接阻塞权限与 wakeup path 分面
+
+r38 证明一般性禁令存在却仍可能被长上下文稀释。B119 不新增答案扫描器或 hard reject，而是在最终 prompt 最后一段从同一
+`TraceCausalProjectionSet` 计算紧凑 authority ledger：
+
+- 有 typed target state 时，只有 projection node 的 `BlockingKind` 非空，且 target 精确处于 waiter 角色（waiter-subject row 的 Subject，或
+  holder-subject row 的 BlockingPeer），才发布 `target_direct_blocking_authority=typed_waiter_holder`；
+- 同时发布 exact waiter、holder、blocking kind 与 row identity；holder 未解析时保持 `unresolved`，不从 wakeup path 猜 peer；
+- 没有精确 target blocking row 时发布 `not_provided_by_projection`，并单列 `wakeup_path_blocking_authority=not_implied`；
+- 缺 typed target 时为 `unavailable_without_typed_target`，不会用第一个线程或用户名猜测目标。
+
+该账本只限制模型可以从哪些 typed 关系推理“直接 blocker”；模型仍决定如何解释窗口、排序候选和给出验证建议。
+
+### 119.2 每个修复方向只发布单席 leader，不铸造 subtotal
+
+从已过滤的 positive ranked eliminable seats 按发布 rank 取每个 exact `FixDirection` 的第一个席位，尾部列出 direction、rank、subject、
+effective attribution 与 row identity；同方向其余席位不作为 subtotal member 重复展开。同时声明：
+
+- `fix_direction_summary_authority=single_published_leader_only`；
+- `direction_subtotal_authority=not_provided_without_exact_fold`；
+- 相同 direction label 本身不授权相加。
+
+因此系统没有替模型算“IO 方向总收益”，也没有把 leader 宣布为物理根因；它只给出当前 typed 排名中可安全陈述的单席代表，避免模型从大量不同 row/口径拼接
+24.5ms 之类伪小计。未来若 projection 提供 exact fold authority，可另行发布该 fold，不需要改答案文本规则。
+
+### 119.3 回归、不变量与状态
+
+- 正例：waiter-subject 与 holder-subject 两种 blocking 角色都保持正确方向；无 target match 的 holder row 不越权进入；
+- 无 blocking row + 有 wakeup path：只发布 wakeup 非阻塞权限；
+- 同方向两个席位只发布 rank 更高 leader，另一个方向独立保留；
+- bounded fact-set 仍不产生 Final Trace Decision Boundary；
+- explorer runtime aggregate 仍不回流 Finalizer；
+- `go test ./internal/agent -count=1`：PASS（2.446s；新增定向补测 PASS）。
+
+状态：`EVAL-B117-TRACEDECEXEC1=implemented/full-agent-pass/replay-next`；
+`EVAL-B117-ATTACHREMOVE1=implemented/full-tool-pass/replay-next`；
+`EVAL-B107-ENDPOINTAMBIG1=confirmed/P1`。
+
+B119 是 prompt-only typed context 改进：未修改 trace_query、根因排序、唤醒链、窗内可消除量、因果投影、显式窗准入或系统补齐；不扫描问题/思考/答案文本，
+不拒绝、不删除、不改写模型结论。

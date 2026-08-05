@@ -64,7 +64,130 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 	default:
 		b.WriteString("- available_axes=`none`: stay within the target-state, path, and evidence-boundary facts; do not invent a ranked cause.\n")
 	}
+	b.WriteString(renderTraceFinalCompactAuthorityLedger(set))
 	b.WriteString("- cross_row_addition=`not_authorized_without_exact_typed_relation`: a row-local state breakdown applies only to that row. Do not merge, decompose, compare as one subtotal, or add values from different rows/threads/fix directions unless one exact typed relation/fold carrier names those members and authorizes that operation.\n")
 	b.WriteString("- Preserve directed wakeup/path semantics and typed holder/waiter or overlap relations exactly. Temporal order, adjacency, a candidate flag, or a kernel caller symbol alone does not prove synchronous blocking, lock ownership, post-wakeup preemption, or physical coupling.\n\n")
 	return b.String()
+}
+
+// renderTraceFinalCompactAuthorityLedger brings two high-cost relation
+// decisions to the final prompt tail: whether the selected target has an exact
+// typed waiter/holder row, and which single seat leads each typed fix
+// direction. It does not choose a diagnosis or calculate a direction subtotal.
+// Inputs are projection fields only; user/model/final prose never participates.
+func renderTraceFinalCompactAuthorityLedger(set types.TraceCausalProjectionSet) string {
+	if len(set.Projections) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for index, projection := range set.Projections {
+		label := strings.TrimSpace(projection.ArtifactLabel)
+		if label == "" {
+			label = fmt.Sprintf("trace-%d", index+1)
+		}
+		target := ""
+		if projection.TargetStateAccount != nil {
+			target = strings.TrimSpace(projection.TargetStateAccount.Subject)
+		}
+		relations := traceFinalTargetBlockingRelations(projection, target)
+		switch {
+		case target == "":
+			fmt.Fprintf(&b, "- compact_authority artifact=`%s`: target_direct_blocking_authority=`unavailable_without_typed_target`; wakeup_path_blocking_authority=`not_implied`.\n", label)
+		case len(relations) == 0:
+			fmt.Fprintf(&b, "- compact_authority artifact=`%s`: target=`%s`; target_direct_blocking_authority=`not_provided_by_projection`; wakeup_path_blocking_authority=`not_implied`. Describe typed wakeup edges as wakeup/dependency relations, not as a direct blocker.\n", label, target)
+		default:
+			for _, relation := range relations {
+				fmt.Fprintf(&b, "- compact_authority artifact=`%s`: target=`%s`; target_direct_blocking_authority=`typed_waiter_holder`; waiter=`%s`; holder=`%s`; blocking_kind=`%s`; row_identity=`%s`.\n",
+					label, target, relation.waiter, relation.holder, relation.kind, relation.rowIdentity)
+			}
+		}
+
+		leaders := traceFinalFixDirectionLeaders(projection, 6)
+		if len(leaders) == 0 {
+			continue
+		}
+		fmt.Fprintf(&b, "- compact_authority artifact=`%s`: fix_direction_summary_authority=`single_published_leader_only`; direction_subtotal_authority=`not_provided_without_exact_fold`. Do not sum same-direction seats merely because their labels share a direction.\n", label)
+		for _, node := range leaders {
+			fmt.Fprintf(&b, "  - fix_direction=`%s`; leader_rank=#%d; leader_subject=`%s`; leader_effective_attribution=%.3fms; row_identity=`%s`\n",
+				strings.TrimSpace(node.FixDirection), node.Rank, strings.TrimSpace(node.Subject),
+				node.EffectiveImpactMS, traceDecisionNodeIdentity(node))
+		}
+	}
+	return b.String()
+}
+
+type traceFinalBlockingRelation struct {
+	waiter      string
+	holder      string
+	kind        string
+	rowIdentity string
+}
+
+func traceFinalTargetBlockingRelations(projection types.TraceCausalProjection, target string) []traceFinalBlockingRelation {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return nil
+	}
+	pool := make([]types.TraceCausalProjectionNode, 0,
+		len(projection.RankedSeats)+len(projection.PrimaryRootCauses)+len(projection.OnChainCauses)+
+			len(projection.AdjacentCauses)+len(projection.BackgroundCauses)+len(projection.SupportingHops))
+	pool = append(pool, projection.RankedSeats...)
+	pool = append(pool, projection.PrimaryRootCauses...)
+	pool = append(pool, projection.OnChainCauses...)
+	pool = append(pool, projection.AdjacentCauses...)
+	pool = append(pool, projection.BackgroundCauses...)
+	pool = append(pool, projection.SupportingHops...)
+	seen := map[string]bool{}
+	out := make([]traceFinalBlockingRelation, 0, 2)
+	for _, node := range pool {
+		if strings.TrimSpace(node.BlockingKind) == "" ||
+			(node.WithinRequestedWindow != nil && !*node.WithinRequestedWindow) {
+			continue
+		}
+		subject := strings.TrimSpace(node.Subject)
+		peer := strings.TrimSpace(node.BlockingPeer)
+		waiter, holder := "", ""
+		switch {
+		case !node.BlockingSubjectIsHolder && subject == target:
+			waiter, holder = subject, peer
+		case node.BlockingSubjectIsHolder && peer == target:
+			waiter, holder = peer, subject
+		default:
+			continue
+		}
+		if holder == "" {
+			holder = "unresolved"
+		}
+		identity := traceDecisionNodeIdentity(node)
+		key := waiter + "\x00" + holder + "\x00" + strings.TrimSpace(node.BlockingKind) + "\x00" + identity
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, traceFinalBlockingRelation{
+			waiter: waiter, holder: holder, kind: strings.TrimSpace(node.BlockingKind), rowIdentity: identity,
+		})
+		if len(out) >= 3 {
+			break
+		}
+	}
+	return out
+}
+
+func traceFinalFixDirectionLeaders(projection types.TraceCausalProjection, limit int) []types.TraceCausalProjectionNode {
+	seats := traceDecisionEliminableSeats(projection, 0)
+	seen := map[string]bool{}
+	out := make([]types.TraceCausalProjectionNode, 0, len(seats))
+	for _, node := range seats {
+		direction := strings.TrimSpace(node.FixDirection)
+		if direction == "" || seen[direction] {
+			continue
+		}
+		seen[direction] = true
+		out = append(out, node)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	return out
 }
