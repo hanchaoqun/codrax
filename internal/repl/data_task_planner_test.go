@@ -2706,8 +2706,12 @@ func TestDataTaskPlanSchemaTeachesOneExecutableCarrierAndCustomScriptCondition(t
 		t.Fatalf("custom_transform then.required=%+v, want script", required)
 	}
 	script, _ := properties["script"].(map[string]any)
-	if description, _ := script["description"].(string); !strings.Contains(description, "empty/omitted whenever actions[] is non-empty") {
+	description, _ := script["description"].(string)
+	if !strings.Contains(description, "empty/omitted whenever actions[] is non-empty") {
 		t.Fatalf("plan script description does not teach exclusive carrier: %q", description)
+	}
+	if !strings.Contains(description, "prebound Python globals") || !strings.Contains(description, "never import/from-import") {
+		t.Fatalf("plan script description does not teach prebound helper use: %q", description)
 	}
 }
 
@@ -2737,6 +2741,14 @@ func TestDataTaskPlannerPromptCarriesTypedInitialRequiredPaths(t *testing.T) {
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("planner prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestDataTaskPlannerSystemPromptTeachesPreboundHelpersWithoutDuplicateInventory(t *testing.T) {
+	for _, want := range []string{"Script sandbox helpers are prebound globals", "never import/from-import/redefine"} {
+		if !strings.Contains(dataTaskPlannerSystemPrompt, want) {
+			t.Fatalf("planner system prompt missing %q", want)
 		}
 	}
 }
