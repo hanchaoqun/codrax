@@ -17158,3 +17158,41 @@ Python 侧 runner 的浅 oracle 仍然 PASS，但人审确认答案把方法解�
 `EVAL-B128-RELFRONTIER1=implemented/full-agent-types-pass`；
 `EVAL-B128-CALLABLEARG1=design-needed/non-call-typed-relation`（`plugin.handle` 作为 callable argument 不是静态直接调用，
 不得伪铸 call edge；待结构关系保真后按 typed 非调用关系统一设计）。
+
+### 123.17 B129 r47：same-line relation 被 revision merge 覆盖；Trace 非加法被误读为反事实依赖
+
+在 `main@00dedd5db` 冻结构建后，严格并行恰好两个 case：
+
+- `sr_py_registry_dispatch`：124s，runner PASS / human PASS，Explorer midloop=5，Finalizer reject=2；
+- `trace_query_frame_semantic_span_optimization`：167s，runner PASS / human FAIL，Trace context 29%，trace_query=3，
+  Finalizer reject=0。
+
+Python 最终答案正确选出 `JsonPlugin`，说明 `run_pipeline -> resolve -> REGISTRY["json"] -> cls()` 与 import-time
+`@register` 绑定；可选图在两次 unsupported-edge 拒绝后由模型自行删除，系统没有代写图或结论。但 r47 证明 §123.16 的
+frontier 修复只关闭了一层：analyzer `relation_map` 已完整显示 `JsonPlugin` 三个 base，Explorer 的 unified evidence 却仍只留
+`BasePlugin`。确切根因是 `EvidenceRevisionKey` 仅由 `(scope,source,line,anchor token)` 构造；同一声明行、同一 subject 的
+不同 object 因而被误认成同一事实的 metadata revision，`mergeEvidenceItems` 用首个 ID 覆盖其余关系。这会影响所有语言的
+multiple inheritance / implements / trait / embedding / same-line fan-out。
+
+`EVAL-B129-RELREVISION1` 的通用修复：
+
+- revision key 继续规范化路径并允许 anchor-kind 等 metadata 修订，但同时加入由 semantic fields 重新计算的
+  `StableEvidenceID`；不信任 caller-provided ID；
+- 因此只有语义事实相同的锚点修订会合并，不同 predicate/object/condition 不再互相覆盖；
+- relation ordinal 在确属同一事实的 merge 中单调保留；回归把同一行三条 base relation 送进完整统一 merge，锁定 3/3
+  存活，同时保留 absolute/relative path metadata amendment 的既有单行合并合同。
+
+Trace 侧正面边界全部守住：明确窗、自动补采、两维根因、根因排序、唤醒链、窗内可消除量和系统因果投影均完整存在，
+没有成文重试或系统替换模型正文。但模型出现两处越权推理：一面称 `causal_conclusion=unproven` / frame absent，一面仍说
+“丢帧根因是”；又把“跨修复方向不可直接求和”写成“修掉 #1 后 #2 自然消失”。后者有一处系统教学近因：skill 写成
+`benefits across DIFFERENT directions never add up`，未在同一原子句说明这只表示“无 joint-counterfactual 求和权限”，并不
+证明两席重叠、依赖或一个修复会消灭另一个。记为 `EVAL-B129-NONADDITIVE1=P1-next/soft-teaching-only`；不得扫描正文硬拒，
+不得由系统改写模型结论。前一处帧因果越权在 typed context 已明确的情况下先记模型波动，继续异构 Trace 回放观察。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b129_trace_relation_replay_r47_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b129_trace_relation_replay_r47_20260805_manual_audit.md`。
+
+状态：`EVAL-B129-RELREVISION1=implemented/full-agent-types-pass`；
+`EVAL-B129-NONADDITIVE1=confirmed/P1-next`；
+`EVAL-B128-RELFRONTIER1=implemented/r47-producer-reached-merge`；
+显式窗 Trace causal projection/auto-supplement=`preserved`。

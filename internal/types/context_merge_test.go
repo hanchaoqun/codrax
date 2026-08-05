@@ -170,3 +170,31 @@ func TestEvidenceRevisionKeyCanonicalizesPathShape(t *testing.T) {
 		t.Fatalf("stable ids differ after source canonicalization:\n got %q\nwant %q", got, want)
 	}
 }
+
+func TestEvidenceRevisionKey_DistinguishesCompoundRelationEndpoints(t *testing.T) {
+	base := EvidenceItem{
+		Kind:            EvidenceRelationship,
+		Subject:         "JsonPlugin",
+		Predicate:       "inheritance",
+		Object:          "TimestampMixin",
+		Source:          "pipeline/plugins.py",
+		LineStart:       18,
+		LineEnd:         18,
+		AnchorSymbol:    "JsonPlugin",
+		AnchorKind:      AnchorDefinition,
+		Scope:           ScopeLine,
+		RelationOrdinal: 1,
+	}
+	sibling := base
+	sibling.Object = "ValidationMixin"
+	sibling.RelationOrdinal = 2
+	if got, want := EvidenceRevisionKey(base), EvidenceRevisionKey(sibling); got == want {
+		t.Fatalf("different semantic endpoints on one declaration line must not become metadata revisions:\n both %q", got)
+	}
+
+	amended := base
+	amended.AnchorKind = AnchorCall
+	if got, want := EvidenceRevisionKey(base), EvidenceRevisionKey(amended); got != want {
+		t.Fatalf("anchor-only amendment must retain one revision key:\n got %q\nwant %q", got, want)
+	}
+}

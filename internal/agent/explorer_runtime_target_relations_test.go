@@ -109,6 +109,10 @@ func TestBuildConcreteValuesSection_ExactReadRelationsSurviveActiveFrontierChang
 			t.Fatalf("source declaration order lost after frontier change: %+v", got.evidence)
 		}
 	}
+	merged := mergeEvidenceItems(got.evidence)
+	if len(merged) != 3 {
+		t.Fatalf("compound relations from one declaration line must survive the unified evidence merge: %+v", merged)
+	}
 }
 
 func TestBuildRuntimeTargetStructuralRelations_RequiresExactReadLine(t *testing.T) {

@@ -993,6 +993,14 @@ func EvidenceRevisionKey(item EvidenceItem) string {
 		canonicalEvidenceIdentityPath(item.Source),
 		fmt.Sprintf("%d:%d", item.LineStart, end),
 		token,
+		// A revision may amend mutable anchoring metadata, never the
+		// semantic claim itself. Without this semantic fingerprint,
+		// multiple relations emitted from one declaration line (multiple
+		// inheritance/implements/embedding/fan-out) share source, line,
+		// and subject token and are silently mistaken for successive
+		// revisions of one row. Recompute from semantic fields rather than
+		// trusting a caller-provided ID.
+		StableEvidenceID(item),
 	}, "\x1f")
 }
 
@@ -1113,6 +1121,9 @@ func MergeEvidenceItemByStableID(dst, src EvidenceItem) EvidenceItem {
 	dst.Salience = MergeEvidenceSalience(dst.Salience, src.Salience)
 	if dst.Producer == "" {
 		dst.Producer = src.Producer
+	}
+	if dst.RelationOrdinal <= 0 {
+		dst.RelationOrdinal = src.RelationOrdinal
 	}
 	if dst.EvidenceRef == "" {
 		dst.EvidenceRef = src.EvidenceRef
