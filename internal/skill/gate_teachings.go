@@ -47,8 +47,11 @@ type GateTeaching struct {
 var GateTeachingWriteExactContractGrounding = GateTeaching{
 	Key:       "write_exact_contract_grounding",
 	SkillName: "write-analysis-skill",
-	Text: "For hard operators (equals, not_equals, contains, not_contains, exists, not_exists, raises, not_raises, returns) on a required expected-behavior contract, the expected value must be verifiably grounded in one of three ways: (a) it appears verbatim in raw_request; (b) the contract (or its placement) carries evidence_ref naming where the value was observed, such as issue text or file:line; (c) a comparator is attached whose expected value appears verbatim in raw_request or carries its own evidence_ref. " +
-		"A value you saw during repository inspection counts ONLY when you attach the evidence_ref — the validator checks the emitted fields, not your reading history. When none of these lanes apply, use operator=satisfies (soft behavior text) instead.",
+	Text: "Choose exactly one grounding lane before emitting each required expected-behavior contract: " +
+		"(1) when the exact expected value appears verbatim in raw_request, a hard operator may use it; " +
+		"(2) when the exact value comes from inspected evidence, use a hard operator only with a contract/placement evidence_ref naming where it was observed, or with a comparator whose expected value is grounded by raw_request or its own evidence_ref; " +
+		"(3) when no exact value is grounded, do not invent an exact command result, output, status, or exception. Omit behavior_contracts[] when expected_outcomes[] already states the goal; otherwise use operator=satisfies only for essential soft behavior. " +
+		"Hard operators are equals, not_equals, contains, not_contains, exists, not_exists, raises, not_raises, and returns. A value read during repository inspection counts only when its typed evidence_ref is emitted; the validator cannot read your reasoning history.",
 }
 
 // AllGateTeachings returns the closed universe the parity tripwires

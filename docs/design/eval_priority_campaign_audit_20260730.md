@@ -17604,3 +17604,57 @@ JSON/上下文审计：两案 Analyzer、Explorer、Finalizer carrier 都可解�
 `EVAL-B136-FIELDUNKNOWN1=production-replay-closed`；`EVAL-B137-OWNERSUPNOISE1=implemented/full-agent-pass`；
 `EVAL-B136-JAVAORACLE1=eval-only-P2/production-natural-pass`；Trace 显式时间窗、因果投影、自动补齐、两维根因、根因排序、唤醒链与
 窗内可消除量=`untouched`。
+
+### 123.26 B138 r56：显式窗 Trace 两轴闭环；write exact-contract 教学改为单选决策
+
+在 `main@25ba80f9b` 冻结构建后，严格并行恰好两个异构模式 case：
+
+- `trace_query_state_churn_root_cause_rank`：158s，runner PASS / human PASS，context 30%，
+  `perf_triage+trace_query`，Finalizer reject=0；
+- `patch_java_typo`：60s，runner PASS / human PASS，context 19%，plan-only，未修改主仓源码。
+
+Trace 端到端复放保留用户显式 `11.000..11.008s` 窗、pid=20 和 `root_cause_rank`。模型正文先总结
+`app-20 runnable_wait=5.000ms`，再明确区分：
+
+1. 实际主要时间占用 / 新探索方向：app-20 running 3.000ms、runnable 5.000ms；rival-30 running 5.000cpu·ms，
+   同核竞争与调度供给是下一步；
+2. 现有规则可消除量：同一 app-20 runnable 席有效归因 5.000ms；`fragmented_runnable_wait` 是同一物理状态账的诊断形，
+   被吸收到正式 `runnable_wait` 席，不重复加和；7.700ms supply pressure 明确是跨线程 cpu·ms 背景，不能加到链上收益。
+
+前序双版本计数 GAP 已真实闭环：整页只保留 app-20 `19 switches / 20 segments` 与 rival-30 `18 / 19` 一套 state 账，
+不再同时发布 19/20 和 20/21。没有 frame/deadline 绑定证据时，正文把主要占用表限定为所选窗口候选而非具体掉帧证明；因果投影、
+自动补齐、排序、背景分层和窗内可消除量均在。Harmony priority 冷核对确认本项目 typed 平台合同为 larger numeric higher、
+1–40 CFS、41–159 RT、>159 raw；本次 `prio=53/ohos_rt` 正确，不立 GAP。
+
+`EVAL-B138-PRETRIAGENOISE1`（P2/model variance contained）：Perf pre-triage 模型曾把 trace 末行号当事件数，写出 23 甚至 reasoning
+中的 64 switches，并作“必须连续占满一帧预算”式外推。它们带 `authority=pretriage_model_extraction`，在 deterministic trace_query
+完成后按既有 authority 投影从 Finalizer 上下文删除；最终答案采用 19/20 typed state 账，没有泄漏错误计数。Analyzer 在查询前仍把
+23 写入 diagnostic navigation fields，但显式用户窗与目标没有被改变。当前属于已被精确 authority 隔离的模型波动；不扫描其 prose、
+不增加关键词 hard gate，继续用异构 Trace 观察是否出现最终面泄漏。
+
+Trace Analyzer 首轮还把 `fact_families` 带进 `causal_diagnosis`，被 schema 拒绝后一次修复。初始 skill 已逐字说明
+`fact_families` 只属于 `bounded_fact_set`，reject 与初始教学同向且没有相反示例；因此当前同样记模型 carrier 波动，不用更复杂的
+条件 schema 增加所有 provider 的 JSON 心智成本。
+
+Java write-plan 最终是 `Main.java:16` 的单行 `retrun → return` patch；raw diff、structured edit、target path 和验收项一致，
+plan-only 未 apply。过程确认 `EVAL-B138-WRITECONTRACTMIND1`（P1）：write Analyzer 虽已有正确规则，仍先虚构
+`returns: javac ... 生成 Main.class` 这种无 raw_request/evidence/comparator 的 hard expected，烧掉一次完整重试。
+
+通用修复不放宽 exact grounding gate，而把初始 prompt 与 retry hint 共用的 `GateTeachingWriteExactContractGrounding` 改成三路单选：
+
+1. exact expected 逐字在 raw_request → 可用 hard operator；
+2. exact value 来自 inspected evidence → 只有携带 typed evidence_ref / grounded comparator 才可用 hard operator；
+3. 无 exact grounding → 不得发明 command result/output/status/exception；`expected_outcomes` 已足够时省略 behavior contract，
+   只有必要的非精确行为才使用 `satisfies`。
+
+教学仍由一个常量同时供应初始面和 reject 面，新增 pin 锁定三路、禁止隐式第四路；运行 validator、approval 与 write worktree 权限
+完全未变。两案 tool carriers 最终均为合法 JSON，没有 malformed salvage 或模型答案消失；系统没有替换模型结论。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b138_trace_write_r56_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b138_trace_write_r56_20260805_manual_audit.md`。
+
+回归：`go test ./internal/skill ./internal/orchestrator -count=1` PASS（0.455s / 11.190s）。
+
+状态：`EVAL-B30-ACCOUNT2=production-replay-closed`；`EVAL-B138-WRITECONTRACTMIND1=implemented/full-related-pass`；
+`EVAL-B138-PRETRIAGENOISE1=P2/model-variance-contained`；Trace 显式窗、因果投影、自动补齐、两维根因、排序、唤醒链与窗内可消除量
+=`production-replay-pass`；write plan 隔离边界=`pass`。

@@ -154,6 +154,28 @@ func TestWriteAnalysisSkillRenderedPlacementGuidanceIsTyped(t *testing.T) {
 	}
 }
 
+func TestWriteAnalysisSkillTeachesOneGroundingLaneBeforeExactContracts(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	sk, err := r.Get("write-analysis-skill")
+	if err != nil {
+		t.Fatalf("Get(write-analysis-skill) returned error: %v", err)
+	}
+	corpus := allWorkflowBodies(sk)
+	for _, want := range []string{
+		"Choose exactly one grounding lane",
+		"appears verbatim in raw_request",
+		"contract/placement evidence_ref",
+		"do not invent an exact command result, output, status, or exception",
+		"Omit behavior_contracts[] when expected_outcomes[] already states the goal",
+		"otherwise use operator=satisfies only for essential soft behavior",
+	} {
+		if !strings.Contains(corpus, want) {
+			t.Fatalf("write-analysis exact-contract decision teaching missing %q:\n%s", want, corpus)
+		}
+	}
+}
+
 func TestWriteAnalysisSkillCalibratesMutationRiskWithoutWeakeningApproval(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)
