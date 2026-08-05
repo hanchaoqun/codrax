@@ -17448,3 +17448,52 @@ JSON 审计：diagram Finalizer 把 `blocks[]` 发成 JSON-encoded string，flat
 `EVAL-B134-DIAGREQ1=implemented/full-tool-agent-pass/awaiting-real-replay`；
 `EVAL-B134-STAGESUPDUP1=implemented/full-agent-pass`；
 `EVAL-B134-INVENTORYCTX1=P2-observe`；Trace 显式窗、因果投影、自动补齐与两维根因=`untouched`。
+
+### 123.23 B135 r53：图表 authority 真实闭环；复合枚举被机械清单过早截断
+
+在 `main@8a51611d0` 冻结构建后，严格并行恰好两个异构 case：
+
+- `qf_diagram_pipeline`：133s，runner PASS / human PASS，context 24%，Finalizer reject=1；
+- `sr_rust_trait_impls`：87s，runner FAIL / human FAIL，context 19%，Explorer unavailable tool=1，Finalizer reject=1。
+
+图表真实回放关闭 `EVAL-B134-DIAGREQ1` 与 `EVAL-B134-STAGESUPDUP1`：Analyzer 原始 JSON 明确发出
+`diagram_hint={kind:flow,required:true}`，Finalizer 合同把图列为 required；最终 Mermaid 精确表达
+Analyze → Explore → Extract → Finalize，四段职责和引用完整，且系统没有再追加重复“阶段绑定核对”表。首次成文把工作流次序的
+edge anchor 错标为 `call`，精确调用证据门正确拒绝；模型第二轮改成 `precedence` 后通过。现有教学已经明确“排序而非调用使用
+precedence”，单次可恢复偏差先按模型波动观察，不为本图字样新增特判或放宽 call authority。
+
+Rust 席不是 parser 漏掉实现：typed relation 已精确给出 `LiteralMatcher`、`RegexLikeMatcher` 两个 `implements Matcher` 成员，
+机械 source inventory 也完整定位 trait 和两个类型。但是用户同时问“分别在什么条件下被选用”，Analyzer 却把
+`source_inventory_profile.requested_fields` 发成仅 `name/location`。现有 authority snapshot 因而把请求判为
+`MechanicalRowsOnly`；成员齐全后 Explorer 工具面只剩 `emit_investigation_complete`，随后对 `read_file` 的正确尝试被系统拒绝。
+最终答案只能诚实披露无法确认选择条件，漏掉 fixture 中 `--fixed` 分支，runner/human 均 FAIL。这是所有语言共享的
+“复合成员枚举 + 每成员语义维度”过早收口，不是 Rust/trait/flag 单点问题。
+
+`EVAL-B135-INVSEMDEPTH1` 的通用修复不改变机械闭合门，也不扫描用户/模型/答案原文：收敛 Analyzer 的 typed JSON 教学，明确
+`requested_fields[]` 是请求的逐成员答案维度而不只是展示列；`summary` 是逐成员源码语义通道。当同一清单还要求解释每个成员
+为何、何时、如何被选择、调用、配置或表现时，Analyzer 应发 `summary`，既有 authority snapshot 就会保持 bounded
+`read_file`/证据工具面；纯 name/location 清单仍省略 summary 并继续快速闭合。OutputFormat 与 workflow 的旧“display columns
+only”措辞同步改成同一语义，避免 JSON 教学自相矛盾；没有新增字段、第二判定器、语言表或问题关键词门。
+
+另确认两个次级面，先以精确信号继续回放而不在本批过拟合：
+
+- `EVAL-B135-RELROSTER1`（P1 observe）：typed relation 的 principal 实现集是 2，但模型的 aggregate member_set 把 trait 定义也列为
+  principal 第三项，迫使 Finalizer 把非实现混进清单才能过硬门；最优方向是 typed principal relation set 与 broader declaration
+  context 的统一裁席，而不是识别 `trait` 文本。
+- `EVAL-B135-RUSTRELLOC1`（P2 observe）：实现成员位置落在 struct declaration 行而不是 `impl Matcher for` 行；本次因源码读取被截断，
+  尚不能区分 repomap relation-origin 限制和后续 read_file 可自然补足。先由修复后 replay 判定。
+
+JSON 审计：两案 tool carrier 均可解析，没有 malformed JSON 或字符串 salvage。图表一次修复来自合法 JSON 中的关系类型错误；
+Rust 一次修复来自错误 principal roster，并非 JSON 语法问题。系统没有替模型改写结论。显式时间窗 Trace 的因果投影、自动补齐、
+两个根因维度、根因排序、唤醒链与窗内可消除量均未进入本批代码路径。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b135_diagram_rust_r53_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b135_diagram_rust_r53_20260805_manual_audit.md`。
+
+回归：`go test ./internal/skill ./internal/agent -run
+'TestAnalysisSkill_SourceInventoryCoversConstructInventoryWithoutHardRouting|TestExplorer_FilterToolSchemas_SourceInventorySummaryKeepsReadSurface' -count=1`
+PASS；完整相关包回归在本批提交前执行。
+
+状态：`EVAL-B134-DIAGREQ1=production-replay-closed`；`EVAL-B134-STAGESUPDUP1=production-replay-closed`；
+`EVAL-B135-INVSEMDEPTH1=implemented/targeted-pass/awaiting-real-replay`；
+`EVAL-B135-RELROSTER1=P1-observe`；`EVAL-B135-RUSTRELLOC1=P2-observe`；Trace 全部 causal 能力=`untouched`。
