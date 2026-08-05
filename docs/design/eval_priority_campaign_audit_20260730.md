@@ -15283,3 +15283,17 @@ language/surface-family 也只从同类别成员计算；scope 不参与类别�
 验证：定向 source-class/unknown/partial/all-scope tests 通过；完整 `internal/types`（22.813s）与 `internal/tool`（166.054s）通过。
 LOC convergence 首次精确拒绝新职责文件缺 ceiling，补充 49 行显式 ratchet 后复绿，未抬高旧 ceiling。状态：
 `EVAL-B96-CLASSPARTITION1=implemented/full-pass/replay-after-B96-B-C`。
+
+### 100.7 B96-B 施工：pre-emit immutable typed derivation 改为单 context 单次构造
+
+`EVAL-B96-ANSWERPREEMITPERF1` 已实现。`preEmitCheckContext` 现在惰性缓存同一 emit/patch generation 的 `AnswerSurfacePlan`、stable aggregate
+facts、principal member-set refs，并让既有 source-inventory authority 复用同一 stable facts。sample 命中的四条 item/citation 热路全部改读该缓存；
+document block/item/citation 的逐项位置与成员匹配、所有 hard checks 和 mutation 后复验仍逐次运行。
+
+缓存不跨 patch、Finalizer turn 或 tool invocation；每次 `newPreEmitCheckContext` 都产生独立 generation。只有从 `BusContext/MutableState` 派生且在
+单次 pre-emit 生命周期内 immutable 的事实进入缓存，doc mutation 从未进入，因此不存在把前一稿签名借给后一稿的权限提升。语义等值 pin 将缓存
+facts/refs 与旧直算结果逐字段对比，128 次 item citation + principal membership 消费只允许 plan/facts/refs 各构造一次。
+
+Apple M5 Max 微基准（128 items，3 次）：cached 约 1.45ms、0.73MB、23.2k alloc；旧 uncached 对照约 9.3ms、6.64MB、136k alloc，
+约 6.4× wall-time 改善、89% bytes 与 83% allocations 降低。完整 `internal/tool`（168.932s）通过。状态：
+`EVAL-B96-ANSWERPREEMITPERF1=implemented/full-pass/replay-after-B96-C`。

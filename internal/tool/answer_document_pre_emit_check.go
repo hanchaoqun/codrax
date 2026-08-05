@@ -85,10 +85,18 @@ func preEmitOracleFromCtx(ctx *types.BusContext) types.SymbolOracle {
 }
 
 type preEmitCheckContext struct {
-	ctx                      *types.BusContext
-	groundCtx                *ground.Context
-	evidence                 *preEmitEvidenceIndex
-	sourceInventoryAuthority *SourceInventoryAnswerPreEmitAuthority
+	ctx                         *types.BusContext
+	groundCtx                   *ground.Context
+	evidence                    *preEmitEvidenceIndex
+	sourceInventoryAuthority    *SourceInventoryAnswerPreEmitAuthority
+	surfacePlan                 *types.AnswerSurfacePlan
+	surfacePlanBuilt            bool
+	stableAggregateFacts        []types.AnswerAggregateFact
+	stableAggregateFactsBuilt   bool
+	stableFactsExcluded         bool
+	principalAggregateRefs      []types.AnswerAggregateFactRef
+	principalAggregateRefsBuilt bool
+	derivedBuilds               preEmitDerivedBuildCounts
 	// repairCounts collects per-pass mechanical-repair counts from the
 	// pre-emit normalize chain (F3-4): one structured summary line per
 	// emit replaces scattered warnings as the telemetry surface, so
@@ -259,7 +267,7 @@ func (c *preEmitCheckContext) sourceInventoryAnswerAuthority() SourceInventoryAn
 		return SourceInventoryAnswerPreEmitAuthority{}
 	}
 	if c.sourceInventoryAuthority == nil {
-		auth := BuildSourceInventoryAnswerPreEmitAuthority(c.ctx, preEmitStableAggregateFacts(c.ctx))
+		auth := BuildSourceInventoryAnswerPreEmitAuthority(c.ctx, c.stableAggregateFactsForCheck())
 		c.sourceInventoryAuthority = &auth
 	}
 	return *c.sourceInventoryAuthority
@@ -8037,7 +8045,6 @@ func preEmitCandidateCitationLocationsForAggregateItemWithContext(pctx *preEmitC
 	if pctx == nil || pctx.ctx == nil || pctx.ctx.Mutable == nil {
 		return nil
 	}
-	ctx := pctx.ctx
 	if limit <= 0 {
 		limit = 4
 	}
@@ -8056,7 +8063,7 @@ func preEmitCandidateCitationLocationsForAggregateItemWithContext(pctx *preEmitC
 		seen[key] = true
 		out = append(out, loc)
 	}
-	for _, ref := range preEmitPrincipalAggregateMemberSetFactRefs(ctx, preEmitStableAggregateFacts(ctx)) {
+	for _, ref := range pctx.principalAggregateMemberSetFactRefsForCheck() {
 		fact := ref.Fact
 		for idx, member := range fact.Members {
 			if !preEmitAggregateMemberLabelTextMatches(label, text, member) {
@@ -8092,13 +8099,12 @@ func preEmitCitationSupportsAggregateItemWithContext(pctx *preEmitCheckContext, 
 		return false
 	}
 	cit = pctx.canonicalCitation(cit)
-	ctx := pctx.ctx
 	label = strings.TrimSpace(label)
 	text = strings.TrimSpace(text)
 	if label == "" && text == "" {
 		return false
 	}
-	for _, ref := range preEmitPrincipalAggregateMemberSetFactRefs(ctx, preEmitStableAggregateFacts(ctx)) {
+	for _, ref := range pctx.principalAggregateMemberSetFactRefsForCheck() {
 		fact := ref.Fact
 		for idx, member := range fact.Members {
 			if !preEmitAggregateMemberLabelTextMatches(label, text, member) {
@@ -9514,7 +9520,7 @@ func preEmitItemMatchesPrincipalAggregateMemberWithContext(pctx *preEmitCheckCon
 	if pctx == nil || pctx.ctx == nil || pctx.ctx.Mutable == nil {
 		return false
 	}
-	for _, ref := range preEmitPrincipalAggregateMemberSetFactRefs(pctx.ctx, preEmitStableAggregateFacts(pctx.ctx)) {
+	for _, ref := range pctx.principalAggregateMemberSetFactRefsForCheck() {
 		for _, member := range ref.Fact.Members {
 			if preEmitAggregateMemberLabelTextMatches(label, text, member) {
 				return true
@@ -9720,7 +9726,7 @@ func preEmitCitationMatchesAnyMemberSetExplicitSupportRef(pctx *preEmitCheckCont
 		return false
 	}
 	cit = pctx.canonicalCitation(cit)
-	for _, fact := range preEmitStableAggregateFacts(pctx.ctx) {
+	for _, fact := range pctx.stableAggregateFactsForCheck() {
 		if !preEmitContentBearingMemberSetFact(fact) {
 			continue
 		}

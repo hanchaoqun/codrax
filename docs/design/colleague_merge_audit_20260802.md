@@ -2278,3 +2278,8 @@ B96-A 已交付：一次 complete role observation 现在保留 combined lens，
 `role × source_class` 子 lens；production/test/all 请求分别消费自身 5/51/56 宇宙。unknown-class、partial/page/merged-union 不获分区权限，
 scope 路径也不能把 test 子 lens 污染成 production。完整 `internal/types`（22.813s）、`internal/tool`（166.054s）及 49-LOC 新文件收敛
 ratchet 均绿。状态：`EVAL-B96-CLASSPARTITION1=implemented/full-pass/replay-after-B96-B-C`。
+
+B96-B 已交付：单次 `preEmitCheckContext` 惰性复用 immutable surface plan、stable aggregate facts、principal refs 与 source-inventory authority；
+sample 命中的 item×citation 热路不再重复全图 exclusion census。缓存不跨 patch/turn/tool call，文档 mutation 与所有 hard checks 仍逐项执行。
+128-item 基准约 9.3ms→1.45ms、6.64MB→0.73MB、136k→23.2k alloc；完整 `internal/tool`（168.932s）通过。状态：
+`EVAL-B96-ANSWERPREEMITPERF1=implemented/full-pass/replay-after-B96-C`。
