@@ -16237,3 +16237,47 @@ B116 在 `AnswerSurfacePlan` 的 runtime-trace authority 编译点加入单一�
 
 本批未改 trace_query 计算、显式时间窗、根因排序、唤醒链、窗内可消除量、因果投影或自动补齐；没有扫描用户请求、模型过程或最终答案原文作 hard gate，也没有
 删除或重写模型答案。改动只收窄模型探索综合在最终事实合同中的权威级别。
+
+## 117. 2026-08-05 B117：成员集补齐幂等与可选图失败的模型所有权恢复
+
+### 117.1 `EVAL-B115-ENUMACCUM1`：完整模型清单不应为系统标签再复制一份
+
+B115 的六个跨语言节点并没有缺项。旧 `normalizeAggregateMemberSetCarriers` 已能证明一个模型自有 structured block 完整覆盖 accepted member set，
+但 relation-label 发布分支只检查该 block 是否重复 aggregate category 标题；标题未重复时，系统仍追加“标签 + 全量六成员”载体。被拒 patch 每轮都在上次
+draft 上再次运行该补齐，虽然持久化前会去掉系统副本之间的重复，最终仍保留“一份模型清单 + 一份系统清单”。
+
+B117 将单一 relation member-set 的标签披露与成员补齐分开：
+
+1. 若 `preEmitPrimaryMemberCarrierIndex` 已用 typed member identity 证明恰有一个完整、结构化、模型自有主载体，不再为了重复 category label 追加第二份成员清单；
+2. 多个 relation member-set、成员散落多个 block、非主载体或身份有歧义时，继续保留原有 typed 标签消歧补齐；
+3. 不比较自然语言标题相似度，不读取用户请求，也不扫描最终答案 prose；完整性仍由 accepted members 与 structured block item identity 决定；
+4. 原清单字节与模型顺序保持不变，系统不合并、重写或替换模型内容。
+
+回归覆盖 B115 的六成员原形、普通 ordered-list 与 markdown-table sibling carrier；完整单载体均不再追加副本，歧义/分散场景仍走原补齐合同。
+
+### 117.2 `EVAL-B115-DIAGRAMCHURN1`：区分必需图与可选图，停止无证边的别名试错
+
+连续 9 次成文失败不是“同一声明既必带又必拒”的合同矛盾：该 case 的图是可选的，删除图一直是合法解；问题是 patch reject 的通用恢复提示只说继续修当前
+block，没有把 typed 失败原因和图的 required/optional 合同组合起来。模型因此反复改 participant/operation 别名，希望绕过同一
+`diagram_call_edge_unproven`，直到第 9 次才自行使用 `remove_block_ids`。
+
+B117 增加一个严格受限的恢复提示车道：
+
+1. 只接受 `ToolRepair.Code=answer_doc_pre_emit_contract` 且 `violation_kinds` 精确只有
+   `diagram_call_edge_unproven`；混合 citation、coverage 等其他失败不能进入；
+2. 只在初始化时由 typed `DiagramContract.Required=false` 证明图非必需时生效；必需图继续走普通修复车道，绝不建议删除；
+3. 提示模型两条诚实路径：只保留已有 typed call-edge 授权的边，或用 `remove_block_ids` 删除可选图并保留 grounded 文字调用链；
+4. 系统不执行删除、不重写 diagram、不恢复 rejected draft 为成功答案，最终 presentation 选择仍归模型；
+5. 提示不解析 ToolRepair.Hint/Summary 的自然语言来选择车道，不扫描用户问题、模型思考或最终答案。
+
+这不是降低调用边证据门。`diagram_call_edge_unproven` 仍然 hard reject；修复的是 reject 后的模型可行动信息与终止路径，避免把预算消耗在无 authority 的端点换名上。
+
+### 117.3 验证、状态与后续
+
+- `go test ./internal/agent ./internal/tool -count=1`：PASS（tool 160.679s）；
+- `EVAL-B115-ENUMACCUM1=implemented/full-relevant-pass/replay-next`；
+- `EVAL-B115-DIAGRAMCHURN1=implemented/full-relevant-pass/replay-next`；
+- `EVAL-B107-ENDPOINTAMBIG1=confirmed-second-witness/P1-next`：本批不放宽边权威，后续统一 owner-qualified endpoint / bare operation / participant message identity；
+- 下一批严格双并发回放 `trace_query_donghu_real_frame_multicausal` 与 `mr_poly_binding_chain`，同时核查 finalizer 上下文、补齐幂等、reject 次数和人工答案。
+
+本批未触碰 Trace 查询、显式时间窗、根因排序、唤醒链、窗内可消除量、因果投影、自动补齐准入或双轴根因；没有用原始文本关键词作 hard gate，也没有让系统接管模型结论。

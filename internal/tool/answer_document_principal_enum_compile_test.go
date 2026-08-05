@@ -3483,6 +3483,54 @@ func TestNormalizeAggregateMemberSetCarriers_VisibleProseCoveragePreventsDuplica
 	}
 }
 
+func TestNormalizeAggregateMemberSetCarriers_CompleteStructuredCallChainPreventsDuplicateCarrier(t *testing.T) {
+	mu := types.NewMutableState("complete polyglot call-chain carrier")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "跨语言调用链节点",
+		Value:   "6",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"FastTokenizer.tokenize", "_fastlex (import)", "_fastlex (pymodule)", "tokenize_bytes (pyfunction)", "tokenize_bytes (core)", "best_merge + MergeTable.rank"},
+		SupportRefs: []string{
+			"FastTokenizer.tokenize: bindings-py/fastlex/tokenizer.py:18",
+			"_fastlex: bindings-py/fastlex/tokenizer.py:2",
+			"_fastlex: core-rs/src/lib.rs:46",
+			"tokenize_bytes: core-rs/src/lib.rs:39",
+			"tokenize_bytes: core-rs/src/lib.rs:10",
+			"best_merge: core-rs/src/lib.rs:20",
+			"MergeTable.rank: core-rs/src/merge.rs:17",
+		},
+	}})
+	mu.SetInvestigationComplete("call-chain handoff accepted")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentTrace,
+			PredicateAxis: types.AxisCall,
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:          "chain",
+		Kind:        types.BlockOrderedList,
+		SurfaceRole: types.SurfacePrincipal,
+		Items: []types.AnswerBlockItem{
+			{ID: "h1", Label: "FastTokenizer.tokenize"},
+			{ID: "h2", Label: "tokenize_bytes (pyfunction)"},
+			{ID: "h3", Label: "_fastlex (import)"},
+			{ID: "h4", Label: "_fastlex (pymodule)"},
+			{ID: "h5", Label: "tokenize_bytes (core)"},
+			{ID: "h6", Label: "best_merge + MergeTable.rank"},
+		},
+	}}}
+	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 0 {
+		t.Fatalf("complete model-owned structured carrier must not gain a duplicate system list, fixed=%d blocks=%+v", fixed, doc.Blocks)
+	}
+	if len(doc.Blocks) != 1 {
+		t.Fatalf("duplicate system carrier appended: %+v", doc.Blocks)
+	}
+}
+
 func TestNormalizeAggregateMemberSetCarriers_CrossColumnModelTablePreventsDuplicateCarrier(t *testing.T) {
 	mu := types.NewMutableState("列出 internal/analysis 子包入口")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

@@ -3159,7 +3159,17 @@ func normalizeAggregateMemberSetCarriers(doc *types.AnswerDocumentV2, ctx *types
 		if preEmitAggregateMemberSetIsScalarCountSupport(ctx, fact) ||
 			len(fact.Members) == 0 ||
 			covered {
-			if covered && relationLabelRefs[ref.Index] &&
+			// One complete model-owned structured carrier already gives a
+			// single relation set an unambiguous principal surface. Appending a
+			// second list merely to repeat the aggregate label duplicates every
+			// row, and rejected patch drafts can accumulate that duplicate on
+			// every retry. Multiple relation sets still need their typed labels
+			// to disambiguate dimensions; a set spread across prose/blocks still
+			// needs a dedicated carrier as well. This decision uses structured
+			// block/member identity only, never answer-prose keywords.
+			singleStructuredCarrier := len(relationLabelRefs) == 1 &&
+				preEmitPrimaryMemberCarrierIndex(doc, fact, rows) >= 0
+			if covered && relationLabelRefs[ref.Index] && !singleStructuredCarrier &&
 				!preEmitPrincipalStructuredBlockClaimsAggregateCategory(doc, fact) {
 				fixed += appendAggregateMemberSetCarrier(doc, ctx, ref.Index, fact, rows, aggregateMemberSetLabelCarrierTitle(fact, zh), aggregateMemberSetLabelCarrierText(fact.Label, zh))
 			}

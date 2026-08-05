@@ -449,6 +449,87 @@ func TestEmitPatchRejectFullRewriteSignal_TypedRepairDrivesPatchCorrection(t *te
 	}
 }
 
+func TestEmitPatchRejectFullRewriteSignal_OptionalDiagramCallEdgeOffersRemoval(t *testing.T) {
+	e := &answerDocumentEvaluator{}
+	ctx := ctxWithAnswerPatchBase()
+	obs := LoopObservation{
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document_patch",
+			Success:  false,
+			Repair: &types.ToolRepair{
+				Code:   "answer_doc_pre_emit_contract",
+				Fields: []string{"blocks[].edge_anchors[] AND blocks[kind=diagram].diagram.body"},
+				Metadata: map[string]string{
+					"violation_kinds": string(types.ViolDiagramCallEdgeUnproven),
+				},
+			},
+		},
+	}
+
+	got := e.emitPatchRejectFullRewriteSignal(ctx, obs)
+	if !got.HintRequested || got.HintKey != "answer_doc.patch_optional_diagram_call_edge" {
+		t.Fatalf("optional diagram-only reject should select bounded recovery lane, got %+v", got)
+	}
+	for _, want := range []string{
+		"OPTIONAL diagram",
+		"remove_block_ids",
+		"typed call-edge evidence",
+		"keep the grounded textual call chain unchanged",
+		"will not remove or rewrite the diagram for you",
+	} {
+		if !strings.Contains(got.Hint, want) {
+			t.Errorf("optional diagram recovery hint missing %q:\n%s", want, got.Hint)
+		}
+	}
+	if e.forceFullEmitNext || !e.preferPatchNext {
+		t.Fatalf("optional diagram recovery must remain model-owned and patch-local: forceFull=%t preferPatch=%t",
+			e.forceFullEmitNext, e.preferPatchNext)
+	}
+}
+
+func TestEmitPatchRejectFullRewriteSignal_RequiredDiagramCannotBeRemoved(t *testing.T) {
+	e := &answerDocumentEvaluator{diagramRequired: true}
+	ctx := ctxWithAnswerPatchBase()
+	obs := LoopObservation{
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document_patch",
+			Success:  false,
+			Repair: &types.ToolRepair{
+				Code: "answer_doc_pre_emit_contract",
+				Metadata: map[string]string{
+					"violation_kinds": string(types.ViolDiagramCallEdgeUnproven),
+				},
+			},
+		},
+	}
+
+	got := e.emitPatchRejectFullRewriteSignal(ctx, obs)
+	if !got.HintRequested || got.HintKey != "answer_doc.patch_correct" {
+		t.Fatalf("required diagram must stay on ordinary repair lane, got %+v", got)
+	}
+	if strings.Contains(got.Hint, "remove_block_ids") {
+		t.Fatalf("required diagram hint must not offer block removal:\n%s", got.Hint)
+	}
+}
+
+func TestOptionalDiagramCallEdgeRecoveryRequiresSingleTypedViolationKind(t *testing.T) {
+	result := &types.ToolResult{Repair: &types.ToolRepair{
+		Code: "answer_doc_pre_emit_contract",
+		Metadata: map[string]string{
+			"violation_kinds": strings.Join([]string{
+				string(types.ViolDiagramCallEdgeUnproven),
+				string(types.ViolCitation),
+			}, ","),
+		},
+	}}
+	if answerDocumentPatchRejectIsOptionalDiagramCallEdge(result, false) {
+		t.Fatal("mixed violations must not select optional-diagram removal lane")
+	}
+	if answerDocumentPatchRejectIsOptionalDiagramCallEdge(result, true) {
+		t.Fatal("required diagram must never select optional-diagram removal lane")
+	}
+}
+
 func TestEmitPatchRejectFullRewriteSignal_SectionCountKeepsPatchPath(t *testing.T) {
 	e := &answerDocumentEvaluator{}
 	ctx := ctxWithAnswerPatchBase()

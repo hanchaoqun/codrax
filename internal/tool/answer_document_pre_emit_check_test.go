@@ -2283,7 +2283,7 @@ func TestNormalizeAggregateMemberSetCarriers_PreservesRelationDimensionLabel(t *
 	}
 }
 
-func TestNormalizeAggregateMemberSetCarriers_AppendsMarkedRelationLabelWithoutEditingPrimaryList(t *testing.T) {
+func TestNormalizeAggregateMemberSetCarriers_SingleCompleteRelationListNeedsNoLabelDuplicate(t *testing.T) {
 	mu := types.NewMutableState("list implementations")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
 		Kind:       types.AnswerAggregateMemberSet,
@@ -2336,27 +2336,18 @@ func TestNormalizeAggregateMemberSetCarriers_AppendsMarkedRelationLabelWithoutEd
 	beforeTitle := doc.Blocks[0].Title
 	beforeItems := append([]types.AnswerBlockItem(nil), doc.Blocks[0].Items...)
 	before := len(doc.Blocks)
-	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 2 {
-		t.Fatalf("expected two typed rows in a separate relation-label supplement, fixed=%d", fixed)
+	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 0 {
+		t.Fatalf("one complete structured relation set must not be duplicated merely to repeat its label, fixed=%d", fixed)
 	}
-	if len(doc.Blocks) != before+1 {
-		t.Fatalf("expected one separate system carrier: before=%d after=%d doc=%+v", before, len(doc.Blocks), doc.Blocks)
+	if len(doc.Blocks) != before {
+		t.Fatalf("unexpected system carrier: before=%d after=%d doc=%+v", before, len(doc.Blocks), doc.Blocks)
 	}
 	if doc.Blocks[0].Title != beforeTitle || !reflect.DeepEqual(doc.Blocks[0].Items, beforeItems) {
 		t.Fatalf("model primary list was edited: %+v", doc.Blocks[0])
 	}
-	supplement := doc.Blocks[len(doc.Blocks)-1]
-	if supplement.SystemGeneratedKind != types.AnswerSystemGeneratedPrincipalEnumerationRows ||
-		supplement.Title != "Controller implementations (2)" {
-		t.Fatalf("relation-label supplement lacks system ownership or typed label: %+v", supplement)
-	}
-	visible := answerDocumentTestVisibleSurface(doc)
-	if !strings.Contains(visible, "accepted structured investigation checklist") {
-		t.Fatalf("separate system relation supplement must disclose its source:\n%s", visible)
-	}
 }
 
-func TestNormalizeAggregateMemberSetCarriers_AppendsMarkedRelationLabelWithoutEditingMarkdownTable(t *testing.T) {
+func TestNormalizeAggregateMemberSetCarriers_SingleCompleteRelationTableNeedsNoLabelDuplicate(t *testing.T) {
 	mu := types.NewMutableState("list callers")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
 		Kind:       types.AnswerAggregateMemberSet,
@@ -2401,21 +2392,16 @@ func TestNormalizeAggregateMemberSetCarriers_AppendsMarkedRelationLabelWithoutEd
 
 	beforeBlock := doc.Blocks[0]
 	before := len(doc.Blocks)
-	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 2 {
-		t.Fatalf("expected two typed rows in a separate relation-label supplement, fixed=%d doc=%+v", fixed, doc.Blocks)
+	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 0 {
+		t.Fatalf("one complete structured relation table must not be duplicated merely to repeat its label, fixed=%d doc=%+v", fixed, doc.Blocks)
 	}
-	if len(doc.Blocks) != before+1 {
-		t.Fatalf("expected one separate system carrier: before=%d after=%d doc=%+v", before, len(doc.Blocks), doc.Blocks)
+	if len(doc.Blocks) != before {
+		t.Fatalf("unexpected system carrier: before=%d after=%d doc=%+v", before, len(doc.Blocks), doc.Blocks)
 	}
 	if doc.Blocks[0].Title != beforeBlock.Title || doc.Blocks[0].Text != beforeBlock.Text ||
 		!slices.Equal(doc.Blocks[0].FacetIDs, beforeBlock.FacetIDs) ||
 		!slices.Equal(doc.Blocks[0].ClaimUses, beforeBlock.ClaimUses) {
 		t.Fatalf("model markdown carrier was edited: before=%+v after=%+v", beforeBlock, doc.Blocks[0])
-	}
-	supplement := doc.Blocks[len(doc.Blocks)-1]
-	if supplement.SystemGeneratedKind != types.AnswerSystemGeneratedPrincipalEnumerationRows ||
-		supplement.Title != "appendTypedRelationKinds production callers (2)" {
-		t.Fatalf("relation-label supplement lacks system ownership or typed label: %+v", supplement)
 	}
 }
 

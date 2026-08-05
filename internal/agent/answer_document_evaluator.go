@@ -10979,6 +10979,20 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 	if !answerDocumentPatchBaseAvailable(ctx, e.mu) {
 		return LoopSignal{}
 	}
+	if answerDocumentPatchRejectIsOptionalDiagramCallEdge(obs.LastToolResult, e.diagramRequired) {
+		e.rejectHintsUsed++
+		e.preferPatchNext = true
+		hint := "Your last `emit_answer_document_patch` call was rejected only because an OPTIONAL diagram contains invocation edges that are not authorized by the existing typed call-edge evidence. Keep using `emit_answer_document_patch`; do not invent an edge, rename endpoints repeatedly, or reopen files. If every diagram invocation edge cannot be expressed from the already-provided typed call evidence, remove the optional diagram block in this patch with `remove_block_ids` and keep the grounded textual call chain unchanged. If you keep the diagram, replace only that block and include only typed-authorized edges. Preserve unrelated blocks in `unchanged_block_ids` and preserve the inherited `citations[]` pool. The system will not remove or rewrite the diagram for you; choose the honest presentation and submit the patch. Do not write free-form prose outside the tool call."
+		hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
+		return LoopSignal{
+			HintRequested:  true,
+			HintKey:        "answer_doc.patch_optional_diagram_call_edge",
+			Hint:           hint,
+			Progress:       true,
+			BypassThrottle: true,
+			BypassBudget:   true,
+		}
+	}
 	if answerDocumentPatchRejectIsBlockCardinality(obs.LastToolResult) {
 		e.rejectHintsUsed++
 		e.preferPatchNext = true
@@ -11005,6 +11019,31 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 		BypassThrottle: true,
 		BypassBudget:   true,
 	}
+}
+
+// answerDocumentPatchRejectIsOptionalDiagramCallEdge selects the bounded
+// recovery lane for an optional diagram whose only typed violation family is
+// an unproven call edge. The signal is deliberately metadata-only: it neither
+// reads the user's request nor scans model/final prose. Required diagrams stay
+// on the ordinary correction path, where removal would violate the resolved
+// DiagramContract.
+func answerDocumentPatchRejectIsOptionalDiagramCallEdge(result *types.ToolResult, diagramRequired bool) bool {
+	if result == nil || diagramRequired || result.Repair == nil {
+		return false
+	}
+	repair := result.Repair
+	if strings.TrimSpace(repair.Code) != "answer_doc_pre_emit_contract" || repair.Metadata == nil {
+		return false
+	}
+	raw := strings.TrimSpace(repair.Metadata["violation_kinds"])
+	if raw == "" {
+		return false
+	}
+	kinds := strings.Split(raw, ",")
+	if len(kinds) != 1 {
+		return false
+	}
+	return strings.TrimSpace(kinds[0]) == string(types.ViolDiagramCallEdgeUnproven)
 }
 
 func answerDocumentPatchRejectIsBlockCardinality(result *types.ToolResult) bool {
