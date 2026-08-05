@@ -237,7 +237,11 @@ func PendingReadBlocksAcceptedClosure(p PendingRead) bool {
 // repairs are represented by PendingReads for active gating, so the queued
 // historical repair entry itself does not block an accepted closure.
 func RepairBlocksAcceptedClosure(r RepairDirective) bool {
-	if r.Advisory || r.Kind == RepairReadFile {
+	// Subject rebind is minted from the chain ranker's score floor. Keep it
+	// principal-blocking while exploration is active, but never let that noisy
+	// relevance signal reopen a typed completion that already passed the
+	// pre-complete gates.
+	if r.Advisory || r.Kind == RepairReadFile || r.Kind == RepairRebindSubject {
 		return false
 	}
 	if RepairDirectiveIsCompletionFormDebt(r) {

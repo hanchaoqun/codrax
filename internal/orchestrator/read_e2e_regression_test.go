@@ -730,6 +730,17 @@ func TestE2E_ReadMode_AcceptedInvestigationCompleteStopsValidateReExplore(t *tes
 		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
 			explorerDispatches++
 			ctx.Mutable.SetInvestigationComplete("model completed investigation after tool preflight")
+			// Production Explorer parsing can mint this after the completion
+			// tool succeeds when the heuristic chain-terminal ranker scores a
+			// qualified symbol below its subject floor. The noisy guidance must
+			// not reopen the evidence/validate siblings that the typed closure
+			// has already bounded.
+			ctx.Mutable.EvidenceClosure().AddRepair(types.RepairDirective{
+				Kind:      types.RepairRebindSubject,
+				Subject:   string(types.SubjectFunctionName),
+				Origin:    "chain_ranker",
+				Rationale: "ranked candidates stayed below the heuristic score floor",
+			})
 			return &agent.StageOutput{
 				MissingPiece: types.MissingFacts,
 				EvidenceItems: []types.EvidenceItem{

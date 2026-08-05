@@ -15181,3 +15181,21 @@ structured member 与 authoritative roster 精确重合时，把 stale `value` �
 authority，因此 production/test/private extras 不能借此升级为答案成员。生产同形红测（Kind 30 名/value 24 同类）、projection 接线、无路径权限、
 relation 与 disjoint 负臂及 exact LOC ratchet 均绿；完整 `internal/types`（22.105s）和 `internal/tool`（170.076s）通过。状态：
 `EVAL-B95-PRENORMPARITY1=implemented/full-pass/replay-after-DAGCLOSURE1`。
+
+### 99.7 B95-B 施工：纠正 DAGCLOSURE1 根因——noisy subject repair 不得压过 typed completion
+
+代码与 B95 sequence 全日志冷读推翻了“缺少新的跨节点 closure receipt”这一初判。现有 `MutableState.investigationComplete`、稳定 completion
+reason、principal-span waiver 和请求绑定 complete lens 本就跨 DAG sibling 持久；scheduler 的 soft policy 也已有 accepted closure
+auto-complete 路径。真实断点发生在 completion 成功之后：Explorer 的 ParseOutput 再次运行 heuristic chain subject ranker，因 97 条候选
+的 `bestMatch=0.00 < 0.4` 新铸 `RepairRebindSubject(origin=chain_ranker)`；`RepairBlocksAcceptedClosure` 将这个噪声分数产物当作 blocking repair，
+于是已经验收的 `n0_probe` closure 无法关闭 `n1_evidence/n3_analyze_refine/n2_validate`，同一 endpoint 被重复读取、重发。
+
+最终修复没有增加第二套 receipt，也没有跳过 validate 的一般职责：`RepairRebindSubject` 在 investigation 尚未完成时仍保持
+`principal_blocking`，继续作为模型的 Subject Constraint 指导；仅在专用的 **accepted-closure** 判定里降为非阻断，不能重开已经通过
+pre-complete gates 的 typed closure。精确未读、混合来源缺失、结构化 handoff、view mismatch 和 completion-form 合同均保持原权限。
+这符合“精确信号作 hard gate、嘈声分数只作 soft guidance”，且不扫描 request/think/final prose。
+
+新增 production 生命周期 e2e：Explorer 同轮设置 accepted completion 并在完成后铸造 chain-ranker rebind，后续 evidence/validate sibling
+仍由既有 auto-complete 路径关闭，Explorer 仅 dispatch 一次；另有 types 边界 pin 证明 rebind 在活跃探索期仍为 principal guidance、在
+accepted closure 后不阻断。完整 `internal/types`（24.285s）与 `internal/orchestrator`（13.182s）全绿。状态：
+`EVAL-B95-DAGCLOSURE1=implemented/full-pass/replay-next`。B95-A/B 均未触碰 RootCauseTrace、显式时间窗、因果投影、自动补齐或模型结论所有权。

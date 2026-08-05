@@ -2251,3 +2251,9 @@ B95-A 已交付：completion 只在 request-bound executable complete-lens roste
 typed overlap 的 principal inventory member_set 机械 count；随后 exact row projection 仍独占 principal universe。无路径权限、inexact lens、
 relation、非 principal、disjoint 与非法 value 均不修。生产同形/负矩阵/LOC ratchet 及完整 `internal/types`（22.105s）、`internal/tool`
 （170.076s）全绿。状态：`EVAL-B95-PRENORMPARITY1=implemented/full-pass/replay-after-DAGCLOSURE1`。
+
+B95-B 冷读修正：跨 sibling completion/waiver/lens carrier 并未丢失，无需新建平行 receipt。sequence 的 accepted completion 后，ParseOutput
+基于 chain subject ranker 的 `best<0.4` 嘈声分数重新铸造 `RepairRebindSubject`，旧 accepted-closure gate 错把它当 hard blocker，才继续
+dispatch evidence/validate。现保留其探索期 principal guidance，仅在 accepted-closure 专用边界禁止它重开 DAG；精确 read/origin/handoff/
+view 合同不变。生命周期 e2e、边界正负 pin 与完整 `internal/types`（24.285s）、`internal/orchestrator`（13.182s）全绿。状态：
+`EVAL-B95-DAGCLOSURE1=implemented/full-pass/replay-next`；不涉及 Trace 或系统答案代写。

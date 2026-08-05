@@ -125,6 +125,21 @@ func TestRepairBlocksAcceptedClosure_CompletionFormDebtDoesNotBlock(t *testing.T
 	}
 }
 
+func TestRepairBlocksAcceptedClosure_NoisySubjectRebindCannotReopenCompletion(t *testing.T) {
+	r := RepairDirective{
+		Kind:      RepairRebindSubject,
+		Subject:   string(SubjectFunctionName),
+		Origin:    "chain_ranker",
+		Rationale: "ranked candidates stayed below the heuristic subject-match floor",
+	}
+	if got := ClassifyRepairDirective(r); got != RepairDebtPrincipalBlocking {
+		t.Fatalf("ClassifyRepairDirective(rebind)=%q, want principal guidance while exploration is active", got)
+	}
+	if RepairBlocksAcceptedClosure(r) {
+		t.Fatal("noisy subject-ranker guidance must not reopen an accepted typed closure")
+	}
+}
+
 func TestMergeRepairs_MergesAcceptedEvidenceCarrier(t *testing.T) {
 	in := []RepairDirective{
 		{

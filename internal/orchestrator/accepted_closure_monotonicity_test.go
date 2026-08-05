@@ -407,6 +407,29 @@ func TestAcceptedClosure_SourceInventorySubjectRebindDoesNotReopenReconcile(t *t
 	}
 }
 
+func TestAcceptedClosure_ChainRankerSubjectRebindDoesNotReopenSiblingNodes(t *testing.T) {
+	mut := types.NewMutableState("accepted call-chain closure")
+	mut.SetInvestigationComplete("typed endpoint boundary and grounded chain accepted")
+	mut.EvidenceClosure().AddRepair(types.RepairDirective{
+		Kind:      types.RepairRebindSubject,
+		Subject:   string(types.SubjectFunctionName),
+		Origin:    "chain_ranker",
+		Rationale: "ranked 97 candidate chains below a heuristic score floor",
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mut}}
+
+	if o.repairBlocksAcceptedClosure(types.RepairDirective{
+		Kind:    types.RepairRebindSubject,
+		Subject: string(types.SubjectFunctionName),
+		Origin:  "chain_ranker",
+	}) {
+		t.Fatal("chain-ranker subject guidance must be advisory after typed completion")
+	}
+	if !o.shouldAutoCompleteExploreWindowFromAcceptedClosure(nil, "", "") {
+		t.Fatal("accepted closure should auto-complete later evidence/validate siblings despite noisy subject guidance")
+	}
+}
+
 func TestAcceptedClosure_ReconcileIgnoresChainPromotionPendingReadOnly(t *testing.T) {
 	mut := types.NewMutableState("accepted closure with advisory chain debt")
 	mut.SetInvestigationComplete("accepted closure already covers the answer")
