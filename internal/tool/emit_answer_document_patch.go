@@ -301,7 +301,15 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 					logSoftPreEmitAdvisory(t.Name(), "model-emitted surface_terms", hints)
 				}
 			}
-			return persistMergedAnswerDocument(ctx, t.Name(), types.MutationPartial, mutation.Summary(), merged, now)
+			return persistMergedAnswerDocumentWithAttachmentPolicy(
+				ctx,
+				t.Name(),
+				types.MutationPartial,
+				mutation.Summary(),
+				merged,
+				now,
+				answerDocumentMutationExplicitlyRemovesDiagram(mutation, prev),
+			)
 		}
 	}
 

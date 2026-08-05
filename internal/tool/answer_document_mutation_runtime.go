@@ -89,7 +89,15 @@ func ApplyAndPersistMutation(
 		return failEmit(toolName, now,
 			"mutation apply produced a nil document — internal error")
 	}
-	return persistMergedAnswerDocument(ctx, toolName, mutation.Kind, mutation.Summary(), merged, now)
+	return persistMergedAnswerDocumentWithAttachmentPolicy(
+		ctx,
+		toolName,
+		mutation.Kind,
+		mutation.Summary(),
+		merged,
+		now,
+		answerDocumentMutationExplicitlyRemovesDiagram(mutation, prev),
+	)
 }
 
 func answerDocumentMutationRepair(err error) *types.ToolRepair {
@@ -128,6 +136,18 @@ func persistMergedAnswerDocument(
 	mutationSummary string,
 	merged *types.AnswerDocumentV2,
 	now time.Time,
+) (types.ToolResult, error) {
+	return persistMergedAnswerDocumentWithAttachmentPolicy(ctx, toolName, kind, mutationSummary, merged, now, false)
+}
+
+func persistMergedAnswerDocumentWithAttachmentPolicy(
+	ctx *types.BusContext,
+	toolName string,
+	kind types.MutationKind,
+	mutationSummary string,
+	merged *types.AnswerDocumentV2,
+	now time.Time,
+	dropExplicitlyRemovedModelDiagrams bool,
 ) (types.ToolResult, error) {
 	if ctx == nil || ctx.Mutable == nil {
 		return failEmit(toolName, now,
@@ -291,7 +311,11 @@ func persistMergedAnswerDocument(
 	}
 
 	ctx.Mutable.SetAnswerDocumentV2WithMutation(kind, merged)
-	ctx.Mutable.SetAnswerDisplayAttachments(filterAcceptedAnswerDisplayAttachments(merged, ctx.Mutable.AnswerDisplayAttachments()))
+	attachments := ctx.Mutable.AnswerDisplayAttachments()
+	if dropExplicitlyRemovedModelDiagrams {
+		attachments = filterExplicitlyRemovedModelDiagramAttachments(attachments)
+	}
+	ctx.Mutable.SetAnswerDisplayAttachments(filterAcceptedAnswerDisplayAttachments(merged, attachments))
 	logging.Info("[%s] mutation: %s", toolName, mutationSummary)
 
 	return types.ToolResult{
@@ -303,6 +327,44 @@ func persistMergedAnswerDocument(
 			summarizeV2Blocks(merged.Blocks)),
 		Timestamp: now,
 	}, nil
+}
+
+// answerDocumentMutationExplicitlyRemovesDiagram preserves the model's typed
+// presentation decision across the rejected-draft recovery boundary. A patch
+// that names a previous diagram id in remove_block_ids is authoritative: an
+// older rejected model diagram must not be resurrected merely because the
+// accepted document now has no diagram. This reads only mutation structure and
+// the previous typed block kind; it does not inspect answer prose.
+func answerDocumentMutationExplicitlyRemovesDiagram(mutation types.AnswerDocumentMutation, prev *types.AnswerDocumentV2) bool {
+	if mutation.Kind != types.MutationPartial || mutation.Patch == nil || prev == nil || len(mutation.Patch.RemoveBlockIDs) == 0 {
+		return false
+	}
+	removed := make(map[string]bool, len(mutation.Patch.RemoveBlockIDs))
+	for _, id := range mutation.Patch.RemoveBlockIDs {
+		if id = strings.TrimSpace(id); id != "" {
+			removed[id] = true
+		}
+	}
+	for _, block := range prev.Blocks {
+		if removed[strings.TrimSpace(block.ID)] && block.Kind == types.BlockDiagram {
+			return true
+		}
+	}
+	return false
+}
+
+func filterExplicitlyRemovedModelDiagramAttachments(in []types.AnswerDisplayAttachment) []types.AnswerDisplayAttachment {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]types.AnswerDisplayAttachment, 0, len(in))
+	for _, att := range in {
+		if strings.TrimSpace(att.Kind) == types.AnswerDisplayAttachmentDiagram && !att.SystemAuthored() {
+			continue
+		}
+		out = append(out, att)
+	}
+	return out
 }
 
 // modelOwnedAnswerBlockWire snapshots the exact serialized model-owned block

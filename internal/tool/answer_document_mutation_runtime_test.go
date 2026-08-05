@@ -1894,6 +1894,68 @@ func TestApplyAndPersistMutation_AcceptedDocDropsRejectedTextAttachments(t *test
 	}
 }
 
+func TestApplyAndPersistMutation_ExplicitDiagramRemovalDoesNotResurrectRejectedDiagram(t *testing.T) {
+	bus := newBusForMutationTest()
+	bus.Mutable.SetAnswerDisplayAttachments([]types.AnswerDisplayAttachment{
+		{
+			Kind:     types.AnswerDisplayAttachmentDiagram,
+			Language: "mermaid",
+			Body:     "sequenceDiagram\n  Old->>Wrong: rejected",
+			Source:   "emit_answer_document.rejected_payload",
+		},
+		{
+			Kind:     types.AnswerDisplayAttachmentDiagram,
+			Language: "mermaid",
+			Body:     "flowchart TD\n  Typed --> CrossCheck",
+			Source:   types.AnswerDisplayAttachmentSourceSystemCrossCheck,
+		},
+	})
+	prev := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "grounded textual chain"},
+			{
+				ID:      "d1",
+				Kind:    types.BlockDiagram,
+				Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Body: "sequenceDiagram\n  A->>B: rejected"},
+			},
+		},
+	}
+	patch := &types.AnswerDocumentV2Patch{
+		UnchangedBlockIDs: []string{"s1"},
+		RemoveBlockIDs:    []string{"d1"},
+	}
+
+	res, err := ApplyAndPersistMutation(bus, "test_patch", types.NewPartialMutation(patch), prev, time.Now())
+	if err != nil || !res.Success {
+		t.Fatalf("explicit diagram removal failed: result=%+v err=%v", res, err)
+	}
+	gotDoc := bus.Mutable.AnswerDocumentV2()
+	if gotDoc == nil || len(gotDoc.Blocks) != 1 || gotDoc.Blocks[0].ID != "s1" {
+		t.Fatalf("accepted document should preserve only the textual block: %+v", gotDoc)
+	}
+	attachments := bus.Mutable.AnswerDisplayAttachments()
+	if len(attachments) != 1 || !attachments[0].SystemAuthored() {
+		t.Fatalf("explicit removal must drop rejected model diagrams but retain independent system attachments: %+v", attachments)
+	}
+}
+
+func TestAnswerDocumentMutationExplicitlyRemovesDiagram_IsTypedAndSpecific(t *testing.T) {
+	prev := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{ID: "text", Kind: types.BlockSection, Text: "x"},
+		{ID: "diagram", Kind: types.BlockDiagram, Diagram: &types.AnswerDiagramBlock{Body: "flowchart TD\n A-->B"}},
+	}}
+	if answerDocumentMutationExplicitlyRemovesDiagram(types.NewPartialMutation(&types.AnswerDocumentV2Patch{RemoveBlockIDs: []string{"text"}}), prev) {
+		t.Fatal("removing a non-diagram block must not suppress diagram recovery")
+	}
+	if !answerDocumentMutationExplicitlyRemovesDiagram(types.NewPartialMutation(&types.AnswerDocumentV2Patch{RemoveBlockIDs: []string{"diagram"}}), prev) {
+		t.Fatal("removing a typed diagram block must suppress rejected model diagram recovery")
+	}
+	if answerDocumentMutationExplicitlyRemovesDiagram(types.NewReplaceAllMutation(&types.AnswerDocumentV2{}), prev) {
+		t.Fatal("replace-all without typed removal intent must keep the ordinary attachment boundary")
+	}
+}
+
 func TestFilterAcceptedAnswerDisplayAttachments_AcceptedDiagramDropsRejectedModelDiagram(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID:   "accepted-diagram",

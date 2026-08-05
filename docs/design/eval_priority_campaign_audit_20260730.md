@@ -16281,3 +16281,58 @@ B117 增加一个严格受限的恢复提示车道：
 - 下一批严格双并发回放 `trace_query_donghu_real_frame_multicausal` 与 `mr_poly_binding_chain`，同时核查 finalizer 上下文、补齐幂等、reject 次数和人工答案。
 
 本批未触碰 Trace 查询、显式时间窗、根因排序、唤醒链、窗内可消除量、因果投影、自动补齐准入或双轴根因；没有用原始文本关键词作 hard gate，也没有让系统接管模型结论。
+
+## 118. 2026-08-05 B117 r38 / B118：双回放与显式删图的恢复边界
+
+### 118.1 严格双并发结果：runner 2/2 PASS，人工 0/2 PASS
+
+在 `main@364f9730c` 构建冻结后，以 `PARALLEL=2` 严格并行恰好两个 case：
+
+- `trace_query_donghu_real_frame_multicausal`：184s，finalizer reject=0，runner PASS / human FAIL；
+- `mr_poly_binding_chain`：226s，finalizer reject=2，runner PASS / human FAIL。
+
+工件见 `eval/parallel_selected_summary_evalcampaign_b117_tracepoly_replay_r38_20260805.md` 及 manual audit。
+
+B117 的两个直接目标均获得生产正证：多语言答案不再出现第二份完整成员清单；optional diagram 的拒绝从 9 次降为 2 次，第二次 typed 提示后模型立即选择
+`remove_block_ids=["d1"]`，没有继续换名试错。调用边 hard authority 未降低。
+
+Trace 侧也证明 B116 事实权限收窄已生效：Finalizer prompt 中不再出现 explorer 的 `Structured Aggregate Facts`；最后一段 typed boundary 明确披露
+`causal_conclusion=unproven`、frame evidence absent、跨 row 不可加、wakeup path 不证明 blocking。显式窗、因果投影、自动补齐和实际占用/规则可消除双轴均完整。
+
+### 118.2 `EVAL-B117-ATTACHREMOVE1`（P0，B118 已施工）：模型删掉的 rejected 图不能被恢复层复活
+
+多语言案最终接受 patch 已明确删除 `d1`，但旧 attachment filter 只按最终 document 判断：document 无 diagram 时，rejected draft 的 model diagram 允许恢复。
+于是 hard gate 判无证的图在模型主动删除后，又以“系统保留内容”进入最终答案。这同时违反证据门和模型 presentation 所有权。
+
+B118 将恢复过滤补上 mutation-aware typed 边界：
+
+1. 仅 `MutationPartial` 且 `remove_block_ids` 精确命中 prev document 中 `kind=diagram` 的 block 时，认定模型显式放弃图；
+2. persist 成功后删除所有非 system-authored rejected-model diagram attachments，避免失败的 persist 提前销毁审计证据；
+3. system-authored cross-check diagram 保留独立 authority；删除普通 section/list 不影响 diagram recovery；replace-all 没有 typed 删除意图，沿用既有恢复规则；
+4. `ApplyAndPersistMutation` 与 patch pre-validation 后的直接 persist 两条车道共用同一判定；不读取图 body、模型思考、用户问题或最终 prose。
+
+这是服从模型的显式结构化删除，不是系统替模型删除答案。模型未删除、最终文档又无图的真正 recovery 场景仍保留可见附件能力。
+
+### 118.3 `EVAL-B117-TRACEDECEXEC1`（P1）：错误入口已关闭，但决策载体仍不够可执行
+
+本轮 Trace 模型仍将 10.433ms D-state、7.386ms io_wait、6.673ms io_latency 跨 row 相加为 24.5ms，并把 CookieMonsterCl 的 typed wakeup/PI candidate
+写成“直接阻塞原因”；同时以 wakeup 往来推断“紧密交互、进一步延长链路”。因旧 aggregate 已消失且尾界精确存在，这不是 B115 的残留，也不能再靠重复同一句软禁令解决。
+
+下一批最优方向冻结为 typed decision ledger，而不是答案文本 hard gate：
+
+- 从 projection 中单独发布 `target_direct_blocking_authority`：只有目标 waiter/holder 的 exact typed blocking relation 才能命名直接 blocker；否则明确 unproven，wakeup path 单列；
+- 每个 fix-direction 只发布本方向最高的单席 leader/ceiling 与 row identity；没有 exact fold authority 时显式 `direction_fold=not_authorized`，避免模型从长明细自行造 subtotal；
+- 保留 actual occupancy 与 existing-rule eliminable 两轴，且模型继续拥有诊断、排序解释、优化方向和措辞；
+- 不扫描最终答案作拒绝，不由系统生成或替换结论。
+
+### 118.4 状态
+
+- `EVAL-B115-TRACEAGGAUTH1=production-covered`；
+- `EVAL-B115-ENUMACCUM1=production-covered`；
+- `EVAL-B115-DIAGRAMCHURN1=production-covered`；
+- `go test ./internal/tool -count=1`：PASS（157.895s）；
+- `EVAL-B117-ATTACHREMOVE1=implemented/full-tool-pass/replay-next`；
+- `EVAL-B117-TRACEDECEXEC1=confirmed-third-witness/B119-next`；
+- `EVAL-B107-ENDPOINTAMBIG1=confirmed/P1-after-trace-ledger`。
+
+B118 未改 Trace 查询、显式时间窗、因果投影或系统补齐；没有降低 diagram call-edge hard gate，没有扫描自然语言作 hard gate，也没有系统代写模型答案。
