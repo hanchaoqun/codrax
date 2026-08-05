@@ -15168,3 +15168,16 @@ proven edge、reverse/parallel edge 做成一个高优先级小型 typed capsule
 
 施工顺序冻结：B95-A PRENORMPARITY1；B95-B DAGCLOSURE1；每批独立测试、文档、提交、推送；之后再严格双例回放，并决定
 ENDPOINTFOCUS1 是否仍需施工。
+
+### 99.6 B95-A 施工：authoritative roster 的 count 校准前移到 Normalize 之前
+
+`EVAL-B95-PRENORMPARITY1` 已实现并完成全包验证。types 层新增 import-cycle-safe 的 request-bound roster authority，只在全部 requested
+principal roles 具备 executable tool-query complete lens，且路径、count/total、typed row count、语言、源码类别与 surface family 全闭合时
+返回 roster。completion 在 generic aggregate Normalize 之前读取该 authority；仅对 principal source-inventory member_set、且至少一个
+structured member 与 authoritative roster 精确重合时，把 stale `value` 校准为当前 `members[]` 长度，并把每次校准写入 repair note。
+
+这不是普遍“数组多长就改成多少”：无 requested path、inexact/analyze-only/partial lens、relation member set、非 principal、无 typed overlap
+与非法非整数 value 均不获权。校准只消除旧分页数与已提交数组的机械矛盾；随后 B94-A 的 exact projection 仍是唯一 principal universe
+authority，因此 production/test/private extras 不能借此升级为答案成员。生产同形红测（Kind 30 名/value 24 同类）、projection 接线、无路径权限、
+relation 与 disjoint 负臂及 exact LOC ratchet 均绿；完整 `internal/types`（22.105s）和 `internal/tool`（170.076s）通过。状态：
+`EVAL-B95-PRENORMPARITY1=implemented/full-pass/replay-after-DAGCLOSURE1`。

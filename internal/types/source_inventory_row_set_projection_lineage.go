@@ -1,5 +1,25 @@
 package types
 
+// SourceInventoryRequestBoundPrincipalRowSetAggregateFact returns the exact
+// typed principal roster only when executable complete-lens lineage covers the
+// full requested universe. It is the public, import-cycle-safe authority used
+// by completion before generic aggregate validation; callers must not infer
+// the same grant from merged observation completeness.
+func SourceInventoryRequestBoundPrincipalRowSetAggregateFact(
+	observation SourceInventoryObservation,
+	rm RequestModel,
+) (AnswerAggregateFact, bool) {
+	observation = CloneSourceInventoryObservation(observation)
+	roles := sourceInventoryRowSetPrincipalRoles(rm, observation)
+	if !sourceInventoryRequestBoundCompleteLensRowsCoverRoles(observation, rm, roles) {
+		return AnswerAggregateFact{}, false
+	}
+	return SourceInventoryPrincipalRowSetAggregateFact(BuildSourceInventoryPrincipalRowSet(SourceInventoryPrincipalRowSetInput{
+		Observation:  observation,
+		RequestModel: rm,
+	}))
+}
+
 // sourceInventoryRequestBoundCompleteLensRowsCoverRoles grants principal-row
 // projection authority to an executable per-query lens even when an older,
 // broader observation left the merged role set incomplete. The grant is exact:

@@ -929,6 +929,9 @@ func normalizeCompletionAggregateFacts(
 	var compatNotes []string
 	raw, compatNotes = normalizeCompletionAggregateFactCompat(ctx, raw)
 	preNotes = append(preNotes, compatNotes...)
+	var requestBoundCountNotes []string
+	raw, requestBoundCountNotes = canonicalizeRequestBoundSourceInventoryMemberSetCounts(ctx, raw)
+	preNotes = append(preNotes, requestBoundCountNotes...)
 	normalized, err := types.NormalizeAnswerAggregateFacts(raw)
 	if err == nil {
 		// AUTOREPAIR-1 件2 (§29.175): surface the types-layer Tier2 backfills

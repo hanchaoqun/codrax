@@ -2246,3 +2246,8 @@ B94-B 已交付：Mermaid declaration 的共享 presentation normalizer 仅移�
 另记 P1 `EVAL-B95-ENDPOINTFOCUS1`：巨大同层 call roster 淹没 typed endpoint boundary，最终答案写“gate.Run 若存在”并遗漏已证
 `gate.Run -> RunWith` 包装边。优先顺序为安全 pre-normalize parity → durable DAG closure receipt → 异构回放后再裁 endpoint capsule；
 三案均禁止 request/model/final prose 关键词 hard gate，禁止系统代写结论，Trace 权限面保持隔离。
+
+B95-A 已交付：completion 只在 request-bound executable complete-lens roster 精确闭合时，才于 aggregate Normalize 前校准与该 roster 有
+typed overlap 的 principal inventory member_set 机械 count；随后 exact row projection 仍独占 principal universe。无路径权限、inexact lens、
+relation、非 principal、disjoint 与非法 value 均不修。生产同形/负矩阵/LOC ratchet 及完整 `internal/types`（22.105s）、`internal/tool`
+（170.076s）全绿。状态：`EVAL-B95-PRENORMPARITY1=implemented/full-pass/replay-after-DAGCLOSURE1`。
