@@ -10,88 +10,139 @@ import (
 )
 
 func extractRust(root *sitter.Node, src []byte, file string) (pkg string, syms []types.Symbol, imps []types.Import, rels []types.Relation) {
-	for i := 0; i < int(root.NamedChildCount()); i++ {
-		ch := root.NamedChild(i)
+	rustExtractDeclarations(root, src, file, "", &syms, &imps, &rels)
+	rels = append(rels, rustExtractCalls(root, src, file)...)
+	return
+}
+
+// rustExtractDeclarations walks lexical declaration containers rather than
+// only the source-file root. Rust inline modules are real identity scopes: a
+// PyO3/JNI/FFI wrapper can legitimately have the same short name and arity as
+// the crate-level implementation it delegates to. Keeping both callables with
+// their module Parent prevents the symbol graph from collapsing that boundary.
+//
+// The scope carrier is language syntax, not a framework convention. It applies
+// equally to ordinary nested modules and uses the same Symbol.Parent identity
+// axis already shared by every repomap language.
+func rustExtractDeclarations(node *sitter.Node, src []byte, file, scope string, syms *[]types.Symbol, imps *[]types.Import, rels *[]types.Relation) {
+	if node == nil {
+		return
+	}
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		ch := node.NamedChild(i)
 		switch ch.Type() {
 		case "use_declaration":
-			imps = append(imps, rustExtractUse(ch, src, file)...)
+			*imps = append(*imps, rustExtractUse(ch, src, file)...)
 
 		case "mod_item":
 			if nameNode := ch.ChildByFieldName("name"); nameNode != nil {
 				name := nodeText(nameNode, src)
 				// mod with body = inline module; without = file reference
-				if childByType(ch, "declaration_list") == nil {
-					imps = append(imps, types.Import{
+				body := childByType(ch, "declaration_list")
+				if body == nil {
+					*imps = append(*imps, types.Import{
 						Raw:  nodeText(ch, src),
 						Path: name,
 						File: file,
 						Line: nodeLine(ch),
 					})
 				}
-				syms = append(syms, types.Symbol{
+				*syms = append(*syms, types.Symbol{
 					Name:     name,
 					Kind:     "module",
 					File:     file,
 					Line:     nodeLine(ch),
 					EndLine:  nodeEndLine(ch),
 					Exported: rustIsPublic(ch, src),
+					Parent:   scope,
 				})
+				if body != nil {
+					rustExtractDeclarations(body, src, file, rustJoinScope(scope, name), syms, imps, rels)
+				}
 			}
 
 		case "function_item":
-			if s, ok := rustExtractFunc(ch, src, file, ""); ok {
-				syms = append(syms, s)
+			if s, ok := rustExtractFunc(ch, src, file, scope); ok {
+				// A module-owned callable remains a function. rustExtractFunc's
+				// historical non-empty-parent path denotes type/trait methods;
+				// lexical module ownership is an identity qualifier, not dispatch.
+				if scope != "" {
+					s.Kind = "function"
+				}
+				*syms = append(*syms, s)
 			}
 
 		case "struct_item":
-			syms = append(syms, rustExtractStruct(ch, src, file)...)
+			*syms = append(*syms, rustScopeSymbols(rustExtractStruct(ch, src, file), scope)...)
 
 		case "enum_item":
 			if s, ok := rustExtractEnum(ch, src, file); ok {
-				syms = append(syms, s)
+				s.Parent = scope
+				*syms = append(*syms, s)
 			}
 
 		case "trait_item":
 			trait, traitMethods, traitRels := rustExtractTrait(ch, src, file)
-			syms = append(syms, trait...)
-			syms = append(syms, traitMethods...)
-			rels = append(rels, traitRels...)
+			*syms = append(*syms, rustScopeSymbols(trait, scope)...)
+			*syms = append(*syms, rustScopeSymbols(traitMethods, scope)...)
+			*rels = append(*rels, traitRels...)
 
 		case "impl_item":
 			implMethods, implRels := rustExtractImpl(ch, src, file)
-			syms = append(syms, implMethods...)
-			rels = append(rels, implRels...)
+			*syms = append(*syms, rustScopeSymbols(implMethods, scope)...)
+			*rels = append(*rels, implRels...)
 
 		case "const_item", "static_item":
 			if nameNode := ch.ChildByFieldName("name"); nameNode != nil {
 				name := nodeText(nameNode, src)
-				syms = append(syms, types.Symbol{
+				*syms = append(*syms, types.Symbol{
 					Name:     name,
 					Kind:     "const",
 					File:     file,
 					Line:     nodeLine(ch),
 					EndLine:  nodeEndLine(ch),
 					Exported: rustIsPublic(ch, src),
+					Parent:   scope,
 				})
 			}
 
 		case "type_item":
 			if nameNode := ch.ChildByFieldName("name"); nameNode != nil {
 				name := nodeText(nameNode, src)
-				syms = append(syms, types.Symbol{
+				*syms = append(*syms, types.Symbol{
 					Name:     name,
 					Kind:     "type",
 					File:     file,
 					Line:     nodeLine(ch),
 					EndLine:  nodeEndLine(ch),
 					Exported: rustIsPublic(ch, src),
+					Parent:   scope,
 				})
 			}
 		}
 	}
+}
 
-	rels = append(rels, rustExtractCalls(root, src, file)...)
-	return
+func rustJoinScope(parent, child string) string {
+	parent = strings.TrimSpace(parent)
+	child = strings.TrimSpace(child)
+	if parent == "" {
+		return child
+	}
+	if child == "" {
+		return parent
+	}
+	return parent + "::" + child
+}
+
+func rustScopeSymbols(symbols []types.Symbol, scope string) []types.Symbol {
+	if scope == "" {
+		return symbols
+	}
+	for i := range symbols {
+		symbols[i].Parent = rustJoinScope(scope, symbols[i].Parent)
+	}
+	return symbols
 }
 
 func rustExtractUse(node *sitter.Node, src []byte, file string) []types.Import {
@@ -324,6 +375,7 @@ func rustExtractCalls(root *sitter.Node, src []byte, file string) []types.Relati
 		if node.Type() != "call_expression" {
 			return
 		}
+		caller := rustCallSourceEndpoint(node, src, file)
 		fn := node.ChildByFieldName("function")
 		if fn == nil {
 			return
@@ -332,7 +384,7 @@ func rustExtractCalls(root *sitter.Node, src []byte, file string) []types.Relati
 		case "identifier":
 			rels = append(rels, types.Relation{
 				Kind:       "call",
-				FromEP:     types.RelationEndpoint{File: file, Line: nodeLine(fn)},
+				FromEP:     caller,
 				ToEP:       types.RelationEndpoint{Name: nodeText(fn, src), File: file, Line: nodeLine(fn)},
 				File:       file,
 				Line:       nodeLine(fn),
@@ -353,7 +405,7 @@ func rustExtractCalls(root *sitter.Node, src []byte, file string) []types.Relati
 				}
 				rels = append(rels, types.Relation{
 					Kind:       "call",
-					FromEP:     types.RelationEndpoint{File: file, Line: nodeLine(fn)},
+					FromEP:     caller,
 					ToEP:       types.RelationEndpoint{Name: nodeText(field, src), Receiver: receiver, File: file, Line: nodeLine(fn)},
 					File:       file,
 					Line:       nodeLine(fn),
@@ -370,7 +422,7 @@ func rustExtractCalls(root *sitter.Node, src []byte, file string) []types.Relati
 				}
 				rels = append(rels, types.Relation{
 					Kind:       "call",
-					FromEP:     types.RelationEndpoint{File: file, Line: nodeLine(fn)},
+					FromEP:     caller,
 					ToEP:       types.RelationEndpoint{Name: nodeText(nameNode, src), Receiver: receiver, File: file, Line: nodeLine(fn)},
 					File:       file,
 					Line:       nodeLine(fn),
@@ -382,6 +434,32 @@ func rustExtractCalls(root *sitter.Node, src []byte, file string) []types.Relati
 		}
 	})
 	return rels
+}
+
+// rustCallSourceEndpoint derives the caller from parser-owned lexical
+// ancestry. Relation consumers can therefore distinguish a module wrapper
+// from a same-named crate function without consulting model-authored labels.
+func rustCallSourceEndpoint(node *sitter.Node, src []byte, file string) types.RelationEndpoint {
+	ep := types.RelationEndpoint{File: file, Line: nodeLine(node)}
+	var modules []string
+	for current := node.Parent(); current != nil; current = current.Parent() {
+		switch current.Type() {
+		case "function_item":
+			if ep.Name == "" {
+				if name := current.ChildByFieldName("name"); name != nil {
+					ep.Name = strings.TrimSpace(nodeText(name, src))
+				}
+			}
+		case "mod_item":
+			if name := current.ChildByFieldName("name"); name != nil {
+				modules = append(modules, strings.TrimSpace(nodeText(name, src)))
+			}
+		}
+	}
+	for i := len(modules) - 1; i >= 0; i-- {
+		ep.Receiver = rustJoinScope(ep.Receiver, modules[i])
+	}
+	return ep
 }
 
 func rustReceiverDeclarations(root *sitter.Node, src []byte) lexicalReceiverAuthorities {

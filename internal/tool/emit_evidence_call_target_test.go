@@ -94,3 +94,38 @@ func TestNormalizeCallEvidenceDirectionKeepsSourceExpressionWhenGraphTargetUnres
 		t.Fatalf("unresolved dynamic target=%q, want byte-exact source expression", ev.Object)
 	}
 }
+
+func TestNormalizeCallEvidenceDirectionKeepsRustInlineWrapperAndCoreDistinct(t *testing.T) {
+	fi := &repomap.FileInfo{
+		RelPath: "src/lib.rs", Language: repomap.LangRust, Package: "core",
+		Symbols: []repomap.Symbol{
+			{Name: "tokenize_bytes", Kind: "function", File: "src/lib.rs", Line: 10, EndLine: 18, Arity: 2},
+			{Name: "tokenize_bytes", Kind: "function", Parent: "py", File: "src/lib.rs", Line: 40, EndLine: 43, Arity: 2},
+		},
+		Relations: []repomap.Relation{{
+			Kind: "call", File: "src/lib.rs", Line: 42,
+			FromEP:     repomap.RelationEndpoint{Name: "tokenize_bytes", Receiver: "py", File: "src/lib.rs", Line: 42},
+			ToEP:       repomap.RelationEndpoint{Name: "tokenize_bytes", Receiver: "super", File: "src/lib.rs", Line: 42},
+			Confidence: 1, Provenance: "tree_sitter", ResolvedBy: "rust_ast_scoped_call",
+		}},
+	}
+	graph := callTargetTestGraph(fi)
+	gc := &ground.Context{
+		Graph: graph,
+		LineIndex: map[string]map[int]string{
+			"src/lib.rs": {42: "super::tokenize_bytes(&data, &table)"},
+		},
+	}
+	ev := types.EvidenceItem{
+		Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall,
+		AnchorSymbol: "tokenize_bytes", Predicate: "calls",
+		Subject: "tokenize_bytes", Object: "tokenize_bytes",
+		Source: "src/lib.rs", LineStart: 42,
+	}
+	if !normalizeCallEvidenceDirection(&ev, gc) {
+		t.Fatal("expected nested Rust call direction to gain lexical owner identity")
+	}
+	if ev.Subject != "py.tokenize_bytes" || ev.Object != "tokenize_bytes" {
+		t.Fatalf("normalized edge=%q -> %q, want py.tokenize_bytes -> tokenize_bytes", ev.Subject, ev.Object)
+	}
+}

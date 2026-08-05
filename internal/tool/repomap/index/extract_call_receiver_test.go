@@ -106,6 +106,65 @@ func TestStaticLanguageReceiverTypesResolveToDefinitionEndpoints(t *testing.T) {
 	})
 }
 
+func TestRustInlineModuleCallIdentityKeepsWrapperAndCoreDistinct(t *testing.T) {
+	source := `pub fn tokenize_bytes(input: &[u8], table: &MergeTable) -> Vec<u32> {
+	vec![]
+}
+
+mod py {
+	fn tokenize_bytes(data: Vec<u8>, merges: Vec<u32>) -> Vec<u32> {
+		super::tokenize_bytes(&data, &merges)
+	}
+
+	fn _fastlex() {
+		register(tokenize_bytes);
+	}
+}
+`
+	src := []byte(source)
+	root := parseSourceFor(t, types.LangRust, source)
+	pkg, syms, _, rels := extractRust(root, src, "src/lib.rs")
+	fi := &types.FileInfo{
+		RelPath: "src/lib.rs", Language: types.LangRust, Package: pkg,
+		Symbols: syms, Relations: rels,
+	}
+	graph := BuildGraph(t.TempDir(), []*types.FileInfo{fi})
+
+	var core, wrapper, initializer *types.Symbol
+	for i := range fi.Symbols {
+		sym := &fi.Symbols[i]
+		switch {
+		case sym.Name == "tokenize_bytes" && sym.Parent == "":
+			core = sym
+		case sym.Name == "tokenize_bytes" && sym.Parent == "py":
+			wrapper = sym
+		case sym.Name == "_fastlex" && sym.Parent == "py":
+			initializer = sym
+		}
+	}
+	if core == nil || wrapper == nil || initializer == nil {
+		t.Fatalf("inline-module callable census incomplete: core=%+v wrapper=%+v initializer=%+v symbols=%+v", core, wrapper, initializer, fi.Symbols)
+	}
+	if core.ID == wrapper.ID {
+		t.Fatalf("same-name wrapper/core collapsed to one identity: %q", core.ID)
+	}
+
+	for _, rel := range fi.Relations {
+		if rel.Kind != "call" || rel.Line != 7 || rel.ToEP.Name != "tokenize_bytes" {
+			continue
+		}
+		if rel.FromEP.Name != "tokenize_bytes" || rel.FromEP.Receiver != "py" {
+			t.Fatalf("wrapper call source identity=%+v, want py::tokenize_bytes", rel.FromEP)
+		}
+		target := graph.ResolveCallTarget(fi, rel)
+		if target == nil || target.ID != core.ID {
+			t.Fatalf("super::tokenize_bytes target=%+v, want root core=%+v", target, core)
+		}
+		return
+	}
+	t.Fatalf("missing wrapper -> core call relation: %+v", fi.Relations)
+}
+
 func TestCReceiverParameterBindingsStayInsideDeclaringFunction(t *testing.T) {
 	src := []byte(`typedef struct Worker { void (*run)(void); } Worker;
 typedef struct Other { void (*run)(void); } Other;

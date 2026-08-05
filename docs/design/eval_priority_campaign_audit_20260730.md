@@ -16519,3 +16519,42 @@ B120 已隔离跨窗 row，但 compact ledger 在同一 114.940ms 窗内仍按 r
 `EVAL-B107-ENDPOINTAMBIG1=confirmed-fourth-witness/B122-next`。
 
 B121 没有改 trace_query、根因排序公式、唤醒链、窗内可消除量、显式时间窗或自动补齐，也没有生成、删除或重写模型结论；它只阻止系统补齐在模型主答案缺席时成为替代答案，并让最后一屏 typed 上下文与正式投影共用同一主席语义。
+
+## 122. 2026-08-05 B122：跨语言绑定链的词法身份与关系表达
+
+### 122.1 `EVAL-B107-ENDPOINTAMBIG1` 根因再核
+
+连续四次生产回放并不是 PyO3 名称本身难识别，而是 repomap 的两条 typed 载体不连续：
+
+1. Rust 调用扫描递归进入 inline `mod`，但声明扫描只遍历 source-file 根节点；因此
+   `mod py` 内的 wrapper 与模块初始化函数不在 `FileInfo.Symbols`，同名 wrapper/core 无法
+   获得不同 `SymbolID`；
+2. `super::tokenize_bytes` 虽形成 call relation，旧 resolver 把 `super` 当普通 receiver，
+   不能按调用方词法作用域解析父模块。grounding 随后只能使用模型短名或错误的顶层 enclosing
+   callable，导致 wrapper/core 合并、关系提前闭合和重复探索。
+
+这两个断点发生在模型成文之前，最优修复不是放宽图边证据门，也不是硬编码 `_fastlex`、
+PyO3、文件路径或函数名，而是恢复语言解析器已经拥有的词法身份。
+
+### 122.2 B122-A：inline module callable identity（已施工）
+
+- Rust 声明提取改为递归遍历 lexical declaration container；inline module 内的 function、
+  const、type 以及嵌套 type/member 均携带稳定 `Symbol.Parent`；module-owned callable 仍为
+  function，不伪装成类型 method；
+- Rust call relation 从 AST ancestor 写入精确 `FromEP.Name + FromEP.Receiver`；
+  `self::`、`super::`、`crate::` 由同一 parser-owned caller scope 解析，不读取用户问题、
+  模型输出或源码关键词；
+- `py::tokenize_bytes` wrapper、crate-level `tokenize_bytes` core 与 `py::_fastlex` 初始化函数
+  保持三个独立 identity；第 42 行规范化为
+  `py.tokenize_bytes -> tokenize_bytes`；
+- Rust extractor generation `6 -> 7`，确保旧暖缓存不会继续提供缺失嵌套声明的陈腐图。
+
+新增 production-shaped 回归覆盖 nested callable census、同名 SymbolID 不折叠、
+`super::` 父作用域解析和 emit-evidence 方向规范化。该修复适用于所有 Rust inline module，
+并复用全语言共有的 `Parent`/`SymbolID`/call relation 载体，不增加框架特例。
+
+状态：`EVAL-B107-ENDPOINTAMBIG1=partially-implemented/B122-A-tests-pass`。
+
+下一小批 B122-B 处理 binding/export/registration 的 typed 非调用关系表达：注册边必须保持
+注册关系，不能为了画连续调用图伪造成 call；同时审计所有支持语言的关系 carrier 与图层
+能力，继续保持 call-edge hard authority 和模型结论所有权。

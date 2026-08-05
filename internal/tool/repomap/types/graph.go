@@ -1,6 +1,9 @@
 package types
 
-import "path/filepath"
+import (
+	"path/filepath"
+	"strings"
+)
 
 // DeriveSymbolID rebuilds a Symbol's canonical SymbolID from the
 // containing FileInfo plus the symbol's own fields. Called from
@@ -332,6 +335,18 @@ func (g *Graph) ResolveCallTarget(fi *FileInfo, rel Relation) *Symbol {
 	if s, ok := g.MethodIndex[MethodKey{Pkg: pkg, Receiver: recv, Name: name}]; ok {
 		return s
 	}
+	// Rust scoped paths (`self::`, `super::`, `crate::`) name lexical
+	// modules, not receiver types. Resolve them against the parser-owned caller
+	// scope carried by FromEP. This keeps a same-named inline-module wrapper and
+	// crate-level implementation distinct without guessing from source text or
+	// framework annotations.
+	if fi.Language == LangRust {
+		if scope, ok := rustScopedCallTargetScope(rel.FromEP.Receiver, recv); ok {
+			if s, exists := g.MethodIndex[MethodKey{Pkg: pkg, Receiver: scope, Name: name}]; exists {
+				return s
+			}
+		}
+	}
 	// Cross-package: a method with this (receiver, name) defined in
 	// any package. Resolved through a memoized (receiver, name) index
 	// instead of scanning the whole MethodIndex per call — the latter
@@ -345,6 +360,43 @@ func (g *Graph) ResolveCallTarget(fi *FileInfo, rel Relation) *Symbol {
 		}
 	}
 	return nil
+}
+
+func rustScopedCallTargetScope(callerScope, receiver string) (string, bool) {
+	parts := splitRustScope(receiver)
+	if len(parts) == 0 {
+		return "", false
+	}
+	base := splitRustScope(callerScope)
+	switch parts[0] {
+	case "crate":
+		base = nil
+		parts = parts[1:]
+	case "self":
+		parts = parts[1:]
+	case "super":
+		for len(parts) > 0 && parts[0] == "super" {
+			if len(base) > 0 {
+				base = base[:len(base)-1]
+			}
+			parts = parts[1:]
+		}
+	default:
+		return "", false
+	}
+	base = append(base, parts...)
+	return strings.Join(base, "::"), true
+}
+
+func splitRustScope(scope string) []string {
+	raw := strings.Split(strings.TrimSpace(scope), "::")
+	out := raw[:0]
+	for _, part := range raw {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 // TransitiveDeps returns all files reachable from the given file via imports.

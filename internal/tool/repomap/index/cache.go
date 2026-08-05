@@ -239,7 +239,7 @@ var extractorVersions = map[string]int{
 	types.LangSwift:      6, // nested closure/block receiver authority
 	types.LangLua:        5, // AST-bounded no-whitespace call-sugar identities
 	types.LangProto:      2,
-	types.LangRust:       6, // block and declaration-order receiver authority
+	types.LangRust:       7, // inline-module callable identity and scoped-path resolution
 	types.LangC:          5, // block-local declarations shadow parameter receiver identity
 	types.LangCpp:        5, // block-local declarations shadow parameter receiver identity
 }
