@@ -13,6 +13,13 @@ import (
 
 const defaultVerificationProbeLanguage = "python"
 
+// verificationProbeAuthoringBoundary is injected into every provider-visible
+// probe schema. Keep the optional-field escape here, next to the runtime
+// registry, so adding a runtime cannot leave the planner teaching a stale
+// workaround. A probe is source-level executable evidence, not a generic
+// command wrapper.
+const verificationProbeAuthoringBoundary = "Emit this optional field only when one listed runtime can directly import or execute the changed production behavior. If it cannot, omit verification_probes and put the native build/test command in acceptance_tests for project verification; do not launch an external compiler or test runner from a listed-runtime wrapper merely to bypass the language enum."
+
 type verificationProbeRuntimeSpec struct {
 	Language    string
 	Aliases     []string
@@ -64,6 +71,7 @@ func verificationProbeLanguageEnumJSON() string {
 func injectVerificationProbeLanguageSchema(schema string) json.RawMessage {
 	schema = strings.ReplaceAll(schema, "__VERIFICATION_PROBE_LANGUAGE_ENUM__", verificationProbeLanguageEnumJSON())
 	schema = strings.ReplaceAll(schema, "__VERIFICATION_PROBE_LANGUAGE_DESCRIPTION__", supportedVerificationProbeRuntimeDescription())
+	schema = strings.ReplaceAll(schema, "__VERIFICATION_PROBE_AUTHORING_BOUNDARY__", verificationProbeAuthoringBoundary)
 	return json.RawMessage(schema)
 }
 

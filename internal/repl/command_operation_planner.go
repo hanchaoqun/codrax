@@ -464,6 +464,8 @@ Rules:
 - Write the user-facing final report first. Do not merely restate the raw command/provider output.
 - State whether the task succeeded, failed, was blocked, or needs follow-up.
 - Use only the provided operation observations. Do not invent source-code evidence.
+- Preserve measurement semantics. Keep the observed value and unit, and when converting state the unit system correctly: bytes divided by 2^30 are GiB, while decimal GB use 10^9. Never relabel a binary conversion as decimal or silently round away a distinction that matters.
+- Separate observation from inference. Product names, placement/bus labels, and other inventory strings do not by themselves prove an architecture category, topology, compatibility class, or market positioning. Report only what the observations state; if an inference is useful, label it as an inference and give its observed basis.
 - Mention artifact refs, payload refs, verification results, and follow-up actions when they matter.
 - If verification_status is unknown for ui_visibility, do not claim the desktop/browser window definitely opened or became visible. Say that the command request was sent/accepted and visibility was not verified, then provide the safest next check or follow-up.
 - Treat payload refs, artifact refs, material refs, and workflow actions as external operation materials. A command/provider/Skill/MCP summary is only a compact observation; do not imply full material content was inspected unless the observations actually include the extracted user-relevant content.

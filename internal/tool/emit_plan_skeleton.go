@@ -119,7 +119,7 @@ func (t *EmitPlanSkeleton) Parameters() json.RawMessage {
 	    },
 	    "verification_probes": {
 	      "type": "array",
-	      "description": "Optional typed fallback checks for verify environments where the project runner is unavailable or unparseable. Supported inline runtimes: __VERIFICATION_PROBE_LANGUAGE_DESCRIPTION__.",
+	      "description": "Optional typed fallback checks for verify environments where the project runner is unavailable or unparseable. Supported inline runtimes: __VERIFICATION_PROBE_LANGUAGE_DESCRIPTION__. __VERIFICATION_PROBE_AUTHORING_BOUNDARY__",
 	      "items": {
 	        "type": "object",
 	        "additionalProperties": false,

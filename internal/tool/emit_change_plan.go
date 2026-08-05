@@ -193,7 +193,7 @@ func (t *EmitChangePlan) Parameters() json.RawMessage {
           },
           "verification_probes": {
             "type": "array",
-            "description": "Optional change-local bounded probes that exercise this file's behavior. The tool merges these into the plan-level verification_probes lane before validation so probes stay attached to typed plan state, not prose.",
+            "description": "Optional change-local bounded probes that exercise this file's behavior. The tool merges these into the plan-level verification_probes lane before validation so probes stay attached to typed plan state, not prose. __VERIFICATION_PROBE_AUTHORING_BOUNDARY__",
             "items": {
               "type": "object",
               "additionalProperties": false,
@@ -242,7 +242,7 @@ func (t *EmitChangePlan) Parameters() json.RawMessage {
     },
     "verification_probes": {
       "type": "array",
-      "description": "Optional typed fallback checks for verify environments where the project runner is unavailable or unparseable. Each probe must be deterministic, bounded, and exit non-zero on failure. Supported inline runtimes: __VERIFICATION_PROBE_LANGUAGE_DESCRIPTION__.",
+      "description": "Optional typed fallback checks for verify environments where the project runner is unavailable or unparseable. Each probe must be deterministic, bounded, and exit non-zero on failure. Supported inline runtimes: __VERIFICATION_PROBE_LANGUAGE_DESCRIPTION__. __VERIFICATION_PROBE_AUTHORING_BOUNDARY__",
       "items": {
         "type": "object",
         "additionalProperties": false,

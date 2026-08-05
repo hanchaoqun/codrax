@@ -91,6 +91,34 @@ func TestWriteControllerSkillIsTypedDecisionOnly(t *testing.T) {
 	}
 }
 
+func TestChangePlanSkillKeepsVerificationProbeAnOptionalDirectRuntime(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	sk, err := r.Get("change-plan-skill")
+	if err != nil {
+		t.Fatalf("Get(change-plan-skill): %v", err)
+	}
+	body := allWorkflowBodies(sk)
+	for _, want := range []string{
+		"verification_probes[] are optional source-level programs, not command runners",
+		"omit verification_probes[] and put the native build/test command in acceptance_tests[]",
+		"never launch an external compiler or test runner from a supported-language wrapper",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("change-plan-skill missing probe authoring boundary %q:\n%s", want, body)
+		}
+	}
+	for _, fixtureSpecific := range []string{
+		"WORKED EXAMPLE — fixing typo",
+		"retrun fmt.Sprintf",
+		"func greet(name string)",
+	} {
+		if strings.Contains(body, fixtureSpecific) {
+			t.Fatalf("change-plan-skill must not teach an eval-shaped patch fixture %q", fixtureSpecific)
+		}
+	}
+}
+
 func TestWriteAnalysisSkillRenderedPlacementGuidanceIsTyped(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)

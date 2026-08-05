@@ -1372,6 +1372,9 @@ func TestCommandOperationAnswerPromptForbidsVisibleReasoning(t *testing.T) {
 		"payload refs, artifact refs, material refs, and workflow actions",
 		"summary is only a compact observation",
 		"every user-visible sentence must be Chinese",
+		"bytes divided by 2^30 are GiB",
+		"Separate observation from inference",
+		"do not by themselves prove an architecture category",
 	} {
 		if !strings.Contains(commandOperationAnswerSystemPrompt, want) {
 			t.Fatalf("answer prompt missing %q:\n%s", want, commandOperationAnswerSystemPrompt)

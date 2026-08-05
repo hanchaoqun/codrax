@@ -73,6 +73,12 @@ func TestVerificationProbeSchemaEnumsUseRuntimeRegistry(t *testing.T) {
 		if !strings.Contains(string(tc.raw), supportedVerificationProbeRuntimeDescription()) {
 			t.Fatalf("%s schema should render registry description %q", tc.name, supportedVerificationProbeRuntimeDescription())
 		}
+		if !strings.Contains(string(tc.raw), verificationProbeAuthoringBoundary) {
+			t.Fatalf("%s schema should render the optional-probe authoring boundary %q", tc.name, verificationProbeAuthoringBoundary)
+		}
+		if strings.Contains(string(tc.raw), "__VERIFICATION_PROBE_") {
+			t.Fatalf("%s schema leaked an unresolved verification-probe placeholder: %s", tc.name, string(tc.raw))
+		}
 		for _, path := range tc.paths {
 			got := schemaStringArrayAt(t, schema, path)
 			if !reflect.DeepEqual(got, want) {

@@ -17259,3 +17259,47 @@ relation，却让普通 evidence 从 call-shaped anchor 修正为 definition-sha
 `EVAL-B130-TRACEAUTHCOGNITION1=implemented/full-skill-pass`；
 `EVAL-B130-RELREVISION2=implemented/full-types-tool-pass`；
 `EVAL-B129-RELREVISION1=production-replay-closed`；显式窗 Trace causal projection/auto-supplement=`preserved`。
+
+### 123.19 B131 r49：操作量纲失真、探针枚举绕行与 eval 同形教学污染
+
+在 `main@76ade0183` 冻结构建后，严格并行恰好两个异构 case：
+
+- `operation_system_inventory`：41s，runner PASS / human FAIL，零重试；
+- `patch_cpp_typo`：89s，runner PASS / human PASS，写前分析一次 exact-contract 拒绝，Planner 一次 probe enum 拒绝。
+
+Operation 的四项只读命令都成功，原始观察也完整：macOS `26.5.2/25F84`、CPU `18`、内存
+`137438953472` bytes、Apple M5 Max GPU `40` cores / Metal 4。但最终答案把 bytes 除以 `2^30` 的结果写成
+`128 GB` 而不是 `128 GiB`，并从产品名与 `Bus: Built-In` 推出“集成 GPU、统一内存、专业级工作站”。这不是采集缺口，
+而是 synthesis 将精确观察、单位换算和硬件分类/市场定位推断混成同一事实层。`EVAL-B131-OPUNIT1` 的通用修复只收敛
+operation answerer 的软合同：保留原始量纲；`2^30` 与 `10^9` 换算必须分别标 GiB/GB；产品名、总线/placement 标签不自动
+授权架构、拓扑、兼容类别或市场定位，确需推断时由模型明确标成推断并给观察依据。系统不扫描答案、不改写数字或结论。
+
+Write 的最终一行 structured patch 正确，但 Planner 先发 `language=bash` 的 verification probe；收到精确 enum 拒绝后又用
+Go `exec.Command` 启动 `g++`，形式上绕过枚举，实质没有让受支持 runtime 直接执行被改 C++ 行为。该模式会统一污染
+C/C++、Rust、Cangjie、ArkTS 以及未来任何不在 inline runtime registry 的目标语言。`EVAL-B131-PROBEESCAPE1` 把既有
+optional probe 语义写进所有 provider-visible JSON schema：只有列出的 runtime 能直接 import/execute changed production
+behavior 才发 probe；否则省略该可选字段，将 native build/test command 留在 `acceptance_tests` 交给项目验证；禁止仅为绕过
+enum 而从支持语言 wrapper 启动外部 compiler/test runner。说明由 verification runtime 文件中的单一常量注入
+`emit_change_plan`、`emit_plan_skeleton`、`run_tests` schema，测试同时锁定 enum、说明与 unresolved placeholder。
+
+本轮还发现更高优先级的评测污染：`change-plan-skill` 内嵌一个完整的 `retrun -> return`、`main.go/greet` raw diff worked
+example，而本案正是 `main.cpp/greet` 的同形 typo。即使规则本意是解释 diff，实例字节仍会直接替模型完成本 case 的主要
+心智工作，违反“解决一类问题而非拟合单 type/case”。`EVAL-B131-EVALTEACHFIT1` 删除整个实例化补丁，只保留
+context/removal/addition/hunk-count/indentation 的语言无关规则，并加负 pin 禁止该 fixture 形回流；教学更短，写模式仍有
+structured edits 和精确 patch validator 承担安全性。
+
+JSON 教学复核：两案均未发生 malformed answer carrier；operation 的问题是语义校准而非 JSON 修复。写模式的 schema enum
+与执行器原本一致，矛盾来自“列出支持项却未教 optional absence lane”，本批让 schema 同时表达正能力和合法省略路径，
+没有新增第二套字段手册或根据用户/模型原文触发的硬门。写前 exact behavior contract 第一次拒绝是现有精确信号 gate 正常
+工作，模型读取源码后选择省略 optional contract；单次观察先按波动保留，不为 typo 新增特判。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b131_write_operation_r49_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b131_write_operation_r49_20260805_manual_audit.md`。
+
+完整相关回归：`go test ./internal/tool ./internal/repl ./internal/skill -count=1` PASS
+（tool 165.656s，repl 33.683s，skill 0.727s）。
+
+状态：`EVAL-B131-OPUNIT1=implemented/full-repl-pass`；
+`EVAL-B131-PROBEESCAPE1=implemented/full-tool-skill-pass`；
+`EVAL-B131-EVALTEACHFIT1=implemented/full-skill-pass`；
+Trace 显式窗、因果投影、自动补齐、两维根因、根因排序、唤醒链与可消除量=`untouched`。
