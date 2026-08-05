@@ -2103,7 +2103,7 @@ R2 已实现：共享 exact-entity boundary matcher 只核对 typed observation 
 
 两案均未改变 Trace 显式窗、因果投影、自动补齐和模型结论所有权。
 
-### §10.28 B91 production：scope 坐标丢失、test 污染与限定边接线复发
+### §10.28 B91 production：scope 坐标丢失、test 污染与调用证据处理次序
 
 `main@0a7e7838e5ba` 严格并行两个 read case 均失败：sequence 563s/6 次 Finalizer reject；bounded inventory 1201s 超时/
 16 次 lens。详细工件与人工结论见 eval campaign §95。
@@ -2114,12 +2114,16 @@ R2 已实现：共享 exact-entity boundary matcher 只核对 typed observation 
    query coordinate，故 exact request-path carrier 无法铸造并把全仓截断债误套到目标包；
 2. `EVAL-B91-SOURCECLASS1=P0/confirmed`：typed inventory 没有 production/test source class，5 个生产函数与 51 个测试入口
    合成 function=56，Finalizer 被硬合同强制发布测试符号并超时；
-3. `EVAL-B91-CALLEDGEWIRE1=P0/confirmed`：handoff 已有 `owner=gate.Run anchor=RunWith @ gate.go:135` 的 production
-   evidence，正确 `gate.Run -> gate.RunWith` 仍被 diagram gate 拒；反向边与伪自环的拒绝仍属正确；
+3. `EVAL-B91-CALLGROUNDORDER1=P0/confirmed`（纠正原 `CALLEDGEWIRE1`）：`gate.go:135` 的真实 evidence 是
+   `grounding_status=recovered`，diagram gate 拒绝正确；系统先按 caller 锚 grounding、后规范 call direction 且未重跑 grounding，
+   Finalizer handoff 又隐藏 recovered 状态，才造成“权威边被误拒”的假象；
 4. `EVAL-B91-WAIVERRATIONALE1=P1/confirmed`：no-path typed success summary 后仍拼接模型自由 rationale，审计态与答案态
-   隔离不完整。
+   隔离不完整；
+5. `EVAL-B91-RANGECLOSURE1=P1/confirmed`：Explorer DAG 节点用 current-window replacement 覆盖 run 级 read ranges，持久快照
+   丢失早期 `gate.go:134-233`；这不是第 3 项的直接原因，但会污染后续覆盖/闭包权限。
 
-施工按 B91-A/B/C 三批冻结。范围载体来自工具 query provenance，来源类别来自 parser/index；禁止以用户、模型或答案原文关键词
+施工按 B91-A/B/C 三批冻结。B91-B 改为前置 parser-backed call canonicalization、明确 handoff grounding 权限并累计 run 级 read
+ranges，绝不放宽 diagram resolver。范围载体来自工具 query provenance，来源类别来自 parser/index；禁止以用户、模型或答案原文关键词
 作 hard gate。Trace 显式时间窗、因果投影、自动补齐与模型结论所有权不变。
 
 B91-A 已交付：新增 engine-derived repo-root `QueryPathScopes`，与 operational sub-repo `Scopes` 分轴；request authority 仍需

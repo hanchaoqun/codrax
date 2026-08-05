@@ -14777,7 +14777,7 @@ canonical 非根 scope 交给共享 `RawRequestExplicitlyMentionsEntity` lexical
 本批没有触碰 Trace query、显式时间窗、因果投影、自动补齐或根因双轴；两个新根修都约束 typed context authority，系统不得
 替写模型结论。
 
-## 95. 2026-08-04 B91 r17：repo-root 范围坐标丢失、来源类别污染与调用边接线复发
+## 95. 2026-08-04 B91 r17：repo-root 范围坐标丢失、来源类别污染与调用证据处理次序
 
 ### 95.1 严格并行与人工审计
 
@@ -14818,13 +14818,28 @@ scope、根仓 scope、越界 root 和请求碰撞均有 pin。LOC ceiling 未�
 显式选择 source-class universe。Answer gate 只执行 typed 选择，不读取“公开”“生产”等用户原文关键词，更不能扫描模型答案删行。
 未选择类别时要保持现有全集语义；已选择 production 时测试入口既不进入 principal member_set，也不产生全仓修复债务。
 
-### 95.4 `EVAL-B91-CALLEDGEWIRE1`（P0）：正确限定边仍在生产接线被拒
+### 95.4 `EVAL-B91-CALLGROUNDORDER1`（P0，纠正原 `CALLEDGEWIRE1`）：调用方向规范化晚于 grounding
 
 本轮前几稿的 `gate.RunWith -> gate.Run`、九条 `gate.RunWith -> gate.RunWith` 伪自环和未配对 reverse arrow 均应拒绝，不能为
-减少重试而放宽。独立问题是正确 `gate.Run -> gate.RunWith` 也三次被标 `call_edge_unproven`。Finalizer handoff 已打印 exact
-production evidence：`owner=gate.Run anchor=RunWith @ internal/analysis/gate/gate.go:135`；因此缺口位于 required diagram endpoint、
-anchor 或 resolver 的 canonical identity 接线，而非 owner stamp 缺失。修复必须保留 unique source:line、same owner、exact
-qualified caller 和 callee 约束，只统一结构化身份，不加 case-specific 名称豁免。
+减少重试而放宽。复核原始 `emit_evidence` 结果与持久 run JSON 后，原“正确 grounded 边被 resolver 误拒”判断不成立：
+`ev-30b63a1cdbd5c9ca @ gate.go:135` 的真实 `grounding_status=recovered`，所以 diagram gate 拒绝它是正确的。
+
+真实机制是模型发射 `anchor_kind=call, anchor_symbol=Run, object=RunWith`；`emit_evidence` 先用 caller 锚 `Run` 对
+`return RunWith(...)` 做 grounding，落入 `nearest_call/recovered`，随后才用 parser graph 规范为
+`subject=gate.Run, object=RunWith, owner=gate.Run`，却没有重新 grounding。Finalizer 的 `accepted_evidence_handoff` 又只打印
+owner/anchor/role、不打印 grounding 状态，使 recovered 行看起来像严格权威行，模型据此连续对抗正确硬门。
+
+根修不是放宽 resolver，而是把 parser-backed caller/callee/anchor 规范化放到首次 GroundItem 之前；规范后的 callee 锚必须重新走
+同一个 line-text/symbol-table gate。Finalizer handoff 同时必须显式区分 grounded/recovered，recovered 继续保留在审计/修复上下文，
+不得伪装成可直接支撑严格 call edge 的 accepted 权威。
+
+### 95.4.1 `EVAL-B91-RANGECLOSURE1`（P1）：DAG 节点覆盖早期 read ranges
+
+持久快照的 `read_ranges` 最终只含 `internal/agent/analyzer.go`，虽然首个节点真实读取了
+`internal/analysis/gate/gate.go:134-233`。原因是 Explorer 每个 DAG 窗口都用当前窗口 tool results 构造
+`StageCoverageSnapshot` 并设置 `ReplaceReadRanges=true`。Turn-A ToolResults 本轮仍保留旧 gutter，因此这不是上一问题的直接原因；
+但 EvidenceClosure、恢复快照和后续覆盖判定会看到不完整的 run 级读取事实。修复应在同一 read run 内单调合并 read set/ranges/totals，
+只在新 run 的既有 reset 点清空，不把一个窗口的空/窄快照解释为撤销此前真实读取。
 
 ### 95.5 `EVAL-B91-WAIVERRATIONALE1`（P1）：typed boundary 后仍有自由解释侧漏
 
@@ -14836,7 +14851,7 @@ typed triples 自己得出结论。
 B91-A 同批已删除发布 gate note 中的自由 `waiver.Rationale`；`PrincipalSpanWaiver` 审计对象仍保留原 rationale 字节。看护以唯一
 错误 token 证明 tool summary 不泄漏、Mutable audit state 仍可复核。
 
-任务顺序冻结：B91-A `SCOPECOORD1 + WAIVERRATIONALE1`；B91-B `CALLEDGEWIRE1`；B91-C `SOURCECLASS1`（先载体与
+任务顺序冻结：B91-A `SCOPECOORD1 + WAIVERRATIONALE1`；B91-B `CALLGROUNDORDER1 + RANGECLOSURE1`；B91-C `SOURCECLASS1`（先载体与
 默认兼容，再接 analyzer typed selection）；每批独立测试、提交、推送后再进行恰好两个用例回放。所有批次显式排除
 QFRootCauseTrace、Trace 窗口投影、自动补齐和系统代写结论。
 
