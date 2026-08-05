@@ -1091,6 +1091,90 @@ func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_MixedUniverseSupers
 	}
 }
 
+func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_DemotesDisjointOutOfScopePrincipalFact(t *testing.T) {
+	rm := sourceInventoryProjectionRequestModel(nil)
+	rm.AnalyzerHints.SourceInventoryRequestedPathScopes = []string{"pkg"}
+	obs := sourceInventoryProjectionObservation(
+		SourceInventoryObservationMember{Name: "Eval", Role: AnswerCandidateRoleFunction, SourceClass: SourcePathRoleProduction, File: "pkg/eval.go", Line: 15, Language: "go"},
+		SourceInventoryObservationMember{Name: "TestEval", Role: AnswerCandidateRoleFunction, SourceClass: SourcePathRoleTest, File: "pkg/eval_test.go", Line: 20, Language: "go"},
+		SourceInventoryObservationMember{Name: "FixtureEval", Role: AnswerCandidateRoleFunction, SourceClass: SourcePathRoleFixture, File: "pkg/fixtures/eval.cj", Line: 7, Language: "cangjie"},
+	)
+	facts := []AnswerAggregateFact{
+		{Kind: AnswerAggregateMemberSet, Label: "production", Value: "1", Role: AnswerAggregateRolePrincipalAnswer, Provenance: "explorer", Members: []string{"Eval"}, SupportRefs: []string{"Eval @ pkg/eval.go:15"}},
+		// The labels are deliberately opaque. Scope reconciliation must join
+		// row-local typed members/locations to the observation, never classify
+		// model prose or language-specific test names.
+		{Kind: AnswerAggregateMemberSet, Label: "opaque-a", Value: "1", Role: AnswerAggregateRolePrincipalAnswer, Provenance: "explorer", Members: []string{"TestEval"}, SupportRefs: []string{"TestEval @ eval_test.go:20"}},
+		{Kind: AnswerAggregateMemberSet, Label: "opaque-b", Value: "1", Role: AnswerAggregateRolePrincipalAnswer, Provenance: "explorer", Members: []string{"FixtureEval"}, SupportRefs: []string{"FixtureEval @ fixtures/eval.cj:7"}},
+	}
+
+	got := ProjectSourceInventoryPrincipalRowSetAggregateFacts(facts, obs, rm)
+	principal := PrincipalAggregateMemberSetFactRefsForRequest(got, &rm)
+	if len(principal) != 1 || strings.Join(principal[0].Fact.Members, ",") != "Eval" {
+		t.Fatalf("out-of-scope disjoint facts became principal obligations: %+v", got)
+	}
+	for _, fact := range got {
+		if fact.Label == "opaque-a" || fact.Label == "opaque-b" {
+			if fact.Role != AnswerAggregateRoleSupportingCoverage ||
+				!strings.Contains(fact.Provenance, "demoted:outside_source_inventory_principal_scope") {
+				t.Fatalf("out-of-scope fact was not visibly demoted: %+v", fact)
+			}
+		}
+	}
+}
+
+func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_OutOfScopeDemotionFailsClosed(t *testing.T) {
+	baseRM := sourceInventoryProjectionRequestModel(nil)
+	baseRM.AnalyzerHints.SourceInventoryRequestedPathScopes = []string{"pkg"}
+	obs := sourceInventoryProjectionObservation(
+		SourceInventoryObservationMember{Name: "Eval", Role: AnswerCandidateRoleFunction, SourceClass: SourcePathRoleProduction, File: "pkg/eval.go", Line: 15, Language: "go"},
+		SourceInventoryObservationMember{Name: "TestEval", Role: AnswerCandidateRoleFunction, SourceClass: SourcePathRoleTest, File: "pkg/eval_test.go", Line: 20, Language: "go"},
+	)
+	cases := []struct {
+		name string
+		rm   RequestModel
+		fact AnswerAggregateFact
+	}{
+		{
+			name: "mixed in and out of scope",
+			rm:   baseRM,
+			fact: AnswerAggregateFact{Kind: AnswerAggregateMemberSet, Label: "mixed", Value: "2", Role: AnswerAggregateRolePrincipalAnswer, Provenance: "explorer", Members: []string{"Eval", "TestEval"}, SupportRefs: []string{"Eval @ pkg/eval.go:15", "TestEval @ pkg/eval_test.go:20"}},
+		},
+		{
+			name: "member lacks row local location",
+			rm:   baseRM,
+			fact: AnswerAggregateFact{Kind: AnswerAggregateMemberSet, Label: "unresolved", Value: "1", Role: AnswerAggregateRolePrincipalAnswer, Provenance: "explorer", Members: []string{"TestEval"}},
+		},
+		{
+			name: "explicit all scope",
+			rm: func() RequestModel {
+				rm := baseRM
+				rm.AnalyzerHints.SourceInventoryRequestedPathScopes = nil
+				rm.SourceScopeProfile = &SourceScopeProfile{RequestedScope: SourceScopeAll, IncludeAuxiliaryAsPrincipal: true}
+				return rm
+			}(),
+			fact: AnswerAggregateFact{Kind: AnswerAggregateMemberSet, Label: "all", Value: "1", Role: AnswerAggregateRolePrincipalAnswer, Provenance: "explorer", Members: []string{"TestEval"}, SupportRefs: []string{"TestEval @ pkg/eval_test.go:20"}},
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ProjectSourceInventoryPrincipalRowSetAggregateFacts([]AnswerAggregateFact{tt.fact}, obs, tt.rm)
+			found := false
+			for _, fact := range got {
+				if fact.Label == tt.fact.Label {
+					found = true
+					if strings.Contains(fact.Provenance, "demoted:outside_source_inventory_principal_scope") {
+						t.Fatalf("uncertain/all-scope fact received out-of-scope authority: %+v", got)
+					}
+				}
+			}
+			if !found {
+				t.Fatalf("model fact disappeared: %+v", got)
+			}
+		})
+	}
+}
+
 func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_RequestBoundCompleteLensesOverrideMergedIncompleteRoleState(t *testing.T) {
 	rm := sourceInventoryProjectionRequestModel(nil)
 	rm.SourceInventoryProfile.TargetRoles = []AnswerCandidateRole{

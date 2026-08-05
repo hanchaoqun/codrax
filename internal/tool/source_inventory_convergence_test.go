@@ -140,6 +140,7 @@ var sourceInventoryFileLOCCeiling = map[string]int{
 	"../types/source_inventory_requested_path_scope.go":              120, // B88 analyzer-prescan/request provenance join plus shared bounded row/follow-up helpers.
 	"../types/source_inventory_requested_path_complete_lens.go":      50,
 	"../types/source_inventory_requested_field.go":                   60,
+	"../types/source_inventory_principal_scope_fact.go":              140, // B98-A: isolated typed scope reconciliation; keep language/prose heuristics out of the principal projector.
 	"../types/source_inventory_principal_row_set.go":                 304,
 	"../types/source_inventory_requested_surface_family.go":          100,
 	"../types/source_inventory_requested_surface_role.go":            20,

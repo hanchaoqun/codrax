@@ -2332,3 +2332,9 @@ provenance 的范围均不变。生产同形证明 observation 与 complete lens
 优先顺序为范围外 aggregate typed 降级 → 让硬门完整披露自身 schema recipe → endpoint-local topology typed debt。所有判定仅消费 request profile、
 source class、support refs、call edges/read coverage 等 typed carrier，不扫描 request/think/final prose，不让系统代写结论，不触碰 RootCauseTrace、
 显式时间窗、双轴根因、因果投影或自动补齐。
+
+B98-A 已交付：模型发射的 disjoint principal member set 只有在 active canonical set 确有 principal 行、全部成员都由 row-local location 唯一映射到请求角色 observation、source class
+全部已知且全部位于 typed `PrincipalScope` 外时，才降为 supporting coverage。混合、缺位置、歧义、unknown 与 all scope 均 fail-closed；不读取
+label/request/answer prose，不按语言或符号名特判。Go test 与 Cangjie fixture 生产同形、负矩阵、独立 140-LOC ceiling 及完整 `internal/types`
+（23.721s）、`internal/tool`（171.359s）全绿；旧 projection ceiling 未抬高。状态：
+`EVAL-B98-SCOPEAGGREGATE1=implemented/full-pass/replay-after-B98-B-C`。

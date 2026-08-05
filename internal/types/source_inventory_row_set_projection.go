@@ -25,6 +25,7 @@ func ProjectSourceInventoryPrincipalRowSetAggregateFacts(facts []AnswerAggregate
 		Observation:  observation,
 		RequestModel: rm,
 	})
+	out = sourceInventoryDemoteFactsOutsidePrincipalScope(out, observation, rowSet, rm)
 	if !rowSet.Active || rowSet.PrincipalTotal == 0 {
 		return out
 	}

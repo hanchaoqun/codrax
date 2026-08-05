@@ -15473,3 +15473,16 @@ wrapper 方向缺少 typed authority。
 
 施工顺序冻结为 B98-A `SCOPEAGGREGATE1` → B98-B `REPAIRSHAPE1` → B98-C `ENDPOINTTOPOLOGY1`。前两批为确定性 P0，各自独立测试、文档、提交、
 推送；B98-C 先以 typed soft guidance/债务与异构测试落地，不得新增依赖答案词面的 hard gate。三批均保持模型答案所有权与 Trace 权限隔离。
+
+### 102.6 B98-A 施工：范围外 aggregate 与 principal scope 做 typed 行级对账
+
+`EVAL-B98-SCOPEAGGREGATE1` 已实现。principal row projection 在既有 canonical row set 建立后，新增一个隔离 concern：只读取
+`PrincipalScope`、请求角色、observation 的 row source class，以及 aggregate 每个 member 的 row-local support location。仅当一个非系统
+principal member set 的所有成员都能按规范化 label + 路径后缀边界 + 精确行号唯一解析，且 active canonical set 确有 principal 行、每行 source class 已知并全部不被当前 principal
+scope 接受时，才将该集合降为 `supporting_coverage`；canonical 系统集合保持原权威。
+
+该判定不读取集合 label、用户请求、模型思考/答案、符号命名习惯或语言；Go test、Cangjie fixture 等异构形由共享 source-class taxonomy
+统一处理。混合内外范围、缺少 row-local location、歧义/unknown class 与显式 all scope 均 fail-closed。生产同形测试证明 5 个 production
+function 继续作为唯一 principal obligation，完全 disjoint 的 test/fixture 集合不再强迫进入公开 API 答案。新增 concern 为 132 LOC，并登记
+140 LOC 独立 ceiling；旧 projection 文件回落为 343 LOC，未抬高 351 ceiling。完整 `internal/types`（23.721s）与 `internal/tool`
+（171.359s）通过。状态：`EVAL-B98-SCOPEAGGREGATE1=implemented/full-pass/replay-after-B98-B-C`。
