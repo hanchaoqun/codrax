@@ -18686,3 +18686,56 @@ operation 三条只读命令一次完成，OS/CPU/内存/GPU 数值与完整 pay
 `go test ./internal/tool -count=1` 全量 PASS（169.499s）；补齐独立 condition pin 后 ground 全包再次 PASS（0.941s）。未删除或放宽既有 pin。
 
 状态：`EVAL-B159-TIER1LINE1=implemented/full-tool-pass`；`EVAL-B157-EVSPAN1=separate-soft-context-debt`。
+
+### 123.59 B160 r76：Trace 全能力仍在但模型越过因果/重叠边界；写终态同时签发 weak 与 verified
+
+在 `main@6dff4666a` 构建后严格并行恰好两个异构 case：
+
+- `trace_query_donghu_real_frame_multicausal`：166s，runner PASS / human PARTIAL；
+- `github_issue_commons_lang_random_ascii_symptom`：305s，runner PASS / human PARTIAL。
+
+Trace 用例完整绑定显式 `34579.472865..34579.587805` 窗，执行 6 次 typed `trace_query`；根因排序、唤醒链、窗口状态、窗内可消除量、
+`frame_root_cause_bundle` 自动补齐、Trace 因果投影和“实际耗时占用 / 既有规则可消除”两轴均正常。系统明确发布
+`frame_evidence_status=absent`、`causal_conclusion=unproven`，投影也声明同 direction/member 的重叠量取 max、不可相加；系统没有删除或改写模型回答。
+但模型仍在 lead 中写“本帧根因类型为优先级反转候选”，并把同一 `ThreadPoolForeg` 的 D-state 10.433ms、io_wait 7.386ms、io_latency 6.673ms
+相加为 24.492ms。记 `EVAL-B160-TRACECLAIMOVER1=P2/one-model-witness`、`EVAL-B160-OVERLAPADD1=P2/one-model-witness`：typed 上下文已正确，
+当前只观察异构复现，禁止扫描最终 prose 或为该 thread/type 写硬门。Analyzer 首轮漏填 runtime profile 的 verbatim `source_quote`，第二轮修复成功，记
+`EVAL-B160-RUNTIMEQUOTE1=P2/json-cognitive-load/observe`。
+
+写用例的代码最终形修复了 fast-path 边界并把测试方法移回 class，但验证权威发生确定性矛盾。两个 Java behavior probe 都记录
+`verification_probe_runner_missing`；唯一成功的 `make check` 是 Python regex 静态检查，两个 changed path 的最强能力都只有
+`declared_project_check/source_static`，新增 JUnit 方法还没有 `@Test`，不能证明行为。尽管如此，批次和任务终态仍发布
+`verified/all_batches_verified`；同一 final artifact 却同时发布 `proof.status=weak`、`proof_ledger.state=low_confidence`。这不是模型波动，记
+`EVAL-B160-STATICVERIFYAUTH1=P1/typed-terminal-contradiction`。应用成功本身成立，正确终态应为 unverified，并向用户披露本地行为验证不可用。
+
+进一步冷读定位两个接线根因：controller localization 只从 run context pack 投影，忽略 active plan 已有的 owner-supported typed review；以及
+static-only coverage + typed behavior-probe unavailable 没有独立终态 authority，容易被其他弱信号的优先级遮住。最优方案必须语言无关，且不能把
+`expected_outcome_fallback/satisfies` 软合同升级为硬合同。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b160_trace_javawrite_r76_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b160_trace_javawrite_r76_20260805_manual_audit.md`。
+
+状态：`EVAL-B160-STATICVERIFYAUTH1=confirmed/implementation-in-progress`；Trace 全能力=`production-pass`；
+Trace 模型越界两项=`single-witness/observe`；系统结论代写=`absent`。
+
+### 123.60 B160-S1：路径级验证能力决定终态，静态成功不再冒充行为已验证
+
+本批以 typed authority 根修 `EVAL-B160-STATICVERIFYAUTH1`，不依赖 Java、fixture 名、命令正文或用户/模型/最终答案 prose：
+
+1. `DeriveWorkflowExecutionView` 在 run context pack 没有 localization 信号或只有 `missing/unknown` 时，回补同一 active PlanID 的
+   `LocalizationReview`；已有 observed/conflicted/owner-supported run authority 仍优先，不用旧计划覆盖新上下文；
+2. 新增精确终态判据：post-apply report 必须是 passed，typed behavior probe 必须同时以 confidence record 和 executed-command record 证明
+   `verification_probe_runner_missing`，并且至少一个 changed production path 没有同路径 `target_execution/target_behavior`，只有静态、语法、unknown
+   或 uncovered 能力。只有全部条件成立时才把 `finish/all_verified` 规范为 `finish/accept_unverified`；
+3. 判据按路径聚合最强能力。同一路径即使还有 source-static，只要存在真实 `target_execution` 或 `target_behavior`，就不降级；test/fixture/docs/vendor/generated
+   等辅助路径不单独触发。因此“可选 probe 缺失但项目行为测试真实覆盖”仍可 verified；
+4. 降级同时把 durable latest verify attempt、batch completion 和 run aggregate 统一为 unverified，reason code 为
+   `behavior_verification_unavailable_source_static_only`。补丁/apply 成功保留，用户看到的是“已落地但本地行为验证不可用”，不制造代码失败或重复 proof batch；
+5. 回归使用 Rust 形路径证明语言无关，并覆盖 source-static 正臂、同路径 target-behavior 负臂、active-plan localization 回补，以及规范化 decision 经
+   `ApplyWorkflowDecisionToRun` 后 run completion 不再回到 `all_batches_verified`。
+
+定向测试 PASS；最终合并回归 `go test ./internal/types ./internal/writeflow ./internal/truth ./internal/loopkernel ./internal/orchestrator -count=1`
+全绿（26.543s / 1.524s / 1.958s / 2.703s / 13.827s）。
+
+状态：`EVAL-B160-STATICVERIFYAUTH1=implemented/full-orchestrator-pass`；soft behavior contracts=`unchanged`；真实 behavior proof 优先权=`preserved`；
+Trace 因果投影、自动补齐、根因排序、唤醒链、窗内可消除量和模型结论所有权=`untouched`。

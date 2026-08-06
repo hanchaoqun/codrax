@@ -5148,7 +5148,6 @@ func TestNormalizeControllerTypedStateDecisionStableUnavailableProbeDoesNotRepea
 			},
 		}},
 	}
-
 	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
 		Action:            writeflow.ActionFinish,
 		ReasonCode:        "done",
@@ -5178,6 +5177,138 @@ func TestNormalizeControllerTypedStateDecisionStableUnavailableProbeDoesNotRepea
 	}, run)
 	if got.Action != writeflow.ActionAppendBatch || got.Batch == nil || got.Batch.Purpose != "verification_proof_followup" {
 		t.Fatalf("multi-plan cumulative proof follow-up was suppressed: %+v", got)
+	}
+}
+
+func TestNormalizeControllerTypedStateDecisionSourceStaticOnlyWithUnavailableBehaviorProbeFinishesUnverified(t *testing.T) {
+	mu := types.NewMutableState("source-static verification cannot prove behavior")
+	plan := &types.ChangePlan{
+		ID:          "plan-static-only",
+		Status:      types.PlanStatusApplied,
+		TargetPaths: []string{"src/widget.rs", "tests/widget_test.rs"},
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID:       "expected-behavior",
+			Kind:     types.WriteBehaviorObservable,
+			Polarity: types.WriteBehaviorPolarityExpected,
+			Operator: types.WriteBehaviorOpSatisfies,
+			Expected: "runtime behavior remains correct",
+			Required: true,
+			Source:   "expected_outcome_fallback",
+		}},
+	}
+	report := &types.ChangeReport{
+		PlanID:             plan.ID,
+		Channel:            types.ChangeReportChannelPostApplyVerify,
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		TestResults: []types.TestResult{{
+			Kind:        types.TestResultKindUnit,
+			AssertionID: "source-check",
+			Passed:      true,
+		}},
+		VerificationConfidence: []types.VerificationConfidenceRecord{{
+			Source:     "pre_suite_verification_probe",
+			Category:   "probe_execution",
+			Status:     "unavailable",
+			Severity:   "warning",
+			ReasonCode: "verification_probe_runner_missing",
+		}},
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner:     "verification_probe",
+			Source:     "pre_suite_verification_probe",
+			Outcome:    "runner_missing",
+			ReasonCode: "verification_probe_runner_missing",
+		}, {
+			Runner:  "make",
+			Source:  "test_surface_default",
+			Outcome: "executed",
+		}},
+		ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+			Path:       "src/widget.rs",
+			Status:     types.ChangedPathVerificationCovered,
+			Caliber:    types.ChangedPathVerificationDeclaredProjectCheck,
+			Capability: types.VerificationCapabilitySourceStatic,
+		}, {
+			Path:       "tests/widget_test.rs",
+			Status:     types.ChangedPathVerificationCovered,
+			Caliber:    types.ChangedPathVerificationDeclaredProjectCheck,
+			Capability: types.VerificationCapabilitySourceStatic,
+		}},
+	}
+	mu.SetChangePlan(plan)
+	mu.SetChangeReport(report)
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-static-only",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:         "batch-1",
+			PlanID:     plan.ID,
+			Status:     types.WriteWorkflowBatchComplete,
+			Completion: &types.WriteWorkflowCompletion{Verdict: types.WriteWorkflowCompletionVerified, ReasonCode: "tests_passed"},
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "apply", Status: "applied", PlanID: plan.ID},
+				{Kind: "verify", Status: "passed", ReasonCode: "tests_passed", PlanID: plan.ID},
+			},
+		}},
+	}
+	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action:            writeflow.ActionFinish,
+		ReasonCode:        "done",
+		FinishDisposition: writeflow.FinishDispositionAllVerified,
+	}, run)
+
+	if got.Action != writeflow.ActionFinish || got.FinishDisposition != writeflow.FinishDispositionAcceptUnverified {
+		t.Fatalf("source-static proof with unavailable behavior probe must finish unverified, got %+v", got)
+	}
+	state := writeflow.DeriveBatchAttemptState(run.Batches[0])
+	if state.LatestVerifyStatus != "unverified" || run.Batches[0].Completion == nil ||
+		run.Batches[0].Completion.Verdict != types.WriteWorkflowCompletionUnverified {
+		t.Fatalf("typed weak proof must reach durable batch completion: state=%+v completion=%+v", state, run.Batches[0].Completion)
+	}
+	finished, err := writeflow.ApplyWorkflowDecisionToRun(*run, got)
+	if err != nil {
+		t.Fatalf("apply normalized finish: %v", err)
+	}
+	if finished.Completion == nil || finished.Completion.Verdict != types.WriteWorkflowCompletionUnverified ||
+		finished.Completion.ReasonCode == "all_batches_verified" {
+		t.Fatalf("run aggregate must retain unverified proof authority: %+v", finished.Completion)
+	}
+}
+
+func TestReportHasStaticOnlyProductionCoverageWithUnavailableBehaviorProbeAcceptsPathBoundBehaviorProof(t *testing.T) {
+	report := &types.ChangeReport{
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		VerificationConfidence: []types.VerificationConfidenceRecord{{
+			Source:     "pre_suite_verification_probe",
+			Category:   "probe_execution",
+			Status:     "unavailable",
+			ReasonCode: "verification_probe_runner_missing",
+		}},
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner:     "verification_probe",
+			Source:     "pre_suite_verification_probe",
+			Outcome:    "runner_missing",
+			ReasonCode: "verification_probe_runner_missing",
+		}},
+		ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+			Path:       "src/widget.rs",
+			Status:     types.ChangedPathVerificationCovered,
+			Capability: types.VerificationCapabilitySourceStatic,
+		}, {
+			Path:       "src/widget.rs",
+			Status:     types.ChangedPathVerificationCovered,
+			Capability: types.VerificationCapabilityTargetBehavior,
+		}, {
+			Path:       "tests/widget_test.rs",
+			Status:     types.ChangedPathVerificationCovered,
+			Capability: types.VerificationCapabilitySourceStatic,
+		}},
+	}
+	if reportHasStaticOnlyProductionCoverageWithUnavailableBehaviorProbe(report) {
+		t.Fatal("a path-bound target_behavior observation must outrank static coverage and an unavailable optional probe")
 	}
 }
 

@@ -288,6 +288,26 @@ func TestDeriveWorkflowExecutionViewNoLocalizationSignalIsVisibleButNotGateEligi
 	}
 }
 
+func TestDeriveWorkflowExecutionViewUsesActivePlanLocalizationWhenRunPackIsAbsent(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID: "plan-localized",
+		LocalizationReview: &types.SourceLocalizationReview{
+			Status:              types.SourceLocalizationSupported,
+			SourcePaths:         []string{"src/widget.rs"},
+			OwnerSupportedPaths: []string{"src/widget.rs"},
+		},
+	}
+	run := workflowExecutionRunForTest(types.WriteWorkflowBatchComplete, plan.ID)
+
+	view := DeriveWorkflowExecutionView(types.ModeApply, run, plan)
+	if view.Localization.State != loopkernel.LocalizationAuthorityOwnerSupported {
+		t.Fatalf("active plan localization should remain typed controller authority: %+v", view.Localization)
+	}
+	if len(view.Localization.OwnerSupportedPaths) != 1 || view.Localization.OwnerSupportedPaths[0] != "src/widget.rs" {
+		t.Fatalf("active plan owner path not projected: %+v", view.Localization)
+	}
+}
+
 func TestDeriveWorkflowExecutionViewSurfacesNavigationCoverageFromContextPack(t *testing.T) {
 	run := workflowExecutionRunForTest(types.WriteWorkflowBatchReadyToPlan, "")
 	run.ContextPacks = []types.WriteContextPack{

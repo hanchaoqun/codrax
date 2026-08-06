@@ -101,7 +101,21 @@ func DeriveWorkflowExecutionView(mode types.PipelineMode, run types.WriteWorkflo
 	}
 	view.BatchAttempt = DeriveBatchAttemptState(batch)
 	view.ExploreAttempts, view.LatestExploreStatus, view.LatestExploreReason = workflowExecutionExploreAttempts(batch)
-	if review := loopkernel.LocalizationReviewFromWriteWorkflowRun(run, view.BatchID); review != nil {
+	activePlan := workflowExecutionActivePlan(batch, plan)
+	review := loopkernel.LocalizationReviewFromWriteWorkflowRun(run, view.BatchID)
+	if activePlan != nil && activePlan.LocalizationReview != nil {
+		usePlanReview := review == nil
+		if review != nil {
+			switch loopkernel.DeriveLocalizationAuthority(review).State {
+			case loopkernel.LocalizationAuthorityMissing, loopkernel.LocalizationAuthorityUnknown:
+				usePlanReview = true
+			}
+		}
+		if usePlanReview {
+			review = types.CloneSourceLocalizationReviewPtr(activePlan.LocalizationReview)
+		}
+	}
+	if review != nil {
 		view.Localization = loopkernel.DeriveLocalizationAuthority(review)
 		view.LocalizationGateEligible = workflowExecutionLocalizationGateEligible(*review)
 	}
@@ -115,7 +129,6 @@ func DeriveWorkflowExecutionView(mode types.PipelineMode, run types.WriteWorkflo
 	} else if batch.Status == types.WriteWorkflowBatchVerifying {
 		view.Proof = loopkernel.DeriveProofCoverageAuthorityFromAttempt(nil)
 	}
-	activePlan := workflowExecutionActivePlan(batch, plan)
 	if activePlan != nil {
 		view.Approval = DeriveApprovalExecutionView(activePlan)
 	}

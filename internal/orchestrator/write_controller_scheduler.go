@@ -6327,6 +6327,19 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 			FinishDisposition: writeflow.FinishDispositionAcceptUnverified,
 		})
 	}
+	if decision.Action == writeflow.ActionFinish &&
+		reportHasStaticOnlyProductionCoverageWithUnavailableBehaviorProbe(report) {
+		const reasonCode = "behavior_verification_unavailable_source_static_only"
+		appendControllerProgress(run, batchID, reasonCode,
+			"behavior probe was unavailable and at least one changed production path has only static verification coverage; finish without claiming behavior-verified completion")
+		markActiveBatchWeakProofUnverified(run, reasonCode)
+		return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
+			Action:            writeflow.ActionFinish,
+			ReasonCode:        reasonCode,
+			Reason:            "the patch was applied and static checks passed, but local behavior verification was unavailable",
+			FinishDisposition: writeflow.FinishDispositionAcceptUnverified,
+		})
+	}
 	if truthDecision, ok := o.controllerTruthLedgerDecision(decision, run); ok {
 		appendControllerProgress(run, batchID, truthDecision.ReasonCode, truthDecision.Reason)
 		return truthDecision
@@ -7965,6 +7978,44 @@ func reportHasTypedUnavailableProbeRunnerMissing(report *types.ChangeReport) boo
 			strings.TrimSpace(cmd.Source) == "pre_suite_verification_probe" &&
 			strings.TrimSpace(cmd.Outcome) == "runner_missing" &&
 			strings.TrimSpace(cmd.ReasonCode) == "verification_probe_runner_missing" {
+			return true
+		}
+	}
+	return false
+}
+
+// reportHasStaticOnlyProductionCoverageWithUnavailableBehaviorProbe identifies
+// a precise terminal authority mismatch: a behavior probe could not run, while
+// one or more changed production paths are covered only by syntax/static
+// inspection. A real target-execution or target-behavior observation for the
+// same path wins. The decision is language-neutral and consumes typed report
+// fields only; command text and model/user prose are never scanned.
+func reportHasStaticOnlyProductionCoverageWithUnavailableBehaviorProbe(report *types.ChangeReport) bool {
+	if report == nil || !report.Passed || report.NormalizeVerificationStatus() != types.VerificationStatusPassed ||
+		!reportHasTypedUnavailableProbeRunnerMissing(report) {
+		return false
+	}
+	type pathCapability struct {
+		seen   bool
+		strong bool
+	}
+	byPath := map[string]pathCapability{}
+	for _, row := range report.ChangedPathCoverage {
+		path := normalizeControllerPath(row.Path)
+		if path == "" || types.SourcePathRoleIsAuxiliary(types.ClassifySourcePathRole(path)) {
+			continue
+		}
+		capability := byPath[path]
+		capability.seen = true
+		if row.Status == types.ChangedPathVerificationCovered &&
+			(row.Capability == types.VerificationCapabilityTargetExecution ||
+				row.Capability == types.VerificationCapabilityTargetBehavior) {
+			capability.strong = true
+		}
+		byPath[path] = capability
+	}
+	for _, capability := range byPath {
+		if capability.seen && !capability.strong {
 			return true
 		}
 	}
