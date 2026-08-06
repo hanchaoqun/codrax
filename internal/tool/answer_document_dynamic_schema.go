@@ -64,6 +64,7 @@ func BuildAnswerDocumentParametersFor(view *types.AnswerSemanticView) json.RawMe
 			projectSourceInventoryIdentityFields(blockProps, view)
 		}
 		projectKindPayloadConditionals(blockItems, view)
+		projectSourceInventoryPrincipalTableItems(blockItems, view)
 	}
 	projectRequiredBlockArrayCardinality(blocksField, view)
 
@@ -80,6 +81,20 @@ func BuildAnswerDocumentParametersFor(view *types.AnswerSemanticView) json.RawMe
 		return canonical
 	}
 	return out
+}
+
+// projectSourceInventoryPrincipalTableItems makes the dispatch-projected
+// schema tell the whole truth about source-inventory tables. A generic table
+// may be carried entirely by block.text, but an authoritative source inventory
+// also needs row-local identity/citation sidecars. Requiring items only for a
+// principal table in a view backed by typed source-inventory rows preserves
+// Markdown presentation freedom for every other table while avoiding a
+// schema-accepted first emit that the precise row oracle must reject later.
+func projectSourceInventoryPrincipalTableItems(blockItems map[string]any, view *types.AnswerSemanticView) {
+	if view == nil || !view.SourceInventoryRowIdentityAvailable {
+		return
+	}
+	appendPrincipalKindRequiredFieldsConditional(blockItems, string(types.BlockTable), "items")
 }
 
 func projectSourceInventoryIdentityFields(blockProps map[string]any, view *types.AnswerSemanticView) {

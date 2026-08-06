@@ -19602,3 +19602,49 @@ Pin 覆盖：604.528 CPU·ms 与 4340 score/absolute_level 同时进入 prompt�
 状态：`EVAL-B171-TRACEBG1=implemented/prompt-only/full-affected-suite-pass/awaiting-exact2-replay`；
 Trace 显式时间窗、可见因果投影、自动补齐、根因排序、唤醒链、窗内可消除量及模型结论所有权=`preserved`；
 `B171-R=next/exactly-two-heterogeneous`。
+
+### 123.94 B171 r89：源码清单 JSON 合同前后不一、eval 分组假红与裸 Java 行为面缺席
+
+在 `main@11431278a` 重建后严格并行恰好两个异构 case：
+
+- `arkts_repomap`（ArkTS read/source inventory）：114s，runner FAIL / human PASS；
+- `github_issue_gson_lazy_number`（Java write/apply）：123s，runner FAIL / human uncertain。
+
+ArkTS 最终答案精确列出 4 个 `@Entry` 和 2 个 `@Builder`，成员、文件与行号全部正确；失败来自 eval section selector 先命中包含
+`@Entry` 的二级总标题，再把两个三级分组的表合计成 6。记 `EVAL-B171-EVALGROUP1=P1/eval-false-red`：case-declared marker 有多个
+heading 候选时应选最具体的分组 heading，再做精确行数核对，不能用“第一个包含”决定范围。
+
+同一案暴露 `EVAL-B171-JSONSCHEMA1=P1/contract-conflict`：dispatch 的 projected JSON schema 明确允许 `kind=table` 只携带完整 Markdown
+`text`，模型首稿按该合法形输出；source-inventory 后置门却要求 principal row 必须有 `items[]` identity/citation sidecar，因而发生一次
+`emit_answer_document` 拒绝和 patch。两条规则分别看都合理，合在同一 dispatch 却互相矛盾，属于系统教学制造模型错误。最优方案不是再叠加一段
+同义提示，而是让唯一 schema 权威按 typed semantic view 收窄：仅当存在 typed source-inventory rows 且 block 为 principal table 时，条件要求
+`items[]`；普通 Markdown table 继续允许 text-only。模型仍决定表格内容与结论，系统只约束结构化 row/citation carrier。
+
+Java 写批补丁经人工审计正确，`make check` 也通过，但该 target 只直接执行 Python 静态检查；changed Java production path 因此只有
+`source_static`，控制器正确把模型的 `all_verified` 降为 `unverified/production_verification_source_static_only`，没有假绿。本机 Java/Javac
+命令又只是无 JDK stub，不能签行为 PASS。新 gap `EVAL-B171-JAVADIRECT1=P1`：无 Maven/Gradle 的最小 Java 仓若已有约定命名且带可执行
+`main` 的测试文件，TestSurface 没有 manifestless Java candidate，capability-debt 补跑看不到它。后续应从 typed 文件结构构造有界 direct-Java
+候选，编译到私有临时目录并执行测试 main；JDK 缺失仍如实给 `runner_missing`，不得据此重规划代码，也不从 acceptance prose 猜命令。
+
+JSON 指标方面，两案均未出现 strict decode remap、whole blocks string recovery 或 aggregate-facts string recovery；本轮成文重试不是畸形 JSON，
+而是 schema/后置合同矛盾。施工排序：B171-S3=`JSONSCHEMA1`；B171-S4=`EVALGROUP1`；B172-S1=`JAVADIRECT1`，需与已有
+verification-probe Java runtime 和 changed-path capability 单源复用，避免新增第二套语言判定。
+
+### 123.95 B171-S3：source-inventory principal table 的 row sidecar 进入唯一 projected schema
+
+`EVAL-B171-JSONSCHEMA1` 已按 typed dispatch 根修：
+
+1. `BuildAnswerDocumentParametersFor` 仅在 `SourceInventoryRowIdentityAvailable=true` 时，为
+   `kind=table + surface_role=principal` 增加 `items` required conditional；无 typed source-inventory observation 的比较表、展示表及普通 Markdown
+   table 仍保持 text-only 合法；
+2. 条件直接进入 LLM 实际读取的 projected JSON schema，不新增第二份跨场景 JSON 示例，也不通过用户原文、模型输出或最终 prose 扫描激活；
+3. 这使首次 emit 的接受合同与既有 precise principal-row/citation oracle 对齐：Markdown 仍由 `text` 原样呈现，`items[]` 只作为行身份和引用
+   sidecar，不生成第二张表、不接管模型内容；
+4. 正负 pin 同时覆盖 typed source inventory principal table 必带 items、普通 comparison table 仍不强制 items，防止为清单修复而扩大所有表格的
+   心智负担。
+
+验证：定向 projected-schema tests 通过；完整 `go test ./internal/tool -count=1` 全绿（165.742s）。该批不触碰 Trace 显式时间窗、因果投影、系统自动补齐、根因排序、唤醒链、
+窗内可消除量、两维根因或 AnswerDocument 可见结论。
+
+状态：`EVAL-B171-JSONSCHEMA1=implemented/tool-full-pass`；`EVAL-B171-EVALGROUP1=P1/next-small-batch`；
+`EVAL-B171-JAVADIRECT1=P1/next-verification-batch`。

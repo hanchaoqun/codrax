@@ -375,6 +375,46 @@ func TestBuildAnswerDocumentParametersFor_TableDoesNotForceItemsPayload(t *testi
 	}
 }
 
+func TestBuildAnswerDocumentParametersFor_SourceInventoryPrincipalTableRequiresItems(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		Family:                              types.QFEnumeration,
+		SourceInventoryRowIdentityAvailable: true,
+		RequiredBlocks: []types.BlockRequirement{
+			{Kind: types.BlockSummary, Required: true},
+			{Kind: types.BlockTable, Required: true},
+		},
+	}
+	got := BuildAnswerDocumentParametersFor(view)
+	var root map[string]any
+	if err := json.Unmarshal(got, &root); err != nil {
+		t.Fatalf("schema must parse: %v", err)
+	}
+	props := root["properties"].(map[string]any)
+	blocks := props["blocks"].(map[string]any)
+	bItems := blocks["items"].(map[string]any)
+
+	found := false
+	for _, raw := range schemaAllOfEntries(bItems) {
+		ifNode, _ := raw["if"].(map[string]any)
+		ifProps, _ := ifNode["properties"].(map[string]any)
+		kindNode, _ := ifProps["kind"].(map[string]any)
+		roleNode, _ := ifProps["surface_role"].(map[string]any)
+		if kindNode["const"] != "table" || roleNode["const"] != "principal" {
+			continue
+		}
+		thenNode, _ := raw["then"].(map[string]any)
+		required, _ := thenNode["required"].([]any)
+		for _, field := range required {
+			if field == "items" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("typed source-inventory principal table must require row-local items[] sidecars: %+v", bItems["allOf"])
+	}
+}
+
 func TestBuildAnswerDocumentParametersFor_RequiredBlockCardinalityAndTypedDecision(t *testing.T) {
 	view := &types.AnswerSemanticView{
 		Family: types.QFRootCauseTrace,
