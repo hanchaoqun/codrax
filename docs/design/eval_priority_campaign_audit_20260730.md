@@ -18073,3 +18073,33 @@ data case 确认 `EVAL-B148-DATASCALARREF1=P0`。精确流水线其实已经得�
 `EVAL-B148-DATASCALARREF1=implemented/full-dataquery+repl-pass/awaiting-exact2-replay`；
 `EVAL-B122-JSONTEACH1` 新增 `complete-reference-source-authority+mutually-exclusive-shape`；Trace 显式窗、因果投影、自动补齐、两维根因、排序、唤醒链与
 窗内可消除量=`production-pass/untouched-by-data-fix`。
+
+### 123.37 B149 r65：data/operation 快速回放；规则材料 usage_mode 教学收敛
+
+在 `main@4830cf34b` 构建后严格并行恰好两个异构 case，runner/human 均 PASS：
+
+- `data_jsonl_filter_count`：37s，最终严格单行 `2`，1 batch + 1 repair；
+- `operation_system_inventory`：27s，3 条只读命令全部成功，零计划/成文重试。
+
+data 的完整文件计算正确，且暴露了一个正向安全事实：模型在初始 reasoning 只列出 4 行中的 3 行并手算为 `1`，该不完整样本推断没有答案权限；
+sandbox script 实际遍历完整 JSONL，终态只发布精确值 `2`。本轮选择 direct bounded transform，没有进入 contribution/reconcile/assemble_answer，
+因此不能虚报 B148 的具体修复分支获得 production witness；其状态为 happy-route 无回归 + branch-level pin，下一 complete-reference case 继续回放。
+
+过程确认 `EVAL-B149-RULEUSEMIND1=P1-efficiency`：首轮计划已把 instructions.md 的完整规则复制到 validation_rules，并把 service/level 条件编码
+进脚本，却仍将规则文件声明为 `script_consumed` 且没有读取，触发 required-material scheduling repair。第二轮通过 read_text + regex 真正解析规则后正确，
+不是 correctness gap；但说明长教学里的 usage-mode 选择没有进入模型的早期 shape 决策。短决策表现补一条互斥所有权：完整规则已在 candidate context 且
+忠实进入 typed validation_rules/action params 时用 `planner_distilled + distilled_notes`；只有执行期真实解析/使用字节才用 script_consumed；需要审计规则账时
+用 derive_rules；禁止仅为 coverage 读文件。运行硬门不放宽，材料缺失、空 distilled_notes 与虚假 script consumption 仍 fail-loud。
+
+operation 输出逐项对应命令回执：macOS 26.5.2/25F84、18 物理/18 逻辑核、137438953472 bytes=128GiB、Apple M5 Max 显示芯片与内建
+Liquid Retina XDR。planner 把 known_constraints/success_criteria 发成 string，schema-owned singleton-array compat 无损转成数组，同轮继续、零重试；
+这属于可逆 carrier repair，不抽取畸形 JSON 字符串内的业务语义。
+
+新增 shared initial/continuation prompt pin 要求 rule-material ownership 与“Never read ... solely to satisfy coverage”同时在场。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b149_data_operation_replay_r65_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b149_data_operation_replay_r65_20260805_manual_audit.md`。
+
+状态：`EVAL-B148-DATASCALARREF1=production-happy-route-pass/branch-pin-awaiting-trigger`；
+`EVAL-B149-RULEUSEMIND1=teaching-implemented/awaiting-replay`；operation=`production-pass`；
+`EVAL-B122-JSONTEACH1` 新增 `rule-material-ownership-short-table`；Trace 显式窗、因果投影、自动补齐与两维根因=`untouched`。

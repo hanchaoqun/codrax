@@ -125,6 +125,8 @@ func TestDataTaskLedgerShapeTeachingSharedByInitialAndContinuationPrompts(t *tes
 			"Direct bounded transform:",
 			"Member/list output:",
 			"Scalar count/total output:",
+			"Rule-material ownership:",
+			"Never read a rule file solely to satisfy coverage",
 			"operation=include|set",
 			"arbitrary payload in input_paths does not turn that payload into the projection source",
 		} {
