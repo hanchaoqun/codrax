@@ -3388,7 +3388,7 @@ func renderAnswerDocDiagramSeeds(ctx *types.AgentContext, dc *types.DiagramContr
 			// the fenced block must come from citations[] or Log
 			// Triage frames — but the structure (number of nodes,
 			// direction, branching) is the model's call.
-			b.WriteString("These are grounded reference structures the diagram MAY draw from. Each section lists evidence-grounded nodes / labels you can use; you are encouraged to extend them with additional grounded nodes, change the direction, or introduce branching / fan-out where the mechanism warrants. The only hard rule: file or path nodes inside the fenced block must come from citations[] or the Log Triage frames.\n\n")
+			b.WriteString("These are grounded reference structures the diagram MAY draw from. Each section lists evidence-grounded nodes / labels you can use; you are encouraged to extend them with additional grounded nodes, change the direction, or introduce branching / fan-out where the mechanism warrants. Node membership alone does not prove adjacency, order, containment, or direction: an unconnected node set is intentional when no typed relation or ordered-flow carrier proves an edge. Add an edge only when the supplied typed relation / flow evidence supports it. The file/path grounding rule remains separate: file or path nodes inside the fenced block must come from citations[] or the Log Triage frames.\n\n")
 			wrote = true
 		}
 		fmt.Fprintf(&b, "### %s\n\n%s\n\n", title, body)
@@ -3435,6 +3435,7 @@ func renderAnswerDocFirstPassDiagramSkeleton(ctx *types.AgentContext) string {
 		b.WriteString("- You MAY change the direction (`flowchart TD` ↔ `LR` / `RL` / `BT`), introduce subgraph-like clusters as flat nodes, or switch to `sequenceDiagram` if actor-to-actor better fits the mechanism — none of these are forbidden.\n")
 	}
 	b.WriteString("- You MAY add branches / fan-out / multi-source / multi-sink shapes; the linear chain in the reference is just the safest default skeleton, not a structural requirement.\n")
+	b.WriteString("- Preserve an edge from the reference only when it is actually present there. A node-only reference deliberately asserts no relationship: never connect nodes merely because they are listed next to each other or appear in collection order.\n")
 	b.WriteString("- HARD RULE: every node label must remain grounded in citations[] or Log Triage frames. Renaming an existing node, abstracting it, or inventing a node without grounded backing is rejected by the diagram-grounding gate.\n\n")
 	b.WriteString(fence)
 	b.WriteString("\n\n")
@@ -12127,23 +12128,14 @@ func buildRetrySupportLaneSeed(ctx *types.AgentContext, kind types.DiagramKind) 
 	switch kind {
 	case types.DiagramSequence:
 		fence = types.RenderEvidenceSequenceDiagramFence(items)
-		if fence == "" {
-			fence = types.RenderSequenceDiagramFence(labels, retryDiagramSeedNodeCap)
-		}
 	case types.DiagramCallDAG:
 		fence = types.RenderEvidenceCallDiagramFence(items)
-		if fence == "" {
-			fence = types.RenderLinearDiagramFence(labels, retryDiagramSeedNodeCap)
-		}
 	case types.DiagramArchitecture:
 		fence = types.RenderEvidenceArchitectureDiagramFence(items)
-		if fence == "" {
-			fence = types.RenderLinearDiagramFence(labels, retryDiagramSeedNodeCap)
-		}
 	case types.DiagramFlow:
 		fence = types.RenderEvidenceCallDiagramFence(items)
 		if fence == "" {
-			fence = types.RenderLinearDiagramFence(labels, retryDiagramSeedNodeCap)
+			fence = types.RenderDiagramNodeSetFence(labels, retryDiagramSeedNodeCap)
 		}
 	}
 	if strings.TrimSpace(fence) == "" || len(keys) == 0 {

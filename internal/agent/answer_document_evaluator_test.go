@@ -6806,10 +6806,51 @@ func TestRenderRetryDiagramSeedFence_UsesEvidenceSeedForArchitecture(t *testing.
 		"flowchart",
 		"Alpha",
 		"Beta",
-		"-->",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("architecture retry seed missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "-->") {
+		t.Fatalf("definition membership does not prove an architecture edge:\n%s", got)
+	}
+}
+
+func TestRenderRetryDiagramSeedFence_FlowDefinitionsDoNotMintEdges(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{Scenario: types.ScenarioArchitectureExplain},
+			AnswerContract: types.AnswerContract{Diagram: &types.DiagramContract{
+				Required:       true,
+				RequiredKind:   types.DiagramFlow,
+				PreferredKinds: []types.DiagramKind{types.DiagramFlow},
+			}},
+		},
+		EvidenceItems: []types.EvidenceItem{
+			{Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, AnchorSymbol: "StageAnalyze", Source: "internal/types/enums.go", LineStart: 33, GroundingStatus: types.GroundingGrounded},
+			{Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, AnchorSymbol: "StageFinalize", Source: "internal/types/enums.go", LineStart: 36, GroundingStatus: types.GroundingGrounded},
+			{Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, AnchorSymbol: "MutableState.WriteExplorationRequest", Source: "internal/types/context.go", LineStart: 1781, GroundingStatus: types.GroundingGrounded},
+		},
+	}
+
+	got := renderRetryDiagramSeedFence(ctx)
+	for _, want := range []string{"flowchart TD", "StageAnalyze", "StageFinalize", "MutableState.WriteExplorationRequest"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("node-only flow seed missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "-->") {
+		t.Fatalf("unordered definition/support nodes must not be linearly connected:\n%s", got)
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"Node membership alone does not prove adjacency, order, containment, or direction",
+		"an unconnected node set is intentional",
+		"never connect nodes merely because they are listed next to each other or appear in collection order",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("finalizer prompt missing relation-authority boundary %q", want)
 		}
 	}
 }

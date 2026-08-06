@@ -817,6 +817,44 @@ func RenderLinearDiagramFence(nodes []string, limit int) string {
 	return renderMermaidLinearFence(out)
 }
 
+// RenderDiagramNodeSetFence emits grounded Mermaid nodes without inventing
+// adjacency, order, containment, or direction. It is the safe seed for a set
+// of definition/support anchors when no typed relation or ordered-flow carrier
+// proves an edge between them.
+func RenderDiagramNodeSetFence(nodes []string, limit int) string {
+	seen := make(map[string]bool)
+	out := make([]string, 0, len(nodes))
+	for _, node := range nodes {
+		node = strings.TrimSpace(node)
+		if node == "" || seen[node] {
+			continue
+		}
+		seen[node] = true
+		out = append(out, node)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	if len(out) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("```mermaid\n")
+	b.WriteString("flowchart TD\n")
+	for i, raw := range out {
+		id, decl := mermaidNodeIdentity(raw, i)
+		b.WriteString("    ")
+		if decl != "" {
+			b.WriteString(decl)
+		} else {
+			b.WriteString(id)
+		}
+		b.WriteByte('\n')
+	}
+	b.WriteString("```")
+	return b.String()
+}
+
 // renderMermaidLinearFence builds a flowchart TD with `id1 --> id2`
 // edges chaining the nodes in order. Vertical is the default because
 // code-bearing labels (file:line / symbol tails / role prose) are
@@ -1171,7 +1209,7 @@ func RenderEvidenceArchitectureDiagramFence(items []EvidenceItem) string {
 	if fence := renderEvidenceRelationDiagramFence(items, ClaimCallEdge, ClaimImportEdge, ClaimRegistrationEdge); fence != "" {
 		return fence
 	}
-	return RenderLinearDiagramFence(EvidenceDiagramNodes(items, 8), 8)
+	return RenderDiagramNodeSetFence(EvidenceDiagramNodes(items, 8), 8)
 }
 
 // RenderEvidenceCallDiagramFence emits a Mermaid flowchart for grounded call

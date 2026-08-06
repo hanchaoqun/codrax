@@ -18255,3 +18255,24 @@ data 证明 `EVAL-B151-REFORDERENUM1` 的执行分支已经生效：四条贡献
 `EVAL-B152-REFGROUNDJOIN1=implemented/full-dataworkflow+dataquery+repl-pass/awaiting-exact2-replay`；
 `EVAL-B151-SRCPROFILEVAR1=production-replay-closed`；`EVAL-B152-DIAGSEEDREL1=filed/next-batch`；
 JSON 九 predicate=`production-closed`；Trace 显式窗、因果投影、自动补齐、两维根因、根因排序、唤醒链、窗内可消除量=`untouched`。
+
+### 123.42 B152-S1：图种子拆分节点权限与关系权限
+
+按 §123.41 根因完成通用小批，覆盖 flow、sequence、call_dag、architecture 四类和全部语言；没有读取用户/模型/答案原文作门控，没有按
+`StageAnalyze` 等 fixture 符号裁剪，也没有模板化或系统代写最终图：
+
+1. 新增 canonical `RenderDiagramNodeSetFence`：definition/support anchors 只有“节点存在”权限时，发出合法 Mermaid node set，但不发任何边；
+2. `buildRetrySupportLaneSeed` 的 relation authority 收窄：sequence 只从 typed call relation 生成消息边；call_dag 只从 typed call relation 生成调用边；
+   flow 优先 typed relation，无关系时只发 node set；architecture 的 definition fallback 同样只发 node set；
+3. 已有精确信号不受影响：call evidence、FlowFinding 的 ordered path、log frame chain、config precedence typed roles 继续产生有向边；模型仍可依据证据扩展分支、
+   fan-out 和额外节点；
+4. Finalizer 上下文同步明确“node membership 不证明 adjacency/order/containment/direction”，node-only seed 的无边形态是有意的；禁止仅按相邻展示顺序补边。
+   这是提示与证据权限校准，不是新增答案硬拒；
+5. pin 覆盖 architecture/flow 的多 definition 节点均在场且 `-->` 必须缺席，同时保留既有 typed sequence、call DAG、FlowFinding 和 config-trace
+   有边回归。
+
+`go test ./internal/types ./internal/agent -count=1` PASS（24.588s / 2.882s）；`go test ./internal/tool -count=1` PASS
+（174.505s）。
+
+状态：`EVAL-B152-DIAGSEEDREL1=implemented/types+agent+tool-full-pass/awaiting-production-replay`；关系权限与节点 grounding=`separated`；模型结论/图构造
+所有权=`preserved`；JSON 教学、Trace 显式窗、因果投影、自动补齐、两维根因与 data reference 语义=`untouched`。
