@@ -305,12 +305,14 @@ func prunePrincipalEnumerationExtraneousItems(doc *types.AnswerDocumentV2, ctx *
 			// LABEL-ONLY verbatim member naming (never item prose text: a
 			// hallucinated row that merely name-drops a real member in its
 			// text must still be pruned), restricted to principal_answer /
-			// supporting_coverage member_sets. The STRICT source-inventory
-			// lane keeps its original exclusive semantics: rows in a
-			// strict source-inventory carrier are admitted only by scoped
-			// row coverage and are never rescued by another member_set
-			// naming them (QCE review 2026-07-05 findings 1-3).
+			// supporting_coverage member_sets. In the STRICT source-inventory
+			// lane, a separate accepted principal_answer bucket may rescue its
+			// own member (compound inventories can mix parser roles), while
+			// supporting_coverage still cannot widen the typed roster.
 			if !keep && !strictSourceInventoryRows && principalEnumerationItemBackedByAcceptedMemberSetMember(ctx, item) {
+				keep = true
+			}
+			if !keep && strictSourceInventoryRows && principalEnumerationItemBackedByAcceptedPrincipalMemberSetMember(ctx, item) {
 				keep = true
 			}
 			// Call-chain endpoint identity and principal member-set identity are
@@ -372,6 +374,35 @@ func principalEnumerationItemBackedByAcceptedMemberSetMember(ctx *types.BusConte
 	}
 	for _, fact := range preEmitStableAggregateFacts(ctx) {
 		if !preEmitContentBearingMemberSetFact(fact) {
+			continue
+		}
+		for _, member := range fact.Members {
+			if preEmitItemLabelNamesAggregateMember(label, member) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// principalEnumerationItemBackedByAcceptedPrincipalMemberSetMember is the
+// narrow compound-inventory rescue for a strict source-inventory carrier. A
+// parser row set for one coarse role (for example type) must not veto a
+// separately accepted, grounded principal bucket for another requested role
+// (for example foreign function). Supporting coverage is intentionally
+// excluded so it cannot widen the principal answer.
+func principalEnumerationItemBackedByAcceptedPrincipalMemberSetMember(ctx *types.BusContext, item types.AnswerBlockItem) bool {
+	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	label := strings.TrimSpace(item.Label)
+	if label == "" {
+		return false
+	}
+	rm := &ctx.AnalysisIR.RequestModel
+	for _, fact := range preEmitStableAggregateFacts(ctx) {
+		if !preEmitContentBearingMemberSetFact(fact) ||
+			types.AnswerAggregateFactRoleForRequest(fact, rm) != types.AnswerAggregateRolePrincipalAnswer {
 			continue
 		}
 		for _, member := range fact.Members {

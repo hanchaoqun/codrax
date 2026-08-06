@@ -486,6 +486,78 @@ func TestQCEPrune_StrictSourceInventoryLaneNotRescued(t *testing.T) {
 	}
 }
 
+func TestQCECompoundInventoryPrincipalSiblingSurvivesStrictTypeRoster(t *testing.T) {
+	mu := types.NewMutableState("列出 public class 和 foreign func")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
+		{
+			Kind:        types.AnswerAggregateMemberSet,
+			Label:       "foreign func 声明",
+			Value:       "1",
+			Role:        types.AnswerAggregateRolePrincipalAnswer,
+			Members:     []string{"native_add @ bridge/Bridge.cj:6 (package demo.bridge)"},
+			SupportRefs: []string{"native_add: bridge/Bridge.cj:6"},
+		},
+		{
+			Kind:        types.AnswerAggregateMemberSet,
+			Label:       "source inventory principal rows",
+			Value:       "1",
+			Role:        types.AnswerAggregateRolePrincipalAnswer,
+			Provenance:  types.SourceInventoryPrincipalRowSetAggregateProvenance,
+			Members:     []string{"Bridge @ bridge/Bridge.cj:15 (package demo.bridge)"},
+			SupportRefs: []string{"Bridge: bridge/Bridge.cj:15"},
+		},
+	})
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active: true,
+		Sets: []types.SourceInventoryObservationSet{{
+			Role: types.AnswerCandidateRoleType,
+			Members: []types.SourceInventoryObservationMember{{
+				Name: "Bridge", Role: types.AnswerCandidateRoleType,
+				File: "bridge/Bridge.cj", Line: 15, Language: "cangjie",
+				SurfaceTerms:  []string{"public class", "public class Bridge"},
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}},
+		}},
+	})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:     types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+				SourceQuotes:      []string{"public class", "foreign func"},
+				RequestedFields:   []types.SourceInventoryRequestedField{types.SourceInventoryFieldName, types.SourceInventoryFieldLocation},
+				Confidence:        0.95,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "bridge/Bridge.cj", Line: 6, Quote: "foreign func native_add(a: Int64): Int64"}},
+		Blocks: []types.AnswerBlock{{
+			ID:          "foreign-functions",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{{
+				ID: "native-add", Label: "native_add", CitationRef: 0,
+			}},
+		}},
+	}
+	if !principalEnumerationItemBackedByAcceptedPrincipalMemberSetMember(ctx, doc.Blocks[0].Items[0]) {
+		t.Fatal("fixture must carry a grounded accepted principal sibling member")
+	}
+	if hints := preCheckSourceInventoryExtraneousPrincipalItems(doc, ctx); len(hints) != 0 {
+		t.Fatalf("strict type roster must not veto the accepted foreign-function principal bucket: %+v", hints)
+	}
+	normalizePrincipalEnumerationRowBlocks(doc, ctx)
+	if len(doc.Blocks) == 0 || len(doc.Blocks[0].Items) != 1 || doc.Blocks[0].Items[0].Label != "native_add" {
+		t.Fatalf("presentation compiler must preserve accepted principal sibling row: %+v", doc.Blocks)
+	}
+}
+
 // Review findings 7 + 11 — the single cross-package naming authority binds
 // decorated members to base-named refs, never binds generic/empty labels,
 // and same-base siblings do not cross-bind a base-named ref (full decorated

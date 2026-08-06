@@ -686,11 +686,21 @@ eval_inventory_visible_row_count() {
       table = 0
       table_header_seen = 0
     }
+    # A prose note below an inventory is not another inventory member. List
+    # rows in the typed inventory cases carry the source file requested by the
+    # case; require that structural signal for list-shaped rows. Tables remain
+    # self-delimiting and are counted above. This keeps exact-cardinality
+    # checks sensitive to extra members without counting a trailing note or
+    # caveat bullet as a symbol.
     /^[[:space:]]*[-*+][[:space:]]+/ {
-      count++
+      if ($0 ~ /[^[:space:]|()`]+\.[[:alnum:]_+-]+(:[0-9]+)?/) {
+        count++
+      }
     }
     /^[[:space:]]*[0-9]+[.)][[:space:]]+/ {
-      count++
+      if ($0 ~ /[^[:space:]|()`]+\.[[:alnum:]_+-]+(:[0-9]+)?/) {
+        count++
+      }
     }
     END {
       if (count == 0) {

@@ -19420,3 +19420,59 @@ Make。验证：定向测试通过；完整 `go test ./internal/tool -count=1` �
 
 状态：`EVAL-B170-VERIFYALT1=implemented/tool-full-pass/awaiting-exact2-replay`；
 `EVAL-B170-NODEJSON1=implemented/tool-full-pass/awaiting-exact2-replay`。本批不触碰 AnswerDocument、Trace 时间窗/因果投影/自动补齐或模型结论所有权。
+
+### 123.88 B170 r87：导航/验证路由生效，复合主清册合同冲突与 eval 假红
+
+在 `main@0b9dba60c` 重建后严格并行恰好两个异构 case：
+
+- `github_issue_dayjs_duration_nan`：174s，runner FAIL / human uncertain，终态
+  `unverified/runner_missing`；
+- `cangjie_repomap`：450s，runner FAIL / human PASS。
+
+JavaScript 侧证明 B170-S2 的生产路由已经生效：declared Make 静态检查通过后，系统从 typed
+`source_static` capability debt 自动补跑同目录 Node 行为面；普通 npm script 没有再被追加 `--json --silent`。
+本机确实缺少 `npm/node`，所以行为面以 exit 127 结束，最终报告诚实保持未验证。补丁
+`Number(value ?? 0)` 经人工审计正确，但没有 JavaScript runtime 证据，不能把该运行签为 human PASS。原端到端 pin
+依赖宿主 npm、在本机被 skip，已改用临时 fake npm，使 Make-static→Node-behavior 接线测试不再受开发机环境漂移影响。
+
+Cangjie 侧证明 B170-S1 的 lens-first 已生效：typed source inventory 给出精确 2 个 extend、2 个 foreign func、
+8 个 public class，package 均正确，最终答案完整保留。runner 的 `got9/want8` 是 eval 边界假红：行计数器把清单后的
+“说明” bullet 当成第九个符号。计数器现只把带源码位置的 list row 当 inventory member；table 仍按结构行计数，
+因此意外实体仍可检出，而尾部说明/caveat 不再污染 cardinality。
+
+生产路径同时暴露 `EVAL-B170-COMPOUNDVETO1=P1/red-line-contract-conflict`：source-inventory synthetic roster
+只覆盖粗粒度 `type` family，Finalizer 已从另一条 grounded principal `member_set` 得到两条 foreign-function 行；
+strict type roster 却把后者视作“清册外项”硬拒，另一条 obligation gate 又要求把同一 `native_add` 加回，形成同一模型字段
+同时必删/必带的矛盾合同。模型因此连续四次 patch，日志已明确识别冲突。根修必须允许“另一条已接纳、grounded、
+principal_answer member_set”保留自己的成员；supporting coverage 仍不能扩宽 strict roster，防止把旁证铸成主答案。
+
+JSON 审计：Analyzer/Explorer 没有 malformed JSON；Finalizer 首次 whole-`blocks[]` string carrier 被现有无损路径恢复一次，
+答案未丢失、未进入 degraded salvage。当前 prompt 仍在 canonical `JSON SHAPE FIRST` 之外三次重复 native-array/blocks-carrier
+说明，说明 D1 虽退役固定 examples，字段教学仍有可压缩空间。登记
+`EVAL-B170-JSONREPEAT1=P1/context-cognitive-load`：下一独立小批以 projected schema 为唯一字段权威，只保留一次 compact
+carrier rule；不增加同义提示，不扫描模型答案，不把一次 lossless compat 当作答案失败。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b170_cangjie_jswrite_r87_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b170_cangjie_jswrite_r87_20260806_manual_audit.md`。
+
+### 123.89 B170-S3：复合 principal roster 合取；eval list row 与说明分轨
+
+本批关闭两个不同层次、同样会制造“看起来模型错了”的确定性问题：
+
+1. strict source-inventory carrier 的主清册仍以 parser scoped rows 为第一权威；若某条 item 不在该粗 role roster，只有
+   另一条已接受、content-bearing、`principal_answer` member-set 精确命名该 item 时才能保留。`supporting_coverage`
+   继续无权救援，既有“旁证 Item 泄漏进 public class”负臂保持 fail-closed；
+2. pre-emit hard check 与 presentation compiler 共用同一 principal-sibling 判据，禁止一处放行、一处又裁掉；新增复合
+   inventory 回归复现 type roster + foreign-function sibling，要求 `native_add` 同时通过 precheck 和 normalize；
+3. eval 精确 cardinality 对 table 继续计结构数据行；对 ordered/bullet list 只计携带 source file token 的成员行，尾部
+   说明/caveat bullet 不再算实体。新增生产答案同形测试，原“额外源码实体必须失败”测试保持通过；
+4. 所有 production 判定只读 typed aggregate role、grounded member-set 与 parser observation，不读取用户题面、模型
+   reasoning、item prose 或最终渲染答案关键词。系统不补成员、不改结论，只消除两个权威载体之间的错误互斥。
+
+定向 compound roster、supporting-coverage 负臂、Make→Node 行为升级测试通过；`bash eval/runner_lib_test.sh` 全绿。
+下一步跑完整 `internal/tool`，提交后再做 JSON 教学去重与下一组严格 exact-2 异构 eval。
+
+状态：`EVAL-B170-COMPOUNDVETO1=implemented/targeted-pass`；
+`EVAL-B170-EVALCOUNT1=implemented/runner-contract-pass`；
+`EVAL-B170-JSONREPEAT1=confirmed/next-small-batch`；Trace 显式时间窗、因果投影、系统自动补齐、根因排序、唤醒链、
+窗内可消除量、两维根因与模型结论所有权=`untouched`。

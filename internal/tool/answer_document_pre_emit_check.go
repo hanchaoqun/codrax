@@ -5672,6 +5672,14 @@ func preCheckSourceInventoryExtraneousPrincipalItems(doc *types.AnswerDocumentV2
 			if principalEnumerationItemCoversAnySourceInventoryScopedRow(item, doc, rows) {
 				continue
 			}
+			// Compound source inventories may have an accepted grounded
+			// principal bucket outside the coarse parser role that produced
+			// the synthetic source-inventory roster. That sibling authority
+			// is precise and must not be rejected; supporting coverage remains
+			// unable to widen this hard gate.
+			if principalEnumerationItemBackedByAcceptedPrincipalMemberSetMember(ctx, item) {
+				continue
+			}
 			label := strings.TrimSpace(item.Label)
 			if label == "" {
 				label = strings.TrimSpace(strings.Join(item.Cells, " | "))

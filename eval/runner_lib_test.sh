@@ -795,6 +795,8 @@ inventory_extra_table_row=$'**extend 块**\n\n| symbol | path | package |\n|---|
 assert_eq "$(eval_inventory_rowset_reasons "$inventory_extra_table_row")" "inventory_count_mismatch:extend:got2:want1" "inventory exact count must reject an unexpected visible table row"
 inventory_exact_bold_table=$'**extend 块**\n\n| symbol | path | package |\n|---|---|---|\n| Cart | Cart.cj:30 | demo.cart |\n\n**public class**\n\n| symbol | path | package |\n| Cart | Cart.cj:14 | demo.cart |\n\n> **范围说明** only the checked scope\n\n**引用**：\n\n- `Cart.cj:30`'
 assert_eq "$(eval_inventory_rowset_reasons "$inventory_exact_bold_table")" "" "inventory exact count accepts the actual rows under a bold section heading"
+inventory_list_with_note=$'### extend\n\n1. **Cart** — package demo.cart (`Cart.cj:30` — extend Cart {)\n\n**说明**：\n\n- 该清单按 package 分组展示。'
+assert_eq "$(eval_inventory_rowset_reasons "$inventory_list_with_note")" "" "inventory exact count must not count a trailing prose note as another list member"
 unset EXPECT_INVENTORY_ROWSETS EXPECT_INVENTORY_ROW_SCOPE_EXTEND EXPECT_INVENTORY_ROWS_EXTEND EXPECT_INVENTORY_COUNT_EXTEND
 
 EXPECT_INVENTORY_ROWSETS="entry_page"
