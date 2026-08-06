@@ -12896,25 +12896,30 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// live in SynthesisPrompt (concrete-value extraction, evidence
 	// merge) now run directly in ParseOutput above.
 	//
-	// Extract facts from tool results. Each tool declares its own
+	// Extract facts from evidence/navigation tool results. Each tool declares its own
 	// Confidence via the Tool interface: evidence tools (grep,
 	// read_file, …) return 0.8, navigation indexes (repo_map) return
 	// 0.3, and orchestration/emit tools (propose_sub_agents, emit_*)
-	// return 0.0. Only tools with Confidence > 0.5 count toward the
-	// evidence-source floor below.
+	// return 0.0. A zero-confidence result remains in ToolResults for
+	// audit/replay, but must not become a RepoFact: its Summary is a
+	// model-authored completion acknowledgement, not repository or
+	// runtime evidence. Only tools with Confidence > 0.5 count toward
+	// the evidence-source floor below.
 	stopParseSection := startExplorerParseSectionWatchdog(ctx, "repo_facts")
 	var facts []types.RepoFact
 	sources := make(map[string]struct{})
 	for _, r := range toolResults {
 		if r.Success {
 			confidence := e.toolConfidence(r.ToolName)
-			facts = append(facts, types.RepoFact{
-				Key:         r.ToolName,
-				Value:       r.Summary,
-				Source:      logicalFactSource(r.Summary, r.ToolName),
-				EvidenceRef: r.RawRef,
-				Confidence:  confidence,
-			})
+			if confidence > 0 {
+				facts = append(facts, types.RepoFact{
+					Key:         r.ToolName,
+					Value:       r.Summary,
+					Source:      logicalFactSource(r.Summary, r.ToolName),
+					EvidenceRef: r.RawRef,
+					Confidence:  confidence,
+				})
+			}
 			// Only evidence-bearing tools (Confidence > 0.5) count
 			// toward the "enough facts" floor. Navigation indexes and
 			// orchestration tools are excluded so the explorer cannot

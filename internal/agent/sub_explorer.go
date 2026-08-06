@@ -360,20 +360,23 @@ func (e *subExplorerEvaluator) Observe(_ *types.AgentContext, obs LoopObservatio
 }
 
 func (e *subExplorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.Message, toolResults []types.ToolResult, mcpResponses []types.MCPResponse) (*StageOutput, error) {
-	// Extract facts from successful tool results, using each tool's
-	// declared Confidence.
+	// Extract facts from successful evidence/navigation results, using each
+	// tool's declared Confidence. Zero-confidence orchestration/emit results
+	// remain available as ToolResults but are not factual prompt material.
 	var facts []types.RepoFact
 	sources := make(map[string]struct{})
 	for _, r := range toolResults {
 		if r.Success {
 			confidence := e.toolConfidence(r.ToolName)
-			facts = append(facts, types.RepoFact{
-				Key:         r.ToolName,
-				Value:       r.Summary,
-				Source:      logicalFactSource(r.Summary, r.ToolName),
-				EvidenceRef: r.RawRef,
-				Confidence:  confidence,
-			})
+			if confidence > 0 {
+				facts = append(facts, types.RepoFact{
+					Key:         r.ToolName,
+					Value:       r.Summary,
+					Source:      logicalFactSource(r.Summary, r.ToolName),
+					EvidenceRef: r.RawRef,
+					Confidence:  confidence,
+				})
+			}
 			if confidence > 0.5 {
 				sources[r.ToolName] = struct{}{}
 			}

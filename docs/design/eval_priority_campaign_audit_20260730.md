@@ -19195,3 +19195,55 @@ diagram case 的四阶段身份与 Mermaid 顺序正确，Finalizer 一轮成文
 
 状态：`EVAL-B167-MEMBERNOTEAUTH1=implemented/full-tool-suite-pass/awaiting-exact2-replay`；
 `EVAL-B167-QFPRESENT1=observe-only`；模型结论所有权=`preserved`；raw prose hard gate=`absent`。
+
+### 123.79 B168 r84：职责证据生产复放闭环；Trace 投影正常但零权威完成摘要污染结论
+
+在 `main@9a5b99e29` 重建后严格并行恰好两个异构 case：
+
+- `qf_diagram_pipeline`：123s，runner / human PASS；
+- `trace_query_donghu_real_frame_multicausal`：236s，runner PASS / human FAIL。
+
+diagram case 证明 B167 已在生产路径闭环：Explorer 实际读取 `internal/types/stage_binding.go` 后，发出 4 members / 4 responsibility notes /
+4 grounded refs，同序逐项指向四个 `StageBinding` initializer；最终身份、顺序和职责均与代码一致，旧的 `dataflow.Analyze` read-mode 入口误述消失。
+回答仍把说明放在图前而非用户要求的图后，记 `EVAL-B168-QFPRESENT1=P2/model-adherence-observation`，不扫描最终原文做硬门。
+
+该 case 同时留下一个 JSON 可观测 gap：Finalizer 把 `blocks` 发成 JSON-encoded string，既有 flat-mode tolerance 无损恢复成功，答案没有丢失；
+日志明确有 `blocks[] arrived as JSON-encoded string`，但 runner 的 strict/carrier/repair 指标全部为 0。现有工具 schema 和 skill 已多次教授 native array，
+继续叠加同义教学只会增加模型心智负担；先立 `EVAL-B168-JSONMETRIC1=P2`，把该恢复路径独立计数，再依据跨 case 频率决定是否合并、压缩重复教学。
+
+Trace case 的确定性能力本身保持完整：5 次 `trace_query` 全部绑定用户窗 `34579.472865..34579.587805`；最终保留根因排序、唤醒链、
+目标四态账、窗内可消除量、系统自动补齐、枚举 incomplete 边界，以及“真实占时/新修向”与“现有规则可消除量”两维非加和投影。链上主席仍为
+CookieMonsterCl-59843，effective=23.994ms、cumulative=26.170ms；没有发生投影消失或系统改写模型结论。
+
+但模型正文出现三类证据越界：
+
+1. 把 marker 的 `owner tid:62020` 直接扩写成 `ThreadPoolForeg-60555` 已证持有锁且主线程同步等待；同页 typed caveat 却明确
+   `holder_authority=not_provided_by_caller`、无 confirmed holder/waiter、`target_wait_occurrences=0`；
+2. 把全查询窗的 34 次 wakeup aggregate 混入 2.978ms 的首个 occurrence 窗，形成时间范围与段数不可能同时成立的叙述；
+3. 用窗外 `Choreographer#onVsync` marker 推断“帧截止前刚好完成”，而系统两维边界已明确没有可绑定的 frame/deadline proof。
+
+追到上下文生产点后确认第 1 项不是 Finalizer 自发波动：Explorer 的 `emit_investigation_complete.reason` 已先写入持锁结论；
+`explorerEvaluator.ParseOutput` 又把所有成功 ToolResult 无条件铸成 RepoFact，即使该工具 `Confidence()==0.0`。于是 Finalizer Known Facts 同时收到
+“持锁已证”的零权威模型摘要与“holder authority 未提供”的 typed Trace 权威，冲突上下文本身诱发模型复制错误。立案
+`EVAL-B168-EMITFACTAUTH1=P1/context-precision/red-line`。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b168_read_trace_r84_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b168_read_trace_r84_20260806_manual_audit.md`。
+
+### 123.80 B168-S1：零权威 control-plane 摘要退出 RepoFact，审计载体原样保留
+
+本批按工具自身 typed confidence 修复主 Explorer 与 SubExplorer 的同根事实通道：
+
+1. 仅 `Confidence()>0` 的成功工具结果可以生成 RepoFact；证据工具 0.8 与导航索引 0.3 语义不变，未来未知工具仍按既有 0.8 fallback；
+2. `Confidence()==0` 的 orchestration/emit 工具不再进入 Known Facts。这不是按 `emit_*` 名字或摘要文字过滤，而是复用 Tool interface 已声明的
+   精确信号，避免 completion acknowledgement 冒充仓库/运行时事实；
+3. 原始结果仍完整保存在 `TurnAArtifacts.ToolResults`，可供审计、replay 和 typed completion carrier 消费；模型通过
+   `aggregate_facts`、evidence、observations、relation claims 发出的结构化探索成果也完全保留；
+4. 新生产接线 pin 同时断言：`grep` 仍生成 RepoFact、`emit_investigation_complete` 摘要不生成 RepoFact、两条 ToolResult 均留在 Turn-A；
+   主/子 Explorer 同源代码均已收窄。
+
+验证：定向生产接线测试 PASS；完整 `go test ./internal/agent -count=1` 全绿。该批不触碰 AnswerDocument 渲染、Trace query/projection/
+supplement、显式时间窗、根因排序、唤醒链、窗内可消除量或两维根因；系统继续只提供 typed 精确信息，不接管模型结论。
+
+状态：`EVAL-B168-EMITFACTAUTH1=implemented/full-agent-suite-pass/awaiting-exact2-replay`；
+`EVAL-B168-JSONMETRIC1=next-small-batch`；raw prose hard gate=`absent`。

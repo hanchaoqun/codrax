@@ -23,6 +23,7 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
+	toolpkg "github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -1508,6 +1509,40 @@ func TestParseOutput_StageOutputFieldsAllPopulated(t *testing.T) {
 	}
 	if out.SignalUpdates == nil {
 		t.Fatal("SignalUpdates must be set")
+	}
+}
+
+func TestParseOutput_ZeroConfidenceCompletionSummaryIsNotRepoFact(t *testing.T) {
+	// A completion summary is model-authored control-plane text. It remains in
+	// TurnAArtifacts.ToolResults for audit/replay, but must not re-enter the
+	// finalizer as a Known Fact where it could outrank contradictory typed
+	// trace/evidence carriers.
+	registry := toolpkg.NewRegistry()
+	registry.Register(&toolpkg.GrepTool{})
+	registry.Register(&toolpkg.EmitInvestigationComplete{})
+	eval := &explorerEvaluator{
+		tools:              registry,
+		userQuestion:       "find the proven owner",
+		structuredEvidence: []types.EvidenceItem{pinnedEvidenceItem("owner.go", "Owner", 7)},
+		investigationNotes: []string{"## Evidence from owner.go\n- [DIRECT] Owner line 7: returns true"},
+	}
+	ctx := parseOutputCtx("", "")
+	ctx.Mutable = types.NewMutableState(ctx.Objective)
+	toolResults := []types.ToolResult{
+		{ToolName: "grep", Success: true, Summary: "owner.go:7"},
+		{ToolName: "emit_investigation_complete", Success: true, Summary: "untyped assertion: worker-2 owns the lock"},
+	}
+
+	out, err := eval.ParseOutput(ctx, nil, toolResults, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput error: %v", err)
+	}
+	if len(out.NewFacts) != 1 || out.NewFacts[0].Key != "grep" {
+		t.Fatalf("NewFacts = %+v, want only evidence-bearing grep result", out.NewFacts)
+	}
+	artifacts := ctx.Mutable.TurnAArtifacts()
+	if artifacts == nil || len(artifacts.ToolResults) != 2 {
+		t.Fatalf("TurnA audit results = %+v, want both original tool results", artifacts)
 	}
 }
 
