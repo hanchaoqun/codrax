@@ -39,6 +39,14 @@ assert_eq "$(eval_metric_int_field "$tmp/metrics.txt" analyzer_dispatches)" "2" 
 assert_eq "$(eval_metric_int_field "$tmp/metrics.txt" string_metric)" "0" "metric int non-numeric fallback"
 assert_eq "$(eval_metric_int_field "$tmp/metrics.txt" missing_key)" "0" "missing metric int fallback"
 
+cat >"$tmp/repair-metrics.txt" <<'METRICS'
+repair_plan_lines=2
+data_repair_rounds=3
+METRICS
+assert_eq "$(eval_total_repair_rounds "$tmp/repair-metrics.txt")" "5" "repair summary combines read and data typed counters"
+printf 'data_repair_rounds=4\n' >"$tmp/data-only-repair-metrics.txt"
+assert_eq "$(eval_total_repair_rounds "$tmp/data-only-repair-metrics.txt")" "4" "data-only repair must not render as zero"
+
 cat >"$tmp/data-terminal.json" <<'JSON'
 {
   "status": "complete",

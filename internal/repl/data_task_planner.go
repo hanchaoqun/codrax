@@ -459,6 +459,7 @@ var dataTaskResultPatchTool = llm.ToolSchema{
 // not combine list, count, entity, and final-projection contracts into one
 // contradictory plan.
 const dataTaskLedgerShapeTeaching = `Ledger and output-shape decision (choose the one shape the task actually needs):
+- MATERIAL USE FIRST: choose usage_mode for every required material before writing actions or script. script_consumed means the exact action lists that material in input_paths and the executable body/helper actually reads and uses its bytes; if execution will not read those bytes, choose planner_distilled with concrete distilled_notes or a typed consuming action instead. Never declare script_consumed speculatively and repair it after the terminal calculation is rejected.
 - Direct bounded transform: when material coverage plus the output contract are sufficient and no audit ledger is required, emit the computed answer directly. Do not add contribution, reconcile, rule, decision, or entity-resolution obligations merely because the task filters rows or returns IDs.
 - Member/list output: qualify or filter the source rows, then compute_contributions with operation=include|set, value_field=<existing member field>, and group_key=<the requested output field>; reconcile, then assemble_answer with projection=json_object. Never use operation=count when the answer must contain the member values.
 - Scalar count/total output: use count for row cardinality or add/subtract for numeric totals, then reconcile and assemble that scalar.

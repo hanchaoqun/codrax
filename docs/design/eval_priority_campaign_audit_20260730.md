@@ -18799,3 +18799,52 @@ rule-first 三个决策词。先红后绿后，`go test ./internal/types ./inter
 
 状态：`EVAL-B161-LOGJSONSHAPE1=soft-single-source-implemented/full-suite-pass`；
 `EVAL-B161-RULEFIRST1=shared-soft-teaching-implemented/full-suite-pass`；等待干净 revision exact-2 回放。
+
+### 123.63 B162 r78：JSON shape 生产收敛；data 变快但 summary 把一次修复写成零
+
+在 `main@98cc6bf0c` 构建后，严格并行重放 B161 两个 witness：
+
+- `data_basic_sum_with_rules`：46s，runner/human PASS，1 个 data batch、typed `data_repair_rounds=1`，终稿严格 `17`；
+- `hilog_arkts_panic`：92s，runner PASS / human PARTIAL，log triage、Analyzer、Explorer、Finalizer 均首轮合法，Finalizer reject=0。
+
+ArkTS 首轮 `emit_log_triage` 已正确发 native `errors[]/frames[]` 和单 object `cause`，没有 strict-decode、string-carrier 或 schema repair；
+Analyzer 也首轮携带 `scenario=root_cause`。因此 `EVAL-B161-LOGJSONSHAPE1` 完成生产闭环。最终答案的直接事实正确：
+`UserCard.build @ UserCard.ets:42:15` 读取某个 undefined 对象的 `name`，出现 TypeError、五帧调用栈和 sig=6；但模型又把这个对象具体化为
+“传递给 UserCard 的用户对象/状态数据”，日志没有变量身份或 caller 参数流证据。Finalizer 上下文已经明确写有“artifact 只证明 property/frame/trace order，
+变量/参数/caller 供值只能作为上游调查方向”，末段也重新披露具体上游需源码。记
+`EVAL-B162-ARKTSDATAFLOW1=P2/single-model-witness`；不扫描最终 prose、不替模型改答案，继续异构观察。
+
+data 从 r77 的 127s/6 批/2 repair 收敛到 46s/1 批/1 repair，正确性与材料覆盖均保持。它没有设置 rule-ledger obligation，因而
+`RULE LEDGER BEFORE CALCULATION` 不应强迫它生成多余账本；剩余一次修复来自更基础的材料所有权：首个 terminal script 只读 orders.csv，
+却把 rules.md 声明为 `script_consumed`。typed scheduling gate 正确拒绝，模型随后把 rules.md 加入输入并真实读取后一次完成。记
+`EVAL-B162-MATERIALUSE1=P1/shared-soft-teaching`。
+
+同时确认 `EVAL-B162-EVALREPAIROBS1=P1/eval-observability`：selected summary 的 `repair` 列只读取 `repair_plan_lines`，因此本轮显示 0；
+同一 metrics 与 terminal 明确记录 `data_repair_rounds=1`。这会让 data lane 的真实重试在批量排序中假绿，直接妨碍“先看高重试 case”的任务优先级，
+不是展示小问题。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b162_json_rule_replay_r78_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b162_json_rule_replay_r78_20260805_manual_audit.md`。
+
+状态：`EVAL-B161-LOGJSONSHAPE1=production-replay-closed`；`EVAL-B161-RULEFIRST1=production-helpful/remaining-material-use-gap-split`；
+`EVAL-B162-MATERIALUSE1=confirmed/implementation-in-progress`；`EVAL-B162-EVALREPAIROBS1=confirmed/implementation-in-progress`；
+Trace 全能力和模型结论所有权=`untouched`。
+
+### 123.64 B162-S1：材料使用先决策；eval repair 汇总纳入 data typed 轮次
+
+本批修两处共享决策点，不改变 data 校验或产品答案：
+
+1. initial/continuation 共用的 `dataTaskLedgerShapeTeaching` 在所有 output/ledger 分支前新增 `MATERIAL USE FIRST`：每个 required material
+   必须先选 usage_mode；`script_consumed` 要求同一个 action 的 input_paths 与 executable body/helper 真实读取并使用 bytes；不读取时必须选择
+   `planner_distilled + distilled_notes` 或 typed consuming action，禁止先虚报 script consumption、等 terminal gate 再修。
+2. 原有 scheduling/material guards、`script_consumed/text_evidence_consumed/planner_distilled/reference_only` schema 与严格输出全部保留；这只是把既有
+   同向合同移到模型做 action/script 前，不按文件名、题面或答案文字特判。
+3. eval runner 新增 `eval_total_repair_rounds`，只合并两个 typed control-plane counter：read/write pipeline 的 `repair_plan_lines` 与 data lane 的
+   `data_repair_rounds`。`parallel_selected/parallel_priority/parallel_all` 三个主表共用该函数；不从 warning、reasoning 或答案 prose 猜 repair。
+4. operation compatibility repair 仍缺独立 typed metric，`EVAL-B158-OPJSONMETRIC1` 继续开放；本批不把 data 修复冒充全模式观测闭环。
+
+新增 runner 单测覆盖 read=2 + data=3 -> 5 及 data-only=4 不得显示 0；`bash -n` 四脚本 PASS，`bash eval/runner_lib_test.sh` PASS；
+data prompt 定向 pin PASS，`go test ./internal/repl -count=1` 全量 PASS（31.753s）。
+
+状态：`EVAL-B162-MATERIALUSE1=shared-soft-teaching-implemented/full-repl-pass`；
+`EVAL-B162-EVALREPAIROBS1=implemented/all-sweep-writers+runner-contract-pass`；等待后续异构 data 回放。

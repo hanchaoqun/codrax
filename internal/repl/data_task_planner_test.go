@@ -122,6 +122,9 @@ func TestDataTaskLedgerShapeTeachingSharedByInitialAndContinuationPrompts(t *tes
 		"continuation": dataTaskContinuationPromptWithRuntimeView("compute", "/repo", TurnPolicy{Route: RouteData}, nil, dataTaskWorkflowRuntimeView{}),
 	} {
 		for _, want := range []string{
+			"MATERIAL USE FIRST",
+			"choose usage_mode for every required material before writing actions or script",
+			"Never declare script_consumed speculatively",
 			"Direct bounded transform:",
 			"Member/list output:",
 			"Scalar count/total output:",

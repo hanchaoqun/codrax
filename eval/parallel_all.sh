@@ -153,7 +153,7 @@ run_one() {
   explorer=$(eval_metric_field "$metrics" explorer_dispatches)
   extractor=$(eval_metric_field "$metrics" extractor_dispatches)
   finalizer=$(eval_metric_field "$metrics" finalizer_dispatches)
-  repair=$(eval_metric_field "$metrics" repair_plan_lines)
+  repair=$(eval_total_repair_rounds "$metrics")
   rejects=$(eval_count_finalizer_rejects "$log")
   patches=$(eval_count_answer_document_patch_calls "$log")
   sem=$(eval_count_semantic_quality_concerns "$log")

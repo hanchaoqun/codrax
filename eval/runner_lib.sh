@@ -254,6 +254,21 @@ eval_metric_int_field() {
   echo 0
 }
 
+# eval_total_repair_rounds <metrics>
+#
+# Selected/priority/all sweep tables have one compact `repair` column. Read
+# pipeline repair plans and data-lane repair rounds are disjoint typed runtime
+# counters, so reporting only repair_plan_lines makes a data run with real
+# replanning look like repair=0. Sum the two control-plane counters; do not
+# infer repairs from answer text or generic warning prose.
+eval_total_repair_rounds() {
+  local file="$1"
+  local read_repairs data_repairs
+  read_repairs="$(eval_metric_int_field "$file" repair_plan_lines)"
+  data_repairs="$(eval_metric_int_field "$file" data_repair_rounds)"
+  echo $((read_repairs + data_repairs))
+}
+
 eval_metric_exceeds() {
   local file="$1"
   local key="$2"
