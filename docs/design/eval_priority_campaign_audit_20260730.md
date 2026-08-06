@@ -19508,3 +19508,39 @@ carrier rule；不增加同义提示，不扫描模型答案，不把一次 loss
 状态：`EVAL-B170-JSONREPEAT1=implemented/full-affected-suite-pass/awaiting-production-replay`；
 畸形 JSON 无损修复与显式降级保文=`preserved`；模型答案所有权=`preserved`；Trace 显式时间窗、因果投影、自动补齐、
 根因排序、唤醒链、窗内可消除量与两维根因=`untouched`。
+
+### 123.91 B171 r88：JSON/复合清册复放闭环；跨族同名引用与 Trace 背景事实漏交接
+
+在 `main@19f6f5df7` 重建后严格并行恰好两个异构 case：
+
+- `cangjie_repomap`：128s，runner PASS / human FAIL；
+- `trace_query_donghu_real_frame_multicausal`：201s，runner PASS / human FAIL。
+
+Cangjie 生产复放证明前三批改动均生效：2 个 extend、2 个 foreign func、8 个 public class 及 package 全部完整，runner 不再把尾部说明计成第九个实体；
+Finalizer 零 reject，`blocks[]` 使用原生 JSON array，whole-string recovery=0。相较 r87 的 450s、4 次矛盾拒绝和一次 string recovery，结构合同与 JSON
+教学明显降噪。但人工审计发现 `EVAL-B171-CITFAMILY1=P1`：`public class Cart` 可见位置为 `Cart.cj:14`，最终引用却指向同文件
+`extend Cart` 的 `Cart.cj:30`。typed handoff 已分别携带 `surface_family=public class|extend` 和精确 row_id；模型没有复制 block 的
+`source_inventory_family`，现有 pre-emit 候选修复又把同名、同 candidate_role、同 package 的两行都视作合法，错误引用因而没有被纠正。修复不得从 block
+标题或 item prose 猜族；优先用 exact typed family/row identity 绑定，缺少精确 carrier 时歧义 fail-closed，不能任取同名行。
+
+Trace 复放确认显式用户窗、目标状态账、根因排序、wakeup chain、窗内可消除量、实际占时/现有规则两轴、
+`frame_evidence_status=absent` 限定、系统投影和自动补齐全部在场，JSON 原生且零 finalizer reject。因此本轮不回退任何 Trace 能力。人工仍判 FAIL，需严格区分：
+
+1. `Trace Decision Inputs` 已明确 `cross_row_additivity=forbidden`、candidate 不证明 holder/waiter、wakeup path 不证明 blocker，模型仍把三个 IO 席相加为
+   “约 24ms”、把 candidate 写成“持有低优先级依赖”、把每一 hop 写成额外等待传递；同时写出 `23.994ms/77%`，系统算术附注已诚实指出按窗长应为
+   20.875% 且保留正文未改。这些是模型 adherence 波动；禁止新增最终 prose 扫描硬门或系统改写结论。
+2. 另有确定性的 `EVAL-B171-TRACEBG1=P1`：Explorer 的 typed aggregate 已记录
+   `cpu_pressure=604.528ms`，但最终紧凑 `Trace Decision Inputs.contextual_noncausal_rows` 没有携带 CPU pressure 背景行；模型随即声称“无显著 CPU
+   压力”。背景 aggregate 本来就不参与链上归因，正确修复是把它作为 typed、noncausal、cross-axis-addition=forbidden 的上下文交给模型，约束有/无陈述，
+   而不是把它加冕为根因或让系统替写结论。
+
+批次冻结：
+
+1. `B171-S1`：source-inventory 引用绑定改用精确 family/row identity；跨族同名且无 typed partition 时不得以同名/共同 attribute 保留或回填错误引用；
+   同时压缩 JSON 教学为“复制 typed identity，系统机械绑定 citation”，避免模型手算共享 citation pool；
+2. `B171-S2`：把 producer 已接受的 aggregate pressure 背景事实接入 Trace Decision Inputs 的 contextual lane，保留 CPU·ms/非目标墙钟/非因果/禁止跨轴相加
+   四个边界；不改变投影、排序、自动补齐和加冕；
+3. `B171-R`：再选恰好两个异构 case，优先一条非 Cangjie source inventory 与一条非同 trace 的 runtime/write，验证语言泛化、JSON、上下文体积和答案人工质量。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b171_cangjie_trace_r88_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b171_cangjie_trace_r88_20260806_manual_audit.md`。
