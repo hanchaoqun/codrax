@@ -3699,6 +3699,52 @@ func TestNormalizeItemCitationRefsByUniqueLabelCitation_PreservesTypedMemberRowB
 	}
 }
 
+func TestNormalizeItemCitationRefsByUniqueLabelCitation_PreservesAlignedRelationAttributeBeforeDefinitionFallback(t *testing.T) {
+	mu := types.NewMutableState("list implementations and each registered route")
+	mu.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind: types.EvidenceRegistration, Scope: types.ScopeLine,
+			Source: "src/handlers/EchoHandler.java", LineStart: 7,
+			AnchorKind: types.AnchorStringLiteral, AnchorSymbol: "/echo",
+			Subject: "@Route", Predicate: "registers", Object: "EchoHandler",
+			SurfaceTerms: []string{"@Route", "/echo"}, Salience: types.SalienceLoadBearing,
+		},
+		{
+			Kind: types.EvidenceDirect, Scope: types.ScopeLine,
+			Source: "src/handlers/EchoHandler.java", LineStart: 8,
+			AnchorKind: types.AnchorDefinition, AnchorSymbol: "EchoHandler", Subject: "EchoHandler",
+		},
+	})
+	ctx := &types.BusContext{Mutable: mu}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "src/handlers/EchoHandler.java", Line: 7},
+			{File: "src/handlers/EchoHandler.java", Line: 8},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID: "handlers", Kind: types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetEnumerationItem)},
+			ClaimUses:   []types.RenderedClaimUse{{ClaimForm: types.ClaimDefinitionFact}},
+			Items: []types.AnswerBlockItem{{
+				ID: "echo", Label: "EchoHandler (/echo)",
+				Text: "registered through @Route", CitationRef: 0,
+			}},
+		}},
+	}
+
+	if !preEmitItemCitationAlignedWithContext(newPreEmitCheckContext(ctx), doc.Blocks[0].Items[0].Label,
+		doc.Blocks[0].Items[0].Text, doc.Citations[0]) {
+		t.Fatal("test setup: route citation should align with the complete decorated item surface")
+	}
+	if fixed := normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc, nil, ctx, newPreEmitCheckContext(ctx)); fixed != 0 {
+		t.Fatalf("aligned route citation must outrank the label-only definition fallback, fixed=%d doc=%+v", fixed, doc)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
+		t.Fatalf("citation_ref=%d, want model-owned route citation 0", got)
+	}
+}
+
 func TestNormalizeItemCitationRefsByTypedCandidateRole_UsesRowAttributeForDuplicateLabels(t *testing.T) {
 	mu := types.NewMutableState("list foreign func declarations with packages")
 	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{

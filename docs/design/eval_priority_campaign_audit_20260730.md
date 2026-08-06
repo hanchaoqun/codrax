@@ -21323,3 +21323,47 @@ contract 拒绝；第二 dispatch 直接断言 `Mutable.AnalyzerRetryHint` 同�
 
 状态：`EVAL-B187-WRITEANRETRY1=S19/S19b-closed/code+integration-pin+r118-customer-visible-pass`；
 `EVAL-B187-CITECOVER1=P2/observe-needs-heterogeneous-witness`。
+
+### 123.155 B188 r119：Cangjie 完整；Java 暴露系统把正确 relation citation 改成 definition 的红线
+
+在 `a92df48ae` 构建后严格并行恰好两个异构语言 read case：
+
+- `cangjie_repomap_fixture`：66s，runner/human PASS；1 extend、1 foreign func、3 public class 的
+  package/path/symbol 与 5 条 row-local citation 完整一一对应，无虚假 caveat；
+- `sr_java_handler_impls`：130s，runner PASS / human FAIL；三个实现和 `/echo`、`/stats`、`/upper` 事实正确，
+  但最终 citation 与证据权限被系统改坏。
+
+Java 原始 `emit_answer_document` JSON 已经正确：三个 item 的 `citation_ref=0/1/2` 分别指向
+`@Route` 行 7/13/9，模型 think 也明确说明用 annotation line 支撑每个 member→path 二轴关系。随后
+`normalizeItemCitationRefsByUniqueLabelCitationWithContext` 在检查当前 citation 是否完整对齐之前，先运行
+label-only exact-definition fallback，把三席改为 class declaration 行 8/14/10；unused prune 再删除三个原 route
+citation。后置 `principal_support_member_coverage` 随即对系统自己造成的错位发出 3 条 advisory，并在最终答案追加
+“枚举类条目中部分项的证据支持稍弱”。这是确定的系统越权与权限优先级反转，升级
+`EVAL-B188-CITEPRIORITY1=P1/confirmed`；r118 Rust 表象归并为同方向观察，但 Java 已给出完整的 mutation witness。
+
+该问题不属于 Java 图层缺失：explorer 已产出三条 `EvidenceRegistration`，每条携带 member endpoint、route endpoint、
+`surface_terms=@Route,/path` 与精确行；Cangjie 同批也证明 composite typed row/citation 正常。根因是通用 citation
+normalizer 把“成员声明”错误当成比“成员+属性关系行”更精确。
+
+### 123.156 B188-C：二轴 item 的已对齐 relation/attribute citation 高于 label-only definition fallback
+
+最小权限修复如下：
+
+1. 仍保留既有规则：纯成员/definition item 的唯一精确定义高于仅提及该 label 的 call/support 行；
+2. definition fallback 前新增精确冻结臂：当前 model-selected citation 必须先通过既有 typed item/evidence alignment，
+   且同一 cited evidence 同时 grounding principal member endpoint 与第二个可见轴；第二轴只能来自该 evidence 的
+   `surface_terms` 或另一个 typed endpoint，并且必须真实出现在 item label/text；
+3. 满足该合取时，route/default/owner/registration target 等二轴关系行高于只证明成员存在的 declaration；没有第二轴、
+   citation 越界、evidence ungrounded 或表面未携带 attribute 时，原 definition repair 保持；
+4. 不读取 RawRequest、模型 think、最终 Markdown 或语言/框架关键词；也不生成、改写任何模型结论，只阻止低权限
+   heuristic 覆盖已正确的 typed citation。
+
+新增回归以 `EchoHandler (/echo)` 的通用 member+attribute 形固定 route evidence 与 definition evidence 竞争，删除该
+冻结臂会确定性恢复错误改写；既有 `PrefersExactDefinitionOverAlignedSupport` 同时保持，证明不是把所有 aligned
+support 一律提权。完整回归还由 `TestEmitAnswerDocumentPatch_NormalizesCitationRefsBeforePoolRangeGate` 捕获并固定第三臂：
+当 item 引用已对齐 call/retry 关系、但根本不存在唯一 definition 时仍保留当前 citation，不能继续落到模糊候选。
+
+完整验证：`go test ./internal/tool -count=1` 通过（160.106s），`internal/types` 21.593s 通过；`git diff --check`
+通过。
+
+状态：`EVAL-B188-CITEPRIORITY1=B188-C-implemented/full-tool-types-pass/pending-exact-two-replay`。

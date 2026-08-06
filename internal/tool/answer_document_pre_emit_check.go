@@ -2698,6 +2698,14 @@ func normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc *types.Answer
 				preEmitCitationMatchesAnySourceInventoryCandidate(pctx, doc.Citations[item.CitationRef], label, text) {
 				continue
 			}
+			// A model-selected relation/attribute citation that already aligns
+			// with both the member and a second visible item axis is
+			// higher-authority than a label-only definition fallback.
+			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) &&
+				preEmitItemCitationAlignedWithContext(pctx, label, text, doc.Citations[item.CitationRef]) &&
+				preEmitCitationSupportsVisibleItemAttributeWithContext(pctx, label, text, doc.Citations[item.CitationRef]) {
+				continue
+			}
 			if preEmitBlockPrefersExactDefinitionCitation(*block) {
 				if cit, ok := preEmitUniqueExactEndpointDefinitionCitationForLabelWithContext(pctx, label); ok {
 					ref := appendOrReusePreEmitCitation(doc, cit)
@@ -3450,6 +3458,45 @@ func preEmitItemCitationAlignedWithContext(pctx *preEmitCheckContext, label, tex
 	}
 	evidence, found := pctx.citedEvidenceItems(cit)
 	return found && preEmitDecoratedItemLabelMatchesAnyEvidenceEndpoint(label, text, evidence)
+}
+
+// preEmitCitationSupportsVisibleItemAttributeWithContext reports whether the
+// selected evidence line grounds not only the item's principal member label,
+// but also a second typed axis visibly carried by the item (for example a
+// route, owner, default, registration target, or other relation endpoint).
+// Such a line is more specific to a two-axis row than the member's declaration
+// and must not be replaced by the label-only definition fallback.
+func preEmitCitationSupportsVisibleItemAttributeWithContext(pctx *preEmitCheckContext, label, text string, cit types.Citation) bool {
+	if pctx == nil {
+		return false
+	}
+	evidence, found := pctx.citedEvidenceItems(cit)
+	if !found {
+		return false
+	}
+	baseKey := preEmitCodeIdentityKey(preEmitDefinitionCitationLabelBase(label))
+	if baseKey == "" {
+		return false
+	}
+	surface := strings.TrimSpace(strings.Join([]string{label, text}, "\n"))
+	for _, ev := range evidence {
+		if !preEmitEvidenceExactEndpointKeyMatches(ev, baseKey) {
+			continue
+		}
+		if preEmitItemSurfaceMentionsEvidenceSurfaceTerm(label, text, ev) {
+			return true
+		}
+		for _, attribute := range []string{ev.Subject, ev.Object, ev.AnchorSymbol, ev.OwnerSymbol} {
+			attribute = strings.TrimSpace(attribute)
+			if attribute == "" || preEmitCodeIdentityKey(attribute) == baseKey {
+				continue
+			}
+			if preEmitCodeSurfaceAppearsVerbatim(attribute, surface) || preEmitTextContainsLoose(surface, attribute) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func preEmitItemCitationStrictlyAlignedWithContext(pctx *preEmitCheckContext, label, text string, cit types.Citation) bool {
