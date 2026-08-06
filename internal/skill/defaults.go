@@ -1155,7 +1155,9 @@ Two-axis enumeration contract: when the user asks for every principal member plu
 			"read_file", // blob pagination only
 			"emit_log_triage",
 		},
-		OutputFormat: `You have ONE required emit tool: emit_log_triage. The current tool schema is authoritative for whether an attachment-pagination read tool is available; use only listed tools. You do NOT have grep / repo_map / list_files — path resolution is handled automatically.
+		OutputFormat: types.LogTriageJSONShapeFirstTeaching + `
+
+You have ONE required emit tool: emit_log_triage. The current tool schema is authoritative for whether an attachment-pagination read tool is available; use only listed tools. You do NOT have grep / repo_map / list_files — path resolution is handled automatically.
 
 Schema in one glance:
 - meta.lang        (required) — the dominant runtime language

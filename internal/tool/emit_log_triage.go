@@ -226,6 +226,7 @@ func buildEmitLogTriageSchema() {
 
 	schema := map[string]any{
 		"type":                 "object",
+		"description":          types.LogTriageJSONShapeFirstTeaching,
 		"additionalProperties": false,
 		"required":             []string{"meta", "errors"},
 		"properties": map[string]any{

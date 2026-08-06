@@ -46,6 +46,17 @@ func TestEmitLogTriage_Schema_RejectsUnknownField_AtRoot(t *testing.T) {
 	}
 }
 
+func TestEmitLogTriageSchemaUsesCanonicalJSONShapeFirstTeaching(t *testing.T) {
+	tool := &EmitLogTriage{}
+	var schema map[string]any
+	if err := json.Unmarshal(tool.Parameters(), &schema); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := schema["description"].(string); got != types.LogTriageJSONShapeFirstTeaching {
+		t.Fatalf("schema description=%q, want canonical shape teaching %q", got, types.LogTriageJSONShapeFirstTeaching)
+	}
+}
+
 // TestEmitLogTriage_Schema_FrameLocksRawAndConfidence pins that
 // every frame must carry raw + confidence.
 func TestEmitLogTriage_Schema_FrameLocksRawAndConfidence(t *testing.T) {

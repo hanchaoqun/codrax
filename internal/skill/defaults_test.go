@@ -3,6 +3,8 @@ package skill
 import (
 	"strings"
 	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // allWorkflowBodies returns the concatenated Workflow + WorkflowTierB
@@ -1257,6 +1259,21 @@ func TestLogTriageSkill_AdvertisesPerformanceSignal(t *testing.T) {
 		if !strings.Contains(blob, must) {
 			t.Errorf("log-triage-skill missing original enum value %q after performance addition", must)
 		}
+	}
+}
+
+func TestLogTriageSkillUsesCanonicalJSONShapeFirstTeaching(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	sk, err := r.Get("log-triage-skill")
+	if err != nil {
+		t.Fatalf("log-triage-skill missing: %v", err)
+	}
+	if !strings.Contains(sk.OutputFormat, types.LogTriageJSONShapeFirstTeaching) {
+		t.Fatalf("log-triage output format must lead with the canonical JSON-shape teaching:\n%s", sk.OutputFormat)
+	}
+	if strings.Count(sk.OutputFormat, types.LogTriageJSONShapeFirstTeaching) != 1 {
+		t.Fatalf("canonical JSON-shape teaching must appear exactly once, got %d", strings.Count(sk.OutputFormat, types.LogTriageJSONShapeFirstTeaching))
 	}
 }
 

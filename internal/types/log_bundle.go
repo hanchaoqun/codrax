@@ -2,6 +2,14 @@ package types
 
 import "strings"
 
+// LogTriageJSONShapeFirstTeaching is the canonical compact carrier-shape
+// contract shared by the log-triage prompt and emit tool schema. Keep this
+// decision before the semantic field catalog: it prevents a model from
+// serializing native collections twice or treating the recursive cause pointer
+// as a peer-error array. Runtime decoding remains fail-closed unless a malformed
+// carrier can be repaired without changing this tree shape.
+const LogTriageJSONShapeFirstTeaching = "JSON SHAPE FIRST: emit one JSON object; meta and errors[].cause are native objects, while errors, every frames field, observations, meta.signals, and unknown_chunks are native arrays. Never quote or escape an object/array as a JSON string. errors[].cause is one recursive error object, never an array; independent error occurrences are separate errors[] entries."
+
 // LogBundle is the validated output of the log_triage pre-stage.
 // It carries the LLM's structured view of the user-attached runtime
 // log plus a system-derived layer that every downstream consumer

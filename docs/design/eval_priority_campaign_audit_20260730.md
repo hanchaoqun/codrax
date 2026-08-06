@@ -18739,3 +18739,63 @@ Trace 模型越界两项=`single-witness/observe`；系统结论代写=`absent`�
 
 状态：`EVAL-B160-STATICVERIFYAUTH1=implemented/full-orchestrator-pass`；soft behavior contracts=`unchanged`；真实 behavior proof 优先权=`preserved`；
 Trace 因果投影、自动补齐、根因排序、唤醒链、窗内可消除量和模型结论所有权=`untouched`。
+
+### 123.61 B161 r77：严格标量与 ArkTS 根因均正确；JSON 形状决策和规则前置仍消耗重试
+
+在 `main@65eed95a4` 构建后严格并行恰好两个异构 case：
+
+- `data_basic_sum_with_rules`：127s，runner/human PASS，6 个 data batch、2 次 repair、2 个 failed action，终稿严格为 `17`；
+- `hilog_arkts_panic`：93s，runner/human PASS，log triage 2 次 emit、Analyzer 1 次精确修复、Finalizer reject=0。
+
+ArkTS 最终答案准确区分了两层根因：日志直接证明的崩溃触发点是 `UserCard.build` 在 `UserCard.ets:42:15` 读取
+`undefined.name`，随后沿 `UserCard.__updateChildElement -> IndexPage.build -> IndexPage.__updateRoot -> __ELEMENT_invoke`
+传播并出现 `Application crashed; pid=5821 sig=6`；具体哪个 props/data/API 值未初始化，日志本身不能证明，答案明确要求结合代码继续定位。
+系统没有补写或替换模型结论。
+
+过程确认 `EVAL-B161-LOGJSONSHAPE1=P1/json-cognitive-load`：log triager 首个 tool call 把 `errors[]` 整体放进 JSON string，
+且该字符串内部另有一个不配对的 `]`。因此它不是现有 compatibility lane 可以“去一层引号”无损恢复的形；若系统猜删括号，会改变
+`errors[]` peer 与 `cause` tree 的权属，正确行为仍是 typed reject 后重发。现有 `decodeEmitLogTriageParamsStrict` 对内部本来合法的
+string-wrapped arrays 已有无损恢复，本轮不能以“尽量修复”为由越过结构确定性边界。真实 GAP 是 JSON shape 决策埋在较长字段手册中：
+虽然 prompt/schema 分别写过 `errors[]` 和 recursive cause，模型仍把 native/string 及 peer/cause 两轴混在一次载体里。
+
+Analyzer 首轮已经选择 diagnostic/root_cause，却漏发必需 `scenario`，normalizer 得到 generic 后被精确一致性门拒绝，一轮修复成功。
+初始教学已经逐字要求 diagnostic 与 root_cause/performance_bottleneck 对齐，没有相反示例，暂记
+`EVAL-B161-ANASCENARIO1=P2/model-carrier-variance`，不增加用户/模型 prose 扫描或新的硬门。
+
+data 终稿与完整终态一致：fixture 自 2026-06-05 入库以来一直是 10、7 两行，两个 target contribution 合计 17，reconcile expected/actual
+均为 17。旧账 §82/§83 曾记录同一 case 得到 44，与当前 git 历史和 case oracle 均不可能同时成立，追加
+`EVAL-B161-AUDITFIXTURE1=P2/documentation-correction`：旧记录只能视为当时运行目录污染或人工记账错误，不能继续作为 fixture 真值。
+
+data 过程确认 `EVAL-B161-RULEFIRST1=P1/json/planner-cognitive-load`：首个 plan 声明 `rule_coverage_required=true`，却先发 terminal
+`custom_transform`，必然被 rule-ledger prerequisite 拒绝；确定性 fallback 随后补 `derive_rules`，模型又重复一次相同 action，再经过
+extract/qualify/contribute/reconcile/assemble 才完成。完整审计账保住了正确性，但 2 行标量任务为一个可提前避免的依赖顺序错误支付 6 批成本。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b161_data_arkts_r77_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b161_data_arkts_r77_20260805_manual_audit.md`。
+
+状态：`EVAL-B161-LOGJSONSHAPE1=confirmed/soft-single-source-fix-in-progress`；
+`EVAL-B161-RULEFIRST1=confirmed/shared-teaching-fix-in-progress`；`EVAL-B161-ANASCENARIO1=observe`；
+Trace 显式窗、因果投影、自动补齐、两维根因和模型答案所有权=`untouched`。
+
+### 123.62 B161-S1：JSON shape 单源前置；规则账本先于计算
+
+本批只调整模型可见的 typed carrier/规划教学，不改变运行时权限、校验强度、答案内容或任何 Trace 能力：
+
+1. 在 `types` 建立 `LogTriageJSONShapeFirstTeaching` 单一权威句，同时供给 log-triage `OutputFormat` 首行与
+   `emit_log_triage` 顶层 JSON schema description。它一次讲清：顶层一个 object；`meta` 与 `errors[].cause` 是 object；
+   `errors/frames/observations/meta.signals/unknown_chunks` 是 native array；结构不得二次 JSON-stringify；独立错误放 `errors[]`，线性因果只放一个 recursive cause object。
+2. 保持恢复边界：内部 JSON 合法的 string-wrapped array 继续可证明无损恢复；括号失衡、peer/cause 歧义或会丢字段的 carrier 仍 fail-closed 重发。
+   本批没有从畸形字符串猜造错误树，也没有把 partial salvage 提升为 runtime authority。
+3. initial 与 continuation data planner 已共用 `dataTaskLedgerShapeTeaching`；其中 rule-material 决策改为
+   `RULE LEDGER BEFORE CALCULATION`：当 `rule_coverage_required=true` 且 ledger 尚未物化，第一 dependency rank 必须是
+   `derive_rules`，不得先发注定被 prerequisite gate 拒绝的 terminal calculation。无 rule-ledger obligation 时仍可使用
+   `planner_distilled`；只有执行真正读取材料 bytes 时才能声明 `script_consumed`。
+4. 所有变化都是 schema/typed workflow 软教学，不扫描用户输入、模型 reasoning、tool payload 内容或最终答案 prose 作硬门；
+   既有 material/rule/contribution/reconcile/final-projection 校验一项未删。
+
+新增看护锁定 log prompt/schema 必须逐字消费同一 canonical teaching，且该句在 prompt 只出现一次；data 初始/续规划必须同时携带
+rule-first 三个决策词。先红后绿后，`go test ./internal/types ./internal/skill ./internal/repl ./internal/tool -count=1`
+全量 PASS（22.237s / 1.460s / 36.050s / 179.548s）。
+
+状态：`EVAL-B161-LOGJSONSHAPE1=soft-single-source-implemented/full-suite-pass`；
+`EVAL-B161-RULEFIRST1=shared-soft-teaching-implemented/full-suite-pass`；等待干净 revision exact-2 回放。
