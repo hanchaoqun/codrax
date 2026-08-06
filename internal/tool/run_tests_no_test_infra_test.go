@@ -2980,9 +2980,11 @@ func TestRunTestsStaticMakePassEscalatesToSameRootNodeBehaviorSurface(t *testing
 	if _, err := exec.LookPath("make"); err != nil {
 		t.Skip("make not on PATH; skip")
 	}
-	if _, err := exec.LookPath("npm"); err != nil {
-		t.Skip("npm not on PATH; skip")
+	fakeBin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(fakeBin, "npm"), []byte("#!/bin/sh\necho 'plain npm behavior script passed'\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write fake npm: %v", err)
 	}
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
 		t.Fatalf("mkdir src: %v", err)
@@ -2996,10 +2998,13 @@ func TestRunTestsStaticMakePassEscalatesToSameRootNodeBehaviorSurface(t *testing
 	if err := os.WriteFile(filepath.Join(root, "tests", "duration.test.js"), []byte("const assert = require('assert'); assert.strictEqual(require('../src/duration'), 42); console.log('ok');\n"), 0o644); err != nil {
 		t.Fatalf("write test: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(root, "tests", "check_duration.py"), []byte("from pathlib import Path\nassert Path('src/duration.js').read_text()\n"), 0o644); err != nil {
+		t.Fatalf("write static checker: %v", err)
+	}
 	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"private":true,"scripts":{"test":"node tests/duration.test.js"}}`+"\n"), 0o644); err != nil {
 		t.Fatalf("write package.json: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "Makefile"), []byte("check: src/duration.js\n\t@test -s src/duration.js\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "Makefile"), []byte("check: src/duration.js\n\tpython3 tests/check_duration.py\n"), 0o644); err != nil {
 		t.Fatalf("write Makefile: %v", err)
 	}
 
