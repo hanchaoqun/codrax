@@ -19835,3 +19835,37 @@ roster 的非 idle endpoint 行决定。
 因果投影、自动补齐、根因排序、唤醒链、窗内可消除量、实际占时/现规则可消除两轴均保持不变。
 
 状态：`EVAL-B173-IDLEPRIO1=implemented/full-suite-pass`；下一步独立提交推送，然后重建并继续恰好两个异构 eval。
+
+### 123.104 B174 r92：strict JSON 的两个系统自矛盾；Cangjie 正答被混合表 oracle 误杀
+
+在 `main@1bb9d4061` 重建后严格并行恰好两个异构 case：
+
+- `data_json_strict_ids`：runner PASS / human PASS，196s，7 个执行批、3 次 repair、4 个 failed action；
+- `cangjie_repomap`：runner FAIL / human PASS，157s，typed inventory 与最终 12 行事实全部正确。
+
+Data 最终答案仍精确为 `{"ids":["u1","u3"]}`，且 B174-S1 生效：strict carrier 本身不再铸造三类业务账。但过程确认两个新的确定性合同 gap：
+
+1. `EVAL-B174-MATMODE1=P1/red-line-contract-conflict`：planner 已选择 `instructions.md=planner_distilled` 并给出三条 concrete `distilled_notes`；
+   `applyDataTaskUserMaterialFloor` 却把 candidate floor 放在 merge 的 first-wins 一侧，以 candidate kind=`text` 默认的 `script_consumed` 覆盖模型 typed mode，同时把
+   distilled notes 留下。随后 material scheduling guard 又按 `script_consumed` 要求执行体读取文件，造成“教学允许 planner_distilled、系统归一化强改 script、guard 再拒绝”
+   的自相矛盾，两次 repair 均无法按提示改回。用户显式材料 floor 应只确立 path/required/identity，不应夺取 plan 已合法声明且字段完备的 usage mode；无 plan 声明时才用
+   candidate 默认 mode。
+2. `EVAL-B174-ACTIONCARRIER1=P1/schema-execution-drift`：`filter_records` 同时具有顶层 `output_artifact=active_users_filtered.json` 和
+   `params.output_artifact` 同值。执行器正确拒绝未知业务参数，但这里不是未知语义：`output_artifact` 是 action schema 的唯一顶层字段，nested copy 与其字节等价且全仓没有
+   executor 消费该 param。最优修复是在 draft→typed plan 的 JSON carrier 边界做精确 remap：顶层为空时把 nested 值提升；两者等价时删除 nested 副本；两者冲突继续
+   fail-closed。不得普遍吞掉 unknown params。
+
+这两个失败把原本可由一个 bounded transform 完成的列表投影推入 derive-rules/filter/contribution/reconcile 七批链，解释了 B174-S1 后总耗时反升；不是继续增加 JSON 示例能解决。
+优先修结构合同，再评估是否还需压缩教学。
+
+Cangjie 案的 2 个 extend、2 个 foreign func、8 个 public class、路径、行号、package 与 12 条 citation 全部正确，说明 SINAV/navigation 和 citation-family
+修复已通过生产回放。runner false red 来自 `EVAL-B174-EVALMIXTABLE1=P1/eval-only`：答案用一个合法混合表，行 label 自带 `extend`/`foreign func`/`public class`；
+oracle 却先按三个 prose heading 截 section，前两组得到 0 行，最后一组吞下整表 12 行。已有 `EXPECT_INVENTORY_ROW_MARKER_*` 正是混合表 discriminator，但当前选择顺序让
+section 抢先。应让 case 显式声明 marker，并在 marker rows 存在时按 marker 选行；没有 marker-bearing rows 时仍走 section 严格计数，避免放松额外成员检测。
+
+JSON 审计：data planner tool carrier 无 decode/salvage，但 action 字段发生合法 JSON 内的层级错位；Cangjie finalizer 再次把 whole `blocks[]` string 化一次，既有无损恢复完整保文，
+没有答案丢失或系统代写。该单次波动先作为 `EVAL-B174-BLOCKSTRING1=P2/observe`，不再堆第二套 schema 示例；若在 canonical teaching 去重后连续复现，再审计 provider projected
+schema 与 request body，而不是从 final prose 设门。
+
+施工排序：B175-S1=`MATMODE1`；B175-S2=`ACTIONCARRIER1`；B175-S3=`EVALMIXTABLE1`。三项均不读取用户/模型/答案关键词，不接管结论。Trace 显式时间窗、因果投影、
+自动补齐、根因排序、唤醒链、窗内可消除量、实际占时/现规则可消除两轴保持不变。
