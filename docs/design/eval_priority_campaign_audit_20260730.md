@@ -21946,3 +21946,35 @@ S30 只修改 Finalizer 的 prompt-owned Trace decision handoff，不创建答�
 
 状态：`EVAL-B195-PIAUTH1=S30-implemented/targeted-tests-pass/pending-full-suite-and-exact-two-replay`；
 Trace 因果投影/系统自动补齐/根因选举=`unchanged`；模型正文所有权=`preserved`。
+
+### 123.177 B198 r130：候选机理权限生产闭环；图证据载体偶发进入领域层
+
+在 `70ce9b258` 构建后严格并行恰好两个异构 read case：
+
+- `trace_query_donghu_real_frame_multicausal`：199s，runner/human PASS；
+- `qf_diagram_pipeline`：135s，runner PASS / human FAIL。
+
+Trace 的 production handoff 直接证明 S30 接线生效：axis-B #1/#2 行显示
+`kind=priority_inversion_candidate`，并在同一行携带 `candidate_mechanism_authority=lower_priority_dependency_only`、
+同步 blocker/holder-waiter 未授权、pre-wakeup scope 与 post-wakeup preemption 未授权；target-state 行携带 S-sleep 原因不可由状态分区分类。
+模型总结因此明确写成“优先级反转机制未经单独类型化证据确认，仅为候选验证方向”，另行说明直接阻塞关系未建立，并把同步对象/优先级继承
+放入验证建议而非已证结论。没有再把 S 态定性成正常 VSync 或非锁等待。
+
+同轮显式窗 `34579.472865..34579.587805`、实际占时/现规则可消除量双轴、根因排序、wakeup chain、可消除量、Trace 因果投影和
+系统自动补齐全部保留；系统没有重写模型正文。`EVAL-B195-PIAUTH1` 完成生产闭环。
+
+diagram case 的四个 stage、顺序和职责均正确，且零成文 reject；但模型把提供顺序证据的 `AllMainStages` 函数画成第五个 pipeline 节点，
+形成 `AllMainStages --> StageAnalyze`。它是证据载体，不是用户要求的领域 stage。逐阶段职责已由 StageBinding 证据支撑，最终逐项 citation 却选择
+较弱的 enum 名称行，summary 又完整复述 ordered list，答案准确但图层和引用选择不够精确。
+
+该 case 在 B153 r69 已用同一架构产出正确的纯四节点图，因此当前登记
+`EVAL-B199-DIAGDOMAIN1=P2/model-variance-watch` 与 `EVAL-B199-DIAGCITE2=P2/model-variance-watch`，不因单轮波动增加
+关键词检查、固定节点模板、系统代画或新 hard gate。后续用不同语言/不同图种继续观察；跨 case 复现后再优先增强“evidence carrier ≠ domain node”
+的通用软教学和 item-specific citation 选择，不按 `AllMainStages` 特判。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b198_trace_diagram_r130_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b198_trace_diagram_r130_20260806_manual_audit.md`。
+
+状态：`EVAL-B195-PIAUTH1=production-closed/r130`；
+`EVAL-B199-DIAGDOMAIN1=P2/model-variance-watch`；`EVAL-B199-DIAGCITE2=P2/model-variance-watch`；
+Trace 显式窗/因果投影/自动补齐/模型结论所有权=`preserved`。
