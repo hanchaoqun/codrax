@@ -68,9 +68,15 @@ func TestFinalTraceDecisionBoundaryFollowsGenericGuidanceAndKeepsModelOwnership(
 		"principal_trace_summary_contract",
 		"`trace_causal_claim_caliber`",
 		"`no_causal_conclusion|bounded_window_candidate`",
+		"trace_causal_claim_caliber_mapping",
+		"`bounded_window_candidate` when the lead names or ranks selected-window candidates",
+		"Evidence-status values such as `unproven` are not JSON enum values",
 		"No conclusion is inferred from prose or written for you",
 		"causal_conclusion=`unproven`",
 		"frame_evidence_status=`absent`",
+		"selected_window_authority artifact=`customer.systrace`; selected_window=`10.000000..10.020000`",
+		"out_of_window_artifact_preview=`navigation_only_not_selected_window_evidence`",
+		"frame_boundary_authority=`not_provided`",
 		"target_direct_blocking_authority=`unavailable_without_typed_target`",
 		"direct_blocking_decision=`not_established`",
 		"fix_direction_summary_authority=`single_published_leader_only`",
@@ -97,6 +103,53 @@ func TestFinalTraceDecisionBoundaryFollowsGenericGuidanceAndKeepsModelOwnership(
 	bounded := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	if strings.Contains(bounded, "## Final Trace Decision Boundary") {
 		t.Fatalf("bounded fact request was widened into trace synthesis:\n%s", bounded)
+	}
+}
+
+func TestTraceFinalSelectedWindowAuthorityKeepsPreviewOutsideTypedWindow(t *testing.T) {
+	set := types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{
+		{ArtifactLabel: "customer.systrace", WindowStartTs: 10, WindowEndTs: 10.1},
+		{ArtifactLabel: "unbounded.systrace"},
+	}}
+	got := renderTraceFinalSelectedWindowAuthority(set, "absent")
+	for _, want := range []string{
+		"selected_window=`10.000000..10.100000`",
+		"out_of_window_artifact_preview=`navigation_only_not_selected_window_evidence`",
+		"cannot establish selected-window state, event order, duration, frame boundary, completion, or deadline",
+		"unless a separate typed relation explicitly binds it into this projection",
+		"frame_boundary_authority=`not_provided`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("selected-window final authority missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "unbounded.systrace") {
+		t.Fatalf("a projection without a typed selected window must not mint a window boundary:\n%s", got)
+	}
+}
+
+func TestTraceFinalAggregateScaleAuthorityRequiresTypedAbsoluteLevel(t *testing.T) {
+	facts := []traceDecisionAggregateFact{
+		{Kind: "supply_pressure", Signal: "cpu_pressure", Calibration: [][2]string{{"pressure_density", "5.26"}}},
+		{Kind: "io_pressure", Signal: "io_pressure", Calibration: [][2]string{{"absolute_level", "high"}}},
+	}
+	got := renderTraceFinalAggregateScaleAuthority(facts)
+	for _, want := range []string{
+		"aggregate_absolute_level_authority=`not_provided`",
+		"affected_signals=`cpu_pressure`",
+		"does not by itself mean low/medium/high or serious/not-serious",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("aggregate scale authority missing %q: %s", want, got)
+		}
+	}
+	if strings.Contains(got, "io_pressure") {
+		t.Fatalf("an aggregate with typed absolute_level must not be reported as uncalibrated: %s", got)
+	}
+	if got := renderTraceFinalAggregateScaleAuthority([]traceDecisionAggregateFact{{
+		Kind: "io_pressure", Signal: "io_pressure", Calibration: [][2]string{{"absolute_level", "low"}},
+	}}); got != "" {
+		t.Fatalf("fully calibrated aggregate facts need no negative authority: %s", got)
 	}
 }
 

@@ -541,6 +541,21 @@ func TestBuildAnswerDocumentParametersForProjectsTraceCausalClaimCaliberOnlyWhen
 		enum[1] != string(types.TraceCausalClaimBoundedWindow) {
 		t.Fatalf("Trace causal caliber enum did not preserve the typed ceiling: %+v", enum)
 	}
+	description, _ := node["description"].(string)
+	for _, want := range []string{
+		"Allowed for this dispatch: no_causal_conclusion, bounded_window_candidate.",
+		"Use no_causal_conclusion only when the principal summary makes no cause or candidate attribution.",
+		"Use bounded_window_candidate when the summary names or ranks selected-window candidates",
+		"Evidence-status values such as unproven are not enum values for this field.",
+		"You choose the conclusion and caliber",
+	} {
+		if !strings.Contains(description, want) {
+			t.Fatalf("Trace causal caliber dynamic JSON teaching missing %q: %s", want, description)
+		}
+	}
+	if strings.Contains(description, "Use typed_chain_cause") || strings.Contains(description, "Use typed_frame_cause") {
+		t.Fatalf("dynamic JSON teaching must not advertise values removed from this dispatch enum: %s", description)
+	}
 	if !schemaBlockKindRequiresField(blockItems, "summary", "trace_causal_claim_caliber") {
 		t.Fatalf("active principal summary schema must require trace_causal_claim_caliber: %+v", blockItems["allOf"])
 	}

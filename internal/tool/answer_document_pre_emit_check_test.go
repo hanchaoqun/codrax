@@ -6285,6 +6285,10 @@ func TestPreCheckTraceCausalClaimCaliberUsesTypedPrincipalFieldAndCeiling(t *tes
 		hints[0].HardSignal != preEmitHardSignalTypedTraceCausalClaimCaliber {
 		t.Fatalf("missing typed Trace caliber must produce one precise hard repair: %+v", hints)
 	}
+	if !strings.Contains(hints[0].ExpectedShape, "`unproven` is an evidence status, not a caliber") ||
+		!strings.Contains(hints[0].ExpectedShape, "use `bounded_window_candidate` when the summary names/ranks bounded candidates") {
+		t.Fatalf("Trace caliber retry must distinguish evidence status from the JSON enum: %+v", hints[0])
+	}
 	doc.Blocks[0].TraceCausalClaimCaliber = types.TraceCausalClaimTypedFrame
 	if hints := preCheckTraceCausalClaimCaliber(doc, view); len(hints) != 1 ||
 		!strings.Contains(hints[0].ExpectedShape, "bounded_window_candidate") {

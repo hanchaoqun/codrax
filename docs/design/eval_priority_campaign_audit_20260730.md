@@ -20994,3 +20994,81 @@ tool 164.997s）；r114 恰好双案例回放完成后关闭状态。
 
 状态：`EVAL-B186-RELJSON1=S15-implemented/full-impacted-suites-pass/pending-r114`；
 `EVAL-B186-DIRECTREL1=S15-implemented-soft-guidance/full-impacted-suites-pass/pending-r114`。
+
+### 123.144 B186 r114：S15 两项闭环；JSON 枚举双词表、窗外预览和压力定级暴露
+
+在 `a3927eabd` 构建后严格并行恰好两个异构 case：
+
+- `trace_query_donghu_real_frame_multicausal`：209s，runner PASS / human FAIL，finalizer reject=3；
+- `qf_architecture`：117s，runner PASS / human PASS，finalizer reject=0。
+
+S15 两项均有生产回放闭环。Trace 的 5 次查询全部携带同一显式窗与 PID；closure 一次完成、零拒绝、零
+aggregate string recovery，关闭 `EVAL-B186-RELJSON1`。最终答案也不再把 ThreadPool/IRQ 的 IO 行称为目标
+主线程的直接阻塞者，而是明确目标 D/io wait 为 0、上游 IO 未建立目标 direct causal chain，关闭
+`EVAL-B186-DIRECTREL1`。架构异构对照完整列出 7 个 stage、4 个核心阶段、3 个条件预阶段及其 agent/产物，
+引用正确，无 Trace 合同泄漏。
+
+人工审计仍确认三个新 P1：
+
+1. `EVAL-B186-CALIBERMAP1`：系统相邻展示 evidence status `causal_conclusion=unproven` 与另一个 JSON
+   carrier `trace_causal_claim_caliber`，却没有明确映射。模型先把 `unproven` 复制成非法 enum，再删除必填字段，
+   再把已经排名候选的 lead 声明成 `no_causal_conclusion`；第四轮才选对 `bounded_window_candidate`。基础 schema
+   说明还固定列出四值，而 dispatch 动态 enum 已裁成三值，形成另一处无益心智分叉。该项不是答案波动，是系统
+   教两套相近词表却未把 dispatch-local enum、语义和状态词隔离。
+2. `EVAL-B186-WINDOWBLEED1`：请求窗结束于 34579.587805，但附件 preview 的 line 15620 位于
+   34579.595130。模型把这条窗外 VSync 当成“本帧窗口末端”，进一步推断目标已完成该帧以及 12 次睡眠对应
+   Choreographer cadence；typed `frame_evidence_status=absent` 不支持这些结论。所有 trace_query 本身均正确
+   限窗，污染来自 preview/pre-triage navigation 上下文未被明确降为窗外导航证据。
+3. `EVAL-B186-PRESSCAL1`：typed aggregate 给出 supply pressure 604.528 cpu·ms 与 density 5.26，但没有
+   `absolute_level` 或同口径比较基线。模型仍称其“中等、不严重”。数值可报告，绝对高低不能由裸值或 density
+   自生；该权限边界只需 typed 软提示，不应硬门模型措辞。
+
+同一答案还把 overlap authority 明令 forbidden 的 23.994ms 与 19.041ms 合计为约 43ms。记
+`EVAL-B186-RELSYNTH1=P1/repeated-observe`：当前 canonical relation diagnostic 与最终 generic no-add 指令均已
+精确存在，先在降低 JSON/窗口心智后复放；若继续出现，最优解是把 exact relation decision 再压到 final typed
+tail，而不是扫描“合计”等模型原文做硬门。
+
+明确时间窗、系统补采、Trace 因果投影、目标状态分区、根因排序、唤醒链、实际占用/现规则可消除双轴和模型
+结论所有权均保持。工件：
+`eval/parallel_selected_summary_evalcampaign_b186_relation_json_replay_r114_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b186_relation_json_replay_r114_20260806_manual_audit.md`。
+
+状态：`EVAL-B186-RELJSON1=resolved/r114`；`EVAL-B186-DIRECTREL1=resolved/r114`；
+`EVAL-B186-CALIBERMAP1=P1/confirmed/pending-S16`；
+`EVAL-B186-WINDOWBLEED1=P1/confirmed/pending-S16`；
+`EVAL-B186-PRESSCAL1=P1/confirmed/pending-S16`；
+`EVAL-B186-RELSYNTH1=P1/repeated-observe`。
+
+### 123.145 S16：dispatch-local JSON 枚举教学、selected-window 权限与 aggregate 定级边界
+
+三项已按“typed 精确信号只供事实/指导，模型仍拥有结论”同批落地：
+
+1. 动态 `emit_answer_document` schema 不再保留固定四值说明，而是随
+   `TraceCausalClaimContract.Allowed` 同源生成本 dispatch 的 enum 描述；逐值说明 `no_causal_conclusion`、
+   `bounded_window_candidate`、可用时的 typed chain/frame 语义，并明确 `unproven` 是 evidence status、不是
+   JSON enum。最终 Trace typed boundary 与 patch retry hint 使用同一语义映射。系统不读取 summary prose 来替
+   模型选值；模型若不归因可选 no-conclusion，若自主排名窗内候选则选 bounded，只有 typed ceiling 开放时才可
+   选更强值。
+2. 最终 typed boundary 对每个有效 projection 输出 exact `selected_window_authority`。任何落在该 interval 外的
+   附件 preview / pre-triage row 仅为 navigation context，不能建立窗内状态、顺序、时长、frame boundary、
+   completion 或 deadline；只有独立 typed relation 显式绑定时才能跨窗使用。`frame_evidence_status=absent` 或
+   unavailable 时额外发布 `frame_boundary_authority=not_provided`。这不裁剪附件、不阻止系统补采，也不影响
+   窗内查询和跨窗 typed relation。
+3. 对 typed window aggregate，只有存在 `absolute_level` 才允许继承绝对级别；裸 value/density 仍可作为背景
+   数字或在 typed comparison scope 内比较，但不自生 low/medium/high、serious/not-serious。该规则是 prompt-only
+   negative authority，不扫描最终答案、不触发 retry，也不把系统定级写进模型正文。
+
+新增结构 pin 覆盖：动态 enum 说明不得广告本 dispatch 已删除值；`unproven` 与 JSON caliber 明确隔离；有窗与
+无窗 projection 分流；窗外 preview 保持导航权限；absent frame 不铸 frame boundary；有/无 absolute_level 的
+aggregate 正负两臂。完整受影响套件已通过：`go test ./internal/agent ./internal/tool -count=1`（agent
+2.719s、tool 修正 user-facing schema 词面后的独立重跑 161.022s）。静态 glossary pin 曾精确拦下动态 schema
+中的内部管线措辞 `the system validates`；已改成用户侧的“value is checked only against provided typed Trace
+evidence ceiling”，没有扩 glossary 或绕过测试。r115 恰好双案例回放待执行。
+
+本批不读取 RawRequest、模型 think/reason、block text 或最终 Markdown，不增加关键词/regex hard gate，不修改
+Trace 解析、显式窗选举、因果投影、自动补齐、根因排名、唤醒链、窗内可消除量、双轴算法或系统答案
+materializer。
+
+状态：`EVAL-B186-CALIBERMAP1=S16-implemented/full-impacted-suites-pass/pending-r115`；
+`EVAL-B186-WINDOWBLEED1=S16-implemented-soft-boundary/full-impacted-suites-pass/pending-r115`；
+`EVAL-B186-PRESSCAL1=S16-implemented-soft-boundary/full-impacted-suites-pass/pending-r115`。

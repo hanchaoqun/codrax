@@ -123,7 +123,35 @@ func projectTraceCausalClaimCaliberField(blockProps map[string]any, blockItems m
 		enum = append(enum, string(caliber))
 	}
 	node["enum"] = enum
+	node["description"] = traceCausalClaimCaliberSchemaDescription(contract)
 	appendPrincipalKindRequiredFieldsConditional(blockItems, string(types.BlockSummary), "trace_causal_claim_caliber")
+}
+
+func traceCausalClaimCaliberSchemaDescription(contract *types.TraceCausalClaimContract) string {
+	if contract == nil || !contract.Active() {
+		return ""
+	}
+	allowed := make(map[types.TraceCausalClaimCaliber]bool, len(contract.Allowed))
+	values := make([]string, 0, len(contract.Allowed))
+	for _, caliber := range contract.Allowed {
+		allowed[caliber] = true
+		values = append(values, string(caliber))
+	}
+	parts := []string{"Allowed for this dispatch: " + strings.Join(values, ", ") + "."}
+	if allowed[types.TraceCausalClaimNoConclusion] {
+		parts = append(parts, "Use no_causal_conclusion only when the principal summary makes no cause or candidate attribution.")
+	}
+	if allowed[types.TraceCausalClaimBoundedWindow] {
+		parts = append(parts, "Use bounded_window_candidate when the summary names or ranks selected-window candidates without claiming proven frame/deadline causality.")
+	}
+	if allowed[types.TraceCausalClaimTypedChain] {
+		parts = append(parts, "Use typed_chain_cause only for a causal attribution bounded by a typed chain.")
+	}
+	if allowed[types.TraceCausalClaimTypedFrame] {
+		parts = append(parts, "Use typed_frame_cause only when typed frame/deadline causality supports that claim.")
+	}
+	parts = append(parts, "Evidence-status values such as unproven are not enum values for this field. You choose the conclusion and caliber; the value is checked only against the provided typed Trace evidence ceiling and neither choice is derived from prose.")
+	return strings.Join(parts, " ")
 }
 
 // appendPrincipalKindRequiredFieldsConditional keeps report-level typed

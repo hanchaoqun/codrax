@@ -12089,13 +12089,13 @@ func preCheckTraceCausalClaimCaliber(doc *types.AnswerDocumentV2, view *types.An
 		}
 		return []emitFixHint{traceCausalClaimCaliberHint(
 			fmt.Sprintf("blocks[id=%q].trace_causal_claim_caliber", block.ID),
-			"set the principal Trace summary's `trace_causal_claim_caliber` to one of the typed evidence ceiling values: "+strings.Join(allowed, ", "),
+			"set the principal Trace summary's `trace_causal_claim_caliber` to one of the typed evidence ceiling values: "+strings.Join(allowed, ", ")+"; `unproven` is an evidence status, not a caliber; use `bounded_window_candidate` when the summary names/ranks bounded candidates and `no_causal_conclusion` only when it makes no cause/candidate attribution",
 			"this model-authored field declares the causal strength of the summary; only the typed Trace evidence ceiling is validated, with no prose inference or conclusion replacement",
 		)}
 	}
 	return []emitFixHint{traceCausalClaimCaliberHint(
 		"blocks[kind=summary,surface_role=principal].trace_causal_claim_caliber",
-		"the principal Trace summary must declare `trace_causal_claim_caliber` as one of: "+strings.Join(allowed, ", "),
+		"the principal Trace summary must declare `trace_causal_claim_caliber` as one of: "+strings.Join(allowed, ", ")+"; `unproven` is an evidence status, not a caliber; use `bounded_window_candidate` when the summary names/ranks bounded candidates and `no_causal_conclusion` only when it makes no cause/candidate attribution",
 		"the active typed Trace causal report needs a model-authored causal-strength declaration; no declaration is derived from prose and no conclusion is supplied on the model's behalf",
 	)}
 }

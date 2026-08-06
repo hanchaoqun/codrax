@@ -56,6 +56,7 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 		}
 		fmt.Fprintf(&b, "- principal_trace_summary_contract: before drafting the lead, set its `trace_causal_claim_caliber` to one of `%s` and keep the lead/detail wording within that declared scope. This is your causal-strength declaration; it does not choose the cause. No conclusion is inferred from prose or written for you.\n",
 			strings.Join(allowed, "|"))
+		b.WriteString(renderTraceCausalClaimCaliberMapping(view.TraceCausalClaimContract))
 	}
 	if authority.CausalUnproven {
 		b.WriteString("- causal_conclusion=`unproven`: the strongest supported synthesis is a bounded candidate or first validation direction, not a proven dropped-frame/frame-deadline cause.\n")
@@ -63,6 +64,7 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 	if authority.FrameEvidenceStatus != "" {
 		fmt.Fprintf(&b, "- frame_evidence_status=`%s`: do not infer a stronger frame/deadline attribution.\n", authority.FrameEvidenceStatus)
 	}
+	b.WriteString(renderTraceFinalSelectedWindowAuthority(set, authority.FrameEvidenceStatus))
 	switch {
 	case hasActual && hasEliminable:
 		b.WriteString("- available_axes=`actual_occupancy,existing_rule_eliminable`: compare both and explain their different decision use. Actual occupancy, existing-rule eliminable impact, and proven frame causality are distinct calibers; none substitutes for another. Their coexistence does not prove physical independence.\n")
@@ -74,9 +76,98 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 		b.WriteString("- available_axes=`none`: stay within the target-state, path, and evidence-boundary facts; do not invent a ranked cause.\n")
 	}
 	b.WriteString(renderTraceFinalCompactAuthorityLedger(set))
+	b.WriteString(renderTraceFinalAggregateScaleAuthority(traceDecisionTypedAggregateFacts(answerDocObservationLedger(ctx).Records)))
 	b.WriteString("- cross_row_addition=`not_authorized_without_exact_typed_relation`: a row-local state breakdown applies only to that row. Do not merge, decompose, compare as one subtotal, or add values from different rows/threads/fix directions unless one exact typed relation/fold carrier names those members and authorizes that operation.\n")
 	b.WriteString("- Preserve directed wakeup/path semantics and typed holder/waiter or overlap relations exactly. Temporal order, adjacency, a candidate flag, or a kernel caller symbol alone does not prove synchronous blocking, lock ownership, post-wakeup preemption, or physical coupling.\n\n")
 	return b.String()
+}
+
+// renderTraceCausalClaimCaliberMapping keeps the report-local JSON enum and
+// its evidence-status vocabulary visibly distinct. The model still chooses
+// both the diagnosis and the declaration; this text only explains the exact
+// wire values already projected by the typed contract.
+func renderTraceCausalClaimCaliberMapping(contract *types.TraceCausalClaimContract) string {
+	if contract == nil || !contract.Active() {
+		return ""
+	}
+	allowed := make(map[types.TraceCausalClaimCaliber]bool, len(contract.Allowed))
+	for _, caliber := range contract.Allowed {
+		allowed[caliber] = true
+	}
+	var parts []string
+	if allowed[types.TraceCausalClaimNoConclusion] {
+		parts = append(parts, "`no_causal_conclusion` only when the lead makes no cause or candidate attribution")
+	}
+	if allowed[types.TraceCausalClaimBoundedWindow] {
+		parts = append(parts, "`bounded_window_candidate` when the lead names or ranks selected-window candidates while keeping frame/deadline causality unproven")
+	}
+	if allowed[types.TraceCausalClaimTypedChain] {
+		parts = append(parts, "`typed_chain_cause` only when the lead's causal attribution is bounded by a typed causal chain")
+	}
+	if allowed[types.TraceCausalClaimTypedFrame] {
+		parts = append(parts, "`typed_frame_cause` only when typed frame/deadline causality supports that claim")
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "- trace_causal_claim_caliber_mapping: " + strings.Join(parts, "; ") + ". Evidence-status values such as `unproven` are not JSON enum values for this field.\n"
+}
+
+// renderTraceFinalSelectedWindowAuthority prevents attachment previews and
+// pre-triage navigation rows from silently widening a typed selected window.
+// A producer-owned typed relation may still bind evidence across windows; the
+// prompt does not inspect or reject model prose.
+func renderTraceFinalSelectedWindowAuthority(set types.TraceCausalProjectionSet, frameEvidenceStatus string) string {
+	var b strings.Builder
+	for index, projection := range set.Projections {
+		if !types.TraceCausalProjectionWindowPresent(projection.WindowStartTs, projection.WindowEndTs) {
+			continue
+		}
+		label := strings.TrimSpace(projection.ArtifactLabel)
+		if label == "" {
+			label = fmt.Sprintf("trace-%d", index+1)
+		}
+		fmt.Fprintf(&b, "- selected_window_authority artifact=`%s`; selected_window=`%.6f..%.6f`; out_of_window_artifact_preview=`navigation_only_not_selected_window_evidence`; a preview/triage row outside this interval cannot establish selected-window state, event order, duration, frame boundary, completion, or deadline unless a separate typed relation explicitly binds it into this projection.\n",
+			traceDecisionPromptScalar(label), projection.WindowStartTs, projection.WindowEndTs)
+		if frameEvidenceStatus == "absent" || frameEvidenceStatus == "unavailable" {
+			fmt.Fprintf(&b, "  frame_boundary_authority=`not_provided`; frame_evidence_status=`%s`; do not turn an unbound preview marker into this selected window's frame boundary or cadence explanation.\n", frameEvidenceStatus)
+		}
+	}
+	return b.String()
+}
+
+// renderTraceFinalAggregateScaleAuthority distinguishes a measured aggregate
+// value/density from an absolute severity category. It is derived only from
+// typed calibration fields and remains soft reasoning guidance.
+func renderTraceFinalAggregateScaleAuthority(facts []traceDecisionAggregateFact) string {
+	missing := make(map[string]bool)
+	for _, fact := range facts {
+		hasAbsoluteLevel := false
+		for _, calibration := range fact.Calibration {
+			if calibration[0] == "absolute_level" && strings.TrimSpace(calibration[1]) != "" {
+				hasAbsoluteLevel = true
+				break
+			}
+		}
+		if !hasAbsoluteLevel {
+			key := strings.TrimSpace(fact.Signal)
+			if key == "" {
+				key = strings.TrimSpace(fact.Kind)
+			}
+			if key != "" {
+				missing[key] = true
+			}
+		}
+	}
+	if len(missing) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(missing))
+	for key := range missing {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return fmt.Sprintf("- aggregate_absolute_level_authority=`not_provided`; affected_signals=`%s`; numeric value or density may be compared only within a typed comparison/calibration scope and does not by itself mean low/medium/high or serious/not-serious.\n", strings.Join(keys, ","))
 }
 
 // renderTraceFinalCompactAuthorityLedger brings two high-cost relation
