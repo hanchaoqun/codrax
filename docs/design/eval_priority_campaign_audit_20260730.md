@@ -19797,3 +19797,23 @@ Trace 案的系统面保持正确：显式 5.000..5.007s 选窗、目标五态�
 施工排序：`B174-S1=STRICTSEM1`（退役 strict-shape semantic ledger 铸造）；`B174-S2=IDLEPRIO1`（PID-bound priority roster + idle 边界教学）；随后继续恰好
 两路异构 eval。工件：`eval/parallel_selected_summary_evalcampaign_b173_json_trace_replay_r91_20260806.md`、
 `eval/parallel_selected_summary_evalcampaign_b173_json_trace_replay_r91_20260806_manual_audit.md`。
+
+### 123.102 B174-S1：严格输出载体与业务语义账本解耦
+
+`EVAL-B173-STRICTSEM1` 已按 typed policy/action capability 单源落地。`normalizeDataTaskPlanShapeForPolicy` 不再在归一化前后调用
+`normalizeDataTaskStrictOutputContractFromShape`；该函数及“required/input/action/script 数量达到阈值即复杂”的候选判定已删除。JSON-only、CSV 单行、plain
+single-line 和 Markdown table 继续约束最终 carrier，但不再凭输出格式、四个输入、两个动作或 40 行脚本铸造 decision/contribution/reconcile 等业务语义。
+
+保留的权威来源为：明确 `data_aggregation` 的 typed route/policy、既有 coverage contract，以及 typed action 的 ledger capability。因而
+`filter_records + assemble_answer` 的 strict JSON 计划只由 filter 机械启用 decision ledger，assemble 只负责 final projection；不会再平白增加 numeric
+contribution/reconcile。真正的 `compute_contributions`、`reconcile_artifacts`、entity-resolution 和规则验证动作仍沿用既有 capability 映射。
+
+完整套件还揭示旧 rule-coverage pin 依赖上述误推断：只因存在 `instructions.md` 和 strict output，测试便期待三类业务账本及 rule ledger。测试已改为两条边界：已有
+三类显式业务校验义务且含规则材料时，rule coverage 仍会机械建立；仅有规则材料、strict JSON 与 extract/join 动作时，不得凭载体或材料名称扩权。这也纠正
+§123.100 中“strict-output shape 仍可独立建立 additional structural duties”的过宽表述：repair 后仍运行输出 contract normalizer，但 strict carrier 本身不再产生
+业务 ledger。
+
+验证：五个策略/动作/规则边界定向测试全绿；完整 `go test ./internal/repl -count=1` 全绿（30.695s）。本批没有读取用户原文、模型输出或最终答案，没有新增 JSON
+教学副本或关键词门，也没有修改模型答案。Trace 显式时间窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量、两维根因与模型结论所有权均未触碰。
+
+状态：`EVAL-B173-STRICTSEM1=implemented/full-suite-pass`；下一批 `B174-S2=IDLEPRIO1`。

@@ -1174,9 +1174,6 @@ func normalizeDataTaskPlanShapeForPolicy(plan dataquery.TaskPlan, policy TurnPol
 	if normalizeDataTaskAggregationContractFromPolicy(&plan, policy) {
 		reasons = append(reasons, "enabled contribution/reconcile contract for a complex typed data aggregation plan")
 	}
-	if normalizeDataTaskStrictOutputContractFromShape(&plan) {
-		reasons = append(reasons, "enabled contribution/reconcile contract for a complex strict-output data plan")
-	}
 	if normalizeDataTaskRuleCoverageContractFromShape(&plan) {
 		reasons = append(reasons, "enabled rule coverage contract for required text/rule material in a validated data workflow")
 	}
@@ -1184,9 +1181,6 @@ func normalizeDataTaskPlanShapeForPolicy(plan dataquery.TaskPlan, policy TurnPol
 	reasons = append(reasons, shapeReasons...)
 	if normalizeDataTaskAggregationContractFromPolicy(&normalized, policy) {
 		reasons = append(reasons, "preserved contribution/reconcile contract after data plan shape normalization")
-	}
-	if normalizeDataTaskStrictOutputContractFromShape(&normalized) {
-		reasons = append(reasons, "preserved contribution/reconcile contract after strict-output shape normalization")
 	}
 	if normalizeDataTaskRuleCoverageContractFromShape(&normalized) {
 		reasons = append(reasons, "preserved rule coverage contract after rule material shape normalization")
@@ -1223,26 +1217,6 @@ func dataTaskPlanIsComplexAggregationCandidate(plan dataquery.TaskPlan) bool {
 	return len(plan.CoverageContract.RequiredMaterials) >= 2 ||
 		len(plan.InputPaths) >= 2 ||
 		len(plan.Actions) > 0
-}
-
-func normalizeDataTaskStrictOutputContractFromShape(plan *dataquery.TaskPlan) bool {
-	if plan == nil || !dataTaskPlanHasStrictOutputContract(*plan) || !dataTaskPlanIsComplexStrictOutputCandidate(*plan) {
-		return false
-	}
-	changed := false
-	if !plan.CoverageContract.DecisionRecordsRequired {
-		plan.CoverageContract.DecisionRecordsRequired = true
-		changed = true
-	}
-	if !plan.CoverageContract.ContributionLedgerRequired {
-		plan.CoverageContract.ContributionLedgerRequired = true
-		changed = true
-	}
-	if !plan.CoverageContract.ReconcileRequired {
-		plan.CoverageContract.ReconcileRequired = true
-		changed = true
-	}
-	return changed
 }
 
 func normalizeDataTaskRuleCoverageContractFromShape(plan *dataquery.TaskPlan) bool {
@@ -1290,13 +1264,6 @@ func dataTaskPlanHasStrictOutputContract(plan dataquery.TaskPlan) bool {
 	default:
 		return false
 	}
-}
-
-func dataTaskPlanIsComplexStrictOutputCandidate(plan dataquery.TaskPlan) bool {
-	return len(plan.CoverageContract.RequiredMaterials) >= 4 ||
-		len(plan.InputPaths) >= 4 ||
-		len(plan.Actions) >= 2 ||
-		dataTaskScriptLineCount(plan.Script) >= 40
 }
 
 func normalizeDataTaskDeriveRulesInputs(plan *dataquery.TaskPlan) bool {

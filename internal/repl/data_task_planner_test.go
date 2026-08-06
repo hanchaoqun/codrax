@@ -806,14 +806,45 @@ func TestNormalizeDataTaskPlanShapeForPolicyAddsLedgersOnlyForComplexAggregation
 	}
 }
 
-func TestNormalizeDataTaskPlanShapeForPolicyAddsLedgersForComplexStrictOutput(t *testing.T) {
+func TestNormalizeDataTaskPlanShapeForPolicyDoesNotInferBusinessLedgersFromStrictOutput(t *testing.T) {
 	policy := TurnPolicy{
 		Route:           RouteData,
 		NeedsDataAccess: true,
 		DataTaskKind:    "data_task",
 		Operation:       "data_task",
 	}
-	complex := dataquery.TaskPlan{
+	strictProjection := dataquery.TaskPlan{
+		Status:     "ready",
+		InputPaths: []string{"records.json"},
+		OutputContract: dataquery.OutputContract{
+			Format:             dataquery.OutputJSONOnly,
+			ExplanationAllowed: false,
+		},
+		Actions: []dataquery.DataAction{
+			{ID: "filter", Kind: dataquery.DataActionFilterRecords, InputPaths: []string{"records.json"}, OutputArtifact: "eligible.json"},
+			{ID: "assemble", Kind: dataquery.DataActionAssembleAnswer, InputPaths: []string{"eligible.json"}},
+		},
+	}
+	got, notes := normalizeDataTaskPlanShapeForPolicy(strictProjection, policy)
+	if !got.CoverageContract.DecisionRecordsRequired {
+		t.Fatalf("coverage contract=%+v, want filter_records to require its decision ledger", got.CoverageContract)
+	}
+	if got.CoverageContract.ContributionLedgerRequired || got.CoverageContract.ReconcileRequired {
+		t.Fatalf("coverage contract=%+v, strict JSON projection must not invent numeric contribution/reconcile ledgers", got.CoverageContract)
+	}
+	if strings.Contains(strings.Join(notes, "; "), "strict-output") {
+		t.Fatalf("notes=%v, want no output-carrier-derived semantic contract", notes)
+	}
+}
+
+func TestNormalizeDataTaskPlanShapeForPolicyDoesNotInferLedgersFromStrictOutputComplexity(t *testing.T) {
+	policy := TurnPolicy{
+		Route:           RouteData,
+		NeedsDataAccess: true,
+		DataTaskKind:    "data_task",
+		Operation:       "data_task",
+	}
+	complexCarrier := dataquery.TaskPlan{
 		Status:     "ready",
 		InputPaths: []string{"a.csv", "b.csv", "c.csv", "d.csv"},
 		OutputContract: dataquery.OutputContract{
@@ -822,26 +853,12 @@ func TestNormalizeDataTaskPlanShapeForPolicyAddsLedgersForComplexStrictOutput(t 
 		},
 		Script: strings.Repeat("x = 1\n", 45) + `emit_result("1")`,
 	}
-	got, notes := normalizeDataTaskPlanShapeForPolicy(complex, policy)
-	if !got.CoverageContract.DecisionRecordsRequired || !got.CoverageContract.ContributionLedgerRequired || !got.CoverageContract.ReconcileRequired {
-		t.Fatalf("coverage contract=%+v, want strict-output ledgers", got.CoverageContract)
-	}
-	if !strings.Contains(strings.Join(notes, "; "), "complex strict-output data plan") {
-		t.Fatalf("notes=%v, want strict-output normalization note", notes)
-	}
-
-	simple := dataquery.TaskPlan{
-		Status:     "ready",
-		InputPaths: []string{"a.csv"},
-		OutputContract: dataquery.OutputContract{
-			Format:             dataquery.OutputPlainSingleLine,
-			ExplanationAllowed: false,
-		},
-		Script: `emit_result("1")`,
-	}
-	got, _ = normalizeDataTaskPlanShapeForPolicy(simple, policy)
+	got, notes := normalizeDataTaskPlanShapeForPolicy(complexCarrier, policy)
 	if got.CoverageContract.DecisionRecordsRequired || got.CoverageContract.ContributionLedgerRequired || got.CoverageContract.ReconcileRequired {
-		t.Fatalf("simple coverage contract=%+v, want no strict-output ledgers", got.CoverageContract)
+		t.Fatalf("coverage contract=%+v, material/action/script size plus strict output must not imply business ledgers", got.CoverageContract)
+	}
+	if strings.Contains(strings.Join(notes, "; "), "strict-output") {
+		t.Fatalf("notes=%v, want no output-carrier-derived semantic contract", notes)
 	}
 }
 
@@ -4693,7 +4710,7 @@ func TestDataTaskWorkflowStagingGuardRequiresRuleCoverageForTextConstraintMateri
 	}
 }
 
-func TestNormalizeDataTaskPlanShapeForPolicyRequiresRuleCoverageForStrictRuleMaterial(t *testing.T) {
+func TestNormalizeDataTaskPlanShapeForPolicyRequiresRuleCoverageForValidatedRuleMaterial(t *testing.T) {
 	plan := dataquery.TaskPlan{
 		Status:     "ready",
 		InputPaths: []string{"instructions.md", "targets.csv", "observations.csv", "labels.csv"},
@@ -4709,6 +4726,9 @@ func TestNormalizeDataTaskPlanShapeForPolicyRequiresRuleCoverageForStrictRuleMat
 				{Path: "targets.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
 				{Path: "instructions.md", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
 			},
+			DecisionRecordsRequired:    true,
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
 		},
 		Actions: []dataquery.DataAction{
 			{ID: "read_instructions", Kind: dataquery.DataActionExtractRecords, InputPaths: []string{"instructions.md"}},
@@ -4724,6 +4744,37 @@ func TestNormalizeDataTaskPlanShapeForPolicyRequiresRuleCoverageForStrictRuleMat
 	}
 	if !strings.Contains(strings.Join(reasons, ","), "rule coverage") {
 		t.Fatalf("reasons=%v, want rule coverage normalization reason", reasons)
+	}
+}
+
+func TestNormalizeDataTaskPlanShapeForPolicyDoesNotInferRuleOrBusinessLedgersFromStrictRuleMaterial(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		Status:     "ready",
+		InputPaths: []string{"instructions.md", "targets.csv", "observations.csv", "labels.csv"},
+		OutputContract: dataquery.OutputContract{
+			Format:             dataquery.OutputJSONOnly,
+			ExplanationAllowed: false,
+		},
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "labels.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "observations.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "targets.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+				{Path: "instructions.md", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+			},
+		},
+		Actions: []dataquery.DataAction{
+			{ID: "read_instructions", Kind: dataquery.DataActionExtractRecords, InputPaths: []string{"instructions.md"}},
+			{ID: "join_records", Kind: dataquery.DataActionJoinRecords, InputPaths: []string{"observations.csv", "labels.csv"}},
+		},
+	}
+	got, reasons := normalizeDataTaskPlanShapeForPolicy(plan, TurnPolicy{})
+	contract := got.CoverageContract
+	if contract.DecisionRecordsRequired || contract.RuleCoverageRequired || contract.ContributionLedgerRequired || contract.EntityResolutionRequired || contract.ReconcileRequired {
+		t.Fatalf("coverage=%+v, strict output and rule-material presence alone must not create semantic ledger duties", contract)
+	}
+	if strings.Contains(strings.Join(reasons, ","), "rule coverage") {
+		t.Fatalf("reasons=%v, want no rule coverage normalization without typed business-ledger obligations", reasons)
 	}
 }
 
