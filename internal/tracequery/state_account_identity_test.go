@@ -47,6 +47,26 @@ func TestStateAccountIdentityRequiresExactSegmentInventory(t *testing.T) {
 	if key == "" {
 		t.Fatal("complete exact interval inventory must mint an identity")
 	}
+	// View windows are publication envelopes. The exact same absolute segment
+	// inventory inside two enclosing views is one physical account.
+	if got := stateAccountIdentity(
+		ThreadRef{Comm: "app", PID: 20},
+		string(StateRunnable),
+		TimeWindow{StartTs: 10.5, EndTs: 11.5},
+		intervals,
+		5,
+	); got != key {
+		t.Fatalf("enclosing publication windows must not split one physical account: first=%q other=%q", key, got)
+	}
+	if got := stateAccountIdentity(
+		ThreadRef{Comm: "app", PID: 20},
+		string(StateRunnable),
+		TimeWindow{StartTs: 11.001, EndTs: 11.008},
+		intervals,
+		5,
+	); got != "" {
+		t.Fatalf("a view that does not contain the complete inventory must fail open: %q", got)
+	}
 
 	// Same subject/state/window and the same 5ms scalar are not enough:
 	// changing the physical partition must change the identity.
@@ -77,6 +97,38 @@ func TestStateAccountIdentityRequiresExactSegmentInventory(t *testing.T) {
 		5,
 	); got != "" {
 		t.Fatalf("overlapping inventory is not an exact physical partition: %q", got)
+	}
+}
+
+func TestStampStateAccountPublicationKeysSupportsExactIOWaitAcrossViewWindows(t *testing.T) {
+	intervals := []foldInterval{{start: 2.003, end: 2.014}}
+	rank := RootCauseRankResult{
+		Window: TimeWindow{StartTs: 2, EndTs: 2.020},
+		Items: []RootCauseRankItem{{
+			Rank: 1, Type: "io_wait", Thread: ThreadRef{Comm: "worker", PID: 400},
+			DominantState: string(StateIOWait), IOWaitMs: 11, EffectiveImpactMs: 11,
+			dioSegmentIntervals:   append([]foldInterval(nil), intervals...),
+			dioSegmentIntervalsIO: append([]foldInterval(nil), intervals...),
+		}},
+	}
+	chain := ChainResult{CausalImpacts: []WakeupCausalImpact{{
+		Thread:        ThreadRef{Comm: "worker", PID: 400},
+		Window:        TimeWindow{StartTs: 2.002, EndTs: 2.016},
+		DominantState: string(StateIOWait), DominantImpactMs: 11,
+		stateAccountIntervals: append([]foldInterval(nil), intervals...),
+	}}}
+	stampStateAccountPublicationKeys(&chain, &rank)
+	if rank.Items[0].StateAccountKey == "" || rank.Items[0].StateAccountKey != chain.CausalImpacts[0].StateAccountKey {
+		t.Fatalf("one exact IO account must survive differing enclosing view windows: rank=%q impact=%q",
+			rank.Items[0].StateAccountKey, chain.CausalImpacts[0].StateAccountKey)
+	}
+
+	// Equal 11ms on a disjoint occurrence must never join.
+	chain.CausalImpacts[0].stateAccountIntervals = []foldInterval{{start: 2.004, end: 2.015}}
+	stampStateAccountPublicationKeys(&chain, &rank)
+	if rank.Items[0].StateAccountKey != "" || chain.CausalImpacts[0].StateAccountKey != "" {
+		t.Fatalf("equal IO scalar on disjoint physical segments must fail open: rank=%q impact=%q",
+			rank.Items[0].StateAccountKey, chain.CausalImpacts[0].StateAccountKey)
 	}
 }
 

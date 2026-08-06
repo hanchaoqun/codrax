@@ -34,11 +34,19 @@ func stateAccountIdentity(thread ThreadRef, state string, window TimeWindow, int
 	})
 	total := 0.0
 	var body strings.Builder
-	fmt.Fprintf(&body, "v1|pid=%d|state=%s|window=%.9f..%.9f", thread.PID, state, window.StartTs, window.EndTs)
+	// The caller's window is a view boundary, not part of the physical
+	// scheduler account. Root-rank publishes against the selected query
+	// window while wakeup-chain publishes the same segments against its
+	// recursively narrowed dependency window. Hashing either view boundary
+	// would give one physical account two identities. Require every segment to
+	// be contained by the supplied view, then derive the identity scope from
+	// the exact segment inventory itself.
+	fmt.Fprintf(&body, "v2|pid=%d|state=%s", thread.PID, state)
 	lastEnd := 0.0
 	for i, interval := range ordered {
 		if interval.end <= interval.start || math.IsNaN(interval.start) || math.IsNaN(interval.end) ||
-			math.IsInf(interval.start, 0) || math.IsInf(interval.end, 0) {
+			math.IsInf(interval.start, 0) || math.IsInf(interval.end, 0) ||
+			interval.start < window.StartTs || interval.end > window.EndTs {
 			return ""
 		}
 		// One thread cannot occupy the same scheduler state twice at once.
@@ -54,13 +62,17 @@ func stateAccountIdentity(thread ThreadRef, state string, window TimeWindow, int
 		return ""
 	}
 	sum := sha256.Sum256([]byte(body.String()))
-	return "state_account:v1:" + hex.EncodeToString(sum[:16])
+	return "state_account:v2:" + hex.EncodeToString(sum[:16])
 }
 
 func rootCauseRankStateIntervals(item RootCauseRankItem) []foldInterval {
 	switch strings.TrimSpace(strings.ToLower(item.DominantState)) {
 	case string(StateRunnable):
 		return item.runnableIntervals
+	case string(StateDSleep):
+		return item.dioSegmentIntervalsD
+	case string(StateIOWait):
+		return item.dioSegmentIntervalsIO
 	}
 	return nil
 }
@@ -73,6 +85,18 @@ func rootCauseRankStateAccountValue(item RootCauseRankItem) float64 {
 			return 0
 		}
 		return item.RunnableMs
+	case string(StateDSleep):
+		if item.DStateMs <= 0 ||
+			math.Abs(rootCauseEffectiveImpactMs(item)-item.DStateMs) >= types.TraceCausalProjectionSameValueTieMS {
+			return 0
+		}
+		return item.DStateMs
+	case string(StateIOWait):
+		if item.IOWaitMs <= 0 ||
+			math.Abs(rootCauseEffectiveImpactMs(item)-item.IOWaitMs) >= types.TraceCausalProjectionSameValueTieMS {
+			return 0
+		}
+		return item.IOWaitMs
 	}
 	return 0
 }

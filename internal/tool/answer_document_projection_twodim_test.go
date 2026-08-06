@@ -214,6 +214,43 @@ func TestTwoDimOccupancyDedupesPhysicalStateAcrossPublicationLanes(t *testing.T)
 	}
 }
 
+func TestTwoDimOccupancyUsesExactStateAccountAcrossDifferentViewEnvelopes(t *testing.T) {
+	const accountKey = "state_account:v2:exact-io-segments"
+	rank := types.TraceCausalProjectionNode{
+		EvidenceID: "ranked-io-row", Subject: "threadpool-400",
+		Predicate: "root_cause_io_wait", StateKind: types.TraceStateKindIOWait,
+		StateAccountKey: accountKey, ImpactMS: 11, StartTs: 2.003, EndTs: 2.014,
+		LineStart: 6, LineEnd: 8,
+	}
+	impact := rank
+	impact.EvidenceID = "wakeup-io-row"
+	impact.Predicate = "wakeup_causal_impact"
+	impact.StartTs = 2.002
+	impact.EndTs = 2.016
+	impact.LineEnd = 9
+
+	rows := runtimeTraceOccupancyPathCandidates(runtimeTraceProjTreeModel{
+		TreeRows: []runtimeTraceProjTreeRow{
+			{Node: rank, Kind: runtimeTraceProjTreeRowCause, HasData: true},
+			{Node: impact, Kind: runtimeTraceProjTreeRowChain, HasData: true},
+		},
+	}, true)
+	if len(rows) != 1 || rows[0].totalMS != 11 {
+		t.Fatalf("one exact IO account published through different view envelopes must render once: %+v", rows)
+	}
+
+	impact.StateAccountKey = "state_account:v2:different-io-segments"
+	rows = runtimeTraceOccupancyPathCandidates(runtimeTraceProjTreeModel{
+		TreeRows: []runtimeTraceProjTreeRow{
+			{Node: rank, Kind: runtimeTraceProjTreeRowCause, HasData: true},
+			{Node: impact, Kind: runtimeTraceProjTreeRowChain, HasData: true},
+		},
+	}, true)
+	if len(rows) != 2 {
+		t.Fatalf("different exact IO accounts must fail open even when scalars match: %+v", rows)
+	}
+}
+
 func TestTwoDimOccupancyExcludesNonWallClockCaliberRows(t *testing.T) {
 	pageCache := types.TraceCausalProjectionNode{
 		EvidenceID:        "count-equivalent-page-cache",

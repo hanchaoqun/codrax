@@ -2118,10 +2118,13 @@ func runtimeTraceOccupancyPathCandidates(
 // runnable/sleep segment can legitimately be published once as a chain/state
 // observation and once as a ranked target-self row; the occupancy table is a
 // physical-time surface, so those typed mirrors must render once even though
-// their EvidenceIDs differ. D-state and io_wait deliberately stay outside
-// this key because they are distinct calibrated drill-down lanes rather than
-// interchangeable scheduler-state aliases.
+// their EvidenceIDs differ. A producer-minted StateAccountKey is stronger
+// than any display envelope and also covers exact D-state/io_wait accounts;
+// without that credential those calibrated lanes continue to fail open.
 func runtimeTraceOccupancyPhysicalStateKey(node types.TraceCausalProjectionNode) string {
+	if key := strings.TrimSpace(node.StateAccountKey); key != "" {
+		return "state_account\x00" + key
+	}
 	state := types.TraceCausalProjectionStateClass(node.StateKind)
 	if state == "" && strings.EqualFold(strings.TrimSpace(node.StateKind), types.TraceStateKindRunning) {
 		state = types.TraceStateKindRunning

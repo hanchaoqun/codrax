@@ -17931,3 +17931,32 @@ bounded 分支 required，else 分支以 schema `not(required)` 禁止该字段�
 `EVAL-B144-TRACEACCTDUP1=confirmed/P1/next-trace-projection-batch`；
 `EVAL-B138-TRACEFACTFAMILYVAR1=implemented/schema-conditional/full-tool-pass/awaiting-replay`；Trace 显式窗、因果投影、自动补齐、两维根因、排序、唤醒链与
 窗内可消除量=`production-pass`。
+
+### 123.33 B145：D/IO 精确状态账户跨发布窗会合
+
+`EVAL-B144-TRACEACCTDUP1` 已按引擎身份根修，未增加任何用户问题、模型 reasoning 或最终答案文本扫描。
+
+根因不是 occupancy 表少一个普通去重条件，而是 B17 的 `StateAccountKey` 只覆盖 runnable，并把“发布视图窗”写进账户身份。真实 witness 中
+root-rank 面使用查询窗 `2.000..2.020`，wakeup causal-impact 面使用递归依赖窗 `2.002..2.016`；两面都持有同一绝对
+`2.003..2.014` io_wait 段和同一 11ms 账户，却不可能得到同键。
+
+本批把身份升级为 `state_account:v2`：
+
+1. key 仍只从 `(pid, typed state, ordered exact physical segment inventory)` 铸造；调用者的 window 只作为“必须完整包住全部区间”的精确校验，
+   不再成为物理账户本身。同一段库存位于两个不同 enclosing view 中会合，库存越界则拒绝；
+2. D-state 与 io_wait 仅在 root-rank 席携带既有 all-or-nothing close-site 清册
+   `dioSegmentIntervalsD/IO`、清册总长严格复算发布主值、且 rank/impact 两侧各恰好一席时开放；running、S-sleep 和任何清册缺失/溢出/重叠/
+   歧义形继续 fail-open；
+3. projection 既有 Arm D 按 verbatim key equality 吸收 wakeup 镜像，rank 席保留、被吸收证据 ID 保留，不相加；occupancy 物理键也优先消费
+   同一 typed key，防止不同证据包络在次级面重新双发；
+4. 相同线程、状态与 11ms 标量但物理区间不同的负例明确保持两席。禁止同名、同值、hull 重叠或 prose 相似去重。
+
+结构 pin 覆盖：不同 enclosing windows 的同一 IO 清册正向会合、等值不同区间负向不合并、越界窗拒绝、一对多歧义拒绝、真实
+`threadpool-400` 生产路径的 rank/impact 同键、occupancy 不同包络单席，以及状态宇宙 consumer ledger 显式登记 D/IO 新分支。
+
+定向测试 PASS；完整相关回归 `go test ./internal/tracequery ./internal/types ./internal/tool -count=1` 中
+`internal/types`（22.216s）与 `internal/tool`（165.076s）PASS；状态清册按新增分支重钉后 `internal/tracequery` 全套 PASS（67.677s）。
+
+状态：`EVAL-B144-TRACEACCTDUP1=implemented/full-related-pass/awaiting-exact2-replay`；
+`EVAL-B138-TRACEFACTFAMILYVAR1=implemented/schema-conditional/full-tool-pass/awaiting-replay`；Trace 的显式窗、因果投影、自动补齐、两维根因、根因排序、
+唤醒链和窗内可消除量的值通道与词面=`untouched`。

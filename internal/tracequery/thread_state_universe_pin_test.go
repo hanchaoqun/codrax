@@ -267,12 +267,12 @@ var threadStateSwitchFallthroughLedger = map[string]threadStateFallthroughDecl{
 		why:     "five-lane causal-impact accumulation; stopped/dead intervals book TotalMs/fragments only (§7.11 B-1)",
 	},
 	"state_account_identity.go:rootCauseRankStateIntervals#1": {
-		missing: "running,s_sleep,d_sleep,io_wait,stopped,dead,unknown",
-		why:     "B7-T2 exact one-seat join is admitted only where the rank carrier retains the complete physical interval inventory; unsupported states fail open rather than joining on equal values or hulls",
+		missing: "running,s_sleep,stopped,dead,unknown",
+		why:     "B7-T2 exact one-seat join admits runnable and the all-or-nothing D/IO close-site inventories; unsupported states fail open rather than joining on equal values or hulls",
 	},
 	"state_account_identity.go:rootCauseRankStateAccountValue#1": {
-		missing: "running,s_sleep,d_sleep,io_wait,stopped,dead,unknown",
-		why:     "same B7-T2 admission matrix as the interval inventory; runnable uses its exact scalar, every unsupported state deliberately publishes no join credential",
+		missing: "running,s_sleep,stopped,dead,unknown",
+		why:     "same B7-T2 admission matrix as the interval inventory; runnable/D/IO use their exact lane scalar, every unsupported state deliberately publishes no join credential",
 	},
 	"stream_search.go:addStreamStateClusterInterval#1": {
 		missing: "stopped,dead,unknown",
@@ -331,12 +331,12 @@ var threadStateSwitchSiteGolden = map[string]string{
 	"query.go:findBinderWaitsForChain#1":           "s_sleep,d_sleep",
 	"query.go:rootCauseItemHasDStateOrIO#1":        "d_sleep,io_wait|default",
 	"query.go:rootCauseItemHasRunnableOrRunning#1": "running,runnable|default",
-	// B7-T2 exact cross-publication identity initially admits only runnable:
-	// rank already retains its complete runnable interval inventory. Other
-	// states remain fail-open until their rank carriers retain an equally
-	// complete physical partition; equal scalar/hull evidence is insufficient.
-	"state_account_identity.go:rootCauseRankStateIntervals#1":    "runnable",
-	"state_account_identity.go:rootCauseRankStateAccountValue#1": "runnable",
+	// B7-T2 exact cross-publication identity admits runnable plus D/IO seats
+	// whose rank carrier holds the validated all-or-nothing close-site segment
+	// inventory. Running/S remain fail-open; equal scalar/hull evidence is
+	// insufficient.
+	"state_account_identity.go:rootCauseRankStateIntervals#1":    "runnable,d_sleep,io_wait",
+	"state_account_identity.go:rootCauseRankStateAccountValue#1": "runnable,d_sleep,io_wait",
 	"query.go:summarizeThreadStateBreakdown#1":                   "running,runnable,s_sleep,d_sleep,io_wait",
 	// ANSWERFACE-1 件2 (§29.140 G6, 2026-07-19): the boundary-fold lane-token
 	// mapping — stopped/dead/unknown own no account lane (§7.11 B-1) and fall

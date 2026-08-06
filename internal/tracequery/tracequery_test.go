@@ -3996,6 +3996,29 @@ func TestRootCauseRankKeepsOffChainPressureAsBackground(t *testing.T) {
 			t.Fatalf("off-chain D-state should be background, got %+v", item)
 		}
 	}
+	// The rank view and recursive chain view enclose the same physical IO
+	// segment with different windows. Run's publication pass must still mint
+	// one exact account key from the shared segment inventory.
+	res := Run(idx, Query{View: "root_cause_rank", PID: 100, TimeStart: 2.0, TimeEnd: 2.020, MaxDepth: 6, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 10})
+	if res.RootCauseRank == nil || res.WakeupChain == nil {
+		t.Fatalf("root-cause result must retain rank and wakeup publication faces: %+v", res)
+	}
+	joined := false
+	for _, ranked := range res.RootCauseRank.Items {
+		if ranked.Thread.PID != 400 || ranked.DominantState != string(StateIOWait) || ranked.StateAccountKey == "" {
+			continue
+		}
+		for _, causal := range res.WakeupChain.CausalImpacts {
+			if causal.Thread.PID == 400 && causal.DominantState == string(StateIOWait) &&
+				causal.StateAccountKey == ranked.StateAccountKey {
+				joined = true
+			}
+		}
+	}
+	if !joined {
+		t.Fatalf("exact IO rank/impact publications must share one physical account key: rank=%+v impacts=%+v",
+			res.RootCauseRank.Items, res.WakeupChain.CausalImpacts)
+	}
 }
 
 func TestRootCauseRankKeepsGlobalIOPressureBehindDirectWakeupChain(t *testing.T) {
