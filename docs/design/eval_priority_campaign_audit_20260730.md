@@ -19395,3 +19395,28 @@ typed scheduler 选择专用 lens instruction，而不是继续堆叠同义 JSON
 
 状态：`EVAL-B170-SINAV1=implemented/types+orchestrator-full-pass/awaiting-exact2-replay`；
 `EVAL-B170-VERIFYALT1=P1/next-batch`。
+
+### 123.87 B170-S2：typed capability debt 补跑行为面；停止向任意 npm script 强塞 JSON
+
+`EVAL-B170-VERIFYALT1` 施工时确认了相邻的 `EVAL-B170-NODEJSON1=P1`：原实现把任意 `package.json::scripts.test` 都当 Jest/Vitest，统一追加
+`--json --silent` 并交给 Jest JSON parser。r86 的权威脚本是普通 `node tests/duration.test.js`；即使解除同目录候选吞并，也会被系统自己制造为 parser
+error。这不是模型 JSON 波动，而是 runner 的教学/执行/解析合同自相矛盾。
+
+本批统一修复：
+
+1. 每个 runner 完成后，用已经存在的 typed `ChangedPathCoverage.capability` 检查 provisional ledger；成功但至少一个 changed production path 只有
+   `syntax_only`/`source_static` 时，才从已构造 TestSurface 中有界选择未执行候选，优先 plan-touched language runner。候选选择不读命令文本、测试输出或
+   模型 prose；behavior/target-execution 已在场时不重复补跑；
+2. declared-coverage Make 仍保持首位，因此跨语言精确 roster、静态检查及既有安全边界不降级；新增 Node 通过后，较高等级
+   `target_behavior` 覆盖自然压过 `source_static`，控制器可依据同一 typed ledger 正常终验；
+3. Node manifest lane 新增内部 parser mode：只有 test script 的实际 executable 是 Jest/Vitest（含 npx/yarn/pnpm/cross-env 的有界启动形）才请求
+   JSON reporter；普通 npm test 不追加 JSON flags，以退出码形成一条 aggregate typed test verdict。`echo jest` 等仅提及 reporter 名的脚本不会误入
+   JSON parser；
+4. 显式 `run_tests(runner=node)` 同样复用 manifest mode，避免模型绕过自动队列时重现合同矛盾。系统不要求模型选择 parser，也不新增 JSON 提示。
+
+Pin 覆盖：source-static debt/behavior closed/failed no-escalation 三臂；plain/Jest/Vitest/wrapper/incidental-word manifest；r86 同形 Make static→Node
+behavior 端到端，断言两命令真实执行、Node 命令无 `--json`、最终 capability=`target_behavior`；既有 Rust-only exact Make 在无独立行为候选时仍只跑
+Make。验证：定向测试通过；完整 `go test ./internal/tool -count=1` 全绿。
+
+状态：`EVAL-B170-VERIFYALT1=implemented/tool-full-pass/awaiting-exact2-replay`；
+`EVAL-B170-NODEJSON1=implemented/tool-full-pass/awaiting-exact2-replay`。本批不触碰 AnswerDocument、Trace 时间窗/因果投影/自动补齐或模型结论所有权。

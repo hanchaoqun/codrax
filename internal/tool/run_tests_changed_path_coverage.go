@@ -18,6 +18,27 @@ type changedPathCoverageEvidence struct {
 	source     string
 }
 
+// changeReportHasExecutionCapabilityDebt reports whether a successful typed
+// changed-path ledger still proves only syntax/static properties for at least
+// one production target. It deliberately ignores prose, runner output and
+// commands; callers may use it to continue to another already-discovered test
+// surface, never to declare success by itself.
+func changeReportHasExecutionCapabilityDebt(report *types.ChangeReport) bool {
+	if report == nil || report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
+		return false
+	}
+	for _, row := range report.ChangedPathCoverage {
+		if row.Status != types.ChangedPathVerificationCovered {
+			continue
+		}
+		switch row.Capability {
+		case types.VerificationCapabilitySyntaxOnly, types.VerificationCapabilitySourceStatic:
+			return true
+		}
+	}
+	return false
+}
+
 // applyChangedPathVerificationCoverage closes the report-level authority gap
 // where a successful runner for one language used to authorize unrelated
 // changed source paths. It consumes only typed plan paths, runner identities,

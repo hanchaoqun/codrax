@@ -181,6 +181,7 @@ const (
 	pythonFrameworkPytest   = "pytest"
 	pythonFrameworkUnittest = "unittest"
 	pythonFrameworkDjango   = "django"
+	nodeFrameworkExitStatus = "npm_script_exit_status"
 )
 
 // allowedRunnerList returns the sorted runner whitelist for prompt /
@@ -716,7 +717,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			return nil
 		}
 		preferredRunner := ""
-		if source == "zero_tests_escalation" {
+		if source == "zero_tests_escalation" || source == "execution_capability_escalation" {
 			preferredRunner = preferredRunnerFromChangePlan(ctx)
 		}
 		cand := nextTestSurfaceEscalationForRunner(surface, executedKeys, preferredRunner)
@@ -1334,6 +1335,20 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			continue
 		}
 		projectReports = append(projectReports, qualifyChangeReport(report, plan, ctx.RepoRoot))
+		// A passing syntax/static check is useful evidence, but it cannot
+		// stand in for an independently discovered behavior-capable suite.
+		// Recompute the provisional changed-path ledger from typed command
+		// rows and queue the plan-touched runner when execution capability is
+		// still missing. No command/prose inspection participates here.
+		provisional := finishReport(mergeChangeReports(projectReports))
+		if changeReportHasExecutionCapabilityDebt(provisional) {
+			if next := escalateToSurfaceCandidate("execution_capability_escalation"); next != nil {
+				combinedOutputs = append(combinedOutputs, renderRunnerOutputSection(plan,
+					fmt.Sprintf("[run_tests: %s] typed changed-path coverage is static/syntax-only; continuing with independent %s behavior surface",
+						runnerPlanLabel(ctx.RepoRoot, plan), runnerPlanLabel(ctx.RepoRoot, *next))))
+				plans = append(plans, *next)
+			}
+		}
 	}
 
 	// A pre-suite probe and an independently executed project suite are two
@@ -2224,6 +2239,8 @@ func resolveLLMRunnerChoice(repoRoot, runner, framework, workingDir string) (run
 
 	if runner == "python" {
 		framework = normalizePythonFrameworkChoice(target, framework)
+	} else if runner == "node" {
+		framework = detectNodeTestFramework(target)
 	}
 
 	return runnerPlan{
@@ -2305,6 +2322,8 @@ func detectRunnerPlanCandidates(repoRoot, walkRoot string) []runnerPlan {
 		plan := runnerPlan{Runner: manifest.Runner, Root: root, Manifest: info.Name(), Priority: manifest.Priority}
 		if plan.Runner == "python" {
 			plan.Framework = detectPythonTestFramework(root)
+		} else if plan.Runner == "node" {
+			plan.Framework = detectNodeTestFramework(root)
 		}
 		key := root + "\x00" + plan.Runner
 		if prev, ok := plansByRootRunner[key]; !ok || plan.Priority < prev.Priority || (plan.Priority == prev.Priority && plan.Manifest < prev.Manifest) {
@@ -3808,6 +3827,57 @@ func detectPythonTestFramework(root string) string {
 		return pythonFrameworkUnittest
 	}
 	return pythonFrameworkPytest
+}
+
+// detectNodeTestFramework distinguishes structured Jest/Vitest reporter
+// contracts from arbitrary repository-owned npm test scripts. Unknown scripts
+// still execute, but their honest authority is the process exit status rather
+// than JSON fields the script never promised to emit.
+func detectNodeTestFramework(root string) string {
+	data, err := os.ReadFile(filepath.Join(root, "package.json"))
+	if err != nil {
+		return nodeFrameworkExitStatus
+	}
+	var manifest struct {
+		Scripts map[string]string `json:"scripts"`
+	}
+	if json.Unmarshal(data, &manifest) != nil {
+		return nodeFrameworkExitStatus
+	}
+	if nodeTestScriptUsesStructuredJSON(manifest.Scripts["test"]) {
+		return ""
+	}
+	return nodeFrameworkExitStatus
+}
+
+func nodeTestScriptUsesStructuredJSON(script string) bool {
+	fields := strings.Fields(strings.ToLower(strings.TrimSpace(script)))
+	if len(fields) == 0 {
+		return false
+	}
+	nextExecutable := func(start int) string {
+		for start < len(fields) && strings.Contains(fields[start], "=") && !strings.HasPrefix(fields[start], "=") {
+			start++
+		}
+		if start >= len(fields) {
+			return ""
+		}
+		return filepath.Base(strings.Trim(fields[start], `"'`))
+	}
+	executable := nextExecutable(0)
+	switch executable {
+	case "npx", "bunx", "yarn":
+		executable = nextExecutable(1)
+	case "pnpm":
+		start := 1
+		if start < len(fields) && fields[start] == "exec" {
+			start++
+		}
+		executable = nextExecutable(start)
+	case "cross-env", "cross-env-shell":
+		executable = nextExecutable(1)
+	}
+	return executable == "jest" || executable == "vitest" || strings.HasPrefix(executable, "vitest.")
 }
 
 func normalizePythonFrameworkChoice(root, framework string) string {
@@ -6406,6 +6476,9 @@ func buildRunCommandWithFramework(runner, framework, suite, repoRoot, mainRoot s
 		}
 		return fmt.Sprintf("go test -json %s", pkg), ""
 	case "node":
+		if framework == nodeFrameworkExitStatus {
+			return "npm test --", ""
+		}
 		// Prefer project's npm script when it exists (respects
 		// monorepo / workspace config). Add --json to whatever
 		// the script runs; jest and vitest both accept it.

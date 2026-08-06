@@ -2976,6 +2976,78 @@ func TestRunTestsTypedPolyglotMakeSurfaceCarriesExactCheckWithoutPretendingRustE
 	}
 }
 
+func TestRunTestsStaticMakePassEscalatesToSameRootNodeBehaviorSurface(t *testing.T) {
+	if _, err := exec.LookPath("make"); err != nil {
+		t.Skip("make not on PATH; skip")
+	}
+	if _, err := exec.LookPath("npm"); err != nil {
+		t.Skip("npm not on PATH; skip")
+	}
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
+		t.Fatalf("mkdir src: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "tests"), 0o755); err != nil {
+		t.Fatalf("mkdir tests: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src", "duration.js"), []byte("module.exports = 42;\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "tests", "duration.test.js"), []byte("const assert = require('assert'); assert.strictEqual(require('../src/duration'), 42); console.log('ok');\n"), 0o644); err != nil {
+		t.Fatalf("write test: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"private":true,"scripts":{"test":"node tests/duration.test.js"}}`+"\n"), 0o644); err != nil {
+		t.Fatalf("write package.json: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "Makefile"), []byte("check: src/duration.js\n\t@test -s src/duration.js\n"), 0o644); err != nil {
+		t.Fatalf("write Makefile: %v", err)
+	}
+
+	mu := types.NewMutableState("static check then behavior suite")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-static-then-behavior",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"src/duration.js"},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	report := mu.ChangeReport()
+	if !result.Success || report == nil || !report.Passed {
+		t.Fatalf("static check plus behavior suite should pass: result=%+v report=%+v", result, report)
+	}
+	var sawMake, sawNode bool
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Runner == "make" && cmd.Outcome == "executed" {
+			sawMake = true
+		}
+		if cmd.Runner == "node" && cmd.Outcome == "executed" {
+			sawNode = true
+			if cmd.Source != "execution_capability_escalation" {
+				t.Fatalf("node escalation provenance=%q", cmd.Source)
+			}
+			if strings.Contains(cmd.Command, "--json") {
+				t.Fatalf("plain npm script must not receive JSON reporter flags: %q", cmd.Command)
+			}
+		}
+	}
+	if !sawMake || !sawNode {
+		t.Fatalf("expected Make then Node executions, got %+v", report.ExecutedCommands)
+	}
+	if len(report.ChangedPathCoverage) != 1 ||
+		report.ChangedPathCoverage[0].Capability != types.VerificationCapabilityTargetBehavior {
+		t.Fatalf("behavior runner must supersede source-static coverage: %+v", report.ChangedPathCoverage)
+	}
+}
+
 func TestRunTestsCrossLanguageExactPathProbeDoesNotPreemptTypedProjectSurface(t *testing.T) {
 	if _, err := exec.LookPath("make"); err != nil {
 		t.Skip("make not on PATH; skip")

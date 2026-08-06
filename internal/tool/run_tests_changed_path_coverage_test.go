@@ -35,6 +35,31 @@ func TestChangedPathCoverageAcceptsSameLanguageProjectRunner(t *testing.T) {
 	}
 }
 
+func TestChangeReportExecutionCapabilityDebtIsTypedAndBounded(t *testing.T) {
+	base := &types.ChangeReport{
+		Passed: true,
+		ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+			Path:       "src/app.js",
+			Status:     types.ChangedPathVerificationCovered,
+			Capability: types.VerificationCapabilitySourceStatic,
+		}},
+	}
+	base.EnsureVerificationStatus()
+	if !changeReportHasExecutionCapabilityDebt(base) {
+		t.Fatal("source-static changed path should retain execution capability debt")
+	}
+	base.ChangedPathCoverage[0].Capability = types.VerificationCapabilityTargetBehavior
+	if changeReportHasExecutionCapabilityDebt(base) {
+		t.Fatal("target behavior coverage must close execution capability debt")
+	}
+	base.Passed = false
+	base.EnsureVerificationStatus()
+	base.ChangedPathCoverage[0].Capability = types.VerificationCapabilitySourceStatic
+	if changeReportHasExecutionCapabilityDebt(base) {
+		t.Fatal("failed report must not schedule capability escalation as if it passed")
+	}
+}
+
 func TestChangedPathCoverageIncludesRetainedReplanScope(t *testing.T) {
 	ctx := changedPathCoverageTestContext([]string{"new.go"})
 	plan := ctx.Mutable.ChangePlan()

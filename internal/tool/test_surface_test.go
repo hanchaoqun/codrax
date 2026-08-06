@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -719,6 +720,29 @@ Path("pkg/widget.py").read_text()
 	queue := defaultRunnerPlansFromTestSurface(root, surface, "python", declared...)
 	if len(queue) == 0 || queue[0].Runner != "make" || queue[0].Manifest != "Makefile" {
 		t.Fatalf("declared cross-language project test must outrank synthetic Python, got %+v", queue)
+	}
+}
+
+func TestDetectNodeTestFrameworkSeparatesJSONReportersFromPlainScripts(t *testing.T) {
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "package.json", `{"scripts":{"test":"node tests/check.js"}}`)
+	if got := detectNodeTestFramework(root); got != nodeFrameworkExitStatus {
+		t.Fatalf("plain npm test script framework=%q, want %q", got, nodeFrameworkExitStatus)
+	}
+	plan := runnerPlan{Runner: "node", Root: root, Framework: nodeFrameworkExitStatus}
+	if cmd, _ := buildRunCommandForPlan(plan, "", ""); cmd != "npm test --" {
+		t.Fatalf("plain npm script command=%q; JSON flags must not be injected", cmd)
+	}
+
+	for _, script := range []string{"jest", "npx jest --runInBand", "vitest run", "cross-env NODE_ENV=test vitest"} {
+		writeSurfaceFile(t, root, "package.json", `{"scripts":{"test":`+strconv.Quote(script)+`}}`)
+		if got := detectNodeTestFramework(root); got != "" {
+			t.Fatalf("structured reporter script %q framework=%q, want JSON reporter lane", script, got)
+		}
+	}
+	writeSurfaceFile(t, root, "package.json", `{"scripts":{"test":"echo jest"}}`)
+	if got := detectNodeTestFramework(root); got != nodeFrameworkExitStatus {
+		t.Fatalf("incidental reporter word must not select JSON parser, got %q", got)
 	}
 }
 

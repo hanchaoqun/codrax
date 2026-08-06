@@ -33,6 +33,9 @@ func parseRunnerOutputForPlan(plan runnerPlan, stdout, extraFile, cmdStr string,
 	case "go":
 		return parseGoTestJSONLines(stdout)
 	case "node":
+		if plan.Framework == nodeFrameworkExitStatus {
+			return parseNodeScriptExitStatus(stdout, runErr), nil
+		}
 		return parseJestJSON(stdout)
 	case "python":
 		if plan.Framework == pythonFrameworkUnittest || plan.Framework == pythonFrameworkDjango {
@@ -77,6 +80,34 @@ func parseRunnerOutputForPlan(plan runnerPlan, stdout, extraFile, cmdStr string,
 		return parseSwiftOutput(stdout, runErr)
 	}
 	return nil, fmt.Errorf("parseRunnerOutput: unknown runner %q", runner)
+}
+
+func parseNodeScriptExitStatus(stdout string, runErr error) *types.ChangeReport {
+	passed := runErr == nil
+	detail := ""
+	if !passed {
+		detail = strings.TrimSpace(stdout)
+		if detail == "" {
+			detail = runErr.Error()
+		}
+		if len(detail) > 4000 {
+			detail = types.CutPrefixRuneSafe(detail, 4000) + "\n…[failure detail truncated]"
+		}
+	}
+	report := &types.ChangeReport{
+		TestResults: []types.TestResult{{
+			Kind:          types.TestResultKindUnit,
+			AssertionID:   "npm-test-script",
+			Suite:         "npm-test-script",
+			Passed:        passed,
+			FailureDetail: detail,
+		}},
+		Passed: passed,
+	}
+	if !passed {
+		report.FailureSummary = "repository npm test script failed"
+	}
+	return report
 }
 
 var (
