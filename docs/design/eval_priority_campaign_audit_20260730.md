@@ -20718,3 +20718,21 @@ JSON 路径给出一条正向验收：Cangjie finalizer 首稿把 4 个 `blocks[
 新增回归以同一 `type` role 内 2 个 `public class` + 1 个 `extend` 证明输出同时携带 `structural_role_row_count=3` 与精确 family 计数；repomap 端到端渲染 pin 同步从旧 `count` 迁移。完整受影响套件 `go test ./internal/types ./internal/tool ./internal/tool/repomap ./internal/agent -count=1` 已通过（types 20.022s、tool 165.839s、repomap 2.597s、agent 4.488s）。该批不触及 Trace 查询、明确时间窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量或双维度性能归因。
 
 状态：`EVAL-B184-ROLECOUNT1=S11-implemented/full-impacted-suites-pass/pending-exact-two-replay`。
+
+### 123.135 B184 r109：计数域跨语言回放关闭；健康引用补全仍被误报为系统降级
+
+在 `3888efbd3` 构建后严格并行恰好两个跨语言 case：
+
+- `cangjie_repomap`：99s，runner PASS / human PASS，completion/finalizer reject=0；
+- `arkts_repomap`：85s，runner PASS / human PASS，completion/finalizer reject=0。
+
+S11 经真实回放关闭。Cangjie explorer 明确识别完整可见 family 为 extend=2、foreign func=2、public class=8，一次 closure 即提交精确 2/2/8；r108 的 structural `type=10` 冒充 public-class count、随后 10→8 纠错、unavailable `repo_map` 尝试均消失。最终 12 行 package/path/citation 全部正确。ArkTS 保持 4 个 `@Entry` + 2 个 `@Builder`，thirdparty 边界与 6 条引用正确。其首稿仍把 `blocks` 写成 JSON-encoded string，但本次所有 3/3 可见块均可无损恢复，故系统直接接受且正文零丢失；这与 r108 的 4 candidate/2 recovered 拒绝共同覆盖了 JSON 裁定的正反两臂。
+
+人工审计确认 `EVAL-B177-QUOTEDEGRADE1=P2/confirmed` 已有足够跨类型 witness，可进入施工：两份健康、一次成文成功、最终事实完整的答案分别被追加“系统降级披露：引用摘录回填 ×12/×6”。代码审计显示 healthy lane 的 `normalizeCurrentSourceCitationQuotes` 用当前源码 exact file:line 填充或校正 citation sidecar，保留 WARN 与 typed ledger；但 registry 把 `citation_quote_rewrite` 归入 `ClassAnswerSemantics`，last-mile footer 因而把正常 evidence hydration 当成答案语义降级。该动作不删除模型正文、不改变模型结论、不降低完整性，且 citation excerpt 本就属于系统 grounding sidecar，最优重裁是将该 lane 归为 `ClassPlumbing`：继续保留 operator ledger/WARN，健康用户面零字节；真正 malformed/finalizer recovery 仍由 degraded document 自有 caveat 明确披露结构降级与 materialized sections，不能一起静音。`richness_facet_softened` 与 `completeness_downgraded` 仍为 answer-semantics 并继续显示。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b184_count_domain_replay_r109_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b184_count_domain_replay_r109_20260806_manual_audit.md`。
+
+状态：`EVAL-B184-ROLECOUNT1=resolved/r109-cross-language-replay`；
+`EVAL-B177-QUOTEDEGRADE1=P2/confirmed/pending-registry-reclassification`；
+`MALFORMED-ANSWER-JSON=lossless-fast-path-and-lossy-reject-both-replay-confirmed`。
