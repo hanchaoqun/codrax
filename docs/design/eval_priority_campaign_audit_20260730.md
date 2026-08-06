@@ -18924,3 +18924,51 @@ failure handoff 后生产修复允许等用例保持通过。
 状态：`EVAL-B163-RUSTPROOF1=implemented/full-write-state-suite-pass`；Rust 具体代码正确性仍需下一次 clean replay 验证；
 `EVAL-B163-ADOCENUMTEXT1=awaiting-exact2-replay`；JSON recoverable carrier 与不可确定畸形 carrier 的 authority 边界=`preserved`；
 Trace 显式窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量、两维根因和模型结论所有权=`untouched`。
+
+### 123.68 B164 r80：Cangjie 成文闭环；Rust 因 probe 被省略再次 source-static 假绿
+
+在 `main@4ab50d086` 构建后严格并行重放两个 witness：
+
+- `hilog_cangjie_panic`：103s，runner/human PASS；
+- `github_issue_chrono_duration_min_symptom`：365s，runner PASS / human FAIL。
+
+Cangjie 最终答案已恢复为三段真实 artifact-local 调用链，保留 `index=5,size=3` 与 external-source/version caveat；零 `call_edge` 枚举行、零 Finalizer reject、
+零系统补写变量身份。`EVAL-B163-ADOCENUMTEXT1` 完成生产闭环。
+
+Rust 的 runner PASS 是新的确定性假绿。唯一执行命令为 `make check`；report 对 `src/duration.rs` 与 `tests/duration_min.rs` 都明确标成
+`declared_project_check/source_static`，没有 Rust 编译、target execution 或 target behavior，final artifact 却发布 `proof.status=strong` 与
+`all_batches_verified`。应用代码还在 impl 内以裸 `try_milliseconds(...)` 调用关联函数，未经过 Rust 编译，不能判正确。
+
+触发链揭示两个独立 GAP：Planner 首次把完整合法的 `verification_probes[]` JSON 数组放进 string carrier；strict decoder 虽识别
+`string-carrier field verification_probes kind=array`，仍硬拒。模型重发时直接删除全部 probes。现有 B160-S1 终态门又要求“probe 明确 runner_missing”才把
+source-static 降为 unverified；probe 不存在反而绕过门。分别登记 `EVAL-B164-PLANJSONARRAY1=P1/lossless-carrier-repair` 与
+`EVAL-B164-STATICNOPROBE1=P0/verification-authority`。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b164_json_proof_replay_r80_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b164_json_proof_replay_r80_20260805_manual_audit.md`。
+
+状态：`EVAL-B163-ADOCENUMTEXT1=production-replay-closed`；`EVAL-B164-STATICNOPROBE1=confirmed/implementation-in-progress`；
+`EVAL-B164-PLANJSONARRAY1=confirmed/next-batch`；runner PASS 被人工推翻；Trace 全能力与模型结论所有权=`untouched`。
+
+### 123.69 B164-S1：生产路径验证能力不再依赖 probe 是否存在
+
+本批把终态 authority 收敛到已有 typed path capability，不读 contract prose、不要求恰好存在某种 planner probe：
+
+1. passed ChangeReport 中，每个 changed production path 都必须至少有同路径 `target_execution` 或 `target_behavior`；若最强能力仅为
+   `source_static`、`syntax_only`、unknown 或 uncovered，则 `finish/all_verified` 规范为 `finish/accept_unverified`；
+2. `verification_probe_runner_missing` 不再是前置条件。声明 probe、probe 被 JSON 重试省略、或 Planner 从未声明 probe，对相同路径能力不得改变终态强度；
+3. test/fixture/docs/vendor/generated 等 auxiliary path 不单独触发；同一 production path 一旦有真实 target execution/behavior，即使同时保留 static row 也保持 verified；
+4. 新 typed reason 为 `production_verification_source_static_only`，durable verify attempt、batch completion 与 run aggregate 同步降为 unverified。
+   补丁 applied 状态保留，不制造 code failure，也不授权新的生产修改；
+5. 判定只消费 `ChangeReport.Passed/VerificationStatus/ChangedPathCoverage` 与 typed source-path role，不扫描 runner command、用户题面、模型输出或最终答案文字。
+
+新增正臂逐字复现 r80：零 probe + make source-static + Rust production path 必须降级；负臂固定同路径 target_behavior 胜出，auxiliary test path 的 static row
+不污染 production verdict。既有 unavailable-probe、proof-followup 两段式与失败 handoff 用例继续保留。
+
+全量回归首次发现 hard-contract 场景已有更具体 `truth_ledger_weak`，通用门若先运行会把原因降精度；最终接线把 truth ledger 保持在前，
+source-static 门只作没有更具体 proof verdict 时的兜底。第二次
+`go test ./internal/types ./internal/writeflow ./internal/truth ./internal/loopkernel ./internal/orchestrator -count=1`
+全绿（18.492s / 1.067s / 0.339s / 0.760s / 12.619s）。
+
+状态：`EVAL-B164-STATICNOPROBE1=implemented/full-write-state-suite-pass`；提交推送进行中；
+`EVAL-B164-PLANJSONARRAY1=next-batch`；Trace 与答案所有权=`untouched`。

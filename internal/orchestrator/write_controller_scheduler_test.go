@@ -5180,8 +5180,8 @@ func TestNormalizeControllerTypedStateDecisionStableUnavailableProbeDoesNotRepea
 	}
 }
 
-func TestNormalizeControllerTypedStateDecisionSourceStaticOnlyWithUnavailableBehaviorProbeFinishesUnverified(t *testing.T) {
-	mu := types.NewMutableState("source-static verification cannot prove behavior")
+func TestNormalizeControllerTypedStateDecisionSourceStaticOnlyWithoutProbeFinishesUnverified(t *testing.T) {
+	mu := types.NewMutableState("source-static verification cannot prove production execution")
 	plan := &types.ChangePlan{
 		ID:          "plan-static-only",
 		Status:      types.PlanStatusApplied,
@@ -5206,19 +5206,7 @@ func TestNormalizeControllerTypedStateDecisionSourceStaticOnlyWithUnavailableBeh
 			AssertionID: "source-check",
 			Passed:      true,
 		}},
-		VerificationConfidence: []types.VerificationConfidenceRecord{{
-			Source:     "pre_suite_verification_probe",
-			Category:   "probe_execution",
-			Status:     "unavailable",
-			Severity:   "warning",
-			ReasonCode: "verification_probe_runner_missing",
-		}},
 		ExecutedCommands: []types.ExecutedCommand{{
-			Runner:     "verification_probe",
-			Source:     "pre_suite_verification_probe",
-			Outcome:    "runner_missing",
-			ReasonCode: "verification_probe_runner_missing",
-		}, {
 			Runner:  "make",
 			Source:  "test_surface_default",
 			Outcome: "executed",
@@ -5260,7 +5248,10 @@ func TestNormalizeControllerTypedStateDecisionSourceStaticOnlyWithUnavailableBeh
 	}, run)
 
 	if got.Action != writeflow.ActionFinish || got.FinishDisposition != writeflow.FinishDispositionAcceptUnverified {
-		t.Fatalf("source-static proof with unavailable behavior probe must finish unverified, got %+v", got)
+		t.Fatalf("source-static-only production coverage must finish unverified even when no probe was declared, got %+v", got)
+	}
+	if got.ReasonCode != "production_verification_source_static_only" {
+		t.Fatalf("reason_code = %q", got.ReasonCode)
 	}
 	state := writeflow.DeriveBatchAttemptState(run.Batches[0])
 	if state.LatestVerifyStatus != "unverified" || run.Batches[0].Completion == nil ||
@@ -5277,22 +5268,10 @@ func TestNormalizeControllerTypedStateDecisionSourceStaticOnlyWithUnavailableBeh
 	}
 }
 
-func TestReportHasStaticOnlyProductionCoverageWithUnavailableBehaviorProbeAcceptsPathBoundBehaviorProof(t *testing.T) {
+func TestReportHasProductionPathWithoutTargetExecutionCoverageAcceptsPathBoundBehaviorProof(t *testing.T) {
 	report := &types.ChangeReport{
 		Passed:             true,
 		VerificationStatus: types.VerificationStatusPassed,
-		VerificationConfidence: []types.VerificationConfidenceRecord{{
-			Source:     "pre_suite_verification_probe",
-			Category:   "probe_execution",
-			Status:     "unavailable",
-			ReasonCode: "verification_probe_runner_missing",
-		}},
-		ExecutedCommands: []types.ExecutedCommand{{
-			Runner:     "verification_probe",
-			Source:     "pre_suite_verification_probe",
-			Outcome:    "runner_missing",
-			ReasonCode: "verification_probe_runner_missing",
-		}},
 		ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
 			Path:       "src/widget.rs",
 			Status:     types.ChangedPathVerificationCovered,
@@ -5307,8 +5286,8 @@ func TestReportHasStaticOnlyProductionCoverageWithUnavailableBehaviorProbeAccept
 			Capability: types.VerificationCapabilitySourceStatic,
 		}},
 	}
-	if reportHasStaticOnlyProductionCoverageWithUnavailableBehaviorProbe(report) {
-		t.Fatal("a path-bound target_behavior observation must outrank static coverage and an unavailable optional probe")
+	if reportHasProductionPathWithoutTargetExecutionCoverage(report) {
+		t.Fatal("a path-bound target_behavior observation must outrank static coverage; auxiliary test paths must not downgrade it")
 	}
 }
 
