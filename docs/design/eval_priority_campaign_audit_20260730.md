@@ -17888,3 +17888,42 @@ JSON 审计冻结 `EVAL-B143-EVIDJSONMIND1=P1-efficiency`。第一次 `emit_evid
 `EVAL-B143-EVIDJSONMIND1=implemented/full-related-pass/awaiting-replay`；
 `EVAL-B122-JSONTEACH1=D1+B139-shape-table+B142-table-row-contract+B143-field-ownership`；Trace 显式时间窗、因果投影、自动补齐、两维根因、
 排序、唤醒链与窗内可消除量=`untouched`。
+
+### 123.32 B144 r62：ArkTS 过程收敛；Trace 两轴通过但系统占用表暴露同账双发
+
+在 `main@4382431a4` 重新构建后，严格并行恰好两个异构 case：
+
+- `arkts_repomap`：96s，runner PASS / human PASS，repo_map=1、completion=1/0、Finalizer reject=0；
+- `trace_query_wakeup_causal_io_chain`：112s，runner PASS / human PASS，`perf_triage+trace_query`，显式窗与 causal projection 在。
+
+ArkTS 最终完整列出 4 个 `@Entry` 和 2 个 `@Builder`，文件/行号维度齐全。相较 r61 的 139s、repo_map=3、completion=4/2、Explorer
+11 轮，本轮为 96s、repo_map=1、completion=1/0、Explorer 5 轮，没有 JSON string carrier、item-local unknown field 或成文重试。
+模型本轮没有再次发 file-role query，因此 `EVAL-B143-SILENSREFINE1` 的 same-tool refinement 和
+`EVAL-B143-EVIDJSONMIND1` 的 redundant-support-ref repair 只能记 happy-route production pass + 分支级 unit pin，不能虚报具体 compat 分支已由
+产线触发。Analyzer 仍把 production prescan 未命中叙述成“无 ArkTS”，但该 prose 没有 evidence/absence 权限，Explorer 首轮 typed lens 即纠正；
+当前记 P2 contained，继续跨模型观察。
+
+Trace 模型正文正确保留用户 `2.000..2.020s`，给出
+`threadpool-400 -> network-300 -> cookie-200 -> app-100` 四级链；实际占用轴是 app sleep 20ms 与上游 IO 11ms，现规则可消轴是
+IO/内核/依赖 11ms 和调度供给 1ms，并明确两轴不可相加。`Trace 因果投影`、系统补采、根因排序、fscache caller 与下一步均在；没有
+frame/deadline 证据时也没有伪称已证掉帧。
+
+本轮确认 `EVAL-B144-TRACEACCTDUP1=P1`：模型正文只计一次 iowait，但系统生成的“主要时间占用”表同时发布
+`threadpool-400 / iowait / 11ms / 1` 的 root-rank state span（2.003..2.014）和 wakeup-composition observation
+（2.002..2.016）。它们是同一状态账的两个 typed 投影，页面却没有 same-account/absorbed lineage，用户可能误加成 22ms。最优根修必须
+消费 engine-owned account/segment identity 或明确 absorption lineage，在系统投影前按同账归并；不得按同名、同值、相邻时间、用户问题或
+答案 prose 做 hard merge，因为同线程确实可能存在两个独立的等长事件。
+
+Trace Analyzer 再次把 `fact_families` 放入 `scope=causal_diagnosis`，被 precise enum/field gate 一次拒绝后修正。既有字段 description 与 skill
+已同向说明“bounded 必带、非 bounded 必省略”，所以不是矛盾合同；但第二个异构 witness 说明纯 prose 教学仍有心智成本。下一 JSON 小批应在
+`runtime_question_profile` schema 就地增加 `if scope=bounded_fact_set -> require non-empty fact_families; else forbid fact_families`，runtime gate
+不放宽，也不扫描原始输入/模型 reasoning/答案文本。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b144_json_trace_replay_r62_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b144_json_trace_replay_r62_20260805_manual_audit.md`。
+
+状态：`EVAL-B143-SILENSREFINE1=production-happy-route-pass/branch-pin-awaiting-trigger`；
+`EVAL-B143-EVIDJSONMIND1=production-happy-route-pass/branch-pin-awaiting-trigger`；
+`EVAL-B144-TRACEACCTDUP1=confirmed/P1/next-trace-projection-batch`；
+`EVAL-B138-TRACEFACTFAMILYVAR1=confirmed-second-witness/P1-json-schema-next`；Trace 显式窗、因果投影、自动补齐、两维根因、排序、唤醒链与
+窗内可消除量=`production-pass`。
