@@ -4198,6 +4198,85 @@ func TestEmitEvidence_RustQualifiedCallKeepsExactLineAndTypedEdge(t *testing.T) 
 	}
 }
 
+func TestEmitEvidence_RealignsExplicitDirectedCallBeforeLineNormalization(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "src/walker.rs", 1,
+		"use std::fs;",
+		"",
+		"/// Collect files.",
+		"pub fn collect_files(root: &str) -> Vec<String> {",
+		"    let mut out = Vec::new();",
+		"    walk(root, &mut out);",
+		"    out",
+		"}",
+		"",
+		"fn walk(dir: &str, out: &mut Vec<String>) {",
+		"    for entry in entries.flatten() {",
+		"        let path = entry.path();",
+		"        if path.is_dir() {",
+		"            // recurse",
+		"            let child = path.to_string_lossy();",
+		"            if child.is_empty() { continue; }",
+		"            let child = child.as_ref();",
+		"            // exact recursive call follows",
+		"            walk(child, out);",
+		"        }",
+		"    }",
+		"}",
+	)
+	ctx.Mutable.SetSearchGraph(&repomap.Graph{FileIndex: map[string]*repomap.FileInfo{
+		"src/walker.rs": {
+			RelPath: "src/walker.rs", Language: "rust",
+			Symbols: []repomap.Symbol{
+				{Name: "collect_files", Kind: "function", Line: 4, EndLine: 8},
+				{Name: "walk", Kind: "function", Line: 10, EndLine: 22},
+			},
+			Relations: []repomap.Relation{
+				{Kind: "call", Line: 6, ToEP: repomap.RelationEndpoint{Name: "walk"}},
+				{Kind: "call", Line: 19, ToEP: repomap.RelationEndpoint{Name: "walk"}},
+			},
+		},
+	}})
+	params := json.RawMessage(`{"items":[{"kind":"relationship","subject":"collect_files","predicate":"calls","object":"walk","source":"src/walker.rs","line_start":19,"summary":"collect_files calls walk","anchor_kind":"call","anchor_symbol":"walk"}]}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil || !res.Success {
+		t.Fatalf("directed call should realign, err=%v summary=%s", err, res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("evidence count=%d want 1: %+v", len(got), got)
+	}
+	if got[0].LineStart != 6 || got[0].Subject != "collect_files" || got[0].Object != "walk" || got[0].GroundingStatus != types.GroundingGrounded {
+		t.Fatalf("explicit directed edge was silently replaced instead of realigned: %+v", got[0])
+	}
+	for _, want := range []string{"realigned from line 19", "callsite line 6", `"collect_files" -> "walk"`} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("same-turn feedback missing %q:\n%s", want, res.Summary)
+		}
+	}
+	if strings.Contains(res.Summary, "walk calls walk") {
+		t.Fatalf("recursive sibling call must not steal the intended wrapper edge: %s", res.Summary)
+	}
+}
+
+func TestQualifiedCallEndpointEqualDoesNotCollapseDistinctQualifiedOwners(t *testing.T) {
+	for _, tc := range []struct {
+		a, b string
+		want bool
+	}{
+		{a: "SinkRegistry::create", b: "SinkRegistry.create", want: true},
+		{a: "walker::collect_files", b: "collect_files", want: true},
+		{a: "service->run", b: "run", want: true},
+		{a: "First::run", b: "Second::run", want: false},
+		{a: "Logger.log", b: "Audit.log", want: false},
+	} {
+		if got := qualifiedCallEndpointEqual(tc.a, tc.b); got != tc.want {
+			t.Fatalf("qualifiedCallEndpointEqual(%q, %q)=%v want %v", tc.a, tc.b, got, tc.want)
+		}
+	}
+}
+
 func TestEmitEvidenceNoopDuplicate_DirectedCarrierCorrectionIsAmendment(t *testing.T) {
 	existing := types.EvidenceItem{
 		ID: "old", Kind: types.EvidenceRelationship, Scope: types.ScopeLine,

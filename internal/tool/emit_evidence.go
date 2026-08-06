@@ -694,6 +694,14 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 	surfaceAlignmentRejected := make(map[int]bool)
 	groundingStart := time.Now()
 	for i := range built {
+		// A call row may carry the right explicit caller/callee pair but cite a
+		// nearby call to the same leaf (for example collect_files -> walk cited
+		// on walk's later recursive self-call).  Recover the exact already-read
+		// same-file callsite from BOTH typed endpoints before canonicalising the
+		// row from the cited line.  Otherwise the normaliser truthfully changes
+		// the row to walk -> walk, while the model can mistake its now-stale
+		// summary for proof that collect_files -> walk survived.
+		realignExplicitCallEvidenceLine(&built[i], gc)
 		// Call evidence has two identities: the enclosing caller and the
 		// invoked callee. The wire model occasionally puts the caller in
 		// anchor_symbol even though AnchorCall defines that field as the
@@ -2585,6 +2593,114 @@ func normalizeCallEvidenceDirection(it *types.EvidenceItem, gc *ground.Context) 
 			it.Source, it.LineStart, it.Subject, it.Predicate, it.Object)
 	}
 	return changed
+}
+
+// realignExplicitCallEvidenceLine repairs a bounded line-number error only
+// when the model already supplied a complete typed caller -> callee pair and
+// an already-read same-file source line plus repomap relation prove that exact
+// direction.  This is stricter than nearest_call: callee proximity alone is
+// insufficient, so a recursive call cannot steal a wrapper -> helper edge.
+//
+// The function reads no user request, evidence summary, final-answer prose, or
+// case identity.  It is therefore safe to run before the hard grounding gate
+// across every supported source language.
+func realignExplicitCallEvidenceLine(it *types.EvidenceItem, gc *ground.Context) bool {
+	if it == nil || gc == nil || gc.Graph == nil || it.AnchorKind != types.AnchorCall || it.LineStart <= 0 {
+		return false
+	}
+	predicate := strings.ToLower(strings.TrimSpace(it.Predicate))
+	if !callLikePredicates[predicate] {
+		return false
+	}
+	caller := strings.TrimSpace(it.Subject)
+	callee := strings.TrimSpace(it.Object)
+	if caller == "" || callee == "" {
+		return false
+	}
+	source := ground.CanonicalContextPath(gc, it.Source)
+	fi, ok := gc.Graph.FileIndex[source]
+	if !ok || fi == nil {
+		return false
+	}
+	if explicitDirectedCallMatchesLine(gc, fi, source, it.LineStart, caller, callee) {
+		return false
+	}
+
+	const maxDistance = 40
+	bestLine, bestDistance := 0, maxDistance+1
+	for _, rel := range fi.Relations {
+		if rel.Kind != "call" || rel.Line <= 0 {
+			continue
+		}
+		distance := rel.Line - it.LineStart
+		if distance < 0 {
+			distance = -distance
+		}
+		if distance > maxDistance || distance > bestDistance {
+			continue
+		}
+		if !qualifiedCallEndpointEqual(rel.ToEP.Name, callee) ||
+			!qualifiedCallEndpointEqual(enclosingCallableSymbolName(fi, rel.Line), caller) {
+			continue
+		}
+		if _, sourceOK := sourceLineCallTargetForCandidates(gc, source, rel.Line, []string{callee}); !sourceOK {
+			continue
+		}
+		if distance < bestDistance || bestLine == 0 || rel.Line < bestLine {
+			bestLine, bestDistance = rel.Line, distance
+		}
+	}
+	if bestLine <= 0 || bestLine == it.LineStart {
+		return false
+	}
+	originalLine := it.LineStart
+	it.LineStart = bestLine
+	if it.Scope == types.ScopeLine || it.LineEnd == originalLine {
+		it.LineEnd = bestLine
+	}
+	appendGroundingNoteOnce(it, fmt.Sprintf(
+		"explicit typed call edge %q -> %q was realigned from line %d to exact same-file callsite line %d before grounding; both caller and callee plus the already-read source line agreed",
+		caller, callee, originalLine, bestLine))
+	return true
+}
+
+func explicitDirectedCallMatchesLine(gc *ground.Context, fi *repomap.FileInfo, source string, line int, caller, callee string) bool {
+	if gc == nil || fi == nil || line <= 0 {
+		return false
+	}
+	actualCaller := enclosingCallableSymbolName(fi, line)
+	if !qualifiedCallEndpointEqual(actualCaller, caller) {
+		return false
+	}
+	rel, ok := findCallRelationAtLineForCandidates(fi, line, []string{callee})
+	if !ok || !qualifiedCallEndpointEqual(rel.ToEP.Name, callee) {
+		return false
+	}
+	_, sourceOK := sourceLineCallTargetForCandidates(gc, source, line, []string{callee})
+	return sourceOK
+}
+
+func qualifiedCallEndpointEqual(a, b string) bool {
+	a = strings.TrimSpace(a)
+	b = strings.TrimSpace(b)
+	if a == "" || b == "" {
+		return false
+	}
+	normalize := func(s string) string {
+		s = strings.ReplaceAll(s, "->", ".")
+		s = strings.ReplaceAll(s, "::", ".")
+		return strings.Trim(s, ".")
+	}
+	na, nb := normalize(a), normalize(b)
+	if na == nb {
+		return true
+	}
+	aQualified := strings.Contains(na, ".")
+	bQualified := strings.Contains(nb, ".")
+	if aQualified && bQualified {
+		return false
+	}
+	return emitLastDotSegment(na) == emitLastDotSegment(nb)
 }
 
 func stabilizeStringLiteralIdentifierAnchor(it *types.EvidenceItem, gc *ground.Context) bool {

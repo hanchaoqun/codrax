@@ -22050,3 +22050,49 @@ S31 在 emit 与 ground 两个 typed symbol 比较边界统一扩展 leaf 语义
 
 状态：`EVAL-B200-QUALCALL1=S31-implemented/full-affected-suites-pass/pending-exact-two-replay`；
 成文四次重试的直接上游缺边=`fixed-by-construction`；后续 exact-two 回放确认生产接线与 reject 数下降。
+
+### 123.181 B201 r133：`::` 根修生效，但定向边静默换身份与多态图层仍致删图
+
+在 `1f5498dbc` 构建后严格并行恰好两个限定调用/多态 case：
+
+- `sr_rust_cross_module_chain`：125s，runner PASS / human FAIL，2 次 finalizer reject；
+- `sr_cpp_virtual_chain`：172s，runner PASS / human FAIL，2 次 finalizer reject。
+
+Rust 给出 S31 的生产正证：`run -> walker::collect_files @ src/main.rs:20` 直接以 `tier=line_text` Grounded，日志没有
+`nearest_call` 或 20→10 错迁；finalizer 也已拿到这条 principal typed edge。原始 `EVAL-B200-QUALCALL1` 可就限定符 leaf 问题收账。
+
+但同轮模型把 `collect_files -> walk` 错报在 `src/walker.rs:19`；该行实际是 `walk -> walk` 递归。emit normalizer 用精确 parser/owner
+把 structured Subject 改成 `walk`，却保留模型原 summary“collect_files 调用 walk”，并返回普通 grounded、无修复目标。Explorer 据此宣称证据完整；
+finalizer 正确拒绝 `collect_files -> walk` 图边，模型第一次又把 self-call 的回复箭头反向连回 wrapper，第二次才删图。确认
+`EVAL-B201-DIRCALL1=P1`：完整 typed caller/callee 已存在时，恢复必须用二元方向，不可接受“换成另一条真实边但让旧语义看起来已证”。
+
+C++ 对照的文字事实大体正确，但用户问 console 后端完整路径，最终只保留 Logger 调虚接口与工厂概述；`console -> ConsoleSink` 分支、
+`ConsoleSink::write` 终点未形成独立精确引用链。模型先后把外部 caller、guard、虚接口到所有实现都画成 call，硬门两次正确拒绝后删除 diagram。
+schema 已支持 guard/register/type_relation，问题在上游没有把工厂分支/return/多态 dispatch 构造成可消费的异构关系图，登记
+`EVAL-B202-POLYGRAPH1=P1`。该项必须跨 C++/Java/ArkTS/Cangjie 统一审计，不能以类名或单 fixture 过拟合。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b201_qualified_call_replay_r133_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b201_qualified_call_replay_r133_20260806_manual_audit.md`。
+
+状态：`EVAL-B200-QUALCALL1=production-closed/r133`；`EVAL-B201-DIRCALL1=P1/confirmed/pending-S32`；
+`EVAL-B202-POLYGRAPH1=P1/confirmed/queued-after-S32`；Trace 与 JSON 管线=`not-touched`。
+
+### 123.182 S32：显式 caller+callee 二元定向恢复先于行内规范化
+
+S32 在 call normalization 前增加一个更严格、仍有界的恢复层：
+
+1. 仅对 `anchor_kind=call`、call-like typed predicate、非空 Subject 与 Object 生效；
+2. 当前行已同时匹配 enclosing caller 与 callee 时完全不动；否则只在同文件、±40 行、已读 line index 和 repomap call relation 内找候选；
+3. 候选必须同时满足完整 caller identity、callee identity、relation line 与源码调用表达式；仅 callee 同名或 summary 相似均不能恢复；
+4. 两边都带限定 owner 时必须完整 owner 一致；只有一边为 parser leaf 时才允许末段对齐，兼容 `SinkRegistry::create`/
+   `SinkRegistry.create`、`walker::collect_files`/`collect_files` 与 `service->run`/`run`，但禁止 `First::run` 冒充 `Second::run`；
+5. 成功时先把 line 19 定向恢复到 line 6，再由既有 normalizer/grounder铸成 `collect_files -> walk`；tool result 明示原行、新行和二元依据，
+   不再让另一条 self-call 静默偷走证据身份。
+
+该逻辑只读 schema-owned typed endpoints、repomap 与已读 source line；不扫描用户 request、evidence summary 或答案原文，不改变模型结论，
+也不放宽 diagram 调用证据硬门。回归覆盖“同一 callee 在 wrapper 与递归函数各出现一次”的对抗形、限定 owner 等价与不同 owner 不等价。
+
+完整受影响套件通过：`go test ./internal/tool/... ./internal/agent/...`，其中 tool 168.701s、agent 6.157s；`git diff --check` 通过。
+
+状态：`EVAL-B201-DIRCALL1=S32-implemented/full-affected-suites-pass/pending-exact-two-replay`；
+`EVAL-B202-POLYGRAPH1=queued`。
