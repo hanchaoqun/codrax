@@ -943,9 +943,14 @@ func TestAnalysisSkill_SourceInventoryCoversConstructInventoryWithoutHardRouting
 		"implementer/subclass/conformer/override enumeration sets BOTH",
 		"`predicate_axis=implement`",
 		"not one of its implementation members",
-		"Registry/catalog/binding/default-registration member-set questions are relation/role-binding answers",
+		"Registry/catalog/binding/default-registration member-set questions are relation answers",
 		"`predicate_axis=register`",
-		"`answer_role_profile`",
+		"`answer_subject.entity_axes`",
+		"keep `answer_role_profile.is_role_binding_requested=false` unless the request separately selects a principal role class",
+		"A route, owner, value, method, or other endpoint that is only an attribute of each principal member is NOT another target_role",
+		"`items[].candidate_role` is ONE scalar category for the principal item",
+		"ordinary member→attribute tables",
+		"Do not list all relation endpoints or displayed columns as required_candidate_roles",
 		"Do NOT emit `source_inventory_profile` merely because a call-chain / dispatch / trace / relation-flow answer will mention key functions or files",
 	} {
 		if !strings.Contains(rendered, want) {

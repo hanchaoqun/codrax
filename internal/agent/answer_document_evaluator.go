@@ -2658,6 +2658,7 @@ func renderAnswerDocRequestedCandidateRoles(view *types.AnswerSemanticView) stri
 	fmt.Fprintf(&b, "The current request requires principal answer row role coverage for: %s.\n\n",
 		renderQuotedList(roles))
 	b.WriteString("- Put `items[].candidate_role` on the principal scalar/list/table item(s) that carry these requested answer roles.\n")
+	b.WriteString("- `candidate_role` classifies the principal item represented by one row. Do not use a route, owner, value, or other related column as a second role for that row; keep such attributes in cells/text with their grounded citation.\n")
 	b.WriteString("- For scalar answers whose literal is in `block.text`, add a one-element `items[]` entry with `candidate_role` and the supporting `citation_ref`; the row can reuse the scalar literal as its label or keep a short role label.\n")
 	b.WriteString("- Do not satisfy this contract with prose-only wording. The validator compares required role enums with `items[].candidate_role` enums.\n")
 	b.WriteString("- Adjacent roles can stay as supporting context, but the principal answer must include the requested role enum(s) above.\n\n")

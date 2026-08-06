@@ -760,10 +760,10 @@ func buildEmitAnalysisSchema() {
 			},
 			"answer_role_profile": map[string]any{
 				"type":        "object",
-				"description": "Required typed profile for positive role-binding constraints on principal answer rows. Set is_role_binding_requested=false when the current request has no positive answer role binding.",
+				"description": "Required typed profile for positive principal-item role selection. candidate_role is one scalar category for the item represented by a principal row; relation endpoints or row-local attributes belong in answer_subject/entity_axes, cells/text, and grounded relation evidence, not as extra required_candidate_roles. Set is_role_binding_requested=false for ordinary member-to-attribute tables and whenever the current request has no positive principal-role selection.",
 				"properties": map[string]any{
-					"is_role_binding_requested": map[string]any{"type": "boolean", "description": "True only when the current request explicitly asks for one or more answer roles to be returned as the principal answer."},
-					"required_candidate_roles":  map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": answerCandidateRoleValues()}, "description": "Positive principal answer role(s) required by the current request."},
+					"is_role_binding_requested": map[string]any{"type": "boolean", "description": "True only when the current request explicitly selects one or more principal answer-item categories. False for an implementation/member row whose route, owner, value, or other relation attribute is merely another column."},
+					"required_candidate_roles":  map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": answerCandidateRoleValues()}, "description": "Category of the principal answer item(s), never a list of all attributes or relation endpoints displayed on the same row."},
 					"source_quotes":             map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "Verbatim current-request phrase(s) that state the positive role binding."},
 					"confidence":                map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your confidence in this positive answer-role profile in [0,1]."},
 					"rationale":                 map[string]any{"type": "string", "description": "Short audit rationale for why these candidate roles are required."},
@@ -1939,6 +1939,10 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		val.Warnings = append(val.Warnings, warning)
 	}
 	if droppedSourceInventory, warning := dropSourceInventoryProfileForObservationOnlyRuntime(ctx, &rm); droppedSourceInventory {
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
+	if softenedAnswerRole, warning := softenAnswerRoleProfileForPerMemberRelation(&rm); softenedAnswerRole {
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
@@ -3464,6 +3468,30 @@ func dropSourceInventoryProfileForTypedRelation(rm *types.RequestModel) (bool, s
 		return true, "source_inventory_profile ignored because the typed explanation requires a conceptual stage/workflow dimension; source declarations remain supporting evidence rather than the principal member universe"
 	}
 	return false, ""
+}
+
+// softenAnswerRoleProfileForPerMemberRelation resolves a structural contract
+// collision without reading request or answer prose. candidate_role is a
+// scalar category for each principal item, whereas a per-member relation table
+// has one principal member plus one or more row-local attributes/endpoints.
+// Treating every endpoint as a required candidate role creates an impossible
+// finalizer obligation and a false coverage caveat. The typed relation shape
+// remains intact; only the inapplicable positive-role gate is removed.
+func softenAnswerRoleProfileForPerMemberRelation(rm *types.RequestModel) (bool, string) {
+	if rm == nil || rm.AnswerRoleProfile == nil || !rm.AnswerRoleProfile.Active() {
+		return false, ""
+	}
+	if !rm.Predicates.HasPerMemberTable || rm.Predicates.IsRoleLocateLookup {
+		return false, ""
+	}
+	relationMemberSet := types.HasTypedRelationMemberSetShape(*rm) ||
+		rm.PredicateAxis == types.AxisRegister ||
+		types.RequiresRelationMemberSetHandoff(*rm)
+	if !relationMemberSet {
+		return false, ""
+	}
+	rm.AnswerRoleProfile = nil
+	return true, "answer_role_profile auto-softened: typed per-member relation rows have one principal candidate_role; related endpoints/attributes remain in answer_subject, row cells/text, and grounded relation evidence"
 }
 
 func dropSourceInventoryProfileForObservationOnlyRuntime(ctx *types.BusContext, rm *types.RequestModel) (bool, string) {

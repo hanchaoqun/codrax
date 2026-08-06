@@ -2,10 +2,13 @@ package types
 
 import "strings"
 
-// AnswerCandidateRole is a language-neutral category/role label for a visible
-// answer row. It lets the final answer carrier preserve whether a row is a
-// function, variable, tool name, import path, budget cap, attempt counter, etc.
-// without forcing validators to infer that category from prose.
+// AnswerCandidateRole is a language-neutral category/role label for the
+// principal item represented by one visible answer row. It lets the final
+// answer carrier preserve whether that item is a function, variable, tool
+// name, import path, budget cap, attempt counter, etc. without forcing
+// validators to infer that category from prose. A row-local relation attribute
+// (for example, the route owned by a handler row) is not a second candidate
+// role for that same row; it stays in cells/text and grounded relation evidence.
 type AnswerCandidateRole string
 
 const (
@@ -265,11 +268,12 @@ func (p *AnswerExclusionPolicy) ExcludesSourcePathRole(role SourcePathRole) bool
 }
 
 // AnswerRoleProfile is the analyzer-emitted typed lane for positive
-// role-binding requests such as "the retry budget parameter", "the attempt
-// counter", "the guard condition", "the tool name", or "the commit hash".
-// Downstream hard gates consume RequiredCandidateRoles plus answer-row
-// candidate_role annotations; they never infer the requested role from
-// RawRequest or rendered answer prose.
+// principal-item role selection such as "the retry budget parameter", "the
+// attempt counter", "the guard condition", "the tool name", or "the commit
+// hash". It is not a carrier for every endpoint or attribute in a per-member
+// relation table. Downstream hard gates consume RequiredCandidateRoles plus
+// answer-row candidate_role annotations; they never infer the requested role
+// from RawRequest or rendered answer prose.
 type AnswerRoleProfile struct {
 	IsRoleBindingRequested bool                  `json:"is_role_binding_requested"`
 	RequiredCandidateRoles []AnswerCandidateRole `json:"required_candidate_roles,omitempty"`

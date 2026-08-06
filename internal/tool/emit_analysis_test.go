@@ -8034,6 +8034,95 @@ func TestEmitAnalysis_Execute_DropsSourceInventoryForTypedRelation(t *testing.T)
 	}
 }
 
+func TestEmitAnalysis_Execute_SoftensAnswerRoleForPerMemberRelation(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("Handler 接口有哪些实现类？每个实现各自负责哪个路径？")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "enumerate",
+		"scenario": "generic",
+		"complexity": "moderate",
+		"keywords": ["Handler", "implement", "route", "path"],
+		"entities": ["EchoHandler", "StatsHandler", "UpperHandler"],
+		"question_kind": "enumeration",
+		"intent_confidence": 0.9,
+		"complexity_confidence": 0.8,
+		"kind_confidence": 0.9,
+		"predicate_axis": "implement",
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": true,
+			"is_category_enumeration": true,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false,
+			"has_per_member_table": true
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.9
+		},
+		"answer_subject": {
+			"kind": "type_name",
+			"entity_axes": ["handler → route"],
+			"confidence": 0.9
+		},
+		"answer_role_profile": {
+			"is_role_binding_requested": true,
+			"required_candidate_roles": ["function", "route"],
+			"source_quotes": ["每个实现各自负责哪个路径"],
+			"confidence": 0.9
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "answer_role_profile auto-softened: typed per-member relation rows") {
+		t.Fatalf("summary should disclose typed role-profile softening, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	if rm.AnswerRoleProfile != nil {
+		t.Fatalf("per-member relation attribute roles must not become candidate_role obligations: %+v", rm.AnswerRoleProfile)
+	}
+	if !types.HasTypedRelationMemberSetShape(*rm) || !rm.Predicates.HasPerMemberTable {
+		t.Fatalf("relation/member-table shape must survive role-profile softening: %+v", rm)
+	}
+}
+
+func TestSoftenAnswerRoleProfileForPerMemberRelation_PreservesRoleLocate(t *testing.T) {
+	rm := &types.RequestModel{
+		PredicateAxis: types.AxisImplement,
+		Predicates: types.SemanticPredicates{
+			IsRoleLocateLookup: true,
+			IsRelationalLookup: true,
+			HasPerMemberTable:  true,
+		},
+		AnswerRoleProfile: &types.AnswerRoleProfile{
+			IsRoleBindingRequested: true,
+			RequiredCandidateRoles: []types.AnswerCandidateRole{
+				types.AnswerCandidateRoleRoute,
+			},
+		},
+	}
+	if softened, warning := softenAnswerRoleProfileForPerMemberRelation(rm); softened || warning != "" {
+		t.Fatalf("explicit typed role-locate must remain active: softened=%t warning=%q", softened, warning)
+	}
+	if rm.AnswerRoleProfile == nil || !rm.AnswerRoleProfile.Active() {
+		t.Fatalf("explicit typed role-locate profile was lost: %+v", rm)
+	}
+}
+
 func TestEmitAnalysis_Execute_DropsSourceInventoryForRegistryBindingMemberSet(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

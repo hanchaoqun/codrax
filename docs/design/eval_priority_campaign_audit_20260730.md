@@ -21367,3 +21367,64 @@ support 一律提权。完整回归还由 `TestEmitAnswerDocumentPatch_Normalize
 通过。
 
 状态：`EVAL-B188-CITEPRIORITY1=B188-C-implemented/full-tool-types-pass/pending-exact-two-replay`。
+
+### 123.157 B188 r120：引用优先级生产闭环；Java 暴露 principal role 与 relation attribute 的 JSON 合同冲突
+
+在 `d063072c5` 构建后严格并行恰好两个异构语言 read case：
+
+- `sr_java_handler_impls`：108s，runner/human FAIL；
+- `arkts_repomap`：138s，runner/human PASS。
+
+Java 回放证明 `EVAL-B188-CITEPRIORITY1` 已生产闭环。模型首稿的三个 `citation_ref` 指向 Route 行 7/13/9，
+pre-emit 不再改写，最终引用仍是 7/13/9；`principal_support_member_coverage=0`，上一轮由系统制造的三条弱支持
+advisory 和“枚举类条目中部分项的证据支持稍弱”均消失。runner 仍 FAIL 的直接 oracle 是可见表格没有独立 file
+列；用户问题只显式要求实现和路径，答案事实与引用可用，但按严格人工审计不把该 presentation 缺项签绿。
+
+本轮另确认 `EVAL-B189-ROLEAXIS1=P1/system-contract-confirmed`。analyzer 对“实现类→路径”的同一行同时发出：
+`has_per_member_table=true`、`predicate_axis=implement`、`answer_subject.entity_axes=[handler → route]`，又把
+`answer_role_profile.required_candidate_roles` 写成 `[function, route]`。后者最终只由一个标量
+`items[].candidate_role` 消费；模型把每行标成 route 后，系统必然误报 function 缺失，并追加另一条“答案在某些
+维度的覆盖度可能不充分” caveat。源码审计确认系统教学自相矛盾：角色段把 profile 定义为“principal answer role
+selection”，source inventory/workflow 段却让一般 calls/imports/implements/registrations/bindings 都携带它。
+这是系统 JSON 合同问题，不是 Java 提取器、关系证据或模型算术波动。
+
+ArkTS 对照完整列出 4 个 `@Entry` 组件、2 个 `@Builder` 函数及 6 条逐行引用，并明确全部位于 third-party
+corpus fixture 范围；证明多语言 source inventory 与引用能力没有被 B188-C 破坏。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b188_citation_arkts_r120_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b188_citation_arkts_r120_20260806_manual_audit.md`。
+
+状态：`EVAL-B188-CITEPRIORITY1=production-closed/r120`；
+`EVAL-B189-ROLEAXIS1=P1/confirmed/pending-S20`；可见 file 列记为
+`EVAL-B189-VISIBLEPROV1=P2/observe`，不因单个 eval oracle 扩成全局硬门。
+
+### 123.158 S20：principal item role 与 per-member relation attribute 分轴
+
+`EVAL-B189-ROLEAXIS1` 按单值 carrier 的真实语义做通用修复：
+
+1. `AnswerCandidateRole`、`AnswerRoleProfile`、`emit_analysis` JSON schema、analysis skill、finalizer JSON schema
+   和 Typed Answer Role Contract 统一定义：`candidate_role` 只描述一行所代表的 principal item；route、owner、
+   value 或另一关系端若只是同一行的属性，留在 `answer_subject.entity_axes`、cells/text 与 grounded relation evidence，
+   不再作为第二个 required role；
+2. 删除原教学中的冲突指令。registry/binding member-set 使用 typed `predicate_axis=register`、entity axes、
+   completeness/member-set 与关系证据；calls/imports/implements 等关系问题同理。只有用户真正选择“哪一类主体答案”
+   时才启用 answer role profile；
+3. 增加 typed fail-open normalizer：仅当 profile active、`has_per_member_table=true`、非
+   `is_role_locate_lookup`，且 schema 已表明 relation member-set/registration handoff 时，自动软化错误 profile。
+   关系形、表格义务和证据轴原样保留；显式 typed role-locate 即便也带表格仍保留 profile；
+4. 该 normalizer 不读 RawRequest、模型 think/reason、block text 或最终 Markdown，不给模型选 row label、不改
+   answer document，也不按 Java/Handler/route 关键词工作。它只移除一个由 typed 字段组合证明不适用的终检合同，
+   避免系统向正确答案追加虚假覆盖 caveat。
+
+新增生产接线测试以 r120 的语言无关结构（implement relation + per-member table + function/route drift）证明
+`emit_analysis` 会保留 relation/table 形并软化 role profile；负臂证明 `is_role_locate_lookup=true` 时不软化。
+JSON 教学 pin 同时要求“一个 principal item role”“relation attribute 不是 target/required role”等单源措辞。
+
+本批不改变 Trace 查询、显式时间窗、因果投影、系统自动补齐、根因排序、唤醒链、窗内可消除量、双轴性能归因、
+malformed JSON 有界无损恢复或 answer fallback。无法无损修复的模型 JSON 仍按既有策略保留可提取字符串并明确披露
+降级；系统不会伪造或替换模型结论。
+
+完整受影响套件已通过：`go test ./internal/types ./internal/agent ./internal/tool -count=1`（types 20.330s、
+agent 3.498s、tool 166.738s）。
+
+状态：`EVAL-B189-ROLEAXIS1=S20-implemented/full-impacted-suites-pass/pending-exact-two-replay`。
