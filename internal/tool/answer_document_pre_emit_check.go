@@ -1931,8 +1931,11 @@ func preEmitSourceInventoryRowsByIDFromSets(sets []types.EnumerationDisplaySet) 
 // preEmitSourceInventoryTypedPrincipalSets keeps the exact row IDs shown to the
 // finalizer and the synthetic global roster in one registry. Prompt rows are
 // admitted only when their typed source location/family equals a row in the
-// synthetic roster; model labels and prose cannot mint aliases. The synthetic
-// set remains present to disambiguate equal labels across accepted partitions.
+// synthetic roster OR an exact grounded evidence identity at that source row.
+// The second arm covers accepted sibling partitions (for example Cangjie
+// `extend` rows beside a parser-owned public-class roster) without allowing
+// model labels or prose to mint aliases. The synthetic set remains present to
+// disambiguate equal labels across accepted partitions.
 func preEmitSourceInventoryTypedPrincipalSets(ctx *types.BusContext) []types.EnumerationDisplaySet {
 	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil {
 		return nil
@@ -1950,12 +1953,14 @@ func preEmitSourceInventoryTypedPrincipalSets(ctx *types.BusContext) []types.Enu
 		}
 	}
 	var out []types.EnumerationDisplaySet
+	pctx := newPreEmitCheckContext(ctx)
 	if plan := answerSurfacePlan(ctx); plan != nil {
 		for _, set := range types.CompileEnumerationDisplaySets(&ctx.AnalysisIR.RequestModel, plan) {
 			filtered := set
 			filtered.Rows = nil
 			for _, row := range set.Rows {
-				if canonicalKeys[preEmitSourceInventoryRowAliasIdentityKey(row)] {
+				if canonicalKeys[preEmitSourceInventoryRowAliasIdentityKey(row)] ||
+					preEmitSourceInventoryPromptRowHasExactGroundedEvidence(row, pctx) {
 					filtered.Rows = append(filtered.Rows, row)
 				}
 			}
@@ -1975,6 +1980,38 @@ func preEmitSourceInventoryTypedPrincipalSets(ctx *types.BusContext) []types.Enu
 		out = append(out, canonical...)
 	}
 	return out
+}
+
+// preEmitSourceInventoryPromptRowHasExactGroundedEvidence is the narrow
+// admission lane for a typed aggregate row that belongs to a sibling source
+// inventory family absent from the parser-owned global roster. It requires all
+// three precise coordinates to agree: current-source file, cited line, and an
+// exact structured evidence identity (subject/object/anchor_symbol). Summary,
+// detail, user request, block title, and final answer prose are never read.
+func preEmitSourceInventoryPromptRowHasExactGroundedEvidence(row types.EnumerationDisplayRow, pctx *preEmitCheckContext) bool {
+	if pctx == nil || strings.TrimSpace(row.Source) == "" || row.LineStart <= 0 {
+		return false
+	}
+	items, ok := pctx.citedEvidenceItems(types.Citation{
+		File: row.Source,
+		Line: row.LineStart,
+	})
+	if !ok || len(items) == 0 {
+		return false
+	}
+	rowKeys := principalEnumerationRowKeySet(row)
+	for _, item := range items {
+		if item.GroundingStatus != types.GroundingGrounded {
+			continue
+		}
+		for _, identity := range []string{item.Subject, item.Object, item.AnchorSymbol} {
+			key := normalizeEnumerationDisplayTableKey(identity)
+			if key != "" && rowKeys[key] {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func preEmitSourceInventoryCanonicalPrincipalSets(ctx *types.BusContext) []types.EnumerationDisplaySet {
@@ -2047,7 +2084,7 @@ func preCheckSourceInventoryRowIDBindings(doc *types.AnswerDocumentV2, ctxOpt ..
 			!principalEnumerationBlockHasEnumerationFacet(block) {
 			continue
 		}
-		allowedRows, _, _, invalidFamily := preEmitSourceInventoryHardRowsForBlock(block, sets)
+		allowedRows, invalidFamily := preEmitSourceInventoryBindingRowsForBlock(block, sets)
 		if invalidFamily || len(allowedRows) == 0 {
 			continue
 		}
@@ -2165,7 +2202,7 @@ func normalizeItemCitationRefsByUniqueSourceInventoryDisplayRowWithContext(doc *
 			!principalEnumerationBlockHasEnumerationFacet(*block) {
 			continue
 		}
-		rows, _, _, invalidFamily := preEmitSourceInventoryHardRowsForBlock(*block, sets)
+		rows, invalidFamily := preEmitSourceInventoryBindingRowsForBlock(*block, sets)
 		if invalidFamily || len(rows) == 0 {
 			continue
 		}
@@ -6109,6 +6146,38 @@ func preEmitSourceInventoryHardRowsForBlock(
 		}
 	}
 	return rows, len(rows) > 0, allowedFamilies, false
+}
+
+// preEmitSourceInventoryBindingRowsForBlock selects the typed identity domain
+// used only by row-id validation and deterministic citation binding. An
+// explicit family remains closed to that exact partition. A family-less mixed
+// carrier may bind any row that was safely admitted to the typed registry,
+// including evidence-grounded sibling partitions. This does not widen the
+// extraneous-row authority: preEmitSourceInventoryHardRowsForBlock remains the
+// sole input to that content gate and keeps its global synthetic roster.
+func preEmitSourceInventoryBindingRowsForBlock(
+	block types.AnswerBlock,
+	sets []types.EnumerationDisplaySet,
+) (rows []types.EnumerationDisplayRow, invalidFamily bool) {
+	if types.SourceInventorySurfaceTermKey(block.SourceInventoryFamily) != "" {
+		rows, _, _, invalidFamily = preEmitSourceInventoryHardRowsForBlock(block, sets)
+		return rows, invalidFamily
+	}
+	seen := map[string]bool{}
+	for _, set := range sets {
+		for _, row := range set.Rows {
+			key := preEmitSourceInventoryRowAliasIdentityKey(row)
+			if key == "" {
+				key = principalEnumerationRowIdentityKey(row)
+			}
+			if key == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+			rows = append(rows, row)
+		}
+	}
+	return rows, false
 }
 
 // preEmitMemberSetObligationRosterCap bounds the ✓/✗ obligation roster in

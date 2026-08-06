@@ -4154,6 +4154,127 @@ func TestNormalizeItemCitationRefsByUniqueSourceInventoryDisplayRow_BindsDecorat
 	}
 }
 
+func sourceInventoryGroundedSiblingPartitionTestContext(t *testing.T, grounded bool) (*types.BusContext, string) {
+	t.Helper()
+	mu := types.NewMutableState("enumerate Cangjie extend and public class declarations")
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active: true, Complete: true, Scopes: []string{"."},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role: types.AnswerCandidateRoleType, Complete: true, Count: 1, Total: 1,
+			Members: []types.SourceInventoryObservationMember{{
+				Name: "Animal", Role: types.AnswerCandidateRoleType,
+				File: "src/modifiers.cj", Line: 6, Language: "cangjie",
+				SurfaceTerms:  []string{"public class", "public sealed class Animal"},
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}},
+		}},
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "extend declarations",
+		Value: "1",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"extend String @ src/extend.cj:6",
+		},
+		SupportRefs: []string{
+			"extend String @ src/extend.cj:6",
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	status := types.GroundingUngrounded
+	if grounded {
+		status = types.GroundingGrounded
+	}
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{{
+		ID: "ev-extend-string", Kind: types.EvidenceDirect,
+		Subject: "extend String", AnchorSymbol: "extend String",
+		Source: "src/extend.cj", LineStart: 6,
+		GroundingStatus: status,
+	}}})
+	ctx := &types.BusContext{Mutable: mu, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:             types.IntentEnumerate,
+		Predicates:         types.SemanticPredicates{IsCategoryEnumeration: true},
+		SourceScopeProfile: &types.SourceScopeProfile{RequestedScope: types.SourceScopeAll, IncludeAuxiliaryAsPrincipal: true},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+			SourceQuotes:      []string{"extend", "public class"},
+			RequestedFields:   []types.SourceInventoryRequestedField{types.SourceInventoryFieldName, types.SourceInventoryFieldLocation},
+			Confidence:        0.95,
+		},
+	}}}
+	var extendID string
+	for _, set := range preEmitSourceInventoryTypedPrincipalSets(ctx) {
+		for _, row := range set.Rows {
+			if row.DisplayLabel == "extend String" {
+				extendID = row.RowID
+			}
+		}
+	}
+	return ctx, extendID
+}
+
+func TestPreEmitSourceInventoryTypedPrincipalSets_AdmitsGroundedSiblingPartitionOnly(t *testing.T) {
+	_, groundedID := sourceInventoryGroundedSiblingPartitionTestContext(t, true)
+	if groundedID == "" {
+		t.Fatal("exact grounded sibling partition row shown to the finalizer was not registered")
+	}
+	_, ungroundedID := sourceInventoryGroundedSiblingPartitionTestContext(t, false)
+	if ungroundedID != "" {
+		t.Fatalf("ungrounded aggregate label must not mint a typed row alias, got %q", ungroundedID)
+	}
+}
+
+func TestPreCheckSourceInventoryRowIDBindings_MixedBlockAcceptsGroundedSiblingPartition(t *testing.T) {
+	ctx, extendID := sourceInventoryGroundedSiblingPartitionTestContext(t, true)
+	if extendID == "" {
+		t.Fatal("missing grounded sibling row id")
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "src/modifiers.cj", Line: 6}},
+		Blocks: []types.AnswerBlock{{
+			ID: "mixed", Kind: types.BlockTable, SurfaceRole: types.SurfacePrincipal,
+			FacetIDs: []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{{
+				ID: "extend-string", Label: "extend String",
+				SourceInventoryRowID: extendID, CitationRef: 0,
+			}},
+		}},
+	}
+	if hints := preCheckSourceInventoryRowIDBindings(doc, ctx); len(hints) != 0 {
+		t.Fatalf("mixed carrier rejected exact prompt-visible grounded sibling row id: %+v", hints)
+	}
+	if fixed := normalizeItemCitationRefsBySourceInventoryRowIDWithContext(doc, ctx); fixed != 1 {
+		t.Fatalf("row-id citation binding fixed=%d, want 1; doc=%+v", fixed, doc)
+	}
+	ref := doc.Blocks[0].Items[0].CitationRef
+	if ref < 0 || ref >= len(doc.Citations) || doc.Citations[ref].File != "src/extend.cj" || doc.Citations[ref].Line != 6 {
+		t.Fatalf("grounded sibling row id bound wrong citation: ref=%d citations=%+v", ref, doc.Citations)
+	}
+}
+
+func TestNormalizeItemCitationRefsByUniqueSourceInventoryDisplayRow_MixedBlockUsesGroundedSiblingUnion(t *testing.T) {
+	ctx, _ := sourceInventoryGroundedSiblingPartitionTestContext(t, true)
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "src/modifiers.cj", Line: 6}},
+		Blocks: []types.AnswerBlock{{
+			ID: "mixed", Kind: types.BlockTable, SurfaceRole: types.SurfacePrincipal,
+			FacetIDs: []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{{
+				ID: "extend-string", Label: "extend String", CitationRef: 0,
+			}},
+		}},
+	}
+	if fixed := normalizeItemCitationRefsByUniqueSourceInventoryDisplayRowWithContext(doc, ctx); fixed != 1 {
+		t.Fatalf("mixed typed union citation binding fixed=%d, want 1; doc=%+v", fixed, doc)
+	}
+	ref := doc.Blocks[0].Items[0].CitationRef
+	if ref < 0 || ref >= len(doc.Citations) || doc.Citations[ref].File != "src/extend.cj" || doc.Citations[ref].Line != 6 {
+		t.Fatalf("grounded sibling row label bound wrong citation: ref=%d citations=%+v", ref, doc.Citations)
+	}
+}
+
 func TestPreCheckSourceInventoryRowIDBindings_RequiresTypedIDForDuplicateLabel(t *testing.T) {
 	ctx, extendID, classID := sourceInventoryDuplicateCartRowIDTestContext(t)
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{

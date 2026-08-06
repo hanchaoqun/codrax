@@ -20042,3 +20042,26 @@ global table”，随后经历补 label、补 role/claim、错误 `family=mixed`
 
 工件：`eval/parallel_selected_summary_evalcampaign_b176_cangjie_write_replay_r94_20260806.md`、
 `eval/parallel_selected_summary_evalcampaign_b176_cangjie_write_replay_r94_20260806_manual_audit.md`。
+
+### 123.113 B177-S1：mixed inventory 的 typed 行身份与引用闭环
+
+`EVAL-B176-MIXEDROW1` 与 `EVAL-B175-CITREF1` 的生产残余已同根修复。此前 validator 虽已把 prompt-visible partition row 注册为 alias，但只有该行同时存在于 parser-owned
+synthetic global roster 时才接纳；family 省略的 mixed principal block 又只从 global roster 取绑定域。因此 Cangjie `extend` 等有完整 typed aggregate/evidence、却不在粗粒度
+parser roster 中的兄弟分区，会出现“提示要求复制 row_id、复制后硬拒”，无 row_id 时其唯一 display-row citation 也无法纠正。
+
+现在 prompt partition row 有两条且仅两条进入 typed registry 的精确路径：`file:line + surface_family` 与 synthetic global row 完全一致；或该行的 current-source
+`file + line + display identity` 与 grounded EvidenceItem 的 `subject/object/anchor_symbol` 完全一致。第二条不读取 evidence summary/detail、用户请求、block title、模型说明或最终
+答案 prose，ungrounded 行不能注册，因而不会让模型自报 aggregate label 铸造新权威。
+
+绑定域与内容裁决域同时拆开：显式 `source_inventory_family` 仍只接受该 family；family 省略的 mixed block 在 `source_inventory_row_id` 校验和唯一 display-row citation
+绑定时可使用全部已安全注册的 typed partition rows。extraneous principal item 硬门仍只读 synthetic global roster，未被扩域；未知 ID、跨 family ID、label/row 不一致及同名跨位置
+歧义继续 fail-closed。系统只校正结构化 row/citation 指针，不新增、删除或重写模型答案行及结论。
+
+回归覆盖：grounded sibling partition 可注册、相同 ungrounded aggregate 行不可注册；mixed block 可接受 prompt-visible sibling row ID 并绑定正确 citation；无 row ID 的唯一
+display label 可在 mixed typed union 中修正交叉引用；既有显式 family 越界与重复同名不猜测测试继续通过。定向 suite 全绿；完整 `go test ./internal/tool -count=1` 全绿
+（164.435s）。实现未识别 Cangjie/`extend` 关键词，按所有语言共用的 typed display row 与 grounded identity 工作。
+
+状态：`EVAL-B176-MIXEDROW1=implemented/full-suite-pass`；`EVAL-B175-CITREF1=implemented/production-closure/full-suite-pass`。下一批
+`B177-S2=BUCKETCARRIER1`，统一 Required Answer Blocks、Principal Enumeration Rows 与 repair recipe 的 carrier 教学，减少合法答案被迫重复与反复成文修补。
+
+本批未触碰 Trace 显式时间窗、因果投影、系统自动补齐、根因排序、唤醒链、窗内可消除量、实际占时/现规则可消除两轴，也未增加用户/模型/答案关键词硬门。
