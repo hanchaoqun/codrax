@@ -323,6 +323,9 @@ func TestSourceInventorySurfaceFamilyKeys_PreservesIndependentTypedMarkers(t *te
 	if got := SourceInventorySurfaceFamilyKeys([]string{"@Reusable(Card)"}); strings.Join(got, ",") != "@reusable" {
 		t.Fatalf("parameterized parser marker should retain its base family identity, got %#v", got)
 	}
+	if got := SourceInventorySurfaceFamilyKeys([]string{"Index", "Index (struct)", "@Component"}); strings.Join(got, ",") != "@component,index" {
+		t.Fatalf("typed decorator marker must precede a symbol-derived fallback family, got %#v", got)
+	}
 }
 
 func TestBuildSourceInventoryPrincipalRowSet_FiltersEachRequestedSurfaceFamilyByRole(t *testing.T) {

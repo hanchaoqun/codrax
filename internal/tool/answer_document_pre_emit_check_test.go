@@ -4472,6 +4472,57 @@ func TestNormalizeItemCitationRefsByUniqueSourceInventoryDisplayRow_MixedBlockUs
 	}
 }
 
+func TestPreCheckSourceInventoryExtraneousPrincipalItems_AcceptsAdmittedGroundedSiblingRow(t *testing.T) {
+	ctx, _ := sourceInventoryGroundedSiblingPartitionTestContext(t, true)
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "src/extend.cj", Line: 6}},
+		Blocks: []types.AnswerBlock{{
+			ID: "mixed", Kind: types.BlockTable, SurfaceRole: types.SurfacePrincipal,
+			FacetIDs: []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{{
+				ID: "extend-string", Label: "extend String", CitationRef: 0,
+			}},
+		}},
+	}
+	if hints := preCheckSourceInventoryExtraneousPrincipalItems(doc, ctx); len(hints) != 0 {
+		t.Fatalf("an exact grounded principal row admitted by the shared registry must not be rejected by a synthetic-only universe: %+v", hints)
+	}
+	if hints := preCheckSourceInventoryExactRowBinding(doc, ctx); len(hints) != 0 {
+		t.Fatalf("the admitted grounded row already has its exact source binding: %+v", hints)
+	}
+}
+
+func TestPreEmitSourceInventoryHardRowsForBlock_DecoratorMarkerOutranksDisplayFallback(t *testing.T) {
+	sets := []types.EnumerationDisplaySet{
+		{
+			ID: "entry", Label: "@Entry pages",
+			Rows: []types.EnumerationDisplayRow{{
+				RowID: "entry-index", Member: "Index (struct)", DisplayLabel: "Index (struct)",
+				Source: "src/Index.ets", LineStart: 5, Location: "src/Index.ets:5", HasCitation: true,
+				SurfaceTerms: []string{"Index", "Index (struct)", "@Component"},
+			}},
+		},
+		{
+			ID: "canonical", Label: "source inventory principal rows",
+			Rows: []types.EnumerationDisplayRow{{
+				RowID: "canonical-index", Member: "Index", DisplayLabel: "Index",
+				Source: "src/Index.ets", LineStart: 5, Location: "src/Index.ets:5", HasCitation: true,
+				SurfaceTerms: []string{"@Component"},
+			}},
+		},
+	}
+	rows, strict, families, invalid := preEmitSourceInventoryHardRowsForBlock(types.AnswerBlock{}, sets)
+	if invalid || !strict || len(rows) != 1 {
+		t.Fatalf("same typed decorator row should form one global alias identity: rows=%+v strict=%v families=%v invalid=%v", rows, strict, families, invalid)
+	}
+	if rows[0].Member != "Index (struct)" {
+		t.Fatalf("prompt-visible admitted row should remain the preferred alias, got %+v", rows[0])
+	}
+	if family := types.SourceInventorySurfaceFamilyKey(rows[0].SurfaceTerms); family != "@component" {
+		t.Fatalf("decorator family=%q, want @component", family)
+	}
+}
+
 func TestPreCheckSourceInventoryRowIDBindings_RequiresTypedIDForDuplicateLabel(t *testing.T) {
 	ctx, extendID, classID := sourceInventoryDuplicateCartRowIDTestContext(t)
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{

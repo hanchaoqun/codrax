@@ -27,15 +27,7 @@ func SourceInventorySurfaceFamilyKeys(terms []string) []string {
 		seen[key] = true
 		out = append(out, key)
 	}
-	for _, candidate := range keys {
-		for _, other := range keys {
-			if other != candidate && strings.HasPrefix(other, candidate+" ") {
-				add(candidate)
-				break
-			}
-		}
-	}
-	// A parser marker is a complete family without a symbol-specific companion.
+	// Exact parser markers precede symbol-derived declaration families.
 	for _, key := range keys {
 		if strings.HasPrefix(key, "@") && !strings.Contains(key, " ") {
 			marker := key
@@ -43,6 +35,14 @@ func SourceInventorySurfaceFamilyKeys(terms []string) []string {
 				marker = marker[:idx]
 			}
 			add(marker)
+		}
+	}
+	for _, candidate := range keys {
+		for _, other := range keys {
+			if other != candidate && strings.HasPrefix(other, candidate+" ") {
+				add(candidate)
+				break
+			}
 		}
 	}
 	if len(out) > 0 {

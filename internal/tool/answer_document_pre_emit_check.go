@@ -6330,13 +6330,16 @@ func preEmitSourceInventoryHardRowsForBlock(
 		return rows, true, allowedFamilies, false
 	}
 
-	// With no explicit family carrier, keep the hard check global. Only the
-	// synthetic typed roster is entitled to define that global universe; model
-	// aggregate labels and model block titles do not acquire scope authority.
+	// With no explicit family carrier, keep the hard check global over the same
+	// admitted typed registry used by completeness, row-id validation, and
+	// citation binding. Admission has already required either a canonical
+	// source-inventory row identity or an exact grounded evidence identity at
+	// that source coordinate. Restricting this lane to the synthetic roster
+	// alone creates two authority domains: completeness may require an admitted
+	// decorated/sibling row while the extraneous checker rejects that exact row.
+	// Supporting aggregates still cannot widen the universe because they never
+	// enter this principal registry, and model labels/titles remain non-inputs.
 	for _, set := range sets {
-		if !principalEnumerationSetIsSourceInventoryPrincipalRows(set) {
-			continue
-		}
 		for _, row := range set.Rows {
 			appendRow(row)
 		}

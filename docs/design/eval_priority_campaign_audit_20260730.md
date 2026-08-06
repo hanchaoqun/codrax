@@ -20598,3 +20598,41 @@ ArkTS 对照仍准确发布 4 个 `@Entry` 和 2 个 `@Builder`，逐行文件/�
 `EVAL-B184-CONTRACTSAME1=S8-implemented/full-tool-suite-pass/pending-r106`；
 `EVAL-B184-CITEMONO1=S8-implemented/full-tool-suite-pass/pending-r106`；
 `EVAL-B184-RETRYSTORM1=pending-r106-no-reject-verification`。
+
+### 123.130 B184 r106 与 S9：共享 registry 已接线，但全局越界域仍回退到 synthetic-only 子集
+
+S8 后重建并严格并行恰好两个跨语言 source-inventory case：
+
+- `cangjie_repomap`：117s，runner PASS / human PASS，finalizer reject=0；
+- `arkts_repomap`：228s，runner FAIL / human FAIL，finalizer reject=11、patch=9，最终降级。
+
+Cangjie 已证明 S8 的同名跨 family 修复生效：2 个 extend、2 个 foreign func、8 个 public class 全部正确，`Cart.cj:30` 与 `Cart.cj:14` 不再互换，也没有成文重试。
+因此 `EVAL-B184-CITEMONO1=resolved/r106-replay-confirmed`。ArkTS 则给出第二个、结构不同但同根的合同矛盾 witness：finalizer 的 Principal Enumeration Rows 明确要求
+`Index (struct) @ 01_entry_component_minimal.ets:5`，完备性门要求 ADD，同轮越界门却要求 REMOVE。模型连续在 `Index`、`Index (struct)`、`Index(struct)`、完整重发与 patch 间切换，无法满足互斥合同。
+
+根因是 S8 虽把三个消费者接到 `preEmitSourceInventoryTypedPrincipalSets`，但 `preEmitSourceInventoryHardRowsForBlock` 在无显式
+`source_inventory_family` 的全局 carrier 上又把 registry 收窄回 synthetic `source inventory principal rows` 子集。ArkTS 的 `@Entry` 行由 principal aggregate + exact grounded source coordinate
+精确接纳，却因 analyzer 的粗 role 只覆盖 function/method 而不在 synthetic type roster；于是同一 admitted typed row在 completeness 域存在、在 extraneous 域消失。另一个放大因素是
+`SourceInventorySurfaceFamilyKey` 先返回由 `Index`/`Index (struct)` 派生的 `index`，把同一行 parser 提供的 `@component` marker 放到后面，prompt 因而展示误导性的
+`surface_family=index`。
+
+`S9` 采用统一 authority 而非 ArkTS 特判：
+
+1. 无显式 family 的越界检查遍历完整 admitted principal registry；该 registry 的准入已要求 canonical row identity，或同一 source coordinate 上的 exact grounded evidence identity。support aggregate 不会被编译进 principal registry，块标题、item prose、用户输入与模型正文仍不是控制信号；
+2. typed parser marker 在 surface-family 顺序中先于 symbol/prefix fallback，使所有装饰器/注解语言共享同一规则；独立 marker 仍全部保留，不把不同 family 合并；
+3. 回归 pin 证明 exact grounded sibling principal row 不再被 synthetic-only 域拒绝，`@Component + Index (struct)` 与 canonical `Index` 在同一 typed 坐标只形成一个 alias identity；既有 supporting-only 拒绝与同名跨位置/family 测试继续通过；
+4. 完整 `go test ./internal/types ./internal/tool -count=1` 通过（types 21.854s；tool 最终复跑 162.392s）。首轮 tool suite 唯一失败是 source-inventory 文件 83 LOC 超过 78 LOC 收敛 ratchet；未抬阈值，压缩注释后保持 78 LOC 并复绿。
+
+r106 还确认独立的 `EVAL-B184-CLOSUREPART1=P1/confirmed`：source lens 已完整给出 4 个 `@Entry` 与 2 个 `@Builder`，explorer 首轮也逐项识别；但模型只 read 了两个文件、ground 了
+`Index + defaultHeader + GlobalCard`，随后明确知道尚有 ParentComponent、StyledPage、ListPage 未验证，仍提交 `resolved` 的 1+2 partial aggregate。completion 日志显示
+`generic forced-read gates bypassed by grounded model-owned completion boundary`，说明现有闭合权威只看“已有 grounded 行”，没有把 typed source-inventory 的已知未落地 principal 候选纳入闭合缺口。这与 S9 的成文身份修复分属上游调查闭合层，下一批单独设计：优先让 precise typed 未闭合 roster 继续开放 read/grounding 路径并拒绝 `resolved` partial closure；不能由系统替模型补写最终成员，更不能扫描用户/模型 prose。
+
+JSON 审计：ArkTS 首次 `blocks` 作为 JSON-encoded string 到达，兼容层已可证明无损地恢复；恢复后合同仍连续失败，故 JSON 不是主因。教学仍以当前 tool schema 为唯一 JSON authority；不可无损时保留可识别模型字符串并披露模型异常，不构造伪正常答案。S9 不触及 Trace、明确时间窗因果投影、自动补齐、根因排序、唤醒链、窗内可消除量及双维度性能根因。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b184_contract_identity_replay_r106_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b184_contract_identity_replay_r106_20260806_manual_audit.md`。
+
+状态：`EVAL-B184-CONTRACTSAME1=S9-implemented/full-types-tool-suites-pass/pending-r107`；
+`EVAL-B184-RETRYSTORM1=reopened/arkts-synthetic-subset-contract-loop`；
+`EVAL-B184-CITEMONO1=resolved/r106-replay-confirmed`；
+`EVAL-B184-CLOSUREPART1=P1/confirmed/pending-design`。
