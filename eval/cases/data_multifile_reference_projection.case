@@ -5,5 +5,5 @@ DATA_FIXTURE="data-multifile-reference"
 MIN_OUTPUT_CHARS=1
 EXPECT_MATCHES_REGEX="^[[:space:]]*17[[:space:]]*,[[:space:]]*0[[:space:]]*,[[:space:]]*5[[:space:]]*$"
 EXPECT_LOG_MATCHES_REGEX="route=data
-\\[cli/data\\] data task result.*contributions=4.*reconcile=pass
+\\[cli/data\\] data task result.*contributions=[1-9][0-9]*.*reconcile=pass
 \\[cli/data\\] terminal full path=.*terminal\\.json"

@@ -969,6 +969,9 @@ func TestAnalysisSkill_FieldValueRequiresRequestLiteralAndKeepsUnknownPerMemberV
 	rendered := strings.Join(append([]string{sk.OutputFormat}, sk.Workflow...), "\n")
 	for _, want := range []string{
 		"exact literal value already present in that request",
+		"requested edit/replacement/typo",
+		"before/after code tokens for the write plan",
+		"entities/exact targets and write analysis",
 		"asking which/what value, route, condition, or attribute belongs to each member",
 		"omit field_value_profile",
 		"source_inventory `summary`",

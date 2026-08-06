@@ -18332,3 +18332,56 @@ data 回放证明 B151 reference 排序和 B152 grounding join 没有回归，�
 
 状态：`EVAL-B153-RESLOCIDX1=implemented/full-dataquery+dataworkflow+repl-pass/awaiting-exact2-replay`；贡献/对账仍保持 fail-loud 与完整凭证；
 JSON 教学=`audited/no-malformed-json-in-r69`；模型结论所有权、Trace 显式窗、因果投影、自动补齐与两维根因=`untouched`。
+
+### 123.45 B154 r70：稳定实体身份产线闭环；eval 贡献基数过硬；write 可选载体决策顺序过重
+
+在 `main@810c4b4d5` 构建后严格并行恰好两个异构 case：
+
+- `data_multifile_reference_projection`：210s，runner FAIL / human PASS，最终精确答案 `17,0,5`；
+- `patch_go_typo`：144s，runner/human PASS，单行 structured patch 与项目验证均真实通过。
+
+data 已关闭 B153-S1 的生产回放义务：typed entity resolution 与 materialized rows 不再把 Beta 错接到 GroupC；最终 target 顺序、T2 补零、
+reconcile 和 output projection 全部通过。本轮选择另一条合法 DAG：先把 canonicalized observations 与 targets 关联，再过滤 inactive、non-target 和 unresolved
+行，最后产生三条逐记录 contribution（T1:10、T1:7、T3:5）。runner 唯一失败原因是 case 把日志硬编码为 `contributions=4`，假定必须先为非 target
+GroupB/r4 产生一条 contribution 后再由 reference projection 丢弃。用户合同只要求贡献账、对账和 target 全集答案，并没有规定非 target 行必须进入业务账；
+三条与四条是两种等价合法执行图。由此确认 `EVAL-B154-EVALCONTRIBCARD1=P1-eval-redline`：看护用例把一种内部 DAG 的精确基数当成结果合同，会把正确泛化
+路径判错，属于用户已提醒的“看护过硬”。
+
+write 的最终质量正确且验证不空签：`main.go` 只有第 25 行 `retrun→return`，计划 `kind=patch`，`go test -json ./...` 真实退出 0，报告明确
+`changed_path_coverage(main.go)=project_runner/target_behavior`。但过程有四次可避免拒绝，形成
+`EVAL-B154-JSONCHOICEMIND1=P1-efficiency`：
+
+1. Analyzer 把 edit before/after token 误当 field-value lookup，先后因 source_quote 不含完整 target/literal、target 非 owner-qualified 被拒；第三次删除可选 profile
+   才通过。这里没有畸形 JSON，问题是长教学没有先区分“答案值查找”和“写计划旧/新 token”；
+2. Planner 已收到 Go project test surface，却先生成读取源码 token 并 `exec.Command("go", "build")` 的 wrapper probe；先因失败路径不退出非零、再因不调用
+   changed production behavior 被拒，最后删除 probe，依赖 acceptance tests + verify-stage project runner 正确收口；
+3. 两组 hard validator 都是精确且必要的，不能为了少重试放宽。最优方案是把可选 carrier 的选择顺序前置成短互斥决策：edit token 不走 field-value lookup；
+   已有覆盖全部 changed paths 的 project runner 且是局部语法/build 修复时默认省略 optional probe。只有项目测试未覆盖请求行为或 controller 明确 proof-follow-up
+   才增加 probe；禁止 probe 重读源码 token 或包装同一 compiler/test command。
+
+本轮同样没有 malformed JSON；因此不启用字符串采矿或降级拼接。现有“可证明无损则修 carrier、不可证明则 typed reject/降级披露”边界不变。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b154_data_write_r70_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b154_data_write_r70_20260805_manual_audit.md`。
+
+状态：`EVAL-B153-RESLOCIDX1=production-replay-closed`；`EVAL-B154-EVALCONTRIBCARD1=confirmed/eval-fix-next`；
+`EVAL-B154-JSONCHOICEMIND1=confirmed/soft-teaching-next`；write apply/verify=`production-pass`；Trace 显式窗、因果投影、自动补齐、两维根因与模型结论
+所有权=`untouched`。
+
+### 123.46 B154-S1：收窄 eval 结果合同并前置可选 JSON 载体决策
+
+本批只修测试合同和软教学，不改变生产 hard validator，不扫描用户原文或模型/答案 prose 作运行门控：
+
+1. data case 保留精确最终答案 `17,0,5`、route=data、terminal path 和 `reconcile=pass`；贡献要求从固定 `=4` 收窄为正整数非空。这样仍能拒绝空贡献账，
+   同时允许“所有合格业务行先入账再投影”与“先关联 target 再为目标行入账”两类合法 typed DAG；
+2. Analyzer 的 field-value profile 教学新增互斥边界：请求编辑、替换或 typo 的 before/after code tokens 属于 write plan，不是 lookup answer；省略该 profile，
+   通过 entities/exact targets/write analysis 交接；真正的 `Owner.Field=false` 查找/计数合同不变；
+3. ChangePlan 教学在长 probe 规则前增加 `PROBE DECISION FIRST`：typed test surface 已有覆盖全部 changed paths 的 project runner，且变更是局部 syntax/build
+   repair 时，用 acceptance tests + verify runner 并省略 optional probe；只有测试面未覆盖请求行为或 controller 明确 proof-follow-up 才创建 probe；
+4. 这只是减少模型心智和错误选择。probe 的非零失败、changed-production coupling、same-package Go、C/C++/Rust/Cangjie/ArkTS 不绕 runtime enum 等 hard
+   约束全部保留；所有语言共享同一决策，不为 Go typo fixture 写特例。
+
+`go test ./internal/skill ./internal/agent -count=1` PASS（0.953s / 3.001s）；data case shell contract syntax PASS。
+
+状态：`EVAL-B154-EVALCONTRIBCARD1=implemented`；`EVAL-B154-JSONCHOICEMIND1=soft-teaching-implemented/awaiting-heterogeneous-replay`；
+malformed JSON 恢复边界=`unchanged`；模型答案/结论所有权与 Trace 全能力=`untouched`。

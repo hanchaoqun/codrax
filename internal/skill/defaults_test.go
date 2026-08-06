@@ -100,6 +100,11 @@ func TestChangePlanSkillKeepsVerificationProbeAnOptionalDirectRuntime(t *testing
 	}
 	body := allWorkflowBodies(sk)
 	for _, want := range []string{
+		"PROBE DECISION FIRST",
+		"typed test_surface already has a project runner covering every changed path",
+		"local syntax/build repair",
+		"omit a probe",
+		"Never create a probe merely to reread changed source tokens or wrap the same compiler/test command",
 		"verification_probes[] are optional source-level programs, not command runners",
 		"omit verification_probes[] and put the native build/test command in acceptance_tests[]",
 		"never launch an external compiler or test runner from a supported-language wrapper",
