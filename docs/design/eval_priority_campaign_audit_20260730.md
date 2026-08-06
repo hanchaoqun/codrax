@@ -19869,3 +19869,22 @@ schema 与 request body，而不是从 final prose 设门。
 
 施工排序：B175-S1=`MATMODE1`；B175-S2=`ACTIONCARRIER1`；B175-S3=`EVALMIXTABLE1`。三项均不读取用户/模型/答案关键词，不接管结论。Trace 显式时间窗、因果投影、
 自动补齐、根因排序、唤醒链、窗内可消除量、实际占时/现规则可消除两轴保持不变。
+
+### 123.105 B175-S1：用户材料身份与 typed 使用方式拆权
+
+`EVAL-B174-MATMODE1` 已按字段权威边界修复。用户点名候选材料的 floor 现在只拥有 path/required/显式身份：对应材料始终进入 required contract，并继续从 optional
+移除；规划器已经给出的、字段完备且可验证的使用方式则保持不变。具体而言，`script_consumed` 需要源 path，`text_evidence_consumed` 需要源 path 与 evidence path，
+`planner_distilled` 需要源 path/ID 与非空 distilled notes。只有 usage mode 缺失、未知、`reference_only` 被误放到 required，或 typed mode 缺少必要元数据时，才回退到
+candidate-derived 安全模式。
+
+合并顺序从 candidate-first 改为 plan-first 后，另由 user floor 定向重写 `Required=true` 和 floor purpose，因此不会丢失跨批 required 身份，也不会让 plan 的普通 purpose
+绕过 floor 识别。`RequiredRunnerInputPaths` 随最终 mode 生成：已蒸馏的 `instructions.md` 不再被系统强塞进脚本输入；text evidence 只调度 evidence path；未规划的 CSV 仍默认
+直接脚本消费。这样消除了“planner 按教学选择 planner_distilled → floor 改回 script_consumed → scheduling guard 强制读取 → repair 再被改回”的系统自矛盾。
+
+回归覆盖三条边界：合法 distilled mode/notes 保留；合法 text-evidence mode/path 保留；不完整 distilled mode 回退为 script consumption 并加入 input paths。原有用户点名
+材料跨 plan shape 的 required/optional/coverage pin 继续通过。
+
+验证：定向 `TestApplyDataTaskUserMaterialFloor*` 全绿；完整 `go test ./internal/repl -count=1` 全绿（31.411s）。本批没有新增 JSON 教学副本，没有读取用户或模型 prose 做
+硬门，也没有修改最终答案。Trace 显式时间窗、因果投影、系统补齐、根因排序、唤醒链、窗内可消除量、两维根因与模型结论所有权均未触碰。
+
+状态：`EVAL-B174-MATMODE1=implemented/full-suite-pass`；下一批 `B175-S2=ACTIONCARRIER1`。

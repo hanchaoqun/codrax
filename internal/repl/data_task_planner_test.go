@@ -10272,6 +10272,74 @@ func TestApplyDataTaskUserMaterialFloorPreservesExplicitMaterialsAcrossPlanShape
 	}
 }
 
+func TestApplyDataTaskUserMaterialFloorPreservesVerifiedPlanUsageModes(t *testing.T) {
+	candidates := []dataquery.CandidateFile{
+		{Path: "instructions.md", Kind: "text"},
+		{Path: "diagram.png", Kind: "image", TextEvidencePaths: []string{"diagram.txt"}},
+		{Path: "orders.csv", Kind: "csv"},
+	}
+	plan := dataquery.TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		CoverageContract: dataquery.CoverageContract{RequiredMaterials: []dataquery.CoverageMaterial{
+			{
+				Path:           "instructions.md",
+				UsageMode:      dataquery.MaterialUsePlannerDistilled,
+				DistilledNotes: []string{"Keep only active records."},
+			},
+			{
+				Path:             "diagram.png",
+				UsageMode:        dataquery.MaterialUseTextEvidenceConsumed,
+				TextEvidencePath: "reviewed-diagram.txt",
+			},
+		}},
+	}
+
+	got := applyDataTaskUserMaterialFloor(
+		"Use instructions.md, diagram.png, and orders.csv.",
+		candidates,
+		plan,
+	)
+	materials := dataTaskCoverageMaterialMap(got.CoverageContract.RequiredMaterials)
+	instructions := materials["path:instructions.md"]
+	if instructions.UsageMode != dataquery.MaterialUsePlannerDistilled || strings.Join(instructions.DistilledNotes, "\n") != "Keep only active records." {
+		t.Fatalf("instructions=%+v, want planner-authored distilled coverage preserved", instructions)
+	}
+	diagram := materials["path:diagram.png"]
+	if diagram.UsageMode != dataquery.MaterialUseTextEvidenceConsumed || diagram.TextEvidencePath != "reviewed-diagram.txt" {
+		t.Fatalf("diagram=%+v, want planner-authored evidence coverage preserved", diagram)
+	}
+	orders := materials["path:orders.csv"]
+	if orders.UsageMode != dataquery.MaterialUseScriptConsumed {
+		t.Fatalf("orders=%+v, want candidate fallback for an unplanned material", orders)
+	}
+	for key, material := range materials {
+		if !material.Required || material.Purpose != dataTaskUserExplicitMaterialPurpose {
+			t.Fatalf("material %q=%+v, want user-owned required identity", key, material)
+		}
+	}
+	if strings.Join(got.InputPaths, ",") != "orders.csv,reviewed-diagram.txt" {
+		t.Fatalf("InputPaths=%v, distilled source must not be scheduled for direct script consumption", got.InputPaths)
+	}
+}
+
+func TestApplyDataTaskUserMaterialFloorReplacesIncompletePlanUsageMode(t *testing.T) {
+	plan := dataquery.TaskPlan{CoverageContract: dataquery.CoverageContract{RequiredMaterials: []dataquery.CoverageMaterial{
+		{Path: "instructions.md", UsageMode: dataquery.MaterialUsePlannerDistilled},
+	}}}
+	got := applyDataTaskUserMaterialFloor(
+		"Use instructions.md.",
+		[]dataquery.CandidateFile{{Path: "instructions.md", Kind: "text"}},
+		plan,
+	)
+	material := got.CoverageContract.RequiredMaterials[0]
+	if material.UsageMode != dataquery.MaterialUseScriptConsumed || len(material.DistilledNotes) != 0 {
+		t.Fatalf("material=%+v, want safe candidate fallback for incomplete distilled coverage", material)
+	}
+	if strings.Join(got.InputPaths, ",") != "instructions.md" {
+		t.Fatalf("InputPaths=%v, want fallback source scheduled", got.InputPaths)
+	}
+}
+
 func TestDataTaskMaterialDiscoveryFallbackDoesNotStealTypedActionPlan(t *testing.T) {
 	lines := make([]string, 0, dataTaskComplexCustomScriptLineLimit)
 	for i := 0; i < dataTaskComplexCustomScriptLineLimit+5; i++ {

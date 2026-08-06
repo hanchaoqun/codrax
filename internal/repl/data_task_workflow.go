@@ -1722,7 +1722,7 @@ func applyDataTaskUserMaterialFloor(userLine string, candidates []dataquery.Cand
 	if len(materials) == 0 {
 		return plan
 	}
-	plan.CoverageContract.RequiredMaterials = mergeDataTaskCoverageMaterials(materials, plan.CoverageContract.RequiredMaterials, true)
+	plan.CoverageContract.RequiredMaterials = mergeDataTaskUserMaterialFloor(materials, plan.CoverageContract.RequiredMaterials)
 	requiredKeys := dataTaskCoverageMaterialKeySet(plan.CoverageContract.RequiredMaterials)
 	plan.CoverageContract.OptionalMaterials = dataTaskFilterCoverageMaterials(plan.CoverageContract.OptionalMaterials, func(m dataquery.CoverageMaterial) bool {
 		key := dataTaskCoverageMaterialKey(m)
@@ -1734,6 +1734,48 @@ func applyDataTaskUserMaterialFloor(userLine string, candidates []dataquery.Cand
 	)
 	plan.InputPaths = mergeDataTaskInputPaths(plan.InputPaths, plan.CoverageContract.RequiredRunnerInputPaths())
 	return plan
+}
+
+// mergeDataTaskUserMaterialFloor keeps two independent authorities separate:
+// the user mention owns whether a material is required, while a valid typed plan
+// owns how that material was consumed. Candidate-derived usage modes are only a
+// fallback when the plan omitted the mode or supplied incomplete metadata.
+func mergeDataTaskUserMaterialFloor(floor, planned []dataquery.CoverageMaterial) []dataquery.CoverageMaterial {
+	merged := mergeDataTaskCoverageMaterials(planned, floor, true)
+	floorByKey := make(map[string]dataquery.CoverageMaterial, len(floor))
+	for _, material := range floor {
+		if key := dataTaskCoverageMaterialKey(material); key != "" {
+			floorByKey[key] = material
+		}
+	}
+	for i := range merged {
+		candidate, ok := floorByKey[dataTaskCoverageMaterialKey(merged[i])]
+		if !ok {
+			continue
+		}
+		merged[i].Required = true
+		merged[i].Purpose = dataTaskUserExplicitMaterialPurpose
+		if dataTaskCoverageMaterialHasVerifiableUsage(merged[i]) {
+			continue
+		}
+		merged[i].UsageMode = candidate.UsageMode
+		merged[i].TextEvidencePath = candidate.TextEvidencePath
+		merged[i].DistilledNotes = append([]string(nil), candidate.DistilledNotes...)
+	}
+	return merged
+}
+
+func dataTaskCoverageMaterialHasVerifiableUsage(material dataquery.CoverageMaterial) bool {
+	switch dataquery.CoverageMaterialUseMode(strings.ToLower(strings.TrimSpace(string(material.UsageMode)))) {
+	case dataquery.MaterialUseScriptConsumed:
+		return normalizeDataTaskCoveragePath(material.Path) != ""
+	case dataquery.MaterialUseTextEvidenceConsumed:
+		return normalizeDataTaskCoveragePath(material.Path) != "" && normalizeDataTaskCoveragePath(material.TextEvidencePath) != ""
+	case dataquery.MaterialUsePlannerDistilled:
+		return (normalizeDataTaskCoveragePath(material.Path) != "" || strings.TrimSpace(material.ID) != "") && len(cleanDataTaskStrings(material.DistilledNotes)) > 0
+	default:
+		return false
+	}
 }
 
 func prepareDataTaskWorkflowPlanForExecution(repoRoot string, userLine string, candidates []dataquery.CandidateFile, records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) dataquery.TaskPlan {
