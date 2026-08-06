@@ -12,6 +12,12 @@ import (
 	"time"
 )
 
+// ChangePlanJSONShapeFirstTeaching is the compact carrier decision shared by
+// the planner skill, emit tool description, and repair reminder. Keeping this
+// before semantic plan guidance prevents models from spending a retry deciding
+// whether structured siblings should be native JSON or JSON-encoded strings.
+const ChangePlanJSONShapeFirstTeaching = "JSON SHAPE FIRST: emit exactly one JSON object. changes[], acceptance_tests[], verification_probes[], and every changes[i].verification_probes[] value are native JSON arrays, not strings containing JSON. Inside those entries, encode ordinary string values (including code) with standard JSON escaping. If a repair asks you to re-emit an array, preserve every intended entry; never delete a field merely to make decoding pass."
+
 // Plan status enum — legal values of ChangePlan.Status. The plan
 // moves through these monotonically during a single apply Run;
 // /plan list reads the string back to colour each row. Values are

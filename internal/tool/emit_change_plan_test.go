@@ -19,6 +19,45 @@ func newTestBusCtx() *types.BusContext {
 	}
 }
 
+func TestEmitChangePlanFrontLoadsCanonicalJSONShapeFirstTeaching(t *testing.T) {
+	tool := &EmitChangePlan{}
+	if !strings.HasPrefix(tool.Description(), types.ChangePlanJSONShapeFirstTeaching) {
+		t.Fatalf("tool description must front-load canonical ChangePlan JSON shape teaching: %q", tool.Description())
+	}
+	if !strings.HasPrefix(emitChangePlanSchemaReminder, types.ChangePlanJSONShapeFirstTeaching) {
+		t.Fatalf("repair reminder must reuse canonical ChangePlan JSON shape teaching: %q", emitChangePlanSchemaReminder)
+	}
+	if !strings.Contains(types.ChangePlanJSONShapeFirstTeaching, "ordinary string values (including code) with standard JSON escaping") {
+		t.Fatalf("canonical teaching must distinguish native containers from escaped string values: %q", types.ChangePlanJSONShapeFirstTeaching)
+	}
+}
+
+func TestEmitChangePlanMalformedVerificationProbeCarrierFailsWithTypedPreservationGuidance(t *testing.T) {
+	ctx := newTestBusCtx()
+	ctx.Mode = types.ModePlan
+	ctx.PipelineStage = types.StagePlan
+	raw := json.RawMessage(`{
+	  "request":"fix the boundary",
+	  "summary":"Apply a bounded boundary repair and preserve the intended verification probe instead of silently deleting it after a carrier error.",
+	  "changes":[{"path":"src/widget.rs","kind":"modify","new_content":"pub fn widget() {}\n","rationale":"repair the production boundary"}],
+	  "verification_probes":"[{\"id\":\"rust-boundary\",\"language\":\"rust\",\"code\":\"eprintln!(\"{}\", value);\"}]"
+	}`)
+	res, err := (&EmitChangePlan{}).Execute(ctx, raw)
+	if err == nil {
+		t.Fatal("malformed inner verification_probes JSON must preserve the strict failure")
+	}
+	if res.Success || res.Repair == nil || res.Repair.Code != "write_plan_repair_pack" {
+		t.Fatalf("malformed probe carrier result = %+v err=%v", res, err)
+	}
+	if !strings.Contains(res.Summary, "could not safely recover") ||
+		!strings.Contains(res.Summary, "do not omit the field") {
+		t.Fatalf("malformed probe carrier must disclose degradation and preserve intent: %s", res.Summary)
+	}
+	if ctx.Mutable.ChangePlan() != nil {
+		t.Fatalf("malformed probe carrier must not install a partial plan: %+v", ctx.Mutable.ChangePlan())
+	}
+}
+
 func TestNormalizeVerificationProbeChangedTargetRefsSeparatesModulePathsFromSymbols(t *testing.T) {
 	probes := []types.VerificationProbe{{
 		ID:         "module-ref",

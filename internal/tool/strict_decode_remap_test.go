@@ -183,6 +183,49 @@ func TestRemapStrictDecodeError_CannotUnmarshalStringObjectRewritten(t *testing.
 	}
 }
 
+func TestRemapStrictDecodeError_MalformedStringCarrierDisclosesNoLosslessRepair(t *testing.T) {
+	type params struct {
+		VerificationProbes []struct {
+			ID   string `json:"id"`
+			Code string `json:"code"`
+		} `json:"verification_probes"`
+	}
+	// The outer tool-call JSON is valid. After its string wrapper is decoded,
+	// the inner array is malformed because the quotes in eprintln!("{}", ...)
+	// were not escaped for the inner JSON string literal. Repairing those bytes
+	// would require guessing source-language intent, so the system must not do it.
+	raw := []byte(`{"verification_probes":"[{\"id\":\"rust-boundary\",\"code\":\"eprintln!(\"{}\", value);\"}]"}`)
+	var p params
+	original := json.Unmarshal(raw, &p)
+	if original == nil {
+		t.Fatal("expected string carrier decode error")
+	}
+	msg := RemapStrictDecodeErrorWithRaw(original, nil, raw).Error()
+	for _, want := range []string{
+		`"verification_probes" field`,
+		"inner array is malformed",
+		"could not safely recover",
+		"preserve every intended entry",
+		"do not omit the field",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("malformed carrier guidance missing %q: %s", want, msg)
+		}
+	}
+	for _, banned := range []string{"streaming layer wrapped", "Go struct field", "params."} {
+		if strings.Contains(msg, banned) {
+			t.Fatalf("malformed carrier guidance contains misleading/internal token %q: %s", banned, msg)
+		}
+	}
+	repair := strictDecodeToolRepair(original, nil, raw)
+	if repair == nil || repair.Code != "tool_param_json_string_carrier_unrecoverable" {
+		t.Fatalf("typed malformed-carrier repair = %+v", repair)
+	}
+	if repair.Metadata["inner_state"] != "malformed" || !strings.Contains(repair.Hint, "do not omit") {
+		t.Fatalf("malformed-carrier repair lacks explicit degradation/preservation context: %+v", repair)
+	}
+}
+
 func TestStrictDecodeToolRepair_MisplacedField(t *testing.T) {
 	original := produceStrictDecodeErr(t, `{"inner":{"form":"x","citation_ref":7}}`)
 	repair := strictDecodeToolRepair(original, []MisplacedFieldHint{{

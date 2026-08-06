@@ -138,6 +138,22 @@ func TestChangePlanSkillKeepsVerificationProbeAnOptionalDirectRuntime(t *testing
 	}
 }
 
+func TestChangePlanSkillFrontLoadsCanonicalJSONShapeFirstTeaching(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	sk, err := r.Get("change-plan-skill")
+	if err != nil {
+		t.Fatalf("Get(change-plan-skill): %v", err)
+	}
+	if len(sk.Workflow) == 0 || sk.Workflow[0] != types.ChangePlanJSONShapeFirstTeaching {
+		t.Fatalf("canonical ChangePlan JSON-shape teaching must be the first workflow decision, got: %+v", sk.Workflow)
+	}
+	joined := strings.Join(sk.Workflow, "\n")
+	if strings.Count(joined, types.ChangePlanJSONShapeFirstTeaching) != 1 {
+		t.Fatalf("canonical ChangePlan JSON-shape teaching must appear exactly once, got %d", strings.Count(joined, types.ChangePlanJSONShapeFirstTeaching))
+	}
+}
+
 func TestWriteAnalysisSkillRenderedPlacementGuidanceIsTyped(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)

@@ -30,7 +30,7 @@ import (
 // itself re-primes the LLM with the full schema so the next retry has
 // the structural information it needs to recover. Plain text, no JSON
 // formatting, kept short enough to fit in a model's working memory.
-const emitChangePlanSchemaReminder = "REQUIRED schema: {request: string (1-3 sentences restating the user's ask), " +
+const emitChangePlanSchemaReminder = types.ChangePlanJSONShapeFirstTeaching + " REQUIRED schema: {request: string (1-3 sentences restating the user's ask), " +
 	"summary: string (3-10 sentences explaining what + why), " +
 	"changes: array of {path: string, kind: \"create\"|\"modify\"|\"delete\"|\"patch\", " +
 	"new_content: string (full file body for create/modify), patch: string (unified diff for kind=patch), edits: optional structured line edits for kind=patch, " +
@@ -121,7 +121,8 @@ func (t *EmitChangePlan) Name() string { return "emit_change_plan" }
 // modify an existing one, how to phrase rationale) lives in
 // change-plan-skill's prompt.
 func (t *EmitChangePlan) Description() string {
-	return "Emit the structured ChangePlan for the user's requested code change. " +
+	return types.ChangePlanJSONShapeFirstTeaching + "\n\n" +
+		"Emit the structured ChangePlan for the user's requested code change. " +
 		"Call EXACTLY once per plan-stage dispatch — further calls overwrite the " +
 		"prior emission. The plan is a proposal only; apply-stage consumes it."
 }

@@ -223,6 +223,15 @@ const (
 	jsonStringCarrierObject jsonStringCarrierKind = "object"
 )
 
+type jsonStringCarrierInnerState string
+
+const (
+	jsonStringCarrierInnerUnknown    jsonStringCarrierInnerState = "unknown"
+	jsonStringCarrierInnerValid      jsonStringCarrierInnerState = "valid"
+	jsonStringCarrierInnerMalformed  jsonStringCarrierInnerState = "malformed"
+	jsonStringCarrierInnerWrongShape jsonStringCarrierInnerState = "wrong_shape"
+)
+
 // remapCannotUnmarshalStringIntoNativeJSON detects streaming artefacts where
 // the LLM JSON.stringify'd a structured value before putting it in the tool
 // call. It uses the decoder's target type only to choose array/object guidance;
@@ -245,6 +254,19 @@ func remapCannotUnmarshalStringIntoNativeJSON(err error, raw []byte) (error, boo
 			"each entry in the %q array must be a native JSON object carrying this tool's schema fields for that entry (e.g. %q), not a plain string — keep the array, re-emit every entry as an object",
 			field, field+`: [{...}, {...}]`), true
 	}
+	innerState := rawJSONStringCarrierInnerState(raw, field, kind)
+	if innerState == jsonStringCarrierInnerMalformed || innerState == jsonStringCarrierInnerWrongShape {
+		logging.Info("[strict_decode_remap] unrecoverable string-carrier field=%q kind=%s inner_state=%s", field, kind, innerState)
+		shape := "object"
+		example := field + `: {...}`
+		if kind == jsonStringCarrierArray {
+			shape = "array"
+			example = field + `: [{...}, {...}]`
+		}
+		return fmt.Errorf(
+			"the %q field arrived as a JSON-encoded string, but its inner %s is %s; Codrax could not safely recover it without changing structured content. Re-emit %q as a native JSON %s (e.g. %q), preserve every intended entry, and do not omit the field merely to make decoding pass",
+			field, shape, string(innerState), field, shape, example), true
+	}
 	logging.Info("[strict_decode_remap] string-carrier field %q kind=%s", field, kind)
 	if kind == jsonStringCarrierObject {
 		return fmt.Errorf(
@@ -254,6 +276,51 @@ func remapCannotUnmarshalStringIntoNativeJSON(err error, raw []byte) (error, boo
 	return fmt.Errorf(
 		"the %q field must be a native JSON array of objects (e.g. %q), not a JSON-encoded string. The streaming layer wrapped your %q value in quotes — re-emit %q as a native array (no surrounding quotes, no escaped inner quotes)",
 		field, field+`: [{...}, {...}]`, field, field), true
+}
+
+// rawJSONStringCarrierInnerState distinguishes a lossless stringify wrapper
+// from an inner payload whose syntax/shape is itself invalid. It parses only
+// the outer object and the selected string value. No partial rows or code text
+// are extracted: malformed structured content is not authority and must be
+// re-emitted by the model rather than guessed by the system.
+func rawJSONStringCarrierInnerState(raw []byte, field string, kind jsonStringCarrierKind) jsonStringCarrierInnerState {
+	if len(raw) == 0 || strings.TrimSpace(field) == "" || kind == "" {
+		return jsonStringCarrierInnerUnknown
+	}
+	var top map[string]json.RawMessage
+	if json.Unmarshal(raw, &top) != nil {
+		return jsonStringCarrierInnerUnknown
+	}
+	fieldRaw, ok := top[field]
+	if !ok {
+		return jsonStringCarrierInnerUnknown
+	}
+	var encoded string
+	if json.Unmarshal(fieldRaw, &encoded) != nil {
+		return jsonStringCarrierInnerUnknown
+	}
+	trimmed := strings.TrimSpace(encoded)
+	switch kind {
+	case jsonStringCarrierArray:
+		if !strings.HasPrefix(trimmed, "[") {
+			return jsonStringCarrierInnerWrongShape
+		}
+		var value []json.RawMessage
+		if json.Unmarshal([]byte(trimmed), &value) != nil {
+			return jsonStringCarrierInnerMalformed
+		}
+	case jsonStringCarrierObject:
+		if !strings.HasPrefix(trimmed, "{") {
+			return jsonStringCarrierInnerWrongShape
+		}
+		var value map[string]json.RawMessage
+		if json.Unmarshal([]byte(trimmed), &value) != nil {
+			return jsonStringCarrierInnerMalformed
+		}
+	default:
+		return jsonStringCarrierInnerUnknown
+	}
+	return jsonStringCarrierInnerValid
 }
 
 // rawFieldValueKind reports the first byte of the JSON value following

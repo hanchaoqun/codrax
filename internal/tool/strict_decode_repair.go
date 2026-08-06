@@ -176,6 +176,19 @@ func strictDecodeToolRepair(err error, hints []MisplacedFieldHint, raw []byte) *
 				},
 			}
 		}
+		_, kind := extractCannotUnmarshalStringTarget(err)
+		innerState := rawJSONStringCarrierInnerState(raw, field, kind)
+		if innerState == jsonStringCarrierInnerMalformed || innerState == jsonStringCarrierInnerWrongShape {
+			return &types.ToolRepair{
+				Code:   "tool_param_json_string_carrier_unrecoverable",
+				Fields: []string{field},
+				Hint:   "The field is a string whose inner structured JSON is malformed or has the wrong shape, so no lossless repair was applied. Re-emit it as the schema's native JSON array/object, preserve every intended entry, and do not omit the field to make decoding pass.",
+				Metadata: map[string]string{
+					"field":       field,
+					"inner_state": string(innerState),
+				},
+			}
+		}
 		return &types.ToolRepair{
 			Code:   "tool_param_json_string_carrier",
 			Fields: []string{field},

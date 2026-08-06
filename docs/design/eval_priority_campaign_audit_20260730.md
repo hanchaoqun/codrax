@@ -18939,9 +18939,10 @@ Rust 的 runner PASS 是新的确定性假绿。唯一执行命令为 `make chec
 `declared_project_check/source_static`，没有 Rust 编译、target execution 或 target behavior，final artifact 却发布 `proof.status=strong` 与
 `all_batches_verified`。应用代码还在 impl 内以裸 `try_milliseconds(...)` 调用关联函数，未经过 Rust 编译，不能判正确。
 
-触发链揭示两个独立 GAP：Planner 首次把完整合法的 `verification_probes[]` JSON 数组放进 string carrier；strict decoder 虽识别
-`string-carrier field verification_probes kind=array`，仍硬拒。模型重发时直接删除全部 probes。现有 B160-S1 终态门又要求“probe 明确 runner_missing”才把
-source-static 降为 unverified；probe 不存在反而绕过门。分别登记 `EVAL-B164-PLANJSONARRAY1=P1/lossless-carrier-repair` 与
+触发链揭示两个独立 GAP：Planner 首次发出的 tool-call 外层 JSON 合法，但把 `verification_probes[]` 放进 string carrier 后，内层 Rust
+`code` 的双引号没有按 JSON 字符串规则转义；该内层数组实际是畸形 JSON，并不是可无损解包的合法 stringify 载荷。strict decoder 拒绝猜造代码是正确的，
+但旧诊断把它误说成普通 wrapper、只要求“去掉外层引号”；模型重发时直接删除全部 probes。现有 B160-S1 终态门又要求“probe 明确 runner_missing”才把
+source-static 降为 unverified；probe 不存在反而绕过门。分别登记 `EVAL-B164-PLANJSONARRAY1=P1/malformed-carrier-guidance` 与
 `EVAL-B164-STATICNOPROBE1=P0/verification-authority`。
 
 工件：`eval/parallel_selected_summary_evalcampaign_b164_json_proof_replay_r80_20260805.md`、
@@ -18972,3 +18973,26 @@ source-static 门只作没有更具体 proof verdict 时的兜底。第二次
 
 状态：`EVAL-B164-STATICNOPROBE1=implemented/full-write-state-suite-pass`；提交推送进行中；
 `EVAL-B164-PLANJSONARRAY1=next-batch`；Trace 与答案所有权=`untouched`。
+
+### 123.70 B164-S2：JSON 容器与字符串转义单源教学；畸形 carrier 明确降级而不猜造
+
+本批先纠正 r80 的事实判断，再修复导致 probe 被静默删除的通用交互合同：
+
+1. 单源 `ChangePlanJSONShapeFirstTeaching` 同时进入 planner skill 首项、`emit_change_plan` tool description 与 repair reminder：只要求
+   `changes[]`、`acceptance_tests[]`、顶层/逐 change 的 `verification_probes[]` 使用原生 JSON 数组，不再让模型判断是否该 stringify 容器；
+2. 教学显式区分“容器不是 JSON 字符串”和“容器内部普通字符串仍须标准 JSON 转义”。尤其 `code` 字段内的双引号必须转义，避免系统自身一句
+   “不要转义”反向诱发畸形 JSON；repair 还要求保留所有原计划 entry，禁止为通过 decoder 删除字段；
+3. strict decode 仅解析外层对象、目标字段字符串和预期容器形状，将 string carrier 分为 `valid`、`malformed`、`wrong_shape`、`unknown`。
+   合法 stringify 数组继续走既有无损兼容；畸形/错形载荷铸造 typed
+   `tool_param_json_string_carrier_unrecoverable`，披露 `could not safely recover` 与 `inner_state`，要求原生重发且不得省略；
+4. 不从畸形 `code` 文本提取片段，不做语言特例 quote 猜测，也不把 partial JSON 当可执行/验证 authority。原因是代码引号后紧跟逗号时既可能是
+   源码内容也可能是 JSON value 边界，系统无法在不改变结构语义的情况下确定；
+5. 新看护覆盖 skill/tool/reminder 三面单源、代码字符串标准转义教学、malformed carrier typed repair、`emit_change_plan` 端到端 repair pack 与
+   “不安装 partial ChangePlan”。判定只读 tool 参数的 typed JSON 结构，不扫描用户题面、模型 prose 或最终答案。
+
+验证：定向 JSON teaching/remap/repair/emit 测试 PASS；完整
+`go test ./internal/types ./internal/skill ./internal/tool -count=1` 全绿（21.978s / 0.251s / 161.883s）。
+
+状态：`EVAL-B164-PLANJSONARRAY1=implemented/full-affected-suite-pass`；`EVAL-B164-STATICNOPROBE1=implemented/full-write-state-suite-pass`；
+下一轮 exact-2 必须同时人工检查 planner 首次 tool-call、是否保留 probe/acceptance intent、changed-path 执行能力与最终 proof 强度；
+Trace 显式窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量、双维根因与模型结论所有权=`untouched`。
