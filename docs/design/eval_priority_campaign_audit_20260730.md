@@ -20491,3 +20491,41 @@ r102 没有 malformed JSON、blocks-string recovery、repair 或成文拒绝。J
 状态：`EVAL-B182-SUPPORTPROMOTE1=resolved/r102-replay-confirmed`；
 `EVAL-B183-DECLACTIVE1=S5-implemented/full-impacted-suites-pass/pending-r103`；
 `EVAL-B180-PRESTAGETOPO1=reopened/as-declaration-vs-active-membership-class`。
+
+### 123.127 B184 r103：active-membership 复放关闭；分桶型 source inventory 跳过精确引用绑定
+
+S5 后重建并严格并行恰好两个异构 case：
+
+- `qf_architecture`：127s，runner PASS / human PASS；
+- `cangjie_repomap`：147s，runner PASS / human FAIL。
+
+`qf_architecture` 已确认 S5 闭环。explorer 与 finalizer 都把当前 read-mode 执行成员收窄为 4 个无条件主阶段和 2 个条件预阶段；`StageMultiRepoFocus` 只作为广义声明能力/背景出现，
+没有再次进入当前 topology。finalizer prompt 中的 `Current Run Stage-Lane Authority` 来自 exact grounded binding 与当前 checkout 核验，没有污染客户仓或 write mode。探索完成阶段出现一次
+`members` 为 2 项而 `support_refs` 为 3 项的精确索引不等长，模型下一次提交修正；没有 finalizer reject、malformed JSON 或 JSON recovery。该重试是模型结构填表波动，不是系统同字段既要求又拒绝的合同矛盾。
+
+`cangjie_repomap` 的 typed rowset、数量、成员、路径与 package 均准确，仍为 2 个 extend、2 个 foreign func、8 个 public class；但可见答案中 `extend Cart` 的引用被系统留成
+`internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6` 的 `native_add`，而模型提交池和 `Principal Enumeration Rows` 中都已有正确的
+`eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:30`。日志同时给出三条决定性 witness：
+
+1. 模型用 `facet_ids=[bucket_label, extend 块]` 表达分桶 section，没有额外复制 `enumeration_item`；
+2. 最安全的 `normalizeItemCitationRefsByUniqueSourceInventoryDisplayRowWithContext` 零触发，因为它额外要求 `enumeration_item` facet；
+3. 后续 candidate-role/label 模糊修复共改 10 个引用，精确 alignment check 最终仍报告 `extend Cart` 当前引用非法、候选含正确 `Cart.cj:30`，但该检查按既裁仅作 soft advisory，随后未使用的正确池项又被清理。
+
+由此确认 `EVAL-B184-CITEREPAIR1=P1/confirmed`：这是所有语言 source inventory 的结构载体 gap，不是 Cangjie 提取器或模型单案。分桶 facet 是呈现分区；typed principal item 的引用身份应由
+精确 row identity 决定，不应要求同一块重复携带 `enumeration_item` 才启用无损修复。最优方案不新增硬门，也不读用户输入、块标题、item 正文或最终答案 prose：当且仅当当前答案是 typed source-inventory principal、块为
+principal structured-item carrier、item label 在 finalizer 已见的 typed principal row registry 中唯一命中一个 source location 时，直接绑定该精确引用；同名跨位置仍保持歧义并要求既有
+`source_inventory_row_id`，绝不猜测。该精确 binder 在 candidate-role/label 模糊修复之前运行，因此后续单调修复只能保留已合法坐标。
+
+S6 已按此方案实现：移除精确 unique-display-row binder 对 `enumeration_item` facet 的非身份前提，保留 model-owned source-inventory、principal structured carrier、typed unique row、有效源码坐标四重条件；
+增加同时覆盖 enumeration facet 与 bucket-only facet 的回归 pin，并保留 duplicate `native_add` 不猜测。目标测试已通过。完整 tool suite 与真实双 case 回放是本批剩余验收。
+
+本轮也继续审计 JSON 教学与降级：r103 两案均无 malformed JSON；architecture 的一次失败是 exact 数组索引不等长，提示与 schema/runtime 一致。当前策略继续保持：仅自动修复可证明无损的结构形；不能无损恢复时，
+保留已保存的模型 draft 或可识别的用户可见字符串，并明确披露“模型输出异常导致降级”，不能伪装成完整正常答案。`EVAL-B184-CITEREPAIR1` 的修复完全位于 typed citation carrier，不扩大 JSON 模糊修复，也不改变
+带明确时间窗的 Trace 因果投影、系统自动补齐、根因排序或双维度性能归因。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b184_active_membership_replay_r103_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b184_active_membership_replay_r103_20260806_manual_audit.md`。
+
+状态：`EVAL-B183-DECLACTIVE1=resolved/r103-replay-confirmed`；
+`EVAL-B180-PRESTAGETOPO1=resolved/r103-replay-confirmed`；
+`EVAL-B184-CITEREPAIR1=S6-implemented/targeted-tests-pass/pending-full-suite-and-r104`。

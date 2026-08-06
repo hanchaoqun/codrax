@@ -4222,14 +4222,18 @@ func TestNormalizeItemCitationRefsByUniqueSourceInventoryDisplayRow_BindsDecorat
 				{ID: "extend", Label: "extend String", CandidateRole: types.AnswerCandidateRoleType, CitationRef: 1},
 				{ID: "animal", Label: "public sealed class Animal", CandidateRole: types.AnswerCandidateRoleType, CitationRef: 0},
 			}},
+			{ID: "bucketed-types", Kind: types.BlockSection, SurfaceRole: types.SurfacePrincipal, FacetIDs: []string{string(types.FacetBucketLabel), "extend declarations"}, Items: []types.AnswerBlockItem{
+				{ID: "bucket-extend", Label: "extend String", CandidateRole: types.AnswerCandidateRoleType, CitationRef: 1},
+				{ID: "bucket-animal", Label: "public sealed class Animal", CandidateRole: types.AnswerCandidateRoleType, CitationRef: 0},
+			}},
 			{ID: "ffi", Kind: types.BlockTable, SurfaceRole: types.SurfacePrincipal, FacetIDs: []string{string(types.FacetEnumerationItem)}, Items: []types.AnswerBlockItem{
 				{ID: "native", Label: "foreign func native_add", CandidateRole: types.AnswerCandidateRoleFunction, CitationRef: 2},
 			}},
 		},
 	}
 
-	if fixed := normalizeItemCitationRefsByUniqueSourceInventoryDisplayRowWithContext(doc, ctx); fixed != 2 {
-		t.Fatalf("fixed=%d, want two unique decorated-label bindings; doc=%+v", fixed, doc)
+	if fixed := normalizeItemCitationRefsByUniqueSourceInventoryDisplayRowWithContext(doc, ctx); fixed != 4 {
+		t.Fatalf("fixed=%d, want four unique decorated-label bindings across enumeration and bucket facets; doc=%+v", fixed, doc)
 	}
 	if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
 		t.Fatalf("extend String citation_ref=%d, want 0", got)
@@ -4237,7 +4241,13 @@ func TestNormalizeItemCitationRefsByUniqueSourceInventoryDisplayRow_BindsDecorat
 	if got := doc.Blocks[0].Items[1].CitationRef; got != 1 {
 		t.Fatalf("Animal citation_ref=%d, want 1", got)
 	}
-	if got := doc.Blocks[1].Items[0].CitationRef; got != 2 {
+	if got := doc.Blocks[1].Items[0].CitationRef; got != 0 {
+		t.Fatalf("bucketed extend String citation_ref=%d, want 0", got)
+	}
+	if got := doc.Blocks[1].Items[1].CitationRef; got != 1 {
+		t.Fatalf("bucketed Animal citation_ref=%d, want 1", got)
+	}
+	if got := doc.Blocks[2].Items[0].CitationRef; got != 2 {
 		t.Fatalf("duplicate native_add citation_ref=%d, want unchanged 2", got)
 	}
 }

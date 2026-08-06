@@ -2257,11 +2257,14 @@ func preEmitSourceInventoryRowsContainAliasIdentity(rows []types.EnumerationDisp
 // alone therefore loses the row-local display identity and can leave swapped
 // citation indexes untouched.
 //
-// This repair uses only principal block/facet fields plus the compiled typed
-// row registry. Alias rows are deduplicated by source location + surface
-// family. A genuinely duplicated visible label across locations remains
-// ambiguous and is never guessed; source_inventory_row_id is its only exact
-// selection carrier.
+// This repair uses only the principal structured-item carrier plus the
+// compiled typed row registry. It intentionally does not require the
+// enumeration_item facet: a source-inventory answer may use typed bucket
+// facets on its per-family sections, while the item label still names exactly
+// one prompt-visible row. Alias rows are deduplicated by source location +
+// surface family. A genuinely duplicated visible label across locations
+// remains ambiguous and is never guessed; source_inventory_row_id is its only
+// exact selection carrier.
 func normalizeItemCitationRefsByUniqueSourceInventoryDisplayRowWithContext(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
 	if doc == nil || ctx == nil || !sourceInventoryPrincipalAnswerIsModelOwned(ctx) {
 		return 0
@@ -2274,8 +2277,7 @@ func normalizeItemCitationRefsByUniqueSourceInventoryDisplayRowWithContext(doc *
 	for bi := range doc.Blocks {
 		block := &doc.Blocks[bi]
 		if block.SurfaceRole != types.SurfacePrincipal ||
-			!principalEnumerationBlockCanCarryRows(*block) ||
-			!principalEnumerationBlockHasEnumerationFacet(*block) {
+			!principalEnumerationBlockCanCarryRows(*block) {
 			continue
 		}
 		rows, invalidFamily := preEmitSourceInventoryBindingRowsForBlock(*block, sets)
