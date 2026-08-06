@@ -20820,3 +20820,46 @@ title，降低了同一语义在 typed carrier 与展示字段间的重复心智
 自动补齐、根因排序、唤醒链、窗内可消除量、“真实耗时占用 / 规则可消除”双维度或模型结论所有权。
 
 状态：`EVAL-B185-FAMILYVIS1=S13-implemented/full-impacted-suites-pass/pending-exact-two-replay`。
+
+### 123.139 B185 r111：family 可见性 clean replay；eval marker 假红与 patch citation 单调性漏口
+
+在 `884f6014d` 构建后严格并行恰好两个跨语言 source-inventory case：
+
+- `arkts_repomap`：163s，runner FAIL / human PASS，finalizer reject=0；
+- `cangjie_repomap`：228s，runner PASS / human FAIL，finalizer reject=1。
+
+两份答案的成员与可见分组均完整：ArkTS 精确 4 个 `@Entry` + 2 个 `@Builder`；Cangjie 精确
+2 extend + 2 foreign func + 8 public class。标题、family 与各自成员没有再出现 r110 的“标题组在前、无标题
+表格组在后”脱节；普通 authored title 继续优先。结合 S13 的无标题 typed-family 可执行 pin，可以关闭
+`EVAL-B185-FAMILYVIS1`。本轮两案也都没有把 citation hydration 误报成系统降级 footer。
+
+ArkTS 的 runner FAIL 是 `EVAL-B185-ORACLEMARK1=P1/confirmed`。case 同时声明精确 section label 与
+row marker；最终答案的显式 `### @Entry 标记的 ArkTS 页面入口（4 个）` 下有四行，但只有 Index 的描述
+重复写了 `@Entry`。`eval_inventory_rowset_reasons` 当前先扫描 marker-bearing answer rows，只取得 Index，
+并覆盖更精确的显式 section，遂假报 got1/want4。最优修复只作用 eval runner：先使用 case-declared exact
+section label；section 不存在时才用 marker-row/marker-heading 兼容无标题或混合表。它不进入产品 runtime，
+也不为通过 oracle 改写模型答案。
+
+Cangjie 则确认 `EVAL-B185-CITEFAMILY1=P1/confirmed`。模型 patch 已提交正确
+`source_inventory_family` 与正确引用：`extend Cart -> Cart.cj:30`、
+`native_add (demo.bridge) -> Bridge.cj:6`。但通用 candidate-role binder 随后按同名 type 把前者改到
+`public class Cart@14`，按同文件 type 把后者改到 `Bridge class@15`；后续安全层识别不匹配，只能拆掉
+两条 item citation。最终答案成员、路径、package 和 appendix 事实仍正确，却显示“2 处引用无法对应”的
+误导说明，证明 S8 的强身份最后胜出仍漏了“patch + typed family + 无 row_id”车道。
+
+修复冻结为：所有 full emit/patch/normalize 路径统一在通用 role binder 之前建立 typed source-inventory
+partition；block 已有 exact family 时，候选 citation 必须来自该 family 的 admitted rows。若 label/package 与
+family 内唯一行精确相容，则直接铸造/绑定 row identity；若歧义则保持原引用并 fail-closed，不允许跨 family
+候选覆盖。不得从 title、item text、用户请求或最终 Markdown 推断 family，也不能靠硬编码 Cangjie/Cart。
+
+r111 JSON 审计：ArkTS 原生 JSON 一轮通过；Cangjie 首稿 blocks-string 可恢复，但缺 typed carrier metadata
+与 exact member labels，发生一次有向 patch。没有双 schema 或同字段必带/必拒；`CARRIERMETA1` 仍是重复
+单轮心智成本观察项，不为单一语言增加 hard required。Trace 相关能力未进入本批。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b185_family_visibility_replay_r111_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b185_family_visibility_replay_r111_20260806_manual_audit.md`。
+
+状态：`EVAL-B185-FAMILYVIS1=resolved/r111-clean-cross-language-replay-plus-structural-pin`；
+`EVAL-B185-ORACLEMARK1=P1/confirmed/pending-eval-runner-fix`；
+`EVAL-B185-CITEFAMILY1=P1/confirmed/pending-typed-partition-binder-fix`；
+`EVAL-B184-CARRIERMETA1=P2/repeated-single-retry-observe`。
