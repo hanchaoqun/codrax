@@ -18193,3 +18193,23 @@ mechanism member-set（`entities`/`has_per_member_table`/aggregate member_set）
 `EVAL-B151-REFORDERENUM1=implemented/full-dataquery+repl-pass/awaiting-exact2-replay`；
 `EVAL-B150-JSONPRED1=production-replay-closed`；`EVAL-B151-SRCPROFILEVAR1=filed/soft-teaching-next`；
 Trace 显式窗、因果投影、自动补齐、两维根因、根因排序、唤醒链与窗内可消除量=`untouched`。
+
+### 123.40 B151-S1：概念成员集与源码清单的软决策边界
+
+按 §123.39 的最优方案完成独立小批，仅修改 Analyzer 的分类教学与结构 pin，不修改 source-inventory 的精确完备性硬门，也不读取用户/模型/答案原文作
+运行时判断：
+
+1. 完整字段合同明确“主答案宇宙”判据：stages/phases/steps/modes/actors/components 的职责、迁移、接力或机制图是 bounded conceptual
+   member-set；即使源码用 enum/type/const/binding table 表示它们，源码声明也只是支持证据，不等于答案全集；
+2. 已知概念成员放入 `entities`，显式逐成员表用 `has_per_member_table`，其余通过既有
+   `completeness_obligation`/`buckets`/`requested_answer_dimensions` 表达；只有主答案行本身是 source declarations/constructs 时才声明
+   `source_inventory_profile`；
+3. Analyzer 短 workflow 同步同一决策捷径，避免长合同正确、短行动提示仍把 enum/type 载体误认成全仓 type 清单；既有 call-chain、relation、registry
+   carve-out 保持不变；
+4. 新 pin 同时检查完整合同和 workflow 两面，并负钉不得引入“扫描原文/命中词即拒绝/重写答案”等硬门或答案所有权措辞。
+
+`go test ./internal/skill -count=1` PASS（0.836s）；`go test ./internal/agent ./internal/skill -count=1` PASS
+（3.394s / 0.359s）。
+
+状态：`EVAL-B151-SRCPROFILEVAR1=soft-teaching-implemented/awaiting-production-replay`；真实 source declaration inventory 的语言/角色矩阵、分页、
+source-class 完备性与 fail-loud=`unchanged`；JSON 九 predicate 单载体=`production-closed`；Trace 显式窗、因果投影、自动补齐与两维根因=`untouched`。
