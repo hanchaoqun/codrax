@@ -789,18 +789,18 @@ unset EXPECT_INVENTORY_ROW_SCOPE_PUBLIC_CLASS EXPECT_INVENTORY_ROWS_PUBLIC_CLASS
 
 EXPECT_INVENTORY_ROWSETS="extend foreign_func public_class"
 EXPECT_INVENTORY_ROW_SCOPE_EXTEND="line"
-EXPECT_INVENTORY_ROW_MARKER_EXTEND="extend "
+EXPECT_INVENTORY_ROW_MARKER_EXTEND="| extend "
 EXPECT_INVENTORY_ROWS_EXTEND=$'String|String.cj|demo.stringext\nCart|Cart.cj|demo.cart'
 EXPECT_INVENTORY_COUNT_EXTEND=2
 EXPECT_INVENTORY_ROW_SCOPE_FOREIGN_FUNC="line"
-EXPECT_INVENTORY_ROW_MARKER_FOREIGN_FUNC="foreign func"
+EXPECT_INVENTORY_ROW_MARKER_FOREIGN_FUNC="| foreign func"
 EXPECT_INVENTORY_ROWS_FOREIGN_FUNC=$'native_add|FFI.cj|demo.ffi\nnative_add|Bridge.cj|demo.bridge'
 EXPECT_INVENTORY_COUNT_FOREIGN_FUNC=2
 EXPECT_INVENTORY_ROW_SCOPE_PUBLIC_CLASS="line"
-EXPECT_INVENTORY_ROW_MARKER_PUBLIC_CLASS="public "
+EXPECT_INVENTORY_ROW_MARKER_PUBLIC_CLASS="| public "
 EXPECT_INVENTORY_ROWS_PUBLIC_CLASS=$'Bridge|Bridge.cj|demo.bridge\nAnimal|Animal.cj|demo.modifiers'
 EXPECT_INVENTORY_COUNT_PUBLIC_CLASS=2
-inventory_mixed_table=$'### extend blocks\n\nTwo extensions were found.\n\n### foreign func declarations\n\nTwo foreign functions were found.\n\n### public classes\n\nTwo public classes were found.\n\n| kind | symbol | path | package |\n|---|---|---|---|\n| extend String | String | src/String.cj:6 | demo.stringext |\n| extend Cart | Cart | src/Cart.cj:30 | demo.cart |\n| foreign func native_add | native_add | src/FFI.cj:6 | demo.ffi |\n| foreign func native_add | native_add | src/Bridge.cj:6 | demo.bridge |\n| public class Bridge | Bridge | src/Bridge.cj:15 | demo.bridge |\n| public sealed class Animal | Animal | src/Animal.cj:6 | demo.modifiers |'
+inventory_mixed_table=$'### extend blocks\n\nTwo extensions were found.\n\n### foreign func declarations\n\nTwo foreign functions were found.\n\n### public classes\n\nTwo public classes were found.\n\n| kind | symbol | path | package |\n|---|---|---|---|\n| extend String | String | src/String.cj:6 | demo.stringext |\n| extend Cart | Cart | src/Cart.cj:30 | demo.cart |\n| foreign func native_add | native_add | src/FFI.cj:6 | demo.ffi |\n| foreign func native_add | native_add | src/Bridge.cj:6 | demo.bridge |\n| public class Bridge | Bridge | src/Bridge.cj:15 | demo.bridge |\n| public sealed class Animal | Animal | src/Animal.cj:6 | demo.modifiers; extended by extend Cart |'
 assert_eq "$(eval_inventory_rowset_reasons "$inventory_mixed_table")" "" "typed row markers must partition a combined inventory table even when prose headings appear first"
 inventory_mixed_table_extra="${inventory_mixed_table}"$'\n| extend Extra | Extra | src/Extra.cj:9 | demo.extra |'
 assert_eq "$(eval_inventory_rowset_reasons "$inventory_mixed_table_extra")" "inventory_count_mismatch:extend:got3:want2" "typed row markers must still reject an unexpected member in a combined table"

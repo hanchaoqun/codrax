@@ -19906,8 +19906,8 @@ candidate-derived 安全模式。
 
 ### 123.107 B175-S3：混合 inventory 表按 typed row marker 分区
 
-`EVAL-B174-EVALMIXTABLE1` 已在 eval-only oracle 修复，产品代码与答案生成未改。`cangjie_repomap.case` 为三类 rowset 显式声明行内 discriminator：`extend `、
-`foreign func`、`public `。当终端主答案中真实存在同时带 marker 与 `file:line` 的表格/列表行时，runner 现在优先选这些行，再做逐行 token 与精确 cardinality 校验；这样三个
+`EVAL-B174-EVALMIXTABLE1` 已在 eval-only oracle 修复，产品代码与答案生成未改。`cangjie_repomap.case` 为三类 rowset 显式声明表格单元起点 discriminator：`| extend `、
+`| foreign func`、`| public `。当终端主答案中真实存在同时带 marker 与 `file:line` 的表格/列表行时，runner 现在优先选这些行，再做逐行 token 与精确 cardinality 校验；这样三个
 prose heading 后共用一个混合表不会再让第一个 heading 截获空段、最后一个 heading 吞下全部行。
 
 若没有 marker-bearing presentation row，oracle 仍回退到原有 explicit section、rowset section、marker heading 三条严格路径；声明了 group 却三路均不存在时仍 fail-loud。
@@ -19919,3 +19919,33 @@ class 均通过）。这是 runner false-red 修复，不把某次模型措辞�
 
 状态：`EVAL-B174-EVALMIXTABLE1=implemented/full-runner-suite-pass/replay-artifact-pass`。B175 三批根因修复已完成；下一步重建，并用 strict JSON + Cangjie 两个异构 case
 恰好并行复放，审计 JSON 重试/耗时、block-string recovery 与清单正确性。
+
+### 123.108 B175 r93：数据合同循环已消失；枚举行 ID 双命名空间构成新高危冲突
+
+在 `main@4a5cc53aa` 重建后严格并行恰好两个异构 case：
+
+- `data_json_strict_ids`：runner/human PASS，50s，1 个执行批、1 次 admission repair、0 failed action；
+- `cangjie_repomap`：runner FAIL / human PASS，214s，2 次 finalizer reject、1 次 lossless blocks-string recovery。
+
+数据案最终精确输出 `{"ids":["u1","u3"]}`。与 r92 的 196s、7 批、3 repair、4 failed action 相比，B175-S1/S2 让确定性循环消失。本轮唯一 repair 的原因是
+模型自己把 `instructions.md` 声明为 `script_consumed`，但初始 custom script 只读 `users.json`；typed scheduling guard 正确拒绝，repair 随后真实读取两个输入并一次完成。
+它没有 malformed/decode/salvage、没有业务 ledger 扩约，也不是 floor 再次覆盖 planner mode。先按 plan adherence 波动保留，不用系统猜测说明文件是否已经蒸馏。
+
+Cangjie 可见答案仍精确覆盖 2/2/8、package/path/line 与 12 个源位置。初版 marker 的 `extend ` 会命中 `public class Cart` 说明中的“被 extend Cart 块扩展”，造成
+`got3`；case marker 已收窄为 Markdown 单元起点，并增加 sibling 说明提及反例。完整 runner 套件全绿，r93 原工件重算无失败原因，仍能拒绝同组额外成员。
+
+过程确认 `EVAL-B175-ROWIDNS1=P1/red-line-contract-conflict`：finalizer prompt 的 `Principal Enumeration Rows` 明确展示 partition fact 编译出的
+`enum-set-foreign-func-声明-row-...`；pre-emit validator 却绕开同一 answer surface plan，重新从 SourceInventoryObservation 构造 synthetic-global fact，只接受/建议
+`enum-set-source-inventory-principal-rows-row-...`。模型第一次 patch 逐字复制 prompt 中唯一可见的 ID 仍被拒，第二次才从错误消息改用此前不可见的 ID。这是同一字段同时
+“按教学复制”和“复制即非法”的确定性双权威，直接解释 2 次成文失败。
+
+最优修复：synthetic global roster 继续负责跨 partition 同名消歧，但 validator 的 ID registry 必须同时接受实际 prompt rows 的 ID alias；错误提示优先显示 prompt 已展示的
+alias。alias 只能通过 typed row identity（member/location/family）与 synthetic row 精确合取后注册，不能从标题或 prose 推断。这样不降低重复标签必须显式选行的硬门，也不要求
+模型学习第二套隐藏命名空间。
+
+另记两项：`EVAL-B175-BLOCKSTRING1=P2/repeated-but-lossless` 连续两次同 case 把 native `blocks[]` 发成 JSON string，现有容错均无损恢复，未丢答案；先补唯一 schema 描述中的
+一句 native-array 负例，不新增第二套 JSON 教学。`EVAL-B175-CITREF1=P1`：extend String 与 Animal 的 row-local `citation_ref` 错位只产生 soft advisory，最终仍接受；全量 citation
+池虽包含正确 12 行，但行到证据映射不应靠列表偶然齐全。先在 ROWIDNS1 后审计已有 exact-label/location normalizer，为所有语言寻找 typed 单源修复，禁止按自然语言类别关键词硬绑。
+
+施工排序：B176-S1=`ROWIDNS1`；B176-S2=`BLOCKSTRING1` 最小单源教学；B176-S3=`CITREF1` 精确绑定审计/修复。Trace 显式时间窗、因果投影、自动补齐、根因排序、唤醒链、
+窗内可消除量、实际耗时/规则可消除两轴与模型结论所有权均不在这些改动面。
