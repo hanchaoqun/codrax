@@ -20798,3 +20798,25 @@ Required Answer Blocks 只描述语义槽位。Cangjie 首稿的 blocks-string �
 状态：`EVAL-B177-QUOTEDEGRADE1=resolved/r110-cross-type-replay`；
 `EVAL-B185-FAMILYVIS1=P1/confirmed/pending-typed-render-fallback`；
 `EVAL-B185-ANALYZERBLOAT1=P2/model-provider-variance-observe`。
+
+### 123.138 S13：用既有 typed family 恢复 collection 的可见归属
+
+`EVAL-B185-FAMILYVIS1` 已在 renderer 单点修复。`section`、`ordered_list`、`bullet_list` 与
+`table` 的标题选择现在遵循同一严格次序：先保留模型 authored `title`；只有 title 为空且 block 已携带
+经过 admitted-row registry 校验的 `source_inventory_family` 时，才显示该 exact typed family 作为中性
+后备标签。普通 block 没有 family 时保持原样；既有 `next_steps` ID 本地化后备仍只作用于 list，没有扩域到
+table/section。
+
+该变更没有新增 pre-emit gate，也不扫描 RawRequest、模型 think、block text、table cell 或最终 Markdown；
+不移动、合并、删除或创建 block，不修改成员、顺序、引用、family、结论或 completeness。它只是让模型已经
+显式提交并通过精确校验的 partition key 在用户面不再隐形，因此也不需要模型为了通过 JSON 合同额外复制
+title，降低了同一语义在 typed carrier 与展示字段间的重复心智。
+
+结构 pin 覆盖：无标题 table/list/section 的 family 可见；authored title 优先且 family 不重复；无 family 的
+普通 table 不新增标题。`go test ./internal/render -count=1` 与完整受影响套件
+`go test ./internal/types ./internal/render ./internal/tool ./internal/agent -count=1` 均通过。
+
+该批不触及 runtime Trace 系统块的 `SystemGeneratedKind` 章节权限，不修改明确时间窗、Trace 因果投影、
+自动补齐、根因排序、唤醒链、窗内可消除量、“真实耗时占用 / 规则可消除”双维度或模型结论所有权。
+
+状态：`EVAL-B185-FAMILYVIS1=S13-implemented/full-impacted-suites-pass/pending-exact-two-replay`。

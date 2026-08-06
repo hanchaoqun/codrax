@@ -181,10 +181,11 @@ func renderV2BlockSummary(b *strings.Builder, blk types.AnswerBlock, _ answerDoc
 }
 
 func renderV2BlockSection(b *strings.Builder, blk types.AnswerBlock, doc *types.AnswerDocumentV2, lang answerDocLang) {
-	heading := strings.TrimSpace(blk.Title)
+	heading := renderV2AuthoredOrSourceInventoryHeading(blk)
 	if heading == "" {
 		// A Section without an explicit Title is rendered without a
-		// heading line; the body still appears.
+		// heading line; the body still appears. Source-inventory sections
+		// have a typed family fallback, so their row ownership stays visible.
 	} else if blk.SystemGeneratedKind.IsRuntimeTraceSupplement() {
 		// Runtime-trace supplements are independently navigable report
 		// chapters, not subheadings of whichever model-authored section happened
@@ -262,8 +263,8 @@ func renderV2BlockBulletList(b *strings.Builder, blk types.AnswerBlock, doc *typ
 }
 
 func renderV2ListHeading(blk types.AnswerBlock, lang answerDocLang) string {
-	if title := strings.TrimSpace(blk.Title); title != "" {
-		return title
+	if heading := renderV2AuthoredOrSourceInventoryHeading(blk); heading != "" {
+		return heading
 	}
 	if !answerBlockIDIsNextStepCarrier(blk.ID) {
 		return ""
@@ -272,6 +273,22 @@ func renderV2ListHeading(blk types.AnswerBlock, lang answerDocLang) string {
 		return "下一步"
 	}
 	return "Next steps"
+}
+
+// renderV2AuthoredOrSourceInventoryHeading keeps authored presentation in charge while
+// ensuring an exact typed source-inventory partition never becomes invisible.
+// SourceInventoryFamily has already been validated against the admitted row
+// registry; unlike Title/Text/item prose, it is the block's family authority.
+// Rendering it as a fallback label does not infer, move, merge, or rewrite any
+// model-owned member or conclusion.
+func renderV2AuthoredOrSourceInventoryHeading(blk types.AnswerBlock) string {
+	if title := strings.TrimSpace(blk.Title); title != "" {
+		return title
+	}
+	if family := strings.TrimSpace(blk.SourceInventoryFamily); family != "" {
+		return family
+	}
+	return ""
 }
 
 // renderV2ListOrTableHeading keeps ordinary model-authored list/table titles
@@ -591,8 +608,8 @@ func scopeDisclosureDisplayLine(disclosure types.ScopeDisclosureKind, lang answe
 }
 
 func renderV2BlockTable(b *strings.Builder, blk types.AnswerBlock, _ *types.AnswerDocumentV2, lang answerDocLang) {
-	if strings.TrimSpace(blk.Title) != "" {
-		renderV2ListOrTableHeading(b, blk, strings.TrimSpace(blk.Title))
+	if heading := renderV2AuthoredOrSourceInventoryHeading(blk); heading != "" {
+		renderV2ListOrTableHeading(b, blk, heading)
 	}
 	if text := renderUserSurfaceText(blk.Text); text != "" {
 		b.WriteString(text)

@@ -402,6 +402,69 @@ func TestRenderV2_BlockTable(t *testing.T) {
 	}
 }
 
+func TestRenderV2_SourceInventoryFamilyIsVisibleWhenCollectionTitleIsAbsent(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:                    "table",
+				Kind:                  types.BlockTable,
+				SourceInventoryFamily: "public class",
+				Items:                 []types.AnswerBlockItem{{Label: "Widget", Text: "widget.cj:4"}},
+			},
+			{
+				ID:                    "ordered",
+				Kind:                  types.BlockOrderedList,
+				SourceInventoryFamily: "extend",
+				Items:                 []types.AnswerBlockItem{{Label: "String", Text: "string.cj:6"}},
+			},
+			{
+				ID:                    "section",
+				Kind:                  types.BlockSection,
+				SourceInventoryFamily: "foreign func",
+				Items:                 []types.AnswerBlockItem{{Label: "native_add", Text: "bridge.cj:6"}},
+			},
+		},
+	}
+	out := RenderAnswerDocument(doc, "en")
+	for _, want := range []string{"**public class**", "**extend**", "### foreign func"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("typed source-inventory family should remain visibly attached to its collection %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderV2_SourceInventoryAuthoredTitleWinsWithoutDuplicateFamilyHeading(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:                    "classes",
+		Kind:                  types.BlockTable,
+		Title:                 "Exported classes",
+		SourceInventoryFamily: "public class",
+		Items:                 []types.AnswerBlockItem{{Label: "Widget", Text: "widget.cj:4"}},
+	}}}
+	out := RenderAnswerDocument(doc, "en")
+	if !strings.Contains(out, "**Exported classes**") {
+		t.Fatalf("authored collection title should remain visible:\n%s", out)
+	}
+	if strings.Contains(out, "**public class**") {
+		t.Fatalf("typed family fallback must not duplicate an authored title:\n%s", out)
+	}
+}
+
+func TestRenderV2_OrdinaryUntitledCollectionDoesNotGainFamilyHeading(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:    "comparison",
+		Kind:  types.BlockTable,
+		Items: []types.AnswerBlockItem{{Label: "A", Text: "B"}},
+	}}}
+	out := RenderAnswerDocument(doc, "en")
+	if strings.Contains(out, "**comparison**") {
+		t.Fatalf("ordinary collection ids must not become visible headings:\n%s", out)
+	}
+	if !strings.Contains(out, "| A | B |") {
+		t.Fatalf("ordinary collection rendering changed:\n%s", out)
+	}
+}
+
 func TestRenderV2_BlockTableFallbackHeaderZH(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{
