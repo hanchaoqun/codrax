@@ -4098,6 +4098,94 @@ func TestNormalizeItemCitationRefsBySourceInventoryRowID_BindsDuplicateLabelExac
 	}
 }
 
+func TestNormalizeSourceInventoryRowIDsByExactLabelAndCitation_BindsDuplicateLabelExactLocation(t *testing.T) {
+	ctx, extendID, _ := sourceInventoryDuplicateCartRowIDTestContext(t)
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "cart/Cart.cj", Line: 30}},
+		Blocks: []types.AnswerBlock{{
+			ID: "mixed", Kind: types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{{
+				ID: "cart-extend", Label: "Cart", CitationRef: 0,
+			}},
+		}},
+	}
+
+	if fixed := normalizeSourceInventoryRowIDsByExactLabelAndCitationWithContext(doc, ctx); fixed != 1 {
+		t.Fatalf("fixed=%d, want exact citation-selected row id; doc=%+v", fixed, doc)
+	}
+	if got := doc.Blocks[0].Items[0].SourceInventoryRowID; got != extendID {
+		t.Fatalf("source_inventory_row_id=%q, want %q", got, extendID)
+	}
+	if hints := preCheckSourceInventoryRowIDBindings(doc, ctx); len(hints) != 0 {
+		t.Fatalf("citation-selected typed row id should pass, got %+v", hints)
+	}
+}
+
+func TestNormalizeSourceInventoryRowIDsByExactLabelAndCitation_FailsClosed(t *testing.T) {
+	ctx, _, classID := sourceInventoryDuplicateCartRowIDTestContext(t)
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "cart/Cart.cj", Line: 99},
+			{File: "cart/Cart.cj", Line: 14},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID: "mixed", Kind: types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{
+				{ID: "wrong-location", Label: "Cart", CitationRef: 0},
+				{ID: "explicit", Label: "Cart", SourceInventoryRowID: classID, CitationRef: 1},
+				{ID: "no-citation", Label: "Cart", CitationRef: -1},
+			},
+		}},
+	}
+
+	if fixed := normalizeSourceInventoryRowIDsByExactLabelAndCitationWithContext(doc, ctx); fixed != 0 {
+		t.Fatalf("fixed=%d, want no guesses or explicit-id rewrite; doc=%+v", fixed, doc)
+	}
+	if got := doc.Blocks[0].Items[0].SourceInventoryRowID; got != "" {
+		t.Fatalf("wrong-location citation minted row id %q", got)
+	}
+	if got := doc.Blocks[0].Items[1].SourceInventoryRowID; got != classID {
+		t.Fatalf("explicit source_inventory_row_id changed to %q", got)
+	}
+	if got := doc.Blocks[0].Items[2].SourceInventoryRowID; got != "" {
+		t.Fatalf("missing citation minted row id %q", got)
+	}
+}
+
+func TestNormalizeSourceInventoryRowIDsByExactLabelAndCitation_DoesNotGuessSameLocationFamilies(t *testing.T) {
+	ctx, _, _ := sourceInventoryDuplicateCartRowIDTestContext(t)
+	ctx.Mutable.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active: true, Complete: true, Scopes: []string{"."},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role: types.AnswerCandidateRoleType, Complete: true, Count: 2, Total: 2,
+			Members: []types.SourceInventoryObservationMember{
+				{Name: "Cart", Role: types.AnswerCandidateRoleType, File: "cart/Cart.cj", Line: 14, SurfaceTerms: []string{"extend"}, CoverageState: types.SourceInventoryCoverageObserved},
+				{Name: "Cart", Role: types.AnswerCandidateRoleType, File: "cart/Cart.cj", Line: 14, SurfaceTerms: []string{"public class"}, CoverageState: types.SourceInventoryCoverageObserved},
+			},
+		}},
+	})
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "cart/Cart.cj", Line: 14}},
+		Blocks: []types.AnswerBlock{{
+			ID: "mixed", Kind: types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetEnumerationItem)},
+			Items:       []types.AnswerBlockItem{{ID: "cart", Label: "Cart", CitationRef: 0}},
+		}},
+	}
+
+	if fixed := normalizeSourceInventoryRowIDsByExactLabelAndCitationWithContext(doc, ctx); fixed != 0 {
+		t.Fatalf("fixed=%d, same-location families are ambiguous; doc=%+v", fixed, doc)
+	}
+	if got := doc.Blocks[0].Items[0].SourceInventoryRowID; got != "" {
+		t.Fatalf("same-location family ambiguity minted row id %q", got)
+	}
+}
+
 func TestNormalizeItemCitationRefsByUniqueSourceInventoryDisplayRow_BindsDecoratedLabelsWithoutGuessingDuplicates(t *testing.T) {
 	mu := types.NewMutableState("enumerate Cangjie declarations")
 	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{

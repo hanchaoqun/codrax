@@ -2160,6 +2160,82 @@ func preEmitSourceInventoryExactLabelRows(item types.AnswerBlockItem, rows []typ
 	return out
 }
 
+// normalizeSourceInventoryRowIDsByExactLabelAndCitationWithContext removes a
+// mechanical retry when a visible member label names multiple typed rows but
+// the model has already cited exactly one of them. The repair reads only the
+// structured item label, citation_ref, and typed source coordinates. It never
+// reads request, title, or answer prose, and it refuses to guess unless the
+// citation selects one alias identity exactly.
+func normalizeSourceInventoryRowIDsByExactLabelAndCitationWithContext(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
+	if doc == nil || ctx == nil || !sourceInventoryPrincipalAnswerIsModelOwned(ctx) {
+		return 0
+	}
+	sets := preEmitSourceInventoryTypedPrincipalSets(ctx)
+	if len(sets) == 0 {
+		return 0
+	}
+	preferredRowIDs := preEmitSourceInventoryPreferredRowIDsByIdentity(sets)
+	fixed := 0
+	for bi := range doc.Blocks {
+		block := &doc.Blocks[bi]
+		if block.SurfaceRole != types.SurfacePrincipal ||
+			!principalEnumerationBlockCanCarryRows(*block) ||
+			!principalEnumerationBlockHasEnumerationFacet(*block) {
+			continue
+		}
+		rows, invalidFamily := preEmitSourceInventoryBindingRowsForBlock(*block, sets)
+		if invalidFamily || len(rows) == 0 {
+			continue
+		}
+		for ii := range block.Items {
+			item := &block.Items[ii]
+			if strings.TrimSpace(item.SourceInventoryRowID) != "" ||
+				item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
+				continue
+			}
+			matches := preEmitSourceInventoryExactLabelRows(*item, rows)
+			if len(matches) <= 1 {
+				continue
+			}
+			citation := doc.Citations[item.CitationRef]
+			var selected types.EnumerationDisplayRow
+			selectedKey := ""
+			ambiguous := false
+			for _, row := range matches {
+				if !row.HasCitation || !preEmitCitationSameLocation(citation, types.Citation{File: row.Source, Line: row.LineStart}) {
+					continue
+				}
+				key := preEmitSourceInventoryRowAliasIdentityKey(row)
+				if key == "" {
+					key = principalEnumerationRowIdentityKey(row)
+				}
+				if key == "" {
+					continue
+				}
+				if selectedKey != "" && selectedKey != key {
+					ambiguous = true
+					break
+				}
+				selected = row
+				selectedKey = key
+			}
+			if ambiguous || selectedKey == "" {
+				continue
+			}
+			rowID := strings.TrimSpace(preferredRowIDs[selectedKey])
+			if rowID == "" {
+				rowID = strings.TrimSpace(selected.RowID)
+			}
+			if rowID == "" {
+				continue
+			}
+			item.SourceInventoryRowID = rowID
+			fixed++
+		}
+	}
+	return fixed
+}
+
 func preEmitSourceInventoryRowsContainAliasIdentity(rows []types.EnumerationDisplayRow, want types.EnumerationDisplayRow) bool {
 	wantKey := preEmitSourceInventoryRowAliasIdentityKey(want)
 	if wantKey == "" {

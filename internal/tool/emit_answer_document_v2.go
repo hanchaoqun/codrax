@@ -748,6 +748,10 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		pctx.recordPreEmitRepair("normalizeItemCitationRefsByUniquePreEmitCandidateWithContext", fixed)
 		logging.Warning("[%s] repaired %d item citation_ref value(s) by typed pre-emit citation candidates", toolName, fixed)
 	}
+	if fixed := normalizeSourceInventoryRowIDsByExactLabelAndCitationWithContext(doc, ctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeSourceInventoryRowIDsByExactLabelAndCitationWithContext", fixed)
+		logging.Warning("[%s] bound %d source_inventory_row_id value(s) by exact typed label and citation location", toolName, fixed)
+	}
 	if fixed := normalizeScalarCodeIdentityCitationRefsWithContext(doc, ctx, pctx); fixed > 0 {
 		pctx.recordPreEmitRepair("normalizeScalarCodeIdentityCitationRefsWithContext", fixed)
 		logging.Warning("[%s] normalized %d scalar code-identity citation_ref value(s) by typed evidence endpoints", toolName, fixed)

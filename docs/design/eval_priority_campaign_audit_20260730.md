@@ -20090,3 +20090,37 @@ comparison 的 optional table 同步收窄为“新增 distinct cross-bucket axi
 计数与 JSON recovery；若 typed aggregate 自身的 count/row 仍冲突，再进入 B177-S3 的 typed aggregate consistency 根修，而不扫描答案里的数字句。
 
 Trace 显式时间窗、因果投影、系统自动补齐、根因排序、唤醒链、窗内可消除量、实际占时/现规则可消除双轴、模型结论所有权均未触碰。
+
+### 123.115 B177 r95 与 S3：同名枚举行的精确引用消除不可见 ID 重试
+
+在 `main@df96be22a` 重建后严格并行恰好两个异构 case：
+
+- `cangjie_repomap`：135s，runner/human PASS，1 次 finalizer reject + 1 次 patch，无 blocks-string 恢复；
+- `real_trace_d4_demand_vs_supply`：123s，runner PASS / human FAIL，0 次 finalizer reject。
+
+Cangjie 最终答案精确列出 2 个 extend、2 个 foreign func、8 个 public class，总数 12，名称、package、path、line 均正确；三组 roster 各出现一次，没有 r94 的重复全表。
+因此 `EVAL-B176-COUNT1` 暂按 carrier 冲突消除后的模型波动关闭观察，不建立扫描可见数字的硬门。剩余一次 reject 是两个同名 `Cart` 分别位于 class 第 14 行与
+extend 第 30 行：模型已经给每个 item 写了精确正确的 `citation_ref`，validator 仍要求再抄一遍不可见 `source_inventory_row_id`。
+
+`EVAL-B177-ROWIDCIT1` 已按精确信号修复。pre-emit 在所有 item citation normalizer 完成后，仅对 model-owned source-inventory principal enumeration item 工作；只有
+`item.label` 在该 block 的 typed registry 命中多个 canonical 行、现有 `citation_ref` 合法，且 citation 的 `file+line` 在这些同名行中精确选中唯一 alias identity 时，才补该行的
+prompt-preferred `source_inventory_row_id`。无引用、错误引用、同坐标跨 family 仍歧义、显式已有 row ID 均不改。规则不读取用户问题、block title、item text、答案 prose 或语言关键词，
+只减去结构化重复抄写，不新增/删除/改写模型可见答案。
+
+回归覆盖精确选中后 row-ID hard check 直接通过，以及错误/缺失引用、显式 ID、同位置多 family 全部 fail-closed。完整 `go test ./internal/tool -count=1` 全绿
+（164.689s）。状态：`EVAL-B177-ROWIDCIT1=implemented/full-suite-pass`。
+
+Trace 案的主判断、114.940ms 状态账（sleep 84.358ms / 73.4%）、四跳唤醒链、四席根因排序、实际占时/规则可消除双轴与完整「Trace 因果投影」均在；显式时间窗和系统补齐没有
+回归。但模型正文写“前两位根因合计 43.035ms”（23.994+19.041），后置 deterministic projection 对同两席明确给出“成员区间重叠，合计不可直加”，构成真实可见矛盾。
+
+`EVAL-B177-TRACEADD1=P1/context-authority-gap`：finalizer 作答前已有通用 `cross_row_addition=not_authorized_without_exact_typed_relation` 教学，但 typed relation authority 只覆盖
+target state partition 与 same-source partition，没有把后置可消除方向节已经能精确计算的 member-envelope overlap 关系交给模型。故不能仅归为模型波动。最优方案是复用同一 typed
+区间/board/fix-direction 算术判据，在 finalizer 前提供紧凑的具体 member relation（overlap→addition forbidden；互斥且可重构→授权 typed subtotal；载体缺席则不声称），并与后置
+投影共用一个判定源。它只能作为精确决策上下文，不扫描“合计”等模型文字、不硬拒或改写答案、不代替模型归因。
+
+另记 `EVAL-B177-QUOTEDEGRADE1=P2/pending-audit`：本轮 12 次无损 citation quote hydration 在页脚统一显示为“系统降级披露：引用摘录回填”，可能把正常结构化补全误呈现为证据降级；
+需先审计 degradation ledger 的既有语义/消费者再裁，不在本小批贸然改词。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b177_cangjie_trace_replay_r95_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b177_cangjie_trace_replay_r95_20260806_manual_audit.md`。下一批优先 `TRACEADD1` 同源前移，再以恰好两个异构 Trace/非 Trace case 验证；
+不得影响显式窗投影、自动补齐、根因排序、唤醒链、窗内可消除量或模型结论所有权。
