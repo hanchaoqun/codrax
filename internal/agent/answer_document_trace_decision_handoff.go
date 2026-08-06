@@ -234,7 +234,7 @@ func traceDecisionTypedAggregateFacts(records []types.ObservationRecord) []trace
 	seen := map[string]bool{}
 	for _, record := range records {
 		if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
-			strings.TrimSpace(record.Producer) != "trace_query" ||
+			!types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) ||
 			record.GroundingPolicy != types.ClaimGroundingHard ||
 			strings.TrimSpace(traceDecisionRichNoteValue(record.RichNotes, types.TraceNoteKeySubjectKind)) != types.TraceCausalSubjectKindAggregateMetric ||
 			strings.TrimSpace(traceDecisionRichNoteValue(record.RichNotes, types.TraceNoteKeyChainRelevance)) != "background" ||

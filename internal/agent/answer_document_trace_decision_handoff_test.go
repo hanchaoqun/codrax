@@ -181,7 +181,7 @@ func TestTraceDecisionHandoffCarriesIndependentAggregateFactsWithoutProjectionAu
 		},
 		{
 			ID: "trace_query:q1#io_pressure:1", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
-			Producer: "trace_query", Role: types.AnswerAggregateRoleSupportingCoverage,
+			Producer: "trace_query:run2", Role: types.AnswerAggregateRoleSupportingCoverage,
 			GroundingPolicy: types.ClaimGroundingHard,
 			SourceRef:       types.ObservationSourceRef{Path: "donghu.ftrace", ArtifactKind: "trace"},
 			Predicate:       "scheduler_iowait", Value: "4340", Unit: "score",
