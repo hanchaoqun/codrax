@@ -21619,3 +21619,68 @@ label 词不铸权。该 hard gate 只读取 schema-validated enum 与 typed evi
 
 状态：`EVAL-B192-EDGECLAIMDUP1=S23-implemented/full-impacted-suites-pass/pending-replay`；
 `EVAL-B192-TYPERELGRAPH1=S24-implemented/full-impacted-suites-pass/pending-replay`。
+
+### 123.165 B192 r124：类型关系 enum 生效，但 ImplementersOf 权威没有进入成文证据池
+
+在 `6be9918d1` 构建后严格并行恰好两个异构 case：
+
+- `qf_type_relation_loop_controller`：178s，runner PASS / human FAIL，Finalizer reject=2；
+- `trace_query_donghu_real_frame_multicausal`：201s，runner PASS / human FAIL，6 次 trace_query、Finalizer reject=0。
+
+LoopController 回放的 12 个生产实现、文件位置和 3 个测试实现排除均正确，首稿把整个 `blocks[]` 二次编码为字符串也被
+既有 lossless recovery 完整恢复。第一轮图把 interface 指向 implementer，违反已教的声明方向，拒绝正确；第二轮模型已
+改为 `implementer -> LoopController`，却仍被 12 条 `type_relation_edge_unproven` 拒绝，第三轮只能删除所有
+`edge_anchors` 才能交付。冷读证明系统有精确信号但 handoff 断裂：analyzer/explorer 的 `repo_map(view=implementers)` 与
+`expandImplementersFromGraph` 已从统一 `Graph.ImplementersOf` 得到完整 typed roster，现有图边 gate 却只认
+`repomap_structural_relation`。Go 的接口实现是 method-set 结构关系，本来就不要求 concrete declaration 显式写接口名；
+把“无显式 declared relation”当成“无 typed relation”会系统性影响 Go，并影响所有由统一 ImplementersOf 后处理承载的
+Java/Kotlin/Rust/Swift/TypeScript/ArkTS/Python/Cangjie 等语言。确认
+`EVAL-B193-IMPLHANDOFF1=P1/system-authority-disconnected`。
+
+Trace 对照保持了同一显式窗 `34579.472865..34579.587805`、pid=59566、6 次查询、根因排序、wakeup chain、主要占用与
+现规则可消除量双轴、Trace 因果投影和确定性补采，证明 S23/S24 没有侵入 runtime causal lane。人工仍不签绿：模型把
+两个 IO 席跨行加成 14.859ms，把未提供绝对标尺的 5.26/551.60 定级为“中高/推高水位”，并把
+`priority_inversion_candidate` 延伸成已持锁。Finalizer 输入已明确携带
+`cross_row_addition=not_authorized_without_exact_typed_relation` 与
+`aggregate_absolute_level_authority=not_provided`；按用户红线不扫描正文硬拒、不让系统替换模型结论，继续记为
+`EVAL-B186-RELSYNTH1/PRESSCAL1=model-or-routing-adherence`。
+
+同轮新确认 `EVAL-B193-ARITHPAIR1=P1/system-visible-advisory-bug`：系统算术附注把句首“窗口共 114.940ms”与同句稍后的
+“睡眠 73.4%”误配成 `114.940ms / 73.400%`，再向客户声称不自洽；真正的局部关系
+`84.358ms / 73.4%` 可复算。该附注虽不改模型正文，仍是错误的系统判断，不能因其 advisory 身份降级为无害。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b192_typerel_trace_r124_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b192_typerel_trace_r124_20260806_manual_audit.md`。
+
+状态：`EVAL-B192-EDGECLAIMDUP1=production-closed/r124`；
+`EVAL-B192-TYPERELGRAPH1=partial/explicit-relations-pass`；
+`EVAL-B193-IMPLHANDOFF1=confirmed/pending-S25`；
+`EVAL-B193-ARITHPAIR1=confirmed/next-batch`；Trace 显式窗/因果投影/自动补齐=`preserved`。
+
+### 123.166 S25：ImplementersOf 关系进入 typed evidence 单源
+
+`EVAL-B193-IMPLHANDOFF1` 采用已有跨语言图权威补齐阶段 handoff，不放松图边门：
+
+1. `buildRuntimeTargetStructuralRelations` 继续先收集精确读行覆盖内的 AST/parser 显式关系；随后只从 typed
+   `AnalyzerHints.PrimaryEntities/Entities/SubTopics` 中筛出 graph 已证明为 interface/trait/protocol 的实体，并读取
+   `Graph.ImplementersOf`；不解析 raw request、模型输出或 repo_map Markdown；
+2. 每个隐式实现只在 concrete type 的真实 declaration file:line 已进入 `EvidenceClosure` 时，发出
+   `EvidenceRelationship{subject=implementer,predicate=implements,object=interface}`，producer 固定为
+   `repomap_implementer_relation`。未读行、反向边、model-authored relationship 继续 fail closed；
+3. 显式 parser relation 与 ImplementersOf relation 的 producer/predicate 准入集中到
+   `types.IsRepoMapTypeRelationEvidence`，diagram gate 与 aggregate member coverage 共用同一政策，避免再次发生一面承认、
+   一面拒绝；同 endpoints 已有更具体显式关系时不重复发射；
+4. `type_relation` 方向不变，仍为 implementing/subtype/embedded type → contract/base。模型首次画反仍应重试；修复的是
+   第二轮“方向已对但系统没传权威”的假拒绝，不是为通过 eval 关闭证据门；
+5. 该路径复用各语言 extractor 已统一填充的 `Symbol.Implements`/`Graph.ImplementersOf`，不是 Go/LoopController 特判；
+   既有 repomap 跨语言测试覆盖 Java、Rust、Swift、Kotlin、TypeScript 与 Cangjie，ArkTS 共用 TypeScript/ArkTS typed 图路径。
+
+新增正臂固定 Go 隐式 method-set 实现经精确声明行进入 evidence handoff，负臂固定未读 declaration 不铸可引用关系；图边
+测试固定新的 deterministic producer 只授权同方向 edge。Trace `QFRootCauseTrace` 的入口排除、显式窗、因果投影、补采、
+排序、唤醒链、可消除量与双轴逻辑均未改动。
+
+完整受影响套件通过：`internal/types` 19.880s、`internal/agent` 2.682s、`internal/tool` 164.024s；
+`git diff --check` 通过。
+
+状态：`EVAL-B193-IMPLHANDOFF1=S25-implemented/full-impacted-suites-pass/pending-replay`；
+`EVAL-B192-TYPERELGRAPH1=S24+S25/pending-production-closure`。

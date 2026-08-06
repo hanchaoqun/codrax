@@ -310,15 +310,7 @@ func aggregateMemberTypedRelationProof(item EvidenceItem) bool {
 	if ClaimFormOf(item) == ClaimRegistrationEdge {
 		return true
 	}
-	if item.Kind != EvidenceRelationship || strings.TrimSpace(item.Producer) != "repomap_structural_relation" {
-		return false
-	}
-	switch strings.ToLower(strings.TrimSpace(item.Predicate)) {
-	case "implements", "implementation", "inheritance", "extends", "embedding", "overrides":
-		return true
-	default:
-		return false
-	}
+	return IsRepoMapTypeRelationEvidence(item)
 }
 
 func aggregateMemberTypedRelationNamesEndpoint(item EvidenceItem, memberNames map[string]bool) bool {

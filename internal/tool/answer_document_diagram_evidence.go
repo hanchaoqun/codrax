@@ -260,13 +260,7 @@ func diagramTypeRelationEdgeHasTypedEvidence(evidence []types.EvidenceItem, from
 		return false
 	}
 	for _, item := range evidence {
-		if !item.IsCitable() || item.Kind != types.EvidenceRelationship ||
-			strings.TrimSpace(item.Producer) != "repomap_structural_relation" {
-			continue
-		}
-		switch strings.ToLower(strings.TrimSpace(item.Predicate)) {
-		case "implements", "implementation", "inheritance", "extends", "embedding", "overrides":
-		default:
+		if !item.IsCitable() || !types.IsRepoMapTypeRelationEvidence(item) {
 			continue
 		}
 		if strings.TrimSpace(item.Subject) == fromSymbol && strings.TrimSpace(item.Object) == toSymbol {

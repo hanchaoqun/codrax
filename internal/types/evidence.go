@@ -26,6 +26,36 @@ const (
 	EvidenceTruncated    EvidenceKind = "analysis_truncated"
 )
 
+// Deterministic evidence producers that are allowed to authorize structural
+// type relations. Keep these names and their predicate policy in this package
+// so diagram validation and aggregate-member coverage cannot drift into two
+// different definitions of "parser/graph proved this type edge".
+const (
+	EvidenceProducerRepoMapStructuralRelation  = "repomap_structural_relation"
+	EvidenceProducerRepoMapImplementerRelation = "repomap_implementer_relation"
+)
+
+// IsRepoMapTypeRelationEvidence reports whether item is a deterministic type
+// relationship derived from repomap's parser relations or its ImplementersOf
+// graph. It deliberately does not check IsCitable: callers still own the
+// exact-source authority requirement for their surface.
+func IsRepoMapTypeRelationEvidence(item EvidenceItem) bool {
+	if item.Kind != EvidenceRelationship {
+		return false
+	}
+	switch strings.TrimSpace(item.Producer) {
+	case EvidenceProducerRepoMapStructuralRelation, EvidenceProducerRepoMapImplementerRelation:
+	default:
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(item.Predicate)) {
+	case "implements", "implementation", "inheritance", "extends", "embedding", "overrides":
+		return true
+	default:
+		return false
+	}
+}
+
 // allEvidenceKinds is the canonical, ordered list of every
 // EvidenceKind value. The first six are LLM-emittable via
 // emit_evidence; the last five are deterministic-only (written by

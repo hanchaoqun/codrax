@@ -45,7 +45,7 @@ func TestBuildConcreteValuesSection_StandaloneStructuralRelationsReachHandoff(t 
 	}
 	wantOrder := []string{"TimestampMixin", "ValidationMixin", "BasePlugin"}
 	for i, item := range got.evidence {
-		if item.Producer != "repomap_structural_relation" || item.Kind != types.EvidenceRelationship ||
+		if item.Producer != types.EvidenceProducerRepoMapStructuralRelation || item.Kind != types.EvidenceRelationship ||
 			item.Predicate != "inheritance" || item.Subject != "JsonPlugin" || !item.IsCitable() {
 			t.Fatalf("unexpected structural relation evidence: %+v", item)
 		}
@@ -58,8 +58,8 @@ func TestBuildConcreteValuesSection_StandaloneStructuralRelationsReachHandoff(t 
 		}
 	}
 	for _, want := range []string{
-		"## Typed Declared-Type Relations",
-		"declaration relationships, not invocation edges",
+		"## Typed Type Relations",
+		"structural type relationships, not invocation edges",
 		"`JsonPlugin`",
 		"`TimestampMixin`",
 		"`ValidationMixin`",
@@ -71,6 +71,77 @@ func TestBuildConcreteValuesSection_StandaloneStructuralRelationsReachHandoff(t 
 	}
 	if strings.Contains(got.markdown, "Noise") || strings.Contains(got.markdown, "Guess") {
 		t.Fatalf("regex relation leaked into structural markdown:\n%s", got.markdown)
+	}
+}
+
+func TestBuildRuntimeTargetStructuralRelations_ImplicitImplementersReachTypedHandoff(t *testing.T) {
+	ifaceFile := &repotypes.FileInfo{
+		RelPath: "contract.go", Language: repotypes.LangGo, Package: "sample",
+		Symbols: []repotypes.Symbol{{Name: "LoopController", Kind: "interface", File: "contract.go", Line: 3, EndLine: 5, RequiredMethods: []string{"Observe(1)"}}},
+	}
+	implFile := &repotypes.FileInfo{
+		RelPath: "controller.go", Language: repotypes.LangGo, Package: "sample",
+		Symbols: []repotypes.Symbol{
+			{Name: "workerController", Kind: "struct", File: "controller.go", Line: 7, EndLine: 9},
+			{Name: "Observe", Kind: "method", File: "controller.go", Receiver: "workerController", Line: 12, EndLine: 15, Arity: 1},
+		},
+	}
+	graph := repomap.BuildGraph(t.TempDir(), []*repotypes.FileInfo{ifaceFile, implFile})
+	if got := graph.ImplementersOf("LoopController"); len(got) != 1 {
+		t.Fatalf("fixture must establish one typed implementer, got %+v; interface=%+v concrete=%+v", got, ifaceFile.Symbols, implFile.Symbols)
+	}
+	eval := &explorerEvaluator{
+		predicateAxis: types.AxisImplement,
+		analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			PredicateAxis: types.AxisImplement,
+			AnalyzerHints: types.AnalyzerHints{PrimaryEntities: []string{"LoopController"}},
+		}},
+	}
+	closure := types.NewEvidenceClosure("")
+	closure.SetReadSet(map[string]bool{"controller.go": true})
+	closure.AddReadRanges(map[string][]types.LineRange{"controller.go": {{Start: 7, End: 7}}})
+
+	got := eval.buildRuntimeTargetStructuralRelations(graph, map[string]bool{"controller.go": true}, map[string]bool{"controller.go": true}, closure)
+	if len(got.evidence) != 1 {
+		t.Fatalf("typed ImplementersOf relation must reach the evidence handoff: %+v", got.evidence)
+	}
+	item := got.evidence[0]
+	if item.Subject != "workerController" || item.Predicate != "implements" || item.Object != "LoopController" ||
+		item.Producer != types.EvidenceProducerRepoMapImplementerRelation || !item.IsCitable() {
+		t.Fatalf("unexpected implicit implementer evidence: %+v", item)
+	}
+	if !strings.Contains(got.markdown, "typed_implementers_of") {
+		t.Fatalf("typed relation authority must be visible to synthesis:\n%s", got.markdown)
+	}
+}
+
+func TestBuildRuntimeTargetStructuralRelations_ImplicitImplementerRequiresExactDeclarationRead(t *testing.T) {
+	ifaceFile := &repotypes.FileInfo{
+		RelPath: "contract.go", Language: repotypes.LangGo, Package: "sample",
+		Symbols: []repotypes.Symbol{{Name: "LoopController", Kind: "interface", File: "contract.go", Line: 3, RequiredMethods: []string{"Observe(1)"}}},
+	}
+	implFile := &repotypes.FileInfo{
+		RelPath: "controller.go", Language: repotypes.LangGo, Package: "sample",
+		Symbols: []repotypes.Symbol{
+			{Name: "workerController", Kind: "struct", File: "controller.go", Line: 70},
+			{Name: "Observe", Kind: "method", File: "controller.go", Receiver: "workerController", Line: 80, Arity: 1},
+		},
+	}
+	graph := repomap.BuildGraph(t.TempDir(), []*repotypes.FileInfo{ifaceFile, implFile})
+	eval := &explorerEvaluator{
+		predicateAxis: types.AxisImplement,
+		analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			PredicateAxis: types.AxisImplement,
+			AnalyzerHints: types.AnalyzerHints{PrimaryEntities: []string{"LoopController"}},
+		}},
+	}
+	closure := types.NewEvidenceClosure("")
+	closure.SetReadSet(map[string]bool{"controller.go": true})
+	closure.AddReadRanges(map[string][]types.LineRange{"controller.go": {{Start: 1, End: 20}}})
+
+	got := eval.buildRuntimeTargetStructuralRelations(graph, map[string]bool{"controller.go": true}, map[string]bool{"controller.go": true}, closure)
+	if len(got.evidence) != 0 {
+		t.Fatalf("an unread concrete declaration must not mint a citable implementation edge: %+v", got.evidence)
 	}
 }
 

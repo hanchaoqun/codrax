@@ -1130,6 +1130,12 @@ func TestDiagramCallEdgeEvidenceMismatches_TypeRelationRequiresSameDirectionPars
 	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{modelOnly}); len(got) != 1 {
 		t.Fatalf("model-authored relationship must not replace parser authority: %+v", got)
 	}
+	implicit := evidence[0]
+	implicit.Producer = types.EvidenceProducerRepoMapImplementerRelation
+	implicit.Predicate = "implements"
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{implicit}); len(got) != 0 {
+		t.Fatalf("typed ImplementersOf evidence must authorize the exact same-direction edge: %+v", got)
+	}
 }
 
 func TestDiagramCallEdgeEvidenceMismatches_CallDAGUnanchoredControlEdgeStillFailsClosed(t *testing.T) {

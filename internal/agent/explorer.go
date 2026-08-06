@@ -13694,6 +13694,7 @@ func (e *explorerEvaluator) buildRuntimeTargetStructuralRelations(
 	}
 	rows := make([]row, 0)
 	seen := make(map[string]struct{})
+	seenEndpoints := make(map[string]struct{})
 	files := make([]string, 0, len(filesToScan))
 	for file := range filesToScan {
 		files = append(files, file)
@@ -13746,7 +13747,7 @@ func (e *explorerEvaluator) buildRuntimeTargetStructuralRelations(
 				LineStart:       rel.Line,
 				LineEnd:         rel.Line,
 				Confidence:      rel.Confidence,
-				Producer:        "repomap_structural_relation",
+				Producer:        types.EvidenceProducerRepoMapStructuralRelation,
 				RelationOrdinal: relationOrdinal,
 				Summary:         fmt.Sprintf("declared type relation: `%s` --%s--> `%s` (declared_order=%d, extractor=%s)", subject, rel.Kind, object, relationOrdinal, resolvedBy),
 				Scope:           types.ScopeLine,
@@ -13755,6 +13756,72 @@ func (e *explorerEvaluator) buildRuntimeTargetStructuralRelations(
 			}
 			item.ID = types.StableEvidenceID(item)
 			rows = append(rows, row{item: item, resolvedBy: resolvedBy})
+			seenEndpoints[subject+"\x00"+object] = struct{}{}
+		}
+	}
+
+	// Go and several other supported languages can prove implementation by
+	// method-set/trait conformance without an explicit declaration relation on
+	// the concrete type. Graph.ImplementersOf is the canonical cross-language
+	// authority for that case. Promote its exact concrete declaration line into
+	// the same evidence lane, but only after that line has actually been read.
+	// This closes the graph-to-finalizer handoff without parsing repo_map's
+	// rendered markdown or trusting a model-authored "implements" sentence.
+	var relationTargets []string
+	if e.analysisIR != nil {
+		rm := e.analysisIR.RequestModel
+		relationTargets = append(relationTargets, rm.AnalyzerHints.PrimaryEntities...)
+		relationTargets = append(relationTargets, rm.AnalyzerHints.Entities...)
+		for _, topic := range rm.SubTopics {
+			relationTargets = append(relationTargets, topic.Entities...)
+		}
+	}
+	for _, target := range implementerExpansionTargetsFromEntities(graph, relationTargets) {
+		for _, id := range graph.ImplementersOf(target) {
+			sym := graph.SymbolByID[id]
+			if sym == nil {
+				continue
+			}
+			subject := strings.TrimSpace(sym.Name)
+			object := strings.TrimSpace(target)
+			source := canonicalExplorerPath(sym.File)
+			if subject == "" || object == "" || source == "" || sym.Line <= 0 || !filesToScan[source] {
+				continue
+			}
+			if closure != nil {
+				if !closure.HasReadLine(source, sym.Line) {
+					continue
+				}
+			} else if !readSetContains(readSet, source) {
+				continue
+			}
+			endpointKey := subject + "\x00" + object
+			if _, duplicate := seenEndpoints[endpointKey]; duplicate {
+				continue
+			}
+			key := fmt.Sprintf("%s:%d:implements:%s:%s:typed_implementers_of", source, sym.Line, subject, object)
+			if _, duplicate := seen[key]; duplicate {
+				continue
+			}
+			seen[key] = struct{}{}
+			seenEndpoints[endpointKey] = struct{}{}
+			item := types.EvidenceItem{
+				Kind:         types.EvidenceRelationship,
+				Subject:      subject,
+				Predicate:    "implements",
+				Object:       object,
+				Source:       source,
+				LineStart:    sym.Line,
+				LineEnd:      sym.Line,
+				Confidence:   repotypes.ConfidenceAST,
+				Producer:     types.EvidenceProducerRepoMapImplementerRelation,
+				Summary:      fmt.Sprintf("typed implementer relation: `%s` --implements--> `%s` (extractor=typed_implementers_of)", subject, object),
+				Scope:        types.ScopeLine,
+				AnchorKind:   types.AnchorDefinition,
+				AnchorSymbol: subject,
+			}
+			item.ID = types.StableEvidenceID(item)
+			rows = append(rows, row{item: item, resolvedBy: "typed_implementers_of"})
 		}
 	}
 	sort.SliceStable(rows, func(i, j int) bool {
@@ -13783,8 +13850,8 @@ func (e *explorerEvaluator) buildRuntimeTargetStructuralRelations(
 	}
 	result := concreteValuesResult{evidence: make([]types.EvidenceItem, 0, len(rows))}
 	var b strings.Builder
-	b.WriteString("## Typed Declared-Type Relations (AST/parser grounded)\n\n")
-	b.WriteString("These rows are declaration relationships, not invocation edges. Use them with separate grounded call and registration/binding facts when resolving a runtime target; do not draw a direct call from an inheritance or embedding row alone.\n\n")
+	b.WriteString("## Typed Type Relations (parser/graph grounded)\n\n")
+	b.WriteString("These rows are structural type relationships, not invocation edges. They come from exact parser declarations or the typed ImplementersOf graph. Use them with separate grounded call and registration/binding facts when resolving a runtime target; do not draw a direct call from a type relation alone.\n\n")
 	b.WriteString("| Evidence | File:Line | Kind | Declaring type | Related type | Extractor |\n")
 	b.WriteString("|----------|-----------|------|----------------|--------------|-----------|\n")
 	for _, entry := range rows {
