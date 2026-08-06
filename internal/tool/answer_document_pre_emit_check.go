@@ -3610,23 +3610,41 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			Reason: "multiple aliases for one exact typed call endpoint make body-edge identity ambiguous and can disguise valid calls as missing anchors. Owner/class presentation participants remain legal when exact message operations distinguish their typed call edges.",
 		}}
 	}
-	parts := make([]string, 0, len(mismatches))
+	typeRelationParts := make([]string, 0, len(mismatches))
+	otherParts := make([]string, 0, len(mismatches))
 	for _, mismatch := range mismatches {
-		parts = append(parts, fmt.Sprintf(
+		part := fmt.Sprintf(
 			"block=%q issue=%s edge=%s(%s) -> %s(%s)",
 			mismatch.BlockID,
 			mismatch.Issue,
 			mismatch.FromNode, mismatch.FromSymbol,
 			mismatch.ToNode, mismatch.ToSymbol,
-		))
+		)
+		if mismatch.Issue == diagramTypeRelationEdgeIssueNoEvidence {
+			typeRelationParts = append(typeRelationParts, part)
+		} else {
+			otherParts = append(otherParts, part)
+		}
 	}
-	return []emitFixHint{{
-		Field:      "blocks[].edge_anchors[] AND blocks[kind=diagram].diagram.body",
-		HardSignal: preEmitHardSignalTypedCallEdgeEvidence,
-		ExpectedShape: "every explicit relation_kind=call edge in a non-runtime-trace answer must preserve the exact direction of one citable typed call-edge EvidenceItem; a grounded call-chain sequence/call_dag additionally requires a same-direction call anchor for every invocation body edge and must keep model-selected principal calls visible; sequence async/lost operators -)/--)/-x/--x and activation suffixes remain visible typed edges, while a -->> reverse edge structurally paired with a forward invocation is a response/return and needs no reverse call anchor; method-qualified endpoint labels are exact, while class/actor participant labels require an exact message operation that resolves to one unique typed call edge; when an arrow expresses observation, containment, or ordering rather than a direct invocation, use the matching non-call typed relation instead of inventing call authority; add missing anchors/edges or remove/correct unsupported invocation edges and their corresponding principal-list claims: " +
-			strings.Join(parts, "; "),
-		Reason: "an explicit typed call declaration cannot bypass typed authority merely because the answer was classified as a generic explanation, architecture, comparison, or another non-call-chain family; a function definition proves that a symbol exists, but only a grounded call-site EvidenceItem can authorize caller-to-callee direction. Logical workflow arrows remain available through non-call relations. Supporting calls outside a call-chain model-selected principal path do not expand the diagram. Sequence responses preserve temporal readability without inventing a reverse source-code call.",
-	}}
+	hints := make([]emitFixHint, 0, 2)
+	if len(typeRelationParts) > 0 {
+		hints = append(hints, emitFixHint{
+			Field:         "blocks[].edge_anchors[relation_kind=type_relation] AND blocks[kind=diagram].diagram.body",
+			HardSignal:    preEmitHardSignalTypedCallEdgeEvidence,
+			ExpectedShape: "every explicit relation_kind=type_relation edge in a non-runtime-trace answer must preserve one exact parser-authored declared-type relationship in this direction: subtype / implementing type / embedded type -> superclass / interface / trait / protocol / embedded contract. Correct the edge direction/endpoints or remove an unsupported edge; do not relabel it as call or contain: " + strings.Join(typeRelationParts, "; "),
+			Reason:        "inheritance, implementation, conformance, and embedding are cross-language declared-type relations, not invocations or containment. The typed relation enum is precise enough to gate only when a same-direction parser relationship is present; rendered labels and prose never create that authority.",
+		})
+	}
+	if len(otherParts) > 0 {
+		hints = append(hints, emitFixHint{
+			Field:      "blocks[].edge_anchors[] AND blocks[kind=diagram].diagram.body",
+			HardSignal: preEmitHardSignalTypedCallEdgeEvidence,
+			ExpectedShape: "every explicit relation_kind=call edge in a non-runtime-trace answer must preserve the exact direction of one citable typed call-edge EvidenceItem; a grounded call-chain sequence/call_dag additionally requires a same-direction call anchor for every invocation body edge and must keep model-selected principal calls visible; sequence async/lost operators -)/--)/-x/--x and activation suffixes remain visible typed edges, while a -->> reverse edge structurally paired with a forward invocation is a response/return and needs no reverse call anchor; method-qualified endpoint labels are exact, while class/actor participant labels require an exact message operation that resolves to one unique typed call edge; when an arrow expresses a declared type relation, observation, containment, or ordering rather than a direct invocation, use the matching non-call typed relation instead of inventing call authority; add missing anchors/edges or remove/correct unsupported invocation edges and their corresponding principal-list claims: " +
+				strings.Join(otherParts, "; "),
+			Reason: "an explicit typed call declaration cannot bypass typed authority merely because the answer was classified as a generic explanation, architecture, comparison, or another non-call-chain family; a function definition proves that a symbol exists, but only a grounded call-site EvidenceItem can authorize caller-to-callee direction. Logical workflow arrows remain available through non-call relations. Supporting calls outside a call-chain model-selected principal path do not expand the diagram. Sequence responses preserve temporal readability without inventing a reverse source-code call.",
+		})
+	}
+	return hints
 }
 
 func preCheckPrincipalSupportMemberCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {

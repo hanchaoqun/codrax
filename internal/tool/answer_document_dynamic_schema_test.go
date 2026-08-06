@@ -82,22 +82,25 @@ func TestEmitAnswerDocumentSchema_ClaimAndDiagramEnumsMatchTypes(t *testing.T) {
 	if len(relationEnum) != len(wantRelations) {
 		t.Fatalf("relation_kind enum len=%d want=%d (%v)", len(relationEnum), len(wantRelations), relationEnum)
 	}
-	wantEdgeClaims := make([]string, 0, len(wantRelations)-1)
 	for i, relation := range wantRelations {
 		if relationEnum[i] != string(relation) {
 			t.Fatalf("relation_kind enum[%d]=%v want %q (full=%v)", i, relationEnum[i], relation, relationEnum)
 		}
-		if form := types.ClaimFormForRelation(relation); form != types.ClaimUnknown {
-			wantEdgeClaims = append(wantEdgeClaims, string(form))
+	}
+	if _, leaked := edgeProps["claim_form"]; leaked {
+		t.Fatalf("edge_anchors must expose relation_kind as the sole typed relation authority; claim_form leaked: %v", edgeProps)
+	}
+	required := edgeItem["required"].([]any)
+	for _, want := range []string{"from_node", "to_node", "relation_kind"} {
+		found := false
+		for _, got := range required {
+			if got == want {
+				found = true
+				break
+			}
 		}
-	}
-	edgeClaimEnum := edgeProps["claim_form"].(map[string]any)["enum"].([]any)
-	if len(edgeClaimEnum) != len(wantEdgeClaims) {
-		t.Fatalf("edge claim_form enum len=%d want=%d (%v)", len(edgeClaimEnum), len(wantEdgeClaims), edgeClaimEnum)
-	}
-	for i, form := range wantEdgeClaims {
-		if edgeClaimEnum[i] != form {
-			t.Fatalf("edge claim_form enum[%d]=%v want %q (full=%v)", i, edgeClaimEnum[i], form, edgeClaimEnum)
+		if !found {
+			t.Fatalf("edge_anchors required=%v missing %q", required, want)
 		}
 	}
 }

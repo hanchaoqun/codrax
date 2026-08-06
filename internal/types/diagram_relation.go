@@ -87,6 +87,17 @@ const (
 	// ClaimUnknown from ClaimFormForRelation.
 	DiagramRelContain DiagramRelationKind = "contain"
 
+	// DiagramRelTypeRelation denotes a declared type relationship in
+	// the exact parser direction: subtype / implementing type / embedded
+	// type -> superclass / interface / trait / protocol / embedded
+	// contract. It covers the cross-language inheritance, implements,
+	// conformance, and embedding family without recasting those edges as
+	// calls or containment. It is typed-only; label words cannot mint the
+	// relation. The legacy evidence-shape bridge projects it to
+	// ClaimDefinitionFact, while exact endpoint authority is checked
+	// separately against parser-authored relationship evidence.
+	DiagramRelTypeRelation DiagramRelationKind = "type_relation"
+
 	// DiagramRelObserve denotes an external-observation edge (a log
 	// frame, metric, or trace span attached to a node). Maps to
 	// ClaimExternalObservation.
@@ -107,6 +118,7 @@ var allDiagramRelationKinds = []DiagramRelationKind{
 	DiagramRelImport,
 	DiagramRelPrecedence,
 	DiagramRelContain,
+	DiagramRelTypeRelation,
 	DiagramRelObserve,
 	DiagramRelRegister,
 }
@@ -144,6 +156,8 @@ func ClaimFormForRelation(rk DiagramRelationKind) ClaimForm {
 		return ClaimImportEdge
 	case DiagramRelPrecedence:
 		return ClaimPrecedenceRole
+	case DiagramRelTypeRelation:
+		return ClaimDefinitionFact
 	case DiagramRelObserve:
 		return ClaimExternalObservation
 	case DiagramRelRegister:
@@ -153,9 +167,12 @@ func ClaimFormForRelation(rk DiagramRelationKind) ClaimForm {
 }
 
 // RelationForClaimForm is the inverse bridge for edge-capable claim
-// forms. It upgrades an already-typed edge claim into the basic
+// forms. It upgrades an already-typed legacy edge claim into the basic
 // relation kind even when the LLM omitted relation_kind on
 // edge_anchors[]. Returns DiagramRelUnknown for non-edge claim forms.
+// ClaimDefinitionFact intentionally does not map back to
+// DiagramRelTypeRelation because a generic definition fact does not
+// itself prove a directed type relationship.
 func RelationForClaimForm(cf ClaimForm) DiagramRelationKind {
 	switch cf {
 	case ClaimCallEdge:

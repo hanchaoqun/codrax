@@ -27,6 +27,7 @@ func TestClaimFormForRelation_AllKinds(t *testing.T) {
 		{DiagramRelPrecedence, ClaimPrecedenceRole},
 		{DiagramRelObserve, ClaimExternalObservation},
 		{DiagramRelRegister, ClaimRegistrationEdge},
+		{DiagramRelTypeRelation, ClaimDefinitionFact},
 		{DiagramRelContain, ClaimUnknown}, // containment is block-level, not edge
 		{DiagramRelUnknown, ClaimUnknown},
 	}
@@ -130,6 +131,14 @@ func TestInferRelationFromLabel_RelationGrid(t *testing.T) {
 func TestInferRelationFromLabel_DoesNotMintTypedRegistration(t *testing.T) {
 	if got := InferRelationFromLabel("register native wrapper"); got != DiagramRelUnknown {
 		t.Fatalf("registration labels must remain presentation-only, got %q", got)
+	}
+}
+
+func TestInferRelationFromLabel_DoesNotMintTypedTypeRelation(t *testing.T) {
+	for _, label := range []string{"inherits Base", "implements Trait", "extends Parent", "embeds Contract"} {
+		if got := InferRelationFromLabel(label); got != DiagramRelUnknown {
+			t.Fatalf("declared-type label %q must remain presentation-only, got %q", label, got)
+		}
 	}
 }
 

@@ -473,10 +473,10 @@ func validateDiagramRelationLegality(
 		//     relation; no edge_anchors entry needed (covers the prior
 		//     label-only relaxation).
 		//   - hasTyped: the LLM declared relation_kind on edge_anchors,
-		//     and ClaimFormForRelation(relation_kind) gives a 1-to-1
-		//     mapping for every relation except DiagramRelContain. The
-		//     claim_form field on edge_anchors is therefore redundant
-		//     with relation_kind — requiring the LLM to write both
+		//     and the runtime derives any legacy evidence-shape metadata
+		//     from that authoritative enum. The claim_form field on
+		//     edge_anchors is therefore redundant with relation_kind —
+		//     requiring the LLM to write both
 		//     correctly (and rejecting on mismatch) was the same kind of
 		//     "info repetition" the earlier label-only relaxation removed,
 		//     just one layer down. Eval run-1 of the post-label-only
@@ -520,8 +520,8 @@ func validateDiagramRelationLegality(
 					labelRelCounts[contract.Kind], typedRelCounts[contract.Kind],
 					strings.Join(edgeStrs, "; ")),
 				Repair: fmt.Sprintf(
-					"for each label-only edge listed, add an edge_anchors[] entry with relation_kind=%s, from_node, to_node, and claim_form=%s. The contract is currently met but typed declarations let future readers see the typed authority directly.",
-					contract.Kind, contract.ClaimForm),
+					"for each label-only edge listed, add an edge_anchors[] entry with relation_kind=%s, from_node, and to_node. relation_kind is the sole typed relation authority; do not add another field for its evidence shape. The contract is currently met but typed declarations let future readers see the typed authority directly.",
+					contract.Kind),
 				ClusterKey: relationClusterKey(contract.Kind, "diagram_edges"),
 				SuspectedRoot: types.SuspectedRoot{
 					IRField:    "diagram_edges",

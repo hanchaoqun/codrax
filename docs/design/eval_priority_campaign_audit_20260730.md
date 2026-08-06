@@ -21547,3 +21547,75 @@ agent 3.127s、tool 169.369s；独立 tool 复跑 166.855s）。
 
 状态：`EVAL-B191-ANCHOREQUIV1=S22-implemented/full-impacted-suites-pass/pending-exact-two-replay`；
 `EVAL-B186-SUMMARYJSON1=production-closed/json-teaching+lossy-disclosure-audited`。
+
+### 123.163 B191 r123：typed member-proof 矛盾闭环；JSON 重复字段与类型关系图层缺席
+
+在 `4b054499b` 构建后严格并行恰好两个异构语言 read case：
+
+- `sr_rust_trait_impls`：84s，runner/human PASS；
+- `sr_cpp_sink_impls`：81s，runner/human PASS。
+
+Rust 的两个实现、`--fixed`/default 选择条件及 impl 位置 17/33 均正确，且
+`principal_support_member_coverage=0`；r122 中系统先选择 impl 锚、后又把它判成弱证据的可见矛盾及 caveat 已消失。
+本轮模型逐项显式 citation 仍选择 struct 行 7/23，impl 行以可见 file:line 文字呈现，因此生产回放证明的是客户可见
+矛盾闭环；S22 的“impl location 本身满足 member coverage”正臂由删除即红的单元测试直接固定，不虚报本轮随机模型
+必然选中了该臂。
+
+C++ 完整列出 `ConsoleSink`、`FileSink`、`RotatingSink`、定义文件和两级继承，逐行引用正确、零 finalizer reject、
+principal coverage=0。它同时给出两个新的系统合同 witness：
+
+1. 模型把整个 `blocks[]` 二次编码成 JSON 字符串；既有 flat-mode tolerance 只在外层值可完整解析为原生数组时无损恢复，
+   `answer_document_blocks_string_recovery_events=1`，最终四个 block 与引用完整保留、零重试。这是 malformed JSON
+   “可无损则恢复”的生产正臂，不应改成失败；
+2. 恢复后的每个 `contain` edge 同时携带 `claim_form=definition_fact`。canonical schema 明确不允许这个组合，而运行时
+   早已退役 edge claim-form 一致性门、只以 `relation_kind` 为权威。模型面对的 schema/skill/soft repair 却仍教它重复写
+   两个等价字段，确认 `EVAL-B192-EDGECLAIMDUP1=P1/system-contract-confirmed`；
+3. 更深一层，答案要表达 C++ inheritance，却因关系枚举没有 inheritance/implementation/conformance/embedding 类型，
+   只能把 `Sink → FileSink` 等边声明成 `contain`。可见 prose 正确、内部 typed 图语义错误；相同表达缺口会覆盖 Java/Kotlin、
+   Rust trait、C/C++、TypeScript/ArkTS、Swift、Python、Cangjie、Go embedding 等语言，确认
+   `EVAL-B192-TYPERELGRAPH1=P1/system-contract-confirmed`。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b191_anchor_rust_cpp_r123_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b191_anchor_rust_cpp_r123_20260806_manual_audit.md`。
+
+状态：`EVAL-B191-ANCHOREQUIV1=production-closed/r123`；
+`EVAL-B192-EDGECLAIMDUP1=P1/confirmed/pending-S23`；
+`EVAL-B192-TYPERELGRAPH1=P1/confirmed/pending-S24`。
+
+### 123.164 S23/S24：edge JSON 单权威 + 跨语言 declared-type 图关系
+
+`EVAL-B192-EDGECLAIMDUP1` 采用“删除重复写入义务、保留读兼容”的根修：
+
+1. canonical 及 projected `emit_answer_document` schema 的 `edge_anchors.items` 只暴露并要求
+   `from_node`、`to_node`、`relation_kind` 三字段；删除模型面的 `claim_form` property/enum；
+2. diagram skill 的字段表、关系词表、合法 JSON 示例和 label-only soft repair 同步只教 `relation_kind`；示例改成可直接解析的
+   `{"edge_anchors":[...]}`，不再用缺引号的类 JSON；
+3. `DiagramEdgeAnchor.ClaimForm`、旧 claim-form-only anchor 的 runtime recovery、持久化文档读取与 normalizer 继续保留，
+   因此不是破坏旧缓存/旧文档；新模型只面对一个权威字段，运行时从 relation enum 派生兼容 metadata；
+4. 不新增模型原文/用户输入关键词硬门。`blocks[]` 二次编码仍只在可完整反解时无损恢复；不可无损的 answer JSON 继续走
+   schema-owned visible-string salvage 并披露降级。
+
+`EVAL-B192-TYPERELGRAPH1` 增加统一 `relation_kind=type_relation`，避免按语言逐个加枚举：
+
+1. 语义固定为 parser 的声明方向：subtype / implementing type / embedded type → superclass / interface / trait /
+   protocol / embedded contract；覆盖 inheritance、implements、conformance、embedding，不把它们伪装成 call 或 contain；
+2. `type_relation` 与 `register` 一样是 typed-only：Mermaid label、模型 prose、用户关键词均不能铸造它；
+3. 非 Trace 答案中显式提交该 typed relation 时，只接受同方向、可引用、`repomap_structural_relation` 产出的
+   `EvidenceRelationship`，predicate 限定在 implements/implementation/inheritance/extends/embedding/overrides；反向、
+   model-only producer、无 endpoint 均 fail closed；
+4. 该证据来自各语言 parser 的统一关系层，因此不是 C++ 特判。没有 parser 关系的语言/隐式实现不能凭标签硬宣称；模型可用
+   prose/list 回答，或在有精确证据后再画边；
+5. `QFRootCauseTrace` 在入口即排除，明确时间窗 Trace 因果投影、自动补齐、根因排序、唤醒链、窗内可消除量与双轴归因
+   继续消费原 runtime causal authority，源码类型关系不进入该合同。
+
+回归固定：schema 不再暴露 edge `claim_form` 且三字段 required；skill 不再出现该冗余字段并只给合法 JSON；旧
+claim-form-only anchors 既有兼容测试保持；`type_relation` 同向 parser evidence 通过、反向与 model-only evidence 拒绝、
+label 词不铸权。该 hard gate 只读取 schema-validated enum 与 typed evidence endpoints，符合“精确信号用于硬门”红线。
+
+完整受影响套件通过：`internal/types` 19.587s、`internal/skill` 0.848s、`internal/orchestrator` 12.930s；首次
+`internal/tool` 全跑只触发 prompt hygiene 对 “the system derives” 内部机制措辞的三枚 pin，改成直接的 JSON 指令后
+三枚定向 pin 通过，完整 `go test ./internal/tool -count=1` 通过（159.610s）。这次先红证明 schema 不再要求模型理解
+内部派生机制，只保留它必须填写的字段和方向规则。
+
+状态：`EVAL-B192-EDGECLAIMDUP1=S23-implemented/full-impacted-suites-pass/pending-replay`；
+`EVAL-B192-TYPERELGRAPH1=S24-implemented/full-impacted-suites-pass/pending-replay`。

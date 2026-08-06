@@ -49,6 +49,25 @@ func TestBuildDiagramEdgeLabelVocabularyDoc_SST(t *testing.T) {
 			t.Errorf("vocabulary doc missing keyword %q (kind=%s)", e.Keyword, e.Kind)
 		}
 	}
+	if strings.Contains(got, "claim_form") {
+		t.Fatalf("label vocabulary must not reteach the relation's derived evidence shape: %s", got)
+	}
+}
+
+func TestBuildDiagramRelationContractDoc_UsesRelationKindAsSoleTypedAuthority(t *testing.T) {
+	got := BuildDiagramRelationContractDoc()
+	for _, want := range []string{
+		"exactly three fields: `{from_node, to_node, relation_kind}`",
+		"`relation_kind`: the sole typed relation authority",
+		`{"edge_anchors":[{"from_node":"Auth","to_node":"Worker","relation_kind":"call"}]}`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("diagram relation contract missing simplified JSON teaching %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "claim_form") {
+		t.Fatalf("diagram edge teaching must not expose redundant claim_form:\n%s", got)
+	}
 }
 
 // R4 lock — the new SST helper output MUST NOT contain stage codenames

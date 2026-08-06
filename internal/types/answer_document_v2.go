@@ -486,13 +486,14 @@ func ReauthenticateSystemSnapshotBlockKinds(doc *AnswerDocumentV2, kinds map[str
 //
 // Both FromNode and ToNode MUST be the verbatim node identifier
 // strings as they appear in the diagram body; case-folded matching
-// is downstream. ClaimForm names the typed expected claim shape
-// (call_edge / guard_condition / import_edge / registration_edge /
-// precedence_role / external_observation); ClaimUnknown means "no edge-level
-// claim_form required" (e.g. containment relations). RelationKind
-// is the optional typed enum (call / guard / import / precedence /
-// contain / observe / register); register is typed-only; empty / unknown means "let label inference
-// decide".
+// is downstream. RelationKind is the current typed authority. The
+// model-facing schema requires it and exposes call / guard / import /
+// precedence / contain / type_relation / observe / register.
+// ClaimForm remains on the wire only for persisted-document and old
+// tool-call compatibility; current prompts and schemas do not ask the
+// model to repeat this derived value. Empty / unknown RelationKind is
+// accepted only by legacy runtime paths, which may recover from an old
+// ClaimForm or fall back to label inference.
 type DiagramEdgeAnchor struct {
 	FromNode     string              `json:"from_node"`
 	ToNode       string              `json:"to_node"`

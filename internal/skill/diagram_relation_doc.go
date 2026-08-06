@@ -1,10 +1,7 @@
 package skill
 
 import (
-	"fmt"
 	"strings"
-
-	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // diagram_relation_doc.go — B3 v3 (2026-05-04). Single-source-of-truth
@@ -14,16 +11,13 @@ import (
 // Pre-v3, the prompt hand-rendered three coupled fragments:
 //   1. label keyword vocabulary list (BuildDiagramEdgeLabelVocabularyDoc)
 //   2. typed RelationKind list       (BuildDiagramRelationKindList)
-//   3. surrounding prose teaching the relation→claim_form mapping +
-//      edge_anchors schema
+//   3. surrounding prose teaching the edge_anchors schema
 //
 // All three derive from the same authority tables in
-// internal/types/diagram_relation.go (DiagramRelationKeywords +
-// AllDiagramRelationKinds + ClaimFormForRelation). Adding a new
-// relation kind / keyword / claim_form mapping previously required
-// editing prompt prose by hand. v3 collapses the three into one
-// generated section so prompt content tracks the typed authority
-// automatically.
+// internal/types/diagram_relation.go. Adding a new relation kind or
+// keyword previously required editing prompt prose by hand. v3
+// collapses the three into one generated section so prompt content
+// tracks the typed authority automatically.
 //
 // Output sections:
 //   1. Typed-first PREFERRED guidance (relation_kind primary surface)
@@ -43,9 +37,8 @@ import (
 // Section flow:
 //   - Lead paragraph: typed declaration is the authoritative surface;
 //     keep label vocabulary aligned for reader clarity.
-//   - edge_anchors[] schema: from_node / to_node / relation_kind /
-//     claim_form fields, derived dynamically from
-//     AllDiagramRelationKinds + ClaimFormForRelation.
+//   - edge_anchors[] schema: from_node / to_node / relation_kind,
+//     with the relation enum derived from AllDiagramRelationKinds.
 //   - Legacy compatibility: when an edge label is provided without a
 //     typed relation_kind, the validator infers from label vocabulary.
 //     Generated bullet list reads from DiagramRelationKeywords so the
@@ -55,28 +48,15 @@ func BuildDiagramRelationContractDoc() string {
 
 	b.WriteString("Diagram edges declare a typed relation between two nodes. The TYPED declaration on `edge_anchors[]` is the authoritative surface; rendered edge labels exist for human readers.\n\n")
 
-	b.WriteString("PREFERRED: declare the relation directly via `edge_anchors[]` on the diagram block (or any block whose items describe the endpoints). Each entry is `{from_node, to_node, relation_kind?, claim_form?}`:\n\n")
-	b.WriteString("- `relation_kind` (PREFERRED): the typed relation. One of " + BuildDiagramRelationKindList() + ". Set this and the validator treats your declaration as ground truth — the rendered label is free prose for readability.\n")
-	b.WriteString("- `claim_form` matches the relation's expected typed evidence shape (see the relation→claim_form mapping below).\n")
+	b.WriteString("PREFERRED: declare the relation directly via `edge_anchors[]` on the diagram block (or any block whose items describe the endpoints). Each entry has exactly three fields: `{from_node, to_node, relation_kind}`:\n\n")
+	b.WriteString("- `relation_kind`: the sole typed relation authority. One of " + BuildDiagramRelationKindList() + ". Do not add another field for its evidence shape. The rendered label remains presentation text for human readers.\n")
 	b.WriteString("- `from_node` / `to_node` are the verbatim node identifiers as they appear in the diagram body.\n\n")
+	b.WriteString("For `type_relation`, preserve the exact declared-type direction: subtype / implementing type / embedded type `->` superclass / interface / trait / protocol / embedded contract. It is the shared relation for inheritance, implementation, conformance, and embedding across supported languages. `type_relation` is typed-only and requires a same-direction parser-authored relationship; rendered words such as inherits or implements never mint that authority.\n\n")
 
-	b.WriteString("Each typed relation maps to a claim_form the supporting evidence must declare:\n\n")
-	for _, kind := range types.AllDiagramRelationKinds() {
-		claim := types.ClaimFormForRelation(kind)
-		var qualifier string
-		if claim == types.ClaimUnknown {
-			qualifier = "block-level facet, no edge claim_form required"
-		} else {
-			qualifier = fmt.Sprintf("claim_form `%s`", claim)
-		}
-		fmt.Fprintf(&b, "- relation `%s` (%s)\n", kind, qualifier)
-	}
-	b.WriteString("\n")
-
-	b.WriteString("Example: for the labelled edge `Auth -->|invoke| Worker` (relation `call`, expected claim_form `call_edge`), emit on the diagram block:\n\n")
-	b.WriteString("```json\nedge_anchors: [{from_node: \"Auth\", to_node: \"Worker\", relation_kind: \"call\", claim_form: \"call_edge\"}]\n```\n\n")
+	b.WriteString("Example: for the labelled edge `Auth -->|invoke| Worker` (relation `call`), emit this valid JSON fragment on the diagram block:\n\n")
+	b.WriteString("```json\n{\"edge_anchors\":[{\"from_node\":\"Auth\",\"to_node\":\"Worker\",\"relation_kind\":\"call\"}]}\n```\n\n")
 	b.WriteString("`edge_anchors[]` is a separate top-level array — it NEVER lives inside a `claim_use` object.\n\n")
-	b.WriteString("In every non-runtime-trace answer, an explicit `relation_kind=call` asserts a direct invocation and must preserve the exact direction of one grounded call-site EvidenceItem. This rule follows the typed relation rather than the question family, so a generic explanation, architecture diagram, comparison, or sibling edge carrier cannot use `call` to bypass source authority. When an arrow means registration/binding, observation, containment, or ordering instead of invocation, use `register`, `observe`, `contain`, or `precedence`. `register` is typed-only: it requires one grounded EvidenceRegistration with explicit subject/object endpoints, and rendered edge-label words never mint that authority. Runtime/root-cause trace diagrams use their separate typed causal-relation authority and do not enter this source-call contract.\n\n")
+	b.WriteString("In every non-runtime-trace answer, an explicit `relation_kind=call` asserts a direct invocation and must preserve the exact direction of one grounded call-site EvidenceItem. This rule follows the typed relation rather than the question family, so a generic explanation, architecture diagram, comparison, or sibling edge carrier cannot use `call` to bypass source authority. When an arrow means a declared type relation, registration/binding, observation, containment, or ordering instead of invocation, use `type_relation`, `register`, `observe`, `contain`, or `precedence`. `type_relation` and `register` are typed-only and require exact same-direction relationship evidence; rendered edge-label words never mint that authority. Runtime/root-cause trace diagrams use their separate typed causal-relation authority and do not enter this source-call contract.\n\n")
 	b.WriteString("For a grounded call-chain `sequenceDiagram`, each invocation arrow (`caller->>callee: operation(...)`) needs its same-direction `relation_kind=call` anchor. A dashed reply `callee-->>caller` is a response/return, not a reverse call. For example, `callee-->>caller: result` is a reply only when it mirrors an invocation already drawn in the opposite direction; it is not a reverse source-code call, so do NOT add a call anchor for that reply. A standalone `-->>` edge does not self-declare as a reply and remains subject to call authority. Method-qualified participant labels are the clearest form. Short class/actor participants are also valid when the message begins with the exact callee operation and that owner+operation tuple resolves to one unique typed call edge; ambiguous class-only edges fail closed.\n\n")
 	b.WriteString("For a grounded call-chain `call_dag`, every invocation needs an explicit `relation_kind=call` anchor. A real non-call edge (guard/import/precedence/contain/observe/register) needs its own explicit typed anchor; an edge label is presentation text and never mints typed authority. If structured principal-path items select both endpoints of a grounded typed call, keep that directed call visible in the sequence/call_dag. Supporting calls outside the selected principal path do not have to be drawn.\n\n")
 

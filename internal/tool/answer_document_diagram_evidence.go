@@ -37,6 +37,7 @@ const (
 	diagramCallEdgeIssueNoEvidence           = "call_edge_unproven"
 	diagramCallEdgeIssuePrincipalMiss        = "principal_call_edge_missing"
 	diagramRegistrationEdgeIssueNoEvidence   = "registration_edge_unproven"
+	diagramTypeRelationEdgeIssueNoEvidence   = "type_relation_edge_unproven"
 )
 
 // DiagramCallEdgeEvidenceMismatches cross-checks model-authored typed call
@@ -146,6 +147,18 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 		}
 		for _, anchor := range block.EdgeAnchors {
 			relation := diagramAnchorRelation(anchor)
+			if relation == types.DiagramRelTypeRelation {
+				fromSymbol := diagramEvidenceEndpointSymbol(anchor.FromNode, labels)
+				toSymbol := diagramEvidenceEndpointSymbol(anchor.ToNode, labels)
+				if !diagramTypeRelationEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol) {
+					out = append(out, DiagramCallEdgeEvidenceMismatch{
+						BlockID: block.ID, Issue: diagramTypeRelationEdgeIssueNoEvidence,
+						FromNode: strings.TrimSpace(anchor.FromNode), ToNode: strings.TrimSpace(anchor.ToNode),
+						FromSymbol: fromSymbol, ToSymbol: toSymbol,
+					})
+				}
+				continue
+			}
 			if relation == types.DiagramRelRegister {
 				fromSymbol := diagramEvidenceEndpointSymbol(anchor.FromNode, labels)
 				toSymbol := diagramEvidenceEndpointSymbol(anchor.ToNode, labels)
@@ -238,6 +251,29 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 		}
 	}
 	return out
+}
+
+func diagramTypeRelationEdgeHasTypedEvidence(evidence []types.EvidenceItem, fromSymbol, toSymbol string) bool {
+	fromSymbol = strings.TrimSpace(fromSymbol)
+	toSymbol = strings.TrimSpace(toSymbol)
+	if fromSymbol == "" || toSymbol == "" {
+		return false
+	}
+	for _, item := range evidence {
+		if !item.IsCitable() || item.Kind != types.EvidenceRelationship ||
+			strings.TrimSpace(item.Producer) != "repomap_structural_relation" {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(item.Predicate)) {
+		case "implements", "implementation", "inheritance", "extends", "embedding", "overrides":
+		default:
+			continue
+		}
+		if strings.TrimSpace(item.Subject) == fromSymbol && strings.TrimSpace(item.Object) == toSymbol {
+			return true
+		}
+	}
+	return false
 }
 
 func diagramRegistrationEdgeHasTypedEvidence(evidence []types.EvidenceItem, fromSymbol, toSymbol string) bool {

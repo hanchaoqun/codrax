@@ -13,10 +13,11 @@ import (
 // vocabulary directly from the typed dictionary in
 // internal/types/diagram_relation.go (single source of truth).
 //
-// SST red line: the keyword set + relation→claim_form mapping live
-// ONLY in internal/types/diagram_relation.go. This helper reads
-// those tables at build time so a future edit to the dictionary or
-// the mapping flows through to the LLM prompt without manual sync.
+// SST red line: the keyword set lives ONLY in
+// internal/types/diagram_relation.go. This helper reads that table
+// at build time so a future edit to the dictionary flows through to
+// the LLM prompt without manual sync. Evidence-shape mapping remains
+// internal because relation_kind is the sole LLM-authored authority.
 // Mirrors the pattern of analysis_contract.go's renderEnumTable —
 // LLM-facing prose is generated from the typed authority, not
 // hand-mirrored.
@@ -24,7 +25,7 @@ import (
 // Output shape (one bullet per non-Unknown relation kind, one
 // trailing newline):
 //
-//	- relation `<kind>` (claim_form `<form>` | block-level facet): keywords `kw1`, `kw2`, ...
+//   - relation `<kind>`: keywords `kw1`, `kw2`, ...
 func BuildDiagramEdgeLabelVocabularyDoc() string {
 	dict := types.DiagramRelationKeywords()
 	grouped := make(map[types.DiagramRelationKind][]string)
@@ -48,15 +49,8 @@ func BuildDiagramEdgeLabelVocabularyDoc() string {
 		for _, kw := range grouped[kind] {
 			quoted = append(quoted, fmt.Sprintf("`%s`", kw))
 		}
-		claim := types.ClaimFormForRelation(kind)
-		var qualifier string
-		if claim == types.ClaimUnknown {
-			qualifier = "block-level facet, no edge claim_form required"
-		} else {
-			qualifier = fmt.Sprintf("claim_form `%s`", claim)
-		}
-		fmt.Fprintf(&b, "- relation `%s` (%s): keywords %s\n",
-			kind, qualifier, strings.Join(quoted, ", "))
+		fmt.Fprintf(&b, "- relation `%s`: keywords %s\n",
+			kind, strings.Join(quoted, ", "))
 	}
 	return b.String()
 }

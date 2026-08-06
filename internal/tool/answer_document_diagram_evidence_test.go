@@ -1096,6 +1096,42 @@ func TestDiagramCallEdgeEvidenceMismatches_RegistrationRequiresExactTypedEvidenc
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_TypeRelationRequiresSameDirectionParserEvidence(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "type-hierarchy", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramArchitecture, Language: "mermaid",
+			Body: "flowchart BT\n  C[FileSink] --> P[Sink]\n",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "C", ToNode: "P", RelationKind: types.DiagramRelTypeRelation,
+		}},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFGeneric}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, nil); len(got) != 1 || got[0].Issue != diagramTypeRelationEdgeIssueNoEvidence {
+		t.Fatalf("unproved type relation must fail closed: %+v", got)
+	}
+	evidence := []types.EvidenceItem{{
+		Kind: types.EvidenceRelationship, Producer: "repomap_structural_relation",
+		Subject: "FileSink", Predicate: "inheritance", Object: "Sink",
+		Source: "include/logx/file_sink.hpp", LineStart: 10, Scope: types.ScopeLine,
+		AnchorKind: types.AnchorDefinition,
+	}}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) != 0 {
+		t.Fatalf("same-direction parser type relation must authorize edge: %+v", got)
+	}
+	reversed := evidence[0]
+	reversed.Subject, reversed.Object = reversed.Object, reversed.Subject
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{reversed}); len(got) != 1 || got[0].Issue != diagramTypeRelationEdgeIssueNoEvidence {
+		t.Fatalf("reverse parser relation must not authorize edge: %+v", got)
+	}
+	modelOnly := evidence[0]
+	modelOnly.Producer = "explorer.emit_evidence"
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{modelOnly}); len(got) != 1 {
+		t.Fatalf("model-authored relationship must not replace parser authority: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_CallDAGUnanchoredControlEdgeStillFailsClosed(t *testing.T) {
 	doc := diagramEvidenceTestDoc("A", "B")
 	doc.Blocks[0].Diagram.Kind = types.DiagramCallDAG
