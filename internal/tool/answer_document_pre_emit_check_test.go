@@ -4176,6 +4176,13 @@ func TestNormalizeAnswerDocumentForPreEmit_SourceInventoryRowIdentityWinsOverCan
 		}},
 	}
 
+	if fixed := normalizeItemCitationRefsByUniqueSourceInventoryDisplayRowWithContext(doc, ctx); fixed != 1 {
+		t.Fatalf("exact typed family repair fixed=%d, want 1; doc=%+v", fixed, doc)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 1 {
+		t.Fatalf("exact typed family repair citation_ref=%d, want extend row 1", got)
+	}
+	doc.Blocks[0].Items[0].CitationRef = 0
 	normalizeAnswerDocumentForPreEmit("test", doc, &types.AnswerSemanticView{}, ctx, newPreEmitCheckContext(ctx))
 	ref := doc.Blocks[0].Items[0].CitationRef
 	if ref < 0 || ref >= len(doc.Citations) || doc.Citations[ref].File != "cart/Cart.cj" || doc.Citations[ref].Line != 30 {
@@ -4183,6 +4190,85 @@ func TestNormalizeAnswerDocumentForPreEmit_SourceInventoryRowIdentityWinsOverCan
 	}
 	if hints := preCheckSourceInventoryExtraneousPrincipalItems(doc, ctx); len(hints) != 0 {
 		t.Fatalf("exact typed extend row was still classified as extraneous: %+v", hints)
+	}
+}
+
+func TestNormalizeAnswerDocumentForPreEmit_SourceInventoryFamilyWinsForDecoratedPatchLabel(t *testing.T) {
+	ctx, _, _ := sourceInventoryDuplicateCartRowIDTestContext(t)
+	ctx.Mutable.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
+		{
+			Kind: types.AnswerAggregateMemberSet, Label: "extend declarations", Value: "1",
+			Role:    types.AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"extend Cart (demo.cart)"}, SupportRefs: []string{"extend Cart @ cart/Cart.cj:30"},
+		},
+		{
+			Kind: types.AnswerAggregateMemberSet, Label: "public class", Value: "1",
+			Role:    types.AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"Cart (demo.cart)"}, SupportRefs: []string{"Cart @ cart/Cart.cj:14"},
+		},
+	})
+	ctx.Mutable.RetainInvestigationAggregateFacts()
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "cart/Cart.cj", Line: 14}, {File: "cart/Cart.cj", Line: 30}},
+		Blocks: []types.AnswerBlock{{
+			ID: "extend", Kind: types.BlockSection,
+			SurfaceRole:           types.SurfacePrincipal,
+			SourceInventoryFamily: "extend",
+			FacetIDs:              []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{{
+				ID: "extend-cart", Label: "extend Cart (demo.cart)",
+				CandidateRole: types.AnswerCandidateRoleType,
+				CitationRef:   0,
+			}},
+		}},
+	}
+
+	normalizeAnswerDocumentForPreEmit("test", doc, &types.AnswerSemanticView{}, ctx, newPreEmitCheckContext(ctx))
+	ref := doc.Blocks[0].Items[0].CitationRef
+	if ref < 0 || ref >= len(doc.Citations) || doc.Citations[ref].File != "cart/Cart.cj" || doc.Citations[ref].Line != 30 {
+		t.Fatalf("typed extend family must keep decorated patch label on extend row: ref=%d citations=%+v item=%+v", ref, doc.Citations, doc.Blocks[0].Items[0])
+	}
+}
+
+func TestNormalizeAnswerDocumentPatchCitationRefs_SourceInventoryFamilyWinsBeforeGenericBinder(t *testing.T) {
+	ctx, _, _ := sourceInventoryDuplicateCartRowIDTestContext(t)
+	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{
+		{ID: "class-cart", Kind: types.EvidenceDirect, Subject: "public class Cart", AnchorSymbol: "Cart", Source: "cart/Cart.cj", LineStart: 14, GroundingStatus: types.GroundingGrounded},
+		{ID: "extend-cart", Kind: types.EvidenceDirect, Subject: "extend Cart", AnchorSymbol: "Cart", Source: "cart/Cart.cj", LineStart: 30, GroundingStatus: types.GroundingGrounded},
+	}})
+	ctx.Mutable.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
+		{
+			Kind: types.AnswerAggregateMemberSet, Label: "extend declarations", Value: "1",
+			Role:    types.AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"extend Cart (demo.cart)"}, SupportRefs: []string{"extend Cart @ cart/Cart.cj:30"},
+		},
+		{
+			Kind: types.AnswerAggregateMemberSet, Label: "public class", Value: "1",
+			Role:    types.AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"Cart (demo.cart)"}, SupportRefs: []string{"Cart @ cart/Cart.cj:14"},
+		},
+	})
+	ctx.Mutable.RetainInvestigationAggregateFacts()
+	prev := &types.AnswerDocumentV2{Citations: []types.Citation{
+		{File: "cart/Cart.cj", Line: 14},
+		{File: "cart/Cart.cj", Line: 30},
+	}}
+	patch := &types.AnswerDocumentV2Patch{ReplaceBlocks: []types.AnswerBlock{{
+		ID: "extend", Kind: types.BlockSection,
+		SurfaceRole:           types.SurfacePrincipal,
+		SourceInventoryFamily: "extend",
+		FacetIDs:              []string{string(types.FacetEnumerationItem)},
+		Items: []types.AnswerBlockItem{{
+			ID: "extend-cart", Label: "extend Cart (demo.cart)",
+			CandidateRole: types.AnswerCandidateRoleType,
+			CitationRef:   1,
+			Text:          "文件: cart/Cart.cj:30；为 Cart 类添加扩展方法",
+		}},
+	}}}
+
+	normalizeAnswerDocumentPatchCitationRefs(prev, patch, ctx)
+	if got := patch.ReplaceBlocks[0].Items[0].CitationRef; got != 1 {
+		t.Fatalf("patch generic binder moved exact typed family row to citation_ref=%d; want 1", got)
 	}
 }
 

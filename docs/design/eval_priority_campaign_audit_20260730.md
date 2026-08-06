@@ -20863,3 +20863,29 @@ r111 JSON 审计：ArkTS 原生 JSON 一轮通过；Cangjie 首稿 blocks-string
 `EVAL-B185-ORACLEMARK1=P1/confirmed/pending-eval-runner-fix`；
 `EVAL-B185-CITEFAMILY1=P1/confirmed/pending-typed-partition-binder-fix`；
 `EVAL-B184-CARRIERMETA1=P2/repeated-single-retry-observe`。
+
+### 123.140 S14：patch citation 先服从 typed family；eval 显式 section 先于 marker 行
+
+`EVAL-B185-CITEFAMILY1` 与 `EVAL-B185-ORACLEMARK1` 已分层修复。
+
+生产 patch lane 在通用 candidate-role/label binder 之前，先读取 block 自身的 exact
+`source_inventory_family`，并在统一 admitted principal row registry 的该 family 分区内匹配 structured
+item label。只有恰好一个 typed row 且该行持有 current-source citation 时才绑定；family 不存在、非法、
+label 歧义或行无 citation 时完全不处理，继续走既有 fail-closed 路径。该优先级与 full-emit normalize 的
+“source-inventory row identity 最后胜出”一致，补齐了 patch 预归一化先把正确引用搬错、后续再拆除的时间窗。
+输入仅为 typed family、structured label 与 typed row registry；title、item text、用户请求、模型 think 和最终
+Markdown 均不铸造 family authority。
+
+回归构造同文件同名 `Cart` 的 `public class@14` / `extend@30`，以及 package-decorated patch label，证明
+family-specific item 保持 `extend@30`，通用 role binder 不得覆盖；既有 row-id strongest-last pin 继续覆盖。
+
+eval runner 单独把 case-declared exact section label 提到 marker-row 兼容扫描之前。新增 pin 的 section 内两行
+只有第一行重复 `@Entry`，仍必须按完整 section 得到 2 行；显式 section 不存在时，heading-free/mixed-table 的
+marker rows 与 marker heading fallback 均保留；没有显式 label 的旧 rowset-name 分段兼容也继续通过。完整
+`bash eval/runner_lib_test.sh` 已绿。该变更只修 eval 判分，不进入产品答案合同或 runtime hard gate。
+
+JSON 教学未增加字段、required 项或第二 schema；模型已经提交 exact family 时系统直接消费，不再要求模型
+重复解释引用选择。Trace 查询、明确时间窗、因果投影、自动补齐和模型结论所有权均未触及。
+
+状态：`EVAL-B185-CITEFAMILY1=S14-implemented/pending-full-tool-suite-and-replay`；
+`EVAL-B185-ORACLEMARK1=S14-implemented/runner-contracts-pass/pending-replay`。

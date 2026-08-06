@@ -817,6 +817,7 @@ func normalizeAnswerDocumentPatchCitationRefs(prev *types.AnswerDocumentV2, patc
 		return false, nil
 	}
 	pctx := newPreEmitCheckContext(ctx)
+	sourceInventorySets := preEmitSourceInventoryTypedPrincipalSets(ctx)
 	replacePool := patch.ReplaceCitations != nil
 	pool := answerDocumentPatchEffectiveCitationPool(prev, patch)
 	if len(pool) == 0 {
@@ -837,6 +838,30 @@ func normalizeAnswerDocumentPatchCitationRefs(prev *types.AnswerDocumentV2, patc
 				if label == "" ||
 					(!preEmitLabelNeedsCitationAlignment(label) &&
 						!preEmitItemMatchesPrincipalAggregateMemberWithContext(pctx, label, text)) {
+					continue
+				}
+				// An exact model-authored source_inventory_family plus one exact
+				// typed member row is a stronger selector than the generic
+				// candidate-role binder below. Resolve it first on the patch
+				// carrier itself: a same-name declaration in another family must
+				// never replace the selected row merely because its coarse role is
+				// easier to classify. No title, item prose, or request text mints
+				// this authority.
+				if cit, ok := preEmitPatchSourceInventoryCitationForItem(*block, *item, sourceInventorySets); ok {
+					target := answerDocumentPatchCitationIndex(pool, cit)
+					if target < 0 {
+						if replacePool {
+							patch.ReplaceCitations = append(patch.ReplaceCitations, cit)
+						} else {
+							patch.AppendCitations = append(patch.AppendCitations, cit)
+						}
+						pool = append(pool, cit)
+						target = len(pool) - 1
+					}
+					if target != item.CitationRef {
+						item.CitationRef = target
+						fields = append(fields, fmt.Sprintf("%s[%q].items[%q]→%d", field, block.ID, item.ID, target))
+					}
 					continue
 				}
 				if item.CitationRef >= 0 && item.CitationRef < len(pool) &&
@@ -868,6 +893,29 @@ func normalizeAnswerDocumentPatchCitationRefs(prev *types.AnswerDocumentV2, patc
 	rebindBlocks("replace_blocks", patch.ReplaceBlocks)
 	rebindBlocks("add_blocks", patch.AddBlocks)
 	return len(fields) > 0, fields
+}
+
+func preEmitPatchSourceInventoryCitationForItem(
+	block types.AnswerBlock,
+	item types.AnswerBlockItem,
+	sets []types.EnumerationDisplaySet,
+) (types.Citation, bool) {
+	if types.SourceInventorySurfaceTermKey(block.SourceInventoryFamily) == "" || len(sets) == 0 {
+		return types.Citation{}, false
+	}
+	rows, invalidFamily := preEmitSourceInventoryBindingRowsForBlock(block, sets)
+	if invalidFamily || len(rows) == 0 {
+		return types.Citation{}, false
+	}
+	matches := preEmitSourceInventoryExactLabelRows(item, rows)
+	if len(matches) != 1 {
+		return types.Citation{}, false
+	}
+	row := matches[0]
+	if !row.HasCitation || strings.TrimSpace(row.Source) == "" || row.LineStart <= 0 {
+		return types.Citation{}, false
+	}
+	return types.Citation{File: row.Source, Line: row.LineStart, LineEnd: row.LineEnd}, true
 }
 
 func answerDocumentPatchDeclaredCitationPool(patch *types.AnswerDocumentV2Patch) []types.Citation {

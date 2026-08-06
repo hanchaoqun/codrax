@@ -830,6 +830,10 @@ assert_eq "$(eval_inventory_rowset_reasons "$inventory_nested_extra")" "inventor
 EXPECT_INVENTORY_SECTION_LABEL_ENTRY_PAGE="missing section"
 assert_eq "$(eval_inventory_rowset_reasons "$inventory_nested_extra")" "missing_inventory_section:entry_page:missing_section" "declared inventory section label must fail loudly when absent"
 EXPECT_INVENTORY_ROW_MARKER_ENTRY_PAGE="@Entry"
+EXPECT_INVENTORY_SECTION_LABEL_ENTRY_PAGE="@Entry 页面入口"
+inventory_section_with_uneven_marker_rows=$'### @Entry 页面入口\n\n- **Index** — @Entry 页面，位于 `src/Index.ets:5`\n- **Parent** — 页面入口，位于 `src/Parent.ets:9`\n\n### @Builder 复用片段\n\n- **Card** — 位于 `src/Card.ets:3`'
+assert_eq "$(eval_inventory_rowset_reasons "$inventory_section_with_uneven_marker_rows")" "" "explicit inventory section must outrank a partial marker-row subset"
+EXPECT_INVENTORY_SECTION_LABEL_ENTRY_PAGE="missing section"
 inventory_marker_heading=$'### @Entry 页面入口\n\n| symbol | path |\n|---|---|\n| Index | Index.ets:5 |\n| Parent | Parent.ets:9 |\n\n### @Builder 复用片段\n\n| symbol | path |\n|---|---|\n| Card | Card.ets:3 |'
 assert_eq "$(eval_inventory_rowset_reasons "$inventory_marker_heading")" "" "typed inventory marker scopes a semantically identical heading without requiring exact presentation copy"
 inventory_marker_summary_heading=$'## ArkTS @Entry 和 @Builder 装饰器成员清单\n\n总计 3 项。\n\n### @Entry 页面入口\n\n| symbol | path |\n|---|---|\n| Index | Index.ets:5 |\n| Parent | Parent.ets:9 |\n\n### @Builder 复用片段\n\n| symbol | path |\n|---|---|\n| Card | Card.ets:3 |'

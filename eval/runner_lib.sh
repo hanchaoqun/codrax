@@ -808,19 +808,21 @@ eval_inventory_rowset_reasons() {
     row_marker="${!marker_var:-}"
     rowset_scoped=0
     marker_scoped=0
-    # When a case declares a row marker and the terminal answer actually carries
-    # marker-bearing inventory rows, the marker is the typed group discriminator.
-    # Prefer those rows over prose sections: a correct answer may introduce each
-    # group with prose headings and then place all groups in one combined table.
-    # If no row carries the marker, retain the strict section paths below.
-    if [[ -n "$row_marker" ]] && rowset_text="$(eval_inventory_marker_rows "$cleaned" "$row_marker")"; then
+    # A case-declared explicit section label is the narrowest presentation
+    # scope. Prefer it before the compatibility marker scan: individual rows
+    # may mention the marker unevenly even though the enclosing section owns the
+    # complete roster. Marker-bearing rows remain the fallback for heading-free
+    # or mixed-family tables.
+    if [[ -n "$section_label" ]] && rowset_text="$(eval_inventory_rowset_section_text "$cleaned" "$rowset" "$section_label")"; then
+      rowset_scoped=1
+    elif [[ -n "$row_marker" ]] && rowset_text="$(eval_inventory_marker_rows "$cleaned" "$row_marker")"; then
       rowset_scoped=1
       marker_scoped=1
-    elif rowset_text="$(eval_inventory_rowset_section_text "$cleaned" "$rowset" "$section_label")"; then
-      rowset_scoped=1
     # A case-declared marker may also be carried by a localized group heading.
     # Use that section only when no presentation row carried the marker.
     elif [[ -n "$row_marker" ]] && rowset_text="$(eval_inventory_rowset_section_text "$cleaned" "$rowset" "$row_marker")"; then
+      rowset_scoped=1
+    elif [[ -z "$section_label" ]] && rowset_text="$(eval_inventory_rowset_section_text "$cleaned" "$rowset")"; then
       rowset_scoped=1
     elif [[ -n "$section_label" && -z "$row_marker" ]]; then
       printf 'missing_inventory_section:%s:%s\n' "$rowset" "$(eval_reason_slug "$section_label")"
