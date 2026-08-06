@@ -149,6 +149,61 @@ func TestStampCumulativeVerificationScopePreservesControllerScopeOnExactPlanRest
 	}
 }
 
+func TestStampCumulativeVerificationScopeActiveGenerationShadowsSameIDRetainedRows(t *testing.T) {
+	t0 := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
+	retained := &types.ChangePlan{
+		ID:          "plan-old",
+		TargetPaths: []string{"old.c"},
+		Changes:     []types.FileChange{{Path: "old.c", Kind: "patch"}},
+		BehaviorContracts: []types.WriteBehaviorContract{
+			{ID: "outcome-2", Expected: "line 16 remains unchanged"},
+			{ID: "retained-only", Expected: "line 12 remains repaired"},
+		},
+		VerificationProbes: []types.VerificationProbe{
+			{ID: "behavior-probe", Code: "old generation"},
+			{ID: "retained-probe", Code: "retained generation"},
+		},
+	}
+	active := &types.ChangePlan{
+		ID:          "plan-new",
+		TargetPaths: []string{"new.c"},
+		Changes:     []types.FileChange{{Path: "new.c", Kind: "patch"}},
+		BehaviorContracts: []types.WriteBehaviorContract{
+			{ID: "outcome-2", Expected: "line 16 returns the negative lookup error"},
+		},
+		VerificationProbes: []types.VerificationProbe{
+			{ID: "behavior-probe", Code: "current generation"},
+		},
+	}
+	run := &types.WriteWorkflowRun{Batches: []types.WriteWorkflowBatch{{
+		ID: "batch-1",
+		Attempts: []types.WriteWorkflowAttempt{{
+			Kind: "apply", Status: "applied", PlanID: retained.ID, FinishedAt: t0,
+		}},
+	}}}
+
+	o := New(types.PipelineSettings{}, nil, nil, nil)
+	o.stampCumulativeVerificationScope(active, run, retained)
+
+	got := active.CumulativeVerificationScope
+	if got == nil {
+		t.Fatal("expected retained verification scope")
+	}
+	if ids := behaviorContractIDs(got.BehaviorContracts); !reflect.DeepEqual(ids, []string{"retained-only"}) {
+		t.Fatalf("same-ID stale contract must not re-enter cumulative scope: %+v", got.BehaviorContracts)
+	}
+	if ids := verificationProbeIDs(got.VerificationProbes); !reflect.DeepEqual(ids, []string{"retained-probe"}) {
+		t.Fatalf("same-ID stale probe must not re-enter cumulative scope: %+v", got.VerificationProbes)
+	}
+	combined := types.ChangePlanVerificationBehaviorContracts(active)
+	if ids := behaviorContractIDs(combined); !reflect.DeepEqual(ids, []string{"outcome-2", "retained-only"}) {
+		t.Fatalf("verification view must retain active generation plus unique prior rows: %+v", combined)
+	}
+	if combined[0].Expected != "line 16 returns the negative lookup error" {
+		t.Fatalf("active contract generation lost authority: %+v", combined[0])
+	}
+}
+
 func behaviorContractIDs(in []types.WriteBehaviorContract) []string {
 	out := make([]string, 0, len(in))
 	for _, item := range in {

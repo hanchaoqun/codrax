@@ -8469,6 +8469,47 @@ func TestAttachPlanContextPackToWorkflowRunPersistsPriorContextCoverage(t *testi
 	}
 }
 
+func TestAttachPlanContextPackToWorkflowRunReplacesPriorPlanGeneration(t *testing.T) {
+	run := types.WriteWorkflowRun{
+		RunID:         "run-replan",
+		ActiveBatchID: "batch-1",
+	}
+	first := &types.ChangePlan{
+		ID:              "plan-first",
+		Summary:         "first attempt",
+		TargetPaths:     []string{"callback.c"},
+		Changes:         []types.FileChange{{Path: "callback.c", Kind: "patch"}},
+		AcceptanceTests: []string{"line 16 remains unchanged"},
+	}
+	run = attachPlanContextPackToWorkflowRun(run, first)
+	second := &types.ChangePlan{
+		ID:              "plan-repair",
+		Summary:         "repair verified callback behavior",
+		TargetPaths:     []string{"callback.c"},
+		Changes:         []types.FileChange{{Path: "callback.c", Kind: "patch"}},
+		AcceptanceTests: []string{"line 16 returns the negative lookup error"},
+	}
+	run = attachPlanContextPackToWorkflowRun(run, second)
+
+	var planPacks []types.WriteContextPack
+	for _, pack := range run.ContextPacks {
+		if pack.PackID == "change-plan" {
+			planPacks = append(planPacks, pack)
+		}
+	}
+	if len(planPacks) != 1 {
+		t.Fatalf("active batch must expose one change-plan generation, got %+v", planPacks)
+	}
+	view := planPacks[0].ViewForScope(types.WriteConsumerVerifier, 30, "batch-1", "")
+	if writeContextViewHasItem(view, "acceptance_test", "line 16 remains unchanged") {
+		t.Fatalf("prior plan acceptance test survived generation replacement: %+v", view.Items)
+	}
+	if !writeContextViewHasItem(view, "acceptance_test", "line 16 returns the negative lookup error") ||
+		!writeContextViewHasItem(view, "plan_generation", "plan_id=plan-repair") {
+		t.Fatalf("current plan generation missing from workflow context: %+v", view.Items)
+	}
+}
+
 func TestAttachPlanContextPackToWorkflowRunStampsSelectedOwnerAnchors(t *testing.T) {
 	ref := types.WriteExplorationEvidenceRef{
 		ID:           "ev-owner",

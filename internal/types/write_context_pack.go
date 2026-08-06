@@ -123,6 +123,19 @@ func MergeWriteContextPacks(batchID, goal string, packs ...WriteContextPack) Wri
 		BatchID: trimWriteContextText(batchID),
 		Goal:    trimWriteContextText(goal),
 	}
+	rebasedPlanContracts := false
+	for _, pack := range packs {
+		pack = NormalizeWriteContextPack(pack)
+		for _, item := range pack.Items {
+			if item.Kind == "behavior_contract_generation" && item.SourceStage == "plan" {
+				rebasedPlanContracts = true
+				break
+			}
+		}
+		if rebasedPlanContracts {
+			break
+		}
+	}
 	for _, pack := range packs {
 		pack = NormalizeWriteContextPack(pack)
 		if out.BatchID == "" {
@@ -131,7 +144,21 @@ func MergeWriteContextPacks(batchID, goal string, packs ...WriteContextPack) Wri
 		if out.Goal == "" {
 			out.Goal = pack.Goal
 		}
-		out.Items = append(out.Items, pack.Items...)
+		for _, item := range pack.Items {
+			// A typed verify-failure replan publishes the complete active
+			// contract generation in its plan pack. Do not also show the
+			// analyzer's older success/fallback projection: the explicit
+			// contracts are carried by the active plan and its fallback rows
+			// have been replaced. This is generation precedence, not prose
+			// comparison.
+			if rebasedPlanContracts && item.SourceStage == "write_analysis" {
+				switch item.Kind {
+				case "success_criterion", "behavior_contract", "behavior_transition_step":
+					continue
+				}
+			}
+			out.Items = append(out.Items, item)
+		}
 	}
 	return NormalizeWriteContextPack(out)
 }
@@ -441,6 +468,13 @@ func WriteContextPackFromChangePlan(plan *ChangePlan) WriteContextPack {
 		Goal:        plan.Summary,
 		SourceStage: "plan",
 	}
+	if strings.TrimSpace(plan.ID) != "" {
+		item := writeContextItem("plan_generation", WriteContextP1, "plan_id="+strings.TrimSpace(plan.ID), "plan",
+			WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier)
+		item.SourceID = strings.TrimSpace(plan.ID)
+		item.ID = writeContextStableID("plan_generation", plan.ID)
+		pack.Items = append(pack.Items, item)
+	}
 	for _, path := range plan.TargetPaths {
 		pack.Items = append(pack.Items, writeContextItem("target_file", WriteContextP1, path, "plan",
 			WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
@@ -450,8 +484,52 @@ func WriteContextPackFromChangePlan(plan *ChangePlan) WriteContextPack {
 			WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
 	}
 	for _, test := range plan.AcceptanceTests {
-		pack.Items = append(pack.Items, writeContextItem("acceptance_test", WriteContextP2, test, "plan",
-			WriteConsumerPlanner, WriteConsumerVerifier))
+		item := writeContextItem("acceptance_test", WriteContextP2, test, "plan",
+			WriteConsumerPlanner, WriteConsumerVerifier)
+		item.SourceID = strings.TrimSpace(plan.ID)
+		item.ID = writeContextStableID("acceptance_test", plan.ID, test)
+		pack.Items = append(pack.Items, item)
+	}
+	rebasedFallbacks := plan.BehaviorContractGeneration == WriteBehaviorContractGenerationPlanAcceptanceRebase
+	if rebasedFallbacks {
+		// Ordinary plans already receive the analyzer contract pack. Republish
+		// the complete set only for a typed replan generation, where it replaces
+		// that older projection and therefore reduces rather than duplicates
+		// model context.
+		for _, contract := range plan.BehaviorContracts {
+			text := renderWriteBehaviorContractContext(contract)
+			if text == "" {
+				continue
+			}
+			priority := WriteContextP1
+			if IsHardRequiredWriteBehaviorContract(contract) {
+				priority = WriteContextP0
+			}
+			item := writeContextItem("behavior_contract", priority, text, "plan",
+				WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier)
+			item.SourceID = contract.ID
+			item.ID = writeContextStableID("plan_behavior_contract", plan.ID, contract.ID, string(contract.Kind), contract.Subject, contract.Expected)
+			pack.Items = append(pack.Items, item)
+			if contract.Transition != nil {
+				for i, step := range contract.Transition.Steps {
+					stepText := renderWriteBehaviorTransitionStepContext(contract.ID, i, step)
+					if stepText == "" {
+						continue
+					}
+					stepItem := writeContextItem("behavior_transition_step", WriteContextP1, stepText, "plan",
+						WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier)
+					stepItem.SourceID = contract.ID
+					stepItem.ID = writeContextStableID("plan_behavior_transition_step", plan.ID, contract.ID, strconv.Itoa(i+1), string(step.Phase), step.Operation, step.Expected)
+					pack.Items = append(pack.Items, stepItem)
+				}
+			}
+		}
+		item := writeContextItem("behavior_contract_generation", WriteContextP1,
+			"plan_id="+strings.TrimSpace(plan.ID)+" source="+WriteBehaviorContractSourcePlanAcceptanceFallback+" supersedes_stage=write_analysis",
+			"plan", WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier)
+		item.SourceID = strings.TrimSpace(plan.ID)
+		item.ID = writeContextStableID("behavior_contract_generation", plan.ID, WriteBehaviorContractSourcePlanAcceptanceFallback)
+		pack.Items = append(pack.Items, item)
 	}
 	for _, reason := range plan.UnvalidatedReasons {
 		pack.Items = append(pack.Items, writeContextItem("unvalidated_reason", WriteContextP2, reason, "plan",

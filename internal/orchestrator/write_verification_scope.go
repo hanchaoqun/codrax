@@ -48,6 +48,19 @@ func (o *Orchestrator) stampCumulativeVerificationScope(plan *types.ChangePlan, 
 	var scope types.CumulativeVerificationScope
 	contractIDs := map[string]bool{}
 	probeIDs := map[string]bool{}
+	// The active plan is the newest typed generation. Seed its IDs before
+	// collecting retained plans so an older contract/probe with the same ID
+	// cannot re-enter the raw cumulative scope and contradict the active row.
+	for _, contract := range plan.BehaviorContracts {
+		if id := strings.TrimSpace(contract.ID); id != "" {
+			contractIDs[id] = true
+		}
+	}
+	for _, probe := range plan.VerificationProbes {
+		if id := strings.TrimSpace(probe.ID); id != "" {
+			probeIDs[id] = true
+		}
+	}
 	if restoredScope != nil {
 		scope.SourcePlanIDs = append(scope.SourcePlanIDs, restoredScope.SourcePlanIDs...)
 		scope.TargetPaths = append(scope.TargetPaths, restoredScope.TargetPaths...)

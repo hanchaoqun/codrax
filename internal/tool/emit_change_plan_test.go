@@ -803,6 +803,85 @@ func TestEmitChangePlan_AcceptsPartialRequiredContractProbeCoverage(t *testing.T
 	}
 }
 
+func TestAttachWriteBehaviorContractsRebasesFallbacksOnlyForTypedVerifyFailureReplan(t *testing.T) {
+	ctx := newTestBusCtx()
+	ctx.Mutable.SetWriteAnalysisIR(&types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{
+			BehaviorContracts: []types.WriteBehaviorContract{
+				{
+					ID:       "explicit-api",
+					Kind:     types.WriteBehaviorInvariant,
+					Polarity: types.WriteBehaviorPolarityExpected,
+					Operator: types.WriteBehaviorOpEquals,
+					Expected: "public API remains compatible",
+					Required: true,
+					Source:   "write_analyzer",
+				},
+				{
+					ID:       "outcome-2",
+					Kind:     types.WriteBehaviorObservable,
+					Polarity: types.WriteBehaviorPolarityExpected,
+					Operator: types.WriteBehaviorOpSatisfies,
+					Expected: "line 16 remains unchanged",
+					Required: true,
+					Source:   types.WriteBehaviorContractSourceExpectedOutcomeFallback,
+				},
+			},
+		},
+	})
+	ctx.Mutable.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
+		PlanID:  "plan-before-failure",
+		BatchID: "batch-1",
+		Attempt: 1,
+	})
+	plan := &types.ChangePlan{
+		AcceptanceTests: []string{
+			"line 12 returns the callback error",
+			"line 16 returns the negative lookup error",
+		},
+	}
+
+	attachWriteBehaviorContracts(ctx, plan)
+
+	if len(plan.BehaviorContracts) != 3 {
+		t.Fatalf("behavior contracts = %+v, want explicit plus two current fallbacks", plan.BehaviorContracts)
+	}
+	if plan.BehaviorContractGeneration != types.WriteBehaviorContractGenerationPlanAcceptanceRebase {
+		t.Fatalf("typed replan generation marker missing: %q", plan.BehaviorContractGeneration)
+	}
+	if plan.BehaviorContracts[0].ID != "explicit-api" || plan.BehaviorContracts[0].Expected != "public API remains compatible" {
+		t.Fatalf("explicit analyzer contract must survive replan rebase: %+v", plan.BehaviorContracts[0])
+	}
+	for _, contract := range plan.BehaviorContracts {
+		if contract.Expected == "line 16 remains unchanged" {
+			t.Fatalf("typed verify-failure replan retained a disproven fallback: %+v", plan.BehaviorContracts)
+		}
+	}
+	if plan.BehaviorContracts[1].Expected != plan.AcceptanceTests[0] || plan.BehaviorContracts[2].Expected != plan.AcceptanceTests[1] {
+		t.Fatalf("active plan acceptance tests did not become current fallback generation: %+v", plan.BehaviorContracts)
+	}
+
+	ctx.Mutable.ResetVerifyFailureHandoff()
+	fresh := &types.ChangePlan{AcceptanceTests: []string{"new plan wording"}}
+	attachWriteBehaviorContracts(ctx, fresh)
+	if fresh.BehaviorContractGeneration != "" {
+		t.Fatalf("fresh plan must not acquire replan generation authority: %q", fresh.BehaviorContractGeneration)
+	}
+	if len(fresh.BehaviorContracts) != 2 || fresh.BehaviorContracts[1].Expected != "line 16 remains unchanged" {
+		t.Fatalf("fresh plan must preserve analyzer snapshot without typed replan authority: %+v", fresh.BehaviorContracts)
+	}
+
+	ctx.Mutable.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{PlanID: "plan-before-failure", BatchID: "batch-1", Attempt: 2})
+	deduplicated := &types.ChangePlan{AcceptanceTests: []string{"public API remains compatible"}}
+	attachWriteBehaviorContracts(ctx, deduplicated)
+	if len(deduplicated.BehaviorContracts) != 1 || deduplicated.BehaviorContracts[0].ID != "explicit-api" {
+		t.Fatalf("acceptance test equal to explicit contract should deduplicate without retaining stale fallback: %+v", deduplicated.BehaviorContracts)
+	}
+	if deduplicated.BehaviorContractGeneration != types.WriteBehaviorContractGenerationPlanAcceptanceRebase {
+		t.Fatalf("replan generation authority must survive even when no fallback row remains: %q", deduplicated.BehaviorContractGeneration)
+	}
+}
+
 func TestEmitChangePlan_DoesNotGuessProbeRefsWhenMultipleRequiredContracts(t *testing.T) {
 	tool := &EmitChangePlan{}
 	ctx := newTestBusCtx()

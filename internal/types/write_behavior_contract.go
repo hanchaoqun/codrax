@@ -115,6 +115,15 @@ const (
 	WriteBehaviorPolarityObserved  WriteBehaviorPolarity = "observed"
 )
 
+const (
+	WriteBehaviorContractSourceExpectedOutcomeFallback = "expected_outcome_fallback"
+	WriteBehaviorContractSourcePlanAcceptanceFallback  = "plan_acceptance_fallback"
+)
+
+type WriteBehaviorContractGeneration string
+
+const WriteBehaviorContractGenerationPlanAcceptanceRebase WriteBehaviorContractGeneration = "plan_acceptance_rebase"
+
 type WriteBehaviorComparatorRelation string
 
 const (
@@ -303,7 +312,7 @@ func NormalizeWriteBehaviorContracts(in []WriteBehaviorContract, expectedOutcome
 			Operator: WriteBehaviorOpSatisfies,
 			Expected: outcome,
 			Required: true,
-			Source:   "expected_outcome_fallback",
+			Source:   WriteBehaviorContractSourceExpectedOutcomeFallback,
 		})
 	}
 	const maxContracts = 12
@@ -311,6 +320,37 @@ func NormalizeWriteBehaviorContracts(in []WriteBehaviorContract, expectedOutcome
 		out = out[:maxContracts]
 	}
 	return out
+}
+
+// RebaseExpectedOutcomeFallbackWriteBehaviorContracts preserves explicit
+// analyzer-authored contracts while replacing only the soft fallback layer
+// with the current plan generation's acceptance tests. Callers must select
+// the replan generation from typed workflow state; this helper never compares
+// or interprets contract prose.
+func RebaseExpectedOutcomeFallbackWriteBehaviorContracts(in []WriteBehaviorContract, expectedOutcomes []string) []WriteBehaviorContract {
+	explicit := make([]WriteBehaviorContract, 0, len(in))
+	for _, contract := range in {
+		if IsExpectedOutcomeFallbackWriteBehaviorContract(contract) {
+			continue
+		}
+		explicit = append(explicit, contract)
+	}
+	rebased := NormalizeWriteBehaviorContracts(explicit, expectedOutcomes)
+	for i := range rebased {
+		if rebased[i].Source == WriteBehaviorContractSourceExpectedOutcomeFallback {
+			rebased[i].Source = WriteBehaviorContractSourcePlanAcceptanceFallback
+		}
+	}
+	return rebased
+}
+
+func IsExpectedOutcomeFallbackWriteBehaviorContract(c WriteBehaviorContract) bool {
+	switch strings.TrimSpace(c.Source) {
+	case WriteBehaviorContractSourceExpectedOutcomeFallback, WriteBehaviorContractSourcePlanAcceptanceFallback:
+		return true
+	default:
+		return false
+	}
 }
 
 // NormalizeWriteBehaviorTransition preserves only schema-known ordered steps.
@@ -426,7 +466,7 @@ func RequiredWriteBehaviorContractIDs(contracts []WriteBehaviorContract, include
 		if c.Polarity == WriteBehaviorPolarityObserved {
 			continue
 		}
-		if !includeFallback && strings.TrimSpace(c.Source) == "expected_outcome_fallback" {
+		if !includeFallback && IsExpectedOutcomeFallbackWriteBehaviorContract(c) {
 			continue
 		}
 		ids[c.ID] = struct{}{}
@@ -441,7 +481,7 @@ func IsHardRequiredWriteBehaviorContract(c WriteBehaviorContract) bool {
 	if c.Polarity == WriteBehaviorPolarityObserved {
 		return false
 	}
-	if strings.TrimSpace(c.Source) == "expected_outcome_fallback" {
+	if IsExpectedOutcomeFallbackWriteBehaviorContract(c) {
 		return false
 	}
 	if c.Placement != nil {

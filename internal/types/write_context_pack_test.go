@@ -336,6 +336,69 @@ func TestWriteContextPackFromChangePlanCarriesImpactObligations(t *testing.T) {
 	}
 }
 
+func TestMergeWriteContextPacksReplanGenerationSupersedesAnalyzerFallbackContext(t *testing.T) {
+	explicit := WriteBehaviorContract{
+		ID:       "explicit-api",
+		Kind:     WriteBehaviorInvariant,
+		Polarity: WriteBehaviorPolarityExpected,
+		Operator: WriteBehaviorOpEquals,
+		Expected: "public API remains compatible",
+		Required: true,
+		Source:   "write_analyzer",
+	}
+	analysis := WriteContextPackFromWriteAnalysisIR(&WriteAnalysisIR{Request: WriteRequestModel{
+		Task:             WriteTask{Summary: "repair callback propagation"},
+		ExpectedOutcomes: []string{"line 16 remains unchanged"},
+		BehaviorContracts: []WriteBehaviorContract{
+			explicit,
+			{
+				ID:       "outcome-1",
+				Kind:     WriteBehaviorObservable,
+				Polarity: WriteBehaviorPolarityExpected,
+				Operator: WriteBehaviorOpSatisfies,
+				Expected: "line 16 remains unchanged",
+				Required: true,
+				Source:   WriteBehaviorContractSourceExpectedOutcomeFallback,
+			},
+		},
+	}})
+	rebased := RebaseExpectedOutcomeFallbackWriteBehaviorContracts([]WriteBehaviorContract{
+		explicit,
+		{
+			ID:       "outcome-1",
+			Kind:     WriteBehaviorObservable,
+			Polarity: WriteBehaviorPolarityExpected,
+			Operator: WriteBehaviorOpSatisfies,
+			Expected: "line 16 remains unchanged",
+			Required: true,
+			Source:   WriteBehaviorContractSourceExpectedOutcomeFallback,
+		},
+	}, []string{"line 16 returns the negative lookup error"})
+	plan := WriteContextPackFromChangePlan(&ChangePlan{
+		ID:                         "plan-repair",
+		Summary:                    "repair both callback paths",
+		AcceptanceTests:            []string{"line 16 returns the negative lookup error"},
+		BehaviorContracts:          rebased,
+		BehaviorContractGeneration: WriteBehaviorContractGenerationPlanAcceptanceRebase,
+	})
+
+	merged := MergeWriteContextPacks("batch-1", "repair callback propagation", analysis, plan)
+	view := merged.View(WriteConsumerController, 30)
+	if writeContextViewContains(view, "success_criterion", "line 16 remains unchanged") ||
+		writeContextViewContains(view, "behavior_contract", "expected=line 16 remains unchanged") {
+		t.Fatalf("stale analyzer fallback remained visible beside active replan generation: %+v", view.Items)
+	}
+	if !writeContextViewContains(view, "behavior_contract", "expected=line 16 returns the negative lookup error") {
+		t.Fatalf("active replan fallback missing from merged context: %+v", view.Items)
+	}
+	if !writeContextViewContains(view, "behavior_contract", "expected=public API remains compatible") {
+		t.Fatalf("explicit analyzer contract was not republished by active plan: %+v", view.Items)
+	}
+	if !writeContextViewContains(view, "behavior_contract_generation", "supersedes_stage=write_analysis") {
+		t.Fatalf("typed contract generation authority missing: %+v", view.Items)
+	}
+}
+
 func TestWriteContextPackFromChangePlanCarriesPatchEffect(t *testing.T) {
 	plan := &ChangePlan{
 		ID:      "plan-effect",

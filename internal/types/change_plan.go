@@ -409,6 +409,13 @@ type ChangePlan struct {
 	// atom IDs instead of re-reading mutable task prose after retries.
 	BehaviorContracts []WriteBehaviorContract `json:"behavior_contracts,omitempty"`
 
+	// BehaviorContractGeneration records controller/tool-owned authority for
+	// the contract snapshot. It is never authored by the planner wire schema.
+	// A verify-failure replan marks that fallback rows were rebuilt from the
+	// active plan's acceptance tests, even when all of those tests deduplicate
+	// against an explicit analyzer contract and no fallback row remains.
+	BehaviorContractGeneration WriteBehaviorContractGeneration `json:"behavior_contract_generation,omitempty"`
+
 	// CumulativeVerificationScope is a controller-owned snapshot of earlier
 	// plans whose bytes are still present in the worktree after a replan. It is
 	// deliberately separate from TargetPaths: apply must remain scoped to this

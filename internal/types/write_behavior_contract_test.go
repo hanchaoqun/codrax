@@ -238,6 +238,54 @@ func TestNormalizeWriteBehaviorContracts_AppendsDistinctExpectedOutcomes(t *test
 	}
 }
 
+func TestRebaseExpectedOutcomeFallbackWriteBehaviorContractsPreservesExplicitAndReplacesFallbacks(t *testing.T) {
+	got := RebaseExpectedOutcomeFallbackWriteBehaviorContracts([]WriteBehaviorContract{
+		{
+			ID:       "explicit-api",
+			Kind:     WriteBehaviorInvariant,
+			Polarity: WriteBehaviorPolarityExpected,
+			Operator: WriteBehaviorOpEquals,
+			Subject:  "public API",
+			Expected: "remains compatible",
+			Required: true,
+			Source:   "write_analyzer",
+		},
+		{
+			ID:       "outcome-1",
+			Kind:     WriteBehaviorObservable,
+			Polarity: WriteBehaviorPolarityExpected,
+			Operator: WriteBehaviorOpSatisfies,
+			Expected: "line 16 remains unchanged",
+			Required: true,
+			Source:   WriteBehaviorContractSourceExpectedOutcomeFallback,
+		},
+	}, []string{
+		"line 12 returns the callback error",
+		"line 16 returns the negative lookup error",
+	})
+
+	if len(got) != 3 {
+		t.Fatalf("contracts len = %d, want explicit plus two current fallbacks: %+v", len(got), got)
+	}
+	if got[0].ID != "explicit-api" || got[0].Expected != "remains compatible" || got[0].Source != "write_analyzer" {
+		t.Fatalf("explicit analyzer contract drifted during fallback rebase: %+v", got[0])
+	}
+	for _, contract := range got {
+		if contract.Expected == "line 16 remains unchanged" {
+			t.Fatalf("stale fallback survived current-generation rebase: %+v", got)
+		}
+	}
+	if got[1].Expected != "line 12 returns the callback error" || got[2].Expected != "line 16 returns the negative lookup error" {
+		t.Fatalf("current acceptance tests were not preserved in order: %+v", got)
+	}
+	if !IsExpectedOutcomeFallbackWriteBehaviorContract(got[1]) || !IsExpectedOutcomeFallbackWriteBehaviorContract(got[2]) {
+		t.Fatalf("rebased acceptance tests must remain soft fallback contracts: %+v", got)
+	}
+	if got[1].Source != WriteBehaviorContractSourcePlanAcceptanceFallback || got[2].Source != WriteBehaviorContractSourcePlanAcceptanceFallback {
+		t.Fatalf("rebased fallbacks must expose their newer typed generation: %+v", got)
+	}
+}
+
 func TestHardRequiredWriteBehaviorContractIDs_ExcludesSatisfiesAndFallback(t *testing.T) {
 	got := NormalizeWriteBehaviorContracts([]WriteBehaviorContract{
 		{

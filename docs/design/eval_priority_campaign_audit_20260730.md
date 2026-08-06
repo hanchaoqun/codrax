@@ -21072,3 +21072,77 @@ materializer。
 状态：`EVAL-B186-CALIBERMAP1=S16-implemented/full-impacted-suites-pass/pending-r115`；
 `EVAL-B186-WINDOWBLEED1=S16-implemented-soft-boundary/full-impacted-suites-pass/pending-r115`；
 `EVAL-B186-PRESSCAL1=S16-implemented-soft-boundary/full-impacted-suites-pass/pending-r115`。
+
+### 123.146 B186 r115：JSON/窗口边界闭环；压力定级与关系加和仍属模型侧失配；写重规划暴露合同代际红线
+
+在 `2f300de58` 构建后严格并行恰好两个异构 case：
+
+- `trace_query_donghu_real_frame_multicausal`：140s，runner PASS / human FAIL，finalizer reject=0；
+- `github_issue_libgit2_foreach_worktree`：356s，runner PASS / human PASS（交付字节），首次 verify 失败后正确
+  replan，第二次 `make check` 通过。
+
+Trace 回放证明 S16 的两个结构目标已闭环：模型第一次即提交原生合法 JSON，closure 一次完成、零 reject、零
+repair、零 aggregate-string recovery；动态 caliber mapping 没有再造成枚举重试。两次 trace_query 均继承精确窗
+`34579.472865..34579.587805`，最终答案没有再引用窗外 `34579.595130` 的 preview VSync，关闭
+`EVAL-B186-WINDOWBLEED1`。`trace_causal_claim_caliber=no_causal_conclusion` 与正文确实排名窗内候选并不一致，
+但 validator 不扫描正文、系统也不替模型选 enum，故把该元数据选择降为模型波动观察，而不是新增 prose gate。
+
+`EVAL-B186-PRESSCAL1` 仍开放：final prompt 已精确发布
+`aggregate_absolute_level_authority=not_provided`，模型仍把 density 5.26 称为“中等”。同一答案再次违反 typed
+relation 的 no-add/absorption 边界，分别合出约 17.609ms、24.5ms、43ms，并把 IO 与优先级席称为相互独立；
+还把所有延迟都归到 wakeup chain。记 `EVAL-B186-RELSYNTH1=P1/repeated`。这些精确软提示已经到达 final
+tail，继续堆叠措辞只会增加心智；按用户红线不扫描模型原文、不硬拒、不由系统重写结论，后续优先用异构模型
+复放判定模型能力/路由，不做单 case 词面拟合。
+
+C 写案例的最终 worktree 是正确的：第一 plan 把第 12 行改为 `(error = cb_result) != 0`；verify 精确发现
+`lookup_result=-7` 被返回为 1；第二 plan 再把第 16 行改为 `(error = lookup_result) < 0`；测试文件未改且
+`make check` 通过。因此用户可见交付判 PASS。但内部审计确认
+`EVAL-B186-REPLANCONTRACT1=P0/confirmed`：`attachWriteBehaviorContracts` 每次都从初始 WriteAnalysisIR 复制
+fallback，第二 plan 的 `BehaviorContracts.outcome-2` 仍写“第16行保持不变”；累计校验域又重复保留旧 plan 的
+同 ID 行；controller 最后在 patch 已修改第 16 行的同时，以“第16行保持不变”为理由签署 `all_verified`。
+这是 typed 证明域自相矛盾，不是模型措辞或补丁质量问题。
+
+JSON 教学审计：Trace 与两次 plan emit 均没有 malformed JSON 或互斥 schema 指导；本轮的失败轴是旧 typed
+合同权威没有被新一代计划覆盖。因而最优修复不新增 JSON 字段或 required 项，而以现有
+`VerifyFailureHandoff` + `acceptance_tests` 建立合同代际。工件：
+`eval/parallel_selected_summary_evalcampaign_b186_typed_boundary_replay_r115_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b186_typed_boundary_replay_r115_20260806_manual_audit.md`。
+
+状态：`EVAL-B186-CALIBERMAP1=resolved-operationally/r115-json-clean-metadata-model-variance-observe`；
+`EVAL-B186-WINDOWBLEED1=resolved/r115`；`EVAL-B186-PRESSCAL1=P1/open-soft-guidance-ignored`；
+`EVAL-B186-RELSYNTH1=P1/repeated-model-relation-synthesis-gap`；
+`EVAL-B186-REPLANCONTRACT1=P0/confirmed/pending-S17`。
+
+### 123.147 S17：验证失败后的 fallback 合同重基线、同 ID 新代覆盖与上下文单代可见
+
+`EVAL-B186-REPLANCONTRACT1` 已按 typed 权威代际修复，没有解释或比较任何验收文本：
+
+1. `attachWriteBehaviorContracts` 仅在精确 `VerifyFailureHandoff` 存在且新 plan 有
+   `acceptance_tests` 时进入 replan 车道。所有 analyzer 显式合同原样保留；仅
+   `expected_outcome_fallback` 被当前 plan 的 acceptance tests 重建，并标记为新的
+   `plan_acceptance_fallback` source；plan 同时携带 tool-owned、非模型 wire 字段
+   `behavior_contract_generation=plan_acceptance_rebase`，因此即使新验收与显式合同去重、没有 fallback 行留下，
+   代际权限也不会消失。普通首轮 plan、没有 handoff 或没有新验收条件时保持旧行为；
+2. `stampCumulativeVerificationScope` 在收集仍生效的旧 plan 前，先用 active plan 的 contract/probe ID
+   建立遮蔽集。同 ID 旧代不能再写入 raw cumulative JSON；不同 ID 的旧合同与探针仍保留，验证闭包不缩窄；
+3. `change-plan` context pack 增加 exact `plan_generation`。同一 workflow batch 出现不同 plan ID 时，当前
+   plan 语义包替换旧 plan 语义包，而 verify-failure/exploration 等独立 pack 继续保留；不再把两代
+   `acceptance_test` 同时交给模型；
+4. 只有 `plan_acceptance_fallback` 代际才重新发布完整 active behavior contract set，并附
+   `behavior_contract_generation`。合并 consumer view 时，它精确取代 WriteAnalysisIR 的旧
+   success/fallback projection；显式合同由 active plan 重新发布，不丢失。普通 plan 不重复发布同一套合同，
+   避免上下文膨胀；
+5. 所有选择信号都是 typed handoff、contract source、plan/contract/probe ID。没有扫描 RawRequest、模型
+   think/reason、acceptance prose 或最终答案，没有按“保持不变”等词做判断，也没有系统代写用户结论。
+
+回归 pin 覆盖：显式合同在 rebase 后保持；旧 fallback 消失且新验收顺序保持；无 typed handoff 时不重基线；
+active same-ID contract/probe 遮蔽 retained 旧代但 unique retained 行仍在；合并 context 不再显示 analyzer 旧
+success criterion；同 batch 新 plan 替换旧 acceptance context。完整相关套件
+`go test ./internal/types ./internal/tool ./internal/orchestrator -count=1` 通过（types 19.350s、tool
+165.600s、orchestrator 10.777s）；代际去重与无 fallback-row 标记臂另经定向套件复验通过。
+
+本批没有改 read pipeline、Trace schema/查询/显式窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量、
+双轴性能归因或 final answer materializer；也没有增加模型 JSON 字段。因此不会以修写模式合同为代价影响 Trace
+能力或增加模型 JSON 心智。
+
+状态：`EVAL-B186-REPLANCONTRACT1=S17-implemented/full-impacted-suites-pass/pending-exact-two-replay`。

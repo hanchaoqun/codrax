@@ -3167,7 +3167,18 @@ func attachWriteBehaviorContracts(ctx *types.BusContext, plan *types.ChangePlan)
 	if ir == nil || len(ir.Request.BehaviorContracts) == 0 {
 		return
 	}
-	plan.BehaviorContracts = append([]types.WriteBehaviorContract(nil), ir.Request.BehaviorContracts...)
+	contracts := append([]types.WriteBehaviorContract(nil), ir.Request.BehaviorContracts...)
+	// A failed verifier attempt is precise evidence that the next plan is a
+	// newer contract generation. Preserve explicit analyzer contracts, but
+	// rebuild soft expected_outcome_fallback rows from this generation's typed
+	// acceptance_tests. Keeping the original fallback snapshot here can make
+	// the active plan require both an old, disproven expectation and its repair.
+	// No prose is parsed or compared: the typed handoff selects the generation.
+	if ctx.Mutable.VerifyFailureHandoff() != nil && len(plan.AcceptanceTests) > 0 {
+		contracts = types.RebaseExpectedOutcomeFallbackWriteBehaviorContracts(contracts, plan.AcceptanceTests)
+		plan.BehaviorContractGeneration = types.WriteBehaviorContractGenerationPlanAcceptanceRebase
+	}
+	plan.BehaviorContracts = contracts
 }
 
 func enrichVerificationProbeRefs(plan *types.ChangePlan) {
