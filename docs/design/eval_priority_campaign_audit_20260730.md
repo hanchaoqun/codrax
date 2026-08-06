@@ -20409,3 +20409,36 @@ r100 无 malformed JSON、blocks-string recovery、finalizer reject 或成文校
 状态：`EVAL-B180-ARCHLENS1=S3-implemented/full-impacted-suites-pass/pending-r101-clean-replay`；
 `EVAL-B180-COUNTCONSIST1=P2/model-variance-witness/typed-reviewer-opportunity`；
 `EVAL-B180-PRESTAGETOPO1=P2/partially-resolved/final-answer-main-stage-semantics-correct`。
+
+### 123.125 B182 r101 与 S4：support-only source inventory 被下游重新铸成 principal rows
+
+在 S3 后重建，严格并行恰好两个异构 case：
+
+- `qf_architecture`：222s，runner PASS / human FAIL；
+- `cangjie_repomap`：141s，runner PASS / human PASS。
+
+S3 已显著切断主循环：architecture 从 r100 的 16 次 source lens/13 次 completion/517s 降为 1 次 lens/1 次 completion/222s；模型主体也准确给出 4 个无条件主 stage
+（analyze→explore→extract→finalize）和 topology 中真实存在的 2 个 conditional pre-stage（log_triage、perf_triage），职责均与 `StageBinding` 权威文本一致。
+
+但 r101 暴露 `EVAL-B182-SUPPORTPROMOTE1=P0/confirmed`。最终izer 前 authority ledger 已明确记录
+`source_inventory authority=false, reasons=support_only,inactive`，证明 source lens 只可作 supporting evidence；`ProjectSourceInventoryPrincipalRowSetAggregateFacts` 仍绕过该裁定，直接从完整 observation
+铸造 `system:source_inventory_principal_row_set` 的 38-member principal aggregate。finalizer 随后被合同强迫 4 次 patch，最终答案在正确的 6-stage 架构后追加 25 个无关的 AgentName、MissingPiece、
+TransportType、write-mode stages 等源码声明。这不是模型自行扩写：系统自己铸造 principal 集合并要求模型逐项显示，直接违反“support 不得升格 principal”和“系统不代替模型确权”的红线。
+
+根因是共享 `BuildSourceInventoryPrincipalRowSet` 只按 role/scope 给每行贴 principal/support/audit，却完全不消费已经存在的
+`SourceInventoryPrincipalAuthorityActive/SourceInventoryCompletionIsSupportOnly`；projection、pre-emit、candidate-gap、authority snapshot 等所有调用者因此都可能从 support-only observation 重新得到 principal rows。
+
+S4 在共享构造器单点统一权属：无 principal authority 时，把所有候选 principal rows 降为 support rows，保留行、location、surface family 与 citation 能力，不删除证据；projection 入口再以
+`SourceInventoryPrincipalAuthorityActive` 双保险，禁止 complete observation 自行升权。由此每个直接消费者都获得相同结论，而不是逐文件补条件。新增 pin 同时验证 row-set、aggregate projection、authority
+snapshot 三面：support rows 保留 2 条、principal=0、系统 principal aggregate=0、snapshot SupportOnly=true；既有 architecture advisory 与 typed-relation authority 用例继续覆盖。源码收敛 ratchet 首轮发现
+两个文件超 LOC ceiling，未抬测试阈值，而是把 authority concern 抽到独立文件，使原文件降到 289/49 行并复绿。
+
+Cangjie 对照继续准确发布 2/2/8，证明真正 source-inventory principal authority 不受影响。r101 无 malformed JSON 或 JSON recovery；4 次 finalizer reject/patch 是错误 principal aggregate 导致的
+成文合同债，不是畸形 JSON。S4 预期同时清除此类“成文校验未通过”重试，而不放宽答案结构校验。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b182_arch_cangjie_clean_r101_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b182_arch_cangjie_clean_r101_20260806_manual_audit.md`。
+
+状态：`EVAL-B180-ARCHLENS1=S3-replay-confirmed/completion-loop-closed`；
+`EVAL-B182-SUPPORTPROMOTE1=S4-implemented/targeted-tests-pass/pending-full-suite-and-r102`；
+`EVAL-B180-PRESTAGETOPO1=resolved/r101-model-main-answer-matches-4-plus-2-topology`。

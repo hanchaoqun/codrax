@@ -110,6 +110,7 @@ func BuildSourceInventoryPrincipalRowSet(input SourceInventoryPrincipalRowSetInp
 			}
 		}
 	}
+	principal, support = sourceInventoryRowsByPrincipalAuthority(input.RequestModel, principal, support)
 	principal = sourceInventoryFamilyBalancedRows(principal)
 	principal, support = sourceInventoryFilterRowsToRequestedSurfaceFamilies(input.RequestModel, principal, support)
 	support = sourceInventoryStableRows(support)
@@ -132,22 +133,6 @@ func BuildSourceInventoryPrincipalRowSet(input SourceInventoryPrincipalRowSetInp
 		return SourceInventoryPrincipalRowSet{}
 	}
 	return out
-}
-
-func sourceInventoryRowSetPrincipalRoles(rm RequestModel, observation SourceInventoryObservation) []AnswerCandidateRole {
-	if rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() {
-		if roles := rm.SourceInventoryProfile.PrincipalTargetRoles(); len(roles) > 0 {
-			return normalizeSourceInventoryFollowupRoles(roles)
-		}
-		return normalizeSourceInventoryFollowupRoles(rm.SourceInventoryProfile.TargetRoles)
-	}
-	var roles []AnswerCandidateRole
-	for _, set := range observation.Sets {
-		if set.Role != "" && set.Role != AnswerCandidateRoleUnknown {
-			roles = append(roles, set.Role)
-		}
-	}
-	return normalizeSourceInventoryFollowupRoles(roles)
 }
 
 func sourceInventoryRowSetPrincipalScope(rm RequestModel) (SourceScope, bool) {

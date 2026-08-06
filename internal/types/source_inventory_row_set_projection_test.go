@@ -1438,6 +1438,43 @@ func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_ArchitectureNarrati
 	}
 }
 
+func TestSourceInventoryPrincipalRowSet_SupportOnlyCannotReenterPrincipalProjection(t *testing.T) {
+	rm := sourceInventoryProjectionRequestModel(nil)
+	rm.SourceInventoryProfile = &SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType},
+		RequestedFields:   []SourceInventoryRequestedField{SourceInventoryFieldName, SourceInventoryFieldValues},
+		Confidence:        0.95,
+	}
+	obs := sourceInventoryProjectionObservation(
+		SourceInventoryObservationMember{Name: "PipelineStage", Role: AnswerCandidateRoleType, File: "internal/types/enums.go", Line: 6, Language: "go"},
+		SourceInventoryObservationMember{Name: "StageBinding", Role: AnswerCandidateRoleType, File: "internal/types/stage_binding.go", Line: 7, Language: "go"},
+	)
+	if !SourceInventoryCompletionIsSupportOnly(rm) || SourceInventoryPrincipalAuthorityActive(rm) {
+		t.Fatalf("fixture must exercise a typed support-only inventory: %+v", rm)
+	}
+	rowSet := BuildSourceInventoryPrincipalRowSet(SourceInventoryPrincipalRowSetInput{
+		Observation:  obs,
+		RequestModel: rm,
+	})
+	if rowSet.PrincipalTotal != 0 || len(rowSet.PrincipalRows) != 0 {
+		t.Fatalf("support-only inventory rows must not retain principal identity: %+v", rowSet)
+	}
+	if rowSet.SupportTotal != 2 || len(rowSet.SupportRows) != 2 {
+		t.Fatalf("support-only rows must remain available as supporting evidence: %+v", rowSet)
+	}
+	if got := ProjectSourceInventoryPrincipalRowSetAggregateFacts(nil, obs, rm); len(got) != 0 {
+		t.Fatalf("complete support-only observation must not mint principal aggregate facts: %+v", got)
+	}
+	snapshot := BuildSourceInventoryAuthoritySnapshot(SourceInventoryAuthoritySnapshotInput{
+		Observation:  obs,
+		RequestModel: rm,
+	})
+	if !snapshot.SupportOnly || snapshot.PrincipalAuthority || snapshot.PrincipalAggregateFactCount != 0 || len(snapshot.ProjectedPrincipalAggregates) != 0 {
+		t.Fatalf("authority snapshot must keep support-only state consistent across all faces: %+v", snapshot)
+	}
+}
+
 func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_TypedRelationAuthorityWinsOverBroaderInventory(t *testing.T) {
 	rm := sourceInventoryProjectionRequestModel(nil)
 	rm.Intent = IntentExplain
