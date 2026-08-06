@@ -365,6 +365,16 @@ type MutableState struct {
 	// leak between tasks in a multi-task run.
 	answerDocumentV2 *AnswerDocumentV2
 
+	// traceFinding is the typed single-unit causal conclusion sidecar
+	// committed atomically with answerDocumentV2 when a TraceFindingContract
+	// is active (P0 shadow / later TraceBatch child runs). It is never
+	// embedded into AnswerDocumentV2.
+	traceFinding *TraceFindingV1
+
+	// traceFindingContract is the system-injected Finalizer contract for
+	// optional/required TraceFindingV1 emission. Nil keeps legacy schema.
+	traceFindingContract *TraceFindingContract
+
 	// answerDisplayAttachments are user-visible fallback fragments
 	// recovered from malformed final-answer emits. They are rendered
 	// after AnswerDocumentV2 but are not part of the structured answer
@@ -3340,6 +3350,84 @@ func (m *MutableState) SetAnswerDocumentV2WithMutation(kind MutationKind, doc *A
 	m.degradedRecoveredAnswerDocumentV2 = nil
 }
 
+// SetFinalAnswerArtifacts atomically commits AnswerDocumentV2 and the optional
+// TraceFindingV1 sidecar under one lock. Direct callers should prefer the tool
+// package's ApplyAndPersistMutation path; this setter is the MutableState side
+// of that transaction.
+func (m *MutableState) SetFinalAnswerArtifacts(kind MutationKind, artifacts *FinalAnswerArtifactsV1) {
+	if m == nil || artifacts == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	doc := artifacts.Document
+	m.answerDocumentV2 = cloneAnswerDocumentV2(&doc)
+	m.traceFinding = cloneTraceFindingV1(artifacts.TraceFinding)
+	m.lastEmitFromPatch = (kind == MutationPartial)
+	m.lastRejectedAnswerDocumentV2 = nil
+	m.degradedRecoveredAnswerDocumentV2 = nil
+}
+
+// FinalAnswerArtifacts returns a defensive copy of the committed envelope.
+func (m *MutableState) FinalAnswerArtifacts() *FinalAnswerArtifactsV1 {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.answerDocumentV2 == nil && m.traceFinding == nil {
+		return nil
+	}
+	out := &FinalAnswerArtifactsV1{}
+	if m.answerDocumentV2 != nil {
+		cloned := cloneAnswerDocumentV2(m.answerDocumentV2)
+		if cloned != nil {
+			out.Document = *cloned
+		}
+	}
+	out.TraceFinding = cloneTraceFindingV1(m.traceFinding)
+	return out
+}
+
+// TraceFinding returns a defensive copy of the committed TraceFindingV1.
+func (m *MutableState) TraceFinding() *TraceFindingV1 {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return cloneTraceFindingV1(m.traceFinding)
+}
+
+// SetTraceFindingContract installs the system-owned finding emission contract.
+func (m *MutableState) SetTraceFindingContract(c *TraceFindingContract) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if c == nil {
+		m.traceFindingContract = nil
+		return
+	}
+	cp := *c
+	m.traceFindingContract = &cp
+}
+
+// TraceFindingContract returns a defensive copy of the finding emission contract.
+func (m *MutableState) TraceFindingContract() *TraceFindingContract {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.traceFindingContract == nil {
+		return nil
+	}
+	cp := *m.traceFindingContract
+	return &cp
+}
+
 // SetAnswerDisplayAttachments replaces the current final-answer
 // fallback attachment list. Attachments are deliberately separate
 // from AnswerDocumentV2 so they can preserve model-authored visible
@@ -3472,6 +3560,7 @@ func (m *MutableState) ResetAnswerDocumentV2() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.answerDocumentV2 = nil
+	m.traceFinding = nil
 	m.answerDisplayAttachments = nil
 	m.finalizerNoToolAnswerDrafts = nil
 	m.lastRejectedAnswerDocumentV2 = nil
@@ -3491,6 +3580,7 @@ func (m *MutableState) ResetActiveAnswerDocumentV2ForFinalizeDispatch() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.answerDocumentV2 = nil
+	m.traceFinding = nil
 	m.lastEmitFromPatch = false
 }
 
@@ -3515,9 +3605,7 @@ func cloneAnswerDocumentV2(in *AnswerDocumentV2) *AnswerDocumentV2 {
 				Text:                    b.Text,
 				ErrorGranularityVerdict: b.ErrorGranularityVerdict,
 				CurrentStatusVerdict:    b.CurrentStatusVerdict,
-				TraceCausalClaimCaliber: b.TraceCausalClaimCaliber,
 				ScopeDisclosure:         b.ScopeDisclosure,
-				SourceInventoryFamily:   b.SourceInventoryFamily,
 				SurfaceRole:             b.SurfaceRole,
 				SystemGeneratedKind:     b.SystemGeneratedKind,
 			}

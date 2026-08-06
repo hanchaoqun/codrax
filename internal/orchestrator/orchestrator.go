@@ -1735,6 +1735,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		// than waiting for a cooperative checkpoint.
 		Ctx: o.cancelTokenLoad().Context(),
 	}
+	tool.ApplyDefaultTraceFindingContract(o.busCtx.Mutable)
 	defer o.persistReadRunSnapshot()
 	if transcriptRequest := strings.TrimSpace(o.outputTranscriptRequest); transcriptRequest != "" {
 		// Freeze the REPL-provided expanded request onto this Run's
@@ -4778,7 +4779,8 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			env.PerfTrace = o.busCtx.Mutable.PerfTrace()
 			env.InvestigationComplete = o.busCtx.Mutable.IsInvestigationComplete()
 			sourceInventoryObservation := types.SourceInventoryObservationFromMutable(o.busCtx.Mutable)
-			env.SourceInventoryProfileActive = sourceInventoryLensNavigationActive(ir)
+			env.SourceInventoryProfileActive = ir != nil &&
+				types.SourceInventoryPrincipalAuthorityActive(ir.RequestModel)
 			env.SourceInventoryActive = sourceInventoryObservation.IsActive()
 			env.SourceInventoryLensExecuted = types.SourceInventoryLensExecuted(sourceInventoryObservation)
 			env.SourceClassUniverseComplete = types.SourceInventorySourceClassesComplete(sourceInventoryObservation.SourceClasses)

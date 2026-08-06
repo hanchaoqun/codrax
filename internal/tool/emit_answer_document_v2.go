@@ -42,6 +42,9 @@ type emitAnswerDocumentV2Params struct {
 	MissingRequestedRoles []types.AnswerMissingRequestedRole `json:"missing_requested_roles,omitempty"`
 	Caveats               []string                           `json:"caveats,omitempty"`
 	Snippets              []emitCodeSnippetV2                `json:"snippets,omitempty"`
+	// TraceFinding is the optional typed causal-conclusion sidecar (P0).
+	// It is a sibling of AnswerDocumentV2 fields, never embedded in the doc.
+	TraceFinding *types.TraceFindingV1 `json:"trace_finding,omitempty"`
 }
 
 type emitAnswerCitationV2 struct {
@@ -72,9 +75,7 @@ type emitAnswerBlockV2 struct {
 	Caveat                  string                      `json:"caveat,omitempty"`
 	ErrorGranularityVerdict string                      `json:"error_granularity_verdict,omitempty"`
 	CurrentStatusVerdict    string                      `json:"current_status_verdict,omitempty"`
-	TraceCausalClaimCaliber string                      `json:"trace_causal_claim_caliber,omitempty"`
 	ScopeDisclosure         string                      `json:"scope_disclosure,omitempty"`
-	SourceInventoryFamily   string                      `json:"source_inventory_family,omitempty"`
 	Columns                 []string                    `json:"columns,omitempty"`
 	Items                   []emitAnswerBlockItemV2     `json:"items,omitempty"`
 	Diagram                 *emitAnswerDiagramV2        `json:"diagram,omitempty"`
@@ -355,8 +356,14 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// persist-minted count is disclosed as its own token, so the delta note
 	// stops implying a pure submitted→surviving mapping.
 	poolAtPersistEntry := len(doc.Citations)
+	finding, findErr := resolveTraceFindingForEmit(ctx, p.TraceFinding)
+	if findErr != nil {
+		rememberRejectedAnswerDocumentDraft(ctx, doc)
+		persistRecoveredAnswerDraft(ctx, raw, visibleRecovery, doc)
+		return failEmit(toolName, now, "%v", findErr)
+	}
 	mutation := types.NewReplaceAllMutation(doc)
-	res, err := ApplyAndPersistMutation(ctx, toolName, mutation, nil, now)
+	res, err := ApplyAndPersistMutationWithTraceFinding(ctx, toolName, mutation, nil, now, finding)
 	if err == nil && res.Success && ctx != nil && ctx.Mutable != nil {
 		// §29.174 F6: disclose the submitted→registered citation delta
 		// on the accepted summary. The registered count is read from the
@@ -3745,12 +3752,6 @@ func repairNestedAnswerBlockFields(raw json.RawMessage) (json.RawMessage, []stri
 			}
 			repaired = true
 		}
-		if fields, ok := repairMisplacedAnswerBlockItemClaimUses(blkObj); ok {
-			for _, field := range fields {
-				paths = append(paths, fmt.Sprintf("blocks[%d].%s", i, field))
-			}
-			repaired = true
-		}
 		if fields, ok := repairAnswerBlockItemTextAliases(blkObj); ok {
 			for _, field := range fields {
 				paths = append(paths, fmt.Sprintf("blocks[%d].%s", i, field))
@@ -4205,109 +4206,6 @@ var answerBlockItemKnownFieldNames = map[string]bool{
 	"citation_ref":   true,
 }
 
-var answerBlockItemTextAliasForbiddenFieldNames = map[string]bool{
-	"claim_form":  true,
-	"facet_id":    true,
-	"evidence_id": true,
-}
-
-// repairMisplacedAnswerBlockItemClaimUses repairs one narrow, lossless local-
-// model carrier mistake: claim annotation fields were emitted inside an item
-// instead of the parent block's claim_uses[] lane. The exact typed values move
-// to the parent; they are never converted into visible text. If the item then
-// has no visible/citation carrier and the block already has complete prose, the
-// empty shell is dropped so enums such as "call_edge" cannot render as list
-// rows. If no visible block text can preserve the answer, the malformed item is
-// left untouched so strict decoding/retry remains fail-loud.
-func repairMisplacedAnswerBlockItemClaimUses(blkObj map[string]json.RawMessage) ([]string, bool) {
-	if len(blkObj) == 0 {
-		return nil, false
-	}
-	rawItems := bytes.TrimSpace(blkObj["items"])
-	if len(rawItems) == 0 || rawItems[0] != '[' {
-		return nil, false
-	}
-	var items []map[string]json.RawMessage
-	if err := json.Unmarshal(rawItems, &items); err != nil || len(items) == 0 {
-		return nil, false
-	}
-	var claims []map[string]json.RawMessage
-	if rawClaims := bytes.TrimSpace(blkObj["claim_uses"]); len(rawClaims) > 0 {
-		if err := json.Unmarshal(rawClaims, &claims); err != nil {
-			return nil, false
-		}
-	}
-	seen := make(map[string]bool, len(claims))
-	for _, claim := range claims {
-		seen[canonicalRawObjectKey(mustMarshal(claim))] = true
-	}
-	hasBlockText := jsonStringFieldNonEmpty(blkObj["text"])
-	kept := make([]map[string]json.RawMessage, 0, len(items))
-	var paths []string
-	changed := false
-	for i, item := range items {
-		claimText, ok := jsonStringFieldValue(item["claim_form"])
-		claimForm := types.ClaimForm(strings.TrimSpace(claimText))
-		if !ok || !claimForm.IsValid() {
-			kept = append(kept, item)
-			continue
-		}
-		remaining := make(map[string]json.RawMessage, len(item))
-		for key, value := range item {
-			remaining[key] = value
-		}
-		claim := map[string]json.RawMessage{"claim_form": mustMarshal(string(claimForm))}
-		delete(remaining, "claim_form")
-		for _, field := range []string{"facet_id", "evidence_id"} {
-			if value, exists := remaining[field]; exists {
-				if text, valid := jsonStringFieldValue(value); valid && strings.TrimSpace(text) != "" {
-					claim[field] = mustMarshal(strings.TrimSpace(text))
-					delete(remaining, field)
-				}
-			}
-		}
-		if !answerBlockItemRawHasRenderableCarrier(remaining) && !hasBlockText {
-			// Moving the metadata would leave a content-less list row with no
-			// sibling prose to preserve the answer. Keep the malformed shape so
-			// the strict decoder can request a targeted retry.
-			kept = append(kept, item)
-			continue
-		}
-		key := canonicalRawObjectKey(mustMarshal(claim))
-		if !seen[key] {
-			claims = append(claims, claim)
-			seen[key] = true
-		}
-		paths = append(paths, fmt.Sprintf("items[%d].claim_form->claim_uses", i))
-		if answerBlockItemRawHasRenderableCarrier(remaining) {
-			kept = append(kept, remaining)
-		} else {
-			paths = append(paths, fmt.Sprintf("items[%d].empty_metadata_shell->dropped", i))
-		}
-		changed = true
-	}
-	if !changed {
-		return nil, false
-	}
-	blkObj["items"] = mustMarshal(kept)
-	blkObj["claim_uses"] = mustMarshal(claims)
-	return paths, true
-}
-
-func answerBlockItemRawHasRenderableCarrier(item map[string]json.RawMessage) bool {
-	if len(item) == 0 {
-		return false
-	}
-	if jsonStringFieldNonEmpty(item["label"]) || jsonStringFieldNonEmpty(item["text"]) ||
-		jsonStringArrayFieldNonEmpty(item["cells"]) {
-		return true
-	}
-	// ID-only shells are not visible. citation_ref, however, is a valid
-	// scalar/decision citation anchor even when no item prose is rendered.
-	_, hasCitation := item["citation_ref"]
-	return hasCitation
-}
-
 // repairAnswerBlockItemTextAliases preserves user-visible item prose when a
 // local model emits exactly one schema-unknown string field on an item that has
 // no text/cells carrier. The field name itself is intentionally not interpreted:
@@ -4337,9 +4235,6 @@ func repairAnswerBlockItemTextAliases(blkObj map[string]json.RawMessage) ([]stri
 		ambiguous := false
 		for field, raw := range items[i] {
 			if answerBlockItemKnownFieldNames[field] {
-				continue
-			}
-			if answerBlockItemTextAliasForbiddenFieldNames[field] {
 				continue
 			}
 			text, ok := jsonStringFieldValue(raw)

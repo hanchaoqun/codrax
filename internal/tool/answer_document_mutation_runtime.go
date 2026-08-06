@@ -75,6 +75,19 @@ func ApplyAndPersistMutation(
 	prev *types.AnswerDocumentV2,
 	now time.Time,
 ) (types.ToolResult, error) {
+	return ApplyAndPersistMutationWithTraceFinding(ctx, toolName, mutation, prev, now, nil)
+}
+
+// ApplyAndPersistMutationWithTraceFinding is the P0 atomic envelope write:
+// AnswerDocumentV2 plus optional TraceFindingV1 sidecar.
+func ApplyAndPersistMutationWithTraceFinding(
+	ctx *types.BusContext,
+	toolName string,
+	mutation types.AnswerDocumentMutation,
+	prev *types.AnswerDocumentV2,
+	now time.Time,
+	finding *types.TraceFindingV1,
+) (types.ToolResult, error) {
 	if ctx == nil || ctx.Mutable == nil {
 		return failEmit(toolName, now,
 			"%s requires a writable context", toolName)
@@ -89,7 +102,7 @@ func ApplyAndPersistMutation(
 		return failEmit(toolName, now,
 			"mutation apply produced a nil document — internal error")
 	}
-	return persistMergedAnswerDocumentWithAttachmentPolicy(
+	return persistMergedAnswerDocumentWithAttachmentPolicyAndFinding(
 		ctx,
 		toolName,
 		mutation.Kind,
@@ -97,6 +110,7 @@ func ApplyAndPersistMutation(
 		merged,
 		now,
 		answerDocumentMutationExplicitlyRemovesDiagram(mutation, prev),
+		finding,
 	)
 }
 
@@ -137,7 +151,7 @@ func persistMergedAnswerDocument(
 	merged *types.AnswerDocumentV2,
 	now time.Time,
 ) (types.ToolResult, error) {
-	return persistMergedAnswerDocumentWithAttachmentPolicy(ctx, toolName, kind, mutationSummary, merged, now, false)
+	return persistMergedAnswerDocumentWithAttachmentPolicyAndFinding(ctx, toolName, kind, mutationSummary, merged, now, false, nil)
 }
 
 func persistMergedAnswerDocumentWithAttachmentPolicy(
@@ -148,6 +162,19 @@ func persistMergedAnswerDocumentWithAttachmentPolicy(
 	merged *types.AnswerDocumentV2,
 	now time.Time,
 	dropExplicitlyRemovedModelDiagrams bool,
+) (types.ToolResult, error) {
+	return persistMergedAnswerDocumentWithAttachmentPolicyAndFinding(ctx, toolName, kind, mutationSummary, merged, now, dropExplicitlyRemovedModelDiagrams, nil)
+}
+
+func persistMergedAnswerDocumentWithAttachmentPolicyAndFinding(
+	ctx *types.BusContext,
+	toolName string,
+	kind types.MutationKind,
+	mutationSummary string,
+	merged *types.AnswerDocumentV2,
+	now time.Time,
+	dropExplicitlyRemovedModelDiagrams bool,
+	finding *types.TraceFindingV1,
 ) (types.ToolResult, error) {
 	if ctx == nil || ctx.Mutable == nil {
 		return failEmit(toolName, now,
@@ -315,7 +342,18 @@ func persistMergedAnswerDocumentWithAttachmentPolicy(
 		return failEmit(toolName, now, "%s", vErr.Error())
 	}
 
-	ctx.Mutable.SetAnswerDocumentV2WithMutation(kind, merged)
+	artifacts := &types.FinalAnswerArtifactsV1{Document: *merged}
+	switch {
+	case finding != nil:
+		artifacts.TraceFinding = finding
+	case kind == types.MutationPartial:
+		// Patch inherits previous finding unless explicitly replaced.
+		artifacts.TraceFinding = ctx.Mutable.TraceFinding()
+	default:
+		// Full emit without finding clears any prior sidecar.
+		artifacts.TraceFinding = nil
+	}
+	ctx.Mutable.SetFinalAnswerArtifacts(kind, artifacts)
 	attachments := ctx.Mutable.AnswerDisplayAttachments()
 	if dropExplicitlyRemovedModelDiagrams {
 		attachments = filterExplicitlyRemovedModelDiagramAttachments(attachments)
@@ -2118,13 +2156,10 @@ func runtimeTraceOccupancyPathCandidates(
 // runnable/sleep segment can legitimately be published once as a chain/state
 // observation and once as a ranked target-self row; the occupancy table is a
 // physical-time surface, so those typed mirrors must render once even though
-// their EvidenceIDs differ. A producer-minted StateAccountKey is stronger
-// than any display envelope and also covers exact D-state/io_wait accounts;
-// without that credential those calibrated lanes continue to fail open.
+// their EvidenceIDs differ. D-state and io_wait deliberately stay outside
+// this key because they are distinct calibrated drill-down lanes rather than
+// interchangeable scheduler-state aliases.
 func runtimeTraceOccupancyPhysicalStateKey(node types.TraceCausalProjectionNode) string {
-	if key := strings.TrimSpace(node.StateAccountKey); key != "" {
-		return "state_account\x00" + key
-	}
 	state := types.TraceCausalProjectionStateClass(node.StateKind)
 	if state == "" && strings.EqualFold(strings.TrimSpace(node.StateKind), types.TraceStateKindRunning) {
 		state = types.TraceStateKindRunning

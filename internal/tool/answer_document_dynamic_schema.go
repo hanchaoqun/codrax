@@ -2,7 +2,6 @@ package tool
 
 import (
 	"encoding/json"
-	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -36,8 +35,15 @@ import (
 // callers and any future codepath without a compiled view still
 // see the full surface.
 func BuildAnswerDocumentParametersFor(view *types.AnswerSemanticView) json.RawMessage {
+	return BuildAnswerDocumentParametersForContract(view, nil)
+}
+
+// BuildAnswerDocumentParametersForContract projects the canonical schema and
+// optionally adds the top-level trace_finding sibling when a finding contract
+// is active. Non-trace / inactive-contract requests keep the legacy schema.
+func BuildAnswerDocumentParametersForContract(view *types.AnswerSemanticView, contract *types.TraceFindingContract) json.RawMessage {
 	canonical := (&EmitAnswerDocument{}).canonicalParameters()
-	if view == nil {
+	if view == nil && !contract.Active() {
 		return canonical
 	}
 	var root map[string]any
@@ -49,28 +55,31 @@ func BuildAnswerDocumentParametersFor(view *types.AnswerSemanticView) json.RawMe
 		return canonical
 	}
 
-	// Block-level field set on each blocks[] item.
-	blocksField, _ := properties["blocks"].(map[string]any)
-	if blockItems, ok := blocksField["items"].(map[string]any); ok {
-		if blockProps, ok := blockItems["properties"].(map[string]any); ok {
-			projectBlockKindEnum(blockProps, view)
-			projectClaimUsesEnum(blockProps, view)
-			projectDiagramField(blockProps, view)
-			projectEdgeAnchorsField(blockProps, view)
-			projectTypedDecisionVerdictFields(blockProps, blockItems, view)
-			projectTraceCausalClaimCaliberField(blockProps, blockItems, view)
+	if view != nil {
+		// Block-level field set on each blocks[] item.
+		blocksField, _ := properties["blocks"].(map[string]any)
+		if blockItems, ok := blocksField["items"].(map[string]any); ok {
+			if blockProps, ok := blockItems["properties"].(map[string]any); ok {
+				projectBlockKindEnum(blockProps, view)
+				projectClaimUsesEnum(blockProps, view)
+				projectDiagramField(blockProps, view)
+				projectEdgeAnchorsField(blockProps, view)
+				projectTypedDecisionVerdictFields(blockProps, blockItems, view)
+			}
+			projectKindPayloadConditionals(blockItems, view)
 		}
-		projectKindPayloadConditionals(blockItems, view)
-	}
-	projectRequiredBlockArrayCardinality(blocksField, view)
+		projectRequiredBlockArrayCardinality(blocksField, view)
 
-	// Document-level conditional fields.
-	if view.ExactResolution == nil || view.SuppressExactResolutionAnswerSurface {
-		delete(properties, "exact_resolution")
+		// Document-level conditional fields.
+		if view.ExactResolution == nil || view.SuppressExactResolutionAnswerSurface {
+			delete(properties, "exact_resolution")
+		}
+		if len(view.MissingRequestedRoles) == 0 {
+			delete(properties, "missing_requested_roles")
+		}
 	}
-	if len(view.MissingRequestedRoles) == 0 {
-		delete(properties, "missing_requested_roles")
-	}
+
+	projectTraceFindingField(properties, root, contract)
 
 	out, err := json.Marshal(root)
 	if err != nil {
@@ -79,45 +88,28 @@ func BuildAnswerDocumentParametersFor(view *types.AnswerSemanticView) json.RawMe
 	return out
 }
 
-func projectTraceCausalClaimCaliberField(blockProps map[string]any, blockItems map[string]any, view *types.AnswerSemanticView) {
-	contract := view.TraceCausalClaimContract
+func projectTraceFindingField(properties map[string]any, root map[string]any, contract *types.TraceFindingContract) {
 	if !contract.Active() {
-		delete(blockProps, "trace_causal_claim_caliber")
+		delete(properties, "trace_finding")
 		return
 	}
-	node, _ := blockProps["trace_causal_claim_caliber"].(map[string]any)
-	if node == nil {
-		return
+	properties["trace_finding"] = map[string]any{
+		"type":        "object",
+		"description": "Optional typed TraceFindingV1 sidecar: short causal conclusion (primary_cause / contributors / unresolved). Sibling of AnswerDocumentV2 — never embed cluster/batch fields. Candidate IDs must come from the system candidate set.",
 	}
-	enum := make([]string, 0, len(contract.Allowed))
-	for _, caliber := range contract.Allowed {
-		enum = append(enum, string(caliber))
+	if contract.Required {
+		req, _ := root["required"].([]any)
+		seen := false
+		for _, r := range req {
+			if s, ok := r.(string); ok && s == "trace_finding" {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			root["required"] = append(req, "trace_finding")
+		}
 	}
-	node["enum"] = enum
-	appendPrincipalKindRequiredFieldsConditional(blockItems, string(types.BlockSummary), "trace_causal_claim_caliber")
-}
-
-// appendPrincipalKindRequiredFieldsConditional keeps report-level typed
-// declarations on the principal carrier only. Requiring them on every block
-// of the same kind would make a supporting summary repeat a contract it does
-// not own, increasing schema load and retry risk without adding authority.
-func appendPrincipalKindRequiredFieldsConditional(blockItems map[string]any, kind string, fields ...string) {
-	if blockItems == nil || strings.TrimSpace(kind) == "" || len(fields) == 0 {
-		return
-	}
-	required := append([]string{"id", "kind", "surface_role"}, fields...)
-	conditionals := schemaAllOfEntries(blockItems)
-	conditionals = append(conditionals, map[string]any{
-		"if": map[string]any{
-			"required": []string{"kind", "surface_role"},
-			"properties": map[string]any{
-				"kind":         map[string]any{"const": kind},
-				"surface_role": map[string]any{"const": string(types.SurfacePrincipal)},
-			},
-		},
-		"then": map[string]any{"required": required},
-	})
-	blockItems["allOf"] = conditionals
 }
 
 // projectBlockKindEnum restricts the block.kind enum to the kinds

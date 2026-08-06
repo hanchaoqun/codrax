@@ -3242,6 +3242,13 @@ func initApp(cmd *cobra.Command, args []string) error {
 			tool.SetTraceQuerySupplementConfig(enabled, maxColdBytes, maxDuration, maxWindowSpanS)
 		}
 
+		// P0 TraceFinding shadow mode: optional typed finding sidecar on
+		// Finalizer emits. Default off — set trace_finding_shadow_mode: true
+		// to project the sibling schema field without changing AnswerDocumentV2.
+		if rs.TraceFindingShadowMode != nil && *rs.TraceFindingShadowMode {
+			tool.EnableTraceFindingShadowModeDefault()
+		}
+
 		// Per-shape Summary caps. Start from code defaults and
 		// overlay any non-nil yaml fields; a partial override leaves
 		// the other entries at their default.

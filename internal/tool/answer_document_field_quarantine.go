@@ -25,6 +25,7 @@ var answerDocumentFullEmitQuarantineProfile = answerDocumentFieldQuarantineProfi
 		"missing_requested_roles",
 		"caveats",
 		"snippets",
+		"trace_finding",
 	),
 	BlockArrayFields: []string{"blocks"},
 }
@@ -41,6 +42,7 @@ var answerDocumentPatchQuarantineProfile = answerDocumentFieldQuarantineProfile{
 		"replace_missing_requested_roles",
 		"replace_caveats",
 		"replace_snippets",
+		"replace_trace_finding",
 	),
 	BlockArrayFields: []string{"replace_blocks", "add_blocks"},
 }
@@ -54,9 +56,7 @@ var (
 		"caveat",
 		"error_granularity_verdict",
 		"current_status_verdict",
-		"trace_causal_claim_caliber",
 		"scope_disclosure",
-		"source_inventory_family",
 		"columns",
 		"items",
 		"diagram",

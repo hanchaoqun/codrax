@@ -1,7 +1,9 @@
 package orchestrator
 
 import (
+	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -78,6 +80,7 @@ func (o *Orchestrator) recordTaskFinalize(out *agent.StageOutput) {
 			pid: os.Getpid(),
 		}); result.MarkdownPath != "" {
 			o.busCtx.Mutable.SetFinalAnswerOutputPaths(result.MarkdownPath, result.HTMLPath)
+			o.exportTraceFindingSidecar(result.MarkdownPath)
 		}
 	}
 
@@ -86,6 +89,33 @@ func (o *Orchestrator) recordTaskFinalize(out *agent.StageOutput) {
 		Timestamp: time.Now(),
 		Objective: o.busCtx.Mutable.Objective(),
 	})
+}
+
+// exportTraceFindingSidecar writes TraceFindingV1 next to the answer dump when
+// present. Best-effort only — never fails the finalize path.
+func (o *Orchestrator) exportTraceFindingSidecar(answerMarkdownPath string) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return
+	}
+	finding := o.busCtx.Mutable.TraceFinding()
+	if finding == nil {
+		return
+	}
+	dir := filepath.Dir(strings.TrimSpace(answerMarkdownPath))
+	if dir == "" || dir == "." {
+		return
+	}
+	path := filepath.Join(dir, "trace_finding.json")
+	data, err := json.MarshalIndent(finding, "", "  ")
+	if err != nil {
+		logging.Warning("[orchestrator] trace finding sidecar marshal failed: %v", err)
+		return
+	}
+	if err := types.AtomicWriteFileSync(path, append(data, '\n'), 0o644); err != nil {
+		logging.Warning("[orchestrator] trace finding sidecar write failed: %v", err)
+		return
+	}
+	logging.Info("[orchestrator] wrote trace finding sidecar: %s", path)
 }
 
 func (o *Orchestrator) outputTranscriptRequestForDump() string {

@@ -47,9 +47,8 @@ func (t *EmitAnswerDocument) Name() string { return "emit_answer_document" }
 // block field / kind / claim_form / worked example only edits one
 // helper.
 func (t *EmitAnswerDocument) Description() string {
-	return types.AnswerDocumentJSONShapeFirstTeaching + "\n\n" +
-		"Emit the FULL final answer document as a structured blocks[] array. " +
-		"Treat the projected tool schema as the only authority for field names, value types, required fields, and enums in this dispatch. " +
+	return "Emit the FULL final answer document as a structured blocks[] array. " +
+		"`blocks` must be a native JSON array in the tool arguments; do not JSON-encode or quote it as a string containing escaped JSON. " +
 		"Use this on first dispatches and whenever the answer needs a complete rewrite. On retry paths where only a few blocks need editing, prefer emit_answer_document_patch which protocol-level preserves typed annotation fields on blocks you do not touch.\n\n" +
 		BuildAnswerDocumentSemanticContractDescription()
 }
@@ -74,7 +73,11 @@ func (t *EmitAnswerDocument) ParametersFor(ctx *types.AgentContext) json.RawMess
 		return t.canonicalParameters()
 	}
 	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
-	return BuildAnswerDocumentParametersFor(view)
+	var contract *types.TraceFindingContract
+	if ctx.Mutable != nil {
+		contract = ctx.Mutable.TraceFindingContract()
+	}
+	return BuildAnswerDocumentParametersForContract(view, contract)
 }
 
 func (t *EmitAnswerDocument) canonicalParameters() json.RawMessage {
@@ -83,7 +86,7 @@ func (t *EmitAnswerDocument) canonicalParameters() json.RawMessage {
   "properties": {
     "blocks": {
       "type": "array",
-      "description": "Ordered list of answer blocks. REQUIRED; must be non-empty. Each block is a structured payload tagged by kind.",
+      "description": "Ordered list of answer blocks. REQUIRED; must be non-empty. This field must be a native JSON array, not a JSON-encoded string containing escaped block JSON. Each block is a structured payload tagged by kind.",
       "items": {
         "type": "object",
         "properties": {
@@ -97,10 +100,8 @@ func (t *EmitAnswerDocument) canonicalParameters() json.RawMessage {
           "text": {"type": "string", "description": "Block body prose. Used by summary / section / scalar / decision / caveat. For table blocks, this may carry the complete model-authored markdown table. Markdown-flavoured. NEVER use this field on diagram blocks — diagram body lives in diagram.body."},
           "error_granularity_verdict": {"type": "string", "enum": ["per_item_rejection", "whole_batch_failure", "partial_success", "fail_fast", "collect_errors", "not_enough_evidence"], "description": "Optional canonical verdict for principal decision blocks that answer failure-scope / batch-vs-item / fail-fast-vs-collect questions. Use only on kind=decision blocks when the user-section's typed error-granularity contract requires it; do not encode this only in prose."},
           "current_status_verdict": {"type": "string", "enum": ["still_present", "fixed", "not_enough_evidence"], "description": "Optional canonical verdict for principal decision blocks that answer diagnostic current-status questions. Use only on kind=decision blocks when the user-section's typed current-status contract requires it; do not encode this only in prose. Semantics: still_present means current cited code still exposes the comparable risk, fixed means current cited code blocks/removes it, and not_enough_evidence means current evidence cannot decide between those two. This verdict is scoped to the current checkout; without typed revision/transition evidence it does not prove which change fixed a historical incident or that the captured build includes the current guard."},
-          "trace_causal_claim_caliber": {"type": "string", "enum": ["no_causal_conclusion", "bounded_window_candidate", "typed_chain_cause", "typed_frame_cause"], "description": "Model-authored causal strength for the principal Trace summary. This field is projected in only when a full typed Trace causal report has publication-grade rows; copy one value from the dispatch-specific enum. Keep the summary wording within that declared scope. The system validates the typed evidence ceiling but never infers this value from prose and never writes or replaces your conclusion."},
           "scope_disclosure": {"type": "string", "enum": ["inactive_scope_named", "out_of_active_scope", "requires_workspace_adjust"], "description": "Optional typed declaration that this block explains why a principal answer is bounded by the active sub-repo set. Use only when the user-section flags a multi-repo workspace with inactive sub-repos AND the answer is bounded (absence, empty principal slate, or scope-limited enumeration). Values: inactive_scope_named (this block cites a specific inactive sub-repo by RootRel name), out_of_active_scope (this block asserts the target is outside the active sub-repo set without naming a specific RootRel), requires_workspace_adjust (this block recommends the operator adjust the workspace scope, e.g. via /repos focus, before retrying). Any block kind may carry this; typically a caveat or decision block. If omitted when needed, the system appends a separate supplemental scope note rather than forcing a rewrite."},
-          "source_inventory_family": {"type": "string", "description": "Optional exact typed partition key for a principal source-inventory block. Use only when Principal Enumeration Rows exposes surface_family and this block intentionally carries one such family; copy that value exactly. Omit it for a global/mixed-family block. Never infer it from the block title, item prose, path, language, or nearby rows."},
-          "columns": {"type": "array", "items": {"type": "string"}, "description": "Optional table headers for kind=table structured rows. Do not use when block.text already contains the markdown table. Row contract: either leave item.label empty and emit one items[].cells value per column, or use item.label as the first visible value plus cells/text for every remaining column; in that form columns may include the label header or omit only it (the renderer adds a neutral label header)."},
+          "columns": {"type": "array", "items": {"type": "string"}, "description": "Optional table header row for kind=table when using structured multi-column rows. Do not use when block.text already contains the markdown table. Omit rather than force headers if unknown; the renderer can synthesize neutral headers."},
           "items": {
             "type": "array",
             "description": "Block items for section / ordered_list / bullet_list / table. Section/list items use label/text; table items may use cells[] for a structured multi-column row, or label/text for a simple two-column fallback. If the table is already a markdown table in block.text, leave items empty unless the row needs a citation_ref carrier.",
@@ -110,7 +111,7 @@ func (t *EmitAnswerDocument) canonicalParameters() json.RawMessage {
                 "id":           {"type": "string"},
                 "label":        {"type": "string", "description": "Primary visible text / row header. For enumeration items, use a verbatim identifier copied from evidence anchor_symbol / subject / object values, OR a verbatim user-named bucket label, OR a typed runtime-artifact label from log/trace triage. Fabricated code labels that are not grounded by those typed channels are rejected at validation time."},
                 "text":         {"type": "string", "description": "Item body / row content."},
-                "cells":        {"type": "array", "items": {"type": "string"}, "description": "Optional table cells for kind=table structured rows. With item.label omitted, put one visible cell per columns[] entry. With item.label present, label is the first visible value and cells/text supply every remaining value; columns[] may omit only the synthetic label header. Keep a complete authored markdown table in block.text instead."},
+                "cells":        {"type": "array", "items": {"type": "string"}, "description": "Optional table cells for kind=table structured rows. Use this when the answer naturally has more than two columns and you do not want to hand-author markdown table syntax. Put one visible cell per column; keep markdown tables in block.text when you already have them."},
                 "candidate_role": {"type": "string", "enum": ["function", "method", "type", "constant", "variable", "field", "package", "file", "test", "generated", "private", "documentation", "example", "fixture", "helper", "agent", "tool_name", "config_file", "config_key", "route", "import_path", "literal_value", "commit_hash", "budget_cap", "attempt_counter", "guard_condition", "other"], "description": "Optional typed category or answer role for this row. Use when the user excluded a candidate category, when answer_role_profile requires a positive role, when the row category matters, or when an exact scalar/literal role such as agent, tool_name, or budget_cap must stay structural; do not encode this only in prose."},
                 "citation_ref": {"type": "integer", "description": "Top-level field on the item; zero-based index into citations[]. Omit this field when no current-repo cite backs the item. This is a structural carrier only: never mention citation_ref or citations[] in visible answer text. For scalar / decision blocks (where the literal / verdict sits in block.text), anchor the citation by attaching a one-element items=[{id:\"x\", citation_ref: N}] — there is no top-level value/boolean field on the block."}
               }

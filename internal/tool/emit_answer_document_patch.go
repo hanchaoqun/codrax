@@ -131,6 +131,7 @@ type emitAnswerDocumentPatchParams struct {
 	ReplaceMissingRequestedRoles []types.AnswerMissingRequestedRole `json:"replace_missing_requested_roles,omitempty"`
 	ReplaceCaveats               []string                           `json:"replace_caveats,omitempty"`
 	ReplaceSnippets              []emitCodeSnippetV2                `json:"replace_snippets,omitempty"`
+	ReplaceTraceFinding          *types.TraceFindingV1              `json:"replace_trace_finding,omitempty"`
 }
 
 // Execute applies the patch to the previous V2 emit. Failure paths
@@ -277,6 +278,21 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	mutation := types.NewPartialMutation(patch)
 	dropExplicitlyRemovedModelDiagrams := false
 
+	finding, findErr := resolveTraceFindingForEmit(ctx, p.ReplaceTraceFinding)
+	if findErr != nil {
+		return failEmit(t.Name(), now, "%v", findErr)
+	}
+	persistFinding := findingForPatchPersist(p.ReplaceTraceFinding, finding)
+	if contract := ctx.Mutable.TraceFindingContract(); contract != nil && contract.Required {
+		effective := persistFinding
+		if effective == nil {
+			effective = ctx.Mutable.TraceFinding()
+		}
+		if effective == nil {
+			return failEmit(t.Name(), now, "finding_missing: TraceFindingContract requires replace_trace_finding when no previous finding exists")
+		}
+	}
+
 	// P1 (2026-05-10) — emit-time pre-validation chokepoint, mirror
 	// of the full-emit path. Run on the merged doc shape that the
 	// patch produces: dry-run Apply once, run pre-emit checks, then
@@ -308,7 +324,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 					logSoftPreEmitAdvisory(t.Name(), "model-emitted surface_terms", hints)
 				}
 			}
-			return persistMergedAnswerDocumentWithAttachmentPolicy(
+			return persistMergedAnswerDocumentWithAttachmentPolicyAndFinding(
 				ctx,
 				t.Name(),
 				types.MutationPartial,
@@ -316,11 +332,22 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 				merged,
 				now,
 				dropExplicitlyRemovedModelDiagrams,
+				persistFinding,
 			)
 		}
 	}
 
-	return ApplyAndPersistMutation(ctx, t.Name(), mutation, prev, now)
+	return ApplyAndPersistMutationWithTraceFinding(ctx, t.Name(), mutation, prev, now, persistFinding)
+}
+
+// findingForPatchPersist preserves inheritance when replace_trace_finding was
+// omitted. When the field was present, use the resolved finding (may be nil
+// under inactive contract — still inherit rather than clear).
+func findingForPatchPersist(raw *types.TraceFindingV1, resolved *types.TraceFindingV1) *types.TraceFindingV1 {
+	if raw == nil {
+		return nil // inherit previous in persist path
+	}
+	return resolved
 }
 
 // preservePatchReplacementStableItemCitationRefs repairs a precise patch-only

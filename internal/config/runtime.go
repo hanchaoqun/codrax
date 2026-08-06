@@ -95,6 +95,12 @@ type RuntimeSettings struct {
 	TraceSupplementMaxDurationMS    *int     `yaml:"trace_supplement_max_duration_ms"`
 	TraceSupplementMaxWindowSpanSec *float64 `yaml:"trace_supplement_max_window_span_s"`
 
+	// TraceFindingShadowMode enables P0 typed TraceFindingV1 sidecar emission
+	// on Finalizer for runtime-trace answers. When true, emit_answer_document
+	// may include an optional sibling trace_finding field; AnswerDocumentV2
+	// shape stays unchanged. Absent defaults to false (legacy schema).
+	TraceFindingShadowMode *bool `yaml:"trace_finding_shadow_mode"`
+
 	// MCP server integration. Empty by default, which keeps read/write
 	// pipeline prompts, tool schemas, dispatch, and observation ledger
 	// behavior identical to a build without MCP producer support.

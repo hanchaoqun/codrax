@@ -21,6 +21,9 @@ const (
 	RuntimeArtifactRepoMap                   RuntimeArtifactKind = "repo_map"
 	RuntimeArtifactProof                     RuntimeArtifactKind = "proof"
 	RuntimeArtifactAnalysisRefinementHandoff RuntimeArtifactKind = "analysis_refinement_handoff"
+	RuntimeArtifactTraceFinding              RuntimeArtifactKind = "trace_finding"
+	RuntimeArtifactTraceClusterSet           RuntimeArtifactKind = "trace_cluster_set"
+	RuntimeArtifactTraceBatchReport          RuntimeArtifactKind = "trace_batch_report"
 )
 
 // RuntimeArtifactDirection is the closed lineage edge direction for one
@@ -88,6 +91,12 @@ func NormalizeRuntimeArtifactKind(kind RuntimeArtifactKind) RuntimeArtifactKind 
 		return RuntimeArtifactProof
 	case RuntimeArtifactAnalysisRefinementHandoff:
 		return RuntimeArtifactAnalysisRefinementHandoff
+	case RuntimeArtifactTraceFinding:
+		return RuntimeArtifactTraceFinding
+	case RuntimeArtifactTraceClusterSet:
+		return RuntimeArtifactTraceClusterSet
+	case RuntimeArtifactTraceBatchReport:
+		return RuntimeArtifactTraceBatchReport
 	case RuntimeArtifactUnknown:
 		return RuntimeArtifactUnknown
 	default:
