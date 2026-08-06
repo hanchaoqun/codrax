@@ -20265,3 +20265,19 @@ member_set/grouped_count/bucket_count 从完整 members 推导，但 schema `req
 
 显式时间窗、Trace 因果投影、系统补齐、根因排序、唤醒链、窗内可消除量、实际占时/现规则可消除双轴均保留；没有读取用户、模型或最终答案 prose 作硬门，没有系统新增、删除、替换或
 加冕模型结论。
+
+### 123.121 B179-S3：aggregate_facts 条件值合同与 JSON schema 对齐
+
+`EVAL-B179-AGGJSON1` 已修复。审计确认这是确定性的系统自相矛盾，而非模型波动：`emit_investigation_complete.aggregate_facts[].value` 的两处 schema 描述都明确允许
+`member_set` 在完整 `members[]` 非空时省略 value，也允许 `grouped_count/bucket_count` 用各自完整成员集推导；运行时
+`NormalizeAnswerAggregateFacts` 已有相同精确实现及测试。可是同一个 item schema 的 `required` 数组仍无条件列出 `value`，provider 会在工具调用进入 Codrax 前拒绝一个运行时本可无损规范化的
+合法对象，迫使模型重复计算/抄写 cardinality，也可能制造无意义 JSON 重试。
+
+本批将 item schema 的无条件必填缩为 `kind,label`，`value` 属性、类型与逐 kind 教学全部保留。事实校验没有放宽：完整 member/group/bucket carrier 才能从
+`len(members)` 精确铸值；显式合法整数与成员数不一致仍 fail-loud；`total_count/unique_count` 因 members 可能只是样本，缺 value 仍由运行时精确拒绝；scalar、behavior、negative 等
+既有 kind 规则也未改变。没有做模糊 JSON 猜测或从 reason/prose 提取数字。
+
+新增 schema↔runtime 结构 pin 同时证明：required 中必须有 kind/label 且不得再无条件含 value；value property 与 per-kind 明示教学不得消失；无 value 的两成员 member_set 规范化为 2；
+无 value 的 total_count 仍失败。定向 suite 与完整 `go test ./internal/tool -count=1` 全绿（172.190s）。
+
+状态：`EVAL-B179-AGGJSON1=implemented/schema-runtime-single-contract/full-tool-suite-pass`。本批不涉及 Trace 查询、投影、自动补齐或可消除计算，也不改变模型结论所有权。

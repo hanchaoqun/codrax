@@ -167,7 +167,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 							"items": {"type": "string"}
 						}
 					},
-					"required": ["kind", "label", "value"]
+					"required": ["kind", "label"]
 				}
 			},
 			"relation_claims": {

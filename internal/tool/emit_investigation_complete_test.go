@@ -67,6 +67,68 @@ func TestEmitInvestigationCompleteSchemaDescribesClosureHandoff(t *testing.T) {
 	}
 }
 
+func TestEmitInvestigationCompleteAggregateValueSchemaMatchesConditionalRuntimeContract(t *testing.T) {
+	var schema map[string]any
+	if err := json.Unmarshal((&EmitInvestigationComplete{}).Parameters(), &schema); err != nil {
+		t.Fatalf("decode emit_investigation_complete schema: %v", err)
+	}
+	properties, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("schema properties missing: %+v", schema)
+	}
+	aggregates, ok := properties["aggregate_facts"].(map[string]any)
+	if !ok {
+		t.Fatalf("aggregate_facts schema missing: %+v", properties)
+	}
+	items, ok := aggregates["items"].(map[string]any)
+	if !ok {
+		t.Fatalf("aggregate_facts.items schema missing: %+v", aggregates)
+	}
+	required, ok := items["required"].([]any)
+	if !ok {
+		t.Fatalf("aggregate_facts.items.required missing: %+v", items)
+	}
+	seen := map[string]bool{}
+	for _, raw := range required {
+		if value, ok := raw.(string); ok {
+			seen[value] = true
+		}
+	}
+	if !seen["kind"] || !seen["label"] || seen["value"] {
+		t.Fatalf("aggregate value has a per-kind runtime contract and must not be unconditionally schema-required: %v", required)
+	}
+	itemProperties, ok := items["properties"].(map[string]any)
+	if !ok || itemProperties["value"] == nil {
+		t.Fatalf("optional value property disappeared from aggregate schema: %+v", items)
+	}
+	valueSchema, ok := itemProperties["value"].(map[string]any)
+	if !ok || !strings.Contains(fmt.Sprint(valueSchema["description"]), "total_count/unique_count require explicit value") {
+		t.Fatalf("per-kind value teaching missing from schema: %+v", valueSchema)
+	}
+
+	// The schema-level relaxation is not a value-validation relaxation:
+	// exact member carriers derive their cardinality, while scalar total
+	// counts still fail loudly without a value in the tool/runtime validator.
+	memberSet := json.RawMessage(`{
+		"reason":"exact members complete","confidence":"high","result_kind":"resolved",
+		"aggregate_facts":[{"kind":"member_set","label":"members","members":["a","b"]}]
+	}`)
+	var decoded emitInvestigationCompleteParams
+	if err := json.Unmarshal(memberSet, &decoded); err != nil {
+		t.Fatalf("decode member_set without value: %v", err)
+	}
+	got, err := types.NormalizeAnswerAggregateFacts(decoded.AggregateFacts)
+	if err != nil || len(got) != 1 || got[0].Value != "2" {
+		t.Fatalf("member_set value derivation drifted: got=%+v err=%v", got, err)
+	}
+	_, err = types.NormalizeAnswerAggregateFacts([]types.AnswerAggregateFact{{
+		Kind: types.AnswerAggregateTotalCount, Label: "total",
+	}})
+	if err == nil {
+		t.Fatal("total_count without value must remain a runtime validation error")
+	}
+}
+
 // TestEmitInvestigationComplete_AbsenceWithGroundedEvidenceRejected
 // pins the 2026-04-17 contradiction gate: when the explorer already
 // buffered grounded/recovered evidence, an emit_investigation_complete
