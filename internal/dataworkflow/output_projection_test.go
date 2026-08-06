@@ -13,6 +13,59 @@ func TestBuildOutputProjectionGraphAcceptsOrdinaryAnswer(t *testing.T) {
 	if graph.Status != OutputProjectionStatusSatisfied || graph.Required {
 		t.Fatalf("graph=%+v, want satisfied ordinary answer", graph)
 	}
+	if graph.ReferenceComplete {
+		t.Fatalf("graph=%+v, ordinary/unjudged output must not claim reference completeness", graph)
+	}
+}
+
+func TestBuildOutputProjectionGraphExposesUndeclaredReferenceCandidateWithoutHardeningIt(t *testing.T) {
+	graph := BuildOutputProjectionGraph(OutputProjectionGraphInput{
+		AnswerPresent:              true,
+		ReferenceCandidatePresent:  true,
+		ReferenceCandidateDeclared: false,
+		ReferenceCandidatePath:     "targets.csv",
+		ReferenceCandidateField:    "canonical_label",
+		ReferenceKeyCount:          3,
+		AnswerItemCount:            3,
+	})
+	if graph.Status != OutputProjectionStatusSatisfied || graph.Required || graph.ReferenceCompleteRequired || graph.ReferenceComplete {
+		t.Fatalf("graph=%+v, inferred candidate must remain model-owned soft context", graph)
+	}
+	if !graph.ReferenceCandidatePresent || graph.ReferenceCandidateDeclared ||
+		graph.ReferenceCandidatePath != "targets.csv" || graph.ReferenceCandidateField != "canonical_label" {
+		t.Fatalf("graph=%+v, want typed undeclared candidate context", graph)
+	}
+}
+
+func TestBuildOutputProjectionGraphClaimsReferenceCompleteOnlyAfterDeclaredGrounding(t *testing.T) {
+	graph := BuildOutputProjectionGraph(OutputProjectionGraphInput{
+		AnswerPresent:               true,
+		ReferenceCandidatePresent:   true,
+		ReferenceCandidateDeclared:  true,
+		ReferenceCandidatePath:      "targets.csv",
+		ReferenceCandidateField:     "canonical_label",
+		ReferenceGroundingEvaluated: true,
+		ReferenceKeyCount:           3,
+		AnswerItemCount:             3,
+	})
+	if graph.Status != OutputProjectionStatusSatisfied || !graph.ReferenceCompleteRequired || !graph.ReferenceComplete {
+		t.Fatalf("graph=%+v, declared and evaluated reference projection should be complete", graph)
+	}
+}
+
+func TestBuildOutputProjectionGraphPreservesUnresolvedTypedReferenceDeclaration(t *testing.T) {
+	graph := BuildOutputProjectionGraph(OutputProjectionGraphInput{
+		Output: dataquery.OutputContract{
+			Format:            dataquery.OutputPlainSingleLine,
+			CompleteReference: true,
+			ReferencePath:     "targets.csv",
+			ReferenceKeyField: "canonical_label",
+		},
+		AnswerPresent: true,
+	})
+	if !graph.ReferenceCandidateDeclared || !graph.ReferenceCompleteRequired || graph.ReferenceComplete {
+		t.Fatalf("graph=%+v, explicit contract must remain declared but not masquerade as grounded", graph)
+	}
 }
 
 func TestBuildOutputProjectionGraphRequiresStrictAssembleProjection(t *testing.T) {

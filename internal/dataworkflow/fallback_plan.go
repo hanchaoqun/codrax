@@ -557,7 +557,7 @@ func BuildRequiredOutputProjectionPlan(input OutputProjectionPlanInput) (dataque
 		}},
 		WhyThisBatch: "project existing reconcile groups into the requested output contract",
 	}
-	if input.ReferenceGap.Present {
+	if input.ReferenceGap.Present && input.ReferenceGap.Declared {
 		candidate := input.ReferenceGap.Candidate
 		plan.WhyThisBatch = "project existing reconcile groups across the complete structural reference key universe"
 		plan.NextBatch = fmt.Sprintf("assemble_answer will preserve %d reference key(s) from %s.%s and fill missing groups with zero/empty values", candidate.KeyCount, candidate.Path, candidate.Field)

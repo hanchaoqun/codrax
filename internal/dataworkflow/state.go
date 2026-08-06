@@ -231,6 +231,11 @@ type OutputProjectionGraph struct {
 	ReconcileGroups               int      `json:"reconcile_groups,omitempty"`
 	ReferenceCompleteRequired     bool     `json:"reference_complete_required,omitempty"`
 	ReferenceComplete             bool     `json:"reference_complete,omitempty"`
+	ReferenceCandidatePresent     bool     `json:"reference_candidate_present,omitempty"`
+	ReferenceCandidateDeclared    bool     `json:"reference_candidate_declared,omitempty"`
+	ReferenceCandidatePath        string   `json:"reference_candidate_path,omitempty"`
+	ReferenceCandidateField       string   `json:"reference_candidate_field,omitempty"`
+	ReferenceGroundingEvaluated   bool     `json:"reference_grounding_evaluated,omitempty"`
 	ReferenceKeyCount             int      `json:"reference_key_count,omitempty"`
 	AnswerItemCount               int      `json:"answer_item_count,omitempty"`
 	ReferenceGroundingMismatch    bool     `json:"reference_grounding_mismatch,omitempty"`

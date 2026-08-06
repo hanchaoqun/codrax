@@ -4037,6 +4037,18 @@ func normalizeEmitAnalysisLocalModelParams(raw json.RawMessage) (json.RawMessage
 		"runtime_artifact_scope_profile": json.RawMessage(`{"requested_scope":"unspecified","confidence":0.5}`),
 	}
 	var repaired []string
+	// A semantic predicate has one canonical carrier: predicates.<field>.
+	// Some providers preserve the boolean exactly but place this one field
+	// beside predicates after reading the long contract. Moving a unique,
+	// correctly typed value is lossless structural repair. Conflicting or
+	// non-boolean copies remain untouched and fail through strict decoding.
+	if misplaced, exists := obj["has_per_member_table"]; exists {
+		if normalizedPredicates, ok := moveUniqueBooleanIntoObject(obj["predicates"], "has_per_member_table", misplaced); ok {
+			obj["predicates"] = normalizedPredicates
+			delete(obj, "has_per_member_table")
+			repaired = append(repaired, "$.has_per_member_table -> $.predicates.has_per_member_table via emit_analysis_predicate_carrier")
+		}
+	}
 	for field, value := range defaults {
 		current, exists := obj[field]
 		if exists && string(bytesTrimSpace(current)) != "null" {
@@ -4059,6 +4071,27 @@ func normalizeEmitAnalysisLocalModelParams(raw json.RawMessage) (json.RawMessage
 		return raw, nil, false
 	}
 	return patched, repaired, true
+}
+
+func moveUniqueBooleanIntoObject(objectRaw json.RawMessage, field string, valueRaw json.RawMessage) (json.RawMessage, bool) {
+	var value bool
+	if err := json.Unmarshal(valueRaw, &value); err != nil {
+		return nil, false
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(objectRaw, &object); err != nil || object == nil {
+		return nil, false
+	}
+	if _, exists := object[field]; exists {
+		return nil, false
+	}
+	normalized, err := json.Marshal(value)
+	if err != nil {
+		return nil, false
+	}
+	object[field] = normalized
+	patched, err := json.Marshal(object)
+	return patched, err == nil
 }
 
 func normalizeEmitAnalysisDiagramHintCompat(raw json.RawMessage) (json.RawMessage, bool) {

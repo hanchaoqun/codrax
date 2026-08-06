@@ -18103,3 +18103,54 @@ Liquid Retina XDR。planner 把 known_constraints/success_criteria 发成 string
 状态：`EVAL-B148-DATASCALARREF1=production-happy-route-pass/branch-pin-awaiting-trigger`；
 `EVAL-B149-RULEUSEMIND1=teaching-implemented/awaiting-replay`；operation=`production-pass`；
 `EVAL-B122-JSONTEACH1` 新增 `rule-material-ownership-short-table`；Trace 显式窗、因果投影、自动补齐与两维根因=`untouched`。
+
+### 123.38 B150 r66：参考全集软候选/完成态矛盾；JSON predicate 载体减负
+
+在 `main@be780c373` 干净构建后严格并行恰好两个异构 case：
+
+- `data_multifile_reference_projection`：64s，runner/human FAIL，最终 `17,4,5`，期望按目标全集输出 `17,0,5`；
+- `qf_diagram_pipeline`：112s，runner/human PASS，Mermaid 四阶段流程和逐阶段说明完整。
+
+data 失败不在计算层。四条 contribution 和 reconcile 业务组均正确：GroupA=17、GroupB=4、GroupC=5；最终
+`assemble_answer` 只携带 `order_by=group_key,value_field=actual`，没有模型声明
+`complete_reference/reference_path/reference_key_field`，因此合法地按在场业务组发出 `17,4,5`。深层 gap 是软信号、硬权限和展示状态三方矛盾：
+
+1. 系统精确发现 `targets.csv.canonical_label` 是 3-key 结构候选，但 `Declared=false`；按“精确信号才可硬门”红线，这个候选不能自动接管用户意图，
+   因为 subset/present-only 请求也可能只输出在场组；
+2. `OutputProjectionGraph` 却把“不要求硬核验”编码成 `reference_complete=true`，把 unjudged 伪装成 verified；评估器因而缺少继续并声明全集的 typed
+   提示；
+3. 回退计划只有 `Present&&Declared` 才注入全集参数（正确），但只要 `Present` 就在 prose 中承诺“完整全集并补零”（错误），形成“typed action 不做、
+   系统说明声称会做”的内部合同冲突。
+
+本批以三态权限根修 `EVAL-B150-REFCANDTRI1`，不读取用户问题或模型/答案原文做硬门：
+
+1. 输出图新增 typed candidate 身份、声明位和 grounding-evaluated 位；`reference_complete=true` 只在“已声明 + 已执行 grounding + 无 gap + 答案在场”时
+   发射。普通/未判断答案不再伪装成全集已核验；
+2. 未声明候选仍保持软信号，不触发 completion hard block 或系统补零。planner/evaluator 仅收到短结构化决策教学：结合已经读取的用户所有规则/材料事实，
+   若确实要求每个 reference key 一席，由模型显式声明三字段；若是 subset/present-only，则保持未声明并允许完成；
+3. 回退计划只在 `Declared=true` 时承诺全集/补零；未声明候选不再由 prose 越权许诺系统没有权限执行的结论；
+4. 既有 source-reference grounding、零缺席补位和 DATAGATE hard lane 不放宽；B148 的旧 receipt 清理与零域交集保护不变。
+
+diagram case 同时给出 JSON 教学 witness。Analyzer 首轮把唯一布尔 `has_per_member_table` 放在顶层，严格 schema 要求它位于
+`predicates`，造成一次固定重试；代码/skill 中还真实存在“all eight/eight booleans”旧文案，而 schema 已有九个 predicate，这是系统自身错误教学。
+本批关闭 `EVAL-B150-JSONPRED1`：
+
+1. 教学统一为九个，明确九个布尔只存在于单一 `predicates` 对象；短 Required-fields 清册补回 `has_per_member_table`；
+2. 新增唯一无损载体修复：仅当根字段是 boolean、`predicates` 是 object、且嵌套同名字段不存在时，将原值移动到规范位置并记录 compat receipt；嵌套/根冲突、
+   string 伪 boolean、缺 predicates 继续 strict reject，禁止猜值；
+3. Finalizer 把整个 `blocks[]` 发成 JSON 字符串时，既有 flat-mode tolerance 已完整重解析全部 block，日志明确披露且零 finalizer retry；随后仅做确定性 Mermaid
+   与引用 metadata 修复。该路径满足“可无损恢复则恢复、不可证明完整则重试/降级披露”，本轮不新增字符串采矿或正文拼接逻辑。
+
+diagram 答案本身 human PASS；Explorer 为修一条 stale evidence 消耗 6 次 midloop，部分职责说明引用 enum/carrier 行比实现 body 更直接，记为
+`EVAL-B150-DIAGROUND1=P2/context-richness`，不以答案文本硬门或强制重写。人工审计已回填到 r66 工件。
+
+结构 pin 覆盖：ordinary/unjudged 不得发 `reference_complete=true`、未声明候选 typed 可见但不硬化、已声明且 grounding 后才为 complete、未声明回退不得许诺
+全集/补零、subset 回归仍可完成且图中候选身份可见；JSON 覆盖唯一 boolean 搬移及冲突/非 boolean 拒绝。
+
+完整相关回归 `go test ./internal/dataworkflow ./internal/agent ./internal/skill ./internal/repl -count=1` PASS
+（0.323s / 3.178s / 0.318s / 34.973s）。
+
+状态：`EVAL-B150-REFCANDTRI1=implemented/awaiting-exact2-replay`；
+`EVAL-B150-JSONPRED1=implemented/awaiting-diagram-replay`；
+`EVAL-B150-DIAGROUND1=P2/context-richness`；`EVAL-B148-DATASCALARREF1=branch-pin-awaiting-trigger`；
+Trace 显式窗、因果投影、自动补齐、两维根因、根因排序、唤醒链与窗内可消除量=`untouched`。

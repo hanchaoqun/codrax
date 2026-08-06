@@ -339,6 +339,31 @@ func TestBuildRequiredOutputProjectionPlanUsesOutputGraph(t *testing.T) {
 	}
 }
 
+func TestBuildRequiredOutputProjectionPlanDoesNotPromiseUndeclaredReferenceProjection(t *testing.T) {
+	gap := ReferenceProjectionGap{
+		Present: true,
+		Candidate: dataquery.ReferenceKeyCandidate{
+			Path: "targets.csv", Field: "canonical_label", KeyCount: 3,
+		},
+	}
+	plan, ok := BuildRequiredOutputProjectionPlan(OutputProjectionPlanInput{
+		Output:         dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false},
+		OutputGraph:    OutputProjectionGraph{Status: OutputProjectionStatusMissingProjection},
+		UseOutputGraph: true,
+		ReferenceGap:   gap,
+	})
+	if !ok || len(plan.Actions) != 1 {
+		t.Fatalf("plan=%+v ok=%t, want ordinary assemble projection", plan, ok)
+	}
+	action := plan.Actions[0]
+	if plan.OutputContract.CompleteReference || action.Params["complete_reference"] != "" || action.Params["reference_path"] != "" {
+		t.Fatalf("plan=%+v, undeclared candidate must not become hard projection authority", plan)
+	}
+	if strings.Contains(plan.WhyThisBatch, "complete structural reference") || strings.Contains(plan.NextBatch, "fill missing groups") {
+		t.Fatalf("plan=%+v, narrative must not promise an undeclared zero-fill projection", plan)
+	}
+}
+
 func TestBuildRequiredOutputProjectionPlanSkipsSatisfiedOutputGraph(t *testing.T) {
 	graph := BuildOutputProjectionGraph(OutputProjectionGraphInput{AnswerPresent: true})
 	plan, ok := BuildRequiredOutputProjectionPlan(OutputProjectionPlanInput{

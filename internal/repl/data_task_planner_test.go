@@ -11731,4 +11731,11 @@ func TestDataTaskWorkflowCompletionGateUndeclaredSubsetAnswerCompletes(t *testin
 	if plan, ok := dataTaskRequiredLedgerCompletionPlanWithRepo(root, nil, current, result, guard); ok && plan.OutputContract.CompleteReference {
 		t.Fatalf("undeclared subset answer must not be rewritten by zero-fill projection, plan=%+v", plan.OutputContract)
 	}
+	graph := dataTaskWorkflowCompletionOutputProjectionGraph(root, nil, current, result)
+	if !graph.ReferenceCandidatePresent || graph.ReferenceCandidateDeclared || graph.ReferenceCompleteRequired || graph.ReferenceComplete {
+		t.Fatalf("output graph=%+v, inferred candidate must be visible but remain soft/unverified", graph)
+	}
+	if graph.ReferenceCandidatePath != "canonical.csv" || graph.ReferenceCandidateField != "canonical_name" {
+		t.Fatalf("output graph=%+v, want typed candidate identity", graph)
+	}
 }

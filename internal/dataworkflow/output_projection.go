@@ -29,6 +29,11 @@ type OutputProjectionGraphInput struct {
 	ReconcileGroups               int
 	PlanHasCustomTransform        bool
 	ReferenceGapPresent           bool
+	ReferenceCandidatePresent     bool
+	ReferenceCandidateDeclared    bool
+	ReferenceCandidatePath        string
+	ReferenceCandidateField       string
+	ReferenceGroundingEvaluated   bool
 	ReferenceKeyCount             int
 	AnswerItemCount               int
 	ReferenceGroundingMismatch    bool
@@ -44,6 +49,12 @@ func BuildOutputProjectionGraph(input OutputProjectionGraphInput) OutputProjecti
 	projectionArtifactPresent := input.ProjectionArtifactPresent
 	reconcilePresent := input.ReconcilePresent || input.ReconcileGroups > 0
 	referenceRequired := input.ReferenceGapPresent || input.ReferenceGroundingMismatch
+	referenceDeclared := input.ReferenceCandidateDeclared || output.CompleteReference
+	referenceCompleteRequired := referenceRequired || referenceDeclared
+	referenceComplete := referenceDeclared &&
+		input.ReferenceGroundingEvaluated &&
+		input.AnswerPresent &&
+		!referenceRequired
 	needsProjection := outputProjectionNeedsAssembly(input, strict, reconcilePresent)
 	required := referenceRequired || needsProjection || !answerPresent
 	status := OutputProjectionStatusSatisfied
@@ -90,8 +101,13 @@ func BuildOutputProjectionGraph(input OutputProjectionGraphInput) OutputProjecti
 		ProjectionArtifactPresent:     projectionArtifactPresent,
 		ReconcilePresent:              reconcilePresent,
 		ReconcileGroups:               input.ReconcileGroups,
-		ReferenceCompleteRequired:     referenceRequired,
-		ReferenceComplete:             !referenceRequired,
+		ReferenceCompleteRequired:     referenceCompleteRequired,
+		ReferenceComplete:             referenceComplete,
+		ReferenceCandidatePresent:     input.ReferenceCandidatePresent,
+		ReferenceCandidateDeclared:    referenceDeclared,
+		ReferenceCandidatePath:        strings.TrimSpace(input.ReferenceCandidatePath),
+		ReferenceCandidateField:       strings.TrimSpace(input.ReferenceCandidateField),
+		ReferenceGroundingEvaluated:   input.ReferenceGroundingEvaluated,
 		ReferenceKeyCount:             input.ReferenceKeyCount,
 		AnswerItemCount:               input.AnswerItemCount,
 		ReferenceGroundingMismatch:    input.ReferenceGroundingMismatch,

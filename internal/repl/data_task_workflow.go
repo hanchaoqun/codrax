@@ -5782,8 +5782,15 @@ func dataTaskWorkflowCompletionOutputProjectionGraphInput(repoRoot string, recor
 	if result.Reconcile != nil {
 		reconcileGroups = len(result.Reconcile.Groups)
 	}
-	groundingReport, _, groundingApplicable := dataTaskOutputReferenceGroundingReport(repoRoot, records, current, result)
+	groundingReport, groundingCandidate, groundingApplicable := dataTaskOutputReferenceGroundingReport(repoRoot, records, current, result)
 	groundingMismatch := groundingApplicable && groundingReport.Violated()
+	if strings.TrimSpace(groundingCandidate.Path) != "" {
+		// The grounding resolver consumes only an explicit typed declaration.
+		// Preserve that declaration even when the check is inapplicable; only
+		// groundingApplicable is allowed to claim that it was evaluated.
+		referenceGap.Candidate = groundingCandidate
+		referenceGap.Declared = true
+	}
 	if groundingApplicable {
 		if groundingReport.ReferenceKeyCount > 0 {
 			referenceGap.Candidate.KeyCount = groundingReport.ReferenceKeyCount
@@ -5801,6 +5808,11 @@ func dataTaskWorkflowCompletionOutputProjectionGraphInput(repoRoot string, recor
 		ReconcileGroups:               reconcileGroups,
 		PlanHasCustomTransform:        dataTaskPlanHasCustomTransform(current),
 		ReferenceGapPresent:           referenceGap.Present && referenceGap.Declared,
+		ReferenceCandidatePresent:     strings.TrimSpace(referenceGap.Candidate.Path) != "",
+		ReferenceCandidateDeclared:    referenceGap.Declared,
+		ReferenceCandidatePath:        referenceGap.Candidate.Path,
+		ReferenceCandidateField:       referenceGap.Candidate.Field,
+		ReferenceGroundingEvaluated:   groundingApplicable,
 		ReferenceKeyCount:             referenceGap.Candidate.KeyCount,
 		AnswerItemCount:               answerItems,
 		ReferenceGroundingMismatch:    groundingMismatch,

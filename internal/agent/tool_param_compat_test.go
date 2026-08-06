@@ -577,6 +577,51 @@ func TestNormalizeEmitAnalysisDiagramHintCompat_PreservesRequiredAuthority(t *te
 	}
 }
 
+func TestNormalizeEmitAnalysisLocalModelParamsMovesUniquePredicateCarrier(t *testing.T) {
+	raw := json.RawMessage(`{
+		"predicates":{"is_scalar_answer":false},
+		"has_per_member_table":true,
+		"answer_role_profile":{"is_role_binding_requested":false,"confidence":0.8},
+		"error_granularity_profile":{"is_granularity_question":false,"confidence":0.8},
+		"runtime_artifact_scope_profile":{"requested_scope":"unspecified","confidence":0.8}
+	}`)
+	patched, notes, ok := normalizeEmitAnalysisLocalModelParams(raw)
+	if !ok || !strings.Contains(strings.Join(notes, " "), "emit_analysis_predicate_carrier") {
+		t.Fatalf("patched=%s notes=%v ok=%t, want typed carrier repair", patched, notes, ok)
+	}
+	var got map[string]json.RawMessage
+	if err := json.Unmarshal(patched, &got); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := got["has_per_member_table"]; exists {
+		t.Fatalf("patched=%s, misplaced root field must be removed", patched)
+	}
+	var predicates map[string]json.RawMessage
+	if err := json.Unmarshal(got["predicates"], &predicates); err != nil {
+		t.Fatal(err)
+	}
+	var value bool
+	if err := json.Unmarshal(predicates["has_per_member_table"], &value); err != nil || !value {
+		t.Fatalf("predicates=%s, want exact true value moved", got["predicates"])
+	}
+}
+
+func TestNormalizeEmitAnalysisLocalModelParamsRefusesConflictingOrUntypedPredicateCarrier(t *testing.T) {
+	for _, raw := range []json.RawMessage{
+		json.RawMessage(`{"predicates":{"has_per_member_table":false},"has_per_member_table":true,"answer_role_profile":{},"error_granularity_profile":{},"runtime_artifact_scope_profile":{}}`),
+		json.RawMessage(`{"predicates":{},"has_per_member_table":"true","answer_role_profile":{},"error_granularity_profile":{},"runtime_artifact_scope_profile":{}}`),
+	} {
+		patched, _, _ := normalizeEmitAnalysisLocalModelParams(raw)
+		var got map[string]json.RawMessage
+		if err := json.Unmarshal(patched, &got); err != nil {
+			t.Fatal(err)
+		}
+		if _, exists := got["has_per_member_table"]; !exists {
+			t.Fatalf("patched=%s, ambiguous/untyped carrier must remain for strict rejection", patched)
+		}
+	}
+}
+
 func TestDiagramKindFromStringRejectsConflictingKinds(t *testing.T) {
 	if _, ok := diagramKindFromString("sequence or call_dag"); ok {
 		t.Fatal("conflicting diagram kinds must not be normalized by taking the first match")
