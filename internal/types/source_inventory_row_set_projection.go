@@ -29,6 +29,7 @@ func ProjectSourceInventoryPrincipalRowSetAggregateFacts(facts []AnswerAggregate
 	if !rowSet.Active || rowSet.PrincipalTotal == 0 {
 		return out
 	}
+	out = sourceInventoryCanonicalizePrincipalFactMemberIdentities(out, rowSet, rm)
 	refs := PrincipalAggregateMemberSetFactRefsForRequest(out, &rm)
 	rowSet = sourceInventoryFilterPrincipalRowSetToExistingPrincipalFamilies(rowSet, refs)
 	rowSet, _ = sourceInventoryFilterMixedPrincipalRowSetToExistingRows(rowSet, refs)

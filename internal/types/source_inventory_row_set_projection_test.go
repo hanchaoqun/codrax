@@ -147,6 +147,59 @@ func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_PreservesModelMembe
 	}
 }
 
+func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_CanonicalizesVerboseStructuredMembersByExactTypedLocation(t *testing.T) {
+	rm := sourceInventoryProjectionRequestModel(nil)
+	rm.SourceInventoryProfile.TargetRoles = []AnswerCandidateRole{AnswerCandidateRoleType}
+	obs := SourceInventoryObservation{
+		Active: true, Complete: true, Scopes: []string{"."},
+		Sets: []SourceInventoryObservationSet{{
+			Role: AnswerCandidateRoleType, Complete: true, Count: 2, Total: 2,
+			Members: []SourceInventoryObservationMember{
+				{Name: "String", Role: AnswerCandidateRoleType, File: "src/extend.cj", Line: 6, Language: "cangjie", SurfaceTerms: []string{"extend", "extend String"}, CoverageState: SourceInventoryCoverageObserved},
+				{Name: "Bridge", Role: AnswerCandidateRoleType, File: "src/Bridge.cj", Line: 15, Language: "cangjie", SurfaceTerms: []string{"public class", "public class Bridge"}, CoverageState: SourceInventoryCoverageObserved},
+			},
+		}},
+	}
+	fact := AnswerAggregateFact{
+		Kind: AnswerAggregateMemberSet, Label: "declarations", Value: "2",
+		Role: AnswerAggregateRolePrincipalAnswer, Provenance: "explorer",
+		Members: []string{
+			"String (extend String) — src/extend.cj:6, package=demo.stringext",
+			"Bridge — src/Bridge.cj:15, package=demo.bridge",
+		},
+		SupportRefs: []string{"String: src/extend.cj:6", "Bridge: src/Bridge.cj:15"},
+	}
+
+	got := ProjectSourceInventoryPrincipalRowSetAggregateFacts([]AnswerAggregateFact{fact}, obs, rm)
+	if len(got) != 1 || got[0].Provenance != "explorer" || got[0].Role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("exact typed partition should remain model-owned without a synthetic duplicate: %+v", got)
+	}
+	if strings.Join(got[0].Members, ",") != "String,Bridge" {
+		t.Fatalf("verbose presentation detail leaked into member identity: %+v", got[0].Members)
+	}
+	if strings.Join(got[0].SupportRefs, ",") != "String @ src/extend.cj:6,Bridge @ src/Bridge.cj:15" {
+		t.Fatalf("canonical support refs = %+v", got[0].SupportRefs)
+	}
+}
+
+func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_DoesNotCanonicalizeContradictoryMemberLabel(t *testing.T) {
+	rm := sourceInventoryProjectionRequestModel(nil)
+	obs := sourceInventoryProjectionObservation(
+		SourceInventoryObservationMember{Name: "String", Role: AnswerCandidateRoleFunction, File: "src/extend.cj", Line: 6, Language: "cangjie"},
+	)
+	fact := AnswerAggregateFact{
+		Kind: AnswerAggregateMemberSet, Label: "functions", Value: "1",
+		Role: AnswerAggregateRolePrincipalAnswer, Provenance: "explorer",
+		Members:     []string{"Other — src/extend.cj:6"},
+		SupportRefs: []string{"String: src/extend.cj:6"},
+	}
+
+	got := ProjectSourceInventoryPrincipalRowSetAggregateFacts([]AnswerAggregateFact{fact}, obs, rm)
+	if len(got) == 0 || got[0].Members[0] != "Other — src/extend.cj:6" {
+		t.Fatalf("contradictory model identity must remain fail-closed, got %+v", got)
+	}
+}
+
 func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_UpgradesShortSupportRefsForDuplicateLabels(t *testing.T) {
 	rm := sourceInventoryProjectionRequestModel(nil)
 	obs := sourceInventoryProjectionObservation(

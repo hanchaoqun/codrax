@@ -20529,3 +20529,39 @@ S6 已按此方案实现：移除精确 unique-display-row binder 对 `enumerati
 状态：`EVAL-B183-DECLACTIVE1=resolved/r103-replay-confirmed`；
 `EVAL-B180-PRESTAGETOPO1=resolved/r103-replay-confirmed`；
 `EVAL-B184-CITEREPAIR1=S6-implemented/targeted-tests-pass/pending-full-suite-and-r104`。
+
+### 123.128 B184 r104：跨语言引用修复闭环；typed 成员身份仍被展示详情污染
+
+S6 提交后重建，严格并行恰好两个跨语言 source-inventory case：
+
+- `cangjie_repomap`：141s，runner PASS / human PASS，finalizer reject=1；
+- `arkts_repomap`：79s，runner PASS / human PASS，finalizer reject=0。
+
+S6 已由真实回放关闭。Cangjie 的 2/2/8 行全部正确，上一轮错误的 `extend Cart` 已精确引用
+`eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:30`，没有再借用 `native_add` 或相邻行；ArkTS 同时保持 4 个 `@Entry` 页面类型与 2 个 `@Builder` 函数，六条引用逐项匹配。
+这证明修复读取的是统一 typed row identity，而不是 `extend`、Cangjie 或某个文件名特判。两案均无 malformed JSON、blocks-string recovery 或 schema/runtime 冲突；finalizer prompt 明确以本轮投影 tool schema 为 JSON 字段、类型、required、enum 的
+唯一 authority，`Required Answer Blocks` 只负责语义内容位置，没有再教学第二套 JSON schema。
+
+r104 同时确认 `EVAL-B184-MEMBERIDENT1=P1/confirmed`。本轮 explorer 的 structured aggregate member 使用了如下合法但冗长的形：
+`String (extend String) — path:line, package=demo.stringext`，并另有 index-aligned `support_refs=[String: path:line]`。typed source-inventory observation 已经持有独立的 name、file、line、surface family 和 package attribute，
+但投影没有把身份与展示详情分开；结果既保留三组模型分区，又追加一组 synthetic global roster，prompt 出现 24 行双份载体。完整性门随后要求把冗长 aggregate member 逐字复制到 `items[].label`，模型第一稿用正确的短符号名
+`String`/`Cart`/`Bridge` 等，仍被一次性判成 12 行全部 missing，触发一次“成文校验未通过”；patch 只能复制长标签，答案虽然正确却更难读。
+
+这条不是“硬门太严格”，而是门前 typed identity 没有规范化。最优方案冻结为：对 model-owned principal source-inventory member_set，以每项 index-aligned `support_ref` 的 exact file:line 在 typed principal row set 中做唯一连接；
+只有 support-ref label、structured member base label、typed row name 三者相容且该坐标唯一时，才把成员身份规范化为 typed row name，并重写为规范 support_ref。location、package、decorator/surface family 继续由 typed location/attribute/note 字段承载。
+整组 fact 必须每项都满足才转换；任一歧义、同坐标多身份或标签矛盾则整组保持原样，走既有 fail-closed 投影。该过程不读取用户原文、块标题、item text 或最终答案，不改变模型选了哪些成员/分桶/计数，也不是系统代写结论。
+
+S7 已实现两层精确兼容：
+
+1. structured support-ref grammar 接受 `label — file:line, typed_attribute` 与 en-dash 同形；逗号/分号尾部只有能解析为 typed source-inventory attribute 才可剥离，普通 prose 不进入该路径；
+2. 投影在 universe 比较前执行整组 exact-location identity canonicalization，支持同名不同路径，拒绝 `member=Other` / `support_ref=String` 这类矛盾载体。
+
+回归 pin 覆盖 verbose decorator+location+package 的两行规范化、模型分区所有权保持、无 synthetic duplicate、规范 support_ref，以及矛盾标签不改写。完整 types/tool suite 已通过
+（types 22.066s；tool 161.584s）；r105 是剩余验收。
+该修复不触及 Trace 工具或答案 mutation runtime，不改变带具体时间窗的因果投影、自动补齐、根因排序、唤醒链、窗内可消除量及“真实耗时占用 / 规则可消除”双维度。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b184_citation_crosslang_replay_r104_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b184_citation_crosslang_replay_r104_20260806_manual_audit.md`。
+
+状态：`EVAL-B184-CITEREPAIR1=resolved/r104-cross-language-replay-confirmed`；
+`EVAL-B184-MEMBERIDENT1=S7-implemented/full-impacted-suites-pass/pending-r105`。

@@ -117,15 +117,17 @@ func AnswerSourceLocationLabelMatchesCitation(label string, cit Citation) bool {
 
 // ParseAnswerSupportRefMemberLocation parses composite member surfaces where a
 // user-visible label is paired with a citable source/config location, such as
-// "Foo @ src/foo.go:10", "Foo | src/foo.go:10", or
-// "Foo (src/foo.go:10)". This is display grammar for model-authored typed
-// handoff data; it never infers a fact from prose.
+// "Foo @ src/foo.go:10", "Foo | src/foo.go:10",
+// "Foo — src/foo.go:10, package=demo.foo", or "Foo (src/foo.go:10)".
+// This is display grammar for model-authored typed handoff data; it never
+// infers a fact from prose. Trailing comma/semicolon content is accepted only
+// when it parses as a typed source-inventory attribute.
 func ParseAnswerSupportRefMemberLocation(raw string) (label string, location AnswerSourceLocationSurface, ok bool) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return "", AnswerSourceLocationSurface{}, false
 	}
-	for _, sep := range []string{" @ ", "\t", " | ", ": "} {
+	for _, sep := range []string{" @ ", "\t", " | ", ": ", " — ", " – "} {
 		idx := strings.Index(raw, sep)
 		if idx <= 0 {
 			continue
@@ -195,6 +197,11 @@ func parseAnswerSupportLocationSurface(raw string) (AnswerSourceLocationSurface,
 	}
 	if surface, parsed := ParseAnswerSourceLocationSurface(raw); parsed {
 		return surface, true
+	}
+	if locationPart, parsed := answerDecoratedLocationAttributeLocationPart(raw); parsed {
+		if surface, parsed := ParseAnswerSourceLocationSurface(locationPart); parsed {
+			return surface, true
+		}
 	}
 	for _, idx := range []int{
 		strings.Index(raw, " ("),

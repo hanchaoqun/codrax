@@ -74,6 +74,8 @@ func TestParseAnswerSupportRefMemberLocation_CompositeDisplays(t *testing.T) {
 		{"native_add @ 07_foreign_ffi.cj:6 [package demo.ffi]", "native_add", "07_foreign_ffi.cj", 6},
 		{"native_add @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6 — package demo.ffi", "native_add", "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", 6},
 		{"native_add (tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6, package demo.ffi)", "native_add", "tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", 6},
+		{"String (extend String) — internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj:6, package=demo.stringext", "String (extend String)", "internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj", 6},
+		{"Bridge – eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:15; package demo.bridge", "Bridge", "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", 15},
 	}
 	for _, tc := range cases {
 		label, loc, ok := ParseAnswerSupportRefMemberLocation(tc.raw)
