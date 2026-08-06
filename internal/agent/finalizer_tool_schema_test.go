@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -56,7 +57,7 @@ func TestFinalizerToolSchemas_HidePatchWithInvalidRetryBase(t *testing.T) {
 	}
 }
 
-func TestFinalizerToolSchemas_DocumentBlocksWarnAgainstStringifiedArrays(t *testing.T) {
+func TestFinalizerToolSchemas_DocumentBlocksUseOneSchemaNearCarrierTeaching(t *testing.T) {
 	agent := finalizerSchemaTestAgent()
 	sk := finalizerSchemaTestSkill()
 	ctx := &types.AgentContext{Mutable: types.NewMutableState("first finalizer dispatch")}
@@ -72,21 +73,27 @@ func TestFinalizerToolSchemas_DocumentBlocksWarnAgainstStringifiedArrays(t *test
 	if docSchema == nil {
 		t.Fatal("finalizer must expose emit_answer_document")
 	}
-	for _, want := range []string{
-		"native JSON array",
-		"do not JSON-encode or quote",
-	} {
-		if !strings.Contains(docSchema.Description, want) {
-			t.Fatalf("emit_answer_document description missing %q:\n%s", want, docSchema.Description)
-		}
+	if strings.Count(docSchema.Description, types.AnswerDocumentJSONShapeFirstTeaching) != 1 {
+		t.Fatalf("tool description must carry the canonical JSON teaching exactly once:\n%s", docSchema.Description)
+	}
+	if !strings.Contains(docSchema.Description, "projected tool schema as the only authority") {
+		t.Fatalf("tool description must assign field ownership to the projected schema:\n%s", docSchema.Description)
+	}
+	var paramsSchema struct {
+		Properties map[string]struct {
+			Type string `json:"type"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(docSchema.Parameters, &paramsSchema); err != nil {
+		t.Fatalf("decode projected schema: %v", err)
+	}
+	if paramsSchema.Properties["blocks"].Type != "array" {
+		t.Fatalf("projected schema must make blocks an array structurally: %+v", paramsSchema.Properties["blocks"])
 	}
 	params := string(docSchema.Parameters)
-	for _, want := range []string{
-		"native JSON array",
-		"not a JSON-encoded string",
-	} {
-		if !strings.Contains(params, want) {
-			t.Fatalf("emit_answer_document parameters missing %q:\n%s", want, params)
+	for _, duplicateCarrierTeaching := range []string{"native JSON array", "JSON-encoded string"} {
+		if strings.Contains(params, duplicateCarrierTeaching) {
+			t.Fatalf("parameter schema must express array shape structurally, not repeat prose %q:\n%s", duplicateCarrierTeaching, params)
 		}
 	}
 }

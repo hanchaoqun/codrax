@@ -19476,3 +19476,35 @@ carrier rule；不增加同义提示，不扫描模型答案，不把一次 loss
 `EVAL-B170-EVALCOUNT1=implemented/runner-contract-pass`；
 `EVAL-B170-JSONREPEAT1=confirmed/next-small-batch`；Trace 显式时间窗、因果投影、系统自动补齐、根因排序、唤醒链、
 窗内可消除量、两维根因与模型结论所有权=`untouched`。
+
+### 123.90 B170-S4：AnswerDocument JSON 字段教学归一到 projected schema
+
+对 r87 Finalizer 实际 prompt 冷读确认，whole-`blocks[]` string 并非因为缺少教学，而是在过量且重复的教学下仍发生：
+
+- Goal 绝对写“调用一次”，Output 又允许 rejected attempt 后 patch/retry；
+- canonical `JSON SHAPE FIRST`、Workflow carrier 段、Output block contract、tool description、schema field description
+  多次重复“原生数组/不要 JSON string”；
+- 静态 OutputFormat 又列出全部 block kind/字段表，而本轮 projected schema 会裁掉不适用 kind。模型同时维护动态 schema
+  与第二份静态字段手册，增加 carrier/string、错 kind 和错字段的决策负担。
+
+本批按“schema 管字段、skill 管任务”收敛：
+
+1. `emit_answer_document` projected tool schema 成为 field name、type、required、enum 的唯一权威；tool description 只保留一份
+   schema-near compact `JSON SHAPE FIRST`，`blocks.type=array` 由 JSON schema 结构本身表达，不在 description/field description
+   重复同义警告；
+2. answer skill 首条只要求先读 projected schema，不再复制 canonical carrier 句；静态 Block contract/九种 kind payload 表删除，
+   改为四条 content-placement 指引。Required Answer Blocks 仍负责本轮语义块、数量与 facet，projected schema 负责 JSON 表达；
+3. Goal 改成“每次 attempt 一个完整结构调用”。accepted full emit 或 accepted patch 才是交付；rejected attempt 可以在下一轮
+   发一个完整修正 call，消除“只能调用一次”与系统要求重试的直接矛盾；
+4. 字段级失败的 typed repair hint 保留。lossy blocks-string 仍精确要求 native array 并携带 recovered/candidate block 计数；
+   无损 recovery、visible-string salvage、`AnswerDegraded/SkipAnswerChecks` 与用户可见模型降级披露均未削弱；
+5. 新结构 pin 要求静态 skill 不再出现 `native JSON array` / `JSON-encoded string` 重复教学，tool description 的 canonical
+   teaching 恰好一次，projected parameters 中 `blocks` 的 JSON type 必须为 array。该 pin 只审计系统 prompt/source，不扫描
+   用户请求、模型 reasoning 或最终答案。
+
+验证：定向 schema/skill/retry tests PASS；完整
+`go test ./internal/skill ./internal/agent ./internal/tool -count=1` 全绿（0.245s / 3.055s / 177.064s）。
+
+状态：`EVAL-B170-JSONREPEAT1=implemented/full-affected-suite-pass/awaiting-production-replay`；
+畸形 JSON 无损修复与显式降级保文=`preserved`；模型答案所有权=`preserved`；Trace 显式时间窗、因果投影、自动补齐、
+根因排序、唤醒链、窗内可消除量与两维根因=`untouched`。

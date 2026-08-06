@@ -734,7 +734,7 @@ func TestFinalizerSkill_DoesNotTeachRetiredV1AnswerPayloads(t *testing.T) {
 	}
 }
 
-func TestFinalizerSkill_TeachesNativeBlocksArrayContract(t *testing.T) {
+func TestFinalizerSkillUsesProjectedSchemaAsSingleJSONFieldAuthority(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)
 
@@ -744,12 +744,22 @@ func TestFinalizerSkill_TeachesNativeBlocksArrayContract(t *testing.T) {
 	}
 	blob := strings.Join(append([]string{sk.Goal, sk.OutputFormat}, sk.Workflow...), "\n")
 	for _, want := range []string{
-		"native JSON array",
-		"do NOT quote it as a string containing escaped JSON",
-		"not as a JSON-encoded string with escaped quotes",
+		"the only authority for JSON field names, value types, required fields, and allowed enum values",
+		"content-placement guide, not a second JSON schema",
+		"one complete structured tool call per attempt",
+		"rejected attempts may be corrected",
 	} {
 		if !strings.Contains(blob, want) {
-			t.Fatalf("answer-document-skill missing native blocks[] guidance %q:\n%s", want, blob)
+			t.Fatalf("answer-document-skill missing schema-ownership guidance %q:\n%s", want, blob)
+		}
+	}
+	for _, duplicateCarrierTeaching := range []string{
+		"native JSON array",
+		"JSON-encoded string with escaped quotes",
+		"do NOT quote it as a string containing escaped JSON",
+	} {
+		if strings.Contains(blob, duplicateCarrierTeaching) {
+			t.Fatalf("static skill must defer JSON carrier shape to the projected tool schema instead of repeating %q:\n%s", duplicateCarrierTeaching, blob)
 		}
 	}
 }
@@ -1317,19 +1327,19 @@ func TestLogTriageSkillUsesCanonicalJSONShapeFirstTeaching(t *testing.T) {
 	}
 }
 
-func TestAnswerDocumentSkillFrontLoadsCanonicalJSONShapeFirstTeaching(t *testing.T) {
+func TestAnswerDocumentSkillFrontLoadsProjectedSchemaOwnership(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)
 	sk, err := r.Get("answer-document-skill")
 	if err != nil {
 		t.Fatalf("answer-document-skill missing: %v", err)
 	}
-	if len(sk.Workflow) == 0 || sk.Workflow[0] != types.AnswerDocumentJSONShapeFirstTeaching {
-		t.Fatalf("canonical JSON-shape teaching must be the first workflow decision, got: %+v", sk.Workflow)
+	if len(sk.Workflow) == 0 || !strings.Contains(sk.Workflow[0], "projected `emit_answer_document` tool schema") {
+		t.Fatalf("projected schema ownership must be the first workflow decision, got: %+v", sk.Workflow)
 	}
-	joined := strings.Join(sk.Workflow, "\n")
-	if strings.Count(joined, types.AnswerDocumentJSONShapeFirstTeaching) != 1 {
-		t.Fatalf("canonical JSON-shape teaching must appear exactly once, got %d", strings.Count(joined, types.AnswerDocumentJSONShapeFirstTeaching))
+	joined := strings.Join(append([]string{sk.Goal, sk.OutputFormat}, sk.Workflow...), "\n")
+	if strings.Contains(joined, types.AnswerDocumentJSONShapeFirstTeaching) {
+		t.Fatal("static skill must not duplicate the schema-near canonical carrier teaching")
 	}
 }
 
