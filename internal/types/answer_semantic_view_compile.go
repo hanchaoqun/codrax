@@ -304,12 +304,14 @@ func BuildAnswerSemanticViewForAgentContext(ac *AgentContext) *AnswerSemanticVie
 	}
 	if cached := ac.cachedAnswerSemanticView(); cached != nil {
 		applyCallChainEndpointBoundary(cached, ac.AnalysisIR, ac.Mutable, ac.EvidenceItems)
+		applyTraceCausalClaimContractForAgent(cached, ac)
 		return cached
 	}
 	plan := BuildAnswerSurfacePlanForAgentContext(ac)
 	view := BuildAnswerSemanticView(ac.AnalysisIR, plan)
 	ac.storeAnswerSemanticView(view)
 	applyCallChainEndpointBoundary(view, ac.AnalysisIR, ac.Mutable, ac.EvidenceItems)
+	applyTraceCausalClaimContractForAgent(view, ac)
 	emitSemanticViewTrace("agent", view, ac.AnalysisIR, plan)
 	return cloneAnswerSemanticView(view)
 }
@@ -324,14 +326,34 @@ func BuildAnswerSemanticViewForBusContext(bus *BusContext) *AnswerSemanticView {
 	}
 	if cached := bus.cachedAnswerSemanticView(); cached != nil {
 		applyCallChainEndpointBoundary(cached, bus.AnalysisIR, bus.Mutable, bus.EvidenceItems)
+		applyTraceCausalClaimContractForBus(cached, bus)
 		return cached
 	}
 	plan := BuildAnswerSurfacePlanForBusContext(bus)
 	view := BuildAnswerSemanticView(bus.AnalysisIR, plan)
 	bus.storeAnswerSemanticView(view)
 	applyCallChainEndpointBoundary(view, bus.AnalysisIR, bus.Mutable, bus.EvidenceItems)
+	applyTraceCausalClaimContractForBus(view, bus)
 	emitSemanticViewTrace("bus", view, bus.AnalysisIR, plan)
 	return cloneAnswerSemanticView(view)
+}
+
+func applyTraceCausalClaimContractForAgent(view *AnswerSemanticView, ctx *AgentContext) {
+	if view == nil || ctx == nil || ctx.Mutable == nil {
+		return
+	}
+	view.TraceCausalClaimContract = BuildTraceCausalClaimContract(
+		ObservationLedgerInputFromAgentContext(ctx, ObservationPromptRecordLimit),
+	)
+}
+
+func applyTraceCausalClaimContractForBus(view *AnswerSemanticView, ctx *BusContext) {
+	if view == nil || ctx == nil || ctx.Mutable == nil {
+		return
+	}
+	view.TraceCausalClaimContract = BuildTraceCausalClaimContract(
+		ObservationLedgerInputFromBusContext(ctx, ObservationPromptRecordLimit),
+	)
 }
 
 func principalSpanWaiverFromMutable(mutable *MutableState) *PrincipalSpanWaiver {

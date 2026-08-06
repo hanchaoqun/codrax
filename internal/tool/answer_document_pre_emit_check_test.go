@@ -5511,6 +5511,38 @@ func TestPreCheckCurrentStatusVerdict_UsesTypedDecisionField(t *testing.T) {
 	}
 }
 
+func TestPreCheckTraceCausalClaimCaliberUsesTypedPrincipalFieldAndCeiling(t *testing.T) {
+	view := &types.AnswerSemanticView{TraceCausalClaimContract: &types.TraceCausalClaimContract{
+		Allowed: []types.TraceCausalClaimCaliber{
+			types.TraceCausalClaimNoConclusion,
+			types.TraceCausalClaimBoundedWindow,
+		},
+		Ceiling: types.TraceCausalClaimBoundedWindow,
+	}}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "lead", Kind: types.BlockSummary, SurfaceRole: types.SurfacePrincipal, Text: "model synthesis",
+	}}}
+	hints := preCheckTraceCausalClaimCaliber(doc, view)
+	if len(hints) != 1 || !hints[0].ForceHard ||
+		hints[0].HardSignal != preEmitHardSignalTypedTraceCausalClaimCaliber {
+		t.Fatalf("missing typed Trace caliber must produce one precise hard repair: %+v", hints)
+	}
+	doc.Blocks[0].TraceCausalClaimCaliber = types.TraceCausalClaimTypedFrame
+	if hints := preCheckTraceCausalClaimCaliber(doc, view); len(hints) != 1 ||
+		!strings.Contains(hints[0].ExpectedShape, "bounded_window_candidate") {
+		t.Fatalf("caliber above the typed ceiling must be rejected with allowed values: %+v", hints)
+	}
+	doc.Blocks[0].TraceCausalClaimCaliber = types.TraceCausalClaimBoundedWindow
+	if hints := preCheckTraceCausalClaimCaliber(doc, view); len(hints) != 0 {
+		t.Fatalf("model-authored caliber within the typed ceiling must pass: %+v", hints)
+	}
+	view.TraceCausalClaimContract = nil
+	doc.Blocks[0].TraceCausalClaimCaliber = ""
+	if hints := preCheckTraceCausalClaimCaliber(doc, view); len(hints) != 0 {
+		t.Fatalf("inactive/narrow Trace answer must not inherit a causal carrier obligation: %+v", hints)
+	}
+}
+
 func TestPreCheckInactiveTypedDecisionVerdicts_RejectsWrongLaneVerdict(t *testing.T) {
 	view := &types.AnswerSemanticView{
 		CurrentStatusDiagnostic: &types.CurrentStatusDiagnosticContract{

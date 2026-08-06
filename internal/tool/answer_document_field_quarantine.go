@@ -54,6 +54,7 @@ var (
 		"caveat",
 		"error_granularity_verdict",
 		"current_status_verdict",
+		"trace_causal_claim_caliber",
 		"scope_disclosure",
 		"columns",
 		"items",

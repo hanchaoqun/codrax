@@ -8,6 +8,18 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+func answerDocumentProjectedBlockSchema(t *testing.T, raw json.RawMessage) (map[string]any, map[string]any) {
+	t.Helper()
+	var root map[string]any
+	if err := json.Unmarshal(raw, &root); err != nil {
+		t.Fatalf("projected schema must parse: %v", err)
+	}
+	props := root["properties"].(map[string]any)
+	blocks := props["blocks"].(map[string]any)
+	blockItems := blocks["items"].(map[string]any)
+	return blockItems, blockItems["properties"].(map[string]any)
+}
+
 // TestBuildAnswerDocumentParametersFor_NilViewReturnsCanonical pins
 // the fallback contract: callers without a compiled view (tests,
 // future no-context paths) MUST see the full canonical surface.
@@ -87,6 +99,21 @@ func TestEmitAnswerDocumentSchema_CurrentStatusVerdictEnumMatchesTypes(t *testin
 	for i, verdict := range want {
 		if enum[i] != string(verdict) {
 			t.Fatalf("current_status_verdict enum[%d]=%v want %q (full=%v)", i, enum[i], verdict, enum)
+		}
+	}
+}
+
+func TestEmitAnswerDocumentSchema_TraceCausalClaimCaliberEnumMatchesTypes(t *testing.T) {
+	_, blockProps := answerDocumentProjectedBlockSchema(t, (&EmitAnswerDocument{}).Parameters())
+	node := blockProps["trace_causal_claim_caliber"].(map[string]any)
+	enum := node["enum"].([]any)
+	want := types.AllTraceCausalClaimCalibers()
+	if len(enum) != len(want) {
+		t.Fatalf("trace_causal_claim_caliber enum len=%d want=%d (%v)", len(enum), len(want), enum)
+	}
+	for i, caliber := range want {
+		if enum[i] != string(caliber) {
+			t.Fatalf("trace_causal_claim_caliber enum[%d]=%v want %q (full=%v)", i, enum[i], caliber, enum)
 		}
 	}
 }
@@ -370,6 +397,41 @@ func TestBuildAnswerDocumentParametersFor_RequiredBlockCardinalityAndTypedDecisi
 	}
 }
 
+func TestBuildAnswerDocumentParametersForProjectsTraceCausalClaimCaliberOnlyWhenActive(t *testing.T) {
+	active := &types.AnswerSemanticView{
+		RequiredBlocks: []types.BlockRequirement{{Kind: types.BlockSummary, Required: true, MinCount: 1, MaxCount: 1}},
+		TraceCausalClaimContract: &types.TraceCausalClaimContract{
+			Allowed: []types.TraceCausalClaimCaliber{
+				types.TraceCausalClaimNoConclusion,
+				types.TraceCausalClaimBoundedWindow,
+			},
+			Ceiling: types.TraceCausalClaimBoundedWindow,
+		},
+	}
+	blockItems, blockProps := answerDocumentProjectedBlockSchema(t, BuildAnswerDocumentParametersFor(active))
+	node, ok := blockProps["trace_causal_claim_caliber"].(map[string]any)
+	if !ok {
+		t.Fatalf("active Trace causal contract must expose the caliber field: %+v", blockProps)
+	}
+	enum, _ := node["enum"].([]any)
+	if len(enum) != 2 || enum[0] != string(types.TraceCausalClaimNoConclusion) ||
+		enum[1] != string(types.TraceCausalClaimBoundedWindow) {
+		t.Fatalf("Trace causal caliber enum did not preserve the typed ceiling: %+v", enum)
+	}
+	if !schemaBlockKindRequiresField(blockItems, "summary", "trace_causal_claim_caliber") {
+		t.Fatalf("active principal summary schema must require trace_causal_claim_caliber: %+v", blockItems["allOf"])
+	}
+	if !schemaPrincipalBlockKindRequiresField(blockItems, "summary", "trace_causal_claim_caliber") {
+		t.Fatalf("Trace causal caliber must be required only by the principal-summary conditional: %+v", blockItems["allOf"])
+	}
+
+	inactive := &types.AnswerSemanticView{RequiredBlocks: active.RequiredBlocks}
+	_, blockProps = answerDocumentProjectedBlockSchema(t, BuildAnswerDocumentParametersFor(inactive))
+	if _, ok := blockProps["trace_causal_claim_caliber"]; ok {
+		t.Fatalf("non-Trace/narrow answer schema must not expose a causal claim carrier: %+v", blockProps)
+	}
+}
+
 func TestBuildAnswerDocumentParametersFor_SourceOptionalRuntimeViewDropsCurrentStatusVerdict(t *testing.T) {
 	view := &types.AnswerSemanticView{
 		Family: types.QFRootCauseTrace,
@@ -593,6 +655,32 @@ func schemaBlockKindRequiresField(blockItems map[string]any, kind, field string)
 		ifProps, _ := ifNode["properties"].(map[string]any)
 		kindNode, _ := ifProps["kind"].(map[string]any)
 		if kindNode["const"] != kind {
+			continue
+		}
+		thenNode, _ := entry["then"].(map[string]any)
+		required, _ := thenNode["required"].([]any)
+		for _, req := range required {
+			if req == field {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func schemaPrincipalBlockKindRequiresField(blockItems map[string]any, kind, field string) bool {
+	allOf, _ := blockItems["allOf"].([]any)
+	for _, raw := range allOf {
+		entry, _ := raw.(map[string]any)
+		ifNode, _ := entry["if"].(map[string]any)
+		ifRequired, _ := ifNode["required"].([]any)
+		if len(ifRequired) != 2 || ifRequired[0] != "kind" || ifRequired[1] != "surface_role" {
+			continue
+		}
+		ifProps, _ := ifNode["properties"].(map[string]any)
+		kindNode, _ := ifProps["kind"].(map[string]any)
+		roleNode, _ := ifProps["surface_role"].(map[string]any)
+		if kindNode["const"] != kind || roleNode["const"] != string(types.SurfacePrincipal) {
 			continue
 		}
 		thenNode, _ := entry["then"].(map[string]any)

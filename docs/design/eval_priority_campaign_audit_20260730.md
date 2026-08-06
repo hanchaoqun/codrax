@@ -18445,3 +18445,31 @@ class verification 4.600ms，rank #2 为 app runnable 0.800ms；唤醒路径、�
 
 状态：`EVAL-B155-UNCHANGEDNOOP1=soft-teaching-implemented`；`EVAL-B155-PROBEDEC2=soft-teaching-implemented/awaiting-heterogeneous-replay`；
 `EVAL-B155-CAUSALCLAIMCAL1=next-architecture-batch`；JSON 无损恢复/降级边界、Trace 全能力和模型结论所有权=`unchanged`。
+
+### 123.49 B155-S2：模型声明因果强度，系统只校验最终投影席位的 typed 上限
+
+按 §123.47 的红线边界完成通用架构批。该批不扫描用户问题、模型 reasoning 或最终答案原文，不从措辞推断因果级别，不选举根因，也不删除、替换或补写模型结论：
+
+1. 新增模型显式填写的 `trace_causal_claim_caliber`，四档分别为 `no_causal_conclusion`、`bounded_window_candidate`、
+   `typed_chain_cause`、`typed_frame_cause`。它只表达 principal summary 自己主张的因果强度，不表达“谁是根因”；原因选择、排序、优化方向和可见文字仍由
+   模型负责；
+2. 合同只在 full typed Trace causal report 且投影已有 publication-grade rows 时激活。窄窗口事实查询、状态查询、零发布行或普通源码/读写问答不暴露该字段，
+   避免再次把“Trace 状态查询”误套进全量因果投影合同；动态 schema 仅要求 `kind=summary && surface_role=principal` 的主席填写，supporting summary
+   不重复承担合同；
+3. 权限上限绑定最终投影席位实际消费的 `EvidenceID/MergedEvidenceIDs` 及其 producer `TraceEvidenceAuthority`。同会话早期粗窗的 `unproven` 探测若未被最终席位
+   消费，不会 sticky 降级后续已证席；反之，最终席本身为 `frame_evidence_status=absent|unavailable`、`causal_conclusion=unproven` 或无 result-level
+   authority 时，只允许 no-conclusion / bounded-candidate，不能铸造 chain/frame cause；
+4. JSON 教学只增加一条高显著性、短决策：先在允许枚举中声明强度，再把 lead/detail 控制在自己声明的范围内。系统明确说明“该字段不选择原因、不会从 prose 推断、
+   不会替你写结论”，减少模型同时理解多个相互重叠 caveat 的负担；canonical schema、per-dispatch narrowed enum、field quarantine、normalizer、文本恢复、
+   fused diagram split、patch/full emit 和 cache clone 全链贯通；
+5. pre-emit hard gate 只比较一个 schema-validated enum 与最终席位的 typed allowed set，是精确信号硬门；缺字段或越过 typed ceiling 才产生同轮修复提示。它不检查
+   “根因/导致/证明”等自然语言词，也不改正文。pin 覆盖 absent frame 上限、先 unproven 后 proven 的非 sticky 席位、present frame 的最高档、窄事实查询不激活、
+   schema enum 单源、principal-only required、全字段传播和 hard-policy/ForceHard 注册表；
+6. 显式时间窗、`frame_root_cause_bundle` 自动补齐、Trace 因果投影、根因排序、唤醒链、窗内可消除量及“真实耗时占用 / 既有规则可消除”两轴均未改变。系统投影仍作为
+   typed 信息源追加，模型原回答保持在前，不由本字段改写。
+
+定向测试 PASS；`go test ./internal/types -count=1` PASS（20.355s）；`go test ./internal/agent -count=1` PASS（3.165s）；
+`go test ./internal/tool -count=1` PASS（170.778s）。
+
+状态：`EVAL-B155-CAUSALCLAIMCAL1=implemented/types+agent+tool-full-pass/awaiting-exact2-replay`；
+`Trace causal claim ownership=model`；`system authority=typed ceiling only`；JSON 原文扫描/系统代写=`absent`；Trace 全能力=`preserved`。

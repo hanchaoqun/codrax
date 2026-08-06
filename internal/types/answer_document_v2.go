@@ -213,6 +213,11 @@ type AnswerBlock struct {
 	// typed field instead of inferring the verdict from decision prose.
 	CurrentStatusVerdict CurrentStatusVerdict `json:"current_status_verdict,omitempty"`
 
+	// TraceCausalClaimCaliber is the model-authored causal strength of the
+	// principal Trace summary. It is exposed only when the typed Trace causal
+	// contract is active and is never inferred from or rendered over Text.
+	TraceCausalClaimCaliber TraceCausalClaimCaliber `json:"trace_causal_claim_caliber,omitempty"`
+
 	// ScopeDisclosure is the canonical typed channel that declares why
 	// a principal answer is bounded by the active sub-repo set in a
 	// multi-repo workspace. When the typed

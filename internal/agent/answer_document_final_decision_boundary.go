@@ -49,6 +49,14 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 	var b strings.Builder
 	b.WriteString("## Final Trace Decision Boundary (Typed Facts; Model-Owned Conclusion)\n\n")
 	b.WriteString("- You own the diagnosis, prioritization, optimization direction, and wording. The system supplies measurements and authority ceilings only; do not merely restate the projection rows.\n")
+	if view := types.BuildAnswerSemanticViewForAgentContext(ctx); view != nil && view.TraceCausalClaimContract.Active() {
+		allowed := make([]string, 0, len(view.TraceCausalClaimContract.Allowed))
+		for _, caliber := range view.TraceCausalClaimContract.Allowed {
+			allowed = append(allowed, string(caliber))
+		}
+		fmt.Fprintf(&b, "- principal_trace_summary_contract: before drafting the lead, set its `trace_causal_claim_caliber` to one of `%s` and keep the lead/detail wording within that declared scope. This is your causal-strength declaration; it does not choose the cause. No conclusion is inferred from prose or written for you.\n",
+			strings.Join(allowed, "|"))
+	}
 	if authority.CausalUnproven {
 		b.WriteString("- causal_conclusion=`unproven`: the strongest supported synthesis is a bounded candidate or first validation direction, not a proven dropped-frame/frame-deadline cause.\n")
 	}

@@ -72,6 +72,7 @@ type emitAnswerBlockV2 struct {
 	Caveat                  string                      `json:"caveat,omitempty"`
 	ErrorGranularityVerdict string                      `json:"error_granularity_verdict,omitempty"`
 	CurrentStatusVerdict    string                      `json:"current_status_verdict,omitempty"`
+	TraceCausalClaimCaliber string                      `json:"trace_causal_claim_caliber,omitempty"`
 	ScopeDisclosure         string                      `json:"scope_disclosure,omitempty"`
 	SourceInventoryFamily   string                      `json:"source_inventory_family,omitempty"`
 	Columns                 []string                    `json:"columns,omitempty"`

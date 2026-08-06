@@ -308,6 +308,11 @@ func cloneAnswerSemanticView(in *AnswerSemanticView) *AnswerSemanticView {
 		profile.SourceQuotes = append([]string(nil), in.ErrorGranularityProfile.SourceQuotes...)
 		out.ErrorGranularityProfile = &profile
 	}
+	if in.TraceCausalClaimContract != nil {
+		contract := *in.TraceCausalClaimContract
+		contract.Allowed = append([]TraceCausalClaimCaliber(nil), in.TraceCausalClaimContract.Allowed...)
+		out.TraceCausalClaimContract = &contract
+	}
 	return &out
 }
 

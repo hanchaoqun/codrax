@@ -647,6 +647,9 @@ func visibleAnswerBlockFromRaw(raw json.RawMessage, idx int) (types.AnswerBlock,
 	if verdict, ok := types.NormalizeCurrentStatusVerdict(block.CurrentStatusVerdict); ok && kind == types.BlockDecision {
 		blk.CurrentStatusVerdict = verdict
 	}
+	if caliber, ok := types.NormalizeTraceCausalClaimCaliber(block.TraceCausalClaimCaliber); ok && kind == types.BlockSummary {
+		blk.TraceCausalClaimCaliber = caliber
+	}
 	if disclosure, ok := types.NormalizeScopeDisclosureKind(block.ScopeDisclosure); ok {
 		blk.ScopeDisclosure = disclosure
 	}

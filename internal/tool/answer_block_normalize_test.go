@@ -559,6 +559,15 @@ func TestNormalizeEmitAnswerBlock_AllFieldsPropagate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("scope disclosure normalize failed: %v", err)
 	}
+	traceGot, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+		ID:                      "trace-summary",
+		Kind:                    string(types.BlockSummary),
+		Text:                    "bounded candidate",
+		TraceCausalClaimCaliber: string(types.TraceCausalClaimBoundedWindow),
+	}, "blocks[3]")
+	if err != nil {
+		t.Fatalf("trace causal caliber normalize failed: %v", err)
+	}
 	// Per-field lock: every emitAnswerBlockV2 input field must surface
 	// a corresponding non-zero typed field. When a new field is added
 	// to emitAnswerBlockV2, fixturise it above AND extend this map.
@@ -580,6 +589,9 @@ func TestNormalizeEmitAnswerBlock_AllFieldsPropagate(t *testing.T) {
 		},
 		"CurrentStatusVerdict": func() bool {
 			return decisionGot.CurrentStatusVerdict == types.CurrentStatusFixed
+		},
+		"TraceCausalClaimCaliber": func() bool {
+			return traceGot.TraceCausalClaimCaliber == types.TraceCausalClaimBoundedWindow
 		},
 		"ScopeDisclosure": func() bool {
 			return scopeGot.ScopeDisclosure == types.ScopeDisclosureInactiveScopeNamed

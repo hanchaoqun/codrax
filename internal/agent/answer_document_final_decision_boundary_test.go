@@ -65,6 +65,10 @@ func TestFinalTraceDecisionBoundaryFollowsGenericGuidanceAndKeepsModelOwnership(
 	for _, want := range []string{
 		"## Final Trace Decision Boundary (Typed Facts; Model-Owned Conclusion)",
 		"You own the diagnosis, prioritization, optimization direction, and wording",
+		"principal_trace_summary_contract",
+		"`trace_causal_claim_caliber`",
+		"`no_causal_conclusion|bounded_window_candidate`",
+		"No conclusion is inferred from prose or written for you",
 		"causal_conclusion=`unproven`",
 		"frame_evidence_status=`absent`",
 		"target_direct_blocking_authority=`unavailable_without_typed_target`",

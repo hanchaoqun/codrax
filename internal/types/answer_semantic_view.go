@@ -114,6 +114,12 @@ type AnswerSemanticView struct {
 	// synonyms such as "per item" vs "item-level".
 	ErrorGranularityProfile *ErrorGranularityProfile
 
+	// TraceCausalClaimContract is a dynamic, evidence-bound answer carrier
+	// contract for full Trace causal reports. It is absent for narrow status or
+	// bounded-fact queries and for traces without publication-grade causal rows.
+	// The model declares the caliber; validators only enforce the typed ceiling.
+	TraceCausalClaimContract *TraceCausalClaimContract
+
 	// MissingRequestedRoles carries the subset of user-requested
 	// precedence roles that the current grounded config-precedence
 	// surface still shows as absent for the exact target. This is a

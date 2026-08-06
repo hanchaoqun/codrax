@@ -105,6 +105,18 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 		}
 		blk.CurrentStatusVerdict = verdict
 	}
+	if raw.TraceCausalClaimCaliber != "" {
+		caliber, ok := types.NormalizeTraceCausalClaimCaliber(raw.TraceCausalClaimCaliber)
+		if !ok {
+			return types.AnswerBlock{}, fmt.Errorf("%s: trace_causal_claim_caliber=%q is not valid",
+				fieldPath, raw.TraceCausalClaimCaliber)
+		}
+		if kind != types.BlockSummary {
+			return types.AnswerBlock{}, fmt.Errorf("%s: trace_causal_claim_caliber is only valid on kind=summary blocks",
+				fieldPath)
+		}
+		blk.TraceCausalClaimCaliber = caliber
+	}
 	if raw.ScopeDisclosure != "" {
 		disclosure, ok := types.NormalizeScopeDisclosureKind(raw.ScopeDisclosure)
 		if !ok || disclosure == types.ScopeDisclosureUnknown {
@@ -373,6 +385,7 @@ func nativeDisplayOnlyBlockFragmentText(raw emitAnswerBlockV2) (string, bool) {
 		strings.TrimSpace(raw.Caveat) != "" ||
 		strings.TrimSpace(raw.ErrorGranularityVerdict) != "" ||
 		strings.TrimSpace(raw.CurrentStatusVerdict) != "" ||
+		strings.TrimSpace(raw.TraceCausalClaimCaliber) != "" ||
 		strings.TrimSpace(raw.ScopeDisclosure) != "" ||
 		strings.TrimSpace(raw.SourceInventoryFamily) != "" {
 		return "", false

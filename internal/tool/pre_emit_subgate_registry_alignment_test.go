@@ -177,10 +177,11 @@ func TestPreEmitSubgateRouteTableMatchesCheckerBody(t *testing.T) {
 	}
 }
 
-// Exactly FOUR ForceHard producer sites may exist in the checker file: missing
+// Exactly FIVE ForceHard producer sites may exist in the checker file: missing
 // and extraneous rows against the complete typed principal member set, an
 // invalid exact source_inventory_family key against that same typed row roster,
-// plus the runtime-trace model-principal ownership floor. All are closed-set
+// the runtime-trace model-principal ownership floor, plus the model-authored
+// Trace causal-caliber field against its typed evidence ceiling. All are closed-set
 // comparisons over structured carriers; none reads model prose. Free-prose target-wait consistency remains advisory because
 // interval/duration ownership is not typed in rendered text. Every future hard
 // producer still needs a preEmitSameTurnHardPolicyRows ruling. The call-edge
@@ -209,8 +210,8 @@ func TestPreEmitForceHardProducerSitesPinned(t *testing.T) {
 		}
 		return true
 	})
-	if producers != 4 {
-		t.Fatalf("expected exactly 4 explicit typed ForceHard producer sites in %s, found %d — new hard producers must go through a preEmitSameTurnHardPolicyRows ruling", preEmitCheckerSourceFile, producers)
+	if producers != 5 {
+		t.Fatalf("expected exactly 5 explicit typed ForceHard producer sites in %s, found %d — new hard producers must go through a preEmitSameTurnHardPolicyRows ruling", preEmitCheckerSourceFile, producers)
 	}
 }
 

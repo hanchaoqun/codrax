@@ -3515,6 +3515,7 @@ func cloneAnswerDocumentV2(in *AnswerDocumentV2) *AnswerDocumentV2 {
 				Text:                    b.Text,
 				ErrorGranularityVerdict: b.ErrorGranularityVerdict,
 				CurrentStatusVerdict:    b.CurrentStatusVerdict,
+				TraceCausalClaimCaliber: b.TraceCausalClaimCaliber,
 				ScopeDisclosure:         b.ScopeDisclosure,
 				SourceInventoryFamily:   b.SourceInventoryFamily,
 				SurfaceRole:             b.SurfaceRole,

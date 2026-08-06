@@ -2,6 +2,7 @@ package tool
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -57,6 +58,7 @@ func BuildAnswerDocumentParametersFor(view *types.AnswerSemanticView) json.RawMe
 			projectDiagramField(blockProps, view)
 			projectEdgeAnchorsField(blockProps, view)
 			projectTypedDecisionVerdictFields(blockProps, blockItems, view)
+			projectTraceCausalClaimCaliberField(blockProps, blockItems, view)
 		}
 		projectKindPayloadConditionals(blockItems, view)
 	}
@@ -75,6 +77,47 @@ func BuildAnswerDocumentParametersFor(view *types.AnswerSemanticView) json.RawMe
 		return canonical
 	}
 	return out
+}
+
+func projectTraceCausalClaimCaliberField(blockProps map[string]any, blockItems map[string]any, view *types.AnswerSemanticView) {
+	contract := view.TraceCausalClaimContract
+	if !contract.Active() {
+		delete(blockProps, "trace_causal_claim_caliber")
+		return
+	}
+	node, _ := blockProps["trace_causal_claim_caliber"].(map[string]any)
+	if node == nil {
+		return
+	}
+	enum := make([]string, 0, len(contract.Allowed))
+	for _, caliber := range contract.Allowed {
+		enum = append(enum, string(caliber))
+	}
+	node["enum"] = enum
+	appendPrincipalKindRequiredFieldsConditional(blockItems, string(types.BlockSummary), "trace_causal_claim_caliber")
+}
+
+// appendPrincipalKindRequiredFieldsConditional keeps report-level typed
+// declarations on the principal carrier only. Requiring them on every block
+// of the same kind would make a supporting summary repeat a contract it does
+// not own, increasing schema load and retry risk without adding authority.
+func appendPrincipalKindRequiredFieldsConditional(blockItems map[string]any, kind string, fields ...string) {
+	if blockItems == nil || strings.TrimSpace(kind) == "" || len(fields) == 0 {
+		return
+	}
+	required := append([]string{"id", "kind", "surface_role"}, fields...)
+	conditionals := schemaAllOfEntries(blockItems)
+	conditionals = append(conditionals, map[string]any{
+		"if": map[string]any{
+			"required": []string{"kind", "surface_role"},
+			"properties": map[string]any{
+				"kind":         map[string]any{"const": kind},
+				"surface_role": map[string]any{"const": string(types.SurfacePrincipal)},
+			},
+		},
+		"then": map[string]any{"required": required},
+	})
+	blockItems["allOf"] = conditionals
 }
 
 // projectBlockKindEnum restricts the block.kind enum to the kinds

@@ -376,11 +376,12 @@ type emitFixHint struct {
 type preEmitSameTurnHardSignal string
 
 const (
-	preEmitHardSignalCompletePrincipalMemberSet preEmitSameTurnHardSignal = "complete_principal_member_set"
-	preEmitHardSignalTypedRequiredBlockKind     preEmitSameTurnHardSignal = "typed_required_block_kind"
-	preEmitHardSignalTypedCallEdgeEvidence      preEmitSameTurnHardSignal = "typed_call_edge_evidence"
-	preEmitHardSignalTypedCallChainEndpoints    preEmitSameTurnHardSignal = "typed_call_chain_endpoints"
-	preEmitHardSignalRuntimeTraceModelPrincipal preEmitSameTurnHardSignal = "runtime_trace_model_principal"
+	preEmitHardSignalCompletePrincipalMemberSet   preEmitSameTurnHardSignal = "complete_principal_member_set"
+	preEmitHardSignalTypedRequiredBlockKind       preEmitSameTurnHardSignal = "typed_required_block_kind"
+	preEmitHardSignalTypedCallEdgeEvidence        preEmitSameTurnHardSignal = "typed_call_edge_evidence"
+	preEmitHardSignalTypedCallChainEndpoints      preEmitSameTurnHardSignal = "typed_call_chain_endpoints"
+	preEmitHardSignalRuntimeTraceModelPrincipal   preEmitSameTurnHardSignal = "runtime_trace_model_principal"
+	preEmitHardSignalTypedTraceCausalClaimCaliber preEmitSameTurnHardSignal = "typed_trace_causal_claim_caliber"
 )
 
 type preEmitSameTurnHardPolicyRow struct {
@@ -395,6 +396,7 @@ func preEmitSameTurnHardPolicyRows() []preEmitSameTurnHardPolicyRow {
 		{Kind: types.ViolDiagramCallEdgeUnproven, Signal: preEmitHardSignalTypedCallEdgeEvidence},
 		{Kind: types.ViolCallChainEndpointOmitted, Signal: preEmitHardSignalTypedCallChainEndpoints},
 		{Kind: types.ViolBlockCoverageMissing, Signal: preEmitHardSignalRuntimeTraceModelPrincipal},
+		{Kind: types.ViolAuthorityOverreach, Signal: preEmitHardSignalTypedTraceCausalClaimCaliber},
 	}
 }
 
@@ -452,6 +454,7 @@ func preEmitSubgateRouteTable() []preEmitSubgateRouteRow {
 		{Subgate: "inactive_typed_decision_verdicts", ViolationKind: types.ViolAcceptance},
 		{Subgate: "error_granularity_verdict", ViolationKind: types.ViolAcceptance},
 		{Subgate: "current_status_verdict", ViolationKind: types.ViolCurrentStatusVerdictMissing},
+		{Subgate: "trace_causal_claim_caliber", ViolationKind: types.ViolAuthorityOverreach},
 		// 3. Uncertainty block presence.
 		{Subgate: "uncertainty_block", ViolationKind: types.ViolUncertaintyBlockMissing},
 		// 4. Required facet coverage.
@@ -692,6 +695,9 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 	}
 	if h := preCheckCurrentStatusVerdict(doc, view, pctx); len(h) > 0 {
 		hints = appendPreEmitHints(hints, types.ViolCurrentStatusVerdictMissing, h)
+	}
+	if h := preCheckTraceCausalClaimCaliber(doc, view); len(h) > 0 {
+		hints = appendPreEmitHints(hints, types.ViolAuthorityOverreach, h)
 	}
 
 	// 3. Uncertainty block presence (when contract requires it).
@@ -11122,6 +11128,9 @@ func mergeSummaryBlock(dst *types.AnswerBlock, src types.AnswerBlock) {
 	if dst.SurfaceRole == "" {
 		dst.SurfaceRole = src.SurfaceRole
 	}
+	if dst.TraceCausalClaimCaliber == "" {
+		dst.TraceCausalClaimCaliber = src.TraceCausalClaimCaliber
+	}
 }
 
 func mergeSummaryText(a, b string) string {
@@ -11361,6 +11370,44 @@ func preCheckCurrentStatusVerdict(doc *types.AnswerDocumentV2, view *types.Answe
 			strings.Join(currentStatusVerdictValues(view.CurrentStatusDiagnostic), ", "),
 		Reason: "the typed current-status diagnostic contract requires a canonical decision verdict enum; prose-only wording does not satisfy it.",
 	}}
+}
+
+func preCheckTraceCausalClaimCaliber(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []emitFixHint {
+	if doc == nil || view == nil || !view.TraceCausalClaimContract.Active() {
+		return nil
+	}
+	allowed := make([]string, 0, len(view.TraceCausalClaimContract.Allowed))
+	for _, caliber := range view.TraceCausalClaimContract.Allowed {
+		allowed = append(allowed, string(caliber))
+	}
+	for _, block := range doc.Blocks {
+		if block.Kind != types.BlockSummary || block.SurfaceRole != types.SurfacePrincipal {
+			continue
+		}
+		if view.TraceCausalClaimContract.Allows(block.TraceCausalClaimCaliber) {
+			return nil
+		}
+		return []emitFixHint{traceCausalClaimCaliberHint(
+			fmt.Sprintf("blocks[id=%q].trace_causal_claim_caliber", block.ID),
+			"set the principal Trace summary's `trace_causal_claim_caliber` to one of the typed evidence ceiling values: "+strings.Join(allowed, ", "),
+			"this model-authored field declares the causal strength of the summary; only the typed Trace evidence ceiling is validated, with no prose inference or conclusion replacement",
+		)}
+	}
+	return []emitFixHint{traceCausalClaimCaliberHint(
+		"blocks[kind=summary,surface_role=principal].trace_causal_claim_caliber",
+		"the principal Trace summary must declare `trace_causal_claim_caliber` as one of: "+strings.Join(allowed, ", "),
+		"the active typed Trace causal report needs a model-authored causal-strength declaration; no declaration is derived from prose and no conclusion is supplied on the model's behalf",
+	)}
+}
+
+func traceCausalClaimCaliberHint(field, expected, reason string) emitFixHint {
+	return emitFixHint{
+		Field:         field,
+		ExpectedShape: expected,
+		Reason:        reason,
+		ForceHard:     true,
+		HardSignal:    preEmitHardSignalTypedTraceCausalClaimCaliber,
+	}
 }
 
 func currentStatusVerdictValues(contract *types.CurrentStatusDiagnosticContract) []string {
