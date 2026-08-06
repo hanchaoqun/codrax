@@ -91,7 +91,8 @@ func TestDataTaskPlannerCompatJSON(t *testing.T) {
 		"output_contract",
 		"common data standard libraries",
 		"open(path) is read-only",
-		"print(...) is allowed",
+		"print(...) is debug-only",
+		"Use exactly one final result channel",
 		"json_records(path)",
 		"result.artifact_access",
 		"access catalog",
@@ -2039,7 +2040,7 @@ func TestDataTaskDurableOutputContractSurvivesRejectedActionPlanRepair(t *testin
 	}
 }
 
-func TestDataTaskWorkflowDoesNotReprojectStructurallyCompleteAnswer(t *testing.T) {
+func TestDataTaskWorkflowDoesNotSilenceModelRepairOnStructurallyCompleteAnswer(t *testing.T) {
 	current := dataquery.TaskPlan{
 		OutputContract: dataquery.OutputContract{
 			Format:             dataquery.OutputCSVLine,
@@ -2103,12 +2104,14 @@ func TestDataTaskWorkflowDoesNotReprojectStructurallyCompleteAnswer(t *testing.T
 		t.Fatalf("decision=%+v, want evaluate without a second assemble_answer fallback", decision)
 	}
 	evalDecision := dataTaskEvaluationDecisionWithRepo("", records, current, result, dataquery.Evaluation{Status: dataquery.EvalRepairNode, Reason: "repair older node"}, true, true, 0, DefaultDataTaskMaxRepairRounds)
-	if evalDecision.Action != dataworkflow.EvaluationDecisionReturnAnswer || evalDecision.Status != "complete" {
-		t.Fatalf("evalDecision=%+v, want structurally complete answer returned", evalDecision)
+	if evalDecision.Action != dataworkflow.EvaluationDecisionRepairPlan ||
+		evalDecision.Status != "repair" ||
+		evalDecision.Source != "evaluation_repair_node" {
+		t.Fatalf("evalDecision=%+v, want model repair preserved after structural completion", evalDecision)
 	}
 }
 
-func TestDataTaskEvaluationDecisionUsesCompletionGateForNoisyRepair(t *testing.T) {
+func TestDataTaskEvaluationDecisionPreservesModelRepairAfterStructuralCompletion(t *testing.T) {
 	current := dataquery.TaskPlan{
 		ContinueAfter: true,
 		OutputContract: dataquery.OutputContract{
@@ -2164,10 +2167,10 @@ func TestDataTaskEvaluationDecisionUsesCompletionGateForNoisyRepair(t *testing.T
 		Status: dataquery.EvalRepairNode,
 		Reason: "older workflow node still requests repair",
 	}, true, true, 0, DefaultDataTaskMaxRepairRounds)
-	if decision.Action != dataworkflow.EvaluationDecisionReturnAnswer ||
-		decision.Status != "complete" ||
-		decision.Source != "completion_gate" {
-		t.Fatalf("decision=%+v, want current completion gate to override noisy repair", decision)
+	if decision.Action != dataworkflow.EvaluationDecisionRepairPlan ||
+		decision.Status != "repair" ||
+		decision.Source != "evaluation_repair_node" {
+		t.Fatalf("decision=%+v, want model repair to survive structural completion", decision)
 	}
 }
 
@@ -2260,6 +2263,33 @@ func TestDataTaskFinalAnswerPromotesPreservedStrictJSONHandoff(t *testing.T) {
 	}
 	if answer != `{"ids":["u1","u3"]}` {
 		t.Fatalf("answer=%q, want strict JSON handoff", answer)
+	}
+}
+
+func TestDataTaskTerminalCustomTransformAnswerPreemptsDeferredProjection(t *testing.T) {
+	current := dataquery.TaskPlan{
+		OutputContract: dataquery.OutputContract{Format: dataquery.OutputJSONOnly, ExplanationAllowed: false},
+		Actions: []dataquery.DataAction{{
+			ID:     "extract_active_ids",
+			Kind:   dataquery.DataActionCustomTransform,
+			Script: `result = {"ids": ["u1", "u3"]}`,
+		}},
+	}
+	result := dataquery.Result{
+		Answer:         `{"ids":["u1","u3"]}`,
+		OutputContract: current.OutputContract,
+	}
+	deferred := dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+		ID:   "redundant_projection",
+		Kind: dataquery.DataActionAssembleAnswer,
+	}}}
+	if !dataTaskResultStructurallyCompleteWithRepo("", nil, current, result) {
+		t.Fatal("valid terminal custom-transform answer should satisfy structural completion without a redundant assemble artifact")
+	}
+	records := []dataTaskWorkflowRecord{{Plan: current, Result: &result}}
+	decision := dataTaskPostResultDecisionWithRepo("", records, current, deferred)
+	if decision.Action != dataworkflow.PostResultEvaluate || decision.HasPlan() {
+		t.Fatalf("decision=%+v, want strict direct answer evaluated before deferred projection", decision)
 	}
 }
 
@@ -2909,9 +2939,17 @@ func TestDataTaskPlannerPromptCarriesTypedInitialRequiredPaths(t *testing.T) {
 }
 
 func TestDataTaskPlannerSystemPromptTeachesPreboundHelpersWithoutDuplicateInventory(t *testing.T) {
-	for _, want := range []string{"Script sandbox helpers are prebound globals", "never import/from-import/redefine"} {
+	for _, want := range []string{"Script sandbox helpers are prebound globals", "never import/from-import/redefine", "Use exactly one final result channel", "print(...) is debug-only"} {
 		if !strings.Contains(dataTaskPlannerSystemPrompt, want) {
 			t.Fatalf("planner system prompt missing %q", want)
+		}
+	}
+	if strings.Contains(string(dataTaskPlanTool.Parameters), "The script must call emit_result") {
+		t.Fatal("planner schema still carries the old emit-only instruction that contradicts result=value")
+	}
+	for _, want := range []string{"Use exactly one final result channel", "assign result=value", "print(...) is debug-only"} {
+		if !strings.Contains(string(dataTaskPlanTool.Parameters), want) {
+			t.Fatalf("planner schema missing unified result-channel teaching %q", want)
 		}
 	}
 }

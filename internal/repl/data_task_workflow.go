@@ -583,7 +583,8 @@ func dataTaskResultStructurallyCompleteWithRepo(repoRoot string, records []dataT
 		return false
 	}
 	if !dataworkflow.ResultHasAssembleAnswerArtifact(result) &&
-		!dataworkflow.ResultIsPreservedAnswerHandoffCandidate(current, result, output) {
+		!dataworkflow.ResultIsPreservedAnswerHandoffCandidate(current, result, output) &&
+		!dataworkflow.ResultHasDirectTerminalAnswerAuthority(current, result, output) {
 		return false
 	}
 	if dataTaskResultNeedsOutputProjection(repoRoot, records, current, result) {

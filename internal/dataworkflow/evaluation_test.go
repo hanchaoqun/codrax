@@ -167,6 +167,18 @@ func TestNormalizeEvaluationForWorkflowStatePreservesActionableRepairWhenComplet
 	}
 }
 
+func TestNormalizeEvaluationForWorkflowStatePreservesExplicitContinuationWhenComplete(t *testing.T) {
+	state := completedWorkflowStateForEvaluationTest(nil)
+	eval := NormalizeEvaluationForWorkflowState(state, dataquery.Evaluation{
+		Status:     dataquery.EvalContinueData,
+		Confidence: "high",
+		Reason:     "the structurally valid value does not satisfy the semantic goal",
+	})
+	if eval.Status != dataquery.EvalContinueData || eval.Confidence != "high" {
+		t.Fatalf("eval=%+v, structural completion must not overwrite explicit model continuation", eval)
+	}
+}
+
 func TestNormalizeEvaluationForWorkflowStateStillGatesIncompleteState(t *testing.T) {
 	state := completedWorkflowStateForEvaluationTest([]WorkflowViolation{
 		actionDependencyViolationForEvaluationTest(),
@@ -335,7 +347,7 @@ func TestDecideEvaluationCompleteUsesCompletionFallback(t *testing.T) {
 	}
 }
 
-func TestDecideEvaluationCompletionSatisfiedOverridesNoisyRepair(t *testing.T) {
+func TestDecideEvaluationCompletionSatisfiedDoesNotOverrideModelRepair(t *testing.T) {
 	decision := DecideEvaluation(EvaluationDecisionInput{
 		Evaluation: dataquery.Evaluation{
 			Status: dataquery.EvalRepairNode,
@@ -345,8 +357,8 @@ func TestDecideEvaluationCompletionSatisfiedOverridesNoisyRepair(t *testing.T) {
 		RepairPlannerReady:    true,
 		RepairBudgetAvailable: true,
 	})
-	if decision.Action != EvaluationDecisionReturnAnswer || decision.Status != "complete" || decision.Source != "completion_gate" {
-		t.Fatalf("decision=%#v, want deterministic completion to return answer", decision)
+	if decision.Action != EvaluationDecisionRepairPlan || decision.Status != "repair" || decision.Source != "evaluation_repair_node" {
+		t.Fatalf("decision=%#v, want explicit model repair to survive structural completion", decision)
 	}
 }
 

@@ -259,6 +259,13 @@ func TestResultIsFinalAnswerCandidateAcceptsPromotedJSONOnlyPayloadWithoutLedger
 	if ResultIsFinalAnswerCandidate(plan, result, withLedgerRequirement, plan.OutputContract, dataquery.LedgerSatisfactionFacts{}) {
 		t.Fatalf("promoted payload must not bypass explicitly required contribution ledger")
 	}
+	if !ResultHasDirectTerminalAnswerAuthority(plan, result, plan.OutputContract) {
+		t.Fatalf("terminal custom transform should retain direct answer authority")
+	}
+	plan.ContinueAfter = true
+	if ResultHasDirectTerminalAnswerAuthority(plan, result, plan.OutputContract) {
+		t.Fatalf("explicit intermediate custom transform must not gain terminal answer authority")
+	}
 }
 
 func TestResultIsFinalAnswerCandidatePromotesPreservedStrictAnswerAcrossContinuation(t *testing.T) {

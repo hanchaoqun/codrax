@@ -21833,3 +21833,64 @@ payload 仅为 artifact；既有 `emit_result` 终态与 intermediate contract p
 `internal/repl` 30.870s；代码行数护栏恢复为绿，`git diff --check` 通过。
 
 状态：`EVAL-B196-DATAJSONTERM1=S28-implemented/full-impacted-suites-pass/pending-exact-two-replay`。
+
+### 123.173 B196 r128：S28 被拆批终态篡改遮蔽；结构完成越权覆盖模型判断
+
+在 `4db8aac0e` 构建后严格并行恰好两个异构 case：
+
+- `data_json_strict_ids`：371s，runner/human FAIL，6 次 repair、8 个执行批；
+- `patch_java_typo`：64s，runner/human PASS。
+
+JSON 模型计划的语义和首批值仍然正确：原计划是 `continue_after=false` 的两动作 DAG，先由 custom transform 产出
+`{"ids":["u1","u3"]}`，再由 `assemble_answer` 消费。生产 preflight 因真实的同批依赖而拆分两段，但
+`InitialRankPrefixFallback` / `IntraBatchDependencyPrefixFallback` 无条件把 prefix 与 remainder 的 `ContinueAfter` 都改成 true。
+因此 S28 的终态 child-contract 分支根本没有机会执行，正确 payload 仍只作为 answerless `emitted_payload` 留存；deferred
+`assemble_answer` 又因 stage_not_allowed 被挡住。系统继而把原本 optional 的 rule/decision/contribution/reconcile 路径扩成强制重建，
+最终把 `ids` 漂成 `user_ids` 并失败。确认 `EVAL-B197-SPLITTERM1=P0`：依赖拆批只能改执行次序，不能改原计划的终态意图；
+deferred queue 本身才是后缀存在的 typed continuation authority。
+
+同轮全套回归的旧 fixture 进一步暴露 `EVAL-B198-EVALAUTH1=P0/red-line`：当 `WorkflowStateCompletionSatisfied=true` 时，
+`NormalizeEvaluationForWorkflowState` 会把模型明确返回的 `continue_data` 静默改成 `complete`，`DecideEvaluation` 也会把任何无 typed
+repair locus 的非完成判断覆盖为发布答案。虚拟/测试实证是模型发现值 `0` 不满足“合计 17”并要求继续，系统却因格式与材料合同均完整
+直接发布 `0`。typed complete 只能证明结构上可交付，不能替代模型对用户语义的判断；这是与“系统提供精确信息、模型拥有结论”红线
+直接冲突的确定性问题。
+
+JSON 教学冷读也确认一处可避免心智分叉：tool schema 一面写“脚本必须调用 emit_result/emit”，主 prompt 另一面允许
+`result=value`；`print` 的调试权限与最终通道分散在不同位置。虽然 runner 能无损接收本轮的 `result`，教学应统一为“恰好一个最终通道：
+优先 emit_result(value)，或 result=value；只有完整 canonical envelope 才用 emit(...)；print 仅调试”。
+
+写模式对照精确生成 `Main.java` 单行 `retrun`→`return` patch 计划，零跨文件扩张，确认故障没有侵入 write controller。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b196_json_write_r128_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b196_json_write_r128_20260806_manual_audit.md`。
+
+状态：`EVAL-B196-DATAJSONTERM1=partial/S28-unit-pass/r128-production-fail`；
+`EVAL-B197-SPLITTERM1=P0/confirmed/pending-S29`；
+`EVAL-B198-EVALAUTH1=P0/confirmed/pending-S29`。
+
+### 123.174 S29：拆批终态单源 + evaluator 结论权限 + JSON 单通道教学
+
+S29 将三个同根合同问题合并修复，但保持各自的精确信号边界：
+
+1. dependency/initial-rank prefix split 的 prefix 与 remainder 均保留原始 `plan.ContinueAfter`；deferred queue 独立决定后缀是否继续。
+   原计划明确 `continue_after=true` 时两段仍为 true；原终态计划不会再被系统改写成永久中间态；
+2. 新增 `ResultHasDirectTerminalAnswerAuthority`，仅承认 `continue_after=false`、`PlanMayProduceFinalAnswer=true` 且答案通过有效
+   output contract 的直接终态结果。它只消除第二个完成面强制要求 `assemble_answer` 的自相矛盾；所有 required ledger 仍先经过
+   `ResultIsFinalAnswerCandidate`，不能被直出 JSON 绕过；
+3. typed complete state 不再改写显式 evaluator 的 continue/expand/repair/blocked/clarification 判断；只有 evaluator 自身返回 complete
+   才发布。无结构化模型 tool call 时生成的 conservative fallback 保留独立的 deterministic completion 收敛臂；
+4. plan-level script、action.script schema 与主 prompt 的 JSON 教学统一为一个结果通道规则：优先 `emit_result(value)`，或
+   `result=value`；仅完整 result envelope 使用 `emit(...)`；`print(...)` 只允许调试，不能充当最终结果；
+5. 全部判断只读 typed plan/result/workflow fields，不扫描用户原文、模型 prose 或 JSON 字符串关键词，不新增宽松 repair，也不接管
+   模型的业务结论。Trace runtime、显式时间窗、因果投影、自动补采、根因排序、唤醒链和可消除量未改动。
+
+回归覆盖终态拆批保持 false、显式 continuation 保持 true、终态 custom-transform 直答优先进入 evaluator、required ledger 不绕过、
+模型 continue/repair 不被结构完成覆盖、无工具 fallback 仍能收敛，以及 JSON schema/prompt 旧矛盾词面负 pin。
+
+完整受影响套件通过：`internal/dataquery` 2.743s、`internal/dataworkflow` 0.762s、`internal/repl` 30.900s；
+`git diff --check` 通过。
+
+状态：`EVAL-B197-SPLITTERM1=S29-implemented/full-suites-pass/pending-replay`；
+`EVAL-B198-EVALAUTH1=S29-implemented/full-suites-pass/pending-replay`；
+`EVAL-B196-DATAJSONTERM1=S28+S29/pending-exact-two-replay`；
+`EVAL-B195-PIAUTH1=P1/queued-after-JSON-production-closure`。

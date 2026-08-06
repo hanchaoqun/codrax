@@ -20,11 +20,27 @@ func TestIntraBatchDependencyPrefixFallbackSplitsProducerBeforeConsumer(t *testi
 	if !ok {
 		t.Fatal("fallback ok=false")
 	}
-	if len(prefix.Actions) != 1 || prefix.Actions[0].ID != "extract" || !prefix.ContinueAfter {
+	if len(prefix.Actions) != 1 || prefix.Actions[0].ID != "extract" || prefix.ContinueAfter {
 		t.Fatalf("prefix=%+v", prefix)
 	}
-	if len(remainder.Actions) != 1 || remainder.Actions[0].ID != "derive" || !remainder.ContinueAfter {
+	if len(remainder.Actions) != 1 || remainder.Actions[0].ID != "derive" || remainder.ContinueAfter {
 		t.Fatalf("remainder=%+v", remainder)
+	}
+}
+
+func TestIntraBatchDependencyPrefixFallbackPreservesExplicitContinuation(t *testing.T) {
+	plan := dataquery.TaskPlan{ContinueAfter: true, Actions: []dataquery.DataAction{{
+		ID:             "extract",
+		Kind:           dataquery.DataActionExtractRecords,
+		OutputArtifact: "records.json",
+	}, {
+		ID:         "derive",
+		Kind:       dataquery.DataActionDeriveFields,
+		InputPaths: []string{"records.json"},
+	}}}
+	prefix, remainder, ok := IntraBatchDependencyPrefixFallback(plan)
+	if !ok || !prefix.ContinueAfter || !remainder.ContinueAfter {
+		t.Fatalf("prefix=%+v remainder=%+v ok=%v, want explicit continuation preserved", prefix, remainder, ok)
 	}
 }
 

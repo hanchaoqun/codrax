@@ -195,6 +195,20 @@ func ResultIsPreservedAnswerHandoffCandidate(plan dataquery.TaskPlan, result dat
 	return ResultAnswerSatisfiesOutputContract(result, expected)
 }
 
+// ResultHasDirectTerminalAnswerAuthority identifies a final answer emitted by
+// a plan that is itself terminal and structurally allowed to publish an
+// answer. This is distinct from an answer carried through a non-terminal
+// helper batch: the latter uses ResultIsPreservedAnswerHandoffCandidate.
+// Required-ledger admission remains owned by ResultIsFinalAnswerCandidate;
+// this helper only prevents a second completion face from demanding an
+// assemble_answer artifact after the final-candidate gate already accepted a
+// direct custom_transform/reconcile answer.
+func ResultHasDirectTerminalAnswerAuthority(plan dataquery.TaskPlan, result dataquery.Result, expected dataquery.OutputContract) bool {
+	return !plan.ContinueAfter &&
+		PlanMayProduceFinalAnswer(plan, result) &&
+		ResultAnswerSatisfiesOutputContract(result, expected)
+}
+
 func ResultAnswerSatisfiesOutputContract(result dataquery.Result, expected dataquery.OutputContract) bool {
 	if !ResultAnswerPresent(result) {
 		return false

@@ -29,7 +29,7 @@ func ConservativeEvaluationFromWorkflowState(input ConservativeEvaluationInput) 
 		}
 	}
 	if len(input.Records) == 0 {
-		return NormalizeEvaluationForWorkflowState(input.State, base)
+		return normalizeConservativeEvaluationForWorkflowState(input.State, base)
 	}
 	last := input.Records[len(input.Records)-1]
 	if strings.TrimSpace(last.Err) != "" {
@@ -39,20 +39,26 @@ func ConservativeEvaluationFromWorkflowState(input ConservativeEvaluationInput) 
 			eval.ActionID = action.ID
 			eval.ActionKind = string(action.Kind)
 		}
-		return NormalizeEvaluationForWorkflowState(input.State, eval)
+		return normalizeConservativeEvaluationForWorkflowState(input.State, eval)
 	}
 	if last.Result != nil && len(last.Result.Artifacts) > 0 {
-		return NormalizeEvaluationForWorkflowState(input.State, dataquery.Evaluation{Status: dataquery.EvalContinueTransform, Confidence: "low", Reason: reason})
+		return normalizeConservativeEvaluationForWorkflowState(input.State, dataquery.Evaluation{Status: dataquery.EvalContinueTransform, Confidence: "low", Reason: reason})
 	}
-	return NormalizeEvaluationForWorkflowState(input.State, base)
+	return normalizeConservativeEvaluationForWorkflowState(input.State, base)
 }
 
 func NormalizeEvaluationForWorkflowState(state WorkflowStateView, eval dataquery.Evaluation) dataquery.Evaluation {
 	if WorkflowStateCompletionSatisfied(state) {
-		if EvaluationHasActionableRepairTarget(eval) {
-			return eval
+		// A typed complete state proves only that publication is structurally
+		// admissible. It does not prove that the computed value satisfies the
+		// user's semantic goal. Preserve every explicit non-complete evaluator
+		// decision; otherwise the system can turn a model-found wrong answer
+		// into complete. The no-tool conservative fallback has its own bounded
+		// convergence helper below.
+		if eval.Status == dataquery.EvalComplete {
+			return normalizeCompletedWorkflowEvaluation(eval)
 		}
-		return normalizeCompletedWorkflowEvaluation(eval)
+		return eval
 	}
 	if gated, ok := GateEvaluationWithWorkflowViolations(eval, state.WorkflowViolations); ok {
 		return gated
@@ -68,6 +74,13 @@ func NormalizeEvaluationForWorkflowState(state WorkflowStateView, eval dataquery
 	note := "workflow custom_transform_disabled=true; continue with typed allowed_next_actions [" + strings.Join(allowed, ", ") + "] at next_stage=" + strings.TrimSpace(state.NextStage)
 	eval.Reason = appendEvaluationReason(eval.Reason, note)
 	return eval
+}
+
+func normalizeConservativeEvaluationForWorkflowState(state WorkflowStateView, eval dataquery.Evaluation) dataquery.Evaluation {
+	if WorkflowStateCompletionSatisfied(state) && !EvaluationHasActionableRepairTarget(eval) {
+		return normalizeCompletedWorkflowEvaluation(eval)
+	}
+	return NormalizeEvaluationForWorkflowState(state, eval)
 }
 
 func WorkflowStateCompletionSatisfied(state WorkflowStateView) bool {
@@ -218,10 +231,7 @@ func (d EvaluationDecision) HasPlan() bool {
 
 func DecideEvaluation(input EvaluationDecisionInput) EvaluationDecision {
 	eval := input.Evaluation
-	if input.CompletionSatisfied {
-		if EvaluationHasActionableRepairTarget(eval) {
-			return decideEvaluationRepairNode(input, eval)
-		}
+	if input.CompletionSatisfied && eval.Status == dataquery.EvalComplete {
 		return EvaluationDecision{
 			Action: EvaluationDecisionReturnAnswer,
 			Status: "complete",
