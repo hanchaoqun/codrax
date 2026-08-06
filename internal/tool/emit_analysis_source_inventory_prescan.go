@@ -10,9 +10,7 @@ func enrichSourceInventoryProfileFromAnalyzerPrescan(ctx *types.BusContext, rm *
 	if ctx == nil || ctx.Mutable == nil || rm == nil {
 		return ""
 	}
-	if types.SourceInventoryLaneConflictsWithRoleBinding(*rm) ||
-		types.HasTypedRelationMemberSetShape(*rm) ||
-		types.SourceInventoryLaneConflictsWithRelationFlow(*rm) ||
+	if types.SourceInventoryLaneConflictsWithPrincipalAnswer(*rm) ||
 		rm.HasObservationOnlyRuntimeArtifact() {
 		return ""
 	}

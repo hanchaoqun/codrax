@@ -20281,3 +20281,51 @@ member_set/grouped_count/bucket_count 从完整 members 推导，但 schema `req
 无 value 的 total_count 仍失败。定向 suite 与完整 `go test ./internal/tool -count=1` 全绿（172.190s）。
 
 状态：`EVAL-B179-AGGJSON1=implemented/schema-runtime-single-contract/full-tool-suite-pass`。本批不涉及 Trace 查询、投影、自动补齐或可消除计算，也不改变模型结论所有权。
+
+### 123.122 B180 r98 与 S1：概念架构被误铸为全仓 source inventory，导致 603 秒与近乎无答案
+
+在 `main@9fdfabcf5` 重建后严格并行恰好两个异构 case：
+
+- `real_trace_d4_demand_vs_supply`：168s，runner PASS / human FAIL；
+- `qf_architecture`：603s，runner FAIL / human FAIL。
+
+Trace 的显式 114.940ms 窗、目标四态账、四跳唤醒链、根因排序、实际时间占用/现规则可消双轴及完整「Trace 因果投影」全部保留。S2 的统一
+`overlapping_members` authority 也已在 finalizer 前真实出现：#1/#2 member ref、23.994/19.041ms、95.156ms 实测包络重叠、
+`members_independent=false`、`addition=forbidden`、`max_member_only_no_subtotal` 和 comparison=23.994ms 均在同一 typed 行。模型不再发布
+43.035ms 总量，却仍用 `23.994 + 19.041 > 10.331` 支撑“这三条修向合计覆盖主导方向”。因此
+`EVAL-B178-TRACEREVIEW1` 仍是 P1：精确上下文已完整，剩余问题是模型没有遵从关系。继续增加提示或 JSON 抄写只会增加心智；下一方案只能是由模型读取 typed authority 与自己的
+结构化 AnswerDocument 做一次有界关系复核，模型自己决定并修订。不得扫描最终 prose 的“合计/独立/数字公式”作 deterministic hard gate，不得由系统代写、删除或替换模型结论。
+
+architecture 暴露 `EVAL-B180-ARCHLENS1=P0/confirmed`。analysis skill 与 analyzer prompt 已明确规定：概念 stage/phase/component 的职责、流转、diagram 是 mechanism member-set，
+即使代码用 enum/type/constant 表示也不是 source inventory。模型仍发射高置信 `source_inventory_profile(type,constant)`；而 deterministic normalizer 只会撤销 runtime、relation-flow、
+typed-relation、registry/binding 冲突，没有复用已经存在的 `IsArchitectureNarrativeExplanation` 边界。于是该 profile 获得 principal completion authority，把局部 pipeline 问题扩大成
+全仓 236 个 type + 261 个 constant 的 census。完整日志实测 20 次 source_inventory、13 次 completion、23 次 midloop、37 个 explorer iteration、两次 explorer dispatch、
+一次 history prune 与 603s；模型反复指出“已完整读取三个权威文件、其余全仓声明无关”，系统仍要求分页。这是精确 typed 路由自相矛盾导致的系统性无答案/极慢风险，不是模型波动。
+
+S1 采用语言无关的 typed 根修：
+
+1. `SourceInventoryLaneConflictsWithPrincipalAnswer` 新增 architecture narrative 边界，直接复用既有 `IsArchitectureNarrativeExplanation`；只读 intent/scenario/predicates/
+   question kind/diagram/subtopics/typed obligations，不读取原始请求、模型 prose、rationale 或语言关键词；
+2. `emit_analysis` 在持久化前撤销这类误发 profile；prescan enrich 与缺省 synthesis 共用同一 principal-answer conflict，不会随后白铸回来；defensive completion boundary 同时将
+   陈腐/旧载体降为 support-only，禁止重新获得 navigation/completion authority；
+3. canonical JSON schema 的 `source_inventory_profile` 描述补齐同一负边界，明确概念 stages/phases/steps/modes/actors/components 不得发 profile，减少模型在“代码里是 enum”与
+   “答案是机制成员”之间的心智分叉；
+4. 真正 `intent=enumerate/question_kind=enumeration` 的结构声明 inventory 保持 principal，不放宽其穷举、分页或完备性门。
+
+定向测试覆盖 typed architecture 漂移、completion/navigation/authority 三面降级、emit 路径真实撤销、schema 教学 pin 及真实 source declaration inventory 不回归；完整
+`go test ./internal/types ./internal/tool -count=1` 全绿（types 22.984s、tool 172.351s）。此修复不扫描关键词，
+不放宽 source inventory 真案，也不触碰 Trace 的显式窗、因果投影、自动补齐、根因排序、唤醒链、可消除量或模型结论所有权。
+
+r98 architecture 最终实际上生成了答案，runner 的 analyze 角色 regex 未接受“全面分析”，含一项 oracle 假阴性；但人工不能因此签绿：答案误称 `preStages` 注册
+multi-repo selector，Mermaid 又把两个可同时触发的 log/perf pre-stage 画成互斥分支。先记录
+`EVAL-B180-PRESTAGETOPO1=P2/model-context-witness`，待去掉 603s 系统干扰后复放；单次模型误读不以 case-specific 词表或 deterministic 图重写过拟合。
+
+本批 JSON 运行没有 malformed payload、blocks-string recovery 或 finalizer reject；所以它验证了 schema 教学没有新增冲突，但不能据此宣称所有畸形 JSON 降级闭环。现有原则保持：
+只做可证明无损的结构修复；不能无损恢复时保留可提取的模型字符串并明确披露模型输出异常，绝不把空白页伪装成正常答案。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b179_trace_arch_replay_r98_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b179_trace_arch_replay_r98_20260806_manual_audit.md`。
+
+状态：`EVAL-B180-ARCHLENS1=implemented/full-impacted-suites-pass/pending-replay`；
+`EVAL-B178-TRACEREVIEW1=precise-authority-proven/model-review-design-pending`；
+`EVAL-B180-PRESTAGETOPO1=P2/pending-clean-replay`。

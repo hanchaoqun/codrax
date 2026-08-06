@@ -142,7 +142,24 @@ func HasTypedRelationMemberSetShape(rm RequestModel) bool {
 func SourceInventoryLaneConflictsWithPrincipalAnswer(rm RequestModel) bool {
 	return SourceInventoryLaneConflictsWithRoleBinding(rm) ||
 		SourceInventoryLaneConflictsWithRelationFlow(rm) ||
-		HasTypedRelationMemberSetShape(rm)
+		HasTypedRelationMemberSetShape(rm) ||
+		SourceInventoryLaneConflictsWithArchitectureNarrative(rm)
+}
+
+// SourceInventoryLaneConflictsWithArchitectureNarrative reports whether a
+// source-inventory profile would incorrectly turn an architecture/mechanism
+// explanation into a repository-wide declaration census.
+//
+// The analyzer can legitimately mark an architecture answer as a category
+// enumeration with per-member rows because the user wants each conceptual
+// stage/component explained. Those rows are bounded by the mechanism itself;
+// source declarations are supporting evidence, not the principal universe.
+// Requiring every source type/constant in that shape causes unrelated paging
+// debt and can exhaust the run before an answer is emitted. Reuse the shared
+// typed architecture-narrative boundary so this remains language-neutral and
+// never depends on request/model prose.
+func SourceInventoryLaneConflictsWithArchitectureNarrative(rm RequestModel) bool {
+	return IsArchitectureNarrativeExplanation(rm)
 }
 
 // SourceInventoryProfileConflictsWithRelationFlow reports whether an analyzer

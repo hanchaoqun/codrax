@@ -2181,6 +2181,57 @@ func TestArchitectureNarrativeExplanation_TypedBoundary(t *testing.T) {
 	}
 }
 
+func TestArchitectureNarrativeExplanation_DemotesIncidentalSourceInventory(t *testing.T) {
+	rm := RequestModel{
+		Intent:        IntentExplain,
+		Scenario:      ScenarioArchitectureExplain,
+		PredicateAxis: AxisDefine,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+			HasPerMemberTable:     true,
+		},
+		AnalyzerHints: AnalyzerHints{
+			Kind:     string(ReqMechanism),
+			Entities: []string{"PipelineStage", "StageBinding", "Orchestrator"},
+		},
+		DiagramHint: &DiagramHint{Kind: DiagramArchitecture},
+		SubTopics: []SubTopic{
+			{Summary: "stage membership"},
+			{Summary: "stage responsibilities"},
+			{Summary: "stage handoffs"},
+		},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType, AnswerCandidateRoleConstant},
+			RequestedFields:   []SourceInventoryRequestedField{SourceInventoryFieldName, SourceInventoryFieldSummary, SourceInventoryFieldLocation},
+			SourceQuotes:      []string{"stages"},
+			Confidence:        0.88,
+		},
+	}
+	if !IsArchitectureNarrativeExplanation(rm) {
+		t.Fatal("typed architecture decomposition should remain a narrative even when the analyzer drifts into source_inventory")
+	}
+	if !SourceInventoryLaneConflictsWithArchitectureNarrative(rm) {
+		t.Fatal("conceptual architecture members must not become a repository declaration census")
+	}
+	if !SourceInventoryCompletionIsSupportOnly(rm) {
+		t.Fatal("defensive completion boundary must demote an incidental architecture source inventory")
+	}
+	if SourceInventoryPrincipalNavigationActive(rm) || SourceInventoryPrincipalAuthorityActive(rm) {
+		t.Fatal("incidental architecture source inventory must own neither navigation nor completion")
+	}
+
+	structural := rm
+	structural.Intent = IntentEnumerate
+	structural.Scenario = ScenarioGeneric
+	structural.AnalyzerHints.Kind = string(ReqEnumeration)
+	structural.DiagramHint = nil
+	structural.SubTopics = nil
+	if SourceInventoryLaneConflictsWithArchitectureNarrative(structural) {
+		t.Fatal("a genuine source declaration inventory must remain principal")
+	}
+}
+
 func TestArchitectureInventoryShape_TypedBoundary(t *testing.T) {
 	rm := RequestModel{
 		Intent:   IntentEnumerate,

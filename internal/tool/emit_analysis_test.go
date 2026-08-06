@@ -8239,6 +8239,110 @@ func TestEmitAnalysis_Execute_DropsSourceInventoryForRelationFlow(t *testing.T) 
 	}
 }
 
+func TestDropSourceInventoryProfileForArchitectureNarrative(t *testing.T) {
+	rm := types.RequestModel{
+		Intent:        types.IntentExplain,
+		Scenario:      types.ScenarioArchitectureExplain,
+		PredicateAxis: types.AxisDefine,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+			HasPerMemberTable:     true,
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			Kind:     string(types.ReqMechanism),
+			Entities: []string{"PipelineStage", "StageBinding", "Orchestrator"},
+		},
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramArchitecture},
+		SubTopics: []types.SubTopic{
+			{Summary: "stage membership"},
+			{Summary: "stage responsibilities"},
+		},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType, types.AnswerCandidateRoleConstant},
+			RequestedFields:   []types.SourceInventoryRequestedField{types.SourceInventoryFieldName, types.SourceInventoryFieldSummary},
+			Confidence:        0.88,
+		},
+	}
+	dropped, warning := dropSourceInventoryProfileForTypedRelation(&rm)
+	if !dropped || rm.SourceInventoryProfile != nil {
+		t.Fatalf("architecture narrative source inventory was not dropped: dropped=%v profile=%+v", dropped, rm.SourceInventoryProfile)
+	}
+	if !strings.Contains(warning, "architecture/mechanism narrative") {
+		t.Fatalf("warning=%q, want typed architecture rationale", warning)
+	}
+}
+
+func TestEmitAnalysis_Execute_DropsSourceInventoryForArchitectureNarrative(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	payload := `{
+		"intent":"explain",
+		"scenario":"architecture_explain",
+		"complexity":"moderate",
+		"keywords":["pipeline","stage","architecture"],
+		"entities":["PipelineStage","StageBinding","Orchestrator"],
+		"question_kind":"mechanism",
+		"intent_confidence":0.95,
+		"complexity_confidence":0.85,
+		"kind_confidence":0.9,
+		"predicate_axis":"define",
+		"predicates":{
+			"is_scalar_answer":false,
+			"is_role_locate_lookup":false,
+			"is_count_question":false,
+			"is_cross_component":false,
+			"is_relational_lookup":false,
+			"is_category_enumeration":true,
+			"is_history_lookup":false,
+			"is_diagnostic_question":false,
+			"has_per_member_table":true
+		},
+		"diagnostic_profile":{"is_diagnostic":false,"current_risk":false,"historical_regression":false,"current_version_check":false,"confidence":0.9},
+		"diagram_hint":{"kind":"architecture","required":false},
+		"sub_topics":[{"summary":"stage membership"},{"summary":"stage responsibilities"}],
+		"source_inventory_profile":{
+			"is_source_inventory":true,
+			"target_roles":["type","constant"],
+			"requested_fields":["name","summary","location"],
+			"source_quotes":["pipeline stages"],
+			"confidence":0.88
+		}
+	}`
+	mu := types.NewMutableState("describe the pipeline stages and architecture")
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("architecture analysis should succeed after deterministic demotion: %s", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.SourceInventoryProfile != nil {
+		t.Fatalf("incidental architecture source inventory survived emit path: %+v", rm)
+	}
+	if strings.Contains(res.Summary, "source_inventory=") {
+		t.Fatalf("normalized summary must not advertise a principal source inventory lane: %s", res.Summary)
+	}
+}
+
+func TestEmitAnalysisSchema_SourceInventoryExcludesConceptualArchitectureMembers(t *testing.T) {
+	var schema map[string]any
+	if err := json.Unmarshal((&EmitAnalysis{}).Parameters(), &schema); err != nil {
+		t.Fatalf("decode emit_analysis schema: %v", err)
+	}
+	properties, _ := schema["properties"].(map[string]any)
+	profile, _ := properties["source_inventory_profile"].(map[string]any)
+	description, _ := profile["description"].(string)
+	for _, want := range []string{"conceptual stages", "architecture/mechanism", "supporting evidence"} {
+		if !strings.Contains(description, want) {
+			t.Fatalf("source_inventory_profile schema description missing %q: %q", want, description)
+		}
+	}
+}
+
 func TestEmitAnalysis_Execute_NormalizesSourceInventoryConstructRoleAliases(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

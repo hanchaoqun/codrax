@@ -3,6 +3,7 @@ package types
 func sourceInventoryCompletionSupportBoundary(rm RequestModel) bool {
 	return SourceInventoryProfileCompletionIsSupportOnly(rm.SourceInventoryProfile) ||
 		SourceInventoryProfileConflictsWithRoleBinding(rm) ||
+		SourceInventoryLaneConflictsWithArchitectureNarrative(rm) ||
 		sourceInventoryFiniteExactScalarLookupIsSupportOnly(rm)
 }
 

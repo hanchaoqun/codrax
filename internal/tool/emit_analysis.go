@@ -602,7 +602,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"source_inventory_profile": map[string]any{
 				"type":        "object",
-				"description": "Optional typed source-inventory intent. Emit when the current request asks for bounded structural source members such as public functions, public types, constants, enum-like types, fields, or methods under a path/package/file scope. This is the user's requested membership shape, not evidence. Do not emit this for runtime artifact identifiers such as trace/log inode, dev, entry_name, pid, timestamp, line, event, span, thread, or trace-local file-like labels; keep those in external_observation_policy / runtime artifact lanes. Downstream may use parser/repo-map facts to recover missing members, but it must keep model summaries as enrichment.",
+				"description": "Optional typed source-inventory intent. Emit when the current request asks for bounded structural source members such as public functions, public types, constants, enum-like types, fields, or methods under a path/package/file scope. This is the user's requested membership shape, not evidence. Do not emit it for conceptual stages, phases, steps, modes, actors, or components in an architecture/mechanism explanation even when code represents them as enums, types, or constants; those members are bounded by the mechanism and source declarations are supporting evidence. Do not emit this for runtime artifact identifiers such as trace/log inode, dev, entry_name, pid, timestamp, line, event, span, thread, or trace-local file-like labels; keep those in external_observation_policy / runtime artifact lanes. Downstream may use parser/repo-map facts to recover missing members, but it must keep model summaries as enrichment.",
 				"properties": map[string]any{
 					"is_source_inventory": map[string]any{"type": "boolean", "description": "True only when the answer's principal payload is a bounded inventory of source-code members."},
 					"target_roles":        map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": answerCandidateRoleValues()}, "description": "Principal source-member roles requested by the user, such as function, method, type, constant, variable, or field. This carries the requested answer shape and accepts the full role enum; the source-inventory navigation lens later enumerates members for the structural-carrier subset of these roles."},
@@ -2274,13 +2274,7 @@ func synthesizeSourceInventoryProfileForTypedEnumeration(ctx *types.BusContext, 
 	if !types.IsTypedSourceEnumerationShape(*rm) {
 		return ""
 	}
-	if types.SourceInventoryLaneConflictsWithRoleBinding(*rm) {
-		return ""
-	}
-	if types.HasTypedRelationMemberSetShape(*rm) {
-		return ""
-	}
-	if types.SourceInventoryLaneConflictsWithRelationFlow(*rm) {
+	if types.SourceInventoryLaneConflictsWithPrincipalAnswer(*rm) {
 		return ""
 	}
 	if emitAnalysisObservationOnlyRuntimeArtifactForSourceInventoryGuards(ctx, *rm) {
@@ -3442,6 +3436,10 @@ func dropSourceInventoryProfileForTypedRelation(rm *types.RequestModel) (bool, s
 	if types.SourceInventoryProfileConflictsWithRoleBinding(*rm) {
 		rm.SourceInventoryProfile = nil
 		return true, "source_inventory_profile ignored because the typed request is a registry/binding member-set answer; source_inventory may orient navigation, but binding membership must be proven by registration evidence and structured member_set handoff"
+	}
+	if types.SourceInventoryLaneConflictsWithArchitectureNarrative(*rm) {
+		rm.SourceInventoryProfile = nil
+		return true, "source_inventory_profile ignored because the typed request is an architecture/mechanism narrative; conceptual stages/components are bounded by the mechanism and source declarations remain supporting evidence"
 	}
 	return false, ""
 }
