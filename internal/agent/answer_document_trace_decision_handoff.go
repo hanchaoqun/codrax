@@ -160,6 +160,7 @@ func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCau
 
 		seats := traceDecisionEliminableSeats(projection, 8)
 		if len(seats) > 0 {
+			traceDecisionWriteEliminableOverlapRelations(&b, seats)
 			b.WriteString("- axis_B_existing_rule_eliminable (ordered typed seats; cross_row_additivity=`not_authorized_without_exact_pair_carrier`):\n")
 			for _, node := range seats {
 				fmt.Fprintf(&b, "  - rank=#%d; subject=`%s`; kind=`%s`; effective_attribution=%.3fms",
@@ -179,7 +180,6 @@ func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCau
 				traceDecisionWriteNodeRelations(&b, node)
 				b.WriteString("\n")
 			}
-			traceDecisionWriteEliminableOverlapRelations(&b, seats)
 		}
 		contextRows := traceDecisionNonCausalContextRows(projection, 6)
 		if len(contextRows) > 0 {
@@ -228,6 +228,9 @@ func traceDecisionWriteEliminableOverlapRelations(b *strings.Builder, seats []ty
 		direction   string
 		lane        string
 		overlapMS   float64
+		leftMS      float64
+		rightMS     float64
+		maxMS       float64
 	}
 	var relations []relation
 	for i := 0; i < len(seats) && len(relations) < limit; i++ {
@@ -256,16 +259,20 @@ func traceDecisionWriteEliminableOverlapRelations(b *strings.Builder, seats []ty
 			relations = append(relations, relation{
 				left: leftID, right: rightID, direction: direction,
 				lane: lane, overlapMS: overlapMS,
+				leftMS: left.EffectiveImpactMS, rightMS: right.EffectiveImpactMS,
+				maxMS: math.Max(left.EffectiveImpactMS, right.EffectiveImpactMS),
 			})
 		}
 	}
 	if len(relations) == 0 {
 		return
 	}
-	b.WriteString("  - axis_B_typed_overlap_relations (exact arithmetic boundaries for the seats above; these constrain addition only and do not choose the diagnosis):\n")
+	b.WriteString("- axis_B_safe_aggregation_groups (read these compact typed arithmetic groups before the detailed seats; they constrain arithmetic only and do not choose the diagnosis):\n")
 	for _, relation := range relations {
-		fmt.Fprintf(b, "    - member_refs=`%s,%s`; fix_direction=`%s`; chain_lane=`%s`; physical_relation=`overlap`; measured_envelope_overlap=%.3fms; addition=`forbidden`\n",
-			relation.left, relation.right, relation.direction, relation.lane, relation.overlapMS)
+		fmt.Fprintf(b, "  - member_refs=`%s,%s`; member_values=`%s:%.3fms,%s:%.3fms`; fix_direction=`%s`; chain_lane=`%s`; physical_relation=`overlap`; measured_envelope_overlap=%.3fms; members_independent=`false`; addition=`forbidden`; aggregation=`max_member_only_no_subtotal`; comparison_value=%.3fms. Preserve both member values, but when summarizing or comparing this group use comparison_value; never publish their sum as a total or eliminable amount.\n",
+			relation.left, relation.right,
+			relation.left, relation.leftMS, relation.right, relation.rightMS,
+			relation.direction, relation.lane, relation.overlapMS, relation.maxMS)
 	}
 }
 

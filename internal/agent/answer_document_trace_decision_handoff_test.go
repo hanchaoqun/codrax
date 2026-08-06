@@ -156,13 +156,18 @@ func TestTraceDecisionHandoffCarriesExactOverlapBeforeModelConclusion(t *testing
 		runtimeTraceGuidanceView{},
 	)
 	for _, want := range []string{
-		"axis_B_typed_overlap_relations",
+		"axis_B_safe_aggregation_groups",
 		"member_refs=`rank-1,rank-2`",
+		"member_values=`rank-1:23.994ms,rank-2:19.041ms`",
 		"fix_direction=`lock_priority`",
 		"chain_lane=`on_chain`",
 		"physical_relation=`overlap`",
 		"measured_envelope_overlap=90.000ms",
+		"members_independent=`false`",
 		"addition=`forbidden`",
+		"aggregation=`max_member_only_no_subtotal`",
+		"comparison_value=23.994ms",
+		"never publish their sum as a total or eliminable amount",
 		"do not choose the diagnosis",
 	} {
 		if !strings.Contains(got, want) {
@@ -172,7 +177,10 @@ func TestTraceDecisionHandoffCarriesExactOverlapBeforeModelConclusion(t *testing
 	if strings.Contains(got, "member_refs=`rank-1,rank-3`") || strings.Contains(got, "member_refs=`rank-2,rank-3`") {
 		t.Fatalf("cross-direction pair must not add prompt noise:\n%s", got)
 	}
-	overlapSection := got[strings.Index(got, "axis_B_typed_overlap_relations"):]
+	if strings.Index(got, "axis_B_safe_aggregation_groups") > strings.Index(got, "axis_B_existing_rule_eliminable") {
+		t.Fatalf("safe aggregation group must precede the detailed seats:\n%s", got)
+	}
+	overlapSection := got[strings.Index(got, "axis_B_safe_aggregation_groups"):strings.Index(got, "axis_B_existing_rule_eliminable")]
 	if strings.Contains(overlapSection, "rank-4") || strings.Contains(overlapSection, "rank-5") {
 		t.Fatalf("disjoint or cross-lane pair must not mint an overlap relation:\n%s", got)
 	}

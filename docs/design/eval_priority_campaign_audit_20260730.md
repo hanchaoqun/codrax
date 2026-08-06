@@ -20147,3 +20147,32 @@ merged fail-closed。完整 `go test ./internal/types ./internal/agent ./interna
 
 JSON 教学复核状态不变：native `blocks[]/citations[]` array 的唯一 shape 教学、schema 类型与无损 blocks-string recovery 已一致；本批不追加第二份同义 JSON 指令。不能无损恢复时仍走
 已有降级答案/原始可见字符串提取并披露模型输出异常，系统不得伪装成正常结构化答案。
+
+### 123.117 B178 r96 与 S2：精确 pair 在场仍被忽略，改为前置安全聚合组
+
+在 `main@73f95f869` 重建后严格并行恰好两个异构 case：
+
+- `data_json_strict_ids`：59s，runner/human PASS；
+- `real_trace_d4_demand_vs_supply`：193s，runner PASS / human FAIL。
+
+JSON 案最终严格只输出 `{"ids":["u1","u3"]}`，无 malformed JSON、blocks-string recovery 或 finalizer reject。唯一 data-plan repair 是首稿把 `instructions.md` 声明为
+`script_consumed`，custom script 却只读取 `users.json`；typed material guard 要求补 `read_text('instructions.md')` 后一次闭环。这不是 JSON 教学矛盾，也未丢答案；不从说明 prose 猜测并擅自改成
+`planner_distilled`，先按一次模型计划遵从修正留观。
+
+Trace 的显式窗、114.940ms 状态账、四跳 wakeup path、根因排序、实际占时/现规则可消除双轴和完整因果投影全部保留，0 finalizer reject。但正文仍写
+“#1 + #2 共计 43.035ms”，并把 #2 描述为“与 #1 方向相同但独立”。日志亲证 S1 的 pre-final pair 已存在：两席 `physical_relation=overlap`、实测包络重叠
+95.156ms、`addition=forbidden`。后置节继续正确显示“2席·成员区间重叠，合计不可直加”。因此 S1 的精确信号正确但呈现 ROI 不足：pair 放在八条详细 seat 后，仅给 ID 与关系，模型仍需回看
+两行取值、自行选择安全聚合形；通用教学与具体 pair 的组合没有真正降低心智。
+
+`EVAL-B178-TRACEGROUP1` 作为 S2 落地：同一个 bounded overlap 编译器改为在详细 seat roster **之前**输出
+`axis_B_safe_aggregation_groups`。每个有权 pair 同行给出 exact member refs、两成员 effective values、fix direction、chain lane、overlap ms、
+`members_independent=false`、`addition=forbidden`、`aggregation=max_member_only_no_subtotal` 与 `comparison_value=max(member)`；并明确保留两成员值，但做方向摘要/比较时只用 comparison value，
+不得把成员和发布成 total/eliminable amount。这里的 max 是 deterministic projection 节头既有“最大可消”转录，不是系统新造根因或总收益。
+
+S2 仍是 prompt-only soft decision context：不要求模型复制 relation JSON，不进入 hard validator，不扫描或修改模型正文，不替模型选结论。跨方向、跨车道、不相交、无/merged 包络继续零输出。
+agent 完整 suite 全绿（2.563s）；types/tool 的共享 overlap 判据与后置投影代码未再改，沿用 S1 全量绿结果。
+
+状态：`EVAL-B177-TRACEADD1=partial/precise-signal-proven`；`EVAL-B178-TRACEGROUP1=implemented/agent-suite-pass/pending-replay`。工件：
+`eval/parallel_selected_summary_evalcampaign_b178_trace_json_replay_r96_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b178_trace_json_replay_r96_20260806_manual_audit.md`。下一步提交推送后重建，再用恰好两个异构 case 验证；若模型在高显著性安全组下仍违背 exact relation，
+只允许考虑 typed structured self-declaration/soft quality review，仍禁止基于最终 prose 关键词或数字公式建立硬门，禁止系统代写。
