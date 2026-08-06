@@ -62,6 +62,46 @@ func repairAnswerBlockAnnotationShape(blkObj map[string]json.RawMessage) ([]stri
 	return paths, len(paths) > 0
 }
 
+// answerDocumentHasUnresolvedClaimUsePluralFacetIDs reports whether the
+// answer-document-specific compatibility pass deliberately left a nested
+// claim_uses[].facet_ids key unresolved. A one-element array is repaired to
+// facet_id before this check; anything that remains is ambiguous or conflicts
+// with an already supplied canonical value and must reach strict decoding
+// unchanged. This prevents a later generic spelling normalizer from renaming
+// the key while retaining an incompatible array value.
+func answerDocumentHasUnresolvedClaimUsePluralFacetIDs(raw json.RawMessage, blockFields ...string) bool {
+	var root map[string]json.RawMessage
+	if json.Unmarshal(raw, &root) != nil {
+		return false
+	}
+	for _, blockField := range blockFields {
+		var blocks []json.RawMessage
+		if json.Unmarshal(root[blockField], &blocks) != nil {
+			continue
+		}
+		for _, rawBlock := range blocks {
+			var block map[string]json.RawMessage
+			if json.Unmarshal(rawBlock, &block) != nil {
+				continue
+			}
+			var uses []json.RawMessage
+			if json.Unmarshal(block["claim_uses"], &uses) != nil {
+				continue
+			}
+			for _, rawUse := range uses {
+				var use map[string]json.RawMessage
+				if json.Unmarshal(rawUse, &use) != nil {
+					continue
+				}
+				if _, unresolved := use["facet_ids"]; unresolved {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 func repairAnnotationObjectArray(obj map[string]json.RawMessage, field string, aliases []jsonFieldAlias, enumNormalizers []jsonEnumFieldNormalizer) ([]string, bool) {
 	rawField, ok := obj[field]
 	if !ok {

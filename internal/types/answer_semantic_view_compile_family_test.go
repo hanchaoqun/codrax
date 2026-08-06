@@ -820,6 +820,44 @@ func TestCompileArchitecture_HasSectionRequiredAndDiagramOptionalByDefault(t *te
 	}
 }
 
+func TestCompileArchitecture_RelationTeachingIncludesWorkflowAndGuardForms(t *testing.T) {
+	view := BuildAnswerSemanticView(irForArchitecture(), nil)
+	var section *BlockRequirement
+	for i := range view.RequiredBlocks {
+		if view.RequiredBlocks[i].Kind == BlockSection {
+			section = &view.RequiredBlocks[i]
+			break
+		}
+	}
+	if section == nil {
+		t.Fatal("architecture required section missing")
+	}
+	for _, want := range []ClaimForm{ClaimGuardCondition, ClaimPrecedenceRole} {
+		if !containsClaimForm(section.AcceptableClaimForms, want) {
+			t.Fatalf("architecture section relation teaching missing %q: %+v", want, section.AcceptableClaimForms)
+		}
+	}
+
+	template := familyTemplate(QFArchitecture, irForArchitecture().RequestModel)
+	for _, facet := range []AnswerFacetKind{FacetComponentRelation, FacetDiagramSpine} {
+		found := false
+		for _, req := range template {
+			if req.Kind != facet {
+				continue
+			}
+			found = true
+			for _, want := range []ClaimForm{ClaimGuardCondition, ClaimPrecedenceRole} {
+				if !containsClaimForm(req.AcceptableForms, want) {
+					t.Fatalf("architecture facet %q missing %q: %+v", facet, want, req.AcceptableForms)
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("architecture facet %q missing", facet)
+		}
+	}
+}
+
 func TestCompileArchitecture_UserDiagramContractRequiresDiagram(t *testing.T) {
 	view := BuildAnswerSemanticView(irForArchitecture(), planRequiringDiagram())
 	hasDiagram := false

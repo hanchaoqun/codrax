@@ -57,6 +57,51 @@ func TestEmitAnswerDocumentSchema_CandidateRoleEnumMatchesTypes(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentSchema_ClaimAndDiagramEnumsMatchTypes(t *testing.T) {
+	_, blockProps := answerDocumentProjectedBlockSchema(t, (&EmitAnswerDocument{}).Parameters())
+
+	claimUses := blockProps["claim_uses"].(map[string]any)
+	claimItem := claimUses["items"].(map[string]any)
+	claimProps := claimItem["properties"].(map[string]any)
+	claimEnum := claimProps["claim_form"].(map[string]any)["enum"].([]any)
+	wantClaims := types.AllClaimForms()
+	if len(claimEnum) != len(wantClaims) {
+		t.Fatalf("claim_form enum len=%d want=%d (%v)", len(claimEnum), len(wantClaims), claimEnum)
+	}
+	for i, form := range wantClaims {
+		if claimEnum[i] != string(form) {
+			t.Fatalf("claim_form enum[%d]=%v want %q (full=%v)", i, claimEnum[i], form, claimEnum)
+		}
+	}
+
+	edgeAnchors := blockProps["edge_anchors"].(map[string]any)
+	edgeItem := edgeAnchors["items"].(map[string]any)
+	edgeProps := edgeItem["properties"].(map[string]any)
+	relationEnum := edgeProps["relation_kind"].(map[string]any)["enum"].([]any)
+	wantRelations := types.AllDiagramRelationKinds()
+	if len(relationEnum) != len(wantRelations) {
+		t.Fatalf("relation_kind enum len=%d want=%d (%v)", len(relationEnum), len(wantRelations), relationEnum)
+	}
+	wantEdgeClaims := make([]string, 0, len(wantRelations)-1)
+	for i, relation := range wantRelations {
+		if relationEnum[i] != string(relation) {
+			t.Fatalf("relation_kind enum[%d]=%v want %q (full=%v)", i, relationEnum[i], relation, relationEnum)
+		}
+		if form := types.ClaimFormForRelation(relation); form != types.ClaimUnknown {
+			wantEdgeClaims = append(wantEdgeClaims, string(form))
+		}
+	}
+	edgeClaimEnum := edgeProps["claim_form"].(map[string]any)["enum"].([]any)
+	if len(edgeClaimEnum) != len(wantEdgeClaims) {
+		t.Fatalf("edge claim_form enum len=%d want=%d (%v)", len(edgeClaimEnum), len(wantEdgeClaims), edgeClaimEnum)
+	}
+	for i, form := range wantEdgeClaims {
+		if edgeClaimEnum[i] != form {
+			t.Fatalf("edge claim_form enum[%d]=%v want %q (full=%v)", i, edgeClaimEnum[i], form, edgeClaimEnum)
+		}
+	}
+}
+
 func TestBuildAnswerDocumentParametersFor_ProjectsSourceInventoryIdentityOnlyWhenAvailable(t *testing.T) {
 	assertFields := func(t *testing.T, view *types.AnswerSemanticView, want bool) {
 		t.Helper()

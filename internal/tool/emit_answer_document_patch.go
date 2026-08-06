@@ -181,11 +181,23 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	// replace_caveats / replace_snippets / unchanged_block_ids /
 	// remove_block_ids all get the same Path A/C recovery without
 	// forcing an LLM retry round-trip.
-	params = applyStructuredPayloadCompatWithLegacyStringFieldRepair(t.Name(), params, t.Parameters(), "replace_exact_resolution")
+	// Repair exact nested aliases before generic schema normalization; see the
+	// full-emit path for why this ordering preserves the single-value
+	// claim_uses[].facet_ids compatibility lane without accepting ambiguity.
 	if repaired, paths, ok := repairNestedArraysInPatch(params); ok {
 		logging.Warning("[emit_answer_document_patch] nested block fields normalized via local-model JSON tolerance: %s",
 			strings.Join(paths, ", "))
 		params = repaired
+	}
+	if !answerDocumentHasUnresolvedClaimUsePluralFacetIDs(params, "replace_blocks", "add_blocks") {
+		params = applyStructuredPayloadCompatWithLegacyStringFieldRepair(t.Name(), params, t.Parameters(), "replace_exact_resolution")
+		// The generic pass can turn top-level singleton replace/add block
+		// objects into arrays, making their nested fields reachable only now.
+		if repaired, paths, ok := repairNestedArraysInPatch(params); ok {
+			logging.Warning("[emit_answer_document_patch] nested block fields normalized after top-level JSON tolerance: %s",
+				strings.Join(paths, ", "))
+			params = repaired
+		}
 	}
 	if repaired, paths, ok := quarantineUnknownAnswerDocumentFields(params, answerDocumentPatchQuarantineProfile); ok {
 		logging.Warning("[emit_answer_document_patch] quarantined schema-unknown answer-document patch field(s) without retry: %s",

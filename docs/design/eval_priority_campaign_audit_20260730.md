@@ -20176,3 +20176,56 @@ agent 完整 suite 全绿（2.563s）；types/tool 的共享 overlap 判据与�
 `eval/parallel_selected_summary_evalcampaign_b178_trace_json_replay_r96_20260806.md`、
 `eval/parallel_selected_summary_evalcampaign_b178_trace_json_replay_r96_20260806_manual_audit.md`。下一步提交推送后重建，再用恰好两个异构 case 验证；若模型在高显著性安全组下仍违背 exact relation，
 只允许考虑 typed structured self-declaration/soft quality review，仍禁止基于最终 prose 关键词或数字公式建立硬门，禁止系统代写。
+
+### 123.118 B178 r97：精确安全聚合组仍被忽略；architecture 图表 JSON/语义教学存在冲突
+
+在 `main@8ea823bd1` 重建后严格并行恰好两个异构 case：
+
+- `qf_architecture`：137s，runner/human PASS，1 次 finalizer reject + 1 次 patch；
+- `real_trace_d4_demand_vs_supply`：140s，runner PASS / human FAIL，0 次 finalizer reject。
+
+Trace 的显式时间窗、状态账、唤醒路径、根因排序、实际占时/现规则可消除双轴与完整「Trace 因果投影」均保持。S2 的高显著性
+`axis_B_safe_aggregation_groups` 也确实在详细席位之前送达：两个 exact member、23.994/19.041ms、同 `lock_priority`/`on_chain`、包络重叠
+95.156ms、`members_independent=false`、`addition=forbidden`、`aggregation=max_member_only_no_subtotal`、比较值 23.994ms 全部在场。模型仍第三次写
+“二者合计 43.035ms”，并称二者独立。故 `EVAL-B178-TRACEGROUP1` 更新为
+`precise-context-present/model-adherence-failed`：继续增加提示句已无合理 ROI；下一步 `EVAL-B178-TRACEREVIEW1=P1/design-audit` 只评估基于 typed 决策输入与结构化
+AnswerDocument 的有界模型语义复核，让模型自己判断并修订。不得读取用户/模型/最终 prose 的关键词或数字公式作为 deterministic hard gate，不得由系统删除、替换或加冕模型结论。
+
+architecture 最终答案正确说明 7 个阶段、3 个条件前置阶段与 4 个无条件主阶段，并给出职责、权威文件和 Mermaid。唯一 reject 是首稿把阶段先后边声明为
+`relation_kind=call/claim_form=call_edge`；严格 call-edge 证据门正确拒绝，patch 改成 `precedence/precedence_role` 与条件边 `guard/guard_condition` 后通过。但这是可避免的系统诱导：
+同一 prompt 的 Diagram Contract 虽明确说 stage/process/workflow order 用 `precedence`，Required Answer Facets 却把 architecture 的 `component_relation` 与
+`diagram_spine` 可接受证据只列为 import/call/registration；canonical JSON schema 的 `claim_uses` 枚举说明还漏掉代码已合法支持的 `registration_edge`，且
+`edge_anchors[]` 的公开 entry shape 漏写实际支持并被模型使用的 `claim_form`。这使 schema、语义 view 与 validator 形成三套心智。
+
+确定 `EVAL-B178-DIAGRAMTEACH1=P1/confirmed-contract-conflict`。最优修复不放宽 call-edge 硬门：canonical schema 为 `claim_uses[]`、`edge_anchors[]` 提供真实 typed item schema，
+从 `AllClaimForms`/关系映射加结构 pin 防止今后漏枚举；Diagram Contract 用一行单源映射说明 relation-kind 与 claim-form 配对；architecture 的 facet 可接受形补齐 guard 与
+precedence，使“条件触发/流程先后”不再被另一处合同诱导成 call。所有修改只影响模型 JSON/关系选择教学，不扫描任何原始或答案 prose，不改写用户可见结论，也不触碰 Trace 投影与补齐。
+
+`EVAL-B177-QUOTEDEGRADE1` 再获生产 witness：architecture 页脚将 6 次健康 citation quote hydration 显示为“系统降级披露：引用摘录回填 ×6”。仍按 P2 独立处理，不能与本次图表
+hard-reject 根因混批。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b178_trace_arch_replay_r97_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b178_trace_arch_replay_r97_20260806_manual_audit.md`。
+
+### 123.119 B179-S1：图表关系与 JSON schema 单源对齐，保留旧载体无损兼容
+
+`EVAL-B178-DIAGRAMTEACH1` 已实现。canonical `emit_answer_document` schema 现在为 `claim_uses[]` 声明真实 object item shape，并把代码中合法的 12 个 ClaimForm 全部列入
+enum；此前遗漏的 `registration_edge` 已补齐。`edge_anchors[]` 同样公开真实的 `from_node/to_node/relation_kind/claim_form` 四字段、7 个 relation kind 与 6 个 edge-capable
+claim form，不再让模型从散落 prose 猜测隐藏字段。结构测试从 `AllClaimForms()`、`AllDiagramRelationKinds()` 与 `ClaimFormForRelation()` 反向核对 schema，今后增加枚举却漏改模型合同会直接红。
+
+Diagram Contract 把关系选择压成一条 exact pair 表：workflow order=`precedence/precedence_role`、conditional trigger=`guard/guard_condition`、direct invocation=
+`call/call_edge`，并列 import/observe/register；contain 明确无 edge-level claim form。architecture 的 required section 与 `component_relation/diagram_spine` facet 提示同步补齐
+guard/precedence，不再一处教 precedence、另一处只给 call/import/registration。call 仍只允许同向 typed call-site，硬门未放宽。
+
+schema 精确化触发了两个既有兼容时序测试，进一步暴露通用相似字段归一化会抢在 answer-document 专用修复之前，把旧 `claim_uses[].facet_ids:["x"]` 改名但保留 array，制造
+`facet_id:string` 类型错误。现固定顺序为：先运行容器感知、精确、无损的 nested repair；单值 plural carrier 可确定转换，多值或与 canonical 冲突继续原样 fail-closed；再运行通用 schema
+compat；若通用层把顶层 singleton blocks/replace_blocks/add_blocks 扩成数组，则再运行一次精确 nested repair 处理刚变得可达的子字段。存在未决 plural carrier 时跳过通用模糊归一，确保
+严格 decoder 给出原始歧义字段而不是伪造类型错误。这是所有 AnswerDocument/patch 共用的结构方案，不依赖某个语言、case、用户词或模型正文。
+
+验证：新增 schema 枚举闭包、architecture guard/precedence 提示和 Diagram Contract pair pin；既有单值修复、多值拒绝、patch/full singleton carrier 回归均绿；完整
+`go test ./internal/types ./internal/agent ./internal/tool -count=1` 全绿（types 19.403s、agent 2.781s、tool 171.198s）。状态：
+`EVAL-B178-DIAGRAMTEACH1=implemented/full-impacted-suites-pass/pending-replay`。
+
+本批只对齐模型可见 JSON/关系教学及无损兼容顺序；未新增 prose hard gate、未系统改写答案，也未触碰显式时间窗 Trace 因果投影、自动补齐、根因排序、唤醒链、窗内可消除量或双轴判断。
+下一步提交推送后重建，继续恰好两个异构 eval；一席复放 architecture 验证 reject 是否消失，另一席选择非图表 read/write/data 维度，避免只拟合单案。Trace 的
+`TRACEREVIEW1` 先完成现有 semantic-quality 架构审计再施工。

@@ -160,11 +160,29 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		raw = repaired
 		recovery = report
 	}
-	raw = applyStructuredPayloadCompatWithLegacyStringFieldRepair(toolName, raw, (&EmitAnswerDocument{}).Parameters(), "exact_resolution")
+	// Run the answer-document's exact, lossless nested-shape compatibility
+	// before the generic schema normalizer. Once the public schema names inner
+	// fields such as claim_uses[].facet_id, a plural legacy carrier like
+	// facet_ids:["x"] can otherwise be similarity-renamed to facet_id while
+	// retaining its array value, turning an unambiguous repair into a type
+	// error. The local pass knows the container and preserves the existing
+	// one-value-repair / multi-value-fail-closed contract.
 	if repaired, paths, ok := repairNestedAnswerBlockFields(raw); ok {
 		logging.Warning("[emit_answer_document] nested block fields normalized via local-model JSON tolerance (paths: %s)",
 			strings.Join(paths, ", "))
 		raw = repaired
+	}
+	if !answerDocumentHasUnresolvedClaimUsePluralFacetIDs(raw, "blocks") {
+		raw = applyStructuredPayloadCompatWithLegacyStringFieldRepair(toolName, raw, (&EmitAnswerDocument{}).Parameters(), "exact_resolution")
+		// Generic normalization may have lifted a top-level singleton
+		// blocks object into blocks[]. Run the exact nested pass once more
+		// so its newly reachable block fields receive the same lossless
+		// compatibility treatment.
+		if repaired, paths, ok := repairNestedAnswerBlockFields(raw); ok {
+			logging.Warning("[emit_answer_document] nested block fields normalized after top-level JSON tolerance (paths: %s)",
+				strings.Join(paths, ", "))
+			raw = repaired
+		}
 	}
 	if repaired, paths, ok := repairOrphanAnswerBlockAnnotations(raw); ok {
 		logging.Warning("[emit_answer_document] orphan block annotations merged via local-model JSON tolerance (paths: %s)",

@@ -1159,9 +1159,9 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 			{Kind: FacetCurrentCodePath, Required: FacetHardRequired,
 				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimCallEdge}},
 			{Kind: FacetComponentRelation, Required: FacetSoftRequired,
-				AcceptableForms: []ClaimForm{ClaimImportEdge, ClaimCallEdge, ClaimRegistrationEdge}},
+				AcceptableForms: []ClaimForm{ClaimImportEdge, ClaimCallEdge, ClaimRegistrationEdge, ClaimGuardCondition, ClaimPrecedenceRole}},
 			{Kind: FacetDiagramSpine, Required: FacetSoftRequired,
-				AcceptableForms: []ClaimForm{ClaimCallEdge, ClaimImportEdge, ClaimRegistrationEdge}},
+				AcceptableForms: []ClaimForm{ClaimCallEdge, ClaimImportEdge, ClaimRegistrationEdge, ClaimGuardCondition, ClaimPrecedenceRole}},
 			uncertaintyBoundaryFacet(FacetOptional),
 		}, common...)
 	case QFComparison:
