@@ -4160,6 +4160,44 @@ func TestEmitEvidence_SparseGroundedCallStampsQualifiedCallerAndPredicate(t *tes
 	}
 }
 
+func TestEmitEvidence_RustQualifiedCallKeepsExactLineAndTypedEdge(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "src/main.rs", 20,
+		`let files = walker::collect_files(".");`,
+	)
+	ctx.Mutable.SetSearchGraph(&repomap.Graph{FileIndex: map[string]*repomap.FileInfo{
+		"src/main.rs": {
+			RelPath: "src/main.rs", Language: "rust",
+			Symbols: []repomap.Symbol{
+				{Name: "run", Kind: "function", Line: 14, EndLine: 25},
+			},
+			Relations: []repomap.Relation{{
+				Kind: "call", Line: 20,
+				ToEP: repomap.RelationEndpoint{Name: "collect_files"},
+			}},
+		},
+	}})
+	params := json.RawMessage(`{"items":[{"kind":"relationship","subject":"run","predicate":"calls","object":"walker::collect_files","source":"src/main.rs","line_start":20,"summary":"run calls walker::collect_files","anchor_kind":"call","anchor_symbol":"collect_files","snippet":"let files = walker::collect_files(\".\");"}]}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil || !res.Success {
+		t.Fatalf("qualified Rust call should ground, err=%v summary=%s", err, res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("evidence count=%d want 1: %+v", len(got), got)
+	}
+	if got[0].LineStart != 20 || got[0].GroundingStatus != types.GroundingGrounded || got[0].GroundingTier != types.TierLineText {
+		t.Fatalf("exact call line was weakened or relocated: %+v", got[0])
+	}
+	if got[0].Subject != "run" || got[0].Predicate != "calls" || got[0].Object != "walker::collect_files" || got[0].AnchorSymbol != "walker::collect_files" {
+		t.Fatalf("qualified typed edge was not preserved: %+v", got[0])
+	}
+	if strings.Contains(res.Summary, "adjusted to 10") || strings.Contains(res.Summary, "nearest_call") {
+		t.Fatalf("exact line must not enter nearest-call recovery: %s", res.Summary)
+	}
+}
+
 func TestEmitEvidenceNoopDuplicate_DirectedCarrierCorrectionIsAmendment(t *testing.T) {
 	existing := types.EvidenceItem{
 		ID: "old", Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
@@ -5316,6 +5354,8 @@ func TestFindCallRelationAtLineForCandidates_SinglePass(t *testing.T) {
 		{name: "first candidate hits", candidates: []string{"Bar", "X"}, line: 42, wantOK: true, wantTarget: "Bar"},
 		{name: "second candidate hits", candidates: []string{"X", "Baz"}, line: 42, wantOK: true, wantTarget: "Baz"},
 		{name: "qualified candidate matches short", candidates: []string{"pkg.Bar"}, line: 42, wantOK: true, wantTarget: "Bar"},
+		{name: "rust qualified candidate matches short", candidates: []string{"walker::Bar"}, line: 42, wantOK: true, wantTarget: "Bar"},
+		{name: "c pointer candidate matches short", candidates: []string{"svc->Bar"}, line: 42, wantOK: true, wantTarget: "Bar"},
 		{name: "no candidate match does not substitute another call at line", candidates: []string{"Nope"}, line: 42, wantOK: false},
 		{name: "wrong line returns false", candidates: []string{"Bar"}, line: 999, wantOK: false},
 		{name: "empty candidates falls through to anchor=\"\" path", candidates: nil, line: 42, wantOK: true, wantTarget: "Bar"},

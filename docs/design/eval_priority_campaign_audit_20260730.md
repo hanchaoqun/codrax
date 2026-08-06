@@ -22000,3 +22000,53 @@ Analyzer 首次把 `change_impact_profile.target_kind` 写成 schema 不支持�
 
 状态：data JSON 单通道/终态 authority=`covered-live-r131`；write plan→apply→verify/累计验证/micro-patch=`covered-live-r131`；
 本批新增高 ROI gap=`none`。
+
+### 123.179 B200 r132：跨语言限定调用被 grounding 错迁，四次成文失败后丢图
+
+在 `b6b7a07fc` 构建后严格并行恰好两个 Rust 异构 read case：
+
+- `logtri_rust`：80s，runner/human PASS，零 finalizer reject；
+- `sr_rust_cross_module_chain`：214s，runner PASS / human FAIL，4 次 finalizer reject，最终删除可选 diagram。
+
+日志 case 正确识别 `Option::unwrap()` 对 `None` 导致的 panic、`src/config.rs:42:28` 与运行时栈，并明确栈帧未解析到当前仓、需对照对应
+版本源码；没有把外部日志当成当前仓事实，也没有伪造具体配置根因。
+
+源码链 case 已读取三个 Rust 文件，Explorer 也准确看见并发出 `src/main.rs:20` 的
+`subject=run,predicate=calls,object=walker::collect_files,anchor_symbol=collect_files`。但 emit 前 call normalization 把 anchor 规范为
+`walker::collect_files` 后，grounding 公共 `lastDotSegment` 只识别 `.`：第 20 行的 source token 与 repomap leaf `collect_files` 都无法再匹配。
+精确证据遂进入 `nearest_call`，恢复臂又把 legacy `subject=run` 当候选，在第 10 行 `main -> run` 上成功，最终显示
+“you claimed line 20, adjusted to 10”。这不是格式失败，而是系统把正确证据错误降级并改变了调用身份。
+
+下游 call-edge 池因此只有 `main -> run`、`collect_files -> walk`、`run -> index_file`、`index_file -> is_match`，缺少真正的
+`run -> collect_files`。finalizer 第一次还忽略了 typed mechanism anchor 要求的 exact `main`/`walker` label；随后三次 diagram 修复都被缺边硬门
+正确拒绝，最后按诚实降级指引删除图。文字链基本正确，但用户所问跨模块调用链失去图形载体，`is_match` citation 也仍落在较弱定义行，故人工不签绿。
+
+确认 `EVAL-B200-QUALCALL1=P1/system-grounding-gap`。核心硬门没有矛盾：缺 typed 边时拒绝虚构调用是正确的；矛盾来自上游把精确边
+错误搬走。最优修点是跨语言 typed symbol leaf 解析，不是放宽 diagram gate、扫描最终答案、按 Rust case 特判或系统代画。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b200_rust_source_log_r132_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b200_rust_source_log_r132_20260806_manual_audit.md`。
+
+状态：`EVAL-B200-QUALCALL1=P1/confirmed/pending-S31`；Rust log triage=`covered-live-r132`；
+Trace 显式窗/因果投影/自动补齐=`not-touched`。
+
+### 123.180 S31：限定符无关的 typed call identity grounding
+
+S31 在 emit 与 ground 两个 typed symbol 比较边界统一扩展 leaf 语义：
+
+1. `.` 继续覆盖 Java/Go/ArkTS/Cangjie 等 receiver/member；
+2. `::` 覆盖 Rust/C++ namespace/associated call，并兼容 Cangjie 后续同形 surface；
+3. `->` 覆盖 C/C++ pointer receiver；
+4. 比较仍只读取 schema-owned `AnchorSymbol`、`Subject`、`Object`、repomap relation 与已读 source line，不读取用户 request、模型 summary、
+   最终答案或 case 名称；大小写与完整限定 identity 仍保留，只有与 parser leaf 对齐时取末段；
+5. 精确原行先于 recovery。`walker::collect_files` 在第 20 行能由 line syntax 或同一行 relation 直接 Grounded，不能再让 legacy subject
+   把它迁到第 10 行。
+
+回归矩阵固定 Rust namespace、C++ namespace、C pointer、ArkTS member、Cangjie member；另有完整 emit_evidence 生产形测试，确认
+`run -> walker::collect_files`、line=20、grounding=`line_text` 全部保留且不出现 `nearest_call`。调用图证据硬门、typed mechanism anchor 硬门与
+模型答案所有权均未放宽；JSON 教学、strict JSON 降级、Trace 显式时间窗/因果投影/自动补齐也未修改。
+
+完整受影响套件通过：`go test ./internal/tool/... ./internal/agent/...`，其中 tool 165.510s、agent 8.619s；`git diff --check` 通过。
+
+状态：`EVAL-B200-QUALCALL1=S31-implemented/full-affected-suites-pass/pending-exact-two-replay`；
+成文四次重试的直接上游缺边=`fixed-by-construction`；后续 exact-two 回放确认生产接线与 reject 数下降。

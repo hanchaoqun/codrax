@@ -3514,8 +3514,27 @@ func looksLikeCodeIdentifier(tok string, graph *repomap.Graph) bool {
 }
 
 func lastDotSegment(s string) string {
-	if idx := strings.LastIndex(s, "."); idx >= 0 && idx < len(s)-1 {
-		return s[idx+1:]
+	// Call and symbol identities are qualified differently across the
+	// supported languages.  Treat all member/namespace selectors as the same
+	// structural delimiter when comparing a source-surface identity with the
+	// leaf name stored by repomap:
+	//
+	//   Java / Go / ArkTS / Cangjie: receiver.member
+	//   Rust / C++ / Cangjie:        namespace::member
+	//   C / C++:                     receiver->member
+	//
+	// This helper deliberately operates on the typed symbol field only.  It is
+	// not a prose tokenizer and therefore does not broaden any user- or
+	// answer-text hard gate.
+	s = strings.TrimSpace(s)
+	best, width := -1, 0
+	for _, sep := range []string{".", "::", "->"} {
+		if idx := strings.LastIndex(s, sep); idx >= 0 && idx+len(sep) < len(s) && idx > best {
+			best, width = idx, len(sep)
+		}
+	}
+	if best >= 0 {
+		return s[best+width:]
 	}
 	return s
 }

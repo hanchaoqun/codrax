@@ -494,6 +494,69 @@ func TestGroundItem_Tier1CallAcceptsRealCallsiteWithoutGraph(t *testing.T) {
 	}
 }
 
+func TestGroundItem_Tier1CallAcceptsQualifiedTargetsAcrossLanguages(t *testing.T) {
+	tests := []struct {
+		name   string
+		line   string
+		anchor string
+	}{
+		{name: "rust namespace", line: `let files = walker::collect_files(".");`, anchor: "walker::collect_files"},
+		{name: "cpp namespace", line: `auto result = analysis::compiler::Compile(ir);`, anchor: "analysis::compiler::Compile"},
+		{name: "c pointer receiver", line: `result = service->run(request);`, anchor: "service->run"},
+		{name: "arkts member", line: `const result = service.run(request)`, anchor: "service.run"},
+		{name: "cangjie member", line: `let result = clinic.run(request)`, anchor: "clinic.run"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			history := []types.ToolResult{
+				buildGutterReadResult("source.txt", 20, []string{tc.line}, 30),
+			}
+			gc := &Context{LineIndex: buildLineIndex(history, "")}
+			it := &types.EvidenceItem{
+				Kind:         types.EvidenceRelationship,
+				Source:       "source.txt",
+				LineStart:    20,
+				AnchorKind:   types.AnchorCall,
+				AnchorSymbol: tc.anchor,
+				Predicate:    "calls",
+			}
+			GroundItem(it, gc)
+			if it.GroundingStatus != types.GroundingGrounded || it.GroundingTier != types.TierLineText {
+				t.Fatalf("qualified call must remain grounded at its exact source line: status=%q tier=%q line=%d note=%q", it.GroundingStatus, it.GroundingTier, it.LineStart, it.GroundingNote)
+			}
+			if it.LineStart != 20 {
+				t.Fatalf("qualified call drifted from exact line 20 to %d", it.LineStart)
+			}
+		})
+	}
+}
+
+func TestGroundItem_Tier2CallMatchesQualifiedTargetToLeafRelation(t *testing.T) {
+	graph := &repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			"walker.rs": {
+				RelPath: "walker.rs",
+				Relations: []repomap.Relation{{
+					Kind: "call", File: "walker.rs", Line: 20,
+					ToEP: repomap.RelationEndpoint{Name: "collect_files"},
+				}},
+			},
+		},
+	}
+	it := &types.EvidenceItem{
+		Kind:         types.EvidenceRelationship,
+		Source:       "walker.rs",
+		LineStart:    20,
+		AnchorKind:   types.AnchorCall,
+		AnchorSymbol: "walker::collect_files",
+		Predicate:    "calls",
+	}
+	GroundItem(it, &Context{Graph: graph})
+	if it.GroundingStatus != types.GroundingGrounded || it.GroundingTier != types.TierSymbolTable {
+		t.Fatalf("qualified target must match the exact leaf relation: status=%q tier=%q line=%d note=%q", it.GroundingStatus, it.GroundingTier, it.LineStart, it.GroundingNote)
+	}
+}
+
 // TestGroundItem_CallAnchorAcceptsCallExpressionFromLineFeatures
 // pins the architectural fix layer: when tree-sitter has populated
 // FileInfo.LineFeatures with LineFeatureCallExpression at the cited

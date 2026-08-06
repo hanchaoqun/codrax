@@ -3657,8 +3657,14 @@ func qualifiedEvidenceSymbolName(sym *repomap.Symbol) string {
 
 func emitLastDotSegment(s string) string {
 	s = strings.TrimSpace(s)
-	if idx := strings.LastIndex(s, "."); idx >= 0 && idx+1 < len(s) {
-		return s[idx+1:]
+	best, width := -1, 0
+	for _, sep := range []string{".", "::", "->"} {
+		if idx := strings.LastIndex(s, sep); idx >= 0 && idx+len(sep) < len(s) && idx > best {
+			best, width = idx, len(sep)
+		}
+	}
+	if best >= 0 {
+		return s[best+width:]
 	}
 	return s
 }
