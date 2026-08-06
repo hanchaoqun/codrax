@@ -15648,6 +15648,10 @@ func verifiedReadModeStageBindingRows(ctx *types.AgentContext, doc *types.Answer
 	if !answerDocumentCanUseStageBindingAuthority(ctx, doc) {
 		return nil
 	}
+	return verifiedReadModeStageBindingRowsFromCheckout(ctx)
+}
+
+func verifiedReadModeStageBindingRowsFromCheckout(ctx *types.AgentContext) []verifiedStageBindingRow {
 	root := ""
 	if ctx != nil {
 		root = strings.TrimSpace(ctx.RepoRoot)
@@ -15792,9 +15796,13 @@ func answerDocumentHasStageWorkflowRequestedDimension(ctx *types.AgentContext) b
 // lane. This is prompt-only authority: it neither scans nor rewrites the model
 // answer and it does not manufacture caller/callee edges.
 func renderAnswerDocCurrentRunStageLaneAuthority(ctx *types.AgentContext) string {
-	if ctx == nil || (ctx.Mode != "" && ctx.Mode != types.ModeRead) ||
-		!answerDocumentHasStageWorkflowRequestedDimension(ctx) ||
-		!answerDocumentHasPipelineStageAuthoritySource(ctx, nil) {
+	if ctx == nil || (ctx.Mode != "" && ctx.Mode != types.ModeRead) {
+		return ""
+	}
+	requestedWorkflow := answerDocumentHasStageWorkflowRequestedDimension(ctx) &&
+		answerDocumentHasPipelineStageAuthoritySource(ctx, nil)
+	groundedMembership := answerDocumentHasGroundedReadModeMembershipAuthority(ctx)
+	if (!requestedWorkflow && !groundedMembership) || !answerDocumentCheckoutMatchesReadModeStageLaneAuthority(ctx) {
 		return ""
 	}
 	main := types.ReadModeMainStageBindings()
@@ -15819,8 +15827,44 @@ func renderAnswerDocCurrentRunStageLaneAuthority(ctx *types.AgentContext) string
 		fmt.Fprintf(&b, "- conditional_pre_stages=`%s`; these run before `analyze` only when their typed attachment guards fire.\n", strings.Join(names, ", "))
 	}
 	b.WriteString("- A real stage symbol or function definition absent from both lists is cross-mode/background evidence, not a member of the current read path. You may explain it separately when relevant, but do not connect it into the read sequence or stage table without an independently grounded current-read control-flow edge.\n")
+	b.WriteString("- Evidence precedence: a declaration namespace, `AllStages`-style universe, global binding registry, or capability catalog proves existence/availability only. It cannot widen the active membership selected by these narrower mode-specific functions.\n")
 	b.WriteString("- Stage membership and stage order do not prove internal function-to-function calls. Use explicit grounded call edges for those finer mechanism claims.\n\n")
 	return b.String()
+}
+
+func answerDocumentHasGroundedReadModeMembershipAuthority(ctx *types.AgentContext) bool {
+	if ctx == nil {
+		return false
+	}
+	for _, item := range answerDocumentAuthorityEvidencePool(ctx) {
+		if normalizedStageBindingSourcePath(item.Source) != "internal/types/stage_binding.go" ||
+			item.LineStart <= 0 || item.GroundingStatus != types.GroundingGrounded ||
+			item.AnchorKind != types.AnchorDefinition {
+			continue
+		}
+		switch strings.TrimSpace(item.AnchorSymbol) {
+		case "ReadModeMainStageBindings", "ReadModeConditionalPreStageBindings":
+			return true
+		}
+	}
+	return false
+}
+
+func answerDocumentCheckoutMatchesReadModeStageLaneAuthority(ctx *types.AgentContext) bool {
+	if len(verifiedReadModeStageBindingRowsFromCheckout(ctx)) != len(types.ReadModeMainStageBindings()) || ctx == nil {
+		return false
+	}
+	root := strings.TrimSpace(ctx.RepoRoot)
+	if root == "" {
+		return false
+	}
+	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash("internal/types/stage_binding.go")))
+	if err != nil {
+		return false
+	}
+	compact := strings.Join(strings.Fields(string(data)), "")
+	want := "funcReadModeConditionalPreStageBindings()[]StageBinding{stages:=[]PipelineStage{StageLogTriage,StagePerfTriage}"
+	return strings.Contains(compact, want)
 }
 
 func answerDocumentHasPipelineStageAuthoritySource(ctx *types.AgentContext, doc *types.AnswerDocumentV2) bool {

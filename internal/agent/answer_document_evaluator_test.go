@@ -567,6 +567,15 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersSourceInventoryH
 			Predicates: types.SemanticPredicates{
 				IsCategoryEnumeration: true,
 			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRolePackage},
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+				},
+				Confidence: 0.95,
+			},
 		}},
 	}
 
@@ -696,9 +705,9 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersTurnASourceInven
 		"## Repo Lens Candidate Universe Handoff",
 		"scopes: `routes`",
 		"provenance: `repo_lens:tool_query`",
-		"principal_roles: `route`",
-		"row_lanes: principal=1, support=0, audit=0",
-		"member=`GET /v1/users`, role=route, source_class=production, language=typescript, location=`routes/users.ts:42`, coverage_state=observed",
+		"authority_reason_codes: `inactive`",
+		"role `route` (route): count=1 len(members)=1 complete=true",
+		"member=`GET /v1/users` @ `routes/users.ts:42`, language=typescript, coverage_state=observed",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("TurnA source-inventory advisory handoff missing %q:\n%s", want, prompt)
@@ -8056,8 +8065,11 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsStageBindingForRequestedWork
 }
 
 func TestRenderAnswerDocCurrentRunStageLaneAuthoritySeparatesReadAndWriteStages(t *testing.T) {
+	repo := t.TempDir()
+	writeStageBindingFixture(t, repo)
 	ctx := &types.AgentContext{
-		Mode: types.ModeRead,
+		Mode:     types.ModeRead,
+		RepoRoot: repo,
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
 				IsDimensionedAnswer: true,
@@ -8069,7 +8081,8 @@ func TestRenderAnswerDocCurrentRunStageLaneAuthoritySeparatesReadAndWriteStages(
 		}},
 		EvidenceItems: []types.EvidenceItem{{
 			Source: "internal/types/stage_binding.go", LineStart: 1,
-			GroundingStatus: types.GroundingGrounded,
+			GroundingStatus: types.GroundingGrounded, AnchorKind: types.AnchorDefinition,
+			AnchorSymbol: "ReadModeConditionalPreStageBindings",
 		}},
 	}
 	got := renderAnswerDocCurrentRunStageLaneAuthority(ctx)
@@ -8079,6 +8092,8 @@ func TestRenderAnswerDocCurrentRunStageLaneAuthoritySeparatesReadAndWriteStages(
 		"canonical_read_main_sequence=`analyze -> explore -> extract -> finalize`",
 		"conditional_pre_stages=`log_triage, perf_triage`",
 		"cross-mode/background evidence",
+		"declaration namespace",
+		"cannot widen the active membership",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("stage-lane authority missing %q:\n%s", want, got)
@@ -8091,6 +8106,63 @@ func TestRenderAnswerDocCurrentRunStageLaneAuthoritySeparatesReadAndWriteStages(
 	ctx.Mode = types.ModeApply
 	if got := renderAnswerDocCurrentRunStageLaneAuthority(ctx); got != "" {
 		t.Fatalf("read authority must stay inactive in apply mode:\n%s", got)
+	}
+}
+
+func TestRenderAnswerDocCurrentRunStageLaneAuthorityUsesExactGroundedMembershipWithoutOptionalDimension(t *testing.T) {
+	repo := t.TempDir()
+	writeStageBindingFixture(t, repo)
+	ctx := &types.AgentContext{
+		Mode:     types.ModeRead,
+		RepoRoot: repo,
+		EvidenceItems: []types.EvidenceItem{{
+			Source:          "internal/types/stage_binding.go",
+			LineStart:       21,
+			Scope:           types.ScopeLine,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "ReadModeConditionalPreStageBindings",
+			GroundingStatus: types.GroundingGrounded,
+		}},
+	}
+	got := renderAnswerDocCurrentRunStageLaneAuthority(ctx)
+	if !strings.Contains(got, "conditional_pre_stages=`log_triage, perf_triage`") {
+		t.Fatalf("exact grounded membership must activate stage-lane guidance without an optional dimension:\n%s", got)
+	}
+
+	ctx.EvidenceItems[0].AnchorSymbol = "AllStages"
+	if got := renderAnswerDocCurrentRunStageLaneAuthority(ctx); got != "" {
+		t.Fatalf("broad declaration universe alone must not activate Codrax stage authority:\n%s", got)
+	}
+}
+
+func TestRenderAnswerDocCurrentRunStageLaneAuthorityRejectsLookalikeCheckout(t *testing.T) {
+	repo := t.TempDir()
+	writeStageBindingFixture(t, repo)
+	path := filepath.Join(repo, "internal", "types", "stage_binding.go")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = []byte(strings.Replace(string(data),
+		"[]PipelineStage{StageLogTriage, StagePerfTriage}",
+		"[]PipelineStage{StageLogTriage, StagePerfTriage, StageMultiRepoFocus}", 1))
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.AgentContext{
+		Mode:     types.ModeRead,
+		RepoRoot: repo,
+		EvidenceItems: []types.EvidenceItem{{
+			Source:          "internal/types/stage_binding.go",
+			LineStart:       21,
+			Scope:           types.ScopeLine,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "ReadModeConditionalPreStageBindings",
+			GroundingStatus: types.GroundingGrounded,
+		}},
+	}
+	if got := renderAnswerDocCurrentRunStageLaneAuthority(ctx); got != "" {
+		t.Fatalf("lookalike customer checkout must not receive compiled Codrax authority:\n%s", got)
 	}
 }
 
@@ -9810,6 +9882,12 @@ func writeStageBindingFixture(t *testing.T, repo string) {
 		"\t{Stage: StageExplore, Agent: AgentExplorer, Skill: \"explore-skill\"},",
 		"\t{Stage: StageExtract, Agent: AgentExtractor, Skill: \"extract-skill\"},",
 		"\t{Stage: StageFinalize, Agent: AgentFinalizer, Skill: \"answer-document-skill\", Terminal: true},",
+		"}",
+		"",
+		"func ReadModeConditionalPreStageBindings() []StageBinding {",
+		"\tstages := []PipelineStage{StageLogTriage, StagePerfTriage}",
+		"\t_ = stages",
+		"\treturn nil",
 		"}",
 		"",
 	}, "\n")

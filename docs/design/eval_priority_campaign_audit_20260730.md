@@ -20442,3 +20442,52 @@ Cangjie 对照继续准确发布 2/2/8，证明真正 source-inventory principal
 状态：`EVAL-B180-ARCHLENS1=S3-replay-confirmed/completion-loop-closed`；
 `EVAL-B182-SUPPORTPROMOTE1=S4-implemented/targeted-tests-pass/pending-full-suite-and-r102`；
 `EVAL-B180-PRESTAGETOPO1=resolved/r101-model-main-answer-matches-4-plus-2-topology`。
+
+### 123.126 B183 r102：support 权限泄漏关闭；声明全集仍被误当成当前执行拓扑
+
+在 S4 后重建，严格并行恰好两个异构 case：
+
+- `qf_architecture`：124s，runner PASS / human FAIL；
+- `cangjie_repomap`：139s，runner PASS / human PASS。
+
+S4 经真实回放确认关闭：architecture 的 authority ledger 不再出现 `system:source_inventory_principal_row_set`，答案不再附带 AgentName、TransportType、write-mode stage 等无关源码声明，
+finalizer reject 从 r101 的 4 次降为 0。真正的 Cangjie declaration inventory 仍准确发布 2 个 extend、2 个 foreign function、8 个 public class；摘要、正文、路径、符号和
+package 与 typed rowset 一致。由此 `EVAL-B182-SUPPORTPROMOTE1=resolved/r102-replay-confirmed`，同时证明修复没有以 architecture 单案伤害跨语言源码清点。
+
+r102 仍暴露新的语言无关证据优先级 gap：`EVAL-B183-DECLACTIVE1=P1/confirmed`。模型把 `PipelineStage`/`AllStages()`/`builtinStageBindings` 中的广义声明与注册存在，直接解释成
+“当前 read-mode 实际执行成员”，于是把 `StageMultiRepoFocus` 列为第三个 conditional pre-stage，形成 3+4=7。代码的窄执行权威却明确相反：
+`ReadModeConditionalPreStageBindings()` 只返回 `StageLogTriage` 与 `StagePerfTriage`，`internal/orchestrator/topology.go` 的 `preStages` 也只有这两项；
+`StageMultiRepoFocus` 虽是合法声明并有 binding，却不属于当前 read-mode topology。更关键的是，模型已经读取并发出了窄函数证据，但自己提交的 7-member aggregate 仍压过该证据，finalizer 又忠实消费了模型聚合。
+
+这不是再做 source-inventory 系统改写的理由。最优方案冻结为两层软引导：
+
+1. 泛化证据优先级：回答“某模式/路径实际运行哪些成员、顺序、方向”时，声明枚举、全局注册表、能力清单只证明存在；principal membership 必须取自最窄的 mode-specific selector、dispatcher、
+   guard 或实际 control-flow。宽集合与窄执行入口冲突时，以窄入口为当前路径权威，并把宽集合只作能力边界；该规则统一适用于 Go/C/C++/Java/Kotlin/ArkTS/Cangjie/JS/TS/Python/Rust。
+2. Codrax 自说明精确激活：仓库证据已 grounded 到 `ReadModeMainStageBindings`/`ReadModeConditionalPreStageBindings` 的 exact source+symbol，且当前 checkout 的对应实现可验证时，才向模型提供既有
+   read-mode stage authority。不能仅凭文件路径、用户词或模型 prose 激活，防止把 Codrax 内部架构文本污染任意客户仓；只作 prompt guidance，不 hard reject、不扫描最终答案、不替换模型结论。
+
+施工 pin 至少覆盖：窄 grounded membership authority 在没有 optional requested dimension 时仍能触发；仅有 `AllStages`/enum/binding 的宽证据不得触发；非 Codrax checkout、write mode 不触发；
+同一 prompt 明确 declaration/registry existence 不等于 active membership。若 clean replay 后模型仍偶发选错，记为模型波动或进入 model-owned structured relation review 设计，不允许升级成系统答案 normalizer。
+
+S5 已按上述方案实现。共享 explorer/finalizer mechanism directive 增加 active-membership 证据优先级，覆盖所有源码语言，不绑定 stage 名、请求词或答案句式。Codrax 自说明 authority 则增加三重精确条件：
+当前 mode=read；EvidenceItem 必须是 grounded definition，source 精确为 `internal/types/stage_binding.go`，anchor 精确为两个 `ReadMode*StageBindings` 之一；当前 checkout 还必须同时通过四个
+main binding 行和 conditional-pre 函数体的源码核验。optional `stage_or_workflow` 维度仍可激活，但同样必须通过 checkout 核验。宽 `AllStages` 单独在场、lookalike checkout 多出
+MultiRepoFocus、write/apply mode 均有负 pin，防止 Codrax 内部架构上下文污染客户仓。
+
+全量受影响测试首次运行还抓出两条 S4 后的陈腐测试合同：一条没有 typed `SourceInventoryProfile` 却要求 principal rows，另一条明确 `AdvisoryOnly=true` 仍要求 principal rows。生产输出已经诚实显示
+`authority_reason_codes=inactive` 和 advisory role；测试仍要求旧 `principal_roles`。处置没有恢复旧升权行为：真正 inventory 测试补齐 typed profile，AdvisoryOnly 测试改钉 inactive/advisory 形。
+随后完整 agent suite 复绿。完整首轮结果：skill 0.263s、types 19.981s、tool 163.360s；修正陈腐 pin 后 agent 2.996s。
+
+r102 没有 malformed JSON、blocks-string recovery、repair 或成文拒绝。JSON 合同继续遵守：只自动修复可证明无损的结构错误；不可无损时提取可验证的文本块/字符串，并明确披露模型输出异常与降级，
+不以系统生成的“正常答案”遮蔽失败。下一步在 JSON 教学横扫中同步检查示例与 schema/runtime 是否一致，避免系统自身矛盾诱发模型错误，但不通过用户原文或模型原文关键词做硬门。
+
+本批 JSON 横扫复核了 `tool_param_compat`、finalizer preserved-draft/lossy-blocks-string/malformed disclosure，以及 emit schema↔runtime consistency 现有测试面；完整 agent/tool suite 未发现新的确定性
+“同字段既必带又必拒”实例。已确认不可无损的 answer JSON 会使用已保存的 no-tool draft 或 recognizable user-visible strings，并明确输出 malformed/degraded disclosure；这些载体不会被包装成正常结构化答案。
+这只是当前覆盖面的绿灯，不宣称所有 provider 畸形形态穷尽；后续 eval 一旦出现真实 malformed witness，仍按该字节保真边界做专项审计，而不新增模糊字段猜测。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b183_arch_cangjie_clean_r102_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b183_arch_cangjie_clean_r102_20260806_manual_audit.md`。
+
+状态：`EVAL-B182-SUPPORTPROMOTE1=resolved/r102-replay-confirmed`；
+`EVAL-B183-DECLACTIVE1=S5-implemented/full-impacted-suites-pass/pending-r103`；
+`EVAL-B180-PRESTAGETOPO1=reopened/as-declaration-vs-active-membership-class`。
