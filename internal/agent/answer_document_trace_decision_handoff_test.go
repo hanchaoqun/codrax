@@ -77,6 +77,9 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 		"never infer that a CFS dependency preempted an RT consumer after wake",
 		"candidate flag alone proves neither a lock holder/waiter relation nor post-wakeup preemption",
 		"target_state_symptom: subject=`target-100`",
+		"sleep_cause_authority=`not_provided_by_target_state_account`",
+		"zero_d_state_or_iowait_does_not_classify_sleep_reason=`true`",
+		"cannot classify S-sleep as normal frame pacing, lock/condition waiting, IPC, timer/event waiting, or another cause",
 		"selected_window_value_authority:",
 		"copy the typed `target_state_symptom` values above",
 		"Whole-attachment extent, a switch-in after the selected-window end, and pre-triage navigation hypotheses are different calibers",
@@ -107,9 +110,12 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 		"axis_B_existing_rule_eliminable",
 		"rank=#1; subject=`Cookie-150`; kind=`priority_inversion_candidate`; effective_attribution=23.994ms; fix_direction=`lock_priority`",
 		"impact_phase=`pre_wakeup_dependency`",
-		"priority_candidate_scope=`dependency_scheduler_supply`",
+		"candidate_mechanism_authority=`lower_priority_dependency_only`",
+		"synchronous_blocker_authority=`not_provided_by_candidate_seat`",
+		"priority_candidate_scope=`dependency_scheduler_supply_before_downstream_wakeup`",
 		"post_wakeup_preemption_authority=`not_provided_by_this_seat`",
-		"holder_waiter_authority=`not_provided_by_candidate_flag`",
+		"holder_waiter_authority=`not_provided_by_candidate_seat`",
+		"conclusion_caliber=`validation_candidate`",
 		"rank=#2; subject=`target-100`; kind=`running`; effective_attribution=10.331ms; fix_direction=`frequency_thermal`",
 		"source_lane=`deterministic_system_supplement`",
 		"cross_row_additivity=`not_authorized_without_exact_pair_carrier`",
@@ -127,6 +133,47 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 	axisA := got[strings.Index(got, "axis_A_actual_occupancy_candidates"):strings.Index(got, "axis_B_existing_rule_eliminable")]
 	if strings.Contains(axisA, "kind=`priority_inversion_candidate`") {
 		t.Fatalf("priced composite seat leaked into actual-time axis:\n%s", axisA)
+	}
+}
+
+func TestTraceDecisionHandoffKeepsTypedPriorityCandidateCaliberOnProductionShapedRankSeat(t *testing.T) {
+	inside := true
+	projection := types.TraceCausalProjection{
+		RankedSeats: []types.TraceCausalProjectionNode{
+			{
+				EvidenceID: "rank-production", Subject: "CookieMonsterCl-59843",
+				TypeToken: "priority_inversion_candidate", StateKind: "runnable",
+				Rank: 1, EffectiveImpactMS: 23.994, FixDirection: "lock_priority",
+				ChainDepth: 1, WithinRequestedWindow: &inside,
+			},
+			{
+				EvidenceID: "ordinary-runnable", Subject: "ordinary-worker-9",
+				StateKind: "runnable", Rank: 2, EffectiveImpactMS: 3,
+				FixDirection: "lock_priority", ChainDepth: 1, WithinRequestedWindow: &inside,
+			},
+		},
+	}
+	got := renderAnswerDocTraceDecisionHandoffSet(
+		types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}},
+		runtimeTraceGuidanceView{},
+	)
+	for _, want := range []string{
+		"rank=#1; subject=`CookieMonsterCl-59843`; kind=`priority_inversion_candidate`; effective_attribution=23.994ms",
+		"candidate_mechanism_authority=`lower_priority_dependency_only`",
+		"synchronous_blocker_authority=`not_provided_by_candidate_seat`",
+		"holder_waiter_authority=`not_provided_by_candidate_seat`",
+		"conclusion_caliber=`validation_candidate`",
+		"priority_candidate_scope=`dependency_scheduler_supply_before_downstream_wakeup`",
+		"post_wakeup_preemption_authority=`not_provided_by_this_seat`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("production-shaped priority candidate lost local caliber %q:\n%s", want, got)
+		}
+	}
+	ordinary := got[strings.Index(got, "rank=#2; subject=`ordinary-worker-9`"):]
+	if strings.Contains(ordinary, "candidate_mechanism_authority=") ||
+		strings.Contains(ordinary, "holder_waiter_authority=") {
+		t.Fatalf("ordinary runnable lock-priority row was inferred into a typed candidate:\n%s", ordinary)
 	}
 }
 

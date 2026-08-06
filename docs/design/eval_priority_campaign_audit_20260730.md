@@ -21894,3 +21894,55 @@ S29 将三个同根合同问题合并修复，但保持各自的精确信号边�
 `EVAL-B198-EVALAUTH1=S29-implemented/full-suites-pass/pending-replay`；
 `EVAL-B196-DATAJSONTERM1=S28+S29/pending-exact-two-replay`；
 `EVAL-B195-PIAUTH1=P1/queued-after-JSON-production-closure`。
+
+### 123.175 B197 r129：strict JSON 三项生产闭环；候选机理权限连续失守
+
+在 `316d880c2` 构建后严格并行恰好两个异构 read case：
+
+- `data_json_strict_ids`：58s，runner/human PASS；
+- `trace_query_donghu_real_frame_multicausal`：158s，runner PASS / human FAIL。
+
+JSON 终答精确为 `{"ids":["u1","u3"]}`。首轮计划虽声明 instructions.md 为材料，脚本却没有实际读取，精确材料门只触发一次
+repair；模型补读两个输入后正确收敛。没有再次出现正确 payload 被拆批降格、终态 assemble 强制重建、`ids` 漂为 `user_ids`，或
+typed complete 覆盖 evaluator 显式继续判断。因此 `EVAL-B196-DATAJSONTERM1`、`EVAL-B197-SPLITTERM1`、
+`EVAL-B198-EVALAUTH1` 完成生产闭环。JSON 教学保持一个结果通道，repair 来自真实材料消费缺口，不是系统自相矛盾。
+
+Trace 仍保留请求显式窗 `34579.472865..34579.587805`、一次 `frame_root_cause_bundle`、主要时间占用/现规则可消除量双轴、
+根因排序、wakeup chain、Trace 因果投影和确定性自动补齐。系统尾部也正确披露候选不等于已证互斥锁持有者/等待者关系。
+但模型正文仍将两个 `priority_inversion_candidate` 写成“相互抢占、推迟主线程调度、形成嵌套阻塞”，并从目标
+`d_state=0/io_wait=0` 推出 S 态“而非等待锁”。这是未获 typed 关系支持的机理升级。
+
+生产 prompt 冷读定位到确定性上下文损耗：榜首的原始 `root_cause_rank.items[0].type=priority_inversion_candidate` 已进入
+`TraceCausalProjectionNode.TypeToken`，但 decision handoff 的 axis-B 行优先渲染 `StateKind=runnable`，且局部候选权限只由
+`PriorityInversionCandidate` bool 触发；聚合席保留 TypeToken、未保留重复 bool 时，模型实际看到的是普通 runnable 行。
+全局候选说明虽存在，但离 principal seat 较远。target-state 行同样只说“这是症状”，没有就地钉明零 D/io_wait 不能分类 S-sleep 原因。
+连续 r126/r127/r129 三次同类越权后，不再归为单轮模型波动。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b197_json_trace_r129_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b197_json_trace_r129_20260806_manual_audit.md`。
+
+状态：`EVAL-B196-DATAJSONTERM1=production-closed/r129`；
+`EVAL-B197-SPLITTERM1=production-closed/r129`；
+`EVAL-B198-EVALAUTH1=production-closed/r129`；
+`EVAL-B195-PIAUTH1=P1/confirmed/pending-S30`；Trace 显式窗/因果投影/自动补齐=`preserved`。
+
+### 123.176 S30：原因类型与机理权限在决策席位就地闭包
+
+S30 只修改 Finalizer 的 prompt-owned Trace decision handoff，不创建答案块、不触碰投影选举、不检查或替换模型正文：
+
+1. axis-B ranked seat 的显示 kind 优先使用 producer-owned `TypeToken`，让复合可消除席保留
+   `priority_inversion_candidate` / `priority_inversion_runnable_wait`，而 axis-A 真实状态占用仍使用 StateKind；两个维度不混写；
+2. 候选识别只读精确 bool，或精确 TypeToken 两枚已注册枚举。普通 runnable、`fix_direction=lock_priority`、Object、摘要与用户/模型
+   原文均不能触发；因此这是 typed 显示闭包，不是关键词门；
+3. 每个候选 axis-B 行就地携带：仅证明 lower-priority dependency candidate、本席不提供同步 blocker 或 holder/waiter 权限、结论口径为
+   validation candidate；仅对正 chain-depth 的 pre-wakeup 席补充“下游唤醒前供给”及“本席不提供 post-wakeup preemption”权限；
+4. target-state 行就地携带 `sleep_cause_authority=not_provided_by_target_state_account`：零 D-state/io_wait 不能把 S-sleep 分类成正常帧节奏、
+   锁/条件、IPC、timer/event 或其他具体原因；机理需由 typed blocking/wakeup/span/frame relation 提供；
+5. 所有新增信息都是模型推理输入。最终诊断、排序解释和建议仍由模型生成；系统不改写答案，也不新增 hard reject。
+
+回归用生产形节点固定关键缺口：`TypeToken=priority_inversion_candidate + StateKind=runnable + bool=false` 必须在席行保留 cause kind
+及局部权限；同为 runnable、同为 lock_priority 但无 typed candidate token 的普通行不得被推成候选。既有双轴、显式窗、关系载体和
+模型结论所有权 pin 同时通过。
+
+状态：`EVAL-B195-PIAUTH1=S30-implemented/targeted-tests-pass/pending-full-suite-and-exact-two-replay`；
+Trace 因果投影/系统自动补齐/根因选举=`unchanged`；模型正文所有权=`preserved`。

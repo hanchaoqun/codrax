@@ -109,6 +109,7 @@ func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCau
 			fmt.Fprintf(&b, "- target_state_symptom: subject=`%s`; running=%.3fms; runnable=%.3fms; sleep=%.3fms; d_state=%.3fms; io_wait=%.3fms; total=%.3fms; partition_relation=`mutually_exclusive_and_additive_to_total`; partition_addition_authority=`these_five_members_only`. This describes what the target experienced, not the upstream cause or recoverable amount.\n",
 				account.Subject, account.RunningMS, account.RunnableMS, account.SleepMS,
 				account.DStateMS, account.IOWaitMS, account.TotalMS)
+			b.WriteString("  - sleep_cause_authority=`not_provided_by_target_state_account`; zero_d_state_or_iowait_does_not_classify_sleep_reason=`true`. The state partition alone cannot classify S-sleep as normal frame pacing, lock/condition waiting, IPC, timer/event waiting, or another cause; use a typed blocking, wakeup, span, or frame relation before assigning that mechanism.\n")
 			b.WriteString("- selected_window_value_authority: when describing the target's state or duration inside `selected_window`, copy the typed `target_state_symptom` values above. Whole-attachment extent, a switch-in after the selected-window end, and pre-triage navigation hypotheses are different calibers and must not replace this selected-window value. This is reasoning guidance only; you still own the conclusion and wording.\n")
 		}
 		traceDecisionWriteSelfRunnableTwoRulerFacts(&b, projection.SelfRunnableTwoRulerAccountings)
@@ -163,7 +164,7 @@ func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCau
 			b.WriteString("- axis_B_existing_rule_eliminable (ordered typed seats; cross_row_additivity=`not_authorized_without_exact_pair_carrier`):\n")
 			for _, node := range seats {
 				fmt.Fprintf(&b, "  - rank=#%d; subject=`%s`; kind=`%s`; effective_attribution=%.3fms",
-					node.Rank, strings.TrimSpace(node.Subject), traceDecisionNodeKind(node), node.EffectiveImpactMS)
+					node.Rank, strings.TrimSpace(node.Subject), traceDecisionEliminableSeatKind(node), node.EffectiveImpactMS)
 				if relationRef := types.TraceAnswerRelationMemberRef(node); relationRef != "" {
 					fmt.Fprintf(&b, "; relation_member_ref=`%s`", relationRef)
 				}
@@ -176,8 +177,11 @@ func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCau
 				fmt.Fprintf(&b, "; source_lane=`%s`", traceDecisionNodeSourceLane(node))
 				traceDecisionWriteNodeIdentity(&b, node)
 				traceDecisionWritePhase(&b, node)
-				if node.PriorityInversionCandidate && traceDecisionNodePhase(node) == "pre_wakeup_dependency" {
-					b.WriteString("; priority_candidate_scope=`dependency_scheduler_supply`; post_wakeup_preemption_authority=`not_provided_by_this_seat`; holder_waiter_authority=`not_provided_by_candidate_flag`")
+				if traceDecisionNodeIsPriorityInversionCandidate(node) {
+					b.WriteString("; candidate_mechanism_authority=`lower_priority_dependency_only`; synchronous_blocker_authority=`not_provided_by_candidate_seat`; holder_waiter_authority=`not_provided_by_candidate_seat`; conclusion_caliber=`validation_candidate`")
+					if traceDecisionNodePhase(node) == "pre_wakeup_dependency" {
+						b.WriteString("; priority_candidate_scope=`dependency_scheduler_supply_before_downstream_wakeup`; post_wakeup_preemption_authority=`not_provided_by_this_seat`")
+					}
 				}
 				traceDecisionWriteNodeRelations(&b, node)
 				b.WriteString("\n")
@@ -823,6 +827,37 @@ func traceDecisionNodeKind(node types.TraceCausalProjectionNode) string {
 		}
 	}
 	return "runtime_candidate"
+}
+
+// traceDecisionEliminableSeatKind keeps the producer's exact typed cause kind
+// visible on the decision row. StateKind remains useful for occupancy rows,
+// but it is too lossy for a ranked composite seat: a
+// priority_inversion_candidate whose dominant state is runnable must not be
+// presented to the answer model as an ordinary runnable row. This is prompt
+// display only; it does not change admission, ranking, or answer validation.
+func traceDecisionEliminableSeatKind(node types.TraceCausalProjectionNode) string {
+	if kind := strings.TrimSpace(node.TypeToken); kind != "" {
+		return kind
+	}
+	return traceDecisionNodeKind(node)
+}
+
+// traceDecisionNodeIsPriorityInversionCandidate reads only producer-owned
+// typed fields. The bool is the preferred carrier; TypeToken covers ranked
+// aggregate rows whose state-oriented merge retained the exact cause token but
+// not the duplicate display flag. Object, fix-direction and prose are
+// deliberately excluded so an ordinary runnable/lock-priority row cannot be
+// upgraded by inference.
+func traceDecisionNodeIsPriorityInversionCandidate(node types.TraceCausalProjectionNode) bool {
+	if node.PriorityInversionCandidate {
+		return true
+	}
+	switch strings.TrimSpace(node.TypeToken) {
+	case "priority_inversion_candidate", "priority_inversion_runnable_wait":
+		return true
+	default:
+		return false
+	}
 }
 
 func traceDecisionNodeMultiplicity(node types.TraceCausalProjectionNode) (int, float64) {
