@@ -2973,6 +2973,9 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersEquivalentPrinci
 		"internal/agent/analyzer.go:887",
 		"internal/agent/analyzer.go:46",
 		"one of internal/agent/analyzer.go:887, internal/agent/analyzer.go:46",
+		"Anchors are equivalent only for the visible claims they both actually prove",
+		"prefer one grounded proof anchor that carries both the member endpoint and that visible second axis",
+		"a definition-only line is not equivalent for that two-axis row",
 		"Do not churn `citation_ref`",
 	} {
 		if !strings.Contains(prompt, want) {

@@ -21428,3 +21428,57 @@ malformed JSON 有界无损恢复或 answer fallback。无法无损修复的模�
 agent 3.498s、tool 166.738s）。
 
 状态：`EVAL-B189-ROLEAXIS1=S20-implemented/full-impacted-suites-pass/pending-exact-two-replay`。
+
+### 123.159 B189 r121：角色分轴生产闭环；二轴引用教学与 Trace 模型合成仍有残差
+
+在 `0d00adbfe` 构建后严格并行恰好两个异构 case：
+
+- `sr_java_handler_impls`：108s，runner/human FAIL；
+- `trace_query_donghu_real_frame_multicausal`：148s，runner PASS / human FAIL。
+
+Java 证明 S20 生产闭环：analyzer 本轮直接采用 principal `type` 角色，所有 semantic view 均显示
+`required_candidate_roles=0`，最终三行也均为 `candidate_role=type`；没有 role pre-emit advisory，最终不再出现
+“覆盖度可能不充分”的系统 caveat。关系枚举、per-member table、三个实现及三个路径事实均保留。
+
+runner 仍 FAIL 的原因已经换代：模型提交的 citation refs 选择 class definition 行 8/14/10，而同一行还展示
+`/echo`、`/stats`、`/upper`，最终引用不能证明第二轴。系统没有改写这些 refs；d063 的 preservation arm 没有
+越权。代码审计找到一条直接的系统教学矛盾：`Principal Member Obligations` 把 declaration 与
+implementation/proof anchor 统称“equivalent anchors”，并要求不要 churn citation。对纯 member row 该规则成立，
+对 member+attribute row 不成立。该症状已在 r118 Rust 的 impl/selection 条件和本轮 Java route 两种语言/关系形复现，
+升级 `EVAL-B190-CITEAXISGUIDE1=P1/confirmed`。
+
+Trace 对照证明 S20 没有波及 runtime：两次 `trace_query` 都携带同一显式窗
+`34579.472865..34579.587805` 与 pid=59566；Trace 因果投影、确定性补采、根因排序、唤醒链、主要占用与现规则
+可消除量双轴全部在场，零 JSON/成文重试。人工仍判失败：模型在 final typed tail 已明确发布
+`cross_row_addition=not_authorized_without_exact_typed_relation` 与
+`aggregate_absolute_level_authority=not_provided` 后，仍跨席合计 43.035ms/24.5ms，并称 IO 高负载、CPU 中等偏高；
+还把超窗 print range 带入帧标记描述。它们延续 `EVAL-B186-RELSYNTH1/PRESSCAL1`，属于软权限已经精确到达后的
+模型/路由服从问题；按用户红线不扫描正文、不硬拒、不让系统重写模型结论，继续留作异构模型/路由评估。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b189_roleaxis_trace_r121_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b189_roleaxis_trace_r121_20260806_manual_audit.md`。
+
+状态：`EVAL-B189-ROLEAXIS1=production-closed/r121`；
+`EVAL-B190-CITEAXISGUIDE1=P1/confirmed/pending-S21`；
+`EVAL-B186-RELSYNTH1=P1/repeated-model-or-routing-gap/no-prose-gate`；
+`EVAL-B186-PRESSCAL1=P1/repeated-soft-authority-ignored`。
+
+### 123.160 S21：definition 与 relation/proof citation 只在可见 claim 相同时等价
+
+对 `Principal Member Obligations` 的两条同源教学做最小修正：
+
+1. 一个 member 同时有 declaration 与 implementation/proof anchor 时仍只渲染一个 principal row，避免重复成员；
+2. “equivalent” 收窄为二者实际证明的 visible claims 相同。纯 member/name row 仍可选任一 accepted anchor，继续
+   避免无意义 citation churn；
+3. 当同一行还展示 attribute、condition、owner、route、default 或 selection rule 时，指导模型优先选择同时携带
+   member endpoint 与 visible second axis 的 grounded proof anchor；definition-only line 不再被教成该二轴行的等价
+   引用。另一个 anchor 仅作 same-row enrichment；
+4. 这是 finalizer soft guidance，不增加 hard validator，不读取 RawRequest、模型 think/reason 或最终答案，不替模型
+   选 citation，更不修改正文。所有语言与 relation/attribute 表共用，不绑定 Java、Rust、Handler、route 或 fixed。
+
+定向 prompt pin 同时固定“同 claim 才等价”“二轴选择双端 proof”“definition-only 非二轴等价”三句；原
+`Do not churn citation_ref` pin 继续保留，证明没有反向退化成无条件换引用。
+
+完整 `go test ./internal/agent -count=1` 通过（2.786s）。
+
+状态：`EVAL-B190-CITEAXISGUIDE1=S21-implemented/full-agent-suite-pass/pending-exact-two-replay`。
