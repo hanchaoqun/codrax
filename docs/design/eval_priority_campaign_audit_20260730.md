@@ -19702,3 +19702,40 @@ prompt-only `typed_window_aggregate_context`。该修改不扩大 producer 家�
 验证：producer chokepoint lint 与 aggregate handoff 定向测试全绿；修复已独立提交并推送为 `a55cdec18`。
 
 状态：`EVAL-B172-TRACEPRODFAMILY1=implemented/pushed`；Trace 可见投影与模型结论所有权=`unchanged`。
+
+### 123.99 B172 r90：JSON 载体健康，但局部 repair 可无依据扩大校验义务
+
+在 `main@1c3dbe104` 重建后严格并行恰好两个异构 case：
+
+- `data_json_strict_ids`（data/read/strict JSON）：runner PASS / human PASS，127s；
+- `github_issue_gson_lazy_number`（Java write/apply）：runner FAIL / human uncertain，157s。
+
+数据案最终严格输出 `{"ids":["u1","u3"]}`，顺序与内容均正确；全过程没有 strict JSON decode remap、whole-block string recovery、finalizer
+reject 或答案降级，因此本次问题不是畸形 JSON，也不应继续增加 JSON 示例或输出字符串扫描。真正的级联发生在 typed repair 边界：首个
+`custom_transform` 已声明 `users.json` 与 `instructions.md` 为 required material，但脚本只读取前者；admission guard 精确给出
+`required_material_scheduling`。repair 随后正确增加 `read_text('instructions.md')`，却同时在没有新 ledger action、聚合结构或既有合同依据时把
+`decision_records_required` 从 false 提为 true。脚本已经生成正确答案，但新义务要求 `result.rows`，系统拒绝结果、禁用 custom transform，并把简单转换扩成
+derive-rules/extract/filter/contribution/reconcile/assemble 的八轮流程。
+
+该现象确认两个同根实现 gap，冻结为 `EVAL-B172-REPAIRSCOPE1=P1`：
+
+1. `dataTaskRepairViolationFromRecords` 只读取 execution `record.Violations`，没有消费同一 record 已保存的 typed admission
+   `FinalGuard/Guard`；因此 prompt 的 `typed_repair_locus` 会从精确 `required_material_scheduling` 退化为 error-text fallback
+   `terminal_required_material_not_scheduled`。修复应直接投影最新有效 guard 的 code、repairability、action/input 与 hint，不再让文本分类覆盖已经存在的 typed 信号；
+2. repair 计划可以任意把 coverage boolean 从 false 抬成 true，而后续 `mergeDataTaskCoverageContracts` 只做 OR，使一次局部修复永久扩大合同。最优约束是
+   repair obligation monotonicity：既有 true 必须保留；新 true 只有在 repaired action DAG、输出 shape 或 typed policy 的机械归一化能够推出时才接受；纯模型声明不能
+   新增无关决策、规则、贡献、实体解析或 reconcile 义务。repair 若确实新增 `derive_rules`、`compute_contributions`、`resolve_entities`、`reconcile`
+   等动作，现有 action-ledger 映射仍可合法铸造对应义务。
+
+这是一条 plan IR 约束，不读取用户题面、模型思维或最终答案，不替写结果，也不针对 `ids`/某个文件名拟合。它减少 repair 心智和无关 JSON 字段，却保留真正复杂数据任务的
+ledger 完整性。施工 pin 冻结为：typed admission guard 优先于文本 fallback；单 custom-transform repair 的无依据 false→true 被收回；新增 typed ledger action
+仍能机械启用对应合同；既有 true 永不被 repair 删除。
+
+Java 案确认 B172-S1 的产品接线已经生效：`java/direct_main@.` 被 TestSurface 枚举，并在 capability escalation 中真实尝试。当前 macOS 主机没有可用
+JDK，执行器如实返回 `runner_missing`，控制器拒绝行为验证假绿；因此它是“接线通过/环境不可用”，不能冒充行为回放完成，也不构成新的代码修复方向。
+
+批次排序：`B173-S1=REPAIRSCOPE1 typed-locus + obligation-monotonicity`，随后用同一 strict-JSON case 与一条非数据异构 case 做恰好两路复放；Trace
+显式时间窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量、两维根因和模型结论所有权均不在本批改动面。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b172_json_java_replay_r90_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b172_json_java_replay_r90_20260806_manual_audit.md`。
