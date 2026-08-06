@@ -6289,6 +6289,9 @@ func TestPreCheckTraceCausalClaimCaliberUsesTypedPrincipalFieldAndCeiling(t *tes
 		!strings.Contains(hints[0].ExpectedShape, "use `bounded_window_candidate` when the summary names/ranks bounded candidates") {
 		t.Fatalf("Trace caliber retry must distinguish evidence status from the JSON enum: %+v", hints[0])
 	}
+	if strings.Contains(hints[0].ExpectedShape, "add_blocks") {
+		t.Fatalf("an existing principal summary needs a field edit, not an add-block instruction: %+v", hints[0])
+	}
 	doc.Blocks[0].TraceCausalClaimCaliber = types.TraceCausalClaimTypedFrame
 	if hints := preCheckTraceCausalClaimCaliber(doc, view); len(hints) != 1 ||
 		!strings.Contains(hints[0].ExpectedShape, "bounded_window_candidate") {
@@ -6298,8 +6301,25 @@ func TestPreCheckTraceCausalClaimCaliberUsesTypedPrincipalFieldAndCeiling(t *tes
 	if hints := preCheckTraceCausalClaimCaliber(doc, view); len(hints) != 0 {
 		t.Fatalf("model-authored caliber within the typed ceiling must pass: %+v", hints)
 	}
+	doc.Blocks = []types.AnswerBlock{{
+		ID: "lead-section", Kind: types.BlockSection, SurfaceRole: types.SurfacePrincipal, Text: "lead-like prose",
+	}}
+	hints = preCheckTraceCausalClaimCaliber(doc, view)
+	if len(hints) != 1 || !hints[0].ForceHard ||
+		!strings.Contains(hints[0].Field, "missing kind=summary,surface_role=principal") ||
+		!strings.Contains(hints[0].ExpectedShape, "use `add_blocks`") ||
+		!strings.Contains(hints[0].ExpectedShape, "kind: \"summary\"") ||
+		!strings.Contains(hints[0].ExpectedShape, "surface_role: \"principal\"") ||
+		!strings.Contains(hints[0].ExpectedShape, "invalid on every other block kind, including `section`") ||
+		len(hints[0].ExpectedBlockKinds) != 1 || hints[0].ExpectedBlockKinds[0] != types.BlockSummary {
+		t.Fatalf("a missing principal summary needs one explicit add-block repair, got %+v", hints)
+	}
+	repair := emitFixHintsRepair(hints)
+	if repair == nil || repair.Metadata["expected_block_kinds"] != "summary" ||
+		!strings.Contains(repair.Metadata["expected_shapes"], "use `add_blocks`") {
+		t.Fatalf("missing-summary repair metadata must preserve the add-block operation: %+v", repair)
+	}
 	view.TraceCausalClaimContract = nil
-	doc.Blocks[0].TraceCausalClaimCaliber = ""
 	if hints := preCheckTraceCausalClaimCaliber(doc, view); len(hints) != 0 {
 		t.Fatalf("inactive/narrow Trace answer must not inherit a causal carrier obligation: %+v", hints)
 	}

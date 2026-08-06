@@ -137,7 +137,10 @@ func traceCausalClaimCaliberSchemaDescription(contract *types.TraceCausalClaimCo
 		allowed[caliber] = true
 		values = append(values, string(caliber))
 	}
-	parts := []string{"Allowed for this dispatch: " + strings.Join(values, ", ") + "."}
+	parts := []string{
+		"Allowed for this dispatch: " + strings.Join(values, ", ") + ".",
+		TraceCausalClaimPrincipalSummaryShape(contract.Allowed),
+	}
 	if allowed[types.TraceCausalClaimNoConclusion] {
 		parts = append(parts, "Use no_causal_conclusion only when the principal summary makes no cause or candidate attribution.")
 	}

@@ -544,6 +544,9 @@ func TestBuildAnswerDocumentParametersForProjectsTraceCausalClaimCaliberOnlyWhen
 	description, _ := node["description"].(string)
 	for _, want := range []string{
 		"Allowed for this dispatch: no_causal_conclusion, bounded_window_candidate.",
+		"kind: \"summary\"",
+		"surface_role: \"principal\"",
+		"invalid on every other block kind, including `section`",
 		"Use no_causal_conclusion only when the principal summary makes no cause or candidate attribution.",
 		"Use bounded_window_candidate when the summary names or ranks selected-window candidates",
 		"Evidence-status values such as unproven are not enum values for this field.",

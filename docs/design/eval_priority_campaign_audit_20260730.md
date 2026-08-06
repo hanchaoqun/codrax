@@ -21203,3 +21203,29 @@ controller task 只发布当前 replan contract generation。没有读取或比�
 通过（types 19.810s、tool 165.419s、orchestrator 13.697s、agent 4.152s）。
 
 状态：`EVAL-B186-REPLANCONTRACT1=S17b-implemented/full-impacted-suites-pass/pending-replay`。
+
+### 123.150 S18：Trace principal summary 的 JSON 教学、schema 与修复动作收敛为同一对象形状
+
+`EVAL-B186-SUMMARYJSON1` 已按“结构精确信号、模型结论所有权不变”修复：
+
+1. 新增单源 `TraceCausalClaimPrincipalSummaryShape`，统一发布完整对象形状：一个 `blocks[]` 对象必须同时携带
+   `kind="summary"`、`surface_role="principal"`、模型自写的 `text` 与本 dispatch enum 内的
+   `trace_causal_claim_caliber`；同时明确 caliber 在包括 `section` 在内的其他 block kind 上非法；
+2. full/patch 共用的 block semantic contract、dispatch-local 动态 field schema、最后一屏 Trace decision boundary
+   全部复用该函数，不再分别手写“principal summary/lead”自然语言。allowed enum 仍来自当前 typed
+   `TraceCausalClaimContract`，不会广告本 dispatch 已裁掉的值；
+3. pre-emit 精确区分两种失败：principal summary 已存在但 caliber 缺失/越界时，只修该 block 字段；目标 block
+   不存在时，Field 明示 missing block，repair metadata 携带 `expected_block_kinds=summary`，Action 明确要求
+   `add_blocks` 新增完整 summary 对象。不会再诱导模型把字段加到一个 lead-like section 后命中相反 schema；
+4. 修复只检查 block kind、surface role 和 enum，不读取 RawRequest、模型 think、block text 或最终 Markdown；
+   summary 的文本、诊断、排序与优化方向仍由模型给出，系统不转换 section、不复制正文、不铸造结论。
+
+新增 pin 覆盖：四个教学面包含相同 kind/role/非法归属；已有 summary 走 field-edit 且不出现 add-block 指令；仅有
+lead-like section 时走唯一 add-block repair，并把该操作保留到 repair metadata。完整套件
+`go test ./internal/tool ./internal/agent -count=1` 通过（tool 164.510s、agent 2.829s）。
+
+本批不改变 Trace 查询、显式时间窗、因果投影、系统自动补齐、根因排序、唤醒链、窗内可消除量、双轴根因或
+materializer；也没有扩大 malformed JSON 猜测恢复。已有边界保持：可证明无损才修复 carrier；不可无损时保留
+可识别模型字符串并明确披露模型输出异常/降级，不能把系统生成内容伪装成模型答案。
+
+状态：`EVAL-B186-SUMMARYJSON1=S18-implemented/full-impacted-suites-pass/pending-exact-two-replay`。

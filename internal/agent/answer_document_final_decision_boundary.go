@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -54,8 +55,8 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 		for _, caliber := range view.TraceCausalClaimContract.Allowed {
 			allowed = append(allowed, string(caliber))
 		}
-		fmt.Fprintf(&b, "- principal_trace_summary_contract: before drafting the lead, set its `trace_causal_claim_caliber` to one of `%s` and keep the lead/detail wording within that declared scope. This is your causal-strength declaration; it does not choose the cause. No conclusion is inferred from prose or written for you.\n",
-			strings.Join(allowed, "|"))
+		fmt.Fprintf(&b, "- principal_trace_summary_contract: %s Keep the lead/detail wording within the declared `%s` scope. This is your causal-strength declaration; it does not choose the cause. No conclusion is inferred from prose or written for you.\n",
+			tool.TraceCausalClaimPrincipalSummaryShape(view.TraceCausalClaimContract.Allowed), strings.Join(allowed, "|"))
 		b.WriteString(renderTraceCausalClaimCaliberMapping(view.TraceCausalClaimContract))
 	}
 	if authority.CausalUnproven {

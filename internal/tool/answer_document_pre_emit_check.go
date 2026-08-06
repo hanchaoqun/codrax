@@ -12094,19 +12094,20 @@ func preCheckTraceCausalClaimCaliber(doc *types.AnswerDocumentV2, view *types.An
 		)}
 	}
 	return []emitFixHint{traceCausalClaimCaliberHint(
-		"blocks[kind=summary,surface_role=principal].trace_causal_claim_caliber",
-		"the principal Trace summary must declare `trace_causal_claim_caliber` as one of: "+strings.Join(allowed, ", ")+"; `unproven` is an evidence status, not a caliber; use `bounded_window_candidate` when the summary names/ranks bounded candidates and `no_causal_conclusion` only when it makes no cause/candidate attribution",
-		"the active typed Trace causal report needs a model-authored causal-strength declaration; no declaration is derived from prose and no conclusion is supplied on the model's behalf",
+		"blocks[] (missing kind=summary,surface_role=principal block)",
+		"use `add_blocks` to "+TraceCausalClaimPrincipalSummaryShape(view.TraceCausalClaimContract.Allowed)+" `unproven` is an evidence status, not a caliber; use `bounded_window_candidate` when the summary names/ranks bounded candidates and `no_causal_conclusion` only when it makes no cause/candidate attribution",
+		"the target block does not exist, so setting the field on an existing `section` cannot satisfy the Trace summary contract; the lead text and conclusion remain model-authored",
 	)}
 }
 
 func traceCausalClaimCaliberHint(field, expected, reason string) emitFixHint {
 	return emitFixHint{
-		Field:         field,
-		ExpectedShape: expected,
-		Reason:        reason,
-		ForceHard:     true,
-		HardSignal:    preEmitHardSignalTypedTraceCausalClaimCaliber,
+		Field:              field,
+		ExpectedShape:      expected,
+		Reason:             reason,
+		ForceHard:          true,
+		HardSignal:         preEmitHardSignalTypedTraceCausalClaimCaliber,
+		ExpectedBlockKinds: []types.AnswerBlockKind{types.BlockSummary},
 	}
 }
 

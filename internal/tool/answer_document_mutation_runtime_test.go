@@ -2472,6 +2472,16 @@ func TestBuildAnswerDocumentSemanticContractDescription_SharedBetweenTools(t *te
 	if !strings.Contains(body, "projected for THIS dispatch") || !strings.Contains(body, "Required Answer Blocks") {
 		t.Fatalf("shared contract must point the model at the dispatch-scoped JSON recipe:\n%s", body)
 	}
+	for _, want := range []string{
+		"kind: \"summary\"",
+		"surface_role: \"principal\"",
+		"trace_causal_claim_caliber",
+		"invalid on every other block kind, including `section`",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("shared Trace JSON-shape teaching missing %q:\n%s", want, body)
+		}
+	}
 	full := (&EmitAnswerDocument{}).Description()
 	patch := (&EmitAnswerDocumentPatch{}).Description()
 	if !strings.Contains(full, body) {

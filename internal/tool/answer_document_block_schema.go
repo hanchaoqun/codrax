@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -68,7 +69,7 @@ func BuildAnswerDocumentSemanticContractDescription() string {
 		"For source-inventory enumerations only, a block intentionally scoped to one exact `surface_family` from `Principal Enumeration Rows` may copy that key into `source_inventory_family`; omit it for a global or mixed-family block. This is the only hard family-partition carrier: titles and prose are presentation, never family authority. " +
 		"Principal decision blocks may carry `error_granularity_verdict` when the user-section's typed error-granularity contract requires a canonical failure-scope verdict. Allowed values: `per_item_rejection`, `whole_batch_failure`, `partial_success`, `fail_fast`, `collect_errors`, `not_enough_evidence`. Set this field on the decision block itself; do not encode the verdict only in prose. " +
 		"Principal decision blocks may carry `current_status_verdict` when the user-section's typed current-status diagnostic contract requires a bounded status verdict. Allowed values: `still_present`, `fixed`, `not_enough_evidence`. Set this field on the decision block itself; do not encode the verdict only in prose. Use `still_present` when current cited code still exposes the comparable risk, `fixed` when current cited code blocks it, and `not_enough_evidence` only when current evidence cannot decide between those two. These verdicts assess the current checkout; without a separate typed revision/transition witness, `fixed` does not prove which change fixed a historical incident or that the captured build includes the current guard. " +
-		"When the user section exposes a Trace causal-claim contract, the principal summary MUST set `trace_causal_claim_caliber` to one value from its projected enum and keep its own wording within that scope. `no_causal_conclusion` reports observations without choosing a cause; `bounded_window_candidate` names a selected-window candidate/validation direction but not a proven frame cause; `typed_chain_cause` is bounded to a typed causal chain; `typed_frame_cause` requires typed frame/deadline causality. The model chooses the conclusion and this caliber; the system only checks the typed ceiling and never derives it from prose or rewrites the answer. " +
+		"When the user section exposes a Trace causal-claim contract, " + TraceCausalClaimPrincipalSummaryShape(nil) + " Keep its wording within the selected scope. `no_causal_conclusion` reports observations without choosing a cause; `bounded_window_candidate` names a selected-window candidate/validation direction but not a proven frame cause; `typed_chain_cause` is bounded to a typed causal chain; `typed_frame_cause` requires typed frame/deadline causality. You choose the conclusion and this caliber; only the typed ceiling is checked, and neither is derived from prose or rewritten for you. " +
 		"\n\n" +
 		"NON-DECISION PRINCIPAL BLOCKS (the user-section's Required Answer Blocks list flags these as `surface_role=principal`) MUST carry a claim annotation when the user-section contract lists allowed `claim_form` values for that block. Principal `decision` blocks that carry `current_status_verdict` or `error_granularity_verdict` use that typed verdict field as the decision carrier; add `claim_uses[]` only when you have a clear extra evidence-shape annotation. " +
 		"Allowed claim_form values: `definition_fact` (cited line establishes a typed fact: const, struct field, function signature, default value), `call_edge` (caller→callee call site), `guard_condition` (branch / condition gating the answer), `assignment_fact` (config / variable / field assignment), `return_fact` (return statement / function output), `absence_fact` (cited evidence carries Negative scope — search confirmed absent), `precedence_role` (cited evidence carries a layer / override role), `external_observation` (cited evidence is from runtime log / perf trace, not repo source), `import_edge` (module / package import edge), `text_reference_fact` (visible source/config/doc/comment text itself; not definition/call/assignment proof). " +
@@ -84,6 +85,27 @@ func BuildAnswerDocumentSemanticContractDescription() string {
 		"Top-level fields shape / steps / symbols / value / boolean / summary are NOT accepted at runtime — the entire answer payload lives inside blocks[] only. " +
 		"Do not copy a generic cross-scenario JSON example: the tool schema is projected for THIS dispatch and the user section's Required Answer Blocks list is the exact recipe. Emit only the block kinds and conditional fields those two surfaces expose." +
 		buildPreEmitConstraintsSection()
+}
+
+// TraceCausalClaimPrincipalSummaryShape is the single JSON-shape teaching for
+// the Trace causal declaration. The same wording is reused by the tool
+// description, the dispatch-local final boundary, the projected field schema,
+// and missing-block repair so those surfaces cannot disagree about block kind
+// or field ownership. It names structure only and never supplies answer text.
+func TraceCausalClaimPrincipalSummaryShape(allowed []types.TraceCausalClaimCaliber) string {
+	value := "one value from the projected enum"
+	if len(allowed) > 0 {
+		values := make([]string, 0, len(allowed))
+		for _, caliber := range allowed {
+			if caliber != "" {
+				values = append(values, string(caliber))
+			}
+		}
+		if len(values) > 0 {
+			value = "one of: " + strings.Join(values, ", ")
+		}
+	}
+	return fmt.Sprintf("emit one `blocks[]` object shaped `{id: <non-empty id>, kind: \"summary\", surface_role: \"principal\", text: <your model-authored lead>, trace_causal_claim_caliber: <%s>}`. `trace_causal_claim_caliber` is invalid on every other block kind, including `section`; do not add it to a section that merely contains lead-like prose.", value)
 }
 
 // buildPreEmitConstraintsSection assembles the W3 pre-emit
