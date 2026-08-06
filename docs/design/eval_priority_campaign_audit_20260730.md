@@ -20684,3 +20684,24 @@ function/method，4 个 `@Entry` type 均被标为 audit/non_principal_role；�
 
 状态：`EVAL-B184-CLOSUREPART1=S10-implemented/full-tool-suite-pass/pending-r108`；
 `EVAL-B184-CARRIERMETA1=P2/confirmed/pending-replay-and-scaffold-audit`。
+
+### 123.133 B184 r108：S10 clean-path 闭环；JSON 有损恢复正确拒绝，角色总数仍增加模型心智
+
+在 `f5eb70b5e` 构建后严格并行恰好两个跨语言 case：
+
+- `arkts_repomap`：93s，runner PASS / human PASS，finalizer reject=0；
+- `cangjie_repomap`：155s，runner PASS / human PASS，completion reject=1、unavailable tool=1、finalizer reject=1。
+
+ArkTS 首轮调查即以完整的 4 个 `@Entry` type + 2 个 `@Builder` function 关闭，路径、行号、thirdparty 范围与未带 `@Entry` 的 `EntryAbility` 排除均正确；没有新增 forced read、partial closure、finalizer patch 或成文循环。结合 S10 的精确单测，这关闭了 `EVAL-B184-CLOSUREPART1`：实现证明 partial selected-family 会被拦，真实 clean replay 证明完整 family 不受伤害。本轮没有再次随机产生 r106 的 partial 模型选择，但该事实不影响已由可执行回归覆盖的根因闭环。
+
+Cangjie 最终答案同样正确发布 2 个 extend、2 个 foreign func 与 8 个 public class，逐项 package/path/citation 对齐。第一次 closure 失败的精确信号不是 S10，而是模型把 source-inventory 的 structural role `type` 总数 10 复制给 `public class` family，同时只提交 8 个成员。`member_set.value == len(members)` 的 typed 合同正确拒绝；日志随后由模型自己辨认出 10 个 type 中有 2 个 `surface=extend`，修正为 8。模型中间尝试一次当前窗口未开放的 `repo_map`，没有改变结果。这确认 `EVAL-B184-ROLECOUNT1=P2/confirmed`：现有 renderer 的 `count=10` 是角色级总数，但与逐行 `surface=public class/extend` 并置时未明确标出计数域，增加了模型把 structural-role total 当成 surface-family count 的心智负担。最优方案是对所有语言统一把该值教学为 `structural_role_total`，并明确 family 结论必须消费 row-local typed family/成员集合；它只能是软教学和 typed 命名优化，不能解析模型 reason 或用户关键词来硬门。
+
+JSON 路径给出一条正向验收：Cangjie finalizer 首稿把 4 个 `blocks[]` 整体作为 JSON-encoded string 发送；结构恢复只能保全其中 2 块，系统明确报告 `4 candidate / 2 structured` 并拒绝把残缺结果伪装成正常答案，模型第二稿以 native JSON array 重发后成功。即当前策略符合本轮裁定：可证明无损的畸形 JSON 直接修复；无法保全所有可见块时不猜造、不接管模型结论，优先让模型重发；若重试最终仍耗尽，现有 last-resort lane 只提取可识别的用户可见字符串，并显式披露“模型输出异常导致降级、内容可能缺段或失序”。`EVAL-B184-CARRIERMETA1` 在 r108 的 ArkTS 首稿原生通过，Cangjie 失败属于 blocks-string 而非 metadata；故 r107 的单轮 metadata patch 暂按模型波动保留 P2 观察，不再为单案增加硬约束。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b184_partial_closure_replay_r108_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b184_partial_closure_replay_r108_20260806_manual_audit.md`。
+
+状态：`EVAL-B184-CLOSUREPART1=resolved/r108-clean-cross-language-replay`；
+`EVAL-B184-ROLECOUNT1=P2/confirmed/pending-soft-context-fix`；
+`EVAL-B184-CARRIERMETA1=P2/model-variance-observe`；
+`MALFORMED-ANSWER-JSON=lossless-repair-or-explicit-lossy-degradation-policy-confirmed/r108`。
