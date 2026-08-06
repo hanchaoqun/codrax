@@ -143,7 +143,8 @@ func SourceInventoryLaneConflictsWithPrincipalAnswer(rm RequestModel) bool {
 	return SourceInventoryLaneConflictsWithRoleBinding(rm) ||
 		SourceInventoryLaneConflictsWithRelationFlow(rm) ||
 		HasTypedRelationMemberSetShape(rm) ||
-		SourceInventoryLaneConflictsWithArchitectureNarrative(rm)
+		SourceInventoryLaneConflictsWithArchitectureNarrative(rm) ||
+		SourceInventoryLaneConflictsWithConceptualWorkflowDimension(rm)
 }
 
 // SourceInventoryLaneConflictsWithArchitectureNarrative reports whether a
@@ -160,6 +161,36 @@ func SourceInventoryLaneConflictsWithPrincipalAnswer(rm RequestModel) bool {
 // never depends on request/model prose.
 func SourceInventoryLaneConflictsWithArchitectureNarrative(rm RequestModel) bool {
 	return IsArchitectureNarrativeExplanation(rm)
+}
+
+// SourceInventoryLaneConflictsWithConceptualWorkflowDimension covers the
+// analyzer shape where an explanation keeps ScenarioGeneric but explicitly
+// carries a required stage_or_workflow answer dimension. In that shape the
+// requested members are conceptual stages/steps and their handoffs; source
+// declarations may prove the explanation but cannot define a repository-wide
+// principal universe merely because the implementation uses enums/constants.
+//
+// This is a typed, language-neutral compatibility arm. It does not inspect the
+// request, model prose, labels, rationale, or source-inventory quotes. Intent
+// Enumerate deliberately remains outside it so genuine Cangjie/ArkTS/Go/etc.
+// declaration inventories retain their existing navigation and completeness
+// authority.
+func SourceInventoryLaneConflictsWithConceptualWorkflowDimension(rm RequestModel) bool {
+	if rm.Intent != IntentExplain || rm.RequestedAnswerDimensions == nil || !rm.RequestedAnswerDimensions.Active() {
+		return false
+	}
+	if rm.Predicates.IsScalarAnswer ||
+		rm.Predicates.IsRoleLocateLookup ||
+		rm.Predicates.IsHistoryLookup ||
+		rm.Predicates.IsDiagnosticQuestion {
+		return false
+	}
+	for _, dimension := range rm.RequestedAnswerDimensions.Dimensions {
+		if dimension.Required && dimension.Role == RequestedAnswerDimensionStageWorkflow {
+			return true
+		}
+	}
+	return false
 }
 
 // SourceInventoryProfileConflictsWithRelationFlow reports whether an analyzer

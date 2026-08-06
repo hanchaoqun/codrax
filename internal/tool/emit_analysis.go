@@ -602,7 +602,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"source_inventory_profile": map[string]any{
 				"type":        "object",
-				"description": "Optional typed source-inventory intent. Emit when the current request asks for bounded structural source members such as public functions, public types, constants, enum-like types, fields, or methods under a path/package/file scope. This is the user's requested membership shape, not evidence. Do not emit it for conceptual stages, phases, steps, modes, actors, or components in an architecture/mechanism explanation even when code represents them as enums, types, or constants; those members are bounded by the mechanism and source declarations are supporting evidence. Do not emit this for runtime artifact identifiers such as trace/log inode, dev, entry_name, pid, timestamp, line, event, span, thread, or trace-local file-like labels; keep those in external_observation_policy / runtime artifact lanes. Downstream may use parser/repo-map facts to recover missing members, but it must keep model summaries as enrichment.",
+				"description": "Optional typed source-inventory intent. Emit when the current request asks for bounded structural source members such as public functions, public types, constants, enum-like types, fields, or methods under a path/package/file scope. This is the user's requested membership shape, not evidence. Do not emit it for conceptual stages, phases, steps, modes, actors, or components in an architecture/mechanism explanation even when code represents them as enums, types, or constants. In particular, an explain request with a required requested_answer_dimensions role=stage_or_workflow uses source declarations only as supporting evidence and must not also emit source_inventory_profile merely because the stages are constants or types. Do not emit this for runtime artifact identifiers such as trace/log inode, dev, entry_name, pid, timestamp, line, event, span, thread, or trace-local file-like labels; keep those in external_observation_policy / runtime artifact lanes. Downstream may use parser/repo-map facts to recover missing members, but it must keep model summaries as enrichment.",
 				"properties": map[string]any{
 					"is_source_inventory": map[string]any{"type": "boolean", "description": "True only when the answer's principal payload is a bounded inventory of source-code members."},
 					"target_roles":        map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": answerCandidateRoleValues()}, "description": "Principal source-member roles requested by the user, such as function, method, type, constant, variable, or field. This carries the requested answer shape and accepts the full role enum; the source-inventory navigation lens later enumerates members for the structural-carrier subset of these roles."},
@@ -794,7 +794,7 @@ func buildEmitAnalysisSchema() {
 							"type": "object",
 							"properties": map[string]any{
 								"label":        map[string]any{"type": "string", "description": "User-facing dimension label, preferably copied from the current request, such as `diff 线索`, `当前关键代码`, `作用`, `影响`, `阶段表`, or `sequenceDiagram`."},
-								"role":         map[string]any{"type": "string", "enum": requestedAnswerDimensionRoleValues(), "description": "Language-neutral dimension role."},
+								"role":         map[string]any{"type": "string", "enum": requestedAnswerDimensionRoleValues(), "description": "Language-neutral dimension role. stage_or_workflow denotes a conceptual stage/phase/step sequence or handoff surface; for explain requests it does not imply a source declaration inventory."},
 								"source_quote": map[string]any{"type": "string", "description": "Verbatim current-request phrase that states this dimension. If the label itself is verbatim, reuse it."},
 								"required":     map[string]any{"type": "boolean", "description": "True for dimensions the user directly requested; false for optional stylistic preferences."},
 								"index":        map[string]any{"type": "integer", "minimum": 1, "description": "1-based order in the current request."},
@@ -3440,6 +3440,10 @@ func dropSourceInventoryProfileForTypedRelation(rm *types.RequestModel) (bool, s
 	if types.SourceInventoryLaneConflictsWithArchitectureNarrative(*rm) {
 		rm.SourceInventoryProfile = nil
 		return true, "source_inventory_profile ignored because the typed request is an architecture/mechanism narrative; conceptual stages/components are bounded by the mechanism and source declarations remain supporting evidence"
+	}
+	if types.SourceInventoryLaneConflictsWithConceptualWorkflowDimension(*rm) {
+		rm.SourceInventoryProfile = nil
+		return true, "source_inventory_profile ignored because the typed explanation requires a conceptual stage/workflow dimension; source declarations remain supporting evidence rather than the principal member universe"
 	}
 	return false, ""
 }

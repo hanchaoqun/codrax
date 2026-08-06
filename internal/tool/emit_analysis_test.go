@@ -8328,6 +8328,71 @@ func TestEmitAnalysis_Execute_DropsSourceInventoryForArchitectureNarrative(t *te
 	}
 }
 
+func TestEmitAnalysis_Execute_DropsSourceInventoryForRequiredWorkflowDimension(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	payload := `{
+		"intent":"explain",
+		"scenario":"generic",
+		"complexity":"moderate",
+		"keywords":["pipeline","stage","responsibility"],
+		"entities":["PipelineStage","StageBinding"],
+		"question_kind":"mechanism",
+		"intent_confidence":0.95,
+		"complexity_confidence":0.85,
+		"kind_confidence":0.9,
+		"predicate_axis":"define",
+		"predicates":{
+			"is_scalar_answer":false,
+			"is_role_locate_lookup":false,
+			"is_count_question":false,
+			"is_cross_component":false,
+			"is_relational_lookup":false,
+			"is_category_enumeration":true,
+			"is_history_lookup":false,
+			"is_diagnostic_question":false,
+			"has_per_member_table":true
+		},
+		"diagnostic_profile":{"is_diagnostic":false,"current_risk":false,"historical_regression":false,"current_version_check":false,"confidence":0.9},
+		"requested_answer_dimensions":{
+			"is_dimensioned_answer":true,
+			"dimensions":[
+				{"label":"名称","source_quote":"名称","role":"other","required":true,"index":1},
+				{"label":"职责","source_quote":"职责","role":"function_or_purpose","required":true,"index":2},
+				{"label":"阶段和流转","source_quote":"阶段和流转","role":"stage_or_workflow","required":true,"index":3}
+			],
+			"confidence":0.92
+		},
+		"completeness_obligation":{"required":true,"source_quote":"哪几个 stage"},
+		"source_inventory_profile":{
+			"is_source_inventory":true,
+			"target_roles":["type","constant"],
+			"requires_const_set":true,
+			"requested_fields":["name","summary","location"],
+			"source_quotes":["哪几个 stage"],
+			"confidence":0.9
+		}
+	}`
+	rawRequest := "请说明 pipeline 哪几个 stage，并列出名称、职责、阶段和流转。"
+	mu := types.NewMutableState(rawRequest)
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("workflow analysis should succeed after deterministic demotion: %s", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.SourceInventoryProfile != nil {
+		t.Fatalf("incidental workflow source inventory survived emit path: %+v", rm)
+	}
+	if strings.Contains(res.Summary, "source_inventory=") {
+		t.Fatalf("normalized summary must not advertise a principal source inventory lane: %s", res.Summary)
+	}
+}
+
 func TestEmitAnalysisSchema_SourceInventoryExcludesConceptualArchitectureMembers(t *testing.T) {
 	var schema map[string]any
 	if err := json.Unmarshal((&EmitAnalysis{}).Parameters(), &schema); err != nil {
@@ -8336,9 +8401,21 @@ func TestEmitAnalysisSchema_SourceInventoryExcludesConceptualArchitectureMembers
 	properties, _ := schema["properties"].(map[string]any)
 	profile, _ := properties["source_inventory_profile"].(map[string]any)
 	description, _ := profile["description"].(string)
-	for _, want := range []string{"conceptual stages", "architecture/mechanism", "supporting evidence"} {
+	for _, want := range []string{"conceptual stages", "architecture/mechanism", "role=stage_or_workflow", "supporting evidence"} {
 		if !strings.Contains(description, want) {
 			t.Fatalf("source_inventory_profile schema description missing %q: %q", want, description)
+		}
+	}
+	dimensions, _ := properties["requested_answer_dimensions"].(map[string]any)
+	dimensionProperties, _ := dimensions["properties"].(map[string]any)
+	dimensionList, _ := dimensionProperties["dimensions"].(map[string]any)
+	items, _ := dimensionList["items"].(map[string]any)
+	itemProperties, _ := items["properties"].(map[string]any)
+	role, _ := itemProperties["role"].(map[string]any)
+	roleDescription, _ := role["description"].(string)
+	for _, want := range []string{"stage_or_workflow", "does not imply a source declaration inventory"} {
+		if !strings.Contains(roleDescription, want) {
+			t.Fatalf("requested_answer_dimensions role teaching missing %q: %q", want, roleDescription)
 		}
 	}
 }

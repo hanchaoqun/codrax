@@ -2232,6 +2232,67 @@ func TestArchitectureNarrativeExplanation_DemotesIncidentalSourceInventory(t *te
 	}
 }
 
+func TestConceptualWorkflowDimension_DemotesIncidentalSourceInventory(t *testing.T) {
+	workflow := RequestModel{
+		Intent:   IntentExplain,
+		Scenario: ScenarioGeneric,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+			HasPerMemberTable:     true,
+		},
+		CompletenessObligation: &CompletenessObligation{
+			Required:    true,
+			SourceQuote: "哪几个 stage",
+		},
+		RequestedAnswerDimensions: &RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Dimensions: []RequestedAnswerDimension{
+				{Label: "名称", Role: RequestedAnswerDimensionOther, Required: true},
+				{Label: "职责", Role: RequestedAnswerDimensionFunctionOrPurpose, Required: true},
+				{Label: "阶段和流转", Role: RequestedAnswerDimensionStageWorkflow, Required: true},
+			},
+		},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType, AnswerCandidateRoleConstant},
+			RequiresConstSet:  true,
+			Confidence:        0.9,
+		},
+	}
+	if IsArchitectureNarrativeExplanation(workflow) {
+		t.Fatal("generic scenario with completeness is intentionally outside the original architecture-narrative arm")
+	}
+	if !SourceInventoryLaneConflictsWithConceptualWorkflowDimension(workflow) {
+		t.Fatal("required typed stage/workflow explanation dimension must demote incidental source inventory")
+	}
+	if !SourceInventoryLaneConflictsWithPrincipalAnswer(workflow) || !SourceInventoryCompletionIsSupportOnly(workflow) {
+		t.Fatal("conceptual workflow boundary must be shared by routing and defensive completion")
+	}
+	if SourceInventoryPrincipalNavigationActive(workflow) || SourceInventoryPrincipalAuthorityActive(workflow) {
+		t.Fatal("conceptual workflow source inventory must own neither navigation nor completion")
+	}
+
+	declarationInventory := workflow
+	declarationInventory.Intent = IntentEnumerate
+	if SourceInventoryLaneConflictsWithConceptualWorkflowDimension(declarationInventory) {
+		t.Fatal("genuine source declaration enumeration must remain principal")
+	}
+	if !SourceInventoryPrincipalNavigationActive(declarationInventory) || !SourceInventoryPrincipalAuthorityActive(declarationInventory) {
+		t.Fatal("precise genuine declaration inventory must retain navigation and completion authority")
+	}
+
+	optionalWorkflow := workflow
+	optionalWorkflow.RequestedAnswerDimensions = &RequestedAnswerDimensionProfile{
+		IsDimensionedAnswer: true,
+		Dimensions: []RequestedAnswerDimension{{
+			Label: "阶段和流转", Role: RequestedAnswerDimensionStageWorkflow, Required: false,
+		}},
+	}
+	if SourceInventoryLaneConflictsWithConceptualWorkflowDimension(optionalWorkflow) {
+		t.Fatal("optional presentation preference alone must not change source-inventory ownership")
+	}
+}
+
 func TestArchitectureInventoryShape_TypedBoundary(t *testing.T) {
 	rm := RequestModel{
 		Intent:   IntentEnumerate,

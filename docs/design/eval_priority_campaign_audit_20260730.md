@@ -20326,6 +20326,48 @@ multi-repo selector，Mermaid 又把两个可同时触发的 log/perf pre-stage 
 工件：`eval/parallel_selected_summary_evalcampaign_b179_trace_arch_replay_r98_20260806.md`、
 `eval/parallel_selected_summary_evalcampaign_b179_trace_arch_replay_r98_20260806_manual_audit.md`。
 
-状态：`EVAL-B180-ARCHLENS1=implemented/full-impacted-suites-pass/pending-replay`；
+状态：`EVAL-B180-ARCHLENS1=partially-implemented/r99-found-generic-workflow-arm`；
 `EVAL-B178-TRACEREVIEW1=precise-authority-proven/model-review-design-pending`；
+`EVAL-B180-PRESTAGETOPO1=P2/pending-clean-replay`。
+
+### 123.123 B180 r99 与 S2：generic explanation 的 required workflow 维度仍被误导入全仓清点
+
+在 S1 后重建，严格并行恰好两个异构 case：
+
+- `qf_architecture`：569s，runner PASS / human FAIL；
+- `cangjie_repomap`：144s，runner PASS / human FAIL。
+
+r99 证明 S1 只关闭了 `scenario=architecture_explain` 的第一种漂移，尚未关闭同一请求的另一种合法 typed 表达。architecture 第一轮 analyzer 实际发射
+`intent=explain`、`scenario=generic`、`question_kind=mechanism`、`predicate_axis=define`，同时在
+`requested_answer_dimensions` 中明确携带 required `stage_or_workflow`。它也误发了 `source_inventory_profile(type,constant)` 和 completeness。
+旧边界因 scenario 不是 architecture 且 completeness active 而不命中；source-inventory normalizer 随后把模型原本的机制 subtopic 改写成 inventory quote，结构门又以新 subtopic
+与 primary entities 不相交为由硬拒。第二次分析漂成 enumeration 后，全仓 149/389 行 census、19 次 lens、9 次 completion、35 次 explorer iteration 与 569s 再次出现。
+这是系统 normalization 顺序放大 analyzer 漂移，不是合理的模型重试。
+
+S2 增加同一语言无关 typed 边界 `SourceInventoryLaneConflictsWithConceptualWorkflowDimension`：仅在 `intent=explain`、非 scalar/role/history/diagnostic，且已规范化的
+`requested_answer_dimensions` 含 required `role=stage_or_workflow` 时命中。它不读取 RawRequest、模型正文、label、rationale 或 source-inventory quote；`intent=enumerate` 的真实源码声明
+清点明确排除。该边界接入 principal conflict、emit 前撤销和旧载体 defensive completion support-only 三面，所以错误 profile 会在 source-inventory subtopic/keyword normalizer 运行前消失，
+既不获得全仓 completion authority，也不会由系统先改坏 subtopic 再触发硬拒。
+
+JSON 教学同步单源：`source_inventory_profile` 明确说明 explain + required `stage_or_workflow` 不得因 enum/constant 实现而发源码清点 profile；dimension role 的 schema 描述也明确
+`stage_or_workflow` 是概念阶段/流程/交接面，不隐含 source declaration inventory。这样模型只需做一次“答案成员是什么”的判断，无需同时记忆互相竞争的 source-inventory 规则。
+schema↔runtime pin 覆盖上述教学字面、r99 的 generic+completeness 真实形、emit 顺序、navigation/completion authority，以及真正 `intent=enumerate` inventory 的反例。
+完整 `go test ./internal/types ./internal/tool -count=1` 全绿（types 24.258s、tool 174.203s）。
+
+Cangjie 对照例证明 source inventory 真案未被本方向误伤：2 次 lens 即完整得到 2 extend、2 foreign func、8 public class，所有路径、符号、package 行正确，无 analyzer/finalizer JSON
+重试。但最终摘要自报 public class=10，正文只列出结构化权威的 8 项；runner 的 typed rowset oracle 只核成员集合，未核摘要数字，自动 PASS 是假绿。立案
+`EVAL-B180-COUNTCONSIST1=P1/confirmed`：需要语言无关、结构化 AnswerDocument 数值关系复核，覆盖“分组标题/摘要 count ↔ typed member_set”一致性；不得扫描最终 prose 数字或由系统重写模型句子。
+
+architecture 最终答案另有两项语义误述：把 `ReadModeConditionalPreStageBindings()` 说成包含 MultiRepoFocus（源码函数只返回 log/perf），以及把 StageExtract 写成“抽取最终答案、生成 evidence”
+（权威 binding 是把 accepted evidence 蒸馏为 AnswerSymbols/HypothesisVerdicts/structured support）。保留在 `EVAL-B180-PRESTAGETOPO1`，须在 S2 后 clean replay 判断是否为污染级联；
+不以关键词门或系统代写直接修答案。
+
+本批及 r99 均未触发 malformed JSON、blocks-string recovery 或 finalizer reject，不能替代畸形 JSON 专项回放。既定降级原则不变：仅做可证明无损的 JSON 修复；无法无损恢复时，
+尽量保留可解析的模型文本块/字符串并向用户明确披露模型输出异常，不得把空答案或系统拼写结论伪装成模型正常回答。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b180_arch_cangjie_replay_r99_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b180_arch_cangjie_replay_r99_20260806_manual_audit.md`。
+
+状态：`EVAL-B180-ARCHLENS1=S2-implemented/full-impacted-suites-pass/pending-r100-clean-replay`；
+`EVAL-B180-COUNTCONSIST1=P1/confirmed/design-pending`；
 `EVAL-B180-PRESTAGETOPO1=P2/pending-clean-replay`。
