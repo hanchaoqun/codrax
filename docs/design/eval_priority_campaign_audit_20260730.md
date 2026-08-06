@@ -20005,3 +20005,40 @@ Rust、C/C++、ArkTS/TypeScript、Cangjie 等全部现有及后续语言。系�
 （165.530s）。Trace 显式时间窗、因果投影、系统补齐、根因排序、唤醒链、窗内可消除量、实际耗时/规则可消除两轴及模型结论所有权均未触碰。
 
 状态：`EVAL-B175-CITREF1=implemented/full-suite-pass`。B176 三项闭环；下一步重建并继续恰好两个异构 eval。
+
+### 123.112 B176 r94：write 闭环；mixed inventory 行权威与 bucket carrier 发生双重冲突
+
+在 `main@3c560be79` 重建后严格并行恰好两个异构 case：
+
+- `patch_go_typo`：90s，runner/human PASS；
+- `cangjie_repomap`：256s，runner/human FAIL，5 次 finalizer reject、5 次 patch。
+
+write 案只有 `main.go` 一行 `retrun → return`，隔离树执行 `go test -json ./...`，`main.go` 获得 `project_runner/target_behavior` coverage，`TestGreet`
+通过并以 `verified` 闭环。零 schema/plan/finalizer reject、零 JSON recovery、零无关改动，说明当前简单写模式计划—apply—验证与 JSON carrier 正常。
+
+Cangjie 探索与最终 table 的事实底座正确：2 个 extend、2 个 foreign func、8 个 public class，12 条路径/package/citation 齐全；但可见 summary 错写
+`public class 共 10 个`，且三份 section prose 清单后又完整输出总表，答案重复。runner 的 `public_class got20` 含重复 surface 计数因素，但人审仍判 FAIL：错误总数与重复结构均真实可见。
+
+确定 `EVAL-B176-MIXEDROW1=P1/red-line-contract-conflict`：prompt 的 Principal Enumeration Rows 展示 `enum-set-extend-块-row-*`，模型在 mixed-family
+principal table 中逐字复制后却被 validator 拒绝；删除两个 extend row ID 才接受。机制是 row registry 虽注册 partition alias，但 family 省略时
+`preEmitSourceInventoryHardRowsForBlock` 只返回 synthetic-global source-inventory rows，非 global partition 行在 `RowsContainAliasIdentity` 处失败。最优修复是：显式
+`source_inventory_family` 继续只接受该 typed family；family 省略的 mixed block 对显式 row ID 与唯一 display-row citation 允许全部已注册 typed rows，并按
+`location+surface_family` 去 alias。它仍不能接受未知 ID 或同名跨位置猜测。
+
+同根导致 B176-S3 生产复放只部分通过：新 normalizer 继承 global-only row universe，所以没有修正 `extend Cart` 错引，最终仍有该行 soft citation advisory。修正 mixed typed universe
+即可让全语言 display-row 单源真正生效，不加 Cangjie 特判。
+
+另立 `EVAL-B176-BUCKETCARRIER1=P1/high-churn-contract-conflict`：comparison Required Answer Blocks 强制三个 bucket `section`；Principal Enumeration Rows
+正文又要求实际行只能放 `ordered_list/bullet_list/table`，而硬拒 repair recipe 同时声明 `section` 是合法行 carrier。三处合同不一致，模型自然生成“3 个 prose section + 1 个
+global table”，随后经历补 label、补 role/claim、错误 `family=mixed`、补 duplicate row ID、删除被拒 alias 五轮。最优方案不是放宽完整性门，而是单源声明：required bucket section
+可直接用 `items[]` 承载该 bucket 的 typed rows并满足 enumeration coverage；此时无需第二张 global table。不能扫描 section prose 或标题决定成员，只消费 block role/facet、typed family
+与 items identity。
+
+`EVAL-B176-COUNT1=P1` 暂不单独加数字硬门。typed aggregate 已给出 8，模型错写 10；先消除上述 carrier 冲突与重复载体再复放。若跨 case 仍出现 typed count 与 summary 偏离，
+应从 aggregate-value/row-count typed annotation 建立中性一致性检查，不得扫描最终 prose 的“共 N 个”或让系统代写答案。
+
+施工排序：B177-S1=`MIXEDROW1 + CITREF1 production closure`；B177-S2=`BUCKETCARRIER1` 单源合同；随后重建并用 Cangjie + 另一异构 case 恰好两路复放。
+本轮无 Trace；上述改动不得进入显式时间窗、因果投影、系统补齐、根因排序、唤醒链、窗内可消除量、实际耗时/规则可消除两轴或模型结论所有权。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b176_cangjie_write_replay_r94_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b176_cangjie_write_replay_r94_20260806_manual_audit.md`。
