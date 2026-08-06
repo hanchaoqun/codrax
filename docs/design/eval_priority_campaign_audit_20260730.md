@@ -17960,3 +17960,47 @@ root-rank 面使用查询窗 `2.000..2.020`，wakeup causal-impact 面使用递�
 状态：`EVAL-B144-TRACEACCTDUP1=implemented/full-related-pass/awaiting-exact2-replay`；
 `EVAL-B138-TRACEFACTFAMILYVAR1=implemented/schema-conditional/full-tool-pass/awaiting-replay`；Trace 的显式窗、因果投影、自动补齐、两维根因、根因排序、
 唤醒链和窗内可消除量的值通道与词面=`untouched`。
+
+### 123.34 B146 r63：跨 query 同账残余；write JSON/验证通过
+
+在 `main@7f4eca1be` 构建后严格并行恰好两个异构 case：
+
+- `patch_go_typo`：72s，runner/human PASS，read=2、repo_map=1、零 JSON/合同拒绝；
+- `trace_query_wakeup_causal_io_chain`：132s，runner PASS / human FAIL，trace_query=4、Analyzer invalid=1、Finalizer reject=0。
+
+Write 面一次产生单文件单行 structured patch，apply 后只有 `retrun→return`，post-apply Go 验证 1/1 PASS，最终
+`verified/all_batches_verified`。本轮没有 verification probe 绕行、畸形 JSON、计划字段冲突或成文缺失，说明 B131/B138 的短教学在 Go apply
+车道未制造新的心智负担。
+
+Trace 的显式 `2.000..2.020` 窗、`threadpool→network→cookie→app`、11ms IO 主席、三条 1ms 调度席、真实占用/现规则可消两轴与系统
+因果投影均保留。但 B145 只关闭了同一 `Result` 内的 rank/impact 镜像：root-rank result 已形成 `[E5(+1)]`，独立
+`wakeup_chain` result 的同一 11ms 账户没有 rank companion，旧 mint 直接不发 key，最终系统主要占用表仍保留
+`2.003..2.014` 与 `2.002..2.016` 两行。日志/JSON 亲验显示，前者 key 为
+`state_account:v2:9774…`，后者为空；这是跨查询发布身份缺口，不否定 v2 物理区间算法。
+
+本批后续根修把 key 权限从“同一 Result 恰有 rank+impact pair”改成“每个持有完整精确区间库存的发布独立铸键”：
+
+1. wakeup-only、rank-only 与 rank-bearing 查询对同一物理段得到同一个 v2 key，探索顺序/是否同轮请求不再影响身份；
+2. projection 仍要求恰好一个 rank keeper；同键的一个或多个 wakeup publication 都是同一绝对段库存的发布镜像，全部吸收到 keeper 并保留
+   merged evidence roster；多个 rank keeper 仍 fail-open，禁止系统猜冠军；
+3. 等值但不同区间继续得到不同 key；跨 artifact 分区仍不汇合；occupancy 只消费 typed key，不读取 subject/value/prose 猜测；
+4. 新 pin 覆盖 wakeup-only 与 rank-bearing 生产查询同键、重复 impact 多对一吸收、重复 rank keeper fail-open。
+
+JSON 方面，`EVAL-B138-TRACEFACTFAMILYVAR1` 的条件 schema 产线否证为“只改 schema 不足”：当前 provider 仍先在
+`scope=causal_diagnosis` 带 `fact_families`，精确 runtime gate 拒绝后第二轮自修。初始 description、schema 和 reject 同向，不属于双向矛盾，
+但已连续多轮造成固定心智成本；下一独立 JSON 小批应做无损 typed compat：当且仅当已解析 scope 明确不是 `bounded_fact_set` 时丢弃这个在该 scope
+语义上无消费者的字段并记录 repair；bounded 的缺失/空列表继续 hard reject。不得从请求或模型 prose 推断 scope，也不得放宽其他字段。
+
+模型正文还把附件 extent 的 `2.020020` 复述为窗内 `20.02ms`，与系统 typed 20.000ms 同页冲突；r62 正确、r63 复发，当前记
+`EVAL-B146-TRACEEXTVAR1=P2/model-variance-recurring`，继续用 typed context 显著度观察，不按答案文本硬改模型结论。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b146_trace_write_replay_r63_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b146_trace_write_replay_r63_20260805_manual_audit.md`。
+
+完整相关回归 `go test ./internal/tracequery ./internal/types ./internal/tool -count=1` PASS
+（69.210s / 22.784s / 163.839s）。
+
+状态：`EVAL-B144-TRACEACCTDUP1=cross-result-fix-implemented/full-related-pass/awaiting-replay`；
+`EVAL-B138-TRACEFACTFAMILYVAR1=production-replay-failed/P1/typed-compat-next`；
+`EVAL-B146-TRACEEXTVAR1=P2/model-variance-recurring`；write apply/verify=`production-pass`；Trace 显式窗、因果投影、自动补齐、两维根因、排序、唤醒链、
+窗内可消除量=`production-preserved`。

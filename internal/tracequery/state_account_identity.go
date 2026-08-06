@@ -101,52 +101,38 @@ func rootCauseRankStateAccountValue(item RootCauseRankItem) float64 {
 	return 0
 }
 
-// stampStateAccountPublicationKeys joins exactly one active rank seat and one
-// wakeup-impact publication. Ambiguity on either side publishes no key, so
-// projection remains fail-open to the two visible rows.
+// stampStateAccountPublicationKeys stamps every independently provable
+// scheduler-state account. A wakeup-only query must carry the same physical
+// identity as a later root-rank query; requiring both views to coexist in one
+// Result would make identity depend on exploration order. Consumers decide
+// convergence from the typed key and retain their own keeper-ambiguity gate.
 func stampStateAccountPublicationKeys(chain *ChainResult, rank *RootCauseRankResult) {
-	if chain == nil || rank == nil {
-		return
-	}
-	for i := range chain.CausalImpacts {
-		chain.CausalImpacts[i].StateAccountKey = ""
-	}
-	for i := range rank.Items {
-		rank.Items[i].StateAccountKey = ""
-	}
-	impactByKey := map[string][]int{}
-	for i := range chain.CausalImpacts {
-		impact := &chain.CausalImpacts[i]
-		key := stateAccountIdentity(impact.Thread, impact.DominantState, impact.Window,
-			impact.stateAccountIntervals, impact.DominantImpactMs)
-		if key != "" {
-			impactByKey[key] = append(impactByKey[key], i)
+	if chain != nil {
+		for i := range chain.CausalImpacts {
+			impact := &chain.CausalImpacts[i]
+			impact.StateAccountKey = stateAccountIdentity(
+				impact.Thread, impact.DominantState, impact.Window,
+				impact.stateAccountIntervals, impact.DominantImpactMs,
+			)
 		}
 	}
-	rankByKey := map[string][]int{}
-	for i := range rank.Items {
-		item := &rank.Items[i]
-		value := rootCauseRankStateAccountValue(*item)
-		if value <= 0 {
-			continue
+	if rank != nil {
+		for i := range rank.Items {
+			item := &rank.Items[i]
+			item.StateAccountKey = ""
+			value := rootCauseRankStateAccountValue(*item)
+			if value <= 0 {
+				continue
+			}
+			window := rank.Window
+			if item.StatsWindowEndTs > item.StatsWindowStartTs {
+				window = TimeWindow{StartTs: item.StatsWindowStartTs, EndTs: item.StatsWindowEndTs}
+			}
+			item.StateAccountKey = stateAccountIdentity(
+				item.Thread, item.DominantState, window,
+				rootCauseRankStateIntervals(*item), value,
+			)
 		}
-		window := rank.Window
-		if item.StatsWindowEndTs > item.StatsWindowStartTs {
-			window = TimeWindow{StartTs: item.StatsWindowStartTs, EndTs: item.StatsWindowEndTs}
-		}
-		key := stateAccountIdentity(item.Thread, item.DominantState, window,
-			rootCauseRankStateIntervals(*item), value)
-		if key != "" {
-			rankByKey[key] = append(rankByKey[key], i)
-		}
-	}
-	for key, impactIndexes := range impactByKey {
-		rankIndexes := rankByKey[key]
-		if len(impactIndexes) != 1 || len(rankIndexes) != 1 {
-			continue
-		}
-		chain.CausalImpacts[impactIndexes[0]].StateAccountKey = key
-		rank.Items[rankIndexes[0]].StateAccountKey = key
 	}
 }
 
@@ -158,13 +144,13 @@ func stampResultStateAccountPublicationKeys(res *Result) {
 	stampStateChurnAccountPublicationKeys(res.WindowStats, res.WakeupChain)
 }
 
-// stampStateChurnAccountPublicationKeys extends the exact rank<->wakeup join
-// credential onto the whole-window state_churn face. The key has already been
-// minted from the complete scheduler-segment inventories of one unambiguous
-// rank/impact pair; this propagation only accepts the same thread, state,
-// selected window, dominant impact, and five-state partition. It therefore
-// lets display consumers collapse three publications of one physical account
-// without treating an equal scalar from a different occurrence as identical.
+// stampStateChurnAccountPublicationKeys extends an exact wakeup account
+// identity onto the whole-window state_churn face. The key was minted from a
+// complete scheduler-segment inventory; this propagation only accepts the
+// same thread, state, selected window, dominant impact, and five-state
+// partition. It therefore lets display consumers collapse three publications
+// of one physical account without treating an equal scalar from a different
+// occurrence as identical.
 func stampStateChurnAccountPublicationKeys(stats *WindowStats, chain *ChainResult) {
 	if stats == nil || chain == nil {
 		return

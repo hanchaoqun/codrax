@@ -126,13 +126,14 @@ func TestStampStateAccountPublicationKeysSupportsExactIOWaitAcrossViewWindows(t 
 	// Equal 11ms on a disjoint occurrence must never join.
 	chain.CausalImpacts[0].stateAccountIntervals = []foldInterval{{start: 2.004, end: 2.015}}
 	stampStateAccountPublicationKeys(&chain, &rank)
-	if rank.Items[0].StateAccountKey != "" || chain.CausalImpacts[0].StateAccountKey != "" {
-		t.Fatalf("equal IO scalar on disjoint physical segments must fail open: rank=%q impact=%q",
+	if rank.Items[0].StateAccountKey == "" || chain.CausalImpacts[0].StateAccountKey == "" ||
+		rank.Items[0].StateAccountKey == chain.CausalImpacts[0].StateAccountKey {
+		t.Fatalf("equal IO scalar on disjoint physical segments must keep distinct identities: rank=%q impact=%q",
 			rank.Items[0].StateAccountKey, chain.CausalImpacts[0].StateAccountKey)
 	}
 }
 
-func TestStampStateAccountPublicationKeysExactPairAndAmbiguityFailOpen(t *testing.T) {
+func TestStampStateAccountPublicationKeysAreIndependentOfViewCoPublication(t *testing.T) {
 	intervals := stateAccountTestIntervals()
 	rank := stateAccountTestRank(intervals)
 	chain := ChainResult{CausalImpacts: []WakeupCausalImpact{stateAccountTestImpact(intervals)}}
@@ -142,16 +143,25 @@ func TestStampStateAccountPublicationKeysExactPairAndAmbiguityFailOpen(t *testin
 		t.Fatalf("one exact rank/impact pair must share one key: rank=%+v impacts=%+v", rank.Items, chain.CausalImpacts)
 	}
 
-	// Two impact publications under the same physical identity are ambiguous.
-	// The producer must publish no join credential rather than guessing.
+	// Repeated impact publications of the same exact physical inventory retain
+	// the same identity; the projection consumer owns keeper ambiguity.
 	rank = stateAccountTestRank(intervals)
 	impact := stateAccountTestImpact(intervals)
 	chain = ChainResult{CausalImpacts: []WakeupCausalImpact{impact, impact}}
 	stampStateAccountPublicationKeys(&chain, &rank)
-	if rank.Items[0].StateAccountKey != "" ||
-		chain.CausalImpacts[0].StateAccountKey != "" ||
-		chain.CausalImpacts[1].StateAccountKey != "" {
-		t.Fatalf("ambiguous publications must fail open without a join key: rank=%+v impacts=%+v", rank.Items, chain.CausalImpacts)
+	want := rank.Items[0].StateAccountKey
+	if want == "" || chain.CausalImpacts[0].StateAccountKey != want || chain.CausalImpacts[1].StateAccountKey != want {
+		t.Fatalf("repeated exact publications must carry the same physical identity: rank=%+v impacts=%+v", rank.Items, chain.CausalImpacts)
+	}
+
+	standaloneImpact := ChainResult{CausalImpacts: []WakeupCausalImpact{stateAccountTestImpact(intervals)}}
+	stampStateAccountPublicationKeys(&standaloneImpact, nil)
+	standaloneRank := stateAccountTestRank(intervals)
+	stampStateAccountPublicationKeys(nil, &standaloneRank)
+	if standaloneImpact.CausalImpacts[0].StateAccountKey == "" ||
+		standaloneImpact.CausalImpacts[0].StateAccountKey != standaloneRank.Items[0].StateAccountKey {
+		t.Fatalf("query order/view shape must not suppress an exact account identity: rank=%+v impact=%+v",
+			standaloneRank.Items, standaloneImpact.CausalImpacts)
 	}
 }
 

@@ -91,8 +91,8 @@ func TestOneSeatStateAccountNeverFallsBackToEqualValueOrEnvelope(t *testing.T) {
 	}
 }
 
-func TestOneSeatStateAccountAmbiguityFailsOpen(t *testing.T) {
-	const key = "state_account:v1:ambiguous"
+func TestOneSeatRepeatedStateAccountImpactsConvergeIntoUniqueRank(t *testing.T) {
+	const key = "state_account:v2:repeated-impact"
 	rank := stateAccountOneSeatNode("E-rank", "root_cause_primary", key, 1, 4, 23)
 	impactA := stateAccountOneSeatNode("E-impact-a", "wakeup_causal_impact", key, 0, 3, 23)
 	impactB := stateAccountOneSeatNode("E-impact-b", "wakeup_causal_impact", key, 0, 2, 23)
@@ -103,8 +103,27 @@ func TestOneSeatStateAccountAmbiguityFailsOpen(t *testing.T) {
 
 	traceCausalProjectionConvergeStateAccountPublications(&projection)
 	count, seats := oneSeatSeatCount(projection, "app-20")
+	if count != 1 || seats[0].EvidenceID != "E-rank" ||
+		!strings.Contains(strings.Join(seats[0].MergedEvidenceIDs, ","), "E-impact-a") ||
+		!strings.Contains(strings.Join(seats[0].MergedEvidenceIDs, ","), "E-impact-b") {
+		t.Fatalf("repeated exact impact mirrors must converge into the unique rank keeper, got %d: %+v", count, seats)
+	}
+}
+
+func TestOneSeatStateAccountDuplicateRankKeeperFailsOpen(t *testing.T) {
+	const key = "state_account:v2:ambiguous-rank"
+	rankA := stateAccountOneSeatNode("E-rank-a", "root_cause_primary", key, 1, 4, 23)
+	rankB := stateAccountOneSeatNode("E-rank-b", "root_cause_secondary", key, 2, 4, 23)
+	impact := stateAccountOneSeatNode("E-impact", "wakeup_causal_impact", key, 0, 3, 23)
+	projection := TraceCausalProjection{
+		PrimaryRootCauses: []TraceCausalProjectionNode{rankA},
+		OnChainCauses:     []TraceCausalProjectionNode{rankB, impact},
+	}
+
+	traceCausalProjectionConvergeStateAccountPublications(&projection)
+	count, seats := oneSeatSeatCount(projection, "app-20")
 	if count != 3 {
-		t.Fatalf("one-to-many account publication must remain visible, got %d: %+v", count, seats)
+		t.Fatalf("duplicate canonical rank keepers must fail open, got %d: %+v", count, seats)
 	}
 }
 

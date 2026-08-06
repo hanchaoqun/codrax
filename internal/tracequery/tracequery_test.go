@@ -4019,6 +4019,28 @@ func TestRootCauseRankKeepsOffChainPressureAsBackground(t *testing.T) {
 		t.Fatalf("exact IO rank/impact publications must share one physical account key: rank=%+v impacts=%+v",
 			res.RootCauseRank.Items, res.WakeupChain.CausalImpacts)
 	}
+	standalone := Run(idx, Query{View: "wakeup_chain", PID: 100, TimeStart: 2.0, TimeEnd: 2.020, MaxDepth: 6, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace})
+	standaloneKey := ""
+	if standalone.WakeupChain != nil {
+		for _, causal := range standalone.WakeupChain.CausalImpacts {
+			if causal.Thread.PID == 400 && causal.DominantState == string(StateIOWait) {
+				standaloneKey = causal.StateAccountKey
+			}
+		}
+	}
+	if standaloneKey == "" {
+		t.Fatalf("wakeup-only query must independently publish the exact IO account identity: %+v", standalone.WakeupChain)
+	}
+	matchedRankKey := false
+	for _, ranked := range res.RootCauseRank.Items {
+		if ranked.Thread.PID == 400 && ranked.DominantState == string(StateIOWait) && ranked.StateAccountKey == standaloneKey {
+			matchedRankKey = true
+		}
+	}
+	if !matchedRankKey {
+		t.Fatalf("wakeup-only and rank-bearing queries must mint the same physical account key: standalone=%q rank=%+v",
+			standaloneKey, res.RootCauseRank.Items)
+	}
 }
 
 func TestRootCauseRankKeepsGlobalIOPressureBehindDirectWakeupChain(t *testing.T) {

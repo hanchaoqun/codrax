@@ -63,6 +63,7 @@ package types
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 )
 
@@ -258,8 +259,10 @@ func traceCausalProjectionOneSeatAbsorbEvidence(out *TraceCausalProjection, keep
 //
 // The key is a hash of the complete physical segment inventory. This layer
 // never derives identity from subject/state/value equality, line-envelope
-// overlap, or prose. Exactly one distinct rank identity and one distinct
-// impact identity are required; any missing/duplicate side fails open.
+// overlap, or prose. Exactly one distinct rank identity is required. Any
+// number of wakeup publications with that exact physical key are mirrors of
+// the same segment inventory and are absorbed; a missing/duplicate rank side
+// fails open because no unique canonical keeper exists.
 func traceCausalProjectionConvergeStateAccountPublications(out *TraceCausalProjection) {
 	type group struct {
 		rankIDs   map[string]TraceCausalProjectionNode
@@ -290,39 +293,44 @@ func traceCausalProjectionConvergeStateAccountPublications(out *TraceCausalProje
 		}
 	}
 	for _, g := range groups {
-		if len(g.rankIDs) != 1 || len(g.impactIDs) != 1 {
+		if len(g.rankIDs) != 1 || len(g.impactIDs) == 0 {
 			continue
 		}
-		var keeper, loser TraceCausalProjectionNode
+		var keeper TraceCausalProjectionNode
 		for _, node := range g.rankIDs {
 			keeper = node
 		}
-		for _, node := range g.impactIDs {
-			loser = node
+		impactIDs := make([]string, 0, len(g.impactIDs))
+		for id := range g.impactIDs {
+			impactIDs = append(impactIDs, id)
 		}
-		if traceCausalProjectionCanonicalNode(keeper.EvidenceID) ==
-			traceCausalProjectionCanonicalNode(loser.EvidenceID) {
-			continue
-		}
-		traceCausalProjectionOneSeatAbsorbEvidence(out, keeper.EvidenceID, loser, "")
-		keeperID := traceCausalProjectionCanonicalNode(keeper.EvidenceID)
-		for _, bucket := range traceCausalProjectionOneSeatBuckets(out) {
-			for i := range *bucket {
-				node := &(*bucket)[i]
-				if traceCausalProjectionCanonicalNode(node.EvidenceID) != keeperID {
-					continue
-				}
-				if node.DuplicatePublications < 1 {
-					node.DuplicatePublications = 1
-				}
-				add := loser.DuplicatePublications
-				if add < 1 {
-					add = 1
-				}
-				node.DuplicatePublications += add
+		sort.Strings(impactIDs)
+		for _, id := range impactIDs {
+			loser := g.impactIDs[id]
+			if traceCausalProjectionCanonicalNode(keeper.EvidenceID) ==
+				traceCausalProjectionCanonicalNode(loser.EvidenceID) {
+				continue
 			}
+			traceCausalProjectionOneSeatAbsorbEvidence(out, keeper.EvidenceID, loser, "")
+			keeperID := traceCausalProjectionCanonicalNode(keeper.EvidenceID)
+			for _, bucket := range traceCausalProjectionOneSeatBuckets(out) {
+				for i := range *bucket {
+					node := &(*bucket)[i]
+					if traceCausalProjectionCanonicalNode(node.EvidenceID) != keeperID {
+						continue
+					}
+					if node.DuplicatePublications < 1 {
+						node.DuplicatePublications = 1
+					}
+					add := loser.DuplicatePublications
+					if add < 1 {
+						add = 1
+					}
+					node.DuplicatePublications += add
+				}
+			}
+			traceCausalProjectionOneSeatDropByEvidenceID(out, loser.EvidenceID)
 		}
-		traceCausalProjectionOneSeatDropByEvidenceID(out, loser.EvidenceID)
 	}
 }
 
