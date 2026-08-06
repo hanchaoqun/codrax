@@ -153,7 +153,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 						},
 						"member_notes": {
 							"type": "array",
-							"description": "Optional per-member explanatory notes aligned by index with members[]. Use this only for verified role/rationale/meaning that should make the final answer less dry; it does not define member identity and must not replace support_refs or evidence. Omit entries you cannot explain.",
+							"description": "Optional per-member explanatory notes aligned by index with members[]. Use this only for verified role/rationale/meaning that should make the final answer less dry; it does not define member identity and must not replace support_refs or evidence. For a current-source architecture/mechanism roster used to close the investigation, either omit member_notes entirely or provide exactly one non-empty note AND one grounded support_ref for every members[] entry, all in the same order; partial responsibility rosters are rejected instead of being presented as proved.",
 							"items": {"type": "string"}
 						},
 						"excluded": {
@@ -7742,6 +7742,28 @@ func validateAggregateMemberSetSupportRefs(ctx *types.BusContext, facts []types.
 		if aggregateMemberSetShadowedBySourceInventoryPrincipalRows(fact, facts) {
 			continue
 		}
+		if aggregateNarrativeMemberSetRequiresAlignedCurrentSourceSupport(ctx, fact) {
+			if len(fact.MemberNotes) != len(fact.Members) || len(fact.SupportRefs) != len(fact.Members) {
+				return fmt.Errorf(
+					"aggregate_facts: current-source architecture/mechanism member_set %q uses member_notes as a completion boundary, but members/member_notes/support_refs are not exactly index-aligned (members=%d member_notes=%d support_refs=%d). Re-emit either without member_notes, or with exactly one verified non-empty member_note and one grounded support_ref per member in the same order; identity-only declarations do not prove behavioral responsibility",
+					strings.TrimSpace(fact.Label), len(fact.Members), len(fact.MemberNotes), len(fact.SupportRefs),
+				)
+			}
+			for i := range fact.Members {
+				if strings.TrimSpace(fact.MemberNotes[i]) == "" || strings.TrimSpace(fact.SupportRefs[i]) == "" {
+					return fmt.Errorf(
+						"aggregate_facts: current-source architecture/mechanism member_set %q has an empty member_note or support_ref at index %d for member %q. Re-emit with one verified non-empty note and one grounded ref per member in the same order, or omit member_notes entirely",
+						strings.TrimSpace(fact.Label), i, strings.TrimSpace(fact.Members[i]),
+					)
+				}
+				if !aggregateMemberSetSupportRefsResolveMember(fact, fact.Members[i], support) {
+					return fmt.Errorf(
+						"aggregate_facts: current-source architecture/mechanism member_set %q has support_ref %q at index %d, but it does not resolve to grounded evidence for member %q. Re-emit with the already-read producer/callsite/consumer location that proves this member's responsibility; an identity-only or unrelated location cannot close the investigation",
+						strings.TrimSpace(fact.Label), strings.TrimSpace(fact.SupportRefs[i]), i, strings.TrimSpace(fact.Members[i]),
+					)
+				}
+			}
+		}
 		var missing []string
 		var unresolved []string
 		for _, member := range fact.Members {
@@ -7800,6 +7822,26 @@ func validateAggregateMemberSetSupportRefs(ctx *types.BusContext, facts []types.
 		)
 	}
 	return nil
+}
+
+// aggregateNarrativeMemberSetRequiresAlignedCurrentSourceSupport binds the
+// schema's per-member responsibility teaching to its emit-time contract. It
+// consumes only typed aggregate fields and typed evidence origins: no user
+// request text, model reasoning, or final-answer prose participates. Runtime,
+// trace, VCS, and connector rosters therefore keep their origin-specific
+// evidence lanes and are not forced into repository file:line support.
+func aggregateNarrativeMemberSetRequiresAlignedCurrentSourceSupport(ctx *types.BusContext, fact types.AnswerAggregateFact) bool {
+	if fact.Kind != types.AnswerAggregateMemberSet || len(fact.MemberNotes) == 0 ||
+		!aggregateFactCanDefineModelOwnedCompletionBoundary(fact) {
+		return false
+	}
+	rm := requestModelForAggregateSupport(ctx)
+	for _, origin := range types.AnswerAggregateFactEvidenceOrigins(fact, rm) {
+		if origin == types.AnswerEvidenceOriginCurrentSource {
+			return true
+		}
+	}
+	return false
 }
 
 func aggregateMemberSetShadowedBySourceInventoryPrincipalRows(fact types.AnswerAggregateFact, facts []types.AnswerAggregateFact) bool {

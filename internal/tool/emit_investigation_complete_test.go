@@ -8554,6 +8554,91 @@ func TestEmitInvestigationComplete_AcceptsBareCodeMemberSetWithoutSupportRefs(t 
 	}
 }
 
+func TestValidateAggregateMemberSetSupportRefs_RejectsPartialCurrentSourceResponsibilityRoster(t *testing.T) {
+	ctx := &types.BusContext{Mutable: types.NewMutableState("q"), AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{}}}
+	res, err := (&EmitInvestigationComplete{}).Execute(ctx, json.RawMessage(`{
+		"reason":"stage responsibilities collected",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"member_set",
+			"label":"read mode stages",
+			"value":"4",
+			"role":"principal_answer",
+			"provenance":"emit_investigation_complete.aggregate_facts",
+			"members":["StageAnalyze","StageExplore","StageExtract","StageFinalize"],
+			"member_notes":["builds the analysis IR","investigates the repository","extracts evidence","writes the answer"],
+			"support_refs":["internal/types/enums.go:33","internal/types/pipeline_mode.go:18"]
+		}]
+	}`))
+	if err != nil {
+		t.Fatalf("unexpected tool error: %v", err)
+	}
+	if strings.TrimSpace(ctx.Mutable.InvestigationCompleteReason()) != "" {
+		t.Fatalf("partial current-source responsibility roster must not close investigation; reason=%q", ctx.Mutable.InvestigationCompleteReason())
+	}
+	if !strings.Contains(res.Summary, "members=4 member_notes=4 support_refs=2") ||
+		!strings.Contains(res.Summary, "identity-only declarations do not prove behavioral responsibility") {
+		t.Fatalf("unexpected alignment error: %s", res.Summary)
+	}
+	if res.Repair == nil || res.Repair.Metadata["repair_origin"] != types.RepairOriginCompletionFormPrefix+"member_set_support_refs" {
+		t.Fatalf("alignment rejection must route through typed completion repair, got %+v", res.Repair)
+	}
+}
+
+func TestValidateAggregateMemberSetSupportRefs_AcceptsAlignedCurrentSourceResponsibilityRoster(t *testing.T) {
+	ctx := &types.BusContext{Mutable: types.NewMutableState("q"), AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{}}}
+	fact := types.AnswerAggregateFact{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "read mode stages",
+		Value:      "4",
+		Role:       types.AnswerAggregateRoleSupportingCoverage,
+		Provenance: "demoted:mechanism_narrative_support_member_set",
+		Members:    []string{"StageAnalyze", "StageExplore", "StageExtract", "StageFinalize"},
+		MemberNotes: []string{
+			"builds the analysis IR",
+			"investigates the repository",
+			"extracts evidence",
+			"writes the answer",
+		},
+		SupportRefs: []string{
+			"internal/analysis/analyzer.go:40",
+			"internal/agent/explorer.go:50",
+			"internal/agent/extractor.go:60",
+			"internal/agent/finalizer.go:70",
+		},
+	}
+	evidence := []types.EvidenceItem{
+		{ID: "E1", Kind: types.EvidenceMechanism, Source: "internal/analysis/analyzer.go", LineStart: 40, AnchorSymbol: "StageAnalyze", GroundingStatus: types.GroundingGrounded},
+		{ID: "E2", Kind: types.EvidenceMechanism, Source: "internal/agent/explorer.go", LineStart: 50, AnchorSymbol: "StageExplore", GroundingStatus: types.GroundingGrounded},
+		{ID: "E3", Kind: types.EvidenceMechanism, Source: "internal/agent/extractor.go", LineStart: 60, AnchorSymbol: "StageExtract", GroundingStatus: types.GroundingGrounded},
+		{ID: "E4", Kind: types.EvidenceMechanism, Source: "internal/agent/finalizer.go", LineStart: 70, AnchorSymbol: "StageFinalize", GroundingStatus: types.GroundingGrounded},
+	}
+	if err := validateAggregateMemberSetSupportRefs(ctx, []types.AnswerAggregateFact{fact}, evidence); err != nil {
+		t.Fatalf("aligned current-source responsibility roster should pass: %v", err)
+	}
+}
+
+func TestValidateAggregateMemberSetSupportRefs_RuntimeResponsibilityRosterKeepsOriginSpecificLane(t *testing.T) {
+	ctx := &types.BusContext{Mutable: types.NewMutableState("q"), AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{}}}
+	fact := types.AnswerAggregateFact{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "trace lanes",
+		Value:      "2",
+		Role:       types.AnswerAggregateRoleSupportingCoverage,
+		Provenance: "trace_query demoted:mechanism_narrative_support_member_set",
+		Dimensions: []types.AnswerAggregateDimension{{Name: "origin", Value: string(types.AnswerEvidenceOriginRuntimeArtifact)}},
+		Members:    []string{"RenderThread-7", "worker-9"},
+		MemberNotes: []string{
+			"target frame lane",
+			"typed wakeup-chain predecessor",
+		},
+	}
+	if err := validateAggregateMemberSetSupportRefs(ctx, []types.AnswerAggregateFact{fact}, nil); err != nil {
+		t.Fatalf("runtime/trace responsibility roster should not require repo refs: %v", err)
+	}
+}
+
 // TestEmitInvestigationComplete_AcceptsDecoratedMemberSetWithSupportRefs
 // is the happy path: when the model attaches support_refs alongside
 // decorated members, the B gate is satisfied and the emit proceeds.

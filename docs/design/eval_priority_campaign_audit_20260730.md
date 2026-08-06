@@ -19149,3 +19149,49 @@ r82 的 `changes` 再次以合法 JSON-string carrier 发出，兼容层无损�
 不触碰 read/Trace/answer-document runtime、系统自动补齐或模型结论。
 
 状态：`EVAL-B166-PLANCONTRACT1=implemented/full-affected-suite-pass`；等待提交推送。
+
+### 123.77 B167 r83：read 图层职责证据漏口与 data reference 投影闭环
+
+在 `main@ef9d1af99` 重建后二并发执行异构 case：
+
+- `qf_diagram_pipeline`：124s，runner PASS / human FAIL；
+- `data_multifile_reference_projection`：163s，runner / human PASS。
+
+data case 的最终值为 `17,0,5`：reference 顺序是 GroupA/GroupX/GroupC，四条 contribution 中 GroupA 的 10+7 合为 17，GroupB=4 因不在
+reference 目标集被丢弃，GroupX 缺失补 0，GroupC=5。首轮 `assemble_answer` 缺少 typed `reference_path/reference_key_field` 后发生一次精确 repair，
+最终 4 contributions、9 rule coverage、10 decisions 和 answer reconciliation 均通过；没有 strict JSON decode、carrier remap 或 element repair。
+
+diagram case 的四阶段身份与 Mermaid 顺序正确，Finalizer 一轮成文且零 reject；但人审确认机器 oracle 漏掉了职责权威：Explorer 发出 4 个裸成员
+`StageAnalyze/StageExplore/StageExtract/StageFinalize` 和 4 条行为职责，却只有两个 `support_refs`，且引用只是 enum/type 身份声明，不足以证明四条
+行为。role normalizer 虽把它降为 `supporting_coverage`，其
+`demoted:mechanism_narrative_support_member_set` provenance 仍被 completion-boundary helper 明确允许关闭调查，最终上下文遂把未逐项证明的
+`member_notes` 交给 Finalizer。答案进一步把 `internal/analysis/dataflow/engine.go:Analyze` 说成 read-mode 流程入口；系统源码定位补充按既有策略核对
+可见路径，但无法替模型纠正职责语义，也不应接管结论。
+
+根因是现有 JSON schema 已要求 current-source mechanism comparison 的 `members/member_notes/support_refs` 按索引对齐，但 emit validator 只强制
+`<code identifier> (<qualifier>)` 形的 decorated member；裸符号绕过。因此立案
+`EVAL-B167-MEMBERNOTEAUTH1=P1/confirmed`。图后说明顺序偏差记
+`EVAL-B167-QFPRESENT1=P2/model-adherence-observation`，不增加答案原文扫描硬门。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b167_read_data_r83_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b167_read_data_r83_20260805_manual_audit.md`。
+
+### 123.78 B167-S1：current-source 职责 roster 的逐成员 typed 权威闭环
+
+本批让既有 JSON 教学与执行合同同源，不增加语言/type/case 特判：
+
+1. 对能够定义模型 completion boundary 的 current-source architecture/mechanism `member_set`，只要发出 `member_notes`，就必须满足
+   `len(members)==len(member_notes)==len(support_refs)`，且每个索引的 note/ref 非空；否则 Explorer 在交接处收到精确结构错误并补齐证据或整体省略
+   notes，未证明的职责不再静默进入 Finalizer；
+2. 判据只读取 `AnswerAggregateFact` 的 kind/role/provenance/member arrays 与统一 typed evidence origin，不扫描用户题面、Explorer reason 或最终答案；
+3. current-source 约束只在 origin 明确包含 `current_source` 时生效。runtime artifact、Trace、VCS、command measurement、外部文档/connector 等
+   origin-specific roster 保持既有豁免，所以显式时间窗 Trace 的因果投影、系统自动补齐、根因排序、唤醒链、窗内可消除量和两维根因均未触碰；
+4. JSON 教学改成单一路径：此类职责 roster 要么不发 `member_notes`，要么每个 member 同序发一条非空 note 与一条 grounded ref；删除原来
+   “无法解释可省略局部 entry”与 completion 对齐义务之间的心智冲突；
+5. 三条结构回归分别钉住 4 members/4 notes/2 refs 必须拒绝、4/4/4 必须通过、Trace/runtime 2 notes/0 repo refs 必须继续通过。既有 decorated
+   member 保护门保持不变。
+
+验证：定向三臂与既有 bare/decorated member 回归 PASS；完整 `go test ./internal/tool -count=1` 全绿（172.557s）。
+
+状态：`EVAL-B167-MEMBERNOTEAUTH1=implemented/full-tool-suite-pass/awaiting-exact2-replay`；
+`EVAL-B167-QFPRESENT1=observe-only`；模型结论所有权=`preserved`；raw prose hard gate=`absent`。
