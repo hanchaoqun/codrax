@@ -131,58 +131,71 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 
 func TestTraceDecisionHandoffCarriesExactOverlapBeforeModelConclusion(t *testing.T) {
 	inside := true
+	board := func(node types.TraceCausalProjectionNode) types.TraceCausalProjectionNode {
+		node.Object = "runnable_wait"
+		node.EffectiveImpactPublished = true
+		node.QueryWindowStartTs, node.QueryWindowEndTs = 10, 10.2
+		node.RankQueryWindowStartTs, node.RankQueryWindowEndTs = 10, 10.2
+		node.RankBoardTarget = "target-7"
+		node.RankBoardParamsFingerprint = "board-a"
+		return node
+	}
 	projection := types.TraceCausalProjection{
 		WindowStartTs: 10, WindowEndTs: 10.2,
 		RankedSeats: []types.TraceCausalProjectionNode{
-			{EvidenceID: "rank-1", Subject: "worker-a", Rank: 1, EffectiveImpactMS: 23.994,
+			board(types.TraceCausalProjectionNode{EvidenceID: "rank-1", Subject: "worker-a", Rank: 1, EffectiveImpactMS: 23.994,
 				FixDirection: "lock_priority", ChainRelevance: "on_chain",
-				StartTs: 10.010, EndTs: 10.110, WithinRequestedWindow: &inside},
-			{EvidenceID: "rank-2", Subject: "worker-b", Rank: 2, EffectiveImpactMS: 19.041,
+				StartTs: 10.010, EndTs: 10.110, WithinRequestedWindow: &inside}),
+			board(types.TraceCausalProjectionNode{EvidenceID: "rank-2", Subject: "worker-b", Rank: 2, EffectiveImpactMS: 19.041,
 				FixDirection: "lock_priority", ChainRelevance: "on_chain",
-				StartTs: 10.020, EndTs: 10.120, WithinRequestedWindow: &inside},
-			{EvidenceID: "rank-3", Subject: "worker-c", Rank: 3, EffectiveImpactMS: 7,
+				StartTs: 10.020, EndTs: 10.120, WithinRequestedWindow: &inside}),
+			board(types.TraceCausalProjectionNode{EvidenceID: "rank-3", Subject: "worker-c", Rank: 3, EffectiveImpactMS: 7,
 				FixDirection: "io_dependency", ChainRelevance: "on_chain",
-				StartTs: 10.030, EndTs: 10.090, WithinRequestedWindow: &inside},
-			{EvidenceID: "rank-4", Subject: "worker-d", Rank: 4, EffectiveImpactMS: 6,
+				StartTs: 10.030, EndTs: 10.090, WithinRequestedWindow: &inside}),
+			board(types.TraceCausalProjectionNode{EvidenceID: "rank-4", Subject: "worker-d", Rank: 4, EffectiveImpactMS: 6,
 				FixDirection: "lock_priority", ChainRelevance: "on_chain",
-				StartTs: 10.130, EndTs: 10.150, WithinRequestedWindow: &inside},
-			{EvidenceID: "rank-5", Subject: "worker-e", Rank: 5, EffectiveImpactMS: 5,
+				StartTs: 10.130, EndTs: 10.150, WithinRequestedWindow: &inside}),
+			board(types.TraceCausalProjectionNode{EvidenceID: "rank-5", Subject: "worker-e", Rank: 5, EffectiveImpactMS: 5,
 				FixDirection: "lock_priority", ChainRelevance: "adjacent",
-				StartTs: 10.030, EndTs: 10.080, WithinRequestedWindow: &inside},
+				StartTs: 10.030, EndTs: 10.080, WithinRequestedWindow: &inside}),
 		},
 	}
+	leftRef := types.TraceAnswerRelationMemberRef(projection.RankedSeats[0])
+	rightRef := types.TraceAnswerRelationMemberRef(projection.RankedSeats[1])
 	got := renderAnswerDocTraceDecisionHandoffSet(
 		types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}},
 		runtimeTraceGuidanceView{},
 	)
 	for _, want := range []string{
-		"axis_B_safe_aggregation_groups",
-		"member_refs=`rank-1,rank-2`",
-		"member_values=`rank-1:23.994ms,rank-2:19.041ms`",
+		"typed_relation_authority: authority_id=`trace:overlapping_members:",
+		fmt.Sprintf("member_refs=`%s,%s`", leftRef, rightRef),
+		fmt.Sprintf("member_values=`%s:23.994ms,%s:19.041ms`", leftRef, rightRef),
 		"fix_direction=`lock_priority`",
 		"chain_lane=`on_chain`",
 		"physical_relation=`overlap`",
 		"measured_envelope_overlap=90.000ms",
 		"members_independent=`false`",
 		"addition=`forbidden`",
-		"aggregation=`max_member_only_no_subtotal`",
+		"comparison_rule=`max_member_only_no_subtotal`",
 		"comparison_value=23.994ms",
-		"never publish their sum as a total or eliminable amount",
-		"do not choose the diagnosis",
+		"arithmetic_instruction=`preserve_each_member_but_never_publish_their_sum_as_a_total_or_eliminable_amount`",
+		fmt.Sprintf("relation_member_ref=`%s`", leftRef),
+		fmt.Sprintf("relation_member_ref=`%s`", rightRef),
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("typed pre-final overlap relation missing %q:\n%s", want, got)
 		}
 	}
-	if strings.Contains(got, "member_refs=`rank-1,rank-3`") || strings.Contains(got, "member_refs=`rank-2,rank-3`") {
+	authorityStart := strings.Index(got, "typed_relation_authority: authority_id=`trace:overlapping_members:")
+	authorityEnd := strings.Index(got[authorityStart:], "final_relation_claim_carrier:")
+	authoritySection := got[authorityStart : authorityStart+authorityEnd]
+	if strings.Contains(authoritySection, types.TraceAnswerRelationMemberRef(projection.RankedSeats[2])) ||
+		strings.Contains(authoritySection, types.TraceAnswerRelationMemberRef(projection.RankedSeats[3])) ||
+		strings.Contains(authoritySection, types.TraceAnswerRelationMemberRef(projection.RankedSeats[4])) {
 		t.Fatalf("cross-direction pair must not add prompt noise:\n%s", got)
 	}
-	if strings.Index(got, "axis_B_safe_aggregation_groups") > strings.Index(got, "axis_B_existing_rule_eliminable") {
-		t.Fatalf("safe aggregation group must precede the detailed seats:\n%s", got)
-	}
-	overlapSection := got[strings.Index(got, "axis_B_safe_aggregation_groups"):strings.Index(got, "axis_B_existing_rule_eliminable")]
-	if strings.Contains(overlapSection, "rank-4") || strings.Contains(overlapSection, "rank-5") {
-		t.Fatalf("disjoint or cross-lane pair must not mint an overlap relation:\n%s", got)
+	if strings.Index(got, "typed_relation_authority: authority_id=`trace:overlapping_members:") > strings.Index(got, "axis_B_existing_rule_eliminable") {
+		t.Fatalf("typed overlap authority must precede the detailed seats:\n%s", got)
 	}
 }
 

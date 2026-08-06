@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -160,11 +159,13 @@ func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCau
 
 		seats := traceDecisionEliminableSeats(projection, 8)
 		if len(seats) > 0 {
-			traceDecisionWriteEliminableOverlapRelations(&b, seats)
 			b.WriteString("- axis_B_existing_rule_eliminable (ordered typed seats; cross_row_additivity=`not_authorized_without_exact_pair_carrier`):\n")
 			for _, node := range seats {
 				fmt.Fprintf(&b, "  - rank=#%d; subject=`%s`; kind=`%s`; effective_attribution=%.3fms",
 					node.Rank, strings.TrimSpace(node.Subject), traceDecisionNodeKind(node), node.EffectiveImpactMS)
+				if relationRef := types.TraceAnswerRelationMemberRef(node); relationRef != "" {
+					fmt.Fprintf(&b, "; relation_member_ref=`%s`", relationRef)
+				}
 				if node.FixDirection != "" {
 					fmt.Fprintf(&b, "; fix_direction=`%s`", node.FixDirection)
 				}
@@ -209,71 +210,6 @@ func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCau
 		b.WriteString("\n")
 	}
 	return b.String()
-}
-
-// traceDecisionWriteEliminableOverlapRelations moves an exact arithmetic
-// boundary in front of final answer generation. It compares only the typed
-// seats already shown above and uses the same faithful-envelope overlap
-// predicate as the deterministic post-final eliminable board. Same direction
-// and same causal lane keep the carrier compact and decision-relevant; no
-// request, model prose, or final answer text participates. This is guidance,
-// never a hard gate or a system-authored conclusion.
-func traceDecisionWriteEliminableOverlapRelations(b *strings.Builder, seats []types.TraceCausalProjectionNode) {
-	if b == nil || len(seats) < 2 {
-		return
-	}
-	const limit = 6
-	type relation struct {
-		left, right string
-		direction   string
-		lane        string
-		overlapMS   float64
-		leftMS      float64
-		rightMS     float64
-		maxMS       float64
-	}
-	var relations []relation
-	for i := 0; i < len(seats) && len(relations) < limit; i++ {
-		left := seats[i]
-		leftID := strings.TrimSpace(left.EvidenceID)
-		direction := strings.TrimSpace(left.FixDirection)
-		lane := strings.TrimSpace(left.ChainRelevance)
-		if leftID == "" || direction == "" || lane == "" {
-			continue
-		}
-		if _, ok := tracefence.FixDirectionWord(direction, true); !ok {
-			continue
-		}
-		for j := i + 1; j < len(seats) && len(relations) < limit; j++ {
-			right := seats[j]
-			rightID := strings.TrimSpace(right.EvidenceID)
-			if rightID == "" || rightID == leftID ||
-				strings.TrimSpace(right.FixDirection) != direction ||
-				strings.TrimSpace(right.ChainRelevance) != lane {
-				continue
-			}
-			overlapMS, ok := types.TraceCausalProjectionFaithfulEnvelopeOverlapMS(left, right)
-			if !ok {
-				continue
-			}
-			relations = append(relations, relation{
-				left: leftID, right: rightID, direction: direction,
-				lane: lane, overlapMS: overlapMS,
-				leftMS: left.EffectiveImpactMS, rightMS: right.EffectiveImpactMS,
-				maxMS: math.Max(left.EffectiveImpactMS, right.EffectiveImpactMS),
-			})
-		}
-	}
-	if len(relations) == 0 {
-		return
-	}
-	b.WriteString("- axis_B_safe_aggregation_groups (read these compact typed arithmetic groups before the detailed seats; they constrain arithmetic only and do not choose the diagnosis):\n")
-	for _, relation := range relations {
-		fmt.Fprintf(b, "  - member_refs=`%s,%s`; member_values=`%s:%.3fms,%s:%.3fms`; fix_direction=`%s`; chain_lane=`%s`; physical_relation=`overlap`; measured_envelope_overlap=%.3fms; members_independent=`false`; addition=`forbidden`; aggregation=`max_member_only_no_subtotal`; comparison_value=%.3fms. Preserve both member values, but when summarizing or comparing this group use comparison_value; never publish their sum as a total or eliminable amount.\n",
-			relation.left, relation.right,
-			relation.left, relation.leftMS, relation.right, relation.rightMS,
-			relation.direction, relation.lane, relation.overlapMS, relation.maxMS)
-	}
 }
 
 // traceDecisionAggregateFact is a prompt-only carrier for an independently
@@ -415,12 +351,9 @@ func traceDecisionWriteRelationClaimHandoff(b *strings.Builder, set types.TraceC
 		return
 	}
 	authorities := types.CompileTraceAnswerRelationAuthorities(set)
-	requiredCount := 0
+	authorityCount := 0
 	for _, authority := range authorities {
-		if !authority.RequiredForClosure {
-			continue
-		}
-		requiredCount++
+		authorityCount++
 		members := authority.MemberRefs
 		if authority.Kind == types.AnswerRelationAuthorityCrossRulerBoundary {
 			members = append(append([]string(nil), authority.LeftMemberRefs...), authority.RightMemberRefs...)
@@ -430,9 +363,28 @@ func traceDecisionWriteRelationClaimHandoff(b *strings.Builder, set types.TraceC
 		if authority.SubtotalValue != nil {
 			fmt.Fprintf(b, "; subtotal_value=%.3f; subtotal_unit=`%s`", *authority.SubtotalValue, authority.SubtotalUnit)
 		}
+		if authority.Kind == types.AnswerRelationAuthorityOverlappingMembers &&
+			len(authority.MemberValuesMS) == len(members) {
+			valueParts := make([]string, 0, len(members))
+			for index, member := range members {
+				valueParts = append(valueParts, fmt.Sprintf("%s:%.3fms", member, authority.MemberValuesMS[index]))
+			}
+			fmt.Fprintf(b, "; member_values=`%s`; fix_direction=`%s`; chain_lane=`%s`; members_independent=`false`",
+				strings.Join(valueParts, ","), authority.FixDirection, authority.ChainLane)
+			if authority.MeasuredOverlapMS != nil {
+				fmt.Fprintf(b, "; measured_envelope_overlap=%.3fms", *authority.MeasuredOverlapMS)
+			}
+			if authority.ComparisonRule != "" {
+				fmt.Fprintf(b, "; comparison_rule=`%s`", authority.ComparisonRule)
+			}
+			if authority.ComparisonValueMS != nil {
+				fmt.Fprintf(b, "; comparison_value=%.3fms", *authority.ComparisonValueMS)
+			}
+			b.WriteString("; arithmetic_instruction=`preserve_each_member_but_never_publish_their_sum_as_a_total_or_eliminable_amount`")
+		}
 		b.WriteString(".\n")
 	}
-	if requiredCount > 0 {
+	if authorityCount > 0 {
 		b.WriteString("- final_relation_claim_carrier: the typed_relation_authority rows above are precise decision inputs, not a format-only copy obligation. Keep your visible relation explanation consistent. If you choose to publish structured relation metadata, place only the exact authority object on `blocks[i].relation_claims`, never at document-level `$.relation_claims`; submitted metadata is validated, but omitting this optional carrier does not trigger a retry. Deterministic checks never rewrite prose.\n")
 	}
 	if len(acceptedClaims) == 0 || len(acceptedClaims[0]) == 0 {
@@ -704,40 +656,7 @@ func traceDecisionActualOccupancyCandidates(projection types.TraceCausalProjecti
 }
 
 func traceDecisionEliminableSeats(projection types.TraceCausalProjection, limit int) []types.TraceCausalProjectionNode {
-	pool := append([]types.TraceCausalProjectionNode(nil), projection.RankedSeats...)
-	if len(pool) == 0 {
-		pool = append(pool, projection.PrimaryRootCauses...)
-		pool = append(pool, projection.OnChainCauses...)
-	}
-	seen := map[string]bool{}
-	out := make([]types.TraceCausalProjectionNode, 0, len(pool))
-	for _, node := range pool {
-		if node.Rank <= 0 || node.EffectiveImpactMS <= 0 || node.IsTargetSelfStateRow() ||
-			node.IsAggregateMetric() || node.OnChainOverflowFold ||
-			(node.WithinRequestedWindow != nil && !*node.WithinRequestedWindow) {
-			continue
-		}
-		key := fmt.Sprintf("%d\x00%s", node.Rank, traceDecisionNodeIdentity(node))
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		out = append(out, node)
-	}
-	out = traceDecisionPreferProjectionWindowNodes(projection, out)
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Rank != out[j].Rank {
-			return out[i].Rank < out[j].Rank
-		}
-		if out[i].EffectiveImpactMS != out[j].EffectiveImpactMS {
-			return out[i].EffectiveImpactMS > out[j].EffectiveImpactMS
-		}
-		return traceDecisionNodeIdentity(out[i]) < traceDecisionNodeIdentity(out[j])
-	})
-	if limit > 0 && len(out) > limit {
-		out = out[:limit]
-	}
-	return out
+	return types.TraceAnswerDecisionEliminableSeats(projection, limit)
 }
 
 // traceDecisionPreferProjectionWindowNodes prevents a local drilldown board

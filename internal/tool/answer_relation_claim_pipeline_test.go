@@ -317,3 +317,59 @@ func TestSameSourcePartitionAuthorityIDMatchesHeadAndLedger(t *testing.T) {
 		t.Fatalf("head/ledger same-source authority drifted: preview=%+v compiled=%+v records=%+v", pre, post, records)
 	}
 }
+
+func TestOverlappingMembersAuthorityMatchesHeadAndLedgerWithoutMandatoryJSON(t *testing.T) {
+	target := tracequery.ThreadRef{Comm: "target", PID: 7}
+	rank := &tracequery.RootCauseRankResult{
+		Target: target, Window: tracequery.TimeWindow{StartTs: 10, EndTs: 10.2}, BoardParamsFingerprint: "board-overlap",
+		Items: []tracequery.RootCauseRankItem{
+			{Rank: 1, Tier: "primary", Type: "runnable_wait", Thread: tracequery.ThreadRef{Comm: "worker-a", PID: 11},
+				StartTs: 10.010, EndTs: 10.110, LineStart: 10, LineEnd: 20,
+				ImpactMs: 23.9944, CumulativeImpactMs: 23.9944, EffectiveImpactMs: 23.9944, RunnableMs: 23.9944,
+				FixDirection: "lock_priority", ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
+			{Rank: 2, Tier: "secondary", Type: "runnable_wait", Thread: tracequery.ThreadRef{Comm: "worker-b", PID: 12},
+				StartTs: 10.020, EndTs: 10.120, LineStart: 30, LineEnd: 40,
+				ImpactMs: 19.0414, CumulativeImpactMs: 19.0414, EffectiveImpactMs: 19.0414, RunnableMs: 19.0414,
+				FixDirection: "lock_priority", ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
+		},
+	}
+	previewProjection := types.TraceCausalProjection{
+		WindowStartTs: 10, WindowEndTs: 10.2,
+		RankedSeats: traceQueryRelationAuthorityRankedSeats(rank),
+	}
+	previewAuthorities := types.CompileTraceAnswerRelationAuthorities(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{previewProjection}})
+	result := tracequery.Result{View: "root_cause_rank", TimeStart: 10, TimeEnd: 10.2, RootCauseRank: rank}
+	records := traceQueryTypedObservations(result, "customer.systrace", "payload", "raw", "", time.Unix(1, 0).UTC())
+	compiledAuthorities := types.CompileTraceAnswerRelationAuthoritiesFromLedger(types.ObservationLedger{Records: records})
+	find := func(authorities []types.AnswerRelationAuthority) *types.AnswerRelationAuthority {
+		for index := range authorities {
+			if authorities[index].Kind == types.AnswerRelationAuthorityOverlappingMembers {
+				return &authorities[index]
+			}
+		}
+		return nil
+	}
+	pre, post := find(previewAuthorities), find(compiledAuthorities)
+	if pre == nil || post == nil || pre.ID != post.ID || !types.AnswerRelationClaimsEqual(
+		[]types.AnswerRelationClaim{{AuthorityID: pre.ID, MemberRefs: pre.MemberRefs, PhysicalRelation: pre.PhysicalRelation, Addition: pre.Addition}},
+		[]types.AnswerRelationClaim{{AuthorityID: post.ID, MemberRefs: post.MemberRefs, PhysicalRelation: post.PhysicalRelation, Addition: post.Addition}},
+	) {
+		t.Fatalf("head/ledger overlap authority drifted: preview=%+v compiled=%+v records=%+v", pre, post, records)
+	}
+	if pre.RequiredForClosure || pre.MeasuredOverlapMS == nil || *pre.MeasuredOverlapMS != 90 ||
+		pre.ComparisonValueMS == nil || *pre.ComparisonValueMS != 23.994 {
+		t.Fatalf("overlap calibration/optionality drifted: %+v", pre)
+	}
+	summary := traceQuerySummary(result, traceQueryParams{View: result.View}, "customer.systrace", "/tmp/result.json")
+	for _, want := range []string{
+		"relation_claim_available authority_id=trace:overlapping_members:",
+		"physical_relation=overlap addition=forbidden",
+		"members_independent=false measured_envelope_overlap=90.000ms",
+		"comparison_rule=max_member_only_no_subtotal comparison_value=23.994ms",
+		"model_copy_policy=optional_if_used carrier=emit_investigation_complete.relation_claims",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("overlap relation preview missing %q:\n%s", want, summary)
+		}
+	}
+}

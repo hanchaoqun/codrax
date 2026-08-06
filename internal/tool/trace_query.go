@@ -7998,7 +7998,10 @@ func writeTraceRootCauseRelationAuthorityPreview(b *strings.Builder, result trac
 	b.WriteString("- rank_row_state_breakdown scope=this_row_only cross_row_containment=unproven_without_exact_pair_carrier cross_row_overlap=unproven_without_exact_pair_carrier\n")
 	b.WriteString("- fix_direction role=repair_classification_only same_direction_addition=not_authorized_without_exact_typed_subtotal\n")
 
-	projection := types.TraceCausalProjection{}
+	projection := types.TraceCausalProjection{
+		WindowStartTs: rank.Window.StartTs,
+		WindowEndTs:   rank.Window.EndTs,
+	}
 	if record, ok := traceQuerySelfRunnableTwoRulerAuthority(rank); ok {
 		fmt.Fprintf(b, "- self_runnable_two_ruler subject=%s self_wall_clock_seats=%s self_wall_clock_subtotal=%.3fms wakeup_edge_seats=%s wakeup_edge_subtotal=%.3fms same_ruler_addition=authorized_to_published_subtotal cross_ruler_addition=forbidden cross_ruler_physical_relation=unresolved\n",
 			sanitizeForBanner(record.Subject), traceQueryRelationRulerSeats(record.WallRanks, record.WallEffsMS), record.WallSubtotalMS,
@@ -8015,20 +8018,35 @@ func writeTraceRootCauseRelationAuthorityPreview(b *strings.Builder, result trac
 	}
 	projection.RankedSeats = traceQueryRelationAuthorityRankedSeats(rank)
 	for _, authority := range types.CompileTraceAnswerRelationAuthorities(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}}) {
-		if !authority.RequiredForClosure {
-			continue
-		}
 		members := authority.MemberRefs
 		if authority.Kind == types.AnswerRelationAuthorityCrossRulerBoundary {
 			members = append(append([]string(nil), authority.LeftMemberRefs...), authority.RightMemberRefs...)
 		}
-		fmt.Fprintf(b, "- relation_claim_required authority_id=%s member_refs=%s physical_relation=%s addition=%s",
+		fmt.Fprintf(b, "- relation_claim_available authority_id=%s member_refs=%s physical_relation=%s addition=%s",
 			sanitizeForBanner(authority.ID), sanitizeForBanner(strings.Join(members, ",")),
 			sanitizeForBanner(authority.PhysicalRelation), sanitizeForBanner(authority.Addition))
 		if authority.SubtotalValue != nil {
 			fmt.Fprintf(b, " subtotal_value=%.3f subtotal_unit=%s", *authority.SubtotalValue, sanitizeForBanner(authority.SubtotalUnit))
 		}
-		b.WriteString(" model_must_copy_to=emit_investigation_complete.relation_claims\n")
+		if authority.Kind == types.AnswerRelationAuthorityOverlappingMembers &&
+			len(authority.MemberValuesMS) == len(members) {
+			parts := make([]string, 0, len(members))
+			for index, member := range members {
+				parts = append(parts, fmt.Sprintf("%s:%.3fms", member, authority.MemberValuesMS[index]))
+			}
+			fmt.Fprintf(b, " member_values=%s fix_direction=%s chain_lane=%s members_independent=false",
+				sanitizeForBanner(strings.Join(parts, ",")), sanitizeForBanner(authority.FixDirection), sanitizeForBanner(authority.ChainLane))
+			if authority.MeasuredOverlapMS != nil {
+				fmt.Fprintf(b, " measured_envelope_overlap=%.3fms", *authority.MeasuredOverlapMS)
+			}
+			if authority.ComparisonRule != "" {
+				fmt.Fprintf(b, " comparison_rule=%s", sanitizeForBanner(authority.ComparisonRule))
+			}
+			if authority.ComparisonValueMS != nil {
+				fmt.Fprintf(b, " comparison_value=%.3fms", *authority.ComparisonValueMS)
+			}
+		}
+		b.WriteString(" model_copy_policy=optional_if_used carrier=emit_investigation_complete.relation_claims\n")
 	}
 
 	account := traceQueryTargetWindowStatesAccount(result)
@@ -8055,19 +8073,24 @@ func traceQueryRelationAuthorityRankedSeats(rank *tracequery.RootCauseRankResult
 	}
 	out := make([]types.TraceCausalProjectionNode, 0, len(rank.Items))
 	for _, item := range rank.Items {
-		if item.Rank <= 0 || item.ChainAnchorFullMs <= 0 {
+		if item.Rank <= 0 {
 			continue
 		}
 		out = append(out, types.TraceCausalProjectionNode{
-			Subject:   strings.TrimSpace(traceThreadLabel(item.Thread)),
-			Object:    strings.TrimSpace(item.Type),
-			LineStart: item.LineStart, LineEnd: item.LineEnd,
+			Subject:     strings.TrimSpace(traceThreadLabel(item.Thread)),
+			Object:      strings.TrimSpace(item.Type),
+			StateKind:   strings.TrimSpace(item.DominantState),
+			SubjectKind: strings.TrimSpace(item.SubjectKind),
+			LineStart:   item.LineStart, LineEnd: item.LineEnd,
 			Rank: item.Rank, ChainRelevance: strings.TrimSpace(item.ChainRelevance),
 			EffectiveImpactMS: traceQueryRootCauseEffectiveImpact(item), EffectiveImpactPublished: true,
+			FixDirection: item.FixDirection,
+			StartTs:      item.StartTs, EndTs: item.EndTs,
 			ChainAnchoredMS: item.ChainAnchoredMs, ChainAnchorFullMS: item.ChainAnchorFullMs,
 			ChainAnchorRemainderSeat:      item.ChainAnchorRemainderSeat,
 			ChainAnchorOwnershipDivergent: item.ChainAnchorOwnershipDivergent,
 			QueryWindowStartTs:            rank.Window.StartTs, QueryWindowEndTs: rank.Window.EndTs,
+			RankQueryWindowStartTs: rank.Window.StartTs, RankQueryWindowEndTs: rank.Window.EndTs,
 			RankBoardTarget:            traceThreadLabelOptional(rank.Target),
 			RankBoardParamsFingerprint: strings.TrimSpace(rank.BoardParamsFingerprint),
 		})

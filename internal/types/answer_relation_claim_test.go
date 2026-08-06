@@ -277,3 +277,107 @@ func TestTraceSameSourcePartitionRequiresExactVisibleTypedPair(t *testing.T) {
 		})
 	}
 }
+
+func TestTraceOverlappingMembersCompileOneTypedOptionalBoundary(t *testing.T) {
+	inside := true
+	base := TraceCausalProjectionNode{
+		Object: "runnable_wait", EffectiveImpactPublished: true,
+		FixDirection: "lock_priority", ChainRelevance: "on_chain",
+		QueryWindowStartTs: 10, QueryWindowEndTs: 10.2,
+		RankQueryWindowStartTs: 10, RankQueryWindowEndTs: 10.2,
+		RankBoardTarget: "target-7", RankBoardParamsFingerprint: "board-a",
+		WithinRequestedWindow: &inside,
+	}
+	left := base
+	left.Rank, left.Subject, left.EffectiveImpactMS = 1, "worker-a-11", 23.9944
+	left.StartTs, left.EndTs, left.LineStart, left.LineEnd = 10.010, 10.110, 10, 20
+	right := base
+	right.Rank, right.Subject, right.EffectiveImpactMS = 2, "worker-b-12", 19.0414
+	right.StartTs, right.EndTs, right.LineStart, right.LineEnd = 10.020, 10.120, 30, 40
+	differentDirection := base
+	differentDirection.Rank, differentDirection.Subject, differentDirection.EffectiveImpactMS = 3, "worker-c-13", 7
+	differentDirection.StartTs, differentDirection.EndTs = 10.030, 10.090
+	differentDirection.FixDirection = "io_dependency"
+	disjoint := base
+	disjoint.Rank, disjoint.Subject, disjoint.EffectiveImpactMS = 4, "worker-d-14", 6
+	disjoint.StartTs, disjoint.EndTs = 10.130, 10.150
+	differentLane := base
+	differentLane.Rank, differentLane.Subject, differentLane.EffectiveImpactMS = 5, "worker-e-15", 5
+	differentLane.StartTs, differentLane.EndTs = 10.030, 10.080
+	differentLane.ChainRelevance = "adjacent"
+
+	projection := TraceCausalProjection{
+		WindowStartTs: 10, WindowEndTs: 10.2,
+		RankedSeats: []TraceCausalProjectionNode{left, right, differentDirection, disjoint, differentLane},
+	}
+	authorities := CompileTraceAnswerRelationAuthorities(TraceCausalProjectionSet{Projections: []TraceCausalProjection{projection}})
+	var got []AnswerRelationAuthority
+	for _, authority := range authorities {
+		if authority.Kind == AnswerRelationAuthorityOverlappingMembers {
+			got = append(got, authority)
+		}
+	}
+	if len(got) != 1 {
+		t.Fatalf("overlap authorities=%d, want 1: %+v", len(got), got)
+	}
+	authority := got[0]
+	if authority.RequiredForClosure || authority.PhysicalRelation != AnswerPhysicalRelationOverlap ||
+		authority.Addition != AnswerRelationAdditionForbidden || len(authority.MemberRefs) != 2 ||
+		len(authority.MemberValuesMS) != 2 || authority.MemberValuesMS[0] != 23.994 || authority.MemberValuesMS[1] != 19.041 ||
+		authority.MeasuredOverlapMS == nil || *authority.MeasuredOverlapMS != 90 ||
+		authority.ComparisonValueMS == nil || *authority.ComparisonValueMS != 23.994 ||
+		authority.ComparisonRule != "max_member_only_no_subtotal" ||
+		authority.FixDirection != "lock_priority" || authority.ChainLane != "on_chain" {
+		t.Fatalf("overlap authority drifted: %+v", authority)
+	}
+	claim := AnswerRelationClaim{
+		AuthorityID: authority.ID, MemberRefs: append([]string(nil), authority.MemberRefs...),
+		PhysicalRelation: authority.PhysicalRelation, Addition: authority.Addition,
+	}
+	if err := ValidateAnswerRelationClaims([]AnswerRelationClaim{claim}, authorities, false); err != nil {
+		t.Fatalf("exact optional overlap claim rejected: %v", err)
+	}
+	claim.Addition = AnswerRelationAdditionAuthorized
+	if err := ValidateAnswerRelationClaims([]AnswerRelationClaim{claim}, authorities, false); err == nil {
+		t.Fatal("overlap addition drift was accepted")
+	}
+	if err := ValidateAnswerRelationClaims(nil, authorities, false); err != nil {
+		t.Fatalf("omitted optional overlap JSON must not trigger a format retry: %v", err)
+	}
+}
+
+func TestTraceOverlappingMembersFailClosedWithoutExactPairIdentity(t *testing.T) {
+	base := TraceCausalProjectionNode{
+		Object: "runnable_wait", Rank: 1, Subject: "worker-a-11",
+		EffectiveImpactMS: 10, EffectiveImpactPublished: true,
+		FixDirection: "lock_priority", ChainRelevance: "on_chain",
+		StartTs: 10.010, EndTs: 10.110,
+		QueryWindowStartTs: 10, QueryWindowEndTs: 10.2,
+		RankQueryWindowStartTs: 10, RankQueryWindowEndTs: 10.2,
+		RankBoardTarget: "target-7", RankBoardParamsFingerprint: "board-a",
+	}
+	peer := base
+	peer.Rank, peer.Subject, peer.StartTs, peer.EndTs = 2, "worker-b-12", 10.020, 10.120
+	for name, mutate := range map[string]func(*TraceCausalProjectionNode){
+		"missing board params": func(node *TraceCausalProjectionNode) { node.RankBoardParamsFingerprint = "" },
+		"different board":      func(node *TraceCausalProjectionNode) { node.RankBoardParamsFingerprint = "board-b" },
+		"missing direction":    func(node *TraceCausalProjectionNode) { node.FixDirection = "" },
+		"different lane":       func(node *TraceCausalProjectionNode) { node.ChainRelevance = "adjacent" },
+		"touch only":           func(node *TraceCausalProjectionNode) { node.StartTs, node.EndTs = 10.110, 10.120 },
+		"merged envelope":      func(node *TraceCausalProjectionNode) { node.MergedCount = 2 },
+		"unpublished value":    func(node *TraceCausalProjectionNode) { node.EffectiveImpactPublished = false },
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := peer
+			mutate(&candidate)
+			got := CompileTraceAnswerRelationAuthorities(TraceCausalProjectionSet{Projections: []TraceCausalProjection{{
+				WindowStartTs: 10, WindowEndTs: 10.2, RankedSeats: []TraceCausalProjectionNode{base, candidate},
+			}}})
+			for _, authority := range got {
+				if authority.Kind == AnswerRelationAuthorityOverlappingMembers {
+					t.Fatalf("inexact pair minted overlap authority: %+v", authority)
+				}
+			}
+		})
+	}
+}

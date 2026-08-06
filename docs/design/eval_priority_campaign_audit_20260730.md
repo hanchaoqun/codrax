@@ -20229,3 +20229,39 @@ compat；若通用层把顶层 singleton blocks/replace_blocks/add_blocks 扩成
 本批只对齐模型可见 JSON/关系教学及无损兼容顺序；未新增 prose hard gate、未系统改写答案，也未触碰显式时间窗 Trace 因果投影、自动补齐、根因排序、唤醒链、窗内可消除量或双轴判断。
 下一步提交推送后重建，继续恰好两个异构 eval；一席复放 architecture 验证 reject 是否消失，另一席选择非图表 read/write/data 维度，避免只拟合单案。Trace 的
 `TRACEREVIEW1` 先完成现有 semantic-quality 架构审计再施工。
+
+### 123.120 B179-S2：Trace 重叠席进入统一 relation authority；JSON carrier 教学去矛盾
+
+`EVAL-B178-TRACEREVIEW1` 深审后不启用现有全局 semantic-quality/self-consistency reviewer。前者只检查 facet/topic 完整性，不检查 typed 关系；后者默认关闭且只比较模型自己的
+summary/body，r97 又只有一个 summary block，既会跳过，也不应把系统附加的 Trace 投影误当成模型正文。全局开启只会增加一次模型调用、时延与波动，仍不能解决本案。因此最优方案不是新增
+prose reviewer，更不是扫描“合计/独立/43.035”等模型文字做硬门，而是把已经精确成立的关系纳入既有 model-authored relation 数据流。
+
+根因确认：r97 探索阶段只提交并被接受了 `target_state_partition`；23.994ms 与 19.041ms 的重叠关系仅存在于 agent 私有的
+`axis_B_safe_aggregation_groups` prompt 行，不属于 `AnswerRelationAuthority`，所以查询预览、探索闭环、finalizer authority 三面并非同一结构源。连续三轮加显著性仍被模型忽略，继续堆提示句
+没有 ROI。
+
+本批新增 `overlapping_members` authority，准入只读 typed 字段：双方必须是 finalizer 实际可见的前 8 个正有效 rank 席、同一完整 rank-board 三元组（target、params fingerprint、
+query window）、同一非空 fix direction、同一 causal lane、不同 rank，并且双方的非 merged 忠实 `StartTs/EndTs` 包络存在大于 0.001ms 的实测交集。缺 board、缺方向/车道、跨 board、
+同 rank、跨方向/车道、端点仅相接、merged 包络、未发布 effective 值全部 fail-closed。每席得到由 board/rank/subject/type/window/value/direction/lane/lines 铸造的短
+`#rank@hash` relation ref；authority 同行携带两个 3 位发布值、实测 overlap、`addition=forbidden`、`members_independent=false`、
+`comparison_rule=max_member_only_no_subtotal` 与 comparison value。它只约束算术，绝不选择根因或改写模型结论。
+
+axis-B seat 选择也移到 types 单源，relation compiler 与 finalizer roster 共用同一个 window preference、去重、排序及 cap，禁止 authority 指向模型看不到的第 9 席。旧的 agent
+`traceDecisionWriteEliminableOverlapRelations` 与 `tracefence` 二次方向表依赖已删除；查询 head preview 和 finalizer 现在都从
+`CompileTraceAnswerRelationAuthorities` 渲染同一 authority，详细席位用 `relation_member_ref` 精确回指。模型若愿意可把四字段 relation claim 作为自己的结构化声明提交，错误声明继续 exact
+reject；省略则不产生格式重试，系统也不会据此接管结论。
+
+同批发现并修复一处明确 JSON 教学矛盾：生产 completion validator 与 canonical answer schema 都规定 `relation_claims` 可省略，旧 trace head 却输出
+`relation_claim_required ... model_must_copy_to=...`。现改为 `relation_claim_available ... model_copy_policy=optional_if_used`，并加负 pin 禁止旧 mandatory 字样回归。这样减少模型
+JSON 复制负担，同时保留“提交即严格校验”的安全边界。
+
+定向回归覆盖 r97 同构重叠 pair、跨方向/车道/board、同 rank、相接、merged、未发布值、head↔ledger authority ID/claim parity、optional omission 与 wrong-addition reject；
+完整 `go test ./internal/types ./internal/agent ./internal/tool -count=1` 全绿（types 23.829s、agent 3.632s、tool 172.696s）。
+
+状态：`EVAL-B178-TRACEREVIEW1=implemented/as-typed-relation-authority/no-prose-reviewer`；
+`EVAL-B179-RELJSON1=implemented/optional-teaching-aligned`。另在 JSON 合同横扫中确认 `emit_investigation_complete.aggregate_facts[].value` 的 prose 允许
+member_set/grouped_count/bucket_count 从完整 members 推导，但 schema `required` 仍无条件要求 value；记为 `EVAL-B179-AGGJSON1=P1/confirmed-contract-conflict`，下一独立小批修复，
+不与本 Trace 值通道混成一次提交。
+
+显式时间窗、Trace 因果投影、系统补齐、根因排序、唤醒链、窗内可消除量、实际占时/现规则可消除双轴均保留；没有读取用户、模型或最终答案 prose 作硬门，没有系统新增、删除、替换或
+加冕模型结论。

@@ -47,6 +47,7 @@ const (
 	AnswerRelationAuthorityCrossRulerBoundary  AnswerRelationAuthorityKind = "cross_ruler_boundary"
 	AnswerRelationAuthorityClosedPartition     AnswerRelationAuthorityKind = "closed_partition"
 	AnswerRelationAuthoritySameSourcePartition AnswerRelationAuthorityKind = "same_source_partition"
+	AnswerRelationAuthorityOverlappingMembers  AnswerRelationAuthorityKind = "overlapping_members"
 )
 
 // AnswerRelationAuthority is system-owned typed input to the model and exact
@@ -64,6 +65,17 @@ type AnswerRelationAuthority struct {
 	SubtotalValue      *float64
 	SubtotalUnit       string
 	RequiredForClosure bool
+	// The fields below calibrate non-additive overlap authorities for the
+	// reasoning model. They are typed system inputs, not part of the optional
+	// model-authored AnswerRelationClaim carrier: the claim acknowledges the
+	// exact pair/relation/addition rule while these values keep the comparison
+	// arithmetic out of prose and out of JSON copying work.
+	MemberValuesMS    []float64
+	MeasuredOverlapMS *float64
+	ComparisonValueMS *float64
+	ComparisonRule    string
+	FixDirection      string
+	ChainLane         string
 }
 
 // CompileTraceAnswerRelationAuthorities projects only already-validated trace
@@ -116,8 +128,194 @@ func CompileTraceAnswerRelationAuthorities(set TraceCausalProjectionSet) []Answe
 			})
 		}
 		out = append(out, answerRelationSameSourcePartitionAuthorities(projection)...)
+		out = append(out, answerRelationOverlappingMemberAuthorities(projection, 8, 6)...)
 	}
 	return out
+}
+
+// answerRelationOverlappingMemberAuthorities compiles a bounded exact
+// non-additivity relation for ranked eliminable seats whose faithful typed
+// envelopes overlap. This is relation metadata only: it neither changes rank
+// nor chooses a diagnosis. Pair admission uses no request/model prose and no
+// similarity heuristic:
+//   - both rows are positive published rank seats from one exact rank board;
+//   - both carry the same non-empty engine fix direction and causal lane;
+//   - both expose distinct stable member identities and faithful unmerged
+//     timestamp envelopes with a positive measured intersection.
+//
+// The member comparison is max-only because the shared wall clock makes a
+// sum unsafe. This is deliberately optional model metadata
+// (RequiredForClosure=false): the typed authority is always available to the
+// reasoning model, while omitting a JSON copy never creates a format retry.
+func answerRelationOverlappingMemberAuthorities(projection TraceCausalProjection, seatLimit, relationLimit int) []AnswerRelationAuthority {
+	seats := TraceAnswerDecisionEliminableSeats(projection, seatLimit)
+	if len(seats) < 2 || relationLimit == 0 {
+		return nil
+	}
+	var out []AnswerRelationAuthority
+	for i := 0; i < len(seats); i++ {
+		left := seats[i]
+		leftDirection := strings.TrimSpace(left.FixDirection)
+		leftLane := strings.TrimSpace(left.ChainRelevance)
+		leftBoard, leftBoardKnown := answerRelationRankBoardIdentity(left)
+		leftRef := answerRelationRankSeatMemberRef(left)
+		if !left.EffectiveImpactPublished || leftDirection == "" || leftLane == "" || !leftBoardKnown || leftRef == "" {
+			continue
+		}
+		for j := i + 1; j < len(seats); j++ {
+			right := seats[j]
+			rightRef := answerRelationRankSeatMemberRef(right)
+			rightBoard, rightBoardKnown := answerRelationRankBoardIdentity(right)
+			if !right.EffectiveImpactPublished || right.Rank == left.Rank || rightRef == "" || rightRef == leftRef ||
+				!rightBoardKnown || rightBoard != leftBoard ||
+				strings.TrimSpace(right.FixDirection) != leftDirection ||
+				strings.TrimSpace(right.ChainRelevance) != leftLane {
+				continue
+			}
+			overlapMS, ok := TraceCausalProjectionFaithfulEnvelopeOverlapMS(left, right)
+			if !ok {
+				continue
+			}
+			leftMS := answerRelationPublishedMS(left.EffectiveImpactMS)
+			rightMS := answerRelationPublishedMS(right.EffectiveImpactMS)
+			comparisonMS := math.Max(leftMS, rightMS)
+			overlapMS = answerRelationPublishedMS(overlapMS)
+			memberRefs := []string{leftRef, rightRef}
+			memberValues := []float64{leftMS, rightMS}
+			out = append(out, AnswerRelationAuthority{
+				ID:                 "trace:overlapping_members:" + answerRelationOverlapFingerprint(memberRefs, memberValues, overlapMS),
+				Kind:               AnswerRelationAuthorityOverlappingMembers,
+				MemberRefs:         memberRefs,
+				PhysicalRelation:   AnswerPhysicalRelationOverlap,
+				Addition:           AnswerRelationAdditionForbidden,
+				RequiredForClosure: false,
+				MemberValuesMS:     memberValues,
+				MeasuredOverlapMS:  answerRelationFloatPointer(overlapMS),
+				ComparisonValueMS:  answerRelationFloatPointer(comparisonMS),
+				ComparisonRule:     "max_member_only_no_subtotal",
+				FixDirection:       leftDirection,
+				ChainLane:          leftLane,
+			})
+			if relationLimit > 0 && len(out) >= relationLimit {
+				return out
+			}
+		}
+	}
+	return out
+}
+
+// TraceAnswerDecisionEliminableSeats is the single bounded seat selection for
+// both typed relation compilation and the finalizer's axis-B roster. Keeping
+// one selector prevents a relation authority from naming a seat that the
+// model cannot see after window preference or the display cap.
+func TraceAnswerDecisionEliminableSeats(projection TraceCausalProjection, limit int) []TraceCausalProjectionNode {
+	pool := append([]TraceCausalProjectionNode(nil), projection.RankedSeats...)
+	if len(pool) == 0 {
+		pool = append(pool, projection.PrimaryRootCauses...)
+		pool = append(pool, projection.OnChainCauses...)
+	}
+	seats := make([]TraceCausalProjectionNode, 0, len(pool))
+	seen := map[string]bool{}
+	for _, node := range pool {
+		if node.Rank <= 0 || node.EffectiveImpactMS <= 0 ||
+			node.IsTargetSelfStateRow() || node.IsAggregateMetric() || node.OnChainOverflowFold ||
+			(node.WithinRequestedWindow != nil && !*node.WithinRequestedWindow) {
+			continue
+		}
+		identity := fmt.Sprintf("%d\x00%s", node.Rank, traceAnswerDecisionNodeIdentity(node))
+		if seen[identity] {
+			continue
+		}
+		seen[identity] = true
+		seats = append(seats, node)
+	}
+	if TraceCausalProjectionWindowPresent(projection.WindowStartTs, projection.WindowEndTs) {
+		matching := make([]TraceCausalProjectionNode, 0, len(seats))
+		for _, node := range seats {
+			start, end := node.RankQueryWindowStartTs, node.RankQueryWindowEndTs
+			if !TraceCausalProjectionWindowPresent(start, end) {
+				start, end = node.QueryWindowStartTs, node.QueryWindowEndTs
+			}
+			if TraceCausalProjectionWindowPresent(start, end) &&
+				math.Abs(start-projection.WindowStartTs) <= TraceCausalProjectionSameWindowToleranceS &&
+				math.Abs(end-projection.WindowEndTs) <= TraceCausalProjectionSameWindowToleranceS {
+				matching = append(matching, node)
+			}
+		}
+		if len(matching) > 0 {
+			seats = matching
+		}
+	}
+	sort.SliceStable(seats, func(i, j int) bool {
+		if seats[i].Rank != seats[j].Rank {
+			return seats[i].Rank < seats[j].Rank
+		}
+		if seats[i].EffectiveImpactMS != seats[j].EffectiveImpactMS {
+			return seats[i].EffectiveImpactMS > seats[j].EffectiveImpactMS
+		}
+		return traceAnswerDecisionNodeIdentity(seats[i]) < traceAnswerDecisionNodeIdentity(seats[j])
+	})
+	if limit > 0 && len(seats) > limit {
+		seats = seats[:limit]
+	}
+	return seats
+}
+
+func traceAnswerDecisionNodeIdentity(node TraceCausalProjectionNode) string {
+	if id := strings.TrimSpace(node.EvidenceID); id != "" {
+		return id
+	}
+	return fmt.Sprintf("%s\x00%s\x00%s\x00%.6f\x00%.6f\x00%.6f",
+		strings.TrimSpace(node.Subject), strings.TrimSpace(node.Predicate),
+		strings.TrimSpace(node.Object), node.ImpactMS, node.StartTs, node.EndTs)
+}
+
+func answerRelationRankSeatMemberRef(node TraceCausalProjectionNode) string {
+	board, boardKnown := answerRelationRankBoardIdentity(node)
+	if node.Rank <= 0 || !node.EffectiveImpactPublished || !boardKnown || strings.TrimSpace(node.Subject) == "" ||
+		strings.TrimSpace(node.Object) == "" || node.EffectiveImpactMS <= 0 ||
+		strings.TrimSpace(node.FixDirection) == "" || strings.TrimSpace(node.ChainRelevance) == "" {
+		return ""
+	}
+	raw := fmt.Sprintf("%s|#%d|%s|%s|%.6f..%.6f|%.3f|%s|%s|%d..%d",
+		board, node.Rank,
+		traceCausalProjectionCanonicalNode(node.Subject), strings.TrimSpace(node.Object),
+		node.StartTs, node.EndTs, answerRelationPublishedMS(node.EffectiveImpactMS),
+		strings.TrimSpace(node.FixDirection), strings.TrimSpace(node.ChainRelevance),
+		node.LineStart, node.LineEnd)
+	sum := sha256.Sum256([]byte(raw))
+	return fmt.Sprintf("#%d@%x", node.Rank, sum[:4])
+}
+
+// TraceAnswerRelationMemberRef returns the stable compact relation identity
+// for one exact ranked seat. It is empty when the seat lacks the complete
+// typed board/value/relation identity needed by relation authorities.
+func TraceAnswerRelationMemberRef(node TraceCausalProjectionNode) string {
+	return answerRelationRankSeatMemberRef(node)
+}
+
+func answerRelationRankBoardIdentity(node TraceCausalProjectionNode) (string, bool) {
+	start, end := node.RankQueryWindowStartTs, node.RankQueryWindowEndTs
+	if !TraceCausalProjectionWindowPresent(start, end) {
+		start, end = node.QueryWindowStartTs, node.QueryWindowEndTs
+	}
+	target := strings.TrimSpace(node.RankBoardTarget)
+	params := strings.TrimSpace(node.RankBoardParamsFingerprint)
+	if target == "" || params == "" || !TraceCausalProjectionWindowPresent(start, end) {
+		return "", false
+	}
+	return fmt.Sprintf("%s\x00%s\x00%.6f\x00%.6f", target, params, start, end), true
+}
+
+func answerRelationOverlapFingerprint(memberRefs []string, memberValues []float64, overlapMS float64) string {
+	raw := fmt.Sprintf("%s|%.3f,%.3f|overlap=%.3f",
+		strings.Join(memberRefs, ","), memberValues[0], memberValues[1], overlapMS)
+	sum := sha256.Sum256([]byte(raw))
+	return fmt.Sprintf("%x", sum[:8])
+}
+
+func answerRelationFloatPointer(value float64) *float64 {
+	return &value
 }
 
 // answerRelationSameSourcePartitionAuthorities compiles the engine-minted
