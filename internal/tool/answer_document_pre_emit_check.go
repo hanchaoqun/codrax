@@ -1905,7 +1905,10 @@ func normalizeItemCitationRefsBySourceInventoryRowIDWithContext(doc *types.Answe
 }
 
 func preEmitSourceInventoryRowsByID(ctx *types.BusContext) map[string]types.EnumerationDisplayRow {
-	sets := preEmitSourceInventoryTypedPrincipalSets(ctx)
+	return preEmitSourceInventoryRowsByIDFromSets(preEmitSourceInventoryTypedPrincipalSets(ctx))
+}
+
+func preEmitSourceInventoryRowsByIDFromSets(sets []types.EnumerationDisplaySet) map[string]types.EnumerationDisplayRow {
 	out := map[string]types.EnumerationDisplayRow{}
 	ambiguous := map[string]bool{}
 	for _, set := range sets {
@@ -1925,13 +1928,56 @@ func preEmitSourceInventoryRowsByID(ctx *types.BusContext) map[string]types.Enum
 	return out
 }
 
-// preEmitSourceInventoryTypedPrincipalSets deliberately rebuilds the display
-// rows from the typed SourceInventoryObservation rather than from accepted
-// model aggregate partitions. Exact model partitions are allowed to remain
-// separate, so using only the ordinary answer surface plan can otherwise lose
-// the one synthetic global roster needed to disambiguate equal labels across
-// those partitions.
+// preEmitSourceInventoryTypedPrincipalSets keeps the exact row IDs shown to the
+// finalizer and the synthetic global roster in one registry. Prompt rows are
+// admitted only when their typed source location/family equals a row in the
+// synthetic roster; model labels and prose cannot mint aliases. The synthetic
+// set remains present to disambiguate equal labels across accepted partitions.
 func preEmitSourceInventoryTypedPrincipalSets(ctx *types.BusContext) []types.EnumerationDisplaySet {
+	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	canonical := preEmitSourceInventoryCanonicalPrincipalSets(ctx)
+	if len(canonical) == 0 {
+		return nil
+	}
+	canonicalKeys := map[string]bool{}
+	for _, set := range canonical {
+		for _, row := range set.Rows {
+			if key := preEmitSourceInventoryRowAliasIdentityKey(row); key != "" {
+				canonicalKeys[key] = true
+			}
+		}
+	}
+	var out []types.EnumerationDisplaySet
+	if plan := answerSurfacePlan(ctx); plan != nil {
+		for _, set := range types.CompileEnumerationDisplaySets(&ctx.AnalysisIR.RequestModel, plan) {
+			filtered := set
+			filtered.Rows = nil
+			for _, row := range set.Rows {
+				if canonicalKeys[preEmitSourceInventoryRowAliasIdentityKey(row)] {
+					filtered.Rows = append(filtered.Rows, row)
+				}
+			}
+			if len(filtered.Rows) > 0 {
+				out = append(out, filtered)
+			}
+		}
+	}
+	hasGlobal := false
+	for _, set := range out {
+		if principalEnumerationSetIsSourceInventoryPrincipalRows(set) {
+			hasGlobal = true
+			break
+		}
+	}
+	if !hasGlobal {
+		out = append(out, canonical...)
+	}
+	return out
+}
+
+func preEmitSourceInventoryCanonicalPrincipalSets(ctx *types.BusContext) []types.EnumerationDisplaySet {
 	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil {
 		return nil
 	}
@@ -1951,6 +1997,33 @@ func preEmitSourceInventoryTypedPrincipalSets(ctx *types.BusContext) []types.Enu
 	})
 }
 
+func preEmitSourceInventoryRowAliasIdentityKey(row types.EnumerationDisplayRow) string {
+	location := preEmitNormalizeLocation(row.Location)
+	if location == "" && strings.TrimSpace(row.Source) != "" && row.LineStart > 0 {
+		location = preEmitCitationLocationKey(types.Citation{File: row.Source, Line: row.LineStart})
+	}
+	if location == "" {
+		return ""
+	}
+	family := types.SourceInventorySurfaceFamilyKey(row.SurfaceTerms)
+	return location + "\x00" + types.SourceInventorySurfaceTermKey(family)
+}
+
+func preEmitSourceInventoryPreferredRowIDsByIdentity(sets []types.EnumerationDisplaySet) map[string]string {
+	out := map[string]string{}
+	for _, set := range sets {
+		for _, row := range set.Rows {
+			key := preEmitSourceInventoryRowAliasIdentityKey(row)
+			id := strings.TrimSpace(row.RowID)
+			if key == "" || id == "" || out[key] != "" {
+				continue
+			}
+			out[key] = id
+		}
+	}
+	return out
+}
+
 // preCheckSourceInventoryRowIDBindings requires an exact row carrier only
 // where structured member identity is genuinely ambiguous. Unique member
 // labels keep the short legacy shape. The decision reads item.Label plus typed
@@ -1961,11 +2034,12 @@ func preCheckSourceInventoryRowIDBindings(doc *types.AnswerDocumentV2, ctxOpt ..
 		return nil
 	}
 	ctx := ctxOpt[0]
-	rowsByID := preEmitSourceInventoryRowsByID(ctx)
+	sets := preEmitSourceInventoryTypedPrincipalSets(ctx)
+	rowsByID := preEmitSourceInventoryRowsByIDFromSets(sets)
 	if len(rowsByID) == 0 {
 		return nil
 	}
-	sets := preEmitSourceInventoryTypedPrincipalSets(ctx)
+	preferredRowIDs := preEmitSourceInventoryPreferredRowIDsByIdentity(sets)
 	var hints []emitFixHint
 	for bi, block := range doc.Blocks {
 		if block.SurfaceRole != types.SurfacePrincipal ||
@@ -1983,7 +2057,7 @@ func preCheckSourceInventoryRowIDBindings(doc *types.AnswerDocumentV2, ctxOpt ..
 			if rowID != "" {
 				row, ok := rowsByID[rowID]
 				if !ok || !principalEnumerationItemExactLabelMatchesRow(item, row) ||
-					!principalEnumerationRowsContainIdentity(allowedRows, row) {
+					!preEmitSourceInventoryRowsContainAliasIdentity(allowedRows, row) {
 					hints = append(hints, sourceInventoryRowIDHardHint(
 						bi,
 						ii,
@@ -2002,7 +2076,11 @@ func preCheckSourceInventoryRowIDBindings(doc *types.AnswerDocumentV2, ctxOpt ..
 			}
 			choices := make([]string, 0, len(matches))
 			for _, row := range matches {
-				choices = append(choices, fmt.Sprintf("%s (%s)", row.RowID, row.Location))
+				rowID := strings.TrimSpace(preferredRowIDs[preEmitSourceInventoryRowAliasIdentityKey(row)])
+				if rowID == "" {
+					rowID = row.RowID
+				}
+				choices = append(choices, fmt.Sprintf("%s (%s)", rowID, row.Location))
 			}
 			hints = append(hints, sourceInventoryRowIDHardHint(
 				bi,
@@ -2032,7 +2110,10 @@ func preEmitSourceInventoryExactLabelRows(item types.AnswerBlockItem, rows []typ
 		if !principalEnumerationItemExactLabelMatchesRow(item, row) {
 			continue
 		}
-		key := principalEnumerationRowIdentityKey(row)
+		key := preEmitSourceInventoryRowAliasIdentityKey(row)
+		if key == "" {
+			key = principalEnumerationRowIdentityKey(row)
+		}
 		if key == "" || seen[key] {
 			continue
 		}
@@ -2040,6 +2121,19 @@ func preEmitSourceInventoryExactLabelRows(item types.AnswerBlockItem, rows []typ
 		out = append(out, row)
 	}
 	return out
+}
+
+func preEmitSourceInventoryRowsContainAliasIdentity(rows []types.EnumerationDisplayRow, want types.EnumerationDisplayRow) bool {
+	wantKey := preEmitSourceInventoryRowAliasIdentityKey(want)
+	if wantKey == "" {
+		return principalEnumerationRowsContainIdentity(rows, want)
+	}
+	for _, row := range rows {
+		if preEmitSourceInventoryRowAliasIdentityKey(row) == wantKey {
+			return true
+		}
+	}
+	return false
 }
 
 func principalEnumerationRowsContainIdentity(rows []types.EnumerationDisplayRow, want types.EnumerationDisplayRow) bool {
@@ -5908,7 +6002,10 @@ func preEmitSourceInventoryHardRowsForBlock(
 	allowed := map[string]bool{}
 	seenRows := map[string]bool{}
 	appendRow := func(row types.EnumerationDisplayRow) {
-		key := principalEnumerationRowIdentityKey(row)
+		key := preEmitSourceInventoryRowAliasIdentityKey(row)
+		if key == "" {
+			key = principalEnumerationRowIdentityKey(row)
+		}
 		if key == "" || seenRows[key] {
 			return
 		}

@@ -19949,3 +19949,21 @@ alias。alias 只能通过 typed row identity（member/location/family）与 syn
 
 施工排序：B176-S1=`ROWIDNS1`；B176-S2=`BLOCKSTRING1` 最小单源教学；B176-S3=`CITREF1` 精确绑定审计/修复。Trace 显式时间窗、因果投影、自动补齐、根因排序、唤醒链、
 窗内可消除量、实际耗时/规则可消除两轴与模型结论所有权均不在这些改动面。
+
+### 123.109 B176-S1：Principal Enumeration Rows 与 validator 共用 row-ID registry
+
+`EVAL-B175-ROWIDNS1` 已修复。pre-emit source-inventory registry 现在由两层 typed row 合并：第一层是实际 answer surface plan 编译、并已在 finalizer prompt 的
+`Principal Enumeration Rows` 展示的 partition rows；第二层仍是从 `SourceInventoryObservation + RequestModel` 重建的 synthetic global roster。prompt row 只有在
+`file:line + typed surface_family` 与 global row 精确相等时才注册为 alias，标题、block id、用户文字、模型说明和答案 prose 均不能制造 alias。
+
+global roster 仍负责跨 partition 同名成员的完整候选集合与 family 边界；`source_inventory_row_id` 的硬门不降级。模型提交 prompt alias 时，validator 先映射到同一 canonical
+typed 行，再验证 label 与 block family，随后由该行精确绑定 citation。跨 family alias、未知 ID 或 label/row 不一致仍硬拒。未提交 ID 且同名行有歧义时，错误提示优先列出
+模型已经在 Principal Enumeration Rows 见过的 partition IDs，不再暴露第二套隐藏 synthetic ID；内部 synthetic ID 只作为无 prompt alias 时的兜底。
+
+同时将 source-inventory 专用 dedupe 从编译器 RowID 改为 canonical `file:line + surface_family`，避免同一物理 typed 行因两个合法 alias 在 family scope 中被误计两次。一次
+pre-check 内复用同一 sets 构造，避免为提示与 registry 重复编译大 roster。
+
+回归覆盖：重复 `Cart` 两行仍要求 typed ID；提示中只含 prompt IDs 且不含 hidden `enum-set-source-inventory-principal-rows-row-*`；prompt alias 能重绑正确行 citation；
+cross-family ID 仍 fail-closed。验证：定向 suite 全绿；完整 `go test ./internal/tool -count=1` 全绿（165.724s），其后只做集合复用重构并再次定向全绿（2.109s）。
+
+状态：`EVAL-B175-ROWIDNS1=implemented/full-suite-pass`；下一批 `B176-S2=BLOCKSTRING1`。

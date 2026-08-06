@@ -4051,9 +4051,14 @@ func sourceInventoryDuplicateCartRowIDTestContext(t *testing.T) (*types.BusConte
 			},
 		}},
 	}
-	rows := preEmitSourceInventoryRowsByID(ctx)
+	sets := preEmitSourceInventoryTypedPrincipalSets(ctx)
+	rows := preEmitSourceInventoryRowsByIDFromSets(sets)
+	preferred := preEmitSourceInventoryPreferredRowIDsByIdentity(sets)
 	var extendID, classID string
 	for id, row := range rows {
+		if preferredID := preferred[preEmitSourceInventoryRowAliasIdentityKey(row)]; preferredID != "" && id != preferredID {
+			continue
+		}
 		switch row.LineStart {
 		case 30:
 			extendID = id
@@ -4107,6 +4112,9 @@ func TestPreCheckSourceInventoryRowIDBindings_RequiresTypedIDForDuplicateLabel(t
 		!strings.Contains(hints[0].ExpectedShape, extendID) ||
 		!strings.Contains(hints[0].ExpectedShape, classID) {
 		t.Fatalf("duplicate label should require exact typed row id, got %+v", hints)
+	}
+	if strings.Contains(hints[0].ExpectedShape, "enum-set-source-inventory-principal-rows-row-") {
+		t.Fatalf("hint exposed a hidden synthetic row-id namespace instead of prompt row aliases: %+v", hints[0])
 	}
 	hard, advisory := splitPreEmitHintsByGate(tagPreEmitHints(types.ViolCitation, hints))
 	if len(hard) != 1 || len(advisory) != 0 || hard[0].HardSignal != preEmitHardSignalTypedSourceInventoryRowID {
