@@ -4098,6 +4098,62 @@ func TestNormalizeItemCitationRefsBySourceInventoryRowID_BindsDuplicateLabelExac
 	}
 }
 
+func TestNormalizeItemCitationRefsByUniqueSourceInventoryDisplayRow_BindsDecoratedLabelsWithoutGuessingDuplicates(t *testing.T) {
+	mu := types.NewMutableState("enumerate Cangjie declarations")
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active: true, Complete: true, Scopes: []string{"."},
+		Sets: []types.SourceInventoryObservationSet{
+			{Role: types.AnswerCandidateRoleType, Complete: true, Members: []types.SourceInventoryObservationMember{
+				{Name: "String", Role: types.AnswerCandidateRoleType, File: "src/extend.cj", Line: 6, SurfaceTerms: []string{"extend", "extend String"}, CoverageState: types.SourceInventoryCoverageObserved},
+				{Name: "Animal", Role: types.AnswerCandidateRoleType, File: "src/modifiers.cj", Line: 6, SurfaceTerms: []string{"public class", "public sealed class Animal"}, CoverageState: types.SourceInventoryCoverageObserved},
+			}},
+			{Role: types.AnswerCandidateRoleFunction, Complete: true, Members: []types.SourceInventoryObservationMember{
+				{Name: "native_add", Role: types.AnswerCandidateRoleFunction, File: "src/bridge.cj", Line: 6, SurfaceTerms: []string{"foreign func", "foreign func native_add"}, CoverageState: types.SourceInventoryCoverageObserved},
+				{Name: "native_add", Role: types.AnswerCandidateRoleFunction, File: "src/ffi.cj", Line: 6, SurfaceTerms: []string{"foreign func", "foreign func native_add"}, CoverageState: types.SourceInventoryCoverageObserved},
+			}},
+		},
+	})
+	ctx := &types.BusContext{Mutable: mu, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:             types.IntentEnumerate,
+		Predicates:         types.SemanticPredicates{IsCategoryEnumeration: true},
+		SourceScopeProfile: &types.SourceScopeProfile{RequestedScope: types.SourceScopeAll, IncludeAuxiliaryAsPrincipal: true},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType, types.AnswerCandidateRoleFunction},
+		},
+	}}}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "src/extend.cj", Line: 6},
+			{File: "src/modifiers.cj", Line: 6},
+			{File: "src/bridge.cj", Line: 6},
+			{File: "src/ffi.cj", Line: 6},
+		},
+		Blocks: []types.AnswerBlock{
+			{ID: "types", Kind: types.BlockTable, SurfaceRole: types.SurfacePrincipal, FacetIDs: []string{string(types.FacetEnumerationItem)}, Items: []types.AnswerBlockItem{
+				{ID: "extend", Label: "extend String", CandidateRole: types.AnswerCandidateRoleType, CitationRef: 1},
+				{ID: "animal", Label: "public sealed class Animal", CandidateRole: types.AnswerCandidateRoleType, CitationRef: 0},
+			}},
+			{ID: "ffi", Kind: types.BlockTable, SurfaceRole: types.SurfacePrincipal, FacetIDs: []string{string(types.FacetEnumerationItem)}, Items: []types.AnswerBlockItem{
+				{ID: "native", Label: "foreign func native_add", CandidateRole: types.AnswerCandidateRoleFunction, CitationRef: 2},
+			}},
+		},
+	}
+
+	if fixed := normalizeItemCitationRefsByUniqueSourceInventoryDisplayRowWithContext(doc, ctx); fixed != 2 {
+		t.Fatalf("fixed=%d, want two unique decorated-label bindings; doc=%+v", fixed, doc)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
+		t.Fatalf("extend String citation_ref=%d, want 0", got)
+	}
+	if got := doc.Blocks[0].Items[1].CitationRef; got != 1 {
+		t.Fatalf("Animal citation_ref=%d, want 1", got)
+	}
+	if got := doc.Blocks[1].Items[0].CitationRef; got != 2 {
+		t.Fatalf("duplicate native_add citation_ref=%d, want unchanged 2", got)
+	}
+}
+
 func TestPreCheckSourceInventoryRowIDBindings_RequiresTypedIDForDuplicateLabel(t *testing.T) {
 	ctx, extendID, classID := sourceInventoryDuplicateCartRowIDTestContext(t)
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{

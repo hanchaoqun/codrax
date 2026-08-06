@@ -2136,6 +2136,65 @@ func preEmitSourceInventoryRowsContainAliasIdentity(rows []types.EnumerationDisp
 	return false
 }
 
+// normalizeItemCitationRefsByUniqueSourceInventoryDisplayRowWithContext binds
+// the invisible citation carrier from the exact typed rows shown to the
+// finalizer. SourceInventoryObservation stores a declaration's base name while
+// the compiled answer row may intentionally expose a language construct such
+// as "extend String" or "public sealed class Animal". Matching the observation
+// alone therefore loses the row-local display identity and can leave swapped
+// citation indexes untouched.
+//
+// This repair uses only principal block/facet fields plus the compiled typed
+// row registry. Alias rows are deduplicated by source location + surface
+// family. A genuinely duplicated visible label across locations remains
+// ambiguous and is never guessed; source_inventory_row_id is its only exact
+// selection carrier.
+func normalizeItemCitationRefsByUniqueSourceInventoryDisplayRowWithContext(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
+	if doc == nil || ctx == nil || !sourceInventoryPrincipalAnswerIsModelOwned(ctx) {
+		return 0
+	}
+	sets := preEmitSourceInventoryTypedPrincipalSets(ctx)
+	if len(sets) == 0 {
+		return 0
+	}
+	fixed := 0
+	for bi := range doc.Blocks {
+		block := &doc.Blocks[bi]
+		if block.SurfaceRole != types.SurfacePrincipal ||
+			!principalEnumerationBlockCanCarryRows(*block) ||
+			!principalEnumerationBlockHasEnumerationFacet(*block) {
+			continue
+		}
+		rows, _, _, invalidFamily := preEmitSourceInventoryHardRowsForBlock(*block, sets)
+		if invalidFamily || len(rows) == 0 {
+			continue
+		}
+		for ii := range block.Items {
+			item := &block.Items[ii]
+			if strings.TrimSpace(item.SourceInventoryRowID) != "" {
+				continue
+			}
+			matches := preEmitSourceInventoryExactLabelRows(*item, rows)
+			if len(matches) != 1 {
+				continue
+			}
+			row := matches[0]
+			if !row.HasCitation || strings.TrimSpace(row.Source) == "" || row.LineStart <= 0 {
+				continue
+			}
+			ref := appendOrReusePreEmitCitation(doc, types.Citation{
+				File: row.Source, Line: row.LineStart, LineEnd: row.LineEnd,
+			})
+			if ref < 0 || ref == item.CitationRef {
+				continue
+			}
+			item.CitationRef = ref
+			fixed++
+		}
+	}
+	return fixed
+}
+
 func principalEnumerationRowsContainIdentity(rows []types.EnumerationDisplayRow, want types.EnumerationDisplayRow) bool {
 	key := principalEnumerationRowIdentityKey(want)
 	for _, row := range rows {

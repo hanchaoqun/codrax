@@ -19985,3 +19985,23 @@ array；重试耗尽后的 raw/degraded fallback 仍需披露模型输出异常�
 窗内可消除量、实际耗时/规则可消除两轴与模型结论所有权均未触碰。
 
 状态：`EVAL-B175-BLOCKSTRING1=adjudicated/model-adherence/lossless-recovery-covered/no-code-change`；下一批 `B176-S3=CITREF1`。
+
+### 123.111 B176-S3：source-inventory 可见行与引用绑定共用 typed display registry
+
+`EVAL-B175-CITREF1` 已按全语言 display-row 单源修复。根因不是 citation 池缺行，而是既有 candidate-role normalizer 读取底层
+`SourceInventoryObservation`：底层成员可以只存 base name（如 `String`、`Animal`），最终教学与答案义务则使用编译后的语言构造 display label（如 `extend String`、
+`public sealed class Animal`）。前缀/修饰符丢失后，底层宽松匹配会产生多个候选，无法把模型交叉写错的 citation index 安全纠正；随后 soft reviewer 能报错，却仍允许错位引用发布。
+
+pre-emit normalization 现直接复用 B176-S1 的 `preEmitSourceInventoryTypedPrincipalSets`。只有同时满足 `surface_role=principal`、enumeration facet、可承载行的 block，且 item label
+在该 block 的 typed family/global row universe 中只精确命中一个 canonical 行时，才把不可见 `citation_ref` 绑定到该行的 `file:line`。prompt alias 与 synthetic global alias 先按
+`location + surface_family` 去重；所以同一物理行的双 row ID 不会制造假歧义，而同名成员跨两个真实位置（如两条 `foreign func native_add`）仍保持歧义、不猜引用，继续要求模型提交
+`source_inventory_row_id`。显式 row ID 始终先于此归一化处理，非法 family/ID 仍由既有硬门 fail-closed。
+
+该规则不识别 `extend`、`public class`、Cangjie 或任何自然语言关键词；它消费每种语言提取器已经铸造的 `DisplayLabel/Member/SurfaceTerms/Source/Line`，因此统一覆盖 Java、Go、
+Rust、C/C++、ArkTS/TypeScript、Cangjie 等全部现有及后续语言。系统只修正结构化引用指针，不新增、删除、改写模型行文本或结论。
+
+回归 pin 复现本轮交换引用：`extend String` 从 Animal 行恢复到 `src/extend.cj:6`，`public sealed class Animal` 从 String 行恢复到
+`src/modifiers.cj:6`；同一文档里的双位置 `foreign func native_add` 保持原引用不变。验证：定向 suite 全绿；完整 `go test ./internal/tool -count=1` 全绿
+（165.530s）。Trace 显式时间窗、因果投影、系统补齐、根因排序、唤醒链、窗内可消除量、实际耗时/规则可消除两轴及模型结论所有权均未触碰。
+
+状态：`EVAL-B175-CITREF1=implemented/full-suite-pass`。B176 三项闭环；下一步重建并继续恰好两个异构 eval。

@@ -732,6 +732,10 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		pctx.recordPreEmitRepair("normalizeItemCitationRefsBySourceInventoryRowIDWithContext", fixed)
 		logging.Warning("[%s] bound %d item citation_ref value(s) by exact source_inventory_row_id", toolName, fixed)
 	}
+	if fixed := normalizeItemCitationRefsByUniqueSourceInventoryDisplayRowWithContext(doc, ctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeItemCitationRefsByUniqueSourceInventoryDisplayRowWithContext", fixed)
+		logging.Warning("[%s] repaired %d item citation_ref value(s) by unique typed principal enumeration row", toolName, fixed)
+	}
 	if fixed := normalizeItemCitationRefsByTypedCandidateRoleWithContext(doc, view, ctx, pctx); fixed > 0 {
 		pctx.recordPreEmitRepair("normalizeItemCitationRefsByTypedCandidateRoleWithContext", fixed)
 		logging.Warning("[%s] repaired %d item citation_ref value(s) by typed candidate-role source rows", toolName, fixed)
