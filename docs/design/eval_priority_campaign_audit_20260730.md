@@ -17919,11 +17919,15 @@ Trace Analyzer 再次把 `fact_families` 放入 `scope=causal_diagnosis`，被 p
 `runtime_question_profile` schema 就地增加 `if scope=bounded_fact_set -> require non-empty fact_families; else forbid fact_families`，runtime gate
 不放宽，也不扫描原始输入/模型 reasoning/答案文本。
 
+该 JSON 小批现已实现：`fact_families` 在 canonical schema 上带 `minItems=1`；同一 profile 的 `allOf` 用 scope enum 作唯一精确信号，
+bounded 分支 required，else 分支以 schema `not(required)` 禁止该字段。它与既有 runtime validator 字节语义一致，只把跨字段约束前移到模型生成面；
+没有从用户词面推断 scope、没有自动删模型字段、没有降低失败强度。定向测试与 `go test ./internal/tool -count=1` 全套 PASS（161.670s）。
+
 工件：`eval/parallel_selected_summary_evalcampaign_b144_json_trace_replay_r62_20260805.md`、
 `eval/parallel_selected_summary_evalcampaign_b144_json_trace_replay_r62_20260805_manual_audit.md`。
 
 状态：`EVAL-B143-SILENSREFINE1=production-happy-route-pass/branch-pin-awaiting-trigger`；
 `EVAL-B143-EVIDJSONMIND1=production-happy-route-pass/branch-pin-awaiting-trigger`；
 `EVAL-B144-TRACEACCTDUP1=confirmed/P1/next-trace-projection-batch`；
-`EVAL-B138-TRACEFACTFAMILYVAR1=confirmed-second-witness/P1-json-schema-next`；Trace 显式窗、因果投影、自动补齐、两维根因、排序、唤醒链与
+`EVAL-B138-TRACEFACTFAMILYVAR1=implemented/schema-conditional/full-tool-pass/awaiting-replay`；Trace 显式窗、因果投影、自动补齐、两维根因、排序、唤醒链与
 窗内可消除量=`production-pass`。

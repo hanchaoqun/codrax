@@ -530,6 +530,39 @@ func TestEmitAnalysisRejectsCausalBreadthWithoutTypedDiagnosisCarrier(t *testing
 	}
 }
 
+func TestEmitAnalysisRuntimeQuestionSchemaPinsFactFamilyConditional(t *testing.T) {
+	var root map[string]any
+	if err := json.Unmarshal((&EmitAnalysis{}).Parameters(), &root); err != nil {
+		t.Fatalf("decode schema: %v", err)
+	}
+	properties := root["properties"].(map[string]any)
+	profile := properties["runtime_question_profile"].(map[string]any)
+	profileProperties := profile["properties"].(map[string]any)
+	families := profileProperties["fact_families"].(map[string]any)
+	if got := families["minItems"]; got != float64(1) {
+		t.Fatalf("fact_families minItems=%v, want 1", got)
+	}
+	allOf, ok := profile["allOf"].([]any)
+	if !ok || len(allOf) != 1 {
+		t.Fatalf("runtime_question_profile conditional missing: %#v", profile["allOf"])
+	}
+	conditional := allOf[0].(map[string]any)
+	ifBranch := conditional["if"].(map[string]any)
+	scope := ifBranch["properties"].(map[string]any)["scope"].(map[string]any)
+	if !reflect.DeepEqual(scope["enum"], []any{string(types.RuntimeQuestionScopeBoundedFactSet)}) {
+		t.Fatalf("conditional scope enum=%#v", scope["enum"])
+	}
+	thenRequired := conditional["then"].(map[string]any)["required"].([]any)
+	if !reflect.DeepEqual(thenRequired, []any{"fact_families"}) {
+		t.Fatalf("bounded_fact_set must require fact_families: %#v", thenRequired)
+	}
+	elseNot := conditional["else"].(map[string]any)["not"].(map[string]any)
+	elseRequired := elseNot["required"].([]any)
+	if !reflect.DeepEqual(elseRequired, []any{"fact_families"}) {
+		t.Fatalf("non-bounded scopes must forbid fact_families: %#v", elseRequired)
+	}
+}
+
 func TestEmitAnalysisRuntimeArtifactCarrierIncludesRunEntryPreflight(t *testing.T) {
 	preflight := &types.BusContext{RuntimeArtifactPreflight: types.RuntimeArtifactPreflightProfile{
 		Artifacts: []types.RuntimeArtifactPreflightArtifact{{
