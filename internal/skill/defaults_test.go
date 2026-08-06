@@ -1277,6 +1277,22 @@ func TestLogTriageSkillUsesCanonicalJSONShapeFirstTeaching(t *testing.T) {
 	}
 }
 
+func TestAnswerDocumentSkillFrontLoadsCanonicalJSONShapeFirstTeaching(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	sk, err := r.Get("answer-document-skill")
+	if err != nil {
+		t.Fatalf("answer-document-skill missing: %v", err)
+	}
+	if len(sk.Workflow) == 0 || sk.Workflow[0] != types.AnswerDocumentJSONShapeFirstTeaching {
+		t.Fatalf("canonical JSON-shape teaching must be the first workflow decision, got: %+v", sk.Workflow)
+	}
+	joined := strings.Join(sk.Workflow, "\n")
+	if strings.Count(joined, types.AnswerDocumentJSONShapeFirstTeaching) != 1 {
+		t.Fatalf("canonical JSON-shape teaching must appear exactly once, got %d", strings.Count(joined, types.AnswerDocumentJSONShapeFirstTeaching))
+	}
+}
+
 func TestLogTriageSkill_TeachesOperationalObservations(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)

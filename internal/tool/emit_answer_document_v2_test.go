@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -1498,6 +1499,106 @@ func TestEmitAnswerDocumentV2_RepairsSingleUnknownItemTextAlias(t *testing.T) {
 	}
 	if got := doc.Blocks[1].Items[0].Text; !strings.Contains(got, "deterministic command") {
 		t.Fatalf("unknown item text alias was not preserved as visible text: %q", got)
+	}
+}
+
+func TestRepairNestedAnswerBlockFields_MovesItemClaimFormWithoutRenderingEnum(t *testing.T) {
+	raw := json.RawMessage(`{
+		"blocks": [{
+			"id": "chain", "kind": "ordered_list",
+			"text": "entry -> checkout -> itemAt; index 5 is outside size 3.",
+			"items": [
+				{"claim_form": "call_edge"},
+				{"claim_form": "external_observation", "facet_id": "observed_artifact_fact"}
+			]
+		}],
+		"citations": []
+	}`)
+	repaired, paths, ok := repairNestedAnswerBlockFields(raw)
+	if !ok {
+		t.Fatal("expected misplaced item claim forms to be repaired")
+	}
+	var doc types.AnswerDocumentV2
+	if err := json.Unmarshal(repaired, &doc); err != nil {
+		t.Fatalf("decode repaired document: %v\n%s", err, repaired)
+	}
+	if len(doc.Blocks) != 1 {
+		t.Fatalf("blocks = %+v", doc.Blocks)
+	}
+	block := doc.Blocks[0]
+	if len(block.Items) != 0 {
+		t.Fatalf("metadata-only shells must not become visible rows: %+v", block.Items)
+	}
+	if len(block.ClaimUses) != 2 ||
+		block.ClaimUses[0].ClaimForm != types.ClaimCallEdge ||
+		block.ClaimUses[1].ClaimForm != types.ClaimExternalObservation {
+		t.Fatalf("claim annotations were not preserved at block level: %+v", block.ClaimUses)
+	}
+	if got := strings.Join(paths, "|"); !strings.Contains(got, "claim_form->claim_uses") ||
+		!strings.Contains(got, "empty_metadata_shell->dropped") {
+		t.Fatalf("repair paths do not disclose both operations: %v", paths)
+	}
+	if bytes.Contains(repaired, []byte(`"text":"call_edge"`)) ||
+		bytes.Contains(repaired, []byte(`"text":"external_observation"`)) {
+		t.Fatalf("semantic enums leaked into visible text: %s", repaired)
+	}
+}
+
+func TestRepairNestedAnswerBlockFields_DoesNotGuessClaimFormAsTextWithoutBlockProse(t *testing.T) {
+	raw := json.RawMessage(`{
+		"blocks": [{
+			"id": "chain", "kind": "ordered_list",
+			"items": [{"claim_form": "call_edge"}]
+		}],
+		"citations": []
+	}`)
+	repaired, _, ok := repairNestedAnswerBlockFields(raw)
+	if ok && !bytes.Equal(repaired, raw) {
+		t.Fatalf("content-less malformed row must stay fail-loud, got: %s", repaired)
+	}
+	if bytes.Contains(repaired, []byte(`"text":"call_edge"`)) {
+		t.Fatalf("claim_form must never be guessed as item text: %s", repaired)
+	}
+}
+
+func TestEmitAnswerDocumentV2_RepairsMisplacedItemClaimFormWithoutVisibleEnumRow(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	payload := json.RawMessage(`{
+		"blocks": [
+			{"id":"summary", "kind":"summary", "text":"index 5 is outside size 3."},
+			{
+				"id":"chain", "kind":"ordered_list", "surface_role":"principal",
+				"text":"entry -> checkout -> itemAt; the runtime frame reports the bounds failure.",
+				"items":[{"claim_form":"call_edge"},{"claim_form":"external_observation"}]
+			}
+		],
+		"citations": []
+	}`)
+	res, err := tool.Execute(bus, payload)
+	if err != nil {
+		t.Fatalf("unexpected execute error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("lossless misplaced-claim repair should publish the preserved prose: %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 {
+		t.Fatalf("answer document missing: %+v", doc)
+	}
+	chain := doc.Blocks[1]
+	if len(chain.Items) != 0 || len(chain.ClaimUses) != 2 {
+		t.Fatalf("unexpected repaired carrier: %+v", chain)
+	}
+	if strings.Contains(chain.Text, "call_edge") || strings.Contains(chain.Text, "external_observation") {
+		t.Fatalf("typed enums leaked into visible prose: %q", chain.Text)
+	}
+}
+
+func TestEmitAnswerDocumentDescriptionFrontLoadsCanonicalJSONShape(t *testing.T) {
+	description := (&EmitAnswerDocument{}).Description()
+	if !strings.HasPrefix(description, types.AnswerDocumentJSONShapeFirstTeaching) {
+		t.Fatalf("answer-document description must front-load canonical JSON shape teaching:\n%s", description)
 	}
 }
 

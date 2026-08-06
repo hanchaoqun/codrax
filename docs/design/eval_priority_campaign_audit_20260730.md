@@ -18848,3 +18848,52 @@ data prompt 定向 pin PASS，`go test ./internal/repl -count=1` 全量 PASS（3
 
 状态：`EVAL-B162-MATERIALUSE1=shared-soft-teaching-implemented/full-repl-pass`；
 `EVAL-B162-EVALREPAIROBS1=implemented/all-sweep-writers+runner-contract-pass`；等待后续异构 data 回放。
+
+### 123.65 B163 r79：Cangjie JSON 前段收敛，但成文把语义枚举洗成正文；Rust 防伪成功却无法继续闭环
+
+在 `main@e5b598491` 构建后严格并行恰好两个异构 case：
+
+- `hilog_cangjie_panic`：145s，runner PASS / human FAIL；
+- `github_issue_chrono_duration_min_symptom`：532s，runner/human FAIL，终态为 `unverified/verification_proof_incomplete`。
+
+Cangjie log triage 首次 emit 已是合法 native `errors[]/frames[]`，Analyzer 也首轮成功，证明 B161 的 log JSON shape 教学对另一语言继续泛化。
+日志直接事实与边界判断正确：`index=5,size=3`，artifact-local 路径为 `entry -> checkout -> itemAt`，当前 fixture 不含这三个方法，不能把 fixture
+冒充事故源码。但 Finalizer 把三个 `claim_form` 放进 `items[]` 且没有 item text；`repairAnswerBlockItemTextAliases` 把唯一未知 string 字段无条件当正文，
+最终渲染为 `1. call_edge / 2. call_edge / 3. call_edge`。runner 仅看关键词仍判 PASS。记
+`EVAL-B163-ADOCENUMTEXT1=P1/json-carrier-authority`：typed enum 被系统容错洗成用户可见答案，是确定性系统 GAP，不是模型文风波动。
+
+Rust 补丁的人审结论同样为失败：`try_milliseconds` 在 Rust 负数 `%` 结果为负时直接 `nanos < 0 -> None`，因此不仅拒绝 `i64::MIN`，还拒绝本应有效的
+`-i64::MAX`；新增测试只覆盖 MIN 拒绝，没有执行 lower-bound/checked_sub 行为。Planner 的 Go probe 仅打印预设成功文本，既不 import Rust 代码也不执行修改；
+`make check` 是 Python source-static oracle。正面结论是 B160-S1 与 proof ledger 守住了防伪线：报告虽 passed，路径能力仍只有
+`declared_project_check/source_static`，三个 behavior contracts 保持 uncovered，终态没有签成 verified。
+
+进一步确认 `EVAL-B163-RUSTPROOF1=P1/workflow-recovery`：proof-only 累计批识别到真实未闭合后被标 complete/unverified；控制器正确提出新修复批，
+transition kernel 却因 active state=complete 把 `replan_batch` 强制改成 finish。不能简单把“缺证明”当“代码失败”授权生产修改；最优通用方案必须把
+`verification unavailable` 与 `required contract uncovered` 分开，后者保留可继续 proof generation，只有真实 target execution failure 或精确源码证据才能开放生产修复。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b163_cangjie_rustwrite_r79_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b163_cangjie_rustwrite_r79_20260805_manual_audit.md`。
+
+状态：`EVAL-B163-ADOCENUMTEXT1=confirmed/implementation-in-progress`；
+`EVAL-B163-RUSTPROOF1=confirmed/design-bounded-next-batch`；Trace 全能力与模型结论所有权=`untouched`。
+
+### 123.66 B163-S1：成文 JSON 元数据不再冒充可见答案
+
+本批在共享 answer-document 载体层根修，不按 Cangjie、panic、case 名或答案词面特判：
+
+1. 新增单源 `AnswerDocumentJSONShapeFirstTeaching`，同时置于 Finalizer workflow 第一决策和 `emit_answer_document` description 首段：
+   `blocks[]/citations[]` 必须是 native array；可见行只放 `items[].text/label/cells`；`claim_form/facet_id/evidence_id` 只放块级 `claim_uses[]`。
+   这条短决策先于长语义手册，降低模型在 item 与 annotation 两条 sibling lane 间的心智负担。
+2. 新增窄而无损的兼容臂：合法的 misplaced `items[].claim_form` 及可选 singular facet/evidence metadata 原值搬到父块 `claim_uses[]`；不解析或改写
+   block/item prose。若搬迁后 item 只是不可见元数据空壳，且同块已有非空完整 `block.text`，删除该空壳；否则保留畸形让 strict decoder 定向重试。
+3. 任意 reserved semantic field 明确禁止进入“单一未知 string -> item.text”别名恢复；因此 `call_edge`、`external_observation` 等 enum 永不再被铸成答案正文。
+   真正未知的显示别名仍保留既有无损恢复，不能结构恢复的 payload 继续走已有 visible-string salvage 与显式降级披露。
+4. 该修复不扫描用户原始输入、模型 reasoning 或最终 prose，不生成 hop 文本、不替模型补根因，也不修改 Required Answer Blocks、Trace query、
+   Trace 因果投影或自动补齐。
+
+新增 pin 覆盖：两种合法 claim metadata 搬迁、metadata-only shell 删除、无 sibling prose 时 fail-loud、reserved enum 不进 text、完整 tool execute 后零 enum row、
+prompt 与 tool description 同源且前置。定向测试全绿；最终
+`go test ./internal/types ./internal/skill ./internal/tool -count=1` 全包 PASS（23.692s / 2.874s / 177.184s）。
+
+状态：`EVAL-B163-ADOCENUMTEXT1=implemented/full-suite-pass`；exact-2 生产回放待完成；
+`EVAL-B163-RUSTPROOF1=next-batch`；Trace 与模型结论所有权=`untouched`。

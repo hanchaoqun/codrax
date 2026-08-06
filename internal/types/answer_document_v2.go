@@ -2,6 +2,13 @@ package types
 
 import "strings"
 
+// AnswerDocumentJSONShapeFirstTeaching is the compact carrier decision shared
+// by the finalizer prompt and the emit tool description. Keep this before the
+// larger semantic catalog: visible list prose and block-level evidence
+// annotations are sibling lanes, and confusing them can otherwise turn an enum
+// such as "call_edge" into user-visible answer text.
+const AnswerDocumentJSONShapeFirstTeaching = "JSON SHAPE FIRST: emit one object with native blocks[] and citations[] arrays. Visible list/table rows use blocks[i].items[j].text (plus optional label/cells/citation_ref); evidence annotations use blocks[i].claim_uses[] at block level. Never put claim_form/facet_id/evidence_id inside items[], and never quote an object or array as a JSON string."
+
 // AnswerDocumentV2 is the block-only carrier introduced by Phase 2 of
 // the docs/migration/block_only_carrier.md plan (B3 落地). It
 // REPLACES — at terminal-state B8 — the V1 `AnswerDocument` shape +

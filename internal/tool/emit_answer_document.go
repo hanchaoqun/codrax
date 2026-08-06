@@ -47,7 +47,8 @@ func (t *EmitAnswerDocument) Name() string { return "emit_answer_document" }
 // block field / kind / claim_form / worked example only edits one
 // helper.
 func (t *EmitAnswerDocument) Description() string {
-	return "Emit the FULL final answer document as a structured blocks[] array. " +
+	return types.AnswerDocumentJSONShapeFirstTeaching + "\n\n" +
+		"Emit the FULL final answer document as a structured blocks[] array. " +
 		"`blocks` must be a native JSON array in the tool arguments; do not JSON-encode or quote it as a string containing escaped JSON. " +
 		"Use this on first dispatches and whenever the answer needs a complete rewrite. On retry paths where only a few blocks need editing, prefer emit_answer_document_patch which protocol-level preserves typed annotation fields on blocks you do not touch.\n\n" +
 		BuildAnswerDocumentSemanticContractDescription()
