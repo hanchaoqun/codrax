@@ -20889,3 +20889,36 @@ JSON 教学未增加字段、required 项或第二 schema；模型已经提交 e
 
 状态：`EVAL-B185-CITEFAMILY1=S14-implemented/pending-full-tool-suite-and-replay`；
 `EVAL-B185-ORACLEMARK1=S14-implemented/runner-contracts-pass/pending-replay`。
+
+### 123.141 B185 r112：typed-family citation 与 explicit-section oracle 双闭环
+
+在 `0e2389021` 构建后严格并行恰好两个跨语言 source-inventory case：
+
+- `cangjie_repomap`：145s，runner PASS / human PASS，finalizer reject=0；
+- `arkts_repomap`：125s，runner PASS / human PASS，finalizer reject=0。
+
+Cangjie 一轮 native emit 即发布精确 2 extend + 2 foreign func + 8 public class。人工逐项核验确认
+`extend Cart -> Cart.cj:30`、`public class Cart -> Cart.cj:14`、
+`native_add(demo.bridge) -> Bridge.cj:6`、`native_add(demo.ffi) -> 07_foreign_ffi.cj:6`；没有
+patch citation rebind、invalid detach、引用删除说明或用户面降级。结合 S14 的 patch-specific typed-family pin，
+关闭 `EVAL-B185-CITEFAMILY1`。
+
+ArkTS 同样完整发布 4 个 `@Entry` 与 2 个 `@Builder`，无额外行；runner 不再把只有 Index 重复写出的
+`@Entry` 当成整个 family，显式 section 计数为 4，关闭 `EVAL-B185-ORACLEMARK1`。首稿 blocks-string 的
+3/3 block 可证明无损恢复，零 retry、零缺段、零降级；再次验证 JSON 策略是“无损直接接纳，有损拒绝重发”，
+而非系统代写答案。
+
+ArkTS explorer 本轮用了 8 次迭代，先以 `struct X` anchor 落地失败，再用 base symbol + surface terms
+成功。记 `EVAL-B185-ARKTSGROUND1=P2/observe`：当前只有一次答案正确的效率 witness；继续跨语言观察
+source-inventory typed row 能否直接作为 grounding 导航，暂不增加语言特判、关键词硬门或 JSON 必填字段。
+
+完整 `go test ./internal/tool -count=1` 为 163.673s 通过，`bash eval/runner_lib_test.sh` 全绿。本批不触及
+Trace 明确时间窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量、双维度性能归因或写模式控制器。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b185_family_citation_replay_r112_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b185_family_citation_replay_r112_20260806_manual_audit.md`。
+
+状态：`EVAL-B185-CITEFAMILY1=resolved/r112-cross-language-replay`；
+`EVAL-B185-ORACLEMARK1=resolved/r112-replay`；
+`EVAL-B185-ARKTSGROUND1=P2/model-path-efficiency-observe`；
+`EVAL-B184-CARRIERMETA1=P2/model-variance-observe`。
