@@ -21684,3 +21684,61 @@ Trace 对照保持了同一显式窗 `34579.472865..34579.587805`、pid=59566、
 
 状态：`EVAL-B193-IMPLHANDOFF1=S25-implemented/full-impacted-suites-pass/pending-replay`；
 `EVAL-B192-TYPERELGRAPH1=S24+S25/pending-production-closure`。
+
+### 123.167 B193 r125：ImplementersOf 生产闭环；typed exclusion 把合法 JSON 伪装为空集合
+
+在 `521ce1f07` 构建后严格并行恰好两个异构模式 case：
+
+- `qf_type_relation_loop_controller`：195s，runner PASS / human FAIL；
+- `patch_go_typo`：98s，runner/human PASS。
+
+类型关系正向结论已经闭环：第一稿仍把接口画向实现类型，被方向门合理拒绝；第二稿改成 12 条
+`implementer -> LoopController` 后，S25 新增的 `repomap_implementer_relation` 证据被图边门接受，最终 Mermaid、12 个生产实现、
+文件位置和引用均正确。Finalizer reject 从 r124 的 2 降为 1，剩余一次是模型首次方向错误，不是系统假拒绝。因此
+`EVAL-B193-IMPLHANDOFF1=production-closed/r125`，跨语言 `type_relation` S24+S25 也完成当前生产 witness。
+
+同轮发现更严重的 `EVAL-B194-MEMBERCARRIER1=P0/system-contract-contradiction`。Analyzer 把用户的“主要实现类型”误解释成
+language-level `answer_visibility_profile=public_exported`；之后 `normalizeAggregateFactsForTypedExclusion` 根据 graph Exported 位
+删除了 12 个未导出的 Go struct。该函数只同步删除 `members/support_refs`，没有删除 index-aligned `member_notes`，结果把原本
+`value=12, members=12, refs=12, notes=12` 的合法、可完整反序列化 JSON 变成
+`value=0, members=0, refs=0, notes=12`。Completion 又把这个系统后处理结果误报成“模型发了 empty member_set”，连续三轮要求
+模型重发完全相同的 JSON / support_refs；第四次只因 no-progress breaker 才放行。Finalizer 最终收到畸形事实并发布
+“枚举类条目中部分项证据支持稍弱”的错误附注。
+
+这不是 malformed JSON，也不是 positional `file:line` 不合法：既有 schema 和测试明确允许 index-aligned plain refs，生产日志
+也完整记录了 12 个输入成员。根因是系统没有区分“模型输入为空”与“typed policy 精确过滤后为空”，并破坏了三条位置数组的
+共同身份轴。该问题直接增加模型 JSON 心智和无效重试，属于系统自身矛盾，不得用改提示让模型换格式掩盖。
+
+写模式对照精确生成并应用单行 `retrun -> return` patch，只改 `main.go` 一行，post-apply `go test -json ./...` 通过；plan、
+apply、verify、finish 状态一致，未见 replan 累计校验域回归。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b193_implhandoff_write_r125_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b193_implhandoff_write_r125_20260806_manual_audit.md`。
+
+状态：`EVAL-B193-IMPLHANDOFF1=production-closed/r125`；
+`EVAL-B192-TYPERELGRAPH1=production-closed/r125`；
+`EVAL-B194-MEMBERCARRIER1=P0/confirmed/pending-S26`；
+`EVAL-B193-ARITHPAIR1=P1/confirmed/queued-after-S26`。
+
+### 123.168 S26：typed exclusion exact-empty 证明 + JSON 低心智边界
+
+`EVAL-B194-MEMBERCARRIER1` 按“输入载体、策略投影、用户答案三层分离”修复：
+
+1. typed exclusion 删除成员时，`members/support_refs/member_notes` 必须按同一 index tuple 同步过滤；全部成员被删除后，禁止再保留
+   无 owner 的 notes，消除 `value=0 / notes=N` 畸形载体；
+2. 对“过滤前非空、过滤后精确为空”的集合，系统保留 removed members 于结构化 `excluded[]` 审计面，并铸造仅 completion 层
+   可拥有的 `system:typed_exclusion_exact_empty_member_set` provenance，以及 pre-filter count/post-filter status 两个 typed dimension；
+   后续 completion 把它视作 typed exact-zero，而不是再次要求模型修改 JSON；
+3. 模型输入若伪造该 system provenance，会在 exact-relation 标记入口统一剥离；同一 projection 被 completion、context、pre-emit、
+   final publication 多次调用时保持幂等；
+4. Analyzer 教学与 `emit_analysis` schema 单源补清语义：public/exported 是语言级可见性；main/primary/core/production、重要性、
+   运行时使用或路径范围都不等于 exported。该补充只做 soft classification guidance，不扫描 raw request/模型答案做硬门；
+5. 不改 Trace runtime lane，显式时间窗的因果投影、系统补齐、根因排序、唤醒链、窗内可消除量与性能根因双轴均保持原合同。
+
+新增回归固定：全量过滤产生 value=0/members=0/refs=0/notes=0 的对齐 tuple；保留系统 exclusion proof；重复投影幂等；
+exact-empty completion 不再让模型重发 JSON；伪造 system token 被剥离；analysis prompt 明确“重要/核心/生产”与 exported 非等价。
+
+完整受影响套件通过：`internal/types` 22.349s、`internal/skill` 1.083s、`internal/tool` 163.177s；
+`git diff --check` 通过。
+
+状态：`EVAL-B194-MEMBERCARRIER1=S26-implemented/full-impacted-suites-pass/pending-exact-two-replay`。

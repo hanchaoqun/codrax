@@ -48,3 +48,20 @@ func TestAnalysisSkillConceptualMemberSetGuidanceDoesNotCreateHardProseGate(t *t
 		}
 	}
 }
+
+func TestAnalysisSkillDoesNotConfuseImportanceWithLanguageVisibility(t *testing.T) {
+	cfg := BuildAnalysisSkill()
+	if cfg == nil {
+		t.Fatal("BuildAnalysisSkill returned nil")
+	}
+	for _, want := range []string{
+		"language-level symbol visibility",
+		"Importance, centrality, runtime use, or source-path scope",
+		"main/primary/core/production implementations",
+		"does NOT mean public/exported visibility",
+	} {
+		if !strings.Contains(cfg.OutputFormat, want) {
+			t.Fatalf("analysis output contract missing visibility/scope boundary %q", want)
+		}
+	}
+}

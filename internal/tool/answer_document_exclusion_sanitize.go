@@ -135,17 +135,28 @@ func normalizeAggregateFactsForTypedExclusion(ctx *types.BusContext, facts []typ
 		if len(out[i].Members) == 0 {
 			continue
 		}
+		originalMembers := append([]string(nil), out[i].Members...)
+		notesPositional := len(out[i].MemberNotes) == len(out[i].Members)
 		keptMembers := out[i].Members[:0]
 		keptRefs := out[i].SupportRefs[:0]
+		var keptNotes []string
+		if notesPositional {
+			keptNotes = out[i].MemberNotes[:0]
+		}
+		removedMembers := make([]string, 0, len(out[i].Members))
 		removed := 0
 		for idx, member := range out[i].Members {
 			if aggregateMemberMatchesExcludedCandidate(member, excluded) {
 				removed++
+				removedMembers = append(removedMembers, member)
 				continue
 			}
 			keptMembers = append(keptMembers, member)
 			if idx < len(out[i].SupportRefs) {
 				keptRefs = append(keptRefs, out[i].SupportRefs[idx])
+			}
+			if notesPositional {
+				keptNotes = append(keptNotes, out[i].MemberNotes[idx])
 			}
 		}
 		if removed == 0 {
@@ -153,11 +164,77 @@ func normalizeAggregateFactsForTypedExclusion(ctx *types.BusContext, facts []typ
 		}
 		out[i].Members = keptMembers
 		out[i].SupportRefs = keptRefs
+		if notesPositional {
+			out[i].MemberNotes = keptNotes
+		} else if len(keptMembers) == 0 {
+			// Once every member is filtered, non-positional notes have no typed
+			// owner either. Keeping them creates the observed value=0 / notes=N
+			// contradiction and can leak excluded identities into the prompt.
+			out[i].MemberNotes = nil
+		}
 		if types.AnswerAggregateFactCarriesCompleteMemberSet(facts[i]) {
 			out[i].Value = strconv.Itoa(len(keptMembers))
 		}
+		if len(keptMembers) == 0 && len(originalMembers) > 0 {
+			out[i].Excluded = appendUniqueAggregateExclusionMembers(out[i].Excluded, removedMembers)
+			out[i].Provenance = appendAggregateExclusionProvenance(
+				out[i].Provenance,
+				types.TypedExclusionExactEmptyMemberSetAggregateProvenance,
+			)
+			out[i].Dimensions = appendTypedExclusionExactEmptyDimensions(out[i].Dimensions, len(originalMembers))
+		}
 	}
 	return types.ReconcilePrincipalAggregateMemberSetSupersets(out)
+}
+
+func appendUniqueAggregateExclusionMembers(current, added []string) []string {
+	out := append([]string(nil), current...)
+	seen := make(map[string]bool, len(out)+len(added))
+	for _, member := range out {
+		seen[strings.TrimSpace(member)] = true
+	}
+	for _, member := range added {
+		member = strings.TrimSpace(member)
+		if member == "" || seen[member] {
+			continue
+		}
+		seen[member] = true
+		out = append(out, member)
+	}
+	return out
+}
+
+func appendAggregateExclusionProvenance(current, token string) string {
+	current = strings.Trim(strings.TrimSpace(current), " ;,")
+	if current == "" {
+		return token
+	}
+	if strings.Contains(current, token) {
+		return current
+	}
+	return current + "; " + token
+}
+
+func appendTypedExclusionExactEmptyDimensions(current []types.AnswerAggregateDimension, preFilterCount int) []types.AnswerAggregateDimension {
+	out := append([]types.AnswerAggregateDimension(nil), current...)
+	wanted := []types.AnswerAggregateDimension{
+		{Name: "post_filter_status", Value: "exact_empty_by_typed_exclusion"},
+		{Name: "pre_filter_member_count", Value: strconv.Itoa(preFilterCount)},
+	}
+	for _, dimension := range wanted {
+		found := false
+		for i := range out {
+			if strings.EqualFold(strings.TrimSpace(out[i].Name), dimension.Name) {
+				out[i] = dimension
+				found = true
+				break
+			}
+		}
+		if !found {
+			out = append(out, dimension)
+		}
+	}
+	return out
 }
 
 // EffectiveAnswerExclusionRolesForAgentContext returns the exclusion roles that

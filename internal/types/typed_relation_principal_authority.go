@@ -21,12 +21,26 @@ const (
 	// role=principal_answer; the system never infers that intent from labels or
 	// prose.
 	TypedRelationImplicitSiblingAggregateDemotionProvenance = "demoted:implicit_sibling_of_typed_relation_principal_member_set"
+	// TypedExclusionExactEmptyMemberSetAggregateProvenance marks a principal
+	// member_set that became exactly empty because every pre-filter member was
+	// removed by the analyzer-emitted typed exclusion/visibility policy. The
+	// completion layer owns this token and keeps the removed rows in Excluded so
+	// downstream consumers can distinguish a proven post-filter zero from a
+	// malformed or accidentally emptied JSON carrier.
+	TypedExclusionExactEmptyMemberSetAggregateProvenance = "system:typed_exclusion_exact_empty_member_set"
 )
 
 // AnswerAggregateFactHasTypedRelationPrincipalAuthority reports whether the
 // completion tool attached the exact typed-relation authority marker.
 func AnswerAggregateFactHasTypedRelationPrincipalAuthority(fact AnswerAggregateFact) bool {
 	return strings.Contains(fact.Provenance, TypedRelationPrincipalMemberSetAggregateProvenance)
+}
+
+// AnswerAggregateFactHasTypedExclusionExactEmptyAuthority reports whether the
+// completion layer, rather than model prose, proved that a non-empty member set
+// became empty under a typed exclusion policy.
+func AnswerAggregateFactHasTypedExclusionExactEmptyAuthority(fact AnswerAggregateFact) bool {
+	return strings.Contains(fact.Provenance, TypedExclusionExactEmptyMemberSetAggregateProvenance)
 }
 
 // PrincipalTypedRelationMemberSetFactRefsForRequest selects marked principal

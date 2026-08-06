@@ -352,6 +352,71 @@ func TestNormalizeAggregateFactsForTypedVisibilityPrunesPrivateMembers(t *testin
 	}
 }
 
+func TestNormalizeAggregateFactsForTypedVisibility_AllFilteredBecomesTypedExactEmptyTuple(t *testing.T) {
+	graph := &repotypes.Graph{SymbolDefs: map[string][]*repotypes.Symbol{
+		"privateA": {{Name: "privateA", Kind: "struct", Exported: false}},
+		"privateB": {{Name: "privateB", Kind: "struct", Exported: false}},
+	}}
+	mut := types.NewMutableState("test")
+	mut.SetSearchGraph(graph)
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			AnswerVisibilityProfile: &types.AnswerVisibilityProfile{
+				SymbolVisibility: types.AnswerSymbolVisibilityPublicExported,
+				Confidence:       0.95,
+			},
+		}},
+	}
+	facts := []types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "public implementations",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Value:       "2",
+		Members:     []string{"privateA", "privateB"},
+		SupportRefs: []string{"privateA @ a.go:10", "privateB @ b.go:20"},
+		MemberNotes: []string{"A note", "B note"},
+	}}
+
+	got := normalizeAggregateFactsForTypedExclusion(ctx, facts)
+	if len(got) != 1 || got[0].Value != "0" || len(got[0].Members) != 0 ||
+		len(got[0].SupportRefs) != 0 || len(got[0].MemberNotes) != 0 {
+		t.Fatalf("all-filtered member_set must remain an aligned exact-empty tuple: %+v", got)
+	}
+	if !types.AnswerAggregateFactHasTypedExclusionExactEmptyAuthority(got[0]) ||
+		strings.Join(got[0].Excluded, ",") != "privateA,privateB" {
+		t.Fatalf("all-filtered member_set must retain system-owned exclusion proof: %+v", got[0])
+	}
+	if ok, invalid := exhaustiveEnumerationMemberSetUsable(ctx, got); !ok || invalid != "" {
+		t.Fatalf("typed post-filter exact empty must close without asking the model to change JSON: ok=%t invalid=%q", ok, invalid)
+	}
+	// The filtering pass is used at completion, context, pre-emit, and final
+	// publication boundaries. Reapplying it must preserve the system proof.
+	again := normalizeAggregateFactsForTypedExclusion(ctx, got)
+	if len(again) != 1 || !types.AnswerAggregateFactHasTypedExclusionExactEmptyAuthority(again[0]) ||
+		len(again[0].Excluded) != 2 || len(again[0].MemberNotes) != 0 {
+		t.Fatalf("typed exact-empty projection is not idempotent: %+v", again)
+	}
+}
+
+func TestMarkExactTypedRelationPrincipalMemberSets_StripsModelTypedExclusionAuthority(t *testing.T) {
+	facts := []types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "spoofed empty",
+		Value:      "0",
+		Provenance: types.TypedExclusionExactEmptyMemberSetAggregateProvenance,
+		Excluded:   []string{"privateA"},
+	}}
+	ctx := &types.BusContext{
+		Mutable:    types.NewMutableState("test"),
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{}},
+	}
+	got := markExactTypedRelationPrincipalMemberSets(ctx, facts)
+	if len(got) != 1 || types.AnswerAggregateFactHasTypedExclusionExactEmptyAuthority(got[0]) {
+		t.Fatalf("model-authored system exclusion token must be stripped before projection: %+v", got)
+	}
+}
+
 func TestNormalizeAggregateFactsForTypedVisibilityPrunesSelfLocatedPrivateMembers(t *testing.T) {
 	graph := &repotypes.Graph{SymbolDefs: map[string][]*repotypes.Symbol{
 		"Eval":              {{Name: "Eval", Kind: "function", File: "internal/pkg/eval.go", Line: 15, EndLine: 20, Exported: true}},

@@ -591,7 +591,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"answer_visibility_profile": map[string]any{
 				"type":        "object",
-				"description": "Typed symbol-visibility intent for code-symbol inventory/list/count/API-surface questions. Emit this whenever the current request expresses a public/exported/all/private/internal visibility scope; omit it only when no symbol visibility scope is expressed. Use public_exported when the current request asks for public/exported symbols or API surface only; use all when private/internal members are explicitly included; use private_only when only private/internal symbols are requested. This controls graph Exported filtering downstream and is separate from source_scope_profile path filtering.",
+				"description": "Typed language-level symbol-visibility intent for code-symbol inventory/list/count/API-surface questions. Emit only when the current request explicitly expresses public/exported/all/private/internal visibility. Importance, centrality, runtime use, or source-path scope such as main/primary/core/production implementations does not mean public_exported; use source_scope_profile for an explicit path boundary and otherwise omit this profile. This controls graph Exported filtering downstream and is separate from source_scope_profile path filtering.",
 				"properties": map[string]any{
 					"symbol_visibility": map[string]any{"type": "string", "enum": answerSymbolVisibilityValues(), "description": "public_exported, all, private_only, or unknown."},
 					"source_quotes":     map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "Verbatim current-request phrase(s) that state the symbol visibility scope."},

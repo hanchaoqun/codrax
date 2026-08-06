@@ -5841,6 +5841,7 @@ func markExactTypedRelationPrincipalMemberSets(ctx *types.BusContext, facts []ty
 	for i := range out {
 		provenance := strings.ReplaceAll(out[i].Provenance, types.TypedRelationPrincipalMemberSetAggregateProvenance, "")
 		provenance = strings.ReplaceAll(provenance, types.TypedRelationImplicitSiblingAggregateDemotionProvenance, "")
+		provenance = strings.ReplaceAll(provenance, types.TypedExclusionExactEmptyMemberSetAggregateProvenance, "")
 		out[i].Provenance = strings.Trim(provenance, " ;,")
 	}
 	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
@@ -7179,6 +7180,9 @@ func aggregateStringSlicesEqual(a, b []string) bool {
 func exactEmptyMemberSetHasTypedNoHitSupport(fact types.AnswerAggregateFact, facts []types.AnswerAggregateFact) bool {
 	if !types.AnswerAggregateFactIsExactEmptyMemberSet(fact) {
 		return false
+	}
+	if types.AnswerAggregateFactHasTypedExclusionExactEmptyAuthority(fact) && len(fact.Excluded) > 0 {
+		return true
 	}
 	for _, candidate := range facts {
 		switch candidate.Kind {
