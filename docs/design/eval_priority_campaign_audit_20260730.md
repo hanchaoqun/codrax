@@ -19739,3 +19739,27 @@ JDK，执行器如实返回 `runner_missing`，控制器拒绝行为验证假绿
 
 工件：`eval/parallel_selected_summary_evalcampaign_b172_json_java_replay_r90_20260806.md`、
 `eval/parallel_selected_summary_evalcampaign_b172_json_java_replay_r90_20260806_manual_audit.md`。
+
+### 123.100 B173-S1：typed repair locus 与 coverage obligation 单源收敛
+
+`EVAL-B172-REPAIRSCOPE1` 已按 plan IR 边界落地：
+
+1. `dataworkflow.ActiveDataTaskViolationFromRecords` 在最新成功进展之后的 live suffix 中，按最新 record 选择 execution violation 或 admission
+   `FinalGuard/Guard`；guard 直接投影为 `source=typed_contract` 的 `DataTaskViolation`，保留 code、action、input aliases、field/operation/param、limit、
+   observed、repairability 与 typed action hints。已有 typed guard 时不再退回 error-text classifier，成功进展前的旧 guard 只保留审计身份，不能继续污染 repair；
+2. shared CLI/REPL repair 接线在接受模型 repair plan 后、累计 coverage 保全之前，执行 repair-only obligation constraint。对于原 workflow 为 false 的
+   decision/rule/contribution/entity/reconcile flag，只有 repaired typed action DAG 的 capability 明确生产该 ledger 时，模型新声明的 true 才保留；单
+   `custom_transform` 不能靠 JSON boolean 自铸五类新校验工作；
+3. 原 workflow 已有义务仍交给既有 cumulative/scoped preservation 决策：普通 repair 不得删除，显式 bounded staged repair 仍可只携当前批义务。随后既有
+   policy、strict-output shape 与 action normalizer 继续运行，因此真正的聚合、复杂严格输出和多动作工作流不会被降杆；
+4. action-ledger 单源审计同时发现 `normalize_entities/apply_entity_resolutions` 的 capability 已声明 `LedgerEntityResolutions`，但通用 action contract
+   normalizer 漏设 `entity_resolution_required`。现已与 rule/decision/contribution/reconcile 一样从 `ProducesLedger` 机械推导，避免实体动作执行却不验实体账。
+
+端到端 pin 以真实 `required_material_scheduling` admission record 驱动 shared repair：typed locus 保持精确 code，修复脚本补读规则材料，模型顺带新增的
+`decision_records_required=true` 被收回；另有 action-derived 五 ledger 正例、既有义务保全、typed guard 字段投影及成功后 stale guard 退役反例。没有读取
+用户原文、模型思维或最终答案，没有修改 final answer，也没有增加 JSON 教学副本。
+
+验证：定向回归全绿；完整 `go test ./internal/dataworkflow ./internal/repl -count=1` 全绿（dataworkflow 0.380s，repl 30.856s）。
+
+状态：`EVAL-B172-REPAIRSCOPE1=implemented/full-affected-suite-pass`；下一步独立提交推送并用 strict-JSON + 非数据异构 case 做恰好两路复放；Trace
+显式时间窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量、两维根因和模型结论所有权=`untouched`。

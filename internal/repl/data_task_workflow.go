@@ -125,6 +125,9 @@ func dataTaskRunRepairPlannerWithRuntimeView(ctx context.Context, repairer DataT
 	if err != nil {
 		return dataquery.TaskPlan{}, err
 	}
+	workflow := view.CurrentPlan
+	workflow.CoverageContract = dataTaskWorkflowCoverageContract(repoRoot, view.Records, view.CurrentPlan)
+	repairedPlan = constrainDataTaskRepairCoverageEscalation(workflow, repairedPlan)
 	return preserveDataTaskWorkflowMaterialCoverageForError(repoRoot, view.Records, view.CurrentPlan, repairedPlan, errText), nil
 }
 
@@ -1620,6 +1623,10 @@ func normalizeDataTaskPlanContractFromActions(plan *dataquery.TaskPlan) bool {
 		}
 		if dataworkflow.ProducesLedger(kind, dataworkflow.LedgerContributions) && !plan.CoverageContract.ContributionLedgerRequired {
 			plan.CoverageContract.ContributionLedgerRequired = true
+			changed = true
+		}
+		if dataworkflow.ProducesLedger(kind, dataworkflow.LedgerEntityResolutions) && !plan.CoverageContract.EntityResolutionRequired {
+			plan.CoverageContract.EntityResolutionRequired = true
 			changed = true
 		}
 		// Reconcile is required when the plan produces a NUMERIC
@@ -5333,12 +5340,8 @@ func dataTaskWorkflowRecordWithExecutionViolation(plan dataquery.TaskPlan, resul
 }
 
 func dataTaskRepairViolationFromRecords(records []dataTaskWorkflowRecord, errText string) dataquery.DataTaskViolation {
-	for i := len(records) - 1; i >= 0; i-- {
-		for _, violation := range records[i].Violations {
-			if strings.TrimSpace(violation.Code) != "" {
-				return violation
-			}
-		}
+	if violation, ok := dataworkflow.ActiveDataTaskViolationFromRecords(records); ok {
+		return violation
 	}
 	return dataquery.ClassifyExecutionError(errText)
 }
@@ -7227,6 +7230,39 @@ func shouldValidateDataTaskWorkflowResult(current dataquery.TaskPlan) bool {
 func preserveDataTaskRepairCoverage(previous, repaired dataquery.TaskPlan) dataquery.TaskPlan {
 	repaired.CoverageContract = mergeDataTaskCoverageContracts(previous.CoverageContract, repaired.CoverageContract)
 	repaired.InputPaths = mergeDataTaskInputPaths(repaired.InputPaths, repaired.CoverageContract.RequiredRunnerInputPaths())
+	return repaired
+}
+
+// constrainDataTaskRepairCoverageEscalation prevents a local repair response
+// from creating unrelated validation work by declaration alone. Existing
+// workflow obligations are handled by the preservation policy below; newly
+// proposed obligations survive only when the repaired typed action DAG itself
+// produces the corresponding ledger. Policy/output-shape normalization runs
+// afterward and may independently establish additional structural duties.
+func constrainDataTaskRepairCoverageEscalation(previous, repaired dataquery.TaskPlan) dataquery.TaskPlan {
+	mechanical := repaired
+	mechanical.CoverageContract.DecisionRecordsRequired = false
+	mechanical.CoverageContract.RuleCoverageRequired = false
+	mechanical.CoverageContract.ContributionLedgerRequired = false
+	mechanical.CoverageContract.EntityResolutionRequired = false
+	mechanical.CoverageContract.ReconcileRequired = false
+	normalizeDataTaskPlanContractFromActions(&mechanical)
+
+	if !previous.CoverageContract.DecisionRecordsRequired && !mechanical.CoverageContract.DecisionRecordsRequired {
+		repaired.CoverageContract.DecisionRecordsRequired = false
+	}
+	if !previous.CoverageContract.RuleCoverageRequired && !mechanical.CoverageContract.RuleCoverageRequired {
+		repaired.CoverageContract.RuleCoverageRequired = false
+	}
+	if !previous.CoverageContract.ContributionLedgerRequired && !mechanical.CoverageContract.ContributionLedgerRequired {
+		repaired.CoverageContract.ContributionLedgerRequired = false
+	}
+	if !previous.CoverageContract.EntityResolutionRequired && !mechanical.CoverageContract.EntityResolutionRequired {
+		repaired.CoverageContract.EntityResolutionRequired = false
+	}
+	if !previous.CoverageContract.ReconcileRequired && !mechanical.CoverageContract.ReconcileRequired {
+		repaired.CoverageContract.ReconcileRequired = false
+	}
 	return repaired
 }
 

@@ -17,6 +17,20 @@ import (
 	"github.com/hanchaoqun/codrax/internal/llm"
 )
 
+type capturingTypedDataTaskRepairPlanner struct {
+	plan      dataquery.TaskPlan
+	violation dataquery.DataTaskViolation
+}
+
+func (p *capturingTypedDataTaskRepairPlanner) RepairDataTask(context.Context, string, string, TurnPolicy, []dataquery.CandidateFile, dataquery.TaskPlan, string) (dataquery.TaskPlan, error) {
+	return p.plan, nil
+}
+
+func (p *capturingTypedDataTaskRepairPlanner) RepairDataTaskWithViolation(_ context.Context, _ string, _ string, _ TurnPolicy, _ []dataquery.CandidateFile, _ dataquery.TaskPlan, _ string, violation dataquery.DataTaskViolation) (dataquery.TaskPlan, error) {
+	p.violation = violation
+	return p.plan, nil
+}
+
 func TestDataTaskPlannerCompatJSON(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{
@@ -1172,6 +1186,107 @@ func TestPreserveDataTaskCoverageForTerminalMissingMaterial(t *testing.T) {
 	}
 	if strings.Join(paths, ",") != "rules.md,orders.csv" && strings.Join(paths, ",") != "orders.csv,rules.md" {
 		t.Fatalf("required paths=%v, want orders.csv and rules.md preserved", paths)
+	}
+}
+
+func TestConstrainDataTaskRepairCoverageEscalationRejectsDeclarationOnlyDuties(t *testing.T) {
+	repaired := dataquery.TaskPlan{
+		Actions: []dataquery.DataAction{{
+			ID:     "project_ids",
+			Kind:   dataquery.DataActionCustomTransform,
+			Script: `instructions = read_text("instructions.md")` + "\n" + `emit_result({"answer":"{\"ids\":[\"u1\"]}"})`,
+		}},
+		CoverageContract: dataquery.CoverageContract{
+			DecisionRecordsRequired:    true,
+			RuleCoverageRequired:       true,
+			ContributionLedgerRequired: true,
+			EntityResolutionRequired:   true,
+			ReconcileRequired:          true,
+		},
+	}
+
+	got := constrainDataTaskRepairCoverageEscalation(dataquery.TaskPlan{}, repaired)
+	if dataTaskValidationLedgerCount(got.CoverageContract) != 0 {
+		t.Fatalf("CoverageContract=%+v, declaration-only repair must not mint validation duties", got.CoverageContract)
+	}
+}
+
+func TestConstrainDataTaskRepairCoverageEscalationKeepsActionDerivedDuties(t *testing.T) {
+	repaired := dataquery.TaskPlan{
+		Actions: []dataquery.DataAction{
+			{ID: "rules", Kind: dataquery.DataActionDeriveRules},
+			{ID: "entities", Kind: dataquery.DataActionNormalizeEntities},
+			{ID: "sum", Kind: dataquery.DataActionComputeContribs},
+		},
+		CoverageContract: dataquery.CoverageContract{
+			DecisionRecordsRequired:    true,
+			RuleCoverageRequired:       true,
+			ContributionLedgerRequired: true,
+			EntityResolutionRequired:   true,
+			ReconcileRequired:          true,
+		},
+	}
+
+	got := constrainDataTaskRepairCoverageEscalation(dataquery.TaskPlan{}, repaired)
+	contract := got.CoverageContract
+	if !contract.DecisionRecordsRequired || !contract.RuleCoverageRequired || !contract.ContributionLedgerRequired || !contract.EntityResolutionRequired || !contract.ReconcileRequired {
+		t.Fatalf("CoverageContract=%+v, typed action ledger duties must survive", contract)
+	}
+}
+
+func TestConstrainDataTaskRepairCoverageEscalationLeavesExistingDutyForPreservation(t *testing.T) {
+	previous := dataquery.TaskPlan{CoverageContract: dataquery.CoverageContract{DecisionRecordsRequired: true}}
+	repaired := dataquery.TaskPlan{CoverageContract: dataquery.CoverageContract{DecisionRecordsRequired: true}}
+	got := preserveDataTaskRepairCoverage(previous, constrainDataTaskRepairCoverageEscalation(previous, repaired))
+	if !got.CoverageContract.DecisionRecordsRequired {
+		t.Fatal("existing workflow duty was lost")
+	}
+}
+
+func TestDataTaskRunRepairPlannerUsesTypedGuardAndConstrainsContractDrift(t *testing.T) {
+	current := dataquery.TaskPlan{
+		Status:     "ready",
+		InputPaths: []string{"instructions.md", "users.json"},
+		CoverageContract: dataquery.CoverageContract{RequiredMaterials: []dataquery.CoverageMaterial{
+			{Path: "instructions.md", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+			{Path: "users.json", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed},
+		}},
+	}
+	guard := dataworkflow.RequiredMaterialSchedulingGuardResult(dataworkflow.RequiredMaterialSchedulingGuardInput{
+		RequiredPaths:  []string{"instructions.md", "users.json"},
+		ScheduledPaths: []string{"users.json"},
+	})
+	record := dataTaskWorkflowRecordForGuard(current, guard)
+	planner := &capturingTypedDataTaskRepairPlanner{plan: dataquery.TaskPlan{
+		Status:     "ready",
+		InputPaths: []string{"instructions.md", "users.json"},
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials:       current.CoverageContract.RequiredMaterials,
+			DecisionRecordsRequired: true,
+		},
+		Actions: []dataquery.DataAction{{
+			ID:         "project_ids",
+			Kind:       dataquery.DataActionCustomTransform,
+			InputPaths: []string{"instructions.md", "users.json"},
+			Script:     `instructions = read_text("instructions.md")` + "\n" + `users = json_load("users.json")` + "\n" + `emit_result({"answer":"{\"ids\":[\"u1\"]}"})`,
+		}},
+	}}
+
+	got, err := dataTaskRunRepairPlannerWithRuntimeView(context.Background(), planner, "project active ids", "", TurnPolicy{}, nil, current, guard.ErrorText(), dataTaskWorkflowRuntimeView{
+		Records:     []dataTaskWorkflowRecord{record},
+		CurrentPlan: current,
+	})
+	if err != nil {
+		t.Fatalf("dataTaskRunRepairPlannerWithRuntimeView: %v", err)
+	}
+	if planner.violation.Code != "required_material_scheduling" || planner.violation.Source != dataquery.DataViolationSourceTypedContract {
+		t.Fatalf("typed repair locus=%+v", planner.violation)
+	}
+	if got.CoverageContract.DecisionRecordsRequired {
+		t.Fatalf("CoverageContract=%+v, unrelated repair obligation survived shared repair wiring", got.CoverageContract)
+	}
+	if len(got.Actions) != 1 || !strings.Contains(got.Actions[0].Script, `read_text("instructions.md")`) {
+		t.Fatalf("Actions=%+v, focused material repair was not preserved", got.Actions)
 	}
 }
 

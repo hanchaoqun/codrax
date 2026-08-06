@@ -137,6 +137,55 @@ func TestActiveGuardViolationsDropsGuardsBeforeSuccessfulProgress(t *testing.T) 
 	}
 }
 
+func TestActiveDataTaskViolationFromRecordsProjectsTypedAdmissionGuard(t *testing.T) {
+	guard := RequiredMaterialSchedulingGuardResult(RequiredMaterialSchedulingGuardInput{
+		RequiredPaths:  []string{"instructions.md", "users.json"},
+		ScheduledPaths: []string{"users.json"},
+	})
+	records := []WorkflowRecord{{
+		Err: guard.ErrorText(),
+		Admission: &ActionDAGAdmissionDecision{
+			Guard:         guard,
+			FinalGuard:    guard,
+			GuardErr:      guard.ErrorText(),
+			FinalGuardErr: guard.ErrorText(),
+		},
+	}}
+
+	violation, ok := ActiveDataTaskViolationFromRecords(records)
+	if !ok {
+		t.Fatal("expected active typed admission violation")
+	}
+	if violation.Code != "required_material_scheduling" || violation.Source != dataquery.DataViolationSourceTypedContract {
+		t.Fatalf("violation=%+v, want exact typed admission guard", violation)
+	}
+	if strings.Join(violation.InputAliases, ",") != "instructions.md" {
+		t.Fatalf("InputAliases=%v, want missing material only", violation.InputAliases)
+	}
+	if !strings.Contains(violation.RepairHint, string(dataquery.DataActionCustomTransform)) {
+		t.Fatalf("RepairHint=%q, want typed action hints", violation.RepairHint)
+	}
+}
+
+func TestActiveDataTaskViolationFromRecordsDoesNotReviveStaleGuard(t *testing.T) {
+	guard := RequiredMaterialSchedulingGuardResult(RequiredMaterialSchedulingGuardInput{
+		RequiredPaths: []string{"instructions.md"},
+	})
+	records := []WorkflowRecord{{
+		Err: guard.ErrorText(),
+		Admission: &ActionDAGAdmissionDecision{
+			FinalGuard:    guard,
+			FinalGuardErr: guard.ErrorText(),
+		},
+	}, {
+		Result: &dataquery.Result{Answer: `{"ids":["u1"]}`},
+	}}
+
+	if violation, ok := ActiveDataTaskViolationFromRecords(records); ok {
+		t.Fatalf("violation=%+v, stale admission guard must remain audit-only", violation)
+	}
+}
+
 func TestActiveExecutionViolationsKeepLineageButDropFailuresBeforeSuccessfulProgress(t *testing.T) {
 	stale := dataquery.DataTaskViolation{
 		Code:       "required_material_not_consumed",

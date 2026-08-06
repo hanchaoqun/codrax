@@ -129,6 +129,92 @@ func ActiveExecutionViolationsFromRecords(records []WorkflowRecord) []WorkflowVi
 	return WorkflowViolationsFromRecordExecution(records[start:])
 }
 
+// ActiveDataTaskViolationFromRecords returns the newest typed violation that
+// still belongs to the live workflow suffix. Admission guards are first-class
+// typed repair input: callers must not demote an exact guard code to an
+// error-text classification merely because the rejected plan never executed.
+func ActiveDataTaskViolationFromRecords(records []WorkflowRecord) (dataquery.DataTaskViolation, bool) {
+	start := 0
+	for i, rec := range records {
+		if workflowRecordHasSuccessfulProgress(rec) {
+			start = i + 1
+		}
+	}
+	for i := len(records) - 1; i >= start; i-- {
+		for _, violation := range records[i].Violations {
+			if strings.TrimSpace(violation.Code) == "" {
+				continue
+			}
+			return cloneDataTaskViolation(violation), true
+		}
+		guard := activeAdmissionGuard(records[i].Admission)
+		if guard.Empty() {
+			continue
+		}
+		violation := DataTaskViolationFromGuard(guard)
+		if strings.TrimSpace(violation.Code) != "" {
+			return violation, true
+		}
+	}
+	return dataquery.DataTaskViolation{}, false
+}
+
+// DataTaskViolationFromGuard projects a workflow admission guard into the
+// shared typed repair carrier. The projection copies structural fields only;
+// it does not classify or scan the human-readable message.
+func DataTaskViolationFromGuard(guard GuardResult) dataquery.DataTaskViolation {
+	var source WorkflowViolation
+	if len(guard.Violations) > 0 {
+		source = guard.Violations[0]
+	}
+	code := firstNonEmptyViolationText(source.Code, guard.Code)
+	if code == "" {
+		return dataquery.DataTaskViolation{}
+	}
+	repairability := guard.Repairability
+	if source.Repairability != "" {
+		repairability = source.Repairability
+	}
+	return dataquery.DataTaskViolation{
+		Code:                 code,
+		Source:               dataquery.DataViolationSourceTypedContract,
+		Summary:              firstNonEmptyViolationText(source.Reason, guard.Reason, guard.Message, code),
+		ActionID:             strings.TrimSpace(source.ActionID),
+		ActionKind:           strings.TrimSpace(source.ActionKind),
+		Field:                strings.TrimSpace(source.Field),
+		Operation:            strings.TrimSpace(source.Operation),
+		Param:                strings.TrimSpace(source.Param),
+		InputAlias:           strings.TrimSpace(source.InputAlias),
+		InputAliases:         cleanActionAliases(append([]string{source.InputAlias}, source.InputAliases...)),
+		MissingFields:        cleanStrings(source.MissingFields),
+		AvailableFieldSample: cleanStrings(source.AvailableFieldSample),
+		Role:                 strings.TrimSpace(source.Role),
+		Limit:                source.Limit,
+		Observed:             source.Observed,
+		Repairability:        dataRepairabilityForWorkflow(repairability),
+		RepairHint:           strings.Join(cleanStrings(source.RepairActionHints), ","),
+	}
+}
+
+func dataRepairabilityForWorkflow(repairability ViolationRepairability) dataquery.DataRepairability {
+	switch repairability {
+	case RepairSafePatch:
+		return dataquery.RepairabilitySafePatch
+	case RepairNeedsClarification:
+		return dataquery.RepairabilityNeedsClarification
+	default:
+		return dataquery.RepairabilityNeedsRecompute
+	}
+}
+
+func cloneDataTaskViolation(in dataquery.DataTaskViolation) dataquery.DataTaskViolation {
+	out := in
+	out.InputAliases = append([]string(nil), in.InputAliases...)
+	out.MissingFields = append([]string(nil), in.MissingFields...)
+	out.AvailableFieldSample = append([]string(nil), in.AvailableFieldSample...)
+	return out
+}
+
 func workflowRecordHasSuccessfulProgress(rec WorkflowRecord) bool {
 	return rec.Result != nil && strings.TrimSpace(rec.Err) == "" && len(rec.Violations) == 0
 }
