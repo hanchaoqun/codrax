@@ -20636,3 +20636,31 @@ JSON 审计：ArkTS 首次 `blocks` 作为 JSON-encoded string 到达，兼容�
 `EVAL-B184-RETRYSTORM1=reopened/arkts-synthetic-subset-contract-loop`；
 `EVAL-B184-CITEMONO1=resolved/r106-replay-confirmed`；
 `EVAL-B184-CLOSUREPART1=P1/confirmed/pending-design`。
+
+### 123.131 B184 r107：S9 跨语言闭环；partial closure 本轮未复现但不能销账
+
+在 `727366b32` 构建后严格并行恰好两个跨语言 case：
+
+- `cangjie_repomap`：114s，runner PASS / human PASS，finalizer reject=1；
+- `arkts_repomap`：137s，runner PASS / human PASS，finalizer reject=1。
+
+S9 经真实回放关闭。Cangjie 保持精确 2 extend + 2 foreign func + 8 public class，所有 package/path/citation 对齐；ArkTS 精确给出 4 个 `@Entry` struct 与 2 个
+`@Builder` 函数，并依据源码正确排除没有 `@Entry` decorator 的 `EntryAbility`。r106 中同一 `Index (struct)` 同时 ADD/REMOVE 的互斥合同、11 次 finalizer reject、unavailable-tool retry 与最终降级均消失。
+marker-first 后 prompt/family 不再以 symbol fallback 取代 parser decorator；全局越界域与 completeness/row-id/citation 域消费同一 admitted registry。
+
+两案各有一次有界 finalizer patch：首稿已经给出全部正确内容与引用，但分桶 section 没完整携带 `surface_role=principal + enumeration_item facet + claim_uses`；Cangjie 还需把
+`String` 等短 label 改成 prompt 已给出的 exact decorated member（含 package attribute）。提示只有一个方向，第二稿通过，不是矛盾合同或重试风暴。记录
+`EVAL-B184-CARRIERMETA1=P2/confirmed/repeated-single-retry`：后续优先从 projected schema / typed carrier scaffold 减少模型重复填写结构元数据；若做确定性补全，只能补不改变语义的 typed carrier metadata，不能修改成员、结论或可见正文，也不能从用户/模型 prose 推断。
+
+r106 的 `EVAL-B184-CLOSUREPART1` 本轮没有复现：模型先读取全部 6 个 `.ets` 文件，再提交完整 4+2 aggregate，答案正确。这只能把风险收窄为“确定性代码允许、模型路径触发不稳定”，不能销账；
+r106 的生产 witness 已证明模型明确知道 3 个未 grounded principal candidates 时，`generic forced-read gates bypassed by grounded model-owned completion boundary` 仍允许 partial `resolved`。最优方案继续限定在 completion 时读取 typed observation/grounding/aggregate 三者的差集：精确已知未落地行阻止 resolved 并继续开放 read；分页/模糊候选仍只作 soft guidance，系统不代写成员。
+
+JSON/上下文审计：两案没有 malformed JSON、blocks-string recovery 或 schema/runtime 双权威。当前 tool schema 仍是字段、类型、required、enum 的唯一 JSON authority；Required Answer Blocks 只描述内容槽位。两次单轮 metadata patch 说明教学仍可减负，但没有出现“同字段必带又必拒”。本批不触及 Trace 因果投影与自动补齐。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b184_authority_replay_r107_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b184_authority_replay_r107_20260806_manual_audit.md`。
+
+状态：`EVAL-B184-CONTRACTSAME1=resolved/r107-cross-language-replay-confirmed`；
+`EVAL-B184-RETRYSTORM1=resolved/r107-no-loop`；
+`EVAL-B184-CLOSUREPART1=P1/confirmed-nondeterministic-trigger/pending-typed-gap-fix`；
+`EVAL-B184-CARRIERMETA1=P2/confirmed/pending-json-teaching-and-scaffold-audit`。
