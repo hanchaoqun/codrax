@@ -309,9 +309,12 @@ func (p *emitInvestigationCompleteParams) loadFromRaw(raw emitInvestigationCompl
 			}
 		}
 	}
-	facts, misplaced, err := decodeAggregateFactsPayload(raw.AggregateFacts)
+	facts, misplaced, aggregateFactsStringRecovered, err := decodeAggregateFactsPayload(raw.AggregateFacts)
 	if err != nil {
 		return err
+	}
+	if aggregateFactsStringRecovered {
+		logging.Warning("[emit_investigation_complete] aggregate_facts arrived as JSON-encoded string; re-parsed losslessly")
 	}
 	misplaced = mergeMisplacedCompletionFields(misplaced, reasonMisplaced)
 	if err := recoverMisplacedCompletionWaiverFields(&raw, misplaced); err != nil {
@@ -403,31 +406,33 @@ func decodeMisplacedCompletionWaiverFamily(fields map[string]json.RawMessage, wa
 	return waiver, clear, nil
 }
 
-func decodeAggregateFactsPayload(raw json.RawMessage) ([]types.AnswerAggregateFact, map[string]json.RawMessage, error) {
+func decodeAggregateFactsPayload(raw json.RawMessage) ([]types.AnswerAggregateFact, map[string]json.RawMessage, bool, error) {
 	trimmed := strings.TrimSpace(string(raw))
 	if trimmed == "" || trimmed == "null" {
-		return nil, nil, nil
+		return nil, nil, false, nil
 	}
 	var payload []byte
 	var misplaced map[string]json.RawMessage
+	stringRecovered := false
 	if strings.HasPrefix(trimmed, `"`) {
 		var encoded string
 		if err := json.Unmarshal(raw, &encoded); err != nil {
-			return nil, nil, err
+			return nil, nil, false, err
 		}
 		encoded = strings.TrimSpace(encoded)
 		if encoded == "" {
-			return nil, nil, nil
+			return nil, nil, false, nil
 		}
 		if repaired, changed := toolparam.RemoveTrailingCommasBeforeJSONClosers(encoded); changed {
 			encoded = repaired
 		}
 		arrayPayload, tail, ok := splitLeadingJSONArrayWithMisplacedObjectTail(encoded)
 		if !ok {
-			return nil, nil, fmt.Errorf("aggregate_facts string must contain a JSON array")
+			return nil, nil, false, fmt.Errorf("aggregate_facts string must contain a JSON array")
 		}
 		payload = arrayPayload
 		misplaced = tail
+		stringRecovered = true
 	} else {
 		payload = raw
 	}
@@ -440,9 +445,9 @@ func decodeAggregateFactsPayload(raw json.RawMessage) ([]types.AnswerAggregateFa
 		// typed wrapper carrying the post-compat payload bytes, so the reject
 		// builder can walk EVERY entry for the accumulated report instead of
 		// stopping at Go's first decoder error. Error() text is unchanged.
-		return nil, nil, &aggregateFactsEntryDecodeError{err: err, payload: payload}
+		return nil, nil, false, &aggregateFactsEntryDecodeError{err: err, payload: payload}
 	}
-	return facts, misplaced, nil
+	return facts, misplaced, stringRecovered, nil
 }
 
 // aggregateFactsEntryDecodeError marks a strict-decode failure INSIDE the
@@ -755,7 +760,7 @@ func misplacedCompletionReasonFieldsAreSufficient(fields map[string]json.RawMess
 		}
 	}
 	if raw := fields["aggregate_facts"]; len(raw) > 0 {
-		if _, _, err := decodeAggregateFactsPayload(raw); err == nil {
+		if _, _, _, err := decodeAggregateFactsPayload(raw); err == nil {
 			score++
 		}
 	}

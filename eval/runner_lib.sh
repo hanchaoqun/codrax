@@ -2466,6 +2466,7 @@ eval_materialize_partial_run_result() {
       echo "strict_decode_carrier_events=$(eval_count_pattern 'strict_decode_remap. string-carrier field' "$log")"
       echo "strict_decode_element_shape_events=$(eval_count_pattern 'strict_decode_remap. array-element shape field' "$log")"
       echo "answer_document_blocks_string_recovery_events=$(eval_count_control_pattern 'WARN \[emit_answer_document\] blocks\[\] arrived as JSON-encoded string; re-parsed via flat-mode tolerance path' "$log")"
+      echo "investigation_aggregate_facts_string_recovery_events=$(eval_count_control_pattern 'WARN \[emit_investigation_complete\] aggregate_facts arrived as JSON-encoded string; re-parsed losslessly' "$log")"
     } >"$dir/run-${run_id}.metrics.txt"
   fi
   if [[ ! -f "$dir/run-${run_id}.verdict" ]]; then

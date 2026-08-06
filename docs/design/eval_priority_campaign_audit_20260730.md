@@ -19319,3 +19319,23 @@ AnswerDocument，模型结论所有权不变。
 
 状态：`EVAL-B169-RUNTIMEQUOTE1=implemented/targeted+skill+tool-full-pass/awaiting-exact2-replay`；
 `EVAL-B169-AGGAUTHCLAIM1=P1/confirmed/next-architecture-batch`；`EVAL-B169-AGGJSONMETRIC1=P2/next-small-batch`。
+
+### 123.84 B169-S2：`aggregate_facts` 整体 string 无损恢复获得独立控制面指标
+
+本批沿用 B168 的 JSON 可观测原则，只补采集，不改变模型 payload 的接受范围、兼容修复结果或最终答案：
+
+1. `emit_investigation_complete` 的 custom decoder 现在从返回值显式携带“whole `aggregate_facts` JSON string 已无损重解析”这一 typed 状态；
+   仅该兼容臂成功时发一条固定 control-plane WARN，native array、空值、严格解码失败均不会误报；
+2. `run.sh` 正常路径与 `runner_lib.sh` partial/timeout 物化路径统一新增
+   `investigation_aggregate_facts_string_recovery_events`，并登记进跨 run 汇总 roster；它与通用 strict-decode remap、AnswerDocument
+   `blocks[]` string recovery 分开，避免不同 JSON 载体问题互相掩盖；
+3. 计数使用带时间戳和 WARN 级别的控制面锚。runner 回归在同一日志里同时放置一条真实 warning 与一条模型原文引用，正常聚合与 partial
+   两条路径都必须只计 1，禁止通过扫描模型输出推高指标；
+4. 现有 lossless decoder、schema 与 skill 教学没有新增分支或同义提示。历史 r85 在埋点前产生，不能倒推出该 control marker；下一轮真实 replay
+   才能确认生产发生次数，再决定是否需要压缩或合并 schema-near JSON 教学。
+
+验证：四个既有 string-encoded/misplaced-tail 定向工具用例 PASS；`bash eval/runner_lib_test.sh` 全绿。该批不触碰显式时间窗 Trace、因果投影、
+系统自动补齐、根因排序、唤醒链、窗内可消除量、两维根因或 AnswerDocument，用户可见回答字节不因该指标改变。
+
+状态：`EVAL-B169-AGGJSONMETRIC1=implemented/targeted-tool+runner-contract-pass/awaiting-production-replay`；
+`EVAL-B169-AGGAUTHCLAIM1=P1/confirmed/next-architecture-batch`；模型结论所有权=`preserved`。
