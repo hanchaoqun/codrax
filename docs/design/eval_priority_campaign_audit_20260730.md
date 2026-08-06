@@ -18539,3 +18539,51 @@ unknown-field quarantine，因此模型按合同正确发出的 family key 会�
 `go test ./internal/tool -run 'Quarantine|SourceInventoryFamily' -count=1` PASS（0.758s）。
 
 状态：`EVAL-B156-FIELDQUARDRIFT1=implemented/parity-pinned`；contradictory JSON contract=`closed`；等待 source-inventory 异构生产回放。
+
+### 123.53 B157 r73：职责与图边修复生产闭环；Cangjie 全量正确；引用修复违反单调性
+
+在 `main@4f356bd65` 构建后严格并行恰好两个异构 case：
+
+- `qf_diagram_pipeline`：107s，runner PASS / human PARTIAL；
+- `cangjie_repomap`：142s，runner/human PASS。
+
+diagram 首轮即生成 precedence 流程边，零 Finalizer reject；四个 stage 的责任、产物、顺序和 Mermaid 均完整，不再出现“证据没有职责细节”。因此
+`EVAL-B156-SUPPORTDETAILJOIN1` 与 `EVAL-B156-DIAGEDGECHOICE1` 已完成生产回放闭环。JSON 可解码，未触发 malformed recovery。
+
+但确定性 pre-emit citation repair 违反单调性：模型为四行分别选择
+`stage_binding.go:45/59/71/83`，这些正是 principal member-set 的 typed support refs；candidate-role repair 先依据正文中的 `AnalysisIR` 等细节词把两行移到
+supporting symbol，unique-label repair 再依据 `StageAnalyze` 等标签移到 `analysis_ir.go:29` 或 `enums.go:34-36`。原引用随后作为 unused pool 被删。最终正文职责正确，
+但引用只证明类型/枚举名，不再证明职责与产物；系统自己的 soft advisory 同轮仍把被删的 stage_binding 行列为 candidate，形成自相矛盾。记
+`EVAL-B157-CITMONO1=P1-correctness`。
+
+上游还有同根但独立的 evidence span 问题：Explorer 的结构化 summary 使用 StageBinding entry 的 identity 行，同时描述相邻
+`Responsibility/PrimaryArtifacts` 字段；`scope=line` 不能证明 span 外字段。现有工具合同已经说 entailment 受 source span 限制，但没有把“结构化对象 entry identity
+与 field initializer”压缩成模型易选的决策，记 `EVAL-B157-EVSPAN1=P1-context-precision/json-teaching`。不能用 summary/citation 的自然语言相似度硬门，最优方案是
+软教学选择 exact initializer 或 bounded `line_range`。
+
+Cangjie case 逐项核对 12/12：2 个 extend、2 个 foreign func、8 个 public class；符号、文件、行、package 都正确，同名 `Cart` 的 extension/class、两个
+`native_add` 均未串位。模型本轮用三个 principal section，没有发 `source_inventory_family`，所以它是 inventory 无回归，而非 B156-S2 field carrier 的直接生产
+witness；full/patch/quarantine 反射 parity pin 仍是该项的直接闭环证据。一次不可用 `emit_evidence` 调用未影响答案，先作低优先级波动观察。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b157_diagram_cangjie_r73_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b157_diagram_cangjie_r73_20260805_manual_audit.md`。
+
+状态：`B156 support/edge=production-replay-closed`；`Cangjie inventory=12/12 pass`；
+`EVAL-B157-CITMONO1=confirmed/implementation-in-progress`；`EVAL-B157-EVSPAN1=confirmed/soft-teaching-in-progress`；Trace 全能力与模型结论所有权=`untouched`。
+
+### 123.54 B157-S1：引用修复单调化，并压缩结构化对象证据范围决策
+
+本批只调整确定性 citation repair 的候选优先级和 `emit_evidence` 软教学，不改变最终答案内容、模型结论、Trace authority 或任何因果投影能力：
+
+1. source-inventory citation candidate 先按 exact member label 分层；同名成员存在多个席位时，再用 typed row attribute 消歧；只有没有 exact label 行时才退到
+   attribute/text candidate。这样正文里的 supporting 类型或产物术语不能压过当前行的精确成员身份；
+2. candidate-role 与 unique-label 两条 repair 在重绑前都先检查当前 citation 是否已属于该 item 的最佳 typed row set。属于则字节保留；不属于时才执行现有的唯一候选、
+   明示 file:line、definition fallback 修复。错误 package 行、同名成员错位和 stale citation 的既有纠正仍保留；
+3. `emit_evidence` entailment 教学增加一个语言无关短决策：object/record entry identity 行只证明 entry identity；请求的字段值锚 exact initializer；一条答案行确需组合
+   相邻字段时用 bounded `line_range`。这适用于 Go struct literal、Java/Kotlin/ArkTS/Cangjie/C/C++/Rust/Python/JSON/YAML 等结构，不含 stage/fixture 特例；
+4. 所有判断都来自 typed row、candidate role、citation location 与 schema scope，不读取用户输入或模型/最终答案 prose 作硬门。系统仍不生成、删改或替换模型结论。
+
+定向回归覆盖 exact member vs detail term、typed member vs definition fallback、同名 package attribute 消歧、declaration over package，以及 evidence 教学 pin，全部 PASS；
+`go test ./internal/tool -count=1` 全量 PASS（168.864s）。
+
+状态：`EVAL-B157-CITMONO1=implemented/full-tool-pass`；`EVAL-B157-EVSPAN1=soft-teaching-implemented/full-tool-pass`；等待 exact-2 生产回放。

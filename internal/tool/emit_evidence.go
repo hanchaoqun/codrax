@@ -264,7 +264,10 @@ func (t *EmitEvidence) Description() string {
 		"that the caller invokes the callee; it does NOT prove the callee's internal guards, return value, " +
 		"side effects, or pipeline/stage ordering. A definition item proves the declaration/signature, not " +
 		"arbitrary behavior inside the body; condition, return, assignment, and initializer items prove only " +
-		"the construct at their grounded line/range. If a summary needs behavior from another function or " +
+		"the construct at their grounded line/range. For a structured object/record entry, the entry identity " +
+		"line proves only that identity: anchor a requested field value at its exact initializer line, or use " +
+		"one bounded line_range when a single answer row genuinely combines fields across adjacent lines. " +
+		"If a summary needs behavior from another function or " +
 		"a line outside this item's grounded span, read that source and emit a separate evidence item there. " +
 		"Never combine sibling functions' behavior into one line-anchored evidence summary.\n\n" +
 		"Optional hint fields: `context_role_hint` may be `defining`, `absence_support`, `related_context`, or `illustrative_only` " +

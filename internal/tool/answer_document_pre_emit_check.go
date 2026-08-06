@@ -1879,6 +1879,15 @@ func normalizeItemCitationRefsByTypedCandidateRoleWithContext(doc *types.AnswerD
 				continue
 			}
 			role := item.CandidateRole
+			// Citation repair is monotone: an already selected citation that
+			// belongs to the best typed row set for this exact item must not be
+			// replaced by a different, merely unique candidate. Besides keeping
+			// model ownership intact, this prevents a detail term in item.Text
+			// from moving an exact member-label citation onto a supporting row.
+			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) &&
+				preEmitCitationMatchesAnySourceInventoryCandidate(pctx, doc.Citations[item.CitationRef], label, text) {
+				continue
+			}
 			var cit types.Citation
 			var ok bool
 			if role == types.AnswerCandidateRoleUnknown || role == types.AnswerCandidateRoleOther {
@@ -1945,14 +1954,19 @@ func preEmitSourceInventoryCandidateCitationsForItemAnyRole(pctx *preEmitCheckCo
 	if len(rows) == 0 {
 		return nil
 	}
+	var exactStrong []types.Citation
+	var exactFallback []types.Citation
 	var strong []types.Citation
 	var fallback []types.Citation
+	seenExactStrong := map[string]bool{}
+	seenExactFallback := map[string]bool{}
 	seenStrong := map[string]bool{}
 	seenFallback := map[string]bool{}
 	surface := strings.TrimSpace(strings.Join([]string{label, text}, "\n"))
 	for _, row := range rows {
 		attrMatch := preEmitSourceInventoryRowAttributeMatchesItem(row.Member, label, text, surface)
-		if !attrMatch && !preEmitSourceInventoryRowMatchesItem(row, label, text) {
+		exactMatch := preEmitSourceInventoryRowExactLabelMatchesItem(row, label)
+		if !attrMatch && !exactMatch && !preEmitSourceInventoryRowMatchesItem(row, label, text) {
 			continue
 		}
 		cit, ok := preEmitSourceInventoryRowCitation(row)
@@ -1962,6 +1976,22 @@ func preEmitSourceInventoryCandidateCitationsForItemAnyRole(pctx *preEmitCheckCo
 		cit = pctx.canonicalCitation(cit)
 		key := preEmitCitationLocationKey(cit)
 		if key == "" {
+			continue
+		}
+		if exactMatch && attrMatch {
+			if seenExactStrong[key] {
+				continue
+			}
+			seenExactStrong[key] = true
+			exactStrong = append(exactStrong, cit)
+			continue
+		}
+		if exactMatch {
+			if seenExactFallback[key] {
+				continue
+			}
+			seenExactFallback[key] = true
+			exactFallback = append(exactFallback, cit)
 			continue
 		}
 		if attrMatch {
@@ -1978,6 +2008,12 @@ func preEmitSourceInventoryCandidateCitationsForItemAnyRole(pctx *preEmitCheckCo
 		seenFallback[key] = true
 		fallback = append(fallback, cit)
 	}
+	if len(exactStrong) > 0 {
+		return exactStrong
+	}
+	if len(exactFallback) > 0 {
+		return exactFallback
+	}
 	if len(strong) > 0 {
 		return strong
 	}
@@ -1993,6 +2029,8 @@ func preEmitUniqueSourceInventoryCandidateRoleCitationForItem(pctx *preEmitCheck
 	if len(rows) == 0 {
 		return types.Citation{}, false
 	}
+	var exactStrong []types.Citation
+	var exactFallback []types.Citation
 	var strong []types.Citation
 	var fallback []types.Citation
 	seen := map[string]bool{}
@@ -2002,7 +2040,8 @@ func preEmitUniqueSourceInventoryCandidateRoleCitationForItem(pctx *preEmitCheck
 		}
 		surface := strings.TrimSpace(strings.Join([]string{label, text}, "\n"))
 		attrMatch := preEmitSourceInventoryRowAttributeMatchesItem(row.Member, label, text, surface)
-		if !attrMatch && !preEmitSourceInventoryRowMatchesItem(row, label, text) {
+		exactMatch := preEmitSourceInventoryRowExactLabelMatchesItem(row, label)
+		if !attrMatch && !exactMatch && !preEmitSourceInventoryRowMatchesItem(row, label, text) {
 			continue
 		}
 		cit, ok := preEmitSourceInventoryRowCitation(row)
@@ -2015,20 +2054,48 @@ func preEmitUniqueSourceInventoryCandidateRoleCitationForItem(pctx *preEmitCheck
 			continue
 		}
 		seen[key] = true
-		if attrMatch {
+		if exactMatch && attrMatch {
+			exactStrong = append(exactStrong, cit)
+		} else if exactMatch {
+			exactFallback = append(exactFallback, cit)
+		} else if attrMatch {
 			strong = append(strong, cit)
 		} else {
 			fallback = append(fallback, cit)
 		}
 	}
 	out := fallback
-	if len(strong) > 0 {
+	switch {
+	case len(exactStrong) > 0:
+		out = exactStrong
+	case len(exactFallback) > 0:
+		out = exactFallback
+	case len(strong) > 0:
 		out = strong
 	}
 	if len(out) != 1 {
 		return types.Citation{}, false
 	}
 	return out[0], true
+}
+
+func preEmitSourceInventoryRowExactLabelMatchesItem(row types.SourceInventoryRow, label string) bool {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return false
+	}
+	member := row.Member
+	for _, candidate := range []string{
+		member.Name,
+		member.Key,
+		preEmitSourceInventorySupportRefLabel(member.SupportRef),
+	} {
+		candidate = strings.TrimSpace(candidate)
+		if candidate != "" && strings.EqualFold(candidate, label) {
+			return true
+		}
+	}
+	return false
 }
 
 func preEmitSourceInventoryRowMatchesItem(row types.SourceInventoryRow, label, text string) bool {
@@ -2156,6 +2223,13 @@ func normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc *types.Answer
 					item.CitationRef = match
 					fixed++
 				}
+				continue
+			}
+			// Exact-definition lookup below is a fallback repair. Do not move
+			// a citation already owned by the best typed row for this item onto
+			// a declaration that may prove only its visible label.
+			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) &&
+				preEmitCitationMatchesAnySourceInventoryCandidate(pctx, doc.Citations[item.CitationRef], label, text) {
 				continue
 			}
 			if preEmitBlockPrefersExactDefinitionCitation(*block) {

@@ -3592,6 +3592,113 @@ func TestNormalizeItemCitationRefsByTypedCandidateRole_SourceInventoryRow(t *tes
 	}
 }
 
+func TestNormalizeItemCitationRefsByTypedCandidateRole_PreservesExactMemberRowOverDetailTerm(t *testing.T) {
+	mu := types.NewMutableState("explain pipeline stage responsibilities")
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleType,
+			Complete: true,
+			Members: []types.SourceInventoryObservationMember{
+				{
+					Name: "StageAnalyze", Role: types.AnswerCandidateRoleType,
+					File: "internal/types/stage_binding.go", Line: 45,
+				},
+				{
+					Name: "AnalysisIR", Role: types.AnswerCandidateRoleType,
+					File: "internal/types/analysis_ir.go", Line: 29,
+					Attributes: []types.SourceInventoryObservationAttribute{{Name: "AnalysisIR"}},
+				},
+			},
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "internal/types/stage_binding.go", Line: 45},
+			{File: "internal/types/analysis_ir.go", Line: 29},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID: "stages", Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID: "analyze", Label: "StageAnalyze",
+				Text:          "compiles AnalysisIR and builds downstream contracts",
+				CandidateRole: types.AnswerCandidateRoleType,
+				CitationRef:   0,
+			}},
+		}},
+	}
+
+	if fixed := normalizeItemCitationRefsByTypedCandidateRoleWithContext(doc, nil, ctx, newPreEmitCheckContext(ctx)); fixed != 0 {
+		t.Fatalf("exact member-row citation must not be replaced by a detail-term row, fixed=%d doc=%+v", fixed, doc)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
+		t.Fatalf("citation_ref=%d, want exact StageAnalyze member row 0", got)
+	}
+}
+
+func TestNormalizeItemCitationRefsByUniqueLabelCitation_PreservesTypedMemberRowBeforeDefinitionFallback(t *testing.T) {
+	mu := types.NewMutableState("explain pipeline stage responsibilities")
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleType,
+			Complete: true,
+			Members: []types.SourceInventoryObservationMember{{
+				Name: "StageAnalyze", Role: types.AnswerCandidateRoleType,
+				File: "internal/types/stage_binding.go", Line: 45,
+			}},
+		}},
+	})
+	mu.AppendEvidence([]types.EvidenceItem{{
+		Kind: types.EvidenceDirect, Scope: types.ScopeLine,
+		Source: "internal/types/enums.go", LineStart: 33,
+		AnchorKind: types.AnchorDefinition, AnchorSymbol: "StageAnalyze", Subject: "StageAnalyze",
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "internal/types/stage_binding.go", Line: 45},
+			{File: "internal/types/enums.go", Line: 33},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID: "stages", Kind: types.BlockOrderedList,
+			FacetIDs: []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{{
+				ID: "analyze", Label: "StageAnalyze", Text: "pipeline stage responsibility", CitationRef: 0,
+			}},
+		}},
+	}
+
+	if fixed := normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc, nil, ctx, newPreEmitCheckContext(ctx)); fixed != 0 {
+		t.Fatalf("typed member-row citation must be preserved before definition fallback, fixed=%d doc=%+v", fixed, doc)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
+		t.Fatalf("citation_ref=%d, want model-owned typed member row 0", got)
+	}
+}
+
 func TestNormalizeItemCitationRefsByTypedCandidateRole_UsesRowAttributeForDuplicateLabels(t *testing.T) {
 	mu := types.NewMutableState("list foreign func declarations with packages")
 	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{

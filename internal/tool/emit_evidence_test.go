@@ -1872,6 +1872,9 @@ func TestEmitEvidenceToolDescription_BoundsEvidenceEntailmentByAnchorAndSpan(t *
 		"Evidence entailment is bounded by the typed anchor and source span",
 		"call-site item proves only that the caller invokes the callee",
 		"does NOT prove the callee's internal guards",
+		"entry identity line proves only that identity",
+		"anchor a requested field value at its exact initializer line",
+		"one bounded line_range",
 		"emit a separate evidence item",
 		"Never combine sibling functions' behavior",
 	} {
