@@ -22096,3 +22096,33 @@ S32 在 call normalization 前增加一个更严格、仍有界的恢复层：
 
 状态：`EVAL-B201-DIRCALL1=S32-implemented/full-affected-suites-pass/pending-exact-two-replay`；
 `EVAL-B202-POLYGRAPH1=queued`。
+
+### 123.183 B203 r134：定向调用零拒绝回放；节点/边口径与 guard 图层仍增加心智
+
+在 `062b8c9fa` 构建后严格并行恰好两个跨语言调用链 case：
+
+- `sr_rust_cross_module_chain`：94s，runner PASS / human FAIL，零 finalizer reject；
+- `sr_java_call_chain`：174s，runner/human PASS，一次局部 diagram reject + patch。
+
+Rust 再次证明 S31 的生产接线稳定：`run -> walker::collect_files @ src/main.rs:20` 保持原行、限定 identity 和 Grounded，未出现
+`nearest_call` 或 20→10 错迁；本轮模型一开始就选择了正确的 wrapper callsite，因此没有触发 S32 的 19→6 恢复臂。S32 已有生产形
+对抗测试，但仍标为 live-nontrigger，不能把一次随机未触发写成生产恢复闭环。Finalizer 零拒绝，说明上轮由错身份边造成的重复删图路径已消失。
+
+Rust 人工未签绿来自另一类通用表达问题：正文写“5 个逻辑跳”，随后列出 6 个编号行，而 typed 关系池实际只有 4 条调用边；清单混合
+节点、调用动作和模块职责，却没有声明计数单位。末端 `Matcher.is_match` 又引用 trait 定义行，虽然同一证据池已有
+`src/main.rs:30` 的真实调用点。登记 `EVAL-B203-PATHCAL1=P2`：后续以结构化 relation/node/member 元数据给模型就近说明“边、节点、步骤”
+各自口径，并优先把关系陈述绑定 callsite；不得扫描答案里的“跳”、固定 4/5/6 数字或按 Rust 特判，也不由系统重写结论。
+
+Java 最终答案完整覆盖 controller → service → config/count guard → insert → audit，容量检查明确落在 `VisitService.schedule:18`，引用均为
+对应调用点。第一稿唯一失败是把方法内部 `if` 画成 `S->>S` 调用；typed call-edge 门正确拒绝，模型通过 patch 只删除该伪 self-call，继续用
+`alt`/`Note` 表达 guard，其他答案块字节继承。此处应视为一次有效语义修复，而不是合同冲突。全程
+`strict_decode_remap/carrier/element_shape` 与两个 string-recovery 指标均为 0，证明没有 malformed JSON。
+
+JSON 教学审计结论：本批 tool schema 仍是字段/类型/必填/枚举的唯一 authority；prompt 的示例只展示 schema 允许的 diagram block 片段，
+没有发现把同一字段同时教成两种互斥类型的文本。后续统计必须把 JSON decode/载体恢复与 pre-emit 语义拒绝分开，不能因“成文校验未通过”字样
+笼统归因为畸形 JSON。无损修复继续只接受可证明的结构变换；无法证明时保留模型可读内容并显式降级，禁止猜字段或静默伪造完整结构。
+
+状态：`EVAL-B200-QUALCALL1=production-closed/r133+r134`；
+`EVAL-B201-DIRCALL1=S32-unit-production-shape-pass/live-nontrigger-r134`；
+`EVAL-B202-POLYGRAPH1=P1/next-high-ROI`；`EVAL-B203-PATHCAL1=P2/queued`；
+Trace 显式窗/因果投影/自动补齐=`not-touched`。
