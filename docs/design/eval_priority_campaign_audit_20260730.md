@@ -19339,3 +19339,39 @@ AnswerDocument，模型结论所有权不变。
 
 状态：`EVAL-B169-AGGJSONMETRIC1=implemented/targeted-tool+runner-contract-pass/awaiting-production-replay`；
 `EVAL-B169-AGGAUTHCLAIM1=P1/confirmed/next-architecture-batch`；模型结论所有权=`preserved`。
+
+### 123.85 B170 r86：精确源码清单导航被置信度挡住；静态校验吞掉同目录行为测试
+
+在 `main@e4c071691` 重建后严格并行恰好两个异构 case：
+
+- `github_issue_dayjs_duration_nan`（JavaScript write）：159s，runner / human FAIL；
+- `cangjie_repomap`（Cangjie read/source inventory）：268s，runner / human FAIL。
+
+JavaScript 批中模型给出的补丁 `Number(value || 0)` 正确且只改一个表达式，仓库同时声明了 `make check` 与
+`node tests/duration.test.js`。系统实际只运行前者：它通过 Python 脚本证明源码静态形状，typed capability 为 `source_static`；控制器随后正确以
+`production_verification_source_static_only` 拒绝模型的 `all_verified`，因此没有假绿。真正 gap 在候选队列：精确 declared-coverage Make 计划先入队后，
+`defaultRunnerPlansFromTestSurface` 只按 working directory 去重，把同一根目录但独立的 Node 行为测试候选静默丢掉。记
+`EVAL-B170-VERIFYALT1=P1`：保持 declared-coverage 优先级不变；当成功报告对 production path 只有 typed `source_static`，且 TestSurface 仍有未执行、
+带测试信号的独立候选时，按 capability debt 有界补跑，而不是按语言/case 或命令字符串特判。
+
+Cangjie 批中 analyzer 已正确携带三条精确 `source_quotes`、name/location/package/namespace 维度和 completeness，解析器/图谱也已有精确
+SurfaceTerms，可把 `public class` 与 struct/interface/enum 分开；但 profile confidence=0.75 使
+`SourceInventoryPrincipalAuthorityActive=false`，而所谓“更软”的 `SourceInventoryPrincipalNavigationActive` 实际直接别名 authority，调度因而没有进入
+lens-first。Explorer 被通用 prompt 的 task-map 首跳牵回 11 次 read，最终把用户要求的 8 个 public class 扩成 14 个 public
+class/struct/interface/enum，并在有正确 citation 的情况下把多个 package 声明改写错。记 `EVAL-B170-SINAV1=P1`：拆开只读导航资格与完备性确权；
+active、非 support-only、非 relation/role-conflict 的 typed source-inventory profile 即可优先走精确 lens，低 confidence 仍不能单独授予 completion
+authority。这样复用所有语言统一 parser SurfaceTerms，不新增 Cangjie 关键词门，也不增加模型教学负担。
+
+JSON 审计：两案 `strict_decode_remap_events`、whole AnswerDocument blocks-string recovery 和 whole aggregate-facts string recovery 均为 0；本轮失败不是
+畸形 JSON。更值得修的是系统自身教学/调度矛盾：generic Explorer 一面教 source inventory 用 lens，一面又教 typed navigation 先 task-map；正确方案是让
+typed scheduler 选择专用 lens instruction，而不是继续堆叠同义 JSON/导航提示。后续 JSON 教学坚持 schema-near 单一 canonical example、拒绝原因贴近字段、
+兼容恢复只做可证明无损的 typed 变换；无法无损时才发布明确降级说明并保留可安全提取文本，不让系统替写模型结论。
+
+批次冻结：
+
+1. `B170-S1`：先修 `SINAV1`，补“低置信度可导航但不可确权”、冲突/支持车道仍禁、scheduler 生产接线 pin；提交推送后 replay；
+2. `B170-S2`：再修 `VERIFYALT1`，用 typed capability debt 补跑独立候选，补 source-static→behavior 与已有 behavior 不重复两臂；提交推送后 replay；
+3. `B170-R`：严格并行恰好两个复放同一 read/write case，人工审计 rowset/package、真实 Node 执行、JSON 重试和上下文；若只剩模型波动则留观察，不加
+   原文扫描硬门。
+
+两批均不触碰显式时间窗 Trace、因果投影、系统自动补齐、根因排序、唤醒链、窗内可消除量或两维根因；系统只负责精确路由/证据/校验能力，不接管模型结论。
