@@ -11568,7 +11568,7 @@ func (r ActionRunner) runCustomTransform(ctx context.Context, plan TaskPlan, act
 	subPlan.Actions = nil
 	subPlan.Script = script
 	subPlan.InputPaths = inputs
-	subPlan.OutputContract = OutputContract{Format: OutputFreeform, ExplanationAllowed: true}
+	subPlan.OutputContract = actionRunnerCustomTransformOutputContract(plan, r.Seed)
 	subPlan.CoverageContract = coverageContractForActionInputs(plan.CoverageContract, inputs)
 	runner := Runner{
 		RepoRoot:        r.RepoRoot,

@@ -21788,3 +21788,48 @@ metric 关键词、语言、case 身份或固定数值，不硬拒答案，不�
 
 状态：`EVAL-B193-ARITHPAIR1=S27-implemented/full-tool-suite-pass/pending-production-replay`；
 Trace 因果投影/自动补齐/双轴根因=`unchanged`。
+
+### 123.171 B195 r127：算术配对生产闭环；strict JSON 终态合同自相矛盾
+
+在 `47ced2ea8` 构建后严格并行恰好两个异构模式 case：
+
+- `trace_query_donghu_real_frame_multicausal`：172s，runner PASS / human FAIL；
+- `data_json_strict_ids`：255s，runner/human FAIL，6 次 repair、8 个执行批次后终态失败。
+
+Trace 的系统附注只发布实际局部关系 `84.358ms / 73.4%`，没有再把 114.940ms 窗长误作分子，确认
+`EVAL-B193-ARITHPAIR1=production-closed/r127`。同一显式窗、一次 bundle 查询、主要时间占用/现规则可消除量双轴、根因排序、
+wakeup chain、Trace 因果投影和自动补采全部保留。人工仍不签绿：模型把 `priority_inversion_candidate` 写成“阻滞主线程及时响应”，
+并从目标 D/io_wait=0 推出“等待均为正常 S 态 VSync 等待”；typed 输入并未证明所有 sleep 的业务原因。
+`EVAL-B195-PIAUTH1` 扩为候选/症状 caliber 的就近 handoff 问题，仍禁止系统替换模型正文或扫描正文硬拒。
+
+strict JSON case 的第一批脚本已正确计算 `{"ids":["u1","u3"]}`。但 `ActionRunner.runCustomTransform` 无条件把子计划
+`OutputContract` 改为 freeform；因此 `Runner.parseRunnerResult` 已有的、只在外层 `json_only` 下生效的 plain-object lossless
+promotion 无法运行，正确值只进入 `emitted_payload`，`Answer` 为空。随后 workflow 一面要求 final projection / assemble_answer，
+一面在 compute stage 只允许 contribution-input actions，模型被迫把已完成答案重拆成 decision/contribution/reconcile，仍以 contested
+answer 失败。确认 `EVAL-B196-DATAJSONTERM1=P0/system-contract-contradiction`。这不是 malformed JSON，也不是模型算错；是外层终态
+合同在子 Runner 边界丢失。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b195_arith_json_r127_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b195_arith_json_r127_20260806_manual_audit.md`。
+
+状态：`EVAL-B193-ARITHPAIR1=production-closed/r127`；
+`EVAL-B196-DATAJSONTERM1=P0/confirmed/pending-S28`；
+`EVAL-B195-PIAUTH1=P1/confirmed/pending-S29`。
+
+### 123.172 S28：终态 custom-transform 继承单一 output contract
+
+`EVAL-B196-DATAJSONTERM1` 在 `ActionRunner.runCustomTransform` 的一个边界上修复，不改 DAG 次序也不猜 payload：
+
+1. 继续通过共享 `actionRunnerValidationPlan(plan, seed)` 判断当前批是中间批还是终态批；
+2. 中间批仍强制 freeform，普通 object 只形成 artifact，不得被误升为用户答案；
+3. 只有共享 policy 已判定可终态交付的批次，子 Runner 才继承同一个外层 normalized output contract；在 `json_only` 下，既有
+   `runnerPayloadAnswerFromExtraFields` 对唯一 plain object 做 canonical JSON 重编码、`json.Valid` 校验后 lossless promotion；
+4. promotion 后仍保留 `emitted_payload` 审计 artifact；没有字符串提取、字段猜测、模型 prose 扫描或宽松 malformed JSON 修补。
+
+回归固定：终态 `result={"ids":...}` 在 strict JSON 合同下直接成为 Answer；同形 `continue_after=true` 中间批保持 Answer 为空、
+payload 仅为 artifact；既有 `emit_result` 终态与 intermediate contract pin 同时通过。
+
+定向四臂与完整受影响套件均通过：`internal/dataquery` 2.612s、`internal/dataworkflow` 0.589s、
+`internal/repl` 30.870s；代码行数护栏恢复为绿，`git diff --check` 通过。
+
+状态：`EVAL-B196-DATAJSONTERM1=S28-implemented/full-impacted-suites-pass/pending-exact-two-replay`。

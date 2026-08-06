@@ -1801,6 +1801,77 @@ emit_result({"ids": [row["id"] for row in users if row.get("active")]})
 	}
 }
 
+func TestActionRunnerCustomTransformPromotesPlainTerminalJSONPayload(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "users.json"), []byte(`[{"id":"u1","active":true},{"id":"u2","active":false},{"id":"u3","active":true}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		InputPaths:     []string{"users.json"},
+		OutputContract: OutputContract{Format: OutputJSONOnly, ExplanationAllowed: false},
+		Actions: []DataAction{{
+			ID:         "active_ids",
+			Kind:       DataActionCustomTransform,
+			InputPaths: []string{"users.json"},
+			Script: `
+users = json_load("users.json")
+result = {"ids": [row["id"] for row in users if row.get("active")]}
+`,
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != `{"ids":["u1","u3"]}` {
+		t.Fatalf("Answer=%q, want losslessly promoted JSON payload", res.Answer)
+	}
+	if res.OutputContract.Format != OutputJSONOnly || res.OutputContract.ExplanationAllowed {
+		t.Fatalf("OutputContract=%+v, want terminal JSON plan contract", res.OutputContract)
+	}
+	if len(res.Artifacts) == 0 || res.Artifacts[0].ID != ArtifactIDEmittedPayload {
+		t.Fatalf("Artifacts=%+v, want retained emitted-payload audit artifact", res.Artifacts)
+	}
+}
+
+func TestActionRunnerCustomTransformDoesNotPromotePlainIntermediateJSONPayload(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "users.json"), []byte(`[{"id":"u1"}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		InputPaths:     []string{"users.json"},
+		OutputContract: OutputContract{Format: OutputJSONOnly, ExplanationAllowed: false},
+		ContinueAfter:  true,
+		Actions: []DataAction{{
+			ID:         "observe_ids",
+			Kind:       DataActionCustomTransform,
+			InputPaths: []string{"users.json"},
+			Script:     `result = {"observed": len(json_load("users.json"))}`,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if strings.TrimSpace(res.Answer) != "" {
+		t.Fatalf("intermediate payload was promoted to an answer: %q", res.Answer)
+	}
+	if res.OutputContract.Format != OutputFreeform || !res.OutputContract.ExplanationAllowed {
+		t.Fatalf("OutputContract=%+v, want relaxed intermediate contract", res.OutputContract)
+	}
+	if len(res.Artifacts) == 0 || res.Artifacts[0].ID != ArtifactIDEmittedPayload {
+		t.Fatalf("Artifacts=%+v, want intermediate payload retained only as an artifact", res.Artifacts)
+	}
+}
+
 func TestActionRunnerCustomTransformKeepsIntermediateContractRelaxed(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")
