@@ -2151,7 +2151,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 					"emit_investigation_complete rejected: the discover-sink call chain has no citable typed runtime-target selection fact. Reuse an already-read selection site and emit exactly one registration, assignment/initializer, or factory return item with explicit subject/object; keep guards and calls as separate facts."),
 				Repair: attachToolJSONSurfaceMetadata(t.Name(), &types.ToolRepair{
 					Code:   "call_chain_discovery_selection_evidence",
-					Hint:   "Emit one citable typed runtime-target selection fact from an already-read source line. Registration uses evidence_kind=registration; assignment/initializer uses anchor_kind=assignment; factory return uses anchor_kind=return. Preserve exact subject/object direction and do not relabel selection as call.",
+					Hint:   "Emit one citable typed runtime-target selection fact from an already-read source line. " + types.CallChainDiscoverySelectionEmissionGuide,
 					Fields: []string{"items[].evidence_kind", "items[].anchor_kind", "items[].subject", "items[].object", "items[].source", "items[].line_start"},
 					Metadata: map[string]string{
 						"repair_origin": "emit_investigation_complete.call_chain_discovery_selection",

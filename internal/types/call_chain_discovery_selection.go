@@ -2,6 +2,13 @@ package types
 
 import "strings"
 
+// CallChainDiscoverySelectionEmissionGuide is the single semantic teaching
+// source for explorer prompts and completion repairs. The emit_evidence JSON
+// schema remains the sole authority for field types/enums; this text only
+// chooses among schema-valid shapes and keeps mutually exclusive relation
+// forms from being combined.
+const CallChainDiscoverySelectionEmissionGuide = "Use exactly one matching selection form: registry/decorator/table binding uses evidence_kind=registration with exact subject/object and the anchor_kind of the actual binding surface; assignment or initializer uses evidence_kind=direct with anchor_kind=assignment or initializer, the assigned receiver/value in subject, and the selected concrete value/type in object; factory or constructor return uses evidence_kind=direct with anchor_kind=return, the enclosing returning function in subject, the returned concrete value/type in object, and source/line_start on the actual return statement. Emit a branch guard separately as evidence_kind=conditional with anchor_kind=condition. Never combine evidence_kind=registration with anchor_kind=return, and never relabel selection as a call."
+
 // CallChainDiscoverySelectionEvidence returns the citable typed facts that can
 // select a concrete destination for a discover-sink call-chain request.
 //

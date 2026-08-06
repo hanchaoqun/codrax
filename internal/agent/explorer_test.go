@@ -9137,7 +9137,9 @@ func TestPostCompletionReadySignal_DiscoverSinkRequestsTypedSelectionBeforeClose
 	if !sig.HintRequested || sig.HintKey != "explorer.mid-loop.call-chain-discovery-selection" {
 		t.Fatalf("discover-sink must request selection evidence instead of generic closure: %+v", sig)
 	}
-	if !strings.Contains(sig.Hint, "anchor_kind=return") || !strings.Contains(sig.Hint, "anchor_kind=assignment") {
+	if !strings.Contains(sig.Hint, "evidence_kind=direct with anchor_kind=return") ||
+		!strings.Contains(sig.Hint, "evidence_kind=direct with anchor_kind=assignment or initializer") ||
+		!strings.Contains(sig.Hint, "Never combine evidence_kind=registration with anchor_kind=return") {
 		t.Fatalf("selection hint must teach the minimal typed alternatives: %s", sig.Hint)
 	}
 	if eval.midLoopCompletionReadySent {
@@ -12553,11 +12555,11 @@ func TestRenderExplorerCallChainEdgeEvidenceGuide_CoversEndpointLocalTopologyWit
 	}}}
 	discoverGuide := renderExplorerCallChainEdgeEvidenceGuide(discover)
 	for _, want := range []string{
-		"Dynamic destination discovery needs separate typed facts",
-		"`evidence_kind=registration` with both exact `subject` and `object`",
-		"`anchor_kind=assignment`",
-		"`anchor_kind=return`",
-		"is not a call",
+		"Dynamic destination discovery needs a separate typed selection fact",
+		"evidence_kind=registration",
+		"evidence_kind=direct with anchor_kind=assignment or initializer",
+		"evidence_kind=direct with anchor_kind=return",
+		"Never combine evidence_kind=registration with anchor_kind=return",
 	} {
 		if !strings.Contains(discoverGuide, want) {
 			t.Fatalf("discover-sink evidence guide missing %q:\n%s", want, discoverGuide)

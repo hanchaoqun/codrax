@@ -1200,6 +1200,19 @@ func evidenceCarrierMayReplace(dst, src EvidenceItem) bool {
 	if srcRank < dstRank {
 		return false
 	}
+	// A same-anchor retry may add the missing endpoints that turn a sparse
+	// assignment/return/registration row into a complete typed relation. Treat
+	// that as an atomic carrier promotion even when the retry omits an optional
+	// sidecar (most commonly a branch condition). Keeping the old carrier would
+	// silently discard the newly grounded endpoint and make a requested repair
+	// impossible; field-by-field enrichment would be worse because it could
+	// synthesize a carrier no accepted version stated. The predicate below is
+	// deliberately narrow: same source line, kind, anchor shape and every
+	// overlapping typed field must agree, and the incoming carrier must contain
+	// both endpoints.
+	if evidenceTypedRelationEndpointPromotion(dst, src) {
+		return true
+	}
 	dstCoherent := evidenceClaimCarrierCoherent(dst)
 	srcCoherent := evidenceClaimCarrierCoherent(src)
 	if dstCoherent && !srcCoherent {
@@ -1212,6 +1225,37 @@ func evidenceCarrierMayReplace(dst, src EvidenceItem) bool {
 		return srcCoherent
 	}
 	return evidenceClaimCarrierCompleteness(src) >= evidenceClaimCarrierCompleteness(dst)
+}
+
+func evidenceTypedRelationEndpointPromotion(dst, src EvidenceItem) bool {
+	if dst.Kind != src.Kind || dst.AnchorKind != src.AnchorKind ||
+		canonicalEvidenceIdentityPath(dst.Source) != canonicalEvidenceIdentityPath(src.Source) ||
+		dst.LineStart <= 0 || dst.LineStart != src.LineStart {
+		return false
+	}
+	switch {
+	case src.Kind == EvidenceRegistration:
+	case src.Kind == EvidenceDirect && (src.AnchorKind == AnchorAssignment || src.AnchorKind == AnchorInitializer || src.AnchorKind == AnchorReturn):
+	default:
+		return false
+	}
+	if strings.TrimSpace(src.Subject) == "" || strings.TrimSpace(src.Object) == "" ||
+		(strings.TrimSpace(dst.Subject) != "" && strings.TrimSpace(dst.Object) != "") {
+		return false
+	}
+	for _, pair := range [][2]string{
+		{dst.Subject, src.Subject},
+		{dst.Predicate, src.Predicate},
+		{dst.Object, src.Object},
+		{dst.AnchorSymbol, src.AnchorSymbol},
+		{dst.OwnerSymbol, src.OwnerSymbol},
+	} {
+		left, right := strings.TrimSpace(pair[0]), strings.TrimSpace(pair[1])
+		if left != "" && right != "" && left != right {
+			return false
+		}
+	}
+	return true
 }
 
 func evidenceClaimCarrierCoherent(item EvidenceItem) bool {

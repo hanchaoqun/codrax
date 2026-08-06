@@ -624,6 +624,9 @@ func TestEmitEvidence_SameStableIDMetadataCorrectionUpdatesSnapshot(t *testing.T
 		raw, total := ctx.Mutable.EmittedEvidenceSince(0)
 		t.Fatalf("correction summary should tell model the row was amended, total=%d raw=%+v got: %s", total, raw, res.Summary)
 	}
+	if !strings.Contains(res.Summary, "amendment direct") || strings.Contains(res.Summary, "duplicate direct") {
+		t.Fatalf("amendment feedback must not contradict acceptance by labelling the row duplicate: %s", res.Summary)
+	}
 	got := ctx.Mutable.EmittedEvidence()
 	if len(got) != 1 {
 		t.Fatalf("same-ID correction should compact to one answer-grade row, got %d: %+v", len(got), got)

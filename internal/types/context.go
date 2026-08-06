@@ -120,6 +120,11 @@ type MutableState struct {
 	// completionGateNote is a pending one-line audit note surfaced on the
 	// next accepted completion summary; see SetCompletionGateNote.
 	completionGateNote string
+	// completionGateNoteSet keeps exact producer notes idempotent. The rendered
+	// string is intentionally human-readable and individual notes may contain
+	// semicolons, so parsing completionGateNote back into entries would be
+	// ambiguous. Keep the exact typed inputs alongside it instead.
+	completionGateNoteSet map[string]bool
 	// completionGateOneShots tracks sticky per-run one-shot completion gates;
 	// see MarkCompletionGateOneShot.
 	completionGateOneShots map[string]bool
@@ -5940,7 +5945,13 @@ func (m *MutableState) SetCompletionGateNote(note string) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.completionGateNote = strings.TrimSpace(note)
+	note = strings.TrimSpace(note)
+	m.completionGateNote = note
+	if note == "" {
+		m.completionGateNoteSet = nil
+	} else {
+		m.completionGateNoteSet = map[string]bool{note: true}
+	}
 }
 
 // AppendCompletionGateNote joins a note onto the pending completion-gate
@@ -5954,6 +5965,16 @@ func (m *MutableState) AppendCompletionGateNote(note string) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.completionGateNoteSet == nil {
+		m.completionGateNoteSet = map[string]bool{}
+		if existing := strings.TrimSpace(m.completionGateNote); existing != "" {
+			m.completionGateNoteSet[existing] = true
+		}
+	}
+	if m.completionGateNoteSet[note] {
+		return
+	}
+	m.completionGateNoteSet[note] = true
 	if m.completionGateNote == "" {
 		m.completionGateNote = note
 		return
@@ -5970,6 +5991,7 @@ func (m *MutableState) TakeCompletionGateNote() string {
 	defer m.mu.Unlock()
 	note := m.completionGateNote
 	m.completionGateNote = ""
+	m.completionGateNoteSet = nil
 	return note
 }
 

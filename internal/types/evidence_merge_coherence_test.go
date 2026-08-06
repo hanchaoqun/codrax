@@ -75,6 +75,57 @@ func TestMergeEvidenceItemByStableIDRicherCorrectionReplacesCarrierAtomically(t 
 	}
 }
 
+func TestMergeEvidenceItemByStableIDCompleteRelationEndpointsPromoteCarrierAtomically(t *testing.T) {
+	base := EvidenceItem{
+		ID:              "ev-factory-selection",
+		Kind:            EvidenceRegistration,
+		Scope:           ScopeLine,
+		Predicate:       "constructs",
+		Object:          "ConsoleSink",
+		Condition:       `kind == "console"`,
+		Source:          "src/registry.cpp",
+		LineStart:       15,
+		LineEnd:         15,
+		AnchorKind:      AnchorReturn,
+		AnchorSymbol:    "create",
+		OwnerSymbol:     "create",
+		GroundingStatus: GroundingGrounded,
+		GroundingTier:   TierLineText,
+	}
+	complete := base
+	complete.Subject = "SinkRegistry::create"
+	complete.Condition = ""
+
+	got := MergeEvidenceItemByStableID(base, complete)
+	if got.Subject != "SinkRegistry::create" || got.Object != "ConsoleSink" {
+		t.Fatalf("complete same-anchor relation endpoints were not promoted: %+v", got)
+	}
+	if got.Condition != "" {
+		t.Fatalf("endpoint promotion must replace the carrier atomically, not splice the old condition: %+v", got)
+	}
+	if ClaimFormOf(got) != ClaimRegistrationEdge {
+		t.Fatalf("promoted carrier claim form = %q, want %q", ClaimFormOf(got), ClaimRegistrationEdge)
+	}
+}
+
+func TestMergeEvidenceItemByStableIDConflictingRelationEndpointDoesNotPromote(t *testing.T) {
+	base := EvidenceItem{
+		ID: "ev-selection", Kind: EvidenceRegistration, Scope: ScopeLine,
+		Predicate: "binds", Object: "OldBackend", Condition: "enabled",
+		Source: "src/registry.cpp", LineStart: 15, AnchorKind: AnchorReturn,
+		AnchorSymbol: "create", GroundingStatus: GroundingGrounded,
+	}
+	conflict := base
+	conflict.Subject = "Registry::create"
+	conflict.Object = "OtherBackend"
+	conflict.Condition = ""
+
+	got := MergeEvidenceItemByStableID(base, conflict)
+	if got.Subject != "" || got.Object != "OldBackend" || got.Condition != "enabled" {
+		t.Fatalf("conflicting endpoint retry must not promote or splice the carrier: %+v", got)
+	}
+}
+
 func TestConditionAuthoritativeSurfacesDoNotPublishBodyAssignment(t *testing.T) {
 	item := EvidenceItem{
 		Kind:         EvidenceConditional,

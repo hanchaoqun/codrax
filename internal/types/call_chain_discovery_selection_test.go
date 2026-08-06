@@ -1,6 +1,9 @@
 package types
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func discoveryEvidence(kind EvidenceKind, anchor AnchorKind, subject, object string) EvidenceItem {
 	return EvidenceItem{
@@ -64,5 +67,41 @@ func TestCallChainDiscoverySelectionEvidence_RequiresCitableTypedFact(t *testing
 	assignment.GroundingStatus = GroundingUngrounded
 	if HasCallChainDiscoverySelectionEvidence([]EvidenceItem{call, assignment}) {
 		t.Fatal("ungrounded assignment must not authorize runtime target selection")
+	}
+}
+
+func TestCallChainDiscoverySelectionEmissionGuideKeepsMinimalFormsExclusive(t *testing.T) {
+	for _, want := range []string{
+		"evidence_kind=registration",
+		"evidence_kind=direct with anchor_kind=assignment or initializer",
+		"evidence_kind=direct with anchor_kind=return",
+		"actual return statement",
+		"evidence_kind=conditional with anchor_kind=condition",
+		"Never combine evidence_kind=registration with anchor_kind=return",
+	} {
+		if !strings.Contains(CallChainDiscoverySelectionEmissionGuide, want) {
+			t.Fatalf("single-source selection guide missing %q: %s", want, CallChainDiscoverySelectionEmissionGuide)
+		}
+	}
+}
+
+func TestCallChainDiscoverySelectionEvidenceSeesSameAnchorEndpointAmendment(t *testing.T) {
+	mu := NewMutableState("opaque")
+	base := discoveryEvidence(EvidenceRegistration, AnchorReturn, "", "ConsoleSink")
+	base.Predicate = "constructs"
+	base.Condition = `kind == "console"`
+	base.AnchorSymbol = "create"
+	base.OwnerSymbol = "create"
+	base.ID = StableEvidenceID(base)
+	complete := base
+	complete.Subject = "SinkRegistry::create"
+	complete.Condition = ""
+	complete.ID = StableEvidenceID(complete)
+
+	mu.AppendEvidence([]EvidenceItem{base})
+	mu.AppendEvidence([]EvidenceItem{complete})
+	got := mu.EmittedEvidence()
+	if len(got) != 1 || !HasCallChainDiscoverySelectionEvidence(got) {
+		t.Fatalf("answer-grade snapshot must expose the completed typed selection fact: %+v", got)
 	}
 }

@@ -4036,7 +4036,7 @@ func emitEvidenceStringSliceContainsAll(haystack, needles []string) bool {
 func renderEmitEvidenceDuplicateNoopSummary(duplicates, allEvidence []types.EvidenceItem) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "emit_evidence accepted 0 new item(s); skipped %d duplicate item(s) already present in the evidence buffer.\n\n", len(duplicates))
-	b.WriteString(renderDuplicateEvidencePreview(duplicates))
+	b.WriteString(renderEvidenceItemPreview(duplicates, "duplicate"))
 	cumulative := evidenceGroundingTally(allEvidence)
 	fmt.Fprintf(&b, "\nEvidence buffer (audit, cumulative): %d grounded / %d recovered / %d ungrounded across %d file(s).\n",
 		cumulative.grounded, cumulative.recovered, cumulative.ungrounded, emitEvidenceSourceCount(allEvidence))
@@ -4047,7 +4047,7 @@ func renderEmitEvidenceDuplicateNoopSummary(duplicates, allEvidence []types.Evid
 func renderEmitEvidenceDuplicateSkipNote(duplicates []types.EvidenceItem) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Skipped %d duplicate item(s) already present in the evidence buffer; they were not recorded again:\n", len(duplicates))
-	b.WriteString(renderDuplicateEvidencePreview(duplicates))
+	b.WriteString(renderEvidenceItemPreview(duplicates, "duplicate"))
 	b.WriteString("Exact duplicate rows are audit context only; they do not require a consolidated re-emit. Corrected same-ID rows are accepted as amendments.\n")
 	return b.String()
 }
@@ -4058,14 +4058,18 @@ func renderEmitEvidenceAmendmentNote(items []types.EvidenceItem) string {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "Updated %d existing evidence item(s) by stable evidence identity; answer-grade snapshots keep one merged row with the latest corrected metadata:\n", len(items))
-	b.WriteString(renderDuplicateEvidencePreview(items))
+	b.WriteString(renderEvidenceItemPreview(items, "amendment"))
 	b.WriteString("This is safe for metadata corrections. Exact duplicates remain no-progress no-ops.\n")
 	return b.String()
 }
 
-func renderDuplicateEvidencePreview(items []types.EvidenceItem) string {
+func renderEvidenceItemPreview(items []types.EvidenceItem, label string) string {
 	if len(items) == 0 {
 		return ""
+	}
+	label = strings.TrimSpace(label)
+	if label == "" {
+		label = "item"
 	}
 	const max = 5
 	var b strings.Builder
@@ -4077,15 +4081,15 @@ func renderDuplicateEvidencePreview(items []types.EvidenceItem) string {
 		it := items[i]
 		semantic := evidenceSemantic(it)
 		if semantic != "" {
-			fmt.Fprintf(&b, "  [%d] duplicate %s %s @ %s:%d — %s\n",
-				i+1, it.Kind, prefOrDash(it.AnchorSymbol), it.Source, it.LineStart, semantic)
+			fmt.Fprintf(&b, "  [%d] %s %s %s @ %s:%d — %s\n",
+				i+1, label, it.Kind, prefOrDash(it.AnchorSymbol), it.Source, it.LineStart, semantic)
 		} else {
-			fmt.Fprintf(&b, "  [%d] duplicate %s %s @ %s:%d\n",
-				i+1, it.Kind, prefOrDash(it.AnchorSymbol), it.Source, it.LineStart)
+			fmt.Fprintf(&b, "  [%d] %s %s %s @ %s:%d\n",
+				i+1, label, it.Kind, prefOrDash(it.AnchorSymbol), it.Source, it.LineStart)
 		}
 	}
 	if len(items) > max {
-		fmt.Fprintf(&b, "  ... %d more duplicate item(s)\n", len(items)-max)
+		fmt.Fprintf(&b, "  ... %d more %s item(s)\n", len(items)-max, label)
 	}
 	return b.String()
 }

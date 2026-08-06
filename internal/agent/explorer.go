@@ -1906,7 +1906,7 @@ func renderExplorerCallChainEdgeEvidenceGuide(ctx *types.AgentContext) string {
 		"- When you read an exact requested endpoint definition while deciding a no-path boundary, inspect its bounded body/read span and emit every relevant incoming or outgoing direct invocation actually verified there, even when it establishes a reverse, parallel, or disjoint relationship rather than the requested path. If the inspected evidence supports no incident call edge, leave the endpoint definition-only; do not invent a no-call fact.\n" +
 		"- Use owner-qualified endpoints only when the parser/read source resolves that identity. For dynamic or ambiguous receivers, preserve the exact source receiver/operation and disclose the boundary instead of guessing a class.\n"
 	if ctx.AnalysisIR.RequestModel.CallChainEndpointProfile.DiscoverSinkActive() {
-		guide += "- Dynamic destination discovery needs separate typed facts: emit a registry/decorator/table binding as `evidence_kind=registration` with both exact `subject` and `object`; emit a lookup/write line with `anchor_kind=assignment`; emit a factory/constructor return with `anchor_kind=return`. A lookup such as `x = TABLE[key]` is not a call, and binding/return/inheritance rows must never be relabelled as calls to create one continuous path.\n"
+		guide += "- Dynamic destination discovery needs a separate typed selection fact. " + types.CallChainDiscoverySelectionEmissionGuide + "\n"
 	}
 	return guide + "This is a cross-language evidence handoff for Go, Java, Kotlin, JavaScript/TypeScript/ArkTS, C/C++, Rust, Python, Ruby, Swift, Lua, Cangjie, and other supported executable source languages. Proto RPC declarations remain declarative relations and must not be emitted as executable call evidence. The handoff does not require a diagram and does not authorize any answer conclusion.\n\n"
 }
@@ -8413,9 +8413,9 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 		return LoopSignal{
 			HintRequested: true,
 			HintKey:       "explorer.mid-loop.call-chain-discovery-selection",
-			Hint: "The typed call chain still needs one runtime-target selection fact before closure. Reuse an already-read selection site and emit exactly one citable typed item: " +
-				"registration uses evidence_kind=registration with exact subject/object; assignment or initializer uses anchor_kind=assignment with assigned receiver/value in subject and selected concrete value/type in object; factory return uses anchor_kind=return with the returning function in subject and returned concrete value/type in object. " +
-				"Keep the branch guard as a separate condition item. Definitions, inheritance, and the factory invocation do not replace this selection fact, and none should be relabelled as a call.",
+			Hint: "The typed call chain still needs one runtime-target selection fact before closure. Reuse an already-read selection site and emit exactly one citable typed item. " +
+				types.CallChainDiscoverySelectionEmissionGuide +
+				" Definitions, inheritance, and the factory invocation do not replace this selection fact.",
 			Progress:       true,
 			BypassThrottle: true,
 			BypassBudget:   true,

@@ -22161,3 +22161,42 @@ Trace/root-cause 家族仍在 `DiagramCallEdgeEvidenceMismatches` 起点按 `QFR
 
 状态：`EVAL-B202-POLYGRAPH1=S33-implemented/full-affected-suites-pass/pending-exact-two-replay`；
 `EVAL-B203-PATHCAL1=P2/queued`；JSON malformed/degradation=`not-regressed-by-typed-tests`；Trace=`not-touched`。
+
+### 123.185 B204 r135：选择义务已接线，但 carrier 原子合并与 Python 分类/调用点仍阻断生产闭环
+
+在 `819d1ee1a` 构建后严格并行恰好两个多态/注册调用链 case：
+
+- `sr_cpp_virtual_chain`：164s，runner PASS / human FAIL，2 次 finalizer reject；
+- `sr_py_registry_dispatch`：124s，runner PASS / human FAIL，零 finalizer reject。
+
+C++ 日志证明 S33 的前半段已经生产接线：discover-sink 在 selection fact 缺席时进入 `runtime target selection` missing face，首次
+completion 只请求一条 typed selection evidence，没有提前宣布 close-ready。模型第一次把 factory return 误发成
+`evidence_kind=registration + anchor_kind=return` 且漏 subject；第二次在同一锚点补齐 `subject=SinkRegistry::create`。第二次 emit 被正确接受为
+amendment，并非 duplicate no-op，但答案级合并仍保留旧 carrier：旧版带 branch condition，新版补齐 subject 却省略 condition，完整度评分使旧版胜出；
+因此 completion 仍看不到完整 subject/object，最终走低增量降级，同一 runtime-selection boundary 又在终态出现两次。模型两次图修复后删除图，
+文字还把源码 `stderr` 误写成 `stdout`。严格 JSON remap/carrier/element/string-recovery 计数均为 0，不能归因于 malformed JSON。
+
+Python 暴露两个独立 P1。其一，analyzer 明明发出 call axis 与 discover endpoint，却把 question_kind 选为 mechanism；normalize 随即以“非
+call_chain”为由删除 endpoint profile，S33 整条义务链没有激活。其二，已读 `pipeline/runner.py:17` 的
+`run_in_executor(None, plugin.handle, payload)` 是 callback/value 位置的真实调用目标，repomap 未给出普通 direct-call relation；旧恢复随后选择
+同文件 21 行的 sibling `run_batch -> run_pipeline`，最终把 `plugin.handle` 错引到 21 行。答案对 JsonPlugin、注册时机和 MRO 链的主体判断基本正确，
+但关键调用点引用错误，不能签绿。
+
+施工顺序冻结：
+
+1. `EVAL-B204-EVENDPOINT1`（P1/S34）：同一精确锚点、同 kind/anchor、重叠字段无冲突时，完整 subject/object 的后续 carrier 可以原子替换
+   缺端点旧 carrier；不做字段拼接，旧 condition 随旧 carrier 一起退役；
+2. `EVAL-B204-CAVEATDEDUP1`（P2/S34）：completion gate note 按 producer 的精确输入去重，禁止反解析带分号的自然语言；
+3. `EVAL-B204-JSONTEACH1`（P1/S34）：单源教学区分 registration、assignment/initializer、factory return 三种最小合法形；factory return 必须
+   `evidence_kind=direct + anchor_kind=return` 并引用实际 return 行，guard 单独发射；schema 仍是字段/类型唯一 authority；amendment 回执也改用
+   `amendment` 标签，不再一边说 accepted/updated、一边把同一行叫作 duplicate；
+4. `EVAL-B205-CHAINPROFILE1`（P1/S35）：审计 valid call-axis discover profile 在 mechanism/call_chain 分类边界的保留/提升规则；
+5. `EVAL-B206-CALLSITEKEEP1`（P1/S35）：对已读原行可证明的 callback/function-value invocation 建立 typed 原行保留，不允许 sibling direct call
+   仅因 parser relation 更容易命中而偷换身份。
+
+状态：`EVAL-B202-POLYGRAPH1=partial/S33-connected`；
+`EVAL-B204-EVENDPOINT1=S34-implemented/targeted-tests-pass`；
+`EVAL-B204-CAVEATDEDUP1=S34-implemented/targeted-tests-pass`；
+`EVAL-B204-JSONTEACH1=S34-implemented/targeted-tests-pass`；
+`EVAL-B205-CHAINPROFILE1=P1/queued-S35`；`EVAL-B206-CALLSITEKEEP1=P1/queued-S35`；
+Trace 显式窗/因果投影/自动补齐=`not-touched`；模型答案所有权=`preserved`。
