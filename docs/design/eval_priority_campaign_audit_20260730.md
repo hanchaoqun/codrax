@@ -18473,3 +18473,50 @@ class verification 4.600ms，rank #2 为 app runnable 0.800ms；唤醒路径、�
 
 状态：`EVAL-B155-CAUSALCLAIMCAL1=implemented/types+agent+tool-full-pass/awaiting-exact2-replay`；
 `Trace causal claim ownership=model`；`system authority=typed ceiling only`；JSON 原文扫描/系统代写=`absent`；Trace 全能力=`preserved`。
+
+### 123.50 B156 r72：模型因果强度产线闭环；stage 职责在 Finalizer 软上下文中丢失
+
+在 `main@91cea2d01` 构建后严格并行恰好两个异构 case：
+
+- `trace_query_frame_semantic_span_optimization`：120s，runner/human PASS；
+- `qf_diagram_pipeline`：108s，runner PASS / human PARTIAL。
+
+Trace 为 B155-S2 提供生产正证。最终动态 schema 只允许 `no_causal_conclusion|bounded_window_candidate`，模型首轮就在 principal summary 显式填写
+`trace_causal_claim_caliber=bounded_window_candidate`，并明确 `frame_evidence_status=absent`、`causal_conclusion=unproven`，结论为“有链支撑的
+所选窗候选，不是已证丢帧根因”。没有 Finalizer reject，也没有系统修改模型 lead。三个 `trace_query` 全部绑定显式 `5.000..5.007`、pid/thread 目标；
+`frame_root_cause_bundle` 自动补齐、根因排序、唤醒路径、Trace 因果投影、实际耗时占用轴和既有规则可消除轴均完整。因此
+`EVAL-B155-CAUSALCLAIMCAL1=production-replay-closed`，席位级上限没有恢复成 session ANY-sticky。
+
+diagram 的 JSON 全程可解码，最终四阶段顺序和 Mermaid 图正确，但有两项通用过程/上下文问题：
+
+1. 第一次 emit 把 StageAnalyze→Explore→Extract→Finalize 的流程先后标成 `relation_kind=call`；typed call-site gate 正确拒绝，第二轮 patch 改为
+   `precedence` 后通过。长合同已经说明“非调用关系选对应 relation”，但 edge-kind 决策埋得太深，形成
+   `EVAL-B156-DIAGEDGECHOICE1=P1-efficiency/json-cognitive-load`；
+2. 最终答案声称“证据未提供职责细节”，只给出泛化的名称推断；事实上 Explorer 已读到并发射四个 StageBinding 的完整 responsibility/产物，completion
+   的 index-aligned `member_notes` 也完整。Finalizer 的 principal support lane 只显示源码行 surface；enrichment 去重因同 EvidenceID 已在 support lane 而删除
+   rich summary；supporting aggregate renderer 又完全不输出 `member_notes`。三层相遇后，正确细节在最终上下文中消失。记
+   `EVAL-B156-SUPPORTDETAILJOIN1=P1-context-precision`。这不是证据不足或模型纯波动，也不能靠扫描最终答案的“没有细节”等文字修复。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b156_trace_diagram_r72_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b156_trace_diagram_r72_20260805_manual_audit.md`。
+
+状态：`EVAL-B155-CAUSALCLAIMCAL1=production-replay-closed`；`EVAL-B156-SUPPORTDETAILJOIN1=confirmed/next-soft-context-batch`；
+`EVAL-B156-DIAGEDGECHOICE1=confirmed/next-soft-teaching-batch`；malformed JSON / answer loss=`absent`；Trace 全能力=`production-pass`。
+
+### 123.51 B156-S1：保留 supporting member-set 逐项说明并前置图边选择
+
+按 §123.50 完成一个只影响模型上下文的通用小批；没有新增或放宽 hard validator，没有扫描用户/模型/最终答案 prose，也没有系统生成或替换可见答案：
+
+1. Structured Aggregate Facts 在非 principal-row-compacted、非 shadowed 的 member-set 上保留 index-aligned `member_notes`。因此成员集合由 support lane
+   提供名称/源码面时，模型仍能看到 Explorer 已结构化的逐成员职责、目的和边界；principal enumeration rows 已有同一 rich note 单源，继续不重复；
+2. supporting notes 只作软写作上下文，不铸造成员身份、边、计数或最终结论。渲染沿用 request-aware source-inventory note sanitizer，并加独立 24 条上限，避免
+   大型辅助 roster 把正确细节修复变成上下文膨胀；
+3. Diagram Contract 在 Mermaid 长规则前新增单行 `EDGE DECISION FIRST`：stage/process/workflow 的顺序边用 `precedence`；只有 same-direction typed
+   call-site 证明的直接调用才用 `call`；register/contain/observe/guard/import 仍各自要求匹配 typed relation。原 call-edge hard gate 字节与权限均未修改；
+4. 该方案适用于全部语言和 flow/architecture/call_dag/sequence 表达，不包含 `StageAnalyze`、Java 或某一 fixture 的符号特例。JSON contract 仍由 schema
+   约束，畸形 JSON 继续走可证明无损修复 / typed 降级披露边界。
+
+定向测试 PASS；`go test ./internal/agent -count=1` PASS（3.173s）。
+
+状态：`EVAL-B156-SUPPORTDETAILJOIN1=soft-context-implemented`；`EVAL-B156-DIAGEDGECHOICE1=soft-teaching-implemented`；
+hard evidence gates=`unchanged`；模型答案/图构造所有权=`preserved`；等待后续异构 exact-2 生产回放。

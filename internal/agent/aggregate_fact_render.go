@@ -158,6 +158,9 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 			if members := renderAggregateStringList(fact.Members, memberLimit); members != "" {
 				fmt.Fprintf(&b, ", members=[%s]", members)
 			}
+			if notes := renderAggregateMemberNotes(fact.MemberNotes, aggregateFactPromptMemberNoteLimit(fact), opts.requestModel); notes != "" {
+				fmt.Fprintf(&b, ", member_notes=[%s]", notes)
+			}
 		}
 		if len(fact.Excluded) > 0 {
 			if opts.omitExcludedCandidates {
@@ -237,6 +240,41 @@ func aggregateFactPromptSupportRefLimit(fact types.AnswerAggregateFact) int {
 		return 200
 	}
 	return 8
+}
+
+// aggregateFactPromptMemberNoteLimit keeps explanatory handoff available
+// without letting a supporting roster duplicate an unbounded evidence dump.
+// Principal enumeration rows already carry all row notes through their richer
+// single-source renderer, so this path mainly rescues compact supporting
+// mechanism sets whose members would otherwise arrive at finalization dry.
+func aggregateFactPromptMemberNoteLimit(fact types.AnswerAggregateFact) int {
+	const supportingNoteCap = 24
+	if len(fact.MemberNotes) < supportingNoteCap {
+		return len(fact.MemberNotes)
+	}
+	return supportingNoteCap
+}
+
+func renderAggregateMemberNotes(notes []string, limit int, rm *types.RequestModel) string {
+	if len(notes) == 0 || limit <= 0 {
+		return ""
+	}
+	if len(notes) < limit {
+		limit = len(notes)
+	}
+	parts := make([]string, 0, limit+1)
+	for i := 0; i < limit; i++ {
+		note := strings.TrimSpace(notes[i])
+		if note == "" {
+			continue
+		}
+		note = types.SanitizeSourceInventoryNoteForRequest(rm, note)
+		parts = append(parts, "`"+note+"`")
+	}
+	if len(notes) > limit {
+		parts = append(parts, fmt.Sprintf("... +%d", len(notes)-limit))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func aggregateFactPromptOmitExcludedCandidates(ctx *types.AgentContext) bool {

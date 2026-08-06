@@ -35,6 +35,53 @@ func TestRenderStructuredAggregateFactsPrioritizesPrincipalMemberSet(t *testing.
 	}
 }
 
+func TestRenderStructuredAggregateFactsPreservesBoundedSupportingMemberNotes(t *testing.T) {
+	facts := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "pipeline stages",
+		Value:   "4",
+		Role:    types.AnswerAggregateRoleSupportingCoverage,
+		Members: []string{"Analyze", "Explore", "Extract", "Finalize"},
+		MemberNotes: []string{
+			"classifies the request and compiles the task contract",
+			"executes the evidence plan",
+			"distills accepted evidence",
+			"renders the grounded answer document",
+		},
+	}}
+
+	got := renderStructuredAggregateFacts(facts, 16)
+	for _, want := range []string{
+		"role=`supporting_coverage`",
+		"member_notes=[",
+		"classifies the request and compiles the task contract",
+		"renders the grounded answer document",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("supporting member detail lost %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestRenderStructuredAggregateFactsCapsSupportingMemberNotes(t *testing.T) {
+	var members, notes []string
+	for i := 0; i < 30; i++ {
+		members = append(members, fmt.Sprintf("member-%02d", i))
+		notes = append(notes, fmt.Sprintf("note-%02d", i))
+	}
+	got := renderStructuredAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "large supporting set",
+		Value:       "30",
+		Role:        types.AnswerAggregateRoleSupportingCoverage,
+		Members:     members,
+		MemberNotes: notes,
+	}}, 16)
+	if !strings.Contains(got, "`note-23`, ... +6") || strings.Contains(got, "note-24") {
+		t.Fatalf("supporting member notes must use the bounded 24-row prompt cap:\n%s", got)
+	}
+}
+
 func TestRenderStructuredAggregateFactsDemotesConflictingParallelCounts(t *testing.T) {
 	facts := []types.AnswerAggregateFact{
 		{
