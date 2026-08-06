@@ -139,12 +139,13 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 				candidateRole = types.AnswerCandidateRoleOther
 			}
 			blk.Items = append(blk.Items, types.AnswerBlockItem{
-				ID:            it.ID,
-				Label:         it.Label,
-				Text:          it.Text,
-				Cells:         normalizeTableStringSlice(it.Cells),
-				CandidateRole: candidateRole,
-				CitationRef:   citationRefFromWire(it.CitationRef),
+				ID:                   it.ID,
+				Label:                it.Label,
+				Text:                 it.Text,
+				Cells:                normalizeTableStringSlice(it.Cells),
+				CandidateRole:        candidateRole,
+				SourceInventoryRowID: strings.TrimSpace(it.SourceInventoryRowID),
+				CitationRef:          citationRefFromWire(it.CitationRef),
 			})
 		}
 	}

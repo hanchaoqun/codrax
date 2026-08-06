@@ -26,6 +26,13 @@ type AnswerSemanticView struct {
 	// Drives WHICH compile_<family>.go produced this view.
 	Family QuestionFamily
 
+	// SourceInventoryRowIdentityAvailable exposes the two source-inventory
+	// partition/row identity carriers only on dispatches backed by a typed
+	// source-inventory observation. Keeping it in the semantic view lets the
+	// projected JSON schema remove those fields from unrelated answers without
+	// re-reading request or model prose.
+	SourceInventoryRowIdentityAvailable bool
+
 	// FacetCoverage is a pointer alias to the upstream contract so
 	// V2 validators / renderer / reviewer can reach it without re-
 	// compiling. Nil only when the family is QFGeneric and no facet

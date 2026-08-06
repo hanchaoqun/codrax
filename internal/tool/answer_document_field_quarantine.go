@@ -72,6 +72,7 @@ var (
 		"text",
 		"cells",
 		"candidate_role",
+		"source_inventory_row_id",
 		"citation_ref",
 	)
 	answerDocumentCitationAllowedFields = stringSet(

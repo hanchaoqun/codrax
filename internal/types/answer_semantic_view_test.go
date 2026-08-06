@@ -54,6 +54,29 @@ func TestBuildAnswerSemanticView_NilInputReturnsNil(t *testing.T) {
 	}
 }
 
+func TestBuildAnswerSemanticView_SourceInventoryRowIdentityUsesTypedPlan(t *testing.T) {
+	ir := &AnalysisIR{RequestModel: RequestModel{
+		Intent: IntentEnumerate,
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType},
+		},
+	}}
+	view := BuildAnswerSemanticView(ir, &AnswerSurfacePlan{
+		SourceInventoryObservation: SourceInventoryObservation{
+			Active: true,
+			Sets:   []SourceInventoryObservationSet{{Role: AnswerCandidateRoleType}},
+		},
+	})
+	if view == nil || !view.SourceInventoryRowIdentityAvailable {
+		t.Fatalf("typed source-inventory plan should expose row identity fields: %+v", view)
+	}
+	view = BuildAnswerSemanticView(ir, &AnswerSurfacePlan{})
+	if view == nil || view.SourceInventoryRowIdentityAvailable {
+		t.Fatalf("profile without typed inventory observation must not expose row identity fields: %+v", view)
+	}
+}
+
 func TestCompileCallChainEndpointBoundary_UsesTypedNoDirectedPathOnly(t *testing.T) {
 	rm := RequestModel{
 		Intent:                   IntentTrace,

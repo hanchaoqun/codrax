@@ -382,6 +382,7 @@ const (
 	preEmitHardSignalTypedCallChainEndpoints      preEmitSameTurnHardSignal = "typed_call_chain_endpoints"
 	preEmitHardSignalRuntimeTraceModelPrincipal   preEmitSameTurnHardSignal = "runtime_trace_model_principal"
 	preEmitHardSignalTypedTraceCausalClaimCaliber preEmitSameTurnHardSignal = "typed_trace_causal_claim_caliber"
+	preEmitHardSignalTypedSourceInventoryRowID    preEmitSameTurnHardSignal = "typed_source_inventory_row_identity"
 )
 
 type preEmitSameTurnHardPolicyRow struct {
@@ -397,6 +398,7 @@ func preEmitSameTurnHardPolicyRows() []preEmitSameTurnHardPolicyRow {
 		{Kind: types.ViolCallChainEndpointOmitted, Signal: preEmitHardSignalTypedCallChainEndpoints},
 		{Kind: types.ViolBlockCoverageMissing, Signal: preEmitHardSignalRuntimeTraceModelPrincipal},
 		{Kind: types.ViolAuthorityOverreach, Signal: preEmitHardSignalTypedTraceCausalClaimCaliber},
+		{Kind: types.ViolCitation, Signal: preEmitHardSignalTypedSourceInventoryRowID},
 	}
 }
 
@@ -461,6 +463,7 @@ func preEmitSubgateRouteTable() []preEmitSubgateRouteRow {
 		{Subgate: "facet_coverage", ViolationKind: types.ViolFacetUncovered},
 		// 5. Item/citation alignment + typed handoff preservation.
 		{Subgate: "item_citation_alignment", ViolationKind: types.ViolCitation},
+		{Subgate: "source_inventory_row_identity", ViolationKind: types.ViolCitation, HardLane: preEmitHardSignalTypedSourceInventoryRowID},
 		{Subgate: "call_chain_item_citation_role_alignment", ViolationKind: types.ViolCitation},
 		{Subgate: "diagram_call_edge_evidence_alignment", ViolationKind: types.ViolDiagramCallEdgeUnproven, HardLane: preEmitHardSignalTypedCallEdgeEvidence},
 		{Subgate: "principal_support_member_coverage", ViolationKind: types.ViolPrincipalSupportMemberOmitted},
@@ -714,6 +717,9 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 	// a citation must name the same cited evidence endpoint; otherwise the
 	// rendered answer silently shifts file:line proof across adjacent hops.
 	if h := preCheckItemCitationAlignmentWithContext(doc, view, pctx); len(h) > 0 {
+		hints = appendPreEmitHints(hints, types.ViolCitation, h)
+	}
+	if h := preCheckSourceInventoryRowIDBindings(doc, ctxOpt...); len(h) > 0 {
 		hints = appendPreEmitHints(hints, types.ViolCitation, h)
 	}
 
@@ -1856,6 +1862,194 @@ func preEmitScalarLiteralEvidenceAuthorityScore(block types.AnswerBlock, ev type
 
 func normalizeItemCitationRefsByUniqueLabelCitation(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctx *types.BusContext) int {
 	return normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc, view, ctx, newPreEmitCheckContext(ctx))
+}
+
+// normalizeItemCitationRefsBySourceInventoryRowIDWithContext binds the
+// model's exact typed row identity to its compiler-owned citation. It never
+// reads the block title, item prose, request text, or language-specific
+// keywords. Later generic citation repair passes see the resulting exact
+// source row as already aligned and therefore cannot move it to a same-name
+// sibling declaration.
+func normalizeItemCitationRefsBySourceInventoryRowIDWithContext(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
+	if doc == nil || ctx == nil || ctx.AnalysisIR == nil || !sourceInventoryPrincipalAnswerIsModelOwned(ctx) {
+		return 0
+	}
+	rows := preEmitSourceInventoryRowsByID(ctx)
+	if len(rows) == 0 {
+		return 0
+	}
+	fixed := 0
+	for bi := range doc.Blocks {
+		block := &doc.Blocks[bi]
+		if block.SurfaceRole != types.SurfacePrincipal || !principalEnumerationBlockCanCarryRows(*block) {
+			continue
+		}
+		for ii := range block.Items {
+			item := &block.Items[ii]
+			rowID := strings.TrimSpace(item.SourceInventoryRowID)
+			if rowID == "" {
+				continue
+			}
+			row, ok := rows[rowID]
+			if !ok || !row.HasCitation || strings.TrimSpace(row.Source) == "" || row.LineStart <= 0 {
+				continue
+			}
+			ref := appendOrReusePreEmitCitation(doc, types.Citation{File: row.Source, Line: row.LineStart, LineEnd: row.LineEnd})
+			if ref >= 0 && ref != item.CitationRef {
+				item.CitationRef = ref
+				fixed++
+			}
+		}
+	}
+	return fixed
+}
+
+func preEmitSourceInventoryRowsByID(ctx *types.BusContext) map[string]types.EnumerationDisplayRow {
+	sets := preEmitSourceInventoryTypedPrincipalSets(ctx)
+	out := map[string]types.EnumerationDisplayRow{}
+	ambiguous := map[string]bool{}
+	for _, set := range sets {
+		for _, row := range set.Rows {
+			id := strings.TrimSpace(row.RowID)
+			if id == "" || ambiguous[id] {
+				continue
+			}
+			if existing, ok := out[id]; ok && principalEnumerationRowIdentityKey(existing) != principalEnumerationRowIdentityKey(row) {
+				delete(out, id)
+				ambiguous[id] = true
+				continue
+			}
+			out[id] = row
+		}
+	}
+	return out
+}
+
+// preEmitSourceInventoryTypedPrincipalSets deliberately rebuilds the display
+// rows from the typed SourceInventoryObservation rather than from accepted
+// model aggregate partitions. Exact model partitions are allowed to remain
+// separate, so using only the ordinary answer surface plan can otherwise lose
+// the one synthetic global roster needed to disambiguate equal labels across
+// those partitions.
+func preEmitSourceInventoryTypedPrincipalSets(ctx *types.BusContext) []types.EnumerationDisplaySet {
+	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	observation := ctx.Mutable.SourceInventoryObservation()
+	rowSet := types.BuildSourceInventoryPrincipalRowSet(types.SourceInventoryPrincipalRowSetInput{
+		Observation:  observation,
+		RequestModel: rm,
+	})
+	fact, ok := types.SourceInventoryPrincipalRowSetAggregateFact(rowSet)
+	if !ok {
+		return nil
+	}
+	return types.CompileEnumerationDisplaySets(&rm, &types.AnswerSurfacePlan{
+		StableAggregateFacts:       []types.AnswerAggregateFact{fact},
+		SourceInventoryObservation: observation,
+	})
+}
+
+// preCheckSourceInventoryRowIDBindings requires an exact row carrier only
+// where structured member identity is genuinely ambiguous. Unique member
+// labels keep the short legacy shape. The decision reads item.Label plus typed
+// row ids/families only; visible prose and titles never participate.
+func preCheckSourceInventoryRowIDBindings(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {
+	if doc == nil || len(ctxOpt) == 0 || ctxOpt[0] == nil ||
+		!sourceInventoryPrincipalAnswerIsModelOwned(ctxOpt[0]) {
+		return nil
+	}
+	ctx := ctxOpt[0]
+	rowsByID := preEmitSourceInventoryRowsByID(ctx)
+	if len(rowsByID) == 0 {
+		return nil
+	}
+	sets := preEmitSourceInventoryTypedPrincipalSets(ctx)
+	var hints []emitFixHint
+	for bi, block := range doc.Blocks {
+		if block.SurfaceRole != types.SurfacePrincipal ||
+			!principalEnumerationBlockCanCarryRows(block) ||
+			!principalEnumerationBlockHasEnumerationFacet(block) {
+			continue
+		}
+		allowedRows, _, _, invalidFamily := preEmitSourceInventoryHardRowsForBlock(block, sets)
+		if invalidFamily || len(allowedRows) == 0 {
+			continue
+		}
+		for ii, item := range block.Items {
+			label := strings.TrimSpace(item.Label)
+			rowID := strings.TrimSpace(item.SourceInventoryRowID)
+			if rowID != "" {
+				row, ok := rowsByID[rowID]
+				if !ok || !principalEnumerationItemExactLabelMatchesRow(item, row) ||
+					!principalEnumerationRowsContainIdentity(allowedRows, row) {
+					hints = append(hints, sourceInventoryRowIDHardHint(
+						bi,
+						ii,
+						"copy the exact row_id for this item from Principal Enumeration Rows; remove the field only when this is not a source-inventory row",
+						"the submitted typed row id is unknown, names a different member, or lies outside this block's typed source_inventory_family partition; titles and prose cannot repair row identity.",
+					))
+				}
+				continue
+			}
+			if label == "" {
+				continue
+			}
+			matches := preEmitSourceInventoryExactLabelRows(item, allowedRows)
+			if len(matches) <= 1 {
+				continue
+			}
+			choices := make([]string, 0, len(matches))
+			for _, row := range matches {
+				choices = append(choices, fmt.Sprintf("%s (%s)", row.RowID, row.Location))
+			}
+			hints = append(hints, sourceInventoryRowIDHardHint(
+				bi,
+				ii,
+				"copy exactly one matching row_id from Principal Enumeration Rows: "+strings.Join(choices, ", ")+"; citation_ref is then bound from that exact row and may be omitted",
+				"this structured member label occurs in more than one typed source-inventory row; candidate_role, shared attributes, and citation-pool position cannot distinguish the rows.",
+			))
+		}
+	}
+	return hints
+}
+
+func sourceInventoryRowIDHardHint(blockIndex, itemIndex int, expectedShape, reason string) emitFixHint {
+	return emitFixHint{
+		Field:         fmt.Sprintf("blocks[%d].items[%d].source_inventory_row_id", blockIndex, itemIndex),
+		ExpectedShape: expectedShape,
+		Reason:        reason,
+		ForceHard:     true,
+		HardSignal:    preEmitHardSignalTypedSourceInventoryRowID,
+	}
+}
+
+func preEmitSourceInventoryExactLabelRows(item types.AnswerBlockItem, rows []types.EnumerationDisplayRow) []types.EnumerationDisplayRow {
+	var out []types.EnumerationDisplayRow
+	seen := map[string]bool{}
+	for _, row := range rows {
+		if !principalEnumerationItemExactLabelMatchesRow(item, row) {
+			continue
+		}
+		key := principalEnumerationRowIdentityKey(row)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, row)
+	}
+	return out
+}
+
+func principalEnumerationRowsContainIdentity(rows []types.EnumerationDisplayRow, want types.EnumerationDisplayRow) bool {
+	key := principalEnumerationRowIdentityKey(want)
+	for _, row := range rows {
+		if principalEnumerationRowIdentityKey(row) == key {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeItemCitationRefsByTypedCandidateRoleWithContext(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctx *types.BusContext, pctx *preEmitCheckContext) int {

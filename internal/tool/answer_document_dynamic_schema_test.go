@@ -57,6 +57,24 @@ func TestEmitAnswerDocumentSchema_CandidateRoleEnumMatchesTypes(t *testing.T) {
 	}
 }
 
+func TestBuildAnswerDocumentParametersFor_ProjectsSourceInventoryIdentityOnlyWhenAvailable(t *testing.T) {
+	assertFields := func(t *testing.T, view *types.AnswerSemanticView, want bool) {
+		t.Helper()
+		_, blockProps := answerDocumentProjectedBlockSchema(t, BuildAnswerDocumentParametersFor(view))
+		_, familyPresent := blockProps["source_inventory_family"]
+		items := blockProps["items"].(map[string]any)
+		itemSchema := items["items"].(map[string]any)
+		itemProps := itemSchema["properties"].(map[string]any)
+		_, rowIDPresent := itemProps["source_inventory_row_id"]
+		if familyPresent != want || rowIDPresent != want {
+			t.Fatalf("source-inventory identity projection family=%v row_id=%v want=%v", familyPresent, rowIDPresent, want)
+		}
+	}
+
+	assertFields(t, &types.AnswerSemanticView{}, false)
+	assertFields(t, &types.AnswerSemanticView{SourceInventoryRowIdentityAvailable: true}, true)
+}
+
 func TestEmitAnswerDocumentSchema_ErrorGranularityVerdictEnumMatchesTypes(t *testing.T) {
 	raw := (&EmitAnswerDocument{}).Parameters()
 	var root map[string]any

@@ -29,6 +29,8 @@ import (
 //     len(view.MissingRequestedRoles) == 0.
 //   - exact_resolution is dropped when view.ExactResolution is nil or its
 //     answer surface is explicitly suppressed.
+//   - source_inventory_family and items[].source_inventory_row_id are dropped
+//     unless the view has a typed source-inventory observation.
 //   - All other fields and the description prose stay byte-identical
 //     to the canonical schema.
 //
@@ -59,6 +61,7 @@ func BuildAnswerDocumentParametersFor(view *types.AnswerSemanticView) json.RawMe
 			projectEdgeAnchorsField(blockProps, view)
 			projectTypedDecisionVerdictFields(blockProps, blockItems, view)
 			projectTraceCausalClaimCaliberField(blockProps, blockItems, view)
+			projectSourceInventoryIdentityFields(blockProps, view)
 		}
 		projectKindPayloadConditionals(blockItems, view)
 	}
@@ -77,6 +80,17 @@ func BuildAnswerDocumentParametersFor(view *types.AnswerSemanticView) json.RawMe
 		return canonical
 	}
 	return out
+}
+
+func projectSourceInventoryIdentityFields(blockProps map[string]any, view *types.AnswerSemanticView) {
+	if view != nil && view.SourceInventoryRowIdentityAvailable {
+		return
+	}
+	delete(blockProps, "source_inventory_family")
+	itemsNode, _ := blockProps["items"].(map[string]any)
+	itemSchema, _ := itemsNode["items"].(map[string]any)
+	itemProps, _ := itemSchema["properties"].(map[string]any)
+	delete(itemProps, "source_inventory_row_id")
 }
 
 func projectTraceCausalClaimCaliberField(blockProps map[string]any, blockItems map[string]any, view *types.AnswerSemanticView) {

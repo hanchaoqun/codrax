@@ -660,12 +660,13 @@ func visibleAnswerBlockFromRaw(raw json.RawMessage, idx int) (types.AnswerBlock,
 			continue
 		}
 		blk.Items = append(blk.Items, types.AnswerBlockItem{
-			ID:            item.ID,
-			Label:         item.Label,
-			Text:          item.Text,
-			Cells:         cells,
-			CandidateRole: candidateRole,
-			CitationRef:   citationRefFromWire(item.CitationRef),
+			ID:                   item.ID,
+			Label:                item.Label,
+			Text:                 item.Text,
+			Cells:                cells,
+			CandidateRole:        candidateRole,
+			SourceInventoryRowID: strings.TrimSpace(item.SourceInventoryRowID),
+			CitationRef:          citationRefFromWire(item.CitationRef),
 		})
 	}
 	if block.Diagram != nil && strings.TrimSpace(block.Diagram.Body) != "" {

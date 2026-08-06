@@ -59,11 +59,15 @@ func TestAnswerDocumentRelationClaimsAreDeepCloned(t *testing.T) {
 func TestAnswerDocumentSourceInventoryFamilySurvivesMutableRoundTrip(t *testing.T) {
 	doc := &AnswerDocumentV2{DocumentModel: "v2", Blocks: []AnswerBlock{{
 		ID: "classes", Kind: BlockTable, SourceInventoryFamily: "public class",
+		Items: []AnswerBlockItem{{
+			ID: "cart", Label: "Cart", SourceInventoryRowID: "enum-set-row-cart-class",
+		}},
 	}}}
 	mu := NewMutableState("answer family clone")
 	mu.SetAnswerDocumentV2WithMutation(MutationReplaceAll, doc)
 	got := mu.AnswerDocumentV2()
-	if got == nil || len(got.Blocks) != 1 || got.Blocks[0].SourceInventoryFamily != "public class" {
-		t.Fatalf("source-inventory family was dropped by mutable-state clone: %+v", got)
+	if got == nil || len(got.Blocks) != 1 || got.Blocks[0].SourceInventoryFamily != "public class" ||
+		len(got.Blocks[0].Items) != 1 || got.Blocks[0].Items[0].SourceInventoryRowID != "enum-set-row-cart-class" {
+		t.Fatalf("source-inventory family/row identity was dropped by mutable-state clone: %+v", got)
 	}
 }

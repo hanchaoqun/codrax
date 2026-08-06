@@ -19544,3 +19544,28 @@ Trace 复放确认显式用户窗、目标状态账、根因排序、wakeup chai
 
 工件：`eval/parallel_selected_summary_evalcampaign_b171_cangjie_trace_r88_20260806.md`、
 `eval/parallel_selected_summary_evalcampaign_b171_cangjie_trace_r88_20260806_manual_audit.md`。
+
+### 123.92 B171-S1：同名 source-inventory 行以 typed row_id 绑定引用
+
+`EVAL-B171-CITFAMILY1` 已按语言无关、结构化身份方案落地：
+
+1. `Principal Enumeration Rows` 的每条 typed 主行继续携带稳定 `row_id`。AnswerDocument item 新增可选
+   `source_inventory_row_id`；只有同一精确成员名命中多条 typed 主行时才要求模型复制该值，普通唯一名条目保持原有短 JSON；
+2. emit 预处理从 `SourceInventoryObservation + RequestModel` 独立重建 typed principal roster，不依赖 Explorer 如何把完整行集拆成多个
+   aggregate partition。这样 `extend Cart` 与 `public class Cart` 即使分属两个被保留的 principal member_set，仍能在全局 typed 行空间中保持两个
+   不同身份；
+3. 给定合法 row_id 后，系统只按该 typed 行的 file/line 机械复用或追加 citation，再写回 `citation_ref`。row_id 未知、成员名不符、或越过显式
+   `source_inventory_family` 分区时 fail-closed；同名歧义且没给 row_id 时只返回可选 row_id 清单，不从 block title、item text、用户题面、语言关键字、
+   package 邻接或 citation 下标猜测；
+4. 该拒绝只走新增的 `typed_source_inventory_row_identity` 精确信号硬车道，并在 policy row、route table、ForceHard producer 数量 pin 中显式备案。
+   普通 citation/presentation mismatch 继续 advisory，不能借此次修改重新硬化；
+5. JSON 心智负担同步收窄：`source_inventory_row_id` 只在 projected schema 字段说明和实际 Principal Enumeration Rows 的一条 compact
+   提示中教学，未再复制进全局 block 手册；动态 projected schema 仅在 typed source-inventory observation 在场时暴露
+   `source_inventory_family` 与 `source_inventory_row_id` 字段。patch 继承、文本无损恢复、quarantine、normalizer、mutable clone 与语义去重键均已显式保真。
+
+回归覆盖：跨 family 同名缺 row_id 精确拒绝、合法 row_id 自动绑定正确行、跨 family 错 id 拒绝、显式 hard-policy 路由、wire normalize、mutable
+round-trip、quarantine 字段闭包、动态 schema 有/无 source inventory 两臂。该批不新增模型可见 prose 扫描，不修改模型答案正文，也不触碰 Trace
+显式时间窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量或两维根因。
+
+状态：`EVAL-B171-CITFAMILY1=implemented/targeted-pass/full-affected-suite-pass`；
+`EVAL-B171-TRACEBG1=P1/next-batch`。

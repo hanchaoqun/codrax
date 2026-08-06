@@ -95,6 +95,10 @@ func BuildAnswerSemanticView(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSem
 	applySurfacePlanDecisionLaneOverrides(view, plan)
 	applyErrorGranularityProfile(view, ir)
 	applyPresentationContract(view, ir, plan)
+	view.SourceInventoryRowIdentityAvailable = plan != nil &&
+		plan.SourceInventoryObservation.IsActive() &&
+		ir.RequestModel.SourceInventoryProfile != nil &&
+		ir.RequestModel.SourceInventoryProfile.Active()
 	return view
 }
 

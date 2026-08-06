@@ -553,6 +553,12 @@ type AnswerBlockItem struct {
 	// counters, etc. without validators inferring roles from prose.
 	CandidateRole AnswerCandidateRole `json:"candidate_role,omitempty"`
 
+	// SourceInventoryRowID is an optional exact identity copied from a
+	// Principal Enumeration Rows row_id. It lets the source-inventory
+	// citation binder distinguish identical member labels across declaration
+	// families or files without inspecting block titles or visible prose.
+	SourceInventoryRowID string `json:"source_inventory_row_id,omitempty"`
+
 	// CitationRef is a zero-based index into AnswerDocumentV2.
 	// Citations, or -1 when no citation backs this item. Renderer
 	// resolves the index to a (file, line) cite at render time.

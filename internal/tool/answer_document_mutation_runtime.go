@@ -557,6 +557,7 @@ func semanticPrincipalAnswerBlockDedupeKey(block types.AnswerBlock, citations []
 	}
 	return string(block.Kind) + "\x00" +
 		string(block.SurfaceRole) + "\x00" +
+		strings.TrimSpace(block.SourceInventoryFamily) + "\x00" +
 		strings.Join(sortedAnswerBlockStrings(block.FacetIDs), "\x1f") + "\x00" +
 		strings.Join(sortedAnswerBlockStrings(answerBlockClaimUseKeys(block.ClaimUses)), "\x1f") + "\x00" +
 		strings.Join(answerBlockNormalizedSurfaces(block.Columns), "\x1f") + "\x00" +
@@ -573,6 +574,7 @@ func semanticPrincipalAnswerItemDedupeKey(item types.AnswerBlockItem, citations 
 		return ""
 	}
 	return string(item.CandidateRole) + "\x1e" +
+		strings.TrimSpace(item.SourceInventoryRowID) + "\x1e" +
 		label + "\x1e" +
 		normalizeAnswerBlockDedupeSurface(item.Text) + "\x1e" +
 		strings.Join(answerBlockNormalizedSurfaces(item.Cells), "\x1d") + "\x1e" +

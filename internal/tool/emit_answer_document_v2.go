@@ -86,11 +86,12 @@ type emitAnswerBlockV2 struct {
 }
 
 type emitAnswerBlockItemV2 struct {
-	ID            string   `json:"id,omitempty"`
-	Label         string   `json:"label,omitempty"`
-	Text          string   `json:"text,omitempty"`
-	Cells         []string `json:"cells,omitempty"`
-	CandidateRole string   `json:"candidate_role,omitempty"`
+	ID                   string   `json:"id,omitempty"`
+	Label                string   `json:"label,omitempty"`
+	Text                 string   `json:"text,omitempty"`
+	Cells                []string `json:"cells,omitempty"`
+	CandidateRole        string   `json:"candidate_role,omitempty"`
+	SourceInventoryRowID string   `json:"source_inventory_row_id,omitempty"`
 	// CitationRef is a pointer so an ABSENT/null citation_ref (the item
 	// is uncited → types.CitationRefUnset) is distinguishable from an
 	// explicit citation_ref:0 (a valid zero-based index into the first
@@ -726,6 +727,10 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 	if fixed := normalizeItemCitationRefsByUniqueBacktickCitationQuote(doc); fixed > 0 {
 		pctx.recordPreEmitRepair("normalizeItemCitationRefsByUniqueBacktickCitationQuote", fixed)
 		logging.Warning("[%s] repaired %d item citation_ref value(s) by explicit code-surface citation quotes", toolName, fixed)
+	}
+	if fixed := normalizeItemCitationRefsBySourceInventoryRowIDWithContext(doc, ctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeItemCitationRefsBySourceInventoryRowIDWithContext", fixed)
+		logging.Warning("[%s] bound %d item citation_ref value(s) by exact source_inventory_row_id", toolName, fixed)
 	}
 	if fixed := normalizeItemCitationRefsByTypedCandidateRoleWithContext(doc, view, ctx, pctx); fixed > 0 {
 		pctx.recordPreEmitRepair("normalizeItemCitationRefsByTypedCandidateRoleWithContext", fixed)

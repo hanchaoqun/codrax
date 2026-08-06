@@ -4002,6 +4002,138 @@ func TestNormalizeItemCitationRefsByTypedCandidateRole_DoesNotGuessAmbiguousRows
 	}
 }
 
+func sourceInventoryDuplicateCartRowIDTestContext(t *testing.T) (*types.BusContext, string, string) {
+	t.Helper()
+	mu := types.NewMutableState("list extend and public class declarations")
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Scopes:   []string{"."},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleType,
+			Complete: true,
+			Count:    2,
+			Total:    2,
+			Members: []types.SourceInventoryObservationMember{
+				{Name: "Cart", Role: types.AnswerCandidateRoleType, File: "cart/Cart.cj", Line: 30, Language: "cangjie", SurfaceTerms: []string{"extend", "extend Cart"}, CoverageState: types.SourceInventoryCoverageObserved},
+				{Name: "Cart", Role: types.AnswerCandidateRoleType, File: "cart/Cart.cj", Line: 14, Language: "cangjie", SurfaceTerms: []string{"public class", "public class Cart"}, CoverageState: types.SourceInventoryCoverageObserved},
+			},
+		}},
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "requested declarations",
+		Value: "2",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"Cart @ cart/Cart.cj:30",
+			"Cart @ cart/Cart.cj:14",
+		},
+		SupportRefs: []string{
+			"Cart @ cart/Cart.cj:30",
+			"Cart @ cart/Cart.cj:14",
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+				SourceQuotes:      []string{"extend", "public class"},
+				RequestedFields:   []types.SourceInventoryRequestedField{types.SourceInventoryFieldName, types.SourceInventoryFieldLocation},
+				Confidence:        0.95,
+			},
+		}},
+	}
+	rows := preEmitSourceInventoryRowsByID(ctx)
+	var extendID, classID string
+	for id, row := range rows {
+		switch row.LineStart {
+		case 30:
+			extendID = id
+		case 14:
+			classID = id
+		}
+	}
+	if extendID == "" || classID == "" || extendID == classID {
+		t.Fatalf("duplicate Cart rows did not compile distinct typed ids: %+v", rows)
+	}
+	return ctx, extendID, classID
+}
+
+func TestNormalizeItemCitationRefsBySourceInventoryRowID_BindsDuplicateLabelExactRow(t *testing.T) {
+	ctx, _, classID := sourceInventoryDuplicateCartRowIDTestContext(t)
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "cart/Cart.cj", Line: 30}},
+		Blocks: []types.AnswerBlock{{
+			ID: "classes", Kind: types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{{
+				ID: "cart", Label: "Cart", SourceInventoryRowID: classID, CitationRef: 0,
+			}},
+		}},
+	}
+
+	if fixed := normalizeItemCitationRefsBySourceInventoryRowIDWithContext(doc, ctx); fixed != 1 {
+		t.Fatalf("fixed=%d, want exact row-id citation rebind; doc=%+v", fixed, doc)
+	}
+	ref := doc.Blocks[0].Items[0].CitationRef
+	if ref < 0 || ref >= len(doc.Citations) || doc.Citations[ref].Line != 14 {
+		t.Fatalf("source_inventory_row_id bound wrong citation: ref=%d citations=%+v", ref, doc.Citations)
+	}
+	if hints := preCheckSourceInventoryRowIDBindings(doc, ctx); len(hints) != 0 {
+		t.Fatalf("exact row-id binding should pass, got %+v", hints)
+	}
+}
+
+func TestPreCheckSourceInventoryRowIDBindings_RequiresTypedIDForDuplicateLabel(t *testing.T) {
+	ctx, extendID, classID := sourceInventoryDuplicateCartRowIDTestContext(t)
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "mixed", Kind: types.BlockOrderedList,
+		SurfaceRole: types.SurfacePrincipal,
+		FacetIDs:    []string{string(types.FacetEnumerationItem)},
+		Items:       []types.AnswerBlockItem{{ID: "cart", Label: "Cart", CitationRef: -1}},
+	}}}
+
+	hints := preCheckSourceInventoryRowIDBindings(doc, ctx)
+	if len(hints) != 1 || !hints[0].ForceHard ||
+		!strings.Contains(hints[0].ExpectedShape, extendID) ||
+		!strings.Contains(hints[0].ExpectedShape, classID) {
+		t.Fatalf("duplicate label should require exact typed row id, got %+v", hints)
+	}
+	hard, advisory := splitPreEmitHintsByGate(tagPreEmitHints(types.ViolCitation, hints))
+	if len(hard) != 1 || len(advisory) != 0 || hard[0].HardSignal != preEmitHardSignalTypedSourceInventoryRowID {
+		t.Fatalf("exact typed row identity must use only its explicit hard lane: hard=%+v advisory=%+v", hard, advisory)
+	}
+}
+
+func TestPreCheckSourceInventoryRowIDBindings_RejectsCrossFamilyID(t *testing.T) {
+	ctx, extendID, _ := sourceInventoryDuplicateCartRowIDTestContext(t)
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "classes", Kind: types.BlockOrderedList,
+		SurfaceRole:           types.SurfacePrincipal,
+		SourceInventoryFamily: "public class",
+		FacetIDs:              []string{string(types.FacetEnumerationItem)},
+		Items:                 []types.AnswerBlockItem{{ID: "cart", Label: "Cart", SourceInventoryRowID: extendID, CitationRef: -1}},
+	}}}
+
+	hints := preCheckSourceInventoryRowIDBindings(doc, ctx)
+	if len(hints) != 1 || !hints[0].ForceHard || !strings.Contains(hints[0].Reason, "outside") {
+		t.Fatalf("cross-family row id must fail closed, got %+v", hints)
+	}
+	hard, advisory := splitPreEmitHintsByGate(tagPreEmitHints(types.ViolCitation, hints))
+	if len(hard) != 1 || len(advisory) != 0 || hard[0].HardSignal != preEmitHardSignalTypedSourceInventoryRowID {
+		t.Fatalf("cross-family typed identity must use only its explicit hard lane: hard=%+v advisory=%+v", hard, advisory)
+	}
+}
+
 func TestPreCheckAggregateMemberSetCoverage_TotalCountPathMembersAreCoverageForArchitecture(t *testing.T) {
 	mu := types.NewMutableState("architecture count coverage aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
