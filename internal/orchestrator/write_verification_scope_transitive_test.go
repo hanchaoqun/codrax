@@ -158,6 +158,7 @@ func TestStampCumulativeVerificationScopeActiveGenerationShadowsSameIDRetainedRo
 		BehaviorContracts: []types.WriteBehaviorContract{
 			{ID: "outcome-2", Expected: "line 16 remains unchanged"},
 			{ID: "retained-only", Expected: "line 12 remains repaired"},
+			{ID: "stale-fallback", Expected: "only one expression changes", Source: types.WriteBehaviorContractSourceExpectedOutcomeFallback},
 		},
 		VerificationProbes: []types.VerificationProbe{
 			{ID: "behavior-probe", Code: "old generation"},
@@ -171,6 +172,7 @@ func TestStampCumulativeVerificationScopeActiveGenerationShadowsSameIDRetainedRo
 		BehaviorContracts: []types.WriteBehaviorContract{
 			{ID: "outcome-2", Expected: "line 16 returns the negative lookup error"},
 		},
+		BehaviorContractGeneration: types.WriteBehaviorContractGenerationPlanAcceptanceRebase,
 		VerificationProbes: []types.VerificationProbe{
 			{ID: "behavior-probe", Code: "current generation"},
 		},
@@ -190,7 +192,7 @@ func TestStampCumulativeVerificationScopeActiveGenerationShadowsSameIDRetainedRo
 		t.Fatal("expected retained verification scope")
 	}
 	if ids := behaviorContractIDs(got.BehaviorContracts); !reflect.DeepEqual(ids, []string{"retained-only"}) {
-		t.Fatalf("same-ID stale contract must not re-enter cumulative scope: %+v", got.BehaviorContracts)
+		t.Fatalf("same-ID and prior-generation fallback contracts must not re-enter cumulative scope: %+v", got.BehaviorContracts)
 	}
 	if ids := verificationProbeIDs(got.VerificationProbes); !reflect.DeepEqual(ids, []string{"retained-probe"}) {
 		t.Fatalf("same-ID stale probe must not re-enter cumulative scope: %+v", got.VerificationProbes)

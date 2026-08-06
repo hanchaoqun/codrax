@@ -131,12 +131,19 @@ func renderWriteControllerTaskSection(ctx *types.AgentContext) string {
 	if len(ir.Request.ScopeAnchors) > 0 {
 		fmt.Fprintf(&b, "- scope_anchors: %s\n", strings.Join(ir.Request.ScopeAnchors, ", "))
 	}
-	if len(ir.Request.ExpectedOutcomes) > 0 {
-		fmt.Fprintf(&b, "- expected_outcomes: %s\n", strings.Join(ir.Request.ExpectedOutcomes, " | "))
+	expectedOutcomes := ir.Request.ExpectedOutcomes
+	behaviorContracts := ir.Request.BehaviorContracts
+	if plan := ctx.Mutable.ChangePlan(); plan != nil && plan.BehaviorContractGeneration == types.WriteBehaviorContractGenerationPlanAcceptanceRebase {
+		expectedOutcomes = plan.AcceptanceTests
+		behaviorContracts = types.ChangePlanVerificationBehaviorContracts(plan)
+		fmt.Fprintf(&b, "- behavior_contract_generation: %s\n", plan.BehaviorContractGeneration)
 	}
-	if len(ir.Request.BehaviorContracts) > 0 {
+	if len(expectedOutcomes) > 0 {
+		fmt.Fprintf(&b, "- expected_outcomes: %s\n", strings.Join(expectedOutcomes, " | "))
+	}
+	if len(behaviorContracts) > 0 {
 		b.WriteString("- behavior_contracts:\n")
-		for _, c := range ir.Request.BehaviorContracts {
+		for _, c := range behaviorContracts {
 			fmt.Fprintf(&b, "  - id=%s kind=%s operator=%s expected=%s", c.ID, c.Kind, c.Operator, c.Expected)
 			if c.Polarity != "" {
 				fmt.Fprintf(&b, " polarity=%s", c.Polarity)

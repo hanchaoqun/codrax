@@ -1900,7 +1900,15 @@ func (m *MutableState) MergeWriteContextPack(pack WriteContextPack) {
 		m.writeContextPack = &snap
 		return
 	}
-	merged := MergeWriteContextPacks(m.writeContextPack.BatchID, m.writeContextPack.Goal, *m.writeContextPack, pack)
+	batchID := m.writeContextPack.BatchID
+	goal := m.writeContextPack.Goal
+	existingGeneration := WriteContextPackPlanGeneration(*m.writeContextPack)
+	incomingGeneration := WriteContextPackPlanGeneration(pack)
+	if existingGeneration != "" && incomingGeneration != "" && existingGeneration != incomingGeneration {
+		batchID = pack.BatchID
+		goal = pack.Goal
+	}
+	merged := MergeWriteContextPacks(batchID, goal, *m.writeContextPack, pack)
 	m.writeContextPack = &merged
 }
 

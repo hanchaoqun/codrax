@@ -124,8 +124,12 @@ func MergeWriteContextPacks(batchID, goal string, packs ...WriteContextPack) Wri
 		Goal:    trimWriteContextText(goal),
 	}
 	rebasedPlanContracts := false
+	latestPlanGeneration := ""
 	for _, pack := range packs {
 		pack = NormalizeWriteContextPack(pack)
+		if generation := WriteContextPackPlanGeneration(pack); generation != "" {
+			latestPlanGeneration = generation
+		}
 		for _, item := range pack.Items {
 			if item.Kind == "behavior_contract_generation" && item.SourceStage == "plan" {
 				rebasedPlanContracts = true
@@ -138,6 +142,7 @@ func MergeWriteContextPacks(batchID, goal string, packs ...WriteContextPack) Wri
 	}
 	for _, pack := range packs {
 		pack = NormalizeWriteContextPack(pack)
+		packPlanGeneration := WriteContextPackPlanGeneration(pack)
 		if out.BatchID == "" {
 			out.BatchID = pack.BatchID
 		}
@@ -145,6 +150,9 @@ func MergeWriteContextPacks(batchID, goal string, packs ...WriteContextPack) Wri
 			out.Goal = pack.Goal
 		}
 		for _, item := range pack.Items {
+			if latestPlanGeneration != "" && packPlanGeneration != "" && packPlanGeneration != latestPlanGeneration && item.SourceStage == "plan" {
+				continue
+			}
 			// A typed verify-failure replan publishes the complete active
 			// contract generation in its plan pack. Do not also show the
 			// analyzer's older success/fallback projection: the explicit
@@ -161,6 +169,23 @@ func MergeWriteContextPacks(batchID, goal string, packs ...WriteContextPack) Wri
 		}
 	}
 	return NormalizeWriteContextPack(out)
+}
+
+// WriteContextPackPlanGeneration returns the exact plan generation carried by
+// a plan or merged context pack. It never infers identity from goal/summary
+// text. When a legacy merged pack somehow contains multiple generation rows,
+// the last normalized row wins, matching append-order merge precedence.
+func WriteContextPackPlanGeneration(in WriteContextPack) string {
+	in = NormalizeWriteContextPack(in)
+	generation := ""
+	for _, item := range in.Items {
+		if item.Kind == "plan_generation" && item.SourceStage == "plan" {
+			if id := strings.TrimSpace(item.SourceID); id != "" {
+				generation = id
+			}
+		}
+	}
+	return generation
 }
 
 func (p WriteContextPack) View(consumer WriteContextConsumer, limit int) WriteContextView {

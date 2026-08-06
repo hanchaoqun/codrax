@@ -69,6 +69,49 @@ func TestWriteControllerPromptConsumesTypedArtifactsAndAvoidsProseRouting(t *tes
 	}
 }
 
+func TestWriteControllerTaskSectionUsesActiveReplanContractGeneration(t *testing.T) {
+	mut := types.NewMutableState("repair remaining expression")
+	mut.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{
+		Task:             types.WriteTask{Kind: types.WriteTaskBugfix, Scope: types.ScopeMicro, Summary: "repair callback handling"},
+		ExpectedOutcomes: []string{"only one expression changes"},
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID:       "outcome-1",
+			Kind:     types.WriteBehaviorObservable,
+			Operator: types.WriteBehaviorOpSatisfies,
+			Expected: "only one expression changes",
+			Required: true,
+			Source:   types.WriteBehaviorContractSourceExpectedOutcomeFallback,
+		}},
+	}})
+	mut.SetChangePlan(&types.ChangePlan{
+		ID:                         "plan-repair",
+		AcceptanceTests:            []string{"both negative paths pass", "only repository.c changes"},
+		BehaviorContractGeneration: types.WriteBehaviorContractGenerationPlanAcceptanceRebase,
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID:       "outcome-1",
+			Kind:     types.WriteBehaviorObservable,
+			Operator: types.WriteBehaviorOpSatisfies,
+			Expected: "both negative paths pass",
+			Required: true,
+			Source:   types.WriteBehaviorContractSourcePlanAcceptanceFallback,
+		}},
+	})
+
+	got := renderWriteControllerTaskSection(&types.AgentContext{Mutable: mut})
+	for _, want := range []string{
+		"behavior_contract_generation: plan_acceptance_rebase",
+		"expected_outcomes: both negative paths pass | only repository.c changes",
+		"expected=both negative paths pass",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("controller task section missing current replan authority %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "only one expression changes") {
+		t.Fatalf("controller task section retained superseded analyzer fallback:\n%s", got)
+	}
+}
+
 func TestWriteControllerParseOutputReadsStoredDecisionJSON(t *testing.T) {
 	mut := types.NewMutableState("implement workflow")
 	mut.SetWriteWorkflowDecisionJSON([]byte(`{"action":"finish","reason_code":"done"}`))

@@ -399,6 +399,60 @@ func TestMergeWriteContextPacksReplanGenerationSupersedesAnalyzerFallbackContext
 	}
 }
 
+func TestMutableWriteContextPackKeepsOnlyLatestPlanGeneration(t *testing.T) {
+	mu := NewMutableState("replan context generation")
+	first := WriteContextPackFromChangePlan(&ChangePlan{
+		ID:              "plan-first",
+		Summary:         "first plan incorrectly changes one expression",
+		AcceptanceTests: []string{"only one expression changes"},
+	})
+	risk := WriteContextPack{
+		PackID:      "risk",
+		BatchID:     "plan-first",
+		Goal:        first.Goal,
+		SourceStage: "risk",
+		Items: []WriteContextItem{{
+			Priority:    WriteContextP0,
+			Kind:        "approval_decision",
+			Text:        "action=auto_execute",
+			SourceStage: "risk",
+		}},
+	}
+	initial := MergeWriteContextPacks(first.BatchID, first.Goal, first, risk)
+	mu.SetWriteContextPack(&initial)
+
+	currentContracts := RebaseExpectedOutcomeFallbackWriteBehaviorContracts(nil, []string{"both negative paths pass"})
+	current := WriteContextPackFromChangePlan(&ChangePlan{
+		ID:                         "plan-repair",
+		Summary:                    "repair the remaining expression",
+		AcceptanceTests:            []string{"both negative paths pass"},
+		BehaviorContracts:          currentContracts,
+		BehaviorContractGeneration: WriteBehaviorContractGenerationPlanAcceptanceRebase,
+	})
+	mu.MergeWriteContextPack(current)
+
+	got := mu.WriteContextPack()
+	if got == nil {
+		t.Fatal("merged mutable context pack missing")
+	}
+	if got.BatchID != "plan-repair" || got.Goal != "repair the remaining expression" {
+		t.Fatalf("context header retained prior plan generation: batch=%q goal=%q", got.BatchID, got.Goal)
+	}
+	view := got.View(WriteConsumerVerifier, 30)
+	if writeContextViewContains(view, "acceptance_test", "only one expression changes") ||
+		writeContextViewContains(view, "plan_summary", "first plan incorrectly") ||
+		writeContextViewContains(view, "plan_generation", "plan_id=plan-first") {
+		t.Fatalf("prior plan semantic rows survived mutable context merge: %+v", view.Items)
+	}
+	if !writeContextViewContains(view, "acceptance_test", "both negative paths pass") ||
+		!writeContextViewContains(view, "plan_generation", "plan_id=plan-repair") {
+		t.Fatalf("current plan semantic rows missing: %+v", view.Items)
+	}
+	if !writeContextViewContains(view, "approval_decision", "action=auto_execute") {
+		t.Fatalf("non-plan typed context must survive plan generation replacement: %+v", view.Items)
+	}
+}
+
 func TestWriteContextPackFromChangePlanCarriesPatchEffect(t *testing.T) {
 	plan := &ChangePlan{
 		ID:      "plan-effect",

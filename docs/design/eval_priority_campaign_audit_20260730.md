@@ -21146,3 +21146,60 @@ success criterion；同 batch 新 plan 替换旧 acceptance context。完整相�
 能力或增加模型 JSON 心智。
 
 状态：`EVAL-B186-REPLANCONTRACT1=S17-implemented/full-impacted-suites-pass/pending-exact-two-replay`。
+
+### 123.148 B186 r116：S17 主矛盾闭环；写上下文仍有跨代残片；Trace summary 修复教学自身不闭合
+
+在 `d91ba8cdb` 构建后严格并行恰好两个异构 case：
+
+- `trace_query_donghu_real_frame_multicausal`：181s，runner PASS / human FAIL，5 次 trace_query，finalizer
+  reject=2、patch=2；
+- `github_issue_libgit2_foreach_worktree`：253s，runner PASS / human PASS，首次 verify 失败后产生第二代 plan，
+  最终测试通过。
+
+写案例证明 S17 的主问题已经闭环：第二代 plan 携带
+`behavior_contract_generation=plan_acceptance_rebase`，同 ID 的旧 fallback 不再出现，当前 acceptance 两行成为
+active fallback，controller 最终也不再以“第16行保持不变”签绿。用户可见补丁和验证结果正确。但冷读 plan2
+仍发现同根残片：plan1 的 unique-ID `outcome-3` fallback 因 ID 不同进入累计校验域；Mutable context pack 仍保留
+plan1 的 BatchID/Goal 与计划语义；controller 的 `Typed write task` 又直接渲染初始 WriteAnalysisIR。换言之，同 ID
+遮蔽已正确，但一次 verify-failure rebase 尚未把“所有推导型 fallback + 当前计划语义”收敛为单代权威。
+
+Trace 最终答案相较 r115 有明确进步：保留精确选窗、双轴根因、可消除量与
+`frame_evidence_status=absent/causal_conclusion=unproven` 限定；没有再给 density 5.26 硬分高低，也没有跨席
+相加。不过模型仍把 typed 排名与唤醒邻接行串成 ThreadPool→Network→Cookie→目标的单一“核心因果链”，并称
+Cookie “持续控制”目标调度节奏，超出现有逐边凭证，故 human FAIL，`EVAL-B186-RELSYNTH1` 维持模型侧观察。
+
+本轮还确认 `EVAL-B186-SUMMARYJSON1=P1/system-teaching-confirmed`：首稿有一个承担总述语义的
+`kind=section`，却没有 schema 要求的 `kind=summary`。pre-emit 只返回字段目标
+`blocks[kind=summary,surface_role=principal].trace_causal_claim_caliber` 和“只修该字段”的动作，没有说明目标
+block 根本不存在、该字段在 section 上非法。模型遂先把 caliber 加到 section，命中第二个 schema reject；再新增
+summary 才通过。这不是畸形 JSON 的内容恢复问题，而是系统的结构教学与修复动作不闭合：required block、字段
+归属、缺块时应执行的 patch 操作没有单源表达。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b186_replan_contract_replay_r116_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b186_replan_contract_replay_r116_20260806_manual_audit.md`。
+
+状态：`EVAL-B186-REPLANCONTRACT1=partial/r116-primary-closed-S17b-pending`；
+`EVAL-B186-SUMMARYJSON1=P1/confirmed/pending-S18`；
+`EVAL-B186-RELSYNTH1=P1/repeated-model-relation-synthesis-gap/no-prose-gate`。
+
+### 123.149 S17b：replan 后推导合同、计划上下文与 controller task 全部收敛到当前代
+
+S17b 对 `plan_acceptance_rebase` 补齐三条代际边界，仍只消费 typed generation/source/ID：
+
+1. active plan 进入 rebase 代后，累计校验域不再继承任何旧 plan/恢复快照中的推导型 fallback，不论其 ID 是否
+   与当前代相同；不同 ID 的 analyzer 显式合同和验证探针继续保留，因此没有缩掉跨批真实义务；
+2. context pack 合并先读取 exact `plan_generation`。旧 generation 的 `source_stage=plan` 行整体退出，而
+   verify failure、exploration、risk 等异源事实保留；Mutable pack 在 generation 切换时同步采用当前 BatchID/Goal，
+   不再用旧 header 包裹新计划；
+3. controller 的 `Typed write task` 在 active plan 为 rebase 代时，改读当前 plan 的 acceptance tests 和
+   `ChangePlanVerificationBehaviorContracts`；初始 WriteAnalysisIR 仅在首代/非 rebase 车道继续作为权威。
+
+新增 pin 覆盖 unique-ID 旧 fallback 退出、显式 unique 旧合同保留、旧 plan 语义/header 退出且 risk 保留、
+controller task 只发布当前 replan contract generation。没有读取或比较验收 prose，不按“保持不变”等字样判断，
+也没有改变 write patch、验证结论或 final answer。Trace read pipeline、显式窗、因果投影、自动补齐、根因排序、
+唤醒链与窗内可消除量完全未改。
+
+完整受影响套件 `go test ./internal/types ./internal/tool ./internal/orchestrator ./internal/agent -count=1`
+通过（types 19.810s、tool 165.419s、orchestrator 13.697s、agent 4.152s）。
+
+状态：`EVAL-B186-REPLANCONTRACT1=S17b-implemented/full-impacted-suites-pass/pending-replay`。

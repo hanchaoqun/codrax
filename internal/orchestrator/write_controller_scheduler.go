@@ -4931,8 +4931,8 @@ func upsertWorkflowRunContextPack(run types.WriteWorkflowRun, pack types.WriteCo
 	for i := range run.ContextPacks {
 		if workflowContextPackKey(run.ContextPacks[i]) == key {
 			existing := types.NormalizeWriteContextPack(run.ContextPacks[i])
-			existingGeneration := workflowPlanContextGeneration(existing)
-			incomingGeneration := workflowPlanContextGeneration(pack)
+			existingGeneration := types.WriteContextPackPlanGeneration(existing)
+			incomingGeneration := types.WriteContextPackPlanGeneration(pack)
 			if existingGeneration != "" && incomingGeneration != "" && existingGeneration != incomingGeneration {
 				// A new plan in the same workflow batch supersedes the prior
 				// plan's semantic context. Verify reports/exploration use separate
@@ -4966,19 +4966,6 @@ func upsertWorkflowRunContextPack(run types.WriteWorkflowRun, pack types.WriteCo
 	}
 	run.ContextPacks = append(run.ContextPacks, pack)
 	return types.NormalizeWriteWorkflowRun(run)
-}
-
-func workflowPlanContextGeneration(pack types.WriteContextPack) string {
-	if strings.TrimSpace(pack.PackID) != "change-plan" {
-		return ""
-	}
-	pack = types.NormalizeWriteContextPack(pack)
-	for _, item := range pack.Items {
-		if item.Kind == "plan_generation" && item.SourceStage == "plan" {
-			return strings.TrimSpace(item.SourceID)
-		}
-	}
-	return ""
 }
 
 func attachPlanContextPackToWorkflowRun(run types.WriteWorkflowRun, plan *types.ChangePlan) types.WriteWorkflowRun {
