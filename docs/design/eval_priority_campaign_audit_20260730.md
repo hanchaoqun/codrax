@@ -21482,3 +21482,68 @@ Trace 对照证明 S20 没有波及 runtime：两次 `trace_query` 都携带同�
 完整 `go test ./internal/agent -count=1` 通过（2.786s）。
 
 状态：`EVAL-B190-CITEAXISGUIDE1=S21-implemented/full-agent-suite-pass/pending-exact-two-replay`。
+
+### 123.161 B190 r122：两个 runner 均绿但人工均不签绿；typed proof anchor 与 coverage 合同分叉
+
+在 `0bec38580` 构建后严格并行恰好两个异构语言 read case：
+
+- `sr_rust_trait_impls`：87s，runner PASS / human FAIL；
+- `sr_java_handler_impls`：550s，runner PASS / human FAIL，analyzer 两轮，finalizer reject=0。
+
+Rust 的答案事实完整：两个实现、`--fixed` / default 条件、`impl Matcher for` 行 17/33 均正确。确定性失败链为：
+模型提交 `main.rs:16/18` 选择/构造引用；`normalizeItemCitationRefsByUniqueLabelCitationWithContext` 根据 typed member
+把两席重绑到真正的 implementation 行 `matcher.rs:17/33`；随后 `principal_support_member_coverage` 却仍只接受
+source-inventory 的 struct 行 7/23，发出两条 soft violation，最终追加“证据支持稍弱”。同一系统先把实现行判为
+更合适引用，再把它判为不覆盖成员，确认 `EVAL-B191-ANCHOREQUIV1=P1/system-contract-confirmed`。这不是 Rust 语法、
+模型随机性或 runner oracle 问题，而是 declaration/proof equivalence 已进入 finalizer 教学和 citation normalizer，
+却没有进入 support-plan coverage 的单源集合。
+
+Java 的三实现、三路径和 principal type 角色正确，S20 保持、runner 转绿；但模型把相邻 `@Route` 文本拼入
+class-line citation quote。系统按真实源码纠正 quote 后，显式引用只剩 class 行 8/14/10，不能直接展示 route 第二轴；
+同时又追加一份确定性 principal roster，造成两份主清单。S21 是软教学，不能保证每个模型轮次都选中更好的关系锚；
+按红线不新增扫描模型 quote/正文的结论硬门，也不让系统自动替模型选择结论或重写答案。550s 是 provider/analyzer
+第二轮等待，不是“成文校验未通过”重试：finalizer 全程零 reject。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b190_citeaxis_java_rust_r122_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b190_citeaxis_java_rust_r122_20260806_manual_audit.md`。
+
+状态：`EVAL-B190-CITEAXISGUIDE1=S21-soft-guidance-landed/partial`；
+`EVAL-B191-ANCHOREQUIV1=P1/confirmed/pending-S22`；Java duplicate roster 与 adjacent-annotation line precision 分别维持
+`EVAL-B191-ENUMDUP1=P2/observe`、`EVAL-B191-ANNOTSPAN1=P2/observe`，不从单一语言样例扩成正文硬门。
+
+### 123.162 S22：已落地 typed member-proof 等价锚单源；JSON 教学与降级恢复审计
+
+`EVAL-B191-ANCHOREQUIV1` 采用 support-plan 编译期的 typed 单源修复，而非放宽后置 validator：
+
+1. 当 aggregate principal member 的稳定主锚是 declaration 时，额外遍历同一 `AnswerSurfacePlan.SurfaceEvidence`；
+2. 只有 `grounded|recovered`、有真实 file:line、同一源码文件、带精确 `subject/object` 两端的 registration/implementation
+   关系才能加入 `EquivalentLocations`；parser 的 structural relation 还必须是 implements/extends/inheritance/embedding/
+   overrides 之一；
+3. condition、assignment、call、仅 `surface_terms`/summary 提及、未 grounded、无 endpoint 或跨文件同名歧义均不能
+   成为 member-proof 等价锚；它们仍可作为 row attribute/selection 的 supporting evidence；
+4. declaration 继续作为稳定 primary anchor，implementation/proof 只是同一成员的 accepted location。finalizer 教学、
+   citation normalizer、pre-emit coverage 和 post-emit coverage 因此消费同一集合，不再出现“系统选中后又自判不足”。
+
+回归覆盖正臂（Rust 形 declaration 7 + grounded impl relation 17，impl citation 满足 coverage）与四个负臂（条件提及、
+未 grounded relation、跨文件同名 relation、endpoint-free surface-only row）。实现不读取 RawRequest、模型 think/reason、
+citation quote 或最终 Markdown，也不绑定语言、trait、Handler、route、`--fixed` 等词。
+
+同时复核用户要求的 JSON 低心智/降级链，当前代码已经具备且测试覆盖：
+
+- `AnswerDocumentJSONShapeFirstTeaching` 是 full emit 的唯一首句 carrier 决策，明确 native `blocks[]/citations[]`、
+  block-level `claim_uses[]`、禁止把 object/array 二次编码成字符串；dispatch projected schema 是字段/类型/enum 唯一权威，
+  没有再提供跨场景固定 JSON 示例与之竞争；
+- 通用 tool-call 参数只做可证明无损的结构修复：安全前/后缀 delimiter、trailing comma、仅缺闭合符、数组元素间唯一可判定
+  的 `}`；修复后必须重新 `json.Unmarshal`，否则保留原始拒绝；
+- answer content 降级按“typed document → visible block → schema-owned visible string”分层。最后一层明确 `Lossless=false`，
+  只提取 title/text/item 等用户可见字段，不读取 id/claim/citation 作为控制信号，并披露模型 JSON 无法结构恢复；测试固定
+  了字符串内部伪 `\"text\"` 不能铸成第二段答案。
+
+因此本批不再添加 JSON 关键词扫描或猜测修复；后续 eval 只观察是否仍有 projected schema 与教学相互矛盾、以及降级披露
+是否真正出现在客户答案。Trace 显式窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量和双轴性能根因未改动。
+
+验证：定向 types 正负臂通过；`go test ./internal/types ./internal/agent ./internal/tool -count=1` 通过（types 20.626s、
+agent 3.127s、tool 169.369s；独立 tool 复跑 166.855s）。
+
+状态：`EVAL-B191-ANCHOREQUIV1=S22-implemented/full-impacted-suites-pass/pending-exact-two-replay`；
+`EVAL-B186-SUMMARYJSON1=production-closed/json-teaching+lossy-disclosure-audited`。

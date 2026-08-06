@@ -223,7 +223,111 @@ func genericAggregateMemberSupportEntry(fact AnswerAggregateFact, factIdx, membe
 			)
 		}
 	}
+	appendAggregateMemberTypedRelationEquivalentLocations(&entry, member, supportEvidence)
 	return entry, true
+}
+
+// appendAggregateMemberTypedRelationEquivalentLocations closes the reverse
+// half of the declaration/proof co-anchor contract. The aggregate member-set
+// compiler commonly chooses a declaration as the primary member anchor, while
+// a separately grounded registration/implementation row is the better proof
+// location. Both are valid member-preservation anchors, but only when the
+// relation row names the member through an exact typed endpoint in the same
+// source file. This deliberately excludes conditions, assignments, calls,
+// summaries, and surface_terms: those may explain a row-local attribute but do
+// not independently prove that the principal member belongs to the set.
+func appendAggregateMemberTypedRelationEquivalentLocations(
+	entry *AnswerSupportEntry,
+	member string,
+	support *aggregateMemberEvidenceIndex,
+) {
+	if entry == nil || support == nil || len(support.items) == 0 {
+		return
+	}
+	primarySource := normalizeAnswerSupportPath(entry.Source)
+	if primarySource == "" {
+		return
+	}
+	memberNames := aggregateMemberTypedEndpointNames(member, *entry)
+	if len(memberNames) == 0 {
+		return
+	}
+	for _, item := range support.items {
+		if item.GroundingStatus != GroundingGrounded && item.GroundingStatus != GroundingRecovered {
+			continue
+		}
+		if normalizeAnswerSupportPath(item.Source) != primarySource || item.LineStart <= 0 {
+			continue
+		}
+		if !aggregateMemberTypedRelationProof(item) ||
+			!aggregateMemberTypedRelationNamesEndpoint(item, memberNames) {
+			continue
+		}
+		location := aggregateMemberStartLocation(AnswerSourceLocationSurface{
+			File:      strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, "/")),
+			LineStart: item.LineStart,
+		})
+		if normalizeAnswerSupportLocation(location) != normalizeAnswerSupportLocation(entry.Location) {
+			entry.EquivalentLocations = appendAggregateMemberEquivalentLocation(entry.EquivalentLocations, location)
+		}
+		if item.LineEnd > item.LineStart {
+			entry.EquivalentLocations = appendAggregateMemberEquivalentLocation(
+				entry.EquivalentLocations,
+				aggregateMemberStartLocation(AnswerSourceLocationSurface{
+					File:      strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, "/")),
+					LineStart: item.LineEnd,
+				}),
+			)
+		}
+	}
+}
+
+func aggregateMemberTypedEndpointNames(member string, entry AnswerSupportEntry) map[string]bool {
+	out := map[string]bool{}
+	add := func(raw string) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			return
+		}
+		if label, _, ok := aggregateSupportRefMemberLocation(raw); ok && strings.TrimSpace(label) != "" {
+			raw = strings.TrimSpace(label)
+		}
+		if base, _, ok := AnswerAggregateDecoratedLabelParts(raw); ok && strings.TrimSpace(base) != "" {
+			raw = strings.TrimSpace(base)
+		}
+		out[strings.ToLower(raw)] = true
+	}
+	add(member)
+	add(entry.AnchorSymbol)
+	if len(out) == 0 {
+		add(entry.Subject)
+		add(entry.Object)
+	}
+	return out
+}
+
+func aggregateMemberTypedRelationProof(item EvidenceItem) bool {
+	if ClaimFormOf(item) == ClaimRegistrationEdge {
+		return true
+	}
+	if item.Kind != EvidenceRelationship || strings.TrimSpace(item.Producer) != "repomap_structural_relation" {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(item.Predicate)) {
+	case "implements", "implementation", "inheritance", "extends", "embedding", "overrides":
+		return true
+	default:
+		return false
+	}
+}
+
+func aggregateMemberTypedRelationNamesEndpoint(item EvidenceItem, memberNames map[string]bool) bool {
+	for _, endpoint := range []string{item.Subject, item.Object} {
+		if memberNames[strings.ToLower(strings.TrimSpace(endpoint))] {
+			return true
+		}
+	}
+	return false
 }
 
 func aggregateMemberFactAllowsCurrentSourceLocations(origins []AnswerEvidenceOrigin) bool {

@@ -3988,6 +3988,152 @@ func TestBuildAnswerSupportPlan_GenericAggregateMemberSetCoAnchorsSupportRefAndT
 	}
 }
 
+func TestBuildAnswerSupportPlan_GenericAggregateMemberSetCoAnchorsGroundedSameFileRelationProof(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		StableAggregateFacts: []AnswerAggregateFact{{
+			Kind:        AnswerAggregateMemberSet,
+			Label:       "Matcher implementers",
+			Value:       "1",
+			Members:     []string{"LiteralMatcher"},
+			SupportRefs: []string{"LiteralMatcher: src/matcher.rs:7"},
+		}},
+		SurfaceEvidence: []EvidenceItem{
+			{
+				ID:              "literal-definition",
+				Kind:            EvidenceDirect,
+				Scope:           ScopeLine,
+				Source:          "src/matcher.rs",
+				LineStart:       7,
+				AnchorKind:      AnchorDefinition,
+				AnchorSymbol:    "LiteralMatcher",
+				Subject:         "LiteralMatcher",
+				Producer:        "explorer.emit_evidence",
+				GroundingStatus: GroundingGrounded,
+				GroundingTier:   TierLineText,
+			},
+			{
+				ID:              "literal-impl",
+				Kind:            EvidenceRegistration,
+				Scope:           ScopeLine,
+				Source:          "src/matcher.rs",
+				LineStart:       17,
+				AnchorKind:      AnchorDefinition,
+				AnchorSymbol:    "Matcher",
+				Subject:         "LiteralMatcher",
+				Object:          "Matcher",
+				Producer:        "explorer.emit_evidence",
+				GroundingStatus: GroundingGrounded,
+				GroundingTier:   TierLineText,
+			},
+			{
+				ID:              "literal-selection",
+				Kind:            EvidenceConditional,
+				Scope:           ScopeLine,
+				Source:          "src/matcher.rs",
+				LineStart:       25,
+				AnchorKind:      AnchorCondition,
+				AnchorSymbol:    "LiteralMatcher",
+				Subject:         "LiteralMatcher",
+				Producer:        "explorer.emit_evidence",
+				GroundingStatus: GroundingGrounded,
+				GroundingTier:   TierLineText,
+			},
+		},
+	}
+	rm := RequestModel{
+		Intent:        IntentEnumerate,
+		PredicateAxis: AxisImplement,
+		Predicates:    SemanticPredicates{IsCategoryEnumeration: true, IsRelationalLookup: true},
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqEnumeration), Entities: []string{"Matcher"}},
+		CompletenessObligation: &CompletenessObligation{
+			Required: true,
+		},
+	}
+
+	got := BuildAnswerSupportPlan(rm, plan)
+	lane := answerSupportLaneByKind(got, SupportLanePrincipalEvidence)
+	if lane == nil || len(lane.Entries) != 1 {
+		t.Fatalf("aggregate member_set should compile into one principal entry, got %+v", got)
+	}
+	entry := lane.Entries[0]
+	if entry.Location != "src/matcher.rs:7" {
+		t.Fatalf("declaration must remain the stable primary anchor, got %+v", entry)
+	}
+	if !stringSliceContainsFold(entry.EquivalentLocations, "src/matcher.rs:17") {
+		t.Fatalf("grounded implementation relation should become an equivalent member-proof anchor, got %+v", entry)
+	}
+	if stringSliceContainsFold(entry.EquivalentLocations, "src/matcher.rs:25") {
+		t.Fatalf("a condition mentioning the member must not become a membership-proof anchor, got %+v", entry)
+	}
+
+	doc := &AnswerDocumentV2{
+		Citations: []Citation{{File: "src/matcher.rs", Line: 17}},
+		Blocks: []AnswerBlock{{
+			ID:          "items",
+			Kind:        BlockTable,
+			SurfaceRole: SurfacePrincipal,
+			FacetIDs:    []string{string(FacetEnumerationItem)},
+			Items: []AnswerBlockItem{{
+				Label:       "LiteralMatcher",
+				Text:        "implements Matcher",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	if missing := MissingPrincipalSupportMembers(doc, got); len(missing) != 0 {
+		t.Fatalf("grounded implementation citation should satisfy principal member coverage, got %+v", missing)
+	}
+}
+
+func TestBuildAnswerSupportPlan_GenericAggregateMemberSetRejectsUnsafeRelationEquivalents(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		StableAggregateFacts: []AnswerAggregateFact{{
+			Kind:        AnswerAggregateMemberSet,
+			Label:       "Matcher implementers",
+			Value:       "1",
+			Members:     []string{"LiteralMatcher"},
+			SupportRefs: []string{"LiteralMatcher: src/matcher.rs:7"},
+		}},
+		SurfaceEvidence: []EvidenceItem{
+			{
+				ID: "definition", Kind: EvidenceDirect, Scope: ScopeLine,
+				Source: "src/matcher.rs", LineStart: 7, AnchorKind: AnchorDefinition,
+				AnchorSymbol: "LiteralMatcher", Subject: "LiteralMatcher",
+				Producer: "explorer.emit_evidence", GroundingStatus: GroundingGrounded,
+			},
+			{
+				ID: "ungrounded-relation", Kind: EvidenceRegistration, Scope: ScopeLine,
+				Source: "src/matcher.rs", LineStart: 17, Subject: "LiteralMatcher", Object: "Matcher",
+				Producer: "explorer.emit_evidence", GroundingStatus: GroundingUngrounded,
+			},
+			{
+				ID: "other-file-relation", Kind: EvidenceRegistration, Scope: ScopeLine,
+				Source: "src/other.rs", LineStart: 17, Subject: "LiteralMatcher", Object: "Matcher",
+				Producer: "explorer.emit_evidence", GroundingStatus: GroundingGrounded,
+			},
+			{
+				ID: "surface-only-relation", Kind: EvidenceRegistration, Scope: ScopeLine,
+				Source: "src/matcher.rs", LineStart: 19, AnchorSymbol: "LiteralMatcher",
+				SurfaceTerms: []string{"LiteralMatcher"}, Producer: "explorer.emit_evidence",
+				GroundingStatus: GroundingGrounded,
+			},
+		},
+	}
+	rm := RequestModel{
+		Intent: IntentEnumerate, PredicateAxis: AxisImplement,
+		Predicates: SemanticPredicates{IsCategoryEnumeration: true, IsRelationalLookup: true},
+	}
+
+	got := BuildAnswerSupportPlan(rm, plan)
+	lane := answerSupportLaneByKind(got, SupportLanePrincipalEvidence)
+	if lane == nil || len(lane.Entries) != 1 {
+		t.Fatalf("aggregate member_set should compile into one principal entry, got %+v", got)
+	}
+	if len(lane.Entries[0].EquivalentLocations) != 0 {
+		t.Fatalf("ungrounded, cross-file ambiguous, and endpoint-free rows must remain non-equivalent, got %+v", lane.Entries[0])
+	}
+}
+
 func TestBuildAnswerSupportPlan_GenericAggregateMemberSetDoesNotCoAnchorAmbiguousCrossFileDefinitions(t *testing.T) {
 	plan := &AnswerSurfacePlan{
 		StableAggregateFacts: []AnswerAggregateFact{{
