@@ -18520,3 +18520,22 @@ diagram 的 JSON 全程可解码，最终四阶段顺序和 Mermaid 图正确，
 
 状态：`EVAL-B156-SUPPORTDETAILJOIN1=soft-context-implemented`；`EVAL-B156-DIAGEDGECHOICE1=soft-teaching-implemented`；
 hard evidence gates=`unchanged`；模型答案/图构造所有权=`preserved`；等待后续异构 exact-2 生产回放。
+
+### 123.52 B156-S2：修复 answer-document schema 与字段 quarantine 的自相矛盾
+
+B155-S2 全字段贯通复核时确认 `EVAL-B156-FIELDQUARDRIFT1=P0-contract-conflict`：`source_inventory_family` 已同时存在于 canonical JSON schema、
+`emitAnswerBlockV2`、typed `AnswerBlock`、normalizer、Finalizer 教学和 pre-emit validator，但 `answerDocumentBlockAllowedFields` 没有它。full/patch emit 在严格解码前运行
+unknown-field quarantine，因此模型按合同正确发出的 family key 会被系统静默删除；后续 family partition pre-check 再把缺字段归责给模型，可能形成“教学要求必带、
+系统预处理必删”的不可收敛重试。
+
+本批根修与防回归：
+
+1. 把 `source_inventory_family` 加入 block quarantine allowlist；full emit、replace/add patch 共用同一白名单，因此两条车道同时恢复；
+2. 新增反射 parity pin，逐一比较 full/patch 顶层 wire struct、block/item/citation/snippet/diagram、claim use、edge anchor、relation claim、exact resolution、
+   missing role 的全部 JSON tag 与对应 quarantine allowlist。今后新增 typed 字段若未完成 quarantine 接线，测试在合入前直接失败，不再靠某个 eval 场景偶然发现；
+3. quarantine 对真正未知 advisory metadata、结构污染 key 和错误 carrier 的既有处理不变；这项修复不读取任何 prose，也不改变答案、证据、Trace 或图关系语义。
+
+`go test ./internal/tool -run 'AnswerDocumentFieldQuarantineProfilesCoverTypedWireFields' -count=1` PASS；
+`go test ./internal/tool -run 'Quarantine|SourceInventoryFamily' -count=1` PASS（0.758s）。
+
+状态：`EVAL-B156-FIELDQUARDRIFT1=implemented/parity-pinned`；contradictory JSON contract=`closed`；等待 source-inventory 异构生产回放。

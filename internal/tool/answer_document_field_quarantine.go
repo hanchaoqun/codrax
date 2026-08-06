@@ -56,6 +56,7 @@ var (
 		"current_status_verdict",
 		"trace_causal_claim_caliber",
 		"scope_disclosure",
+		"source_inventory_family",
 		"columns",
 		"items",
 		"diagram",
