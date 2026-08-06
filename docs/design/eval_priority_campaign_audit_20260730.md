@@ -21287,3 +21287,39 @@ task/risk/constraints/outcomes/其余 contracts 全量重建”问题，不是 C
 `internal/orchestrator` 10.898s、`internal/agent` 2.920s 通过，未抬预算、未放宽 pin。
 
 状态：`EVAL-B187-WRITEANRETRY1=S19-implemented/full-impacted-suites-pass/pending-exact-two-replay`。
+
+### 123.153 B187 r118：C 写回归恢复正确谓词；Rust 关系枚举正确但引用清单映射偏弱
+
+在 `455dba3bd` 构建后严格并行恰好两个异构 case：
+
+- `github_issue_libgit2_foreach_worktree`：126s，runner PASS / human PASS；
+- `sr_rust_trait_impls`：86s，runner PASS / human PASS，finalizer reject=0。
+
+C 写案例本次一代闭环：ChangePlan 与实际 patch 均保持 `(error = cb_result) != 0`，并把第二处修为
+`(error = lookup_result) < 0`；三项测试及独立 patch oracle 均通过。上一轮因 analyzer 全量重填而把第一处改为
+`< 0` 的客户可见回归已经消失。不过本轮 write analyzer 首稿本身合格，没有触发 quality retry，因此这份现场回放
+只能证明端到端行为恢复，不能冒充 S19 retry 生产分支已被命中。
+
+Rust 读案例正确枚举 `LiteralMatcher`、`RegexLikeMatcher`，正确解释 `fixed=true/false` 选择条件，并在表格给出
+struct/impl 精确行号；答案可用且无重试。观察项 `EVAL-B187-CITECOVER1=P2/observe`：显式引用清单只选择两个
+struct 声明，selection branch 与 impl 行只以表格位置出现，claim-to-citation 映射偏弱。该症状横跨“实体 + 关系 +
+选择条件”答案形，不应以 Rust、trait、`--fixed` 或输出正文关键词做硬门；先通过后续 Java/ArkTS/Cangjie/Go
+关系枚举复放确认是否稳定泛化，再决定是否需要 typed claim-axis citation coverage 指导。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b187_write_retry_rust_r118_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b187_write_retry_rust_r118_20260806_manual_audit.md`。
+
+### 123.154 S19b：补齐 write analyzer retry 生产接线 pin
+
+扩充现有 `TestRunWriteAnalyzePhaseRetriesUngroundedExactContract`：首 dispatch 落下包含 task、risk、constraint、
+expected outcome、exact contract、phase proposal、pitfall 的 typed IR，并由真实 quality gate 以未 grounded exact
+contract 拒绝；第二 dispatch 直接断言 `Mutable.AnalyzerRetryHint` 同时包含 rejection、canonical JSON repair base、
+原 task summary、含 `!= 0` 的原 expected outcome、constraint target 与 applicable pitfalls。这样删除
+`renderWriteAnalysisRetryPayload(rejectedIR)` 接线会确定性打红，不再依赖随机模型恰好首轮失败。
+
+该 pin 只检查 typed retry context，不读取用户输入或模型/最终答案 prose，不放宽 quality gate，也不让系统修合同。
+定向套件 `go test ./internal/orchestrator -run
+'TestRunWriteAnalyzePhaseRetriesUngroundedExactContract|TestRenderWriteAnalysisRetryPayload' -count=1` 通过（1.020s）。
+
+状态：`EVAL-B187-WRITEANRETRY1=S19/S19b-closed/code+integration-pin+r118-customer-visible-pass`；
+`EVAL-B187-CITECOVER1=P2/observe-needs-heterogeneous-witness`。

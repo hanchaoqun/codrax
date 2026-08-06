@@ -321,6 +321,10 @@ func TestRunWriteAnalyzePhaseRetriesUngroundedExactContract(t *testing.T) {
 					RawRequest: "Array([]) fails while Matrix([]) works",
 					Task:       types.WriteTask{Kind: types.WriteTaskBugfix, Scope: types.ScopeMicro, Summary: "fix array empty"},
 					Risk:       types.WriteRiskProfile{Overall: types.RiskBandLow},
+					Constraints: []types.WriteConstraint{{
+						Kind: "preserve_behavior", Target: "Matrix([])", Note: "keep the working baseline unchanged",
+					}},
+					ExpectedOutcomes: []string{"keep `(status = callback()) != 0` unchanged"},
 					BehaviorContracts: []types.WriteBehaviorContract{{
 						ID:       "shape",
 						Kind:     types.WriteBehaviorInvariant,
@@ -330,11 +334,21 @@ func TestRunWriteAnalyzePhaseRetriesUngroundedExactContract(t *testing.T) {
 						Expected: "()",
 						Required: true,
 					}},
-				}})
+				}, PhaseProposal: types.PhaseProposal{Split: "single"}, PitfallsApplied: []string{"shape_regression"}})
 				return &agent.StageOutput{StageReport: "bad exact contract"}, nil
 			}
-			if hint := ctx.Mutable.AnalyzerRetryHint(); !strings.Contains(hint, "under-grounded") {
-				t.Fatalf("retry hint should explain exact-contract grounding rejection, got %q", hint)
+			hint := ctx.Mutable.AnalyzerRetryHint()
+			for _, want := range []string{
+				"under-grounded",
+				"## Previous structured payload (repair base)",
+				`"summary": "fix array empty"`,
+				"keep `(status = callback()) != 0` unchanged",
+				`"target": "Matrix([])"`,
+				`"applicable_pitfalls": [`,
+			} {
+				if !strings.Contains(hint, want) {
+					t.Fatalf("retry hint should preserve %q in the canonical repair base, got %q", want, hint)
+				}
 			}
 			ctx.Mutable.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{
 				RawRequest: "Array([]) fails while Matrix([]) works",
