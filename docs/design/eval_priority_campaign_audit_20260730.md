@@ -19375,3 +19375,23 @@ typed scheduler 选择专用 lens instruction，而不是继续堆叠同义 JSON
    原文扫描硬门。
 
 两批均不触碰显式时间窗 Trace、因果投影、系统自动补齐、根因排序、唤醒链、窗内可消除量或两维根因；系统只负责精确路由/证据/校验能力，不接管模型结论。
+
+### 123.86 B170-S1：拆分 source-inventory 导航资格与完备性权威
+
+`EVAL-B170-SINAV1` 已按语言无关形落地：
+
+1. `SourceInventoryPrincipalNavigationActive` 不再直接别名 completion authority。active profile 仍须通过 support-only、role-binding、relation-flow 三道
+   typed 冲突门；低置信度只有携带经现有 normalization 验证为当前请求原样片段的 `source_quotes` 时才可优先走只读 lens。没有 quote 的宽泛
+   confidence=0.7 category guess 继续留在普通导航，避免误接管；
+2. `SourceInventoryPrincipalAuthorityActive` 仍不接受低 confidence 自行确权。新增的唯一精确臂要求同时存在：verbatim completeness obligation、至少一条
+   verbatim construct quote、以及仅 name/location/count/package/module/namespace 等机械字段；summary/values 等需要正文语义的请求不能借 parser 行集确权；
+3. scheduler 生产接线改读 navigation helper，completion、候选宇宙和 AnswerDocument 缺行门仍从 authority snapshot 获取权威。这使“安全先看”和“证明完整”
+   分层，避免一个模型置信浮点同时决定两个不同风险级别的动作；
+4. 新 pin 覆盖低置信度可导航但不可确权、完整机械构造清单可确权、summary 需求不得借机械臂确权、relation-flow 仍不得被 lens 接管；既有
+   generic enumeration 无精确 quote 不走 lens 的完整包测试也保持通过。
+
+验证：定向 `internal/types`/`internal/orchestrator` 测试通过；完整 `go test ./internal/types ./internal/orchestrator -count=1` 全绿。实现只消费 schema
+字段和已验证 verbatim carriers，不扫描最终答案或模型 prose，不新增语言关键词表。Trace 显式时间窗、因果投影、自动补齐及两维根因均未修改。
+
+状态：`EVAL-B170-SINAV1=implemented/types+orchestrator-full-pass/awaiting-exact2-replay`；
+`EVAL-B170-VERIFYALT1=P1/next-batch`。

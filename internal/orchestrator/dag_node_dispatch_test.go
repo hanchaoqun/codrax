@@ -416,6 +416,33 @@ func TestSourceInventoryLensFirstWindowPrioritizesTypedLens(t *testing.T) {
 	}
 }
 
+func TestSourceInventoryLensSchedulerUsesNavigationNotCompletionAuthority(t *testing.T) {
+	ir := &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:     types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+			RequestedFields:   []types.SourceInventoryRequestedField{types.SourceInventoryFieldName},
+			SourceQuotes:      []string{"public class"},
+			Confidence:        0.7,
+		},
+	}}
+	if types.SourceInventoryPrincipalAuthorityActive(ir.RequestModel) {
+		t.Fatal("fixture must remain below completion-authority precision")
+	}
+	if !sourceInventoryLensNavigationActive(ir) {
+		t.Fatal("scheduler must still prioritize the safe parser-backed navigation lens")
+	}
+
+	ir.RequestModel.PredicateAxis = types.AxisCall
+	ir.RequestModel.AnalyzerHints.Kind = string(types.ReqCallChain)
+	ir.RequestModel.Predicates.IsCategoryEnumeration = false
+	if sourceInventoryLensNavigationActive(ir) {
+		t.Fatal("relation-flow support profile must not take over principal navigation")
+	}
+}
+
 func TestSourceInventoryLensFirstWindowNoopsWhenInactiveOrExecuted(t *testing.T) {
 	lens := &types.TaskNode{
 		ID:       "n_source_inventory_lens",

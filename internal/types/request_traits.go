@@ -245,11 +245,28 @@ func SourceInventoryLaneConflictsWithRelationFlow(rm RequestModel) bool {
 // schema-only and softer than completion authority: callers use it to choose
 // guidance order, not to prove answer completeness.
 func SourceInventoryPrincipalNavigationActive(rm RequestModel) bool {
-	return SourceInventoryPrincipalAuthorityActive(rm)
+	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		return false
+	}
+	if SourceInventoryCompletionIsSupportOnly(rm) {
+		return false
+	}
+	if SourceInventoryLaneConflictsWithRoleBinding(rm) {
+		return false
+	}
+	if SourceInventoryLaneConflictsWithRelationFlow(rm) {
+		return false
+	}
+	// A low-confidence profile may own the safe lens only when it retains an
+	// exact, validated current-request construct phrase. Otherwise preserve the
+	// historical precision check so a broad model-authored category guess does
+	// not displace ordinary relation/source navigation.
+	return len(rm.SourceInventoryProfile.SourceQuotes) > 0 || SourceInventoryProfileHasPrincipalPrecision(rm)
 }
 
 // SourceInventoryPrincipalAuthorityActive reports whether a source-inventory
-// profile is precise enough to carry scheduling / completion authority.
+// profile is precise enough to carry completion authority. Safe read-only lens
+// scheduling uses SourceInventoryPrincipalNavigationActive instead.
 //
 // A model-emitted `source_inventory_profile` by itself is not enough: broad
 // category/count questions about registries, bindings, roles, or architecture
@@ -291,6 +308,16 @@ func SourceInventoryProfileHasPrincipalPrecision(rm RequestModel) bool {
 		return true
 	}
 	if sourceInventoryHasExplicitTypedScope(rm.SourceScopeProfile) {
+		return true
+	}
+	// A validated exhaustive, mechanical construct inventory is precise even
+	// when the analyzer reports modest confidence. Both source_quotes and the
+	// completeness quote are verbatim current-request carriers, while the
+	// parser-backed source_inventory lens supplies the actual row universe.
+	// Confidence alone still cannot grant completion authority.
+	if rm.CompletenessObligation.IsActive() &&
+		profile.MechanicalRowsOnly() &&
+		len(profile.SourceQuotes) > 0 {
 		return true
 	}
 	files := BoundedSourceEnumerationScopeFiles(rm, nil, "")

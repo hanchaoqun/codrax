@@ -6,6 +6,14 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+// sourceInventoryLensNavigationActive keeps the scheduler on the safe,
+// read-only navigation boundary. Completion authority is evaluated separately
+// after the lens observation exists; a modest model confidence must not send a
+// structurally valid inventory request back through broad generic exploration.
+func sourceInventoryLensNavigationActive(ir *types.AnalysisIR) bool {
+	return ir != nil && types.SourceInventoryPrincipalNavigationActive(ir.RequestModel)
+}
+
 func (o *Orchestrator) prioritizeSourceInventoryLensWindow(window []*types.TaskNode, env criterion.Env) []*types.TaskNode {
 	if sourceInventoryFollowupSuppressedByCompletionCaveat(o.busCtx) {
 		o.busCtx.SourceInventoryFollowupDebt = types.SourceInventoryFollowupDebt{}

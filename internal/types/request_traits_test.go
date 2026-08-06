@@ -2074,6 +2074,56 @@ func TestSourceInventoryPrincipalAuthorityRequiresTypedPrecision(t *testing.T) {
 	}
 }
 
+func TestSourceInventoryNavigationAllowsLowConfidenceWithoutGrantingAuthority(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqEnumeration)},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType},
+			RequestedFields:   []SourceInventoryRequestedField{SourceInventoryFieldName, SourceInventoryFieldLocation},
+			SourceQuotes:      []string{"public class"},
+			Confidence:        0.7,
+		},
+	}
+	if !SourceInventoryPrincipalNavigationActive(rm) {
+		t.Fatal("safe source-inventory navigation must not be disabled by model confidence")
+	}
+	if SourceInventoryPrincipalAuthorityActive(rm) {
+		t.Fatal("low confidence alone must not grant source-inventory completion authority")
+	}
+}
+
+func TestSourceInventoryExhaustiveMechanicalQuotesGrantTypedPrecision(t *testing.T) {
+	rm := RequestModel{
+		RawRequest:    "分别列出 public class",
+		Intent:        IntentEnumerate,
+		Predicates:    SemanticPredicates{IsCategoryEnumeration: true},
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqEnumeration)},
+		CompletenessObligation: &CompletenessObligation{
+			Required:    true,
+			SourceQuote: "分别列出",
+		},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType},
+			RequestedFields:   []SourceInventoryRequestedField{SourceInventoryFieldName, SourceInventoryFieldLocation, SourceInventoryFieldPackage},
+			SourceQuotes:      []string{"public class"},
+			Confidence:        0.7,
+		},
+	}
+	if !SourceInventoryPrincipalAuthorityActive(rm) {
+		t.Fatal("validated exhaustive mechanical construct inventory should gain parser-backed completion authority")
+	}
+	rm.SourceInventoryProfile.RequestedFields = append(rm.SourceInventoryProfile.RequestedFields, SourceInventoryFieldSummary)
+	if SourceInventoryPrincipalAuthorityActive(rm) {
+		t.Fatal("source-text summary demand must not gain mechanical row authority from completeness alone")
+	}
+}
+
 func TestSourceInventoryLaneConflictsWithRelationFlow_BeforeProfileSynthesis(t *testing.T) {
 	rm := RequestModel{
 		Intent:        IntentTrace,
