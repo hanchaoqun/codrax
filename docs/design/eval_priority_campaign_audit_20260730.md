@@ -19967,3 +19967,21 @@ pre-check 内复用同一 sets 构造，避免为提示与 registry 重复编译
 cross-family ID 仍 fail-closed。验证：定向 suite 全绿；完整 `go test ./internal/tool -count=1` 全绿（165.724s），其后只做集合复用重构并再次定向全绿（2.109s）。
 
 状态：`EVAL-B175-ROWIDNS1=implemented/full-suite-pass`；下一批 `B176-S2=BLOCKSTRING1`。
+
+### 123.110 B176-S2：`blocks[]` 字符串化复核——已有单源教学与无损降级，不追加重复合同
+
+`EVAL-B175-BLOCKSTRING1` 深审后从“待补教学”改判为 `model-adherence/recovered-losslessly`，不做产品代码改动。唯一 JSON shape 教学
+`AnswerDocumentJSONShapeFirstTeaching` 已在 `emit_answer_document.Description()` 首部明确要求 native `blocks[]` / `citations[]` array，并逐字禁止把 object 或 array
+引用成 JSON string；finalizer 又明确声明 projected tool schema 是本 dispatch 唯一字段/类型权威。schema 自身把 `blocks.type` 固定为 `array`，现有 pin 同时保证这段教学只出现
+一次、parameter schema 不再复制同义 prose。因此继续追加“native array / not encoded string”只会产生第二套教学和额外模型心智，并不能修复这次已违反现有明确合同的输出。
+
+r93 原始 tool-call 参数证明字符串化发生在模型发射面：顶层 JSON 合法，但 `params.blocks` 的值是包含完整 block JSON 的字符串；不是 Codrax provider/tool-call 解码器把
+array 改写为 string。既有 `repairBlocksAsString` 在严格解码前识别该精确 carrier，只有当所有可见 block 与附件均能逐项保全时才重解析并接受；本轮 4 个模型 block 全部保留，随后系统
+补充 1 个 uncertainty caveat，最终答案没有消失、没有被系统代写。若恢复会丢任一可见 block，则 typed `answer_doc_lossy_blocks_string_recovery` 继续 fail-closed，要求模型重发 native
+array；重试耗尽后的 raw/degraded fallback 仍需披露模型输出异常，不能把不完整恢复伪装成正常答案。
+
+本项不新增硬门、不扫描用户/模型/最终 prose，也不修改模型结论。继续把 recovery event 作为过程质量指标观察；只有跨模型/跨 case 重复且能定位到 request serialization 的结构变换时，
+才修协议层。当前连续两次只出现在同一 Cangjie case/同一模型形态，且均被无损恢复，优先级降为 P2，不为单一波动过拟合。Trace 显式时间窗、因果投影、系统补齐、根因排序、唤醒链、
+窗内可消除量、实际耗时/规则可消除两轴与模型结论所有权均未触碰。
+
+状态：`EVAL-B175-BLOCKSTRING1=adjudicated/model-adherence/lossless-recovery-covered/no-code-change`；下一批 `B176-S3=CITREF1`。
