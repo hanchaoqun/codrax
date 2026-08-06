@@ -19,12 +19,12 @@ func SourceInventoryObservedSurfaceFamilyCoverageGap(ctx *types.BusContext, fact
 		Observation:  types.SourceInventoryObservationFromMutable(ctx.Mutable),
 		RequestModel: ctx.AnalysisIR.RequestModel,
 	})
-	if !rowSet.Active || len(rowSet.PrincipalRows) == 0 {
+	if !rowSet.Active {
 		return SourceInventoryCandidateUniverseGap{}
 	}
 	included, excluded, _ := sourceInventoryDuplicateAggregateCoverage(facts, &ctx.AnalysisIR.RequestModel)
 	best := SourceInventoryCandidateUniverseGap{}
-	for _, group := range sourceInventorySurfaceFamilyGroups(rowSet.PrincipalRows) {
+	for _, group := range sourceInventorySurfaceFamilyGroups(sourceInventorySurfaceFamilyCoverageRows(rowSet)) {
 		if len(group.members) < 2 {
 			continue
 		}
@@ -38,6 +38,24 @@ func SourceInventoryObservedSurfaceFamilyCoverageGap(ctx *types.BusContext, fact
 		}
 	}
 	return best
+}
+
+// sourceInventorySurfaceFamilyCoverageRows keeps request scope authoritative
+// while tolerating an analyzer role omission. Once the model selects an exact
+// row from a typed surface family, same-family rows observed inside the same
+// typed source scope are precise completion candidates even when their role was
+// classified as non-principal earlier. Other audit reasons and support scopes
+// remain excluded, so this cannot promote unrelated or out-of-scope rows.
+func sourceInventorySurfaceFamilyCoverageRows(rowSet types.SourceInventoryPrincipalRowSet) []types.SourceInventoryRow {
+	rows := append([]types.SourceInventoryRow(nil), rowSet.PrincipalRows...)
+	for _, row := range rowSet.AuditRows {
+		if row.ReasonCode != types.SourceInventoryRowReasonNonPrincipal ||
+			!types.SourceScopeAllowsPathRole(rowSet.PrincipalScope, row.SourceClass) {
+			continue
+		}
+		rows = append(rows, row)
+	}
+	return rows
 }
 
 type sourceInventorySurfaceFamilyGroup struct {

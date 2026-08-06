@@ -3497,6 +3497,67 @@ func TestSourceInventoryAcceptedClosureCoversRequestedUniverse_BlocksObservedSur
 	}
 }
 
+func TestSourceInventoryObservedSurfaceFamilyCoverageGap_CatchesAnalyzerRoleOmission(t *testing.T) {
+	members := []types.SourceInventoryObservationMember{
+		sourceInventoryRequestedUniverseMemberWithLanguage("Index", types.AnswerCandidateRoleType, "thirdparty/arkts/01.ets", 5, "arkts"),
+		sourceInventoryRequestedUniverseMemberWithLanguage("ParentComponent", types.AnswerCandidateRoleType, "thirdparty/arkts/03.ets", 32, "arkts"),
+		sourceInventoryRequestedUniverseMemberWithLanguage("StyledPage", types.AnswerCandidateRoleType, "thirdparty/arkts/04.ets", 17, "arkts"),
+		sourceInventoryRequestedUniverseMemberWithLanguage("ListPage", types.AnswerCandidateRoleType, "thirdparty/arkts/05.ets", 30, "arkts"),
+		sourceInventoryRequestedUniverseMemberWithLanguage("defaultHeader", types.AnswerCandidateRoleFunction, "thirdparty/arkts/02.ets", 8, "arkts"),
+		sourceInventoryRequestedUniverseMemberWithLanguage("GlobalCard", types.AnswerCandidateRoleFunction, "thirdparty/arkts/02.ets", 26, "arkts"),
+	}
+	for i := range members {
+		if members[i].Role == types.AnswerCandidateRoleType {
+			members[i].SurfaceTerms = []string{"@Component", "@Entry"}
+		} else {
+			members[i].SurfaceTerms = []string{"@Builder"}
+		}
+	}
+	ctx := sourceInventoryRequestedUniverseTestContext(members, nil)
+	ctx.AnalysisIR.RequestModel.SourceInventoryProfile.TargetRoles = []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction}
+	ctx.AnalysisIR.RequestModel.SourceScopeProfile = &types.SourceScopeProfile{
+		RequestedScope: types.SourceScopeAll, IncludeAuxiliaryAsPrincipal: true, Confidence: 0.95,
+	}
+	facts := []types.AnswerAggregateFact{{
+		Kind: types.AnswerAggregateMemberSet, Label: "@Entry pages", Value: "1", Role: types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"Index @ thirdparty/arkts/01.ets:5"}, SupportRefs: []string{"Index: thirdparty/arkts/01.ets:5"},
+	}, {
+		Kind: types.AnswerAggregateMemberSet, Label: "@Builder functions", Value: "2", Role: types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"defaultHeader @ thirdparty/arkts/02.ets:8", "GlobalCard @ thirdparty/arkts/02.ets:26"},
+		SupportRefs: []string{"defaultHeader: thirdparty/arkts/02.ets:8", "GlobalCard: thirdparty/arkts/02.ets:26"},
+	}}
+
+	gap := SourceInventoryObservedSurfaceFamilyCoverageGap(ctx, facts)
+	if !gap.Blocking || (gap.Scope != "surface_family:@component" && gap.Scope != "surface_family:@entry") || gap.Role != types.AnswerCandidateRoleType || len(gap.Missing) != 3 {
+		t.Fatalf("selected typed family must expose same-scope rows hidden by an analyzer role omission, got %+v", gap)
+	}
+	if precise := sourceInventoryResolvedCompletionPreciseCoverageGap(ctx, facts); !precise.Blocking || len(precise.Missing) != 3 {
+		t.Fatalf("resolved completion must consume the same precise family gap, got %+v", precise)
+	}
+}
+
+func TestSourceInventoryObservedSurfaceFamilyCoverageGap_DoesNotCrossTypedSourceScope(t *testing.T) {
+	production := sourceInventoryRequestedUniverseMemberWithLanguage("App", types.AnswerCandidateRoleType, "src/App.ets", 5, "arkts")
+	production.SurfaceTerms = []string{"@Component", "@Entry"}
+	thirdParty := sourceInventoryRequestedUniverseMemberWithLanguage("FixturePage", types.AnswerCandidateRoleType, "thirdparty/arkts/fixture.ets", 5, "arkts")
+	thirdParty.SurfaceTerms = []string{"@Component", "@Entry"}
+	principalFunction := sourceInventoryRequestedUniverseMemberWithLanguage("Build", types.AnswerCandidateRoleFunction, "src/Build.ets", 8, "arkts")
+	principalFunction.SurfaceTerms = []string{"@Builder"}
+	ctx := sourceInventoryRequestedUniverseTestContext([]types.SourceInventoryObservationMember{production, thirdParty, principalFunction}, nil)
+	ctx.AnalysisIR.RequestModel.SourceInventoryProfile.TargetRoles = []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction}
+	ctx.AnalysisIR.RequestModel.SourceScopeProfile = &types.SourceScopeProfile{RequestedScope: types.SourceScopeProduction, Confidence: 0.95}
+	ctx.AnalysisIR.RequestModel.AnswerExclusionPolicy = &types.AnswerExclusionPolicy{
+		IsExclusionRequested: true, ExcludedCandidateRoles: []types.AnswerCandidateRole{types.AnswerCandidateRoleFixture}, Confidence: 0.95,
+	}
+	facts := []types.AnswerAggregateFact{{
+		Kind: types.AnswerAggregateMemberSet, Label: "production entry", Value: "1", Role: types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"App @ src/App.ets:5"}, SupportRefs: []string{"App: src/App.ets:5"},
+	}}
+	if gap := SourceInventoryObservedSurfaceFamilyCoverageGap(ctx, facts); gap.IsActive() {
+		t.Fatalf("a role omission must not pull same-family rows across the typed production scope: %+v", gap)
+	}
+}
+
 func TestSourceInventoryObservedSurfaceFamilyCoverageGap_ExplicitExclusionSatisfiesFamily(t *testing.T) {
 	first := sourceInventoryRequestedUniverseMember("Bridge", types.AnswerCandidateRoleType, "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", 15)
 	first.SurfaceTerms = []string{"public class", "public class Bridge"}

@@ -20664,3 +20664,23 @@ JSON/上下文审计：两案没有 malformed JSON、blocks-string recovery 或 
 `EVAL-B184-RETRYSTORM1=resolved/r107-no-loop`；
 `EVAL-B184-CLOSUREPART1=P1/confirmed-nondeterministic-trigger/pending-typed-gap-fix`；
 `EVAL-B184-CARRIERMETA1=P2/confirmed/pending-json-teaching-and-scaffold-audit`。
+
+### 123.132 S10：用“已选择 family × typed scope”关闭 analyzer role 漏报下的 partial resolved
+
+`EVAL-B184-CLOSUREPART1` 的代码缺口不在 generic forced-read bypass 本身：该 bypass 对已经形成完整、grounded、model-owned principal boundary 的机制/关系问题是必要出口，不能因为一个 inventory witness 全局撤销。
+真正漏口位于 `SourceInventoryObservedSurfaceFamilyCoverageGap`：它只从 `BuildSourceInventoryPrincipalRowSet.PrincipalRows` 建 family，因而完全服从 analyzer 预报的 target roles。r106 的 analyzer 只给
+function/method，4 个 `@Entry` type 均被标为 audit/non_principal_role；即使模型 aggregate 已结构化选择 `Index@01...ets:5`，family coverage 仍看不到其余三个同 family type，partial set 便绕过 precise gap 后以
+`resolved` 关闭。
+
+`S10` 保持模型结论所有权，只修调查闭合条件：
+
+1. surface-family coverage 仍从 typed `SourceInventoryObservation.SurfaceTerms`、structured principal aggregate 的 exact file:line include/exclude、typed source scope 三者计算；不读取 RawRequest、source quote 文本、模型 reason/summary、final answer 或 block title；
+2. family 候选由 principal rows 加上 `audit + reason=non_principal_role + SourceScopeAllowsPathRole` 构成。只有模型 aggregate 已覆盖该 family 至少一行时才 blocking；未被模型选择的 family 不会自行升权；
+3. support-scope、outside-requested-path、no-location 和其他 audit reason 不进入该集合。显式 production+auxiliary exclusion 的反例证明 thirdparty 同 family 行不会越界进入 principal closure；
+4. ArkTS 形 pin：analyzer 仅 function，typed observation 为 4 个 `@Component/@Entry` type + 2 个 `@Builder` function，aggregate 只交 `Index + 2 builders` 时，精确 gap 必须返回 3 个缺行，且 `sourceInventoryResolvedCompletionPreciseCoverageGap` 同步 blocking；
+5. 既有 explicit exclusion、跨语言同 family、requested-universe、LOC convergence pin 与完整 `go test ./internal/tool -count=1` 全绿（162.366s）。
+
+该修复不会把缺行直接写进最终答案。它只拒绝虚假的 `resolved`，把精确缺口和已有行位置交还 explorer，让模型继续 read/ground 或结构化 exclude；若候选只是分页、预算或宽泛导航债，仍保持 advisory。下一步 r108 用严格两个异构 case 验证 clean 路径无新增循环，并继续审计 `CARRIERMETA1` 的单轮 JSON/metadata 心智成本。
+
+状态：`EVAL-B184-CLOSUREPART1=S10-implemented/full-tool-suite-pass/pending-r108`；
+`EVAL-B184-CARRIERMETA1=P2/confirmed/pending-replay-and-scaffold-audit`。
