@@ -19263,3 +19263,59 @@ supplement、显式时间窗、根因排序、唤醒链、窗内可消除量或�
 频率后，若仍高发，优先删并重复教学、保留一份 schema-near canonical example，而不是继续叠加模型心智负担。
 
 状态：`EVAL-B168-JSONMETRIC1=implemented/runner-contract-pass`；JSON lossless recovery=`preserved`；用户可见答案=`unchanged`。
+
+### 123.82 B169 r85：零权威事实污染生产闭环；runtime quote 重试与 aggregate authority 新漏口
+
+在 `main@368534b63` 重建后严格并行恰好两个异构 case：
+
+- `operation_system_inventory`：40s，runner / human PASS；
+- `trace_query_donghu_real_frame_multicausal`：298s，runner PASS / human FAIL。
+
+operation 五条只读命令均执行一次，最终 macOS 26.5.2/25F84、18 个逻辑/物理核、137438953472 bytes=128 GiB、Apple M5 Max 40 核、
+Metal 4 与原始输出逐项一致；计划 JSON 原生数组一次通过，零 repair，完整输出路径披露，未发现新 operation gap。
+
+Trace 首先完成 B168 的生产验收：Finalizer Known Facts 不再出现 `emit_investigation_complete confidence:0.00`；上一轮“ThreadPoolForeg 已证持锁、
+主线程直接等待、帧 deadline 前刚好完成”三项越权结论均消失。正文这次明确 `wakeup_path_blocking_authority=not_implied`、无
+confirmed holder/waiter、frame causality unproven；5 个用户窗 query、目标状态账、根因排序、唤醒链、窗内可消除量、两维非加和投影和系统自动补齐
+全部保留。因此 `EVAL-B168-EMITFACTAUTH1=production-replay-closed`，且证明修复没有削弱模型探索或 Trace 因果能力。
+
+人工仍判 FAIL，原因是剩余三类不同边界：
+
+1. 模型把 2.978ms 的代表 occurrence 窗描述为承载 full-query 23.994ms aggregate seat；确定性附录已明确“席位值按完整查询窗聚合，不能当作此单窗
+   时长”，但正文仍混淆，记 `EVAL-B169-OCCWINDOW1=P2/model-adherence-watch`；
+2. 模型称 CPU/IRQ background “未超过显著阈值”，typed rows 没有发布该阈值；这是一般的未量化阈值越界，先观察异构 runtime case，禁止增加
+   最终 prose 扫描硬门；
+3. 更深的 carrier gap：Explorer 的 structured aggregate 自铸
+   `priority_inversion_authority=confirmed_holder_waiter`，与 typed trace 的 `holder_authority=not_provided_by_caller` 和 Finalizer caveat 冲突；
+   pre-emit visible-value checker 随即把这条模型自铸 authority 当成待发布 principal 值。幸而该校验是 soft advisory，Finalizer 本轮选择 typed 真相而未发
+   假值，但仍立 `EVAL-B169-AGGAUTHCLAIM1=P1`：模型 aggregate 可保留结论/分组，但 deterministic authority 字段必须与 producer typed row 合取，
+   不能自行铸权。
+
+本轮还有两类效率/JSON witness：Analyzer 先因多余 `type` 字段失败一次，再因 `runtime_question_profile.source_quote` 连续失败四次，到第六轮才成功；
+该 quote 下游零消费，却是 raw-current-request substring 硬门，且教学同页写“Call emit_analysis exactly once”，与拒绝修复流程矛盾，立
+`EVAL-B169-RUNTIMEQUOTE1=P1`。Explorer 的 `aggregate_facts` 又以 whole JSON string 到达并被旧兼容层无损恢复，但现有 strict/carrier/recovery 指标
+全为 0，立 `EVAL-B169-AGGJSONMETRIC1=P2`。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b169_operation_trace_r85_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b169_operation_trace_r85_20260806_manual_audit.md`。
+
+### 123.83 B169-S1：runtime question quote 降回 audit-only，修正一次调用教学矛盾
+
+本批只调整不用作消费权威的 `runtime_question_profile.source_quote`，保留所有 typed scope 与一致性门：
+
+1. `scope`、bounded `fact_families`、confidence、runtime carrier presence，以及 causal scope 与 intent/scenario/diagnostic typed carrier 的一致性仍按原门
+   fail-loud；
+2. `source_quote` 明确为可选审计锚。精确连续 quote 原样保留；缺失或不在当前请求中的 quote 被丢弃并发 typed warning，但不再让已合法的 scope
+   重跑。下游本来就只消费 enum/families，从不读 quote，因此没有 authority 放宽；
+3. schema 与 analysis skill 统一教最短连续 phrase，例如复制 `卡顿原因`，禁止把相隔词拼成 `分析卡顿原因`；同时明确 quote 不值得单独重试；
+4. “Call emit_analysis exactly once” 改为“一次成功调用”合同：每个 attempt 都是完整 call；若工具拒绝，完整修正重发；失败 attempt 不算已接受分析。
+   这与实际 fail-loud/retry 架构一致，不再给模型相互冲突的指令；
+5. 正负 pin 覆盖精确 quote 保留、非连续 paraphrase 只 warning 且 causal scope 保留；既有 bounded fact breadth 测试同步重裁为 audit-only 语义。
+
+验证：定向 runtime-question tests 与完整 `internal/skill` 套件通过；完整 `internal/tool` 首次运行准确击中旧断言 pin，按新裁更新后完整复测全绿
+（171.623s）。
+本批不触碰 runtime target 身份的精确 provenance、显式时间窗、Trace query/projection/supplement、根因排序、唤醒链、窗内可消除量、两维根因或
+AnswerDocument，模型结论所有权不变。
+
+状态：`EVAL-B169-RUNTIMEQUOTE1=implemented/targeted+skill+tool-full-pass/awaiting-exact2-replay`；
+`EVAL-B169-AGGAUTHCLAIM1=P1/confirmed/next-architecture-batch`；`EVAL-B169-AGGJSONMETRIC1=P2/next-small-batch`。

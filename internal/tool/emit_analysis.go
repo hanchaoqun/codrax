@@ -711,7 +711,7 @@ func buildEmitAnalysisSchema() {
 				"properties": map[string]any{
 					"scope":         map[string]any{"type": "string", "enum": runtimeQuestionScopeValues(), "description": "not_applicable, bounded_fact_set, causal_diagnosis, relation_analysis, system_overview, or unspecified."},
 					"fact_families": map[string]any{"type": "array", "minItems": 1, "items": map[string]any{"type": "string", "enum": runtimeQuestionFactFamilyValues()}, "description": "Principal observed fact families requested by a bounded_fact_set. Use target_scheduler_state only for the target's scheduler-state presence/partition; target_wait_occurrences only for a requested count/list/total of scheduler wait intervals (never merely because a direct waker, wakeup event, or wakeup latency is requested); recorded_reason for a kernel/tool reason; occurrence_time; count_or_duration; relation_peer; transaction_id; direct_waker; resource_pressure; frequency_residency; or other_observed_value. Required and non-empty for bounded_fact_set; the schema forbids this field for every broader scope. These enums control only which exact fact cards may accompany the model answer; they never authorize a causal conclusion."},
-					"source_quote":  map[string]any{"type": "string", "description": "For every concrete runtime scope, an exact current-request phrase that expresses the requested facts, diagnosis, relation, or overview."},
+					"source_quote":  map[string]any{"type": "string", "description": "Optional audit anchor for a concrete runtime scope. Prefer the shortest contiguous exact current-request phrase that expresses the requested facts, diagnosis, relation, or overview (for example, copy `卡顿原因`, not a paraphrase assembled from separated words). An empty or unanchored quote is dropped with a warning; scope/fact_families remain the typed contract."},
 					"confidence":    map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Classification confidence in [0,1]."},
 					"rationale":     map[string]any{"type": "string", "description": "Short audit rationale."},
 				},
@@ -3941,8 +3941,11 @@ func parseRuntimeQuestionProfile(raw string, runtimeArtifactCarrier bool, p *emi
 		return profile, "", nil
 	}
 	quote := strings.TrimSpace(p.SourceQuote)
-	if quote == "" || !sourceQuotePresentInCurrentRequest(raw, quote) {
-		return nil, "runtime_question_profile concrete scope requires source_quote copied verbatim from the current request", nil
+	if quote == "" {
+		return profile, "", []string{"runtime_question_profile.source_quote omitted; retained typed scope because the quote is audit-only"}
+	}
+	if !sourceQuotePresentInCurrentRequest(raw, quote) {
+		return profile, "", []string{"runtime_question_profile ignored unanchored source_quote; retained typed scope because downstream consumers do not use raw quote text"}
 	}
 	profile.SourceQuote = quote
 	return profile, "", nil

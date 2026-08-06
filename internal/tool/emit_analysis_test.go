@@ -445,8 +445,10 @@ func TestParseRuntimeQuestionProfileSeparatesFactBreadthFromLegacyLabels(t *test
 	}
 	badQuote := *bounded
 	badQuote.SourceQuote = "paraphrased quote"
-	if _, errText, _ := parseRuntimeQuestionProfile("analyze this trace", true, &badQuote, false); !strings.Contains(errText, "copied verbatim") {
-		t.Fatalf("unanchored concrete runtime question scope must fail, got %q", errText)
+	gotProfile, errText, gotWarnings := parseRuntimeQuestionProfile("analyze this trace", true, &badQuote, false)
+	if errText != "" || gotProfile == nil || !gotProfile.BoundedFactSet() ||
+		len(gotWarnings) != 1 || !strings.Contains(gotWarnings[0], "ignored unanchored source_quote") {
+		t.Fatalf("unanchored audit quote must warn without dropping typed scope: profile=%+v err=%q warnings=%v", gotProfile, errText, gotWarnings)
 	}
 	notApplicable := &emitRuntimeQuestionProfileParam{
 		Scope: "not_applicable", Confidence: &confidence,
@@ -548,6 +550,52 @@ func TestEmitAnalysisRejectsCausalBreadthWithoutTypedDiagnosisCarrier(t *testing
 	profile := ctx.Mutable.RequestModel().RuntimeQuestionProfile
 	if profile == nil || profile.Scope != types.RuntimeQuestionScopeCausalDiagnosis || len(profile.FactFamilies) != 0 {
 		t.Fatalf("compat repair must preserve scope and persist no fact-family authority: %+v", profile)
+	}
+}
+
+func TestParseRuntimeQuestionProfileUnanchoredQuoteIsAuditWarningNotRetry(t *testing.T) {
+	confidence := 0.95
+	profile, errText, warnings := parseRuntimeQuestionProfile(
+		"请分析 com.demo 主线程这一帧窗口内的卡顿原因",
+		true,
+		&emitRuntimeQuestionProfileParam{
+			Scope:       string(types.RuntimeQuestionScopeCausalDiagnosis),
+			SourceQuote: "分析卡顿原因", // non-contiguous paraphrase
+			Confidence:  &confidence,
+		},
+		false,
+	)
+	if errText != "" {
+		t.Fatalf("audit-only quote must not reject typed scope: %q", errText)
+	}
+	if profile == nil || profile.Scope != types.RuntimeQuestionScopeCausalDiagnosis {
+		t.Fatalf("typed scope lost: %+v", profile)
+	}
+	if profile.SourceQuote != "" {
+		t.Fatalf("unanchored audit quote must be dropped, got %q", profile.SourceQuote)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "ignored unanchored source_quote") {
+		t.Fatalf("warnings = %v, want one precise audit warning", warnings)
+	}
+}
+
+func TestParseRuntimeQuestionProfileExactQuoteRemainsForAudit(t *testing.T) {
+	confidence := 0.95
+	profile, errText, warnings := parseRuntimeQuestionProfile(
+		"请分析 com.demo 主线程这一帧窗口内的卡顿原因",
+		true,
+		&emitRuntimeQuestionProfileParam{
+			Scope:       string(types.RuntimeQuestionScopeCausalDiagnosis),
+			SourceQuote: "卡顿原因",
+			Confidence:  &confidence,
+		},
+		false,
+	)
+	if errText != "" || len(warnings) != 0 {
+		t.Fatalf("exact audit quote rejected or warned: err=%q warnings=%v", errText, warnings)
+	}
+	if profile == nil || profile.SourceQuote != "卡顿原因" {
+		t.Fatalf("exact audit quote not retained: %+v", profile)
 	}
 }
 
