@@ -20694,7 +20694,7 @@ function/method，4 个 `@Entry` type 均被标为 audit/non_principal_role；�
 
 ArkTS 首轮调查即以完整的 4 个 `@Entry` type + 2 个 `@Builder` function 关闭，路径、行号、thirdparty 范围与未带 `@Entry` 的 `EntryAbility` 排除均正确；没有新增 forced read、partial closure、finalizer patch 或成文循环。结合 S10 的精确单测，这关闭了 `EVAL-B184-CLOSUREPART1`：实现证明 partial selected-family 会被拦，真实 clean replay 证明完整 family 不受伤害。本轮没有再次随机产生 r106 的 partial 模型选择，但该事实不影响已由可执行回归覆盖的根因闭环。
 
-Cangjie 最终答案同样正确发布 2 个 extend、2 个 foreign func 与 8 个 public class，逐项 package/path/citation 对齐。第一次 closure 失败的精确信号不是 S10，而是模型把 source-inventory 的 structural role `type` 总数 10 复制给 `public class` family，同时只提交 8 个成员。`member_set.value == len(members)` 的 typed 合同正确拒绝；日志随后由模型自己辨认出 10 个 type 中有 2 个 `surface=extend`，修正为 8。模型中间尝试一次当前窗口未开放的 `repo_map`，没有改变结果。这确认 `EVAL-B184-ROLECOUNT1=P2/confirmed`：现有 renderer 的 `count=10` 是角色级总数，但与逐行 `surface=public class/extend` 并置时未明确标出计数域，增加了模型把 structural-role total 当成 surface-family count 的心智负担。最优方案是对所有语言统一把该值教学为 `structural_role_total`，并明确 family 结论必须消费 row-local typed family/成员集合；它只能是软教学和 typed 命名优化，不能解析模型 reason 或用户关键词来硬门。
+Cangjie 最终答案同样正确发布 2 个 extend、2 个 foreign func 与 8 个 public class，逐项 package/path/citation 对齐。第一次 closure 失败的精确信号不是 S10，而是模型把 source-inventory 的 structural role `type` 总数 10 复制给 `public class` family，同时只提交 8 个成员。`member_set.value == len(members)` 的 typed 合同正确拒绝；日志随后由模型自己辨认出 10 个 type 中有 2 个 `surface=extend`，修正为 8。模型中间尝试一次当前窗口未开放的 `repo_map`，没有改变结果。这确认 `EVAL-B184-ROLECOUNT1=P2/confirmed`：现有 renderer 的 `count=10` 是角色级行数，但与逐行 `surface=public class/extend` 并置时未明确标出计数域，增加了模型把 structural-role count 当成 surface-family count 的心智负担。最优方案是对所有语言统一把该值教学为 `structural_role_row_count`，并提供同一可见 typed 行集的 `visible_surface_family_row_counts`；只有 `complete=true` 时才可把后者当成完整 family 计数，多标签行的 family 计数不可相加。它只能是软教学和 typed 命名优化，不能解析模型 reason 或用户关键词来硬门。
 
 JSON 路径给出一条正向验收：Cangjie finalizer 首稿把 4 个 `blocks[]` 整体作为 JSON-encoded string 发送；结构恢复只能保全其中 2 块，系统明确报告 `4 candidate / 2 structured` 并拒绝把残缺结果伪装成正常答案，模型第二稿以 native JSON array 重发后成功。即当前策略符合本轮裁定：可证明无损的畸形 JSON 直接修复；无法保全所有可见块时不猜造、不接管模型结论，优先让模型重发；若重试最终仍耗尽，现有 last-resort lane 只提取可识别的用户可见字符串，并显式披露“模型输出异常导致降级、内容可能缺段或失序”。`EVAL-B184-CARRIERMETA1` 在 r108 的 ArkTS 首稿原生通过，Cangjie 失败属于 blocks-string 而非 metadata；故 r107 的单轮 metadata patch 暂按模型波动保留 P2 观察，不再为单案增加硬约束。
 
@@ -20705,3 +20705,16 @@ JSON 路径给出一条正向验收：Cangjie finalizer 首稿把 4 个 `blocks[
 `EVAL-B184-ROLECOUNT1=P2/confirmed/pending-soft-context-fix`；
 `EVAL-B184-CARRIERMETA1=P2/model-variance-observe`；
 `MALFORMED-ANSWER-JSON=lossless-repair-or-explicit-lossy-degradation-policy-confirmed/r108`。
+
+### 123.134 S11：source-inventory 计数域显式化，不再让 role 总数冒充 family 总数
+
+`EVAL-B184-ROLECOUNT1` 已按 typed、跨语言形修复。`RenderSourceInventoryObservationView` 不再输出无域名的 `count=N`，改为：
+
+1. `structural_role_row_count=N`：只表示当前 `type` / `function` 等结构角色中的 typed 行数；
+2. `visible_surface_family_row_counts=family:N,...`：直接从每行 parser/lens `SurfaceTerms` 及统一 `SourceInventorySurfaceFamilyKeys` 计算，覆盖 Cangjie declaration family、ArkTS decorator/marker 及其他语言的同类 typed family，不读取用户请求、模型 reason、aggregate label 或答案 prose；
+3. 教学明确后者只覆盖当前可见行，只有 `complete=true` 才能当成穷尽计数；一行可有多个独立 marker，因此 family 数不可相加；
+4. completion 的 `member_set.value == len(members)` 精确合同保持不变，仍负责拦截真正的结构化计数矛盾。此次只减少模型心智，不通过软信号改变 hard gate，也不由系统选择答案 family。
+
+新增回归以同一 `type` role 内 2 个 `public class` + 1 个 `extend` 证明输出同时携带 `structural_role_row_count=3` 与精确 family 计数；repomap 端到端渲染 pin 同步从旧 `count` 迁移。完整受影响套件 `go test ./internal/types ./internal/tool ./internal/tool/repomap ./internal/agent -count=1` 已通过（types 20.022s、tool 165.839s、repomap 2.597s、agent 4.488s）。该批不触及 Trace 查询、明确时间窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量或双维度性能归因。
+
+状态：`EVAL-B184-ROLECOUNT1=S11-implemented/full-impacted-suites-pass/pending-exact-two-replay`。

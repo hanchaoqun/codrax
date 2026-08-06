@@ -604,6 +604,40 @@ func TestPublishSourceInventoryObservationFromLens_PreservesGraphSurfaceTerms(t 
 	}
 }
 
+func TestRenderSourceInventoryObservationView_SeparatesRoleAndSurfaceFamilyCounts(t *testing.T) {
+	obs := types.SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Scopes:   []string{"."},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleType,
+			Count:    3,
+			Complete: true,
+			Members: []types.SourceInventoryObservationMember{
+				{Name: "Bridge", Role: types.AnswerCandidateRoleType, File: "Bridge.cj", Line: 1, SurfaceTerms: []string{"public class", "public class Bridge"}},
+				{Name: "Service", Role: types.AnswerCandidateRoleType, File: "Service.cj", Line: 2, SurfaceTerms: []string{"public class", "public class Service"}},
+				{Name: "String", Role: types.AnswerCandidateRoleType, File: "String.cj", Line: 3, SurfaceTerms: []string{"extend", "extend String"}},
+			},
+		}},
+	}
+	rendered := RenderSourceInventoryObservationView(obs, types.SourceInventoryLensQuery{
+		Scopes:        []string{"."},
+		IncludeCounts: true,
+		TopN:          10,
+	})
+	for _, want := range []string{
+		"structural_role_row_count=3 complete=true",
+		"visible_surface_family_row_counts=extend:1,public class:2",
+		"it is not a count for any one row-local construct family",
+		"treat it as exhaustive only when `complete=true`",
+		"family counts are not necessarily additive",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("source-inventory count-domain teaching missing %q:\n%s", want, rendered)
+		}
+	}
+}
+
 func TestSourceInventoryObservationRowsCarryEngineSourceClass(t *testing.T) {
 	advisory := types.SourceInventoryAdvisory{
 		Active: true,

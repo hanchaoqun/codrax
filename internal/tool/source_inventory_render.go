@@ -411,6 +411,7 @@ func RenderSourceInventoryObservationView(observation types.SourceInventoryObser
 	b.WriteString("# Repo Lens: Source Inventory\n\n")
 	b.WriteString("This is a repo-map observation checklist for navigation and mechanical member/count checks. It is not final answer text. ")
 	b.WriteString(types.SourceInventoryMechanicalFactBoundary + "\n\n")
+	b.WriteString("- count semantics: `structural_role_row_count` counts rows in one structural role such as `type` or `function`; it is not a count for any one row-local construct family. `visible_surface_family_row_counts` partitions the visible typed rows by row-local family; treat it as exhaustive only when `complete=true`. A row may carry multiple independent families, so family counts are not necessarily additive.\n")
 	if len(observation.Scopes) > 0 {
 		fmt.Fprintf(&b, "- scopes: `%s`\n", strings.Join(observation.Scopes, "`, `"))
 	}
@@ -493,8 +494,12 @@ func RenderSourceInventoryObservationView(observation types.SourceInventoryObser
 			continue
 		}
 		if includeCounts {
-			fmt.Fprintf(&b, "## %s (%s)\n\ncount=%d complete=%t\n\n",
+			fmt.Fprintf(&b, "## %s (%s)\n\nstructural_role_row_count=%d complete=%t\n",
 				types.SourceInventoryAdvisoryRoleLabel(set.Role), set.Role, set.Count, set.Complete)
+			if familyCounts := renderSourceInventorySurfaceFamilyCounts(set.Members); familyCounts != "" {
+				fmt.Fprintf(&b, "visible_surface_family_row_counts=%s\n", familyCounts)
+			}
+			b.WriteByte('\n')
 		} else {
 			fmt.Fprintf(&b, "## %s (%s)\n\ncomplete=%t\n\n",
 				types.SourceInventoryAdvisoryRoleLabel(set.Role), set.Role, set.Complete)
@@ -1140,6 +1145,28 @@ func renderSourceInventoryGroupedCandidate(member types.SourceInventoryObservati
 		}
 	}
 	return item
+}
+
+func renderSourceInventorySurfaceFamilyCounts(members []types.SourceInventoryObservationMember) string {
+	counts := map[string]int{}
+	for _, member := range members {
+		for _, family := range types.SourceInventorySurfaceFamilyKeys(member.SurfaceTerms) {
+			counts[family]++
+		}
+	}
+	if len(counts) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(counts))
+	for family := range counts {
+		keys = append(keys, family)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, family := range keys {
+		parts = append(parts, fmt.Sprintf("%s:%d", family, counts[family]))
+	}
+	return strings.Join(parts, ",")
 }
 
 func renderSourceInventoryRoleCounts(counts map[types.AnswerCandidateRole]int) string {

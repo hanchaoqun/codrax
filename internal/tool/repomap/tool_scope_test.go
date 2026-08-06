@@ -141,7 +141,8 @@ func TestRepoMapSourceInventoryViewModelDrivenQuery(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Repo Lens: Source Inventory",
-		"count=2",
+		"structural_role_row_count=2",
+		"count semantics:",
 		"`run_alpha` @ src/alpha/a.py:7",
 		"package/directory/module scope",
 	} {
@@ -537,7 +538,7 @@ func TestRepoMapSourceInventoryViewGroupsBroadSymbolRolesByScope(t *testing.T) {
 		"candidates: function `run`@9",
 		"`src/alpha` — file_count=1 candidate_count=2 — files: `src/alpha/a.py`",
 		"candidates: function `run`@7, function `helper`@20",
-		"count=3 complete=true",
+		"structural_role_row_count=3 complete=true",
 	} {
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("grouped source_inventory missing %q:\n%s", want, res.Summary)
