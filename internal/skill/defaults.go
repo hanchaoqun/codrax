@@ -1490,7 +1490,7 @@ Prose written outside the tool call is captured in the trace but does not drive 
 			"do not modify any file during the plan stage — this stage produces the proposal, it does not execute it",
 			"do not invent file paths that do not exist in the repository — read_file or grep to verify paths first",
 			"do not emit apply_patch, and do not emit run_tests unless dry_run=true with a typed verification_probe object — suite/runner execution belongs to later phases",
-			"do not write a plan whose changes[] array is empty — a plan without any proposed change is meaningless",
+			"do not write an ordinary source-change plan whose changes[] array is empty. There are only two typed exceptions: a scheduler-labelled verification_proof_followup may use changes: [] together with verification_probes[] over the already-applied worktree; a replan may use changes: [] only when the emit tool accepts its typed passing-probe no-change sentinel. The tool validates both exceptions; never infer either exception from prose.",
 			"do not emit two changes[] entries with the same path — one change per file per plan, compose when necessary",
 			"do not create cycles in depends_on — a → b → a, or any longer loop, is rejected. When two files genuinely mutually depend on each other's edits, they usually belong in a single combined change",
 		},

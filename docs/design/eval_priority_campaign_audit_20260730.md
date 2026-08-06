@@ -19101,3 +19101,51 @@ Rust 或单 case 特判。
 状态：`EVAL-B165-CROSSPROBE1=implemented/full-affected-suite-pass`；
 `EVAL-B165-TESTPOSTIMAGE1=awaiting-exact2-replay`；`EVAL-B165-RELADHERENCE1=model-variance-observe-only`；
 Trace 显式窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量、两维根因与模型结论所有权=`untouched`。
+
+### 123.75 B166 r82：保护测试 critic 生产闭环；裸 Rust 仍被正确降级，operation JSON 正常
+
+在 `main@8ffa88f71` 重建后严格并行恰好两个异构 case：
+
+- `operation_system_inventory`：34s，runner/human PASS；
+- `github_issue_chrono_duration_min_symptom`：361s，runner/human FAIL，终态为
+  `unverified/production_verification_source_static_only`。
+
+Rust 正面结论是 `EVAL-B165-TESTPOSTIMAGE1` 已获生产闭环：7 行测试文件用全范围 structured replace 原样保留旧断言并追加测试后，保护 critic
+没有再把旧行误判为删除；计划成功 apply，耗时从 r81 的 903s 降至 361s。B165-S3 的跨语言探针边界也生效：首轮 Planner 虽违背已有软教学，提交了
+一个只打印成功文本的 Go placeholder probe，但该轮先因精确行范围 1-8/7 被拒；重发时 probe 被省略，最终没有任何 Go/Python 模拟获得 Rust 路径
+target-execution 权威。
+
+人审仍判补丁错误：`try_milliseconds(i64::MIN)` 构造的 candidate 在当前 `(secs,nanos)` 字典序比较下仍大于 `MIN`，所以不会按新增测试意图返回
+`None`；同时 `const fn` 中的派生比较也没有经过 Rust 编译器证明。仓库只有 `Makefile -> python3 tests/check_duration_min.py`，该 oracle 只检查源码和测试
+字面形，report 因而只给两条 changed path `source_static`。当前机器也没有 `rustc/cargo`。最终 deterministic authority 门保留补丁但明确发布“未完全验证”，
+没有接受 controller 模型的 `finish/all_verified`，属于正确 fail-closed，而不是“模型答案消失”。
+
+这里不新增 Rust 表达式特判或答案原文门。若要把该 case 作为预期成功的写模式行为 eval，fixture/执行镜像必须提供可执行的 Rust crate 与 native toolchain；
+在此之前它是有效的“缺运行时不得签绿”负例。`EVAL-B166-RUSTNATIVE1=P2/eval-environment-observation`，不以放宽 source-static 权威门施工。
+
+operation 分支四条只读命令与最终值逐项一致；`missing_observations`/`success_criteria` 首轮即 native arrays，零 compat repair，说明已有 operation
+`JSON SHAPE FIRST` 在本轮有效。`EVAL-B158-OPJSONARRAY1=production-replay-closed`；独立 repair typed metric 因本轮没有 repair witness，
+`EVAL-B158-OPJSONMETRIC1` 继续开放但不升优先级。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b166_write_operation_r82_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b166_write_operation_r82_20260805_manual_audit.md`。
+
+### 123.76 B166-S1：ChangePlan JSON/空变更教学消除自相矛盾
+
+r82 的 `changes` 再次以合法 JSON-string carrier 发出，兼容层无损恢复；单源 `ChangePlanJSONShapeFirstTeaching` 已明确要求 native arrays、内部普通
+字符串标准 JSON 转义、修复时不得删字段，因此该次仍归模型遵约波动，不继续叠加提示或以答案/请求关键词硬拒。但合同冷读确认两处系统自身歧义：
+
+1. workflow 已允许 scheduler typed `verification_proof_followup` 使用 `changes: [] + verification_probes[]`，也允许 typed passing-probe
+   no-change sentinel；Prohibitions 却绝对写成“不得空 changes[]”；
+2. tool description 写“每个 plan dispatch EXACTLY once”，但同一 dispatch 的合法 schema/坐标拒绝本来就必须重发；“一次”没有区分 attempt 与
+   successful stored plan。
+
+本批把前者改成“普通 source-change plan 禁空”，并只列两个 typed 例外；明确例外必须由 scheduler/tool typed state 授权，禁止从 prose 推断。后者改成
+“single-shot 每次 attempt 一个完整 call；拒绝后重发一个完整修正 call；只有成功 call 才替换 stored plan”。这既不放宽 emit validator，也不增加
+模型要判断的 JSON 载体分支。
+
+结构 pin 同时要求：typed proof/no-change 两个例外都在、旧绝对禁令不存在；repair attempt 语义三句在、旧 `EXACTLY once per dispatch` 不存在。
+定向测试通过；完整 `go test ./internal/skill ./internal/tool -count=1` 全绿（0.572s / 173.007s）。修复只改 planner 教学与测试，
+不触碰 read/Trace/answer-document runtime、系统自动补齐或模型结论。
+
+状态：`EVAL-B166-PLANCONTRACT1=implemented/full-affected-suite-pass`；等待提交推送。

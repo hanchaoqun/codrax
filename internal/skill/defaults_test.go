@@ -154,6 +154,30 @@ func TestChangePlanSkillFrontLoadsCanonicalJSONShapeFirstTeaching(t *testing.T) 
 	}
 }
 
+func TestChangePlanSkillScopesEmptyChangesProhibitionToTypedExceptions(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	sk, err := r.Get("change-plan-skill")
+	if err != nil {
+		t.Fatalf("Get(change-plan-skill): %v", err)
+	}
+	prohibitions := allProhibitionBodies(sk)
+	for _, want := range []string{
+		"ordinary source-change plan",
+		"scheduler-labelled verification_proof_followup",
+		"changes: [] together with verification_probes[]",
+		"typed passing-probe no-change sentinel",
+		"never infer either exception from prose",
+	} {
+		if !strings.Contains(prohibitions, want) {
+			t.Fatalf("empty-changes boundary must state the typed exception %q:\n%s", want, prohibitions)
+		}
+	}
+	if strings.Contains(prohibitions, "do not write a plan whose changes[] array is empty") {
+		t.Fatalf("absolute empty-changes prohibition contradicts typed proof/no-change lanes:\n%s", prohibitions)
+	}
+}
+
 func TestWriteAnalysisSkillRenderedPlacementGuidanceIsTyped(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)

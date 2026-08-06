@@ -123,8 +123,9 @@ func (t *EmitChangePlan) Name() string { return "emit_change_plan" }
 func (t *EmitChangePlan) Description() string {
 	return types.ChangePlanJSONShapeFirstTeaching + "\n\n" +
 		"Emit the structured ChangePlan for the user's requested code change. " +
-		"Call EXACTLY once per plan-stage dispatch — further calls overwrite the " +
-		"prior emission. The plan is a proposal only; apply-stage consumes it."
+		"When choosing this single-shot path, submit one complete call per attempt. " +
+		"If the tool rejects an attempt, re-emit one corrected complete call; only a successful later call replaces a stored plan. " +
+		"The plan is a proposal only; apply-stage consumes it."
 }
 
 // Parameters returns a strict JSON schema for the ChangePlan emission.

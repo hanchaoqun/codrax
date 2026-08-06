@@ -30,6 +30,18 @@ func TestEmitChangePlanFrontLoadsCanonicalJSONShapeFirstTeaching(t *testing.T) {
 	if !strings.Contains(types.ChangePlanJSONShapeFirstTeaching, "ordinary string values (including code) with standard JSON escaping") {
 		t.Fatalf("canonical teaching must distinguish native containers from escaped string values: %q", types.ChangePlanJSONShapeFirstTeaching)
 	}
+	for _, want := range []string{
+		"one complete call per attempt",
+		"If the tool rejects an attempt, re-emit one corrected complete call",
+		"only a successful later call replaces a stored plan",
+	} {
+		if !strings.Contains(tool.Description(), want) {
+			t.Fatalf("tool description must make repair attempts unambiguous (%q): %q", want, tool.Description())
+		}
+	}
+	if strings.Contains(tool.Description(), "Call EXACTLY once per plan-stage dispatch") {
+		t.Fatalf("tool description must not contradict same-dispatch repair retries: %q", tool.Description())
+	}
 }
 
 func TestEmitChangePlanMalformedVerificationProbeCarrierFailsWithTypedPreservationGuidance(t *testing.T) {
