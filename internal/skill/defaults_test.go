@@ -101,16 +101,28 @@ func TestChangePlanSkillKeepsVerificationProbeAnOptionalDirectRuntime(t *testing
 	body := allWorkflowBodies(sk)
 	for _, want := range []string{
 		"PROBE DECISION FIRST",
-		"typed test_surface already has a project runner covering every changed path",
+		"typed test_surface advertises a native project runner for the changed language/package",
 		"local syntax/build repair",
+		"the verifier, not the planner, establishes exact changed-path coverage",
 		"omit a probe",
-		"Never create a probe merely to reread changed source tokens or wrap the same compiler/test command",
+		"copy the changed implementation into a standalone program",
+		"Never create a probe merely to reread changed source tokens",
 		"verification_probes[] are optional source-level programs, not command runners",
 		"omit verification_probes[] and put the native build/test command in acceptance_tests[]",
 		"never launch an external compiler or test runner from a supported-language wrapper",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("change-plan-skill missing probe authoring boundary %q:\n%s", want, body)
+		}
+	}
+	for _, want := range []string{
+		"MUTATIONS ONLY",
+		"changes[] contains files whose bytes, path, or existence will actually change",
+		"belongs in summary/acceptance_tests[]",
+		"never in changes[] as an empty patch, no-op edit, or placeholder file",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("change-plan-skill missing mutation-only boundary %q:\n%s", want, body)
 		}
 	}
 	for _, fixtureSpecific := range []string{

@@ -18385,3 +18385,63 @@ write 的最终质量正确且验证不空签：`main.go` 只有第 25 行 `retr
 
 状态：`EVAL-B154-EVALCONTRIBCARD1=implemented`；`EVAL-B154-JSONCHOICEMIND1=soft-teaching-implemented/awaiting-heterogeneous-replay`；
 malformed JSON 恢复边界=`unchanged`；模型答案/结论所有权与 Trace 全能力=`untouched`。
+
+### 123.47 B155 r71：写模式结果正确但可选计划载体仍抖动；Trace 精确权限已到场却被模型首段越过
+
+在 `main@ae4a81f08` 构建后严格并行恰好两个异构 case：
+
+- `patch_go_typo`：107s，runner/human PASS；
+- `trace_query_frame_semantic_span_optimization`：158s，runner PASS / human FAIL。
+
+write 回放首先关闭 B154 Analyzer 子项：首轮即正确把 typo before/after token 留在写计划 lane，`analyzer_iters=1`，没有 field-value profile
+误填或 JSON/schema 重试。最终计划、单行 structured patch、apply 和 `go test ./...` 都正确，changed-path coverage 也由真实 project runner 签发。
+仍有两类通用认知债：
+
+1. Planner 为表达“go.mod/go.sum 保持不变”，在 `changes[]` 增加 `go.mod` 空 patch，触发 `patch_empty`；不变量被误当成 mutation carrier；
+2. prompt 要求“project runner 覆盖 every changed path”后才省 probe，但 Planner 在计划阶段只看见 `go.mod + likely runner=go test`，无法提前拥有
+   verify 执行后才铸造的 exact changed-path coverage。于是先复制 `greet` 实现到独立 probe，被 coupling gate 拒绝，才改成合法 same-package probe。
+
+两条 hard validator 均正确，不能为减少重试而放宽。gap 记为
+`EVAL-B155-UNCHANGEDNOOP1=P1-efficiency` 与 `EVAL-B155-PROBEDEC2=P1-efficiency/context-precision`。
+
+Trace 回放的基础能力全部为正证：三个 `trace_query` 均绑定用户显式 `5.000..5.007` 窗和目标；`frame_root_cause_bundle` 自动补齐生效；
+模型答案保留在前，系统 Trace 投影另行追加，没有删改/替换模型结论；实际占用轴和既有规则可消除轴同时在场，rank #1 为 worker-200
+class verification 4.600ms，rank #2 为 app runnable 0.800ms；唤醒路径、状态账、根因排序和覆盖边界均在。
+
+但 `causal_conclusion=unproven`、`frame_evidence_status=absent`，Finalizer 尾部还三次明确限定“最强只能写窗内候选/首个验证方向，不能写已证丢帧
+原因”。模型首段仍写“这一帧窗口内的丢帧根因是 worker-200”，明细又把 typed wakeup/dependency path 升格成“持有依赖链，导致 app-100 被阻塞”；末尾 caveat
+反而承认 bounded candidate，形成同页自相矛盾。故 runner 的正则 PASS 不能替代人工语义判断，记
+`EVAL-B155-CAUSALCLAIMCAL1=P1-correctness/red-line-risk`。
+
+这不是上下文缺失，也不能用答案原文关键词扫描、系统改写 lead 或确定性加冕来修。现有 `claim_uses` 只表达
+`external_observation/call_edge/...` 的证据句型，不携带“proven frame cause / bounded selected-window candidate / observation only”因果强度；因此最优架构方向是
+新增模型显式选择的 typed principal causal-caliber carrier，由 typed Trace authority 校验其上限，模型仍负责诊断文字，系统既不从 prose 猜 carrier，也不替模型选择
+原因。该项先冻结设计/异构 witness，不在单个 fixture 上建立中文短语硬门。
+
+另有两次 `emit_investigation_complete` 重试：模型先自报系统 Trace 权限拥有的 relation claim，又漏掉 negative observation 的
+`origin=runtime_artifact`。验证器均给出精确修复指令并在第三次通过，暂记 `EVAL-B155-TRACELEDGERMIND1=P2-efficiency/one-witness`，待异构 Trace 回放判断
+是否需要缩减 optional JSON carrier。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b155_write_trace_r71_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b155_write_trace_r71_20260805_manual_audit.md`。
+
+状态：`EVAL-B154-JSONCHOICEMIND1=analyzer-production-closed/planner-partial`；
+`EVAL-B155-UNCHANGEDNOOP1=confirmed/soft-teaching-next`；`EVAL-B155-PROBEDEC2=confirmed/soft-teaching-next`；
+`EVAL-B155-CAUSALCLAIMCAL1=confirmed-one-witness/typed-design-required`；显式 Trace 窗、自动补齐、投影、两维根因和模型答案所有权=`production-pass`。
+
+### 123.48 B155-S1：计划只承载真实 mutation，项目 runner 覆盖由 verifier 建证
+
+按 §123.47 的两个低风险、高复用写模式 gap 完成独立软教学小批，不修改 emit/apply/verify hard validator：
+
+1. `changes[]` 明确只容纳 bytes/path/existence 真正变化的文件；“依赖清单不变、生成文件不变、API 不变”等预期不变量只能进入
+   summary/acceptance tests，通过省略变更并验证来守住，禁止空 patch、no-op edit 或 placeholder file；
+2. probe 决策不再要求 Planner 预知 verify 后才产生的 exact changed-path coverage。typed test surface 已声明变更语言/package 的原生 runner 且是局部
+   syntax/build repair 时，默认 acceptance tests + verify runner，exact coverage 由 verifier 执行后铸造；
+3. optional probe 仍只在项目面不能覆盖请求行为或 controller 明确 proof-follow-up 时使用；新增禁止复制 changed implementation 到独立程序。既有
+   non-zero failure、production coupling、same-package Go 及 C/C++/Rust/Cangjie/ArkTS native runner 边界保持不变；
+4. 全部是语言无关的载体决策，不读取用户/模型/最终答案 prose 作门控，也不为 `retrun` fixture 编码特例。
+
+`go test ./internal/skill ./internal/agent -count=1` PASS（0.636s / 3.057s）。
+
+状态：`EVAL-B155-UNCHANGEDNOOP1=soft-teaching-implemented`；`EVAL-B155-PROBEDEC2=soft-teaching-implemented/awaiting-heterogeneous-replay`；
+`EVAL-B155-CAUSALCLAIMCAL1=next-architecture-batch`；JSON 无损恢复/降级边界、Trace 全能力和模型结论所有权=`unchanged`。
