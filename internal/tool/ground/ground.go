@@ -375,8 +375,9 @@ type Report struct {
 //
 //  1. Tier 1 — line_text: evidence's AnchorSymbol appears as a
 //     whole-word token in the read_file gutter for Source at
-//     LineStart ±2. This is the strongest signal because it confirms
-//     the LLM actually cited content it could see.
+//     LineStart ±2. The item is normalized to the exact matching line
+//     before its snippet is attached. This is the strongest signal
+//     because it confirms the LLM actually cited content it could see.
 //
 //  2. Tier 2 — symbol_table: repomap-backed structural match,
 //     dispatched on AnchorKind:
@@ -420,7 +421,8 @@ func GroundItem(it *types.EvidenceItem, gc *Context) Report {
 	}
 
 	// Tier 1: line_text via read_file gutter.
-	if tier1LineText(it, gc) {
+	if matchedLine, ok := tier1LineText(it, gc); ok {
+		it.LineStart = matchedLine
 		attachGroundedLineSnippet(it, gc)
 		it.GroundingStatus = types.GroundingGrounded
 		it.GroundingTier = types.TierLineText
@@ -1218,14 +1220,14 @@ func recoveredAnchorConsistent(it *types.EvidenceItem, gc *Context) bool {
 	}
 }
 
-func lineLocalStructuredFieldsCorroborate(fileLines map[int]string, it *types.EvidenceItem) bool {
+func findLineLocalStructuredFieldsCorroboratingLine(fileLines map[int]string, it *types.EvidenceItem) (int, bool) {
 	if it == nil || len(fileLines) == 0 || it.LineStart <= 0 {
-		return false
+		return 0, false
 	}
 	switch it.AnchorKind {
 	case types.AnchorCondition, types.AnchorReturn, types.AnchorAssignment, types.AnchorInitializer:
 	default:
-		return false
+		return 0, false
 	}
 	for i := it.LineStart - 2; i <= it.LineStart+2; i++ {
 		text, ok := fileLines[i]
@@ -1236,10 +1238,10 @@ func lineLocalStructuredFieldsCorroborate(fileLines map[int]string, it *types.Ev
 			continue
 		}
 		if exactLineLocalSnippetMatches(text, it.Snippet) || lineLocalClaimMatches(text, it.Condition) {
-			return true
+			return i, true
 		}
 	}
-	return false
+	return 0, false
 }
 
 func exactLineLocalSnippetMatches(lineText, snippet string) bool {
@@ -1408,39 +1410,39 @@ func snippetHasCallSiteForEvidence(snippet string, it *types.EvidenceItem) bool 
 // a function DID elsewhere in the codebase. Rejecting here forces
 // the cascade into Tier 2 (symbol_table) and recovery, where the
 // repomap graph can find the genuine definition.
-func tier1LineText(it *types.EvidenceItem, gc *Context) bool {
+func tier1LineText(it *types.EvidenceItem, gc *Context) (int, bool) {
 	if it.Source == "" || it.LineStart <= 0 || gc == nil {
-		return false
+		return 0, false
 	}
 	fileLines, ok := gc.LineIndex[it.Source]
 	if !ok {
-		return false
+		return 0, false
 	}
 	if runtimeArtifactLineAnchorSource(it.Source) && strings.TrimSpace(it.AnchorSymbol) != "" {
-		_, ok := findRuntimeArtifactAnchorLine(fileLines, it.LineStart, 2, it.AnchorSymbol)
-		return ok
+		return findRuntimeArtifactAnchorLine(fileLines, it.LineStart, 2, it.AnchorSymbol)
 	}
 	if it.AnchorKind == types.AnchorTextReference {
 		if it.AnchorSymbol != "" {
-			_, ok := findTextReferenceAnchorLine(fileLines, it.LineStart, 2, it.AnchorSymbol)
-			return ok
+			return findTextReferenceAnchorLine(fileLines, it.LineStart, 2, it.AnchorSymbol)
 		}
 		text, exists := lookupLineWithNeighbours(fileLines, it.LineStart, 2)
-		return exists && lineCorroborates(text, it.Subject, it.Object, it.Condition, gc.Graph)
+		if !exists || !lineCorroborates(text, it.Subject, it.Object, it.Condition, gc.Graph) {
+			return 0, false
+		}
+		return findCorroboratingLine(fileLines, it.LineStart, 2, it, gc.Graph)
 	}
 	if it.AnchorKind == types.AnchorStringLiteral {
-		_, ok := findStringLiteralAnchorLine(fileLines, it.LineStart, 2, it.AnchorSymbol, it.Source)
-		return ok
+		return findStringLiteralAnchorLine(fileLines, it.LineStart, 2, it.AnchorSymbol, it.Source)
 	}
 	if it.AnchorKind == types.AnchorCall {
 		matchedLine, ok := findCallCorroboratingLine(fileLines, it.LineStart, 2, it, gc.Graph)
 		if !ok {
-			return false
+			return 0, false
 		}
 		if isLineComment(fileLines, matchedLine, it.Source) {
-			return false
+			return 0, false
 		}
-		return true
+		return matchedLine, true
 	}
 	configSurface := configSurfaceAllowsLooseLineGrounding(it)
 	// Anchor-first check: when the LLM supplied AnchorSymbol, pick the
@@ -1451,15 +1453,23 @@ func tier1LineText(it *types.EvidenceItem, gc *Context) bool {
 		matchedLine, ok := findAnchorLine(fileLines, it.LineStart, 2, it.AnchorSymbol)
 		if ok {
 			if isLineComment(fileLines, matchedLine, it.Source) && !configSurface {
-				return false
+				return 0, false
 			}
-			return true
+			// A condition item's semantic authority is its typed Condition at
+			// line_start. Models sometimes put a guarded-body identifier in
+			// anchor_symbol; the emit layer then normalizes that navigation
+			// token from the exact guard. Do not move the condition onto the
+			// neighbouring body line before that precise normalization runs.
+			if it.AnchorKind == types.AnchorCondition && matchedLine != it.LineStart {
+				return it.LineStart, true
+			}
+			return matchedLine, true
 		}
-		if lineLocalStructuredFieldsCorroborate(fileLines, it) {
-			return true
+		if matchedLine, ok := findLineLocalStructuredFieldsCorroboratingLine(fileLines, it); ok {
+			return matchedLine, true
 		}
 		if !configSurface {
-			return false
+			return 0, false
 		}
 		// Config-file surfaces (YAML / JSON / TOML / INI / etc.) often
 		// carry precedence or binding facts on comment / key lines whose
@@ -1469,37 +1479,37 @@ func tier1LineText(it *types.EvidenceItem, gc *Context) bool {
 		// semantic fields instead of forcing a symbol-token repair loop.
 		text, exists := lookupLineWithNeighbours(fileLines, it.LineStart, 2)
 		if !exists {
-			return false
+			return 0, false
 		}
 		if !configSurfaceLineCorroborates(text, it, gc.Graph) {
-			return false
+			return 0, false
 		}
 		matchedLine, ok = findConfigSurfaceCorroboratingLine(fileLines, it.LineStart, 2, it, gc.Graph)
 		if !ok {
-			return false
+			return 0, false
 		}
-		return true
+		return matchedLine, true
 	}
 	// Legacy fallback for items missing AnchorSymbol: use the
 	// Subject/Object/Condition code-shaped identifier union across the
 	// ±2 window, then comment-check the specific line that matched.
 	text, exists := lookupLineWithNeighbours(fileLines, it.LineStart, 2)
 	if !exists {
-		return false
+		return 0, false
 	}
 	if !lineCorroborates(text, it.Subject, it.Object, it.Condition, gc.Graph) {
-		return false
+		return 0, false
 	}
 	matchedLine, ok := findCorroboratingLine(fileLines, it.LineStart, 2, it, gc.Graph)
 	if !ok {
 		// Corroborated via the aggregated window text but not any
 		// individual line (unusual but possible). Be conservative: reject.
-		return false
+		return 0, false
 	}
 	if isLineComment(fileLines, matchedLine, it.Source) && !configSurface {
-		return false
+		return 0, false
 	}
-	return true
+	return matchedLine, true
 }
 
 func configSurfaceAllowsLooseLineGrounding(it *types.EvidenceItem) bool {

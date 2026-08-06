@@ -143,6 +143,59 @@ func TestGroundItem_Tier1LineText(t *testing.T) {
 	}
 }
 
+func TestGroundItem_Tier1LineTextNormalizesToExactNeighbourAnchor(t *testing.T) {
+	history := []types.ToolResult{
+		buildGutterReadResult("bindings.go", 44, []string{
+			"{",
+			"\tStage: StageAnalyze,",
+			"\tAgent: AgentAnalyzer,",
+		}, 100),
+	}
+	gc := &Context{LineIndex: buildLineIndex(history, "")}
+	it := &types.EvidenceItem{
+		Kind: types.EvidenceDirect, Source: "bindings.go", LineStart: 44,
+		AnchorKind: types.AnchorDefinition, AnchorSymbol: "StageAnalyze",
+	}
+
+	rep := GroundItem(it, gc)
+	if it.GroundingStatus != types.GroundingGrounded || it.GroundingTier != types.TierLineText {
+		t.Fatalf("status=%q tier=%q note=%q, want grounded line_text", it.GroundingStatus, it.GroundingTier, it.GroundingNote)
+	}
+	if it.LineStart != 45 || rep.OriginalLine != 44 || rep.AdjustedLine != 45 {
+		t.Fatalf("line normalization item=%d report=%d→%d, want item=45 report=44→45", it.LineStart, rep.OriginalLine, rep.AdjustedLine)
+	}
+	if it.Snippet != "Stage: StageAnalyze," {
+		t.Fatalf("snippet=%q, want exact matched neighbour line", it.Snippet)
+	}
+}
+
+func TestGroundItem_Tier1ConditionKeepsTypedGuardLine(t *testing.T) {
+	history := []types.ToolResult{
+		buildGutterReadResult("flags.go", 10, []string{
+			`if !cmd.Flags().Changed("pipeline-max-steps") {`,
+			"\tflagMaxSteps = mergedMaxSteps",
+			"}",
+		}, 100),
+	}
+	gc := &Context{LineIndex: buildLineIndex(history, "")}
+	it := &types.EvidenceItem{
+		Kind: types.EvidenceConditional, Source: "flags.go", LineStart: 10,
+		AnchorKind: types.AnchorCondition, AnchorSymbol: "flagMaxSteps",
+		Condition: `cmd.Flags().Changed("pipeline-max-steps") == false`,
+	}
+
+	rep := GroundItem(it, gc)
+	if it.GroundingStatus != types.GroundingGrounded || it.GroundingTier != types.TierLineText {
+		t.Fatalf("status=%q tier=%q note=%q, want grounded line_text", it.GroundingStatus, it.GroundingTier, it.GroundingNote)
+	}
+	if it.LineStart != 10 || rep.OriginalLine != 10 || rep.AdjustedLine != 10 {
+		t.Fatalf("condition line moved item=%d report=%d→%d, want guard line 10", it.LineStart, rep.OriginalLine, rep.AdjustedLine)
+	}
+	if !strings.Contains(it.Snippet, "Changed") {
+		t.Fatalf("snippet=%q, want typed guard line", it.Snippet)
+	}
+}
+
 func TestGroundItem_Tier1LineTextLargeTraceLineNumber(t *testing.T) {
 	history := []types.ToolResult{
 		buildGutterReadResult("record_trace.systrace", 1056884, []string{

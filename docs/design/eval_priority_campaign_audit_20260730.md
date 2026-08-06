@@ -18639,3 +18639,50 @@ Planner 首个 tool call 却把 `missing_observations`、`success_criteria` 两�
 
 状态：`EVAL-B158-SUPPREFMULTI1=soft-teaching-implemented/full-suite-pass`；
 `EVAL-B158-OPJSONARRAY1=soft-teaching-implemented/full-suite-pass`；等待异构 exact-2 回放。
+
+### 123.57 B159 r75：JSON 数量教学收敛，但 Tier-1 邻行命中泄漏坏坐标
+
+在 `main@75ab957bf` 构建后严格并行恰好两个直接回放 case：
+
+- `qf_diagram_pipeline`：94s，runner PASS / human PARTIAL；
+- `operation_system_inventory`：37s，runner/human PASS。
+
+diagram completion carrier 已从上一轮的 4 members / 8 个双批裸 refs 收敛为 4 members / 4 个 index-aligned refs，分别指向四个 StageBinding
+entry；职责、四阶段顺序、Mermaid 与 precedence edges 正确，零 Finalizer reject。因此 `EVAL-B158-SUPPREFMULTI1` 已生产闭环。模型仍把所有
+StageBinding 证据发成 `scope=line` 并在 summary 中组合 Agent、Responsibility、PrimaryArtifacts；`EVAL-B157-EVSPAN1` 仍未闭环。
+
+人工审计发现更底层的精确坐标 GAP：StageAnalyze 发 `line_start=44/anchor_symbol=StageAnalyze`，源码第 44 行只有 `{`，symbol 在第 45 行。Tier-1
+grounder 的合同允许 `line_start±2` 寻找 exact anchor，却在找到第 45 行后只返回 bool、不更新 `EvidenceItem.LineStart`；于是 evidence 被标 grounded，snippet 与最终
+citation 仍取第 44 行 `{`。这不是模型波动，而是系统以邻行精确信号确证后泄漏原猜测坐标，记
+`EVAL-B159-TIER1LINE1=P1-evidence-coordinate/general`。同一机制影响所有语言、源码、日志/运行时文本的 line-shaped evidence。
+
+operation 三条只读命令一次完成，OS/CPU/内存/GPU 数值与完整 payload 一致，零重试/答案丢失；本轮日志没有 structured-param 或 compatibility repair 记录。
+但当前 operation 日志不保留 planner 原始 `missing_observations/success_criteria` JSON 形，因此只裁
+`EVAL-B158-OPJSONARRAY1=production-no-repair-observed`，不把“未记录修复”冒充“原始数组已证”。这也再次证明
+`EVAL-B158-OPJSONMETRIC1` 的 observability 债真实存在。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b159_json_teaching_replay_r75_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b159_json_teaching_replay_r75_20260805_manual_audit.md`。
+
+状态：`EVAL-B158-SUPPREFMULTI1=production-replay-closed`；`EVAL-B158-OPJSONARRAY1=production-no-repair-observed`；
+`EVAL-B159-TIER1LINE1=confirmed/implementation-in-progress`；`EVAL-B157-EVSPAN1=partial`；Trace 全能力与模型结论所有权=`untouched`。
+
+### 123.58 B159-S1：Tier-1 规范为精确命中行
+
+根修放在单一 grounder 决策点，不在 citation/final answer 层猜测：
+
+1. `tier1LineText` 从 bool 改为返回 `(matchedLine, ok)`；runtime artifact、text reference、string literal、call、anchor、initializer/condition、config 与 legacy
+   corroboration 各臂都返回它已经用于确证的精确行；
+2. `GroundItem` 在附加 snippet 和发布 Report 前把 `LineStart` 规范为 matched line；`OriginalLine` 保留模型输入，`AdjustedLine` 记录精确坐标。证据仍是
+   `Grounded/TierLineText`，因为这不是启发式找新证据，而是把已经用于 Tier-1 判定的精确信号写回载体。唯一精确例外是
+   `anchor_kind=condition`：typed `Condition` 与原 `line_start` guard 才是语义权威，邻行 guarded-body identifier 不能把条件证据搬到 body；
+3. 新 pin 用结构项起始 `{` + 邻行 `StageAnalyze` 复现：必须输出 item line=45、report=44→45、snippet 为实际 symbol 行；独立 condition pin
+   要求 guard line 保持不动且 snippet 含 guard token。原 exact-line、comment/docstring 排除、各语言 token 与运行时 artifact 规则继续复用同一函数；
+4. 该批不读 evidence summary、用户输入或最终答案 prose，不生成/替换模型职责结论，也不改变 line-range 选择、Trace query、因果投影和系统补齐权限。
+
+定向 `go test ./internal/tool/ground -count=1` 首轮 PASS（0.763s）。第一次 `internal/tool` 全量回归在
+`TestEmitEvidence_NormalizesEquivalentBooleanConditionAndVisibleAnchor` 红出：原方案把 condition 从 guard 移到邻行 body，导致后续 typed-condition 稳定化失去原 guard。
+按上述 condition 权威边界收窄后，ground 全包 PASS（0.981s），失败项定向 PASS（1.007s），第二次
+`go test ./internal/tool -count=1` 全量 PASS（169.499s）；补齐独立 condition pin 后 ground 全包再次 PASS（0.941s）。未删除或放宽既有 pin。
+
+状态：`EVAL-B159-TIER1LINE1=implemented/full-tool-pass`；`EVAL-B157-EVSPAN1=separate-soft-context-debt`。
