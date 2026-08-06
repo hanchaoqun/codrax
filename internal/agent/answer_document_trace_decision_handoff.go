@@ -2,7 +2,9 @@ package agent
 
 import (
 	"fmt"
+	"math"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -26,7 +28,8 @@ func renderAnswerDocTraceDecisionHandoff(ctx *types.AgentContext) string {
 	if !authority.RuntimeTrace {
 		return ""
 	}
-	set := types.CompileTraceCausalProjectionSet(answerDocObservationLedger(ctx))
+	ledger := answerDocObservationLedger(ctx)
+	set := types.CompileTraceCausalProjectionSet(ledger)
 	var requestModel *types.RequestModel
 	if ctx.AnalysisIR != nil {
 		requestModel = &ctx.AnalysisIR.RequestModel
@@ -42,10 +45,16 @@ func renderAnswerDocTraceDecisionHandoff(ctx *types.AgentContext) string {
 	if ctx.Mutable != nil {
 		claims = ctx.Mutable.StableInvestigationRelationClaims()
 	}
-	return renderAnswerDocTraceDecisionHandoffSet(set, authority, claims)
+	return renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(
+		set, authority, traceDecisionTypedAggregateFacts(ledger.Records), claims,
+	)
 }
 
 func renderAnswerDocTraceDecisionHandoffSet(set types.TraceCausalProjectionSet, authority runtimeTraceGuidanceView, acceptedClaims ...[]types.AnswerRelationClaim) string {
+	return renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set, authority, nil, acceptedClaims...)
+}
+
+func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCausalProjectionSet, authority runtimeTraceGuidanceView, aggregateFacts []traceDecisionAggregateFact, acceptedClaims ...[]types.AnswerRelationClaim) string {
 	if len(set.Projections) == 0 {
 		return ""
 	}
@@ -83,6 +92,7 @@ func renderAnswerDocTraceDecisionHandoffSet(set types.TraceCausalProjectionSet, 
 		b.WriteString("- typed_relation_semantics: consume each row's exact relation fields before comparing values. A `row_state_breakdown` describes only that observation's own state accounting; it does not establish containment, overlap, or identity with another row. `physical_overlap` rows share measured wall clock and are not additive. `resource_completion_closure` connects a completion path to an anchored wait but does not make the completion thread a resource holder. `sched_blocked_reason.caller` is a kernel-reported wait call-site/symbol, not a resource or lock owner; holder language requires a separate typed holder relation.\n")
 	}
 	b.WriteString("- Input provenance: the projection compiler merges accepted exploration observations with deterministic system-supplement observations when present; each candidate below preserves its own source lane.\n\n")
+	traceDecisionWriteTypedAggregateFacts(&b, aggregateFacts)
 
 	for index, projection := range set.Projections {
 		label := strings.TrimSpace(projection.ArtifactLabel)
@@ -174,6 +184,10 @@ func renderAnswerDocTraceDecisionHandoffSet(set types.TraceCausalProjectionSet, 
 			b.WriteString("- contextual_noncausal_rows (these typed rows may constrain absence claims, but they are not target-causal proof and are not additive to either decision axis):\n")
 			for _, row := range contextRows {
 				node := row.node
+				subject := strings.TrimSpace(node.Subject)
+				if node.IsAggregateMetric() && !types.TraceCausalProjectionKnownSubject(subject) {
+					subject = traceDecisionNodeKind(node)
+				}
 				unit := strings.TrimSpace(node.Unit)
 				if unit == "" {
 					unit = "ms"
@@ -183,7 +197,7 @@ func renderAnswerDocTraceDecisionHandoffSet(set types.TraceCausalProjectionSet, 
 					caliber = "aggregate_context_non_target_wall_clock"
 				}
 				fmt.Fprintf(&b, "  - lane=`%s`; subject=`%s`; kind=`%s`; value=%.3f; unit=`%s`; caliber=`%s`; target_causal_authority=`not_provided`; cross_axis_addition=`forbidden`; source_lane=`%s`",
-					row.lane, strings.TrimSpace(node.Subject), traceDecisionNodeKind(node), node.ImpactMS,
+					row.lane, subject, traceDecisionNodeKind(node), node.ImpactMS,
 					unit, caliber, traceDecisionNodeSourceLane(node))
 				traceDecisionWriteNodeIdentity(&b, node)
 				traceDecisionWriteNodeRelations(&b, node)
@@ -193,6 +207,140 @@ func renderAnswerDocTraceDecisionHandoffSet(set types.TraceCausalProjectionSet, 
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// traceDecisionAggregateFact is a prompt-only carrier for an independently
+// measured window aggregate. It deliberately does not become a projection
+// node: adding model context must not change root-cause populations, ranks,
+// folds, deterministic answer blocks, or the model's conclusion.
+type traceDecisionAggregateFact struct {
+	Artifact      string
+	Kind          string
+	Signal        string
+	Value         float64
+	Unit          string
+	WindowStart   float64
+	WindowEnd     float64
+	EvidenceID    string
+	SystemDerived bool
+	Calibration   [][2]string
+}
+
+// traceDecisionTypedAggregateFacts admits only the producer's exact typed
+// aggregate identity/window/value contract. Raw request text, model prose,
+// summaries, labels and fuzzy matching are absent from the decision.
+func traceDecisionTypedAggregateFacts(records []types.ObservationRecord) []traceDecisionAggregateFact {
+	var out []traceDecisionAggregateFact
+	seen := map[string]bool{}
+	for _, record := range records {
+		if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
+			strings.TrimSpace(record.Producer) != "trace_query" ||
+			record.GroundingPolicy != types.ClaimGroundingHard ||
+			strings.TrimSpace(traceDecisionRichNoteValue(record.RichNotes, types.TraceNoteKeySubjectKind)) != types.TraceCausalSubjectKindAggregateMetric ||
+			strings.TrimSpace(traceDecisionRichNoteValue(record.RichNotes, types.TraceNoteKeyChainRelevance)) != "background" ||
+			strings.HasPrefix(strings.TrimSpace(record.Predicate), "root_cause_") ||
+			strings.TrimSpace(traceDecisionRichNoteValue(record.RichNotes, types.TraceNoteKeyRank)) != "" {
+			continue
+		}
+		kind := strings.TrimSpace(traceDecisionRichNoteValue(record.RichNotes, types.TraceNoteKeyType))
+		unit := strings.TrimSpace(record.Unit)
+		value, err := strconv.ParseFloat(strings.TrimSpace(record.Value), 64)
+		windowStart, windowEnd, windowOK := types.TraceCausalProjectionSelectedWindowNote(record.RichNotes)
+		if kind == "" || unit == "" || err != nil || value <= 0 || math.IsNaN(value) || math.IsInf(value, 0) || !windowOK {
+			continue
+		}
+		artifact := strings.TrimSpace(record.SourceRef.CaptureIdentityPath)
+		if artifact == "" {
+			artifact = strings.TrimSpace(record.SourceRef.Path)
+		}
+		if artifact == "" {
+			artifact = strings.TrimSpace(record.SourceRef.ArtifactID)
+		}
+		key := fmt.Sprintf("%s\x00%.6f\x00%.6f\x00%s\x00%s\x00%.9g\x00%s", artifact, windowStart, windowEnd, kind, strings.TrimSpace(record.Predicate), value, unit)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		fact := traceDecisionAggregateFact{
+			Artifact: artifact, Kind: kind, Signal: strings.TrimSpace(record.Predicate),
+			Value: value, Unit: unit, WindowStart: windowStart, WindowEnd: windowEnd,
+			EvidenceID: record.ID, SystemDerived: record.SystemSupplement,
+		}
+		for _, calibrationKey := range []string{
+			types.TraceNoteKeyPressureDensity,
+			types.TraceNoteKeyWindowMS,
+			types.TraceNoteKeyIOPressureEvidenceQuality,
+			types.TraceNoteKeyIOPressureScoreCaliber,
+			"absolute_level",
+			"comparison_scope",
+			"score_breakdown",
+		} {
+			if calibrationValue := strings.TrimSpace(traceDecisionRichNoteValue(record.RichNotes, calibrationKey)); calibrationValue != "" {
+				fact.Calibration = append(fact.Calibration, [2]string{calibrationKey, calibrationValue})
+			}
+		}
+		out = append(out, fact)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Artifact != out[j].Artifact {
+			return out[i].Artifact < out[j].Artifact
+		}
+		if out[i].WindowStart != out[j].WindowStart {
+			return out[i].WindowStart < out[j].WindowStart
+		}
+		if out[i].Kind != out[j].Kind {
+			return out[i].Kind < out[j].Kind
+		}
+		return out[i].Signal < out[j].Signal
+	})
+	return out
+}
+
+func traceDecisionWriteTypedAggregateFacts(b *strings.Builder, facts []traceDecisionAggregateFact) {
+	if b == nil || len(facts) == 0 {
+		return
+	}
+	const limit = 8
+	emitted := len(facts)
+	if emitted > limit {
+		emitted = limit
+	}
+	fmt.Fprintf(b, "- typed_window_aggregate_context (background measurements for synthesis only; target_causal_authority=`not_provided`; cross_axis_addition=`forbidden`; emitted=%d; total=%d; complete=`%t`):\n", emitted, len(facts), emitted == len(facts))
+	for _, fact := range facts[:emitted] {
+		fmt.Fprintf(b, "  - artifact=`%s`; selected_window=`%.6f..%.6f`; kind=`%s`; signal=`%s`; value=%.3f; unit=`%s`; evidence_id=`%s`; source_lane=`%s`",
+			traceDecisionPromptScalar(fact.Artifact), fact.WindowStart, fact.WindowEnd,
+			traceDecisionPromptScalar(fact.Kind), traceDecisionPromptScalar(fact.Signal),
+			fact.Value, traceDecisionPromptScalar(fact.Unit), traceDecisionPromptScalar(fact.EvidenceID),
+			map[bool]string{true: "system_supplement", false: "model_exploration"}[fact.SystemDerived])
+		for _, calibration := range fact.Calibration {
+			fmt.Fprintf(b, "; %s=`%s`", traceDecisionPromptScalar(calibration[0]), traceDecisionPromptScalar(calibration[1]))
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("  These facts describe window-level pressure/caliber, not a target-thread cause or a recoverable amount. Use their typed calibration when explaining scale; do not infer severity from the raw number alone when no calibration field is present.\n\n")
+}
+
+func traceDecisionRichNoteValue(notes []string, key string) string {
+	prefix := strings.TrimSpace(key) + "="
+	if prefix == "=" {
+		return ""
+	}
+	for _, note := range notes {
+		if strings.HasPrefix(note, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(note, prefix))
+		}
+	}
+	return ""
+}
+
+func traceDecisionPromptScalar(value string) string {
+	value = strings.Join(strings.Fields(strings.ReplaceAll(value, "`", "'")), " ")
+	const maxRunes = 240
+	runes := []rune(value)
+	if len(runes) > maxRunes {
+		value = string(runes[:maxRunes]) + "…"
+	}
+	return value
 }
 
 func traceDecisionWriteRelationClaimHandoff(b *strings.Builder, set types.TraceCausalProjectionSet, acceptedClaims [][]types.AnswerRelationClaim) {
@@ -626,7 +774,29 @@ func traceDecisionNonCausalContextRows(projection types.TraceCausalProjection, l
 		return traceDecisionNodeIdentity(out[i].node) < traceDecisionNodeIdentity(out[j].node)
 	})
 	if limit > 0 && len(out) > limit {
-		out = out[:limit]
+		kept := append([]traceDecisionContextRow(nil), out[:limit]...)
+		// Adjacent rows sort before background rows by design, but a global
+		// cap must not turn "adjacent exists" into "background absent". Keep
+		// the legacy first-N order and replace only the final row when the cap
+		// would otherwise erase the entire background lane. The replacement is
+		// the background lane's own highest-valued row from the same typed
+		// window; no prose or label matching participates.
+		hasBackground := false
+		for _, row := range kept {
+			if row.lane == "background" {
+				hasBackground = true
+				break
+			}
+		}
+		if !hasBackground {
+			for _, row := range out[limit:] {
+				if row.lane == "background" {
+					kept[len(kept)-1] = row
+					break
+				}
+			}
+		}
+		out = kept
 	}
 	return out
 }

@@ -19569,3 +19569,36 @@ round-trip、quarantine 字段闭包、动态 schema 有/无 source inventory �
 
 状态：`EVAL-B171-CITFAMILY1=implemented/targeted-pass/full-affected-suite-pass`；
 `EVAL-B171-TRACEBG1=P1/next-batch`。
+
+### 123.93 B171-S2：窗口聚合事实走 prompt-only typed handoff，不进入因果投影人口
+
+`EVAL-B171-TRACEBG1` 已按“系统给精确事实，模型拥有诊断与结论”落地。施工中的对抗回归同时否决了两个看似直接、实际越权的方案：
+
+1. 不能把 604.528 CPU·ms 直接替换既有 root-cause rank 的有界代理值。这样会改变候选/侧道稳定顺序，真实 tieba 用例中两个 sleep 与两个 span
+   披露会被挤出；排名代理保持字节兼容，精确跨线程累计另走独立载体；
+2. 不能把独立 WindowStats aggregate 强塞进 `TraceCausalProjection`。即使最终标成 background，它仍会参与投影人口、折叠和双板 census，使
+   `另有 38 条链上行` 漂成 39，并可能遮蔽既有 semantic fallback。新增模型上下文不得暗改系统投影，这是本批新增的结构不变量。
+
+最终方案：
+
+1. producer 将 supply pressure 铸成 hard-grounded typed aggregate：`subject_kind=aggregate_metric`、`chain_relevance=background`、精确
+   `selected_window`、原始 `cpu·ms`；IO pressure 同样补齐 aggregate 身份、选窗与 score 校准字段。零 CPU pressure 不伪装成 `0 cpu·ms`；
+2. Finalizer 直接从接受后的 ObservationLedger 提取这一精确身份合取，形成独立的 `typed_window_aggregate_context`。不读取用户原文、模型 prose、
+   Summary 或显示标签；root-cause family/rank 记录被明确排除，避免重复载体；
+3. handoff 对每条事实携带 artifact、selected_window、kind、signal、value、unit、evidence_id、来源车道，并只转录 typed
+   `pressure_density/window_ms/absolute_level/comparison_scope/score_caliber/evidence_quality/score_breakdown` 校准。全局有界 8 条且披露
+   emitted/total/complete，减少模型心智；
+4. 每条统一声明 `target_causal_authority=not_provided`、`cross_axis_addition=forbidden`。有校准时模型可解释 4340 分所处级别；没有校准时明确禁止
+   仅凭裸值猜高低。该信息只约束“有无压力”和量级解释，不取得根因席、可消除量、帧因果或模型结论权限；
+5. 同时保留 generic finalizer context cap 的最小通道公平性：若六条全被 adjacent 占满，最后一席让给同窗最高 background 行。该规则只读 typed
+   lane/value，不扫描原始题面或答案；既有 projection aggregate 行仍保持 noncausal 边界。
+
+Pin 覆盖：604.528 CPU·ms 与 4340 score/absolute_level 同时进入 prompt；独立 aggregate 只形成空 artifact partition、不产生任何因果/背景节点或选窗；
+显式 `target_causal_authority=not_provided`/禁止跨轴相加；rank proxy 仍保持原单位；双板 38 条 census、semantic fallback、display-wrap 大板和 tieba
+侧道均回归。验证：定向 `internal/agent`/`internal/tool`/`internal/types` PASS；完整
+`go test ./internal/agent -count=1`（2.812s）与 `go test ./internal/tool -count=1`（172.644s）全绿；此前完整
+`internal/tracequery`/`internal/types`/`internal/agent` 亦全绿（73.541s/22.545s/3.304s）。
+
+状态：`EVAL-B171-TRACEBG1=implemented/prompt-only/full-affected-suite-pass/awaiting-exact2-replay`；
+Trace 显式时间窗、可见因果投影、自动补齐、根因排序、唤醒链、窗内可消除量及模型结论所有权=`preserved`；
+`B171-R=next/exactly-two-heterogeneous`。

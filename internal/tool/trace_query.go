@@ -12828,13 +12828,17 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 			SourceRef:       ref,
 			Span:            types.ObservationSpan{LineStart: pressure.LineStart, LineEnd: pressure.LineEnd},
 			ClaimKey:        "io_pressure:" + pressure.Signal,
-			Subject:         "io_pressure",
+			Subject:         traceThreadLabel(tracequery.ThreadRef{}),
 			Predicate:       pressure.Signal,
 			Object:          pressure.TopInode,
 			Value:           value,
 			Unit:            "score",
 			Summary:         traceQueryTypedIOPressureSummary(*pressure),
 			RichNotes: traceQueryTypedKVNotes([][2]string{
+				{types.TraceNoteKeyType, "io_pressure"},
+				{types.TraceNoteKeySubjectKind, tracequery.RootCauseSubjectKindAggregateMetric},
+				{types.TraceNoteKeyChainRelevance, "background"},
+				{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(stats.Window)},
 				{types.TraceNoteKeyIOPressureSignal, pressure.Signal},
 				{types.TraceNoteKeyIOPressureEvidenceQuality, pressure.EvidenceQuality},
 				{types.TraceNoteKeyIOPressureScoreCaliber, pressure.ScoreCaliber},
@@ -13071,22 +13075,31 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 		})
 	}
 	if supply := stats.SupplyPressureSummary; supply != nil && strings.TrimSpace(supply.Summary) != "" {
+		value, unit := "", ""
+		if supply.CPUPressureMs > 0 {
+			value = traceQueryObservationMSValue(supply.CPUPressureMs)
+			unit = "cpu·ms"
+		}
 		out = append(out, types.ObservationRecord{
 			ID:              fmt.Sprintf("trace_query:%s#supply_pressure:1", scope),
 			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
 			Producer:        "trace_query",
 			Role:            types.AnswerAggregateRoleSupportingCoverage,
-			GroundingPolicy: types.ClaimGroundingSoft,
+			GroundingPolicy: types.ClaimGroundingHard,
 			ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
 			SourceRef:       ref,
 			Span:            types.ObservationSpan{LineStart: supply.LineStart, LineEnd: supply.LineEnd},
 			ClaimKey:        "supply_pressure:" + supply.Signal,
-			Subject:         "supply_pressure",
+			Subject:         traceThreadLabel(tracequery.ThreadRef{}),
 			Predicate:       supply.Signal,
-			Value:           traceQueryObservationMSValue(supply.CPUPressureMs),
-			Unit:            "ms",
+			Value:           value,
+			Unit:            unit,
 			Summary:         supply.Summary,
 			RichNotes: traceQueryTypedKVNotes([][2]string{
+				{types.TraceNoteKeyType, "supply_pressure"},
+				{types.TraceNoteKeySubjectKind, tracequery.RootCauseSubjectKindAggregateMetric},
+				{types.TraceNoteKeyChainRelevance, "background"},
+				{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(stats.Window)},
 				{types.TraceNoteKeyRunnable, traceQueryObservationMSValue(supply.RunnableWaitMs)},
 				{"high_prio", traceQueryObservationMSValue(supply.HighPriorityRunningMs)},
 				{"system_or_kernel_running", traceQueryObservationMSValue(supply.SystemOrKernelRunningMs)},

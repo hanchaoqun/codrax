@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -125,6 +126,100 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 	axisA := got[strings.Index(got, "axis_A_actual_occupancy_candidates"):strings.Index(got, "axis_B_existing_rule_eliminable")]
 	if strings.Contains(axisA, "kind=`priority_inversion_candidate`") {
 		t.Fatalf("priced composite seat leaked into actual-time axis:\n%s", axisA)
+	}
+}
+
+func TestTraceDecisionContextCapKeepsTypedBackgroundLane(t *testing.T) {
+	inside := true
+	projection := types.TraceCausalProjection{WindowStartTs: 10, WindowEndTs: 10.11494}
+	for i := 0; i < 6; i++ {
+		projection.AdjacentCauses = append(projection.AdjacentCauses, types.TraceCausalProjectionNode{
+			EvidenceID: fmt.Sprintf("adjacent-%d", i), Subject: fmt.Sprintf("worker-%d", i),
+			Object: "runnable_wait", ImpactMS: float64(20 - i), Unit: "ms",
+			WithinRequestedWindow: &inside,
+		})
+	}
+	projection.BackgroundCauses = []types.TraceCausalProjectionNode{{
+		EvidenceID: "cpu-pressure", Subject: "unknown-thread", Object: "supply_pressure",
+		TypeToken: "supply_pressure", ImpactMS: 604.528, Unit: "cpu·ms",
+		SubjectKind:           types.TraceCausalSubjectKindAggregateMetric,
+		WithinRequestedWindow: &inside,
+	}}
+
+	rows := traceDecisionNonCausalContextRows(projection, 6)
+	if len(rows) != 6 || rows[len(rows)-1].lane != "background" || rows[len(rows)-1].node.EvidenceID != "cpu-pressure" {
+		t.Fatalf("global cap must retain one typed background row: %+v", rows)
+	}
+	got := renderAnswerDocTraceDecisionHandoffSet(
+		types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}},
+		runtimeTraceGuidanceView{},
+	)
+	for _, want := range []string{
+		"lane=`background`; subject=`supply_pressure`; kind=`supply_pressure`; value=604.528; unit=`cpu·ms`",
+		"caliber=`aggregate_context_non_target_wall_clock`",
+		"target_causal_authority=`not_provided`",
+		"cross_axis_addition=`forbidden`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("typed background handoff missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestTraceDecisionHandoffCarriesIndependentAggregateFactsWithoutProjectionAuthority(t *testing.T) {
+	records := []types.ObservationRecord{
+		{
+			ID: "trace_query:q1#supply_pressure:1", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer: "trace_query", Role: types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef:       types.ObservationSourceRef{Path: "donghu.ftrace", ArtifactKind: "trace"},
+			Predicate:       "cpu_pressure", Value: "604.528", Unit: "cpu·ms",
+			RichNotes: []string{
+				"type=supply_pressure", "subject_kind=aggregate_metric", "chain_relevance=background",
+				"selected_window=10.000000..10.114940", "pressure_density=5.259", "window_ms=114.940",
+			},
+		},
+		{
+			ID: "trace_query:q1#io_pressure:1", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer: "trace_query", Role: types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef:       types.ObservationSourceRef{Path: "donghu.ftrace", ArtifactKind: "trace"},
+			Predicate:       "scheduler_iowait", Value: "4340", Unit: "score",
+			RichNotes: []string{
+				"type=io_pressure", "subject_kind=aggregate_metric", "chain_relevance=background",
+				"selected_window=10.000000..10.114940", "absolute_level=high",
+				"comparison_scope=same_caliber_only", "io_pressure_score_caliber=count_weighted_composite",
+			},
+		},
+	}
+	facts := traceDecisionTypedAggregateFacts(records)
+	if len(facts) != 2 {
+		t.Fatalf("typed aggregate extraction=%d, want 2: %+v", len(facts), facts)
+	}
+	set := types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{{
+		ArtifactLabel: "donghu.ftrace", WindowStartTs: 10, WindowEndTs: 10.11494,
+	}}}
+	got := renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set, runtimeTraceGuidanceView{}, facts)
+	for _, want := range []string{
+		"typed_window_aggregate_context",
+		"kind=`supply_pressure`; signal=`cpu_pressure`; value=604.528; unit=`cpu·ms`",
+		"pressure_density=`5.259`",
+		"kind=`io_pressure`; signal=`scheduler_iowait`; value=4340.000; unit=`score`",
+		"absolute_level=`high`",
+		"target_causal_authority=`not_provided`",
+		"cross_axis_addition=`forbidden`",
+		"do not infer severity from the raw number alone when no calibration field is present",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("aggregate handoff missing %q:\n%s", want, got)
+		}
+	}
+	projection := types.CompileTraceCausalProjectionSet(types.ObservationLedger{Records: records})
+	if len(projection.Projections) != 1 || len(projection.Projections[0].PrimaryRootCauses) != 0 ||
+		len(projection.Projections[0].OnChainCauses) != 0 || len(projection.Projections[0].AdjacentCauses) != 0 ||
+		len(projection.Projections[0].BackgroundCauses) != 0 || len(projection.Projections[0].SemanticSpans) != 0 ||
+		projection.Projections[0].WindowStartTs != 0 || projection.Projections[0].WindowEndTs != 0 {
+		t.Fatalf("prompt-only aggregate facts must not create or mutate deterministic projections: %+v", projection)
 	}
 }
 
