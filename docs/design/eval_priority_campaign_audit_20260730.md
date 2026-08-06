@@ -19903,3 +19903,19 @@ candidate-derived 安全模式。
 模型结论所有权均未触碰。
 
 状态：`EVAL-B174-ACTIONCARRIER1=implemented/full-suite-pass`；下一批 `B175-S3=EVALMIXTABLE1`。
+
+### 123.107 B175-S3：混合 inventory 表按 typed row marker 分区
+
+`EVAL-B174-EVALMIXTABLE1` 已在 eval-only oracle 修复，产品代码与答案生成未改。`cangjie_repomap.case` 为三类 rowset 显式声明行内 discriminator：`extend `、
+`foreign func`、`public `。当终端主答案中真实存在同时带 marker 与 `file:line` 的表格/列表行时，runner 现在优先选这些行，再做逐行 token 与精确 cardinality 校验；这样三个
+prose heading 后共用一个混合表不会再让第一个 heading 截获空段、最后一个 heading 吞下全部行。
+
+若没有 marker-bearing presentation row，oracle 仍回退到原有 explicit section、rowset section、marker heading 三条严格路径；声明了 group 却三路均不存在时仍 fail-loud。
+因此独立分节答案、localized marker heading、heading-free typed list 和 sibling 隔离合同全部保留。新回归用三个说明 heading + 一个六行混合表验证三组精确通过，并追加第七个
+`extend` 行确认仍报 `inventory_count_mismatch:extend:got3:want2`。
+
+验证：`bash -n` 全绿；完整 `bash eval/runner_lib_test.sh` 全绿；把 r92 的原始 Cangjie 答案直接送入新 case/oracle 后无失败原因（2 extend、2 foreign func、8 public
+class 均通过）。这是 runner false-red 修复，不把某次模型措辞写进产品门，也不影响全部语言的 repomap 提取器或图层表达。
+
+状态：`EVAL-B174-EVALMIXTABLE1=implemented/full-runner-suite-pass/replay-artifact-pass`。B175 三批根因修复已完成；下一步重建，并用 strict JSON + Cangjie 两个异构 case
+恰好并行复放，审计 JSON 重试/耗时、block-string recovery 与清单正确性。
