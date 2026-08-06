@@ -1035,6 +1035,62 @@ func TestEmitAnalysis_SourceCallChainMayDiscoverRequestedRuntimeDestination(t *t
 	}
 }
 
+func TestEmitAnalysis_MechanismWithProvenancedOrderedCallProfilePromotesToCallChain(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	objective := "处理 kind=json 的输入时，从 run_pipeline 到最终处理类的解析链路是什么？"
+	payload := `{
+		"intent":"explain",
+		"scenario":"architecture_explain",
+		"complexity":"moderate",
+		"keywords":["run_pipeline","resolve","registry","handler"],
+		"entities":["run_pipeline","kind=json"],
+		"question_kind":"mechanism",
+		"predicate_axis":"call",
+		"call_chain_endpoints":{"source":"run_pipeline","sink":"","sink_mode":"discover"}
+	}`
+	res, mu := runEmitAnalysisWithObjective(t, objective, payload)
+	if !res.Success || mu.RequestModel() == nil {
+		t.Fatalf("typed mechanism/call-chain contradiction should normalize, success=%t summary=%q", res.Success, res.Summary)
+	}
+	rm := mu.RequestModel()
+	if types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) != types.ReqCallChain ||
+		rm.CallChainEndpointProfile == nil || !rm.CallChainEndpointProfile.DiscoverSinkActive() {
+		t.Fatalf("ordered discover profile must survive under normalized call-chain family: %+v", rm)
+	}
+	if !strings.Contains(res.Summary, "normalized question_kind=mechanism to call_chain") {
+		t.Fatalf("normalization must remain auditable: %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_MechanismProfileWithoutExactSourceProvenanceDoesNotPromote(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	objective := "解释插件装载机制"
+	payload := `{
+		"intent":"explain",
+		"scenario":"architecture_explain",
+		"complexity":"moderate",
+		"keywords":["plugin","registry","handler"],
+		"entities":["Invented.entry","registry"],
+		"question_kind":"mechanism",
+		"predicate_axis":"call",
+		"call_chain_endpoints":{"source":"Invented.entry","sink":"","sink_mode":"discover"}
+	}`
+	res, mu := runEmitAnalysisWithObjective(t, objective, payload)
+	if !res.Success || mu.RequestModel() == nil {
+		t.Fatalf("unproven optional profile should be dropped without changing the mechanism question: success=%t summary=%q", res.Success, res.Summary)
+	}
+	rm := mu.RequestModel()
+	if types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) != types.ReqMechanism || rm.CallChainEndpointProfile != nil {
+		t.Fatalf("unproven source must not promote or retain ordered authority: %+v", rm)
+	}
+}
+
 func TestEmitAnalysis_SourceCallChainSemanticSinkCandidateCannotBecomeExactAuthority(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

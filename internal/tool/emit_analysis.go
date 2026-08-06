@@ -1785,6 +1785,17 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		p.CallChainEndpoints,
 		append(append([]string(nil), exactTargets...), mentionedEntities...),
 	)
+	if normalizedKind, warning := reconcileSourceCallChainKindFromEndpointProfile(
+		kind,
+		axis,
+		runtimeArtifactCarrier,
+		predicates,
+		callChainEndpointProfile,
+		append(append([]string(nil), exactTargets...), mentionedEntities...),
+	); warning != "" {
+		kind = normalizedKind
+		val.Warnings = append(val.Warnings, warning)
+	}
 	if types.NormalizeRequirementKind(kind) != types.ReqCallChain || axis != types.AxisCall || runtimeArtifactCarrier {
 		if callChainEndpointProfile != nil {
 			callChainEndpointWarning = "dropped call_chain_endpoints outside a source-code call_chain with predicate_axis=call"
@@ -2018,6 +2029,53 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		Summary:   buildEmitAnalysisSummary(p, rm, val),
 		Timestamp: time.Now(),
 	}, nil
+}
+
+// reconcileSourceCallChainKindFromEndpointProfile resolves one typed
+// self-contradiction in analyzer output: a structurally valid ordered
+// source/sink carrier on the call axis cannot remain in the generic mechanism
+// family, because that family immediately discards the carrier and loses the
+// direction obligation. Promotion is deliberately narrow and provenance
+// bound. It never reads keywords, summaries, or answer prose: the source must
+// be an exact current-request identity already admitted by the analyzer's
+// existing token-boundary provenance pass.
+func reconcileSourceCallChainKindFromEndpointProfile(
+	kind string,
+	axis types.PredicateAxis,
+	runtimeArtifactCarrier bool,
+	predicates types.SemanticPredicates,
+	profile *types.CallChainEndpointProfile,
+	requestIdentities []string,
+) (string, string) {
+	if runtimeArtifactCarrier || axis != types.AxisCall || profile == nil || !profile.Active() ||
+		predicates.IsScalarAnswer || predicates.IsRoleLocateLookup {
+		return kind, ""
+	}
+	normalized := types.NormalizeRequirementKind(kind)
+	if normalized == types.ReqCallChain {
+		return kind, ""
+	}
+	if normalized != types.ReqMechanism || !callChainProfileSourceHasExactRequestIdentity(profile, requestIdentities) {
+		return kind, ""
+	}
+	return string(types.ReqCallChain),
+		"normalized question_kind=mechanism to call_chain because predicate_axis=call carried a structurally valid ordered call_chain_endpoints profile whose source has exact current-request provenance"
+}
+
+func callChainProfileSourceHasExactRequestIdentity(profile *types.CallChainEndpointProfile, identities []string) bool {
+	if profile == nil {
+		return false
+	}
+	source := strings.TrimSpace(profile.Source)
+	if source == "" {
+		return false
+	}
+	for _, identity := range identities {
+		if strings.EqualFold(source, strings.TrimSpace(identity)) {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeSourceInventoryProductionScope(rm *types.RequestModel) string {

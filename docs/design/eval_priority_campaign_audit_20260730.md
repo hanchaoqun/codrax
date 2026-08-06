@@ -22200,3 +22200,19 @@ call_chain”为由删除 endpoint profile，S33 整条义务链没有激活。�
 `EVAL-B204-JSONTEACH1=S34-implemented/targeted-tests-pass`；
 `EVAL-B205-CHAINPROFILE1=P1/queued-S35`；`EVAL-B206-CALLSITEKEEP1=P1/queued-S35`；
 Trace 显式窗/因果投影/自动补齐=`not-touched`；模型答案所有权=`preserved`。
+
+### 123.186 S35a：ordered endpoint profile 与问题家族的 typed 自洽归一
+
+Python r135 的 analyzer 同时给出四个精确信号：`predicate_axis=call`、结构合法的 discover endpoint profile、source=`run_pipeline` 的当前请求
+精确身份，以及非 scalar/role-locate 的 mechanism family。旧逻辑先验证 profile，随后仅因 family 不是 call_chain 就把它删除；这不是模型只少写了
+一个标签，而是系统对同一份 typed payload 先承认方向载体、再丢弃方向载体。
+
+S35a 在唯一消费点加入窄归一：仅当 source-code、call axis、非 scalar/role-locate、profile 已通过结构验证、source 又与既有 token-boundary
+current-request provenance 精确相等时，`mechanism` 归一为 `call_chain` 并保留 profile。它不读取 keywords、summary、最终答案或相似度；discover source
+若只是 analyzer 自造实体而没有当前请求精确 provenance，仍保持 mechanism 并删除 profile。exact profile 继续遵守两端当前请求 provenance 的既有规则。
+
+该归一不把“机制解释”内容从答案中删掉：call_chain family 本来就接受 mechanism evidence，只是恢复 ordered path、discover selection、关系图和
+completion obligation。定向测试覆盖 r135 生产形、无 provenance 反例及既有标准 discover call-chain，全部通过。
+
+状态：`EVAL-B205-CHAINPROFILE1=S35a-implemented/targeted-tests-pass/pending-exact-two-replay`；
+`EVAL-B206-CALLSITEKEEP1=P1/next-S35b`；JSON schema/repair=`not-touched`；Trace=`not-touched`。
