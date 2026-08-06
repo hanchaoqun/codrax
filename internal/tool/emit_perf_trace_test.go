@@ -179,6 +179,9 @@ func TestEmitPerfTrace_Execute_AddsHarmonyPrioritySemanticsObservation(t *testin
 			t.Fatalf("priority observation missing %q: %q", want, got.Summary)
 		}
 	}
+	if !strings.Contains(got.Summary, "PID 0 idle/swapper endpoints are excluded") || !strings.Contains(got.Summary, "not priority competition") {
+		t.Fatalf("priority observation must teach the typed PID-0 idle boundary: %q", got.Summary)
+	}
 	if got.LineStart != 1 || got.LineEnd != 2 || got.Confidence != 1 {
 		t.Fatalf("priority observation should carry trace line span/confidence: %+v", got)
 	}
@@ -261,6 +264,23 @@ func TestHarmonyPriorityClassPinsMicrokernelAndRawBoundaries(t *testing.T) {
 		if got := harmonyPriorityClass(prio); got != want {
 			t.Fatalf("harmonyPriorityClass(%d)=%q, want %q", prio, got, want)
 		}
+	}
+}
+
+func TestHarmonyPriorityClassesFromTraceExcludesPIDZeroIdleEndpoints(t *testing.T) {
+	trace := strings.Join([]string{
+		"app-100 (100) [001] .... 3.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120",
+		"worker-200 (200) [002] .... 3.001000: sched_switch: prev_comm=swapper/2 prev_pid=0 prev_prio=159 prev_state=R ==> next_comm=worker next_pid=200 next_prio=20",
+		"idle-0 (0) [003] .... 3.002000: sched_waking: comm=idle/3 pid=0 prio=160 target_cpu=003",
+		"marker-1 (1) [000] .... 3.003000: tracing_mark_write: B|1|sched_note pid=999 prio=98",
+	}, "\n")
+
+	classes, firstLine, lastLine := harmonyPriorityClassesFromTrace(trace)
+	if got, want := strings.Join(classes, ","), "prio=20/ohos_cfs,prio=52/ohos_rt"; got != want {
+		t.Fatalf("classes=%q, want %q; PID-0 and non-scheduler prio fields must not enter the roster", got, want)
+	}
+	if firstLine != 1 || lastLine != 2 {
+		t.Fatalf("line span=%d..%d, want only non-idle scheduler endpoint evidence lines 1..2", firstLine, lastLine)
 	}
 }
 

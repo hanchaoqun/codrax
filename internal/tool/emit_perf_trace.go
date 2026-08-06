@@ -381,9 +381,10 @@ func derivePerfLayer4(b *types.PerfBundle) {
 	}
 }
 
-var perfTracePrioRE = regexp.MustCompile(`(?:^|[[:space:]])(?:prev_prio|next_prio|prio)=([0-9]+)(?:\b|$)`)
+var perfTraceIntegerFieldRE = regexp.MustCompile(`(?:^|[[:space:]])([A-Za-z_][A-Za-z0-9_]*)=([0-9]+)(?:\b|$)`)
 var perfTracePrioTextRE = regexp.MustCompile(`(?:^|[^A-Za-z0-9_])prio=([0-9]+)(?:\b|$)`)
 var perfTraceTimestampRE = regexp.MustCompile(`\[[0-9]+\]\s+\S+\s+([0-9]+\.[0-9]+):`)
+var perfTraceEventNameRE = regexp.MustCompile(`[0-9]+\.[0-9]+:[[:space:]]+([A-Za-z0-9_]+):`)
 
 func augmentPerfBundleWithPrioritySemantics(b *types.PerfBundle, ctx *types.BusContext, source string) {
 	if b == nil || ctx == nil || !perfTraceLooksHarmony(ctx, source) {
@@ -393,13 +394,13 @@ func augmentPerfBundleWithPrioritySemantics(b *types.PerfBundle, ctx *types.BusC
 	if len(classes) == 0 {
 		return
 	}
-	summary := "Harmony priority semantics: 数值越大优先级越高/larger numeric value is higher; 1-40=CFS, 41-159=RT, >159=system_or_kernel/raw. Observed classes: " + strings.Join(classes, ", ") + "."
+	summary := "Harmony priority semantics: 数值越大优先级越高/larger numeric value is higher; 1-40=CFS, 41-159=RT, >159=system_or_kernel/raw. Observed non-idle task endpoint classes (PID>0 only): " + strings.Join(classes, ", ") + ". PID 0 idle/swapper endpoints are excluded because idle means no runnable task, not priority competition."
 	obs := types.PerfObservation{
 		Authority:  types.PerfObservationAuthorityDeterministicValidator,
 		Kind:       "priority_semantics",
 		Subject:    "HarmonyOS priority semantics",
 		Summary:    summary,
-		Evidence:   "system-derived from attached trace prio fields",
+		Evidence:   "system-derived from attached trace scheduler endpoint pid/prio fields; PID 0 idle/swapper excluded",
 		LineStart:  firstLine,
 		LineEnd:    lastLine,
 		Tags:       append([]string{"harmony_priority"}, classes...),
@@ -416,7 +417,7 @@ func normalizeHarmonyPriorityClaims(b *types.PerfBundle, ctx *types.BusContext, 
 	if len(classes) == 0 {
 		return
 	}
-	summary := "Harmony priority class normalized from raw prio fields: " + strings.Join(classes, ", ") + ". Rule: 数值越大优先级越高; 1-40=CFS, 41-159=RT, >159=system_or_kernel/raw."
+	summary := "Harmony priority class normalized from non-idle scheduler endpoint pid/prio fields (PID>0 only): " + strings.Join(classes, ", ") + ". Rule: 数值越大优先级越高; 1-40=CFS, 41-159=RT, >159=system_or_kernel/raw. PID 0 idle/swapper is excluded because idle is not runnable priority competition."
 	if harmonyPriorityTextContradicts(b.Meta.Summary) {
 		b.Meta.Summary = summary
 	}
@@ -433,7 +434,7 @@ func normalizeHarmonyPriorityClaims(b *types.PerfBundle, ctx *types.BusContext, 
 		obs.Kind = "priority_semantics_normalized"
 		obs.Subject = "HarmonyOS priority semantics"
 		obs.Summary = summary
-		obs.Evidence = "system-normalized conflicting model-authored priority class label; raw event timing remains available in adjacent observations"
+		obs.Evidence = "system-normalized conflicting model-authored priority class label from non-idle scheduler endpoints; raw event timing remains available in adjacent observations"
 		if obs.LineStart == 0 {
 			obs.LineStart = firstLine
 		}
@@ -522,14 +523,7 @@ func harmonyPriorityClassesFromTrace(trace string) ([]string, int, int) {
 	for scanner.Scan() {
 		lineNo++
 		line := scanner.Text()
-		for _, match := range perfTracePrioRE.FindAllStringSubmatch(line, -1) {
-			if len(match) < 2 {
-				continue
-			}
-			var prio int
-			if _, err := fmt.Sscanf(match[1], "%d", &prio); err != nil || prio <= 0 {
-				continue
-			}
+		for _, prio := range perfTraceNonIdlePriorityEndpoints(line) {
 			seen[prio] = true
 			if firstLine == 0 {
 				firstLine = lineNo
@@ -553,6 +547,41 @@ func harmonyPriorityClassesFromTrace(trace string) ([]string, int, int) {
 		classes = append(classes, fmt.Sprintf("prio=%d/%s", prio, harmonyPriorityClass(prio)))
 	}
 	return classes, firstLine, lastLine
+}
+
+func perfTraceNonIdlePriorityEndpoints(line string) []int {
+	eventMatch := perfTraceEventNameRE.FindStringSubmatch(line)
+	if len(eventMatch) < 2 || !strings.HasPrefix(eventMatch[1], "sched_") {
+		return nil
+	}
+	eventName := eventMatch[1]
+	fields := make(map[string]int)
+	for _, match := range perfTraceIntegerFieldRE.FindAllStringSubmatch(line, -1) {
+		if len(match) < 3 {
+			continue
+		}
+		value, err := strconv.Atoi(match[2])
+		if err != nil {
+			continue
+		}
+		fields[match[1]] = value
+	}
+	var priorities []int
+	appendEndpoint := func(pidKey, prioKey string) {
+		pid, pidOK := fields[pidKey]
+		prio, prioOK := fields[prioKey]
+		if !pidOK || !prioOK || pid <= 0 || prio <= 0 {
+			return
+		}
+		priorities = append(priorities, prio)
+	}
+	if eventName == "sched_switch" {
+		appendEndpoint("prev_pid", "prev_prio")
+		appendEndpoint("next_pid", "next_prio")
+		return priorities
+	}
+	appendEndpoint("pid", "prio")
+	return priorities
 }
 
 func harmonyPriorityTextContradicts(text string) bool {

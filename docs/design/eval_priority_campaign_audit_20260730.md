@@ -19817,3 +19817,21 @@ contribution/reconcile。真正的 `compute_contributions`、`reconcile_artifact
 教学副本或关键词门，也没有修改模型答案。Trace 显式时间窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量、两维根因与模型结论所有权均未触碰。
 
 状态：`EVAL-B173-STRICTSEM1=implemented/full-suite-pass`；下一批 `B174-S2=IDLEPRIO1`。
+
+### 123.103 B174-S2：Harmony priority roster 绑定 scheduler endpoint，并排除 PID 0 idle
+
+`EVAL-B173-IDLEPRIO1` 已从裸 `prio` 全行收集改为结构化 scheduler endpoint 绑定：先读取 ftrace 时间戳后的 event-name，只有真实 `sched_*` event 才进入解析；
+`sched_switch` 分别读取 `(prev_pid, prev_prio)` 与 `(next_pid, next_prio)`，其他带目标优先级的 scheduler event 读取 `(pid, prio)`。只有 PID>0 且 prio>0 的完整 pair
+进入 Harmony priority class roster。规则不读取 comm，因此 `idle/N`、`swapper/N` 或其他名字的 PID 0 endpoint 统一排除；namespace 场景中的正 PID 仍按事件字段保留。
+
+这只是 deterministic pre-triage priority observation 的人口修正：原始 sched_switch/wakeup 行、PID 0 idle 区间、CPU idle/busy 账和 trace_query 查询证据均未删除。系统摘要明确披露
+“PID 0 idle/swapper 被排除，因为 idle 表示没有 runnable task，不是优先级竞争者”，避免模型把 `next_prio=120` 叙述成 idle 高优先级干扰。有效证据的 line span 也只由真正纳入
+roster 的非 idle endpoint 行决定。
+
+对抗 pin 覆盖：同一 sched_switch 中 app/worker 正 PID 与 idle/swapper PID 0 的双端分离；PID 0 `sched_waking` 不进入 roster；`tracing_mark_write` payload 即使含
+`sched_* pid=... prio=...` 字样也不能冒充 event。原有 prio=98/120/124 的正 PID wake/switch 语义和冲突纠错测试继续通过。
+
+验证：定向优先级测试全绿；完整 `go test ./internal/tool -count=1` 全绿（165.207s）。本批没有扫描用户请求或最终答案，没有新增答案硬门或系统代写；Trace 显式时间窗、
+因果投影、自动补齐、根因排序、唤醒链、窗内可消除量、实际占时/现规则可消除两轴均保持不变。
+
+状态：`EVAL-B173-IDLEPRIO1=implemented/full-suite-pass`；下一步独立提交推送，然后重建并继续恰好两个异构 eval。
