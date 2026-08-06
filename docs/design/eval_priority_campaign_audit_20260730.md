@@ -18154,3 +18154,42 @@ diagram 答案本身 human PASS；Explorer 为修一条 stale evidence 消耗 6 
 `EVAL-B150-JSONPRED1=implemented/awaiting-diagram-replay`；
 `EVAL-B150-DIAGROUND1=P2/context-richness`；`EVAL-B148-DATASCALARREF1=branch-pin-awaiting-trigger`；
 Trace 显式窗、因果投影、自动补齐、两维根因、根因排序、唤醒链与窗内可消除量=`untouched`。
+
+### 123.39 B151 r67：全集意图已显式化但 reference 排序枚举空实现；机制问题误入全仓源码清单
+
+在 `main@c0c55cc2e` 构建后严格并行恰好两个异构 case：
+
+- `data_multifile_reference_projection`：465s，runner/human FAIL，终态诚实拒绝错误答案 `17,5,0`；
+- `qf_diagram_pipeline`：568s，runner/human PASS，四阶段 Mermaid 与逐阶段职责完整，但探索被无关的全仓 type inventory 放大。
+
+data 回放证明 B150 的三态修复已经完成关键职责：系统只暴露 `targets.csv#records#canonical_label` 软候选，模型/评估器随后依据已经读取的规则材料显式声明
+`complete_reference=true`、reference path/key；typed grounding 也精确指出 slot 2 `GroupX` 应为 0、slot 3 `GroupC` 应为 5。失败来自另一个确定性合同 gap：
+
+1. repair action 已明确发出 `order_by=reference`；
+2. planner 把“参考顺序”教给模型，但执行器只实现 `input|none|stable|metric|value`，其余值全部静默走 `group_key`；
+3. complete-reference 已先投影出 `[GroupA, GroupX, GroupC]`，随后静默 group-key sort 又改成 `[GroupA, GroupC, GroupX]`，故发布 `17,5,0`；
+4. 这不是模型算术波动，而是系统公开 typed enum 与运行语义脱节，且 unknown-value fallback 掩盖了错误。
+
+本批根修 `EVAL-B151-REFORDERENUM1=P0`：resolved complete-reference 下 `order_by=reference` 与 `input` 同义，保留参考表原始行序；未解析 reference 时
+`order_by=reference` 返回 typed `DataActionDependencyError`，不再静默改成 group-key。planner 的枚举清册与限制同步；receipt 发射规范化后的
+`order_by=input + order_preserved=true`。新增 pin 覆盖 `17,0,5` 正向顺序和 unresolved fail-loud。完整
+`go test ./internal/dataquery ./internal/repl -count=1` PASS（2.886s / 32.167s）。
+
+diagram 回放关闭 `EVAL-B150-JSONPRED1` 的产线义务：首个真实 `emit_analysis` 已把九个布尔全部放在唯一 `predicates` 对象内，
+`has_per_member_table=false` 是 typed boolean，零 schema/JSON 重试。最终答案 human PASS，系统未改写模型结论。
+
+同时新立 `EVAL-B151-SRCPROFILEVAR1=P1-efficiency/context-precision`。用户要的是已知四个概念阶段的机制、顺序和职责；Analyzer 已正确声明
+`intent=explain`、`question_kind=mechanism`、四成员 completeness 和 flow diagram，却又错误声明 repo-wide
+`source_inventory_profile(is_source_inventory=true,target_roles=[type])`。这把“概念成员集”误变成“仓库所有 type 声明清单”，导致 42 次 repo_map、41 次
+source-inventory lens、14 次完成尝试、26 次 midloop 注入和 568s 墙钟；四阶段直接证据在早期已齐，仍反复收到
+`role_type_incomplete_count`。最优处置为 Analyzer 软教学澄清：workflow/pipeline 的 bounded conceptual stages/phases/steps 及其职责/流程图走
+mechanism member-set（`entities`/`has_per_member_table`/aggregate member_set），只有主要答案行本身是源码 declarations/constructs 时才声明 source inventory。
+不按用户/答案原文关键词建立硬门，也不削弱真正 `all types/functions/...` 任务的清单完备性；需另批补 prompt pin 并异构回放。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b151_reference_diagram_replay_r67_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b151_reference_diagram_replay_r67_20260805_manual_audit.md`。
+
+状态：`EVAL-B150-REFCANDTRI1=production-triggered/intent-declaration-pass`；
+`EVAL-B151-REFORDERENUM1=implemented/full-dataquery+repl-pass/awaiting-exact2-replay`；
+`EVAL-B150-JSONPRED1=production-replay-closed`；`EVAL-B151-SRCPROFILEVAR1=filed/soft-teaching-next`；
+Trace 显式窗、因果投影、自动补齐、两维根因、根因排序、唤醒链与窗内可消除量=`untouched`。

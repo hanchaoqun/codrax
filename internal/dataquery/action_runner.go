@@ -8661,8 +8661,9 @@ func (r ActionRunner) runAssembleAnswerFromReconcileGroups(action DataAction, re
 	referenceProjected := projectionInfo.Projected
 	valueField := strings.ToLower(strings.TrimSpace(firstNonEmptyString(action.Params["value_field"], "actual")))
 	orderBy := strings.ToLower(strings.TrimSpace(firstNonEmptyString(action.Params["order_by"], "group_key")))
-	if referenceProjected && (orderBy == "" || orderBy == "group_key") {
-		orderBy = "input"
+	orderBy, orderErr := normalizeAssembleAnswerOrder(orderBy, referenceProjected)
+	if orderErr != nil {
+		return DataArtifact{}, "", nil, orderErr
 	}
 	switch orderBy {
 	case "input", "none", "stable":

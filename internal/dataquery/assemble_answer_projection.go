@@ -5,6 +5,24 @@ import (
 	"strings"
 )
 
+func normalizeAssembleAnswerOrder(orderBy string, referenceProjected bool) (string, error) {
+	if referenceProjected && (orderBy == "" || orderBy == "group_key" || orderBy == "reference") {
+		return "input", nil
+	}
+	if orderBy != "reference" {
+		return orderBy, nil
+	}
+	return "", DataActionDependencyError{
+		ActionKind:    DataActionAssembleAnswer,
+		Role:          "reference_order",
+		Operation:     "answer_projection",
+		ExpectedShape: "a resolved complete-reference projection before order_by=reference",
+		ActualSnippet: "reference projection was not resolved",
+		RepairAction:  DataActionAssembleAnswer,
+		Message:       "assemble_answer order_by=reference requires a resolved reference_path/reference_key_field projection",
+	}
+}
+
 func assembleExplicitReferencePaths(action DataAction, contract OutputContract) []string {
 	return cleanStringList(parseActionStringListParam(firstNonEmptyString(
 		action.Params["reference_paths"],

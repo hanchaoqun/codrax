@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -88,6 +89,52 @@ func TestAssembleAnswerExplicitReferencePairActivatesProjection(t *testing.T) {
 	}
 	if projectionGroups != 1 {
 		t.Fatalf("reconcile groups=%+v, want exactly one fresh final projection group", res.Reconcile.Groups)
+	}
+}
+
+func TestAssembleAnswerReferenceOrderAliasPreservesResolvedReferenceOrder(t *testing.T) {
+	root := writeAssembleReferenceAuthorityFixture(t)
+	res, err := (ActionRunner{RepoRoot: root, Seed: assembleReferenceAuthoritySeed()}).Run(context.Background(), TaskPlan{
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false, Delimiter: ","},
+		Actions: []DataAction{{
+			ID:         "repair_answer",
+			Kind:       DataActionAssembleAnswer,
+			InputPaths: []string{"reconcile_result", "targets.csv"},
+			Params: map[string]string{
+				"projection":          "values",
+				"order_by":            "reference",
+				"delimiter":           ",",
+				"reference_path":      "targets.csv",
+				"reference_key_field": "canonical_label",
+				"metric":              "total_value",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != "17,0,5" {
+		t.Fatalf("Answer=%q, want reference-order alias to preserve GroupA,GroupX,GroupC", res.Answer)
+	}
+	artifact := res.Artifacts[len(res.Artifacts)-1]
+	if artifact.Fields["order_by"] != "input" || artifact.Fields["order_preserved"] != "true" {
+		t.Fatalf("artifact fields=%+v, want normalized reference-order receipt", artifact.Fields)
+	}
+}
+
+func TestAssembleAnswerReferenceOrderRejectsUnresolvedReference(t *testing.T) {
+	seed := Result{Reconcile: &ReconcileReport{Status: LooseText("pass"), Groups: []ReconcileGroup{{
+		GroupKey: LooseText("A"), Metric: LooseText("amount"), Expected: LooseText("1"), Actual: LooseText("1"), Difference: LooseText("0"),
+	}}}}
+	_, err := (ActionRunner{Seed: seed}).Run(context.Background(), TaskPlan{
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Actions: []DataAction{{Kind: DataActionAssembleAnswer, Params: map[string]string{
+			"projection": "values",
+			"order_by":   "reference",
+		}}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "order_by=reference requires") {
+		t.Fatalf("err=%v, want unresolved reference order to fail loud", err)
 	}
 }
 
