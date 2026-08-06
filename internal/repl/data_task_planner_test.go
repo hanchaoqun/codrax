@@ -2994,6 +2994,60 @@ func TestDataTaskActionsToPlanPreservesStructuredParams(t *testing.T) {
 	}
 }
 
+func TestDataTaskActionsToPlanNormalizesUnambiguousOutputArtifactCarrier(t *testing.T) {
+	actions := dataTaskActionsToPlan([]dataTaskActionDraft{
+		{
+			ID:   "nested_only",
+			Kind: "filter_records",
+			Params: map[string]any{
+				"output_artifact": "nested.json",
+				"filter_field":    "active",
+			},
+		},
+		{
+			ID:             "identical_duplicate",
+			Kind:           "filter_records",
+			OutputArtifact: "same.json",
+			Params: map[string]any{
+				"output_artifact": " same.json ",
+				"filter_field":    "active",
+			},
+		},
+		{
+			ID:             "conflict",
+			Kind:           "filter_records",
+			OutputArtifact: "top.json",
+			Params: map[string]any{
+				"output_artifact": "nested.json",
+				"filter_field":    "active",
+			},
+		},
+	})
+	if len(actions) != 3 {
+		t.Fatalf("actions=%+v, want three actions", actions)
+	}
+	if actions[0].OutputArtifact != "nested.json" {
+		t.Fatalf("nested-only action=%+v, want schema field promotion", actions[0])
+	}
+	if _, ok := actions[0].Params["output_artifact"]; ok {
+		t.Fatalf("nested-only params=%+v, promoted carrier must be removed", actions[0].Params)
+	}
+	if actions[1].OutputArtifact != "same.json" {
+		t.Fatalf("duplicate action=%+v, want top-level carrier preserved", actions[1])
+	}
+	if _, ok := actions[1].Params["output_artifact"]; ok {
+		t.Fatalf("duplicate params=%+v, equivalent nested copy must be removed", actions[1].Params)
+	}
+	if actions[2].OutputArtifact != "top.json" || actions[2].Params["output_artifact"] != "nested.json" {
+		t.Fatalf("conflict action=%+v, conflicting values must remain visible for fail-closed validation", actions[2])
+	}
+	for _, action := range actions {
+		if action.Params["filter_field"] != "active" {
+			t.Fatalf("action=%+v, unrelated params must be preserved", action)
+		}
+	}
+}
+
 func TestDataTaskPlannerRepairsMalformedToolParams(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{

@@ -1633,6 +1633,10 @@ func dataTaskActionsToPlan(in []dataTaskActionDraft) []dataquery.DataAction {
 			params[k] = value
 		}
 		params = normalizeDataTaskActionParamAliases(params)
+		outputArtifact, params := normalizeDataTaskActionOutputArtifactCarrier(
+			strings.TrimSpace(string(action.OutputArtifact)),
+			params,
+		)
 		id := strings.TrimSpace(string(action.ID))
 		if id == "" {
 			id = fmt.Sprintf("action_%d", i+1)
@@ -1642,13 +1646,36 @@ func dataTaskActionsToPlan(in []dataTaskActionDraft) []dataquery.DataAction {
 			Kind:            dataquery.DataActionKind(kind),
 			Purpose:         strings.TrimSpace(string(action.Purpose)),
 			InputPaths:      cleanPolicyStringList([]string(action.InputPaths)),
-			OutputArtifact:  strings.TrimSpace(string(action.OutputArtifact)),
+			OutputArtifact:  outputArtifact,
 			Script:          strings.TrimSpace(string(action.Script)),
 			Params:          params,
 			SuccessCriteria: cleanPolicyStringList([]string(action.SuccessCriteria)),
 		})
 	}
 	return out
+}
+
+// normalizeDataTaskActionOutputArtifactCarrier repairs one schema-level field
+// that models occasionally duplicate inside params. It only acts when the
+// value is unambiguous. Conflicting declarations remain in params so the
+// executor's unknown-parameter contract rejects them instead of guessing.
+func normalizeDataTaskActionOutputArtifactCarrier(outputArtifact string, params map[string]string) (string, map[string]string) {
+	outputArtifact = strings.TrimSpace(outputArtifact)
+	nested, ok := params["output_artifact"]
+	if !ok {
+		return outputArtifact, params
+	}
+	nested = strings.TrimSpace(nested)
+	switch {
+	case nested == "":
+		delete(params, "output_artifact")
+	case outputArtifact == "":
+		outputArtifact = nested
+		delete(params, "output_artifact")
+	case outputArtifact == nested:
+		delete(params, "output_artifact")
+	}
+	return outputArtifact, params
 }
 
 func dataTaskActionParamString(v any) string {

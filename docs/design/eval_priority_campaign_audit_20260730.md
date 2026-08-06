@@ -19888,3 +19888,18 @@ candidate-derived 安全模式。
 硬门，也没有修改最终答案。Trace 显式时间窗、因果投影、系统补齐、根因排序、唤醒链、窗内可消除量、两维根因与模型结论所有权均未触碰。
 
 状态：`EVAL-B174-MATMODE1=implemented/full-suite-pass`；下一批 `B175-S2=ACTIONCARRIER1`。
+
+### 123.106 B175-S2：`output_artifact` schema carrier 无歧义归位
+
+`EVAL-B174-ACTIONCARRIER1` 已在 model draft → typed `DataAction` 的唯一边界收敛。`output_artifact` 本来是 action 顶层 schema 字段，不是任一 typed executor 的
+业务参数；现在仅对该精确键执行三态归一化：顶层为空且 nested 非空时提升到顶层；顶层与 nested trim 后字节相同时保留顶层并删除副本；两者不同时不做猜测，nested
+声明继续留在 params，由既有 action-param contract 以 unsupported parameter fail-closed。
+
+该处理不扩展到任意 unknown param，不做别名/相似度推断，也不扫描模型解释文本。`filters` 等已有结构参数继续经过原 alias normalizer，其他参数逐字保持。因而这是对 schema
+层级漂移的可证明无损修复，不是放松执行器合同；真正矛盾的两个输出名仍不能悄悄选边。
+
+回归 pin 覆盖 nested-only 提升、相同双载体去重、冲突双载体保留，以及三种情况下无关 `filter_field` 均不变。验证：定向 `TestDataTaskActionsToPlan*` 全绿；完整
+`go test ./internal/repl -count=1` 全绿（30.780s）。没有新增 JSON 教学副本或答案修饰器；Trace 显式窗、因果投影、系统补齐、根因排序、唤醒链、可消除量、两维根因和
+模型结论所有权均未触碰。
+
+状态：`EVAL-B174-ACTIONCARRIER1=implemented/full-suite-pass`；下一批 `B175-S3=EVALMIXTABLE1`。
