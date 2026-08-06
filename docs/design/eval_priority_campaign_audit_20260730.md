@@ -18587,3 +18587,55 @@ witness；full/patch/quarantine 反射 parity pin 仍是该项的直接闭环证
 `go test ./internal/tool -count=1` 全量 PASS（168.864s）。
 
 状态：`EVAL-B157-CITMONO1=implemented/full-tool-pass`；`EVAL-B157-EVSPAN1=soft-teaching-implemented/full-tool-pass`；等待 exact-2 生产回放。
+
+### 123.55 B158 r74：引用修复不再越权；歧义 support refs 让模型自行选弱；operation 两数组被无损修复
+
+在 `main@48e549aaa` 构建后严格并行恰好两个异构 case：
+
+- `qf_diagram_pipeline`：155s，runner PASS / human PARTIAL；
+- `operation_system_inventory`：46s，runner/human PASS。
+
+diagram 的四阶段顺序、职责、Mermaid 和 precedence edge 均正确，零 Finalizer reject；本轮唯一 pre-emit mechanical repair 是 diagram edge metadata，模型选择的
+四条 citation 没有被 candidate-role/unique-label normalizer 重绑。因此 `EVAL-B157-CITMONO1` 完成生产闭环，系统不再把模型有效引用替换成其他候选。
+
+但 Explorer 的 completion JSON 给 4 个 members 发了 8 个裸 positional `support_refs`：先是四个 enums identity 行，再是四个 StageBinding responsibility 行。
+positional carrier 本应一成员一 ref；现有容错无法无歧义判断这是“两批平行引用”还是 extra refs，只能保留前四个位置，最终模型也选择了 enums 行。正文职责来自完整 typed context，
+但引用只证明 stage 名称。记 `EVAL-B158-SUPPREFMULTI1=P1-context-precision/json-cognitive-load`。不能由系统猜第二批更强并替模型改引；最优方案是把 completion 决策压缩为：
+恰好一成员一 ref，选择证明对应 member_note 的 bounded span，禁止追加第二批裸 refs。
+
+同时，B157 evidence span 教学仍未生产收敛：Explorer 发射 StageBinding 时把多行 snippet 和跨行职责 summary 放在 `scope=line` 的 entry identity 行上。工具合同已限制
+entailment，但模型仍未选择 `line_range`，记 `EVAL-B157-EVSPAN1=partial-replay`，继续软教学，不建立 summary/citation 文本相似度硬门。答案里还出现“Explore 是耗时最长
+环节”，没有 typed timing measurement，属于一个模型越界 witness；先观察异构复现，不扫描最终 prose 写特例。
+
+operation 四条只读命令全部成功：macOS 26.5.2、18 核、137438953472 bytes=128 GiB、Apple M5 Max 40 核，完整 payload 与最终答案一致，零重试、零答案丢失。
+Planner 首个 tool call 却把 `missing_observations`、`success_criteria` 两个 array 字段各写成 scalar string，兼容层以 singleton-array 可证明无损修复。记
+`EVAL-B158-OPJSONARRAY1=P2-efficiency`；无需移除兼容恢复，只需在 operation planner 前置短 JSON shape 规则。另记
+`EVAL-B158-OPJSONMETRIC1=P2-observability`：selected summary 的 repair=0 不包含 operation tool-param compatibility repair，人工审计不能据此宣称零 JSON repair。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b158_diagram_operation_r74_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b158_diagram_operation_r74_20260805_manual_audit.md`。
+
+状态：`EVAL-B157-CITMONO1=production-replay-closed`；`EVAL-B157-EVSPAN1=partial-replay`；
+`EVAL-B158-SUPPREFMULTI1=confirmed/soft-teaching-next`；`EVAL-B158-OPJSONARRAY1=confirmed/soft-teaching-next`；
+`EVAL-B158-OPJSONMETRIC1=filed-P2`；Trace 全能力与模型结论所有权=`untouched`。
+
+### 123.56 B158-S1：把 support-ref 与 operation array 选择压成两个先决策
+
+本批只修改模型教学，不改变 schema、compat recovery、citation normalizer、答案文本或任何 hard validator：
+
+1. Explorer completion handoff 新增 `SUPPORT REF DECISION FIRST`：current-source positional member-set 必须
+   `len(support_refs)==len(members)`，每个 `support_refs[i]` 选能证明 `member_notes[i]` 的有界 span；behavior/responsibility note 不得只引用 identity declaration；
+   禁止追加第二批裸 refs，确需非位置映射才使用 labeled ref；
+2. `emit_investigation_complete` schema description 复用同一决策，避免 prompt 与 tool schema 各说一套。保持现有 tolerant normalization，因为历史 carrier 和 labeled extra
+   ref 仍可能合法；本批不把软教学升级为新增拒绝；
+3. operation planner 的 hard-rules 首行增加 `JSON SHAPE FIRST`：`missing_observations` 与 `success_criteria` 即便只有一个元素也是 string array，空时发 `[]`，
+   禁止 scalar string。现有 singleton-array 可证明无损恢复仍保留，用于旧模型/偶发输出；
+4. 三项均是 schema/typed carrier 教学，不扫描用户、reasoning 或最终答案文本，不影响 read/write/data/Trace 路由和模型结论所有权。
+
+定向 prompt/schema pin PASS。第一次 `internal/tool` 全量回归由既有结构 pin 拦下：schema 改写时删掉了历史兼容措辞
+`one already-read grounded location per members[] entry`；该措辞与新的一对一决策不矛盾，已合并恢复，未通过改测试放行。恢复后定向 pin PASS（1.276s）；
+`go test ./internal/agent -count=1` PASS（3.679s），`go test ./internal/repl -count=1` PASS（35.896s），
+`go test ./internal/tool -count=1` 全量 PASS（172.865s）。
+
+状态：`EVAL-B158-SUPPREFMULTI1=soft-teaching-implemented/full-suite-pass`；
+`EVAL-B158-OPJSONARRAY1=soft-teaching-implemented/full-suite-pass`；等待异构 exact-2 回放。
