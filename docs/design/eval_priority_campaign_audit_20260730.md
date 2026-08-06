@@ -18996,3 +18996,39 @@ source-static 门只作没有更具体 proof verdict 时的兜底。第二次
 状态：`EVAL-B164-PLANJSONARRAY1=implemented/full-affected-suite-pass`；`EVAL-B164-STATICNOPROBE1=implemented/full-write-state-suite-pass`；
 下一轮 exact-2 必须同时人工检查 planner 首次 tool-call、是否保留 probe/acceptance intent、changed-path 执行能力与最终 proof 强度；
 Trace 显式窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量、双维根因与模型结论所有权=`untouched`。
+
+### 123.71 B165 r81：JSON 生产闭环；post-image 保护误判与关系权限交接丢失
+
+在 `main@c2e642efa` 重建二进制后，严格并行 2 个异构用例：
+
+- `github_issue_chrono_duration_min_symptom`：903s，runner/human FAIL，`plan_not_written/apply_not_run`；
+- `real_trace_d4_demand_vs_supply`：212s，runner PASS / human FAIL。
+
+JSON 批本身获得生产正证：Rust Planner 两次 `emit_change_plan` 都直接发出原生 `changes[]`、`acceptance_tests[]`、`verification_probes[]`，
+`strict_decode_remap_events=0`、`strict_decode_carrier_events=0`、`strict_decode_element_shape_events=0`。没有再出现 string carrier、没有因 repair 删除
+probe；`EVAL-B164-PLANJSONARRAY1` 关闭生产回放。
+
+Rust 失败暴露 `EVAL-B165-TESTPOSTIMAGE1=P0/typed-post-image-contract`。第二次 ChangePlan 对 7 行 `tests/duration_min.rs` 做结构化 replace，
+新内容逐字保留原 import、测试函数和 `assert!(min.checked_sub(...).is_some())`，只在后面追加三个边界测试；现有
+`removedLinesFromStructuredEdits` 却把 replace 范围内所有旧行一律当删除，不与 `edit.Content`/编译后 patch 的新增行抵消。controller 因此误发
+“weakened protected regression test contract”，启动不必要 replan；第三次规划在 900s write wall-time 到达时仍未产出计划。最优解不是放松保护门，
+而是让精确信号从 operation-shape 的“出现 `-`”升级为 post-image 的“受保护行多重集是否仍存在”：structured edit、unified diff、full modify 三形同一语义；
+真实删除/改写继续 fail-closed。
+
+Trace 主结论正确且能力完整：模型明确判断需求侧等待；窗口状态分区为 running 26.946 + runnable 3.636 + sleep 84.358 + D/io 0 =
+114.940ms；系统追加的主要占用/关键路径轴、窗内可消除量轴和 `trace-causal-projection` 都在，算力折算 10.331ms 被正确降为次要候选。
+但答案两次进行了无权限跨席相加：将 23.994 与 19.041 说成约 43ms，又将 ThreadPoolForeg 10.433/7.386/6.673 说成约 24.5ms。
+查询文本已在 preview 后明确发布 `fix_direction role=repair_classification_only same_direction_addition=not_authorized_without_exact_typed_subtotal`，
+说明计算层不缺权限事实；Explorer 的 `aggregate_facts` 只携带标量，Finalizer 看见多个数值但没有相应负权限。登记
+`EVAL-B165-RELHANDOFF1=P1/typed-relation-context-projection`：应把与最终所选标量相邻的 typed 加法权限一起投影到成文上下文，以软教学/结构事实阻止
+模型误加；不得扫描用户题面或答案 prose，更不得系统改写模型结论。
+
+另登记 `EVAL-B165-CROSSPROBE1=P1/audit-needed`：Planner 为 Rust 生产路径提交 Go/Python 复制实现的模拟 probe，规划期 `run_tests` 可显示 passed 并跳过
+project suite hard gate；B164-S1 的终态 changed-path capability 门已阻止它最终签绿，所以这是认知/耗时 GAP 而不是当前 authority 漏口。需继续审计
+现有 typed language/path binding 后再决定通用准入，禁止按 Rust 单题关键词拟合。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b165_json_trace_replay_r81_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b165_json_trace_replay_r81_20260805_manual_audit.md`。
+
+施工顺序冻结：B165-S1=`TESTPOSTIMAGE1`；B165-S2=`RELHANDOFF1`；B165-S3=`CROSSPROBE1` 审计后裁定；每批独立测试、提交、推送。
+Trace 显式窗/自动补齐/根因排序/唤醒链/可消除量值通道=`preserved`；模型结论所有权=`preserved`；禁止 raw prose hard gate=`preserved`。
