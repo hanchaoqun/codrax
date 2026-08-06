@@ -23,7 +23,8 @@ type TestSurfaceCandidate struct {
 	// Runner is one of the run_tests whitelist runner identifiers.
 	Runner string `json:"runner"`
 
-	// Framework refines runner=python (pytest | unittest); empty otherwise.
+	// Framework refines a runner's execution protocol (for example Python
+	// pytest/unittest or Java direct_main); empty when no refinement is needed.
 	Framework string `json:"framework,omitempty"`
 
 	// WorkingDir is the candidate root relative to the verification repo

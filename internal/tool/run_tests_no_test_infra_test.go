@@ -3053,6 +3053,130 @@ func TestRunTestsStaticMakePassEscalatesToSameRootNodeBehaviorSurface(t *testing
 	}
 }
 
+func TestRunTestsManifestlessJavaMainProvidesTypedBehaviorCoverage(t *testing.T) {
+	fakeBin := t.TempDir()
+	for name, script := range map[string]string{
+		"javac": "#!/bin/sh\necho compiled\nexit 0\n",
+		"java":  "#!/bin/sh\necho java-main-passed\nexit 0\n",
+	} {
+		if err := os.WriteFile(filepath.Join(fakeBin, name), []byte(script), 0o755); err != nil {
+			t.Fatalf("write fake %s: %v", name, err)
+		}
+	}
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "src", "main", "java", "example"), 0o755); err != nil {
+		t.Fatalf("mkdir production: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "src", "test", "java", "example"), 0o755); err != nil {
+		t.Fatalf("mkdir tests: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src", "main", "java", "example", "Widget.java"), []byte(`package example;
+public class Widget { public static int value() { return 42; } }
+`), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src", "test", "java", "example", "WidgetTest.java"), []byte(`package example;
+public class WidgetTest {
+    public static void main(String[] args) {
+        if (Widget.value() != 42) throw new AssertionError("bad value");
+    }
+}
+`), 0o644); err != nil {
+		t.Fatalf("write test: %v", err)
+	}
+
+	mu := types.NewMutableState("manifestless Java direct behavior")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-manifestless-java",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"src/main/java/example/Widget.java"},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	report := mu.ChangeReport()
+	if !result.Success || report == nil || !report.Passed ||
+		report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
+		t.Fatalf("direct Java main verification should pass: result=%+v report=%+v", result, report)
+	}
+	var sawCompile, sawMain bool
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Runner != "java" || cmd.Framework != javaFrameworkDirectMain {
+			continue
+		}
+		if cmd.Outcome == "syntax_preflight" && strings.HasPrefix(cmd.Command, "javac ") {
+			sawCompile = true
+		}
+		if cmd.Outcome == "executed" && strings.HasPrefix(cmd.Command, "java -ea example.WidgetTest") {
+			sawMain = true
+		}
+	}
+	if !sawCompile || !sawMain {
+		t.Fatalf("expected bounded compile and executable main evidence: %+v", report.ExecutedCommands)
+	}
+	if len(report.ChangedPathCoverage) != 1 ||
+		report.ChangedPathCoverage[0].Status != types.ChangedPathVerificationCovered ||
+		report.ChangedPathCoverage[0].Capability != types.VerificationCapabilityTargetBehavior {
+		t.Fatalf("Java main execution must grant typed behavior coverage: %+v", report.ChangedPathCoverage)
+	}
+}
+
+func TestRunTestsManifestlessJavaRunnerMissingIsNotPass(t *testing.T) {
+	fakeBin := t.TempDir()
+	t.Setenv("PATH", fakeBin)
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "Widget.java"), []byte("class Widget {}\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "WidgetTest.java"), []byte(`public class WidgetTest {
+    public static void main(String[] args) {}
+}
+`), 0o644); err != nil {
+		t.Fatalf("write test: %v", err)
+	}
+
+	mu := types.NewMutableState("manifestless Java without JDK")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-manifestless-java-runner-missing",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"Widget.java"},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	report := mu.ChangeReport()
+	if result.Success || report == nil || report.Passed || report.FailureKind != types.FailureKindRunnerMissing {
+		t.Fatalf("missing javac must remain typed unavailable, never false PASS: result=%+v report=%+v", result, report)
+	}
+	var sawMissing bool
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Runner == "java" && cmd.Framework == javaFrameworkDirectMain && cmd.Outcome == "runner_missing" {
+			sawMissing = true
+		}
+	}
+	if !sawMissing {
+		t.Fatalf("missing runtime provenance absent: %+v", report.ExecutedCommands)
+	}
+}
+
 func TestRunTestsCrossLanguageExactPathProbeDoesNotPreemptTypedProjectSurface(t *testing.T) {
 	if _, err := exec.LookPath("make"); err != nil {
 		t.Skip("make not on PATH; skip")

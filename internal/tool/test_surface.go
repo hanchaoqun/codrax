@@ -30,7 +30,35 @@ func BuildTestSurface(repoRoot, walkRoot string) types.TestSurface {
 		surface.Candidates = append(surface.Candidates, testSurfaceCandidateForPlan(repoRoot, plan))
 	}
 	surface.Candidates = appendSyntheticPythonCandidates(repoRoot, surface.Candidates)
+	surface.Candidates = appendSyntheticJavaDirectCandidates(repoRoot, surface.Candidates)
 	return types.NormalizeTestSurface(surface)
+}
+
+// appendSyntheticJavaDirectCandidates exposes a bounded executable surface for
+// small Java repositories which intentionally have no Maven/Gradle manifest
+// but do contain convention-named test classes with a main method. The source
+// scanner only discovers argv inputs; it never consumes task/model prose.
+func appendSyntheticJavaDirectCandidates(repoRoot string, cands []types.TestSurfaceCandidate) []types.TestSurfaceCandidate {
+	for _, cand := range cands {
+		if cand.Runner == "java" {
+			return cands
+		}
+	}
+	surface := discoverManifestlessJavaMainSurface(repoRoot)
+	if len(surface.TestMainClasses) == 0 || len(surface.SourcePaths) == 0 {
+		return cands
+	}
+	plan := runnerPlan{
+		Runner:    "java",
+		Root:      repoRoot,
+		Manifest:  "test-file convention",
+		Priority:  15,
+		Framework: javaFrameworkDirectMain,
+	}
+	cand := testSurfaceCandidateForPlan(repoRoot, plan)
+	cand.HasTestSignal = true
+	cands = append(cands, cand)
+	return cands
 }
 
 // appendSyntheticPythonCandidates closes two typed gaps the manifest walk

@@ -19664,3 +19664,41 @@ verification-probe Java runtime 和 changed-path capability 单源复用，避�
 Trace 时间窗/因果投影/自动补齐能力。
 
 状态：`EVAL-B171-EVALGROUP1=implemented/saved-artifact+runner-contract-pass`；`EVAL-B171-JAVADIRECT1=P1/next-verification-batch`。
+
+### 123.97 B172-S1：无 manifest Java 的可执行测试入口进入 typed TestSurface
+
+`EVAL-B171-JAVADIRECT1` 已按“结构化能力发现、真实执行才授予行为权威”落地：
+
+1. `BuildTestSurface` 新增 Java `direct_main` 候选，但只在全仓没有 Maven/Gradle Java candidate、源码规模处于有界清册内、且约定测试文件的顶层同名类中存在
+   真实 `public static void main(String[]/String.../String args[])` 时生成；文件名、注释里的示例 main、字符串/text block、嵌套类 main 均不能铸造候选；
+2. 发现器最多接受 256 个 Java 源文件、32 个可执行测试 main、单文件 256KiB。任一清册越界即不合成 direct candidate，而不是截断后用部分执行冒充完整行为验证；
+3. 执行器不用 shell、不消费 request/acceptance/model/final prose。它以 argv 调 `javac -encoding UTF-8 -d <private-dir> <bounded-source-roster>`，再逐个
+   `java -ea -cp <private-dir> <typed-main-class>`；class 输出放在仓库 `.codrax/tmp/verification-probes` 的私有临时目录并无条件删除；
+4. `javac` 成功只记 `syntax_preflight`，至少一个测试 main 真实成功才产生 `executed` 行并取得 Java `target_behavior` coverage。编译失败、测试失败、超时、OOM、
+   CPU limit、`javac/java` 缺失均沿用既有 typed failure；JDK 缺失明确为 `runner_missing`，不能假绿，也不能据此猜改生产代码；
+5. `java/direct_main@.` 贯通候选 ID、日志标题、ExecutedCommand.framework 与显示命令，避免和 Maven/Gradle Java 面混在一起。已有任意 Java manifest candidate
+   时不再建立第二套 synthetic Java 面，继续由项目构建系统负责 classpath 与测试协议。
+
+JSON 教学与畸形 JSON 恢复链本批零改动：projected schema 仍是字段唯一权威；无损修复、visible-string salvage、显式 degraded disclosure 与模型答案所有权保持；
+没有增加用户原文/模型输出关键词硬门。Trace 显式时间窗、因果投影、系统自动补齐、根因排序、唤醒链、窗内可消除量和两维根因全部未触碰。
+
+Pin 覆盖：正向 manifestless/package main、comment/nested-main 负例、manifest 抑制 synthetic 面、fake `javac/java` 真执行授予行为 coverage、缺失 JDK typed
+失败不假绿。定向 tests PASS；完整受影响套件见本批提交前验证记录。
+
+状态：`EVAL-B171-JAVADIRECT1=implemented/targeted-pass/full-affected-suite-pass`；`go test ./internal/types -count=1`（19.689s）与
+`go test ./internal/tool -count=1`（167.632s）全绿。下一步独立提交推送，然后进入下一组恰好两个异构 eval。
+
+### 123.98 B172-S0：Trace aggregate handoff 的 producer-family 基线红灯
+
+B172 完整套件先捕获一条确定性基线红灯：B171-S2 新增的 `traceDecisionTypedAggregateFacts` 直接比较
+`record.Producer == "trace_query"`，绕过项目既有 producer-family chokepoint。因此第一轮查询的 `trace_query` 可交接窗口 pressure，后续
+`trace_query:run2`/`:runN` 即使携带完全相同的 hard-grounded typed aggregate，也会静默消失；`TestProducerPrecedenceNotReimplementedInline`
+按设计拦截了该分叉。
+
+修复改为复用 `types.RuntimeObservationProducerIsDeterministicQuery`，并把 4340 score 回归记录设为 `trace_query:run2`，确认两个 aggregate 均进入
+prompt-only `typed_window_aggregate_context`。该修改不扩大 producer 家族、不读取 prose、不把 background aggregate 放进投影或根因人口；只让同一 typed
+事实跨多轮 producer suffix 保持一致。
+
+验证：producer chokepoint lint 与 aggregate handoff 定向测试全绿；修复已独立提交并推送为 `a55cdec18`。
+
+状态：`EVAL-B172-TRACEPRODFAMILY1=implemented/pushed`；Trace 可见投影与模型结论所有权=`unchanged`。

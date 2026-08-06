@@ -114,6 +114,97 @@ func TestBuildTestSurface_TestWorkOutranksManifestPriority(t *testing.T) {
 	}
 }
 
+func TestBuildTestSurface_ManifestlessJavaMainIsTypedBehaviorCandidate(t *testing.T) {
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "src/main/java/example/Widget.java", `package example;
+public class Widget { public static int value() { return 42; } }
+`)
+	writeSurfaceFile(t, root, "src/test/java/example/WidgetTest.java", `package example;
+public class WidgetTest {
+    public static void main(String[] args) {
+        if (Widget.value() != 42) throw new AssertionError("bad value");
+    }
+}
+`)
+
+	surface := BuildTestSurface(root, "")
+	java := surfaceCandidate(t, surface, "java")
+	if java.Framework != javaFrameworkDirectMain || !java.HasTestSignal {
+		t.Fatalf("manifestless executable Java test must be typed behavior work: %+v", java)
+	}
+	if java.ID != "java/direct_main@." || surface.SelectedID != java.ID {
+		t.Fatalf("direct Java surface identity/selection mismatch: surface=%+v java=%+v", surface, java)
+	}
+	if !strings.Contains(java.Command, "javac <manifestless-java-main-sources>") {
+		t.Fatalf("direct Java audit command missing: %+v", java)
+	}
+}
+
+func TestBuildTestSurface_ManifestlessJavaDoesNotMintFromCommentOrNestedMain(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{
+			name: "comment",
+			body: `public class WidgetTest {
+    // public static void main(String[] args) {}
+    public void check() {}
+}`,
+		},
+		{
+			name: "nested class",
+			body: `public class WidgetTest {
+    static class Nested {
+        public static void main(String[] args) {}
+    }
+}`,
+		},
+		{
+			name: "matching name nested under another class",
+			body: `class Outer {
+    static class WidgetTest {
+        public static void main(String[] args) {}
+    }
+}`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeSurfaceFile(t, root, "Widget.java", "class Widget {}\n")
+			writeSurfaceFile(t, root, "WidgetTest.java", tc.body+"\n")
+			for _, cand := range BuildTestSurface(root, "").Candidates {
+				if cand.Runner == "java" && cand.Framework == javaFrameworkDirectMain {
+					t.Fatalf("non-executable outer test must not mint direct Java surface: %+v", cand)
+				}
+			}
+		})
+	}
+}
+
+func TestBuildTestSurface_JavaManifestSuppressesSyntheticDirectCandidate(t *testing.T) {
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "pom.xml", "<project/>\n")
+	writeSurfaceFile(t, root, "src/test/java/WidgetTest.java", `public class WidgetTest {
+    public static void main(String args[]) {}
+}`+"\n")
+
+	surface := BuildTestSurface(root, "")
+	var javaCount int
+	for _, cand := range surface.Candidates {
+		if cand.Runner != "java" {
+			continue
+		}
+		javaCount++
+		if cand.Framework == javaFrameworkDirectMain {
+			t.Fatalf("manifest-backed Java surface must suppress synthetic candidate: %+v", surface.Candidates)
+		}
+	}
+	if javaCount != 1 {
+		t.Fatalf("expected one manifest-backed Java candidate, got %+v", surface.Candidates)
+	}
+}
+
 func TestBuildTestSurface_MakeCarriesExactDeclaredCrossLanguageInputs(t *testing.T) {
 	root := t.TempDir()
 	writeSurfaceFile(t, root, "Makefile", "check: src/types/list.rs src/types/tuple.rs tests/iterators.rs\n\tpython3 tests/check_iterators.py\n")

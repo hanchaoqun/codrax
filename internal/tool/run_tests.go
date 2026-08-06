@@ -182,6 +182,7 @@ const (
 	pythonFrameworkUnittest = "unittest"
 	pythonFrameworkDjango   = "django"
 	nodeFrameworkExitStatus = "npm_script_exit_status"
+	javaFrameworkDirectMain = "direct_main"
 )
 
 // allowedRunnerList returns the sorted runner whitelist for prompt /
@@ -762,6 +763,19 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				})
 				continue
 			}
+		}
+
+		if runner == "java" && plan.Framework == javaFrameworkDirectMain {
+			direct := runManifestlessJavaMainTests(ctx, plan, planSourceFor(plan))
+			executedCmds = append(executedCmds, direct.Commands...)
+			combinedOutputs = append(combinedOutputs, renderRunnerOutputSection(plan, direct.Output))
+			projectReports = append(projectReports, qualifyChangeReport(direct.Report, plan, ctx.RepoRoot))
+			if direct.Report != nil && direct.Report.FailureKind == types.FailureKindRunnerMissing {
+				if next := escalateToSurfaceCandidate("runner_missing_escalation"); next != nil {
+					plans = append(plans, *next)
+				}
+			}
+			continue
 		}
 
 		// Pre-flight: when the runner has nothing to run, don't run it.
@@ -2464,7 +2478,7 @@ func runnerPlanRel(repoRoot string, plan runnerPlan) string {
 
 func runnerPlanLabel(repoRoot string, plan runnerPlan) string {
 	runner := plan.Runner
-	if plan.Runner == "python" && strings.TrimSpace(plan.Framework) != "" {
+	if (plan.Runner == "python" || plan.Runner == "java") && strings.TrimSpace(plan.Framework) != "" {
 		runner += "/" + strings.TrimSpace(plan.Framework)
 	}
 	return fmt.Sprintf("%s@%s", runner, runnerPlanRel(repoRoot, plan))
@@ -2473,7 +2487,7 @@ func runnerPlanLabel(repoRoot string, plan runnerPlan) string {
 func renderRunnerOutputSection(plan runnerPlan, output string) string {
 	var b strings.Builder
 	runner := plan.Runner
-	if plan.Runner == "python" && strings.TrimSpace(plan.Framework) != "" {
+	if (plan.Runner == "python" || plan.Runner == "java") && strings.TrimSpace(plan.Framework) != "" {
 		runner += "/" + strings.TrimSpace(plan.Framework)
 	}
 	fmt.Fprintf(&b, "### %s (%s)\n", runner, filepath.ToSlash(plan.Root))
@@ -3738,6 +3752,9 @@ func runnerPrimaryBinary(runner string) string {
 }
 
 func runnerPrimaryBinaryForPlan(plan runnerPlan) string {
+	if plan.Runner == "java" && plan.Framework == javaFrameworkDirectMain {
+		return "javac"
+	}
 	if plan.Runner == "python" && (plan.Framework == pythonFrameworkUnittest || plan.Framework == pythonFrameworkDjango) {
 		return "python"
 	}
@@ -6572,6 +6589,11 @@ func buildRunCommandWithFramework(runner, framework, suite, repoRoot, mainRoot s
 		}
 		return fmt.Sprintf("swift test --filter %q", filter), ""
 	case "java":
+		if framework == javaFrameworkDirectMain {
+			// Execution is argv-based in runManifestlessJavaMainTests;
+			// this string is a non-executable inventory description only.
+			return "javac <manifestless-java-main-sources> && java -ea <manifestless-java-main-test>", ""
+		}
 		// Maven + Gradle both write JUnit XML to a fixed
 		// subdirectory; the parser's post-exec hook walks those
 		// dirs regardless of which tool ran. The "extraFile"
