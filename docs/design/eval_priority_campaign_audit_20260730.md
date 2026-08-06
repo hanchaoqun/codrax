@@ -18897,3 +18897,30 @@ prompt 与 tool description 同源且前置。定向测试全绿；最终
 
 状态：`EVAL-B163-ADOCENUMTEXT1=implemented/full-suite-pass`；exact-2 生产回放待完成；
 `EVAL-B163-RUSTPROOF1=next-batch`；Trace 与模型结论所有权=`untouched`。
+
+### 123.67 B163-S2：累计复验与可执行补证明拆成两段 authority
+
+本批根修 `EVAL-B163-RUSTPROOF1` 暴露的通用状态机死路，不把 Rust 补丁错误伪装成验证环境失败，也不因 proof gap 授权修改生产代码：
+
+1. 原 `verify_only` 累计复验批保持不变：继续复用已经应用的 plan/worktree，零 StagePlan、零 StageApply，模型不能借“累计审查”再造源码 patch；
+2. 当且仅当该批已以 typed `verification_proof_incomplete` 完成、report 本身为 passed、proof ledger 为 `low_confidence`、存在至少一个
+   **非 unavailable** 的 required obligation，且没有 failed capability 时，控制器追加一次普通 `verification_proof_followup` 探针规划批；
+3. 新批只继承控制器铸造且带精确 `verification_probe_required=true` discriminator 的 success criteria，过滤同批 dependency/test-surface 等非 proof 行。
+   这是内部 typed metadata，不扫描用户输入、模型 reasoning、命令正文或最终答案 prose；
+4. 新批进入 `ReadyToPlan`，允许 Planner 为当前 worktree 生成 `changes: [] + verification_probes[]`。既有 pure-proof guard 继续禁止生产源码修改；
+   只有后续探针真实失败并形成 typed verify-failure handoff，才允许独立生产修复批；
+5. `runner_missing`、verification unavailable、全部 obligation 均 unavailable、ledger failed/capability failed 均不进入探针规划，直接保留
+   unverified 终态。run 级 one-shot progress key 阻止同一 gap 递归追加；`verification_proof_incomplete` 同时纳入 typed unverified verdict 集，避免模型
+   `replan_batch` 再被 transition kernel 用 `workflow_already_complete` 模糊收尾。
+
+新增看护覆盖三条关键边界：source-static passed + required contract uncovered 必须从完成态合法 append 一个普通 probe-plan batch；混合 criteria 只能携带 proof 行；
+同一 run 第二次不得追加。runner missing 负臂必须 `finish/accept_unverified`，不得规划。既有 probe-only 计划接受、无 failure handoff 的生产编辑拒绝、真实
+failure handoff 后生产修复允许等用例保持通过。
+
+验证：定向 proof-followup 测试 PASS；最终
+`go test ./internal/types ./internal/writeflow ./internal/truth ./internal/loopkernel ./internal/orchestrator -count=1`
+全绿（18.992s / 0.493s / 2.325s / 1.134s / 13.261s）。
+
+状态：`EVAL-B163-RUSTPROOF1=implemented/full-write-state-suite-pass`；Rust 具体代码正确性仍需下一次 clean replay 验证；
+`EVAL-B163-ADOCENUMTEXT1=awaiting-exact2-replay`；JSON recoverable carrier 与不可确定畸形 carrier 的 authority 边界=`preserved`；
+Trace 显式窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量、两维根因和模型结论所有权=`untouched`。

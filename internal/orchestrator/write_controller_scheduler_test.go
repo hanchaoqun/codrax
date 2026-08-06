@@ -7133,6 +7133,173 @@ func TestReconcileProofFollowupVerifyOutcome_RequiresClosedTypedProofLedger(t *t
 	}
 }
 
+func TestNormalizeControllerTypedStateDecisionIncompleteVerifyOnlyProofAppendsProbePlanningBatch(t *testing.T) {
+	mu := types.NewMutableState("required proof remains uncovered after cumulative verify")
+	plan := &types.ChangePlan{
+		ID:          "plan-rust-proof-gap",
+		Status:      types.PlanStatusUnverified,
+		TargetPaths: []string{"src/duration.rs"},
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID:       "negative-boundary-remains-valid",
+			Kind:     types.WriteBehaviorObservable,
+			Polarity: types.WriteBehaviorPolarityExpected,
+			Operator: types.WriteBehaviorOpSatisfies,
+			Expected: "a supported negative boundary remains accepted",
+			Required: true,
+			Source:   "write_analyzer",
+		}},
+		PatchReview: &types.PatchReviewRecord{Findings: []types.PatchReviewFinding{{
+			Code:           "behavior_contract_without_verify_coverage",
+			Severity:       types.PatchReviewSeverityWarning,
+			Category:       types.PatchReviewCategorySemanticCoverage,
+			ImpactKind:     types.PatchReviewImpactKindBehaviorContract,
+			Path:           "src/duration.rs",
+			CoverageStatus: types.PatchReviewCoverageUnverified,
+			EvidenceRef:    "negative-boundary-remains-valid",
+		}}},
+	}
+	report := &types.ChangeReport{
+		PlanID:             plan.ID,
+		Channel:            types.ChangeReportChannelPostApplyVerify,
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		TestResults: []types.TestResult{{
+			Kind:        types.TestResultKindUnit,
+			AssertionID: "source-static-check",
+			Passed:      true,
+		}},
+		ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+			Path:       "src/duration.rs",
+			Status:     types.ChangedPathVerificationCovered,
+			Caliber:    types.ChangedPathVerificationDeclaredProjectCheck,
+			Capability: types.VerificationCapabilitySourceStatic,
+		}},
+	}
+	mu.SetChangePlan(plan)
+	mu.SetChangeReport(report)
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-rust-proof-gap",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1-cumulative-review",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:            "batch-1-cumulative-review",
+			Purpose:       "verification_proof_followup",
+			ExecutionMode: types.WriteWorkflowBatchExecutionVerifyOnly,
+			Status:        types.WriteWorkflowBatchComplete,
+			ExpectedPaths: []string{"src/duration.rs"},
+			SuccessCriteria: []string{
+				"impact_obligation=required-negative-boundary kind=behavior_contract code=behavior_contract_without_verify_coverage path=src/duration.rs contract_ref=negative-boundary-remains-valid verification_probe_required=true source=verification_proof_ledger",
+				"impact_obligation=unrelated-dependent kind=dependent code=dependent_surface_without_verify_coverage path=src/other.rs",
+			},
+			Attempts: []types.WriteWorkflowAttempt{{
+				Kind: "verify", Status: "unverified", ReasonCode: "verification_proof_incomplete", PlanID: plan.ID,
+			}},
+		}},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID: "batch-1", ReasonCode: "verification_proof_followup_requested",
+		}},
+	}
+
+	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action:     writeflow.ActionReplanBatch,
+		ReasonCode: "model_requested_repair",
+	}, run)
+	if got.Action != writeflow.ActionAppendBatch || got.Batch == nil {
+		t.Fatalf("uncovered required proof should append a probe-planning batch, got %+v", got)
+	}
+	if got.Batch.ExecutionMode != "" || got.Batch.Status != writeflow.BatchReadyForChangePlan ||
+		got.Batch.Purpose != "verification_proof_followup" {
+		t.Fatalf("probe-planning batch authority is wrong: %+v", got.Batch)
+	}
+	if len(got.Batch.SuccessCriteria) != 1 ||
+		!strings.Contains(got.Batch.SuccessCriteria[0], "verification_probe_required=true") ||
+		strings.Contains(got.Batch.SuccessCriteria[0], "unrelated-dependent") {
+		t.Fatalf("probe-planning criteria must retain only controller-stamped proof rows: %+v", got.Batch.SuccessCriteria)
+	}
+	if len(got.Batch.DependsOn) != 1 || got.Batch.DependsOn[0] != run.ActiveBatchID {
+		t.Fatalf("probe-planning dependency missing: %+v", got.Batch.DependsOn)
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "verification_proof_probe_plan_requested") {
+		t.Fatalf("probe-planning progress missing: %+v", run.ProgressLedger)
+	}
+	repeated := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action: writeflow.ActionReplanBatch,
+	}, run)
+	if repeated.Action == writeflow.ActionAppendBatch {
+		t.Fatalf("the same incomplete cumulative proof must not append a second probe-planning batch: %+v", repeated)
+	}
+
+	view := writeflow.DeriveWorkflowExecutionViewWithReport(types.ModeApply, *run, plan, report)
+	if validation := writeflow.ValidateWorkflowTransition(view, got); !validation.Allowed {
+		t.Fatalf("completed verify-only batch must be allowed to append its bounded probe plan: %+v", validation)
+	}
+	next, err := writeflow.ApplyWorkflowDecisionToRun(*run, got)
+	if err != nil {
+		t.Fatalf("append probe-planning batch: %v", err)
+	}
+	if next.ActiveBatchID != got.Batch.ID || next.Batches[len(next.Batches)-1].Status != types.WriteWorkflowBatchReadyToPlan {
+		t.Fatalf("probe-planning batch did not become active/ready: %+v", next)
+	}
+}
+
+func TestNormalizeControllerTypedStateDecisionIncompleteVerifyOnlyProofDoesNotPlanWhenRunnerUnavailable(t *testing.T) {
+	mu := types.NewMutableState("proof runner unavailable")
+	plan := &types.ChangePlan{
+		ID:          "plan-unavailable-proof",
+		Status:      types.PlanStatusUnverified,
+		TargetPaths: []string{"src/widget.rs"},
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID: "widget-behavior", Kind: types.WriteBehaviorObservable,
+			Polarity: types.WriteBehaviorPolarityExpected, Operator: types.WriteBehaviorOpSatisfies,
+			Expected: "widget behavior", Required: true, Source: "write_analyzer",
+		}},
+	}
+	report := &types.ChangeReport{
+		PlanID: plan.ID, Channel: types.ChangeReportChannelPostApplyVerify,
+		Passed: true, VerificationStatus: types.VerificationStatusPassed,
+		VerificationConfidence: []types.VerificationConfidenceRecord{{
+			Source: "pre_suite_verification_probe", Category: "probe_execution",
+			Status: "unavailable", ReasonCode: "verification_probe_runner_missing",
+		}},
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner: "verification_probe", Source: "pre_suite_verification_probe",
+			Outcome: "runner_missing", ReasonCode: "verification_probe_runner_missing",
+		}},
+	}
+	mu.SetChangePlan(plan)
+	mu.SetChangeReport(report)
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID: "wf-unavailable-proof", Status: types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1-cumulative-review",
+		Batches: []types.WriteWorkflowBatch{{
+			ID: "batch-1-cumulative-review", Purpose: "verification_proof_followup",
+			ExecutionMode: types.WriteWorkflowBatchExecutionVerifyOnly,
+			Status:        types.WriteWorkflowBatchComplete,
+			SuccessCriteria: []string{
+				"impact_obligation=widget kind=behavior_contract contract_ref=widget-behavior verification_probe_required=true",
+			},
+			Attempts: []types.WriteWorkflowAttempt{{
+				Kind: "verify", Status: "unverified", ReasonCode: "verification_proof_incomplete", PlanID: plan.ID,
+			}},
+		}},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID: "batch-1", ReasonCode: "verification_proof_followup_requested",
+		}},
+	}
+
+	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action: writeflow.ActionReplanBatch,
+	}, run)
+	if got.Action != writeflow.ActionFinish || got.FinishDisposition != writeflow.FinishDispositionAcceptUnverified {
+		t.Fatalf("unavailable runner must finish honestly without another planning loop, got %+v", got)
+	}
+	if workflowProgressHasReason(run.ProgressLedger, "verification_proof_probe_plan_requested") {
+		t.Fatalf("unavailable runner unexpectedly authorized probe planning: %+v", run.ProgressLedger)
+	}
+}
+
 func TestRunWriteControllerWorkflow_VerifyOnlyCumulativeReviewNeverRunsPlannerOrApply(t *testing.T) {
 	const objective = "preserve an existing default while validating falsy prefault values"
 	plan := &types.ChangePlan{

@@ -6201,6 +6201,19 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 	if next, ok := o.controllerVerifyOnlyDecision(decision, run); ok {
 		return next
 	}
+	if batch, ok := verificationProofProbePlanningFollowupDecision(run, plan, o.busCtx.Mutable.ChangeReport()); ok &&
+		(decision.Action == writeflow.ActionFinish ||
+			decision.Action == writeflow.ActionReplanBatch ||
+			controllerActionInterruptsUnverifiedCompletion(decision.Action)) {
+		appendControllerProgress(run, batchID, "verification_proof_probe_plan_requested",
+			"typed cumulative verification left required non-unavailable proof obligations uncovered; appending one bounded probe-planning batch without authorizing production edits")
+		return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
+			Action:     writeflow.ActionAppendBatch,
+			ReasonCode: "verification_proof_probe_plan_required",
+			Reason:     "required typed proof obligations remain uncovered after cumulative verification; author one bounded executable probe against the current worktree",
+			Batch:      batch,
+		})
+	}
 	if activeBatchAppliedPlanPendingVerify(run, plan) {
 		if controllerActionDelaysPostApplyVerify(decision.Action) {
 			appendControllerProgress(run, batchID, "post_apply_verify_action_overridden",
@@ -7471,7 +7484,7 @@ func activeBatchCompletedWithUnverifiedVerdict(run *types.WriteWorkflowRun) bool
 				return false
 			}
 			switch strings.TrimSpace(attempt.ReasonCode) {
-			case "no_tests", string(types.FailureKindRunnerMissing), string(types.FailureKindParserError), string(types.FailureKindVerificationIncomplete), string(types.FailureKindPreexistingBuildFailure):
+			case "no_tests", "verification_proof_incomplete", string(types.FailureKindRunnerMissing), string(types.FailureKindParserError), string(types.FailureKindVerificationIncomplete), string(types.FailureKindPreexistingBuildFailure):
 				return true
 			default:
 				return false
@@ -8388,6 +8401,85 @@ func repairFollowupProgressMessage(purpose string) string {
 	default:
 		return "typed impact obligations remain uncovered after a non-failed verifier attempt; appending one bounded follow-up batch"
 	}
+}
+
+// verificationProofProbePlanningFollowupDecision is the bridge between two
+// deliberately different authorities:
+//
+//  1. a verify-only cumulative review may observe the already-applied bytes,
+//     but may never manufacture another source patch; and
+//  2. an uncovered required behavior contract may still justify authoring one
+//     executable probe against those bytes.
+//
+// The bridge consumes only controller-stamped batch metadata plus the typed
+// proof ledger/report. It never scans user text, model rationale, source code,
+// command text, or the final answer. The returned batch is not verify-only so
+// StagePlan can author verification_probes[], but its pure proof purpose keeps
+// the existing no-production-edit-without-failure-handoff guard in force.
+func verificationProofProbePlanningFollowupDecision(run *types.WriteWorkflowRun, plan *types.ChangePlan, report *types.ChangeReport) (*writeflow.WriteBatchPlan, bool) {
+	if run == nil || plan == nil || report == nil ||
+		workflowProgressReasonCount(run, "", "verification_proof_probe_plan_requested") > 0 ||
+		!report.Passed || report.NormalizeVerificationStatus() != types.VerificationStatusPassed ||
+		reportHasTypedUnavailableProbeRunnerMissing(report) {
+		return nil, false
+	}
+	active, ok := activeWorkflowBatch(run)
+	if !ok || active.Status != types.WriteWorkflowBatchComplete ||
+		active.ExecutionMode != types.WriteWorkflowBatchExecutionVerifyOnly ||
+		!proofFollowupPurpose(active.Purpose) ||
+		activeBatchLatestVerifyStatus(run, active.ID) != "unverified" {
+		return nil, false
+	}
+	latestReason := ""
+	for i := len(active.Attempts) - 1; i >= 0; i-- {
+		if strings.TrimSpace(active.Attempts[i].Kind) == "verify" {
+			latestReason = strings.TrimSpace(active.Attempts[i].ReasonCode)
+			break
+		}
+	}
+	if latestReason != "verification_proof_incomplete" {
+		return nil, false
+	}
+
+	ledger := types.BuildVerificationProofLedger(plan, report, nil)
+	if ledger.State != types.VerificationProofLedgerLowConfidence ||
+		ledger.FailedCount > 0 || ledger.CapabilityFailedCount > 0 ||
+		ledger.UncoveredCount <= ledger.UnavailableCount {
+		return nil, false
+	}
+
+	// SuccessCriteria is minted by impactRepairSuccessCriteria. The exact
+	// verification_probe_required=true token is therefore a controller-owned
+	// typed discriminator, not model/user prose. Preserve only proof rows when
+	// the cumulative batch also carried unrelated impact obligations.
+	criteria := make([]string, 0, len(active.SuccessCriteria))
+	for _, row := range active.SuccessCriteria {
+		for _, field := range strings.Fields(row) {
+			if field == "verification_probe_required=true" {
+				criteria = append(criteria, row)
+				break
+			}
+		}
+	}
+	criteria = dedupTrimControllerStrings(criteria)
+	if len(criteria) == 0 {
+		return nil, false
+	}
+	if len(criteria) > 4 {
+		criteria = criteria[:4]
+	}
+
+	id := nextRepairBatchID(run, active.ID, "proof-probe-plan")
+	return &writeflow.WriteBatchPlan{
+		ID:                   id,
+		Goal:                 "Author one bounded executable verification probe for the remaining typed proof obligations against the already-applied worktree; keep changes empty unless a later typed probe failure proves a production repair is needed.",
+		Purpose:              "verification_proof_followup",
+		Status:               writeflow.BatchReadyForChangePlan,
+		NeedsCodeExploration: false,
+		ExpectedPaths:        append([]string(nil), active.ExpectedPaths...),
+		SuccessCriteria:      criteria,
+		DependsOn:            []string{active.ID},
+	}, true
 }
 
 func repairFollowupActionReasonCode(purpose string, explore bool) string {
