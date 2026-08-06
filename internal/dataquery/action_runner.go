@@ -8638,7 +8638,24 @@ func (r ActionRunner) runAssembleAnswerFromReconcileGroups(action DataAction, re
 			Message:       "assemble_answer requires reconcile groups",
 		}
 	}
-	groups := append([]ReconcileGroup(nil), reconcile.Groups...)
+	// An answer-scope projection is a receipt for an earlier publication, not
+	// a business aggregate.  Every new assemble action recomputes from the
+	// business groups and may replace that receipt below.  Letting a stale
+	// receipt back into the value projection turns a scalar repair into values
+	// such as "2,0" and can make the old answer veto the fresh one.
+	businessGroups := withoutFinalAnswerProjectionGroups(reconcile.Groups)
+	groups := append([]ReconcileGroup(nil), businessGroups...)
+	if len(groups) == 0 {
+		return DataArtifact{}, "", nil, DataActionDependencyError{
+			ActionKind:    DataActionAssembleAnswer,
+			Role:          "reconcile_groups",
+			Operation:     "answer_projection",
+			ExpectedShape: "business reconcile groups with group_key/metric and expected/actual values",
+			ActualSnippet: "answer-scope projection receipt only",
+			RepairAction:  DataActionReconcile,
+			Message:       "assemble_answer requires business reconcile groups; a prior final-answer projection receipt is not a projection source",
+		}
+	}
 	projectionInfo := assembleReferenceProjection{}
 	groups, projectionInfo = r.completeAssembleAnswerGroups(action, contract, artifacts, groups, contributions)
 	referenceProjected := projectionInfo.Projected
@@ -8766,8 +8783,9 @@ func (r ActionRunner) runAssembleAnswerFromReconcileGroups(action DataAction, re
 	next.ExpectedAnswer = LooseText(answer)
 	next.AnswerComparisonStatus = LooseText("pass")
 	next.AnswerComparisonReason = LooseText("assemble_answer projected and bound the final answer")
-	if referenceProjected {
-		next.Groups = withoutFinalAnswerProjectionGroups(reconcile.Groups)
+	hadPriorProjection := len(businessGroups) != len(reconcile.Groups)
+	if referenceProjected || hadPriorProjection {
+		next.Groups = append([]ReconcileGroup(nil), businessGroups...)
 		next.Groups = append(next.Groups, ReconcileGroup{
 			GroupKey:   LooseText("final_answer"),
 			Metric:     LooseText("projection"),
@@ -8873,6 +8891,22 @@ func (r ActionRunner) completeAssembleAnswerGroups(action DataAction, contract O
 				}
 			}
 		}
+	}
+	// A complete-reference projection may add missing members only after the
+	// reference keys and business reconcile keys demonstrate one shared typed
+	// domain.  With zero overlap, treating a metric/status/id column as the
+	// group-key universe would discard every measured group and fabricate an
+	// all-zero answer.  Leave the ordinary business projection intact; the
+	// workflow grounding layer can then request a corrected typed declaration
+	// when complete-reference output was genuinely required.
+	overlap := 0
+	for _, key := range keys {
+		if _, ok := existing[strings.TrimSpace(key)]; ok {
+			overlap++
+		}
+	}
+	if len(existing) > 0 && overlap == 0 {
+		return groups, assembleReferenceProjection{}
 	}
 	out := make([]ReconcileGroup, 0, len(keys))
 	zeroFilled := 0

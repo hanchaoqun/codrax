@@ -18024,3 +18024,52 @@ conditional 继续在场。定向 PASS；`go test ./internal/tool -count=1` 全�
 
 状态：`EVAL-B138-TRACEFACTFAMILYVAR1=typed-compat-implemented/full-tool-pass/awaiting-replay`；
 `EVAL-B122-JSONTEACH1` 新增 `scope-owned consumerless-field repair`；答案所有权、Trace 显式窗、因果投影、自动补齐与两维根因=`untouched`。
+
+### 123.36 B148 r64：Trace 同账与 JSON compat 产线闭环；data 标量被完整引用权限污染
+
+在 `main@7bcb5aaee` 干净构建后严格并行恰好两个异构 case：
+
+- `trace_query_wakeup_causal_io_chain`：166s，runner/human PASS，Analyzer/Explorer/Finalizer 均 1 轮合同通过，trace_query=4；
+- `data_jsonl_filter_count`：222s，runner/human FAIL，12 个 data batches、5 个 repair rounds，最终发布 `0`，严格 oracle 期望 `2`。
+
+Trace 产线同时关闭 B144 与 B138 的回放义务。Analyzer 首轮仍发出
+`scope=causal_diagnosis + fact_families`，但 typed compat 只依据同对象内已注册 scope 删除无消费者字段，首轮成功并发布审计 warning，零合同重试。
+最终页明确使用用户选择窗 `2.000..2.020s = 20.000ms`；四级唤醒链、IO 11ms 主席、调度 1ms 次席、实际占用与现规则可消两轴、系统
+`Trace 因果投影`、自动补齐和下钻方向齐全。同一 `threadpool-400/io_wait/11ms` 物理账户在主要占用表只剩一席，证明跨 query v2 key 会合已生效。
+附件 extent `20.020ms` 只保留在明确标注“非查询窗”的时间单位 caveat。模型一句“没有主动睡眠设计”超过 typed 证据，记
+`EVAL-B148-TRACELANGVAR1=P2/model-variance`，不扫描或改写答案 prose。
+
+data case 确认 `EVAL-B148-DATASCALARREF1=P0`。精确流水线其实已经得到正确事实：过滤工件 2 行、两条 contribution、
+`reconciled_count` 的业务组 `group_key=count / metric=filtered_count / actual=2` 均在。错误发生在答案投影而非计算：
+
+1. repair action 给普通标量 `assemble_answer` 携带 `reference_path=reconciled_count.json + reference_key_field=metric`。action-local pair 会隐式启用
+   complete-reference，但执行器没要求引用键与 contribution/reconcile `group_key` 共享 typed 域，于是把 `filtered_count` 当成员键，丢掉真实
+   `count=2`，凭空补出 `filtered_count=0`；
+2. 该错误投影又在 reconcile 中留下 `final_answer/projection=0` receipt。下一 repair 直接从正确 contributions 重投影时，执行器把 receipt 与业务组
+   一起当输入，得到 `2,0`，被 answer-scope 对账拒绝；
+3. 后续 planner 虽在 reasoning 中识别真实组为 2，却把 artifact graph 的存在/complete 状态误读成工件内容已修正。终态只看到旧 receipt 自洽，发布
+   `0`。这是 typed 权限和 receipt 生命周期 gap，不能归因于模型算术波动。
+
+本批按通用投影不变量根修，不读取用户问题或模型/答案原文：
+
+1. 每次 `assemble_answer` 先剥离旧 `final_answer/projection` receipt，只从业务 reconcile groups 重算；若旧 receipt 存在，成功重算后以新答案替换，
+   因而标量 repair 为 `2` 而非 `2,0`；仅有 receipt、没有业务组时 fail-loud，禁止旧答案自举；
+2. complete-reference 只有在引用键与业务 group keys 至少一个 verbatim typed overlap 时才获得补零/丢额外组权限。零交集声明不得清空全部实测值并
+   铸造全零答案；普通业务投影保留，真正要求完整全集的任务继续由 workflow grounding 请求修正 typed domain；
+3. 正确的 source-reference 场景不变：已有 overlap 后仍按源材料顺序补缺失键为 0、丢非全集组并发布完整 receipt；
+4. JSON schema 教学纠正一处系统自相矛盾：`reference_path` 不再宣称任意 generated artifact alias 都可作全集，只允许任务源材料或可唯一追溯到源材料
+   的 extracted alias，明确禁止 contribution/reconcile/prior-answer 工件；shape table 进一步说明普通 scalar/present-group summary 必须省略
+   complete-reference 三字段，降低模型同时背负互斥合同的心智成本。
+
+新增 pin 覆盖“旧 receipt + 标量业务组重投影=2”“metric 引用键与 count group 零交集不得补零”，既有 explicit reference pair、真实 reference
+补零和 stale receipt replacement 用例继续通过。定向测试 PASS；完整 `go test ./internal/dataquery ./internal/repl -count=1` PASS
+（2.525s / 31.228s）。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b148_trace_data_replay_r64_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b148_trace_data_replay_r64_20260805_manual_audit.md`。
+
+状态：`EVAL-B144-TRACEACCTDUP1=production-replay-closed`；
+`EVAL-B138-TRACEFACTFAMILYVAR1=production-replay-closed`；
+`EVAL-B148-DATASCALARREF1=implemented/full-dataquery+repl-pass/awaiting-exact2-replay`；
+`EVAL-B122-JSONTEACH1` 新增 `complete-reference-source-authority+mutually-exclusive-shape`；Trace 显式窗、因果投影、自动补齐、两维根因、排序、唤醒链与
+窗内可消除量=`production-pass/untouched-by-data-fix`。

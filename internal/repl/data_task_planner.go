@@ -232,7 +232,7 @@ var dataTaskPlanTool = llm.ToolSchema{
         "explanation_allowed": {"type": "boolean"},
         "delimiter": {"type": "string"},
         "complete_reference": {"type": "boolean", "description": "true only when the user goal requires one output element for every key in a reference material, including zero/empty values for keys with no contributing records."},
-        "reference_path": {"type": "string", "description": "Reference material or generated artifact alias that defines the final key universe when complete_reference=true."},
+        "reference_path": {"type": "string", "description": "Task source material, or an extracted alias with one unambiguous source-material lineage, that defines the final key universe when complete_reference=true. Never use a contribution, reconcile, or prior-answer artifact as that universe."},
         "reference_key_field": {"type": "string", "description": "Field in reference_path whose values map to the contribution group-key domain and whose stable order defines final output coverage when complete_reference=true. When the reference has both a display/order ID and the same domain key used by contributions, choose the contribution-domain field here; assemble_answer still preserves reference row order."}
       },
       "required": ["format", "explanation_allowed"],
@@ -462,6 +462,7 @@ const dataTaskLedgerShapeTeaching = `Ledger and output-shape decision (choose th
 - Direct bounded transform: when material coverage plus the output contract are sufficient and no audit ledger is required, emit the computed answer directly. Do not add contribution, reconcile, rule, decision, or entity-resolution obligations merely because the task filters rows or returns IDs.
 - Member/list output: qualify or filter the source rows, then compute_contributions with operation=include|set, value_field=<existing member field>, and group_key=<the requested output field>; reconcile, then assemble_answer with projection=json_object. Never use operation=count when the answer must contain the member values.
 - Scalar count/total output: use count for row cardinality or add/subtract for numeric totals, then reconcile and assemble that scalar.
+- Complete-reference output is a separate shape, used only when every key from a source reference must appear (including zero/empty members). reference_path + reference_key_field activates that shape even if complete_reference is omitted: the path must be a source universe and the field values must share the contribution group_key domain. For an ordinary scalar/present-group summary, omit all three complete-reference fields; never point them at contribution, reconcile, or prior-answer artifacts.
 - Set entity_resolution_required only for an actual source-to-canonical/reference mapping. Selecting, filtering, copying, or preserving IDs already present in one material is not entity resolution.
 - assemble_answer projects reconciled contribution semantics; listing an arbitrary payload in input_paths does not turn that payload into the projection source. If an existing final answer is wrong, the evaluator must emit typed repair_node for the answer action instead of declaring completion.
 - Put arrays/objects directly in structured params. Use *_json only for an already-valid serialized JSON value; do not add an extra JSON-string layer around native params.
