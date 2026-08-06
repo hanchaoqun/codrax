@@ -18004,3 +18004,23 @@ JSON 方面，`EVAL-B138-TRACEFACTFAMILYVAR1` 的条件 schema 产线否证为�
 `EVAL-B138-TRACEFACTFAMILYVAR1=production-replay-failed/P1/typed-compat-next`；
 `EVAL-B146-TRACEEXTVAR1=P2/model-variance-recurring`；write apply/verify=`production-pass`；Trace 显式窗、因果投影、自动补齐、两维根因、排序、唤醒链、
 窗内可消除量=`production-preserved`。
+
+### 123.35 B147：non-bounded fact_families 无损 typed compat
+
+`EVAL-B138-TRACEFACTFAMILYVAR1` 的条件 schema 在 r63 真实 provider 上未阻止首次错误发射，说明跨字段 `if/then` 只能作为教学/结构声明，
+不能单独承担降低重试的运行职责。本批保留 schema 与 `parseRuntimeQuestionProfile` 的严格语义，新增唯一、前置、可审计的无损兼容臂：
+
+1. 只解析同一个 `runtime_question_profile` 对象内的 `scope` typed enum；scope 必须是已注册有效值且不等于
+   `bounded_fact_set`，同时对象确实携带 `fact_families`，才删除该字段；
+2. 这是权限收窄而非补写：非 bounded scope 下 fact families 定义上没有任何消费者，持久化 RequestModel 仍保留原 scope/source_quote/confidence，
+   FactFamilies 为空；summary/log 明确记录 `fact_families ignored because typed scope=... has no fact-family consumer`；
+3. bounded scope、未知 scope、缺 scope 全部原样送入既有 strict decode/runtime validator；bounded 缺失/空列表继续 hard reject，未知 enum 继续 hard
+   reject；
+4. 即使多余字段自身是 object 等畸形形状，只要 sibling typed scope 已证明其无消费者，也可无损删除；其余畸形 JSON 不做词串抽取、字段猜测或模型
+   意图推断。
+
+测试覆盖 causal_diagnosis 真实执行成功且 warning 可见、持久化权限为空、畸形 consumerless field 删除、三类不可修形保持字节不变，以及 schema
+conditional 继续在场。定向 PASS；`go test ./internal/tool -count=1` 全套 PASS（162.712s）。
+
+状态：`EVAL-B138-TRACEFACTFAMILYVAR1=typed-compat-implemented/full-tool-pass/awaiting-replay`；
+`EVAL-B122-JSONTEACH1` 新增 `scope-owned consumerless-field repair`；答案所有权、Trace 显式窗、因果投影、自动补齐与两维根因=`untouched`。

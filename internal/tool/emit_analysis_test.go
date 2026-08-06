@@ -528,6 +528,59 @@ func TestEmitAnalysisRejectsCausalBreadthWithoutTypedDiagnosisCarrier(t *testing
 	if !res.Success {
 		t.Fatalf("finite bounded relation facts must remain admissible: %q", res.Summary)
 	}
+
+	causalWithRedundantFamilies := strings.Replace(payload, `"scenario":"generic"`, `"scenario":"performance_bottleneck"`, 1)
+	causalWithRedundantFamilies = strings.Replace(
+		causalWithRedundantFamilies,
+		`"scope":"causal_diagnosis"`,
+		`"scope":"causal_diagnosis","fact_families":["target_scheduler_state","recorded_reason"]`,
+		1,
+	)
+	ctx = &types.BusContext{Mutable: types.NewMutableState(raw)}
+	ctx.Mutable.SetPerfTrace(&types.PerfBundle{Meta: types.PerfMeta{Source: "attached.systrace", Signals: []string{"binder_transaction"}}})
+	res, err = (&EmitAnalysis{}).Execute(ctx, json.RawMessage(causalWithRedundantFamilies))
+	if err != nil {
+		t.Fatalf("causal compat Execute: %v", err)
+	}
+	if !res.Success || !strings.Contains(res.Summary, "fact_families ignored because typed scope=causal_diagnosis") {
+		t.Fatalf("non-bounded redundant fact families should be repaired with an audit warning: success=%t summary=%q", res.Success, res.Summary)
+	}
+	profile := ctx.Mutable.RequestModel().RuntimeQuestionProfile
+	if profile == nil || profile.Scope != types.RuntimeQuestionScopeCausalDiagnosis || len(profile.FactFamilies) != 0 {
+		t.Fatalf("compat repair must preserve scope and persist no fact-family authority: %+v", profile)
+	}
+}
+
+func TestRepairEmitAnalysisNonBoundedFactFamiliesIsTypedAndLossless(t *testing.T) {
+	raw := json.RawMessage(`{"intent":"root_cause","runtime_question_profile":{"scope":"relation_analysis","fact_families":{"malformed":"but irrelevant"},"source_quote":"caller path","confidence":0.9}}`)
+	patched, warnings, ok := repairEmitAnalysisNonBoundedFactFamilies(raw)
+	if !ok || len(warnings) != 1 {
+		t.Fatalf("valid non-bounded scope must repair the consumerless field: ok=%t warnings=%v raw=%s", ok, warnings, patched)
+	}
+	var got map[string]json.RawMessage
+	if err := json.Unmarshal(patched, &got); err != nil {
+		t.Fatalf("patched payload is invalid JSON: %v", err)
+	}
+	var profile map[string]json.RawMessage
+	if err := json.Unmarshal(got["runtime_question_profile"], &profile); err != nil {
+		t.Fatalf("patched profile is invalid JSON: %v", err)
+	}
+	if _, exists := profile["fact_families"]; exists {
+		t.Fatalf("consumerless field survived repair: %s", patched)
+	}
+	if string(profile["source_quote"]) != `"caller path"` || string(profile["confidence"]) != "0.9" {
+		t.Fatalf("sibling fields changed during repair: %s", patched)
+	}
+
+	for _, unchanged := range []json.RawMessage{
+		json.RawMessage(`{"runtime_question_profile":{"scope":"bounded_fact_set","fact_families":["recorded_reason"]}}`),
+		json.RawMessage(`{"runtime_question_profile":{"scope":"future_scope","fact_families":["recorded_reason"]}}`),
+		json.RawMessage(`{"runtime_question_profile":{"fact_families":["recorded_reason"]}}`),
+	} {
+		if repaired, _, changed := repairEmitAnalysisNonBoundedFactFamilies(unchanged); changed || string(repaired) != string(unchanged) {
+			t.Fatalf("bounded/invalid/missing scope must retain fail-loud payload: changed=%t got=%s want=%s", changed, repaired, unchanged)
+		}
+	}
 }
 
 func TestEmitAnalysisRuntimeQuestionSchemaPinsFactFamilyConditional(t *testing.T) {

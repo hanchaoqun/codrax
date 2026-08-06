@@ -1246,6 +1246,10 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		params = repaired
 		compatWarnings = append(compatWarnings, warnings...)
 	}
+	if repaired, warnings, ok := repairEmitAnalysisNonBoundedFactFamilies(params); ok {
+		params = repaired
+		compatWarnings = append(compatWarnings, warnings...)
+	}
 
 	var p emitAnalysisParams
 	if _, decodeFailure, err := decodeStrictNormalizedToolParams(t.Name(), params, &p, emitAnalysisMisplacedHints); err != nil {
@@ -6438,6 +6442,53 @@ const (
 	// declaration silently hides answer-bearing files.
 	irrelevantFilesMax = 10
 )
+
+// repairEmitAnalysisNonBoundedFactFamilies removes one provably redundant
+// cross-field carrier before strict decode. fact_families has consumers only
+// under bounded_fact_set; once the same typed object explicitly declares any
+// other valid scope, retaining the field cannot change the RequestModel and
+// only causes an avoidable retry. Invalid/missing scopes and bounded profiles
+// remain untouched so their existing fail-loud validation still owns them.
+func repairEmitAnalysisNonBoundedFactFamilies(raw json.RawMessage) (json.RawMessage, []string, bool) {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil || len(obj) == 0 {
+		return raw, nil, false
+	}
+	profileRaw, ok := obj["runtime_question_profile"]
+	if !ok {
+		return raw, nil, false
+	}
+	var profile map[string]json.RawMessage
+	if err := json.Unmarshal(profileRaw, &profile); err != nil || len(profile) == 0 {
+		return raw, nil, false
+	}
+	if _, ok := profile["fact_families"]; !ok {
+		return raw, nil, false
+	}
+	var scopeRaw string
+	if err := json.Unmarshal(profile["scope"], &scopeRaw); err != nil {
+		return raw, nil, false
+	}
+	scope := types.RuntimeQuestionScope(strings.TrimSpace(scopeRaw))
+	if !scope.IsValid() || scope == types.RuntimeQuestionScopeBoundedFactSet {
+		return raw, nil, false
+	}
+	delete(profile, "fact_families")
+	patchedProfile, err := json.Marshal(profile)
+	if err != nil {
+		return raw, nil, false
+	}
+	obj["runtime_question_profile"] = patchedProfile
+	patched, err := json.Marshal(obj)
+	if err != nil || !json.Valid(patched) {
+		return raw, nil, false
+	}
+	warning := fmt.Sprintf(
+		"runtime_question_profile.fact_families ignored because typed scope=%s has no fact-family consumer",
+		scope,
+	)
+	return json.RawMessage(patched), []string{warning}, true
+}
 
 // repairEmitAnalysisIrrelevantFilePathObjects absorbs a common schema-adjacent
 // drift where a model mirrors required_files' object shape inside
