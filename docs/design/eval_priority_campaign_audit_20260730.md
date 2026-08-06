@@ -18213,3 +18213,45 @@ Trace 显式窗、因果投影、自动补齐、两维根因、根因排序、�
 
 状态：`EVAL-B151-SRCPROFILEVAR1=soft-teaching-implemented/awaiting-production-replay`；真实 source declaration inventory 的语言/角色矩阵、分页、
 source-class 完备性与 fail-loud=`unchanged`；JSON 九 predicate 单载体=`production-closed`；Trace 显式窗、因果投影、自动补齐与两维根因=`untouched`。
+
+### 123.41 B152 r68：source-inventory 误路由闭环；正确 reference 结果被旧 gap 反向否决；图种子伪造线性关系
+
+在 `main@64471d6b0f` 构建后严格并行恰好两个异构 case：
+
+- `qf_diagram_pipeline`：79s，runner PASS / human FAIL，Analyzer/Explorer/Finalizer 各 1 轮；
+- `data_multifile_reference_projection`：215s，runner/human FAIL，但执行结果和最终 reference projection 已是正确 `17,0,5`。
+
+diagram 的过程数据为 B151-S1 提供生产正证。Analyzer 发出 `intent=explain/question_kind=mechanism/source_inventory=false`，九个 JSON predicate 仍全部位于
+唯一 `predicates` 对象；`repo_map=1`、`source_inventory_lens=1`、`investigation_complete=1`、context=21%。相较 r67 的
+568s / 42 / 41 / 14，错误全仓 type census 和 13 次重复完成债消失，故
+`EVAL-B151-SRCPROFILEVAR1=production-replay-closed`。
+
+runner PASS 仍掩盖一个新的通用图语义 gap `EVAL-B152-DIAGSEEDREL1=P1-correctness/context-precision`。最终图先正确画出四阶段，随后又画
+`StageFinalize --> ReadModeMainStageBindings --> builtinStageBindings --> MutableState.WriteExplorationRequest`，把 supporting implementation symbols
+表达成 finalize 后续流水线步骤；逐阶段职责也主要引用只证明枚举字面的四行。代码根因是 first-pass flow seed：
+`buildRetrySupportLaneSeed` 收集所有 diagram-eligible support entries；没有 typed call/relation edge 时，回退到 `RenderLinearDiagramFence(labels)`，把一个
+无序、只证明“节点存在”的集合按采集顺序自动铸成 `A-->B-->C`。节点 grounding 不能证明邻接、顺序或方向，系统教学因此主动给模型错误关系。最优方案是
+关系权限收窄：flow/call/sequence 只有 typed relation/ordered-flow authority 才可生成边；普通 definition/support 节点不能通过线性 fallback 自铸关系。
+这项修复必须保持模型可扩展图形和所有语言一致，不能按本 case 的符号名裁剪，也不能模板化最终图。
+
+data 证明 `EVAL-B151-REFORDERENUM1` 的执行分支已经生效：四条贡献、reconcile business groups 和 final answer 均正确；assemble receipt 明确
+`reference_projected=true/reference_path=targets.csv/reference_key_field=canonical_label/order_by=input/order_preserved=true/zero_filled_count=1`。
+终态失败来自完成图合流冲突：
+
+1. 较早的 reference candidate census 留下 `ReferenceGap.Present=true`；
+2. 最终 typed grounding 对显式 `targets.csv#canonical_label` 完成逐槽复算，`applicable=true/violated=false`；
+3. 合流代码用 grounding candidate 覆盖 path/field 并置 `Declared=true`，却没有清除旧 `Present`；
+4. `BuildOutputProjectionGraph` 因而同时收到 grounding 成功和 hard gap，发出 `status=incomplete_reference`，把正确答案反复送回 assemble。
+
+本批根修 `EVAL-B152-REFGROUNDJOIN1=P0`：successful typed grounding 是同一显式 reference universe 的终态权限，清除旧候选 gap；grounding
+有 cardinality/slot/ledger-domain mismatch 时仍按既有路径 fail-closed。新增生产同形 pin 同时携带 unrelated contribution candidate、action-local reference
+声明、正确 assemble metadata 与 `17,0,5`，要求 output graph=`satisfied/reference_complete=true` 且 completion guard 为空。定向 PASS；完整
+`go test ./internal/dataworkflow ./internal/dataquery ./internal/repl -count=1` PASS（0.594s / 3.453s / 34.063s）。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b152_reference_diagram_replay_r68_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b152_reference_diagram_replay_r68_20260805_manual_audit.md`。
+
+状态：`EVAL-B151-REFORDERENUM1=production-executor-pass/downstream-join-fixed`；
+`EVAL-B152-REFGROUNDJOIN1=implemented/full-dataworkflow+dataquery+repl-pass/awaiting-exact2-replay`；
+`EVAL-B151-SRCPROFILEVAR1=production-replay-closed`；`EVAL-B152-DIAGSEEDREL1=filed/next-batch`；
+JSON 九 predicate=`production-closed`；Trace 显式窗、因果投影、自动补齐、两维根因、根因排序、唤醒链、窗内可消除量=`untouched`。

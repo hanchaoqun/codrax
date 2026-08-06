@@ -5798,6 +5798,15 @@ func dataTaskWorkflowCompletionOutputProjectionGraphInput(repoRoot string, recor
 		if groundingReport.AnswerItemCount > 0 {
 			answerItems = groundingReport.AnswerItemCount
 		}
+		// A successful typed answer↔reference grounding verdict is the
+		// terminal authority for this exact declared universe. Do not keep
+		// an earlier projection-gap candidate sticky after the final answer
+		// has been checked slot-by-slot: that would make the output graph say
+		// both "grounded" and "incomplete" and reopen assemble_answer forever.
+		// A violated report remains fail-closed through groundingMismatch.
+		if !groundingMismatch {
+			referenceGap.Present = false
+		}
 	}
 	return dataworkflow.OutputProjectionGraphInput{
 		Output:                        firstNonEmptyOutputContract(result.OutputContract, dataTaskWorkflowOutputContract(records, current), current.OutputContract),
