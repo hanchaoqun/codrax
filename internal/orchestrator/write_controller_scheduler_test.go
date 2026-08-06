@@ -3344,6 +3344,57 @@ func TestTestContractReplanHintProtectsFailedVerifyAssertion(t *testing.T) {
 	}
 }
 
+func TestTestContractReplanHintAllowsStructuredReplacementThatPreservesRegressionPostImage(t *testing.T) {
+	root := t.TempDir()
+	original := strings.Join([]string{
+		"use crate::Duration;",
+		"",
+		"#[test]",
+		"fn checked_sub_zero_keeps_constructor_range_consistent() {",
+		"    let min = Duration::milliseconds(-i64::MAX);",
+		"    assert!(min.checked_sub(&Duration::milliseconds(0)).is_some());",
+		"}",
+	}, "\n")
+	writeTestFile(t, root, "tests/duration_min.rs", original)
+	mu := types.NewMutableState("preserve and extend the duration regression")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{
+		Constraints: []types.WriteConstraint{{
+			Kind:   writeConstraintPreserveRegressionTest,
+			Target: "tests/duration_min.rs",
+		}},
+	}})
+	o := New(types.PipelineSettings{WriteWorkflowEngine: types.WriteWorkflowEngineController}, nil, nil, nil)
+	o.busCtx = &types.BusContext{Mutable: mu, Mode: types.ModeApply, RepoRoot: root, MainRepoRoot: root}
+	postImage := original + "\n\n#[test]\nfn rejects_i64_min() {\n    assert!(Duration::try_milliseconds(i64::MIN).is_none());\n}"
+	plan := &types.ChangePlan{Changes: []types.FileChange{{
+		Path: "tests/duration_min.rs",
+		Kind: "patch",
+		Edits: []types.StructuredEdit{{
+			Kind:      "replace",
+			StartLine: 1,
+			EndLine:   7,
+			Content:   postImage,
+		}},
+	}}}
+
+	if hint, paths := o.testContractReplanHint(plan); hint != "" || len(paths) != 0 {
+		t.Fatalf("post-image retains every protected line and must not trigger replan, hint=%q paths=%v", hint, paths)
+	}
+}
+
+func TestRemovedLinesFromUnifiedDiffUsesPostImageMultiplicity(t *testing.T) {
+	patch := "--- a/tests/widget.rs\n+++ b/tests/widget.rs\n@@ -1,3 +1,6 @@\n #[test]\n-fn boundary() { assert!(value.is_some()); }\n+fn boundary() { assert!(value.is_some()); }\n }\n+#[test]\n+fn nearby() { assert!(other.is_none()); }\n"
+	if removed := removedLinesFromUnifiedDiff(patch); len(removed) != 0 {
+		t.Fatalf("exactly re-added protected line is present in the post-image: %v", removed)
+	}
+
+	weakened := strings.Replace(patch, "fn boundary() { assert!(value.is_some()); }\n }", "fn boundary() { assert!(value.is_none()); }\n }", 1)
+	removed := removedLinesFromUnifiedDiff(weakened)
+	if len(removed) != 1 || removed[0] != "fn boundary() { assert!(value.is_some()); }" {
+		t.Fatalf("real assertion rewrite must remain protected, got %v", removed)
+	}
+}
+
 func TestTestContractReplanHintMapsCodraxWorktreeFailurePath(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, root, "tests/test_widget.py", "def test_widget():\n    assert widget.value == 42\n")

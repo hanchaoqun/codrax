@@ -19032,3 +19032,24 @@ project suite hard gate；B164-S1 的终态 changed-path capability 门已阻止
 
 施工顺序冻结：B165-S1=`TESTPOSTIMAGE1`；B165-S2=`RELHANDOFF1`；B165-S3=`CROSSPROBE1` 审计后裁定；每批独立测试、提交、推送。
 Trace 显式窗/自动补齐/根因排序/唤醒链/可消除量值通道=`preserved`；模型结论所有权=`preserved`；禁止 raw prose hard gate=`preserved`。
+
+### 123.72 B165-S1：保护测试 critic 改按 post-image 多重集裁定
+
+本批保留原保护强度，只纠正 operation-shape 与最终文件事实混淆：
+
+1. `removedLinesFromUnifiedDiff` 先分别收集 `-`/`+` 数据行，再按精确文本与出现次数抵消；同一断言被 replace 后逐字重加不再算删除，断言文本真实变化、
+   出现次数减少或整文件删除仍形成 finding；`--- ` / `+++ ` 文件头与源码自身以 `---` 开头的行也不再混淆；
+2. structured edit 在已有编译后 `Patch` 时优先消费该 exact carrier；只有尚未编译 patch 的单元路径才从所有 edit 的旧范围与 `Content` 构造同样的
+   post-image 行多重集。这样生产接线与直接单元调用共用相同语义；
+3. full modify 原有新旧行多重集逻辑保持不变。三种变更载体最终都回答一个问题：“旧测试 oracle 的精确行及其基数在计划 post-image 中是否仍存在”，
+   不再因模型选择 replace/modify/patch 的表达形状而改变保护 verdict；
+4. 看护逐字复现 r81 Rust 7 行测试全量 replace + 原样保留 + 追加边界测试必须零 hint；raw unified diff 同行 `-/+` 必须抵消；把 `is_some()`
+   改成 `is_none()` 仍必须披露被移除断言。既有真实弱化重试、三次持续弱化阻断、failed-verify assertion 与 note-only 负权限测试保持通过。
+
+判定仅消费 typed `FileChange` 与仓库当前字节，不扫描用户题面、Planner prose 或最终答案。保护门仍是精确信号 hard gate；本批不放宽测试削弱、
+不改变写模式风险/审批/工作树边界。
+
+验证：定向 post-image/真实弱化测试 PASS；`go test ./internal/orchestrator -count=1` 全绿（8.287s）。
+
+状态：`EVAL-B165-TESTPOSTIMAGE1=implemented/full-orchestrator-pass`；等待后续 exact-2 生产回放；
+`EVAL-B165-RELHANDOFF1=next-batch`；`EVAL-B165-CROSSPROBE1=audit-pending`；Trace 与模型结论所有权=`untouched`。

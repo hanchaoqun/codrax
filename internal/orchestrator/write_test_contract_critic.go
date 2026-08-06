@@ -78,10 +78,17 @@ func removedProtectedTestSnippets(repoRoot, relPath string, change types.FileCha
 	case "modify":
 		return removedLinesFromFullModify(repoRoot, relPath, change.NewContent)
 	case "patch":
+		// emit_change_plan compiles structured edits into Patch before the
+		// controller critic runs. Prefer that exact post-image carrier when it
+		// is present so a replace that retains an assertion and merely appends
+		// coverage is not mistaken for deleting the assertion.
+		if strings.TrimSpace(change.Patch) != "" {
+			return removedLinesFromUnifiedDiff(change.Patch)
+		}
 		if len(change.Edits) > 0 {
 			return removedLinesFromStructuredEdits(repoRoot, relPath, change.Edits)
 		}
-		return removedLinesFromUnifiedDiff(change.Patch)
+		return nil
 	default:
 		return nil
 	}
@@ -242,27 +249,29 @@ func containsNormalizedSnippet(snippets []string, candidate string) bool {
 }
 
 func removedLinesFromUnifiedDiff(patch string) []string {
-	var out []string
+	var removed []string
+	var added []string
 	for _, line := range strings.Split(patch, "\n") {
-		if strings.HasPrefix(line, "---") {
+		switch {
+		case strings.HasPrefix(line, "--- "), strings.HasPrefix(line, "+++ "):
 			continue
+		case strings.HasPrefix(line, "-"):
+			removed = append(removed, strings.TrimPrefix(line, "-"))
+		case strings.HasPrefix(line, "+"):
+			added = append(added, strings.TrimPrefix(line, "+"))
 		}
-		if !strings.HasPrefix(line, "-") {
-			continue
-		}
-		text := strings.TrimPrefix(line, "-")
-		if strings.TrimSpace(text) == "" {
-			continue
-		}
-		out = appendBoundedUnique(out, text, 6)
 	}
-	return out
+	return netRemovedProtectedLines(removed, added)
 }
 
 func removedLinesFromStructuredEdits(repoRoot, relPath string, edits []types.StructuredEdit) []string {
 	lines := readWriteCriticFileLines(repoRoot, relPath)
-	var out []string
+	var removed []string
+	var added []string
 	for _, edit := range edits {
+		for _, line := range strings.Split(edit.Content, "\n") {
+			added = append(added, strings.TrimRight(line, "\r\n"))
+		}
 		switch strings.TrimSpace(edit.Kind) {
 		case "replace", "delete":
 		default:
@@ -273,7 +282,7 @@ func removedLinesFromStructuredEdits(repoRoot, relPath string, edits []types.Str
 				if strings.TrimSpace(line) == "" {
 					continue
 				}
-				out = appendBoundedUnique(out, line, 6)
+				removed = append(removed, strings.TrimRight(line, "\r\n"))
 			}
 			continue
 		}
@@ -288,12 +297,37 @@ func removedLinesFromStructuredEdits(repoRoot, relPath string, edits []types.Str
 			continue
 		}
 		for _, line := range lines[edit.StartLine-1 : endLine] {
-			line = strings.TrimRight(line, "\r\n")
-			if strings.TrimSpace(line) == "" {
-				continue
-			}
-			out = appendBoundedUnique(out, line, 6)
+			removed = append(removed, strings.TrimRight(line, "\r\n"))
 		}
+	}
+	return netRemovedProtectedLines(removed, added)
+}
+
+// netRemovedProtectedLines compares exact line multiplicity between the
+// removed and added sides of a validated change. The protection contract is
+// about the post-image retaining the existing oracle, not about whether a
+// patch happened to represent an unchanged line with a '-' followed by '+'.
+// Exact text and multiplicity keep real assertion weakening fail-closed.
+func netRemovedProtectedLines(removed, added []string) []string {
+	addedCounts := map[string]int{}
+	for _, line := range added {
+		line = strings.TrimRight(line, "\r\n")
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		addedCounts[line]++
+	}
+	var out []string
+	for _, line := range removed {
+		line = strings.TrimRight(line, "\r\n")
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if addedCounts[line] > 0 {
+			addedCounts[line]--
+			continue
+		}
+		out = appendBoundedUnique(out, line, 6)
 	}
 	return out
 }
