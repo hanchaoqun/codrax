@@ -107,6 +107,16 @@ const (
 	// typed-only: unlike legacy label vocabulary, rendered words do not mint
 	// this relation. Maps to ClaimRegistrationEdge.
 	DiagramRelRegister DiagramRelationKind = "register"
+
+	// DiagramRelAssignment denotes an exact value/binding flow asserted by an
+	// assignment or initializer. It is typed-only: labels and prose cannot mint
+	// assignment authority. Maps to ClaimAssignmentFact.
+	DiagramRelAssignment DiagramRelationKind = "assignment"
+
+	// DiagramRelReturn denotes an exact function-to-value/type flow asserted by
+	// a return statement. It is typed-only: labels and prose cannot mint return
+	// authority. Maps to ClaimReturnFact.
+	DiagramRelReturn DiagramRelationKind = "return"
 )
 
 // allDiagramRelationKinds is the canonical iteration order for tests
@@ -121,6 +131,8 @@ var allDiagramRelationKinds = []DiagramRelationKind{
 	DiagramRelTypeRelation,
 	DiagramRelObserve,
 	DiagramRelRegister,
+	DiagramRelAssignment,
+	DiagramRelReturn,
 }
 
 // AllDiagramRelationKinds returns the canonical iteration order.
@@ -162,6 +174,10 @@ func ClaimFormForRelation(rk DiagramRelationKind) ClaimForm {
 		return ClaimExternalObservation
 	case DiagramRelRegister:
 		return ClaimRegistrationEdge
+	case DiagramRelAssignment:
+		return ClaimAssignmentFact
+	case DiagramRelReturn:
+		return ClaimReturnFact
 	}
 	return ClaimUnknown
 }
@@ -187,6 +203,10 @@ func RelationForClaimForm(cf ClaimForm) DiagramRelationKind {
 		return DiagramRelObserve
 	case ClaimRegistrationEdge:
 		return DiagramRelRegister
+	case ClaimAssignmentFact:
+		return DiagramRelAssignment
+	case ClaimReturnFact:
+		return DiagramRelReturn
 	}
 	return DiagramRelUnknown
 }
@@ -205,8 +225,10 @@ func RelationForClaimForm(cf ClaimForm) DiagramRelationKind {
 //   - Adding / removing keywords MUST be reflected in the
 //     skill-prompt list shown to the LLM (see skill/defaults.go in
 //     C5). LLM-facing prompts read this dictionary as their authority.
-//   - When the ClaimForm enum gains a new edge-capable form, extend
-//     this dictionary AND ClaimFormForRelation in the same patch.
+//   - When the ClaimForm enum gains a label-inferable edge form, extend this
+//     dictionary AND ClaimFormForRelation in the same patch. Typed-only forms
+//     such as registration, assignment, return, and declared type relations
+//     intentionally stay out of this dictionary.
 var diagramRelationKeywords = []struct {
 	keyword string
 	kind    DiagramRelationKind

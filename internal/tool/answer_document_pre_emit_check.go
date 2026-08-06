@@ -3611,6 +3611,7 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 		}}
 	}
 	typeRelationParts := make([]string, 0, len(mismatches))
+	valueFlowParts := make([]string, 0, len(mismatches))
 	otherParts := make([]string, 0, len(mismatches))
 	for _, mismatch := range mismatches {
 		part := fmt.Sprintf(
@@ -3622,17 +3623,27 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 		)
 		if mismatch.Issue == diagramTypeRelationEdgeIssueNoEvidence {
 			typeRelationParts = append(typeRelationParts, part)
+		} else if mismatch.Issue == diagramAssignmentEdgeIssueNoEvidence || mismatch.Issue == diagramReturnEdgeIssueNoEvidence {
+			valueFlowParts = append(valueFlowParts, part)
 		} else {
 			otherParts = append(otherParts, part)
 		}
 	}
-	hints := make([]emitFixHint, 0, 2)
+	hints := make([]emitFixHint, 0, 3)
 	if len(typeRelationParts) > 0 {
 		hints = append(hints, emitFixHint{
 			Field:         "blocks[].edge_anchors[relation_kind=type_relation] AND blocks[kind=diagram].diagram.body",
 			HardSignal:    preEmitHardSignalTypedCallEdgeEvidence,
 			ExpectedShape: "every explicit relation_kind=type_relation edge in a non-runtime-trace answer must preserve one exact parser-authored declared-type relationship in this direction: subtype / implementing type / embedded type -> superclass / interface / trait / protocol / embedded contract. Correct the edge direction/endpoints or remove an unsupported edge; do not relabel it as call or contain: " + strings.Join(typeRelationParts, "; "),
 			Reason:        "inheritance, implementation, conformance, and embedding are cross-language declared-type relations, not invocations or containment. The typed relation enum is precise enough to gate only when a same-direction parser relationship is present; rendered labels and prose never create that authority.",
+		})
+	}
+	if len(valueFlowParts) > 0 {
+		hints = append(hints, emitFixHint{
+			Field:         "blocks[].edge_anchors[relation_kind=assignment|return] AND blocks[kind=diagram].diagram.body",
+			HardSignal:    preEmitHardSignalTypedCallEdgeEvidence,
+			ExpectedShape: "every explicit assignment/return edge in a non-runtime-trace answer must preserve one same-direction citable typed fact: assignment is assigned receiver/value -> concrete value/type and return is returning function -> returned value/type. Correct the endpoints/direction or remove the unsupported edge; never relabel a factory/data-binding edge as call: " + strings.Join(valueFlowParts, "; "),
+			Reason:        "assignment, initialization, and factory return are value-flow relations rather than source invocations. Their typed relation kinds preserve runtime-target selection without inventing a call edge; labels and prose never create this authority.",
 		})
 	}
 	if len(otherParts) > 0 {

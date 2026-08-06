@@ -27,6 +27,8 @@ func TestClaimFormForRelation_AllKinds(t *testing.T) {
 		{DiagramRelPrecedence, ClaimPrecedenceRole},
 		{DiagramRelObserve, ClaimExternalObservation},
 		{DiagramRelRegister, ClaimRegistrationEdge},
+		{DiagramRelAssignment, ClaimAssignmentFact},
+		{DiagramRelReturn, ClaimReturnFact},
 		{DiagramRelTypeRelation, ClaimDefinitionFact},
 		{DiagramRelContain, ClaimUnknown}, // containment is block-level, not edge
 		{DiagramRelUnknown, ClaimUnknown},
@@ -49,6 +51,8 @@ func TestRelationForClaimForm_AllKinds(t *testing.T) {
 		{ClaimPrecedenceRole, DiagramRelPrecedence},
 		{ClaimExternalObservation, DiagramRelObserve},
 		{ClaimRegistrationEdge, DiagramRelRegister},
+		{ClaimAssignmentFact, DiagramRelAssignment},
+		{ClaimReturnFact, DiagramRelReturn},
 		{ClaimDefinitionFact, DiagramRelUnknown},
 		{ClaimTextReferenceFact, DiagramRelUnknown},
 		{ClaimUnknown, DiagramRelUnknown},

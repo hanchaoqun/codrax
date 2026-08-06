@@ -1096,6 +1096,58 @@ func TestDiagramCallEdgeEvidenceMismatches_RegistrationRequiresExactTypedEvidenc
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_ValueFlowRequiresSameDirectionTypedEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		relation types.DiagramRelationKind
+		anchor   types.AnchorKind
+		from     string
+		to       string
+	}{
+		{"cpp_factory_return", types.DiagramRelReturn, types.AnchorReturn, "SinkRegistry.create", "ConsoleSink"},
+		{"arkts_assignment", types.DiagramRelAssignment, types.AnchorAssignment, "handler", "ConsoleHandler"},
+		{"cangjie_return", types.DiagramRelReturn, types.AnchorReturn, "Provider.create", "FastProcessor"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+				ID: "value-flow", Kind: types.BlockDiagram,
+				Diagram: &types.AnswerDiagramBlock{
+					Kind: types.DiagramCallDAG, Language: "mermaid",
+					Body: "flowchart TD\n  A[" + tc.from + "] --> B[" + tc.to + "]\n",
+				},
+				EdgeAnchors: []types.DiagramEdgeAnchor{{
+					FromNode: "A", ToNode: "B", RelationKind: tc.relation,
+				}},
+			}}}
+			view := &types.AnswerSemanticView{Family: types.QFCallChain}
+			missingIssue := diagramAssignmentEdgeIssueNoEvidence
+			if tc.relation == types.DiagramRelReturn {
+				missingIssue = diagramReturnEdgeIssueNoEvidence
+			}
+			if got := DiagramCallEdgeEvidenceMismatches(doc, view, nil); len(got) != 1 || got[0].Issue != missingIssue {
+				t.Fatalf("unproved value-flow edge must fail closed: %+v", got)
+			}
+			evidenceSubject := tc.from
+			if tc.name == "cpp_factory_return" {
+				evidenceSubject = "SinkRegistry::create"
+			}
+			evidence := []types.EvidenceItem{{
+				Kind: types.EvidenceDirect, Subject: evidenceSubject, Object: tc.to,
+				Source: "src/factory", LineStart: 17, AnchorKind: tc.anchor,
+				Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+			}}
+			if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) != 0 {
+				t.Fatalf("same-direction typed value-flow fact must authorize edge: %+v", got)
+			}
+			reversed := evidence[0]
+			reversed.Subject, reversed.Object = reversed.Object, reversed.Subject
+			if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{reversed}); len(got) != 1 || got[0].Issue != missingIssue {
+				t.Fatalf("reverse value-flow fact must not authorize edge: %+v", got)
+			}
+		})
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_TypeRelationRequiresSameDirectionParserEvidence(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "type-hierarchy", Kind: types.BlockDiagram,

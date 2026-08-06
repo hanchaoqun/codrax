@@ -74,6 +74,11 @@ const (
 	// caveat drives the user-facing "suggested files were not read"
 	// disclosure lane.
 	DowngradeLaneForcedReadCoverage DowngradeLane = "forced_read_coverage"
+	// DowngradeLaneCallChainDiscoverySelection is the discover-sink selection
+	// proof lane. One surgical emit_evidence repair is requested when a resolved
+	// call chain has no citable registration/assignment/return fact; a repeated
+	// no-progress close converges with an explicit boundary instead of looping.
+	DowngradeLaneCallChainDiscoverySelection DowngradeLane = "call_chain_discovery_selection"
 )
 
 // DowngradeFingerprint is the typed, comparable identity of a single pre-complete

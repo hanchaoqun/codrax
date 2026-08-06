@@ -22126,3 +22126,38 @@ JSON 教学审计结论：本批 tool schema 仍是字段/类型/必填/枚举�
 `EVAL-B201-DIRCALL1=S32-unit-production-shape-pass/live-nontrigger-r134`；
 `EVAL-B202-POLYGRAPH1=P1/next-high-ROI`；`EVAL-B203-PATHCAL1=P2/queued`；
 Trace 显式窗/因果投影/自动补齐=`not-touched`。
+
+### 123.184 S33：动态目标选择证据闭环与跨语言 value-flow 图层
+
+对 `sr_cpp_virtual_chain` 的 r133 失败做 typed 数据流复核后，确认删图不是 C++ 语法个例，而是两个系统能力缺口叠加：
+
+1. analyzer 已把目标声明为 `CallChainEndpointProfile{sink_mode=discover}`，Explorer 教学也要求 registry/assignment/return，但通用
+   completion readiness 与 `emit_investigation_complete` 没有消费这个 typed obligation；只要普通 call 证据达到数量门，系统就会错误发出
+   “all current evidence requirements are satisfied/close-ready”；
+2. `DiagramRelationKind` 只有 call/guard/import/precedence/contain/type_relation/observe/register，没有 assignment/return。即便模型已经读到
+   factory branch，也无法把“factory 返回具体实现”或“动态 receiver 被绑定到具体对象”表达为受证据约束的边，只能误画成 call，随后被精确
+   call-site 硬门正确拒绝。
+
+S33 按关系族修复，不按 fixture、语言或类名拟合：
+
+- 新增单源 `CallChainDiscoverySelectionEvidence`：registration 是直接选择凭证；assignment/initializer 与 return 必须含非空 typed
+  subject/object，并且 subject 与同一 citable evidence pool 的 call/registration endpoint 相连；无关函数的 return、空 registration、
+  ungrounded assignment 都不能闭环；
+- endpoint 连接只处理 schema-owned code identities，兼容 `.`, `::`, `->`, `#` 的稳定操作/receiver 分隔，覆盖 Go/Java/Kotlin/JS/TS/
+  ArkTS/C/C++/Rust/Python/Ruby/Swift/Lua/Cangjie 等现有可执行语言；不扫描请求、evidence summary、答案原文、case 名或语言关键词；
+- Explorer readiness 在 discover-sink 尚无选择凭证时显式增加 `runtime target selection` missing face，不再发通用收尾催促；同轮只给一次
+  最小 typed 提示，要求从已读行提交 registration、assignment/initializer 或 factory return，guard 继续单独发射；
+- pre-complete 增加同一 authority 的兜底：第一次缺证据只开放 `emit_evidence` 的 surgical repair；若同一 typed blocker 第二次无进展，
+  以 `call_chain_discovery_selection` caveat 接受并披露“runtime target selection remains unproven”，防止无限重试，同时不替模型编写结论；
+- 图层新增 `relation_kind=assignment|return`，分别一一映射 `assignment_fact|return_fact`；两者 typed-only、同向、可引用证据必需，label/prose
+  永远不能铸权。C++ `SinkRegistry::create -> ConsoleSink`、ArkTS assignment、Cangjie return 已纳入正反向测试；
+- JSON 教学同步降心智：projected tool schema 继续是字段、类型、必填和枚举的唯一 authority；教学只讲语义选择与三字段位置，不建立第二套
+  JSON 合同。`edge_anchors` 明确只有 `{from_node,to_node,relation_kind}`，assignment/return 不准伪装成 call，也不增加 claim_form/evidence
+  私生字段。
+
+Trace/root-cause 家族仍在 `DiagramCallEdgeEvidenceMismatches` 起点按 `QFRootCauseTrace` 跳过 source-call 合同；显式时间窗、Trace 因果投影、
+自动补齐、根因排序、唤醒链与可消除量路径均未修改。完整受影响套件通过：
+`go test ./internal/types ./internal/skill ./internal/tool ./internal/agent`（tool 165.221s，其余通过）；`git diff --check` 通过。
+
+状态：`EVAL-B202-POLYGRAPH1=S33-implemented/full-affected-suites-pass/pending-exact-two-replay`；
+`EVAL-B203-PATHCAL1=P2/queued`；JSON malformed/degradation=`not-regressed-by-typed-tests`；Trace=`not-touched`。

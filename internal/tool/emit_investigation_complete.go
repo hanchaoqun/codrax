@@ -2140,6 +2140,31 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	aggregateFactNormalizationNotes := aggregateFactValueCanonicalizationNotes(p.AggregateFacts, aggregateFacts)
 	aggregateFactNormalizationNotes = append(aggregateFactNormalizationNotes, softAggregateNotes...)
 	earlyDowngradeConverged := false
+	if resultKind == "resolved" && callChainDiscoverySelectionRequired(ctx) &&
+		!types.HasCallChainDiscoverySelectionEvidence(evidenceSnapshot) {
+		queueCallChainDiscoverySelectionRepair(ctx)
+		if !preCompleteDowngradeConverges(ctx, types.DowngradeLaneCallChainDiscoverySelection) {
+			ctx.Mutable.EvidenceClosure().BumpPreCompleteDowngrades(1)
+			return types.ToolResult{
+				ToolName: t.Name(),
+				Summary: preCompleteDowngradeSummary(
+					"emit_investigation_complete rejected: the discover-sink call chain has no citable typed runtime-target selection fact. Reuse an already-read selection site and emit exactly one registration, assignment/initializer, or factory return item with explicit subject/object; keep guards and calls as separate facts."),
+				Repair: attachToolJSONSurfaceMetadata(t.Name(), &types.ToolRepair{
+					Code:   "call_chain_discovery_selection_evidence",
+					Hint:   "Emit one citable typed runtime-target selection fact from an already-read source line. Registration uses evidence_kind=registration; assignment/initializer uses anchor_kind=assignment; factory return uses anchor_kind=return. Preserve exact subject/object direction and do not relabel selection as call.",
+					Fields: []string{"items[].evidence_kind", "items[].anchor_kind", "items[].subject", "items[].object", "items[].source", "items[].line_start"},
+					Metadata: map[string]string{
+						"repair_origin": "emit_investigation_complete.call_chain_discovery_selection",
+						"lane":          string(types.DowngradeLaneCallChainDiscoverySelection),
+					},
+				}),
+				Success:   true,
+				Timestamp: time.Now(),
+			}, nil
+		}
+		earlyDowngradeConverged = true
+		ctx.Mutable.AppendCompletionGateNote("runtime target selection remains unproven: no citable registration, assignment/initializer, or factory-return fact connected the discovered destination to the typed call path; the model must keep the destination conditional and may still summarize the proven static calls")
+	}
 	ignoredEvidenceWaiver, evidenceWaiverReject := applyEvidenceFloorWaiverPayload(ctx, t.Name(), p)
 	if evidenceWaiverReject != nil {
 		return *evidenceWaiverReject, nil
@@ -3091,8 +3116,10 @@ func preCompleteDowngradeConverges(ctx *types.BusContext, lane types.DowngradeLa
 	allowLaneChurn := lane == types.DowngradeLaneCompletionForm
 	exactThreshold := downgradeConvergenceHardThreshold
 	laneChurnThreshold := downgradeConvergenceHardThreshold
-	if lane == types.DowngradeLaneCompletionForm {
+	if lane == types.DowngradeLaneCompletionForm || lane == types.DowngradeLaneCallChainDiscoverySelection {
 		exactThreshold = 2
+	}
+	if lane == types.DowngradeLaneCompletionForm {
 		if laneChurnThreshold < 3 {
 			laneChurnThreshold = 3
 		}
@@ -3113,6 +3140,28 @@ func preCompleteDowngradeConverges(ctx *types.BusContext, lane types.DowngradeLa
 	logging.Info("[emit_investigation_complete] low-delta convergence force-complete lane=%s after %d consecutive no-progress attempts (blocker=%d reason=%s)",
 		lane, decision.Delta.Consecutive, blockerKey, decision.ReasonCode)
 	return true
+}
+
+func callChainDiscoverySelectionRequired(ctx *types.BusContext) bool {
+	return ctx != nil && ctx.AnalysisIR != nil &&
+		ctx.AnalysisIR.RequestModel.CallChainEndpointProfile.DiscoverSinkActive()
+}
+
+func queueCallChainDiscoverySelectionRepair(ctx *types.BusContext) {
+	if ctx == nil || ctx.Mutable == nil || ctx.Mutable.EvidenceClosure() == nil {
+		return
+	}
+	closure := ctx.Mutable.EvidenceClosure()
+	closure.AddRepair(types.RepairDirective{
+		Kind:          types.RepairEmitEvidence,
+		Files:         completionMaterializationReadFiles(closure),
+		Tools:         []string{"emit_evidence"},
+		Subject:       "call_chain_discovery_selection",
+		Rationale:     "a discover-sink call chain needs one citable typed registration, assignment/initializer, or factory-return fact connected to the current call path before the runtime destination can be stated as proven",
+		Origin:        "emit_investigation_complete.call_chain_discovery_selection",
+		DowngradeLane: types.DowngradeLaneCallChainDiscoverySelection,
+		Stage:         string(types.StageExplore),
+	})
 }
 
 func preCompleteDowngradeSummary(summary string) string {

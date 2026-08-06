@@ -148,6 +148,7 @@ type explorerEvaluator struct {
 	midLoopEvidenceRepairClosureOnlySent bool // one-shot: repair-only redirect after the repair hint was ignored
 	midLoopSurfaceTermReviewSent         bool // one-shot: model-authored surface_terms review hint already pushed this dispatch
 	midLoopClosureRepairSent             bool // one-shot: structured closure repair from a downgraded completion already pushed this dispatch
+	midLoopDiscoverySelectionSent        bool // one-shot: discover-sink still lacks a typed registration/assignment/return selection fact
 	midLoopClosureRepairResultsLen       int  // allResults length when the current closure repair hint fired
 	midLoopClosureRepairClosureOnlySent  bool // one-shot: closure-repair-only redirect after the repair hint was ignored
 	midLoopIntentWindowSent              bool // session-22: structural-intent-vs-narrow-window hint already pushed this dispatch
@@ -8253,6 +8254,10 @@ func (e *explorerEvaluator) completionReadinessWithCoverage(toolResults []types.
 	if len(traceEndpointMissing) > 0 {
 		hasEnough = false
 	}
+	discoverySelectionPending := e.callChainDiscoverySelectionPending()
+	if discoverySelectionPending {
+		hasEnough = false
+	}
 	readyFaces, missingFaces := explorerReadinessFaces(
 		toolDiversity,
 		fileCoverage,
@@ -8265,6 +8270,9 @@ func (e *explorerEvaluator) completionReadinessWithCoverage(toolResults []types.
 	)
 	if len(traceEndpointMissing) > 0 {
 		missingFaces = append(missingFaces, "trace endpoint")
+	}
+	if discoverySelectionPending {
+		missingFaces = append(missingFaces, "runtime target selection")
 	}
 
 	return explorerCompletionReadiness{
@@ -8400,6 +8408,19 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 		}
 	}
 	readiness := e.completionReadiness(obs.AllToolResults, -1, false, false)
+	if e.callChainDiscoverySelectionPending() && !e.midLoopDiscoverySelectionSent {
+		e.midLoopDiscoverySelectionSent = true
+		return LoopSignal{
+			HintRequested: true,
+			HintKey:       "explorer.mid-loop.call-chain-discovery-selection",
+			Hint: "The typed call chain still needs one runtime-target selection fact before closure. Reuse an already-read selection site and emit exactly one citable typed item: " +
+				"registration uses evidence_kind=registration with exact subject/object; assignment or initializer uses anchor_kind=assignment with assigned receiver/value in subject and selected concrete value/type in object; factory return uses anchor_kind=return with the returning function in subject and returned concrete value/type in object. " +
+				"Keep the branch guard as a separate condition item. Definitions, inheritance, and the factory invocation do not replace this selection fact, and none should be relabelled as a call.",
+			Progress:       true,
+			BypassThrottle: true,
+			BypassBudget:   true,
+		}
+	}
 	if !readiness.HasEnough {
 		e.logCompletionReadySkip("not_enough", readiness, false)
 		return LoopSignal{}
@@ -8472,6 +8493,13 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 		BypassThrottle: true,
 		BypassBudget:   true,
 	}
+}
+
+func (e *explorerEvaluator) callChainDiscoverySelectionPending() bool {
+	if e == nil || e.analysisIR == nil || !e.analysisIR.RequestModel.CallChainEndpointProfile.DiscoverSinkActive() {
+		return false
+	}
+	return !types.HasCallChainDiscoverySelectionEvidence(e.structuredEvidence)
 }
 
 func (e *explorerEvaluator) promoteDepthPhaseFromMaterializedEvidence(obs LoopObservation) bool {

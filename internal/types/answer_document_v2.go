@@ -488,7 +488,8 @@ func ReauthenticateSystemSnapshotBlockKinds(doc *AnswerDocumentV2, kinds map[str
 // strings as they appear in the diagram body; case-folded matching
 // is downstream. RelationKind is the current typed authority. The
 // model-facing schema requires it and exposes call / guard / import /
-// precedence / contain / type_relation / observe / register.
+// precedence / contain / type_relation / observe / register / assignment /
+// return.
 // ClaimForm remains on the wire only for persisted-document and old
 // tool-call compatibility; current prompts and schemas do not ask the
 // model to repeat this derived value. Empty / unknown RelationKind is

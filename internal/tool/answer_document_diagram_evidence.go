@@ -38,6 +38,8 @@ const (
 	diagramCallEdgeIssuePrincipalMiss        = "principal_call_edge_missing"
 	diagramRegistrationEdgeIssueNoEvidence   = "registration_edge_unproven"
 	diagramTypeRelationEdgeIssueNoEvidence   = "type_relation_edge_unproven"
+	diagramAssignmentEdgeIssueNoEvidence     = "assignment_edge_unproven"
+	diagramReturnEdgeIssueNoEvidence         = "return_edge_unproven"
 )
 
 // DiagramCallEdgeEvidenceMismatches cross-checks model-authored typed call
@@ -171,6 +173,22 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 				}
 				continue
 			}
+			if relation == types.DiagramRelAssignment || relation == types.DiagramRelReturn {
+				fromSymbol := diagramEvidenceEndpointSymbol(anchor.FromNode, labels)
+				toSymbol := diagramEvidenceEndpointSymbol(anchor.ToNode, labels)
+				if !diagramValueFlowEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol, relation) {
+					issue := diagramAssignmentEdgeIssueNoEvidence
+					if relation == types.DiagramRelReturn {
+						issue = diagramReturnEdgeIssueNoEvidence
+					}
+					out = append(out, DiagramCallEdgeEvidenceMismatch{
+						BlockID: block.ID, Issue: issue,
+						FromNode: strings.TrimSpace(anchor.FromNode), ToNode: strings.TrimSpace(anchor.ToNode),
+						FromSymbol: fromSymbol, ToSymbol: toSymbol,
+					})
+				}
+				continue
+			}
 			if relation != types.DiagramRelCall {
 				continue
 			}
@@ -285,6 +303,36 @@ func diagramRegistrationEdgeHasTypedEvidence(evidence []types.EvidenceItem, from
 		}
 	}
 	return false
+}
+
+func diagramValueFlowEdgeHasTypedEvidence(evidence []types.EvidenceItem, fromSymbol, toSymbol string, relation types.DiagramRelationKind) bool {
+	fromSymbol = strings.TrimSpace(fromSymbol)
+	toSymbol = strings.TrimSpace(toSymbol)
+	wantForm := types.ClaimFormForRelation(relation)
+	if fromSymbol == "" || toSymbol == "" || (wantForm != types.ClaimAssignmentFact && wantForm != types.ClaimReturnFact) {
+		return false
+	}
+	for _, ev := range evidence {
+		if !ev.IsCitable() || types.ClaimFormOf(ev) != wantForm {
+			continue
+		}
+		if diagramTypedValueEndpointMatches(ev.Subject, fromSymbol) &&
+			diagramTypedValueEndpointMatches(ev.Object, toSymbol) {
+			return true
+		}
+	}
+	return false
+}
+
+func diagramTypedValueEndpointMatches(evidenceEndpoint, diagramEndpoint string) bool {
+	evidenceEndpoint = strings.TrimSpace(evidenceEndpoint)
+	diagramEndpoint = strings.TrimSpace(diagramEndpoint)
+	if evidenceEndpoint == "" || diagramEndpoint == "" {
+		return false
+	}
+	return evidenceEndpoint == diagramEndpoint ||
+		types.CallChainEndpointCompatible(evidenceEndpoint, diagramEndpoint) ||
+		types.CallChainEndpointCompatible(diagramEndpoint, evidenceEndpoint)
 }
 
 // diagramCallEvidenceForEndpoints resolves a model-selected principal pair to

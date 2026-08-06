@@ -9115,6 +9115,64 @@ func TestObserveMidLoop_ExactCandidateUniverseSuppressesBroadEnumerationHint(t *
 	}
 }
 
+func TestPostCompletionReadySignal_DiscoverSinkRequestsTypedSelectionBeforeClose(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase: 1,
+		heuristics: types.ExploreHeuristics{
+			MidLoopMinIteration: 1,
+		},
+		analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			CallChainEndpointProfile: &types.CallChainEndpointProfile{
+				Source: "Logger.log", SinkMode: types.CallChainSinkResolutionDiscover,
+			},
+		}},
+		structuredEvidence: []types.EvidenceItem{{
+			Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall,
+			Subject: "Logger.log", Object: "sink_->write", Source: "src/logger.cpp", LineStart: 36,
+			Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+		}},
+	}
+	results := []types.ToolResult{{ToolName: "emit_evidence", Success: true}}
+	sig := eval.postCompletionReadySignal(LoopObservation{Iteration: 2, AllToolResults: results})
+	if !sig.HintRequested || sig.HintKey != "explorer.mid-loop.call-chain-discovery-selection" {
+		t.Fatalf("discover-sink must request selection evidence instead of generic closure: %+v", sig)
+	}
+	if !strings.Contains(sig.Hint, "anchor_kind=return") || !strings.Contains(sig.Hint, "anchor_kind=assignment") {
+		t.Fatalf("selection hint must teach the minimal typed alternatives: %s", sig.Hint)
+	}
+	if eval.midLoopCompletionReadySent {
+		t.Fatal("selection repair must not consume the later generic completion-ready latch")
+	}
+}
+
+func TestCompletionReadiness_DiscoverSinkConnectedReturnClearsSelectionFace(t *testing.T) {
+	eval := &explorerEvaluator{
+		analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			CallChainEndpointProfile: &types.CallChainEndpointProfile{
+				Source: "Logger.log", SinkMode: types.CallChainSinkResolutionDiscover,
+			},
+		}},
+		structuredEvidence: []types.EvidenceItem{{
+			Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall,
+			Subject: "make_sink", Object: "SinkRegistry.create", Source: "src/factory.cpp", LineStart: 32,
+			Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+		}, {
+			Kind: types.EvidenceDirect, AnchorKind: types.AnchorReturn,
+			Subject: "SinkRegistry::create", Object: "ConsoleSink", Source: "src/registry.cpp", LineStart: 18,
+			Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+		}},
+	}
+	if eval.callChainDiscoverySelectionPending() {
+		t.Fatal("connected factory return must satisfy discover-sink selection authority")
+	}
+	readiness := eval.completionReadiness(nil, 1, false, false)
+	for _, face := range readiness.MissingFaces {
+		if face == "runtime target selection" {
+			t.Fatalf("satisfied selection must not remain a missing readiness face: %+v", readiness)
+		}
+	}
+}
+
 func TestExplorerSoftStop_ExactCandidateUniverseBeatsBroadCoverageHints(t *testing.T) {
 	mut := types.NewMutableState("list all source scopes")
 	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
