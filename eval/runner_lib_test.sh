@@ -1000,6 +1000,8 @@ cat >"$partial_dir/run-1.logs/codrax-20260622-101306-000-1.log" <<'LOG'
 2026-06-22T10:13:09.000 DEBUG [diag explorer] phase=toolcall tool=repo_map params={"view":"source_inventory","scope":"internal/thirdparty/tree-sitter-arkts/corpus/sources"}
 2026-06-22T10:13:10.000 DEBUG [diag explorer] phase=toolcall tool=read_file params={"path":"internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets"}
 2026-06-22T10:13:11.000 DEBUG [diag explorer] phase=midloop_inject key="explorer.mid-loop.source-inventory"
+2026-06-22T10:13:12.000 WARN [emit_answer_document] blocks[] arrived as JSON-encoded string; re-parsed via flat-mode tolerance path
+2026-06-22T10:13:13.000 DEBUG [diag explorer] iter=1 ASSISTANT content: quoted "[emit_answer_document] blocks[] arrived as JSON-encoded string; re-parsed via flat-mode tolerance path"
 LOG
 eval_materialize_partial_run_result "$partial_dir" 1 124 901 "eval_worker_incomplete"
 assert_eq "$(head -1 "$partial_dir/run-1.verdict")" "TIMEOUT eval_worker_incomplete" "partial timeout verdict"
@@ -1015,6 +1017,7 @@ assert_eq "$(eval_metric_field "$partial_dir/run-1.metrics.txt" tool_read_file)"
 assert_eq "$(eval_metric_field "$partial_dir/run-1.metrics.txt" analyzer_dispatches)" "1" "partial timeout analyzer dispatch metric"
 assert_eq "$(eval_metric_field "$partial_dir/run-1.metrics.txt" explorer_iters)" "1" "partial timeout explorer iter metric"
 assert_eq "$(eval_metric_field "$partial_dir/run-1.metrics.txt" midloop_inject)" "1" "partial timeout midloop metric"
+assert_eq "$(eval_metric_field "$partial_dir/run-1.metrics.txt" answer_document_blocks_string_recovery_events)" "1" "partial timeout blocks-string recovery metric excludes model quotation"
 
 true_bin="$(command -v true || true)"
 if [[ -n "$true_bin" && -x "$true_bin" ]]; then
@@ -1057,6 +1060,8 @@ cat >"$logdir/codrax-20260608-000001-000-1.log" <<'LOG'
 LOG
 cat >"$logdir/codrax-20260608-000002-000-1.log" <<'LOG'
 2026-06-08T00:00:02.000 DEBUG [diag finalizer] phase=answer_contract_check section=lane_block_kind violations=2 strict_violations=0 soft_violations=2 elapsed=1ms
+2026-06-08T00:00:03.000 WARN [emit_answer_document] blocks[] arrived as JSON-encoded string; re-parsed via flat-mode tolerance path
+2026-06-08T00:00:04.000 DEBUG [diag finalizer] iter=1 ASSISTANT content: quoted "[emit_answer_document] blocks[] arrived as JSON-encoded string; re-parsed via flat-mode tolerance path"
 LOG
 printf 'aggregated-answer\n'
 FAKE
@@ -1083,6 +1088,7 @@ fi
 assert_eq "$(grep '^answer_contract_violations=' "$multilog_dir/run-1.metrics.txt" | cut -d= -f2)" "0" "aggregate log answer contract metric excludes advisory"
 assert_eq "$(grep '^answer_contract_strict_violations=' "$multilog_dir/run-1.metrics.txt" | cut -d= -f2)" "0" "aggregate log strict answer contract metric"
 assert_eq "$(grep '^answer_contract_advisories=' "$multilog_dir/run-1.metrics.txt" | cut -d= -f2)" "2" "aggregate log advisory answer contract metric"
+assert_eq "$(eval_metric_field "$multilog_dir/run-1.metrics.txt" answer_document_blocks_string_recovery_events)" "1" "aggregate log blocks-string recovery metric excludes model quotation"
 
 runtime_log="$tmp/runtime-authority.log"
 cat >"$runtime_log" <<'LOG'

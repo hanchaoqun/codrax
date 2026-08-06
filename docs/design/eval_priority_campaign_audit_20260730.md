@@ -19247,3 +19247,19 @@ supplement、显式时间窗、根因排序、唤醒链、窗内可消除量或�
 
 状态：`EVAL-B168-EMITFACTAUTH1=implemented/full-agent-suite-pass/awaiting-exact2-replay`；
 `EVAL-B168-JSONMETRIC1=next-small-batch`；raw prose hard gate=`absent`。
+
+### 123.81 B168-S2：AnswerDocument 整体 blocks-string 无损恢复获得独立 typed 指标
+
+本批只补可观测性，不改 JSON decoder、兼容范围、AnswerDocument 内容或用户可见降级：
+
+1. `run.sh` 正常 run 与 `runner_lib.sh` partial/timeout 物化路径统一新增
+   `answer_document_blocks_string_recovery_events`；它与 strict misplaced-field、string-carrier field、element-shape 三类指标分开，准确代表旧
+   flat-mode 的 whole-`blocks[]` string 无损恢复；
+2. 计数只匹配带 Codrax 时间戳的 control-plane WARN，模型 thinking/answer 或源码中引用同一句不会抬高指标；
+3. 汇总 metric roster 同步登记新键，后续跨 case sweep 可以比较发生率；历史 r84 日志用同一 helper 实测值为 1；
+4. runner 回归同时覆盖正常聚合日志和 partial/timeout 物化，且各放一条真实 WARN 与一条模型引用，二者都必须只计 1。
+
+验证：`bash eval/runner_lib_test.sh` 全绿；r84 真实聚合日志计数=1。现有 JSON shape-first 教学保持不变，本批没有再增加同义提示；等积累多维
+频率后，若仍高发，优先删并重复教学、保留一份 schema-near canonical example，而不是继续叠加模型心智负担。
+
+状态：`EVAL-B168-JSONMETRIC1=implemented/runner-contract-pass`；JSON lossless recovery=`preserved`；用户可见答案=`unchanged`。
