@@ -20751,3 +20751,50 @@ S11 经真实回放关闭。Cangjie explorer 明确识别完整可见 family 为
 定向 degradation/footer/writer 测试通过；完整 `go test ./internal/types ./internal/agent ./internal/tool -count=1` 通过（types 19.482s、agent 2.544s、tool 165.528s）。该批只改 typed degradation classification 与测试，不触及 AnswerDocument 正文、JSON repair、Trace 数据、明确时间窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量或模型结论所有权。
 
 状态：`EVAL-B177-QUOTEDEGRADE1=S12-implemented/full-impacted-suites-pass/pending-exact-two-replay`。
+
+### 123.137 B185 r110：S12 跨类型闭环；typed family 与可见 table 脱节
+
+在 `ded6168aa` 构建后严格并行恰好两个异构 case：
+
+- `qf_architecture`：130s，runner PASS / human PASS，finalizer reject=1；
+- `cangjie_repomap`：418s，runner FAIL / human FAIL，finalizer reject=1。
+
+S12 经跨类型回放关闭。architecture 与 Cangjie 的 operator ledger 分别保留
+`citation_quote_rewrite=3/12`，证明 exact file:line 引用补全仍可观测；两份最终用户答案都不再追加
+“系统降级披露：引用摘录回填”，而真实 malformed blocks-string 路径仍独立记录 recovery 并在有损时拒绝。
+因此 `EVAL-B177-QUOTEDEGRADE1=resolved/r110-cross-type-replay`。
+
+architecture 最终答案完整覆盖 7 个 stage、职责、条件触发和 pipeline 图。首稿把工作流顺序边声明成
+`relation_kind=call/call_edge`，精确调用证据门一次拒绝；模型改为
+`precedence/precedence_role` 后通过。这是有界且正确的关系分类纠错，暂不据单次波动新增硬门。
+
+Cangjie 的 typed 事实并未缺失：final document 持有精确的 2 个 extend、2 个 foreign func、8 个
+public class，每行 `source_inventory_row_id`、路径、package 与 citation 都正确。runner 失败暴露的是
+`EVAL-B185-FAMILYVIS1=P1/confirmed`：模型先发三个有标题 section，再发三个带精确
+`source_inventory_family`、但 `title` 为空的 table。renderer 只显示三个连续标题，随后显示三个
+连续的“列 1 / 列 2”通用表；typed family 没有任何可见载体。读者与 oracle 均只能把 12 行归到最后一个
+`public class` 标题，形成“事实正确但答案不可可靠解释”的展示失败。
+
+最优修复不读取用户原文、标题、表格 cell 或最终答案 prose，也不要求模型额外复制一遍 family 名：
+
+1. 以模型已经显式提交并通过 exact typed 校验的 `AnswerBlock.SourceInventoryFamily` 为唯一后备显示源；
+2. family-specific table/list 在没有 authored title 时，由 renderer 显示一个中性的 typed family 标识；有 authored title 时保持模型标题，不重复；
+3. 不移动、合并或重写 blocks，不改变成员、分桶、顺序、引用、结论和 completeness；全局/混合 family block 保持原样；
+4. pin 覆盖无标题后备、有标题优先、非 inventory block 零变化，并用恰好两个 source-inventory case 回放。
+
+r110 还记录 `EVAL-B185-ANALYZERBLOAT1=P2/observe`：Cangjie analyzer 首次 LLM 请求耗时
+4m54s，日志中的 think 在 75424 字符处被截断，且一开始没有遵循 source-inventory-first。后续轮次和
+explorer/finalizer 仍恢复正确。该现象目前更像 provider/model 波动与 40k context 下的心智负担，不足以用
+硬约束干预；继续在其他语言、Trace、读/写模式异构批次观察上下文规模、工具绕行和长思考频率。
+
+本轮 JSON 审计没有发现双 schema 教学：当前 tool schema 仍是字段、类型、required、enum 的唯一权威；
+Required Answer Blocks 只描述语义槽位。Cangjie 首稿的 blocks-string 只能部分结构化，系统正确拒绝有损
+“修复”，随后模型以 native JSON patch 成功。后续仍坚持可证明无损才自动恢复；重试耗尽才保留可识别
+模型字符串并显式披露模型输出异常，不由系统构造或替换模型结论。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b185_quote_footer_replay_r110_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b185_quote_footer_replay_r110_20260806_manual_audit.md`。
+
+状态：`EVAL-B177-QUOTEDEGRADE1=resolved/r110-cross-type-replay`；
+`EVAL-B185-FAMILYVIS1=P1/confirmed/pending-typed-render-fallback`；
+`EVAL-B185-ANALYZERBLOAT1=P2/model-provider-variance-observe`。
