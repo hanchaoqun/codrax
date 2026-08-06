@@ -49,13 +49,13 @@ func TestTraceQuerySummaryCarriesTypedRelationAuthorityBeforeExploreClosure(t *t
 		"self_wall_clock_seats=#4:3.956ms,#13:1.193ms self_wall_clock_subtotal=5.149ms",
 		"wakeup_edge_seats=#10:1.648ms wakeup_edge_subtotal=1.648ms",
 		"cross_ruler_addition=forbidden cross_ruler_physical_relation=unresolved",
-		"relation_claim_available authority_id=trace:self_runnable_two_ruler:",
-		"addition=authorized_to_published_subtotal subtotal_value=5.149 subtotal_unit=ms model_copy_policy=optional_if_used carrier=emit_investigation_complete.relation_claims",
-		"physical_relation=unresolved addition=forbidden model_copy_policy=optional_if_used carrier=emit_investigation_complete.relation_claims",
-		"relation_claim_available authority_id=trace:target_state_partition:",
-		"member_refs=running,runnable,sleep,d_state,io_wait physical_relation=mutually_exclusive addition=authorized_to_published_subtotal subtotal_value=233.190 subtotal_unit=ms",
-		"relation_claim_available authority_id=trace:same_source_partition:",
-		"member_refs=on_chain_anchored:CompThread_0-2955:d_state_or_io_wait:lines=2261-25863,adjacent_remainder:CompThread_0-2955:d_state_or_io_wait:lines=2261-25863 physical_relation=mutually_exclusive addition=authorized_to_published_subtotal subtotal_value=36.757 subtotal_unit=ms",
+		"relation_claim_copy={\"authority_id\":\"trace:self_runnable_two_ruler:",
+		"\"addition\":\"authorized_to_published_subtotal\",\"subtotal_value\":5.149,\"subtotal_unit\":\"ms\"} copy_policy=optional_prefer_omit typed_authority_auto_carried=true",
+		"\"physical_relation\":\"unresolved\",\"addition\":\"forbidden\"} copy_policy=optional_prefer_omit typed_authority_auto_carried=true",
+		"relation_claim_copy={\"authority_id\":\"trace:target_state_partition:",
+		"\"member_refs\":[\"running\",\"runnable\",\"sleep\",\"d_state\",\"io_wait\"],\"physical_relation\":\"mutually_exclusive\",\"addition\":\"authorized_to_published_subtotal\",\"subtotal_value\":233.19,\"subtotal_unit\":\"ms\"}",
+		"relation_claim_copy={\"authority_id\":\"trace:same_source_partition:",
+		"\"member_refs\":[\"on_chain_anchored:CompThread_0-2955:d_state_or_io_wait:lines=2261-25863\",\"adjacent_remainder:CompThread_0-2955:d_state_or_io_wait:lines=2261-25863\"],\"physical_relation\":\"mutually_exclusive\",\"addition\":\"authorized_to_published_subtotal\",\"subtotal_value\":36.757,\"subtotal_unit\":\"ms\"}",
 		"blocked_reason_census_relation subject=target-17267 records=50 value_caliber=kernel_record_count caller_delay_caliber=vendor_reported_delay_sum state_relation_authority=census_alone_not_sufficient typed_interval_join_required=true add_or_subtract_from_state_total=not_authorized_by_census_alone",
 	} {
 		if !strings.Contains(got, want) {
@@ -67,6 +67,12 @@ func TestTraceQuerySummaryCarriesTypedRelationAuthorityBeforeExploreClosure(t *t
 	}
 	if strings.Contains(got, "relation_claim_required") || strings.Contains(got, "model_must_copy_to") {
 		t.Fatalf("optional relation JSON carrier must not be taught as mandatory:\n%s", got)
+	}
+	for _, line := range strings.Split(got, "\n") {
+		if strings.Contains(line, "relation_claim_copy=") &&
+			(strings.Contains(line, "member_values") || strings.Contains(line, "comparison_value") || strings.Contains(line, "fix_direction")) {
+			t.Fatalf("diagnostic calibration must never enter the model-copyable JSON claim: %s", line)
+		}
 	}
 	if relationAt, bodyAt := strings.Index(got, "relation_authority scope="), strings.Index(got, "## Root cause rank"); relationAt < 0 || bodyAt < 0 || relationAt > bodyAt {
 		t.Fatalf("relation authority must remain in the model-visible head, relation=%d body=%d:\n%s", relationAt, bodyAt, got)

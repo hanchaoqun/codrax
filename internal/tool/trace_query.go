@@ -8018,23 +8018,20 @@ func writeTraceRootCauseRelationAuthorityPreview(b *strings.Builder, result trac
 	}
 	projection.RankedSeats = traceQueryRelationAuthorityRankedSeats(rank)
 	for _, authority := range types.CompileTraceAnswerRelationAuthorities(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}}) {
-		members := authority.MemberRefs
-		if authority.Kind == types.AnswerRelationAuthorityCrossRulerBoundary {
-			members = append(append([]string(nil), authority.LeftMemberRefs...), authority.RightMemberRefs...)
+		claim := types.AnswerRelationClaimForAuthority(authority)
+		copyJSON, err := json.Marshal(claim)
+		if err != nil {
+			continue
 		}
-		fmt.Fprintf(b, "- relation_claim_available authority_id=%s member_refs=%s physical_relation=%s addition=%s",
-			sanitizeForBanner(authority.ID), sanitizeForBanner(strings.Join(members, ",")),
-			sanitizeForBanner(authority.PhysicalRelation), sanitizeForBanner(authority.Addition))
-		if authority.SubtotalValue != nil {
-			fmt.Fprintf(b, " subtotal_value=%.3f subtotal_unit=%s", *authority.SubtotalValue, sanitizeForBanner(authority.SubtotalUnit))
-		}
+		fmt.Fprintf(b, "- relation_claim_copy=%s copy_policy=optional_prefer_omit typed_authority_auto_carried=true\n", copyJSON)
+		members := claim.MemberRefs
 		if authority.Kind == types.AnswerRelationAuthorityOverlappingMembers &&
 			len(authority.MemberValuesMS) == len(members) {
 			parts := make([]string, 0, len(members))
 			for index, member := range members {
 				parts = append(parts, fmt.Sprintf("%s:%.3fms", member, authority.MemberValuesMS[index]))
 			}
-			fmt.Fprintf(b, " member_values=%s fix_direction=%s chain_lane=%s members_independent=false",
+			fmt.Fprintf(b, "  relation_diagnostic_only not_json_claim_fields=true member_values=%s fix_direction=%s chain_lane=%s members_independent=false",
 				sanitizeForBanner(strings.Join(parts, ",")), sanitizeForBanner(authority.FixDirection), sanitizeForBanner(authority.ChainLane))
 			if authority.MeasuredOverlapMS != nil {
 				fmt.Fprintf(b, " measured_envelope_overlap=%.3fms", *authority.MeasuredOverlapMS)
@@ -8045,8 +8042,8 @@ func writeTraceRootCauseRelationAuthorityPreview(b *strings.Builder, result trac
 			if authority.ComparisonValueMS != nil {
 				fmt.Fprintf(b, " comparison_value=%.3fms", *authority.ComparisonValueMS)
 			}
+			b.WriteString("\n")
 		}
-		b.WriteString(" model_copy_policy=optional_if_used carrier=emit_investigation_complete.relation_claims\n")
 	}
 
 	account := traceQueryTargetWindowStatesAccount(result)

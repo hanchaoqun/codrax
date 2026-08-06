@@ -686,6 +686,32 @@ func NormalizeAnswerRelationClaim(in AnswerRelationClaim) AnswerRelationClaim {
 	return out
 }
 
+// AnswerRelationClaimForAuthority returns the exact model-copyable wire
+// projection of a typed relation authority. Diagnostic calibration fields on
+// AnswerRelationAuthority (member values, overlap, comparison rules, repair
+// direction) deliberately do not belong to the JSON claim schema.
+//
+// Keeping this projection here prevents prompt renderers from teaching a
+// visually adjacent superset that strict tool decoding will later reject.
+func AnswerRelationClaimForAuthority(authority AnswerRelationAuthority) AnswerRelationClaim {
+	members := append([]string(nil), authority.MemberRefs...)
+	if authority.Kind == AnswerRelationAuthorityCrossRulerBoundary {
+		members = append(append([]string(nil), authority.LeftMemberRefs...), authority.RightMemberRefs...)
+	}
+	claim := AnswerRelationClaim{
+		AuthorityID:      authority.ID,
+		MemberRefs:       members,
+		PhysicalRelation: authority.PhysicalRelation,
+		Addition:         authority.Addition,
+		SubtotalUnit:     authority.SubtotalUnit,
+	}
+	if authority.SubtotalValue != nil {
+		value := *authority.SubtotalValue
+		claim.SubtotalValue = &value
+	}
+	return NormalizeAnswerRelationClaim(claim)
+}
+
 func CloneAnswerRelationClaims(in []AnswerRelationClaim) []AnswerRelationClaim {
 	if len(in) == 0 {
 		return nil

@@ -27,17 +27,37 @@ func claimsFromRequiredAuthorities(authorities []AnswerRelationAuthority) []Answ
 		if !authority.RequiredForClosure {
 			continue
 		}
-		members := authority.MemberRefs
-		if authority.Kind == AnswerRelationAuthorityCrossRulerBoundary {
-			members = append(append([]string(nil), authority.LeftMemberRefs...), authority.RightMemberRefs...)
-		}
-		claims = append(claims, AnswerRelationClaim{
-			AuthorityID: authority.ID, MemberRefs: members,
-			PhysicalRelation: authority.PhysicalRelation, Addition: authority.Addition,
-			SubtotalValue: authority.SubtotalValue, SubtotalUnit: authority.SubtotalUnit,
-		})
+		claims = append(claims, AnswerRelationClaimForAuthority(authority))
 	}
 	return claims
+}
+
+func TestAnswerRelationClaimForAuthorityProjectsOnlyWireFields(t *testing.T) {
+	overlap := 90.0
+	comparison := 23.994
+	authority := AnswerRelationAuthority{
+		ID:                "trace:overlap",
+		Kind:              AnswerRelationAuthorityOverlappingMembers,
+		MemberRefs:        []string{"#1", "#2"},
+		PhysicalRelation:  AnswerPhysicalRelationOverlap,
+		Addition:          AnswerRelationAdditionForbidden,
+		MemberValuesMS:    []float64{23.994, 19.041},
+		MeasuredOverlapMS: &overlap,
+		ComparisonValueMS: &comparison,
+		ComparisonRule:    "max_member_only_no_subtotal",
+		FixDirection:      "lock_priority",
+		ChainLane:         "on_chain",
+	}
+	claim := AnswerRelationClaimForAuthority(authority)
+	if claim.AuthorityID != authority.ID || len(claim.MemberRefs) != 2 ||
+		claim.PhysicalRelation != AnswerPhysicalRelationOverlap ||
+		claim.Addition != AnswerRelationAdditionForbidden ||
+		claim.SubtotalValue != nil || claim.SubtotalUnit != "" {
+		t.Fatalf("wire projection drifted: %+v", claim)
+	}
+	if err := ValidateAnswerRelationClaims([]AnswerRelationClaim{claim}, []AnswerRelationAuthority{authority}, false); err != nil {
+		t.Fatalf("wire projection must be accepted by its source authority: %v", err)
+	}
 }
 
 func TestValidateAnswerRelationClaimsPinsTwoRulerArithmeticWithoutProse(t *testing.T) {

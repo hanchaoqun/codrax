@@ -72,6 +72,7 @@ func TestFinalTraceDecisionBoundaryFollowsGenericGuidanceAndKeepsModelOwnership(
 		"causal_conclusion=`unproven`",
 		"frame_evidence_status=`absent`",
 		"target_direct_blocking_authority=`unavailable_without_typed_target`",
+		"direct_blocking_decision=`not_established`",
 		"fix_direction_summary_authority=`single_published_leader_only`",
 		"direction_subtotal_authority=`not_provided_without_exact_fold`",
 		"leader_subject=`worker-200`",
@@ -115,6 +116,7 @@ func TestTraceFinalCompactAuthorityLedgerSeparatesWakeupFromTypedBlockingAndDire
 	got := renderTraceFinalCompactAuthorityLedger(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}})
 	for _, want := range []string{
 		"target_direct_blocking_authority=`typed_waiter_holder`",
+		"direct_blocking_decision=`established_by_typed_relation`",
 		"waiter=`ui-100`",
 		"holder=`holder-300`",
 		"blocking_kind=`lock_contention`",
@@ -134,6 +136,9 @@ func TestTraceFinalCompactAuthorityLedgerSeparatesWakeupFromTypedBlockingAndDire
 	projection.RankedSeats[2].BlockingPeer = ""
 	got = renderTraceFinalCompactAuthorityLedger(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}})
 	if !strings.Contains(got, "target_direct_blocking_authority=`not_provided_by_projection`") ||
+		!strings.Contains(got, "direct_blocking_decision=`not_established`") ||
+		!strings.Contains(got, "say that no typed direct blocker was established for this target") ||
+		!strings.Contains(got, "do not promote a wakeup peer, IRQ peer, kernel caller, adjacent row, or another thread's blocking interval") ||
 		!strings.Contains(got, "wakeup_path_blocking_authority=`not_implied`") {
 		t.Fatalf("wakeup path without typed blocking row must stay below blocker authority:\n%s", got)
 	}

@@ -173,7 +173,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 			"relation_claims": {
 				"type": "array",
 				"maxItems": 16,
-				"description": "Optional model-authored typed value-relation declarations. Typed trace relation_authority objects are already carried into final synthesis; omitting this format-only copy does not block investigation closure. If you submit an entry, copy the exact authority object and keep reason consistent with it. The framework validates submitted structured payload only against typed trace carriers; it does not scan or rewrite reason. Each entry is {authority_id, member_refs[], physical_relation, addition, optional subtotal_value/subtotal_unit}. A cross-ruler authority requires physical_relation=unresolved and addition=forbidden with no subtotal; a same-ruler authority requires the exact member roster and published subtotal.",
+				"description": "OPTIONAL; normally omit it because typed trace relation authorities are carried into final synthesis automatically. If structured metadata is useful, copy only a complete relation_claim_copy JSON object printed by trace_query. Never copy relation_diagnostic_only fields such as member_values, measured_envelope_overlap, comparison_rule, comparison_value, fix_direction, or chain_lane: they are reasoning context and are not fields in this schema. Omission does not block closure. Submitted claims are validated only against typed trace carriers; the framework does not scan or rewrite reason.",
 				"items": {
 					"type": "object",
 					"properties": {

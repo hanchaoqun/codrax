@@ -20922,3 +20922,75 @@ Trace 明确时间窗、因果投影、自动补齐、根因排序、唤醒链�
 `EVAL-B185-ORACLEMARK1=resolved/r112-replay`；
 `EVAL-B185-ARKTSGROUND1=P2/model-path-efficiency-observe`；
 `EVAL-B184-CARRIERMETA1=P2/model-variance-observe`。
+
+### 123.142 B186 r113：显式窗 Trace 双轴完整，但 direct-blocking 关系越权；relation JSON 教学自相矛盾
+
+在 `f38fcfbe4` 构建后严格并行恰好两个异构 case：
+
+- `trace_query_donghu_real_frame_multicausal`：202s，runner PASS / human FAIL，closure emit 3 次、拒绝 2 次；
+- `github_issue_commons_lang_random_ascii`：268s，runner FAIL / human PASS，首次 verify 失败后 replan，第二次测试通过但最终诚实标记 unverified。
+
+Trace 的主要能力没有回退：用户显式窗 `34579.472865..34579.587805` 被所有 4 次查询继承；最终可见
+`Trace 因果投影`、系统 frame bundle 补采、目标五态分区、根因排序、唤醒路径、代表性时间窗以及
+“实际时间占用 / 现规则可消除量”双轴。模型也在开头明确 `frame_evidence_status=absent`、
+`causal_conclusion=unproven`，没有把链候选升级成已证丢帧因果。
+
+但人工审计确认 `EVAL-B186-DIRECTREL1=P1/confirmed`：模型把属于
+`ThreadPoolForeg-60555 -> udk-irq-3-65` 的 on-chain `io_latency` 行称为目标主线程的“直接阻塞体”，而最终
+typed boundary 精确发布 `target_direct_blocking_authority=not_provided_by_projection`、
+`wakeup_path_blocking_authority=not_implied`。目标自身五态又显示 D-state/io_wait 均为 0，因此这是关系层越权，
+不是数据缺失或投影空产。不得通过扫描“直接阻塞”等答案词硬拒。泛化修复应只从 typed projection 派生一条
+高显著性 `direct_blocking_decision`：有 exact waiter/holder 时给出已证关系；没有时要求模型明确披露未建立，并
+列清 wakeup peer、IRQ peer、kernel caller、adjacent row、其他线程 blocking interval 都不能替代目标直接阻塞。
+
+同轮还确认 `EVAL-B186-RELJSON1=P1/confirmed`，且根因是系统教学矛盾而非单纯模型波动：
+`trace_query` 的 `relation_claim_available` 行把 schema 允许的
+`authority_id/member_refs/physical_relation/addition/subtotal_*` 与只读诊断字段
+`member_values/measured_envelope_overlap/comparison_*` 连续显示，又写
+`carrier=emit_investigation_complete.relation_claims`。模型第一次给 overlap claim 填入不允许的 subtotal，第二次
+照相邻教学复制 `member_values/comparison_*`；strict decoder 分别拒绝，浪费两轮。第二次还把
+`aggregate_facts` 包成字符串；该数组 6/6 可无损解析，所以现有 recovery 正确接纳 array 本体，但未知 claim 字段
+仍正确 fail-closed。最优修复是建立单源 wire projection，输出可直接复制的 canonical
+`relation_claim_copy={...}`，把 calibration 放到明确的 `relation_diagnostic_only/not_json_claim_fields` 行，并
+直接教学“typed authority 已自动携带，通常省略 relation_claims”。这减少 JSON 心智，不新增 required 字段或
+第二 schema。
+
+Java 写模式的 applied tree 正确包含生产 guard 与 CJK/full-width digit 回归，`make check` 通过。runner FAIL
+来自 `production_verification_source_static_only`：fixture 的 Make target 只跑 Python 源码形状 oracle，没有执行
+Java 目标行为；控制器拒绝模型 `all_verified` 是诚实降级，不是补丁失败，也不是“模型答案消失”。本轮不据此
+放宽验证红线；既有 `B171-JAVADIRECT1` 继续观察真实语言运行器能力。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b186_trace_javawrite_r113_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b186_trace_javawrite_r113_20260806_manual_audit.md`。
+
+状态：`EVAL-B186-RELJSON1=P1/confirmed/pending-S15`；
+`EVAL-B186-DIRECTREL1=P1/confirmed/pending-S15-soft-context-fix`；
+`EXPLICIT-WINDOW-TRACE-PROJECTION=preserved/r113`；
+`MALFORMED-ANSWER-JSON=lossless-array-recovery-confirmed/unknown-fields-remain-fail-closed`。
+
+### 123.143 S15：relation claim wire/diagnostic 分栏，并提高 direct-blocking typed 边界显著性
+
+`EVAL-B186-RELJSON1` 与 `EVAL-B186-DIRECTREL1` 已按同一原则修复：精确信号只提供事实与软指导，不扫描
+或接管模型结论。
+
+1. `types.AnswerRelationClaimForAuthority` 成为 typed authority 到 model-copyable JSON 的唯一投影，只包含
+   `AnswerRelationClaim` schema 的六个字段；overlap member values、测得包络重叠、比较规则、修向与 chain lane
+   明确不进入该 wire object；
+2. `trace_query` 头部与 finalizer Trace decision handoff 都输出 canonical
+   `relation_claim_copy={...}`，并将其他校准量移到独立
+   `relation_diagnostic_only/not_json_claim_fields=true` 行；tool schema 同步明确“通常省略，typed authority 已自动
+   携带；需要时只复制完整 relation_claim_copy”，消除一份事实两套相冲教学；
+3. 最终 typed boundary 从投影现状发布 `direct_blocking_decision`。无目标或无 exact target waiter/holder 时为
+   `not_established`，提示模型回答“未建立”并禁止把 wakeup/IRQ/caller/adjacent/other-thread blocking 当作目标
+   direct blocker；有 exact relation 时为 `established_by_typed_relation`，同时保留 waiter/holder/kind/row identity；
+4. 全部是 prompt/transport 改动：不读取 RawRequest、模型 think、reason、block label/text 或最终 Markdown，
+   不新增 emit-time prose gate，不重写或删除模型答案，不改根因选举、因果投影、显式窗、补采、唤醒链、窗内
+   可消除量与双轴计算。
+
+定向测试覆盖 canonical copy 不夹带 diagnostic fields、overlap 诊断仍完整、final handoff 同源、direct blocker
+正/负两臂。完整受影响套件
+`go test ./internal/types ./internal/agent ./internal/tool -count=1` 全绿（types 19.430s、agent 2.582s、
+tool 164.997s）；r114 恰好双案例回放完成后关闭状态。
+
+状态：`EVAL-B186-RELJSON1=S15-implemented/full-impacted-suites-pass/pending-r114`；
+`EVAL-B186-DIRECTREL1=S15-implemented-soft-guidance/full-impacted-suites-pass/pending-r114`。

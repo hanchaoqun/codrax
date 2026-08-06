@@ -362,11 +362,11 @@ func TestOverlappingMembersAuthorityMatchesHeadAndLedgerWithoutMandatoryJSON(t *
 	}
 	summary := traceQuerySummary(result, traceQueryParams{View: result.View}, "customer.systrace", "/tmp/result.json")
 	for _, want := range []string{
-		"relation_claim_available authority_id=trace:overlapping_members:",
-		"physical_relation=overlap addition=forbidden",
+		"relation_claim_copy={\"authority_id\":\"trace:overlapping_members:",
+		"\"physical_relation\":\"overlap\",\"addition\":\"forbidden\"} copy_policy=optional_prefer_omit typed_authority_auto_carried=true",
+		"relation_diagnostic_only not_json_claim_fields=true",
 		"members_independent=false measured_envelope_overlap=90.000ms",
 		"comparison_rule=max_member_only_no_subtotal comparison_value=23.994ms",
-		"model_copy_policy=optional_if_used carrier=emit_investigation_complete.relation_claims",
 	} {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("overlap relation preview missing %q:\n%s", want, summary)

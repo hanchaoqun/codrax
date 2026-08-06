@@ -7949,6 +7949,21 @@ func TestEmitInvestigationCompleteSchema_DocumentsRuntimeDirectObservationBounda
 	}
 }
 
+func TestEmitInvestigationCompleteSchemaSeparatesRelationClaimCopyFromDiagnostics(t *testing.T) {
+	params := string((&EmitInvestigationComplete{}).Parameters())
+	for _, want := range []string{
+		"normally omit it",
+		"relation_claim_copy",
+		"Never copy relation_diagnostic_only fields",
+		"member_values",
+		"typed trace relation authorities are carried into final synthesis automatically",
+	} {
+		if !strings.Contains(params, want) {
+			t.Fatalf("relation claim schema teaching missing %q in:\n%s", want, params)
+		}
+	}
+}
+
 func TestEmitInvestigationCompleteSchema_DocumentsMemberSetSupportRefsBoundary(t *testing.T) {
 	params := string((&EmitInvestigationComplete{}).Parameters())
 	for _, want := range []string{

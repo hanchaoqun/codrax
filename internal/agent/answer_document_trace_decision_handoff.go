@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"sort"
@@ -354,22 +355,20 @@ func traceDecisionWriteRelationClaimHandoff(b *strings.Builder, set types.TraceC
 	authorityCount := 0
 	for _, authority := range authorities {
 		authorityCount++
-		members := authority.MemberRefs
-		if authority.Kind == types.AnswerRelationAuthorityCrossRulerBoundary {
-			members = append(append([]string(nil), authority.LeftMemberRefs...), authority.RightMemberRefs...)
+		claim := types.AnswerRelationClaimForAuthority(authority)
+		copyJSON, err := json.Marshal(claim)
+		if err != nil {
+			continue
 		}
-		fmt.Fprintf(b, "- typed_relation_authority: authority_id=`%s`; member_refs=`%s`; physical_relation=`%s`; addition=`%s`",
-			authority.ID, strings.Join(members, ","), authority.PhysicalRelation, authority.Addition)
-		if authority.SubtotalValue != nil {
-			fmt.Fprintf(b, "; subtotal_value=%.3f; subtotal_unit=`%s`", *authority.SubtotalValue, authority.SubtotalUnit)
-		}
+		fmt.Fprintf(b, "- typed_relation_authority: relation_claim_copy=`%s`; copy_policy=`optional_prefer_omit`; typed_authority_auto_carried=`true`", copyJSON)
+		members := claim.MemberRefs
 		if authority.Kind == types.AnswerRelationAuthorityOverlappingMembers &&
 			len(authority.MemberValuesMS) == len(members) {
 			valueParts := make([]string, 0, len(members))
 			for index, member := range members {
 				valueParts = append(valueParts, fmt.Sprintf("%s:%.3fms", member, authority.MemberValuesMS[index]))
 			}
-			fmt.Fprintf(b, "; member_values=`%s`; fix_direction=`%s`; chain_lane=`%s`; members_independent=`false`",
+			fmt.Fprintf(b, ".\n  relation_diagnostic_only: not_json_claim_fields=`true`; member_values=`%s`; fix_direction=`%s`; chain_lane=`%s`; members_independent=`false`",
 				strings.Join(valueParts, ","), authority.FixDirection, authority.ChainLane)
 			if authority.MeasuredOverlapMS != nil {
 				fmt.Fprintf(b, "; measured_envelope_overlap=%.3fms", *authority.MeasuredOverlapMS)
@@ -385,7 +384,7 @@ func traceDecisionWriteRelationClaimHandoff(b *strings.Builder, set types.TraceC
 		b.WriteString(".\n")
 	}
 	if authorityCount > 0 {
-		b.WriteString("- final_relation_claim_carrier: the typed_relation_authority rows above are precise decision inputs, not a format-only copy obligation. Keep your visible relation explanation consistent. If you choose to publish structured relation metadata, place only the exact authority object on `blocks[i].relation_claims`, never at document-level `$.relation_claims`; submitted metadata is validated, but omitting this optional carrier does not trigger a retry. Deterministic checks never rewrite prose.\n")
+		b.WriteString("- final_relation_claim_carrier: the typed authorities above are precise decision inputs and are already carried automatically. Prefer omitting optional `blocks[i].relation_claims`. If structured metadata is useful, copy only one complete `relation_claim_copy` JSON object; never copy any `relation_diagnostic_only` field, and never put claims at document-level `$.relation_claims`. Submitted metadata is validated, but omission does not trigger a retry. Deterministic checks never rewrite prose.\n")
 	}
 	if len(acceptedClaims) == 0 || len(acceptedClaims[0]) == 0 {
 		return

@@ -90,12 +90,13 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 		"same_ruler_addition=`authorized_to_published_subtotal`",
 		"cross_ruler_addition=`forbidden`",
 		"cross_ruler_physical_relation=`unresolved`",
-		"typed_relation_authority: authority_id=`trace:self_runnable_two_ruler:",
-		"typed_relation_authority: authority_id=`trace:target_state_partition:",
-		"member_refs=`running,runnable,sleep,d_state,io_wait`; physical_relation=`mutually_exclusive`; addition=`authorized_to_published_subtotal`",
+		"typed_relation_authority: relation_claim_copy=`{\"authority_id\":\"trace:self_runnable_two_ruler:",
+		"typed_relation_authority: relation_claim_copy=`{\"authority_id\":\"trace:target_state_partition:",
+		"\"member_refs\":[\"running\",\"runnable\",\"sleep\",\"d_state\",\"io_wait\"],\"physical_relation\":\"mutually_exclusive\",\"addition\":\"authorized_to_published_subtotal\"",
 		"final_relation_claim_carrier:",
-		"not a format-only copy obligation",
-		"omitting this optional carrier does not trigger a retry",
+		"already carried automatically",
+		"Prefer omitting optional `blocks[i].relation_claims`",
+		"omission does not trigger a retry",
 		"elected_wakeup_path=`ThreadPool-300 -> Network-200 -> Cookie-150 -> target-100`",
 		"wakeup_path_semantics:",
 		"does not prove that B synchronously blocked waiting for A",
@@ -167,15 +168,15 @@ func TestTraceDecisionHandoffCarriesExactOverlapBeforeModelConclusion(t *testing
 		runtimeTraceGuidanceView{},
 	)
 	for _, want := range []string{
-		"typed_relation_authority: authority_id=`trace:overlapping_members:",
-		fmt.Sprintf("member_refs=`%s,%s`", leftRef, rightRef),
+		"typed_relation_authority: relation_claim_copy=`{\"authority_id\":\"trace:overlapping_members:",
+		fmt.Sprintf("\"member_refs\":[\"%s\",\"%s\"]", leftRef, rightRef),
 		fmt.Sprintf("member_values=`%s:23.994ms,%s:19.041ms`", leftRef, rightRef),
 		"fix_direction=`lock_priority`",
 		"chain_lane=`on_chain`",
-		"physical_relation=`overlap`",
+		"\"physical_relation\":\"overlap\"",
 		"measured_envelope_overlap=90.000ms",
 		"members_independent=`false`",
-		"addition=`forbidden`",
+		"\"addition\":\"forbidden\"",
 		"comparison_rule=`max_member_only_no_subtotal`",
 		"comparison_value=23.994ms",
 		"arithmetic_instruction=`preserve_each_member_but_never_publish_their_sum_as_a_total_or_eliminable_amount`",
@@ -186,7 +187,7 @@ func TestTraceDecisionHandoffCarriesExactOverlapBeforeModelConclusion(t *testing
 			t.Fatalf("typed pre-final overlap relation missing %q:\n%s", want, got)
 		}
 	}
-	authorityStart := strings.Index(got, "typed_relation_authority: authority_id=`trace:overlapping_members:")
+	authorityStart := strings.Index(got, "typed_relation_authority: relation_claim_copy=`{\"authority_id\":\"trace:overlapping_members:")
 	authorityEnd := strings.Index(got[authorityStart:], "final_relation_claim_carrier:")
 	authoritySection := got[authorityStart : authorityStart+authorityEnd]
 	if strings.Contains(authoritySection, types.TraceAnswerRelationMemberRef(projection.RankedSeats[2])) ||
@@ -194,7 +195,7 @@ func TestTraceDecisionHandoffCarriesExactOverlapBeforeModelConclusion(t *testing
 		strings.Contains(authoritySection, types.TraceAnswerRelationMemberRef(projection.RankedSeats[4])) {
 		t.Fatalf("cross-direction pair must not add prompt noise:\n%s", got)
 	}
-	if strings.Index(got, "typed_relation_authority: authority_id=`trace:overlapping_members:") > strings.Index(got, "axis_B_existing_rule_eliminable") {
+	if strings.Index(got, "typed_relation_authority: relation_claim_copy=`{\"authority_id\":\"trace:overlapping_members:") > strings.Index(got, "axis_B_existing_rule_eliminable") {
 		t.Fatalf("typed overlap authority must precede the detailed seats:\n%s", got)
 	}
 }
@@ -342,7 +343,7 @@ func TestTraceDecisionHandoffWithdrawsAcceptedClaimSupersededByFinalAuthority(t 
 	}
 	got := renderAnswerDocTraceDecisionHandoffSet(set, runtimeTraceGuidanceView{}, []types.AnswerRelationClaim{stale})
 	for _, want := range []string{
-		"typed_relation_authority: authority_id=`trace:target_state_partition:",
+		"typed_relation_authority: relation_claim_copy=`{\"authority_id\":\"trace:target_state_partition:",
 		"accepted_model_relation_claims_superseded: count=1",
 		"do not copy them into the final document",
 		"revise your own visible conclusion",
