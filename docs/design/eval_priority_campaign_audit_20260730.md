@@ -20371,3 +20371,41 @@ architecture 最终答案另有两项语义误述：把 `ReadModeConditionalPreS
 状态：`EVAL-B180-ARCHLENS1=S2-implemented/full-impacted-suites-pass/pending-r100-clean-replay`；
 `EVAL-B180-COUNTCONSIST1=P1/confirmed/design-pending`；
 `EVAL-B180-PRESTAGETOPO1=P2/pending-clean-replay`。
+
+### 123.124 B181 r100 与 S3：architecture enumeration 仍把概念成员绑定到全仓常量宇宙
+
+在 S2 后重建，严格并行恰好两个异构 case：
+
+- `qf_architecture`：517s，runner PASS / human FAIL；
+- `cangjie_repomap`：130s，runner PASS / human PASS。
+
+r100 architecture 不再走 r99 的 generic+workflow-dimension 形，而是 analyzer 单次成功后直接发射
+`intent=enumerate + scenario=architecture_explain + source_inventory_profile(target_roles=[constant], requested_fields=[name,location,summary])`。
+这再次证明只按 intent 二分“枚举=源码清点、解释=概念机制”不成立：用户要求的是完整的 7 个 PipelineStage 概念成员及各自职责，源码声明只是证明载体。模型在第 5 轮已经通过
+`internal/types/enums.go` 与 `stage_binding.go` 完整提交 4 主 stage + 3 条件 stage；系统仍把 `constant` role 解释成全仓常量宇宙，16 次 source lens、13 次 completion（1 次接受/
+12 次未闭合）、22 次 midloop、两次 explorer dispatch，最终在连续 10 次 DOWNGRADED 后由 low-delta convergence force-complete，耗时 517s。最终答案主体已经正确，进一步说明
+循环不是证据不足，而是 principal universe 权属错误。
+
+S3 采用跨语言 typed 合取而非 case 关键词：`scenario=architecture_explain`、`has_per_member_table=true`、source profile 请求 enum 字段 `summary`，同时没有显式 typed source scope、
+`requires_const_set` 或具体 `type_underlying`。命中时，source declaration lens 只能作为 supporting evidence，不能拥有 principal member universe。以下真案保留原权威：generic declaration
+inventory；用户明确给出 production/test/all 等 source scope 的 architecture declaration inventory；name/location-only 清点；显式 const-set/type-underlying 结构清点。该边界不读取 RawRequest、模型
+正文、label、rationale、source quote 内容或语言关键词，统一适用于 Go、C/C++、Java/Kotlin、ArkTS、Cangjie、JS/TS、Python、Rust 等语言。
+
+同时修正 emit 的阶段顺序：先决定 source-inventory principal 权属，再执行它专属的 required-file softening 与 principal/irrelevant scope reconciliation。若 profile 因概念成员冲突被撤销，
+已成功解析且真实存在的 model supporting required files 不再先被删除；若只是 malformed profile 或 observation-only runtime profile，原 fail-safe softening 不变。撤销后也禁止 synthesis/prescan
+把同一个 profile 白铸回来。集成 pin 用 r100 的 enumerate+architecture+constant+summary 真实形证明：profile 撤销、`internal/types/enums.go` supporting hint 保留、summary 不再发布
+source_inventory；反例覆盖 generic、显式 source scope、name/location-only 真清点。完整 `go test ./internal/types ./internal/tool -count=1` 全绿（types 24.084s、tool 174.935s）。
+
+Cangjie 对照例本轮准确发布 2 extend、2 foreign func、8 public class，摘要数字、正文 12 行、路径/package 与 typed rowset 全部一致；S3 反例合同保证该类真正 declaration inventory 不降级。
+r99 的“public class 10、正文 8”本轮未复现，故 `EVAL-B180-COUNTCONSIST1` 从 confirmed implementation gap 收窄为 model-variance witness / P2 reviewer opportunity：未来可让模型对自己的
+typed member_set 与 AnswerDocument scalar 做结构化复核，但不以单次波动阻塞当前 P0，也不得扫描 prose 数字或由系统重写答案。
+
+r100 无 malformed JSON、blocks-string recovery、finalizer reject 或成文校验重试；JSON schema 教学未制造新冲突。畸形 JSON 专项仍需在命中 witness 的 case 上验证“无损修复，否则保留可用字符串并明确
+披露模型异常”，本批不虚报覆盖。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b181_arch_cangjie_clean_r100_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b181_arch_cangjie_clean_r100_20260806_manual_audit.md`。
+
+状态：`EVAL-B180-ARCHLENS1=S3-implemented/full-impacted-suites-pass/pending-r101-clean-replay`；
+`EVAL-B180-COUNTCONSIST1=P2/model-variance-witness/typed-reviewer-opportunity`；
+`EVAL-B180-PRESTAGETOPO1=P2/partially-resolved/final-answer-main-stage-semantics-correct`。

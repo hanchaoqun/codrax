@@ -8393,6 +8393,79 @@ func TestEmitAnalysis_Execute_DropsSourceInventoryForRequiredWorkflowDimension(t
 	}
 }
 
+func TestEmitAnalysis_Execute_DropsSourceInventoryForArchitectureMemberExplanation(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	repo := t.TempDir()
+	path := filepath.Join(repo, "internal/types/enums.go")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("package types\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	payload := `{
+		"intent":"enumerate",
+		"scenario":"architecture_explain",
+		"complexity":"moderate",
+		"keywords":["pipeline","stage","responsibility"],
+		"entities":["PipelineStage","StageBinding"],
+		"question_kind":"enumeration",
+		"intent_confidence":0.95,
+		"complexity_confidence":0.85,
+		"kind_confidence":0.9,
+		"predicates":{
+			"is_scalar_answer":false,
+			"is_role_locate_lookup":false,
+			"is_count_question":false,
+			"is_cross_component":false,
+			"is_relational_lookup":false,
+			"is_category_enumeration":true,
+			"is_history_lookup":false,
+			"is_diagnostic_question":false,
+			"has_per_member_table":true
+		},
+		"diagnostic_profile":{"is_diagnostic":false,"current_risk":false,"historical_regression":false,"current_version_check":false,"confidence":0.9},
+		"answer_subject":{"kind":"enum_value","entity_axes":["PipelineStage → stage_member"],"confidence":0.8},
+		"required_files":[{"path":"internal/types/enums.go","confidence":0.9,"rationale":"stage definitions"}],
+		"source_inventory_profile":{
+			"is_source_inventory":true,
+			"target_roles":["constant"],
+			"requested_fields":["name","location","summary"],
+			"source_quotes":["read-mode pipeline 由哪几个 stage 组成","每个 stage 大致负责什么"],
+			"confidence":0.88
+		}
+	}`
+	rawRequest := "codrax 的 read-mode pipeline 由哪几个 stage 组成？每个 stage 大致负责什么？描述整体架构。"
+	mu := types.NewMutableState(rawRequest)
+	res, err := (&EmitAnalysis{}).Execute(
+		&types.BusContext{Mutable: mu, RepoRoot: repo},
+		json.RawMessage(withRequiredAnswerRoleProfile(payload)),
+	)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("architecture member analysis should succeed after deterministic demotion: %s", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.SourceInventoryProfile != nil {
+		t.Fatalf("incidental architecture-member source inventory survived emit path: %+v", rm)
+	}
+	hints := rm.AnalyzerHints.RequiredFileHints
+	if len(hints) != 1 || hints[0].Path != "internal/types/enums.go" {
+		t.Fatalf("supporting required file should survive after principal source inventory is dropped: %+v", rm.AnalyzerHints.RequiredFileHints)
+	}
+	if strings.Contains(res.Summary, "source_inventory=") {
+		t.Fatalf("normalized summary must not advertise a principal source inventory lane: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, `required_files=["internal/types/enums.go"]`) {
+		t.Fatalf("summary should retain the grounded supporting file: %s", res.Summary)
+	}
+}
+
 func TestEmitAnalysisSchema_SourceInventoryExcludesConceptualArchitectureMembers(t *testing.T) {
 	var schema map[string]any
 	if err := json.Unmarshal((&EmitAnalysis{}).Parameters(), &schema); err != nil {

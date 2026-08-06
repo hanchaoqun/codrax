@@ -1856,19 +1856,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	sanitizedSubTopics := sanitizeSubTopics(subTopics)
 
 	requiredFileHints := validateAndBuildRequiredFileHintsWithContext(ctx, p.RequiredFiles, &val)
-	requiredFileHints = softenModelAuthoredRequiredFilesForSourceInventory(raw, sourceInventoryProfile, p.SourceInventoryProfile, requiredFileHints, &val)
 	irrelevantFiles := validateAndBuildIrrelevantFiles(p.IrrelevantFiles, &val)
-	requiredFileHints, irrelevantFiles, sourceScopeProfile = reconcilePrincipalScopeIrrelevantFiles(
-		ctx,
-		sourceScopeProfile,
-		sourceInventoryProfile,
-		answerExclusionPolicy,
-		intent,
-		predicates,
-		requiredFileHints,
-		irrelevantFiles,
-		&val,
-	)
 
 	rm := types.RequestModel{
 		RawRequest: raw,
@@ -1944,7 +1932,9 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
+	droppedSourceInventoryForPrincipalConflict := false
 	if droppedSourceInventory, warning := dropSourceInventoryProfileForTypedRelation(&rm); droppedSourceInventory {
+		droppedSourceInventoryForPrincipalConflict = true
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
@@ -1952,13 +1942,37 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
-	if warning := synthesizeSourceInventoryProfileForTypedEnumeration(ctx, &rm, raw, p.SourceInventoryProfile); warning != "" {
-		logging.Warning("[emit_analysis] %s", warning)
-		val.Warnings = append(val.Warnings, warning)
+	softenAttemptedSourceInventory := p.SourceInventoryProfile
+	if droppedSourceInventoryForPrincipalConflict {
+		softenAttemptedSourceInventory = nil
 	}
-	if warning := enrichSourceInventoryProfileFromAnalyzerPrescan(ctx, &rm, raw); warning != "" {
-		logging.Warning("[emit_analysis] %s", warning)
-		val.Warnings = append(val.Warnings, warning)
+	rm.AnalyzerHints.RequiredFileHints = softenModelAuthoredRequiredFilesForSourceInventory(
+		raw,
+		rm.SourceInventoryProfile,
+		softenAttemptedSourceInventory,
+		rm.AnalyzerHints.RequiredFileHints,
+		&val,
+	)
+	rm.AnalyzerHints.RequiredFileHints, rm.AnalyzerHints.IrrelevantFiles, rm.SourceScopeProfile = reconcilePrincipalScopeIrrelevantFiles(
+		ctx,
+		rm.SourceScopeProfile,
+		rm.SourceInventoryProfile,
+		rm.AnswerExclusionPolicy,
+		rm.Intent,
+		rm.Predicates,
+		rm.AnalyzerHints.RequiredFileHints,
+		rm.AnalyzerHints.IrrelevantFiles,
+		&val,
+	)
+	if !droppedSourceInventoryForPrincipalConflict {
+		if warning := synthesizeSourceInventoryProfileForTypedEnumeration(ctx, &rm, raw, p.SourceInventoryProfile); warning != "" {
+			logging.Warning("[emit_analysis] %s", warning)
+			val.Warnings = append(val.Warnings, warning)
+		}
+		if warning := enrichSourceInventoryProfileFromAnalyzerPrescan(ctx, &rm, raw); warning != "" {
+			logging.Warning("[emit_analysis] %s", warning)
+			val.Warnings = append(val.Warnings, warning)
+		}
 	}
 	if warning := normalizeSourceInventoryProductionScope(&rm); warning != "" {
 		logging.Warning("[emit_analysis] %s", warning)
@@ -3440,6 +3454,10 @@ func dropSourceInventoryProfileForTypedRelation(rm *types.RequestModel) (bool, s
 	if types.SourceInventoryLaneConflictsWithArchitectureNarrative(*rm) {
 		rm.SourceInventoryProfile = nil
 		return true, "source_inventory_profile ignored because the typed request is an architecture/mechanism narrative; conceptual stages/components are bounded by the mechanism and source declarations remain supporting evidence"
+	}
+	if types.SourceInventoryLaneConflictsWithArchitectureMemberExplanation(*rm) {
+		rm.SourceInventoryProfile = nil
+		return true, "source_inventory_profile ignored because the typed architecture member set asks for per-member responsibilities; source declarations remain supporting evidence rather than the principal member universe"
 	}
 	if types.SourceInventoryLaneConflictsWithConceptualWorkflowDimension(*rm) {
 		rm.SourceInventoryProfile = nil

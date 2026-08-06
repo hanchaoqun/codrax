@@ -4,6 +4,7 @@ func sourceInventoryCompletionSupportBoundary(rm RequestModel) bool {
 	return SourceInventoryProfileCompletionIsSupportOnly(rm.SourceInventoryProfile) ||
 		SourceInventoryProfileConflictsWithRoleBinding(rm) ||
 		SourceInventoryLaneConflictsWithArchitectureNarrative(rm) ||
+		SourceInventoryLaneConflictsWithArchitectureMemberExplanation(rm) ||
 		SourceInventoryLaneConflictsWithConceptualWorkflowDimension(rm) ||
 		sourceInventoryFiniteExactScalarLookupIsSupportOnly(rm)
 }

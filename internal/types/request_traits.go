@@ -144,6 +144,7 @@ func SourceInventoryLaneConflictsWithPrincipalAnswer(rm RequestModel) bool {
 		SourceInventoryLaneConflictsWithRelationFlow(rm) ||
 		HasTypedRelationMemberSetShape(rm) ||
 		SourceInventoryLaneConflictsWithArchitectureNarrative(rm) ||
+		SourceInventoryLaneConflictsWithArchitectureMemberExplanation(rm) ||
 		SourceInventoryLaneConflictsWithConceptualWorkflowDimension(rm)
 }
 
@@ -161,6 +162,38 @@ func SourceInventoryLaneConflictsWithPrincipalAnswer(rm RequestModel) bool {
 // never depends on request/model prose.
 func SourceInventoryLaneConflictsWithArchitectureNarrative(rm RequestModel) bool {
 	return IsArchitectureNarrativeExplanation(rm)
+}
+
+// SourceInventoryLaneConflictsWithArchitectureMemberExplanation covers the
+// sibling typed form where the analyzer describes an architecture answer as
+// an enumeration, but each principal conceptual member still needs a semantic
+// responsibility/behavior summary. A source declaration inventory is not the
+// answer universe in that form, even when code happens to encode members as
+// constants or enum values.
+//
+// An explicit typed source scope, requested structural type/const facet, or
+// missing per-member summary keeps genuine declaration inventories out of this
+// boundary. The decision uses schema enums/booleans only; it never scans
+// request text, model prose, labels, rationale, or language-specific keywords.
+func SourceInventoryLaneConflictsWithArchitectureMemberExplanation(rm RequestModel) bool {
+	profile := rm.SourceInventoryProfile
+	if rm.Scenario != ScenarioArchitectureExplain || profile == nil || !profile.Active() {
+		return false
+	}
+	if rm.Predicates.IsScalarAnswer ||
+		rm.Predicates.IsRoleLocateLookup ||
+		rm.Predicates.IsHistoryLookup ||
+		rm.Predicates.IsDiagnosticQuestion ||
+		!rm.Predicates.HasPerMemberTable ||
+		!profile.RequestsField(SourceInventoryFieldSummary) {
+		return false
+	}
+	if sourceInventoryHasExplicitTypedScope(rm.SourceScopeProfile) ||
+		profile.RequiresConstSet ||
+		(profile.TypeUnderlying != "" && profile.TypeUnderlying != SourceInventoryTypeUnderlyingUnknown) {
+		return false
+	}
+	return true
 }
 
 // SourceInventoryLaneConflictsWithConceptualWorkflowDimension covers the

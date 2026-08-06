@@ -2293,6 +2293,58 @@ func TestConceptualWorkflowDimension_DemotesIncidentalSourceInventory(t *testing
 	}
 }
 
+func TestArchitectureMemberExplanation_DemotesIncidentalSourceInventory(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentEnumerate,
+		Scenario: ScenarioArchitectureExplain,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+			HasPerMemberTable:     true,
+		},
+		AnswerSubject: AnswerSubject{Kind: SubjectEnumValue},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleConstant},
+			RequestedFields: []SourceInventoryRequestedField{
+				SourceInventoryFieldName,
+				SourceInventoryFieldLocation,
+				SourceInventoryFieldSummary,
+			},
+			Confidence: 0.88,
+		},
+	}
+	if !SourceInventoryLaneConflictsWithArchitectureMemberExplanation(rm) {
+		t.Fatal("architecture member responsibilities must not become a repository constant census")
+	}
+	if !SourceInventoryLaneConflictsWithPrincipalAnswer(rm) || !SourceInventoryCompletionIsSupportOnly(rm) {
+		t.Fatal("architecture member explanation boundary must be shared by routing and defensive completion")
+	}
+
+	declarations := rm
+	declarations.Scenario = ScenarioGeneric
+	if SourceInventoryLaneConflictsWithArchitectureMemberExplanation(declarations) {
+		t.Fatal("generic declaration inventory must remain principal")
+	}
+	declarations = rm
+	declarations.SourceScopeProfile = &SourceScopeProfile{
+		RequestedScope: SourceScopeAll,
+		SourceQuotes:   []string{"repository source"},
+	}
+	if SourceInventoryLaneConflictsWithArchitectureMemberExplanation(declarations) {
+		t.Fatal("explicit typed source scope must preserve a genuine architecture declaration inventory")
+	}
+	declarations = rm
+	declarations.SourceInventoryProfile = &SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleConstant},
+		RequestedFields:   []SourceInventoryRequestedField{SourceInventoryFieldName, SourceInventoryFieldLocation},
+		Confidence:        0.88,
+	}
+	if SourceInventoryLaneConflictsWithArchitectureMemberExplanation(declarations) {
+		t.Fatal("name/location-only declaration inventory must remain principal")
+	}
+}
+
 func TestArchitectureInventoryShape_TypedBoundary(t *testing.T) {
 	rm := RequestModel{
 		Intent:   IntentEnumerate,
