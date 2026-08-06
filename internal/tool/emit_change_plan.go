@@ -519,7 +519,9 @@ func noChangeRequiredReplanSentinel(ctx *types.BusContext, p emitChangePlanParam
 	}
 	qualification := writeflow.QualifyNoChangeReplanSentinel(writeflow.NoChangeReplanQualificationInput{
 		VerifyFailureHandoff: handoff,
+		PriorPlan:            ctx.Mutable.ChangePlan(),
 		PlannerProbeReports:  ctx.Mutable.PlanStageProbeReports(),
+		RequireAppliedWork:   true,
 	})
 	if !qualification.Allowed {
 		return nil

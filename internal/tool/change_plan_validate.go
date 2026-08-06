@@ -2986,10 +2986,7 @@ func structuredEditReplanProbePassed(ctx *types.BusContext) bool {
 	if ctx == nil || ctx.Mutable == nil {
 		return false
 	}
-	return writeflow.QualifyNoChangeReplanSentinel(writeflow.NoChangeReplanQualificationInput{
-		VerifyFailureHandoff: ctx.Mutable.VerifyFailureHandoff(),
-		PlannerProbeReports:  ctx.Mutable.PlanStageProbeReports(),
-	}).Allowed
+	return qualifyNoChangeReplanForCurrentState(ctx).Allowed
 }
 
 // composePatchRejectionReason mirrors composePatchRejection but

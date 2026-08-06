@@ -1608,6 +1608,17 @@ func TestEmitChangePlan_EmptyChangesAllowedOnlyForTypedNoChangeReplan(t *testing
 	ctx := newTestBusCtx()
 	ctx.Mode = types.ModeApply
 	ctx.PipelineStage = types.StagePlan
+	ctx.Mutable.SetChangePlan(&types.ChangePlan{
+		ID:           "plan-applied",
+		Status:       types.PlanStatusVerifyFailed,
+		TargetPaths:  []string{"src/routes.py"},
+		AppliedPaths: []string{"src/routes.py"},
+		Changes: []types.FileChange{{
+			Path:  "src/routes.py",
+			Kind:  "patch",
+			Apply: &types.FileChangeApplyRecord{Status: "applied"},
+		}},
+	})
 	ctx.Mutable.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
 		PlanID:  "plan-applied",
 		BatchID: "batch-1",
@@ -1621,6 +1632,11 @@ func TestEmitChangePlan_EmptyChangesAllowedOnlyForTypedNoChangeReplan(t *testing
 			AssertionID: "tests/test_cli.py::TestRoutes::test_route_registration",
 			Kind:        types.TestResultKindUnit,
 			Passed:      true,
+		}},
+		ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+			Path:       "src/routes.py",
+			Status:     types.ChangedPathVerificationCovered,
+			Capability: types.VerificationCapabilityTargetBehavior,
 		}},
 	})
 	params := json.RawMessage(`{
@@ -1694,6 +1710,17 @@ func TestEmitChangePlan_EmptyChangesAllowedForUnavailableBuildFailureAfterProbe(
 	ctx := newTestBusCtx()
 	ctx.Mode = types.ModeApply
 	ctx.PipelineStage = types.StagePlan
+	ctx.Mutable.SetChangePlan(&types.ChangePlan{
+		ID:           "plan-applied",
+		Status:       types.PlanStatusVerifyFailed,
+		TargetPaths:  []string{"src/native.c"},
+		AppliedPaths: []string{"src/native.c"},
+		Changes: []types.FileChange{{
+			Path:  "src/native.c",
+			Kind:  "patch",
+			Apply: &types.FileChangeApplyRecord{Status: "applied"},
+		}},
+	})
 	ctx.Mutable.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
 		PlanID:      "plan-applied",
 		BatchID:     "batch-1",
@@ -1720,6 +1747,11 @@ func TestEmitChangePlan_EmptyChangesAllowedForUnavailableBuildFailureAfterProbe(
 			AssertionID: "probe",
 			Kind:        types.TestResultKindUnit,
 			Passed:      true,
+		}},
+		ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+			Path:       "src/native.c",
+			Status:     types.ChangedPathVerificationCovered,
+			Capability: types.VerificationCapabilityTargetExecution,
 		}},
 	})
 	params := json.RawMessage(`{
@@ -1788,7 +1820,7 @@ func TestEmitChangePlan_ReplanNoOpStructuredEditPointsToTypedProbeSentinel(t *te
 	}
 }
 
-func TestEmitChangePlan_ReplanOldTextMismatchWithPassedProbePointsToTypedProbeSentinel(t *testing.T) {
+func TestEmitChangePlan_ReplanOldTextMismatchWithObservationOnlyProbeDoesNotClaimSentinel(t *testing.T) {
 	tool := &EmitChangePlan{}
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "widget.py"), []byte("VALUE = 42\n"), 0o644); err != nil {
@@ -1833,9 +1865,12 @@ func TestEmitChangePlan_ReplanOldTextMismatchWithPassedProbePointsToTypedProbeSe
 	if res.Success {
 		t.Fatal("expected stale structured edit to be rejected")
 	}
-	for _, want := range []string{"old_text mismatch", "run_tests(dry_run=true, verification_probe={...})", types.PlanStatusNoChangeRequired} {
-		if !strings.Contains(res.Summary, want) {
-			t.Fatalf("replan stale-anchor rejection should mention %q, got: %s", want, res.Summary)
+	if !strings.Contains(res.Summary, "old_text mismatch") {
+		t.Fatalf("replan stale-anchor rejection should retain the exact mismatch: %s", res.Summary)
+	}
+	for _, forbidden := range []string{"run_tests(dry_run=true, verification_probe={...})", types.PlanStatusNoChangeRequired} {
+		if strings.Contains(res.Summary, forbidden) {
+			t.Fatalf("observation-only probe must not advertise no-change authority via %q: %s", forbidden, res.Summary)
 		}
 	}
 	if plan := ctx.Mutable.ChangePlan(); plan != nil {

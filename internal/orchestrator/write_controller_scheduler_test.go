@@ -9416,6 +9416,11 @@ func TestRunControllerPlanBatch_NoChangeSentinelRestoresAppliedPlanForVerify(t *
 				Kind:        types.TestResultKindUnit,
 				Passed:      true,
 			}},
+			ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+				Path:       "src/flask/cli.py",
+				Status:     types.ChangedPathVerificationCovered,
+				Capability: types.VerificationCapabilityTargetBehavior,
+			}},
 		})
 		mu.SetChangePlan(&types.ChangePlan{
 			ID:        "noop-plan-prior",
@@ -9434,6 +9439,34 @@ func TestRunControllerPlanBatch_NoChangeSentinelRestoresAppliedPlanForVerify(t *
 	got := mu.ChangePlan()
 	if got == nil || got.ID != "plan-prior" {
 		t.Fatalf("controller should restore prior applied plan, got %+v", got)
+	}
+}
+
+func TestPlannerProbePassedExistingAppliedWorktreeRejectsObservationOnlyReport(t *testing.T) {
+	mu := types.NewMutableState("observation-only no-change")
+	prior := &types.ChangePlan{
+		ID:               "plan-prior",
+		AppliedCommitSHA: "abc123",
+		TargetPaths:      []string{"src/flask/cli.py"},
+	}
+	mu.SetChangePlan(prior)
+	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
+		PlanID:      "plan-prior",
+		FailureKind: types.FailureKindTestsFailed,
+	})
+	mu.AppendPlanStageProbeReport(&types.ChangeReport{
+		PlanID:             "plan-prior",
+		Channel:            types.ChangeReportChannelPlannerProbe,
+		Passed:             true,
+		VerificationStatus: types.VerificationStatusPassed,
+		TestResults: []types.TestResult{{
+			AssertionID: "assert-true",
+			Kind:        types.TestResultKindUnit,
+			Passed:      true,
+		}},
+	})
+	if plannerProbePassedExistingAppliedWorktree(mu, prior) {
+		t.Fatal("controller must not restore/freeze an applied plan from an observation-only planner probe")
 	}
 }
 
@@ -9783,6 +9816,11 @@ func TestRunWriteControllerWorkflow_ReplanProbePassRestoresAppliedPlanForVerify(
 					AssertionID: "make-test",
 					Kind:        types.TestResultKindUnit,
 					Passed:      true,
+				}},
+				ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+					Path:       "src/Fix.java",
+					Status:     types.ChangedPathVerificationCovered,
+					Capability: types.VerificationCapabilityTargetBehavior,
 				}},
 			})
 			return &agent.StageOutput{Error: "no change plan was produced this round"}, nil

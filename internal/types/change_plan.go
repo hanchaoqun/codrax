@@ -1188,6 +1188,27 @@ type VerificationConfidenceRecord struct {
 	Detail            string   `json:"detail,omitempty"`
 }
 
+// HasTargetExecutionCoverage reports whether this result contains at least
+// one exact changed-path observation with execution-or-behavior authority.
+// Source-static and syntax-only rows are intentionally insufficient. The
+// helper is shared by planner-probe presentation and the no-change replan gate
+// so those two consumers cannot drift to different notions of "probe passed".
+func (r *ChangeReport) HasTargetExecutionCoverage() bool {
+	if r == nil {
+		return false
+	}
+	for _, row := range r.ChangedPathCoverage {
+		if row.Status != ChangedPathVerificationCovered {
+			continue
+		}
+		switch row.Capability {
+		case VerificationCapabilityTargetExecution, VerificationCapabilityTargetBehavior:
+			return true
+		}
+	}
+	return false
+}
+
 // Score returns the (passed, total) test counts for this report,
 // counting only TestResultKindUnit entries (build_error rows are
 // classifications not assertions and would distort comparisons).

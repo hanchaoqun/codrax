@@ -15,7 +15,7 @@ func TestQualifyNoChangeReplanSentinelRequiresCurrentPlanAndFailureGeneration(t 
 			FailureKind: types.FailureKindTestsFailed,
 			GeneratedAt: handoffAt,
 		},
-		PriorPlan:          &types.ChangePlan{ID: "plan-current", AppliedCommitSHA: "abc123"},
+		PriorPlan:          &types.ChangePlan{ID: "plan-current", AppliedCommitSHA: "abc123", TargetPaths: []string{"src/widget.py"}},
 		RequireAppliedWork: true,
 	}
 	passingReport := func(planID string, generatedAt time.Time) *types.ChangeReport {
@@ -29,6 +29,11 @@ func TestQualifyNoChangeReplanSentinelRequiresCurrentPlanAndFailureGeneration(t 
 				AssertionID: "probe",
 				Kind:        types.TestResultKindUnit,
 				Passed:      true,
+			}},
+			ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+				Path:       "src/widget.py",
+				Status:     types.ChangedPathVerificationCovered,
+				Capability: types.VerificationCapabilityTargetBehavior,
 			}},
 		}
 	}
@@ -55,6 +60,7 @@ func TestQualifyNoChangeReplanSentinelAllowsPassedPlannerProbeForTestFailure(t *
 		},
 		PriorPlan: &types.ChangePlan{
 			AppliedCommitSHA: "abc123",
+			TargetPaths:      []string{"src/widget.py"},
 		},
 		PlannerProbeReports: []*types.ChangeReport{{
 			PlanID:             "plan-1",
@@ -65,6 +71,11 @@ func TestQualifyNoChangeReplanSentinelAllowsPassedPlannerProbeForTestFailure(t *
 				AssertionID: "probe",
 				Kind:        types.TestResultKindUnit,
 				Passed:      true,
+			}},
+			ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+				Path:       "src/widget.py",
+				Status:     types.ChangedPathVerificationCovered,
+				Capability: types.VerificationCapabilityTargetBehavior,
 			}},
 		}},
 		RequireAppliedWork: true,
@@ -80,7 +91,7 @@ func TestQualifyNoChangeReplanSentinelRejectsBuildFailure(t *testing.T) {
 			PlanID:      "plan-1",
 			FailureKind: types.FailureKindBuildFailure,
 		},
-		PriorPlan: &types.ChangePlan{AppliedCommitSHA: "abc123"},
+		PriorPlan: &types.ChangePlan{AppliedCommitSHA: "abc123", TargetPaths: []string{"src/widget.py"}},
 		PlannerProbeReports: []*types.ChangeReport{{
 			PlanID:             "plan-1",
 			Channel:            types.ChangeReportChannelPlannerProbe,
@@ -91,6 +102,11 @@ func TestQualifyNoChangeReplanSentinelRejectsBuildFailure(t *testing.T) {
 				Kind:        types.TestResultKindUnit,
 				Passed:      true,
 			}},
+			ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+				Path:       "src/widget.py",
+				Status:     types.ChangedPathVerificationCovered,
+				Capability: types.VerificationCapabilityTargetExecution,
+			}},
 		}},
 		RequireAppliedWork: true,
 	})
@@ -99,6 +115,64 @@ func TestQualifyNoChangeReplanSentinelRejectsBuildFailure(t *testing.T) {
 	}
 	if q.ReasonCode != "verify_failure_kind_not_probe_resolvable" {
 		t.Fatalf("ReasonCode=%q", q.ReasonCode)
+	}
+}
+
+func TestQualifyNoChangeReplanSentinelRejectsObservationOnlyProbe(t *testing.T) {
+	q := QualifyNoChangeReplanSentinel(NoChangeReplanQualificationInput{
+		VerifyFailureHandoff: &types.VerifyFailureHandoff{
+			PlanID:      "plan-1",
+			FailureKind: types.FailureKindTestsFailed,
+		},
+		PriorPlan: &types.ChangePlan{ID: "plan-1", AppliedCommitSHA: "abc123"},
+		PlannerProbeReports: []*types.ChangeReport{{
+			PlanID:             "plan-1",
+			Channel:            types.ChangeReportChannelPlannerProbe,
+			VerificationStatus: types.VerificationStatusPassed,
+			Passed:             true,
+			TestResults: []types.TestResult{{
+				AssertionID: "unbound-assert-true",
+				Kind:        types.TestResultKindUnit,
+				Passed:      true,
+			}},
+		}},
+		RequireAppliedWork: true,
+	})
+	if q.Allowed || q.ReasonCode != "planner_probe_target_authority_missing" {
+		t.Fatalf("an observation-only probe must not close a failed replan: %+v", q)
+	}
+}
+
+func TestQualifyNoChangeReplanSentinelRejectsCoverageBorrowedFromCumulativeScope(t *testing.T) {
+	q := QualifyNoChangeReplanSentinel(NoChangeReplanQualificationInput{
+		VerifyFailureHandoff: &types.VerifyFailureHandoff{
+			PlanID:      "plan-rust",
+			FailureKind: types.FailureKindTestsFailed,
+		},
+		PriorPlan: &types.ChangePlan{
+			ID:               "plan-rust",
+			AppliedCommitSHA: "abc123",
+			TargetPaths:      []string{"src/lib.rs"},
+			CumulativeVerificationScope: &types.CumulativeVerificationScope{
+				TargetPaths: []string{"legacy/widget.py"},
+			},
+		},
+		PlannerProbeReports: []*types.ChangeReport{{
+			PlanID:             "plan-rust",
+			Channel:            types.ChangeReportChannelPlannerProbe,
+			VerificationStatus: types.VerificationStatusPassed,
+			Passed:             true,
+			TestResults:        []types.TestResult{{AssertionID: "legacy-python", Kind: types.TestResultKindUnit, Passed: true}},
+			ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+				Path:       "legacy/widget.py",
+				Status:     types.ChangedPathVerificationCovered,
+				Capability: types.VerificationCapabilityTargetBehavior,
+			}},
+		}},
+		RequireAppliedWork: true,
+	})
+	if q.Allowed || q.ReasonCode != "planner_probe_target_authority_missing" {
+		t.Fatalf("coverage of a retained older path must not close the active plan failure: %+v", q)
 	}
 }
 
@@ -119,7 +193,7 @@ func TestQualifyNoChangeReplanSentinelAllowsUnavailableBuildRunnerAfterPassedPro
 				Outcome:  "not_configured",
 			}},
 		},
-		PriorPlan: &types.ChangePlan{AppliedCommitSHA: "abc123"},
+		PriorPlan: &types.ChangePlan{AppliedCommitSHA: "abc123", TargetPaths: []string{"src/widget.py"}},
 		PlannerProbeReports: []*types.ChangeReport{{
 			PlanID:             "plan-1",
 			Channel:            types.ChangeReportChannelPlannerProbe,
@@ -129,6 +203,11 @@ func TestQualifyNoChangeReplanSentinelAllowsUnavailableBuildRunnerAfterPassedPro
 				AssertionID: "probe",
 				Kind:        types.TestResultKindUnit,
 				Passed:      true,
+			}},
+			ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+				Path:       "src/widget.py",
+				Status:     types.ChangedPathVerificationCovered,
+				Capability: types.VerificationCapabilityTargetExecution,
 			}},
 		}},
 		RequireAppliedWork: true,

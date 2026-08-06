@@ -19053,3 +19053,51 @@ Trace 显式窗/自动补齐/根因排序/唤醒链/可消除量值通道=`prese
 
 状态：`EVAL-B165-TESTPOSTIMAGE1=implemented/full-orchestrator-pass`；等待后续 exact-2 生产回放；
 `EVAL-B165-RELHANDOFF1=next-batch`；`EVAL-B165-CROSSPROBE1=audit-pending`；Trace 与模型结论所有权=`untouched`。
+
+### 123.73 B165-S2 冷读纠偏：关系权限已精确交接，违规求和降为模型波动观察项
+
+对 r81 Finalizer 的实际输入做逐段冷读后，§123.71 对 `EVAL-B165-RELHANDOFF1` 的归因不成立，现明确撤销该系统 GAP：
+
+1. Finalizer 已收到独立的 `Trace Decision Inputs (Model Owns The Conclusion)`，并逐字要求不得跨任意 rows 相加；只有 exact typed additive
+   carrier 才授权相加；
+2. 同一上下文同时携带 `relation_authority=typed_pair_only`、轴 B 的
+   `cross_row_additivity=not_authorized_without_exact_pair_carrier`，以及 state-breakdown 行级
+   `cross_row_relation_authority=not_provided_by_state_breakdown`；这不是只停留在 Explorer preview 的信号；
+3. Finalizer 上下文用量约 36%，没有预算截断；模型仍把无加法权限的席位相加，属于一次模型遵约波动。系统不得据此扫描答案 prose、硬拒成文、改写模型
+   结论或重复注入更长合同；
+4. 后续 exact-2 仅继续观察不同模型/模式的遵约率。若未来出现可重复的上下文淹没证据，再从 typed carrier 的邻接和压缩顺序优化；本轮不施工。
+
+状态：`EVAL-B165-RELHANDOFF1=disconfirmed`；替换为
+`EVAL-B165-RELADHERENCE1=P2/model-variance-replay-observation`；Trace 显式窗、因果投影、自动补齐和模型结论所有权均保持不变。
+
+继续冷读 `EVAL-B165-CROSSPROBE1` 时确认一个更高危、同属 verification authority 的通用 GAP：计划阶段独立 dry-run probe 的摘要把
+“单个模拟通过”说成“计划探针通过并替代项目 suite”，而 `no_change_required` 资格只检查 report passed/时序/PlanID，不要求探针与已应用目标路径和语言相连；
+现有测试甚至允许无目标引用的 `assert True` 关闭一次失败重规划。B165-S3 冻结为：探索探针仍可运行，但只把与当前计划 exact typed target
+兼容且无合同置信缺口的结果授予 no-change authority；未绑定模拟必须明确为观察、不得宣称替代 project suite。判定禁止读取探针源码以外的 prose，禁止按
+Rust 或单 case 特判。
+
+### 123.74 B165-S3：planner probe 的观察结果与 no-change 权威彻底分轨
+
+本批关闭 `EVAL-B165-CROSSPROBE1` 的确定性 authority 漏口，同时保留探索探针的通用价值：
+
+1. planner dry-run report 不再用 active ChangePlan 的既有 probe roster 计算 coverage，而是复制当前 target/contract scope，并只安装本次实际执行的
+   one-off probe；即使新旧 probe ID 相同，无绑定新 probe 也不能借旧 probe 的 path refs 获得权威；
+2. planner 通道只计算并披露每个 changed path 的 typed coverage，不因未覆盖 sibling path 把一次有用探索改判 execution failed；post-apply verify
+   仍保持原有全路径 fail-closed，验证强度没有放宽；
+3. 新单源 `ChangeReport.HasTargetExecutionCoverage` 只承认 exact changed-path 上的 `target_execution/target_behavior`。source-static、syntax-only、
+   跨语言 exact path、无 path binding 都是 observation-only；
+4. `QualifyNoChangeReplanSentinel` 在 passed、PlanID、generation、failure-kind、confidence 之后新增上述 target authority 条件，并要求 covered path
+   属于 prior active plan 自身的 target roster；累计保留的旧批路径可参与普通 verify，但不能借席关闭当前失败；
+   `emit_change_plan changes:[]` 同时恢复 `PriorPlan + RequireAppliedWork=true`，不再存在“没有已应用计划也能凭任意 probe 关单”的旁路；
+5. planner 摘要改为真实语义：项目 suite 只是被检测到、该调用没有执行它、单次 observation 不替代 project-suite verdict。只有 path/language
+   兼容的 probe 才提示仍可能进入 no-change，且仍受合同 confidence 检查；
+6. 正臂保留 Python current-worktree probe + `path:widget.py` 的 no-change；负臂覆盖无绑定 `assert True`、同 ID 旧 probe 借权、Python probe
+   声称 Rust `path:src/lib.rs`、只覆盖 cumulative 旧路径、旧 stale-anchor 指引不得凭 observation-only 宣称 no-change。无用户题面、reasoning、最终答案关键词扫描。
+
+验证：定向正负臂 PASS；完整
+`go test ./internal/types ./internal/writeflow ./internal/tool ./internal/orchestrator -count=1` 全绿
+（20.748s / 1.088s / 171.840s / 14.677s）；控制器端包含 observation-only 不得恢复 applied plan 的 e2e 负臂。
+
+状态：`EVAL-B165-CROSSPROBE1=implemented/full-affected-suite-pass`；
+`EVAL-B165-TESTPOSTIMAGE1=awaiting-exact2-replay`；`EVAL-B165-RELADHERENCE1=model-variance-observe-only`；
+Trace 显式窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量、两维根因与模型结论所有权=`untouched`。

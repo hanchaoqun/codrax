@@ -1,6 +1,7 @@
 package writeflow
 
 import (
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -57,6 +58,12 @@ func QualifyNoChangeReplanSentinel(in NoChangeReplanQualificationInput) NoChange
 	if weak := weakPlannerProbeConfidenceReason(report.VerificationConfidence); weak != "" {
 		return noChangeReplanDenied(weak, "the latest typed planner probe passed but carries warning-level coverage or confidence gaps")
 	}
+	if !plannerProbeHasPriorPlanTargetAuthority(report, in.PriorPlan) {
+		return noChangeReplanDenied(
+			"planner_probe_target_authority_missing",
+			"the latest typed planner probe passed as an observation but did not establish target execution or behavior authority for a path in the active applied plan",
+		)
+	}
 	return NoChangeReplanQualification{
 		Allowed:          true,
 		ReasonCode:       "planner_probe_passed_existing_worktree",
@@ -64,6 +71,42 @@ func QualifyNoChangeReplanSentinel(in NoChangeReplanQualificationInput) NoChange
 		ProbePlanID:      strings.TrimSpace(report.PlanID),
 		ProbeGeneratedAt: report.GeneratedAt,
 	}
+}
+
+func plannerProbeHasPriorPlanTargetAuthority(report *types.ChangeReport, plan *types.ChangePlan) bool {
+	if report == nil || plan == nil {
+		return false
+	}
+	targets, _ := types.ActiveChangePlanApplyTargetPaths(plan, nil)
+	targetSet := make(map[string]bool, len(targets))
+	for _, raw := range targets {
+		path := canonicalNoChangeTargetPath(raw)
+		if path != "" {
+			targetSet[path] = true
+		}
+	}
+	if len(targetSet) == 0 {
+		return false
+	}
+	for _, row := range report.ChangedPathCoverage {
+		if row.Status != types.ChangedPathVerificationCovered || !targetSet[canonicalNoChangeTargetPath(row.Path)] {
+			continue
+		}
+		switch row.Capability {
+		case types.VerificationCapabilityTargetExecution, types.VerificationCapabilityTargetBehavior:
+			return true
+		}
+	}
+	return false
+}
+
+func canonicalNoChangeTargetPath(raw string) string {
+	clean := filepath.ToSlash(filepath.Clean(strings.TrimSpace(raw)))
+	clean = strings.TrimPrefix(clean, "./")
+	if clean == "" || clean == "." || filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, "../") {
+		return ""
+	}
+	return strings.ToLower(clean)
 }
 
 func verifyFailureHandoffProbeResolvableReason(handoff *types.VerifyFailureHandoff) string {

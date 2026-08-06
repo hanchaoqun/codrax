@@ -26,11 +26,32 @@ func applyChangedPathVerificationCoverage(ctx *types.BusContext, report *types.C
 	if ctx == nil || ctx.Mutable == nil || report == nil {
 		return
 	}
-	plan := ctx.Mutable.ChangePlan()
+	applyChangedPathVerificationCoverageForPlan(ctx, ctx.Mutable.ChangePlan(), report, true)
+}
+
+// applyChangedPathVerificationCoverageForPlan lets the plan-stage probe lane
+// evaluate the exact probe that just ran instead of accidentally borrowing the
+// active ChangePlan's stored probe roster. enforceComplete is false for a
+// planner observation: uncovered sibling paths remain typed rows but do not
+// turn an otherwise useful exploratory observation into a failed execution.
+// Post-apply verification keeps the original fail-closed all-path behavior.
+func applyChangedPathVerificationCoverageForPlan(
+	ctx *types.BusContext,
+	plan *types.ChangePlan,
+	report *types.ChangeReport,
+	enforceComplete bool,
+) {
+	if ctx == nil || report == nil {
+		return
+	}
 	if plan == nil {
 		return
 	}
-	targetPaths := types.ChangePlanVerificationTargetPaths(plan, ctx.Mutable.WriteWorkflowRun())
+	var workflow *types.WriteWorkflowRun
+	if ctx.Mutable != nil {
+		workflow = ctx.Mutable.WriteWorkflowRun()
+	}
+	targetPaths := types.ChangePlanVerificationTargetPaths(plan, workflow)
 	targets, targetFamilies := recognizedChangedSourcePaths(targetPaths)
 	if len(targets) == 0 {
 		report.ChangedPathCoverage = nil
@@ -74,7 +95,7 @@ func applyChangedPathVerificationCoverage(ctx *types.BusContext, report *types.C
 	// Preserve real red tests/builds and already-unavailable runs. This gate
 	// only prevents a nominally verified pass from being signed by evidence
 	// that does not cover every changed source path.
-	if len(uncovered) == 0 || report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
+	if !enforceComplete || len(uncovered) == 0 || report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
 		return
 	}
 	report.Passed = false

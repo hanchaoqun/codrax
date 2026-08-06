@@ -19,6 +19,7 @@ func passingProbeAppliedReplanContext(t *testing.T) *types.BusContext {
 	ctx.Mutable.SetChangePlan(&types.ChangePlan{
 		ID:           "plan-applied",
 		Status:       types.PlanStatusVerifyFailed,
+		TargetPaths:  []string{"src/client.ts"},
 		AppliedPaths: []string{"src/client.ts"},
 		Changes: []types.FileChange{{
 			Path: "src/client.ts",
@@ -45,6 +46,11 @@ func passingProbeAppliedReplanContext(t *testing.T) *types.BusContext {
 			AssertionID: "search-client-contract",
 			Kind:        types.TestResultKindUnit,
 			Passed:      true,
+		}},
+		ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+			Path:       "src/client.ts",
+			Status:     types.ChangedPathVerificationCovered,
+			Capability: types.VerificationCapabilityTargetBehavior,
 		}},
 	})
 	return ctx
@@ -107,6 +113,7 @@ func TestPassingProbeReplanDoesNotFreezeUncoveredPathsInMultiFilePlan(t *testing
 	ctx := passingProbeAppliedReplanContext(t)
 	plan := ctx.Mutable.ChangePlan()
 	plan.AppliedPaths = append(plan.AppliedPaths, "src/options.ts")
+	plan.TargetPaths = append(plan.TargetPaths, "src/options.ts")
 	plan.Changes = append(plan.Changes, types.FileChange{
 		Path:  "src/options.ts",
 		Kind:  "patch",
@@ -117,8 +124,9 @@ func TestPassingProbeReplanDoesNotFreezeUncoveredPathsInMultiFilePlan(t *testing
 	}
 	latest := ctx.Mutable.PlanStageProbeReports()
 	latest[len(latest)-1].ChangedPathCoverage = []types.ChangedPathVerificationCoverage{{
-		Path:   "src/options.ts",
-		Status: types.ChangedPathVerificationCovered,
+		Path:       "src/options.ts",
+		Status:     types.ChangedPathVerificationCovered,
+		Capability: types.VerificationCapabilityTargetBehavior,
 	}}
 	if rej, _ := validatePassingProbeReplanAppliedPathMutation(ctx, []types.FileChange{{Path: "src/options.ts", Kind: "patch"}}); rej == "" {
 		t.Fatal("exact typed covered path in a multi-file plan should be protected")

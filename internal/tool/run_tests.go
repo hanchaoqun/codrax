@@ -367,7 +367,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	// is installed. Every install site in this Execute goes through it
 	// so early-return reports (timeout / OOM / runner missing / parser
 	// error) carry the same durable evidence as the aggregate path.
-	finishReport := func(report *types.ChangeReport) *types.ChangeReport {
+	finishReportForPlan := func(report *types.ChangeReport, authorityPlan *types.ChangePlan, enforceCompleteCoverage bool) *types.ChangeReport {
 		if report == nil {
 			return nil
 		}
@@ -390,17 +390,20 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		)
 		report.VerificationConfidence = mergeVerificationConfidenceRecords(
 			report.VerificationConfidence,
-			verificationConfidenceRecordsFromReport(ctx.Mutable.ChangePlan(), report),
+			verificationConfidenceRecordsFromReport(authorityPlan, report),
 		)
 		if !report.Passed && strings.TrimSpace(report.FailureReasonCode) == "" {
 			report.FailureReasonCode = failureReasonCodeFromExecutedCommandsForKind(report.ExecutedCommands, report.FailureKind)
 		}
-		applyChangedPathVerificationCoverage(ctx, report)
+		applyChangedPathVerificationCoverageForPlan(ctx, authorityPlan, report, enforceCompleteCoverage)
 		if report.GeneratedAt.IsZero() {
 			report.GeneratedAt = time.Now()
 		}
 		report.EnsureVerificationStatus()
 		return report
+	}
+	finishReport := func(report *types.ChangeReport) *types.ChangeReport {
+		return finishReportForPlan(report, ctx.Mutable.ChangePlan(), true)
 	}
 	carryVerificationDiagnostics := func(report *types.ChangeReport) {
 		if report == nil || len(report.VerificationDiagnostics) == 0 {
@@ -422,10 +425,11 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		}
 		probe := runSingleVerificationProbe(ctx, probes[0], "planner_probe_verification_probe")
 		executedCmds = append(executedCmds, probe.Commands...)
-		report := finishReport(probe.Report)
+		authorityPlan := plannerProbeAuthorityPlan(ctx.Mutable.ChangePlan(), probes[0])
+		report := finishReportForPlan(probe.Report, authorityPlan, false)
 		installRunTestsReport(ctx, report, dryRunProbe)
 		_, ref := StoreBlob(ctx, t.Name()+"-planner-verification-probe", probe.Output)
-		summary := renderVerificationProbePrimarySummary(report, surface)
+		summary := renderPlannerVerificationProbeSummary(report, surface)
 		if report != nil && report.Passed {
 			if excerpt := verificationProbeInlineOutputExcerpt(probe.Output); excerpt != "" {
 				summary += "\nProbe output:\n" + excerpt
@@ -1808,6 +1812,57 @@ func selectedSurfaceCandidate(surface types.TestSurface) *types.TestSurfaceCandi
 	}
 	cand := surface.Candidates[0]
 	return &cand
+}
+
+// plannerProbeAuthorityPlan preserves the active target/contract scope while
+// replacing its probe roster with the one-off probe that actually ran. Without
+// this snapshot, a planner dry-run can accidentally borrow coverage from a
+// stored plan probe that happens to share an assertion id.
+func plannerProbeAuthorityPlan(active *types.ChangePlan, probe types.VerificationProbe) *types.ChangePlan {
+	if active == nil {
+		return nil
+	}
+	copyPlan := *active
+	copyPlan.VerificationProbes = []types.VerificationProbe{probe}
+	if active.CumulativeVerificationScope != nil {
+		copyScope := *active.CumulativeVerificationScope
+		copyScope.VerificationProbes = nil
+		copyPlan.CumulativeVerificationScope = &copyScope
+	}
+	return &copyPlan
+}
+
+func renderPlannerVerificationProbeSummary(report *types.ChangeReport, surface types.TestSurface) string {
+	status := report.NormalizeVerificationStatus()
+	passed, total := report.Score()
+	if total < 0 {
+		total = 0
+	}
+	if passed < 0 {
+		passed = 0
+	}
+	verdict := "UNAVAILABLE"
+	switch status {
+	case types.VerificationStatusPassed:
+		verdict = "PASSED"
+	case types.VerificationStatusFailed:
+		verdict = "FAILED"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "[run_tests: planner_probe verdict=%s] bounded planner observation: %d/%d passed.", verdict, passed, total)
+	if cand := selectedSurfaceCandidate(surface); cand != nil && cand.HasTestSignal {
+		fmt.Fprintf(&b, " Project suite candidate %s was detected but was not executed by this planner probe; this observation does not replace a project-suite verdict.", cand.ID)
+	}
+	if status == types.VerificationStatusPassed {
+		if report.HasTargetExecutionCoverage() {
+			b.WriteString(" Typed authority: the probe is coupled to at least one compatible changed target; no-change eligibility still requires the remaining typed confidence checks.")
+		} else {
+			b.WriteString(" Typed authority: observation_only; no compatible changed-target execution/behavior coverage was established, so this result cannot authorize changes: [].")
+		}
+	} else if strings.TrimSpace(report.FailureSummary) != "" {
+		fmt.Fprintf(&b, " %s", strings.TrimSpace(report.FailureSummary))
+	}
+	return b.String()
 }
 
 func renderVerificationProbePrimarySummary(report *types.ChangeReport, surface types.TestSurface) string {

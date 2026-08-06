@@ -665,7 +665,7 @@ func TestRunTestsDryRunVerificationProbe_ModeApplyStagePlan(t *testing.T) {
 	if result.Success {
 		t.Fatalf("failing verification probe should return Success=false, got %+v", result)
 	}
-	if !strings.Contains(result.Summary, "verification_probes verdict=FAILED") {
+	if !strings.Contains(result.Summary, "planner_probe verdict=FAILED") {
 		t.Fatalf("summary should render verification probe verdict, got %q", result.Summary)
 	}
 	if got := mu.ChangeReport(); got != nil {
@@ -726,10 +726,14 @@ func TestRunTestsPassingReplanProbeGuidesNoChangeSentinel(t *testing.T) {
 		t.Skip("no usable python on PATH; skip")
 	}
 	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "widget.py"), []byte("VALUE = 41\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
 	mu := types.NewMutableState("passing replan probe guidance")
 	mu.SetChangePlan(&types.ChangePlan{
 		ID:           "plan-applied",
 		Status:       types.PlanStatusVerifyFailed,
+		TargetPaths:  []string{"widget.py"},
 		AppliedPaths: []string{"widget.py"},
 		Changes: []types.FileChange{{
 			Path:  "widget.py",
@@ -753,9 +757,10 @@ func TestRunTestsPassingReplanProbeGuidesNoChangeSentinel(t *testing.T) {
 	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
 		"dry_run": true,
 		"verification_probe": map[string]any{
-			"id":       "current_worktree_contract",
-			"language": "python",
-			"code":     "assert True\n",
+			"id":                  "current_worktree_contract",
+			"language":            "python",
+			"code":                "import widget\nassert widget.VALUE == 41\n",
+			"changed_symbol_refs": []string{"path:widget.py"},
 		},
 	}))
 	if err != nil {
@@ -772,6 +777,119 @@ func TestRunTestsPassingReplanProbeGuidesNoChangeSentinel(t *testing.T) {
 	probes := mu.PlanStageProbeReports()
 	if len(probes) != 1 || probes[0].PlanID != "plan-applied" {
 		t.Fatalf("planner probe must be stamped with the active plan ID: %+v", probes)
+	}
+}
+
+func TestRunTestsPassingUnboundPlannerProbeCannotGuideNoChange(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "widget.py"), []byte("VALUE = 42\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	mu := types.NewMutableState("unbound passing probe")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:           "plan-applied",
+		Status:       types.PlanStatusVerifyFailed,
+		TargetPaths:  []string{"widget.py"},
+		AppliedPaths: []string{"widget.py"},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:                "shared_probe_id",
+			Language:          "python",
+			Code:              "import widget\nassert widget.VALUE == 42\n",
+			ChangedSymbolRefs: []string{"path:widget.py"},
+		}},
+		Changes: []types.FileChange{{
+			Path:  "widget.py",
+			Kind:  "patch",
+			Apply: &types.FileChangeApplyRecord{Status: "applied"},
+		}},
+	})
+	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
+		PlanID:      "plan-applied",
+		FailureKind: types.FailureKindTestsFailed,
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StagePlan,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"dry_run": true,
+		"verification_probe": map[string]any{
+			"id":       "shared_probe_id",
+			"language": "python",
+			"code":     "assert True\n",
+		},
+	}))
+	if err != nil || !result.Success {
+		t.Fatalf("an exploratory passing probe should remain runnable: result=%+v err=%v", result, err)
+	}
+	for _, forbidden := range []string{"Typed replan disposition", "skipped as a hard gate", "plan supplied passing bounded probes"} {
+		if strings.Contains(result.Summary, forbidden) {
+			t.Fatalf("unbound observation acquired no-change/project-suite authority via %q: %s", forbidden, result.Summary)
+		}
+	}
+	if !strings.Contains(result.Summary, "authority: observation_only") || !strings.Contains(result.Summary, "cannot authorize changes: []") {
+		t.Fatalf("unbound observation must disclose its authority ceiling: %s", result.Summary)
+	}
+}
+
+func TestRunTestsCrossLanguagePlannerProbeDoesNotBorrowChangedTargetAuthority(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "Cargo.toml"), []byte("[package]\nname='demo'\nversion='0.1.0'\n"), 0o644); err != nil {
+		t.Fatalf("write Cargo.toml: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
+		t.Fatalf("mkdir src: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src", "lib.rs"), []byte("pub fn value() -> i32 { 42 }\n"), 0o644); err != nil {
+		t.Fatalf("write Rust source: %v", err)
+	}
+	mu := types.NewMutableState("cross-language passing probe")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:           "plan-rust-applied",
+		Status:       types.PlanStatusVerifyFailed,
+		TargetPaths:  []string{"src/lib.rs"},
+		AppliedPaths: []string{"src/lib.rs"},
+		Changes: []types.FileChange{{
+			Path:  "src/lib.rs",
+			Kind:  "patch",
+			Apply: &types.FileChangeApplyRecord{Status: "applied"},
+		}},
+	})
+	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
+		PlanID:      "plan-rust-applied",
+		FailureKind: types.FailureKindTestsFailed,
+	})
+	ctx := &types.BusContext{Mutable: mu, Mode: types.ModeApply, PipelineStage: types.StagePlan, RepoRoot: root, MainRepoRoot: root}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"dry_run": true,
+		"verification_probe": map[string]any{
+			"id":                  "python_copy",
+			"language":            "python",
+			"code":                "assert 21 * 2 == 42\n",
+			"changed_symbol_refs": []string{"path:src/lib.rs"},
+		},
+	}))
+	if err != nil || !result.Success {
+		t.Fatalf("cross-language simulation may remain an observation: result=%+v err=%v", result, err)
+	}
+	if !strings.Contains(result.Summary, "authority: observation_only") || !strings.Contains(result.Summary, "was not executed by this planner probe") {
+		t.Fatalf("cross-language observation must not masquerade as Rust/project verification: %s", result.Summary)
+	}
+	if strings.Contains(result.Summary, "Typed replan disposition") || strings.Contains(result.Summary, "skipped as a hard gate") {
+		t.Fatalf("cross-language observation acquired forbidden authority: %s", result.Summary)
+	}
+	reports := mu.PlanStageProbeReports()
+	if len(reports) != 1 || reports[0].HasTargetExecutionCoverage() {
+		t.Fatalf("cross-language probe must not mint changed-target coverage: %+v", reports)
 	}
 }
 
