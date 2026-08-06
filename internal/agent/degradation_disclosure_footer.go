@@ -12,9 +12,10 @@ import (
 // user-facing degradation-disclosure footer.
 //
 // The typed degradation ledger (internal/types/degradation_ledger.go)
-// accounts every deliberate fail-open action the system performed on
-// the answer's semantics (citation-quote rewrites, richness hard→soft
-// facet softening, completeness downgrade). This footer is the single
+// accounts every deliberate fail-open or compatibility action. Only
+// registry lanes classified as answer semantics (for example richness
+// hard→soft facet softening and completeness downgrade) reach this
+// footer; exact citation-quote hydration stays plumbing/log-only. This is the single
 // user-facing outlet: AT MOST ONE grouped system line, rendered ONLY at
 // the last-mile supplement chokepoint
 // (renderAnswerDocumentWithLastMileSupplements — TRUNC family pin), so

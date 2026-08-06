@@ -25,10 +25,8 @@ func degradationFooterTestDoc() *types.AnswerDocumentV2 {
 }
 
 // seededDegradationMutable builds the decisive-e2e state through the
-// REAL channels the writers use: 17 citation rewrites via
-// AppendDegradation (the lane the tool-layer call sites book) plus one
-// facet softening on the EXISTING richness-telemetry channel (the
-// one-way projection arm — no ledger writer exists for that lane).
+// REAL channels the writers use: 17 log-only citation hydrations plus
+// one user-visible facet softening on the EXISTING richness channel.
 func seededDegradationMutable() *types.MutableState {
 	mu := types.NewMutableState("q")
 	mu.AppendDegradation(types.DegradeLaneCitationQuoteRewrite, 17)
@@ -37,28 +35,34 @@ func seededDegradationMutable() *types.MutableState {
 }
 
 // TestDegradationFooterRendersExactlyOneGroupedLine is the decisive
-// positive pin: a run with one facet softened + 17 citation rewrites
-// renders EXACTLY ONE grouped footer line with both counts, wording per
-// session language, order = registry declaration order.
+// positive pin: a run with one facet softened + 17 citation hydrations
+// renders EXACTLY ONE answer-semantics footer group. The plumbing count
+// remains in the operator ledger but never rides the user answer.
 func TestDegradationFooterRendersExactlyOneGroupedLine(t *testing.T) {
 	ctxZH := &types.AgentContext{Mutable: seededDegradationMutable()}
 	gotZH := RenderAnswerDocumentWithLastMileSupplements(ctxZH, degradationFooterTestDoc(), nil, "zh")
-	wantZH := "系统降级披露：引用摘录回填 ×17、必答面硬转软 ×1（完整明细见运行日志）"
+	wantZH := "系统降级披露：必答面硬转软 ×1（完整明细见运行日志）"
 	if n := strings.Count(gotZH, "系统降级披露："); n != 1 {
 		t.Fatalf("footer prefix must appear EXACTLY once, got %d:\n%s", n, gotZH)
 	}
 	if !strings.Contains(gotZH, wantZH) {
 		t.Fatalf("zh footer line mismatch.\nwant substring: %s\ngot:\n%s", wantZH, gotZH)
 	}
+	if strings.Contains(gotZH, "引用摘录回填") {
+		t.Fatalf("healthy citation hydration is plumbing and must stay off the user surface:\n%s", gotZH)
+	}
 
 	ctxEN := &types.AgentContext{Mutable: seededDegradationMutable()}
 	gotEN := RenderAnswerDocumentWithLastMileSupplements(ctxEN, degradationFooterTestDoc(), nil, "en")
-	wantEN := "System degradation disclosure: citation quote backfill ×17, required-facet softened ×1 (full detail in run logs)"
+	wantEN := "System degradation disclosure: required-facet softened ×1 (full detail in run logs)"
 	if n := strings.Count(gotEN, "System degradation disclosure:"); n != 1 {
 		t.Fatalf("EN footer prefix must appear EXACTLY once, got %d:\n%s", n, gotEN)
 	}
 	if !strings.Contains(gotEN, wantEN) {
 		t.Fatalf("en footer line mismatch.\nwant substring: %s\ngot:\n%s", wantEN, gotEN)
+	}
+	if strings.Contains(gotEN, "citation quote backfill") {
+		t.Fatalf("healthy citation hydration is plumbing and must stay off the user surface:\n%s", gotEN)
 	}
 
 	// The footer is one single line — no multi-line expansion, never
@@ -223,19 +227,12 @@ func TestDegradationFooterConsumptionSetEqualsAnswerSemanticsSet(t *testing.T) {
 	}
 }
 
-// TestDegradationFooterSelfDisclosedLaneSuppressed — R6-5 semantics
-// under the R7-1 doc-derived mechanism: when the document being rendered
-// already discloses a lane's work through its own degraded caveat (whose
-// citation-quote-backfill section word is IDENTICAL to the lane's
-// registry word 引用摘录回填 — identity asserted here, it is what the
-// suppression predicate keys on), the footer must not disclose that lane
-// again — one answer never carries the same lane's disclosure twice.
-// Other lanes keep rendering, and the ledger/operator account is
-// untouched.
+// A degraded recovery document may name citation backfill in its own
+// recovery caveat. Healthy-path citation hydration remains plumbing and
+// therefore never produces a second footer entry; telemetry survives.
 func TestDegradationFooterSelfDisclosedLaneSuppressed(t *testing.T) {
-	// The word identity the suppression rides on: section display pair ==
-	// lane registry pair for the backfill token. If either side is
-	// renamed without the other, suppression silently dies — pin it.
+	// The degraded-recovery caveat and operator registry retain one word
+	// pair even though healthy hydration no longer reaches the footer.
 	pair, ok := degradedSectionDisplayNames[tool.DegradedSectionCitationQuoteBackfill]
 	if !ok {
 		t.Fatalf("backfill token missing from degradedSectionDisplayNames")
@@ -254,7 +251,7 @@ func TestDegradationFooterSelfDisclosedLaneSuppressed(t *testing.T) {
 		degradedDeterministicSectionsCaveat("zh", []string{"observation_board", tool.DegradedSectionCitationQuoteBackfill}))
 	footer := renderDegradationDisclosureFooter(ctx, degradedDoc, "zh")
 	if strings.Contains(footer, "引用摘录回填") {
-		t.Fatalf("self-disclosed citation lane must not disclose again on the footer: %q", footer)
+		t.Fatalf("plumbing citation lane must not disclose on the footer: %q", footer)
 	}
 	if !strings.Contains(footer, "必答面硬转软 ×1") {
 		t.Fatalf("other lanes must keep rendering: %q", footer)
@@ -282,16 +279,15 @@ func TestDegradationFooterSelfDisclosedLaneSuppressed(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("suppression is footer-only — the ledger count must survive: %+v", entries)
+		t.Fatalf("footer classification must not erase operator ledger telemetry: %+v", entries)
 	}
-	// A degraded caveat WITHOUT the backfill section suppresses nothing:
-	// the footer stays the sole disclosure (per-Run rewrite events
-	// semantic, design ledger CLASS 5 §10.7).
+	// A degraded caveat without the backfill token also does not make
+	// healthy hydration user-visible; only the real facet downgrade shows.
 	noBackfill := degradationFooterTestDoc()
 	noBackfill.Caveats = append(noBackfill.Caveats,
 		degradedDeterministicSectionsCaveat("zh", []string{"observation_board"}))
-	if footer := renderDegradationDisclosureFooter(&types.AgentContext{Mutable: seededDegradationMutable()}, noBackfill, "zh"); !strings.Contains(footer, "引用摘录回填 ×17") {
-		t.Fatalf("without the self-disclosing caveat the footer stays the disclosure of record: %q", footer)
+	if footer := renderDegradationDisclosureFooter(&types.AgentContext{Mutable: seededDegradationMutable()}, noBackfill, "zh"); strings.Contains(footer, "引用摘录回填") || !strings.Contains(footer, "必答面硬转软 ×1") {
+		t.Fatalf("plumbing citation lane must stay hidden while semantic lane renders: %q", footer)
 	}
 }
 
@@ -307,35 +303,34 @@ func TestDegradationFooterSelfDisclosedLaneSuppressed(t *testing.T) {
 // suppression now anchors on the entry START (strings.HasPrefix); an
 // LLM quote embeds the leader mid-text and must never suppress.
 func TestDegradationFooterQuotingCaveatDoesNotSuppress(t *testing.T) {
-	ctx := &types.AgentContext{Mutable: seededDegradationMutable()} // citation ×17 + facet ×1
+	ctx := &types.AgentContext{Mutable: seededDegradationMutable()} // plumbing citation ×17 + semantic facet ×1
 	quoting := degradationFooterTestDoc()
 	quoting.Caveats = append(quoting.Caveats,
-		"注意：上游批次日志中曾出现「降级出厂说明：本稿未通过最终结构化校验。」字样并触发引用摘录回填，本稿不受其影响。")
+		"注意：上游批次日志中曾出现「降级出厂说明：必答面硬转软」字样，本稿不受其影响。")
 	footer := renderDegradationDisclosureFooter(ctx, quoting, "zh")
-	if !strings.Contains(footer, "引用摘录回填 ×17") {
+	if !strings.Contains(footer, "必答面硬转软 ×1") {
 		t.Fatalf("a caveat QUOTING the degraded leader mid-text must not suppress the footer disclosure: %q", footer)
 	}
 	// EN face: same shape, quoted mid-text.
 	quotingEN := degradationFooterTestDoc()
 	quotingEN.Caveats = append(quotingEN.Caveats,
-		`Note: an upstream batch printed "Degraded delivery: this draft did NOT pass final structured validation." and ran citation quote backfill; this answer is unaffected.`)
-	if footer := renderDegradationDisclosureFooter(ctx, quotingEN, "en"); !strings.Contains(footer, "citation quote backfill ×17") {
+		`Note: an upstream batch printed "Degraded delivery: required-facet softened"; this answer is unaffected.`)
+	if footer := renderDegradationDisclosureFooter(ctx, quotingEN, "en"); !strings.Contains(footer, "required-facet softened ×1") {
 		t.Fatalf("EN quoting caveat must not suppress the footer disclosure: %q", footer)
 	}
 	// Discriminator: the genuine system caveat (leader at position 0 of
 	// the entry) still suppresses — kills an over-broad fix that stops
 	// suppressing altogether.
 	genuine := degradationFooterTestDoc()
-	genuine.Caveats = append(genuine.Caveats,
-		degradedDeterministicSectionsCaveat("zh", []string{tool.DegradedSectionCitationQuoteBackfill}))
-	if footer := renderDegradationDisclosureFooter(ctx, genuine, "zh"); strings.Contains(footer, "引用摘录回填") {
-		t.Fatalf("the genuine degraded caveat must still suppress the lane: %q", footer)
+	genuine.Caveats = append(genuine.Caveats, degradedSectionsCaveatPrefixZH+"必答面硬转软")
+	if footer := renderDegradationDisclosureFooter(ctx, genuine, "zh"); strings.Contains(footer, "必答面硬转软") {
+		t.Fatalf("the genuine system-authored degraded caveat must still suppress the semantic lane: %q", footer)
 	}
 }
 
 // TestDegradationFooterRejectedRecoveryThenCleanRetryDiscloses — R7-1
 // (round-7 sweep): a recovery attempt builds a degraded draft whose own
-// caveat self-discloses the citation lane, but that draft is REJECTED
+// caveat self-discloses an answer-semantics lane, but that draft is REJECTED
 // and a later attempt re-emits a CLEAN answer document. The clean answer
 // carries no self-disclosing degraded caveat, so the footer MUST
 // disclose the lane — suppression must never outlive the rejected draft
@@ -345,24 +340,23 @@ func TestDegradationFooterQuotingCaveatDoesNotSuppress(t *testing.T) {
 // suppression is stateless by construction; this pin kills any future
 // reintroduction of run-level suppression state.
 func TestDegradationFooterRejectedRecoveryThenCleanRetryDiscloses(t *testing.T) {
-	mu := seededDegradationMutable() // citation ×17 + facet softened ×1
+	mu := seededDegradationMutable() // plumbing citation ×17 + semantic facet ×1
 	ctx := &types.AgentContext{Mutable: mu}
 	// Recovery attempt: the degraded draft renders (its caveat suppresses
-	// the citation lane on ITS OWN render) — then it is rejected and never
+	// the semantic lane on ITS OWN render) — then it is rejected and never
 	// ships.
 	rejected := degradationFooterTestDoc()
-	rejected.Caveats = append(rejected.Caveats,
-		degradedDeterministicSectionsCaveat("zh", []string{"observation_board", tool.DegradedSectionCitationQuoteBackfill}))
+	rejected.Caveats = append(rejected.Caveats, degradedSectionsCaveatPrefixZH+"必答面硬转软")
 	draft := RenderAnswerDocumentWithLastMileSupplements(ctx, rejected, nil, "zh")
-	if n := strings.Count(draft, "引用摘录回填"); n != 1 {
-		t.Fatalf("degraded draft must self-disclose exactly once (no footer repeat), got %d:\n%s", n, draft)
+	if n := strings.Count(draft, "必答面硬转软"); n != 1 {
+		t.Fatalf("degraded draft must self-disclose the semantic lane exactly once, got %d:\n%s", n, draft)
 	}
 	// Later attempt on the SAME run state: a clean re-emitted answer
 	// document renders. Nothing in THIS document self-discloses, so the
-	// footer is the disclosure of record and must carry the citation lane.
+	// footer is the disclosure of record and must carry the semantic lane.
 	got := RenderAnswerDocumentWithLastMileSupplements(ctx, degradationFooterTestDoc(), nil, "zh")
-	if !strings.Contains(got, "引用摘录回填 ×17") {
-		t.Fatalf("clean retry after a rejected recovery draft must disclose the citation lane on the footer:\n%s", got)
+	if !strings.Contains(got, "必答面硬转软 ×1") || strings.Contains(got, "引用摘录回填") {
+		t.Fatalf("clean retry must disclose the semantic lane while citation plumbing stays hidden:\n%s", got)
 	}
 }
 
@@ -371,11 +365,8 @@ func TestDegradationFooterRejectedRecoveryThenCleanRetryDiscloses(t *testing.T) 
 // call of tool.MaterializeDeterministicAnswerSectionsForDegradedDoc in
 // this package must be followed (within a few lines) by
 // degradedDeterministicSectionsCaveat on the same materialized list —
-// the caveat appended to the outgoing doc is now BOTH the user-facing
-// self-disclosure AND the footer's suppression carrier
-// (degradationLaneSelfDisclosedInDoc), so a call site that materializes
-// without appending it would reintroduce the co-surface double
-// disclosure.
+// the caveat appended to the outgoing doc is the user-facing account of
+// which deterministic sections were added on that degraded recovery path.
 func TestDegradedMaterializeCallSitesAppendSelfDisclosingCaveat(t *testing.T) {
 	entries, err := os.ReadDir(".")
 	if err != nil {
@@ -407,7 +398,7 @@ func TestDegradedMaterializeCallSitesAppendSelfDisclosingCaveat(t *testing.T) {
 				}
 			}
 			if !paired {
-				t.Errorf("%s:%d calls %s without a %s pairing within 12 lines — the outgoing doc would lack the self-disclosing caveat and the degraded surface and footer would double-disclose the citation lane",
+				t.Errorf("%s:%d calls %s without a %s pairing within 12 lines — the outgoing degraded document would hide which deterministic sections were materialized",
 					name, i+1, materializeToken, caveatToken)
 			}
 		}

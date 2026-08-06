@@ -20736,3 +20736,18 @@ S11 经真实回放关闭。Cangjie explorer 明确识别完整可见 family 为
 状态：`EVAL-B184-ROLECOUNT1=resolved/r109-cross-language-replay`；
 `EVAL-B177-QUOTEDEGRADE1=P2/confirmed/pending-registry-reclassification`；
 `MALFORMED-ANSWER-JSON=lossless-fast-path-and-lossy-reject-both-replay-confirmed`。
+
+### 123.136 S12：健康 citation hydration 降为 plumbing，真实语义降档与 malformed disclosure 保持
+
+`EVAL-B177-QUOTEDEGRADE1` 已按 registry 单源重裁。`DegradeLaneCitationQuoteRewrite` 仍保留原 lane ID、双语显示名、所有 healthy call-site 记账、WARN 与 operator `[degrade] ledger` 统计，但 `DegradationLaneRegistry` 的 class 从 `ClassAnswerSemantics` 改为 `ClassPlumbing`。因此正常 exact file:line quote hydration/correction 不再在用户答案末尾显示“系统降级披露”；它没有删除模型正文、改变模型结论、降低答案完整性或伪造引用，只是将 citation sidecar 对齐到当前源码，属于 grounding 管线工作。
+
+边界没有被放宽：
+
+1. `richness_facet_softened` 与 `completeness_downgraded` 仍保持 `ClassAnswerSemantics`，继续由单一 last-mile footer 披露；
+2. malformed/finalizer recovery 走的 `MaterializeDeterministicAnswerSectionsForDegradedDoc` 仍在 outgoing degraded document 自有 caveat 中披露 `citation_quote_backfill` 及其他实际补出的 deterministic sections；本次没有静音真正的结构降级；
+3. ledger consumption-set equality pin 仍保证所有 answer-semantics lane 必显示、所有 plumbing lane 必不显示；引用 hydration 的 operator 计数继续存在；
+4. noisy LLM caveat 不能抑制真实 semantic footer，rejected degraded draft 的抑制状态不能污染后续 clean retry，两条既有红线 pin 已改用真实 semantic lane继续覆盖。
+
+定向 degradation/footer/writer 测试通过；完整 `go test ./internal/types ./internal/agent ./internal/tool -count=1` 通过（types 19.482s、agent 2.544s、tool 165.528s）。该批只改 typed degradation classification 与测试，不触及 AnswerDocument 正文、JSON repair、Trace 数据、明确时间窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量或模型结论所有权。
+
+状态：`EVAL-B177-QUOTEDEGRADE1=S12-implemented/full-impacted-suites-pass/pending-exact-two-replay`。

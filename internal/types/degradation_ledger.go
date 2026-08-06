@@ -51,17 +51,17 @@ const (
 // footer renders the registry ZH/EN words only; word-discipline test
 // pins NOT-contains for every token).
 const (
-	// Answer-semantics lanes (v1 roster — the three silent lanes the
-	// EVALRUN-1 F8 audit surfaced). These disclose via the footer.
-	DegradeLaneCitationQuoteRewrite   DegradationLaneID = "citation_quote_rewrite"
+	// Answer-semantics lanes disclose via the footer.
 	DegradeLaneRichnessFacetSoftened  DegradationLaneID = "richness_facet_softened"
 	DegradeLaneCompletenessDowngraded DegradationLaneID = "completeness_downgraded"
 
 	// Plumbing lanes (LLM↔tool interface shaping with zero
-	// answer-semantics impact). Registered so classification is an
-	// explicit reviewed decision, permanently log-only: no writer today,
-	// and even a future AppendDegradation on them never reaches the
-	// footer (negative pin in the agent package).
+	// answer-semantics impact). Citation quote hydration/correction is a
+	// source-grounding sidecar operation: it never changes model prose or
+	// conclusions, so it remains operator-visible but not user-visible.
+	// Registered classification is an explicit reviewed decision and even
+	// a future AppendDegradation on these lanes never reaches the footer.
+	DegradeLaneCitationQuoteRewrite    DegradationLaneID = "citation_quote_rewrite"
 	DegradeLaneToolParamCompat         DegradationLaneID = "tool_param_compat"
 	DegradeLaneStructuredPayloadCompat DegradationLaneID = "structured_payload_compat"
 	DegradeLaneLLMJSONRepair           DegradationLaneID = "llm_json_repair"
@@ -85,7 +85,7 @@ type DegradationLaneSpec struct {
 // fails open to the generic word at render time — never invent a
 // specific name.
 var DegradationLaneRegistry = map[DegradationLaneID]DegradationLaneSpec{
-	DegradeLaneCitationQuoteRewrite:   {ClassAnswerSemantics, "引用摘录回填", "citation quote backfill"},
+	DegradeLaneCitationQuoteRewrite:   {ClassPlumbing, "引用摘录回填", "citation quote backfill"},
 	DegradeLaneRichnessFacetSoftened:  {ClassAnswerSemantics, "必答面硬转软", "required-facet softened"},
 	DegradeLaneCompletenessDowngraded: {ClassAnswerSemantics, "完整性降档为下界", "completeness downgraded to lower-bound"},
 
