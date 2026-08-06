@@ -4820,10 +4820,10 @@ func validatePrincipalSupportMemberCoverage(
 		out = append(out, types.Violation{
 			Kind: types.ViolPrincipalSupportMemberOmitted,
 			Detail: fmt.Sprintf(
-				"enumeration principal support member %q (%s at %s) is not represented by any principal ordered_list / bullet_list / table item with a matching citation_ref",
+				"enumeration principal support member %q (%s at %s) is not represented by any structured item in a principal section / ordered_list / bullet_list / table with a matching citation_ref",
 				label, form, locationHint),
 			Repair: fmt.Sprintf(
-				"re-emit the answer document so the principal enumeration list/table includes an item for %q and cites %s. If this evidence is genuinely out-of-scope, add a caveat item that cites a matching typed location and explains the exclusion instead of silently dropping it.",
+				"re-emit the answer document so one principal section/list/table includes a structured item for %q and cites %s. If a required bucket section owns the row, use that section's items[] instead of adding a duplicate global list/table. If this evidence is genuinely out-of-scope, add a caveat item that cites a matching typed location and explains the exclusion instead of silently dropping it.",
 				label, locationHint),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "answer_support.principal_evidence.member_coverage",

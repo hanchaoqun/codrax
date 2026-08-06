@@ -136,6 +136,26 @@ func TestEmitAnswerDocumentSchema_TraceCausalClaimCaliberEnumMatchesTypes(t *tes
 	}
 }
 
+func TestEmitAnswerDocumentSchema_SectionItemsAreNativeStructuredCitationCarrier(t *testing.T) {
+	_, blockProps := answerDocumentProjectedBlockSchema(t, (&EmitAnswerDocument{}).Parameters())
+	kindDescription, _ := blockProps["kind"].(map[string]any)["description"].(string)
+	itemsDescription, _ := blockProps["items"].(map[string]any)["description"].(string)
+	for _, want := range []string{
+		"section uses block.text for narrative",
+		"may also use block.items[] for structured or cited rows",
+	} {
+		if !strings.Contains(kindDescription, want) {
+			t.Fatalf("block kind JSON teaching missing %q: %s", want, kindDescription)
+		}
+	}
+	if !strings.Contains(itemsDescription, "Block items for section / ordered_list / bullet_list / table") {
+		t.Fatalf("items JSON teaching omitted section carrier: %s", itemsDescription)
+	}
+	if strings.Contains(kindDescription, "summary/section/scalar/decision/caveat use block.text") {
+		t.Fatalf("block kind JSON teaching retained the ambiguous section=text-only grouping: %s", kindDescription)
+	}
+}
+
 // TestBuildAnswerDocumentParametersFor_EnumerationDropsDiagramAndAbsence
 // — an enumeration family with no diagram and no missing requested
 // roles must drop edge_anchors, diagram, exact_resolution, and

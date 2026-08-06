@@ -1261,7 +1261,7 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 					claimUse = fmt.Sprintf("Attach block-level `claim_uses[]` using one of these exact allowed forms: %s.", renderQuotedList(forms))
 				}
 				items = append(items,
-					"Emit one `section` block per layer / component / topic, each with a grounded `title` and prose `text`. "+claimUse+" Section blocks have no built-in citation field — if the section needs a citation, restructure to put the cited fact in a child scalar/list block where citation_ref lives natively.",
+					"Emit one `section` block per layer / component / topic, each with a grounded `title` and concise prose `text`. "+claimUse+" A section may also carry structured `items[]`; each item can use label/text/cells and its own citation_ref. When Principal Enumeration Rows belong to that section, put those rows once in the section's items[] instead of duplicating the roster in a separate global list or table. If there are no typed row obligations, section items are optional.",
 				)
 			case types.BlockTable:
 				items = append(items,
@@ -5913,8 +5913,8 @@ func renderAnswerDocPrincipalMemberSetContract(ctx *types.AgentContext) string {
 	b.WriteString("## Required Principal Member Set\n\n")
 	b.WriteString("The investigator handed off the following principal `member_set` aggregate fact(s) via `emit_investigation_complete.aggregate_facts`. ")
 	if types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) || types.RequiresRelationMemberSetHandoff(rm) {
-		b.WriteString("**Every member listed below MUST appear verbatim — including any decorator in parentheses (e.g. `(9 checks)`, `(路径边界)`), arrow (e.g. ` → `), or separator (e.g. `::`, `/`) — as a principal `ordered_list`, `bullet_list`, or `table` item. Prefer one titled block per principal set when multiple sets are present.** ")
-		b.WriteString("Prose-only mentions inside `summary` or `section` text may enrich the answer, but they are not the principal member carrier for this typed exhaustive/member-set request.\n\n")
+		b.WriteString("**Every member listed below MUST appear verbatim — including any decorator in parentheses (e.g. `(9 checks)`, `(路径边界)`), arrow (e.g. ` → `), or separator (e.g. `::`, `/`) — as a structured item in a principal `section`, `ordered_list`, `bullet_list`, or `table`. Prefer one titled block per principal set when multiple sets are present.** ")
+		b.WriteString("For a `section`, put member rows in `items[]`; prose-only mentions inside `summary` or block `text` may enrich the answer, but they are not the principal member carrier for this typed exhaustive/member-set request.\n\n")
 	} else {
 		b.WriteString("**Every member listed below MUST appear verbatim — including any decorator in parentheses (e.g. `(9 checks)`, `(路径边界)`), arrow (e.g. ` → `), or separator (e.g. `::`, `/`) — in some `blocks[].items[].label`, `blocks[].items[].text`, `blocks[].items[].cells[]`, or `blocks[].text` of the emitted answer document.** ")
 	}
@@ -6515,7 +6515,7 @@ func renderAnswerDocPrincipalMemberSetContractFromEnumerationRows(ctx *types.Age
 	b.WriteString("The authoritative principal member rows are rendered once in `Principal Enumeration Rows` above. ")
 	b.WriteString("Every `row.member` there MUST appear verbatim in the visible answer, including decorators in parentheses, arrows, separators, and source-location text. ")
 	if types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) || types.RequiresRelationMemberSetHandoff(rm) {
-		b.WriteString("Carry those rows as principal `ordered_list`, `bullet_list`, or `table` items; prose-only mentions inside `summary` or `section` text do not satisfy the member carrier; do not paraphrase or abbreviate any row member.\n\n")
+		b.WriteString("Carry those rows as structured items in a principal `section`, `ordered_list`, `bullet_list`, or `table`; for `section`, use `items[]`. Prose-only mentions inside `summary` or block `text` do not satisfy the member carrier; do not paraphrase or abbreviate any row member.\n\n")
 	} else {
 		b.WriteString("The pre-emit oracle checks the same row identities against `blocks[].items[].label/text/cells OR blocks[].text`; do not paraphrase or abbreviate them.\n\n")
 	}
@@ -6603,7 +6603,7 @@ func renderAnswerDocPrincipalEnumerationRows(ctx *types.AgentContext, plan *type
 	b.WriteString("- When any row has a non-empty `note`, render that note on the same row as a concise description/说明 column or equivalent item text. Do not collapse per-row notes only into a summary paragraph.\n")
 	b.WriteString("- When a row has non-empty `attributes`, preserve those typed dimensions on that same row as table columns or equivalent item text; do not infer them from paths.\n")
 	b.WriteString("- When rows expose `surface_family`, use that exact row-local key for grouping. A principal block intentionally carrying exactly one family should copy it to block `source_inventory_family`; omit the field for a global/mixed-family block. Never infer family from a block title, path, language, or neighboring row. When the same member label occurs in more than one row, copy the intended `row_id` to that item's `source_inventory_row_id`; the system binds the exact citation, so omit manual `citation_ref` arithmetic for that duplicate.\n")
-	b.WriteString("- Render these rows as the actual principal `ordered_list`, `bullet_list`, or `table` blocks for the answer. Do not mention the row set only inside prose sections and rely on system-side fallback carriers; that creates duplicate user-visible lists.\n")
+	b.WriteString("- Render these rows once as structured items in the answer's principal carrier: use a required bucket `section`'s `items[]` when the row belongs to that bucket, or use an `ordered_list`, `bullet_list`, or `table` when no such section is required. Prose-only mentions in block `text` do not carry row identity; do not add a second global list/table merely to repeat rows already carried by sections.\n")
 	b.WriteString("- A row without `citation_key` is a legitimate non-file aggregate member; do not invent a `repo:0` citation for it.\n\n")
 	if guidance := renderAnswerDocSourceInventoryRowGuidance(ctx); guidance != "" {
 		b.WriteString(guidance)
@@ -7897,10 +7897,10 @@ func renderAnswerDocPrincipalMemberObligations(plan *types.AnswerSupportPlan, co
 		b.WriteString("When one member has both a definition/declaration anchor and an implementation/proof anchor, keep it as one principal member. Do not churn `citation_ref` just to swap between equivalent anchors; cite one accepted anchor and mention the other only as same-row enrichment when it helps the user.\n")
 	}
 	if len(obligations) == 0 {
-		fmt.Fprintf(&b, "The typed principal lane contains %d answer-grade member(s). Render each member from `Principal Enumeration Rows` as a principal `ordered_list`, `bullet_list`, or `table` item with a citation to the listed location or one of its equivalent typed anchors. Prose-only mentions in `summary` do not satisfy the member carrier.\n\n", totalObligations)
+		fmt.Fprintf(&b, "The typed principal lane contains %d answer-grade member(s). Render each member from `Principal Enumeration Rows` once as a structured item in a principal `section`, `ordered_list`, `bullet_list`, or `table`, with a citation to the listed location or one of its equivalent typed anchors. For `section`, use `items[]`; prose-only mentions in block `text` do not satisfy the member carrier.\n\n", totalObligations)
 		return b.String()
 	}
-	fmt.Fprintf(&b, "The typed principal lane contains %d answer-grade member(s); %d still need explicit obligation rows below. Render each listed member as a principal `ordered_list`, `bullet_list`, or `table` item with a citation to the listed location or one of its equivalent typed anchors. These rows are a stable member-to-citation map; do not satisfy them by prose-only mentions in `summary`.\n", totalObligations, len(obligations))
+	fmt.Fprintf(&b, "The typed principal lane contains %d answer-grade member(s); %d still need explicit obligation rows below. Render each listed member once as a structured item in a principal `section`, `ordered_list`, `bullet_list`, or `table`, with a citation to the listed location or one of its equivalent typed anchors. For `section`, use `items[]`. These rows are a stable member-to-citation map; do not satisfy them by prose-only mentions in block `text`.\n", totalObligations, len(obligations))
 	b.WriteString("Use the shown `item_id` for the row id when possible, and use `citation_key` as the stable file:line target when building `citations[]`; after you build the citation pool, `citation_ref` is simply the zero-based index whose citation matches that key. Do not count indexes from memory when a key is shown.\n")
 	b.WriteString("When one member has both a definition/declaration anchor and an implementation/proof anchor, keep it as one principal member. Do not churn `citation_ref` just to swap between those equivalent anchors; cite one accepted anchor and mention the other only as same-row enrichment when it helps the user.\n")
 	if plan != nil && plan.ChangeImpactProfile != nil && plan.ChangeImpactProfile.Active() &&

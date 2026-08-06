@@ -72,9 +72,12 @@ func compileComparison(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticV
 				string(FacetBucketLabel),
 			},
 			Rationale: "One section per user-named bucket; section Title is the verbatim " +
-				"bucket label from the question. Body answers that bucket on the user's " +
+				"bucket label from the question. Body text answers that bucket on the user's " +
 				"comparison axis; add citations or code-path details only when the axis itself " +
-				"requires them, rather than forcing every comparison into current-code-path form.",
+				"requires them, rather than forcing every comparison into current-code-path form. " +
+				"When typed principal member rows belong to this bucket, carry them once in this " +
+				"section's items[]; section items support label/text/cells and citation_ref, so do " +
+				"not duplicate the same roster in a separate global list or table.",
 			SurfaceRoleHint: SurfacePrincipal,
 		},
 	}
@@ -91,7 +94,9 @@ func compileComparison(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticV
 			},
 			Rationale: "When the comparison has multiple discrete axes, a side-by-side table " +
 				"makes the axis × bucket grid scannable. Row 1 names the axes; one column " +
-				"per bucket carries that bucket's value on each axis.",
+				"per bucket carries that bucket's value on each axis. Do not add this optional " +
+				"table merely to repeat typed member rows already carried by the required bucket " +
+				"sections; use it only when it adds a distinct cross-bucket axis grid.",
 		},
 		optionalCaveatBlock(
 			"When the comparison axis is asymmetric (e.g. one bucket lacks a feature the "+

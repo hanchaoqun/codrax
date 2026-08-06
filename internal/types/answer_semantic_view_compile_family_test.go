@@ -1113,9 +1113,18 @@ func TestCompileComparison_BucketSectionCountPinned(t *testing.T) {
 				t.Errorf("buckets=%d: section MinCount=%d MaxCount=%d, want both %d",
 					n, b.MinCount, b.MaxCount, n)
 			}
+			if !strings.Contains(b.Rationale, "section's items[]") ||
+				!strings.Contains(b.Rationale, "do not duplicate the same roster") {
+				t.Errorf("buckets=%d: section rationale must teach the native row/citation carrier without duplication: %q", n, b.Rationale)
+			}
 		}
 		if !hasSection {
 			t.Errorf("buckets=%d: no Section block in RequiredBlocks", n)
+		}
+		for _, b := range view.OptionalBlocks {
+			if b.Kind == BlockTable && !strings.Contains(b.Rationale, "distinct cross-bucket axis grid") {
+				t.Errorf("buckets=%d: optional table rationale must distinguish a new axis grid from a duplicate roster: %q", n, b.Rationale)
+			}
 		}
 	}
 }

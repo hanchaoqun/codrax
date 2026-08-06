@@ -3084,6 +3084,8 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersPrincipalEnumera
 		"note: Eval 对单个 Criterion 进行求值并返回 Result。",
 		"END_MARKER",
 		"Use `display_label`, `location`, and `citation_key` to build clear table cells",
+		"use a required bucket `section`'s `items[]` when the row belongs to that bucket",
+		"do not add a second global list/table merely to repeat rows already carried by sections",
 		"render that note on the same row as a concise description/说明 column",
 		"members_rendered_in=authoritative_principal_member_rows",
 		"Entries already rendered in `Principal Enumeration Rows`: 1",
@@ -3094,6 +3096,9 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersPrincipalEnumera
 	}
 	if strings.Contains(prompt, "members=[`Eval`]") {
 		t.Fatalf("principal member rows should not be duplicated as dry structured members:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "Render these rows as the actual principal `ordered_list`, `bullet_list`, or `table` blocks") {
+		t.Fatalf("principal row teaching retained the carrier list that excludes section.items[]:\n%s", prompt)
 	}
 }
 
@@ -5072,6 +5077,33 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_DoesNotMentionRetiredTo
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("submission checklist missing positive guidance %q:\n%s", want, prompt)
 		}
+	}
+}
+
+func TestRenderAnswerDocSubmissionChecklist_SectionOwnsStructuredRowsAndCitations(t *testing.T) {
+	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Buckets: []types.QuestionBucket{{Label: "A", Index: 1}, {Label: "B", Index: 2}},
+	}}}
+	view := &types.AnswerSemanticView{
+		Family: types.QFComparison,
+		RequiredBlocks: []types.BlockRequirement{{
+			Kind: types.BlockSection, Required: true, SurfaceRoleHint: types.SurfacePrincipal,
+		}},
+	}
+
+	got := renderAnswerDocSubmissionChecklist(ctx, view, false)
+	for _, want := range []string{
+		"A section may also carry structured `items[]`",
+		"each item can use label/text/cells and its own citation_ref",
+		"put those rows once in the section's items[]",
+		"instead of duplicating the roster in a separate global list or table",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("section JSON teaching missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Section blocks have no built-in citation field") {
+		t.Fatalf("section JSON teaching retained the false citation-carrier instruction:\n%s", got)
 	}
 }
 

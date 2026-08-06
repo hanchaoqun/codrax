@@ -20065,3 +20065,28 @@ display label 可在 mixed typed union 中修正交叉引用；既有显式 fami
 `B177-S2=BUCKETCARRIER1`，统一 Required Answer Blocks、Principal Enumeration Rows 与 repair recipe 的 carrier 教学，减少合法答案被迫重复与反复成文修补。
 
 本批未触碰 Trace 显式时间窗、因果投影、系统自动补齐、根因排序、唤醒链、窗内可消除量、实际占时/现规则可消除两轴，也未增加用户/模型/答案关键词硬门。
+
+### 123.114 B177-S2：bucket section 与 principal row carrier 的 JSON 教学单义化
+
+`EVAL-B176-BUCKETCARRIER1` 已修复。根因是四个系统面给模型不同合同：comparison 的 Required Answer Blocks 要求每个用户 bucket 恰好一个 `section`；submission checklist
+却称 section 没有原生 citation 字段；Principal Enumeration Rows 只列 `ordered_list/bullet_list/table`；而 pre-emit repair recipe 和实际 renderer/coverage 早已把
+`section.items[]` 当作合法结构化行与 citation carrier。模型只能同时造三份 prose section 和一张全局 table，既重复用户可见 roster，也放大 JSON 字段、引用索引和返工次数。
+
+现统一为一个结构合同：`section.text` 承载该 bucket 的叙述，`section.items[]` 可承载该 bucket 的 typed member rows；每个 item 原生支持
+`label/text/cells/citation_ref`。当 Required Answer Blocks 已要求 bucket sections 时，Principal Enumeration Rows 明确要求把所属行只放一次到对应 section 的
+`items[]`；没有 required section 时才选择 ordered list、bullet list 或 table。prose-only `block.text` 不算 row identity，因而完整性门强度不降。
+
+comparison 的 optional table 同步收窄为“新增 distinct cross-bucket axis grid”才建议；不能只为重复 required sections 已承载的 roster 而增加全局表。post-emit 缺成员错误与
+修复指令也使用相同四类 carrier，不再把一个合法 `section.items[]` 答案引导回重复 list/table。canonical tool schema 将旧的
+`summary/section/scalar/decision/caveat use block.text` 分组拆开，明确 section 是 narrative text + optional structured/cited items，减少 JSON 心智分叉。
+
+本批没有改变 Required section 的数量/标题硬约束，没有系统代写、增删或重排模型行，也没有从用户/模型/最终 prose 扫描 bucket 或成员。回归 pin 覆盖 section rationale、可选表非重复
+边界、submission checklist 的 item/citation 能力、Principal Enumeration Rows 的 section-first 指令及 canonical JSON schema 的非 text-only 语义。
+
+验证：定向 `types/agent/orchestrator/tool` suite 全绿；完整 `go test ./internal/types ./internal/agent ./internal/orchestrator ./internal/tool -count=1` 全绿
+（types 19.414s、agent 2.577s、orchestrator 11.474s、tool 166.456s）。
+
+状态：`EVAL-B176-BUCKETCARRIER1=implemented/full-impacted-suites-pass`。下一步重建并恰好并行两个异构 eval，优先 Cangjie 原案 + 非枚举读/写案，确认成文返工、重复 roster、typed
+计数与 JSON recovery；若 typed aggregate 自身的 count/row 仍冲突，再进入 B177-S3 的 typed aggregate consistency 根修，而不扫描答案里的数字句。
+
+Trace 显式时间窗、因果投影、系统自动补齐、根因排序、唤醒链、窗内可消除量、实际占时/现规则可消除双轴、模型结论所有权均未触碰。
