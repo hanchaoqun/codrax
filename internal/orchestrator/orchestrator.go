@@ -2942,9 +2942,9 @@ func (o *Orchestrator) runWriteAnalyzePhase() (int, error) {
 	var lastErr error
 	used := 0
 	for attempt := 0; attempt < maxAttempts; attempt++ {
+		rejectedIR, started := (*types.WriteAnalysisIR)(nil), time.Now()
 		used++
 		o.emitStageRetryAttempt = attempt
-		started := time.Now()
 		out, err := o.dispatchStage(types.StageWriteAnalyze)
 		elapsed := time.Since(started)
 		if err == nil && (out == nil || out.Error == "") {
@@ -2952,6 +2952,7 @@ func (o *Orchestrator) runWriteAnalyzePhase() (int, error) {
 				if rejection := writeAnalysisIRQualityRejection(ir); rejection == "" {
 					return used, nil
 				} else {
+					rejectedIR = ir
 					lastErr = fmt.Errorf("write_analyzer emitted an under-grounded WriteAnalysisIR: %s", rejection)
 					if attempt+1 >= maxAttempts {
 						if repaired, repairs := repairWriteAnalysisIRQuality(ir); len(repairs) > 0 && writeAnalysisIRQualityRejection(repaired) == "" {
@@ -2995,7 +2996,8 @@ func (o *Orchestrator) runWriteAnalyzePhase() (int, error) {
 					fmt.Sprintf("Previous emit_write_analysis attempt was rejected: %v. Re-emit with the rejected fields corrected and all required fields filled (raw_request, task.kind, task.scope, task.summary, risk.affects_public_api, risk.changes_persistence, risk.changes_build_system, risk.overall). ",
 						lastErr) +
 						skill.GateTeachingWriteExactContractGrounding.Text +
-						" For rendered-text placement contracts, fill placement.surface, placement.anchor, placement.expected, placement.relation, and placement.delimiter when the relation names a boundary; attach placement.evidence_ref or contract evidence_ref when the anchor/expected pair came from inspected evidence rather than raw_request.")
+						" For rendered-text placement contracts, fill placement.surface, placement.anchor, placement.expected, placement.relation, and placement.delimiter when the relation names a boundary; attach placement.evidence_ref or contract evidence_ref when the anchor/expected pair came from inspected evidence rather than raw_request." +
+						renderWriteAnalysisRetryPayload(rejectedIR))
 			}
 		}
 	}

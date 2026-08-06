@@ -21229,3 +21229,61 @@ materializer；也没有扩大 malformed JSON 猜测恢复。已有边界保持�
 可识别模型字符串并明确披露模型输出异常/降级，不能把系统生成内容伪装成模型答案。
 
 状态：`EVAL-B186-SUMMARYJSON1=S18-implemented/full-impacted-suites-pass/pending-exact-two-replay`。
+
+### 123.151 B186 r117：S18 生产闭环、S17b 单代闭环；write analyzer 局部拒绝仍会触发全量语义重写
+
+在 `bdc6587fd` 构建后严格并行恰好两个异构 case：
+
+- `trace_query_donghu_real_frame_multicausal`：162s，runner PASS / human FAIL，4 次 trace_query，finalizer
+  reject=0、patch=0；
+- `github_issue_libgit2_foreach_worktree`：249s，runner FAIL / human FAIL；两代 plan 均 apply，第二次 verify
+  通过，但最终 patch 未满足 case 的原谓词 oracle。
+
+Trace 证明 `EVAL-B186-SUMMARYJSON1` 生产闭环：模型首稿直接发出
+`kind=summary,surface_role=principal,trace_causal_claim_caliber=bounded_window_candidate`，没有再把 caliber 放到
+section，也没有任何成文重试。显式时间窗、双轴根因、窗内可消除量、因果投影和系统自动补齐保持。人工语义仍
+判失败：模型把 ThreadPoolForeg 的 D-state 10.433ms、io_wait 7.386ms、io_latency 6.673ms 相加成
+24.492ms；把代表段/包络描述升级为约 95ms“共同持锁竞争”；在 frame evidence absent 时又把唤醒频率牵到
+VSync。`EVAL-B186-RELSYNTH1` 已有重复 witness，typed soft boundary 也已到 final tail；继续堆提示或扫描正文硬拒
+只会增加心智/越过红线，故维持模型能力/路由观察，不由系统改写答案。
+
+写案例证明 S17b 的结构目标全部闭环：plan2 的 behavior contracts 只有当前 rebase generation；累计域保留旧
+source plan/path 供覆盖追踪，但无任何旧 fallback；controller 的 typed task、expected outcomes、priority context
+header/goal 全部来自 plan2。新的失败发生在首代 plan 之前：write analyzer 首稿事实上正确列出
+`(error = cb_result) != 0` 与 `(error = lookup_result) < 0`，但一个 exact contract 的 `expected=-42` 缺
+`evidence_ref`，质量门拒绝整份 IR。第二次 dispatch 只得到错误说明、没有得到上一份已被 schema 接纳的 typed
+payload；模型全量重填时把第一处正确修法丢为 `(error = cb_result) < 0`。该改动让现有三测试通过，却改变原
+`!=0` 对正非零 callback 的分支语义，runner oracle 因此正确 FAIL。
+
+登记 `EVAL-B187-WRITEANRETRY1=P1/system-context-confirmed`：这是通用的“一个局部 contract grounding 错误导致
+task/risk/constraints/outcomes/其余 contracts 全量重建”问题，不是 C 运算符特判。最优方案是第二次 dispatch 回放
+上一份 canonical typed payload，要求只修 named rejected fields；仍由模型重发完整 IR，不由系统软化/改写其
+语义。工件：`eval/parallel_selected_summary_evalcampaign_b186_json_replan_replay_r117_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b186_json_replan_replay_r117_20260806_manual_audit.md`。
+
+状态：`EVAL-B186-SUMMARYJSON1=production-closed/r117-zero-retry`；
+`EVAL-B186-REPLANCONTRACT1=production-closed/r117-single-generation`；
+`EVAL-B187-WRITEANRETRY1=P1/confirmed/pending-S19`；
+`EVAL-B186-RELSYNTH1=P1/repeated-model-relation-synthesis-gap/no-prose-gate`。
+
+### 123.152 S19：write analyzer 质量重试携带上一份 canonical typed payload，只修局部拒绝字段
+
+`EVAL-B187-WRITEANRETRY1` 采用最小权限的 retry preservation scaffold：
+
+1. 仅当 `emit_write_analysis` 已成功落下 typed IR、随后被 `writeAnalysisIRQualityRejection` 拒绝时，保留该函数内
+   的 rejected IR 引用；tool/schema 直接拒绝、未 emit、nil IR 路径仍没有 repair base；
+2. 下一 dispatch 的既有 `Previous attempt rejected` 段追加 canonical JSON repair base，字段形状与
+   `emit_write_analysis` 入参一致：raw_request、task、risk、scope_anchors、constraints、expected_outcomes、
+   behavior_contracts、phase_proposal、applicable_pitfalls。tool-owned `repo_facts` 与 `prescan_files` 不混入模型入参；
+3. 指令要求 task/risk/anchors/constraints/outcomes、未被点名的 contracts、phase/pitfalls 保持，模型只修 named
+   quality field 后重发完整 payload。系统不自动添加 evidence_ref、不把 hard contract 改 soft、不选择谓词，也不
+   比较 request/source prose；模型仍拥有分类与合同。
+
+这解决一类局部 schema/grounding 修复导致的语义遗忘，对所有语言和所有 write task 生效，不绑定 C、某个 operator、
+文件名或 eval。新增 pin 覆盖完整 accepted 字段保留、tool-owned 字段排除、nil 路径不虚构 repair base。
+
+完整受影响套件已通过：`internal/tool` 167.091s、`internal/types` 20.530s；初次联跑由
+`TestIRDeliveryHotFileLineRatchet` 正确拦住 `orchestrator.go` 多出的 1 行，接线压回既有 9135 行预算后，
+`internal/orchestrator` 10.898s、`internal/agent` 2.920s 通过，未抬预算、未放宽 pin。
+
+状态：`EVAL-B187-WRITEANRETRY1=S19-implemented/full-impacted-suites-pass/pending-exact-two-replay`。
