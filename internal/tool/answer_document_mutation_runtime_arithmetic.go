@@ -227,6 +227,24 @@ func runtimeTraceModelArithmeticRelationGroups(doc *types.AnswerDocumentV2) []ru
 			if percentErr != nil || claimedPercent < 0 {
 				continue
 			}
+			// A duration written immediately after the percentage in brackets is
+			// an explicit local value binding, for example "73.4% (84.358ms)".
+			// Prefer that one syntactic relation over every duration that happens
+			// to precede the percentage in the clause. Otherwise a window total in
+			// "114.940ms, accounting for 73.4% (84.358ms)" can be misreported as
+			// the numerator. This is syntax-only and remains a soft advisory; it
+			// does not inspect metric names, the request, or case-specific values.
+			if relation, ok := runtimeTraceArithmeticPostpositiveDuration(
+				surface, percentMatch[1], claimedPercent, percentToken,
+			); ok {
+				out = append(out, runtimeTraceArithmeticRelationGroup{
+					candidates: []runtimeTraceArithmeticRelation{relation},
+				})
+				if len(out) >= runtimeTraceArithmeticRelationCap {
+					return out
+				}
+				continue
+			}
 			clauseStart := runtimeTraceArithmeticClauseStart(surface, percentMatch[0])
 			clause := surface[clauseStart:percentMatch[0]]
 			group := runtimeTraceArithmeticRelationGroup{}
@@ -277,6 +295,60 @@ func runtimeTraceModelArithmeticRelationGroups(doc *types.AnswerDocumentV2) []ru
 		}
 	}
 	return out
+}
+
+// runtimeTraceArithmeticPostpositiveDuration recognizes only the narrow,
+// language-independent shape "% (<duration>)" (including full-width and
+// square opening brackets). Requiring an opening delimiter prevents a loose
+// later duration, another metric, or the next sentence from being joined.
+func runtimeTraceArithmeticPostpositiveDuration(
+	surface string,
+	percentEnd int,
+	claimedPercent float64,
+	percentToken string,
+) (runtimeTraceArithmeticRelation, bool) {
+	if percentEnd < 0 || percentEnd > len(surface) {
+		return runtimeTraceArithmeticRelation{}, false
+	}
+	suffix := surface[percentEnd:]
+	durationMatch := runtimeTraceDurationTokenRE.FindStringIndex(suffix)
+	if len(durationMatch) != 2 {
+		return runtimeTraceArithmeticRelation{}, false
+	}
+	bridge := suffix[:durationMatch[0]]
+	if utf8.RuneCountInString(bridge) > 16 || !runtimeTraceArithmeticPostpositiveBridge(bridge) {
+		return runtimeTraceArithmeticRelation{}, false
+	}
+	durationToken := strings.TrimSpace(suffix[durationMatch[0]:durationMatch[1]])
+	lowerDurationToken := strings.ToLower(durationToken)
+	if strings.HasSuffix(lowerDurationToken, "ms") {
+		durationToken = strings.TrimSpace(durationToken[:len(durationToken)-2])
+	} else {
+		durationToken = strings.TrimSpace(strings.TrimSuffix(durationToken, "毫秒"))
+	}
+	durationMS, err := strconv.ParseFloat(durationToken, 64)
+	if err != nil || durationMS < 0 {
+		return runtimeTraceArithmeticRelation{}, false
+	}
+	return runtimeTraceArithmeticRelation{
+		durationMS:     durationMS,
+		claimedPercent: claimedPercent,
+		percentToken:   percentToken,
+	}, true
+}
+
+func runtimeTraceArithmeticPostpositiveBridge(bridge string) bool {
+	hasOpeningDelimiter := false
+	for _, r := range bridge {
+		switch r {
+		case ' ', '\t', '\r', '\n':
+		case '(', '（', '[', '【':
+			hasOpeningDelimiter = true
+		default:
+			return false
+		}
+	}
+	return hasOpeningDelimiter
 }
 
 func runtimeTraceArithmeticClauseStart(surface string, percentStart int) int {

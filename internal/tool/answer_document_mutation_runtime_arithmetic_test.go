@@ -141,6 +141,52 @@ func TestRuntimeTraceArithmeticRelationCaveatElectsUniqueNumeratorInOneClause(t 
 	}
 }
 
+func TestRuntimeTraceArithmeticRelationCaveatPrefersPostpositiveBracketedDuration(t *testing.T) {
+	for _, original := range []string{
+		"窗口共 114.940ms，占窗口 73.4%（84.358ms）。",
+		"Window total 114.940ms, accounting for 73.4% (84.358 ms).",
+	} {
+		doc := &types.AnswerDocumentV2{
+			DocumentModel: "v2",
+			Blocks: []types.AnswerBlock{{
+				ID: "summary", Kind: types.BlockSummary, Text: original,
+			}},
+		}
+		ctx := runtimeTraceArithmeticMultiWindowTestContext(
+			"incomplete",
+			[]string{"selected_window=34579.472865..34579.587805"},
+		)
+		if !materializeRuntimeTraceArithmeticRelationCaveat(doc, ctx) {
+			t.Fatalf("expected incomplete-enumeration caveat for %q", original)
+		}
+		got := strings.Join(doc.Caveats, "\n")
+		if !strings.Contains(got, "84.358ms / 73.400%") {
+			t.Fatalf("postpositive duration was not selected for %q:\n%s", original, got)
+		}
+		for _, banned := range []string{
+			"114.940ms / 73.400%",
+			"100.000%",
+		} {
+			if strings.Contains(got, banned) {
+				t.Fatalf("preceding window total was mis-bound (%q) for %q:\n%s", banned, original, got)
+			}
+		}
+	}
+}
+
+func TestRuntimeTraceArithmeticRelationCaveatDoesNotBindLoosePostpositiveDuration(t *testing.T) {
+	groups := runtimeTraceModelArithmeticRelationGroups(&types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID: "summary", Kind: types.BlockSummary,
+			Text: "Total 10ms, accounting for 10%. Another metric is 20ms.",
+		}},
+	})
+	if len(groups) != 1 || len(groups[0].candidates) != 1 || groups[0].candidates[0].durationMS != 10 {
+		t.Fatalf("loose later duration changed the preceding relation: %+v", groups)
+	}
+}
+
 func TestRuntimeTraceArithmeticRelationCaveatUniquePairStaysSilentWhenComplete(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		DocumentModel: "v2",

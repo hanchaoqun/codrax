@@ -21742,3 +21742,49 @@ exact-empty completion 不再让模型重发 JSON；伪造 system token 被剥�
 `git diff --check` 通过。
 
 状态：`EVAL-B194-MEMBERCARRIER1=S26-implemented/full-impacted-suites-pass/pending-exact-two-replay`。
+
+### 123.169 B194 r126：exact-empty 生产闭环；Trace 候选权限仍被模型越过
+
+在 `b078da952` 构建后严格并行恰好两个异构 read case：
+
+- `qf_type_relation_loop_controller`：159s，runner/human PASS；
+- `trace_query_donghu_real_frame_multicausal`：141s，runner PASS / human FAIL。
+
+类型关系回放中 analyzer 不再把“主要实现类型”解释成 language-level public/exported，12 个 production implementer 完整进入
+typed `member_set`、最终表格和 12 条同向 `type_relation` 图边；没有 empty member_set、completion 重发或 Finalizer reject。
+因此 `EVAL-B194-MEMBERCARRIER1` 完成生产闭环。模型仍把原生 `blocks[]` 二次编码成 JSON 字符串；现有 flat-mode tolerance
+对整个值完成反序列化后无损接收，3 个 block、12 条引用和图边全部保留且零重试。冷读 prompt 未发现 schema 与教学对该字段
+一面要求字符串、一面要求数组的矛盾；本轮归为已安全吸收的模型格式波动/提示负担观察项，不能反过来增加硬门或猜测修复。
+
+Trace 只调用一次 `frame_root_cause_bundle`，保持同一显式窗 `34579.472865..34579.587805`、pid=59566、主要时间占用与
+现规则可消除量双轴、根因排序、wakeup chain、Trace 因果投影和确定性补采；源码关系修复未侵入 runtime causal lane。
+人工不签绿的原因是模型正文把 typed `priority_inversion_candidate` 延伸成“低优先级依赖导致主线程阻塞”，并建议“减少其持有锁
+的时间”，而同一 Finalizer 输入及答案 caveat 明确写有 direct blocker 未建立、未证明锁持有者/等待者关系。确认
+`EVAL-B195-PIAUTH1=P1/model-context-adherence`。修复不得由系统改写/替换模型结论，也不得扫描正文做关键词硬拒；后续应审计
+候选 caliber 在 principal 事实载体中的就近表达与 prompt 距离，让模型在作结论时直接消费权限边界。
+
+本轮系统算术附注正确绑定 `84.358ms / 73.4%`，未重现 r124 的错误词面；但代码冷读仍证明旧解析器只搜索百分号前方的 duration，
+生产 witness 的模型波动不撤销 `EVAL-B193-ARITHPAIR1`，下一批按通用语法关系修复。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b194_membercarrier_trace_r126_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b194_membercarrier_trace_r126_20260806_manual_audit.md`。
+
+状态：`EVAL-B194-MEMBERCARRIER1=production-closed/r126`；
+`EVAL-B195-PIAUTH1=P1/confirmed/pending-context-audit`；Trace 显式窗/因果投影/自动补齐=`preserved`。
+
+### 123.170 S27：百分比后置括号分子成为局部语法权威
+
+`EVAL-B193-ARITHPAIR1` 的根因不是算术公式，而是 relation parser 只枚举百分号前方同 clause 的 duration。对
+`114.940ms，…73.4%（84.358ms）` 这类常见中英文形，真正分子已经由百分号后的括号建立更强局部绑定，旧逻辑却忽略它，
+可能把前方窗口总长选成分子并发布错误的 100% mismatch 系统附注。
+
+本批增加一条语言无关、值无关的精确语法臂：百分号后 16 个 rune 内若只有空白和 `(`/`（`/`[`/`【` 开定界符，且第一个
+duration 紧随其后，则该 duration 是该百分比唯一候选；它优先于 clause 前方所有 duration。没有开定界符、夹有文字、跨入后续
+metric 或下一句时不绑定，继续走既有前置候选与算术唯一性逻辑。该机制只影响 soft arithmetic advisory：不读取用户 request、
+metric 关键词、语言、case 身份或固定数值，不硬拒答案，不改写模型正文。
+
+回归覆盖中文全角括号、英文半角括号、同 clause 前置窗口总长不得被误选，以及松散后续 duration 不得跨指标绑定。完整
+`go test ./internal/tool -count=1` 通过（163.798s），`git diff --check` 通过。
+
+状态：`EVAL-B193-ARITHPAIR1=S27-implemented/full-tool-suite-pass/pending-production-replay`；
+Trace 因果投影/自动补齐/双轴根因=`unchanged`。
