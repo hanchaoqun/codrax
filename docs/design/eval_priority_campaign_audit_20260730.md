@@ -18276,3 +18276,59 @@ JSON 九 predicate=`production-closed`；Trace 显式窗、因果投影、自动
 
 状态：`EVAL-B152-DIAGSEEDREL1=implemented/types+agent+tool-full-pass/awaiting-production-replay`；关系权限与节点 grounding=`separated`；模型结论/图构造
 所有权=`preserved`；JSON 教学、Trace 显式窗、因果投影、自动补齐、两维根因与 data reference 语义=`untouched`。
+
+### 123.43 B153 r69：图关系权限产线闭环；过滤后实体解析索引跨域错接
+
+在 `main@2248900e8` 构建后严格并行恰好两个异构 case：
+
+- `qf_diagram_pipeline`：103s，runner/human PASS；
+- `data_multifile_reference_projection`：330s，runner/human FAIL，最终 `17,0,9`，严格期望 `17,0,5`。
+
+diagram 为 B152-S1 提供完整生产 witness。首轮 support seed 只含四个合法 Mermaid node declaration，零系统自铸边；模型随后依据同轮收集的
+`AllMainStages` / `StageBinding` typed evidence 自行画出且只画出 `Analyze → Explore → Extract → Finalize`，逐阶段 Agent/skill 职责正确。Analyzer
+仍是唯一 `predicates` 对象内九个布尔，`source_inventory=false`，无 JSON/schema 重试；`repo_map=3/source_lens=3/investigation_complete=1`，没有恢复
+为全仓 type census。逐阶段引用选择了证明阶段枚举的行，而同轮已有更直接的职责证据，记为 P2 citation-selection/model variance；不据此扫描答案 prose、
+新增硬门或系统改写图。
+
+data 回放证明 B151 reference 排序和 B152 grounding join 没有回归，但暴露更早的数据身份域污染
+`EVAL-B153-RESLOCIDX1=P0-correctness`：
+
+1. `filter_records` 正确保留 active 行，并在派生 JSON 中保留原源索引 `_source_index=1,2,4,5,6`；
+2. `normalize_entities` 的 typed ledger 也正确：`Beta → GroupB`、`Gamma alt → GroupC`；但它铸造 `item_id` 时使用派生 JSON 内的紧凑
+   `record.Index=1..5`，而不是记录携带的稳定 `_source_index`；
+3. 后续 `apply_entity_resolutions` 按模型显式声明的 `base_key_fields=[_source_index]` 与
+   `resolution_key_fields=[item_id]` 连接。Beta 行的 `_source_index=4` 因此命中“第 4 个派生行”的 `Gamma alt → GroupC`，把 r4/4 错接到
+   GroupC；
+4. 四条 contribution、reconcile 和最终 complete-reference 投影都只对污染后的工件做内部复算，于是把 GroupC=4+5=9 诚实但错误地签成 pass。
+   这是系统 typed identity-domain bug，不是模型算术、reference 补零或答案格式波动；“下游自洽”不能否证上游错接。
+
+本轮 JSON/教学审计未发现畸形 JSON：Analyzer 九 predicate 首轮合同通过，data action plans 也能被 schema 解码。13 批计划与两次 repair 的主要认知负担来自
+已经污染的 materialized record 以及其后 output-contract 投影往返，不应通过畸形字符串采矿、用户问句关键词或答案文案门控修复。另有一个低优先级软教学
+观察：normalize 曾在未明确 semantic source field 时同时归一 `active` 和 `raw_label`，产生五条无用 unresolved 布尔记录；它没有造成本次错值，待后续异构
+回放判断是否值得用短 shape 教学收敛，不硬化字段名。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b153_reference_diagram_replay_r69_20260805.md`、
+`eval/parallel_selected_summary_evalcampaign_b153_reference_diagram_replay_r69_20260805_manual_audit.md`。
+
+状态：`EVAL-B152-DIAGSEEDREL1=production-replay-closed`；
+`EVAL-B152-REFGROUNDJOIN1=production-upstream-pass`；`EVAL-B153-RESLOCIDX1=confirmed/P0/next-batch`；
+`EVAL-B153-DIAGCITEVAR1=P2/model-variance`；JSON 九 predicate=`production-closed`；Trace 显式窗、因果投影、自动补齐、两维根因、根因排序、唤醒链与
+窗内可消除量=`untouched`。
+
+### 123.44 B153-S1：实体解析 item identity 使用稳定来源索引
+
+按 §123.43 根因完成通用 typed 修复，不读取用户问题、模型 reasoning 或最终答案文本，也不编码 `Beta/GroupB` 等业务类别：
+
+1. `normalize_entities` 的两条铸造路径（结构化记录模式、source/reference 模式）统一通过单一 identity helper 生成 `item_id`；
+2. 派生记录携带有效正整数 `_source_index/source_index/row_index` 时，该稳定来源索引优先；只有没有合法 typed 来源索引时才退回当前工件的
+   `record.Index/Line`。因此过滤、派生或重排不会把 local ordinal 冒充原记录身份；
+3. `apply_entity_resolutions` 的显式键优先语义保持不变：真正声明的 `row_id↔item_id` 仍高于 source-value fallback；本批修的是上游 item locator 的
+   身份域，使既有 `_source_index↔item_id` 合同两端一致，而不是用启发式覆盖模型声明；
+4. 新回归用索引有洞的派生记录 `1,2,4,5`，先规范化再按显式 `_source_index/item_id` 应用，要求第三行仍绑定自身 canonical value，且 item_id 保留
+   `#4`；同时保留 implicit source-value collision 和 explicit-key-precedence 两个既有反例。
+
+定向三用例 PASS；完整 `go test ./internal/dataquery ./internal/dataworkflow ./internal/repl -count=1` PASS
+（3.181s / 1.135s / 33.193s）。`action_runner.go` LOC ratchet 触发后，新 helper 按职责拆入 sibling 文件，未提高基线。
+
+状态：`EVAL-B153-RESLOCIDX1=implemented/full-dataquery+dataworkflow+repl-pass/awaiting-exact2-replay`；贡献/对账仍保持 fail-loud 与完整凭证；
+JSON 教学=`audited/no-malformed-json-in-r69`；模型结论所有权、Trace 显式窗、因果投影、自动补齐与两维根因=`untouched`。

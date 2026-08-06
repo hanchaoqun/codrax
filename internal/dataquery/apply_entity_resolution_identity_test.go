@@ -148,3 +148,98 @@ func TestApplyEntityResolutionsExplicitBaseKeyPrecedesSourceValue(t *testing.T) 
 		t.Fatalf("row=%+v, explicit base-key contract must remain highest authority", row)
 	}
 }
+
+// A filtered/materialized artifact keeps the original source index even though
+// its local JSON-array ordinal is compacted. normalize_entities and
+// apply_entity_resolutions must use the same identity domain; otherwise the
+// mapping for the next surviving row can be attached to the current row while
+// every downstream contribution and reconcile receipt remains self-consistent.
+func TestNormalizeThenApplyEntityResolutionsPreservesFilteredSourceIndex(t *testing.T) {
+	root := t.TempDir()
+	writeJSON := func(name string, value any) {
+		raw, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, name), raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeJSON("active.json", []map[string]any{
+		{"_source_index": 1, "record_id": "r1", "raw_label": "A-one", "value": 10},
+		{"_source_index": 2, "record_id": "r2", "raw_label": "A-two", "value": 7},
+		{"_source_index": 4, "record_id": "r4", "raw_label": "Beta", "value": 4},
+		{"_source_index": 5, "record_id": "r5", "raw_label": "Gamma alt", "value": 5},
+	})
+	writeJSON("labels.json", []map[string]any{
+		{"raw_label": "A-one", "canonical_label": "GroupA"},
+		{"raw_label": "A-two", "canonical_label": "GroupA"},
+		{"raw_label": "Beta", "canonical_label": "GroupB"},
+		{"raw_label": "Gamma alt", "canonical_label": "GroupC"},
+	})
+	tempRoot := filepath.Join(root, "artifacts")
+	if err := os.MkdirAll(tempRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := (ActionRunner{RepoRoot: root, TempRoot: tempRoot}).Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputFreeform, ExplanationAllowed: true},
+		Actions: []DataAction{
+			{
+				ID:             "normalize",
+				Kind:           DataActionNormalizeEntities,
+				InputPaths:     []string{"active.json", "labels.json"},
+				OutputArtifact: "entity_mappings",
+				Params: map[string]string{
+					"source_path":           "active.json",
+					"reference_path":        "labels.json",
+					"source_field":          "raw_label",
+					"reference_name_fields": `["raw_label"]`,
+					"canonical_id_field":    "raw_label",
+					"canonical_label_field": "canonical_label",
+					"match_mode":            "exact",
+				},
+			},
+			{
+				ID:             "apply",
+				Kind:           DataActionApplyResolutions,
+				InputPaths:     []string{"active.json", "entity_mappings"},
+				OutputArtifact: "resolved",
+				Params: map[string]string{
+					"base_path":             "active.json",
+					"resolution_path":       "entity_mappings",
+					"base_key_fields":       `["_source_index"]`,
+					"resolution_key_fields": `["item_id"]`,
+					"source_field":          "raw_label",
+					"target_id_field":       "canonical_id",
+					"target_label_field":    "canonical_label",
+					"target_status_field":   "canonical_status",
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(res.Artifacts) != 2 {
+		t.Fatalf("artifacts=%d, want normalize/apply", len(res.Artifacts))
+	}
+	if got := res.EntityResolutions[2].ItemID.String(); got != "active.json#4:raw_label" {
+		t.Fatalf("Beta item_id=%q, want stable source index 4", got)
+	}
+	raw, err := os.ReadFile(res.Artifacts[1].Fields["artifact_path"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows[2]["record_id"] != "r4" || rows[2]["canonical_id"] != "Beta" || rows[2]["canonical_label"] != "GroupB" {
+		t.Fatalf("Beta row=%+v, want Beta/GroupB without compacted-index cross-attachment", rows[2])
+	}
+	if rows[3]["record_id"] != "r5" || rows[3]["canonical_id"] != "Gamma alt" || rows[3]["canonical_label"] != "GroupC" {
+		t.Fatalf("Gamma row=%+v, want Gamma alt/GroupC", rows[3])
+	}
+}

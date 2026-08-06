@@ -2207,7 +2207,7 @@ func (r ActionRunner) deriveEntityResolutionsFromInputs(action DataAction) ([]En
 				status := firstNonEmptyString(recordField(record.Fields, resolutionStatusField), defaultStatus)
 				itemID := recordField(record.Fields, itemIDField)
 				if itemID == "" {
-					itemID = fmt.Sprintf("%s#%d:%s", rel, record.Index, field)
+					itemID = entityResolutionItemID(rel, record, field)
 				}
 				key := rel + "\x00" + itemID + "\x00" + field + "\x00" + sourceValue + "\x00" + canonicalID + "\x00" + canonicalLabel
 				if seen[key] {
@@ -2434,7 +2434,7 @@ func (r ActionRunner) deriveEntityResolutionsFromReferenceInputs(action DataActi
 			if status == "" {
 				status = defaultStatus
 			}
-			itemID := fmt.Sprintf("%s#%d:%s", sourceRel, record.Index, field)
+			itemID := entityResolutionItemID(sourceRel, record, field)
 			key := sourceRel + "\x00" + itemID + "\x00" + field + "\x00" + sourceValue + "\x00" + canonicalID + "\x00" + canonicalLabel + "\x00" + status
 			if seen[key] {
 				continue
