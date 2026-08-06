@@ -19648,3 +19648,19 @@ verification-probe Java runtime 和 changed-path capability 单源复用，避�
 
 状态：`EVAL-B171-JSONSCHEMA1=implemented/tool-full-pass`；`EVAL-B171-EVALGROUP1=P1/next-small-batch`；
 `EVAL-B171-JAVADIRECT1=P1/next-verification-batch`。
+
+### 123.96 B171-S4：eval inventory 分组选择从首命中改为最具体 heading
+
+`EVAL-B171-EVALGROUP1` 已在测试层修复，不改变产品回答合同：
+
+1. section selector 先收集所有匹配 case-declared label/marker 的 heading，再按结构深度优先、同层短标题优先选择最具体分组；不再让包含多个分类名的
+   报告总标题吞并下面所有兄弟清单；
+2. 精确行数仍在选中分组内对表/list 结构计数，意外多行继续报 `inventory_count_mismatch`，没有为现有答案降低断言；
+3. 最后一个清单分组可能一直延伸到 renderer citation appendix。计数器现在沿用既有 primary-answer appendix 边界，在 `引用/Citations/关键代码/Key
+   snippets` 前停止，避免把引用 bullet 再计成清单成员；普通嵌套 bold 子标题仍保持在分组内，原“嵌套额外成员必须失败”反例不放松；
+4. 新 pin 覆盖总标题同时含两个 marker、两个子分组、末组后带引用 appendix；r89 已保存 stdout 以新 helper 离线复算，两个 rowset 均零理由。
+
+验证：完整 `bash eval/runner_lib_test.sh` 全绿。该批只修 eval 测量边界，不影响运行时 AnswerDocument、JSON 接受范围、任意语言解析、读写模式或
+Trace 时间窗/因果投影/自动补齐能力。
+
+状态：`EVAL-B171-EVALGROUP1=implemented/saved-artifact+runner-contract-pass`；`EVAL-B171-JAVADIRECT1=P1/next-verification-batch`。

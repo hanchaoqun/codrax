@@ -639,27 +639,45 @@ eval_inventory_rowset_section_text() {
       }
       return 0
     }
-    BEGIN { in_section = 0; found = 0; selected_level = 0 }
+    function heading_text(line, text) {
+      text = line
+      sub(/^[[:space:]]*/, "", text)
+      sub(/^#{1,6}[[:space:]]+/, "", text)
+      sub(/^(>[[:space:]]*)?\*\*/, "", text)
+      sub(/\*\*[：:]?[[:space:]]*$/, "", text)
+      return text
+    }
+    BEGIN { found = 0; selected_line = 0; selected_level = 0; selected_len = 0 }
     {
       level = heading_level($0)
-      if (in_section && level > 0 && (level <= selected_level || selected_level == 7)) {
-        exit
-      }
-      if (!in_section && level > 0) {
+      lines[NR] = $0
+      levels[NR] = level
+      if (level > 0) {
         lower = tolower($0)
         label_lower = tolower(label)
         matches = (match_mode == "literal" ? index(lower, label_lower) > 0 : lower ~ label_lower)
       }
-      if (!in_section && level > 0 && matches) {
-        in_section = 1
+      if (level > 0 && matches) {
+        candidate_len = length(heading_text($0))
+        if (!found || level > selected_level ||
+            (level == selected_level && candidate_len < selected_len)) {
+          selected_line = NR
+          selected_level = level
+          selected_len = candidate_len
+        }
         found = 1
-        selected_level = level
-        print
-        next
       }
     }
-    in_section { print }
-    END { if (!found) exit 1 }
+    END {
+      if (!found) exit 1
+      for (i = selected_line; i <= NR; i++) {
+        if (i > selected_line && levels[i] > 0 &&
+            (levels[i] <= selected_level || selected_level == 7)) {
+          break
+        }
+        print lines[i]
+      }
+    }
   ' <<<"$cleaned"
 }
 
@@ -667,6 +685,10 @@ eval_inventory_visible_row_count() {
   local section_text="$1"
   awk '
     BEGIN { count = 0; table = 0; table_header_seen = 0 }
+    $0 == "**引用**：" || $0 == "**Citations:**" ||
+    $0 == "**关键代码**：" || $0 == "**Key snippets:**" {
+      exit
+    }
     /^[[:space:]]*\|/ {
       line = $0
       compact = line
