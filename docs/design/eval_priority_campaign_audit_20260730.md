@@ -19763,3 +19763,37 @@ JDK，执行器如实返回 `runner_missing`，控制器拒绝行为验证假绿
 
 状态：`EVAL-B172-REPAIRSCOPE1=implemented/full-affected-suite-pass`；下一步独立提交推送并用 strict-JSON + 非数据异构 case 做恰好两路复放；Trace
 显式时间窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量、两维根因和模型结论所有权=`untouched`。
+
+### 123.101 B173 r91：repair 局部性生效；严格格式误铸数值账与 PID-0 idle 权威污染
+
+在 `main@e2c9a25ef` 重建后严格并行恰好两个异构 case，runner 均 PASS：
+
+- `data_json_strict_ids`：131s，repair 1 次，human PASS；
+- `trace_query_frame_semantic_span_optimization`：132s，四次 trace_query，human FAIL。
+
+数据案确认 B173-S1 主修点生效：repair prompt 收到精确 `required_material_scheduling`；模型 repair 没有再靠 declaration-only
+`decision_records_required=true` 扩约；repair 次数从 r90 的 3 降到 1，最终 JSON 仍精确为 `{"ids":["u1","u3"]}`。但总耗时未降，进一步定位出
+`EVAL-B173-STRICTSEM1=P1`：后续 continuation 只含 `filter_records + assemble_answer` 两个动作，`normalizeDataTaskStrictOutputContractFromShape`
+却因 strict JSON 且 `len(actions)>=2` 无条件铸造 decision/contribution/reconcile。filter 本可从 action capability 自证 decision，assemble 只生产 final projection；
+系统新增的 contribution/reconcile 把纯筛选扩成六个执行批，连模型自己都在 continuation reasoning 中指出这套数值账与列表投影不匹配。
+
+最优修复是退役“严格输出复杂度 ⇒ 业务语义 ledger”的推断：strict JSON/CSV/单行/Markdown 只约束最终 carrier，不证明发生数值聚合、实体消歧或业务决策。语义义务
+只可来自 typed route/policy（如明确 `data_aggregation`）、既有 coverage contract 或 action capability（filter→decisions、compute→contributions、
+normalize→entity、reconcile→reconcile）。这是删除嘈声硬门，不是给本例特判；四材料、长脚本或两动作仍受材料覆盖、动作 DAG、输出 contract 与 bounded-plan
+guard 约束，只是不再凭体积猜业务语义。
+
+Trace 案的系统面保持正确：显式 5.000..5.007s 选窗、目标五态账、wakeup path、根因排序、VerifyClass 确定性优化、窗内可消除量、实际占时/现规则两轴、
+自动补齐、`causal_conclusion=unproven`、`frame_evidence_status=absent` 和模型结论所有权均在场。模型仍在可见导语中写成“丢帧根因是”，并把两个方向的
+4.600ms 与 0.800ms 相加；handoff 已逐字禁止无 typed pair carrier 的跨行相加并要求 strongest candidate 词形，因此先记为 adherence 波动，不增加输出正文
+关键词硬门、不让系统改写结论。两个时间区间看似相邻但当前没有 pairwise disjoint/additive typed carrier；若后续重复出现，应从区间关系编译器补精确信号，而不是扫描
+“合计/根因”字样。
+
+同时确认 `EVAL-B173-IDLEPRIO1=P1`：`emit_perf_trace` 的 deterministic priority observation 用裸 regex 收集整行所有 `prev_prio/next_prio/prio`，没有把
+`sched_switch ... pid=0 ... idle/N ... prio=120` 从“user-space Harmony priority”人口剔除。于是 prompt 出现 `prio=120/ohos_rt`，模型进一步虚构“idle
+高优先级干扰/降低 idle 干扰”。修复应按 sched_switch endpoint 的 typed `prev_pid/next_pid` 绑定优先级，只收 PID>0；其他 wakeup 行按 target `pid>0`
+绑定。PID 0 idle/swapper 可保留原始行与 CPU 空闲事实，但不得进入 user-space priority class roster，更不得成为 runnable competitor。此规则依赖结构化 PID，
+不扫描最终答案。
+
+施工排序：`B174-S1=STRICTSEM1`（退役 strict-shape semantic ledger 铸造）；`B174-S2=IDLEPRIO1`（PID-bound priority roster + idle 边界教学）；随后继续恰好
+两路异构 eval。工件：`eval/parallel_selected_summary_evalcampaign_b173_json_trace_replay_r91_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b173_json_trace_replay_r91_20260806_manual_audit.md`。
