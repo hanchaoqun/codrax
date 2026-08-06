@@ -512,7 +512,7 @@ const (
 // runtimeTraceProjElimEnvelopeToleranceMs mirrors the engine checker's
 // µs-scale float tolerance (directionConservationToleranceMs — the L1/L2 fork
 // fires on real shared wall clock, never on float dust).
-const runtimeTraceProjElimEnvelopeToleranceMs = 0.001
+const runtimeTraceProjElimEnvelopeToleranceMs = types.TraceCausalProjectionFaithfulEnvelopeOverlapToleranceMS
 
 // runtimeTraceProjElimSectionLadder resolves the section's arithmetic tier.
 // PRECISE typed signals only:
@@ -572,14 +572,9 @@ func runtimeTraceProjElimSectionLadder(section runtimeTraceProjElimSection, mult
 	}
 	for i := 0; i < len(envelopes); i++ {
 		for j := i + 1; j < len(envelopes); j++ {
-			lo, hi := envelopes[i].start, envelopes[i].end
-			if envelopes[j].start > lo {
-				lo = envelopes[j].start
-			}
-			if envelopes[j].end < hi {
-				hi = envelopes[j].end
-			}
-			if (hi-lo)*1000 > runtimeTraceProjElimEnvelopeToleranceMs {
+			if _, ok := types.TraceCausalProjectionFaithfulEnvelopeOverlapMS(
+				section.entries[i].row.Node, section.entries[j].row.Node,
+			); ok {
 				return elimSectionArithmeticOverlap, 0
 			}
 		}

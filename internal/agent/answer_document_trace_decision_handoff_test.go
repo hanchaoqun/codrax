@@ -129,6 +129,55 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 	}
 }
 
+func TestTraceDecisionHandoffCarriesExactOverlapBeforeModelConclusion(t *testing.T) {
+	inside := true
+	projection := types.TraceCausalProjection{
+		WindowStartTs: 10, WindowEndTs: 10.2,
+		RankedSeats: []types.TraceCausalProjectionNode{
+			{EvidenceID: "rank-1", Subject: "worker-a", Rank: 1, EffectiveImpactMS: 23.994,
+				FixDirection: "lock_priority", ChainRelevance: "on_chain",
+				StartTs: 10.010, EndTs: 10.110, WithinRequestedWindow: &inside},
+			{EvidenceID: "rank-2", Subject: "worker-b", Rank: 2, EffectiveImpactMS: 19.041,
+				FixDirection: "lock_priority", ChainRelevance: "on_chain",
+				StartTs: 10.020, EndTs: 10.120, WithinRequestedWindow: &inside},
+			{EvidenceID: "rank-3", Subject: "worker-c", Rank: 3, EffectiveImpactMS: 7,
+				FixDirection: "io_dependency", ChainRelevance: "on_chain",
+				StartTs: 10.030, EndTs: 10.090, WithinRequestedWindow: &inside},
+			{EvidenceID: "rank-4", Subject: "worker-d", Rank: 4, EffectiveImpactMS: 6,
+				FixDirection: "lock_priority", ChainRelevance: "on_chain",
+				StartTs: 10.130, EndTs: 10.150, WithinRequestedWindow: &inside},
+			{EvidenceID: "rank-5", Subject: "worker-e", Rank: 5, EffectiveImpactMS: 5,
+				FixDirection: "lock_priority", ChainRelevance: "adjacent",
+				StartTs: 10.030, EndTs: 10.080, WithinRequestedWindow: &inside},
+		},
+	}
+	got := renderAnswerDocTraceDecisionHandoffSet(
+		types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}},
+		runtimeTraceGuidanceView{},
+	)
+	for _, want := range []string{
+		"axis_B_typed_overlap_relations",
+		"member_refs=`rank-1,rank-2`",
+		"fix_direction=`lock_priority`",
+		"chain_lane=`on_chain`",
+		"physical_relation=`overlap`",
+		"measured_envelope_overlap=90.000ms",
+		"addition=`forbidden`",
+		"do not choose the diagnosis",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("typed pre-final overlap relation missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "member_refs=`rank-1,rank-3`") || strings.Contains(got, "member_refs=`rank-2,rank-3`") {
+		t.Fatalf("cross-direction pair must not add prompt noise:\n%s", got)
+	}
+	overlapSection := got[strings.Index(got, "axis_B_typed_overlap_relations"):]
+	if strings.Contains(overlapSection, "rank-4") || strings.Contains(overlapSection, "rank-5") {
+		t.Fatalf("disjoint or cross-lane pair must not mint an overlap relation:\n%s", got)
+	}
+}
+
 func TestTraceDecisionContextCapKeepsTypedBackgroundLane(t *testing.T) {
 	inside := true
 	projection := types.TraceCausalProjection{WindowStartTs: 10, WindowEndTs: 10.11494}

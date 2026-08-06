@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -178,6 +179,7 @@ func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCau
 				traceDecisionWriteNodeRelations(&b, node)
 				b.WriteString("\n")
 			}
+			traceDecisionWriteEliminableOverlapRelations(&b, seats)
 		}
 		contextRows := traceDecisionNonCausalContextRows(projection, 6)
 		if len(contextRows) > 0 {
@@ -207,6 +209,64 @@ func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCau
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// traceDecisionWriteEliminableOverlapRelations moves an exact arithmetic
+// boundary in front of final answer generation. It compares only the typed
+// seats already shown above and uses the same faithful-envelope overlap
+// predicate as the deterministic post-final eliminable board. Same direction
+// and same causal lane keep the carrier compact and decision-relevant; no
+// request, model prose, or final answer text participates. This is guidance,
+// never a hard gate or a system-authored conclusion.
+func traceDecisionWriteEliminableOverlapRelations(b *strings.Builder, seats []types.TraceCausalProjectionNode) {
+	if b == nil || len(seats) < 2 {
+		return
+	}
+	const limit = 6
+	type relation struct {
+		left, right string
+		direction   string
+		lane        string
+		overlapMS   float64
+	}
+	var relations []relation
+	for i := 0; i < len(seats) && len(relations) < limit; i++ {
+		left := seats[i]
+		leftID := strings.TrimSpace(left.EvidenceID)
+		direction := strings.TrimSpace(left.FixDirection)
+		lane := strings.TrimSpace(left.ChainRelevance)
+		if leftID == "" || direction == "" || lane == "" {
+			continue
+		}
+		if _, ok := tracefence.FixDirectionWord(direction, true); !ok {
+			continue
+		}
+		for j := i + 1; j < len(seats) && len(relations) < limit; j++ {
+			right := seats[j]
+			rightID := strings.TrimSpace(right.EvidenceID)
+			if rightID == "" || rightID == leftID ||
+				strings.TrimSpace(right.FixDirection) != direction ||
+				strings.TrimSpace(right.ChainRelevance) != lane {
+				continue
+			}
+			overlapMS, ok := types.TraceCausalProjectionFaithfulEnvelopeOverlapMS(left, right)
+			if !ok {
+				continue
+			}
+			relations = append(relations, relation{
+				left: leftID, right: rightID, direction: direction,
+				lane: lane, overlapMS: overlapMS,
+			})
+		}
+	}
+	if len(relations) == 0 {
+		return
+	}
+	b.WriteString("  - axis_B_typed_overlap_relations (exact arithmetic boundaries for the seats above; these constrain addition only and do not choose the diagnosis):\n")
+	for _, relation := range relations {
+		fmt.Fprintf(b, "    - member_refs=`%s,%s`; fix_direction=`%s`; chain_lane=`%s`; physical_relation=`overlap`; measured_envelope_overlap=%.3fms; addition=`forbidden`\n",
+			relation.left, relation.right, relation.direction, relation.lane, relation.overlapMS)
+	}
 }
 
 // traceDecisionAggregateFact is a prompt-only carrier for an independently

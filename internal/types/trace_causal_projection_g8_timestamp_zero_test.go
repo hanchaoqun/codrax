@@ -14,6 +14,23 @@ import (
 	"testing"
 )
 
+func TestFaithfulEnvelopeOverlapMS_PreciseAndFailClosed(t *testing.T) {
+	left := TraceCausalProjectionNode{StartTs: 0, EndTs: 0.010}
+	right := TraceCausalProjectionNode{StartTs: 0.004, EndTs: 0.012}
+	overlap, ok := TraceCausalProjectionFaithfulEnvelopeOverlapMS(left, right)
+	if !ok || fmt.Sprintf("%.3f", overlap) != "6.000" {
+		t.Fatalf("overlap=(%.6f,%v), want faithful 6.000ms", overlap, ok)
+	}
+	right.StartTs, right.EndTs = 0.010, 0.020
+	if overlap, ok := TraceCausalProjectionFaithfulEnvelopeOverlapMS(left, right); ok || overlap != 0 {
+		t.Fatalf("touching envelopes must not mint overlap: %.6f,%v", overlap, ok)
+	}
+	right.StartTs, right.EndTs, right.MergedCount = 0.004, 0.012, 2
+	if overlap, ok := TraceCausalProjectionFaithfulEnvelopeOverlapMS(left, right); ok || overlap != 0 {
+		t.Fatalf("merged carrier must fail closed: %.6f,%v", overlap, ok)
+	}
+}
+
 func g8ZeroRecord(id, predicate, claimKey, subject, object string, impact float64, span ObservationSpan, notes ...string) ObservationRecord {
 	// ISPGAP-1 件2' (§29.202, 2026-07-21): the fixture adopts the production
 	// chained-board emit form — every engine rank row carries a declared

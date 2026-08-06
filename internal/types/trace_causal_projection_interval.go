@@ -74,6 +74,37 @@ func TraceCausalProjectionIntervalsOverlap(aStartTs, aEndTs, bStartTs, bEndTs fl
 	return aStartTs < bEndTs && bStartTs < aEndTs
 }
 
+// TraceCausalProjectionFaithfulEnvelopeOverlapToleranceMS is the shared
+// microsecond-scale threshold for declaring two node envelopes physically
+// overlapping. Smaller intersections are float dust and carry no relation
+// authority.
+const TraceCausalProjectionFaithfulEnvelopeOverlapToleranceMS = 0.001
+
+// TraceCausalProjectionFaithfulEnvelopeOverlapMS returns the measured overlap
+// of two faithful, unmerged typed node envelopes. This is the single relation
+// predicate shared by the post-final deterministic eliminable board and the
+// pre-final model decision handoff. Missing envelopes and merged carriers
+// fail closed: they cannot manufacture a pair relation.
+func TraceCausalProjectionFaithfulEnvelopeOverlapMS(a, b TraceCausalProjectionNode) (float64, bool) {
+	if a.MergedCount > 1 || b.MergedCount > 1 ||
+		!TraceCausalProjectionWindowPresent(a.StartTs, a.EndTs) ||
+		!TraceCausalProjectionWindowPresent(b.StartTs, b.EndTs) {
+		return 0, false
+	}
+	lo, hi := a.StartTs, a.EndTs
+	if b.StartTs > lo {
+		lo = b.StartTs
+	}
+	if b.EndTs < hi {
+		hi = b.EndTs
+	}
+	overlapMS := (hi - lo) * 1000
+	if overlapMS <= TraceCausalProjectionFaithfulEnvelopeOverlapToleranceMS {
+		return 0, false
+	}
+	return overlapMS, true
+}
+
 // TraceCausalProjectionIntervalSet is a union of ts intervals kept sorted and
 // disjoint (Add merges overlapping/touching spans). The zero value is an
 // empty, ready-to-use set.

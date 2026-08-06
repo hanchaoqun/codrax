@@ -20124,3 +20124,26 @@ target state partition 与 same-source partition，没有把后置可消除方�
 工件：`eval/parallel_selected_summary_evalcampaign_b177_cangjie_trace_replay_r95_20260806.md`、
 `eval/parallel_selected_summary_evalcampaign_b177_cangjie_trace_replay_r95_20260806_manual_audit.md`。下一批优先 `TRACEADD1` 同源前移，再以恰好两个异构 Trace/非 Trace case 验证；
 不得影响显式窗投影、自动补齐、根因排序、唤醒链、窗内可消除量或模型结论所有权。
+
+### 123.116 B178-S1：typed 席位包络重叠关系前移，模型仍独占结论
+
+`EVAL-B177-TRACEADD1` 已实现。根因不是缺通用教学：r95 finalizer 在作答前已经得到“没有 exact typed relation 就不得跨行相加”，但它只看到两条独立 seat 数值；同一
+`lock_priority` 节内两席的包络实测重叠，是答案提交后才由 deterministic eliminable-board ladder 算出。因此模型仍把 23.994ms 与 19.041ms 相加，后置「成员区间重叠，合计不可直加」
+再与正文冲突。继续增加抽象规则会提高心智负担；扫描模型“合计/数字”并硬拒或系统改写正文则违反结论所有权红线。
+
+本批把 overlap 的精确数学判据收敛到 types 单源：两个 node 都必须带正长度、非负起点的 typed `StartTs/EndTs`，且都不是 `MergedCount>1` 的不忠实包络；交集超过 0.001ms 才铸造
+overlap。ts=0 的 rebased trace 合法，端点仅相接与浮点尘埃不算重叠，缺失/merged carrier 一律 fail-closed。后置可消除节 L2 直接复用该函数，不再自己重算交集。
+
+finalizer 的 Trace Decision Inputs 对本轮已经展示的 axis-B seats 做有界 pair 编译：仅同一已注册 `fix_direction`、同一 typed `chain_relevance`、双方有精确 `EvidenceID` 且上述
+单源判据为真的 pair，最多输出 6 条 `member_refs + physical_relation=overlap + measured_envelope_overlap + addition=forbidden`。该行明确只约束算术、不选择 diagnosis；不要求模型复制
+`relation_claims`，不进入 hard validator，不读取用户问题、模型说明或最终正文，也不创建可见答案 block。跨方向、跨车道、不相交、merged/无包络 pair 零输出，避免将整个 O(n²)
+关系网塞给模型。
+
+回归 pin 覆盖：r95 同构两席在 finalizer 前得到 90.000ms overlap 与 forbidden；第三条跨方向、第四条不相交、第五条跨车道均不产生关系；types 层覆盖 [0,end]、端点相接及
+merged fail-closed。完整 `go test ./internal/types ./internal/agent ./internal/tool -count=1` 全绿（19.733s / 2.665s / 165.405s）。
+
+状态：`EVAL-B177-TRACEADD1=implemented/shared-typed-predicate/full-impacted-suites-pass`。系统没有改写 r95 的模型结论；下一步须重建并以恰好两个异构 case 回放，验证模型是否消费具体关系，
+同时确认显式时间窗、Trace 因果投影、系统补齐、根因排序、唤醒链、窗内可消除量、实际占时/规则可消除双轴全部保持。
+
+JSON 教学复核状态不变：native `blocks[]/citations[]` array 的唯一 shape 教学、schema 类型与无损 blocks-string recovery 已一致；本批不追加第二份同义 JSON 指令。不能无损恢复时仍走
+已有降级答案/原始可见字符串提取并披露模型输出异常，系统不得伪装成正常结构化答案。
