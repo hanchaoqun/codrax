@@ -21978,3 +21978,25 @@ diagram case 的四个 stage、顺序和职责均正确，且零成文 reject；
 状态：`EVAL-B195-PIAUTH1=production-closed/r130`；
 `EVAL-B199-DIAGDOMAIN1=P2/model-variance-watch`；`EVAL-B199-DIAGCITE2=P2/model-variance-watch`；
 Trace 显式窗/因果投影/自动补齐/模型结论所有权=`preserved`。
+
+### 123.178 B199 r131：数据终态与 C 写模式异构回归均闭环
+
+在 `8f8e5b9ed` 构建后严格并行恰好两个异构模式 case：
+
+- `data_jsonl_filter_count`：66s，runner/human PASS；
+- `patch_c_typo`：123s，runner/human PASS。
+
+data 最终严格输出单行 `2`。初始 custom transform 声明 instructions.md 为 required material，却只在模型计划中复述规则、脚本没有实际读取，
+精确材料消费门触发一次 repair；修复批同时读取 instructions.md 与 events.jsonl 后直接终态完成。该 repair 是真实输入未消费，不是 JSON 教学或
+终态合同自相矛盾。没有畸形 JSON、字段猜测、可选 ledger 强制重建、DAG 拆分终态漂移或 evaluator 越权。
+
+write case 在隔离 worktree 生成并应用单文件单行 `kind=patch`：`retrun buf;`→`return buf;`；commit diff 为 1 insertion/1 deletion，项目测试 1/1
+通过并以 `verified` 完成。未扩到其他文件、未用 modify 覆盖整文件、未跳过 deterministic apply/verify，也未重现 replan 累计验证域清空。
+Analyzer 首次把 `change_impact_profile.target_kind` 写成 schema 不支持的 `keyword`，一次修正为 `string_literal` 后继续；prompt/schema 已提供合法 enum，
+且没有互斥教学或反复失败，归为单次模型 enum 选择失误，不据此放宽 schema 或增加字符串 repair。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b199_data_write_r131_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b199_data_write_r131_20260806_manual_audit.md`。
+
+状态：data JSON 单通道/终态 authority=`covered-live-r131`；write plan→apply→verify/累计验证/micro-patch=`covered-live-r131`；
+本批新增高 ROI gap=`none`。
