@@ -464,6 +464,7 @@ func preEmitSubgateRouteTable() []preEmitSubgateRouteRow {
 		// 5. Item/citation alignment + typed handoff preservation.
 		{Subgate: "item_citation_alignment", ViolationKind: types.ViolCitation},
 		{Subgate: "source_inventory_row_identity", ViolationKind: types.ViolCitation, HardLane: preEmitHardSignalTypedSourceInventoryRowID},
+		{Subgate: "source_inventory_exact_row_binding", ViolationKind: types.ViolCitation, HardLane: preEmitHardSignalTypedSourceInventoryRowID},
 		{Subgate: "call_chain_item_citation_role_alignment", ViolationKind: types.ViolCitation},
 		{Subgate: "diagram_call_edge_evidence_alignment", ViolationKind: types.ViolDiagramCallEdgeUnproven, HardLane: preEmitHardSignalTypedCallEdgeEvidence},
 		{Subgate: "principal_support_member_coverage", ViolationKind: types.ViolPrincipalSupportMemberOmitted},
@@ -720,6 +721,9 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 		hints = appendPreEmitHints(hints, types.ViolCitation, h)
 	}
 	if h := preCheckSourceInventoryRowIDBindings(doc, ctxOpt...); len(h) > 0 {
+		hints = appendPreEmitHints(hints, types.ViolCitation, h)
+	}
+	if h := preCheckSourceInventoryExactRowBinding(doc, ctxOpt...); len(h) > 0 {
 		hints = appendPreEmitHints(hints, types.ViolCitation, h)
 	}
 
@@ -6100,11 +6104,20 @@ func preCheckSourceInventoryExtraneousPrincipalItems(doc *types.AnswerDocumentV2
 		return nil
 	}
 	ctx := ctxOpt[0]
-	plan := answerSurfacePlan(ctx)
-	if plan == nil {
-		return nil
+	// Use the same admitted typed row registry that drives row-id validation
+	// and deterministic citation binding. Recompiling the raw surface plan here
+	// creates a second authority domain: completeness can require a
+	// prompt-visible alias while this gate judges only a sibling synthetic row.
+	sets := preEmitSourceInventoryTypedPrincipalSets(ctx)
+	if len(sets) == 0 {
+		// Legacy typed handoffs may carry the synthetic principal-row fact
+		// without the newer SourceInventoryObservation carrier. Preserve that
+		// closed roster as a compatibility authority; supporting member sets
+		// still cannot widen it.
+		if plan := answerSurfacePlan(ctx); plan != nil {
+			sets = types.CompileEnumerationDisplaySets(&ctx.AnalysisIR.RequestModel, plan)
+		}
 	}
-	sets := types.CompileEnumerationDisplaySets(&ctx.AnalysisIR.RequestModel, plan)
 	if len(sets) == 0 {
 		return nil
 	}
@@ -6134,6 +6147,14 @@ func preCheckSourceInventoryExtraneousPrincipalItems(doc *types.AnswerDocumentV2
 			if principalEnumerationItemCoversAnySourceInventoryScopedRow(item, doc, rows) {
 				continue
 			}
+			// A matching typed member with a wrong/missing citation is an
+			// identity-binding defect, not an extraneous member. Calling it
+			// extraneous produces an impossible ADD/REMOVE contract when the
+			// completeness gate correctly requires the same row. Keep the row and
+			// ask only for its exact typed selector.
+			if identityRows := preEmitSourceInventoryIdentityRows(item, rows); len(identityRows) > 0 {
+				continue
+			}
 			// Compound source inventories may have an accepted grounded
 			// principal bucket outside the coarse parser role that produced
 			// the synthetic source-inventory roster. That sibling authority
@@ -6161,6 +6182,103 @@ func preCheckSourceInventoryExtraneousPrincipalItems(doc *types.AnswerDocumentV2
 		})
 	}
 	return hints
+}
+
+// preCheckSourceInventoryExactRowBinding is the precise hard lane for a known
+// source-inventory member whose citation/row-id points elsewhere. It is kept
+// separate from the extraneous-row checker so the same typed member can never
+// yield both a content removal instruction and an identity-binding repair.
+func preCheckSourceInventoryExactRowBinding(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {
+	if doc == nil || len(ctxOpt) == 0 || ctxOpt[0] == nil ||
+		!sourceInventoryPrincipalAnswerIsModelOwned(ctxOpt[0]) {
+		return nil
+	}
+	ctx := ctxOpt[0]
+	sets := preEmitSourceInventoryTypedPrincipalSets(ctx)
+	if len(sets) == 0 {
+		if plan := answerSurfacePlan(ctx); plan != nil {
+			sets = types.CompileEnumerationDisplaySets(&ctx.AnalysisIR.RequestModel, plan)
+		}
+	}
+	if len(sets) == 0 {
+		return nil
+	}
+	var hints []emitFixHint
+	for blockIdx, block := range doc.Blocks {
+		if block.SurfaceRole != types.SurfacePrincipal || len(block.Items) == 0 ||
+			!principalEnumerationBlockCanCarryRows(block) ||
+			preEmitSystemEnumerationRowSupplementBlock(block) {
+			continue
+		}
+		rows, strict, _, invalidFamily := preEmitSourceInventoryHardRowsForBlock(block, sets)
+		if invalidFamily || !strict || len(rows) == 0 {
+			continue
+		}
+		for itemIdx, item := range block.Items {
+			if principalEnumerationItemCoversAnySourceInventoryScopedRow(item, doc, rows) {
+				continue
+			}
+			identityRows := preEmitSourceInventoryIdentityRows(item, rows)
+			if len(identityRows) == 0 {
+				continue
+			}
+			hints = append(hints, preEmitSourceInventoryIdentityBindingHint(blockIdx, itemIdx, identityRows))
+		}
+	}
+	return hints
+}
+
+// preEmitSourceInventoryIdentityRows returns typed rows named by the item's
+// structured identity fields while deliberately ignoring citation_ref. It is
+// used only to distinguish "known row, wrong binding" from "not in roster";
+// free-form block/item prose is not an authority input.
+func preEmitSourceInventoryIdentityRows(item types.AnswerBlockItem, rows []types.EnumerationDisplayRow) []types.EnumerationDisplayRow {
+	var out []types.EnumerationDisplayRow
+	seen := map[string]bool{}
+	for _, row := range rows {
+		if !principalEnumerationItemExactLabelMatchesRow(item, row) &&
+			!principalEnumerationItemStronglyIdentifiesRow(item, row) {
+			continue
+		}
+		key := preEmitSourceInventoryRowAliasIdentityKey(row)
+		if key == "" {
+			key = principalEnumerationRowIdentityKey(row)
+		}
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, row)
+	}
+	return out
+}
+
+func preEmitSourceInventoryIdentityBindingHint(blockIdx, itemIdx int, rows []types.EnumerationDisplayRow) emitFixHint {
+	choices := make([]string, 0, len(rows))
+	for _, row := range rows {
+		parts := make([]string, 0, 2)
+		if id := strings.TrimSpace(row.RowID); id != "" {
+			parts = append(parts, "source_inventory_row_id="+strconv.Quote(id))
+		}
+		if location := strings.TrimSpace(row.Location); location != "" {
+			parts = append(parts, "citation="+strconv.Quote(location))
+		}
+		if len(parts) > 0 {
+			choices = append(choices, strings.Join(parts, " "))
+		}
+	}
+	expected := "keep this existing item and bind it to its matching typed Principal Enumeration Row"
+	if len(choices) > 0 {
+		expected += ": " + strings.Join(choices, " OR ")
+	}
+	hint := sourceInventoryRowIDHardHint(
+		blockIdx,
+		itemIdx,
+		expected,
+		"the structured member identity exists in this block's complete typed family, but its row selector or citation does not identify that row; only the binding needs correction.",
+	)
+	hint.Field = fmt.Sprintf("blocks[%d].items[%d].source_inventory_row_id/citation_ref", blockIdx, itemIdx)
+	return hint
 }
 
 // preEmitSourceInventoryHardRowsForBlock is the only family-partition input

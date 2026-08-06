@@ -746,14 +746,6 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		pctx.recordPreEmitRepair("normalizeItemCitationRefsByUniqueBacktickCitationQuote", fixed)
 		logging.Warning("[%s] repaired %d item citation_ref value(s) by explicit code-surface citation quotes", toolName, fixed)
 	}
-	if fixed := normalizeItemCitationRefsBySourceInventoryRowIDWithContext(doc, ctx); fixed > 0 {
-		pctx.recordPreEmitRepair("normalizeItemCitationRefsBySourceInventoryRowIDWithContext", fixed)
-		logging.Warning("[%s] bound %d item citation_ref value(s) by exact source_inventory_row_id", toolName, fixed)
-	}
-	if fixed := normalizeItemCitationRefsByUniqueSourceInventoryDisplayRowWithContext(doc, ctx); fixed > 0 {
-		pctx.recordPreEmitRepair("normalizeItemCitationRefsByUniqueSourceInventoryDisplayRowWithContext", fixed)
-		logging.Warning("[%s] repaired %d item citation_ref value(s) by unique typed principal enumeration row", toolName, fixed)
-	}
 	if fixed := normalizeItemCitationRefsByTypedCandidateRoleWithContext(doc, view, ctx, pctx); fixed > 0 {
 		pctx.recordPreEmitRepair("normalizeItemCitationRefsByTypedCandidateRoleWithContext", fixed)
 		logging.Warning("[%s] repaired %d item citation_ref value(s) by typed candidate-role source rows", toolName, fixed)
@@ -766,9 +758,25 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		pctx.recordPreEmitRepair("normalizeItemCitationRefsByUniquePreEmitCandidateWithContext", fixed)
 		logging.Warning("[%s] repaired %d item citation_ref value(s) by typed pre-emit citation candidates", toolName, fixed)
 	}
+	// Source-inventory row identity is more specific than the generic
+	// candidate-role / label candidate lanes above. Apply it after those
+	// repairs so a same-name declaration in another family cannot overwrite an
+	// exact prompt-visible row binding (for example an `extend Cart` row and a
+	// `public class Cart` row at different lines).
+	if fixed := normalizeItemCitationRefsByUniqueSourceInventoryDisplayRowWithContext(doc, ctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeItemCitationRefsByUniqueSourceInventoryDisplayRowWithContext", fixed)
+		logging.Warning("[%s] repaired %d item citation_ref value(s) by unique typed principal enumeration row", toolName, fixed)
+	}
 	if fixed := normalizeSourceInventoryRowIDsByExactLabelAndCitationWithContext(doc, ctx); fixed > 0 {
 		pctx.recordPreEmitRepair("normalizeSourceInventoryRowIDsByExactLabelAndCitationWithContext", fixed)
 		logging.Warning("[%s] bound %d source_inventory_row_id value(s) by exact typed label and citation location", toolName, fixed)
+	}
+	// An explicit (or just normalized) row id is the strongest citation
+	// selector. Keep it last in the row-identity chain so no weaker repair can
+	// move the citation away from the selected typed row.
+	if fixed := normalizeItemCitationRefsBySourceInventoryRowIDWithContext(doc, ctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeItemCitationRefsBySourceInventoryRowIDWithContext", fixed)
+		logging.Warning("[%s] bound %d item citation_ref value(s) by exact source_inventory_row_id", toolName, fixed)
 	}
 	if fixed := normalizeScalarCodeIdentityCitationRefsWithContext(doc, ctx, pctx); fixed > 0 {
 		pctx.recordPreEmitRepair("normalizeScalarCodeIdentityCitationRefsWithContext", fixed)

@@ -20565,3 +20565,36 @@ S7 已实现两层精确兼容：
 
 状态：`EVAL-B184-CITEREPAIR1=resolved/r104-cross-language-replay-confirmed`；
 `EVAL-B184-MEMBERIDENT1=S7-implemented/full-impacted-suites-pass/pending-r105`。
+
+### 123.129 B184 r105：同一 typed 行被要求同时加入和删除，触发 17 轮成文风暴
+
+S7 后重建并严格并行恰好两个跨语言 source-inventory case：
+
+- `arkts_repomap`：112s，runner PASS / human PASS，finalizer reject=0；
+- `cangjie_repomap`：710s，runner FAIL / human FAIL，finalizer reject=17、patch=15，最终降级。
+
+ArkTS 对照仍准确发布 4 个 `@Entry` 和 2 个 `@Builder`，逐行文件/行号与 thirdparty 范围均正确，证明 S7 没有伤害另一种语言的声明清点。Cangjie 的调查与 finalizer prompt 也已持有正确的 2 个 extend、2 个 foreign func、8 个 public class；失败不是提取器漏行，而是系统成文合同自相矛盾。
+
+`EVAL-B184-CONTRACTSAME1=P0/confirmed` 的决定性 witness 是同一结构化成员
+`extend Cart (demo.cart @ Cart.cj:30)` 同时收到两条互斥指令：完备性门把它列为 `✗ MISSING` 并要求逐字 ADD；越界门又称其“不在 complete typed principal row set”并要求 REMOVE/move。模型从 section、bullet、ordered、完整重发、删除再添加到 caveat 连续尝试 17 轮，且多次明确指出系统合同矛盾，仍无法构造同时满足两条指令的 JSON。
+
+深层根因不是字符串标签本身，而是 citation 修复优先级反转：模型最初引用 `Cart.cj:30` 正确；精确 source-inventory display-row binder 先把它绑定到 extend 行，随后更弱的通用 `candidate_role=type` 修复又根据同名 `Cart` 把 citation 改到 public class 的 `Cart.cj:14`。越界门把“成员存在但引用错位”误分类成“成员不在集合”，而完备性门仍按 prompt-visible aggregate 行要求它存在。交替 ADD/REMOVE 还使既有 same-cause fingerprint 每轮变化，breaker 无法在 17 轮前止损。
+
+冻结的泛化修复 `S8` 不读取用户请求、块标题、item prose 或最终答案原文：
+
+1. citation 修复按证据具体性单调排序：通用 candidate-role/label 候选先运行；唯一 typed display row 后运行；显式或由精确 citation 归一出的 `source_inventory_row_id` 最后运行，弱证据不能覆盖强身份；
+2. 越界门、row-id 门和 citation binder 统一消费 `preEmitSourceInventoryTypedPrincipalSets`；只有旧式“synthetic principal-row fact、无 observation”载体才走兼容 fallback，supporting member set 不能扩权；
+3. 把“未知成员”和“已知成员但绑定错位”拆成两个 subgate。前者仍可要求移出 principal roster；后者只要求保留现有 item 并绑定精确 row-id/citation，绝不发 ADD/REMOVE；
+4. 新 pin 覆盖同名跨 family 的 `Cart@14`/`Cart@30`、完整 normalize 链的强证据最后胜出、已知行错误引用的单一 binding 指令、以及同一 typed 行不可同时被完备性和越界性否定。真正的 supporting-only `Item` 仍必须被拒绝，证明没有放宽 principal roster。
+
+本案 JSON 审计结论：没有 malformed JSON。第 9 轮模型把 `blocks` 发成字符串，既有兼容层成功恢复；之后仍失败，直接证明主因是 typed 合同冲突而不是 JSON 教学或解析。JSON 教学继续以本轮 tool schema 为字段/类型/required/enum 唯一权威；只做可证明无损的恢复，不可恢复时保留可识别模型字符串并披露模型输出异常，不能用系统生成的正常答案遮蔽。
+
+`S8` 当前已实现，定向回归与完整 `go test ./internal/tool -count=1` 均通过（161.032s）；r106 恰好两个异构回放完成后再关闭。该批只修改 source-inventory typed row/citation contract，不触及 Trace 工具、明确时间窗因果投影、自动补齐、根因排序、唤醒链、窗内可消除量或“真实耗时占用 / 规则可消除”双维度。
+
+工件：`eval/parallel_selected_summary_evalcampaign_b184_member_identity_replay_r105_20260806.md`、
+`eval/parallel_selected_summary_evalcampaign_b184_member_identity_replay_r105_20260806_manual_audit.md`。
+
+状态：`EVAL-B184-MEMBERIDENT1=resolved/r105-cross-language-replay-confirmed`；
+`EVAL-B184-CONTRACTSAME1=S8-implemented/full-tool-suite-pass/pending-r106`；
+`EVAL-B184-CITEMONO1=S8-implemented/full-tool-suite-pass/pending-r106`；
+`EVAL-B184-RETRYSTORM1=pending-r106-no-reject-verification`。

@@ -4156,6 +4156,105 @@ func TestNormalizeSourceInventoryRowIDsByExactLabelAndCitation_FailsClosed(t *te
 	}
 }
 
+func TestNormalizeAnswerDocumentForPreEmit_SourceInventoryRowIdentityWinsOverCandidateRole(t *testing.T) {
+	ctx, _, _ := sourceInventoryDuplicateCartRowIDTestContext(t)
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "cart/Cart.cj", Line: 14},
+			{File: "cart/Cart.cj", Line: 30},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID: "extend", Kind: types.BlockOrderedList,
+			SurfaceRole:           types.SurfacePrincipal,
+			SourceInventoryFamily: "extend",
+			FacetIDs:              []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{{
+				ID: "extend-cart", Label: "extend Cart",
+				CandidateRole: types.AnswerCandidateRoleType,
+				CitationRef:   0,
+			}},
+		}},
+	}
+
+	normalizeAnswerDocumentForPreEmit("test", doc, &types.AnswerSemanticView{}, ctx, newPreEmitCheckContext(ctx))
+	ref := doc.Blocks[0].Items[0].CitationRef
+	if ref < 0 || ref >= len(doc.Citations) || doc.Citations[ref].File != "cart/Cart.cj" || doc.Citations[ref].Line != 30 {
+		t.Fatalf("exact extend row must win over same-role public class citation: ref=%d citations=%+v", ref, doc.Citations)
+	}
+	if hints := preCheckSourceInventoryExtraneousPrincipalItems(doc, ctx); len(hints) != 0 {
+		t.Fatalf("exact typed extend row was still classified as extraneous: %+v", hints)
+	}
+}
+
+func TestPreCheckSourceInventoryExtraneousPrincipalItems_ReportsBindingWithoutContradictoryRemoval(t *testing.T) {
+	ctx, _, _ := sourceInventoryDuplicateCartRowIDTestContext(t)
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "cart/Cart.cj", Line: 14}},
+		Blocks: []types.AnswerBlock{{
+			ID: "extend", Kind: types.BlockOrderedList,
+			SurfaceRole:           types.SurfacePrincipal,
+			SourceInventoryFamily: "extend",
+			FacetIDs:              []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{{
+				ID: "extend-cart", Label: "extend Cart",
+				CandidateRole: types.AnswerCandidateRoleType,
+				CitationRef:   0,
+			}},
+		}},
+	}
+
+	hints := preCheckSourceInventoryExactRowBinding(doc, ctx)
+	if len(hints) != 1 {
+		t.Fatalf("wrong-row citation should produce one binding correction, got %+v", hints)
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "bind it to its matching typed Principal Enumeration Row") ||
+		strings.Contains(strings.ToLower(hints[0].ExpectedShape), "remove or move") ||
+		strings.Contains(hints[0].ExpectedShape, "ADD each") {
+		t.Fatalf("known typed row must never receive a contradictory add/remove instruction: %+v", hints[0])
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "cart/Cart.cj:30") {
+		t.Fatalf("binding correction must expose the exact typed row location: %+v", hints[0])
+	}
+}
+
+func TestSourceInventoryMemberContracts_SameTypedRowNeverRequiredAndRejected(t *testing.T) {
+	ctx, _, _ := sourceInventoryDuplicateCartRowIDTestContext(t)
+	ctx.Mutable.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "extend declarations",
+		Value: "1",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"extend Cart (demo.cart @ Cart.cj:30)",
+		},
+		SupportRefs: []string{
+			"extend Cart @ cart/Cart.cj:30",
+		},
+	}})
+	ctx.Mutable.RetainInvestigationAggregateFacts()
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "cart/Cart.cj", Line: 30}},
+		Blocks: []types.AnswerBlock{{
+			ID: "extend", Kind: types.BlockOrderedList,
+			SurfaceRole:           types.SurfacePrincipal,
+			SourceInventoryFamily: "extend",
+			FacetIDs:              []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{{
+				ID: "extend-cart", Label: "extend Cart (demo.cart @ Cart.cj:30)",
+				CandidateRole: types.AnswerCandidateRoleType,
+				CitationRef:   0,
+			}},
+		}},
+	}
+
+	if hints := preCheckAggregateMemberSetCoverage(doc, ctx); len(hints) != 0 {
+		t.Fatalf("verbatim principal row was incorrectly reported missing: %+v", hints)
+	}
+	if hints := preCheckSourceInventoryExtraneousPrincipalItems(doc, ctx); len(hints) != 0 {
+		t.Fatalf("the same required typed row was incorrectly rejected as extraneous: %+v", hints)
+	}
+}
+
 func TestNormalizeSourceInventoryRowIDsByExactLabelAndCitation_DoesNotGuessSameLocationFamilies(t *testing.T) {
 	ctx, _, _ := sourceInventoryDuplicateCartRowIDTestContext(t)
 	ctx.Mutable.SetSourceInventoryObservation(types.SourceInventoryObservation{
