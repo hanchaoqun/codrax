@@ -4322,6 +4322,18 @@ func chooseAggregateMemberSupportRef(existing string, candidate string) string {
 	if !existingOK || !candidateOK {
 		return existing
 	}
+	// A source coordinate embedded in members[i] names that exact member
+	// occurrence.  It is therefore more specific than a conflicting bare
+	// positional support_refs[i] slot: a short or observation-shaped ref list
+	// can otherwise shift every later citation onto an adjacent member while
+	// the normalized fact still looks fully index-aligned.  Preserve an
+	// existing ref only when it names the same coordinate (where the more
+	// specific path spelling still wins below); a genuinely different
+	// coordinate yields to the member-owned coordinate.
+	if candidateLoc.LineStart != existingLoc.LineStart ||
+		!aggregateSupportRefPathCorresponds(candidateLoc.File, existingLoc.File) {
+		return candidate
+	}
 	if candidateLoc.LineStart == existingLoc.LineStart &&
 		aggregateSupportRefPathCorresponds(candidateLoc.File, existingLoc.File) &&
 		aggregateSupportRefMoreSpecific(candidateLoc.File, existingLoc.File) {

@@ -23326,3 +23326,52 @@ message 参数隔离与 C++ labelled/unlabelled flowchart relation authority 继
 
 状态：`EVAL-B240-CITEREF1=S37b-implemented/full-tests-pass`；`EVAL-B239-BLOCKCARD1=implemented/full-tests-pass`；
 `EVAL-B236-PHASEBRIDGE1=partial/replay-next`；模型答案所有权=`preserved`；下一步=`commit+push+r152-two-case-replay`。
+
+### 123.222 r152：精确成员坐标在 citation repair 之前被错位 positional refs 覆盖
+
+r152 仍严格按固定并发 2 回放 `sr_cpp_virtual_chain` 与 `sr_py_registry_dispatch`。runner 2/2 PASS，人工严格审计 1/2。
+
+Python 最终答案正确识别 `JsonPlugin`、`run_pipeline -> resolve`、注册/实例化、callback 与 MRO，只有一处轻微文字笔误；JSON payload 全程合法。
+但 optional sequence diagram 连续产生 2 次 pre-emit reject：第一稿没有复制 prompt 中已经给出的完整 typed recipe，而自行把 lookup、registration、
+factory return、callback 混成调用箭头；第一次 patch 又在 `sequenceDiagram` 里使用 flowchart 风格的 `-.->`，并给配对 reply 箭头附上方向/端点均不符合
+typed return 语义的 anchor。第三轮由模型通过 `remove_block_ids` 删除可选图后收敛。由此确认 `EVAL-B242-OPTDIAGCONV1`：系统已经提供正确
+recipe，却没有在第一次 diagram-only reject 就把“原样复制 typed recipe 或删除 optional block”作为最短 model-owned 选择前置，造成一次可避免的重试。
+这不是畸形 JSON，也不能靠扫描模型原文加硬门解决。
+
+C++ 零 reject 但人工失败。进一步读取 typed completion payload 后发现，探索器提交了 9 个成员，每个成员字符串都内嵌正确源码位置；同时又提交
+了仅 6 个、实际是 observation list 的裸 `support_refs`。`normalizeAggregateMemberSetMemberSupportNoteSurfaces` 把裸 refs 当成前 6 席的 positional
+mapping，且 `chooseAggregateMemberSupportRef` 让它们覆盖成员自带坐标。最终载体变成“9 members / 9 support refs / exact_source_support=true”，但前三类
+可见错引已经在 citation normalizer 之前铸成：`Logger::log` 指向调用行、`std::fputs` 指向 registry guard、`SinkRegistry::create` 指向
+`make_sink` 声明。B240 新增的 unique explicit rebind 无法从已经被污染的 typed row 恢复真坐标。
+
+据此新增并排序：
+
+| ID | 优先级 | 机制 | 泛化最优方案 | 状态 |
+|---|---:|---|---|---|
+| `EVAL-B241-MEMLOCREF1` | P0/P1 | `members[i]` 自带的明确 source coordinate 与较短裸 positional `support_refs` 冲突时，后者覆盖前者；短 observation list 被伪装成完整逐席映射 | 成员自有精确坐标是 occurrence identity，必须高于冲突裸位置槽；同坐标仅做路径精化。修复在语言无关 aggregate normalization 单点完成 | next/immediate |
+| `EVAL-B242-OPTDIAGCONV1` | P1 | copy-ready typed recipe 已在上下文，optional 图失败后仍先进入宽泛关系重写，第二次才建议删除 | 第一次 typed diagram-only full reject 即切 patch-local，并明确“复制 capsule 原样 body+anchors 或删除 optional block”；required diagram 不得走删除车道 | after B241 |
+| `EVAL-B236-PHASEBRIDGE1` | P1 | factory return 与 logger sink ownership 各自为真，但无 value-handoff bridge；模型继续把片段叙成完整注入链 | directed invocation principal lane 与 binding/value-flow sibling lane 分离，缺桥 typed 披露；只供上下文，不代写结论 | partial |
+
+本轮也再次验证两条独立守护：sequence 的 display message 参数不得污染 typed endpoint identity；C++ 及全部其它语言的 labelled/unlabelled
+flowchart edge 都不得绕过 relation authority。这两条不能被当前 Python/C++ 样例专用字符串吞并。
+
+状态：`runner=2/2 PASS`；`human=1/2`；`EVAL-B240-CITEREF1=implemented/production-partial`；
+`EVAL-B241-MEMLOCREF1=confirmed/next`；`EVAL-B242-OPTDIAGCONV1=confirmed`；`EVAL-B236-PHASEBRIDGE1=partial`。
+
+### 123.223 S37c：成员自有源码坐标优先，阻断 observation ref 错位铸权
+
+`EVAL-B241-MEMLOCREF1` 已在 aggregate 载体根部修复。规则保持极小且通用：
+
+1. 当 `members[i]` 自身携带可解析的 `label + file:line` 时，该坐标定义这一成员 occurrence；若同席裸 positional ref 指向不同文件或行，成员自有
+   坐标胜出，不允许短 observation list 把后续行整体移位；
+2. 若二者是同一坐标，仅路径写法不同，保留原有“更具体路径胜出”逻辑；若任一侧不是合法结构化坐标，既有行为不变；
+3. 修复只发生在 `NormalizeAnswerAggregateMemberSetSurfaces` 的共享结构层，适用于全部支持语言和 source inventory / relation / mechanism / call-chain
+   消费面；不读取用户输入、模型 thinking、answer prose，也不按 Logger、C++、文件名做特判；
+4. 回归以“3 个自带位置成员 + 2 个错位 observation refs”构造，要求归一化后 3 个 member/support 坐标逐席一致。既有同名多文件 occurrence、
+   runtime artifact 坐标和普通纯 positional 配置映射测试保持；定向及 `go test ./...` 全绿。
+
+该批只纠正 citation authority carrier，不更改模型生成的成员、说明、顺序或结论，也不会替模型补出 factory→owner 桥。JSON schema 与 patch 四操作
+教学未改；Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量及“真实耗时贡献/规则内可消除量”双维根因分析未触碰。
+
+状态：`EVAL-B241-MEMLOCREF1=S37c-implemented/full-tests-pass`；`EVAL-B242-OPTDIAGCONV1=next`；
+`EVAL-B236-PHASEBRIDGE1=partial`；模型答案所有权=`preserved`；下一步=`commit+push, optional diagram first-reject convergence`。

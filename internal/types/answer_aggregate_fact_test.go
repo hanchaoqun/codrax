@@ -778,6 +778,45 @@ func TestNormalizeAnswerAggregateFacts_PreservesSameMemberAtDistinctSourceLocati
 	}
 }
 
+func TestNormalizeAnswerAggregateFacts_MemberOwnedLocationsOverrideShiftedPositionalRefs(t *testing.T) {
+	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:  AnswerAggregateMemberSet,
+		Label: "call-chain nodes",
+		Value: "3",
+		Role:  AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"Logger::log (src/logger.cpp:29)",
+			"sink_->write() dispatch (src/logger.cpp:36)",
+			"ConsoleSink::write (include/logx/console_sink.hpp:10)",
+		},
+		// This is an observation-shaped, incomplete list rather than a valid
+		// per-member positional mapping.  Before the member-owned coordinate
+		// rule these two entries shifted onto the first two rows.
+		SupportRefs: []string{
+			"src/logger.cpp:36",
+			"include/logx/console_sink.hpp:11",
+		},
+	}})
+	if err != nil {
+		t.Fatalf("NormalizeAnswerAggregateFacts failed: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %+v, want one fact", got)
+	}
+	wantMembers := []string{"Logger::log", "sink_->write() dispatch", "ConsoleSink::write"}
+	wantRefs := []string{
+		"Logger::log @ src/logger.cpp:29",
+		"sink_->write() dispatch @ src/logger.cpp:36",
+		"ConsoleSink::write @ include/logx/console_sink.hpp:10",
+	}
+	if strings.Join(got[0].Members, "\n") != strings.Join(wantMembers, "\n") {
+		t.Fatalf("members = %+v, want %+v", got[0].Members, wantMembers)
+	}
+	if strings.Join(got[0].SupportRefs, "\n") != strings.Join(wantRefs, "\n") {
+		t.Fatalf("support refs = %+v, want member-owned coordinates %+v", got[0].SupportRefs, wantRefs)
+	}
+}
+
 func TestNormalizeAnswerAggregateFacts_PreservesRepeatedOccurrenceAtDistinctRuntimeLocations(t *testing.T) {
 	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
 		Kind:  AnswerAggregateMemberSet,
