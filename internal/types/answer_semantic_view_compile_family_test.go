@@ -1026,6 +1026,42 @@ func TestCompileGeneric_MechanismEvidenceRequiresPathCarrier(t *testing.T) {
 	if !hasPathCarrier {
 		t.Fatalf("typed multi-hop mechanism evidence should require a structured carrier: %+v", view.RequiredBlocks)
 	}
+	for _, block := range view.OptionalBlocks {
+		if block.AcceptsKind(BlockOrderedList) {
+			t.Fatalf("capped required ordered_list must be the only count authority; optional=%+v", view.OptionalBlocks)
+		}
+	}
+}
+
+func TestCappedRequiredBlockAuthorityRetainsNonOverlappingOptionalAlternatives(t *testing.T) {
+	view := &AnswerSemanticView{
+		RequiredBlocks: []BlockRequirement{{
+			Kind: BlockOrderedList, MinCount: 1, MaxCount: 1, Required: true,
+		}},
+		OptionalBlocks: []BlockRequirement{{
+			Kind: BlockOrderedList, AlternativeKinds: []AnswerBlockKind{BlockTable, BlockBulletList},
+		}},
+	}
+	applyCappedRequiredBlockKindAuthority(view)
+	if len(view.OptionalBlocks) != 1 || view.OptionalBlocks[0].Kind != BlockTable ||
+		!view.OptionalBlocks[0].AcceptsKind(BlockBulletList) || view.OptionalBlocks[0].AcceptsKind(BlockOrderedList) {
+		t.Fatalf("non-overlapping optional alternatives were not retained exactly: %+v", view.OptionalBlocks)
+	}
+}
+
+func TestUnboundedRequiredBlockDoesNotEraseFacetSpecificOptionalGuidance(t *testing.T) {
+	view := &AnswerSemanticView{
+		RequiredBlocks: []BlockRequirement{{
+			Kind: BlockSection, MinCount: 1, MaxCount: 0, Required: true,
+		}},
+		OptionalBlocks: []BlockRequirement{{
+			Kind: BlockSection, FacetIDs: []string{string(FacetBucketLabel)},
+		}},
+	}
+	applyCappedRequiredBlockKindAuthority(view)
+	if len(view.OptionalBlocks) != 1 || view.OptionalBlocks[0].Kind != BlockSection {
+		t.Fatalf("unbounded principal carrier must retain separately-faceted optional guidance: %+v", view.OptionalBlocks)
+	}
 }
 
 func TestCompileGeneric_OnlySummaryRequired(t *testing.T) {

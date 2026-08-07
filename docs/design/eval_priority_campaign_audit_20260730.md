@@ -23266,3 +23266,34 @@ labelled/unlabelled flowchart 关系锚列为后续每批必查项；Trace 显�
 状态：`EVAL-B237-PATCHSCOPE1=closed/production-replay`；`EVAL-B238-PATCHDELETE1=closed/production-replay`；
 `EVAL-B239-BLOCKCARD1=confirmed/next`；`EVAL-B240-CITEREF1=confirmed`；`EVAL-B236-PHASEBRIDGE1=partial`；
 runner=`2/2 PASS`；human=`1/2`；下一步=`block-contract single authority, tests, commit/push`。
+
+### 123.220 S37a：capped block 单一权威与通用 typed cardinality 修复
+
+`EVAL-B239-BLOCKCARD1` 已按合同根因修复，没有对 r151 的两个 ordered-list 做内容合并或答案代写。最终
+`BuildAnswerSemanticView` 在 family compile、动态 decision/diagram 提升和 presentation contract 全部完成后，统一执行 capped-kind authority：
+
+1. 仅当 required requirement 明确 `MaxCount>0` 时，其全部 accepted kinds 才从 optional requirements 中减去；因此
+   `ordered_list min=1 max=1` 不再与 optional unbounded ordered-list 同时进入 prompt/schema。若 optional requirement 还带 table/bullet 等不重叠
+   alternative，只移除冲突 kind，其余载体保持；
+2. `MaxCount=0` 的无上限 required carrier 不参与剔除。Enumeration 的 principal section/list 与 bucket-specific optional section、Trace 的多层诊断
+   carrier 等仍可按 facet 并存，不会为了修一个 C++ case 收窄其它 family；
+3. 所有 question family 增加结构扫描，禁止 capped-required kind 与 optional kind 再重叠；Generic mechanism 生产形另钉 required ordered-list 是唯一计数
+   权威，error-granularity/required diagram 等动态提升也经过同一末端归一化；
+4. pre-emit 对 required `got > MaxCount` 发布 closed typed `block_cardinality_relation=over_max` 与实际
+   `offending_block_kinds`，并在已有 `typed_required_block_kind` policy row 内同轮修复。普通 non-diagram under-min 仍是 soft guidance，显式用户 diagram
+   缺失保持原 hard lane；没有把所有可选丰富度硬化；
+5. patch cardinality 不再写死 `kind=section`，只在 repair code、唯一 violation family、`over_max` relation、单一有效 offending kind 与 field path 五项
+   一致时进入通用车道；提示模型用 `replace_blocks` 合并有用内容、`remove_block_ids` 显式删除超额块，并复用单源四操作/原生 JSON 教学。缺 metadata、
+   mixed kind 或 summary prose 中恰好出现相似字样均不能触发。
+
+全量测试第一次运行还揭示一条 fixture typed 漂移：名为 scalar-literal pipeline 的用例未设置 `IsScalarAnswer`，被编译成非 scalar config
+precedence 合同；而测试正文、required scalar block 和断言均是 scalar lane。补齐 typed predicate 后，该用例继续验证 late aggregate carrier 与 scalar
+citation pool 单调性，不通过放宽生产计数门“转绿”。定向与 `go test ./...` 全绿。
+
+该批只校正结构合同与修复路由，不扫描用户原文、模型 thinking/answer prose，不合并、删除或改写答案事实。JSON schema 仍是字段类型唯一权威；
+Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量及双维根因分析未改。sequence display 参数不得污染 endpoint identity、
+C++ labelled/unlabelled flowchart 均需 typed relation anchor 的既有守护继续列入下一批回归。
+
+状态：`EVAL-B239-BLOCKCARD1=S37a-implemented/full-tests-pass`；`EVAL-B240-CITEREF1=next`；
+`EVAL-B236-PHASEBRIDGE1=partial`；模型答案所有权=`preserved`；JSON 教学=`single-source/preserved`；
+下一步=`commit+push, exact member support_ref rebind`。

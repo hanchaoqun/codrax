@@ -612,7 +612,9 @@ func TestEmitPatchRejectFullRewriteSignal_SectionCountKeepsPatchPath(t *testing.
 				Code:   "answer_doc_pre_emit_contract",
 				Fields: []string{"blocks[].kind=section"},
 				Metadata: map[string]string{
-					"expected_shapes": "reduce kind=section blocks to at most 2",
+					"violation_kinds": string(types.ViolBlockCoverageMissing),
+					types.ToolRepairMetaBlockCardinalityRelation: "over_max",
+					types.ToolRepairMetaOffendingBlockKinds:      string(types.BlockSection),
 				},
 			},
 		},
@@ -627,8 +629,9 @@ func TestEmitPatchRejectFullRewriteSignal_SectionCountKeepsPatchPath(t *testing.
 	}
 	for _, want := range []string{
 		"Keep using `emit_answer_document_patch`",
-		"do not add another `kind=section` block",
+		"`kind=section`",
 		"replace_blocks",
+		"remove_block_ids",
 		"append_citations",
 	} {
 		if !strings.Contains(got.Hint, want) {
@@ -658,7 +661,9 @@ func TestEmitPatchRejectFullRewriteSignal_TypedSectionCountKeepsPatchPath(t *tes
 				Fields: []string{"blocks[].kind=section"},
 				Hint:   "Apply these typed answer-document schema corrections.",
 				Metadata: map[string]string{
-					"expected_shapes": "reduce kind=section blocks to at most 2 (currently emitted: 3)",
+					"violation_kinds": string(types.ViolBlockCoverageMissing),
+					types.ToolRepairMetaBlockCardinalityRelation: "over_max",
+					types.ToolRepairMetaOffendingBlockKinds:      string(types.BlockSection),
 				},
 			},
 		},
@@ -671,7 +676,7 @@ func TestEmitPatchRejectFullRewriteSignal_TypedSectionCountKeepsPatchPath(t *tes
 	if got.HintKey != "answer_doc.patch_cardinality" {
 		t.Fatalf("HintKey=%q, want answer_doc.patch_cardinality", got.HintKey)
 	}
-	if !strings.Contains(got.Hint, "do not add another `kind=section` block") {
+	if !strings.Contains(got.Hint, "`kind=section`") {
 		t.Fatalf("typed section-cardinality hint did not keep patch cardinality path:\n%s", got.Hint)
 	}
 	if e.forceFullEmitNext || !e.preferPatchNext {

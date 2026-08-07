@@ -79,6 +79,9 @@ func TestEmitAnswerDocumentV2_ScalarLiteralCitationSurvivesLateCarrierAndPoolPas
 			Intent:   types.IntentConfigQuery,
 			Scenario: types.ScenarioConfigTrace,
 			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsScalarAnswer: true,
+			},
 			AnalyzerHints: types.AnalyzerHints{
 				Kind: string(types.ReqConfigMapping),
 			},

@@ -47,6 +47,27 @@ func TestAllQuestionFamiliesHaveCompiler(t *testing.T) {
 		if !hasSummary {
 			t.Errorf("family %q: missing required BlockSummary with MinCount>=1", family)
 		}
+		assertNoOptionalKindOverlapsCappedRequired(t, family, view)
+	}
+}
+
+func assertNoOptionalKindOverlapsCappedRequired(t *testing.T, family QuestionFamily, view *AnswerSemanticView) {
+	t.Helper()
+	capped := map[AnswerBlockKind]bool{}
+	for _, req := range view.RequiredBlocks {
+		if !req.Required || req.MaxCount <= 0 {
+			continue
+		}
+		for _, kind := range req.AcceptedKinds() {
+			capped[kind] = true
+		}
+	}
+	for _, optional := range view.OptionalBlocks {
+		for _, kind := range optional.AcceptedKinds() {
+			if capped[kind] {
+				t.Errorf("family %q: kind %q is both capped-required and optional: required=%+v optional=%+v", family, kind, view.RequiredBlocks, view.OptionalBlocks)
+			}
+		}
 	}
 }
 

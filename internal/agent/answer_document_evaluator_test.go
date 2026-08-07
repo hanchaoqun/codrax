@@ -4707,7 +4707,9 @@ func TestAnswerDocumentEvaluator_PatchRejectCardinalityUsesTypedRepair(t *testin
 			Code:   "answer_doc_pre_emit_contract",
 			Fields: []string{"blocks[].kind=section"},
 			Metadata: map[string]string{
-				"expected_shapes": "reduce kind=section blocks",
+				"violation_kinds": string(types.ViolBlockCoverageMissing),
+				types.ToolRepairMetaBlockCardinalityRelation: "over_max",
+				types.ToolRepairMetaOffendingBlockKinds:      string(types.BlockSection),
 			},
 		},
 	}
@@ -4716,7 +4718,8 @@ func TestAnswerDocumentEvaluator_PatchRejectCardinalityUsesTypedRepair(t *testin
 	if !sig.HintRequested || sig.HintKey != "answer_doc.patch_cardinality" {
 		t.Fatalf("typed patch cardinality repair should trigger cardinality lane, got %+v", sig)
 	}
-	if !strings.Contains(sig.Hint, "Fold the missing content into the existing related section") {
+	if !strings.Contains(sig.Hint, "exceeds the typed maximum for `kind=section`") ||
+		!strings.Contains(sig.Hint, "explicitly delete surplus block ids with `remove_block_ids`") {
 		t.Fatalf("cardinality hint should preserve merge guidance, got %q", sig.Hint)
 	}
 }
@@ -4743,6 +4746,34 @@ func TestAnswerDocumentEvaluator_PatchRejectSummaryOnlyDoesNotSelectCardinalityL
 	}
 	if sig.HintKey != "answer_doc.patch_correct" {
 		t.Fatalf("summary-only patch reject should use generic correction lane, got %+v", sig)
+	}
+}
+
+func TestAnswerDocumentEvaluator_PatchRejectCardinalityIsBlockKindGeneric(t *testing.T) {
+	mut := types.NewMutableState("ordered-list patch cardinality")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{ID: "summary", Kind: types.BlockSummary, Text: "existing"}},
+	})
+	ctx := &types.AgentContext{Stage: types.StageFinalize, Mutable: mut}
+	e := &answerDocumentEvaluator{mu: mut}
+	result := &types.ToolResult{
+		ToolName: "emit_answer_document_patch",
+		Success:  false,
+		Repair: &types.ToolRepair{
+			Code:   "answer_doc_pre_emit_contract",
+			Fields: []string{"blocks[].kind=ordered_list"},
+			Metadata: map[string]string{
+				"violation_kinds": string(types.ViolBlockCoverageMissing),
+				types.ToolRepairMetaBlockCardinalityRelation: "over_max",
+				types.ToolRepairMetaOffendingBlockKinds:      string(types.BlockOrderedList),
+			},
+		},
+	}
+
+	sig := e.emitPatchRejectFullRewriteSignal(ctx, LoopObservation{LastToolResult: result})
+	if !sig.HintRequested || sig.HintKey != "answer_doc.patch_cardinality" ||
+		!strings.Contains(sig.Hint, "`kind=ordered_list`") {
+		t.Fatalf("typed cardinality lane must be generic across block kinds: %+v", sig)
 	}
 }
 

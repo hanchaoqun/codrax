@@ -368,6 +368,9 @@ type emitFixHint struct {
 	// carrier. Repair routing must consume this exact location metadata rather
 	// than infer "diagram" from a historical violation-family name.
 	OffendingBlockKinds []types.AnswerBlockKind
+	// BlockCardinalityRelation is a closed producer-owned comparison between
+	// the emitted typed block count and a required MinCount/MaxCount.
+	BlockCardinalityRelation preEmitBlockCardinalityRelation
 	// SameCauseFingerprint is an optional deterministic identity of the
 	// UNRESOLVED cause behind this hint (XGAP-FIX ② F8-T4 breaker lane).
 	// It is exported to the reject repair metadata so the finalizer
@@ -377,6 +380,13 @@ type emitFixHint struct {
 	// counters or text the reject handler itself mutates per round.
 	SameCauseFingerprint string
 }
+
+type preEmitBlockCardinalityRelation string
+
+const (
+	preEmitBlockCardinalityUnderMin preEmitBlockCardinalityRelation = "under_min"
+	preEmitBlockCardinalityOverMax  preEmitBlockCardinalityRelation = "over_max"
+)
 
 type preEmitSameTurnHardSignal string
 
@@ -545,6 +555,14 @@ func preEmitHintHardByDefault(hint emitFixHint) bool {
 		// user-requested surface even though the correction is local.
 		// (preEmitLocalHardSignalAllowed keeps the Kind ==
 		// ViolBlockCoverageMissing constraint via the policy row.)
+		return true
+	}
+	if hint.BlockCardinalityRelation == preEmitBlockCardinalityOverMax &&
+		preEmitLocalHardSignalAllowed(hint, preEmitHardSignalTypedRequiredBlockKind) {
+		// This is a closed typed comparison, unlike optional richness or prose
+		// coverage: an emitted block-kind count exceeded an explicit required
+		// MaxCount. Repair it locally so an accepted document cannot contradict
+		// the same projected schema/prompt contract.
 		return true
 	}
 	if spec, ok := types.ViolKindSpecFor(hint.Kind); ok {
@@ -11366,7 +11384,8 @@ func preCheckRequiredBlocks(doc *types.AnswerDocumentV2, view *types.AnswerSeman
 				ExpectedShape: fmt.Sprintf(
 					"emit at least %d block(s) of kind=%s (currently emitted: %d)",
 					req.MinCount, kindLabel, got),
-				Reason: strings.TrimSpace(req.Rationale),
+				Reason:                   strings.TrimSpace(req.Rationale),
+				BlockCardinalityRelation: preEmitBlockCardinalityUnderMin,
 			})
 			continue
 		}
@@ -11377,9 +11396,24 @@ func preCheckRequiredBlocks(doc *types.AnswerDocumentV2, view *types.AnswerSeman
 				ExpectedShape: fmt.Sprintf(
 					"reduce kind=%s blocks to at most %d (currently emitted: %d)",
 					kindLabel, req.MaxCount, got),
-				Reason: strings.TrimSpace(req.Rationale),
+				Reason:                   strings.TrimSpace(req.Rationale),
+				OffendingBlockKinds:      answerBlockKindsPresentForRequirement(doc.Blocks, req),
+				BlockCardinalityRelation: preEmitBlockCardinalityOverMax,
 			})
 		}
+	}
+	return out
+}
+
+func answerBlockKindsPresentForRequirement(blocks []types.AnswerBlock, req types.BlockRequirement) []types.AnswerBlockKind {
+	seen := map[types.AnswerBlockKind]bool{}
+	var out []types.AnswerBlockKind
+	for _, block := range blocks {
+		if !req.AcceptsKind(block.Kind) || seen[block.Kind] {
+			continue
+		}
+		seen[block.Kind] = true
+		out = append(out, block.Kind)
 	}
 	return out
 }
@@ -12480,6 +12514,7 @@ func emitFixHintsRepair(hints []emitFixHint) *types.ToolRepair {
 	seenKinds := map[string]struct{}{}
 	seenBlockKinds := map[string]struct{}{}
 	seenOffendingBlockKinds := map[string]struct{}{}
+	cardinalityRelations := map[preEmitBlockCardinalityRelation]struct{}{}
 	for _, h := range hints {
 		if field := strings.TrimSpace(h.Field); field != "" {
 			if _, ok := seenFields[field]; !ok {
@@ -12519,6 +12554,9 @@ func emitFixHintsRepair(hints []emitFixHint) *types.ToolRepair {
 			seenOffendingBlockKinds[kind] = struct{}{}
 			offendingBlockKinds = append(offendingBlockKinds, kind)
 		}
+		if h.BlockCardinalityRelation != "" {
+			cardinalityRelations[h.BlockCardinalityRelation] = struct{}{}
+		}
 	}
 	meta := map[string]string{
 		"hint_count": strconv.Itoa(len(hints)),
@@ -12543,6 +12581,11 @@ func emitFixHintsRepair(hints []emitFixHint) *types.ToolRepair {
 	}
 	if len(offendingBlockKinds) > 0 {
 		meta[types.ToolRepairMetaOffendingBlockKinds] = strings.Join(offendingBlockKinds, ",")
+	}
+	if len(cardinalityRelations) == 1 {
+		for relation := range cardinalityRelations {
+			meta[types.ToolRepairMetaBlockCardinalityRelation] = string(relation)
+		}
 	}
 	return &types.ToolRepair{
 		Code:     "answer_doc_pre_emit_contract",

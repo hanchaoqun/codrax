@@ -95,11 +95,57 @@ func BuildAnswerSemanticView(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSem
 	applySurfacePlanDecisionLaneOverrides(view, plan)
 	applyErrorGranularityProfile(view, ir)
 	applyPresentationContract(view, ir, plan)
+	applyCappedRequiredBlockKindAuthority(view)
 	view.SourceInventoryRowIdentityAvailable = plan != nil &&
 		plan.SourceInventoryObservation.IsActive() &&
 		ir.RequestModel.SourceInventoryProfile != nil &&
 		ir.RequestModel.SourceInventoryProfile.Active()
 	return view
+}
+
+// applyCappedRequiredBlockKindAuthority makes the final compiled view the
+// single cardinality authority for block kinds with an explicit upper bound.
+// A kind cannot simultaneously mean "required, at most N" and "optional,
+// unbounded": that contradiction teaches the model to emit a shape the exact
+// count validator then rejects (or historically only warned about).
+//
+// Unbounded required carriers are deliberately excluded. Enumeration, trace,
+// and architecture views can use the same structural kind for a principal
+// roster and separately-faceted bucket/support rows without imposing a total
+// block cap. For partially-overlapping optional alternatives, retain the
+// non-overlapping kinds instead of dropping the whole enrichment rule.
+func applyCappedRequiredBlockKindAuthority(view *AnswerSemanticView) {
+	if view == nil || len(view.RequiredBlocks) == 0 || len(view.OptionalBlocks) == 0 {
+		return
+	}
+	capped := make(map[AnswerBlockKind]bool)
+	for _, req := range view.RequiredBlocks {
+		if !req.Required || req.MaxCount <= 0 {
+			continue
+		}
+		for _, kind := range req.AcceptedKinds() {
+			capped[kind] = true
+		}
+	}
+	if len(capped) == 0 {
+		return
+	}
+	out := view.OptionalBlocks[:0]
+	for _, optional := range view.OptionalBlocks {
+		remaining := make([]AnswerBlockKind, 0, len(optional.AcceptedKinds()))
+		for _, kind := range optional.AcceptedKinds() {
+			if !capped[kind] {
+				remaining = append(remaining, kind)
+			}
+		}
+		if len(remaining) == 0 {
+			continue
+		}
+		optional.Kind = remaining[0]
+		optional.AlternativeKinds = append(optional.AlternativeKinds[:0], remaining[1:]...)
+		out = append(out, optional)
+	}
+	view.OptionalBlocks = out
 }
 
 func applySurfacePlanDecisionLaneOverrides(view *AnswerSemanticView, plan *AnswerSurfacePlan) {

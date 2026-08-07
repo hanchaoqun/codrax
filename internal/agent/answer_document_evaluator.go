@@ -12258,10 +12258,10 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 			BypassBudget:   true,
 		}
 	}
-	if answerDocumentPatchRejectIsBlockCardinality(obs.LastToolResult) {
+	if cardinalityKind, ok := answerDocumentPatchRejectBlockCardinalityKind(obs.LastToolResult); ok {
 		e.rejectHintsUsed++
 		e.preferPatchNext = true
-		hint := "Your last `emit_answer_document_patch` call was rejected because the document already has the allowed number of that block kind. Keep using `emit_answer_document_patch`; do not add another `kind=section` block. Fold the missing content into the existing related section with `replace_blocks`, or update an existing table/list/caveat block when that better preserves the user's requested shape. Keep unrelated blocks in `unchanged_block_ids`. Preserve the existing `citations[]` pool and use `append_citations` only for genuinely new evidence. Do not reopen files or call read/search tools; use only the already-provided evidence, support lanes, prior slate, and repair diagnostics. Do not write free-form prose outside the tool call."
+		hint := fmt.Sprintf("Your last `emit_answer_document_patch` call was rejected because the document exceeds the typed maximum for `kind=%s`. Keep using `emit_answer_document_patch`; do not add another block of that kind. Fold the useful content into one retained block with `replace_blocks` and explicitly delete surplus block ids with `remove_block_ids`; keep unrelated blocks in `unchanged_block_ids`. %s Preserve the existing `citations[]` pool and use `append_citations` only for genuinely new evidence. Do not reopen files or call read/search tools; use only the already-provided evidence, support lanes, prior slate, and repair diagnostics. Do not write free-form prose outside the tool call.", cardinalityKind, types.AnswerDocumentPatchOperationTeaching)
 		hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
 		return LoopSignal{
 			HintRequested:  true,
@@ -12316,25 +12316,29 @@ func answerDocumentPatchRejectIsOptionalDiagramCallEdge(result *types.ToolResult
 	return len(offendingKinds) == 1 && strings.TrimSpace(offendingKinds[0]) == string(types.BlockDiagram)
 }
 
-func answerDocumentPatchRejectIsBlockCardinality(result *types.ToolResult) bool {
-	if result == nil {
-		return false
+func answerDocumentPatchRejectBlockCardinalityKind(result *types.ToolResult) (types.AnswerBlockKind, bool) {
+	if result == nil || result.Repair == nil {
+		return "", false
 	}
-	return answerDocumentPatchRepairIsBlockCardinality(result.Repair)
-}
-
-func answerDocumentPatchRepairIsBlockCardinality(repair *types.ToolRepair) bool {
-	if repair == nil {
-		return false
+	repair := result.Repair
+	if strings.TrimSpace(repair.Code) != "answer_doc_pre_emit_contract" || repair.Metadata == nil ||
+		strings.TrimSpace(repair.Metadata[types.ToolRepairMetaBlockCardinalityRelation]) != "over_max" ||
+		strings.TrimSpace(repair.Metadata["violation_kinds"]) != string(types.ViolBlockCoverageMissing) {
+		return "", false
 	}
-	if !answerDocStringSliceContains(repair.Fields, "blocks[].kind=section") {
-		return false
+	kinds := strings.Split(strings.TrimSpace(repair.Metadata[types.ToolRepairMetaOffendingBlockKinds]), ",")
+	if len(kinds) != 1 {
+		return "", false
 	}
-	if repair.Metadata == nil {
-		return false
+	kind := types.AnswerBlockKind(strings.TrimSpace(kinds[0]))
+	if !types.IsValidAnswerBlockKind(kind) {
+		return "", false
 	}
-	expected := strings.ToLower(strings.TrimSpace(repair.Metadata["expected_shapes"]))
-	return strings.Contains(expected, "reduce kind=section blocks")
+	wantField := "blocks[].kind=" + string(kind)
+	if !answerDocStringSliceContains(repair.Fields, wantField) {
+		return "", false
+	}
+	return kind, true
 }
 
 func answerDocStringSliceContains(values []string, want string) bool {

@@ -6163,6 +6163,20 @@ func TestPreCheckRequiredBlocks_MaxCount(t *testing.T) {
 	if !strings.Contains(hints[0].ExpectedShape, "at most 1") {
 		t.Errorf("hint should state the maximum cap; got %q", hints[0].ExpectedShape)
 	}
+	if hints[0].BlockCardinalityRelation != preEmitBlockCardinalityOverMax ||
+		len(hints[0].OffendingBlockKinds) != 1 || hints[0].OffendingBlockKinds[0] != types.BlockSummary {
+		t.Fatalf("over-max hint must carry typed count/location authority: %+v", hints[0])
+	}
+	tagged := tagPreEmitHints(types.ViolBlockCoverageMissing, hints)
+	hard, advisory := splitPreEmitHintsByGate(tagged)
+	if len(hard) != 1 || len(advisory) != 0 {
+		t.Fatalf("precise required over-max must repair same-turn: hard=%+v advisory=%+v", hard, advisory)
+	}
+	repair := emitFixHintsRepair(tagged)
+	if repair == nil || repair.Metadata[types.ToolRepairMetaBlockCardinalityRelation] != "over_max" ||
+		repair.Metadata[types.ToolRepairMetaOffendingBlockKinds] != string(types.BlockSummary) {
+		t.Fatalf("typed cardinality metadata missing from repair: %+v", repair)
+	}
 }
 
 // TestPreCheckRequiredBlocks_HappyPath — exact match returns no hints.

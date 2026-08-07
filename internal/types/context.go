@@ -6550,6 +6550,11 @@ const (
 	// a location-specific recovery lane without inferring location from a
 	// historical violation-family name or scanning model-visible prose.
 	ToolRepairMetaOffendingBlockKinds = "offending_block_kinds"
+	// ToolRepairMetaBlockCardinalityRelation carries the producer-owned typed
+	// count relation for a required block contract. Consumers may route a
+	// compact merge/remove repair on "over_max" without parsing ExpectedShape
+	// prose; absence means no cardinality-specific routing authority.
+	ToolRepairMetaBlockCardinalityRelation = "block_cardinality_relation"
 
 	ToolRepairCodeReadFilePathMissing                  = "read_file_path_missing"
 	ToolRepairCodeReadFilePathIsDirectory              = "read_file_path_is_directory"
