@@ -84,13 +84,12 @@ func TestMechanismRelationAuthorityPublishesOnlyTypedEdgesAndFlowPathsAA3(t *tes
 	for _, want := range []string{
 		"explicit_typed_directed_relations=1",
 		"ordered_path_authority=`typed_flow_paths_present`",
-		"node_alias[n1]=`convertTrace`",
-		"node_alias[n2]=`parseTraceMark`",
-		"edge_recipe[1]=`n1 -> n2`; relation_kind=`call`; edge_anchor_json=`{\"from_node\":\"n1\",\"to_node\":\"n2\",\"relation_kind\":\"call\"}`",
+		"copy both unchanged; do not compose a different story graph",
 		"#### Copy-ready optional typed diagram",
-		"flowchart TD",
-		`n1["convertTrace"]`,
-		"n1 -->|call| n2",
+		"sequenceDiagram",
+		"participant n1 as convertTrace",
+		"participant n2 as parseTraceMark",
+		"n1->>n2: call",
 		"edge_anchors_json=`[{\"from_node\":\"n1\",\"to_node\":\"n2\",\"relation_kind\":\"call\"}]`",
 		"typed_flow_path[1]=`readEvent -> parseTraceMark -> classifySpan`",
 	} {
@@ -163,9 +162,6 @@ func TestMechanismRelationCopyReadyDiagramFollowsSequenceContractAA3(t *testing.
 	}
 
 	got := renderAnswerDocMechanismRelationAuthority(ctx)
-	if !strings.Contains(got, "edge_recipe[1]") {
-		t.Fatalf("sequence contract still needs typed per-edge recipe:\n%s", got)
-	}
 	for _, want := range []string{
 		"#### Copy-ready optional typed diagram",
 		"sequenceDiagram",
@@ -180,6 +176,9 @@ func TestMechanismRelationCopyReadyDiagramFollowsSequenceContractAA3(t *testing.
 	}
 	if strings.Contains(got, "flowchart TD") {
 		t.Fatalf("sequence contract must not receive a competing flowchart example:\n%s", got)
+	}
+	if strings.Contains(got, "edge_recipe[1]") || strings.Contains(got, "node_alias[n1]") {
+		t.Fatalf("copy-ready diagram intent must not receive duplicate per-edge JSON teaching:\n%s", got)
 	}
 }
 

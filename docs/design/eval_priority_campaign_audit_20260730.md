@@ -22908,3 +22908,43 @@ anchor-kind 之外，追加 grounder 已核实的单行 `source_line=%q`，上�
 `EVAL-B224-PARTICIPANTARROW1=closed`；`EVAL-B217-FLOWUNLABELED1=closed/pinned`；
 `EVAL-B230-MEMBERMULTIREF1=P1-open/separate-design`；模型答案所有权=`preserved`；JSON schema 单源=`preserved`；
 Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量及双维度根因分析=`not-touched`。
+
+### 123.209 r147 与 S36t：copy-ready 教学必须读取最终有效 DiagramPlan
+
+在 `main@bdcb9397a` 上严格并行 2 个异构 call-chain case，runner 2/2 PASS，但人工答案 0/2 PASS：
+
+- C++：153s，final reject/patch=`2/2`。`CALLLINECTX1` 生产生效，Primary Evidence 明确带
+  `source_line="std::fputs(line.c_str(), stderr);"`，最终正文与引用均为 `stderr`，r146 的 stdout 矛盾消失；
+  但模型没有复制模板，仍自造用户→Logger→具体 sink 的 story sequence，两次拒绝后删图。最终正文还把源码中不存在的
+  `make_sink(kind) -> Logger` 调用/构造桥说成事实；当前仓只分别证明 factory 返回、Logger initializer 和两段静态 call component。
+- Python：182s，final reject/patch=`3/3`。selector/value 继续分离，但模型同样自造 registry story diagram 后删图；最终把
+  `resolve` 说成返回插件类，实际当前源码 line 34 为 `return cls()`，返回实例。Explorer 已读该行但只发射 resolve definition，
+  所以 finalizer 的 Primary Evidence 没有 exact return/instantiation fact。
+
+本轮定位到一个确定性的系统自冲突 `EVAL-B231-DIAGRAMVIEWSPLIT1`：S36s 的模板种类读取早期
+`AnalysisIR.AnswerContract/DiagramHint`，C++/Python prompt 因而给出 `flowchart TD`；同一 prompt 的 Required Answer Blocks
+由最终 `AnswerSemanticView` 编译，却明确建议 `sequenceDiagram`。两者都来自系统，模型选择后者不能归为纯模型失误。
+
+S36t 根修为单一最终 authority：
+
+1. copy-ready kind 只读取 `BuildAnswerSemanticViewForAgentContext(ctx).DiagramPlan.Kind`，与 Required Answer Blocks、validator
+   使用同一最终 family；不再回读 analyzer hint/raw contract；
+2. 当完整 body+anchor array 存在时，删去重复的 node_alias、逐边 recipe 和逐边 JSON 教学，只保留一份 body 与一次 marshal 的
+   完整 `edge_anchors_json`，并明确“使用图则两者原样复制；否则省略”，降低 schema 心智和互相改写空间；
+3. 无有效 DiagramPlan 时继续只给逐边 typed recipe，不诱导 prose-only answer 画图；所有 hard gate 仍只消费 typed enum、parsed body
+   endpoint 与 EvidenceItem，不扫描用户原文/模型 thinking/答案 prose；
+4. sequence message 参数与 endpoint identity 继续隔离；labelled/unlabelled logical arrow 仍不得绕过 typed relation authority。
+
+同时立案但不混批：
+
+| ID | 优先级 | GAP | 泛化方案 | 状态 |
+|---|---:|---|---|---|
+| `EVAL-B232-DISCONNECTAUTH1` | P1 | typed edge graph 明确分成多个 component，模型仍用自然语言把它们叙述成一个连续链 | 从同一 typed edge graph 发布 component partition、bridge status 与支持边界作为高显著 soft guidance；不扫描/改写答案结论 | confirmed / design-next |
+| `EVAL-B233-RETURNBODY1` | P1 | 已读函数体内精确 return/instantiation 没有 typed evidence row，finalizer 只见 definition 后猜错 class/value/instance | 按 parser/grounder 的 return/value-flow carrier 跨语言提升；不能按 Python、`cls()` 或本题字符串拟合 | confirmed / design-next |
+| `EVAL-B229-COPYGRAPH1` | P1 | S36s 有模板但存在 family 分叉与重复教学，生产未消费 | S36t 已消除确定性系统因素，下一批同两案复验；若仍波动则记录模型方差，不加 prose 硬门 | partial / replay-next |
+
+状态：`EVAL-B228-CALLLINECTX1=closed/production-replay`；
+`EVAL-B231-DIAGRAMVIEWSPLIT1=S36t-implemented/full-tests-pass/replay-next`；
+`EVAL-B229-COPYGRAPH1=partial/replay-next`；`EVAL-B232-DISCONNECTAUTH1=P1-open`；
+`EVAL-B233-RETURNBODY1=P1-open`；`EVAL-B230-MEMBERMULTIREF1=P1-open`；模型答案所有权=`preserved`；
+Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量与双维根因分析=`not-touched`。

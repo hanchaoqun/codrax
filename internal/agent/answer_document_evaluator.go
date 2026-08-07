@@ -6823,10 +6823,7 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 			&b,
 			edges,
 			8,
-			answerDocMechanismCopyReadyDiagramKind(
-				ctx.AnalysisIR.AnswerContract.Diagram,
-				ctx.AnalysisIR.RequestModel.DiagramHint,
-			),
+			answerDocMechanismCopyReadyDiagramKind(ctx),
 		)
 	}
 	for i, path := range typedPaths {
@@ -6902,23 +6899,25 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 	}
 
 	b.WriteString("\n### Typed relation authoring capsule (advisory)\n\n")
-	b.WriteString("- Node aliases are local convenience identifiers, not new facts. In a Mermaid body declare the same alias with the visible identity below (for example, a sequence participant or flowchart node); `from_node` and `to_node` must be these body identifiers.\n")
-	for _, row := range aliases {
-		fmt.Fprintf(b, "- node_alias[%s]=`%s`\n", row.alias, row.identity)
-	}
-	for i, recipe := range recipes {
-		fmt.Fprintf(b, "- edge_recipe[%d]=`%s -> %s`; relation_kind=`%s`; edge_anchor_json=`%s`",
-			i+1, recipe.from, recipe.to, recipe.edge.relation, recipe.anchor)
-		if recipe.edge.loc != "" {
-			fmt.Fprintf(b, " @ %s", recipe.edge.loc)
+	if copyReadyKind == types.DiagramNone {
+		b.WriteString("- Node aliases are local convenience identifiers, not new facts. In a Mermaid body declare the same alias with the visible identity below (for example, a sequence participant or flowchart node); `from_node` and `to_node` must be these body identifiers.\n")
+		for _, row := range aliases {
+			fmt.Fprintf(b, "- node_alias[%s]=`%s`\n", row.alias, row.identity)
 		}
-		b.WriteString("\n")
+		for i, recipe := range recipes {
+			fmt.Fprintf(b, "- edge_recipe[%d]=`%s -> %s`; relation_kind=`%s`; edge_anchor_json=`%s`",
+				i+1, recipe.from, recipe.to, recipe.edge.relation, recipe.anchor)
+			if recipe.edge.loc != "" {
+				fmt.Fprintf(b, " @ %s", recipe.edge.loc)
+			}
+			b.WriteString("\n")
+		}
+	} else {
+		b.WriteString("- A complete diagram body and anchor array follow from the same typed recipe set. If you include a diagram, copy both unchanged; do not compose a different story graph. You may omit this optional diagram.\n")
+		renderAnswerDocMechanismCopyReadyDiagram(b, aliases, recipes, copyReadyKind)
 	}
 	if len(edges) > len(bounded) {
 		fmt.Fprintf(b, "- (%d additional typed relation(s) omitted only from this compact authoring view)\n", len(edges)-len(bounded))
-	}
-	if copyReadyKind != types.DiagramNone {
-		renderAnswerDocMechanismCopyReadyDiagram(b, aliases, recipes, copyReadyKind)
 	}
 }
 
@@ -6978,25 +6977,14 @@ func answerDocMechanismMermaidLabel(identity string) string {
 	).Replace(strings.TrimSpace(identity))
 }
 
-// The copy-ready example follows the already-typed presentation choice. It is
-// absent when no diagram was requested or suggested, so the authority capsule
-// does not tempt a prose-only answer into drawing an unnecessary graph.
-func answerDocMechanismCopyReadyDiagramKind(
-	contract *types.DiagramContract,
-	hint *types.DiagramHint,
-) types.DiagramKind {
-	if contract != nil {
-		if contract.RequiredKind != types.DiagramNone && contract.RequiredKind.IsValid() {
-			return contract.RequiredKind
-		}
-		for _, kind := range contract.PreferredKinds {
-			if kind != types.DiagramNone && kind.IsValid() {
-				return kind
-			}
-		}
-	}
-	if hint != nil && hint.Kind != types.DiagramNone && hint.Kind.IsValid() {
-		return hint.Kind
+// The copy-ready example consumes the same final AnswerSemanticView that
+// renders Required Answer Blocks. Reading the analyzer's earlier hint or raw
+// contract here created two competing tutorials (for example, flowchart here
+// while the effective call-chain contract taught sequenceDiagram).
+func answerDocMechanismCopyReadyDiagramKind(ctx *types.AgentContext) types.DiagramKind {
+	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+	if view != nil && view.DiagramPlan != nil && view.DiagramPlan.Kind.IsValid() {
+		return view.DiagramPlan.Kind
 	}
 	return types.DiagramNone
 }
