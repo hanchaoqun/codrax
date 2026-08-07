@@ -364,6 +364,47 @@ func TestFormatEvidenceLineForReport_PrefersDeterministicSurfaceOverSummary(t *t
 	}
 }
 
+func TestFormatEvidenceLineForReport_CallKeepsBoundedGroundedSourceLine(t *testing.T) {
+	ev := types.EvidenceItem{
+		Kind:            types.EvidenceRelationship,
+		AnchorKind:      types.AnchorCall,
+		Subject:         "ConsoleSink.write",
+		Predicate:       "calls",
+		Object:          "std::fputs",
+		AnchorSymbol:    "std::fputs",
+		Source:          "include/logx/console_sink.hpp",
+		LineStart:       11,
+		Snippet:         "std::fputs(line.c_str(), stderr);\nmodel-authored-neighbor-must-not-leak",
+		GroundingStatus: types.GroundingGrounded,
+	}
+	got := formatEvidenceLineForReport(ev, nil)
+	for _, want := range []string{
+		"ConsoleSink.write calls std::fputs",
+		"include/logx/console_sink.hpp:11 (call site)",
+		`source_line="std::fputs(line.c_str(), stderr);"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("grounded call context missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "model-authored-neighbor") {
+		t.Fatalf("only the grounded anchor line may cross the stage boundary:\n%s", got)
+	}
+
+	recovered := ev
+	recovered.GroundingStatus = types.GroundingRecovered
+	if got := formatEvidenceLineForReport(recovered, nil); strings.Contains(got, "source_line=") {
+		t.Fatalf("recovered evidence must not promote a candidate snippet as an exact source line:\n%s", got)
+	}
+
+	long := ev
+	long.Snippet = strings.Repeat("界", 250)
+	bounded := primaryEvidenceCallSourceLine(long)
+	if gotRunes := len([]rune(strings.TrimSuffix(bounded, "…"))); gotRunes != 200 || !strings.HasSuffix(bounded, "…") {
+		t.Fatalf("call source line must remain UTF-8-safe and bounded, runes=%d value=%q", gotRunes, bounded)
+	}
+}
+
 func TestRenderExplorerStageReport_PrimaryEvidenceExcludesNonCitableNoise(t *testing.T) {
 	evidence := []types.EvidenceItem{
 		{

@@ -22850,3 +22850,61 @@ endpoint 与 typed EvidenceItem；不读取用户原文、模型 reasoning、ans
 `EVAL-B217-FLOWUNLABELED1=closed/strict-unlabelled-replay-pin-added`；下一步=`commit+r146-two-case-replay`；
 模型答案所有权=`preserved`；JSON schema 单源=`preserved`；Trace 显式时间窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量以及
 “真实耗时贡献/规则内可消除量”双维度=`not-touched`。
+
+### 123.207 r146：改名逃逸已闭环，剩余瓶颈转为精确上下文与 copy-ready 图配方
+
+在 `main@64a4afd93` 上严格并行回放同两案，runner 仍为 2/2 PASS，但人工判定为 Python pass、C++ fail：
+
+- C++ 用时 352s，finalizer reject/patch 从 r145 的 `4/4` 降为 `2/2`。两版 story sequence 都因发明 `App -> Logger`、
+  `Logger -> ConsoleSink` 等未证调用被拒；模型最终删除 optional diagram。关键验收点已通过：没有任何 `precedence/guard/observe/contain`
+  改名逃逸出厂，证明 S36r 生效。剩余正文却把精确源码 `std::fputs(..., stderr)` 写成 `stdout`，而 citation metadata 被系统归正为
+  `stderr`，同页出现正文—证据矛盾；探索还因 relation-shaped member 与单 support_ref 对齐约束反复到第 20 轮。
+- Python 用时 160s，finalizer reject/patch=`3/3`。最终类、import-time registration、`run_pipeline -> resolve` 与 callback handoff 正确，
+  无 selector/value 混淆、无 JSON 畸形；但模型同样没有复制已存在的 typed edge recipes，而是三次重画 lookup/registration/story graph 后删图。
+
+高 ROI 排序如下：
+
+1. `EVAL-B228-CALLLINECTX1`：finalizer 的 Primary Evidence 对 `AnchorCall` 只显示 caller/callee，不显示 grounder 已写入 `Snippet` 的精确源码行，
+   因此调用参数、目标流、flag 等关键事实丢失。方案是在 top-12 primary evidence 中追加有界、单行、grounded `source_line=%q`；只增模型上下文，
+   不检查或改写答案 prose；
+2. `EVAL-B229-COPYGRAPH1`：现有 node_alias + edge_recipe + 单条 JSON 仍要求模型自行组装 graph。方案从完全相同的 citable typed edges 编译一个
+   copy-ready optional `flowchart TD` 骨架与完整 `edge_anchors` JSON 数组；不连接 disconnected components、不生成未证 bridge、不要求出图，模型可原样复制、
+   删去不相关 component 或完全省略；
+3. `EVAL-B230-MEMBERMULTIREF1`：单个 relation member 可能同时需要 guard+return 两处证据，而 positional support_refs 当前一 member 只能一 ref。
+   本轮不与图修混批；先保持“拆成两个 typed member”这一诚实出口，后续单独设计复合支持载体，避免临时放宽导致 citation 歧义。
+
+上述方案不读取用户原文、模型 reasoning、模型输出或渲染答案作硬门；不新增系统答案 normalizer；不改变 Trace 显式时间窗、自动补齐、因果投影、
+根因排序、唤醒链、窗内可消除量及双维度根因分析。状态：
+`EVAL-B227-RELABELAUTH1=closed/production-replay`；`EVAL-B228-CALLLINECTX1=S36s-in-progress`；
+`EVAL-B229-COPYGRAPH1=S36s-in-progress`；`EVAL-B230-MEMBERMULTIREF1=P1-open/separate-design`。
+
+### 123.208 S36s：精确调用行跨阶段保真与 typed 图骨架同源编译
+
+`EVAL-B228-CALLLINECTX1` 与 `EVAL-B229-COPYGRAPH1` 已按共享载体根修，没有按 C++、Python、`stderr`、
+`json` 或某个答案文本做特例。
+
+第一部分修复跨阶段精确值丢失。`formatEvidenceLineForReport` 对 `AnchorCall/AnchorCallback` 在既有 caller/callee、位置与
+anchor-kind 之外，追加 grounder 已核实的单行 `source_line=%q`，上限 200 Unicode code point。它能把输出流、flag、selector、
+实参和 payload 字段继续交给 extractor/finalizer；只允许 `GroundingGrounded`，`recovered` 即使残留候选 snippet 也不得进入精确通道。
+这是模型上下文增强，不检查模型正文，不触发 answer hard gate，也不修改模型结论。
+
+第二部分降低 Mermaid/JSON 组装心智。现有 citable typed relation recipes 现在同时编译：
+
+1. 稳定的 `n1..nN` alias 与逐边 recipe；
+2. 与 typed presentation family 一致的 copy-ready Mermaid：sequence 合同生成 `sequenceDiagram`，flow/call_dag/architecture
+   生成 `flowchart TD`；
+3. 从完全相同的 `types.DiagramEdgeAnchor` slice 一次 marshal 的完整 `edge_anchors_json` 数组。
+
+因此 Mermaid body 与 JSON 不再由两套教学手写。系统不跨 disconnected component 造桥，不增加 App/Actor 故事节点；没有 diagram contract
+或 typed hint 时不发骨架，避免诱导纯文本回答额外画图。模型仍可复制 body+anchors、删去不相关 component，或完全省略 optional diagram；
+系统没有接管可见答案。sequence message 的显示参数继续与 endpoint identity 隔离，C++ flowchart 的 labelled/unlabelled 逻辑箭头继续受
+同向 typed relation evidence 门约束，二者均有可执行回归。
+
+测试覆盖：精确调用行/多行截断/UTF-8 上界/recovered 站下、flow 与 sequence 两种 copy-ready 形、HTML-sensitive label、断连组件不造桥、
+无 diagram 意图不注入、完整 anchor array、`resolve(json)` endpoint 隔离、无标签 guard 改名逃逸。聚焦测试与 `go test ./...` 全绿。
+
+状态：`EVAL-B228-CALLLINECTX1=S36s-implemented/full-tests-pass/replay-next`；
+`EVAL-B229-COPYGRAPH1=S36s-implemented/full-tests-pass/replay-next`；
+`EVAL-B224-PARTICIPANTARROW1=closed`；`EVAL-B217-FLOWUNLABELED1=closed/pinned`；
+`EVAL-B230-MEMBERMULTIREF1=P1-open/separate-design`；模型答案所有权=`preserved`；JSON schema 单源=`preserved`；
+Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量及双维度根因分析=`not-touched`。

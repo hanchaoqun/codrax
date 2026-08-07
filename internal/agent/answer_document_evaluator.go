@@ -6738,6 +6738,19 @@ type answerDocMechanismRelationEdge struct {
 	loc      string
 }
 
+type answerDocMechanismAliasRow struct {
+	identity string
+	alias    string
+}
+
+type answerDocMechanismRecipeRow struct {
+	edge   answerDocMechanismRelationEdge
+	from   string
+	to     string
+	anchor string
+	typed  types.DiagramEdgeAnchor
+}
+
 func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 	if ctx == nil || ctx.AnalysisIR == nil || !answerDocMechanismRelationAuthorityApplies(ctx.AnalysisIR.RequestModel) {
 		return ""
@@ -6806,7 +6819,15 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 	if len(edges) == 0 {
 		b.WriteString("- No citable typed directed relation is available. `principal_path_edge` may carry an uncertainty boundary or independent fact list, but it must not claim an ordered/complete current-source chain.\n")
 	} else {
-		renderAnswerDocMechanismRelationAuthoringCapsule(&b, edges, 8)
+		renderAnswerDocMechanismRelationAuthoringCapsule(
+			&b,
+			edges,
+			8,
+			answerDocMechanismCopyReadyDiagramKind(
+				ctx.AnalysisIR.AnswerContract.Diagram,
+				ctx.AnalysisIR.RequestModel.DiagramHint,
+			),
+		)
 	}
 	for i, path := range typedPaths {
 		if i >= 4 {
@@ -6834,15 +6855,12 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 	b *strings.Builder,
 	edges []answerDocMechanismRelationEdge,
 	limit int,
+	copyReadyKind types.DiagramKind,
 ) {
 	if b == nil || len(edges) == 0 || limit <= 0 {
 		return
 	}
-	type aliasRow struct {
-		identity string
-		alias    string
-	}
-	aliases := make([]aliasRow, 0, limit*2)
+	aliases := make([]answerDocMechanismAliasRow, 0, limit*2)
 	aliasFor := func(identity string) string {
 		for _, row := range aliases {
 			if row.identity == identity {
@@ -6850,7 +6868,7 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 			}
 		}
 		alias := fmt.Sprintf("n%d", len(aliases)+1)
-		aliases = append(aliases, aliasRow{identity: identity, alias: alias})
+		aliases = append(aliases, answerDocMechanismAliasRow{identity: identity, alias: alias})
 		return alias
 	}
 
@@ -6858,29 +6876,25 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 	if len(bounded) > limit {
 		bounded = bounded[:limit]
 	}
-	type recipeRow struct {
-		edge   answerDocMechanismRelationEdge
-		from   string
-		to     string
-		anchor string
-	}
-	recipes := make([]recipeRow, 0, len(bounded))
+	recipes := make([]answerDocMechanismRecipeRow, 0, len(bounded))
 	for _, edge := range bounded {
 		fromAlias := aliasFor(edge.from)
 		toAlias := aliasFor(edge.to)
-		payload, err := json.Marshal(types.DiagramEdgeAnchor{
+		typedAnchor := types.DiagramEdgeAnchor{
 			FromNode:     fromAlias,
 			ToNode:       toAlias,
 			RelationKind: edge.relation,
-		})
+		}
+		payload, err := json.Marshal(typedAnchor)
 		if err != nil {
 			continue
 		}
-		recipes = append(recipes, recipeRow{
+		recipes = append(recipes, answerDocMechanismRecipeRow{
 			edge:   edge,
 			from:   fromAlias,
 			to:     toAlias,
 			anchor: string(payload),
+			typed:  typedAnchor,
 		})
 	}
 	if len(recipes) == 0 {
@@ -6903,6 +6917,88 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 	if len(edges) > len(bounded) {
 		fmt.Fprintf(b, "- (%d additional typed relation(s) omitted only from this compact authoring view)\n", len(edges)-len(bounded))
 	}
+	if copyReadyKind != types.DiagramNone {
+		renderAnswerDocMechanismCopyReadyDiagram(b, aliases, recipes, copyReadyKind)
+	}
+}
+
+func renderAnswerDocMechanismCopyReadyDiagram(
+	b *strings.Builder,
+	aliases []answerDocMechanismAliasRow,
+	recipes []answerDocMechanismRecipeRow,
+	kind types.DiagramKind,
+) {
+	if b == nil || len(aliases) == 0 || len(recipes) == 0 {
+		return
+	}
+	for _, row := range aliases {
+		if strings.ContainsAny(row.identity, "\r\n") {
+			return
+		}
+	}
+	anchors := make([]types.DiagramEdgeAnchor, 0, len(recipes))
+	for _, recipe := range recipes {
+		anchors = append(anchors, recipe.typed)
+	}
+	anchorJSON, err := json.Marshal(anchors)
+	if err != nil {
+		return
+	}
+
+	b.WriteString("\n#### Copy-ready optional typed diagram\n\n")
+	b.WriteString("- This is an optional authoring aid derived only from the typed recipes above. Copy the Mermaid body and the complete `edge_anchors_json` together, or omit the diagram. Keep disconnected components disconnected; do not invent story/actor bridges.\n\n")
+	b.WriteString("```mermaid\n")
+	if kind == types.DiagramSequence {
+		b.WriteString("sequenceDiagram\n")
+		for _, row := range aliases {
+			fmt.Fprintf(b, "  participant %s as %s\n", row.alias, answerDocMechanismMermaidLabel(row.identity))
+		}
+		for _, recipe := range recipes {
+			fmt.Fprintf(b, "  %s->>%s: %s\n", recipe.from, recipe.to, recipe.edge.relation)
+		}
+	} else {
+		b.WriteString("flowchart TD\n")
+		for _, row := range aliases {
+			fmt.Fprintf(b, "  %s[\"%s\"]\n", row.alias, answerDocMechanismMermaidLabel(row.identity))
+		}
+		for _, recipe := range recipes {
+			fmt.Fprintf(b, "  %s -->|%s| %s\n", recipe.from, recipe.edge.relation, recipe.to)
+		}
+	}
+	b.WriteString("```\n")
+	fmt.Fprintf(b, "- edge_anchors_json=`%s`\n", anchorJSON)
+}
+
+func answerDocMechanismMermaidLabel(identity string) string {
+	return strings.NewReplacer(
+		"&", "&amp;",
+		"\"", "&quot;",
+		"<", "&lt;",
+		">", "&gt;",
+	).Replace(strings.TrimSpace(identity))
+}
+
+// The copy-ready example follows the already-typed presentation choice. It is
+// absent when no diagram was requested or suggested, so the authority capsule
+// does not tempt a prose-only answer into drawing an unnecessary graph.
+func answerDocMechanismCopyReadyDiagramKind(
+	contract *types.DiagramContract,
+	hint *types.DiagramHint,
+) types.DiagramKind {
+	if contract != nil {
+		if contract.RequiredKind != types.DiagramNone && contract.RequiredKind.IsValid() {
+			return contract.RequiredKind
+		}
+		for _, kind := range contract.PreferredKinds {
+			if kind != types.DiagramNone && kind.IsValid() {
+				return kind
+			}
+		}
+	}
+	if hint != nil && hint.Kind != types.DiagramNone && hint.Kind.IsValid() {
+		return hint.Kind
+	}
+	return types.DiagramNone
 }
 
 func answerDocMechanismRelationAuthorityApplies(rm types.RequestModel) bool {

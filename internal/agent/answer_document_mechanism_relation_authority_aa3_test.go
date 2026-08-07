@@ -57,6 +57,9 @@ func TestMechanismRelationAuthorityPublishesOnlyTypedEdgesAndFlowPathsAA3(t *tes
 			RequestModel: types.RequestModel{
 				AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
 			},
+			AnswerContract: types.AnswerContract{Diagram: &types.DiagramContract{
+				PreferredKinds: []types.DiagramKind{types.DiagramFlow},
+			}},
 		},
 		EvidenceItems: []types.EvidenceItem{
 			{
@@ -84,6 +87,11 @@ func TestMechanismRelationAuthorityPublishesOnlyTypedEdgesAndFlowPathsAA3(t *tes
 		"node_alias[n1]=`convertTrace`",
 		"node_alias[n2]=`parseTraceMark`",
 		"edge_recipe[1]=`n1 -> n2`; relation_kind=`call`; edge_anchor_json=`{\"from_node\":\"n1\",\"to_node\":\"n2\",\"relation_kind\":\"call\"}`",
+		"#### Copy-ready optional typed diagram",
+		"flowchart TD",
+		`n1["convertTrace"]`,
+		"n1 -->|call| n2",
+		"edge_anchors_json=`[{\"from_node\":\"n1\",\"to_node\":\"n2\",\"relation_kind\":\"call\"}]`",
 		"typed_flow_path[1]=`readEvent -> parseTraceMark -> classifySpan`",
 	} {
 		if !strings.Contains(got, want) {
@@ -92,6 +100,107 @@ func TestMechanismRelationAuthorityPublishesOnlyTypedEdgesAndFlowPathsAA3(t *tes
 	}
 	if strings.Contains(got, "`A -> B`") {
 		t.Fatalf("unsupported flow finding must not receive path authority:\n%s", got)
+	}
+}
+
+func TestMechanismRelationCopyReadyFlowPreservesDisconnectedTypedComponentsAA3(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)}},
+			AnswerContract: types.AnswerContract{Diagram: &types.DiagramContract{
+				PreferredKinds: []types.DiagramKind{types.DiagramFlow},
+			}},
+		},
+		EvidenceItems: []types.EvidenceItem{
+			{
+				ID: "edge-a", Kind: types.EvidenceRelationship,
+				Source: "src/a.cpp", LineStart: 10, AnchorKind: types.AnchorCall,
+				Subject: "Factory<\"json\">", Object: "Parser.parse",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				ID: "edge-b", Kind: types.EvidenceRegistration,
+				Source: "src/b.cpp", LineStart: 20, AnchorKind: types.AnchorDefinition,
+				Subject: "Registry", Object: "Plugin",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+
+	got := renderAnswerDocMechanismRelationAuthority(ctx)
+	for _, want := range []string{
+		`n1["Factory&lt;&quot;json&quot;&gt;"]`,
+		`n2["Parser.parse"]`,
+		`n3["Registry"]`,
+		`n4["Plugin"]`,
+		"n1 -->|call| n2",
+		"n3 -->|register| n4",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("copy-ready flow missing %q:\n%s", want, got)
+		}
+	}
+	for _, bridge := range []string{"n2 --> n3", "n2 -->|call| n3", "n2 -->|register| n3"} {
+		if strings.Contains(got, bridge) {
+			t.Fatalf("copy-ready flow invented a bridge %q:\n%s", bridge, got)
+		}
+	}
+}
+
+func TestMechanismRelationCopyReadyDiagramFollowsSequenceContractAA3(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)}},
+			AnswerContract: types.AnswerContract{Diagram: &types.DiagramContract{
+				Required: true, RequiredKind: types.DiagramSequence,
+			}},
+		},
+		EvidenceItems: []types.EvidenceItem{{
+			ID: "edge", Kind: types.EvidenceRelationship,
+			Source: "src/call.go", LineStart: 10, AnchorKind: types.AnchorCall,
+			Subject: "Caller", Object: "Callee", GroundingStatus: types.GroundingGrounded,
+		}},
+	}
+
+	got := renderAnswerDocMechanismRelationAuthority(ctx)
+	if !strings.Contains(got, "edge_recipe[1]") {
+		t.Fatalf("sequence contract still needs typed per-edge recipe:\n%s", got)
+	}
+	for _, want := range []string{
+		"#### Copy-ready optional typed diagram",
+		"sequenceDiagram",
+		"participant n1 as Caller",
+		"participant n2 as Callee",
+		"n1->>n2: call",
+		"edge_anchors_json=`[{\"from_node\":\"n1\",\"to_node\":\"n2\",\"relation_kind\":\"call\"}]`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("sequence copy-ready diagram missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "flowchart TD") {
+		t.Fatalf("sequence contract must not receive a competing flowchart example:\n%s", got)
+	}
+}
+
+func TestMechanismRelationAuthorityDoesNotSuggestDiagramWithoutTypedPresentationIntentAA3(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+		}},
+		EvidenceItems: []types.EvidenceItem{{
+			ID: "edge", Kind: types.EvidenceRelationship,
+			Source: "src/call.go", LineStart: 10, AnchorKind: types.AnchorCall,
+			Subject: "Caller", Object: "Callee", GroundingStatus: types.GroundingGrounded,
+		}},
+	}
+
+	got := renderAnswerDocMechanismRelationAuthority(ctx)
+	if !strings.Contains(got, "edge_recipe[1]") {
+		t.Fatalf("typed relation recipe must remain available:\n%s", got)
+	}
+	if strings.Contains(got, "Copy-ready optional typed diagram") || strings.Contains(got, "```mermaid") {
+		t.Fatalf("a prose-only presentation must not be tempted into an unnecessary graph:\n%s", got)
 	}
 }
 

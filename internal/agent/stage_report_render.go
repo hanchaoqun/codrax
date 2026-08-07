@@ -46,6 +46,7 @@ package agent
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	promptctx "github.com/hanchaoqun/codrax/internal/context"
@@ -382,6 +383,14 @@ func formatEvidenceLineForReport(ev types.EvidenceItem, exactResolution *types.E
 			parts = append(parts, tag)
 		}
 	}
+	// Call/callback endpoints alone omit exact arguments that can carry the
+	// decisive value (output stream, selector, flag, payload field, etc.). The
+	// grounder has already replaced Snippet with the verified source line, so a
+	// bounded quoted replay is precise prompt context rather than model prose.
+	// This remains guidance only: no answer-side hard gate scans the model text.
+	if sourceLine := primaryEvidenceCallSourceLine(ev); sourceLine != "" {
+		parts = append(parts, "source_line="+strconv.Quote(sourceLine))
+	}
 
 	switch ev.GroundingStatus {
 	case types.GroundingRecovered:
@@ -391,6 +400,32 @@ func formatEvidenceLineForReport(ev types.EvidenceItem, exactResolution *types.E
 	}
 
 	return strings.Join(parts, " ")
+}
+
+func primaryEvidenceCallSourceLine(ev types.EvidenceItem) string {
+	// Recovered evidence may retain a nearby/snippet candidate even though its
+	// exact source coordinate was not verified. Do not promote that text into
+	// the cross-stage precision lane: only Tier-1 grounded lines may carry exact
+	// call arguments into extraction/finalization.
+	if ev.GroundingStatus != types.GroundingGrounded {
+		return ""
+	}
+	if ev.AnchorKind != types.AnchorCall && ev.AnchorKind != types.AnchorCallback {
+		return ""
+	}
+	line := strings.TrimSpace(ev.Snippet)
+	if line == "" {
+		return ""
+	}
+	if first, _, found := strings.Cut(line, "\n"); found {
+		line = strings.TrimSpace(first)
+	}
+	const maxRunes = 200
+	runes := []rune(line)
+	if len(runes) > maxRunes {
+		line = string(runes[:maxRunes]) + "…"
+	}
+	return line
 }
 
 // anchorKindDisplayTag returns the parenthetical suffix appended to
