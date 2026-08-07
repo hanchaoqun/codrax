@@ -22248,3 +22248,41 @@ claim-form 枚举仍遗漏它们；`edge_anchors` 的另一处 prose 也手抄 r
 状态：`EVAL-B205-CHAINPROFILE1=S35a-implemented/full-suite-pass`；
 `EVAL-B206-CALLSITEKEEP1=S35b-implemented/full-suite-pass/pending-exact-two-replay`；
 `EVAL-B207-JSONENUMSST1=S35b-implemented/full-suite-pass`；模型答案所有权=`preserved`；Trace=`not-touched`。
+
+### 123.188 B205 r136 + S35c：预读“已读/未读”合同矛盾与多态图层仍未闭环
+
+在 `da2df08ae` 构建后严格并行恰好两个多态/注册 case，runner 均 PASS，但人工均不签绿：
+
+- `sr_py_registry_dispatch`：90s，2 次 finalizer reject。`JsonPlugin`、注册表和 `resolve` 主体判断正确，但没有表达
+  `run_in_executor -> plugin.handle` 的 callback handoff，也把实际 cooperative MRO 压成了 `BasePlugin.handle`；
+- `sr_cpp_virtual_chain`：135s，2 次 finalizer reject。factory、injection、virtual write、`fputs` 的文字链大体完整，但图在两次修复后被删除，
+  且答案把源码/citation 中的 `stderr` 两次写成 `stdout`。
+
+两条的 `strict_decode_remap/carrier/element_shape` 与两类 string-recovery 指标全部为 0；本轮“成文校验未通过”是图关系语义拒绝，
+不是 malformed JSON。tool schema 的 claim/relation enum 已由 typed 单源生成，本轮也没有发现字段类型/required 的第二套 JSON 合同。
+
+Python 日志确认一个更早、更通用的 P0 合同矛盾。系统把 `pipeline/runner.py` 全文作为 `Pre-read File Content (saves you a read_file call)`
+注入模型上下文，并在 `EvidenceClosure` 中计为 readSet/range；但 `ground.BuildContext.LineIndex` 只重建显式 `read_file` tool result，导致同一
+`runner.py:17` 又被拒为 “not present in read_file history”。模型随后误以为其他证据均已落地并完成调查，finalizer 只剩普通 call，图必然删减。
+
+S35c 按证据来源根修，不要求模型重复读取：
+
+1. `preReadRequiredFilesTracked` 在生成提示时同时记录**同一份已注入行切片**；不在 grounder 中重新读磁盘，避免模型所见字节与后验字节竞态；
+2. `MutableState` 新增 task-scoped pre-read source snapshot/revision，跨 explore fork 合并、跨 dispatch reset 保留，在 `ResetTurnAArtifacts`
+   任务边界清空；快照与嵌套行表均防御性复制；
+3. `ground.BuildContext` 先铺预读快照，再由显式 `read_file` 精确覆盖同路径/同行；cache key 带 revision 与内容签名，不把不同 fork 的同序号快照混用；
+4. 现有 callback classifier 因此能在首轮 evidence emit 对精确行做 `call -> callback_handoff` 无损改类，不需要读取请求、答案、summary、语言名
+   或 case 名，也不把 handoff 升级成已执行调用；
+5. pin 覆盖 prompt 预读到 grounding 的生产接线、dispatch reset 保留、task reset 清除、fork merge、防御性快照与显式 read 覆盖旧预读。
+
+r136 同时保留三个后续高 ROI gap：`EVAL-B208-POLYCOMPOSE1=P1`（selection/injection/virtual dispatch 关系组合）、
+`EVAL-B209-COOPPATH1=P1`（跨语言 override/super/trait/mixin cooperative path）、`EVAL-B210-FACTVALUE1=P1`
+（结构化事实值与结论一致性；不得用答案关键词硬门）。这些应在 S36/S37 分批完成，不能用 C++/Python fixture 特判。
+
+S35c 未修改 analyzer/finalizer 结论、JSON 宽松恢复、Trace query/supplement/投影或任何 runtime trace gate；显式时间窗、Trace 因果投影、
+自动补齐、根因排序、唤醒链和可消除量保持原路径。
+
+状态：`EVAL-B206-CALLSITEKEEP1=partial/r136-pre-read-contract-confirmed`；
+`EVAL-B211-PREREADAUTH1=S35c-implemented/affected-suites-pass/pending-exact-two-replay`；
+`EVAL-B208-POLYCOMPOSE1=P1/next-S36`；`EVAL-B209-COOPPATH1=P1/next-S36`；
+JSON malformed/degradation=`not-triggered`；模型答案所有权=`preserved`；Trace=`not-touched`。

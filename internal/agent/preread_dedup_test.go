@@ -125,6 +125,10 @@ func TestPreReadRequiredFilesTrackedSeedsReadCoverage(t *testing.T) {
 	if !closure.HasReadLine("ressched.gni", 2) {
 		t.Fatal("tracked pre-read must seed visible line ranges")
 	}
+	_, _, _, preReadLines, _, _, _, _ := mut.GroundingContextSnapshot()
+	if got := preReadLines["ressched.gni"][2]; got != "line2" {
+		t.Fatalf("tracked pre-read must retain the exact model-visible bytes for grounding, got %q", got)
+	}
 	if drained := closure.DrainSatisfiedPendingReads(); drained != 1 {
 		t.Fatalf("pre-read coverage should drain pending forced read, drained=%d pending=%+v", drained, closure.PendingReads())
 	}

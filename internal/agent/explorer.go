@@ -18891,9 +18891,13 @@ func preReadRequiredFilesTracked(ctx *types.AgentContext, repoRoot string, files
 	if ctx != nil && ctx.Mutable != nil {
 		closure = ctx.Mutable.EvidenceClosure()
 	}
-	return preReadRequiredFilesWithObserver(repoRoot, files, maxFiles, maxLines, excludeRead, func(file string, totalLines, readLines int) {
+	return preReadRequiredFilesWithObserver(repoRoot, files, maxFiles, maxLines, excludeRead, func(file string, totalLines int, lines []string) {
+		readLines := len(lines)
 		if closure == nil || file == "" || totalLines <= 0 || readLines <= 0 {
 			return
+		}
+		if ctx != nil && ctx.Mutable != nil {
+			ctx.Mutable.RecordPreReadSource(file, lines)
 		}
 		readSet := closure.ReadSet()
 		if readSet == nil {
@@ -18911,7 +18915,7 @@ func preReadRequiredFilesTracked(ctx *types.AgentContext, repoRoot string, files
 	})
 }
 
-func preReadRequiredFilesWithObserver(repoRoot string, files []string, maxFiles, maxLines int, excludeRead map[string]bool, observe func(file string, totalLines, readLines int)) string {
+func preReadRequiredFilesWithObserver(repoRoot string, files []string, maxFiles, maxLines int, excludeRead map[string]bool, observe func(file string, totalLines int, lines []string)) string {
 	if repoRoot == "" || len(files) == 0 || maxFiles <= 0 {
 		return ""
 	}
@@ -18953,7 +18957,7 @@ func preReadRequiredFilesWithObserver(repoRoot string, files []string, maxFiles,
 		}
 		b.WriteString("```\n\n")
 		if observe != nil {
-			observe(f, totalLines, len(lines))
+			observe(f, totalLines, append([]string(nil), lines...))
 		}
 		injected++
 	}

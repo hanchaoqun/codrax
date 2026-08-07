@@ -131,6 +131,60 @@ func TestBuildContextCacheInvalidatesOnDispatchAppend(t *testing.T) {
 	}
 }
 
+func TestBuildContextPreReadSourceIsStrictGroundingAuthority(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.RecordPreReadSource("pipeline/runner.py", []string{
+		"async def run_pipeline(kind, payload):",
+		"    return await loop.run_in_executor(None, plugin.handle, payload)",
+	})
+	ctx := &types.BusContext{Mutable: mut}
+	first := BuildContext(ctx)
+	if got := first.LineIndex["pipeline/runner.py"][2]; !strings.Contains(got, "plugin.handle") {
+		t.Fatalf("pre-read exact source missing from strict line index: %+v", first.LineIndex)
+	}
+	if first.CacheStatus != "cache_miss" {
+		t.Fatalf("first pre-read context status=%q, want cache_miss", first.CacheStatus)
+	}
+
+	item := types.EvidenceItem{
+		Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+		Source: "pipeline/runner.py", LineStart: 2,
+		AnchorKind: types.AnchorCallback, AnchorSymbol: "plugin.handle",
+		Subject: "loop.run_in_executor", Predicate: "passes callback", Object: "plugin.handle",
+	}
+	if report := GroundItemScoped(&item, first); report.Status != types.GroundingGrounded {
+		t.Fatalf("model-visible pre-read callback must ground without a redundant read_file: report=%+v item=%+v", report, item)
+	}
+
+	// The persistent pre-read authority is intentionally independent of the
+	// per-dispatch tool buffer reset.
+	mut.ResetDispatchToolResults()
+	second := BuildContext(ctx)
+	if got := second.LineIndex["pipeline/runner.py"][2]; !strings.Contains(got, "plugin.handle") {
+		t.Fatalf("dispatch reset erased pre-read grounding authority: %+v", second.LineIndex)
+	}
+	mut.ResetTurnAArtifacts()
+	third := BuildContext(ctx)
+	if _, ok := third.LineIndex["pipeline/runner.py"]; ok {
+		t.Fatalf("task boundary must clear pre-read source authority: %+v", third.LineIndex)
+	}
+}
+
+func TestBuildContextExplicitReadOverridesOlderPreReadBytes(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.RecordPreReadSource("a.go", []string{"old source"})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		ToolResults: []types.ToolResult{
+			buildGutterReadResult("a.go", 1, []string{"new source"}, 1),
+		},
+	}
+	got := BuildContext(ctx).LineIndex["a.go"][1]
+	if got != "new source" {
+		t.Fatalf("explicit read_file must override older pre-read bytes, got %q", got)
+	}
+}
+
 func TestBuildContextCacheInvalidatesOnTurnAReplacementWithSameLength(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.SetTurnAArtifacts(types.TurnAArtifacts{

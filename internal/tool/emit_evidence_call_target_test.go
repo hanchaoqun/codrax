@@ -55,6 +55,30 @@ func TestNormalizeCallbackHandoffEvidenceDoesNotMintDirectCall(t *testing.T) {
 	}
 }
 
+func TestNormalizeCallbackHandoffEvidenceConsumesPromptPreReadAuthority(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.RecordPreReadSource("pipeline/runner.py", []string{
+		"async def run_pipeline(kind, payload):",
+		"    return await loop.run_in_executor(None, plugin.handle, payload)",
+	})
+	gc := ground.BuildContext(&types.BusContext{Mutable: mut})
+	item := types.EvidenceItem{
+		Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+		Source: "pipeline/runner.py", LineStart: 2,
+		AnchorKind: types.AnchorCall, AnchorSymbol: "plugin.handle",
+		Subject: "run_pipeline", Predicate: "calls", Object: "plugin.handle",
+	}
+	if !normalizeCallbackHandoffEvidence(&item, gc) {
+		t.Fatal("prompt pre-read should provide the exact-line authority for callback normalization")
+	}
+	if item.AnchorKind != types.AnchorCallback || item.Subject != "loop.run_in_executor" || item.Object != "plugin.handle" {
+		t.Fatalf("unexpected pre-read callback normalization: %+v", item)
+	}
+	if report := ground.GroundItemScoped(&item, gc); report.Status != types.GroundingGrounded {
+		t.Fatalf("normalized pre-read callback did not ground: report=%+v item=%+v", report, item)
+	}
+}
+
 func TestNormalizeCallEvidenceDirectionPrefersResolvedSemanticCallee(t *testing.T) {
 	caller := &repomap.FileInfo{
 		RelPath: "VisitController.java", Language: repomap.LangJava, Package: "com.clinic",

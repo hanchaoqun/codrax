@@ -244,6 +244,13 @@ type MutableState struct {
 	// share the same graph instance with zero I/O.
 	searchGraph any
 
+	// preReadSourceLines retains the exact current-source bytes injected into
+	// explorer prompts. Pre-read already counts as model-visible read coverage;
+	// the synchronous grounder must therefore consume the same bytes instead of
+	// contradicting the prompt with a redundant read_file requirement.
+	preReadSourceLines    map[string]map[int]string
+	preReadSourceRevision uint64
+
 	// scopedSearchGraphs stores run-local projections derived from
 	// searchGraph for repo_map subdirectory calls. Values are opaque for
 	// the same import-cycle reason as searchGraph. SetSearchGraph clears
@@ -1236,6 +1243,8 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 		finalAnswerHTMLPath:                 m.finalAnswerHTMLPath,
 		outputTranscriptRequest:             m.outputTranscriptRequest,
 		searchGraph:                         m.searchGraph,
+		preReadSourceLines:                  clonePreReadSourceLines(m.preReadSourceLines),
+		preReadSourceRevision:               m.preReadSourceRevision,
 		symbolOracle:                        m.symbolOracle,
 		logTriage:                           m.logTriage,
 		perfTrace:                           m.perfTrace,
@@ -1323,6 +1332,7 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 		HandoffLen:            fork.exploreForkTurnABaseHandoffLen,
 	}
 	phase1 := append([]Phase1RankedFile(nil), fork.phase1Ranking...)
+	preReadSourceLines := clonePreReadSourceLines(fork.preReadSourceLines)
 	searchGraph := fork.searchGraph
 	investigationComplete := fork.investigationComplete
 	investigationCompleteReason := fork.investigationCompleteReason
@@ -1362,6 +1372,14 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 	}
 	if m.searchGraph == nil && searchGraph != nil {
 		m.searchGraph = searchGraph
+	}
+	if len(preReadSourceLines) > 0 {
+		if m.preReadSourceLines == nil {
+			m.preReadSourceLines = clonePreReadSourceLines(preReadSourceLines)
+			m.preReadSourceRevision++
+		} else if mergePreReadSourceLines(m.preReadSourceLines, preReadSourceLines) {
+			m.preReadSourceRevision++
+		}
 	}
 	if investigationComplete {
 		// XGAP-FIX ① (§29.104.8): the fork carries the LATER-accepted
@@ -4593,6 +4611,8 @@ func (m *MutableState) ResetTurnAArtifacts() {
 	m.exploreForkTraceQueryRuntimeObservationBase = 0
 	m.traceQueryPublishedBlobRefs = nil
 	m.toolResultMemo = nil
+	m.preReadSourceLines = nil
+	m.preReadSourceRevision++
 	m.traceQueryCallWindows = nil
 	m.exploreForkTraceQueryCallWindowBase = 0
 	m.systemTraceSupplementResults = nil
@@ -4608,18 +4628,18 @@ func (m *MutableState) ResetTurnAArtifacts() {
 	m.cachedLabelSupportSource = nil
 }
 
-func (m *MutableState) GroundingContextRevisions() (turnARevision, dispatchRevision, searchGraphRevision uint64) {
+func (m *MutableState) GroundingContextRevisions() (turnARevision, dispatchRevision, searchGraphRevision, preReadSourceRevision uint64) {
 	if m == nil {
-		return 0, 0, 0
+		return 0, 0, 0, 0
 	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.turnAArtifactsRevision, m.dispatchToolResultsRevision, m.searchGraphRevision
+	return m.turnAArtifactsRevision, m.dispatchToolResultsRevision, m.searchGraphRevision, m.preReadSourceRevision
 }
 
-func (m *MutableState) GroundingContextSnapshot() (turnA *TurnAArtifacts, dispatch []ToolResult, searchGraph any, turnARevision, dispatchRevision, searchGraphRevision uint64) {
+func (m *MutableState) GroundingContextSnapshot() (turnA *TurnAArtifacts, dispatch []ToolResult, searchGraph any, preReadSourceLines map[string]map[int]string, turnARevision, dispatchRevision, searchGraphRevision, preReadSourceRevision uint64) {
 	if m == nil {
-		return nil, nil, nil, 0, 0, 0
+		return nil, nil, nil, nil, 0, 0, 0, 0
 	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -4627,7 +4647,8 @@ func (m *MutableState) GroundingContextSnapshot() (turnA *TurnAArtifacts, dispat
 	if len(m.dispatchToolResults) > 0 {
 		dispatch = append([]ToolResult(nil), m.dispatchToolResults...)
 	}
-	return turnA, dispatch, m.searchGraph, m.turnAArtifactsRevision, m.dispatchToolResultsRevision, m.searchGraphRevision
+	preReadSourceLines = clonePreReadSourceLines(m.preReadSourceLines)
+	return turnA, dispatch, m.searchGraph, preReadSourceLines, m.turnAArtifactsRevision, m.dispatchToolResultsRevision, m.searchGraphRevision, m.preReadSourceRevision
 }
 
 func cloneTurnAArtifactsPtr(in *TurnAArtifacts) *TurnAArtifacts {

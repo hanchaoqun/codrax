@@ -19,6 +19,7 @@ package ground
 
 import (
 	"fmt"
+	"hash/fnv"
 	"math"
 	"os"
 	"path/filepath"
@@ -82,7 +83,7 @@ var (
 // a citation to `/mnt/d/repo/README.md:7` could not match a
 // LineIndex built from a `read_file path=README.md` banner.
 type Context struct {
-	LineIndex         map[string]map[int]string // source path → (1-based line → text) from read_file only
+	LineIndex         map[string]map[int]string // source path → exact model-visible pre-read/read_file source text
 	ObservedLineIndex map[string]map[int]string // read_file plus source lines visibly returned by grep; never used for citation grounding
 	Graph             *repomap.Graph            // nil when explorer has not populated MutableState yet
 	RepoRoot          string                    // for path canonicalisation; empty is tolerated (no normalisation)
@@ -114,7 +115,7 @@ func BuildContext(ctx *types.BusContext) *Context {
 	if ctx == nil {
 		return gc
 	}
-	key, turnA, dispatch := buildContextCacheKey(ctx)
+	key, turnA, dispatch, preReadSourceLines := buildContextCacheKey(ctx)
 	if cached, ok := ctx.GroundingContextCacheGet(key); ok {
 		if cachedCtx, ok := cached.(*Context); ok && cachedCtx != nil {
 			return cloneContextWithCacheStatus(cachedCtx, "cache_hit")
@@ -159,7 +160,8 @@ func BuildContext(ctx *types.BusContext) *Context {
 	}
 	gc.RepoRoot = ctx.RepoRoot
 	gc.ActiveSetPath = buildActiveSetPathResolver(ctx)
-	gc.LineIndex = buildLineIndex(history, ctx.RepoRoot)
+	gc.LineIndex = cloneLineIndex(preReadSourceLines)
+	mergeLineIndex(gc.LineIndex, buildLineIndex(history, ctx.RepoRoot))
 	gc.ObservedLineIndex = buildObservedLineIndex(history, ctx.RepoRoot, gc.LineIndex)
 	if ctx.Mutable != nil {
 		if g, ok := ctx.Mutable.SearchGraph().(*repomap.Graph); ok {
@@ -186,29 +188,59 @@ func cloneContextWithCacheStatus(in *Context, status string) *Context {
 	return &out
 }
 
-func buildContextCacheKey(ctx *types.BusContext) (string, *types.TurnAArtifacts, []types.ToolResult) {
+func buildContextCacheKey(ctx *types.BusContext) (string, *types.TurnAArtifacts, []types.ToolResult, map[string]map[int]string) {
 	if ctx == nil {
-		return "", nil, nil
+		return "", nil, nil, nil
 	}
 	var turnA *types.TurnAArtifacts
 	var dispatch []types.ToolResult
-	var turnARev, dispatchRev, searchGraphRev uint64
+	var preReadSourceLines map[string]map[int]string
+	var turnARev, dispatchRev, searchGraphRev, preReadSourceRev uint64
 	var graph any
 	if ctx.Mutable != nil {
-		turnA, dispatch, graph, turnARev, dispatchRev, searchGraphRev = ctx.Mutable.GroundingContextSnapshot()
+		turnA, dispatch, graph, preReadSourceLines, turnARev, dispatchRev, searchGraphRev, preReadSourceRev = ctx.Mutable.GroundingContextSnapshot()
 	}
-	key := fmt.Sprintf("repo=%s|tool=%s|turnA=%d/%d|dispatch=%d/%d|graph=%d/%s|multi=%s",
+	key := fmt.Sprintf("repo=%s|tool=%s|turnA=%d/%d|dispatch=%d/%d|preread=%d/%s|graph=%d/%s|multi=%s",
 		ctx.RepoRoot,
 		toolResultsCacheSignature(ctx.ToolResults),
 		turnARev,
 		turnAToolResultCount(turnA),
 		dispatchRev,
 		len(dispatch),
+		preReadSourceRev,
+		lineIndexCacheSignature(preReadSourceLines),
 		searchGraphRev,
 		cacheIdentity(graph),
 		cacheIdentity(ctx.MultiGraph),
 	)
-	return key, turnA, dispatch
+	return key, turnA, dispatch, preReadSourceLines
+}
+
+func lineIndexCacheSignature(index map[string]map[int]string) string {
+	if len(index) == 0 {
+		return "0"
+	}
+	paths := make([]string, 0, len(index))
+	for path := range index {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	h := fnv.New64a()
+	for _, path := range paths {
+		_, _ = h.Write([]byte(path))
+		lines := make([]int, 0, len(index[path]))
+		for line := range index[path] {
+			lines = append(lines, line)
+		}
+		sort.Ints(lines)
+		for _, line := range lines {
+			_, _ = h.Write([]byte(strconv.Itoa(line)))
+			_, _ = h.Write([]byte{0})
+			_, _ = h.Write([]byte(index[path][line]))
+			_, _ = h.Write([]byte{0xff})
+		}
+	}
+	return strconv.FormatUint(h.Sum64(), 16)
 }
 
 func cacheIdentity(v any) string {
@@ -3516,6 +3548,20 @@ func cloneLineIndex(in map[string]map[int]string) map[string]map[int]string {
 		out[path] = copied
 	}
 	return out
+}
+
+// mergeLineIndex overlays newer exact source observations onto dst. Prompt
+// pre-read is layered first; an explicit read_file from the current dispatch
+// wins if the same path/line is observed again.
+func mergeLineIndex(dst, newer map[string]map[int]string) {
+	for path, lines := range newer {
+		if dst[path] == nil {
+			dst[path] = make(map[int]string, len(lines))
+		}
+		for line, text := range lines {
+			dst[path][line] = text
+		}
+	}
 }
 
 // observedLinePathIsRuntimeState mirrors the tool package's
