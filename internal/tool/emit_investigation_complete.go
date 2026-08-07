@@ -2140,8 +2140,16 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	aggregateFactNormalizationNotes := aggregateFactValueCanonicalizationNotes(p.AggregateFacts, aggregateFacts)
 	aggregateFactNormalizationNotes = append(aggregateFactNormalizationNotes, softAggregateNotes...)
 	earlyDowngradeConverged := false
-	if resultKind == "resolved" && callChainDiscoverySelectionRequired(ctx) &&
-		!types.HasCallChainDiscoverySelectionEvidence(evidenceSnapshot) {
+	discoverySelectionMissing := resultKind == "resolved" &&
+		callChainDiscoverySelectionRequired(ctx) &&
+		!types.HasCallChainDiscoverySelectionEvidence(evidenceSnapshot)
+	if !discoverySelectionMissing && ctx != nil && ctx.Mutable != nil {
+		// A previously converged lane may outlive a later form/coverage
+		// rejection. Precise current evidence upgrades that lane; do not carry
+		// an obsolete "selection unproven" boundary into the accepted answer.
+		ctx.Mutable.EvidenceClosure().ClearCompletionCaveat(types.DowngradeLaneCallChainDiscoverySelection)
+	}
+	if discoverySelectionMissing {
 		queueCallChainDiscoverySelectionRepair(ctx)
 		if !preCompleteDowngradeConverges(ctx, types.DowngradeLaneCallChainDiscoverySelection) {
 			ctx.Mutable.EvidenceClosure().BumpPreCompleteDowngrades(1)
@@ -3129,6 +3137,15 @@ func preCompleteDowngradeConverges(ctx *types.BusContext, lane types.DowngradeLa
 	closure := ctx.Mutable.EvidenceClosure()
 	if closure == nil {
 		return false
+	}
+	if closure.HasCompletionCaveat(lane) {
+		// Convergence is monotonic across the whole completion chain. A later
+		// form/coverage failure may cause another completion attempt, but it
+		// cannot reopen a lane whose typed boundary was already accepted.
+		// Queue helpers run before this function, so remove only the repair that
+		// belongs to this converged lane and preserve every sibling obligation.
+		closure.ClearRepairsByDowngradeLane(lane)
+		return true
 	}
 	blockerKey := types.ComputeDowngradeBlockerKey(closure.PendingReads(), closure.UnverifiedFindings(), closure.ActiveRepairs())
 	allowLaneChurn := lane == types.DowngradeLaneCompletionForm

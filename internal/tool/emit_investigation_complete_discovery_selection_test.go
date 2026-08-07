@@ -49,6 +49,25 @@ func discoverySelectionCompletionParams(t *testing.T) json.RawMessage {
 	return raw
 }
 
+func discoverySelectionCompletionParamsWithFormDebt(t *testing.T) json.RawMessage {
+	t.Helper()
+	raw, err := json.Marshal(map[string]any{
+		"reason": "static call path investigated", "confidence": "high", "result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind": "member_set", "label": "code members", "value": "1",
+			"provenance":   "emit_investigation_complete.aggregate_facts",
+			"dimensions":   []map[string]string{{"name": "proof_source", "value": "source"}},
+			"members":      []string{"Gate.Run (8 checks)"},
+			"member_notes": []string{"unrelated decorated member"},
+			"support_refs": []string{"src/logger.cpp:36"},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
 func TestEmitInvestigationComplete_DiscoverSinkRequestsOneTypedSelectionRepair(t *testing.T) {
 	call := discoverySelectionTestEvidence(types.AnchorCall, "Logger.log", "sink_->write", 36)
 	ctx := discoverySelectionCompletionContext([]types.EvidenceItem{call})
@@ -110,5 +129,67 @@ func TestEmitInvestigationComplete_DiscoverSinkNoProgressConvergesWithBoundary(t
 	if !found || !strings.Contains(res.Summary, "runtime target selection remains unproven") {
 		t.Fatalf("converged close must retain typed caveat and visible boundary: caveats=%+v note=%q",
 			ctx.Mutable.EvidenceClosure().CompletionCaveats(), res.Summary)
+	}
+}
+
+func TestEmitInvestigationComplete_ConvergedSelectionLaneStaysClosedAcrossLaterFormRepair(t *testing.T) {
+	call := discoverySelectionTestEvidence(types.AnchorCall, "Logger.log", "sink_->write", 36)
+	ctx := discoverySelectionCompletionContext([]types.EvidenceItem{call})
+	tool := &EmitInvestigationComplete{}
+	params := discoverySelectionCompletionParamsWithFormDebt(t)
+
+	first, err := tool.Execute(ctx, params)
+	if err != nil || first.Repair == nil || first.Repair.Code != "call_chain_discovery_selection_evidence" {
+		t.Fatalf("first attempt should request selection evidence: result=%+v err=%v", first, err)
+	}
+	second, err := tool.Execute(ctx, params)
+	if err != nil || second.Repair == nil || second.Repair.Code == "call_chain_discovery_selection_evidence" {
+		t.Fatalf("second attempt should converge selection then reach form repair: result=%+v err=%v", second, err)
+	}
+	if !ctx.Mutable.EvidenceClosure().HasCompletionCaveat(types.DowngradeLaneCallChainDiscoverySelection) {
+		t.Fatal("selection convergence caveat should persist while the later form gate repairs")
+	}
+
+	third, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("third Execute: %v", err)
+	}
+	if third.Repair != nil && third.Repair.Code == "call_chain_discovery_selection_evidence" {
+		t.Fatalf("later form failure must not reopen the converged selection lane: %+v", third)
+	}
+	for _, repair := range ctx.Mutable.EvidenceClosure().ActiveRepairs() {
+		if repair.DowngradeLane == types.DowngradeLaneCallChainDiscoverySelection {
+			t.Fatalf("converged selection repair must not remain queued: %+v", repair)
+		}
+	}
+}
+
+func TestEmitInvestigationComplete_NewSelectionEvidenceUpgradesConvergedLane(t *testing.T) {
+	call := discoverySelectionTestEvidence(types.AnchorCall, "Logger.log", "sink_->write", 36)
+	ctx := discoverySelectionCompletionContext([]types.EvidenceItem{call})
+	tool := &EmitInvestigationComplete{}
+	params := discoverySelectionCompletionParamsWithFormDebt(t)
+	if _, err := tool.Execute(ctx, params); err != nil {
+		t.Fatalf("first Execute: %v", err)
+	}
+	if _, err := tool.Execute(ctx, params); err != nil {
+		t.Fatalf("second Execute: %v", err)
+	}
+	if !ctx.Mutable.EvidenceClosure().HasCompletionCaveat(types.DowngradeLaneCallChainDiscoverySelection) {
+		t.Fatal("fixture must first converge selection")
+	}
+
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		discoverySelectionTestEvidence(types.AnchorAssignment, "sink_", "ConsoleSink", 22),
+	})
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("upgraded Execute: %v", err)
+	}
+	if ctx.Mutable.EvidenceClosure().HasCompletionCaveat(types.DowngradeLaneCallChainDiscoverySelection) {
+		t.Fatalf("new precise selection evidence must clear the obsolete caveat: %+v", res)
+	}
+	if res.Repair != nil && res.Repair.Code == "call_chain_discovery_selection_evidence" {
+		t.Fatalf("proved selection must not be requested again: %+v", res)
 	}
 }

@@ -143,6 +143,31 @@ func TestAppendCompletionCaveat_DedupByLane(t *testing.T) {
 	}
 }
 
+func TestCompletionCaveatLaneAuthorityCanUpgradeWithoutTouchingSiblingLane(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.AppendCompletionCaveat(CompletionCaveat{Lane: DowngradeLaneCallChainDiscoverySelection, Reason: "selection unproven"})
+	c.AppendCompletionCaveat(CompletionCaveat{Lane: DowngradeLaneCompletionForm, Reason: "form converged"})
+	c.AddRepair(RepairDirective{Kind: RepairEmitEvidence, Subject: "selection", DowngradeLane: DowngradeLaneCallChainDiscoverySelection})
+	c.AddRepair(RepairDirective{Kind: RepairEmitEvidence, Subject: "form", DowngradeLane: DowngradeLaneCompletionForm})
+
+	if !c.HasCompletionCaveat(DowngradeLaneCallChainDiscoverySelection) {
+		t.Fatal("selection lane caveat should be queryable as typed authority")
+	}
+	if cleared := c.ClearRepairsByDowngradeLane(DowngradeLaneCallChainDiscoverySelection); cleared != 1 {
+		t.Fatalf("selection repair clear=%d, want 1", cleared)
+	}
+	if repairs := c.ActiveRepairs(); len(repairs) != 1 || repairs[0].DowngradeLane != DowngradeLaneCompletionForm {
+		t.Fatalf("sibling repair must survive lane-local clear: %+v", repairs)
+	}
+	if !c.ClearCompletionCaveat(DowngradeLaneCallChainDiscoverySelection) ||
+		c.HasCompletionCaveat(DowngradeLaneCallChainDiscoverySelection) {
+		t.Fatal("precise selection evidence should be able to upgrade the converged lane")
+	}
+	if !c.HasCompletionCaveat(DowngradeLaneCompletionForm) {
+		t.Fatal("upgrading selection must not clear the sibling form caveat")
+	}
+}
+
 // TestComputeDowngradeBlockerKey_UnverifiedLifecycleChangesKeyOnce pins the
 // E6 identity contract: a finding that clears or demotes to Advisory is a
 // sanctioned blocker shrink — the key changes and convergence resets exactly

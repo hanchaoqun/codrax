@@ -25219,3 +25219,28 @@ r183 在 `main@4f68efb12` 上严格并发 2，运行 Rust `sr_rust_cross_module_
 状态：`EVAL-B303=S37an-implemented/focused-suite-pass/pending-production-replay`；
 `endpoint-authority=typed-current-request-only`；`JSON-teaching=single-source`；
 模型答案所有权=`preserved`；Trace/Write/Read=`unchanged`。
+
+### 123.294 S37ao：已收敛 downgrade lane 成为单调 authority，后续格式失败不得把它重新打开
+
+本批修复 B304 的跨门重开，不降低任何 lane 的首次补证要求或低增量阈值：
+
+1. 根因不是 selection gate 本身，而是 `CompletionCaveat` 过去仅供披露/调度端过滤；同一次 completion 在该 lane 收敛后若又被后置
+   member-set form、coverage 或其他结构门挡回，下一次从函数头重走时仍会先排同一 repair，再用已经变化的 active-repair 集合计算新 blocker key，遂把已接受边界当作新问题；
+2. `EvidenceClosure` 新增 lane-local typed authority：`HasCompletionCaveat`、`ClearCompletionCaveat` 与
+   `ClearRepairsByDowngradeLane`。它们只比较 `DowngradeLane` 枚举，不读取 retry summary、模型 thinking、用户/答案文本或相似度；清理只作用于同 lane，兄弟 repair/caveat
+   和全部 evidence/read state 保留；
+3. `preCompleteDowngradeConverges` 对全部 convergence lane 统一执行单调短路：若该 lane 已有 typed caveat，直接沿既有 disclose-and-proceed
+   边界继续，并删除 queue helper 在本轮刚排回的同 lane repair；后置门仍独立执行，不能借此跳过兄弟义务；
+4. 对 call-chain runtime-selection lane 另补精确升级臂：若后续新 evidence 已满足
+   `HasCallChainDiscoverySelectionEvidence`，删除过期 selection caveat，正常按“已证”车道继续；若仍未满足，则保留 caveat 和条件性披露但不再补证风暴；
+5. 生产同形测试先让 selection 缺证两次收敛，再故意触发后置 `member_set_support_refs` form repair；第三次 completion 不得重新返回
+   `call_chain_discovery_selection_evidence`，active repairs 中也不得残留 selection lane。另一正臂在 form repair 期间加入真实 assignment evidence，钉住 caveat 被升级清除；
+6. 类型层 pin 同时证明 lane-local repair 清理不影响 sibling completion-form repair，selection caveat 升级不影响 sibling caveat。该机制解决的是
+   “任一已收敛 lane 被另一个门重开”这一类问题，不针对 TS、某个符号、某段 retry 文案或单一 eval 拟合；
+7. 聚焦 production 同形测试通过后，完整执行 `go test ./internal/types ./internal/tool -count=1`，两包全绿（types 22.314s、tool
+   165.204s）。本批不修改 Analyzer JSON schema/教学、Explorer/Finalizer 内容指令、答案正文、Trace 路由/查询/投影/自动补采、Mermaid 或 write mode；模型结论仍由模型给出，系统只维护
+   typed completion 状态机。
+
+状态：`EVAL-B304=S37ao-implemented/affected-package-suite-pass`；
+`convergence-authority=monotonic-per-lane`；`new-typed-evidence=upgrade-supported`；
+模型答案所有权=`preserved`；Trace/JSON/Write=`unchanged`。
