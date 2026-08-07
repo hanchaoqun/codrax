@@ -24737,3 +24737,53 @@ B288 按定义证据自身的结构字段根修，不放松 reachability：
 
 状态：`EVAL-B288=S37ad-implemented/full-tests-pass/pending-production-replay`；`EVAL-B284-LOGICALRELATIONAUTH1=next-P1`；
 模型答案所有权=`preserved`；JSON 教学=`single-source/unchanged`；Trace 因果投影/自动补齐=`unchanged`。
+
+### 123.275 r175：definition identity 明显收敛但 scoped bare 分支仍漏；ArkTS 正确、final item citation 可错位
+
+r175 在 `main@40074166f` 上严格并发 2，运行 QF `qf_sequence_analyzer_gate` 与 ArkTS inventory
+`arkts_repomap`。runner 2/2 PASS；人工为 ArkTS PASS、QF partial。
+
+ArkTS 案 88s、一次 Explorer/Finalizer、零 reject/unavailable。typed source inventory 精确返回 4 个 `@Entry` 与 2 个 `@Builder`，符号、文件、行号和分组均与
+fixture 全集一致，证明 S37ad 的 definition identity 扩展没有破坏 ArkTS parser/inventory。上下文审计发现一条 P2 软债
+`EVAL-B290-PRESCANABSENCEPROSE1`：Analyzer 的 production-only 预扫漏掉 thirdparty 语料后，在 thinking 中称“没有 ETS 文件”；但它没有发 typed
+absence，最终 IR 仍保留两个 source-inventory unit，Explorer 的权威 lens 随后正确给出全集，错误判断未进入答案或硬门。最优方向是让无精确全集权威的预扫保持
+unknown/soft navigation，不把它升级为 absence；暂不扫描模型 prose 或为 thirdparty case 加关键词规则。
+
+QF 从 r174 的 597s、2 Explorer、24 次 completion，降为 474s、1 Explorer、4 次 completion；方向结论、列表和 Mermaid 一致保持
+`buildAnalysisIR -> gate.RunWith <- gate.Run`，没有 B287 锚点替换。总时长仍高，其中 finalizer 单次 provider 响应等待约 232s，属于本轮模型服务波动；
+不据此硬化系统答案或增加正文合同。
+
+S37ad 只关闭了 qualified anchor 分支。生产新 witness 为
+`definition_fact{subject:"gate", anchor_symbol:"Run", source:".../gate.go", line:134}`：精确身份表登记 bare `Run`，但 qualified endpoint
+`gate.Run` 转入 `resolveCallChainScopedBareDefinitionExistence` 后，该函数仍以 Subject 非空为由忽略 local anchor，先报 endpoint existence 未证；模型删除
+Subject 后重发同一 grounded definition 才通过。记为 B288 同族第二臂，立即用 S37ae 闭环。
+
+人工还确认 `EVAL-B291-ITEMCLAIMCITATION1`：Explorer 已提供正确 edge `gate.Run -> RunWith @ gate.go:135`，finalizer 上下文也明确列出 135；最终
+ordered-list/diagram 却把这条 call edge 绑定 citation `gate.go:134`（定义行）。`emit_answer_document` 修复了 quote 但没有拒绝，因为 block 级
+`claim_uses=call_edge` 没有逐 item 约束 citation_ref 必须指向同一 typed caller→callee carrier。答案拓扑正确但证据行错位，人工降为 partial；这是跨语言、跨图/列表
+的高 ROI 校验缺口，排在 B284 前审计根修。
+
+状态：`EVAL-B288=S37ad-production-partial/S37ae-immediate`；`EVAL-B290=confirmed-P2-soft-context`；
+`EVAL-B291=confirmed-P1-next`；`EVAL-B284=queued-after-B291`；runner=`2/2 PASS`、human=`1.5/2`；
+模型答案所有权=`preserved`；JSON 教学=`consistent/no-change`；Trace 因果投影/自动补齐=`unchanged`。
+
+### 123.276 S37ae：scoped bare definition 同时读取 local anchor 与 container subject
+
+S37ae 延续同一 typed identity 原则，不增加新推断源：
+
+1. `resolveCallChainScopedBareDefinitionExistence` 不再二选一读取 Subject/AnchorSymbol；新增
+   `callChainDefinitionHasBareOperation`，在同一 grounded definition row 上分别检查 local AnchorSymbol 与 Subject，只要一个是 exact bare operation 才进入既有
+   owner/source-scope qualification；
+2. source 文件 stem/直接 package 目录或 typed OwnerSymbol 的 owner 匹配、唯一 location、citable current-source、definition claim 等原门全部保留。该函数仍只铸
+   `definition_only` existence，不生成 call edge；qualified identity 仍由 exact map 处理，prefix sibling/错误 owner/多位置仍 fail-closed；
+3. 既有 14 种 qualified surface 的 scoped-bare matrix（Go、Java、Kotlin、C++、Rust、Python、JavaScript、TypeScript、Ruby、Swift、Lua、Proto、ArkTS、
+   Cangjie）新增 container Subject + local AnchorSymbol 同形；C 的无 owner `gate_run` 继续走 exact visible anchor，不做路径 owner 猜测；
+4. integration no-directed-path pin 改成 r175 生产形 `subject=gate + anchor_symbol=Run @ gate.go:134`，要求 endpoint existence 后合法闭合；无证明 6 次仍不收敛的
+   S37ac pin保持；
+5. 不读取用户/模型原文，不改回答、Mermaid 或 JSON schema。B291 另批处理，禁止借本批把 line 134 自动改成 135 或由系统代写模型结论。
+
+定向 endpoint existence、exact completion、`go test ./internal/types ./internal/tool` 与全仓 `go test ./...` 均已绿；下一步提交推送。随后先审计 B291 的 block/item claim-use 与 citation carrier
+映射，形成跨 ordered-list/table/diagram 的统一修复，再回到 B284 全语言逻辑 relation authority。
+
+状态：`EVAL-B288=S37ae-implemented/full-tests-pass/pending-production-replay`；`EVAL-B291=next-P1`；`EVAL-B284=queued`；
+模型答案所有权=`preserved`；JSON 教学=`single-source/unchanged`；Trace 能力=`unchanged`。

@@ -80,13 +80,7 @@ func resolveCallChainScopedBareDefinitionExistence(evidence []EvidenceItem, endp
 			ClaimFormOf(item) != ClaimDefinitionFact {
 			continue
 		}
-		identity := strings.TrimSpace(item.Subject)
-		if identity == "" {
-			identity = strings.TrimSpace(item.AnchorSymbol)
-		}
-		identity = strings.ToLower(sharedCallChainIdentity(identity))
-		if identity == "" || sharedCallChainQualifiedOwner(identity) != "" ||
-			strings.ToLower(sharedCallChainQualifiedOperation(identity)) != operation {
+		if !callChainDefinitionHasBareOperation(item, operation) {
 			continue
 		}
 		if !callChainDefinitionOwnerMetadataMatches(item, want, operation) &&
@@ -104,6 +98,25 @@ func resolveCallChainScopedBareDefinitionExistence(evidence []EvidenceItem, endp
 	default:
 		return CallChainEndpointExistenceAmbiguous, true
 	}
+}
+
+// callChainDefinitionHasBareOperation recognizes the local declaration token
+// independently from its enclosing Subject. A grounded row may carry
+// subject="gate" and anchor_symbol="Run"; the package/type container must not
+// hide the visible operation when source/owner scope can qualify it. Qualified
+// identities are deliberately excluded here because the exact-identity map
+// handles them without source-name inference.
+func callChainDefinitionHasBareOperation(item EvidenceItem, operation string) bool {
+	for _, raw := range []string{item.AnchorSymbol, item.Subject} {
+		identity := strings.ToLower(sharedCallChainIdentity(raw))
+		if identity == "" || sharedCallChainQualifiedOwner(identity) != "" {
+			continue
+		}
+		if strings.ToLower(sharedCallChainQualifiedOperation(identity)) == operation {
+			return true
+		}
+	}
+	return false
 }
 
 func callChainDefinitionOwnerMetadataMatches(item EvidenceItem, endpoint, operation string) bool {

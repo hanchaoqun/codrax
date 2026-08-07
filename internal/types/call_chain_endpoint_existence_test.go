@@ -157,6 +157,18 @@ func TestAnalyzeCallChainEndpointExistence_QualifiesUniqueBareDefinitionFromSour
 				got.StartProof != CallChainEndpointExistenceDefinitionOnly || got.EndProof != CallChainEndpointExistenceDefinitionOnly {
 				t.Fatalf("unique scoped bare definition did not prove %q: %+v", tt.endpoint, got)
 			}
+
+			container := sharedCallChainQualifiedOwner(sharedCallChainIdentity(tt.endpoint))
+			containerEvidence := []EvidenceItem{{
+				Kind: EvidenceDirect, AnchorKind: AnchorDefinition,
+				Subject: container, AnchorSymbol: tt.local,
+				Source: tt.file, LineStart: 20, GroundingStatus: GroundingGrounded,
+			}}
+			got = AnalyzeCallChainEndpointExistence(containerEvidence, tt.endpoint, tt.endpoint)
+			if !got.StartProven || !got.EndProven || got.StartAmbiguous || got.EndAmbiguous ||
+				got.StartProof != CallChainEndpointExistenceDefinitionOnly || got.EndProof != CallChainEndpointExistenceDefinitionOnly {
+				t.Fatalf("container subject must not hide scoped local anchor for %q: %+v", tt.endpoint, got)
+			}
 		})
 	}
 }
