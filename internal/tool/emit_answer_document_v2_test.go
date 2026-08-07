@@ -2678,6 +2678,71 @@ func TestEmitAnswerDocumentV2_StringifiedBlocksMissingOuterBlockCloseAccepted(t 
 	}
 }
 
+func TestEmitAnswerDocumentV2_StringifiedBlocksMissingNestedItemObjectOpenAccepted(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	body := `[
+{"id":"s1","kind":"summary","text":"lead"},
+{"id":"detail","kind":"section","text":"grounded detail"},
+{"id":"list1","kind":"ordered_list","items":[
+  {"id":"i1","label":"first","candidate_role":"function"},
+  "id":"i2","label":"second","candidate_role":"function"}
+]}
+]`
+	rawBlocks, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal blocks body: %v", err)
+	}
+	raw := json.RawMessage(`{"blocks":` + string(rawBlocks) + `}`)
+
+	res, err := tool.Execute(bus, raw)
+	if err != nil {
+		t.Fatalf("emit error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("lossless nested item opener repair should avoid finalizer retry: %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 3 {
+		t.Fatalf("summary, detail and principal list must all survive: %+v", doc)
+	}
+	items := doc.Blocks[2].Items
+	if len(items) != 2 || items[0].ID != "i1" || items[1].ID != "i2" || items[1].Label != "second" {
+		t.Fatalf("nested items were not recovered byte-semantically: %+v", items)
+	}
+	if got := bus.Mutable.AnswerDisplayAttachments(); len(got) != 0 {
+		t.Fatalf("lossless repair must not create a partial-answer attachment: %+v", got)
+	}
+}
+
+func TestInsertMissingArrayObjectOpenersIgnoresStringsAndObjectKeys(t *testing.T) {
+	valid := `[{"id":"table","kind":"table","columns":["Name","Value"],"items":[{"id":"r1","label":"A"}]}]`
+	if repaired, changed := insertMissingArrayObjectOpeners(valid); changed || repaired != valid {
+		t.Fatalf("valid string arrays/object keys must remain byte-identical: changed=%t repaired=%s", changed, repaired)
+	}
+	malformedStringElement := `[{"id":"list","kind":"ordered_list","items":["plain:value"]}]`
+	if repaired, changed := insertMissingArrayObjectOpeners(malformedStringElement); changed || repaired != malformedStringElement {
+		t.Fatalf("ordinary string item must not be promoted to an object: changed=%t repaired=%s", changed, repaired)
+	}
+	invalidAuthority := `[{"id":"s","kind":"summary","text":"lead"},"id":"x","kind":"not_a_kind","text":"must reject"}]`
+	if repaired, ok := repairAnswerBlocksArraySyntax(invalidAuthority); ok {
+		t.Fatalf("structural insertion must not legalize an invalid block kind: %s", repaired)
+	}
+	var oversized strings.Builder
+	oversized.WriteString(`[{"id":"list","kind":"ordered_list","items":[`)
+	for i := 0; i <= maxAnswerBlockArrayObjectOpenerRepairs; i++ {
+		if i != 0 {
+			oversized.WriteByte(',')
+		}
+		oversized.WriteString(`"id":"x","label":"y"}`)
+	}
+	oversized.WriteString(`]}]`)
+	tooMany := oversized.String()
+	if repaired, changed := insertMissingArrayObjectOpeners(tooMany); changed || repaired != tooMany {
+		t.Fatalf("repair count above cap must fail closed: changed=%t", changed)
+	}
+}
+
 func TestEmitAnswerDocumentV2_StringifiedBlocksFieldBoundaryDriftAccepted(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}

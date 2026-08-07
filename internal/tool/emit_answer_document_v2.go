@@ -2849,6 +2849,9 @@ func answerBlocksArraySyntaxCandidates(rawArray string) []string {
 		if repaired, changed := repairAnswerBlockProseFieldQuotes(base); changed {
 			add(repaired)
 		}
+		if repaired, changed := insertMissingArrayObjectOpeners(base); changed {
+			add(repaired)
+		}
 		if repaired, changed := insertMissingTopLevelBlockObjectClosers(base); changed {
 			add(repaired)
 		}

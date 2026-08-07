@@ -25470,3 +25470,30 @@ TypeScript + 一例异构 read/write/data/Trace，禁止为该 fixture 增加 sy
 状态：`EVAL-B312=S37at-implemented/full-suite-pass/pending-production-replay`；
 `receiver-authority=parser+lexical+immutable-only`；`raw-prose-hard-gate=none`；
 模型答案所有权=`preserved`；Trace/JSON/Write=`unchanged`；`EVAL-B313=S37au-next`。
+
+### 123.303 S37au：缺失数组对象左括号仅作有界结构自愈，JSON 教学继续单源
+
+`EVAL-B313-JSONMISSINGARRAYOBJECTOPEN1` 已按“能无损证明则修、不能则明确失败/降级”落地：
+
+1. r186 的首稿不是事实或权限错误，而是 stringified `blocks` 内嵌 `ordered_list.items[]` 的第二个对象漏了一个 `{`；其后全部 key/value、对象右括号、三块
+   visible payload 均仍在。旧 brace fallback 能抽出 summary/section，却不能证明 principal list 完整，因此正确拒绝并让模型整单重发，但多消耗一次 finalizer；
+2. `answerBlocksArraySyntaxCandidates` 新增 container-stack 候选：仅当当前位置是数组元素开头（前一个有效 token 为 `[` 或 `,`）、下一个 token 是可完整解析的
+   JSON string key 且紧随 `:` 时插入一个 `{`。既有对象内 key、普通字符串数组元素、字符串内容中的冒号或引号均不触发；不扫描模型 prose、用户问题、字段语义词或
+   eval symbol；
+3. 单次最多插入 8 个 opener，超限返回原文并 fail-closed。候选只有在整个 blocks 数组可被 `json.Unmarshal` 解成非空 block-object 数组、每个对象有合法 block kind，
+   且后续完整 projected schema、枚举、authority、citation/evidence、必需块与成文校验全部通过时才发布。非法 `kind` 即使括号可补也仍被拒绝；
+4. 生产同形测试保留 summary、detail、principal ordered_list 三块和两个 item（含 `candidate_role`），证明不会再因一个 `{` 缺失静默丢掉主列表，也不会产生
+   partial-answer attachment。负 pin 覆盖合法 columns/string array 字节不变、普通字符串 item 不提升、非法 block kind 不借 repair 合法化、9 处损坏超过 cap 不修；
+5. 新状态机放在独立 `answer_document_json_array_repair.go`，没有继续扩张 5k 行的 emit 主文件；候选仍从既有统一 syntax-candidate 管线进入，不建立第二套 decoder 或
+   field allowlist；
+6. 同批复核 JSON 教学：`answer-document-skill` 已明确 projected tool schema 是本轮字段/类型/required/enum 的唯一权威，静态 prose 是 placement guide、不是第二
+   schema；既有 structural pin 还明确禁止在静态 skill 重复“native JSON array / escaped JSON string”载体教学。故本批不再叠加第二套示例或字段清单，避免一边让模型服从
+   schema、一边让 prose 重建 schema；stringify/漏括号属于工具调用语法波动，由确定性恢复吸收；
+7. 可无损恢复时不向用户制造噪声；不能恢复时继续走既有 typed repair/retry，重试耗尽时保留可提取的 visible 字符串/块并明确模型输出破损导致降级，不伪装成完整答案。
+   `go test ./internal/tool -count=1` 与 `go test ./... -count=1` 全绿；
+8. 本批不更改模型答案正文、Required Answer Blocks、Trace 显式时间窗/因果投影/自动补齐/根因排序/唤醒链/窗内可消除量、Mermaid relation 权限、repomap、read/write
+   controller。系统只修 JSON 结构，不选择根因、优化方向或结论。
+
+状态：`EVAL-B313=S37au-implemented/full-suite-pass/pending-production-replay`；
+`repair=bounded-lossless-structure-only`；`json-teaching=projected-schema-single-source`；
+模型答案所有权=`preserved`；Trace/Mermaid/Read/Write=`unchanged`。
