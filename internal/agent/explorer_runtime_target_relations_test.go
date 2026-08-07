@@ -248,6 +248,63 @@ func TestBuildRuntimeTargetCooperativeCalls_PromotesExactReadSameOperationSuperC
 	}
 }
 
+func TestBuildRuntimeTargetCooperativeMethodDefinitions_RequiresTypedRosterOperationAndExactRead(t *testing.T) {
+	file := &repotypes.FileInfo{
+		RelPath: "pipeline/base.py", Language: repotypes.LangPython,
+		Symbols: []repotypes.Symbol{
+			{Name: "handle", Kind: "method", Parent: "BasePlugin", File: "pipeline/base.py", Line: 15, EndLine: 18},
+			{Name: "handle", Kind: "method", Parent: "ValidationMixin", File: "pipeline/base.py", Line: 30, EndLine: 33},
+			{Name: "handle", Kind: "method", Parent: "TimestampMixin", File: "pipeline/base.py", Line: 39, EndLine: 42},
+			{Name: "close", Kind: "method", Parent: "TimestampMixin", File: "pipeline/base.py", Line: 45, EndLine: 48},
+			{Name: "handle", Kind: "method", Parent: "UnrelatedMixin", File: "pipeline/base.py", Line: 52, EndLine: 55},
+		},
+	}
+	graph := repomap.BuildGraph(t.TempDir(), []*repotypes.FileInfo{file})
+	eval := runtimeTargetRelationEvaluator(graph)
+	closure := types.NewEvidenceClosure("")
+	closure.SetReadSet(map[string]bool{"pipeline/base.py": true})
+	closure.AddReadRanges(map[string][]types.LineRange{"pipeline/base.py": {{Start: 15, End: 48}}})
+	structural := []types.EvidenceItem{
+		{Subject: "JsonPlugin", Object: "TimestampMixin", Producer: types.EvidenceProducerRepoMapStructuralRelation, RelationOrdinal: 1},
+		{Subject: "JsonPlugin", Object: "ValidationMixin", Producer: types.EvidenceProducerRepoMapStructuralRelation, RelationOrdinal: 2},
+		{Subject: "JsonPlugin", Object: "BasePlugin", Producer: types.EvidenceProducerRepoMapStructuralRelation, RelationOrdinal: 3},
+	}
+	delegations := []types.EvidenceItem{
+		{Subject: "TimestampMixin.handle", OwnerSymbol: "TimestampMixin.handle", Producer: types.EvidenceProducerRepoMapCooperativeCall},
+		{Subject: "ValidationMixin.handle", OwnerSymbol: "ValidationMixin.handle", Producer: types.EvidenceProducerRepoMapCooperativeCall},
+	}
+
+	got := eval.buildRuntimeTargetCooperativeMethodDefinitions(
+		graph, map[string]bool{"pipeline/base.py": true}, map[string]bool{"pipeline/base.py": true}, closure, structural, delegations,
+	)
+	if len(got.evidence) != 3 {
+		t.Fatalf("three exact roster method declarations must be promoted: %+v", got.evidence)
+	}
+	want := []string{"BasePlugin.handle", "ValidationMixin.handle", "TimestampMixin.handle"}
+	for i, item := range got.evidence {
+		if item.Subject != want[i] || item.OwnerSymbol != want[i] || item.AnchorKind != types.AnchorDefinition ||
+			item.Producer != types.EvidenceProducerRepoMapCooperativeMethod || !item.IsCitable() {
+			t.Fatalf("unexpected cooperative method definition at %d: %+v", i, item)
+		}
+	}
+	for _, forbidden := range []string{"TimestampMixin.close", "UnrelatedMixin.handle", "runtime_mro_status=proven"} {
+		if strings.Contains(got.markdown, forbidden) {
+			t.Fatalf("cooperative definition builder leaked unrelated or proven-MRO surface %q:\n%s", forbidden, got.markdown)
+		}
+	}
+}
+
+func TestMergeConcreteValuesResults_PreservesEveryDeterministicLaneWithoutLiterals(t *testing.T) {
+	merged := mergeConcreteValuesResults(
+		concreteValuesResult{markdown: "types\n", evidence: []types.EvidenceItem{{ID: "E-type"}}},
+		concreteValuesResult{markdown: "super\n", evidence: []types.EvidenceItem{{ID: "E-super"}}},
+		concreteValuesResult{markdown: "methods\n", evidence: []types.EvidenceItem{{ID: "E-method"}}},
+	)
+	if merged.markdown != "types\nsuper\nmethods\n" || len(merged.evidence) != 3 || merged.evidence[2].ID != "E-method" {
+		t.Fatalf("deterministic typed lanes were dropped during empty-literal merge: %+v", merged)
+	}
+}
+
 func TestRuntimeTargetExplicitSuperCall_SupportedExtractorMatrixAndStandDown(t *testing.T) {
 	for _, tc := range []struct {
 		name       string

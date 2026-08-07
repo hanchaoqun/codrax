@@ -22666,3 +22666,31 @@ Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链�
 状态：`EVAL-B218-OWNERALIAS1=S36l-implemented/focused-test-pass`；
 `EVAL-B209-COOPDEF1=P1-next`；`EVAL-B222-VALUE-ROLE1=P1-next`；
 `EVAL-B217-FLOWUNLABELED1=closed/replay-observation-open`；模型答案所有权=`preserved`；JSON schema 单源=`preserved`；Trace=`not-touched`。
+
+### 123.201 S36m：cooperative roster 的 method-definition typed 通道补齐
+
+`EVAL-B209-COOPDEF1` 已补齐。旧实现虽然能产生 declared base order 与 exact-super call，但 finalizer 的 roster 还要求每个 base 的同名方法定义；
+该定义过去只能偶然依赖模型 `emit_evidence`，因此 r143 中两类 parser 事实均在，roster 仍因 definitions 为空而站下。本批新增
+`repomap_cooperative_method_definition`，资格由四个 typed 条件合取：
+
+1. 已接纳的 parser structural relation 中，同一 candidate 至少有两个按 `RelationOrdinal` 排序的 declared bases；
+2. 已接纳的 `repomap_cooperative_call` 提供 exact cooperative operation；
+3. repomap symbol 的 owner 唯一匹配上述 declared-base 集，且 method name 与 operation 相同；
+4. method declaration 的精确 source line 已在 `EvidenceClosure` read range 内。
+
+输出仅是 `Owner.operation` 的 `definition_fact`，并明确声明 method availability 不等于 runtime MRO，也不铸造
+`BaseA.operation -> BaseB.operation` call。finalizer 仍只把它与 base order、exact-super 和可选 binding 并置为
+`candidate_only/runtime_mro_status=unproven`，最终链路结论继续由模型给出。若同一短 owner 可匹配多个限定 base，生产者站下；不同 operation、
+未读方法和 roster 外 owner 均不进入。
+
+同期修复 deterministic-only 返回漏项：当活跃文件没有 concrete literal 时，旧 `buildConcreteValuesSection` 只返回 structural relation，
+会丢掉 cooperative call/method 两条确定性车道；现在统一合并所有 deterministic results，再决定是否追加 literal lane。全仓回归还揭出一个
+S36f 后遗留测试 fixture：它仍把 `MentionedEntities` 当 call-chain endpoint authority。生产代码已正确退役该来源，本批只把 fixture 改为精确
+`CallChainEndpointProfile`，没有恢复嘈声硬锚。
+
+验证：cooperative method 正向、不同 operation/roster owner 排除、deterministic-only 合并和 finalizer roster 聚焦测试全绿；types/agent/index
+定向套件全绿。首轮 `go test ./...` 唯一红项为上述陈旧 fixture，修正后该测试 10 次稳定通过；随后 `go test ./...` 全绿。
+
+状态：`EVAL-B209-COOPDEF1=S36m-implemented/focused-pass`；
+`EVAL-B222-VALUE-ROLE1=P1-next`；`STALE-MENTIONED-ENDPOINT-FIXTURE=closed`；
+模型答案所有权=`preserved`；JSON schema 单源=`preserved`；Trace 显式时间窗、因果投影、自动补齐、根因排序、唤醒链、可消除量=`not-touched`。

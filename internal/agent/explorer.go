@@ -13667,9 +13667,25 @@ type concreteValuesResult struct {
 	chainAnchors []chainAnchorInfo
 }
 
+func mergeConcreteValuesResults(results ...concreteValuesResult) concreteValuesResult {
+	var merged concreteValuesResult
+	var markdown strings.Builder
+	for _, result := range results {
+		if result.markdown != "" {
+			markdown.WriteString(result.markdown)
+		}
+		merged.evidence = append(merged.evidence, result.evidence...)
+		merged.chainAnchors = append(merged.chainAnchors, result.chainAnchors...)
+	}
+	merged.markdown = markdown.String()
+	return merged
+}
+
 const runtimeTargetStructuralRelationLimit = 24
 
 const runtimeTargetCooperativeCallLimit = 16
+
+const runtimeTargetCooperativeMethodLimit = 24
 
 // runtimeTargetStructuralRelationFiles separates exact read authority from
 // the volatile concrete-value frontier. filesToScan is intentionally narrowed
@@ -14008,6 +14024,188 @@ func (e *explorerEvaluator) buildRuntimeTargetCooperativeCalls(
 	b.WriteString("\n")
 	result.markdown = b.String()
 	return result
+}
+
+// buildRuntimeTargetCooperativeMethodDefinitions promotes the exact method
+// declarations needed to interpret cooperative-super facts. Eligibility is a
+// typed join only: a parser-authored multi-base declaration supplies candidate
+// owners, an already-promoted cooperative call supplies the operation, and the
+// method's declaration line must be in the exact read closure. The result does
+// not resolve MRO or create owner-to-owner call edges.
+func (e *explorerEvaluator) buildRuntimeTargetCooperativeMethodDefinitions(
+	graph *repomap.Graph,
+	filesToScan map[string]bool,
+	readSet map[string]bool,
+	closure *types.EvidenceClosure,
+	structuralRelations, cooperativeCalls []types.EvidenceItem,
+) concreteValuesResult {
+	if e == nil || graph == nil || len(structuralRelations) == 0 || len(cooperativeCalls) == 0 ||
+		!e.runtimeTargetStructuralRelationsActive() {
+		return concreteValuesResult{}
+	}
+
+	basesByCandidate := make(map[string][]string)
+	for _, item := range structuralRelations {
+		if item.Producer != types.EvidenceProducerRepoMapStructuralRelation || item.RelationOrdinal <= 0 ||
+			strings.TrimSpace(item.Subject) == "" || strings.TrimSpace(item.Object) == "" {
+			continue
+		}
+		candidate := strings.ToLower(strings.TrimSpace(item.Subject))
+		basesByCandidate[candidate] = append(basesByCandidate[candidate], strings.TrimSpace(item.Object))
+	}
+	declaredBases := make([]string, 0)
+	seenBase := make(map[string]struct{})
+	for _, bases := range basesByCandidate {
+		if len(bases) < 2 {
+			continue
+		}
+		for _, base := range bases {
+			key := strings.ToLower(strings.TrimSpace(base))
+			if _, duplicate := seenBase[key]; duplicate {
+				continue
+			}
+			seenBase[key] = struct{}{}
+			declaredBases = append(declaredBases, base)
+		}
+	}
+	if len(declaredBases) == 0 {
+		return concreteValuesResult{}
+	}
+
+	operations := make(map[string]string)
+	for _, item := range cooperativeCalls {
+		if item.Producer != types.EvidenceProducerRepoMapCooperativeCall {
+			continue
+		}
+		_, operation, qualified := traceEndpointQualifiedParts(firstNonEmptyString(item.OwnerSymbol, item.Subject))
+		if !qualified || operation == "" {
+			continue
+		}
+		if _, exists := operations[operation]; !exists {
+			operations[operation] = operation
+		}
+	}
+	if len(operations) == 0 {
+		return concreteValuesResult{}
+	}
+
+	type row struct {
+		item types.EvidenceItem
+	}
+	rows := make([]row, 0)
+	seen := make(map[string]struct{})
+	files := make([]string, 0, len(filesToScan))
+	for file := range filesToScan {
+		files = append(files, file)
+	}
+	sort.Strings(files)
+	for _, file := range files {
+		fi := graph.FileIndex[file]
+		if fi == nil {
+			continue
+		}
+		for _, sym := range fi.Symbols {
+			if sym.Kind != "method" && sym.Kind != "function" || sym.Line <= 0 {
+				continue
+			}
+			operation := strings.ToLower(strings.TrimSpace(sym.Name))
+			if _, wanted := operations[operation]; !wanted {
+				continue
+			}
+			owner := firstNonEmptyString(sym.Receiver, sym.Parent)
+			declaredOwner := runtimeTargetUniqueDeclaredOwner(owner, declaredBases)
+			if declaredOwner == "" {
+				continue
+			}
+			source := canonicalExplorerPath(sym.File)
+			if source == "" {
+				source = canonicalExplorerPath(fi.RelPath)
+			}
+			if source == "" {
+				continue
+			}
+			if closure != nil {
+				if !closure.HasReadLine(source, sym.Line) {
+					continue
+				}
+			} else if !readSetContains(readSet, source) {
+				continue
+			}
+			subject := declaredOwner + "." + strings.TrimSpace(sym.Name)
+			key := strings.ToLower(fmt.Sprintf("%s:%d:%s", source, sym.Line, subject))
+			if _, duplicate := seen[key]; duplicate {
+				continue
+			}
+			seen[key] = struct{}{}
+			item := types.EvidenceItem{
+				Kind:         types.EvidenceMechanism,
+				Subject:      subject,
+				Predicate:    "method_definition",
+				Source:       source,
+				LineStart:    sym.Line,
+				LineEnd:      sym.Line,
+				Confidence:   repotypes.ConfidenceAST,
+				Producer:     types.EvidenceProducerRepoMapCooperativeMethod,
+				Summary:      fmt.Sprintf("parser-authored cooperative method declaration: `%s`", subject),
+				Scope:        types.ScopeLine,
+				AnchorKind:   types.AnchorDefinition,
+				AnchorSymbol: subject,
+				OwnerSymbol:  subject,
+			}
+			item.ID = types.StableEvidenceID(item)
+			rows = append(rows, row{item: item})
+		}
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].item.Source != rows[j].item.Source {
+			return rows[i].item.Source < rows[j].item.Source
+		}
+		if rows[i].item.LineStart != rows[j].item.LineStart {
+			return rows[i].item.LineStart < rows[j].item.LineStart
+		}
+		return rows[i].item.Subject < rows[j].item.Subject
+	})
+	if len(rows) > runtimeTargetCooperativeMethodLimit {
+		rows = rows[:runtimeTargetCooperativeMethodLimit]
+	}
+	if len(rows) == 0 {
+		return concreteValuesResult{}
+	}
+
+	result := concreteValuesResult{evidence: make([]types.EvidenceItem, 0, len(rows))}
+	var b strings.Builder
+	b.WriteString("## Typed Cooperative Method Definitions (parser grounded)\n\n")
+	b.WriteString("These declarations belong to owners in an already-read multi-base roster and share an operation with an exact cooperative-super call. They prove method availability only; they do not resolve runtime MRO or create calls between owners.\n\n")
+	b.WriteString("| Evidence | File:Line | Method owner |\n")
+	b.WriteString("|----------|-----------|--------------|\n")
+	for _, entry := range rows {
+		result.evidence = append(result.evidence, entry.item)
+		fmt.Fprintf(&b, "| `%s` | `%s:%d` | `%s` |\n", entry.item.ID, entry.item.Source, entry.item.LineStart, entry.item.Subject)
+	}
+	b.WriteString("\n")
+	result.markdown = b.String()
+	return result
+}
+
+func runtimeTargetUniqueDeclaredOwner(owner string, candidates []string) string {
+	owner = strings.TrimSpace(owner)
+	if owner == "" {
+		return ""
+	}
+	match := ""
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" || !(strings.EqualFold(owner, candidate) ||
+			types.CallChainEndpointCompatible(owner, candidate) ||
+			types.CallChainEndpointCompatible(candidate, owner)) {
+			continue
+		}
+		if match != "" && !strings.EqualFold(match, candidate) {
+			return ""
+		}
+		match = candidate
+	}
+	return match
 }
 
 func runtimeTargetExplicitSuperCall(rel repotypes.Relation) bool {
@@ -14659,6 +14857,9 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 	structuralRelationFiles := runtimeTargetStructuralRelationFiles(filesToScan, readSet)
 	structuralRelations := e.buildRuntimeTargetStructuralRelations(graph, structuralRelationFiles, readSet, closure)
 	cooperativeCalls := e.buildRuntimeTargetCooperativeCalls(graph, structuralRelationFiles, readSet, closure)
+	cooperativeMethods := e.buildRuntimeTargetCooperativeMethodDefinitions(
+		graph, structuralRelationFiles, readSet, closure, structuralRelations.evidence, cooperativeCalls.evidence,
+	)
 
 	// Cache file contents to avoid re-opening the same file for each symbol.
 	fileLines := make(map[string][]string)
@@ -15001,7 +15202,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 		}
 	}
 	if len(allValues) == 0 {
-		return structuralRelations
+		return mergeConcreteValuesResults(structuralRelations, cooperativeCalls, cooperativeMethods)
 	}
 
 	// Pre-filter: strip prose-like values at the source so they
@@ -15249,6 +15450,9 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 	}
 	if cooperativeCalls.markdown != "" {
 		b.WriteString(cooperativeCalls.markdown)
+	}
+	if cooperativeMethods.markdown != "" {
+		b.WriteString(cooperativeMethods.markdown)
 	}
 	b.WriteString("## Concrete Values (programmatically extracted from source code)\n\n")
 	b.WriteString("These are EXACT values from source code — ground truth, not summaries. " +
@@ -15655,6 +15859,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 	// + formatEvidenceItems(limit=18) handles its own selection.
 	cvEvidence := append([]types.EvidenceItem(nil), structuralRelations.evidence...)
 	cvEvidence = append(cvEvidence, cooperativeCalls.evidence...)
+	cvEvidence = append(cvEvidence, cooperativeMethods.evidence...)
 	for i, v := range allRelevantForEvidence {
 		if i%1024 == 0 && ctx.Err() != nil {
 			return concreteValuesResult{}

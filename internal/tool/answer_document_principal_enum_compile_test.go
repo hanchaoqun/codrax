@@ -2584,6 +2584,7 @@ func TestPrunePrincipalEnumerationExtraneousItems_PreservesTypedCallChainEndpoin
 			Kind:              string(types.ReqCallChain),
 			MentionedEntities: []string{"buildAnalysisIR", "gate.Run", "analyzer.go"},
 		},
+		CallChainEndpointProfile: &types.CallChainEndpointProfile{Source: "buildAnalysisIR", Sink: "gate.Run"},
 	}}}
 	sets := []types.EnumerationDisplaySet{{
 		ID: "principal", Label: "intermediate functions", Role: types.AnswerAggregateRolePrincipalAnswer,
