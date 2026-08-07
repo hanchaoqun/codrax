@@ -243,7 +243,7 @@ func newAnswerDocDynamicTrace(ctx *types.AgentContext) *answerDocDynamicTrace {
 func (t *answerDocDynamicTrace) appendSection(b *strings.Builder, section string, fn func() string) bool {
 	if t == nil {
 		if out := fn(); out != "" {
-			b.WriteString(out)
+			appendAnswerDocDynamicSectionOutput(b, out)
 		}
 		return true
 	}
@@ -254,9 +254,35 @@ func (t *answerDocDynamicTrace) appendSection(b *strings.Builder, section string
 	out := fn()
 	stop()
 	if out != "" {
-		b.WriteString(out)
+		appendAnswerDocDynamicSectionOutput(b, out)
 	}
 	return !t.shouldStop(b, section)
+}
+
+// appendAnswerDocDynamicSectionOutput keeps independently rendered prompt
+// sections structurally separate. Section renderers intentionally own their
+// content, but they do not all own a trailing newline; without this boundary a
+// following Markdown heading can be glued to the previous sentence and change
+// both readability and model interpretation.
+func appendAnswerDocDynamicSectionOutput(b *strings.Builder, out string) {
+	if b == nil || out == "" {
+		return
+	}
+	if b.Len() > 0 {
+		prior := b.String()
+		boundaryNewlines := 0
+		for i := len(prior) - 1; i >= 0 && prior[i] == '\n' && boundaryNewlines < 2; i-- {
+			boundaryNewlines++
+		}
+		for i := 0; i < len(out) && out[i] == '\n' && boundaryNewlines < 2; i++ {
+			boundaryNewlines++
+		}
+		for boundaryNewlines < 2 {
+			b.WriteByte('\n')
+			boundaryNewlines++
+		}
+	}
+	b.WriteString(out)
 }
 
 func (t *answerDocDynamicTrace) runSection(section string, fn func()) bool {

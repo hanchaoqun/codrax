@@ -810,6 +810,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRequiredMechanis
 				Intent:   types.IntentExplain,
 				Scenario: types.ScenarioArchitectureExplain,
 				AnalyzerHints: types.AnalyzerHints{
+					ExactTargets:      []string{"runTaskGraph"},
 					MentionedEntities: []string{"runTaskGraph"},
 				},
 			},
@@ -842,6 +843,29 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRequiredMechanis
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q in typed mechanism-anchor contract:\n%s", want, prompt)
 		}
+	}
+}
+
+func TestAnswerDocDynamicTrace_AppendSectionPreservesMarkdownBoundary(t *testing.T) {
+	var b strings.Builder
+	trace := newAnswerDocDynamicTrace(&types.AgentContext{Stage: types.StageFinalize})
+	if !trace.appendSection(&b, "first", func() string { return "candidate-only guidance." }) {
+		t.Fatal("first section unexpectedly stopped")
+	}
+	if !trace.appendSection(&b, "second", func() string { return "## Preferred Visible Anchors" }) {
+		t.Fatal("second section unexpectedly stopped")
+	}
+	if got, want := b.String(), "candidate-only guidance.\n\n## Preferred Visible Anchors"; got != want {
+		t.Fatalf("dynamic prompt section boundary = %q, want %q", got, want)
+	}
+
+	var existingBoundary strings.Builder
+	existingBoundary.WriteString("first\n")
+	(*answerDocDynamicTrace)(nil).appendSection(&existingBoundary, "second", func() string {
+		return "\n## Second"
+	})
+	if got, want := existingBoundary.String(), "first\n\n## Second"; got != want {
+		t.Fatalf("existing section newlines should be normalized to one blank line: got %q, want %q", got, want)
 	}
 }
 

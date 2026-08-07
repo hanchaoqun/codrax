@@ -22548,3 +22548,35 @@ pre-emit repair 与 violation registry 的共同句源；schema 仍只公开 `{f
 
 状态：`EVAL-B217-FLOWUNLABELED1=S36h-closed/full-tests-pass/replay-next`；
 source diagram JSON teaching=`single-source`；模型答案所有权=`preserved`；Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链、可消除量=`not-touched`。
+
+### 123.197 S36i：r142 双案人工审计与动态 prompt 段落边界根修
+
+在 `main@c64410def` 上继续严格并行 2 个异构 call-chain eval：
+
+- `sr_cpp_virtual_chain`：runner `PASS`，116s，finalizer 拒绝/patch=`0/0`。B220 typed dynamic-dispatch 候选被模型正确消费，主链
+  `Logger::log -> Sink.write -> ConsoleSink.write -> std::fputs` 与构造期工厂选择均成立；但人工判定为 `fail`，因为源码先在
+  `src/logger.cpp:36` 执行 `write`，再由 line 37 的 `level >= kError` 仅控制 line 38 的 `flush`，答案却叙述成“先检查 kError，
+  然后 write”。这不是图门或模型答案所有权问题，而是 `EVAL-B218-FACTVALUE1` 的通用作用域/词法顺序 witness。
+- `sr_py_registry_dispatch`：runner 与人工均 `PASS`，137s，但 finalizer 拒绝/patch=`2/2`。最终 prose 正确保留
+  `run_pipeline -> resolve`、`json` 注册查表、callback handoff 与声明 MRO；前两轮 optional sequence 图把 lookup、实例化与
+  cooperative-super 错画为 direct call，B217 正确 fail-closed，第三轮删图出厂。由此 `EVAL-B209-COOPPATH1` 仍开放：系统已有
+  base declared order、registration 与 callback 的分离 typed 事实，却还没有足以安全表达 cooperative-super/registry dispatch 的图层配方。
+
+两案日志还共同出现确定性 prompt 结构错误：一个动态 section 以普通句号结束，紧随其后的
+`## Preferred Visible Anchors` 被拼成 `runtime target.## Preferred...`。根因不是 JSON 畸形或模型波动，而是
+`answerDocDynamicTrace.appendSection` 假设每个独立 renderer 都自带尾换行。现改由单一 append helper 在任意两个非空 section 之间保证至少
+一个 Markdown 空行，同时保留 renderer 内容与 soft-budget 行为；测试覆盖“双方都无换行”及“前后各已有一个换行”两臂。同期把一个仍用
+`MentionedEntities` 构造硬机制锚的陈旧测试 fixture 改为精确 `ExactTargets`，与 S36f 的生产信号边界一致，防止 test cache 掩盖合同漂移。
+
+本批没有新增/修改 JSON 字段教学，没有扫描用户输入、模型思考或最终 prose，不新增 answer hard gate，也不修改模型产出的答案。下一批顺序冻结为：
+
+1. `EVAL-B218-FACTVALUE1`：优先从 parser-authored 词法顺序/控制域生成 typed、candidate-only 上下文，禁止系统改写结论；
+2. `EVAL-B209-COOPPATH1`：以 declared base order、exact cooperative-super 与 registration/callback 关系构造跨语言可复用的分离关系配方，
+   不把 lookup、类型关系或运行时选择伪造成 call；
+3. 两项落地后再严格并行 2 案回放，比较事实错误、图保留与 finalizer retry 数。
+
+验证：`go test ./internal/agent` 全绿。原始 runner summary 与人工审计表均已随本节入库。
+
+状态：`EVAL-B221-PROMPTSECTION1=S36i-closed/focused-pass`；
+`EVAL-B218-FACTVALUE1=P1-next`；`EVAL-B209-COOPPATH1=P1-next`；JSON schema 单源=`preserved/not-triggered`；
+模型答案所有权=`preserved`；Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量=`not-touched`。
