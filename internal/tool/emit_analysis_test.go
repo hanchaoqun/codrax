@@ -1061,6 +1061,62 @@ func TestEmitAnalysis_SourceCallChainRejectsDiscoverModeWithNamedSink(t *testing
 	}
 }
 
+func TestEmitAnalysis_SourceCallChainRejectsDiscoverEmptyWithUniqueTypedExactDestination(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	objective := "请展示 buildAnalysisIR 到 gate.Run 的调用顺序"
+	payload := `{
+		"intent":"trace",
+		"scenario":"architecture_explain",
+		"complexity":"complex",
+		"keywords":["buildAnalysisIR","gate.Run","call","sequence"],
+		"entities":["buildAnalysisIR","gate.Run"],
+		"exact_targets":["buildAnalysisIR","gate.Run"],
+		"question_kind":"call_chain",
+		"predicate_axis":"call",
+		"call_chain_endpoints":{"source":"buildAnalysisIR","sink":"","sink_mode":"discover"}
+	}`
+	res, mu := runEmitAnalysisWithObjective(t, objective, payload)
+	if res.Success || !strings.Contains(res.Summary, "sink_mode=discover contradicts typed exact_targets") ||
+		!strings.Contains(res.Summary, `unique named destination is "gate.Run"`) ||
+		!strings.Contains(res.Summary, "typed no_directed_path") {
+		t.Fatalf("unique typed destination must not be silently discarded by discover-empty: success=%t summary=%q", res.Success, res.Summary)
+	}
+	if mu.RequestModel() != nil {
+		t.Fatalf("rejected named-destination contradiction must not persist: %+v", mu.RequestModel())
+	}
+}
+
+func TestCallChainUniqueExactDestinationUsesSetIdentityWithoutGuessing(t *testing.T) {
+	discover := &types.CallChainEndpointProfile{Source: "pkg::Start", SinkMode: types.CallChainSinkResolutionDiscover}
+	for _, tc := range []struct {
+		name    string
+		profile *types.CallChainEndpointProfile
+		targets []string
+		want    string
+		ok      bool
+	}{
+		{name: "unique", profile: discover, targets: []string{"pkg::Start", "svc::Finish"}, want: "svc::Finish", ok: true},
+		{name: "path does not add endpoint ambiguity", profile: discover, targets: []string{"pkg::Start", "svc::Finish", "src/pipeline.rs"}, want: "svc::Finish", ok: true},
+		{name: "source absent", profile: discover, targets: []string{"svc::Finish"}},
+		{name: "no destination", profile: discover, targets: []string{"pkg::Start"}},
+		{name: "two destinations", profile: discover, targets: []string{"pkg::Start", "svc::Finish", "audit::Finish"}},
+		{name: "exact profile", profile: &types.CallChainEndpointProfile{Source: "pkg::Start", Sink: "svc::Finish", SinkMode: types.CallChainSinkResolutionExact}, targets: []string{"pkg::Start", "svc::Finish"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := callChainUniqueExactDestination(tc.profile, tc.targets)
+			if ok != tc.ok || got != tc.want {
+				t.Fatalf("destination=%q ok=%t, want %q/%t", got, ok, tc.want, tc.ok)
+			}
+		})
+	}
+	if issue := validateCallChainEndpointWireShape(string(types.ReqCallChain), types.AxisCall, true, discover, []string{"pkg::Start", "svc::Finish"}); issue != "" {
+		t.Fatalf("runtime artifact carrier must stay outside source-code endpoint admission, got %q", issue)
+	}
+}
+
 func TestEmitAnalysis_MechanismWithProvenancedOrderedCallProfilePromotesToCallChain(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

@@ -24158,3 +24158,25 @@ discover-empty、且 `exact_targets` 除 source 后恰有一个唯一代码端�
 `EVAL-B269-NAMEDENDPOINTDISCOVER1=confirmed/immediate`；`EVAL-B262-TRANSITIVEHOPDEPTH1=open/P1`；
 `EVAL-B268-SEQUENTIALASPARALLEL1=not-reproduced/model-variance`；模型答案所有权=`preserved`。
 本批无 runtime artifact；未改动或推断具体时间窗 Trace 因果投影、自动补齐、根因排序、唤醒链、窗内可消除量或双维根因分析。
+
+### 123.253 S37t：唯一 typed named destination 不得降成 discover-empty
+
+`EVAL-B269-NAMEDENDPOINTDISCOVER1` 在 `emit_analysis` normalization 前的 call-chain wire admission 根修：
+
+1. 保留 S37n 既有 `discover + 非空 sink` fail-loud；新增互补臂只读 schema 已验证的 typed 字段：source-code `ReqCallChain`、`AxisCall`、
+   `sink_mode=discover`、空 sink 与 `exact_targets`。不扫描用户原始输入、模型 thinking/final prose，也不按 `buildAnalysisIR/gate.Run` 名字分支；
+2. `exact_targets` 作为集合解释，不使用数组顺序。先通过统一 code-endpoint 过滤移除路径/文件上下文，再要求 typed source 自身在集合内；排除 source 后若恰好只剩
+   一个逻辑代码身份，则 discover-empty 与“唯一已命名 destination”结构矛盾，admission 拒绝并要求模型改为 `sink_mode=exact + sink=<destination>`；
+3. qualified/short 表面使用既有跨语言 endpoint compatibility 聚合为同一逻辑身份；source 缺席、零 destination、两个以上 distinct destinations、限定身份歧义均
+   fail-open，系统不猜方向或选择终点。合法“用户询问最终到哪个实现”的 discover-empty 保持原样；
+4. runtime artifact carrier 显式旁路。带时间窗 hitrace/log/trace_query 的 runtime targets 继续由运行时关系合同处理，不把源码 `exact_targets` 伸进 Trace 因果投影；
+5. 拒绝信息直接解释修复后的语义结果：exact directed reachability 要么证明 source→sink，要么推动模型在读源码后声明 typed
+   `principal_span_waiver=no_directed_path` 并展示最近已证路径/真实反向边。系统不自动选择 waiver、不写答案；
+6. e2e pin 复刻 r164 payload，证明 contradiction 不持久化 RequestModel；集合单元 pin 覆盖唯一目标、路径附加、source 缺席、无目标、多目标、exact profile 与
+   runtime bypass。合法 discover destination 及 S37n named-nonempty tests 保持。
+
+定向 call-chain admission tests、`go test ./internal/tool -count=1` 与 `go test ./...` 全绿。
+
+状态：`EVAL-B269-NAMEDENDPOINTDISCOVER1=S37t-implemented/full-tests-pass/pending-production-replay`；
+`EVAL-B262-TRANSITIVEHOPDEPTH1=next-P1`；模型答案所有权=`preserved`；JSON teaching=`unchanged`；
+Trace 显式窗/因果投影/自动补齐/根因排序/唤醒链/窗内可消除量/双维根因分析=`untouched`。
