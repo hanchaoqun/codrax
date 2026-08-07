@@ -23889,3 +23889,57 @@ Trace runtime family、显式窗、自动补齐、因果投影、根因排序、
 状态：`EVAL-B258-DISCOVERSINKWIRE1=S37n-implemented/full-tests-pass`；
 `EVAL-B259-EVALSOURCELOC1=S37n-implemented/full-tests-pass`；`sequence-display-parameter-identity=open`；
 `all-language-flowchart-relation-anchor=open`。
+
+### 123.243 r160：discover 合同生产闭环；重复 JSON 数组键制造第二张图，反向边交接不足
+
+r160 在 `main@7c411a403` 上严格并发 2，运行 read 的 `qf_sequence_analyzer_gate` 与 Python
+`sr_py_registry_dispatch`。runner 1/2 PASS；人工 Python=pass、sequence=fail。两例都没有 Trace/system supplement 接管模型结论。
+
+Python 案 87s、一次成文、零 reject。答案正确解释 `kind=json` 最终落到 `JsonPlugin`，并串起
+`run_pipeline -> resolve -> REGISTRY -> cls() -> handle` 与 import-time `@register`。该案未输出 diagram，因此既不能关闭、也不能否证
+`sequence-display-parameter-identity`；本轮不得用 runner PASS 虚销该开放守护。
+
+sequence 案确认 S37n 生产生效：第一次 analyzer emit 的 `sink_mode=discover + sink=gate.Run` 被结构拒绝，模型下一轮改为 `exact`；completion 最终以
+`principal_span_waiver=no_directed_path` 接受，精确披露 `buildAnalysisIR` 只调用 `gate.RunWith`，不存在到用户命名 `gate.Run` 的有向路径。
+`EVAL-B258-DISCOVERSINKWIRE1=production-closed`。
+
+但答案仍人工失败，确认四个可区分 gap：
+
+1. `EVAL-B260-DUPARRAYKEY1`（P0/P1）：首个 answer patch 在同一 JSON object 内发射两个顶层 `replace_blocks` key；二者各自都是合法 array。
+   Go 默认 object decode 会丢前批，当前兼容路径又把两批元素融合成一个 `ordered_list + diagram` fused block。保真 split 随后从 fused block 新增第二张图，
+   RequiredBlock `MaxCount=1` 因而连续拒绝。模型看不到实际 split 后的两个 diagram id，只能猜测并最终显式删除原图；旧 rejected-draft attachment 又把图恢复到可见答案。
+   这是 JSON carrier 修复 gap，不是 diagram 上限过严；
+2. `EVAL-B261-REVERSEEDGEHANDOFF1`（P1）：源码真实方向是 `gate.Run -> RunWith`。探索读到了 `gate.go:134-138`，但只发了两个 definition item，
+   没有发 `Run -> RunWith @ :135` typed call edge；finalizer handoff 因而只知道定义身份与 no-directed-path，最终把包装方向说反。系统不能根据邻接定义直接代写关系，
+   应让调查把已观察到的 reverse/parallel direct edge 独立发证；
+3. `EVAL-B262-TRANSITIVEHOPDEPTH1`（P1）：用户要求关键中间函数，探索却只枚举 `buildAnalysisIR` 的 14 个直接调用，未下钻
+   `analyzerSymbolResolver -> analyzerGraphForNormalize`。这是 typed call frontier 的深度/路径选择 gap，不能按当前 helper 名拟合；
+4. `EVAL-B263-PATCHOPTEACH1`（P1）：四操作教学本身正确，但 duplicate-key/fused-split 后的实际 merged block id 没有进入 typed repair metadata，
+   模型无法解释“2 张图”的来源。B260 根修可消除本 witness；未来若仍有 split 后 cardinality reject，应返回 offending block ids，而不是扫描模型 prose 或让模型猜。
+
+runner 唯一缺失 regex `analyzerGraphForNormalize` 不是假红：最终答案确实缺该关键 helper，且另有包装方向事实错误。该 case 不应通过删断言或放宽 call-edge 门变绿。
+
+状态：`runner=1/2 PASS`；`human=1/1(pass/fail)`；`EVAL-B258-DISCOVERSINKWIRE1=production-closed`；
+`EVAL-B260-DUPARRAYKEY1=confirmed/immediate`；`EVAL-B261-REVERSEEDGEHANDOFF1=open/P1`；
+`EVAL-B262-TRANSITIVEHOPDEPTH1=open/P1`；`EVAL-B263-PATCHOPTEACH1=open/P1`；
+`sequence-display-parameter-identity=open`；`all-language-flowchart-relation-anchor=open`。
+
+### 123.244 S37o：schema 证明的重复数组键无损拼接，禁止 last-key-wins 与对象融合
+
+`EVAL-B260-DUPARRAYKEY1` 在共享 `internal/toolparam` 边界根修：
+
+1. normalizer 在普通 map decode 前按原始 JSON token 顺序读取顶层 object 属性；只有同名属性在 tool schema 中明确为 `type=array`，且每个 occurrence
+   都是 native JSON array 时，才按出现顺序拼接元素并发出 `duplicate_array_property_concat` typed repair telemetry；
+2. 该规则保留每个数组元素及批次顺序，不做逐下标对象 merge，因此两个 `replace_blocks[]` 批次仍是两个独立完整 block；后续 patch mutation 按 id
+   原位替换，不触发 fused-diagram split，也不增加 block count；
+3. 重复 scalar、object、unknown property、array 与非-array 混合等歧义形保持原样，不由系统选择值或猜模型意图。当前只覆盖函数调用最常见的顶层参数 object；
+   nested duplicate key 继续开放，待存在同样无损且 schema 证明的规则后再扩；
+4. 通用 normalizer pin 验证两批 array 顺序与旁路属性不变，并验证冲突 string/object 不修；AnswerDocument patch e2e pin 复刻 r160：两个
+   `replace_blocks` 都落地、块数保持 3、最终 diagram 恰为 1；
+5. 判据只读 JSON token 与工具 schema，不读用户原文、模型 thinking/final prose，不按 qf、Mermaid、Python 或具体 block id 拟合。模型仍拥有每个 block
+   的内容、图和结论，系统只修复无损载体。
+
+定向 `go test ./internal/toolparam ./internal/tool` 与 `go test ./...` 全绿。
+
+状态：`EVAL-B260-DUPARRAYKEY1=S37o-implemented/full-tests-pass`；`EVAL-B261-REVERSEEDGEHANDOFF1=next-P1`；
+模型答案所有权=`preserved`；Trace 显式窗/因果投影/自动补齐/根因排序/唤醒链/窗内可消除量与双维根因分析=`untouched`。

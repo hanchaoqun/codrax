@@ -91,14 +91,28 @@ func Normalize(raw json.RawMessage, schema json.RawMessage, cfg types.ToolParamC
 	if mode != types.ToolParamCompatAudit && mode != types.ToolParamCompatRepair {
 		return raw, Report{}
 	}
-	value, ok := decodeJSONValue(raw)
+	// A JSON object may legally reach encoding/json with the same property
+	// name more than once. The standard decoder keeps only the last value,
+	// which is particularly destructive for model tool calls that emit two
+	// batches under the same array field (for example two replace_blocks
+	// arrays). When the schema proves that the repeated property is an array
+	// and every occurrence is a native JSON array, concatenate the arrays
+	// before the ordinary map decoder can discard either batch. Conflicting
+	// scalar/object duplicates remain untouched: choosing between them would
+	// invent intent rather than repair transport structure.
+	normalizeInput := raw
 	var syntaxRepairs []Repair
+	if repaired, repairs, ok := coalesceDuplicateSchemaArrayProperties(raw, schema); ok {
+		normalizeInput = repaired
+		syntaxRepairs = append(syntaxRepairs, repairs...)
+	}
+	value, ok := decodeJSONValue(normalizeInput)
 	if !ok {
-		if repaired, changed := RemoveTrailingCommasBeforeJSONClosers(string(raw)); changed {
+		if repaired, changed := RemoveTrailingCommasBeforeJSONClosers(string(normalizeInput)); changed {
 			if decoded, decodedOK := decodeJSONValue(json.RawMessage(repaired)); decodedOK {
 				value = decoded
 				ok = true
-				raw = json.RawMessage(repaired)
+				normalizeInput = json.RawMessage(repaired)
 				syntaxRepairs = append(syntaxRepairs, repair("$", "json_trailing_comma", "invalid_json", "json"))
 			}
 		}
@@ -120,6 +134,136 @@ func Normalize(raw json.RawMessage, schema json.RawMessage, cfg types.ToolParamC
 		return raw, Report{}
 	}
 	return json.RawMessage(encoded), report
+}
+
+type rawObjectProperty struct {
+	key   string
+	value json.RawMessage
+}
+
+// coalesceDuplicateSchemaArrayProperties performs one deliberately narrow
+// duplicate-key repair at the top-level tool-argument object. Top-level is the
+// common function-calling transport failure surface and keeps the rewrite
+// auditable; nested duplicate properties are left to the owning tool's strict
+// validation until an equally lossless rule exists for them.
+func coalesceDuplicateSchemaArrayProperties(raw json.RawMessage, schema json.RawMessage) (json.RawMessage, []Repair, bool) {
+	properties, ok := decodeRawObjectProperties(raw)
+	if !ok || len(properties) < 2 {
+		return raw, nil, false
+	}
+	node, ok := parseSchema(schema)
+	if !ok || !schemaExpectsObject(node) || len(node.Properties) == 0 {
+		return raw, nil, false
+	}
+
+	occurrences := make(map[string][]int, len(properties))
+	for i, property := range properties {
+		occurrences[property.key] = append(occurrences[property.key], i)
+	}
+	mergedByKey := make(map[string]json.RawMessage)
+	var repairs []Repair
+	for key, indexes := range occurrences {
+		if len(indexes) < 2 {
+			continue
+		}
+		propertySchema, exists := node.Properties[key]
+		if !exists {
+			continue
+		}
+		propertyNode, parsed := parseSchema(propertySchema)
+		if !parsed || !schemaExpectsArray(propertyNode) {
+			continue
+		}
+		var merged []json.RawMessage
+		valid := true
+		for _, index := range indexes {
+			var batch []json.RawMessage
+			if err := json.Unmarshal(properties[index].value, &batch); err != nil {
+				valid = false
+				break
+			}
+			merged = append(merged, batch...)
+		}
+		if !valid {
+			continue
+		}
+		encoded, err := json.Marshal(merged)
+		if err != nil {
+			continue
+		}
+		mergedByKey[key] = encoded
+		repairs = append(repairs, repair(
+			propertyPath("$", key),
+			"duplicate_array_property_concat",
+			fmt.Sprintf("array×%d", len(indexes)),
+			fmt.Sprintf("array(len=%d)", len(merged)),
+		))
+	}
+	if len(mergedByKey) == 0 {
+		return raw, nil, false
+	}
+	sort.SliceStable(repairs, func(i, j int) bool { return repairs[i].Path < repairs[j].Path })
+
+	seen := make(map[string]bool, len(mergedByKey))
+	var out bytes.Buffer
+	out.WriteByte('{')
+	wrote := false
+	for _, property := range properties {
+		if merged, exists := mergedByKey[property.key]; exists {
+			if seen[property.key] {
+				continue
+			}
+			property.value = merged
+			seen[property.key] = true
+		}
+		if wrote {
+			out.WriteByte(',')
+		}
+		encodedKey, _ := json.Marshal(property.key)
+		out.Write(encodedKey)
+		out.WriteByte(':')
+		out.Write(bytes.TrimSpace(property.value))
+		wrote = true
+	}
+	out.WriteByte('}')
+	if !json.Valid(out.Bytes()) {
+		return raw, nil, false
+	}
+	return json.RawMessage(out.Bytes()), repairs, true
+}
+
+func decodeRawObjectProperties(raw json.RawMessage) ([]rawObjectProperty, bool) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	opening, err := dec.Token()
+	if err != nil || opening != json.Delim('{') {
+		return nil, false
+	}
+	var out []rawObjectProperty
+	for dec.More() {
+		keyToken, err := dec.Token()
+		if err != nil {
+			return nil, false
+		}
+		key, ok := keyToken.(string)
+		if !ok {
+			return nil, false
+		}
+		var value json.RawMessage
+		if err := dec.Decode(&value); err != nil {
+			return nil, false
+		}
+		out = append(out, rawObjectProperty{key: key, value: append(json.RawMessage(nil), value...)})
+	}
+	closing, err := dec.Token()
+	if err != nil || closing != json.Delim('}') {
+		return nil, false
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		return nil, false
+	}
+	return out, true
 }
 
 func normalizeValue(value any, schema json.RawMessage, path string, cfg types.ToolParamCompatConfig) (any, []Repair) {

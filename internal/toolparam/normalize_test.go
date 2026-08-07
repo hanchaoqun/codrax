@@ -48,6 +48,68 @@ func TestNormalize_StringScalarsAgainstSchema(t *testing.T) {
 	}
 }
 
+func TestNormalize_ConcatenatesDuplicateSchemaArrayProperties(t *testing.T) {
+	schema := json.RawMessage(`{
+	  "type":"object",
+	  "properties":{
+	    "replace_blocks":{
+	      "type":"array",
+	      "items":{"type":"object","properties":{"id":{"type":"string"}}}
+	    },
+	    "unchanged_block_ids":{"type":"array","items":{"type":"string"}}
+	  }
+	}`)
+	raw := json.RawMessage(`{
+	  "replace_blocks":[{"id":"diagram"}],
+	  "unchanged_block_ids":["summary"],
+	  "replace_blocks":[{"id":"hop-list"}]
+	}`)
+
+	got, report := Normalize(raw, schema, repairPolicy)
+	if !hasRepair(report, "$.replace_blocks", "duplicate_array_property_concat") {
+		t.Fatalf("expected duplicate array concatenation repair, got %+v", report)
+	}
+	var decoded struct {
+		ReplaceBlocks []struct {
+			ID string `json:"id"`
+		} `json:"replace_blocks"`
+		UnchangedBlockIDs []string `json:"unchanged_block_ids"`
+	}
+	if err := json.Unmarshal(got, &decoded); err != nil {
+		t.Fatalf("normalized payload must decode: %v\n%s", err, got)
+	}
+	if len(decoded.ReplaceBlocks) != 2 ||
+		decoded.ReplaceBlocks[0].ID != "diagram" ||
+		decoded.ReplaceBlocks[1].ID != "hop-list" {
+		t.Fatalf("duplicate array batches were not preserved in order: %+v", decoded.ReplaceBlocks)
+	}
+	if len(decoded.UnchangedBlockIDs) != 1 || decoded.UnchangedBlockIDs[0] != "summary" {
+		t.Fatalf("unrelated property changed: %+v", decoded.UnchangedBlockIDs)
+	}
+}
+
+func TestNormalize_DoesNotChooseBetweenDuplicateNonArrayProperties(t *testing.T) {
+	schema := json.RawMessage(`{
+	  "type":"object",
+	  "properties":{
+	    "mode":{"type":"string"},
+	    "payload":{"type":"object","properties":{"id":{"type":"string"}}}
+	  }
+	}`)
+	for _, raw := range []json.RawMessage{
+		json.RawMessage(`{"mode":"read","mode":"write"}`),
+		json.RawMessage(`{"payload":{"id":"a"},"payload":{"id":"b"}}`),
+	} {
+		got, report := Normalize(raw, schema, repairPolicy)
+		if report.Changed() {
+			t.Fatalf("ambiguous non-array duplicate must not be repaired: %+v", report)
+		}
+		if string(got) != string(raw) {
+			t.Fatalf("ambiguous payload must pass through byte-identical: got %s want %s", got, raw)
+		}
+	}
+}
+
 func TestNormalize_SingletonObjectArrayAgainstSchema(t *testing.T) {
 	schema := json.RawMessage(`{
 	  "type":"object",

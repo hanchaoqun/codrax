@@ -717,6 +717,65 @@ func TestEmitAnswerDocumentPatch_StringWrappedReplaceBlocks(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentPatch_DuplicateReplaceBlockArraysStaySeparate(t *testing.T) {
+	bus := &types.BusContext{Mutable: types.NewMutableState("")}
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "summary", Kind: types.BlockSummary, Text: "lead"},
+			{ID: "hop-list", Kind: types.BlockOrderedList, Items: []types.AnswerBlockItem{{ID: "old", Label: "old", Text: "old"}}},
+			{ID: "sequence-diagram", Kind: types.BlockDiagram, Diagram: &types.AnswerDiagramBlock{
+				Kind: types.DiagramSequence, Language: "mermaid", Body: "sequenceDiagram\n  A->>B: old",
+			}},
+		},
+	})
+
+	// Production witness r160: one model tool call emitted replace_blocks
+	// twice. Both values are valid schema arrays and must be concatenated;
+	// last-key-wins would lose the diagram repair, while element-wise object
+	// fusion would manufacture a second split diagram.
+	params := json.RawMessage(`{
+		"unchanged_block_ids":["summary"],
+		"replace_blocks":[{
+			"id":"sequence-diagram",
+			"kind":"diagram",
+			"diagram":{"kind":"sequence","language":"mermaid","body":"sequenceDiagram\n  A->>B: fixed"}
+		}],
+		"replace_blocks":[{
+			"id":"hop-list",
+			"kind":"ordered_list",
+			"items":[{"id":"new","label":"new","text":"fixed"}]
+		}]
+	}`)
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute err: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("duplicate array batches should repair losslessly: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 3 {
+		t.Fatalf("patch must remain count-neutral: %+v", doc)
+	}
+	diagrams := 0
+	for _, block := range doc.Blocks {
+		switch block.ID {
+		case "hop-list":
+			if len(block.Items) != 1 || block.Items[0].ID != "new" {
+				t.Fatalf("second replace_blocks batch was lost: %+v", block)
+			}
+		case "sequence-diagram":
+			diagrams++
+			if block.Diagram == nil || !strings.Contains(block.Diagram.Body, "fixed") {
+				t.Fatalf("first replace_blocks batch was lost: %+v", block)
+			}
+		}
+	}
+	if diagrams != 1 {
+		t.Fatalf("duplicate array repair manufactured %d diagram blocks: %+v", diagrams, doc.Blocks)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_StringWrappedAddBlocksMissingOuterBlockClose(t *testing.T) {
 	bus := &types.BusContext{Mutable: types.NewMutableState("")}
 	prev := &types.AnswerDocumentV2{
