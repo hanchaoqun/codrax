@@ -12,13 +12,13 @@ import (
 // mode. This reads typed analyzer fields only, never request/final prose.
 func validateCallChainEndpointWireShape(
 	kind string,
-	axis types.PredicateAxis,
+	_ types.PredicateAxis,
 	runtimeArtifactCarrier bool,
 	profile *types.CallChainEndpointProfile,
 	exactTargets []string,
 ) string {
 	if runtimeArtifactCarrier || types.NormalizeRequirementKind(kind) != types.ReqCallChain ||
-		axis != types.AxisCall || profile == nil {
+		profile == nil {
 		return ""
 	}
 	if profile.SinkMode == types.CallChainSinkResolutionDiscover && strings.TrimSpace(profile.Sink) != "" {
@@ -30,6 +30,40 @@ func validateCallChainEndpointWireShape(
 			"\"; use sink_mode=exact and set sink to that destination so directed reachability or a typed no_directed_path boundary is investigated"
 	}
 	return ""
+}
+
+// reconcileSourceCallChainAxis closes a typed self-consistency gap before the
+// endpoint profile is admitted. For a non-scalar source-code call_chain, the
+// relationship axis is logically fixed to call; leaving an omitted axis as
+// unknown used to make emit_analysis silently discard an otherwise valid
+// ordered endpoint profile and disabled every downstream direction gate.
+//
+// This is a schema-to-schema implication only. It does not read request text,
+// model reasoning, or answer prose. An omitted axis is repaired to call, while
+// an explicitly different axis is rejected as a contradiction rather than
+// overwritten. Runtime-artifact chains and scalar role lookups retain their
+// independent routing contracts.
+func reconcileSourceCallChainAxis(
+	kind string,
+	axis types.PredicateAxis,
+	runtimeArtifactCarrier bool,
+	predicates types.SemanticPredicates,
+) (types.PredicateAxis, string, string) {
+	if runtimeArtifactCarrier || types.NormalizeRequirementKind(kind) != types.ReqCallChain ||
+		predicates.IsScalarAnswer || predicates.IsRoleLocateLookup {
+		return axis, "", ""
+	}
+	switch axis {
+	case types.AxisUnknown:
+		return types.AxisCall,
+			"normalized missing predicate_axis to call because source-code question_kind=call_chain fixes the relationship axis",
+			""
+	case types.AxisCall:
+		return axis, "", ""
+	default:
+		return axis, "", "source-code question_kind=call_chain contradicts predicate_axis=" + string(axis) +
+			"; use predicate_axis=call, or change question_kind when the request is not a directional source-code call chain"
+	}
 }
 
 // callChainUniqueExactDestination interprets no list order. It only reports a

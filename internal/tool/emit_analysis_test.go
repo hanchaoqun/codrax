@@ -1006,6 +1006,62 @@ func TestEmitAnalysis_SourceCallChainAmbiguousEntitiesRequireExactEndpointPair(t
 	}
 }
 
+func TestEmitAnalysis_SourceCallChainRepairsMissingAxisWithoutDroppingOrderedEndpoints(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	objective := "请展示 buildAnalysisIR 到 gate.Run 的调用顺序"
+	payload := withV4Required(`{
+		"intent": "trace",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["buildAnalysisIR", "gate.Run", "call", "sequence"],
+		"entities": ["buildAnalysisIR", "gate.Run"],
+		"question_kind": "call_chain",
+		"call_chain_endpoints": {"source":"buildAnalysisIR", "sink":"gate.Run", "sink_mode":"exact"}
+	}`)
+	res, mu := runEmitAnalysisWithObjective(t, objective, payload)
+	if !res.Success || mu.RequestModel() == nil {
+		t.Fatalf("missing redundant axis should be repaired, got success=%t summary=%q", res.Success, res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm.PredicateAxis != types.AxisCall {
+		t.Fatalf("predicate axis=%q, want call", rm.PredicateAxis)
+	}
+	if source, sink, ok := types.CallChainOrderedEndpointHints(*rm); !ok || source != "buildAnalysisIR" || sink != "gate.Run" {
+		t.Fatalf("ordered endpoints were lost after repair: %q,%q,%t", source, sink, ok)
+	}
+	if !strings.Contains(res.Summary, "normalized missing predicate_axis to call") {
+		t.Fatalf("summary must disclose deterministic repair: %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_SourceCallChainRejectsExplicitNonCallAxis(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	objective := "请展示 buildAnalysisIR 到 gate.Run 的调用顺序"
+	payload := withV4Required(`{
+		"intent": "trace",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["buildAnalysisIR", "gate.Run", "call", "sequence"],
+		"entities": ["buildAnalysisIR", "gate.Run"],
+		"question_kind": "call_chain",
+		"predicate_axis": "configure",
+		"call_chain_endpoints": {"source":"buildAnalysisIR", "sink":"gate.Run", "sink_mode":"exact"}
+	}`)
+	res, mu := runEmitAnalysisWithObjective(t, objective, payload)
+	if res.Success || !strings.Contains(res.Summary, "contradicts predicate_axis=configure") {
+		t.Fatalf("explicit axis contradiction must retry, got success=%t summary=%q", res.Success, res.Summary)
+	}
+	if mu.RequestModel() != nil {
+		t.Fatalf("contradictory analysis must not persist: %+v", mu.RequestModel())
+	}
+}
+
 func TestEmitAnalysis_SourceCallChainMayDiscoverRequestedRuntimeDestination(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

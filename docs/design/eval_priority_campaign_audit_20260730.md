@@ -24586,3 +24586,49 @@ data/write/Trace。人工重点看 QF finalizer reject 是否由 1 降 0，以�
 状态：`EVAL-B282=S37aa-implemented/full-tests-pass/pending-production-replay`；
 `sequence-display-parameter-identity=closed-by-declaration-only-parser`；`all-language-flowchart-relation-anchor=open guard`；
 模型答案所有权=`preserved`；JSON 教学=`single-source/aligned`；Trace 因果投影/自动补齐=`unchanged`。
+
+### 123.269 r172：端点 alias 修复生效；Analyzer typed 字段静默降维使错误调用方向逃出 closure
+
+r172 在 `main@b8fcfaf03` 上严格并发 2，运行 `qf_sequence_analyzer_gate` 与异构
+`qf_diagram_pipeline`。runner 2/2 PASS；人工为 QF FAIL、pipeline PASS。两案分别 151s/136s；QF 有 1 次成文拒绝/1 次 patch，pipeline
+一次成文零拒绝。
+
+S37aa 生产目标成立：QF 首次成文没有再因 Mermaid participant alias 缺少机制端点而拒绝，sequence message 的显示参数也没有进入 endpoint identity。
+实际拒绝来自正确的 `call_edge_unproven`：模型画出 `gate.RunWith -> gate.Run`，图证据门删除伪边。但同一错误方向仍留在 completion reason、最终摘要和列表；
+系统遵守模型答案所有权，没有扫描、替换或删除这些 prose，因此 runner 的字符串 oracle 误绿、人工判 FAIL。
+
+深因不是现有 exact reachability 门失灵，而是其 typed 输入被更早静默抹掉。Analyzer 成功 payload 同时发出
+`question_kind=call_chain`、`call_chain_endpoints={buildAnalysisIR,gate.Run,exact}`，却漏发 `predicate_axis=call`。旧
+`emit_analysis` 允许该局部合同成功，然后以 warning 形式丢弃整个 endpoint profile。Explorer 因此可以在只有
+`buildAnalysisIR -> gate.RunWith`、`gate.Run` definition、`gate.RunWith` definition 而没有有向路径/`no_directed_path` waiver 时声明
+`resolved`。记 `EVAL-B283-CALLAXISLOSS1`：这是 typed classification 内部自洽性问题，必须在 IR admission 修复，不能靠 final prose 扫描或系统改写答案。
+
+pipeline 案正确展示四阶段顺序，但暴露独立 `EVAL-B284-LOGICALRELATIONAUTH1`：非严格 DiagramFlow/QFEnumeration 可让模型直接发
+`relation_kind=precedence`，当前逻辑关系证据门只在 strict source-call family 校验。日志里已有有序 principal member_set/aggregate，但尚未编译为 typed
+precedence authority。不能直接把所有 flow 图套进 source call gate；最优方案是先为 ordered aggregate/source relation 建立关系 authority，再对所有语言、所有
+diagram family 统一验证 guard/import/precedence/contain/observe 等逻辑边。无标签 flowchart 绕过 strict relation anchor 的既有 guard 归并到 B284，保持 P1。
+
+状态：`EVAL-B282=production-positive/closed`；`EVAL-B283=confirmed/immediate`；
+`EVAL-B284=confirmed/P1/design-before-hardening`；runner=`2/2 PASS`、human=`1/2`；
+模型答案所有权=`preserved`；JSON 教学=`single-source/unchanged`；Trace 因果投影/自动补齐=`unchanged`。
+
+### 123.270 S37ab：source call-chain 的 kind/axis 合同闭包，不再静默丢弃 ordered endpoints
+
+本批修复 `EVAL-B283-CALLAXISLOSS1`，只处理 typed classification 内部可证明的蕴含关系：
+
+1. 对非 runtime、非 scalar/role-locate 的 `question_kind=call_chain`，`predicate_axis` 的合法值被结构唯一确定为 `call`。若字段遗漏为
+   `AxisUnknown`，admission 将其归一为 `AxisCall` 并在 analysis summary 披露；这不是从用户原文推断关系方向，也不读取模型 thinking/answer prose；
+2. 若模型显式发出 `predicate_axis=configure/return/...`，不覆盖其判断，而是 fail-loud 要求 Analyzer 重发自洽 typed JSON。这样避免“局部合法字段成功、关键
+   authority 被 warning 丢弃”的降维成功；
+3. `call_chain_endpoints` wire 自冲突检查不再依赖 axis 已经等于 call。`discover + non-empty sink` 等结构错误即使同时漏轴也先 fail-loud，不能靠漏轴绕过；
+4. 归一后的 ordered profile 继续进入既有 exact reachability、endpoint existence、reverse/parallel frontier 与
+   `principal_span_waiver=no_directed_path` 合同。系统只阻止无 typed 路径的错误 closure，不生成或接管最终调用链结论；
+5. runtime artifact call chain、scalar role lookup、Trace 查询/因果投影/自动补齐全部旁路。本批没有新增 JSON schema/教学副本，也没有答案原文关键词硬门。
+
+测试新增两条闭包 pin：漏轴但有精确端点时 profile 必须保留且 axis=call；显式非 call 轴必须拒绝且不得持久化 RequestModel。既有精确端点、discover、runtime
+与 no-directed-path 套件保持。定向 `internal/tool`、JSON 教学 `internal/skill` 与全仓 `go test ./...` 均通过；下一步提交推送，再用新二进制严格并发 2
+回放 QF + 异构模式。
+
+状态：`EVAL-B283=S37ab-implemented/full-tests-pass/pending-production-replay`；
+`EVAL-B284=next-P1`；模型答案所有权=`preserved`；JSON 教学=`single-source/unchanged`；
+Trace 因果投影/自动补齐=`unchanged`。

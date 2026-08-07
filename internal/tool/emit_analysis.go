@@ -848,7 +848,7 @@ func buildEmitAnalysisSchema() {
 			"predicate_axis": map[string]any{
 				"type":        "string",
 				"enum":        skill.AnalysisPredicateAxisValues(),
-				"description": "Action-direction axis of the question (call / register / define / return / configure / condition / implement). Empty when no clear verb cue. Used by the evidence ranker to bias items whose anchor matches the axis.",
+				"description": "Action-direction axis of the question (call / register / define / return / configure / condition / implement). For a source-code question_kind=call_chain emit call; the tool repairs an omitted axis from that typed kind but rejects an explicitly conflicting axis. Empty when no other clear action exists. Used by the evidence ranker to bias items whose anchor matches the axis.",
 			},
 			"diagram_hint": map[string]any{
 				"type":        "object",
@@ -1781,6 +1781,24 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		val.Warnings = append(val.Warnings, warning)
 	}
 	mentionedEntities := types.MentionedEntitiesFromRawRequest(raw, entities)
+	if normalizedAxis, warning, issue := reconcileSourceCallChainAxis(
+		kind,
+		axis,
+		runtimeArtifactCarrier,
+		predicates,
+	); issue != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + issue,
+			Timestamp: time.Now(),
+		}, nil
+	} else {
+		axis = normalizedAxis
+		if warning != "" {
+			val.Warnings = append(val.Warnings, warning)
+		}
+	}
 	if issue := validateCallChainEndpointWireShape(kind, axis, runtimeArtifactCarrier, p.CallChainEndpoints, exactTargets); issue != "" {
 		return types.ToolResult{
 			ToolName:  t.Name(),
