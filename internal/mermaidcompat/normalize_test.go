@@ -47,6 +47,40 @@ func TestParseEdges_FlowchartPreservesColonQualifiedCallableLabels(t *testing.T)
 	}
 }
 
+func TestParseEdges_FlowchartDoesNotInventEdgesFromCodeInsideNodeLabels(t *testing.T) {
+	body := strings.Join([]string{
+		"flowchart TD",
+		`  W["sink_->write<br/>(src/logger.cpp:36)"]`,
+		`  F["sink_->flush\n(src/logger.cpp:38)"]`,
+		`  L["Logger::log"] --> W`,
+	}, "\n")
+	edges := ParseEdges(body)
+	if len(edges) != 1 || edges[0].From != "L" || edges[0].To != "W" {
+		t.Fatalf("code syntax inside node labels minted a diagram edge: %+v", edges)
+	}
+}
+
+func TestParseEdges_FlowchartIgnoresArrowBytesInsideEndpointLabels(t *testing.T) {
+	body := `flowchart TD
+  A["holder->run"] --> B["target::run"]`
+	edges := ParseEdges(body)
+	if len(edges) != 1 || edges[0].From != "A" || edges[0].To != "B" ||
+		edges[0].FromLabel != "holder->run" || edges[0].ToLabel != "target::run" {
+		t.Fatalf("endpoint label arrow bytes replaced the actual diagram edge: %+v", edges)
+	}
+}
+
+func TestParseEdges_FlowchartPipeLabelDoesNotRewriteEndpointLabels(t *testing.T) {
+	body := `flowchart TD
+  A["left|right"] -->|dispatch holder->run| B["target|value"]`
+	edges := ParseEdges(body)
+	if len(edges) != 1 || edges[0].From != "A" || edges[0].To != "B" ||
+		edges[0].FromLabel != "left|right" || edges[0].ToLabel != "target|value" ||
+		edges[0].Label != "dispatch holder->run" {
+		t.Fatalf("pipe edge-label parsing corrupted endpoint labels: %+v", edges)
+	}
+}
+
 func TestParseEdges_SequenceMessageColonStillParses(t *testing.T) {
 	body := "sequenceDiagram\n  participant A as service::handle\n  participant B as repo::count\n  A->>B: count(key: value)\n"
 	edges := ParseEdges(body)

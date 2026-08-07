@@ -22316,3 +22316,35 @@ S36a 采用跨语言、非 case 特判的收窄修复：
 `EVAL-B212-QUALPRES1=S36a-implemented/affected-tests-pass/pending-exact-two-replay`；
 `EVAL-B208-POLYCOMPOSE1=P1/next-S36c`；`EVAL-B209-COOPPATH1=P1/next-S36b`；
 JSON malformed/degradation=`not-triggered`；模型答案所有权=`preserved`；Trace=`not-touched`。
+
+### 123.190 B205 r138 + S36d：Mermaid 标签内代码箭头自铸假边；JSON 字符串载体已无损恢复
+
+`3168f5d4f` 构建后的严格双并行回放为 runner 1 PASS / 1 FAIL，人工 0/2：
+
+- Python：97s、2 次 finalizer reject。首稿把 `blocks[]` 作为 JSON-encoded string，现有 flat-mode tolerance 无损恢复全部三块；严格解码
+  remap/carrier/element-shape 为 0，`answer_document_blocks_string_recovery=1`。最终主结论、注册时机、`resolve -> cls()` 和 callback 文字正确，
+  但 callback anchor 方向错后删图，仍漏完整 cooperative MRO；
+- C++：476s、7 次 finalizer reject，最终 runner 因 `degraded_answer_checks_skipped` 判 FAIL。降级车道正确保留上一份可用结构稿、模型最后原文、
+  stderr/factory/injection/virtual-dispatch 文字与显式降级说明，答案没有消失；但修复循环被系统自铸的假边主导，单轮 context 最终约 71k tokens。
+
+P0 根因位于 `mermaidcompat.SplitEdgeLine`：它在整行裸搜第一个 `->`，因此以下纯 node declaration：
+
+`sink_write["sink_->write<br/>(src/logger.cpp:36)"]`
+
+被误解成 `sink_write(sink_->write) -> write<br/(write<br/)`。这不是模型提交的边；compat normalize 把 `\n` 改为 `<br/>` 后让假端点更显眼，
+而 hard gate 又把假边当 direct call 要求 typed anchor。模型无论删除真实边还是调整 relation 都无法修复一个只存在于 parser 输出的端点。
+
+S36d 采用语法级、跨语言修复：
+
+1. flowchart operator 只在引号、`[]/()/{} ` node shape 之外识别；label 中的 `holder->run`、HTML `<br/>`、Rust/C++ 限定身份均保持展示数据；
+2. operator 仍按源位置最早、同位置最长选取；不读取 edge label 词义、请求或答案 prose，不推断 relation；
+3. pin 覆盖只含代码箭头的 node declaration 必须产生 0 边，以及同一行 endpoint labels 内含 `->` 时仍只解析真正的 `A --> B`；
+4. Trace/root-cause 图本就走独立 runtime relation authority，本批也不修改其窗口、补齐、投影或结论。
+
+JSON 教学复核：projected schema 的 `blocks.type=array` 有结构 pin；canonical teaching 已且仅出现一次 native-array/禁止 quote 约束，未发现
+required/type/example 自相矛盾。本轮 string carrier 是模型波动且已 lossless 修复，暂不另造第二套 prose schema；继续以 typed 指标观察。
+
+状态：`EVAL-B213-MERMLABEL1=S36d-implemented/focused-tests-pass/pending-exact-two-replay`；
+`EVAL-B212-QUALPRES1=implemented/replay-partial`；`EVAL-B214-JSONCARRIER1=observe/lossless-recovery-worked`；
+`EVAL-B208-POLYCOMPOSE1=P1/next`；`EVAL-B209-COOPPATH1=P1/next`；
+模型答案所有权=`preserved`；degraded salvage=`worked`；Trace=`not-touched`。

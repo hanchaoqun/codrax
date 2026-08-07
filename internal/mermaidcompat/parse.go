@@ -163,33 +163,22 @@ func splitSequenceEdgeTargetMessage(raw string) (target, message string, ok bool
 // on the first arrow operator it finds. It also captures the first
 // pipe-delimited label, as in A -->|label| B.
 func SplitEdgeLine(line string) (string, string, string, string, bool) {
-	var pipeLabel string
-	for {
-		i := strings.Index(line, "|")
-		if i < 0 {
-			break
-		}
-		j := strings.Index(line[i+1:], "|")
-		if j < 0 {
-			break
-		}
-		if pipeLabel == "" {
-			pipeLabel = strings.TrimSpace(line[i+1 : i+1+j])
-		}
-		line = line[:i] + " " + line[i+1+j+1:]
-	}
 	operators := []string{
 		"-->>", "-.->", "-->", "==>", "->>", "---", "==", "->",
 	}
-	for _, op := range operators {
-		idx := strings.Index(line, op)
-		if idx < 0 {
-			continue
-		}
+	idx, op := findFlowchartEdgeOperator(line, operators)
+	if idx >= 0 {
 		from := strings.TrimSpace(line[:idx])
 		to := strings.TrimSpace(line[idx+len(op):])
+		pipeLabel := ""
+		if strings.HasPrefix(to, "|") {
+			if end := strings.Index(to[1:], "|"); end >= 0 {
+				pipeLabel = strings.TrimSpace(to[1 : end+1])
+				to = strings.TrimSpace(to[end+2:])
+			}
+		}
 		if from == "" || to == "" {
-			continue
+			return "", "", "", "", false
 		}
 		to = strings.SplitN(to, ";", 2)[0]
 		to = strings.SplitN(to, ":::", 2)[0]
@@ -206,6 +195,95 @@ func SplitEdgeLine(line string) (string, string, string, string, bool) {
 		return from, to, pipeLabel, op, true
 	}
 	return "", "", "", "", false
+}
+
+// findFlowchartEdgeOperator finds an edge operator only in Mermaid syntax,
+// never inside a node shape or quoted label. Code identities such as
+// `sink_->write` are routinely rendered inside labels, and markdown
+// normalization may add `<br/>`; treating those presentation bytes as an edge
+// invents endpoints that do not exist in the model-authored graph.
+func findFlowchartEdgeOperator(line string, operators []string) (int, string) {
+	protected := make([]bool, len(line))
+	var quote byte
+	escaped := false
+	depthSquare, depthParen, depthBrace := 0, 0, 0
+	for i := 0; i < len(line); i++ {
+		ch := line[i]
+		insideShape := depthSquare > 0 || depthParen > 0 || depthBrace > 0
+		if quote != 0 {
+			protected[i] = true
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == quote {
+				quote = 0
+			}
+			continue
+		}
+		if ch == '\'' || ch == '"' || ch == '`' {
+			protected[i] = true
+			quote = ch
+			continue
+		}
+		if insideShape {
+			protected[i] = true
+		}
+		switch ch {
+		case '[':
+			depthSquare++
+			protected[i] = true
+		case ']':
+			if depthSquare > 0 {
+				depthSquare--
+				protected[i] = true
+			}
+		case '(':
+			depthParen++
+			protected[i] = true
+		case ')':
+			if depthParen > 0 {
+				depthParen--
+				protected[i] = true
+			}
+		case '{':
+			depthBrace++
+			protected[i] = true
+		case '}':
+			if depthBrace > 0 {
+				depthBrace--
+				protected[i] = true
+			}
+		}
+	}
+
+	bestAt := -1
+	bestOp := ""
+	for _, op := range operators {
+		for search := 0; search <= len(line)-len(op); {
+			rel := strings.Index(line[search:], op)
+			if rel < 0 {
+				break
+			}
+			at := search + rel
+			visible := true
+			for i := at; i < at+len(op); i++ {
+				if protected[i] {
+					visible = false
+					break
+				}
+			}
+			if visible && (bestAt < 0 || at < bestAt || (at == bestAt && len(op) > len(bestOp))) {
+				bestAt, bestOp = at, op
+			}
+			search = at + 1
+		}
+	}
+	return bestAt, bestOp
 }
 
 // StripNodeShape collapses a node declaration with a shape wrapper to
