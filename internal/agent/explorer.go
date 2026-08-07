@@ -1400,6 +1400,9 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			// passing the same instance to every tool call is safe.
 			ctx.Mutable.SetSymbolOracle(repomap.NewSymbolOracle(sr.Graph))
 		}
+		if sr != nil && sr.Graph != nil {
+			b.WriteString(renderExplorerCallChainDirectCallFrontier(ctx, sr.Graph))
+		}
 		// Publish the keyword-search ranking to MutableState so the
 		// CGEC pre-complete phase1-unread gate can cross-reference
 		// top-ranked files against ReadSet. Canonicalise each path the

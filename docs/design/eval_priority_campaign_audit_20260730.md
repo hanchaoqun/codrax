@@ -24302,3 +24302,30 @@ callee body effect”教学，但模型没有把边界带进总结。先通过�
 `EVAL-B270=S37v-implemented/positive-production-outcome`；`EVAL-B271=S37u-implemented/no-regression/branch-unwitnessed`；
 `EVAL-B262=confirmed/next`；`EVAL-B273=confirmed/P1`；`EVAL-B274=observe/P1`。JSON recovery 未触发，JSON 教学仍单源；模型答案所有权保持。
 Trace 显式时间窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量及“真实耗时贡献 / 规则内可消除量”双维根因分析均未触碰。
+
+### 123.258 S37w：exact source 的 parser direct-call frontier 只作软选材上下文
+
+`EVAL-B262-TRANSITIVEHOPDEPTH1` 在 Explorer 初始上下文层按架构原则修复，没有把“所有 direct call”升级成硬完整性合同：
+
+1. 仅在 typed `QFCallChain` 且 `CallChainEndpointProfile` active 时，从 ordered profile 的 source 解析唯一 function/method definition。解析复用全语言
+   qualified-name 规则；裸名/`. / :: / # / ->` 等表面统一落到 graph symbol。零定义或多定义直接旁路，不按文件排序猜；
+2. 只读取该唯一 callable body 内、且 enclosing callable 仍是 source 本身的 AST-grade `tree_sitter` / `cangjie_parser` call relations。嵌套 named callable
+   的边、regex fallback、body 外边全部排除。current-repo target 可解析时展示 target source；动态 receiver 无法解析时只保留原 syntax surface，并明确要求读行验证；
+3. frontier 明写为 advisory/navigation，不是 EvidenceItem、答案成员清单或 completion authority。模型需要读 exact source line，自行选择哪些 call 对当前
+   path/order/mechanism load-bearing，再自行 `emit_evidence` 和总结；系统不铸边、不决定关键 helper、不改最终 prose/diagram/结论；
+4. 上限 24。大函数采用确定性的 first/middle/last 采样：优先 current-repo resolved calls，保留早段 helper 与尾部 sink/boundary，同时给中段样本；剩余容量才放
+   unresolved syntax。截断时披露 shown/total，并建议 source body 或 scoped relation_map，不制造“全量”假象；
+5. production wiring 位于 Explorer keyword graph 发布之后，与 SymbolOracle 使用同一 graph 快照；M4 pin 防 helper 单测绿但初始 prompt 未接线。raw objective、模型
+   thinking/final prose 和 eval case ID 均不参与选择；
+6. Go、Python、JavaScript、TypeScript、Java、Kotlin、Rust、C、C++、Ruby、Swift、Lua、Proto、ArkTS、Cangjie 的 source endpoint matrix 共用同一 resolver；
+   runtime artifact 和真实 multi-repo posture旁路。显式时间窗 Trace、因果投影、系统补齐、根因排序、唤醒链、窗内可消除量及双维根因分析不会收到该源码 frontier；
+7. 正例钉住早段 `analyzerGraphForNormalize`、repo-resolved helper、动态 unresolved receiver；负例覆盖 nested callable、regex relation、同名 source 歧义、runtime
+   hitrace。raw objective 改写不改变 frontier 字节，证明没有通过关键词扫描用户/模型原文做硬门。
+
+定向测试、`go test ./internal/agent -count=1` 与 `go test ./...` 全绿。下一步严格并发 2 生产回放：QF 验收早段 helper 是否进入模型调查/答案、no-path 边界是否仍诚实；
+配一例不同语言/模式，防止把单个 Go fixture 当泛化结论。即使 QF 转正，也要区分 frontier 真被消费与模型偶然主动发现，不虚销 branch witness。
+
+状态：`EVAL-B262-TRANSITIVEHOPDEPTH1=S37w-implemented/full-tests-pass/pending-production-replay`；
+`EVAL-B273-TYPEDDIAGRAMRECIPE1=next-P1`；`EVAL-B272-COMPROLECALIBER1=open/P1`；
+`EVAL-B274-TERMINALEFFECTCALIBER1=observe/P1`；模型答案所有权=`preserved`；JSON schema/教学=`unchanged`；
+`sequence-display-parameter-identity` 与 `all-language-flowchart-relation-anchor`=`open guards`。
