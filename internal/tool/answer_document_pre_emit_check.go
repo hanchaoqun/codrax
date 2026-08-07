@@ -2696,6 +2696,22 @@ func normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc *types.Answer
 				continue
 			}
 			text := preEmitItemNonLabelSurface(*item)
+			// A model-authored citation already corroborated by an explicit
+			// backtick code surface in this structured item is a monotone,
+			// item-local binding. Do not later replace it with a label-only
+			// declaration merely because the enclosing block also carries a
+			// definition claim. Mixed comparison/mechanism sections legitimately
+			// contain definition, guard, and routing rows. The earlier dedicated
+			// backtick normalizer still repairs absent or genuinely mismatched
+			// refs; this branch only prevents a weaker second pass from undoing a
+			// precise match.
+			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) &&
+				preEmitCitationQuoteMatchesAnyCodeSurface(
+					doc.Citations[item.CitationRef],
+					preEmitExplicitCodeSurfacesFromItem(*item),
+				) {
+				continue
+			}
 			if match, ok := preEmitUniqueCallableLineLabelCitationIndex(doc, pctx, label); ok {
 				if item.CitationRef != match {
 					item.CitationRef = match

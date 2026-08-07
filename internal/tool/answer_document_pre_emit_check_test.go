@@ -8629,6 +8629,47 @@ func TestNormalizeItemCitationRefsByUniqueBacktickCitationQuote_PreservesAligned
 	}
 }
 
+func TestNormalizeItemCitationRefsByUniqueLabelCitation_DoesNotDowngradeExactCodeSurfaceCallsite(t *testing.T) {
+	mu := types.NewMutableState("compare answer document tool routing")
+	mu.AppendEvidence([]types.EvidenceItem{
+		{
+			ID: "tool-definition", Kind: types.EvidenceDirect,
+			AnchorKind: types.AnchorDefinition, AnchorSymbol: "emit_answer_document",
+			Subject: "emit_answer_document", Source: "internal/tool/builtin.go", LineStart: 36,
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID: "routing-guard", Kind: types.EvidenceConditional,
+			AnchorKind: types.AnchorTextReference, AnchorSymbol: "forceFullEmitNext",
+			Subject: "forceFullEmitNext", Source: "internal/agent/answer_document_evaluator.go", LineStart: 10843,
+			Snippet:         "if e.forceFullEmitNext { disable emit_answer_document_patch for one pass }",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
+	ctx := &types.BusContext{Mutable: mu}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "internal/tool/builtin.go", Line: 36, Quote: `Name: "emit_answer_document"`},
+			{File: "internal/agent/answer_document_evaluator.go", Line: 10843, Quote: "if e.forceFullEmitNext { disable emit_answer_document_patch for one pass }"},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID: "routing", Kind: types.BlockOrderedList,
+			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimDefinitionFact}},
+			Items: []types.AnswerBlockItem{{
+				ID: "full-routing", Label: "emit_answer_document",
+				Text:        "When `forceFullEmitNext` is set, `emit_answer_document_patch` is disabled for one pass.",
+				CitationRef: 1,
+			}},
+		}},
+	}
+	if fixed := normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc, nil, ctx, newPreEmitCheckContext(ctx)); fixed != 0 {
+		t.Fatalf("weaker definition fallback replaced an exact callsite, fixed=%d doc=%+v", fixed, doc)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 1 {
+		t.Fatalf("citation_ref=%d, want exact routing guard callsite 1", got)
+	}
+}
+
 // === preEmitDisplaySurfaceAppears typographic normalisation ===
 //
 // docs/design/post_phase2a_forensic_followups.md §2.3 — finalizer

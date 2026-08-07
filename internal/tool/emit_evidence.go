@@ -723,6 +723,20 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 		// cascade; schema-level scopes (File / Crossfile / Negative)
 		// route to their own grounders.
 		r := ground.GroundItemScoped(&built[i], gc)
+		// AnchorCall is downstream hard authority for a direct invocation. A
+		// line-range mention, quoted tool name, selection branch, or other
+		// source-text occurrence may still ground lexically, but it must not be
+		// published as a call edge unless the exact source line and typed
+		// caller/callee tuple prove that invocation. Preserve the useful source
+		// reference while downgrading only its relation authority. This consumes
+		// parser/read-line facts and typed fields; request, summary, and final
+		// answer prose are not inspected.
+		if stabilizeUnprovenCallAnchorAuthority(&built[i], gc) {
+			r = ground.GroundItemScoped(&built[i], gc)
+			if appendGroundingNoteOnce(&built[i], "anchor_kind=call lacked one exact-line caller -> callee invocation; preserved as text_reference without call-edge authority") {
+				r.Note = built[i].GroundingNote
+			}
+		}
 		if compatNote := normalizeConditionEvidenceAnchorSymbol(&built[i], gc); compatNote != "" {
 			r = ground.GroundItemScoped(&built[i], gc)
 			if appendGroundingNoteOnce(&built[i], compatNote) {
@@ -970,6 +984,50 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 		Summary:   summary,
 		Timestamp: now,
 	}, nil
+}
+
+// stabilizeUnprovenCallAnchorAuthority prevents a source mention from entering
+// the answer context as a typed call edge. Exact call
+// authority requires all of: line scope, a canonical call predicate, explicit
+// caller/callee endpoints, and a direct invocation of the callee on that exact
+// line proven by repomap or already-read source. Sparse genuine calls remain
+// supported because normalizeCallEvidenceDirection runs first and fills this
+// tuple from repomap.
+//
+// When the tuple cannot be proven, the source span is still useful as a text
+// reference. Clearing relation fields before the downgrade is essential:
+// otherwise a non-call predicate/object could be rendered as a directed edge
+// even though ClaimFormOf correctly changed to text_reference_fact.
+func stabilizeUnprovenCallAnchorAuthority(it *types.EvidenceItem, gc *ground.Context) bool {
+	if it == nil || it.AnchorKind != types.AnchorCall ||
+		types.ClaimFormOf(*it) != types.ClaimCallEdge {
+		return false
+	}
+	predicate := strings.ToLower(strings.TrimSpace(it.Predicate))
+	caller := strings.TrimSpace(it.Subject)
+	callee := strings.TrimSpace(it.Object)
+	parserProvesCall := false
+	if gc != nil && gc.Graph != nil && caller != "" && callee != "" {
+		source := ground.CanonicalContextPath(gc, it.Source)
+		if fi := gc.Graph.FileIndex[source]; fi != nil {
+			actualCaller := enclosingCallableSymbolName(fi, it.LineStart)
+			rel, ok := findCallRelationAtLineForCandidates(fi, it.LineStart, []string{callee})
+			parserProvesCall = ok && qualifiedCallEndpointEqual(actualCaller, caller) &&
+				qualifiedCallEndpointEqual(rel.ToEP.Name, callee)
+		}
+	}
+	if it.Scope == types.ScopeLine && it.LineStart > 0 && it.LineEnd == it.LineStart &&
+		callLikePredicates[predicate] &&
+		caller != "" && callee != "" &&
+		(parserProvesCall || ground.LineHasDirectCallToTarget(gc, it.Source, it.LineStart, callee)) {
+		return false
+	}
+	it.AnchorKind = types.AnchorTextReference
+	it.Subject = ""
+	it.Predicate = ""
+	it.Object = ""
+	it.OwnerSymbol = ""
+	return true
 }
 
 func emitEvidenceGroundContextTimingPhase(gc *ground.Context) string {

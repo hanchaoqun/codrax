@@ -23749,3 +23749,58 @@ runtime family、显式时间窗、自动补齐、因果投影、根因排序、
 `EVAL-B252-COMPMATRIXAXIS1=S37k-implemented/full-tests-pass`；`EVAL-B253-WRITEJSONCARRIER1=S37k-implemented/full-tests-pass`；
 `EVAL-B254-COMPINVROUTE1=open/P1`；`sequence-display-parameter-identity=open`；
 `all-language-flowchart-relation-anchor=open`；下一步=`commit+push, r158 exactly-two replay`。
+
+### 123.238 r158：S37k 三项生产闭环，伪 call authority 与引用降级暴露系统自冲突
+
+r158 在 `main@4c242c95f` 上严格并发 2，仍只运行 `read_combo_answer_document_tools` 与
+`github_issue_napi_force_wasi_env_symptom`。runner 为 1/2 PASS；人工 read=uncertain、write=uncertain。两例没有 malformed JSON carrier、
+strict decode recovery 或答案消失。
+
+S37k 三项均获得生产闭环：读答案保留了用户要求的 comparison table 和 Mermaid，不再通过删表签绿，比较维度行也没有被 source roster
+误判；写前分析第一次 `emit_write_analysis` 已使用 native arrays/objects，shape-first 教学没有重复或漂移。写补丁正确，repo-owned Python oracle
+通过；Node 不可用使六条 TypeScript 行为测试未实际执行，最终 `production_verification_source_static_only` 是诚实降级，不能按代码失败处理。
+
+读案 5 次成文拒绝确认两个新系统 gap：
+
+1. `EVAL-B255-CALLANCHORAUTH1`：explorer 把 `FilterToolSchemas` 内 `s.Name == "emit_answer_document[_patch]"` 的选择分支发成
+   `anchor_kind=call`。源码范围只证明工具名被比较/过滤，没有 direct invocation；上游却把它渲染为 call anchor，模型据此画调用边，严格
+   diagram validator 又因不存在同向 typed call edge 连续拒绝。硬门拒绝本身正确，矛盾来自上游把 lexical mention 铸成关系权威；
+2. `EVAL-B256-CITATIONMONOTONE1`：模型首稿给两个“适用时机”行引用了正确的 evaluator guard 坐标，机械日志随后执行
+   `explicit code-surface` 与 `typed label/citation corroboration` 修复，最终却把两行都改到工具 `Name()` 定义。后发的 label/definition fallback
+   覆盖了更强的 item-local callsite 引用，违反引用修复单调性。
+
+写案另确认 `EVAL-B257-WRITEEXACTRETRY1`：首个 IR 有 12 条行为合同，仅 `no-raw-truthiness` 把描述句放进 exact `not_contains` 且无
+evidence_ref；orchestrator 因一行 authority 不足重跑整个 write analyzer，第二稿直接把 `behavior_contracts` 清空，随后只由 outcomes 重铸 5 条
+soft contract。JSON 结构问题已经关闭，但 typed contract 保存性仍未闭环。这不是最终答案关键词问题；最优方向是确定性校准单条拒绝合同，保留同 IR
+其余 typed 字段，而不是要求模型整包重写。
+
+状态：`EVAL-B251-PERMEMBERTABLE1=production-closed`；`EVAL-B252-COMPMATRIXAXIS1=production-closed`；
+`EVAL-B253-WRITEJSONCARRIER1=production-closed`；`EVAL-B255-CALLANCHORAUTH1=confirmed/immediate`；
+`EVAL-B256-CITATIONMONOTONE1=confirmed/immediate`；`EVAL-B257-WRITEEXACTRETRY1=open/P1`；
+`EVAL-B254-COMPINVROUTE1=open/P1`；`sequence-display-parameter-identity=open`；
+`all-language-flowchart-relation-anchor=open`。
+
+### 123.239 S37l：call authority 在铸造点 fail-closed，引用修复保持单调
+
+`EVAL-B255-CALLANCHORAUTH1` 与 `EVAL-B256-CITATIONMONOTONE1` 按 typed/source authority 根修：
+
+1. `emit_evidence` 完成 parser-backed call direction normalization 后，对每个 `AnchorCall` 做统一资格检查：必须同时具备 exact line scope、canonical
+   call predicate、显式 caller/callee，以及该已读取源码行对 callee 的 direct invocation。四者缺一即降为 `AnchorTextReference`，清除
+   subject/predicate/object/owner 的 directed authority，并重新 grounding；源码范围仍保留为文本证据，不能再诱导模型画伪调用边；
+2. 稀疏但真实的 call 仍先由 repomap 填充 caller/callee，且 exact line 的 direct-call predicate 保留为 `ClaimCallEdge`。既有 Python、Rust、C++、
+   Java、ArkTS、Cangjie 等 parser-owned call pins 不降权；downstream diagram visible-edge gate 一字未松；
+3. citation label normalization 新增单调优先级：若当前合法 `citation_ref` 的 quote 已匹配该结构化 item 的显式 backtick code surface，后续
+   label-only definition fallback 不得覆盖。缺失、越界或真正不匹配的 ref 仍由专用 backtick normalizer 修复；
+4. 新回归复刻 r158 两类 witness：line-range 工具名比较不得铸成 call edge，且 relation fields 必须清空；parser-backed sparse true call 必须保持；
+   mixed definition/mechanism block 中，正确 guard callsite 不得被同名 `Name()` definition 替换；
+5. 两项判据只读取 EvidenceItem schema、repomap/read-line facts、AnswerDocument typed item/citation；不扫描用户原文、模型 thinking 或最终 prose，
+   不补写或替换模型结论。
+
+Trace runtime family、显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量及“真实耗时贡献 / 规则内可消除量”双维分析不在本批分支。
+JSON shape-first 教学与 patch 四操作合同未改动。
+
+定向回归、`go test ./internal/tool -count=1` 与 `go test ./...` 全绿。
+
+状态：`EVAL-B255-CALLANCHORAUTH1=S37l-implemented/full-tests-pass`；
+`EVAL-B256-CITATIONMONOTONE1=S37l-implemented/full-tests-pass`；`EVAL-B257-WRITEEXACTRETRY1=next`；
+模型答案所有权=`preserved`；`sequence-display-parameter-identity=open`；`all-language-flowchart-relation-anchor=open`。

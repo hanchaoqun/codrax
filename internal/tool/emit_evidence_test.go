@@ -4208,6 +4208,35 @@ func TestEmitEvidence_SparseGroundedCallStampsQualifiedCallerAndPredicate(t *tes
 	}
 }
 
+func TestEmitEvidence_LineRangeNameMentionCannotMintCallEdgeAuthority(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "internal/agent/evaluator.go", 42,
+		"return s.Name == emitPatch",
+		"})",
+		"}",
+	)
+	params := json.RawMessage(`{"items":[{"kind":"conditional","source":"internal/agent/evaluator.go","line_start":42,"line_end":44,"summary":"the branch filters the patch tool schema","anchor_kind":"call","anchor_symbol":"emitPatch","snippet":"return s.Name == emitPatch"}]}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil || !res.Success {
+		t.Fatalf("source mention should remain citable, err=%v summary=%s", err, res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("evidence count=%d, want 1: %+v", len(got), got)
+	}
+	if got[0].AnchorKind != types.AnchorTextReference ||
+		types.ClaimFormOf(got[0]) != types.ClaimTextReferenceFact {
+		t.Fatalf("name mention minted call authority: %+v", got[0])
+	}
+	if got[0].Subject != "" || got[0].Predicate != "" || got[0].Object != "" || got[0].OwnerSymbol != "" {
+		t.Fatalf("downgraded text reference retained directed relation fields: %+v", got[0])
+	}
+	if !strings.Contains(got[0].GroundingNote, "lacked one exact-line caller -> callee invocation") {
+		t.Fatalf("typed downgrade caveat missing: %+v", got[0])
+	}
+}
+
 func TestEmitEvidence_RustQualifiedCallKeepsExactLineAndTypedEdge(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()
