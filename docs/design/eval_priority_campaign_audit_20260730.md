@@ -23831,3 +23831,61 @@ Trace runtime family、显式窗、自动补齐、因果投影、根因排序、
 状态：`EVAL-B257-WRITEEXACTRETRY1=S37m-implemented/full-tests-pass`；
 `EVAL-B254-COMPINVROUTE1=open/P1`；模型答案所有权=`preserved`；JSON 教学=`single-source/preserved`；
 `sequence-display-parameter-identity=open`；`all-language-flowchart-relation-anchor=open`。
+
+### 123.241 r159：write 一次校准生产闭环；discover+named-sink 静默丢终点
+
+r159 在 `main@4b5bed2bb` 上严格并发 2，运行 write 的 `github_issue_napi_force_wasi_env_symptom` 与 read 的
+`qf_sequence_analyzer_gate`。runner 0/2 PASS；人工 write=uncertain、sequence=fail。两例均无 finalizer reject、答案消失或 Trace/system supplement
+接管。
+
+write runner 仍因 `production_verification_source_static_only` 判 FAIL：补丁正确、Python source oracle 通过，但 Node 不可用，六条 TypeScript 行为用例
+未执行，属于诚实 unverified。S37m 生产闭环明确：日志只有一次 `DISPATCH stage=write_analyze attempt=0`，首个 IR 保留 12 条 behavior contracts、
+2 constraints、4 outcomes 与 4 phases；7 条缺 evidence_ref 的 exact rows 单独降为 `satisfies`，其余字段未删除。总时长从 r158 的 196s 降至
+148s。`EVAL-B257-WRITEEXACTRETRY1=production-closed`。
+
+sequence 的 Mermaid 语法、7 条可见 direct-call edge 和引用均正确，且一次成文；但整体语义仍错。用户指定 sink 是独立符号 `gate.Run`，源码只有
+`buildAnalysisIR -> gate.RunWith` 与 `gate.Run -> RunWith` 两条汇入同一 callee 的边，不存在 requested direction。答案把 `RunWith` 当终点，
+没有读取/披露 wrapper 与 no-directed-path boundary。
+
+根因不是旧 prefix matcher，而是 analyzer 自己发出：
+
+```text
+call_chain_endpoints={source:buildAnalysisIR, sink:gate.Run, sink_mode:discover}
+```
+
+`discover` 的结构合同要求 sink 为空；现有 `NormalizeCallChainEndpointProfile` 却静默清空非空 sink，仅追加 warning 后继续。于是 ordered endpoint
+profile 从 exact 变为 source-only discover，completion 的 reachability、endpoint-existence 与 `no_directed_path` 全部按设计停用。教学和 tool description
+本来都明确 exact/discover 区别，缺口在 wire admission 未 fail-loud，记 `EVAL-B258-DISCOVERSINKWIRE1`。
+
+runner 另含独立 `EVAL-B259-EVALSOURCELOC1`：case 把 current-source `analyzer.go:1865`、`gate.go:135` 和同一物理行排版写死在 answer regex；当前前者已
+漂到 1866，且正确分段答案也可能跨行。这会制造假红，但不是本轮人工失败的全部原因。全仓扫描确认，除 immutable runtime-log fixture 外，仅此 current-source
+answer oracle 仍硬编码源码行号，适合直接迁移到 folded-text + 动态数字坐标。
+
+状态：`EVAL-B257-WRITEEXACTRETRY1=production-closed`；`EVAL-B258-DISCOVERSINKWIRE1=confirmed/immediate`；
+`EVAL-B259-EVALSOURCELOC1=confirmed/immediate`；`sequence-display-parameter-identity=open`；
+`all-language-flowchart-relation-anchor=open`。
+
+### 123.242 S37n：discover wire shape fail-loud，current-source eval oracle 去坐标脆弱性
+
+`EVAL-B258-DISCOVERSINKWIRE1` 与 `EVAL-B259-EVALSOURCELOC1` 同批施工：
+
+1. `emit_analysis` 在 endpoint normalization 前检查 typed wire shape。仅对 source-code `question_kind=call_chain + predicate_axis=call` 生效；
+   `sink_mode=discover && sink!=""` 直接结构拒绝，并精确提示：若用户已命名 destination，保留 sink 且改 `exact`；若需探索 destination，清空 sink；
+2. 该门只读 enum、字段空值、question kind、predicate axis 与 runtime carrier，不扫描用户原文、模型 thinking/final prose，也不自行猜 exact/discover。
+   合法 discover-empty、exact pair、runtime artifact 与非 call-chain 车道不变；
+3. normalizer 的兼容 demotion 仍保留给“模型先报 exact candidate、但 candidate 不具 current-request provenance”的不同场景；本批只禁止模型在同一 payload
+   显式声明互斥状态，避免无声丢失已经填写的 sink；
+4. 生产同形回归钉住 `buildAnalysisIR/gate.Run + discover` 必须 fail-loud 且不得持久化 RequestModel；既有 discover-empty 与 exact endpoint tests 保持；
+5. `qf_sequence_analyzer_gate.case` 不再写死 1865/135 或要求相关事实恰好同一输出行。Mermaid/关键阶段仍由 line regex 守护；endpoint 两条关系改用
+   folded-text regex，源码坐标只要求 `file:[0-9]+`。因此 r159 当前缺 wrapper/boundary 的答案仍会真 FAIL，后续源码插行则不再假红。
+
+本批没有把 analyzer typed 字段改成系统答案，也没有放宽 call-edge/endpoint completeness。JSON teaching 未复制；r159 AnswerDocument 的一次 lossless
+`blocks[]` string recovery 记为模型波动观察，不另加 prompt 副本。
+
+Trace runtime family、显式窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量和双维根因分析未触碰。
+
+定向 emit-analysis 回归、`eval/runner_lib_test.sh`、`go test ./internal/tool -count=1` 与 `go test ./...` 全绿。
+
+状态：`EVAL-B258-DISCOVERSINKWIRE1=S37n-implemented/full-tests-pass`；
+`EVAL-B259-EVALSOURCELOC1=S37n-implemented/full-tests-pass`；`sequence-display-parameter-identity=open`；
+`all-language-flowchart-relation-anchor=open`。

@@ -1035,6 +1035,32 @@ func TestEmitAnalysis_SourceCallChainMayDiscoverRequestedRuntimeDestination(t *t
 	}
 }
 
+func TestEmitAnalysis_SourceCallChainRejectsDiscoverModeWithNamedSink(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	objective := "请展示 buildAnalysisIR 到 gate.Run 的调用顺序"
+	payload := `{
+		"intent":"trace",
+		"scenario":"architecture_explain",
+		"complexity":"complex",
+		"keywords":["buildAnalysisIR","gate.Run","call","sequence"],
+		"entities":["buildAnalysisIR","gate.Run"],
+		"question_kind":"call_chain",
+		"predicate_axis":"call",
+		"call_chain_endpoints":{"source":"buildAnalysisIR","sink":"gate.Run","sink_mode":"discover"}
+	}`
+	res, mu := runEmitAnalysisWithObjective(t, objective, payload)
+	if res.Success || !strings.Contains(res.Summary, `sink_mode=discover requires sink=""`) ||
+		!strings.Contains(res.Summary, "use sink_mode=exact") {
+		t.Fatalf("contradictory endpoint wire shape must fail loud, success=%t summary=%q", res.Success, res.Summary)
+	}
+	if mu.RequestModel() != nil {
+		t.Fatalf("rejected endpoint shape must not persist after silently dropping the sink: %+v", mu.RequestModel())
+	}
+}
+
 func TestEmitAnalysis_MechanismWithProvenancedOrderedCallProfilePromotesToCallChain(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

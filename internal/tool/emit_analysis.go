@@ -1781,6 +1781,14 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		val.Warnings = append(val.Warnings, warning)
 	}
 	mentionedEntities := types.MentionedEntitiesFromRawRequest(raw, entities)
+	if issue := validateCallChainEndpointWireShape(kind, axis, runtimeArtifactCarrier, p.CallChainEndpoints); issue != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + issue,
+			Timestamp: time.Now(),
+		}, nil
+	}
 	callChainEndpointProfile, callChainEndpointWarning := types.NormalizeCallChainEndpointProfile(
 		p.CallChainEndpoints,
 		append(append([]string(nil), exactTargets...), mentionedEntities...),
