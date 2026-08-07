@@ -24213,3 +24213,25 @@ AnswerDocument 案没有 malformed JSON、strict recovery、patch string carrier
 JSON 教学=`single-source/no-r165-shape-failure`；模型答案所有权=`preserved`；两条开放守护
 `sequence-display-parameter-identity`、`all-language-flowchart-relation-anchor` 保持在账。本批无 runtime artifact，Trace 显式窗、因果投影、自动补齐、
 根因排序、唤醒链、窗内可消除量和双维根因分析均未触碰。
+
+### 123.255 S37u：唯一 typed relation candidate 直接重绑错位引用
+
+`EVAL-B271-UNIQUECITEREBIND1` 在 full emit 与 patch 共用的 pre-emit normalization chokepoint 根修：
+
+1. 结构化 item 所属 block 必须已经声明 typed `claim_uses`；修复器只在该 finite claim-form 集合内，把 item 的显式 relation carrier 与
+   `EvidenceItem` 的 caller/callee/claim role 对齐。它不扫描用户原始输入、模型 thinking 或普通 summary/final prose，也不从词频或相似度猜关系；
+2. 候选只来自 grounded、带真实 source/line 的 typed evidence。按 canonical file:line 去重后必须恰好一个位置，才把 `citation_ref` 重绑到已有 citation
+   或追加该 typed citation；零候选与两个以上候选均不动，保留现有 advisory/模型修订车道；
+3. relation-role 修复先于宽松 symbol-label 修复执行。这样 `buildAnalysisIR -> X` 的多个 sibling edges 不再因为共享 caller 而互相制造假歧义；随后通用候选
+   也先过与 pre-emit checker 相同的 role/direction alignment，再计算唯一性；
+4. 修复只移动引用指针，不改 block/item id、label、text、cells、diagram、edge anchors、结论或块顺序，不生成事实，也不新增成文 reject。模型仍决定写哪条边、
+   如何解释；系统只保证它明确声明的 typed relation 不借错相邻行；
+5. r165 同形测试一次错移三条 sibling call edges，三条都回到各自 callsite；双 grounded 同向位置负例保持不猜。另有 M4 接线 pin 通过
+   `normalizeAnswerDocumentForPreEmit` 生产挂点重跑同一错移，防止 helper 绿而 full/patch 实际接线失效。
+
+定向红转绿、`go test ./internal/tool -count=1`（164s）与 `go test ./...` 全绿。
+
+状态：`EVAL-B271-UNIQUECITEREBIND1=S37u-implemented/full-tests-pass/pending-production-replay`；
+下一项=`EVAL-B270-QUALIFIEDDEFENDPOINT1`；B262/B272 继续开放。JSON schema/教学=`unchanged`；模型答案所有权=`preserved`；
+`sequence-display-parameter-identity` 与 `all-language-flowchart-relation-anchor` 两条守护未遗忘。runtime Trace 分支未参与该 normalization 判定，显式窗、
+因果投影、自动补齐、根因排序、唤醒链、窗内可消除量及双维根因分析=`untouched`。

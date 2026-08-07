@@ -910,6 +910,112 @@ func TestPreCheckItemCitationAlignment_RejectsAdjacentCallCitationDrift(t *testi
 	}
 }
 
+func TestNormalizeItemCitationRefsByUniquePreEmitCandidate_RebindsShiftedSiblingCallEdges(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "chain",
+			Kind: types.BlockOrderedList,
+			ClaimUses: []types.RenderedClaimUse{{
+				ClaimForm: types.ClaimCallEdge,
+			}},
+			Items: []types.AnswerBlockItem{
+				{ID: "normalize", Label: "buildAnalysisIR -> normalizer.Normalize", CitationRef: 1},
+				{ID: "amplify", Label: "buildAnalysisIR -> amplifier.Amplify", CitationRef: 2},
+				{ID: "infer", Label: "buildAnalysisIR -> compiler.InferScenario", CitationRef: 0},
+			},
+		}},
+		Citations: []types.Citation{
+			{File: "internal/agent/analyzer.go", Line: 2266},
+			{File: "internal/agent/analyzer.go", Line: 2291},
+			{File: "internal/agent/analyzer.go", Line: 2461},
+		},
+	}
+	mut := types.NewMutableState("call-chain citation shift")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{
+		{
+			Kind: types.EvidenceRelationship, Source: "internal/agent/analyzer.go", LineStart: 2266,
+			AnchorKind: types.AnchorCall, Subject: "buildAnalysisIR", Object: "normalizer.Normalize",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind: types.EvidenceRelationship, Source: "internal/agent/analyzer.go", LineStart: 2291,
+			AnchorKind: types.AnchorCall, Subject: "buildAnalysisIR", Object: "amplifier.Amplify",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind: types.EvidenceRelationship, Source: "internal/agent/analyzer.go", LineStart: 2461,
+			AnchorKind: types.AnchorCall, Subject: "buildAnalysisIR", Object: "compiler.InferScenario",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}})
+	ctx := &types.BusContext{Mutable: mut}
+
+	fixed := normalizeItemCitationRefsByUniquePreEmitCandidateWithContext(doc, nil, ctx, newPreEmitCheckContext(ctx))
+	if fixed != 3 {
+		t.Fatalf("expected all three uniquely typed call edges to rebind, fixed=%d doc=%+v", fixed, doc.Blocks[0].Items)
+	}
+	for i, item := range doc.Blocks[0].Items {
+		if item.CitationRef != i {
+			t.Fatalf("item %q citation_ref=%d, want %d", item.ID, item.CitationRef, i)
+		}
+	}
+	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) != 0 {
+		t.Fatalf("rebound call-edge citations must satisfy alignment, got %+v", hints)
+	}
+	// M4 wiring pin: the production pre-emit normalization chokepoint must
+	// retain the same repair, not merely the helper's direct unit behavior.
+	doc.Blocks[0].Items[0].CitationRef = 1
+	doc.Blocks[0].Items[1].CitationRef = 2
+	doc.Blocks[0].Items[2].CitationRef = 0
+	normalizeAnswerDocumentForPreEmit("test", doc, &types.AnswerSemanticView{Family: types.QFCallChain}, ctx, newPreEmitCheckContext(ctx))
+	for i, item := range doc.Blocks[0].Items {
+		if item.CitationRef != i {
+			t.Fatalf("production normalization item %q citation_ref=%d, want %d", item.ID, item.CitationRef, i)
+		}
+	}
+}
+
+func TestNormalizeItemCitationRefsByUniquePreEmitCandidate_DoesNotGuessDuplicateAlignedCallEdges(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "chain",
+			Kind: types.BlockOrderedList,
+			ClaimUses: []types.RenderedClaimUse{{
+				ClaimForm: types.ClaimCallEdge,
+			}},
+			Items: []types.AnswerBlockItem{{
+				ID: "normalize", Label: "buildAnalysisIR -> normalizer.Normalize", CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{
+			{File: "internal/agent/analyzer.go", Line: 2200},
+			{File: "internal/agent/analyzer.go", Line: 2266},
+			{File: "internal/agent/analyzer.go", Line: 2270},
+		},
+	}
+	mut := types.NewMutableState("ambiguous call-chain citations")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{
+		{
+			Kind: types.EvidenceRelationship, Source: "internal/agent/analyzer.go", LineStart: 2266,
+			AnchorKind: types.AnchorCall, Subject: "buildAnalysisIR", Object: "normalizer.Normalize",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind: types.EvidenceRelationship, Source: "internal/agent/analyzer.go", LineStart: 2270,
+			AnchorKind: types.AnchorCall, Subject: "buildAnalysisIR", Object: "normalizer.Normalize",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}})
+	ctx := &types.BusContext{Mutable: mut}
+
+	if fixed := normalizeItemCitationRefsByUniquePreEmitCandidateWithContext(doc, nil, ctx, newPreEmitCheckContext(ctx)); fixed != 0 {
+		t.Fatalf("two grounded same-role candidates must remain model-visible ambiguity, fixed=%d", fixed)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
+		t.Fatalf("ambiguous citation changed to %d", got)
+	}
+}
+
 func TestPreCheckItemCitationAlignment_RejectsPrefixSiblingCallCitation(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{
