@@ -23375,3 +23375,28 @@ flowchart edge 都不得绕过 relation authority。这两条不能被当前 Pyt
 
 状态：`EVAL-B241-MEMLOCREF1=S37c-implemented/full-tests-pass`；`EVAL-B242-OPTDIAGCONV1=next`；
 `EVAL-B236-PHASEBRIDGE1=partial`；模型答案所有权=`preserved`；下一步=`commit+push, optional diagram first-reject convergence`。
+
+### 123.224 S37d：optional diagram 第一次拒绝即进入 typed capsule / remove 二选一
+
+`EVAL-B242-OPTDIAGCONV1` 已根修。此前 evaluator 只在一次 patch 仍失败后才发布 optional diagram 专用收敛提示；第一次 full emit 已经保留完整
+draft 并切到 patch schema，却给出宽泛“修关系边”指令，模型容易再造一张新图。r152 Python 正是先忽略 copy-ready capsule，再用非法 `-.->` 与错向
+return anchors 付出第二次 reject。
+
+本批把同一个精确选择器提前到 full-emit 首次失败：
+
+1. 必须同时满足 repair code=`answer_doc_pre_emit_contract`、唯一 violation family=`diagram_call_edge_unproven`、producer 发布的
+   `offending_block_kinds` 精确为单一 `diagram`、且当前 diagram 非 required；metadata 缺失、mixed kind、ordered-list 或 required diagram 均不能进入；
+2. retained rejected draft 存在时立即保持 patch-only schema，提示模型只做两个诚实选择：原样复制 prompt 已给的 copy-ready typed diagram capsule 的
+   Mermaid body **和完整** `edge_anchors_json`，或用 `remove_block_ids` 删除 optional diagram 并保留 grounded prose/list；禁止拼第三张关系图；
+3. full-reject 与 patch-reject 两面复用一个提示函数，并拼接共享 `AnswerDocumentPatchOperationTeaching`，因此 keep/edit/add/remove 与 native JSON
+   array/object 规则仍只有一个教学源；没有第二份 JSON schema 或相反指令；
+4. 系统不自动删除、替换或修写图，选择与最终答案仍归模型。required diagram 的负 pin 保证不会出现删除建议；mixed/non-diagram 继续通用 patch-local
+   修复。定向 tests 与 `go test ./...` 全绿。
+
+该机制只读取 tool repair 的 typed code / violation / offending block kind，不扫描用户输入、模型 thinking 或 answer prose。Trace 因果投影、显式时间窗、
+自动补齐、根因排序、唤醒链、窗内可消除量和双维根因分析未触碰。sequence display message 参数污染 endpoint identity 与所有语言的
+labelled/unlabelled flowchart relation-anchor 旁路仍保持为独立待闭环项，未被本批 optional-removal 逻辑掩盖。
+
+状态：`EVAL-B242-OPTDIAGCONV1=S37d-implemented/full-tests-pass`；`EVAL-B241-MEMLOCREF1=implemented/full-tests-pass`；
+`EVAL-B236-PHASEBRIDGE1=partial/replay-next`；模型答案所有权=`preserved`；JSON 教学=`single-source/preserved`；
+下一步=`commit+push+r153 exactly-two replay`。

@@ -475,6 +475,8 @@ func TestEmitPatchRejectFullRewriteSignal_OptionalDiagramCallEdgeOffersRemoval(t
 		"OPTIONAL diagram",
 		"remove_block_ids",
 		"typed call-edge evidence",
+		"copy-ready optional typed diagram capsule",
+		"Mermaid body AND complete `edge_anchors_json` unchanged",
 		"keep the grounded textual call chain unchanged",
 		"will not remove or rewrite the diagram for you",
 	} {
@@ -485,6 +487,63 @@ func TestEmitPatchRejectFullRewriteSignal_OptionalDiagramCallEdgeOffersRemoval(t
 	if e.forceFullEmitNext || !e.preferPatchNext {
 		t.Fatalf("optional diagram recovery must remain model-owned and patch-local: forceFull=%t preferPatch=%t",
 			e.forceFullEmitNext, e.preferPatchNext)
+	}
+}
+
+func TestEmitAnswerDocumentRejectSignal_OptionalDiagramCallEdgeConvergesOnFirstReject(t *testing.T) {
+	e := &answerDocumentEvaluator{}
+	ctx := ctxWithAnswerPatchBase()
+	obs := LoopObservation{LastToolResult: &types.ToolResult{
+		ToolName: "emit_answer_document",
+		Success:  false,
+		Repair: &types.ToolRepair{
+			Code:   "answer_doc_pre_emit_contract",
+			Fields: []string{"blocks[].edge_anchors[] AND blocks[kind=diagram].diagram.body"},
+			Metadata: map[string]string{
+				"violation_kinds":                       string(types.ViolDiagramCallEdgeUnproven),
+				types.ToolRepairMetaOffendingBlockKinds: string(types.BlockDiagram),
+			},
+		},
+	}}
+
+	got := e.emitAnswerDocumentRejectSignal(ctx, obs)
+	if !got.HintRequested || !strings.Contains(got.HintKey, "optional-diagram-call-edge") {
+		t.Fatalf("first optional-diagram reject should select bounded patch recovery, got %+v", got)
+	}
+	for _, want := range []string{
+		"Use `emit_answer_document_patch`",
+		"copy-ready optional typed diagram capsule",
+		"remove_block_ids",
+		types.AnswerDocumentPatchOperationTeaching,
+	} {
+		if !strings.Contains(got.Hint, want) {
+			t.Errorf("first-reject optional diagram hint missing %q:\n%s", want, got.Hint)
+		}
+	}
+	if !e.preferPatchNext {
+		t.Fatal("first optional-diagram reject should keep the next turn on patch surface")
+	}
+}
+
+func TestEmitAnswerDocumentRejectSignal_RequiredDiagramDoesNotOfferRemoval(t *testing.T) {
+	e := &answerDocumentEvaluator{diagramRequired: true}
+	ctx := ctxWithAnswerPatchBase()
+	obs := LoopObservation{LastToolResult: &types.ToolResult{
+		ToolName: "emit_answer_document",
+		Success:  false,
+		Repair: &types.ToolRepair{
+			Code: "answer_doc_pre_emit_contract",
+			Metadata: map[string]string{
+				"violation_kinds":                       string(types.ViolDiagramCallEdgeUnproven),
+				types.ToolRepairMetaOffendingBlockKinds: string(types.BlockDiagram),
+			},
+		},
+	}}
+
+	got := e.emitAnswerDocumentRejectSignal(ctx, obs)
+	if strings.Contains(got.Hint, "remove the optional diagram block") ||
+		strings.Contains(got.Hint, "copy-ready optional typed diagram capsule") {
+		t.Fatalf("required diagram must stay on ordinary correction path:\n%s", got.Hint)
 	}
 }
 

@@ -12247,7 +12247,7 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 	if answerDocumentPatchRejectIsOptionalDiagramCallEdge(obs.LastToolResult, e.diagramRequired) {
 		e.rejectHintsUsed++
 		e.preferPatchNext = true
-		hint := "Your last `emit_answer_document_patch` call was rejected only because an OPTIONAL diagram contains invocation edges that are not authorized by the existing typed call-edge evidence. Keep using `emit_answer_document_patch`; do not invent an edge, rename endpoints repeatedly, or reopen files. If every diagram invocation edge cannot be expressed from the already-provided typed call evidence, remove the optional diagram block in this patch with `remove_block_ids` and keep the grounded textual call chain unchanged. If you keep the diagram, replace only that block and include only typed-authorized edges. Preserve unrelated blocks in `unchanged_block_ids` and preserve the inherited `citations[]` pool. The system will not remove or rewrite the diagram for you; choose the honest presentation and submit the patch. Do not write free-form prose outside the tool call."
+		hint := answerDocOptionalDiagramCallEdgePatchHint(true)
 		hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
 		return LoopSignal{
 			HintRequested:  true,
@@ -12314,6 +12314,17 @@ func answerDocumentPatchRejectIsOptionalDiagramCallEdge(result *types.ToolResult
 	}
 	offendingKinds := strings.Split(strings.TrimSpace(repair.Metadata[types.ToolRepairMetaOffendingBlockKinds]), ",")
 	return len(offendingKinds) == 1 && strings.TrimSpace(offendingKinds[0]) == string(types.BlockDiagram)
+}
+
+func answerDocOptionalDiagramCallEdgePatchHint(alreadyPatching bool) string {
+	prefix := "Your last `emit_answer_document` call was rejected"
+	if alreadyPatching {
+		prefix = "Your last `emit_answer_document_patch` call was rejected"
+	}
+	return prefix + " only because an OPTIONAL diagram contains invocation edges that are not authorized by the existing typed call-edge evidence. " +
+		"Use `emit_answer_document_patch`; do not invent an edge, rename endpoints repeatedly, or reopen files. The prompt already contains a copy-ready optional typed diagram capsule when one can be built: either copy that capsule's Mermaid body AND complete `edge_anchors_json` unchanged, or remove the optional diagram block with `remove_block_ids` and keep the grounded textual call chain unchanged. Do not compose a third graph. " +
+		"If you keep the diagram, replace only that block. Preserve unrelated blocks in `unchanged_block_ids` and preserve the inherited `citations[]` pool. " + types.AnswerDocumentPatchOperationTeaching +
+		" The system will not remove or rewrite the diagram for you; choose the honest presentation and submit the patch. Do not write free-form prose outside the tool call."
 }
 
 func answerDocumentPatchRejectBlockCardinalityKind(result *types.ToolResult) (types.AnswerBlockKind, bool) {
@@ -12413,6 +12424,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	hasPatchBase := answerDocumentPatchBaseAvailable(ctx, e.mu)
 	hint := answerDocDefaultFullRejectHint(hasPatchBase)
 	reasonKey := "tool-reject"
+	optionalDiagramPatchRecovery := false
 	if repair != nil && strings.TrimSpace(repair.Hint) != "" {
 		hint = strings.TrimSpace(repair.Hint)
 		reasonKey = firstNonEmptyString(rejectCode, "tool-reject")
@@ -12422,6 +12434,19 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		if !strings.Contains(hint, "Do not write free-form prose outside the tool call.") {
 			hint += " Do not write free-form prose outside the tool call."
 		}
+	}
+	// A rejected full document is already retained as a valid patch base. If
+	// the producer-owned metadata says the only failure is one OPTIONAL
+	// diagram's call-edge authority, surface the same bounded model-owned
+	// choice immediately instead of paying a speculative graph rewrite first.
+	// This reads no user/model prose and never removes or rewrites the block on
+	// the model's behalf; required diagrams and mixed/non-diagram violations
+	// stay on their existing correction lanes.
+	if hasPatchBase && answerDocumentPatchRejectIsOptionalDiagramCallEdge(obs.LastToolResult, e.diagramRequired) {
+		hint = answerDocOptionalDiagramCallEdgePatchHint(false)
+		reasonKey = "optional-diagram-call-edge"
+		optionalDiagramPatchRecovery = true
+		e.preferPatchNext = true
 	}
 	var summaryLen, summaryCap int
 	if rejectCode == answerDocRejectCodeSummaryCap {
@@ -12623,7 +12648,9 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	// on a now-different missing field, retry budget exhausts.
 	if answerDocShouldPreferPatchForFullReject(ctx, e, repair) {
 		e.preferPatchNext = true
-		hint = answerDocFullRejectPatchHint(repair, hint)
+		if !optionalDiagramPatchRecovery {
+			hint = answerDocFullRejectPatchHint(repair, hint)
+		}
 		reasonKey = "patch-" + reasonKey
 	}
 	if !strings.Contains(hint, "Do not write free-form prose outside the tool call.") {
