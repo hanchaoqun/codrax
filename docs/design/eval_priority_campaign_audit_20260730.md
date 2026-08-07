@@ -24019,3 +24019,58 @@ Mermaid 为读者把 caller 显示成 `walker::collect_files`，strict validator
 状态：`EVAL-B264-DISPLAYQUALCALLER1=S37q-implemented/full-tests-pass`；
 `EVAL-B262-TRANSITIVEHOPDEPTH1=open/P1`；模型答案所有权=`preserved`；
 `sequence-display-parameter-identity=open/production-unverified`；`all-language-flowchart-relation-anchor=open`。
+
+### 123.248 r162：双 PASS 仍人工双失败；已读调用未铸边与 required diagram 六轮同因拒绝
+
+r162 在 `main@29d997b19` 上严格并发 2，运行 Rust `sr_rust_cross_module_chain` 与组合 read
+`read_combo_pipeline_sequence_table`。runner 2/2 PASS，但人工 0/2；不能用 regex PASS 销账。两案都没有 Trace/system supplement 改写模型结论。
+
+Rust 案把 r161 的根因进一步收窄：Explorer 的初始上下文已经含 `src/walker.rs` 全文，thinking 也明确识别
+`collect_files() -> walk()`，但 `emit_evidence` 只为 `collect_files` 与 `walk` 发出 definition rows，漏发 callsite 的 typed call edge。
+因此 Current-Source Authority 只有 `main -> run`、`run -> collect_files`、`run -> index_file`、`index_file -> is_match` 四条 call；首稿模型从已读源码画出的
+`walker::collect_files -> walk` 虽然事实为真，却没有可供 validator 消费的 typed relation，第一次拒绝后 copy-ready 图只能诚实缩成四边。
+这不是“胶囊丢掉已有边”，而是新的 `EVAL-B265-READCALLNOTCARRIED1`（P1）：已读且被模型用于主解释的 load-bearing callsite 没有进入 typed evidence 闭包。
+不能由 finalizer 从 definition 邻接猜补；下一方案应在 investigation completion 前对“已读、被结构化 investigation slate 使用的关系”做 typed frontier 缺口提示，仍由 Explorer
+打开/引用 exact callsite 并发证，不扫描 free-form thinking/final prose，也不全图穷举。
+
+Rust 最终答案另把源码中的“先收集 files，再 for 循环逐个 index”说成“两条并行分支并在 index_file 汇聚”。这是事实错误，但当前只有一次 witness，先记
+`EVAL-B268-SEQUENTIALASPARALLEL1=observe/model-variance`；未达到用硬门或系统改写模型总结的门槛。B264 的五分隔符实现保持全测绿，但该生产稿没有 inner typed edge，
+故仍只能标 `production-unverified`。
+
+组合 read 案确认 `EVAL-B266-REQUIREDRECIPECARRY1`（P0/P1）：prompt 已由系统单源生成 3 条 exact qualified call edges、copy-ready Mermaid body 和完整
+`edge_anchors_json`，但 required diagram 的 reject lane 只回放普通错误，没有把这一精确 carrier 放进当前 repair turn。模型在 501s 内连续 6 次手工重组 alias、显示 label、
+消息文字和 JSON；同一组真实边反复被判 unproven，直到第 7 稿恢复全限定 endpoint 才通过。硬证据门本身正确，gap 是“系统教学和当前修复上下文不同焦”，不是应放宽校验。
+最终答案还把 `StageExtract` 留在底部系统 binding supplement、未进入模型自己的阶段时序/表，记
+`EVAL-B267-PIPELINESTAGEROSTER1`（P1）：analyzer task units 一开始就漏了 topology 中间 stage，后续证据调查也未补齐。应由 topology/stage-binding typed roster
+软交接给 analyzer/explorer，而不是系统在成文后代写主答案或按 `StageExtract` 字面做 case 特判。
+
+状态：`runner=2/2 PASS`；`human=0/2`；`EVAL-B265-READCALLNOTCARRIED1=open/P1`；
+`EVAL-B266-REQUIREDRECIPECARRY1=confirmed/immediate`；`EVAL-B267-PIPELINESTAGEROSTER1=open/P1`；
+`EVAL-B268-SEQUENTIALASPARALLEL1=observe/model-variance`；`EVAL-B262-TRANSITIVEHOPDEPTH1=open/P1`；
+`sequence-display-parameter-identity=open/production-unverified`；`all-language-flowchart-relation-anchor=open`。
+
+### 123.249 S37r：required diagram 修复轮复用同一 typed Mermaid/JSON carrier
+
+`EVAL-B266-REQUIREDRECIPECARRY1` 以精确 repair-handoff 根修，不修改 validator 证据标准：
+
+1. 从 producer-owned `ToolRepair` metadata 选择唯一 typed violation family=`diagram_call_edge_unproven` 且 offending block kind 只有 `diagram`；不读用户原文、模型
+   thinking、首稿/终稿 prose，也不按 read pipeline case 或函数名分支；
+2. optional diagram 保持原模型选择：可复制 capsule 或删除可选图。required diagram 新增独立车道，禁止删除；若当前 AgentContext 能从 citable typed relations
+   构造 copy-ready carrier，则在当前 repair turn 重新呈现与 initial prompt 完全同源的 Mermaid body 与完整 `edge_anchors_json`；没有 carrier 时继续原普通修复车道，
+   不猜造边；
+3. required 车道只让模型 `replace_blocks` 修被拒 diagram，并保留 sibling block/citations；删除通用四操作教学中与 required 场景无关的 optional removal 说明，明确
+   body 是 string、`edge_anchors` 是 object array，禁止额外 JSON string 包装。这样减少 JSON 心智和长 prompt 回翻，不创建第二套 schema；
+4. 系统只重放自己已经铸造、且 validator 消费的结构 carrier，不自动执行 patch，不删除/重写模型 prose、阶段排序或结论。模型仍决定答案内容、图所在位置和如何解释
+   component boundary；证据不足仍 fail-closed；
+5. full emit 首拒与 patch 再拒两条车道均有 pin：exact qualified participants、同 alias Mermaid edge、完整 anchor JSON 字节一致；required hint 不出现 optional removal，
+   optional diagram 原有 remove-or-copy 选择不回归；无 typed capsule 的 required case 保持普通修复。
+
+定向 required/optional diagram repair tests、`go test ./internal/agent -count=1` 与 `go test ./...` 全绿。下一步提交本批，再以严格并发 2 生产复放组合 read，验收目标从
+`6 rejects / 501s` 降到至多一次 call-edge repair；同批继续观察 Rust 的 B265，但不得由成文层猜补。
+
+Trace runtime family、显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量以及“真实耗时贡献 / 规则内可消除量”双维根因分析未触碰。
+`sequence-display-parameter-identity` 与各语言 labelled/unlabelled flowchart strict-anchor 守护继续开放，未虚销。
+
+状态：`EVAL-B266-REQUIREDRECIPECARRY1=S37r-implemented/full-tests-pass`；
+`EVAL-B265-READCALLNOTCARRIED1=next-P1`；`EVAL-B267-PIPELINESTAGEROSTER1=open/P1`；
+模型答案所有权=`preserved`；JSON teaching=`single typed carrier`；Trace 能力=`untouched`。

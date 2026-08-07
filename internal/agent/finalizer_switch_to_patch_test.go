@@ -56,6 +56,25 @@ func ctxWithAnswerPatchBase() *types.AgentContext {
 	return &types.AgentContext{Mutable: mut}
 }
 
+func ctxWithAnswerPatchBaseAndSequenceCallCapsule() *types.AgentContext {
+	ctx := ctxWithAnswerPatchBase()
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+		},
+		AnswerContract: types.AnswerContract{Diagram: &types.DiagramContract{
+			PreferredKinds: []types.DiagramKind{types.DiagramSequence},
+		}},
+	}
+	ctx.EvidenceItems = []types.EvidenceItem{{
+		ID: "call-edge", Kind: types.EvidenceRelationship,
+		Source: "internal/orchestrator/orchestrator.go", LineStart: 2485,
+		AnchorKind: types.AnchorCall, Subject: "Orchestrator.runAnalyzePhase", Object: "Orchestrator.dispatchStage",
+		GroundingStatus: types.GroundingGrounded,
+	}}
+	return ctx
+}
+
 func TestEmitSwitchToPatchSignal_NoLastResult_NoOp(t *testing.T) {
 	e := &answerDocumentEvaluator{}
 	if got := e.emitSwitchToPatchSignal(nil, LoopObservation{}); got.HintRequested {
@@ -573,6 +592,83 @@ func TestEmitPatchRejectFullRewriteSignal_RequiredDiagramCannotBeRemoved(t *test
 	}
 	if strings.Contains(got.Hint, "remove the optional diagram block") {
 		t.Fatalf("required diagram hint must not offer removal of the required diagram:\n%s", got.Hint)
+	}
+}
+
+func TestEmitPatchRejectFullRewriteSignal_RequiredDiagramRepeatsExactTypedCapsule(t *testing.T) {
+	e := &answerDocumentEvaluator{diagramRequired: true}
+	ctx := ctxWithAnswerPatchBaseAndSequenceCallCapsule()
+	obs := LoopObservation{LastToolResult: &types.ToolResult{
+		ToolName: "emit_answer_document_patch",
+		Success:  false,
+		Repair: &types.ToolRepair{
+			Code: "answer_doc_pre_emit_contract",
+			Metadata: map[string]string{
+				"violation_kinds":                       string(types.ViolDiagramCallEdgeUnproven),
+				types.ToolRepairMetaOffendingBlockKinds: string(types.BlockDiagram),
+			},
+		},
+	}}
+
+	got := e.emitPatchRejectFullRewriteSignal(ctx, obs)
+	if !got.HintRequested || got.HintKey != "answer_doc.patch_required_diagram_call_edge" {
+		t.Fatalf("required diagram-only call reject should select exact-capsule lane, got %+v", got)
+	}
+	for _, want := range []string{
+		"REQUIRED diagram",
+		"put the rejected diagram block in `replace_blocks`",
+		"participant n1 as Orchestrator.runAnalyzePhase",
+		"participant n2 as Orchestrator.dispatchStage",
+		"n1->>n2: call",
+		`edge_anchors_json=` + "`" + `[{"from_node":"n1","to_node":"n2","relation_kind":"call"}]` + "`",
+		"same typed evidence consumed by the validator",
+		"does not rewrite the model's prose, ordering, or conclusions",
+	} {
+		if !strings.Contains(got.Hint, want) {
+			t.Errorf("required exact-capsule hint missing %q:\n%s", want, got.Hint)
+		}
+	}
+	if strings.Contains(got.Hint, "remove_block_ids") || strings.Contains(got.Hint, "remove the optional diagram") {
+		t.Fatalf("required exact-capsule lane must never offer diagram removal:\n%s", got.Hint)
+	}
+	if e.forceFullEmitNext || !e.preferPatchNext {
+		t.Fatalf("required exact-capsule recovery must remain patch-local: forceFull=%t preferPatch=%t",
+			e.forceFullEmitNext, e.preferPatchNext)
+	}
+}
+
+func TestEmitAnswerDocumentRejectSignal_RequiredDiagramRepeatsExactTypedCapsule(t *testing.T) {
+	e := &answerDocumentEvaluator{diagramRequired: true}
+	ctx := ctxWithAnswerPatchBaseAndSequenceCallCapsule()
+	obs := LoopObservation{LastToolResult: &types.ToolResult{
+		ToolName: "emit_answer_document",
+		Success:  false,
+		Repair: &types.ToolRepair{
+			Code: "answer_doc_pre_emit_contract",
+			Metadata: map[string]string{
+				"violation_kinds":                       string(types.ViolDiagramCallEdgeUnproven),
+				types.ToolRepairMetaOffendingBlockKinds: string(types.BlockDiagram),
+			},
+		},
+	}}
+
+	got := e.emitAnswerDocumentRejectSignal(ctx, obs)
+	if !got.HintRequested || !strings.Contains(got.HintKey, "required-diagram-call-edge") {
+		t.Fatalf("first required diagram-only reject should select exact-capsule lane, got %+v", got)
+	}
+	for _, want := range []string{
+		"Use `emit_answer_document_patch`",
+		"REQUIRED diagram",
+		"participant n1 as Orchestrator.runAnalyzePhase",
+		"n1->>n2: call",
+		`edge_anchors_json=` + "`" + `[{"from_node":"n1","to_node":"n2","relation_kind":"call"}]` + "`",
+	} {
+		if !strings.Contains(got.Hint, want) {
+			t.Errorf("first-reject required exact-capsule hint missing %q:\n%s", want, got.Hint)
+		}
+	}
+	if strings.Contains(got.Hint, "remove_block_ids") || strings.Contains(got.Hint, "remove the optional diagram") {
+		t.Fatalf("required first-reject recovery must not offer removal:\n%s", got.Hint)
 	}
 }
 

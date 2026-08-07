@@ -12381,6 +12381,30 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 	if !answerDocumentPatchBaseAvailable(ctx, e.mu) {
 		return LoopSignal{}
 	}
+	// Required diagrams cannot take the optional block-removal escape, but
+	// leaving them on the generic correction lane made the model repeatedly
+	// reconstruct aliases and edge_anchors that the system had already
+	// rendered exactly. When the producer-owned violation metadata says the
+	// diagram's ONLY remaining problem is call-edge authority, repeat that
+	// same typed capsule in the repair turn. This is formatting/evidence
+	// handoff, not answer synthesis: the model still owns whether and where to
+	// place the required diagram, while the system stops teaching two subtly
+	// different JSON/identity forms in one dispatch.
+	if e.diagramRequired && answerDocumentPatchRejectIsDiagramCallEdge(obs.LastToolResult) {
+		if hint, ok := answerDocRequiredDiagramCallEdgePatchHint(ctx, true); ok {
+			e.rejectHintsUsed++
+			e.preferPatchNext = true
+			hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
+			return LoopSignal{
+				HintRequested:  true,
+				HintKey:        "answer_doc.patch_required_diagram_call_edge",
+				Hint:           hint,
+				Progress:       true,
+				BypassThrottle: true,
+				BypassBudget:   true,
+			}
+		}
+	}
 	if answerDocumentPatchRejectIsOptionalDiagramCallEdge(obs.LastToolResult, e.diagramRequired) {
 		e.rejectHintsUsed++
 		e.preferPatchNext = true
@@ -12423,15 +12447,12 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 	}
 }
 
-// answerDocumentPatchRejectIsOptionalDiagramCallEdge selects the bounded
-// recovery lane for an optional diagram whose only typed violation family is
-// an unproven call edge and whose producer says every offending block is a
-// diagram. The signal is deliberately metadata-only: it neither
-// reads the user's request nor scans model/final prose. Required diagrams stay
-// on the ordinary correction path, where removal would violate the resolved
-// DiagramContract.
-func answerDocumentPatchRejectIsOptionalDiagramCallEdge(result *types.ToolResult, diagramRequired bool) bool {
-	if result == nil || diagramRequired || result.Repair == nil {
+// answerDocumentPatchRejectIsDiagramCallEdge selects a typed diagram-only
+// rejection whose sole violation family is an unproven call edge. The signal
+// is deliberately metadata-only: it neither reads the user's request nor
+// scans model/final prose.
+func answerDocumentPatchRejectIsDiagramCallEdge(result *types.ToolResult) bool {
+	if result == nil || result.Repair == nil {
 		return false
 	}
 	repair := result.Repair
@@ -12453,6 +12474,14 @@ func answerDocumentPatchRejectIsOptionalDiagramCallEdge(result *types.ToolResult
 	return len(offendingKinds) == 1 && strings.TrimSpace(offendingKinds[0]) == string(types.BlockDiagram)
 }
 
+// answerDocumentPatchRejectIsOptionalDiagramCallEdge narrows the shared
+// diagram-call signal to the model-owned optional-diagram choice. Required
+// diagrams use the exact-capsule correction lane and are never offered
+// removal.
+func answerDocumentPatchRejectIsOptionalDiagramCallEdge(result *types.ToolResult, diagramRequired bool) bool {
+	return !diagramRequired && answerDocumentPatchRejectIsDiagramCallEdge(result)
+}
+
 func answerDocOptionalDiagramCallEdgePatchHint(alreadyPatching bool) string {
 	prefix := "Your last `emit_answer_document` call was rejected"
 	if alreadyPatching {
@@ -12462,6 +12491,53 @@ func answerDocOptionalDiagramCallEdgePatchHint(alreadyPatching bool) string {
 		"Use `emit_answer_document_patch`; do not invent an edge, rename endpoints repeatedly, or reopen files. The prompt already contains a copy-ready optional typed diagram capsule when one can be built: either copy that capsule's Mermaid body AND complete `edge_anchors_json` unchanged, or remove the optional diagram block with `remove_block_ids` and keep the grounded textual call chain unchanged. Do not compose a third graph. " +
 		"If you keep the diagram, replace only that block. Preserve unrelated blocks in `unchanged_block_ids` and preserve the inherited `citations[]` pool. " + types.AnswerDocumentPatchOperationTeaching +
 		" The system will not remove or rewrite the diagram for you; choose the honest presentation and submit the patch. Do not write free-form prose outside the tool call."
+}
+
+func answerDocRequiredDiagramCallEdgePatchHint(ctx *types.AgentContext, alreadyPatching bool) (string, bool) {
+	payload := answerDocMechanismCopyReadyRepairPayload(ctx)
+	if payload == "" {
+		return "", false
+	}
+	prefix := "Your last `emit_answer_document` call was rejected"
+	action := "Use `emit_answer_document_patch`"
+	if alreadyPatching {
+		prefix = "Your last `emit_answer_document_patch` call was rejected"
+		action = "Keep using `emit_answer_document_patch`"
+	}
+	return prefix + " only because the REQUIRED diagram still contains invocation edges outside the existing typed call-edge authority. " +
+		action + "; put the rejected diagram block in `replace_blocks`, list every retained sibling block in `unchanged_block_ids`, and preserve the inherited `citations[]` pool. Do not add or delete blocks in this repair. " +
+		"Do not remove the required diagram, rename endpoints, reopen files, or reconstruct a different graph/JSON shape. Copy the following system-rendered Mermaid body AND complete `edge_anchors_json` exactly as one unit; it is derived from the same typed evidence consumed by the validator:\n\n" +
+		payload + "\n\nFollow the projected patch tool schema's native field types; the Mermaid body is a string, `edge_anchors` is an array of objects, and neither may be wrapped in an additional JSON string. " +
+		" The system supplies only the verified diagram carrier and does not rewrite the model's prose, ordering, or conclusions. Do not write free-form prose outside the tool call.", true
+}
+
+// answerDocMechanismCopyReadyRepairPayload reuses the exact system-rendered
+// carrier already placed in the initial finalizer prompt. Re-rendering the
+// same typed source here avoids a second JSON tutorial and keeps the retry
+// validator-compatible even after a long prompt has pushed the original
+// capsule out of the model's working focus.
+func answerDocMechanismCopyReadyRepairPayload(ctx *types.AgentContext) string {
+	authority := renderAnswerDocMechanismRelationAuthority(ctx)
+	const heading = "#### Copy-ready optional typed diagram"
+	start := strings.Index(authority, heading)
+	if start < 0 {
+		return ""
+	}
+	section := authority[start+len(heading):]
+	fenceStart := strings.Index(section, "```mermaid\n")
+	if fenceStart < 0 {
+		return ""
+	}
+	anchorStart := strings.Index(section[fenceStart:], "- edge_anchors_json=`")
+	if anchorStart < 0 {
+		return ""
+	}
+	anchorStart += fenceStart
+	anchorEnd := strings.IndexByte(section[anchorStart:], '\n')
+	if anchorEnd < 0 {
+		anchorEnd = len(section) - anchorStart
+	}
+	return strings.TrimSpace(section[fenceStart : anchorStart+anchorEnd])
 }
 
 func answerDocumentPatchRejectBlockCardinalityKind(result *types.ToolResult) (types.AnswerBlockKind, bool) {
@@ -12561,7 +12637,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	hasPatchBase := answerDocumentPatchBaseAvailable(ctx, e.mu)
 	hint := answerDocDefaultFullRejectHint(hasPatchBase)
 	reasonKey := "tool-reject"
-	optionalDiagramPatchRecovery := false
+	diagramCallEdgePatchRecovery := false
 	if repair != nil && strings.TrimSpace(repair.Hint) != "" {
 		hint = strings.TrimSpace(repair.Hint)
 		reasonKey = firstNonEmptyString(rejectCode, "tool-reject")
@@ -12582,8 +12658,21 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	if hasPatchBase && answerDocumentPatchRejectIsOptionalDiagramCallEdge(obs.LastToolResult, e.diagramRequired) {
 		hint = answerDocOptionalDiagramCallEdgePatchHint(false)
 		reasonKey = "optional-diagram-call-edge"
-		optionalDiagramPatchRecovery = true
+		diagramCallEdgePatchRecovery = true
 		e.preferPatchNext = true
+	}
+	// A required diagram cannot be removed. If the first rejected document is
+	// otherwise valid and the remaining typed violation is diagram call-edge
+	// authority, put the exact evidence-derived carrier in this repair turn
+	// instead of making the model hunt through the original long prompt and
+	// hand-recreate aliases/JSON.
+	if hasPatchBase && e.diagramRequired && answerDocumentPatchRejectIsDiagramCallEdge(obs.LastToolResult) {
+		if requiredHint, ok := answerDocRequiredDiagramCallEdgePatchHint(ctx, false); ok {
+			hint = requiredHint
+			reasonKey = "required-diagram-call-edge"
+			diagramCallEdgePatchRecovery = true
+			e.preferPatchNext = true
+		}
 	}
 	var summaryLen, summaryCap int
 	if rejectCode == answerDocRejectCodeSummaryCap {
@@ -12769,7 +12858,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 			hint = "Your last `emit_answer_document` call was rejected by the LITERAL-GROUNDING gate. Re-emit `emit_answer_document` using only the already-provided grounded evidence: cite a file:line only when that line directly corroborates the visible literal or step; otherwise leave the item uncited and explain the evidence boundary in `summary`. Do NOT call `read_file`, `grep`, or any other tool to repair this; use the existing citations, evidence, and seeds only."
 		}
 	}
-	if !optionalDiagramPatchRecovery && repair != nil && len(repair.Fields) > 0 && !repairHintMentionsFields(hint, repair.Fields) {
+	if !diagramCallEdgePatchRecovery && repair != nil && len(repair.Fields) > 0 && !repairHintMentionsFields(hint, repair.Fields) {
 		hint = answerDocFixOnlyDirective(repair.Fields, hasPatchBase) + " " + hint
 	}
 	// Catastrophic-regression override: when the tool flagged
@@ -12785,7 +12874,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	// on a now-different missing field, retry budget exhausts.
 	if answerDocShouldPreferPatchForFullReject(ctx, e, repair) {
 		e.preferPatchNext = true
-		if !optionalDiagramPatchRecovery {
+		if !diagramCallEdgePatchRecovery {
 			hint = answerDocFullRejectPatchHint(repair, hint)
 		}
 		reasonKey = "patch-" + reasonKey
