@@ -25003,3 +25003,30 @@ Cangjie 57s、data 61s：
 状态：`EVAL-B295=closed/tests-positive + ordinary-carrier-production-negative-regression`；`EVAL-B298=P1-next`；
 runner=`2/2 PASS`、human=`2/2`；模型答案所有权=`preserved`；JSON 最终合同=`correct`；
 Trace 显式窗/因果投影/自动补齐/根因排序/唤醒链/窗内可消除量/双维根因=`unchanged`。
+
+### 123.286 S37ak：把系统将施加的 user-material floor 前置为 typed 规划上下文
+
+B298 深审后修正归因：不是模型显式选择 `instructions.md=script_consumed` 后忘记读取，而是模型计划省略/未完整声明 material coverage，
+`applyDataTaskUserMaterialFloor` 在 Planner 返回后才把用户精确点名的候选材料补为 required；`dataTaskUsageModeForCandidate` 对 `text/json` 的安全 fallback
+均为 `script_consumed`。原动态 prompt 只披露排序后的 `typed_initial_required_runner_paths`，没有把每条材料的 initial mode 与 consumer obligation 作为同一张 typed 表给模型；
+这是系统上下文与后置 hard contract 不对称的隐藏合同 gap。
+
+本批按软上下文根修，不降低任何材料权威：
+
+1. `current_plan_emission_contract` 新增稳定排序的 `typed_initial_required_materials[]`，逐条披露 `path`、`initial_usage_mode`、
+   `script_consumer_required`，以及适用时的 `text_evidence_path`。这些值直接复用同一个 user-material floor 计算，不从路径名、文件正文、用户自然语言语义或模型输出猜角色；
+2. 同一动态块明确：若 `script_consumer_required=true`，Planner 必须在所选 executable carrier 中给该精确路径真实 helper consumer；否则必须显式改为带完整元数据的
+   `planner_distilled/text_evidence_consumed` 或先走 typed action。仅放进 `input_paths` 不算消费；
+3. 这是对现有系统后置义务的前置披露，不新增第二份 JSON schema/业务规则教学。通用 usage-mode 定义仍由现有 planner system/schema 单源维护；动态块只实例化本轮
+   精确行，降低模型把路径列表误当消费清单的心智负担；
+4. `required_material_scheduling`、literal script-consumption census、实际 runner consumed paths、coverage merge 与输出发布完全未改。模型忽略新上下文时仍精确拒绝；
+   系统不自动插 `read_text`，也不把 instruction 文本解释成业务规则或改写计算结果；
+5. prompt pin 覆盖两个异构材料，要求 exact row JSON、consumer flag、floor provenance 与“input_paths 非 consumer”同时存在；既有 planner-authored
+   `planner_distilled/text_evidence_consumed` 优先权与 incomplete-mode 安全 fallback 回归同跑。
+
+聚焦测试、完整 `go test ./internal/repl`（31.284s）与 `go test ./...` 全部通过；全仓覆盖 `dataquery/dataworkflow`、
+`hitraceconv`、`mermaidcompat`、`orchestrator`、`tool`、`tracequery/tracediag`、`types` 等共享面。下一步以
+`data_json_strict_ids + patch_java_typo` 严格并发 2 做生产验证。
+
+状态：`EVAL-B298=S37ak-implemented/full-suite-pass/pending-production-replay`；模型答案所有权=`preserved`；
+JSON 教学=`generic-single-source + current-turn typed instance`；Trace 全能力=`unchanged`。

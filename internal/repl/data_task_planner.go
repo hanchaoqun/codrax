@@ -6,9 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	promptctx "github.com/hanchaoqun/codrax/internal/context"
+	"sort"
 	"strings"
 
+	promptctx "github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/dataquery"
 	"github.com/hanchaoqun/codrax/internal/dataworkflow"
 	"github.com/hanchaoqun/codrax/internal/llm"
@@ -974,8 +975,28 @@ func appendDataTaskPlanEmissionContract(b *strings.Builder, requiredMaterials []
 	if len(paths) == 0 {
 		return
 	}
+	type initialMaterialObligation struct {
+		Path                   string `json:"path"`
+		InitialUsageMode       string `json:"initial_usage_mode"`
+		ScriptConsumerRequired bool   `json:"script_consumer_required"`
+		TextEvidencePath       string `json:"text_evidence_path,omitempty"`
+	}
+	obligations := make([]initialMaterialObligation, 0, len(requiredMaterials))
+	for _, material := range requiredMaterials {
+		mode := normalizeCoverageMaterialUseModeForWorkflow(material.UsageMode)
+		obligations = append(obligations, initialMaterialObligation{
+			Path:                   normalizeDataTaskCoveragePath(material.Path),
+			InitialUsageMode:       string(mode),
+			ScriptConsumerRequired: mode == dataquery.MaterialUseScriptConsumed,
+			TextEvidencePath:       normalizeDataTaskCoveragePath(material.TextEvidencePath),
+		})
+	}
+	sort.Slice(obligations, func(i, j int) bool { return obligations[i].Path < obligations[j].Path })
 	raw, _ := json.Marshal(paths)
 	fmt.Fprintf(b, "- typed_initial_required_runner_paths=%s; these are existing workflow obligations, not optional suggestions.\n", raw)
+	materialRaw, _ := json.Marshal(obligations)
+	fmt.Fprintf(b, "- typed_initial_required_materials=%s. This is the exact user-material floor the workflow will merge after planning.\n", materialRaw)
+	b.WriteString("- For every row with script_consumer_required=true, the emitted plan must either give that exact path a real helper consumer in the selected executable script/action, or explicitly replace its coverage entry with a valid planner_distilled/text_evidence_consumed/typed-action lane. input_paths alone is never the consumer.\n")
 }
 
 func dataTaskRepairPrompt(userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, previous dataquery.TaskPlan, executionError string) string {

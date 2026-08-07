@@ -2929,6 +2929,9 @@ func TestDataTaskPlannerPromptCarriesTypedInitialRequiredPaths(t *testing.T) {
 	for _, want := range []string{
 		"## current_plan_emission_contract",
 		`typed_initial_required_runner_paths=["instructions.md","users.json"]`,
+		`typed_initial_required_materials=[{"path":"instructions.md","initial_usage_mode":"script_consumed","script_consumer_required":true},{"path":"users.json","initial_usage_mode":"script_consumed","script_consumer_required":true}]`,
+		"exact user-material floor the workflow will merge after planning",
+		"input_paths alone is never the consumer",
 		"exactly one executable carrier",
 		"Every custom_transform action must carry its own non-empty action.script",
 	} {
