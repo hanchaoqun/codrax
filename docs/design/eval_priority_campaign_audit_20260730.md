@@ -25559,3 +25559,28 @@ TypeScript + 一例异构 read/write/data/Trace，禁止为该 fixture 增加 sy
 状态：`EVAL-B315=S37av-implemented/full-suite-pass/pending-production-replay`；
 `endpoint-authority=stricter-or-equal`；`analyzer-retry=eliminated-for-nonauthoritative-discover-source`；
 模型答案所有权=`preserved`；Trace/JSON/Mermaid/Read/Write=`unchanged`；`EVAL-B314=next`。
+
+### 123.306 S37aw：Trace 无损审计尾部获得 HTML 可见预算，模型正文与全量 ledger 均不裁剪
+
+`EVAL-B314-TRACEPROJECTIONVISIBLEBUDGET1` 先按零信息损失的 HTML 呈现层方案关闭用户可见放大：
+
+1. 既有 preview AST 已用 `SystemGeneratedKind` 铸造的 H2 和 `tracefence` 单源标题，把系统生成的
+   因果投影明细与证据索引包装为精确 class。新逻辑只在这两个 typed wrapper 内工作，不匹配用户问题、模型正文、标题近似词或任意 prose；
+2. 当审计项超过 12，HTML 默认显示前 12 项，并给出明确按钮“当前 12 / 共 N 项”；展开/收起保留全部 item 和顺序。
+   detail 仅按生成器固定的 `strong paragraph + list`（兼容旧 H3..H6 + list）结构成组，evidence 仅按直属 list item 计数；
+3. 完整 DOM、原始 Markdown、terminal 输出、内部 projection/evidence ledger 均字节不删；禁用 JavaScript 时自然全量显示，打印 CSS 强制全量展开。
+   因此 E13..EN、完整属性、line/time locator、origin/merged/member/same_value token 与 capacity_truncated 披露均可达，
+   不是 raw 字符截断，也不把未显示首屏的条目伪装成不存在；
+4. 不采用此前被裁退的 disclosure-element 形，而是 renderer 自建普通 button；按钮有 `aria-expanded`、keyboard focus 与中英文文案。
+   模型的 8 个 blocks、顺序和文字不变；Trace 投影 lead、实际占用、根因加冕、唤醒树、关键指标、确定性优化点、自动补采与覆盖 caveat 均不折叠；
+5. 新回归构造 14 个 detail stanzas + 14 个 evidence rows，钉住首尾 item 全在 standalone HTML source、两类 excess roster
+   接入同一 12-item 控制、click 可逆、print 全量、无 disclosure element。既有 aux appendix“不出现旧折叠形”测试继续通过；
+6. `go test ./internal/preview -count=1` 与完整 `go test ./... -count=1` 全绿。该批不改 tool ledger、JSON teaching/repair、
+   模型答案、Trace 数值/排序/投影构造、read/write controller 或 Mermaid；无任何答案关键词 hard gate；
+7. r187 中 named trace 与 blob 阶段 `attached_trace.txt` 的物理同源 alias 仍可能占两个 E#。当前 carrier 没有跨路径 content digest/
+   physical-source identity 可证明二者同物理工件，不能靠 basename、行号 ±1 或值相等硬合并；记
+   `EVAL-B316-TRACEPHYSICALSOURCEALIAS1=P2`，等待上游发布精确 physical artifact identity 后再合 provenance，避免误并真正的双 trace。
+
+状态：`EVAL-B314=S37aw-implemented/full-suite-pass/pending-production-html-replay`；
+`visible-html=12-of-N+explicit-expand`；`lossless-ledger=preserved`；`model-blocks=byte-preserved`；
+`EVAL-B316=P2-filed/needs-precise-physical-identity`；Trace 显式窗/投影/补齐/双维=`preserved`。

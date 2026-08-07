@@ -1,6 +1,7 @@
 package preview
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -204,6 +205,13 @@ func TestStandaloneTraceAuditCSSIsCompactResponsiveAndPrintable(t *testing.T) {
 	for _, want := range []string{
 		"section.trace-action-optimization", "section.trace-projection-detail", "section.trace-projection-evidence",
 		"column-count: 2", "font-size: .86rem", "column-count: 1", "font-size: 8pt",
+		".trace-audit-overflow { display: none !important; }",
+		".trace-audit-toggle",
+		"installTraceAuditVisibleBudgets",
+		`document.querySelectorAll("section.trace-projection-evidence")`,
+		`document.querySelectorAll("section.trace-projection-detail")`,
+		"visibleLimit = 12",
+		"aria-expanded",
 		// EVOLUTION RECORD (user ruling 2026-07-13, card UX simplification):
 		// the optimization card's former tinted decoration (4px colored
 		// left-border-width + --action-fg header/first-column + --action-bg
@@ -215,6 +223,9 @@ func TestStandaloneTraceAuditCSSIsCompactResponsiveAndPrintable(t *testing.T) {
 		if !strings.Contains(page, want) {
 			t.Fatalf("standalone report missing compact audit CSS %q", want)
 		}
+	}
+	if strings.Contains(page, "<details") || strings.Contains(page, "</details>") {
+		t.Fatal("audit visible budget must not revive the rejected <details> presentation")
 	}
 	// Negative half of the ruling: the tinted-card decorations must not
 	// return (gradient ban pinned affirmatively — none existed, none may
@@ -230,6 +241,39 @@ func TestStandaloneTraceAuditCSSIsCompactResponsiveAndPrintable(t *testing.T) {
 	for _, fn := range []string{"linear-gradient(", "radial-gradient(", "conic-gradient("} {
 		if strings.Contains(page, fn) {
 			t.Fatalf("the report page CSS must stay gradient-free (user ruling 2026-07-13): %q", fn)
+		}
+	}
+}
+
+func TestStandaloneTraceAuditVisibleBudgetKeepsEveryLosslessItemInHTML(t *testing.T) {
+	var markdown strings.Builder
+	markdown.WriteString("## 因果投影明细(逐节点完整属性)\n\n完整导语。\n\n")
+	for i := 1; i <= 14; i++ {
+		markdown.WriteString(fmt.Sprintf("**[E%d] node-%d**\n\n- 属性: value-%d\n\n", i, i, i))
+	}
+	markdown.WriteString("## 证据索引\n\n完整索引。\n\n")
+	for i := 1; i <= 14; i++ {
+		markdown.WriteString(fmt.Sprintf("- E%d: trace:%d\n", i, i))
+	}
+
+	page, err := RenderStandaloneMarkdownHTML("trace", []byte(markdown.String()))
+	if err != nil {
+		t.Fatalf("RenderStandaloneMarkdownHTML: %v", err)
+	}
+	for _, want := range []string{"[E1] node-1", "[E14] node-14", "value-14", "E14: trace:14"} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("lossless audit item %q was removed from the HTML source", want)
+		}
+	}
+	for _, want := range []string{
+		`items.slice(visibleLimit)`,
+		`groups.slice(visibleLimit)`,
+		`hiddenNodes.forEach`,
+		`button.addEventListener("click"`,
+		`.trace-audit-overflow { display: revert !important; }`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("standalone page lost the lossless expand/print contract %q", want)
 		}
 	}
 }

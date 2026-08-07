@@ -718,6 +718,15 @@ section.trace-projection-detail > table,
 section.trace-projection-detail > pre { break-before: avoid-column; break-inside: avoid-column; }
 section.trace-projection-detail li,
 section.trace-projection-evidence li { margin: .2em 0; }
+/* TRACE-AUDIT-BUDGET1: the lossless audit DOM remains complete, while large
+   generated detail/evidence rosters start with a bounded visible preview.
+   Client-side code adds .trace-audit-overflow only inside the exact typed
+   wrappers above; without JavaScript every item remains visible. This uses an
+   ordinary explicit button (not a disclosure element), and print expands all. */
+.trace-audit-overflow { display: none !important; }
+.trace-audit-toggle { display: block; column-span: all; margin: .65em 0 .9em; padding: .42em .72em; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--link); font: inherit; cursor: pointer; }
+.trace-audit-toggle:hover { border-color: var(--link); }
+.trace-audit-toggle:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 /* §29.9 aux-reference appendix (the tracefence.AuxRefMarkers blocks, markdown_auxfold.go):
    reference blocks relocate to the document-end 「阅读参考」 appendix;
    the in-place pointer lines and the whole appendix render small and
@@ -761,6 +770,8 @@ section.aux h2 { font-size: 1em; color: var(--muted); margin: 0 0 .5em; font-wei
   section.trace-projection-detail,
   section.trace-projection-evidence { font-size: 8pt; line-height: 1.42; }
   section.trace-projection-detail { column-count: 2; column-gap: 8mm; }
+  .trace-audit-overflow { display: revert !important; }
+  .trace-audit-toggle { display: none !important; }
 }
 </style>
 </head>
@@ -775,6 +786,85 @@ function escapeHTML(value) {
     return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch];
   });
 }
+(function installTraceAuditVisibleBudgets() {
+  var visibleLimit = 12;
+  var zh = (document.documentElement.lang || "").toLowerCase().indexOf("zh") === 0;
+
+  function attachToggle(section, hiddenNodes, total) {
+    if (!section || !hiddenNodes.length || total <= visibleLimit) return;
+    var expanded = false;
+    var button = document.createElement("button");
+    button.type = "button";
+    button.className = "trace-audit-toggle";
+    button.setAttribute("aria-expanded", "false");
+    function paint() {
+      hiddenNodes.forEach(function (node) {
+        node.classList.toggle("trace-audit-overflow", !expanded);
+      });
+      button.setAttribute("aria-expanded", expanded ? "true" : "false");
+      if (zh) {
+        button.textContent = expanded
+          ? "收起审计明细（显示前 " + visibleLimit + " / 共 " + total + " 项）"
+          : "展开全部审计明细（当前 " + visibleLimit + " / 共 " + total + " 项）";
+      } else {
+        button.textContent = expanded
+          ? "Collapse audit detail (show first " + visibleLimit + " of " + total + ")"
+          : "Show all audit detail (currently " + visibleLimit + " of " + total + ")";
+      }
+    }
+    button.addEventListener("click", function () {
+      expanded = !expanded;
+      paint();
+    });
+    var heading = Array.prototype.find.call(section.children, function (node) {
+      return node.tagName === "H2";
+    });
+    if (heading && heading.nextSibling) {
+      section.insertBefore(button, heading.nextSibling);
+    } else {
+      section.insertBefore(button, section.firstChild);
+    }
+    paint();
+  }
+
+  document.querySelectorAll("section.trace-projection-evidence").forEach(function (section) {
+    var list = Array.prototype.find.call(section.children, function (node) {
+      return node.tagName === "UL" || node.tagName === "OL";
+    });
+    if (!list) return;
+    var items = Array.prototype.filter.call(list.children, function (node) {
+      return node.tagName === "LI";
+    });
+    attachToggle(section, items.slice(visibleLimit), items.length);
+  });
+
+  document.querySelectorAll("section.trace-projection-detail").forEach(function (section) {
+    var children = Array.prototype.slice.call(section.children);
+    var groups = [];
+    for (var i = 0; i < children.length; i++) {
+      var node = children[i];
+      var next = children[i + 1];
+      // Production lossless stanzas are a strong-heading paragraph followed
+      // by one list. Legacy generated stanzas may use H3..H6 followed by a
+      // list. The exact section wrapper already excludes model-authored and
+      // trailing disclosure blocks, so tag topology is sufficient here.
+      var paragraphStanza = node.tagName === "P" && node.firstElementChild &&
+        node.firstElementChild.tagName === "STRONG" && next &&
+        (next.tagName === "UL" || next.tagName === "OL");
+      var headingStanza = /^H[3-6]$/.test(node.tagName || "") && next &&
+        (next.tagName === "UL" || next.tagName === "OL");
+      if (!paragraphStanza && !headingStanza) continue;
+      groups.push([node, next]);
+      i++;
+    }
+    if (groups.length <= visibleLimit) return;
+    var hidden = [];
+    groups.slice(visibleLimit).forEach(function (group) {
+      hidden = hidden.concat(group);
+    });
+    attachToggle(section, hidden, groups.length);
+  });
+})();
 if (window.mermaid) {
   window.mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "default" });
   document.querySelectorAll(".mermaid").forEach(function (node, index) {
