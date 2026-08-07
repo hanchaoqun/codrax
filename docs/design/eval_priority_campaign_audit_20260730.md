@@ -25158,3 +25158,40 @@ r182 在 `main@45434ad9b` 上严格并发 2，运行 Rust `sr_rust_cross_module_
 状态：`r182 runner=2/2 PASS`、`human=partial+partial`；
 `EVAL-B299=S37am-fixed/pending-second-production-replay`；`EVAL-B301=P1-observe/no-gate-relaxation`；
 `cpp-unlabeled-flowchart-bypass=open/not-exercised`；模型答案所有权=`preserved`；Trace/JSON=`unchanged`。
+
+### 123.292 r183：限定身份桥关闭；角色端点无可表达车道导致 512s 假绿
+
+r183 在 `main@4f68efb12` 上严格并发 2，运行 Rust `sr_rust_cross_module_chain` 与 TypeScript
+`sr_ts_workspace_chain`。runner 2/2 PASS，人工为 partial + fail：
+
+1. Rust 为 S37am/B299 提供第二次 production positive：typed relation capsule 与最终 Mermaid 只保留一个
+   `walker::collect_files` 身份，`run -> walker::collect_files -> walk` 连通，Finalizer 零 reject；doc-comment role companion 仍参与角色说明但不再冒充第二 declaration。
+   `EVAL-B299-QUALIFIEDNODEBRIDGE1` 关闭；
+2. Rust 正文再次把实际“先 `collect_files`，再 for-loop `index_file`”说成“两条并行调用路径/在 run 汇聚”。这是 §123.263
+   `EVAL-B268-SEQUENTIALASPARALLEL1` 的第二个 production witness，不再记单次波动。typed graph 的 fan-out 只证明一个 caller 有多个出边，不证明线程并发、控制流并行或汇聚；
+3. TS runner 为假绿。答案声称“完整调用链”却停在 `HttpTransport.send`，遗漏已读源码的
+   `send -> dispatchOnce -> fetch`；把 `tsconfig.base.json:8` 的精确 `@app/core -> packages/core/src/index.ts` 误写成不存在的
+   `@app/core/* -> packages/core/src/*`；最终把真实函数 `run` 的结构标签改成 `main`；
+4. 512s 分层为 Analyzer 10 轮、Explorer 20 轮、Finalizer 4 轮。Analyzer 的根矛盾是当前 `CallChainEndpointProfile` 只有
+   `exact(source+sink)` 与 `discover(exact source + unknown runtime sink)`：用户只说“CLI 入口/底层 HTTP 重试发送”两个角色边界，没有逐字命名代码身份；模型猜
+   `main/HttpTransport` 的 exact 形被 provenance 门正确拒绝，最后用 `discover(source=main)` 逃出，而 discover source 本身没有 current-request provenance 校验；
+5. 该猜测随后成为 required mechanism anchor。Finalizer 第一稿真实标签是 `run`，系统却硬要求 `main`；删掉可选错误 Mermaid 后仍不能通过，第三次 patch 只能把
+   `run` 行改名 `main`。这是 noisy pre-scan/analyzer candidate 进入硬答案门，违反“精确信号才可硬门”；
+6. `discover` 又无条件触发 runtime-target selection 义务。此问题是静态路径两端发现，不是“接口/handler 运行时具体落到哪个实现”；Explorer 已发大量 call/assignment
+   evidence 仍被要求补选择事实。更严重的是该 lane 两次 low-delta 收敛留下 caveat 后，后续 `member_set_support_refs` form 修复会再次把它打开；一个已收敛 typed lane
+   对同次 completion 链不单调，形成 7 次 completion/重复补证；
+7. `transport.ts` 已完整读取，模型 thinking 也识别 `dispatchOnce`，但未把 `send -> dispatchOnce -> fetch` 发成 typed call rows。既有 generic call-edge handoff 对该次模型
+   不足；需在角色边界车道给出更短的通用软提醒：读到 principal method 的直接下游调用时，若它推进用户所述边界，必须单独落证；不按语言、符号名或答案文本硬门；
+8. 本批未触碰 Trace、JSON repair 或答案 mutation。系统补充仍位于模型正文之后且没有替代模型答案，但 TS required-anchor 门事实上迫使模型把结构标签改错，必须按下列批次修复。
+
+冻结施工批次：
+
+- **S37an / B303 P0**：扩展既有 endpoint mode 为角色边界 `discover_path`（source/sink 均空）；exact 两端均无 current-request provenance 或 discover source 无 provenance 时，确定性丢弃猜测并降为该车道。该车道不发 required endpoint anchor、不要求 runtime selection；真正 `exact source + runtime implementation discovery` 保持原义与原门；
+- **S37ao / B304 P1**：convergence caveat 成为同 lane 单调 authority；一个 lane 已 force-complete 后，后续 form/coverage gate 失败不得重新排同一 repair。新 evidence 真正满足门时正常升级，不清除事实；
+- **S37ap / B268+B305 P1**：在 typed relation topology / call-edge handoff 增加跨语言软语义：fan-out/disconnected/component 不证明并发或顺序；角色路径调查读到推进边界的直接调用须逐边落证。只改 prompt/context，不扫描 request/thinking/final prose，不改答案；
+- **r184 复放**：仍严格并发 2，Rust + TS；Rust 要求 B299 连通且不得再将 fan-out 称并发，TS 要求 Analyzer/Explorer 轮数显著下降、真实 `run` 不被 `main` 硬替换、精确 alias 不扩成 wildcard、链至少到 `dispatchOnce -> fetch`。若模型在上下文充分后仍单次波动，保留观察，不追加字符串门。
+
+状态：`EVAL-B299=closed/production-positive`；`EVAL-B268=confirmed-P1`；
+`EVAL-B303-ROLEBOUNDENDPOINT1=P0-next`；`EVAL-B304-CONVERGEDLANEREOPEN1=P1-next`；
+`EVAL-B305-LOADBEARINGCALLEDGEOMISSION1=P1-next`；runner=`2/2 PASS`、human=`partial+fail`；
+模型答案所有权=`preserved-but-required-anchor-tainted`；Trace/JSON=`unchanged`。
