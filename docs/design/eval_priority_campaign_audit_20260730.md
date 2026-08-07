@@ -23079,3 +23079,36 @@ Proto 无可执行 return 语句，继续由声明型 schema carrier 负责，�
 `EVAL-B232-DISCONNECTAUTH1=closed`；`EVAL-B234-RELENDPOINT1=closed`；
 `EVAL-B229-COPYGRAPH1=model-watch/no-harder-gate`；模型答案所有权=`preserved`；JSON schema/教学单源=`preserved`；
 下一步=`commit+push+r149-two-case-replay`。
+
+### 123.214 r149：return carrier 生效，但暴露引用改绑与跨阶段拼链
+
+r149 按固定并发 2 回放 `sr_py_registry_dispatch` 与 `sr_cpp_virtual_chain`。runner 2/2 PASS，人工严格审计 0/2；这里的人工失败不是
+否定 B233，而是生产回放暴露了两个更下游的系统 GAP。
+
+Python 侧确认 B233 已真实生效：finalizer 同时收到 `Registry.resolve returns cls()` 与
+`expression_form=call_result`，模型首轮即正确说明 `resolve` 返回 `cls()` 实例，没有再声称返回类本身，且成文零拒绝、零 JSON 修复。
+但模型为 `@register("json")` 项提交的精确 `pipeline/plugins.py:17` 引用，被
+`normalizeItemCitationRefsByUniqueLabelCitationWithContext` 自动改绑到 line 18 的 `class JsonPlugin...`；随后精确 decorator 引用作为
+unused pool entry 被丢弃。系统把更精确且直接支持 label 的证据替换为较弱定义证据，违反“机械修复不得降低已提交证据精度”的单调性。
+
+C++ 侧确认 B234 与图门工作：不再生成 line 32 的假 registration；答案正确区分 `unique_ptr` 所有权、stderr，首次图中未证的
+`Sink::write -> ConsoleSink::write` call 边被拒，patch 后以 Note 表达多态且图可渲染。sequence 的带参数 display message 没有污染 typed
+endpoint identity；无标签 flowchart 逻辑箭头绕过关系锚的负 pin 继续保留。剩余问题是模型明知
+`verified_relation_component_count=4; inter_component_bridge_status=unproven_between_components`，仍把 factory 产物与 Logger 构造注入叙成
+一条已证完整链；样例中并没有 `Logger(make_sink(...))` 的连接调用。
+
+新排序如下：
+
+| ID | 优先级 | 判定 | 最优泛化方案 | 状态 |
+|---|---:|---|---|---|
+| `EVAL-B235-CITEREBIND1` | P0/P1 | 精确当前引用被系统机械改成较弱定义引用 | 引用修复改为单调：当前引用若被 exact label/source surface 或同坐标 typed evidence 直接支持则保持；只对缺失、越界或可证不支持者修复。适用于 decorator/annotation/attribute 等全部语言表面，不按 Python 特判 | next |
+| `EVAL-B236-PHASEBRIDGE1` | P1 | 多 component soft note 未阻止模型把 setup/selection 与 runtime invocation 拼成已证链 | 从同一 verified graph 发布 typed phase/segment carrier 与 bridge status，让 answer plan 能把前置选择、构造/注入、运行时调用分栏；仍为 soft context，不扫描/改写答案 prose，不替模型下结论 | after B235 |
+| `EVAL-B230-CITEMULTIREF1` | P1 | 单个复杂条目只能挂一个 citation，定义/lookup/return 多坐标事实被压到一个引用 | 后续评估 items 多引用或拆分事实的 schema-compatible 方案 | open |
+
+`CITEREBIND1` 先做，因为它是系统主动降低模型已提交证据精度；修复必须只读 item typed label、citation file/line/quote 与 citable typed evidence，
+不得扫描用户原始输入、模型 reasoning 或整段最终答案。`PHASEBRIDGE1` 随后以结构化上下文解决一类跨组件/跨阶段误拼问题，不增加成文硬门。
+JSON tool schema 仍是唯一字段权威，教学不另造 schema；模型答案所有权保持不变。
+
+状态：`EVAL-B233-RETURNBODY1=closed/production-replay`；`EVAL-B235-CITEREBIND1=confirmed/next`；
+`EVAL-B236-PHASEBRIDGE1=confirmed`；runner=`2/2 PASS`；human=`0/2 strict`；
+Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量及双维根因分析=`not-touched`。
