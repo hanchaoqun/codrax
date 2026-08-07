@@ -6092,9 +6092,10 @@ func renderAnswerDocRelationSurfaceHandoff(ctx *types.AgentContext) string {
 }
 
 type answerDocMechanismRelationEdge struct {
-	from string
-	to   string
-	loc  string
+	from     string
+	to       string
+	relation types.DiagramRelationKind
+	loc      string
 }
 
 func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
@@ -6111,24 +6112,35 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 			continue
 		}
 		acceptedFacts++
-		if item.AnchorKind != types.AnchorCall {
+		if item.AnchorKind == types.AnchorCall {
+			callsiteFacts++
+		}
+		// Authoring recipes must carry exactly the same authority that the
+		// diagram validator will consume. Recovered / location-less facts are
+		// useful prose context, but publishing a copyable edge from them would
+		// teach an anchor that the strict source gate must later reject.
+		if !item.IsCitable() {
 			continue
 		}
-		callsiteFacts++
+		relation := answerDocMechanismRelationKind(item)
+		if !relation.IsValid() {
+			continue
+		}
 		from := strings.TrimSpace(item.Subject)
 		to := strings.TrimSpace(item.Object)
 		if from == "" || to == "" || strings.EqualFold(from, to) {
 			continue
 		}
-		key := strings.ToLower(from + "\x00" + to + "\x00" + item.DisplayLocation(true))
+		key := strings.ToLower(string(relation) + "\x00" + from + "\x00" + to + "\x00" + item.DisplayLocation(true))
 		if seenEdges[key] {
 			continue
 		}
 		seenEdges[key] = true
 		edges = append(edges, answerDocMechanismRelationEdge{
-			from: from,
-			to:   to,
-			loc:  item.DisplayLocation(true),
+			from:     from,
+			to:       to,
+			relation: relation,
+			loc:      item.DisplayLocation(true),
 		})
 	}
 	if acceptedFacts == 0 {
@@ -6146,25 +6158,15 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 	var b strings.Builder
 	b.WriteString("## Current-Source Mechanism Relation Authority\n\n")
 	fmt.Fprintf(&b,
-		"- accepted_grounded_source_facts=%d; grounded_callsite_facts=%d; explicit_caller_callee_edges=%d; ordered_path_authority=`%s`.\n",
+		"- accepted_grounded_source_facts=%d; grounded_callsite_facts=%d; explicit_typed_directed_relations=%d; ordered_path_authority=`%s`.\n",
 		acceptedFacts, callsiteFacts, len(edges), status)
 	b.WriteString("- A grounded definition, enum constant, classifier branch, return, or assignment proves that local fact only. Several true nodes do not by themselves prove call order, data flow, or a complete mechanism chain.\n")
-	b.WriteString("- Only the explicit caller -> callee edges and supported typed flow paths listed below carry ordering authority. Unlisted adjacency remains unproven. Describe other grounded nodes as independent mechanism facts; do not join them into a path merely because the answer contract asks for `principal_path_edge`.\n")
-	b.WriteString("- If you emit a sequence/call_dag and structured principal-path items select both endpoints of one listed grounded call, keep that same directed call visible with an explicit relation_kind=call edge anchor. Class/actor participants may abbreviate method-qualified endpoints only when the message carries the exact callee operation. Calls outside the selected principal path do not have to be drawn. Edge labels are presentation and never mint typed authority.\n")
+	b.WriteString("- Only the explicit typed relations and supported typed flow paths listed below carry their stated authority. Unlisted adjacency remains unproven. Describe other grounded nodes as independent mechanism facts; do not join them into a path merely because the answer contract asks for `principal_path_edge`.\n")
+	b.WriteString("- The relation recipes are advisory, source-derived authoring aids. They do not choose the answer, require a diagram, or create a synthetic bridge. If you draw one, reuse its node aliases in the diagram body and copy its native JSON anchor unchanged; omit unsupported bridges instead of changing their relation kind to `call`.\n")
 	if len(edges) == 0 {
-		b.WriteString("- No grounded caller -> callee edge is available. `principal_path_edge` may carry an uncertainty boundary or independent fact list, but it must not claim an ordered/complete current-source chain.\n")
+		b.WriteString("- No citable typed directed relation is available. `principal_path_edge` may carry an uncertainty boundary or independent fact list, but it must not claim an ordered/complete current-source chain.\n")
 	} else {
-		for i, edge := range edges {
-			if i >= 8 {
-				fmt.Fprintf(&b, "- (%d additional grounded edge(s) omitted from this compact authority view)\n", len(edges)-i)
-				break
-			}
-			fmt.Fprintf(&b, "- grounded_edge[%d]=`%s -> %s`", i+1, edge.from, edge.to)
-			if edge.loc != "" {
-				fmt.Fprintf(&b, " @ %s", edge.loc)
-			}
-			b.WriteString("\n")
-		}
+		renderAnswerDocMechanismRelationAuthoringCapsule(&b, edges, 8)
 	}
 	for i, path := range typedPaths {
 		if i >= 4 {
@@ -6175,6 +6177,92 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+// answerDocMechanismRelationKind projects one already-typed EvidenceItem onto
+// the exact diagram relation enum consumed by the hard validator. Generic
+// definition facts intentionally do not become type relations: only the
+// parser-authored structural producer can mint that direction.
+func answerDocMechanismRelationKind(item types.EvidenceItem) types.DiagramRelationKind {
+	if types.IsRepoMapTypeRelationEvidence(item) {
+		return types.DiagramRelTypeRelation
+	}
+	return types.RelationForClaimForm(types.ClaimFormOf(item))
+}
+
+func renderAnswerDocMechanismRelationAuthoringCapsule(
+	b *strings.Builder,
+	edges []answerDocMechanismRelationEdge,
+	limit int,
+) {
+	if b == nil || len(edges) == 0 || limit <= 0 {
+		return
+	}
+	type aliasRow struct {
+		identity string
+		alias    string
+	}
+	aliases := make([]aliasRow, 0, limit*2)
+	aliasFor := func(identity string) string {
+		for _, row := range aliases {
+			if row.identity == identity {
+				return row.alias
+			}
+		}
+		alias := fmt.Sprintf("n%d", len(aliases)+1)
+		aliases = append(aliases, aliasRow{identity: identity, alias: alias})
+		return alias
+	}
+
+	bounded := edges
+	if len(bounded) > limit {
+		bounded = bounded[:limit]
+	}
+	type recipeRow struct {
+		edge   answerDocMechanismRelationEdge
+		from   string
+		to     string
+		anchor string
+	}
+	recipes := make([]recipeRow, 0, len(bounded))
+	for _, edge := range bounded {
+		fromAlias := aliasFor(edge.from)
+		toAlias := aliasFor(edge.to)
+		payload, err := json.Marshal(types.DiagramEdgeAnchor{
+			FromNode:     fromAlias,
+			ToNode:       toAlias,
+			RelationKind: edge.relation,
+		})
+		if err != nil {
+			continue
+		}
+		recipes = append(recipes, recipeRow{
+			edge:   edge,
+			from:   fromAlias,
+			to:     toAlias,
+			anchor: string(payload),
+		})
+	}
+	if len(recipes) == 0 {
+		return
+	}
+
+	b.WriteString("\n### Typed relation authoring capsule (advisory)\n\n")
+	b.WriteString("- Node aliases are local convenience identifiers, not new facts. In a Mermaid body declare the same alias with the visible identity below (for example, a sequence participant or flowchart node); `from_node` and `to_node` must be these body identifiers.\n")
+	for _, row := range aliases {
+		fmt.Fprintf(b, "- node_alias[%s]=`%s`\n", row.alias, row.identity)
+	}
+	for i, recipe := range recipes {
+		fmt.Fprintf(b, "- edge_recipe[%d]=`%s -> %s`; relation_kind=`%s`; edge_anchor_json=`%s`",
+			i+1, recipe.from, recipe.to, recipe.edge.relation, recipe.anchor)
+		if recipe.edge.loc != "" {
+			fmt.Fprintf(b, " @ %s", recipe.edge.loc)
+		}
+		b.WriteString("\n")
+	}
+	if len(edges) > len(bounded) {
+		fmt.Fprintf(b, "- (%d additional typed relation(s) omitted only from this compact authoring view)\n", len(edges)-len(bounded))
+	}
 }
 
 func answerDocMechanismRelationAuthorityApplies(rm types.RequestModel) bool {

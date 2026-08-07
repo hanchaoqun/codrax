@@ -22348,3 +22348,37 @@ required/type/example 自相矛盾。本轮 string carrier 是模型波动且已
 `EVAL-B212-QUALPRES1=implemented/replay-partial`；`EVAL-B214-JSONCARRIER1=observe/lossless-recovery-worked`；
 `EVAL-B208-POLYCOMPOSE1=P1/next`；`EVAL-B209-COOPPATH1=P1/next`；
 模型答案所有权=`preserved`；degraded salvage=`worked`；Trace=`not-touched`。
+
+### 123.191 B205 r139 + S36c：parser 假边闭环；关系事实到 Mermaid/JSON 仍缺一层 typed 写作交接
+
+`4c8fda49a` 构建后的严格双并行回放为 runner 2/2 PASS：
+
+- C++：106s、2 次 finalizer reject、无降级。最终文字正确覆盖 `Logger.log -> sink_->write -> ConsoleSink.write -> std::fputs(stderr)`、
+  error-level flush、factory branch、constructor injection 与 `ConsoleSink -> Sink`；r138 的 `sink_->write<br/>` node declaration 不再被解析为假边，
+  证明 S36d 已在生产形闭环；
+- Python：108s、2 次 finalizer reject。最终类、import-time registration、`resolve` 和 callback handoff 正确，但仍只列出 base roster，
+  没有说明实际 `TimestampMixin.handle -> ValidationMixin.handle -> BasePlugin.handle` cooperative 执行顺序。
+
+两例第一稿都重复同一关系建模错误：把虚分派桥、字典读取或 callback handoff 画成普通 invocation；硬门正确拒绝，模型第二次仍需从长篇
+prose 中猜 `relation_kind` 和端点，最终删掉可选图。严格 JSON remap/carrier/element 与 string-recovery 指标全部为 0，不能归因于 malformed JSON。
+现有 projected schema 与 canonical JSON 教学没有字段类型/required 矛盾；真正 gap 是**精确 typed 事实与 schema-native authoring 之间缺少交接**。
+
+S36c 采用通用、软引导形修复：
+
+1. `Current-Source Mechanism Relation Authority` 不再只列 call；从 citable `EvidenceItem` 的 typed 字段统一投影
+   call/callback/register/assignment/return/type-relation，generic definition 不得冒充 type relation；
+2. 每批最多 8 条关系生成局部 `n1..nN` node aliases，并直接序列化真实 `types.DiagramEdgeAnchor` 得到可复制
+   `edge_anchor_json`。字段名、omitempty 与 relation enum 因此和 tool/validator 共用同一 Go 类型，不另建第二套 JSON schema；
+3. 教学明确为 advisory：模型可不用图；若使用，只复制实际画出的 typed recipe，并在 Mermaid body 复用同一 alias；不支持的动态桥必须省略，
+   不能改标 `call`。系统不选择最终 endpoint、不补写答案、不拼装虚分派或 MRO 结论；
+4. uncitable recovered 行、空端点与同端点行不得进入可复制 recipe，避免系统教出随后必被 hard gate 拒绝的自相矛盾合同；
+5. pin 一次覆盖 call/callback/register/assignment/return/type-relation 六族与 recovered 负臂，关系 enum 来自既有 typed 单源；不读取用户输入、
+   模型思考/答案原文、case 名或语言关键词。
+
+S36c 仅修改 finalizer 的当前源码机制关系提示与测试；Trace 显式时间窗、因果投影、自动补齐、根因排序、唤醒链、可消除量与 runtime
+root-cause 图的独立 authority 均未修改。`EVAL-B209-COOPPATH1` 继续开放：下一批应从 parser-authored declared order 与 exact `super`/override
+关系构造 typed cooperative-path handoff，不得按 Python/Java/Cangjie/ArkTS 等语言或 fixture 关键词拟合。
+
+状态：`EVAL-B213-MERMLABEL1=closed-by-r139-production-replay`；
+`EVAL-B208-POLYCOMPOSE1=S36c-implemented/targeted-tests-pass/pending-exact-two-replay`；
+`EVAL-B209-COOPPATH1=P1/next`；JSON malformed=`not-triggered`；模型答案所有权=`preserved`；Trace=`not-touched`。
