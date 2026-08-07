@@ -23206,3 +23206,29 @@ finalizer prompt；但模型仍在 summary/ordered list 中把多个真实片段
 状态：`EVAL-B235-CITEREBIND1=closed/production-replay`；`EVAL-B236-PHASEBRIDGE1=partial`；
 `EVAL-B237-PATCHSCOPE1=P0/P1-next`；`EVAL-B238-PATCHDELETE1=P1-same-batch`；runner=`2/2 PASS`；human=`1/2`；
 模型答案所有权=`preserved`；下一步=`typed repair scope + minimal patch operation teaching, tests, commit/push, two-case replay`。
+
+### 123.218 S36z：repair location 权威化，四种 patch 操作单源教学
+
+`EVAL-B237-PATCHSCOPE1` 与 `EVAL-B238-PATCHDELETE1` 已同批根修。关键不是把历史 violation 常量改名，而是把“违规家族”与“实际发生位置”
+拆为两条 typed 轴：
+
+- `preCheckDiagramCallEdgeEvidenceAlignment` 从真实 mismatch 的 `BlockID` 回查当前 document block，按 hint 类别发布去重后的
+  `offending_block_kinds`。这是 producer-owned 精确信号；`expected_block_kinds` 仍只表达缺失/期望 carrier，不混用两者；
+- optional-diagram recovery 现在必须同时满足：diagram 非 required、repair code 精确、唯一 violation family 为 call-edge authority、且
+  `offending_block_kinds` 精确等于单一 `diagram`。metadata 缺失、`ordered_list`、mixed 均走通用 patch-local 修复，不再建议删除图；
+- patch 四操作语义收敛到 `types.AnswerDocumentPatchOperationTeaching` 一个共享源：keep=`unchanged_block_ids`、edit=`replace_blocks`、
+  append=`add_blocks`、intentional delete=`remove_block_ids`；并明确省略旧 block 不会删除、数组/对象必须使用 projected schema 的 native JSON
+  shape，不能再包成字符串。answer skill、retry-state、switch-to-patch、patch reject 与 full-reject handoff 复用同一文本；tool schema 继续是字段、
+  类型、required 与 enum 的唯一权威，没有复制第二份 schema。
+
+回归包含 producer integration（ordered-list edge mismatch 必须铸 `offending_block_kinds=ordered_list`）、diagram-only/mixed/missing/non-diagram
+四臂、真实 evaluator 接线不得对 ordered-list 说“optional diagram”、canonical teaching 在 skill 中恰好出现一次，以及通用 patch hint 同时携带
+explicit remove 与 native JSON 规则。定向 `go test ./internal/tool ./internal/agent ./internal/skill ./internal/types` 全绿。
+
+该修复不读取用户输入、模型 thinking、answer prose 或 error message 文本；系统不删除图、不修改模型块、不替模型写答案，只给正确的 schema
+operation 路由。Trace 因果投影与自动补齐仍走独立 runtime authority，未进入本合同。sequence display message 参数隔离与 C++ labelled/unlabelled
+flowchart 关系锚仍由既有可执行 pin 守护。
+
+状态：`EVAL-B237-PATCHSCOPE1=S36z-implemented/package-tests-pass`；
+`EVAL-B238-PATCHDELETE1=S36z-implemented/package-tests-pass`；`EVAL-B236-PHASEBRIDGE1=partial/replay-next`；
+模型答案所有权=`preserved`；下一步=`full-tests+commit+push+r151-two-case-replay`。

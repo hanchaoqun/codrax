@@ -1715,7 +1715,9 @@ func renderAnswerDocRetryState(ctx *types.AgentContext) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "## Hard Rule (retry attempt %d)\n\n", rs.Attempt)
 	if retryStateHasPreviousEmit(rs) {
-		b.WriteString("Your last answer document was rejected, but a previous structured payload is available. If `emit_answer_document_patch` is available, prefer it: list unchanged prior block ids in `unchanged_block_ids`, edit only the blocks named by Required Changes via `replace_blocks`, and use `add_blocks` only for genuinely missing blocks. IMPORTANT: each `replace_blocks` entry is a FULL block replacement, not a field merge. Copy its previous title/text/columns/items/diagram and typed annotations, then change only the field named by Required Changes; when merely adding citation sidecars to a Markdown table, preserve the complete prior table in `text` and add the sidecar `items[]`. If patch is not available, re-emit `emit_answer_document` by **starting from your previous payload (shown in 'Previous Emit' below) and changing ONLY the field paths or global rewrite items listed in 'Required Changes' below**. Every other field — `blocks[].id`, `blocks[].kind`, `blocks[].title`, `blocks[].text`, `blocks[].columns[]`, `blocks[].facet_ids`, `blocks[].claim_uses[]`, `blocks[].surface_role`, `blocks[].items[]`, `blocks[].items[].cells[]`, `citations[]`, `exact_resolution` — MUST appear byte-identical to your Previous Emit. Do NOT regenerate from scratch. The validator will reject any retry that loses fields you already filled correctly.\n\n")
+		b.WriteString("Your last answer document was rejected, but a previous structured payload is available. If `emit_answer_document_patch` is available, prefer it. ")
+		b.WriteString(types.AnswerDocumentPatchOperationTeaching)
+		b.WriteString(" IMPORTANT: each `replace_blocks` entry is a FULL block replacement, not a field merge. Copy its previous title/text/columns/items/diagram and typed annotations, then change only the field named by Required Changes; when merely adding citation sidecars to a Markdown table, preserve the complete prior table in `text` and add the sidecar `items[]`. If patch is not available, re-emit `emit_answer_document` by **starting from your previous payload (shown in 'Previous Emit' below) and changing ONLY the field paths or global rewrite items listed in 'Required Changes' below**. Every other field — `blocks[].id`, `blocks[].kind`, `blocks[].title`, `blocks[].text`, `blocks[].columns[]`, `blocks[].facet_ids`, `blocks[].claim_uses[]`, `blocks[].surface_role`, `blocks[].items[]`, `blocks[].items[].cells[]`, `citations[]`, `exact_resolution` — MUST appear byte-identical to your Previous Emit. Do NOT regenerate from scratch. The validator will reject any retry that loses fields you already filled correctly.\n\n")
 	} else {
 		b.WriteString("Your previous attempt did not leave a usable structured answer document. Re-emit a complete `emit_answer_document` payload now. Do NOT use patch operations and do NOT refer to a Previous Emit. Build the full document from the already-provided evidence, support lanes, required answer blocks, and the required changes below. Do not reopen files or write free-form prose outside the tool call.\n\n")
 	}
@@ -12200,7 +12202,7 @@ func (e *answerDocumentEvaluator) emitSwitchToPatchSignal(ctx *types.AgentContex
 		HintRequested:  true,
 		BypassThrottle: true,
 		HintKey:        "answer_doc.switch_to_patch",
-		Hint:           "Your last 2+ attempts to call `emit_answer_document` were rejected. Switch to `emit_answer_document_patch` on the next attempt — it lets you specify ONLY the blocks that need to change, instead of re-emitting the full document byte-identical. Pass `unchanged_block_ids: [\"id1\", \"id2\", ...]` to assert preservation of every typed annotation field (claim_uses, edge_anchors, facet_ids, surface_role) on blocks you do NOT need to edit — the system clones them byte-identical from your previous emit, so you cannot accidentally drop a field. Use `replace_blocks` for the blocks you DO need to fix; use `add_blocks` for new blocks. The patch tool rejects empty patches and unknown ids, so you only need to focus on the actual fix.",
+		Hint:           "Your last 2+ attempts to call `emit_answer_document` were rejected. Switch to `emit_answer_document_patch` on the next attempt — it lets you specify ONLY the blocks that need to change, instead of re-emitting the full document byte-identical. " + types.AnswerDocumentPatchOperationTeaching + " The patch tool rejects empty patches, unknown ids, and conflicting operations, so focus only on the actual fix.",
 	}
 }
 
@@ -12286,7 +12288,8 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 
 // answerDocumentPatchRejectIsOptionalDiagramCallEdge selects the bounded
 // recovery lane for an optional diagram whose only typed violation family is
-// an unproven call edge. The signal is deliberately metadata-only: it neither
+// an unproven call edge and whose producer says every offending block is a
+// diagram. The signal is deliberately metadata-only: it neither
 // reads the user's request nor scans model/final prose. Required diagrams stay
 // on the ordinary correction path, where removal would violate the resolved
 // DiagramContract.
@@ -12306,7 +12309,11 @@ func answerDocumentPatchRejectIsOptionalDiagramCallEdge(result *types.ToolResult
 	if len(kinds) != 1 {
 		return false
 	}
-	return strings.TrimSpace(kinds[0]) == string(types.ViolDiagramCallEdgeUnproven)
+	if strings.TrimSpace(kinds[0]) != string(types.ViolDiagramCallEdgeUnproven) {
+		return false
+	}
+	offendingKinds := strings.Split(strings.TrimSpace(repair.Metadata[types.ToolRepairMetaOffendingBlockKinds]), ",")
+	return len(offendingKinds) == 1 && strings.TrimSpace(offendingKinds[0]) == string(types.BlockDiagram)
 }
 
 func answerDocumentPatchRejectIsBlockCardinality(result *types.ToolResult) bool {
@@ -12355,7 +12362,9 @@ func answerDocPatchRejectCorrectionHint(result *types.ToolResult) string {
 		b.WriteString(": ")
 		b.WriteString(detail)
 	}
-	b.WriteString(". Use `replace_blocks` for existing block ids, `add_blocks` for new block ids, and `unchanged_block_ids` only for blocks that already exist in the previous draft. If a diagram block is edited, keep the sibling `diagram` object with `language`, `kind`, and `body`. Preserve the inherited `citations[]` pool; use `append_citations` only for genuinely new evidence. Do not reopen files or call read/search tools; use only the already-provided evidence, support lanes, prior slate, and repair diagnostics. Do not write free-form prose outside the tool call.")
+	b.WriteString(". ")
+	b.WriteString(types.AnswerDocumentPatchOperationTeaching)
+	b.WriteString(" If a diagram block is edited, keep the sibling `diagram` object with `language`, `kind`, and `body`. Preserve the inherited `citations[]` pool; use `append_citations` only for genuinely new evidence. Do not reopen files or call read/search tools; use only the already-provided evidence, support lanes, prior slate, and repair diagnostics. Do not write free-form prose outside the tool call.")
 	return b.String()
 }
 
@@ -12665,10 +12674,12 @@ func answerDocFullRejectPatchHint(repair *types.ToolRepair, existingHint string)
 		// Empty-blocks reject: the usable draft is a PRIOR emit, not the
 		// rejected call — the generic opening would falsely tell the
 		// model its empty payload "produced a usable structured draft".
-		b.WriteString("Your last `emit_answer_document` call carried NO blocks and was rejected; your previous structured draft is still retained. Use `emit_answer_document_patch` now instead of re-typing the document: put every prior block id you want to keep in `unchanged_block_ids` (they are cloned byte-identical), use `replace_blocks` for blocks that need edits, and use `add_blocks` only for genuinely new blocks. Apply only this repair")
+		b.WriteString("Your last `emit_answer_document` call carried NO blocks and was rejected; your previous structured draft is still retained. Use `emit_answer_document_patch` now instead of re-typing the document. ")
 	} else {
-		b.WriteString("Your last `emit_answer_document` call produced a usable structured draft but was rejected by validation. Use `emit_answer_document_patch` now instead of re-emitting the full document: put every unchanged prior block id in `unchanged_block_ids`, use `replace_blocks` for existing blocks that need edits, and use `add_blocks` only for genuinely missing new blocks. Apply only this repair")
+		b.WriteString("Your last `emit_answer_document` call produced a usable structured draft but was rejected by validation. Use `emit_answer_document_patch` now instead of re-emitting the full document. ")
 	}
+	b.WriteString(types.AnswerDocumentPatchOperationTeaching)
+	b.WriteString(" Apply only this repair")
 	if detail != "" {
 		b.WriteString(": ")
 		b.WriteString(detail)

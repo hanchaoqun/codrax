@@ -6545,6 +6545,11 @@ const (
 	// state — so identical values prove byte-identical zero progress.
 	// Internal control-plane carrier only; never an LLM-facing schema field.
 	ToolRepairMetaMemberSetMissingFingerprint = "member_set_missing_fingerprint"
+	// ToolRepairMetaOffendingBlockKinds carries the exact structured block
+	// kind(s) whose typed fields produced a repair. Consumers use it to choose
+	// a location-specific recovery lane without inferring location from a
+	// historical violation-family name or scanning model-visible prose.
+	ToolRepairMetaOffendingBlockKinds = "offending_block_kinds"
 
 	ToolRepairCodeReadFilePathMissing                  = "read_file_path_missing"
 	ToolRepairCodeReadFilePathIsDirectory              = "read_file_path_is_directory"

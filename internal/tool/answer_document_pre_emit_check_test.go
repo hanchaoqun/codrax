@@ -7221,6 +7221,9 @@ func TestEmitFixHintsRepair_CarriesTypedFieldsAndKinds(t *testing.T) {
 			ExpectedShape: "add a one-element claim_uses[]",
 			Reason:        "principal claim required",
 			Kind:          types.ViolPrincipalClaimUseMissing,
+			OffendingBlockKinds: []types.AnswerBlockKind{
+				types.BlockOrderedList,
+			},
 		},
 		{
 			Field:         "blocks[id=\"l1\"].claim_uses",
@@ -7254,8 +7257,39 @@ func TestEmitFixHintsRepair_CarriesTypedFieldsAndKinds(t *testing.T) {
 	if repair.Metadata["expected_block_kinds"] != "ordered_list" {
 		t.Fatalf("repair expected_block_kinds = %q", repair.Metadata["expected_block_kinds"])
 	}
+	if repair.Metadata[types.ToolRepairMetaOffendingBlockKinds] != "ordered_list" {
+		t.Fatalf("repair offending_block_kinds = %q", repair.Metadata[types.ToolRepairMetaOffendingBlockKinds])
+	}
 	if !strings.Contains(repair.Hint, "Preserve existing answer facts") {
 		t.Fatalf("repair hint should preserve model content, got %q", repair.Hint)
+	}
+}
+
+func TestPreCheckDiagramCallEdgeEvidenceAlignmentCarriesActualOffendingBlockKind(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID:   "call_chain",
+			Kind: types.BlockOrderedList,
+			EdgeAnchors: []types.DiagramEdgeAnchor{{
+				FromNode: "Alpha", ToNode: "Beta", RelationKind: types.DiagramRelCall,
+			}},
+		},
+	}}
+	hints := preCheckDiagramCallEdgeEvidenceAlignment(
+		doc,
+		&types.AnswerSemanticView{Family: types.QFGeneric},
+		newPreEmitCheckContext(),
+	)
+	if len(hints) != 1 {
+		t.Fatalf("expected one unproved call-edge hint, got %+v", hints)
+	}
+	hints = appendPreEmitHints(nil, types.ViolDiagramCallEdgeUnproven, hints)
+	repair := emitFixHintsRepair(hints)
+	if repair == nil {
+		t.Fatal("expected typed repair metadata")
+	}
+	if got := repair.Metadata[types.ToolRepairMetaOffendingBlockKinds]; got != string(types.BlockOrderedList) {
+		t.Fatalf("offending block kinds=%q, want ordered_list; repair=%+v", got, repair)
 	}
 }
 

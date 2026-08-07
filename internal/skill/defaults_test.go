@@ -679,6 +679,27 @@ func TestFinalizerSkillStepListPrefersDiagramsWhenHelpful(t *testing.T) {
 	}
 }
 
+func TestFinalizerSkillPatchTeachingUsesCanonicalFourOperationSemantics(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	sk, err := r.Get("answer-document-skill")
+	if err != nil {
+		t.Fatalf("Get(answer-document-skill) returned error: %v", err)
+	}
+	if count := strings.Count(sk.OutputFormat, types.AnswerDocumentPatchOperationTeaching); count != 1 {
+		t.Fatalf("canonical patch operation teaching count=%d, want 1", count)
+	}
+	for _, want := range []string{
+		"`remove_block_ids`",
+		"omitting a previous block id from all four operations does not delete it",
+		"never wrap an array or object payload in a JSON string",
+	} {
+		if !strings.Contains(sk.OutputFormat, want) {
+			t.Fatalf("answer-document patch teaching missing %q", want)
+		}
+	}
+}
+
 func TestFinalizerSkillKeepsInternalJargonOutOfUserProse(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)

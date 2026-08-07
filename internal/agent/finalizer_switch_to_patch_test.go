@@ -460,7 +460,8 @@ func TestEmitPatchRejectFullRewriteSignal_OptionalDiagramCallEdgeOffersRemoval(t
 				Code:   "answer_doc_pre_emit_contract",
 				Fields: []string{"blocks[].edge_anchors[] AND blocks[kind=diagram].diagram.body"},
 				Metadata: map[string]string{
-					"violation_kinds": string(types.ViolDiagramCallEdgeUnproven),
+					"violation_kinds":                       string(types.ViolDiagramCallEdgeUnproven),
+					types.ToolRepairMetaOffendingBlockKinds: string(types.BlockDiagram),
 				},
 			},
 		},
@@ -497,7 +498,8 @@ func TestEmitPatchRejectFullRewriteSignal_RequiredDiagramCannotBeRemoved(t *test
 			Repair: &types.ToolRepair{
 				Code: "answer_doc_pre_emit_contract",
 				Metadata: map[string]string{
-					"violation_kinds": string(types.ViolDiagramCallEdgeUnproven),
+					"violation_kinds":                       string(types.ViolDiagramCallEdgeUnproven),
+					types.ToolRepairMetaOffendingBlockKinds: string(types.BlockDiagram),
 				},
 			},
 		},
@@ -507,8 +509,8 @@ func TestEmitPatchRejectFullRewriteSignal_RequiredDiagramCannotBeRemoved(t *test
 	if !got.HintRequested || got.HintKey != "answer_doc.patch_correct" {
 		t.Fatalf("required diagram must stay on ordinary repair lane, got %+v", got)
 	}
-	if strings.Contains(got.Hint, "remove_block_ids") {
-		t.Fatalf("required diagram hint must not offer block removal:\n%s", got.Hint)
+	if strings.Contains(got.Hint, "remove the optional diagram block") {
+		t.Fatalf("required diagram hint must not offer removal of the required diagram:\n%s", got.Hint)
 	}
 }
 
@@ -520,6 +522,7 @@ func TestOptionalDiagramCallEdgeRecoveryRequiresSingleTypedViolationKind(t *test
 				string(types.ViolDiagramCallEdgeUnproven),
 				string(types.ViolCitation),
 			}, ","),
+			types.ToolRepairMetaOffendingBlockKinds: string(types.BlockDiagram),
 		},
 	}}
 	if answerDocumentPatchRejectIsOptionalDiagramCallEdge(result, false) {
@@ -527,6 +530,73 @@ func TestOptionalDiagramCallEdgeRecoveryRequiresSingleTypedViolationKind(t *test
 	}
 	if answerDocumentPatchRejectIsOptionalDiagramCallEdge(result, true) {
 		t.Fatal("required diagram must never select optional-diagram removal lane")
+	}
+}
+
+func TestOptionalDiagramCallEdgeRecoveryRequiresTypedDiagramOnlyLocation(t *testing.T) {
+	base := &types.ToolResult{Repair: &types.ToolRepair{
+		Code: "answer_doc_pre_emit_contract",
+		Metadata: map[string]string{
+			"violation_kinds": string(types.ViolDiagramCallEdgeUnproven),
+		},
+	}}
+	if answerDocumentPatchRejectIsOptionalDiagramCallEdge(base, false) {
+		t.Fatal("a historical violation-family name without producer-owned location must not imply diagram-only")
+	}
+	base.Repair.Metadata[types.ToolRepairMetaOffendingBlockKinds] = string(types.BlockOrderedList)
+	if answerDocumentPatchRejectIsOptionalDiagramCallEdge(base, false) {
+		t.Fatal("ordered-list edge-anchor violation must not select optional-diagram removal")
+	}
+	base.Repair.Metadata[types.ToolRepairMetaOffendingBlockKinds] = strings.Join([]string{
+		string(types.BlockDiagram), string(types.BlockOrderedList),
+	}, ",")
+	if answerDocumentPatchRejectIsOptionalDiagramCallEdge(base, false) {
+		t.Fatal("mixed diagram/non-diagram locations must stay on the ordinary correction path")
+	}
+	base.Repair.Metadata[types.ToolRepairMetaOffendingBlockKinds] = string(types.BlockDiagram)
+	if !answerDocumentPatchRejectIsOptionalDiagramCallEdge(base, false) {
+		t.Fatal("one exact optional diagram location should select the bounded recovery lane")
+	}
+}
+
+func TestEmitPatchRejectFullRewriteSignal_OrderedListCallEdgeStaysOnOrdinaryRepair(t *testing.T) {
+	e := &answerDocumentEvaluator{}
+	ctx := ctxWithAnswerPatchBase()
+	obs := LoopObservation{LastToolResult: &types.ToolResult{
+		ToolName: "emit_answer_document_patch",
+		Success:  false,
+		Repair: &types.ToolRepair{
+			Code: "answer_doc_pre_emit_contract",
+			Metadata: map[string]string{
+				"violation_kinds":                       string(types.ViolDiagramCallEdgeUnproven),
+				types.ToolRepairMetaOffendingBlockKinds: string(types.BlockOrderedList),
+			},
+		},
+	}}
+	got := e.emitPatchRejectFullRewriteSignal(ctx, obs)
+	if !got.HintRequested || got.HintKey != "answer_doc.patch_correct" {
+		t.Fatalf("ordered-list call-edge reject must use ordinary patch-local repair, got %+v", got)
+	}
+	if strings.Contains(got.Hint, "OPTIONAL diagram contains") ||
+		strings.Contains(got.Hint, "remove the optional diagram block") {
+		t.Fatalf("ordered-list repair must not be described as diagram-only:\n%s", got.Hint)
+	}
+}
+
+func TestPatchCorrectionHintCarriesCanonicalRemoveAndNativeJSONTeaching(t *testing.T) {
+	got := answerDocPatchRejectCorrectionHint(&types.ToolResult{Repair: &types.ToolRepair{
+		Code:   "answer_doc_pre_emit_contract",
+		Fields: []string{"blocks[].edge_anchors[]"},
+	}})
+	for _, want := range []string{
+		types.AnswerDocumentPatchOperationTeaching,
+		"`remove_block_ids`",
+		"omitting a previous block id from all four operations does not delete it",
+		"never wrap an array or object payload in a JSON string",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("patch correction hint missing canonical operation teaching %q:\n%s", want, got)
+		}
 	}
 }
 

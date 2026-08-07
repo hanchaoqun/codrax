@@ -159,6 +159,13 @@ type AnswerDocumentV2Patch struct {
 	ReplaceSnippets []CodeSnippet `json:"replace_snippets,omitempty"`
 }
 
+// AnswerDocumentPatchOperationTeaching is the one compact, shared explanation
+// of patch operation semantics used by finalizer prompts and retry hints. The
+// projected tool schema remains the sole authority for JSON field types and
+// required shapes; this text only prevents an easy semantic mistake where
+// omitting a previous block is assumed to delete it.
+const AnswerDocumentPatchOperationTeaching = "Patch operation semantics: keep an existing block with `unchanged_block_ids`, edit an existing block with `replace_blocks`, append a new block with `add_blocks`, and intentionally delete an existing optional block with `remove_block_ids`; omitting a previous block id from all four operations does not delete it. Follow the projected tool schema's native field types and never wrap an array or object payload in a JSON string."
+
 // IsEmpty reports whether the patch carries zero modifications.
 // Empty patches are explicitly rejected at Apply time — every
 // retry MUST declare some change (even if it's just an
