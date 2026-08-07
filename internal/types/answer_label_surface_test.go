@@ -167,6 +167,27 @@ func TestAnswerCodeIdentitySurfacesCompatibleDoesNotCollapseQualifiedOwners(t *t
 	}
 }
 
+func TestAnswerCodeIdentitySurfacesEquivalentNormalizesOnlyPresentation(t *testing.T) {
+	for _, pair := range [][2]string{
+		{"Logger::log", "Logger.log"},
+		{"sink_->write", "sink_.write"},
+		{"pkg#run", "pkg/run"},
+	} {
+		if !AnswerCodeIdentitySurfacesEquivalent(pair[0], pair[1]) {
+			t.Fatalf("presentation-equivalent identities rejected: %q vs %q", pair[0], pair[1])
+		}
+	}
+	for _, pair := range [][2]string{
+		{"run", "Logger::run"},
+		{"Other::run", "Logger.run"},
+		{"Logger::runWith", "Logger.run"},
+	} {
+		if AnswerCodeIdentitySurfacesEquivalent(pair[0], pair[1]) {
+			t.Fatalf("non-equivalent identities collapsed: %q vs %q", pair[0], pair[1])
+		}
+	}
+}
+
 func TestAnswerSourceLocationLabelMatchesCitation(t *testing.T) {
 	if !AnswerSourceLocationLabelMatchesCitation("internal/agent/analyzer.go:1903", Citation{
 		File: "internal/agent/analyzer.go",

@@ -312,7 +312,8 @@ func diagramTypeRelationEdgeHasTypedEvidence(evidence []types.EvidenceItem, from
 		if !item.IsCitable() || !types.IsRepoMapTypeRelationEvidence(item) {
 			continue
 		}
-		if strings.TrimSpace(item.Subject) == fromSymbol && strings.TrimSpace(item.Object) == toSymbol {
+		if types.AnswerCodeIdentitySurfacesEquivalent(item.Subject, fromSymbol) &&
+			types.AnswerCodeIdentitySurfacesEquivalent(item.Object, toSymbol) {
 			return true
 		}
 	}
@@ -329,7 +330,8 @@ func diagramRegistrationEdgeHasTypedEvidence(evidence []types.EvidenceItem, from
 		if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimRegistrationEdge {
 			continue
 		}
-		if strings.TrimSpace(ev.Subject) == fromSymbol && strings.TrimSpace(ev.Object) == toSymbol {
+		if types.AnswerCodeIdentitySurfacesEquivalent(ev.Subject, fromSymbol) &&
+			types.AnswerCodeIdentitySurfacesEquivalent(ev.Object, toSymbol) {
 			return true
 		}
 	}
@@ -790,7 +792,7 @@ func diagramCallEdgeHasTypedEvidence(evidence []types.EvidenceItem, requiredAnch
 		if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimCallEdge {
 			continue
 		}
-		if strings.TrimSpace(ev.Subject) != fromSymbol {
+		if !types.AnswerCodeIdentitySurfacesEquivalent(ev.Subject, fromSymbol) {
 			continue
 		}
 		// Object is the typed fully-qualified callee surface, while
@@ -799,7 +801,8 @@ func diagramCallEdgeHasTypedEvidence(evidence []types.EvidenceItem, requiredAnch
 		// AnchorSymbol=Normalize). Both are closed typed fields of the SAME
 		// grounded call-site record, so either exact surface may label the
 		// destination node without introducing fuzzy/prefix matching.
-		if strings.TrimSpace(ev.Object) == toSymbol || strings.TrimSpace(ev.AnchorSymbol) == toSymbol {
+		if types.AnswerCodeIdentitySurfacesEquivalent(ev.Object, toSymbol) ||
+			types.AnswerCodeIdentitySurfacesEquivalent(ev.AnchorSymbol, toSymbol) {
 			return true
 		}
 	}

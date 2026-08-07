@@ -22286,3 +22286,33 @@ S35c 未修改 analyzer/finalizer 结论、JSON 宽松恢复、Trace query/suppl
 `EVAL-B211-PREREADAUTH1=S35c-implemented/affected-suites-pass/pending-exact-two-replay`；
 `EVAL-B208-POLYCOMPOSE1=P1/next-S36`；`EVAL-B209-COOPPATH1=P1/next-S36`；
 JSON malformed/degradation=`not-triggered`；模型答案所有权=`preserved`；Trace=`not-touched`。
+
+### 123.189 B205 r137 + S36a：预读权威闭环；语言原生限定符触发自相矛盾硬拒
+
+在 `a808e054d` 构建后继续严格并行恰好两个相同异构 case。runner 仍为 2/2 PASS，但人工仍为 0/2：
+
+- `sr_py_registry_dispatch`：77s，finalizer reject 由 2 降至 0。生产日志明确打印
+  `exact source line classified call as callback handoff "loop.run_in_executor" -> "handle"`，证明 S35c 的 prompt-pre-read →
+  grounding 接线已生效；最终答案正确区分 import-time registration 与 runtime callback handoff。但 evidence 中的完整 MRO 没有形成
+  cooperative execution obligation，答案仍把 `TimestampMixin -> ValidationMixin -> BasePlugin` 压成 `BasePlugin` 接口；
+- `sr_cpp_virtual_chain`：149s，finalizer reject 反而为 4。finalizer authority 明确给出
+  `Logger.log -> sink_->write @ src/logger.cpp:36` 与 `make_sink -> SinkRegistry.create @ src/registry.cpp:32`，模型按 C++ 原生写成
+  `Logger::log`、`SinkRegistry::create` 后，hard gate 仍以 `call_edge_unproven` 拒绝同一两条边。模型已在思考中准确识别 dot/`::`
+  表面差异，却只能删除 edge anchors 才出厂，最终漏掉 `ConsoleSink::write -> std::fputs(stderr)` 尾段，并把 factory return 错称
+  registration。
+
+两个 case 的 strict-decode remap、carrier/element-shape recovery 与 string recovery 均为 0；没有 malformed JSON。本轮“成文校验未通过”
+来自精确 typed identity 在 schema 内部与语言呈现面之间缺少同一等价关系，是系统合同矛盾，不是模型波动。
+
+S36a 采用跨语言、非 case 特判的收窄修复：
+
+1. 新增 `AnswerCodeIdentitySurfacesEquivalent`，只接受**完整 segment 序列相等**，允许 `. / :: / # / -> / /` 为呈现差异；
+2. call、registration、type-relation 三类 hard relation gate 统一读取该函数；`run` 不得等价于 `Logger::run`，`Other::run` 不得等价于
+   `Logger.run`，短名桥接仍必须走既有 typed owner/definition 唯一性证明；
+3. pin 覆盖 C++ `Logger::log -> sink_->write` 与内部 dot 证据的生产形、反 owner 负臂，以及 Java/ArkTS/Cangjie/Rust 常见限定符；
+4. 本批不读取用户请求、case 名、模型 prose 或答案字符串做门控，不修改 JSON 恢复、模型答案、Trace query/supplement/投影或时间窗合同。
+
+状态：`EVAL-B211-PREREADAUTH1=closed-by-r137-production-replay`；
+`EVAL-B212-QUALPRES1=S36a-implemented/affected-tests-pass/pending-exact-two-replay`；
+`EVAL-B208-POLYCOMPOSE1=P1/next-S36c`；`EVAL-B209-COOPPATH1=P1/next-S36b`；
+JSON malformed/degradation=`not-triggered`；模型答案所有权=`preserved`；Trace=`not-touched`。

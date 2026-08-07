@@ -92,6 +92,31 @@ func TestDiagramCallEdgeEvidenceMismatches_DirectionUsesTypedEvidence(t *testing
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_QualifiedPresentationSeparatorsDoNotChangeIdentity(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "cpp-call", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramCallDAG, Language: "mermaid",
+			Body: "flowchart TD\n  A[Logger::log] --> B[sink_->write]\n",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelCall,
+			ClaimForm: types.ClaimCallEdge,
+		}},
+	}}}
+	evidence := diagramEvidenceTestCall("Logger.log", "sink_.write")
+	evidence.AnchorSymbol = "sink_.write"
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFGeneric}, []types.EvidenceItem{evidence}); len(got) != 0 {
+		t.Fatalf("language-native presentation separators must preserve exact typed identity: %+v", got)
+	}
+
+	wrongOwner := evidence
+	wrongOwner.Subject = "OtherLogger.log"
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFGeneric}, []types.EvidenceItem{wrongOwner}); len(got) != 1 || got[0].Issue != diagramCallEdgeIssueNoEvidence {
+		t.Fatalf("presentation normalization must not collapse a different qualified owner: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_SequenceReplyIsNotACallEdge(t *testing.T) {
 	doc := diagramEvidenceTestDoc("A", "B")
 	doc.Blocks[0].Diagram.Body += "  B-->>A: result\n"

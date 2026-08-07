@@ -276,12 +276,7 @@ func AnswerCodeIdentitySurfacesCompatible(left, right string) bool {
 	if len(leftSegments) == 0 || len(rightSegments) == 0 {
 		return false
 	}
-	if len(leftSegments) == len(rightSegments) {
-		for i := range leftSegments {
-			if leftSegments[i] != rightSegments[i] {
-				return false
-			}
-		}
+	if answerCodeIdentitySegmentSlicesEqual(leftSegments, rightSegments) {
 		return true
 	}
 	if len(leftSegments) == 1 {
@@ -291,6 +286,31 @@ func AnswerCodeIdentitySurfacesCompatible(left, right string) bool {
 		return rightSegments[0] == leftSegments[len(leftSegments)-1]
 	}
 	return false
+}
+
+// AnswerCodeIdentitySurfacesEquivalent reports presentation-only identity
+// equivalence: both surfaces must have the same complete segment sequence, but
+// may use different language-native separators (`.`, `::`, `#`, `->`, `/`).
+// Unlike AnswerCodeIdentitySurfacesCompatible it never lets a short tail stand
+// for a qualified owner, so hard relation gates can normalize syntax without
+// collapsing same-named methods from different types.
+func AnswerCodeIdentitySurfacesEquivalent(left, right string) bool {
+	return answerCodeIdentitySegmentSlicesEqual(
+		answerCodeIdentitySegments(left),
+		answerCodeIdentitySegments(right),
+	)
+}
+
+func answerCodeIdentitySegmentSlicesEqual(left, right []string) bool {
+	if len(left) == 0 || len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func answerCodeIdentitySegments(raw string) []string {
