@@ -25497,3 +25497,43 @@ TypeScript + 一例异构 read/write/data/Trace，禁止为该 fixture 增加 sy
 状态：`EVAL-B313=S37au-implemented/full-suite-pass/pending-production-replay`；
 `repair=bounded-lossless-structure-only`；`json-teaching=projected-schema-single-source`；
 模型答案所有权=`preserved`；Trace/Mermaid/Read/Write=`unchanged`。
+
+### 123.304 r187：receiver 单组件获生产正证；Trace 双维不回归，暴露可见审计放大与 discover 归一化缺口
+
+在 `main@bbb307391` 上严格并发 2 个 eval：`sr_ts_workspace_chain` 与
+`trace_query_donghu_real_frame_multicausal`。runner 2/2 PASS，人工均为 partial：
+
+1. TypeScript 174s，S37at 在生产链得到正证：typed relation graph 从 r186 的 3 个 weak components 收敛为
+   `unique_endpoint_relations=5,nodes=6,weak_components=1`，最终答案连续保留
+   `run -> ApiClient.fetchUser -> HttpTransport.send -> HttpTransport.dispatchOnce -> fetch`，并正确解释
+   `@app/core -> tsconfig.base.json -> packages/core/src/index.ts`；`EVAL-B312` 关闭；
+2. Analyzer 连续两次提交完全相同的 `source=packages/cli/src/main.ts,sink="",sink_mode=discover`。错误文本声称
+   “source plus discover-mode empty sink” 是合法形，实际 `DiscoverSinkActive` 又要求 source 是非 path 的 code identity，
+   而 `NormalizeCallChainEndpointProfile` 只在 discover source 已经 Active 后才执行 provenance 降级，故 file/pre-scan candidate
+   落成 nil，再由通用缺席错误拒绝。模型只能第三次改成空端点 `discover_path`；
+3. 记 `EVAL-B315-CALLCHAINDISCOVERDEMOTION1=P1`。最优解不是放宽端点权威，而是补齐既有归一化意图：
+   discover+空 sink 的 source 若不是合法 request-proven code identity，直接降为 authority-free discover_path 并返回明确 audit warning；
+   精确 request source 仍保留 discover，named sink 冲突与 exact-target 矛盾仍 fail-loud。不得从 entities 顺序、用户/模型 prose 或 pre-scan 文件名铸方向；
+4. TS finalizer 把条件体内真实调用 `HttpTransport.send -> this.retry.nextDelay` 的 edge anchor 标成 guard，validator 正确拒绝，
+   patch 删除 optional diagram。上下文已同时给出 typed call 与“条件包含调用时保留 call、guard 另注”的精确教学，故本项归模型遵从波动，
+   不新增答案词面扫描或系统代写。模型另把 POST/fetch 写成 GET/TCP 建连，也属于证据充分后的模型越界；
+5. Trace 301s，6 次 trace_query 全部保持显式 114.94ms 窗。模型正文先给实际占用维度
+   `running=26.946/runnable=3.636/sleep=84.358/D=0/io=0ms`，再给现有规则可消除维度：
+   CookieMonsterCl 23.994ms、NetworkService 19.041ms、ThreadPoolForeg D/IO 10.433ms、供给折算缺口 10.331ms；
+   4 节点唤醒路径、代表窗、frame evidence absent/unproven 均在。系统 `Trace 因果投影`、根因加冕、自动补采和覆盖边界也都在，
+   没有删除或替换模型 8 个 block；显式时间窗、双维根因、根因排序、唤醒链与窗内可消除量无回归；
+6. Trace finalizer 首稿把 `trace_causal_claim_caliber` 放到非 summary table，被精确 placement 合同拒绝，第二稿修正。
+   这是一次模型遵从波动；另有“4 节点=4 跳”“双向唤醒=依赖环”等措辞越界，不能以扫描输出正文的硬门修复；
+7. 新记 `EVAL-B314-TRACEPROJECTIONVISIBLEBUDGET1=P1`：模型 8 blocks 经系统 materialize 后成为 20 个可见 blocks，最终
+   1085 行/141224 bytes。51 条 E#、逐节点完整属性和附注把模型结论淹没；named trace 与 blob 阶段的 `attached_trace.txt`
+   对同一测量形成成对行，虽有 `origin=system_supplement/duplicate_publications`，可见索引仍逐条重复。该问题是系统呈现放大，
+   尚未越过“系统替换模型结论”红线，但已降低指导性；
+8. B314 施工不允许 raw 字符截断、删除模型 blocks、取消投影/补采或隐藏 completeness。方案需从 typed ledger 入手：
+   对同一物理工件的 named/staged alias 与同一 observation identity 合并 provenance；对完整明细和 audit roster 设置 typed 行数预算，
+   头部保留排名/链/目标/异常与每类代表，尾部以总数、已显示数、合并来源数和未显示原因披露；完整原始 ledger 继续留在内部审计工件。
+   先补 section-size 与 duplicate-provenance 回归，再改发布面；不得通过用户问题或模型答案关键词选行。
+
+状态：runner=`2/2 PASS`；human=`partial+partial`；
+`EVAL-B312=production-positive/closed`；`EVAL-B313=implementation-closed/not-fired`；
+`EVAL-B314=P1-confirmed/typed-visible-budget-next`；`EVAL-B315=P1-confirmed/discover-normalization-next`；
+模型答案所有权=`preserved`；Trace 显式窗/投影/补齐/双维=`preserved`。
