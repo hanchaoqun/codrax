@@ -781,6 +781,7 @@ func TestFinalizerSkill_TeachesTypedDiagramRelationAuthority(t *testing.T) {
 	for _, want := range []string{
 		"`edge_anchors` is the OPTIONAL block-level array for diagram-edge typed anchors",
 		types.GroundedSourceDiagramEdgeOwnershipContract,
+		types.GroundedSourceDiagramRelationEvidenceContract,
 		"Flow/architecture edges also need their honest relation owner",
 		"relation_kind: <one of " + BuildDiagramRelationKindList() + ">",
 		"`type_relation`, `register`, `callback`, `assignment`, and `return` are typed-only",

@@ -3612,6 +3612,7 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 	}
 	typeRelationParts := make([]string, 0, len(mismatches))
 	valueFlowParts := make([]string, 0, len(mismatches))
+	logicalRelationParts := make([]string, 0, len(mismatches))
 	otherParts := make([]string, 0, len(mismatches))
 	for _, mismatch := range mismatches {
 		part := fmt.Sprintf(
@@ -3625,11 +3626,13 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			typeRelationParts = append(typeRelationParts, part)
 		} else if mismatch.Issue == diagramAssignmentEdgeIssueNoEvidence || mismatch.Issue == diagramReturnEdgeIssueNoEvidence {
 			valueFlowParts = append(valueFlowParts, part)
+		} else if mismatch.Issue == diagramSemanticRelationIssueNoEvidence {
+			logicalRelationParts = append(logicalRelationParts, part+" relation_kind="+string(mismatch.Relation))
 		} else {
 			otherParts = append(otherParts, part)
 		}
 	}
-	hints := make([]emitFixHint, 0, 3)
+	hints := make([]emitFixHint, 0, 4)
 	if len(typeRelationParts) > 0 {
 		hints = append(hints, emitFixHint{
 			Field:         "blocks[].edge_anchors[relation_kind=type_relation] AND blocks[kind=diagram].diagram.body",
@@ -3644,6 +3647,15 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			HardSignal:    preEmitHardSignalTypedCallEdgeEvidence,
 			ExpectedShape: "every explicit assignment/return edge in a non-runtime-trace answer must preserve one same-direction citable typed fact: assignment is assigned receiver/value -> concrete value/type and return is returning function -> returned value/type. Correct the endpoints/direction or remove the unsupported edge; never relabel a factory/data-binding edge as call: " + strings.Join(valueFlowParts, "; "),
 			Reason:        "assignment, initialization, and factory return are value-flow relations rather than source invocations. Their typed relation kinds preserve runtime-target selection without inventing a call edge; labels and prose never create this authority.",
+		})
+	}
+	if len(logicalRelationParts) > 0 {
+		hints = append(hints, emitFixHint{
+			Field:      "blocks[].edge_anchors[relation_kind=guard|import|precedence|contain|observe] AND blocks[kind=diagram].diagram.body",
+			HardSignal: preEmitHardSignalTypedCallEdgeEvidence,
+			ExpectedShape: types.GroundedSourceDiagramRelationEvidenceContract + " Do not relabel an unproved call, dispatch, binding, or value-flow edge as a logical relation: " +
+				strings.Join(logicalRelationParts, "; "),
+			Reason: "relation_kind is a model-authored typed assertion, not supporting evidence. Requiring its matching structured evidence closes enum relabel escapes without reading edge labels, request text, model reasoning, or rendered answer prose; runtime/root-cause trace diagrams remain on their independent causal authority.",
 		})
 	}
 	if len(otherParts) > 0 {

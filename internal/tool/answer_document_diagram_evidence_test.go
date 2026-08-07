@@ -930,13 +930,13 @@ func TestDiagramCallEdgeEvidenceMismatches_CallDAGAllowsTypedGuardEdges(t *testi
 		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramCallDAG, Language: "mermaid", Body: strings.Join([]string{
 			"flowchart TD",
 			"  C[VisitController.create] --> S[VisitService.schedule]",
-			"  S -->|countOpenVisits >= max| X[throw IllegalStateException]",
+			"  S -->|countOpenVisits >= max| G[countOpenVisits]",
 			"  S -->|pass| R[VisitRepository.insert]",
 			"  R --> A[AuditLog.record]",
 		}, "\n")},
 		EdgeAnchors: []types.DiagramEdgeAnchor{
 			{FromNode: "C", ToNode: "S", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge},
-			{FromNode: "S", ToNode: "X", RelationKind: types.DiagramRelGuard, ClaimForm: types.ClaimGuardCondition},
+			{FromNode: "S", ToNode: "G", RelationKind: types.DiagramRelGuard, ClaimForm: types.ClaimGuardCondition},
 			{FromNode: "S", ToNode: "R", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge},
 			{FromNode: "R", ToNode: "A", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge},
 		},
@@ -945,6 +945,12 @@ func TestDiagramCallEdgeEvidenceMismatches_CallDAGAllowsTypedGuardEdges(t *testi
 		diagramEvidenceTestCall("VisitController.create", "VisitService.schedule"),
 		diagramEvidenceTestCall("VisitService.schedule", "VisitRepository.insert"),
 		diagramEvidenceTestCall("VisitRepository.insert", "AuditLog.record"),
+		{
+			ID: "guard", Kind: types.EvidenceConditional, Scope: types.ScopeLine,
+			Source: "VisitService.java", LineStart: 18, AnchorKind: types.AnchorCondition,
+			AnchorSymbol: "countOpenVisits", Subject: "VisitService.schedule",
+			Condition: "countOpenVisits >= max", GroundingStatus: types.GroundingGrounded,
+		},
 	}
 	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, evidence); len(got) != 0 {
 		t.Fatalf("a typed guard edge in a mixed call DAG must not be reclassified as a function call: %+v", got)
@@ -1006,7 +1012,16 @@ func TestDiagramCallEdgeEvidenceMismatches_CallDAGAllowsCallAndGuardForSameCompo
 			{FromNode: "S", ToNode: "C", RelationKind: types.DiagramRelGuard, ClaimForm: types.ClaimGuardCondition},
 		},
 	}}}
-	evidence := []types.EvidenceItem{diagramEvidenceTestCall("VisitService.schedule", "VisitRepository.countOpenVisits")}
+	evidence := []types.EvidenceItem{
+		diagramEvidenceTestCall("VisitService.schedule", "VisitRepository.countOpenVisits"),
+		{
+			ID: "guard", Kind: types.EvidenceConditional, Scope: types.ScopeLine,
+			Source: "VisitService.java", LineStart: 18, AnchorKind: types.AnchorCondition,
+			Subject: "VisitService.schedule", Object: "VisitRepository.countOpenVisits",
+			AnchorSymbol: "countOpenVisits", Condition: "countOpenVisits >= max",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}
 	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, evidence); len(got) != 0 {
 		t.Fatalf("a compound edge may preserve both its exact invocation and guard context: %+v", got)
 	}
@@ -1273,7 +1288,7 @@ func TestDiagramCallEdgeEvidenceMismatches_SupportingCitationDoesNotExpandPrinci
 	}
 }
 
-func TestDiagramCallEdgeEvidenceMismatches_CallDAGRespectsEveryTypedNonCallRelation(t *testing.T) {
+func TestDiagramCallEdgeEvidenceMismatches_CallDAGRejectsUnprovedLogicalRelationRelabels(t *testing.T) {
 	for _, relation := range []types.DiagramRelationKind{
 		types.DiagramRelGuard,
 		types.DiagramRelImport,
@@ -1293,8 +1308,37 @@ func TestDiagramCallEdgeEvidenceMismatches_CallDAGRespectsEveryTypedNonCallRelat
 					ClaimForm: types.ClaimFormForRelation(relation),
 				}},
 			}}}
-			if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, nil); len(got) != 0 {
-				t.Fatalf("typed %s edge must remain outside source-call authority: %+v", relation, got)
+			got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, nil)
+			if len(got) != 1 || got[0].Issue != diagramSemanticRelationIssueNoEvidence || got[0].Relation != relation {
+				t.Fatalf("unproved typed %s edge must not bypass strict source authority: %+v", relation, got)
+			}
+		})
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_CallDAGAcceptsSameDirectionTypedLogicalRelations(t *testing.T) {
+	tests := []struct {
+		relation types.DiagramRelationKind
+		evidence types.EvidenceItem
+	}{
+		{types.DiagramRelGuard, types.EvidenceItem{Kind: types.EvidenceConditional, AnchorKind: types.AnchorCondition, Subject: "Service.run", OwnerSymbol: "Service.run", AnchorSymbol: "enabled", Source: "service.go", LineStart: 10, GroundingStatus: types.GroundingGrounded}},
+		{types.DiagramRelImport, types.EvidenceItem{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorImport, Subject: "service", Object: "storage", AnchorSymbol: "storage", Source: "service.go", LineStart: 3, GroundingStatus: types.GroundingGrounded}},
+		{types.DiagramRelPrecedence, types.EvidenceItem{Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleOverride, Subject: "cli", Object: "config", AnchorSymbol: "config", Source: "config.go", LineStart: 12, GroundingStatus: types.GroundingGrounded}},
+		{types.DiagramRelObserve, types.EvidenceItem{Kind: types.EvidenceDirect, Origin: types.ClaimOriginLog, Subject: "worker", Object: "timeout", AnchorSymbol: "timeout", Source: "runtime.log", LineStart: 1, GroundingStatus: types.GroundingGrounded}},
+	}
+	for _, tc := range tests {
+		t.Run(string(tc.relation), func(t *testing.T) {
+			from, to := tc.evidence.Subject, tc.evidence.Object
+			if tc.relation == types.DiagramRelGuard {
+				to = tc.evidence.AnchorSymbol
+			}
+			doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+				ID: "typed-logical", Kind: types.BlockDiagram,
+				Diagram:     &types.AnswerDiagramBlock{Kind: types.DiagramCallDAG, Language: "mermaid", Body: "flowchart TD\n  A[\"" + from + "\"] --> B[\"" + to + "\"]\n"},
+				EdgeAnchors: []types.DiagramEdgeAnchor{{FromNode: "A", ToNode: "B", RelationKind: tc.relation}},
+			}}}
+			if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, []types.EvidenceItem{tc.evidence}); len(got) != 0 {
+				t.Fatalf("same-direction typed %s evidence must authorize its exact edge: %+v", tc.relation, got)
 			}
 		})
 	}
@@ -1459,13 +1503,13 @@ func TestRunPreEmitChecks_MixedCallDAGGuardStaysOutsideCallAuthority(t *testing.
 		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramCallDAG, Language: "mermaid", Body: strings.Join([]string{
 			"flowchart TD",
 			"  C[VisitController.create] --> S[VisitService.schedule]",
-			"  S -->|countOpenVisits >= max| X[throw IllegalStateException]",
+			"  S -->|countOpenVisits >= max| G[countOpenVisits]",
 			"  S -->|pass| R[VisitRepository.insert]",
 			"  R --> A[AuditLog.record]",
 		}, "\n")},
 		EdgeAnchors: []types.DiagramEdgeAnchor{
 			{FromNode: "C", ToNode: "S", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge},
-			{FromNode: "S", ToNode: "X", RelationKind: types.DiagramRelGuard, ClaimForm: types.ClaimGuardCondition},
+			{FromNode: "S", ToNode: "G", RelationKind: types.DiagramRelGuard, ClaimForm: types.ClaimGuardCondition},
 			{FromNode: "S", ToNode: "R", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge},
 			{FromNode: "R", ToNode: "A", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge},
 		},
@@ -1488,6 +1532,35 @@ func TestRunPreEmitChecks_MixedCallDAGGuardStaysOutsideCallAuthority(t *testing.
 		if hint.Kind == types.ViolDiagramCallEdgeUnproven {
 			t.Fatalf("the wired pre-emit call authority must accept the typed mixed DAG: %+v", hints)
 		}
+	}
+}
+
+func TestRunPreEmitChecks_StrictLogicalRelationCannotReplaceMissingEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		relation types.DiagramRelationKind
+		body     string
+	}{
+		{name: "labelled precedence relabel", relation: types.DiagramRelPrecedence, body: "flowchart TD\n  A[Sink.write] -.->|virtual dispatch| B[ConsoleSink.write]\n"},
+		{name: "unlabelled guard relabel", relation: types.DiagramRelGuard, body: "flowchart TD\n  A[kind] --> B[SinkRegistry.create]\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+				ID: "escape", Kind: types.BlockDiagram,
+				Diagram:     &types.AnswerDiagramBlock{Kind: types.DiagramCallDAG, Language: "mermaid", Body: tc.body},
+				EdgeAnchors: []types.DiagramEdgeAnchor{{FromNode: "A", ToNode: "B", RelationKind: tc.relation}},
+			}}}
+			hints := runPreEmitChecks(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, nil, &types.BusContext{Mutable: types.NewMutableState("logical relation escape")})
+			for _, hint := range hints {
+				if hint.Kind == types.ViolDiagramCallEdgeUnproven &&
+					strings.Contains(hint.ExpectedShape, diagramSemanticRelationIssueNoEvidence) &&
+					strings.Contains(hint.ExpectedShape, "relation_kind="+string(tc.relation)) &&
+					strings.Contains(hint.ExpectedShape, types.GroundedSourceDiagramRelationEvidenceContract) {
+					return
+				}
+			}
+			t.Fatalf("typed logical relabel must reach the production hard gate with an executable repair: %+v", hints)
+		})
 	}
 }
 

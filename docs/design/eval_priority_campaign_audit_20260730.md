@@ -22813,3 +22813,40 @@ constructor-passing detector 在 outer `(...)` 的参数中只要看到任意大
 状态：`EVAL-B226-CONDITIONCLASS1=S36q-closed/full-tests-pass`；
 `EVAL-B217-FLOWUNLABELED1=closed/replay-observation-open`；下一步=`r145-two-case-replay`；
 模型答案所有权=`preserved`；JSON schema 单源=`preserved`；Trace 显式时间窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量=`not-touched`。
+
+### 123.206 r145 与 S36r：typed relation_kind 不是证据，关闭逻辑关系改名逃逸
+
+在 `main@b63f52517` 上严格并行回放 `sr_py_registry_dispatch` 与 `sr_cpp_virtual_chain`，runner 2/2 PASS，人工判定分别为 pass/fail：
+
+- Python：181s，finalizer reject/patch=`2/2`。最终答案继续正确区分 `@register("json")` selector 与
+  `content_type() -> "application/json"` return value，给出 `run_pipeline -> resolve -> JsonPlugin callback` 和 cooperative mixin chain。
+  两次拒绝仍来自可选图把 lookup/return/MRO candidate 画成 direct call；删图后 prose 完整，记为 P1 图配方/心智负担，不降低证据门。
+- C++：199s，finalizer reject/patch=`4/4`。S36o/S36p/S36q 均由生产结果验证：participant 展示标签不再铸造假边，四个主链成员引用均对齐，
+  guard 也恢复为 typed conditional。但最终图先后把未证的 `Sink.write -> ConsoleSink.write` 虚派发标成 `call`、删除 anchor、改成
+  `type_relation`，最后改成 `precedence` 后通过；同时把真实 typed guard `SinkRegistry.create -> kind` 反画为 `kind -> create` 也通过。
+  这证明旧门只确认 `relation_kind` 是合法枚举，没有确认该枚举对应的同向证据。模型可以通过改名逃逸，属于确定性合同 gap，非模型波动。
+
+`EVAL-B227-RELABELAUTH1` 的 S36r 根修采用关系族统一证据原则，不按 C++、virtual dispatch、某个节点名或 edge label 拟合：
+
+1. 在 semantic `call_dag` 或任何 grounded source call-chain diagram 中，`guard/import/precedence/observe` 每条显式 anchor 都必须匹配一个
+   同向、可引用、claim form 对应的 typed `EvidenceItem`；`relation_kind` 只表达模型声明，不能自证；
+2. guard 的精确方向为 parser-grounded enclosing callable（或 typed subject）`->` condition identity（或显式 typed conditional object）。
+   因此 `SinkRegistry.create -> kind` 可证，`kind -> SinkRegistry.create` 不可证；
+3. `contain` 当前明确没有 edge-level claim form，严格源码图里不得用 contain 箭头绕门；层级展示改用 Mermaid `subgraph`/grouping，直到存在
+   精确 directed containment carrier；
+4. 若同一 edge 本来就是 invocation surface 且缺 `call` anchor，先只给一个可执行的 missing-call 修复，避免同时轰炸“假 guard 无证据”；
+   当 `call+guard` 两个 typed 声明并存时，两者各自必须有证据；
+5. 新的 `GroundedSourceDiagramRelationEvidenceContract` 成为 JSON tool schema、answer skill、finalizer diagram contract、pre-emit repair 与
+   orchestrator contract 的共享单源，避免“schema 教枚举即权威、validator 又要求证据”的自冲突。教学仍只有 `{from_node,to_node,relation_kind}`
+   三字段 JSON 形，不让模型额外填写 claim/evidence 字段；证据由系统从既有 typed pool 对齐。
+
+回归覆盖五种历史逃逸关系、四种有同向证据的正向臂、labelled `precedence` 虚派发、无标签反向 `guard`、`call+guard` 复合边、14 种语言的
+call 不能藏在 guard 后、sequence 回复以及 Trace runtime family 独立 authority。硬门只读取 schema-validated `relation_kind`、Mermaid parsed
+endpoint 与 typed EvidenceItem；不读取用户原文、模型 reasoning、answer prose 或 edge label。系统不补写/改写模型结论。
+
+验证：diagram 聚焦套件与 `go test ./...` 全绿。
+
+状态：`EVAL-B227-RELABELAUTH1=S36r-implemented/full-tests-pass`；
+`EVAL-B217-FLOWUNLABELED1=closed/strict-unlabelled-replay-pin-added`；下一步=`commit+r146-two-case-replay`；
+模型答案所有权=`preserved`；JSON schema 单源=`preserved`；Trace 显式时间窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量以及
+“真实耗时贡献/规则内可消除量”双维度=`not-touched`。

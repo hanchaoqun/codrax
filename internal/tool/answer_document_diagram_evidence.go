@@ -23,6 +23,7 @@ type DiagramCallEdgeEvidenceMismatch struct {
 	ToNode     string
 	FromSymbol string
 	ToSymbol   string
+	Relation   types.DiagramRelationKind
 }
 
 type diagramVisibleCallEdge struct {
@@ -42,6 +43,7 @@ const (
 	diagramAssignmentEdgeIssueNoEvidence      = "assignment_edge_unproven"
 	diagramReturnEdgeIssueNoEvidence          = "return_edge_unproven"
 	diagramCallbackEdgeIssueNoEvidence        = "callback_handoff_unproven"
+	diagramSemanticRelationIssueNoEvidence    = "semantic_relation_edge_unproven"
 )
 
 // DiagramCallEdgeEvidenceMismatches cross-checks model-authored typed call
@@ -138,7 +140,34 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 					})
 					continue
 				}
-				if !diagramParsedEdgeRequiresCallAuthority(block.Diagram.Kind, relations, hasTypedCallEvidence) {
+				requiresCallAuthority := diagramParsedEdgeRequiresCallAuthority(block.Diagram.Kind, relations, hasTypedCallEvidence)
+				// A schema-valid non-call enum is an assertion, not evidence.
+				// Require same-direction typed support for every logical relation
+				// that can otherwise take a call-DAG edge out of call authority.
+				// This closes the relabel escape (call -> precedence/guard/etc.)
+				// without inspecting the edge label, request, or answer prose.
+				for _, relation := range types.AllDiagramRelationKinds() {
+					if !relations[relation] || !diagramStrictLogicalRelationNeedsEvidence(relation) {
+						continue
+					}
+					// When the edge is an invocation surface but relation_kind=call
+					// is absent, the missing-call diagnosis is the single executable
+					// repair. Validate any additional logical relation after the
+					// invocation retains its honest owner.
+					if requiresCallAuthority && !callAnchorKeys[key] {
+						continue
+					}
+					if diagramLogicalRelationEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol, relation) {
+						continue
+					}
+					out = append(out, DiagramCallEdgeEvidenceMismatch{
+						BlockID: block.ID, Issue: diagramSemanticRelationIssueNoEvidence,
+						FromNode: strings.TrimSpace(edge.From), ToNode: strings.TrimSpace(edge.To),
+						FromSymbol: fromSymbol, ToSymbol: toSymbol,
+						Relation: relation,
+					})
+				}
+				if !requiresCallAuthority {
 					continue
 				}
 				visibleCallEdges = append(visibleCallEdges, diagramVisibleCallEdge{
@@ -374,6 +403,60 @@ func diagramValueFlowEdgeHasTypedEvidence(evidence []types.EvidenceItem, fromSym
 		}
 		if diagramTypedValueEndpointMatches(ev.Subject, fromSymbol) &&
 			diagramTypedValueEndpointMatches(ev.Object, toSymbol) {
+			return true
+		}
+	}
+	return false
+}
+
+// diagramStrictLogicalRelationNeedsEvidence names the logical relations that
+// used to be accepted from relation_kind alone inside a grounded source
+// diagram. Containment deliberately joins this list even though it has no
+// edge-level ClaimForm: strict source diagrams must express hierarchy with a
+// Mermaid subgraph (or omit the edge) until a precise directed containment
+// carrier exists. A model-authored enum cannot manufacture that carrier.
+func diagramStrictLogicalRelationNeedsEvidence(relation types.DiagramRelationKind) bool {
+	switch relation {
+	case types.DiagramRelGuard,
+		types.DiagramRelImport,
+		types.DiagramRelPrecedence,
+		types.DiagramRelContain,
+		types.DiagramRelObserve:
+		return true
+	default:
+		return false
+	}
+}
+
+// diagramLogicalRelationEdgeHasTypedEvidence verifies only structured,
+// citable evidence fields. It never derives relation authority from a Mermaid
+// label, the raw request, model reasoning, or rendered answer text.
+//
+// Guard rows use the parser-grounded enclosing callable (OwnerSymbol) or the
+// typed Subject as their source and the condition token (AnchorSymbol) or an
+// explicitly supplied Object as their destination. Other logical relations
+// preserve the typed Subject -> Object/AnchorSymbol direction. Containment has
+// no edge-level claim form and therefore cannot pass this strict edge gate.
+func diagramLogicalRelationEdgeHasTypedEvidence(evidence []types.EvidenceItem, fromSymbol, toSymbol string, relation types.DiagramRelationKind) bool {
+	fromSymbol = strings.TrimSpace(fromSymbol)
+	toSymbol = strings.TrimSpace(toSymbol)
+	wantForm := types.ClaimFormForRelation(relation)
+	if fromSymbol == "" || toSymbol == "" || wantForm == types.ClaimUnknown {
+		return false
+	}
+	for _, ev := range evidence {
+		if !ev.IsCitable() || types.ClaimFormOf(ev) != wantForm {
+			continue
+		}
+		fromMatches := diagramTypedValueEndpointMatches(ev.Subject, fromSymbol)
+		if relation == types.DiagramRelGuard {
+			fromMatches = fromMatches || diagramTypedValueEndpointMatches(ev.OwnerSymbol, fromSymbol)
+		}
+		if !fromMatches {
+			continue
+		}
+		if diagramTypedValueEndpointMatches(ev.Object, toSymbol) ||
+			diagramTypedValueEndpointMatches(ev.AnchorSymbol, toSymbol) {
 			return true
 		}
 	}

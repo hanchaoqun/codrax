@@ -110,6 +110,9 @@ func TestEmitAnswerDocumentSchema_SourceDiagramEdgeOwnershipUsesTypedSingleSourc
 	if !strings.Contains(raw, types.GroundedSourceDiagramEdgeOwnershipContract) {
 		t.Fatalf("canonical schema missing source-diagram edge ownership contract: %s", raw)
 	}
+	if !strings.Contains(raw, types.GroundedSourceDiagramRelationEvidenceContract) {
+		t.Fatalf("canonical schema missing strict relation-evidence contract: %s", raw)
+	}
 	if strings.Contains(raw, "Omit edge_anchors when no typed edge is needed; outside strict grounded call-chain contracts") {
 		t.Fatalf("canonical schema leaked the pre-B217 narrower contract: %s", raw)
 	}

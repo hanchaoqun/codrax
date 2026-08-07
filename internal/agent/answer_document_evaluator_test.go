@@ -3918,6 +3918,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDiagramContractA
 		"`call/call_edge` is only a direct invocation",
 		"`register/registration_edge`",
 		"`contain` has no edge-level claim_form",
+		types.GroundedSourceDiagramRelationEvidenceContract,
 		"Avoid invented enumeration labels like `Level 1`, `Round 2`, or `Step 3`",
 		"async `-)` / `--)`, and lost-message `-x` / `--x`",
 		"not decoration or an escape from edge evidence",
