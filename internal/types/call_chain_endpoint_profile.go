@@ -8,7 +8,7 @@ type CallChainSinkResolutionMode string
 // the analyzer skill and emit_analysis schema. Field types and enum admission
 // remain schema-owned; this sentence only distinguishes the three mutually
 // exclusive endpoint-authority shapes.
-const CallChainEndpointProfileTeaching = "For a source-code call chain, use call_chain_endpoints.sink_mode=exact only when the current request names both code identities; use discover with an exact current-request source and an empty sink only when the requested answer is which runtime implementation/class/handler is reached; use discover_path with empty source and sink when the request names only conceptual path boundaries and grounded exploration must identify both code endpoints. A current-checkout typed pre-scan candidate only selects an investigation target and NEVER proves an endpoint or path; it never becomes endpoint authority."
+const CallChainEndpointProfileTeaching = "For a source-code call chain, use call_chain_endpoints.sink_mode=exact only when the current request names both code identities; use discover with an exact current-request code identity as source (never a file path or pre-scan candidate) and an empty sink only when the requested answer is which runtime implementation/class/handler is reached; use discover_path with empty source and sink when the request names only conceptual path boundaries and grounded exploration must identify both code endpoints. A current-checkout typed pre-scan candidate only selects an investigation target and NEVER proves an endpoint or path; it never becomes endpoint authority."
 
 const (
 	CallChainSinkResolutionExact        CallChainSinkResolutionMode = "exact"
@@ -106,16 +106,23 @@ func NormalizeCallChainEndpointProfile(in *CallChainEndpointProfile, requestMent
 			allowed[strings.ToLower(value)] = true
 		}
 	}
-	if profile.SinkMode == CallChainSinkResolutionDiscover && profile.Sink != "" {
+	if profile.SinkMode == CallChainSinkResolutionDiscover {
+		discardedSink := profile.Sink != ""
 		profile.Sink = ""
-		if !profile.DiscoverSinkActive() {
-			return nil, "call_chain_endpoints discover mode requires one valid source-code source identity"
-		}
-		if !allowed[strings.ToLower(profile.Source)] {
+		// A discover source is still endpoint authority. If the analyzer copied a
+		// file path or another non-code navigation candidate into this field,
+		// fail-safe by removing that authority and retaining the requested
+		// role-bound path investigation. This is the same demotion already used
+		// for an unproven code-looking source; it reads only the typed carrier and
+		// current-request provenance set.
+		if !profile.DiscoverSinkActive() || !allowed[strings.ToLower(profile.Source)] {
 			return &CallChainEndpointProfile{SinkMode: CallChainSinkResolutionDiscoverPath},
-				"call_chain_endpoints discarded analyzer-resolved source and sink candidates; discover_path leaves both endpoint identities to grounded exploration"
+				"call_chain_endpoints discover source was not an exact current-request code identity; normalized to discover_path so a file path or analyzer candidate cannot become endpoint authority"
 		}
-		return profile, "call_chain_endpoints discover mode discarded a preselected sink; grounded exploration must identify the runtime destination"
+		if discardedSink {
+			return profile, "call_chain_endpoints discover mode discarded a preselected sink; grounded exploration must identify the runtime destination"
+		}
+		return profile, ""
 	}
 	if profile.SinkMode == CallChainSinkResolutionExact {
 		sourceMentioned := allowed[strings.ToLower(profile.Source)]
@@ -136,13 +143,6 @@ func NormalizeCallChainEndpointProfile(in *CallChainEndpointProfile, requestMent
 	}
 	if !profile.Active() {
 		return nil, "call_chain_endpoints requires exact mode with two distinct identities, discover mode with one exact source and an empty sink, or discover_path with both endpoint fields empty"
-	}
-	if profile.DiscoverSinkActive() {
-		if !allowed[strings.ToLower(profile.Source)] {
-			return &CallChainEndpointProfile{SinkMode: CallChainSinkResolutionDiscoverPath},
-				"call_chain_endpoints discover source was not a current-request identity; normalized to discover_path so the analyzer guess cannot become a hard answer anchor"
-		}
-		return profile, ""
 	}
 	return profile, ""
 }

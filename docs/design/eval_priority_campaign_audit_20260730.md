@@ -25537,3 +25537,25 @@ TypeScript + 一例异构 read/write/data/Trace，禁止为该 fixture 增加 sy
 `EVAL-B312=production-positive/closed`；`EVAL-B313=implementation-closed/not-fired`；
 `EVAL-B314=P1-confirmed/typed-visible-budget-next`；`EVAL-B315=P1-confirmed/discover-normalization-next`；
 模型答案所有权=`preserved`；Trace 显式窗/投影/补齐/双维=`preserved`。
+
+### 123.305 S37av：discover 的非权威 source 统一降为 role-bound path，不再用误导错误烧分析轮次
+
+`EVAL-B315-CALLCHAINDISCOVERDEMOTION1` 已在 endpoint profile 单一归一化入口完成：
+
+1. `NormalizeCallChainEndpointProfile` 现在统一处理 discover+空 sink：只有 source 同时是合法 code identity 且具备当前请求逐字 provenance 时，
+   才保留 discover endpoint authority；file path、pre-scan candidate、无 provenance 的 code-looking candidate 全部确定性降为
+   空 source/空 sink 的 `discover_path`；
+2. 这不是把 file path 当端点，也不是放宽 hard gate。降级后的 profile 没有 ordered endpoint hints、required mechanism anchor 或方向权威，
+   后续 grounded exploration 自行选择两端；named sink、discover_path 带 candidate、unique exact-target destination 等既有 typed 矛盾仍 fail-loud；
+3. 单源教学补明 discover source 必须是 current-request code identity，file path/pre-scan candidate 禁止进入。schema enum 与字段形继续由
+   `emit_analysis` projected schema 所有，不复制第二套字段清单；实现不读取用户/模型/答案 prose，也不从 entities 顺序猜 source/sink；
+4. 新 types pin 覆盖 file path 即使出现在 carrier/provenance roster 也必须降级；生产同形 emit_analysis pin 覆盖
+   `packages/cli/src/main.ts + discover + empty sink` 一次成功、profile 为 discover_path、warning 明示 authority removal。
+   既有 exact/discover/discover_path、runtime artifact 与 candidate-demotion 套件全绿；
+5. 聚焦 `go test ./internal/types ./internal/tool -run 'CallChainEndpoint|SourceCallChainDiscoverFilePath|EmitAnalysis_SourceCallChain' -count=1`
+   通过；完整 `go test ./... -count=1` 通过。本批不修改 JSON repair/教学、答案正文、Mermaid、Trace 查询/投影/补采/排序/唤醒链/
+   可消除量、read/write controller。
+
+状态：`EVAL-B315=S37av-implemented/full-suite-pass/pending-production-replay`；
+`endpoint-authority=stricter-or-equal`；`analyzer-retry=eliminated-for-nonauthoritative-discover-source`；
+模型答案所有权=`preserved`；Trace/JSON/Mermaid/Read/Write=`unchanged`；`EVAL-B314=next`。

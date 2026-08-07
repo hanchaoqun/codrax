@@ -2,6 +2,7 @@ package types
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -101,6 +102,20 @@ func TestNormalizeCallChainEndpointProfile_DiscoverSourceRequiresCurrentRequestP
 	)
 	if profile == nil || !profile.DiscoverPathActive() || reason == "" {
 		t.Fatalf("unproven discover source must lose hard authority: profile=%+v reason=%q", profile, reason)
+	}
+}
+
+func TestNormalizeCallChainEndpointProfile_DiscoverFilePathDemotesToDiscoverPath(t *testing.T) {
+	profile, reason := NormalizeCallChainEndpointProfile(
+		&CallChainEndpointProfile{Source: "packages/cli/src/main.ts", SinkMode: CallChainSinkResolutionDiscover},
+		[]string{"packages/cli/src/main.ts"},
+	)
+	if profile == nil || !profile.DiscoverPathActive() || reason == "" {
+		t.Fatalf("navigation path must lose endpoint authority without rejecting the role-bound investigation: profile=%+v reason=%q", profile, reason)
+	}
+	if !strings.Contains(reason, "not an exact current-request code identity") ||
+		!strings.Contains(reason, "normalized to discover_path") {
+		t.Fatalf("demotion reason must explain the precise authority boundary: %q", reason)
 	}
 }
 

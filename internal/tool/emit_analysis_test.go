@@ -1149,6 +1149,35 @@ func TestEmitAnalysis_SourceCallChainAcceptsExplicitDiscoverPathWithoutRuntimeSe
 	}
 }
 
+func TestEmitAnalysis_SourceCallChainDiscoverFilePathDemotesWithoutRetry(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	objective := "从 CLI 入口到底层 HTTP 重试发送的完整调用链是怎样的？"
+	payload := `{
+		"intent":"trace",
+		"scenario":"architecture_explain",
+		"complexity":"complex",
+		"keywords":["CLI","HTTP","retry","call chain"],
+		"entities":["packages/cli/src/main.ts","HttpTransport"],
+		"question_kind":"call_chain",
+		"predicate_axis":"call",
+		"call_chain_endpoints":{"source":"packages/cli/src/main.ts","sink":"","sink_mode":"discover"}
+	}`
+	res, mu := runEmitAnalysisWithObjective(t, objective, payload)
+	if !res.Success || mu.RequestModel() == nil {
+		t.Fatalf("file-path discover candidate must demote without an analyzer retry: success=%t summary=%q", res.Success, res.Summary)
+	}
+	profile := mu.RequestModel().CallChainEndpointProfile
+	if profile == nil || !profile.DiscoverPathActive() {
+		t.Fatalf("file path must not survive as endpoint authority: %+v", profile)
+	}
+	if !strings.Contains(res.Summary, "normalized to discover_path") {
+		t.Fatalf("authority demotion must remain auditable: %q", res.Summary)
+	}
+}
+
 func TestEmitAnalysis_SourceCallChainRejectsDiscoverModeWithNamedSink(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
