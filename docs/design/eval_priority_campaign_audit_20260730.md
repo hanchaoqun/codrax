@@ -24930,3 +24930,28 @@ Python 最终 ChangePlan 精确只改 `main.py:20` 的 `retrun -> return`，验�
 状态：`EVAL-B294=S37ai-implemented/affected-packages-pass/pending-replay`；
 `EVAL-B291=S37ai-soft-input-fix/pending-explorer-witness`；`EVAL-B295=next-P1`；
 模型答案所有权=`preserved`；JSON 教学=`unchanged`；Trace 显式窗/因果投影/自动补齐/双维根因=`unchanged`。
+
+### 123.283 r178：typed 拓扑与调用行获得生产见证；成文补丁保持仍有过程 gap
+
+r178 在 `main@f3f938a5f` 上严格并发 2，运行 QF `qf_sequence_analyzer_gate` 与 write-plan `patch_python_typo`。runner 2/2 PASS；人工为
+QF partial、Python PASS：
+
+1. QF 的 Finalizer 上下文精确出现 `unique_endpoint_relations=18`、`nodes=20`、`weak_components=2`、`max_out_degree=17`、
+   `fan_out_present=true`、`disconnected_present=true`、`single_linear_relation_graph=false`。最终答案不再把这些边伪造成一条从
+   `buildAnalysisIR` 到 `gate.Run` 的有向链，而是正确说明 `buildAnalysisIR -> gate.RunWith` 与 `gate.Run -> RunWith` 是两条汇入共享前沿的关系；
+   B294 获得 production positive；
+2. Explorer 在实际读取 `gate.go:134-143` 后发出了独立 `AnchorCall` 行：`subject=Run`、`object=RunWith`、`line_start=135`。最终答案据此引用
+   `gate.go:135`，不再把 definition summary 当调用凭证，B291 输入缺口获得 production positive；
+3. 过程仍不健康：首稿画出 18 条可见边却没有同步提供其中 16 条 `edge_anchors`，被精确门拒绝；第二轮 patch 补边后又丢失请求终点
+   `gate.Run` 的可见 identity，再次被拒。随后模型流式连接异常，整轮 Finalizer 重启后才一次成功，总耗时 430s。系统没有改写答案，最终事实正确，
+   但 copy-ready payload、patch-preservation 教学与实际 tool payload 之间仍有消费负担；记 `EVAL-B297-FINALPATCHANCHORCHURN1=P1-process`，先跨 case
+   观察，不以本例关键词或 endpoint 特判；
+4. 最终把同一函数体内按源码顺序执行的 17 条 sibling calls 仍称为“关键中间函数”。这比旧版“17 hops”明显收敛，且主体明确 fan-out/无有向路径，
+   暂记软表达观察，不新增正文扫描或系统改写；
+5. Python ChangePlan 精确只改 `main.py:20`，Planner 首次 emit 即通过，零 structured reject。但本轮模型没有生成 verification probe，因此没有实际走
+   `import main; ...` 的分号 parser 路径；S37ah 仍由 `internal/tool` 完整测试见证，r178 不能虚记 production positive。Analyzer 为可选
+   field-value profile 连续修正 4 轮后才放弃该 profile，另记心智/时延观察，不与 Planner parser 修复混批。
+
+状态：`EVAL-B291/B294=production-positive/closed`；`EVAL-B296=tests-positive/no-production-probe-this-run`；
+`EVAL-B297=P1-observe-cross-case`；`EVAL-B295=next-P1`；runner=`2/2 PASS`、human=`1.5/2`；
+模型答案所有权=`preserved`；JSON 教学=`single-source/unchanged`；Trace 显式窗/因果投影/自动补齐/根因排序/唤醒链/窗内可消除量/双维根因=`unchanged`。
