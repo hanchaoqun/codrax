@@ -96,7 +96,7 @@ func renderExplorerCallChainDirectCallFrontier(ctx *types.AgentContext, graph *r
 			row.Source, row.Line, row.Caller, row.Callee, target)
 	}
 	if total > len(rows) {
-		fmt.Fprintf(&b, "\nShown %d of %d parser-owned direct calls using a deterministic endpoint-relevant/first/middle/last sample; use the source body or a scoped `repo_map(view=\"relation_map\")` pass when another branch is relevant.\n", len(rows), total)
+		fmt.Fprintf(&b, "\nShown %d of %d parser-owned direct calls using a deterministic endpoint-relevant/head/line-coordinate/tail sample; use the source body or a scoped `repo_map(view=\"relation_map\")` pass when another branch is relevant.\n", len(rows), total)
 	}
 	if len(boundaryRows) > 0 {
 		b.WriteString("\n### Typed Endpoint-boundary Frontier (advisory)\n\n")
@@ -306,8 +306,11 @@ func explorerCallChainRelationCalleeSurface(fi *repomap.FileInfo, rel repomap.Re
 }
 
 // explorerSampleDirectCallFrontierRows preserves source order after selecting
-// a deterministic first/middle/last sample. Resolved current-repo calls are
-// selected first; unresolved syntax surfaces only fill spare capacity.
+// a deterministic endpoint/head/line-coordinate/tail sample. Sampling by
+// source-line coordinate prevents a call-dense early phase from consuming the
+// whole bounded frontier and hiding sparse middle phases. Resolved
+// current-repo calls are selected first; unresolved syntax surfaces only fill
+// spare capacity.
 func explorerSampleDirectCallFrontierRows(rows []explorerCallChainDirectCallFrontierRow, limit int, sink string) []explorerCallChainDirectCallFrontierRow {
 	if limit <= 0 || len(rows) == 0 {
 		return nil
@@ -349,20 +352,18 @@ func explorerSampleDirectCallFrontierRows(rows []explorerCallChainDirectCallFron
 	for _, item := range relevant {
 		add(item.index)
 	}
-	// Early helpers are the common omission, while tail calls carry the named
-	// sink/boundary. Typed sink-vicinity rows above survive before this generic
-	// sample; vicinity is navigation only and never mints endpoint equivalence.
-	// Middle samples prevent a long source body from becoming a head/tail-only
-	// view.
-	for i := 0; i < len(resolved) && i < 10; i++ {
+	// Early helpers are a common omission, while tail calls often carry the
+	// named sink/boundary. Typed sink-vicinity rows above survive before this
+	// generic sample; vicinity is navigation only and never mints endpoint
+	// equivalence. The remaining capacity is distributed by source coordinate,
+	// not by relation ordinal, so a call-dense phase cannot erase sparse phases.
+	for i := 0; i < len(resolved) && i < 6; i++ {
 		add(resolved[i])
 	}
-	for i := len(resolved) - 1; i >= 0 && i >= len(resolved)-8; i-- {
+	for i := len(resolved) - 1; i >= 0 && i >= len(resolved)-5; i-- {
 		add(resolved[i])
 	}
-	for slot := 1; slot <= 6 && len(resolved) > 0; slot++ {
-		add(resolved[(slot*(len(resolved)-1))/7])
-	}
+	explorerAddLineCoordinateSamples(rows, resolved, 12, selected, add)
 	for _, index := range resolved {
 		add(index)
 	}
@@ -379,6 +380,44 @@ func explorerSampleDirectCallFrontierRows(rows []explorerCallChainDirectCallFron
 		out = append(out, rows[index])
 	}
 	return out
+}
+
+func explorerAddLineCoordinateSamples(
+	rows []explorerCallChainDirectCallFrontierRow,
+	candidates []int,
+	slots int,
+	selected map[int]bool,
+	add func(int),
+) {
+	if len(candidates) == 0 || slots <= 0 {
+		return
+	}
+	minLine := rows[candidates[0]].Line
+	maxLine := rows[candidates[len(candidates)-1]].Line
+	if maxLine <= minLine {
+		return
+	}
+	for slot := 1; slot <= slots; slot++ {
+		target := minLine + (slot*(maxLine-minLine))/(slots+1)
+		best := -1
+		bestDistance := int(^uint(0) >> 1)
+		for _, index := range candidates {
+			if selected[index] {
+				continue
+			}
+			distance := rows[index].Line - target
+			if distance < 0 {
+				distance = -distance
+			}
+			if distance < bestDistance || (distance == bestDistance && (best < 0 || index < best)) {
+				best = index
+				bestDistance = distance
+			}
+		}
+		if best >= 0 {
+			add(best)
+		}
+	}
 }
 
 func explorerEndpointVicinityScore(candidate, sink string) int {

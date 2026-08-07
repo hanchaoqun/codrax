@@ -68,6 +68,38 @@ func TestRenderExplorerCallChainDirectCallFrontier_PublishesBoundedASTNavigation
 	}
 }
 
+func TestExplorerSampleDirectCallFrontierRows_UsesLineCoordinatesAcrossSparsePhases(t *testing.T) {
+	rows := make([]explorerCallChainDirectCallFrontierRow, 0, 53)
+	for line := 1; line <= 40; line++ {
+		rows = append(rows, explorerCallChainDirectCallFrontierRow{Line: line, Callee: "dense", Resolved: true})
+	}
+	for _, line := range []int{300, 500, 700} {
+		rows = append(rows, explorerCallChainDirectCallFrontierRow{Line: line, Callee: "sparse", Resolved: true})
+	}
+	for line := 961; line <= 970; line++ {
+		rows = append(rows, explorerCallChainDirectCallFrontierRow{Line: line, Callee: "tail", Resolved: true})
+	}
+
+	got := explorerSampleDirectCallFrontierRows(rows, 24, "unrelated.Sink")
+	seenLine := make(map[int]bool, len(got))
+	last := 0
+	for _, row := range got {
+		seenLine[row.Line] = true
+		if row.Line < last {
+			t.Fatalf("sample lost source order: previous=%d current=%d", last, row.Line)
+		}
+		last = row.Line
+	}
+	for _, want := range []int{300, 500, 700} {
+		if !seenLine[want] {
+			t.Fatalf("line-coordinate sample dropped sparse middle phase line %d: %+v", want, got)
+		}
+	}
+	if len(got) != 24 {
+		t.Fatalf("bounded sample len=%d want 24", len(got))
+	}
+}
+
 func TestExplorerUniqueCallChainSourceDefinition_AllReadLanguagesUseSharedQualifiedResolution(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -163,6 +195,7 @@ func TestRenderExplorerCallChainDirectCallFrontier_RepositoryGraphPublishesEarly
 		"`gate.Run` -> `RunWith`",
 		"Inspect the exact boundary source line",
 		"scoped targeted source `grep`",
+		"endpoint-relevant/head/line-coordinate/tail sample",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("repository graph frontier missing %q:\n%s", want, got)

@@ -81,6 +81,7 @@ func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCau
 	}
 	if authority.FrameEvidenceStatus != "" {
 		fmt.Fprintf(&b, "- frame_evidence_status=`%s`: no stronger frame/deadline attribution may be invented.\n", authority.FrameEvidenceStatus)
+		b.WriteString(renderTraceFrameEvidenceStatusSemantics(authority.FrameEvidenceStatus))
 	}
 	if traceDecisionHasPreWakeupDependency(set) {
 		b.WriteString("- phase_semantics: `pre_wakeup_dependency` measures an upstream thread while its downstream consumer has not yet been woken. It may explain the consumer's sleep/blocked interval, but it is not the consumer's post-wakeup runnable/dispatch delay. Attribute post-wakeup delay only from the consumer's own typed runnable interval plus same-CPU scheduler ordering; never infer that a CFS dependency preempted an RT consumer after wake from this seat.\n")
@@ -215,6 +216,21 @@ func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCau
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// renderTraceFrameEvidenceStatusSemantics is the single prompt source for the
+// finite frame-evidence status vocabulary. It is soft reasoning context only:
+// no validator scans model prose for these words and no system block uses it
+// to author a frame verdict.
+func renderTraceFrameEvidenceStatusSemantics(status string) string {
+	switch strings.TrimSpace(status) {
+	case "absent":
+		return "- frame_evidence_status_semantics=`no target-bound frame/deadline evidence was produced in the selected evidence`; this proves neither that a frame drop occurred nor that no frame drop occurred. Do not state either frame-outcome verdict without separate typed frame/deadline evidence.\n"
+	case "unavailable":
+		return "- frame_evidence_status_semantics=`frame/deadline evidence could not be evaluated on the available coverage`; this proves neither that a frame drop occurred nor that no frame drop occurred. Disclose the coverage limit and do not state either frame-outcome verdict without separate typed frame/deadline evidence.\n"
+	default:
+		return ""
+	}
 }
 
 // traceDecisionAggregateFact is a prompt-only carrier for an independently

@@ -72,6 +72,8 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 		"this distinction is not a claim of physical independence",
 		"causal_conclusion=`unproven`",
 		"frame_evidence_status=`absent`",
+		"frame_evidence_status_semantics=`no target-bound frame/deadline evidence was produced in the selected evidence`",
+		"proves neither that a frame drop occurred nor that no frame drop occurred",
 		"phase_semantics: `pre_wakeup_dependency`",
 		"not the consumer's post-wakeup runnable/dispatch delay",
 		"never infer that a CFS dependency preempted an RT consumer after wake",

@@ -77,6 +77,8 @@ func TestFinalTraceDecisionBoundaryFollowsGenericGuidanceAndKeepsModelOwnership(
 		"No conclusion is inferred from prose or written for you",
 		"causal_conclusion=`unproven`",
 		"frame_evidence_status=`absent`",
+		"frame_evidence_status_semantics=`no target-bound frame/deadline evidence was produced in the selected evidence`",
+		"proves neither that a frame drop occurred nor that no frame drop occurred",
 		"selected_window_authority artifact=`customer.systrace`; selected_window=`10.000000..10.020000`",
 		"out_of_window_artifact_preview=`navigation_only_not_selected_window_evidence`",
 		"frame_boundary_authority=`not_provided`",

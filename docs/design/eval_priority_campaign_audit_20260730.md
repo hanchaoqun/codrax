@@ -24489,3 +24489,54 @@ JSON string blocks=`model-variance/recovery-covered/no-new-teaching`。模型答
 `EVAL-B278=S37y-implemented/full-tests-pass/pending-production-replay`；
 `EVAL-B279=S37y-implemented/full-tests-pass/pending-production-replay`；模型答案所有权=`preserved`；JSON 教学=`single-source/unchanged`；
 `sequence-display-parameter-identity`、`all-language-flowchart-relation-anchor`=`open guards`。
+
+### 123.265 r170：双入拓扑/端点身份生产转正；大函数中段被调用密度挤出，Trace 将 absent 错判为“未丢帧”
+
+r170 在 `main@51f6c1a7c` 上严格并发 2，运行 Go `qf_sequence_analyzer_gate` 与真实东湖显式窗
+`trace_query_donghu_real_frame_multicausal`。runner 1/2 PASS，人工为 QF partial、Trace FAIL；两案均一轮 finalizer、零成文拒绝/patch。
+
+QF 164s，S37y 的两个目标分支都获得 production positive outcome：最终 summary、列表和 Mermaid 一致展示
+`buildAnalysisIR -> gate.RunWith <- gate.Run` 两条入边，明确没有 source→requested sink 有向路径，不再出现 r169 的共享前沿反向串联；带 typed
+`call_edge` 的两个 single-edge labels 直接满足 exact source/sink，未再注入冗余 standalone endpoint 行，finalizer rejects 从 2 降至 0。
+
+runner 仍 FAIL，原因是“关键中间函数”只列 `analyzerGraphForNormalize` 与 `analyzerRequiredFiles`，没有覆盖 normalize/compile/plan/bind 等任一中段处理阶段。
+这不是要求某个 helper 的产品硬合同。真实 source 有 235 条 direct calls；现抽样为 typed sink relevance + resolved head 10 + tail 8 + relation-index
+quantile 6。前段调用非常密集，按关系序号分位的所谓 middle 仍集中在前段，source-line 中部稀疏阶段被挤出 24 行。泛化根因是采样坐标选错，不应把
+runner 的函数正则抄进 prompt 或硬门。
+
+Trace 182s，显式 `34579.472865..34579.587805` 窗、5 次 windowed+pid-filtered `trace_query`、唤醒链、根因排序、代表窗、确定性补采及
+“实际时间占用 / 规则内可消除量”双轴都在，system supplement 位于模型正文之后，没有删除或替换模型结论。但正文开头把
+`frame_evidence_status=absent` 写成“未发生丢帧”。typed 真义是本次没有产出可绑定到目标的 frame/deadline 证据，既不能证明发生丢帧，也不能证明未发生。
+runner 的局部 regex 未覆盖该 outcome，形成自动 false PASS。
+
+同一 Trace 还重复 r167 的 priority candidate 机理越权：模型写“持有资源、等待释放”，而 prompt 已明确
+`holder_waiter_authority=not_provided_by_candidate_seat`、`synchronous_blocker_authority=not_provided_by_candidate_seat`。该项继续记为
+`model-variance/high-impact/repeated`；在精确信号已经充分的前提下不增加关键词/答案 prose 硬门，不让系统替换结论。
+
+状态：`EVAL-B277/B278=production-positive/closed`；`EVAL-B279=production-coherent/closed`；
+`EVAL-B280-LINECOORDSAMPLE1=confirmed/immediate`；`EVAL-B281-FRAMESTATUSSEMANTICS1=confirmed/immediate`；
+PI holder/waiter 越权=`model-variance/repeated/observe`。JSON 教学=`unchanged`；模型答案所有权=`preserved`。
+
+### 123.266 S37z：大函数按源码坐标覆盖稀疏阶段；frame evidence 状态枚举单源解释
+
+本批仍只优化模型所需的精确上下文，不接管答案：
+
+1. direct-call frontier 保留 typed sink relevance 第一优先、head/tail 有界保护和 AST-grade/resolved-first 规则；通用 middle sampling 从“relation ordinal
+   分位”改成“source line coordinate 最近邻”。调用密集的早段不再占满中段配额，长函数中物理位置稀疏的阶段仍能进入软导航；最终 selected rows 继续按源码行排序；
+2. 容量仍为 24，不做全量强制成员清单。head 从 10 收敛到 6、tail 从 8 收敛到 5，最多 12 个 line-coordinate slots 填充分布；typed sink row 在所有
+   通用采样之前，故不会因容量调整丢失。模型仍需 inspect 行、自行挑 load-bearing 关系、发 evidence 和总结；
+3. synthetic density-skew pin 构造 40 条早段密集调用、3 个稀疏中段阶段与 10 条尾段调用，要求 300/500/700 三个 source-line phase 都进入 24 行且保持
+   source order。真实仓库 pin 继续保 early helper、gate.RunWith 与 gate.Run boundary；不钉具体中段 helper 名；
+4. Trace 新增一个共享 `renderTraceFrameEvidenceStatusSemantics`，供 decision handoff 与 final decision boundary 同源复用。`absent` 明确等于“selected evidence
+   未产出 target-bound frame/deadline evidence”，`unavailable` 明确等于“现有 coverage 无法评估”；两者都既不证明发生 frame drop，也不证明未发生；
+5. 该 status 解释只由 typed enum 触发，是 prompt-only 软推理上下文。没有 validator 扫描模型 prose，没有 pre/post emit 硬拒，没有 system block 代写 outcome，
+   模型仍负责诊断和结论。priority holder/waiter 既有精确提示不再重复堆叠；
+6. 源码 frontier 继续旁路 runtime artifact；Trace status 修复不改变查询、投影、补采、排序、数值或答案 materializer。JSON 教学/schema 仍单源不动。
+
+验收：定向 `internal/agent` 后跑 full suite，提交推送，再严格并发 2 回放 QF + 异构 data/write/Trace。人工同时核对：QF 中段覆盖、方向与 retries；Trace
+不得从 absent 推断任一 frame outcome，并保持双轴；其它模式不应收到两段上下文。
+
+状态：`EVAL-B280=S37z-implemented/full-tests-pass/pending-production-replay`；
+`EVAL-B281=S37z-implemented/full-tests-pass/pending-production-replay`；
+模型答案所有权=`preserved`；JSON 教学=`single-source/unchanged`；Trace 因果投影/自动补齐=`preserved`；
+`sequence-display-parameter-identity`、`all-language-flowchart-relation-anchor`=`open guards`。
