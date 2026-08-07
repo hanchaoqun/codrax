@@ -2,6 +2,8 @@ package skill
 
 import (
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // diagram_relation_doc.go — B3 v3 (2026-05-04). Single-source-of-truth
@@ -60,15 +62,26 @@ func BuildDiagramRelationContractDoc() string {
 	b.WriteString("`edge_anchors[]` is a separate top-level array — it NEVER lives inside a `claim_use` object.\n\n")
 	b.WriteString("In every non-runtime-trace answer, an explicit `relation_kind=call` asserts a direct invocation and must preserve the exact direction of one grounded call-site EvidenceItem. This rule follows the typed relation rather than the question family, so a generic explanation, architecture diagram, comparison, or sibling edge carrier cannot use `call` to bypass source authority. When an arrow means a declared type relation, registration/binding, callback handoff, assignment, return, observation, containment, or ordering instead of invocation, use the matching non-call relation. `type_relation`, `register`, `callback`, `assignment`, and `return` are typed-only and require exact same-direction relationship evidence; rendered edge-label words never mint that authority. Runtime/root-cause trace diagrams use their separate typed causal-relation authority and do not enter this source-call contract.\n\n")
 	b.WriteString("For a grounded call-chain `sequenceDiagram`, each invocation arrow (`caller->>callee: operation(...)`) needs its same-direction `relation_kind=call` anchor. A dashed reply `callee-->>caller` is a response/return, not a reverse call. For example, `callee-->>caller: result` is a reply only when it mirrors an invocation already drawn in the opposite direction; it is not a reverse source-code call, so do NOT add a call anchor for that reply. A standalone `-->>` edge does not self-declare as a reply and remains subject to call authority. Method-qualified participant labels are the clearest form. Short class/actor participants are also valid when the message begins with the exact callee operation and that owner+operation tuple resolves to one unique typed call edge; ambiguous class-only edges fail closed.\n\n")
-	b.WriteString("For a grounded call-chain `call_dag`, every invocation needs an explicit `relation_kind=call` anchor. A real non-call edge (guard/import/precedence/contain/type_relation/observe/register/callback/assignment/return) needs its own explicit typed anchor; an edge label is presentation text and never mints typed authority. If structured principal-path items select both endpoints of a grounded typed call, keep that directed call visible in the sequence/call_dag. Supporting calls outside the selected principal path do not have to be drawn.\n\n")
+	b.WriteString(types.GroundedSourceDiagramEdgeOwnershipContract + "\n\n")
+	b.WriteString("A `call_dag` invocation needs `relation_kind=call`; a real non-call edge (guard/import/precedence/contain/type_relation/observe/register/callback/assignment/return) needs its own honest typed relation instead. An edge label is presentation text and never mints typed authority. If structured principal-path items select both endpoints of a grounded typed call, keep that directed call visible in the diagram. Supporting calls outside the selected principal path do not have to be drawn.\n\n")
 
 	b.WriteString("LEGACY ALTERNATIVE outside the strict grounded call-chain contract: when no `relation_kind` is declared, relation-vocabulary validation may infer a display relation from edge label vocabulary (case-folded substring match). This never creates an `edge_anchors[]` entry and never satisfies grounded invocation authority. Use it only when label wording is the authoritative display surface — typed declaration is preferred for any new content. Recognised keywords (kept for back-compat with label-only diagrams):\n\n")
 	b.WriteString(BuildDiagramEdgeLabelVocabularyDoc())
 	b.WriteString("\n")
 
-	b.WriteString("Outside a strict grounded call-chain diagram, an UNLABELLED edge (no `|...|` block, no trailing `: msg`) is legal — its endpoints only need to be referenced elsewhere in the answer. A label that matches NONE of the keywords above also counts as label-free and does not require a claim_use anchor. Strict sequence/call_dag invocation rules above still apply.\n\n")
+	b.WriteString("Outside a strict grounded source call-chain diagram, an UNLABELLED edge (no `|...|` block, no trailing `: msg`) is legal — its endpoints only need to be referenced elsewhere in the answer. A label that matches NONE of the keywords above also counts as label-free and does not require an edge anchor. Inside a grounded source call-chain diagram, choose and declare the honest relation for every visible body edge; the only metadata-free exception is a dashed sequence reply structurally paired with its forward invocation.\n\n")
 
 	b.WriteString("Some diagram contracts also require a minimum number of edges of a particular relation kind. Typed declarations always count toward the minimum; label-only declarations also count but the validator emits an advisory rendering the answer with a `relation_kind`-typed alternative.\n")
 
 	return b.String()
+}
+
+// BuildDiagramEdgeAnchorWorkflowRule renders the compact workflow-tier copy
+// from the same typed ownership sentence used by the full relation contract
+// and canonical tool schema. The remainder explains authoring mechanics; it
+// does not redefine applicability.
+func BuildDiagramEdgeAnchorWorkflowRule() string {
+	return "`edge_anchors` is the OPTIONAL block-level array for diagram-edge typed anchors. " +
+		types.GroundedSourceDiagramEdgeOwnershipContract + " " +
+		"Use it when this block contributes evidence about a directed relation in a diagram (typically when the block IS the diagram, or when its items describe edge endpoints of a diagram in a sibling block). Each entry has EXACTLY three fields: `{from_node: string, to_node: string, relation_kind: <one of " + BuildDiagramRelationKindList() + ">}`. Both endpoints MUST be the verbatim node identifiers in diagram.body; do not add claim_form or evidence fields here. Choose the semantic relation before drawing the arrow: call is a direct invocation; callback is a receiving API -> callable-value handoff and does not prove execution; assignment is assigned receiver/value -> concrete value/type; return is returning function -> returned value/type. `type_relation`, `register`, `callback`, `assignment`, and `return` are typed-only and need same-direction typed evidence with explicit subject/object; labels never mint them. Example: `{from_node:\"Factory\", to_node:\"ConsoleSink\", relation_kind:\"return\"}` represents a grounded factory return, not a call. In every non-runtime-trace answer, relation_kind=call needs one same-direction grounded call-site EvidenceItem. In a grounded sequenceDiagram, invocation `caller->>callee` needs that call anchor; dashed `callee-->>caller` is a response only when it mirrors an already-drawn opposite invocation, so do not anchor that reply as call. In a call_dag, every visible edge needs its correct typed anchor. Flow/architecture edges also need their honest relation owner and must not default every arrow to call. Prefer method-qualified participants; class/actor labels are accepted only when the exact message operation resolves to one unique typed call edge. Keep model-selected principal calls visible; supporting calls outside that path need not be drawn. Outside the grounded source call-chain contract, omit edge_anchors when the block has no typed diagram edge. Edge anchors NEVER live inside claim_uses."
 }

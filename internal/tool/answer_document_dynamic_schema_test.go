@@ -105,6 +105,16 @@ func TestEmitAnswerDocumentSchema_ClaimAndDiagramEnumsMatchTypes(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentSchema_SourceDiagramEdgeOwnershipUsesTypedSingleSource(t *testing.T) {
+	raw := string((&EmitAnswerDocument{}).Parameters())
+	if !strings.Contains(raw, types.GroundedSourceDiagramEdgeOwnershipContract) {
+		t.Fatalf("canonical schema missing source-diagram edge ownership contract: %s", raw)
+	}
+	if strings.Contains(raw, "Omit edge_anchors when no typed edge is needed; outside strict grounded call-chain contracts") {
+		t.Fatalf("canonical schema leaked the pre-B217 narrower contract: %s", raw)
+	}
+}
+
 func TestBuildAnswerDocumentParametersFor_ProjectsSourceInventoryIdentityOnlyWhenAvailable(t *testing.T) {
 	assertFields := func(t *testing.T, view *types.AnswerSemanticView, want bool) {
 		t.Helper()

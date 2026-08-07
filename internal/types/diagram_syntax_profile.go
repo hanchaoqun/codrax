@@ -26,6 +26,12 @@ type DiagramSyntaxProfile struct {
 	CodeEndpoint    bool
 }
 
+// GroundedSourceDiagramEdgeOwnershipContract is the shared wording for the
+// source-diagram body/metadata boundary. Keep it free of JSON-significant
+// quoting so the canonical tool schema can splice it into a description
+// without maintaining a second escaped copy.
+const GroundedSourceDiagramEdgeOwnershipContract = "Every visible body edge in a semantic call_dag, or in any grounded source call-chain diagram (flow, architecture, sequence, or call_dag), requires one same-direction edge_anchors entry with its honest relation_kind; only a dashed sequence reply structurally paired with its forward invocation is metadata-free."
+
 func DiagramSyntaxProfileFor(kind DiagramKind) DiagramSyntaxProfile {
 	switch kind {
 	case DiagramFlow:

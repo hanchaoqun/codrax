@@ -32,22 +32,24 @@ type diagramVisibleCallEdge struct {
 }
 
 const (
-	diagramCallEdgeIssueDuplicateParticipant = "duplicate_participant_identity"
-	diagramCallEdgeIssueMissingAnchor        = "missing_call_anchor"
-	diagramCallEdgeIssueNoEvidence           = "call_edge_unproven"
-	diagramCallEdgeIssuePrincipalMiss        = "principal_call_edge_missing"
-	diagramRegistrationEdgeIssueNoEvidence   = "registration_edge_unproven"
-	diagramTypeRelationEdgeIssueNoEvidence   = "type_relation_edge_unproven"
-	diagramAssignmentEdgeIssueNoEvidence     = "assignment_edge_unproven"
-	diagramReturnEdgeIssueNoEvidence         = "return_edge_unproven"
-	diagramCallbackEdgeIssueNoEvidence       = "callback_handoff_unproven"
+	diagramCallEdgeIssueDuplicateParticipant  = "duplicate_participant_identity"
+	diagramCallEdgeIssueMissingAnchor         = "missing_call_anchor"
+	diagramCallEdgeIssueMissingRelationAnchor = "missing_relation_anchor"
+	diagramCallEdgeIssueNoEvidence            = "call_edge_unproven"
+	diagramCallEdgeIssuePrincipalMiss         = "principal_call_edge_missing"
+	diagramRegistrationEdgeIssueNoEvidence    = "registration_edge_unproven"
+	diagramTypeRelationEdgeIssueNoEvidence    = "type_relation_edge_unproven"
+	diagramAssignmentEdgeIssueNoEvidence      = "assignment_edge_unproven"
+	diagramReturnEdgeIssueNoEvidence          = "return_edge_unproven"
+	diagramCallbackEdgeIssueNoEvidence        = "callback_handoff_unproven"
 )
 
 // DiagramCallEdgeEvidenceMismatches cross-checks model-authored typed call
 // edges against the accepted evidence pool. An explicit relation_kind=call is
 // an evidence claim regardless of the surrounding answer family, so it always
 // needs one same-direction citable call-site record. QFCallChain additionally
-// gets strict sequence/call-DAG body coverage and principal-path completeness.
+// gets strict typed-relation ownership for every source-diagram body edge and
+// principal-path completeness.
 //
 // Runtime/root-cause trace diagrams, including explicit time-window causal
 // projections and their automatic supplements, use a separate runtime
@@ -69,9 +71,11 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 	requiredAnchors := view.RequiredMechanismAnchors
 	documentLabels := diagramEvidenceDocumentNodeLabels(doc)
 	documentEdges := diagramEvidenceDocumentEdges(doc)
+	strictBodyEdgeKeys := diagramEvidenceStrictBodyEdgeKeys(doc, strictSourceCallChain)
+	bodyEdgeBlockCounts := diagramEvidenceBodyEdgeBlockCounts(doc)
 	var out []DiagramCallEdgeEvidenceMismatch
 	var visibleCallEdges []diagramVisibleCallEdge
-	hasStrictCallDiagram := false
+	hasStrictSourceDiagram := false
 	strictCallDiagramID := ""
 	for i := range doc.Blocks {
 		block := &doc.Blocks[i]
@@ -79,21 +83,26 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 		strictBodyCoverage := false
 		if block.Kind == types.BlockDiagram && block.Diagram != nil {
 			labels = diagramEvidenceNodeLabels(block.Diagram.Body, block.Diagram.Kind)
-			strictBodyCoverage = strictSourceCallChain &&
-				(block.Diagram.Kind == types.DiagramSequence || block.Diagram.Kind == types.DiagramCallDAG)
+			// QFCallChain is the precise typed signal that any chosen diagram is
+			// explaining source relations; DiagramCallDAG is independently a
+			// precise source-call declaration in every non-runtime family. Every
+			// body edge in either lane needs one schema-validated relation owner.
+			// Runtime trace diagrams were excluded above and retain their own
+			// authority.
+			strictBodyCoverage = diagramRequiresTypedBodyOwnership(block.Diagram.Kind, strictSourceCallChain)
 		}
 		parsedEdges := documentEdges
 		if block.Diagram != nil {
 			parsedEdges = mermaidcompat.ParseEdges(block.Diagram.Body)
 		}
-		parsedEdgeKeys := make(map[string]bool, len(parsedEdges))
 		if strictBodyCoverage {
-			hasStrictCallDiagram = true
+			hasStrictSourceDiagram = true
 			if strictCallDiagramID == "" {
 				strictCallDiagramID = block.ID
 			}
-			callAnchorKeys := diagramCallAnchorKeySet(block.EdgeAnchors)
-			typedAnchorRelations := diagramTypedAnchorRelationSet(block.EdgeAnchors)
+			effectiveAnchors := diagramEvidenceEffectiveAnchorsForBlock(doc, i, bodyEdgeBlockCounts)
+			callAnchorKeys := diagramCallAnchorKeySet(effectiveAnchors)
+			typedAnchorRelations := diagramTypedAnchorRelationSet(effectiveAnchors)
 			structuralReplies := diagramSequenceStructuralReplyKeySet(block.Diagram.Kind, parsedEdges, typedAnchorRelations)
 			for _, edge := range parsedEdges {
 				key := diagramEvidenceEdgeKey(edge.From, edge.To)
@@ -110,12 +119,26 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 				// non-call anchor cannot hide a SAME-ENDPOINT call already proved
 				// by typed evidence: in a call_dag that visible edge must retain
 				// relation_kind=call (it may carry an additional guard anchor).
-				// Unanchored DAG edges retain the fail-closed call default.
+				// Unanchored sequence/call-DAG edges retain the fail-closed call
+				// default; flow/architecture edges must at least declare their
+				// canonical relation owner.
 				if structuralReplies[key] {
 					continue
 				}
-				if !diagramParsedEdgeRequiresCallAuthority(block.Diagram.Kind, edge, typedAnchorRelations) &&
-					!hasTypedCallEvidence {
+				relations := typedAnchorRelations[key]
+				if !diagramHasValidTypedRelation(relations) {
+					issue := diagramCallEdgeIssueMissingRelationAnchor
+					if block.Diagram.Kind == types.DiagramSequence || block.Diagram.Kind == types.DiagramCallDAG {
+						issue = diagramCallEdgeIssueMissingAnchor
+					}
+					out = append(out, DiagramCallEdgeEvidenceMismatch{
+						BlockID: block.ID, Issue: issue,
+						FromNode: strings.TrimSpace(edge.From), ToNode: strings.TrimSpace(edge.To),
+						FromSymbol: fromSymbol, ToSymbol: toSymbol,
+					})
+					continue
+				}
+				if !diagramParsedEdgeRequiresCallAuthority(block.Diagram.Kind, relations, hasTypedCallEvidence) {
 					continue
 				}
 				visibleCallEdges = append(visibleCallEdges, diagramVisibleCallEdge{
@@ -123,7 +146,6 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 					toSymbol:   toSymbol,
 					label:      edge.Label,
 				})
-				parsedEdgeKeys[key] = true
 				if !callAnchorKeys[key] {
 					out = append(out, DiagramCallEdgeEvidenceMismatch{
 						BlockID:    block.ID,
@@ -205,7 +227,8 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 			if relation != types.DiagramRelCall {
 				continue
 			}
-			if strictBodyCoverage && parsedEdgeKeys[diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode)] {
+			anchorKey := diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode)
+			if strictBodyEdgeKeys[anchorKey] {
 				continue
 			}
 			fromSymbol := diagramEvidenceEndpointSymbol(anchor.FromNode, labels)
@@ -223,7 +246,7 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 			})
 		}
 	}
-	if strictSourceCallChain && hasStrictCallDiagram {
+	if strictSourceCallChain && hasStrictSourceDiagram {
 		principalMissing := make(map[string]bool)
 		for _, required := range diagramPrincipalPathCitationCallEvidence(doc, evidence) {
 			if diagramVisibleEdgesContainSpecificCall(visibleCallEdges, evidence, requiredAnchors, required) {
@@ -552,23 +575,41 @@ func diagramBlockCarriesClaimForm(block *types.AnswerBlock, claim types.ClaimFor
 	return false
 }
 
-func diagramParsedEdgeRequiresCallAuthority(kind types.DiagramKind, edge mermaidcompat.Edge, typedRelations map[string]map[types.DiagramRelationKind]bool) bool {
-	if kind != types.DiagramCallDAG {
-		return true
-	}
-	relations := typedRelations[diagramEvidenceEdgeKey(edge.From, edge.To)]
+func diagramParsedEdgeRequiresCallAuthority(kind types.DiagramKind, relations map[types.DiagramRelationKind]bool, hasTypedCallEvidence bool) bool {
 	if relations[types.DiagramRelCall] {
 		return true
 	}
-	// Only an explicit, schema-validated non-call relation can take a
-	// call-DAG edge out of the call-evidence contract. Labels and prose are
-	// intentionally ignored here; an absent/unknown relation stays fail-closed.
+	switch kind {
+	case types.DiagramSequence:
+		// A non-reply sequence message is an invocation surface. Type and
+		// binding boundaries belong in Note-over presentation, not a message
+		// arrow, so an unrelated non-call anchor cannot take it out of the call
+		// evidence contract.
+		return true
+	case types.DiagramCallDAG:
+		// A call-DAG may contain explicitly typed control/dependency edges, but
+		// a same-direction call already proven by typed evidence cannot hide
+		// behind one of them.
+		return hasTypedCallEvidence
+	default:
+		// Flow and architecture diagrams may legitimately draw any canonical
+		// relation. Once a precise non-call owner exists, do not reinterpret
+		// that edge from its label, operator, request text, or model prose.
+		return false
+	}
+}
+
+func diagramHasValidTypedRelation(relations map[types.DiagramRelationKind]bool) bool {
 	for relation := range relations {
 		if relation.IsValid() {
-			return false
+			return true
 		}
 	}
-	return true
+	return false
+}
+
+func diagramRequiresTypedBodyOwnership(kind types.DiagramKind, sourceCallChainFamily bool) bool {
+	return kind == types.DiagramCallDAG || sourceCallChainFamily
 }
 
 // diagramSequenceStructuralReplyKeySet recognizes only a dashed reverse edge
@@ -744,6 +785,74 @@ func diagramEvidenceDocumentEdges(doc *types.AnswerDocumentV2) []mermaidcompat.E
 			continue
 		}
 		out = append(out, mermaidcompat.ParseEdges(doc.Blocks[i].Diagram.Body)...)
+	}
+	return out
+}
+
+// diagramEvidenceEffectiveAnchorsForBlock keeps diagram-local ownership exact
+// while preserving the documented sibling-carrier lane. A sibling anchor may
+// own a body edge only when that raw endpoint pair occurs in exactly one
+// diagram block; reused short aliases such as A->B cannot silently authorize
+// multiple unrelated diagrams.
+func diagramEvidenceEffectiveAnchorsForBlock(doc *types.AnswerDocumentV2, blockIndex int, edgeBlockCounts map[string]int) []types.DiagramEdgeAnchor {
+	if doc == nil || blockIndex < 0 || blockIndex >= len(doc.Blocks) || doc.Blocks[blockIndex].Diagram == nil {
+		return nil
+	}
+	bodyKeys := make(map[string]bool)
+	for _, edge := range mermaidcompat.ParseEdges(doc.Blocks[blockIndex].Diagram.Body) {
+		bodyKeys[diagramEvidenceEdgeKey(edge.From, edge.To)] = true
+	}
+	out := append([]types.DiagramEdgeAnchor(nil), doc.Blocks[blockIndex].EdgeAnchors...)
+	for i := range doc.Blocks {
+		if i == blockIndex {
+			continue
+		}
+		for _, anchor := range doc.Blocks[i].EdgeAnchors {
+			key := diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode)
+			if bodyKeys[key] && edgeBlockCounts[key] == 1 {
+				out = append(out, anchor)
+			}
+		}
+	}
+	return out
+}
+
+func diagramEvidenceBodyEdgeBlockCounts(doc *types.AnswerDocumentV2) map[string]int {
+	out := make(map[string]int)
+	if doc == nil {
+		return out
+	}
+	for i := range doc.Blocks {
+		block := &doc.Blocks[i]
+		if block.Diagram == nil {
+			continue
+		}
+		seen := make(map[string]bool)
+		for _, edge := range mermaidcompat.ParseEdges(block.Diagram.Body) {
+			key := diagramEvidenceEdgeKey(edge.From, edge.To)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out[key]++
+		}
+	}
+	return out
+}
+
+func diagramEvidenceStrictBodyEdgeKeys(doc *types.AnswerDocumentV2, sourceCallChainFamily bool) map[string]bool {
+	out := make(map[string]bool)
+	if doc == nil {
+		return out
+	}
+	for i := range doc.Blocks {
+		block := &doc.Blocks[i]
+		if block.Diagram == nil || !diagramRequiresTypedBodyOwnership(block.Diagram.Kind, sourceCallChainFamily) {
+			continue
+		}
+		for _, edge := range mermaidcompat.ParseEdges(block.Diagram.Body) {
+			out[diagramEvidenceEdgeKey(edge.From, edge.To)] = true
+		}
 	}
 	return out
 }

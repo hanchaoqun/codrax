@@ -22519,3 +22519,32 @@ typed relation ownership，不能按 C++ 单案硬补。
 
 状态：`EVAL-B220-DYNDISPATCH1=S36g-closed/all-language-audited`；
 `EVAL-B217-FLOWUNLABELED1=P1-next/unblocked`；模型答案所有权=`preserved`；JSON schema 单源=`preserved`；Trace=`not-touched`。
+
+### 123.196 S36h：source relation 图的所有 body edge 统一绑定 typed 关系所有权
+
+`EVAL-B217-FLOWUNLABELED1` 已按图族语义根修。旧门只对 `QFCallChain + sequence/call_dag` 做 body→anchor 完备性检查，
+所以模型可把相同源码关系改画成 `flow` 或 `architecture` 的无标签箭头，绕过 `edge_anchors[]` 与 typed evidence 合取。修复不读取 C++、节点名、
+箭头标签、用户原文或模型 prose，而只使用精确 typed 信号：question family、semantic diagram kind、结构化 edge anchor 与 citable EvidenceItem。
+
+统一边界如下：
+
+1. 任意 semantic `call_dag` 都是明确的源码调用图，无论外层 question family 是 generic、architecture、role lookup 或 call-chain，所有可见 body
+   edge 都必须有同向 `edge_anchors[]` 所有者；
+2. 当 family=`QFCallChain` 时，模型选择的 `sequence/call_dag/flow/architecture` 任一图形都在 source-relation 合同内，所有 body edge 必须显式声明
+   honest `relation_kind`；普通 generic 的 flow/architecture/sequence 示意图不因此升级为源码硬门；
+3. sequence 的非回复消息仍要求 call；只有与正向 invocation 结构配对的 dashed reply 是展示边，不要求反向 call；
+4. call_dag 保留既有防隐藏规则：同向 typed call 已存在时不得只写 guard 等非 call 锚；flow/architecture 则尊重显式
+   type_relation/register/callback/assignment/return/guard/observe/contain/precedence，不把所有逻辑箭头默认成 call；typed-only 关系继续要求其同向证据；
+5. sibling carrier 仍合法，但只在原始端点对唯一属于一个 diagram block 时接管。若两张图都复用 `A -> B`，一个跨块锚不得同时替两个不同可见身份
+   确权；各图需本地消歧，避免短 alias 的 document-wide 越权。
+
+JSON/教学合同同期收敛：`types.GroundedSourceDiagramEdgeOwnershipContract` 成为 canonical tool schema、完整 diagram relation 教学、Tier-B workflow、
+pre-emit repair 与 violation registry 的共同句源；schema 仍只公开 `{from_node,to_node,relation_kind}` 三字段和 canonical enum，不增加第二套 carrier，
+不要求模型重复 evidence_id/claim_form。由此“系统教学允许 flow 裸边、校验却拒绝”的自冲突不会出现，也没有通过扫描答案词面推断关系。
+
+回归覆盖四种 diagram kind、generic call_dag 跨 family、generic flow/architecture 不扩域、typed non-call、sibling 唯一接管、复用 alias 拒绝、
+同一缺证只报一次，以及 `QFRootCauseTrace` 独立 authority 不受影响。`go test ./internal/types ./internal/skill ./internal/tool ./internal/orchestrator`
+与 `go test ./...` 全绿。
+
+状态：`EVAL-B217-FLOWUNLABELED1=S36h-closed/full-tests-pass/replay-next`；
+source diagram JSON teaching=`single-source`；模型答案所有权=`preserved`；Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链、可消除量=`not-touched`。

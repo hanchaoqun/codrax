@@ -31,7 +31,8 @@ func diagramDuplicateTypedParticipantIdentities(doc *types.AnswerDocumentV2, evi
 			(block.Diagram.Kind != types.DiagramSequence && block.Diagram.Kind != types.DiagramCallDAG) {
 			continue
 		}
-		callAliases := diagramCallParticipantAliases(block, strictSourceCallChain)
+		callAliases := diagramCallParticipantAliases(block,
+			diagramRequiresTypedBodyOwnership(block.Diagram.Kind, strictSourceCallChain))
 		if len(callAliases) == 0 {
 			continue
 		}
@@ -81,7 +82,7 @@ func diagramDuplicateTypedParticipantIdentities(doc *types.AnswerDocumentV2, evi
 	return out
 }
 
-func diagramCallParticipantAliases(block *types.AnswerBlock, strictSourceCallChain bool) map[string]bool {
+func diagramCallParticipantAliases(block *types.AnswerBlock, strictBodyOwnership bool) map[string]bool {
 	out := make(map[string]bool)
 	if block == nil || block.Diagram == nil {
 		return out
@@ -93,15 +94,16 @@ func diagramCallParticipantAliases(block *types.AnswerBlock, strictSourceCallCha
 		out[strings.TrimSpace(anchor.FromNode)] = true
 		out[strings.TrimSpace(anchor.ToNode)] = true
 	}
-	if !strictSourceCallChain {
+	if !strictBodyOwnership {
 		return out
 	}
 	edges := mermaidcompat.ParseEdges(block.Diagram.Body)
 	typedRelations := diagramTypedAnchorRelationSet(block.EdgeAnchors)
 	structuralReplies := diagramSequenceStructuralReplyKeySet(block.Diagram.Kind, edges, typedRelations)
 	for _, edge := range edges {
-		if structuralReplies[diagramEvidenceEdgeKey(edge.From, edge.To)] ||
-			!diagramParsedEdgeRequiresCallAuthority(block.Diagram.Kind, edge, typedRelations) {
+		key := diagramEvidenceEdgeKey(edge.From, edge.To)
+		if structuralReplies[key] ||
+			!diagramParsedEdgeRequiresCallAuthority(block.Diagram.Kind, typedRelations[key], false) {
 			continue
 		}
 		out[strings.TrimSpace(edge.From)] = true

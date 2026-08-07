@@ -762,6 +762,131 @@ func TestDiagramCallEdgeEvidenceMismatches_CallDAGBodyEdgeCannotOmitTypedAnchor(
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_SemanticCallDAGIsStrictAcrossQuestionFamilies(t *testing.T) {
+	doc := diagramEvidenceTestDoc("A", "B")
+	doc.Blocks[0].Diagram.Kind = types.DiagramCallDAG
+	doc.Blocks[0].Diagram.Body = "flowchart TD\n  A[Alpha.Run] --> B[Beta.Run]\n"
+	doc.Blocks[0].EdgeAnchors = nil
+	for _, family := range []types.QuestionFamily{types.QFGeneric, types.QFArchitecture, types.QFRoleLookup} {
+		got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: family},
+			[]types.EvidenceItem{diagramEvidenceTestCall("Alpha.Run", "Beta.Run")})
+		if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueMissingAnchor {
+			t.Fatalf("semantic call_dag must retain exact body ownership in family %s: %+v", family, got)
+		}
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_SourceFlowAndArchitectureRequireTypedBodyOwnership(t *testing.T) {
+	for _, kind := range []types.DiagramKind{types.DiagramFlow, types.DiagramArchitecture} {
+		t.Run(string(kind), func(t *testing.T) {
+			doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+				ID: "source-relations", Kind: types.BlockDiagram,
+				Diagram: &types.AnswerDiagramBlock{
+					Kind: kind, Language: "mermaid",
+					Body: "flowchart TD\n  C[ConsoleSink] --> B[BaseSink]\n",
+				},
+			}}}
+			got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, nil)
+			if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueMissingRelationAnchor ||
+				got[0].FromSymbol != "ConsoleSink" || got[0].ToSymbol != "BaseSink" {
+				t.Fatalf("%s source diagram edge without typed relation owner must fail closed: %+v", kind, got)
+			}
+
+			// The same presentation in a generic answer is not automatically a
+			// source-relation claim. The hard boundary is the typed question
+			// family, never node labels or user/model prose.
+			if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFGeneric}, nil); len(got) != 0 {
+				t.Fatalf("%s generic presentation diagram must stay outside source body ownership gate: %+v", kind, got)
+			}
+		})
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_SourceFlowRespectsTypedNonCallRelation(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "dispatch", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramFlow, Language: "mermaid",
+			Body: "flowchart TD\n  C[ConsoleSink] --> B[BaseSink]\n",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "C", ToNode: "B", RelationKind: types.DiagramRelTypeRelation,
+		}},
+	}}}
+	evidence := []types.EvidenceItem{{
+		Kind: types.EvidenceRelationship, Producer: types.EvidenceProducerRepoMapImplementerRelation,
+		Subject: "ConsoleSink", Predicate: "implements", Object: "BaseSink",
+		Source: "src/console.ext", LineStart: 4, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition,
+	}}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, evidence); len(got) != 0 {
+		t.Fatalf("typed source flow relation must not be reinterpreted as a call: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_SourceFlowSiblingCarrierOwnsBodyEdgeOnce(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID: "flow", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{
+				Kind: types.DiagramFlow, Language: "mermaid",
+				Body: "flowchart TD\n  F[Facade.run] --> S[BaseSink.write]\n",
+			},
+		},
+		{
+			ID: "edge-facts", Kind: types.BlockOrderedList,
+			EdgeAnchors: []types.DiagramEdgeAnchor{{
+				FromNode: "F", ToNode: "S", RelationKind: types.DiagramRelCall,
+			}},
+		},
+	}}
+	call := diagramEvidenceTestCall("Facade.run", "BaseSink.write")
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, []types.EvidenceItem{call}); len(got) != 0 {
+		t.Fatalf("a unique sibling carrier must own the exact source body edge without duplicate validation: %+v", got)
+	}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, nil); len(got) != 1 || got[0].Issue != diagramCallEdgeIssueNoEvidence {
+		t.Fatalf("missing call evidence should produce one body-edge diagnosis, not duplicate sibling diagnoses: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_SiblingCarrierCannotOwnReusedAliasesAcrossDiagrams(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID: "first", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid",
+				Body: "flowchart TD\n  A[Facade.run] --> B[BaseSink.write]\n"},
+		},
+		{
+			ID: "second", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid",
+				Body: "flowchart TD\n  A[Other.run] --> B[Other.write]\n"},
+		},
+		{
+			ID: "ambiguous-carrier", Kind: types.BlockOrderedList,
+			EdgeAnchors: []types.DiagramEdgeAnchor{{FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelCall}},
+		},
+	}}
+	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, []types.EvidenceItem{
+		diagramEvidenceTestCall("Facade.run", "BaseSink.write"),
+		diagramEvidenceTestCall("Other.run", "Other.write"),
+	})
+	if len(got) != 2 || got[0].Issue != diagramCallEdgeIssueMissingRelationAnchor || got[1].Issue != diagramCallEdgeIssueMissingRelationAnchor {
+		t.Fatalf("one sibling A->B carrier must not authorize two unrelated diagram-local A->B identities: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_RuntimeTraceFlowStaysOnRuntimeAuthority(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "trace", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramFlow, Language: "mermaid",
+			Body: "flowchart TD\n  Frame --> Wakeup\n",
+		},
+	}}}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFRootCauseTrace}, nil); len(got) != 0 {
+		t.Fatalf("runtime trace diagram must retain its independent causal authority: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_NormalizerCannotMintGuardAuthority(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "fabricated", Kind: types.BlockDiagram,

@@ -160,6 +160,10 @@ func (t *EmitAnswerDocument) canonicalParameters() json.RawMessage {
 	raw := []byte(schema)
 	raw = bytes.Replace(raw, []byte(`["__ALL_CLAIM_FORMS__"]`), marshalClaimFormEnum(), 1)
 	raw = bytes.Replace(raw, []byte(`["__ALL_DIAGRAM_RELATIONS__"]`), marshalDiagramRelationEnum(), 1)
+	raw = bytes.Replace(raw,
+		[]byte("Omit edge_anchors when no typed edge is needed; outside strict grounded call-chain contracts, legacy rendered-label vocabulary may still describe a display relation without an anchor."),
+		[]byte(types.GroundedSourceDiagramEdgeOwnershipContract+" Outside this strict contract, omit edge_anchors when no typed edge is needed; legacy rendered-label vocabulary may still describe a display relation without an anchor."),
+		1)
 	return json.RawMessage(raw)
 }
 
