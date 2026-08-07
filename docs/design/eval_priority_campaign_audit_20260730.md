@@ -23015,3 +23015,31 @@ realignment 回归保持通过，`internal/tool/ground` 与完整 `internal/tool
 `EVAL-B232-DISCONNECTAUTH1=P1-next`；`EVAL-B233-RETURNBODY1=P1-after-B232`；
 `EVAL-B229-COPYGRAPH1=model-watch/no-harder-gate`；模型答案所有权=`preserved`；JSON schema 单源=`preserved`；
 Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量及双维根因分析=`not-touched`。
+
+### 123.212 S36v：从 verified relation recipes 发布分量与缺桥边界
+
+`EVAL-B232-DISCONNECTAUTH1` 已按 soft-context 方案落地。此前 S36s/S36t 能生成不造桥的 copy-ready 图，但“图里确实存在多个断连
+component”只隐含在 Mermaid body 中；模型必须自己重算拓扑，仍可能在 prose 中把多个真实片段叙述成一个“完整端到端路径”。这不是适合用
+answer-prose hard gate 解决的问题：证据池可能只是有界子图，缺边只能表达“当前未证”，不能升级为“程序不存在连接”。
+
+本批复用 `renderAnswerDocMechanismRelationAuthoringCapsule` 已经筛出的同一组 citable typed recipes，不建立第二套关系池：
+
+- 对 bounded recipe graph 计算忽略方向的 connected components；方向与 relation kind 仍保留在原 edge recipe/anchor，不被分量计算改写；
+- 发布 `verified_relation_component_count`、每个 `verified_component[N]` 的 alias+identity，以及
+  `inter_component_bridge_status=unproven_between_components|not_applicable_single_component`；
+- 多分量时给高显著 advisory：只能称为 independently proved segments；若要端到端结论，应披露 bridge 未证或继续探索 citable bridge；同时明确
+  “当前 carrier 未证”不等于“程序永远不可能连接”；
+- 分量、copy-ready Mermaid body 与完整 `edge_anchors_json` 来自同一个 recipe slice，避免 JSON 教学、图 body 和边界说明再次分叉；系统不添加
+  bridge、不替模型选择结论，也不修改最终答案。
+
+回归覆盖单分量状态、两种 relation kind 的两个断连分量、成员映射、不生成任意桥，以及真实
+`answerDocumentEvaluator.BuildInitialInstruction` 接线。`go test ./internal/agent` 与 `go test ./...` 全绿。
+
+该 soft authority 不读取用户原始输入、模型 reasoning 或答案原文，也不作为 emit/pre-emit hard reject。sequence 显示参数端点隔离、无标签
+flowchart 关系锚、B234 端点权威及 JSON 单源均保持。下一批进入 `EVAL-B233-RETURNBODY1`：先盘点各语言现有 parser/repomap return/value-flow
+载体，统一提升 class/value/instance 语义，不按 Python `cls()` 特判。
+
+状态：`EVAL-B232-DISCONNECTAUTH1=S36v-implemented/full-tests-pass/wiring-pinned`；
+`EVAL-B233-RETURNBODY1=P1-next`；`EVAL-B234-RELENDPOINT1=closed`；
+模型答案所有权=`preserved`；JSON schema/教学单源=`preserved`；
+Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量及双维根因分析=`not-touched`。

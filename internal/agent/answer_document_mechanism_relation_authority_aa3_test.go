@@ -84,6 +84,8 @@ func TestMechanismRelationAuthorityPublishesOnlyTypedEdgesAndFlowPathsAA3(t *tes
 	for _, want := range []string{
 		"explicit_typed_directed_relations=1",
 		"ordered_path_authority=`typed_flow_paths_present`",
+		"verified_relation_component_count=1",
+		"inter_component_bridge_status=`not_applicable_single_component`",
 		"copy both unchanged; do not compose a different story graph",
 		"#### Copy-ready optional typed diagram",
 		"sequenceDiagram",
@@ -134,6 +136,12 @@ func TestMechanismRelationCopyReadyFlowPreservesDisconnectedTypedComponentsAA3(t
 		`n4["Plugin"]`,
 		"n1 -->|call| n2",
 		"n3 -->|register| n4",
+		"verified_relation_component_count=2",
+		"inter_component_bridge_status=`unproven_between_components`",
+		"verified_component[1]=`n1:Factory<\"json\"> | n2:Parser.parse`",
+		"verified_component[2]=`n3:Registry | n4:Plugin`",
+		"Present them as independently proved segments",
+		"does NOT prove the program can never connect them",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("copy-ready flow missing %q:\n%s", want, got)
@@ -142,6 +150,38 @@ func TestMechanismRelationCopyReadyFlowPreservesDisconnectedTypedComponentsAA3(t
 	for _, bridge := range []string{"n2 --> n3", "n2 -->|call| n3", "n2 -->|register| n3"} {
 		if strings.Contains(got, bridge) {
 			t.Fatalf("copy-ready flow invented a bridge %q:\n%s", bridge, got)
+		}
+	}
+}
+
+func TestMechanismRelationComponentBoundaryIsWiredIntoFinalizerPromptAA3(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+		}},
+		EvidenceItems: []types.EvidenceItem{
+			{
+				ID: "edge-a", Kind: types.EvidenceRelationship,
+				Source: "a.go", LineStart: 10, AnchorKind: types.AnchorCall,
+				Subject: "A", Object: "B", GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				ID: "edge-b", Kind: types.EvidenceRelationship,
+				Source: "c.go", LineStart: 20, AnchorKind: types.AnchorCall,
+				Subject: "C", Object: "D", GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+
+	got := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Current-Source Mechanism Relation Authority",
+		"verified_relation_component_count=2",
+		"inter_component_bridge_status=`unproven_between_components`",
+		"Do not narrate them as one continuous end-to-end path",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("finalizer prompt wiring missing %q:\n%s", want, got)
 		}
 	}
 }

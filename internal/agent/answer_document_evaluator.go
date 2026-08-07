@@ -6899,6 +6899,7 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 	}
 
 	b.WriteString("\n### Typed relation authoring capsule (advisory)\n\n")
+	renderAnswerDocMechanismRelationComponentBoundary(b, aliases, recipes)
 	if copyReadyKind == types.DiagramNone {
 		b.WriteString("- Node aliases are local convenience identifiers, not new facts. In a Mermaid body declare the same alias with the visible identity below (for example, a sequence participant or flowchart node); `from_node` and `to_node` must be these body identifiers.\n")
 		for _, row := range aliases {
@@ -6919,6 +6920,95 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 	if len(edges) > len(bounded) {
 		fmt.Fprintf(b, "- (%d additional typed relation(s) omitted only from this compact authoring view)\n", len(edges)-len(bounded))
 	}
+}
+
+func renderAnswerDocMechanismRelationComponentBoundary(
+	b *strings.Builder,
+	aliases []answerDocMechanismAliasRow,
+	recipes []answerDocMechanismRecipeRow,
+) {
+	if b == nil || len(aliases) == 0 || len(recipes) == 0 {
+		return
+	}
+	components := answerDocMechanismRelationComponents(aliases, recipes)
+	if len(components) == 0 {
+		return
+	}
+	bridgeStatus := "not_applicable_single_component"
+	if len(components) > 1 {
+		bridgeStatus = "unproven_between_components"
+	}
+	fmt.Fprintf(b, "- verified_relation_component_count=%d; inter_component_bridge_status=`%s`.\n",
+		len(components), bridgeStatus)
+	for i, component := range components {
+		members := make([]string, 0, len(component))
+		for _, row := range component {
+			members = append(members, fmt.Sprintf("%s:%s", row.alias, row.identity))
+		}
+		fmt.Fprintf(b, "- verified_component[%d]=`%s`\n", i+1, strings.Join(members, " | "))
+	}
+	if len(components) > 1 {
+		b.WriteString("- These are separate components in the bounded citable relation projection. This means the current typed carrier has no proved bridge between them; it does NOT prove the program can never connect them. Present them as independently proved segments, disclose the missing bridge, or investigate a citable bridge. Do not narrate them as one continuous end-to-end path.\n")
+	}
+}
+
+func answerDocMechanismRelationComponents(
+	aliases []answerDocMechanismAliasRow,
+	recipes []answerDocMechanismRecipeRow,
+) [][]answerDocMechanismAliasRow {
+	if len(aliases) == 0 || len(recipes) == 0 {
+		return nil
+	}
+	known := make(map[string]answerDocMechanismAliasRow, len(aliases))
+	order := make(map[string]int, len(aliases))
+	adjacent := make(map[string]map[string]bool, len(aliases))
+	for i, row := range aliases {
+		if row.alias == "" {
+			continue
+		}
+		known[row.alias] = row
+		order[row.alias] = i
+		adjacent[row.alias] = make(map[string]bool)
+	}
+	for _, recipe := range recipes {
+		if _, ok := known[recipe.from]; !ok {
+			continue
+		}
+		if _, ok := known[recipe.to]; !ok {
+			continue
+		}
+		adjacent[recipe.from][recipe.to] = true
+		adjacent[recipe.to][recipe.from] = true
+	}
+	visited := make(map[string]bool, len(known))
+	components := make([][]answerDocMechanismAliasRow, 0)
+	for _, root := range aliases {
+		if root.alias == "" || visited[root.alias] {
+			continue
+		}
+		visited[root.alias] = true
+		queue := []string{root.alias}
+		component := make([]answerDocMechanismAliasRow, 0)
+		for len(queue) > 0 {
+			current := queue[0]
+			queue = queue[1:]
+			component = append(component, known[current])
+			neighbours := make([]string, 0, len(adjacent[current]))
+			for candidate := range adjacent[current] {
+				if !visited[candidate] {
+					neighbours = append(neighbours, candidate)
+				}
+			}
+			sort.Slice(neighbours, func(i, j int) bool { return order[neighbours[i]] < order[neighbours[j]] })
+			for _, candidate := range neighbours {
+				visited[candidate] = true
+				queue = append(queue, candidate)
+			}
+		}
+		sort.Slice(component, func(i, j int) bool { return order[component[i].alias] < order[component[j].alias] })
+		components = append(components, component)
+	}
+	return components
 }
 
 func renderAnswerDocMechanismCopyReadyDiagram(
