@@ -760,6 +760,19 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 			r.Tier = built[i].GroundingTier
 			r.Note = built[i].GroundingNote
 		}
+		// A grounded call anchor proves the invoked callee, not every endpoint
+		// the model happened to place in a registration/relationship row.  Keep
+		// non-call relation endpoints line-local unless the call normalizer above
+		// already replaced them with the exact parser-owned caller -> callee edge.
+		// This closes the authority-laundering path where a real wrapper call
+		// (make_sink -> SinkRegistry::create) made an absent ConsoleSink endpoint
+		// look typed and citable.  The check reads only structured evidence fields
+		// and the already-read source line; it never scans request/final prose.
+		if stabilizeCallAnchorRelationEndpointAuthority(&built[i], gc) {
+			r.Status = built[i].GroundingStatus
+			r.Tier = built[i].GroundingTier
+			r.Note = built[i].GroundingNote
+		}
 		requestedDiagramRole := built[i].DiagramRole
 		built[i].ContextRole = validatedEvidenceContextRole(built[i], gc, exactResolutionContract)
 		built[i].DiagramRole = validatedEvidenceDiagramRole(built[i], gc, exactResolutionContract, diagramRequiredFiles)
@@ -3185,6 +3198,83 @@ func stabilizeStatementLocalAnchorClaim(it *types.EvidenceItem, gc *ground.Conte
 	default:
 		return false
 	}
+}
+
+func stabilizeCallAnchorRelationEndpointAuthority(it *types.EvidenceItem, gc *ground.Context) bool {
+	if it == nil || gc == nil || it.Producer != EmitEvidenceProducer ||
+		it.Scope != types.ScopeLine || it.AnchorKind != types.AnchorCall ||
+		strings.TrimSpace(it.Object) == "" {
+		return false
+	}
+	if it.GroundingStatus != types.GroundingGrounded && it.GroundingStatus != types.GroundingRecovered {
+		return false
+	}
+
+	// Exact call predicates have already gone through
+	// normalizeCallEvidenceDirection, which derives both endpoints from the
+	// parser relation/enclosing callable at this exact line.  Registration is a
+	// distinct claim form even if its predicate happens to say "calls", so it
+	// still needs the registered endpoint on the cited source surface.
+	predicate := strings.ToLower(strings.TrimSpace(it.Predicate))
+	if it.Kind != types.EvidenceRegistration && callLikePredicates[predicate] {
+		return false
+	}
+	line := evidenceVisibleLineText(gc, it.Source, it.LineStart)
+	if evidenceEndpointVisibleOnSourceLine(line, it.Object) {
+		return false
+	}
+
+	originalKind := it.Kind
+	it.Kind = types.EvidenceUnresolved
+	it.Confidence = 0
+	it.GroundingStatus = types.GroundingUngrounded
+	it.GroundingTier = ""
+	appendGroundingNoteOnce(it, fmt.Sprintf(
+		"the exact %s:%d call anchor proves %q, but relation object %q is not present on that source line and has no parser-owned endpoint authority; cite the source line that contains the object/binding, emit the exact call edge, or drop the speculative relation. Do NOT repair this item by moving it to a wrapper call",
+		it.Source, it.LineStart, it.AnchorSymbol, it.Object,
+	))
+	logging.Debug("[emit_evidence] downgraded %s call-anchor relation with absent object endpoint at %s:%d: %s",
+		originalKind, it.Source, it.LineStart, it.Object)
+	return true
+}
+
+func evidenceEndpointVisibleOnSourceLine(line, endpoint string) bool {
+	line = strings.TrimSpace(line)
+	endpoint = strings.TrimSpace(endpoint)
+	if line == "" || endpoint == "" {
+		return false
+	}
+	for _, candidate := range []string{
+		endpoint,
+		strings.Trim(endpoint, "`'\""),
+		types.NormalizedSurfaceSymbolTail(endpoint),
+	} {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if evidenceEndpointCandidateVisible(line, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func evidenceEndpointCandidateVisible(line, candidate string) bool {
+	bareIdentifier := true
+	for i := 0; i < len(candidate); i++ {
+		if !isIdentifierByte(candidate[i]) {
+			bareIdentifier = false
+			break
+		}
+	}
+	if bareIdentifier {
+		return indexIdentifierToken(line, candidate) >= 0
+	}
+	// Qualified names, decorators, and quoted registration keys carry their
+	// own exact punctuation boundaries.  Match those byte-exactly; their
+	// normalized identifier tail is checked separately by the caller.
+	return strings.Contains(line, candidate)
 }
 
 func stabilizeConditionAnchorClaim(it *types.EvidenceItem, gc *ground.Context) bool {

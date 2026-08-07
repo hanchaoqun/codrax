@@ -5583,3 +5583,76 @@ func TestSourceLineCallTargetForCandidates_MatchesCrossLanguageSelectors(t *test
 		})
 	}
 }
+
+func TestEmitEvidence_CallAnchorCannotAuthorizeAbsentRegistrationObject(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "src/registry.cpp", 32,
+		"return SinkRegistry::create(kind, path);",
+	)
+	ctx.Mutable.SetSearchGraph(&repomap.Graph{FileIndex: map[string]*repomap.FileInfo{
+		"src/registry.cpp": {
+			RelPath: "src/registry.cpp", Language: repomap.LangCpp,
+			Symbols: []repomap.Symbol{{Name: "make_sink", Kind: "function", Line: 30, EndLine: 33}},
+			Relations: []repomap.Relation{{
+				Kind: "call", Line: 32, ToEP: repomap.RelationEndpoint{Name: "SinkRegistry::create"},
+			}},
+		},
+	}})
+	params := json.RawMessage(`{"items":[{"kind":"registration","subject":"make_sink","predicate":"binds","object":"ConsoleSink","source":"src/registry.cpp","line_start":32,"summary":"wrapper binds ConsoleSink","anchor_kind":"call","anchor_symbol":"SinkRegistry::create"}]}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil || !res.Success {
+		t.Fatalf("evidence audit should return typed feedback, err=%v summary=%s", err, res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("evidence count=%d want 1: %+v", len(got), got)
+	}
+	if got[0].Kind != types.EvidenceUnresolved || got[0].GroundingStatus != types.GroundingUngrounded {
+		t.Fatalf("absent relation endpoint gained authority: %+v", got[0])
+	}
+	if !strings.Contains(got[0].GroundingNote, `relation object "ConsoleSink" is not present`) ||
+		!strings.Contains(res.Summary, "Do NOT repair this item by moving it to a wrapper call") {
+		t.Fatalf("same-turn repair feedback missing endpoint diagnosis: %s", res.Summary)
+	}
+	rows := (types.EvidenceRelationCandidateSource{Items: got}).TypedRelationCandidates(types.TypedRelationQuery{
+		Kinds: []types.TypedRelationKind{types.TypedRelationRegisters}, Sources: []string{"make_sink"},
+		Purpose: types.TypedRelationPurposePromptHint,
+	})
+	if len(rows) != 0 {
+		t.Fatalf("downgraded row leaked into typed relation provider: %+v", rows)
+	}
+}
+
+func TestEmitEvidence_CallRegistrationKeepsVisibleObjectEndpoint(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "registry.go", 42,
+		`registry.Register("json", JsonPlugin)`,
+	)
+	ctx.Mutable.SetSearchGraph(&repomap.Graph{FileIndex: map[string]*repomap.FileInfo{
+		"registry.go": {
+			RelPath: "registry.go", Language: repomap.LangGo,
+			Symbols: []repomap.Symbol{{Name: "configure", Kind: "function", Line: 40, EndLine: 44}},
+			Relations: []repomap.Relation{{
+				Kind: "call", Line: 42, ToEP: repomap.RelationEndpoint{Name: "Register"},
+			}},
+		},
+	}})
+	params := json.RawMessage(`{"items":[{"kind":"registration","subject":"registry","predicate":"binds","object":"JsonPlugin","source":"registry.go","line_start":42,"summary":"registry binds JsonPlugin","anchor_kind":"call","anchor_symbol":"Register"}]}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil || !res.Success {
+		t.Fatalf("visible registration should ground, err=%v summary=%s", err, res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 || got[0].Kind != types.EvidenceRegistration || got[0].GroundingStatus != types.GroundingGrounded {
+		t.Fatalf("valid registration was weakened: %+v", got)
+	}
+	rows := (types.EvidenceRelationCandidateSource{Items: got}).TypedRelationCandidates(types.TypedRelationQuery{
+		Kinds: []types.TypedRelationKind{types.TypedRelationRegisters}, Sources: []string{"registry"},
+		Purpose: types.TypedRelationPurposePromptHint,
+	})
+	if len(rows) != 1 || rows[0].Member.Name != "JsonPlugin" {
+		t.Fatalf("valid registration disappeared from typed relation provider: %+v", rows)
+	}
+}

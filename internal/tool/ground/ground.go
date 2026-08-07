@@ -3900,9 +3900,24 @@ func recoveryCallTargetNames(it *types.EvidenceItem) []string {
 		return nil
 	}
 	anchor := strings.TrimSpace(it.AnchorSymbol)
-	seen := make(map[string]bool, 2)
-	out := make([]string, 0, 2)
-	for _, raw := range []string{it.Object, it.Subject} {
+	// AnchorCall's semantic target is the callee.  Object is the only
+	// model-authored endpoint that may repair a stale/malformed explicit
+	// callee; Subject is the caller and must never pull recovery onto a call
+	// *to the caller*.  The old union(Object, Subject) let an item such as
+	//
+	//   SinkRegistry::create --constructs--> ConsoleSink
+	//
+	// cite the ConsoleSink construction branch, then relocate to an unrelated
+	// wrapper call of SinkRegistry::create merely because the caller name was
+	// present there.  If Object is absent, keep the legacy Subject fallback for
+	// sparse/deterministic pre-contract rows only.
+	rawCandidates := []string{it.Object}
+	if strings.TrimSpace(it.Object) == "" {
+		rawCandidates = []string{it.Subject}
+	}
+	seen := make(map[string]bool, len(rawCandidates))
+	out := make([]string, 0, len(rawCandidates))
+	for _, raw := range rawCandidates {
 		target := strings.TrimSpace(raw)
 		if target == "" || target == anchor || seen[target] {
 			continue

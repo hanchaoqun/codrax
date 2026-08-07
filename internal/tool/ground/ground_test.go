@@ -2504,3 +2504,36 @@ func TestConditionKeywords_RejectsUnrelatedLines(t *testing.T) {
 		}
 	}
 }
+
+func TestGroundItem_NearestCallRecoveryDoesNotUseCallerAsCallee(t *testing.T) {
+	gc := &Context{
+		LineIndex: map[string]map[int]string{
+			"src/registry.cpp": {
+				18: "return std::make_unique<ConsoleSink>();",
+				32: "return SinkRegistry::create(kind, path);",
+			},
+		},
+		Graph: &repomap.Graph{FileIndex: map[string]*repomap.FileInfo{
+			"src/registry.cpp": {
+				RelPath: "src/registry.cpp", Language: repomap.LangCpp,
+				Relations: []repomap.Relation{
+					{Kind: "call", Line: 18, ToEP: repomap.RelationEndpoint{Name: "make_unique"}},
+					{Kind: "call", Line: 32, ToEP: repomap.RelationEndpoint{Name: "SinkRegistry::create"}},
+				},
+			},
+		}},
+	}
+	item := types.EvidenceItem{
+		Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+		Source: "src/registry.cpp", LineStart: 18, LineEnd: 18,
+		Subject: "SinkRegistry::create", Predicate: "constructs", Object: "ConsoleSink",
+		AnchorKind: types.AnchorCall, AnchorSymbol: "ConsoleSink",
+	}
+	report := GroundItem(&item, gc)
+	if report.Status != types.GroundingUngrounded {
+		t.Fatalf("caller name must not relocate a missing callee endpoint: report=%+v item=%+v", report, item)
+	}
+	if item.LineStart != 18 || item.AnchorSymbol != "ConsoleSink" {
+		t.Fatalf("caller-shaped recovery changed the claimed endpoint/location: %+v", item)
+	}
+}

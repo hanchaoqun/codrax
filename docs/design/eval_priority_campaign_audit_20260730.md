@@ -22979,3 +22979,39 @@ Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链�
 `EVAL-B234-RELENDPOINT1=confirmed/next`；`EVAL-B232-DISCONNECTAUTH1=confirmed`；
 `EVAL-B233-RETURNBODY1=confirmed`；模型答案所有权=`preserved`；JSON schema 单源=`preserved`；
 Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量及双维根因分析=`not-touched`。
+
+### 123.211 S36u：关系双方端点必须各自获得源码/解析器权威
+
+`EVAL-B234-RELENDPOINT1` 已按 r148 的真实工具参数复现并根修。该问题不是一个 line-number 偏移，而是两个可串联的关系权威漏洞：
+
+1. `nearest_call` recovery 在显式 `anchor_symbol` 失败后，把 `Object`（callee）和 `Subject`（caller）都当成替代 callee 搜索。
+   因而 `SinkRegistry::create --constructs--> ConsoleSink @ line 18` 会被 caller 名吸到 line 32 的
+   `make_sink -> SinkRegistry::create` wrapper call，并把 anchor 改成 caller；
+2. 模型随后直接提交 `registration make_sink --binds--> ConsoleSink @ line 32` 时，grounder 只验证真实存在的
+   `SinkRegistry::create` call anchor，没有验证结构化 `Object=ConsoleSink` 是否也在该行或由 parser relation 证明。该行于是把不存在的第二端点
+   铸成 grounded registration，继而进入 typed relation provider 和 finalizer capsule。
+
+S36u 在两层收口，且不依赖 C++、factory、`ConsoleSink` 或某个 eval type：
+
+- call recovery 的替代目标只允许 callee lane `Object`；仅对没有 Object 的旧 deterministic/sparse 载体保留 Subject fallback。caller 不能再把证据
+  拉到“调用 caller 的另一行”；
+- 对 `explorer.emit_evidence` 产生、`scope=line + anchor_kind=call` 的非普通调用关系，ground 后再核对结构化 Object 与最终精确源码行。
+  `registration` 无论 predicate 如何都必须证明 registered object；普通 `calls/invokes/dispatches/delegates` 已由 exact parser call relation + enclosing
+  callable 归一，继续沿原强通道；
+- Object 不在该行时，证据降为 `EvidenceUnresolved + GroundingUngrounded`，同轮返回可执行修复说明，不能进入 typed relation provider；不得靠
+  Summary、用户原文、模型 thinking 或最终答案 prose 补权；
+- 合法 `registry.Register("json", JsonPlugin)` 仍 grounded，并继续产生 `registry -> JsonPlugin` typed registration。简单标识符采用 token boundary，
+  不允许 `Sink` 仅因是 `SinkRegistry` 子串而通过；带限定符/装饰符/引号的结构化端点按精确表面匹配。
+
+回归包含两条负 pin 和一条正 pin：caller 不得驱动 nearest-call relocation；wrapper call 不得授权缺席 registration object，且 provider 输出必须为空；
+同一行真实出现 object 的 registration 必须保留 typed candidate。既有 Go/Rust/Python/C++ call-direction、C++ virtual call 与 explicit directed-call
+realignment 回归保持通过，`internal/tool/ground` 与完整 `internal/tool` 套件全绿。
+
+本批仅撤销未证 typed 权威，不生成、删除或改写模型可见结论；JSON schema/教学未改。sequence 展示消息参数与 endpoint identity 隔离、C++
+无标签 flowchart 箭头严格关系锚均继续由已有可执行 pin 守护。下一施工顺序保持：`EVAL-B232-DISCONNECTAUTH1`（发布 verified component/bridge
+边界 soft context）→ `EVAL-B233-RETURNBODY1`（跨语言 return/value/instance typed carrier）。
+
+状态：`EVAL-B234-RELENDPOINT1=S36u-implemented/full-tests-pass`；
+`EVAL-B232-DISCONNECTAUTH1=P1-next`；`EVAL-B233-RETURNBODY1=P1-after-B232`；
+`EVAL-B229-COPYGRAPH1=model-watch/no-harder-gate`；模型答案所有权=`preserved`；JSON schema 单源=`preserved`；
+Trace 显式时间窗、自动补齐、因果投影、根因排序、唤醒链、窗内可消除量及双维根因分析=`not-touched`。
