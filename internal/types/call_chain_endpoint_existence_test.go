@@ -81,6 +81,51 @@ func TestAnalyzeCallChainEndpointExistence_AllExecutableLanguageSurfaces(t *test
 	}
 }
 
+func TestAnalyzeCallChainEndpointExistence_GroundedDefinitionAnchorSurvivesContainerSubject(t *testing.T) {
+	tests := []struct {
+		name, file, container, endpoint string
+	}{
+		{"go", "gate.go", "gate", "gate.Run"},
+		{"java", "Gate.java", "Gate", "Gate.run"},
+		{"kotlin", "Gate.kt", "Gate", "Gate.run"},
+		{"c", "gate.c", "gate module", "gate_run"},
+		{"cpp", "gate.cc", "Gate", "Gate::Run"},
+		{"rust", "gate.rs", "gate", "gate::run"},
+		{"python", "gate.py", "Gate", "Gate.run"},
+		{"javascript", "gate.js", "Gate", "Gate.run"},
+		{"typescript", "gate.ts", "Gate", "Gate.run"},
+		{"ruby", "gate.rb", "Gate", "Gate#run"},
+		{"swift", "Gate.swift", "Gate", "Gate.run"},
+		{"lua", "gate.lua", "gate", "gate.run"},
+		{"proto", "gate.proto", "Gate", "Gate.Run"},
+		{"arkts", "gate.ets", "Gate", "Gate.run"},
+		{"cangjie", "gate.cj", "Gate", "Gate.run"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			evidence := []EvidenceItem{{
+				Kind: EvidenceDirect, AnchorKind: AnchorDefinition,
+				Subject: tt.container, AnchorSymbol: tt.endpoint,
+				Source: tt.file, LineStart: 20, GroundingStatus: GroundingGrounded,
+			}}
+			got := AnalyzeCallChainEndpointExistence(evidence, tt.endpoint, tt.endpoint)
+			if !got.StartProven || !got.EndProven || got.StartAmbiguous || got.EndAmbiguous ||
+				got.StartProof != CallChainEndpointExistenceDefinitionOnly || got.EndProof != CallChainEndpointExistenceDefinitionOnly {
+				t.Fatalf("grounded visible definition anchor did not prove %q: %+v", tt.endpoint, got)
+			}
+		})
+	}
+
+	sibling := []EvidenceItem{{
+		Kind: EvidenceDirect, AnchorKind: AnchorDefinition,
+		Subject: "gate", AnchorSymbol: "gate.RunWith",
+		Source: "gate.go", LineStart: 20, GroundingStatus: GroundingGrounded,
+	}}
+	if got := AnalyzeCallChainEndpointExistence(sibling, "gate.Run", "gate.Run"); got.StartProven || got.EndProven {
+		t.Fatalf("qualified definition anchor must not turn a prefix sibling into exact endpoint proof: %+v", got)
+	}
+}
+
 func TestAnalyzeCallChainEndpointExistence_QualifiesUniqueBareDefinitionFromSourceScope(t *testing.T) {
 	tests := []struct {
 		name, file, endpoint, local string

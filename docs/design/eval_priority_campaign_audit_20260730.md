@@ -24687,3 +24687,53 @@ Explorer 真正获得 read/grep、读到 `gate.go`、closure 以有向路径或 
 
 状态：`EVAL-B285/B286=S37ac-implemented/full-tests-pass/pending-production-replay`；`EVAL-B287=pending-replay`；
 模型答案所有权=`preserved`；JSON 教学=`single-source/unchanged`；Trace 因果投影/自动补齐=`unchanged`。
+
+### 123.273 r174：不可收敛端点门与 repair 工具恢复转正；定义已 grounded 却被 endpoint identity 层忽略
+
+r174 在 `main@56767133a` 上严格并发 2，运行 QF `qf_sequence_analyzer_gate` 与 C++ write
+`patch_cpp_typo`。runner 2/2 PASS，人工 2/2；但 QF 正确性通过不等于过程健康。C++ 案 93s：controller 形成单个 micro batch，精确读取
+`main.cpp`，输出只替换一行 `retrun`→`return` 的 patch 计划及编译/行为验收；零 unavailable、调查 churn 或 finalizer repair，证明 read-mode typed
+call-chain 修复没有污染 write 的 plan/apply/verify 合同。
+
+QF 案 597s。S37ac 两项生产目标均成立：
+
+1. exact endpoint repair 后 Explorer tool surface 为 14 个工具，模型实际调用 `grep/read_file`，读取 `gate.go:134-135`；r173 的 grep unavailable 消失；
+2. exact reachability/existence blocker 重复出现二十余次仍没有被 `contract_chain` low-delta force-complete。后来出现的 `completion_form` convergence 也没有越过
+   前置 exact gate；只有 endpoint existence 与 `no_directed_path` typed boundary 均满足后才关闭调查。
+
+最终答案正确：正文、ordered list 与 Mermaid 都展示 `buildAnalysisIR -> gate.RunWith` 和 `gate.Run -> gate.RunWith` 两条独立入边，明确
+`buildAnalysisIR` 到 requested `gate.Run` 不存在有向路径；没有再把 sibling 改名成 endpoint，也没有 B287 的 required-anchor 机械替换。因此
+`EVAL-B285/B286` 关闭，`EVAL-B287` 判定为前序错误 closure 的级联并关闭。
+
+过程仍消耗 2 次 Explorer、12 次 read、16 次 midloop、24 次 investigation completion。新根因
+`EVAL-B288-DEFINITIONANCHORIDENTITY1` 有可执行 witness：模型读到 `func Run` 后发出并被 grounder 接受的
+`definition_fact{subject:"gate", anchor_symbol:"gate.Run", source:".../gate.go", line:134}`；工具结果也显示“grounded direct gate.Run”。但
+`callChainEndpointEvidenceProofs` 在 Subject 非空时只登记 `gate`，完全忽略同一 typed row 的 qualified `anchor_symbol=gate.Run`，于是 endpoint-existence
+层持续称 `gate.Run` 未证明。第二次 Explorer 用另一种字段形才偶然绕过，runner 最终 PASS 掩盖了 597s 的结构自冲突。
+
+本轮还有一次 finalizer reject：模型首稿额外 block 漏 `id`，下一轮按 schema 删除无效块后通过；JSON 单源教学已经明确 block id，归为可恢复模型波动，不新增
+关键词或答案硬门。最终答案由模型形成，系统没有代写或替换结论。
+
+状态：`EVAL-B285/B286=production-positive/closed`；`EVAL-B287=cascade-closed`；
+`EVAL-B288=confirmed/immediate`；runner=`2/2 PASS`、human=`2/2`；JSON 教学=`consistent/no-change`；
+Trace 显式窗、因果投影、自动补齐、根因排序、唤醒链、窗内可消除量与双维根因=`unchanged`。
+
+### 123.274 S37ad：grounded definition 的可见 anchor 与容器 subject 同为 typed 身份载体
+
+B288 按定义证据自身的结构字段根修，不放松 reachability：
+
+1. `callChainEndpointEvidenceProofs` 对 `ClaimDefinitionFact` 除保留既有 Subject 身份外，同时登记 grounded `AnchorSymbol`。grounder 已验证的可见定义锚是独立
+   identity carrier；`subject=package/type/container` 不得遮蔽 `anchor_symbol=qualified.operation`；
+2. 此变化只证明 endpoint existence，不生成 call edge、不改变 `AnalyzeCallChainEvidenceGraph`，因此仍不能把 definition 变成 source→sink 路径；
+   `gate.RunWith` 仍不能满足 exact `gate.Run`，短名多候选继续 ambiguous fail-closed；runtime、recovered、ungrounded rows 仍不参与；
+3. 全语言 matrix 覆盖 Go、Java、Kotlin、C、C++、Rust、Python、JavaScript、TypeScript、Ruby、Swift、Lua、Proto、ArkTS、Cangjie 的
+   container Subject + visible definition anchor，另钉 prefix sibling 负臂；
+4. integration pin 把 no-directed-path witness 改成生产同形 `subject=gate + anchor_symbol=gate.Run`，要求 exact endpoint proof 后合法关闭；连续 6 次无证明仍不得
+   收敛的 S37ac pin 保持；
+5. 不读取 raw request、model thinking/final prose，不更改 Mermaid、final answer 或 JSON schema。系统仅统一两个既有 typed 层对同一 grounded definition 的身份认知。
+
+定向 endpoint-existence、exact completion、`go test ./internal/types ./internal/tool` 与全仓 `go test ./...` 均已绿；下一步提交推送，再严格并发 2 生产回放，重点验收 QF
+是否从 597s/2 Explorer/24 completion 显著收敛，并配一个 ArkTS/Cangjie/其它异构案确认语言无关性。
+
+状态：`EVAL-B288=S37ad-implemented/full-tests-pass/pending-production-replay`；`EVAL-B284-LOGICALRELATIONAUTH1=next-P1`；
+模型答案所有权=`preserved`；JSON 教学=`single-source/unchanged`；Trace 因果投影/自动补齐=`unchanged`。

@@ -160,6 +160,15 @@ func callChainEndpointEvidenceProofs(evidence []EvidenceItem) map[string]callCha
 				add(item.AnchorSymbol, callChainEndpointProofCallEdge)
 			}
 		case ClaimDefinitionFact:
+			// A grounded definition's visible anchor is an independent typed
+			// identity carrier. Model emissions and language parsers may put the
+			// enclosing package/type in Subject (for example subject="gate",
+			// anchor_symbol="gate.Run"). Ignoring the anchor whenever Subject is
+			// non-empty makes the grounder accept and display the exact endpoint
+			// while this authority layer calls it absent. Preserve both carriers;
+			// exact matching below still rejects prefix siblings such as RunWith
+			// for Run and keeps ambiguous short names fail-closed.
+			add(item.AnchorSymbol, callChainEndpointProofDefinition)
 			if strings.TrimSpace(item.Subject) != "" {
 				add(item.Subject, callChainEndpointProofDefinition)
 			} else if owner, anchor := strings.TrimSpace(item.OwnerSymbol), strings.TrimSpace(item.AnchorSymbol); owner != "" && anchor != "" {
